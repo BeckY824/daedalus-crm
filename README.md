@@ -21,7 +21,13 @@ npm run setup     # 生成 Prisma Client、建表、灌入演示账号
 npm run dev
 ```
 
-打开 http://localhost:3000，`admin` / `crm@2026`。
+打开 http://localhost:3000。开发库自带三个演示账号，密码都是 `crm@2026`（登录用用户名，不是邮箱）：
+
+| 用户名 | 姓名 | 角色 |
+|---|---|---|
+| `admin` | 管理员 | 系统管理员 |
+| `zhangsan` | 张三 | 销售 |
+| `lisi` | 李四 | 销售 |
 
 **Docker 单机**（推荐给团队用）
 
