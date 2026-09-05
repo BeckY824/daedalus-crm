@@ -37,6 +37,7 @@ docker compose up -d --build
 ```
 
 打开 http://服务器IP:3000，`admin` / 你设的 `INIT_PASSWORD`。没有默认密码，不给 `INIT_PASSWORD` 会拒绝启动。
+不想本地构建：把 `docker-compose.yml` 里的 `build: .` 删掉、`image` 改成 `ghcr.io/becky824/daedalus-crm:latest`（amd64 / arm64 都有）。
 
 **Docker + HTTPS**：`.env` 里加 `DOMAIN=你的域名` 和 `COOKIE_SECURE=true`，然后
 
@@ -80,7 +81,7 @@ Caddy 自动签证书。升级、备份、恢复、回滚见 [DEPLOY.md](DEPLOY.
 | 各类中转站 | 它给你的地址 | 它支持的模型名 |
 
 Key 用 `AUTH_SECRET` 派生的密钥加密后存库，界面只回显尾 4 位，数据库备份里不会出现明文。
-也可以用环境变量 `LLM_API_KEY / LLM_BASE_URL / LLM_MODEL` 配，界面配置优先。
+也可以用环境变量 `LLM_API_KEY / LLM_BASE_URL / LLM_MODEL` 配，界面配置优先。同一页能看到本月各功能调用了多少次。
 
 两条踩过的坑：推理模型的 `max_tokens` 会先被思维链吃掉，给小了正文为空——代码里默认给了 4000；
 部分网关不支持 `response_format=json_object`，会自动降级为普通调用再解析。
@@ -94,7 +95,7 @@ Key 用 `AUTH_SECRET` 派生的密钥加密后存库，界面只回显尾 4 位�
 - **三个档案字段名**：默认「院校 / 年级 / 专业」，改成「公司 / 类型 / 行业」之类；数据库列不动
 - **三组选项列表**：年级、线索来源、行业，纯数据，随便改
 
-**不能改的**：跟进状态与决策状态的取值（「已试听」「与家人商议」「已决定报名」）。它们被盯盘权重、雷达、首页统计、终态判断按值引用。可改显示名在[路线图](ROADMAP.md)上。
+- **状态显示名**：「已试听」可以显示成「已体验」——只改界面叫法，存储值不变，因为盯盘权重、雷达、首页统计、终态判断都按值引用
 
 ## 数据归你
 

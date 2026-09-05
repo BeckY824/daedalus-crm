@@ -45,6 +45,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0
 # 数据库固定在卷 /data 下；compose 会再传一次，这里的默认值让裸 docker run 也能起
 ENV DATABASE_URL="file:/data/crm.db"
+# 服务端渲染的日期要和使用者浏览器同一时区，否则 React 水合时文案对不上（容器默认 UTC）
+ENV TZ=Asia/Shanghai
 
 # standalone 自带精简 node_modules
 COPY --from=builder /app/.next/standalone ./

@@ -24,6 +24,10 @@ INIT_PASSWORD=<管理员初始密码，至少 8 位>
 docker compose up -d --build
 ```
 
+不想在这台机器上构建（小内存服务器跑 Next 构建会 OOM），改用预构建镜像：把 `docker-compose.yml` 里的
+`build: .` 删掉，`image` 改成 `ghcr.io/becky824/daedalus-crm:latest`（或具体版本如 `:0.2.0`；amd64 与 arm64 都有），
+再 `docker compose pull && docker compose up -d`。
+
 打开 http://服务器IP:3000，用 `admin` / 你设的 `INIT_PASSWORD` 登录。
 AI 功能可选：登录后到「设置管理 → AI 接入」填接口地址、API Key、模型名（任何 OpenAI 兼容接口），不用改配置文件；也可用 `.env` 的 `LLM_*` 变量作兜底。不配则 AI 入口整体隐藏。
 

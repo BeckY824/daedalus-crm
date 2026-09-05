@@ -10,6 +10,8 @@ services:
       - "${PORT:-3000}:3000"
     environment:
       DATABASE_URL: "file:/data/crm.db"
+      # 与团队所在时区一致，日期文案才不会服务端/浏览器各说各的
+      TZ: "${TZ:-Asia/Shanghai}"
       # 必填：会话签名密钥，至少 32 位随机字符串（openssl rand -base64 48）
       AUTH_SECRET: "${AUTH_SECRET:?请在 .env 里设置 AUTH_SECRET}"
       # 首次启动创建 admin 账号用的初始密码；库已存在时忽略
