@@ -27,6 +27,10 @@ import { dayjs } from "@/lib/utils";
 import { ROLES } from "@/lib/constants";
 import type { SessionUser } from "@/lib/auth";
 import { saveUser, deactivateUser, reactivateUser, changeMyPassword } from "./actions";
+import AiSettingsTab, { type LlmView } from "./AiSettingsTab";
+import BusinessSettingsTab from "./BusinessSettingsTab";
+import type { BusinessConfig } from "@/lib/business-config";
+import { useBusiness } from "@/lib/business-client";
 
 type Row = {
   id: string;
@@ -56,7 +60,7 @@ const ACTION_LABEL: Record<string, string> = {
   convert: "转化", deactivate: "停用", reactivate: "恢复", password: "改密码",
 };
 const ENTITY_LABEL: Record<string, string> = {
-  Customer: "学员", Contract: "签约", Lead: "线索", User: "成员", Channel: "渠道",
+  Customer: "学员", Contract: "签约", Lead: "线索", User: "成员", Channel: "渠道", Setting: "系统设置",
 };
 /** 明细是入库时序列化的 JSON，格式化给人看；万一存了非法内容也不能让页面崩 */
 function safeJson(raw: string | null): string {
@@ -78,13 +82,18 @@ export default function SettingsView({
   me,
   isAdmin,
   logs,
+  llm,
+  business,
 }: {
   users: Row[];
   me: SessionUser;
   isAdmin: boolean;
   logs: AuditRow[];
+  llm: LlmView;
+  business: BusinessConfig;
 }) {
   const router = useRouter();
+  const b = useBusiness();
   const { message, modal } = App.useApp();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
@@ -355,6 +364,12 @@ export default function SettingsView({
                 </Form>
               ),
             },
+            ...(isAdmin
+              ? [
+                  { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} /> },
+                  { key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} /> },
+                ]
+              : []),
             {
               key: "audit",
               label: "操作日志",
@@ -364,7 +379,7 @@ export default function SettingsView({
                     type="info"
                     showIcon
                     style={{ marginBottom: 14 }}
-                    title="所有人都能查看和修改全部学员数据，因此每一次改动都会记录在这里"
+                    title={`所有人都能查看和修改全部${b.customer}数据，因此每一次改动都会记录在这里`}
                     description="记录只增不改不删，成员被停用或删除后其历史操作仍然保留。此处显示最近 200 条。"
                   />
                   <Table<AuditRow>
@@ -417,7 +432,7 @@ export default function SettingsView({
                         title: "对象",
                         dataIndex: "entity",
                         width: 90,
-                        render: (v: string) => ENTITY_LABEL[v] ?? v,
+                        render: (v: string) => (v === "Customer" ? b.customer : ENTITY_LABEL[v] ?? v),
                       },
                       { title: "内容", dataIndex: "summary" },
                     ]}

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
+import { getBusiness } from "@/lib/business";
 
 /**
  * 成功时回传渠道 id（新建是新 id，编辑是原 id）。
@@ -17,6 +18,7 @@ export async function saveChannel(input: {
   channelOwnerId: string;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const me = await requireUser();
+  const b = await getBusiness();
   const name = input.name.trim();
 
   const dup = await prisma.channel.findFirst({
@@ -46,7 +48,7 @@ export async function saveChannel(input: {
       user: me, action: "update", entity: "Channel", entityId: input.id,
       summary: `修改渠道「${name}」` +
         (改前 && 改前.channelOwnerId !== input.channelOwnerId
-          ? `，渠道负责人变更，连带改了 ${波及.count} 名学员的归属`
+          ? `，渠道负责人变更，连带改了 ${波及.count} 名${b.customer}的归属`
           : ""),
       detail: { name, 原负责人: 改前?.channelOwnerId, 新负责人: input.channelOwnerId, 波及学员: 波及.count },
     });
@@ -72,13 +74,14 @@ export async function toggleChannel(id: string, active: boolean) {
 
 export async function deleteChannel(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
   const me = await requireUser();
+  const b = await getBusiness();
   // 已带来学员的渠道不能删，否则推荐链会断、归属数据变成孤儿。
   // attributionChannelId 也要算进来：归属落在该渠道上的学员同样会被置空。
   const used = await prisma.customer.count({
     where: { OR: [{ channelId: id }, { attributionChannelId: id }] },
   });
   if (used > 0) {
-    return { ok: false, error: `该渠道名下已有 ${used} 名学员，不能删除。如需停用请点「停用」` };
+    return { ok: false, error: `该渠道名下已有 ${used} 名${b.customer}，不能删除。如需停用请点「停用」` };
   }
   const 待删 = await prisma.channel.findUnique({ where: { id }, select: { name: true } });
   await prisma.channel.delete({ where: { id } });

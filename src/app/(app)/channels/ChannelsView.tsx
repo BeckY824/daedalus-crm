@@ -11,6 +11,7 @@ import { money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { saveChannel, toggleChannel, deleteChannel } from "./actions";
 import ReferralRadar from "./ReferralRadar";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
+import { useBusiness } from "@/lib/business-client";
 
 type Row = {
   id: string;
@@ -41,6 +42,7 @@ export default function ChannelsView({
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const b = useBusiness();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [form] = Form.useForm();
@@ -99,7 +101,7 @@ export default function ChannelsView({
       width: 130,
       sorter: (a, b) => a.chainCount - b.chainCount,
       render: (v: number) => (
-        <Tooltip title="含下游转介绍带来的全部学员">
+        <Tooltip title={`含下游转介绍带来的全部${b.customer}`}>
           <span>{v} 人</span>
         </Tooltip>
       ),
@@ -216,7 +218,7 @@ export default function ChannelsView({
               label="渠道负责人"
               name="channelOwnerId"
               rules={[{ required: true, message: "请选择渠道负责人" }]}
-              extra="该渠道带来的学员及其下游转介绍，渠道负责人都归此人"
+              extra={`该渠道带来的${b.customer}及其下游转介绍，渠道负责人都归此人`}
             >
               <Select placeholder="请选择" options={成员选项(users)} />
             </Form.Item>

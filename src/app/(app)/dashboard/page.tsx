@@ -4,6 +4,7 @@ import { OPP_STAGES, 可担任负责人 } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
 import { llmEnabled } from "@/lib/llm";
 import { buildWatchlist } from "@/lib/sentinel";
+import { getBusiness } from "@/lib/business";
 import DashboardView from "./DashboardView";
 
 export const dynamic = "force-dynamic";
@@ -205,6 +206,7 @@ export default async function DashboardPage() {
       })),
     },
     now.toDate(),
+    (await getBusiness()).customer,
   );
 
   /**
@@ -269,7 +271,7 @@ export default async function DashboardPage() {
         dueAt: t.dueAt ? t.dueAt.toISOString() : null,
       }))}
       watchlist={watchlist}
-      aiEnabled={llmEnabled()}
+      aiEnabled={await llmEnabled()}
     />
   );
 }

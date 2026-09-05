@@ -7,6 +7,7 @@ import { RadarChartOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-desi
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
 import { money } from "@/lib/utils";
 import { draftInvite } from "./ai";
+import { useBusiness } from "@/lib/business-client";
 
 /**
  * 转介绍雷达：左边是谁在帮我们带人，右边是下一个该请谁开口。
@@ -22,6 +23,7 @@ export default function ReferralRadar({
   aiEnabled: boolean;
 }) {
   const { message } = App.useApp();
+  const b = useBusiness();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -35,7 +37,7 @@ export default function ReferralRadar({
 
   async function copy(text: string) {
     await navigator.clipboard.writeText(text);
-    message.success("已复制，去微信发给学员吧");
+    message.success(`已复制，去微信发给${b.customer}吧`);
   }
 
   const emptyNode = (text: string) => <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={text} />;
@@ -48,7 +50,7 @@ export default function ReferralRadar({
           <RadarChartOutlined style={{ color: "#1668dc" }} />
           <span className="section-title">转介绍雷达</span>
           <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            只看学员之间的直接推荐
+            只看{b.customer}之间的直接推荐
           </Typography.Text>
         </Space>
       }
@@ -57,7 +59,7 @@ export default function ReferralRadar({
         <Col xs={24} xl={12}>
           <div className="stat-label" style={{ marginBottom: 8 }}>推荐榜 · 谁在帮我们带人</div>
           {topReferrers.length === 0 ? (
-            emptyNode("还没有学员推荐过别人")
+            emptyNode(`还没有${b.customer}推荐过别人`)
           ) : (
             <Table
               size="small"
@@ -80,7 +82,7 @@ export default function ReferralRadar({
         <Col xs={24} xl={12}>
           <div className="stat-label" style={{ marginBottom: 8 }}>建议邀请 · 下一个该请谁开口</div>
           {inviteCandidates.length === 0 ? (
-            emptyNode("已签约的学员都请过了")
+            emptyNode(`已签约的${b.customer}都请过了`)
           ) : (
             inviteCandidates.map((c) => (
               <div key={c.customerId} style={{ padding: "10px 0", borderBottom: "1px dashed #eef2f7" }}>

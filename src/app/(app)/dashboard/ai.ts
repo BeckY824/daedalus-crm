@@ -7,6 +7,7 @@ import { recordAudit } from "@/lib/audit";
 import { chatJSON } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { getBusiness } from "@/lib/business";
 
 /**
  * 盯盘清单的「起草跟进」：给一条唤醒话术草稿。
@@ -17,6 +18,7 @@ export async function draftWakeup(input: {
   reason: string;
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const user = await requireUser();
+  const b = await getBusiness();
   const wait = consumeAiQuota(user.id);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
@@ -35,7 +37,7 @@ export async function draftWakeup(input: {
       },
     },
   });
-  if (!customer) return { ok: false, error: "学员不存在" };
+  if (!customer) return { ok: false, error: `${b.customer}不存在` };
 
   const timeline = customer.followUps.length
     ? customer.followUps
@@ -43,15 +45,15 @@ export async function draftWakeup(input: {
         .join("\n")
     : "（从未跟进过）";
 
-  const prompt = `你替教培销售起草一条发给学员/家长的微信消息，用来重新接上中断的沟通。
+  const prompt = `你替销售起草一条发给${b.customer}的微信消息，用来重新接上中断的沟通。
 
-学员：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，跟进状态「${customer.followStatus}」，决策状态「${customer.decisionStatus}」
+${b.customer}：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，跟进状态「${customer.followStatus}」，决策状态「${customer.decisionStatus}」
 唤醒原因：${input.reason.slice(0, 100)}
 备注：${(customer.remark || "无").slice(0, 100)}
 最近的跟进记录（新→旧）：
 ${timeline}
 
-要求：120 字以内；自然、像人写的，不像群发；从上次聊到的具体话题切入（有记录就必须用）；给一个轻量的由头（如约试听、发资料、问近况），不硬推销、不催单；禁止编造没聊过的内容。
+要求：120 字以内；自然、像人写的，不像群发；从上次聊到的具体话题切入（有记录就必须用）；给一个轻量的由头（发资料、问近况、约个时间），不硬推销、不催单；禁止编造没聊过的内容。
 输出严格 JSON：{"message": "..."}`;
 
   try {
@@ -63,7 +65,7 @@ ${timeline}
       action: "ai_draft",
       entity: "Customer",
       entityId: input.customerId,
-      summary: `AI 起草唤醒话术（学员「${customer.name}」：${input.reason.slice(0, 50)}）`,
+      summary: `AI 起草唤醒话术（${b.customer}「${customer.name}」：${input.reason.slice(0, 50)}）`,
     });
     return { ok: true, message };
   } catch (e) {

@@ -49,9 +49,10 @@ export function describeCustomerChanges(
   keys: readonly string[],
   before: Record<string, unknown>,
   after: Record<string, unknown>,
+  labels: Record<string, string> = CUSTOMER_FIELD_LABELS,
 ) {
   return keys.map((k) => ({
-    字段: CUSTOMER_FIELD_LABELS[k] ?? k,
+    字段: labels[k] ?? k,
     原值: 展示(before[k]),
     新值: 展示(after[k]),
   }));

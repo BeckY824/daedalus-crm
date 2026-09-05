@@ -17,12 +17,14 @@ import {
   EditOutlined,
   IdcardOutlined,
 } from "@ant-design/icons";
-import { GRADES, FOLLOW_STATUSES, DECISION_STATUSES, DECISION_STATUS_COLOR } from "@/lib/constants";
+import { FOLLOW_STATUSES, DECISION_STATUSES, DECISION_STATUS_COLOR } from "@/lib/constants";
 import { maskPhone, smartTime, money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { toCsv } from "@/lib/csv";
 import { FollowStatusTag, PageHead, UserCell } from "@/components/ui";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import { deleteCustomers, assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
+import { useBusiness } from "@/lib/business-client";
+import type { BusinessConfig } from "@/lib/business-config";
 
 /**
  * 批量操作的结果文案。
@@ -62,6 +64,7 @@ export default function CustomersView({
   const router = useRouter();
   const { message, modal } = App.useApp();
   const [pending, startTransition] = useTransition();
+  const b = useBusiness();
 
   const [f, setF] = useState(filters);
   const [selected, setSelected] = useState<string[]>([]);
@@ -93,9 +96,9 @@ export default function CustomersView({
       ),
     },
     { title: "联系电话", dataIndex: "phone", width: 150, render: (v) => <span className="nowrap">{maskPhone(v)}</span> },
-    { title: "院校", dataIndex: "school", width: 190, render: (v) => v ?? <span className="muted">—</span> },
-    { title: "专业", dataIndex: "major", width: 180, render: (v) => v ?? <span className="muted">—</span> },
-    { title: "年级", dataIndex: "grade", width: 100, render: (v) => v ?? <span className="muted">—</span> },
+    { title: b.fields.school, dataIndex: "school", width: 190, render: (v) => v ?? <span className="muted">—</span> },
+    { title: b.fields.major, dataIndex: "major", width: 180, render: (v) => v ?? <span className="muted">—</span> },
+    { title: b.fields.grade, dataIndex: "grade", width: 100, render: (v) => v ?? <span className="muted">—</span> },
     {
       title: "推荐人",
       dataIndex: "referrerName",
@@ -167,7 +170,7 @@ export default function CustomersView({
             type="text" size="small" danger icon={<DeleteOutlined />}
             onClick={() =>
               modal.confirm({
-                title: `删除学员「${r.name}」？`,
+                title: `删除${b.customer}「${r.name}」？`,
                 content: "其跟进记录、待办与签约记录将一并删除。",
                 okText: "删除", okButtonProps: { danger: true }, cancelText: "取消",
                 async onOk() {
@@ -188,17 +191,17 @@ export default function CustomersView({
     <>
       <PageHead
         icon={<IdcardOutlined />}
-        title="学员管理"
+        title={`${b.customer}管理`}
         subtitle="客户信息集中沉淀，跟进转化清晰可控"
         tag="客户管理"
-        tagNote="统一管理学员信息，追踪推荐来源与签约进度"
+        tagNote={`统一管理${b.customer}信息，追踪推荐来源与签约进度`}
       />
 
       <Card styles={{ body: { padding: 22 } }}>
         <Space wrap size={[10, 10]} style={{ marginBottom: 14 }}>
-          <Select style={{ width: 130 }} placeholder="全部年级" allowClear
+          <Select style={{ width: 130 }} placeholder={`全部${b.fields.grade}`} allowClear
             value={f.grade || undefined} onChange={(v) => apply({ grade: v ?? "" })}
-            options={GRADES.map((g) => ({ value: g, label: g }))} />
+            options={b.grades.map((g) => ({ value: g, label: g }))} />
           <Select style={{ width: 140 }} placeholder="全部跟进状态" allowClear
             value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
             options={FOLLOW_STATUSES.map((s) => ({ value: s, label: s }))} />
@@ -222,9 +225,9 @@ export default function CustomersView({
 
         <Space wrap style={{ marginBottom: 14 }}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
-            新建学员
+            新建{b.customer}
           </Button>
-          <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows)}>导出</Button>
+          <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows, b)}>导出</Button>
           <Dropdown
             disabled={!selected.length}
             menu={{
@@ -275,7 +278,7 @@ export default function CustomersView({
                 key: "del", danger: true, icon: <DeleteOutlined />, label: `删除选中 ${selected.length} 条`,
                 onClick: () =>
                   modal.confirm({
-                    title: `确认删除选中的 ${selected.length} 名学员？`,
+                    title: `确认删除选中的 ${selected.length} 名${b.customer}？`,
                     content: "其跟进记录、待办与签约记录会一并删除，且不可恢复。",
                     okText: "确认删除", okButtonProps: { danger: true }, cancelText: "取消",
                     async onOk() {
@@ -332,8 +335,8 @@ export default function CustomersView({
   );
 }
 
-function exportCsv(rows: CustomerRow[]) {
-  const head = ["客户姓名", "联系电话", "院校", "专业", "年级", "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", "销售负责人", "渠道负责人"];
+function exportCsv(rows: CustomerRow[], b: BusinessConfig) {
+  const head = ["客户姓名", "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", "销售负责人", "渠道负责人"];
   const body = rows.map((r) => [
     r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
     r.referrerName ?? "", r.attributionName ?? "", r.followStatus, r.decisionStatus,
@@ -345,7 +348,7 @@ function exportCsv(rows: CustomerRow[]) {
   const blob = new Blob([toCsv(head, body)], { type: "text/csv;charset=utf-8" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `学员列表-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `${b.customer}列表-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

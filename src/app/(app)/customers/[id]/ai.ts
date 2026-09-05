@@ -8,6 +8,7 @@ import { chatJSON } from "@/lib/llm";
 import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type CustomerBrief } from "@/lib/ai-draft";
 import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { getBusiness } from "@/lib/business";
 
 /**
  * AI 只起草、不落库：这两个 action 都不写业务表。
@@ -29,6 +30,7 @@ export async function parseFollowUpDraft(input: {
   text: string;
 }): Promise<{ ok: true; draft: FollowUpDraft } | { ok: false; error: string }> {
   const user = await requireUser();
+  const b = await getBusiness();
   const wait = consumeAiQuota(user.id);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
@@ -46,7 +48,7 @@ export async function parseFollowUpDraft(input: {
       opportunities: { where: { status: "OPEN" }, select: { id: true, name: true } },
     },
   });
-  if (!customer) return { ok: false, error: "学员不存在" };
+  if (!customer) return { ok: false, error: `${b.customer}不存在` };
 
   const contactLines = customer.contacts.length
     ? customer.contacts.map((c) => `  - ${c.id}：${c.name}${c.position ? `（${c.position}）` : ""}`).join("\n")
@@ -56,10 +58,10 @@ export async function parseFollowUpDraft(input: {
     : "  （无）";
 
   const prompt = `现在时间：${nowLine()}
-学员：${customer.name}${[customer.school, customer.grade].filter(Boolean).length ? `（${[customer.school, customer.grade].filter(Boolean).join(" · ")}）` : ""}
-该学员的联系人（contactId：姓名）：
+${b.customer}：${customer.name}${[customer.school, customer.grade].filter(Boolean).length ? `（${[customer.school, customer.grade].filter(Boolean).join(" · ")}）` : ""}
+该${b.customer}的联系人（contactId：姓名）：
 ${contactLines}
-该学员进行中的商机（opportunityId：名称）：
+该${b.customer}进行中的商机（opportunityId：名称）：
 ${oppLines}
 
 【销售的原话】
@@ -68,7 +70,7 @@ ${text}
 """
 
 原话有两种可能：销售自己的口头转述，或直接粘贴的微信聊天记录（含双方多条消息、
-可能带昵称和时间戳）。是聊天记录时：分清哪些话是销售说的、哪些是学员/家长说的，
+可能带昵称和时间戳）。是聊天记录时：分清哪些话是销售说的、哪些是${b.customer}一方说的，
 提炼整段对话的要点作为 content，type 用 SMS，occurredAt 取对话中最后一条的时间。
 
 请把原话整理成 CRM 跟进记录，输出严格 JSON，结构如下：
@@ -96,9 +98,9 @@ ${text}
 - 时间一律写成「YYYY-MM-DD HH:mm」；相对时间基于现在时间换算（"下周三晚上"→下周三 19:00；上午按 10:00、下午按 15:00、晚上按 19:00 估）
 - occurredAt 是这次沟通发生的时间，原话没提就 null
 - tasks：销售自己要做的事，最多 5 条；没有就 []
-- plan：下一次与学员/家长的沟通安排，没有就 null；method 取值：电话沟通/线上会议/上门拜访/邮件沟通/微信沟通
+- plan：下一次与${b.customer}的沟通安排，没有就 null；method 取值：电话沟通/线上会议/上门拜访/邮件沟通/微信沟通
 - followStatusSuggestion：仅当原话显示销售推进有明显变化时给，取值：待跟进/跟进中/已加微信/已试听/意向较高/暂缓跟进/已签约/已流失，否则 null
-- decisionStatusSuggestion：仅当学员决策阶段有明显变化时给，取值：了解中/对比中/与家人商议/等待预算/已决定报名/暂不考虑，否则 null
+- decisionStatusSuggestion：仅当${b.customer}决策阶段有明显变化时给，取值：了解中/对比中/与家人商议/等待预算/已决定报名/暂不考虑，否则 null
 - contactId / opportunityId：只在原话能明确对应到上面列表中的某一项时填其 id，否则 null`;
 
   try {
@@ -113,7 +115,7 @@ ${text}
       action: "ai_draft",
       entity: "FollowUp",
       entityId: null,
-      summary: `AI 解析跟进速记（学员「${customer.name}」，识别为${FOLLOW_TYPE_MAP[draft.followUp.type]?.label ?? draft.followUp.type}）`,
+      summary: `AI 解析跟进速记（${b.customer}「${customer.name}」，识别为${FOLLOW_TYPE_MAP[draft.followUp.type]?.label ?? draft.followUp.type}）`,
     });
     return { ok: true, draft };
   } catch (e) {
@@ -127,6 +129,7 @@ export async function generateBrief(input: {
   customerId: string;
 }): Promise<{ ok: true; brief: CustomerBrief } | { ok: false; error: string }> {
   const user = await requireUser();
+  const b = await getBusiness();
   const wait = consumeAiQuota(user.id);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
@@ -150,9 +153,9 @@ export async function generateBrief(input: {
       },
     },
   });
-  if (!customer) return { ok: false, error: "学员不存在" };
+  if (!customer) return { ok: false, error: `${b.customer}不存在` };
   if (customer.followUps.length === 0) {
-    return { ok: false, error: "该学员还没有任何跟进记录，暂时没有可提炼的内容" };
+    return { ok: false, error: `该${b.customer}还没有任何跟进记录，暂时没有可提炼的内容` };
   }
 
   // 时间线倒序给太多没意义，取最近 30 条、每条内容截断，控制 prompt 体量。
@@ -181,11 +184,11 @@ export async function generateBrief(input: {
   const signedTotal = customer.contracts.reduce((s, c) => s + c.amount, 0);
 
   const prompt = `现在时间：${nowLine()}
-你要为销售「${customer.salesOwner.name}」生成联系学员前的一页简报。
+你要为销售「${customer.salesOwner.name}」生成联系${b.customer}前的一页简报。
 
-【学员档案】
+【${b.customer}档案】
 姓名：${customer.name}
-院校/年级/专业：${[customer.school, customer.grade, customer.major].filter(Boolean).join(" / ") || "未填"}
+${b.fields.school}/${b.fields.grade}/${b.fields.major}：${[customer.school, customer.grade, customer.major].filter(Boolean).join(" / ") || "未填"}
 跟进状态：${customer.followStatus}；决策状态：${customer.decisionStatus}
 推荐来源：${customer.referrerCustomer?.name ?? customer.channel?.name ?? "无记录"}
 预计签约：${customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约金额：${signedTotal > 0 ? `¥${signedTotal}` : "未签约"}
@@ -205,13 +208,13 @@ ${timeline}
 
 请输出严格 JSON：
 {
-  "story": "这个学员的完整故事线：怎么来的、聊过什么、态度如何演变，120 字以内",
+  "story": "这个${b.customer}的完整故事线：怎么来的、聊过什么、态度如何演变，120 字以内",
   "current": "现在卡在哪、上次聊到哪，60 字以内",
   "talkingPoints": ["这次建议谈的要点，3~5 条，每条 40 字以内，具体可执行"],
   "risks": ["风险信号，0~3 条，每条 40 字以内；没有就给空数组"]
 }
 
-规则：只基于上面提供的记录提炼，禁止编造；用给销售看的口语化中文；结论要具体（引用学员真实的顾虑与原话要点），不要空话套话。`;
+规则：只基于上面提供的记录提炼，禁止编造；用给销售看的口语化中文；结论要具体（引用${b.customer}真实的顾虑与原话要点），不要空话套话。`;
 
   try {
     const raw = await chatJSON(prompt);

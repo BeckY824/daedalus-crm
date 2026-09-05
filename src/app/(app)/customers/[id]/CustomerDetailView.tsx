@@ -60,6 +60,7 @@ import ContractForm, { type ContractRow } from "./ContractForm";
 import CustomerForm, { type CustomerRow } from "../CustomerForm";
 import { toggleTask, deleteTask, deleteFollowUp, completePlan, deleteContact } from "./actions";
 import { deleteContract } from "../actions";
+import { useBusiness } from "@/lib/business-client";
 
 /**
  * 删掉最后一笔签约后跟进状态退到哪一档。
@@ -153,6 +154,7 @@ export default function CustomerDetailView({
 }: Props) {
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const b = useBusiness();
 
   // 删除签约时弹窗里选的回退档位。放 ref 是因为 modal.confirm 的内容
   // 不参与 React 重渲染，用 state 的话 onOk 读到的还是初值
@@ -327,7 +329,7 @@ export default function CustomerDetailView({
                   items: [
                     ...FOLLOW_TYPES.map((t) => ({ key: t.value, label: t.label, onClick: () => newFollow(t.value) })),
                     { type: "divider" as const },
-                    { key: "edit", icon: <EditOutlined />, label: "编辑学员", onClick: () => setCustOpen(true) },
+                    { key: "edit", icon: <EditOutlined />, label: `编辑${b.customer}`, onClick: () => setCustOpen(true) },
                   ],
                 }}
               >
@@ -530,7 +532,7 @@ export default function CustomerDetailView({
                                   return (
                                     <>
                                       <div>
-                                        金额 {money(r.amount)}。这是该学员唯一一笔签约，
+                                        金额 {money(r.amount)}。这是该{b.customer}唯一一笔签约，
                                         删除后签约金额归零，跟进状态需要跟着退回，
                                         否则看板上会一直挂着「已签约、金额 0」。
                                       </div>
@@ -666,9 +668,9 @@ export default function CustomerDetailView({
                 <Row gutter={[16, 16]}>
                   <Col xs={12} md={8}><Field label="客户姓名" value={customer.name} /></Col>
                   <Col xs={12} md={8}><Field label="联系电话" value={customer.phone} /></Col>
-                  <Col xs={12} md={8}><Field label="院校" value={customer.school ?? "—"} /></Col>
-                  <Col xs={12} md={8}><Field label="专业" value={customer.major ?? "—"} /></Col>
-                  <Col xs={12} md={8}><Field label="年级" value={customer.grade ?? "—"} /></Col>
+                  <Col xs={12} md={8}><Field label={b.fields.school} value={customer.school ?? "—"} /></Col>
+                  <Col xs={12} md={8}><Field label={b.fields.major} value={customer.major ?? "—"} /></Col>
+                  <Col xs={12} md={8}><Field label={b.fields.grade} value={customer.grade ?? "—"} /></Col>
                   <Col xs={12} md={8}><Field label="最近跟进" value={smartTime(customer.lastFollowAt)} /></Col>
                 </Row>
 
@@ -694,7 +696,7 @@ export default function CustomerDetailView({
                   <Col xs={24}><Field label="备注" value={customer.remark ?? "—"} /></Col>
                 </Row>
                 <Button icon={<EditOutlined />} style={{ marginTop: 16 }} onClick={() => setCustOpen(true)}>
-                  编辑学员资料
+                  编辑{b.customer}资料
                 </Button>
               </div>
             )}

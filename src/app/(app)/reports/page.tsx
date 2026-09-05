@@ -110,7 +110,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: SP }
         amount: contracts.reduce((s, c) => s + c.amount, 0),
         count: contracts.length,
       }}
-      aiEnabled={llmEnabled()}
+      aiEnabled={await llmEnabled()}
     />
   );
 }

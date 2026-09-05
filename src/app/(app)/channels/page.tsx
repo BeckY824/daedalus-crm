@@ -63,7 +63,7 @@ export default async function ChannelsPage() {
     <ChannelsView
       users={users}
       radar={radar}
-      aiEnabled={llmEnabled()}
+      aiEnabled={await llmEnabled()}
       rows={channels.map((c) => ({
         id: c.id,
         name: c.name,

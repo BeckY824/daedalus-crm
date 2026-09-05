@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { ROLES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
+import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm } from "@/lib/llm";
+import { getBusiness, saveBusiness, mergeBusiness, type BusinessConfig } from "@/lib/business";
 
 /** 密码最短长度。界面上有校验，但接口直调能绕开，空密码会让任何人登进来 */
 const MIN_PASSWORD = 8;
@@ -235,3 +237,65 @@ export async function changeMyPassword(oldPwd: string, newPwd: string) {
   });
   return { ok: true as const };
 }
+
+/* ---------- AI 接入 ---------- */
+
+/**
+ * 保存 AI 接入配置。只有管理员能改；日志只记"改了"，不记任何值——
+ * 地址与模型名无所谓，但同一条日志里不能出现 key，哪怕是尾号。
+ */
+export async function saveLlmSettings(input: { baseUrl: string; model: string; apiKey?: string | null }) {
+  const me = await requireAdmin();
+  if (!/^https?:\/\//.test(input.baseUrl.trim())) {
+    return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
+  }
+  if (!input.model.trim()) return { ok: false as const, error: "请填写模型名" };
+  await saveLlmConfig(input);
+  await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "llm", summary: "修改了 AI 接入配置" });
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
+export async function clearLlmSettings() {
+  const me = await requireAdmin();
+  await clearLlmConfig();
+  await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "llm", summary: "清除了界面里的 AI 接入配置" });
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
+/** 用表单里当前填的值发一次最小请求；key 留空则用已保存的 */
+export async function testLlmSettings(input: { baseUrl: string; model: string; apiKey?: string | null }) {
+  await requireAdmin();
+  if (!/^https?:\/\//.test(input.baseUrl.trim())) {
+    return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
+  }
+  const cfg = await resolveLlmConfigForTest(input);
+  if (!cfg) return { ok: false as const, error: "还没有 API Key：请先填写" };
+  return testLlm(cfg);
+}
+
+/* ---------- 业务配置 ---------- */
+
+export async function saveBusinessSettings(cfg: BusinessConfig) {
+  const me = await requireAdmin();
+  const merged = mergeBusiness(cfg);
+  if (merged.customer.length > 6) return { ok: false as const, error: "核心名词请控制在 6 个字以内，它会出现在表头和按钮上" };
+  if (merged.brief.length > 500) return { ok: false as const, error: "业务简介请控制在 500 字以内" };
+  const before = await getBusiness();
+  await saveBusiness(merged);
+  const changed = (Object.keys(merged) as (keyof BusinessConfig)[]).filter(
+    (k) => JSON.stringify(merged[k]) !== JSON.stringify(before[k]),
+  );
+  await recordAudit({
+    user: me, action: "update", entity: "Setting", entityId: "business",
+    summary: `修改了业务配置：${changed.length ? changed.map((k) => BUSINESS_FIELD_LABELS[k]).join("、") : "无实际变化"}`,
+    detail: Object.fromEntries(changed.map((k) => [BUSINESS_FIELD_LABELS[k], { 改前: before[k], 改后: merged[k] }])),
+  });
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
+const BUSINESS_FIELD_LABELS: Record<keyof BusinessConfig, string> = {
+  brief: "业务简介", customer: "核心名词", fields: "档案字段名", grades: "年级选项", sources: "线索来源", industries: "行业选项",
+};

@@ -35,6 +35,7 @@ import {
 import type { SessionUser } from "@/lib/auth";
 import { SIDER_WIDTH, SIDER_COLLAPSED_WIDTH } from "@/lib/theme";
 import { avatarColor, initial } from "@/lib/utils";
+import { useBusiness } from "@/lib/business-client";
 
 const { Sider, Header, Content } = Layout;
 
@@ -45,6 +46,7 @@ type Props = {
 };
 
 export default function AppShell({ user, pendingCount, children }: Props) {
+  const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
@@ -66,7 +68,7 @@ export default function AppShell({ user, pendingCount, children }: Props) {
     () => [
       { key: "/dashboard", icon: <HomeOutlined />, label: <Link href="/dashboard">数据首页</Link> },
       { key: "/leads", icon: <ShareAltOutlined />, label: <Link href="/leads">线索管理</Link> },
-      { key: "/customers", icon: <TeamOutlined />, label: <Link href="/customers">学员管理</Link> },
+      { key: "/customers", icon: <TeamOutlined />, label: <Link href="/customers">{b.customer}管理</Link> },
       { key: "/channels", icon: <DeploymentUnitOutlined />, label: <Link href="/channels">渠道管理</Link> },
       { key: "/contacts", icon: <ContactsOutlined />, label: <Link href="/contacts">联系人</Link> },
       {
@@ -90,7 +92,7 @@ export default function AppShell({ user, pendingCount, children }: Props) {
       { key: "/reports", icon: <BarChartOutlined />, label: <Link href="/reports">数据复盘</Link> },
       { key: "/settings", icon: <SettingOutlined />, label: <Link href="/settings">设置管理</Link> },
     ],
-    [],
+    [b.customer],
   );
 
   // 选中项取最长匹配前缀，保证 /customers/xxx 也高亮客户管理

@@ -7,6 +7,7 @@ import { recordAudit } from "@/lib/audit";
 import { chatJSON } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { getBusiness } from "@/lib/business";
 
 /**
  * 转介绍雷达的「起草邀请」：给已签约学员写一条请求转介绍的微信草稿。
@@ -16,6 +17,7 @@ export async function draftInvite(input: {
   customerId: string;
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const user = await requireUser();
+  const b = await getBusiness();
   const wait = consumeAiQuota(user.id);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
@@ -35,7 +37,7 @@ export async function draftInvite(input: {
       },
     },
   });
-  if (!customer) return { ok: false, error: "学员不存在" };
+  if (!customer) return { ok: false, error: `${b.customer}不存在` };
 
   const origin = customer.referrerCustomer?.name ?? customer.channel?.name ?? null;
   const timeline = customer.followUps.length
@@ -44,15 +46,15 @@ export async function draftInvite(input: {
         .join("\n")
     : "（无跟进记录）";
 
-  const prompt = `你替教培销售起草一条发给已签约学员/家长的微信消息，礼貌地请对方帮忙介绍身边有需要的同学。
+  const prompt = `你替销售起草一条发给已签约${b.customer}的微信消息，礼貌地请对方帮忙介绍身边有同样需要的人。
 
-学员：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，已签约
+${b.customer}：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，已签约
 ${origin ? `TA 自己当初也是「${origin}」介绍来的，可以自然地借这一点开口` : "TA 是自己找来的，没有推荐人"}
 备注：${(customer.remark || "无").slice(0, 100)}
 最近的跟进记录（新→旧）：
 ${timeline}
 
-要求：120 字以内；先真诚关心学习近况（有记录就从具体话题切入），再顺势提一句"身边如果有同学需要，欢迎介绍"；语气自然不市侩，不承诺任何返利或好处；禁止编造没聊过的内容。
+要求：120 字以内；先真诚关心近况（有记录就从具体话题切入），再顺势提一句"身边如果有人需要，欢迎介绍"；语气自然不市侩，不承诺任何返利或好处；禁止编造没聊过的内容。
 输出严格 JSON：{"message": "..."}`;
 
   try {
@@ -64,7 +66,7 @@ ${timeline}
       action: "ai_draft",
       entity: "Customer",
       entityId: input.customerId,
-      summary: `AI 起草转介绍邀请（学员「${customer.name}」）`,
+      summary: `AI 起草转介绍邀请（${b.customer}「${customer.name}」）`,
     });
     return { ok: true, message };
   } catch (e) {

@@ -296,3 +296,11 @@ model AuditLog {
   @@index([entity, entityId])
   @@index([userId])
 }
+
+/// 系统设置（键值）。AI 接入、业务术语等在界面里改的配置都放这里，
+/// 每个 key 存一段 JSON。API Key 加密后存，见 src/lib/settings.ts。
+model Setting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

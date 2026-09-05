@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete } from "antd";
 import { saveContact } from "./actions";
 import type { ContactRow } from "./CustomerDetailView";
+import { useBusiness } from "@/lib/business-client";
 
 /**
  * 与学员的关系。教培场景里联系人绝大多数是家长，
@@ -30,6 +31,7 @@ export default function ContactForm({
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
+  const b = useBusiness();
 
   useEffect(() => {
     if (!open) return;
@@ -66,7 +68,7 @@ export default function ContactForm({
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item name="position" label="与学员关系">
+            <Form.Item name="position" label={`与${b.customer}关系`}>
               <AutoComplete options={关系选项} placeholder="母亲" />
             </Form.Item>
           </Col>

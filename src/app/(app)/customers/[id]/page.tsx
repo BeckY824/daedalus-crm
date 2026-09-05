@@ -67,7 +67,7 @@ export default async function CustomerDetailPage({
       channels={channels}
       referrableCustomers={referrableCustomers}
       stats={stats}
-      aiEnabled={llmEnabled()}
+      aiEnabled={await llmEnabled()}
       customer={{
         id: customer.id,
         name: customer.name,

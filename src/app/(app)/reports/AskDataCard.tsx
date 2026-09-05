@@ -6,12 +6,14 @@ import { ThunderboltOutlined } from "@ant-design/icons";
 import type { EChartsCoreOption } from "echarts/core";
 import Chart from "@/components/Chart";
 import { askData, type AskResult } from "./ask";
+import { useBusiness } from "@/lib/business-client";
 
 /**
  * 问数据：一个输入框，一句结论，需要时一张图。
  * 不做对话历史——报表要的是当下这个数，翻旧账不如重问一遍。
  */
 export default function AskDataCard() {
+  const b = useBusiness();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<AskResult | null>(null);
@@ -75,7 +77,7 @@ export default function AskDataCard() {
       }
     >
       <Input.Search
-        placeholder="用一句话问业务数字，如：这个月哪个销售新增学员最多？各渠道签约金额是多少？"
+        placeholder={`用一句话问业务数字，如：这个月哪个销售新增${b.customer}最多？各渠道签约金额是多少？`}
         enterButton="问"
         loading={loading}
         onSearch={ask}

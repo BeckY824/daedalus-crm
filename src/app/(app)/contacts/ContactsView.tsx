@@ -7,6 +7,7 @@ import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined, ContactsOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageHead, CustomerLink } from "@/components/ui";
 import { avatarColor, initial } from "@/lib/utils";
+import { useBusiness } from "@/lib/business-client";
 
 type Row = {
   id: string;
@@ -23,6 +24,7 @@ type Row = {
 };
 
 export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: string }) {
+  const b = useBusiness();
   const router = useRouter();
   const [kw, setKw] = useState(keyword);
   const [pending, startTransition] = useTransition();
@@ -49,7 +51,7 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
       width: 300,
       render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
     },
-    { title: "院校", dataIndex: "school", width: 190, render: (v) => <span className="muted">{v ?? "—"}</span> },
+    { title: b.fields.school, dataIndex: "school", width: 190, render: (v) => <span className="muted">{v ?? "—"}</span> },
     { title: "手机号", dataIndex: "phone", width: 152, render: (v) => v ?? "—" },
     { title: "邮箱", dataIndex: "email", width: 238, render: (v) => v ?? "—" },
     { title: "微信", dataIndex: "wechat", width: 152, render: (v) => v ?? "—" },

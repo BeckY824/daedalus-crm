@@ -40,8 +40,8 @@ afterAll(async () => {
 });
 
 describe("前提", () => {
-  it("测试环境不该配置 AI key", () => {
-    expect(llmEnabled()).toBe(false);
+  it("测试环境不该配置 AI key", async () => {
+    expect(await llmEnabled()).toBe(false);
   });
 });
 

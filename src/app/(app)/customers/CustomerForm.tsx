@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { Modal, Form, Input, Select, Row, Col, DatePicker, App, Alert, Radio, Space, Typography, Button, Divider } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
-import { GRADES, FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
+import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { dayjs, 成员选项, 可选成员 } from "@/lib/utils";
 import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } from "./actions";
 import { saveChannel } from "../channels/actions";
+import { useBusiness } from "@/lib/business-client";
 
 export type CustomerRow = {
   id: string;
@@ -64,6 +65,7 @@ function CustomerFormInner({
   customers,
   onClose,
 }: FormProps) {
+  const b = useBusiness();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -147,7 +149,7 @@ function CustomerFormInner({
         message.error(res.error);
         return;
       }
-      message.success(editing ? "已保存" : "学员已创建");
+      message.success(editing ? "已保存" : `${b.customer}已创建`);
       onClose(true);
     } finally {
       setSaving(false);
@@ -158,7 +160,7 @@ function CustomerFormInner({
     <>
     <Modal
       open={open}
-      title={editing ? "编辑学员" : "新建学员"}
+      title={editing ? `编辑${b.customer}` : `新建${b.customer}`}
       onCancel={() => onClose(false)}
       onOk={onOk}
       confirmLoading={saving}
@@ -238,21 +240,21 @@ function CustomerFormInner({
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="院校" name="school">
-              <Input placeholder="如：北京大学" />
+            <Form.Item label={b.fields.school} name="school">
+              <Input placeholder={b.fields.school === "院校" ? "如：北京大学" : undefined} />
             </Form.Item>
           </Col>
         </Row>
 
         <Row gutter={16}>
           <Col span={8}>
-            <Form.Item label="专业" name="major">
-              <Input placeholder="如：计算机科学与技术" />
+            <Form.Item label={b.fields.major} name="major">
+              <Input placeholder={b.fields.major === "专业" ? "如：计算机科学与技术" : undefined} />
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="年级" name="grade">
-              <Select allowClear placeholder="请选择" options={GRADES.map((g) => ({ value: g, label: g }))} />
+            <Form.Item label={b.fields.grade} name="grade">
+              <Select allowClear placeholder="请选择" options={b.grades.map((g) => ({ value: g, label: g }))} />
             </Form.Item>
           </Col>
           <Col span={8}>
@@ -278,7 +280,7 @@ function CustomerFormInner({
           >
             <Radio value="none">无（自然流量）</Radio>
             <Radio value="channel">外部渠道</Radio>
-            <Radio value="customer">已有学员</Radio>
+            <Radio value="customer">已有{b.customer}</Radio>
           </Radio.Group>
         </Form.Item>
 
@@ -318,10 +320,10 @@ function CustomerFormInner({
         )}
 
         {referrerType === "customer" && (
-          <Form.Item name="referrerCustomerId" rules={[{ required: true, message: "请选择推荐学员" }]}>
+          <Form.Item name="referrerCustomerId" rules={[{ required: true, message: `请选择推荐${b.customer}` }]}>
             <Select
               showSearch
-              placeholder="选择已有学员"
+              placeholder={`选择已有${b.customer}`}
               optionFilterProp="label"
               options={customers.map((c) => ({ value: c.id, label: c.name }))}
             />
@@ -353,7 +355,7 @@ function CustomerFormInner({
         </Row>
 
         <Form.Item label="备注" name="remark">
-          <Input.TextArea rows={3} placeholder="学员背景、意向课程、注意事项…" />
+          <Input.TextArea rows={3} placeholder={`${b.customer}背景、意向、注意事项…`} />
         </Form.Item>
 
         <Space />
@@ -389,6 +391,7 @@ function QuickChannelModal({
   users: 可选成员[];
   onClose: (created: Option | null) => void;
 }) {
+  const b = useBusiness();
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -442,7 +445,7 @@ function QuickChannelModal({
           label="渠道负责人"
           name="channelOwnerId"
           rules={[{ required: true, message: "请选择渠道负责人" }]}
-          extra="该渠道带来的学员及其下游转介绍，渠道负责人都归此人"
+          extra={`该渠道带来的${b.customer}及其下游转介绍，渠道负责人都归此人`}
         >
           <Select placeholder="请选择" options={成员选项(users)} />
         </Form.Item>

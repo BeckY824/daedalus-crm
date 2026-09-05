@@ -28,9 +28,10 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import { PageHead } from "@/components/ui";
-import { LEAD_STATUSES, LEAD_STATUS_COLOR, CUSTOMER_SOURCES, INDUSTRIES } from "@/lib/constants";
+import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
 import { fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { saveLead, deleteLeads, convertLead } from "./actions";
+import { useBusiness } from "@/lib/business-client";
 
 type Row = {
   id: string;
@@ -61,6 +62,7 @@ export default function LeadsView({
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const b = useBusiness();
   const [pending, startTransition] = useTransition();
   const [f, setF] = useState(filters);
   const [open, setOpen] = useState(false);
@@ -269,12 +271,12 @@ export default function LeadsView({
             </Col>
             <Col span={12}>
               <Form.Item name="industry" label="所属行业">
-                <Select allowClear showSearch options={INDUSTRIES.map((i) => ({ value: i, label: i }))} />
+                <Select allowClear showSearch options={b.industries.map((i) => ({ value: i, label: i }))} />
               </Form.Item>
             </Col>
             <Col span={8}>
               <Form.Item name="source" label="线索来源">
-                <Select options={CUSTOMER_SOURCES.map((i) => ({ value: i, label: i }))} />
+                <Select options={b.sources.map((i) => ({ value: i, label: i }))} />
               </Form.Item>
             </Col>
             <Col span={8}>

@@ -8,12 +8,13 @@ import {
   conflictingFields,
   diffKeys,
   labelsOf,
-  CUSTOMER_FIELD_LABELS,
+  customerFieldLabels,
   REFERRER_KEYS,
   ATTRIBUTION_KEYS,
 } from "@/lib/concurrency";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
+import { getBusiness } from "@/lib/business";
 
 export type CustomerInput = {
   id?: string;
@@ -98,6 +99,8 @@ export type SaveCustomerResult =
 
 export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerResult> {
   const me = await requireUser();
+  const b = await getBusiness();
+  const labels = customerFieldLabels(b);
   const phone = input.phone.trim();
 
   // 服务端再查一次重：表单上的提示只是给人看的，不能作为约束
@@ -115,7 +118,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     if (await wouldCreateCycle(input.id, input.referrerCustomerId)) {
       return {
         ok: false,
-        error: "该学员已经在这位推荐人的上游，这样设置会让推荐链成环，归属无法计算",
+        error: `该${b.customer}已经在这位推荐人的上游，这样设置会让推荐链成环，归属无法计算`,
       };
     }
   }
@@ -151,7 +154,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     const created = await prisma.customer.create({ data });
     await recordAudit({
       user: me, action: "create", entity: "Customer", entityId: created.id,
-      summary: `新建学员「${created.name}」`,
+      summary: `新建${b.customer}「${created.name}」`,
     });
     revalidatePath("/customers");
     revalidatePath("/dashboard");
@@ -163,9 +166,9 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     if (!keys.length) return;
     await recordAudit({
       user: me, action: "update", entity: "Customer", entityId: input.id!,
-      summary: `修改学员「${data.name}」：${keys.map((k) => CUSTOMER_FIELD_LABELS[k] ?? k).join("、")}` +
+      summary: `修改${b.customer}「${data.name}」：${keys.map((k) => labels[k] ?? k).join("、")}` +
         (合并 ? "（与他人的改动自动合并）" : ""),
-      detail: describeCustomerChanges(keys, before, data as Record<string, unknown>),
+      detail: describeCustomerChanges(keys, before, data as Record<string, unknown>, labels),
     });
   };
 
@@ -192,7 +195,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
   // 留痕要对比前后值，所以写之前先取一份
   const 改前 = await prisma.customer.findUnique({ where: { id: input.id } });
-  if (!改前) return { ok: false, error: "这条学员已被其他人删除，无法保存" };
+  if (!改前) return { ok: false, error: `这条${b.customer}已被其他人删除，无法保存` };
 
   const first = await prisma.customer.updateMany({
     where: { id: input.id, updatedAt: expected },
@@ -216,7 +219,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   for (let attempt = 0; attempt < 3; attempt++) {
     const current = await prisma.customer.findUnique({ where: { id: input.id } });
     if (!current) {
-      return { ok: false, error: "这条学员已被其他人删除，无法保存" };
+      return { ok: false, error: `这条${b.customer}已被其他人删除，无法保存` };
     }
     const currentRow = current as unknown as Record<string, unknown>;
 
@@ -225,7 +228,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       const fields = conflictingFields(currentRow, data);
       return {
         ok: false,
-        error: "这条学员在你编辑期间已被其他人修改，本次保存已取消",
+        error: `这条${b.customer}在你编辑期间已被其他人修改，本次保存已取消`,
         conflict: { currentUpdatedAt: current.updatedAt.toISOString(), fields, theirFields: fields },
       };
     }
@@ -238,7 +241,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     if (overlap.length) {
       return {
         ok: false,
-        error: "这条学员在你编辑期间已被其他人修改，本次保存已取消",
+        error: `这条${b.customer}在你编辑期间已被其他人修改，本次保存已取消`,
         conflict: {
           currentUpdatedAt: current.updatedAt.toISOString(),
           fields: labelsOf(overlap),
@@ -273,7 +276,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
   return {
     ok: false,
-    error: "这条学员正在被频繁修改，本次保存已取消，请刷新后重试",
+    error: `这条${b.customer}正在被频繁修改，本次保存已取消，请刷新后重试`,
   };
 }
 
@@ -287,6 +290,7 @@ export async function deleteCustomers(
   ids: string[],
 ): Promise<{ ok: true; deleted: number } | { ok: false; error: string }> {
   const me = await requireUser();
+  const b = await getBusiness();
   if (!ids.length) return { ok: true, deleted: 0 };
 
   /**
@@ -310,7 +314,7 @@ export async function deleteCustomers(
       .join("、");
     return {
       ok: false,
-      error: `以下学员是他人的推荐来源，删除会导致下游业绩归属丢失，已阻止：${detail}。如确需删除，请先调整下游学员的推荐人。`,
+      error: `以下${b.customer}是他人的推荐来源，删除会导致下游业绩归属丢失，已阻止：${detail}。如确需删除，请先调整下游学员的推荐人。`,
     };
   }
 
@@ -324,7 +328,7 @@ export async function deleteCustomers(
     await recordAudit({
       user: me, action: "delete", entity: "Customer",
       entityId: 待删.length === 1 ? 待删[0].id : null,
-      summary: `删除 ${res.count} 名学员：${待删.map((c) => c.name).join("、")}`,
+      summary: `删除 ${res.count} 名${b.customer}：${待删.map((c) => c.name).join("、")}`,
       detail: 待删,
     });
   }
@@ -356,6 +360,7 @@ export type BulkResult =
 /** 批量改销售负责人 */
 export async function assignSalesOwner(ids: string[], salesOwnerId: string): Promise<BulkResult> {
   const me = await requireUser();
+  const b = await getBusiness();
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
 
   // 转给一个已停用的人等于把这些学员丢进黑洞：各处下拉只列在职成员
@@ -377,7 +382,7 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
   if (res.count) {
     await recordAudit({
       user: me, action: "assign", entity: "Customer",
-      summary: `把 ${res.count} 名学员的销售负责人改为「${(await prisma.user.findUnique({ where: { id: salesOwnerId }, select: { name: true } }))?.name ?? salesOwnerId}」`,
+      summary: `把 ${res.count} 名${b.customer}的销售负责人改为「${(await prisma.user.findUnique({ where: { id: salesOwnerId }, select: { name: true } }))?.name ?? salesOwnerId}」`,
       detail: { ids, salesOwnerId },
     });
   }
@@ -388,6 +393,7 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
 
 export async function bulkFollowStatus(ids: string[], followStatus: string): Promise<BulkResult> {
   const me = await requireUser();
+  const b = await getBusiness();
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
   if (!FOLLOW_STATUSES.includes(followStatus as (typeof FOLLOW_STATUSES)[number])) {
     return { ok: false, error: `跟进状态「${followStatus}」不是合法取值` };
@@ -402,7 +408,7 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
   if (res.count) {
     await recordAudit({
       user: me, action: "assign", entity: "Customer",
-      summary: `把 ${res.count} 名学员的跟进状态改为「${followStatus}」`,
+      summary: `把 ${res.count} 名${b.customer}的跟进状态改为「${followStatus}」`,
       detail: { ids, followStatus },
     });
   }
@@ -518,6 +524,7 @@ export async function deleteContract(
   revertTo?: { followStatus: string; decisionStatus: string } | null,
 ): Promise<{ ok: true; remaining: number } | { ok: false; error: string }> {
   const me = await requireUser();
+  const b = await getBusiness();
 
   if (revertTo) {
     if (!FOLLOW_STATUSES.includes(revertTo.followStatus as (typeof FOLLOW_STATUSES)[number])) {
@@ -548,7 +555,7 @@ export async function deleteContract(
     user: me, action: "delete", entity: "Contract", entityId: id,
     summary: `删除签约 ¥${(待删?.amount ?? 0).toLocaleString("zh-CN")}` +
       (revertTo && remaining === 0 ? `，跟进状态退回「${revertTo.followStatus}」` : "") +
-      (remaining ? `，该学员还剩 ${remaining} 笔` : ""),
+      (remaining ? `，该${b.customer}还剩 ${remaining} 笔` : ""),
     detail: { customerId, amount: 待删?.amount, signedAt: 待删?.signedAt, revertTo, remaining },
   });
 

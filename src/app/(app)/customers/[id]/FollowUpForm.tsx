@@ -7,6 +7,7 @@ import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
 import { dayjs, fmtDateTime } from "@/lib/utils";
 import { saveFollowUp, saveTask, savePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
+import { useBusiness } from "@/lib/business-client";
 
 type Rec = {
   id?: string;
@@ -51,6 +52,7 @@ export default function FollowUpForm({
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
+  const b = useBusiness();
   const type = Form.useWatch("type", form);
 
   const [aiText, setAiText] = useState("");
@@ -321,7 +323,7 @@ export default function FollowUpForm({
             )}
             {suggestions.length > 0 && (
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                AI 建议：{suggestions.join("；")}（如认可，请到「编辑学员」里修改）
+                AI 建议：{suggestions.join("；")}（如认可，请到「编辑{b.customer}」里修改）
               </Typography.Text>
             )}
           </Space>

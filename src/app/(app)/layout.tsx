@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
+import { getBusiness } from "@/lib/business";
+import { BusinessProvider } from "@/lib/business-client";
 
 export default async function AppLayout({
   children,
@@ -14,13 +16,17 @@ export default async function AppLayout({
   if (!user) redirect("/api/auth/logout");
 
   // 顶栏铃铛：我名下未完成的待办
-  const pendingCount = await prisma.task.count({
-    where: { ownerId: user.id, done: false },
-  });
+  const [pendingCount, business] = await Promise.all([
+    prisma.task.count({ where: { ownerId: user.id, done: false } }),
+    // 业务术语（学员/客户、院校/年级/专业…）：全站客户端组件从这里拿
+    getBusiness(),
+  ]);
 
   return (
-    <AppShell user={user} pendingCount={pendingCount}>
-      {children}
-    </AppShell>
+    <BusinessProvider value={business}>
+      <AppShell user={user} pendingCount={pendingCount}>
+        {children}
+      </AppShell>
+    </BusinessProvider>
   );
 }

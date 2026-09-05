@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import SettingsView from "./SettingsView";
+import { describeLlmConfig } from "@/lib/llm";
+import { getBusiness } from "@/lib/business";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,8 @@ export default async function SettingsPage() {
     take: 200,
   });
 
+  const [llm, business] = await Promise.all([describeLlmConfig(), getBusiness()]);
+
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "asc" },
     include: {
@@ -24,6 +28,8 @@ export default async function SettingsPage() {
     <SettingsView
       me={me}
       isAdmin={me.role === "ADMIN"}
+      llm={llm}
+      business={business}
       logs={logs.map((l) => ({
         id: l.id,
         at: l.at.toISOString(),

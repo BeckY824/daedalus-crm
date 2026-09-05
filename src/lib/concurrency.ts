@@ -33,6 +33,17 @@ export const CUSTOMER_FIELD_LABELS: Record<string, string> = {
   referrerCustomerId: "推荐学员",
 };
 
+/** 术语化版本：院校/年级/专业与「推荐学员」按业务配置显示 */
+export function customerFieldLabels(b: { customer: string; fields: { school: string; grade: string; major: string } }): Record<string, string> {
+  return {
+    ...CUSTOMER_FIELD_LABELS,
+    school: b.fields.school,
+    grade: b.fields.grade,
+    major: b.fields.major,
+    referrerCustomerId: `推荐${b.customer}`,
+  };
+}
+
 /** 改了推荐人就要连带重算这几个归属字段，不能只写推荐人本身 */
 export const REFERRER_KEYS = ["channelId", "referrerCustomerId"] as const;
 export const ATTRIBUTION_KEYS = [

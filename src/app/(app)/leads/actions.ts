@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { LEAD_STATUSES, CUSTOMER_SOURCES } from "@/lib/constants";
+import { LEAD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
+import { getBusiness } from "@/lib/business";
 
 export async function saveLead(input: {
   id?: string;
@@ -19,10 +20,11 @@ export async function saveLead(input: {
   ownerId?: string | null;
 }) {
   const user = await requireUser();
+  const b = await getBusiness();
   if (!LEAD_STATUSES.includes(input.status as (typeof LEAD_STATUSES)[number])) {
     return { ok: false as const, error: `线索状态「${input.status}」不是合法取值` };
   }
-  if (!CUSTOMER_SOURCES.includes(input.source as (typeof CUSTOMER_SOURCES)[number])) {
+  if (!b.sources.includes(input.source)) {
     return { ok: false as const, error: `线索来源「${input.source}」不是合法取值` };
   }
   const data = {
@@ -72,6 +74,7 @@ export async function deleteLeads(ids: string[]) {
  */
 export async function convertLead(id: string) {
   const user = await requireUser();
+  const b = await getBusiness();
   const lead = await prisma.lead.findUnique({ where: { id } });
   if (!lead) return { ok: false as const, error: "线索不存在" };
   if (lead.customerId) return { ok: false as const, error: "该线索已转化" };
@@ -84,7 +87,7 @@ export async function convertLead(id: string) {
   const outcome = await prisma.$transaction(async (tx) => {
     const dup = await tx.customer.findFirst({ where: { phone }, select: { name: true } });
     if (dup) {
-      return { ok: false as const, error: `手机号已存在于学员「${dup.name}」，请勿重复建档` };
+      return { ok: false as const, error: `手机号已存在于${b.customer}「${dup.name}」，请勿重复建档` };
     }
 
     const gate = await tx.lead.updateMany({
@@ -128,7 +131,7 @@ export async function convertLead(id: string) {
 
   await recordAudit({
     user, action: "convert", entity: "Lead", entityId: id,
-    summary: `线索「${lead.name}」转为学员`,
+    summary: `线索「${lead.name}」转为${b.customer}`,
     detail: { leadId: id, customerId: outcome.customerId, phone },
   });
 

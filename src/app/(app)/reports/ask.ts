@@ -18,6 +18,7 @@ import {
   type ResultRow,
   type GroupBy,
 } from "@/lib/report-query";
+import { getBusiness } from "@/lib/business";
 
 export type AskResult = {
   answer: string;
@@ -31,6 +32,8 @@ export type AskResult = {
 /** 问数据：自然语言 → 受限 QuerySpec → Prisma 取数 → 一句话结论。只读，不写库 */
 export async function askData(question: string): Promise<{ ok: true; result: AskResult } | { ok: false; error: string }> {
   const user = await requireUser();
+  const b = await getBusiness();
+  const term = (s: string) => s.replace(/学员/g, b.customer);
   const wait = consumeAiQuota(user.id);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
@@ -39,7 +42,7 @@ export async function askData(question: string): Promise<{ ok: true; result: Ask
   if (q.length > 300) return { ok: false, error: "问题太长，请精简到一句话" };
 
   const combos = (Object.keys(METRICS) as (keyof typeof METRICS)[])
-    .map((m) => `  - ${m}（${METRICS[m].label}）可用 groupBy：${VALID_GROUPS[m].join(" / ") || "无"}`)
+    .map((m) => `  - ${m}（${term(METRICS[m].label)}）可用 groupBy：${VALID_GROUPS[m].join(" / ") || "无"}`)
     .join("\n");
 
   const specPrompt = `今天是 ${dayjs().format("YYYY-MM-DD")}（${"日一二三四五六"[dayjs().day()]}）。
@@ -62,7 +65,7 @@ ${combos}
   try {
     const spec = sanitizeQuerySpec(await chatJSON(specPrompt));
     const rows = await runQuery(spec);
-    const meta = METRICS[spec.metric];
+    const meta = { ...METRICS[spec.metric], label: term(METRICS[spec.metric].label) };
     const range =
       spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间";
 
@@ -92,7 +95,7 @@ ${combos}
       },
     };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "查询失败，请稍后重试" };
+    return { ok: false, error: e instanceof Error ? term(e.message) : "查询失败，请稍后重试" };
   }
 }
 

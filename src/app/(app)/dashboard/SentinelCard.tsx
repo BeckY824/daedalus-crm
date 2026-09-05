@@ -7,6 +7,7 @@ import { EyeOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icon
 import type { WatchItem } from "@/lib/sentinel";
 import { KIND_LABEL } from "@/lib/sentinel";
 import { draftWakeup } from "./ai";
+import { useBusiness } from "@/lib/business-client";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
   overdue_plan: "error",
@@ -20,6 +21,8 @@ const KIND_COLOR: Record<WatchItem["kind"], string> = {
  */
 export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[]; aiEnabled: boolean }) {
   const { message } = App.useApp();
+  const b = useBusiness();
+  const kindLabel = (k: WatchItem["kind"]) => KIND_LABEL[k].replace("学员", b.customer);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -33,7 +36,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
 
   async function copy(text: string) {
     await navigator.clipboard.writeText(text);
-    message.success("已复制，去微信发给学员吧");
+    message.success(`已复制，去微信发给${b.customer}吧`);
   }
 
   return (
@@ -54,7 +57,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
         <div key={it.customerId} style={{ padding: "12px 0", borderBottom: "1px dashed #eef2f7" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <Tag color={KIND_COLOR[it.kind]} style={{ margin: 0, borderRadius: 6, flex: "none" }}>
-              {KIND_LABEL[it.kind]}
+              {kindLabel(it.kind)}
             </Tag>
             <Link href={`/customers/${it.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
               {it.customerName}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Modal, Form, InputNumber, DatePicker, Input, App } from "antd";
 import { dayjs, money } from "@/lib/utils";
 import { saveContract } from "../actions";
+import { useBusiness } from "@/lib/business-client";
 
 export type ContractRow = {
   id: string;
@@ -37,6 +38,7 @@ function Inner({
   onClose: (saved: boolean) => void;
 }) {
   const { message, modal } = App.useApp();
+  const b = useBusiness();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
 
@@ -76,7 +78,7 @@ function Inner({
         content: (
           <>
             <div>
-              该学员在 {dayjs(dup.signedAt).format("YYYY-MM-DD")} 已有一笔{" "}
+              该{b.customer}在 {dayjs(dup.signedAt).format("YYYY-MM-DD")} 已有一笔{" "}
               <b>{money(dup.amount)}</b> 的签约记录
               {dup.remark ? `（备注：${dup.remark}）` : ""}。
             </div>

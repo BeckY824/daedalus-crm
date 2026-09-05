@@ -11,6 +11,7 @@
 import { prisma } from "@/lib/prisma";
 
 export async function resetDb() {
+  await prisma.setting.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.task.deleteMany();
   await prisma.followPlan.deleteMany();
