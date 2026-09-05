@@ -25,7 +25,7 @@ docker compose up -d --build
 ```
 
 打开 http://服务器IP:3000，用 `admin` / 你设的 `INIT_PASSWORD` 登录。
-AI 功能可选：`.env` 里填 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`（任何 OpenAI 兼容接口），不填则 AI 入口整体隐藏。
+AI 功能可选：登录后到「设置管理 → AI 接入」填接口地址、API Key、模型名（任何 OpenAI 兼容接口），不用改配置文件；也可用 `.env` 的 `LLM_*` 变量作兜底。不配则 AI 入口整体隐藏。
 
 **没有 `INIT_PASSWORD` 会拒绝启动**——这是有意的，开源软件不能带默认密码出厂。
 库建好之后这个变量就不再被读取，可以从 `.env` 删掉。
