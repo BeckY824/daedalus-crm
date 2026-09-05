@@ -70,3 +70,6 @@ prisma/manual.db*
 # 内部资料（含服务器密码等），永远不进仓库
 项目信息.md
 *.内部.md
+
+# 截图用的临时演示库
+prisma/shots.db*
