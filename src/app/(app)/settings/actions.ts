@@ -297,5 +297,5 @@ export async function saveBusinessSettings(cfg: BusinessConfig) {
 }
 
 const BUSINESS_FIELD_LABELS: Record<keyof BusinessConfig, string> = {
-  brief: "业务简介", customer: "核心名词", fields: "档案字段名", grades: "年级选项", sources: "线索来源", industries: "行业选项",
+  brief: "业务简介", customer: "核心名词", fields: "档案字段名", grades: "年级选项", sources: "线索来源", industries: "行业选项", statusLabels: "状态显示名",
 };

@@ -3,12 +3,13 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { consumeAiQuota } from "@/lib/ai-quota";
-import { recordAudit } from "@/lib/audit";
+import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type CustomerBrief } from "@/lib/ai-draft";
 import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
+import { statusLabel } from "@/lib/business-config";
 
 /**
  * AI 只起草、不落库：这两个 action 都不写业务表。
@@ -110,13 +111,7 @@ ${text}
       opportunityIds: customer.opportunities.map((o) => o.id),
     });
     // 解析本身不写业务数据，但按「AI 动了什么都可追溯」的口径留一条使用痕迹
-    await recordAudit({
-      user,
-      action: "ai_draft",
-      entity: "FollowUp",
-      entityId: null,
-      summary: `AI 解析跟进速记（${b.customer}「${customer.name}」，识别为${FOLLOW_TYPE_MAP[draft.followUp.type]?.label ?? draft.followUp.type}）`,
-    });
+    await recordAiUse(user, "parse", `AI 解析跟进速记（${b.customer}「${customer.name}」，识别为${FOLLOW_TYPE_MAP[draft.followUp.type]?.label ?? draft.followUp.type}）`, input.customerId);
     return { ok: true, draft };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "AI 解析失败，请稍后重试" };
@@ -189,7 +184,7 @@ export async function generateBrief(input: {
 【${b.customer}档案】
 姓名：${customer.name}
 ${b.fields.school}/${b.fields.grade}/${b.fields.major}：${[customer.school, customer.grade, customer.major].filter(Boolean).join(" / ") || "未填"}
-跟进状态：${customer.followStatus}；决策状态：${customer.decisionStatus}
+跟进状态：${statusLabel(b, customer.followStatus)}；决策状态：${statusLabel(b, customer.decisionStatus)}
 推荐来源：${customer.referrerCustomer?.name ?? customer.channel?.name ?? "无记录"}
 预计签约：${customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约金额：${signedTotal > 0 ? `¥${signedTotal}` : "未签约"}
 备注：${customer.remark || "（无）"}
@@ -218,6 +213,7 @@ ${timeline}
 
   try {
     const raw = await chatJSON(prompt);
+    await recordAiUse(user, "brief", `AI 生成简报（${b.customer}「${customer.name}」）`, input.customerId);
     return { ok: true, brief: sanitizeBrief(raw) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "简报生成失败，请稍后重试" };

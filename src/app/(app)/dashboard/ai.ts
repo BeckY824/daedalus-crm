@@ -3,11 +3,12 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { consumeAiQuota } from "@/lib/ai-quota";
-import { recordAudit } from "@/lib/audit";
+import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
+import { statusLabel } from "@/lib/business-config";
 
 /**
  * 盯盘清单的「起草跟进」：给一条唤醒话术草稿。
@@ -47,7 +48,7 @@ export async function draftWakeup(input: {
 
   const prompt = `你替销售起草一条发给${b.customer}的微信消息，用来重新接上中断的沟通。
 
-${b.customer}：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，跟进状态「${customer.followStatus}」，决策状态「${customer.decisionStatus}」
+${b.customer}：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，跟进状态「${statusLabel(b, customer.followStatus)}」，决策状态「${statusLabel(b, customer.decisionStatus)}」
 唤醒原因：${input.reason.slice(0, 100)}
 备注：${(customer.remark || "无").slice(0, 100)}
 最近的跟进记录（新→旧）：
@@ -60,13 +61,7 @@ ${timeline}
     const raw = (await chatJSON(prompt)) as { message?: unknown };
     const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 300) : "";
     if (!message) return { ok: false, error: "AI 未能生成话术，请重试" };
-    await recordAudit({
-      user,
-      action: "ai_draft",
-      entity: "Customer",
-      entityId: input.customerId,
-      summary: `AI 起草唤醒话术（${b.customer}「${customer.name}」：${input.reason.slice(0, 50)}）`,
-    });
+    await recordAiUse(user, "wakeup", `AI 起草唤醒话术（${b.customer}「${customer.name}」：${input.reason.slice(0, 50)}）`, input.customerId);
     return { ok: true, message };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "生成失败，请稍后重试" };

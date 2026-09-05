@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Alert, Button, Col, Form, Input, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig } from "@/lib/business-config";
 import { DEFAULT_BUSINESS } from "@/lib/business-config";
+import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
 
 /**
@@ -77,13 +78,19 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
           {tags("教育培训、设计服务…")}
         </Form.Item>
 
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 14 }}
-          title="跟进状态与决策状态的取值不在这里改"
-          description="「已试听」「与家人商议」「已决定报名」这些值被盯盘、转介绍雷达、首页统计和终态判断直接引用，改了会让统计失真。这一项在路线图上。"
-        />
+        <Typography.Title level={5} style={{ marginTop: 8 }}>状态显示名</Typography.Title>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
+          只改界面上叫什么，不改存储值——「已试听」「与家人商议」「已决定报名」这些值被盯盘、雷达、首页统计和终态判断直接引用。留空即用原名。
+        </Typography.Paragraph>
+        <Row gutter={[12, 0]}>
+          {[...FOLLOW_STATUSES, ...DECISION_STATUSES].map((v) => (
+            <Col xs={12} sm={8} md={6} key={v}>
+              <Form.Item name={["statusLabels", v]} label={v} rules={[{ max: 8, message: "8 字以内" }]}>
+                <Input placeholder={v} allowClear />
+              </Form.Item>
+            </Col>
+          ))}
+        </Row>
 
         <Button type="primary" onClick={onSave} loading={saving}>保存</Button>
         <Button type="text" style={{ marginLeft: 8 }} onClick={() => form.setFieldsValue(DEFAULT_BUSINESS)}>恢复默认</Button>

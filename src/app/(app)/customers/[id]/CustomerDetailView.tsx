@@ -47,10 +47,9 @@ import {
   FOLLOW_TYPES,
   FOLLOW_TYPE_MAP,
   FOLLOW_RECORD_STATUS_COLOR,
-  DECISION_STATUS_COLOR,
 } from "@/lib/constants";
 import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, money, maskPhone, smartTime, 可选成员 } from "@/lib/utils";
-import { PageHead, FollowStatusTag, StageTag, CompanyLogo } from "@/components/ui";
+import { PageHead, FollowStatusTag, StageTag, CompanyLogo, DecisionStatusTag } from "@/components/ui";
 import FollowUpForm from "./FollowUpForm";
 import BriefModal from "./BriefModal";
 import TaskForm from "./TaskForm";
@@ -284,9 +283,7 @@ export default function CustomerDetailView({
                 </Typography.Title>
                 <Space size={[8, 6]} wrap style={{ marginTop: 7 }}>
                   <FollowStatusTag status={customer.followStatus} />
-                  <Tag color={DECISION_STATUS_COLOR[customer.decisionStatus] ?? "default"} style={{ margin: 0, borderRadius: 6, fontSize: 13 }}>
-                    {customer.decisionStatus}
-                  </Tag>
+                  <DecisionStatusTag status={customer.decisionStatus} />
                   <Typography.Text type="secondary" style={{ fontSize: 14 }}>
                     {[customer.school, customer.major, customer.grade].filter(Boolean).join(" · ") || "未填院校信息"}
                   </Typography.Text>

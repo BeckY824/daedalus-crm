@@ -15,6 +15,7 @@ import {
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { getBusiness } from "@/lib/business";
+import { statusLabel } from "@/lib/business-config";
 
 export type CustomerInput = {
   id?: string;
@@ -408,7 +409,7 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
   if (res.count) {
     await recordAudit({
       user: me, action: "assign", entity: "Customer",
-      summary: `把 ${res.count} 名${b.customer}的跟进状态改为「${followStatus}」`,
+      summary: `把 ${res.count} 名${b.customer}的跟进状态改为「${statusLabel(b, followStatus)}」`,
       detail: { ids, followStatus },
     });
   }
@@ -554,7 +555,7 @@ export async function deleteContract(
   await recordAudit({
     user: me, action: "delete", entity: "Contract", entityId: id,
     summary: `删除签约 ¥${(待删?.amount ?? 0).toLocaleString("zh-CN")}` +
-      (revertTo && remaining === 0 ? `，跟进状态退回「${revertTo.followStatus}」` : "") +
+      (revertTo && remaining === 0 ? `，跟进状态退回「${statusLabel(b, revertTo.followStatus)}」` : "") +
       (remaining ? `，该${b.customer}还剩 ${remaining} 笔` : ""),
     detail: { customerId, amount: 待删?.amount, signedAt: 待删?.signedAt, revertTo, remaining },
   });

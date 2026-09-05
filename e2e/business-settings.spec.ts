@@ -7,15 +7,21 @@ import { test, expect, type Page } from "@playwright/test";
 
 const 管理员 = { 用户名: "admin", 密码: "crm@2026" };
 
+/**
+ * dev 模式下页面可能还没水合，第一次点击会落空，所以最多试三次；
+ * 成功的判据是等到跳转完成，而不是轮询 URL——CI 的机器慢，跳转本身可能就要十几秒。
+ */
 async function 登录(page: Page) {
-  await page.goto("/login");
   for (let i = 0; i < 3; i++) {
+    await page.goto("/login");
     await page.getByPlaceholder("用户名").fill(管理员.用户名);
     await page.getByPlaceholder("登录密码").fill(管理员.密码);
     await page.getByRole("button", { name: /登\s*录/ }).click();
-    for (let t = 0; t < 40; t++) {
-      if (/\/dashboard/.test(page.url())) return;
-      await page.waitForTimeout(200);
+    try {
+      await page.waitForURL(/\/dashboard/, { timeout: 30_000 });
+      return;
+    } catch {
+      /* 再试 */
     }
   }
   throw new Error("登录失败");
@@ -82,5 +88,31 @@ test.describe.serial("业务配置", () => {
     await 面板.getByLabel("接口地址").fill("ftp://not-http");
     await 面板.getByRole("button", { name: /^保\s*存$/ }).click();
     await expect(面板.getByText("要以 http:// 或 https:// 开头")).toBeVisible();
+  });
+});
+
+test.describe.serial("状态显示名", () => {
+  test("把「已试听」显示为「已体验」：筛选下拉与批量菜单跟着变，存储值不变；改回去后恢复", async ({ page }) => {
+    await 登录(page);
+    let 面板 = await 打开业务配置(page);
+    await 面板.getByLabel("已试听", { exact: true }).fill("已体验");
+    await 保存并等提示(page, 面板);
+
+    await page.goto("/customers");
+    // antd Select 的占位文字不可点，点它所在的选择框
+    const 状态筛选 = page.locator(".ant-select").filter({ hasText: "全部跟进状态" });
+    await 状态筛选.click();
+    // antd 的下拉项是 div，不带 option 角色，按类名找
+    const 选项 = page.locator(".ant-select-dropdown .ant-select-item-option-content");
+    await expect(选项.filter({ hasText: /^已体验$/ })).toBeVisible();
+    await expect(选项.filter({ hasText: /^已试听$/ })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    面板 = await 打开业务配置(page);
+    await 面板.getByLabel("已试听", { exact: true }).clear();
+    await 保存并等提示(page, 面板);
+    await page.goto("/customers");
+    await page.locator(".ant-select").filter({ hasText: "全部跟进状态" }).click();
+    await expect(page.locator(".ant-select-dropdown .ant-select-item-option-content").filter({ hasText: /^已试听$/ })).toBeVisible();
   });
 });

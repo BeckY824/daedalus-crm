@@ -4,7 +4,9 @@ import { Tag, Avatar, Space, Typography, Progress } from "antd";
 import { ArrowUpOutlined, ArrowDownOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { avatarColor, companyInitial, initial } from "@/lib/utils";
-import { FOLLOW_STATUS_COLOR, OPP_STAGE_COLOR } from "@/lib/constants";
+import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR } from "@/lib/constants";
+import { useBusiness } from "@/lib/business-client";
+import { statusLabel } from "@/lib/business-config";
 
 /** 页头：图标 + 大标题 + 副标题（对应设计稿左上角） */
 export function PageHead({
@@ -127,9 +129,19 @@ export function UserCell({ name, size = 28 }: { name: string; size?: number }) {
 }
 
 export function FollowStatusTag({ status }: { status: string }) {
+  const b = useBusiness();
   return (
     <Tag color={FOLLOW_STATUS_COLOR[status] ?? "default"} style={{ margin: 0, borderRadius: 6, fontSize: 13 }}>
-      {status}
+      {statusLabel(b, status)}
+    </Tag>
+  );
+}
+
+export function DecisionStatusTag({ status }: { status: string }) {
+  const b = useBusiness();
+  return (
+    <Tag color={DECISION_STATUS_COLOR[status] ?? "default"} style={{ margin: 0, borderRadius: 6, fontSize: 13 }}>
+      {statusLabel(b, status)}
     </Tag>
   );
 }

@@ -8,6 +8,7 @@ import { dayjs, 成员选项, 可选成员 } from "@/lib/utils";
 import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } from "./actions";
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
+import { statusLabel } from "@/lib/business-config";
 
 export type CustomerRow = {
   id: string;
@@ -339,12 +340,12 @@ function CustomerFormInner({
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item label="跟进状态" name="followStatus" rules={[{ required: true }]}>
-              <Select options={FOLLOW_STATUSES.map((s) => ({ value: s, label: s }))} />
+              <Select options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
             </Form.Item>
           </Col>
           <Col span={8}>
             <Form.Item label="客户决策状态" name="decisionStatus" rules={[{ required: true }]}>
-              <Select options={DECISION_STATUSES.map((s) => ({ value: s, label: s }))} />
+              <Select options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
             </Form.Item>
           </Col>
           <Col span={8}>

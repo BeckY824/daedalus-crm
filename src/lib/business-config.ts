@@ -8,7 +8,7 @@
  *
  * 客户端组件通过 <BusinessProvider> 拿（见 business-client.tsx），服务端直接 await getBusiness()。
  */
-import { GRADES, CUSTOMER_SOURCES, INDUSTRIES } from "./constants";
+import { GRADES, CUSTOMER_SOURCES, INDUSTRIES, FOLLOW_STATUSES, DECISION_STATUSES } from "./constants";
 
 export type BusinessConfig = {
   /** 一段话：卖什么、客户是谁、怎么成交。注入全部 AI 提示词 */
@@ -21,6 +21,11 @@ export type BusinessConfig = {
   grades: string[];
   sources: string[];
   industries: string[];
+  /**
+   * 跟进状态 / 决策状态的显示名：存储值 → 界面上叫什么。只存改过的那几个。
+   * 存储值本身不能改——盯盘权重、雷达、首页统计、终态判断都按值引用。
+   */
+  statusLabels: Record<string, string>;
 };
 
 export const DEFAULT_BUSINESS: BusinessConfig = {
@@ -32,7 +37,17 @@ export const DEFAULT_BUSINESS: BusinessConfig = {
   grades: [...GRADES],
   sources: [...CUSTOMER_SOURCES],
   industries: [...INDUSTRIES],
+  statusLabels: {},
 };
+
+/** 允许改显示名的状态值全集 */
+export const RELABELABLE_STATUSES: readonly string[] = [...FOLLOW_STATUSES, ...DECISION_STATUSES];
+
+/** 状态值 → 显示名；没改过就是值本身 */
+export function statusLabel(b: Pick<BusinessConfig, "statusLabels">, value: string): string {
+  const l = b.statusLabels[value];
+  return l && l.trim() ? l.trim() : value;
+}
 
 export const BUSINESS_KEY = "business";
 
@@ -42,6 +57,17 @@ export function mergeBusiness(partial: Partial<BusinessConfig> | null | undefine
   const list = (v: unknown, d: string[]) =>
     Array.isArray(v) && v.length > 0 ? v.filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim()) : d;
   const str = (v: unknown, d: string) => (typeof v === "string" && v.trim() !== "" ? v.trim() : d);
+  // 只留合法状态值、且确实改了名的项；与值相同的显示名不存，免得以后改值时被它"钉住"
+  const labels = (v: unknown): Record<string, string> => {
+    if (!v || typeof v !== "object") return {};
+    const out: Record<string, string> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (!RELABELABLE_STATUSES.includes(k) || typeof val !== "string") continue;
+      const t = val.trim();
+      if (t && t !== k) out[k] = t;
+    }
+    return out;
+  };
   return {
     brief: str(p.brief, DEFAULT_BUSINESS.brief),
     customer: str(p.customer, DEFAULT_BUSINESS.customer),
@@ -53,5 +79,6 @@ export function mergeBusiness(partial: Partial<BusinessConfig> | null | undefine
     grades: list(p.grades, DEFAULT_BUSINESS.grades),
     sources: list(p.sources, DEFAULT_BUSINESS.sources),
     industries: list(p.industries, DEFAULT_BUSINESS.industries),
+    statusLabels: labels(p.statusLabels),
   };
 }

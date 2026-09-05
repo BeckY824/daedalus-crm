@@ -18,7 +18,9 @@ import {
   type ResultRow,
   type GroupBy,
 } from "@/lib/report-query";
-import { getBusiness } from "@/lib/business";
+import { getBusiness, type BusinessConfig } from "@/lib/business";
+import { statusLabel } from "@/lib/business-config";
+import { recordAiUse } from "@/lib/ai-usage";
 
 export type AskResult = {
   answer: string;
@@ -64,7 +66,7 @@ ${combos}
 
   try {
     const spec = sanitizeQuerySpec(await chatJSON(specPrompt));
-    const rows = await runQuery(spec);
+    const rows = await runQuery(spec, b);
     const meta = { ...METRICS[spec.metric], label: term(METRICS[spec.metric].label) };
     const range =
       spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间";
@@ -82,6 +84,8 @@ ${combos}
     } catch {
       /* 用兜底句 */
     }
+
+    await recordAiUse(user, "ask", `AI 问数据：「${q.slice(0, 60)}」`);
 
     return {
       ok: true,
@@ -121,7 +125,7 @@ function keyOf(groupBy: GroupBy | null, when: Date, dims: Record<string, { id: s
   return { key: "__all__", label: "全部" };
 }
 
-async function runQuery(spec: QuerySpec): Promise<ResultRow[]> {
+async function runQuery(spec: QuerySpec, b: BusinessConfig): Promise<ResultRow[]> {
   const byMonth = spec.groupBy === "month";
 
   if (spec.metric === "leads_count" || spec.metric === "lead_conversion") {
@@ -160,8 +164,8 @@ async function runQuery(spec: QuerySpec): Promise<ResultRow[]> {
           sales: { id: c.salesOwner.id, label: c.salesOwner.name },
           channel: c.channel ? { id: c.channel.id, label: c.channel.name } : null,
           grade: c.grade,
-          followStatus: c.followStatus,
-          decisionStatus: c.decisionStatus,
+          followStatus: statusLabel(b, c.followStatus),
+          decisionStatus: statusLabel(b, c.decisionStatus),
         }),
         value: 1,
       })),

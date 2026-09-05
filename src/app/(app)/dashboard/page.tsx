@@ -6,6 +6,7 @@ import { llmEnabled } from "@/lib/llm";
 import { buildWatchlist } from "@/lib/sentinel";
 import { getBusiness } from "@/lib/business";
 import DashboardView from "./DashboardView";
+import { statusLabel } from "@/lib/business-config";
 
 export const dynamic = "force-dynamic";
 
@@ -179,6 +180,7 @@ export default async function DashboardPage() {
       },
     }),
   ]);
+  const business = await getBusiness();
   const watchlist = buildWatchlist(
     {
       overduePlans: overduePlans.map((p) => ({
@@ -206,7 +208,8 @@ export default async function DashboardPage() {
       })),
     },
     now.toDate(),
-    (await getBusiness()).customer,
+    business.customer,
+    (v) => statusLabel(business, v),
   );
 
   /**

@@ -49,7 +49,12 @@ export type SentinelInput = {
   opportunities: { customerId: string; customerName: string; ownerName: string; name: string; stage: string; updatedAt: Date }[];
 };
 
-export function buildWatchlist(input: SentinelInput, now: Date, customerTerm = "学员"): WatchItem[] {
+export function buildWatchlist(
+  input: SentinelInput,
+  now: Date,
+  customerTerm = "学员",
+  statusLabel: (v: string) => string = (v) => v,
+): WatchItem[] {
   const n = dayjs(now);
   const items: WatchItem[] = [];
 
@@ -78,7 +83,7 @@ export function buildWatchlist(input: SentinelInput, now: Date, customerTerm = "
       customerName: c.name,
       ownerName: c.ownerName,
       reason: c.lastFollowAt
-        ? `「${c.followStatus}」的${customerTerm}已 ${days} 天没人跟进`
+        ? `「${statusLabel(c.followStatus)}」的${customerTerm}已 ${days} 天没人跟进`
         : `录入 ${days} 天从未跟进过`,
       score: weight * 8 + Math.min(days, 40),
     });

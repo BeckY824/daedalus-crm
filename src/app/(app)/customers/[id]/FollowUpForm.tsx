@@ -8,6 +8,7 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { saveFollowUp, saveTask, savePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
 import { useBusiness } from "@/lib/business-client";
+import { statusLabel } from "@/lib/business-config";
 
 type Rec = {
   id?: string;
@@ -177,8 +178,8 @@ export default function FollowUpForm({
   const showDue = type === "TASK" || type === "REMIND";
   const showAi = aiEnabled && !record?.id;
   const suggestions = [
-    extras?.followStatusSuggestion ? `跟进状态 → ${extras.followStatusSuggestion}` : null,
-    extras?.decisionStatusSuggestion ? `决策状态 → ${extras.decisionStatusSuggestion}` : null,
+    extras?.followStatusSuggestion ? `跟进状态 → ${statusLabel(b, extras.followStatusSuggestion)}` : null,
+    extras?.decisionStatusSuggestion ? `决策状态 → ${statusLabel(b, extras.decisionStatusSuggestion)}` : null,
   ].filter(Boolean);
 
   return (

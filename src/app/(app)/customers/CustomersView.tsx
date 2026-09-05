@@ -17,14 +17,15 @@ import {
   EditOutlined,
   IdcardOutlined,
 } from "@ant-design/icons";
-import { FOLLOW_STATUSES, DECISION_STATUSES, DECISION_STATUS_COLOR } from "@/lib/constants";
+import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { maskPhone, smartTime, money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { toCsv } from "@/lib/csv";
-import { FollowStatusTag, PageHead, UserCell } from "@/components/ui";
+import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import { deleteCustomers, assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
 import { useBusiness } from "@/lib/business-client";
 import type { BusinessConfig } from "@/lib/business-config";
+import { statusLabel } from "@/lib/business-config";
 
 /**
  * 批量操作的结果文案。
@@ -121,9 +122,7 @@ export default function CustomersView({
       title: "决策状态",
       dataIndex: "decisionStatus",
       width: 130,
-      render: (v) => (
-        <Tag color={DECISION_STATUS_COLOR[v] ?? "default"} style={{ margin: 0, borderRadius: 6, fontSize: 13 }}>{v}</Tag>
-      ),
+      render: (v) => <DecisionStatusTag status={v} />,
     },
     {
       title: "预计签约",
@@ -204,10 +203,10 @@ export default function CustomersView({
             options={b.grades.map((g) => ({ value: g, label: g }))} />
           <Select style={{ width: 140 }} placeholder="全部跟进状态" allowClear
             value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
-            options={FOLLOW_STATUSES.map((s) => ({ value: s, label: s }))} />
+            options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
           <Select style={{ width: 150 }} placeholder="全部决策状态" allowClear
             value={f.decisionStatus || undefined} onChange={(v) => apply({ decisionStatus: v ?? "" })}
-            options={DECISION_STATUSES.map((s) => ({ value: s, label: s }))} />
+            options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
           <Select style={{ width: 150 }} placeholder="全部销售负责人" allowClear
             value={f.salesOwnerId || undefined} onChange={(v) => apply({ salesOwnerId: v ?? "" })}
             options={成员选项(users)} />
@@ -255,7 +254,7 @@ export default function CustomersView({
             menu={{
               items: FOLLOW_STATUSES.map((s) => ({
                 key: s,
-                label: s,
+                label: statusLabel(b, s),
                 onClick: async () => {
                   const res = await bulkFollowStatus(selected, s);
                   setSelected([]);
@@ -264,7 +263,7 @@ export default function CustomersView({
                     message.error(res.error);
                     return;
                   }
-                  message.success(bulkSummary(res, `已改为「${s}」`));
+                  message.success(bulkSummary(res, `已改为「${statusLabel(b, s)}」`));
                 },
               })),
             }}
@@ -339,7 +338,7 @@ function exportCsv(rows: CustomerRow[], b: BusinessConfig) {
   const head = ["客户姓名", "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", "销售负责人", "渠道负责人"];
   const body = rows.map((r) => [
     r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
-    r.referrerName ?? "", r.attributionName ?? "", r.followStatus, r.decisionStatus,
+    r.referrerName ?? "", r.attributionName ?? "", statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus),
     r.expectedSignAt ? fmtDate(r.expectedSignAt) : "", r.signedAmount || "",
     r.salesOwnerName, r.channelOwnerName ?? "",
   ]);
