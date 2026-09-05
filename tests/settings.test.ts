@@ -127,3 +127,40 @@ describe("AI 配置两级读取", () => {
     expect((await getLlmConfig())!.apiKey).toBe("env-key");
   });
 });
+
+describe("状态显示名", () => {
+  it("只存合法状态值、且与原值不同的项；非法键与空串丢弃", () => {
+    const m = mergeBusiness({ statusLabels: { 已试听: "已体验", 待跟进: "待跟进", 不存在的: "x", 已签约: "  " } } as never);
+    expect(m.statusLabels).toEqual({ 已试听: "已体验" });
+  });
+  it("statusLabel 没改过就返回值本身", async () => {
+    const { statusLabel } = await import("@/lib/business-config");
+    expect(statusLabel({ statusLabels: { 已试听: "已体验" } }, "已试听")).toBe("已体验");
+    expect(statusLabel({ statusLabels: {} }, "已试听")).toBe("已试听");
+  });
+  it("盯盘文案用显示名", () => {
+    const items = buildWatchlist(
+      { overduePlans: [], opportunities: [], customers: [{ id: "c", name: "甲", followStatus: "已试听", lastFollowAt: new Date(Date.now() - 30 * 86400_000), createdAt: new Date(0), ownerName: "张三" }] },
+      new Date(),
+      "学员",
+      (v) => (v === "已试听" ? "已体验" : v),
+    );
+    expect(items[0].reason).toContain("「已体验」");
+  });
+});
+
+describe("AI 用量统计", () => {
+  it("按功能汇总本月 ai_use 日志，上月的不算，没用过的功能也列出为 0", async () => {
+    const { recordAiUse, aiUsageThisMonth } = await import("@/lib/ai-usage");
+    await prisma.auditLog.deleteMany();
+    const me = { id: "u", name: "测试员" };
+    await recordAiUse(me, "parse", "a");
+    await recordAiUse(me, "parse", "b");
+    await recordAiUse(me, "ask", "c");
+    // 上月的一条
+    await prisma.auditLog.create({ data: { userId: "u", userName: "x", action: "ai_use", entity: "Ai", entityId: "brief", summary: "old", at: new Date(Date.now() - 40 * 86400_000) } });
+    const usage = await aiUsageThisMonth();
+    const byKey = Object.fromEntries(usage.map((u) => [u.feature, u.count]));
+    expect(byKey).toEqual({ parse: 2, brief: 0, ask: 1, wakeup: 0, invite: 0 });
+  });
+});

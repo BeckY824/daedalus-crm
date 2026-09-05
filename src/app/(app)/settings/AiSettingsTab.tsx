@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Form, Input, Space, Typography, App } from "antd";
 import { saveLlmSettings, testLlmSettings, clearLlmSettings } from "./actions";
+import type { AiUsage } from "@/lib/ai-usage";
 
 export type LlmView = {
   /** ui：界面里填的；env：来自环境变量；null：未配置 */
@@ -17,7 +18,7 @@ export type LlmView = {
  * AI 接入：三个字段一个按钮。任何 OpenAI 兼容接口都行。
  * 界面配置优先于环境变量；key 只回显尾 4 位，改地址或模型不必重填 key。
  */
-export default function AiSettingsTab({ llm }: { llm: LlmView }) {
+export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiUsage }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
   const [form] = Form.useForm<{ baseUrl: string; model: string; apiKey?: string }>();
@@ -124,6 +125,22 @@ export default function AiSettingsTab({ llm }: { llm: LlmView }) {
           )}
         </Space>
       </Form>
+
+      {llm.source !== null && (
+        <div style={{ marginTop: 22 }}>
+          <Typography.Text strong>本月用量</Typography.Text>
+          <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12.5 }}>
+            共 {usage.reduce((s, u) => s + u.count, 0)} 次，按自然月统计，来自操作日志
+          </Typography.Text>
+          <Space wrap size={[16, 6]} style={{ marginTop: 6 }}>
+            {usage.map((u) => (
+              <span key={u.feature} style={{ fontSize: 13 }}>
+                {u.label} <Typography.Text strong>{u.count}</Typography.Text>
+              </span>
+            ))}
+          </Space>
+        </div>
+      )}
 
       {testResult && (
         <Alert

@@ -31,6 +31,7 @@ import AiSettingsTab, { type LlmView } from "./AiSettingsTab";
 import BusinessSettingsTab from "./BusinessSettingsTab";
 import type { BusinessConfig } from "@/lib/business-config";
 import { useBusiness } from "@/lib/business-client";
+import type { AiUsage } from "@/lib/ai-usage";
 
 type Row = {
   id: string;
@@ -57,10 +58,10 @@ export type AuditRow = {
 /** 动作与对象的中文叫法，日志里直接显示英文没人看得懂 */
 const ACTION_LABEL: Record<string, string> = {
   create: "新建", update: "修改", delete: "删除", assign: "转派",
-  convert: "转化", deactivate: "停用", reactivate: "恢复", password: "改密码",
+  convert: "转化", deactivate: "停用", reactivate: "恢复", password: "改密码", ai_use: "AI",
 };
 const ENTITY_LABEL: Record<string, string> = {
-  Customer: "学员", Contract: "签约", Lead: "线索", User: "成员", Channel: "渠道", Setting: "系统设置",
+  Customer: "学员", Contract: "签约", Lead: "线索", User: "成员", Channel: "渠道", Setting: "系统设置", Ai: "AI 功能",
 };
 /** 明细是入库时序列化的 JSON，格式化给人看；万一存了非法内容也不能让页面崩 */
 function safeJson(raw: string | null): string {
@@ -74,7 +75,7 @@ function safeJson(raw: string | null): string {
 
 const ACTION_COLOR: Record<string, string> = {
   create: "success", update: "processing", delete: "error",
-  assign: "cyan", convert: "gold", deactivate: "warning", reactivate: "default", password: "default",
+  assign: "cyan", convert: "gold", deactivate: "warning", reactivate: "default", password: "default", ai_use: "purple",
 };
 
 export default function SettingsView({
@@ -84,6 +85,7 @@ export default function SettingsView({
   logs,
   llm,
   business,
+  aiUsage,
 }: {
   users: Row[];
   me: SessionUser;
@@ -91,6 +93,7 @@ export default function SettingsView({
   logs: AuditRow[];
   llm: LlmView;
   business: BusinessConfig;
+  aiUsage: AiUsage;
 }) {
   const router = useRouter();
   const b = useBusiness();
@@ -366,7 +369,7 @@ export default function SettingsView({
             },
             ...(isAdmin
               ? [
-                  { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} /> },
+                  { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> },
                   { key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} /> },
                 ]
               : []),

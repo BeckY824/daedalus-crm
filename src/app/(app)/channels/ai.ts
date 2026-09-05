@@ -3,7 +3,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { consumeAiQuota } from "@/lib/ai-quota";
-import { recordAudit } from "@/lib/audit";
+import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
@@ -61,13 +61,7 @@ ${timeline}
     const raw = (await chatJSON(prompt)) as { message?: unknown };
     const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 300) : "";
     if (!message) return { ok: false, error: "AI 未能生成话术，请重试" };
-    await recordAudit({
-      user,
-      action: "ai_draft",
-      entity: "Customer",
-      entityId: input.customerId,
-      summary: `AI 起草转介绍邀请（${b.customer}「${customer.name}」）`,
-    });
+    await recordAiUse(user, "invite", `AI 起草转介绍邀请（${b.customer}「${customer.name}」）`, input.customerId);
     return { ok: true, message };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "生成失败，请稍后重试" };

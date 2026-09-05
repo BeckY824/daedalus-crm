@@ -64,12 +64,12 @@ describe("跟进速记守卫", () => {
     if (!res.ok) expect(res.error).toContain("学员不存在");
   });
 
-  it("key 未配置时降级为一条人话错误，且不留下任何 ai_draft 痕迹", async () => {
+  it("key 未配置时降级为一条人话错误，且不留下任何 AI 使用痕迹", async () => {
     const res = await parseFollowUpDraft({ customerId, text: "刚跟家长聊了二十分钟，下周约试听" });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toContain("未启用");
     // 解析没发生，就不该有"AI 解析过"的日志
-    const logs = await prisma.auditLog.findMany({ where: { action: "ai_draft" } });
+    const logs = await prisma.auditLog.findMany({ where: { action: "ai_use" } });
     expect(logs).toHaveLength(0);
   });
 });
