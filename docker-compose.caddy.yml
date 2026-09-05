@@ -1,0 +1,29 @@
+# HTTPS 叠加层：Caddy 反代 + 自动签证书。
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d --build
+# 需要 .env 里有 DOMAIN=你的域名（已解析到这台机器），并把 COOKIE_SECURE 设为 true。
+services:
+  crm:
+    # 由 Caddy 转发，不再直接对外暴露端口
+    ports: !reset []
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: "${DOMAIN:?请在 .env 里设置 DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - crm
+
+volumes:
+  caddy-data:
+  caddy-config:

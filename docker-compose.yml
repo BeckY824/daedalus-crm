@@ -1,0 +1,27 @@
+# 单机部署：docker compose up -d --build
+# 默认只起应用本身，监听 3000。要 HTTPS 再叠加 docker-compose.caddy.yml（见 DEPLOY.md）。
+services:
+  crm:
+    build: .
+    image: daedalus-crm:latest
+    container_name: crm
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      DATABASE_URL: "file:/data/crm.db"
+      # 必填：会话签名密钥，至少 32 位随机字符串（openssl rand -base64 48）
+      AUTH_SECRET: "${AUTH_SECRET:?请在 .env 里设置 AUTH_SECRET}"
+      # 首次启动创建 admin 账号用的初始密码；库已存在时忽略
+      INIT_PASSWORD: "${INIT_PASSWORD:-}"
+      # 只经 HTTPS 访问时设为 true；仍有 http://IP 入口时必须为 false，否则登不进去
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      # AI（可选）：不配 LLM_API_KEY 时 AI 入口整体隐藏
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-}"
+      LLM_MODEL: "${LLM_MODEL:-}"
+    volumes:
+      - crm-data:/data
+
+volumes:
+  crm-data:

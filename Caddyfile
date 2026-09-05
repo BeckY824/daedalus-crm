@@ -1,0 +1,15 @@
+# HTTPS 反代（可选）。只需一个变量：DOMAIN，指向这台机器的域名。
+# 证书由 Caddy 自动向 Let's Encrypt 申请并续期。
+# 没有域名时可用 sslip.io 这类通配符 DNS：DOMAIN=1.2.3.4.sslip.io 会直接解析回该 IP。
+{$DOMAIN} {
+	encode zstd gzip
+	reverse_proxy crm:3000 {
+		# 显式覆盖 X-Forwarded-For，丢掉客户端自带的那部分。
+		#
+		# 应用按「XFF 的最后一段」来做登录限流的 IP 桶。Caddy 默认是把真实
+		# 来源追加到客户端自称的值后面，最后一段本来就不可伪造；这里再显式
+		# 写死成只有真实来源一段，就不必依赖那个默认行为——
+		# 万一哪天默认变了、或者中间多插一层代理，也不会悄悄退回可伪造。
+		header_up X-Forwarded-For {remote_host}
+	}
+}

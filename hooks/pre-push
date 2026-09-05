@@ -1,0 +1,23 @@
+#!/usr/bin/env sh
+# 推送前的自动关卡。
+#
+# 这个仓库没有远端，GitHub Actions 之类用不上，所以这个钩子就是**唯一**的
+# 自动关卡。在它之前，三个类型错误能在代码里躺很久没人发现，靠的全是人工记得手跑。
+#
+# 启用（每台机器只需一次）：
+#     git config core.hooksPath hooks
+#
+# 只跑快的三件，合计约 30 秒。E2E 要起 dev server、跑两分半，不进钩子——
+# 维持「合并后手跑 + 部署后线上复验」。
+set -e
+
+echo "▶ 1/3 类型检查…"
+npx tsc --noEmit
+
+echo "▶ 2/3 代码检查…"
+npx eslint .
+
+echo "▶ 3/3 单元测试…"
+npx vitest run
+
+echo "✅ 预推送检查通过"

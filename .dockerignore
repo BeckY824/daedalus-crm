@@ -1,0 +1,14 @@
+node_modules
+.next
+.git
+docs
+scripts
+prisma/dev.db
+*.md
+.env
+tests
+vitest.config.ts
+e2e
+playwright.config.ts
+test-results
+playwright-report

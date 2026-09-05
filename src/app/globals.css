@@ -1,0 +1,338 @@
+:root {
+  --brand: #1668dc;
+  --brand-deep: #0d2645;
+  --page-bg: #f2f6fc;
+  --border: #eef2f7;
+  --text-muted: #64748b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--page-bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* ---------- 登录页 ---------- */
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 15% 20%, #dbeafe 0%, transparent 45%),
+    radial-gradient(circle at 85% 75%, #e0e7ff 0%, transparent 45%),
+    linear-gradient(140deg, #f4f8ff 0%, #eaf1fb 100%);
+  padding: 24px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 460px;
+  background: #fff;
+  border-radius: 20px;
+  padding: 46px 42px;
+  box-shadow: 0 20px 60px rgba(15, 44, 92, 0.12);
+}
+
+/* ---------- 侧边栏 ---------- */
+.sider-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 68px;
+  padding: 0 20px;
+  color: #fff;
+  font-weight: 600;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sider-logo-badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--brand);
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-size: 17px;
+}
+
+/* ---------- 卡片 / 通用 ---------- */
+.card-soft {
+  background: #fff;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 10px rgba(16, 43, 77, 0.04);
+}
+
+.stat-card {
+  padding: 22px 24px;
+}
+
+.stat-icon {
+  width: 50px;
+  height: 50px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  font-size: 23px;
+  flex: none;
+}
+
+.stat-label {
+  color: var(--text-muted);
+  font-size: 14px;
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+
+.stat-value {
+  font-size: 32px;
+  white-space: nowrap;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #10233d;
+  letter-spacing: -0.4px;
+}
+
+.stat-delta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 8px;
+}
+
+.section-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #10233d;
+}
+
+/* ---------- 页头 ---------- */
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+
+.page-head-icon {
+  width: 54px;
+  height: 54px;
+  border-radius: 14px;
+  background: var(--brand);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-size: 26px;
+  flex: none;
+  box-shadow: 0 6px 16px rgba(22, 104, 220, 0.28);
+}
+
+.page-head h1 {
+  margin: 0;
+  font-size: 29px;
+  font-weight: 700;
+  color: #10233d;
+  letter-spacing: -0.5px;
+}
+
+.page-head p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+/* ---------- 跟进时间线 ---------- */
+.follow-item {
+  display: flex;
+  gap: 14px;
+  padding: 18px 0;
+  border-bottom: 1px dashed #eef2f7;
+}
+
+.follow-item:last-child {
+  border-bottom: none;
+}
+
+.follow-dot {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 17px;
+  flex: none;
+}
+
+.follow-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.follow-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.follow-content {
+  margin: 8px 0 10px;
+  color: #43536b;
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.follow-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #f5f8fc;
+  border: 1px solid #e8eef6;
+  font-size: 13px;
+  color: #475569;
+  margin-bottom: 8px;
+}
+
+/* ---------- 漏斗 ---------- */
+.funnel-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 15px;
+  padding: 8px 0;
+}
+
+.funnel-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+
+/* ---------- 小工具 ---------- */
+.muted {
+  color: var(--text-muted);
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.clickable {
+  cursor: pointer;
+}
+
+.link-strong {
+  color: #10233d;
+  font-weight: 500;
+}
+
+.link-strong:hover {
+  color: var(--brand);
+}
+
+.company-logo {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  flex: none;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: #d6dfeb;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 窄屏降级 ---------- */
+.header-user-meta {
+  white-space: nowrap;
+}
+
+@media (max-width: 992px) {
+  .header-user-meta {
+    display: none;
+  }
+
+  .page-head h1 {
+    font-size: 24px;
+  }
+  .page-head-icon {
+    width: 46px;
+    height: 46px;
+    font-size: 22px;
+  }
+  .stat-card {
+    padding: 18px;
+  }
+  .stat-value {
+    font-size: 27px;
+  }
+  .stat-icon {
+    width: 42px;
+    height: 42px;
+    font-size: 20px;
+  }
+}
+
+/* ---------- 手机（≤767px） ----------
+   销售会从微信里点链接进来，横向滚动条在那种场景下尤其难用。
+   侧栏在 AppShell 里已经收到 0 宽，这里再把头部与正文的固定占位压下去。 */
+@media (max-width: 767px) {
+  .header-search {
+    display: none;
+  }
+
+  .app-content {
+    padding: 14px 12px !important;
+  }
+
+  .page-head h1 {
+    font-size: 20px;
+  }
+
+  /* 表格自己横向滚，别把整个页面撑开 */
+  .ant-table-wrapper,
+  .ant-table {
+    max-width: 100%;
+  }
+}

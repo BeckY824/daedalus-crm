@@ -1,0 +1,298 @@
+// CRM 客户管理系统 — 数据模型
+// SQLite 用于本地开发；切换 PostgreSQL 只需改 provider 与 DATABASE_URL。
+// SQLite 不支持 enum，所有枚举以 String 存储，取值常量见 src/lib/constants.ts
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  title     String   @default("销售")
+  role      String   @default("SALES") // ADMIN | MANAGER | SALES
+  avatar    String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leads         Lead[]
+  /// 作为销售负责人跟进的学员
+  salesCustomers   Customer[] @relation("SalesOwner")
+  /// 作为渠道负责人吸纳的学员
+  channelCustomers Customer[] @relation("CustomerChannelOwner")
+  /// 负责的外部渠道
+  channels         Channel[]  @relation("ChannelOwner")
+  opportunities Opportunity[]
+  followUps     FollowUp[]
+  tasks         Task[]
+  plans         FollowPlan[]
+}
+
+model Lead {
+  id        String    @id @default(cuid())
+  name      String // 线索名称 / 公司名
+  contact   String? // 联系人姓名
+  phone     String?
+  email     String?
+  industry  String?
+  source    String    @default("其他") // 官网注册 | 电话咨询 | 展会 | 转介绍 | 广告投放 | 其他
+  status    String    @default("待跟进") // 待跟进 | 跟进中 | 已转化 | 已放弃
+  remark    String?
+  ownerId   String?
+  owner     User?     @relation(fields: [ownerId], references: [id])
+  convertedAt DateTime?
+  customerId  String?  @unique
+  customer    Customer? @relation(fields: [customerId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([status])
+  @@index([ownerId])
+}
+
+/// 外部推荐渠道（如老师、中介、合作方）。链条最顶端的推荐来源。
+model Channel {
+  id             String  @id @default(cuid())
+  name           String  @unique /// 渠道姓名，如「小红」
+  phone          String?
+  remark         String?
+  /// 渠道负责人：内部员工，负责吸纳该渠道带来的所有客户，整条推荐链永久继承
+  channelOwnerId String
+  channelOwner   User    @relation("ChannelOwner", fields: [channelOwnerId], references: [id])
+  active         Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// 由该渠道直接推荐的学员
+  directCustomers Customer[] @relation("CustomerChannel")
+  /// 渠道归属计算落到该渠道的学员（往上两代命中）
+  attributed      Customer[] @relation("CustomerAttributionChannel")
+
+  @@index([channelOwnerId])
+}
+
+/// 学员（潜在或已签约）
+model Customer {
+  id     String  @id @default(cuid())
+  name   String /// 客户姓名
+  phone  String /// 联系电话，查重主键
+  school String? /// 院校
+  grade  String? /// 年级
+  major  String? /// 专业
+
+  /// ---------- 推荐关系 ----------
+  /// 链条最顶端的外部渠道。所有后代继承，用于确定渠道负责人
+  channelId String?
+  channel   Channel? @relation("CustomerChannel", fields: [channelId], references: [id])
+
+  /// 直接推荐人是已有学员时指向该学员；为空且 channelId 有值表示由渠道直接推荐
+  referrerCustomerId String?
+  referrerCustomer   Customer?  @relation("Referral", fields: [referrerCustomerId], references: [id])
+  referrals          Customer[] @relation("Referral")
+
+  /// ---------- 渠道归属：推荐链往上第二代，不足两代取链条顶端 ----------
+  /// 命中外部渠道时用这个
+  attributionChannelId String?
+  attributionChannel   Channel? @relation("CustomerAttributionChannel", fields: [attributionChannelId], references: [id])
+  /// 命中已有学员时用这个
+  attributionCustomerId String?
+  attributionCustomer   Customer?  @relation("Attribution", fields: [attributionCustomerId], references: [id])
+  attributedCustomers   Customer[] @relation("Attribution")
+
+  /// ---------- 负责人 ----------
+  /// 销售负责人：负责谈单签约
+  salesOwnerId String
+  salesOwner   User   @relation("SalesOwner", fields: [salesOwnerId], references: [id])
+  /// 渠道负责人：继承自 channel.channelOwner，冗余存储便于筛选统计
+  channelOwnerId String?
+  channelOwner   User?   @relation("CustomerChannelOwner", fields: [channelOwnerId], references: [id])
+
+  /// ---------- 跟进与决策 ----------
+  followStatus   String    @default("待跟进") /// 跟进状态
+  decisionStatus String    @default("了解中") /// 客户决策状态
+  expectedSignAt DateTime? /// 预计签约时间
+  lastFollowAt   DateTime? /// 最近跟进
+  remark         String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts      Contact[]
+  followUps     FollowUp[]
+  tasks         Task[]
+  plans         FollowPlan[]
+  opportunities Opportunity[]
+  contracts     Contract[]
+  lead          Lead?
+
+  @@index([phone])
+  @@index([salesOwnerId])
+  @@index([channelOwnerId])
+  @@index([channelId])
+  @@index([referrerCustomerId])
+  @@index([followStatus])
+  @@index([decisionStatus])
+}
+
+/// 签约记录。同一学员可多次签约（续费、补课），便于按月/季/年复盘
+model Contract {
+  id         String   @id @default(cuid())
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  amount     Int /// 签约金额，单位：元
+  signedAt   DateTime /// 签约时间
+  remark     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId])
+  @@index([signedAt])
+}
+
+model Contact {
+  id         String   @id @default(cuid())
+  name       String
+  position   String? // 与学员的关系：母亲 / 父亲 / 学生本人 …
+  phone      String?
+  email      String?
+  wechat     String?
+  isPrimary  Boolean  @default(false) // 关键联系人
+  remark     String?
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  followUps FollowUp[]
+
+  @@index([customerId])
+}
+
+model Opportunity {
+  id            String    @id @default(cuid())
+  name          String
+  amount        Float     @default(0)
+  stage         String    @default("初步沟通") // 初步沟通|需求确认|方案报价|谈判审核|赢单成交
+  status        String    @default("OPEN") // OPEN | WON | LOST
+  probability   Int       @default(10)
+  expectedDealAt DateTime?
+  remark        String?
+  customerId    String
+  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  ownerId       String
+  owner         User      @relation(fields: [ownerId], references: [id])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  followUps FollowUp[]
+
+  @@index([customerId])
+  @@index([stage])
+}
+
+model FollowUp {
+  id         String    @id @default(cuid())
+  type       String // PHONE|MEETING|VISIT|EMAIL|SMS|TASK|REMIND|OTHER
+  title      String
+  content    String
+  status     String    @default("已完成") // 已完成 | 待处理 | 已发送
+  duration   Int? // 通话/会议时长（秒）
+  occurredAt DateTime  @default(now())
+  dueAt      DateTime? // 任务截止 / 提醒时间
+  attachment String? // 文件名
+  attachSize String? // 展示用，如 2.4MB
+  participants String? // 与会人，逗号分隔
+
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id])
+
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id])
+
+  ownerId String
+  owner   User   @relation(fields: [ownerId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId, occurredAt])
+  @@index([type])
+}
+
+model Task {
+  id         String   @id @default(cuid())
+  title      String
+  dueAt      DateTime?
+  done       Boolean  @default(false)
+  doneAt     DateTime?
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  ownerId    String
+  owner      User     @relation(fields: [ownerId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([ownerId, done])
+  @@index([customerId])
+}
+
+// 下次跟进计划（每个客户保留最新一条待执行计划）
+model FollowPlan {
+  id         String   @id @default(cuid())
+  subject    String // 跟进主题
+  plannedAt  DateTime // 计划时间
+  method     String   @default("电话沟通") // 跟进方式
+  done       Boolean  @default(false)
+  customerId String
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  ownerId    String
+  owner      User     @relation(fields: [ownerId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([customerId, done])
+}
+
+/// 操作留痕。
+///
+/// 「全员可见可改」这个决策成立的前提就是有据可查：不限制谁能改，
+/// 但每次改了什么、谁改的、什么时候改的都留下来，出问题能追溯。
+///
+/// 刻意不与 User 建外键关系，改为把姓名冗余存下来：
+/// 日志只增不改不删，不该因为某个成员被删掉就丢失或被置空。
+/// 也因此这张表永远不需要 ALTER，是最安全的第一张迁移表。
+model AuditLog {
+  id     String   @id @default(cuid())
+  at     DateTime @default(now())
+  /// 操作人，冗余存储，不建外键
+  userId   String
+  userName String
+  /// 动作：create | update | delete | assign | convert | deactivate ...
+  action String
+  /// 对象类型与主键，如 Customer / cmxxx
+  entity   String
+  entityId String?
+  /// 一句话说明，直接给人看
+  summary String
+  /// 结构化明细（改了哪些字段、前后值），JSON 字符串，可为空
+  detail String?
+
+  @@index([at])
+  @@index([entity, entityId])
+  @@index([userId])
+}
