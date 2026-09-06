@@ -8,7 +8,7 @@ npm run setup   # 生成 Prisma Client、建表、灌入演示账号
 npm run dev
 ```
 
-打开 http://localhost:3000，`admin` / `crm@2026`（开发库的默认密码，Docker 部署没有默认密码）。
+打开 http://localhost:3000，`admin` / `crm@2026`（开发库的默认密码；Docker 部署首启会随机生成）。测试说明见 [docs/测试.md](docs/测试.md)。
 
 ## 跑测试
 

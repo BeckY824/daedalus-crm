@@ -1,0 +1,6 @@
+# 从源码构建而不是拉预构建镜像：
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+services:
+  crm:
+    build: .
+    image: daedalus-crm:local

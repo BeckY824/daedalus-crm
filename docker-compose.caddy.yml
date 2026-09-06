@@ -1,6 +1,6 @@
-# HTTPS 叠加层：Caddy 反代 + 自动签证书。
-#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d --build
-# 需要 .env 里有 DOMAIN=你的域名（已解析到这台机器），并把 COOKIE_SECURE 设为 true。
+# HTTPS：Caddy 反代 + 自动签证书。
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml up -d
+# .env 里要有 DOMAIN=你的域名（已解析到这台机器），并把 COOKIE_SECURE 设为 true。
 services:
   crm:
     # 由 Caddy 转发，不再直接对外暴露端口

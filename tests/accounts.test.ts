@@ -39,7 +39,7 @@ describe("三份账号名单必须一致", () => {
   });
 
   it("已经没有旧账号残留（customer / demo 邮箱）", () => {
-    for (const p of ["prisma/seed.ts", "prisma/reset-data.mjs", "prisma/seed-demo.ts", "README.md", "DEPLOY.md"]) {
+    for (const p of ["prisma/seed.ts", "prisma/reset-data.mjs", "prisma/seed-demo.ts", "README.md", "docs/部署.md"]) {
       const s = 读(p);
       expect(s, `${p} 里还留着旧的 demo 邮箱账号`).not.toMatch(/@demo\.com/);
       expect(s, `${p} 里还留着旧密码 Crm@2026`).not.toContain("Crm@2026");

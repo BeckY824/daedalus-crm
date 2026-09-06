@@ -68,8 +68,13 @@ async function main() {
     console.log(`  - 已删除名单外的空账号 ${u.email}（${u.name}）`);
   }
 
-  console.log(`\n共 ${await prisma.user.count()} 个账号，初始密码：${PASSWORD}`);
-  console.log("请各自登录后到「设置管理 → 修改密码」修改");
+  // 容器首启由 entrypoint 统一打印初始密码（只打一次、格式醒目），这里就不重复了
+  if (process.env.QUIET_PASSWORD === "1") {
+    console.log(`\n共 ${await prisma.user.count()} 个账号`);
+  } else {
+    console.log(`\n共 ${await prisma.user.count()} 个账号，初始密码：${PASSWORD}`);
+    console.log("请各自登录后到「设置管理 → 修改密码」修改");
+  }
 }
 
 main()

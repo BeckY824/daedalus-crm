@@ -1,6 +1,22 @@
 #!/bin/sh
+# 容器入口：零配置也能起。
+#   - 没传 AUTH_SECRET → 第一次生成一个随机密钥存进数据卷，之后每次启动复用
+#   - 首次启动没传 INIT_PASSWORD → 生成一个随机密码，打印在日志里
+#   - 库不存在 → 建表并写入账号；存在 → 只跑幂等迁移
 set -e
 mkdir -p /data
+
+# 会话密钥。显式传的优先；否则用数据卷里保存的；都没有就生成。
+# 密钥同时用于加密存储的 AI Key，所以要和数据放在一起——迁移机器时把 /data 整个带走即可。
+if [ -z "${AUTH_SECRET:-}" ]; then
+  if [ ! -f /data/.auth-secret ]; then
+    node -e "process.stdout.write(require('node:crypto').randomBytes(48).toString('base64'))" > /data/.auth-secret
+    chmod 600 /data/.auth-secret
+    echo "→ 已生成会话密钥，保存在数据卷 /data/.auth-secret"
+  fi
+  AUTH_SECRET="$(cat /data/.auth-secret)"
+  export AUTH_SECRET
+fi
 
 # 表结构变更时，用 REBUILD_DB=1 显式重建。
 # 不做自动判断：静默重建生产库等于随时可能丢数据，必须人为确认。
@@ -19,12 +35,12 @@ if [ "${REBUILD_DB:-}" = "1" ]; then
 fi
 
 if [ ! -f /data/crm.db ]; then
-  # 首次启动会创建 admin 账号。不允许带默认密码启动：
-  # 一个公开的默认密码等于每个没改密码的实例都是公开的。
+  GENERATED_PASSWORD=""
   if [ -z "${INIT_PASSWORD:-}" ]; then
-    echo "✗ 首次启动必须设置 INIT_PASSWORD（管理员初始密码，至少 8 位）。" >&2
-    echo "  例：INIT_PASSWORD=你的密码 docker compose up -d" >&2
-    exit 1
+    # 不带默认密码出厂：没传就随机生成一个，只在这次日志里出现一回
+    INIT_PASSWORD="$(node -e "process.stdout.write(require('node:crypto').randomBytes(9).toString('base64url'))")"
+    export INIT_PASSWORD
+    GENERATED_PASSWORD="$INIT_PASSWORD"
   fi
   echo "→ 建表"
   node --experimental-sqlite -e "
@@ -33,10 +49,20 @@ if [ ! -f /data/crm.db ]; then
     const db = new DatabaseSync('/data/crm.db');
     db.exec(fs.readFileSync('/app/schema.sql', 'utf8'));
     db.close();
-  "
+  " 2>/dev/null
   echo "→ 写入初始数据"
-  node seed.js
+  QUIET_PASSWORD=1 node seed.js
   echo "→ 初始化完成"
+  if [ -n "$GENERATED_PASSWORD" ]; then
+    echo ""
+    echo "=================================================="
+    echo "  管理员账号：admin"
+    echo "  初始密码：$GENERATED_PASSWORD"
+    echo "  登录后请到「设置管理 → 修改密码」改掉。"
+    echo "  这段只打印这一次；忘了可用 RESET_PASSWORDS=1 重置（见 docs/部署.md）"
+    echo "=================================================="
+    echo ""
+  fi
 else
   echo "→ 使用已有数据库"
 fi
@@ -55,7 +81,7 @@ if [ -d /app/migrations ]; then
       const db = new DatabaseSync('/data/crm.db');
       db.exec(fs.readFileSync('$f', 'utf8'));
       db.close();
-    "
+    " 2>/dev/null
   done
 fi
 
