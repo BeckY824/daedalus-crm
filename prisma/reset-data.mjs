@@ -10,7 +10,7 @@ import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
-const PASSWORD = process.env.INIT_PASSWORD ?? "crm@2026";
+const PASSWORD = process.env.INIT_PASSWORD ?? "admin123";
 
 // 名单与 prisma/seed.ts 保持一致，有用例盯着（tests/accounts.test.ts）
 const USERS = [

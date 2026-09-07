@@ -5,7 +5,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 
-const 管理员 = { 用户名: "admin", 密码: "crm@2026" };
+const 管理员 = { 用户名: "admin", 密码: "admin123" };
 
 /**
  * dev 模式下页面可能还没水合，第一次点击会落空，所以最多试三次；

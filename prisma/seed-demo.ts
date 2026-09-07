@@ -10,7 +10,7 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 async function main() {
-  const pwd = await bcrypt.hash("crm@2026", 10);
+  const pwd = await bcrypt.hash("admin123", 10);
 
   const [admin, zhangsan, customer] = await Promise.all([
     prisma.user.upsert({ where: { email: "admin" }, update: {},
@@ -83,7 +83,7 @@ async function main() {
     签约: await prisma.contract.count(),
   };
   console.log("演示数据已写入：", counts);
-  console.log("登录：admin / crm@2026");
+  console.log("登录：admin / admin123");
 }
 
 main()

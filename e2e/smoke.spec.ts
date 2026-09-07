@@ -7,8 +7,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-const 账号 = { 用户名: "zhangsan", 密码: "crm@2026" };
-const 管理员 = { 用户名: "admin", 密码: "crm@2026" };
+const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
+const 管理员 = { 用户名: "admin", 密码: "admin123" };
 
 /** 同一轮跑出来的数据带同样的后缀，避免和别轮撞名 */
 const 戳 = String(Date.now()).slice(-6);

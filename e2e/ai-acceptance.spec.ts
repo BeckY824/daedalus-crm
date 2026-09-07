@@ -20,7 +20,7 @@ async function 登录(page: Page) {
   await page.goto("/login");
   // 选择器与 smoke.spec.ts 保持一致：antd 表单没有可用的 label 关联，只能按 placeholder 找
   await page.getByPlaceholder("用户名").fill("admin");
-  await page.getByPlaceholder("登录密码").fill("crm@2026");
+  await page.getByPlaceholder("登录密码").fill("admin123");
   await page.getByRole("button", { name: /登\s*录/ }).click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
 }

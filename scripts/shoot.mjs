@@ -54,7 +54,7 @@ await page.addInitScript(() => {
 async function login() {
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.fill('input[placeholder="用户名"]', process.env.SHOT_USER ?? "zhangsan");
-  await page.fill('input[placeholder="登录密码"]', process.env.SHOT_PASSWORD ?? "crm@2026");
+  await page.fill('input[placeholder="登录密码"]', process.env.SHOT_PASSWORD ?? "admin123");
   await page.click('button[type="submit"]');
   await page.waitForURL(/\/dashboard/, { timeout: 20000 });
   await page.waitForLoadState("networkidle");

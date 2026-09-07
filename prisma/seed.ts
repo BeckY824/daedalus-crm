@@ -17,7 +17,7 @@ import bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 /** 初始密码可用 INIT_PASSWORD 覆盖 */
-const PASSWORD = process.env.INIT_PASSWORD ?? "crm@2026";
+const PASSWORD = process.env.INIT_PASSWORD ?? "admin123";
 
 /**
  * 正式账号名单。**改这里**——`reset-data.mjs` 与 `seed-demo.ts` 里的副本

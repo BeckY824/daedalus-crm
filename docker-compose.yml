@@ -1,5 +1,5 @@
 # docker compose up -d   —— 不用改任何东西就能起。
-# 初始密码看日志：docker compose logs crm | grep 初始密码
+# 登录：admin / admin123，登录后到「设置管理 → 修改密码」改掉。
 # 可选项都在 .env 里（见 .env.example）；要 HTTPS 见 docs/部署.md。
 services:
   crm:
@@ -10,9 +10,10 @@ services:
       - "${PORT:-3000}:3000"
     environment:
       TZ: "${TZ:-Asia/Shanghai}"
-      # 以下全部可选。不传 AUTH_SECRET 会自动生成并存进数据卷；不传 INIT_PASSWORD 首启会生成并打印
+      # 以下全部可选。不传 AUTH_SECRET 会自动生成并存进数据卷
       AUTH_SECRET: "${AUTH_SECRET:-}"
-      INIT_PASSWORD: "${INIT_PASSWORD:-}"
+      # 首次启动 admin 的密码。默认 admin123 是为了上手即用，登录后请立刻改掉
+      INIT_PASSWORD: "${INIT_PASSWORD:-admin123}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       LLM_API_KEY: "${LLM_API_KEY:-}"
       LLM_BASE_URL: "${LLM_BASE_URL:-}"

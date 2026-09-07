@@ -8,9 +8,9 @@
  */
 import { test, expect, type Browser, type Page } from "@playwright/test";
 
-const 甲账号 = { 用户名: "zhangsan", 密码: "crm@2026" };
-const 管理员 = { 用户名: "admin", 密码: "crm@2026" };
-const 丙账号 = { 用户名: "lisi", 密码: "crm@2026" };
+const 甲账号 = { 用户名: "zhangsan", 密码: "admin123" };
+const 管理员 = { 用户名: "admin", 密码: "admin123" };
+const 丙账号 = { 用户名: "lisi", 密码: "admin123" };
 
 const 戳 = String(Date.now()).slice(-6);
 

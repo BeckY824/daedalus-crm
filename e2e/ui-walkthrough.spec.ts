@@ -16,7 +16,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { 连库, 清空业务数据, 造模拟数据 } from "./mock-data";
 
-const 账号 = { 用户名: "zhangsan", 密码: "crm@2026" };
+const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 const 戳 = String(Date.now()).slice(-6);
 
 const 页面 = [

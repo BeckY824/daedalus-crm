@@ -507,12 +507,12 @@ describe("接口直调能写进来的脏数据", () => {
   it("密码不能设成空或过短", async () => {
     await prisma.user.update({
       where: { id: jia.id },
-      data: { password: (await import("bcryptjs")).default.hashSync("crm@2026", 10) },
+      data: { password: (await import("bcryptjs")).default.hashSync("admin123", 10) },
     });
-    expect((await changeMyPassword("crm@2026", "")).ok).toBe(false);
-    expect((await changeMyPassword("crm@2026", "123")).ok).toBe(false);
-    expect((await changeMyPassword("crm@2026", "crm@2026")).ok).toBe(false);
-    expect((await changeMyPassword("crm@2026", "NewPwd@2026")).ok).toBe(true);
+    expect((await changeMyPassword("admin123", "")).ok).toBe(false);
+    expect((await changeMyPassword("admin123", "123")).ok).toBe(false);
+    expect((await changeMyPassword("admin123", "admin123")).ok).toBe(false);
+    expect((await changeMyPassword("admin123", "NewPwd@2026")).ok).toBe(true);
   });
 });
 

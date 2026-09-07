@@ -12,8 +12,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { 连库, 清空业务数据 } from "./mock-data";
 
-const 销售 = { 用户名: "zhangsan", 密码: "crm@2026" };
-const 管理员 = { 用户名: "admin", 密码: "crm@2026" };
+const 销售 = { 用户名: "zhangsan", 密码: "admin123" };
+const 管理员 = { 用户名: "admin", 密码: "admin123" };
 const 戳 = String(Date.now()).slice(-6);
 const 甲手机 = `139${戳}01`;
 const 甲姓名 = `查重甲${戳}`;
@@ -148,7 +148,7 @@ test("成员登录名重复要硬拦", async ({ page }) => {
     const 弹窗 = page.getByRole("dialog");
     await 弹窗.getByLabel("姓名").fill(姓名);
     await 弹窗.getByLabel("登录用户名").fill(登录名);
-    await 弹窗.getByLabel("初始密码").fill("crm@2026");
+    await 弹窗.getByLabel("初始密码").fill("admin123");
     await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
 
     if (姓名.startsWith("占位")) {
@@ -171,7 +171,7 @@ test("新增成员能用用户名做登录名，与既有账号和登录页保�
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByLabel("姓名").fill(`用户名账号${戳}`);
   await 弹窗.getByLabel("登录用户名").fill(`lisi${戳}`); // 和 zhangsan 一个格式
-  await 弹窗.getByLabel("初始密码").fill("crm@2026");
+  await 弹窗.getByLabel("初始密码").fill("admin123");
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
 
   await expect(弹窗).toBeHidden();
@@ -189,7 +189,7 @@ test("成员姓名重名会先确认，确认后建成且下拉能区分", async
   const 弹窗 = page.getByRole("dialog", { name: "新增成员" });
   await 弹窗.getByLabel("姓名").fill("张三"); // 与既有成员同名
   await 弹窗.getByLabel("登录用户名").fill(`zs2${戳}`);
-  await 弹窗.getByLabel("初始密码").fill("crm@2026");
+  await 弹窗.getByLabel("初始密码").fill("admin123");
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
 
   // 先确认：要说清楚撞的是谁，只说「重名」等于没说
@@ -218,7 +218,7 @@ test("登录用户名的格式错了要当场拦住，别等提交", async ({ pa
   const 弹窗 = page.getByRole("dialog", { name: "新增成员" });
   await 弹窗.getByLabel("姓名").fill(`格式错${戳}`);
   await 弹窗.getByLabel("登录用户名").fill("a b@!");
-  await 弹窗.getByLabel("初始密码").fill("crm@2026");
+  await 弹窗.getByLabel("初始密码").fill("admin123");
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
 
   await expect(弹窗.getByText(/只能用小写字母、数字/)).toBeVisible();
@@ -233,7 +233,7 @@ test("填了大写的登录名要归一成小写，否则会出现「填的名�
   const 弹窗 = page.getByRole("dialog", { name: "新增成员" });
   await 弹窗.getByLabel("姓名").fill(`大写${戳}`);
   await 弹窗.getByLabel("登录用户名").fill(`DaXie${戳}`); // 故意用大写
-  await 弹窗.getByLabel("初始密码").fill("crm@2026");
+  await 弹窗.getByLabel("初始密码").fill("admin123");
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
   await expect(弹窗).toBeHidden();
 

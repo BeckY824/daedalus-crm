@@ -30,7 +30,7 @@ test("控制台巡检", async ({ page }) => {
 
   await page.goto("/login");
   await page.getByPlaceholder("用户名").fill("admin");
-  await page.getByPlaceholder("登录密码").fill("crm@2026");
+  await page.getByPlaceholder("登录密码").fill("admin123");
   await page.getByRole("button", { name: /登\s*录/ }).click();
   await page.waitForURL("**/dashboard");
 

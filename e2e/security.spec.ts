@@ -7,7 +7,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 
-const 账号 = { 用户名: "zhangsan", 密码: "crm@2026" };
+const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 const 戳 = String(Date.now()).slice(-6);
 
 /** 几种常见载荷：标签注入、属性事件、伪协议 */
