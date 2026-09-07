@@ -115,7 +115,7 @@ test("5. 给学员录一条跟进，时间线上要看得见", async ({ page }) 
 
   /**
    * 断言的是沟通内容而不是标题：时间线上只渲染跟进类型和内容，
-   * 标题虽然是必填却不展示在这里（见 TESTING.md 的已知缺口）。
+   * 标题虽然是必填却不展示在这里（见 docs/测试.md）。
    */
   await expect(page.getByText("介绍了课程与价格")).toBeVisible();
   await expect(page.getByText("电话沟通").first()).toBeVisible();

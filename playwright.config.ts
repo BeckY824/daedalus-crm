@@ -25,7 +25,8 @@ export default defineConfig({
   // 冒烟用例共用一个库、按业务链条前后依赖，必须串行
   fullyParallel: false,
   workers: 1,
-  retries: 0,
+  // 本地不重试，失败就是失败；CI 机器慢，dev server 偶发「destination stream closed early」，允许重试一次
+  retries: process.env.CI ? 1 : 0,
   timeout: 60_000,
   expect: { timeout: 10_000 },
   reporter: [["list"]],
