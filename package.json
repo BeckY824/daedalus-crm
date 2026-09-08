@@ -6,7 +6,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/ensure-env.mjs && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
@@ -14,7 +14,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma db push --force-reset && npm run db:seed",
-    "setup": "prisma generate && prisma db push && npm run db:seed",
+    "setup": "node scripts/ensure-env.mjs && prisma generate && prisma db push && npm run db:seed",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
