@@ -492,3 +492,21 @@ a {
 .ant-layout-sider-light .ant-menu-light { background: transparent; }
 .ant-menu-light .ant-menu-item-selected { font-weight: 500; }
 .ant-menu-light .ant-menu-submenu-title { color: #4b5563; }
+
+/* 对话框里只能有一个框：内层 textarea 不许再画边框、聚焦环、投影 */
+.home-input .ant-input,
+.home-input .ant-input:focus,
+.home-input .ant-input:hover,
+.home-input .ant-input-focused,
+.home-input .ant-input-outlined,
+.home-input .ant-input-outlined:focus,
+.home-input .ant-input-outlined:focus-within {
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+.home-input .ant-input::placeholder { color: #b0b6c1; }
+.rec-composer .ant-input:focus,
+.rec-composer .ant-input-outlined:focus,
+.rec-composer .ant-input-outlined:focus-within { box-shadow: 0 0 0 3px rgba(47, 107, 255, 0.08) !important; border-color: #c5d3f7 !important; }
