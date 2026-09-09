@@ -27,16 +27,16 @@ export type TimelineEntry = {
  * 把跟进时间线拼成 prompt 片段（入参应为新→旧）。
  * 有原文的记录附上原文；新→旧优先分配原文预算，旧的只留要点。
  */
-export function formatTimeline(followUps: TimelineEntry[], opts: { eachMax?: number; budget?: number } = {}): string {
+export function formatTimeline(followUps: TimelineEntry[], opts: { eachMax?: number; budget?: number; numbered?: boolean } = {}): string {
   let budget = opts.budget ?? SOURCE_TOTAL_BUDGET;
   const eachMax = opts.eachMax ?? SOURCE_EACH_MAX;
   return followUps
-    .map((f) => {
+    .map((f, idx) => {
       const label = FOLLOW_TYPE_MAP[f.type]?.label ?? f.type;
       const dur = f.duration ? `，${Math.round(f.duration / 60)}分钟` : "";
       const who = f.owner?.name ? `${f.owner.name}${dur}` : dur.replace(/^，/, "");
       const title = f.title ? `【${f.title}】` : "";
-      let line = `- ${dayjs(f.occurredAt).format("MM-DD")} ${label}${who ? `（${who}）` : ""}${title}${f.content.slice(0, 300)}`;
+      let line = `${opts.numbered ? `[${idx + 1}]` : "-"} ${dayjs(f.occurredAt).format("MM-DD")} ${label}${who ? `（${who}）` : ""}${title}${f.content.slice(0, 300)}`;
       const src = f.source?.text.trim();
       if (src && budget > 0) {
         const cut = src.slice(0, Math.min(eachMax, budget));

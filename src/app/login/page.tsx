@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Form, Input, Button, Typography, Alert } from "antd";
-import { UserOutlined, LockOutlined, CustomerServiceOutlined } from "@ant-design/icons";
+import { UserOutlined, LockOutlined } from "@ant-design/icons";
+import Logo from "@/components/Logo";
 import { login } from "./actions";
 
 /** server action 迟迟不返回时的等待上限。链路正常时登录在 3 秒内完成。 */
@@ -72,7 +73,7 @@ export default function LoginPage() {
       <div className="login-card">
         <div style={{ textAlign: "center", marginBottom: 28 }}>
           <div className="login-mark">
-            <CustomerServiceOutlined />
+            <Logo size={30} />
           </div>
           <Typography.Title level={4} style={{ margin: 0, letterSpacing: -0.4 }}>
             Daedalus CRM

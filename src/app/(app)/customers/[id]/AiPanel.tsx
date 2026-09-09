@@ -4,21 +4,23 @@ import { useEffect, useState } from "react";
 import { Button, Input, Alert, Typography, App, Tooltip } from "antd";
 import { ThunderboltOutlined, ReloadOutlined, CopyOutlined, ArrowRightOutlined } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
-import type { generateBrief } from "./ai";
 import { draftWakeup } from "../../dashboard/ai";
 import { draftInvite } from "../../channels/ai";
-import type { CustomerBrief } from "@/lib/ai-draft";
+import type { CustomerBrief, BriefRecord } from "@/lib/ai-draft";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, setJobValue, clearJob, getJob } from "@/lib/ai-jobs";
+import { runStream, type StreamJob } from "@/lib/ai-stream";
+import AiTrace from "@/components/AiTrace";
+import BriefBody from "./BriefBody";
 
-type BriefResult = { brief: CustomerBrief; question?: string };
+type BriefAnswer = { brief: CustomerBrief; records: BriefRecord[] };
 
 /**
  * 记录页右栏的 AI 面板：打开谁，它就已经读完了谁。
  *
  * 所有调用都挂在进程内任务表（ai-jobs）上，不挂在组件 state 上：
- * 切去别的页面再回来，转圈还在转、结果还在。简报另外按「客户 + 时间线指纹」
- * 缓存进 sessionStorage，整页刷新也不重复调模型；时间线一变指纹就变。
+ * 切去别的页面再回来，转圈还在转、结果还在。简报走 /api/ai/stream，过程一步步可见；
+ * 结果另外按「客户 + 时间线指纹」缓存进 sessionStorage，整页刷新也不重复调模型。
  */
 export default function AiPanel({
   customerId,
@@ -39,46 +41,32 @@ export default function AiPanel({
   const briefKey = `brief:${customerId}:${fingerprint}`;
   const askKey = `brief-q:${customerId}`;
 
-  const briefJob = useJob<BriefResult>(briefKey);
-  const askJob = useJob<BriefResult>(askKey);
+  const briefJob = useJob<StreamJob<BriefAnswer>>(briefKey);
+  const askJob = useJob<StreamJob<BriefAnswer> & { question?: string }>(askKey);
   const wakeupJob = useJob<string>(`draft:wakeup:${customerId}`);
   const inviteJob = useJob<string>(`draft:invite:${customerId}`);
   const [q, setQ] = useState("");
 
-  async function callBrief(question?: string): Promise<{ ok: true; value: BriefResult } | { ok: false; error: string }> {
-    // 走 API 路由而不是 Server Action：后者会和页面上其它动作串行排队，简报一跑十几秒，
-    // 用户这期间点保存会被卡住（见 api/ai/brief/route.ts）
-    let res: Awaited<ReturnType<typeof generateBrief>>;
-    try {
-      const r = await fetch("/api/ai/brief", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ customerId, question }) });
-      res = (await r.json()) as Awaited<ReturnType<typeof generateBrief>>;
-    } catch {
-      return { ok: false, error: "网络错误，请稍后重试" };
-    }
-    if (!res.ok) return res;
-    if (!question) {
+  function regenerate() {
+    clearJob(askKey);
+    clearJob(briefKey);
+    runStream<BriefAnswer>(briefKey, { mode: "brief", customerId });
+  }
+  function ask(question: string) {
+    runStream<BriefAnswer>(askKey, { mode: "brief", customerId, question }, question);
+  }
+
+  // 简报生成完写进 sessionStorage；首次进入有缓存就直接用
+  useEffect(() => {
+    if (briefJob?.status === "done" && briefJob.value?.answer) {
       try {
-        sessionStorage.setItem(briefKey, JSON.stringify(res.brief));
+        sessionStorage.setItem(briefKey, JSON.stringify(briefJob.value.answer));
       } catch {
         /* 存不了就不存 */
       }
     }
-    return { ok: true, value: { brief: res.brief, question } };
-  }
+  }, [briefJob, briefKey]);
 
-  function regenerate() {
-    clearJob(askKey);
-    clearJob(briefKey);
-    runJob(briefKey, () => callBrief());
-  }
-
-  function ask(question: string) {
-    runJob(askKey, () => callBrief(question), question);
-  }
-
-  // 首次进入：任务表里已有就什么都不做（可能正在转，也可能已完成）；
-  // 否则试 sessionStorage，再没有就生成。没有跟进记录的不调模型。
-  // 放在 setTimeout 里是为了不在 effect 体内同步写外部 store；严格模式双跑靠 cancelled 兜住。
   useEffect(() => {
     let cancelled = false;
     const t = setTimeout(() => {
@@ -86,20 +74,19 @@ export default function AiPanel({
       try {
         const raw = sessionStorage.getItem(briefKey);
         if (raw) {
-          setJobValue<BriefResult>(briefKey, { brief: JSON.parse(raw) as CustomerBrief });
+          setJobValue<StreamJob<BriefAnswer>>(briefKey, { steps: [], answer: JSON.parse(raw) as BriefAnswer });
           return;
         }
       } catch {
         /* 读不到就重新生成 */
       }
-      runJob(briefKey, () => callBrief());
+      runStream<BriefAnswer>(briefKey, { mode: "brief", customerId });
     }, 0);
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [briefKey, hasRecords]);
+  }, [briefKey, hasRecords, customerId]);
 
   function doDraft(kind: "wakeup" | "invite") {
     runJob(`draft:${kind}:${customerId}`, async () => {
@@ -112,7 +99,8 @@ export default function AiPanel({
   const shown = askJob ?? briefJob;
   const loading = shown?.status === "loading";
   const error = !hasRecords ? `该${b.customer}还没有任何跟进记录，暂时没有可提炼的内容` : shown?.status === "error" ? shown.error : null;
-  const result = shown?.status === "done" ? shown.value : undefined;
+  const result = shown?.status === "done" ? shown.value?.answer : undefined;
+  const steps = shown?.value?.steps ?? [];
 
   return (
     <div className="rec-ai">
@@ -127,54 +115,25 @@ export default function AiPanel({
         </Tooltip>
       </div>
 
+      {hasRecords && (loading || steps.length > 0) && <AiTrace steps={steps} done={!loading} ms={shown?.value?.ms} compact />}
+
       <AnimatePresence mode="wait">
-        {loading && (
-          <motion.div key="loading" className="rec-ai-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <span className="rec-ai-dots">
-              <i />
-              <i />
-              <i />
-            </span>
-            {shown?.meta ? `正在围绕「${shown.meta.slice(0, 20)}」重读记录…` : "正在通读全部跟进记录…"}
-          </motion.div>
-        )}
         {!loading && error && (
           <motion.div key="error" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <Alert type="warning" showIcon title={error} />
           </motion.div>
         )}
         {!loading && result && (
-          <motion.div key={`brief-${result.question ?? ""}-${result.brief.story.slice(0, 12)}`} initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.12 } } }}>
-            {result.question && (
-              <motion.div variants={fade} className="rec-ai-q">
-                问：{result.question}
+          <motion.div key={`brief-${shown?.meta ?? ""}-${result.brief.story.slice(0, 12)}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ marginTop: 8 }}>
+            {shown?.meta && (
+              <div className="rec-ai-q">
+                问：{shown.meta}
                 <a style={{ marginLeft: 8 }} onClick={() => clearJob(askKey)}>
                   回到简报
                 </a>
-              </motion.div>
+              </div>
             )}
-            <Section label="故事线">{result.brief.story}</Section>
-            {result.brief.current && <Section label="现在卡在哪">{result.brief.current}</Section>}
-            {result.brief.talkingPoints.length > 0 && (
-              <Section label={result.question ? "建议" : "这次建议谈"}>
-                <ol className="rec-ai-list">
-                  {result.brief.talkingPoints.map((p, i) => (
-                    <motion.li key={i} variants={fade}>
-                      {p}
-                    </motion.li>
-                  ))}
-                </ol>
-              </Section>
-            )}
-            {result.brief.risks.length > 0 && (
-              <Section label="风险">
-                {result.brief.risks.map((r, i) => (
-                  <motion.div key={i} variants={fade} className="rec-ai-risk">
-                    {r}
-                  </motion.div>
-                ))}
-              </Section>
-            )}
+            <BriefBody brief={result.brief} records={result.records} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -256,19 +215,8 @@ export default function AiPanel({
       ))}
 
       <Typography.Text type="secondary" className="rec-ai-foot">
-        由 AI 基于系统内跟进记录生成，只起草，不落库。
+        只起草，不落库。
       </Typography.Text>
     </div>
-  );
-}
-
-const fade = { hidden: { opacity: 0, y: 6 }, show: { opacity: 1, y: 0, transition: { duration: 0.28 } } };
-
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <motion.div variants={fade} className="rec-ai-sec">
-      <div className="rec-ai-sec-k">{label}</div>
-      <div className="rec-ai-sec-v">{children}</div>
-    </motion.div>
   );
 }

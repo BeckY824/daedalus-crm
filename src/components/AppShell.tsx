@@ -30,11 +30,11 @@ import {
   DownOutlined,
   LogoutOutlined,
   UserOutlined,
-  CustomerServiceOutlined,
 } from "@ant-design/icons";
 import type { SessionUser } from "@/lib/auth";
 import { SIDER_WIDTH, SIDER_COLLAPSED_WIDTH } from "@/lib/theme";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
+import Logo from "./Logo";
 import { useBusiness } from "@/lib/business-client";
 
 const { Sider, Header, Content } = Layout;
@@ -127,14 +127,21 @@ export default function AppShell({ user, pendingCount, children }: Props) {
         theme="light"
         style={{ position: "sticky", top: 0, height: "100vh", overflow: "auto", borderRight: "1px solid #eceef2", display: "flex", flexDirection: "column" }}
       >
-        <div className="sider-logo">
-          <span className="sider-logo-badge">
-            <CustomerServiceOutlined />
-          </span>
-          {!collapsed && <span>Daedalus CRM</span>}
-          <span style={{ flex: 1 }} />
-          {!collapsed && !小屏 && (
-            <Button type="text" size="small" className="sider-fold" icon={<MenuFoldOutlined />} onClick={() => setCollapsed(true)} aria-label="收起侧栏" />
+        {/* 顶行：标 + 名字 + 收/展按钮。收起时只剩标和按钮，按钮永远在顶上同一个位置 */}
+        <div className={`sider-logo${collapsed ? " sider-logo-c" : ""}`}>
+          <Link href="/dashboard" className="sider-mark" aria-label="首页">
+            <Logo size={22} />
+          </Link>
+          {!collapsed && <span className="sider-name">Daedalus CRM</span>}
+          {!小屏 && (
+            <Button
+              type="text"
+              size="small"
+              className="sider-fold"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed((c) => !c)}
+              aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+            />
           )}
         </div>
 
@@ -194,9 +201,6 @@ export default function AppShell({ user, pendingCount, children }: Props) {
               )}
             </div>
           </Dropdown>
-          {collapsed && !小屏 && (
-            <Button type="text" size="small" icon={<MenuUnfoldOutlined />} onClick={() => setCollapsed(false)} aria-label="展开侧栏" style={{ margin: "4px auto 0", display: "block" }} />
-          )}
         </div>
       </Sider>
 
@@ -207,6 +211,7 @@ export default function AppShell({ user, pendingCount, children }: Props) {
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 12px", borderBottom: "1px solid #eceef2", position: "sticky", top: 0, zIndex: 10, height: 48 }}
           >
             <Button type="text" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed((c) => !c)} />
+            <Logo size={20} />
             <span style={{ fontWeight: 600 }}>Daedalus CRM</span>
             <span style={{ flex: 1 }} />
             <Badge count={pendingCount} size="small" color="#6b7280">

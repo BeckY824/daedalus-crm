@@ -21,6 +21,7 @@ import {
 import { getBusiness, type BusinessConfig } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 import { recordAiUse } from "@/lib/ai-usage";
+import { stepStart, stepDone, type Emit } from "@/lib/ai-steps";
 
 export type AskResult = {
   answer: string;
@@ -32,7 +33,7 @@ export type AskResult = {
 };
 
 /** 问数据：自然语言 → 受限 QuerySpec → Prisma 取数 → 一句话结论。只读，不写库 */
-export async function askData(question: string): Promise<{ ok: true; result: AskResult } | { ok: false; error: string }> {
+export async function askData(question: string, emit?: Emit): Promise<{ ok: true; result: AskResult } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
   const term = (s: string) => s.replace(/学员/g, b.customer);
@@ -65,11 +66,16 @@ ${combos}
 问题：${q}`;
 
   try {
+    stepStart(emit, "spec", "翻译成查询规格");
     const spec = sanitizeQuerySpec(await chatJSON(specPrompt));
-    const rows = await runQuery(spec, b);
     const meta = { ...METRICS[spec.metric], label: term(METRICS[spec.metric].label) };
     const range =
       spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间";
+    stepDone(emit, "spec", "翻译成查询规格", `${meta.label}${spec.groupBy ? ` · ${GROUP_BYS[spec.groupBy]}` : ""} · ${range}`);
+    stepStart(emit, "query", "查库");
+    const rows = await runQuery(spec, b);
+    stepDone(emit, "query", "查库", `${rows.length} 行`);
+    stepStart(emit, "phrase", "写结论");
 
     // 结论由第二次调用基于真实数字生成；AI 挂了也不空手——用合计兜底
     const total = Math.round(rows.reduce((s, r) => s + r.value, 0) * 10) / 10;
@@ -85,6 +91,7 @@ ${combos}
       /* 用兜底句 */
     }
 
+    stepDone(emit, "phrase", "写结论");
     await recordAiUse(user, "ask", `AI 问数据：「${q.slice(0, 60)}」`);
 
     return {

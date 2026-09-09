@@ -575,7 +575,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
   const meta = FOLLOW_TYPE_MAP[f.type] ?? FOLLOW_TYPE_MAP.OTHER;
   const [srcOpen, setSrcOpen] = useState(false);
   return (
-    <motion.div className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * 0.03 }}>
+    <motion.div id={`fu-${f.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * 0.03 }}>
       <div className="rec-tl-dot" style={{ background: meta.color }}>
         {TYPE_ICON[f.type]}
       </div>

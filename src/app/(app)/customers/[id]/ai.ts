@@ -11,6 +11,8 @@ import { FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 import { formatTimeline } from "@/lib/ai-context";
+import { stepStart, stepDone, type Emit } from "@/lib/ai-steps";
+import type { BriefRecord } from "@/lib/ai-draft";
 
 /**
  * AI 只起草、不落库：这两个 action 都不写业务表。
@@ -125,11 +127,12 @@ export async function generateBrief(input: {
   customerId: string;
   /** 销售此刻想问的具体问题（来自首页提问）。给了就让「这次建议谈」围绕它回答 */
   question?: string;
-}): Promise<{ ok: true; brief: CustomerBrief } | { ok: false; error: string }> {
+}, emit?: Emit): Promise<{ ok: true; brief: CustomerBrief; records: BriefRecord[] } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
   const wait = consumeAiQuota(user.id);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
+  stepStart(emit, "load", "读取记录");
 
   const customer = await prisma.customer.findUnique({
     where: { id: input.customerId },
@@ -148,6 +151,7 @@ export async function generateBrief(input: {
         orderBy: { occurredAt: "desc" },
         take: 30,
         select: {
+          id: true,
           type: true,
           title: true,
           content: true,
@@ -166,8 +170,23 @@ export async function generateBrief(input: {
 
   // 时间线倒序给太多没意义，取最近 30 条、每条内容截断，控制 prompt 体量。
   // 不携带电话号码等联系方式——简报用不上，最小上下文原则。
-  const timeline = formatTimeline(customer.followUps);
+  const timeline = formatTimeline(customer.followUps, { numbered: true });
   const question = input.question?.trim().slice(0, 200);
+  const records: BriefRecord[] = customer.followUps.map((f, i) => ({
+    n: i + 1,
+    id: f.id,
+    date: dayjs(f.occurredAt).format("MM-DD"),
+    label: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type,
+    excerpt: (f.source?.text ?? f.content).slice(0, 160),
+  }));
+  const sourceCount = customer.followUps.filter((f) => f.source?.text).length;
+  stepDone(
+    emit,
+    "load",
+    "读取记录",
+    [`${customer.followUps.length} 条跟进`, sourceCount ? `${sourceCount} 段原文` : null, customer.opportunities.length ? `${customer.opportunities.length} 个商机` : null, customer.plans[0] ? "1 条计划" : null].filter(Boolean).join(" · "),
+  );
+  stepStart(emit, "think", question ? "围绕问题重读" : "生成简报");
 
   const oppLines = customer.opportunities.length
     ? customer.opportunities
@@ -203,7 +222,7 @@ ${taskLines}
 【下次跟进计划】
 ${plan ? `${dayjs(plan.plannedAt).format("YYYY-MM-DD HH:mm")} ${plan.method}：${plan.subject}` : "（未安排）"}
 
-【跟进时间线（新→旧，最近 ${customer.followUps.length} 条；带「原文」的是当时的聊天记录原话）】
+【跟进时间线（新→旧，最近 ${customer.followUps.length} 条，每条前面的 [编号] 是它的引用号；带「原文」的是当时的聊天记录原话）】
 ${timeline}
 ${question ? `\n【销售此刻的问题】\n${question}\n` : ""}
 请输出严格 JSON：
@@ -214,12 +233,14 @@ ${question ? `\n【销售此刻的问题】\n${question}\n` : ""}
   "risks": ["风险信号，0~3 条，每条 40 字以内；没有就给空数组"]
 }
 
-规则：只基于上面提供的记录提炼，禁止编造；用给销售看的口语化中文；结论要具体（有原文就引用${b.customer}的原话），不要空话套话。${question ? `\n销售问了具体问题，talkingPoints 必须直接回答这个问题，story 与 current 照常。` : ""}`;
+规则：只基于上面提供的记录提炼，禁止编造；用给销售看的口语化中文；结论要具体（有原文就引用${b.customer}的原话），不要空话套话。current、talkingPoints、risks 里每条说法都要在句末标出依据的记录编号，格式如 [2] 或 [2][5]，编号只能来自上面的时间线；story 不用标。${question ? `\n销售问了具体问题，talkingPoints 必须直接回答这个问题，story 与 current 照常。` : ""}`;
 
   try {
-    const raw = await chatJSON(prompt);
+    // 简报要读整条时间线还要标引用，推理模型常常要想 60 秒以上；给到 120 秒
+    const raw = await chatJSON(prompt, { timeoutMs: 120_000 });
+    stepDone(emit, "think", question ? "围绕问题重读" : "生成简报");
     await recordAiUse(user, "brief", `AI 生成简报（${b.customer}「${customer.name}」${question ? `，问题「${question.slice(0, 40)}」` : ""}）`, input.customerId);
-    return { ok: true, brief: sanitizeBrief(raw) };
+    return { ok: true, brief: sanitizeBrief(raw), records };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "简报生成失败，请稍后重试" };
   }

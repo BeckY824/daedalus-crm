@@ -3,13 +3,17 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Button, Input, Alert, App } from "antd";
-import { ArrowUpOutlined, ArrowRightOutlined, ReloadOutlined, DeleteOutlined, BarChartOutlined } from "@ant-design/icons";
+import { ArrowUpOutlined, ArrowRightOutlined, ReloadOutlined, DeleteOutlined, BarChartOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
-import { askHome, quickBrief, type HomeAnswer } from "./ask";
+import type { HomeAnswer } from "./ask";
+import { draftWakeup } from "./ai";
+import { draftInvite } from "../channels/ai";
 import AskDataResult from "../reports/AskDataResult";
 import BriefBody from "../customers/[id]/BriefBody";
+import AiTrace from "@/components/AiTrace";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
+import { runStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, removeTurn, useThread, type Turn } from "@/lib/home-thread";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
@@ -19,6 +23,7 @@ export type Suggestion = { label: string; question: string; kind?: "ask" | "prep
  * 没有指标卡、没有图表——那些在「数据看板」。这里只有：问候、一个输入框、几枚按当前处境
  * 生成的建议 chip，以及一条随问随答的线程。每一问各自独立（不带上下文记忆），
  * 问到某位客户出简报，问到数字出图表，和记录页、报表页是同一套能力。
+ * 每一问都能看见过程（识别问题 → 读取记录 → 生成），答案里的圆标是它引用的记录。
  */
 export default function HomeChat({ userName, suggestions, context }: { userName: string; suggestions: Suggestion[]; context: string }) {
   const b = useBusiness();
@@ -34,14 +39,15 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
     () => "你好",
   );
 
+  function start(turn: Turn) {
+    runStream<HomeAnswer>(`home:${turn.id}`, turn.kind === "ask" ? { mode: "home", question: turn.question } : { mode: "quick", intent: turn.kind });
+  }
+
   function submit(question: string, kind: Turn["kind"] = "ask") {
     const text = question.trim();
     if (kind === "ask" && text.length < 2) return;
     const turn = addTurn({ question: kind === "ask" ? text : question, kind });
-    runJob(`home:${turn.id}`, async () => {
-      const res = kind === "ask" ? await askHome(text) : await quickBrief(kind);
-      return res.ok ? { ok: true, value: res.answer } : res;
-    });
+    start(turn);
     setQ("");
   }
 
@@ -69,7 +75,18 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
         {!empty && (
           <div className="home-thread">
             {turns.map((t) => (
-              <TurnView key={t.id} turn={t} onRetry={() => { clearJob(`home:${t.id}`); runJob(`home:${t.id}`, async () => { const res = t.kind === "ask" ? await askHome(t.question) : await quickBrief(t.kind); return res.ok ? { ok: true, value: res.answer } : res; }); }} onRemove={() => { clearJob(`home:${t.id}`); removeTurn(t.id); }} />
+              <TurnView
+                key={t.id}
+                turn={t}
+                onRetry={() => {
+                  clearJob(`home:${t.id}`);
+                  start(t);
+                }}
+                onRemove={() => {
+                  clearJob(`home:${t.id}`);
+                  removeTurn(t.id);
+                }}
+              />
             ))}
             <div ref={endRef} />
           </div>
@@ -100,7 +117,14 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
             ))}
             <span style={{ flex: 1 }} />
             {!empty && (
-              <button type="button" className="home-chip home-chip-ghost" onClick={() => { turns.forEach((t) => clearJob(`home:${t.id}`)); clearThread(); }}>
+              <button
+                type="button"
+                className="home-chip home-chip-ghost"
+                onClick={() => {
+                  turns.forEach((t) => clearJob(`home:${t.id}`));
+                  clearThread();
+                }}
+              >
                 <DeleteOutlined /> 清空
               </button>
             )}
@@ -117,7 +141,7 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
 function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void; onRemove: () => void }) {
   const b = useBusiness();
   const { message } = App.useApp();
-  const job = useJob<HomeAnswer>(`home:${turn.id}`);
+  const job = useJob<StreamJob<HomeAnswer>>(`home:${turn.id}`);
   const ref = useRef<HTMLDivElement>(null);
   // 回答落地时把这一轮滚进视野：答案是异步来的，只在提问时滚一次不够
   const done = job?.status === "done" || job?.status === "error";
@@ -125,6 +149,10 @@ function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void
     if (done) ref.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [done]);
   const label = turn.kind === "prep" ? "准备下次跟进" : turn.kind === "recap" ? "回顾上次沟通" : turn.question;
+  const answer = job?.status === "done" ? job.value?.answer : undefined;
+  // 出错时把最后一个还在跑的步骤标红，一眼看出卡在哪
+  const steps = (job?.value?.steps ?? []).map((s) => (job?.status === "error" && s.status === "running" ? { ...s, status: "error" as const } : s));
+
   return (
     <motion.div ref={ref} className="home-turn" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
       <div className="home-q">
@@ -134,21 +162,13 @@ function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void
         </button>
       </div>
       <div className="home-a">
-        {(!job || job.status === "loading") && (
-          <div className="rec-ai-loading" style={{ padding: "6px 0" }}>
-            <span className="rec-ai-dots">
-              <i />
-              <i />
-              <i />
-            </span>
-            {turn.kind === "ask" ? "正在读记录…" : "正在挑最该联系的那位…"}
-          </div>
-        )}
+        <AiTrace steps={steps} done={!!done} ms={job?.value?.ms} />
         {job?.status === "error" && (
           <Alert
             type="warning"
             showIcon
             title={job.error}
+            style={{ marginTop: 8 }}
             action={
               <Button size="small" type="text" icon={<ReloadOutlined />} onClick={onRetry}>
                 重试
@@ -156,32 +176,103 @@ function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void
             }
           />
         )}
-        {job?.status === "done" && job.value && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-            {job.value.kind === "customer" ? (
+        {answer && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} style={{ marginTop: 10 }}>
+            {answer.kind === "customer" ? (
               <>
                 <div className="home-a-head">
-                  <span className="home-a-name">{job.value.customerName}</span>
-                  <Link href={`/customers/${job.value.customerId}`} className="home-a-link">
+                  <span className="home-a-name">{answer.customerName}</span>
+                  <Link href={`/customers/${answer.customerId}`} className="home-a-link">
                     打开{b.customer}页 <ArrowRightOutlined />
                   </Link>
                 </div>
-                <BriefBody brief={job.value.brief} />
+                <BriefBody brief={answer.brief} records={answer.records} />
+                <CustomerActions customerId={answer.customerId} signed={answer.followStatus === "已签约"} />
               </>
             ) : (
               <>
                 <div className="home-a-head">
                   <span className="home-a-name">问数据</span>
-                  <a className="home-a-link" onClick={() => { void navigator.clipboard.writeText(job.value!.kind === "data" ? job.value!.result.answer : ""); message.success("已复制结论"); }}>
+                  <a
+                    className="home-a-link"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(answer.result.answer);
+                      message.success("已复制结论");
+                    }}
+                  >
                     复制结论
                   </a>
                 </div>
-                <AskDataResult result={job.value.result} />
+                <AskDataResult result={answer.result} />
+                <div className="home-actions">
+                  <Link href="/reports" className="home-chip">
+                    <BarChartOutlined /> 去数据复盘
+                  </Link>
+                </div>
               </>
             )}
           </motion.div>
         )}
       </div>
     </motion.div>
+  );
+}
+
+/** 答完给动作：起草话术 / 邀请，结果就地展开。key 与记录页、盯盘、雷达共用同一份草稿 */
+function CustomerActions({ customerId, signed }: { customerId: string; signed: boolean }) {
+  const b = useBusiness();
+  const { message } = App.useApp();
+  const wakeup = useJob<string>(`draft:wakeup:${customerId}`);
+  const invite = useJob<string>(`draft:invite:${customerId}`);
+  const run = (kind: "wakeup" | "invite") =>
+    runJob(`draft:${kind}:${customerId}`, async () => {
+      const res = kind === "wakeup" ? await draftWakeup({ customerId, reason: "从首页发起" }) : await draftInvite({ customerId });
+      return res.ok ? { ok: true, value: res.message } : res;
+    });
+  const drafts = [
+    { kind: "wakeup" as const, job: wakeup, title: "跟进话术草稿" },
+    { kind: "invite" as const, job: invite, title: "转介绍邀请草稿" },
+  ];
+  return (
+    <>
+      <div className="home-actions">
+        <button type="button" className="home-chip" onClick={() => run("wakeup")} disabled={wakeup?.status === "loading"}>
+          <ThunderboltOutlined /> {wakeup?.status === "loading" ? "起草中…" : "起草跟进话术"}
+        </button>
+        {signed && (
+          <button type="button" className="home-chip" onClick={() => run("invite")} disabled={invite?.status === "loading"}>
+            <ThunderboltOutlined /> {invite?.status === "loading" ? "起草中…" : "起草转介绍邀请"}
+          </button>
+        )}
+      </div>
+      {drafts.map(({ kind, job, title }) => (
+        <AnimatePresence key={kind}>
+          {job?.status === "error" && <Alert key="e" type="warning" showIcon title={job.error} closable onClose={() => clearJob(`draft:${kind}:${customerId}`)} style={{ marginTop: 8 }} />}
+          {job?.status === "done" && job.value && (
+            <motion.div key="d" className="rec-ai-draft" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+              <div className="rec-ai-draft-t">{title}</div>
+              <div>{job.value}</div>
+              <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+                <Button
+                  size="small"
+                  type="link"
+                  icon={<CopyOutlined />}
+                  style={{ padding: 0 }}
+                  onClick={async () => {
+                    await navigator.clipboard.writeText(job.value!);
+                    message.success(`已复制，去微信发给${b.customer}吧`);
+                  }}
+                >
+                  复制
+                </Button>
+                <Button size="small" type="link" style={{ padding: 0 }} onClick={() => clearJob(`draft:${kind}:${customerId}`)}>
+                  收起
+                </Button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      ))}
+    </>
   );
 }

@@ -146,3 +146,24 @@ export function sanitizeBrief(raw: unknown): CustomerBrief {
     risks: asStringList(r.risks, 3, 120),
   };
 }
+
+/** 简报引用的记录：编号对应提示词里的 [n]，前端据此显示出处 */
+export type BriefRecord = { n: number; id: string; date: string; label: string; excerpt: string };
+
+/**
+ * 把「……[2]，……[3][5]」切成文字与引用编号的序列，前端把编号渲染成可点的出处。
+ * 只认 1~2 位数字的方括号，避免把正文里的其它方括号误当引用。
+ */
+export function splitCitations(text: string): (string | number)[] {
+  const out: (string | number)[] = [];
+  const re = /\[(\d{1,2})\]/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) out.push(text.slice(last, m.index));
+    out.push(Number(m[1]));
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}

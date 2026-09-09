@@ -27,3 +27,33 @@ describe("formatTimeline", () => {
     expect(out).not.toContain("旧原文");
   });
 });
+
+describe("编号与引用", () => {
+  it("numbered 时每条前面是 [n]，供模型引用", async () => {
+    const { formatTimeline } = await import("@/lib/ai-context");
+    const out = formatTimeline(
+      [
+        { type: "SMS", content: "第一条", occurredAt: new Date("2026-09-03T10:00:00") },
+        { type: "PHONE", content: "第二条", occurredAt: new Date("2026-08-20T10:00:00") },
+      ],
+      { numbered: true },
+    );
+    expect(out.split("\n")[0]).toMatch(/^\[1\] 09-03/);
+    expect(out.split("\n")[1]).toMatch(/^\[2\] 08-20/);
+  });
+
+  it("splitCitations 把 [n] 切成编号，其它方括号不动", async () => {
+    const { splitCitations } = await import("@/lib/ai-draft");
+    expect(splitCitations("先问成绩[2]，再谈分期[2][5]。")).toEqual(["先问成绩", 2, "，再谈分期", 2, 5, "。"]);
+    expect(splitCitations("没有引用")).toEqual(["没有引用"]);
+    expect(splitCitations("[全程班] 可看回放 [123]")).toEqual(["[全程班] 可看回放 [123]"]);
+  });
+
+  it("mergeSteps 按 id 覆盖，顺序按首次出现", async () => {
+    const { mergeSteps } = await import("@/lib/ai-steps");
+    let list = mergeSteps([], { type: "step", id: "a", label: "A", status: "running", at: 1 });
+    list = mergeSteps(list, { type: "step", id: "b", label: "B", status: "running", at: 2 });
+    list = mergeSteps(list, { type: "step", id: "a", label: "A", status: "done", detail: "ok", at: 3 });
+    expect(list.map((s) => `${s.id}:${s.status}`)).toEqual(["a:done", "b:running"]);
+  });
+});

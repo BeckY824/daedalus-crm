@@ -22,7 +22,7 @@ export type JobState<T> = {
   startedAt: number;
 };
 
-type Result<T> = { ok: true; value: T } | { ok: false; error: string };
+type Result<T> = { ok: true; value: T } | { ok: false; error: string; value?: T };
 
 const jobs = new Map<string, JobState<unknown>>();
 const listeners = new Set<() => void>();
@@ -35,12 +35,20 @@ export function runJob<T>(key: string, fn: () => Promise<Result<T>>, meta?: stri
   notify();
   void fn()
     .then((r) => {
-      jobs.set(key, r.ok ? { status: "done", value: r.value, meta, startedAt: Date.now() } : { status: "error", error: r.error, meta, startedAt: Date.now() });
+      jobs.set(key, r.ok ? { status: "done", value: r.value, meta, startedAt: Date.now() } : { status: "error", error: r.error, value: r.value, meta, startedAt: Date.now() });
     })
     .catch((e: unknown) => {
       jobs.set(key, { status: "error", error: e instanceof Error ? e.message : "调用失败", meta, startedAt: Date.now() });
     })
     .finally(notify);
+}
+
+/** 任务还在跑时更新它的中间结果（比如流式过来的步骤），状态保持 loading */
+export function patchJob<T>(key: string, value: T): void {
+  const cur = jobs.get(key);
+  if (!cur || cur.status !== "loading") return;
+  jobs.set(key, { ...cur, value });
+  notify();
 }
 
 /** 直接放一个已完成的结果（比如从 sessionStorage 恢复的简报） */
