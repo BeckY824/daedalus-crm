@@ -82,15 +82,7 @@ export function companyInitial(name: string): string {
 }
 
 /** 由姓名稳定生成一个头像底色 */
-const AVATAR_COLORS = [
-  "#1668dc",
-  "#22c55e",
-  "#f59e0b",
-  "#8b5cf6",
-  "#ec4899",
-  "#06b6d4",
-  "#ef4444",
-];
+const AVATAR_COLORS = ["#dbeafe", "#dcfce7", "#fef3c7", "#fde2e2", "#ede9fe", "#e0f2fe", "#fce7f3", "#e2e8f0"];
 export function avatarColor(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
@@ -115,3 +107,6 @@ export function 成员选项(users: 可选成员[]): { value: string; label: str
     label: (同名计数.get(u.name) ?? 0) > 1 ? `${u.name}（${u.email}）` : u.name,
   }));
 }
+
+/** 头像底色都是浅色，字一律深灰；配 avatarColor 用 */
+export const AVATAR_TEXT = "#374151";

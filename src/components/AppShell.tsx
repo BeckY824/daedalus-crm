@@ -11,7 +11,6 @@ import {
   Avatar,
   Dropdown,
   Button,
-  Space,
 } from "antd";
 import {
   HomeOutlined,
@@ -35,7 +34,7 @@ import {
 } from "@ant-design/icons";
 import type { SessionUser } from "@/lib/auth";
 import { SIDER_WIDTH, SIDER_COLLAPSED_WIDTH } from "@/lib/theme";
-import { avatarColor, initial } from "@/lib/utils";
+import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 
 const { Sider, Header, Content } = Layout;
@@ -122,18 +121,38 @@ export default function AppShell({ user, pendingCount, children }: Props) {
         width={SIDER_WIDTH}
         collapsed={collapsed}
         collapsedWidth={小屏 ? 0 : SIDER_COLLAPSED_WIDTH}
-        // 窄屏自动收起，否则 248px 的侧栏会挤掉正文空间
+        // 窄屏自动收起，否则侧栏会挤掉正文空间
         breakpoint="lg"
         onBreakpoint={(broken) => setCollapsed(broken)}
         theme="light"
-        style={{ position: "sticky", top: 0, height: "100vh", overflow: "auto", borderRight: "1px solid #eceef2" }}
+        style={{ position: "sticky", top: 0, height: "100vh", overflow: "auto", borderRight: "1px solid #eceef2", display: "flex", flexDirection: "column" }}
       >
         <div className="sider-logo">
           <span className="sider-logo-badge">
             <CustomerServiceOutlined />
           </span>
           {!collapsed && <span>Daedalus CRM</span>}
+          <span style={{ flex: 1 }} />
+          {!collapsed && !小屏 && (
+            <Button type="text" size="small" className="sider-fold" icon={<MenuFoldOutlined />} onClick={() => setCollapsed(true)} aria-label="收起侧栏" />
+          )}
         </div>
+
+        {!collapsed && (
+          <div className="sider-search">
+            <Input
+              allowClear
+              size="small"
+              prefix={<SearchOutlined style={{ color: "#9ca3af" }} />}
+              placeholder="搜索客户、联系人、商机"
+              variant="filled"
+              onPressEnter={(e) => {
+                const q = (e.target as HTMLInputElement).value.trim();
+                if (q) router.push(`/customers?keyword=${encodeURIComponent(q)}`);
+              }}
+            />
+          </div>
+        )}
 
         <Menu
           theme="light"
@@ -141,53 +160,20 @@ export default function AppShell({ user, pendingCount, children }: Props) {
           items={items}
           selectedKeys={[selectedKey]}
           defaultOpenKeys={openKeys}
-          style={{ borderInlineEnd: "none", paddingTop: 8 }}
+          style={{ borderInlineEnd: "none", paddingTop: 4, background: "transparent" }}
         />
 
-      </Sider>
+        <div style={{ flex: 1 }} />
 
-      <Layout>
-        <Header
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            padding: "0 18px",
-            borderBottom: "1px solid #eceef2",
-            position: "sticky",
-            top: 0,
-            zIndex: 10,
-          }}
-        >
-          <Button
-            type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed((c) => !c)}
-          />
-
-          <Input
-            allowClear
-            prefix={<SearchOutlined style={{ color: "#9ca3af" }} />}
-            placeholder="搜索客户、联系人、商机等"
-            // 手机上藏起来：它是头部最占地方的固定元素，留着就撑破布局
-            className="header-search"
-            style={{ maxWidth: 360, background: "#f4f5f7" }}
-            variant="filled"
-            onPressEnter={(e) => {
-              const q = (e.target as HTMLInputElement).value.trim();
-              if (q) router.push(`/customers?keyword=${encodeURIComponent(q)}`);
-            }}
-          />
-
-          <div style={{ flex: 1 }} />
-
-          {/* 顶栏只保留铃铛：邮件与帮助两个图标原本点了没有任何反应，
-              界面上摆着点不动的东西比没有更糟，已移除。 */}
-          <Badge count={pendingCount} size="small" offset={[-2, 4]}>
-            <Button type="text" icon={<BellOutlined style={{ fontSize: 17 }} />} onClick={() => router.push("/follow-ups/plans")} />
-          </Badge>
-
+        {/* 底部：待办计划的计数 + 用户。Attio 把工作区和人都放在侧栏，顶部不再需要一整条栏 */}
+        <div className="sider-foot">
+          <Link href="/follow-ups/plans" className={`sider-foot-item${collapsed ? " sider-foot-item-c" : ""}`}>
+            <BellOutlined />
+            {!collapsed && <span>待办计划</span>}
+            {pendingCount > 0 && <span className="sider-count">{pendingCount}</span>}
+          </Link>
           <Dropdown
+            placement="topLeft"
             menu={{
               items: [
                 { key: "profile", icon: <UserOutlined />, label: <Link href="/settings">个人设置</Link> },
@@ -196,19 +182,38 @@ export default function AppShell({ user, pendingCount, children }: Props) {
               ],
             }}
           >
-            <Space style={{ cursor: "pointer", paddingLeft: 10 }} size={11}>
-              <Avatar size={30} style={{ background: avatarColor(user.name), fontSize: 13 }}>
+            <div className={`sider-foot-item sider-user${collapsed ? " sider-foot-item-c" : ""}`} role="button" tabIndex={0}>
+              <Avatar size={24} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 12, fontWeight: 600 }}>
                 {initial(user.name)}
               </Avatar>
-              {/* 窄屏只留头像，否则姓名会被挤成竖排 */}
-              {/* 只显示姓名：职位在设置页看得到，摆在这里每屏都占一行、信息量却很低 */}
-              <div className="header-user-meta" style={{ fontWeight: 500, fontSize: 14 }}>
-                {user.name}
-              </div>
-              <DownOutlined style={{ fontSize: 12, color: "#94a3b8" }} />
-            </Space>
+              {!collapsed && (
+                <>
+                  <span className="sider-user-name">{user.name}</span>
+                  <DownOutlined style={{ fontSize: 10, color: "#9ca3af" }} />
+                </>
+              )}
+            </div>
           </Dropdown>
-        </Header>
+          {collapsed && !小屏 && (
+            <Button type="text" size="small" icon={<MenuUnfoldOutlined />} onClick={() => setCollapsed(false)} aria-label="展开侧栏" style={{ margin: "4px auto 0", display: "block" }} />
+          )}
+        </div>
+      </Sider>
+
+      <Layout>
+        {/* 手机上侧栏收成 0 宽，需要一个入口把它拉出来；桌面上没有顶栏 */}
+        {小屏 && (
+          <Header
+            style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 12px", borderBottom: "1px solid #eceef2", position: "sticky", top: 0, zIndex: 10, height: 48 }}
+          >
+            <Button type="text" icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />} onClick={() => setCollapsed((c) => !c)} />
+            <span style={{ fontWeight: 600 }}>Daedalus CRM</span>
+            <span style={{ flex: 1 }} />
+            <Badge count={pendingCount} size="small" color="#6b7280">
+              <Button type="text" icon={<BellOutlined />} onClick={() => router.push("/follow-ups/plans")} />
+            </Badge>
+          </Header>
+        )}
 
         {/* 超宽屏下限制正文宽度并居中，避免表格被拉得过于稀疏 */}
         <Content className="app-content" style={{ padding: "22px 26px" }}>

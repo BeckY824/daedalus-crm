@@ -3,7 +3,7 @@
 import { Tag, Avatar, Space, Typography, Progress } from "antd";
 import { ArrowUpOutlined, ArrowDownOutlined } from "@ant-design/icons";
 import Link from "next/link";
-import { avatarColor, companyInitial, initial } from "@/lib/utils";
+import { avatarColor, companyInitial, initial, AVATAR_TEXT } from "@/lib/utils";
 import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR } from "@/lib/constants";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
@@ -89,7 +89,7 @@ export function CompanyLogo({ name, size = 28 }: { name: string; size?: number }
   return (
     <span
       className="company-logo"
-      style={{ background: avatarColor(name), width: size, height: size, fontSize: size * 0.43 }}
+      style={{ background: avatarColor(name), color: AVATAR_TEXT, width: size, height: size, fontSize: size * 0.43 }}
     >
       {companyInitial(name)}
     </span>
@@ -100,7 +100,7 @@ export function CompanyLogo({ name, size = 28 }: { name: string; size?: number }
 export function UserCell({ name, size = 28 }: { name: string; size?: number }) {
   return (
     <Space size={8} style={{ maxWidth: "100%" }}>
-      <Avatar size={size} style={{ background: avatarColor(name), fontSize: size * 0.45, flex: "none" }}>
+      <Avatar size={size} style={{ background: avatarColor(name), color: AVATAR_TEXT, fontSize: size * 0.45, flex: "none" }}>
         {initial(name)}
       </Avatar>
       {/* 名字长了要省略号收尾，不能溢出到相邻元素上（业绩排行里就压在进度条上过） */}

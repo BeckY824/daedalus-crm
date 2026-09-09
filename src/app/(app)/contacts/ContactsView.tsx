@@ -6,7 +6,7 @@ import { Card, Table, Input, Button, Space, Avatar, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined, ContactsOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageHead, CustomerLink } from "@/components/ui";
-import { avatarColor, initial } from "@/lib/utils";
+import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 
 type Row = {
@@ -36,7 +36,7 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
       width: 226,
       render: (v, r) => (
         <Space size={8}>
-          <Avatar size={36} style={{ background: avatarColor(v), fontSize: 16 }}>{initial(v)}</Avatar>
+          <Avatar size={36} style={{ background: avatarColor(v), color: AVATAR_TEXT, fontSize: 16 }}>{initial(v)}</Avatar>
           <div style={{ lineHeight: 1.3 }}>
             <div style={{ fontWeight: 500 }}>{v}</div>
             <div style={{ fontSize: 13, color: "#94a3b8" }}>{r.position ?? "—"}</div>

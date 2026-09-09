@@ -24,7 +24,7 @@ import {
 } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
-import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, money, smartTime } from "@/lib/utils";
+import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, money, smartTime, AVATAR_TEXT } from "@/lib/utils";
 import { FollowStatusTag, StageTag, CompanyLogo, DecisionStatusTag } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
@@ -230,7 +230,7 @@ export default function RecordView({
             {contacts.length === 0 && <div className="rec-empty">还没有联系人</div>}
             {contacts.map((c) => (
               <div key={c.id} className="rec-mini">
-                <Avatar size={26} style={{ background: avatarColor(c.name), fontSize: 12 }}>{initial(c.name)}</Avatar>
+                <Avatar size={26} style={{ background: avatarColor(c.name), color: AVATAR_TEXT, fontSize: 12 }}>{initial(c.name)}</Avatar>
                 <span className="rec-mini-n">
                   {c.name}
                   {c.isPrimary && <Tag color="blue" style={{ marginLeft: 6, borderRadius: 6, fontSize: 11, lineHeight: "16px", padding: "0 5px" }}>关键</Tag>}
