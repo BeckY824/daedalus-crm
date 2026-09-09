@@ -37,6 +37,7 @@ export default async function CustomerDetailPage({
         include: {
           owner: { select: { name: true } },
           contact: { select: { name: true, position: true } },
+          source: { select: { text: true } },
         },
       },
     },
@@ -143,6 +144,7 @@ export default async function CustomerDetailPage({
         attachment: f.attachment,
         attachSize: f.attachSize,
         participants: f.participants,
+        sourceText: f.source?.text ?? null,
         ownerName: f.owner.name,
         contactName: f.contact?.name ?? null,
         contactPosition: f.contact?.position ?? null,

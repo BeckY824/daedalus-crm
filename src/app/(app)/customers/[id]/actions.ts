@@ -21,7 +21,15 @@ export type FollowUpInput = {
   contactId?: string | null;
   opportunityId?: string | null;
   participants?: string | null;
+  /**
+   * 速记解析时粘贴的原文（聊天记录 / 口述）。只在新建且经 AI 起草时有值，
+   * 存进 FollowUpSource 供简报、唤醒话术引用原话；编辑时忽略，原文不可改写
+   */
+  sourceText?: string | null;
 };
+
+/** 原文最多存这么多字，与速记解析的输入上限一致 */
+const SOURCE_TEXT_MAX = 5000;
 
 export async function saveFollowUp(input: FollowUpInput) {
   const user = await requireUser();
@@ -61,7 +69,14 @@ export async function saveFollowUp(input: FollowUpInput) {
      */
     await prisma.followUp.update({ where: { id: input.id }, data });
   } else {
-    await prisma.followUp.create({ data: { ...data, ownerId: user.id } });
+    const sourceText = input.sourceText?.trim().slice(0, SOURCE_TEXT_MAX);
+    await prisma.followUp.create({
+      data: {
+        ...data,
+        ownerId: user.id,
+        source: sourceText ? { create: { text: sourceText } } : undefined,
+      },
+    });
   }
 
   // 同步客户的「最近跟进」时间

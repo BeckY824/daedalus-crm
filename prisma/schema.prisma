@@ -227,11 +227,25 @@ model FollowUp {
   ownerId String
   owner   User   @relation(fields: [ownerId], references: [id])
 
+  /// 速记解析时粘贴的原始聊天记录 / 口述原文，只有 AI 起草过的记录才有
+  source FollowUpSource?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([customerId, occurredAt])
   @@index([type])
+}
+
+/// 跟进记录的原文。
+/// 速记解析后人核对保存的是「整理后的要点」，原始对话原本用完即弃——
+/// 但简报、唤醒话术要的恰恰是学员的原话与语气。单独一张表而不是加列：
+/// 迁移约定只允许加表；原文体量大、只给 AI 用，也不该混进主表被列表页顺手查出来。
+model FollowUpSource {
+  followUpId String   @id
+  followUp   FollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  text       String
+  createdAt  DateTime @default(now())
 }
 
 model Task {

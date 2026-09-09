@@ -133,6 +133,8 @@ export default function FollowUpForm({
       contactId: v.contactId ?? null,
       opportunityId: v.opportunityId ?? null,
       participants: v.participants ?? null,
+      // 经 AI 解析过才带原文：手工写的跟进没有"原文"这个概念
+      sourceText: !record?.id && extras ? aiText : null,
     });
     // 校验不通过时必须如实报错，否则界面照样提示成功、人以为已经存下了
     if (!res.ok) {

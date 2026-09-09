@@ -210,3 +210,20 @@ describe("脏参数", () => {
     expect(sum._sum.amount).toBe(-5000);
   });
 });
+
+describe("跟进原文", () => {
+  it("新建时带 sourceText 就存进 FollowUpSource，删跟进时级联删掉", async () => {
+    const c = await mkCustomer("原文学员", "13800000009");
+    const fu = await prisma.followUp.create({
+      data: {
+        type: "SMS", title: "", content: "要点", status: "已完成", occurredAt: new Date(),
+        customerId: c.id, ownerId: sales.id,
+        source: { create: { text: "王妈妈：孩子时间不够\n我：先试两节" } },
+      },
+      include: { source: true },
+    });
+    expect(fu.source?.text).toContain("时间不够");
+    await prisma.followUp.delete({ where: { id: fu.id } });
+    expect(await prisma.followUpSource.count()).toBe(0);
+  });
+});

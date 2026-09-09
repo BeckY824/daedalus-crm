@@ -83,6 +83,8 @@ type FollowUp = {
   attachment: string | null;
   attachSize: string | null;
   participants: string | null;
+  /** 速记解析时的原始聊天记录，只有 AI 起草过的记录才有 */
+  sourceText: string | null;
   ownerName: string;
   contactName: string | null;
   contactPosition: string | null;
@@ -435,6 +437,7 @@ export default function CustomerDetailView({
                           </div>
 
                           <div className="follow-content">{f.content}</div>
+                          {f.sourceText && <SourceText text={f.sourceText} />}
 
                           {f.attachment && (
                             <div className="attach-chip">
@@ -916,6 +919,40 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
     <div>
       <div className="stat-label">{label}</div>
       <div style={{ fontSize: 16, fontWeight: 500, color: "#10233d", marginTop: 3 }}>{value}</div>
+    </div>
+  );
+}
+
+/** 跟进记录的原文：默认折叠成一行入口，点开才显示整段聊天记录 */
+function SourceText({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ marginTop: 6 }}>
+      <Typography.Link style={{ fontSize: 12, color: "#94a3b8" }} onClick={() => setOpen((v) => !v)}>
+        {open ? "收起原文" : "查看原文"}
+      </Typography.Link>
+      {open && (
+        <pre
+          style={{
+            marginTop: 6,
+            marginBottom: 0,
+            padding: "10px 12px",
+            background: "#f8fafc",
+            border: "1px solid #eef2f7",
+            borderRadius: 8,
+            fontSize: 13,
+            lineHeight: 1.7,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            fontFamily: "inherit",
+            color: "#475569",
+            maxHeight: 320,
+            overflow: "auto",
+          }}
+        >
+          {text}
+        </pre>
+      )}
     </div>
   );
 }

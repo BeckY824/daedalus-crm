@@ -46,7 +46,7 @@ export async function draftInvite(input: {
         .join("\n")
     : "（无跟进记录）";
 
-  const prompt = `你替销售起草一条发给已签约${b.customer}的微信消息，礼貌地请对方帮忙介绍身边有同样需要的人。
+  const prompt = `你替销售「${user.name}」起草一条发给已签约${b.customer}的微信消息，礼貌地请对方帮忙介绍身边有同样需要的人。落款或自称一律用「${user.name}」，不要编别的名字或机构名。
 
 ${b.customer}：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，已签约
 ${origin ? `TA 自己当初也是「${origin}」介绍来的，可以自然地借这一点开口` : "TA 是自己找来的，没有推荐人"}

@@ -10,6 +10,7 @@ import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
+import { formatTimeline } from "@/lib/ai-context";
 
 /**
  * AI 只起草、不落库：这两个 action 都不写业务表。
@@ -122,6 +123,8 @@ ${text}
 
 export async function generateBrief(input: {
   customerId: string;
+  /** 销售此刻想问的具体问题（来自首页提问）。给了就让「这次建议谈」围绕它回答 */
+  question?: string;
 }): Promise<{ ok: true; brief: CustomerBrief } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
@@ -144,7 +147,15 @@ export async function generateBrief(input: {
       followUps: {
         orderBy: { occurredAt: "desc" },
         take: 30,
-        select: { type: true, title: true, content: true, occurredAt: true, duration: true, owner: { select: { name: true } } },
+        select: {
+          type: true,
+          title: true,
+          content: true,
+          occurredAt: true,
+          duration: true,
+          owner: { select: { name: true } },
+          source: { select: { text: true } },
+        },
       },
     },
   });
@@ -155,14 +166,8 @@ export async function generateBrief(input: {
 
   // 时间线倒序给太多没意义，取最近 30 条、每条内容截断，控制 prompt 体量。
   // 不携带电话号码等联系方式——简报用不上，最小上下文原则。
-  const timeline = customer.followUps
-    .map((f) => {
-      const label = FOLLOW_TYPE_MAP[f.type]?.label ?? f.type;
-      const dur = f.duration ? `，${Math.round(f.duration / 60)}分钟` : "";
-      const title = f.title ? `【${f.title}】` : "";
-      return `- ${dayjs(f.occurredAt).format("MM-DD")} ${label}（${f.owner.name}${dur}）${title}${f.content.slice(0, 300)}`;
-    })
-    .join("\n");
+  const timeline = formatTimeline(customer.followUps);
+  const question = input.question?.trim().slice(0, 200);
 
   const oppLines = customer.opportunities.length
     ? customer.opportunities
@@ -198,22 +203,22 @@ ${taskLines}
 【下次跟进计划】
 ${plan ? `${dayjs(plan.plannedAt).format("YYYY-MM-DD HH:mm")} ${plan.method}：${plan.subject}` : "（未安排）"}
 
-【跟进时间线（新→旧，最近 ${customer.followUps.length} 条）】
+【跟进时间线（新→旧，最近 ${customer.followUps.length} 条；带「原文」的是当时的聊天记录原话）】
 ${timeline}
-
+${question ? `\n【销售此刻的问题】\n${question}\n` : ""}
 请输出严格 JSON：
 {
   "story": "这个${b.customer}的完整故事线：怎么来的、聊过什么、态度如何演变，120 字以内",
   "current": "现在卡在哪、上次聊到哪，60 字以内",
-  "talkingPoints": ["这次建议谈的要点，3~5 条，每条 40 字以内，具体可执行"],
+  "talkingPoints": ["${question ? "针对销售的问题给出的具体建议" : "这次建议谈的要点"}，3~5 条，每条 40 字以内，具体可执行"],
   "risks": ["风险信号，0~3 条，每条 40 字以内；没有就给空数组"]
 }
 
-规则：只基于上面提供的记录提炼，禁止编造；用给销售看的口语化中文；结论要具体（引用${b.customer}真实的顾虑与原话要点），不要空话套话。`;
+规则：只基于上面提供的记录提炼，禁止编造；用给销售看的口语化中文；结论要具体（有原文就引用${b.customer}的原话），不要空话套话。${question ? `\n销售问了具体问题，talkingPoints 必须直接回答这个问题，story 与 current 照常。` : ""}`;
 
   try {
     const raw = await chatJSON(prompt);
-    await recordAiUse(user, "brief", `AI 生成简报（${b.customer}「${customer.name}」）`, input.customerId);
+    await recordAiUse(user, "brief", `AI 生成简报（${b.customer}「${customer.name}」${question ? `，问题「${question.slice(0, 40)}」` : ""}）`, input.customerId);
     return { ok: true, brief: sanitizeBrief(raw) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "简报生成失败，请稍后重试" };
