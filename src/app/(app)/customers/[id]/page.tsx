@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import CustomerDetailView from "./CustomerDetailView";
+import RecordView from "./RecordView";
 import { 可担任负责人 } from "@/lib/constants";
 import { llmEnabled } from "@/lib/llm";
 
@@ -63,7 +63,7 @@ export default async function CustomerDetailPage({
   };
 
   return (
-    <CustomerDetailView
+    <RecordView
       users={users}
       channels={channels}
       referrableCustomers={referrableCustomers}

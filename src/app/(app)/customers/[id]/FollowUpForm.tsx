@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Form, Input, Select, DatePicker, InputNumber, Row, Col, App, Button, Checkbox, Space, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
@@ -41,6 +41,7 @@ export default function FollowUpForm({
   contacts,
   opportunities,
   aiEnabled,
+  initialAiText,
 }: {
   open: boolean;
   onClose: () => void;
@@ -50,6 +51,8 @@ export default function FollowUpForm({
   contacts: { id: string; name: string; position: string | null }[];
   opportunities: { id: string; name: string }[];
   aiEnabled: boolean;
+  /** 记录页顶部的速记框直接带过来的原文：打开即解析，少点一次 */
+  initialAiText?: string;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
@@ -67,32 +70,17 @@ export default function FollowUpForm({
     setExtras(null);
   }
 
-  useEffect(() => {
-    if (!open) return;
-    if (record?.id) {
-      form.setFieldsValue({
-        ...record,
-        occurredAt: dayjs(record.occurredAt),
-        dueAt: record.dueAt ? dayjs(record.dueAt) : null,
-        durationMinutes: record.duration ? Math.round(record.duration / 60) : null,
-      });
-    } else {
-      form.resetFields();
-      form.setFieldsValue({
-        type: record?.type ?? "PHONE",
-        status: "已完成",
-        occurredAt: dayjs(),
-      });
-    }
-  }, [open, record, form]);
-
   async function onAiParse() {
-    if (aiText.trim().length < 5) {
+    return runParse(aiText);
+  }
+
+  async function runParse(text: string) {
+    if (text.trim().length < 5) {
       message.warning("先把沟通过程随手写几句");
       return;
     }
     setAiLoading(true);
-    const res = await parseFollowUpDraft({ customerId, text: aiText });
+    const res = await parseFollowUpDraft({ customerId, text });
     setAiLoading(false);
     if (!res.ok) {
       message.error(res.error);
@@ -117,6 +105,36 @@ export default function FollowUpForm({
     });
     message.success("已按原话预填，请核对后保存");
   }
+
+  const autoParsed = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      autoParsed.current = null;
+      return;
+    }
+    if (initialAiText && aiEnabled && !record?.id && autoParsed.current !== initialAiText) {
+      autoParsed.current = initialAiText;
+      setAiText(initialAiText);
+      // 解析是异步网络调用，放到下一拍触发，不在 effect 里同步 setState
+      const t = setTimeout(() => void runParse(initialAiText), 0);
+      return () => clearTimeout(t);
+    }
+    if (record?.id) {
+      form.setFieldsValue({
+        ...record,
+        occurredAt: dayjs(record.occurredAt),
+        dueAt: record.dueAt ? dayjs(record.dueAt) : null,
+        durationMinutes: record.duration ? Math.round(record.duration / 60) : null,
+      });
+    } else {
+      form.resetFields();
+      form.setFieldsValue({
+        type: record?.type ?? "PHONE",
+        status: "已完成",
+        occurredAt: dayjs(),
+      });
+    }
+  }, [open, record, form]);
 
   async function onOk() {
     const v = await form.validateFields();

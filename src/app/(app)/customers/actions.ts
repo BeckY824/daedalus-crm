@@ -563,3 +563,51 @@ export async function deleteContract(
   revalidateCustomer(customerId);
   return { ok: true, remaining };
 }
+
+/* ---------- 记录页的行内编辑 ---------- */
+
+/** 记录页里能直接点着改的字段。姓名、手机（要查重）、推荐关系（要重算归属）仍走完整表单 */
+const PATCHABLE = ["school", "major", "grade", "remark", "expectedSignAt", "followStatus", "decisionStatus", "salesOwnerId"] as const;
+export type PatchableKey = (typeof PATCHABLE)[number];
+
+/**
+ * 只改一个字段。和 saveCustomer 的整表提交不同，单字段写入天然不会覆盖别人改的其它字段，
+ * 所以不需要快照比对；留痕照记。
+ */
+export async function patchCustomer(id: string, key: PatchableKey, value: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+  const me = await requireUser();
+  const b = await getBusiness();
+  if (!PATCHABLE.includes(key)) return { ok: false, error: "这个字段不能在这里改" };
+
+  const v = typeof value === "string" ? value.trim() : value;
+  const data: Record<string, unknown> = {};
+  if (key === "followStatus") {
+    if (!FOLLOW_STATUSES.includes(v as (typeof FOLLOW_STATUSES)[number])) return { ok: false, error: `跟进状态「${v}」不是合法取值` };
+    data.followStatus = v;
+  } else if (key === "decisionStatus") {
+    if (!DECISION_STATUSES.includes(v as (typeof DECISION_STATUSES)[number])) return { ok: false, error: `决策状态「${v}」不是合法取值` };
+    data.decisionStatus = v;
+  } else if (key === "salesOwnerId") {
+    const u = v ? await prisma.user.findUnique({ where: { id: v }, select: { active: true, role: true } }) : null;
+    if (!u || !u.active) return { ok: false, error: "负责人不存在或已停用" };
+    data.salesOwnerId = v;
+  } else if (key === "expectedSignAt") {
+    if (v && Number.isNaN(Date.parse(v))) return { ok: false, error: "日期格式不对" };
+    data.expectedSignAt = v ? new Date(v) : null;
+  } else {
+    data[key] = v || null;
+  }
+
+  const before = await prisma.customer.findUnique({ where: { id }, select: { name: true, [key]: true } as never });
+  if (!before) return { ok: false, error: `这条${b.customer}已被删除` };
+  await prisma.customer.update({ where: { id }, data });
+  const labels = customerFieldLabels(b);
+  await recordAudit({
+    user: me, action: "update", entity: "Customer", entityId: id,
+    summary: `修改${b.customer}「${(before as { name: string }).name}」：${labels[key] ?? key}`,
+    detail: describeCustomerChanges([key], before as Record<string, unknown>, data, labels),
+  });
+  revalidatePath(`/customers/${id}`);
+  revalidatePath("/customers");
+  return { ok: true };
+}

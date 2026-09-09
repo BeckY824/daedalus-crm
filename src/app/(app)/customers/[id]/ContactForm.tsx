@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete } from "antd";
 import { saveContact } from "./actions";
-import type { ContactRow } from "./CustomerDetailView";
+import type { ContactRow } from "./types";
 import { useBusiness } from "@/lib/business-client";
 
 /**
