@@ -108,7 +108,8 @@ ${text}
 - contactId / opportunityId：只在原话能明确对应到上面列表中的某一项时填其 id，否则 null`;
 
   try {
-    const raw = await chatJSON(prompt);
+    // 速记要读联系人、商机再换算时间，推理模型偶尔会超过 60 秒；且记录页打开时简报可能正在并发跑
+    const raw = await chatJSON(prompt, { timeoutMs: 120_000 });
     const draft = sanitizeFollowUpDraft(raw, {
       contactIds: customer.contacts.map((c) => c.id),
       opportunityIds: customer.opportunities.map((o) => o.id),
