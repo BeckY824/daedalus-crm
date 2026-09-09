@@ -242,7 +242,7 @@ export default function OpportunitiesView({
       <PageHead
         icon={<DollarOutlined />}
         title="商机管理"
-        subtitle="数据驱动成交，管道一目了然"
+        subtitle="进行中与已关闭的商机"
         tag="商机管理"
         tagNote="阶段推进标准化，预测更准确"
         extra={

@@ -8,16 +8,17 @@ import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR } from "@/l
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
 
-/** 页头：图标 + 大标题 + 副标题（对应设计稿左上角） */
+/**
+ * 页头：标题 + 一句副标题，右侧放动作。
+ * 早先的大图标色块和「权限清晰，数据安全可控」这类标语已去掉——那是给客户看的宣传语，
+ * 不是给每天用的人看的界面。tag / tagNote / icon 参数保留只为不改所有调用处，不再渲染。
+ */
 export function PageHead({
-  icon,
   title,
   subtitle,
-  tag,
-  tagNote,
   extra,
 }: {
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
   title: string;
   subtitle?: string;
   tag?: string;
@@ -26,22 +27,9 @@ export function PageHead({
 }) {
   return (
     <div className="page-head">
-      <div className="page-head-icon">{icon}</div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <h1>{title}</h1>
         {subtitle && <p>{subtitle}</p>}
-        {tag && (
-          <Space size={10} style={{ marginTop: 10 }}>
-            <Tag color="blue" style={{ fontSize: 15, padding: "4px 15px", borderRadius: 16, margin: 0 }}>
-              {tag}
-            </Tag>
-            {tagNote && (
-              <Typography.Text type="secondary" style={{ fontSize: 15 }}>
-                {tagNote}
-              </Typography.Text>
-            )}
-          </Space>
-        )}
       </div>
       {extra}
     </div>
@@ -71,15 +59,13 @@ export function StatCard({
   const up = (delta ?? 0) >= 0;
   return (
     <div className="card-soft stat-card">
-      <div style={{ display: "flex", gap: 16, alignItems: "flex-start" }}>
-        <div className="stat-icon" style={{ background: color + "1f", color }}>
+      <div className="stat-label">
+        <span>{label}</span>
+        <span className="stat-icon" style={{ color }}>
           {icon}
-        </div>
-        <div style={{ minWidth: 0 }}>
-          <div className="stat-label">{label}</div>
-          <div className="stat-value">{value}</div>
-        </div>
+        </span>
       </div>
+      <div className="stat-value">{value}</div>
       {delta !== undefined ? (
         <div className="stat-delta">
           {deltaLabel}{" "}

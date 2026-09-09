@@ -69,7 +69,7 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
       <PageHead
         icon={<ContactsOutlined />}
         title="联系人"
-        subtitle="客户对接人一目了然"
+        subtitle="档案里的联系人"
         tag="联系人管理"
         tagNote="沉淀客户决策链，沟通不断线"
       />

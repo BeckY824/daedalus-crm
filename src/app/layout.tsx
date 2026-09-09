@@ -6,7 +6,7 @@ import { themeConfig } from "@/lib/theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CRM 客户管理系统",
+  title: "Daedalus CRM",
   description: "客户全周期管理，让销售更高效",
 };
 

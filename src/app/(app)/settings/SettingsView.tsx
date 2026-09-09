@@ -271,7 +271,7 @@ export default function SettingsView({
       <PageHead
         icon={<SettingOutlined />}
         title="设置管理"
-        subtitle="团队成员与账号设置"
+        subtitle="成员、密码、AI 与业务配置"
         tag="系统设置"
         tagNote="权限清晰，数据安全可控"
       />

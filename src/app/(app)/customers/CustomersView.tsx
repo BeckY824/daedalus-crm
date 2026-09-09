@@ -191,7 +191,7 @@ export default function CustomersView({
       <PageHead
         icon={<IdcardOutlined />}
         title={`${b.customer}管理`}
-        subtitle="客户信息集中沉淀，跟进转化清晰可控"
+        subtitle="按状态、负责人和来源筛选"
         tag="客户管理"
         tagNote={`统一管理${b.customer}信息，追踪推荐来源与签约进度`}
       />

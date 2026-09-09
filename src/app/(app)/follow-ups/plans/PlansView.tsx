@@ -72,7 +72,7 @@ export default function PlansView({
       <PageHead
         icon={<CalendarOutlined />}
         title="跟进计划"
-        subtitle="任务与提醒，客户推进有节奏"
+        subtitle="逾期、今天、本周要联系的人"
         tag="跟进管理"
         tagNote="计划先行，跟进不遗漏"
       />

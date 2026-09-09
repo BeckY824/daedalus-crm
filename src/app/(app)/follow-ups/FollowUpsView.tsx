@@ -103,7 +103,7 @@ export default function FollowUpsView({
       <PageHead
         icon={<InteractionOutlined />}
         title="跟进记录"
-        subtitle="全记录留痕，过程透明可追溯"
+        subtitle="全部跟进记录"
         tag="跟进管理"
         tagNote="全面记录客户动态，驱动成交进程"
       />

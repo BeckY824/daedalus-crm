@@ -71,26 +71,15 @@ export default function LoginPage() {
     <div className="login-shell">
       <div className="login-card">
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div
-            style={{
-              width: 52,
-              height: 52,
-              borderRadius: 14,
-              background: "#1668dc",
-              color: "#fff",
-              display: "grid",
-              placeItems: "center",
-              fontSize: 26,
-              margin: "0 auto 14px",
-              boxShadow: "0 8px 20px rgba(22,104,220,.3)",
-            }}
-          >
+          <div className="login-mark">
             <CustomerServiceOutlined />
           </div>
-          <Typography.Title level={3} style={{ margin: 0, letterSpacing: -0.5 }}>
-            CRM 客户管理系统
+          <Typography.Title level={4} style={{ margin: 0, letterSpacing: -0.4 }}>
+            Daedalus CRM
           </Typography.Title>
-          <Typography.Text type="secondary">客户全周期管理，让销售更高效</Typography.Text>
+          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+            下一代 CRM，跑在你自己的机器上。
+          </Typography.Text>
         </div>
 
         {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}

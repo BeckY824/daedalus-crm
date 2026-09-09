@@ -125,18 +125,18 @@ export default function AppShell({ user, pendingCount, children }: Props) {
         // 窄屏自动收起，否则 248px 的侧栏会挤掉正文空间
         breakpoint="lg"
         onBreakpoint={(broken) => setCollapsed(broken)}
-        theme="dark"
-        style={{ position: "sticky", top: 0, height: "100vh", overflow: "auto" }}
+        theme="light"
+        style={{ position: "sticky", top: 0, height: "100vh", overflow: "auto", borderRight: "1px solid #eceef2" }}
       >
         <div className="sider-logo">
           <span className="sider-logo-badge">
             <CustomerServiceOutlined />
           </span>
-          {!collapsed && <span>CRM 客户管理系统</span>}
+          {!collapsed && <span>Daedalus CRM</span>}
         </div>
 
         <Menu
-          theme="dark"
+          theme="light"
           mode="inline"
           items={items}
           selectedKeys={[selectedKey]}
@@ -151,9 +151,9 @@ export default function AppShell({ user, pendingCount, children }: Props) {
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 18,
-            padding: "0 26px",
-            borderBottom: "1px solid #eef2f7",
+            gap: 12,
+            padding: "0 18px",
+            borderBottom: "1px solid #eceef2",
             position: "sticky",
             top: 0,
             zIndex: 10,
@@ -161,19 +161,17 @@ export default function AppShell({ user, pendingCount, children }: Props) {
         >
           <Button
             type="text"
-            size="large"
             icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
             onClick={() => setCollapsed((c) => !c)}
           />
 
           <Input
             allowClear
-            size="large"
-            prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+            prefix={<SearchOutlined style={{ color: "#9ca3af" }} />}
             placeholder="搜索客户、联系人、商机等"
             // 手机上藏起来：它是头部最占地方的固定元素，留着就撑破布局
             className="header-search"
-            style={{ maxWidth: 400, background: "#f4f7fb" }}
+            style={{ maxWidth: 360, background: "#f4f5f7" }}
             variant="filled"
             onPressEnter={(e) => {
               const q = (e.target as HTMLInputElement).value.trim();
@@ -186,7 +184,7 @@ export default function AppShell({ user, pendingCount, children }: Props) {
           {/* 顶栏只保留铃铛：邮件与帮助两个图标原本点了没有任何反应，
               界面上摆着点不动的东西比没有更糟，已移除。 */}
           <Badge count={pendingCount} size="small" offset={[-2, 4]}>
-            <Button type="text" size="large" icon={<BellOutlined style={{ fontSize: 20 }} />} onClick={() => router.push("/follow-ups/plans")} />
+            <Button type="text" icon={<BellOutlined style={{ fontSize: 17 }} />} onClick={() => router.push("/follow-ups/plans")} />
           </Badge>
 
           <Dropdown
@@ -199,12 +197,12 @@ export default function AppShell({ user, pendingCount, children }: Props) {
             }}
           >
             <Space style={{ cursor: "pointer", paddingLeft: 10 }} size={11}>
-              <Avatar size={40} style={{ background: avatarColor(user.name), fontSize: 17 }}>
+              <Avatar size={30} style={{ background: avatarColor(user.name), fontSize: 13 }}>
                 {initial(user.name)}
               </Avatar>
               {/* 窄屏只留头像，否则姓名会被挤成竖排 */}
               {/* 只显示姓名：职位在设置页看得到，摆在这里每屏都占一行、信息量却很低 */}
-              <div className="header-user-meta" style={{ fontWeight: 500, fontSize: 15 }}>
+              <div className="header-user-meta" style={{ fontWeight: 500, fontSize: 14 }}>
                 {user.name}
               </div>
               <DownOutlined style={{ fontSize: 12, color: "#94a3b8" }} />
@@ -213,7 +211,7 @@ export default function AppShell({ user, pendingCount, children }: Props) {
         </Header>
 
         {/* 超宽屏下限制正文宽度并居中，避免表格被拉得过于稀疏 */}
-        <Content className="app-content" style={{ padding: "26px 28px" }}>
+        <Content className="app-content" style={{ padding: "22px 26px" }}>
           <div style={{ maxWidth: 1720, margin: "0 auto" }}>{children}</div>
         </Content>
       </Layout>

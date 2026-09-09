@@ -101,7 +101,7 @@ export default function ReportsView({
       <PageHead
         icon={<BarChartOutlined />}
         title="数据复盘"
-        subtitle="签约业绩按周期与维度拆解"
+        subtitle="按周期与维度拆解签约"
         tag="报表分析"
         tagNote="月度、季度、年度业绩一目了然"
         extra={

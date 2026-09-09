@@ -17,7 +17,8 @@ mkdirSync(OUT, { recursive: true });
 /** 顺序即文档中的呈现顺序 */
 const PAGES = [
   { file: "01-login", url: "/login", auth: false, label: "登录页", viewport: { width: 1080, height: 860 } },
-  { file: "02-dashboard", url: "/dashboard", label: "数据首页", settle: 2500 },
+  { file: "02-dashboard", url: "/dashboard", label: "首页", settle: 2500 },
+  { file: "02b-overview", url: "/overview", label: "数据看板", settle: 2500 },
   { file: "03-leads", url: "/leads", label: "线索管理" },
   { file: "04-customers", url: "/customers", label: "客户列表" },
   { file: "05-customer-detail", url: null, label: "客户详情·跟进记录", settle: 1500 },

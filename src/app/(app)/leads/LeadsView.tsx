@@ -187,7 +187,7 @@ export default function LeadsView({
       <PageHead
         icon={<ShareAltOutlined />}
         title="线索管理"
-        subtitle="全渠道线索统一汇聚"
+        subtitle="还没建档的线索"
         tag="线索管理"
         tagNote="从线索到客户，转化路径清晰可控"
       />

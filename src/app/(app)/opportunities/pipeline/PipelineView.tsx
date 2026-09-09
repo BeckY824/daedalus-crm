@@ -49,7 +49,7 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
       <PageHead
         icon={<PartitionOutlined />}
         title="商机管道"
-        subtitle="拖拽卡片即可推进阶段"
+        subtitle="拖动卡片推进阶段"
         tag="商机管理"
         tagNote="可视化管道，管理销售节奏"
         extra={

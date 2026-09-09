@@ -165,7 +165,7 @@ export default function ChannelsView({
       <PageHead
         icon={<ShareAltOutlined />}
         title="渠道管理"
-        subtitle="外部推荐来源，整条推荐链的起点"
+        subtitle="外部推荐来源与转介绍"
         tag="渠道管理"
         tagNote="维护外部渠道及其负责人，业绩自动归集"
         extra={
