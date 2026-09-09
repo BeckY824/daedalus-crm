@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { Card, Row, Col, Table, Button, Space, Typography, App, Empty } from "antd";
 import { RadarChartOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icons";
@@ -8,6 +7,7 @@ import type { TopReferrer, InviteCandidate } from "@/lib/referral";
 import { money } from "@/lib/utils";
 import { draftInvite } from "./ai";
 import { useBusiness } from "@/lib/business-client";
+import { runJob, useJob } from "@/lib/ai-jobs";
 
 /**
  * 转介绍雷达：左边是谁在帮我们带人，右边是下一个该请谁开口。
@@ -24,15 +24,13 @@ export default function ReferralRadar({
 }) {
   const { message } = App.useApp();
   const b = useBusiness();
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [loadingId, setLoadingId] = useState<string | null>(null);
-
-  async function draft(c: InviteCandidate) {
-    setLoadingId(c.customerId);
-    const res = await draftInvite({ customerId: c.customerId });
-    setLoadingId(null);
-    if (res.ok) setDrafts((d) => ({ ...d, [c.customerId]: res.message }));
-    else message.error(res.error);
+  // 话术挂在进程内任务表上（ai-jobs）：切走再回来，转圈和结果都还在；key 与记录页共用
+  function draft(c: InviteCandidate) {
+    runJob(`draft:invite:${c.customerId}`, async () => {
+      const res = await draftInvite({ customerId: c.customerId });
+      if (!res.ok) message.error(res.error);
+      return res.ok ? { ok: true, value: res.message } : res;
+    });
   }
 
   async function copy(text: string) {
@@ -84,48 +82,39 @@ export default function ReferralRadar({
           {inviteCandidates.length === 0 ? (
             emptyNode(`已签约的${b.customer}都请过了`)
           ) : (
-            inviteCandidates.map((c) => (
-              <div key={c.customerId} style={{ padding: "10px 0", borderBottom: "1px dashed #eef2f7" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <Link href={`/customers/${c.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
-                    {c.name}
-                  </Link>
-                  <span style={{ flex: 1, minWidth: 160, color: "#64748b", fontSize: 14 }}>{c.reason}</span>
-                  {aiEnabled && !drafts[c.customerId] && (
-                    <Button
-                      size="small"
-                      icon={<ThunderboltOutlined />}
-                      loading={loadingId === c.customerId}
-                      onClick={() => draft(c)}
-                    >
-                      起草邀请
-                    </Button>
-                  )}
-                </div>
-                {drafts[c.customerId] && (
-                  <div
-                    style={{
-                      marginTop: 8,
-                      background: "#f6f9fe",
-                      border: "1px solid #dbe8fa",
-                      borderRadius: 8,
-                      padding: "10px 14px",
-                      display: "flex",
-                      gap: 12,
-                      alignItems: "flex-start",
-                    }}
-                  >
-                    <div style={{ flex: 1, fontSize: 14, lineHeight: 1.8 }}>{drafts[c.customerId]}</div>
-                    <Button size="small" type="primary" ghost icon={<CopyOutlined />} onClick={() => copy(drafts[c.customerId])}>
-                      复制
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))
+            inviteCandidates.map((c) => <InviteRow key={c.customerId} c={c} aiEnabled={aiEnabled} onDraft={() => draft(c)} onCopy={copy} />)
           )}
         </Col>
       </Row>
     </Card>
+  );
+}
+
+/** 单行拆成组件，各自订阅自己的邀请话术任务 */
+function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEnabled: boolean; onDraft: () => void; onCopy: (t: string) => void }) {
+  const job = useJob<string>(`draft:invite:${c.customerId}`);
+  const text = job?.status === "done" ? job.value : undefined;
+  return (
+    <div style={{ padding: "10px 0", borderBottom: "1px dashed #eef2f7" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <Link href={`/customers/${c.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
+          {c.name}
+        </Link>
+        <span style={{ flex: 1, minWidth: 160, color: "#64748b", fontSize: 14 }}>{c.reason}</span>
+        {aiEnabled && !text && (
+          <Button size="small" icon={<ThunderboltOutlined />} loading={job?.status === "loading"} onClick={onDraft}>
+            起草邀请
+          </Button>
+        )}
+      </div>
+      {text && (
+        <div style={{ marginTop: 8, background: "#f6f9fe", border: "1px solid #dbe8fa", borderRadius: 8, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+          <div style={{ flex: 1, fontSize: 14, lineHeight: 1.8 }}>{text}</div>
+          <Button size="small" type="primary" ghost icon={<CopyOutlined />} onClick={() => onCopy(text)}>
+            复制
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }

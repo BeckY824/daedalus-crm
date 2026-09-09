@@ -8,7 +8,8 @@
 import { test } from "@playwright/test";
 
 const 页面 = [
-  ["数据首页", "/dashboard"],
+  ["首页", "/dashboard"],
+  ["数据看板", "/overview"],
   ["线索管理", "/leads"],
   ["学员管理", "/customers"],
   ["渠道管理", "/channels"],

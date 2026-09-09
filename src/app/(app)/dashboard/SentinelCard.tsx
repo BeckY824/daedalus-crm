@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { Card, Tag, Button, Space, Typography, App } from "antd";
 import { EyeOutlined, ThunderboltOutlined, CopyOutlined, BulbOutlined } from "@ant-design/icons";
@@ -8,6 +7,7 @@ import type { WatchItem } from "@/lib/sentinel";
 import { KIND_LABEL } from "@/lib/sentinel";
 import { draftWakeup, explainWatchlist } from "./ai";
 import { useBusiness } from "@/lib/business-client";
+import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
   overdue_plan: "error",
@@ -23,26 +23,27 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
   const { message } = App.useApp();
   const b = useBusiness();
   const kindLabel = (k: WatchItem["kind"]) => KIND_LABEL[k].replace("学员", b.customer);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [loadingId, setLoadingId] = useState<string | null>(null);
-  const [notes, setNotes] = useState<Record<string, string> | null>(null);
-  const [explaining, setExplaining] = useState(false);
+  // 解读与话术都挂在进程内任务表上（ai-jobs），离开首页再回来，转圈和结果都还在。
+  // 话术的 key 与记录页共用：两边起草的是同一条，互相能看到
+  const explainJob = useJob<Record<string, string>>("sentinel:explain");
+  const notes = explainJob?.status === "done" ? explainJob.value : null;
+  const explaining = explainJob?.status === "loading";
 
   /** 一次调用给整张清单各补一句"从哪接上"。按需触发，不随页面加载自动跑 */
-  async function explain() {
-    setExplaining(true);
-    const res = await explainWatchlist({ items: items.map((it) => ({ customerId: it.customerId, reason: it.reason })) });
-    setExplaining(false);
-    if (res.ok) setNotes(res.notes);
-    else message.error(res.error);
+  function explain() {
+    runJob("sentinel:explain", async () => {
+      const res = await explainWatchlist({ items: items.map((it) => ({ customerId: it.customerId, reason: it.reason })) });
+      if (!res.ok) message.error(res.error);
+      return res.ok ? { ok: true, value: res.notes } : res;
+    });
   }
 
-  async function draft(it: WatchItem) {
-    setLoadingId(it.customerId);
-    const res = await draftWakeup({ customerId: it.customerId, reason: it.reason });
-    setLoadingId(null);
-    if (res.ok) setDrafts((d) => ({ ...d, [it.customerId]: res.message }));
-    else message.error(res.error);
+  function draft(it: WatchItem) {
+    runJob(`draft:wakeup:${it.customerId}`, async () => {
+      const res = await draftWakeup({ customerId: it.customerId, reason: it.reason });
+      if (!res.ok) message.error(res.error);
+      return res.ok ? { ok: true, value: res.message } : res;
+    });
   }
 
   async function copy(text: string) {
@@ -72,7 +73,32 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
       styles={{ body: { paddingTop: 6 } }}
     >
       {items.map((it) => (
-        <div key={it.customerId} style={{ padding: "12px 0", borderBottom: "1px dashed #eef2f7" }}>
+        <SentinelRow key={it.customerId} it={it} aiEnabled={aiEnabled} note={notes?.[it.customerId]} kindLabel={kindLabel} onDraft={() => draft(it)} onCopy={copy} />
+      ))}
+    </Card>
+  );
+}
+
+/** 单行拆成组件，是为了每行各自订阅自己的话术任务 */
+function SentinelRow({
+  it,
+  aiEnabled,
+  note,
+  kindLabel,
+  onDraft,
+  onCopy,
+}: {
+  it: WatchItem;
+  aiEnabled: boolean;
+  note?: string;
+  kindLabel: (k: WatchItem["kind"]) => string;
+  onDraft: () => void;
+  onCopy: (t: string) => void;
+}) {
+  const job = useJob<string>(`draft:wakeup:${it.customerId}`);
+  const draftText = job?.status === "done" ? job.value : undefined;
+  return (
+        <div style={{ padding: "12px 0", borderBottom: "1px dashed #eef2f7" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <Tag color={KIND_COLOR[it.kind]} style={{ margin: 0, borderRadius: 6, flex: "none" }}>
               {kindLabel(it.kind)}
@@ -82,24 +108,19 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
             </Link>
             <span style={{ flex: 1, minWidth: 200, color: "#64748b", fontSize: 14 }}>{it.reason}</span>
             <span style={{ color: "#94a3b8", fontSize: 13, flex: "none" }}>{it.ownerName}</span>
-            {aiEnabled && !drafts[it.customerId] && (
-              <Button
-                size="small"
-                icon={<ThunderboltOutlined />}
-                loading={loadingId === it.customerId}
-                onClick={() => draft(it)}
-              >
+            {aiEnabled && !draftText && (
+              <Button size="small" icon={<ThunderboltOutlined />} loading={job?.status === "loading"} onClick={onDraft}>
                 起草跟进
               </Button>
             )}
           </div>
-          {notes?.[it.customerId] && (
+          {note && (
             <div style={{ marginTop: 6, paddingLeft: 2, fontSize: 14, color: "#334155" }}>
               <BulbOutlined style={{ color: "#f59e0b", marginRight: 6 }} />
-              {notes[it.customerId]}
+              {note}
             </div>
           )}
-          {drafts[it.customerId] && (
+          {draftText && (
             <div
               style={{
                 marginTop: 10,
@@ -112,14 +133,15 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
                 alignItems: "flex-start",
               }}
             >
-              <div style={{ flex: 1, fontSize: 14, lineHeight: 1.8 }}>{drafts[it.customerId]}</div>
-              <Button size="small" type="primary" ghost icon={<CopyOutlined />} onClick={() => copy(drafts[it.customerId])}>
+              <div style={{ flex: 1, fontSize: 14, lineHeight: 1.8 }}>{draftText}</div>
+              <Button size="small" type="primary" ghost icon={<CopyOutlined />} onClick={() => onCopy(draftText)}>
                 复制
+              </Button>
+              <Button size="small" type="text" onClick={() => clearJob(`draft:wakeup:${it.customerId}`)}>
+                收起
               </Button>
             </div>
           )}
         </div>
-      ))}
-    </Card>
   );
 }

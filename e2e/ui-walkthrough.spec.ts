@@ -20,7 +20,8 @@ const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 const 戳 = String(Date.now()).slice(-6);
 
 const 页面 = [
-  { 路径: "/dashboard", 名字: "数据首页" },
+  { 路径: "/dashboard", 名字: "首页" },
+  { 路径: "/overview", 名字: "数据看板" },
   { 路径: "/leads", 名字: "线索管理" },
   { 路径: "/customers", 名字: "学员管理" },
   { 路径: "/channels", 名字: "渠道管理" },

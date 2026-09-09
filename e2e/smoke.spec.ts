@@ -57,7 +57,7 @@ test("1. 密码错了要有明确提示，正确才放进来", async ({ page }) 
   await expect(page).toHaveURL(/\/login/);
 
   await 登录(page);
-  await expect(page.getByText("数据首页")).toBeVisible();
+  await expect(page.getByRole("link", { name: "首页", exact: true })).toBeVisible();
 });
 
 test("2. 未登录访问内页会被挡回登录页", async ({ page }) => {

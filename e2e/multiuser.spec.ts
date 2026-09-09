@@ -88,7 +88,7 @@ test.describe("A 组：跨会话的数据可见性", () => {
     await 新建学员(甲.page, 姓名, `1371${戳}01`.slice(0, 11).padEnd(11, "8"));
 
     // 乙用侧边栏软导航离开再回来
-    await 乙.page.getByRole("link", { name: "数据首页" }).click();
+    await 乙.page.getByRole("link", { name: "首页", exact: true }).click();
     await expect(乙.page).toHaveURL(/\/dashboard/);
     await 乙.page.getByRole("link", { name: "学员管理" }).click();
     await expect(乙.page).toHaveURL(/\/customers/);

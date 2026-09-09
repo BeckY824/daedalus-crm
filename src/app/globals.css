@@ -451,3 +451,40 @@ a {
 @media (max-width: 900px) {
   .rec { grid-template-columns: 1fr; }
 }
+
+/* ---------- 首页：对话面 ---------- */
+.home { min-height: calc(100vh - 140px); display: flex; flex-direction: column; }
+.home-col { width: 100%; max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; flex: 1; }
+.home-empty .home-col { justify-content: center; }
+.home-hero { text-align: center; margin-bottom: 26px; }
+.home-greet { font-size: 34px; font-weight: 700; color: #10233d; letter-spacing: -0.6px; line-height: 1.2; }
+.home-ctx { margin-top: 10px; font-size: 15px; color: var(--text-muted); }
+.home-thread { flex: 1; padding-bottom: 8px; }
+.home-turn { margin-bottom: 26px; }
+.home-q { display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--text-muted); margin-bottom: 8px; }
+.home-q span { background: #eef2f8; border-radius: 999px; padding: 4px 12px; color: #334155; }
+.home-turn-x { border: 0; background: none; color: #c0c8d4; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 4px; opacity: 0; transition: opacity 120ms; }
+.home-turn:hover .home-turn-x { opacity: 1; }
+.home-a { background: #fff; border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; box-shadow: 0 2px 10px rgba(16, 43, 77, 0.04); }
+.home-a-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.home-a-name { font-size: 15px; font-weight: 600; color: #10233d; }
+.home-a-link { font-size: 13px; color: var(--brand); cursor: pointer; }
+.home-composer { padding: 6px 0 4px; }
+.home-composer-sticky { position: sticky; bottom: 0; background: linear-gradient(to bottom, rgba(242, 246, 252, 0), var(--page-bg) 30%); padding-top: 18px; padding-bottom: 8px; }
+.home-input {
+  display: flex; align-items: flex-end; gap: 8px; padding: 10px 10px 10px 16px;
+  background: #fff; border: 1px solid #dfe6f0; border-radius: 18px; box-shadow: 0 6px 24px rgba(16, 43, 77, 0.08);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.home-input:focus-within { border-color: #9dbcf2; box-shadow: 0 8px 28px rgba(22, 104, 220, 0.14); }
+.home-input textarea { font-size: 16px; padding: 4px 0; resize: none; }
+.home-input .ant-btn { flex: none; }
+.home-chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; padding: 0 4px; }
+.home-chip {
+  font-size: 13px; color: #334155; background: #fff; border: 1px solid var(--border); border-radius: 999px;
+  padding: 6px 12px; cursor: pointer; transition: all 120ms ease; display: inline-flex; align-items: center; gap: 5px; text-decoration: none;
+}
+.home-chip:hover { border-color: #c7d6ee; color: var(--brand); transform: translateY(-1px); }
+.home-chip-ghost { background: transparent; border-color: transparent; color: var(--text-muted); }
+.home-chip-ghost:hover { background: #fff; }
+@media (max-width: 640px) { .home-greet { font-size: 26px; } }

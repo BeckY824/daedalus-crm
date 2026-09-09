@@ -15,6 +15,7 @@ import {
 } from "antd";
 import {
   HomeOutlined,
+  DashboardOutlined,
   ShareAltOutlined,
   TeamOutlined,
   ContactsOutlined,
@@ -66,7 +67,8 @@ export default function AppShell({ user, pendingCount, children }: Props) {
 
   const items = useMemo(
     () => [
-      { key: "/dashboard", icon: <HomeOutlined />, label: <Link href="/dashboard">数据首页</Link> },
+      { key: "/dashboard", icon: <HomeOutlined />, label: <Link href="/dashboard">首页</Link> },
+      { key: "/overview", icon: <DashboardOutlined />, label: <Link href="/overview">数据看板</Link> },
       { key: "/leads", icon: <ShareAltOutlined />, label: <Link href="/leads">线索管理</Link> },
       { key: "/customers", icon: <TeamOutlined />, label: <Link href="/customers">{b.customer}管理</Link> },
       { key: "/channels", icon: <DeploymentUnitOutlined />, label: <Link href="/channels">渠道管理</Link> },
@@ -97,7 +99,7 @@ export default function AppShell({ user, pendingCount, children }: Props) {
 
   // 选中项取最长匹配前缀，保证 /customers/xxx 也高亮客户管理
   const selectedKey = useMemo(() => {
-    const flat = ["/dashboard", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities/pipeline", "/opportunities", "/follow-ups/plans", "/follow-ups", "/settings"];
+    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities/pipeline", "/opportunities", "/follow-ups/plans", "/follow-ups", "/settings"];
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
 
