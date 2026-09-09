@@ -161,6 +161,6 @@ describe("AI 用量统计", () => {
     await prisma.auditLog.create({ data: { userId: "u", userName: "x", action: "ai_use", entity: "Ai", entityId: "brief", summary: "old", at: new Date(Date.now() - 40 * 86400_000) } });
     const usage = await aiUsageThisMonth();
     const byKey = Object.fromEntries(usage.map((u) => [u.feature, u.count]));
-    expect(byKey).toEqual({ parse: 2, brief: 0, ask: 1, wakeup: 0, invite: 0 });
+    expect(byKey).toEqual({ parse: 2, brief: 0, ask: 1, wakeup: 0, explain: 0, invite: 0 });
   });
 });

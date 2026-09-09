@@ -10,12 +10,14 @@ import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 
+vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/auth", () => ({
   requireUser: async () => ({ id: "tester-id", name: "测试员", email: "t", role: "ADMIN", title: "" }),
 }));
 
 import { parseFollowUpDraft, generateBrief } from "@/app/(app)/customers/[id]/ai";
-import { draftWakeup } from "@/app/(app)/dashboard/ai";
+import { draftWakeup, explainWatchlist } from "@/app/(app)/dashboard/ai";
+import { askHome, quickBrief } from "@/app/(app)/dashboard/ask";
 import { draftInvite } from "@/app/(app)/channels/ai";
 import { askData } from "@/app/(app)/reports/ask";
 import { llmEnabled } from "@/lib/llm";
@@ -129,5 +131,96 @@ describe("AI 配额接线", () => {
     const res = await askData("这个月签约金额是多少？");
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toContain("太频繁");
+  });
+});
+
+describe("首页提问守卫", () => {
+  it("问题太短要拒绝", async () => {
+    const res = await askHome("x");
+    expect(res.ok).toBe(false);
+  });
+
+  it("问题里点到学员名 → 走简报路径；没有跟进记录时报简报那句人话，而不是白屏", async () => {
+    const res = await askHome("测试学员还能怎么推进");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("跟进记录");
+  });
+
+  it("同名学员有两位时不能瞎猜，要让人去详情页", async () => {
+    const sales = await prisma.user.findFirstOrThrow();
+    await prisma.customer.create({ data: { name: "测试学员", phone: "13800000002", salesOwnerId: sales.id } });
+    const res = await askHome("测试学员下次谈什么");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("2 位");
+  });
+
+  it("没点到学员名 → 走问数据；key 未配置时是人话错误", async () => {
+    const res = await askHome("这个月签了多少单");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).not.toMatch(/undefined|TypeError/);
+  });
+
+  it("准备下次跟进：计划对应的学员没有跟进记录时跳过它，都没有就说清楚", async () => {
+    // 计划的 ownerId 是当前登录人（mock 的 tester-id），外键要求这个用户真的在库里
+    await prisma.user.create({ data: { id: "tester-id", email: "t", name: "测试员", title: "", role: "ADMIN", password: "x" } });
+    const c = await prisma.customer.findFirstOrThrow();
+    await prisma.followPlan.create({ data: { customerId: c.id, ownerId: "tester-id", subject: "x", plannedAt: new Date() } });
+    const res = await quickBrief("prep");
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("跟进记录");
+  });
+
+  it("快捷键：没有跟进计划 / 没有跟进记录时各报各的", async () => {
+    const prep = await quickBrief("prep");
+    expect(prep.ok).toBe(false);
+    if (!prep.ok) expect(prep.error).toContain("跟进计划");
+    const recap = await quickBrief("recap");
+    expect(recap.ok).toBe(false);
+    if (!recap.ok) expect(recap.error).toContain("跟进记录");
+  });
+});
+
+describe("盯盘解读守卫", () => {
+  it("空清单要拒绝", async () => {
+    const res = await explainWatchlist({ items: [] });
+    expect(res.ok).toBe(false);
+  });
+
+  it("学员不存在要报得清楚", async () => {
+    const res = await explainWatchlist({ items: [{ customerId: "nope", reason: "x" }] });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toContain("不存在");
+  });
+});
+
+describe("速记原文留存", () => {
+  // saveFollowUp 会把 ownerId 写成当前登录人，mock 的 tester-id 得真的在库里
+  beforeEach(async () => {
+    await prisma.user.create({ data: { id: "tester-id", email: "t", name: "测试员", title: "", role: "ADMIN", password: "x" } });
+  });
+
+  it("saveFollowUp 带 sourceText → FollowUpSource 有记录；编辑时不动原文", async () => {
+    const { saveFollowUp } = await import("@/app/(app)/customers/[id]/actions");
+    const res = await saveFollowUp({
+      customerId, type: "SMS", content: "要点", status: "已完成",
+      occurredAt: new Date().toISOString(), sourceText: "王妈妈：孩子时间不够\n我：先试两节",
+    });
+    expect(res.ok).toBe(true);
+    const fu = await prisma.followUp.findFirstOrThrow({ where: { customerId }, include: { source: true } });
+    expect(fu.source?.text).toContain("时间不够");
+
+    const edit = await saveFollowUp({
+      id: fu.id, customerId, type: "SMS", content: "改了要点", status: "已完成",
+      occurredAt: new Date().toISOString(), sourceText: "试图改写原文",
+    });
+    expect(edit.ok).toBe(true);
+    const again = await prisma.followUp.findUniqueOrThrow({ where: { id: fu.id }, include: { source: true } });
+    expect(again.source?.text).toContain("时间不够");
+  });
+
+  it("手工新建（不带 sourceText）不产生原文记录", async () => {
+    const { saveFollowUp } = await import("@/app/(app)/customers/[id]/actions");
+    await saveFollowUp({ customerId, type: "PHONE", content: "要点", status: "已完成", occurredAt: new Date().toISOString() });
+    expect(await prisma.followUpSource.count()).toBe(0);
   });
 });

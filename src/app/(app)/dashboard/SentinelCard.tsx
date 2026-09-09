@@ -3,10 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Card, Tag, Button, Space, Typography, App } from "antd";
-import { EyeOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icons";
+import { EyeOutlined, ThunderboltOutlined, CopyOutlined, BulbOutlined } from "@ant-design/icons";
 import type { WatchItem } from "@/lib/sentinel";
 import { KIND_LABEL } from "@/lib/sentinel";
-import { draftWakeup } from "./ai";
+import { draftWakeup, explainWatchlist } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
@@ -25,6 +25,17 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
   const kindLabel = (k: WatchItem["kind"]) => KIND_LABEL[k].replace("学员", b.customer);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [notes, setNotes] = useState<Record<string, string> | null>(null);
+  const [explaining, setExplaining] = useState(false);
+
+  /** 一次调用给整张清单各补一句"从哪接上"。按需触发，不随页面加载自动跑 */
+  async function explain() {
+    setExplaining(true);
+    const res = await explainWatchlist({ items: items.map((it) => ({ customerId: it.customerId, reason: it.reason })) });
+    setExplaining(false);
+    if (res.ok) setNotes(res.notes);
+    else message.error(res.error);
+  }
 
   async function draft(it: WatchItem) {
     setLoadingId(it.customerId);
@@ -51,6 +62,13 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
           </Typography.Text>
         </Space>
       }
+      extra={
+        aiEnabled && !notes ? (
+          <Button size="small" icon={<BulbOutlined />} loading={explaining} onClick={explain}>
+            AI 解读
+          </Button>
+        ) : null
+      }
       styles={{ body: { paddingTop: 6 } }}
     >
       {items.map((it) => (
@@ -75,6 +93,12 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
               </Button>
             )}
           </div>
+          {notes?.[it.customerId] && (
+            <div style={{ marginTop: 6, paddingLeft: 2, fontSize: 14, color: "#334155" }}>
+              <BulbOutlined style={{ color: "#f59e0b", marginRight: 6 }} />
+              {notes[it.customerId]}
+            </div>
+          )}
           {drafts[it.customerId] && (
             <div
               style={{
