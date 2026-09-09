@@ -53,7 +53,9 @@ test("控制台巡检", async ({ page }) => {
   }
   await 首个学员.click();
   await page.waitForTimeout(1200);
-  await page.getByRole("tab", { name: /联系人/ }).click();
+  // 记录页没有页签；点一下状态标签把下拉也渲染一遍
+  await page.locator("aside.rec-card .ant-tag").first().click();
   await page.waitForTimeout(800);
-  console.log(问题.length === 0 ? "✓ 学员详情（含联系人页签）" : `✗ 学员详情\n    ${问题.join("\n    ")}`);
+  await page.keyboard.press("Escape");
+  console.log(问题.length === 0 ? "✓ 学员详情（含状态下拉）" : `✗ 学员详情\n    ${问题.join("\n    ")}`);
 });

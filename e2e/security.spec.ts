@@ -58,7 +58,8 @@ test("存储型 XSS：学员备注里的脚本不会被执行，按字面显示"
   // 重新加载，走的是「从库里读出来再渲染」这条路——存储型 XSS 真正发作的时机
   await page.goto("/customers");
   await page.getByRole("link", { name: 姓名 }).click();
-  await page.getByRole("tab", { name: "客户资料" }).click();
+  // 记录页的备注常驻左栏，不用切页签
+  await page.getByText("备注").first().waitFor();
 
   // 1. 脚本没有执行
   expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__被执行了)).toBeUndefined();

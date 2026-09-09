@@ -107,9 +107,10 @@ test("1c 保存联动：勾选的待办与计划随跟进一起创建，取消�
   await 登录(page);
   await 打开有跟进记录的学员(page);
 
+  // 记录页右栏的待办卡片标题形如「待办 3」，没有待办时不带数字
   const 待办数 = async () => {
-    const t = await page.getByRole("tab", { name: /待办任务/ }).innerText();
-    return Number(t.match(/\((\d+)\)/)?.[1] ?? 0);
+    const t = await page.locator(".rec-side-t", { hasText: "待办" }).first().innerText();
+    return Number(t.match(/待办\s*(\d+)/)?.[1] ?? 0);
   };
   const 原待办 = await 待办数();
   const 原跟进条数 = await page.locator(".ant-timeline-item, [class*='timeline']").count();
@@ -161,8 +162,7 @@ test("2b 简报空数据兜底：没有跟进记录的学员明说，不硬生�
   // 林同学有商机但没有任何跟进记录
   await page.goto("/customers");
   await page.getByRole("link", { name: "林同学" }).first().click();
-  await page.getByRole("button", { name: "简报" }).click();
-
+  // 记录页的 AI 面板打开即生成；没有记录时不调模型，直接说明
   await expect(page.getByText(/还没有任何跟进记录|没有可提炼/)).toBeVisible({ timeout: 60_000 });
 });
 

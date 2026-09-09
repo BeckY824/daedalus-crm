@@ -362,7 +362,7 @@ test("推荐链上的学员，详情页要能看出上下游与归属", async ({
   await page.reload();
 
   await page.getByRole("link", { name: "链条3号" }).click();
-  await page.getByRole("tab", { name: "客户资料" }).click();
+  await page.getByText("推荐关系").waitFor();
   await page.waitForTimeout(500);
   await page.screenshot({ path: "test-results/走查/推荐链-详情.png", fullPage: true });
 

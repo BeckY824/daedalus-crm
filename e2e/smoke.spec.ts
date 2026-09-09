@@ -129,7 +129,7 @@ test("6. 登记签约后，跟进状态变成已签约、金额显示出来", as
   await page.goto("/customers");
   await page.getByRole("link", { name: 学员名 }).click();
 
-  await page.getByRole("tab", { name: /签约/ }).click();
+  // 记录页没有页签：「登记签约」在左栏签约一节
   await page.getByRole("button", { name: /登记签约|新建签约|添加签约/ }).first().click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByLabel("签约金额（元）").fill("19800");
@@ -143,7 +143,6 @@ test("7. 同一天同金额再录一笔，要弹窗确认而不是默默翻倍",
   await 登录(page);
   await page.goto("/customers");
   await page.getByRole("link", { name: 学员名 }).click();
-  await page.getByRole("tab", { name: /签约/ }).click();
 
   await page.getByRole("button", { name: /登记签约|新建签约|添加签约/ }).first().click();
   const 弹窗 = page.getByRole("dialog").first();
@@ -158,9 +157,9 @@ test("7. 同一天同金额再录一笔，要弹窗确认而不是默默翻倍",
   // 点取消就不该录进去，累计金额保持一笔
   await 查重弹窗.getByRole("button", { name: /取\s*消/ }).click();
   await page.reload();
-  await page.getByRole("tab", { name: /签约/ }).click();
-  await expect(page.getByRole("tab", { name: /签约/ })).toContainText("(1)");
-  await expect(page.getByText(/累计签约/)).toContainText("19,800");
+  // 左栏签约一节的计数仍是 1，签约金额仍是那一笔
+  await expect(page.locator("aside.rec-card")).toContainText("签约 1");
+  await expect(page.locator("aside.rec-card")).toContainText("19,800");
 });
 
 test("8. 两个人同时改同一条学员：改不同字段自动合并，改同一字段才拦", async ({ browser }) => {

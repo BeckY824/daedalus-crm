@@ -78,12 +78,15 @@ await page.setViewportSize({ width: 1680, height: 1050 });
 
 await login();
 
-// 取一个跟进记录最丰富的客户做详情页样本
+// 详情页样本：优先取名为「陈同学」的（截图演示库里给它准备了原文、商机与计划），否则取第一个
 const detailHref = await page.evaluate(async () => {
-  const r = await fetch("/customers", { headers: { accept: "text/html" } });
+  const r = await fetch("/customers?keyword=" + encodeURIComponent("陈同学"), { headers: { accept: "text/html" } });
   const html = await r.text();
   const m = html.match(/\/customers\/(c[a-z0-9]{20,})/);
-  return m ? m[0] : null;
+  if (m) return m[0];
+  const r2 = await fetch("/customers", { headers: { accept: "text/html" } });
+  const m2 = (await r2.text()).match(/\/customers\/(c[a-z0-9]{20,})/);
+  return m2 ? m2[0] : null;
 });
 
 for (const p of PAGES.filter((p) => p.auth !== false)) {
@@ -93,6 +96,8 @@ for (const p of PAGES.filter((p) => p.auth !== false)) {
     continue;
   }
   await page.goto(`${BASE}${url}`, { waitUntil: "networkidle" });
+  // 记录页的 AI 面板是打开后异步生成的，等它出结果再拍（最多 90 秒；没配 AI 时立刻返回）
+  if (!p.url) await page.waitForFunction(() => /这次建议谈|建议|还没有任何跟进记录/.test(document.querySelector(".rec-ai")?.innerText ?? "x"), null, { timeout: 90000 }).catch(() => {});
   await shoot(p.file, p.settle);
 }
 
