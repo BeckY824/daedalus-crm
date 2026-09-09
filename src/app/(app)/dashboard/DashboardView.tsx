@@ -16,6 +16,7 @@ import type { EChartsCoreOption } from "echarts/core";
 import Chart, { Sparkline } from "@/components/Chart";
 import { StatCard, CompanyLogo, UserCell } from "@/components/ui";
 import SentinelCard from "./SentinelCard";
+import AskBar from "./AskBar";
 import type { WatchItem } from "@/lib/sentinel";
 import { money, moneyShort, smartTime, 成员选项 } from "@/lib/utils";
 import { OPP_STAGE_COLOR } from "@/lib/constants";
@@ -138,6 +139,8 @@ export default function DashboardView({ stats, trend, funnel, ranking, tasks, wa
 
   return (
     <>
+      {/* 提问框放在最前：这是人进首页第一眼该看到的东西，而不是藏在某个功能页里。没配 AI 时不出现 */}
+      {aiEnabled && <AskBar />}
       {/* 指标卡 */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
