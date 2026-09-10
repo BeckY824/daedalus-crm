@@ -46,6 +46,8 @@ ${toolDoc}
   {"final": true}
 规则：
 - 问到某个人，先 search_customers（用问题里出现的完整姓名，不要只截一个姓）再 get_customer；同名多位时不要猜，直接 final 并在回答里说清楚有哪几位
+- 问某一类人（某个学校 / 专业 / 跟进状态 / 我负责的，"有多少、分别是谁"）：search_customers 用那个关键词或过滤条件，它返回总数和名单，直接据此回答，不用逐个 get_customer
+- 工具没找到时如实说"没有匹配的"，不要把关键词当成人名
 - 问数字用 query_metric；问"该联系谁"用 get_watchlist / get_my_plans
 - 已经拿到足够信息就 final，不要重复调用同一个工具
 - 最多 ${MAX_STEPS} 步`;
@@ -57,14 +59,19 @@ ${toolDoc}
   const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0 };
   const records: BriefRecord[] = [];
   const customers = new Map<string, { id: string; name: string; followStatus: string }>();
+  const mentioned = new Map<string, { id: string; name: string; followStatus: string }>();
   let steps = 0;
 
   for (let i = 0; i < MAX_STEPS; i++) {
     if (ev.signal?.aborted) throw new Error("已取消");
-    const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 60_000, signal: ev.signal })) as Record<string, unknown>;
-    if (raw?.final || !raw?.action) break;
-    const action = raw.action as { tool?: unknown; args?: unknown };
-    const tool = typeof action.tool === "string" ? TOOL_MAP.get(action.tool) : undefined;
+    // 决策步：关思维链、温度 0——只是选工具填参数，要快、要稳
+    const t0 = Date.now();
+    const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, signal: ev.signal })) as Record<string, unknown>;
+    console.info(`[agent] 第 ${i + 1} 步决策 ${Date.now() - t0}ms：${JSON.stringify(raw).slice(0, 120)}`);
+    // 模型常把 final 塞进 action 里（{"action":{"final":true}}），或把 tool 直接放顶层：都认
+    const action = ((raw?.action && typeof raw.action === "object" ? raw.action : raw) ?? {}) as { tool?: unknown; args?: unknown; final?: unknown };
+    if (raw?.final || action.final || typeof action.tool !== "string") break;
+    const tool = TOOL_MAP.get(action.tool);
     const thought = typeof raw.thought === "string" ? raw.thought.slice(0, 80) : "";
     if (!tool) {
       messages.push({ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: `没有叫「${String(action.tool)}」的工具。可用：${TOOLS.map((t) => t.name).join(", ")}` });
@@ -74,7 +81,7 @@ ${toolDoc}
     const stepId = `tool-${i}`;
     const args = (action.args && typeof action.args === "object" ? action.args : {}) as Record<string, unknown>;
     const argText = Object.values(args).filter((v) => typeof v === "string" && v).join(", ");
-    ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "running", detail: thought || undefined });
+    ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "running", thought: thought || undefined });
     let result;
     try {
       result = await tool.run(args, ctx);
@@ -89,8 +96,11 @@ ${toolDoc}
       const d = result.data as { id: string; name: string; profile: string };
       const m = d.profile.match(/跟进状态「([^」]+)」/);
       customers.set(d.id, { id: d.id, name: d.name, followStatus: m?.[1] ?? "" });
+    } else {
+      // 搜索 / 盯盘 / 计划里出现过的人先记着，回答里提到了才给动作
+      for (const r of listCustomers(result.data)) mentioned.set(r.id, r);
     }
-    ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "done", detail: result.summary });
+    ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "done", detail: result.summary, thought: thought || undefined });
     messages.push({ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: `工具 ${tool.name} 的结果：\n${JSON.stringify(result.data).slice(0, 6000)}` });
   }
 
@@ -104,5 +114,19 @@ ${toolDoc}
 - 不要再输出 JSON，不要提到"工具"这个词`;
   const text = await chatTextStream([...messages, { role: "user", content: finalPrompt }], { maxTokens: 1800, timeoutMs: 120_000, signal: ev.signal }, (t) => ev.onToken?.(t));
   ev.emit?.({ id: "answer", label: "组织回答", status: "done" });
+  for (const r of mentioned.values()) if (!customers.has(r.id) && customers.size < 5 && text.includes(r.name)) customers.set(r.id, r);
   return { text, records, customers: [...customers.values()], steps };
+}
+
+/** 从工具结果里捞出「id + 姓名」的行（搜索名单、盯盘、计划的形状各不同，只认字段名） */
+function listCustomers(data: unknown): { id: string; name: string; followStatus: string }[] {
+  const rows: unknown[] = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray((data as { customers?: unknown }).customers) ? (data as { customers: unknown[] }).customers : [];
+  const out: { id: string; name: string; followStatus: string }[] = [];
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    const o = r as { id?: unknown; customerId?: unknown; name?: unknown; followStatus?: unknown };
+    const id = typeof o.id === "string" ? o.id : typeof o.customerId === "string" ? o.customerId : "";
+    if (id && typeof o.name === "string") out.push({ id, name: o.name, followStatus: typeof o.followStatus === "string" ? o.followStatus : "" });
+  }
+  return out;
 }

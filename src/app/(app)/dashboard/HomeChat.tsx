@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { App } from "antd";
+import { App, Dropdown, Tooltip } from "antd";
+import { ArrowUpOutlined, CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import type { BriefRecord } from "@/lib/ai-draft";
 import { draftWakeup } from "./ai";
@@ -12,8 +13,9 @@ import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, clearJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
-import { addTurn, clearThread, removeTurn, useThread, type Turn } from "@/lib/home-thread";
+import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, type Turn } from "@/lib/home-thread";
 import type { StepEvent } from "@/lib/ai-steps";
+import { dayjs } from "@/lib/utils";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -29,12 +31,11 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
 ];
 
 /**
- * 首页 = 一个命令行式的对话面（照 Claude Code / Codex 的交互）：
- *   › 你的问题                       ← 提示行
- *   ● search_customers(陈同学)  找到 1 位   ← 工具调用一行一条，跑着的时候点在呼吸
- *   ● get_customer(…)  3 条跟进 · 2 段原文
- *   （回答逐字流出，Markdown，句末 [n] 是引用的记录）
- * 底下是输入框：Enter 发送，Shift+Enter 换行，/ 出命令单，Esc 取消正在跑的那一问。
+ * 首页 = 一个对话面，交互照 Claude Code / Codex：
+ *   一轮 = 右侧你的问题气泡 → 过程（工具调用一行一条，答完折成一句摘要，点开看）→ 逐字流出的回答
+ *          → 涉及的客户卡片（打开 / 起草）→ 底部一排小图标（复制 / 重试 / 移除）和用时
+ *   输入框：Enter 发送；正在答时 Enter 或 ⌘↵ 排队，等它答完自动发；Shift+Enter 换行；/ 出命令单
+ *   打断：Esc、Ctrl+C，或点右侧的停止键；中断后留一行「已中断」，已流出的字不丢
  * 背后是一个 agent 循环：模型自己决定读谁、查什么，工具全部只读。
  */
 export default function HomeChat({ userName, suggestions, context }: { userName: string; suggestions: Suggestion[]; context: string }) {
@@ -56,6 +57,7 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
 
   const runningKey = useRunningKey(turns.map((t) => `home:${t.id}`));
   const running = runningKey ? turns.find((t) => `home:${t.id}` === runningKey) : undefined;
+  const queued = turns.find((t) => t.queued);
   const showCmds = q.startsWith("/") && !q.includes(" ");
   const cmdMatches = showCmds ? COMMANDS.filter((c) => c.cmd.startsWith(q.trim())) : [];
 
@@ -63,7 +65,14 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
     runStream<AgentAnswer>(`home:${turn.id}`, { mode: "agent", question: turn.question });
   }
 
-  function submit(raw: string) {
+  // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
+  useEffect(() => {
+    if (running || !queued) return;
+    dequeueTurn(queued.id);
+    start(queued);
+  }, [running, queued]);
+
+  function submit(raw: string, opts: { queue?: boolean } = {}) {
     const typed = raw.trim();
     if (!typed) return;
     let question = typed;
@@ -86,16 +95,24 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
       question = c.question;
     }
     if (question.length < 2) return;
-    const turn = addTurn({ question, kind: "ask" });
-    start(turn);
+    // 正在答的时候再发：排队，不并发打模型
+    const shouldQueue = opts.queue || Boolean(running);
+    const turn = addTurn({ question, kind: "ask", queued: shouldQueue });
+    if (!shouldQueue) start(turn);
     setQ("");
+    if (taRef.current) taRef.current.style.height = "auto";
+  }
+
+  function stop() {
+    if (running) cancelStream(`home:${running.id}`);
+    taRef.current?.focus();
   }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns.length]);
 
-  // Esc：取消正在跑的那一问；焦点回到输入框
+  // Esc：打断正在跑的那一问（页面任何地方按都行）
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && running) cancelStream(`home:${running.id}`);
@@ -105,6 +122,7 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
   }, [running]);
 
   const empty = turns.length === 0;
+  const canSend = q.trim().length > 0;
 
   return (
     <div className={`cli${empty ? " cli-empty" : ""}`}>
@@ -118,7 +136,7 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
             <div className="cli-welcome-hints">
               <div>直接输入问题，比如「陈同学还能怎么推进」「各跟进状态各有多少{b.customer}」</div>
               <div>
-                输入 <kbd>/</kbd> 看命令：{COMMANDS.map((c) => c.cmd).join("  ")}
+                输入 <kbd>/</kbd> 看命令：{COMMANDS.map((c) => c.cmd).join("  ")}。AI 只读记录、只起草，不改任何数据。
               </div>
             </div>
           </motion.div>
@@ -130,9 +148,11 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
                 turn={t}
                 onRetry={() => {
                   clearJob(`home:${t.id}`);
+                  if (running) dequeueTurn(t.id);
                   start(t);
                 }}
                 onRemove={() => {
+                  cancelStream(`home:${t.id}`);
                   clearJob(`home:${t.id}`);
                   removeTurn(t.id);
                 }}
@@ -160,7 +180,7 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
               value={q}
               rows={1}
               maxLength={300}
-              placeholder={running ? "正在回答… Esc 取消" : `问一位${b.customer}，或问一个数`}
+              placeholder={running ? "正在回答… 再问会排队，Esc 打断" : `问一位${b.customer}，或问一个数`}
               onChange={(e) => {
                 setQ(e.target.value);
                 setCmdIdx(0);
@@ -178,20 +198,49 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
                   setQ(cmdMatches[cmdIdx].cmd + " ");
                   return;
                 }
+                // Ctrl+C（Codex 的习惯）：没选中文字时当打断用
+                if (e.ctrlKey && e.key === "c" && running && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
+                  e.preventDefault();
+                  stop();
+                  return;
+                }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q);
-                  if (taRef.current) taRef.current.style.height = "auto";
+                  submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q, { queue: e.metaKey || e.ctrlKey });
                 }
               }}
             />
+            {running ? (
+              <Tooltip title="打断（Esc）">
+                <button type="button" className="cli-send cli-stop" onClick={stop} aria-label="打断">
+                  <span className="cli-stop-sq" />
+                </button>
+              </Tooltip>
+            ) : (
+              <Dropdown
+                trigger={["hover"]}
+                placement="topRight"
+                menu={{
+                  items: [
+                    { key: "send", label: <MenuRow label="发送" keys="↵" /> },
+                    { key: "queue", label: <MenuRow label="排队，等上一问答完再发" keys="⌘↵" /> },
+                  ],
+                  onClick: ({ key }) => submit(q, { queue: key === "queue" }),
+                }}
+              >
+                <button type="button" className="cli-send" onClick={() => submit(q)} disabled={!canSend} aria-label="发送">
+                  <ArrowUpOutlined />
+                </button>
+              </Dropdown>
+            )}
           </div>
           <div className="cli-hints">
             <span>
-              <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行 · <kbd>/</kbd> 命令{running ? " · " : ""}
+              <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行 · <kbd>/</kbd> 命令
               {running && (
                 <>
-                  <kbd>Esc</kbd> 取消
+                  {" · "}
+                  <kbd>Esc</kbd> 打断 · <kbd>⌘↵</kbd> 排队
                 </>
               )}
             </span>
@@ -208,55 +257,112 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
   );
 }
 
+function MenuRow({ label, keys }: { label: string; keys: string }) {
+  return (
+    <span className="cli-menu-row">
+      <span>{label}</span>
+      <kbd>{keys}</kbd>
+    </span>
+  );
+}
+
+/** 把工具调用折成一句人话：「读了 1 位客户，查了 1 个数」 */
+function summarizeSteps(steps: StepEvent[], customer: string): string {
+  const n = (prefix: string) => steps.filter((s) => s.id.startsWith("tool") && s.label.startsWith(prefix)).length;
+  const parts: string[] = [];
+  const search = n("search_customers");
+  const read = n("get_customer");
+  const metric = n("query_metric");
+  if (search) parts.push(`搜了 ${search} 次`);
+  if (read) parts.push(`读了 ${read} 位${customer}的记录`);
+  if (metric) parts.push(`查了 ${metric} 个数`);
+  if (n("get_watchlist")) parts.push("看了盯盘");
+  if (n("get_my_plans")) parts.push("看了我的计划");
+  return parts.join("，") || "没有读取任何记录";
+}
+
+function whenLabel(at: number): string {
+  const d = dayjs(at);
+  const m = dayjs().diff(d, "minute");
+  if (m < 1) return "刚刚";
+  if (m < 60) return `${m} 分钟前`;
+  return d.isToday() ? d.format("HH:mm") : d.format("MM-DD HH:mm");
+}
+
 function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void; onRemove: () => void }) {
   const b = useBusiness();
+  const { message } = App.useApp();
   const job = useJob<StreamJob<AgentAnswer>>(`home:${turn.id}`);
   const ref = useRef<HTMLDivElement>(null);
   const done = job?.status === "done" || job?.status === "error";
   const [elapsed, setElapsed] = useState(0);
+  const [open, setOpen] = useState(false);
   useEffect(() => {
-    if (done) return;
-    const t = setInterval(() => setElapsed(Math.floor((Date.now() - (job?.startedAt ?? Date.now())) / 1000)), 1000);
+    if (done || !job) return;
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - job.startedAt) / 1000)), 1000);
     return () => clearInterval(t);
-  }, [done, job?.startedAt]);
+  }, [done, job]);
   useEffect(() => {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [job?.value?.text?.length, done]);
 
-  const steps: StepEvent[] = (job?.value?.steps ?? []).map((s) => (job?.status === "error" && s.status === "running" ? { ...s, status: "error" as const } : s));
+  const interrupted = job?.status === "error" && job.error === "已取消";
+  const steps: StepEvent[] = (job?.value?.steps ?? [])
+    .filter((s) => s.id !== "answer")
+    .map((s) => (job?.status === "error" && s.status === "running" ? { ...s, status: interrupted ? ("done" as const) : ("error" as const), detail: interrupted ? "被打断" : s.detail } : s));
   const text = job?.value?.text ?? job?.value?.answer?.text ?? "";
   const answer = job?.status === "done" ? job.value?.answer : undefined;
-  const thinking = !done && !text;
+  const writing = job?.value?.steps?.some((s) => s.id === "answer" && s.status === "running");
+  const thinking = Boolean(job) && !done && !text;
+  const ms = job?.value?.ms;
+  const showRows = !done || open;
 
   return (
     <div ref={ref} className="cli-turn">
-      <div className="cli-q">
-        <span className="cli-prompt">›</span>
-        <span className="cli-q-t">{turn.question}</span>
-        <button type="button" className="cli-x" onClick={onRemove} aria-label="移除">
-          ×
-        </button>
+      <div className="cli-user">
+        <div className="cli-bubble">{turn.question}</div>
       </div>
 
-      {steps.map((s) => (
-        <div key={s.id} className={`cli-step cli-step-${s.status}`}>
-          <span className="cli-dot" />
-          <span className="cli-step-l">{s.label}</span>
-          {s.detail && <span className="cli-step-d">{s.detail}</span>}
+      {turn.queued && (
+        <div className="cli-step">
+          <span className="cli-dot cli-dot-idle" />
+          <span className="cli-step-l">排队中，等上一问答完</span>
+          <button type="button" className="cli-link" onClick={onRemove}>
+            取消
+          </button>
         </div>
-      ))}
+      )}
+
+      {steps.length > 0 && done && (
+        <button type="button" className={`cli-sum${open ? " cli-sum-open" : ""}`} onClick={() => setOpen((v) => !v)}>
+          <span>{summarizeSteps(steps, b.customer)}</span>
+          {ms ? <span className="cli-sum-ms">{(ms / 1000).toFixed(1)}s</span> : null}
+          <RightOutlined className="cli-sum-chev" />
+        </button>
+      )}
+      {showRows &&
+        steps.map((s) => (
+          <div key={s.id} className={`cli-step cli-step-${s.status}`}>
+            <span className="cli-dot" />
+            <span className="cli-step-b">
+              <span className="cli-step-l">{s.label}</span>
+              {s.detail && <span className="cli-step-d">{s.detail}</span>}
+              {open && s.thought && <span className="cli-step-t">{s.thought}</span>}
+            </span>
+          </div>
+        ))}
       {thinking && (
         <div className="cli-step cli-step-running">
           <span className="cli-dot" />
           <span className="cli-step-l cli-think">
-            {steps.length === 0 ? "在想" : "在写"}
+            {writing ? "在写" : "在想"}
             <span className="cli-think-dots">
               <i>.</i>
               <i>.</i>
               <i>.</i>
             </span>
           </span>
-          <span className="cli-step-d">{elapsed}s · Esc 取消</span>
+          <span className="cli-step-d">{elapsed}s · Esc 打断</span>
         </div>
       )}
 
@@ -267,7 +373,16 @@ function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void
         </div>
       )}
 
-      {job?.status === "error" && (
+      {interrupted && (
+        <div className="cli-stopped">
+          <span className="cli-stop-mark" />
+          已中断
+          <button type="button" className="cli-link" onClick={onRetry}>
+            重试
+          </button>
+        </div>
+      )}
+      {job?.status === "error" && !interrupted && (
         <div className="cli-err">
           {job.error}
           <button type="button" className="cli-link" onClick={onRetry}>
@@ -277,26 +392,52 @@ function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void
       )}
 
       {answer && answer.customers.length > 0 && (
-        <div className="cli-actions">
-          {answer.customers.slice(0, 3).map((c) => (
-            <CustomerActions key={c.id} customer={c} label={answer.customers.length > 1 ? c.name : undefined} />
+        <div className="cli-card">
+          <div className="cli-card-h">
+            涉及 {answer.customers.length} 位{b.customer}
+          </div>
+          {answer.customers.slice(0, 5).map((c) => (
+            <CustomerRow key={c.id} customer={c} />
           ))}
         </div>
       )}
-      {done && job?.value?.ms ? <div className="cli-meta">{(job.value.ms / 1000).toFixed(1)}s · {steps.filter((s) => s.id.startsWith("tool")).length} 次读取</div> : null}
-      {answer && (
-        <div className="cli-foot">
-          只起草，不落库。{answer.records.length ? "圆标是引用的记录。" : ""}
-          {b.customer}
-          页里的信息以记录为准。
+
+      {done && (
+        <div className="cli-bar">
+          {answer && (
+            <Tooltip title="复制回答">
+              <button
+                type="button"
+                className="cli-ic"
+                aria-label="复制回答"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(answer.text);
+                  message.success("已复制");
+                }}
+              >
+                <CopyOutlined />
+              </button>
+            </Tooltip>
+          )}
+          <Tooltip title="重新回答">
+            <button type="button" className="cli-ic" aria-label="重新回答" onClick={onRetry}>
+              <ReloadOutlined />
+            </button>
+          </Tooltip>
+          <Tooltip title="移除这一轮">
+            <button type="button" className="cli-ic" aria-label="移除这一轮" onClick={onRemove}>
+              <CloseOutlined />
+            </button>
+          </Tooltip>
+          <span className="cli-bar-t">{whenLabel(turn.at)}</span>
         </div>
       )}
     </div>
   );
 }
 
-/** 答完给动作：打开记录页 / 起草话术 / 邀请，草稿就地展开，与记录页、盯盘、雷达共用同一份 */
-function CustomerActions({ customer, label }: { customer: { id: string; name: string; followStatus: string }; label?: string }) {
+/** 卡片里的一行：客户名、状态、动作；草稿就地展开，与记录页、盯盘、雷达共用同一份 */
+function CustomerRow({ customer }: { customer: { id: string; name: string; followStatus: string } }) {
   const b = useBusiness();
   const { message } = App.useApp();
   const wakeup = useJob<string>(`draft:wakeup:${customer.id}`);
@@ -307,19 +448,23 @@ function CustomerActions({ customer, label }: { customer: { id: string; name: st
       return res.ok ? { ok: true, value: res.message } : res;
     });
   return (
-    <div className="cli-action-row">
-      {label && <span className="cli-action-name">{label}</span>}
-      <Link href={`/customers/${customer.id}`} className="cli-link">
-        打开{b.customer}页
-      </Link>
-      <button type="button" className="cli-link" onClick={() => run("wakeup")} disabled={wakeup?.status === "loading"}>
-        {wakeup?.status === "loading" ? "起草中…" : "起草跟进话术"}
-      </button>
-      {customer.followStatus === "已签约" && (
-        <button type="button" className="cli-link" onClick={() => run("invite")} disabled={invite?.status === "loading"}>
-          {invite?.status === "loading" ? "起草中…" : "起草转介绍邀请"}
+    <div className="cli-card-row">
+      <div className="cli-card-main">
+        <span className="cli-card-name">{customer.name}</span>
+        {customer.followStatus && <span className="cli-card-st">{customer.followStatus}</span>}
+        <span style={{ flex: 1 }} />
+        <button type="button" className="cli-link" onClick={() => run("wakeup")} disabled={wakeup?.status === "loading"}>
+          {wakeup?.status === "loading" ? "起草中…" : "起草跟进话术"}
         </button>
-      )}
+        {customer.followStatus === "已签约" && (
+          <button type="button" className="cli-link" onClick={() => run("invite")} disabled={invite?.status === "loading"}>
+            {invite?.status === "loading" ? "起草中…" : "起草转介绍邀请"}
+          </button>
+        )}
+        <Link href={`/customers/${customer.id}`} className="cli-link cli-card-open">
+          打开 <RightOutlined style={{ fontSize: 10 }} />
+        </Link>
+      </div>
       {[
         { kind: "wakeup" as const, job: wakeup },
         { kind: "invite" as const, job: invite },

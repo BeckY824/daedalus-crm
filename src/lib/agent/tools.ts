@@ -32,18 +32,35 @@ const str = (v: unknown, max = 60) => (typeof v === "string" ? v.trim().slice(0,
 export const TOOLS: Tool[] = [
   {
     name: "search_customers",
-    description: "按姓名（可以是一部分）找客户。找到后再用 get_customer 读记录。",
-    args: '{"query": "姓名或片段"}',
+    description: "按关键词找客户，返回总数和名单。关键词同时匹配姓名、学校、专业、备注（问「武汉大学的有几位、分别是谁」就用 query=\"武汉大学\"）；可选按跟进状态、只看我负责的过滤。找到具体某一位后再用 get_customer 读记录。",
+    args: '{"query": "姓名 / 学校 / 专业 / 备注里的关键词，可为空", "followStatus": "跟进状态，可选", "mine": true|false 可选}',
     async run(args, ctx) {
       const q = str(args.query, 20);
-      if (!q) return { summary: "没给姓名", data: { error: "query 必填" } };
-      const rows = await prisma.customer.findMany({
-        where: { name: { contains: q } },
-        take: 8,
-        select: { id: true, name: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, lastFollowAt: true },
-      });
-      const data = rows.map((r) => ({ id: r.id, name: r.name, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null }));
-      return { summary: rows.length ? `找到 ${rows.length} 位：${rows.map((r) => r.name).join("、")}` : `没有叫「${q}」的${ctx.b.customer}`, data };
+      const status = str(args.followStatus, 20);
+      const mine = args.mine === true;
+      const statusKey = status ? (Object.entries(ctx.b.statusLabels).find(([, v]) => v === status)?.[0] ?? status) : "";
+      if (!q && !status && !mine) return { summary: "没给条件", data: { error: "query / followStatus / mine 至少给一个" } };
+      const where = {
+        ...(q ? { OR: [{ name: { contains: q } }, { school: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } }] } : {}),
+        ...(statusKey ? { followStatus: statusKey } : {}),
+        ...(mine ? { salesOwnerId: ctx.userId } : {}),
+      };
+      const [total, rows] = await Promise.all([
+        prisma.customer.count({ where }),
+        prisma.customer.findMany({
+          where,
+          take: 30,
+          orderBy: { lastFollowAt: "desc" },
+          select: { id: true, name: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, lastFollowAt: true },
+        }),
+      ]);
+      const data = {
+        total,
+        shown: rows.length,
+        customers: rows.map((r) => ({ id: r.id, name: r.name, school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
+      };
+      const cond = [q && `「${q}」`, status && `状态 ${status}`, mine && "我负责的"].filter(Boolean).join("、");
+      return { summary: total ? `${cond}：${total} 位${total > rows.length ? `，列出前 ${rows.length}` : ""}——${rows.slice(0, 6).map((r) => r.name).join("、")}${rows.length > 6 ? "…" : ""}` : `没有匹配 ${cond} 的${ctx.b.customer}`, data };
     },
   },
   {

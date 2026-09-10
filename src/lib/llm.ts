@@ -134,6 +134,13 @@ type ChatOpts = {
   timeoutMs?: number;
   /** 上游取消（用户按 Esc）时中断请求 */
   signal?: AbortSignal;
+  /**
+   * false = 关掉推理模型的思维链（DeepSeek 的 thinking 参数）。
+   * agent 的每步决策只是选工具、填参数，让它"想"一分钟是浪费：真实测过同一段
+   * 上下文开着思维链 24~73 秒、关掉 3 秒。最终回答仍开着，质量要紧。
+   * 网关不认这个参数时会 4xx，调用方降级重试时去掉它。
+   */
+  thinking?: false;
 };
 
 const DEFAULT_MAX_TOKENS = 4000;
@@ -148,6 +155,7 @@ async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, 
     max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
   if (useJsonFormat) body.response_format = { type: "json_object" };
+  if (opts.thinking === false) body.thinking = { type: "disabled" };
   if (stream) body.stream = true;
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: "POST",
@@ -184,7 +192,9 @@ export async function chatMessagesJSON(messages: ChatMessage[], opts: ChatOpts =
     content = await chatMessagesOnce(cfg, messages, opts, true);
   } catch (e) {
     if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e.name === "AbortError" ? e : new Error("AI 响应超时，请稍后重试");
-    content = await chatMessagesOnce(cfg, messages, opts, false);
+    // 网关不认 response_format / thinking 时是 4xx：两个都去掉再试一次
+    console.warn(`[llm] JSON 调用失败，降级重试：${e instanceof Error ? e.message.slice(0, 160) : e}`);
+    content = await chatMessagesOnce(cfg, messages, { ...opts, thinking: undefined }, false);
   }
   try {
     return JSON.parse(stripCodeFence(content));

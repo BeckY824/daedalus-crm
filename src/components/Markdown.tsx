@@ -12,15 +12,16 @@ export default function Markdown({ text, records = [] }: { text: string; records
   const byN = new Map(records.map((r) => [r.n, r]));
   const lines = text.replace(/\r/g, "").split("\n");
   const out: React.ReactNode[] = [];
-  let list: { kind: "ul" | "ol"; items: string[] } | null = null;
+  let list: { kind: "ul" | "ol"; items: { text: string; n?: number }[] } | null = null;
   const flush = () => {
     if (!list) return;
     const Tag = list.kind;
     out.push(
       <Tag key={out.length} className="md-list">
         {list.items.map((it, i) => (
-          <li key={i}>
-            <Inline text={it} byN={byN} />
+          // 有序列表被要点打断后再续上时，编号接着源文本走，不从 1 重来
+          <li key={i} value={it.n}>
+            <Inline text={it.text} byN={byN} />
           </li>
         ))}
       </Tag>,
@@ -30,18 +31,19 @@ export default function Markdown({ text, records = [] }: { text: string; records
   for (const raw of lines) {
     const line = raw.trimEnd();
     const ul = line.match(/^\s*[-*•]\s+(.*)$/);
-    const ol = line.match(/^\s*\d+[.、)]\s+(.*)$/);
+    const ol = line.match(/^\s*(\d+)[.、)]\s+(.*)$/);
     if (ul || ol) {
       const kind = ul ? "ul" : "ol";
       if (!list || list.kind !== kind) {
         flush();
         list = { kind, items: [] };
       }
-      list.items.push((ul ?? ol)![1]);
+      list.items.push(ul ? { text: ul[1] } : { text: ol![2], n: Number(ol![1]) });
       continue;
     }
     flush();
-    if (!line.trim()) continue;
+    // 空行和分隔线（---）都不占位
+    if (!line.trim() || /^\s*[-*_]{3,}\s*$/.test(line)) continue;
     const h = line.match(/^(#{1,4})\s+(.*)$/);
     if (h) {
       out.push(

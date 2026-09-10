@@ -16,6 +16,8 @@ export type StepEvent = {
   status: StepStatus;
   /** 完成后的一句摘要，如「6 条跟进、2 段原文」 */
   detail?: string;
+  /** 模型做这一步前的一句打算（agent 的 thought），展开过程时给人看 */
+  thought?: string;
   at: number;
 };
 

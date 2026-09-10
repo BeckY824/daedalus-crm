@@ -7,7 +7,7 @@
  */
 import { useSyncExternalStore } from "react";
 
-export type Turn = { id: string; question: string; kind: "ask" | "prep" | "recap"; at: number };
+export type Turn = { id: string; question: string; kind: "ask" | "prep" | "recap"; at: number; /** 上一问还在跑时发的：排队，等它答完再起 */ queued?: boolean };
 
 let turns: Turn[] = [];
 const listeners = new Set<() => void>();
@@ -18,6 +18,12 @@ export function addTurn(t: Omit<Turn, "id" | "at">): Turn {
   turns = [...turns, turn];
   notify();
   return turn;
+}
+
+/** 排队的那条轮到它了：去掉排队标记（真正开跑由页面调 runStream） */
+export function dequeueTurn(id: string) {
+  turns = turns.map((t) => (t.id === id ? { ...t, queued: false } : t));
+  notify();
 }
 
 export function removeTurn(id: string) {
