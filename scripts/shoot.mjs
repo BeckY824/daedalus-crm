@@ -96,7 +96,8 @@ for (const p of PAGES.filter((p) => p.auth !== false)) {
     console.warn("跳过（未取到客户 id）:", p.file);
     continue;
   }
-  await page.goto(`${BASE}${url}`, { waitUntil: "networkidle" });
+  // 记录页的 AI 面板会持续流式请求，networkidle 永远等不到，用 load
+  await page.goto(`${BASE}${url}`, { waitUntil: p.url ? "networkidle" : "load" });
   // 记录页的 AI 面板是打开后异步生成的，等它出结果再拍（最多 90 秒；没配 AI 时立刻返回）
   if (!p.url) await page.waitForFunction(() => /这次建议谈|建议|还没有任何跟进记录/.test(document.querySelector(".rec-ai")?.innerText ?? "x"), null, { timeout: 90000 }).catch(() => {});
   await shoot(p.file, p.settle);
