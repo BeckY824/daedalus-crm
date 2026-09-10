@@ -129,7 +129,7 @@ export default function AppShell({ user, pendingCount, children }: Props) {
       >
         {/* 顶行：标 + 名字 + 收/展按钮。收起时只剩标和按钮，按钮永远在顶上同一个位置 */}
         <div className={`sider-logo${collapsed ? " sider-logo-c" : ""}`}>
-          <Link href="/dashboard" className="sider-mark" aria-label="首页">
+          <Link href="/dashboard" className="sider-mark" aria-label="Daedalus CRM">
             <Logo size={22} />
           </Link>
           {!collapsed && <span className="sider-name">Daedalus CRM</span>}
