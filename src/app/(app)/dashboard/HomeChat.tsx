@@ -2,34 +2,49 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { Button, Input, Alert, App } from "antd";
-import { ArrowUpOutlined, ArrowRightOutlined, ReloadOutlined, DeleteOutlined, BarChartOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icons";
-import { motion, AnimatePresence } from "motion/react";
-import type { HomeAnswer } from "./ask";
+import { useRouter } from "next/navigation";
+import { App } from "antd";
+import { motion } from "motion/react";
+import type { BriefRecord } from "@/lib/ai-draft";
 import { draftWakeup } from "./ai";
 import { draftInvite } from "../channels/ai";
-import AskDataResult from "../reports/AskDataResult";
-import BriefBody from "../customers/[id]/BriefBody";
-import AiTrace from "@/components/AiTrace";
+import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
-import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
-import { runStream, type StreamJob } from "@/lib/ai-stream";
+import { runJob, useJob, clearJob, useRunningKey } from "@/lib/ai-jobs";
+import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, removeTurn, useThread, type Turn } from "@/lib/home-thread";
+import type { StepEvent } from "@/lib/ai-steps";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
+type AgentAnswer = { text: string; records: BriefRecord[]; customers: { id: string; name: string; followStatus: string }[] };
+
+/** 斜杠命令：像 Claude Code 那样，输入 / 弹一张单子 */
+const COMMANDS: { cmd: string; hint: string; question: string }[] = [
+  { cmd: "/prep", hint: "准备下次跟进：找我最该联系的那位，读完记录给建议", question: "看一下我未完成的跟进计划，挑最该准备的那位，读完记录告诉我这次该谈什么" },
+  { cmd: "/recap", hint: "回顾上次沟通：上次跟的那位聊到哪了", question: "找我最近一次跟进的那位，读记录，告诉我上次聊到哪、有什么没接住" },
+  { cmd: "/watch", hint: "盯盘：正在被遗忘的人，各自该从哪接上", question: "看盯盘清单，对前几位各给一句现在该从哪接上" },
+  { cmd: "/board", hint: "打开数据看板", question: "" },
+  { cmd: "/clear", hint: "清空这一屏", question: "" },
+];
+
 /**
- * 首页 = 一个对话面。
- * 没有指标卡、没有图表——那些在「数据看板」。这里只有：问候、一个输入框、几枚按当前处境
- * 生成的建议 chip，以及一条随问随答的线程。每一问各自独立（不带上下文记忆），
- * 问到某位客户出简报，问到数字出图表，和记录页、报表页是同一套能力。
- * 每一问都能看见过程（识别问题 → 读取记录 → 生成），答案里的圆标是它引用的记录。
+ * 首页 = 一个命令行式的对话面（照 Claude Code / Codex 的交互）：
+ *   › 你的问题                       ← 提示行
+ *   ● search_customers(陈同学)  找到 1 位   ← 工具调用一行一条，跑着的时候点在呼吸
+ *   ● get_customer(…)  3 条跟进 · 2 段原文
+ *   （回答逐字流出，Markdown，句末 [n] 是引用的记录）
+ * 底下是输入框：Enter 发送，Shift+Enter 换行，/ 出命令单，Esc 取消正在跑的那一问。
+ * 背后是一个 agent 循环：模型自己决定读谁、查什么，工具全部只读。
  */
 export default function HomeChat({ userName, suggestions, context }: { userName: string; suggestions: Suggestion[]; context: string }) {
   const b = useBusiness();
+  const router = useRouter();
   const turns = useThread();
   const [q, setQ] = useState("");
+  const [cmdIdx, setCmdIdx] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
   const greet = useSyncExternalStore(
     () => () => {},
     () => {
@@ -39,41 +54,76 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
     () => "你好",
   );
 
+  const runningKey = useRunningKey(turns.map((t) => `home:${t.id}`));
+  const running = runningKey ? turns.find((t) => `home:${t.id}` === runningKey) : undefined;
+  const showCmds = q.startsWith("/") && !q.includes(" ");
+  const cmdMatches = showCmds ? COMMANDS.filter((c) => c.cmd.startsWith(q.trim())) : [];
+
   function start(turn: Turn) {
-    runStream<HomeAnswer>(`home:${turn.id}`, turn.kind === "ask" ? { mode: "home", question: turn.question } : { mode: "quick", intent: turn.kind });
+    runStream<AgentAnswer>(`home:${turn.id}`, { mode: "agent", question: turn.question });
   }
 
-  function submit(question: string, kind: Turn["kind"] = "ask") {
-    const text = question.trim();
-    if (kind === "ask" && text.length < 2) return;
-    const turn = addTurn({ question: kind === "ask" ? text : question, kind });
+  function submit(raw: string) {
+    const typed = raw.trim();
+    if (!typed) return;
+    let question = typed;
+    if (typed.startsWith("/")) {
+      const c = COMMANDS.find((x) => x.cmd === typed.split(/\s+/)[0]);
+      if (c?.cmd === "/clear") {
+        turns.forEach((t) => clearJob(`home:${t.id}`));
+        clearThread();
+        setQ("");
+        return;
+      }
+      if (c?.cmd === "/board") {
+        router.push("/overview");
+        return;
+      }
+      if (!c) {
+        setQ("");
+        return;
+      }
+      question = c.question;
+    }
+    if (question.length < 2) return;
+    const turn = addTurn({ question, kind: "ask" });
     start(turn);
     setQ("");
   }
 
-  // 新一轮出现时滚到底，像对话那样
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [turns.length]);
 
+  // Esc：取消正在跑的那一问；焦点回到输入框
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && running) cancelStream(`home:${running.id}`);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [running]);
+
   const empty = turns.length === 0;
 
   return (
-    <div className={`home${empty ? " home-empty" : ""}`}>
-      <div className="home-col">
-        <AnimatePresence initial={false}>
-          {empty && (
-            <motion.div key="hero" className="home-hero" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}>
-              <div className="home-greet">
-                {greet}，{userName}。
+    <div className={`cli${empty ? " cli-empty" : ""}`}>
+      <div className="cli-col">
+        {empty ? (
+          <motion.div className="cli-welcome" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="cli-welcome-t">
+              {greet}，{userName}。
+            </div>
+            <div className="cli-welcome-s">{context}</div>
+            <div className="cli-welcome-hints">
+              <div>直接输入问题，比如「陈同学还能怎么推进」「各跟进状态各有多少{b.customer}」</div>
+              <div>
+                输入 <kbd>/</kbd> 看命令：{COMMANDS.map((c) => c.cmd).join("  ")}
               </div>
-              <div className="home-ctx">{context}</div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {!empty && (
-          <div className="home-thread">
+            </div>
+          </motion.div>
+        ) : (
+          <div className="cli-log">
             {turns.map((t) => (
               <TurnView
                 key={t.id}
@@ -92,45 +142,65 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
           </div>
         )}
 
-        <div className={`home-composer${empty ? "" : " home-composer-sticky"}`}>
-          <div className="home-input">
-            <Input.TextArea
+        <div className={`cli-composer${empty ? "" : " cli-composer-sticky"}`}>
+          {cmdMatches.length > 0 && (
+            <div className="cli-cmds">
+              {cmdMatches.map((c, i) => (
+                <div key={c.cmd} className={`cli-cmd${i === cmdIdx ? " cli-cmd-on" : ""}`} onMouseDown={() => submit(c.cmd)}>
+                  <span className="cli-cmd-k">{c.cmd}</span>
+                  <span className="cli-cmd-h">{c.hint}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="cli-input">
+            <span className="cli-prompt">›</span>
+            <textarea
+              ref={taRef}
               value={q}
-              onChange={(e) => setQ(e.target.value)}
-              autoSize={{ minRows: 1, maxRows: 5 }}
+              rows={1}
               maxLength={300}
-              placeholder={`问一位${b.customer}（"王同学还能怎么推进"），或问一个数（"这个月谁签得最多"）`}
-              onPressEnter={(e) => {
-                if (e.shiftKey) return;
-                e.preventDefault();
-                submit(q);
+              placeholder={running ? "正在回答… Esc 取消" : `问一位${b.customer}，或问一个数`}
+              onChange={(e) => {
+                setQ(e.target.value);
+                setCmdIdx(0);
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
               }}
-              variant="borderless"
+              onKeyDown={(e) => {
+                if (cmdMatches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                  e.preventDefault();
+                  setCmdIdx((i) => (i + (e.key === "ArrowDown" ? 1 : cmdMatches.length - 1)) % cmdMatches.length);
+                  return;
+                }
+                if (cmdMatches.length && e.key === "Tab") {
+                  e.preventDefault();
+                  setQ(cmdMatches[cmdIdx].cmd + " ");
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q);
+                  if (taRef.current) taRef.current.style.height = "auto";
+                }
+              }}
             />
-            <Button type="primary" shape="circle" icon={<ArrowUpOutlined />} disabled={q.trim().length < 2} onClick={() => submit(q)} aria-label="问" />
           </div>
-          <div className="home-chips">
-            {suggestions.map((s) => (
-              <button key={s.label} type="button" className="home-chip" onClick={() => submit(s.question, s.kind ?? "ask")}>
+          <div className="cli-hints">
+            <span>
+              <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行 · <kbd>/</kbd> 命令{running ? " · " : ""}
+              {running && (
+                <>
+                  <kbd>Esc</kbd> 取消
+                </>
+              )}
+            </span>
+            <span style={{ flex: 1 }} />
+            {suggestions.slice(0, 3).map((s) => (
+              <button key={s.label} type="button" className="cli-sugg" onClick={() => submit(s.kind === "prep" ? "/prep" : s.kind === "recap" ? "/recap" : s.question)}>
                 {s.label}
               </button>
             ))}
-            <span style={{ flex: 1 }} />
-            {!empty && (
-              <button
-                type="button"
-                className="home-chip home-chip-ghost"
-                onClick={() => {
-                  turns.forEach((t) => clearJob(`home:${t.id}`));
-                  clearThread();
-                }}
-              >
-                <DeleteOutlined /> 清空
-              </button>
-            )}
-            <Link href="/overview" className="home-chip home-chip-ghost">
-              <BarChartOutlined /> 数据看板
-            </Link>
           </div>
         </div>
       </div>
@@ -140,139 +210,145 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
 
 function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void; onRemove: () => void }) {
   const b = useBusiness();
-  const { message } = App.useApp();
-  const job = useJob<StreamJob<HomeAnswer>>(`home:${turn.id}`);
+  const job = useJob<StreamJob<AgentAnswer>>(`home:${turn.id}`);
   const ref = useRef<HTMLDivElement>(null);
-  // 回答落地时把这一轮滚进视野：答案是异步来的，只在提问时滚一次不够
   const done = job?.status === "done" || job?.status === "error";
+  const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
-    if (done) ref.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [done]);
-  const label = turn.kind === "prep" ? "准备下次跟进" : turn.kind === "recap" ? "回顾上次沟通" : turn.question;
+    if (done) return;
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - (job?.startedAt ?? Date.now())) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [done, job?.startedAt]);
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [job?.value?.text?.length, done]);
+
+  const steps: StepEvent[] = (job?.value?.steps ?? []).map((s) => (job?.status === "error" && s.status === "running" ? { ...s, status: "error" as const } : s));
+  const text = job?.value?.text ?? job?.value?.answer?.text ?? "";
   const answer = job?.status === "done" ? job.value?.answer : undefined;
-  // 出错时把最后一个还在跑的步骤标红，一眼看出卡在哪
-  const steps = (job?.value?.steps ?? []).map((s) => (job?.status === "error" && s.status === "running" ? { ...s, status: "error" as const } : s));
+  const thinking = !done && !text;
 
   return (
-    <motion.div ref={ref} className="home-turn" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
-      <div className="home-q">
-        <span>{label}</span>
-        <button type="button" className="home-turn-x" onClick={onRemove} aria-label="移除这一问">
+    <div ref={ref} className="cli-turn">
+      <div className="cli-q">
+        <span className="cli-prompt">›</span>
+        <span className="cli-q-t">{turn.question}</span>
+        <button type="button" className="cli-x" onClick={onRemove} aria-label="移除">
           ×
         </button>
       </div>
-      <div className="home-a">
-        <AiTrace steps={steps} done={!!done} ms={job?.value?.ms} />
-        {job?.status === "error" && (
-          <Alert
-            type="warning"
-            showIcon
-            title={job.error}
-            style={{ marginTop: 8 }}
-            action={
-              <Button size="small" type="text" icon={<ReloadOutlined />} onClick={onRetry}>
-                重试
-              </Button>
-            }
-          />
-        )}
-        {answer && (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }} style={{ marginTop: 10 }}>
-            {answer.kind === "customer" ? (
-              <>
-                <div className="home-a-head">
-                  <span className="home-a-name">{answer.customerName}</span>
-                  <Link href={`/customers/${answer.customerId}`} className="home-a-link">
-                    打开{b.customer}页 <ArrowRightOutlined />
-                  </Link>
-                </div>
-                <BriefBody brief={answer.brief} records={answer.records} />
-                <CustomerActions customerId={answer.customerId} signed={answer.followStatus === "已签约"} />
-              </>
-            ) : (
-              <>
-                <div className="home-a-head">
-                  <span className="home-a-name">问数据</span>
-                  <a
-                    className="home-a-link"
-                    onClick={() => {
-                      void navigator.clipboard.writeText(answer.result.answer);
-                      message.success("已复制结论");
-                    }}
-                  >
-                    复制结论
-                  </a>
-                </div>
-                <AskDataResult result={answer.result} />
-                <div className="home-actions">
-                  <Link href="/reports" className="home-chip">
-                    <BarChartOutlined /> 去数据复盘
-                  </Link>
-                </div>
-              </>
-            )}
-          </motion.div>
-        )}
-      </div>
-    </motion.div>
+
+      {steps.map((s) => (
+        <div key={s.id} className={`cli-step cli-step-${s.status}`}>
+          <span className="cli-dot" />
+          <span className="cli-step-l">{s.label}</span>
+          {s.detail && <span className="cli-step-d">{s.detail}</span>}
+        </div>
+      ))}
+      {thinking && (
+        <div className="cli-step cli-step-running">
+          <span className="cli-dot" />
+          <span className="cli-step-l cli-think">
+            {steps.length === 0 ? "在想" : "在写"}
+            <span className="cli-think-dots">
+              <i>.</i>
+              <i>.</i>
+              <i>.</i>
+            </span>
+          </span>
+          <span className="cli-step-d">{elapsed}s · Esc 取消</span>
+        </div>
+      )}
+
+      {text && (
+        <div className="cli-a">
+          <Markdown text={text} records={answer?.records ?? job?.value?.answer?.records ?? []} />
+          {!done && <span className="cli-caret" />}
+        </div>
+      )}
+
+      {job?.status === "error" && (
+        <div className="cli-err">
+          {job.error}
+          <button type="button" className="cli-link" onClick={onRetry}>
+            重试
+          </button>
+        </div>
+      )}
+
+      {answer && answer.customers.length > 0 && (
+        <div className="cli-actions">
+          {answer.customers.slice(0, 3).map((c) => (
+            <CustomerActions key={c.id} customer={c} label={answer.customers.length > 1 ? c.name : undefined} />
+          ))}
+        </div>
+      )}
+      {done && job?.value?.ms ? <div className="cli-meta">{(job.value.ms / 1000).toFixed(1)}s · {steps.filter((s) => s.id.startsWith("tool")).length} 次读取</div> : null}
+      {answer && (
+        <div className="cli-foot">
+          只起草，不落库。{answer.records.length ? "圆标是引用的记录。" : ""}
+          {b.customer}
+          页里的信息以记录为准。
+        </div>
+      )}
+    </div>
   );
 }
 
-/** 答完给动作：起草话术 / 邀请，结果就地展开。key 与记录页、盯盘、雷达共用同一份草稿 */
-function CustomerActions({ customerId, signed }: { customerId: string; signed: boolean }) {
+/** 答完给动作：打开记录页 / 起草话术 / 邀请，草稿就地展开，与记录页、盯盘、雷达共用同一份 */
+function CustomerActions({ customer, label }: { customer: { id: string; name: string; followStatus: string }; label?: string }) {
   const b = useBusiness();
   const { message } = App.useApp();
-  const wakeup = useJob<string>(`draft:wakeup:${customerId}`);
-  const invite = useJob<string>(`draft:invite:${customerId}`);
+  const wakeup = useJob<string>(`draft:wakeup:${customer.id}`);
+  const invite = useJob<string>(`draft:invite:${customer.id}`);
   const run = (kind: "wakeup" | "invite") =>
-    runJob(`draft:${kind}:${customerId}`, async () => {
-      const res = kind === "wakeup" ? await draftWakeup({ customerId, reason: "从首页发起" }) : await draftInvite({ customerId });
+    runJob(`draft:${kind}:${customer.id}`, async () => {
+      const res = kind === "wakeup" ? await draftWakeup({ customerId: customer.id, reason: "从首页发起" }) : await draftInvite({ customerId: customer.id });
       return res.ok ? { ok: true, value: res.message } : res;
     });
-  const drafts = [
-    { kind: "wakeup" as const, job: wakeup, title: "跟进话术草稿" },
-    { kind: "invite" as const, job: invite, title: "转介绍邀请草稿" },
-  ];
   return (
-    <>
-      <div className="home-actions">
-        <button type="button" className="home-chip" onClick={() => run("wakeup")} disabled={wakeup?.status === "loading"}>
-          <ThunderboltOutlined /> {wakeup?.status === "loading" ? "起草中…" : "起草跟进话术"}
+    <div className="cli-action-row">
+      {label && <span className="cli-action-name">{label}</span>}
+      <Link href={`/customers/${customer.id}`} className="cli-link">
+        打开{b.customer}页
+      </Link>
+      <button type="button" className="cli-link" onClick={() => run("wakeup")} disabled={wakeup?.status === "loading"}>
+        {wakeup?.status === "loading" ? "起草中…" : "起草跟进话术"}
+      </button>
+      {customer.followStatus === "已签约" && (
+        <button type="button" className="cli-link" onClick={() => run("invite")} disabled={invite?.status === "loading"}>
+          {invite?.status === "loading" ? "起草中…" : "起草转介绍邀请"}
         </button>
-        {signed && (
-          <button type="button" className="home-chip" onClick={() => run("invite")} disabled={invite?.status === "loading"}>
-            <ThunderboltOutlined /> {invite?.status === "loading" ? "起草中…" : "起草转介绍邀请"}
-          </button>
-        )}
-      </div>
-      {drafts.map(({ kind, job, title }) => (
-        <AnimatePresence key={kind}>
-          {job?.status === "error" && <Alert key="e" type="warning" showIcon title={job.error} closable onClose={() => clearJob(`draft:${kind}:${customerId}`)} style={{ marginTop: 8 }} />}
-          {job?.status === "done" && job.value && (
-            <motion.div key="d" className="rec-ai-draft" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
-              <div className="rec-ai-draft-t">{title}</div>
-              <div>{job.value}</div>
-              <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
-                <Button
-                  size="small"
-                  type="link"
-                  icon={<CopyOutlined />}
-                  style={{ padding: 0 }}
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(job.value!);
-                    message.success(`已复制，去微信发给${b.customer}吧`);
-                  }}
-                >
-                  复制
-                </Button>
-                <Button size="small" type="link" style={{ padding: 0 }} onClick={() => clearJob(`draft:${kind}:${customerId}`)}>
-                  收起
-                </Button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      ))}
-    </>
+      )}
+      {[
+        { kind: "wakeup" as const, job: wakeup },
+        { kind: "invite" as const, job: invite },
+      ].map(({ kind, job }) =>
+        job?.status === "done" && job.value ? (
+          <div key={kind} className="cli-draft">
+            <div>{job.value}</div>
+            <div>
+              <button
+                type="button"
+                className="cli-link"
+                onClick={async () => {
+                  await navigator.clipboard.writeText(job.value!);
+                  message.success(`已复制，去微信发给${b.customer}吧`);
+                }}
+              >
+                复制
+              </button>
+              <button type="button" className="cli-link" onClick={() => clearJob(`draft:${kind}:${customer.id}`)}>
+                收起
+              </button>
+            </div>
+          </div>
+        ) : job?.status === "error" ? (
+          <div key={kind} className="cli-err">
+            {job.error}
+          </div>
+        ) : null,
+      )}
+    </div>
   );
 }

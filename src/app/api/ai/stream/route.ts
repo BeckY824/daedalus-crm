@@ -1,6 +1,11 @@
 import { askHome, quickBrief } from "@/app/(app)/dashboard/ask";
 import { generateBrief } from "@/app/(app)/customers/[id]/ai";
 import type { Emit } from "@/lib/ai-steps";
+import { requireUser } from "@/lib/auth";
+import { getBusiness } from "@/lib/business";
+import { consumeAiQuota } from "@/lib/ai-quota";
+import { recordAiUse } from "@/lib/ai-usage";
+import { runAgent } from "@/lib/agent/run";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +33,18 @@ export async function POST(req: Request) {
       const emit: Emit = (e) => send({ type: "step", at: Date.now(), ...e });
       try {
         let res: { ok: true; answer: unknown } | { ok: false; error: string };
-        if (body.mode === "home" && typeof body.question === "string") {
+        if (body.mode === "agent" && typeof body.question === "string") {
+          // agent：模型自己决定读谁、查什么，每次工具调用推一条 step，最终回答逐 token 推
+          const user = await requireUser();
+          const wait = consumeAiQuota(user.id);
+          if (wait !== null) throw new Error(`AI 调用太频繁，请 ${wait} 秒后再试`);
+          const b = await getBusiness();
+          const abort = new AbortController();
+          req.signal.addEventListener("abort", () => abort.abort());
+          const r = await runAgent({ question: body.question.trim().slice(0, 300), user: { id: user.id, name: user.name }, b }, { emit, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
+          await recordAiUse(user, "ask", `AI 对话：「${body.question.trim().slice(0, 60)}」（${r.steps} 次工具调用）`);
+          res = { ok: true, answer: { text: r.text, records: r.records, customers: r.customers } };
+        } else if (body.mode === "home" && typeof body.question === "string") {
           res = await askHome(body.question, emit);
         } else if (body.mode === "quick" && (body.intent === "prep" || body.intent === "recap")) {
           res = await quickBrief(body.intent, emit);

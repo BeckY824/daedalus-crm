@@ -132,38 +132,117 @@ type ChatOpts = {
   temperature?: number;
   /** 默认 60 秒。CRM 的 prompt 都不大，卡住时要快速失败而不是让销售干等 */
   timeoutMs?: number;
+  /** 上游取消（用户按 Esc）时中断请求 */
+  signal?: AbortSignal;
 };
 
 const DEFAULT_MAX_TOKENS = 4000;
 
-async function chatOnce(cfg: LlmConfig, system: string, prompt: string, opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean): Promise<Response> {
   const body: Record<string, unknown> = {
     model: cfg.model,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: prompt },
-    ],
+    messages,
     temperature: opts.temperature ?? 0.3,
     max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
   if (useJsonFormat) body.response_format = { type: "json_object" };
-
+  if (stream) body.stream = true;
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${cfg.apiKey}`,
-    },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+    signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 60_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 60_000),
   });
-
   if (!res.ok) {
     const errText = (await res.text()).slice(0, 300);
     throw new Error(`接口返回 ${res.status}：${errText}`);
   }
+  return res;
+}
+
+async function chatOnce(cfg: LlmConfig, system: string, prompt: string, opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
+  return chatMessagesOnce(cfg, [{ role: "system", content: system }, { role: "user", content: prompt }], opts, useJsonFormat);
+}
+
+async function chatMessagesOnce(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
+  const res = await chatRaw(cfg, messages, opts, useJsonFormat, false);
   const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
   return (data.choices?.[0]?.message?.content ?? "").trim();
+}
+
+/**
+ * 多轮对话版的 JSON 调用：给 agent 循环用（system + 历史 + 工具结果）。
+ * 同样带「不支持 json_object 就降级」和「坏 JSON 重试一次」两道保险。
+ */
+export async function chatMessagesJSON(messages: ChatMessage[], opts: ChatOpts = {}): Promise<unknown> {
+  const cfg = await getLlmConfig();
+  if (!cfg) throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
+  let content: string;
+  try {
+    content = await chatMessagesOnce(cfg, messages, opts, true);
+  } catch (e) {
+    if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e.name === "AbortError" ? e : new Error("AI 响应超时，请稍后重试");
+    content = await chatMessagesOnce(cfg, messages, opts, false);
+  }
+  try {
+    return JSON.parse(stripCodeFence(content));
+  } catch {
+    const retry = await chatMessagesOnce(cfg, [...messages, { role: "assistant", content }, { role: "user", content: "你上一次的输出不是合法 JSON，请只输出严格合法的 JSON。" }], opts, true).catch(() =>
+      chatMessagesOnce(cfg, messages, opts, false),
+    );
+    try {
+      return JSON.parse(stripCodeFence(retry));
+    } catch {
+      throw new Error(`AI 返回内容不是合法 JSON：${retry.slice(0, 200)}`);
+    }
+  }
+}
+
+/**
+ * 流式文本：逐 token 回调，给最终回答用——人看到字一个个出来，而不是等十几秒砸出一整块。
+ * 网关不支持 stream 时（响应不是事件流）退化为一次性返回。
+ */
+export async function chatTextStream(messages: ChatMessage[], opts: ChatOpts, onToken: (text: string) => void): Promise<string> {
+  const cfg = await getLlmConfig();
+  if (!cfg) throw new Error("AI 功能未启用");
+  const res = await chatRaw(cfg, messages, opts, false, true);
+  const ctype = res.headers.get("content-type") ?? "";
+  if (!ctype.includes("text/event-stream") || !res.body) {
+    const data = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
+    const text = (data?.choices?.[0]?.message?.content ?? "").trim();
+    if (text) onToken(text);
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let full = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        const j = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
+        const t = j.choices?.[0]?.delta?.content;
+        if (t) {
+          full += t;
+          onToken(t);
+        }
+      } catch {
+        /* 半截 JSON，等下一段 */
+      }
+    }
+  }
+  return full.trim();
 }
 
 /**

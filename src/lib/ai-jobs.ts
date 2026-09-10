@@ -78,3 +78,13 @@ export function useJob<T>(key: string | null): JobState<T> | undefined {
     () => undefined,
   );
 }
+
+/** 一组 key 里第一个正在跑的；没有就 null。快照是字符串，稳定不抖 */
+export function useRunningKey(keys: string[]): string | null {
+  const joined = keys.join("\u0000");
+  return useSyncExternalStore(
+    subscribe,
+    () => joined.split("\u0000").find((k) => k && jobs.get(k)?.status === "loading") ?? null,
+    () => null,
+  );
+}

@@ -1,25 +1,12 @@
 "use server";
 
-import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { chatJSON } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
-import { FOLLOW_TYPE_MAP } from "@/lib/constants";
-import {
-  METRICS,
-  GROUP_BYS,
-  VALID_GROUPS,
-  sanitizeQuerySpec,
-  sumRows,
-  rateRows,
-  bucketMonth,
-  type QuerySpec,
-  type ResultRow,
-  type GroupBy,
-} from "@/lib/report-query";
-import { getBusiness, type BusinessConfig } from "@/lib/business";
-import { statusLabel } from "@/lib/business-config";
+import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec, type ResultRow } from "@/lib/report-query";
+import { runQuery } from "@/lib/report-run";
+import { getBusiness } from "@/lib/business";
 import { recordAiUse } from "@/lib/ai-usage";
 import { stepStart, stepDone, type Emit } from "@/lib/ai-steps";
 
@@ -108,117 +95,4 @@ ${combos}
   } catch (e) {
     return { ok: false, error: e instanceof Error ? term(e.message) : "查询失败，请稍后重试" };
   }
-}
-
-/* ---------------- 取数 ---------------- */
-
-function dateWhere(field: string, spec: QuerySpec) {
-  const cond: Record<string, Date> = {};
-  if (spec.from) cond.gte = dayjs(spec.from).startOf("day").toDate();
-  if (spec.to) cond.lte = dayjs(spec.to).endOf("day").toDate();
-  return Object.keys(cond).length ? { [field]: cond } : {};
-}
-
-/** 归组 key/label。key 用 id（姓名可重复，按名归组会把两个人加进同一行） */
-function keyOf(groupBy: GroupBy | null, when: Date, dims: Record<string, { id: string; label: string } | string | null>) {
-  if (groupBy === "month") {
-    const m = bucketMonth(when);
-    return { key: m, label: m };
-  }
-  const d = groupBy ? dims[groupBy] : null;
-  if (groupBy && (d == null || d === "")) return { key: "__none__", label: "未填/未分配" };
-  if (typeof d === "string") return { key: d, label: d };
-  if (d) return { key: d.id, label: d.label };
-  return { key: "__all__", label: "全部" };
-}
-
-async function runQuery(spec: QuerySpec, b: BusinessConfig): Promise<ResultRow[]> {
-  const byMonth = spec.groupBy === "month";
-
-  if (spec.metric === "leads_count" || spec.metric === "lead_conversion") {
-    const leads = await prisma.lead.findMany({
-      where: dateWhere("createdAt", spec),
-      select: { createdAt: true, source: true, status: true, owner: { select: { id: true, name: true } } },
-    });
-    const shaped = leads.map((l) => ({
-      ...keyOf(spec.groupBy, l.createdAt, {
-        source: l.source,
-        sales: l.owner ? { id: l.owner.id, label: l.owner.name } : null,
-      }),
-      converted: l.status === "已转化" ? 1 : 0,
-    }));
-    if (spec.metric === "leads_count") {
-      return sumRows(shaped.map((s) => ({ key: s.key, label: s.label, value: 1 })), { byMonth });
-    }
-    return rateRows(shaped.map((s) => ({ key: s.key, label: s.label, created: 1, converted: s.converted })), { byMonth });
-  }
-
-  if (spec.metric === "customers_count") {
-    const customers = await prisma.customer.findMany({
-      where: dateWhere("createdAt", spec),
-      select: {
-        createdAt: true,
-        grade: true,
-        followStatus: true,
-        decisionStatus: true,
-        salesOwner: { select: { id: true, name: true } },
-        channel: { select: { id: true, name: true } },
-      },
-    });
-    return sumRows(
-      customers.map((c) => ({
-        ...keyOf(spec.groupBy, c.createdAt, {
-          sales: { id: c.salesOwner.id, label: c.salesOwner.name },
-          channel: c.channel ? { id: c.channel.id, label: c.channel.name } : null,
-          grade: c.grade,
-          followStatus: statusLabel(b, c.followStatus),
-          decisionStatus: statusLabel(b, c.decisionStatus),
-        }),
-        value: 1,
-      })),
-      { byMonth },
-    );
-  }
-
-  if (spec.metric === "contract_amount" || spec.metric === "contract_count") {
-    const contracts = await prisma.contract.findMany({
-      where: dateWhere("signedAt", spec),
-      select: {
-        amount: true,
-        signedAt: true,
-        customer: {
-          select: {
-            salesOwner: { select: { id: true, name: true } },
-            channel: { select: { id: true, name: true } },
-          },
-        },
-      },
-    });
-    return sumRows(
-      contracts.map((c) => ({
-        ...keyOf(spec.groupBy, c.signedAt, {
-          sales: { id: c.customer.salesOwner.id, label: c.customer.salesOwner.name },
-          channel: c.customer.channel ? { id: c.customer.channel.id, label: c.customer.channel.name } : null,
-        }),
-        value: spec.metric === "contract_amount" ? c.amount : 1,
-      })),
-      { byMonth },
-    );
-  }
-
-  // followups_count
-  const followUps = await prisma.followUp.findMany({
-    where: dateWhere("occurredAt", spec),
-    select: { occurredAt: true, type: true, owner: { select: { id: true, name: true } } },
-  });
-  return sumRows(
-    followUps.map((f) => ({
-      ...keyOf(spec.groupBy, f.occurredAt, {
-        sales: { id: f.owner.id, label: f.owner.name },
-        type: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type,
-      }),
-      value: 1,
-    })),
-    { byMonth },
-  );
 }
