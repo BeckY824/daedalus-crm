@@ -16,8 +16,18 @@ import { loadWatchlist } from "../sentinel-data";
 import { statusLabel } from "../business-config";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
+import { buildProposal, describeProposal, type Proposal, type ProposalKind } from "./proposals";
+import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES } from "../constants";
 
-export type ToolContext = { userId: string; userName: string; b: BusinessConfig; /** 已读过的记录编号偏移，保证多次读取时编号不重复 */ recordOffset: number };
+export type ToolContext = {
+  userId: string;
+  userName: string;
+  b: BusinessConfig;
+  /** 已读过的记录编号偏移，保证多次读取时编号不重复 */
+  recordOffset: number;
+  /** 这一轮攒下的写入提议。工具只往里放，落库要人在卡片上点确认 */
+  proposals: Proposal[];
+};
 export type ToolResult = { summary: string; data: unknown; records?: BriefRecord[] };
 
 type Tool = {
@@ -138,6 +148,40 @@ export const TOOLS: Tool[] = [
       return { summary: `${plans.length} 条`, data: plans.map((p) => ({ customerId: p.customer.id, name: p.customer.name, when: dayjs(p.plannedAt).format("MM-DD HH:mm"), method: p.method, subject: p.subject, overdue: dayjs(p.plannedAt).isBefore(dayjs()) })) };
     },
   },
+  proposeTool("propose_status_change", `建议改一位${"客户"}的状态。你改不了数据，这只是给人看的一张建议卡，人点确认才生效。`, '{"id": "客户 id", "to": "新状态", "reason": "一句话：为什么"}', "set_status"),
+  proposeTool("propose_followup", "建议记一条跟进记录（比如人刚跟你口述了一次沟通）。你写不进去，人点确认才保存。", '{"id": "客户 id", "type": "电话沟通/线上会议/上门拜访/邮件沟通/短信沟通/跟进任务/跟进提醒/其他记录", "title": "可选，一句话标题", "content": "这次聊了什么", "occurredAt": "可选，YYYY-MM-DD HH:mm，不给就算刚刚", "reason": "一句话：为什么"}', "add_followup"),
+  proposeTool("propose_plan", "建议排一次下次跟进计划。你排不了，人点确认才生效。", '{"id": "客户 id", "subject": "下次谈什么", "plannedAt": "YYYY-MM-DD HH:mm", "method": "电话沟通/线上会议/上门拜访/邮件沟通/微信沟通", "reason": "一句话：为什么"}', "add_plan"),
 ];
+
+/**
+ * 三个提议工具长得一样：认客户 → 校验参数 → 攒一张卡片，全程不写库。
+ * 校验失败时把合法取值一并告诉模型，它下一轮就能改对，不用白跑一步。
+ */
+function proposeTool(name: string, description: string, args: string, kind: ProposalKind): Tool {
+  return {
+    name,
+    description,
+    args,
+    async run(a, ctx) {
+      const id = str(a.id, 40);
+      const c = id ? await prisma.customer.findUnique({ where: { id }, select: { id: true, name: true } }) : null;
+      if (!c) return { summary: "没有这位", data: { error: "id 不对，先用 search_customers 拿到 id" } };
+      // 同一个人同一类提议只留一张，模型重复调用不会刷出一摞卡
+      if (ctx.proposals.some((p) => p.kind === kind && p.customerId === c.id)) {
+        return { summary: "已经提过了", data: { note: "这张建议卡已经给出，不要重复提" } };
+      }
+      const r = buildProposal(`${kind}-${ctx.proposals.length}-${c.id}`, kind, c, a);
+      if (!r.ok) return { summary: `建议不合法：${r.error}`, data: { error: r.error } };
+      ctx.proposals.push(r.proposal);
+      return { summary: `建议：${describeProposal(r.proposal, ctx.b.customer)}`, data: { ok: true, note: "建议卡已给出，等人确认。不要再调同一个工具" } };
+    },
+  };
+}
+
+/** 提议工具的取值表，拼进系统提示词，省得模型猜 */
+export const PROPOSAL_VOCAB = `跟进状态：${FOLLOW_STATUSES.join(" / ")}
+决策状态：${DECISION_STATUSES.join(" / ")}
+跟进类型：${FOLLOW_TYPES.map((t) => t.label).join(" / ")}
+计划方式：${FOLLOW_METHODS.join(" / ")}`;
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));

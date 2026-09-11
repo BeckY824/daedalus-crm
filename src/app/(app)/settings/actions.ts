@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { ROLES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
-import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm } from "@/lib/llm";
+import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, fetchRemoteModels, type ModelOption } from "@/lib/llm";
 import { getBusiness, saveBusiness, mergeBusiness, type BusinessConfig } from "@/lib/business";
 
 /** 密码最短长度。界面上有校验，但接口直调能绕开，空密码会让任何人登进来 */
@@ -244,7 +244,7 @@ export async function changeMyPassword(oldPwd: string, newPwd: string) {
  * 保存 AI 接入配置。只有管理员能改；日志只记"改了"，不记任何值——
  * 地址与模型名无所谓，但同一条日志里不能出现 key，哪怕是尾号。
  */
-export async function saveLlmSettings(input: { baseUrl: string; model: string; apiKey?: string | null }) {
+export async function saveLlmSettings(input: { baseUrl: string; model: string; apiKey?: string | null; options?: ModelOption[] }) {
   const me = await requireAdmin();
   if (!/^https?:\/\//.test(input.baseUrl.trim())) {
     return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
@@ -262,6 +262,15 @@ export async function clearLlmSettings() {
   await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "llm", summary: "清除了界面里的 AI 接入配置" });
   revalidatePath("/", "layout");
   return { ok: true as const };
+}
+
+/** 问接口它支持哪些模型，给设置页挑。拉不到就手填，不阻塞配置 */
+export async function listRemoteModels(input: { baseUrl: string; apiKey?: string | null }) {
+  await requireAdmin();
+  if (!/^https?:\/\//.test(input.baseUrl.trim())) {
+    return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
+  }
+  return fetchRemoteModels(input);
 }
 
 /** 用表单里当前填的值发一次最小请求；key 留空则用已保存的 */

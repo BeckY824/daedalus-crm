@@ -7,6 +7,10 @@ import { App, Dropdown, Tooltip } from "antd";
 import { ArrowUpOutlined, CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import type { BriefRecord } from "@/lib/ai-draft";
+import ProposalCard from "@/components/ProposalCard";
+import ModelPicker, { useModel, setModel } from "@/components/ModelPicker";
+import type { ModelOption } from "@/lib/llm";
+import type { Proposal } from "@/lib/agent/proposals";
 import { draftWakeup } from "./ai";
 import { draftInvite } from "../channels/ai";
 import Markdown from "@/components/Markdown";
@@ -19,13 +23,14 @@ import { dayjs } from "@/lib/utils";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
-type AgentAnswer = { text: string; records: BriefRecord[]; customers: { id: string; name: string; followStatus: string }[] };
+type AgentAnswer = { text: string; records: BriefRecord[]; customers: { id: string; name: string; followStatus: string }[]; proposals: Proposal[] };
 
 /** 斜杠命令：像 Claude Code 那样，输入 / 弹一张单子 */
 const COMMANDS: { cmd: string; hint: string; question: string }[] = [
   { cmd: "/prep", hint: "准备下次跟进：找我最该联系的那位，读完记录给建议", question: "看一下我未完成的跟进计划，挑最该准备的那位，读完记录告诉我这次该谈什么" },
   { cmd: "/recap", hint: "回顾上次沟通：上次跟的那位聊到哪了", question: "找我最近一次跟进的那位，读记录，告诉我上次聊到哪、有什么没接住" },
   { cmd: "/watch", hint: "盯盘：正在被遗忘的人，各自该从哪接上", question: "看盯盘清单，对前几位各给一句现在该从哪接上" },
+  { cmd: "/model", hint: "换个模型", question: "" },
   { cmd: "/board", hint: "打开数据看板", question: "" },
   { cmd: "/clear", hint: "清空这一屏", question: "" },
 ];
@@ -38,10 +43,11 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
  *   打断：Esc、Ctrl+C，或点右侧的停止键；中断后留一行「已中断」，已流出的字不丢
  * 背后是一个 agent 循环：模型自己决定读谁、查什么，工具全部只读。
  */
-export default function HomeChat({ userName, suggestions, context }: { userName: string; suggestions: Suggestion[]; context: string }) {
+export default function HomeChat({ userName, suggestions, context, models }: { userName: string; suggestions: Suggestion[]; context: string; models: ModelOption[] }) {
   const b = useBusiness();
   const router = useRouter();
   const turns = useThread();
+  const model = useModel(models);
   const [q, setQ] = useState("");
   const [cmdIdx, setCmdIdx] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
@@ -62,7 +68,7 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
   const cmdMatches = showCmds ? COMMANDS.filter((c) => c.cmd.startsWith(q.trim())) : [];
 
   function start(turn: Turn) {
-    runStream<AgentAnswer>(`home:${turn.id}`, { mode: "agent", question: turn.question });
+    runStream<AgentAnswer>(`home:${turn.id}`, { mode: "agent", question: turn.question, model });
   }
 
   // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
@@ -86,6 +92,12 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
       }
       if (c?.cmd === "/board") {
         router.push("/overview");
+        return;
+      }
+      if (c?.cmd === "/model") {
+        // 点开选单本身就是选模型，这里只负责把它亮出来
+        setQ("");
+        document.querySelector<HTMLButtonElement>(".mp-btn")?.click();
         return;
       }
       if (!c) {
@@ -136,7 +148,7 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
             <div className="cli-welcome-hints">
               <div>直接输入问题，比如「陈同学还能怎么推进」「各跟进状态各有多少{b.customer}」</div>
               <div>
-                输入 <kbd>/</kbd> 看命令：{COMMANDS.map((c) => c.cmd).join("  ")}。AI 只读记录、只起草，不改任何数据。
+                输入 <kbd>/</kbd> 看命令：{COMMANDS.map((c) => c.cmd).join("  ")}。也可以让它记一笔、改状态、排计划——它给建议卡，你点确认才写入。
               </div>
             </div>
           </motion.div>
@@ -235,6 +247,7 @@ export default function HomeChat({ userName, suggestions, context }: { userName:
             )}
           </div>
           <div className="cli-hints">
+            <ModelPicker options={models} value={model} />
             <span>
               <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行 · <kbd>/</kbd> 命令
               {running && (
@@ -388,6 +401,14 @@ function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void
           <button type="button" className="cli-link" onClick={onRetry}>
             重试
           </button>
+        </div>
+      )}
+
+      {answer && answer.proposals?.length > 0 && (
+        <div className="prop-list">
+          {answer.proposals.map((p) => (
+            <ProposalCard key={p.id} proposal={p} />
+          ))}
         </div>
       )}
 

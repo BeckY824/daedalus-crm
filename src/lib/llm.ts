@@ -22,8 +22,11 @@ export const DEFAULT_MODEL = "deepseek-chat";
 
 export type LlmConfig = { apiKey: string; baseUrl: string; model: string };
 
+/** 首页模型选单里的一项。note 是管理员写的一句话，比如「限时免费」「贵，别常用」 */
+export type ModelOption = { id: string; note?: string };
+
 const LLM_KEY = "llm";
-type StoredLlm = { baseUrl?: string; model?: string; apiKeyEnc?: string };
+type StoredLlm = { baseUrl?: string; model?: string; apiKeyEnc?: string; options?: ModelOption[] };
 
 const normBase = (u: string | undefined) => (u && u.trim() ? u.trim().replace(/\/+$/, "") : DEFAULT_BASE_URL);
 
@@ -56,11 +59,13 @@ export async function describeLlmConfig(): Promise<{
   baseUrl: string;
   model: string;
   keyMasked: string | null;
+  options: ModelOption[];
 }> {
   const stored = await getSetting<StoredLlm>(LLM_KEY);
+  const options = stored?.options ?? [];
   const uiKey = stored?.apiKeyEnc ? decryptSecret(stored.apiKeyEnc) : null;
   if (uiKey) {
-    return { source: "ui", baseUrl: normBase(stored?.baseUrl), model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: maskSecret(uiKey) };
+    return { source: "ui", baseUrl: normBase(stored?.baseUrl), model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: maskSecret(uiKey), options };
   }
   if (process.env.LLM_API_KEY) {
     return {
@@ -68,21 +73,75 @@ export async function describeLlmConfig(): Promise<{
       baseUrl: normBase(process.env.LLM_BASE_URL),
       model: process.env.LLM_MODEL?.trim() || DEFAULT_MODEL,
       keyMasked: maskSecret(process.env.LLM_API_KEY),
+      options,
     };
   }
-  return { source: null, baseUrl: stored?.baseUrl?.trim() || DEFAULT_BASE_URL, model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: null };
+  return { source: null, baseUrl: stored?.baseUrl?.trim() || DEFAULT_BASE_URL, model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: null, options };
+}
+
+/**
+ * 首页选单里能选的模型。
+ *
+ * 为什么要有白名单：浏览器会把选中的模型名发上来，直接透传等于让任何登录用户
+ * 点名调用任意模型（贵的、没权限的）。所以一律按这张单子校验，不在单子里就用默认的。
+ * 单子空着时只有默认模型一项——不配置就等于没有选单，和以前一样。
+ */
+export async function listModelOptions(): Promise<ModelOption[]> {
+  const cfg = await getLlmConfig();
+  if (!cfg) return [];
+  const stored = await getSetting<StoredLlm>(LLM_KEY);
+  const fromEnv = (process.env.LLM_MODELS ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((x) => {
+      const [id, ...note] = x.split("|");
+      return { id: id.trim(), note: note.join("|").trim() || undefined };
+    });
+  const list = (stored?.options?.length ? stored.options : fromEnv).filter((o) => o.id);
+  // 当前默认模型永远在单子里，且排第一——否则人会看到一个自己正在用却选不回来的模型
+  const rest = list.filter((o) => o.id !== cfg.model);
+  const head = list.find((o) => o.id === cfg.model) ?? { id: cfg.model };
+  return [head, ...rest];
+}
+
+/** 把浏览器送上来的模型名收成一个可用的模型名 */
+export async function resolveModel(requested: string | undefined): Promise<string | undefined> {
+  if (!requested) return undefined;
+  const allowed = await listModelOptions();
+  return allowed.some((o) => o.id === requested) ? requested : undefined;
+}
+
+/** 设置页「拉取可用模型」：问接口它支持哪些（OpenAI 兼容的 /models） */
+export async function fetchRemoteModels(input: { baseUrl: string; apiKey?: string | null }): Promise<{ ok: true; models: string[] } | { ok: false; error: string }> {
+  const cfg = await resolveLlmConfigForTest({ baseUrl: input.baseUrl, model: "", apiKey: input.apiKey });
+  if (!cfg) return { ok: false, error: "还没填 API Key" };
+  try {
+    const res = await fetch(`${cfg.baseUrl}/models`, {
+      headers: { Authorization: `Bearer ${cfg.apiKey}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!res.ok) return { ok: false, error: `接口返回 ${res.status}` };
+    const data = (await res.json()) as { data?: { id?: string }[] };
+    const models = (data.data ?? []).map((m) => m.id).filter((x): x is string => Boolean(x));
+    if (!models.length) return { ok: false, error: "接口没返回任何模型，手动填模型名吧" };
+    return { ok: true, models };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error && e.name === "TimeoutError" ? "拉取超时" : "拉不到模型列表，手动填模型名吧" };
+  }
 }
 
 /**
  * 保存界面配置。apiKey 传空表示"不改 key"，只更新地址与模型——
  * 界面上 key 只回显尾 4 位，用户改个模型名不该被迫重新粘一遍 key。
  */
-export async function saveLlmConfig(input: { baseUrl: string; model: string; apiKey?: string | null }): Promise<void> {
+export async function saveLlmConfig(input: { baseUrl: string; model: string; apiKey?: string | null; options?: ModelOption[] }): Promise<void> {
   const stored = (await getSetting<StoredLlm>(LLM_KEY)) ?? {};
   const next: StoredLlm = {
     baseUrl: normBase(input.baseUrl),
     model: input.model.trim() || DEFAULT_MODEL,
     apiKeyEnc: input.apiKey && input.apiKey.trim() ? encryptSecret(input.apiKey.trim()) : stored.apiKeyEnc,
+    options: (input.options ?? stored.options ?? []).map((o) => ({ id: o.id.trim(), note: o.note?.trim() || undefined })).filter((o) => o.id).slice(0, 20),
   };
   await setSetting(LLM_KEY, next);
 }
@@ -134,6 +193,8 @@ type ChatOpts = {
   timeoutMs?: number;
   /** 上游取消（用户按 Esc）时中断请求 */
   signal?: AbortSignal;
+  /** 这次调用改用哪个模型。必须是 resolveModel 校验过的名字 */
+  model?: string;
   /**
    * false = 关掉推理模型的思维链（DeepSeek 的 thinking 参数）。
    * agent 的每步决策只是选工具、填参数，让它"想"一分钟是浪费：真实测过同一段
@@ -149,7 +210,7 @@ export type ChatMessage = { role: "system" | "user" | "assistant"; content: stri
 
 async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean): Promise<Response> {
   const body: Record<string, unknown> = {
-    model: cfg.model,
+    model: opts.model ?? cfg.model,
     messages,
     temperature: opts.temperature ?? 0.3,
     max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,

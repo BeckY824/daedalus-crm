@@ -8,7 +8,7 @@ import { runJob, patchJob } from "./ai-jobs";
 import { mergeSteps, type StepEvent } from "./ai-steps";
 
 export type StreamBody =
-  | { mode: "agent"; question: string }
+  | { mode: "agent"; question: string; model?: string }
   | { mode: "home"; question: string }
   | { mode: "quick"; intent: "prep" | "recap" }
   | { mode: "brief"; customerId: string; question?: string };

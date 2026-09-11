@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { llmEnabled } from "@/lib/llm";
+import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import { getBusiness } from "@/lib/business";
 import { loadWatchlist } from "@/lib/sentinel-data";
@@ -18,11 +18,12 @@ export default async function DashboardPage() {
 
   const b = await getBusiness();
   const now = dayjs();
-  const [todayPlans, myPlans, myLast, watchlist] = await Promise.all([
+  const [todayPlans, myPlans, myLast, watchlist, models] = await Promise.all([
     prisma.followPlan.count({ where: { ownerId: user.id, done: false, plannedAt: { gte: now.startOf("day").toDate(), lt: now.endOf("day").toDate() } } }),
     prisma.followPlan.count({ where: { ownerId: user.id, done: false } }),
     prisma.followUp.findFirst({ where: { ownerId: user.id }, orderBy: { occurredAt: "desc" }, select: { customer: { select: { name: true } } } }),
     loadWatchlist(now),
+    listModelOptions(),
   ]);
 
   const mine = watchlist.filter((w) => w.ownerName === user.name);
@@ -38,5 +39,5 @@ export default async function DashboardPage() {
   suggestions.push({ label: `各跟进状态各有多少${b.customer}`, question: `各跟进状态各有多少${b.customer}` });
   suggestions.push({ label: "这个月谁签得最多", question: "这个月哪个销售的签约金额最多" });
 
-  return <HomeChat userName={user.name} suggestions={suggestions.slice(0, 6)} context={parts.join("，") + "。"} />;
+  return <HomeChat userName={user.name} suggestions={suggestions.slice(0, 6)} context={parts.join("，") + "。"} models={models} />;
 }

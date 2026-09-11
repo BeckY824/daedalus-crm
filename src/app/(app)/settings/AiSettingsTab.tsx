@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Form, Input, Space, Typography, App } from "antd";
-import { saveLlmSettings, testLlmSettings, clearLlmSettings } from "./actions";
+import { Alert, Button, Form, Input, Select, Space, Typography, App } from "antd";
+import { CloseOutlined } from "@ant-design/icons";
+import { saveLlmSettings, testLlmSettings, clearLlmSettings, listRemoteModels } from "./actions";
 import type { AiUsage } from "@/lib/ai-usage";
+import type { ModelOption } from "@/lib/llm";
 
 export type LlmView = {
   /** ui：界面里填的；env：来自环境变量；null：未配置 */
@@ -12,6 +14,8 @@ export type LlmView = {
   baseUrl: string;
   model: string;
   keyMasked: string | null;
+  /** 首页选单里能选的模型 */
+  options: ModelOption[];
 };
 
 /**
@@ -25,8 +29,23 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [options, setOptions] = useState<ModelOption[]>(llm.options);
+  const [remote, setRemote] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   const 已有key = llm.keyMasked !== null;
+
+  /** 拉一次接口支持的模型，填进下拉；拉不到就让人手输 */
+  async function onLoadModels() {
+    const v = form.getFieldsValue();
+    setLoadingModels(true);
+    const res = await listRemoteModels({ baseUrl: v.baseUrl, apiKey: v.apiKey });
+    setLoadingModels(false);
+    if (res.ok) {
+      setRemote(res.models);
+      message.success(`拉到 ${res.models.length} 个模型`);
+    } else message.error(res.error);
+  }
 
   async function onTest() {
     const v = await form.validateFields();
@@ -44,7 +63,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
       return;
     }
     setSaving(true);
-    const res = await saveLlmSettings(v);
+    const res = await saveLlmSettings({ ...v, options });
     setSaving(false);
     if (res.ok) {
       message.success("已保存，AI 功能已按新配置生效");
@@ -97,6 +116,43 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
         </Form.Item>
         <Form.Item name="model" label="模型名" rules={[{ required: true, message: "请填写模型名" }]} extra="如 deepseek-chat、gpt-4o-mini、qwen2.5。推理模型也可以，已按其思维链占用预留了输出预算。">
           <Input placeholder="deepseek-chat" />
+        </Form.Item>
+
+        <Form.Item
+          label="首页可选模型"
+          extra="填了之后，首页输入框下面会出现模型选单，每个人可以自己挑一个。备注是给人看的提示，比如「限时免费」。留空则不显示选单，一直用上面那个模型。"
+        >
+          <Select
+            mode="tags"
+            placeholder="先点「拉取可用模型」，或直接输入模型名回车"
+            value={options.map((o) => o.id)}
+            options={remote.map((m) => ({ value: m, label: m }))}
+            onChange={(ids: string[]) =>
+              setOptions(ids.map((id) => options.find((o) => o.id === id) ?? { id }))
+            }
+            style={{ width: "100%" }}
+          />
+          <Button size="small" type="link" style={{ paddingLeft: 0, marginTop: 4 }} onClick={onLoadModels} loading={loadingModels}>
+            拉取可用模型
+          </Button>
+          {options.length > 0 && (
+            <div className="ai-opts">
+              {options.map((o, i) => (
+                <div key={o.id} className="ai-opt">
+                  <span className="ai-opt-i">{i + 1}</span>
+                  <span className="ai-opt-id">{o.id}</span>
+                  <Input
+                    size="small"
+                    placeholder="备注，可留空"
+                    style={{ width: 160 }}
+                    value={o.note ?? ""}
+                    onChange={(e) => setOptions(options.map((x) => (x.id === o.id ? { ...x, note: e.target.value } : x)))}
+                  />
+                  <Button size="small" type="text" icon={<CloseOutlined />} aria-label={`移除 ${o.id}`} onClick={() => setOptions(options.filter((x) => x.id !== o.id))} />
+                </div>
+              ))}
+            </div>
+          )}
         </Form.Item>
 
         <Space wrap>

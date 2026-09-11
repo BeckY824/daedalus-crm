@@ -6,6 +6,7 @@ import { getBusiness } from "@/lib/business";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { runAgent } from "@/lib/agent/run";
+import { resolveModel } from "@/lib/llm";
 
 export const dynamic = "force-dynamic";
 
@@ -41,9 +42,11 @@ export async function POST(req: Request) {
           const b = await getBusiness();
           const abort = new AbortController();
           req.signal.addEventListener("abort", () => abort.abort());
-          const r = await runAgent({ question: body.question.trim().slice(0, 300), user: { id: user.id, name: user.name }, b }, { emit, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
-          await recordAiUse(user, "ask", `AI 对话：「${body.question.trim().slice(0, 60)}」（${r.steps} 次工具调用）`);
-          res = { ok: true, answer: { text: r.text, records: r.records, customers: r.customers } };
+          // 浏览器报上来的模型名不可信，按设置页的白名单收一遍
+          const model = await resolveModel(typeof body.model === "string" ? body.model : undefined);
+          const r = await runAgent({ question: body.question.trim().slice(0, 300), user: { id: user.id, name: user.name }, b }, { emit, model, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
+          await recordAiUse(user, "ask", `AI 对话：「${body.question.trim().slice(0, 60)}」（${r.steps} 次工具调用${model ? `，${model}` : ""}）`);
+          res = { ok: true, answer: { text: r.text, records: r.records, customers: r.customers, proposals: r.proposals } };
         } else if (body.mode === "home" && typeof body.question === "string") {
           res = await askHome(body.question, emit);
         } else if (body.mode === "quick" && (body.intent === "prep" || body.intent === "recap")) {

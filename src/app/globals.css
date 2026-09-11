@@ -579,6 +579,38 @@ a {
 .cli-card-st { color: #6b7280; font-size: 12px; background: #f0f1f4; padding: 0 6px; border-radius: 4px; }
 .cli-card-open { color: var(--ink); }
 .cli-card-row .cli-draft { margin-top: 8px; }
+/* 设置页的可选模型清单 */
+.ai-opts { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.ai-opt { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid #f1f2f5; }
+.ai-opt:last-child { border-bottom: 0; }
+.ai-opt-i { flex: none; width: 18px; height: 18px; border-radius: 50%; background: #f0f1f4; color: #6b7280; font-size: 11px; display: inline-flex; align-items: center; justify-content: center; }
+.ai-opt-id { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; color: var(--ink); }
+/* 模型选单：输入框下面一个不起眼的小控件 */
+.mp-btn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 2px 6px; border-radius: 4px; font-size: 11.5px; color: #9ca3af; cursor: pointer; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.mp-btn:hover { background: #f0f1f4; color: var(--ink); }
+.mp-row { display: flex; align-items: center; gap: 8px; min-width: 220px; }
+.mp-id { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+.mp-note { margin-left: auto; font-size: 11px; color: #16a34a; background: #f0fdf4; border-radius: 4px; padding: 0 5px; }
+/* AI 建议卡：唯一一条让模型输出进库的路，所以要显眼但不喧宾夺主 */
+.prop-list { margin-top: 12px; margin-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.prop { border: 1px solid #d9dee7; border-left: 2px solid var(--brand); border-radius: 10px; background: #fff; padding: 12px 14px; }
+.prop-h { display: flex; align-items: baseline; gap: 8px; }
+.prop-tag { flex: none; font-size: 11px; color: var(--brand); background: #eef2ff; border-radius: 4px; padding: 1px 6px; }
+.prop-t { color: var(--ink); font-weight: 500; font-size: 13.5px; }
+.prop-why { margin-top: 6px; color: #6b7280; font-size: 12.5px; line-height: 1.6; }
+.prop-body { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 16px; }
+.prop-f { display: flex; align-items: center; gap: 8px; }
+.prop-f-block { flex-basis: 100%; align-items: flex-start; }
+.prop-f-block > *:last-child { flex: 1; }
+.prop-f-l { flex: none; font-size: 12.5px; color: #6b7280; }
+.prop-err { margin-top: 8px; color: #b91c1c; font-size: 12.5px; }
+.prop-foot { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+.prop-ok { display: inline-flex; align-items: center; gap: 5px; border: 0; background: var(--ink); color: #fff; font-size: 13px; padding: 5px 14px; border-radius: 6px; cursor: pointer; }
+.prop-ok:disabled { background: #9ca3af; cursor: default; }
+.prop-no { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #d9dee7; background: #fff; color: #6b7280; font-size: 13px; padding: 4px 12px; border-radius: 6px; cursor: pointer; }
+.prop-no:hover { color: var(--ink); border-color: #9ca3af; }
+.prop-note { margin-left: auto; font-size: 11.5px; color: #b0b6c1; }
+.prop-done { display: flex; align-items: center; gap: 8px; border: 1px solid #d1fae5; background: #f0fdf4; border-radius: 8px; padding: 8px 12px; color: #15803d; font-size: 13px; }
 /* 底栏：小图标 + 时间 */
 .cli-bar { margin-top: 8px; padding-left: 16px; display: flex; align-items: center; gap: 2px; }
 .cli-ic { border: 0; background: none; width: 26px; height: 26px; border-radius: 6px; color: #9ca3af; cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; }

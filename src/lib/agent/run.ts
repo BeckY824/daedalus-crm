@@ -10,7 +10,8 @@
  * 过程通过 emit 推出去：每次工具调用一条 step（running → done + summary）。
  */
 import { chatMessagesJSON, chatTextStream, buildSystemPrompt, type ChatMessage } from "../llm";
-import { TOOLS, TOOL_MAP, type ToolContext } from "./tools";
+import { TOOLS, TOOL_MAP, PROPOSAL_VOCAB, type ToolContext } from "./tools";
+import type { Proposal } from "./proposals";
 import type { Emit } from "../ai-steps";
 import type { BriefRecord } from "../ai-draft";
 import type { BusinessConfig } from "../business-config";
@@ -18,6 +19,8 @@ import { dayjs } from "../utils";
 
 export type AgentEvents = {
   emit?: Emit;
+  /** 用哪个模型。上游已按白名单校验过 */
+  model?: string;
   onToken?: (text: string) => void;
   signal?: AbortSignal;
 };
@@ -27,6 +30,8 @@ export type AgentResult = {
   records: BriefRecord[];
   /** 回答里提到的客户，前端据此给「打开记录页 / 起草话术」动作 */
   customers: { id: string; name: string; followStatus: string }[];
+  /** 写入提议：渲染成卡片，人点确认才落库 */
+  proposals: Proposal[];
   steps: number;
 };
 
@@ -38,13 +43,18 @@ export async function runAgent(input: { question: string; user: { id: string; na
   const system =
     buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
     `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${dayjs().format("YYYY-MM-DD HH:mm")}（周${"日一二三四五六"[dayjs().day()]}）。
-你能调用的工具（全部只读，你不能改任何数据）：
+你能调用的工具：
 ${toolDoc}
+
+取值表（propose_* 的参数只能用这里的词）：
+${PROPOSAL_VOCAB}
 
 工作方式：每一轮只输出严格 JSON，二选一：
   {"thought": "一句话：打算干什么、为什么", "action": {"tool": "工具名", "args": {...}}}
   {"final": true}
 规则：
+- 你不能修改任何数据。propose_* 工具只是生成一张建议卡，人在界面上点确认才真的写进去；提完在回答里说一句"已经给出建议，你确认一下"，不要说"我已经改好了"
+- 只在人明确要求做某件事时才提议（"帮我记一笔""把他改成已签约""约下周三"）；人只是问情况时不要提议
 - 问到某个人，先 search_customers（用问题里出现的完整姓名，不要只截一个姓）再 get_customer；同名多位时不要猜，直接 final 并在回答里说清楚有哪几位
 - 问某一类人（某个学校 / 专业 / 跟进状态 / 我负责的，"有多少、分别是谁"）：search_customers 用那个关键词或过滤条件，它返回总数和名单，直接据此回答，不用逐个 get_customer
 - 工具没找到时如实说"没有匹配的"，不要把关键词当成人名
@@ -56,7 +66,7 @@ ${toolDoc}
     { role: "system", content: system },
     { role: "user", content: `问题：${question}` },
   ];
-  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0 };
+  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [] };
   const records: BriefRecord[] = [];
   const customers = new Map<string, { id: string; name: string; followStatus: string }>();
   const mentioned = new Map<string, { id: string; name: string; followStatus: string }>();
@@ -66,7 +76,7 @@ ${toolDoc}
     if (ev.signal?.aborted) throw new Error("已取消");
     // 决策步：关思维链、温度 0——只是选工具填参数，要快、要稳
     const t0 = Date.now();
-    const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, signal: ev.signal })) as Record<string, unknown>;
+    const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal })) as Record<string, unknown>;
     console.info(`[agent] 第 ${i + 1} 步决策 ${Date.now() - t0}ms：${JSON.stringify(raw).slice(0, 120)}`);
     // 模型常把 final 塞进 action 里（{"action":{"final":true}}），或把 tool 直接放顶层：都认
     const action = ((raw?.action && typeof raw.action === "object" ? raw.action : raw) ?? {}) as { tool?: unknown; args?: unknown; final?: unknown };
@@ -112,10 +122,10 @@ ${toolDoc}
 - 数字类问题：先一句结论，再给关键数字；不要把整张表抄一遍
 - 如果是"该怎么推进"这类问题，给 3~5 条具体可执行的建议，并指出风险
 - 不要再输出 JSON，不要提到"工具"这个词`;
-  const text = await chatTextStream([...messages, { role: "user", content: finalPrompt }], { maxTokens: 1800, timeoutMs: 120_000, signal: ev.signal }, (t) => ev.onToken?.(t));
+  const text = await chatTextStream([...messages, { role: "user", content: finalPrompt }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal }, (t) => ev.onToken?.(t));
   ev.emit?.({ id: "answer", label: "组织回答", status: "done" });
   for (const r of mentioned.values()) if (!customers.has(r.id) && customers.size < 5 && text.includes(r.name)) customers.set(r.id, r);
-  return { text, records, customers: [...customers.values()], steps };
+  return { text, records, customers: [...customers.values()], proposals: ctx.proposals, steps };
 }
 
 /** 从工具结果里捞出「id + 姓名」的行（搜索名单、盯盘、计划的形状各不同，只认字段名） */
