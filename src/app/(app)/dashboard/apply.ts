@@ -4,9 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
-import { buildProposal, summarizeApplied, type Proposal } from "@/lib/agent/proposals";
+import { buildProposal, missingFields, summarizeApplied, type Proposal } from "@/lib/agent/proposals";
 import { patchCustomer } from "../customers/actions";
 import { saveFollowUp, savePlan } from "../customers/[id]/actions";
+import { saveLead } from "../leads/actions";
 
 export type ApplyResult = { ok: true; message: string } | { ok: false; error: string };
 
@@ -24,13 +25,22 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   const me = await requireUser();
   const b = await getBusiness();
 
-  const c = await prisma.customer.findUnique({ where: { id: String(input?.customerId ?? "") }, select: { id: true, name: true } });
-  if (!c) return { ok: false, error: `这条${b.customer}已被删除` };
+  // 新建线索不挂在任何客户下，其余三种都必须指到一个还在的客户
+  let c = { id: "", name: "" };
+  if (input?.kind !== "add_lead") {
+    const found = await prisma.customer.findUnique({ where: { id: String(input?.customerId ?? "") }, select: { id: true, name: true } });
+    if (!found) return { ok: false, error: `这条${b.customer}已被删除` };
+    c = found;
+  }
 
   // 人改过的值和模型给的值一样不可信，重新校验一遍
-  const checked = buildProposal(input.id, input.kind, c, input as unknown as Record<string, unknown>);
+  const checked = buildProposal(input.id, input.kind, c, input as unknown as Record<string, unknown>, b);
   if (!checked.ok) return { ok: false, error: checked.error };
   const p = checked.proposal;
+
+  // 前端禁用按钮不算防线：必填项没填齐就不写
+  const miss = missingFields(p);
+  if (miss.length) return { ok: false, error: `还差${miss.join("、")}，填好再确认` };
 
   let done: { ok: true } | { ok: false; error: string };
   if (p.kind === "set_status") {
@@ -45,13 +55,16 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
       occurredAt: p.occurredAt,
     });
     done = r.ok ? { ok: true } : { ok: false, error: r.error };
-  } else {
+  } else if (p.kind === "add_plan") {
     const r = await savePlan({ customerId: p.customerId, subject: p.subject, plannedAt: p.plannedAt, method: p.method });
     done = r.ok ? { ok: true } : { ok: false, error: "计划没能保存" };
+  } else {
+    const r = await saveLead({ name: p.name, contact: p.contact || null, phone: p.phone || null, source: p.source, status: p.status, remark: p.remark || null });
+    done = r.ok ? { ok: true } : { ok: false, error: r.error };
   }
   if (!done.ok) return done;
 
   const summary = summarizeApplied(p, b.customer);
-  await recordAudit({ user: me, action: "ai_apply", entity: "Ai", entityId: p.kind, summary, detail: { 对象: c.name, 理由: p.reason } });
+  await recordAudit({ user: me, action: "ai_apply", entity: "Ai", entityId: p.kind, summary, detail: { 对象: c.name || p.customerName, 理由: p.reason } });
   return { ok: true, message: summary.replace("确认 AI 建议：", "已") };
 }
