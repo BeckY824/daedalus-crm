@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "./prisma";
 import { readSecret } from "./secret";
+import { multiTenant, enterTenant } from "./tenant/context";
+import { resolveTenant } from "./tenant/workspaces";
 
 export const SECRET = new TextEncoder().encode(
   readSecret(),
@@ -28,8 +30,16 @@ export type SessionUser = {
   avatar?: string | null;
 };
 
-export async function createSession(userId: string) {
-  const token = await new SignJWT({ sub: userId })
+/**
+ * 建立会话。
+ *
+ * 自部署：sub 是业务库的 User.id，和以前一样。
+ * 托管版：sub 是控制面的 Account.id，另外带一个 ws（工作区 id）——
+ *   「你是谁」和「你现在在哪个工作区」必须都在票据里，
+ *   否则每次请求都要再查一次成员关系才知道该开哪个库。
+ */
+export async function createSession(userId: string, workspaceId?: string) {
+  const token = await new SignJWT(workspaceId ? { sub: userId, ws: workspaceId } : { sub: userId })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
@@ -59,6 +69,23 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   try {
     const { payload } = await jwtVerify(token, SECRET);
     const id = payload.sub as string;
+
+    if (multiTenant()) {
+      // 托管版：先把工作区定下来，之后这个请求里的 prisma 才有库可指
+      const ws = typeof payload.ws === "string" ? payload.ws : "";
+      if (!ws) return null;
+      const tenant = await resolveTenant(id, ws);
+      // 成员关系被撤销 / 工作区被删 → 会话立刻失效，不给宽限
+      if (!tenant) return null;
+      enterTenant(tenant);
+      // 账号 → 这个工作区里的那个 User。映射表见 migrations/004
+      const link = await prisma.workspaceAccount.findFirst({ where: { accountId: id } });
+      if (!link) return null;
+      const me = await prisma.user.findFirst({ where: { id: link.userId, active: true } });
+      if (!me) return null;
+      return { id: me.id, name: me.name, email: me.email, role: me.role, title: me.title, avatar: me.avatar };
+    }
+
     const user = await prisma.user.findUnique({ where: { id } });
     if (!user || !user.active) return null;
     return {

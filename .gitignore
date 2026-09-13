@@ -73,3 +73,7 @@ prisma/manual.db*
 
 # 截图用的临时演示库
 prisma/shots.db*
+
+# 托管版：控制面库与各工作区的业务库，只在本地/服务器上存在
+prisma/control.db*
+prisma/ws/

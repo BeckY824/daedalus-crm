@@ -1,0 +1,109 @@
+// 托管版的控制面数据模型。
+//
+// 和业务库（prisma/schema.prisma）严格分开：控制面记「谁、哪个工作区、试用到什么时候」，
+// 业务库记客户和跟进。一个工作区一个业务库文件，互不可见——这是租户隔离的全部依据，
+// 所以控制面绝不能存业务数据，业务库也绝不能存账号。
+//
+// 只有托管版（MULTI_TENANT=1）用得上。自部署的开源版整个文件不参与运行。
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+  output        = "../src/generated/control"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("CONTROL_DATABASE_URL")
+}
+
+/// 一个真人。可以属于多个工作区
+model Account {
+  id        String   @id @default(cuid())
+  /// 手机号登录为主；短信没开通时用邮箱。两者至少有一个
+  phone     String?  @unique
+  email     String?  @unique
+  password  String
+  name      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  lastLoginAt DateTime?
+
+  memberships Membership[]
+  invitesSent Invite[]     @relation("InviteCreator")
+}
+
+/// 一个团队 = 一个业务库文件
+model Workspace {
+  id   String @id @default(cuid())
+  /// URL 与文件名都用它，全小写字母数字连字符
+  slug String @unique
+  name String
+  /// 业务库文件名（相对于 WORKSPACE_DIR）。单独存而不是由 slug 推导，
+  /// 是为了将来允许改 slug 而不必搬文件
+  dbFile String @unique
+
+  /// TRIAL | ACTIVE | EXPIRED | SUSPENDED
+  status      String   @default("TRIAL")
+  trialEndsAt DateTime
+  /// 付费到期日；没付过就是 null
+  paidUntil   DateTime?
+  /// 备注：手动开通时记一句为什么，比如订单号
+  note        String?
+
+  createdAt DateTime @default(now())
+
+  memberships Membership[]
+  invites     Invite[]
+
+  @@index([status])
+}
+
+model Membership {
+  id          String   @id @default(cuid())
+  accountId   String
+  workspaceId String
+  /// OWNER | ADMIN | MEMBER。OWNER 是创建者，不可被移除
+  role        String   @default("MEMBER")
+  createdAt   DateTime @default(now())
+
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, workspaceId])
+  @@index([workspaceId])
+}
+
+/// 注册与登录的验证码。短信与邮箱共用一张表
+model VerifyCode {
+  id        String   @id @default(cuid())
+  /// 手机号或邮箱
+  target    String
+  code      String
+  /// signup | login | reset
+  purpose   String   @default("signup")
+  expiresAt DateTime
+  usedAt    DateTime?
+  /// 校验失败次数，超过上限直接作废，防爆破
+  attempts  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([target, purpose])
+}
+
+/// 邀请同事进工作区
+model Invite {
+  id          String   @id @default(cuid())
+  workspaceId String
+  token       String   @unique
+  role        String   @default("MEMBER")
+  createdById String
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdBy Account   @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}

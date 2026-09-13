@@ -38,6 +38,15 @@ model User {
   plans         FollowPlan[]
 }
 
+/// 托管版：控制面账号 ↔ 本工作区用户。自部署版为空表。
+/// 不与 User 建外键：成员被删时这条映射由应用清理，外键会让删人这件事跨库耦合
+model WorkspaceAccount {
+  userId    String @id
+  accountId String
+
+  @@index([accountId])
+}
+
 model Lead {
   id        String    @id @default(cuid())
   name      String // 线索名称 / 公司名
