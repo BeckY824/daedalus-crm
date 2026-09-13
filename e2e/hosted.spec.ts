@@ -43,33 +43,53 @@ async function 注册(page: Page, opts: { 团队: string; 姓名: string; 手机
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
 }
 
-async function 登出(page: Page) {
-  await page.request.post("/api/auth/logout");
-  await page.context().clearCookies();
+/** 新建一个客户。销售负责人是必填项，要从下拉里挑一个 */
+async function 建客户(page: Page, 姓名: string, 手机: string) {
+  await page.goto("/customers");
+  await page.getByRole("button", { name: /新建学员/ }).click();
+  const 弹窗 = page.getByRole("dialog");
+  await expect(弹窗).toBeVisible();
+  await 弹窗.getByLabel("客户姓名").fill(姓名);
+  await 弹窗.getByLabel("联系电话").fill(手机);
+  await 弹窗.getByLabel("销售负责人").click();
+  const 下拉 = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)");
+  await 下拉.waitFor({ state: "visible" });
+  await 下拉.locator(".ant-select-item-option").first().click();
+  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
 }
 
+/**
+ * 登录。每条用例跑在自己的浏览器上下文里，会话不共享，
+ * 所以需要数据的用例各自登进来——顺带也把登录这条路每次都走一遍。
+ */
+async function 登录(page: Page, 手机: string, 密码: string) {
+  await page.goto("/login");
+  await page.getByPlaceholder("用户名").fill(手机);
+  await page.getByPlaceholder("登录密码").fill(密码);
+  await page.getByRole("button", { name: /登\s*录/ }).click();
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+}
+
+const 启明 = { 团队: "启明教育", 姓名: "林老师", 手机: "13800138000", 密码: "qiming2026" };
+const 北辰 = { 团队: "北辰网络", 姓名: "赵经理", 手机: "13900139000", 密码: "beichen2026" };
+
 test("1 注册就得到一个属于自己的空工作区", async ({ page }) => {
-  await 注册(page, { 团队: "启明教育", 姓名: "林老师", 手机: "13800138000", 密码: "qiming2026" });
+  await 注册(page, 启明);
   await expect(page.getByText("林老师")).toBeVisible();
 
   await page.goto("/customers");
   // 全新工作区：一条业务数据都不该有
-  await expect(page.getByRole("cell", { name: "暂无数据" }).or(page.getByText("暂无数据"))).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator(".ant-empty-description").first()).toBeVisible({ timeout: 15_000 });
 });
 
 test("2 建一条客户，自己看得到", async ({ page }) => {
-  await page.goto("/customers");
-  await page.getByRole("button", { name: "新建学员", exact: true }).click();
-  const 弹窗 = page.getByRole("dialog");
-  await 弹窗.getByLabel("客户姓名").fill("启明的客户甲");
-  await 弹窗.getByLabel("联系电话").fill("13900001111");
-  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
+  await 登录(page, 启明.手机, 启明.密码);
+  await 建客户(page, "启明的客户甲", "13900001111");
   await expect(page.getByText("启明的客户甲")).toBeVisible({ timeout: 15_000 });
 });
 
 test("3 另一个人注册进来，看不到上一家的客户", async ({ page }) => {
-  await 登出(page);
-  await 注册(page, { 团队: "北辰网络", 姓名: "赵经理", 手机: "13900139000", 密码: "beichen2026" });
+  await 注册(page, 北辰);
 
   await page.goto("/customers");
   await expect(page.getByText("赵经理")).toBeVisible();
@@ -78,6 +98,7 @@ test("3 另一个人注册进来，看不到上一家的客户", async ({ page }
 });
 
 test("4 试用到期后只读：横条出现，写操作被拒", async ({ page }) => {
+  await 登录(page, 北辰.手机, 北辰.密码);
   拨到过期("北辰网络");
   // 租户解析按 token 缓存 10 秒，等它过期再看
   await page.waitForTimeout(11_000);
@@ -86,18 +107,15 @@ test("4 试用到期后只读：横条出现，写操作被拒", async ({ page }
   await expect(page.getByText(/试用已结束/)).toBeVisible({ timeout: 15_000 });
 
   // 界面上拦不拦不重要，服务端必须拦住——Server Action 是公开端点
+  await 建客户(page, "到期后不该写进去", "13900002222");
+  await page.waitForTimeout(2000);
+  // 不管界面怎么提示，这条数据绝不能真的进去
   await page.goto("/customers");
-  await page.getByRole("button", { name: "新建学员", exact: true }).click();
-  const 弹窗 = page.getByRole("dialog");
-  await 弹窗.getByLabel("客户姓名").fill("到期后不该写进去");
-  await 弹窗.getByLabel("联系电话").fill("13900002222");
-  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
-
-  await expect(page.getByText(/试用已结束|开通订阅/).first()).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("到期后不该写进去")).toHaveCount(0);
 });
 
 test("5 开通页：说清怎么付，提交后等核对", async ({ page }) => {
+  await 登录(page, 北辰.手机, 北辰.密码);
   await page.goto("/billing");
   await expect(page.getByRole("heading", { name: "开通订阅" })).toBeVisible();
   await expect(page.getByText(/只读状态/)).toBeVisible();
@@ -122,25 +140,22 @@ test("6 运营台要 token，开通后恢复可写", async ({ page }) => {
   await expect(page.getByText(/待核对/).first()).toBeVisible();
 
   // 给北辰开通
+  // antd 给两字按钮加了字间距，文本实际是「开 通」，所以用正则
   const 行 = page.getByRole("row").filter({ hasText: "北辰网络" });
-  await 行.getByRole("button", { name: "开通" }).click();
+  await 行.getByRole("button", { name: /开\s*通/ }).click();
   await page.getByRole("button", { name: /确\s*定|OK/ }).click();
   await expect(page.getByText(/已更新/)).toBeVisible({ timeout: 15_000 });
 
   await page.waitForTimeout(11_000);
+  await 登录(page, 北辰.手机, 北辰.密码);
   await page.goto("/customers");
   // 开通之后横条消失，又能写了
   await expect(page.getByText(/试用已结束/)).toHaveCount(0);
-  await page.getByRole("button", { name: "新建学员", exact: true }).click();
-  const 弹窗 = page.getByRole("dialog");
-  await 弹窗.getByLabel("客户姓名").fill("开通后的客户");
-  await 弹窗.getByLabel("联系电话").fill("13900003333");
-  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
+  await 建客户(page, "开通后的客户", "13900003333");
   await expect(page.getByText("开通后的客户")).toBeVisible({ timeout: 15_000 });
 });
 
-test("7 登出后注册与登录页可达，其余弹回登录", async ({ page }) => {
-  await 登出(page);
+test("7 没登录时注册与登录页可达，其余弹回登录", async ({ page }) => {
   await page.goto("/signup");
   await expect(page.getByRole("button", { name: "创建工作区" })).toBeVisible();
 

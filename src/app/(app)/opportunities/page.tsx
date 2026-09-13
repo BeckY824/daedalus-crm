@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import OpportunitiesView from "./OpportunitiesView";
 import type { Prisma } from "@/generated/prisma";
-import { 可担任负责人 } from "@/lib/constants";
+import { 负责人候选 } from "@/lib/owners";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +33,7 @@ export default async function OpportunitiesPage({
         owner: { select: { id: true, name: true } },
       },
     }),
-    prisma.user.findMany({ where: 可担任负责人, select: { id: true, name: true, email: true } }),
+    负责人候选(),
     prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 

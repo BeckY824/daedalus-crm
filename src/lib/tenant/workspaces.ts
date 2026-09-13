@@ -76,7 +76,12 @@ export async function createWorkspace(input: {
     });
     await control.membership.create({ data: { accountId: input.account.id, workspaceId: ws.id, role: "OWNER" } });
 
-    // 新库里的第一个人：用控制面账号的资料建一个业务库用户，角色管理员
+    /**
+     * 新库里的第一个人：工作区创建者，角色管理员（他要能进设置页配 AI 和业务术语）。
+     *
+     * 注意这会撞上「管理员不承担销售职责」那条规则——见 lib/owners.ts，
+     * 那里为「工作区只有一个人」的情况留了回退，否则新用户连第一条客户都建不出来。
+     */
     const db = workspaceClient(dbFile);
     const owner = await db.user.create({
       data: {

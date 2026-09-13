@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
-import { 可担任负责人 } from "@/lib/constants";
+import { 负责人候选 } from "@/lib/owners";
 import { llmEnabled } from "@/lib/llm";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +46,7 @@ export default async function CustomerDetailPage({
   if (!customer) notFound();
 
   const [users, channels, referrableCustomers] = await Promise.all([
-    prisma.user.findMany({ where: 可担任负责人, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
+    负责人候选(),
     prisma.channel.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     // 排除自己，避免把自己设为推荐人导致推荐链成环
     prisma.customer.findMany({ where: { id: { not: id } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),

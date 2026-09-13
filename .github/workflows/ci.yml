@@ -39,6 +39,8 @@ jobs:
         env:
           CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       - run: npx playwright test
+      # 托管版有自己的库和端口，与上面那套互不干扰
+      - run: npm run test:hosted
         env:
           HOME: /root
           # 用例的浏览器固定 Asia/Shanghai，服务端也要一致，否则日期文案水合失配

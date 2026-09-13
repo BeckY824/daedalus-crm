@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import CustomersView from "./CustomersView";
 import type { Prisma } from "@/generated/prisma";
-import { 可担任负责人 } from "@/lib/constants";
+import { 负责人候选 } from "@/lib/owners";
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +63,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       },
     }),
     prisma.customer.count({ where }),
-    prisma.user.findMany({ where: 可担任负责人, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
+    负责人候选(),
     prisma.channel.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
