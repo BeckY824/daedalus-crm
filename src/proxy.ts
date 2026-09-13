@@ -38,7 +38,11 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const valid = await hasValidSession(request);
 
-  if (!valid && pathname !== "/login") {
+  // 未登录也能看的页面。注册页只在托管版有内容，自部署版进去会被服务端动作拒绝；
+  // /admin 是我们的运营台，不属于任何工作区，用它自己的 ADMIN_TOKEN 保护
+  const 公开 = pathname === "/login" || pathname === "/signup" || pathname.startsWith("/admin");
+
+  if (!valid && !公开) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     const res = NextResponse.redirect(url);
@@ -47,7 +51,8 @@ export async function proxy(request: NextRequest) {
     return res;
   }
 
-  if (valid && pathname === "/login") {
+  // 已登录时把登录/注册页弹回应用内；/admin 不弹——我们自己常常是登录状态
+  if (valid && (pathname === "/login" || pathname === "/signup")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

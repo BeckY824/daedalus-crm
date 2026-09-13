@@ -22,7 +22,11 @@ ENV DATABASE_URL="file:/tmp/build.db"
 # 「collect page data」阶段直接失败，报错只说某个路由挂了，不提密钥的事。
 # 这个值不会进运行镜像——runner 是另一个 stage，真实密钥由 compose 注入。
 ENV AUTH_SECRET="build-time-placeholder-never-used-at-runtime-0123456789"
-RUN npx prisma generate && npm run build
+# 托管版的控制面客户端也要生成，否则 import @/generated/control 在构建期就找不到
+ENV CONTROL_DATABASE_URL="file:/tmp/control-build.db"
+RUN npx prisma generate \
+ && npx prisma generate --schema=prisma/control.prisma \
+ && npm run build
 # 种子脚本是 TS，预先打包成单个 JS，运行时就不必装 tsx
 RUN npx --yes esbuild@0.24.2 prisma/seed.ts \
       --bundle --platform=node --target=node22 \
@@ -36,6 +40,8 @@ RUN npx --yes esbuild@0.24.2 prisma/reset-data.mjs \
 # 运行镜像因此不需要携带 Prisma CLI（它的依赖树很难裁剪干净）
 RUN npx prisma migrate diff --from-empty \
       --to-schema-datamodel prisma/schema.prisma --script > schema.sql \
+ && npx prisma migrate diff --from-empty \
+      --to-schema-datamodel prisma/control.prisma --script > control-schema.sql \
     && head -3 schema.sql
 
 # ---------- 运行 ----------
@@ -60,6 +66,7 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 
 # 首启初始化所需：建表 SQL + 打包好的种子脚本
 COPY --from=builder /app/schema.sql ./schema.sql
+COPY --from=builder /app/control-schema.sql ./control-schema.sql
 # 存量库的增量迁移脚本，容器每次启动按序重跑（内容幂等）
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/seed.js ./seed.js

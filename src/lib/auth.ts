@@ -3,8 +3,8 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "./prisma";
 import { readSecret } from "./secret";
-import { multiTenant, enterTenant } from "./tenant/context";
-import { resolveTenant } from "./tenant/workspaces";
+import { multiTenant, runWithTenant } from "./tenant/context";
+import { resolveCurrentTenant } from "./tenant/resolve";
 
 export const SECRET = new TextEncoder().encode(
   readSecret(),
@@ -71,19 +71,18 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     const id = payload.sub as string;
 
     if (multiTenant()) {
-      // 托管版：先把工作区定下来，之后这个请求里的 prisma 才有库可指
-      const ws = typeof payload.ws === "string" ? payload.ws : "";
-      if (!ws) return null;
-      const tenant = await resolveTenant(id, ws);
       // 成员关系被撤销 / 工作区被删 → 会话立刻失效，不给宽限
+      const tenant = await resolveCurrentTenant();
       if (!tenant) return null;
-      enterTenant(tenant);
-      // 账号 → 这个工作区里的那个 User。映射表见 migrations/004
-      const link = await prisma.workspaceAccount.findFirst({ where: { accountId: id } });
-      if (!link) return null;
-      const me = await prisma.user.findFirst({ where: { id: link.userId, active: true } });
-      if (!me) return null;
-      return { id: me.id, name: me.name, email: me.email, role: me.role, title: me.title, avatar: me.avatar };
+      // 这几条查询显式包在工作区上下文里，省掉各自再解析一次
+      return runWithTenant(tenant, async () => {
+        // 账号 → 这个工作区里的那个 User。映射表见 migrations/004
+        const link = await prisma.workspaceAccount.findFirst({ where: { accountId: id } });
+        if (!link) return null;
+        const me = await prisma.user.findFirst({ where: { id: link.userId, active: true } });
+        if (!me) return null;
+        return { id: me.id, name: me.name, email: me.email, role: me.role, title: me.title, avatar: me.avatar };
+      });
     }
 
     const user = await prisma.user.findUnique({ where: { id } });

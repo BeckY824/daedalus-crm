@@ -5,6 +5,9 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { createSession } from "@/lib/auth";
 import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP阈值 } from "@/lib/rate-limit";
+import { multiTenant } from "@/lib/tenant/context";
+import { verifyAccount } from "@/lib/tenant/accounts";
+import { listWorkspacesFor } from "@/lib/tenant/workspaces";
 
 export type LoginResult = { ok: true } | { ok: false; error: string };
 
@@ -46,6 +49,22 @@ export async function login(email: string, password: string): Promise<LoginResul
       const 分 = Math.ceil(还要等 / 60);
       return { ok: false, error: `登录失败次数过多，请 ${分} 分钟后再试` };
     }
+  }
+
+  // 托管版：校验控制面账号，再把他带进自己的工作区
+  if (multiTenant()) {
+    const account = await verifyAccount(email, password);
+    if (!account) {
+      keys.forEach(([k, 上限]) => 记一次失败(k, Date.now(), 上限));
+      // 不区分「账号不存在」和「密码错」：区分开就成了查号接口
+      return { ok: false, error: "账号或密码不对" };
+    }
+    const list = await listWorkspacesFor(account.id);
+    if (list.length === 0) return { ok: false, error: "这个账号还没有工作区，请重新注册" };
+    keys.forEach(([k]) => 清除限流(k));
+    // 多个工作区时先进第一个；切换留给应用内的工作区菜单
+    await createSession(account.id, list[0].id);
+    return { ok: true };
   }
 
   const user = await prisma.user.findUnique({ where: { email: 账号 } });

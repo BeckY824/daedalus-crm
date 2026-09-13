@@ -4,6 +4,11 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
+import TrialBar from "@/components/TrialBar";
+import { multiTenant } from "@/lib/tenant/context";
+import { resolveCurrentTenant } from "@/lib/tenant/resolve";
+import { control } from "@/lib/tenant/control";
+import { daysLeft as 剩余天数 } from "@/lib/tenant/workspaces";
 
 export default async function AppLayout({
   children,
@@ -22,9 +27,20 @@ export default async function AppLayout({
     getBusiness(),
   ]);
 
+  // 托管版：试用 / 订阅状态。getCurrentUser 已经把工作区放进上下文了
+  let trial: { daysLeft: number; writable: boolean } | null = null;
+  if (multiTenant()) {
+    const t = await resolveCurrentTenant();
+    if (t) {
+      const ws = await control.workspace.findUnique({ where: { id: t.workspaceId } });
+      if (ws) trial = { daysLeft: 剩余天数(ws), writable: t.writable };
+    }
+  }
+
   return (
     <BusinessProvider value={business}>
       <AppShell user={user} pendingCount={pendingCount}>
+        {trial && <TrialBar daysLeft={trial.daysLeft} writable={trial.writable} />}
         {children}
       </AppShell>
     </BusinessProvider>

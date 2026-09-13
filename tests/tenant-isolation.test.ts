@@ -19,9 +19,13 @@ beforeAll(() => {
   execFileSync("node", ["--experimental-sqlite", "scripts/build-template.mjs", 模板], { stdio: "pipe" });
   process.env.WORKSPACE_DIR = 临时根;
   process.env.WORKSPACE_TEMPLATE = 模板;
+  // 这一整个文件测的都是托管版行为；自部署版根本不走租户这一层
+  process.env.MULTI_TENANT = "1";
+  process.env.CONTROL_DATABASE_URL = `file:${path.join(临时根, "control.db")}`;
 });
 
 afterAll(() => {
+  delete process.env.MULTI_TENANT;
   fs.rmSync(临时根, { recursive: true, force: true });
 });
 
@@ -76,14 +80,45 @@ describe("prisma 代理认当前工作区", () => {
     expect(乙.map((c) => c.name).sort()).toEqual(["乙家的客户", "同号不同家"]);
   });
 
-  it("托管模式下没有工作区上下文就报错，绝不静默落到默认库", async () => {
+  it("托管模式下解析不到工作区就报错，绝不静默落到默认库", async () => {
     const { prisma } = await import("@/lib/prisma");
-    const 原值 = process.env.MULTI_TENANT;
-    process.env.MULTI_TENANT = "1";
-    try {
-      expect(() => prisma.customer).toThrow(/工作区上下文/);
-    } finally {
-      process.env.MULTI_TENANT = 原值;
+    // 测试进程里没有请求、没有 cookie，解析必然失败——正是要验证它会炸而不是将就
+    await expect(prisma.customer.findMany()).rejects.toThrow(/解析不到工作区/);
+  });
+});
+
+describe("到期后写操作被拦住", () => {
+  /**
+   * 闸门在 prisma 代理里，不在界面上：Server Action 是公开端点，
+   * 到期后照样能被直接 POST。这里验证的就是「绕过界面也写不进去」。
+   */
+  const 到期 = (dbFile: string) => ({ workspaceId: "x", slug: "x", dbFile, role: "OWNER", writable: false });
+
+  it("读得到，写不了", async () => {
+    const { runWithTenant } = await import("@/lib/tenant/context");
+    const { prisma } = await import("@/lib/prisma");
+    {
+      // 读：放行。人得能把自己的数据看完、导出
+      await expect(runWithTenant(到期("a.db"), () => prisma.customer.findMany())).resolves.toBeTruthy();
+
+      // 写：拦住。闸门是同步抛出的，在 Server Action 里会变成 rejected promise，
+      // 所以这里也包一层 async，测的才是真实调用形态
+      const 写 = (fn: () => unknown) => (async () => runWithTenant(到期("a.db"), fn))();
+
+      await expect(写(() => prisma.customer.create({ data: { name: "不该写进去", phone: "13900000001", salesOwnerId: "x" } }))).rejects.toThrow(/试用已结束/);
+      await expect(写(() => prisma.customer.deleteMany({ where: { name: "甲家的客户" } }))).rejects.toThrow(/试用已结束/);
+      // 裸 SQL 是绕过模型层的路，同样要拦
+      await expect(写(() => prisma.$executeRawUnsafe("delete from Customer"))).rejects.toThrow(/试用已结束/);
     }
+  });
+
+  it("拦下来之后数据确实没动", async () => {
+    const { runWithTenant } = await import("@/lib/tenant/context");
+    const { prisma } = await import("@/lib/prisma");
+    const 还在 = await runWithTenant(
+      { workspaceId: "a", slug: "a", dbFile: "a.db", role: "OWNER", writable: true },
+      () => prisma.customer.findMany({ select: { name: true } }),
+    );
+    expect(还在.map((c) => c.name)).toEqual(["甲家的客户"]);
   });
 });

@@ -85,4 +85,56 @@ if [ -d /app/migrations ]; then
   done
 fi
 
+# ---------- 托管版（MULTI_TENANT=1）----------
+# 单租户部署完全不会走到这里。
+if [ "${MULTI_TENANT:-}" = "1" ]; then
+  WS_DIR="${WORKSPACE_DIR:-/data/ws}"
+  mkdir -p "$WS_DIR"
+
+  # 控制面库：账号、工作区、成员。和业务库分开，见 prisma/control.prisma
+  if [ ! -f /data/control.db ]; then
+    echo "→ 建控制面库"
+    node --experimental-sqlite -e "
+      const { DatabaseSync } = require('node:sqlite');
+      const fs = require('node:fs');
+      const db = new DatabaseSync('/data/control.db');
+      db.exec(fs.readFileSync('/app/control-schema.sql', 'utf8'));
+      db.close();
+    "
+  fi
+
+  # 模板库：开新工作区时直接复制它。每次启动都重建，保证它反映当前表结构
+  echo "→ 生成工作区模板库"
+  node --experimental-sqlite -e "
+    const { DatabaseSync } = require('node:sqlite');
+    const fs = require('node:fs');
+    const out = process.env.WS_DIR + '/_template.db';
+    for (const f of [out, out + '-wal', out + '-shm']) fs.rmSync(f, { force: true });
+    const db = new DatabaseSync(out);
+    db.exec(fs.readFileSync('/app/schema.sql', 'utf8'));
+    for (const f of fs.readdirSync('/app/migrations').filter(f => f.endsWith('.sql')).sort()) {
+      try { db.exec(fs.readFileSync('/app/migrations/' + f, 'utf8')); }
+      catch (e) { if (!/duplicate column name|already exists/i.test(String(e.message))) throw e; }
+    }
+    db.close();
+  " WS_DIR="$WS_DIR"
+
+  # 存量工作区补迁移。漏一个库就是那个租户的页面 500，所以逐个跑、失败要吭声
+  for db in "$WS_DIR"/*.db; do
+    [ -f "$db" ] || continue
+    case "$(basename "$db")" in _template.db) continue ;; esac
+    node --experimental-sqlite -e "
+      const { DatabaseSync } = require('node:sqlite');
+      const fs = require('node:fs');
+      const db = new DatabaseSync(process.env.DB);
+      for (const f of fs.readdirSync('/app/migrations').filter(f => f.endsWith('.sql')).sort()) {
+        try { db.exec(fs.readFileSync('/app/migrations/' + f, 'utf8')); }
+        catch (e) { if (!/duplicate column name|already exists/i.test(String(e.message))) throw e; }
+      }
+      db.close();
+    " DB="$db" || { echo "!! 工作区库迁移失败：$db"; exit 1; }
+  done
+  echo "→ 托管版就绪：$(ls -1 "$WS_DIR"/*.db 2>/dev/null | grep -cv _template || echo 0) 个工作区"
+fi
+
 exec "$@"

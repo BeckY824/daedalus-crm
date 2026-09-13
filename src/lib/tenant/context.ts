@@ -3,12 +3,11 @@ import { AsyncLocalStorage } from "node:async_hooks";
 /**
  * 当前请求属于哪个工作区。
  *
- * 托管版一个进程服务所有租户，业务代码里的 `prisma` 必须解析到「这个请求」的那个库。
- * 用 AsyncLocalStorage 而不是显式传参：34 处 import 一个都不用改，
- * 漏传的风险也就不存在——没有 run 过就没有上下文，取不到就是取不到，不会串到别人库里。
+ * 注意 runWithTenant 只是一个**可选的加速路径**：显式包起来的代码段（认证、测试、
+ * 后台脚本）里，prisma 不用再去读 cookie 解析一遍。真正的租户路由发生在
+ * tenant/resolve.ts，每次数据库调用时按会话解析——那里写了为什么不能只靠 ALS。
  *
- * 单租户（自部署）模式下永远没人调 runWithTenant，currentTenant() 恒为 null，
- * prisma 代理落回默认那一个客户端，行为和改造前完全一致。
+ * 单租户（自部署）模式下没人会用到这里，prisma 直接走默认客户端。
  */
 export type TenantContext = {
   workspaceId: string;
@@ -29,18 +28,6 @@ export function runWithTenant<T>(ctx: TenantContext, fn: () => T): T {
 
 export function currentTenant(): TenantContext | null {
   return storage.getStore() ?? null;
-}
-
-/**
- * 把工作区写进当前异步上下文，之后这个请求里的所有代码都能取到。
- *
- * 用 enterWith 而不是 run(callback)：Next 没有一个能把「整个请求」包起来的
- * 调用点——服务端组件、Server Action、路由处理器是各自独立的入口。而每个入口
- * 都以 requireUser() 开头（27 个文件无一例外），在那里 enterWith 一次，
- * 下游全都看得到。Next 给每个请求独立的异步上下文，不会串到别的请求去。
- */
-export function enterTenant(ctx: TenantContext): void {
-  storage.enterWith(ctx);
 }
 
 /**
