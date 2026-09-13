@@ -18,6 +18,8 @@ services:
       LLM_API_KEY: "${LLM_API_KEY:-}"
       LLM_BASE_URL: "${LLM_BASE_URL:-}"
       LLM_MODEL: "${LLM_MODEL:-}"
+      # 首页模型选单（可选）。逗号分隔，用 | 加备注，如 glm-5.3-flash|限时免费
+      LLM_MODELS: "${LLM_MODELS:-}"
     volumes:
       - crm-data:/data
 
