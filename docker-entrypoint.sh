@@ -105,7 +105,7 @@ if [ "${MULTI_TENANT:-}" = "1" ]; then
 
   # 模板库：开新工作区时直接复制它。每次启动都重建，保证它反映当前表结构
   echo "→ 生成工作区模板库"
-  node --experimental-sqlite -e "
+  WS_DIR="$WS_DIR" node --experimental-sqlite -e "
     const { DatabaseSync } = require('node:sqlite');
     const fs = require('node:fs');
     const out = process.env.WS_DIR + '/_template.db';
@@ -117,13 +117,13 @@ if [ "${MULTI_TENANT:-}" = "1" ]; then
       catch (e) { if (!/duplicate column name|already exists/i.test(String(e.message))) throw e; }
     }
     db.close();
-  " WS_DIR="$WS_DIR"
+  "
 
   # 存量工作区补迁移。漏一个库就是那个租户的页面 500，所以逐个跑、失败要吭声
   for db in "$WS_DIR"/*.db; do
     [ -f "$db" ] || continue
     case "$(basename "$db")" in _template.db) continue ;; esac
-    node --experimental-sqlite -e "
+    DB="$db" node --experimental-sqlite -e "
       const { DatabaseSync } = require('node:sqlite');
       const fs = require('node:fs');
       const db = new DatabaseSync(process.env.DB);
@@ -132,7 +132,7 @@ if [ "${MULTI_TENANT:-}" = "1" ]; then
         catch (e) { if (!/duplicate column name|already exists/i.test(String(e.message))) throw e; }
       }
       db.close();
-    " DB="$db" || { echo "!! 工作区库迁移失败：$db"; exit 1; }
+    " || { echo "!! 工作区库迁移失败：$db"; exit 1; }
   done
   echo "→ 托管版就绪：$(ls -1 "$WS_DIR"/*.db 2>/dev/null | grep -cv _template || echo 0) 个工作区"
 fi
