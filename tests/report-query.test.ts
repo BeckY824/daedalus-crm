@@ -6,6 +6,7 @@
  * 聚合按 id 归组——姓名允许重复，按名归组会把两个人的数字加进同一行。
  */
 import { describe, it, expect } from "vitest";
+import { dayjs } from "@/lib/utils";
 import { sanitizeQuerySpec, sumRows, rateRows } from "@/lib/report-query";
 
 describe("规格校验", () => {
@@ -34,13 +35,21 @@ describe("规格校验", () => {
     expect(s.to).toBeNull();
   });
 
+  /**
+   * 日期一律按**本地时区**算，不能用 toISOString。
+   * 被这条坑过一次：凌晨 0 点刚过跑测试，UTC 还停在前一天，
+   * toISOString 算出来的"明天"正好等于本地的今天，于是这条用例在
+   * 每天 00:00–08:00 之间必挂，白天怎么跑都是绿的。
+   */
+  const 本地日期 = (偏移天 = 0) => dayjs().add(偏移天, "day").format("YYYY-MM-DD");
+
   it("起点在未来的查询要拒绝——答「明天签约 0 笔」会被当成预测，比不支持更糟", () => {
-    const 明天 = new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+    const 明天 = 本地日期(1);
     expect(() => sanitizeQuerySpec({ metric: "contract_count", from: 明天, to: 明天 })).toThrow(/将来/);
   });
 
   it("今天仍然可查——边界不能误伤当天", () => {
-    const 今天 = new Date().toISOString().slice(0, 10);
+    const 今天 = 本地日期();
     expect(sanitizeQuerySpec({ metric: "contract_count", from: 今天, to: 今天 }).from).toBe(今天);
   });
 });
