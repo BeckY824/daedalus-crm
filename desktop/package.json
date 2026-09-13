@@ -1,0 +1,41 @@
+{
+  "name": "daedalus-crm-desktop",
+  "version": "0.7.0",
+  "description": "Daedalus CRM 桌面客户端",
+  "main": "main.js",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "start": "electron .",
+    "dist:mac": "electron-builder --mac",
+    "dist:win": "electron-builder --win",
+    "dist": "electron-builder --mac --win"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.daedalus.crm",
+    "productName": "Daedalus CRM",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "preload.js", "assets/**"],
+    "mac": {
+      "category": "public.app-category.business",
+      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "icon": "assets/icon.icns",
+      "identity": null
+    },
+    "dmg": {
+      "title": "Daedalus CRM"
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "Daedalus CRM"
+    }
+  }
+}

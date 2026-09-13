@@ -77,3 +77,7 @@ prisma/shots.db*
 # 托管版：控制面库与各工作区的业务库，只在本地/服务器上存在
 prisma/control.db*
 prisma/ws/
+
+# 桌面客户端的依赖与产物
+desktop/node_modules/
+desktop/dist/

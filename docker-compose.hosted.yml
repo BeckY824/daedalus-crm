@@ -1,0 +1,18 @@
+# 托管版叠加层：在基础 compose 之上打开多租户、注册、试用与运营台。
+#
+#   docker compose -f docker-compose.yml -f docker-compose.caddy.yml -f docker-compose.hosted.yml up -d
+#
+# 自部署的人不要用这个文件——开源版是单租户，不需要注册系统。
+services:
+  crm:
+    environment:
+      MULTI_TENANT: "1"
+      CONTROL_DATABASE_URL: "file:/data/control.db"
+      WORKSPACE_DIR: "/data/ws"
+      # 运营台 /admin 的口令。没设置时那个页面直接 404
+      ADMIN_TOKEN: "${ADMIN_TOKEN:?托管版必须设置 ADMIN_TOKEN}"
+      # 短信（可选）。没配就把验证码打到容器日志里，照样能开号
+      SMS_ACCESS_KEY_ID: "${SMS_ACCESS_KEY_ID:-}"
+      SMS_ACCESS_KEY_SECRET: "${SMS_ACCESS_KEY_SECRET:-}"
+      SMS_SIGN_NAME: "${SMS_SIGN_NAME:-}"
+      SMS_TEMPLATE_CODE: "${SMS_TEMPLATE_CODE:-}"
