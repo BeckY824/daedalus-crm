@@ -81,3 +81,4 @@ prisma/ws/
 # 桌面客户端的依赖与产物
 desktop/node_modules/
 desktop/dist/
+prisma/e2e-hosted/

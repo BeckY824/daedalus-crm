@@ -17,6 +17,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma generate
+        # 托管版的控制面客户端也要生成，否则 import @/generated/control 编译不过
+      - run: npx prisma generate --schema=prisma/control.prisma
+        env:
+          CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       - run: npx tsc --noEmit
       - run: npx eslint .
       - run: npx vitest run
@@ -30,6 +34,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: npm ci
       - run: npx prisma generate
+        # 托管版的控制面客户端也要生成，否则 import @/generated/control 编译不过
+      - run: npx prisma generate --schema=prisma/control.prisma
+        env:
+          CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       - run: npx playwright test
         env:
           HOME: /root
