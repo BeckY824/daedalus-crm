@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { jwtVerify } from "jose";
 import { readSecret } from "../secret";
 import { resolveTenant } from "./workspaces";
+import { 会话已作废 } from "./session-cutoff";
 import type { TenantContext } from "./context";
 
 /**
@@ -61,7 +62,17 @@ export async function resolveCurrentTenant(): Promise<TenantContext | null> {
     const { payload } = await jwtVerify(token, SECRET);
     const accountId = payload.sub as string | undefined;
     const ws = typeof payload.ws === "string" ? payload.ws : "";
-    if (accountId && ws) ctx = await resolveTenant(accountId, ws);
+    /**
+     * 改过密码之后，签发在改密之前的票据解析不出工作区——于是拿着旧 Cookie 的人
+     * 连库都开不了。这一道必须在**这里**，不能只放在 getCurrentUser：
+     * 那个只有页面和显式调它的动作会走，而 prisma.ts 是直接问这里要工作区的，
+     * 「布局校验过所以动作安全」正是这套代码反复提防的那类越权。
+     *
+     * 代价是这里有 10 秒缓存，最坏情况下旧会话还能多活 10 秒（同试用到期那条）。
+     * 想立刻生效的那一份在 getCurrentUser 里，不走缓存。
+     */
+    const 作废 = accountId ? await 会话已作废(accountId, typeof payload.iat === "number" ? payload.iat : undefined) : true;
+    if (accountId && ws && !作废) ctx = await resolveTenant(accountId, ws);
   } catch {
     ctx = null;
   }

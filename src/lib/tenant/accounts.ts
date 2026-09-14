@@ -132,3 +132,18 @@ export async function verifyAccount(target: string, password: string): Promise<A
   await control.account.update({ where: { id: a.id }, data: { lastLoginAt: new Date() } });
   return { id: a.id, name: a.name, phone: a.phone, email: a.email };
 }
+
+/**
+ * 改密码。找回密码走这里，将来「设置里改密码」也走这里。
+ *
+ * 只改控制面的 Account——业务库里那条 User.password 存的是不可用的占位符，
+ * 登录校验根本不看它，跟着改反而会让人以为那边也是一把真钥匙。
+ *
+ * 作废旧会话是调用方的事（见 lib/tenant/session-cutoff.ts）：
+ * 那一步要写另一张表，放在这里会让「桌面端改密码」这类还没有会话的调用方
+ * 平白依赖一套会话机制。
+ */
+export async function updatePassword(accountId: string, password: string): Promise<void> {
+  const hash = await bcrypt.hash(password, 10);
+  await control.account.update({ where: { id: accountId }, data: { password: hash } });
+}

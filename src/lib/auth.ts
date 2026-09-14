@@ -5,6 +5,7 @@ import { prisma } from "./prisma";
 import { readSecret } from "./secret";
 import { multiTenant, runWithTenant } from "./tenant/context";
 import { resolveCurrentTenant } from "./tenant/resolve";
+import { 会话已作废 } from "./tenant/session-cutoff";
 
 export const SECRET = new TextEncoder().encode(
   readSecret(),
@@ -71,6 +72,17 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     const id = payload.sub as string;
 
     if (multiTenant()) {
+      /**
+       * 改过密码之后签发在改密之前的票据一律不认。
+       * JWT 收不回来，找回密码只换密码的话，拿着旧 Cookie 的人还能再用 7 天。
+       *
+       * 同一道闸在 resolve.ts 里还有一份（那边是数据面的，prisma 直接问它要工作区）。
+       * 这里这份不走那边的 10 秒缓存，为的是改完密码**立刻**把别的设备踢下线；
+       * 那边那份管的是「连库都开不了」。两份都要，少哪一份都漏一类入口。
+       *
+       * 都不放在 proxy.ts：那里跑在 Edge 运行时，连不了控制面库。
+       */
+      if (await 会话已作废(id, typeof payload.iat === "number" ? payload.iat : undefined)) return null;
       // 成员关系被撤销 / 工作区被删 → 会话立刻失效，不给宽限
       const tenant = await resolveCurrentTenant();
       if (!tenant) return null;

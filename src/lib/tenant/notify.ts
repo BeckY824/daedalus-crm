@@ -17,9 +17,12 @@ export function smsConfigured(): boolean {
   return Boolean(process.env.SMS_ACCESS_KEY_ID && process.env.SMS_ACCESS_KEY_SECRET && process.env.SMS_SIGN_NAME && process.env.SMS_TEMPLATE_CODE);
 }
 
-/** SMTP 四件套齐了才算配好。阿里云邮件推送、腾讯云 SES、企业邮箱都是这一套 */
-export function smtpConfigured(): boolean {
-  return Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.SMTP_FROM);
+/**
+ * SMTP 四件套齐了才算配好。阿里云邮件推送、腾讯云 SES、企业邮箱都是这一套。
+ * 收 env 参数是为了能被测试直接喂一份假环境，见 lib/tenant/password-reset.ts。
+ */
+export function smtpConfigured(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): boolean {
+  return Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS && env.SMTP_FROM);
 }
 
 /** 开发环境下可以把验证码直接回显在页面上，省得去翻日志 */

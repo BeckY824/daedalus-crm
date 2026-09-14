@@ -35,6 +35,17 @@ function 写AI用量(workspaceName: string, calls: number) {
   `, CONTROL_DB, workspaceName, String(calls)], { stdio: "pipe" });
 }
 
+/** 从控制面库里把刚发的验证码取出来。没配通道时它只打进服务端日志，测试读库最省事 */
+function 取验证码(target: string, purpose: string): string {
+  return execFileSync("node", ["--experimental-sqlite", "-e", `
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(process.argv[1]);
+    const r = db.prepare('SELECT code FROM "VerifyCode" WHERE target = ? AND purpose = ? AND usedAt IS NULL ORDER BY createdAt DESC LIMIT 1').get(process.argv[2], process.argv[3]);
+    process.stdout.write(r ? r.code : '');
+    db.close();
+  `, CONTROL_DB, target, purpose], { encoding: "utf8" }).trim();
+}
+
 /**
  * 注册走两步：第一步只填邮箱，第二步填密码和团队名。
  * 这里跑的是默认配置（不要验证码），所以第一步的按钮是「下一步」；
@@ -238,4 +249,49 @@ test("10 条款页不用登录就能读，注册页有勾选", async ({ page }) 
   await page.getByRole("button", { name: /下一步|发送验证码/ }).click();
   await expect(page.getByRole("checkbox")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("link", { name: "用户协议" })).toHaveAttribute("href", "/terms");
+});
+
+test("11 忘记密码：收码、设新密码，旧会话当场作废", async ({ page }) => {
+  /**
+   * 三件事要一起成立才算真的「找回」：码收得到、新密码能登、**旧的登录状态没了**。
+   * 最后一条最容易漏——会话是一张签了 7 天的 JWT，服务端不存它也就删不掉它，
+   * 只换密码的话，拿着旧 Cookie 的那个人还能再用一周：锁换了，门没换。
+   * 这里就用「登录着去改密码」把它逼出来：同一个浏览器，改完再进 /dashboard 应当被弹走。
+   */
+  /**
+   * 拿第 9 条建的那个号来改，不再注册一个新的：同一个出口 IP 每天只放 3 个工作区
+   * （见 lib/rate-limit.ts），前面已经用满了。这个号后面没有别的用例再用。
+   */
+  const 邮箱 = "quota@test.example.com";
+  await 登录(page, 邮箱, "Passw0rd99");
+
+  // 已登录也能进找回页：密码泄露了想立刻换掉，弹回 /dashboard 就没路走了
+  await page.goto("/forgot");
+  await page.getByPlaceholder("注册时用的邮箱").fill(邮箱);
+  await page.getByRole("button", { name: "发送验证码" }).click();
+  await expect(page.getByPlaceholder("邮件里的 6 位验证码")).toBeVisible({ timeout: 15_000 });
+
+  // 先试一个错的：错一次不该把这封码作废，也不该把密码改掉
+  await page.getByPlaceholder("邮件里的 6 位验证码").fill("000000");
+  await page.getByPlaceholder("设置新密码").fill("Newpass22");
+  await page.getByRole("button", { name: "设置新密码" }).click();
+  await expect(page.getByText("验证码不对")).toBeVisible({ timeout: 15_000 });
+
+  const code = 取验证码(邮箱, "reset");
+  expect(code).toHaveLength(6);
+  await page.getByPlaceholder("邮件里的 6 位验证码").fill(code);
+  await page.getByRole("button", { name: "设置新密码" }).click();
+  await expect(page.getByText("密码已经改好了")).toBeVisible({ timeout: 15_000 });
+
+  // 旧会话：Cookie 还在，但已经不认了
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
+
+  await 登录(page, 邮箱, "Newpass22");
+});
+
+test("12 登录页把找回入口摆出来", async ({ page }) => {
+  // 配得出发信通道才画这个链接；这套 e2e 跑在 dev 模式下，那里一律画
+  await page.goto("/login");
+  await expect(page.getByRole("link", { name: "忘记密码？" })).toHaveAttribute("href", "/forgot");
 });

@@ -231,3 +231,20 @@ model DeviceToken {
 
   @@index([accountId])
 }
+
+/// 改过密码的账号，以及改的那一刻。会话的作废线。
+///
+/// 会话是一张 7 天的 JWT，签出去就收不回来了——找回密码之后，
+/// 拿着旧 Cookie 的人（可能正是把你挤出去的那个）还能再用 7 天，
+/// 那这次「找回」就只是换了把锁，没换门。
+///
+/// 所以另记一条线：票据的签发时刻（`iat`）早于这条线的，一律不认。
+/// 存秒而不是毫秒——`iat` 本来就只有秒，比较时严格小于，
+/// 同一秒里签出来的新会话不会被自己的这条线误杀。
+///
+/// 单独一张表而不是给 Account 加一列，规矩同前：
+/// control-migrations/ 每次启动整个重跑，而 SQLite 没有 ADD COLUMN IF NOT EXISTS。
+model SessionCutoff {
+  accountId String   @id
+  since     DateTime
+}
