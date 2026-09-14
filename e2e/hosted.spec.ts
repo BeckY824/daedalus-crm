@@ -24,21 +24,6 @@ function 拨到过期(workspaceName: string) {
   `, CONTROL_DB, workspaceName], { stdio: "pipe" });
 }
 
-/**
- * 从控制面库里捞刚发出去的验证码。e2e 不配短信/邮件通道，码只打在服务端日志里，
- * 直接读库比解析日志稳。
- */
-function 最新验证码(target: string): string {
-  return execFileSync("node", ["--experimental-sqlite", "-e", `
-    const { DatabaseSync } = require('node:sqlite');
-    const db = new DatabaseSync(process.argv[1]);
-    const r = db.prepare('SELECT code FROM "VerifyCode" WHERE target = ? AND purpose = ? AND usedAt IS NULL ORDER BY createdAt DESC LIMIT 1').get(process.argv[2], "signup");
-    if (!r) throw new Error('没有找到验证码：' + process.argv[2]);
-    process.stdout.write(r.code);
-    db.close();
-  `, CONTROL_DB, target], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
-}
-
 /** 把某个工作区的 AI 用量直接写成某个数，省得真问几十次 */
 function 写AI用量(workspaceName: string, calls: number) {
   execFileSync("node", ["--experimental-sqlite", "-e", `
@@ -55,11 +40,9 @@ async function 注册(page: Page, opts: { 团队: string; 姓名: string; 手机
   await page.getByPlaceholder("团队名称，如「启明教育」").fill(opts.团队);
   await page.getByPlaceholder("你的姓名").fill(opts.姓名);
   await page.getByPlaceholder("手机号或邮箱").fill(opts.手机);
-  // 验证码：点「获取验证码」，码落在控制面库里，捞出来填
-  await page.getByRole("button", { name: /获取验证码/ }).click();
-  // 等提示条，不能等 /验证码/——「获取验证码」按钮本身就匹配，会在码落库之前放行
-  await expect(page.getByRole("alert").filter({ hasText: /验证码已发送|开发环境验证码/ })).toBeVisible({ timeout: 15_000 });
-  await page.getByPlaceholder("验证码").fill(最新验证码(opts.手机));
+  // 默认不要验证码：填账号密码就能注册。打开 SIGNUP_VERIFY 才会多出那一栏，
+  // 那条路由单测覆盖（tests/signup-gate.test.ts），这里走的是线上的默认配置
+  await expect(page.getByPlaceholder("验证码")).toHaveCount(0);
   await page.getByPlaceholder("设置密码").fill(opts.密码);
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "创建工作区" }).click();
