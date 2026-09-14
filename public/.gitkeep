@@ -1,0 +1,3 @@
+# Next 的静态资源目录。现在是空的，但必须存在：
+# Dockerfile 里有 COPY --from=builder /app/public ./public，
+# 目录不在镜像就构建不出来（git 不跟踪空目录，所以要这个占位文件）。

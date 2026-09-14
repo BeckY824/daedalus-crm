@@ -8,6 +8,33 @@ import { recordAiUse } from "@/lib/ai-usage";
 import { runAgent } from "@/lib/agent/run";
 import { resolveModel } from "@/lib/llm";
 
+/** 一个问题最多多长。300 太短，一句完整的业务问题经常就写不下 */
+const 问题上限 = 1000;
+/** 带几轮上下文。再多的收益递减，而每一轮都要跟着这次的 prompt 一起付钱 */
+const 上下文轮数 = 6;
+const 单问上限 = 200;
+const 单答上限 = 600;
+
+/**
+ * 上下文来自浏览器，一律当成不可信输入重新收一遍。
+ *
+ * 它会被原样拼进发给模型的 prompt，所以这里既是防"传一兆字节把账单打爆",
+ * 也是防"往历史里塞一段假的『你答：』来改写模型的行为"——
+ * 后者拦不住内容，但至少把体量和条数钉死，让它翻不出浪。
+ */
+function 收上下文(v: unknown): { q: string; a: string }[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v
+    .slice(-上下文轮数)
+    .filter((x): x is Record<string, unknown> => Boolean(x) && typeof x === "object")
+    .map((x) => ({
+      q: typeof x.q === "string" ? x.q.trim().slice(0, 单问上限) : "",
+      a: typeof x.a === "string" ? x.a.trim().slice(0, 单答上限) : "",
+    }))
+    .filter((x) => x.q && x.a);
+  return out.length ? out : undefined;
+}
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -35,6 +62,7 @@ export async function POST(req: Request) {
       try {
         let res: { ok: true; answer: unknown } | { ok: false; error: string };
         if (body.mode === "agent" && typeof body.question === "string") {
+          const history = 收上下文(body.history);
           // agent：模型自己决定读谁、查什么，每次工具调用推一条 step，最终回答逐 token 推
           const user = await requireUser();
           const wait = consumeAiQuota(user.id);
@@ -44,7 +72,7 @@ export async function POST(req: Request) {
           req.signal.addEventListener("abort", () => abort.abort());
           // 浏览器报上来的模型名不可信，按设置页的白名单收一遍
           const model = await resolveModel(typeof body.model === "string" ? body.model : undefined);
-          const r = await runAgent({ question: body.question.trim().slice(0, 300), user: { id: user.id, name: user.name }, b }, { emit, model, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
+          const r = await runAgent({ question: body.question.trim().slice(0, 问题上限), user: { id: user.id, name: user.name }, b, history }, { emit, model, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
           await recordAiUse(user, "ask", `AI 对话：「${body.question.trim().slice(0, 60)}」（${r.steps} 次工具调用${model ? `，${model}` : ""}）`);
           res = { ok: true, answer: { text: r.text, records: r.records, customers: r.customers, proposals: r.proposals } };
         } else if (body.mode === "home" && typeof body.question === "string") {

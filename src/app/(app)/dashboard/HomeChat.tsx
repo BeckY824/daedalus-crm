@@ -15,7 +15,7 @@ import { draftWakeup } from "./ai";
 import { draftInvite } from "../channels/ai";
 import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
-import { runJob, useJob, clearJob, useRunningKey } from "@/lib/ai-jobs";
+import { clearJob, getJob, runJob, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, type Turn } from "@/lib/home-thread";
 import type { StepEvent } from "@/lib/ai-steps";
@@ -70,8 +70,27 @@ export default function HomeChat({ userName, suggestions, context, models }: { u
   const showCmds = q.startsWith("/") && !q.includes(" ");
   const cmdMatches = showCmds ? COMMANDS.filter((c) => c.cmd.startsWith(q.trim())) : [];
 
+  /**
+   * 把这一问之前已经答完的几轮带上去，模型才接得住「他」「那个」「再约一下」。
+   *
+   * 只取答完的：还在流的那条文本是半截的，喂回去只会让它照着半截往下编。
+   * 条数和长度这里先收一道，服务端还会再收一道——上下文是要按 token 付钱的，
+   * 而且它会原样进 prompt，两边都不能只信对方。
+   */
+  function 收集上下文(到: string): { q: string; a: string }[] {
+    const out: { q: string; a: string }[] = [];
+    for (const t of turns) {
+      if (t.id === 到) break;
+      const job = getJob<StreamJob<AgentAnswer>>(`home:${t.id}`);
+      if (job?.status !== "done") continue;
+      const a = (job.value?.answer?.text ?? job.value?.text ?? "").trim();
+      if (a) out.push({ q: t.question, a });
+    }
+    return out.slice(-6);
+  }
+
   function start(turn: Turn) {
-    runStream<AgentAnswer>(`home:${turn.id}`, { mode: "agent", question: turn.question, model });
+    runStream<AgentAnswer>(`home:${turn.id}`, { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id) });
   }
 
   // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
@@ -206,7 +225,7 @@ export default function HomeChat({ userName, suggestions, context, models }: { u
               ref={taRef}
               value={q}
               rows={1}
-              maxLength={300}
+              maxLength={1000}
               placeholder={running ? "正在回答… 再问会排队，Esc 打断" : `问一位${b.customer}，或问一个数`}
               onChange={(e) => {
                 setQ(e.target.value);

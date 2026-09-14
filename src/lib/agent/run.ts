@@ -37,8 +37,31 @@ export type AgentResult = {
 
 const MAX_STEPS = 6;
 
-export async function runAgent(input: { question: string; user: { id: string; name: string }; b: BusinessConfig }, ev: AgentEvents = {}): Promise<AgentResult> {
-  const { question, user, b } = input;
+/** 之前几轮的问答，用来理解「他」「那个」「再约一下」这类指代 */
+export type HistoryTurn = { q: string; a: string };
+
+/**
+ * 把历史折进**当前这条 user 消息**，而不是插成一串独立的 user/assistant。
+ *
+ * 因为这个循环跑的是严格 JSON 协议：每一轮模型只能输出
+ * {"thought":..,"action":..} 或 {"final":true}。要是往消息里塞几条自然语言的
+ * assistant 回答，等于给它看了一堆"不按协议输出也行"的先例，它会开始直接
+ * 回自然语言，整个循环就散了。折进一条消息里，协议不受影响。
+ */
+function 拼上下文(history: HistoryTurn[] | undefined, question: string): string {
+  if (!history?.length) return `问题：${question}`;
+  const 之前 = history.map((h, i) => `[${i + 1}] 我问：${h.q}\n    你答：${h.a}`).join("\n");
+  return `这是我们之前的对话，只用来理解我这次说的「他」「那个」「再约一下」指的是谁、是什么。不要重复回答里面的内容：
+${之前}
+
+问题：${question}`;
+}
+
+export async function runAgent(
+  input: { question: string; user: { id: string; name: string }; b: BusinessConfig; history?: HistoryTurn[] },
+  ev: AgentEvents = {},
+): Promise<AgentResult> {
+  const { question, user, b, history } = input;
   const toolDoc = TOOLS.map((t) => `- ${t.name}：${t.description}\n  参数：${t.args}`).join("\n");
   const system =
     buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
@@ -62,11 +85,14 @@ ${PROPOSAL_VOCAB}
 - 工具没找到时如实说"没有匹配的"，不要把关键词当成人名
 - 问数字用 query_metric；问"该联系谁"用 get_watchlist / get_my_plans
 - 已经拿到足够信息就 final，不要重复调用同一个工具
-- 最多 ${MAX_STEPS} 步`;
+- 最多 ${MAX_STEPS} 步
+- 问题前面可能附着我们之前的对话。它只用来解开指代（"他""这位""那个学校""再约一下"）；
+  真正要回答的永远是最后那个"问题："。别把之前答过的内容再抄一遍，也别拿旧数字当现在的数字——
+  该查还得查`;
 
   const messages: ChatMessage[] = [
     { role: "system", content: system },
-    { role: "user", content: `问题：${question}` },
+    { role: "user", content: 拼上下文(history, question) },
   ];
   const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [] };
   const records: BriefRecord[] = [];

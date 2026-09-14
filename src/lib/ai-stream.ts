@@ -8,7 +8,7 @@ import { runJob, patchJob } from "./ai-jobs";
 import { mergeSteps, type StepEvent } from "./ai-steps";
 
 export type StreamBody =
-  | { mode: "agent"; question: string; model?: string }
+  | { mode: "agent"; question: string; model?: string; /** 之前几轮的问答，让模型接得住指代 */ history?: { q: string; a: string }[] }
   | { mode: "home"; question: string }
   | { mode: "quick"; intent: "prep" | "recap" }
   | { mode: "brief"; customerId: string; question?: string };

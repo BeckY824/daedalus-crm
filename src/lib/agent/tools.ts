@@ -61,13 +61,13 @@ export const TOOLS: Tool[] = [
           where,
           take: 30,
           orderBy: { lastFollowAt: "desc" },
-          select: { id: true, name: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, lastFollowAt: true },
+          select: { id: true, name: true, phone: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, lastFollowAt: true },
         }),
       ]);
       const data = {
         total,
         shown: rows.length,
-        customers: rows.map((r) => ({ id: r.id, name: r.name, school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
+        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
       };
       const cond = [q && `「${q}」`, status && `状态 ${status}`, mine && "我负责的"].filter(Boolean).join("、");
       return { summary: total ? `${cond}：${total} 位${total > rows.length ? `，列出前 ${rows.length}` : ""}——${rows.slice(0, 6).map((r) => r.name).join("、")}${rows.length > 6 ? "…" : ""}` : `没有匹配 ${cond} 的${ctx.b.customer}`, data };
@@ -102,7 +102,10 @@ export const TOOLS: Tool[] = [
       const data = {
         id: c.id,
         name: c.name,
-        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.reduce((s, x) => s + x.amount, 0) || "无"}；备注：${c.remark || "无"}`,
+        // 电话一定要给：不给的话模型会如实说「系统里没存电话」，
+        // 然后建议人去补一条**本来就存在**的数据——比缺功能更伤，
+        // 它是在向用户断言 CRM 丢了东西
+        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${c.phone || "未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.reduce((s, x) => s + x.amount, 0) || "无"}；备注：${c.remark || "无"}`,
         opportunities: c.opportunities.map((o) => `${o.name} ¥${Math.round(o.amount)} ${o.status === "OPEN" ? o.stage : o.status}`),
         openTasks: c.tasks.map((t) => `${t.title}${t.dueAt ? `（${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`),
         nextPlan: c.plans[0] ? `${dayjs(c.plans[0].plannedAt).format("MM-DD HH:mm")} ${c.plans[0].method}：${c.plans[0].subject}` : null,
