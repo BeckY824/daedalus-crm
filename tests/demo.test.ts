@@ -83,6 +83,21 @@ describe("建立", () => {
     expect(第一次.counts!.学员).toBeGreaterThanOrEqual(30);
     expect(第一次.counts!.跟进).toBeGreaterThan(0);
     expect(第一次.counts!.合同).toBeGreaterThan(0);
+  });
+
+  it("演示学员不能重名——AI 会正确地要求消歧，但看演示的人只会觉得数据是乱造的", async () => {
+    const { 确保演示工作区 } = await import("@/lib/demo/workspace");
+    const { control } = await import("@/lib/tenant/control");
+    const { workspaceClient } = await import("@/lib/tenant/clients");
+
+    await 确保演示工作区();
+    const ws = await control.workspace.findUnique({ where: { slug: SLUG } });
+    const db = workspaceClient(ws!.dbFile);
+    const rows = await db.customer.findMany({ select: { name: true, phone: true } });
+
+    expect(new Set(rows.map((r) => r.name)).size).toBe(rows.length);
+    // 手机号也是查重主键，撞了会让「新建客户」直接报错
+    expect(new Set(rows.map((r) => r.phone)).size).toBe(rows.length);
 
     const 第二次 = await 确保演示工作区();
     expect(第二次.created).toBe(false);
