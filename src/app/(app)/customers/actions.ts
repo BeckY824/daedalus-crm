@@ -43,6 +43,11 @@ export type CustomerInput = {
   /** 推荐人二选一：外部渠道 或 已有学员 */
   channelId: string | null;
   referrerCustomerId: string | null;
+  /**
+   * 显式指定渠道负责人。undefined = 不碰（跟着推荐链走）；null = 清空后按推荐链重算；
+   * 字符串 = 手工钉死为这个人。用于登记错误的单个订正，不影响任何其他学员。
+   */
+  channelOwnerId?: string | null;
 };
 
 /** 编辑框里可改的那部分字段，用作并发比对的基准快照 */
@@ -51,7 +56,7 @@ export type CustomerSnapshot = Pick<
   | "name" | "phone" | "school" | "grade" | "major"
   | "followStatus" | "decisionStatus" | "expectedSignAt" | "remark"
   | "salesOwnerId" | "channelId" | "referrerCustomerId"
->;
+> & { channelOwnerId?: string | null };
 
 export type DuplicateHit = {
   id: string;
@@ -131,10 +136,37 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     return { ok: false, error: `决策状态「${input.decisionStatus}」不是合法取值` };
   }
 
-  const attribution = await resolveAttribution({
-    channelId: input.channelId,
-    referrerCustomerId: input.referrerCustomerId,
-  });
+  /**
+   * 归属字段什么时候重算。
+   *
+   * 新建：按推荐链算。
+   * 更新：**只在推荐链的输入（来源渠道 / 推荐人）变了才重算**，否则原样保留。
+   * 原来每次保存都重算——去掉渠道级联之后，只要有人改一下备注，这里就会从
+   * （已经换了人的）渠道重新算一遍，学员照样静默换主，等于级联从后门溜回来。
+   * 规则和渠道那边一致：没动他的推荐链，他的归属就不动。
+   */
+  const 改前 = input.id ? await prisma.customer.findUnique({ where: { id: input.id } }) : null;
+  if (input.id && !改前) return { ok: false, error: `这条${b.customer}已被其他人删除，无法保存` };
+  const 推荐链变了 = !改前 || 改前.channelId !== input.channelId || 改前.referrerCustomerId !== input.referrerCustomerId;
+  const attribution = 推荐链变了
+    ? await resolveAttribution({ channelId: input.channelId, referrerCustomerId: input.referrerCustomerId })
+    : {
+        channelId: 改前!.channelId,
+        attributionChannelId: 改前!.attributionChannelId,
+        attributionCustomerId: 改前!.attributionCustomerId,
+        channelOwnerId: 改前!.channelOwnerId,
+      };
+  // 显式指定压过推荐链：登记错误的单个订正走这里。null 表示清掉手工值、按推荐链重算
+  if (input.channelOwnerId !== undefined) {
+    if (input.channelOwnerId) {
+      const u = await prisma.user.findUnique({ where: { id: input.channelOwnerId }, select: { active: true } });
+      if (!u || !u.active) return { ok: false, error: "渠道负责人不存在或已停用" };
+      attribution.channelOwnerId = input.channelOwnerId;
+    } else {
+      const 重算 = await resolveAttribution({ channelId: input.channelId, referrerCustomerId: input.referrerCustomerId });
+      attribution.channelOwnerId = 重算.channelOwnerId;
+    }
+  }
 
   const data = {
     name: input.name.trim(),
@@ -194,10 +226,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
    */
   const bump = (from: Date) => new Date(Math.max(Date.now(), from.getTime() + 1));
 
-  // 留痕要对比前后值，所以写之前先取一份
-  const 改前 = await prisma.customer.findUnique({ where: { id: input.id } });
-  if (!改前) return { ok: false, error: `这条${b.customer}已被其他人删除，无法保存` };
-
+  // 留痕要对比前后值；改前 在上面算归属时已经取过一份
   const first = await prisma.customer.updateMany({
     where: { id: input.id, updatedAt: expected },
     data: { ...data, updatedAt: bump(expected) },
@@ -263,6 +292,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     if (mine.some((k) => (REFERRER_KEYS as readonly string[]).includes(k))) {
       for (const k of ATTRIBUTION_KEYS) patch[k] = (data as Record<string, unknown>)[k];
     }
+    // 单独订正的渠道负责人不在 base 快照里，diffKeys 看不见它，要显式带上
+    if (input.channelOwnerId !== undefined) patch.channelOwnerId = data.channelOwnerId;
 
     const merged = await prisma.customer.updateMany({
       where: { id: input.id, updatedAt: current.updatedAt },
@@ -567,7 +598,7 @@ export async function deleteContract(
 /* ---------- 记录页的行内编辑 ---------- */
 
 /** 记录页里能直接点着改的字段。姓名、手机（要查重）、推荐关系（要重算归属）仍走完整表单 */
-const PATCHABLE = ["school", "major", "grade", "remark", "expectedSignAt", "followStatus", "decisionStatus", "salesOwnerId"] as const;
+const PATCHABLE = ["school", "major", "grade", "remark", "expectedSignAt", "followStatus", "decisionStatus", "salesOwnerId", "channelOwnerId"] as const;
 export type PatchableKey = (typeof PATCHABLE)[number];
 
 /**
@@ -591,6 +622,17 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
     const u = v ? await prisma.user.findUnique({ where: { id: v }, select: { active: true, role: true } }) : null;
     if (!u || !u.active) return { ok: false, error: "负责人不存在或已停用" };
     data.salesOwnerId = v;
+  } else if (key === "channelOwnerId") {
+    // 清空 = 恢复跟着推荐链走；给了人 = 手工钉死。只动这一条学员，不影响任何其他人
+    if (v) {
+      const u = await prisma.user.findUnique({ where: { id: v }, select: { active: true } });
+      if (!u || !u.active) return { ok: false, error: "渠道负责人不存在或已停用" };
+      data.channelOwnerId = v;
+    } else {
+      const cur = await prisma.customer.findUnique({ where: { id }, select: { channelId: true, referrerCustomerId: true } });
+      if (!cur) return { ok: false, error: `这条${b.customer}已被删除` };
+      data.channelOwnerId = (await resolveAttribution(cur)).channelOwnerId;
+    }
   } else if (key === "expectedSignAt") {
     if (v && Number.isNaN(Date.parse(v))) return { ok: false, error: "日期格式不对" };
     data.expectedSignAt = v ? new Date(v) : null;

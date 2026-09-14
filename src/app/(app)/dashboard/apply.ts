@@ -9,6 +9,7 @@ import { patchCustomer, saveCustomer, saveContract } from "../customers/actions"
 import { saveFollowUp, savePlan } from "../customers/[id]/actions";
 import { saveLead } from "../leads/actions";
 import { saveOpportunity } from "../opportunities/actions";
+import { saveChannel } from "../channels/actions";
 import { 可担任负责人 } from "@/lib/constants";
 
 export type ApplyResult = { ok: true; message: string } | { ok: false; error: string };
@@ -76,12 +77,26 @@ async function 改档案(customerId: string, changes: 一处改动[]): Promise<{
     }
   }
 
+  // 渠道负责人：给了名字就钉死为这个人；给空字符串 = 清掉手工值、恢复按推荐链；没提这个字段 = 不碰
+  let channelOwnerId: string | null | undefined = undefined;
+  if (有("channelOwnerName")) {
+    const n = (取值("channelOwnerName") ?? "").trim();
+    if (!n) channelOwnerId = null;
+    else {
+      const hit = await prisma.user.findMany({ where: { name: n, ...可担任负责人 }, select: { id: true } });
+      if (hit.length === 0) return { ok: false, error: `没有叫「${n}」的在职销售` };
+      if (hit.length > 1) return { ok: false, error: `有 ${hit.length} 位同事都叫「${n}」，请到档案页手动指定` };
+      channelOwnerId = hit[0].id;
+    }
+  }
+
   const 文本 = (f: string, 原: string | null) => (有(f) ? (取值(f) || "").trim() || null : 原);
   const 快照 = {
     name: cur.name, phone: cur.phone, school: cur.school, grade: cur.grade, major: cur.major,
     followStatus: cur.followStatus, decisionStatus: cur.decisionStatus,
     expectedSignAt: cur.expectedSignAt, remark: cur.remark,
     salesOwnerId: cur.salesOwnerId, channelId: cur.channelId, referrerCustomerId: cur.referrerCustomerId,
+    channelOwnerId: cur.channelOwnerId,
   };
 
   const r = await saveCustomer({
@@ -102,6 +117,37 @@ async function 改档案(customerId: string, changes: 一处改动[]): Promise<{
     salesOwnerId,
     channelId,
     referrerCustomerId,
+    ...(channelOwnerId !== undefined ? { channelOwnerId } : {}),
+  });
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
+/**
+ * 改渠道。走 saveChannel，重名检查和留痕都在那里面。
+ *
+ * 改渠道负责人会影响这条推荐链上**所有**学员的归属统计（Customer.channelOwnerId
+ * 是冗余存储的），所以这张卡的抬头要说清改的是渠道而不是某一位学员。
+ */
+async function 改渠道(p: { channelName: string; ownerName: string; phone: string; remark: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  const hit = await prisma.channel.findMany({ where: { name: p.channelName.trim() }, select: { id: true, name: true, phone: true, remark: true, channelOwnerId: true } });
+  if (hit.length === 0) return { ok: false, error: `没有叫「${p.channelName}」的渠道` };
+  if (hit.length > 1) return { ok: false, error: `有 ${hit.length} 个渠道都叫「${p.channelName}」，请到渠道页手动指定` };
+  const ch = hit[0];
+
+  let channelOwnerId = ch.channelOwnerId;
+  if (p.ownerName.trim()) {
+    const us = await prisma.user.findMany({ where: { name: p.ownerName.trim(), ...可担任负责人 }, select: { id: true } });
+    if (us.length === 0) return { ok: false, error: `没有叫「${p.ownerName}」的在职销售` };
+    if (us.length > 1) return { ok: false, error: `有 ${us.length} 位同事都叫「${p.ownerName}」，请到渠道页手动指定` };
+    channelOwnerId = us[0].id;
+  }
+
+  const r = await saveChannel({
+    id: ch.id,
+    name: ch.name,
+    phone: p.phone.trim() || ch.phone,
+    remark: p.remark.trim() || ch.remark,
+    channelOwnerId,
   });
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
@@ -112,7 +158,7 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
 
   // 新建线索不挂在任何客户下，其余三种都必须指到一个还在的客户
   let c = { id: "", name: "" };
-  if (input?.kind !== "add_lead") {
+  if (input?.kind !== "add_lead" && input?.kind !== "update_channel") {
     const found = await prisma.customer.findUnique({ where: { id: String(input?.customerId ?? "") }, select: { id: true, name: true } });
     if (!found) return { ok: false, error: `这条${b.customer}已被删除` };
     c = found;
@@ -152,6 +198,8 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
       remark: p.remark || null,
     });
     done = r.ok ? { ok: true } : { ok: false, error: "error" in r ? r.error : "签约没能保存" };
+  } else if (p.kind === "update_channel") {
+    done = await 改渠道(p);
   } else if (p.kind === "set_status") {
     done = await patchCustomer(p.customerId, p.field, p.to);
   } else if (p.kind === "add_followup") {

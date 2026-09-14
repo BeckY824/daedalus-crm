@@ -218,7 +218,7 @@ export default function ChannelsView({
               label="渠道负责人"
               name="channelOwnerId"
               rules={[{ required: true, message: "请选择渠道负责人" }]}
-              extra={`该渠道带来的${b.customer}及其下游转介绍，渠道负责人都归此人`}
+              extra={`之后由该渠道新增的${b.customer}及其下游转介绍归此人；已有${b.customer}的归属不变，个别要改的到其档案里单独改`}
             >
               <Select placeholder="请选择" options={成员选项(users)} />
             </Form.Item>

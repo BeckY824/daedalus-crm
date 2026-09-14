@@ -39,18 +39,22 @@ export async function saveChannel(input: {
   if (input.id) {
     const 改前 = await prisma.channel.findUnique({ where: { id: input.id }, select: { channelOwnerId: true } });
     await prisma.channel.update({ where: { id: input.id }, data });
-    // 渠道负责人变更后，该渠道整条推荐链上的学员都要跟着改
-    const 波及 = await prisma.customer.updateMany({
-      where: { channelId: input.id },
-      data: { channelOwnerId: input.channelOwnerId },
-    });
+    /**
+     * 改渠道负责人**不再**连带改写已有学员。
+     *
+     * 原来这里有一条 updateMany 把该渠道名下所有学员的 channelOwnerId 一起换掉——
+     * 张沁做了一年的渠道换李蔚然接手，改一下负责人，张沁过去一年的业绩就全划走了，
+     * 而且是静默的。这和 attribution.ts 的「归属固化」（改上游不追溯改写下游）
+     * 是同一条原则：没动那个学员的数据，他的归属就不该变。
+     * 新负责人只对**之后新增**的学员生效；个别登记错的学员，到他档案里单独改。
+     */
+    const 换人 = Boolean(改前 && 改前.channelOwnerId !== input.channelOwnerId);
+    const 已有 = 换人 ? await prisma.customer.count({ where: { channelId: input.id } }) : 0;
     await recordAudit({
       user: me, action: "update", entity: "Channel", entityId: input.id,
       summary: `修改渠道「${name}」` +
-        (改前 && 改前.channelOwnerId !== input.channelOwnerId
-          ? `，渠道负责人变更，连带改了 ${波及.count} 名${b.customer}的归属`
-          : ""),
-      detail: { name, 原负责人: 改前?.channelOwnerId, 新负责人: input.channelOwnerId, 波及学员: 波及.count },
+        (换人 ? `，渠道负责人变更，仅影响之后新增的${b.customer}；已有 ${已有} 名保持原归属` : ""),
+      detail: { name, 原负责人: 改前?.channelOwnerId, 新负责人: input.channelOwnerId, 已有学员不受影响: 已有 },
     });
   } else {
     const c = await prisma.channel.create({ data });

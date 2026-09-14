@@ -698,3 +698,8 @@ a {
 .demobar { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 8px 14px; border-radius: 8px; font-size: 13px; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; }
 .demobar-tag { flex: none; padding: 1px 7px; border-radius: 4px; background: #4338ca; color: #fff; font-size: 11.5px; font-weight: 500; }
 .demobar-cta { margin-left: auto; flex: none; color: inherit; font-weight: 500; text-decoration: underline; white-space: nowrap; }
+
+/* 首页输入框下的免费次数。常驻显示——等横条弹出来才知道，人已经在问第五句了 */
+.cli-quota { flex: none; padding: 1px 7px; border-radius: 4px; background: #f3f4f6; color: #6b7280; font-size: 12px; }
+.cli-quota-low { background: #fffbeb; color: #92400e; }
+.cli-quota-out { background: #fef2f2; color: #991b1b; }

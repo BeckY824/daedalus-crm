@@ -26,8 +26,9 @@ export type CustomerRow = {
   referrerCustomerId: string | null;
   channelId: string | null;
   referrerName: string | null;
-  /** 渠道归属（往上两代）与渠道负责人，均由系统计算 */
+  /** 渠道归属（往上两代）由系统计算；渠道负责人默认跟着推荐链，但可以单独订正 */
   attributionName: string | null;
+  channelOwnerId: string | null;
   channelOwnerName: string | null;
   salesOwnerId: string;
   salesOwnerName: string;
@@ -126,6 +127,7 @@ function CustomerFormInner({
               salesOwnerId: editing.salesOwnerId,
               channelId: editing.channelId,
               referrerCustomerId: editing.referrerCustomerId,
+              channelOwnerId: editing.channelOwnerId,
             }
           : null,
         name: v.name,
@@ -140,6 +142,8 @@ function CustomerFormInner({
         salesOwnerId: v.salesOwnerId,
         channelId: referrerType === "channel" ? (v.channelId ?? null) : null,
         referrerCustomerId: referrerType === "customer" ? (v.referrerCustomerId ?? null) : null,
+        // 新建不传（按推荐链算）；编辑时用户选了就钉死，清空就 null（恢复按推荐链）
+        ...(editing ? { channelOwnerId: v.channelOwnerId ?? null } : {}),
       });
       if (!res.ok) {
         // 并发冲突要留在原地把话说清楚，用一闪而过的 toast 说不明白
@@ -331,9 +335,21 @@ function CustomerFormInner({
           </Form.Item>
         )}
 
+        {/* 渠道负责人：默认跟着推荐链算；只有登记错误才需要在这里单独指定，
+            指定后不再随渠道变动，也不影响任何其他学员 */}
+        {editing && (
+          <Form.Item
+            name="channelOwnerId"
+            label="渠道负责人"
+            style={{ marginBottom: 12 }}
+            extra="留空则按推荐链自动确定。只改这一位，不影响同渠道的其他人"
+          >
+            <Select allowClear placeholder={editing.channelOwnerName ? `${editing.channelOwnerName}（按推荐链）` : "按推荐链自动确定"} options={成员选项(users)} />
+          </Form.Item>
+        )}
         {referrerType !== "none" && (
           <Typography.Text type="secondary" style={{ display: "block", marginBottom: 16, fontSize: 13 }}>
-            渠道归属与渠道负责人由系统按推荐链自动计算，保存后可在详情页查看
+            渠道归属由系统按推荐链自动计算，保存后可在详情页查看
           </Typography.Text>
         )}
 

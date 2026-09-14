@@ -52,7 +52,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       select: {
         id: true, name: true, phone: true, school: true, grade: true, major: true,
         followStatus: true, decisionStatus: true, expectedSignAt: true, lastFollowAt: true,
-        remark: true, referrerCustomerId: true, channelId: true, salesOwnerId: true,
+        remark: true, referrerCustomerId: true, channelId: true, salesOwnerId: true, channelOwnerId: true,
         updatedAt: true,
         salesOwner: { select: { name: true } },
         channelOwner: { select: { name: true } },
@@ -90,6 +90,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         referrerName: r.referrerCustomer?.name ?? r.channel?.name ?? null,
         // 渠道归属：往上两代的计算结果
         attributionName: r.attributionChannel?.name ?? r.attributionCustomer?.name ?? null,
+        channelOwnerId: r.channelOwnerId,
         channelOwnerName: r.channelOwner?.name ?? null,
         salesOwnerId: r.salesOwnerId,
         salesOwnerName: r.salesOwner.name,

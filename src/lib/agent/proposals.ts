@@ -14,7 +14,7 @@ import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_METHODS, FOLLOW_STATUSES, DECISIO
 import type { BusinessConfig } from "../business-config";
 import { dayjs } from "../utils";
 
-export type ProposalKind = "set_status" | "add_followup" | "add_plan" | "add_lead" | "update_customer" | "add_opportunity" | "add_contract";
+export type ProposalKind = "set_status" | "add_followup" | "add_plan" | "add_lead" | "update_customer" | "add_opportunity" | "add_contract" | "update_channel";
 
 /**
  * 档案里能改的字段。
@@ -36,6 +36,8 @@ export const 可改字段 = {
   salesOwnerName: { label: "销售负责人", kind: "name" },
   channelName: { label: "来源渠道", kind: "name" },
   referrerName: { label: "推荐人", kind: "name" },
+  /** 单独订正这一位的渠道负责人；留空 = 恢复按推荐链。改渠道本身用 propose_channel_update */
+  channelOwnerName: { label: "渠道负责人", kind: "name" },
 } as const;
 
 export type 可改字段名 = keyof typeof 可改字段;
@@ -59,7 +61,8 @@ export type Proposal =
   | (Base & { kind: "add_lead"; name: string; contact: string; phone: string; source: string; status: string; remark: string })
   | (Base & { kind: "update_customer"; changes: 一处改动[] })
   | (Base & { kind: "add_opportunity"; name: string; amount: number; stage: string; probability: number; expectedDealAt: string; remark: string })
-  | (Base & { kind: "add_contract"; amount: number; signedAt: string; remark: string });
+  | (Base & { kind: "add_contract"; amount: number; signedAt: string; remark: string })
+  | (Base & { kind: "update_channel"; channelName: string; ownerName: string; phone: string; remark: string });
 
 export type ProposalResult = { ok: true; proposal: Proposal } | { ok: false; error: string };
 
@@ -199,6 +202,29 @@ export function buildProposal(
     };
   }
 
+  /**
+   * 改渠道。单独一种卡，因为**渠道负责人不是客户身上的字段**——
+   * 它挂在 Channel 上，整条推荐链继承（见 CustomerForm 的注释：
+   * 「渠道归属与渠道负责人由系统按推荐链自动计算」）。
+   * 模型原来找不到这个字段时会往「来源渠道」「推荐人」上硬套，
+   * 把一个销售的名字填进渠道栏。给它一条正确的路，比让它猜强。
+   */
+  if (kind === "update_channel") {
+    const 渠道 = str(args.channelName, 60);
+    if (!渠道) return { ok: false, error: "channelName 必填：要改哪个渠道" };
+    return {
+      ok: true,
+      proposal: {
+        ...base,
+        kind,
+        channelName: 渠道,
+        ownerName: str(args.ownerName, 20),
+        phone: str(args.phone, 30),
+        remark: str(args.remark, 500),
+      },
+    };
+  }
+
   if (kind === "add_contract") {
     const when = parseWhen(args.signedAt);
     if (!when.ok) return { ok: false, error: "signedAt 解析不了，用 YYYY-MM-DD" };
@@ -256,6 +282,7 @@ export function missingFields(p: Proposal): string[] {
     if (!p.amount) miss.push("签约金额");
     if (!p.signedAt) miss.push("签约日期");
   }
+  if (p.kind === "update_channel" && !p.ownerName.trim() && !p.phone.trim() && !p.remark.trim()) miss.push("要改什么");
   return miss;
 }
 
@@ -273,6 +300,10 @@ export function describeProposal(p: Proposal, customerNoun: string): string {
   }
   if (p.kind === "add_opportunity") return `给「${p.customerName}」新建商机${p.name ? `「${p.name}」` : ""}`;
   if (p.kind === "add_contract") return `给「${p.customerName}」记一笔签约${p.amount ? ` ¥${p.amount}` : ""}`;
+  if (p.kind === "update_channel") {
+    const 项 = [p.ownerName && "负责人", p.phone && "电话", p.remark && "备注"].filter(Boolean);
+    return `改渠道「${p.channelName}」的${项.join("、") || "信息"}`;
+  }
   return `新建一条线索${p.name ? `「${p.name}」` : ""}`;
 }
 

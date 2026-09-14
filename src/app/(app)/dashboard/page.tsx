@@ -6,6 +6,9 @@ import { getBusiness } from "@/lib/business";
 import { loadWatchlist } from "@/lib/sentinel-data";
 import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
+import { multiTenant } from "@/lib/tenant/context";
+import { resolveCurrentTenant } from "@/lib/tenant/resolve";
+import { 查额度 } from "@/lib/tenant/ai-allowance";
 
 export const dynamic = "force-dynamic";
 
@@ -39,5 +42,15 @@ export default async function DashboardPage() {
   suggestions.push({ label: `各跟进状态各有多少${b.customer}`, question: `各跟进状态各有多少${b.customer}` });
   suggestions.push({ label: "这个月谁签得最多", question: "这个月哪个销售的签约金额最多" });
 
-  return <HomeChat userName={user.name} suggestions={suggestions.slice(0, 6)} context={parts.join("，") + "。"} models={models} />;
+  // 试用期的免费提问次数。付费与自部署都是 null，界面上就不出现这一项
+  let aiQuota: { 上限: number; 还剩: number } | null = null;
+  if (multiTenant()) {
+    const t = await resolveCurrentTenant();
+    if (t) {
+      const q = await 查额度(t.workspaceId);
+      if (q.受限) aiQuota = { 上限: q.上限, 还剩: q.还剩 };
+    }
+  }
+
+  return <HomeChat userName={user.name} suggestions={suggestions.slice(0, 6)} context={parts.join("，") + "。"} models={models} aiQuota={aiQuota} />;
 }

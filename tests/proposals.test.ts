@@ -205,3 +205,36 @@ describe("商机与签约的提议", () => {
     expect(summarizeApplied(签约, "学员")).toContain("签约");
   });
 });
+
+describe("改渠道的提议", () => {
+  it("渠道负责人有两条路：改某一位学员走客户卡，改渠道本身走渠道卡", () => {
+    // 单个订正（登记错误）：只动这一位，同渠道其他人不变
+    const 单个 = 提("update_customer", { changes: { channelOwnerName: "张沁" }, reason: "登记错了" });
+    expect(单个.kind === "update_customer" && 单个.changes[0]).toEqual({ field: "channelOwnerName", value: "张沁" });
+
+    // 换人接手：改渠道，只影响之后新增的学员
+    const 整个 = 提("update_channel", { channelName: "林老师（附中）", ownerName: "张沁", reason: "x" });
+    expect(整个.kind === "update_channel" && 整个.ownerName).toBe("张沁");
+
+    // 两条路都不能把销售的名字塞进「来源渠道」——那是渠道名，服务端会拒
+    const 塞错 = 提("update_customer", { changes: { channelName: "张沁" }, reason: "x" });
+    expect(塞错.kind === "update_customer" && 塞错.changes[0].field).toBe("channelName");
+  });
+
+  it("不说改哪个渠道就不给提", () => {
+    expect(建("update_channel", { ownerName: "张沁", reason: "x" }).ok).toBe(false);
+  });
+
+  it("三项都空等于什么都不改，拦住确认", () => {
+    const p = 提("update_channel", { channelName: "林老师（附中）", reason: "x" });
+    expect(missingFields(p)).toContain("要改什么");
+  });
+
+  it("抬头要说清改的是渠道，不是某位学员——它影响整条链的归属", () => {
+    const p = 提("update_channel", { channelName: "林老师（附中）", ownerName: "张沁", reason: "x" });
+    const t = describeProposal(p, "学员");
+    expect(t).toContain("渠道");
+    expect(t).toContain("林老师（附中）");
+    expect(t).not.toContain("学员「");
+  });
+});

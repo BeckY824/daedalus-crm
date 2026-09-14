@@ -43,7 +43,7 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
  *   打断：Esc、Ctrl+C，或点右侧的停止键；中断后留一行「已中断」，已流出的字不丢
  * 背后是一个 agent 循环：模型自己决定读谁、查什么，工具全部只读。
  */
-export default function HomeChat({ userName, suggestions, context, models }: { userName: string; suggestions: Suggestion[]; context: string; models: ModelOption[] }) {
+export default function HomeChat({ userName, suggestions, context, models, aiQuota }: { userName: string; suggestions: Suggestion[]; context: string; models: ModelOption[]; aiQuota?: { 上限: number; 还剩: number } | null }) {
   const b = useBusiness();
   const router = useRouter();
   const turns = useThread();
@@ -291,6 +291,12 @@ export default function HomeChat({ userName, suggestions, context, models }: { u
                 </>
               )}
             </span>
+            {/* 免费次数常驻显示。等横条弹出来才知道，人已经在问第五句了 */}
+            {aiQuota && (
+              <span className={`cli-quota${aiQuota.还剩 === 0 ? " cli-quota-out" : aiQuota.还剩 <= 2 ? " cli-quota-low" : ""}`}>
+                免费提问 {aiQuota.还剩}/{aiQuota.上限}
+              </span>
+            )}
             <span style={{ flex: 1 }} />
             {suggestions.slice(0, 3).map((s) => (
               <button key={s.label} type="button" className="cli-sugg" onClick={() => submit(s.kind === "prep" ? "/prep" : s.kind === "recap" ? "/recap" : s.question)}>

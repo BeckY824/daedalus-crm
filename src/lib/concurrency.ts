@@ -31,6 +31,7 @@ export const CUSTOMER_FIELD_LABELS: Record<string, string> = {
   salesOwnerId: "销售负责人",
   channelId: "推荐渠道",
   referrerCustomerId: "推荐学员",
+  channelOwnerId: "渠道负责人",
 };
 
 /** 术语化版本：院校/年级/专业与「推荐学员」按业务配置显示 */

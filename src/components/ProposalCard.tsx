@@ -53,7 +53,7 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
       <motion.div className="prop prop-done" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <CheckOutlined />
         <span>{describeProposal(draft, b.customer)}</span>
-        <Link href={draft.kind === "add_lead" ? "/leads" : `/customers/${draft.customerId}`} className="cli-link">
+        <Link href={draft.kind === "add_lead" ? "/leads" : draft.kind === "update_channel" ? "/channels" : `/customers/${draft.customerId}`} className="cli-link">
           查看 <RightOutlined style={{ fontSize: 10 }} />
         </Link>
       </motion.div>
@@ -152,6 +152,21 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
             </Field>
             <Field label="备注" block>
               <Input.TextArea size="small" autoSize={{ minRows: 1, maxRows: 4 }} value={draft.remark} onChange={(e) => setDraft({ ...draft, remark: e.target.value })} />
+            </Field>
+          </>
+        )}
+
+        {/* 改渠道：渠道负责人只存在于渠道上，客户档案里没有这个字段 */}
+        {draft.kind === "update_channel" && (
+          <>
+            <Field label="渠道">
+              <Input size="small" style={{ width: 200 }} value={draft.channelName} onChange={(e) => setDraft({ ...draft, channelName: e.target.value })} />
+            </Field>
+            <Field label="渠道负责人">
+              <Input size="small" style={{ width: 160 }} value={draft.ownerName} placeholder="写姓名，不填就不改" onChange={(e) => setDraft({ ...draft, ownerName: e.target.value })} />
+            </Field>
+            <Field label="备注" block>
+              <Input.TextArea size="small" autoSize={{ minRows: 1, maxRows: 4 }} value={draft.remark} placeholder="不填就不改" onChange={(e) => setDraft({ ...draft, remark: e.target.value })} />
             </Field>
           </>
         )}

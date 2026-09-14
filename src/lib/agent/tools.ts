@@ -180,6 +180,15 @@ export const TOOLS: Tool[] = [
     '{"id": "客户 id", "amount": 金额数字, "signedAt": "YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
     "add_contract",
   ),
+  proposeTool(
+    "propose_channel_update",
+    "建议修改一个**渠道**（不是客户）的负责人 / 电话 / 备注。" +
+      "只影响之后由该渠道新增的客户；已有客户的归属不变。" +
+      "要改某一位已有客户的渠道负责人，用 propose_customer_update 的 channelOwnerName。",
+    '{"channelName": "渠道名称", "ownerName": "新的渠道负责人姓名，可空", "phone": "可空", "remark": "可空", "reason": "一句话：为什么"}',
+    "update_channel",
+    { needsCustomer: false },
+  ),
 ];
 
 /**
@@ -224,6 +233,10 @@ export const PROPOSAL_VOCAB = `线索状态：${LEAD_STATUSES.join(" / ")}
 计划方式：${FOLLOW_METHODS.join(" / ")}
 商机阶段：${OPP_STAGES.join(" / ")}
 档案里能改的字段：${可改字段名单.map((f) => `${f}（${可改字段[f].label}）`).join("、")}
+渠道负责人有两种改法，别混：
+  改**某一位**学员的渠道负责人（登记错误、单个订正）→ propose_customer_update 的 channelOwnerName，只动这一位
+  改**渠道本身**的负责人（换人接手）→ propose_channel_update，只影响之后新增的学员，已有学员不动
+channelName 收的是渠道名、referrerName 收的是学员名，绝不要把销售的名字塞进去。
 年级：${GRADES.join(" / ")}`;
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
