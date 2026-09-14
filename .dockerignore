@@ -12,3 +12,7 @@ e2e
 playwright.config.ts
 test-results
 playwright-report
+# 桌面端。它自带一份完整的服务（desktop/server-bundle），和容器镜像没有关系；
+# 不排掉的话 desktop/node_modules 里那 500M 的 Electron 会被 Next 的 standalone 一起拷进镜像
+desktop
+**/node_modules

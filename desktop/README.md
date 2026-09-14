@@ -1,33 +1,73 @@
 # 桌面客户端
 
-一个 Electron 外壳，把 Daedalus CRM 装进 Dock / 任务栏。数据和逻辑都在服务器上，
-这里只有一个窗口、一个可改的服务器地址、和断网时的一句人话提示。
+一个 Electron 应用，两种模式，同一个安装包：
 
-托管版用户装完直接用；自部署的人在「服务器设置」里填自己的地址，同一个安装包通用。
+- **本地** —— 整套 CRM 跑在这台机器上，数据是一个本地 SQLite 文件。装完就能用，
+  不需要服务器、不需要注册、不联网也能用（AI 功能除外，那要连模型接口）。新装默认这个。
+- **服务器** —— 连一台已经部署好的实例，团队共用一份数据。从旧版本升上来的保持这个模式。
+
+在应用菜单里随时切换。切到服务器不会动本地的数据，切回来还在。
+
+## 本地模式是怎么跑起来的
+
+安装包里带着一份完整的 Next standalone 服务（`server-bundle/`，装配见
+`scripts/build-server.mjs`）。启动时 Electron 用**自己自带的 Node**把它拉起来——
+用户机器上不需要装 Node，也不需要装数据库。
+
+```
+Electron 主进程
+  └─ 子进程（ELECTRON_RUN_AS_NODE=1）
+       └─ server-bundle/entry.js   首次复制模板库 → 跑迁移 → require('./server.js')
+            └─ Next 服务，只监听 127.0.0.1 的随机端口
+```
+
+几个刻意的决定：
+
+- **只监听 127.0.0.1。** 绑 0.0.0.0 等于把一个自动登录的 CRM 挂到局域网上。
+- **自动登录。** 服务只有本机能连、数据库文件就躺在用户目录里，再要一次密码不增加任何
+  安全性。Electron 启动时带一个每次现生成的令牌去换会话票据，见
+  `src/app/api/desktop/session/route.ts`——那个路由在没有 `DESKTOP_LOCAL=1`
+  的部署里一律返回 404，所以托管版和自部署版不会多出这个入口。
+- **账号密码每台机器不同。** 模板库里带的是构建期占位密码；首次启动改成随机值，
+  存在数据目录的 `.init-password`，应用菜单里能看。平时用不到，登出或者把库搬到
+  服务器上时才需要。
+- **数据目录不含空格**（`~/Library/Application Support/DaedalusCRM`）。
+  数据库地址是以 `file:` URL 交给 Prisma 的，空格在那里是雷。
+- **建库和迁移用 `node:sqlite`，不用 Prisma。** Prisma 的引擎要按平台解析路径，
+  是 Electron 打包里最容易碎的一环。首次启动只做一次文件复制，跑不坏。
+  Prisma 只在 Next 进程里用，那条路和容器部署完全一样。
+
+数据、日志、配置都在 `~/Library/Application Support/DaedalusCRM/`：
+
+| 位置 | 是什么 |
+|---|---|
+| `data/crm.db` | 全部业务数据。备份就是拷这个文件 |
+| `data/.auth-secret` | 会话密钥，同时用于加密存储的 AI Key。和数据一起走 |
+| `data/.init-password` | 本机账号密码 |
+| `logs/server.log` | 本地服务的输出，起不来时先看它 |
+| `config.json` | 当前模式与服务器地址 |
 
 ## 打包
 
 ```bash
 cd desktop && npm install
-npm run dist:mac     # 出 dmg（universal，Intel 与 Apple 芯片通用）
-npm run dist:win     # 出 exe 安装包
+npm run dist:mac
 ```
 
-产物在 `desktop/dist/`。
+`dist:mac` 会先装配 `server-bundle/`（跑一次 `next build`，几分钟），再出 dmg，
+产物在 `desktop/dist/`。只改了外壳没改应用时用 `npm run build:server:fast` 省掉重新构建。
 
-Windows 包在 macOS 上交叉打包不稳，用 GitHub Actions 的 `desktop.yml` 两个平台各打各的。
+**产物只适用于打包机器的架构。** 装配时会按平台裁掉其它平台的 Prisma 引擎，
+所以 Apple 芯片的机器打出来的包在 Intel Mac 上跑不了。要发 Intel 版就在 Intel 机器
+（或 CI 的 x64 runner）上再打一次。Windows 版同理，配置留着了但还没验证过。
 
 ## 关于签名
 
-**现在不签名。** 代价是每个人第一次打开要手动放行一次：
+**不签名，也不打算签。** 代价是每个人第一次打开要手动放行一次：
 
-- macOS：右键点图标 → 打开 → 再点「打开」；或系统设置 → 隐私与安全性 → 「仍要打开」
+- macOS：系统设置 → 隐私与安全性 → 找到被拦下的应用 → 「仍要打开」
 - Windows：SmartScreen 拦截时点「更多信息」→「仍要运行」
 
-要去掉这一步，两边都得花钱：macOS 需要 Apple 开发者账号（99 美元/年）做签名与公证，
-Windows 需要代码签名证书。等有足够多的人在用再买，下载页把放行步骤写清楚就够。
-
-## 不做自动更新
-
-没签名的 macOS 应用没法用 electron-updater 自动更新。现在是启动时加载远程页面，
-所以**功能更新会自动生效**，只有外壳本身（窗口、菜单）需要重新下载，这种改动很少。
+去掉这一步要花钱：macOS 需要 Apple 开发者账号（99 美元/年）做签名与公证，
+Windows 需要代码签名证书（一年几千）。eigent 这类同形态的产品也只签了 macOS 那一份。
+等有足够多的人在用再说，下载页把放行步骤写清楚就够。

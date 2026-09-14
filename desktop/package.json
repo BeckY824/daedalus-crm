@@ -1,27 +1,49 @@
 {
   "name": "daedalus-crm-desktop",
-  "version": "0.8.2",
+  "version": "0.14.0",
   "description": "Daedalus CRM 桌面客户端",
   "main": "main.js",
   "license": "AGPL-3.0-only",
   "scripts": {
     "start": "electron .",
-    "dist:mac": "electron-builder --mac",
-    "dist:win": "electron-builder --win",
-    "dist": "electron-builder --mac --win"
+    "build:server": "node scripts/build-server.mjs",
+    "build:server:fast": "node scripts/build-server.mjs --no-build",
+    "dist:mac": "npm run build:server && electron-builder --mac",
+    "dist:win": "npm run build:server && electron-builder --win"
   },
   "devDependencies": {
-    "electron": "^33.2.0",
+    "electron": "^38.8.6",
     "electron-builder": "^25.1.8"
   },
   "build": {
     "appId": "com.daedalus.crm",
     "productName": "Daedalus CRM",
-    "directories": { "output": "dist" },
-    "files": ["main.js", "preload.js", "assets/**"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "local-server.js",
+      "assets/**",
+      "sign.js"
+    ],
+    "extraResources": [
+      {
+        "from": "server-bundle",
+        "to": "server"
+      }
+    ],
     "mac": {
       "category": "public.app-category.business",
-      "target": [{ "target": "dmg", "arch": ["universal"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
       "icon": "assets/icon.icns",
       "identity": null
     },
@@ -29,13 +51,21 @@
       "title": "Daedalus CRM"
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "assets/icon.png"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "Daedalus CRM"
-    }
+    },
+    "afterPack": "./sign.js"
   }
 }

@@ -1,7 +1,14 @@
 name: Desktop apps
 
-# 打桌面安装包。两个平台各打各的——macOS 上交叉打 Windows 包不稳。
-# 只在打 tag 时跑：桌面壳改动很少，没必要每次推送都花十几分钟。
+# 打桌面安装包。
+#
+# 现在的桌面端**自带一整套服务**（见 desktop/README.md），所以打包前要先把应用本身
+# 构建一遍：要装应用的依赖、生成 Prisma 客户端、跑 next build，比从前的纯外壳慢得多。
+# 只在打 tag 时跑。
+#
+# 产物只适用于打包机器的架构：装配时会按平台裁掉其它平台的 Prisma 引擎。
+# 所以 Apple 芯片的包和 Intel 的包必须各自在对应架构的 runner 上打。
+# Windows 版配置留着了，但还没验证过，先不进矩阵。
 on:
   push:
     tags: ["v*"]
@@ -13,19 +20,21 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-latest
+          - os: macos-latest # Apple 芯片
             script: dist:mac
-            artifact: dmg
-          - os: windows-latest
-            script: dist:win
-            artifact: exe
+            artifact: dmg-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: 安装依赖
+      # 打包脚本要在应用根目录跑 prisma generate 与 next build
+      - name: 安装应用依赖
+        run: npm ci --no-audit --no-fund
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+      - name: 安装桌面端依赖
         working-directory: desktop
         run: npm install --no-audit --no-fund
       - name: 打包
