@@ -181,3 +181,53 @@ model AiGrant {
 
   @@index([workspaceId])
 }
+
+/// 按**账号**算的赠送账本。和 AiGrant 是同一套规则、不同的归属方：
+/// AiGrant 记的是「这个工作区还能免费问几次」（托管版网页端），
+/// 这里记的是「这个人还能免费问几次」（桌面端本地模式，数据在他自己机器上，
+/// 我们只认账号）。规则实现只有一份，见 lib/tenant/credits.ts。
+///
+/// 分两张表而不是给 AiGrant 加一列，是因为控制面的迁移只能加表不能改表
+/// （SQLite 没有 ADD COLUMN IF NOT EXISTS，而 control-migrations/ 每次启动整个重跑）。
+model AccountAiGrant {
+  id        String   @id @default(cuid())
+  accountId String
+  amount    Int
+  /// signup | daily | invite | admin
+  reason    String
+  /// 幂等键，如 "acc1:signup"、"acc1:daily:2026-09-14"
+  key       String   @unique
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+}
+
+/// 一个账号经模型网关用掉了多少次
+model AccountAiUsage {
+  accountId String   @id
+  calls     Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt
+}
+
+/// 桌面端的登录凭证。
+///
+/// 桌面端的数据在用户自己机器上，它连云端只为两件事：认领账号、调模型网关。
+/// 所以它拿的不是网页那种会话 cookie，而是一枚长期令牌，当作模型接口的 API Key 用——
+/// 这样桌面端的 AI 配置就是标准的「接口地址 + Key」，和用户自己填 DeepSeek 的 Key
+/// 走的是同一条代码路径。
+///
+/// 只存 sha256，不存明文：库被拖走也不能拿去调接口。
+model DeviceToken {
+  id         String    @id @default(cuid())
+  accountId  String
+  /// sha256(明文)，十六进制
+  tokenHash  String    @unique
+  /// 给人看的：哪台机器。列出来时用
+  name       String
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([accountId])
+}

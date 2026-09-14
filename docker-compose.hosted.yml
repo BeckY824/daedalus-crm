@@ -29,6 +29,12 @@ services:
       SMTP_USER: "${SMTP_USER:-}"
       SMTP_PASS: "${SMTP_PASS:-}"
       SMTP_FROM: "${SMTP_FROM:-}"
+      # 模型网关（桌面端本地模式用）。缺 GATEWAY_API_KEY 就等于整个网关不存在，
+      # /api/gateway/** 一律 404。GATEWAY_MODELS 是白名单，第一个是默认模型——
+      # 网关花的是我们的钱，不限模型的话一个改了 model 字段的请求就能挑最贵的那个
+      GATEWAY_API_KEY: "${GATEWAY_API_KEY:-}"
+      GATEWAY_BASE_URL: "${GATEWAY_BASE_URL:-}"
+      GATEWAY_MODELS: "${GATEWAY_MODELS:-}"
       # 条款页里的运营主体与联系邮箱（可选，默认 Daedalus.AI / README 里的邮箱）
       LEGAL_ENTITY: "${LEGAL_ENTITY:-}"
       LEGAL_CONTACT: "${LEGAL_CONTACT:-}"

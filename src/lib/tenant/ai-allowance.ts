@@ -1,9 +1,23 @@
-import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { control } from "./control";
 import { computeWritable } from "./workspaces";
 import { 是演示工作区 } from "../demo/config";
 import { 演示码剩余, 演示码扣一次, 演示对话上限 } from "./activation";
+import * as 账本 from "./credits";
+
+/**
+ * 托管版网页端的 AI 免费次数。
+ *
+ * 规则和账本本身在 credits.ts——那一份实现同时服务桌面端（按账号算）。
+ * 这里只负责网页端特有的三件事：
+ *   1. 演示区按演示码（cookie）算，不走工作区额度
+ *   2. 付费工作区不限次也不计数
+ *   3. 试用到期 / 停用的工作区连第一次都不给
+ *
+ * 和 lib/ai-quota.ts 是两回事，别搞混：
+ *   ai-quota      五分钟 30 次、内存态、重启清零 —— 防的是脚本刷爆，人正常用碰不到
+ *   这里          落库的赠送账本 —— 这是产品定价的一部分
+ */
 
 /**
  * 演示区的访客 id：/demo 用演示码进入时种下的 cookie。
@@ -19,76 +33,23 @@ async function 演示访客id(): Promise<string | null> {
   }
 }
 
-/**
- * 试用期的 AI 对话免费额度。
- *
- * 和 lib/ai-quota.ts 是两回事，别搞混：
- *   ai-quota      五分钟 30 次、内存态、重启清零 —— 防的是脚本刷爆，人正常用碰不到
- *   这里          落库的赠送账本 —— 这是产品定价的一部分
- *
- * 规则对标 eigent（注册送一笔、每天用就再送一点、邀请码多送）：
- *   注册赠送 30 次；余额不足 30 的，当天有使用就送 3 次（一天一次）；填了邀请码再送 50。
- * 余额 = AiGrant 之和 − AiUsage.calls。赠送只加不减，扣费仍是 AiUsage 的原子自增。
- *
- * 按**工作区**算而不是按人头，和定价口径一致（PLANS 的注释：按工作区收费，
- * 不按人头）。按人头的话，一个团队拉五个同事进来就有 25 次，闸门形同虚设。
- *
- * 额度和试用天数是两条独立的线：试用到期后数据只读，AI 也一并停掉——那是花钱的动作。
- * 付费之后不限：付了钱还数次数就成了另一种产品。自部署版整个不走这里。
- */
-export const 注册赠送 = 30;
-export const 每日赠送 = 3;
-/** 余额低于这个数，当天才送。攒着不用的人不会无限累积 */
-export const 每日赠送门槛 = 30;
-export const 邀请码赠送 = 50;
+export const { 注册赠送, 每日赠送, 每日赠送门槛, 邀请码赠送, 今天 } = 账本;
 
-/** 每日赠送的「天」按北京时间算，和服务器时区、用户所在地都无关，免得跨时区的人一天领两次 */
-export function 今天(now = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-}
+/** 这个工作区的账本归属 */
+const 归属 = (workspaceId: string): 账本.Owner => ({ kind: "workspace", id: workspaceId });
 
 export type 额度判定 =
   | { ok: true; 用掉: number; 还剩: number | null }
   | { ok: false; error: string; 用掉: number };
 
-/**
- * 记一笔赠送。带幂等键的重复调用静默跳过（返回 false），由唯一索引替我们判，
- * 不先查再插——两个标签页同时打开首页时，先查再插会送两遍。
- */
+/** 记一笔赠送。注册与邀请码用得上，带幂等键的重复调用静默跳过 */
 export async function 赠送(input: { workspaceId: string; amount: number; reason: string; key?: string; note?: string }): Promise<boolean> {
-  if (input.amount <= 0) return false;
-  try {
-    await control.aiGrant.create({
-      data: { workspaceId: input.workspaceId, amount: input.amount, reason: input.reason, key: input.key ?? randomUUID(), note: input.note ?? null },
-    });
-    return true;
-  } catch {
-    return false;
-  }
+  return 账本.赠送(归属(input.workspaceId), input);
 }
 
-async function 赠送总和(workspaceId: string): Promise<number> {
-  const r = await control.aiGrant.aggregate({ where: { workspaceId }, _sum: { amount: true } });
-  return r._sum.amount ?? 0;
-}
-
-async function 用掉次数(workspaceId: string): Promise<number> {
-  const u = await control.aiUsage.findUnique({ where: { workspaceId } });
-  return u?.calls ?? 0;
-}
-
-/**
- * 试用工作区每次被看到时结一次账：没领过注册赠送的补上（老工作区也能拿到），
- * 今天还没领每日赠送、余额又不足门槛的领一份。只对试用中、可写的工作区做；付费和过期的都不用。
- *
- * 注册赠送在这里补而不是只在注册动作里发，是为了让改版之前开出来的工作区
- * 不需要任何数据迁移就自动进入新规则。
- */
-async function 结算赠送(workspaceId: string): Promise<void> {
-  await 赠送({ workspaceId, amount: 注册赠送, reason: "signup", key: `${workspaceId}:signup` });
-  const [送, 用] = await Promise.all([赠送总和(workspaceId), 用掉次数(workspaceId)]);
-  if (送 - 用 >= 每日赠送门槛) return;
-  await 赠送({ workspaceId, amount: 每日赠送, reason: "daily", key: `${workspaceId}:daily:${今天()}` });
+/** 付费期内不限次。注意「标着 ACTIVE 但过期了」不算付费，以日期为准 */
+function 已付费(ws: { status: string; trialEndsAt: Date; paidUntil: Date | null }): boolean {
+  return Boolean(ws.paidUntil && ws.paidUntil > new Date());
 }
 
 /** 只看不扣。页面拿它显示「还剩几次」，顺带把当天的赠送结掉 */
@@ -101,22 +62,13 @@ export async function 查额度(workspaceId: string): Promise<{ 上限: number; 
     return { 上限: 演示对话上限, 用掉: d?.用掉 ?? 演示对话上限, 还剩: d?.还剩 ?? 0, 受限: true };
   }
   const 受限 = Boolean(ws) && !已付费(ws!);
-  if (ws && 受限 && computeWritable(ws)) await 结算赠送(workspaceId);
-  const [送, 用] = await Promise.all([赠送总和(workspaceId), 用掉次数(workspaceId)]);
-  // 拦下的那次会减回去，但并发的瞬间计数可能短暂超过上限，对外夹一下
-  return { 上限: 送, 用掉: Math.min(用, 送), 还剩: Math.max(0, 送 - 用), 受限 };
-}
-
-/** 付费期内不限次。注意「标着 ACTIVE 但过期了」不算付费，以日期为准 */
-function 已付费(ws: { status: string; trialEndsAt: Date; paidUntil: Date | null }): boolean {
-  return Boolean(ws.paidUntil && ws.paidUntil > new Date());
+  // 过期和付费的都不结算：送了也用不上，账本别乱
+  if (ws && 受限 && computeWritable(ws)) await 账本.结算赠送(归属(workspaceId));
+  return { ...(await 账本.余额(归属(workspaceId))), 受限 };
 }
 
 /**
  * 扣一次额度。放行返回 ok，超了返回一句给人看的话。
- *
- * 扣在真正发起模型调用**之前**：失败的那次也算。限的是"发起"而不是"成功"，
- * 否则一个反复失败的问题可以无限重试，而每次重试都是真金白银的上游调用。
  */
 export async function 扣一次额度(workspaceId: string): Promise<额度判定> {
   const ws = await control.workspace.findUnique({ where: { id: workspaceId } });
@@ -130,37 +82,21 @@ export async function 扣一次额度(workspaceId: string): Promise<额度判定
     return { ok: false, error: "试用已结束，AI 对话需要开通订阅后继续使用。数据仍可查看和导出。", 用掉: 0 };
   }
 
-  // 当天第一次用就是「登录了」，先把今天的赠送结掉再扣
-  await 结算赠送(workspaceId);
-  const 上限 = await 赠送总和(workspaceId);
-
-  /**
-   * 先自增再判断，不是先判断再自增——后者在两个标签页同时提问时会各读到 29、
-   * 各写 30，30 次额度被用掉 31 次。upsert 的 increment 由数据库保证原子。
-   * 被拦下的那次要减回去：不减的话，被拦 10 次之后运营台补 10 次等于白补，
-   * 明天送的 3 次也会先被这些空计数吃掉。
-   */
-  const after = await control.aiUsage.upsert({
-    where: { workspaceId },
-    create: { workspaceId, calls: 1 },
-    update: { calls: { increment: 1 } },
-  });
-
-  if (after.calls > 上限) {
-    await control.aiUsage.update({ where: { workspaceId }, data: { calls: { decrement: 1 } } });
+  const r = await 账本.扣一次(归属(workspaceId));
+  if (!r.ok) {
     return {
       ok: false,
-      error: `免费的 AI 对话次数已经用完，明天登录再送 ${每日赠送} 次。开通订阅后不限次数——其余功能不受影响，照常可用。`,
-      用掉: 上限,
+      error: `免费的 AI 对话次数已经用完，明天登录再送 ${账本.每日赠送} 次。开通订阅后不限次数——其余功能不受影响，照常可用。`,
+      用掉: r.上限,
     };
   }
-  return { ok: true, 用掉: after.calls, 还剩: 上限 - after.calls };
+  return { ok: true, 用掉: (await 账本.用掉次数(归属(workspaceId))), 还剩: r.还剩 };
 }
 
 /** 运营台给某个工作区手动加次数（谈单时想让对方多试几次） */
 export async function 加次数(workspaceId: string, amount: number, note?: string): Promise<void> {
   const n = Math.max(1, Math.min(1000, Math.floor(amount)));
-  await 赠送({ workspaceId, amount: n, reason: "admin", note });
+  await 账本.赠送(归属(workspaceId), { amount: n, reason: "admin", note });
 }
 
 /**
