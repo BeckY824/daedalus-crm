@@ -13,7 +13,7 @@ import { isEmail } from "./accounts";
 
 export type SendResult = { ok: true; channel: "sms" | "email" | "log" } | { ok: false; error: string };
 
-function smsConfigured(): boolean {
+export function smsConfigured(): boolean {
   return Boolean(process.env.SMS_ACCESS_KEY_ID && process.env.SMS_ACCESS_KEY_SECRET && process.env.SMS_SIGN_NAME && process.env.SMS_TEMPLATE_CODE);
 }
 

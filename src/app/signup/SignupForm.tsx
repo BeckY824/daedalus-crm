@@ -18,7 +18,17 @@ import { requestCode, signup } from "./actions";
  */
 const 倒计时秒 = 60;
 
-export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠送: number; 要验证码: boolean }) {
+export default function SignupForm({
+  注册赠送,
+  要验证码,
+  可用方式,
+}: {
+  注册赠送: number;
+  要验证码: boolean;
+  可用方式: { 手机: boolean; 邮箱: boolean };
+}) {
+  // 只有一条通道到位时，输入框直说要哪一种——省得人填了另一种再被拒
+  const 账号占位 = 可用方式.手机 && 可用方式.邮箱 ? "手机号或邮箱" : 可用方式.邮箱 ? "邮箱" : "手机号";
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -91,8 +101,8 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
           <Form.Item name="name" rules={[{ required: true, message: "请填写你的姓名" }]}>
             <Input size="large" prefix={<UserOutlined />} placeholder="你的姓名" maxLength={20} />
           </Form.Item>
-          <Form.Item name="target" rules={[{ required: true, message: "请填写手机号或邮箱" }]}>
-            <Input size="large" prefix={<MobileOutlined />} placeholder="手机号或邮箱" autoComplete="username" />
+          <Form.Item name="target" rules={[{ required: true, message: `请填写${账号占位}` }]}>
+            <Input size="large" prefix={<MobileOutlined />} placeholder={账号占位} autoComplete="username" />
           </Form.Item>
           {/* 验证码默认不要：没有发码通道时它只会把人挡在门外。见 actions.ts 的 需要验证码() */}
           {要验证码 && (

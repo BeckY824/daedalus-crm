@@ -161,6 +161,44 @@ describe("打开 SIGNUP_VERIFY 之后要验证码", () => {
     process.env.SIGNUP_VERIFY = "1";
   });
 
+  it("只配了邮件时，手机号在门口就被拦住——不能让人点了「获取验证码」再干等", async () => {
+    const { requestCode, signup } = await import("@/app/signup/actions");
+    const 原 = process.env.NODE_ENV;
+    // 生产环境才判通道：开发环境的码直接回显在页面上。
+    // process.env 的属性描述符是锁死的，只能整个赋值，不能 defineProperty
+    Object.assign(process.env, { NODE_ENV: "production" });
+    process.env.SMTP_HOST = "smtpdm.example.com";
+    process.env.SMTP_USER = "no-reply@example.com";
+    process.env.SMTP_PASS = "x";
+    process.env.SMTP_FROM = "no-reply@example.com";
+    try {
+      const 发 = await requestCode(新手机());
+      expect(发.ok).toBe(false);
+      if (!发.ok) expect(发.error).toContain("先用邮箱注册");
+
+      // 表单绕得过，Server Action 绕不过
+      const 开 = await signup({ target: 新手机(), code: "123456", password: "abcd1234", name: "x", workspace: "绕过表单", agreed: true });
+      expect(开.ok).toBe(false);
+      if (!开.ok) expect(开.error).toContain("先用邮箱注册");
+
+      // 邮箱这条照常
+      const { 注册可用方式 } = await import("@/app/signup/actions");
+      expect(await 注册可用方式()).toEqual({ 手机: false, 邮箱: true });
+    } finally {
+      Object.assign(process.env, { NODE_ENV: 原 });
+      delete process.env.SMTP_HOST;
+      delete process.env.SMTP_USER;
+      delete process.env.SMTP_PASS;
+      delete process.env.SMTP_FROM;
+    }
+  });
+
+  it("不要验证码时，两种都可用——那时候根本不发码", async () => {
+    delete process.env.SIGNUP_VERIFY;
+    const { 注册可用方式 } = await import("@/app/signup/actions");
+    expect(await 注册可用方式()).toEqual({ 手机: true, 邮箱: true });
+  });
+
   it("手机号：发码、填对、开出工作区，并送注册赠送", async () => {
     const { signup } = await import("@/app/signup/actions");
     const { 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
