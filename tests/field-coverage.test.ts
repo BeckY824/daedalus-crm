@@ -62,12 +62,10 @@ const 派生: Record<string, Record<string, string>> = {
 };
 
 /** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼 */
-const 已知缺口: Record<string, Record<string, string>> = {
-  FollowUp: {
-    attachment: "schema 里有、详情页透传了，但没有任何上传或写入路径，界面上也没有附件功能。要么做附件，要么删列",
-    attachSize: "附件的展示用大小（如 2.4MB），和 attachment 一起没有写入路径，做附件功能时一并处理",
-  },
-};
+/** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼。
+ *  2026-09-14 清空：FollowUp.attachment / attachSize 是纯死字段，已从 schema 删除
+ *  （已有库里的列留着不读，迁移规矩只加不删）。 */
+const 已知缺口: Record<string, Record<string, string>> = {};
 
 const 不审 = new Set(["User", "WorkspaceAccount", "FollowUpSource", "AuditLog", "Setting"]);
 

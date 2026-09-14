@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
-import { buildProposal, missingFields, summarizeApplied, 可改字段, type Proposal, type 一处改动 } from "@/lib/agent/proposals";
+import { buildProposal, missingFields, summarizeApplied, type Proposal, type 一处改动 } from "@/lib/agent/proposals";
 import { patchCustomer, saveCustomer, saveContract } from "../customers/actions";
 import { saveFollowUp, savePlan } from "../customers/[id]/actions";
 import { saveLead } from "../leads/actions";

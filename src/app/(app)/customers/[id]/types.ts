@@ -11,8 +11,6 @@ export type FollowUpRow = {
   duration: number | null;
   occurredAt: string;
   dueAt: string | null;
-  attachment: string | null;
-  attachSize: string | null;
   participants: string | null;
   /** 速记解析时的原始聊天记录，只有 AI 起草过的记录才有 */
   sourceText: string | null;

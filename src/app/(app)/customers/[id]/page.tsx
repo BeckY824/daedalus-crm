@@ -147,8 +147,6 @@ export default async function CustomerDetailPage({
         duration: f.duration,
         occurredAt: f.occurredAt.toISOString(),
         dueAt: f.dueAt?.toISOString() ?? null,
-        attachment: f.attachment,
-        attachSize: f.attachSize,
         participants: f.participants,
         sourceText: f.source?.text ?? null,
         ownerName: f.owner.name,

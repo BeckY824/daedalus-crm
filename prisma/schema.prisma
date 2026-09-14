@@ -220,8 +220,6 @@ model FollowUp {
   duration   Int? // 通话/会议时长（秒）
   occurredAt DateTime  @default(now())
   dueAt      DateTime? // 任务截止 / 提醒时间
-  attachment String? // 文件名
-  attachSize String? // 展示用，如 2.4MB
   participants String? // 与会人，逗号分隔
 
   customerId String
