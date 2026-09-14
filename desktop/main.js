@@ -12,6 +12,7 @@ const { app, BrowserWindow, shell, dialog, Menu, clipboard } = require("electron
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
+const 云端 = require("./cloud");
 
 const APP_NAME = "Daedalus CRM";
 
@@ -30,6 +31,7 @@ const CONFIG_FILE = path.join(数据根, "config.json");
 const 数据目录 = path.join(数据根, "data");
 const 日志文件 = path.join(数据根, "logs", "server.log");
 const 密码文件 = path.join(数据目录, ".init-password");
+云端.初始化(数据目录);
 
 /** 随包发布的本地服务。打包后在 Resources/server，开发时在 desktop/server-bundle */
 const 服务目录 = app.isPackaged ? path.join(process.resourcesPath, "server") : path.join(__dirname, "server-bundle");
@@ -71,7 +73,20 @@ function 写配置(cfg) {
 /* ---------- 启动 ---------- */
 
 async function 启动本地() {
-  本地 = await 本地服务.start({ bundleDir: 服务目录, dataDir: 数据目录, logFile: 日志文件 });
+  // 云端账号带来的 AI 配置只在进程启动时读一次，所以登录状态一变就要重启，见 重启本地服务
+  本地 = await 本地服务.start({
+    bundleDir: 服务目录,
+    dataDir: 数据目录,
+    logFile: 日志文件,
+    额外环境: 云端.模型环境(),
+  });
+}
+
+/** 换了 AI 配置之后让它生效。旧进程要等它真的退出再起新的，否则两个进程开着同一个库 */
+async function 重启本地服务() {
+  await 本地服务.stop();
+  await 启动本地();
+  if (win) win.loadURL(本地入口());
 }
 
 /** 本地模式的首页：带令牌换一张会话票据，换完自己跳去 /dashboard */
@@ -212,6 +227,113 @@ function 问服务器地址() {
   });
 }
 
+/* ---------- 云端账号 ---------- */
+
+/**
+ * 登录云端账号。本地模式下数据在这台机器上，云端只剩两件事：
+ * 认领一个账号，和借它调模型——没有它 AI 入口整个不出现，CRM 其余功能照常。
+ */
+function 登录云端() {
+  const w = new BrowserWindow({
+    width: 460,
+    height: 330,
+    resizable: false,
+    title: "登录云端账号",
+    parent: win ?? undefined,
+    modal: Boolean(win),
+    webPreferences: { preload: path.join(__dirname, "preload.js") },
+  });
+  w.loadURL(
+    "data:text/html;charset=utf-8," +
+      encodeURIComponent(`
+    <body style="font:14px -apple-system,'PingFang SC','Microsoft YaHei';padding:22px;margin:0;background:#fafafa">
+      <div style="font-weight:600;margin-bottom:4px">登录云端账号</div>
+      <div style="color:#6b7280;font-size:12px;margin-bottom:14px">
+        用它来调 AI。数据仍然只在这台机器上，不会上传。
+      </div>
+      <input id="u" placeholder="手机号或邮箱" style="width:100%;padding:9px 11px;font-size:14px;
+        border:1px solid #d9dee7;border-radius:7px;box-sizing:border-box;margin-bottom:10px">
+      <input id="p" type="password" placeholder="密码" style="width:100%;padding:9px 11px;font-size:14px;
+        border:1px solid #d9dee7;border-radius:7px;box-sizing:border-box">
+      <div style="margin-top:20px;text-align:right">
+        <button onclick="window.close()" style="padding:7px 16px;margin-right:8px">取消</button>
+        <button id="ok" style="padding:7px 16px;background:#2f6bff;color:#fff;border:none;border-radius:6px">登录</button>
+      </div>
+      <script>
+        const 提交 = () => crm.login(document.getElementById('u').value, document.getElementById('p').value);
+        document.getElementById('ok').onclick = 提交;
+        document.body.addEventListener('keydown', (e) => { if (e.key === 'Enter') 提交(); });
+        document.getElementById('u').focus();
+      </script>
+    </body>`),
+  );
+
+  w.webContents.on("ipc-message", async (_e, ch, payload) => {
+    if (ch !== "cloud-login") return;
+    const target = String(payload?.target ?? "").trim();
+    const password = String(payload?.password ?? "");
+    if (!target || !password) {
+      dialog.showMessageBox(w, { type: "warning", message: "手机号（或邮箱）和密码都要填" });
+      return;
+    }
+    const r = await 云端.登录(target, password);
+    if (!r.ok) {
+      dialog.showMessageBox(w, { type: "error", title: "登录失败", message: r.error });
+      return;
+    }
+    w.close();
+    建菜单();
+    try {
+      await 重启本地服务();
+    } catch (e) {
+      报告本地故障(e?.message ?? String(e));
+      return;
+    }
+    const 还剩 = r.data?.credits?.还剩;
+    dialog.showMessageBox(win ?? null, {
+      type: "info",
+      title: "登录成功",
+      message: `已登录：${r.data?.account?.name ?? target}`,
+      detail: 还剩 == null ? "AI 功能已启用。" : `AI 功能已启用，免费次数还剩 ${还剩} 次。`,
+    });
+  });
+}
+
+async function 退出云端() {
+  const { response } = await dialog.showMessageBox(win ?? null, {
+    type: "question",
+    title: "退出云端账号",
+    message: "退出之后 AI 功能会停用",
+    detail: "本机的数据不受影响，仍然都在。重新登录即可恢复。",
+    buttons: ["退出", "取消"],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  if (response !== 0) return;
+  await 云端.退出();
+  建菜单();
+  try {
+    await 重启本地服务();
+  } catch (e) {
+    报告本地故障(e?.message ?? String(e));
+  }
+}
+
+async function 显示额度() {
+  const r = await 云端.余额();
+  if (!r.ok) {
+    dialog.showMessageBox(win ?? null, { type: "error", title: "查不到额度", message: r.error });
+    return;
+  }
+  const { 上限, 用掉, 还剩, 每日赠送 } = r.data ?? {};
+  dialog.showMessageBox(win ?? null, {
+    type: "info",
+    title: "AI 免费次数",
+    message: `还剩 ${还剩} 次`,
+    detail: `一共送过 ${上限} 次，已经用掉 ${用掉} 次。${每日赠送 ? `\n每天登录再送 ${每日赠送} 次。` : ""}\n也可以在设置页填自己的模型 API Key，那样不走这个额度。`,
+  });
+}
+
 /* ---------- 菜单 ---------- */
 
 function 显示本机密码() {
@@ -264,6 +386,16 @@ function 建菜单() {
         checked: cfg.mode === "server",
         click: () => 问服务器地址(),
       },
+      { type: "separator" },
+      ...(cfg.mode === "local"
+        ? 云端.读()
+          ? [
+              { label: `云端账号：${云端.读().contact || 云端.读().name}`, enabled: false },
+              { label: "AI 剩余次数…", click: 显示额度 },
+              { label: "退出云端账号", click: 退出云端 },
+            ]
+          : [{ label: "登录云端账号…（AI 功能需要）", click: 登录云端 }]
+        : []),
       { type: "separator" },
       { label: "本机账号密码…", enabled: cfg.mode === "local", click: 显示本机密码 },
       { label: "打开数据文件夹", click: () => shell.openPath(数据目录) },

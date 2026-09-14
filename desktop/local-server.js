@@ -91,7 +91,7 @@ function 等就绪(port, 截止) {
  * token 是这次启动专用的一次性令牌，Electron 拿它去换一张会话票据，
  * 免得本地模式下每次开应用都要输一遍密码。见 app/api/desktop/session/route.ts。
  */
-async function start({ bundleDir, dataDir, logFile }) {
+async function start({ bundleDir, dataDir, logFile, 额外环境 = {} }) {
   const entry = path.join(bundleDir, "entry.js");
   if (!fs.existsSync(entry)) {
     throw new Error(`安装包里没有本地服务（缺 ${entry}）。开发环境请先在 desktop/ 下跑 npm run build:server`);
@@ -123,6 +123,12 @@ async function start({ bundleDir, dataDir, logFile }) {
       MULTI_TENANT: "",
       DESKTOP_LOCAL: "1",
       DESKTOP_TOKEN: token,
+      /**
+       * AI 配置（登录云端账号后才有）。llm.ts 的读取顺序是「设置页填的 > 环境变量」，
+       * 所以用户在设置里填了自己的 Key 就自动是 BYOK，我们这份只是默认值。
+       * 这些值只在进程启动时读一次，登录状态变了要重启服务——见 main.js 的 重启本地服务。
+       */
+      ...额外环境,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -155,26 +161,40 @@ async function start({ bundleDir, dataDir, logFile }) {
 
 /**
  * 停掉服务。先好好说（SIGTERM，让 SQLite 有机会把 WAL 收尾），
- * 不听话再动手（SIGKILL）。退出流程要等它，所以做成同步等待。
+ * 不听话再动手（SIGKILL）。
+ *
+ * 返回一个等它真的退出的 Promise：重启时必须等旧进程走干净再起新的，
+ * 否则两个进程同时开着同一个 SQLite 库。退出应用时不等也行（系统会收尸）。
  */
 function stop() {
-  if (!子进程) return;
+  if (!子进程) return Promise.resolve();
   const p = 子进程;
   子进程 = null;
-  try {
-    p.kill("SIGTERM");
+  日志流?.end();
+  日志流 = null;
+  return new Promise((resolve) => {
+    let 完事 = false;
+    const 收 = () => {
+      if (完事) return;
+      完事 = true;
+      resolve();
+    };
+    p.once("exit", 收);
+    try {
+      p.kill("SIGTERM");
+    } catch {
+      收();
+      return;
+    }
     setTimeout(() => {
       try {
         p.kill("SIGKILL");
       } catch {
         /* 已经没了 */
       }
+      收();
     }, 3000).unref?.();
-  } catch {
-    /* 已经没了 */
-  }
-  日志流?.end();
-  日志流 = null;
+  });
 }
 
 module.exports = { start, stop, 日志尾巴, 运行中: () => 子进程 !== null };

@@ -277,6 +277,24 @@ describe("模型列表与余额查询", () => {
 });
 
 describe("发令牌的接口", () => {
+  it("退出登录要把令牌吊销掉——只删本地文件的话它在库里还有效", async () => {
+    const { token } = await 建账号带令牌();
+    const { DELETE } = await import("@/app/api/account/token/route");
+    const { 认领 } = await import("@/lib/tenant/device-token");
+    expect(await 认领(token)).not.toBeNull();
+
+    const 退 = await DELETE(new Request("https://app.example.com/api/account/token", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }));
+    expect(退.status).toBe(200);
+    expect(await 认领(token)).toBeNull();
+
+    // 令牌本来就无效时也算退成功：退出登录不该因为这个失败
+    expect((await DELETE(new Request("https://app.example.com/api/account/token", { method: "DELETE" }))).status).toBe(200);
+  });
+
+
   it("密码对了发一枚令牌，密码错了 401 且不区分账号存不存在", async () => {
     const { createAccount } = await import("@/lib/tenant/accounts");
     await createAccount({ target: { kind: "phone", value: "13900001111" }, password: "abcd1234", name: "王" });

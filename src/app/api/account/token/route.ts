@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { multiTenant } from "@/lib/tenant/context";
 import { verifyAccount } from "@/lib/tenant/accounts";
-import { 签发 } from "@/lib/tenant/device-token";
+import { 签发, 认领, 吊销, 取Bearer } from "@/lib/tenant/device-token";
 import { 结算赠送, 余额 } from "@/lib/tenant/credits";
 import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP阈值 } from "@/lib/rate-limit";
 
@@ -58,4 +58,19 @@ export async function POST(req: Request) {
     account: { name: account.name, contact: account.phone ?? account.email ?? "" },
     credits: await 余额(owner),
   });
+}
+
+/**
+ * 退出登录：把**当前这枚**令牌吊销掉。
+ *
+ * 桌面端退出时调它。只删本地那份文件是不够的——文件没了，令牌还在库里有效，
+ * 谁抄走过它就一直能用我们的额度。
+ */
+export async function DELETE(req: Request) {
+  if (!multiTenant()) return NextResponse.json({ error: "这个部署没有账号体系" }, { status: 404 });
+  const who = await 认领(取Bearer(req));
+  // 认不出就当已经退了：退出登录不该因为令牌本来就无效而失败
+  if (!who) return NextResponse.json({ ok: true });
+  await 吊销(who.id, who.accountId);
+  return NextResponse.json({ ok: true });
 }
