@@ -53,7 +53,7 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
     } else setError(r.error);
   }
 
-  async function onFinish(v: { target: string; code: string; password: string; name: string; workspace: string; invite?: string; agreed?: boolean }) {
+  async function onFinish(v: { target: string; code?: string; password: string; name: string; workspace: string; invite?: string; agreed?: boolean }) {
     setLoading(true);
     setError(null);
     const r = await signup(v);

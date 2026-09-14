@@ -102,7 +102,8 @@ async function 预检邀请码(raw: string): Promise<{ ok: true; kind: "master" 
 
 export async function signup(input: {
   target: string;
-  code: string;
+  /** 只有打开 SIGNUP_VERIFY 时才要；默认那条路上表单根本不画这一栏 */
+  code?: string;
   password: string;
   name: string;
   workspace: string;
@@ -141,7 +142,7 @@ export async function signup(input: {
   }
 
   if (需要验证码()) {
-    const codeOk = await consumeCode(t.value, input.code, "signup");
+    const codeOk = await consumeCode(t.value, input.code ?? "", "signup");
     if (!codeOk.ok) {
       if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
       return codeOk;
