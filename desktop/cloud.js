@@ -105,38 +105,25 @@ async function 登录(target, password, baseUrl = 默认云端) {
 }
 
 /**
- * 这个部署现在开着哪几条路：能不能注册、要不要验证码、能不能自助找回密码。
- * 登录窗打开时问一次，据此决定画哪几个入口——别摆一个填了就被拒的框。
+ * 这个部署开着哪两条路：网页那边还收不收新注册、能不能自助找回密码。
+ * 登录窗打开时问一次，据此决定画哪几个入口——别摆一个点进去说「没开放」的链接。
  * 问不到（断网、老版本服务端）就按「都不开」算，只留登录，那是永远走得通的那条。
  */
 async function 策略(baseUrl = 默认云端) {
   const r = await 请求(`${baseUrl.replace(/\/+$/, "")}/api/account/policy`);
-  if (!r.ok) return { register: false, verify: false, reset: false };
-  return { register: Boolean(r.data?.register), verify: Boolean(r.data?.verify), reset: Boolean(r.data?.reset) };
+  if (!r.ok) return { register: false, reset: false };
+  return { register: Boolean(r.data?.register), reset: Boolean(r.data?.reset) };
 }
 
 /**
- * 注册。开的是一个**只有账号、没有工作区**的号——桌面端的数据在这台机器上，
- * 云端只管账号和模型网关，服务器上不会给你建库。
- * 服务端注册完直接发令牌，所以这里和登录走的是同一段收尾。
+ * 要一封找回密码的验证码邮件。
+ * 注册用的码不从这里要——注册整个在网页上办，见 main.js 里那个窗口的说明。
  */
-async function 注册({ target, password, code, agreed }, baseUrl = 默认云端) {
-  const 云 = baseUrl.replace(/\/+$/, "");
-  const r = await 请求(`${云}/api/account/register`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target, password, code, agreed, device: 设备名() }),
-  });
-  if (!r.ok) return r;
-  return 完成登录(云, r.data);
-}
-
-/** 要一封验证码邮件。purpose: "signup" 注册用 / "reset" 找回密码用 */
-async function 发码(target, purpose, baseUrl = 默认云端) {
+async function 发码(target, baseUrl = 默认云端) {
   return 请求(`${baseUrl.replace(/\/+$/, "")}/api/account/code`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target, purpose }),
+    body: JSON.stringify({ target, purpose: "reset" }),
   });
 }
 
@@ -182,4 +169,4 @@ function 模型环境() {
   };
 }
 
-module.exports = { 初始化, 读, 登录, 注册, 策略, 发码, 重置密码, 退出, 余额, 模型环境, 默认云端 };
+module.exports = { 初始化, 读, 登录, 策略, 发码, 重置密码, 退出, 余额, 模型环境, 默认云端 };

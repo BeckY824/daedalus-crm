@@ -38,16 +38,6 @@ export default function hostedSetup() {
     { cwd: ROOT, stdio: "pipe" },
   );
 
-  // 预置几个一次性邀请码：注册时可选填。现在的用例不填，留着是为了运营台那张表不是空的
-  execFileSync("node", ["--experimental-sqlite", "-e", `
-    const { DatabaseSync } = require('node:sqlite');
-    const db = new DatabaseSync(process.argv[1]);
-    // 12 位，只能用激活码字母表里的字符（没有 0/O/1/I/8——'CODE' 里的 O 就踩过这个坑）
-    for (const c of ['E2ETESTAAAAA', 'E2ETESTBBBBB', 'E2ETESTCCCCC', 'E2ETESTDDDDD', 'E2ETESTEEEEE'])
-      db.prepare('INSERT INTO "ActivationCode" ("code","note") VALUES (?, ?)').run(c, 'e2e');
-    db.close();
-  `, CONTROL_DB], { cwd: ROOT, stdio: "pipe" });
-
   // 工作区模板：注册时复制它
   execFileSync("node", ["--experimental-sqlite", "scripts/build-template.mjs", path.join(WS_DIR, "_template.db")], {
     cwd: ROOT,

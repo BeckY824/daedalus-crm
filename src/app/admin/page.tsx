@@ -3,7 +3,6 @@ import { control } from "@/lib/tenant/control";
 import { multiTenant } from "@/lib/tenant/context";
 import { computeWritable, daysLeft } from "@/lib/tenant/workspaces";
 import AdminView from "./AdminView";
-import { 展示, 取万能码, 演示对话上限 } from "@/lib/tenant/activation";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +12,9 @@ export const dynamic = "force-dynamic";
  * 刻意**不挂在应用的登录体系里**——它属于我们，不属于任何工作区，
  * 而 (app) 下的所有页面都会被 requireUser 拉进某个工作区的上下文。
  * 用一个独立的 ADMIN_TOKEN 保护：只有我们几个人用，不值得为它做一套账号。
+ *
+ * 这里原来还管着三种码（一次性邀请码、万能码、演示码）的生成和查看。
+ * 整套码 2026-09-15 下线：开号只有「注册」一条路，演示区进门不要码。
  */
 export default async function AdminPage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
   const token = process.env.ADMIN_TOKEN;
@@ -20,7 +22,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   // 没配 token 就当这个页面不存在，免得自部署的人暴露一个无保护的运营台
   if (!multiTenant() || !token || given !== token) notFound();
 
-  const [rows, 赠送, 用量, master, 演示, 码] = await Promise.all([
+  const [rows, 赠送, 用量] = await Promise.all([
     control.workspace.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -29,12 +31,6 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     // AI 次数：每个工作区送了多少、用了多少，运营台一眼看到谁快用完了
     control.aiGrant.groupBy({ by: ["workspaceId"], _sum: { amount: true } }),
     control.aiUsage.findMany(),
-    // 万能邀请码：一个，可换。没生成过就是 null，界面上给一个「生成」
-    取万能码(),
-    // 演示码：最近 200 个，未绑的排前面
-    control.demoCode.findMany({ orderBy: [{ boundAt: "asc" }, { createdAt: "desc" }], take: 200 }),
-    // 一次性邀请码（旧称激活码）：最近 200 个，未用的排前面
-    control.activationCode.findMany({ orderBy: [{ usedAt: "asc" }, { createdAt: "desc" }], take: 200 }),
   ]);
   const 送表 = new Map(赠送.map((g) => [g.workspaceId, g._sum.amount ?? 0]));
   const 用表 = new Map(用量.map((u) => [u.workspaceId, u.calls]));
@@ -59,19 +55,5 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     };
   });
 
-  const demoCodes = 演示.map((d) => ({
-    code: 展示(d.code),
-    note: d.note,
-    boundAt: d.boundAt ? d.boundAt.toISOString() : null,
-    left: Math.max(0, 演示对话上限 - d.calls),
-  }));
-
-  const codes = 码.map((c) => ({
-    code: 展示(c.code),
-    note: c.note,
-    usedAt: c.usedAt ? c.usedAt.toISOString() : null,
-    workspace: c.workspaceId ? (list.find((w) => w.id === c.workspaceId)?.name ?? c.workspaceId) : null,
-  }));
-
-  return <AdminView token={given} rows={list} codes={codes} demoCodes={demoCodes} master={master ? 展示(master) : null} />;
+  return <AdminView token={given} rows={list} />;
 }

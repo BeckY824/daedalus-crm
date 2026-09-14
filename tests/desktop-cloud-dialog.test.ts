@@ -41,12 +41,18 @@ describe("云端账号窗", () => {
     }
   });
 
-  it("三块面板都在，注册和找回的入口也在", () => {
+  it("两块面板都在，注册是个开浏览器的链接", () => {
     const p = 页面();
-    for (const id of ["p-login", "p-reg", "p-reset"]) expect(p).toContain(`id="${id}"`);
-    // 这两个入口原来是没有的：人得先去网页上注册、去网页上改密码，再回来登录
-    expect(p).toContain("注册新账号");
+    for (const id of ["p-login", "p-reset"]) expect(p).toContain(`id="${id}"`);
     expect(p).toContain("忘记密码？");
+    /**
+     * 注册**不在窗口里做**。试过在应用内直接开「只有账号没有工作区」的号，
+     * 结果那种账号进不了网页版，而同一个邮箱又注册不了第二次。
+     * 这一条钉住那个决定：有入口，但它是把人送去网页的。
+     */
+    expect(p).toContain("注册新账号");
+    expect(p).not.toContain('id="p-reg"');
+    expect(p).toContain("crm.open(云 + '/signup')");
   });
 
   it("页面里没有漏掉的模板插值", () => {

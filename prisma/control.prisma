@@ -103,46 +103,23 @@ model AiUsage {
   updatedAt   DateTime @default(now()) @updatedAt
 }
 
-/// 试用激活码：一码一个工作区。
+
+
+
+/// 进过演示区的浏览器。
 ///
-/// 它替代了注册时的短信/邮件验证码——码本身就是授权凭证，拿到码的人才能开号，
-/// 于是不需要任何发码通道。批量生成、一码一用、原子占用（两个人同时用同一个码只有一个能成）。
-/// 单独一张表：control-migrations/ 只加不删，每次启动整个重跑。
-model ActivationCode {
-  /// 形如 XXXX-XXXX-XXXX，字母表去掉 0/O/1/I 这类易混字符；存归一化后的大写无横线形式
-  code        String    @id
-  /// 给谁的、哪一批，运营看的
-  note        String?
-  usedAt      DateTime?
-  usedBy      String?
-  workspaceId String?
-  createdAt   DateTime  @default(now())
-
-  @@index([usedAt])
-}
-
-/// 演示码：进共享演示区用，一码一人、绑定到浏览器 cookie、5 次 AI。
+/// 演示区是所有访客共用一个工作区，AI 次数只能按人算，而没有账号的"人"只能用 cookie 认。
+/// 原来这件事是「演示码」在做（一码一人、运营台批量生成），整套码 2026-09-15 下线之后
+/// 只剩这张表：进门不再要码，但**次数仍然按浏览器记**——不记的话演示区就是
+/// 一个所有人共用、不限次的账单黑洞。
 ///
-/// 和 ActivationCode（开自己工作区）性质相反：那边现在主要靠一个万能码，
-/// 这边必须一码一人——演示区是所有访客共用一个工作区，AI 次数只能按人算，
-/// 而"人"在没有账号的演示区里只能用 cookie 认。
-model DemoCode {
-  code         String    @id
-  note         String?
-  /// 第一次使用时绑定的访客 id（cookie 里那个），之后只认这个浏览器
-  boundVisitor String?   @unique
-  boundAt      DateTime?
-  /// 这个码（这个人）用掉的 AI 次数
-  calls        Int       @default(0)
-  createdAt    DateTime  @default(now())
-}
-
-/// 万能试用码：预约演示之后发给客户的那一个，可反复开工作区，运营台一键更换。
-/// 只有一行（id 固定为 "trial"）。外传了就换，旧码立刻作废。
-model TrialMasterCode {
-  id        String   @id @default("trial")
-  code      String
-  rotatedAt DateTime @default(now())
+/// 清掉 cookie 能换一份新额度，这是知道的：演示区用的是最便宜的模型、一人 5 次，
+/// 为堵这个口子引入指纹或登录，代价比它防住的大。
+model DemoVisitor {
+  /// cookie 里那个 id
+  id        String   @id
+  calls     Int      @default(0)
+  createdAt DateTime @default(now())
 }
 
 /// 邀请同事进工作区
@@ -162,7 +139,7 @@ model Invite {
   @@index([workspaceId])
 }
 
-/// AI 免费次数的赠送账本：注册送、每天送、邀请码送、运营台手动加。
+/// AI 免费次数的赠送账本：注册送、每天送、运营台手动加。
 ///
 /// 余额 = 本表之和 − AiUsage.calls。扣费仍走 AiUsage 的原子自增，这里只加不减。
 /// `key` 是幂等键：同一个工作区的「注册赠送」「某一天的每日赠送」只能各有一条，
@@ -172,7 +149,7 @@ model AiGrant {
   id          String   @id @default(cuid())
   workspaceId String
   amount      Int
-  /// signup | daily | invite | admin
+  /// signup | daily | admin
   reason      String
   /// 幂等键，如 "ws1:signup"、"ws1:daily:2026-09-14"；运营台手动加的用随机值
   key         String   @unique
@@ -193,7 +170,7 @@ model AccountAiGrant {
   id        String   @id @default(cuid())
   accountId String
   amount    Int
-  /// signup | daily | invite | admin
+  /// signup | daily | admin
   reason    String
   /// 幂等键，如 "acc1:signup"、"acc1:daily:2026-09-14"
   key       String   @unique

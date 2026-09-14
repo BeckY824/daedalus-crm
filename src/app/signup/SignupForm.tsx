@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Form, Input, Button, Alert, Typography, Checkbox } from "antd";
-import { LockOutlined, MailOutlined, TeamOutlined, SafetyOutlined, GiftOutlined } from "@ant-design/icons";
+import { LockOutlined, MailOutlined, TeamOutlined, SafetyOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
 import { requestCode, signup } from "./actions";
 
@@ -11,7 +11,7 @@ import { requestCode, signup } from "./actions";
  * 注册。两步，照常见的 SaaS 做法：先证明邮箱是你的，再设密码。
  *
  *   第一步  只有一个邮箱框。点「发送验证码」，成功就进第二步
- *   第二步  验证码 + 密码 + 团队名称（+ 可选邀请码）+ 条款
+ *   第二步  验证码 + 密码 + 团队名称 + 条款
  *
  * 为什么第一步只留一个框：注册页每多一个字段就少一批人填完，而这一步真正要做的
  * 只有一件事——把码发出去。密码、团队名这些等他打开邮箱时再填，心理负担小得多。
@@ -21,6 +21,9 @@ import { requestCode, signup } from "./actions";
  *
  * 不问姓名：它在「设置管理 → 用户管理」里随时能改，服务端先从邮箱前缀取一个。
  * 团队名称不一样，它决定了工作区的库文件名，建完改不了，所以必须问。
+ *
+ * **没有邀请码那一栏了。** 早先填了能多送 AI 次数，整套码 2026-09-15 下线：
+ * 它让「怎么才能开号」有了好几个说法，而这件事应该只有一个说法。
  *
  * 两步都在同一个 Form 里，靠 display 切换而不是卸载——卸载会把已填的值丢掉，
  * 用户点「换一个」再回来就得重填。
@@ -82,7 +85,7 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
     } else setError(r.error);
   }
 
-  async function onFinish(v: { code?: string; password: string; workspace: string; invite?: string; agreed?: boolean }) {
+  async function onFinish(v: { code?: string; password: string; workspace: string; agreed?: boolean }) {
     setLoading(true);
     setError(null);
     const r = await signup({
@@ -90,7 +93,6 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
       code: v.code,
       password: v.password,
       workspace: v.workspace,
-      invite: v.invite,
       agreed: v.agreed,
     });
     setLoading(false);
@@ -183,10 +185,6 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
             </Form.Item>
             <Form.Item name="workspace" rules={[{ required: true, message: "请填写团队名称" }]} extra="建好之后改不了，它决定你的工作区地址">
               <Input size="large" prefix={<TeamOutlined />} placeholder="团队名称，如「启明教育」" maxLength={40} />
-            </Form.Item>
-            {/* 可选：预约演示后我们发的邀请码，填了多送 AI 次数。没有也能注册 */}
-            <Form.Item name="invite">
-              <Input size="large" prefix={<GiftOutlined />} placeholder="邀请码（可选，有就多送 AI 次数）" maxLength={16} autoCapitalize="characters" />
             </Form.Item>
             <Form.Item
               name="agreed"

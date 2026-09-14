@@ -1,9 +1,12 @@
 /**
- * 桌面端用的那四个账号接口：policy / register / code / password。
+ * 桌面端用的那三个账号接口：policy / code / password。
  *
- * 规则本身在 lib 里、也各有单测（account-register、password-reset），这里钉的是
- * **HTTP 边界**：没有账号体系时是不是 404、失败是不是 400 而不是 500、
- * 注册回来的那枚令牌是不是真能用、以及「不能拿发码接口查号」在响应体上真的成立。
+ * （没有 register：注册整个在网页上办。试过在桌面端里直接开「只有账号没有工作区」的号，
+ * 结果那种账号进不了网页版，而同一个邮箱又注册不了第二次。）
+ *
+ * 规则本身在 lib 里、也有单测（password-reset），这里钉的是 **HTTP 边界**：
+ * 没有账号体系时是不是 404、失败是不是 400 而不是 500、
+ * 以及「不能拿发码接口查号」在响应体上真的成立。
  *
  * 最后一条只有在这一层才看得出来：lib 那层两边都返回 { ok: true }，
  * 但只要接口把 hint 之类的东西漏出去，注册过和没注册过的响应就不一样了。
@@ -80,14 +83,12 @@ function 关掉验证码回显() {
 }
 
 describe("policy", () => {
-  it("如实报出三个开关", async () => {
+  it("如实报出两个开关", async () => {
     const { GET } = await import("@/app/api/account/policy/route");
     const 默认 = await (await GET()).json();
-    expect(默认).toEqual({ register: true, verify: false, reset: true });
+    expect(默认).toEqual({ register: true, reset: true });
 
-    process.env.SIGNUP_VERIFY = "1";
-    expect((await (await GET()).json()).verify).toBe(true);
-
+    // register 回答的是「网页那边还收不收新注册」——桌面端那个链接是开浏览器过去的
     process.env.SIGNUP_REDIRECT = "https://ai-daedalus.com/demo.html";
     expect((await (await GET()).json()).register).toBe(false);
   });
@@ -104,47 +105,6 @@ describe("policy", () => {
   });
 });
 
-describe("register", () => {
-  it("注册完直接给令牌，令牌当场就能用", async () => {
-    const { POST } = await import("@/app/api/account/register/route");
-    const { 认领 } = await import("@/lib/tenant/device-token");
-    const { control } = await import("@/lib/tenant/control");
-    const 邮箱 = 新邮箱();
-
-    const res = await POST(发({ target: 邮箱, password: "abcd1234", agreed: true, device: "我的 MacBook" }, "register"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.account.contact).toBe(邮箱);
-    expect(body.credits.还剩).toBe(30);
-
-    // 「省掉再登录一次」只有在令牌真的能用时才成立
-    const who = await 认领(body.token);
-    expect(who).not.toBeNull();
-    const row = await control.deviceToken.findUnique({ where: { id: who!.id } });
-    expect(row!.name, "device 字段应当成为这台机器的名字").toBe("我的 MacBook");
-  });
-
-  it("没勾条款、重复注册，都是 400 不是 500", async () => {
-    const { POST } = await import("@/app/api/account/register/route");
-    const 邮箱 = 新邮箱();
-    expect((await POST(发({ target: 邮箱, password: "abcd1234" }, "register"))).status).toBe(400);
-    expect((await POST(发({ target: 邮箱, password: "abcd1234", agreed: true }, "register"))).status).toBe(200);
-    expect((await POST(发({ target: 邮箱, password: "abcd1234", agreed: true }, "register"))).status).toBe(400);
-  });
-
-  it("请求体不是 JSON 时也是 400", async () => {
-    const { POST } = await import("@/app/api/account/register/route");
-    const bad = new Request("https://app.example.com/api/account/register", { method: "POST", body: "{" });
-    expect((await POST(bad)).status).toBe(400);
-  });
-
-  it("关掉自助注册之后，这个接口也关——不然它就是个后门", async () => {
-    const { POST } = await import("@/app/api/account/register/route");
-    process.env.SIGNUP_REDIRECT = "https://ai-daedalus.com/demo.html";
-    expect((await POST(发({ target: 新邮箱(), password: "abcd1234", agreed: true }, "register"))).status).toBe(400);
-  });
-});
-
 describe("code 与 password", () => {
   it("找回密码的发码接口：注册过和没注册过，响应一模一样", async () => {
     关掉验证码回显();
@@ -153,8 +113,8 @@ describe("code 与 password", () => {
     const 有号 = 新邮箱();
     await createAccount({ target: { kind: "email", value: 有号 }, password: "abcd1234", name: "某人" });
 
-    const a = await POST(发({ target: 有号, purpose: "reset" }, "code"));
-    const b = await POST(发({ target: 新邮箱(), purpose: "reset" }, "code", "203.0.113.32"));
+    const a = await POST(发({ target: 有号 }, "code"));
+    const b = await POST(发({ target: 新邮箱() }, "code", "203.0.113.32"));
     expect(a.status).toBe(b.status);
     expect(await a.json()).toEqual(await b.json());
   });
@@ -168,7 +128,7 @@ describe("code 与 password", () => {
     const 邮箱 = 新邮箱();
     await createAccount({ target: { kind: "email", value: 邮箱 }, password: "old12345", name: "某人" });
 
-    expect((await code路由.POST(发({ target: 邮箱, purpose: "reset" }, "code"))).status).toBe(200);
+    expect((await code路由.POST(发({ target: 邮箱 }, "code"))).status).toBe(200);
     const row = await control.verifyCode.findFirst({
       where: { target: 邮箱, purpose: "reset", usedAt: null },
       orderBy: { createdAt: "desc" },

@@ -8,6 +8,9 @@
  * 关掉自助注册（SIGNUP_REDIRECT）时，只让页面跳转是不够的：Server Action 是独立的 HTTP 端点，
  * 不经过页面也调得到。所以两个动作都必须自己拒绝——
  * 尤其是发验证码，那是唯一一个未登录就能触发外部计费动作的接口。
+ *
+ * 2026-09-15 起注册**不再认任何码**（一次性激活码、万能邀请码整套下线），
+ * 最后一组用例钉的就是这件事真的做完了，而不是只把表单那一栏藏起来。
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach, vi } from "vitest";
 
@@ -225,66 +228,35 @@ describe("打开 SIGNUP_VERIFY 之后要验证码", () => {
   });
 });
 
-describe("邀请码可选", () => {
+describe("不再认任何码", () => {
   beforeEach(() => {
     process.env.SIGNUP_VERIFY = "1";
   });
 
-  it("填万能码：多送邀请码赠送；万能码可反复用", async () => {
+  /**
+   * 整套码 2026-09-15 下线（一次性激活码、万能邀请码、演示码）。
+   * 钉在这里是因为「下线」很容易只做一半——表单去掉那一栏，Server Action 还照收，
+   * 于是老页面、老脚本、或者直接调接口的人仍然能拿码换到额外的免费次数。
+   */
+  it("多传一个 invite 字段不会改变任何结果：不报错，也不多送", async () => {
     const { signup } = await import("@/app/signup/actions");
-    const { 换万能码, 展示 } = await import("@/lib/tenant/activation");
-    const { 查额度, 注册赠送, 邀请码赠送 } = await import("@/lib/tenant/ai-allowance");
+    const { 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { control } = await import("@/lib/tenant/control");
-    const master = 展示(await 换万能码()).toLowerCase();
-    for (const 名 of ["万能甲", "万能乙"]) {
-      const 邮箱 = 新邮箱();
-      const code = await 拿验证码(邮箱);
-      expect((await signup({ target: 邮箱, code, password: "abcd1234", workspace: 名, invite: master, agreed: true })).ok).toBe(true);
-      const ws = await control.workspace.findFirst({ where: { name: 名 } });
-      expect((await 查额度(ws!.id)).上限).toBe(注册赠送 + 邀请码赠送);
-    }
-  });
-
-  it("换了万能码，旧码立刻不认", async () => {
-    const { signup } = await import("@/app/signup/actions");
-    const { 换万能码 } = await import("@/lib/tenant/activation");
-    const 旧 = await 换万能码();
-    await 换万能码();
     const 邮箱 = 新邮箱();
     const code = await 拿验证码(邮箱);
-    const r = await signup({ target: 邮箱, code, password: "abcd1234", workspace: "旧码", invite: 旧, agreed: true });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("邀请码无效");
+    // 老客户端还会带这个字段，服务端应当把它当不存在
+    const r = await signup({ target: 邮箱, code, password: "abcd1234", workspace: "带了码", agreed: true, ...{ invite: "ABCD-EFGH-JKLM" } } as Parameters<typeof signup>[0]);
+    expect(r.ok).toBe(true);
+    const ws = await control.workspace.findFirst({ where: { name: "带了码" } });
+    expect((await 查额度(ws!.id)).上限).toBe(注册赠送);
   });
 
-  it("填旧的一次性激活码也认：多送、用一次作废", async () => {
-    const { signup } = await import("@/app/signup/actions");
-    const { 生成并入库 } = await import("@/lib/tenant/activation");
-    const { 查额度, 注册赠送, 邀请码赠送 } = await import("@/lib/tenant/ai-allowance");
+  it("控制面里已经没有那三张码表的客户端了", async () => {
+    /** 删表是不可逆的，所以线上那三张表留着；但代码里再也不该碰得到它们 */
     const { control } = await import("@/lib/tenant/control");
-    const [once] = await 生成并入库(1);
-    const 邮箱 = 新邮箱();
-    const code = await 拿验证码(邮箱);
-    expect((await signup({ target: 邮箱, code, password: "abcd1234", workspace: "一次性甲", invite: once, agreed: true })).ok).toBe(true);
-    const ws = await control.workspace.findFirst({ where: { name: "一次性甲" } });
-    expect((await 查额度(ws!.id)).上限).toBe(注册赠送 + 邀请码赠送);
-    const used = await control.activationCode.findUnique({ where: { code: once } });
-    expect(used!.usedAt).not.toBeNull();
-    expect(used!.workspaceId).toBe(ws!.id);
-
-    const 手机2 = 新邮箱();
-    const code2 = await 拿验证码(手机2);
-    const 再 = await signup({ target: 手机2, code: code2, password: "abcd1234", workspace: "一次性乙", invite: once, agreed: true });
-    expect(再.ok).toBe(false);
-  });
-
-  it("邀请码填错要报错、且不消耗验证码——人得能改了再交", async () => {
-    const { signup } = await import("@/app/signup/actions");
-    const 邮箱 = 新邮箱();
-    const code = await 拿验证码(邮箱);
-    const r = await signup({ target: 邮箱, code, password: "abcd1234", workspace: "填错", invite: "ABCD-EFGH-JKLM", agreed: true });
-    expect(r.ok).toBe(false);
-    // 同一个验证码去掉邀请码再交，能成
-    expect((await signup({ target: 邮箱, code, password: "abcd1234", workspace: "填错后改好", agreed: true })).ok).toBe(true);
+    const c = control as unknown as Record<string, unknown>;
+    expect(c.activationCode).toBeUndefined();
+    expect(c.demoCode).toBeUndefined();
+    expect(c.trialMasterCode).toBeUndefined();
   });
 });

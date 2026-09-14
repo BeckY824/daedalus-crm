@@ -61,6 +61,8 @@ async function 注册(page: Page, opts: { 团队: string; 邮箱: string; 密码
   // 第二步
   await expect(page.getByPlaceholder("设置密码")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByPlaceholder("邮件里的 6 位验证码")).toHaveCount(0);
+  // 邀请码那一栏 2026-09-15 下线：开号只有一条路，别再给第二种说法
+  await expect(page.getByPlaceholder(/邀请码/)).toHaveCount(0);
   await page.getByPlaceholder("设置密码").fill(opts.密码);
   await page.getByPlaceholder("团队名称，如「启明教育」").fill(opts.团队);
   await page.getByRole("checkbox").check();
@@ -164,8 +166,9 @@ test("6 运营台要 token，开通后恢复可写", async ({ page }) => {
 
   await page.goto("/admin?token=e2e-admin-token");
   await expect(page.getByRole("heading", { name: "工作区" })).toBeVisible({ timeout: 15_000 });
-  // 运营台现在还有激活码表，里面「已用 · 北辰网络」也含这几个字，要精确匹配
   await expect(page.getByText("北辰网络", { exact: true })).toBeVisible();
+  // 运营台原来还挂着三张码表（一次性邀请码 / 万能码 / 演示码），整套已经下线
+  await expect(page.getByRole("heading", { name: /邀请码|演示码/ })).toHaveCount(0);
   await expect(page.getByText(/待核对/).first()).toBeVisible();
 
   // 给北辰开通

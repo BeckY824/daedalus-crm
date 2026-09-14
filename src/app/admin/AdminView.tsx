@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { App, Alert, Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, Tooltip } from "antd";
-import { activate, extendTrial, generateCodes, generateDemoCodes, grantAi, openWorkspace, rotateMasterCode, suspend } from "./actions";
+import { activate, extendTrial, grantAi, openWorkspace, suspend } from "./actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
 import { dayjs } from "@/lib/utils";
 
@@ -27,10 +27,7 @@ type Row = {
  * 不做成完整后台——工作区数量还在两位数的阶段，一张表加几个按钮就够，
  * 多做的每一块都要跟着业务改。
  */
-type Code = { code: string; note: string | null; usedAt: string | null; workspace: string | null };
-type DemoCode = { code: string; note: string | null; boundAt: string | null; left: number };
-
-export default function AdminView({ token, rows, codes, demoCodes, master }: { token: string; rows: Row[]; codes: Code[]; demoCodes: DemoCode[]; master: string | null }) {
+export default function AdminView({ token, rows }: { token: string; rows: Row[] }) {
   const { message } = App.useApp();
   const [plan, setPlan] = useState<PlanKey>("year");
   const [busy, setBusy] = useState<string | null>(null);
@@ -71,40 +68,6 @@ export default function AdminView({ token, rows, codes, demoCodes, master }: { t
   }
 
   const 待核对 = rows.filter((r) => r.note?.includes("[待核对]")).length;
-  const [生成中, set生成中] = useState(false);
-  const [新码, set新码] = useState<string[] | null>(null);
-  const 未用 = codes.filter((c) => !c.usedAt);
-
-  async function 生成十个() {
-    set生成中(true);
-    const r = await generateCodes({ token, count: 10 });
-    set生成中(false);
-    if (r.ok) set新码(r.codes);
-    else message.error(r.error);
-  }
-
-  const [演示生成中, set演示生成中] = useState(false);
-  const [新演示码, set新演示码] = useState<string[] | null>(null);
-  const 未绑 = demoCodes.filter((c) => !c.boundAt);
-  async function 生成十个演示码() {
-    set演示生成中(true);
-    const r = await generateDemoCodes({ token, count: 10 });
-    set演示生成中(false);
-    if (r.ok) set新演示码(r.codes);
-    else message.error(r.error);
-  }
-
-  const [万能码, set万能码] = useState<string | null>(master);
-  const [换码中, set换码中] = useState(false);
-  async function 换一个万能码() {
-    set换码中(true);
-    const r = await rotateMasterCode({ token });
-    set换码中(false);
-    if (r.ok) {
-      set万能码(r.code);
-      message.success("已更换，旧码立刻作废");
-    } else message.error(r.error);
-  }
 
   return (
     <div style={{ padding: 24 }}>
@@ -214,79 +177,6 @@ export default function AdminView({ token, rows, codes, demoCodes, master }: { t
               </div>
             ),
           },
-        ]}
-      />
-
-      {/* 万能邀请码：预约演示后发给客户的那一个。注册时填了多送 AI 次数，可反复用；外传了就换 */}
-      <div style={{ margin: "28px 0 12px", display: "flex", alignItems: "center", gap: 8 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>万能邀请码</h2>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>注册时可选填，填了多送 AI 次数。一个、可反复用，换了旧码立刻作废</span>
-        <span style={{ flex: 1 }} />
-        <Popconfirm title="换一个新码？旧码立刻作废" onConfirm={换一个万能码}>
-          <Button size="small" loading={换码中}>{万能码 ? "更换" : "生成"}</Button>
-        </Popconfirm>
-      </div>
-      <div style={{ fontFamily: "ui-monospace, monospace", fontSize: 18, letterSpacing: 1, marginBottom: 8 }}>
-        {万能码 ?? <span style={{ color: "#9ca3af", fontSize: 13, fontFamily: "inherit" }}>还没生成</span>}
-      </div>
-
-      {/* 演示码：进 /demo 用，一码一人、绑浏览器、5 次 AI */}
-      <div style={{ margin: "28px 0 12px", display: "flex", alignItems: "center", gap: 8 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>演示码</h2>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>进演示区用，一码一个浏览器 · 未用 {未绑.length} · 已用 {demoCodes.length - 未绑.length}</span>
-        <span style={{ flex: 1 }} />
-        <Button size="small" loading={演示生成中} onClick={生成十个演示码}>生成 10 个</Button>
-      </div>
-      {新演示码 && (
-        <Alert
-          type="success"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message={`新生成 ${新演示码.length} 个演示码，一码一人`}
-          description={<Input.TextArea value={新演示码.join("\n")} autoSize readOnly onFocus={(e) => e.currentTarget.select()} style={{ fontFamily: "ui-monospace, monospace", fontSize: 12.5 }} />}
-          closable
-          onClose={() => set新演示码(null)}
-        />
-      )}
-      <Table<DemoCode>
-        rowKey="code"
-        size="small"
-        dataSource={demoCodes}
-        pagination={{ pageSize: 20, hideOnSinglePage: true }}
-        columns={[
-          { title: "演示码", dataIndex: "code", render: (v: string) => <span style={{ fontFamily: "ui-monospace, monospace" }}>{v}</span> },
-          { title: "备注", dataIndex: "note", render: (v: string | null) => v ?? <span style={{ color: "#d1d5db" }}>—</span> },
-          { title: "状态", dataIndex: "boundAt", width: 200, render: (v: string | null, r) => (v ? <Tag>已用 · {dayjs(v).format("MM-DD")} · AI 剩 {r.left}</Tag> : <Tag color="processing">未用</Tag>) },
-        ]}
-      />
-
-      {/* 一次性邀请码（旧称激活码）：注册时填了多送 AI 次数，用一次作废。旧批次仍然有效 */}
-      <div style={{ margin: "28px 0 12px", display: "flex", alignItems: "center", gap: 8 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>一次性邀请码</h2>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>未用 {未用.length} · 已用 {codes.length - 未用.length}</span>
-        <span style={{ flex: 1 }} />
-        <Button size="small" loading={生成中} onClick={生成十个}>生成 10 个</Button>
-      </div>
-      {新码 && (
-        <Alert
-          type="success"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message={`新生成 ${新码.length} 个一次性邀请码，一码一用`}
-          description={<Input.TextArea value={新码.join("\n")} autoSize readOnly onFocus={(e) => e.currentTarget.select()} style={{ fontFamily: "ui-monospace, monospace", fontSize: 12.5 }} />}
-          closable
-          onClose={() => set新码(null)}
-        />
-      )}
-      <Table<Code>
-        rowKey="code"
-        size="small"
-        dataSource={codes}
-        pagination={{ pageSize: 20, hideOnSinglePage: true }}
-        columns={[
-          { title: "邀请码", dataIndex: "code", render: (v: string) => <span style={{ fontFamily: "ui-monospace, monospace" }}>{v}</span> },
-          { title: "备注", dataIndex: "note", render: (v: string | null) => v ?? <span style={{ color: "#d1d5db" }}>—</span> },
-          { title: "状态", dataIndex: "usedAt", width: 160, render: (v: string | null, r) => (v ? <Tag>已用 · {r.workspace ?? ""}</Tag> : <Tag color="processing">未用</Tag>) },
         ]}
       />
 
