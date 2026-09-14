@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld("crm", {
   policy: () => ipcRenderer.send("cloud-policy"),
   login: (target, password) => ipcRenderer.send("cloud-login", { target, password }),
   code: (target) => ipcRenderer.send("cloud-code", { target }),
+  resize: (height) => ipcRenderer.send("cloud-resize", height),
   reset: (payload) => ipcRenderer.send("cloud-reset", payload),
   onReply: (cb) => ipcRenderer.on("cloud-reply", (_e, m) => cb(m)),
 });

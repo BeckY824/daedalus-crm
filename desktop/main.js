@@ -252,7 +252,8 @@ function 问服务器地址() {
 function 登录云端() {
   const w = new BrowserWindow({
     width: 470,
-    height: 470,
+    // 打开时先按登录面板给个高度，页面量完自己会通知主进程调整（见下面的 cloud-resize）
+    height: 330,
     resizable: false,
     title: "云端账号",
     parent: win ?? undefined,
@@ -329,10 +330,23 @@ function 登录云端() {
           m.textContent = text || '';
           m.className = 好 ? 'ok' : 'err';
           m.style.display = text ? 'block' : 'none';
+          if (window.__量好了) 量高();
+        }
+        /**
+         * 内容有多高窗口就多高：两块面板差了一截，固定高度必然有一块下面空着一片。
+         * 量的是**当前这块面板的底边**，不是 body 的高——body 会被窗口撑满，
+         * 拿它去算，窗口只会越变越高。
+         */
+        function 量高() {
+          var 开着 = null;
+          for (var k in 面板) if (面板[k].style.display !== 'none') 开着 = 面板[k];
+          if (!开着) return;
+          crm.resize(Math.ceil(开着.getBoundingClientRect().bottom) + 22);
         }
         function 切(名) {
           for (var k in 面板) 面板[k].style.display = k === 名 ? 'block' : 'none';
           说('');
+          量高();
         }
         function 忙(on) {
           for (var i = 0; i < 按钮.length; i++) 按钮[i].disabled = on;
@@ -378,6 +392,8 @@ function 登录云端() {
 
         crm.policy();
         $('u').focus();
+        window.__量好了 = true;
+        量高();
       </script>
     </body>`),
   );
@@ -391,6 +407,13 @@ function 登录云端() {
       // 只认我们自己的站点：这个窗口里的链接是写死的，出现别的一定是哪里错了
       const u = String(payload ?? "");
       if (u.startsWith(云 + "/")) shell.openExternal(u);
+      return;
+    }
+
+    if (ch === "cloud-resize") {
+      const h = Math.round(Number(payload));
+      // 只认合理范围内的数：页面是我们自己的，但窗口尺寸不该由一个数字随便摆布
+      if (Number.isFinite(h) && h >= 260 && h <= 760 && !w.isDestroyed()) w.setContentSize(470, h);
       return;
     }
 
