@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 配好短信通道（手机号注册）。
 #
-#   ./enable-sms-signup.sh <AccessKeyId> <AccessKeySecret> <签名名称> <模板CODE>
+#   ./enable-sms-signup.sh <AccessKeyId> <AccessKeySecret> <签名名称> <模板CODE> [--verify]
 #
 # 前提（这四样都要先在阿里云控制台办下来，我们代码只负责调接口）：
 #   1. 短信服务 → 签名管理，申请一个签名。**国内短信要求域名已备案**，
@@ -15,8 +15,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-[ $# -eq 4 ] || { sed -n '2,18p' "$0"; exit 1; }
+[ $# -eq 4 ] || [ $# -eq 5 ] || { sed -n '2,18p' "$0"; exit 1; }
 ID=$1; SECRET=$2; SIGN=$3; TPL=$4
+要验证码=""
+[ "${5:-}" = "--verify" ] && 要验证码=1
 
 cp .env ".env.bak-$(date +%F-%H%M%S)"
 sed -i '/^SMS_ACCESS_KEY_ID=/d;/^SMS_ACCESS_KEY_SECRET=/d;/^SMS_SIGN_NAME=/d;/^SMS_TEMPLATE_CODE=/d;/^SIGNUP_REDIRECT=/d;/^SIGNUP_VERIFY=/d' .env
@@ -27,10 +29,9 @@ sed -i '/^SMS_ACCESS_KEY_ID=/d;/^SMS_ACCESS_KEY_SECRET=/d;/^SMS_SIGN_NAME=/d;/^S
   echo "SMS_ACCESS_KEY_SECRET=$SECRET"
   echo "SMS_SIGN_NAME=$SIGN"
   echo "SMS_TEMPLATE_CODE=$TPL"
-  echo "# 有通道了，注册就顺便要一次验证码"
-  echo "SIGNUP_VERIFY=1"
+  [ -n "$要验证码" ] && { echo "# 注册时要一次验证码"; echo "SIGNUP_VERIFY=1"; }
 } >> .env
-echo "→ 已写入 .env（自助注册恢复，并打开验证码）"
+echo "→ 已写入 .env（自助注册恢复${要验证码:+，并打开了验证码}）"
 
 docker compose up -d >/dev/null 2>&1
 for i in $(seq 1 30); do sleep 2; [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login || true)" = "200" ] && break; done

@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # 配好邮件通道并打开自助注册。
 #
-#   ./enable-email-signup.sh <SMTP主机> <端口> <用户名> <密码> <发件人>
+#   ./enable-email-signup.sh <SMTP主机> <端口> <用户名> <密码> <发件人> [--verify]
 #
 # 例（阿里云邮件推送）：
 #   ./enable-email-signup.sh smtpdm.aliyun.com 465 no-reply@mail.你的域名 '你的SMTP密码' 'Daedalus CRM <no-reply@mail.你的域名>'
 #
-# 注册本身**不需要**这个：默认填账号密码就能注册。配了通道才顺便打开验证码（SIGNUP_VERIFY=1），
-# 让注册时多证明一次「这个号是你的」。不想要验证码就别跑这个脚本。
+# 注册本身**不需要**这个：默认填账号密码就能注册，通道配不配都一样。
+# 配它是为了将来能发密码找回这类信。
+#
+# **默认不会打开验证码。** 想让注册也要一次验证码（多证明一步「这个号是你的」），
+# 在最后加 --verify。加了之后没收到信的人就注册不了，想清楚再加。
 # 密码只出现在这台机器上，不会被打印。
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -26,10 +29,9 @@ sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^SMTP_FROM=
   echo "SMTP_USER=$USER"
   echo "SMTP_PASS=$PASS"
   echo "SMTP_FROM=$FROM"
-  echo "# 有通道了，注册就顺便要一次验证码"
-  echo "SIGNUP_VERIFY=1"
+  [ -n "$要验证码" ] && { echo "# 注册时要一次验证码"; echo "SIGNUP_VERIFY=1"; }
 } >> .env
-echo "→ 已写入 .env（自助注册恢复，并打开验证码）"
+echo "→ 已写入 .env（自助注册恢复${要验证码:+，并打开了验证码}）"
 
 docker compose up -d >/dev/null 2>&1
 echo "→ 已重启，等服务就绪"
