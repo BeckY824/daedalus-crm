@@ -6,7 +6,8 @@
 # 例（阿里云邮件推送）：
 #   ./enable-email-signup.sh smtpdm.aliyun.com 465 no-reply@mail.你的域名 '你的SMTP密码' 'Daedalus CRM <no-reply@mail.你的域名>'
 #
-# 做三件事：写进 .env、去掉 SIGNUP_REDIRECT（自助注册即恢复）、重启，然后带你验证一次。
+# 注册本身**不需要**这个：默认填账号密码就能注册。配了通道才顺便打开验证码（SIGNUP_VERIFY=1），
+# 让注册时多证明一次「这个号是你的」。不想要验证码就别跑这个脚本。
 # 密码只出现在这台机器上，不会被打印。
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -16,7 +17,7 @@ HOST=$1; PORT=$2; USER=$3; PASS=$4; FROM=$5
 
 cp .env ".env.bak-$(date +%F-%H%M%S)"
 # 先删掉可能已有的同名键，再追加，免得 .env 里出现两份
-sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^SMTP_FROM=/d;/^SIGNUP_REDIRECT=/d' .env
+sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^SMTP_FROM=/d;/^SIGNUP_REDIRECT=/d;/^SIGNUP_VERIFY=/d' .env
 {
   echo ""
   echo "# 邮件验证码通道"
@@ -25,8 +26,10 @@ sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^SMTP_FROM=
   echo "SMTP_USER=$USER"
   echo "SMTP_PASS=$PASS"
   echo "SMTP_FROM=$FROM"
+  echo "# 有通道了，注册就顺便要一次验证码"
+  echo "SIGNUP_VERIFY=1"
 } >> .env
-echo "→ 已写入 .env（SIGNUP_REDIRECT 已删除，自助注册恢复）"
+echo "→ 已写入 .env（自助注册恢复，并打开验证码）"
 
 docker compose up -d >/dev/null 2>&1
 echo "→ 已重启，等服务就绪"

@@ -10,12 +10,15 @@ import { requestCode, signup } from "./actions";
 /**
  * 注册：一屏填完，拿到一个试用 7 天的工作区。
  *
+ * 默认不要验证码——填账号密码就能注册。配了发码通道并打开 SIGNUP_VERIFY=1 之后
+ * 才会多出验证码那一栏。
+ *
  * 只有托管版会挂这个页面；自部署版走的是管理员建账号，服务端动作里已经拦住。
  * 必填只有五个——每多一个字段就少一批人填完。邀请码可选，折在最下面。
  */
 const 倒计时秒 = 60;
 
-export default function SignupForm({ 注册赠送 }: { 注册赠送: number }) {
+export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠送: number; 要验证码: boolean }) {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -91,20 +94,23 @@ export default function SignupForm({ 注册赠送 }: { 注册赠送: number }) {
           <Form.Item name="target" rules={[{ required: true, message: "请填写手机号或邮箱" }]}>
             <Input size="large" prefix={<MobileOutlined />} placeholder="手机号或邮箱" autoComplete="username" />
           </Form.Item>
-          <Form.Item name="code" rules={[{ required: true, message: "请填写验证码" }]}>
-            <Input
-              size="large"
-              prefix={<SafetyOutlined />}
-              placeholder="验证码"
-              maxLength={6}
-              inputMode="numeric"
-              suffix={
-                <Button type="link" size="small" onClick={onSendCode} loading={sending} disabled={left > 0}>
-                  {left > 0 ? `${left} 秒后重发` : "获取验证码"}
-                </Button>
-              }
-            />
-          </Form.Item>
+          {/* 验证码默认不要：没有发码通道时它只会把人挡在门外。见 actions.ts 的 需要验证码() */}
+          {要验证码 && (
+            <Form.Item name="code" rules={[{ required: true, message: "请填写验证码" }]}>
+              <Input
+                size="large"
+                prefix={<SafetyOutlined />}
+                placeholder="验证码"
+                maxLength={6}
+                inputMode="numeric"
+                suffix={
+                  <Button type="link" size="small" onClick={onSendCode} loading={sending} disabled={left > 0}>
+                    {left > 0 ? `${left} 秒后重发` : "获取验证码"}
+                  </Button>
+                }
+              />
+            </Form.Item>
+          )}
           <Form.Item name="password" rules={[{ required: true, message: "请设置密码" }]} extra="至少 8 位，含字母和数字">
             <Input.Password size="large" prefix={<LockOutlined />} placeholder="设置密码" autoComplete="new-password" />
           </Form.Item>

@@ -1,5 +1,9 @@
 /**
- * 自助注册：开关、验证码、可选邀请码、条款勾选、赠送。
+ * 自助注册：开关、密码、可选邀请码、条款勾选、赠送，以及可选的验证码。
+ *
+ * 默认不要验证码——填账号密码就能注册。验证码要一条发码通道，而通道要等
+ * （短信要备案、邮件要域名验证），为它把注册挡在门外不值。
+ * 通道配好后 SIGNUP_VERIFY=1 打开，这里两种模式都钉住。
  *
  * 关掉自助注册（SIGNUP_REDIRECT）时，只让页面跳转是不够的：Server Action 是独立的 HTTP 端点，
  * 不经过页面也调得到。所以两个动作都必须自己拒绝——
@@ -54,6 +58,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   delete process.env.SIGNUP_REDIRECT;
+  delete process.env.SIGNUP_VERIFY;
 });
 
 afterAll(() => {
@@ -82,6 +87,7 @@ describe("配了 SIGNUP_REDIRECT 就等于关闭自助注册", () => {
     const { control } = await import("@/lib/tenant/control");
     process.env.SIGNUP_REDIRECT = "https://ai-daedalus.com/demo.html";
 
+    process.env.SIGNUP_VERIFY = "1";
     expect((await requestCode("13800139002")).ok).toBe(false);
     const 前 = await control.workspace.count();
     const r = await signup({ target: "13800139002", code: "123456", password: "abcd1234", name: "陌生人", workspace: "自己开的", agreed: true });
@@ -101,7 +107,60 @@ describe("配了 SIGNUP_REDIRECT 就等于关闭自助注册", () => {
   });
 });
 
-describe("验证码注册", () => {
+describe("默认不要验证码：填账号密码就能注册", () => {
+  it("手机号 + 密码直接开出工作区，并送注册赠送", async () => {
+    const { signup } = await import("@/app/signup/actions");
+    const { 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
+    const { control } = await import("@/lib/tenant/control");
+    const 手机 = 新手机();
+    const r = await signup({ target: 手机, code: "", password: "abcd1234", name: "林老师", workspace: "不用码的团队", agreed: true });
+    expect(r.ok).toBe(true);
+    const ws = await control.workspace.findFirst({ where: { name: "不用码的团队" } });
+    expect((await 查额度(ws!.id)).还剩).toBe(注册赠送);
+  });
+
+  it("密码必须够长且含字母和数字——不验证手机号时，密码是唯一一道门", async () => {
+    const { signup } = await import("@/app/signup/actions");
+    for (const pw of ["abc123", "abcdefgh", "12345678", ""]) {
+      const r = await signup({ target: 新手机(), code: "", password: pw, name: "x", workspace: "弱密码" + pw, agreed: true });
+      expect(r.ok, `密码 ${JSON.stringify(pw)} 不该通过`).toBe(false);
+    }
+  });
+
+  it("临时邮箱照样拒——不发码了，这条就是挡它的唯一一道闸", async () => {
+    const { signup } = await import("@/app/signup/actions");
+    const r = await signup({ target: "someone@mailinator.com", code: "", password: "abcd1234", name: "x", workspace: "临时邮箱", agreed: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("常用邮箱");
+  });
+
+  it("没勾条款一样开不了", async () => {
+    const { signup } = await import("@/app/signup/actions");
+    expect((await signup({ target: 新手机(), code: "", password: "abcd1234", name: "x", workspace: "没勾" })).ok).toBe(false);
+  });
+
+  it("同一个号注册两次，第二次拒", async () => {
+    const { signup } = await import("@/app/signup/actions");
+    const 手机 = 新手机();
+    expect((await signup({ target: 手机, code: "", password: "abcd1234", name: "x", workspace: "头一次" + 手机, agreed: true })).ok).toBe(true);
+    const 再 = await signup({ target: 手机, code: "", password: "abcd1234", name: "x", workspace: "第二次" + 手机, agreed: true });
+    expect(再.ok).toBe(false);
+    if (!再.ok) expect(再.error).toContain("注册过");
+  });
+
+  it("这时候发码接口直接告诉你不用发", async () => {
+    const { requestCode } = await import("@/app/signup/actions");
+    const r = await requestCode(新手机());
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain("不需要验证码");
+  });
+});
+
+describe("打开 SIGNUP_VERIFY 之后要验证码", () => {
+  beforeEach(() => {
+    process.env.SIGNUP_VERIFY = "1";
+  });
+
   it("手机号：发码、填对、开出工作区，并送注册赠送", async () => {
     const { signup } = await import("@/app/signup/actions");
     const { 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
@@ -163,6 +222,10 @@ describe("验证码注册", () => {
 });
 
 describe("邀请码可选", () => {
+  beforeEach(() => {
+    process.env.SIGNUP_VERIFY = "1";
+  });
+
   it("填万能码：多送邀请码赠送；万能码可反复用", async () => {
     const { signup } = await import("@/app/signup/actions");
     const { 换万能码, 展示 } = await import("@/lib/tenant/activation");

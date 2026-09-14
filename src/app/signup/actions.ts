@@ -12,7 +12,7 @@ import { 赠送, 邀请码赠送, 注册赠送 } from "@/lib/tenant/ai-allowance
 import { 检查限流, 记一次失败, 解析来源IP, IP阈值, 今日注册数, 记一次注册, 每IP每日注册上限 } from "@/lib/rate-limit";
 
 /**
- * 注册：团队名 + 姓名 + 手机/邮箱 + 验证码 + 密码（+ 可选邀请码）→ 开一个工作区，试用 7 天。
+ * 注册：团队名 + 姓名 + 手机/邮箱 + 密码（+ 可选邀请码）→ 开一个工作区，试用 7 天。
  *
  * 只在托管版可用。自部署版没有"注册"这回事——那里是管理员建账号。
  *
@@ -23,6 +23,24 @@ import { 检查限流, 记一次失败, 解析来源IP, IP阈值, 今日注册�
  */
 function 自助注册已关闭(): boolean {
   return Boolean(process.env.SIGNUP_REDIRECT?.trim());
+}
+
+/**
+ * 要不要验证码。**默认不要**：填个账号和密码就能注册。
+ *
+ * 验证码的作用是证明"这个手机号/邮箱是你的"，代价是必须有一条发码通道，
+ * 而通道是要等的——短信签名要备案，邮件要域名验证。为了这个把注册挡在门外，
+ * 换来的安全性并不值：这是个 7 天试用的 CRM，不是银行。
+ *
+ * 不验证的代价写明白：注册时填的联系方式可能是假的，忘了密码没法自助找回
+ * （只能到运营台重置）；一个人也可以多注册几个号来多薅免费 AI 次数——
+ * 后者由「每个 IP 每天最多开 3 个」兜着，见下面。
+ *
+ * 通道配好之后把 SIGNUP_VERIFY=1 打开就恢复验证，代码不用动。
+ * scripts/enable-email-signup.sh 会顺手打开它。
+ */
+function 需要验证码(): boolean {
+  return process.env.SIGNUP_VERIFY === "1";
 }
 
 export type SendCodeResult = { ok: true; hint?: string } | { ok: false; error: string };
@@ -38,6 +56,7 @@ function 未开放(): { ok: false; error: string } {
 
 export async function requestCode(targetRaw: string): Promise<SendCodeResult> {
   if (!multiTenant() || 自助注册已关闭()) return 未开放();
+  if (!需要验证码()) return { ok: false, error: "这个部署不需要验证码，直接填密码注册即可" };
   const t = parseTarget(targetRaw);
   if (!t) return { ok: false, error: "请填写正确的手机号或邮箱" };
   if (t.kind === "email" && isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
@@ -94,6 +113,11 @@ export async function signup(input: {
 
   const t = parseTarget(input.target);
   if (!t) return { ok: false, error: "请填写正确的手机号或邮箱" };
+  /**
+   * 不验证码的时候，这一条就是挡临时邮箱的唯一一道闸，必须在这里判——
+   * 原来只在发码那一步判，而现在发码那一步可能整个不走。
+   */
+  if (t.kind === "email" && isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
   if (!input.name.trim()) return { ok: false, error: "请填写你的姓名" };
   if (!input.workspace.trim()) return { ok: false, error: "请填写团队名称" };
   const pwErr = checkPassword(input.password);
@@ -109,16 +133,19 @@ export async function signup(input: {
   }
 
   // 邀请码在消耗验证码**之前**预检：验证码一次性，先花掉再报邀请码不对，人得重新收一次码
+  // （不要验证码时这个顺序无所谓，但留着，省得哪天打开验证又踩一遍）
   const 邀请 = await 预检邀请码(input.invite ?? "");
   if (!邀请.ok) {
     if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
     return 邀请;
   }
 
-  const codeOk = await consumeCode(t.value, input.code, "signup");
-  if (!codeOk.ok) {
-    if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
-    return codeOk;
+  if (需要验证码()) {
+    const codeOk = await consumeCode(t.value, input.code, "signup");
+    if (!codeOk.ok) {
+      if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
+      return codeOk;
+    }
   }
 
   // 验证码校验通过到建账号之间还有一个窗口，同一个号并发注册会撞唯一索引，交给数据库判
@@ -164,4 +191,9 @@ export async function signup(input: {
 
 export async function trialDays(): Promise<number> {
   return TRIAL_DAYS;
+}
+
+/** 注册页用它决定要不要画验证码那一栏 */
+export async function 注册要验证码(): Promise<boolean> {
+  return 需要验证码();
 }

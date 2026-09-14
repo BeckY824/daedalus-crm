@@ -13,6 +13,9 @@ services:
       ADMIN_TOKEN: "${ADMIN_TOKEN:?托管版必须设置 ADMIN_TOKEN}"
       # 共享演示工作区的 slug。没配就没有 /demo，也没有重置端点
       DEMO_WORKSPACE: "${DEMO_WORKSPACE:-}"
+      # 注册时要不要验证码。**默认不要**：填账号密码就能注册。
+      # 配了发码通道（下面的 SMS_/SMTP_）之后设为 1，注册就多一道验证
+      SIGNUP_VERIFY: "${SIGNUP_VERIFY:-}"
       # 配了就等于关闭自助注册：/signup 跳到这个地址，注册与发码动作一律拒绝。
       # 没有发码通道（短信要备案、邮件未接）时走人工开号，通道通了去掉它即可
       SIGNUP_REDIRECT: "${SIGNUP_REDIRECT:-}"

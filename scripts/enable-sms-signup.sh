@@ -19,7 +19,7 @@ cd "$(dirname "$0")"
 ID=$1; SECRET=$2; SIGN=$3; TPL=$4
 
 cp .env ".env.bak-$(date +%F-%H%M%S)"
-sed -i '/^SMS_ACCESS_KEY_ID=/d;/^SMS_ACCESS_KEY_SECRET=/d;/^SMS_SIGN_NAME=/d;/^SMS_TEMPLATE_CODE=/d;/^SIGNUP_REDIRECT=/d' .env
+sed -i '/^SMS_ACCESS_KEY_ID=/d;/^SMS_ACCESS_KEY_SECRET=/d;/^SMS_SIGN_NAME=/d;/^SMS_TEMPLATE_CODE=/d;/^SIGNUP_REDIRECT=/d;/^SIGNUP_VERIFY=/d' .env
 {
   echo ""
   echo "# 短信验证码通道（阿里云）"
@@ -27,8 +27,10 @@ sed -i '/^SMS_ACCESS_KEY_ID=/d;/^SMS_ACCESS_KEY_SECRET=/d;/^SMS_SIGN_NAME=/d;/^S
   echo "SMS_ACCESS_KEY_SECRET=$SECRET"
   echo "SMS_SIGN_NAME=$SIGN"
   echo "SMS_TEMPLATE_CODE=$TPL"
+  echo "# 有通道了，注册就顺便要一次验证码"
+  echo "SIGNUP_VERIFY=1"
 } >> .env
-echo "→ 已写入 .env（SIGNUP_REDIRECT 已删除，自助注册恢复）"
+echo "→ 已写入 .env（自助注册恢复，并打开验证码）"
 
 docker compose up -d >/dev/null 2>&1
 for i in $(seq 1 30); do sleep 2; [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login || true)" = "200" ] && break; done
