@@ -3,6 +3,7 @@ import { control } from "@/lib/tenant/control";
 import { multiTenant } from "@/lib/tenant/context";
 import { computeWritable, daysLeft } from "@/lib/tenant/workspaces";
 import AdminView from "./AdminView";
+import { 展示 } from "@/lib/tenant/activation";
 
 export const dynamic = "force-dynamic";
 
@@ -43,5 +44,14 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     };
   });
 
-  return <AdminView token={given} rows={list} />;
+  // 激活码：最近 200 个，未用的排前面，运营一眼看到还剩几个能发
+  const 码 = await control.activationCode.findMany({ orderBy: [{ usedAt: "asc" }, { createdAt: "desc" }], take: 200 });
+  const codes = 码.map((c) => ({
+    code: 展示(c.code),
+    note: c.note,
+    usedAt: c.usedAt ? c.usedAt.toISOString() : null,
+    workspace: c.workspaceId ? (list.find((w) => w.id === c.workspaceId)?.name ?? c.workspaceId) : null,
+  }));
+
+  return <AdminView token={given} rows={list} codes={codes} />;
 }

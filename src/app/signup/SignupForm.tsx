@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Form, Input, Button, Alert, Typography } from "antd";
 import { UserOutlined, LockOutlined, MobileOutlined, TeamOutlined, SafetyOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
-import { requestCode, signup } from "./actions";
+import { signup } from "./actions";
 
 /**
  * 注册：一屏填完，拿到一个试用 7 天的工作区。
@@ -13,42 +13,11 @@ import { requestCode, signup } from "./actions";
  * 只有托管版会挂这个页面；自部署版走的是管理员建账号，服务端动作里已经拦住。
  * 表单字段刻意只有五个——每多一个字段就少一批人填完。
  */
-const 倒计时秒 = 60;
 
 export default function SignupForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
-  const [sending, setSending] = useState(false);
-  const [left, setLeft] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [hint, setHint] = useState<string | null>(null);
-
-  function 开始倒计时() {
-    setLeft(倒计时秒);
-    const t = setInterval(() => {
-      setLeft((n) => {
-        if (n <= 1) clearInterval(t);
-        return n - 1;
-      });
-    }, 1000);
-  }
-
-  async function onSendCode() {
-    const target = form.getFieldValue("target");
-    if (!target) {
-      setError("请先填手机号或邮箱");
-      return;
-    }
-    setSending(true);
-    setError(null);
-    setHint(null);
-    const r = await requestCode(target);
-    setSending(false);
-    if (r.ok) {
-      开始倒计时();
-      setHint(r.hint ?? "验证码已发送");
-    } else setError(r.error);
-  }
 
   async function onFinish(v: { target: string; code: string; password: string; name: string; workspace: string }) {
     setLoading(true);
@@ -79,7 +48,6 @@ export default function SignupForm() {
         </div>
 
         {error && <Alert type="error" showIcon style={{ marginBottom: 14 }} title={error} />}
-        {hint && <Alert type="info" showIcon style={{ marginBottom: 14 }} title={hint} />}
 
         <Form form={form} layout="vertical" onFinish={onFinish} requiredMark={false} disabled={loading}>
           <Form.Item name="workspace" rules={[{ required: true, message: "请填写团队名称" }]}>
@@ -91,19 +59,9 @@ export default function SignupForm() {
           <Form.Item name="target" rules={[{ required: true, message: "请填写手机号或邮箱" }]}>
             <Input size="large" prefix={<MobileOutlined />} placeholder="手机号或邮箱" autoComplete="username" />
           </Form.Item>
-          <Form.Item name="code" rules={[{ required: true, message: "请填写验证码" }]}>
-            <Input
-              size="large"
-              prefix={<SafetyOutlined />}
-              placeholder="验证码"
-              maxLength={6}
-              inputMode="numeric"
-              suffix={
-                <Button type="link" size="small" onClick={onSendCode} loading={sending} disabled={left > 0}>
-                  {left > 0 ? `${left} 秒后重发` : "获取验证码"}
-                </Button>
-              }
-            />
+          {/* 激活码替代验证码：码本身就是授权凭证，不需要发码通道。没码的人到官网咨询页申请 */}
+          <Form.Item name="code" rules={[{ required: true, message: "请填写激活码" }]} extra={<span>没有激活码？<a href="https://ai-daedalus.com/demo.html" target="_blank" rel="noopener">到这里申请</a></span>}>
+            <Input size="large" prefix={<SafetyOutlined />} placeholder="激活码，如 AB3D-EF5G-HJ7K" maxLength={16} autoCapitalize="characters" />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: "请设置密码" }]} extra="至少 8 位，含字母和数字">
             <Input.Password size="large" prefix={<LockOutlined />} placeholder="设置密码" autoComplete="new-password" />

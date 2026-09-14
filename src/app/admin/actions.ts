@@ -8,6 +8,7 @@ import { isPlanKey, PLANS } from "@/lib/tenant/plans";
 import { createWorkspace } from "@/lib/tenant/workspaces";
 import { createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
 import { 重置额度 } from "@/lib/tenant/ai-allowance";
+import { 生成并入库, 展示 } from "@/lib/tenant/activation";
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
 
@@ -134,4 +135,13 @@ export async function resetAiAllowance(input: { token: string; workspaceId: stri
   await 重置额度(input.workspaceId);
   revalidatePath("/admin");
   return { ok: true };
+}
+
+/** 批量生成激活码。返回给人看的带横线形式 */
+export async function generateCodes(input: { token: string; count: number; note?: string }): Promise<{ ok: true; codes: string[] } | { ok: false; error: string }> {
+  const g = guard(input.token);
+  if (!g.ok) return g;
+  const codes = await 生成并入库(input.count, input.note);
+  revalidatePath("/admin");
+  return { ok: true, codes: codes.map(展示) };
 }

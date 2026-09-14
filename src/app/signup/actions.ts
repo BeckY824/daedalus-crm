@@ -5,15 +5,8 @@ import { createSession } from "@/lib/auth";
 import { multiTenant } from "@/lib/tenant/context";
 import { control } from "@/lib/tenant/control";
 import { createWorkspace, TRIAL_DAYS } from "@/lib/tenant/workspaces";
-import { codeVisibleToClient, sendCode } from "@/lib/tenant/notify";
-import {
-  checkPassword,
-  consumeCode,
-  createAccount,
-  findAccountByTarget,
-  issueCode,
-  parseTarget,
-} from "@/lib/tenant/accounts";
+import { checkPassword, createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
+import { 占用, 释放, 记工作区 } from "@/lib/tenant/activation";
 import { 检查限流, 记一次失败, 解析来源IP, IP阈值 } from "@/lib/rate-limit";
 
 /**
@@ -30,7 +23,6 @@ function 自助注册已关闭(): boolean {
   return Boolean(process.env.SIGNUP_REDIRECT?.trim());
 }
 
-export type SendCodeResult = { ok: true; hint?: string } | { ok: false; error: string };
 export type SignupResult = { ok: true } | { ok: false; error: string };
 
 async function ip(): Promise<string | null> {
@@ -41,31 +33,13 @@ function 未开放(): { ok: false; error: string } {
   return { ok: false, error: "这个部署没有开放注册" };
 }
 
-export async function requestCode(targetRaw: string): Promise<SendCodeResult> {
-  if (!multiTenant() || 自助注册已关闭()) return 未开放();
-  const t = parseTarget(targetRaw);
-  if (!t) return { ok: false, error: "请填写正确的手机号或邮箱" };
-
-  // 按 IP 限流：发码是唯一一个未登录就能触发外部计费动作的接口，不限会被薅
-  const from = await ip();
-  if (from) {
-    const 还要等 = 检查限流(`code:${from}`);
-    if (还要等 != null) return { ok: false, error: `操作太频繁，请 ${还要等} 秒后再试` };
-    记一次失败(`code:${from}`, Date.now(), IP阈值);
-  }
-
-  if (await findAccountByTarget(t.value)) {
-    return { ok: false, error: "这个号已经注册过了，直接登录吧" };
-  }
-
-  const r = await issueCode(t.value, "signup");
-  if (!r.ok) return r;
-  const sent = await sendCode(t.value, r.code);
-  if (!sent.ok) return { ok: false, error: sent.error };
-  // 开发环境把码直接给回去，省得翻日志；线上永远不回显
-  return { ok: true, hint: codeVisibleToClient() ? `开发环境验证码：${r.code}` : undefined };
-}
-
+/**
+ * 注册：团队名 + 姓名 + 手机/邮箱 + **激活码** + 密码 → 开一个工作区。
+ *
+ * 激活码替代了原来的短信/邮件验证码：码本身就是授权凭证，不需要发码通道。
+ * 顺序要紧：**先占码再建号**。占码是原子的（updateMany 只改 usedAt 为空的那行），
+ * 两个人同时用同一个码只有一个能成；建号失败就把码还回去，别让人白丢一个。
+ */
 export async function signup(input: {
   target: string;
   code: string;
@@ -82,27 +56,40 @@ export async function signup(input: {
   const pwErr = checkPassword(input.password);
   if (pwErr) return { ok: false, error: pwErr };
 
-  const codeOk = await consumeCode(t.value, input.code, "signup");
-  if (!codeOk.ok) return codeOk;
+  // 按 IP 限流：激活码是唯一一个未登录就能反复试的入口，不限会被拿来猜码
+  const from = await ip();
+  if (from) {
+    const 还要等 = 检查限流(`signup:${from}`);
+    if (还要等 != null) return { ok: false, error: `操作太频繁，请 ${还要等} 秒后再试` };
+  }
 
-  // 验证码校验通过到建账号之间还有一个窗口，同一个号并发注册会撞唯一索引，
-  // 交给数据库判，不自己抢
   if (await findAccountByTarget(t.value)) return { ok: false, error: "这个号已经注册过了，直接登录吧" };
+
+  // 先占码。失败计一次限流，让猜码的人越猜越慢
+  const 占 = await 占用(input.code, "pending");
+  if (!占.ok) {
+    if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
+    return 占;
+  }
 
   let account;
   try {
     account = await createAccount({ target: t, password: input.password, name: input.name });
   } catch {
+    await 释放(占.code);
     return { ok: false, error: "这个号已经注册过了，直接登录吧" };
   }
 
   try {
     const ws = await createWorkspace({ name: input.workspace, account });
+    await 记工作区(占.code, ws.id);
+    await control.activationCode.update({ where: { code: 占.code }, data: { usedBy: account.id } });
     await createSession(account.id, ws.id);
     return { ok: true };
   } catch (e) {
-    // 工作区没开成，账号留着也没用，清掉免得这个号再也注册不了
+    // 工作区没开成：账号删掉、码还回去，让这个人能用同一个码再试一次
     await control.account.delete({ where: { id: account.id } }).catch(() => {});
+    await 释放(占.code);
     console.error("开工作区失败：", e);
     return { ok: false, error: "开通失败，请稍后重试" };
   }

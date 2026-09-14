@@ -24,22 +24,29 @@ function 拨到过期(workspaceName: string) {
   `, CONTROL_DB, workspaceName], { stdio: "pipe" });
 }
 
+/**
+ * 每次注册从控制面库里取一个还没用过的激活码。
+ * 不能用模块级计数器：Playwright 在某条用例失败后会重启 worker，计数器归零，
+ * 后面的用例就会拿到已经用掉的码——第一次跑第 9 条时就是这么挂的。
+ */
+function 下一个码(): string {
+  return execFileSync("node", ["--experimental-sqlite", "-e", `
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(process.argv[1]);
+    const r = db.prepare('SELECT code FROM "ActivationCode" WHERE "usedAt" IS NULL ORDER BY code LIMIT 1').get();
+    if (!r) throw new Error('激活码用完了：hosted-setup 里预置的不够');
+    process.stdout.write(r.code);
+    db.close();
+  `, CONTROL_DB], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
 async function 注册(page: Page, opts: { 团队: string; 姓名: string; 手机: string; 密码: string }) {
   await page.goto("/signup");
   await page.getByPlaceholder("团队名称，如「启明教育」").fill(opts.团队);
   await page.getByPlaceholder("你的姓名").fill(opts.姓名);
   await page.getByPlaceholder("手机号或邮箱").fill(opts.手机);
-  await page.getByRole("button", { name: "获取验证码" }).click();
-
-  // 开发环境把验证码回显在提示条里，省掉真发短信。
-  // 超时给到 30 秒不是因为这个动作慢，而是 webServer 跑的是 next dev：
-  // 这往往是第一次触发注册的 Server Action，要现编译一遍。CI 上永远是冷的。
-  const 提示 = page.locator(".ant-alert").filter({ hasText: "开发环境验证码" });
-  await expect(提示).toBeVisible({ timeout: 30_000 });
-  const 码 = (await 提示.textContent())?.match(/\d{6}/)?.[0];
-  expect(码, "开发环境应当回显验证码").toBeTruthy();
-
-  await page.getByPlaceholder("验证码").fill(码!);
+  // 激活码替代了验证码：setup 里预置了 5 个，每次注册用掉一个
+  await page.getByPlaceholder(/激活码/).fill(下一个码());
   await page.getByPlaceholder("设置密码").fill(opts.密码);
   await page.getByRole("button", { name: "创建工作区" }).click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
@@ -77,7 +84,9 @@ const 北辰 = { 团队: "北辰网络", 姓名: "赵经理", 手机: "139001390
 
 test("1 注册就得到一个属于自己的空工作区", async ({ page }) => {
   await 注册(page, 启明);
-  await expect(page.getByText("林老师")).toBeVisible();
+  // 名字现在出现两处：侧栏的用户块 + 对话面的问候语（「下午好，林老师。」）。
+  // 意图只是"落在了自己的工作区"，看到一处就够，别让第二处把严格模式撞挂
+  await expect(page.getByText("林老师").first()).toBeVisible();
 
   await page.goto("/customers");
   // 全新工作区：一条业务数据都不该有
@@ -138,7 +147,8 @@ test("6 运营台要 token，开通后恢复可写", async ({ page }) => {
 
   await page.goto("/admin?token=e2e-admin-token");
   await expect(page.getByRole("heading", { name: "工作区" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("北辰网络")).toBeVisible();
+  // 运营台现在还有激活码表，里面「已用 · 北辰网络」也含这几个字，要精确匹配
+  await expect(page.getByText("北辰网络", { exact: true })).toBeVisible();
   await expect(page.getByText(/待核对/).first()).toBeVisible();
 
   // 给北辰开通
@@ -176,4 +186,28 @@ test("8 没配 DEMO_WORKSPACE 时 /demo 不存在，而不是被中间件弹回�
    */
   const r = await page.request.get("/demo", { maxRedirects: 0 });
   expect(r.status(), "应当由路由自己返回 404，而不是被中间件重定向").toBe(404);
+});
+
+test("9 试用工作区的 AI 只有 5 次，第 6 次被拦、计数归零", async ({ page }) => {
+  /**
+   * 这套 e2e 不配 LLM_API_KEY，所以每次提问都会在模型那一步报「AI 功能未启用」——
+   * 但额度是在发起调用**之前**扣的（失败也算，否则反复失败可以无限重试），
+   * 所以不用真模型也能验闸门：问 5 次各扣一次，第 6 次拿到的是额度错误而不是模型错误。
+   */
+  await 注册(page, { 团队: "限额测试", 姓名: "赵老师", 手机: "13800138009", 密码: "Passw0rd99" });
+  const 输入 = page.getByPlaceholder(/问一位/);
+  await expect(page.locator(".cli-quota")).toHaveText("免费提问 5/5");
+
+  for (let i = 1; i <= 5; i++) {
+    await 输入.fill(`第 ${i} 问`);
+    await page.locator(".cli-send").click();
+    // 等这一轮结束（成功或失败都会让输入框恢复）
+    await expect(输入).not.toHaveAttribute("placeholder", /正在回答/, { timeout: 30_000 });
+  }
+  await page.reload();
+  await expect(page.locator(".cli-quota")).toHaveText("免费提问 0/5");
+
+  await 输入.fill("第 6 问");
+  await page.locator(".cli-send").click();
+  await expect(page.locator(".cli-turn").last()).toContainText("已经用完", { timeout: 30_000 });
 });

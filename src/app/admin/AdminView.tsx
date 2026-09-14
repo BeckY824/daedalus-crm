@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { App, Alert, Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, Tooltip } from "antd";
-import { activate, extendTrial, openWorkspace, resetAiAllowance, suspend } from "./actions";
+import { activate, extendTrial, generateCodes, openWorkspace, resetAiAllowance, suspend } from "./actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
 import { dayjs } from "@/lib/utils";
 
@@ -25,7 +25,9 @@ type Row = {
  * 不做成完整后台——工作区数量还在两位数的阶段，一张表加几个按钮就够，
  * 多做的每一块都要跟着业务改。
  */
-export default function AdminView({ token, rows }: { token: string; rows: Row[] }) {
+type Code = { code: string; note: string | null; usedAt: string | null; workspace: string | null };
+
+export default function AdminView({ token, rows, codes }: { token: string; rows: Row[]; codes: Code[] }) {
   const { message } = App.useApp();
   const [plan, setPlan] = useState<PlanKey>("year");
   const [busy, setBusy] = useState<string | null>(null);
@@ -66,6 +68,17 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
   }
 
   const 待核对 = rows.filter((r) => r.note?.includes("[待核对]")).length;
+  const [生成中, set生成中] = useState(false);
+  const [新码, set新码] = useState<string[] | null>(null);
+  const 未用 = codes.filter((c) => !c.usedAt);
+
+  async function 生成十个() {
+    set生成中(true);
+    const r = await generateCodes({ token, count: 10 });
+    set生成中(false);
+    if (r.ok) set新码(r.codes);
+    else message.error(r.error);
+  }
 
   return (
     <div style={{ padding: 24 }}>
@@ -169,6 +182,36 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
               </div>
             ),
           },
+        ]}
+      />
+
+      {/* 激活码：一码一个工作区。发给要试用的人，他自己去 /signup 开号，不用我们建 */}
+      <div style={{ margin: "28px 0 12px", display: "flex", alignItems: "center", gap: 8 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>激活码</h2>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>未用 {未用.length} · 已用 {codes.length - 未用.length}</span>
+        <span style={{ flex: 1 }} />
+        <Button size="small" loading={生成中} onClick={生成十个}>生成 10 个</Button>
+      </div>
+      {新码 && (
+        <Alert
+          type="success"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`新生成 ${新码.length} 个，一码一用`}
+          description={<Input.TextArea value={新码.join("\n")} autoSize readOnly onFocus={(e) => e.currentTarget.select()} style={{ fontFamily: "ui-monospace, monospace", fontSize: 12.5 }} />}
+          closable
+          onClose={() => set新码(null)}
+        />
+      )}
+      <Table<Code>
+        rowKey="code"
+        size="small"
+        dataSource={codes}
+        pagination={{ pageSize: 20, hideOnSinglePage: true }}
+        columns={[
+          { title: "激活码", dataIndex: "code", render: (v: string) => <span style={{ fontFamily: "ui-monospace, monospace" }}>{v}</span> },
+          { title: "备注", dataIndex: "note", render: (v: string | null) => v ?? <span style={{ color: "#d1d5db" }}>—</span> },
+          { title: "状态", dataIndex: "usedAt", width: 160, render: (v: string | null, r) => (v ? <Tag>已用 · {r.workspace ?? ""}</Tag> : <Tag color="processing">未用</Tag>) },
         ]}
       />
 

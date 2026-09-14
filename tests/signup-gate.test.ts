@@ -50,13 +50,6 @@ afterAll(() => {
 });
 
 describe("配了 SIGNUP_REDIRECT 就等于关闭自助注册", () => {
-  it("发验证码被拒——这是未登录就能烧钱的那个接口", async () => {
-    const { requestCode } = await import("@/app/signup/actions");
-    process.env.SIGNUP_REDIRECT = "https://ai-daedalus.com/demo.html";
-    const r = await requestCode("13800139001");
-    expect(r.ok).toBe(false);
-  });
-
   it("直接调 signup 也建不出工作区", async () => {
     const { signup } = await import("@/app/signup/actions");
     const { control } = await import("@/lib/tenant/control");
@@ -78,17 +71,34 @@ describe("配了 SIGNUP_REDIRECT 就等于关闭自助注册", () => {
   });
 
   it("空字符串不算关闭——免得 .env 里留个空值把注册莫名其妙关掉", async () => {
-    const { requestCode } = await import("@/app/signup/actions");
+    const { signup } = await import("@/app/signup/actions");
     process.env.SIGNUP_REDIRECT = "   ";
-    const r = await requestCode("不是手机号也不是邮箱");
+    const r = await signup({ target: "不是手机号也不是邮箱", code: "x", password: "abcd1234", name: "n", workspace: "w" });
     // 走到了格式校验那一步，说明开关没有拦它
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("手机号或邮箱");
   });
 
-  it("不配就照常开放", async () => {
-    const { requestCode } = await import("@/app/signup/actions");
-    const r = await requestCode("13800139003");
+  it("不配就照常开放：给个真激活码能开出工作区", async () => {
+    const { signup } = await import("@/app/signup/actions");
+    const { 生成并入库 } = await import("@/lib/tenant/activation");
+    const { control } = await import("@/lib/tenant/control");
+    // 这条要真开工作区，得有模板库
+    const { execFileSync } = await import("node:child_process");
+    const path = await import("node:path");
+    const tpl = path.join(临时根, "_template.db");
+    execFileSync("node", ["--experimental-sqlite", "scripts/build-template.mjs", tpl], { stdio: "pipe" });
+    process.env.WORKSPACE_DIR = 临时根;
+    process.env.WORKSPACE_TEMPLATE = tpl;
+
+    const [code] = await 生成并入库(1);
+    const r = await signup({ target: "13800139003", code, password: "abcd1234", name: "陌生人", workspace: "自己开的" });
     expect(r.ok).toBe(true);
+    const used = await control.activationCode.findUnique({ where: { code } });
+    expect(used!.usedAt).not.toBeNull();
+    expect(used!.workspaceId).toBeTruthy();
+    // 同一个码第二次不行
+    const 再 = await signup({ target: "13800139004", code, password: "abcd1234", name: "x", workspace: "y" });
+    expect(再.ok).toBe(false);
   });
 });

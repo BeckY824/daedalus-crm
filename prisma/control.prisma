@@ -103,6 +103,24 @@ model AiUsage {
   updatedAt   DateTime @default(now()) @updatedAt
 }
 
+/// 试用激活码：一码一个工作区。
+///
+/// 它替代了注册时的短信/邮件验证码——码本身就是授权凭证，拿到码的人才能开号，
+/// 于是不需要任何发码通道。批量生成、一码一用、原子占用（两个人同时用同一个码只有一个能成）。
+/// 单独一张表：control-migrations/ 只加不删，每次启动整个重跑。
+model ActivationCode {
+  /// 形如 XXXX-XXXX-XXXX，字母表去掉 0/O/1/I 这类易混字符；存归一化后的大写无横线形式
+  code        String    @id
+  /// 给谁的、哪一批，运营看的
+  note        String?
+  usedAt      DateTime?
+  usedBy      String?
+  workspaceId String?
+  createdAt   DateTime  @default(now())
+
+  @@index([usedAt])
+}
+
 /// 邀请同事进工作区
 model Invite {
   id          String   @id @default(cuid())

@@ -47,8 +47,15 @@ export default defineConfig({
       AUTH_SECRET: "e2e-hosted-secret-not-used-in-production-0123",
       ADMIN_TOKEN: "e2e-admin-token",
       COOKIE_SECURE: "false",
-      // 不调模型：这套测的是租户与试用，不是 AI
-      LLM_API_KEY: "",
+      /**
+       * 给一个假 key、指向本机一个没人监听的端口：
+       *   - llmEnabled() 为真，首页才渲染对话面（否则走无 AI 的 Board，连输入框都没有）
+       *   - 每次提问在连模型那步立刻 ECONNREFUSED，一分钱不花
+       *   - 试用额度是在发起调用**之前**扣的，所以第 9 条能真验「5 次后被拦」
+       */
+      LLM_API_KEY: "e2e-fake-key",
+      LLM_BASE_URL: "http://127.0.0.1:9",
+      LLM_MODEL: "e2e-fake-model",
     },
   },
 });
