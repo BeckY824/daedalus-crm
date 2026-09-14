@@ -186,3 +186,14 @@ describe("记录本身要结实", () => {
     expect(log.detail).toBeNull();
   });
 });
+
+describe("日期留痕不能差一天", () => {
+  it("按本地时区记，不是 UTC", async () => {
+    const { describeCustomerChanges } = await import("@/lib/audit");
+    // 本地 2026-10-15 00:00（东八区）= UTC 2026-10-14T16:00。
+    // 取 ISO 前十位会记成 10-14，而库里和页面上都是 10-15
+    const 本地零点 = new Date("2026-10-14T16:00:00.000Z");
+    const r = describeCustomerChanges(["expectedSignAt"], { expectedSignAt: null }, { expectedSignAt: 本地零点 });
+    expect(r[0].新值).toBe("2026-10-15");
+  });
+});

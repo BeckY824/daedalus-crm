@@ -8,7 +8,7 @@
  */
 import { prisma } from "../prisma";
 import { dayjs } from "../utils";
-import { FOLLOW_TYPE_MAP } from "../constants";
+import { FOLLOW_TYPE_MAP, OPP_STAGES, GRADES } from "../constants";
 import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
 import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec } from "../report-query";
@@ -16,7 +16,7 @@ import { loadWatchlist } from "../sentinel-data";
 import { statusLabel } from "../business-config";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
-import { buildProposal, describeProposal, missingFields, type Proposal, type ProposalKind } from "./proposals";
+import { buildProposal, describeProposal, missingFields, 可改字段, 可改字段名单, type Proposal, type ProposalKind } from "./proposals";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "../constants";
 
 export type ToolContext = {
@@ -161,6 +161,25 @@ export const TOOLS: Tool[] = [
     "add_lead",
     { needsCustomer: false },
   ),
+  proposeTool(
+    "propose_customer_update",
+    "建议修改一位客户档案里的字段。changes 是个对象，只写要改的那几项，不改的别写。" +
+      "负责人 / 渠道 / 推荐人给**名字**就行（salesOwnerName / channelName / referrerName），不要给 id——重名时会拒绝，让人去手动指定。",
+    '{"id": "客户 id", "changes": {"要改的字段名": "改成什么"}, "reason": "一句话：为什么"}',
+    "update_customer",
+  ),
+  proposeTool(
+    "propose_opportunity",
+    "建议给一位客户新建商机（在谈的单子：金额、阶段、预计成交时间）。你建不了，人点确认才生效。",
+    '{"id": "客户 id", "name": "商机名称", "amount": 金额数字, "stage": "初步沟通/需求确认/方案报价/谈判审核/赢单成交", "probability": "0~100，可空", "expectedDealAt": "可空，YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
+    "add_opportunity",
+  ),
+  proposeTool(
+    "propose_contract",
+    "建议记一笔签约（已经成交、要入账的那笔钱）。注意这不是商机——商机是在谈，签约是谈成了。",
+    '{"id": "客户 id", "amount": 金额数字, "signedAt": "YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
+    "add_contract",
+  ),
 ];
 
 /**
@@ -202,6 +221,9 @@ export const PROPOSAL_VOCAB = `线索状态：${LEAD_STATUSES.join(" / ")}
 跟进状态：${FOLLOW_STATUSES.join(" / ")}
 决策状态：${DECISION_STATUSES.join(" / ")}
 跟进类型：${FOLLOW_TYPES.map((t) => t.label).join(" / ")}
-计划方式：${FOLLOW_METHODS.join(" / ")}`;
+计划方式：${FOLLOW_METHODS.join(" / ")}
+商机阶段：${OPP_STAGES.join(" / ")}
+档案里能改的字段：${可改字段名单.map((f) => `${f}（${可改字段[f].label}）`).join("、")}
+年级：${GRADES.join(" / ")}`;
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));

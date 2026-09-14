@@ -10,6 +10,7 @@
  *   2. 日志只增不改不删，且不与 User 建外键，成员被删也不该影响历史记录
  */
 import { prisma } from "./prisma";
+import { dayjs } from "./utils";
 import { CUSTOMER_FIELD_LABELS } from "./concurrency";
 
 export type Actor = { id: string; name: string };
@@ -60,6 +61,12 @@ export function describeCustomerChanges(
 
 function 展示(v: unknown): string {
   if (v == null || v === "") return "（空）";
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  /**
+   * 按**本地时区**渲染，不能用 toISOString().slice(0,10)。
+   * 预计签约这类日期存的是当地零点，在东八区就是 UTC 前一天的 16:00——
+   * 取 ISO 前十位等于记成前一天。一条写着「改成 10-14」的留痕，
+   * 而库里和页面上都是 10-15，比没有留痕更糟：它会让人以为有人又改过一次。
+   */
+  if (v instanceof Date) return dayjs(v).format("YYYY-MM-DD");
   return String(v);
 }

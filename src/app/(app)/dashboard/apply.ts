@@ -4,10 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
-import { buildProposal, missingFields, summarizeApplied, type Proposal } from "@/lib/agent/proposals";
-import { patchCustomer } from "../customers/actions";
+import { buildProposal, missingFields, summarizeApplied, 可改字段, type Proposal, type 一处改动 } from "@/lib/agent/proposals";
+import { patchCustomer, saveCustomer, saveContract } from "../customers/actions";
 import { saveFollowUp, savePlan } from "../customers/[id]/actions";
 import { saveLead } from "../leads/actions";
+import { saveOpportunity } from "../opportunities/actions";
+import { 可担任负责人 } from "@/lib/constants";
 
 export type ApplyResult = { ok: true; message: string } | { ok: false; error: string };
 
@@ -21,6 +23,89 @@ export type ApplyResult = { ok: true; message: string } | { ok: false; error: st
  *      不给 AI 开任何旁路
  * 落库后额外记一条 ai_apply，和 ai_use 分开：一个是"调了模型"，一个是"人批准了模型的建议"。
  */
+/**
+ * 改档案。
+ *
+ * 关键是**不自己写库**，而是把改动合并进整份记录再交给 saveCustomer——
+ * 手机号查重、推荐链成环检查、归属字段重算（resolveAttribution）、
+ * 乐观锁、逐字段留痕、revalidate，全在那里面，一个都不能绕过去。
+ * 绕过去的那一刻，AI 改出来的数据就和人改出来的不是一回事了。
+ *
+ * 注意**不做下游归属重算**：那是 attribution.ts 的既定设计（tests/attribution.test.ts
+ * 「归属固化」那一组钉着），改上游推荐人不会追溯性改写下游已成交的业绩归属。
+ */
+async function 改档案(customerId: string, changes: 一处改动[]): Promise<{ ok: true } | { ok: false; error: string }> {
+  const cur = await prisma.customer.findUnique({ where: { id: customerId } });
+  if (!cur) return { ok: false, error: "记录已被删除" };
+
+  const 取值 = (f: string) => changes.find((c) => c.field === f)?.value;
+  const 有 = (f: string) => changes.some((c) => c.field === f);
+
+  // 关系字段：模型给的是名字，这里解析成 id。重名直接报错，绝不猜——
+  // 猜错就是把客户挂到别人名下，而且没人会发现
+  let salesOwnerId = cur.salesOwnerId;
+  if (有("salesOwnerName")) {
+    const n = (取值("salesOwnerName") ?? "").trim();
+    if (!n) return { ok: false, error: "负责人不能留空" };
+    const hit = await prisma.user.findMany({ where: { name: n, ...可担任负责人 }, select: { id: true } });
+    if (hit.length === 0) return { ok: false, error: `没有叫「${n}」的在职销售` };
+    if (hit.length > 1) return { ok: false, error: `有 ${hit.length} 位同事都叫「${n}」，请到档案页手动指定` };
+    salesOwnerId = hit[0].id;
+  }
+
+  let channelId = cur.channelId;
+  let referrerCustomerId = cur.referrerCustomerId;
+  if (有("channelName")) {
+    const n = (取值("channelName") ?? "").trim();
+    if (!n) channelId = null;
+    else {
+      const hit = await prisma.channel.findMany({ where: { name: n }, select: { id: true } });
+      if (hit.length === 0) return { ok: false, error: `没有叫「${n}」的渠道` };
+      if (hit.length > 1) return { ok: false, error: `有 ${hit.length} 个渠道都叫「${n}」，请到档案页手动指定` };
+      channelId = hit[0].id;
+    }
+  }
+  if (有("referrerName")) {
+    const n = (取值("referrerName") ?? "").trim();
+    if (!n) referrerCustomerId = null;
+    else {
+      const hit = await prisma.customer.findMany({ where: { name: n, id: { not: customerId } }, select: { id: true } });
+      if (hit.length === 0) return { ok: false, error: `没有叫「${n}」的记录` };
+      if (hit.length > 1) return { ok: false, error: `有 ${hit.length} 位都叫「${n}」，请到档案页手动指定` };
+      referrerCustomerId = hit[0].id;
+    }
+  }
+
+  const 文本 = (f: string, 原: string | null) => (有(f) ? (取值(f) || "").trim() || null : 原);
+  const 快照 = {
+    name: cur.name, phone: cur.phone, school: cur.school, grade: cur.grade, major: cur.major,
+    followStatus: cur.followStatus, decisionStatus: cur.decisionStatus,
+    expectedSignAt: cur.expectedSignAt, remark: cur.remark,
+    salesOwnerId: cur.salesOwnerId, channelId: cur.channelId, referrerCustomerId: cur.referrerCustomerId,
+  };
+
+  const r = await saveCustomer({
+    id: cur.id,
+    // 用库里当前的版本号：卡片不是一个"编辑会话"，人看到的就是此刻的值。
+    // 真正的并发保护由 saveCustomer 内部的合并逻辑承担
+    updatedAt: cur.updatedAt.toISOString(),
+    base: 快照,
+    name: 有("name") ? (取值("name") || "").trim() : cur.name,
+    phone: 有("phone") ? (取值("phone") || "").trim() : cur.phone,
+    school: 文本("school", cur.school),
+    grade: 有("grade") ? 取值("grade") || null : cur.grade,
+    major: 文本("major", cur.major),
+    followStatus: 有("followStatus") ? 取值("followStatus")! : cur.followStatus,
+    decisionStatus: 有("decisionStatus") ? 取值("decisionStatus")! : cur.decisionStatus,
+    expectedSignAt: 有("expectedSignAt") ? (取值("expectedSignAt") ? new Date(取值("expectedSignAt")!) : null) : cur.expectedSignAt,
+    remark: 文本("remark", cur.remark),
+    salesOwnerId,
+    channelId,
+    referrerCustomerId,
+  });
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
+}
+
 export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   const me = await requireUser();
   const b = await getBusiness();
@@ -43,7 +128,31 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   if (miss.length) return { ok: false, error: `还差${miss.join("、")}，填好再确认` };
 
   let done: { ok: true } | { ok: false; error: string };
-  if (p.kind === "set_status") {
+  if (p.kind === "update_customer") {
+    done = await 改档案(p.customerId, p.changes);
+  } else if (p.kind === "add_opportunity") {
+    const r = await saveOpportunity({
+      name: p.name || `${c.name} 的商机`,
+      customerId: p.customerId,
+      amount: p.amount,
+      stage: p.stage,
+      status: "OPEN",
+      probability: p.probability,
+      expectedDealAt: p.expectedDealAt || null,
+      remark: p.remark || null,
+      // 商机负责人跟着客户的销售负责人走，不另外问——问了也只会填成同一个人
+      ownerId: (await prisma.customer.findUnique({ where: { id: p.customerId }, select: { salesOwnerId: true } }))!.salesOwnerId,
+    });
+    done = r.ok ? { ok: true } : { ok: false, error: r.error };
+  } else if (p.kind === "add_contract") {
+    const r = await saveContract({
+      customerId: p.customerId,
+      amount: p.amount,
+      signedAt: new Date(p.signedAt),
+      remark: p.remark || null,
+    });
+    done = r.ok ? { ok: true } : { ok: false, error: "error" in r ? r.error : "签约没能保存" };
+  } else if (p.kind === "set_status") {
     done = await patchCustomer(p.customerId, p.field, p.to);
   } else if (p.kind === "add_followup") {
     const r = await saveFollowUp({

@@ -6,16 +6,17 @@ import { App, Select, Input, DatePicker } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import { applyProposal } from "@/app/(app)/dashboard/apply";
-import { describeProposal, missingFields, type Proposal } from "@/lib/agent/proposals";
+import { describeProposal, missingFields, 可改字段, type Proposal } from "@/lib/agent/proposals";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
-import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "@/lib/constants";
+import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
 
 /**
  * AI 建议卡：唯一一条让模型的输出进到数据库的路。
  *
- * 四种形态（改状态 / 记一条跟进 / 排一次计划 / 新建线索），共用一套骨架：
+ * 七种形态（改状态 / 改档案 / 记跟进 / 排计划 / 新建线索 / 新建商机 / 记一笔签约），
+ * 共用一套骨架：
  *   抬头一句话说清要改什么 → 字段就地可改 → 确认 / 忽略
  *
  * 它同时是一张表单：模型不知道的字段就留空，人在卡片上补，而不是被要求
@@ -79,6 +80,80 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
               onChange={(v) => setDraft({ ...draft, to: v })}
             />
           </Field>
+        )}
+
+        {/* 改档案：模型只写要改的那几项，每项按自己的类型渲染。
+            负责人 / 渠道 / 推荐人是名字不是 id——落库时服务端解析，重名会拒绝 */}
+        {draft.kind === "update_customer" &&
+          draft.changes.map((chg, i) => {
+            const spec = 可改字段[chg.field];
+            const 改这项 = (v: string) => setDraft({ ...draft, changes: draft.changes.map((c, j) => (j === i ? { ...c, value: v } : c)) });
+            return (
+              <Field key={chg.field} label={spec.label} block={spec.kind === "text" && chg.field === "remark"}>
+                {spec.kind === "enum" ? (
+                  <Select
+                    size="small"
+                    style={{ width: 160 }}
+                    placeholder="选一个"
+                    value={chg.value || undefined}
+                    options={spec.values.map((v) => ({ value: v, label: chg.field === "grade" ? v : statusLabel(b, v) }))}
+                    onChange={改这项}
+                  />
+                ) : spec.kind === "date" ? (
+                  <DatePicker
+                    size="small"
+                    format="YYYY-MM-DD"
+                    placeholder="选个日期"
+                    value={chg.value ? dayjs(chg.value) : null}
+                    onChange={(d) => 改这项(d ? d.toISOString() : "")}
+                  />
+                ) : chg.field === "remark" ? (
+                  <Input.TextArea size="small" autoSize={{ minRows: 2, maxRows: 6 }} value={chg.value} onChange={(e) => 改这项(e.target.value)} />
+                ) : (
+                  <Input
+                    size="small"
+                    style={{ width: 220 }}
+                    value={chg.value}
+                    placeholder={spec.kind === "name" ? "写名字，不是编号" : ""}
+                    onChange={(e) => 改这项(e.target.value)}
+                  />
+                )}
+              </Field>
+            );
+          })}
+
+        {draft.kind === "add_opportunity" && (
+          <>
+            <Field label="名称">
+              <Input size="small" style={{ width: 220 }} value={draft.name} placeholder="这单叫什么" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+            </Field>
+            <Field label="金额">
+              <Input size="small" style={{ width: 120 }} prefix="¥" value={draft.amount || ""} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
+            </Field>
+            <Field label="阶段">
+              <Select size="small" style={{ width: 140 }} value={draft.stage} options={OPP_STAGES.map((v) => ({ value: v, label: v }))} onChange={(v) => setDraft({ ...draft, stage: v })} />
+            </Field>
+            <Field label="成交概率">
+              <Input size="small" style={{ width: 90 }} suffix="%" value={draft.probability} onChange={(e) => setDraft({ ...draft, probability: Math.min(100, Number(e.target.value.replace(/[^\d]/g, "")) || 0) })} />
+            </Field>
+            <Field label="预计成交">
+              <DatePicker size="small" format="YYYY-MM-DD" placeholder="可不填" value={draft.expectedDealAt ? dayjs(draft.expectedDealAt) : null} onChange={(d) => setDraft({ ...draft, expectedDealAt: d ? d.toISOString() : "" })} />
+            </Field>
+          </>
+        )}
+
+        {draft.kind === "add_contract" && (
+          <>
+            <Field label="签约金额">
+              <Input size="small" style={{ width: 140 }} prefix="¥" value={draft.amount || ""} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
+            </Field>
+            <Field label="签约日期">
+              <DatePicker size="small" format="YYYY-MM-DD" allowClear={false} value={draft.signedAt ? dayjs(draft.signedAt) : null} onChange={(d) => d && setDraft({ ...draft, signedAt: d.toISOString() })} />
+            </Field>
+            <Field label="备注" block>
+              <Input.TextArea size="small" autoSize={{ minRows: 1, maxRows: 4 }} value={draft.remark} onChange={(e) => setDraft({ ...draft, remark: e.target.value })} />
+            </Field>
+          </>
         )}
 
         {draft.kind === "add_followup" && (

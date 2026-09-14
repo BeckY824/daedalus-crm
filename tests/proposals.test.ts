@@ -115,3 +115,93 @@ describe("新建线索的提议", () => {
     expect(describeProposal(提("add_lead", { name: "吴小雯", reason: "x" }), "学员")).toBe("新建一条线索「吴小雯」");
   });
 });
+
+describe("改档案的提议", () => {
+  it("只写要改的那几项，不改的不出现在卡片上", () => {
+    const p = 提("update_customer", { changes: { followStatus: "已签约", remark: "家长同意了" }, reason: "刚谈完" });
+    expect(p.kind === "update_customer" && p.changes.map((c) => c.field).sort()).toEqual(["followStatus", "remark"]);
+  });
+
+  it("编出来的字段名一律拒，并把能改的告诉模型", () => {
+    const r = 建("update_customer", { changes: { 学费: "两万" }, reason: "x" });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain("salesOwnerName");
+  });
+
+  it("枚举值给错当场拒——「差不多要签了」不是合法状态", () => {
+    const r = 建("update_customer", { changes: { followStatus: "差不多要签了" }, reason: "x" });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain("已签约");
+  });
+
+  it("日期解析不了要拒，不能悄悄当成空", () => {
+    expect(建("update_customer", { changes: { expectedSignAt: "下个礼拜吧" }, reason: "x" }).ok).toBe(false);
+    const p = 提("update_customer", { changes: { expectedSignAt: "2026-10-01" }, reason: "x" });
+    expect(p.kind === "update_customer" && dayjs(p.changes[0].value).format("YYYY-MM-DD")).toBe("2026-10-01");
+  });
+
+  it("关系字段收的是名字不是 id——把 id 交给模型等于让它编一个出来", () => {
+    const p = 提("update_customer", { changes: { salesOwnerName: "江城", referrerName: "赵同学" }, reason: "x" });
+    if (p.kind !== "update_customer") throw new Error("类型不对");
+    expect(p.changes.find((c) => c.field === "salesOwnerName")?.value).toBe("江城");
+    expect(p.changes.find((c) => c.field === "referrerName")?.value).toBe("赵同学");
+  });
+
+  it("姓名和负责人不能留空，其余字段留空是合法的「清掉这一项」", () => {
+    const 清姓名 = 提("update_customer", { changes: { name: "" }, reason: "x" });
+    expect(missingFields(清姓名)).toContain("姓名");
+    const 清备注 = 提("update_customer", { changes: { remark: "" }, reason: "x" });
+    expect(missingFields(清备注)).toEqual([]);
+  });
+
+  it("空的 changes 不给提——一张什么都不改的卡片只会让人困惑", () => {
+    expect(建("update_customer", { changes: {}, reason: "x" }).ok).toBe(false);
+  });
+
+  it("抬头要说清改的是哪几项", () => {
+    const p = 提("update_customer", { changes: { followStatus: "已签约", expectedSignAt: "2026-10-01" }, reason: "x" });
+    const t = describeProposal(p, "学员");
+    expect(t).toContain("陈同学");
+    expect(t).toContain("跟进状态");
+    expect(t).toContain("预计签约");
+  });
+});
+
+describe("商机与签约的提议", () => {
+  it("阶段给错要拒，并把合法阶段告诉模型", () => {
+    const r = 建("add_opportunity", { name: "秋季班", amount: 19800, stage: "快成了", reason: "x" });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toContain("谈判审核");
+  });
+
+  it("没给概率时按阶段推一个，不留空让人瞎填", () => {
+    const p = 提("add_opportunity", { name: "秋季班", amount: 19800, stage: "谈判审核", reason: "x" });
+    expect(p.kind === "add_opportunity" && p.probability).toBeGreaterThan(0);
+  });
+
+  it("概率越界要拒——它参与加权预测，越界会让预测数字失真", () => {
+    expect(建("add_opportunity", { name: "x", amount: 1, stage: "初步沟通", probability: 180, reason: "x" }).ok).toBe(false);
+  });
+
+  it("负数金额一律拒，商机和签约都是", () => {
+    expect(建("add_opportunity", { name: "x", amount: -1, stage: "初步沟通", reason: "x" }).ok).toBe(false);
+    expect(建("add_contract", { amount: -1, signedAt: "2026-09-01", reason: "x" }).ok).toBe(false);
+  });
+
+  it("模型爱写「¥19,800」这种，要收得住", () => {
+    const p = 提("add_contract", { amount: "¥19,800", signedAt: "2026-09-01", reason: "x" });
+    expect(p.kind === "add_contract" && p.amount).toBe(19800);
+  });
+
+  it("金额和日期没填时出卡片但不让确认——留空是让人补，不是拒绝提议", () => {
+    const p = 提("add_contract", { signedAt: "", reason: "x" });
+    expect(missingFields(p).length).toBeGreaterThan(0);
+  });
+
+  it("落库日志要分得清商机和签约——一个在谈一个已成交", () => {
+    const 商机 = 提("add_opportunity", { name: "秋季班", amount: 19800, stage: "初步沟通", reason: "x" });
+    const 签约 = 提("add_contract", { amount: 19800, signedAt: "2026-09-01", reason: "x" });
+    expect(summarizeApplied(商机, "学员")).toContain("商机");
+    expect(summarizeApplied(签约, "学员")).toContain("签约");
+  });
+});
