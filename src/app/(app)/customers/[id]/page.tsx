@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
 import { 负责人候选 } from "@/lib/owners";
 import { llmEnabled } from "@/lib/llm";
+import { 号码脱敏器 } from "@/lib/demo/current";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,10 @@ export default async function CustomerDetailPage({
 
   if (!customer) notFound();
 
+  // 演示区是公开的，同一份数据所有访客共用：号码一律打码。
+  // 自己部署的实例不受影响——销售要照着这个号打电话。
+  const 号 = await 号码脱敏器();
+
   const [users, channels, referrableCustomers] = await Promise.all([
     负责人候选(),
     prisma.channel.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
@@ -72,7 +77,7 @@ export default async function CustomerDetailPage({
       customer={{
         id: customer.id,
         name: customer.name,
-        phone: customer.phone,
+        phone: 号(customer.phone),
         school: customer.school,
         grade: customer.grade,
         major: customer.major,
@@ -95,7 +100,7 @@ export default async function CustomerDetailPage({
         id: c.id,
         name: c.name,
         position: c.position,
-        phone: c.phone,
+        phone: 号(c.phone),
         email: c.email,
         wechat: c.wechat,
         isPrimary: c.isPrimary,

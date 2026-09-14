@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import ContactsView from "./ContactsView";
 import type { Prisma } from "@/generated/prisma";
+import { 号码脱敏器 } from "@/lib/demo/current";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export default async function ContactsPage({
       customer: { select: { id: true, name: true, school: true, salesOwner: { select: { name: true } } } },
     },
   });
+  const 号 = await 号码脱敏器();
 
   return (
     <ContactsView
@@ -39,7 +41,7 @@ export default async function ContactsPage({
         id: c.id,
         name: c.name,
         position: c.position,
-        phone: c.phone,
+        phone: 号(c.phone),
         email: c.email,
         wechat: c.wechat,
         isPrimary: c.isPrimary,

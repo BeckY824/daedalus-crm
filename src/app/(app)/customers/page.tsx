@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import CustomersView from "./CustomersView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
+import { 号码脱敏器 } from "@/lib/demo/current";
 
 export const dynamic = "force-dynamic";
 
@@ -67,13 +68,14 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     prisma.channel.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
+  const 号 = await 号码脱敏器();
 
   return (
     <CustomersView
       rows={rows.map((r) => ({
         id: r.id,
         name: r.name,
-        phone: r.phone,
+        phone: 号(r.phone),
         school: r.school,
         grade: r.grade,
         major: r.major,

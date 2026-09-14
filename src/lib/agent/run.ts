@@ -57,6 +57,124 @@ ${之前}
 问题：${question}`;
 }
 
+/**
+ * 最终回答的开头清洗器。
+ *
+ * 决策步和回答步共用一段对话，而那段对话里每一条 assistant 消息都是 JSON。
+ * 模型被这个格式带着走，有一定概率在正文前先吐一行控制信令
+ * （实测线上出现过 `{"final":true}` 原样流到用户屏幕上），
+ * 提示词里写「不要再输出 JSON」并不能根除。
+ *
+ * 所以在流式出口再兜一道：开头的内容先攒着，确认不是 JSON 再放行。
+ *   - 开头不是 `{` → 立刻放行，之后一路直通，正文里的花括号不受影响
+ *   - 开头是 `{` → 等它闭合，整段丢掉，只放行后面的正文
+ *   - 万一那段 JSON 把答案包在字段里 → 取出最长的那个字符串字段当正文
+ *   - 攒满 400 字还没闭合 → 判定为误判，原样放行，宁可漏一次也不吞正文
+ */
+/**
+ * 试着从「已经收到的开头」里剥掉控制信令。
+ * 每次收到新 token 都整段重跑一遍——开头只有几十个字符，重解析的代价可以忽略，
+ * 换来的是不必维护「围栏读到一半」「JSON 读到一半」这些跨 token 的中间状态。
+ */
+function 尝试剥离(raw: string): { 完成: false } | { 完成: true; 正文: string; 剥掉的: string } {
+  let s = raw.replace(/^\s+/, "");
+  if (!s) return { 完成: false }; // 还全是空白
+  let 有围栏 = false;
+
+  // 开头的代码围栏：等这一行收完，别把 ```jso 这种半截当正文放走
+  if (s.startsWith("`")) {
+    const nl = s.indexOf("\n");
+    if (nl === -1) return { 完成: false };
+    if (!/^`{3,}\s*(json)?$/i.test(s.slice(0, nl).trim())) return { 完成: true, 正文: raw, 剥掉的: "" };
+    有围栏 = true;
+    s = s.slice(nl + 1).replace(/^\s+/, "");
+    if (!s) return { 完成: false };
+  }
+
+  if (s[0] !== "{") return { 完成: true, 正文: raw, 剥掉的: "" }; // 不是 JSON，原样放行
+  const end = s.indexOf("}");
+  if (end === -1) return { 完成: false };
+  const 信令 = s.slice(0, end + 1);
+  s = s.slice(end + 1).replace(/^\s+/, "");
+
+  // 闭合围栏同样可能只到一半；开头有围栏就必须等到它，否则 ``` 会漏到正文里
+  if (s.startsWith("`")) {
+    const nl = s.indexOf("\n");
+    if (nl === -1) return { 完成: false };
+    s = s.slice(nl + 1).replace(/^\s+/, "");
+  } else if (有围栏 && !s) {
+    return { 完成: false };
+  }
+  return { 完成: true, 正文: s, 剥掉的: 信令 };
+}
+
+/**
+ * 最终回答的开头清洗器。
+ *
+ * 决策步和回答步共用一段对话，而那段对话里每一条 assistant 消息都是 JSON。
+ * 模型被这个格式带着走，有一定概率在正文前先吐一行控制信令
+ * （线上真实出现过 `{"final":true}` 原样流到用户屏幕上），
+ * 提示词里写「不要再输出 JSON」并不能根除，所以在流式出口再兜一道。
+ *
+ * 判断只做一次：开头不是 JSON 就立刻直通，正文里的花括号、代码块都不受影响。
+ * 攒够 400 字还没闭合就判定为误判，原样放行——宁可漏剥一次，也不能吞正文。
+ */
+export function 开头清洗器(emit: (s: string) => void) {
+  let buf = "";
+  let 已放行 = false;
+  let 待去前导空白 = false;
+  let out = "";
+
+  function 放行(s: string) {
+    已放行 = true;
+    buf = "";
+    if (!s) return;
+    out += s;
+    emit(s);
+  }
+
+  return {
+    推入(tok: string) {
+      if (已放行) {
+        // 信令与正文之间的空行可能跨 token 才到，放行后还要再吃掉一次
+        let s = tok;
+        if (待去前导空白) {
+          s = s.replace(/^\s+/, "");
+          if (!s) return;
+          待去前导空白 = false;
+        }
+        out += s;
+        emit(s);
+        return;
+      }
+
+      buf += tok;
+      const r = 尝试剥离(buf);
+      if (!r.完成) {
+        if (buf.length > 400) 放行(buf); // 判定为误判，原样吐出去
+        return;
+      }
+      let 正文 = r.正文;
+      if (r.剥掉的 && !正文) {
+        // 整段就是一个信令：答案可能被包在某个字段里，取最长的字符串值
+        try {
+          const o = JSON.parse(r.剥掉的) as Record<string, unknown>;
+          正文 = Object.values(o).filter((v): v is string => typeof v === "string").sort((a, b) => b.length - a.length)[0] ?? "";
+        } catch { /* 不是合法 JSON 就当它没说话 */ }
+        待去前导空白 = !正文; // 正文还在后面的 token 里，接住时再去一次空白
+      }
+      放行(正文);
+    },
+    /** 流结束时叫一次：把还攒在手里、始终没等到结论的开头吐出去，一个字都不能留在缓冲里 */
+    收尾() {
+      if (已放行 || !buf) return;
+      const r = 尝试剥离(buf);
+      放行(r.完成 ? r.正文 : buf);
+    },
+    文本: () => out,
+  };
+}
+
 export async function runAgent(
   input: { question: string; user: { id: string; name: string }; b: BusinessConfig; history?: HistoryTurn[] },
   ev: AgentEvents = {},
@@ -150,7 +268,10 @@ ${PROPOSAL_VOCAB}
 - 数字类问题：先一句结论，再给关键数字；不要把整张表抄一遍
 - 如果是"该怎么推进"这类问题，给 3~5 条具体可执行的建议，并指出风险
 - 不要再输出 JSON，不要提到"工具"这个词`;
-  const text = await chatTextStream([...messages, { role: "user", content: finalPrompt }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal }, (t) => ev.onToken?.(t));
+  const 清洗 = 开头清洗器((s) => ev.onToken?.(s));
+  await chatTextStream([...messages, { role: "user", content: finalPrompt }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal }, (t) => 清洗.推入(t));
+  清洗.收尾();
+  const text = 清洗.文本();
   ev.emit?.({ id: "answer", label: "组织回答", status: "done" });
   for (const r of mentioned.values()) if (!customers.has(r.id) && customers.size < 5 && text.includes(r.name)) customers.set(r.id, r);
   return { text, records, customers: [...customers.values()], proposals: ctx.proposals, steps };
