@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22" width="22" height="22">
+  <!-- Daedalus.AI 站标：与导航里的 mark 同源（M5 17 V11 H11 V5 H17 + 终点节点）。
+       标签页里只有 16px，导航那版的细描边会糊成一团，所以这里做成实底反白：
+       深蓝底 + 白色走线 + 亮蓝终点，小尺寸下才立得住。 -->
+  <rect width="22" height="22" rx="4.6" fill="#0B1B33"/>
+  <path d="M5.2 16.8 V11 H11 V5.2 H15.6"
+        fill="none" stroke="#FFFFFF" stroke-width="2.3"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="16.4" cy="5.2" r="2.1" fill="#5B8DF6"/>
+</svg>
