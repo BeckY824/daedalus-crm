@@ -164,3 +164,16 @@ test("7 没登录时注册与登录页可达，其余弹回登录", async ({ pag
   await page.goto("/customers");
   await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
 });
+
+test("8 没配 DEMO_WORKSPACE 时 /demo 不存在，而不是被中间件弹回登录", async ({ page }) => {
+  /**
+   * 这条钉的是中间件的公开名单。/demo 的职责是给没有会话的人签一张会话，
+   * 一旦它没被列进公开名单，就会在执行之前先被弹回 /login——
+   * 表现是官网点「在线试用」什么也没发生。曾经真这样过。
+   *
+   * 这套 e2e 不配 DEMO_WORKSPACE，所以正确答案是 404（路由自己拒绝），
+   * 而不是 307 到 /login（中间件拦下）。两者都「打不开」，但原因完全不同。
+   */
+  const r = await page.request.get("/demo", { maxRedirects: 0 });
+  expect(r.status(), "应当由路由自己返回 404，而不是被中间件重定向").toBe(404);
+});
