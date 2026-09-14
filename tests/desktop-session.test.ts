@@ -45,9 +45,11 @@ describe("没开本地模式时这个路由不存在", () => {
 describe("开了本地模式，令牌必须对", () => {
   it("不带令牌、令牌错、长度不同都拒，且不会因为长度不同而抛错", async () => {
     process.env.DESKTOP_LOCAL = "1";
-    process.env.DESKTOP_TOKEN = "0123456789abcdef";
+    // 刻意用一眼看得出是假的字符串：十六进制那种写法会被密钥扫描当成真 API Key
+    process.env.DESKTOP_TOKEN = "desktop-token-for-tests";
     const { GET } = await import("@/app/api/desktop/session/route");
-    for (const t of ["", "x", "0123456789abcdee", "0123456789abcdef0", "0123456789abcde"]) {
+    // 依次是：空、太短、等长但差一个字符、更长、更短——定长比较的每种错法
+    for (const t of ["", "x", "desktop-token-for-testt", "desktop-token-for-testsX", "desktop-token-for-test"]) {
       const res = await GET(new Request(`${URL_}?t=${t}`));
       expect(res.status, `令牌 ${JSON.stringify(t)} 不该放行`).toBe(403);
     }

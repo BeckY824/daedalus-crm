@@ -121,10 +121,23 @@ export async function 演示码剩余(visitorId: string): Promise<{ code: string
 
 /** 演示区扣一次。先自增再判断，理由同 ai-allowance 里的试用额度 */
 export async function 演示码扣一次(visitorId: string): Promise<{ ok: true; 还剩: number } | { ok: false; error: string }> {
-  const r = await control.demoCode.updateMany({ where: { boundVisitor: visitorId }, data: { calls: { increment: 1 } } });
-  if (r.count !== 1) return { ok: false, error: "请先用演示码进入演示区" };
-  const d = await control.demoCode.findUniqueOrThrow({ where: { boundVisitor: visitorId }, select: { calls: true } });
+  /**
+   * 自增和读取必须是**同一次**操作。
+   *
+   * 原来是 updateMany 自增、再 findUnique 读一遍——两步之间别的请求也在自增，
+   * 于是每个请求读到的都是最终值。五次额度、十二个并发请求时，十二个读到的都是 12，
+   * 结果一次都不放行。方向是安全的（只会拦多不会漏放），但对着演示区猛点几下的人
+   * 就被莫名其妙挡在外面了。update 作用在唯一键上，返回的就是这一次自增之后的值。
+   */
+  let d;
+  try {
+    d = await control.demoCode.update({ where: { boundVisitor: visitorId }, data: { calls: { increment: 1 } } });
+  } catch {
+    return { ok: false, error: "请先用演示码进入演示区" };
+  }
   if (d.calls > 演示对话上限) {
+    // 拦下的那次还回去，计数停在上限——否则被拦几次，之后就再也说不清用掉了多少
+    await control.demoCode.update({ where: { boundVisitor: visitorId }, data: { calls: { decrement: 1 } } }).catch(() => {});
     return { ok: false, error: `这个演示码的 ${演示对话上限} 次 AI 对话已经用完。其余功能照常可用；想要自己的工作区，到官网申请试用。` };
   }
   return { ok: true, 还剩: 演示对话上限 - d.calls };
