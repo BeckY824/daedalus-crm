@@ -91,6 +91,18 @@ model VerifyCode {
   @@index([target, purpose])
 }
 
+/// 一个工作区用掉了多少次 AI 对话。
+///
+/// 单独一张表而不是给 Workspace 加一列：control-migrations/ 每次启动整个重跑，
+/// 而 SQLite 没有 ADD COLUMN IF NOT EXISTS，加列第二次启动就会失败。
+/// 和 lib/ai-quota.ts 分工不同——那个是"五分钟别刷爆"的内存限流，重启清零正合适；
+/// 这个是"试用期一共送几次"，重启清零等于白送，必须落库。
+model AiUsage {
+  workspaceId String   @id
+  calls       Int      @default(0)
+  updatedAt   DateTime @default(now()) @updatedAt
+}
+
 /// 邀请同事进工作区
 model Invite {
   id          String   @id @default(cuid())

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { App, Alert, Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, Tooltip } from "antd";
-import { activate, extendTrial, openWorkspace, suspend } from "./actions";
+import { activate, extendTrial, openWorkspace, resetAiAllowance, suspend } from "./actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
 import { dayjs } from "@/lib/utils";
 
@@ -146,7 +146,7 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
           },
           {
             title: "操作",
-            width: 220,
+            width: 290,
             render: (_, r) => (
               <div style={{ display: "flex", gap: 8 }}>
                 <Popconfirm
@@ -159,6 +159,9 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
                 </Popconfirm>
                 <Button size="small" onClick={() => run(r.id, () => extendTrial({ token, workspaceId: r.id, days: 7 }))}>
                   +7 天
+                </Button>
+                <Button size="small" onClick={() => run(r.id, () => resetAiAllowance({ token, workspaceId: r.id }))}>
+                  重置 AI
                 </Button>
                 <Button size="small" danger={r.status !== "SUSPENDED"} onClick={() => run(r.id, () => suspend({ token, workspaceId: r.id, on: r.status !== "SUSPENDED" }))}>
                   {r.status === "SUSPENDED" ? "恢复" : "停用"}

@@ -35,6 +35,8 @@ function 收上下文(v: unknown): { q: string; a: string }[] | undefined {
   return out.length ? out : undefined;
 }
 
+import { 试用额度闸门 } from "@/lib/tenant/ai-allowance";
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -60,6 +62,14 @@ export async function POST(req: Request) {
       const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       const emit: Emit = (e) => send({ type: "step", at: Date.now(), ...e });
       try {
+        /**
+         * 试用期的免费次数。放在分发之前一处，覆盖所有 AI 入口——
+         * 只堵对话的话，简报、话术、盯盘解读还是无限免费，而它们同样是
+         * 按量计费的上游调用。自部署版不走这里。
+         */
+        const 超额 = await 试用额度闸门();
+        if (超额) throw new Error(超额);
+
         let res: { ok: true; answer: unknown } | { ok: false; error: string };
         if (body.mode === "agent" && typeof body.question === "string") {
           const history = 收上下文(body.history);

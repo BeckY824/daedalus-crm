@@ -103,6 +103,21 @@ if [ "${MULTI_TENANT:-}" = "1" ]; then
     "
   fi
 
+  # 控制面的存量迁移。和业务库那套同样的规矩：每次启动整个重跑、只能加表不能改表
+  if [ -d /app/control-migrations ]; then
+    echo "→ 控制面补迁移"
+    node --experimental-sqlite -e "
+      const { DatabaseSync } = require('node:sqlite');
+      const fs = require('node:fs');
+      const db = new DatabaseSync('/data/control.db');
+      for (const f of fs.readdirSync('/app/control-migrations').filter(f => f.endsWith('.sql')).sort()) {
+        try { db.exec(fs.readFileSync('/app/control-migrations/' + f, 'utf8')); }
+        catch (e) { if (!/duplicate column name|already exists/i.test(String(e.message))) throw e; }
+      }
+      db.close();
+    "
+  fi
+
   # 模板库：开新工作区时直接复制它。每次启动都重建，保证它反映当前表结构
   echo "→ 生成工作区模板库"
   WS_DIR="$WS_DIR" node --experimental-sqlite -e "

@@ -7,6 +7,7 @@ import { multiTenant } from "@/lib/tenant/context";
 import { isPlanKey, PLANS } from "@/lib/tenant/plans";
 import { createWorkspace } from "@/lib/tenant/workspaces";
 import { createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
+import { 重置额度 } from "@/lib/tenant/ai-allowance";
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
 
@@ -124,4 +125,13 @@ export async function openWorkspace(input: {
     console.error("[admin] 开工作区失败：", e);
     return { ok: false, error: "开通失败，看服务器日志" };
   }
+}
+
+/** 把某个工作区的 AI 免费次数清零重来。谈单时想让对方多试几次 */
+export async function resetAiAllowance(input: { token: string; workspaceId: string }): Promise<AdminResult> {
+  const g = guard(input.token);
+  if (!g.ok) return g;
+  await 重置额度(input.workspaceId);
+  revalidatePath("/admin");
+  return { ok: true };
 }

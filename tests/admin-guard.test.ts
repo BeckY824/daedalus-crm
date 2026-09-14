@@ -88,6 +88,12 @@ describe("每个动作都要验 token", () => {
     expect((await activate({ token: "猜的", workspaceId: id, plan: "year" })).ok).toBe(false);
   });
 
+  it("重置 AI 次数也要验 token——不验就等于任何人都能给自己续免费额度", async () => {
+    const { resetAiAllowance } = await import("@/app/admin/actions");
+    expect((await resetAiAllowance({ token: "", workspaceId: "x" })).ok).toBe(false);
+    expect((await resetAiAllowance({ token: "猜的", workspaceId: "x" })).ok).toBe(false);
+  });
+
   it("延长试用与停用同样要验", async () => {
     const { extendTrial, suspend } = await import("@/app/admin/actions");
     const id = await 建工作区("w-other");

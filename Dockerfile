@@ -69,6 +69,7 @@ COPY --from=builder /app/schema.sql ./schema.sql
 COPY --from=builder /app/control-schema.sql ./control-schema.sql
 # 存量库的增量迁移脚本，容器每次启动按序重跑（内容幂等）
 COPY --from=builder /app/migrations ./migrations
+COPY --from=builder /app/control-migrations ./control-migrations
 COPY --from=builder /app/seed.js ./seed.js
 COPY --from=builder /app/reset-data.js ./reset-data.js
 
