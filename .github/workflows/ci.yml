@@ -23,7 +23,11 @@ jobs:
           CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       - run: npx tsc --noEmit
       - run: npx eslint .
+        # 与生产（Dockerfile 的 ENV TZ=Asia/Shanghai）一致。
+        # vitest.config.ts 里也钉了一道，这里再写一次是为了让人看 workflow 就知道
       - run: npx vitest run
+        env:
+          TZ: Asia/Shanghai
 
   e2e:
     name: E2E

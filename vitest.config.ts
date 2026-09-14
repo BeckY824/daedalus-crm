@@ -11,6 +11,16 @@ export default defineConfig({
     env: {
       DATABASE_URL: `file:${path.resolve(__dirname, "prisma/test.db")}`,
       NODE_ENV: "test",
+      /**
+       * 时区要和生产一致（Dockerfile 里是 ENV TZ=Asia/Shanghai）。
+       *
+       * 不钉死的话单测在 CI runner 上跑的是 UTC，而这套系统里一堆日期是按
+       * **当地日历天**算的——预计签约存的是当地零点、留痕按本地渲染、
+       * 「今天/明天」的判断也是本地。UTC 下这些用例要么假绿，要么像
+       * tests/audit.test.ts 那条一样在本机过、一进 CI 就挂。
+       * e2e 那个 job 早就显式设了 TZ，单测这边一直漏着。
+       */
+      TZ: "Asia/Shanghai",
     },
     // 用例之间共享一个数据库，必须串行，否则 beforeEach 的清库会互相打断
     fileParallelism: false,
