@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { App, Button, Popconfirm, Select, Table, Tag, Tooltip } from "antd";
-import { activate, extendTrial, suspend } from "./actions";
+import { App, Alert, Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, Tooltip } from "antd";
+import { activate, extendTrial, openWorkspace, suspend } from "./actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
 import { dayjs } from "@/lib/utils";
 
@@ -21,14 +21,41 @@ type Row = {
 };
 
 /**
- * 运营台。功能只有三件：开通、延长试用、停用。
- * 不做成完整后台——工作区数量还在两位数的阶段，一张表加三个按钮就够，
+ * 运营台。开工作区、开通、延长试用、停用。
+ * 不做成完整后台——工作区数量还在两位数的阶段，一张表加几个按钮就够，
  * 多做的每一块都要跟着业务改。
  */
 export default function AdminView({ token, rows }: { token: string; rows: Row[] }) {
   const { message } = App.useApp();
   const [plan, setPlan] = useState<PlanKey>("year");
   const [busy, setBusy] = useState<string | null>(null);
+  const [开号form] = Form.useForm();
+  const [开号中, set开号中] = useState(false);
+  const [开号弹窗, set开号弹窗] = useState(false);
+  /** 开成之后的交付文本。密码只在这里出现这一次，关掉就再也看不到 */
+  const [交付文本, set交付文本] = useState<string | null>(null);
+
+  async function 提交开号() {
+    const v = await 开号form.validateFields().catch(() => null);
+    if (!v) return;
+    set开号中(true);
+    const r = await openWorkspace({ token, workspace: v.workspace, name: v.name, target: v.target });
+    set开号中(false);
+    if (!r.ok) {
+      message.error(r.error);
+      return;
+    }
+    set交付文本(
+      [
+        `登录地址：${window.location.origin}/login`,
+        `账号：${r.contact}`,
+        `初始密码：${r.password}`,
+        "",
+        "登录后请在「设置」里改掉密码。试用 7 天，到期后数据保留、转为只读。",
+      ].join("\n"),
+    );
+    开号form.resetFields();
+  }
 
   async function run(id: string, fn: () => Promise<{ ok: boolean; error?: string }>) {
     setBusy(id);
@@ -49,6 +76,10 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
       </div>
 
       <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+        <Button type="primary" onClick={() => set开号弹窗(true)}>
+          开工作区
+        </Button>
+        <span style={{ flex: 1 }} />
         <span style={{ fontSize: 13, color: "#6b7280" }}>开通用的套餐</span>
         <Select
           size="small"
@@ -137,6 +168,73 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
           },
         ]}
       />
+
+      {/* 开工作区：客户从官网发邮件过来，聊完在这里建号，把交付文本复制进邮件回复 */}
+      <Modal
+        open={开号弹窗}
+        title={交付文本 ? "开好了" : "开一个试用工作区"}
+        onCancel={() => {
+          set开号弹窗(false);
+          set交付文本(null);
+        }}
+        footer={
+          交付文本 ? (
+            <Button
+              type="primary"
+              onClick={() => {
+                set开号弹窗(false);
+                set交付文本(null);
+              }}
+            >
+              我已复制，关闭
+            </Button>
+          ) : (
+            <>
+              <Button onClick={() => set开号弹窗(false)}>取消</Button>
+              <Button type="primary" loading={开号中} onClick={提交开号}>
+                建立
+              </Button>
+            </>
+          )
+        }
+      >
+        {交付文本 ? (
+          <>
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="密码只显示这一次"
+              description="关掉之后没有任何地方能再看到它。忘了只能重开一个工作区。"
+            />
+            <Input.TextArea value={交付文本} autoSize readOnly onFocus={(e) => e.currentTarget.select()} style={{ fontFamily: "ui-monospace, monospace", fontSize: 12.5 }} />
+            <Button
+              size="small"
+              style={{ marginTop: 8 }}
+              onClick={() => {
+                navigator.clipboard.writeText(交付文本).then(
+                  () => message.success("已复制，粘进邮件回复即可"),
+                  () => message.error("复制失败，手动选中吧"),
+                );
+              }}
+            >
+              复制
+            </Button>
+          </>
+        ) : (
+          <Form form={开号form} layout="vertical" style={{ marginTop: 8 }}>
+            <Form.Item name="workspace" label="团队名称" rules={[{ required: true, message: "填对方的机构名" }]}>
+              <Input placeholder="如「启明教育」" maxLength={40} />
+            </Form.Item>
+            <Form.Item name="name" label="对方姓名" rules={[{ required: true, message: "填联系人姓名" }]}>
+              <Input placeholder="如「王老师」" maxLength={20} />
+            </Form.Item>
+            <Form.Item name="target" label="手机号或邮箱" extra="这就是他的登录账号" rules={[{ required: true, message: "填手机号或邮箱" }]}>
+              <Input placeholder="13800138000 或 wang@example.com" />
+            </Form.Item>
+          </Form>
+        )}
+      </Modal>
     </div>
   );
 }

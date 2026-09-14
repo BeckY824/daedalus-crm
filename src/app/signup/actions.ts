@@ -20,7 +20,15 @@ import { 检查限流, 记一次失败, 解析来源IP, IP阈值 } from "@/lib/r
  * 注册：手机号（或邮箱）+ 验证码 + 密码 + 团队名 → 开一个工作区，试用 7 天。
  *
  * 只在托管版可用。自部署版没有"注册"这回事——那里是管理员建账号。
+ *
+ * **配了 SIGNUP_REDIRECT 就等于关闭自助注册**：页面跳去咨询页，这里的两个动作
+ * 一律拒绝。留着而不是删掉，是因为关闭注册是个阶段性决定——没有发码通道
+ * （短信要备案、邮件还没接）时走人工开号，通道通了把这个变量去掉就回来了。
+ * 只跳页面不拦动作是不够的：Server Action 是独立端点，绕过页面直接调得到。
  */
+function 自助注册已关闭(): boolean {
+  return Boolean(process.env.SIGNUP_REDIRECT?.trim());
+}
 
 export type SendCodeResult = { ok: true; hint?: string } | { ok: false; error: string };
 export type SignupResult = { ok: true } | { ok: false; error: string };
@@ -34,7 +42,7 @@ function 未开放(): { ok: false; error: string } {
 }
 
 export async function requestCode(targetRaw: string): Promise<SendCodeResult> {
-  if (!multiTenant()) return 未开放();
+  if (!multiTenant() || 自助注册已关闭()) return 未开放();
   const t = parseTarget(targetRaw);
   if (!t) return { ok: false, error: "请填写正确的手机号或邮箱" };
 
@@ -65,7 +73,7 @@ export async function signup(input: {
   name: string;
   workspace: string;
 }): Promise<SignupResult> {
-  if (!multiTenant()) return 未开放();
+  if (!multiTenant() || 自助注册已关闭()) return 未开放();
 
   const t = parseTarget(input.target);
   if (!t) return { ok: false, error: "请填写正确的手机号或邮箱" };

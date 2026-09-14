@@ -31,9 +31,11 @@ async function 注册(page: Page, opts: { 团队: string; 姓名: string; 手机
   await page.getByPlaceholder("手机号或邮箱").fill(opts.手机);
   await page.getByRole("button", { name: "获取验证码" }).click();
 
-  // 开发环境把验证码回显在提示条里，省掉真发短信
+  // 开发环境把验证码回显在提示条里，省掉真发短信。
+  // 超时给到 30 秒不是因为这个动作慢，而是 webServer 跑的是 next dev：
+  // 这往往是第一次触发注册的 Server Action，要现编译一遍。CI 上永远是冷的。
   const 提示 = page.locator(".ant-alert").filter({ hasText: "开发环境验证码" });
-  await expect(提示).toBeVisible({ timeout: 15_000 });
+  await expect(提示).toBeVisible({ timeout: 30_000 });
   const 码 = (await 提示.textContent())?.match(/\d{6}/)?.[0];
   expect(码, "开发环境应当回显验证码").toBeTruthy();
 

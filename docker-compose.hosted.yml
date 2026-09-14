@@ -11,6 +11,11 @@ services:
       WORKSPACE_DIR: "/data/ws"
       # 运营台 /admin 的口令。没设置时那个页面直接 404
       ADMIN_TOKEN: "${ADMIN_TOKEN:?托管版必须设置 ADMIN_TOKEN}"
+      # 共享演示工作区的 slug。没配就没有 /demo，也没有重置端点
+      DEMO_WORKSPACE: "${DEMO_WORKSPACE:-}"
+      # 配了就等于关闭自助注册：/signup 跳到这个地址，注册与发码动作一律拒绝。
+      # 没有发码通道（短信要备案、邮件未接）时走人工开号，通道通了去掉它即可
+      SIGNUP_REDIRECT: "${SIGNUP_REDIRECT:-}"
       # 短信（可选）。没配就把验证码打到容器日志里，照样能开号
       SMS_ACCESS_KEY_ID: "${SMS_ACCESS_KEY_ID:-}"
       SMS_ACCESS_KEY_SECRET: "${SMS_ACCESS_KEY_SECRET:-}"

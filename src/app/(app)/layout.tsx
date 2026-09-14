@@ -5,10 +5,12 @@ import AppShell from "@/components/AppShell";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
 import TrialBar from "@/components/TrialBar";
+import DemoBar from "@/components/DemoBar";
 import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { control } from "@/lib/tenant/control";
 import { daysLeft as 剩余天数 } from "@/lib/tenant/workspaces";
+import { 是演示工作区 } from "@/lib/demo/config";
 
 export default async function AppLayout({
   children,
@@ -29,17 +31,21 @@ export default async function AppLayout({
 
   // 托管版：试用 / 订阅状态。getCurrentUser 已经把工作区放进上下文了
   let trial: { daysLeft: number; writable: boolean } | null = null;
+  let demo = false;
   if (multiTenant()) {
     const t = await resolveCurrentTenant();
     if (t) {
       const ws = await control.workspace.findUnique({ where: { id: t.workspaceId } });
-      if (ws) trial = { daysLeft: 剩余天数(ws), writable: t.writable };
+      // 演示区不显示试用横条：它永不过期，显示「还剩 3650 天」只会让人困惑
+      if (是演示工作区(ws?.slug)) demo = true;
+      else if (ws) trial = { daysLeft: 剩余天数(ws), writable: t.writable };
     }
   }
 
   return (
     <BusinessProvider value={business}>
       <AppShell user={user} pendingCount={pendingCount}>
+        {demo && <DemoBar />}
         {trial && <TrialBar daysLeft={trial.daysLeft} writable={trial.writable} />}
         {children}
       </AppShell>

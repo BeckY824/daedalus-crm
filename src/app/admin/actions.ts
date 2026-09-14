@@ -1,9 +1,12 @@
 "use server";
 
+import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { control } from "@/lib/tenant/control";
 import { multiTenant } from "@/lib/tenant/context";
 import { isPlanKey, PLANS } from "@/lib/tenant/plans";
+import { createWorkspace } from "@/lib/tenant/workspaces";
+import { createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
 
@@ -69,4 +72,56 @@ export async function suspend(input: { token: string; workspaceId: string; on: b
   });
   revalidatePath("/admin");
   return { ok: true };
+}
+
+/** 开工作区的结果：成功时把初始密码带回来，只有这一次能看到 */
+export type OpenResult =
+  | { ok: true; slug: string; contact: string; password: string }
+  | { ok: false; error: string };
+
+/**
+ * 手动开一个试用工作区。
+ *
+ * 存在的理由：自助注册下线之后，`createWorkspace` 就只剩这一个调用方了。
+ * 客户从官网 demo.html 发邮件过来，聊完在这里建号，把账号密码复制进邮件回复。
+ * 系统不主动发信——没有短信也没有邮件通道，这是现在唯一走得通的路。
+ *
+ * 初始密码由服务端生成而不是让运营的人自己想：人想出来的密码会重样，
+ * 而这批密码是发给陌生人的，重样一次就是两个工作区共用一把钥匙。
+ */
+export async function openWorkspace(input: {
+  token: string;
+  workspace: string;
+  name: string;
+  target: string;
+}): Promise<OpenResult> {
+  const g = guard(input.token);
+  if (!g.ok) return g;
+
+  const t = parseTarget(input.target);
+  if (!t) return { ok: false, error: "手机号或邮箱格式不对" };
+  if (!input.name.trim()) return { ok: false, error: "请填对方姓名" };
+  if (!input.workspace.trim()) return { ok: false, error: "请填团队名称" };
+  if (await findAccountByTarget(t.value)) return { ok: false, error: "这个号已经有账号了，去下面的列表找他的工作区" };
+
+  // 12 位 base64url，够长到不用担心被猜；去掉容易看错的字符，因为它要被人手抄进登录框
+  const password = randomBytes(12).toString("base64url").replace(/[-_lIO0]/g, "x").slice(0, 12);
+
+  let account;
+  try {
+    account = await createAccount({ target: t, password, name: input.name });
+  } catch {
+    return { ok: false, error: "这个号已经有账号了" };
+  }
+
+  try {
+    const ws = await createWorkspace({ name: input.workspace, account });
+    revalidatePath("/admin");
+    return { ok: true, slug: ws.slug, contact: t.value, password };
+  } catch (e) {
+    // 和注册那条路一样：工作区没开成，账号留着只会让这个号再也开不了
+    await control.account.delete({ where: { id: account.id } }).catch(() => {});
+    console.error("[admin] 开工作区失败：", e);
+    return { ok: false, error: "开通失败，看服务器日志" };
+  }
 }

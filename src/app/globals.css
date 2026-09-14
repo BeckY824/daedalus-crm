@@ -690,3 +690,8 @@ a {
 .md-list { margin: 0 0 8px; padding-left: 20px; }
 .md-list li { margin: 2px 0; }
 .cite-dead { opacity: 0.5; cursor: default; }
+
+/* 演示环境横条。常驻不可关，样式要比试用横条更显眼一档 */
+.demobar { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding: 8px 14px; border-radius: 8px; font-size: 13px; background: #eef2ff; border: 1px solid #c7d2fe; color: #3730a3; }
+.demobar-tag { flex: none; padding: 1px 7px; border-radius: 4px; background: #4338ca; color: #fff; font-size: 11.5px; font-weight: 500; }
+.demobar-cta { margin-left: auto; flex: none; color: inherit; font-weight: 500; text-decoration: underline; white-space: nowrap; }

@@ -18,6 +18,12 @@ export default defineConfig({
     // 跑测试前先把 schema 推到测试库，套件不依赖任何手工准备
     globalSetup: ["tests/setup-db.ts"],
     testTimeout: 20000,
+    /**
+     * 钩子超时要单独设：默认才 10 秒，而好几个 beforeAll 要先 build-template.mjs
+     * 再 npx prisma migrate diff 生成控制面 DDL。npx 冷启动就能吃掉大半——
+     * 本机跑第二遍缓存热了看不出来，CI 每次都是冷的，会天天挂。
+     */
+    hookTimeout: 60000,
     include: ["tests/**/*.test.ts"],
   },
 });
