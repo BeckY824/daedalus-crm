@@ -76,7 +76,7 @@ Change the password under Settings → Change password. That's it.
 
 ### Hosted trial
 
-Don't want to deploy? [Request an activation code](https://ai-daedalus.com/demo.html) and open your own workspace at [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) in a minute. 7-day full trial; read-only afterwards, nothing deleted. Or just click around the [live demo](https://app.ai-daedalus.com/demo) — no sign-up needed.
+Don't want to deploy? Sign up with a phone number or email at [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) and get your own workspace in a minute. 7-day full trial; read-only afterwards, nothing deleted. AI chat comes with 30 free calls on sign-up, plus 3 more each day you use it; an invite code from a [demo booking](https://ai-daedalus.com/demo.html) adds 50. Or click around the [live demo](https://app.ai-daedalus.com/demo) with a demo code.
 
 ### Desktop apps
 
@@ -104,7 +104,7 @@ Channel → student → referred student: attribution goes two generations up, o
 
 ### Optional multi-tenant hosting
 
-Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), activation-code sign-up, 7-day trial, read-only after expiry, subscriptions and an ops console, 5 free AI conversations per trial. Self-hosted installs never execute a line of it.
+Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), phone/email sign-up with verification codes, 7-day trial, read-only after expiry, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day, more with an invite code). Self-hosted installs never execute a line of it.
 
 ### Model-agnostic, per-user switching
 
@@ -119,7 +119,7 @@ Configure a model list in Settings (or pull it from the endpoint) and switch rig
 | **Education / study-abroad admissions** | The default wording: students, schools, grades, majors, channel teachers, referral attribution |
 | **Any small sales team** | Rename the terms in Settings; the lead → customer → deal pipeline is generic |
 | **Self-hosted, sensitive data** | One container, one SQLite file — backup is a file copy; AI is read-only |
-| **No deployment wanted** | Hosted: an activation code gives you an isolated workspace in a minute |
+| **No deployment wanted** | Hosted: sign up and get an isolated workspace in a minute |
 
 <br/>
 
@@ -158,7 +158,7 @@ Ordered by "someone actually needs it". To push an item, [open an issue](https:/
 |---|---|---|
 | Conversation & proposal cards | agent loop, streaming, citations, multi-turn context, 7 card types | ✅ Shipped |
 | Record page | inline profile editing, timeline, quick-note parsing, docked AI | ✅ Shipped |
-| Hosting | multi-tenant, activation codes, trials, subscriptions, ops console, desktop apps | ✅ Shipped |
+| Hosting | multi-tenant, sign-up and free credits, trials, subscriptions, ops console, desktop apps | ✅ Shipped |
 | List pages | inline editing, saved views, filter chips, side drawer | 🔜 Planned |
 | ⌘K & motion | command palette for "ask about / ask a number / go to" | 🔜 Planned |
 | Online payments | WeChat / Alipay (requires ICP filing & merchant account) | ⏸ On demand |

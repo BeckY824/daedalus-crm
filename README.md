@@ -76,7 +76,7 @@ npm install && npm run setup && npm run dev
 
 ### 托管版试用
 
-不想自己部署，[到官网申请一个激活码](https://ai-daedalus.com/demo.html)，在 [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) 一分钟开出自己的工作区。7 天全功能，到期只读、数据不删。想先随便点点，[在线演示](https://app.ai-daedalus.com/demo)不用注册。
+不想自己部署，用手机号或邮箱在 [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) 一分钟开出自己的工作区。7 天全功能，到期只读、数据不删。AI 对话注册送 30 次，用了之后每天再送 3 次；[预约演示](https://ai-daedalus.com/demo.html)拿到邀请码的再多送 50 次。想先随便点点，[在线演示](https://app.ai-daedalus.com/demo)凭演示码进入。
 
 ### 桌面客户端
 
@@ -104,7 +104,7 @@ Mac（dmg）与 Windows（exe）由 [GitHub Actions](https://github.com/BeckY824
 
 ### 托管版底座（可选）
 
-同一份代码，`MULTI_TENANT=1` 打开多租户：一个工作区一个 SQLite 文件，物理隔离；激活码开号、7 天试用、到期只读、订阅与运营台、试用期 AI 免费 5 次。自部署版不开这个开关，一行相关代码都不会执行。
+同一份代码，`MULTI_TENANT=1` 打开多租户：一个工作区一个 SQLite 文件，物理隔离；手机号/邮箱验证码注册、7 天试用、到期只读、订阅与运营台、AI 免费次数账本（注册送 30、每天送 3、邀请码多送）。自部署版不开这个开关，一行相关代码都不会执行。
 
 ### 模型无关，按人切换
 
@@ -158,7 +158,7 @@ Mac（dmg）与 Windows（exe）由 [GitHub Actions](https://github.com/BeckY824
 |---|---|---|
 | 对话面与建议卡 | agent 循环、流式回答、引用回跳、多轮上下文、7 种建议卡 | ✅ 已发布 |
 | 记录页三栏 | 档案行内编辑、时间线、速记解析、AI 常驻 | ✅ 已发布 |
-| 托管版底座 | 多租户、激活码、试用、订阅、运营台、桌面端 | ✅ 已发布 |
+| 托管版底座 | 多租户、注册与免费额度、试用、订阅、运营台、桌面端 | ✅ 已发布 |
 | 列表页 | 行内编辑、可保存的视图、筛选 chip、右侧滑出面板 | 🔜 计划中 |
 | ⌘K 与全站动画 | 命令面板承接「问一位 / 问一个数 / 跳转」 | 🔜 计划中 |
 | 在线支付 | 微信 / 支付宝（需备案与商户号） | ⏸ 视需求 |

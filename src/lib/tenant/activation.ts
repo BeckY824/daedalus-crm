@@ -74,3 +74,83 @@ export async function 释放(code: string): Promise<void> {
 export async function 记工作区(code: string, workspaceId: string): Promise<void> {
   await control.activationCode.update({ where: { code }, data: { workspaceId } });
 }
+
+/* ---------- 演示码：一码一人，绑 cookie，5 次 AI ---------- */
+
+export const 演示对话上限 = 5;
+
+export async function 生成演示码(count: number, note?: string): Promise<string[]> {
+  const n = Math.max(1, Math.min(100, Math.floor(count)));
+  const out: string[] = [];
+  while (out.length < n) {
+    const code = 生成一个();
+    try {
+      await control.demoCode.create({ data: { code, note: note?.trim() || null } });
+      out.push(code);
+    } catch {
+      /* 撞了主键，换一个 */
+    }
+  }
+  return out;
+}
+
+/**
+ * 把演示码绑到一个访客（cookie 里的 id）。
+ * 原子：只有 boundVisitor 还是空的那一行能被绑上；同一个访客重复提交同一个码算成功
+ * （刷新页面、重新进入都不该把人拦在外面）。别的浏览器拿同一个码来 → 拒。
+ */
+export async function 绑定演示码(raw: string, visitorId: string): Promise<{ ok: true; code: string } | { ok: false; error: string }> {
+  const code = 归一化(raw);
+  if (!code) return { ok: false, error: "演示码格式不对：12 位，形如 XXXX-XXXX-XXXX" };
+  const r = await control.demoCode.updateMany({
+    where: { code, boundVisitor: null },
+    data: { boundVisitor: visitorId, boundAt: new Date() },
+  });
+  if (r.count === 1) return { ok: true, code };
+  const mine = await control.demoCode.findFirst({ where: { code, boundVisitor: visitorId }, select: { code: true } });
+  if (mine) return { ok: true, code };
+  return { ok: false, error: "演示码无效或已在别的浏览器使用" };
+}
+
+/** 这个访客绑过码吗、还剩几次。没绑过返回 null */
+export async function 演示码剩余(visitorId: string): Promise<{ code: string; 用掉: number; 还剩: number } | null> {
+  const d = await control.demoCode.findUnique({ where: { boundVisitor: visitorId } });
+  if (!d) return null;
+  return { code: d.code, 用掉: Math.min(d.calls, 演示对话上限), 还剩: Math.max(0, 演示对话上限 - d.calls) };
+}
+
+/** 演示区扣一次。先自增再判断，理由同 ai-allowance 里的试用额度 */
+export async function 演示码扣一次(visitorId: string): Promise<{ ok: true; 还剩: number } | { ok: false; error: string }> {
+  const r = await control.demoCode.updateMany({ where: { boundVisitor: visitorId }, data: { calls: { increment: 1 } } });
+  if (r.count !== 1) return { ok: false, error: "请先用演示码进入演示区" };
+  const d = await control.demoCode.findUniqueOrThrow({ where: { boundVisitor: visitorId }, select: { calls: true } });
+  if (d.calls > 演示对话上限) {
+    return { ok: false, error: `这个演示码的 ${演示对话上限} 次 AI 对话已经用完。其余功能照常可用；想要自己的工作区，到官网申请试用。` };
+  }
+  return { ok: true, 还剩: 演示对话上限 - d.calls };
+}
+
+/* ---------- 万能试用码：一个，可换 ---------- */
+
+export async function 取万能码(): Promise<string | null> {
+  const m = await control.trialMasterCode.findUnique({ where: { id: "trial" } });
+  return m?.code ?? null;
+}
+
+/** 换一个新的万能码，旧的立刻作废。外传了就按这个 */
+export async function 换万能码(): Promise<string> {
+  const code = 生成一个();
+  await control.trialMasterCode.upsert({
+    where: { id: "trial" },
+    create: { id: "trial", code },
+    update: { code, rotatedAt: new Date() },
+  });
+  return code;
+}
+
+export async function 核验万能码(raw: string): Promise<boolean> {
+  const code = 归一化(raw);
+  if (!code) return false;
+  const m = await 取万能码();
+  return Boolean(m) && m === code;
+}

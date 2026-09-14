@@ -121,6 +121,30 @@ model ActivationCode {
   @@index([usedAt])
 }
 
+/// 演示码：进共享演示区用，一码一人、绑定到浏览器 cookie、5 次 AI。
+///
+/// 和 ActivationCode（开自己工作区）性质相反：那边现在主要靠一个万能码，
+/// 这边必须一码一人——演示区是所有访客共用一个工作区，AI 次数只能按人算，
+/// 而"人"在没有账号的演示区里只能用 cookie 认。
+model DemoCode {
+  code         String    @id
+  note         String?
+  /// 第一次使用时绑定的访客 id（cookie 里那个），之后只认这个浏览器
+  boundVisitor String?   @unique
+  boundAt      DateTime?
+  /// 这个码（这个人）用掉的 AI 次数
+  calls        Int       @default(0)
+  createdAt    DateTime  @default(now())
+}
+
+/// 万能试用码：预约演示之后发给客户的那一个，可反复开工作区，运营台一键更换。
+/// 只有一行（id 固定为 "trial"）。外传了就换，旧码立刻作废。
+model TrialMasterCode {
+  id        String   @id @default("trial")
+  code      String
+  rotatedAt DateTime @default(now())
+}
+
 /// 邀请同事进工作区
 model Invite {
   id          String   @id @default(cuid())
@@ -134,6 +158,26 @@ model Invite {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy Account   @relation("InviteCreator", fields: [createdById], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+
+/// AI 免费次数的赠送账本：注册送、每天送、邀请码送、运营台手动加。
+///
+/// 余额 = 本表之和 − AiUsage.calls。扣费仍走 AiUsage 的原子自增，这里只加不减。
+/// `key` 是幂等键：同一个工作区的「注册赠送」「某一天的每日赠送」只能各有一条，
+/// 两个标签页同时打开也不会送两遍——唯一索引替我们判，不用先查再插。
+/// 单独一张表，规矩同上：control-migrations/ 只加不改。
+model AiGrant {
+  id          String   @id @default(cuid())
+  workspaceId String
+  amount      Int
+  /// signup | daily | invite | admin
+  reason      String
+  /// 幂等键，如 "ws1:signup"、"ws1:daily:2026-09-14"；运营台手动加的用随机值
+  key         String   @unique
+  note        String?
+  createdAt   DateTime @default(now())
 
   @@index([workspaceId])
 }

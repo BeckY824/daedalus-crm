@@ -44,6 +44,7 @@
     "jose": "^6.2.10",
     "motion": "^12.43.0",
     "next": "16.3.3",
+    "nodemailer": "^7.0.13",
     "prisma": "6.16.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"
@@ -51,6 +52,7 @@
   "devDependencies": {
     "@playwright/test": "1.56.1",
     "@types/node": "^20",
+    "@types/nodemailer": "^8.0.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.1.11",

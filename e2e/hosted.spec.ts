@@ -25,19 +25,29 @@ function 拨到过期(workspaceName: string) {
 }
 
 /**
- * 每次注册从控制面库里取一个还没用过的激活码。
- * 不能用模块级计数器：Playwright 在某条用例失败后会重启 worker，计数器归零，
- * 后面的用例就会拿到已经用掉的码——第一次跑第 9 条时就是这么挂的。
+ * 从控制面库里捞刚发出去的验证码。e2e 不配短信/邮件通道，码只打在服务端日志里，
+ * 直接读库比解析日志稳。
  */
-function 下一个码(): string {
+function 最新验证码(target: string): string {
   return execFileSync("node", ["--experimental-sqlite", "-e", `
     const { DatabaseSync } = require('node:sqlite');
     const db = new DatabaseSync(process.argv[1]);
-    const r = db.prepare('SELECT code FROM "ActivationCode" WHERE "usedAt" IS NULL ORDER BY code LIMIT 1').get();
-    if (!r) throw new Error('激活码用完了：hosted-setup 里预置的不够');
+    const r = db.prepare('SELECT code FROM "VerifyCode" WHERE target = ? AND purpose = ? AND usedAt IS NULL ORDER BY createdAt DESC LIMIT 1').get(process.argv[2], "signup");
+    if (!r) throw new Error('没有找到验证码：' + process.argv[2]);
     process.stdout.write(r.code);
     db.close();
-  `, CONTROL_DB], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  `, CONTROL_DB, target], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+/** 把某个工作区的 AI 用量直接写成某个数，省得真问几十次 */
+function 写AI用量(workspaceName: string, calls: number) {
+  execFileSync("node", ["--experimental-sqlite", "-e", `
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(process.argv[1]);
+    const w = db.prepare("SELECT id FROM Workspace WHERE name = ?").get(process.argv[2]);
+    db.prepare('INSERT INTO "AiUsage" ("workspaceId","calls") VALUES (?, ?) ON CONFLICT("workspaceId") DO UPDATE SET calls = excluded.calls').run(w.id, Number(process.argv[3]));
+    db.close();
+  `, CONTROL_DB, workspaceName, String(calls)], { stdio: "pipe" });
 }
 
 async function 注册(page: Page, opts: { 团队: string; 姓名: string; 手机: string; 密码: string }) {
@@ -45,9 +55,13 @@ async function 注册(page: Page, opts: { 团队: string; 姓名: string; 手机
   await page.getByPlaceholder("团队名称，如「启明教育」").fill(opts.团队);
   await page.getByPlaceholder("你的姓名").fill(opts.姓名);
   await page.getByPlaceholder("手机号或邮箱").fill(opts.手机);
-  // 激活码替代了验证码：setup 里预置了 5 个，每次注册用掉一个
-  await page.getByPlaceholder(/激活码/).fill(下一个码());
+  // 验证码：点「获取验证码」，码落在控制面库里，捞出来填
+  await page.getByRole("button", { name: /获取验证码/ }).click();
+  // 等提示条，不能等 /验证码/——「获取验证码」按钮本身就匹配，会在码落库之前放行
+  await expect(page.getByRole("alert").filter({ hasText: /验证码已发送|开发环境验证码/ })).toBeVisible({ timeout: 15_000 });
+  await page.getByPlaceholder("验证码").fill(最新验证码(opts.手机));
   await page.getByPlaceholder("设置密码").fill(opts.密码);
+  await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "创建工作区" }).click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
 }
@@ -188,26 +202,43 @@ test("8 没配 DEMO_WORKSPACE 时 /demo 不存在，而不是被中间件弹回�
   expect(r.status(), "应当由路由自己返回 404，而不是被中间件重定向").toBe(404);
 });
 
-test("9 试用工作区的 AI 只有 5 次，第 6 次被拦、计数归零", async ({ page }) => {
+test("9 试用工作区的 AI 免费次数：注册送 30、用了之后当天补 3，用完被拦", async ({ page }) => {
   /**
    * 这套 e2e 不配 LLM_API_KEY，所以每次提问都会在模型那一步报「AI 功能未启用」——
    * 但额度是在发起调用**之前**扣的（失败也算，否则反复失败可以无限重试），
-   * 所以不用真模型也能验闸门：问 5 次各扣一次，第 6 次拿到的是额度错误而不是模型错误。
+   * 所以不用真模型也能验闸门。真问 33 次太慢，直接把用量写成 29，
+   * 再看一眼首页：余额 1 < 30 触发当天的 3 次赠送，于是显示 4/33。
    */
   await 注册(page, { 团队: "限额测试", 姓名: "赵老师", 手机: "13800138009", 密码: "Passw0rd99" });
   const 输入 = page.getByPlaceholder(/问一位/);
-  await expect(page.locator(".cli-quota")).toHaveText("免费提问 5/5");
+  await expect(page.locator(".cli-quota")).toHaveText("免费提问 30/30");
 
-  for (let i = 1; i <= 5; i++) {
+  写AI用量("限额测试", 29);
+  await page.reload();
+  await expect(page.locator(".cli-quota")).toHaveText("免费提问 4/33");
+
+  for (let i = 1; i <= 4; i++) {
     await 输入.fill(`第 ${i} 问`);
     await page.locator(".cli-send").click();
     // 等这一轮结束（成功或失败都会让输入框恢复）
     await expect(输入).not.toHaveAttribute("placeholder", /正在回答/, { timeout: 30_000 });
   }
   await page.reload();
-  await expect(page.locator(".cli-quota")).toHaveText("免费提问 0/5");
+  await expect(page.locator(".cli-quota")).toHaveText("免费提问 0/33");
 
-  await 输入.fill("第 6 问");
+  await 输入.fill("第 5 问");
   await page.locator(".cli-send").click();
-  await expect(page.locator(".cli-turn").last()).toContainText("已经用完", { timeout: 30_000 });
+  await expect(page.locator(".cli-turn").last()).toContainText("用完", { timeout: 30_000 });
+});
+
+test("10 条款页不用登录就能读，注册页有勾选", async ({ page }) => {
+  for (const p of ["/terms", "/privacy"]) {
+    const r = await page.goto(p);
+    expect(r?.status()).toBe(200);
+    await expect(page).toHaveURL(new RegExp(p));
+  }
+  await expect(page.getByRole("heading", { name: "隐私政策" })).toBeVisible();
+  await page.goto("/signup");
+  await expect(page.getByRole("checkbox")).toBeVisible();
+  await expect(page.getByRole("link", { name: "用户协议" })).toHaveAttribute("href", "/terms");
 });

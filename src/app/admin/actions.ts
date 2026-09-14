@@ -7,8 +7,8 @@ import { multiTenant } from "@/lib/tenant/context";
 import { isPlanKey, PLANS } from "@/lib/tenant/plans";
 import { createWorkspace } from "@/lib/tenant/workspaces";
 import { createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
-import { 重置额度 } from "@/lib/tenant/ai-allowance";
-import { 生成并入库, 展示 } from "@/lib/tenant/activation";
+import { 加次数 } from "@/lib/tenant/ai-allowance";
+import { 生成并入库, 生成演示码, 换万能码, 展示 } from "@/lib/tenant/activation";
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
 
@@ -128,20 +128,38 @@ export async function openWorkspace(input: {
   }
 }
 
-/** 把某个工作区的 AI 免费次数清零重来。谈单时想让对方多试几次 */
-export async function resetAiAllowance(input: { token: string; workspaceId: string }): Promise<AdminResult> {
+/** 给某个工作区手动加 AI 次数。谈单时想让对方多试几次 */
+export async function grantAi(input: { token: string; workspaceId: string; amount: number; note?: string }): Promise<AdminResult> {
   const g = guard(input.token);
   if (!g.ok) return g;
-  await 重置额度(input.workspaceId);
+  await 加次数(input.workspaceId, input.amount, input.note ?? "运营台");
   revalidatePath("/admin");
   return { ok: true };
 }
 
-/** 批量生成激活码。返回给人看的带横线形式 */
+/** 批量生成一次性邀请码（旧称激活码）。返回给人看的带横线形式 */
 export async function generateCodes(input: { token: string; count: number; note?: string }): Promise<{ ok: true; codes: string[] } | { ok: false; error: string }> {
   const g = guard(input.token);
   if (!g.ok) return g;
   const codes = await 生成并入库(input.count, input.note);
   revalidatePath("/admin");
   return { ok: true, codes: codes.map(展示) };
+}
+
+/** 批量生成演示码：一码一人、绑浏览器、5 次 AI */
+export async function generateDemoCodes(input: { token: string; count: number; note?: string }): Promise<{ ok: true; codes: string[] } | { ok: false; error: string }> {
+  const g = guard(input.token);
+  if (!g.ok) return g;
+  const codes = await 生成演示码(input.count, input.note);
+  revalidatePath("/admin");
+  return { ok: true, codes: codes.map(展示) };
+}
+
+/** 换一个万能邀请码，旧的立刻作废。外传了、或者一批客户谈完了就换 */
+export async function rotateMasterCode(input: { token: string }): Promise<{ ok: true; code: string } | { ok: false; error: string }> {
+  const g = guard(input.token);
+  if (!g.ok) return g;
+  const code = await 换万能码();
+  revalidatePath("/admin");
+  return { ok: true, code: 展示(code) };
 }

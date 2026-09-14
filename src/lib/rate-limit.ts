@@ -122,3 +122,30 @@ export function 记一次失败(key: string, now = Date.now(), 本档阈值 = �
 export function 清除限流(key: string) {
   桶.delete(key);
 }
+
+/* ---------- 注册：同一个出口 IP 每天最多开几个工作区 ---------- */
+
+/**
+ * 注册是免费送 AI 次数的入口，不封顶会被脚本拿去批量开号薅额度。
+ * 放在内存里就够：重启清零的代价是那一天多放几个，比为它加一张表划算。
+ */
+export const 每IP每日注册上限 = 3;
+const 注册计数 = new Map<string, { day: string; n: number }>();
+
+export function 今日注册数(from: string, now = new Date()): number {
+  const day = now.toISOString().slice(0, 10);
+  const r = 注册计数.get(from);
+  return r && r.day === day ? r.n : 0;
+}
+
+export function 记一次注册(from: string, now = new Date()): void {
+  const day = now.toISOString().slice(0, 10);
+  const r = 注册计数.get(from);
+  注册计数.set(from, r && r.day === day ? { day, n: r.n + 1 } : { day, n: 1 });
+  // 别让它无限长：过了一万个 IP 就整个丢掉，重新数
+  if (注册计数.size > 最多条数) 注册计数.clear();
+}
+
+export function 重置注册计数(): void {
+  注册计数.clear();
+}

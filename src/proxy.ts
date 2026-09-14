@@ -40,10 +40,12 @@ export async function proxy(request: NextRequest) {
 
   // 未登录也能看的页面。注册页只在托管版有内容，自部署版进去会被服务端动作拒绝；
   // /admin 是我们的运营台，不属于任何工作区，用它自己的 ADMIN_TOKEN 保护；
+  // /terms 与 /privacy 是注册前要读的条款，当然不能要求先登录；
   // /demo 是演示入口，它的职责就是**给没有会话的人签一张会话**——
   // 要是拦在这里，它永远等不到执行的机会，表现是点「在线试用」弹回登录页。
   // 它自己会在没配 DEMO_WORKSPACE 时返回 404，不靠这里把关。
-  const 公开 = pathname === "/login" || pathname === "/signup" || pathname === "/demo" || pathname.startsWith("/admin");
+  const 公开 =
+    pathname === "/login" || pathname === "/signup" || pathname === "/demo" || pathname === "/terms" || pathname === "/privacy" || pathname.startsWith("/admin");
 
   if (!valid && !公开) {
     const url = request.nextUrl.clone();

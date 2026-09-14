@@ -5,24 +5,27 @@ import { createSession } from "@/lib/auth";
 import { multiTenant } from "@/lib/tenant/context";
 import { control } from "@/lib/tenant/control";
 import { createWorkspace, TRIAL_DAYS } from "@/lib/tenant/workspaces";
-import { checkPassword, createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
-import { 占用, 释放, 记工作区 } from "@/lib/tenant/activation";
-import { 检查限流, 记一次失败, 解析来源IP, IP阈值 } from "@/lib/rate-limit";
+import { codeVisibleToClient, sendCode } from "@/lib/tenant/notify";
+import { checkPassword, consumeCode, createAccount, findAccountByTarget, isDisposableEmail, issueCode, parseTarget } from "@/lib/tenant/accounts";
+import { 占用, 释放, 记工作区, 核验万能码, 归一化 } from "@/lib/tenant/activation";
+import { 赠送, 邀请码赠送, 注册赠送 } from "@/lib/tenant/ai-allowance";
+import { 检查限流, 记一次失败, 解析来源IP, IP阈值, 今日注册数, 记一次注册, 每IP每日注册上限 } from "@/lib/rate-limit";
 
 /**
- * 注册：手机号（或邮箱）+ 验证码 + 密码 + 团队名 → 开一个工作区，试用 7 天。
+ * 注册：团队名 + 姓名 + 手机/邮箱 + 验证码 + 密码（+ 可选邀请码）→ 开一个工作区，试用 7 天。
  *
  * 只在托管版可用。自部署版没有"注册"这回事——那里是管理员建账号。
  *
  * **配了 SIGNUP_REDIRECT 就等于关闭自助注册**：页面跳去咨询页，这里的两个动作
- * 一律拒绝。留着而不是删掉，是因为关闭注册是个阶段性决定——没有发码通道
- * （短信要备案、邮件还没接）时走人工开号，通道通了把这个变量去掉就回来了。
+ * 一律拒绝。留着而不是删掉，是因为关闭注册是个阶段性决定——发码通道断了时
+ * 走人工开号，通道通了把这个变量去掉就回来了。
  * 只跳页面不拦动作是不够的：Server Action 是独立端点，绕过页面直接调得到。
  */
 function 自助注册已关闭(): boolean {
   return Boolean(process.env.SIGNUP_REDIRECT?.trim());
 }
 
+export type SendCodeResult = { ok: true; hint?: string } | { ok: false; error: string };
 export type SignupResult = { ok: true } | { ok: false; error: string };
 
 async function ip(): Promise<string | null> {
@@ -33,19 +36,59 @@ function 未开放(): { ok: false; error: string } {
   return { ok: false, error: "这个部署没有开放注册" };
 }
 
+export async function requestCode(targetRaw: string): Promise<SendCodeResult> {
+  if (!multiTenant() || 自助注册已关闭()) return 未开放();
+  const t = parseTarget(targetRaw);
+  if (!t) return { ok: false, error: "请填写正确的手机号或邮箱" };
+  if (t.kind === "email" && isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
+
+  // 按 IP 限流：发码是唯一一个未登录就能触发外部计费动作的接口，不限会被薅
+  const from = await ip();
+  if (from) {
+    const 还要等 = 检查限流(`code:${from}`);
+    if (还要等 != null) return { ok: false, error: `操作太频繁，请 ${还要等} 秒后再试` };
+    记一次失败(`code:${from}`, Date.now(), IP阈值);
+    if (今日注册数(from) >= 每IP每日注册上限) return { ok: false, error: "今天从这个网络注册的账号已经够多了，明天再来" };
+  }
+
+  if (await findAccountByTarget(t.value)) {
+    return { ok: false, error: "这个号已经注册过了，直接登录吧" };
+  }
+
+  const r = await issueCode(t.value, "signup");
+  if (!r.ok) return r;
+  const sent = await sendCode(t.value, r.code);
+  if (!sent.ok) return { ok: false, error: sent.error };
+  // 开发环境把码直接给回去，省得翻日志；线上永远不回显
+  return { ok: true, hint: codeVisibleToClient() ? `开发环境验证码：${r.code}` : undefined };
+}
+
 /**
- * 注册：团队名 + 姓名 + 手机/邮箱 + **激活码** + 密码 → 开一个工作区。
- *
- * 激活码替代了原来的短信/邮件验证码：码本身就是授权凭证，不需要发码通道。
- * 顺序要紧：**先占码再建号**。占码是原子的（updateMany 只改 usedAt 为空的那行），
- * 两个人同时用同一个码只有一个能成；建号失败就把码还回去，别让人白丢一个。
+ * 邀请码是**可选**的：不填也能注册，填了多送 AI 次数。
+ * 认两种：万能码（预约演示后发给客户的那一个，可反复用、运营台一键更换）
+ * 和旧的一次性激活码（旧批次仍然有效，用一次作废）。
+ * 填了但不对要报错而不是静默忽略——人是冲着多送的次数填的。
  */
+async function 预检邀请码(raw: string): Promise<{ ok: true; kind: "master" | "once" | "none"; code: string | null } | { ok: false; error: string }> {
+  const s = raw.trim();
+  if (!s) return { ok: true, kind: "none", code: null };
+  if (await 核验万能码(s)) return { ok: true, kind: "master", code: 归一化(s) };
+  const code = 归一化(s);
+  if (code) {
+    const row = await control.activationCode.findUnique({ where: { code } });
+    if (row && !row.usedAt) return { ok: true, kind: "once", code };
+  }
+  return { ok: false, error: "邀请码无效或已被使用。不填也能注册，只是少送一些 AI 次数" };
+}
+
 export async function signup(input: {
   target: string;
   code: string;
   password: string;
   name: string;
   workspace: string;
+  invite?: string;
+  agreed?: boolean;
 }): Promise<SignupResult> {
   if (!multiTenant() || 自助注册已关闭()) return 未开放();
 
@@ -55,41 +98,65 @@ export async function signup(input: {
   if (!input.workspace.trim()) return { ok: false, error: "请填写团队名称" };
   const pwErr = checkPassword(input.password);
   if (pwErr) return { ok: false, error: pwErr };
+  // 服务端也要验勾选：表单上的勾选框绕得过，法律意义上的同意绕不过
+  if (!input.agreed) return { ok: false, error: "请先阅读并同意用户协议和隐私政策" };
 
-  // 按 IP 限流：激活码是唯一一个未登录就能反复试的入口，不限会被拿来猜码
   const from = await ip();
   if (from) {
     const 还要等 = 检查限流(`signup:${from}`);
     if (还要等 != null) return { ok: false, error: `操作太频繁，请 ${还要等} 秒后再试` };
+    if (今日注册数(from) >= 每IP每日注册上限) return { ok: false, error: "今天从这个网络注册的账号已经够多了，明天再来" };
   }
 
+  // 邀请码在消耗验证码**之前**预检：验证码一次性，先花掉再报邀请码不对，人得重新收一次码
+  const 邀请 = await 预检邀请码(input.invite ?? "");
+  if (!邀请.ok) {
+    if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
+    return 邀请;
+  }
+
+  const codeOk = await consumeCode(t.value, input.code, "signup");
+  if (!codeOk.ok) {
+    if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
+    return codeOk;
+  }
+
+  // 验证码校验通过到建账号之间还有一个窗口，同一个号并发注册会撞唯一索引，交给数据库判
   if (await findAccountByTarget(t.value)) return { ok: false, error: "这个号已经注册过了，直接登录吧" };
 
-  // 先占码。失败计一次限流，让猜码的人越猜越慢
-  const 占 = await 占用(input.code, "pending");
-  if (!占.ok) {
-    if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
-    return 占;
+  // 一次性邀请码：原子占用，两个人同时用同一个码只有一个能拿到赠送
+  let 一次性: string | null = null;
+  if (邀请.kind === "once" && 邀请.code) {
+    const 占 = await 占用(邀请.code, "pending");
+    if (占.ok) 一次性 = 占.code;
   }
 
   let account;
   try {
     account = await createAccount({ target: t, password: input.password, name: input.name });
   } catch {
-    await 释放(占.code);
+    if (一次性) await 释放(一次性);
     return { ok: false, error: "这个号已经注册过了，直接登录吧" };
   }
 
   try {
     const ws = await createWorkspace({ name: input.workspace, account });
-    await 记工作区(占.code, ws.id);
-    await control.activationCode.update({ where: { code: 占.code }, data: { usedBy: account.id } });
+    // 注册赠送。查额度时也会补，这里先记上是为了首页第一眼就显示对
+    await 赠送({ workspaceId: ws.id, amount: 注册赠送, reason: "signup", key: `${ws.id}:signup` });
+    if (邀请.kind === "master") {
+      await 赠送({ workspaceId: ws.id, amount: 邀请码赠送, reason: "invite", key: `${ws.id}:invite`, note: "万能码" });
+    } else if (一次性) {
+      await 记工作区(一次性, ws.id);
+      await control.activationCode.update({ where: { code: 一次性 }, data: { usedBy: account.id } });
+      await 赠送({ workspaceId: ws.id, amount: 邀请码赠送, reason: "invite", key: `${ws.id}:invite`, note: 一次性 });
+    }
+    if (from) 记一次注册(from);
     await createSession(account.id, ws.id);
     return { ok: true };
   } catch (e) {
-    // 工作区没开成：账号删掉、码还回去，让这个人能用同一个码再试一次
+    // 工作区没开成：账号删掉、一次性码还回去，让这个人能用同一个码再试一次
     await control.account.delete({ where: { id: account.id } }).catch(() => {});
-    await 释放(占.code);
+    if (一次性) await 释放(一次性);
     console.error("开工作区失败：", e);
     return { ok: false, error: "开通失败，请稍后重试" };
   }

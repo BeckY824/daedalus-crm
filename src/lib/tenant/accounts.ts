@@ -30,6 +30,20 @@ export function isEmail(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 }
 
+/**
+ * 常见的一次性邮箱域名。注册送 AI 次数之后，临时邮箱就是最省事的刷号入口。
+ * 不求全——求全的名单有几千行且天天变；挡住最顺手的那几个就够让人换个办法。
+ */
+const 临时邮箱域名 = new Set([
+  "10minutemail.com", "guerrillamail.com", "guerrillamail.net", "mailinator.com", "tempmail.com", "temp-mail.org",
+  "yopmail.com", "throwawaymail.com", "getnada.com", "dispostable.com", "trashmail.com", "sharklasers.com",
+  "maildrop.cc", "fakeinbox.com", "mohmal.com", "linshiyouxiang.net", "24mail.chacuo.net", "bccto.me",
+]);
+export function isDisposableEmail(email: string): boolean {
+  const domain = email.trim().toLowerCase().split("@")[1] ?? "";
+  return 临时邮箱域名.has(domain);
+}
+
 /** 登录标识：手机号或邮箱，两者都不像就拒 */
 export function parseTarget(v: string): { kind: "phone" | "email"; value: string } | null {
   const t = v.trim();

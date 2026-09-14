@@ -38,7 +38,7 @@ export default function hostedSetup() {
     { cwd: ROOT, stdio: "pipe" },
   );
 
-  // 预置几个激活码：注册要用，一码一个工作区。用例里最多注册 3 次，多留几个
+  // 预置几个一次性邀请码：注册时可选填。现在的用例不填，留着是为了运营台那张表不是空的
   execFileSync("node", ["--experimental-sqlite", "-e", `
     const { DatabaseSync } = require('node:sqlite');
     const db = new DatabaseSync(process.argv[1]);

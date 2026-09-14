@@ -16,8 +16,19 @@ services:
       # 配了就等于关闭自助注册：/signup 跳到这个地址，注册与发码动作一律拒绝。
       # 没有发码通道（短信要备案、邮件未接）时走人工开号，通道通了去掉它即可
       SIGNUP_REDIRECT: "${SIGNUP_REDIRECT:-}"
-      # 短信（可选）。没配就把验证码打到容器日志里，照样能开号
+      # 验证码通道（都可选）。没配的那一种就把验证码打到容器日志里，照样能开号：
+      #   docker compose logs crm | grep '\[verify\]'
+      # 短信：阿里云，手机号注册用
       SMS_ACCESS_KEY_ID: "${SMS_ACCESS_KEY_ID:-}"
       SMS_ACCESS_KEY_SECRET: "${SMS_ACCESS_KEY_SECRET:-}"
       SMS_SIGN_NAME: "${SMS_SIGN_NAME:-}"
       SMS_TEMPLATE_CODE: "${SMS_TEMPLATE_CODE:-}"
+      # 邮件：任何 SMTP（阿里云邮件推送 smtpdm.aliyun.com:465、腾讯云 SES、企业邮箱），邮箱注册用
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-465}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASS: "${SMTP_PASS:-}"
+      SMTP_FROM: "${SMTP_FROM:-}"
+      # 条款页里的运营主体与联系邮箱（可选，默认 Daedalus.AI / README 里的邮箱）
+      LEGAL_ENTITY: "${LEGAL_ENTITY:-}"
+      LEGAL_CONTACT: "${LEGAL_CONTACT:-}"
