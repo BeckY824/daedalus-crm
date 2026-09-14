@@ -206,6 +206,33 @@ type ChatOpts = {
 
 const DEFAULT_MAX_TOKENS = 4000;
 
+/**
+ * 记住哪些模型不认 thinking 参数。
+ *
+ * 中转站上的推理模型分两类：一类可以 {"type":"disabled"} 关掉思维链，另一类
+ * 「始终思考」，带上这个参数直接 400。光靠调用方 catch 后重试是不够的——
+ *   1. agent 循环最多 6 步，每步都要先失败一次再重试，一个问题白跑 6 个往返
+ *   2. 更糟的是 chatMessagesJSON 里「模型没输出合法 JSON」那条恢复路径，
+ *      它用的还是原始 opts，等于把刚刚失败的参数又加回去，于是 400 冒到界面上
+ * 所以把结论记在这里：某个模型拒绝过一次，之后就不再给它带这个参数。
+ * 进程内缓存，重启后重新试探一次，代价是一个请求。
+ */
+const 不认thinking = new Set<string>();
+
+/**
+ * 见过思维链的模型。
+ *
+ * max_tokens 是「思考 + 正文」共用的预算，不是正文的预算。实测一个只要求输出
+ * {"ok":true} 的请求就烧掉 92 个 reasoning token——给 100 的额度时
+ * finish_reason 直接是 length，正文被截断，JSON.parse 失败，
+ * 界面上显示「AI 返回内容不是合法 JSON：」后面空空如也，查不出原因。
+ *
+ * 所以对这类模型额外加一笔思考预算。调用方给的 maxTokens 是它对**正文**的预期，
+ * 这个语义不该因为换了个会思考的模型就变味。
+ */
+const 思考模型 = new Set<string>();
+const 思考预算 = 2500;
+
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean): Promise<Response> {
@@ -213,10 +240,10 @@ async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, 
     model: opts.model ?? cfg.model,
     messages,
     temperature: opts.temperature ?? 0.3,
-    max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+    max_tokens: (opts.maxTokens ?? DEFAULT_MAX_TOKENS) + (思考模型.has(opts.model ?? cfg.model) ? 思考预算 : 0),
   };
   if (useJsonFormat) body.response_format = { type: "json_object" };
-  if (opts.thinking === false) body.thinking = { type: "disabled" };
+  if (opts.thinking === false && !不认thinking.has(String(body.model))) body.thinking = { type: "disabled" };
   if (stream) body.stream = true;
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: "POST",
@@ -226,6 +253,12 @@ async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, 
   });
   if (!res.ok) {
     const errText = (await res.text()).slice(0, 300);
+    // 带了 thinking 又被 4xx 拒：记下这个模型，后面所有调用都不再带，
+    // 包括本次调用方马上要做的那次重试
+    if (body.thinking && (res.status === 400 || res.status === 422)) {
+      不认thinking.add(String(body.model));
+      console.warn(`[llm] 模型 ${body.model} 不支持关闭思考，后续不再发送该参数`);
+    }
     throw new Error(`接口返回 ${res.status}：${errText}`);
   }
   return res;
@@ -237,8 +270,30 @@ async function chatOnce(cfg: LlmConfig, system: string, prompt: string, opts: Ch
 
 async function chatMessagesOnce(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
   const res = await chatRaw(cfg, messages, opts, useJsonFormat, false);
-  const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
-  return (data.choices?.[0]?.message?.content ?? "").trim();
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string }; finish_reason?: string }[];
+    usage?: { completion_tokens_details?: { reasoning_tokens?: number } };
+  };
+  const model = opts.model ?? cfg.model;
+
+  // 这个模型会思考：记下来，之后给它的预算都加上思考那一笔
+  if ((data.usage?.completion_tokens_details?.reasoning_tokens ?? 0) > 0 && !思考模型.has(model)) {
+    思考模型.add(model);
+    console.warn(`[llm] 模型 ${model} 会输出思维链，后续 max_tokens 额外加 ${思考预算}`);
+  }
+
+  const choice = data.choices?.[0];
+  const content = (choice?.message?.content ?? "").trim();
+
+  /**
+   * 被 max_tokens 截断。必须在这里就炸出来，不能把半截内容交给 JSON.parse：
+   * 那样报的是「返回内容不是合法 JSON」，把「额度不够」说成「模型不听话」，
+   * 方向完全错，线上排查会绕很久。调用方接住之后重试，那时预算已经加上去了。
+   */
+  if (choice?.finish_reason === "length") {
+    throw new Error(`AI 回答被长度限制截断（模型 ${model}），已提高预算，请重试`);
+  }
+  return content;
 }
 
 /**

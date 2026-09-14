@@ -553,7 +553,10 @@ a {
 .cli-welcome-s { margin-top: 4px; color: var(--text-muted); }
 .cli-welcome-hints { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); color: #6b7280; font-size: 13px; line-height: 1.9; }
 .cli-log { flex: 1; padding-bottom: 8px; }
-.cli-turn { padding: 14px 0 10px; }
+/* 滚动目标要避开 sticky 输入框：scrollIntoView 对齐的是视口边，
+   而输入框正盖在视口底部那一条上。--cli-composer-h 由 HomeChat 用
+   ResizeObserver 实时量（输入框会随文字长高），兜底 104px。 */
+.cli-turn { padding: 14px 0 10px; scroll-margin-bottom: calc(var(--cli-composer-h, 104px) + 16px); scroll-margin-top: 12px; }
 /* 一轮：右侧你的话（气泡），下面是过程、回答、卡片、底栏 */
 .cli-user { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .cli-bubble { max-width: 78%; padding: 9px 14px; background: #f0f1f4; border-radius: 14px; color: var(--ink); white-space: pre-wrap; line-height: 1.6; }

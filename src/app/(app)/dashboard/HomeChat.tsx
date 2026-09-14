@@ -52,6 +52,9 @@ export default function HomeChat({ userName, suggestions, context, models }: { u
   const [cmdIdx, setCmdIdx] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  /** 刚发出去的那一问。只有它会在挂载时把自己滚到视口顶部，翻历史不该乱跳 */
+  const [刚发的, set刚发的] = useState<string | null>(null);
   const greet = useSyncExternalStore(
     () => () => {},
     () => {
@@ -110,6 +113,7 @@ export default function HomeChat({ userName, suggestions, context, models }: { u
     // 正在答的时候再发：排队，不并发打模型
     const shouldQueue = opts.queue || Boolean(running);
     const turn = addTurn({ question, kind: "ask", queued: shouldQueue });
+    set刚发的(turn.id);
     if (!shouldQueue) start(turn);
     setQ("");
     if (taRef.current) taRef.current.style.height = "auto";
@@ -120,9 +124,19 @@ export default function HomeChat({ userName, suggestions, context, models }: { u
     taRef.current?.focus();
   }
 
+  /**
+   * 把输入框实测高度写进 --cli-composer-h，供 scroll-margin 和「贴着底部」判断用。
+   * 它会随输入的文字长高（最多 140px），写死一个常数迟早对不上。
+   */
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [turns.length]);
+    const el = composerRef.current;
+    if (!el) return;
+    const 量 = () => document.documentElement.style.setProperty("--cli-composer-h", `${Math.round(el.getBoundingClientRect().height)}px`);
+    量();
+    const ro = new ResizeObserver(量);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Esc：打断正在跑的那一问（页面任何地方按都行）
   useEffect(() => {
@@ -158,6 +172,7 @@ export default function HomeChat({ userName, suggestions, context, models }: { u
               <TurnView
                 key={t.id}
                 turn={t}
+                scrollOnMount={t.id === 刚发的}
                 onRetry={() => {
                   clearJob(`home:${t.id}`);
                   if (running) dequeueTurn(t.id);
@@ -174,7 +189,7 @@ export default function HomeChat({ userName, suggestions, context, models }: { u
           </div>
         )}
 
-        <div className={`cli-composer${empty ? "" : " cli-composer-sticky"}`}>
+        <div ref={composerRef} className={`cli-composer${empty ? "" : " cli-composer-sticky"}`}>
           {cmdMatches.length > 0 && (
             <div className="cli-cmds">
               {cmdMatches.map((c, i) => (
@@ -302,7 +317,31 @@ function whenLabel(at: number): string {
   return d.isToday() ? d.format("HH:mm") : d.format("MM-DD HH:mm");
 }
 
-function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void; onRemove: () => void }) {
+/**
+ * 自动滚动的两条规矩。
+ *
+ * 之前的写法是 turn.scrollIntoView({ block: "end" })，把轮次底边对齐到**视口**底边。
+ * 但输入框是 position:sticky bottom:0、实测 104px 高，正好盖住视口最底下那一条——
+ * 于是每次发送，刚发出的问题（top 404）就落在输入框（top 396）后面，
+ * 正在生成的回答也永远差最后一百多像素露不出来。页面还会停在离真正底部 130px 的地方。
+ *
+ * 所以：
+ *   1. 所有滚动目标都留出输入框的高度（--cli-composer-h，由 ResizeObserver 实时量）
+ *   2. 只在用户已经贴着底部时才跟随。答案还在流的时候人往上翻是常事，
+ *      不判断就会把他一次次拽回来
+ */
+function composerH(): number {
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--cli-composer-h");
+  const n = parseInt(v, 10);
+  return Number.isFinite(n) && n > 0 ? n : 104;
+}
+
+function 贴着底部(): boolean {
+  const 余量 = composerH() + 90;
+  return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 余量;
+}
+
+function TurnView({ turn, onRetry, onRemove, scrollOnMount }: { turn: Turn; onRetry: () => void; onRemove: () => void; scrollOnMount: boolean }) {
   const b = useBusiness();
   const { message } = App.useApp();
   const job = useJob<StreamJob<AgentAnswer>>(`home:${turn.id}`);
@@ -315,7 +354,17 @@ function TurnView({ turn, onRetry, onRemove }: { turn: Turn; onRetry: () => void
     const t = setInterval(() => setElapsed(Math.floor((Date.now() - job.startedAt) / 1000)), 1000);
     return () => clearInterval(t);
   }, [done, job]);
+  // 刚发出的这一问：把问题滚到视口顶部，答案往下面的空白里生成。
+  // 不能用 block:"end"——那会把它顶到输入框后面，人看不见自己刚发的话。
   useEffect(() => {
+    if (!scrollOnMount) return;
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 流式跟随：只在人已经贴着底部时才动
+  useEffect(() => {
+    if (!贴着底部()) return;
     ref.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [job?.value?.text?.length, done]);
 
