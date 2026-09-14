@@ -60,7 +60,15 @@ export async function login(email: string, password: string): Promise<LoginResul
       return { ok: false, error: "账号或密码不对" };
     }
     const list = await listWorkspacesFor(account.id);
-    if (list.length === 0) return { ok: false, error: "这个账号还没有工作区，请重新注册" };
+    /**
+     * 密码对但一个工作区都没有。两种人会撞上：桌面端注册的账号
+     * （那条路只开账号不开工作区，见 lib/tenant/register-account.ts），
+     * 和工作区被我们删掉的老账号。话得说准——让他去「重新注册」是误导，
+     * 同一个邮箱注册不了第二次。
+     */
+    if (list.length === 0) {
+      return { ok: false, error: "这个账号还没有工作区。桌面端账号只用于 AI，网页版请联系我们开通" };
+    }
     keys.forEach(([k]) => 清除限流(k));
     // 多个工作区时先进第一个；切换留给应用内的工作区菜单
     await createSession(account.id, list[0].id);

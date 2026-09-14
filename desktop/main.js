@@ -231,57 +231,234 @@ function 问服务器地址() {
 /* ---------- 云端账号 ---------- */
 
 /**
- * 登录云端账号。本地模式下数据在这台机器上，云端只剩两件事：
- * 认领一个账号，和借它调模型——没有它 AI 入口整个不出现，CRM 其余功能照常。
+ * 云端账号窗：登录 / 注册 / 找回密码，三块面板共用一个窗口。
+ *
+ * 本地模式下数据在这台机器上，云端只剩两件事：认领一个账号，和借它调模型——
+ * 没有它 AI 入口整个不出现，CRM 其余功能照常。
+ *
+ * 注册和找回一开始是没有的，人得先去网页上办，办完再回来登录。那是两个程序之间
+ * 来回跑的体验，而且网页注册会在我们服务器上给他建一个**永远空着的工作区**——
+ * 和「数据在你自己机器上」正好相反。所以桌面端注册走的是另一条接口
+ * （/api/account/register，只开账号不开工作区）。
+ *
+ * 画哪几个入口由服务端说了算：打开窗口时先问一次 /api/account/policy。
+ * 问不到（断网、老版本服务端）就只留登录——那是永远走得通的那条。
+ *
+ * Electron 没有内置输入框，页面只能用 data: URL 拼。里面的脚本**不用模板字符串**：
+ * 整段本身就在一个模板字符串里，嵌套那一层的转义极易写错且报错很难看懂。
  */
 function 登录云端() {
   const w = new BrowserWindow({
-    width: 460,
-    height: 330,
+    width: 470,
+    height: 560,
     resizable: false,
-    title: "登录云端账号",
+    title: "云端账号",
     parent: win ?? undefined,
     modal: Boolean(win),
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
+  const 云 = 云端.默认云端.replace(/\/+$/, "");
+
   w.loadURL(
     "data:text/html;charset=utf-8," +
       encodeURIComponent(`
-    <body style="font:14px -apple-system,'PingFang SC','Microsoft YaHei';padding:22px;margin:0;background:#fafafa">
-      <div style="font-weight:600;margin-bottom:4px">登录云端账号</div>
-      <div style="color:#6b7280;font-size:12px;margin-bottom:14px">
-        用它来调 AI。数据仍然只在这台机器上，不会上传。
+    <style>
+      body { font:13px -apple-system,'PingFang SC','Microsoft YaHei'; padding:22px; margin:0; background:#fafafa; color:#111 }
+      .h { font-weight:600; font-size:15px; margin-bottom:4px }
+      .s { color:#6b7280; font-size:12px; margin-bottom:14px; line-height:1.6 }
+      input[type=text], input[type=password] {
+        width:100%; padding:9px 11px; font-size:14px; border:1px solid #d9dee7;
+        border-radius:7px; box-sizing:border-box; margin-bottom:10px; background:#fff }
+      button { padding:7px 16px; font-size:13px; border-radius:6px; border:1px solid #d9dee7; background:#fff }
+      button.primary { background:#2f6bff; color:#fff; border:none }
+      button[disabled] { opacity:.55 }
+      .row { display:flex; align-items:center; justify-content:space-between; margin-top:18px }
+      .links a { color:#2f6bff; margin-right:12px; cursor:pointer; font-size:12px }
+      .tip { color:#6b7280; font-size:12px; margin:-4px 0 10px }
+      #msg { display:none; padding:8px 11px; border-radius:7px; font-size:12px; margin-bottom:12px; line-height:1.6 }
+      #msg.err { background:#fef2f2; color:#b91c1c }
+      #msg.ok { background:#eff6ff; color:#1d4ed8 }
+      .codeline { display:flex; gap:8px }
+      .codeline input { flex:1 }
+    </style>
+    <body>
+      <div id="msg"></div>
+
+      <div id="p-login">
+        <div class="h">登录云端账号</div>
+        <div class="s">用它来调 AI。数据仍然只在这台机器上，不会上传。</div>
+        <input type="text" id="u" placeholder="手机号或邮箱">
+        <input type="password" id="p" placeholder="密码">
+        <div class="row">
+          <div class="links">
+            <a id="to-reg" style="display:none">注册新账号</a>
+            <a id="to-reset" style="display:none">忘记密码？</a>
+          </div>
+          <div>
+            <button onclick="window.close()">取消</button>
+            <button class="primary" id="do-login">登录</button>
+          </div>
+        </div>
       </div>
-      <input id="u" placeholder="手机号或邮箱" style="width:100%;padding:9px 11px;font-size:14px;
-        border:1px solid #d9dee7;border-radius:7px;box-sizing:border-box;margin-bottom:10px">
-      <input id="p" type="password" placeholder="密码" style="width:100%;padding:9px 11px;font-size:14px;
-        border:1px solid #d9dee7;border-radius:7px;box-sizing:border-box">
-      <div style="margin-top:20px;text-align:right">
-        <button onclick="window.close()" style="padding:7px 16px;margin-right:8px">取消</button>
-        <button id="ok" style="padding:7px 16px;background:#2f6bff;color:#fff;border:none;border-radius:6px">登录</button>
+
+      <div id="p-reg" style="display:none">
+        <div class="h">注册云端账号</div>
+        <div class="s">只用来调 AI，送 30 次免费对话。<br>不会在我们服务器上给你建库——数据始终只在这台机器上。</div>
+        <input type="text" id="ru" placeholder="邮箱">
+        <div class="codeline" id="rcodeline" style="display:none">
+          <input type="text" id="rcode" placeholder="邮件里的 6 位验证码" maxlength="6">
+          <button id="rsend">获取验证码</button>
+        </div>
+        <input type="password" id="rp" placeholder="设置密码">
+        <div class="tip">至少 8 位，含字母和数字</div>
+        <label style="font-size:12px;color:#374151">
+          <input type="checkbox" id="ragree"> 我已阅读并同意
+          <a id="terms" style="color:#2f6bff;cursor:pointer">用户协议</a> 和
+          <a id="privacy" style="color:#2f6bff;cursor:pointer">隐私政策</a>
+        </label>
+        <div class="row">
+          <div class="links"><a class="back">返回登录</a></div>
+          <div><button class="primary" id="do-reg">注册并登录</button></div>
+        </div>
       </div>
+
+      <div id="p-reset" style="display:none">
+        <div class="h">找回密码</div>
+        <div class="s">用注册时的邮箱收一个验证码，就能设新密码。<br>改完之后网页端的登录状态会全部失效，本机的令牌不受影响。</div>
+        <input type="text" id="fu" placeholder="注册时用的邮箱">
+        <div class="codeline">
+          <input type="text" id="fcode" placeholder="邮件里的 6 位验证码" maxlength="6">
+          <button id="fsend">发送验证码</button>
+        </div>
+        <input type="password" id="fp" placeholder="设置新密码">
+        <div class="tip">至少 8 位，含字母和数字</div>
+        <div class="row">
+          <div class="links"><a class="back">返回登录</a></div>
+          <div><button class="primary" id="do-reset">设置新密码</button></div>
+        </div>
+      </div>
+
       <script>
-        const 提交 = () => crm.login(document.getElementById('u').value, document.getElementById('p').value);
-        document.getElementById('ok').onclick = 提交;
-        document.body.addEventListener('keydown', (e) => { if (e.key === 'Enter') 提交(); });
-        document.getElementById('u').focus();
+        var $ = function (id) { return document.getElementById(id); };
+        var 面板 = { login: $('p-login'), reg: $('p-reg'), reset: $('p-reset') };
+        var 按钮 = document.getElementsByTagName('button');
+
+        function 说(text, 好) {
+          var m = $('msg');
+          m.textContent = text || '';
+          m.className = 好 ? 'ok' : 'err';
+          m.style.display = text ? 'block' : 'none';
+        }
+        function 切(名) {
+          for (var k in 面板) 面板[k].style.display = k === 名 ? 'block' : 'none';
+          说('');
+        }
+        function 忙(on) {
+          for (var i = 0; i < 按钮.length; i++) 按钮[i].disabled = on;
+        }
+
+        $('to-reg').onclick = function () { 切('reg'); };
+        $('to-reset').onclick = function () { 切('reset'); };
+        var backs = document.getElementsByClassName('back');
+        for (var i = 0; i < backs.length; i++) backs[i].onclick = function () { 切('login'); };
+        var 云 = ${JSON.stringify(云)};
+        $('terms').onclick = function () { crm.open(云 + '/terms'); };
+        $('privacy').onclick = function () { crm.open(云 + '/privacy'); };
+
+        $('do-login').onclick = function () {
+          if (!$('u').value.trim() || !$('p').value) return 说('手机号（或邮箱）和密码都要填');
+          忙(true); 说(''); crm.login($('u').value.trim(), $('p').value);
+        };
+        $('do-reg').onclick = function () {
+          if (!$('ru').value.trim() || !$('rp').value) return 说('邮箱和密码都要填');
+          if (!$('ragree').checked) return 说('请先阅读并同意用户协议和隐私政策');
+          忙(true); 说('');
+          crm.register({ target: $('ru').value.trim(), password: $('rp').value, code: $('rcode').value.trim(), agreed: true });
+        };
+        $('rsend').onclick = function () {
+          if (!$('ru').value.trim()) return 说('先填邮箱');
+          忙(true); 说(''); crm.code($('ru').value.trim(), 'signup');
+        };
+        $('fsend').onclick = function () {
+          if (!$('fu').value.trim()) return 说('先填邮箱');
+          忙(true); 说(''); crm.code($('fu').value.trim(), 'reset');
+        };
+        $('do-reset').onclick = function () {
+          if (!$('fu').value.trim() || !$('fcode').value.trim() || !$('fp').value) return 说('邮箱、验证码和新密码都要填');
+          忙(true); 说('');
+          crm.reset({ target: $('fu').value.trim(), code: $('fcode').value.trim(), password: $('fp').value });
+        };
+
+        document.body.addEventListener('keydown', function (e) {
+          if (e.key !== 'Enter') return;
+          if (面板.reg.style.display === 'block') $('do-reg').click();
+          else if (面板.reset.style.display === 'block') $('do-reset').click();
+          else $('do-login').click();
+        });
+
+        crm.onReply(function (m) {
+          忙(false);
+          if (m.kind === 'policy') {
+            $('to-reg').style.display = m.register ? 'inline' : 'none';
+            $('to-reset').style.display = m.reset ? 'inline' : 'none';
+            $('rcodeline').style.display = m.verify ? 'flex' : 'none';
+            return;
+          }
+          if (m.kind === 'reset-done') { 切('login'); $('u').value = m.target || ''; 说('密码已经改好了，用新密码登录', true); return; }
+          说(m.text, m.kind === 'hint');
+        });
+
+        crm.policy();
+        $('u').focus();
       </script>
     </body>`),
   );
 
   w.webContents.on("ipc-message", async (_e, ch, payload) => {
-    if (ch !== "cloud-login") return;
+    const 回 = (m) => {
+      if (!w.isDestroyed()) w.webContents.send("cloud-reply", m);
+    };
+
+    if (ch === "open-external") {
+      // 只认我们自己的站点：这个窗口里的链接是写死的，出现别的一定是哪里错了
+      const u = String(payload ?? "");
+      if (u.startsWith(云 + "/")) shell.openExternal(u);
+      return;
+    }
+
+    if (ch === "cloud-policy") {
+      回({ kind: "policy", ...(await 云端.策略()) });
+      return;
+    }
+
+    if (ch === "cloud-code") {
+      const r = await 云端.发码(String(payload?.target ?? "").trim(), payload?.purpose === "reset" ? "reset" : "signup");
+      // hint 只在开发环境有值（线上永远不回显验证码），有就直接显示，省得去翻日志
+      回(r.ok ? { kind: "hint", text: r.data?.hint ?? "验证码已经发出去了，10 分钟内有效" } : { kind: "error", text: r.error });
+      return;
+    }
+
+    if (ch === "cloud-reset") {
+      const target = String(payload?.target ?? "").trim();
+      const r = await 云端.重置密码({ target, code: String(payload?.code ?? "").trim(), password: String(payload?.password ?? "") });
+      回(r.ok ? { kind: "reset-done", target } : { kind: "error", text: r.error });
+      return;
+    }
+
+    if (ch !== "cloud-login" && ch !== "cloud-register") return;
+
     const target = String(payload?.target ?? "").trim();
     const password = String(payload?.password ?? "");
-    if (!target || !password) {
-      dialog.showMessageBox(w, { type: "warning", message: "手机号（或邮箱）和密码都要填" });
-      return;
-    }
-    const r = await 云端.登录(target, password);
+    const r =
+      ch === "cloud-login"
+        ? await 云端.登录(target, password)
+        : await 云端.注册({ target, password, code: String(payload?.code ?? "").trim(), agreed: Boolean(payload?.agreed) });
     if (!r.ok) {
-      dialog.showMessageBox(w, { type: "error", title: "登录失败", message: r.error });
+      回({ kind: "error", text: r.error });
       return;
     }
+
+    // 注册和登录到这里完全一样：手上有令牌了，重启本地服务让它带上新的 AI 配置
     w.close();
     建菜单();
     try {
@@ -293,7 +470,7 @@ function 登录云端() {
     const 还剩 = r.data?.credits?.还剩;
     dialog.showMessageBox(win ?? null, {
       type: "info",
-      title: "登录成功",
+      title: ch === "cloud-register" ? "注册成功" : "登录成功",
       message: `已登录：${r.data?.account?.name ?? target}`,
       detail: 还剩 == null ? "AI 功能已启用。" : `AI 功能已启用，免费次数还剩 ${还剩} 次。`,
     });
