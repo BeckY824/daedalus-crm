@@ -85,7 +85,8 @@ Mac 版（Apple 芯片）**自带一整套服务**：装完直接用，数据是
 或者填自己的模型 API Key。团队要共用一份数据时，在菜单里切到「连接服务器」，
 指向你们自己部署的实例。
 
-安装、放行与更新见 [docs/桌面端安装.md](docs/桌面端安装.md)；实现见 [desktop/README.md](desktop/README.md)。
+安装、放行与更新见 [docs/桌面端安装.md](docs/桌面端安装.md)；实现见 [desktop/README.md](desktop/README.md)；
+官网要提供的下载页与版本信息见 [docs/网站对接.md](docs/网站对接.md)。
 
 <br/>
 
