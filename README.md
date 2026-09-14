@@ -80,7 +80,12 @@ npm install && npm run setup && npm run dev
 
 ### 桌面客户端
 
-Mac（dmg）与 Windows（exe）由 [GitHub Actions](https://github.com/BeckY824/daedalus-crm/actions/workflows/desktop.yml) 在每次打 tag 时产出，连接你自己部署的实例或托管版。
+Mac 版（Apple 芯片）**自带一整套服务**：装完直接用，数据是你机器上的一个文件，
+不需要服务器、不需要注册。要用 AI 就在菜单里登录一个云端账号（注册送 30 次），
+或者填自己的模型 API Key。团队要共用一份数据时，在菜单里切到「连接服务器」，
+指向你们自己部署的实例。
+
+安装、放行与更新见 [docs/桌面端安装.md](docs/桌面端安装.md)；实现见 [desktop/README.md](desktop/README.md)。
 
 <br/>
 

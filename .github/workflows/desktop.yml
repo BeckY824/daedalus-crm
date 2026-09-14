@@ -14,6 +14,11 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# 产物要挂到 Release 上：桌面端的「检查更新」查的就是最新 Release，
+# 只传成 Actions 产物的话，装出去的应用永远查不到新版本
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -47,3 +52,13 @@ jobs:
             desktop/dist/*.dmg
             desktop/dist/*.exe
           if-no-files-found: error
+
+      # 打 tag 时顺手挂到 Release 上。Release 不存在就建一个；已存在就只补附件
+      - name: 挂到 Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes --title "$TAG"
+          gh release upload "$TAG" desktop/dist/*.dmg --clobber

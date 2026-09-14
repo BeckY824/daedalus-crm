@@ -13,6 +13,7 @@ const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
 const 云端 = require("./cloud");
+const 更新 = require("./updater");
 
 const APP_NAME = "Daedalus CRM";
 
@@ -334,6 +335,43 @@ async function 显示额度() {
   });
 }
 
+/* ---------- 检查更新 ---------- */
+
+/**
+ * 检查更新。只查、只提示、不自动装——没签名的 macOS 应用没法走系统那套自动更新，
+ * 理由见 updater.js 顶部。手动点菜单时 静默=false，查不到也要给个回话。
+ */
+async function 检查更新(静默) {
+  const cfg = 读配置();
+  if (静默 && !更新.该自动查了(cfg.lastUpdateCheck)) return;
+  写配置({ ...cfg, lastUpdateCheck: new Date().toISOString() });
+
+  const 新版 = await 更新.检查({ 当前版本: app.getVersion(), 跳过的版本: 静默 ? cfg.skipVersion : undefined });
+  if (!新版) {
+    if (!静默) {
+      dialog.showMessageBox(win ?? null, {
+        type: "info",
+        title: "检查更新",
+        message: "已经是最新版本",
+        detail: `当前版本 ${app.getVersion()}。`,
+      });
+    }
+    return;
+  }
+
+  const { response } = await dialog.showMessageBox(win ?? null, {
+    type: "info",
+    title: "有新版本",
+    message: `发现新版本 ${新版.版本}（当前 ${新版.当前}）`,
+    detail: `${新版.说明 ? `${新版.说明}\n\n` : ""}下载后把新的应用拖进「应用程序」覆盖旧的即可，数据不受影响。`,
+    buttons: ["去下载", "跳过这个版本", "以后再说"],
+    defaultId: 0,
+    cancelId: 2,
+  });
+  if (response === 0) shell.openExternal(新版.地址);
+  else if (response === 1) 写配置({ ...读配置(), skipVersion: 新版.版本 });
+}
+
 /* ---------- 菜单 ---------- */
 
 function 显示本机密码() {
@@ -398,6 +436,7 @@ function 建菜单() {
         : []),
       { type: "separator" },
       { label: "本机账号密码…", enabled: cfg.mode === "local", click: 显示本机密码 },
+      { label: "检查更新…", click: () => 检查更新(false) },
       { label: "打开数据文件夹", click: () => shell.openPath(数据目录) },
       { label: "查看服务日志", click: () => shell.showItemInFolder(日志文件) },
       { type: "separator" },
@@ -458,6 +497,8 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
     建窗口();
+    // 开机就查会和冷启动抢资源，而且那时窗口还没画出来，弹窗会挡在前面。等一会儿再说
+    setTimeout(() => 检查更新(true).catch(() => {}), 15_000);
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) 建窗口();
     });
