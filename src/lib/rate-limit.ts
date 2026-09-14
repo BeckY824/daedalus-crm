@@ -130,22 +130,43 @@ export function 清除限流(key: string) {
  * 放在内存里就够：重启清零的代价是那一天多放几个，比为它加一张表划算。
  */
 export const 每IP每日注册上限 = 3;
-const 注册计数 = new Map<string, { day: string; n: number }>();
 
-export function 今日注册数(from: string, now = new Date()): number {
+/**
+ * 演示区每个 IP 每天能新开几个访客。
+ *
+ * 演示区进门不要码了（整套码 2026-09-15 下线），一次进门 = 一份新的 5 次额度，
+ * 而「换一个访客」只要把 cookie 丢掉。上面那套冷却管的是**频率**（5 分钟 30 次），
+ * 管不住总量：一天能刷出几万次免费调用。这条管总量。
+ *
+ * 只数**新**访客：带着 cookie 回来的人不占额度，他本来就只有那一份 5 次。
+ */
+export const 每IP每日演示上限 = 5;
+
+const 日计数 = new Map<string, { day: string; n: number }>();
+
+/** 今天这个 key 计了几次。key 自带前缀区分用途（signup: / demo:） */
+export function 今日计数(key: string, now = new Date()): number {
   const day = now.toISOString().slice(0, 10);
-  const r = 注册计数.get(from);
+  const r = 日计数.get(key);
   return r && r.day === day ? r.n : 0;
 }
 
-export function 记一次注册(from: string, now = new Date()): void {
+export function 记一次今日(key: string, now = new Date()): void {
   const day = now.toISOString().slice(0, 10);
-  const r = 注册计数.get(from);
-  注册计数.set(from, r && r.day === day ? { day, n: r.n + 1 } : { day, n: 1 });
-  // 别让它无限长：过了一万个 IP 就整个丢掉，重新数
-  if (注册计数.size > 最多条数) 注册计数.clear();
+  const r = 日计数.get(key);
+  日计数.set(key, r && r.day === day ? { day, n: r.n + 1 } : { day, n: 1 });
+  // 别让它无限长：过了一万个 key 就整个丢掉，重新数
+  if (日计数.size > 最多条数) 日计数.clear();
+}
+
+export function 今日注册数(from: string, now = new Date()): number {
+  return 今日计数(`signup:${from}`, now);
+}
+
+export function 记一次注册(from: string, now = new Date()): void {
+  记一次今日(`signup:${from}`, now);
 }
 
 export function 重置注册计数(): void {
-  注册计数.clear();
+  日计数.clear();
 }

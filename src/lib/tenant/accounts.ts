@@ -75,6 +75,18 @@ export async function issueCode(target: string, purpose = "signup"): Promise<{ o
   await control.verifyCode.create({
     data: { target, code, purpose, expiresAt: new Date(Date.now() + CODE_TTL_MS) },
   });
+  /**
+   * 顺手把一天前就过期的码删掉。
+   *
+   * 找回密码那条路对**任何**格式合法的邮箱都会存一行（不存的话，连点两次时的
+   * 「刚发过了」就只出现在真账号上，等于把号查出来了，见 password-reset.ts）。
+   * 于是这张表是唯一一个未登录的人能往里写的地方，不清的话只增不减。
+   * 清理挂在写入这条路上而不是另起一个定时任务：它本来就只在有人发码时才需要。
+   * 删失败不该让发码失败——码已经存好了，清理是顺带的。
+   */
+  await control.verifyCode
+    .deleteMany({ where: { expiresAt: { lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } })
+    .catch(() => {});
   return { ok: true, code };
 }
 

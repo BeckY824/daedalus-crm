@@ -9,7 +9,7 @@ import { demoSlug } from "@/lib/demo/config";
 import { 演示票据信息 } from "@/lib/demo/workspace";
 import { 进入演示区, 演示剩余 } from "@/lib/tenant/demo-visitor";
 import { 演示访客Cookie } from "@/lib/tenant/ai-allowance";
-import { 检查限流, 记一次失败, 解析来源IP, IP阈值 } from "@/lib/rate-limit";
+import { 检查限流, 记一次失败, 解析来源IP, IP阈值, 今日计数, 记一次今日, 每IP每日演示上限 } from "@/lib/rate-limit";
 
 export type DemoResult = { ok: false; error: string };
 
@@ -49,13 +49,24 @@ export async function enterDemo(): Promise<DemoResult> {
   }
 
   const store = await cookies();
-  const visitor = store.get(演示访客Cookie)?.value || randomUUID();
+  const 老访客 = store.get(演示访客Cookie)?.value || null;
+  /**
+   * 新访客要占一个当天的名额：一次进门就是一份新的 5 次额度，
+   * 而「换一个访客」只要把 cookie 丢掉——上面那个冷却管频率，管不住总量。
+   * 带着 cookie 回来的人不占：他本来就只有原来那一份。
+   */
+  if (!老访客 && from && 今日计数(`demo:${from}`) >= 每IP每日演示上限) {
+    return { ok: false, error: "今天从这个网络进演示区的人已经够多了，明天再来。想接着用就注册一个自己的工作区" };
+  }
+  const visitor = 老访客 || randomUUID();
   await 进入演示区(visitor);
+  if (!老访客 && from) 记一次今日(`demo:${from}`);
 
   store.set(演示访客Cookie, visitor, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.COOKIE_SECURE === "true",
+    // 和会话 cookie 同一条判据（lib/auth.ts）：没显式设时线上默认要 HTTPS
+    secure: process.env.COOKIE_SECURE === "true" || (process.env.COOKIE_SECURE === undefined && process.env.NODE_ENV === "production"),
     path: "/",
     maxAge: 60 * 60 * 24 * 30,
   });

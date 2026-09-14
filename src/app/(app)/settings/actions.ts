@@ -22,9 +22,21 @@ const 用户名格式 = /^[a-z0-9._-]{2,32}$/;
 /** 命中同名在职成员时回传，供界面弹窗让人确认 */
 export type NameDuplicate = { name: string; email: string; title: string };
 
+/**
+ * 设置页的所有写操作都要过这里。
+ *
+ * **演示区一律拒绝**，即便它那个用户的角色是 ADMIN。演示区是所有人共用的，
+ * 进门不要账号也不要密码（见 app/demo/actions.ts），于是「管理员」这个身份
+ * 在那里等于「任何人」。放它过去至少有两件事会当场出问题：
+ *   - AI 接入那一栏的「测试连接」会把服务端的 LLM Key 发到调用方自己填的地址；
+ *   - 业务配置、成员、角色随便改，而演示区是给下一个访客看的。
+ * 演示区本来就每晚重置，少这几个按钮不影响它要演示的东西。
+ */
 async function requireAdmin() {
   const me = await requireUser();
   if (me.role !== "ADMIN") throw new Error("FORBIDDEN");
+  const { 当前是演示区 } = await import("@/lib/demo/current");
+  if (await 当前是演示区()) throw new Error("FORBIDDEN");
   return me;
 }
 

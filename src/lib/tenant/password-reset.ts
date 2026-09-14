@@ -79,15 +79,20 @@ export async function 发送重置码(targetRaw: string, from: string | null): P
   if (!r.ok) return r;
 
   const account = await findAccountByTarget(t.value);
-  // 号不存在或已停用：码照存不照发。对方看到的和正常情况一模一样
+  /**
+   * 号不存在或已停用：码照存不照发。对方看到的和正常情况一模一样。
+   *
+   * **不等发信结果**。等的话就成了一个按耗时查号的接口：真账号要跑一趟 SMTP
+   * （几百毫秒到几秒），假账号立刻返回——返回体一样，时间不一样，一样能把
+   * 我们的客户名单问出来。发不出去也照样算成功，只把原因记进日志：
+   * 把发信失败吐回页面同样只会出现在真账号上。
+   */
   if (account?.active) {
-    const sent = await sendCode(t.value, r.code);
-    /**
-     * 发不出去也照样返回成功，只把原因记进日志。
-     * 把发信失败原样吐回页面就又是一个查号接口：错误只可能出现在真实账号上。
-     * （邮件这条实际上不会走到这里——sendCode 里发信异常会降级成打日志并返回成功。）
-     */
-    if (!sent.ok) console.error("[reset] 验证码发送失败：", sent.error);
+    void sendCode(t.value, r.code)
+      .then((sent) => {
+        if (!sent.ok) console.error("[reset] 验证码发送失败：", sent.error);
+      })
+      .catch((e) => console.error("[reset] 验证码发送异常：", e));
   }
 
   return { ok: true, hint: codeVisibleToClient() && account?.active ? `开发环境验证码：${r.code}` : undefined };

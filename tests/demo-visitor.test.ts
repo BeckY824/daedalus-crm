@@ -96,3 +96,23 @@ describe("演示区按浏览器计数", () => {
     expect(结果.filter((r) => r.ok).length).toBe(演示对话上限);
   });
 });
+
+describe("每个 IP 每天能新开几个访客", () => {
+  it("超过上限就不再给新额度；带着 cookie 回来的人不占名额", async () => {
+    /**
+     * 进门的冷却管的是频率（5 分钟 30 次），管不住总量——
+     * 丢掉 cookie 就是一份新的 5 次，一天能刷出几万次免费调用。
+     * 这条管总量。只数新访客：老访客本来就只有原来那一份。
+     */
+    const { 今日计数, 记一次今日, 每IP每日演示上限, 重置注册计数 } = await import("@/lib/rate-limit");
+    重置注册计数();
+    const ip = "198.51.100.44";
+    for (let i = 0; i < 每IP每日演示上限; i++) {
+      expect(今日计数(`demo:${ip}`)).toBeLessThan(每IP每日演示上限);
+      记一次今日(`demo:${ip}`);
+    }
+    expect(今日计数(`demo:${ip}`)).toBe(每IP每日演示上限);
+    // 注册那本账是分开的：演示区刷满了不该把注册也堵上
+    expect(今日计数(`signup:${ip}`)).toBe(0);
+  });
+});

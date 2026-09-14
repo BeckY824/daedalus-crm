@@ -151,16 +151,31 @@ export async function clearLlmConfig(): Promise<void> {
   await setSetting(LLM_KEY, {});
 }
 
-/** 设置页「测试连接」用：填了新 key 就用新的，没填就用已存的 */
+/**
+ * 设置页「测试连接」用：填了新 key 就用新的，没填就用已存的。
+ *
+ * **环境变量里那把 Key 只肯发给环境变量里配的那个地址。**
+ * 它和界面上存的那把性质不同：界面那把是这个工作区自己填的，发到哪儿是他自己的事；
+ * 环境那把在托管版是全平台共用的，而这个接口的 baseUrl 完全由调用方给——
+ * 不限的话，「测试连接」就是一个把平台 Key 送到任意地址的口子
+ * （顺带还是一个从服务端发任意 http 请求的口子）。
+ * 地址对不上时按「没有 Key」处理，界面会提示先填一个，那条路是安全的。
+ */
 export async function resolveLlmConfigForTest(input: { baseUrl: string; model: string; apiKey?: string | null }): Promise<LlmConfig | null> {
+  const 目标 = normBase(input.baseUrl);
   let apiKey = input.apiKey?.trim() || null;
   if (!apiKey) {
     const stored = await getSetting<StoredLlm>(LLM_KEY);
-    apiKey = (stored?.apiKeyEnc ? decryptSecret(stored.apiKeyEnc) : null) ?? process.env.LLM_API_KEY ?? null;
+    apiKey = stored?.apiKeyEnc ? decryptSecret(stored.apiKeyEnc) : null;
+    // normBase 在没配 LLM_BASE_URL 时会回落到默认地址，所以只配了 Key 的自部署也对得上
+    if (!apiKey && process.env.LLM_API_KEY && 目标 === normBase(process.env.LLM_BASE_URL)) {
+      apiKey = process.env.LLM_API_KEY;
+    }
   }
   if (!apiKey) return null;
-  return { apiKey, baseUrl: normBase(input.baseUrl), model: input.model.trim() || DEFAULT_MODEL };
+  return { apiKey, baseUrl: 目标, model: input.model.trim() || DEFAULT_MODEL };
 }
+
 
 export function stripCodeFence(text: string): string {
   let t = text.trim();
