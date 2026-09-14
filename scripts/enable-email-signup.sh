@@ -15,8 +15,10 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-[ $# -eq 5 ] || { sed -n '2,12p' "$0"; exit 1; }
+[ $# -eq 5 ] || [ $# -eq 6 ] || { sed -n '2,12p' "$0"; exit 1; }
 HOST=$1; PORT=$2; USER=$3; PASS=$4; FROM=$5
+VERIFY=""
+[ "${6:-}" = "--verify" ] && VERIFY=1
 
 cp .env ".env.bak-$(date +%F-%H%M%S)"
 # 先删掉可能已有的同名键，再追加，免得 .env 里出现两份
@@ -29,9 +31,9 @@ sed -i '/^SMTP_HOST=/d;/^SMTP_PORT=/d;/^SMTP_USER=/d;/^SMTP_PASS=/d;/^SMTP_FROM=
   echo "SMTP_USER=$USER"
   echo "SMTP_PASS=$PASS"
   echo "SMTP_FROM=$FROM"
-  [ -n "$要验证码" ] && { echo "# 注册时要一次验证码"; echo "SIGNUP_VERIFY=1"; }
+  [ -n "$VERIFY" ] && { echo "# 注册时要一次验证码"; echo "SIGNUP_VERIFY=1"; }
 } >> .env
-echo "→ 已写入 .env（自助注册恢复${要验证码:+，并打开了验证码}）"
+echo "→ 已写入 .env（自助注册恢复${VERIFY:+，并打开了验证码}）"
 
 docker compose up -d >/dev/null 2>&1
 echo "→ 已重启，等服务就绪"
@@ -45,7 +47,8 @@ done
 # 容器里没有独立的 node_modules/nodemailer，单独 require 一定失败，会误判成"通道坏了"。
 echo ""
 echo "→ 现在验证：打开 https://app.ai-daedalus.com/signup ，填你的邮箱、点「获取验证码」"
-read -rp "→ 做完按回车，我来看日志" _
+# 非交互（比如从别的机器 ssh 过来跑）时不要卡在这里
+if [ -t 0 ]; then read -rp "→ 做完按回车，我来看日志" _; fi
 echo ""
 docker compose logs crm --tail 40 2>&1 | grep -i verify || echo "（日志里没有 verify 记录）"
 echo ""

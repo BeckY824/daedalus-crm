@@ -5,14 +5,20 @@ import { createSession } from "@/lib/auth";
 import { multiTenant } from "@/lib/tenant/context";
 import { control } from "@/lib/tenant/control";
 import { createWorkspace, TRIAL_DAYS } from "@/lib/tenant/workspaces";
-import { codeVisibleToClient, sendCode, smsConfigured, smtpConfigured } from "@/lib/tenant/notify";
+import { codeVisibleToClient, sendCode, smtpConfigured } from "@/lib/tenant/notify";
 import { checkPassword, consumeCode, createAccount, findAccountByTarget, isDisposableEmail, issueCode, parseTarget } from "@/lib/tenant/accounts";
 import { 占用, 释放, 记工作区, 核验万能码, 归一化 } from "@/lib/tenant/activation";
 import { 赠送, 邀请码赠送, 注册赠送 } from "@/lib/tenant/ai-allowance";
 import { 检查限流, 记一次失败, 解析来源IP, IP阈值, 今日注册数, 记一次注册, 每IP每日注册上限 } from "@/lib/rate-limit";
 
 /**
- * 注册：团队名 + 姓名 + 手机/邮箱 + 密码（+ 可选邀请码）→ 开一个工作区，试用 7 天。
+ * 注册：邮箱 + 验证码 + 密码 + 团队名（+ 可选邀请码）→ 开一个工作区，试用 7 天。
+ *
+ * **只收邮箱。** 手机号那条路要短信通道，而国内短信签名要域名备案，服务器在境外办不下来；
+ * 与其在注册页摆一个填了就被拒的入口，不如不摆。登录仍然认手机号——早先开的账号还在用。
+ *
+ * 不要姓名：它在「设置管理 → 用户管理」里随时能改，而团队名改不了
+ * （它决定了工作区的 slug 和库文件名），所以只留团队名这一个非填不可的。
  *
  * 只在托管版可用。自部署版没有"注册"这回事——那里是管理员建账号。
  *
@@ -52,21 +58,13 @@ function 需要验证码(): boolean {
  *
  * 开发环境不判：那里码直接回显在页面上，见 notify.ts 的 codeVisibleToClient。
  */
-function 能收到码(kind: "phone" | "email"): boolean {
+function 能收到码(): boolean {
   if (process.env.NODE_ENV !== "production") return true;
-  return kind === "email" ? smtpConfigured() : smsConfigured();
+  return smtpConfigured();
 }
 
-/** 注册页用它决定输入框该写「手机号或邮箱」还是只写「邮箱」 */
-export async function 注册可用方式(): Promise<{ 手机: boolean; 邮箱: boolean }> {
-  if (!需要验证码()) return { 手机: true, 邮箱: true };
-  return { 手机: 能收到码("phone"), 邮箱: 能收到码("email") };
-}
-
-function 收不到码的提示(kind: "phone" | "email"): string {
-  return kind === "phone"
-    ? "手机号注册还没开通（短信通道在办），先用邮箱注册吧"
-    : "邮箱注册还没开通，先用手机号注册吧";
+function 收不到码的提示(): string {
+  return "邮箱注册暂时不可用（发信通道未配置），请联系我们";
 }
 
 export type SendCodeResult = { ok: true; hint?: string } | { ok: false; error: string };
@@ -84,9 +82,9 @@ export async function requestCode(targetRaw: string): Promise<SendCodeResult> {
   if (!multiTenant() || 自助注册已关闭()) return 未开放();
   if (!需要验证码()) return { ok: false, error: "这个部署不需要验证码，直接填密码注册即可" };
   const t = parseTarget(targetRaw);
-  if (!t) return { ok: false, error: "请填写正确的手机号或邮箱" };
-  if (t.kind === "email" && isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
-  if (!能收到码(t.kind)) return { ok: false, error: 收不到码的提示(t.kind) };
+  if (!t || t.kind !== "email") return { ok: false, error: "请填写正确的邮箱" };
+  if (isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
+  if (!能收到码()) return { ok: false, error: 收不到码的提示() };
 
   // 按 IP 限流：发码是唯一一个未登录就能触发外部计费动作的接口，不限会被薅
   const from = await ip();
@@ -107,6 +105,12 @@ export async function requestCode(targetRaw: string): Promise<SendCodeResult> {
   if (!sent.ok) return { ok: false, error: sent.error };
   // 开发环境把码直接给回去，省得翻日志；线上永远不回显
   return { ok: true, hint: codeVisibleToClient() ? `开发环境验证码：${r.code}` : undefined };
+}
+
+/** 没填姓名时从邮箱前缀取一个。之后在「设置管理 → 用户管理」里随时能改 */
+function 从邮箱取名(email: string): string {
+  const 前缀 = email.split("@")[0].replace(/[._+-]+/g, " ").trim();
+  return (前缀 || "我").slice(0, 20);
 }
 
 /**
@@ -132,7 +136,8 @@ export async function signup(input: {
   /** 只有打开 SIGNUP_VERIFY 时才要；默认那条路上表单根本不画这一栏 */
   code?: string;
   password: string;
-  name: string;
+  /** 可选：不填就从邮箱前缀取 */
+  name?: string;
   workspace: string;
   invite?: string;
   agreed?: boolean;
@@ -140,13 +145,12 @@ export async function signup(input: {
   if (!multiTenant() || 自助注册已关闭()) return 未开放();
 
   const t = parseTarget(input.target);
-  if (!t) return { ok: false, error: "请填写正确的手机号或邮箱" };
+  if (!t || t.kind !== "email") return { ok: false, error: "请填写正确的邮箱" };
   /**
    * 不验证码的时候，这一条就是挡临时邮箱的唯一一道闸，必须在这里判——
    * 原来只在发码那一步判，而现在发码那一步可能整个不走。
    */
-  if (t.kind === "email" && isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
-  if (!input.name.trim()) return { ok: false, error: "请填写你的姓名" };
+  if (isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
   if (!input.workspace.trim()) return { ok: false, error: "请填写团队名称" };
   const pwErr = checkPassword(input.password);
   if (pwErr) return { ok: false, error: pwErr };
@@ -169,8 +173,8 @@ export async function signup(input: {
   }
 
   if (需要验证码()) {
-    // 收不到码的那种号，在这里也要拦：表单绕得过，Server Action 绕不过
-    if (!能收到码(t.kind)) return { ok: false, error: 收不到码的提示(t.kind) };
+    // 表单绕得过，Server Action 绕不过
+    if (!能收到码()) return { ok: false, error: 收不到码的提示() };
     const codeOk = await consumeCode(t.value, input.code ?? "", "signup");
     if (!codeOk.ok) {
       if (from) 记一次失败(`signup:${from}`, Date.now(), IP阈值);
@@ -190,7 +194,7 @@ export async function signup(input: {
 
   let account;
   try {
-    account = await createAccount({ target: t, password: input.password, name: input.name });
+    account = await createAccount({ target: t, password: input.password, name: input.name?.trim() || 从邮箱取名(t.value) });
   } catch {
     if (一次性) await 释放(一次性);
     return { ok: false, error: "这个号已经注册过了，直接登录吧" };

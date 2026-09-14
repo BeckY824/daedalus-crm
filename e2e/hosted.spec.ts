@@ -35,15 +35,23 @@ function 写AI用量(workspaceName: string, calls: number) {
   `, CONTROL_DB, workspaceName, String(calls)], { stdio: "pipe" });
 }
 
-async function 注册(page: Page, opts: { 团队: string; 姓名: string; 手机: string; 密码: string }) {
+/**
+ * 注册走两步：第一步只填邮箱，第二步填密码和团队名。
+ * 这里跑的是默认配置（不要验证码），所以第一步的按钮是「下一步」；
+ * 要验证码那条由单测覆盖（tests/signup-gate.test.ts）。
+ */
+async function 注册(page: Page, opts: { 团队: string; 邮箱: string; 密码: string }) {
   await page.goto("/signup");
-  await page.getByPlaceholder("团队名称，如「启明教育」").fill(opts.团队);
-  await page.getByPlaceholder("你的姓名").fill(opts.姓名);
-  await page.getByPlaceholder("手机号或邮箱").fill(opts.手机);
-  // 默认不要验证码：填账号密码就能注册。打开 SIGNUP_VERIFY 才会多出那一栏，
-  // 那条路由单测覆盖（tests/signup-gate.test.ts），这里走的是线上的默认配置
-  await expect(page.getByPlaceholder("验证码")).toHaveCount(0);
+  // 第一步：只有邮箱一个框，别的都不该出现
+  await expect(page.getByPlaceholder("设置密码")).toBeHidden();
+  await page.getByPlaceholder("邮箱").fill(opts.邮箱);
+  await page.getByRole("button", { name: /下一步|发送验证码/ }).click();
+
+  // 第二步
+  await expect(page.getByPlaceholder("设置密码")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByPlaceholder("邮件里的 6 位验证码")).toHaveCount(0);
   await page.getByPlaceholder("设置密码").fill(opts.密码);
+  await page.getByPlaceholder("团队名称，如「启明教育」").fill(opts.团队);
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "创建工作区" }).click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
@@ -68,22 +76,23 @@ async function 建客户(page: Page, 姓名: string, 手机: string) {
  * 登录。每条用例跑在自己的浏览器上下文里，会话不共享，
  * 所以需要数据的用例各自登进来——顺带也把登录这条路每次都走一遍。
  */
-async function 登录(page: Page, 手机: string, 密码: string) {
+async function 登录(page: Page, 账号: string, 密码: string) {
   await page.goto("/login");
-  await page.getByPlaceholder("用户名").fill(手机);
+  await page.getByPlaceholder("用户名").fill(账号);
   await page.getByPlaceholder("登录密码").fill(密码);
   await page.getByRole("button", { name: /登\s*录/ }).click();
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
 }
 
-const 启明 = { 团队: "启明教育", 姓名: "林老师", 手机: "13800138000", 密码: "qiming2026" };
-const 北辰 = { 团队: "北辰网络", 姓名: "赵经理", 手机: "13900139000", 密码: "beichen2026" };
+const 启明 = { 团队: "启明教育", 邮箱: "lin@qiming.example.com", 密码: "qiming2026" };
+const 北辰 = { 团队: "北辰网络", 邮箱: "zhao@beichen.example.com", 密码: "beichen2026" };
 
 test("1 注册就得到一个属于自己的空工作区", async ({ page }) => {
   await 注册(page, 启明);
-  // 名字现在出现两处：侧栏的用户块 + 对话面的问候语（「下午好，林老师。」）。
+  // 注册不问姓名，服务端从邮箱前缀取：lin@qiming.example.com → 「lin」。
+  // 之后在「设置管理 → 用户管理」里能改。名字出现两处：侧栏的用户块 + 问候语。
   // 意图只是"落在了自己的工作区"，看到一处就够，别让第二处把严格模式撞挂
-  await expect(page.getByText("林老师").first()).toBeVisible();
+  await expect(page.getByText("lin").first()).toBeVisible();
 
   await page.goto("/customers");
   // 全新工作区：一条业务数据都不该有
@@ -91,7 +100,7 @@ test("1 注册就得到一个属于自己的空工作区", async ({ page }) => {
 });
 
 test("2 建一条客户，自己看得到", async ({ page }) => {
-  await 登录(page, 启明.手机, 启明.密码);
+  await 登录(page, 启明.邮箱, 启明.密码);
   await 建客户(page, "启明的客户甲", "13900001111");
   await expect(page.getByText("启明的客户甲")).toBeVisible({ timeout: 15_000 });
 });
@@ -100,13 +109,13 @@ test("3 另一个人注册进来，看不到上一家的客户", async ({ page }
   await 注册(page, 北辰);
 
   await page.goto("/customers");
-  await expect(page.getByText("赵经理")).toBeVisible();
+  await expect(page.getByText("zhao").first()).toBeVisible();
   // 这是隔离的用户可见证明
   await expect(page.getByText("启明的客户甲")).toHaveCount(0);
 });
 
 test("4 试用到期后只读：横条出现，写操作被拒", async ({ page }) => {
-  await 登录(page, 北辰.手机, 北辰.密码);
+  await 登录(page, 北辰.邮箱, 北辰.密码);
   拨到过期("北辰网络");
   // 租户解析按 token 缓存 10 秒，等它过期再看
   await page.waitForTimeout(11_000);
@@ -123,7 +132,7 @@ test("4 试用到期后只读：横条出现，写操作被拒", async ({ page }
 });
 
 test("5 开通页：说清怎么付，提交后等核对", async ({ page }) => {
-  await 登录(page, 北辰.手机, 北辰.密码);
+  await 登录(page, 北辰.邮箱, 北辰.密码);
   await page.goto("/billing");
   await expect(page.getByRole("heading", { name: "开通订阅" })).toBeVisible();
   await expect(page.getByText(/只读状态/)).toBeVisible();
@@ -156,7 +165,7 @@ test("6 运营台要 token，开通后恢复可写", async ({ page }) => {
   await expect(page.getByText(/已更新/)).toBeVisible({ timeout: 15_000 });
 
   await page.waitForTimeout(11_000);
-  await 登录(page, 北辰.手机, 北辰.密码);
+  await 登录(page, 北辰.邮箱, 北辰.密码);
   await page.goto("/customers");
   // 开通之后横条消失，又能写了
   await expect(page.getByText(/试用已结束/)).toHaveCount(0);
@@ -166,7 +175,9 @@ test("6 运营台要 token，开通后恢复可写", async ({ page }) => {
 
 test("7 没登录时注册与登录页可达，其余弹回登录", async ({ page }) => {
   await page.goto("/signup");
-  await expect(page.getByRole("button", { name: "创建工作区" })).toBeVisible();
+  // 第一步只有邮箱和一个按钮，「创建工作区」在第二步才出现
+  await expect(page.getByPlaceholder("邮箱")).toBeVisible();
+  await expect(page.getByRole("button", { name: /下一步|发送验证码/ })).toBeVisible();
 
   await page.goto("/customers");
   await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
@@ -192,7 +203,7 @@ test("9 试用工作区的 AI 免费次数：注册送 30、用了之后当天�
    * 所以不用真模型也能验闸门。真问 33 次太慢，直接把用量写成 29，
    * 再看一眼首页：余额 1 < 30 触发当天的 3 次赠送，于是显示 4/33。
    */
-  await 注册(page, { 团队: "限额测试", 姓名: "赵老师", 手机: "13800138009", 密码: "Passw0rd99" });
+  await 注册(page, { 团队: "限额测试", 邮箱: "quota@test.example.com", 密码: "Passw0rd99" });
   const 输入 = page.getByPlaceholder(/问一位/);
   await expect(page.locator(".cli-quota")).toHaveText("免费提问 30/30");
 
@@ -221,7 +232,10 @@ test("10 条款页不用登录就能读，注册页有勾选", async ({ page }) 
     await expect(page).toHaveURL(new RegExp(p));
   }
   await expect(page.getByRole("heading", { name: "隐私政策" })).toBeVisible();
+  // 条款勾选在注册的第二步，先把第一步走过去
   await page.goto("/signup");
-  await expect(page.getByRole("checkbox")).toBeVisible();
+  await page.getByPlaceholder("邮箱").fill("terms-check@example.com");
+  await page.getByRole("button", { name: /下一步|发送验证码/ }).click();
+  await expect(page.getByRole("checkbox")).toBeVisible({ timeout: 15_000 });
   await expect(page.getByRole("link", { name: "用户协议" })).toHaveAttribute("href", "/terms");
 });

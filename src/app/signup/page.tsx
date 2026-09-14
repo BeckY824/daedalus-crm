@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import SignupForm from "./SignupForm";
 import { 注册赠送 } from "@/lib/tenant/ai-allowance";
-import { 注册要验证码, 注册可用方式 } from "./actions";
+import { 注册要验证码 } from "./actions";
 
 /**
  * 必须动态渲染：跳不跳取决于运行时的 SIGNUP_REDIRECT，而这一页默认会被
@@ -17,5 +17,5 @@ export const dynamic = "force-dynamic";
 export default async function SignupPage() {
   const to = process.env.SIGNUP_REDIRECT?.trim();
   if (to) redirect(to);
-  return <SignupForm 注册赠送={注册赠送} 要验证码={await 注册要验证码()} 可用方式={await 注册可用方式()} />;
+  return <SignupForm 注册赠送={注册赠送} 要验证码={await 注册要验证码()} />;
 }

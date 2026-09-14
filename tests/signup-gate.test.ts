@@ -77,8 +77,8 @@ async function 拿验证码(target: string): Promise<string> {
 }
 
 let n = 0;
-function 新手机() {
-  return `1390000${String(n++).padStart(4, "0")}`;
+function 新邮箱() {
+  return `u${n++}@example.com`;
 }
 
 describe("配了 SIGNUP_REDIRECT 就等于关闭自助注册", () => {
@@ -88,22 +88,22 @@ describe("配了 SIGNUP_REDIRECT 就等于关闭自助注册", () => {
     process.env.SIGNUP_REDIRECT = "https://ai-daedalus.com/demo.html";
 
     process.env.SIGNUP_VERIFY = "1";
-    expect((await requestCode("13800139002")).ok).toBe(false);
+    expect((await requestCode("someone@example.com")).ok).toBe(false);
     const 前 = await control.workspace.count();
-    const r = await signup({ target: "13800139002", code: "123456", password: "abcd1234", name: "陌生人", workspace: "自己开的", agreed: true });
+    const r = await signup({ target: "someone@example.com", code: "123456", password: "abcd1234", workspace: "自己开的", agreed: true });
     expect(r.ok).toBe(false);
     // 返回失败不够，得确认真的什么都没留下
     expect(await control.workspace.count()).toBe(前);
-    expect(await control.account.count({ where: { phone: "13800139002" } })).toBe(0);
+    expect(await control.account.count({ where: { phone: "someone@example.com" } })).toBe(0);
   });
 
   it("空字符串不算关闭——免得 .env 里留个空值把注册莫名其妙关掉", async () => {
     const { signup } = await import("@/app/signup/actions");
     process.env.SIGNUP_REDIRECT = "   ";
-    const r = await signup({ target: "不是手机号也不是邮箱", code: "x", password: "abcd1234", name: "n", workspace: "w", agreed: true });
+    const r = await signup({ target: "不是邮箱", code: "x", password: "abcd1234", workspace: "w", agreed: true });
     // 走到了格式校验那一步，说明开关没有拦它
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toContain("手机号或邮箱");
+    if (!r.ok) expect(r.error).toContain("邮箱");
   });
 });
 
@@ -112,8 +112,8 @@ describe("默认不要验证码：填账号密码就能注册", () => {
     const { signup } = await import("@/app/signup/actions");
     const { 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { control } = await import("@/lib/tenant/control");
-    const 手机 = 新手机();
-    const r = await signup({ target: 手机, code: "", password: "abcd1234", name: "林老师", workspace: "不用码的团队", agreed: true });
+    const 邮箱 = 新邮箱();
+    const r = await signup({ target: 邮箱, code: "", password: "abcd1234", workspace: "不用码的团队", agreed: true });
     expect(r.ok).toBe(true);
     const ws = await control.workspace.findFirst({ where: { name: "不用码的团队" } });
     expect((await 查额度(ws!.id)).还剩).toBe(注册赠送);
@@ -122,35 +122,35 @@ describe("默认不要验证码：填账号密码就能注册", () => {
   it("密码必须够长且含字母和数字——不验证手机号时，密码是唯一一道门", async () => {
     const { signup } = await import("@/app/signup/actions");
     for (const pw of ["abc123", "abcdefgh", "12345678", ""]) {
-      const r = await signup({ target: 新手机(), code: "", password: pw, name: "x", workspace: "弱密码" + pw, agreed: true });
+      const r = await signup({ target: 新邮箱(), code: "", password: pw, workspace: "弱密码" + pw, agreed: true });
       expect(r.ok, `密码 ${JSON.stringify(pw)} 不该通过`).toBe(false);
     }
   });
 
   it("临时邮箱照样拒——不发码了，这条就是挡它的唯一一道闸", async () => {
     const { signup } = await import("@/app/signup/actions");
-    const r = await signup({ target: "someone@mailinator.com", code: "", password: "abcd1234", name: "x", workspace: "临时邮箱", agreed: true });
+    const r = await signup({ target: "someone@mailinator.com", code: "", password: "abcd1234", workspace: "临时邮箱", agreed: true });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("常用邮箱");
   });
 
   it("没勾条款一样开不了", async () => {
     const { signup } = await import("@/app/signup/actions");
-    expect((await signup({ target: 新手机(), code: "", password: "abcd1234", name: "x", workspace: "没勾" })).ok).toBe(false);
+    expect((await signup({ target: 新邮箱(), code: "", password: "abcd1234", workspace: "没勾" })).ok).toBe(false);
   });
 
   it("同一个号注册两次，第二次拒", async () => {
     const { signup } = await import("@/app/signup/actions");
-    const 手机 = 新手机();
-    expect((await signup({ target: 手机, code: "", password: "abcd1234", name: "x", workspace: "头一次" + 手机, agreed: true })).ok).toBe(true);
-    const 再 = await signup({ target: 手机, code: "", password: "abcd1234", name: "x", workspace: "第二次" + 手机, agreed: true });
+    const 邮箱 = 新邮箱();
+    expect((await signup({ target: 邮箱, code: "", password: "abcd1234", workspace: "头一次" + 邮箱, agreed: true })).ok).toBe(true);
+    const 再 = await signup({ target: 邮箱, code: "", password: "abcd1234", workspace: "第二次" + 邮箱, agreed: true });
     expect(再.ok).toBe(false);
     if (!再.ok) expect(再.error).toContain("注册过");
   });
 
   it("这时候发码接口直接告诉你不用发", async () => {
     const { requestCode } = await import("@/app/signup/actions");
-    const r = await requestCode(新手机());
+    const r = await requestCode(新邮箱());
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("不需要验证码");
   });
@@ -161,77 +161,43 @@ describe("打开 SIGNUP_VERIFY 之后要验证码", () => {
     process.env.SIGNUP_VERIFY = "1";
   });
 
-  it("只配了邮件时，手机号在门口就被拦住——不能让人点了「获取验证码」再干等", async () => {
+  it("手机号一律拒——注册只收邮箱", async () => {
     const { requestCode, signup } = await import("@/app/signup/actions");
-    const 原 = process.env.NODE_ENV;
-    // 生产环境才判通道：开发环境的码直接回显在页面上。
-    // process.env 的属性描述符是锁死的，只能整个赋值，不能 defineProperty
-    Object.assign(process.env, { NODE_ENV: "production" });
-    process.env.SMTP_HOST = "smtpdm.example.com";
-    process.env.SMTP_USER = "no-reply@example.com";
-    process.env.SMTP_PASS = "x";
-    process.env.SMTP_FROM = "no-reply@example.com";
-    try {
-      const 发 = await requestCode(新手机());
-      expect(发.ok).toBe(false);
-      if (!发.ok) expect(发.error).toContain("先用邮箱注册");
-
-      // 表单绕得过，Server Action 绕不过
-      const 开 = await signup({ target: 新手机(), code: "123456", password: "abcd1234", name: "x", workspace: "绕过表单", agreed: true });
-      expect(开.ok).toBe(false);
-      if (!开.ok) expect(开.error).toContain("先用邮箱注册");
-
-      // 邮箱这条照常
-      const { 注册可用方式 } = await import("@/app/signup/actions");
-      expect(await 注册可用方式()).toEqual({ 手机: false, 邮箱: true });
-    } finally {
-      Object.assign(process.env, { NODE_ENV: 原 });
-      delete process.env.SMTP_HOST;
-      delete process.env.SMTP_USER;
-      delete process.env.SMTP_PASS;
-      delete process.env.SMTP_FROM;
-    }
-  });
-
-  it("不要验证码时，两种都可用——那时候根本不发码", async () => {
-    delete process.env.SIGNUP_VERIFY;
-    const { 注册可用方式 } = await import("@/app/signup/actions");
-    expect(await 注册可用方式()).toEqual({ 手机: true, 邮箱: true });
+    const 发 = await requestCode("13900001234");
+    expect(发.ok).toBe(false);
+    if (!发.ok) expect(发.error).toContain("邮箱");
+    // 表单不画手机号那一栏，但 Server Action 是独立端点，得自己拦
+    const 开 = await signup({ target: "13900001234", code: "123456", password: "abcd1234", workspace: "手机号注册", agreed: true });
+    expect(开.ok).toBe(false);
+    if (!开.ok) expect(开.error).toContain("邮箱");
   });
 
   it("手机号：发码、填对、开出工作区，并送注册赠送", async () => {
     const { signup } = await import("@/app/signup/actions");
     const { 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { control } = await import("@/lib/tenant/control");
-    const 手机 = 新手机();
-    const code = await 拿验证码(手机);
-    const r = await signup({ target: 手机, code, password: "abcd1234", name: "林老师", workspace: "启明教育", agreed: true });
+    const 邮箱 = 新邮箱();
+    const code = await 拿验证码(邮箱);
+    const r = await signup({ target: 邮箱, code, password: "abcd1234", workspace: "启明教育", agreed: true });
     expect(r.ok).toBe(true);
     const ws = await control.workspace.findFirst({ where: { name: "启明教育" } });
     expect((await 查额度(ws!.id)).还剩).toBe(注册赠送);
   });
 
-  it("邮箱：同一套流程", async () => {
-    const { signup } = await import("@/app/signup/actions");
-    const 邮箱 = `u${n++}@example.com`;
-    const code = await 拿验证码(邮箱);
-    expect((await signup({ target: 邮箱, code, password: "abcd1234", name: "王", workspace: "邮箱团队", agreed: true })).ok).toBe(true);
-  });
-
   it("验证码不对开不了；对的码只能用一次", async () => {
     const { signup } = await import("@/app/signup/actions");
-    const 手机 = 新手机();
-    const code = await 拿验证码(手机);
-    const 错 = await signup({ target: 手机, code: "000000", password: "abcd1234", name: "x", workspace: "y", agreed: true });
+    const 邮箱 = 新邮箱();
+    const code = await 拿验证码(邮箱);
+    const 错 = await signup({ target: 邮箱, code: "000000", password: "abcd1234", workspace: "y", agreed: true });
     expect(错.ok).toBe(false);
-    expect((await signup({ target: 手机, code, password: "abcd1234", name: "x", workspace: "y1" + n, agreed: true })).ok).toBe(true);
+    expect((await signup({ target: 邮箱, code, password: "abcd1234", workspace: "y1" + n, agreed: true })).ok).toBe(true);
   });
 
   it("没勾条款开不了——服务端也要验，表单上的勾选框绕得过", async () => {
     const { signup } = await import("@/app/signup/actions");
-    const 手机 = 新手机();
-    const code = await 拿验证码(手机);
-    const r = await signup({ target: 手机, code, password: "abcd1234", name: "x", workspace: "y" });
+    const 邮箱 = 新邮箱();
+    const code = await 拿验证码(邮箱);
+    const r = await signup({ target: 邮箱, code, password: "abcd1234", workspace: "y" });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("用户协议");
   });
@@ -248,12 +214,12 @@ describe("打开 SIGNUP_VERIFY 之后要验证码", () => {
     const { 重置限流 } = await import("@/lib/rate-limit");
     for (let i = 0; i < 3; i++) {
       重置限流();
-      const 手机 = 新手机();
-      const code = await 拿验证码(手机);
-      expect((await signup({ target: 手机, code, password: "abcd1234", name: "x", workspace: `刷号${i}${n}`, agreed: true })).ok).toBe(true);
+      const 邮箱 = 新邮箱();
+      const code = await 拿验证码(邮箱);
+      expect((await signup({ target: 邮箱, code, password: "abcd1234", workspace: `刷号${i}${n}`, agreed: true })).ok).toBe(true);
     }
     重置限流();
-    const r = await requestCode(新手机());
+    const r = await requestCode(新邮箱());
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("明天");
   });
@@ -271,9 +237,9 @@ describe("邀请码可选", () => {
     const { control } = await import("@/lib/tenant/control");
     const master = 展示(await 换万能码()).toLowerCase();
     for (const 名 of ["万能甲", "万能乙"]) {
-      const 手机 = 新手机();
-      const code = await 拿验证码(手机);
-      expect((await signup({ target: 手机, code, password: "abcd1234", name: "x", workspace: 名, invite: master, agreed: true })).ok).toBe(true);
+      const 邮箱 = 新邮箱();
+      const code = await 拿验证码(邮箱);
+      expect((await signup({ target: 邮箱, code, password: "abcd1234", workspace: 名, invite: master, agreed: true })).ok).toBe(true);
       const ws = await control.workspace.findFirst({ where: { name: 名 } });
       expect((await 查额度(ws!.id)).上限).toBe(注册赠送 + 邀请码赠送);
     }
@@ -284,9 +250,9 @@ describe("邀请码可选", () => {
     const { 换万能码 } = await import("@/lib/tenant/activation");
     const 旧 = await 换万能码();
     await 换万能码();
-    const 手机 = 新手机();
-    const code = await 拿验证码(手机);
-    const r = await signup({ target: 手机, code, password: "abcd1234", name: "x", workspace: "旧码", invite: 旧, agreed: true });
+    const 邮箱 = 新邮箱();
+    const code = await 拿验证码(邮箱);
+    const r = await signup({ target: 邮箱, code, password: "abcd1234", workspace: "旧码", invite: 旧, agreed: true });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toContain("邀请码无效");
   });
@@ -297,28 +263,28 @@ describe("邀请码可选", () => {
     const { 查额度, 注册赠送, 邀请码赠送 } = await import("@/lib/tenant/ai-allowance");
     const { control } = await import("@/lib/tenant/control");
     const [once] = await 生成并入库(1);
-    const 手机 = 新手机();
-    const code = await 拿验证码(手机);
-    expect((await signup({ target: 手机, code, password: "abcd1234", name: "x", workspace: "一次性甲", invite: once, agreed: true })).ok).toBe(true);
+    const 邮箱 = 新邮箱();
+    const code = await 拿验证码(邮箱);
+    expect((await signup({ target: 邮箱, code, password: "abcd1234", workspace: "一次性甲", invite: once, agreed: true })).ok).toBe(true);
     const ws = await control.workspace.findFirst({ where: { name: "一次性甲" } });
     expect((await 查额度(ws!.id)).上限).toBe(注册赠送 + 邀请码赠送);
     const used = await control.activationCode.findUnique({ where: { code: once } });
     expect(used!.usedAt).not.toBeNull();
     expect(used!.workspaceId).toBe(ws!.id);
 
-    const 手机2 = 新手机();
+    const 手机2 = 新邮箱();
     const code2 = await 拿验证码(手机2);
-    const 再 = await signup({ target: 手机2, code: code2, password: "abcd1234", name: "x", workspace: "一次性乙", invite: once, agreed: true });
+    const 再 = await signup({ target: 手机2, code: code2, password: "abcd1234", workspace: "一次性乙", invite: once, agreed: true });
     expect(再.ok).toBe(false);
   });
 
   it("邀请码填错要报错、且不消耗验证码——人得能改了再交", async () => {
     const { signup } = await import("@/app/signup/actions");
-    const 手机 = 新手机();
-    const code = await 拿验证码(手机);
-    const r = await signup({ target: 手机, code, password: "abcd1234", name: "x", workspace: "填错", invite: "ABCD-EFGH-JKLM", agreed: true });
+    const 邮箱 = 新邮箱();
+    const code = await 拿验证码(邮箱);
+    const r = await signup({ target: 邮箱, code, password: "abcd1234", workspace: "填错", invite: "ABCD-EFGH-JKLM", agreed: true });
     expect(r.ok).toBe(false);
     // 同一个验证码去掉邀请码再交，能成
-    expect((await signup({ target: 手机, code, password: "abcd1234", name: "x", workspace: "填错后改好", agreed: true })).ok).toBe(true);
+    expect((await signup({ target: 邮箱, code, password: "abcd1234", workspace: "填错后改好", agreed: true })).ok).toBe(true);
   });
 });
