@@ -63,3 +63,37 @@ describe("演示区的管理员动作", () => {
     expect(段).toContain("FORBIDDEN");
   });
 });
+
+describe("两条容易被下一个人改坏的约定", () => {
+  it("演示区里界面上也不摆管理员那几栏", async () => {
+    /**
+     * 服务端已经不给演示区过 requireAdmin 了，但界面还照旧画「AI 接入」那一栏的话：
+     * 一是点了只会报错，二是那一栏会把平台 Key 的尾 4 位显示出来。
+     * 所以 settings/page.tsx 要在演示区里把 isAdmin 直接按 false 传。
+     */
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/page.tsx"), "utf8");
+    expect(src).toContain("当前是演示区");
+    expect(src).toMatch(/isAdmin=\{[^}]*!\s*演示区\s*\}/);
+  });
+
+  it("AI 配置的操作日志不带 detail", async () => {
+    /**
+     * 操作日志那一栏**不在 isAdmin 判断之内**——普通销售也看得到。
+     * 而 recordAudit 的 detail 是个自由字段：哪天有人照着「业务配置」那条
+     * （它传了完整的 before/after）给 AI 配置也加一个 detail，
+     * 明文 Key 就会落进一张全员可读的表里。这条把现状钉住。
+     */
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/actions.ts"), "utf8");
+    for (const 名 of ["saveLlmSettings", "clearLlmSettings"]) {
+      const i = src.indexOf(`export async function ${名}`);
+      expect(i, `找不到 ${名}`).toBeGreaterThan(0);
+      const 段 = src.slice(i, src.indexOf("\n}", i));
+      expect(段.includes("recordAudit"), `${名} 应当记一条日志`).toBe(true);
+      expect(段.includes("detail:"), `${名} 的日志不能带 detail——那张表全员可读`).toBe(false);
+    }
+  });
+});
