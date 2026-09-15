@@ -115,14 +115,17 @@ test("1 注册就得到一个属于自己的空工作区", async ({ page }) => {
 test("2 建一条客户，自己看得到", async ({ page }) => {
   await 登录(page, 启明.邮箱, 启明.密码);
   await 建客户(page, "启明的客户甲", "13900001111");
-  await expect(page.getByText("启明的客户甲")).toBeVisible({ timeout: 15_000 });
+  // 限定在正文里：中栏那行、成功提示里都会再出现一次这个名字
+  await expect(page.locator("main").getByText("启明的客户甲").first()).toBeVisible({ timeout: 15_000 });
 });
 
 test("3 另一个人注册进来，看不到上一家的客户", async ({ page }) => {
   await 注册(page, 北辰);
 
   await page.goto("/customers");
-  await expect(page.getByText("zhao").first()).toBeVisible();
+  // 三栏壳的图标栏只放头像，不再把用户名当文字写出来（76px 塞不下），
+  // 所以这里认账号按钮的无障碍名——意图一样是「我以 zhao 的身份待在自己的工作区」
+  await expect(page.getByRole("button", { name: /zhao/ })).toBeVisible();
   // 这是隔离的用户可见证明
   await expect(page.getByText("启明的客户甲")).toHaveCount(0);
 });
@@ -184,7 +187,7 @@ test("6 运营台要 token，开通后恢复可写", async ({ page }) => {
   // 开通之后横条消失，又能写了
   await expect(page.getByText(/试用已结束/)).toHaveCount(0);
   await 建客户(page, "开通后的客户", "13900003333");
-  await expect(page.getByText("开通后的客户")).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("main").getByText("开通后的客户").first()).toBeVisible({ timeout: 15_000 });
 });
 
 test("7 没登录时注册与登录页可达，其余弹回登录", async ({ page }) => {
@@ -327,5 +330,5 @@ test("13 管理员加的同事真的能登录，并且看到同一份数据", as
 
   // 看到的是启明那份数据：第 2 条用例建的那个学员在
   await page.goto("/customers");
-  await expect(page.getByText("启明的客户甲").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("main").getByText("启明的客户甲").first()).toBeVisible({ timeout: 15_000 });
 });
