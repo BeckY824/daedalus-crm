@@ -50,14 +50,11 @@ export async function sendCode(target: string, code: string): Promise<SendResult
   return { ok: true, channel: "log" };
 }
 
-/**
- * 邮件验证码。走 SMTP 而不是某家的 HTTP API：换供应商只改四个环境变量。
- * 465 走隐式 TLS，其余端口 STARTTLS，两种国内供应商都支持。
- */
-async function sendMail(email: string, code: string): Promise<SendResult> {
+/** 同一条 SMTP 通道，验证码和线索邮件（lib/lead.ts）共用。465 走隐式 TLS，其余端口 STARTTLS */
+export async function 建立SMTP() {
   const nodemailer = await import("nodemailer");
   const port = Number(process.env.SMTP_PORT ?? 465);
-  const transport = nodemailer.createTransport({
+  return nodemailer.createTransport({
     host: process.env.SMTP_HOST!,
     port,
     secure: port === 465,
@@ -65,6 +62,14 @@ async function sendMail(email: string, code: string): Promise<SendResult> {
     connectionTimeout: 10_000,
     socketTimeout: 15_000,
   });
+}
+
+/**
+ * 邮件验证码。走 SMTP 而不是某家的 HTTP API：换供应商只改四个环境变量。
+ * 465 走隐式 TLS，其余端口 STARTTLS，两种国内供应商都支持。
+ */
+async function sendMail(email: string, code: string): Promise<SendResult> {
+  const transport = await 建立SMTP();
   const 产品 = process.env.SMTP_PRODUCT_NAME ?? "Daedalus CRM";
   await transport.sendMail({
     from: process.env.SMTP_FROM!,
