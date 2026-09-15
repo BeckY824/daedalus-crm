@@ -51,8 +51,10 @@ a {
 /* ---------- 三栏壳（2026-09-15）：图标栏 76 / 中栏 352 / 右栏 ---------- */
 .shell { display: flex; min-height: 100vh; }
 .rail { width: 76px; flex: none; position: sticky; top: 0; height: 100vh; background: #fbfbfc; border-right: 1px solid #eceef2; display: flex; flex-direction: column; align-items: center; padding: 14px 0 12px; }
-/* 桌面端：顶上给红黄绿钮留位，这一块也是拖窗口的把手 */
-.shell-desktop .rail { padding-top: 44px; }
+/* 桌面端：顶上给红黄绿钮留位，这一块也是拖窗口的把手。
+   红黄绿整组宽 52（钮 12 + 中心间距 20×2），76px 的图标栏塞下它只剩 10px 到右边那道竖线，
+   挤得像贴着走——桌面端把图标栏加宽到 88，钮左右各留 18。 */
+.shell-desktop .rail { width: 88px; padding-top: 44px; }
 .shell-desktop .rail-top { -webkit-app-region: drag; }
 .shell-desktop .rail-top a { -webkit-app-region: no-drag; }
 .rail-top { display: flex; align-items: center; justify-content: center; height: 40px; width: 100%; margin-bottom: 8px; }
