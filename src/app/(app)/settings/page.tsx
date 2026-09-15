@@ -4,6 +4,7 @@ import SettingsView from "./SettingsView";
 import { describeLlmConfig } from "@/lib/llm";
 import { getBusiness } from "@/lib/business";
 import { aiUsageThisMonth } from "@/lib/ai-usage";
+import { multiTenant } from "@/lib/tenant/context";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,9 @@ export default async function SettingsPage() {
     <SettingsView
       me={me}
       isAdmin={me.role === "ADMIN"}
+      /* 托管版的登录标识是邮箱（控制面账号按邮箱认，找回密码也靠它）；
+         自部署版是用户名，既有账号是 admin / zhangsan 这种，不能改 */
+      用邮箱登录={multiTenant()}
       llm={llm}
       business={business}
       aiUsage={aiUsage}

@@ -86,6 +86,7 @@ export default function SettingsView({
   llm,
   business,
   aiUsage,
+  用邮箱登录 = false,
 }: {
   users: Row[];
   me: SessionUser;
@@ -94,6 +95,8 @@ export default function SettingsView({
   llm: LlmView;
   business: BusinessConfig;
   aiUsage: AiUsage;
+  /** 托管版：成员的登录标识是邮箱，不是用户名。见这一页表单里那段注释 */
+  用邮箱登录?: boolean;
 }) {
   const router = useRouter();
   const b = useBusiness();
@@ -139,10 +142,10 @@ export default function SettingsView({
         <>
           <div>
             系统里已有一位<b>{同名.name}</b>
-            {同名.title ? `（${同名.title}）` : ""}，登录用户名 <b>{同名.email}</b>。
+            {同名.title ? `（${同名.title}）` : ""}，{用邮箱登录 ? "登录邮箱" : "登录用户名"} <b>{同名.email}</b>。
           </div>
           <div style={{ marginTop: 8 }}>
-            如果这是另一个人，可以继续创建，各处负责人下拉会自动带上登录用户名区分；
+            如果这是另一个人，可以继续创建，各处负责人下拉会自动带上登录名区分；
             如果是同一个人，请点取消。
           </div>
         </>
@@ -199,7 +202,7 @@ export default function SettingsView({
 
   const columns: ColumnsType<Row> = [
     { title: "姓名", dataIndex: "name", width: 150, render: (v) => <UserCell name={v} size={30} /> },
-    { title: "登录用户名", dataIndex: "email", width: 200 },
+    { title: 用邮箱登录 ? "登录邮箱" : "登录用户名", dataIndex: "email", width: 200 },
     { title: "职位", dataIndex: "title", width: 120 },
     {
       title: "角色",
@@ -466,26 +469,46 @@ export default function SettingsView({
             </Col>
             <Col span={12}>
               {/*
-                这个字段存的是**登录用户名**，不是邮箱：登录页填的就是它，
+                两种部署，这一栏的含义不同：
+
+                自部署版存的是**登录用户名**，不是邮箱——登录页填的就是它，
                 既有账号是 admin / zhangsan / lisi。之前挂着 email 格式校验，
                 导致管理员按既有惯例建「lisi」时被前端直接挡死。
-                服务端登录时会 toLowerCase，所以这里强制小写并在输入时归一，
+
+                托管版存的是**邮箱**：那边登录校验的是控制面账号，账号按邮箱认，
+                而且他忘了密码要用它收验证码——填用户名的话 /forgot 那条路对他是断的。
+                建好之后不能改：它同时是控制面账号的标识，改一边不改另一边就对不上。
+
+                两种都强制小写并在输入时归一，服务端登录也会 toLowerCase，
                 否则填了 LiSi 会出现「我填的名字登不进去」。
               */}
               <Form.Item
                 name="email"
-                label="登录用户名"
+                label={用邮箱登录 ? "登录邮箱" : "登录用户名"}
                 normalize={(v?: string) => v?.trim().toLowerCase()}
-                rules={[
-                  { required: true, message: "请填写登录用户名" },
-                  {
-                    pattern: /^[a-z0-9._-]{2,32}$/,
-                    message: "只能用小写字母、数字和 . _ -，长度 2–32 位",
-                  },
-                ]}
-                extra="登录时输入的就是它，如 lisi"
+                rules={
+                  用邮箱登录
+                    ? [
+                        { required: true, message: "请填写邮箱" },
+                        { type: "email" as const, message: "这个邮箱看起来不对" },
+                      ]
+                    : [
+                        { required: true, message: "请填写登录用户名" },
+                        {
+                          pattern: /^[a-z0-9._-]{2,32}$/,
+                          message: "只能用小写字母、数字和 . _ -，长度 2–32 位",
+                        },
+                      ]
+                }
+                extra={
+                  用邮箱登录
+                    ? editing?.id
+                      ? "登录邮箱建好之后不能改"
+                      : "他用它登录，也用它找回密码。建好之后不能改"
+                    : "登录时输入的就是它，如 lisi"
+                }
               >
-                <Input placeholder="如：lisi" />
+                <Input placeholder={用邮箱登录 ? "如：lisi@qiming.com" : "如：lisi"} disabled={Boolean(用邮箱登录 && editing?.id)} />
               </Form.Item>
             </Col>
             <Col span={12}>

@@ -6,6 +6,11 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { ROLES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
+import { multiTenant } from "@/lib/tenant/context";
+import { resolveCurrentTenant } from "@/lib/tenant/resolve";
+import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, 复成员 } from "@/lib/tenant/members";
+import { isEmail } from "@/lib/tenant/accounts";
+import { createSession } from "@/lib/auth";
 import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, fetchRemoteModels, type ModelOption } from "@/lib/llm";
 import { getBusiness, saveBusiness, mergeBusiness, type BusinessConfig } from "@/lib/business";
 
@@ -32,6 +37,11 @@ export type NameDuplicate = { name: string; email: string; title: string };
  *   - 业务配置、成员、角色随便改，而演示区是给下一个访客看的。
  * 演示区本来就每晚重置，少这几个按钮不影响它要演示的东西。
  */
+/** 这个部署是不是托管版。托管版的「能不能登录」由控制面说了算，见 lib/tenant/members.ts */
+function 托管版(): boolean {
+  return multiTenant();
+}
+
 async function requireAdmin() {
   const me = await requireUser();
   if (me.role !== "ADMIN") throw new Error("FORBIDDEN");
@@ -77,7 +87,16 @@ export async function saveUser(input: {
     return { ok: false as const, error: `角色「${input.role}」不是合法取值` };
   }
   const 登录名 = input.email.trim().toLowerCase();
-  if (!用户名格式.test(登录名)) {
+  /**
+   * 两种部署的登录标识不是一回事，校验也不能共用一条：
+   *   自部署 —— 用户名（admin / zhangsan），业务库的 User 直接参与登录校验
+   *   托管版 —— 邮箱，登录校验走控制面账号，而且找回密码要靠它收验证码
+   * 之前这里只有用户名那条正则，托管版填邮箱会被 `@` 卡死——界面改成邮箱之后
+   * 保存永远失败，而失败的话说的还是「只能用小写字母、数字和 . _ -」。
+   */
+  if (托管版()) {
+    if (!isEmail(登录名)) return { ok: false as const, error: "请填写正确的邮箱，他要用它登录，也要用它找回密码" };
+  } else if (!用户名格式.test(登录名)) {
     return {
       ok: false as const,
       error: "登录用户名只能用小写字母、数字和 . _ -，长度 2–32 位",
@@ -130,19 +149,63 @@ export async function saveUser(input: {
   };
 
   if (input.id) {
-    await prisma.user.update({
-      where: { id: input.id },
-      data: input.password
-        ? { ...base, password: await bcrypt.hash(input.password, 10) }
-        : base,
-    });
+    if (托管版()) {
+      /**
+       * 托管版的密码在控制面，业务库那一列存的是不可用的占位符。
+       * 写进业务库的话「重置了密码」会显示成功，而那个人用新密码照样登不进来。
+       * 登录名（email）在托管版**不能改**：它同时是控制面账号的标识，
+       * 改一边不改另一边就对不上了；界面上那一栏在编辑时是锁住的。
+       */
+      const link = await prisma.workspaceAccount.findFirst({ where: { userId: input.id } });
+      if (input.password) {
+        if (!link) return { ok: false as const, error: "这个成员还没有可登录的账号（老数据），请删掉重建" };
+        const r = await 改控制面密码(link.accountId, input.password);
+        if (!r.ok) return r;
+      }
+      const { email: _忽略登录名, ...可改 } = base;
+      await prisma.user.update({ where: { id: input.id }, data: 可改 });
+    } else {
+      await prisma.user.update({
+        where: { id: input.id },
+        data: input.password
+          ? { ...base, password: await bcrypt.hash(input.password, 10) }
+          : base,
+      });
+    }
   } else {
     if (!input.password) return { ok: false as const, error: "新成员必须设置初始密码" };
     const exists = await prisma.user.findUnique({ where: { email: base.email } });
-    if (exists) return { ok: false as const, error: "该登录用户名已被占用" };
-    await prisma.user.create({
-      data: { ...base, password: await bcrypt.hash(input.password, 10) },
-    });
+    if (exists) return { ok: false as const, error: 托管版() ? "这个邮箱在本工作区已经有人用了" : "该登录用户名已被占用" };
+
+    /**
+     * **托管版要连控制面账号一起建，不然这个人进不来。**
+     * 那边登录校验的是控制面的 Account，业务库这条记录的 password 根本不参与——
+     * 只建业务库那条的话，他有身份、有归属、能被选成负责人，就是登不进去。
+     * 见 lib/tenant/members.ts。
+     */
+    if (托管版()) {
+      const t = await resolveCurrentTenant();
+      if (!t) return { ok: false as const, error: "解析不到当前工作区，请刷新重试" };
+      const user = await prisma.user.create({ data: { ...base, password: "!managed" } });
+      const 配 = await 配账号({
+        workspaceId: t.workspaceId,
+        userId: user.id,
+        email: base.email,
+        password: input.password,
+        name: base.name,
+        role: base.role,
+      });
+      if (!配.ok) {
+        // 账号没配成，业务库那条也不能留：留着就是一个永远登不进来的人
+        await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
+        return 配;
+      }
+      await prisma.workspaceAccount.create({ data: { userId: user.id, accountId: 配.accountId } });
+    } else {
+      await prisma.user.create({
+        data: { ...base, password: await bcrypt.hash(input.password, 10) },
+      });
+    }
   }
 
   await recordAudit({
@@ -157,7 +220,13 @@ export async function saveUser(input: {
   return { ok: true as const };
 }
 
-/** 停用成员前先把名下数据转交他人 */
+/**
+ * 停用成员前先把名下数据转交他人。
+ *
+ * 托管版还要把控制面的成员资格一起撤掉：光把业务库那条设成 active=false
+ * 也能挡住他（getCurrentUser 只认在职的），但他会被静静地弹回登录页，
+ * 不知道为什么。撤掉成员资格之后，登录那一步会明确说这个账号没有工作区。
+ */
 export async function deactivateUser(id: string, transferToId: string) {
   const me = await requireAdmin();
   if (id === transferToId) return { ok: false as const, error: "不能转交给自己" };
@@ -195,6 +264,12 @@ export async function deactivateUser(id: string, transferToId: string) {
     prisma.user.update({ where: { id }, data: { active: false } }),
   ]);
 
+  if (托管版()) {
+    const t = await resolveCurrentTenant();
+    const link = await prisma.workspaceAccount.findFirst({ where: { userId: id } });
+    if (t && link) await 撤成员(link.accountId, t.workspaceId);
+  }
+
   const [被停, 接手] = await Promise.all([
     prisma.user.findUnique({ where: { id }, select: { name: true } }),
     prisma.user.findUnique({ where: { id: transferToId }, select: { name: true } }),
@@ -215,6 +290,12 @@ export async function deactivateUser(id: string, transferToId: string) {
 export async function reactivateUser(id: string) {
   const me = await requireAdmin();
   const u = await prisma.user.update({ where: { id }, data: { active: true } });
+  // 托管版：停用时撤掉的成员资格要加回来，否则他登录会被告知「没有工作区」
+  if (托管版()) {
+    const t = await resolveCurrentTenant();
+    const link = await prisma.workspaceAccount.findFirst({ where: { userId: id } });
+    if (t && link) await 复成员(link.accountId, t.workspaceId, u.role);
+  }
   await recordAudit({
     user: me, action: "reactivate", entity: "User", entityId: id,
     summary: `恢复成员「${u.name}」`,
@@ -223,14 +304,30 @@ export async function reactivateUser(id: string) {
   return { ok: true as const };
 }
 
-/** 任何人都可以改自己的密码 */
+/**
+ * 改自己的密码。任何人都可以改自己的。
+ *
+ * **托管版改的是控制面那把。** 业务库这一列存的是不可用的占位符 `!managed`
+ * （见 lib/tenant/workspaces.ts），拿它去 bcrypt.compare 永远不成立——
+ * 也就是说在那之前，托管版里**没有人改得了自己的密码**，界面一律回「原密码错误」。
+ * 我们发给试用公司的初始密码，他们自己换不掉。
+ */
 export async function changeMyPassword(oldPwd: string, newPwd: string) {
   const me = await requireUser();
   const user = await prisma.user.findUnique({ where: { id: me.id } });
   if (!user) return { ok: false as const, error: "用户不存在" };
-  if (!(await bcrypt.compare(oldPwd, user.password))) {
-    return { ok: false as const, error: "原密码错误" };
-  }
+
+  const link = 托管版() ? await prisma.workspaceAccount.findFirst({ where: { userId: me.id } }) : null;
+  if (托管版() && !link) return { ok: false as const, error: "这个账号还没接到登录体系上，请联系我们" };
+  /**
+   * 工作区要**在改密之前**解析好。改完之后手上这张票就作废了，
+   * 那时再去解析只会拿到 null，续出来的新票没有 ws 字段，
+   * 结果是「改完密码页面全都打不开」。
+   */
+  const 我的工作区 = link ? (await resolveCurrentTenant())?.workspaceId : undefined;
+
+  const 对得上 = link ? await 核对密码(link.accountId, oldPwd) : await bcrypt.compare(oldPwd, user.password);
+  if (!对得上) return { ok: false as const, error: "原密码错误" };
   // 界面上有长度校验，但接口直调能绕开——空密码会让任何人用这个账号登进来
   if (!newPwd || newPwd.length < MIN_PASSWORD) {
     return { ok: false as const, error: `新密码至少 ${MIN_PASSWORD} 位` };
@@ -238,10 +335,21 @@ export async function changeMyPassword(oldPwd: string, newPwd: string) {
   if (newPwd === oldPwd) {
     return { ok: false as const, error: "新密码不能与原密码相同" };
   }
-  await prisma.user.update({
-    where: { id: me.id },
-    data: { password: await bcrypt.hash(newPwd, 10) },
-  });
+  if (link) {
+    const r = await 改控制面密码(link.accountId, newPwd);
+    if (!r.ok) return r;
+    /**
+     * 改密会把这个账号之前签出去的会话全部作废，包括**我自己现在这张**。
+     * 当场再签一张：改完密码被踢回登录页，没人会觉得那是「安全」。
+     * 别的设备上那些票据的 iat 更早，照样进不来。
+     */
+    await createSession(link.accountId, 我的工作区);
+  } else {
+    await prisma.user.update({
+      where: { id: me.id },
+      data: { password: await bcrypt.hash(newPwd, 10) },
+    });
+  }
   // 只记「改过密码」这件事，不记任何密码内容
   await recordAudit({
     user: me, action: "password", entity: "User", entityId: me.id,

@@ -298,3 +298,34 @@ test("12 登录页把找回入口摆出来", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("link", { name: "忘记密码？" })).toHaveAttribute("href", "/forgot");
 });
+
+test("13 管理员加的同事真的能登录，并且看到同一份数据", async ({ page }) => {
+  /**
+   * 这一条钉的是托管版能不能当「给别的公司试用」的通道。
+   *
+   * 在这之前不能：加成员只在业务库里建一条 User，而托管版登录校验的是控制面的
+   * Account——那个人有身份、有归属、能被选成负责人，就是进不来。
+   * 也就是说一个工作区实际上只有开号的那一个人用得了。
+   */
+  const 同事 = { 邮箱: "tongshi@qiming.example.com", 密码: "Tongshi2026" };
+  await 登录(page, 启明.邮箱, 启明.密码);
+
+  await page.goto("/settings");
+  await page.getByRole("button", { name: /新增成员/ }).click();
+  const 弹窗 = page.getByRole("dialog");
+  await expect(弹窗).toBeVisible();
+  await 弹窗.getByLabel("姓名").fill("同事甲");
+  // 托管版这一栏是邮箱（他要用它登录，也要用它找回密码），不是自部署那种用户名
+  await 弹窗.getByLabel("登录邮箱").fill(同事.邮箱);
+  await 弹窗.getByLabel("初始密码").fill(同事.密码);
+  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.getByText(同事.邮箱)).toBeVisible({ timeout: 15_000 });
+
+  // 换他登录
+  await page.goto("/api/auth/logout");
+  await 登录(page, 同事.邮箱, 同事.密码);
+
+  // 看到的是启明那份数据：第 2 条用例建的那个学员在
+  await page.goto("/customers");
+  await expect(page.getByText("启明的客户甲").first()).toBeVisible({ timeout: 15_000 });
+});
