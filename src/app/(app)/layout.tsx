@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
+import { dayjs } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { getBusiness } from "@/lib/business";
@@ -23,12 +25,35 @@ export default async function AppLayout({
   const user = await getCurrentUser();
   if (!user) redirect("/api/auth/logout");
 
-  // 顶栏铃铛：我名下未完成的待办
-  const [pendingCount, business] = await Promise.all([
+  const 今天结束 = dayjs().endOf("day").toDate();
+  // 铃铛计数：我名下未完成的待办；中栏「今天」：我的跟进计划（含逾期）和待办
+  const [pendingCount, business, plans, tasks, ua] = await Promise.all([
     prisma.task.count({ where: { ownerId: user.id, done: false } }),
     // 业务术语（学员/客户、院校/年级/专业…）：全站客户端组件从这里拿
     getBusiness(),
+    prisma.followPlan.findMany({
+      where: { ownerId: user.id, done: false, plannedAt: { lte: 今天结束 } },
+      orderBy: { plannedAt: "asc" },
+      take: 30,
+      select: { id: true, subject: true, plannedAt: true, method: true, customer: { select: { id: true, name: true } } },
+    }),
+    prisma.task.findMany({
+      where: { ownerId: user.id, done: false },
+      orderBy: [{ dueAt: "asc" }],
+      take: 30,
+      select: { id: true, title: true, dueAt: true, customer: { select: { id: true, name: true } } },
+    }),
+    headers().then((h) => h.get("user-agent") ?? ""),
   ]);
+  /**
+   * 跑在桌面端里：Electron 的 UA 带 "Electron/"。本地模式和连服务器两种都识别得到，
+   * 壳据此把红黄绿钮的位置留出来。只影响布局，不影响任何权限。
+   */
+  const desktop = /Electron\//.test(ua);
+  const today = {
+    plans: plans.map((p) => ({ id: p.id, subject: p.subject, plannedAt: p.plannedAt.toISOString(), method: p.method, customerId: p.customer.id, customerName: p.customer.name })),
+    tasks: tasks.map((t) => ({ id: t.id, title: t.title, dueAt: t.dueAt ? t.dueAt.toISOString() : null, customerId: t.customer.id, customerName: t.customer.name })),
+  };
 
   // 托管版：试用 / 订阅状态。getCurrentUser 已经把工作区放进上下文了
   let trial: { daysLeft: number; writable: boolean; aiLeft: number | null } | null = null;
@@ -49,7 +74,7 @@ export default async function AppLayout({
 
   return (
     <BusinessProvider value={business}>
-      <AppShell user={user} pendingCount={pendingCount}>
+      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} today={today}>
         {demo && <DemoBar />}
         {trial && <TrialBar daysLeft={trial.daysLeft} writable={trial.writable} aiLeft={trial.aiLeft} />}
         {children}

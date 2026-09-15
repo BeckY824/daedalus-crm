@@ -111,9 +111,14 @@ function 建窗口() {
     minWidth: 1024,
     minHeight: 700,
     title: APP_NAME,
-    // 页面由服务端渲染，没法在里面标 -webkit-app-region 拖动区，
-    // 所以保留系统标题栏，否则窗口拖不动
-    titleBarStyle: "default",
+    /**
+     * 不画系统标题栏：标题「Daedalus CRM」在侧栏已经有一个标了，标题栏上再写一遍是重复。
+     * 红黄绿钮嵌进页面左上（壳的图标栏顶部给它留了 44px），那一块的 CSS 标了
+     * -webkit-app-region: drag，窗口照样拖得动——页面是服务端渲染的也不妨碍这条 CSS 生效。
+     * 壳靠 UA 里的 "Electron/" 判断自己在桌面端里，见 (app)/layout.tsx。
+     */
+    titleBarStyle: "hiddenInset",
+    trafficLightPosition: { x: 14, y: 16 },
     backgroundColor: "#fafafa",
     show: false,
     icon: path.join(__dirname, "assets/icon.png"),

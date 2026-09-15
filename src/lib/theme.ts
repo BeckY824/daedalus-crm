@@ -8,9 +8,9 @@ import type { ThemeConfig } from "antd";
 export const BRAND = "#2f6bff";
 export const BRAND_DEEP = "#1a3f9e";
 
-/** 侧边栏宽度，AppShell 与样式表共用 */
-export const SIDER_WIDTH = 232;
-export const SIDER_COLLAPSED_WIDTH = 64;
+/** 三栏壳的两个固定宽度（2026-09-15 起）。样式表里 .rail / .pane 用的是同样的数，改要一起改 */
+export const RAIL_WIDTH = 76;
+export const PANE_WIDTH = 352;
 
 export const themeConfig: ThemeConfig = {
   token: {
