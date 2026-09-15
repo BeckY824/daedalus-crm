@@ -1,0 +1,29 @@
+# 探活：每 10 分钟从 GitHub 这边打一次官网和托管版。
+# 任何一处不对，这个 workflow 就失败，GitHub 会按仓库通知设置给所有者发邮件——
+# 不用再注册一个监控服务。看历史：Actions → Uptime。
+name: Uptime
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: 托管版 /api/health
+        run: |
+          body=$(curl -sS --max-time 15 https://app.ai-daedalus.com/api/health)
+          echo "$body"
+          echo "$body" | grep -q '"ok":true' || { echo "::error::app health 不是 ok"; exit 1; }
+      - name: 托管版 /login
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://app.ai-daedalus.com/login)
+          echo "login -> $code"; [ "$code" = 200 ] || { echo "::error::/login 返回 $code"; exit 1; }
+      - name: 官网首页
+        run: |
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 https://ai-daedalus.com/)
+          echo "官网 -> $code"; [ "$code" = 200 ] || { echo "::error::官网返回 $code"; exit 1; }
+      - name: 官网 latest.json
+        run: |
+          curl -sS --max-time 15 https://ai-daedalus.com/desktop/latest.json | grep -q '"version"' || { echo "::error::latest.json 不对"; exit 1; }
