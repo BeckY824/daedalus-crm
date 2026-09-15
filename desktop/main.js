@@ -7,6 +7,10 @@
  *   服务器 —— 连一台已经部署好的实例，团队共用一份数据
  *
  * 新装的默认是本地；从旧版本升上来的保持原样连服务器，见 读配置()。
+ *
+ * 本地模式**必须先登录云端账号**（2026-09-15 起）：账号免费、邮箱注册，
+ * 数据仍然只在本机，账号只用来记 AI 次数——收费差异全在 AI 上。
+ * 没登录就不开主窗口，见 必须登录()。
  */
 const { app, BrowserWindow, shell, dialog, Menu, clipboard } = require("electron");
 const path = require("node:path");
@@ -177,6 +181,12 @@ function 报告本地故障(原因) {
 
 async function 切到本地() {
   写配置({ ...读配置(), mode: "local" });
+  if (!云端.读()) {
+    const 旧 = win;
+    win = null;
+    旧?.close();
+    await 必须登录();
+  }
   try {
     if (!本地服务.运行中()) await 启动本地();
     win ? win.loadURL(本地入口()) : 建窗口();
@@ -249,7 +259,16 @@ function 问服务器地址() {
  * Electron 没有内置输入框，页面只能用 data: URL 拼。里面的脚本**不用模板字符串**：
  * 整段本身就在一个模板字符串里，嵌套那一层的转义极易写错且报错很难看懂。
  */
-function 登录云端() {
+/**
+ * 本地模式的门：没有云端账号就不开主窗口。关掉这个窗口等于退出应用。
+ * 登录成功后由调用方接着起本地服务、开主窗口。
+ */
+function 必须登录() {
+  return new Promise((resolve) => 登录云端({ 必须: true, 成功: resolve }));
+}
+
+function 登录云端({ 必须 = false, 成功 } = {}) {
+  let 成功了 = false;
   const w = new BrowserWindow({
     width: 470,
     // 打开时先按登录面板给个高度，页面量完自己会通知主进程调整（见下面的 cloud-resize）
@@ -261,6 +280,10 @@ function 登录云端() {
     webPreferences: { preload: path.join(__dirname, "preload.js") },
   });
   const 云 = 云端.默认云端.replace(/\/+$/, "");
+  // 必须登录时，没登成功就关窗 = 不想用了
+  w.on("closed", () => {
+    if (必须 && !成功了) app.quit();
+  });
 
   w.loadURL(
     "data:text/html;charset=utf-8," +
@@ -288,8 +311,8 @@ function 登录云端() {
       <div id="msg"></div>
 
       <div id="p-login">
-        <div class="h">登录云端账号</div>
-        <div class="s">用它来调 AI。数据仍然只在这台机器上，不会上传。</div>
+        <div class="h">${必须 ? "登录后开始使用" : "登录云端账号"}</div>
+        <div class="s">${必须 ? "账号免费，邮箱注册。数据仍然只在这台机器上，不会上传；账号只用来记 AI 次数。" : "用它来调 AI。数据仍然只在这台机器上，不会上传。"}</div>
         <input type="text" id="u" placeholder="手机号或邮箱">
         <input type="password" id="p" placeholder="密码">
         <div class="row">
@@ -298,7 +321,7 @@ function 登录云端() {
             <a id="to-reset" style="display:none">忘记密码？</a>
           </div>
           <div>
-            <button onclick="window.close()">取消</button>
+            <button onclick="window.close()">${必须 ? "退出应用" : "取消"}</button>
             <button class="primary" id="do-login">登录</button>
           </div>
         </div>
@@ -353,7 +376,7 @@ function 登录云端() {
         }
 
         // 注册在网页上办：那条路开出来的账号带工作区，网页和桌面端都认
-        $('to-reg').onclick = function () { crm.open(云 + '/signup'); };
+        $('to-reg').onclick = function () { crm.open(云 + '/signup?from=desktop'); };
         $('to-reset').onclick = function () { 切('reset'); };
         var backs = document.getElementsByClassName('back');
         for (var i = 0; i < backs.length; i++) backs[i].onclick = function () { 切('login'); };
@@ -445,6 +468,14 @@ function 登录云端() {
       return;
     }
 
+    if (必须) {
+      // 门开了：本地服务和主窗口由调用方接着起
+      成功了 = true;
+      w.close();
+      建菜单();
+      成功?.(r.data);
+      return;
+    }
     // 手上有令牌了，重启本地服务让它带上新的 AI 配置
     w.close();
     建菜单();
@@ -468,7 +499,7 @@ async function 退出云端() {
   const { response } = await dialog.showMessageBox(win ?? null, {
     type: "question",
     title: "退出云端账号",
-    message: "退出之后 AI 功能会停用",
+    message: 读配置().mode === "local" ? "退出之后要重新登录才能进应用" : "退出之后 AI 功能会停用",
     detail: "本机的数据不受影响，仍然都在。重新登录即可恢复。",
     buttons: ["退出", "取消"],
     defaultId: 1,
@@ -477,6 +508,21 @@ async function 退出云端() {
   if (response !== 0) return;
   await 云端.退出();
   建菜单();
+  if (读配置().mode === "local") {
+    // 本地模式没有账号就不能用：关主窗、停服务、回到门口
+    const 旧 = win;
+    win = null;
+    旧?.close();
+    await 本地服务.stop();
+    await 必须登录();
+    try {
+      await 启动本地();
+      建窗口();
+    } catch (e) {
+      报告本地故障(e?.message ?? String(e));
+    }
+    return;
+  }
   try {
     await 重启本地服务();
   } catch (e) {
@@ -558,7 +604,7 @@ function 显示本机密码() {
     .showMessageBox(win ?? null, {
       type: "info",
       title: "本机账号",
-      message: "管理员账号：admin",
+      message: `管理员账号：${云端.读()?.contact || "admin"}`,
       detail: `密码：${密码}\n\n本地模式下打开应用就是登录状态，平时用不到它。\n登出之后、或者把这个库搬到服务器上时才需要。`,
       buttons: ["复制密码", "好"],
       defaultId: 0,
@@ -653,6 +699,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     建菜单();
     if (读配置().mode === "local") {
+      if (!云端.读()) await 必须登录();
       try {
         await 启动本地();
       } catch (e) {

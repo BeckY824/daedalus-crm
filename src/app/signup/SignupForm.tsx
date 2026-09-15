@@ -30,8 +30,9 @@ import { requestCode, signup } from "./actions";
  */
 const 倒计时秒 = 60;
 
-export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠送: number; 要验证码: boolean }) {
+export default function SignupForm({ 注册赠送, 要验证码, 来自桌面端 = false }: { 注册赠送: number; 要验证码: boolean; 来自桌面端?: boolean }) {
   const [form] = Form.useForm();
+  const [注册完成, set注册完成] = useState(false);
   const [步骤, set步骤] = useState<1 | 2>(1);
   const [邮箱, set邮箱] = useState("");
   const [loading, setLoading] = useState(false);
@@ -96,12 +97,40 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
       agreed: v.agreed,
     });
     setLoading(false);
+    if (r.ok && 来自桌面端) {
+      // 从桌面端过来的：目的地是桌面端的登录窗，不是网页版
+      set注册完成(true);
+      return;
+    }
     if (r.ok) {
       // 整页跳转而不是 router.push，理由同登录页：软导航下会话没生效时
       // 会被 proxy 弹回来而组件不重新挂载，表现为无限转圈且零报错
       // eslint-disable-next-line @next/next/no-location-assign-relative-destination
       window.location.assign("/dashboard");
     } else setError(r.error);
+  }
+
+  if (注册完成) {
+    return (
+      <div className="login-shell">
+        <div className="login-card" style={{ textAlign: "center" }}>
+          <div className="login-mark" style={{ margin: "0 auto 16px" }}>
+            <Logo size={30} />
+          </div>
+          <Typography.Title level={4} style={{ margin: "0 0 8px", letterSpacing: -0.4 }}>
+            注册成功
+          </Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 14, marginBottom: 20 }}>
+            回到 <strong>Daedalus CRM 桌面端</strong>，用 <strong>{邮箱}</strong> 和刚才设的密码登录。
+            <br />
+            这个页面可以关掉了。
+          </Typography.Paragraph>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            也想在浏览器里用？<Link href="/login">网页版登录</Link>——同一个账号，两边都认。
+          </Typography.Text>
+        </div>
+      </div>
+    );
   }
 
   return (

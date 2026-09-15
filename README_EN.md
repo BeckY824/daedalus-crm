@@ -80,9 +80,10 @@ Don't want to deploy? Sign up with your email at [app.ai-daedalus.com/signup](ht
 
 ### Desktop apps
 
-The Mac build (Apple silicon) **ships the whole server inside the app**: install it and it runs, your data is a single file on your machine, no server and no account required.
+The Mac build (Apple silicon) **ships the whole server inside the app**: install it and it runs, your data is a single file on your machine, no server needed.
+The first launch opens a sign-in window — **sign up with an email, it's free** (the window links out to sign-up and can reset your password). The account only tracks AI credits; your data is never uploaded.
 
-Two ways to get AI: sign in to a cloud account from the menu (30 free calls; the sign-in window also links out to sign-up and can reset your password), or put your own model API key in **Settings → AI**, which bypasses our allowance entirely — the key is encrypted on your machine and only ever sent to the endpoint you typed. The settings page tells you which of the two is in use and how many calls are left.
+Two ways to get AI: use the account's free credits (30 on sign-up, 3 more each day you use it), or put your own model API key in **Settings → AI**, which bypasses our allowance entirely — the key is encrypted on your machine and only ever sent to the endpoint you typed. The settings page tells you which of the two is in use and how many calls are left.
 
 To share one database across a team, switch the menu to "Connect to a server" and point it at your own deployment. There are no Windows or Intel Mac builds yet; on those machines use the self-hosted version for now.
 

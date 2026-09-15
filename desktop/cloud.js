@@ -172,6 +172,12 @@ function 模型环境() {
      * 一句对他毫无意义的「当前 AI 配置来自服务器环境变量」。
      */
     CLOUD_ACCOUNT: c.contact || c.name || "已登录",
+    /**
+     * 本地库里的管理员就是这个账号（server-entry.js 据此改名、改登录邮箱）。
+     * 本地模式 2026-09-15 起必须登录，用户打开应用看到的应该是自己，不是「管理员」。
+     */
+    DESKTOP_ACCOUNT_NAME: c.name || "",
+    DESKTOP_ACCOUNT_CONTACT: c.contact || "",
     ...(列表.length ? { LLM_MODELS: 列表.join(","), LLM_MODEL: 列表[0].split("|")[0] } : {}),
   };
 }

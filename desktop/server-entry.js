@@ -30,7 +30,8 @@ const 密码文件 = path.join(DATA, ".init-password");
 fs.mkdirSync(DATA, { recursive: true });
 
 /* ---------- 首次启动：复制模板库 ---------- */
-if (!fs.existsSync(DB)) {
+const 新建 = !fs.existsSync(DB);
+if (新建) {
   const 模板 = path.join(ROOT, "template.db");
   if (!fs.existsSync(模板)) {
     console.error("[entry] 安装包里没有模板库，装配环节出了问题");
@@ -85,6 +86,43 @@ if (fs.existsSync(迁移目录)) {
     }
   }
   db.close();
+}
+
+/* ---------- 以登录的云端账号身份进入 ---------- */
+/**
+ * 本地模式必须登录云端账号（2026-09-15 起），所以本地库里那个管理员就应该是「你」：
+ * 名字、登录邮箱都改成账号的。每次启动都对一遍——换了账号登录，身份跟着换，数据不动。
+ *
+ * 张三 / 李四是自部署演示用的样例账号，桌面端是单人用，新建的库里不该有他们。
+ * 只在**新建**时删：老库里他们可能已经挂着客户和跟进，删了就是删别人的数据。
+ */
+{
+  const 联系 = (process.env.DESKTOP_ACCOUNT_CONTACT || "").trim();
+  const 名字 = (process.env.DESKTOP_ACCOUNT_NAME || "").trim() || 联系.split("@")[0];
+  if (新建 || 联系) {
+    const db = new DatabaseSync(DB);
+    try {
+      if (新建) {
+        const r = db.prepare("DELETE FROM User WHERE email IN ('zhangsan', 'lisi')").run();
+        if (r.changes) console.log(`[entry] 已去掉 ${r.changes} 个样例账号`);
+      }
+      if (联系) {
+        const admin = db.prepare("SELECT id, email, name FROM User WHERE role = 'ADMIN' AND active = 1 ORDER BY createdAt ASC LIMIT 1").get();
+        if (admin && (admin.email !== 联系 || admin.name !== 名字)) {
+          try {
+            db.prepare("UPDATE User SET email = ?, name = ?, title = '管理员', updatedAt = strftime('%s','now') * 1000 WHERE id = ?").run(联系, 名字, admin.id);
+            console.log(`[entry] 管理员已对上云端账号：${名字} <${联系}>`);
+          } catch (e) {
+            // 邮箱撞上了别的本地账号（老库里手工建过同名同事）：名字照改，登录名不动
+            db.prepare("UPDATE User SET name = ? WHERE id = ?").run(名字, admin.id);
+            console.warn("[entry] 登录邮箱已被本地另一个账号占用，只改了名字：", e?.message ?? e);
+          }
+        }
+      }
+    } finally {
+      db.close();
+    }
+  }
 }
 
 console.log(`[entry] 数据库就绪：${DB}`);

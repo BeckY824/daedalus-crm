@@ -52,18 +52,24 @@ describe("云端账号窗", () => {
      */
     expect(p).toContain("注册新账号");
     expect(p).not.toContain('id="p-reg"');
-    expect(p).toContain("crm.open(云 + '/signup')");
+    // 带 from=desktop：注册页据此在注册完之后说「回桌面端登录」，而不是把人丢进网页版
+    expect(p).toContain("crm.open(云 + '/signup?from=desktop')");
   });
 
   it("页面里没有漏掉的模板插值", () => {
     /**
      * 整段页面本身就在一个模板字符串里。里面再写 ${...} 会被外层吃掉，
      * 写 `...` 会提前结束字符串——两种都不会报错，只会拼出一段坏 HTML。
-     * 云端地址那一处是**故意**插进去的，除它以外不该再有第二处。
+     * 故意插进去的只有两类：云端地址，和「必须登录」时改文案的那几个 `必须 ? … : …`
+     * （本地模式 2026-09-15 起把这个窗当门用，标题、说明、取消键的字都随之变）。除此以外不该有。
      */
     const p = 页面();
     const 插值 = [...p.matchAll(/\$\{[^}]*\}/g)].map((m) => m[0]);
-    expect(插值).toEqual(["${JSON.stringify(云)}"]);
+    expect(插值).toContain("${JSON.stringify(云)}");
+    for (const x of 插值) {
+      expect(x === "${JSON.stringify(云)}" || x.startsWith("${必须 ? "), `不认识的插值：${x}`).toBe(true);
+    }
+    expect(插值.filter((x) => x.startsWith("${必须 ? ")).length).toBe(3);
   });
 
   it("preload 暴露的能力、页面用到的能力、main 处理的通道，三边对得上", () => {
