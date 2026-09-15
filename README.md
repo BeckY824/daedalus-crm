@@ -17,7 +17,7 @@
 
 **简体中文** · [English](README_EN.md)
 
-[官网](https://ai-daedalus.com) · [在线演示](https://app.ai-daedalus.com/demo) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues)
+[官网](https://ai-daedalus.com) · [免费试用](https://app.ai-daedalus.com/signup) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues)
 
 </div>
 
@@ -77,7 +77,7 @@ npm install && npm run setup && npm run dev
 ### 托管版试用
 
 不想自己部署，用邮箱在 [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) 一分钟开出自己的工作区——邮箱、验证码、密码、团队名，没有别的门槛。7 天全功能，到期只读、数据不删。AI 对话注册送 30 次，用了之后每天再送 3 次。
-忘了密码在登录页点「忘记密码？」自助找回，不用找我们。想先随便点点，[在线演示](https://app.ai-daedalus.com/demo)不用注册也不用码。
+忘了密码在登录页点「忘记密码？」自助找回，不用找我们。
 
 ### 桌面客户端
 
@@ -203,7 +203,7 @@ Windows 与 Intel Mac 的包还没有，那两种机器先用自部署版。
 ## 🌐 社区与联系
 
 - 官网：[ai-daedalus.com](https://ai-daedalus.com)
-- 在线演示：[app.ai-daedalus.com/demo](https://app.ai-daedalus.com/demo)
+- 免费试用：[app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup)
 - 问题与建议：[GitHub Issues](https://github.com/BeckY824/daedalus-crm/issues)
 - 商务与试用：[预约演示](https://ai-daedalus.com/demo.html) · qy1g18@gmail.com
 

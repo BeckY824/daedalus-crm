@@ -17,7 +17,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 [简体中文](README.md) · **English**
 
-[Website](https://ai-daedalus.com) · [Live demo](https://app.ai-daedalus.com/demo) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
+[Website](https://ai-daedalus.com) · [Free trial](https://app.ai-daedalus.com/signup) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
 
 </div>
 
@@ -76,7 +76,7 @@ Change the password under Settings → Change password. That's it.
 
 ### Hosted trial
 
-Don't want to deploy? Sign up with your email at [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) and get your own workspace in a minute — email, verification code, password, team name, and nothing else in the way. 7-day full trial; read-only afterwards, nothing deleted. AI chat comes with 30 free calls on sign-up, plus 3 more each day you use it. Forgotten your password? "Forgot password?" on the sign-in page handles it — no need to ask us. Or click around the [live demo](https://app.ai-daedalus.com/demo): no sign-up, no code.
+Don't want to deploy? Sign up with your email at [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) and get your own workspace in a minute — email, verification code, password, team name, and nothing else in the way. 7-day full trial; read-only afterwards, nothing deleted. AI chat comes with 30 free calls on sign-up, plus 3 more each day you use it. Forgotten your password? "Forgot password?" on the sign-in page handles it — no need to ask us.
 
 ### Desktop apps
 
@@ -196,7 +196,7 @@ Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.m
 ## 🌐 Community & contact
 
 - Website: [ai-daedalus.com](https://ai-daedalus.com)
-- Live demo: [app.ai-daedalus.com/demo](https://app.ai-daedalus.com/demo)
+- Free trial: [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup)
 - Questions & ideas: [GitHub Issues](https://github.com/BeckY824/daedalus-crm/issues)
 - Business & trials: [Book a demo](https://ai-daedalus.com/demo.html) · qy1g18@gmail.com
 
