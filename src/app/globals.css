@@ -474,7 +474,13 @@ a {
 .rec-task { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 14px; }
 .rec-task-due { margin-left: auto; font-size: 12.5px; color: #94a3b8; white-space: nowrap; }
 
-@media (max-width: 1360px) {
+/* 记录页什么时候从三栏收成两栏。
+   这个数是算出来的，不是拍的：三栏壳把图标栏 76 和中栏 352 拿走了，正文左右还各有 26 的内边距，
+   所以正文宽 = 视口 − 480。三栏要好看，中间那条时间线至少得 400：
+   296（档案）+ 340（AI）+ 18×2（间距）+ 400 = 1090 → 视口 1570。
+   原来这里写的是 1360——那是中栏还不存在时定的，于是 1440（桌面端窗口的默认尺寸）
+   仍然走三栏，时间线被压到 278px，「下次跟进」里的字直接竖排了。 */
+@media (max-width: 1570px) {
   .rec { grid-template-columns: 264px minmax(0, 1fr); }
   .rec-right { grid-column: 1 / -1; }
   .rec-rail { position: static; }
