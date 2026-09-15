@@ -165,6 +165,13 @@ function 模型环境() {
   return {
     LLM_API_KEY: c.token,
     LLM_BASE_URL: `${c.baseUrl}/api/gateway/v1`,
+    /**
+     * 告诉本地服务「这把 Key 是你登录的云端账号给的」，不是运维在 .env 里配的。
+     * 两者在设置页里要说不同的话：前者要显示是哪个账号、还剩几次免费，
+     * 后者只能说「来自环境变量」。少了这个变量，桌面端用户会在设置页看到
+     * 一句对他毫无意义的「当前 AI 配置来自服务器环境变量」。
+     */
+    CLOUD_ACCOUNT: c.contact || c.name || "已登录",
     ...(列表.length ? { LLM_MODELS: 列表.join(","), LLM_MODEL: 列表[0].split("|")[0] } : {}),
   };
 }

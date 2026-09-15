@@ -9,13 +9,17 @@ import type { AiUsage } from "@/lib/ai-usage";
 import type { ModelOption } from "@/lib/llm";
 
 export type LlmView = {
-  /** ui：界面里填的；env：来自环境变量；null：未配置 */
-  source: "ui" | "env" | null;
+  /** ui：界面里填的；cloud：桌面端登录的云端账号给的；env：运维在 .env 里配的；null：未配置 */
+  source: "ui" | "cloud" | "env" | null;
   baseUrl: string;
   model: string;
   keyMasked: string | null;
   /** 首页选单里能选的模型 */
   options: ModelOption[];
+  /** source=cloud：登录的是哪个账号 */
+  account?: string;
+  /** source=cloud：免费次数余额。查不到就是 null */
+  credits?: { 上限: number; 用掉: number; 还剩: number } | null;
 };
 
 /**
@@ -81,6 +85,35 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
           style={{ marginBottom: 14 }}
           title="还没有配置 AI，所有 AI 入口当前是隐藏的"
           description="填好下面三项并测试通过后保存，跟进速记、临战简报、问数据、盯盘话术、转介绍邀请五个功能会立刻出现。其余功能不受影响。"
+        />
+      )}
+      {/*
+        云端账号那条单独说：桌面端用户看到「来自服务器环境变量（LLM_*）」是看不懂的，
+        对他来说那就是「我登录的那个账号」。余额也摆在这里——
+        原来只能从应用菜单里一个不起眼的「AI 剩余次数…」去查。
+      */}
+      {llm.source === "cloud" && (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 14 }}
+          title={`AI 走你登录的云端账号：${llm.account ?? ""}`}
+          description={
+            <div style={{ lineHeight: 1.9 }}>
+              {llm.credits ? (
+                <div>
+                  免费次数还剩 <b style={{ fontSize: 15 }}>{llm.credits.还剩}</b> 次
+                  <span style={{ color: "#6b7280" }}>（共送过 {llm.credits.上限} 次，已用 {llm.credits.用掉} 次）</span>
+                </div>
+              ) : (
+                <div style={{ color: "#6b7280" }}>余额暂时查不到（断网，或者云端没开网关）</div>
+              )}
+              <div style={{ color: "#6b7280" }}>
+                在下面填自己的 API Key 并保存，就<b>完全不走这个额度</b>，也不再计次——
+                你的 Key 加密存在这台机器上，只会发给你自己填的那个接口地址。
+              </div>
+            </div>
+          }
         />
       )}
       {llm.source === "env" && (
@@ -165,7 +198,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
               onClick={() =>
                 modal.confirm({
                   title: "清除界面里的 AI 配置？",
-                  content: "清除后回到环境变量（如果有），否则 AI 功能整体隐藏。",
+                  content: "清除后回到云端账号或环境变量（如果有），否则 AI 功能整体隐藏。你填的 Key 会从本机数据库里删掉。",
                   okText: "清除",
                   okButtonProps: { danger: true },
                   onOk: async () => {

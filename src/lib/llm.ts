@@ -53,19 +53,42 @@ export async function llmEnabled(): Promise<boolean> {
   return (await getLlmConfig()) !== null;
 }
 
-/** 给设置页看的状态：不含明文 key */
+/**
+ * 给设置页看的状态：**不含明文 key**，只回显尾 4 位。
+ *
+ * 三种来源，界面上要说三种不同的话：
+ *   ui    —— 用户自己在设置里填的（密文存在本机库里，见 lib/settings.ts）
+ *   cloud —— 桌面端登录了云端账号，那枚设备令牌被当作 Key 用。这时要显示是哪个账号、
+ *            还剩几次免费——不显示的话用户只能靠菜单里一个不起眼的入口去查
+ *   env   —— 运维在 .env 里配的（自部署、托管版）
+ */
 export async function describeLlmConfig(): Promise<{
-  source: "ui" | "env" | null;
+  source: "ui" | "cloud" | "env" | null;
   baseUrl: string;
   model: string;
   keyMasked: string | null;
   options: ModelOption[];
+  /** source=cloud 时：登录的是哪个账号 */
+  account?: string;
+  /** source=cloud 时：免费次数。问不到（断网、服务端没开网关）就是 null */
+  credits?: { 上限: number; 用掉: number; 还剩: number } | null;
 }> {
   const stored = await getSetting<StoredLlm>(LLM_KEY);
   const options = stored?.options ?? [];
   const uiKey = stored?.apiKeyEnc ? decryptSecret(stored.apiKeyEnc) : null;
   if (uiKey) {
     return { source: "ui", baseUrl: normBase(stored?.baseUrl), model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: maskSecret(uiKey), options };
+  }
+  if (process.env.LLM_API_KEY && process.env.CLOUD_ACCOUNT) {
+    return {
+      source: "cloud",
+      account: process.env.CLOUD_ACCOUNT,
+      credits: await 问云端余额(),
+      baseUrl: normBase(process.env.LLM_BASE_URL),
+      model: process.env.LLM_MODEL?.trim() || DEFAULT_MODEL,
+      keyMasked: maskSecret(process.env.LLM_API_KEY),
+      options,
+    };
   }
   if (process.env.LLM_API_KEY) {
     return {
@@ -77,6 +100,32 @@ export async function describeLlmConfig(): Promise<{
     };
   }
   return { source: null, baseUrl: stored?.baseUrl?.trim() || DEFAULT_BASE_URL, model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: null, options };
+}
+
+/**
+ * 问一次云端还剩几次免费。
+ *
+ * 只在设置页打开时问，不缓存也不重试：问不到就显示「查不到」，
+ * 让一个「看一眼余额」的动作把设置页卡住是本末倒置。超时给 6 秒——
+ * 断网时它要在页面渲染前就放弃。
+ */
+async function 问云端余额(): Promise<{ 上限: number; 用掉: number; 还剩: number } | null> {
+  const base = process.env.LLM_BASE_URL?.replace(/\/+$/, "");
+  const key = process.env.LLM_API_KEY;
+  if (!base || !key) return null;
+  try {
+    const res = await fetch(`${base}/credits`, {
+      headers: { Authorization: `Bearer ${key}` },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!res.ok) return null;
+    const d = (await res.json()) as { 上限?: number; 用掉?: number; 还剩?: number };
+    if (typeof d.还剩 !== "number") return null;
+    return { 上限: d.上限 ?? 0, 用掉: d.用掉 ?? 0, 还剩: d.还剩 };
+  } catch {
+    // 断网、服务端没开网关、老版本服务端——都按「查不到」处理
+    return null;
+  }
 }
 
 /**
