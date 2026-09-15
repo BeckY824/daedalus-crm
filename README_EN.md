@@ -93,6 +93,12 @@ Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm
 
 ## ✨ Key features
 
+### Three columns: icon rail, context, content
+
+A 76px rail on the left holds icons only — names appear on hover. The middle column holds whatever that module makes you look at **right now**: on the home page it is Today (who to follow up with and what is due, overdue in red, tick to complete); on the students page it is the 50 most recently contacted (click a row and the profile opens on the right); in settings it is the five setting pages. The content itself lives on the right. On desktop the system title bar is removed and the window buttons sit at the top of the rail.
+
+(Not to be confused with the record page's three columns below — those are *inside* the student detail view.)
+
 ### The home page is an agent, not a search box
 
 Interaction modeled on Claude Code / Codex: Enter to send, follow-ups queue while it's answering, Esc to interrupt. Underneath is a ReAct loop where the model picks read-only tools — search customers, read a record, query a metric, check the watchlist — each call shown as a line, collapsed to a one-line summary when done. Answers stream token by token with citation chips that jump back to the source record. Multi-turn context is kept, so "what about him?" just works.
@@ -101,7 +107,7 @@ Interaction modeled on Claude Code / Codex: Enter to send, follow-ups queue whil
 
 Ask it to change a status or profile field, log a follow-up, schedule a plan, create a lead / deal / contract, or edit a channel — it returns a **proposal card**. Fields are editable in place; unknown ones are left blank for you. Confirming runs the exact same server actions the UI uses: dedup, cycle checks, attribution recompute and audit logging are never bypassed. Every confirmation is logged as `ai_apply`.
 
-### Three-column record page
+### Record page: profile, timeline, docked AI
 
 Profile on the left, editable with a click; a single timeline in the middle; a quick-note box on top where you paste a chat and AI drafts the follow-up, tasks and next plan for you to review — the original text is kept for later briefings. AI stays docked on the right and has already read the record you opened.
 
@@ -132,7 +138,7 @@ Configure a model list in Settings (or pull it from the endpoint) and switch rig
 
 ## 🖼️ Screens
 
-| Customers | Record page (three columns) |
+| Customers | Record page |
 |---|---|
 | ![](docs/shots/04-customers.png) | ![](docs/shots/05-customer-detail.png) |
 
@@ -165,6 +171,7 @@ Ordered by "someone actually needs it". To push an item, [open an issue](https:/
 |---|---|---|
 | Conversation & proposal cards | agent loop, streaming, citations, multi-turn context, 7 card types | ✅ Shipped |
 | Record page | inline profile editing, timeline, quick-note parsing, docked AI | ✅ Shipped |
+| Three-column shell | icon rail / context column / content, a Today column on the home page, window buttons embedded on desktop | ✅ Shipped |
 | Hosting | multi-tenant, sign-up and free credits, trials, subscriptions, ops console, desktop apps | ✅ Shipped |
 | List pages | inline editing, saved views, filter chips, side drawer | 🔜 Planned |
 | ⌘K & motion | command palette for "ask about / ask a number / go to" | 🔜 Planned |
