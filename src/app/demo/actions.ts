@@ -74,9 +74,23 @@ export async function enterDemo(): Promise<DemoResult> {
   redirect("/dashboard");
 }
 
-/** 之前进过的浏览器：直接进，额度接着上次算 */
+/**
+ * 之前进过的浏览器：直接进，额度接着上次算。
+ *
+ * 和 enterDemo 用**同一个**限流桶。这条路进不去新额度（没有 cookie 就直接拒），
+ * 但它是未登录可调的：每次两条控制面查询加一次 JWT 签名，不拦的话可以一直打。
+ * 和进门那条共用一个桶，是因为它们对服务器的开销是同一类——分开记等于把上限翻倍。
+ */
 export async function continueDemo(): Promise<DemoResult> {
   if (!multiTenant() || !demoSlug()) return { ok: false, error: "演示区没有开放" };
+
+  const from = 解析来源IP((await headers()).get("x-forwarded-for"));
+  if (from) {
+    const 还要等 = 检查限流(`demo:${from}`);
+    if (还要等 != null) return { ok: false, error: `操作太频繁，请 ${还要等} 秒后再试` };
+    记一次失败(`demo:${from}`, Date.now(), IP阈值);
+  }
+
   const info = await 演示票据信息();
   if (!info) return { ok: false, error: "演示区还没建好，稍后再试" };
   const visitor = (await cookies()).get(演示访客Cookie)?.value;

@@ -293,6 +293,23 @@ type ChatOpts = {
 const DEFAULT_MAX_TOKENS = 4000;
 
 /**
+ * 下面两张表记的都是「试探出来的模型行为」。
+ *
+ * **键是「接口地址 + 模型名」，不是光模型名。**
+ * 这两张表是进程级的，而托管版一个进程伺候所有工作区。只按模型名记的话，
+ * A 工作区对着自己的中转站试出来的结论，会套到 B 工作区头上——而同一个
+ * 「deepseek-chat」在两家中转站上的行为完全可能不一样（一家能关思维链、
+ * 一家不能）。那样 B 要么白发一个会被 400 的参数，要么被多扣 2500 的预算。
+ *
+ * 反过来，**同一个接口地址 + 同一个模型就该共享**：那本来就是同一个上游，
+ * 试探一次的结论对谁都成立，这正是这层缓存存在的理由。所以不按工作区分，
+ * 按上游分——这才是这件事真正的归属。
+ */
+function 上游键(cfg: LlmConfig, model: string): string {
+  return `${cfg.baseUrl}|${model}`;
+}
+
+/**
  * 记住哪些模型不认 thinking 参数。
  *
  * 中转站上的推理模型分两类：一类可以 {"type":"disabled"} 关掉思维链，另一类
@@ -300,7 +317,7 @@ const DEFAULT_MAX_TOKENS = 4000;
  *   1. agent 循环最多 6 步，每步都要先失败一次再重试，一个问题白跑 6 个往返
  *   2. 更糟的是 chatMessagesJSON 里「模型没输出合法 JSON」那条恢复路径，
  *      它用的还是原始 opts，等于把刚刚失败的参数又加回去，于是 400 冒到界面上
- * 所以把结论记在这里：某个模型拒绝过一次，之后就不再给它带这个参数。
+ * 所以把结论记在这里：某个上游的某个模型拒绝过一次，之后就不再给它带这个参数。
  * 进程内缓存，重启后重新试探一次，代价是一个请求。
  */
 const 不认thinking = new Set<string>();
@@ -319,17 +336,25 @@ const 不认thinking = new Set<string>();
 const 思考模型 = new Set<string>();
 const 思考预算 = 2500;
 
+/** 测试用：把试探出来的结论清掉，让下一次重新试 */
+export function 重置模型探测() {
+  不认thinking.clear();
+  思考模型.clear();
+}
+
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
 async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean): Promise<Response> {
+  const 模型 = opts.model ?? cfg.model;
+  const 键 = 上游键(cfg, 模型);
   const body: Record<string, unknown> = {
-    model: opts.model ?? cfg.model,
+    model: 模型,
     messages,
     temperature: opts.temperature ?? 0.3,
-    max_tokens: (opts.maxTokens ?? DEFAULT_MAX_TOKENS) + (思考模型.has(opts.model ?? cfg.model) ? 思考预算 : 0),
+    max_tokens: (opts.maxTokens ?? DEFAULT_MAX_TOKENS) + (思考模型.has(键) ? 思考预算 : 0),
   };
   if (useJsonFormat) body.response_format = { type: "json_object" };
-  if (opts.thinking === false && !不认thinking.has(String(body.model))) body.thinking = { type: "disabled" };
+  if (opts.thinking === false && !不认thinking.has(键)) body.thinking = { type: "disabled" };
   if (stream) body.stream = true;
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: "POST",
@@ -342,8 +367,8 @@ async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, 
     // 带了 thinking 又被 4xx 拒：记下这个模型，后面所有调用都不再带，
     // 包括本次调用方马上要做的那次重试
     if (body.thinking && (res.status === 400 || res.status === 422)) {
-      不认thinking.add(String(body.model));
-      console.warn(`[llm] 模型 ${body.model} 不支持关闭思考，后续不再发送该参数`);
+      不认thinking.add(键);
+      console.warn(`[llm] 模型 ${模型} 在 ${cfg.baseUrl} 上不支持关闭思考，后续不再发送该参数`);
     }
     throw new Error(`接口返回 ${res.status}：${errText}`);
   }
@@ -361,11 +386,12 @@ async function chatMessagesOnce(cfg: LlmConfig, messages: ChatMessage[], opts: C
     usage?: { completion_tokens_details?: { reasoning_tokens?: number } };
   };
   const model = opts.model ?? cfg.model;
+  const 键 = 上游键(cfg, model);
 
-  // 这个模型会思考：记下来，之后给它的预算都加上思考那一笔
-  if ((data.usage?.completion_tokens_details?.reasoning_tokens ?? 0) > 0 && !思考模型.has(model)) {
-    思考模型.add(model);
-    console.warn(`[llm] 模型 ${model} 会输出思维链，后续 max_tokens 额外加 ${思考预算}`);
+  // 这个上游的这个模型会思考：记下来，之后给它的预算都加上思考那一笔
+  if ((data.usage?.completion_tokens_details?.reasoning_tokens ?? 0) > 0 && !思考模型.has(键)) {
+    思考模型.add(键);
+    console.warn(`[llm] 模型 ${model} 在 ${cfg.baseUrl} 上会输出思维链，后续 max_tokens 额外加 ${思考预算}`);
   }
 
   const choice = data.choices?.[0];

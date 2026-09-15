@@ -116,3 +116,23 @@ describe("每个 IP 每天能新开几个访客", () => {
     expect(今日计数(`signup:${ip}`)).toBe(0);
   });
 });
+
+describe("两条进演示区的路都接了限流", () => {
+  it("enterDemo 和 continueDemo 共用一个桶", async () => {
+    /**
+     * continueDemo 进不去新额度（没有 cookie 就直接拒），但它是未登录可调的：
+     * 每次两条控制面查询加一次 JWT 签名，不拦的话可以一直打。
+     * 和进门那条共用一个桶——它们对服务器的开销是同一类，分开记等于把上限翻倍。
+     */
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/app/demo/actions.ts"), "utf8");
+    for (const 名 of ["enterDemo", "continueDemo"]) {
+      const i = src.indexOf(`export async function ${名}`);
+      expect(i, `找不到 ${名}`).toBeGreaterThan(0);
+      const 段 = src.slice(i, src.indexOf("\n}", i));
+      expect(段.includes("检查限流(`demo:"), `${名} 要先看桶`).toBe(true);
+      expect(段.includes("记一次失败(`demo:"), `${名} 要往桶里记一笔，否则那个闸没人拉`).toBe(true);
+    }
+  });
+});
