@@ -93,3 +93,44 @@ describe("AI 配置的来源", () => {
     }
   });
 });
+
+describe("存着的那把 Key 不会被发到别处", () => {
+  it("目标地址和存的不一样时，当作没有 Key", async () => {
+    /**
+     * 「测试连接」和「拉取模型列表」这两个动作的 baseUrl 完全由调用方给，
+     * 而 Key 留空时服务端会去库里取。原来取出来就直接发——于是同工作区的
+     * 第二个管理员、或者拿到管理员会话的人，填一个自己的地址点一下，
+     * 就能把明文 Key 收走。而填 Key 的人以为「填进去就只剩尾 4 位了」。
+     */
+    const { resolveLlmConfigForTest, saveLlmConfig, clearLlmConfig } = await import("@/lib/llm");
+    await saveLlmConfig({ baseUrl: "https://mine.example.com/v1", model: "m", apiKey: "sk-stored-0001" });
+    try {
+      expect(await resolveLlmConfigForTest({ baseUrl: "https://evil.example.net/v1", model: "m" })).toBeNull();
+      expect((await resolveLlmConfigForTest({ baseUrl: "https://mine.example.com/v1", model: "m" }))?.apiKey).toBe("sk-stored-0001");
+      // 末尾斜杠不算另一个地址
+      expect((await resolveLlmConfigForTest({ baseUrl: "https://mine.example.com/v1/", model: "m" }))?.apiKey).toBe("sk-stored-0001");
+      // 自己当场填的那把，想发哪儿发哪儿——那是他自己的
+      expect((await resolveLlmConfigForTest({ baseUrl: "https://evil.example.net/v1", model: "m", apiKey: "sk-typed" }))?.apiKey).toBe("sk-typed");
+    } finally {
+      await clearLlmConfig();
+    }
+  });
+
+  it("上游报错原文里的 Key 会被抹掉再往外送", async () => {
+    /**
+     * 有些中转站鉴权失败会把收到的 Key 回显在错误体里。那段文字会同时进
+     * 浏览器（设置页的测试结果、AI 对话的错误提示）和日志（桌面端连 stdout
+     * 一起写进日志文件）——一次就把「不进日志、不回浏览器」两条承诺都破了。
+     */
+    const { testLlm } = await import("@/lib/llm");
+    vi.stubGlobal("fetch", async () =>
+      new Response(`{"error":"invalid api key: sk-leaked-9876543210"}`, { status: 401 }),
+    );
+    const r = await testLlm({ apiKey: "sk-leaked-9876543210", baseUrl: "https://x.example/v1", model: "m" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error, "报错里不能留着 Key").not.toContain("sk-leaked-9876543210");
+      expect(r.error).toContain("****");
+    }
+  });
+});

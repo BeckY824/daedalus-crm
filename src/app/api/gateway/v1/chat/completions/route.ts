@@ -62,9 +62,17 @@ export async function POST(req: Request) {
   }
 
   if (!upstream.ok) {
-    // 上游的报错原样带回去（截断），但**不带上游的响应头**——那里可能有它的限流、
-    // 计费一类的信息，那是我们和上游之间的事，不该让客户端看见
-    const text = (await upstream.text()).slice(0, 500);
+    /**
+     * 上游的报错原样带回去（截断），但**不带上游的响应头**——那里可能有它的限流、
+     * 计费一类的信息，那是我们和上游之间的事，不该让客户端看见。
+     *
+     * 正文里也要把 GATEWAY_API_KEY 抹掉：有些中转站鉴权失败时会把收到的 Key
+     * 回显在错误体里，而这里的客户端是**用户的桌面端**——那把 Key 是我们的，
+     * 一旦回显出去，拿到的人就能直接花我们的钱。
+     */
+    const 上游Key = process.env.GATEWAY_API_KEY ?? "";
+    let text = (await upstream.text()).slice(0, 500);
+    if (上游Key.length >= 8) text = text.split(上游Key).join("****");
     return 网关错误(upstream.status, `上游模型接口返回 ${upstream.status}：${text}`, 剩余头);
   }
 

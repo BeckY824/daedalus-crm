@@ -6,6 +6,13 @@
  * 不缓存的话每次渲染都多一次查库；而缓存粒度做到"整体"就够了，
  * 没必要为几个 key 维护逐项失效。
  *
+ * **缓存必须按工作区分开。** 托管版是一个进程伺候所有工作区，
+ * 而 `prisma.setting.findMany()` 那一行才按租户路由——缓存命中时它根本跑不到。
+ * 曾经这里是一个全局 Map：谁先访问谁把缓存填上，之后**所有**工作区读到的
+ * 都是那一份，业务术语串、AI 接口地址串，连加密的 Key 也串（同一个进程、
+ * 同一把 AUTH_SECRET，解得开）。隔离做在了数据库层，读取却在数据库层之前
+ * 就被缓存截胡了。
+ *
  * 敏感值（API Key）不能明文落库：数据库备份文件会被拷来拷去，
  * 备份里带着明文 key 等于把 key 发出去。这里用 AUTH_SECRET 派生的密钥
  * 做 AES-256-GCM 加密，换了 AUTH_SECRET 旧 key 就解不出来——这是预期行为，
@@ -14,19 +21,43 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { prisma } from "./prisma";
 import { readSecret } from "./secret";
+import { multiTenant, currentTenant } from "./tenant/context";
 
-const g = globalThis as unknown as { __settingsCache?: Map<string, string> | null };
+const g = globalThis as unknown as { __settingsCache?: Map<string, Map<string, string>> };
 
-async function loadAll(): Promise<Map<string, string>> {
-  if (g.__settingsCache) return g.__settingsCache;
-  const rows = await prisma.setting.findMany();
-  g.__settingsCache = new Map(rows.map((r) => [r.key, r.value]));
-  return g.__settingsCache;
+/**
+ * 这一次读取该用哪一格缓存。
+ *
+ * 自部署版只有一个库，固定一格。托管版按工作区分格——解析不出工作区时
+ * 用一格谁也读不到的 `:未知`，而不是退回公用那一格：
+ * 那正是串库的来路。（真解析不出来时 prisma 自己会抛，见 lib/prisma.ts。）
+ */
+async function 缓存格(): Promise<string> {
+  if (!multiTenant()) return ":single";
+  const ctx = currentTenant();
+  if (ctx) return ctx.workspaceId;
+  const { resolveCurrentTenant } = await import("./tenant/resolve");
+  return (await resolveCurrentTenant())?.workspaceId ?? ":未知";
 }
 
-/** 测试与写入后调用：让下一次读取重新查库 */
+async function loadAll(): Promise<Map<string, string>> {
+  const 格 = await 缓存格();
+  const 全部 = (g.__settingsCache ??= new Map());
+  const 命中 = 全部.get(格);
+  if (命中) return 命中;
+  const rows = await prisma.setting.findMany();
+  const m = new Map(rows.map((r) => [r.key, r.value]));
+  全部.set(格, m);
+  return m;
+}
+
+/**
+ * 测试与写入后调用：让下一次读取重新查库。
+ * 整个清掉而不是只清当前那一格——写设置是极少发生的动作，
+ * 多查几次库换一个「不会漏清」的简单规则，划算。
+ */
 export function invalidateSettingsCache() {
-  g.__settingsCache = null;
+  g.__settingsCache = new Map();
 }
 
 export async function getSetting<T>(key: string): Promise<T | null> {

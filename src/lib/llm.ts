@@ -103,6 +103,17 @@ export async function describeLlmConfig(): Promise<{
 }
 
 /**
+ * 上游的报错原文会同时去两个地方：浏览器（设置页的「测试连接」、AI 对话的错误提示）
+ * 和日志（桌面端连 stdout 一起写进日志文件）。而有些中转站鉴权失败时会把
+ * 收到的 Key 回显在错误体里——那一刻「Key 不进日志、不回浏览器」两条承诺一起破。
+ * 拼进 Error 之前先抹掉。
+ */
+function 抹掉密钥(text: string, key: string): string {
+  if (!key || key.length < 8) return text;
+  return text.split(key).join("****");
+}
+
+/**
  * 问一次云端还剩几次免费。
  *
  * 只在设置页打开时问，不缓存也不重试：问不到就显示「查不到」，
@@ -214,8 +225,19 @@ export async function resolveLlmConfigForTest(input: { baseUrl: string; model: s
   const 目标 = normBase(input.baseUrl);
   let apiKey = input.apiKey?.trim() || null;
   if (!apiKey) {
+    /**
+     * **已经存着的那把 Key，也只肯发给它自己那个地址。**
+     *
+     * 原来这道闸只加在环境变量那把上，界面存的那把是裸的——于是「测试连接」
+     * 和「拉取模型列表」就是一个口子：地址随便填，我们照样把库里那把明文 Key
+     * 当 Authorization 发过去。同工作区的第二个管理员、或者拿到管理员会话的人，
+     * 都能把明文捞出来，而填 Key 的人以为「填进去就只剩尾 4 位了」。
+     *
+     * 换地址的正常做法是重填一次 Key——那本来就该重填，因为换了一家服务商。
+     */
     const stored = await getSetting<StoredLlm>(LLM_KEY);
-    apiKey = stored?.apiKeyEnc ? decryptSecret(stored.apiKeyEnc) : null;
+    const 存的地址 = normBase(stored?.baseUrl);
+    if (stored?.apiKeyEnc && 目标 === 存的地址) apiKey = decryptSecret(stored.apiKeyEnc);
     // normBase 在没配 LLM_BASE_URL 时会回落到默认地址，所以只配了 Key 的自部署也对得上
     if (!apiKey && process.env.LLM_API_KEY && 目标 === normBase(process.env.LLM_BASE_URL)) {
       apiKey = process.env.LLM_API_KEY;
@@ -316,7 +338,7 @@ async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, 
     signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 60_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 60_000),
   });
   if (!res.ok) {
-    const errText = (await res.text()).slice(0, 300);
+    const errText = 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey);
     // 带了 thinking 又被 4xx 拒：记下这个模型，后面所有调用都不再带，
     // 包括本次调用方马上要做的那次重试
     if (body.thinking && (res.status === 400 || res.status === 422)) {

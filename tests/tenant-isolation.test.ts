@@ -122,3 +122,55 @@ describe("到期后写操作被拦住", () => {
     expect(还在.map((c) => c.name)).toEqual(["甲家的客户"]);
   });
 });
+
+describe("设置也不能串——隔离做在库这一层，就不能被上一层的缓存截胡", () => {
+  it("A 填的 AI 配置，B 一个字都读不到", async () => {
+    /**
+     * 这一条是补上去的，因为它曾经**在全绿的测试套件下破着**。
+     *
+     * `getSetting` 走一个进程内缓存，而托管版是一个进程伺候所有工作区。
+     * 缓存原来是一个全局 Map：谁先访问谁把它填上，之后所有工作区读到的都是那一份。
+     * `prisma.setting.findMany()` 确实按租户路由，但缓存命中时那一行根本跑不到。
+     * 后果是业务术语串、AI 接口地址串，连加密的 Key 也串——同一个进程、
+     * 同一把 AUTH_SECRET，解得开。
+     */
+    const { runWithTenant } = await import("@/lib/tenant/context");
+    const { getSetting, setSetting, invalidateSettingsCache } = await import("@/lib/settings");
+    fs.copyFileSync(模板, path.join(临时根, "sa.db"));
+    fs.copyFileSync(模板, path.join(临时根, "sb.db"));
+    const 甲 = { workspaceId: "ws-甲", slug: "jia", dbFile: "sa.db", role: "ADMIN", writable: true };
+    const 乙 = { workspaceId: "ws-乙", slug: "yi", dbFile: "sb.db", role: "ADMIN", writable: true };
+
+    await runWithTenant(甲, () => setSetting("llm", { baseUrl: "https://a.example/v1", apiKeyEnc: "enc:v1:甲的密文" }));
+    await runWithTenant(乙, () => setSetting("llm", { baseUrl: "https://b.example/v1", apiKeyEnc: "enc:v1:乙的密文" }));
+
+    // 先让甲读一遍把缓存填上——串库正是从这一步开始的
+    const 甲读 = await runWithTenant(甲, () => getSetting<{ baseUrl: string; apiKeyEnc: string }>("llm"));
+    const 乙读 = await runWithTenant(乙, () => getSetting<{ baseUrl: string; apiKeyEnc: string }>("llm"));
+    expect(甲读?.baseUrl).toBe("https://a.example/v1");
+    expect(乙读?.baseUrl, "乙读到的必须是乙自己的").toBe("https://b.example/v1");
+    expect(乙读?.apiKeyEnc).not.toContain("甲的");
+
+    // 反过来再来一遍：谁先谁后都不该有影响
+    invalidateSettingsCache();
+    const 乙先 = await runWithTenant(乙, () => getSetting<{ baseUrl: string }>("llm"));
+    const 甲后 = await runWithTenant(甲, () => getSetting<{ baseUrl: string }>("llm"));
+    expect(乙先?.baseUrl).toBe("https://b.example/v1");
+    expect(甲后?.baseUrl).toBe("https://a.example/v1");
+  });
+
+  it("一边改了设置，另一边不受影响", async () => {
+    const { runWithTenant } = await import("@/lib/tenant/context");
+    const { getSetting, setSetting } = await import("@/lib/settings");
+    fs.copyFileSync(模板, path.join(临时根, "sc.db"));
+    fs.copyFileSync(模板, path.join(临时根, "sd.db"));
+    const 丙 = { workspaceId: "ws-丙", slug: "bing", dbFile: "sc.db", role: "ADMIN", writable: true };
+    const 丁 = { workspaceId: "ws-丁", slug: "ding", dbFile: "sd.db", role: "ADMIN", writable: true };
+
+    await runWithTenant(丙, () => setSetting("business", { customer: "学员" }));
+    await runWithTenant(丁, () => setSetting("business", { customer: "客户" }));
+    await runWithTenant(丙, () => setSetting("business", { customer: "学生" }));
+    expect((await runWithTenant(丁, () => getSetting<{ customer: string }>("business")))?.customer).toBe("客户");
+    expect((await runWithTenant(丙, () => getSetting<{ customer: string }>("business")))?.customer).toBe("学生");
+  });
+});
