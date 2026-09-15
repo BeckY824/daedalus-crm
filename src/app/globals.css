@@ -97,6 +97,23 @@ a {
 .pane-link-t { display: block; font-weight: 500; }
 .pane-link-s { display: block; font-size: 12.5px; color: #6b7280; margin-top: 1px; }
 
+.pane-ib.on { background: #e9eefb; color: #1f3fbf; }
+.pane-search { margin: 10px 12px 6px; height: 30px; border-radius: 6px; background: #f0f1f4; display: flex; align-items: center; gap: 6px; padding: 0 10px; }
+.pane-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: 13px; color: var(--ink); }
+.pane-search input::placeholder { color: #9ca3af; }
+.pane-chips { display: flex; gap: 6px; padding: 4px 12px 8px; flex-wrap: wrap; }
+.pane-chip { font: inherit; font-size: 12.5px; color: #6b7280; padding: 3px 9px; border-radius: 999px; border: 1px solid #e5e7eb; background: #fff; cursor: pointer; }
+.pane-chip:hover { color: var(--ink); border-color: #9ca3af; }
+.pane-chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.pane-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid #f1f2f4; color: var(--ink); }
+.pane-row:hover { background: #f7f8fa; }
+.pane-row.on { background: #e9eefb; }
+.pane-avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600; }
+.pane-row-m { flex: 1; min-width: 0; }
+.pane-row-n { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.pane-row-s { display: block; font-size: 12.5px; color: #6b7280; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pane-row-r { flex: none; font-size: 12px; color: #9ca3af; font-variant-numeric: tabular-nums; }
+
 .main { flex: 1; min-width: 0; }
 
 /* ---------- 卡片 / 通用 ---------- */

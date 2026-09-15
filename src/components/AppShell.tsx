@@ -25,6 +25,7 @@ import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
 import TodayPane, { type TodayData } from "./TodayPane";
 import SectionPane from "./SectionPane";
+import CustomerPane, { type CustomerPaneData } from "./CustomerPane";
 import { useBusiness } from "@/lib/business-client";
 
 const { Header, Content } = Layout;
@@ -35,20 +36,22 @@ type Props = {
   /** 跑在桌面端（Electron）里：红黄绿钮嵌在图标栏顶上，系统标题栏不再画 */
   desktop: boolean;
   today: TodayData;
+  /** 学员模块下才有；别的路由是 null，中栏就不画 */
+  customers: CustomerPaneData | null;
   children: React.ReactNode;
 };
 
 /**
  * 壳（2026-09-15 起三栏）：
  *   图标栏 76px —— 只放图标，产品名只剩一个标；桌面端的红黄绿钮嵌在最上面
- *   中栏 352px —— 当前模块的列表：首页是「今天」，商机 / 跟进是它们的两个子页；
+ *   中栏 352px —— 当前模块的列表：首页是「今天」，学员是最近跟进的 50 位，商机 / 跟进是它们的两个子页；
  *                 其它模块还没有列表视图，中栏不出现，正文直接接在图标栏右边
  *   右栏      —— 各页正文
  * 参考 Claude Code / Codex 桌面版的窗口形态。网页版和桌面端共用这一份。
  *
  * 图标栏每个入口都带 aria-label 全名（首页 / 学员管理 …），屏幕阅读器和 e2e 都按这个名字找。
  */
-export default function AppShell({ user, pendingCount, desktop, today, children }: Props) {
+export default function AppShell({ user, pendingCount, desktop, today, customers, children }: Props) {
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
@@ -89,6 +92,7 @@ export default function AppShell({ user, pendingCount, desktop, today, children 
   // 中栏：有列表视图的模块才出现
   const pane = useMemo(() => {
     if (selectedKey === "/dashboard") return <TodayPane today={today} />;
+    if (selectedKey === "/customers" && customers) return <CustomerPane data={customers} />;
     if (selectedKey === "/opportunities")
       return (
         <SectionPane
@@ -110,7 +114,7 @@ export default function AppShell({ user, pendingCount, desktop, today, children 
         />
       );
     return null;
-  }, [selectedKey, today]);
+  }, [selectedKey, today, customers]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });

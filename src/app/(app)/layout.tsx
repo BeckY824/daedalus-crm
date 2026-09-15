@@ -45,6 +45,35 @@ export default async function AppLayout({
     }),
     headers().then((h) => h.get("user-agent") ?? ""),
   ]);
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  /**
+   * 学员模块的中栏：最近跟进过的 50 位。只在这个模块下查——中栏是按路由出现的，
+   * 别的页面不该为它多跑一次库。路径来自 proxy 塞的 x-pathname。
+   */
+  let customers: { total: number; rows: { id: string; name: string; followStatus: string; lastFollowAt: string | null; ownerName: string; lastNote: string | null }[] } | null = null;
+  if (pathname === "/customers" || pathname.startsWith("/customers/")) {
+    const [total, rows] = await Promise.all([
+      prisma.customer.count(),
+      prisma.customer.findMany({
+        orderBy: [{ lastFollowAt: "desc" }, { createdAt: "desc" }],
+        take: 50,
+        select: {
+          id: true, name: true, followStatus: true, lastFollowAt: true,
+          salesOwner: { select: { name: true } },
+          followUps: { orderBy: { occurredAt: "desc" }, take: 1, select: { content: true } },
+        },
+      }),
+    ]);
+    customers = {
+      total,
+      rows: rows.map((c) => ({
+        id: c.id, name: c.name, followStatus: c.followStatus,
+        lastFollowAt: c.lastFollowAt ? c.lastFollowAt.toISOString() : null,
+        ownerName: c.salesOwner.name,
+        lastNote: c.followUps[0]?.content?.trim().slice(0, 60) || null,
+      })),
+    };
+  }
   /**
    * 跑在桌面端里：Electron 的 UA 带 "Electron/"。本地模式和连服务器两种都识别得到，
    * 壳据此把红黄绿钮的位置留出来。只影响布局，不影响任何权限。
@@ -74,7 +103,7 @@ export default async function AppLayout({
 
   return (
     <BusinessProvider value={business}>
-      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} today={today}>
+      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} today={today} customers={customers}>
         {demo && <DemoBar />}
         {trial && <TrialBar daysLeft={trial.daysLeft} writable={trial.writable} aiLeft={trial.aiLeft} />}
         {children}
