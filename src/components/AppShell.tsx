@@ -103,6 +103,23 @@ export default function AppShell({ user, pendingCount, desktop, today, customers
           ]}
         />
       );
+    if (selectedKey === "/settings")
+      return (
+        <SectionPane
+          title="设置"
+          items={[
+            { href: "/settings?tab=members", label: "团队成员", hint: "谁能进、谁是管理员" },
+            { href: "/settings?tab=password", label: "修改密码", hint: "改自己的登录密码" },
+            ...(user.role === "ADMIN"
+              ? [
+                  { href: "/settings?tab=ai", label: "AI 接入", hint: "走哪把 Key、还剩几次" },
+                  { href: "/settings?tab=business", label: "业务配置", hint: "学员 / 客户这些叫法" },
+                ]
+              : []),
+            { href: "/settings?tab=audit", label: "操作日志", hint: "每一次改动的记录" },
+          ]}
+        />
+      );
     if (selectedKey === "/follow-ups")
       return (
         <SectionPane
@@ -114,7 +131,7 @@ export default function AppShell({ user, pendingCount, desktop, today, customers
         />
       );
     return null;
-  }, [selectedKey, today, customers]);
+  }, [selectedKey, today, customers, user.role]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });

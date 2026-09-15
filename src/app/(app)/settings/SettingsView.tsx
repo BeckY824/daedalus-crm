@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
   Card,
   Table,
@@ -99,6 +99,9 @@ export default function SettingsView({
   用邮箱登录?: boolean;
 }) {
   const router = useRouter();
+  // 当前页签由地址栏 ?tab= 决定：中栏那列设置项就是一组带 tab 的链接，刷新、回退都对得上
+  const pathname = usePathname();
+  const tab = useSearchParams().get("tab") ?? "members";
   const b = useBusiness();
   const { message, modal } = App.useApp();
   const [open, setOpen] = useState(false);
@@ -281,6 +284,8 @@ export default function SettingsView({
 
       <Card styles={{ body: { paddingTop: 0 } }}>
         <Tabs
+          activeKey={tab}
+          onChange={(k) => router.replace(`${pathname}?tab=${k}`)}
           items={[
             {
               key: "members",

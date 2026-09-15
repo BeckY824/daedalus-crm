@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { RightOutlined } from "@ant-design/icons";
 
 /**
@@ -11,8 +11,18 @@ import { RightOutlined } from "@ant-design/icons";
  */
 export default function SectionPane({ title, items }: { title: string; items: { href: string; label: string; hint: string }[] }) {
   const pathname = usePathname();
-  // 最长匹配：/follow-ups/plans 不该同时点亮 /follow-ups
-  const active = [...items].sort((a, b) => b.href.length - a.href.length).find((i) => pathname === i.href || pathname.startsWith(i.href + "/"))?.href;
+  const tab = useSearchParams().get("tab");
+  /**
+   * 带 ?tab= 的项（设置页）：地址栏没写 tab 时第一项就是当前页；
+   * 其余按最长前缀匹配：/follow-ups/plans 不该同时点亮 /follow-ups。
+   */
+  const active = (() => {
+    const 带页签 = items.filter((i) => i.href.includes("?tab="));
+    if (带页签.length && pathname === 带页签[0].href.split("?")[0]) {
+      return (tab && 带页签.find((i) => i.href.endsWith(`?tab=${tab}`))?.href) || 带页签[0].href;
+    }
+    return [...items].sort((a, b) => b.href.length - a.href.length).find((i) => !i.href.includes("?") && (pathname === i.href || pathname.startsWith(i.href + "/")))?.href;
+  })();
   return (
     <>
       <div className="pane-h">
