@@ -111,7 +111,8 @@ test("保存时服务端硬拦，且弹窗留在原地不能关——关了等�
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
 
   await expect(page.getByText(`手机号 ${甲手机} 已存在`)).toBeVisible();
-  await expect(page.getByText(甲姓名).first()).toBeVisible(); // 提示里要带上撞的是谁
+  // 限定在弹窗里：中栏也列着这个人，不限定的话提示里没写名字也能过
+  await expect(弹窗.getByText(甲姓名).first()).toBeVisible(); // 提示里要带上撞的是谁
   await expect(弹窗).toBeVisible();
 });
 

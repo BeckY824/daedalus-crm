@@ -105,7 +105,7 @@ test("4. 线索转学员：学员库出现，线索标记已转化", async ({ pa
 test("5. 给学员录一条跟进，时间线上要看得见", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.getByRole("link", { name: 学员名 }).click();
+  await page.locator("main").getByRole("link", { name: 学员名 }).click();
 
   await page.getByRole("button", { name: /新建跟进/ }).first().click();
   const 弹窗 = page.getByRole("dialog");
@@ -117,17 +117,18 @@ test("5. 给学员录一条跟进，时间线上要看得见", async ({ page }) 
    * 断言的是沟通内容而不是标题：时间线上只渲染跟进类型和内容，
    * 标题虽然是必填却不展示在这里（见 docs/测试.md）。
    */
-  await expect(page.getByText("介绍了课程与价格")).toBeVisible();
-  await expect(page.getByText("电话沟通").first()).toBeVisible();
+  // 限定在正文里找：中栏那行也会显示这条跟进的「最近一句」，不限定就分不清断言的是哪块
+  await expect(page.locator("main").getByText("介绍了课程与价格")).toBeVisible();
+  await expect(page.locator("main").getByText("电话沟通").first()).toBeVisible();
   // 刷新后仍在，才说明真的落库了而不只是界面上挂了一条
   await page.reload();
-  await expect(page.getByText("介绍了课程与价格")).toBeVisible();
+  await expect(page.locator("main").getByText("介绍了课程与价格")).toBeVisible();
 });
 
 test("6. 登记签约后，跟进状态变成已签约、金额显示出来", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.getByRole("link", { name: 学员名 }).click();
+  await page.locator("main").getByRole("link", { name: 学员名 }).click();
 
   // 记录页没有页签：「登记签约」在左栏签约一节
   await page.getByRole("button", { name: /登记签约|新建签约|添加签约/ }).first().click();
@@ -135,14 +136,14 @@ test("6. 登记签约后，跟进状态变成已签约、金额显示出来", as
   await 弹窗.getByLabel("签约金额（元）").fill("19800");
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
 
-  await expect(page.getByText("已签约").first()).toBeVisible();
+  await expect(page.locator("main").getByText("已签约").first()).toBeVisible();
   await expect(page.getByText(/19,800/).first()).toBeVisible();
 });
 
 test("7. 同一天同金额再录一笔，要弹窗确认而不是默默翻倍", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.getByRole("link", { name: 学员名 }).click();
+  await page.locator("main").getByRole("link", { name: 学员名 }).click();
 
   await page.getByRole("button", { name: /登记签约|新建签约|添加签约/ }).first().click();
   const 弹窗 = page.getByRole("dialog").first();

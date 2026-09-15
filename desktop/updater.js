@@ -9,8 +9,13 @@
  *
  * 所以这里做的是：发现有新版 → 弹一句 → 打开下载页。下载和拖进应用程序文件夹由用户完成。
  *
- * 两个来源，先自家后 GitHub：自家那份是一个我们自己发布的小 JSON，能随时改；
- * GitHub 那份是兜底，不需要我们额外维护——打了 tag、传了产物就自动是最新的。
+ * 两个来源，取版本号更高的那个：自家那份是一个我们自己发布的小 JSON，能随时改，
+ * 说明文案也由它给；GitHub 那份打了 tag、传了产物就自动是最新的，不用我们维护。
+ *
+ * 为什么不是「先自家、查到就算数」——0.19.0 / 0.19.1 / 0.20.0 连着三次发版都忘了改自家那份，
+ * 结果它把用户按在 0.18.1 上，而 GitHub 上明明已经有新包了。
+ * 一个手写文件不该有能力盖掉真实的发布记录，所以改成谁新听谁的；
+ * 两边一样新时用自家的，因为它的说明文案是写给人看的。
  *
  * 刻意不引 electron：全是纯逻辑加一次 HTTP，不引就能直接拿 node 测。
  * 当前版本由调用方传进来。
@@ -60,15 +65,20 @@ async function 取JSON(url) {
  * 网络不通、GitHub 被墙、我们自己的站挂了，都不是他该处理的事。
  */
 async function 查最新() {
-  const 自家 = await 取JSON(自家源);
+  // 两边一起问：任一边不通都不影响另一边，总耗时也还是一次超时
+  const [自家, gh] = await Promise.all([取JSON(自家源), 取JSON(GitHub源)]);
+
+  const 候选 = [];
   if (自家?.version) {
-    return { 版本: String(自家.version), 地址: 自家.url || 下载页, 说明: 自家.notes || "" };
+    候选.push({ 版本: String(自家.version), 地址: 自家.url || 下载页, 说明: 自家.notes || "" });
   }
-  const gh = await 取JSON(GitHub源);
   if (gh?.tag_name) {
-    return { 版本: String(gh.tag_name), 地址: gh.html_url || 下载页, 说明: String(gh.body || "").slice(0, 600) };
+    候选.push({ 版本: String(gh.tag_name), 地址: gh.html_url || 下载页, 说明: String(gh.body || "").slice(0, 600) });
   }
-  return null;
+  if (!候选.length) return null;
+
+  // 谁新听谁的；并列时排在前面的自家源胜出（它的说明是写给人看的）
+  return 候选.reduce((最好, 这个) => (比版本(这个.版本, 最好.版本) > 0 ? 这个 : 最好));
 }
 
 /**

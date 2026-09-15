@@ -217,7 +217,7 @@ test("超长文本不能把列表撑出横向滚动条", async ({ page }) => {
   expect(列表.溢出, `学员列表被撑出横向滚动条：${JSON.stringify(列表)}`).toBe(false);
 
   // 详情页同样要扛得住
-  await page.getByRole("link", { name: /超长名/ }).first().click();
+  await page.locator("main").getByRole("link", { name: /超长名/ }).first().click();
   await page.waitForTimeout(600);
   await page.screenshot({ path: "test-results/走查/超长文本-学员详情.png", fullPage: true });
   const 详情 = await 横向溢出(page);
@@ -375,7 +375,7 @@ test("推荐链上的学员，详情页要能看出上下游与归属", async ({
   await page.waitForURL(/keyword=/);
   await page.reload();
 
-  await page.getByRole("link", { name: "链条3号" }).click();
+  await page.locator("main").getByRole("link", { name: "链条3号" }).click();
   await page.getByText("推荐关系").waitFor();
   await page.waitForTimeout(500);
   await page.screenshot({ path: "test-results/走查/推荐链-详情.png", fullPage: true });

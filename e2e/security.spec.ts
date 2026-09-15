@@ -57,7 +57,8 @@ test("存储型 XSS：学员备注里的脚本不会被执行，按字面显示"
 
   // 重新加载，走的是「从库里读出来再渲染」这条路——存储型 XSS 真正发作的时机
   await page.goto("/customers");
-  await page.getByRole("link", { name: 姓名 }).click();
+  // 三栏壳的中栏也列学员，同一个名字会出现两个链接——要点的是正文列表里那个
+  await page.locator("main").getByRole("link", { name: 姓名 }).click();
   // 记录页的备注常驻左栏，不用切页签
   await page.getByText("备注").first().waitFor();
 
@@ -72,7 +73,7 @@ test("存储型 XSS：学员备注里的脚本不会被执行，按字面显示"
   expect(注入的元素).toBe(0);
 
   // 3. 内容按字面显示出来，不是被吞掉了——转义正确的表现是「看得见但不生效」
-  await expect(page.getByText("<script>", { exact: false }).first()).toBeVisible();
+  await expect(page.locator("main").getByText("<script>", { exact: false }).first()).toBeVisible();
 });
 
 test("存储型 XSS：跟进内容同样不会被执行", async ({ page }) => {
@@ -81,7 +82,7 @@ test("存储型 XSS：跟进内容同样不会被执行", async ({ page }) => {
 
   await 登录(page);
   await page.goto("/customers");
-  await page.getByRole("link", { name: `XSS${戳}` }).click();
+  await page.locator("main").getByRole("link", { name: `XSS${戳}` }).click();
 
   await page.getByRole("button", { name: /新建跟进/ }).first().click();
   const 表单 = page.getByRole("dialog");
@@ -93,7 +94,8 @@ test("存储型 XSS：跟进内容同样不会被执行", async ({ page }) => {
   await page.reload();
   expect(await page.evaluate(() => (window as unknown as Record<string, unknown>).__被执行了)).toBeUndefined();
   expect(弹窗数.n).toBe(0);
-  await expect(page.getByText("onerror", { exact: false }).first()).toBeVisible();
+  // 中栏的「最近一句」也会把这段载荷按字面显示出来，这里要验的是正文那条
+  await expect(page.locator("main").getByText("onerror", { exact: false }).first()).toBeVisible();
 });
 
 test("登录失败到阈值后会被限流，且提示说明要等多久", async ({ page }) => {

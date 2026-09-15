@@ -217,11 +217,11 @@ export default function AppShell({ user, pendingCount, desktop, today, customers
 
       {pane && <aside className="pane">{pane}</aside>}
 
-      <main className="main">
+      {/* antd 的 Content 自己就渲染成 <main>，外面不能再包一层：
+          一个文档只能有一个 main，两个会让读屏和测试都认不出正文是哪块 */}
+      <main className="main app-content" style={{ padding: "22px 26px" }}>
         {/* 超宽屏下限制正文宽度并居中，避免表格被拉得过于稀疏 */}
-        <Content className="app-content" style={{ padding: "22px 26px" }}>
-          <div style={{ maxWidth: 1720, margin: "0 auto" }}>{children}</div>
-        </Content>
+        <div style={{ maxWidth: 1720, margin: "0 auto" }}>{children}</div>
       </main>
     </div>
   );
