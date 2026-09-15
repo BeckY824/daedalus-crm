@@ -36,7 +36,7 @@ afterEach(() => {
 
 describe("AI 配置的来源", () => {
   it("桌面端登了云端账号：来源是 cloud，带账号和余额，且没有明文 Key", async () => {
-    process.env.LLM_API_KEY = "dk_abcdefghijklmnop";
+    process.env.LLM_API_KEY = "dk_FAKE_TEST_TOKEN";
     process.env.LLM_BASE_URL = "https://app.example.com/api/gateway/v1";
     process.env.CLOUD_ACCOUNT = "lin@qiming.com";
     vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ 上限: 33, 用掉: 9, 还剩: 24 }), { status: 200 }));
@@ -46,8 +46,8 @@ describe("AI 配置的来源", () => {
     expect(v.source).toBe("cloud");
     expect(v.account).toBe("lin@qiming.com");
     expect(v.credits).toEqual({ 上限: 33, 用掉: 9, 还剩: 24 });
-    expect(v.keyMasked).toBe("****mnop");
-    expect(JSON.stringify(v), "喂给页面的东西里不能有明文 Key").not.toContain("dk_abcdefghijklmnop");
+    expect(v.keyMasked).toBe("****OKEN");
+    expect(JSON.stringify(v), "喂给页面的东西里不能有明文 Key").not.toContain("dk_FAKE_TEST_TOKEN");
   });
 
   it("余额查不到就是 null，不能把设置页拖垮", async () => {
@@ -64,13 +64,13 @@ describe("AI 配置的来源", () => {
   });
 
   it("没有 CLOUD_ACCOUNT 就还是 env，说法不变", async () => {
-    process.env.LLM_API_KEY = "sk-runtime";
+    process.env.LLM_API_KEY = "FAKE-TEST-KEY-0005";
     process.env.LLM_BASE_URL = "https://relay.example.com/v1";
     const { describeLlmConfig } = await import("@/lib/llm");
     const v = await describeLlmConfig();
     expect(v.source).toBe("env");
     expect(v.account).toBeUndefined();
-    expect(JSON.stringify(v)).not.toContain("sk-runtime");
+    expect(JSON.stringify(v)).not.toContain("FAKE-TEST-KEY-0005");
   });
 
   it("界面里填的那把：来源 ui，只回显尾 4 位，明文不出现在 props 里", async () => {
@@ -79,14 +79,14 @@ describe("AI 配置的来源", () => {
      * 漏一次就是把用户的 Key 印在页面源码里。
      */
     const { describeLlmConfig, saveLlmConfig, clearLlmConfig } = await import("@/lib/llm");
-    await saveLlmConfig({ baseUrl: "https://my.example.com/v1", model: "m", apiKey: "sk-user-1234567890" });
+    await saveLlmConfig({ baseUrl: "https://my.example.com/v1", model: "m", apiKey: "FAKE-TEST-KEY-0002" });
     try {
       const v = await describeLlmConfig();
       expect(v.source).toBe("ui");
-      expect(v.keyMasked).toBe("****7890");
-      expect(JSON.stringify(v)).not.toContain("sk-user-1234567890");
+      expect(v.keyMasked).toBe("****0002");
+      expect(JSON.stringify(v)).not.toContain("FAKE-TEST-KEY-0002");
       // 界面里填的优先于环境变量，即便这时也配了环境变量
-      process.env.LLM_API_KEY = "sk-env";
+      process.env.LLM_API_KEY = "FAKE-TEST-KEY-0004";
       expect((await describeLlmConfig()).source).toBe("ui");
     } finally {
       await clearLlmConfig();
@@ -103,14 +103,14 @@ describe("存着的那把 Key 不会被发到别处", () => {
      * 就能把明文 Key 收走。而填 Key 的人以为「填进去就只剩尾 4 位了」。
      */
     const { resolveLlmConfigForTest, saveLlmConfig, clearLlmConfig } = await import("@/lib/llm");
-    await saveLlmConfig({ baseUrl: "https://mine.example.com/v1", model: "m", apiKey: "sk-stored-0001" });
+    await saveLlmConfig({ baseUrl: "https://mine.example.com/v1", model: "m", apiKey: "FAKE-TEST-KEY-0001" });
     try {
       expect(await resolveLlmConfigForTest({ baseUrl: "https://evil.example.net/v1", model: "m" })).toBeNull();
-      expect((await resolveLlmConfigForTest({ baseUrl: "https://mine.example.com/v1", model: "m" }))?.apiKey).toBe("sk-stored-0001");
+      expect((await resolveLlmConfigForTest({ baseUrl: "https://mine.example.com/v1", model: "m" }))?.apiKey).toBe("FAKE-TEST-KEY-0001");
       // 末尾斜杠不算另一个地址
-      expect((await resolveLlmConfigForTest({ baseUrl: "https://mine.example.com/v1/", model: "m" }))?.apiKey).toBe("sk-stored-0001");
+      expect((await resolveLlmConfigForTest({ baseUrl: "https://mine.example.com/v1/", model: "m" }))?.apiKey).toBe("FAKE-TEST-KEY-0001");
       // 自己当场填的那把，想发哪儿发哪儿——那是他自己的
-      expect((await resolveLlmConfigForTest({ baseUrl: "https://evil.example.net/v1", model: "m", apiKey: "sk-typed" }))?.apiKey).toBe("sk-typed");
+      expect((await resolveLlmConfigForTest({ baseUrl: "https://evil.example.net/v1", model: "m", apiKey: "FAKE-TEST-KEY-0003" }))?.apiKey).toBe("FAKE-TEST-KEY-0003");
     } finally {
       await clearLlmConfig();
     }
@@ -124,12 +124,12 @@ describe("存着的那把 Key 不会被发到别处", () => {
      */
     const { testLlm } = await import("@/lib/llm");
     vi.stubGlobal("fetch", async () =>
-      new Response(`{"error":"invalid api key: sk-leaked-9876543210"}`, { status: 401 }),
+      new Response(`{"error":"invalid api key: FAKE-TEST-KEY-0000"}`, { status: 401 }),
     );
-    const r = await testLlm({ apiKey: "sk-leaked-9876543210", baseUrl: "https://x.example/v1", model: "m" });
+    const r = await testLlm({ apiKey: "FAKE-TEST-KEY-0000", baseUrl: "https://x.example/v1", model: "m" });
     expect(r.ok).toBe(false);
     if (!r.ok) {
-      expect(r.error, "报错里不能留着 Key").not.toContain("sk-leaked-9876543210");
+      expect(r.error, "报错里不能留着 Key").not.toContain("FAKE-TEST-KEY-0000");
       expect(r.error).toContain("****");
     }
   });

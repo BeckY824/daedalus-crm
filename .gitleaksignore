@@ -8,3 +8,10 @@
 # 写成了十六进制，被 generic-api-key 判成真 Key。
 # 它从来只存在于测试进程的环境变量里。后续提交已把它换成一眼看得出是假的字符串。
 daf6c72520937fad2ed04cf8b993d82e78f554fa:tests/desktop-session.test.ts:generic-api-key:48
+
+# 「上游报错里的 Key 要被抹掉」这条用例的假值。为了让它像真的、能被规则命中，
+# 当时写成了 sk- 开头的形式（用例正是在验证这种串会被抹成 ****）。
+# 它只存在于测试进程里，从没对应过任何真实服务。
+# 后续提交已把它换成 FAKE-TEST-KEY-0000 这种带 FAKE/TEST 字样的形式；历史里这两行去不掉。
+f471a1b4b31e877a7e5b3d578f87449cbbb89918:tests/llm-key-source.test.ts:generic-api-key:127
+f471a1b4b31e877a7e5b3d578f87449cbbb89918:tests/llm-key-source.test.ts:generic-api-key:129
