@@ -76,11 +76,17 @@ Change the password under Settings → Change password. That's it.
 
 ### Hosted trial
 
-Don't want to deploy? Sign up with a phone number or email at [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) and get your own workspace in a minute. 7-day full trial; read-only afterwards, nothing deleted. AI chat comes with 30 free calls on sign-up, plus 3 more each day you use it; an invite code from a [demo booking](https://ai-daedalus.com/demo.html) adds 50. Or click around the [live demo](https://app.ai-daedalus.com/demo) with a demo code.
+Don't want to deploy? Sign up with your email at [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) and get your own workspace in a minute — email, verification code, password, team name, and nothing else in the way. 7-day full trial; read-only afterwards, nothing deleted. AI chat comes with 30 free calls on sign-up, plus 3 more each day you use it. Forgotten your password? "Forgot password?" on the sign-in page handles it — no need to ask us. Or click around the [live demo](https://app.ai-daedalus.com/demo): no sign-up, no code.
 
 ### Desktop apps
 
-Mac (dmg) and Windows (exe) builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm/actions/workflows/desktop.yml) on every tag and connect to your own instance or the hosted version.
+The Mac build (Apple silicon) **ships the whole server inside the app**: install it and it runs, your data is a single file on your machine, no server and no account required.
+
+Two ways to get AI: sign in to a cloud account from the menu (30 free calls; the sign-in window also links out to sign-up and can reset your password), or put your own model API key in **Settings → AI**, which bypasses our allowance entirely — the key is encrypted on your machine and only ever sent to the endpoint you typed. The settings page tells you which of the two is in use and how many calls are left.
+
+To share one database across a team, switch the menu to "Connect to a server" and point it at your own deployment. There are no Windows or Intel Mac builds yet; on those machines use the self-hosted version for now.
+
+Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm/actions/workflows/desktop.yml) on every tag. Install, Gatekeeper and updates: [docs/桌面端安装.md](docs/桌面端安装.md).
 
 <br/>
 
@@ -104,7 +110,7 @@ Channel → student → referred student: attribution goes two generations up, o
 
 ### Optional multi-tenant hosting
 
-Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), phone/email sign-up with verification codes, 7-day trial, read-only after expiry, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day, more with an invite code). Self-hosted installs never execute a line of it.
+Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, 7-day trial, read-only after expiry, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day). Self-hosted installs never execute a line of it.
 
 ### Model-agnostic, per-user switching
 
@@ -145,8 +151,8 @@ More in [docs/shots](docs/shots).
 | Data | Prisma 6 · SQLite (one file per install; one per workspace when hosted) |
 | UI | Ant Design 6 · motion |
 | AI | OpenAI-compatible API, ReAct loop, read-only tools; DeepSeek / OpenAI / Ollama / relays |
-| Tests | vitest (438 unit) · Playwright (58 self-hosted + 9 hosted e2e) · green CI required to merge |
-| Delivery | Multi-arch Docker image (GHCR) · Electron desktop (Mac / Windows) · Caddy auto-HTTPS |
+| Tests | vitest (529 unit) · Playwright (58 self-hosted + 13 hosted e2e) · green CI required to merge |
+| Delivery | Multi-arch Docker image (GHCR) · Electron desktop (macOS, Apple silicon) · Caddy auto-HTTPS |
 
 <br/>
 
