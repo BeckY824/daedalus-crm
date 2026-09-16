@@ -12,7 +12,7 @@
  * 数据仍然只在本机，账号只用来记 AI 次数——收费差异全在 AI 上。
  * 没登录就不开主窗口，见 必须登录()。
  */
-const { app, BrowserWindow, shell, dialog, Menu, clipboard } = require("electron");
+const { app, BrowserWindow, shell, dialog, Menu, clipboard, ipcMain } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
@@ -192,7 +192,7 @@ function 建窗口() {
     backgroundColor: "#fafafa",
     show: false,
     icon: path.join(__dirname, "assets/icon.png"),
-    webPreferences: { contextIsolation: true, nodeIntegration: false },
+    webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, "preload-app.js") },
   });
 
   win.once("ready-to-show", () => win.show());
@@ -626,139 +626,106 @@ async function 显示额度() {
 const 应用包 = 安装.解析应用包(process.execPath);
 
 /**
- * 检查更新。有新版且能原地换包就给「立即更新」，否则退回「去下载页」。
- * 手动点菜单时 静默=false，查不到也要给个回话。
+ * 更新是「后台查、后台下、下完给个按钮」的模式（和 Claude Code / Codex 一样），**不弹对话框**。
+ * 状态推给页面，页面在侧栏画一个按钮；点了按钮才停服务、换包、重启。
+ *
+ * 阶段：idle → checking → downloading（进度）→ ready（等按钮）→ installing
+ *       或 manual（不能原地换：给下载页）   或 error（按钮变成「重试」）
+ *
+ * 换包本身在 install.js；不经 Squirrel.Mac，所以 ad-hoc 签名不是障碍。
  */
-async function 检查更新(静默) {
-  const cfg = 读配置();
-  if (静默 && !更新.该自动查了(cfg.lastUpdateCheck)) return;
-  写配置({ ...cfg, lastUpdateCheck: new Date().toISOString() });
+let 更新状态 = { 阶段: "idle" };
+let 待装 = null;
+let 正在查 = false;
 
-  const 新版 = await 更新.检查({ 当前版本: app.getVersion(), 跳过的版本: 静默 ? cfg.skipVersion : undefined });
-  if (!新版) {
-    if (!静默) {
-      dialog.showMessageBox(win ?? null, {
-        type: "info",
-        title: "检查更新",
-        message: "已经是最新版本",
-        detail: `当前版本 ${app.getVersion()}。`,
-      });
-    }
+function 设更新状态(s) {
+  更新状态 = s;
+  if (win && !win.isDestroyed()) win.webContents.send("update:state", 更新状态);
+}
+
+/** 查 + 下。手动点菜单时 手动=true：已是最新要给句回话，其余情况都静默 */
+async function 检查更新({ 手动 = false } = {}) {
+  if (正在查) return;
+  if (更新状态.阶段 === "ready" || 更新状态.阶段 === "downloading" || 更新状态.阶段 === "installing") {
+    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `${更新状态.版本} 已在准备中`, detail: "下载完成后侧栏会出现「重启以更新」按钮。" });
     return;
   }
-
-  const 可原地 = 新版.dmg ? 安装.能原地更新(应用包) : { ok: false, 原因: "这一版没有提供直接下载地址" };
-  const { response } = await dialog.showMessageBox(win ?? null, {
-    type: "info",
-    title: "有新版本",
-    message: `发现新版本 ${新版.版本}（当前 ${新版.当前}）`,
-    detail: 可原地.ok
-      ? `${新版.说明 ? `${新版.说明}\n\n` : ""}点「立即更新」会在后台下载、校验并替换应用，然后重启。数据在另一个目录，不受影响。`
-      : `${新版.说明 ? `${新版.说明}\n\n` : ""}${可原地.原因}。请去下载页手动下载，把新的应用拖进「应用程序」覆盖旧的即可，数据不受影响。`,
-    buttons: [可原地.ok ? "立即更新" : "去下载页", "跳过这个版本", "以后再说"],
-    defaultId: 0,
-    cancelId: 2,
-  });
-  if (response === 0) {
-    if (可原地.ok) await 执行更新(新版);
-    else shell.openExternal(新版.地址);
-  } else if (response === 1) {
-    写配置({ ...读配置(), skipVersion: 新版.版本 });
-  }
-}
-
-/** 一个小窗口显示下载和安装进度。没有取消钮：换包中途被关掉比等一会儿更糟 */
-function 开进度窗() {
-  const w = new BrowserWindow({
-    width: 400,
-    height: 130,
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    closable: false,
-    title: "正在更新",
-    show: false,
-    webPreferences: { sandbox: true },
-  });
-  w.setMenuBarVisibility(false);
-  const html = `<!doctype html><meta charset="utf-8">
-<style>body{font:13px -apple-system,system-ui;margin:0;padding:22px 24px;color:#0B1B33;-webkit-user-select:none}
-progress{width:100%;height:8px;margin-top:12px}</style>
-<div id="t">正在准备…</div><progress id="p" max="100"></progress>
-<script>window.设=(t,p)=>{document.getElementById("t").textContent=t;const e=document.getElementById("p");if(p==null)e.removeAttribute("value");else e.value=p}</script>`;
-  w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-  w.once("ready-to-show", () => w.show());
-  return {
-    设(文字, 百分比) {
-      if (w.isDestroyed()) return;
-      w.webContents.executeJavaScript(`设(${JSON.stringify(文字)}, ${百分比 == null ? "null" : Math.round(百分比)})`).catch(() => {});
-      if (win && !win.isDestroyed()) win.setProgressBar(百分比 == null ? 2 : 百分比 / 100);
-    },
-    关() {
-      if (win && !win.isDestroyed()) win.setProgressBar(-1);
-      if (!w.isDestroyed()) {
-        w.setClosable(true);
-        w.close();
-      }
-    },
-  };
-}
-
-/**
- * 下载 → 校验 → 停本地服务 → 换包 → 重启。
- * 任何一步失败都把用户留在能用的状态：换包前失败什么都没动；换包失败会退回旧包；
- * 本地服务停了但没换成，就把服务再拉起来。
- */
-async function 执行更新(新版) {
-  const 版本 = String(新版.版本).replace(/^v/, "");
-  const 文件 = path.join(数据根, "updates", `Daedalus-CRM-${版本}.dmg`);
-  const 进度 = 开进度窗();
-  let 服务停过 = false;
+  正在查 = true;
   try {
-    进度.设(`正在下载 ${版本}…`, 0);
+    写配置({ ...读配置(), lastUpdateCheck: new Date().toISOString() });
+    设更新状态({ 阶段: "checking" });
+    const 新版 = await 更新.检查({ 当前版本: app.getVersion() });
+    if (!新版) {
+      设更新状态({ 阶段: "idle" });
+      if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: "已经是最新版本", detail: `当前版本 ${app.getVersion()}。` });
+      return;
+    }
+    const 版本 = String(新版.版本).replace(/^v/, "");
+    const 可原地 = 新版.dmg ? 安装.能原地更新(应用包) : { ok: false, 原因: "这一版没有提供直接下载地址" };
+    if (!可原地.ok) {
+      设更新状态({ 阶段: "manual", 版本, 地址: 新版.地址, 原因: 可原地.原因 });
+      return;
+    }
+    const 文件 = path.join(数据根, "updates", `Daedalus-CRM-${版本}.dmg`);
+    设更新状态({ 阶段: "downloading", 版本, 进度: 0 });
     await 安装.下载文件({
       url: 新版.dmg,
       目标: 文件,
-      进度: (已, 总) => 进度.设(总 ? `正在下载 ${版本}… ${Math.round((已 / 总) * 100)}%（${(已 / 1048576).toFixed(0)} / ${(总 / 1048576).toFixed(0)} MB）` : `正在下载 ${版本}… ${(已 / 1048576).toFixed(0)} MB`, 总 ? (已 / 总) * 100 : null),
+      sha256: 新版.sha256,
+      进度: (已, 总) => 设更新状态({ 阶段: "downloading", 版本, 进度: 总 ? Math.round((已 / 总) * 100) : null }),
     });
-    if (新版.sha256) {
-      进度.设("正在校验…", null);
-      await 安装.校验sha256(文件, 新版.sha256);
-    }
-    进度.设("正在安装…", null);
+    if (新版.sha256) await 安装.校验sha256(文件, 新版.sha256);
+    待装 = { 版本, 文件, 地址: 新版.地址 };
+    设更新状态({ 阶段: "ready", 版本, 说明: 新版.说明 });
+  } catch (e) {
+    崩溃.写崩溃日志(应用日志, "检查或下载更新失败", e);
+    设更新状态({ 阶段: "error", 错误: String(e?.message ?? e) });
+  } finally {
+    正在查 = false;
+  }
+}
+
+/**
+ * 点了按钮：停本地服务 → 换包 → 重启。
+ * 换包前失败什么都没动；换包失败会退回旧包；服务停了但没换成，就把服务再拉起来。
+ */
+async function 安装更新() {
+  if (!待装 || 更新状态.阶段 !== "ready") return;
+  const { 版本, 文件, 地址 } = 待装;
+  设更新状态({ 阶段: "installing", 版本 });
+  let 服务停过 = false;
+  try {
     if (本地服务.运行中()) {
       服务停过 = true;
       await 本地服务.stop();
     }
-    await 安装.安装dmg({ dmg: 文件, 目标: 应用包, 日志: (行) => 进度.设(`正在安装… ${行}`, null) });
+    await 安装.安装dmg({ dmg: 文件, 目标: 应用包 });
     await fs.promises.rm(文件, { force: true }).catch(() => {});
-    进度.设("安装完成，正在重启…", 100);
     app.relaunch();
     app.exit(0);
   } catch (e) {
-    进度.关();
+    崩溃.写崩溃日志(应用日志, "安装更新失败", e);
     await fs.promises.rm(文件, { force: true }).catch(() => {});
+    待装 = null;
     if (服务停过 && 读配置().mode === "local") {
       try {
         await 启动本地();
         if (win) win.loadURL(本地入口());
       } catch {
-        /* 下面的对话框已经在说更新失败了，这里再报会叠两层 */
+        /* 页面上的按钮已经在说失败了 */
       }
     }
-    const { response } = await dialog.showMessageBox(win ?? null, {
-      type: "error",
-      title: "更新失败",
-      message: "应用内更新没有成功",
-      detail: `${e?.message ?? e}\n\n可以去下载页手动下载安装，数据不受影响。`,
-      buttons: ["去下载页", "关闭"],
-      defaultId: 0,
-      cancelId: 1,
-    });
-    if (response === 0) shell.openExternal(新版.地址);
+    设更新状态({ 阶段: "error", 错误: String(e?.message ?? e), 地址 });
   }
 }
+
+ipcMain.handle("update:state", () => 更新状态);
+ipcMain.handle("update:install", () => 安装更新());
+ipcMain.handle("update:check", () => 检查更新({ 手动: true }));
+// 只开主进程自己状态里的地址，页面传不进任何 URL
+ipcMain.handle("update:open", () => {
+  if (更新状态.地址) shell.openExternal(更新状态.地址);
+});
 
 /* ---------- 菜单 ---------- */
 
@@ -855,7 +822,7 @@ function 建菜单() {
         : []),
       { type: "separator" },
       { label: "本机账号密码…", enabled: cfg.mode === "local", click: 显示本机密码 },
-      { label: "检查更新…", click: () => 检查更新(false) },
+      { label: "检查更新…", click: () => 检查更新({ 手动: true }) },
       { label: "备份数据库…", enabled: cfg.mode === "local", click: 备份数据库 },
       { label: "打开数据文件夹", click: () => shell.openPath(数据目录) },
       { label: "查看服务日志", click: () => shell.showItemInFolder(日志文件) },
@@ -933,8 +900,9 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
     建窗口();
-    // 开机就查会和冷启动抢资源，而且那时窗口还没画出来，弹窗会挡在前面。等一会儿再说
-    setTimeout(() => 检查更新(true).catch(() => {}), 15_000);
+    // 开机就查会和冷启动抢资源，等一会儿再说；之后每 6 小时再查一次。都是静默的，有新版就后台下
+    setTimeout(() => 检查更新().catch(() => {}), 15_000);
+    setInterval(() => 检查更新().catch(() => {}), 6 * 60 * 60 * 1000);
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) 建窗口();
     });

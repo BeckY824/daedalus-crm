@@ -23,6 +23,7 @@ import {
 import type { SessionUser } from "@/lib/auth";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
+import UpdateButton from "./UpdateButton";
 import TodayPane, { type TodayData } from "./TodayPane";
 import SectionPane from "./SectionPane";
 import CustomerPane, { type CustomerPaneData } from "./CustomerPane";
@@ -205,6 +206,7 @@ export default function AppShell({ user, pendingCount, desktop, isAdmin, today, 
           ))}
         </div>
         <div className="rail-foot">
+          {desktop && <UpdateButton />}
           <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
             <SettingOutlined />
             <b>设置</b>

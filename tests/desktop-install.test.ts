@@ -176,3 +176,40 @@ describe("清理旧包", () => {
     await expect(安装.清理旧包(null)).resolves.toBeUndefined();
   });
 });
+
+describe("下载文件：已下过的不重下", () => {
+  const 假fetch = (体: string) => {
+    let 调用 = 0;
+    const f = async () => {
+      调用 += 1;
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: (k: string) => (k === "content-length" ? String(体.length) : null) },
+        body: (async function* () {
+          yield Buffer.from(体);
+        })(),
+      };
+    };
+    return { f, 次数: () => 调用 };
+  };
+
+  it("文件在、哈希对得上：不发请求，直接返回（上次下完没装的情况）", async () => {
+    const 目标 = path.join(沙盒, "a.dmg");
+    fs.writeFileSync(目标, "hello");
+    const h = crypto.createHash("sha256").update("hello").digest("hex");
+    const { f, 次数 } = 假fetch("hello");
+    await 安装.下载文件({ url: "x", 目标, sha256: h, fetch: f });
+    expect(次数()).toBe(0);
+  });
+
+  it("文件在、哈希对不上：删掉重下", async () => {
+    const 目标 = path.join(沙盒, "a.dmg");
+    fs.writeFileSync(目标, "旧的半截");
+    const h = crypto.createHash("sha256").update("hello").digest("hex");
+    const { f, 次数 } = 假fetch("hello");
+    await 安装.下载文件({ url: "x", 目标, sha256: h, fetch: f });
+    expect(次数()).toBe(1);
+    expect(fs.readFileSync(目标, "utf8")).toBe("hello");
+  });
+});

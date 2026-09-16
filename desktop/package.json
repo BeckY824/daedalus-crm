@@ -24,6 +24,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "preload-app.js",
       "local-server.js",
       "cloud.js",
       "updater.js",

@@ -67,7 +67,17 @@ function 能原地更新(bundle, { platform = process.platform, 可写 = 目录�
  * 下载到文件，边下边报进度。用 Node 22 自带的 fetch，流式落盘，不把 160 MB 读进内存。
  * 先写到 .part，下完且大小对得上才改名——半截文件不会被当成完整的。
  */
-async function 下载文件({ url, 目标, 进度 = () => {}, fetch: f = globalThis.fetch }) {
+async function 下载文件({ url, 目标, sha256 = null, 进度 = () => {}, fetch: f = globalThis.fetch }) {
+  // 上次下完没装（比如直接退出了）：文件还在、哈希对得上，就不再下一遍 160 MB
+  if (sha256 && fs.existsSync(目标)) {
+    try {
+      await 校验sha256(目标, sha256);
+      进度(1, 1);
+      return 目标;
+    } catch {
+      await fsp.rm(目标, { force: true });
+    }
+  }
   const res = await f(url, { redirect: "follow", headers: { "User-Agent": "DaedalusCRM-Desktop" } });
   if (!res.ok || !res.body) throw new Error(`下载失败：HTTP ${res.status}`);
   const 总 = Number(res.headers.get("content-length")) || null;
