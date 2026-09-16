@@ -16,6 +16,8 @@ type SP = Promise<{
   channelOwnerId?: string;
   page?: string;
   pageSize?: string;
+  /** 从首页那张「开始」卡过来的：直接把新建表单打开，省一次点击 */
+  new?: string;
 }>;
 
 export default async function CustomersPage({ searchParams }: { searchParams: SP }) {
@@ -104,6 +106,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       users={users}
       channels={channels}
       customers={allCustomers}
+      直接新建={sp.new === "1"}
       filters={{
         keyword: sp.keyword ?? "",
         grade: sp.grade ?? "",

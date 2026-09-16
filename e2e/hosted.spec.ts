@@ -153,6 +153,12 @@ test("5 共享工作区里不摆管理员那几栏——密码在多个团队手
 test("6 共享工作区里手机号要打码", async ({ page }) => {
   await 进共享区(page);
   await page.goto("/customers");
+  // 电话默认不在那六列里了（批 2），先从「列」里勾出来——顺带验一下勾了真的会出现
+  await page.getByRole("button", { name: "列" }).click();
+  const 列菜单 = page.locator(".ant-dropdown:not(.ant-dropdown-hidden)");
+  await 列菜单.waitFor({ state: "visible" });
+  await 列菜单.getByText("联系电话").click();
+  await page.keyboard.press("Escape");
   // 数据多半是编的，但一串 11 位数字在截图和录屏里与真号无从分辨
   await expect(page.locator("main").getByText("139****1111").first()).toBeVisible({ timeout: 15_000 });
   await expect(page.locator("main").getByText("13900001111")).toHaveCount(0);

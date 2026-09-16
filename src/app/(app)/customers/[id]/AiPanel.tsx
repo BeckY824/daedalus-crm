@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button, Input, Alert, Typography, App, Tooltip } from "antd";
 import { ThunderboltOutlined, ReloadOutlined, CopyOutlined, ArrowRightOutlined } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
@@ -47,13 +47,16 @@ export default function AiPanel({
   const inviteJob = useJob<string>(`draft:invite:${customerId}`);
   const [q, setQ] = useState("");
 
+  /** 侧栏那条「AI 任务」认这个：叫什么、点了回哪儿 */
+  const 标签 = useMemo(() => ({ 名: `${customerName} 的简报`, 去: `/customers/${customerId}` }), [customerName, customerId]);
+
   function regenerate() {
     clearJob(askKey);
     clearJob(briefKey);
-    runStream<BriefAnswer>(briefKey, { mode: "brief", customerId });
+    runStream<BriefAnswer>(briefKey, { mode: "brief", customerId }, undefined, 标签);
   }
   function ask(question: string) {
-    runStream<BriefAnswer>(askKey, { mode: "brief", customerId, question }, question);
+    runStream<BriefAnswer>(askKey, { mode: "brief", customerId, question }, question, { 名: `问 ${customerName}：${question.slice(0, 12)}`, 去: `/customers/${customerId}` });
   }
 
   // 简报生成完写进 sessionStorage；首次进入有缓存就直接用
@@ -80,13 +83,13 @@ export default function AiPanel({
       } catch {
         /* 读不到就重新生成 */
       }
-      runStream<BriefAnswer>(briefKey, { mode: "brief", customerId });
+      runStream<BriefAnswer>(briefKey, { mode: "brief", customerId }, undefined, 标签);
     }, 0);
     return () => {
       cancelled = true;
       clearTimeout(t);
     };
-  }, [briefKey, hasRecords, customerId]);
+  }, [briefKey, hasRecords, customerId, 标签]);
 
   function doDraft(kind: "wakeup" | "invite") {
     runJob(`draft:${kind}:${customerId}`, async () => {

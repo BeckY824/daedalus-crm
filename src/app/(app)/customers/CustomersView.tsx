@@ -3,25 +3,23 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Table, Button, Input, Select, Space, Dropdown, App, Tag } from "antd";
-import type { ColumnsType } from "antd/es/table";
+import { Button, Input, Select, Space, Dropdown, App, Tag, Popover } from "antd";
 import {
   PlusOutlined,
   ExportOutlined,
   UserSwitchOutlined,
   TagsOutlined,
-  MoreOutlined,
   ReloadOutlined,
   SearchOutlined,
   DeleteOutlined,
   EditOutlined,
-  IdcardOutlined,
+  FilterOutlined,
 } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { maskPhone, smartTime, money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { toCsv } from "@/lib/csv";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
-import { 表格空态 } from "@/components/EmptyState";
+import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import { deleteCustomers, assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
 import { useBusiness } from "@/lib/business-client";
@@ -50,6 +48,8 @@ type Props = {
   users: 可选成员[];
   channels: Option[];
   customers: Option[];
+  /** 进来就把新建表单打开（首页空库那张「开始」卡的落点） */
+  直接新建?: boolean;
   filters: {
     keyword: string;
     grade: string;
@@ -60,8 +60,19 @@ type Props = {
   };
 };
 
+/**
+ * 学员列表——全站列表页的母版（批 2）。
+ *
+ * 表格、筛选栏的收放、分页、列设置、批量工具条都在 `components/DataList.tsx` 里，
+ * 这一页只写四样：列、筛选、空状态的第一步、主动作。线索 / 渠道 / 联系人 /
+ * 商机 / 跟进照抄这四样就行（批 3）。
+ *
+ * 默认只摆六列：学员、院校·专业、跟进状态、预计签约、负责人、最近跟进。
+ * 原来十四列全摆出来，1440 屏上要横着拖两屏才看得完，而每天真正要扫的就这六样；
+ * 其余的收进「列」里，勾了记在这台机器上。
+ */
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters,
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建,
 }: Props) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -75,9 +86,8 @@ export default function CustomersView({
    * 按 filters（服务端那次查询用的条件）判而不是 f（输入框里的草稿）。
    */
   const 空库 = total === 0 && !Object.values(filters).some((v) => v);
-  const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
-  const [formOpen, setFormOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(Boolean(直接新建));
 
   function apply(next: Partial<typeof f> = {}) {
     const merged = { ...f, ...next };
@@ -93,84 +103,68 @@ export default function CustomersView({
     startTransition(() => router.push("/customers"));
   }
 
-  const columns: ColumnsType<CustomerRow> = [
+  /** 收起来的那三个里还筛着几个。收起来不等于可以不告诉人 */
+  const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId].filter(Boolean).length;
+
+  const 列表: 列<CustomerRow>[] = [
     {
-      title: "客户姓名",
+      title: b.customer,
+      key: "name",
       dataIndex: "name",
-      width: 170,
-      fixed: "left",
-      render: (v, r) => (
-        <Link href={`/customers/${r.id}`} className="link-strong">{v}</Link>
-      ),
-    },
-    { title: "联系电话", dataIndex: "phone", width: 150, render: (v) => <span className="nowrap">{maskPhone(v)}</span> },
-    { title: b.fields.school, dataIndex: "school", width: 190, render: (v) => v ?? <span className="muted">—</span> },
-    { title: b.fields.major, dataIndex: "major", width: 180, render: (v) => v ?? <span className="muted">—</span> },
-    { title: b.fields.grade, dataIndex: "grade", width: 100, render: (v) => v ?? <span className="muted">—</span> },
-    {
-      title: "推荐人",
-      dataIndex: "referrerName",
-      width: 130,
-      render: (v) => v ?? <span className="muted">自然流量</span>,
+      width: 160,
+      常驻: true,
+      render: (v, r) => <Link href={`/customers/${r.id}`} className="link-strong">{v}</Link>,
     },
     {
-      title: "渠道归属",
-      dataIndex: "attributionName",
-      width: 130,
+      // 院校和专业永远一起看。分成两列只是把同一件事拆开占两倍宽
+      title: `${b.fields.school}·${b.fields.major}`,
+      key: "schoolMajor",
+      列名: `${b.fields.school}·${b.fields.major}`,
+      width: 250,
+      render: (_, r) =>
+        r.school || r.major ? (
+          <span>
+            {r.school ?? "—"}
+            {r.major && <span className="muted"> · {r.major}</span>}
+          </span>
+        ) : (
+          <span className="muted">—</span>
+        ),
+    },
+    { title: "跟进状态", key: "followStatus", dataIndex: "followStatus", width: 118, render: (v) => <FollowStatusTag status={v} /> },
+    {
+      title: "预计签约", key: "expectedSignAt", dataIndex: "expectedSignAt", width: 116,
+      render: (v) => <span className="muted nowrap">{v ? fmtDate(v) : "—"}</span>,
+    },
+    { title: "销售负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
+    { title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 116, render: (v) => <span className="muted nowrap">{smartTime(v)}</span> },
+
+    { title: "联系电话", key: "phone", dataIndex: "phone", width: 140, 默认: false, render: (v) => <span className="nowrap">{maskPhone(v)}</span> },
+    { title: b.fields.grade, key: "grade", dataIndex: "grade", width: 90, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
+    { title: "决策状态", key: "decisionStatus", dataIndex: "decisionStatus", width: 128, 默认: false, render: (v) => <DecisionStatusTag status={v} /> },
+    {
+      title: "签约金额", key: "signedAmount", dataIndex: "signedAmount", width: 120, 默认: false,
+      sorter: (a, b2) => a.signedAmount - b2.signedAmount,
+      render: (v: number) => (v > 0 ? <span style={{ fontWeight: 500 }}>{money(v)}</span> : <span className="muted">—</span>),
+    },
+    { title: "推荐人", key: "referrerName", dataIndex: "referrerName", width: 120, 默认: false, render: (v) => v ?? <span className="muted">自然流量</span> },
+    {
+      title: "渠道归属", key: "attributionName", dataIndex: "attributionName", width: 120, 默认: false,
       render: (v) => (v ? <Tag style={{ margin: 0, borderRadius: 6 }}>{v}</Tag> : <span className="muted">—</span>),
     },
     {
-      title: "跟进状态",
-      dataIndex: "followStatus",
-      width: 118,
-      render: (v) => <FollowStatusTag status={v} />,
+      title: "渠道负责人", key: "channelOwnerName", dataIndex: "channelOwnerName", width: 130, 默认: false,
+      render: (v) => (v ? <UserCell name={v} size={24} /> : <span className="muted">—</span>),
     },
     {
-      title: "决策状态",
-      dataIndex: "decisionStatus",
-      width: 130,
-      render: (v) => <DecisionStatusTag status={v} />,
-    },
-    {
-      title: "预计签约",
-      dataIndex: "expectedSignAt",
-      width: 130,
-      render: (v) => <span className="muted nowrap">{v ? fmtDate(v) : "—"}</span>,
-    },
-    {
-      title: "签约金额",
-      dataIndex: "signedAmount",
-      width: 130,
-      sorter: (a, b) => a.signedAmount - b.signedAmount,
-      render: (v: number) =>
-        v > 0 ? <span style={{ fontWeight: 500 }}>{money(v)}</span> : <span className="muted">—</span>,
-    },
-    { title: "销售负责人", dataIndex: "salesOwnerName", width: 128, render: (v) => <UserCell name={v} size={30} /> },
-    {
-      title: "渠道负责人",
-      dataIndex: "channelOwnerName",
-      width: 128,
-      render: (v) => (v ? <UserCell name={v} size={30} /> : <span className="muted">—</span>),
-    },
-    {
-      title: "最近跟进",
-      dataIndex: "lastFollowAt",
-      width: 130,
-      render: (v) => <span className="muted nowrap">{smartTime(v)}</span>,
-    },
-    {
-      title: "",
-      key: "action",
-      width: 116,
-      fixed: "right",
+      title: "", key: "action", width: 78, 常驻: true, fixed: "right",
       render: (_, r) => (
         // 纯图标按钮必须自带可访问名称：没有它，屏幕阅读器只会读出「按钮」，
-        // 自动化也只能按位置取第一个——这类选择器一改动就漂
+        // 自动化也只能按位置取第一个——这类选择器一改动就漂。
+        // 原来还有个「详情」按钮，去掉了：整行点进去就是详情，一行里不摆两条同样的路
         <Space size={2}>
           <Button aria-label={`编辑 ${r.name}`} title="编辑"
             type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditing(r); setFormOpen(true); }} />
-          <Button aria-label={`查看 ${r.name} 的详情`} title="详情"
-            type="text" size="small" icon={<IdcardOutlined />} onClick={() => router.push(`/customers/${r.id}`)} />
           <Button
             aria-label={`删除 ${r.name}`} title="删除"
             type="text" size="small" danger icon={<DeleteOutlined />}
@@ -195,156 +189,142 @@ export default function CustomersView({
 
   return (
     <>
-      <PageHead
-        icon={<IdcardOutlined />}
-        title={`${b.customer}管理`}
-        subtitle="按状态、负责人和来源筛选"
-        tag="客户管理"
-        tagNote={`统一管理${b.customer}信息，追踪推荐来源与签约进度`}
-      />
+      <PageHead title={b.customer} subtitle="按状态、负责人和来源筛选" />
 
-      <div className="list">
-        {/*
-          一条数据都没有、也没在筛的时候，筛选栏和批量操作整条收起来：
-          对着一张空表摆 5 个下拉 + 5 个按钮，第一次打开的人不知道该点哪个。
-          **筛出 0 条时要留着**——那时人得能看见自己筛了什么、能点重置。
-        */}
-        {!空库 && (
-        <Space wrap size={[10, 10]}>
-          <Select style={{ width: 130 }} placeholder={`全部${b.fields.grade}`} allowClear
-            value={f.grade || undefined} onChange={(v) => apply({ grade: v ?? "" })}
-            options={b.grades.map((g) => ({ value: g, label: g }))} />
-          <Select style={{ width: 140 }} placeholder="全部跟进状态" allowClear
-            value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
-            options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
-          <Select style={{ width: 150 }} placeholder="全部决策状态" allowClear
-            value={f.decisionStatus || undefined} onChange={(v) => apply({ decisionStatus: v ?? "" })}
-            options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
-          <Select style={{ width: 150 }} placeholder="全部销售负责人" allowClear
-            value={f.salesOwnerId || undefined} onChange={(v) => apply({ salesOwnerId: v ?? "" })}
-            options={成员选项(users)} />
-          <Select style={{ width: 150 }} placeholder="全部渠道负责人" allowClear
-            value={f.channelOwnerId || undefined} onChange={(v) => apply({ channelOwnerId: v ?? "" })}
-            options={成员选项(users)} />
-          <Input style={{ width: 260 }} placeholder="姓名 / 电话 / 院校 / 专业"
-            prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
-            value={f.keyword} allowClear
-            onChange={(e) => setF({ ...f, keyword: e.target.value })}
-            onPressEnter={() => apply()} />
-          <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
-          <Button icon={<ReloadOutlined />} onClick={reset}>重置</Button>
-        </Space>
-        )}
-
-        {/*
-          「新建」任何时候都在原位——空状态里那个「新建第一位」是给第一次进来的人的引导，
-          不是它的替代品；老用户会去工具栏找它。空库时收起来的是导出和批量操作，
-          那几个对着 0 条数据没有意义。
-        */}
-        <Space wrap>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
-            新建{b.customer}
-          </Button>
-          {!空库 && (
+      <DataList<CustomerRow>
+        页="customers"
+        空库={空库}
+        列={列表}
+        行={rows}
+        加载中={pending}
+        行链接={(r) => `/customers/${r.id}`}
+        空态={{
+          title: `还没有${b.customer}`,
+          hint: `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。`,
+          primary: { label: `新建第一位${b.customer}`, onClick: () => { setEditing(null); setFormOpen(true); } },
+        }}
+        筛选={
+          /*
+            摆出来的只有三个：搜一句、跟进状态、销售负责人——每天都在用的就这三个。
+            年级 / 决策状态 / 渠道负责人收进「更多筛选」，但正筛着几个要写在按钮上：
+            收起来不等于可以不告诉人，否则人会对着一张筛过的表当成全部。
+          */
+          <Space wrap size={[10, 10]}>
+            <Input style={{ width: 260 }} placeholder="姓名 / 电话 / 院校 / 专业"
+              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
+              value={f.keyword} allowClear
+              onChange={(e) => setF({ ...f, keyword: e.target.value })}
+              onPressEnter={() => apply()} />
+            <Select style={{ width: 140 }} placeholder="全部跟进状态" allowClear
+              value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
+              options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
+            <Select style={{ width: 150 }} placeholder="全部销售负责人" allowClear
+              value={f.salesOwnerId || undefined} onChange={(v) => apply({ salesOwnerId: v ?? "" })}
+              options={成员选项(users)} />
+            <Popover
+              trigger="click"
+              placement="bottomLeft"
+              content={
+                <Space orientation="vertical" size={10} style={{ width: 220 }}>
+                  <Select style={{ width: "100%" }} placeholder={`全部${b.fields.grade}`} allowClear
+                    value={f.grade || undefined} onChange={(v) => apply({ grade: v ?? "" })}
+                    options={b.grades.map((g) => ({ value: g, label: g }))} />
+                  <Select style={{ width: "100%" }} placeholder="全部决策状态" allowClear
+                    value={f.decisionStatus || undefined} onChange={(v) => apply({ decisionStatus: v ?? "" })}
+                    options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
+                  <Select style={{ width: "100%" }} placeholder="全部渠道负责人" allowClear
+                    value={f.channelOwnerId || undefined} onChange={(v) => apply({ channelOwnerId: v ?? "" })}
+                    options={成员选项(users)} />
+                </Space>
+              }
+            >
+              <Button icon={<FilterOutlined />}>更多筛选{更多筛了 > 0 ? ` · ${更多筛了}` : ""}</Button>
+            </Popover>
+            <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
+            <Button icon={<ReloadOutlined />} onClick={reset}>重置</Button>
+          </Space>
+        }
+        动作={
           <>
-          <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows, b)}>导出</Button>
-          <Dropdown
-            disabled={!selected.length}
-            menu={{
-              // 同样走 成员选项：批量分配比单条更需要认清人，转错了是一批数据
-              items: 成员选项(users).map((o) => ({
-                key: o.value,
-                label: o.label,
-                onClick: async () => {
-                  const res = await assignSalesOwner(selected, o.value);
-                  setSelected([]);
-                  router.refresh();
-                  if (!res.ok) {
-                    message.error(res.error);
-                    return;
-                  }
-                  message.success(bulkSummary(res, `已转给 ${o.label}`));
-                },
-              })),
-            }}
-          >
-            <Button icon={<UserSwitchOutlined />}>批量分配</Button>
-          </Dropdown>
-          <Dropdown
-            disabled={!selected.length}
-            menu={{
-              items: FOLLOW_STATUSES.map((s) => ({
-                key: s,
-                label: statusLabel(b, s),
-                onClick: async () => {
-                  const res = await bulkFollowStatus(selected, s);
-                  setSelected([]);
-                  router.refresh();
-                  if (!res.ok) {
-                    message.error(res.error);
-                    return;
-                  }
-                  message.success(bulkSummary(res, `已改为「${statusLabel(b, s)}」`));
-                },
-              })),
-            }}
-          >
-            <Button icon={<TagsOutlined />}>批量状态</Button>
-          </Dropdown>
-          <Dropdown
-            disabled={!selected.length}
-            menu={{
-              items: [{
-                key: "del", danger: true, icon: <DeleteOutlined />, label: `删除选中 ${selected.length} 条`,
-                onClick: () =>
-                  modal.confirm({
-                    title: `确认删除选中的 ${selected.length} 名${b.customer}？`,
-                    content: "其跟进记录、待办与签约记录会一并删除，且不可恢复。",
-                    okText: "确认删除", okButtonProps: { danger: true }, cancelText: "取消",
-                    async onOk() {
-                      const res = await deleteCustomers(selected);
-                      if (!res.ok) return message.error(res.error, 8);
-                      setSelected([]);
-                      message.success(`已删除 ${res.deleted} 条`);
-                      router.refresh();
-                    },
-                  }),
-              }],
-            }}
-          >
-            <Button icon={<MoreOutlined />}>更多操作</Button>
-          </Dropdown>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
+              新建{b.customer}
+            </Button>
+            {!空库 && <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows, b)}>导出</Button>}
           </>
-          )}
-        </Space>
-
-        <Table<CustomerRow>
-          rowKey="id"
-          locale={表格空态({
-            title: `还没有${b.customer}`,
-            hint: `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。`,
-            primary: { label: `新建第一位${b.customer}`, onClick: () => { setEditing(null); setFormOpen(true); } },
-          })}
-          size="middle"
-          dataSource={rows}
-          columns={columns}
-          loading={pending}
-          scroll={{ x: 1900 }}
-          rowSelection={{ selectedRowKeys: selected, onChange: (k) => setSelected(k as string[]) }}
-          pagination={{
-            current: page, pageSize, total,
-            showTotal: (t) => `共 ${t} 条`,
-            showSizeChanger: true,
-            onChange: (p, ps) => {
-              const q = new URLSearchParams();
-              Object.entries(f).forEach(([k, v]) => v && q.set(k, String(v)));
-              q.set("page", String(p));
-              q.set("pageSize", String(ps));
-              startTransition(() => router.push(`/customers?${q}`));
-            },
-          }}
-        />
-      </div>
+        }
+        批量={(selected, 清空) => (
+          <>
+            <Dropdown
+              menu={{
+                // 同样走 成员选项：批量分配比单条更需要认清人，转错了是一批数据
+                items: 成员选项(users).map((o) => ({
+                  key: o.value,
+                  label: o.label,
+                  onClick: async () => {
+                    const res = await assignSalesOwner(selected, o.value);
+                    清空();
+                    router.refresh();
+                    if (!res.ok) return void message.error(res.error);
+                    message.success(bulkSummary(res, `已转给 ${o.label}`));
+                  },
+                })),
+              }}
+            >
+              <Button size="small" icon={<UserSwitchOutlined />}>批量分配</Button>
+            </Dropdown>
+            <Dropdown
+              menu={{
+                items: FOLLOW_STATUSES.map((s) => ({
+                  key: s,
+                  label: statusLabel(b, s),
+                  onClick: async () => {
+                    const res = await bulkFollowStatus(selected, s);
+                    清空();
+                    router.refresh();
+                    if (!res.ok) return void message.error(res.error);
+                    message.success(bulkSummary(res, `已改为「${statusLabel(b, s)}」`));
+                  },
+                })),
+              }}
+            >
+              <Button size="small" icon={<TagsOutlined />}>批量状态</Button>
+            </Dropdown>
+            <Button
+              size="small"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={() =>
+                modal.confirm({
+                  title: `确认删除选中的 ${selected.length} 名${b.customer}？`,
+                  content: "其跟进记录、待办与签约记录会一并删除，且不可恢复。",
+                  okText: "确认删除", okButtonProps: { danger: true }, cancelText: "取消",
+                  async onOk() {
+                    const res = await deleteCustomers(selected);
+                    if (!res.ok) return message.error(res.error, 8);
+                    清空();
+                    message.success(`已删除 ${res.deleted} 条`);
+                    router.refresh();
+                  },
+                })
+              }
+            >
+              删除
+            </Button>
+          </>
+        )}
+        分页={{
+          当前页: page,
+          每页: pageSize,
+          总数: total,
+          翻页: (p, ps) => {
+            const q = new URLSearchParams();
+            Object.entries(f).forEach(([k, v]) => v && q.set(k, String(v)));
+            q.set("page", String(p));
+            q.set("pageSize", String(ps));
+            startTransition(() => router.push(`/customers?${q}`));
+          },
+        }}
+      />
 
       <CustomerForm
         open={formOpen}

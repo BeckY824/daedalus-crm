@@ -84,7 +84,10 @@ test.describe.serial("业务配置", () => {
 
     await page.goto("/customers");
     await expect(page.getByRole("link", { name: "客户管理" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "客户管理" })).toBeVisible();
+    // 页面标题是名词本身（批 2）：产品里这一页就叫「客户」，
+    // 「客户管理：统一管理客户信息」那种是方案里的措辞，不是界面上的话。
+    // 侧边栏还是「客户管理」——那是一条导航，不是标题
+    await expect(page.getByRole("heading", { name: "客户", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /新建客户/ })).toBeVisible();
 
     // 复原，后面的用例靠「学员」定位

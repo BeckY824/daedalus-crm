@@ -54,6 +54,8 @@
   --row-h: 40px;             /* 表格行高 */
   --th-h: 36px;              /* 表头 */
   --field-h: 48px;           /* 主输入框下限 */
+  --roster-w: 220px;         /* 记录页的窄名单 */
+  --ai-w: 340px;             /* 记录页的 AI 栏 */
 
   /* 旧名，调用处还在用，指到新 token 上 */
   --page-bg: var(--workbench);
@@ -134,6 +136,19 @@ a {
 .rail-mark b { font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
 .rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 2px; }
 .rail-foot { margin-top: auto; }
+/* 侧栏底部的 AI 任务。问一句要十几秒，人会切走——切走之后总得有个地方
+   看得见它跑完没有。跑着的排在前面，答完的点一下就消掉 */
+.aitasks { margin-bottom: var(--s2); }
+.aitasks-t { font-size: var(--fs-min); color: var(--text-muted); padding: 0 10px 4px; }
+.aitask { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: var(--r-ctl); color: var(--ink); }
+.aitask:hover { background: var(--hover); }
+.aitask-i { flex: none; color: var(--text-muted); font-size: var(--fs-min); }
+.aitask-loading .aitask-i { color: var(--brand); }
+.aitask-error .aitask-i { color: var(--danger); }
+.aitask-done .aitask-i { color: var(--success); }
+.aitask-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-note); }
+.aitask-s { flex: none; font-size: var(--fs-min); color: var(--text-muted); }
+
 /* 桌面端的更新按钮：壳后台下完了才出现，一条，点了就重启装。下载中是灰的只读文字 */
 .rail-update { display: block; width: 100%; margin-bottom: 8px; padding: 8px 10px; border: 0; border-radius: var(--r-card); background: var(--brand); color: #fff; font-size: var(--fs-note); font-weight: 600; line-height: 1.3; text-align: left; cursor: pointer; white-space: normal; }
 .rail-update:hover { filter: brightness(1.08); }
@@ -199,6 +214,25 @@ a {
 .pane-row-n { display: flex; align-items: center; gap: 6px; font-weight: 500; }
 .pane-row-s { display: block; font-size: var(--fs-note); color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pane-row-r { flex: none; font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* 记录页左边那条窄名单。比别的中栏窄一档：它只要装得下
+   「名字 + 状态 + 最近什么时候」，再宽就开始和正文抢地方 */
+.pane-roster { width: var(--roster-w); }
+/* 名单的一行。220 宽里「头像 + 名字 + 状态标签 + 时间」挤在一行会把名字压成竖排，
+   所以拆两行：上面是名字和时间，下面是状态和最近那一句。 */
+.roster-row { display: flex; gap: var(--s2); padding: 7px 12px; border-bottom: 1px solid var(--line-soft); color: var(--ink); }
+.roster-row:hover { background: var(--row-hover); }
+.roster-row.on { background: var(--brand-bg); box-shadow: inset 2px 0 0 var(--brand); }
+.roster-av { width: 24px; height: 24px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--fs-min); font-weight: 600; margin-top: 1px; }
+.roster-m { flex: 1; min-width: 0; }
+.roster-l1 { display: flex; align-items: baseline; gap: var(--s2); }
+.roster-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.roster-t { flex: none; font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.roster-l2 { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.roster-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-note); color: var(--text-muted); }
+.pane-kbd { flex: none; font-size: var(--fs-min); color: var(--text-faint); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 0 4px; line-height: 16px; }
+/* 收成抽屉时，里面那套样式原样复用 */
+.pane-drawer .pane-h { border-bottom: 1px solid var(--line-soft); }
 
 .main { flex: 1; min-width: 0; }
 
@@ -388,8 +422,8 @@ a {
 /* ---------- 记录页（v0.4 三栏） ---------- */
 .rec {
   display: grid;
-  grid-template-columns: 296px minmax(0, 1fr) 340px;
-  gap: 18px;
+  grid-template-columns: 240px minmax(0, 1fr) var(--ai-w);
+  gap: var(--s4);
   align-items: start;
 }
 .rec-rail { position: sticky; top: 16px; }
@@ -443,11 +477,12 @@ a {
 .rec-plan {
   margin: 12px 16px 0; padding: 10px 14px; border-radius: var(--r-card);
   background: linear-gradient(135deg, var(--brand-bg), var(--panel)); border: 1px solid var(--brand-line);
-  display: flex; align-items: center; gap: 10px; font-size: var(--fs-body);
+  /* 允许换行：时间线窄到 382 时，不换行的话中间那段说明会被挤成一列竖排的字 */
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: var(--fs-body);
 }
 .rec-plan-k { color: var(--brand); font-weight: 600; white-space: nowrap; }
-.rec-plan-v { flex: 1; min-width: 0; color: var(--ink); }
-.rec-plan-m { color: var(--text-muted); font-size: var(--fs-note); white-space: nowrap; }
+.rec-plan-v { flex: 1 1 100%; min-width: 0; color: var(--ink); order: 3; }
+.rec-plan-m { color: var(--text-muted); font-size: var(--fs-note); white-space: nowrap; margin-left: auto; }
 .rec-tl { padding: 4px 16px 10px; }
 .rec-tl-item { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line-soft); }
 .rec-tl-item:last-child { border-bottom: none; }
@@ -490,14 +525,18 @@ a {
 .rec-task { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: var(--fs-body); }
 .rec-task-due { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
 
-/* 记录页什么时候从三栏收成两栏。
-   这个数是算出来的，不是拍的：三栏壳把图标栏 76 和中栏 352 拿走了，正文左右还各有 26 的内边距，
-   所以正文宽 = 视口 − 480。三栏要好看，中间那条时间线至少得 400：
-   296（档案）+ 340（AI）+ 18×2（间距）+ 400 = 1090 → 视口 1620（侧栏 164 + 中栏 312 + 内边距 52 = 528）。
-   原来这里写的是 1360——那是中栏还不存在时定的，于是 1440（桌面端窗口的默认尺寸）
-   仍然走三栏，时间线被压到 278px，「下次跟进」里的字直接竖排了。 */
-@media (max-width: 1620px) {
-  .rec { grid-template-columns: 264px minmax(0, 1fr); }
+/* 记录页在什么宽度上收。两个断点都是算出来的，不是拍的：
+     1440（桌面端窗口的默认尺寸）：左栏 164 + 名单 220 + 正文内边距 52 = 436，正文 1004。
+       档案 240 + AI 340 + 间距 32 = 612，时间线还剩 392 —— 三栏都在，站得住。
+     1440 以下：名单先收成抽屉（lib/roster.ts），正文拿回那 220，三栏照旧。
+     1180 以下：AI 也收成抽屉（记录页自己渲染 Drawer），只剩档案 + 时间线。
+   收的顺序是「先收名单再收 AI」：名单是换人看用的，AI 是正在读的这一位的，
+   屏幕紧张时后者更该留着。 */
+@media (max-width: 1179px) {
+  /* AI 收成抽屉（记录页自己渲染 Drawer），正文让出那 340 给时间线。
+     待办和「下次跟进」不跟着进抽屉——它们是这一位的事实，不是 AI 的产出，
+     横过来摆在时间线下面就行 */
+  .rec { grid-template-columns: 240px minmax(0, 1fr); }
   .rec-right { grid-column: 1 / -1; }
   .rec-rail { position: static; }
 }
@@ -642,6 +681,11 @@ a {
 .prop-f-block { flex-basis: 100%; align-items: flex-start; }
 .prop-f-block > *:last-child { flex: 1; }
 .prop-f-l { flex: none; font-size: var(--fs-note); color: var(--text-muted); }
+/* 逐项勾选：没勾上的整项压暗，但仍然读得出来——藏起来人就不知道它否掉了什么 */
+.prop-f-pick { padding: 3px 0; }
+.prop-f-off { opacity: 0.45; }
+.prop-f-was { font-size: var(--fs-note); color: var(--text-muted); text-decoration: line-through; }
+.prop-f-arrow { color: var(--text-faint); text-decoration: none; display: inline-block; margin-left: 2px; }
 .prop-err { margin-top: 8px; color: var(--danger-text); font-size: var(--fs-note); }
 .prop-foot { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
 .prop-ok { display: inline-flex; align-items: center; gap: 5px; border: 0; background: var(--ink); color: #fff; font-size: var(--fs-note); padding: 5px 14px; border-radius: var(--r-ctl); cursor: pointer; }
@@ -716,6 +760,41 @@ a {
    还让每页多出一层要对齐的边界。卡从此只留给「一条记录」和「可以拖动的对象」。
    筛选栏、工具条、表格之间的距离由这里的 gap 统一给，各页不再自己写 marginBottom。 */
 .list { display: flex; flex-direction: column; gap: var(--s3); }
+/* 工具条：主动作在左，列设置在右 */
+.list-bar { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.list-bar-gap { flex: 1; }
+/* 批量工具条。勾了行才出现，并且写明「已选 N 条」——
+   原来它一直摆在那儿、按钮是灰的，人得先猜哪几个是给多选用的 */
+.list-sel { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  padding: var(--s2) var(--s3); background: var(--brand-bg); border: 1px solid var(--brand-line); border-radius: var(--r-ctl); }
+.list-sel b { font-weight: 600; color: var(--brand-deep); }
+.list-sel-x { margin-left: auto; border: 0; background: none; padding: 0; color: var(--text-muted); cursor: pointer; font: inherit; font-size: var(--fs-note); }
+.list-sel-x:hover { color: var(--ink); }
+
+/* ---------- 首页：一行信号 ----------
+   不是三张 KPI 卡。三张卡加三张「可以直接开始」卡说的是同一件事，
+   还把输入框挤出了第一屏。一行三个数，每个点得进去、鼠标停上去说得清口径。 */
+.signals { display: flex; flex-wrap: wrap; gap: var(--s5); margin: var(--s3) 0 var(--s2); }
+.signal { display: inline-flex; align-items: baseline; gap: var(--s2); color: var(--text-muted); font-size: var(--fs-note); }
+.signal b { font-size: var(--fs-section); font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.signal:hover { color: var(--brand); }
+.signal:hover b { color: var(--brand); }
+.signal-warn b { color: var(--danger); }
+
+/* ---------- 首页：空库时的「开始」卡 ----------
+   第一次打开的人需要一个能点的起点，不是一屏 0 和一个空输入框。 */
+.start { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s5) var(--s5) var(--s4); }
+.start-t { font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
+.start-s { margin: var(--s1) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
+.start-steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); margin: var(--s4) 0 0; padding: 0; }
+.start-steps li { border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3); min-width: 0; }
+.start-steps b { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-min); font-weight: 600; }
+.start-step-t { display: block; margin-top: var(--s2); font-weight: 600; color: var(--ink); }
+.start-step-s { display: block; margin-top: 2px; color: var(--text-muted); font-size: var(--fs-note); line-height: 1.6; }
+.start-a { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s4); }
+.start-note { margin: var(--s3) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
+@media (max-width: 900px) { .start-steps { grid-template-columns: 1fr; } }
 
 /* ---------- 空状态 ----------
    antd 默认那个「暂无数据」只说「没有」。第一次打开的人要知道的是「接下来做什么」，
@@ -732,3 +811,7 @@ a {
 .cli-welcome-q { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 14px; }
 .cli-q { font: inherit; font-size: var(--fs-note); color: var(--ink); background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 6px 13px; cursor: pointer; transition: border-color var(--t-fast) ease, background var(--t-fast) ease; }
 .cli-q:hover { border-color: var(--brand); color: var(--brand); }
+/* ↑↓ 选中的那条。只靠 hover 的话键盘走到哪儿是看不见的 */
+.cli-q-on { border-color: var(--brand); color: var(--brand); background: var(--brand-bg); }
+/* 回答后面那排追问。缩进和回答对齐，看得出是「接着这一段」而不是新的一轮 */
+.cli-next { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); padding-left: 20px; }

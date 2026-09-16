@@ -18,7 +18,8 @@ import { useBusiness } from "@/lib/business-client";
 import { clearJob, getJob, runJob, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, type Turn } from "@/lib/home-thread";
-import { DemoDataButton } from "@/components/EmptyState";
+import StartCard from "./StartCard";
+import Signals from "./Signals";
 import type { StepEvent } from "@/lib/ai-steps";
 import { dayjs } from "@/lib/utils";
 
@@ -44,13 +45,26 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
  *   打断：Esc、Ctrl+C，或点右侧的停止键；中断后留一行「已中断」，已流出的字不丢
  * 背后是一个 agent 循环：模型自己决定读谁、查什么，工具全部只读。
  */
-export default function HomeChat({ userName, suggestions, context, models, aiQuota }: { userName: string; suggestions: Suggestion[]; context: string; models: ModelOption[]; aiQuota?: { 上限: number; 还剩: number } | null }) {
+export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: number; 高意向标签: string };
+
+export default function HomeChat({ userName, suggestions, context, models, aiQuota, 空库, 信号 }: {
+  userName: string;
+  suggestions: Suggestion[];
+  context: string;
+  models: ModelOption[];
+  aiQuota?: { 上限: number; 还剩: number } | null;
+  /** 一条业务数据都没有：换成一张「开始」卡 */
+  空库: boolean;
+  信号: 首页信号;
+}) {
   const b = useBusiness();
   const router = useRouter();
   const turns = useThread();
   const model = useModel(models);
   const [q, setQ] = useState("");
   const [cmdIdx, setCmdIdx] = useState(0);
+  /** 输入框空着时，↑↓ 在下面那排建议问题里选，回车就发。-1 = 没选 */
+  const [suggIdx, setSuggIdx] = useState(-1);
   const endRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -91,7 +105,14 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
   }
 
   function start(turn: Turn) {
-    runStream<AgentAnswer>(`home:${turn.id}`, { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id) });
+    runStream<AgentAnswer>(
+      `home:${turn.id}`,
+      { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id) },
+      undefined,
+      // 带上标签，这一问就会出现在侧栏的「AI 任务」里：切去别的页面也看得见它跑完没有，
+      // 点一下回到这一条。问题本身当名字，截短到一行
+      { 名: turn.question.slice(0, 18), 去: `/dashboard#turn-${turn.id}` },
+    );
   }
 
   // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
@@ -158,10 +179,19 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
     return () => ro.disconnect();
   }, []);
 
-  // Esc：打断正在跑的那一问（页面任何地方按都行）
+  /**
+   * 页面级的两个键：
+   *   Esc  打断正在跑的那一问（在哪儿按都行）
+   *   ⌘K   光标回到输入框。首页的主动作就是这个框，它值一个快捷键
+   */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && running) cancelStream(`home:${running.id}`);
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        taRef.current?.focus();
+        taRef.current?.select();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -169,36 +199,32 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
 
   const empty = turns.length === 0;
   const canSend = q.trim().length > 0;
+  /** 输入框底下摆不摆那排建议问题：只在还没问过、且库里有东西的时候 */
+  const 摆建议 = empty && !空库 && suggestions.length > 0;
+  const 问这条 = (x: Suggestion) => submit(x.kind === "prep" ? "/prep" : x.kind === "recap" ? "/recap" : x.question);
 
   return (
     <div className={`cli${empty ? " cli-empty" : ""}`}>
       <div className="cli-col">
-        {empty ? (
+        {empty && 空库 ? (
+          /* 一条业务数据都没有：不摆信号、不摆建议问题，只有一张「开始」卡 */
+          <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+            <StartCard />
+          </motion.div>
+        ) : empty ? (
           <motion.div className="cli-welcome" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
             <div className="cli-welcome-t">
               {greet}，{userName}。
             </div>
+            {/* 三个信号一行，不是三张卡。建议问题挪到输入框底下去了——
+                人的视线落在输入框上，可点的问题就该在那儿，不在半屏之外 */}
+            <Signals 信号={信号} />
             <div className="cli-welcome-s">{context}</div>
-            {/*
-              空首页上最该给的是「能直接点的问题」，不是用法说明。
-              原来这里是三行说明、建议问题缩在右下角两个灰字里——那是给已经会用的人看的。
-              现在反过来：问题摆成一排能点的，说明压成一行。
-            */}
-            {suggestions.length > 0 && (
-              <div className="cli-welcome-q">
-                {suggestions.map((s) => (
-                  <button key={s.label} type="button" className="cli-q" onClick={() => submit(s.kind === "prep" ? "/prep" : s.kind === "recap" ? "/recap" : s.question)}>
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            )}
             <div className="cli-welcome-hints">
               <div>
-                也可以直接问，或者让它记一笔、改状态、排计划——它给一张建议卡，你点确认才写入。输入 <kbd>/</kbd> 看命令。
+                也可以直接问，或者让它记一笔、改状态、排计划——它给一张建议卡，你点确认才写入。输入 <kbd>/</kbd> 看命令，<kbd>⌘K</kbd> 回到输入框。
               </div>
             </div>
-            <DemoDataButton />
           </motion.div>
         ) : (
           <div className="cli-log">
@@ -217,6 +243,7 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
                   clearJob(`home:${t.id}`);
                   removeTurn(t.id);
                 }}
+                onAsk={(q) => submit(q)}
               />
             ))}
             <div ref={endRef} />
@@ -249,6 +276,16 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
                 e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
               }}
               onKeyDown={(e) => {
+                // 输入框空着、下面摆着建议问题时，↑↓ 在建议里走，回车发选中的那条
+                if (!cmdMatches.length && !q && 摆建议 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                  e.preventDefault();
+                  setSuggIdx((i) => {
+                    const n = suggestions.length;
+                    if (e.key === "ArrowDown") return i + 1 >= n ? 0 : i + 1;
+                    return i <= 0 ? n - 1 : i - 1;
+                  });
+                  return;
+                }
                 if (cmdMatches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
                   e.preventDefault();
                   setCmdIdx((i) => (i + (e.key === "ArrowDown" ? 1 : cmdMatches.length - 1)) % cmdMatches.length);
@@ -267,6 +304,11 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
                 }
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
+                  if (!cmdMatches.length && !q && suggIdx >= 0 && suggestions[suggIdx]) {
+                    问这条(suggestions[suggIdx]);
+                    setSuggIdx(-1);
+                    return;
+                  }
                   submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q, { queue: e.metaKey || e.ctrlKey });
                 }
               }}
@@ -295,6 +337,23 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
               </Dropdown>
             )}
           </div>
+          {/* 4–6 个能直接点的具体问题，就摆在输入框底下——人的视线落在框上。
+              ↑↓ 在这里面走，回车发选中的那条 */}
+          {摆建议 && (
+            <div className="cli-welcome-q">
+              {suggestions.map((x, i) => (
+                <button
+                  key={x.label}
+                  type="button"
+                  className={`cli-q${i === suggIdx ? " cli-q-on" : ""}`}
+                  onClick={() => 问这条(x)}
+                >
+                  {x.label}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="cli-hints">
             <ModelPicker options={models} value={model} />
             <span>
@@ -313,9 +372,9 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
               </span>
             )}
             <span style={{ flex: 1 }} />
-            {!empty && suggestions.slice(0, 3).map((s) => (
-              <button key={s.label} type="button" className="cli-sugg" onClick={() => submit(s.kind === "prep" ? "/prep" : s.kind === "recap" ? "/recap" : s.question)}>
-                {s.label}
+            {!empty && suggestions.slice(0, 3).map((x) => (
+              <button key={x.label} type="button" className="cli-sugg" onClick={() => 问这条(x)}>
+                {x.label}
               </button>
             ))}
           </div>
@@ -381,7 +440,7 @@ function 贴着底部(): boolean {
   return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 余量;
 }
 
-function TurnView({ turn, onRetry, onRemove, scrollOnMount }: { turn: Turn; onRetry: () => void; onRemove: () => void; scrollOnMount: boolean }) {
+function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Turn; onRetry: () => void; onRemove: () => void; onAsk: (q: string) => void; scrollOnMount: boolean }) {
   const b = useBusiness();
   const { message } = App.useApp();
   const job = useJob<StreamJob<AgentAnswer>>(`home:${turn.id}`);
@@ -418,6 +477,13 @@ function TurnView({ turn, onRetry, onRemove, scrollOnMount }: { turn: Turn; onRe
   const thinking = Boolean(job) && !done && !text;
   const ms = job?.value?.ms;
   const showRows = !done || open;
+  /** 这一轮答完之后能接着问什么。最多三条，全部由这次回答提到的人生成 */
+  const 追问 = !answer
+    ? []
+    : [
+        ...answer.customers.slice(0, 2).map((c) => `${c.name}这边下一步该做什么`),
+        ...(answer.customers.length > 0 && answer.proposals.length === 0 ? [`帮我给${answer.customers[0].name}排一次跟进`] : []),
+      ].slice(0, 3);
 
   return (
     <div ref={ref} className="cli-turn">
@@ -508,6 +574,21 @@ function TurnView({ turn, onRetry, onRemove, scrollOnMount }: { turn: Turn; onRe
           </div>
           {answer.customers.slice(0, 5).map((c) => (
             <CustomerRow key={c.id} customer={c} />
+          ))}
+        </div>
+      )}
+
+      {/*
+        回答后面跟着下一步（照 eigent 那条：结果 → 简报 → 建议的后续）。
+        追问只从**这次回答真的提到的人**里长出来，不凭空造两个问题挂在那儿——
+        一个点不出东西的追问比没有追问更糟。
+      */}
+      {done && 追问.length > 0 && (
+        <div className="cli-next">
+          {追问.map((q) => (
+            <button key={q} type="button" className="cli-q" onClick={() => onAsk(q)}>
+              {q}
+            </button>
           ))}
         </div>
       )}

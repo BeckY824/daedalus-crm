@@ -52,6 +52,14 @@ type Base = {
   customerName: string;
   /** 一句话：为什么建议这么做。给人判断用，不写进库 */
   reason: string;
+  /**
+   * 这几个字段现在是什么值（字段名 → 现在显示成什么）。
+   *
+   * 只给卡片做「改之前 → 改之后」用，**不参与校验也不落库**——
+   * 落库那一步会用 buildProposal 从头收一遍，这个字段在那儿直接被忽略。
+   * 没有它的话，卡片上写着「跟进状态：已签约」，人无从判断这是在改还是本来就是。
+   */
+  现值?: Record<string, string>;
 };
 
 export type Proposal =
@@ -310,4 +318,18 @@ export function describeProposal(p: Proposal, customerNoun: string): string {
 /** 落库后写进操作日志的那句话 */
 export function summarizeApplied(p: Proposal, customerNoun: string): string {
   return `确认 AI 建议：${describeProposal(p, customerNoun)}`;
+}
+
+/**
+ * 逐项确认：只留人勾上的那几项改动。
+ *
+ * 建议卡上一张卡可能建议改三个字段，人只认其中两个。没勾的那一项
+ * **必须整条不出现在提交里**——留着值只是把界面上的勾当装饰，
+ * 服务端那边照样会写进去。
+ *
+ * 不是改档案的卡原样返回：它们本来就只有一件事，没有「逐项」可言。
+ */
+export function 只留选中的改动(p: Proposal, 勾了: number[]): Proposal {
+  if (p.kind !== "update_customer") return p;
+  return { ...p, changes: p.changes.filter((_, i) => 勾了.includes(i)) };
 }

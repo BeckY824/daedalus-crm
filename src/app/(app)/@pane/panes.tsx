@@ -4,7 +4,7 @@ import { dayjs } from "@/lib/utils";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
 import TodayPane from "@/components/TodayPane";
 import SectionPane from "@/components/SectionPane";
-import CustomerPane from "@/components/CustomerPane";
+import CustomerRoster from "@/components/CustomerRoster";
 
 /**
  * 中栏（三栏里中间那 312px）的几种内容。槽位页各自 import 要用的那个。
@@ -56,8 +56,16 @@ export async function 今天中栏() {
   );
 }
 
-/** 学员模块中栏：最近跟进过的 50 位 */
-export async function 学员中栏() {
+/**
+ * 记录页的窄名单：最近跟进过的 50 位。
+ *
+ * **只在 `/customers/[id]` 出现，列表页没有**（批 2）。列表页已经是一张全宽的表，
+ * 旁边再挂一条同样内容的名单等于把同一件事画两遍；而记录页缺的正是「换一个人」
+ * 这条路——原来从林夏切到陈航要退回列表再进去。
+ *
+ * 它自己渲染 <aside>，不走 包一层：窄屏下整条要变成抽屉，那时不能留一个空的 aside。
+ */
+export async function 学员名单() {
   await requireUser();
   const [total, rows] = await Promise.all([
     prisma.customer.count(),
@@ -71,8 +79,8 @@ export async function 学员中栏() {
       },
     }),
   ]);
-  return 包一层(
-    <CustomerPane
+  return (
+    <CustomerRoster
       data={{
         total,
         rows: rows.map((c) => ({
@@ -82,7 +90,7 @@ export async function 学员中栏() {
           lastNote: c.followUps[0]?.content?.trim().slice(0, 60) || null,
         })),
       }}
-    />,
+    />
   );
 }
 

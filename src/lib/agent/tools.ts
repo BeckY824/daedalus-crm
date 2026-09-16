@@ -203,11 +203,42 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
     args,
     async run(a, ctx) {
       let c = { id: "", name: str(a.name, 60) };
+      /** 改之前是什么样。只有改档案 / 改状态这两类需要，其余是新建，没有「之前」 */
+      let 现值: Record<string, string> | undefined;
       if (needsCustomer) {
         const id = str(a.id, 40);
-        const found = id ? await prisma.customer.findUnique({ where: { id }, select: { id: true, name: true } }) : null;
+        const found = id
+          ? await prisma.customer.findUnique({
+              where: { id },
+              select: {
+                id: true, name: true, phone: true, school: true, grade: true, major: true,
+                followStatus: true, decisionStatus: true, expectedSignAt: true, remark: true,
+                salesOwner: { select: { name: true } },
+                channelOwner: { select: { name: true } },
+                channel: { select: { name: true } },
+                referrerCustomer: { select: { name: true } },
+              },
+            })
+          : null;
         if (!found) return { summary: "没有这位", data: { error: "id 不对，先用 search_customers 拿到 id" } };
-        c = found;
+        c = { id: found.id, name: found.name };
+        if (kind === "update_customer" || kind === "set_status") {
+          现值 = {
+            name: found.name,
+            phone: found.phone ?? "",
+            school: found.school ?? "",
+            grade: found.grade ?? "",
+            major: found.major ?? "",
+            followStatus: found.followStatus,
+            decisionStatus: found.decisionStatus,
+            expectedSignAt: found.expectedSignAt ? dayjs(found.expectedSignAt).format("YYYY-MM-DD") : "",
+            remark: found.remark ?? "",
+            salesOwnerName: found.salesOwner?.name ?? "",
+            channelOwnerName: found.channelOwner?.name ?? "",
+            channelName: found.channel?.name ?? "",
+            referrerName: found.referrerCustomer?.name ?? "",
+          };
+        }
       }
       // 同一个对象同一类提议只留一张，模型重复调用不会刷出一摞卡
       if (ctx.proposals.some((p) => p.kind === kind && p.customerId === c.id && (needsCustomer || p.customerName === c.name))) {
@@ -215,7 +246,7 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
       }
       const r = buildProposal(`${kind}-${ctx.proposals.length}-${c.id || c.name}`, kind, c, a, ctx.b);
       if (!r.ok) return { summary: `建议不合法：${r.error}`, data: { error: r.error } };
-      ctx.proposals.push(r.proposal);
+      ctx.proposals.push(现值 ? { ...r.proposal, 现值 } : r.proposal);
       const miss = missingFields(r.proposal);
       return {
         summary: `建议：${describeProposal(r.proposal, ctx.b.customer)}${miss.length ? `（还差 ${miss.join("、")}）` : ""}`,

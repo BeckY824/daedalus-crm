@@ -3,9 +3,12 @@ import { requireUser } from "@/lib/auth";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import { getBusiness } from "@/lib/business";
+import { statusLabel } from "@/lib/business-config";
 import { loadWatchlist } from "@/lib/sentinel-data";
 import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
+import StartCard from "./StartCard";
+import { PageHead } from "@/components/ui";
 import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { 查额度 } from "@/lib/tenant/ai-allowance";
@@ -17,16 +20,41 @@ export const dynamic = "force-dynamic";
  */
 export default async function DashboardPage() {
   const user = await requireUser();
-  if (!(await llmEnabled())) return <Board />;
+  if (!(await llmEnabled())) {
+    /*
+      没配 AI 的首页就是数据看板。但**一条业务数据都没有**的时候，看板没什么可看，
+      而第一次打开的人最需要的恰恰是一个起点——所以空库时不论配没配 AI，
+      首页都是那张「开始」卡。配了 AI 的那条路在 HomeChat 里做同样的判断。
+    */
+    const 学员数 = await prisma.customer.count();
+    if (学员数 === 0 && (await prisma.lead.count()) === 0) {
+      return (
+        <>
+          <PageHead title="首页" subtitle="先让它有点东西可看" />
+          <StartCard />
+        </>
+      );
+    }
+    return <Board />;
+  }
 
   const b = await getBusiness();
   const now = dayjs();
-  const [todayPlans, myPlans, myLast, watchlist, models] = await Promise.all([
+  const [todayPlans, myPlans, myLast, watchlist, models, 逾期, 高意向, 本月签约, 学员数] = await Promise.all([
     prisma.followPlan.count({ where: { ownerId: user.id, done: false, plannedAt: { gte: now.startOf("day").toDate(), lt: now.endOf("day").toDate() } } }),
     prisma.followPlan.count({ where: { ownerId: user.id, done: false } }),
     prisma.followUp.findFirst({ where: { ownerId: user.id }, orderBy: { occurredAt: "desc" }, select: { customer: { select: { name: true } } } }),
     loadWatchlist(now),
     listModelOptions(),
+    /*
+      首页那一行信号。三个数都必须是**这一刻真查出来的**，而且每个都能点到
+      一个能把它重新数一遍的页面去——首页上写死过一次数字（手工测试清单里记着），
+      从那以后规矩是：算不出来就不显示，绝不摆一个看起来像那么回事的数。
+    */
+    prisma.followPlan.count({ where: { ownerId: user.id, done: false, plannedAt: { lt: now.startOf("day").toDate() } } }),
+    prisma.customer.count({ where: { followStatus: "意向较高" } }),
+    prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: now.startOf("month").toDate(), lt: now.endOf("month").toDate() } } }),
+    prisma.customer.count(),
   ]);
 
   const mine = watchlist.filter((w) => w.ownerName === user.name);
@@ -52,5 +80,21 @@ export default async function DashboardPage() {
     }
   }
 
-  return <HomeChat userName={user.name} suggestions={suggestions.slice(0, 6)} context={parts.join("，") + "。"} models={models} aiQuota={aiQuota} />;
+  return (
+    <HomeChat
+      userName={user.name}
+      suggestions={suggestions.slice(0, 6)}
+      context={parts.join("，") + "。"}
+      models={models}
+      aiQuota={aiQuota}
+      /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
+      空库={学员数 === 0 && watchlist.length === 0 && myPlans === 0}
+      信号={{
+        逾期,
+        高意向,
+        本月签约: 本月签约._sum.amount ?? 0,
+        高意向标签: statusLabel(b, "意向较高"),
+      }}
+    />
+  );
 }

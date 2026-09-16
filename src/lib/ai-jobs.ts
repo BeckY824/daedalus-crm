@@ -20,25 +20,37 @@ export type JobState<T> = {
   /** 调用方自带的小标记，比如首页提问框记"哪个按钮在转" */
   meta?: string;
   startedAt: number;
+  /**
+   * 给侧栏那条「AI 任务」用的：这条任务叫什么、点了回哪儿。
+   * 不给就不在侧栏出现——起草话术那种几秒钟就回来的不值得占一行。
+   */
+  标签?: 任务标签;
 };
+
+/** 侧栏要显示一条任务，就得说清它是什么、点了回哪儿 */
+export type 任务标签 = { 名: string; 去: string };
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string; value?: T };
 
 const jobs = new Map<string, JobState<unknown>>();
 const listeners = new Set<() => void>();
-const notify = () => listeners.forEach((l) => l());
+const notify = () => {
+  版本++;
+  listeners.forEach((l) => l());
+};
 
-export function runJob<T>(key: string, fn: () => Promise<Result<T>>, meta?: string): void {
+export function runJob<T>(key: string, fn: () => Promise<Result<T>>, meta?: string, 标签?: 任务标签): void {
   const cur = jobs.get(key);
   if (cur?.status === "loading") return;
-  jobs.set(key, { status: "loading", meta, startedAt: Date.now() });
+  const 起 = Date.now();
+  jobs.set(key, { status: "loading", meta, startedAt: 起, 标签 });
   notify();
   void fn()
     .then((r) => {
-      jobs.set(key, r.ok ? { status: "done", value: r.value, meta, startedAt: Date.now() } : { status: "error", error: r.error, value: r.value, meta, startedAt: Date.now() });
+      jobs.set(key, r.ok ? { status: "done", value: r.value, meta, startedAt: 起, 标签 } : { status: "error", error: r.error, value: r.value, meta, startedAt: 起, 标签 });
     })
     .catch((e: unknown) => {
-      jobs.set(key, { status: "error", error: e instanceof Error ? e.message : "调用失败", meta, startedAt: Date.now() });
+      jobs.set(key, { status: "error", error: e instanceof Error ? e.message : "调用失败", meta, startedAt: 起, 标签 });
     })
     .finally(notify);
 }
@@ -69,6 +81,44 @@ const subscribe = (l: () => void) => {
   listeners.add(l);
   return () => listeners.delete(l);
 };
+
+/**
+ * 带标签的那些任务，给侧栏用。
+ *
+ * 快照要缓存：useSyncExternalStore 每次都拿新数组会无限重渲。
+ * 任务表一变就重算一次，不变就返回上一次那个引用。
+ */
+let 快照: { key: string; status: JobState<unknown>["status"]; 标签: 任务标签; 有建议: boolean }[] = [];
+let 快照版本 = -1;
+let 版本 = 0;
+
+export function useAiTasks() {
+  return useSyncExternalStore(subscribe, 任务快照, () => 空快照);
+}
+
+/**
+ * 侧栏要显示的那几条。抽成普通函数是为了能直接测——
+ * 这一条的行为（跑着的排前面、答完带建议卡的标成「需确认」、清掉就消失）
+ * 是「切走了也不会丢」这件事的全部实现，值得钉住。
+ */
+export function 任务快照() {
+  if (快照版本 === 版本) return 快照;
+  快照版本 = 版本;
+  快照 = [...jobs.entries()]
+    .filter(([, j]) => j.标签)
+    .map(([key, j]) => ({
+      key,
+      status: j.status,
+      标签: j.标签!,
+      /* 「需确认」= 答完了、但里面有还没点确认的建议卡。
+         各种模式的返回结构不一样，这里只认这一个共同的形状 */
+      有建议: Boolean((j.value as { answer?: { proposals?: unknown[] } } | undefined)?.answer?.proposals?.length),
+    }))
+    .sort((a, b) => (a.status === "loading" ? -1 : b.status === "loading" ? 1 : 0));
+  return 快照;
+}
+
+const 空快照: { key: string; status: JobState<unknown>["status"]; 标签: 任务标签; 有建议: boolean }[] = [];
 
 /** 订阅一个任务的状态；key 为 null 时不订阅。服务端渲染一律 undefined */
 export function useJob<T>(key: string | null): JobState<T> | undefined {

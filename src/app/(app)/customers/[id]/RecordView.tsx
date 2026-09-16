@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button, Dropdown, Input, Space, Tag, Avatar, Checkbox, Tooltip, App, Select, Typography } from "antd";
+import { Button, Drawer, Dropdown, Input, Space, Tag, Avatar, Checkbox, Tooltip, App, Select, Typography } from "antd";
 import {
   ArrowLeftOutlined,
   DownOutlined,
@@ -21,6 +21,8 @@ import {
   BellOutlined,
   EllipsisOutlined,
   DollarOutlined,
+  UnorderedListOutlined,
+  ThunderboltOutlined as AiOutlined,
 } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
@@ -37,6 +39,7 @@ import CustomerForm from "../CustomerForm";
 import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
 import { toggleTask, deleteTask, deleteFollowUp, completePlan, deleteContact, saveFollowUp } from "./actions";
+import { 开名单, useNarrow } from "@/lib/roster";
 import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 
@@ -101,6 +104,14 @@ export default function RecordView({
   const [custOpen, setCustOpen] = useState(false);
   const [contractOpen, setContractOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<ContractRow | null>(null);
+  /**
+   * 两条断点（见 globals.css 里 .rec 上面那段）：
+   * 1440 以下名单收成抽屉，1180 以下 AI 也收成抽屉。
+   * 收起来的东西必须有一个看得见的开关，否则就是没了。
+   */
+  const 名单在抽屉里 = useNarrow("(max-width: 1439px)");
+  const AI在抽屉里 = useNarrow("(max-width: 1179px)");
+  const [AI抽屉开着, setAI抽屉开着] = useState(false);
 
   const entries = useMemo<Entry[]>(() => {
     const list: Entry[] = [
@@ -147,7 +158,18 @@ export default function RecordView({
           <ArrowLeftOutlined /> {b.customer}管理
         </Link>
         <h1 className="rec-head-name" style={{ margin: 0 }}>{customer.name}</h1>
+        {/* 名单收起来时，「换一个人」这条路必须还在页头上看得见 */}
+        {名单在抽屉里 && (
+          <Button size="small" icon={<UnorderedListOutlined />} onClick={开名单}>
+            换一位（⌘K）
+          </Button>
+        )}
         <span style={{ flex: 1 }} />
+        {aiEnabled && AI在抽屉里 && (
+          <Button size="small" icon={<AiOutlined />} onClick={() => setAI抽屉开着(true)} style={{ marginRight: 8 }}>
+            AI
+          </Button>
+        )}
         <Space.Compact>
           <Button type="primary" onClick={() => openFollow(null)}>
             新建跟进
@@ -386,7 +408,7 @@ export default function RecordView({
         {/* ================= 右栏：AI + 计划/待办 ================= */}
         <aside className="rec-right rec-rail">
           <Space orientation="vertical" size={14} style={{ width: "100%" }}>
-            {aiEnabled && (
+            {aiEnabled && !AI在抽屉里 && (
               <div className="rec-card">
                 <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约"} hasRecords={followUps.length > 0} />
               </div>
@@ -432,6 +454,14 @@ export default function RecordView({
           </Space>
         </aside>
       </div>
+
+      {/* 1180 以下 AI 收进抽屉。面板本身一个字都不用改——它的状态挂在
+          进程内任务表上（lib/ai-jobs），不在组件 state 里，关掉再开还在那儿 */}
+      {aiEnabled && AI在抽屉里 && (
+        <Drawer placement="right" styles={{ wrapper: { width: 380 } }} open={AI抽屉开着} onClose={() => setAI抽屉开着(false)} title={`AI · ${customer.name}`}>
+          <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约"} hasRecords={followUps.length > 0} />
+        </Drawer>
+      )}
 
       {/* 弹窗：新建/编辑跟进仍用完整表单（字段多），其余小表单也保留 */}
       <FollowUpForm

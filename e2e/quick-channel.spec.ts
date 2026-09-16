@@ -81,9 +81,13 @@ test("新建学员时可以就地建渠道，建完自动选中并同步到渠�
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
   await expect(弹窗).toBeHidden();
 
-  // 学员存下来后，推荐人就是刚建的渠道
+  // 学员存下来后，来源渠道就是刚建的那条。
+  // 列表默认只摆六列（批 2），渠道归属收在「列」里了，所以去记录页看——
+  // 那一页本来就该把归属写出来，而且比列表上一个单元格更能说明问题
   await expect(page.getByRole("cell", { name: 学员名, exact: true })).toBeVisible();
-  await expect(page.getByRole("cell", { name: 渠道名 }).first()).toBeVisible();
+  await page.getByRole("link", { name: 学员名, exact: true }).click();
+  await expect(page).toHaveURL(/\/customers\/[^/]+$/);
+  await expect(page.getByText(渠道名).first()).toBeVisible();
 
   // 同一条渠道要能在渠道管理里查到，不是只存在于这张表单里
   await page.goto("/channels");

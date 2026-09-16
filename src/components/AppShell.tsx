@@ -24,6 +24,7 @@ import type { SessionUser } from "@/lib/auth";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
 import UpdateButton from "./UpdateButton";
+import AiTasks from "./AiTasks";
 import { useBusiness } from "@/lib/business-client";
 
 const { Header, Content } = Layout;
@@ -154,6 +155,8 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
           ))}
         </div>
         <div className="rail-foot">
+          {/* 正在跑 / 已答完的 AI 任务。切到别的页面也看得见，点一条回原处 */}
+          <AiTasks />
           {desktop && <UpdateButton />}
           <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
             <SettingOutlined />

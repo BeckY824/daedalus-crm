@@ -4,7 +4,7 @@
  * 浏览器这一侧消费 /api/ai/stream：把 SSE 事件逐条写进 ai-jobs 的任务里。
  * 组件只订阅任务，不碰网络；切页不会中断读取，因为读取跑在模块级的 runJob 里。
  */
-import { runJob, patchJob } from "./ai-jobs";
+import { runJob, patchJob, type 任务标签 } from "./ai-jobs";
 import { mergeSteps, type StepEvent } from "./ai-steps";
 
 export type StreamBody =
@@ -22,7 +22,7 @@ export function cancelStream(key: string) {
   controllers.get(key)?.abort();
 }
 
-export function runStream<T>(key: string, body: StreamBody, meta?: string): void {
+export function runStream<T>(key: string, body: StreamBody, meta?: string, 标签?: 任务标签): void {
   runJob<StreamJob<T>>(
     key,
     async () => {
@@ -92,5 +92,6 @@ export function runStream<T>(key: string, body: StreamBody, meta?: string): void
       return final ?? { ok: false, error: "连接中断，请重试", value: { steps, text } };
     },
     meta,
+    标签,
   );
 }
