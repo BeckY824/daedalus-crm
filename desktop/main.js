@@ -19,6 +19,9 @@ const 本地服务 = require("./local-server");
 const 云端 = require("./cloud");
 const 更新 = require("./updater");
 const 安装 = require("./install");
+const 备份 = require("./backup");
+const 崩溃 = require("./crashlog");
+const os = require("node:os");
 
 const APP_NAME = "Daedalus CRM";
 
@@ -37,6 +40,8 @@ const CONFIG_FILE = path.join(数据根, "config.json");
 const 数据目录 = path.join(数据根, "data");
 const 日志文件 = path.join(数据根, "logs", "server.log");
 const 密码文件 = path.join(数据目录, ".init-password");
+/** 应用本身（主进程）没接住的错误。本地服务的输出在 日志文件，两个分开，各看各的 */
+const 应用日志 = path.join(数据根, "logs", "app.log");
 云端.初始化(数据目录);
 
 /** 随包发布的本地服务。打包后在 Resources/server，开发时在 desktop/server-bundle */
@@ -79,6 +84,66 @@ function 写配置(cfg) {
   fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
   fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2));
 }
+
+/* ---------- 崩溃与诊断 ---------- */
+
+const 文档地址 = "https://github.com/BeckY824/daedalus-crm/blob/main/docs/桌面端安装.md";
+const 反馈地址 = "https://github.com/BeckY824/daedalus-crm/issues/new";
+
+/** 贴进 issue 里的那段。字段少而准：报 bug 时问来问去的就是这几样 */
+function 诊断文本() {
+  let cfg = {};
+  try {
+    cfg = 读配置();
+  } catch {
+    /* 配置坏了也要能出诊断信息 */
+  }
+  return 崩溃.诊断信息({
+    应用: `${APP_NAME} ${app.getVersion()}`,
+    系统: `${process.platform} ${os.release()}（${process.arch}）`,
+    Electron: process.versions.electron,
+    模式: cfg.mode === "server" ? `服务器 ${cfg.serverUrl}` : "本机数据",
+    云端账号: 云端.读() ? "已登录" : "未登录",
+    数据目录: 数据根,
+    应用包: 应用包 || "（开发态）",
+  });
+}
+
+let 正在报告崩溃 = false;
+
+/**
+ * 主进程没接住的错误：先落日志（同步，进程可能马上没了），再弹框。
+ * 弹框只弹一个——一个错常常连着一串，叠十个对话框比不弹更糟。
+ * app 还没 ready 时弹不了框，只记日志。
+ */
+function 报告崩溃(标题, e) {
+  const 块 = 崩溃.写崩溃日志(应用日志, 标题, e, { 应用: `${APP_NAME} ${app.getVersion()}`, 系统: `${process.platform} ${os.release()}` });
+  if (正在报告崩溃 || !app.isReady()) return;
+  正在报告崩溃 = true;
+  dialog
+    .showMessageBox(win && !win.isDestroyed() ? win : null, {
+      type: "error",
+      title: "应用出错了",
+      message: "应用遇到一个没处理的错误",
+      detail: `${崩溃.错误文本(e).split("\n").slice(0, 6).join("\n")}\n\n已记到 logs/app.log。可以继续用；反复出现的话请反馈给我们。`,
+      buttons: ["复制错误", "打开日志文件夹", "关闭"],
+      defaultId: 0,
+      cancelId: 2,
+    })
+    .then(({ response }) => {
+      if (response === 0) clipboard.writeText(`${诊断文本()}\n\n${块}`);
+      else if (response === 1) shell.showItemInFolder(应用日志);
+    })
+    .finally(() => {
+      正在报告崩溃 = false;
+    });
+}
+
+process.on("uncaughtException", (e) => 报告崩溃("未捕获的异常", e));
+process.on("unhandledRejection", (e) => 报告崩溃("未处理的 Promise 拒绝", e));
+// 渲染进程 / GPU 等子进程没了：不弹框（Electron 自己会重建或用户会看到白屏），只记一笔
+app.on("render-process-gone", (_e, _wc, d) => 崩溃.写崩溃日志(应用日志, "渲染进程退出", `${d.reason}（${d.exitCode}）`));
+app.on("child-process-gone", (_e, d) => 崩溃.写崩溃日志(应用日志, "子进程退出", `${d.type} ${d.name || ""}：${d.reason}（${d.exitCode}）`));
 
 /* ---------- 启动 ---------- */
 
@@ -697,6 +762,37 @@ async function 执行更新(新版) {
 
 /* ---------- 菜单 ---------- */
 
+/** 「备份数据库…」：让用户挑位置，用 SQLite 的在线备份拷一份，再验一遍 */
+async function 备份数据库() {
+  const 源 = path.join(数据目录, "crm.db");
+  if (!fs.existsSync(源)) {
+    dialog.showMessageBox(win ?? null, { type: "info", title: "备份数据库", message: "还没有本机数据库", detail: "本机模式第一次启动后才会建库。" });
+    return;
+  }
+  const { canceled, filePath } = await dialog.showSaveDialog(win ?? null, {
+    title: "备份数据库",
+    defaultPath: path.join(app.getPath("desktop"), 备份.建议文件名()),
+    filters: [{ name: "SQLite 数据库", extensions: ["db"] }],
+  });
+  if (canceled || !filePath) return;
+  try {
+    const { 表数 } = await 备份.备份数据库(源, filePath);
+    const { response } = await dialog.showMessageBox(win ?? null, {
+      type: "info",
+      title: "备份完成",
+      message: `已备份到 ${path.basename(filePath)}`,
+      detail: `${表数} 张表，已通过完整性检查。\n\n恢复方法：退出应用，把这个文件改名成 crm.db 放回数据文件夹的 data 目录。`,
+      buttons: ["在访达中显示", "好"],
+      defaultId: 1,
+      cancelId: 1,
+    });
+    if (response === 0) shell.showItemInFolder(filePath);
+  } catch (e) {
+    崩溃.写崩溃日志(应用日志, "备份失败", e);
+    dialog.showMessageBox(win ?? null, { type: "error", title: "备份失败", message: "没能完成备份", detail: String(e?.message ?? e) });
+  }
+}
+
 function 显示本机密码() {
   let 密码 = null;
   try {
@@ -760,6 +856,7 @@ function 建菜单() {
       { type: "separator" },
       { label: "本机账号密码…", enabled: cfg.mode === "local", click: 显示本机密码 },
       { label: "检查更新…", click: () => 检查更新(false) },
+      { label: "备份数据库…", enabled: cfg.mode === "local", click: 备份数据库 },
       { label: "打开数据文件夹", click: () => shell.openPath(数据目录) },
       { label: "查看服务日志", click: () => shell.showItemInFolder(日志文件) },
       { type: "separator" },
@@ -791,6 +888,20 @@ function 建菜单() {
           { role: "zoomOut", label: "缩小" },
           { type: "separator" },
           { role: "togglefullscreen", label: "全屏" },
+        ],
+      },
+      {
+        label: "帮助",
+        role: "help",
+        submenu: [
+          { label: "使用文档", click: () => shell.openExternal(文档地址) },
+          {
+            label: "反馈问题…",
+            click: () => shell.openExternal(`${反馈地址}?body=${encodeURIComponent(`（描述一下遇到的问题，最好带上操作步骤）\n\n---\n${诊断文本()}`)}`),
+          },
+          { type: "separator" },
+          { label: "复制诊断信息", click: () => clipboard.writeText(诊断文本()) },
+          { label: "打开日志文件夹", click: () => shell.openPath(path.dirname(日志文件)) },
         ],
       },
     ]),

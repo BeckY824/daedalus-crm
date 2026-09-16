@@ -28,6 +28,8 @@
       "cloud.js",
       "updater.js",
       "install.js",
+      "backup.js",
+      "crashlog.js",
       "sign.js",
       "assets/**"
     ],
