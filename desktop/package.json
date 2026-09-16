@@ -13,7 +13,8 @@
   },
   "devDependencies": {
     "electron": "^38.8.6",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "yauzl": "^2.10.0"
   },
   "build": {
     "appId": "com.daedalus.crm",
