@@ -1,0 +1,44 @@
+name: 报 bug
+description: 有东西坏了、和文档说的不一样
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: where
+    attributes:
+      label: 在哪里遇到的
+      options:
+        - 桌面端（Mac）
+        - 网页试用版 app.ai-daedalus.com
+        - 自己部署的（Docker / 本地跑）
+    validations:
+      required: true
+  - type: textarea
+    id: diag
+    attributes:
+      label: 诊断信息
+      description: 桌面端在「帮助 → 复制诊断信息」，粘到这里。其他情况写版本号（设置页底部或 /api/health）
+      placeholder: |
+        应用: Daedalus CRM 0.23.0
+        系统: darwin 24.5.0（arm64）
+        模式: 本机数据
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 怎么复现
+      description: 一步一步写，最后一行写你看到了什么、你以为会看到什么
+      placeholder: |
+        1. 打开学员页
+        2. 点「新建」
+        3. 填手机号 13800000000，点保存
+        看到：报「手机号重复」
+        以为：应该能保存，这个号之前没录过
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: 桌面端在「帮助 → 打开日志文件夹」，把 server.log 和 app.log 最后几十行贴上来。可以不填
+      render: text

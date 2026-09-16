@@ -17,7 +17,7 @@
 
 **简体中文** · [English](README_EN.md)
 
-[官网](https://ai-daedalus.com) · [免费试用](https://app.ai-daedalus.com/signup) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues)
+[官网](https://ai-daedalus.com) · [下载桌面端](https://ai-daedalus.com/download.html) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues)
 
 </div>
 
@@ -75,10 +75,14 @@ npm install && npm run setup && npm run dev
 - **不是教培**：「设置管理 → 业务配置」里把「学员」改成「客户」、「院校 / 年级 / 专业」改成你的字段名，全站同步
 - **HTTPS、升级、备份**：见 [docs/部署.md](docs/部署.md)
 
-### 托管版试用
+### 网页试用版
 
-不想自己部署，用邮箱在 [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) 一分钟开出自己的工作区——邮箱、验证码、密码、团队名，没有别的门槛。7 天全功能，到期只读、数据不删。AI 对话注册送 30 次，用了之后每天再送 3 次。
-忘了密码在登录页点「忘记密码？」自助找回，不用找我们。
+不想装任何东西，先看看长什么样：[app.ai-daedalus.com](https://app.ai-daedalus.com) 是**一个共享的试用工作区**，
+装着一套演示数据，账号密码通过[预约演示](https://ai-daedalus.com/demo.html)或邮件找我们要。
+里面是大家共用的，别录真实客户。
+
+[app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) 注册的是**云端账号**，给桌面端用（记 AI 次数），
+不会开出一个网页工作区。想要自己的数据，装桌面端或自部署。
 
 ### 桌面客户端
 
@@ -125,7 +129,7 @@ Windows 与 Intel Mac 的包还没有，那两种机器先用自部署版。
 
 ### 托管版底座（可选）
 
-同一份代码，`MULTI_TENANT=1` 打开多租户：一个工作区一个 SQLite 文件，物理隔离；邮箱验证码注册、自助找回密码、7 天试用、到期只读、订阅与运营台、AI 免费次数账本（注册送 30、每天送 3）。自部署版不开这个开关，一行相关代码都不会执行。
+同一份代码，`MULTI_TENANT=1` 打开多租户：一个工作区一个 SQLite 文件，物理隔离；邮箱验证码注册、自助找回密码、订阅与运营台、AI 免费次数账本（注册送 30、每天送 3）。我们线上用它跑一个共享试用工作区和桌面端的云端账号。自部署版不开这个开关，一行相关代码都不会执行。
 
 ### 模型无关，按人切换
 
@@ -140,7 +144,7 @@ Windows 与 Intel Mac 的包还没有，那两种机器先用自部署版。
 | **教培 / 留学招生** | 默认措辞就是它：学员、院校、年级、专业、渠道老师、转介绍归属 |
 | **任何小团队销售** | 「设置管理 → 业务配置」改术语，全站同步；线索 → 客户 → 商机管道通用 |
 | **自托管、数据敏感** | 一个容器、一个 SQLite 文件，备份就是复制一个文件；AI 只读不写 |
-| **不想部署** | 托管版：邮箱注册，一分钟一个独立工作区 |
+| **不想部署** | 桌面端：装完就用，数据在你机器上；或先去共享试用工作区看看 |
 
 <br/>
 

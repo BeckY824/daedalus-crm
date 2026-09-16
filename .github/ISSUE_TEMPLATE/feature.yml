@@ -1,0 +1,24 @@
+name: 提需求
+description: 想要一个现在没有的东西
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: scene
+    attributes:
+      label: 你的场景
+      description: 你是谁、在什么时候、想做什么、现在被卡在哪。写场景不要写方案——方案我们一起想
+      placeholder: 我们是做少儿英语的，每周三要给这周到期的试听课家长打电话，现在得一个个翻……
+    validations:
+      required: true
+  - type: textarea
+    id: now
+    attributes:
+      label: 现在怎么绕
+      description: 没有这个功能你现在是怎么做的（表格、手写、不做）
+  - type: checkboxes
+    id: rules
+    attributes:
+      label: 已读
+      options:
+        - label: 看过 ROADMAP.md 里的「明确不做」，我要的不在那里面
+          required: true

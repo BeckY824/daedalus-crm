@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 问问题 / 聊想法
+    url: https://github.com/BeckY824/daedalus-crm/discussions
+    about: 不确定是不是 bug、想讨论用法或方向，去 Discussions
+  - name: 安全问题
+    url: https://github.com/BeckY824/daedalus-crm/blob/main/SECURITY.md
+    about: 不要开公开 issue，按 SECURITY.md 里的方式私下报告

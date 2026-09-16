@@ -17,7 +17,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 [简体中文](README.md) · **English**
 
-[Website](https://ai-daedalus.com) · [Free trial](https://app.ai-daedalus.com/signup) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
+[Website](https://ai-daedalus.com) · [Download the desktop app](https://ai-daedalus.com/download.html) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
 
 </div>
 
@@ -76,7 +76,9 @@ Change the password under Settings → Change password. That's it.
 
 ### Hosted trial
 
-Don't want to deploy? Sign up with your email at [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) and get your own workspace in a minute — email, verification code, password, team name, and nothing else in the way. 7-day full trial; read-only afterwards, nothing deleted. AI chat comes with 30 free calls on sign-up, plus 3 more each day you use it. Forgotten your password? "Forgot password?" on the sign-in page handles it — no need to ask us.
+Want a look before installing anything? [app.ai-daedalus.com](https://app.ai-daedalus.com) is a **single shared trial workspace** with demo data; ask us for the credentials via [book a demo](https://ai-daedalus.com/demo.html) or email. It's shared — don't enter real customers.
+
+[app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) creates a **cloud account** for the desktop app (it tracks AI credits); it does not create a web workspace. For your own data, install the desktop app or self-host.
 
 ### Desktop apps
 
@@ -117,7 +119,7 @@ Channel → student → referred student: attribution goes two generations up, o
 
 ### Optional multi-tenant hosting
 
-Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, 7-day trial, read-only after expiry, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day). Self-hosted installs never execute a line of it.
+Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day). We run it for one shared trial workspace and the desktop app's cloud accounts. Self-hosted installs never execute a line of it.
 
 ### Model-agnostic, per-user switching
 
@@ -132,7 +134,7 @@ Configure a model list in Settings (or pull it from the endpoint) and switch rig
 | **Education / study-abroad admissions** | The default wording: students, schools, grades, majors, channel teachers, referral attribution |
 | **Any small sales team** | Rename the terms in Settings; the lead → customer → deal pipeline is generic |
 | **Self-hosted, sensitive data** | One container, one SQLite file — backup is a file copy; AI is read-only |
-| **No deployment wanted** | Hosted: sign up and get an isolated workspace in a minute |
+| **No deployment wanted** | Desktop app: install and go, data stays on your machine; or peek at the shared trial workspace |
 
 <br/>
 
@@ -204,7 +206,7 @@ Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.m
 ## 🌐 Community & contact
 
 - Website: [ai-daedalus.com](https://ai-daedalus.com)
-- Free trial: [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup)
+- Desktop app: [ai-daedalus.com/download.html](https://ai-daedalus.com/download.html) · shared trial workspace: ask us
 - Questions & ideas: [GitHub Issues](https://github.com/BeckY824/daedalus-crm/issues)
 - Business & trials: [Book a demo](https://ai-daedalus.com/demo.html) · qy1g18@gmail.com
 
