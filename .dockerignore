@@ -2,7 +2,10 @@ node_modules
 .next
 .git
 docs
-scripts
+# scripts 不再排除：shared-workspace.ts 要在构建期用 esbuild 打进镜像（见 Dockerfile）。
+# 整个目录才 36K，与其靠 .dockerignore 的否定语义（`scripts` + `!scripts/xxx`）赌它
+# 在 BuildKit 里的行为，不如直接让它进上下文——这一条在 v0.21.0 上挂过一次，
+# 报错是「Could not resolve scripts/shared-workspace.ts」，而本地 esbuild 跑得好好的。
 prisma/dev.db
 *.md
 .env
