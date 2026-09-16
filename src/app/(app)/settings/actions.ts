@@ -45,8 +45,8 @@ function 托管版(): boolean {
 async function requireAdmin() {
   const me = await requireUser();
   if (me.role !== "ADMIN") throw new Error("FORBIDDEN");
-  const { 当前是演示区 } = await import("@/lib/demo/current");
-  if (await 当前是演示区()) throw new Error("FORBIDDEN");
+  const { 当前是共享区 } = await import("@/lib/shared-ws/current");
+  if (await 当前是共享区()) throw new Error("FORBIDDEN");
   return me;
 }
 

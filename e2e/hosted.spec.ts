@@ -1,73 +1,65 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import path from "node:path";
+import { 共享工作区 } from "./hosted-setup";
 
 /**
- * 托管版走查：注册 → 用起来 → 到期 → 开通。
+ * 托管版走查（2026-09-16 改版后）。
  *
- * 这套的重点是**用户看得见的隔离**：单测已经证明两个库互相读不到，
- * 这里证明「另一个人注册进来，在界面上确实看不到你的客户」。
- * 那才是能拿给人看的证据。
+ * 网页版只有**一个共享工作区**，一套固定账号密码，由我们发给要试用的团队。
+ * 注册那条路只开云端账号——它是给桌面端用的（桌面端本地模式必须先登录云端账号，
+ * 而注册只有网页这一条路，见 desktop/main.js 顶部）。
  *
- * 用例前后依赖（第二个账号要在第一个建了数据之后注册），所以串行。
+ * 所以这套的重点从「隔离」换成了两条边界：
+ *   1. 注册开不出工作区，注册完的人进不了网页版，但要被明确指路
+ *   2. 共享工作区不会过期，而且它比自部署实例更保守——密码在多个团队手里，
+ *      「管理员」等于「拿到过密码的任何人」
+ *
+ * 用例之间有先后依赖（先注册再验登录被挡），所以串行。
  */
 const ROOT = path.resolve(__dirname, "..");
 const CONTROL_DB = path.join(ROOT, "prisma/e2e-hosted/control.db");
 
-/** 直接改控制面库：把某个工作区的试用到期日拨到过去 */
-function 拨到过期(workspaceName: string) {
-  execFileSync("node", ["--experimental-sqlite", "-e", `
+function 查控制面(sql: string, ...args: string[]): string {
+  return execFileSync("node", ["--experimental-sqlite", "-e", `
     const { DatabaseSync } = require('node:sqlite');
     const db = new DatabaseSync(process.argv[1]);
-    db.prepare("UPDATE Workspace SET trialEndsAt = ? WHERE name = ?").run(Date.now() - 86400000, process.argv[2]);
+    const r = db.prepare(process.argv[2]).get(...process.argv.slice(3));
+    process.stdout.write(r ? String(Object.values(r)[0]) : '');
     db.close();
-  `, CONTROL_DB, workspaceName], { stdio: "pipe" });
+  `, CONTROL_DB, sql, ...args], { encoding: "utf8" }).trim();
 }
 
-/** 把某个工作区的 AI 用量直接写成某个数，省得真问几十次 */
-function 写AI用量(workspaceName: string, calls: number) {
+const 工作区数 = () => Number(查控制面("SELECT count(*) c FROM Workspace"));
+
+/** 把共享工作区的 AI 用量直接写成某个数，省得真问几十次 */
+function 写AI用量(calls: number) {
   execFileSync("node", ["--experimental-sqlite", "-e", `
     const { DatabaseSync } = require('node:sqlite');
     const db = new DatabaseSync(process.argv[1]);
-    const w = db.prepare("SELECT id FROM Workspace WHERE name = ?").get(process.argv[2]);
+    const w = db.prepare("SELECT id FROM Workspace WHERE slug = ?").get(process.argv[2]);
     db.prepare('INSERT INTO "AiUsage" ("workspaceId","calls") VALUES (?, ?) ON CONFLICT("workspaceId") DO UPDATE SET calls = excluded.calls').run(w.id, Number(process.argv[3]));
     db.close();
-  `, CONTROL_DB, workspaceName, String(calls)], { stdio: "pipe" });
+  `, CONTROL_DB, 共享工作区.slug, String(calls)], { stdio: "pipe" });
 }
 
 /** 从控制面库里把刚发的验证码取出来。没配通道时它只打进服务端日志，测试读库最省事 */
 function 取验证码(target: string, purpose: string): string {
-  return execFileSync("node", ["--experimental-sqlite", "-e", `
-    const { DatabaseSync } = require('node:sqlite');
-    const db = new DatabaseSync(process.argv[1]);
-    const r = db.prepare('SELECT code FROM "VerifyCode" WHERE target = ? AND purpose = ? AND usedAt IS NULL ORDER BY createdAt DESC LIMIT 1').get(process.argv[2], process.argv[3]);
-    process.stdout.write(r ? r.code : '');
-    db.close();
-  `, CONTROL_DB, target, purpose], { encoding: "utf8" }).trim();
+  return 查控制面('SELECT code FROM "VerifyCode" WHERE target = ? AND purpose = ? AND usedAt IS NULL ORDER BY createdAt DESC LIMIT 1', target, purpose);
 }
 
-/**
- * 注册走两步：第一步只填邮箱，第二步填密码和团队名。
- * 这里跑的是默认配置（不要验证码），所以第一步的按钮是「下一步」；
- * 要验证码那条由单测覆盖（tests/signup-gate.test.ts）。
- */
-async function 注册(page: Page, opts: { 团队: string; 邮箱: string; 密码: string }) {
+/** 注册走两步：第一步只填邮箱，第二步填密码。默认配置不要验证码，所以第一步是「下一步」 */
+async function 注册(page: Page, 邮箱: string, 密码: string) {
   await page.goto("/signup");
-  // 第一步：只有邮箱一个框，别的都不该出现
   await expect(page.getByPlaceholder("设置密码")).toBeHidden();
-  await page.getByPlaceholder("邮箱").fill(opts.邮箱);
+  await page.getByPlaceholder("邮箱").fill(邮箱);
   await page.getByRole("button", { name: /下一步|发送验证码/ }).click();
-
-  // 第二步
   await expect(page.getByPlaceholder("设置密码")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByPlaceholder("邮件里的 6 位验证码")).toHaveCount(0);
-  // 邀请码那一栏 2026-09-15 下线：开号只有一条路，别再给第二种说法
-  await expect(page.getByPlaceholder(/邀请码/)).toHaveCount(0);
-  await page.getByPlaceholder("设置密码").fill(opts.密码);
-  await page.getByPlaceholder("团队名称，如「启明教育」").fill(opts.团队);
+  // 不再问团队名——注册开不出工作区了
+  await expect(page.getByPlaceholder(/团队名称/)).toHaveCount(0);
+  await page.getByPlaceholder("设置密码").fill(密码);
   await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "创建工作区" }).click();
-  await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+  await page.getByRole("button", { name: "开通账号" }).click();
 }
 
 /** 新建一个客户。销售负责人是必填项，要从下拉里挑一个 */
@@ -83,178 +75,133 @@ async function 建客户(page: Page, 姓名: string, 手机: string) {
   await 下拉.waitFor({ state: "visible" });
   await 下拉.locator(".ant-select-item-option").first().click();
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(弹窗).toBeHidden();
 }
 
-/**
- * 登录。每条用例跑在自己的浏览器上下文里，会话不共享，
- * 所以需要数据的用例各自登进来——顺带也把登录这条路每次都走一遍。
- */
 async function 登录(page: Page, 账号: string, 密码: string) {
   await page.goto("/login");
   await page.getByPlaceholder("用户名").fill(账号);
   await page.getByPlaceholder("登录密码").fill(密码);
   await page.getByRole("button", { name: /登\s*录/ }).click();
+}
+
+/**
+ * 进共享工作区，并**等到真的进去了**才返回。
+ * 不等的话后面的 goto 会在会话生效前发出去，被中间件弹回 /login——
+ * 而在登录页上断言「没有某个东西」全都会通过，那是假的绿。
+ */
+async function 进共享区(page: Page) {
+  await 登录(page, 共享工作区.邮箱, 共享工作区.密码);
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
 }
 
-const 启明 = { 团队: "启明教育", 邮箱: "lin@qiming.example.com", 密码: "qiming2026" };
-const 北辰 = { 团队: "北辰网络", 邮箱: "zhao@beichen.example.com", 密码: "beichen2026" };
+/** 桌面端用户：注册一个云端账号，他在网页版没有工作区 */
+const 桌面用户 = { 邮箱: "desktop@example.com", 密码: "desktop2026" };
 
-test("1 注册就得到一个属于自己的空工作区", async ({ page }) => {
-  await 注册(page, 启明);
-  // 注册不问姓名，服务端从邮箱前缀取：lin@qiming.example.com → 「lin」。
-  // 之后在「设置管理 → 用户管理」里能改。名字出现两处：侧栏的用户块 + 问候语。
-  // 意图只是"落在了自己的工作区"，看到一处就够，别让第二处把严格模式撞挂
-  await expect(page.getByText("lin").first()).toBeVisible();
+test.describe.configure({ mode: "serial" });
 
+test("1 注册只开云端账号，开不出工作区", async ({ page }) => {
+  const 前 = 工作区数();
+  await 注册(page, 桌面用户.邮箱, 桌面用户.密码);
+
+  // 落点是桌面端，不是网页版
+  await expect(page.getByText("注册成功")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/回到.*桌面端/)).toBeVisible();
+  await expect(page).not.toHaveURL(/\/dashboard/);
+
+  // 网页版只有那一个共享工作区，注册不该再多出一个
+  expect(工作区数(), "注册开出了工作区").toBe(前);
+});
+
+test("2 这个账号登录网页版会被挡下，而且要说清去哪", async ({ page }) => {
+  await 登录(page, 桌面用户.邮箱, 桌面用户.密码);
+  // 密码是对的，所以不能说「账号或密码不对」——那会让人以为自己记错了密码
+  await expect(page.getByText(/这个账号用于桌面端/)).toBeVisible({ timeout: 15_000 });
+  await expect(page).toHaveURL(/\/login/);
+});
+
+test("3 共享工作区：那一套固定账号密码能进，建的客户看得见", async ({ page }) => {
+  await 进共享区(page);
+  await 建客户(page, "共享区的学员甲", "13900001111");
+  await expect(page.locator("main").getByText("共享区的学员甲").first()).toBeVisible({ timeout: 15_000 });
+});
+
+test("4 它不会过期：没有试用横条，写操作一直可用", async ({ page }) => {
+  await 进共享区(page);
+  // 试用期这个概念在网页版已经不存在，横条整条去掉了。
+  // 钉的是横条特有的那几句，别用「试用」两个字——共享工作区自己就叫「试用工作区」
+  await expect(page.getByText(/试用还剩|试用已结束|试用期的 AI/)).toHaveCount(0);
+  // 到期只读那套机制还在，但这个工作区的到期日在 2099 年，所以照样写得进去
+  await 建客户(page, "过不过期都建得出", "13900002222");
+  await expect(page.locator("main").getByText("过不过期都建得出").first()).toBeVisible({ timeout: 15_000 });
+});
+
+test("5 共享工作区里不摆管理员那几栏——密码在多个团队手里", async ({ page }) => {
+  await 进共享区(page);
+  await page.goto("/settings");
+  // 先确认真的进了设置页：在登录页上断言「没有 AI 接入」永远成立，那是假的绿
+  await expect(page.getByText("设置管理").first()).toBeVisible({ timeout: 15_000 });
+  /**
+   * 这里的用户角色是 ADMIN（他得能展示管理员看到的东西），但那套密码发给了多个团队。
+   * 设置页最贵的一个按钮是 AI 接入那栏的「测试连接」：它会拿平台的 Key 往调用方
+   * 自己填的地址发一次请求。服务端已经不给过 requireAdmin，界面这边也不该摆。
+   */
+  await expect(page.getByText("AI 接入")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /测试连接/ })).toHaveCount(0);
+});
+
+test("6 共享工作区里手机号要打码", async ({ page }) => {
+  await 进共享区(page);
   await page.goto("/customers");
-  // 全新工作区：一条业务数据都不该有
-  await expect(page.locator(".ant-empty-description").first()).toBeVisible({ timeout: 15_000 });
+  // 数据多半是编的，但一串 11 位数字在截图和录屏里与真号无从分辨
+  await expect(page.locator("main").getByText("139****1111").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("main").getByText("13900001111")).toHaveCount(0);
 });
 
-test("2 建一条客户，自己看得到", async ({ page }) => {
-  await 登录(page, 启明.邮箱, 启明.密码);
-  await 建客户(page, "启明的客户甲", "13900001111");
-  // 限定在正文里：中栏那行、成功提示里都会再出现一次这个名字
-  await expect(page.locator("main").getByText("启明的客户甲").first()).toBeVisible({ timeout: 15_000 });
-});
-
-test("3 另一个人注册进来，看不到上一家的客户", async ({ page }) => {
-  await 注册(page, 北辰);
-
-  await page.goto("/customers");
-  // 三栏壳的图标栏只放头像，不再把用户名当文字写出来（76px 塞不下），
-  // 所以这里认账号按钮的无障碍名——意图一样是「我以 zhao 的身份待在自己的工作区」
-  await expect(page.getByRole("button", { name: /zhao/ })).toBeVisible();
-  // 这是隔离的用户可见证明
-  await expect(page.getByText("启明的客户甲")).toHaveCount(0);
-});
-
-test("4 试用到期后只读：横条出现，写操作被拒", async ({ page }) => {
-  await 登录(page, 北辰.邮箱, 北辰.密码);
-  拨到过期("北辰网络");
-  // 租户解析按 token 缓存 10 秒，等它过期再看
-  await page.waitForTimeout(11_000);
-
-  await page.goto("/dashboard");
-  await expect(page.getByText(/试用已结束/)).toBeVisible({ timeout: 15_000 });
-
-  // 界面上拦不拦不重要，服务端必须拦住——Server Action 是公开端点
-  await 建客户(page, "到期后不该写进去", "13900002222");
-  await page.waitForTimeout(2000);
-  // 不管界面怎么提示，这条数据绝不能真的进去
-  await page.goto("/customers");
-  await expect(page.getByText("到期后不该写进去")).toHaveCount(0);
-});
-
-test("5 开通页：说清怎么付，提交后等核对", async ({ page }) => {
-  await 登录(page, 北辰.邮箱, 北辰.密码);
-  await page.goto("/billing");
-  await expect(page.getByRole("heading", { name: "开通订阅" })).toBeVisible();
-  await expect(page.getByText(/只读状态/)).toBeVisible();
-
-  await page.getByPlaceholder("转账单号 / 流水号").fill("TESTREF20260913");
-  await page.getByRole("button", { name: /我已付款/ }).click();
-  await expect(page.getByText(/已收到你的付款信息/)).toBeVisible({ timeout: 15_000 });
-
-  // 关键约定：自己提交付款**不会**延长有效期，仍然是只读
-  await page.goto("/dashboard");
-  await expect(page.getByText(/试用已结束/)).toBeVisible({ timeout: 15_000 });
-});
-
-test("6 运营台要 token，开通后恢复可写", async ({ page }) => {
-  // 不带 token 时这个页面不存在
-  const 无票 = await page.goto("/admin");
-  expect(无票?.status()).toBe(404);
-
+test("7 运营台要 token：不带、带错都是 404", async ({ page }) => {
+  expect((await page.goto("/admin"))?.status()).toBe(404);
+  expect((await page.goto("/admin?token=乱填的"))?.status()).toBe(404);
   await page.goto("/admin?token=e2e-admin-token");
   await expect(page.getByRole("heading", { name: "工作区" })).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByText("北辰网络", { exact: true })).toBeVisible();
-  // 运营台原来还挂着三张码表（一次性邀请码 / 万能码 / 演示码），整套已经下线
-  await expect(page.getByRole("heading", { name: /邀请码|演示码/ })).toHaveCount(0);
-  await expect(page.getByText(/待核对/).first()).toBeVisible();
-
-  // 给北辰开通
-  // antd 给两字按钮加了字间距，文本实际是「开 通」，所以用正则
-  const 行 = page.getByRole("row").filter({ hasText: "北辰网络" });
-  await 行.getByRole("button", { name: /开\s*通/ }).click();
-  await page.getByRole("button", { name: /确\s*定|OK/ }).click();
-  await expect(page.getByText(/已更新/)).toBeVisible({ timeout: 15_000 });
-
-  await page.waitForTimeout(11_000);
-  await 登录(page, 北辰.邮箱, 北辰.密码);
-  await page.goto("/customers");
-  // 开通之后横条消失，又能写了
-  await expect(page.getByText(/试用已结束/)).toHaveCount(0);
-  await 建客户(page, "开通后的客户", "13900003333");
-  await expect(page.locator("main").getByText("开通后的客户").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(共享工作区.名称, { exact: true })).toBeVisible();
 });
 
-test("7 没登录时注册与登录页可达，其余弹回登录", async ({ page }) => {
-  await page.goto("/signup");
-  // 第一步只有邮箱和一个按钮，「创建工作区」在第二步才出现
-  await expect(page.getByPlaceholder("邮箱")).toBeVisible();
-  await expect(page.getByRole("button", { name: /下一步|发送验证码/ })).toBeVisible();
-
-  await page.goto("/customers");
-  await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
-});
-
-test("8 没配 DEMO_WORKSPACE 时 /demo 不存在，而不是被中间件弹回登录", async ({ page }) => {
-  /**
-   * 这条钉的是中间件的公开名单。/demo 的职责是给没有会话的人签一张会话，
-   * 一旦它没被列进公开名单，就会在执行之前先被弹回 /login——
-   * 表现是官网点「在线试用」什么也没发生。曾经真这样过。
-   *
-   * 这套 e2e 不配 DEMO_WORKSPACE，所以正确答案是 404（路由自己拒绝），
-   * 而不是 307 到 /login（中间件拦下）。两者都「打不开」，但原因完全不同。
-   */
-  const r = await page.request.get("/demo", { maxRedirects: 0 });
-  expect(r.status(), "应当由路由自己返回 404，而不是被中间件重定向").toBe(404);
-});
-
-test("9 试用工作区的 AI 免费次数：注册送 30、用了之后当天补 3，用完被拦", async ({ page }) => {
-  /**
-   * 这套 e2e 不配 LLM_API_KEY，所以每次提问都会在模型那一步报「AI 功能未启用」——
-   * 但额度是在发起调用**之前**扣的（失败也算，否则反复失败可以无限重试），
-   * 所以不用真模型也能验闸门。真问 33 次太慢，直接把用量写成 29，
-   * 再看一眼首页：余额 1 < 30 触发当天的 3 次赠送，于是显示 4/33。
-   */
-  await 注册(page, { 团队: "限额测试", 邮箱: "quota@test.example.com", 密码: "Passw0rd99" });
-  const 输入 = page.getByPlaceholder(/问一位/);
-  await expect(page.locator(".cli-quota")).toHaveText("免费提问 30/30");
-
-  写AI用量("限额测试", 29);
-  await page.reload();
-  await expect(page.locator(".cli-quota")).toHaveText("免费提问 4/33");
-
-  for (let i = 1; i <= 4; i++) {
-    await 输入.fill(`第 ${i} 问`);
-    await page.locator(".cli-send").click();
-    // 等这一轮结束（成功或失败都会让输入框恢复）
-    await expect(输入).not.toHaveAttribute("placeholder", /正在回答/, { timeout: 30_000 });
+test("8 没登录时能打开的就是那几页；演示区已经不存在", async ({ page }) => {
+  for (const 页 of ["/login", "/signup", "/forgot", "/terms", "/privacy"]) {
+    await page.goto(页);
+    await expect(page, `${页} 不该被弹回登录`).toHaveURL(new RegExp(页.replace("/", "\\/")));
   }
-  await page.reload();
-  await expect(page.locator(".cli-quota")).toHaveText("免费提问 0/33");
+  // /demo 整套（免登录入口、演示数据、每晚重置）2026-09-16 删掉了。
+  // 它现在和别的内页一样被中间件弹回登录页——轮不到 404，因为中间件先拦。
+  // 「路由真的没了」由登录之后那一步证明。
+  await page.goto("/demo");
+  await expect(page, "/demo 不该还是个免登录入口").toHaveURL(/\/login/);
+  // 其余的仍然弹回登录
+  await page.goto("/customers");
+  await expect(page).toHaveURL(/\/login/);
+  // 登录之后再看：路由本身已经不存在
+  await 进共享区(page);
+  expect((await page.goto("/demo"))?.status(), "/demo 的路由该删干净了").toBe(404);
+});
 
-  await 输入.fill("第 5 问");
-  await page.locator(".cli-send").click();
-  await expect(page.locator(".cli-turn").last()).toContainText("用完", { timeout: 30_000 });
+test("9 AI 免费次数用完会被拦", async ({ page }) => {
+  await 进共享区(page);
+  写AI用量(9999);
+  await page.reload();
+  await page.getByPlaceholder(/问一位学员/).fill("还剩多少次");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/次数|用完|额度/).first()).toBeVisible({ timeout: 30_000 });
 });
 
 test("10 条款页不用登录就能读，注册页有勾选", async ({ page }) => {
-  for (const p of ["/terms", "/privacy"]) {
-    const r = await page.goto(p);
-    expect(r?.status()).toBe(200);
-    await expect(page).toHaveURL(new RegExp(p));
-  }
-  await expect(page.getByRole("heading", { name: "隐私政策" })).toBeVisible();
-  // 条款勾选在注册的第二步，先把第一步走过去
+  await page.goto("/terms");
+  await expect(page.getByRole("heading", { name: /用户协议/ })).toBeVisible();
+  await page.goto("/privacy");
+  await expect(page.getByRole("heading", { name: /隐私政策/ })).toBeVisible();
   await page.goto("/signup");
-  await page.getByPlaceholder("邮箱").fill("terms-check@example.com");
+  await page.getByPlaceholder("邮箱").fill("checkbox@example.com");
   await page.getByRole("button", { name: /下一步|发送验证码/ }).click();
   await expect(page.getByRole("checkbox")).toBeVisible({ timeout: 15_000 });
-  await expect(page.getByRole("link", { name: "用户协议" })).toHaveAttribute("href", "/terms");
 });
 
 test("11 忘记密码：收码、设新密码，旧会话当场作废", async ({ page }) => {
@@ -262,18 +209,15 @@ test("11 忘记密码：收码、设新密码，旧会话当场作废", async ({
    * 三件事要一起成立才算真的「找回」：码收得到、新密码能登、**旧的登录状态没了**。
    * 最后一条最容易漏——会话是一张签了 7 天的 JWT，服务端不存它也就删不掉它，
    * 只换密码的话，拿着旧 Cookie 的那个人还能再用一周：锁换了，门没换。
-   * 这里就用「登录着去改密码」把它逼出来：同一个浏览器，改完再进 /dashboard 应当被弹走。
+   *
+   * 改的是共享工作区那套凭据（网页版只剩它一个账号），所以改完要改回去，
+   * 不然后面的用例登不进来。
    */
-  /**
-   * 拿第 9 条建的那个号来改，不再注册一个新的：同一个出口 IP 每天只放 3 个工作区
-   * （见 lib/rate-limit.ts），前面已经用满了。这个号后面没有别的用例再用。
-   */
-  const 邮箱 = "quota@test.example.com";
-  await 登录(page, 邮箱, "Passw0rd99");
+  await 进共享区(page);
 
   // 已登录也能进找回页：密码泄露了想立刻换掉，弹回 /dashboard 就没路走了
   await page.goto("/forgot");
-  await page.getByPlaceholder("注册时用的邮箱").fill(邮箱);
+  await page.getByPlaceholder("注册时用的邮箱").fill(共享工作区.邮箱);
   await page.getByRole("button", { name: "发送验证码" }).click();
   await expect(page.getByPlaceholder("邮件里的 6 位验证码")).toBeVisible({ timeout: 15_000 });
 
@@ -283,7 +227,7 @@ test("11 忘记密码：收码、设新密码，旧会话当场作废", async ({
   await page.getByRole("button", { name: "设置新密码" }).click();
   await expect(page.getByText("验证码不对")).toBeVisible({ timeout: 15_000 });
 
-  const code = 取验证码(邮箱, "reset");
+  const code = 取验证码(共享工作区.邮箱, "reset");
   expect(code).toHaveLength(6);
   await page.getByPlaceholder("邮件里的 6 位验证码").fill(code);
   await page.getByRole("button", { name: "设置新密码" }).click();
@@ -293,42 +237,19 @@ test("11 忘记密码：收码、设新密码，旧会话当场作废", async ({
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login/, { timeout: 15_000 });
 
-  await 登录(page, 邮箱, "Newpass22");
+  // 新密码能进
+  await 登录(page, 共享工作区.邮箱, "Newpass22");
+  await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
+
+  /**
+   * 这里**故意不把密码改回去**：再发一次码会撞上 60 秒的重发冷却，
+   * 干等一分钟不值得。代价是这条用例跑完，共享工作区的密码就是 Newpass22 了——
+   * 所以它必须是最后一条要登录的用例。后面只剩第 12 条，它只看登录页上有没有那个链接。
+   * 要在它后面加需要登录的用例，就得先把这里的密码问题解决掉。
+   */
 });
 
 test("12 登录页把找回入口摆出来", async ({ page }) => {
-  // 配得出发信通道才画这个链接；这套 e2e 跑在 dev 模式下，那里一律画
   await page.goto("/login");
   await expect(page.getByRole("link", { name: "忘记密码？" })).toHaveAttribute("href", "/forgot");
-});
-
-test("13 管理员加的同事真的能登录，并且看到同一份数据", async ({ page }) => {
-  /**
-   * 这一条钉的是托管版能不能当「给别的公司试用」的通道。
-   *
-   * 在这之前不能：加成员只在业务库里建一条 User，而托管版登录校验的是控制面的
-   * Account——那个人有身份、有归属、能被选成负责人，就是进不来。
-   * 也就是说一个工作区实际上只有开号的那一个人用得了。
-   */
-  const 同事 = { 邮箱: "tongshi@qiming.example.com", 密码: "Tongshi2026" };
-  await 登录(page, 启明.邮箱, 启明.密码);
-
-  await page.goto("/settings");
-  await page.getByRole("button", { name: /新增成员/ }).click();
-  const 弹窗 = page.getByRole("dialog");
-  await expect(弹窗).toBeVisible();
-  await 弹窗.getByLabel("姓名").fill("同事甲");
-  // 托管版这一栏是邮箱（他要用它登录，也要用它找回密码），不是自部署那种用户名
-  await 弹窗.getByLabel("登录邮箱").fill(同事.邮箱);
-  await 弹窗.getByLabel("初始密码").fill(同事.密码);
-  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
-  await expect(page.getByText(同事.邮箱)).toBeVisible({ timeout: 15_000 });
-
-  // 换他登录
-  await page.goto("/api/auth/logout");
-  await 登录(page, 同事.邮箱, 同事.密码);
-
-  // 看到的是启明那份数据：第 2 条用例建的那个学员在
-  await page.goto("/customers");
-  await expect(page.locator("main").getByText("启明的客户甲").first()).toBeVisible({ timeout: 15_000 });
 });

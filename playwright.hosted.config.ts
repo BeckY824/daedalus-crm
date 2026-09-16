@@ -46,6 +46,8 @@ export default defineConfig({
       DATABASE_URL: `file:${path.join(HOSTED_DIR, "never-used.db")}`,
       AUTH_SECRET: "e2e-hosted-secret-not-used-in-production-0123",
       ADMIN_TOKEN: "e2e-admin-token",
+      // 网页版那个唯一的共享工作区，见 e2e/hosted-setup.ts
+      SHARED_WORKSPACE: "shared",
       COOKIE_SECURE: "false",
       /**
        * 给一个假 key、指向本机一个没人监听的端口：

@@ -6,13 +6,11 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
-import TrialBar from "@/components/TrialBar";
-import DemoBar from "@/components/DemoBar";
 import { multiTenant } from "@/lib/tenant/context";
+import { 当前是共享区 } from "@/lib/shared-ws/current";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { control } from "@/lib/tenant/control";
 import { daysLeft as 剩余天数 } from "@/lib/tenant/workspaces";
-import { 是演示工作区 } from "@/lib/demo/config";
 import { 查额度 } from "@/lib/tenant/ai-allowance";
 
 export default async function AppLayout({
@@ -79,33 +77,25 @@ export default async function AppLayout({
    * 壳据此把红黄绿钮的位置留出来。只影响布局，不影响任何权限。
    */
   const desktop = /Electron\//.test(ua);
+  /**
+   * 管理员那几项给不给看。共享工作区里那个人的角色也是 ADMIN（他得能展示管理员看到的东西），
+   * 但那套账号密码在多个团队手里——「管理员」在那里等于「拿到过密码的任何人」。
+   * 设置页的页签（settings/page.tsx）用的是同一个判断，这里算一次传给壳，
+   * 别让中栏和页签各判各的：2026-09-16 就是因为中栏只判角色，把「AI 接入」漏了出去。
+   */
+  const isAdmin = user.role === "ADMIN" && !(await 当前是共享区());
   const today = {
     plans: plans.map((p) => ({ id: p.id, subject: p.subject, plannedAt: p.plannedAt.toISOString(), method: p.method, customerId: p.customer.id, customerName: p.customer.name })),
     tasks: tasks.map((t) => ({ id: t.id, title: t.title, dueAt: t.dueAt ? t.dueAt.toISOString() : null, customerId: t.customer.id, customerName: t.customer.name })),
   };
 
-  // 托管版：试用 / 订阅状态。getCurrentUser 已经把工作区放进上下文了
-  let trial: { daysLeft: number; writable: boolean; aiLeft: number | null } | null = null;
-  let demo = false;
-  if (multiTenant()) {
-    const t = await resolveCurrentTenant();
-    if (t) {
-      const ws = await control.workspace.findUnique({ where: { id: t.workspaceId } });
-      // 演示区不显示试用横条：它永不过期，显示「还剩 3650 天」只会让人困惑
-      if (是演示工作区(ws?.slug)) demo = true;
-      else if (ws) {
-        // 试用期的 AI 免费次数是独立的一条线：可能还剩 25 天，但 5 次已经用完
-        const 额度 = await 查额度(t.workspaceId);
-        trial = { daysLeft: 剩余天数(ws), writable: t.writable, aiLeft: 额度.受限 ? 额度.还剩 : null };
-      }
-    }
-  }
+  // 网页版不再有试用期：只有一个长期运行的共享工作区，横条整条去掉了（2026-09-16）。
+  // 到期只读那套机制还在 computeWritable 里，共享工作区靠 paidUntil 设在很远来绕过它——
+  // 机制留着是因为运营台还要用它停用工作区，不是因为网页版还在计时。
 
   return (
     <BusinessProvider value={business}>
-      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} today={today} customers={customers}>
-        {demo && <DemoBar />}
-        {trial && <TrialBar daysLeft={trial.daysLeft} writable={trial.writable} aiLeft={trial.aiLeft} />}
+      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} isAdmin={isAdmin} today={today} customers={customers}>
         {children}
       </AppShell>
     </BusinessProvider>

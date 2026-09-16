@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth";
 import CustomersView from "./CustomersView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
-import { 号码脱敏器 } from "@/lib/demo/current";
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
 
 export const dynamic = "force-dynamic";
 

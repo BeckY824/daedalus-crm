@@ -56,13 +56,17 @@ export function daysLeft(w: { trialEndsAt: Date; paidUntil: Date | null }, now =
 export async function createWorkspace(input: {
   name: string;
   account: { id: string; name: string; email?: string | null; phone?: string | null };
+  /** 指定标识而不是从名字推。网页那个共享工作区要一个固定值，好写进 SHARED_WORKSPACE */
+  slug?: string;
+  /** 到期日。不传就是 TRIAL_DAYS 天后；共享工作区传一个很远的日期，它不该过期 */
+  trialEndsAt?: Date;
 }): Promise<{ id: string; slug: string; dbFile: string }> {
   const tpl = templatePath();
   if (!fs.existsSync(tpl)) {
     throw new Error(`模板库不存在：${tpl}。先跑 scripts/build-template.mjs`);
   }
 
-  const slug = slugify(input.name);
+  const slug = input.slug?.trim() || slugify(input.name);
   const dbFile = `${slug}.db`;
   const target = workspaceDbPath(dbFile);
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -70,7 +74,7 @@ export async function createWorkspace(input: {
   fs.copyFileSync(tpl, target);
 
   try {
-    const trialEndsAt = new Date(Date.now() + TRIAL_DAYS * 86_400_000);
+    const trialEndsAt = input.trialEndsAt ?? new Date(Date.now() + TRIAL_DAYS * 86_400_000);
     const ws = await control.workspace.create({
       data: { slug, name: input.name.trim().slice(0, 40), dbFile, status: "TRIAL", trialEndsAt },
     });

@@ -1,14 +1,12 @@
 "use server";
 
 import { headers } from "next/headers";
-import { createSession } from "@/lib/auth";
 import { multiTenant } from "@/lib/tenant/context";
-import { control } from "@/lib/tenant/control";
-import { createWorkspace, TRIAL_DAYS } from "@/lib/tenant/workspaces";
 import { codeVisibleToClient, sendCode } from "@/lib/tenant/notify";
 import { checkPassword, consumeCode, createAccount, findAccountByTarget, isDisposableEmail, issueCode, parseTarget } from "@/lib/tenant/accounts";
 import { 自助注册已关闭, 需要验证码, 能收到码, 收不到码的提示 } from "@/lib/tenant/signup-policy";
-import { 赠送, 注册赠送 } from "@/lib/tenant/ai-allowance";
+import { 赠送 as 账本赠送 } from "@/lib/tenant/credits";
+import { 注册赠送 } from "@/lib/tenant/ai-allowance";
 import { 检查限流, 记一次失败, 解析来源IP, IP阈值, 今日注册数, 记一次注册, 每IP每日注册上限 } from "@/lib/rate-limit";
 
 /**
@@ -94,7 +92,6 @@ export async function signup(input: {
   password: string;
   /** 可选：不填就从邮箱前缀取 */
   name?: string;
-  workspace: string;
   agreed?: boolean;
 }): Promise<SignupResult> {
   if (!multiTenant() || 自助注册已关闭()) return 未开放();
@@ -106,7 +103,6 @@ export async function signup(input: {
    * 原来只在发码那一步判，而现在发码那一步可能整个不走。
    */
   if (isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
-  if (!input.workspace.trim()) return { ok: false, error: "请填写团队名称" };
   const pwErr = checkPassword(input.password);
   if (pwErr) return { ok: false, error: pwErr };
   // 服务端也要验勾选：表单上的勾选框绕得过，法律意义上的同意绕不过
@@ -139,23 +135,19 @@ export async function signup(input: {
     return { ok: false, error: "这个号已经注册过了，直接登录吧" };
   }
 
-  try {
-    const ws = await createWorkspace({ name: input.workspace, account });
-    // 注册赠送。查额度时也会补，这里先记上是为了首页第一眼就显示对
-    await 赠送({ workspaceId: ws.id, amount: 注册赠送, reason: "signup", key: `${ws.id}:signup` });
-    if (from) 记一次注册(from);
-    await createSession(account.id, ws.id);
-    return { ok: true };
-  } catch (e) {
-    // 工作区没开成：账号删掉，让这个人能用同一个邮箱再试一次
-    await control.account.delete({ where: { id: account.id } }).catch(() => {});
-    console.error("开工作区失败：", e);
-    return { ok: false, error: "开通失败，请稍后重试" };
-  }
-}
-
-export async function trialDays(): Promise<number> {
-  return TRIAL_DAYS;
+  /**
+   * 注册**只开账号，不开工作区**（2026-09-16 起）。
+   *
+   * 账号是给桌面端用的：桌面端本地模式必须先登录云端账号，而注册只有网页这一条路
+   * （见 desktop/main.js 顶部）。网页版那边现在只有一个共享工作区、一套固定账号密码，
+   * 由我们发给要试用的团队——不再是「谁注册谁得一个」。
+   *
+   * 所以注册完不再签会话、不再跳 /dashboard：新账号在网页版没有工作区，
+   * 跳进去只会撞上「你还没有工作区」。目的地一律是桌面端。
+   */
+  await 账本赠送({ kind: "account", id: account.id }, { amount: 注册赠送, reason: "signup", key: `${account.id}:signup` });
+  if (from) 记一次注册(from);
+  return { ok: true };
 }
 
 /** 注册页用它决定要不要画验证码那一栏 */

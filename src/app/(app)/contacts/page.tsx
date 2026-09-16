@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import ContactsView from "./ContactsView";
 import type { Prisma } from "@/generated/prisma";
-import { 号码脱敏器 } from "@/lib/demo/current";
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
 
 export const dynamic = "force-dynamic";
 

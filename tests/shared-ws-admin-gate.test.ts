@@ -1,12 +1,13 @@
 /**
- * 演示区不给管理员动作，以及「测试连接」不会把服务端的 Key 送到任意地址。
+ * 共享工作区不给管理员动作，以及「测试连接」不会把服务端的 Key 送到任意地址。
  *
- * 这两条是同一件事的两面，都是「/demo 进门不要码」之后才成立的风险：
- * 演示区那个用户的角色是 ADMIN（它得能演示管理员看到的东西），而进门不要账号
- * 也不要密码，于是「管理员」在那里等于「任何人」。设置页里最贵的一个按钮是
- * AI 接入那栏的「测试连接」——它会拿一把 Key 往调用方自己填的地址发一次请求。
+ * 这两条是同一件事的两面。网页版只有一个共享工作区，一套固定账号密码发给要试用的团队
+ * （2026-09-16 起；在那之前是免登录的共享工作区，风险同源）。那个用户的角色是 ADMIN——
+ * 它得能展示管理员看到的东西——而密码在多个团队手里，于是「管理员」在那里
+ * 等于「拿到过密码的任何人」。设置页里最贵的一个按钮是 AI 接入那栏的「测试连接」：
+ * 它会拿一把 Key 往调用方自己填的地址发一次请求。
  *
- * 所以两道都要有：演示区整个不给过 requireAdmin；就算过了，环境里那把 Key
+ * 所以两道都要有：共享工作区整个不给过 requireAdmin；就算过了，环境里那把 Key
  * 也只肯发给环境里配的那个地址。少一道都够把托管版的 LLM Key 送出去。
  */
 import { describe, it, expect, afterEach } from "vitest";
@@ -48,8 +49,8 @@ describe("「测试连接」不把环境里的 Key 送到别处", () => {
   });
 });
 
-describe("演示区的管理员动作", () => {
-  it("settings 的 requireAdmin 里有演示区这一道", async () => {
+describe("共享工作区的管理员动作", () => {
+  it("settings 的 requireAdmin 里有共享工作区这一道", async () => {
     /**
      * 这一条只看源码，不跑动作：requireAdmin 要 Next 的请求上下文和一个真工作区，
      * 搭起来的成本远大于它能证明的东西。而真正会坏的是「哪天有人把这几行删了」，
@@ -59,23 +60,23 @@ describe("演示区的管理员动作", () => {
     const path = await import("node:path");
     const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/actions.ts"), "utf8");
     const 段 = src.slice(src.indexOf("async function requireAdmin()"), src.indexOf("async function requireAdmin()") + 400);
-    expect(段).toContain("当前是演示区");
+    expect(段).toContain("当前是共享区");
     expect(段).toContain("FORBIDDEN");
   });
 });
 
 describe("两条容易被下一个人改坏的约定", () => {
-  it("演示区里界面上也不摆管理员那几栏", async () => {
+  it("共享工作区里界面上也不摆管理员那几栏", async () => {
     /**
-     * 服务端已经不给演示区过 requireAdmin 了，但界面还照旧画「AI 接入」那一栏的话：
+     * 服务端已经不给共享工作区过 requireAdmin 了，但界面还照旧画「AI 接入」那一栏的话：
      * 一是点了只会报错，二是那一栏会把平台 Key 的尾 4 位显示出来。
-     * 所以 settings/page.tsx 要在演示区里把 isAdmin 直接按 false 传。
+     * 所以 settings/page.tsx 要在共享工作区里把 isAdmin 直接按 false 传。
      */
     const fs = await import("node:fs");
     const path = await import("node:path");
     const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/page.tsx"), "utf8");
-    expect(src).toContain("当前是演示区");
-    expect(src).toMatch(/isAdmin=\{[^}]*!\s*演示区\s*\}/);
+    expect(src).toContain("当前是共享区");
+    expect(src).toMatch(/isAdmin=\{[^}]*!\s*共享区\s*\}/);
   });
 
   it("AI 配置的操作日志不带 detail", async () => {

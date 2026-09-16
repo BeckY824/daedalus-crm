@@ -35,6 +35,13 @@ type Props = {
   pendingCount: number;
   /** 跑在桌面端（Electron）里：红黄绿钮嵌在图标栏顶上，系统标题栏不再画 */
   desktop: boolean;
+  /**
+   * 能不能看见管理员那几项。**不要在这里用 user.role 自己判**：
+   * 共享工作区里那个人的角色也是 ADMIN，但那套密码在多个团队手里，
+   * 所以真正的判断是「管理员 且 不在共享区」，由 layout 算好传进来。
+   * 设置页的页签用的是同一个值——同一道门判两遍，迟早漏一边（2026-09-16 就漏过）。
+   */
+  isAdmin: boolean;
   today: TodayData;
   /** 学员模块下才有；别的路由是 null，中栏就不画 */
   customers: CustomerPaneData | null;
@@ -51,7 +58,7 @@ type Props = {
  *
  * 图标栏每个入口都带 aria-label 全名（首页 / 学员管理 …），屏幕阅读器和 e2e 都按这个名字找。
  */
-export default function AppShell({ user, pendingCount, desktop, today, customers, children }: Props) {
+export default function AppShell({ user, pendingCount, desktop, isAdmin, today, customers, children }: Props) {
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
@@ -110,7 +117,7 @@ export default function AppShell({ user, pendingCount, desktop, today, customers
           items={[
             { href: "/settings?tab=members", label: "团队成员", hint: "谁能进、谁是管理员" },
             { href: "/settings?tab=password", label: "修改密码", hint: "改自己的登录密码" },
-            ...(user.role === "ADMIN"
+            ...(isAdmin
               ? [
                   { href: "/settings?tab=ai", label: "AI 接入", hint: "走哪把 Key、还剩几次" },
                   { href: "/settings?tab=business", label: "业务配置", hint: "学员 / 客户这些叫法" },
@@ -131,7 +138,7 @@ export default function AppShell({ user, pendingCount, desktop, today, customers
         />
       );
     return null;
-  }, [selectedKey, today, customers, user.role]);
+  }, [selectedKey, today, customers, isAdmin]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });

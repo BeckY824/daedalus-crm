@@ -11,16 +11,15 @@ import { 注册要验证码 } from "./actions";
 export const dynamic = "force-dynamic";
 
 /**
- * 自助注册没有发码通道时，这一页跳去官网的咨询页，
- * 由客户发邮件过来、我们在运营台手动开号。去掉 SIGNUP_REDIRECT 就回到自助注册。
+ * 注册只开云端账号，不开工作区（2026-09-16）。它服务的是桌面端：
+ * 桌面端本地模式必须先登录云端账号，而注册只有网页这一条路（见 desktop/main.js 顶部）。
+ * 所以不管从哪来，注册完的目的地都是桌面端，`?from=desktop` 不再需要区分。
+ *
+ * 想彻底关掉注册就设 SIGNUP_REDIRECT——但要清楚代价：关了它，
+ * 新用户装完桌面端就开不了账号，本地模式进不去。
  */
-/**
- * `?from=desktop`：桌面端登录窗里点「注册新账号」开浏览器过来的。
- * 注册完不能把人丢进网页版——他要回桌面端登录，网页版对他是个岔路。
- */
-export default async function SignupPage({ searchParams }: { searchParams: Promise<{ from?: string }> }) {
+export default async function SignupPage() {
   const to = process.env.SIGNUP_REDIRECT?.trim();
   if (to) redirect(to);
-  const { from } = await searchParams;
-  return <SignupForm 注册赠送={注册赠送} 要验证码={await 注册要验证码()} 来自桌面端={from === "desktop"} />;
+  return <SignupForm 注册赠送={注册赠送} 要验证码={await 注册要验证码()} />;
 }

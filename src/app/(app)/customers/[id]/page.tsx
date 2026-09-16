@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
 import { 负责人候选 } from "@/lib/owners";
 import { llmEnabled } from "@/lib/llm";
-import { 号码脱敏器 } from "@/lib/demo/current";
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
 
 export const dynamic = "force-dynamic";
 

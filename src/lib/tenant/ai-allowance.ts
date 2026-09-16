@@ -1,37 +1,23 @@
-import { cookies } from "next/headers";
 import { control } from "./control";
 import { computeWritable } from "./workspaces";
-import { 是演示工作区 } from "../demo/config";
-import { 演示剩余, 演示扣一次, 演示对话上限 } from "./demo-visitor";
 import * as 账本 from "./credits";
 
 /**
  * 托管版网页端的 AI 免费次数。
  *
  * 规则和账本本身在 credits.ts——那一份实现同时服务桌面端（按账号算）。
- * 这里只负责网页端特有的三件事：
- *   1. 演示区按访客（cookie）算，不走工作区额度
- *   2. 付费工作区不限次也不计数
- *   3. 试用到期 / 停用的工作区连第一次都不给
+ * 这里只负责网页端特有的两件事：
+ *   1. 付费工作区不限次也不计数
+ *   2. 到期 / 停用的工作区连第一次都不给
+ *
+ * 网页版现在只有一个长期运行的共享工作区（2026-09-16）。它**故意不标成付费**：
+ * 标成付费就是不限次，而那套账号密码要发给多个团队——等于把模型账单敞开。
+ * 它靠「到期日设在很远」来永远可写，AI 次数照常按账本限。
  *
  * 和 lib/ai-quota.ts 是两回事，别搞混：
  *   ai-quota      五分钟 30 次、内存态、重启清零 —— 防的是脚本刷爆，人正常用碰不到
  *   这里          落库的赠送账本 —— 这是产品定价的一部分
  */
-
-/**
- * 演示区的访客 id：进 /demo 时种下的 cookie。
- * 演示区是所有访客共用一个工作区，AI 次数只能按人算，而没有账号的"人"只能用它认。
- * 不在请求上下文里（脚本、测试）时返回 null。
- */
-export const 演示访客Cookie = "demo_visitor";
-async function 演示访客id(): Promise<string | null> {
-  try {
-    return (await cookies()).get(演示访客Cookie)?.value ?? null;
-  } catch {
-    return null;
-  }
-}
 
 export const { 注册赠送, 每日赠送, 每日赠送门槛, 今天 } = 账本;
 
@@ -55,12 +41,6 @@ function 已付费(ws: { status: string; trialEndsAt: Date; paidUntil: Date | nu
 /** 只看不扣。页面拿它显示「还剩几次」，顺带把当天的赠送结掉 */
 export async function 查额度(workspaceId: string): Promise<{ 上限: number; 用掉: number; 还剩: number; 受限: boolean }> {
   const ws = await control.workspace.findUnique({ where: { id: workspaceId } });
-  // 演示区：按访客算，不看工作区的付费态（它为了永不过期被标成了付费）
-  if (是演示工作区(ws?.slug)) {
-    const v = await 演示访客id();
-    const d = v ? await 演示剩余(v) : null;
-    return { 上限: 演示对话上限, 用掉: d?.用掉 ?? 演示对话上限, 还剩: d?.还剩 ?? 0, 受限: true };
-  }
   const 受限 = Boolean(ws) && !已付费(ws!);
   // 过期和付费的都不结算：送了也用不上，账本别乱
   if (ws && 受限 && computeWritable(ws)) await 账本.结算赠送(归属(workspaceId));
@@ -114,17 +94,6 @@ export async function 试用额度闸门(): Promise<string | null> {
   const t = await resolveCurrentTenant();
   // 没有工作区上下文时不在这里报错：调用方自己的 requireUser 会给出更清楚的提示
   if (!t) return null;
-  /**
-   * 演示区：按访客（cookie）扣，不走工作区额度。
-   * 演示区为了永不过期被标成了付费态，走下面那条会被当付费客户直接放行——
-   * 那就是"所有人共用、不限次"的账单黑洞。这里必须先拦。
-   */
-  if (是演示工作区(t.slug)) {
-    const v = await 演示访客id();
-    if (!v) return "请先从 /demo 进入演示区";
-    const r = await 演示扣一次(v);
-    return r.ok ? null : r.error;
-  }
   const r = await 扣一次额度(t.workspaceId);
   return r.ok ? null : r.error;
 }
