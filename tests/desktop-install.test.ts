@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
+import { execFileSync } from "node:child_process";
 
 const require_ = createRequire(import.meta.url);
 const 安装 = require_("../desktop/install.js");
@@ -211,5 +212,46 @@ describe("下载文件：已下过的不重下", () => {
     await 安装.下载文件({ url: "x", 目标, sha256: h, fetch: f });
     expect(次数()).toBe(1);
     expect(fs.readFileSync(目标, "utf8")).toBe("hello");
+  });
+});
+
+describe("删目录：fs 删不掉就交给 /bin/rm", () => {
+  it("普通目录直接删掉，不需要兜底", async () => {
+    const d = path.join(沙盒, "x");
+    fs.mkdirSync(path.join(d, "Contents", "Resources"), { recursive: true });
+    fs.writeFileSync(path.join(d, "Contents", "Resources", "app.asar"), "不是真 asar，纯 node 里就是个文件");
+    const 调用: string[][] = [];
+    await 安装.删目录(d, async (c: string, a: string[]) => void 调用.push([c, ...a]));
+    expect(fs.existsSync(d)).toBe(false);
+    expect(调用).toEqual([]);
+  });
+
+  // chflags 只有 macOS 有；CI 的 ubuntu 跳过
+  it.skipIf(process.platform !== "darwin")("文件被锁住（uchg）时 fs.rm 失败，改用 /bin/rm 兜底", async () => {
+    const d = path.join(沙盒, "locked");
+    fs.mkdirSync(d);
+    const f = path.join(d, "a");
+    fs.writeFileSync(f, "x");
+    execFileSync("chflags", ["uchg", f]);
+    const 调用: string[][] = [];
+    const 运行 = async (c: string, a: string[]) => {
+      调用.push([c, ...a]);
+      execFileSync("chflags", ["-R", "nouchg", a[1]]);
+      execFileSync(c, a);
+    };
+    await 安装.删目录(d, 运行);
+    expect(fs.existsSync(d)).toBe(false);
+    expect(调用[0]).toEqual(["/bin/rm", "-rf", d]);
+  });
+
+  it("上次留下的 .old-<时间戳> 也会被启动清理扫掉", async () => {
+    const 目标 = path.join(沙盒, "Daedalus CRM.app");
+    造包(目标, "0.23.3");
+    造包(`${目标}.old`, "0.23.1");
+    造包(`${目标}.old-1758000000000`, "0.23.0");
+    await 安装.清理旧包(目标);
+    expect(fs.existsSync(`${目标}.old`)).toBe(false);
+    expect(fs.existsSync(`${目标}.old-1758000000000`)).toBe(false);
+    expect(读版本(目标)).toBe("0.23.3");
   });
 });

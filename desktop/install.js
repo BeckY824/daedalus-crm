@@ -35,6 +35,32 @@ function 默认运行(cmd, args) {
   });
 }
 
+/**
+ * 删一个目录，可能里面有 .asar。
+ *
+ * Electron 主进程里的 fs 被打过补丁：`.asar` 文件被当成**目录**（虚拟文件系统）。
+ * `fs.rm` 递归删到 Contents/Resources/app.asar 时会"走进去"，里面的虚拟条目删不掉，
+ * 回头 rmdir 上级就报 ENOTEMPTY——2026-09-16 真发生过：清上一次留下的 .app.old 失败，
+ * 顺带把这一次的更新也拦下了。纯 node 里跑单测是好的，所以没提前抓到。
+ *
+ * 所以：删之前把 process.noAsar 打开（Electron 的开关，普通 node 里没这个属性，赋了也无害），
+ * 带重试；还是不行就交给 /bin/rm -rf，它不认识什么 asar。
+ */
+async function 删目录(p, 运行 = 默认运行) {
+  if (!fs.existsSync(p)) return;
+  const 原 = process.noAsar;
+  process.noAsar = true;
+  try {
+    await fsp.rm(p, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
+  } catch {
+    /* 下面用 /bin/rm 兜底 */
+  } finally {
+    process.noAsar = 原;
+  }
+  if (fs.existsSync(p)) await 运行("/bin/rm", ["-rf", p]);
+  if (fs.existsSync(p)) throw new Error(`删不掉 ${p}`);
+}
+
 /** 从可执行文件路径推出 .app 包的路径。不在 .app 里（开发态 `electron .`）返回 null */
 function 解析应用包(exePath) {
   const m = /^(.*?\.app)\/Contents\/MacOS\/[^/]+$/.exec(String(exePath));
@@ -121,9 +147,15 @@ async function 安装dmg({ dmg, 目标, 运行 = 默认运行, 日志 = () => {}
   const 目录 = path.dirname(目标);
   const 名 = path.basename(目标);
   const 新 = path.join(目录, `${名}.new`);
-  const 旧 = path.join(目录, `${名}.old`);
-  await fsp.rm(新, { recursive: true, force: true });
-  await fsp.rm(旧, { recursive: true, force: true });
+  let 旧 = path.join(目录, `${名}.old`);
+  await 删目录(新, 运行);
+  // 上次留下的 .old 清不掉也不该拦住这次更新：挪到一边，下次启动再清
+  try {
+    await 删目录(旧, 运行);
+  } catch {
+    await fsp.rename(旧, `${旧}-${Date.now()}`).catch(() => {});
+    if (fs.existsSync(旧)) 旧 = `${旧}-${Date.now()}`;
+  }
 
   const 挂载点 = await fsp.mkdtemp(path.join(os.tmpdir(), "daedalus-update-"));
   日志(`挂载 ${dmg}`);
@@ -153,10 +185,22 @@ async function 安装dmg({ dmg, 目标, 运行 = 默认运行, 日志 = () => {}
 }
 
 /** 上次更新留下的 .old / .new，启动时清掉。删不掉也不报错，下次再试 */
-async function 清理旧包(目标) {
+async function 清理旧包(目标, 运行 = 默认运行) {
   if (!目标) return;
-  await fsp.rm(`${目标}.old`, { recursive: true, force: true }).catch(() => {});
-  await fsp.rm(`${目标}.new`, { recursive: true, force: true }).catch(() => {});
+  const 目录 = path.dirname(目标);
+  const 名 = path.basename(目标);
+  let 条目 = [];
+  try {
+    条目 = await fsp.readdir(目录);
+  } catch {
+    return;
+  }
+  // .old / .new，以及 删不掉时挪到一边的 .old-<时间戳>
+  for (const n of 条目) {
+    if (n === `${名}.new` || n === `${名}.old` || n.startsWith(`${名}.old-`)) {
+      await 删目录(path.join(目录, n), 运行).catch(() => {});
+    }
+  }
 }
 
-module.exports = { 解析应用包, 能原地更新, 下载文件, 校验sha256, 安装dmg, 清理旧包 };
+module.exports = { 解析应用包, 能原地更新, 下载文件, 校验sha256, 安装dmg, 清理旧包, 删目录 };
