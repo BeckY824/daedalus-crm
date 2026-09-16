@@ -1,3 +1,4 @@
+import Link from "next/link";
 import LegalPage, { 运营主体, 联系邮箱 } from "@/components/LegalPage";
 
 export const metadata = { title: "用户协议 · Daedalus CRM" };
@@ -11,7 +12,7 @@ export default function TermsPage() {
     <LegalPage title="用户协议" updated="2026 年 9 月 14 日">
       <p>
         欢迎使用 Daedalus CRM 托管版（以下简称「本服务」）。本服务由 {运营主体}（以下简称「我们」）提供。
-        你注册账号即表示已阅读并同意本协议和<a href="/privacy">《隐私政策》</a>。如不同意，请不要注册或使用。
+        你注册账号即表示已阅读并同意本协议和<Link href="/privacy">《隐私政策》</Link>。如不同意，请不要注册或使用。
       </p>
 
       <h2>一、服务内容</h2>
@@ -36,7 +37,7 @@ export default function TermsPage() {
       <ul>
         <li>你在工作区里录入的客户、跟进等数据（「业务数据」）归你所有。我们只为向你提供服务而存储和处理它们，不会用它们训练任何模型，也不会出售或提供给无关第三方。</li>
         <li>每个工作区的业务数据存放在独立的数据库文件中，与其他工作区物理隔离。</li>
-        <li>AI 功能会把你提问所涉及的业务数据（例如某位客户的档案和跟进记录）发送给第三方大模型服务商以生成回答。详情见<a href="/privacy">《隐私政策》</a>。不希望这样处理的，请不要使用 AI 功能。</li>
+        <li>AI 功能会把你提问所涉及的业务数据（例如某位客户的档案和跟进记录）发送给第三方大模型服务商以生成回答。详情见<Link href="/privacy">《隐私政策》</Link>。不希望这样处理的，请不要使用 AI 功能。</li>
         <li>你可以随时在产品内导出自己的数据。要求注销账号或删除工作区的，发邮件到 {联系邮箱}，我们会在 15 个工作日内处理。</li>
       </ul>
 

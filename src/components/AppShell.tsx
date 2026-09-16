@@ -24,9 +24,6 @@ import type { SessionUser } from "@/lib/auth";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
 import UpdateButton from "./UpdateButton";
-import TodayPane, { type TodayData } from "./TodayPane";
-import SectionPane from "./SectionPane";
-import CustomerPane, { type CustomerPaneData } from "./CustomerPane";
 import { useBusiness } from "@/lib/business-client";
 
 const { Header, Content } = Layout;
@@ -37,15 +34,10 @@ type Props = {
   /** 跑在桌面端（Electron）里：红黄绿钮嵌在图标栏顶上，系统标题栏不再画 */
   desktop: boolean;
   /**
-   * 能不能看见管理员那几项。**不要在这里用 user.role 自己判**：
-   * 共享工作区里那个人的角色也是 ADMIN，但那套密码在多个团队手里，
-   * 所以真正的判断是「管理员 且 不在共享区」，由 layout 算好传进来。
-   * 设置页的页签用的是同一个值——同一道门判两遍，迟早漏一边（2026-09-16 就漏过）。
+   * 中栏，由并行路由槽位 @pane/[[...slug]] 渲染好传进来，连 <aside class="pane"> 一起。
+   * 没有中栏的路由那边返回 null，这里什么都不画——壳不该知道哪个模块有中栏。
    */
-  isAdmin: boolean;
-  today: TodayData;
-  /** 学员模块下才有；别的路由是 null，中栏就不画 */
-  customers: CustomerPaneData | null;
+  pane: React.ReactNode;
   children: React.ReactNode;
 };
 
@@ -59,7 +51,7 @@ type Props = {
  *
  * 图标栏每个入口都带 aria-label 全名（首页 / 学员管理 …），屏幕阅读器和 e2e 都按这个名字找。
  */
-export default function AppShell({ user, pendingCount, desktop, isAdmin, today, customers, children }: Props) {
+export default function AppShell({ user, pendingCount, desktop, pane, children }: Props) {
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
@@ -96,50 +88,6 @@ export default function AppShell({ user, pendingCount, desktop, isAdmin, today, 
     const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/follow-ups", "/settings"];
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
-
-  // 中栏：有列表视图的模块才出现
-  const pane = useMemo(() => {
-    if (selectedKey === "/dashboard") return <TodayPane today={today} />;
-    if (selectedKey === "/customers" && customers) return <CustomerPane data={customers} />;
-    if (selectedKey === "/opportunities")
-      return (
-        <SectionPane
-          title="商机"
-          items={[
-            { href: "/opportunities", label: "商机列表", hint: "按阶段、金额、负责人筛" },
-            { href: "/opportunities/pipeline", label: "商机管道", hint: "按阶段拖着看" },
-          ]}
-        />
-      );
-    if (selectedKey === "/settings")
-      return (
-        <SectionPane
-          title="设置"
-          items={[
-            { href: "/settings?tab=members", label: "团队成员", hint: "谁能进、谁是管理员" },
-            { href: "/settings?tab=password", label: "修改密码", hint: "改自己的登录密码" },
-            ...(isAdmin
-              ? [
-                  { href: "/settings?tab=ai", label: "AI 接入", hint: "走哪把 Key、还剩几次" },
-                  { href: "/settings?tab=business", label: "业务配置", hint: "学员 / 客户这些叫法" },
-                ]
-              : []),
-            { href: "/settings?tab=audit", label: "操作日志", hint: "每一次改动的记录" },
-          ]}
-        />
-      );
-    if (selectedKey === "/follow-ups")
-      return (
-        <SectionPane
-          title="跟进"
-          items={[
-            { href: "/follow-ups", label: "跟进记录", hint: "已经发生的沟通" },
-            { href: "/follow-ups/plans", label: "跟进计划", hint: "排好还没做的" },
-          ]}
-        />
-      );
-    return null;
-  }, [selectedKey, today, customers, isAdmin]);
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -227,7 +175,8 @@ export default function AppShell({ user, pendingCount, desktop, isAdmin, today, 
         </div>
       </nav>
 
-      {pane && <aside className="pane">{pane}</aside>}
+      {/* 中栏：槽位自己带 <aside class="pane">，没有中栏的路由返回 null */}
+      {pane}
 
       {/* antd 的 Content 自己就渲染成 <main>，外面不能再包一层：
           一个文档只能有一个 main，两个会让读屏和测试都认不出正文是哪块 */}
