@@ -4,6 +4,7 @@
  * 否则后面按文字定位的用例全部失配。
  */
 import { test, expect, type Page } from "@playwright/test";
+import { 连库 } from "./mock-data";
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
 
@@ -41,11 +42,40 @@ async function 保存并等提示(page: Page, 面板: ReturnType<Page["getByRole
   await expect(page.getByText("已保存，全站措辞已更新")).toBeVisible({ timeout: 15_000 });
 }
 
+/** 库里至少有一位学员。已经有就什么都不做——这一组和别的用例共用一个库 */
+async function 确保有一位学员(page: Page) {
+  const db = 连库();
+  try {
+    if (await db.customer.count()) return;
+    const owner = await db.user.findFirstOrThrow({ where: { active: true } });
+    await db.customer.create({
+      data: { name: "筛选栏占位", phone: "13700000001", salesOwnerId: owner.id, channelOwnerId: owner.id },
+    });
+  } finally {
+    await db.$disconnect();
+  }
+  await page.goto("/customers");
+}
+
 async function 改客户名词(page: Page, 名词: string) {
   const 面板 = await 打开业务配置(page);
   await 面板.getByLabel("客户叫什么").fill(名词);
   await 保存并等提示(page, 面板);
 }
+
+/**
+ * 不管这组怎么退出都把业务配置清回默认。
+ *
+ * 改名是写进库的，而这一组和后面所有用例共用同一个库。原来只在用例最后一步改回去——
+ * 中途失败就改不回来了，于是「已试听」留成「已体验」，后面按文字定位的用例跟着一片红。
+ * 2026-09-16 真发生过：business-settings 挂一条，multiuser 的批量菜单也跟着挂，
+ * 排查时看起来像两个 bug。直接删 Setting 行而不是走界面——页面这时候可能已经是坏的。
+ */
+test.afterAll(async () => {
+  const db = 连库();
+  await db.setting.deleteMany({ where: { key: "business" } });
+  await db.$disconnect();
+});
 
 test.describe.serial("业务配置", () => {
   test("把「学员」改成「客户」，侧边栏、列表页标题与表头同步变；改回去后恢复", async ({ page }) => {
@@ -97,6 +127,10 @@ test.describe.serial("状态显示名", () => {
     let 面板 = await 打开业务配置(page);
     await 面板.getByLabel("已试听", { exact: true }).fill("已体验");
     await 保存并等提示(page, 面板);
+
+    // 学员页空库时筛选栏是收起来的（对着空表摆 5 个下拉没意义），所以先确保有一条。
+    // 这条用例要验的是「改了显示名，筛选下拉跟着变」，和空态无关。
+    await 确保有一位学员(page);
 
     await page.goto("/customers");
     // antd Select 的占位文字不可点，点它所在的选择框
