@@ -7,6 +7,7 @@ import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, App, Toolt
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined, StopOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import { PageHead, UserCell } from "@/components/ui";
+import { 表格空态 } from "@/components/EmptyState";
 import { money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { saveChannel, toggleChannel, deleteChannel } from "./actions";
 import ReferralRadar from "./ReferralRadar";
@@ -178,6 +179,11 @@ export default function ChannelsView({
       <Card styles={{ body: { padding: 22 } }}>
         <Table<Row>
           rowKey="id"
+          locale={表格空态({
+            title: "还没有渠道",
+            hint: "渠道是学员从哪来的：合作老师、中介、家长社群。渠道负责人定了之后，这条线上进来的学员业绩自动归他。",
+            primary: { label: "新建第一个渠道", onClick: () => openForm(null) },
+          })}
           size="middle"
           dataSource={rows}
           columns={columns}

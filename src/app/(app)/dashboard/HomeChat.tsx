@@ -18,6 +18,7 @@ import { useBusiness } from "@/lib/business-client";
 import { clearJob, getJob, runJob, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, type Turn } from "@/lib/home-thread";
+import { DemoDataButton } from "@/components/EmptyState";
 import type { StepEvent } from "@/lib/ai-steps";
 import { dayjs } from "@/lib/utils";
 
@@ -178,12 +179,26 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
               {greet}，{userName}。
             </div>
             <div className="cli-welcome-s">{context}</div>
+            {/*
+              空首页上最该给的是「能直接点的问题」，不是用法说明。
+              原来这里是三行说明、建议问题缩在右下角两个灰字里——那是给已经会用的人看的。
+              现在反过来：问题摆成一排能点的，说明压成一行。
+            */}
+            {suggestions.length > 0 && (
+              <div className="cli-welcome-q">
+                {suggestions.map((s) => (
+                  <button key={s.label} type="button" className="cli-q" onClick={() => submit(s.kind === "prep" ? "/prep" : s.kind === "recap" ? "/recap" : s.question)}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
             <div className="cli-welcome-hints">
-              <div>直接输入问题，比如「陈同学还能怎么推进」「各跟进状态各有多少{b.customer}」</div>
               <div>
-                输入 <kbd>/</kbd> 看命令：{COMMANDS.map((c) => c.cmd).join("  ")}。也可以让它记一笔、改状态、排计划——它给建议卡，你点确认才写入。
+                也可以直接问，或者让它记一笔、改状态、排计划——它给一张建议卡，你点确认才写入。输入 <kbd>/</kbd> 看命令。
               </div>
             </div>
+            <DemoDataButton />
           </motion.div>
         ) : (
           <div className="cli-log">
@@ -298,7 +313,7 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
               </span>
             )}
             <span style={{ flex: 1 }} />
-            {suggestions.slice(0, 3).map((s) => (
+            {!empty && suggestions.slice(0, 3).map((s) => (
               <button key={s.label} type="button" className="cli-sugg" onClick={() => submit(s.kind === "prep" ? "/prep" : s.kind === "recap" ? "/recap" : s.question)}>
                 {s.label}
               </button>

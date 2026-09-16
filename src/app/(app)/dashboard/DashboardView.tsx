@@ -14,7 +14,7 @@ import {
 } from "@ant-design/icons";
 import type { EChartsCoreOption } from "echarts/core";
 import Chart, { Sparkline } from "@/components/Chart";
-import { StatCard, CompanyLogo, UserCell } from "@/components/ui";
+import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
 import { money, moneyShort, smartTime, 成员选项 } from "@/lib/utils";
@@ -138,6 +138,12 @@ export default function DashboardView({ stats, trend, funnel, ranking, tasks, wa
 
   return (
     <>
+      {/*
+        页头不只是为了和别的页一致：桌面端顶上那 52px 是拖窗口的把手，
+        没有页头时第一行指标卡有一半压在把手里——按住卡片标题会把整个窗口拖走。
+      */}
+      <PageHead title="数据看板" subtitle="线索、客户、商机的当下状态与趋势" />
+
       {/* 指标卡 */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>

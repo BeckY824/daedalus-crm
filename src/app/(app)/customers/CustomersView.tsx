@@ -21,6 +21,7 @@ import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { maskPhone, smartTime, money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { toCsv } from "@/lib/csv";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
+import { 表格空态 } from "@/components/EmptyState";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import { deleteCustomers, assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
 import { useBusiness } from "@/lib/business-client";
@@ -297,6 +298,11 @@ export default function CustomersView({
 
         <Table<CustomerRow>
           rowKey="id"
+          locale={表格空态({
+            title: `还没有${b.customer}`,
+            hint: `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。先建一位，或者灌一套演示数据看看它长什么样。`,
+            primary: { label: `新建第一位${b.customer}`, onClick: () => { setEditing(null); setFormOpen(true); } },
+          })}
           size="middle"
           dataSource={rows}
           columns={columns}

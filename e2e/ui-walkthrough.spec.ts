@@ -136,9 +136,17 @@ test("表格类页面零数据时要显示空状态提示，而不是只有表�
     await page.waitForTimeout(600);
     const 表格数 = await page.locator(".ant-table").count();
     if (!表格数) continue;
-    const 有空态 = await page.locator(".ant-empty").count();
     const 行数 = await page.locator(".ant-table-row").count();
-    if (行数 === 0 && !有空态) 问题.push(`${路径}：表格没有数据也没有空状态提示`);
+    if (行数 > 0) continue;
+    // .empty-state 是我们自己的空状态（components/EmptyState.tsx），.ant-empty 是 antd 默认那个。
+    // 两者都算，但光有元素不够——原来只数元素，一个空盒子也能过。要求它真的有字。
+    const 空态 = page.locator(".empty-state, .ant-empty").first();
+    if (!(await 空态.count())) {
+      问题.push(`${路径}：表格没有数据也没有空状态提示`);
+      continue;
+    }
+    const 文字 = ((await 空态.innerText().catch(() => "")) || "").trim();
+    if (文字.length < 4) 问题.push(`${路径}：空状态只有个盒子，没有给人看的文字`);
   }
 
   expect(问题, 问题.join("\n")).toEqual([]);

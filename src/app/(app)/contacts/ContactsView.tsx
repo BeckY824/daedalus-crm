@@ -6,6 +6,7 @@ import { Card, Table, Input, Button, Space, Avatar, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined, ContactsOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageHead, CustomerLink } from "@/components/ui";
+import { 表格空态 } from "@/components/EmptyState";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 
@@ -97,6 +98,10 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
         </Space>
         <Table<Row>
           rowKey="id"
+          locale={表格空态({
+            title: "还没有联系人",
+            hint: "联系人是学员之外的相关人：家长、决策人、经办人。在学员档案里添加，这里汇总起来按姓名和电话查。",
+          })}
           size="middle"
           dataSource={rows}
           columns={columns}

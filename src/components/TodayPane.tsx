@@ -59,7 +59,14 @@ export default function TodayPane({ today }: { today: TodayData }) {
           <b>跟进计划</b>
           {today.plans.length}
         </div>
-        {today.plans.length === 0 && <div className="pane-empty">今天没有排跟进计划</div>}
+        {today.plans.length === 0 && (
+          <div className="pane-empty">
+            今天没有排跟进计划。
+            <Link href="/follow-ups/plans" className="pane-empty-a">
+              去排一条 <RightOutlined style={{ fontSize: 9 }} />
+            </Link>
+          </div>
+        )}
         {today.plans.map((p) => {
           const t = dayjs(p.plannedAt);
           const 逾期 = t.isBefore(now.startOf("day"));
@@ -81,7 +88,14 @@ export default function TodayPane({ today }: { today: TodayData }) {
           <b>待办</b>
           {today.tasks.length}
         </div>
-        {today.tasks.length === 0 && <div className="pane-empty">没有待办</div>}
+        {today.tasks.length === 0 && (
+          <div className="pane-empty">
+            没有待办。
+            <Link href="/follow-ups" className="pane-empty-a">
+              去记一笔 <RightOutlined style={{ fontSize: 9 }} />
+            </Link>
+          </div>
+        )}
         {today.tasks.map((k) => {
           const done = 刚完成.has(k.id);
           const 逾期 = k.dueAt ? dayjs(k.dueAt).isBefore(now.startOf("day")) : false;

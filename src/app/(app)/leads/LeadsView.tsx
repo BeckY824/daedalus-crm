@@ -28,6 +28,7 @@ import {
   ReloadOutlined,
 } from "@ant-design/icons";
 import { PageHead } from "@/components/ui";
+import { 表格空态 } from "@/components/EmptyState";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
 import { fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { saveLead, deleteLeads, convertLead } from "./actions";
@@ -234,6 +235,11 @@ export default function LeadsView({
 
         <Table<Row>
           rowKey="id"
+          locale={表格空态({
+            title: "还没有线索",
+            hint: "线索是还没确认要不要跟的人。确认要跟了就转成学员，之后的跟进、商机、签约都在学员那边走。",
+            primary: { label: "新建第一条线索", onClick: () => { setEditing(null); setOpen(true); } },
+          })}
           size="middle"
           dataSource={rows}
           columns={columns}
