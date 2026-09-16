@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Layout, Avatar, Dropdown, Button, Tooltip, Badge } from "antd";
+import { Layout, Avatar, Dropdown, Button, Badge } from "antd";
 import {
   HomeOutlined,
   DashboardOutlined,
@@ -191,27 +191,26 @@ export default function AppShell({ user, pendingCount, desktop, isAdmin, today, 
             <Logo size={22} />
           </Link>
         </div>
+        {/* 名字直接写出来，不再靠 tooltip：第一次打开的人不会去悬停，
+            他只看到一列认不出的方块。aria-label 保留原样，e2e 和读屏都认它。 */}
         <div className="rail-nav">
           {nav.map((n) => (
-            <Tooltip key={n.key} title={n.label} placement="right" mouseEnterDelay={0.4}>
-              <Link href={n.key} aria-label={n.label} className={`rail-item${selectedKey === n.key ? " on" : ""}`}>
-                {n.icon}
-              </Link>
-            </Tooltip>
+            <Link key={n.key} href={n.key} aria-label={n.label} className={`rail-item${selectedKey === n.key ? " on" : ""}`}>
+              {n.icon}
+              <b>{n.label}</b>
+            </Link>
           ))}
         </div>
         <div className="rail-foot">
-          <Tooltip title="设置管理" placement="right" mouseEnterDelay={0.4}>
-            <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
-              <SettingOutlined />
-            </Link>
-          </Tooltip>
-          <Tooltip title="待办计划" placement="right" mouseEnterDelay={0.4}>
-            <Link href="/follow-ups/plans" aria-label="待办计划" className="rail-item rail-bell">
-              <BellOutlined />
-              {pendingCount > 0 && <span className="rail-count">{pendingCount}</span>}
-            </Link>
-          </Tooltip>
+          <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
+            <SettingOutlined />
+            <b>设置</b>
+          </Link>
+          <Link href="/follow-ups/plans" aria-label="待办计划" className="rail-item rail-bell">
+            <BellOutlined />
+            {pendingCount > 0 && <span className="rail-count">{pendingCount}</span>}
+            <b>待办</b>
+          </Link>
           <Dropdown placement="topLeft" menu={userMenu}>
             <button type="button" className="rail-user" aria-label={`${user.name}，账号菜单`}>
               <Avatar size={26} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 12, fontWeight: 600 }}>

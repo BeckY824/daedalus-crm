@@ -42,6 +42,11 @@ RUN npx --yes esbuild@0.24.2 scripts/shared-workspace.ts \
       --bundle --platform=node --target=node22 \
       --external:@prisma/client \
       --outfile=shared-workspace.js
+# 给共享工作区灌演示数据 / 重置它的脚本，同样预打包
+RUN npx --yes esbuild@0.24.2 scripts/seed-shared.ts \
+      --bundle --platform=node --target=node22 \
+      --external:@prisma/client \
+      --outfile=seed-shared.js
 # 建表 SQL 在构建期生成，运行时用 Node 内置 sqlite 执行，
 # 运行镜像因此不需要携带 Prisma CLI（它的依赖树很难裁剪干净）
 RUN npx prisma migrate diff --from-empty \
@@ -79,6 +84,7 @@ COPY --from=builder /app/control-migrations ./control-migrations
 COPY --from=builder /app/seed.js ./seed.js
 COPY --from=builder /app/reset-data.js ./reset-data.js
 COPY --from=builder /app/shared-workspace.js ./shared-workspace.js
+COPY --from=builder /app/seed-shared.js ./seed-shared.js
 
 COPY docker-entrypoint.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh

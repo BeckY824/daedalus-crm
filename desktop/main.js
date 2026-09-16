@@ -113,12 +113,12 @@ function 建窗口() {
     title: APP_NAME,
     /**
      * 不画系统标题栏：标题「Daedalus CRM」在侧栏已经有一个标了，标题栏上再写一遍是重复。
-     * 红黄绿钮嵌进页面左上（桌面端的图标栏为此加宽到 88，顶部留 44px），那一块的 CSS 标了
+     * 红黄绿钮嵌进页面左上（桌面端的图标栏为此加宽到 104，顶部留 44px），那一块的 CSS 标了
      * -webkit-app-region: drag，窗口照样拖得动——页面是服务端渲染的也不妨碍这条 CSS 生效。
      * 壳靠 UA 里的 "Electron/" 判断自己在桌面端里，见 (app)/layout.tsx。
      */
     titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 18, y: 16 },
+    trafficLightPosition: { x: 26, y: 16 },
     backgroundColor: "#fafafa",
     show: false,
     icon: path.join(__dirname, "assets/icon.png"),

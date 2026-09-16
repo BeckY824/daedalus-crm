@@ -286,9 +286,18 @@ test("列表满页时分页可用，翻页后内容真的变了", async ({ page 
 
   // 不能用 getByTitle("2")：顶栏待办徽标也是 <sup title="2">，待办恰好 2 条时就会撞
   await page.locator(".ant-pagination-item-2").click();
-  await page.waitForTimeout(800);
-  const 第二页首行 = await page.locator(".ant-table-row").first().innerText();
-  expect(第二页首行, "翻到第 2 页内容没变").not.toBe(第一页首行);
+  /**
+   * 等「首行真的变了」，而不是干等一个固定的 800ms。
+   * 原来那样写在机器忙的时候会挂——渲染还没完就去读，读到的还是第一页，
+   * 报「翻到第 2 页内容没变」，看着像分页坏了，其实只是慢。
+   * 2026-09-16 在一台正在疯狂换页的机器上连挂两次，就是这个原因。
+   */
+  await expect
+    .poll(async () => page.locator(".ant-table-row").first().innerText(), {
+      message: "翻到第 2 页内容没变",
+      timeout: 15_000,
+    })
+    .not.toBe(第一页首行);
   await page.screenshot({ path: "test-results/走查/分页-第二页.png", fullPage: true });
 });
 
