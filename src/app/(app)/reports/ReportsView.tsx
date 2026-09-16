@@ -1,42 +1,35 @@
 "use client";
 
 import { useMemo } from "react";
-import { useRouter } from "next/navigation";
-import { Card, Row, Col, Segmented, Select, Table, Space, Typography } from "antd";
+import { Card, Row, Col, Table, Typography } from "antd";
 import { BarChartOutlined, PayCircleOutlined, FileDoneOutlined, RiseOutlined } from "@ant-design/icons";
+import Link from "next/link";
 import type { EChartsCoreOption } from "echarts/core";
 import Chart from "@/components/Chart";
-import AskDataCard from "./AskDataCard";
-import { PageHead, StatCard } from "@/components/ui";
+import { StatCard } from "@/components/ui";
 import EmptyState, { 表格空态 } from "@/components/EmptyState";
 import { money } from "@/lib/utils";
+import type { Agg, Bucket } from "../overview/data";
 
-type Bucket = { label: string; amount: number; count: number };
-type Agg = { id: string; name: string; amount: number; count: number };
-
+/**
+ * 回看视图（本月 / 本年）的正文：总额、趋势、四个维度的拆解。
+ *
+ * 页头、视图切换、问数据的框都在「数据」页的壳里（overview/DataShell），
+ * 这一份只画数——同一份正文两个时间段共用，不再有 `/reports` 那一套
+ * 自己的年份下拉和月/季/年切换（三处看数、两个问答框的来路就是它）。
+ */
 export default function ReportsView({
-  period, year, yearOptions, trend, bySales, byChannelOwner, byChannel, byAttribution, total, aiEnabled,
+  trend, bySales, byChannelOwner, byChannel, byAttribution, total, 口径,
 }: {
-  period: string;
-  year: number;
-  yearOptions: number[];
   trend: Bucket[];
   bySales: Agg[];
   byChannelOwner: Agg[];
   byChannel: Agg[];
   byAttribution: Agg[];
   total: { amount: number; count: number };
-  /** 服务端是否配置了 AI。没配时「问数据」整卡不渲染 */
-  aiEnabled: boolean;
+  /** 这一页的数是按什么口径算的。数字必须说得清自己是怎么来的 */
+  口径: string;
 }) {
-  const router = useRouter();
-
-  function go(next: { period?: string; year?: number }) {
-    const q = new URLSearchParams();
-    q.set("period", next.period ?? period);
-    q.set("year", String(next.year ?? year));
-    router.push(`/reports?${q}`);
-  }
 
   const trendOption: EChartsCoreOption = useMemo(
     () => ({
@@ -74,8 +67,24 @@ export default function ReportsView({
     [trend],
   );
 
-  const cols = (label: string) => [
-    { title: label, dataIndex: "name" },
+  /**
+   * 明细的去处：按销售 / 渠道负责人拆出来的那两张表，点名字能落到
+   * 学员列表对应的筛选上——「这 12 万是哪几位签的」得有地方看。
+   * 来源渠道和归属两张表没有对应的筛选条件，就不假装能点。
+   */
+  const cols = (label: string, 明细?: (r: Agg) => string) => [
+    {
+      title: label,
+      dataIndex: "name",
+      render: (v: string, r: Agg) =>
+        明细 && r.id !== "__none__" ? (
+          <Link href={明细(r)} className="link-strong">
+            {v}
+          </Link>
+        ) : (
+          v
+        ),
+    },
     {
       title: "签约笔数",
       dataIndex: "count",
@@ -98,47 +107,18 @@ export default function ReportsView({
   // 复盘的两张表：这一档没人时说清是「这个口径下没有」，不是「系统里没有」
   const empty = 表格空态({
     title: "这一档还没有签约",
-    hint: "复盘按签约记录算。换个年份，或者先去商机里把赢单的标出来。",
+    hint: "按签约记录算。换一个时间段，或者先去商机里把赢单的标出来。",
     demo: false,
   });
 
   return (
     <>
-      <PageHead
-        icon={<BarChartOutlined />}
-        title="数据复盘"
-        subtitle="按周期与维度拆解签约"
-        tag="报表分析"
-        tagNote="月度、季度、年度业绩一目了然"
-        extra={
-          <Space>
-            <Select
-              value={year}
-              style={{ width: 110 }}
-              onChange={(v) => go({ year: v })}
-              options={yearOptions.map((y) => ({ value: y, label: `${y} 年` }))}
-            />
-            <Segmented
-              value={period}
-              onChange={(v) => go({ period: String(v) })}
-              options={[
-                { label: "月度", value: "month" },
-                { label: "季度", value: "quarter" },
-                { label: "年度", value: "year" },
-              ]}
-            />
-          </Space>
-        }
-      />
-
-      {aiEnabled && <AskDataCard />}
-
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<PayCircleOutlined />} color="#1668dc" label={`${year} 年签约总额`} value={money(total.amount)} />
+          <StatCard icon={<PayCircleOutlined />} color="#1668dc" label="签约总额" value={money(total.amount)} note={口径} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<FileDoneOutlined />} color="#22c55e" label="签约笔数" value={total.count} />
+          <StatCard icon={<FileDoneOutlined />} color="#22c55e" label="签约笔数" value={total.count} note={口径} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <StatCard icon={<RiseOutlined />} color="#f59e0b" label="客单价" value={avg > 0 ? money(avg) : "—"} />
@@ -154,13 +134,15 @@ export default function ReportsView({
         </Col>
       </Row>
 
+      {/* 没有数据时不画那条一路为 0 的线——假的走势比没有走势更糟 */}
       <Card style={{ marginTop: 16 }} title={<span className="section-title">签约金额趋势</span>}>
         {trend.length ? (
           <Chart option={trendOption} height={320} />
         ) : (
           <EmptyState
-            title="这一年还没有签约记录"
-            hint="签约之后这里会按月画出金额趋势，并和上一年同期比。换个年份看看，或者先去商机里把赢单的标出来。"
+            title="这一段还没有签约记录"
+            hint="签约之后这里会按时间画出金额趋势。换一个时间段看看，或者先去商机里把赢单的标出来。"
+            demo={false}
           />
         )}
       </Card>
@@ -168,12 +150,12 @@ export default function ReportsView({
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} xl={12}>
           <Card title={<span className="section-title">按销售负责人</span>} styles={{ body: { paddingTop: 8 } }}>
-            <Table size="small" rowKey="id" dataSource={bySales} columns={cols("销售负责人")} pagination={false} locale={empty} />
+            <Table size="small" rowKey="id" dataSource={bySales} columns={cols("销售负责人", (r) => `/customers?salesOwnerId=${r.id}`)} pagination={false} locale={empty} />
           </Card>
         </Col>
         <Col xs={24} xl={12}>
           <Card title={<span className="section-title">按渠道负责人</span>} styles={{ body: { paddingTop: 8 } }}>
-            <Table size="small" rowKey="id" dataSource={byChannelOwner} columns={cols("渠道负责人")} pagination={false} locale={empty} />
+            <Table size="small" rowKey="id" dataSource={byChannelOwner} columns={cols("渠道负责人", (r) => `/customers?channelOwnerId=${r.id}`)} pagination={false} locale={empty} />
           </Card>
         </Col>
         <Col xs={24} xl={12}>

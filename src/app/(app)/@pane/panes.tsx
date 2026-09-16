@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { dayjs } from "@/lib/utils";
-import { 当前是共享区 } from "@/lib/shared-ws/current";
 import TodayPane from "@/components/TodayPane";
 import SectionPane from "@/components/SectionPane";
 import CustomerRoster from "@/components/CustomerRoster";
@@ -113,32 +112,6 @@ export function 跟进中栏() {
       items={[
         { href: "/follow-ups", label: "跟进记录", hint: "已经发生的沟通" },
         { href: "/follow-ups/plans", label: "跟进计划", hint: "排好还没做的" },
-      ]}
-    />,
-  );
-}
-
-/**
- * 设置中栏。管理员那两项的门：**和设置页页签用的是同一个判断**——
- * 「管理员 且 不在共享区」。共享区那个人的角色也是 ADMIN，但密码在多个团队手里。
- * 同一道门判两遍迟早漏一边，2026-09-16 就是这么把「AI 接入」漏出去的。
- */
-export async function 设置中栏() {
-  const user = await requireUser();
-  const isAdmin = user.role === "ADMIN" && !(await 当前是共享区());
-  return 包一层(
-    <SectionPane
-      title="设置"
-      items={[
-        { href: "/settings?tab=members", label: "团队成员", hint: "谁能进、谁是管理员" },
-        { href: "/settings?tab=password", label: "修改密码", hint: "改自己的登录密码" },
-        ...(isAdmin
-          ? [
-              { href: "/settings?tab=ai", label: "AI 接入", hint: "走哪把 Key、还剩几次" },
-              { href: "/settings?tab=business", label: "业务配置", hint: "学员 / 客户这些叫法" },
-            ]
-          : []),
-        { href: "/settings?tab=audit", label: "操作日志", hint: "每一次改动的记录" },
       ]}
     />,
   );

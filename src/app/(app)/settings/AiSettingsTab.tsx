@@ -66,6 +66,25 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
       message.error("请填写 API Key");
       return;
     }
+    /**
+     * 没测过就保存，等于把整套 AI 能力交给一个没验证过的地址：
+     * 首页、简报、问数据会一起哑掉，而报错要等到下一个人去用才看得见。
+     * 拦一次，让人自己决定——不禁止，只是说清楚。
+     */
+    if (!testResult?.ok) {
+      const 继续 = await new Promise<boolean>((resolve) =>
+        modal.confirm({
+          title: testResult ? "这次测试没通过，还要保存吗？" : "还没测试过连接，要直接保存吗？",
+          content:
+            "保存之后，首页提问、临战简报、问数据、盯盘话术都会走这套配置。地址或 Key 不对的话它们会一起失灵，而且要等下一个人去用才发现。",
+          okText: "仍然保存",
+          cancelText: "先测一下",
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        }),
+      );
+      if (!继续) return;
+    }
     setSaving(true);
     const res = await saveLlmSettings({ ...v, options });
     setSaving(false);

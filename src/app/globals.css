@@ -844,6 +844,49 @@ a {
 .pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .pipe-card-o { font-size: var(--fs-note); color: var(--text-muted); }
 
+/* ---------- 「数据」页上的问数据 ----------
+   框是和首页同一个（components/AskBox），这里只管它周围那点间距和答案区。 */
+.askdata { margin-bottom: var(--s4); }
+.askdata-wait { margin-top: var(--s3); color: var(--text-muted); font-size: var(--fs-note); }
+.askdata-out { margin-top: var(--s3); }
+.askdata-q { font-size: var(--fs-note); color: var(--text-muted); margin-bottom: var(--s2); }
+
+/* ---------- ⌘K ----------
+   跳页和问一句共用一张单子。藏起来的快捷键等于不存在，所以左栏底下常驻一行提示。 */
+.cmdk-in { display: flex; align-items: center; gap: var(--s2); padding: var(--s3) var(--s4); border-bottom: 1px solid var(--line); color: var(--text-muted); }
+.cmdk-in input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: inherit; font-size: var(--fs-section); color: var(--ink); }
+.cmdk-in input::placeholder { color: var(--text-faint); }
+.cmdk-list { max-height: 320px; overflow: auto; padding: var(--s2); }
+.cmdk-row { display: flex; align-items: baseline; gap: var(--s3); width: 100%; text-align: left; border: 0; background: none;
+  padding: var(--s2) var(--s3); border-radius: var(--r-ctl); cursor: pointer; font: inherit; }
+.cmdk-row b { flex: none; font-weight: 500; color: var(--ink); }
+.cmdk-row span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-note); color: var(--text-muted); }
+.cmdk-row-on { background: var(--brand-bg); }
+.cmdk-foot { padding: var(--s2) var(--s4); border-top: 1px solid var(--line); font-size: var(--fs-min); color: var(--text-muted); }
+.cmdk-foot kbd { font-size: var(--fs-min); background: var(--hover); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-ctl); padding: 0 5px; }
+/* 左栏底部那行「⌘K 跳转 / 提问」 */
+.rail-kbd { display: flex; align-items: center; gap: 6px; padding: 6px 10px; margin-bottom: 2px; font-size: var(--fs-min); color: var(--text-muted); }
+.rail-kbd kbd { font-size: var(--fs-min); background: var(--hover); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-ctl); padding: 0 4px; }
+
+/* ---------- 设置：左目录 ----------
+   五项里有两项只有管理员看得到，横着排页签时两种人看到的宽度都不一样；
+   竖着排还能给每项留一句说明——只有名字的话，「业务配置」是个谜。 */
+.set { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--s5); align-items: start; }
+.set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: var(--s4); }
+.set-nav-i { display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer; font: inherit;
+  padding: var(--s2) var(--s3); border-radius: var(--r-ctl); }
+.set-nav-i:hover { background: var(--hover); }
+.set-nav-i.on { background: var(--brand-bg); }
+.set-nav-i b { display: block; font-weight: 500; color: var(--ink); }
+.set-nav-i.on b { color: var(--brand-deep); font-weight: 600; }
+.set-nav-i span { display: block; margin-top: 1px; font-size: var(--fs-note); color: var(--text-muted); }
+.set-body { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s4); }
+@media (max-width: 1023px) {
+  /* 窄屏下目录压到正文上面，**仍然是单列**——横过来会变成一排挤不下的页签 */
+  .set { grid-template-columns: minmax(0, 1fr); }
+  .set-nav { position: static; }
+}
+
 /* ---------- 空状态 ----------
    antd 默认那个「暂无数据」只说「没有」。第一次打开的人要知道的是「接下来做什么」，
    所以这里是：一句这是什么、一句为什么有用、一排能点的动作。见 components/EmptyState.tsx */

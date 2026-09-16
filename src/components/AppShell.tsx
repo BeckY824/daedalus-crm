@@ -12,7 +12,6 @@ import {
   ContactsOutlined,
   DollarOutlined,
   InteractionOutlined,
-  BarChartOutlined,
   SettingOutlined,
   DeploymentUnitOutlined,
   BellOutlined,
@@ -25,6 +24,7 @@ import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
 import UpdateButton from "./UpdateButton";
 import AiTasks from "./AiTasks";
+import CommandBar from "./CommandBar";
 import { useBusiness } from "@/lib/business-client";
 
 const { Header, Content } = Layout;
@@ -72,14 +72,13 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
   const nav = useMemo(
     () => [
       { key: "/dashboard", icon: <HomeOutlined />, label: "首页" },
-      { key: "/overview", icon: <DashboardOutlined />, label: "数据看板" },
+      { key: "/overview", icon: <DashboardOutlined />, label: "数据" },
       { key: "/leads", icon: <ShareAltOutlined />, label: "线索管理" },
       { key: "/customers", icon: <TeamOutlined />, label: `${b.customer}管理` },
       { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道管理" },
       { key: "/contacts", icon: <ContactsOutlined />, label: "联系人" },
       { key: "/opportunities", icon: <DollarOutlined />, label: "商机管理" },
       { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进管理" },
-      { key: "/reports", icon: <BarChartOutlined />, label: "数据复盘" },
     ],
     [b.customer],
   );
@@ -157,6 +156,10 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
         <div className="rail-foot">
           {/* 正在跑 / 已答完的 AI 任务。切到别的页面也看得见，点一条回原处 */}
           <AiTasks />
+          {/* 快捷键要能被发现：藏起来的等于不存在 */}
+          <div className="rail-kbd">
+            <kbd>⌘K</kbd> 跳转 / 提问
+          </div>
           {desktop && <UpdateButton />}
           <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
             <SettingOutlined />
@@ -177,6 +180,9 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
           </Dropdown>
         </div>
       </nav>
+
+      {/* ⌘K：跳页或问一句。挂在壳上，哪一页都在 */}
+      <CommandBar />
 
       {/* 中栏：槽位自己带 <aside class="pane">，没有中栏的路由返回 null */}
       {pane}

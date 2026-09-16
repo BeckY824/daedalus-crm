@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { App, Dropdown, Tooltip } from "antd";
 import { ArrowUpOutlined, CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
@@ -18,6 +18,7 @@ import { useBusiness } from "@/lib/business-client";
 import { clearJob, getJob, runJob, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, type Turn } from "@/lib/home-thread";
+import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
 import Signals from "./Signals";
 import type { StepEvent } from "@/lib/ai-steps";
@@ -60,6 +61,7 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
   const b = useBusiness();
   const router = useRouter();
   const turns = useThread();
+  const 地址栏 = useSearchParams();
   const model = useModel(models);
   const [q, setQ] = useState("");
   const [cmdIdx, setCmdIdx] = useState(0);
@@ -114,6 +116,24 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
       { 名: turn.question.slice(0, 18), 去: `/dashboard#turn-${turn.id}` },
     );
   }
+
+  /**
+   * ⌘K 里直接问的那一句会带在地址上（/dashboard?q=…）。
+   * 到了这儿就发出去，然后把 q 从地址里抹掉——留着的话刷新一次会再问一遍。
+   *
+   * 那个 ref 不是多余的：开发模式下 StrictMode 会把 effect 跑两遍（挂载 → 清理 → 再挂载），
+   * 而 router.replace 生效没那么快，结果就是同一句话问了两遍、扣两次额度。
+   */
+  const 已消化地址问句 = useRef(false);
+  useEffect(() => {
+    const q0 = 地址栏.get("q");
+    if (!q0 || 已消化地址问句.current) return;
+    已消化地址问句.current = true;
+    router.replace("/dashboard");
+    submit(q0);
+    // 只认挂载时地址上的那一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
   useEffect(() => {
@@ -179,19 +199,10 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
     return () => ro.disconnect();
   }, []);
 
-  /**
-   * 页面级的两个键：
-   *   Esc  打断正在跑的那一问（在哪儿按都行）
-   *   ⌘K   光标回到输入框。首页的主动作就是这个框，它值一个快捷键
-   */
+  // Esc：打断正在跑的那一问（页面任何地方按都行）。⌘K 聚焦在 AskBox 里，两页共用一份
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && running) cancelStream(`home:${running.id}`);
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        taRef.current?.focus();
-        taRef.current?.select();
-      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -251,92 +262,91 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
         )}
 
         <div ref={composerRef} className={`cli-composer${empty ? "" : " cli-composer-sticky"}`}>
-          {cmdMatches.length > 0 && (
-            <div className="cli-cmds">
-              {cmdMatches.map((c, i) => (
-                <div key={c.cmd} className={`cli-cmd${i === cmdIdx ? " cli-cmd-on" : ""}`} onMouseDown={() => submit(c.cmd)}>
-                  <span className="cli-cmd-k">{c.cmd}</span>
-                  <span className="cli-cmd-h">{c.hint}</span>
+          <AskBox
+            引用={taRef}
+            value={q}
+            onChange={(v) => {
+              setQ(v);
+              setCmdIdx(0);
+            }}
+            onSubmit={() => submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q)}
+            placeholder={running ? "正在回答… 再问会排队，Esc 打断" : `问一位${b.customer}，或问一个数`}
+            上方={
+              cmdMatches.length > 0 ? (
+                <div className="cli-cmds">
+                  {cmdMatches.map((c, i) => (
+                    <div key={c.cmd} className={`cli-cmd${i === cmdIdx ? " cli-cmd-on" : ""}`} onMouseDown={() => submit(c.cmd)}>
+                      <span className="cli-cmd-k">{c.cmd}</span>
+                      <span className="cli-cmd-h">{c.hint}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
-          <div className="cli-input">
-            <span className="cli-prompt">›</span>
-            <textarea
-              ref={taRef}
-              value={q}
-              rows={1}
-              maxLength={1000}
-              placeholder={running ? "正在回答… 再问会排队，Esc 打断" : `问一位${b.customer}，或问一个数`}
-              onChange={(e) => {
-                setQ(e.target.value);
-                setCmdIdx(0);
-                e.target.style.height = "auto";
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
-              }}
-              onKeyDown={(e) => {
-                // 输入框空着、下面摆着建议问题时，↑↓ 在建议里走，回车发选中的那条
-                if (!cmdMatches.length && !q && 摆建议 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-                  e.preventDefault();
-                  setSuggIdx((i) => {
-                    const n = suggestions.length;
-                    if (e.key === "ArrowDown") return i + 1 >= n ? 0 : i + 1;
-                    return i <= 0 ? n - 1 : i - 1;
-                  });
+              ) : null
+            }
+            发送={
+              running ? (
+                <Tooltip title="打断（Esc）">
+                  <button type="button" className="cli-send cli-stop" onClick={stop} aria-label="打断">
+                    <span className="cli-stop-sq" />
+                  </button>
+                </Tooltip>
+              ) : (
+                <Dropdown
+                  trigger={["hover"]}
+                  placement="topRight"
+                  menu={{
+                    items: [
+                      { key: "send", label: <MenuRow label="发送" keys="↵" /> },
+                      { key: "queue", label: <MenuRow label="排队，等上一问答完再发" keys="⌘↵" /> },
+                    ],
+                    onClick: ({ key }) => submit(q, { queue: key === "queue" }),
+                  }}
+                >
+                  <button type="button" className="cli-send" onClick={() => submit(q)} disabled={!canSend} aria-label="发送">
+                    <ArrowUpOutlined />
+                  </button>
+                </Dropdown>
+              )
+            }
+            onKeyDown={(e) => {
+              // 输入框空着、下面摆着建议问题时，↑↓ 在建议里走，回车发选中的那条
+              if (!cmdMatches.length && !q && 摆建议 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                e.preventDefault();
+                setSuggIdx((i) => {
+                  const n = suggestions.length;
+                  if (e.key === "ArrowDown") return i + 1 >= n ? 0 : i + 1;
+                  return i <= 0 ? n - 1 : i - 1;
+                });
+                return;
+              }
+              if (cmdMatches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+                e.preventDefault();
+                setCmdIdx((i) => (i + (e.key === "ArrowDown" ? 1 : cmdMatches.length - 1)) % cmdMatches.length);
+                return;
+              }
+              if (cmdMatches.length && e.key === "Tab") {
+                e.preventDefault();
+                setQ(cmdMatches[cmdIdx].cmd + " ");
+                return;
+              }
+              // Ctrl+C（Codex 的习惯）：没选中文字时当打断用
+              if (e.ctrlKey && e.key === "c" && running && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
+                e.preventDefault();
+                stop();
+                return;
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (!cmdMatches.length && !q && suggIdx >= 0 && suggestions[suggIdx]) {
+                  问这条(suggestions[suggIdx]);
+                  setSuggIdx(-1);
                   return;
                 }
-                if (cmdMatches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-                  e.preventDefault();
-                  setCmdIdx((i) => (i + (e.key === "ArrowDown" ? 1 : cmdMatches.length - 1)) % cmdMatches.length);
-                  return;
-                }
-                if (cmdMatches.length && e.key === "Tab") {
-                  e.preventDefault();
-                  setQ(cmdMatches[cmdIdx].cmd + " ");
-                  return;
-                }
-                // Ctrl+C（Codex 的习惯）：没选中文字时当打断用
-                if (e.ctrlKey && e.key === "c" && running && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
-                  e.preventDefault();
-                  stop();
-                  return;
-                }
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  if (!cmdMatches.length && !q && suggIdx >= 0 && suggestions[suggIdx]) {
-                    问这条(suggestions[suggIdx]);
-                    setSuggIdx(-1);
-                    return;
-                  }
-                  submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q, { queue: e.metaKey || e.ctrlKey });
-                }
-              }}
-            />
-            {running ? (
-              <Tooltip title="打断（Esc）">
-                <button type="button" className="cli-send cli-stop" onClick={stop} aria-label="打断">
-                  <span className="cli-stop-sq" />
-                </button>
-              </Tooltip>
-            ) : (
-              <Dropdown
-                trigger={["hover"]}
-                placement="topRight"
-                menu={{
-                  items: [
-                    { key: "send", label: <MenuRow label="发送" keys="↵" /> },
-                    { key: "queue", label: <MenuRow label="排队，等上一问答完再发" keys="⌘↵" /> },
-                  ],
-                  onClick: ({ key }) => submit(q, { queue: key === "queue" }),
-                }}
-              >
-                <button type="button" className="cli-send" onClick={() => submit(q)} disabled={!canSend} aria-label="发送">
-                  <ArrowUpOutlined />
-                </button>
-              </Dropdown>
-            )}
-          </div>
+                submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q, { queue: e.metaKey || e.ctrlKey });
+              }
+            }}
+          />
+
           {/* 4–6 个能直接点的具体问题，就摆在输入框底下——人的视线落在框上。
               ↑↓ 在这里面走，回车发选中的那条 */}
           {摆建议 && (

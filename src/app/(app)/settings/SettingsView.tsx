@@ -78,6 +78,15 @@ const ACTION_COLOR: Record<string, string> = {
   assign: "cyan", convert: "gold", deactivate: "warning", reactivate: "default", password: "default", ai_use: "purple", ai_apply: "green",
 };
 
+/** 左目录里每一项底下那句话。放在组件外面，免得每次渲染重建 */
+const 说明表: Record<string, string> = {
+  members: "谁能进、谁是管理员",
+  password: "改自己的登录密码",
+  ai: "走哪把 Key、还剩几次",
+  business: "学员 / 客户这些叫法",
+  audit: "每一次改动的记录",
+};
+
 export default function SettingsView({
   users,
   me,
@@ -272,188 +281,206 @@ export default function SettingsView({
     },
   ];
 
+  /** 设置的五项。说明一句话写清这一项管什么——只有名字的话，「业务配置」是个谜 */
+  const 目录: { key: string; label: string; 说明: string; children: React.ReactNode }[] = [
+    {
+      key: "members",
+      label: "团队成员",
+      children: (
+          <>
+            {!isAdmin && (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 14 }}
+                title="只有系统管理员可以新增或停用成员，你可以在此查看团队构成。"
+              />
+            )}
+            {isAdmin && (
+              <Button
+                type="primary"
+                icon={<PlusOutlined />}
+                style={{ marginBottom: 14 }}
+                onClick={() => {
+                  setEditing(null);
+                  setOpen(true);
+                }}
+              >
+                新增成员
+              </Button>
+            )}
+            <Table<Row>
+              rowKey="id"
+              size="middle"
+              dataSource={users}
+              columns={columns}
+              pagination={false}
+              scroll={{ x: 1050 }}
+            />
+          </>
+        ),
+      },
+    {
+      key: "password",
+      label: "登录与密码",
+      children: (
+          <Form
+            form={pwdForm}
+            layout="vertical"
+            style={{ maxWidth: 380, paddingTop: 8 }}
+            onFinish={async (v) => {
+              const res = await changeMyPassword(v.oldPwd, v.newPwd);
+              if (res.ok) {
+                message.success("密码已更新");
+                pwdForm.resetFields();
+              } else message.error(res.error);
+            }}
+          >
+            <Form.Item name="oldPwd" label="原密码" rules={[{ required: true, message: "请输入原密码" }]}>
+              <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="newPwd"
+              label="新密码"
+              rules={[
+                { required: true, message: "请输入新密码" },
+                { min: 8, message: "至少 8 位" },
+              ]}
+            >
+              <Input.Password />
+            </Form.Item>
+            <Form.Item
+              name="confirm"
+              label="确认新密码"
+              dependencies={["newPwd"]}
+              rules={[
+                { required: true, message: "请再次输入新密码" },
+                ({ getFieldValue }) => ({
+                  validator: (_, v) =>
+                    !v || getFieldValue("newPwd") === v
+                      ? Promise.resolve()
+                      : Promise.reject(new Error("两次输入不一致")),
+                }),
+              ]}
+            >
+              <Input.Password />
+            </Form.Item>
+            <Button type="primary" htmlType="submit">
+              保存
+            </Button>
+          </Form>
+        ),
+      },
+      ...(isAdmin
+        ? [
+            { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> },
+            { key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} /> },
+          ]
+        : []),
+    {
+      key: "audit",
+      label: "操作日志",
+      children: (
+          <>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 14 }}
+              title={`所有人都能查看和修改全部${b.customer}数据，因此每一次改动都会记录在这里`}
+              description="记录只增不改不删，成员被停用或删除后其历史操作仍然保留。此处显示最近 200 条。"
+            />
+            <Table<AuditRow>
+              rowKey="id"
+              size="middle"
+              dataSource={logs}
+              pagination={{ pageSize: 20, showSizeChanger: false }}
+              locale={{ emptyText: "还没有任何操作记录" }}
+              expandable={{
+                // 明细是 JSON，平时折起来，要追细节时再展开
+                rowExpandable: (r) => !!r.detail,
+                expandedRowRender: (r) => (
+                  <pre
+                    style={{
+                      margin: 0,
+                      fontSize: 12,
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-all",
+                      color: "var(--ink-soft)",
+                    }}
+                  >
+                    {safeJson(r.detail)}
+                  </pre>
+                ),
+              }}
+              columns={[
+    {
+                  title: "时间",
+                  dataIndex: "at",
+                  width: 170,
+                  render: (v: string) => dayjs(v).format("YYYY-MM-DD HH:mm:ss"),
+                },
+    {
+                  title: "操作人",
+                  dataIndex: "userName",
+                  width: 130,
+                  render: (v: string) => <UserCell name={v} size={26} />,
+                },
+    {
+                  title: "动作",
+                  dataIndex: "action",
+                  width: 100,
+                  render: (v: string) => (
+                    <Tag color={ACTION_COLOR[v] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
+                      {ACTION_LABEL[v] ?? v}
+                    </Tag>
+                  ),
+                },
+    {
+                  title: "对象",
+                  dataIndex: "entity",
+                  width: 90,
+                  render: (v: string) => (v === "Customer" ? b.customer : ENTITY_LABEL[v] ?? v),
+                },
+                { title: "内容", dataIndex: "summary" },
+              ]}
+            />
+          </>
+        ),
+      },
+  ].map((x) => ({ ...x, 说明: 说明表[x.key] ?? "" })) as { key: string; label: string; 说明: string; children: React.ReactNode }[];
+
   return (
     <>
-      <PageHead
-        icon={<SettingOutlined />}
-        title="设置管理"
-        subtitle="成员、密码、AI 与业务配置"
-        tag="系统设置"
-        tagNote="权限清晰，数据安全可控"
-      />
+      <PageHead title="设置" subtitle="成员、密码、AI 与业务配置" />
 
-      <Card styles={{ body: { paddingTop: 0 } }}>
-        <Tabs
-          activeKey={tab}
-          onChange={(k) => router.replace(`${pathname}?tab=${k}`)}
-          items={[
-            {
-              key: "members",
-              label: "团队成员",
-              children: (
-                <>
-                  {!isAdmin && (
-                    <Alert
-                      type="info"
-                      showIcon
-                      style={{ marginBottom: 14 }}
-                      title="只有系统管理员可以新增或停用成员，你可以在此查看团队构成。"
-                    />
-                  )}
-                  {isAdmin && (
-                    <Button
-                      type="primary"
-                      icon={<PlusOutlined />}
-                      style={{ marginBottom: 14 }}
-                      onClick={() => {
-                        setEditing(null);
-                        setOpen(true);
-                      }}
-                    >
-                      新增成员
-                    </Button>
-                  )}
-                  <Table<Row>
-                    rowKey="id"
-                    size="middle"
-                    dataSource={users}
-                    columns={columns}
-                    pagination={false}
-                    scroll={{ x: 1050 }}
-                  />
-                </>
-              ),
-            },
-            {
-              key: "password",
-              label: "修改密码",
-              children: (
-                <Form
-                  form={pwdForm}
-                  layout="vertical"
-                  style={{ maxWidth: 380, paddingTop: 8 }}
-                  onFinish={async (v) => {
-                    const res = await changeMyPassword(v.oldPwd, v.newPwd);
-                    if (res.ok) {
-                      message.success("密码已更新");
-                      pwdForm.resetFields();
-                    } else message.error(res.error);
-                  }}
-                >
-                  <Form.Item name="oldPwd" label="原密码" rules={[{ required: true, message: "请输入原密码" }]}>
-                    <Input.Password />
-                  </Form.Item>
-                  <Form.Item
-                    name="newPwd"
-                    label="新密码"
-                    rules={[
-                      { required: true, message: "请输入新密码" },
-                      { min: 8, message: "至少 8 位" },
-                    ]}
-                  >
-                    <Input.Password />
-                  </Form.Item>
-                  <Form.Item
-                    name="confirm"
-                    label="确认新密码"
-                    dependencies={["newPwd"]}
-                    rules={[
-                      { required: true, message: "请再次输入新密码" },
-                      ({ getFieldValue }) => ({
-                        validator: (_, v) =>
-                          !v || getFieldValue("newPwd") === v
-                            ? Promise.resolve()
-                            : Promise.reject(new Error("两次输入不一致")),
-                      }),
-                    ]}
-                  >
-                    <Input.Password />
-                  </Form.Item>
-                  <Button type="primary" htmlType="submit">
-                    保存
-                  </Button>
-                </Form>
-              ),
-            },
-            ...(isAdmin
-              ? [
-                  { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> },
-                  { key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} /> },
-                ]
-              : []),
-            {
-              key: "audit",
-              label: "操作日志",
-              children: (
-                <>
-                  <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 14 }}
-                    title={`所有人都能查看和修改全部${b.customer}数据，因此每一次改动都会记录在这里`}
-                    description="记录只增不改不删，成员被停用或删除后其历史操作仍然保留。此处显示最近 200 条。"
-                  />
-                  <Table<AuditRow>
-                    rowKey="id"
-                    size="middle"
-                    dataSource={logs}
-                    pagination={{ pageSize: 20, showSizeChanger: false }}
-                    locale={{ emptyText: "还没有任何操作记录" }}
-                    expandable={{
-                      // 明细是 JSON，平时折起来，要追细节时再展开
-                      rowExpandable: (r) => !!r.detail,
-                      expandedRowRender: (r) => (
-                        <pre
-                          style={{
-                            margin: 0,
-                            fontSize: 12,
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-all",
-                            color: "var(--ink-soft)",
-                          }}
-                        >
-                          {safeJson(r.detail)}
-                        </pre>
-                      ),
-                    }}
-                    columns={[
-                      {
-                        title: "时间",
-                        dataIndex: "at",
-                        width: 170,
-                        render: (v: string) => dayjs(v).format("YYYY-MM-DD HH:mm:ss"),
-                      },
-                      {
-                        title: "操作人",
-                        dataIndex: "userName",
-                        width: 130,
-                        render: (v: string) => <UserCell name={v} size={26} />,
-                      },
-                      {
-                        title: "动作",
-                        dataIndex: "action",
-                        width: 100,
-                        render: (v: string) => (
-                          <Tag color={ACTION_COLOR[v] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
-                            {ACTION_LABEL[v] ?? v}
-                          </Tag>
-                        ),
-                      },
-                      {
-                        title: "对象",
-                        dataIndex: "entity",
-                        width: 90,
-                        render: (v: string) => (v === "Customer" ? b.customer : ENTITY_LABEL[v] ?? v),
-                      },
-                      { title: "内容", dataIndex: "summary" },
-                    ]}
-                  />
-                </>
-              ),
-            },
-          ]}
-        />
-      </Card>
+      {/*
+        左目录，不是顶上一排页签。五项里有两项只有管理员看得到，页签横着排时
+        管理员和普通成员看到的宽度都不一样；竖着排还能给每项留一句说明。
+        角色仍然是 tablist / tab / tabpanel——读屏按这个认，e2e 也按这个找。
+        窄屏下目录仍然是单列，只是压到正文上面（见 globals.css 的 .set）。
+      */}
+      <div className="set">
+        <div className="set-nav" role="tablist" aria-orientation="vertical" aria-label="设置分类">
+          {目录.map((x) => (
+            <button
+              key={x.key}
+              type="button"
+              role="tab"
+              id={`set-tab-${x.key}`}
+              aria-selected={tab === x.key}
+              aria-controls={`set-panel-${x.key}`}
+              className={`set-nav-i${tab === x.key ? " on" : ""}`}
+              onClick={() => router.replace(`${pathname}?tab=${x.key}`)}
+            >
+              <b>{x.label}</b>
+              <span>{x.说明}</span>
+            </button>
+          ))}
+        </div>
+        <div className="set-body" role="tabpanel" id={`set-panel-${tab}`} aria-labelledby={`set-tab-${tab}`}>
+          {目录.find((x) => x.key === tab)?.children ?? 目录[0].children}
+        </div>
+      </div>
 
       <Modal
         open={open}

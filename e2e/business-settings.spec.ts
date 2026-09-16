@@ -28,7 +28,8 @@ async function 登录(page: Page) {
   throw new Error("登录失败");
 }
 
-/** 其余页签（修改密码、AI 接入）里也有「保存」按钮，只是隐藏着——定位必须限定在当前页签内 */
+/** 别的分类里也有「保存」按钮，所以定位必须限定在当前这一栏里（批 4 起只渲染选中的那一栏，
+ *  但限定这件事不该依赖「另一栏恰好没渲染」） */
 async function 打开业务配置(page: Page) {
   await page.goto("/settings");
   await page.getByRole("tab", { name: "业务配置" }).click();

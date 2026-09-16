@@ -139,8 +139,9 @@ test("4 它不会过期：没有试用横条，写操作一直可用", async ({ 
 test("5 共享工作区里不摆管理员那几栏——密码在多个团队手里", async ({ page }) => {
   await 进共享区(page);
   await page.goto("/settings");
-  // 先确认真的进了设置页：在登录页上断言「没有 AI 接入」永远成立，那是假的绿
-  await expect(page.getByText("设置管理").first()).toBeVisible({ timeout: 15_000 });
+  // 先确认真的进了设置页：在登录页上断言「没有 AI 接入」永远成立，那是假的绿。
+  // 页面标题是名词本身（批 2 起）：「设置」，不是「设置管理」
+  await expect(page.getByRole("heading", { name: "设置", exact: true })).toBeVisible({ timeout: 15_000 });
   /**
    * 这里的用户角色是 ADMIN（他得能展示管理员看到的东西），但那套密码发给了多个团队。
    * 设置页最贵的一个按钮是 AI 接入那栏的「测试连接」：它会拿平台的 Key 往调用方

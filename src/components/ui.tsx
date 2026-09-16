@@ -1,6 +1,6 @@
 "use client";
 
-import { Tag, Avatar, Space, Typography, Progress } from "antd";
+import { Tag, Avatar, Space, Progress } from "antd";
 import { ArrowUpOutlined, ArrowDownOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import { avatarColor, companyInitial, initial, AVATAR_TEXT } from "@/lib/utils";

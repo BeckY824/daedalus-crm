@@ -54,7 +54,7 @@ type Props = {
   aiEnabled: boolean;
 };
 
-export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, aiEnabled }: Props) {
+export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, aiEnabled, 内嵌 }: Props & { 内嵌?: boolean }) {
   // 这个下拉原本没有接线，选了没反应，而卡片上又写着「本月」——比没有更误导
   const [窗口, set窗口] = useState<"本月" | "本季">("本月");
   const [range, setRange] = useState<string | number>("近30天");
@@ -142,7 +142,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
   if (空库) {
     return (
       <>
-        <PageHead title="数据看板" subtitle="线索、客户、商机的当下状态与趋势" />
+        {!内嵌 && <PageHead title="数据" subtitle="线索、学员、商机的当下状态与趋势" />}
         <div className="card-soft">
           <EmptyState
             title="还没有可以看的数据"
@@ -158,8 +158,9 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
       {/*
         页头不只是为了和别的页一致：桌面端顶上那 52px 是拖窗口的把手，
         没有页头时第一行指标卡有一半压在把手里——按住卡片标题会把整个窗口拖走。
+        内嵌在「数据」页里时，那一层已经画了页头（还带着视图切换），这里就不能再画一个。
       */}
-      <PageHead title="数据看板" subtitle="线索、客户、商机的当下状态与趋势" />
+      {!内嵌 && <PageHead title="数据" subtitle="线索、学员、商机的当下状态与趋势" />}
 
       {/* 指标卡 */}
       <Row gutter={[16, 16]}>

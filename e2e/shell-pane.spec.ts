@@ -102,9 +102,11 @@ test.describe("中栏跟着路由走", () => {
     await expect(中栏(page)).toBeVisible();
   });
 
-  test("商机 / 跟进 / 设置的中栏照旧，且各是各的标题", async ({ page }) => {
+  test("商机 / 跟进 的中栏照旧，且各是各的标题", async ({ page }) => {
     await 登录(page);
-    for (const [名字, 标题, 落地] of [["商机管理", "商机", 到.商机], ["跟进管理", "跟进", 到.跟进], ["设置管理", "设置", 到.设置]] as const) {
+    // 设置页 2026-09-17（批 4）起自己带左目录，中栏就撤了——
+    // 一页上摆两列目录，人得先弄清它们有什么区别
+    for (const [名字, 标题, 落地] of [["商机管理", "商机", 到.商机], ["跟进管理", "跟进", 到.跟进]] as const) {
       await 点侧栏(page, 名字, 落地);
       await expect(中栏(page)).toBeVisible();
       await expect(中栏(page).locator(".pane-t")).toHaveText(标题);

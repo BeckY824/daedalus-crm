@@ -46,9 +46,12 @@ test("先把 AI 接入填上——首页是对话面还是数据看板，就看�
   await 登录(page, 管理员);
   await page.goto("/settings?tab=ai");
   await page.getByLabel("接口地址").fill("http://127.0.0.1:9/v1");
-  await page.getByLabel("API Key").fill("e2e-不会真的用它");
+  // 纯 ASCII：中文塞进 Authorization 头会在 fetch 那一层就报错，掩盖掉真正的失败原因
+  await page.getByLabel("API Key").fill("e2e-not-a-real-key");
   await page.getByLabel("模型名").fill("e2e-model");
   await page.getByRole("button", { name: /保\s*存/ }).click();
+  // 没测过连接会先拦一下：整套 AI 都走这套配置，地址不对会一起失灵
+  await page.getByRole("button", { name: "仍然保存" }).click();
   await expect(page.locator(".ant-message")).toContainText("已保存");
 });
 
@@ -221,4 +224,90 @@ test("1024 下管道自己横滚，页面不跟着被撑开", async ({ page }) =
   });
   expect(r.页面溢出, "整页被管道撑出了横向滚动条").toBe(false);
   expect(r.管道能横滚, "管道那一块自己得能横滚，否则右边几列就看不到了").toBe(true);
+});
+
+/* ---------- 批 4 ---------- */
+
+test("数据：三处看数并成一页，/reports 这条 URL 还在", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/overview");
+  await expect(page.getByRole("heading", { name: "数据", exact: true })).toBeVisible();
+
+  // 三个视图，切过去地址跟着变
+  const 切换 = page.locator(".ant-segmented");
+  for (const v of ["本月", "本年"]) {
+    await 切换.getByText(v, { exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`view=${encodeURIComponent(v)}`));
+    // 每一段的数都要写明是按什么口径算的
+    await expect(page.locator(".stat-delta").first()).toContainText("按签约日期算");
+  }
+
+  // 老书签不能死
+  await page.goto("/reports");
+  await expect(page).toHaveURL(/view=/);
+});
+
+test("问数据和首页用的是同一个输入框", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/overview");
+  await expect(page.locator(".cli-input textarea")).toBeVisible();
+  await page.goto("/dashboard");
+  await expect(page.locator(".cli-input textarea")).toBeVisible();
+});
+
+test("⌘K：有输入框的页面回到输入框，没有的弹跳转单", async ({ page }) => {
+  await 登录(page);
+
+  // 首页有框：⌘K 是把光标放回去，不弹浮层
+  await page.goto("/dashboard");
+  await page.waitForSelector(".cli-input textarea");
+  await page.locator("body").click();
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.locator(".cli-input textarea")).toBeFocused();
+  await expect(page.locator(".cmdk")).toHaveCount(0);
+
+  // 列表页没框：弹单子，打字筛页面，回车跳过去
+  await page.goto("/customers");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.locator(".cmdk")).toBeVisible();
+  await page.keyboard.type("渠道");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/channels$/);
+});
+
+test("⌘K：一个页面都没匹配上时，第一条变成「问一句」", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/customers");
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.keyboard.type("这个月谁签得最多");
+  await expect(page.locator(".cmdk-row").first()).toContainText("问一句");
+  await page.keyboard.press("Enter");
+  // 带着问题落到首页——答案、过程、建议卡都在那儿
+  await expect(page).toHaveURL(/\/dashboard/);
+  await expect(page.locator(".cli-bubble")).toContainText("这个月谁签得最多");
+});
+
+test("设置：左目录五项，一页上只有一列目录", async ({ page }) => {
+  await 登录(page, 管理员);
+  await page.goto("/settings");
+  await page.waitForSelector(".set-nav");
+  const 项 = await page.locator(".set-nav-i b").allInnerTexts();
+  expect(项).toEqual(["团队成员", "登录与密码", "AI 接入", "业务配置", "操作日志"]);
+  // 中栏撤了：一页上摆两列目录，人得先弄清它们有什么区别
+  await expect(page.locator("aside.pane")).toHaveCount(0);
+  // 每一项都得说清自己管什么
+  for (const 说明 of await page.locator(".set-nav-i span").allInnerTexts()) {
+    expect(说明.trim().length).toBeGreaterThan(3);
+  }
+});
+
+test("AI 接入：没测过连接就保存会先拦一下", async ({ page }) => {
+  await 登录(page, 管理员);
+  await page.goto("/settings?tab=ai");
+  await page.getByLabel("模型名").fill("e2e-model-2");
+  await page.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.getByRole("dialog")).toContainText("还没测试过连接");
+  await page.getByRole("button", { name: "先测一下" }).click();
+  // 拦下来之后没有保存，提示也不该出现
+  await expect(page.locator(".ant-message")).toHaveCount(0);
 });

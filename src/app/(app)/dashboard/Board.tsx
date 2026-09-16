@@ -6,8 +6,11 @@ import { llmEnabled } from "@/lib/llm";
 import { loadWatchlist } from "@/lib/sentinel-data";
 import DashboardView from "./DashboardView";
 
-/** 数据看板：指标卡、趋势、漏斗、排行、待办、盯盘。首页（没配 AI 时）与 /overview 共用 */
-export default async function Board() {
+/**
+ * 「现在」这个视图：指标卡、趋势、漏斗、排行、待办、盯盘。
+ * 「数据」页和「没配 AI 时的首页」共用它。内嵌时页头由外面那层给，这里不画。
+ */
+export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   await requireUser();
 
   const now = dayjs();
@@ -179,6 +182,7 @@ export default async function Board() {
 
   return (
     <DashboardView
+      内嵌={内嵌}
       /**
        * 空库时整页换成一张「从哪开始」——对着空库画四个 0、一条平的折线和全 0 的管道，
        * 既不好看也不给信息，第一次打开的人还以为是坏了。
