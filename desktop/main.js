@@ -365,21 +365,35 @@ function 登录云端({ 必须 = false, 成功 } = {}) {
     "data:text/html;charset=utf-8," +
       encodeURIComponent(`
     <style>
-      body { font:13px -apple-system,'PingFang SC','Microsoft YaHei'; padding:22px; margin:0; background:#fafafa; color:#111 }
-      .h { font-weight:600; font-size:15px; margin-bottom:4px }
-      .s { color:#6b7280; font-size:12px; margin-bottom:14px; line-height:1.6 }
+      /*
+        这几个值是从应用里那套 token 抄过来的（src/app/globals.css 的 :root）。
+        这个窗口是 data: URL，读不到应用的样式表，只能抄一份——
+        **改颜色字号先改那边，再回来对一遍**，否则登录窗会慢慢长成另一个产品。
+      */
+      :root {
+        --brand:#2f6bff; --ink:#111827; --text-muted:#6b7280;
+        --line:#e5e7eb; --line-strong:#d1d5db; --panel:#fff; --workbench:#fafafa;
+        --danger-text:#b91c1c; --danger-bg:#fef2f2;
+        --brand-bg:#eef2ff; --brand-deep:#1a3f9e;
+        --fs-section:15px; --fs-body:14px; --fs-note:13px; --fs-min:12px;
+        --r-ctl:6px; --r-card:10px;
+      }
+      body { font:var(--fs-note)/1.6 -apple-system,'PingFang SC','Microsoft YaHei'; padding:22px; margin:0; background:var(--workbench); color:var(--ink) }
+      .h { font-weight:600; font-size:var(--fs-section); margin-bottom:4px }
+      .s { color:var(--text-muted); font-size:var(--fs-min); margin-bottom:14px; line-height:1.6 }
       input[type=text], input[type=password] {
-        width:100%; padding:9px 11px; font-size:14px; border:1px solid #d9dee7;
-        border-radius:7px; box-sizing:border-box; margin-bottom:10px; background:#fff }
-      button { padding:7px 16px; font-size:13px; border-radius:6px; border:1px solid #d9dee7; background:#fff }
-      button.primary { background:#2f6bff; color:#fff; border:none }
+        width:100%; padding:9px 11px; font-size:var(--fs-body); border:1px solid var(--line-strong);
+        border-radius:var(--r-ctl); box-sizing:border-box; margin-bottom:10px; background:var(--panel) }
+      input:focus { outline:none; border-color:var(--brand) }
+      button { padding:7px 16px; font-size:var(--fs-note); border-radius:var(--r-ctl); border:1px solid var(--line-strong); background:var(--panel) }
+      button.primary { background:var(--brand); color:#fff; border:none }
       button[disabled] { opacity:.55 }
       .row { display:flex; align-items:center; justify-content:space-between; margin-top:18px }
-      .links a { color:#2f6bff; margin-right:12px; cursor:pointer; font-size:12px }
-      .tip { color:#6b7280; font-size:12px; margin:-4px 0 10px }
-      #msg { display:none; padding:8px 11px; border-radius:7px; font-size:12px; margin-bottom:12px; line-height:1.6 }
-      #msg.err { background:#fef2f2; color:#b91c1c }
-      #msg.ok { background:#eff6ff; color:#1d4ed8 }
+      .links a { color:var(--brand); margin-right:12px; cursor:pointer; font-size:var(--fs-min) }
+      .tip { color:var(--text-muted); font-size:var(--fs-min); margin:-4px 0 10px }
+      #msg { display:none; padding:8px 11px; border-radius:var(--r-ctl); font-size:var(--fs-min); margin-bottom:12px; line-height:1.6 }
+      #msg.err { background:var(--danger-bg); color:var(--danger-text) }
+      #msg.ok { background:var(--brand-bg); color:var(--brand-deep) }
       .codeline { display:flex; gap:8px }
       .codeline input { flex:1 }
     </style>
@@ -388,7 +402,7 @@ function 登录云端({ 必须 = false, 成功 } = {}) {
 
       <div id="p-login">
         <div class="h">${必须 ? "登录后开始使用" : "登录云端账号"}</div>
-        <div class="s">${必须 ? "账号免费，邮箱注册。数据仍然只在这台机器上，不会上传；账号只用来记 AI 次数。" : "用它来调 AI。数据仍然只在这台机器上，不会上传。"}</div>
+        <div class="s">${必须 ? "账号免费，邮箱注册。数据仍然只在这台机器上，不会上传；账号只用来记 AI 次数。" : "用它来调 AI。数据仍然只在这台机器上，不会上传。"}<br>登录一次这台机器就记住了（存的是一枚设备令牌，不是密码）；在菜单里退出登录会把它吊销。</div>
         <input type="text" id="u" placeholder="手机号或邮箱">
         <input type="password" id="p" placeholder="密码">
         <div class="row">
@@ -458,12 +472,20 @@ function 登录云端({ 必须 = false, 成功 } = {}) {
         for (var i = 0; i < backs.length; i++) backs[i].onclick = function () { 切('login'); };
         var 云 = ${JSON.stringify(云)};
 
+        /** 长得像邮箱或手机号就行。真假由服务端说了算，这里只挡明显打错的 */
+        function 像账号(v) {
+          return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) || /^1[3-9]\d{9}$/.test(v);
+        }
         $('do-login').onclick = function () {
-          if (!$('u').value.trim() || !$('p').value) return 说('手机号（或邮箱）和密码都要填');
-          忙(true); 说(''); crm.login($('u').value.trim(), $('p').value);
+          var u = $('u').value.trim();
+          if (!u || !$('p').value) return 说('手机号（或邮箱）和密码都要填');
+          // 当场判一次：格式明显不对还跑一趟服务器，等 20 秒才知道打错了一个字
+          if (!像账号(u)) return 说('这个不像邮箱，也不像手机号。邮箱要有 @ 和后缀，手机号是 11 位');
+          忙(true); 说(''); crm.login(u, $('p').value);
         };
         $('fsend').onclick = function () {
           if (!$('fu').value.trim()) return 说('先填邮箱');
+          if (!像账号($('fu').value.trim())) return 说('这个不像邮箱。要有 @ 和后缀，比如 you@example.com');
           忙(true); 说(''); crm.code($('fu').value.trim(), 'reset');
         };
         $('do-reset').onclick = function () {
@@ -566,7 +588,10 @@ function 登录云端({ 必须 = false, 成功 } = {}) {
       type: "info",
       title: "登录成功",
       message: `已登录：${r.data?.account?.name ?? target}`,
-      detail: 还剩 == null ? "AI 功能已启用。" : `AI 功能已启用，免费次数还剩 ${还剩} 次。`,
+      detail:
+        (还剩 == null ? "AI 功能已启用。" : `AI 功能已启用，免费次数还剩 ${还剩} 次。`) +
+        "\n这台机器已经记住了这个账号（存的是一枚设备令牌，不是密码），下次打开不用再登。" +
+        "\n在「账号」菜单里退出登录会把这枚令牌吊销，AI 功能随之停用；本机数据不受影响。",
     });
   });
 }

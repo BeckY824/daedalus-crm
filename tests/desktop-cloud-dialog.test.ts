@@ -101,3 +101,50 @@ describe("云端账号窗", () => {
     expect(处理).toContain('u.startsWith(云 + "/")');
   });
 });
+
+/**
+ * 批 5：这个窗口要能说清五种状态。
+ *
+ * 它是 data: URL 拼出来的 HTML，打开它要真的起 Electron，所以这里退一步——
+ * 钉住「话有没有写在里面」。写了不代表一定好用，但没写一定不好用，
+ * 而这五种恰恰是最容易被漏掉的：漏了人就只能对着一个没反应的按钮猜。
+ */
+describe("登录窗要说清的五种状态", () => {
+  const 全文 = main;
+
+  it("邮箱 / 手机号格式不对，当场就说，不白跑一趟服务器", () => {
+    const p = 页面();
+    expect(p).toMatch(/像账号/);
+    expect(p).toMatch(/不像邮箱/);
+  });
+
+  it("连不上服务器是一条结果，不是一个没人接的异常", () => {
+    const cloud = fs.readFileSync(path.join(桌面, "cloud.js"), "utf8");
+    // fetch 必须被包住：不包的话拔网线点登录，按钮一直禁用着，一个字都不出
+    expect(cloud).toMatch(/try\s*\{[\s\S]{0,200}await fetch\(/);
+    expect(cloud).toMatch(/连不上服务器/);
+    expect(cloud).toMatch(/没回应/);
+  });
+
+  it("登录成功但本地服务没起来时，有一条说人话的提示", () => {
+    expect(全文).toMatch(/本地服务没能启动|本机的 CRM 服务没能起来/);
+  });
+
+  it("登录成功要说清「这台机器记住了什么」", () => {
+    expect(全文).toMatch(/设备令牌/);
+    expect(页面()).toMatch(/设备令牌/);
+  });
+
+  it("也要说清退出登录会把那枚令牌吊销", () => {
+    expect(全文).toMatch(/退出登录[^\n]*吊销|吊销[^\n]*令牌/);
+  });
+
+  it("颜色和字号是从应用那套 token 抄来的，不是另拍一套", () => {
+    const p = 页面();
+    expect(p).toMatch(/--brand:#2f6bff/);
+    expect(p).toMatch(/--fs-body:14px/);
+    // 抄完就得用上：正文、输入框、按钮都不该再出现裸色值
+    expect(p).toMatch(/background:var\(--workbench\)/);
+    expect(p).toMatch(/background:var\(--brand\)/);
+  });
+});

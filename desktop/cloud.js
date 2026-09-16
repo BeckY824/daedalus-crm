@@ -49,7 +49,25 @@ function 设备名() {
 }
 
 async function 请求(url, init = {}) {
-  const res = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
+  /**
+   * 连不上要当一个**结果**回去，不能让它抛出去。
+   *
+   * 这一层原来不接网络错误：拔了网线点登录，fetch 直接 reject，
+   * 一路穿过 ipc 处理函数变成一条没人接的 rejection——窗口上的按钮
+   * 一直是禁用的「登录中」，一个字的提示都没有，看起来就是点了没反应。
+   */
+  let res;
+  try {
+    res = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
+  } catch (e) {
+    const 超时 = e?.name === "TimeoutError" || e?.name === "AbortError";
+    return {
+      ok: false,
+      error: 超时
+        ? "服务器 20 秒没回应。检查一下网络，或者稍后再试。"
+        : "连不上服务器。检查一下网络；如果在公司网里，可能要放行 app.ai-daedalus.com。",
+    };
+  }
   const text = await res.text();
   let data = null;
   try {

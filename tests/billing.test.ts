@@ -68,3 +68,30 @@ describe("开通之后的状态", () => {
     expect(daysLeft({ trialEndsAt: new Date(此刻.getTime() - 30 * 天), paidUntil }, 此刻)).toBe(PLANS.month.days);
   });
 });
+
+/**
+ * 订阅页现在**不许出现价格、人数、权益**（批 5）。
+ *
+ * 定价还没定（2026-09 拍板：不接支付、托管版只做试用通道）。
+ * 页面上一旦写了「¥1980 / 年 · 不限成员 · 含全部 AI 功能」，它就是在替产品定价，
+ * 而改口的代价比空着大得多——官网、老客户、发票抬头都得跟着动。
+ * 后端那套续费天数照旧（上面那几条测的就是它），只是界面上不摆。
+ */
+describe("订阅页不替产品定价", () => {
+  it("BillingView 里没有价格、人数、权益的字样", async () => {
+    const fs = await import("node:fs/promises");
+    const src = (await fs.readFile("src/app/(app)/billing/BillingView.tsx", "utf8"))
+      // 注释里会引用「原来是怎么写的」来说明为什么删掉，不算
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/\/\/.*$/gm, "");
+
+    const 犯规 = [
+      [/PLANS\[[^\]]+\]\.price/, "把套餐价格渲染到了页面上"],
+      [/¥\s*\{/, "模板里插了一个金额"],
+      [/不限成员|人数不限/, "写了人数权益"],
+      [/含全部 ?AI|全部功能/, "写了功能权益"],
+    ].filter(([re]) => (re as RegExp).test(src)).map(([, why]) => why);
+
+    expect(犯规, `订阅页又开始替产品定价了：${犯规.join("、")}`).toEqual([]);
+  });
+});

@@ -1,17 +1,21 @@
 "use client";
 
 import { useState } from "react";
-import { App, Alert, Button, Input, Typography } from "antd";
+import { App, Alert, Button, Input } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { submitPayment } from "./actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
 import { dayjs } from "@/lib/utils";
 
 /**
- * 开通页：选套餐 → 转账 → 填单号 → 等我们开通。
+ * 开通页：确认方案 → 转账 → 填单号 → 等我们开通。
  *
- * 没有在线支付的情况下，这一页要做的事只有一件：把「怎么付、付了之后会怎样」
- * 说到不用再问。含糊的付款说明是转化率杀手，比少一个支付方式严重得多。
+ * **这一页现在不写价格，也不写权益。** 定价还没定（2026-09 拍板：不接支付、
+ * 托管版只做试用通道），而页面上一旦写了「¥1980 / 年 · 人数不限 · 含全部 AI 功能」，
+ * 它就是在替产品定价——改口的代价比空着大得多。所以留住三步的结构，
+ * 方案和价格那一处写「待定」，定了再填。
+ *
+ * 续费天数、套餐 key 这些后端的账照旧（lib/tenant/plans.ts），只是界面上不摆出来。
  */
 export default function BillingView({
   workspaceName,
@@ -66,18 +70,20 @@ export default function BillingView({
         />
       )}
 
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 18 }}
+        title="方案和价格还没定"
+        description="定下来会同时更新这一页和官网。在那之前要开通请先和我们确认；不想等的话，整套系统是开源的，可以自己部署，功能一样。"
+      />
+
       <div className="bill-plans">
         {(Object.keys(PLANS) as PlanKey[]).map((k) => (
           <button key={k} type="button" className={`bill-plan${plan === k ? " bill-plan-on" : ""}`} onClick={() => setPlan(k)}>
-            <div className="bill-plan-h">
-              {PLANS[k].label}
-              {PLANS[k].badge && <span className="bill-plan-badge">{PLANS[k].badge}</span>}
-            </div>
-            <div className="bill-plan-price">
-              ¥{PLANS[k].price}
-              <span className="bill-plan-unit">/{PLANS[k].unit}</span>
-            </div>
-            <div className="bill-plan-note">{PLANS[k].note}</div>
+            <div className="bill-plan-h">{PLANS[k].label}</div>
+            {/* 价格、权益、人数一律不摆——见文件头 */}
+            <div className="bill-plan-note">价格待定</div>
           </button>
         ))}
       </div>
@@ -96,12 +102,10 @@ export default function BillingView({
           <div className="bill-pay-h">怎么付</div>
           <ol className="bill-steps">
             <li>
-              按上面选中的套餐转账：<Typography.Text strong>¥{PLANS[plan].price}</Typography.Text>
+              先和我们确认方案与价格：
+              <a href="mailto:hello@ai-daedalus.com"> hello@ai-daedalus.com</a>
             </li>
-            <li>
-              对公账户或微信 / 支付宝转账，收款信息见
-              <a href="mailto:hello@ai-daedalus.com"> hello@ai-daedalus.com</a> 或页面右下角联系我们
-            </li>
+            <li>按确认下来的金额转账，对公账户或微信 / 支付宝，收款信息一并发给你</li>
             <li>把转账单号填在下面提交，我们核对后开通</li>
           </ol>
           <div className="bill-form">
@@ -116,7 +120,6 @@ export default function BillingView({
               我已付款
             </Button>
           </div>
-          <div className="bill-tip">在线扫码支付正在接入，接好后这里会多一个二维码，无需再填单号。</div>
         </div>
       )}
 
