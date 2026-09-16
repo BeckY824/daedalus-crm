@@ -81,7 +81,27 @@ async function 拉清单({ url, fetch: f = globalThis.fetch }) {
  *   按路径: Map<相对路径, sha256>
  *   按哈希: Map<sha256, 本地绝对路径>  —— 内容没变只是改了名的，从这里找
  */
+/**
+ * Electron 给 Node 的 fs 打了 asar 补丁：`app.asar` 会被当成目录，对它本身开读流报 ENOENT、stat 说大小 0。
+ * 0.24.1→0.24.2 真机首验就栽在这：遍历走到 Resources 的第一个条目 app.asar 就抛，只算到 264 个文件，
+ * 剩下 2106 个全被当成「本地没有」重下了 58.5 MB。差量这套只碰真实文件，做事期间把补丁关掉；完了恢复。
+ * 纯 Node（测试、脚本）里 process.noAsar 没有意义，设了也无害。
+ */
+async function 不管asar(fn) {
+  const 原 = process.noAsar;
+  process.noAsar = true;
+  try {
+    return await fn();
+  } finally {
+    process.noAsar = 原;
+  }
+}
+
 async function 本地状态(bundle, { 缓存路径 = null } = {}) {
+  return 不管asar(() => 本地状态_(bundle, { 缓存路径 }));
+}
+
+async function 本地状态_(bundle, { 缓存路径 = null } = {}) {
   let 缓存 = {};
   if (缓存路径) {
     try {
@@ -110,13 +130,16 @@ async function 本地状态(bundle, { 缓存路径 = null } = {}) {
       // 符号链接不哈希：清单里的链接按 target 直接建
     }
   }
-  // 已装的包不在（路径错了、被人删了）：本地什么都没有，全部要下——安全阀会把它判成整包
+  // 已装的包不在（路径错了、被人删了）：本地什么都没有，全部要下——安全阀会把它判成整包。
+  // 只兜「包本身不在」这一种；遍历中间的错误要抛出去，不然算了一半就当成算完了（0.24.2 那次就是这样）
+  let 包在 = true;
   try {
     await fsp.access(bundle);
-    await 走(bundle);
   } catch (e) {
     if (e.code !== "ENOENT") throw e;
+    包在 = false;
   }
+  if (包在) await 走(bundle);
   if (缓存路径) {
     await fsp.mkdir(path.dirname(缓存路径), { recursive: true });
     await fsp.writeFile(缓存路径, JSON.stringify(新缓存));
@@ -318,7 +341,11 @@ async function 差量估算({ 清单Url, 已装, 缓存路径 = null, 最大占�
  * 第二步——差量组装：按估算的结果组装到 已装.new → 验签。用户点了按钮才走到这。
  * 成功返回 .new 的路径和统计，由调用方换包（install.js 的那一段）并重启。
  */
-async function 差量组装({ 清单, 比对结果, zipUrl, 已装, fetch: f = globalThis.fetch, 运行 = 默认运行, 进度 = () => {}, 日志 = () => {} }) {
+async function 差量组装(opts) {
+  return 不管asar(() => 差量组装_(opts));
+}
+
+async function 差量组装_({ 清单, 比对结果, zipUrl, 已装, fetch: f = globalThis.fetch, 运行 = 默认运行, 进度 = () => {}, 日志 = () => {} }) {
   const 目标 = `${已装}.new`;
   const 统计 = await 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f, 进度, 日志 });
 
@@ -346,4 +373,4 @@ async function 差量安装(opts) {
   return 差量组装({ ...opts, ...估 });
 }
 
-module.exports = { 退回整包, 拉清单, 本地状态, 比对, 规划Range, 解析直链, 取Range, 组装, 差量估算, 差量组装, 差量安装 };
+module.exports = { 退回整包, 不管asar, 拉清单, 本地状态, 比对, 规划Range, 解析直链, 取Range, 组装, 差量估算, 差量组装, 差量安装 };

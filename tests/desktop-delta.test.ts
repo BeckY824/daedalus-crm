@@ -40,6 +40,34 @@ describe("规划Range", () => {
   });
 });
 
+describe("本地状态", () => {
+  it("包不在：本地为空，不抛（安全阀会判成整包）", async () => {
+    const r = await 差量.本地状态(path.join(os.tmpdir(), "nowhere-" + Date.now(), "X.app"));
+    expect(r.按路径.size).toBe(0);
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("包在、里面有文件读不了：要抛，不能算了一半当算完（0.24.2 就是这么多下了 58 MB）", async () => {
+    const 包 = fs.mkdtempSync(path.join(os.tmpdir(), "ls-")) + "/X.app";
+    fs.mkdirSync(`${包}/Contents/Resources`, { recursive: true });
+    fs.writeFileSync(`${包}/Contents/a.txt`, "a");
+    fs.writeFileSync(`${包}/Contents/Resources/b.txt`, "b");
+    fs.chmodSync(`${包}/Contents/Resources/b.txt`, 0o000);
+    try {
+      await expect(差量.本地状态(包)).rejects.toThrow();
+    } finally {
+      fs.chmodSync(`${包}/Contents/Resources/b.txt`, 0o644);
+    }
+  });
+
+  it("做事期间关掉 asar 补丁，完了恢复", async () => {
+    const 原 = (process as { noAsar?: boolean }).noAsar;
+    let 中途: boolean | undefined;
+    await 差量.不管asar(async () => { 中途 = (process as { noAsar?: boolean }).noAsar; });
+    expect(中途).toBe(true);
+    expect((process as { noAsar?: boolean }).noAsar).toBe(原);
+  });
+});
+
 describe("比对", () => {
   it("同路径同哈希复用；别处有同哈希也复用（改名）；都没有才下；链接单列", () => {
     const entries: 条目[] = [F("same", 0, 1, "H1"), F("renamed", 1, 1, "H2"), F("changed", 2, 1, "H3"), { p: "lnk", t: "l", target: "x", m: 0o755 }];
