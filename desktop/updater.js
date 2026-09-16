@@ -42,11 +42,12 @@ function 比版本(a, b) {
   return 后缀(a) - 后缀(b);
 }
 
-/** Release 资产里挑 dmg：目前只发 Apple 芯片的包，真出了 Intel 版也优先 arm64 */
-function 挑dmg(assets) {
-  const 全部 = (Array.isArray(assets) ? assets : []).filter((a) => /\.dmg$/.test(String(a?.name || "")));
+/** Release 资产里按名字挑：目前只发 Apple 芯片的包，真出了 Intel 版也优先 arm64 */
+function 挑资产(assets, 后缀) {
+  const 全部 = (Array.isArray(assets) ? assets : []).filter((a) => 后缀.test(String(a?.name || "")));
   return 全部.find((a) => /arm64/.test(a.name)) || 全部[0] || null;
 }
+const 挑dmg = (assets) => 挑资产(assets, /\.dmg$/);
 
 /** GitHub 给的是 "sha256:…"，自家 feed 里可能带也可能不带前缀，统一成裸的小写十六进制 */
 function 剥哈希前缀(v) {
@@ -82,6 +83,9 @@ async function 查最新() {
       说明: 自家.notes || "",
       dmg: 自家.dmg || null,
       sha256: 剥哈希前缀(自家.sha256),
+      // 差量要的两样：ditto 打的 zip 和它的清单。老的 feed 没有，那就只能整包
+      zip: 自家.zip || null,
+      manifest: 自家.manifest || null,
     });
   }
   if (gh?.tag_name) {
@@ -92,6 +96,8 @@ async function 查最新() {
       说明: String(gh.body || "").slice(0, 600),
       dmg: 资产?.browser_download_url || null,
       sha256: 剥哈希前缀(资产?.digest),
+      zip: 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
+      manifest: 挑资产(gh.assets, /\.manifest\.json\.gz$/)?.browser_download_url || null,
     });
   }
   if (!候选.length) return null;
@@ -103,8 +109,9 @@ async function 查最新() {
 /**
  * 检查更新。
  * @param {{当前版本: string, 跳过的版本?: string}} 选项
- * @returns {Promise<null | {版本, 地址, 说明, 当前, dmg: string|null, sha256: string|null}>}
- *   null 表示不用提示（已是最新 / 查不到 / 用户跳过了这版）。dmg 为 null 时只能打开下载页
+ * @returns {Promise<null | {版本, 地址, 说明, 当前, dmg, sha256, zip, manifest}>}
+ *   null 表示不用提示（已是最新 / 查不到 / 用户跳过了这版）。dmg 为 null 时只能打开下载页；
+ *   zip 和 manifest 都有才能差量，缺一个就整包
  */
 async function 检查({ 当前版本, 跳过的版本 } = {}) {
   const 最新 = await 查最新();

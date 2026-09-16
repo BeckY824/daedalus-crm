@@ -116,3 +116,33 @@ describe("候选带不带 dmg 直链和哈希", () => {
     expect(结果?.地址).toBe("https://ai-daedalus.com/download.html");
   });
 });
+
+
+/** 差量更新要 zip 和清单两个地址。GitHub 按资产名后缀挑，官网 feed 按字段；都没有就是 null，上层走整包 */
+describe("候选带不带差量要的 zip 和清单", () => {
+  const 资产 = (name: string) => ({ name, browser_download_url: `https://gh/${name}`, digest: "sha256:AA" });
+
+  it("GitHub 资产里按后缀挑 .app.zip 和 .manifest.json.gz，同样优先 arm64", async () => {
+    假网络(null, {
+      tag_name: "v0.25.0",
+      assets: [资产("Daedalus.CRM-0.25.0-arm64.dmg"),资产("Daedalus.CRM-0.25.0-x64.app.zip"), 资产("Daedalus.CRM-0.25.0-arm64.app.zip"), 资产("Daedalus.CRM-0.25.0-arm64.manifest.json.gz")],
+    });
+    const 结果 = await 检查({ 当前版本: "0.24.0" });
+    expect(结果?.zip).toBe("https://gh/Daedalus.CRM-0.25.0-arm64.app.zip");
+    expect(结果?.manifest).toBe("https://gh/Daedalus.CRM-0.25.0-arm64.manifest.json.gz");
+  });
+
+  it("老 Release 只有 dmg：zip 和 manifest 为 null", async () => {
+    假网络(null, { tag_name: "v0.25.0", assets: [资产("Daedalus.CRM-0.25.0-arm64.dmg")] });
+    const 结果 = await 检查({ 当前版本: "0.24.0" });
+    expect(结果?.zip).toBeNull();
+    expect(结果?.manifest).toBeNull();
+  });
+
+  it("自家 feed 带 zip / manifest 字段就用它的", async () => {
+    假网络({ version: "0.25.0", dmg: "https://s/a.dmg", zip: "https://s/a.zip", manifest: "https://s/a.m.gz", notes: "" }, null);
+    const 结果 = await 检查({ 当前版本: "0.24.0" });
+    expect(结果?.zip).toBe("https://s/a.zip");
+    expect(结果?.manifest).toBe("https://s/a.m.gz");
+  });
+});
