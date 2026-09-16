@@ -19,6 +19,7 @@ const 本地服务 = require("./local-server");
 const 云端 = require("./cloud");
 const 更新 = require("./updater");
 const 安装 = require("./install");
+const 差量 = require("./delta");
 const 备份 = require("./backup");
 const 崩溃 = require("./crashlog");
 const os = require("node:os");
@@ -666,16 +667,42 @@ async function 检查更新({ 手动 = false } = {}) {
       设更新状态({ 阶段: "manual", 版本, 地址: 新版.地址, 原因: 可原地.原因 });
       return;
     }
+    /**
+     * 先试差量：拿清单和已装的包比对，只下变了的文件，直接在旁边组装出 X.app.new。
+     * 成功就是「ready」，点按钮只剩换包 + 重启，几秒钟。任何不划算或对不上的情况
+     * （老 Release 没有清单、变得太多、签名校验不过、Range 不支持…）都退回整包 dmg 那条路。
+     * 整包 161 MB 国内要 14 分钟，差量典型 2–6 MB 几十秒——见 delta.js 顶部。
+     */
+    if (新版.zip && 新版.manifest) {
+      try {
+        设更新状态({ 阶段: "downloading", 版本, 进度: null, 文字: "正在比对已装的文件…" });
+        const { 统计 } = await 差量.差量安装({
+          清单Url: 新版.manifest,
+          zipUrl: 新版.zip,
+          已装: 应用包,
+          缓存路径: path.join(数据根, "updates", "hash-cache.json"),
+          进度: (已, 总) => 设更新状态({ 阶段: "downloading", 版本, 进度: 总 ? Math.round((已 / 总) * 100) : null, 文字: `差量更新 ${(总 / 1048576).toFixed(1)} MB` }),
+          日志: (行) => 崩溃.写崩溃日志(应用日志, "差量更新", 行),
+        });
+        待装 = { 版本, 方式: "差量", 地址: 新版.地址 };
+        设更新状态({ 阶段: "ready", 版本, 说明: 新版.说明, 文字: `差量 ${(统计.字节 / 1048576).toFixed(1)} MB，复用 ${统计.复用} 个文件` });
+        return;
+      } catch (e) {
+        // 退回整包不算错，记一笔就好；别的错也一样退，但记全
+        崩溃.写崩溃日志(应用日志, e?.name === "退回整包" ? "差量退回整包" : "差量失败，退回整包", e);
+        await 安装.删目录(`${应用包}.new`).catch(() => {});
+      }
+    }
     const 文件 = path.join(数据根, "updates", `Daedalus-CRM-${版本}.dmg`);
-    设更新状态({ 阶段: "downloading", 版本, 进度: 0 });
+    设更新状态({ 阶段: "downloading", 版本, 进度: 0, 文字: "整包下载" });
     await 安装.下载文件({
       url: 新版.dmg,
       目标: 文件,
       sha256: 新版.sha256,
-      进度: (已, 总) => 设更新状态({ 阶段: "downloading", 版本, 进度: 总 ? Math.round((已 / 总) * 100) : null }),
+      进度: (已, 总) => 设更新状态({ 阶段: "downloading", 版本, 进度: 总 ? Math.round((已 / 总) * 100) : null, 文字: `整包下载 ${(总 / 1048576).toFixed(0)} MB` }),
     });
     if (新版.sha256) await 安装.校验sha256(文件, 新版.sha256);
-    待装 = { 版本, 文件, 地址: 新版.地址 };
+    待装 = { 版本, 方式: "整包", 文件, 地址: 新版.地址 };
     设更新状态({ 阶段: "ready", 版本, 说明: 新版.说明 });
   } catch (e) {
     崩溃.写崩溃日志(应用日志, "检查或下载更新失败", e);
@@ -691,7 +718,7 @@ async function 检查更新({ 手动 = false } = {}) {
  */
 async function 安装更新() {
   if (!待装 || 更新状态.阶段 !== "ready") return;
-  const { 版本, 文件, 地址 } = 待装;
+  const { 版本, 方式, 文件, 地址 } = 待装;
   设更新状态({ 阶段: "installing", 版本 });
   let 服务停过 = false;
   try {
@@ -699,13 +726,16 @@ async function 安装更新() {
       服务停过 = true;
       await 本地服务.stop();
     }
-    await 安装.安装dmg({ dmg: 文件, 目标: 应用包 });
-    await fs.promises.rm(文件, { force: true }).catch(() => {});
+    // 差量：X.app.new 已经组装好、验过签，只剩把它换到原位。整包：挂 dmg、复制、换包
+    if (方式 === "差量") await 安装.换包(应用包);
+    else await 安装.安装dmg({ dmg: 文件, 目标: 应用包 });
+    if (文件) await fs.promises.rm(文件, { force: true }).catch(() => {});
     app.relaunch();
     app.exit(0);
   } catch (e) {
     崩溃.写崩溃日志(应用日志, "安装更新失败", e);
-    await fs.promises.rm(文件, { force: true }).catch(() => {});
+    if (文件) await fs.promises.rm(文件, { force: true }).catch(() => {});
+    await 安装.删目录(`${应用包}.new`).catch(() => {});
     待装 = null;
     if (服务停过 && 读配置().mode === "local") {
       try {

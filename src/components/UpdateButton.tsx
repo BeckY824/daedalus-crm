@@ -14,6 +14,8 @@ type 更新状态 = {
   进度?: number | null;
   错误?: string;
   地址?: string;
+  /** 壳给的一句人话：正在比对 / 差量 2.3 MB / 整包 161 MB。让人看见差量省了什么 */
+  文字?: string;
 };
 
 declare global {
@@ -45,7 +47,8 @@ export default function UpdateButton() {
     case "downloading":
       return (
         <div className="rail-update busy" role="status">
-          正在下载更新{s.进度 != null ? ` ${s.进度}%` : "…"}
+          {s.文字 ?? "正在下载更新"}
+          {s.进度 != null ? ` ${s.进度}%` : "…"}
         </div>
       );
     case "installing":
@@ -56,7 +59,7 @@ export default function UpdateButton() {
       );
     case "ready":
       return (
-        <button type="button" className="rail-update" onClick={() => api?.install()}>
+        <button type="button" className="rail-update" onClick={() => api?.install()} title={s.文字}>
           重启以更新到 {s.版本}
         </button>
       );

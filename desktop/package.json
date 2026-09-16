@@ -29,6 +29,7 @@
       "cloud.js",
       "updater.js",
       "install.js",
+      "delta.js",
       "backup.js",
       "crashlog.js",
       "sign.js",

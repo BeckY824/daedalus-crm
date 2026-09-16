@@ -61,11 +61,25 @@ jobs:
       - name: 打包
         working-directory: desktop
         run: npm run ${{ matrix.script }}
+      # 差量更新要的两个产物：ditto 打的 zip（逐条 deflate，保符号链接和权限，解开后 codesign 能过）
+      # 和它的清单（每个文件的哈希、权限、在 zip 里的偏移）。客户端拿清单和已装的包比对，
+      # 对 zip 发 HTTP Range 只取变了的文件。dmg 照旧：首次安装和退路都靠它。
+      # 必须在 打包 之后：那时 dist/mac-arm64 里的 .app 已经被 sign.js 签过。
+      - name: 差量产物（zip + 清单）
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: |
+          VER="$(node -p 'require("./package.json").version')"
+          APP="dist/mac-arm64/Daedalus CRM.app"
+          ditto -c -k --keepParent --norsrc "$APP" "dist/Daedalus CRM-$VER-arm64.app.zip"
+          node scripts/make-manifest.mjs "dist/Daedalus CRM-$VER-arm64.app.zip" "$VER" "dist/Daedalus CRM-$VER-arm64.manifest.json.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: daedalus-crm-${{ matrix.artifact }}
           path: |
             desktop/dist/*.dmg
+            desktop/dist/*.app.zip
+            desktop/dist/*.manifest.json.gz
             desktop/dist/*.exe
           if-no-files-found: error
 
@@ -95,4 +109,4 @@ jobs:
             echo "::warning::CHANGELOG.md 里没有 $VER 这一节，退回自动生成的说明"
             gh release view "$TAG" >/dev/null 2>&1               || gh release create "$TAG" --generate-notes --title "$TAG"
           fi
-          gh release upload "$TAG" desktop/dist/*.dmg --clobber
+          gh release upload "$TAG" desktop/dist/*.dmg desktop/dist/*.app.zip desktop/dist/*.manifest.json.gz --clobber
