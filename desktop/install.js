@@ -147,14 +147,13 @@ async function 安装dmg({ dmg, 目标, 运行 = 默认运行, 日志 = () => {}
   const 目录 = path.dirname(目标);
   const 名 = path.basename(目标);
   const 新 = path.join(目录, `${名}.new`);
-  let 旧 = path.join(目录, `${名}.old`);
+  const 旧 = path.join(目录, `${名}.old`);
   await 删目录(新, 运行);
-  // 上次留下的 .old 清不掉也不该拦住这次更新：挪到一边，下次启动再清
+  // 上次留下的 .old 清不掉也不该拦住这次更新：挪到一边（换包() 只认 .old 这个名），下次启动一起清
   try {
     await 删目录(旧, 运行);
   } catch {
     await fsp.rename(旧, `${旧}-${Date.now()}`).catch(() => {});
-    if (fs.existsSync(旧)) 旧 = `${旧}-${Date.now()}`;
   }
 
   const 挂载点 = await fsp.mkdtemp(path.join(os.tmpdir(), "daedalus-update-"));
@@ -174,14 +173,25 @@ async function 安装dmg({ dmg, 目标, 运行 = 默认运行, 日志 = () => {}
   }
 
   日志("换包");
+  await 换包(目标);
+  return 目标;
+}
+
+/**
+ * 把 目标.new 换到 目标 的位置。整包（安装dmg）和差量（delta.js）都走这一段：
+ * 旧的改成 .old，新的改到原位；第二步失败就把 .old 改回来，用户手上还是能用的旧版。
+ * .old 不在这里删——现在跑着的进程就是从它里面起的，留给下次启动的 清理旧包()。
+ */
+async function 换包(目标) {
+  const 新 = `${目标}.new`;
+  const 旧 = `${目标}.old`;
   await fsp.rename(目标, 旧);
   try {
     await fsp.rename(新, 目标);
   } catch (e) {
-    await fsp.rename(旧, 目标).catch(() => {}); // 退回去，用户手上还是能用的旧版
+    await fsp.rename(旧, 目标).catch(() => {});
     throw e;
   }
-  return 目标;
 }
 
 /** 上次更新留下的 .old / .new，启动时清掉。删不掉也不报错，下次再试 */
@@ -203,4 +213,4 @@ async function 清理旧包(目标, 运行 = 默认运行) {
   }
 }
 
-module.exports = { 解析应用包, 能原地更新, 下载文件, 校验sha256, 安装dmg, 清理旧包, 删目录 };
+module.exports = { 解析应用包, 能原地更新, 下载文件, 校验sha256, 安装dmg, 换包, 清理旧包, 删目录 };
