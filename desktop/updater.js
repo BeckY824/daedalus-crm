@@ -82,6 +82,8 @@ async function 查最新() {
       地址: 自家.url || 下载页,
       说明: 自家.notes || "",
       dmg: 自家.dmg || null,
+      // 整包多大，按钮上要写给用户看（feed 里是「161 MB」这样的字）
+      体积: 自家.size ? String(自家.size) : null,
       sha256: 剥哈希前缀(自家.sha256),
       // 差量要的两样：ditto 打的 zip 和它的清单。老的 feed 没有，那就只能整包
       zip: 自家.zip || null,
@@ -95,6 +97,7 @@ async function 查最新() {
       地址: gh.html_url || 下载页,
       说明: String(gh.body || "").slice(0, 600),
       dmg: 资产?.browser_download_url || null,
+      体积: 资产?.size ? `${Math.round(资产.size / 1048576)} MB` : null,
       sha256: 剥哈希前缀(资产?.digest),
       zip: 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
       manifest: 挑资产(gh.assets, /\.manifest\.json\.gz$/)?.browser_download_url || null,

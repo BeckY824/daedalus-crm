@@ -297,10 +297,11 @@ async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f =
 /* ---------- 入口 ---------- */
 
 /**
- * 差量安装：清单 → 比对 → 组装到 已装.new → 验签。成功返回 .new 的路径和统计，
- * 由调用方换包（install.js 的那一段）并重启。任何不划算或对不上的情况抛 退回整包。
+ * 第一步——差量估算：清单 → 比对，算出要下多少。**不下 zip、不动磁盘**，只拉 100 多 KB 的清单，
+ * 所以可以在问用户之前先做，侧栏按钮上才写得出「差量 2.3 MB」。
+ * 不划算或对不上的情况抛 退回整包，上层按钮就写整包的体积。
  */
-async function 差量安装({ 清单Url, zipUrl, 已装, 缓存路径 = null, 最大占比 = 0.6, fetch: f = globalThis.fetch, 运行 = 默认运行, 进度 = () => {}, 日志 = () => {} }) {
+async function 差量估算({ 清单Url, 已装, 缓存路径 = null, 最大占比 = 0.6, fetch: f = globalThis.fetch, 日志 = () => {} }) {
   const 清单 = await 拉清单({ url: 清单Url, fetch: f });
   if (清单.bundle !== path.basename(已装)) throw new 退回整包(`清单里的包名 ${清单.bundle} 和已装的 ${path.basename(已装)} 对不上`);
 
@@ -310,7 +311,14 @@ async function 差量安装({ 清单Url, zipUrl, 已装, 缓存路径 = null, �
   const 要下 = 比对结果.下载.reduce((a, e) => a + e.cs, 0);
   // 变得太多就不差量了：整包那条路更简单，也是首次安装在走的路
   if (要下 > 最大占比 * 清单.zip.size) throw new 退回整包(`要下 ${(要下 / 1048576).toFixed(0)} MB，超过整包的 ${最大占比 * 100}%，不如整包`);
+  return { 清单, 比对结果, 要下 };
+}
 
+/**
+ * 第二步——差量组装：按估算的结果组装到 已装.new → 验签。用户点了按钮才走到这。
+ * 成功返回 .new 的路径和统计，由调用方换包（install.js 的那一段）并重启。
+ */
+async function 差量组装({ 清单, 比对结果, zipUrl, 已装, fetch: f = globalThis.fetch, 运行 = 默认运行, 进度 = () => {}, 日志 = () => {} }) {
   const 目标 = `${已装}.new`;
   const 统计 = await 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f, 进度, 日志 });
 
@@ -332,4 +340,10 @@ async function 差量安装({ 清单Url, zipUrl, 已装, 缓存路径 = null, �
   return { 目标, 统计 };
 }
 
-module.exports = { 退回整包, 拉清单, 本地状态, 比对, 规划Range, 解析直链, 取Range, 组装, 差量安装 };
+/** 两步连着做（测试和脚本用）。应用里是分开的：先估算给按钮看，点了再组装 */
+async function 差量安装(opts) {
+  const 估 = await 差量估算(opts);
+  return 差量组装({ ...opts, ...估 });
+}
+
+module.exports = { 退回整包, 拉清单, 本地状态, 比对, 规划Range, 解析直链, 取Range, 组装, 差量估算, 差量组装, 差量安装 };

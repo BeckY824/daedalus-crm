@@ -92,8 +92,13 @@ function 能原地更新(bundle, { platform = process.platform, 可写 = 目录�
 /**
  * 下载到文件，边下边报进度。用 Node 22 自带的 fetch，流式落盘，不把 160 MB 读进内存。
  * 先写到 .part，下完且大小对得上才改名——半截文件不会被当成完整的。
+ *
+ * 断了会接着下：GitHub 到国内几百 KB/s，160 MB 要好几分钟，中途 TLS 被掐一次很常见
+ * （0.24.0 真机首验就是这么失败的）。所以 .part 出错**不删**，下次从它的长度发 Range 续传；
+ * 一次调用里自己先重试几回（指数退避），都不行再抛给上层，.part 留给用户点「重试」时接着用。
+ * 服务器不理 Range（回 200）就从头来；416 说明 .part 比文件还长，扔掉重来。
  */
-async function 下载文件({ url, 目标, sha256 = null, 进度 = () => {}, fetch: f = globalThis.fetch }) {
+async function 下载文件({ url, 目标, sha256 = null, 进度 = () => {}, fetch: f = globalThis.fetch, 重试 = 4, 等待 = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
   // 上次下完没装（比如直接退出了）：文件还在、哈希对得上，就不再下一遍 160 MB
   if (sha256 && fs.existsSync(目标)) {
     try {
@@ -104,13 +109,61 @@ async function 下载文件({ url, 目标, sha256 = null, 进度 = () => {}, fet
       await fsp.rm(目标, { force: true });
     }
   }
-  const res = await f(url, { redirect: "follow", headers: { "User-Agent": "DaedalusCRM-Desktop" } });
-  if (!res.ok || !res.body) throw new Error(`下载失败：HTTP ${res.status}`);
-  const 总 = Number(res.headers.get("content-length")) || null;
   await fsp.mkdir(path.dirname(目标), { recursive: true });
   const 临时 = `${目标}.part`;
-  const out = fs.createWriteStream(临时);
-  let 已下 = 0;
+  let 最后错误 = null;
+  for (let 第 = 0; 第 <= 重试; 第++) {
+    if (第 > 0) await 等待(Math.min(1000 * 2 ** (第 - 1), 8000));
+    try {
+      await 下一段({ url, 临时, 进度, fetch: f });
+      await fsp.rename(临时, 目标);
+      return 目标;
+    } catch (e) {
+      最后错误 = e;
+      if (e?.不重试) break;
+    }
+  }
+  throw 最后错误;
+}
+
+/** 从 .part 现有的长度接着下一段；下完整了正常返回，中途断了抛错（.part 留着） */
+async function 下一段({ url, 临时, 进度, fetch: f }) {
+  let 已有 = 0;
+  try {
+    已有 = (await fsp.stat(临时)).size;
+  } catch {
+    /* 还没有 .part */
+  }
+  const headers = { "User-Agent": "DaedalusCRM-Desktop" };
+  if (已有 > 0) headers.Range = `bytes=${已有}-`;
+  const res = await f(url, { redirect: "follow", headers });
+  if (res.status === 416) {
+    await fsp.rm(临时, { force: true });
+    throw new Error("半截文件比整个文件还长，扔掉重下");
+  }
+  if (!res.ok || !res.body) {
+    // 4xx 是地址不对，重试也没用；5xx 和别的当作临时故障
+    throw Object.assign(new Error(`下载失败：HTTP ${res.status}`), { 不重试: res.status >= 400 && res.status < 500 });
+  }
+  let 起点 = 0;
+  let 总 = null;
+  if (res.status === 206 && 已有 > 0) {
+    const m = /bytes (\d+)-\d+\/(\d+|\*)/.exec(res.headers.get("content-range") || "");
+    if (!m || Number(m[1]) !== 已有) {
+      await fsp.rm(临时, { force: true });
+      throw new Error("服务器给的续传起点对不上，从头再下");
+    }
+    起点 = 已有;
+    总 = m[2] === "*" ? null : Number(m[2]);
+  } else {
+    // 200：服务器不理 Range（或本来就是第一次），从头来
+    总 = Number(res.headers.get("content-length")) || null;
+    await fsp.rm(临时, { force: true });
+  }
+  const out = fs.createWriteStream(临时, { flags: 起点 ? "a" : "w" });
+  // 等文件真开好再写：不然连接一断就 destroy，迟到的 open 会在下一次续传（或目录已删）之后才发生
+  await new Promise((resolve, reject) => out.once("open", resolve).once("error", reject));
+  let 已下 = 起点;
   try {
     for await (const chunk of res.body) {
       已下 += chunk.length;
@@ -118,14 +171,12 @@ async function 下载文件({ url, 目标, sha256 = null, 进度 = () => {}, fet
       进度(已下, 总);
     }
     await new Promise((resolve, reject) => out.end((e) => (e ? reject(e) : resolve())));
-    if (总 !== null && 已下 !== 总) throw new Error(`下载不完整：${已下} / ${总} 字节`);
   } catch (e) {
-    out.destroy();
-    await fsp.rm(临时, { force: true });
+    // 关干净了再抛，下一次追加时 fd 不能还开着
+    await new Promise((r) => out.once("close", r).destroy());
     throw e;
   }
-  await fsp.rename(临时, 目标);
-  return 目标;
+  if (总 !== null && 已下 !== 总) throw new Error(`下载不完整：${已下} / ${总} 字节`);
 }
 
 /** 文件的 sha256 要和发布记录里的一致——GitHub 给每个 Release 资产都算了一份 */

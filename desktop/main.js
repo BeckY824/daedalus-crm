@@ -627,15 +627,18 @@ async function 显示额度() {
 const 应用包 = 安装.解析应用包(process.execPath);
 
 /**
- * 更新是「后台查、后台下、下完给个按钮」的模式（和 Claude Code / Codex 一样），**不弹对话框**。
- * 状态推给页面，页面在侧栏画一个按钮；点了按钮才停服务、换包、重启。
+ * 更新是「后台查、查到了给个按钮、点了才下、下完再给个按钮」的模式，**不弹对话框**。
+ * 状态推给页面，页面在侧栏画按钮：先是「更新到 x · 差量 2.3 MB」，点了开始下载；
+ * 下完变成「重启以更新」，点了才停服务、换包、重启。（0.24.0 是查到就自动下，用户说该先问再下）
  *
- * 阶段：idle → checking → downloading（进度）→ ready（等按钮）→ installing
- *       或 manual（不能原地换：给下载页）   或 error（按钮变成「重试」）
+ * 阶段：idle → checking → available（等按钮）→ downloading（进度）→ ready（等按钮）→ installing
+ *       或 manual（不能原地换：给下载页）   或 error（按钮变成「重试」，点了接着下）
  *
  * 换包本身在 install.js；不经 Squirrel.Mac，所以 ad-hoc 签名不是障碍。
  */
 let 更新状态 = { 阶段: "idle" };
+/** 查到新版后算好的方案：差量（清单 + 比对结果）还是整包。点按钮时照它下 */
+let 计划 = null;
 let 待装 = null;
 let 正在查 = false;
 
@@ -644,10 +647,14 @@ function 设更新状态(s) {
   if (win && !win.isDestroyed()) win.webContents.send("update:state", 更新状态);
 }
 
-/** 查 + 下。手动点菜单时 手动=true：已是最新要给句回话，其余情况都静默 */
+/** 只查、只估算，**不下**。手动点菜单时 手动=true：已是最新要给句回话，其余情况都静默 */
 async function 检查更新({ 手动 = false } = {}) {
   if (正在查) return;
-  if (更新状态.阶段 === "ready" || 更新状态.阶段 === "downloading" || 更新状态.阶段 === "installing") {
+  if (更新状态.阶段 === "available") {
+    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `有新版本 ${更新状态.版本}`, detail: "侧栏底部有按钮，点了才开始下载。" });
+    return;
+  }
+  if (更新状态.阶段 === "downloading" || 更新状态.阶段 === "ready" || 更新状态.阶段 === "installing") {
     if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `${更新状态.版本} 已在准备中`, detail: "下载完成后侧栏会出现「重启以更新」按钮。" });
     return;
   }
@@ -667,20 +674,55 @@ async function 检查更新({ 手动 = false } = {}) {
       设更新状态({ 阶段: "manual", 版本, 地址: 新版.地址, 原因: 可原地.原因 });
       return;
     }
+    计划 = { 版本, 新版, 方式: "整包", 文字: 新版.体积 ? `整包 ${新版.体积}` : "整包" };
     /**
-     * 先试差量：拿清单和已装的包比对，只下变了的文件，直接在旁边组装出 X.app.new。
-     * 成功就是「ready」，点按钮只剩换包 + 重启，几秒钟。任何不划算或对不上的情况
-     * （老 Release 没有清单、变得太多、签名校验不过、Range 不支持…）都退回整包 dmg 那条路。
-     * 整包 161 MB 国内要 14 分钟，差量典型 2–6 MB 几十秒——见 delta.js 顶部。
+     * 先估算差量：只拉清单（100 多 KB）和已装的包比对，不下 zip。算出来划算，按钮上就写
+     * 「差量 2.3 MB」；任何不划算或对不上的情况（老 Release 没有清单、变得太多、包名不对…）
+     * 都退回整包，按钮上写整包的体积。见 delta.js 顶部。
      */
     if (新版.zip && 新版.manifest) {
       try {
-        设更新状态({ 阶段: "downloading", 版本, 进度: null, 文字: "正在比对已装的文件…" });
-        const { 统计 } = await 差量.差量安装({
+        设更新状态({ 阶段: "checking", 文字: "正在比对已装的文件…" });
+        const 估 = await 差量.差量估算({
           清单Url: 新版.manifest,
-          zipUrl: 新版.zip,
           已装: 应用包,
           缓存路径: path.join(数据根, "updates", "hash-cache.json"),
+          日志: (行) => 崩溃.写崩溃日志(应用日志, "差量估算", 行),
+        });
+        计划 = { ...计划, 方式: "差量", 清单: 估.清单, 比对结果: 估.比对结果, 文字: `差量 ${(估.要下 / 1048576).toFixed(1)} MB` };
+      } catch (e) {
+        崩溃.写崩溃日志(应用日志, e?.name === "退回整包" ? "差量退回整包" : "差量估算失败，退回整包", e);
+      }
+    }
+    设更新状态({ 阶段: "available", 版本, 说明: 新版.说明, 文字: 计划.文字 });
+  } catch (e) {
+    崩溃.写崩溃日志(应用日志, "检查更新失败", e);
+    设更新状态({ 阶段: "error", 错误: String(e?.message ?? e) });
+  } finally {
+    正在查 = false;
+  }
+}
+
+/**
+ * 点了「更新到 x」：按 计划 下载。差量就组装 X.app.new，整包就下 dmg；下完进 ready。
+ * 差量中途不行退回整包；整包断了 install.js 自己续传重试，还不行进 error，
+ * 「重试」按钮再进这里——.part 还在，接着下。
+ */
+async function 下载更新() {
+  if (更新状态.阶段 !== "available" && 更新状态.阶段 !== "error") return;
+  if (!计划) return 检查更新({ 手动: true });
+  if (正在查) return;
+  正在查 = true;
+  const { 版本, 新版 } = 计划;
+  try {
+    if (计划.方式 === "差量") {
+      try {
+        设更新状态({ 阶段: "downloading", 版本, 进度: 0, 文字: 计划.文字 });
+        const { 统计 } = await 差量.差量组装({
+          清单: 计划.清单,
+          比对结果: 计划.比对结果,
+          zipUrl: 新版.zip,
+          已装: 应用包,
           进度: (已, 总) => 设更新状态({ 阶段: "downloading", 版本, 进度: 总 ? Math.round((已 / 总) * 100) : null, 文字: `差量更新 ${(总 / 1048576).toFixed(1)} MB` }),
           日志: (行) => 崩溃.写崩溃日志(应用日志, "差量更新", 行),
         });
@@ -691,6 +733,7 @@ async function 检查更新({ 手动 = false } = {}) {
         // 退回整包不算错，记一笔就好；别的错也一样退，但记全
         崩溃.写崩溃日志(应用日志, e?.name === "退回整包" ? "差量退回整包" : "差量失败，退回整包", e);
         await 安装.删目录(`${应用包}.new`).catch(() => {});
+        计划 = { ...计划, 方式: "整包", 文字: 新版.体积 ? `整包 ${新版.体积}` : "整包" };
       }
     }
     const 文件 = path.join(数据根, "updates", `Daedalus-CRM-${版本}.dmg`);
@@ -705,8 +748,8 @@ async function 检查更新({ 手动 = false } = {}) {
     待装 = { 版本, 方式: "整包", 文件, 地址: 新版.地址 };
     设更新状态({ 阶段: "ready", 版本, 说明: 新版.说明 });
   } catch (e) {
-    崩溃.写崩溃日志(应用日志, "检查或下载更新失败", e);
-    设更新状态({ 阶段: "error", 错误: String(e?.message ?? e) });
+    崩溃.写崩溃日志(应用日志, "下载更新失败", e);
+    设更新状态({ 阶段: "error", 版本, 错误: String(e?.message ?? e) });
   } finally {
     正在查 = false;
   }
@@ -750,6 +793,7 @@ async function 安装更新() {
 }
 
 ipcMain.handle("update:state", () => 更新状态);
+ipcMain.handle("update:download", () => 下载更新());
 ipcMain.handle("update:install", () => 安装更新());
 ipcMain.handle("update:check", () => 检查更新({ 手动: true }));
 // 只开主进程自己状态里的地址，页面传不进任何 URL

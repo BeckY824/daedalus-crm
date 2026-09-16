@@ -117,15 +117,59 @@ describe("下载文件", () => {
     expect(fs.existsSync(`${目标}.part`)).toBe(false);
   });
 
-  it("下载不完整（比 content-length 短）要抛，且不留下半截文件", async () => {
+  it("下载不完整（比 content-length 短）：重试用完后抛，正式文件不存在，但 .part 留着给下次续传", async () => {
     const 目标 = path.join(沙盒, "a.dmg");
-    await expect(安装.下载文件({ url: "x", 目标, fetch: 假fetch("0123", 10) })).rejects.toThrow(/不完整/);
+    let 次 = 0;
+    const f = async (...a: unknown[]) => (次++, 假fetch("0123", 10)());
+    await expect(安装.下载文件({ url: "x", 目标, fetch: f, 重试: 2, 等待: async () => {} })).rejects.toThrow(/不完整/);
+    expect(次).toBe(3);
     expect(fs.existsSync(目标)).toBe(false);
+    expect(fs.existsSync(`${目标}.part`)).toBe(true);
+  });
+
+  it("HTTP 4xx 直接抛，不重试", async () => {
+    let 次 = 0;
+    const f = async () => (次++, 假fetch("", undefined, 404)());
+    await expect(安装.下载文件({ url: "x", 目标: path.join(沙盒, "a.dmg"), fetch: f, 重试: 3, 等待: async () => {} })).rejects.toThrow(/404/);
+    expect(次).toBe(1);
+  });
+
+  it("中途断了：下一次带 Range 从 .part 的长度接着下，服务器回 206 就追加", async () => {
+    const 目标 = path.join(沙盒, "b.dmg");
+    const 全 = "0123456789";
+    const 收到: (string | null)[] = [];
+    const f = async (_u: string, init: { headers: Record<string, string> }) => {
+      收到.push(init.headers.Range ?? null);
+      const m = /bytes=(\d+)-/.exec(init.headers.Range ?? "");
+      if (!m) {
+        // 第一次：给 4 个字节就把连接掐了
+        return {
+          ok: true, status: 200,
+          headers: { get: (k: string) => (k === "content-length" ? "10" : null) },
+          body: (async function* () { yield Buffer.from("0123"); throw new TypeError("terminated"); })(),
+        };
+      }
+      const 起 = Number(m[1]);
+      return {
+        ok: true, status: 206,
+        headers: { get: (k: string) => (k === "content-range" ? `bytes ${起}-9/10` : null) },
+        body: (async function* () { yield Buffer.from(全.slice(起)); })(),
+      };
+    };
+    const 进度: number[] = [];
+    await 安装.下载文件({ url: "x", 目标, fetch: f as never, 等待: async () => {}, 进度: (已: number) => 进度.push(已) });
+    expect(fs.readFileSync(目标, "utf8")).toBe(全);
+    expect(收到).toEqual([null, "bytes=4-"]);
+    expect(进度.at(-1)).toBe(10);
     expect(fs.existsSync(`${目标}.part`)).toBe(false);
   });
 
-  it("HTTP 不是 200 直接抛", async () => {
-    await expect(安装.下载文件({ url: "x", 目标: path.join(沙盒, "a.dmg"), fetch: 假fetch("", undefined, 404) })).rejects.toThrow(/404/);
+  it("服务器不理 Range（回 200 给整个文件）：扔掉 .part 从头收，不会拼出重复的字节", async () => {
+    const 目标 = path.join(沙盒, "c.dmg");
+    fs.mkdirSync(沙盒, { recursive: true });
+    fs.writeFileSync(`${目标}.part`, "0123");
+    await 安装.下载文件({ url: "x", 目标, fetch: 假fetch("0123456789", 10), 等待: async () => {} });
+    expect(fs.readFileSync(目标, "utf8")).toBe("0123456789");
   });
 });
 
