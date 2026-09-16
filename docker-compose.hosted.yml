@@ -11,8 +11,10 @@ services:
       WORKSPACE_DIR: "/data/ws"
       # 运营台 /admin 的口令。没设置时那个页面直接 404
       ADMIN_TOKEN: "${ADMIN_TOKEN:?托管版必须设置 ADMIN_TOKEN}"
-      # 共享演示工作区的 slug。没配就没有 /demo，也没有重置端点
-      DEMO_WORKSPACE: "${DEMO_WORKSPACE:-}"
+      # 网页版那个唯一的共享工作区的 slug（2026-09-16 起，原名 DEMO_WORKSPACE）。
+      # 不配它工作区照样能用，但少了共享环境该有的两道防护：手机号不打码、
+      # 设置页仍然摆着管理员那几栏——其中「测试连接」会拿平台 Key 往外发请求。
+      SHARED_WORKSPACE: "${SHARED_WORKSPACE:-}"
       # 注册时要不要验证码。**默认不要**：填账号密码就能注册。
       # 配了发码通道（下面的 SMS_/SMTP_）之后设为 1，注册就多一道验证
       SIGNUP_VERIFY: "${SIGNUP_VERIFY:-}"
