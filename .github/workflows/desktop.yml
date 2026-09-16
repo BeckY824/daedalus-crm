@@ -69,12 +69,30 @@ jobs:
             desktop/dist/*.exe
           if-no-files-found: error
 
-      # 打 tag 时顺手挂到 Release 上。Release 不存在就建一个；已存在就只补附件
+      # 打 tag 时顺手挂到 Release 上。Release 不存在就建一个；已存在就只补附件。
+      #
+      # 说明取 CHANGELOG.md 里这一版那一段，不用 --generate-notes：后者产出的是
+      # 「Full Changelog: v0.23.2...v0.23.3」这种一句正文都没有的东西，而这条会推到
+      # 所有关注者的 feed 里。发出去的东西要么说清改了什么，要么别发。
+      # CHANGELOG 里没有对应小节时才退回自动生成的。
       - name: 挂到 Release
         if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${GITHUB_REF_NAME}"
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes --title "$TAG"
+          VER="${TAG#v}"
+          # 取 "## <版本>" 到下一个 "## " 之间
+          awk -v v="$VER" '
+            $0 ~ "^## " v "([（(]|$| )" { on = 1; next }
+            on && /^## / { exit }
+            on { print }
+          ' CHANGELOG.md | sed '/./,$!d' > /tmp/notes.md
+          if [ -s /tmp/notes.md ]; then
+            echo "用 CHANGELOG 里 $VER 那一段作发布说明："; cat /tmp/notes.md
+            gh release view "$TAG" >/dev/null 2>&1               || gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
+          else
+            echo "::warning::CHANGELOG.md 里没有 $VER 这一节，退回自动生成的说明"
+            gh release view "$TAG" >/dev/null 2>&1               || gh release create "$TAG" --generate-notes --title "$TAG"
+          fi
           gh release upload "$TAG" desktop/dist/*.dmg --clobber
