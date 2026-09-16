@@ -6,8 +6,12 @@
  *
  * 用法（在应用目录里，带上托管版那套环境变量）：
  *
+ * 开发机上：
  *   MULTI_TENANT=1 CONTROL_DATABASE_URL=... WORKSPACE_DIR=... \
  *   npx tsx scripts/shared-workspace.ts <登录邮箱> <密码> [团队名] [slug]
+ *
+ * 生产容器里（镜像构建时 esbuild 打包成了 shared-workspace.js，环境变量容器里已有）：
+ *   docker compose exec crm node shared-workspace.js <登录邮箱> <密码> [团队名] [slug]
  *
  * 建完把它给出的那行写进 .env 再重启容器：
  *
@@ -27,7 +31,9 @@ import { createWorkspace } from "../src/lib/tenant/workspaces";
 async function main() {
   const [邮箱, 密码, 团队名 = "试用工作区", slug = "shared"] = process.argv.slice(2);
   if (!邮箱 || !密码) {
-    console.error("用法：npx tsx scripts/shared-workspace.ts <登录邮箱> <密码> [团队名] [slug]");
+    console.error("用法：<登录邮箱> <密码> [团队名] [slug]");
+  console.error("  开发机：npx tsx scripts/shared-workspace.ts ...");
+  console.error("  容器里：docker compose exec crm node shared-workspace.js ...");
     process.exit(1);
   }
 
