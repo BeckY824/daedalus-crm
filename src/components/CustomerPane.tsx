@@ -73,7 +73,16 @@ export default function CustomerPane({ data }: { data: CustomerPaneData }) {
         </div>
       )}
       <div className="pane-rows">
-        {rows.length === 0 && <div className="pane-empty">{q ? "这 50 位里没有，回车去全量里搜" : "还没有这个状态的" + b.customer}</div>}
+        {rows.length === 0 && (
+          <div className="pane-empty">
+            {q
+              ? "这 50 位里没有，回车去全量里搜"
+              : status
+                ? `这 50 位里没有「${statusLabel(b, status)}」的`
+                : /* 一条都没有 ≠ 筛完没有。空库时说「还没有这个状态的」是句错话 */
+                  `还没有${b.customer}`}
+          </div>
+        )}
         {rows.map((r) => (
           <Link key={r.id} href={`/customers/${r.id}`} className={`pane-row${activeId === r.id ? " on" : ""}`}>
             <span className="pane-avatar" style={{ background: avatarColor(r.name), color: AVATAR_TEXT }}>

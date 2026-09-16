@@ -2,12 +2,13 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Row, Col, Segmented, Select, Table, Empty, Space, Typography } from "antd";
+import { Card, Row, Col, Segmented, Select, Table, Space, Typography } from "antd";
 import { BarChartOutlined, PayCircleOutlined, FileDoneOutlined, RiseOutlined } from "@ant-design/icons";
 import type { EChartsCoreOption } from "echarts/core";
 import Chart from "@/components/Chart";
 import AskDataCard from "./AskDataCard";
 import { PageHead, StatCard } from "@/components/ui";
+import EmptyState, { 表格空态 } from "@/components/EmptyState";
 import { money } from "@/lib/utils";
 
 type Bucket = { label: string; amount: number; count: number };
@@ -94,7 +95,12 @@ export default function ReportsView({
   const avg = total.count > 0 ? Math.round(total.amount / total.count) : 0;
   const best = trend.reduce<Bucket | null>((m, t) => (!m || t.amount > m.amount ? t : m), null);
 
-  const empty = { emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无签约数据" /> };
+  // 复盘的两张表：这一档没人时说清是「这个口径下没有」，不是「系统里没有」
+  const empty = 表格空态({
+    title: "这一档还没有签约",
+    hint: "复盘按签约记录算。换个年份，或者先去商机里把赢单的标出来。",
+    demo: false,
+  });
 
   return (
     <>
@@ -152,7 +158,10 @@ export default function ReportsView({
         {trend.length ? (
           <Chart option={trendOption} height={320} />
         ) : (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="该年度暂无签约记录" style={{ padding: "60px 0" }} />
+          <EmptyState
+            title="这一年还没有签约记录"
+            hint="签约之后这里会按月画出金额趋势，并和上一年同期比。换个年份看看，或者先去商机里把赢单的标出来。"
+          />
         )}
       </Card>
 

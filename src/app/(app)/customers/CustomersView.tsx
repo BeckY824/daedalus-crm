@@ -69,6 +69,12 @@ export default function CustomersView({
   const b = useBusiness();
 
   const [f, setF] = useState(filters);
+  /**
+   * 「空库」是「一条都没有 **且** 没在筛」。筛出 0 条不算——
+   * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
+   * 按 filters（服务端那次查询用的条件）判而不是 f（输入框里的草稿）。
+   */
+  const 空库 = total === 0 && !Object.values(filters).some((v) => v);
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -198,6 +204,12 @@ export default function CustomersView({
       />
 
       <Card styles={{ body: { padding: 22 } }}>
+        {/*
+          一条数据都没有、也没在筛的时候，筛选栏和批量操作整条收起来：
+          对着一张空表摆 5 个下拉 + 5 个按钮，第一次打开的人不知道该点哪个。
+          **筛出 0 条时要留着**——那时人得能看见自己筛了什么、能点重置。
+        */}
+        {!空库 && (
         <Space wrap size={[10, 10]} style={{ marginBottom: 14 }}>
           <Select style={{ width: 130 }} placeholder={`全部${b.fields.grade}`} allowClear
             value={f.grade || undefined} onChange={(v) => apply({ grade: v ?? "" })}
@@ -222,11 +234,19 @@ export default function CustomersView({
           <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={reset}>重置</Button>
         </Space>
+        )}
 
+        {/*
+          「新建」任何时候都在原位——空状态里那个「新建第一位」是给第一次进来的人的引导，
+          不是它的替代品；老用户会去工具栏找它。空库时收起来的是导出和批量操作，
+          那几个对着 0 条数据没有意义。
+        */}
         <Space wrap style={{ marginBottom: 14 }}>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
             新建{b.customer}
           </Button>
+          {!空库 && (
+          <>
           <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows, b)}>导出</Button>
           <Dropdown
             disabled={!selected.length}
@@ -294,13 +314,15 @@ export default function CustomersView({
           >
             <Button icon={<MoreOutlined />}>更多操作</Button>
           </Dropdown>
+          </>
+          )}
         </Space>
 
         <Table<CustomerRow>
           rowKey="id"
           locale={表格空态({
             title: `还没有${b.customer}`,
-            hint: `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。先建一位，或者灌一套演示数据看看它长什么样。`,
+            hint: `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。`,
             primary: { label: `新建第一位${b.customer}`, onClick: () => { setEditing(null); setFormOpen(true); } },
           })}
           size="middle"

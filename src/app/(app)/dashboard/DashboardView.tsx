@@ -15,12 +15,15 @@ import {
 import type { EChartsCoreOption } from "echarts/core";
 import Chart, { Sparkline } from "@/components/Chart";
 import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
+import EmptyState from "@/components/EmptyState";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
 import { money, moneyShort, smartTime, 成员选项 } from "@/lib/utils";
 import { OPP_STAGE_COLOR } from "@/lib/constants";
 
 type Props = {
+  /** 一条业务数据都没有。这时不画看板，画一张「从哪开始」 */
+  空库: boolean;
   stats: {
     leadTotal: number;
     leadDelta: number;
@@ -51,7 +54,7 @@ type Props = {
   aiEnabled: boolean;
 };
 
-export default function DashboardView({ stats, trend, funnel, ranking, tasks, watchlist, aiEnabled }: Props) {
+export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, aiEnabled }: Props) {
   // 这个下拉原本没有接线，选了没反应，而卡片上又写着「本月」——比没有更误导
   const [窗口, set窗口] = useState<"本月" | "本季">("本月");
   const [range, setRange] = useState<string | number>("近30天");
@@ -135,6 +138,20 @@ export default function DashboardView({ stats, trend, funnel, ranking, tasks, wa
   const funnelTotal = 当前漏斗.reduce((s, f) => s + f.count, 0);
   const funnelAmount = 当前漏斗.reduce((s, f) => s + f.amount, 0);
   const maxFunnel = Math.max(1, ...当前漏斗.map((f) => f.count));
+
+  if (空库) {
+    return (
+      <>
+        <PageHead title="数据看板" subtitle="线索、客户、商机的当下状态与趋势" />
+        <div className="card-soft">
+          <EmptyState
+            title="还没有可以看的数据"
+            hint="这一页统计的是线索、客户和商机——录进去之后，这里会有趋势、漏斗和业绩排行。"
+          />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
