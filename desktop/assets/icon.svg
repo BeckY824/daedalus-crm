@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    Daedalus CRM 应用图标。这是**源文件**，png / icns 由 scripts/make-icon.mjs 生成，别手改产物。
+
+    形是原来那个标：深蓝圆角方框 + 白底 + 蓝色折线 + 右上一个节点。
+    和 0.18.x 那版的区别只有一处，也是这次要改的那处——
+    **深蓝框就是图标的最外沿，外面不再留一圈白**。
+    原来外面那圈白让它看着像「一个图标又套在一张白卡片里」，双层框把主体压小了。
+
+    底板按 Apple 的图标网格：1024 画布里 824×824 居中、圆角 185。
+    四周那 100px 不是白边，是留给系统投影的透明区，所有 macOS 图标都这么摆——
+    填满 1024 的话，它在程序坞里会比邻居大一圈。
+
+    颜色取自旧图标本身：深蓝 #0B1B33，蓝 #1554E8。
+  -->
+  <defs>
+    <!-- 深蓝不做成死色：左上稍亮一点点，压边的地方沉下去 -->
+    <linearGradient id="frame" x1=".1" y1="0" x2=".9" y2="1">
+      <stop offset="0" stop-color="#16294D"/>
+      <stop offset="1" stop-color="#0A1729"/>
+    </linearGradient>
+    <linearGradient id="line" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#1554E8"/>
+      <stop offset="1" stop-color="#2C6BFF"/>
+    </linearGradient>
+    <filter id="drop" x="-25%" y="-25%" width="150%" height="160%">
+      <feGaussianBlur stdDeviation="15"/>
+    </filter>
+  </defs>
+
+  <!-- 投影：短、柔，贴着下沿 -->
+  <rect x="130" y="150" width="764" height="784" rx="176" fill="#070E1C" opacity=".26" filter="url(#drop)"/>
+
+  <!-- 最外层就是深蓝，外面不再有白 -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#frame)"/>
+  <!-- 上沿一道极淡的反光，让它不像一块平贴纸 -->
+  <path d="M290 102 H734" stroke="#FFFFFF" stroke-opacity=".16" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- 内部白底。厚度 76，圆角跟着收 -->
+  <rect x="176" y="176" width="672" height="672" rx="112" fill="#FFFFFF"/>
+
+  <!-- 折线：主体比原来大一圈，转角更圆。含描边和节点整体在白底区里居中（中心 512/512） -->
+  <path d="M315 712 V536 H505 V360 H633"
+        fill="none" stroke="url(#line)" stroke-width="76"
+        stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 右上那个节点：视觉落点 -->
+  <circle cx="685" cy="360" r="66" fill="url(#line)"/>
+</svg>

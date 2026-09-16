@@ -2,7 +2,13 @@
  * 本地模式：在用户自己的机器上跑一份完整的 CRM。
  *
  * 服务是随包发布的 Next standalone（server-bundle/，装配见 scripts/build-server.mjs），
- * 用 Electron 自带的 Node 拉起来——用户机器上不需要装 Node，也不需要装数据库。
+ * 用 Electron 的 utilityProcess 拉起来——用户机器上不需要装 Node，也不需要装数据库。
+ *
+ * **为什么不是 spawn(process.execPath) + ELECTRON_RUN_AS_NODE**（2026-09-16 改）：
+ * 那样等于把应用自己的可执行文件再启动一次，macOS 的 LaunchServices 会把它当成
+ * 另一个「应用」，于是 Dock 里多出一个没有图标的格子——显示的是系统给无图标
+ * Unix 可执行文件的通用图标（黑底绿字 exec）。用户看到的是「打开 CRM 冒出来两个东西」。
+ * utilityProcess 是 Electron 专门为「在应用里跑一段 Node」提供的，不产生新的应用实例。
  *
  * 三条不能动的约定：
  *   - **只监听 127.0.0.1**。绑 0.0.0.0 等于把一个自动登录的 CRM 挂到局域网上。
@@ -12,7 +18,7 @@
  *   - **会话密钥存在数据目录里**。它同时用来加密存储的 AI Key，和数据一起走，
  *     换机器时把数据目录整个拷过去就行。
  */
-const { spawn } = require("node:child_process");
+const { utilityProcess } = require("electron");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -105,12 +111,18 @@ async function start({ bundleDir, dataDir, logFile, 额外环境 = {} }) {
   const port = await 找一个空端口();
   const token = crypto.randomBytes(24).toString("hex");
 
-  子进程 = spawn(process.execPath, [entry], {
+  子进程 = utilityProcess.fork(entry, [], {
     cwd: bundleDir,
+    stdio: "pipe",
+    serviceName: "Daedalus CRM 本地服务",
+    /**
+     * Prisma 的查询引擎是一个 .node 原生库，而我们只做了 ad-hoc 签名。
+     * 不开这个开关的话，utilityProcess 在强化运行时下会拒绝加载它，
+     * 表现是服务起不来、日志里一句代码签名错误。
+     */
+    allowLoadingUnsignedLibraries: true,
     env: {
       ...process.env,
-      // 让 Electron 这个可执行文件以纯 Node 的身份跑，不开窗口
-      ELECTRON_RUN_AS_NODE: "1",
       NODE_ENV: "production",
       PORT: String(port),
       HOSTNAME: "127.0.0.1",
@@ -130,7 +142,6 @@ async function start({ bundleDir, dataDir, logFile, 额外环境 = {} }) {
        */
       ...额外环境,
     },
-    stdio: ["ignore", "pipe", "pipe"],
   });
 
   const 接住 = (流, 前缀) => {
@@ -149,9 +160,9 @@ async function start({ bundleDir, dataDir, logFile, 额外环境 = {} }) {
   接住(子进程.stdout, "");
   接住(子进程.stderr, "! ");
 
-  子进程.on("exit", (code, signal) => {
-    记一行(`进程退出 code=${code} signal=${signal}`);
-    日志流?.write(`===== 退出 code=${code} signal=${signal} =====\n`);
+  子进程.on("exit", (code) => {
+    记一行(`进程退出 code=${code}`);
+    日志流?.write(`===== 退出 code=${code} =====\n`);
     子进程 = null;
   });
 
@@ -180,15 +191,18 @@ function stop() {
       resolve();
     };
     p.once("exit", 收);
+    const pid = p.pid;
     try {
-      p.kill("SIGTERM");
+      // utilityProcess 的 kill() 不收信号参数，它自己走优雅退出那条路
+      p.kill();
     } catch {
       收();
       return;
     }
     setTimeout(() => {
+      // 还没走就按着头来一下。utilityProcess 没有 SIGKILL 的入口，用 pid 发
       try {
-        p.kill("SIGKILL");
+        if (pid) process.kill(pid, "SIGKILL");
       } catch {
         /* 已经没了 */
       }

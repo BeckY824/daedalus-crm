@@ -50,32 +50,49 @@ a {
 
 /* ---------- 三栏壳（2026-09-15）：图标栏 76 / 中栏 352 / 右栏 ---------- */
 .shell { display: flex; min-height: 100vh; }
-/* 图标栏：图标 + 名字，两个都常驻。
-   原来只有图标、名字靠悬停出 tooltip——省了 16px，代价是「要先发现可以悬停」，
-   而第一次打开的人不会去悬停，他只看到九个认不出的方块（2026-09-16 实测反馈）。 */
-.rail { width: 92px; flex: none; position: sticky; top: 0; height: 100vh; background: #fbfbfc; border-right: 1px solid #eceef2; display: flex; flex-direction: column; align-items: center; padding: 14px 0 12px; }
+/* 侧栏：图标和文字排在同一行，像正常的应用侧栏。
+   演进过程记在这儿，免得有人再绕回去：
+     76px 只有图标，名字靠悬停 → 第一次打开的人不会去悬停，只看到一列认不出的方块
+     92px 图标上、文字在下     → 认得出了，但两行一格，竖着占地方，也不像侧栏
+     164px 图标 + 文字同一行   → 现在这个。中栏相应收窄到 312 补回去 */
+.rail { width: 164px; flex: none; position: sticky; top: 0; height: 100vh; background: #fbfbfc; border-right: 1px solid #eceef2; display: flex; flex-direction: column; padding: 14px 10px 12px; }
 /* 桌面端：顶上给红黄绿钮留位，这一块也是拖窗口的把手。
-   红黄绿整组宽 52（钮 12 + 中心间距 20×2）。栏宽比网页版多 12，钮左右各留 26——
-   一开始按 76 算，钮右边只剩 10px 到那道竖线，挤得像贴着走。 */
-.shell-desktop .rail { width: 104px; padding-top: 44px; }
-.shell-desktop .rail-top { -webkit-app-region: drag; }
-.shell-desktop .rail-top a { -webkit-app-region: no-drag; }
-.rail-top { display: flex; align-items: center; justify-content: center; height: 40px; width: 100%; margin-bottom: 8px; }
-.rail-mark { display: inline-flex; line-height: 0; padding: 6px; border-radius: 8px; }
+   侧栏 164 宽之后钮不用再挤了——整组 52 宽按标准的 20px 内缩放着，右边还剩 92 到竖线，
+   和别的 macOS 应用一个观感。栏宽也就不必再比网页版多一截。 */
+.shell-desktop .rail { padding-top: 44px; }
+/* 桌面端：哪些地方按住能拖窗口。
+   去掉系统标题栏之后，窗口就只能从页面里拖了。原来只有图标栏顶上那 44px 能拖，
+   等于「要先猜到那一小块是把手」——和别的 macOS 应用不一样，那些应用是
+   「顶上任何空白处都能拖」。所以把三处顶栏都标成把手：图标栏顶、中栏头、正文页头。
+
+   里面的按钮、输入框、链接一律标回 no-drag，否则按下去只会拖窗口、点不动。
+   :is() 里列的是这三处实际会出现的交互元素，含 antd 那几个包装类。 */
+.shell-desktop .rail-top,
+.shell-desktop .pane-h,
+.shell-desktop .page-head,
+.shell-desktop .rec-head { -webkit-app-region: drag; }
+.shell-desktop :is(.rail-top, .pane-h, .page-head, .rec-head)
+  :is(a, button, input, select, textarea, [role="button"], [role="tab"], .ant-select, .ant-input, .ant-input-affix-wrapper, .ant-btn, .ant-dropdown-trigger, .ant-segmented) { -webkit-app-region: no-drag; }
+.rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 8px; }
+.rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: 8px; color: var(--ink); }
 .rail-mark:hover { background: #f0f1f4; }
-.rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 4px; align-items: center; }
+.rail-mark b { font-size: 14px; font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
+.rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 2px; }
 .rail-foot { margin-top: auto; }
-.rail-item { position: relative; width: 80px; padding: 7px 2px 6px; border-radius: 9px; display: flex; flex-direction: column; align-items: center; gap: 3px; color: #6b7280; font-size: 17px; line-height: 1; transition: background 120ms ease, color 120ms ease; }
-/* 名字。四个字在 11px 下约 44px，80 的格子放得下，不会断行 */
-.rail-item b { font-size: 11px; font-weight: 500; letter-spacing: -0.2px; white-space: nowrap; }
+.rail-item { position: relative; padding: 8px 10px; border-radius: 8px; display: flex; align-items: center; gap: 10px; color: #6b7280; font-size: 16px; line-height: 1; transition: background 120ms ease, color 120ms ease; }
+.rail-item b { font-size: 13.5px; font-weight: 500; letter-spacing: -0.2px; white-space: nowrap; }
 .rail-item.on b { font-weight: 600; }
 .rail-item:hover { background: #f0f1f4; color: var(--ink); }
 .rail-item.on { background: #e9eefb; color: #1f3fbf; }
-.rail-count { position: absolute; top: 2px; right: 14px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: #e5e7eb; color: #6b7280; font-size: 10.5px; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
-.rail-user { border: 0; background: none; padding: 0; margin-top: 6px; cursor: pointer; border-radius: 50%; line-height: 0; }
+/* 数字摆在行尾，不要挤在图标和文字中间 */
+.rail-count { position: absolute; top: 50%; transform: translateY(-50%); right: 9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: #e5e7eb; color: #6b7280; font-size: 10.5px; line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
+.rail-user { border: 0; background: none; padding: 7px 8px; margin-top: 6px; cursor: pointer; border-radius: 8px; line-height: 0; display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; }
+.rail-user:hover { background: #f0f1f4; }
+/* 名字。76px 那版塞不下，所以应用里哪一页都看不到自己是谁——侧栏宽了就该摆出来 */
+.rail-user b { font-size: 13px; font-weight: 500; color: var(--ink); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail-user:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
-.pane { width: 352px; flex: none; position: sticky; top: 0; height: 100vh; background: #fff; border-right: 1px solid #eceef2; display: flex; flex-direction: column; min-height: 0; }
+.pane { width: 312px; flex: none; position: sticky; top: 0; height: 100vh; background: #fff; border-right: 1px solid #eceef2; display: flex; flex-direction: column; min-height: 0; }
 .pane-h { height: 52px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 16px; border-bottom: 1px solid #f1f2f4; }
 .pane-t { font-size: 15px; font-weight: 600; letter-spacing: -0.2px; flex: 1; color: var(--ink); }
 .pane-n { color: #9ca3af; font-weight: 400; font-size: 13px; margin-left: 6px; }
@@ -483,10 +500,10 @@ a {
 /* 记录页什么时候从三栏收成两栏。
    这个数是算出来的，不是拍的：三栏壳把图标栏 76 和中栏 352 拿走了，正文左右还各有 26 的内边距，
    所以正文宽 = 视口 − 480。三栏要好看，中间那条时间线至少得 400：
-   296（档案）+ 340（AI）+ 18×2（间距）+ 400 = 1090 → 视口 1580（桌面端图标栏 104 时）。
+   296（档案）+ 340（AI）+ 18×2（间距）+ 400 = 1090 → 视口 1620（侧栏 164 + 中栏 312 + 内边距 52 = 528）。
    原来这里写的是 1360——那是中栏还不存在时定的，于是 1440（桌面端窗口的默认尺寸）
    仍然走三栏，时间线被压到 278px，「下次跟进」里的字直接竖排了。 */
-@media (max-width: 1580px) {
+@media (max-width: 1620px) {
   .rec { grid-template-columns: 264px minmax(0, 1fr); }
   .rec-right { grid-column: 1 / -1; }
   .rec-rail { position: static; }

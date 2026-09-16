@@ -188,7 +188,8 @@ export default function AppShell({ user, pendingCount, desktop, isAdmin, today, 
         {/* 桌面端：这块是红黄绿钮的位置，也是拖动窗口的把手 */}
         <div className="rail-top">
           <Link href="/dashboard" className="rail-mark" aria-label="Daedalus CRM">
-            <Logo size={22} />
+            <Logo size={20} />
+            <b>Daedalus CRM</b>
           </Link>
         </div>
         {/* 名字直接写出来，不再靠 tooltip：第一次打开的人不会去悬停，
@@ -213,9 +214,10 @@ export default function AppShell({ user, pendingCount, desktop, isAdmin, today, 
           </Link>
           <Dropdown placement="topLeft" menu={userMenu}>
             <button type="button" className="rail-user" aria-label={`${user.name}，账号菜单`}>
-              <Avatar size={26} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 12, fontWeight: 600 }}>
+              <Avatar size={24} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 11, fontWeight: 600, flex: "none" }}>
                 {initial(user.name)}
               </Avatar>
+              <b>{user.name}</b>
             </button>
           </Dropdown>
         </div>
