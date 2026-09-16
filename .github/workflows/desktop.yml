@@ -34,6 +34,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # tag 的版本号必须和 package.json 对得上。
+      # 对不上时不会有任何报错，只会出现一个 0.22.0 的 dmg 挂在 v0.22.1 的 Release 下面，
+      # 而装上它的人应用内报的还是 0.22.0，于是「检查更新」永远告诉他有新版——
+      # 装完还提示，无限循环。2026-09-16 真发生过一次。
+      # tests/version.test.ts 只管三个文件彼此一致，管不到 tag，所以挡在这里。
+      - name: 版本号要和 tag 对得上
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(jq -r .version package.json)
+          DESK=$(jq -r .version desktop/package.json)
+          echo "tag=$TAG  package.json=$PKG  desktop/package.json=$DESK"
+          if [ "$TAG" != "$PKG" ] || [ "$TAG" != "$DESK" ]; then
+            echo "::error::tag v$TAG 与 package.json($PKG) / desktop/package.json($DESK) 对不上。先改三处版本号并提交，再打 tag。"
+            exit 1
+          fi
       # 打包脚本要在应用根目录跑 prisma generate 与 next build
       - name: 安装应用依赖
         run: npm ci --no-audit --no-fund
