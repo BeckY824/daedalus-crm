@@ -903,6 +903,15 @@ if (!app.requestSingleInstanceLock()) {
     // 开机就查会和冷启动抢资源，等一会儿再说；之后每 6 小时再查一次。都是静默的，有新版就后台下
     setTimeout(() => 检查更新().catch(() => {}), 15_000);
     setInterval(() => 检查更新().catch(() => {}), 6 * 60 * 60 * 1000);
+    // 切回应用时也查一次。6 小时的定时器只是兜底——2026-09-16 官网发了新版，
+    // 用户开着的应用要等 6 小时才知道，只好去点菜单。10 分钟内不重复，免得来回切窗口刷请求；
+    // 初值设成现在，是让启动那一下的 focus 不要和 15 秒后那次撞在一起
+    let 上次焦点查 = Date.now();
+    app.on("browser-window-focus", () => {
+      if (Date.now() - 上次焦点查 < 10 * 60 * 1000) return;
+      上次焦点查 = Date.now();
+      检查更新().catch(() => {});
+    });
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) 建窗口();
     });

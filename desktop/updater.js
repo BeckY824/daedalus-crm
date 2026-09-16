@@ -26,9 +26,6 @@ const GitHub源 = process.env.CRM_UPDATE_FALLBACK_URL || "https://api.github.com
 /** 没有更具体的下载地址时，打开这一页 */
 const 下载页 = "https://ai-daedalus.com/download.html";
 
-/** 两次自动检查的最小间隔。手动点「检查更新」不受它限制 */
-const 自动检查间隔毫秒 = 24 * 60 * 60 * 1000;
-
 /**
  * 比较两个版本号。a 比 b 新返回正数。
  * 只看前三段数字，带 -beta 之类后缀的一律当成同一段的更早版本——
@@ -118,9 +115,4 @@ async function 检查({ 当前版本, 跳过的版本 } = {}) {
   return { ...最新, 当前 };
 }
 
-/** 距离上次自动检查够久了吗 */
-function 该自动查了(上次) {
-  return !上次 || Date.now() - new Date(上次).getTime() > 自动检查间隔毫秒;
-}
-
-module.exports = { 检查, 比版本, 该自动查了, 下载页 };
+module.exports = { 检查, 比版本, 下载页 };
