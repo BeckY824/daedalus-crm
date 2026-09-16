@@ -72,3 +72,47 @@ describe("检查更新取哪个源", () => {
     expect((await 检查({ 当前版本: "0.14.0", 跳过的版本: "0.19.0" }))?.版本).toBe("v0.20.1");
   });
 });
+
+/**
+ * 应用内更新需要 dmg 直链和 sha256。GitHub 的 Release 资产自带 digest；
+ * 自家 feed 由 latest-json.py 从同一处抄过来。哪边都没有就退回打开下载页。
+ */
+describe("候选带不带 dmg 直链和哈希", () => {
+  const 资产 = (name: string, digest?: string) => ({
+    name,
+    browser_download_url: `https://github.com/x/y/releases/download/v0.23.0/${name}`,
+    digest,
+  });
+
+  it("GitHub 资产里挑 arm64 的 dmg，digest 去掉 sha256: 前缀", async () => {
+    假网络(null, {
+      tag_name: "v0.23.0",
+      html_url: "https://github.com/x/y/releases/tag/v0.23.0",
+      assets: [资产("Daedalus.CRM-0.23.0-x64.dmg", "sha256:AAAA"), 资产("Daedalus.CRM-0.23.0-arm64.dmg", "sha256:BBBB"), 资产("notes.txt")],
+    });
+    const 结果 = await 检查({ 当前版本: "0.22.1" });
+    expect(结果?.dmg).toBe("https://github.com/x/y/releases/download/v0.23.0/Daedalus.CRM-0.23.0-arm64.dmg");
+    expect(结果?.sha256).toBe("bbbb");
+  });
+
+  it("没有 arm64 就退而取第一个 dmg；没有 digest 时 sha256 为 null", async () => {
+    假网络(null, { tag_name: "v0.23.0", assets: [资产("Daedalus.CRM-0.23.0-x64.dmg")] });
+    const 结果 = await 检查({ 当前版本: "0.22.1" });
+    expect(结果?.dmg).toMatch(/x64\.dmg$/);
+    expect(结果?.sha256).toBeNull();
+  });
+
+  it("自家 feed 带 dmg 和 sha256 就用它的", async () => {
+    假网络({ version: "0.23.0", dmg: "https://ai-daedalus.com/d/a.dmg", sha256: "sha256:CCCC", notes: "" }, null);
+    const 结果 = await 检查({ 当前版本: "0.22.1" });
+    expect(结果?.dmg).toBe("https://ai-daedalus.com/d/a.dmg");
+    expect(结果?.sha256).toBe("cccc");
+  });
+
+  it("老格式的 feed（只有 url）：dmg 为 null，调用方退回下载页", async () => {
+    假网络(自家("0.23.0"), null);
+    const 结果 = await 检查({ 当前版本: "0.22.1" });
+    expect(结果?.dmg).toBeNull();
+    expect(结果?.地址).toBe("https://ai-daedalus.com/download.html");
+  });
+});

@@ -27,6 +27,7 @@
       "local-server.js",
       "cloud.js",
       "updater.js",
+      "install.js",
       "sign.js",
       "assets/**"
     ],

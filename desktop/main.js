@@ -18,6 +18,7 @@ const fs = require("node:fs");
 const 本地服务 = require("./local-server");
 const 云端 = require("./cloud");
 const 更新 = require("./updater");
+const 安装 = require("./install");
 
 const APP_NAME = "Daedalus CRM";
 
@@ -64,6 +65,10 @@ function 读配置() {
       // 升级后突然切到空空如也的本地库会以为数据没了，所以保持连服务器
       mode: c.mode ?? "server",
       serverUrl: (c.serverUrl || 默认服务器).replace(/\/+$/, ""),
+      // 更新相关的两项。以前这里没把它们读回来，于是「跳过这个版本」写进去就丢了，
+      // 每次启动照样提示；每天一次的节流也从没生效过
+      skipVersion: c.skipVersion,
+      lastUpdateCheck: c.lastUpdateCheck,
     };
   } catch {
     return { mode: "local", serverUrl: 默认服务器 };
@@ -552,9 +557,12 @@ async function 显示额度() {
 
 /* ---------- 检查更新 ---------- */
 
+/** 应用包的路径（…/Daedalus CRM.app）。开发态 `electron .` 时是 null */
+const 应用包 = 安装.解析应用包(process.execPath);
+
 /**
- * 检查更新。只查、只提示、不自动装——没签名的 macOS 应用没法走系统那套自动更新，
- * 理由见 updater.js 顶部。手动点菜单时 静默=false，查不到也要给个回话。
+ * 检查更新。有新版且能原地换包就给「立即更新」，否则退回「去下载页」。
+ * 手动点菜单时 静默=false，查不到也要给个回话。
  */
 async function 检查更新(静默) {
   const cfg = 读配置();
@@ -574,17 +582,117 @@ async function 检查更新(静默) {
     return;
   }
 
+  const 可原地 = 新版.dmg ? 安装.能原地更新(应用包) : { ok: false, 原因: "这一版没有提供直接下载地址" };
   const { response } = await dialog.showMessageBox(win ?? null, {
     type: "info",
     title: "有新版本",
     message: `发现新版本 ${新版.版本}（当前 ${新版.当前}）`,
-    detail: `${新版.说明 ? `${新版.说明}\n\n` : ""}下载后把新的应用拖进「应用程序」覆盖旧的即可，数据不受影响。`,
-    buttons: ["去下载", "跳过这个版本", "以后再说"],
+    detail: 可原地.ok
+      ? `${新版.说明 ? `${新版.说明}\n\n` : ""}点「立即更新」会在后台下载、校验并替换应用，然后重启。数据在另一个目录，不受影响。`
+      : `${新版.说明 ? `${新版.说明}\n\n` : ""}${可原地.原因}。请去下载页手动下载，把新的应用拖进「应用程序」覆盖旧的即可，数据不受影响。`,
+    buttons: [可原地.ok ? "立即更新" : "去下载页", "跳过这个版本", "以后再说"],
     defaultId: 0,
     cancelId: 2,
   });
-  if (response === 0) shell.openExternal(新版.地址);
-  else if (response === 1) 写配置({ ...读配置(), skipVersion: 新版.版本 });
+  if (response === 0) {
+    if (可原地.ok) await 执行更新(新版);
+    else shell.openExternal(新版.地址);
+  } else if (response === 1) {
+    写配置({ ...读配置(), skipVersion: 新版.版本 });
+  }
+}
+
+/** 一个小窗口显示下载和安装进度。没有取消钮：换包中途被关掉比等一会儿更糟 */
+function 开进度窗() {
+  const w = new BrowserWindow({
+    width: 400,
+    height: 130,
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    closable: false,
+    title: "正在更新",
+    show: false,
+    webPreferences: { sandbox: true },
+  });
+  w.setMenuBarVisibility(false);
+  const html = `<!doctype html><meta charset="utf-8">
+<style>body{font:13px -apple-system,system-ui;margin:0;padding:22px 24px;color:#0B1B33;-webkit-user-select:none}
+progress{width:100%;height:8px;margin-top:12px}</style>
+<div id="t">正在准备…</div><progress id="p" max="100"></progress>
+<script>window.设=(t,p)=>{document.getElementById("t").textContent=t;const e=document.getElementById("p");if(p==null)e.removeAttribute("value");else e.value=p}</script>`;
+  w.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  w.once("ready-to-show", () => w.show());
+  return {
+    设(文字, 百分比) {
+      if (w.isDestroyed()) return;
+      w.webContents.executeJavaScript(`设(${JSON.stringify(文字)}, ${百分比 == null ? "null" : Math.round(百分比)})`).catch(() => {});
+      if (win && !win.isDestroyed()) win.setProgressBar(百分比 == null ? 2 : 百分比 / 100);
+    },
+    关() {
+      if (win && !win.isDestroyed()) win.setProgressBar(-1);
+      if (!w.isDestroyed()) {
+        w.setClosable(true);
+        w.close();
+      }
+    },
+  };
+}
+
+/**
+ * 下载 → 校验 → 停本地服务 → 换包 → 重启。
+ * 任何一步失败都把用户留在能用的状态：换包前失败什么都没动；换包失败会退回旧包；
+ * 本地服务停了但没换成，就把服务再拉起来。
+ */
+async function 执行更新(新版) {
+  const 版本 = String(新版.版本).replace(/^v/, "");
+  const 文件 = path.join(数据根, "updates", `Daedalus-CRM-${版本}.dmg`);
+  const 进度 = 开进度窗();
+  let 服务停过 = false;
+  try {
+    进度.设(`正在下载 ${版本}…`, 0);
+    await 安装.下载文件({
+      url: 新版.dmg,
+      目标: 文件,
+      进度: (已, 总) => 进度.设(总 ? `正在下载 ${版本}… ${Math.round((已 / 总) * 100)}%（${(已 / 1048576).toFixed(0)} / ${(总 / 1048576).toFixed(0)} MB）` : `正在下载 ${版本}… ${(已 / 1048576).toFixed(0)} MB`, 总 ? (已 / 总) * 100 : null),
+    });
+    if (新版.sha256) {
+      进度.设("正在校验…", null);
+      await 安装.校验sha256(文件, 新版.sha256);
+    }
+    进度.设("正在安装…", null);
+    if (本地服务.运行中()) {
+      服务停过 = true;
+      await 本地服务.stop();
+    }
+    await 安装.安装dmg({ dmg: 文件, 目标: 应用包, 日志: (行) => 进度.设(`正在安装… ${行}`, null) });
+    await fs.promises.rm(文件, { force: true }).catch(() => {});
+    进度.设("安装完成，正在重启…", 100);
+    app.relaunch();
+    app.exit(0);
+  } catch (e) {
+    进度.关();
+    await fs.promises.rm(文件, { force: true }).catch(() => {});
+    if (服务停过 && 读配置().mode === "local") {
+      try {
+        await 启动本地();
+        if (win) win.loadURL(本地入口());
+      } catch {
+        /* 下面的对话框已经在说更新失败了，这里再报会叠两层 */
+      }
+    }
+    const { response } = await dialog.showMessageBox(win ?? null, {
+      type: "error",
+      title: "更新失败",
+      message: "应用内更新没有成功",
+      detail: `${e?.message ?? e}\n\n可以去下载页手动下载安装，数据不受影响。`,
+      buttons: ["去下载页", "关闭"],
+      defaultId: 0,
+      cancelId: 1,
+    });
+    if (response === 0) shell.openExternal(新版.地址);
+  }
 }
 
 /* ---------- 菜单 ---------- */
@@ -703,6 +811,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     建菜单();
+    安装.清理旧包(应用包).catch(() => {});
     if (读配置().mode === "local") {
       if (!云端.读()) await 必须登录();
       try {

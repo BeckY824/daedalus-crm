@@ -1,13 +1,11 @@
 /**
- * 检查更新。
+ * 检查更新：查有没有新版，以及新版的 dmg 直链和哈希。
  *
- * **只查、只提示，不自动装。** 这是没签名换来的限制，不是偷懒：
- * macOS 的自动更新走 Squirrel.Mac，它会校验新包的代码签名和当前这个是同一张证书。
- * 我们只做了 ad-hoc 签名（免费的那种，身份不固定），校验必然过不去，
- * 硬接 electron-updater 的结果是每次更新都静默失败——比不做更糟，因为没人知道它坏了。
- * 要真正的自动更新就得买 Apple 开发者账号（99 美元/年），那是另一个决定。
- *
- * 所以这里做的是：发现有新版 → 弹一句 → 打开下载页。下载和拖进应用程序文件夹由用户完成。
+ * 装的部分在 install.js。原来「只查、只提示、不自动装」，理由是 macOS 的自动更新走
+ * Squirrel.Mac、要校验 Developer ID 签名而我们只有 ad-hoc。2026-09-16 拍板不买开发者账号，
+ * 改成自己下载、校验、换包——不经 Squirrel，签名不是障碍。这里只负责把 dmg 的地址和
+ * sha256 一起交出去：自家源的 latest.json 里带，GitHub 的 Release 资产自带 digest。
+ * 两样都没有时（老的 feed）退回原来的做法：打开下载页。
  *
  * 两个来源，取版本号更高的那个：自家那份是一个我们自己发布的小 JSON，能随时改，
  * 说明文案也由它给；GitHub 那份打了 tag、传了产物就自动是最新的，不用我们维护。
@@ -47,6 +45,17 @@ function 比版本(a, b) {
   return 后缀(a) - 后缀(b);
 }
 
+/** Release 资产里挑 dmg：目前只发 Apple 芯片的包，真出了 Intel 版也优先 arm64 */
+function 挑dmg(assets) {
+  const 全部 = (Array.isArray(assets) ? assets : []).filter((a) => /\.dmg$/.test(String(a?.name || "")));
+  return 全部.find((a) => /arm64/.test(a.name)) || 全部[0] || null;
+}
+
+/** GitHub 给的是 "sha256:…"，自家 feed 里可能带也可能不带前缀，统一成裸的小写十六进制 */
+function 剥哈希前缀(v) {
+  return v ? String(v).replace(/^sha256:/i, "").toLowerCase() : null;
+}
+
 async function 取JSON(url) {
   try {
     const res = await fetch(url, {
@@ -70,10 +79,23 @@ async function 查最新() {
 
   const 候选 = [];
   if (自家?.version) {
-    候选.push({ 版本: String(自家.version), 地址: 自家.url || 下载页, 说明: 自家.notes || "" });
+    候选.push({
+      版本: String(自家.version),
+      地址: 自家.url || 下载页,
+      说明: 自家.notes || "",
+      dmg: 自家.dmg || null,
+      sha256: 剥哈希前缀(自家.sha256),
+    });
   }
   if (gh?.tag_name) {
-    候选.push({ 版本: String(gh.tag_name), 地址: gh.html_url || 下载页, 说明: String(gh.body || "").slice(0, 600) });
+    const 资产 = 挑dmg(gh.assets);
+    候选.push({
+      版本: String(gh.tag_name),
+      地址: gh.html_url || 下载页,
+      说明: String(gh.body || "").slice(0, 600),
+      dmg: 资产?.browser_download_url || null,
+      sha256: 剥哈希前缀(资产?.digest),
+    });
   }
   if (!候选.length) return null;
 
@@ -84,7 +106,8 @@ async function 查最新() {
 /**
  * 检查更新。
  * @param {{当前版本: string, 跳过的版本?: string}} 选项
- * @returns {Promise<null | {版本, 地址, 说明, 当前}>} null 表示不用提示（已是最新 / 查不到 / 用户跳过了这版）
+ * @returns {Promise<null | {版本, 地址, 说明, 当前, dmg: string|null, sha256: string|null}>}
+ *   null 表示不用提示（已是最新 / 查不到 / 用户跳过了这版）。dmg 为 null 时只能打开下载页
  */
 async function 检查({ 当前版本, 跳过的版本 } = {}) {
   const 最新 = await 查最新();
