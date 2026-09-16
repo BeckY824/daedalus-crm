@@ -409,7 +409,7 @@ export default function SettingsView({
                             fontSize: 12,
                             whiteSpace: "pre-wrap",
                             wordBreak: "break-all",
-                            color: "#475569",
+                            color: "var(--ink-soft)",
                           }}
                         >
                           {safeJson(r.detail)}

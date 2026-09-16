@@ -133,7 +133,8 @@ export function DecisionStatusTag({ status }: { status: string }) {
 }
 
 export function StageTag({ stage }: { stage: string }) {
-  const c = OPP_STAGE_COLOR[stage] ?? "#94a3b8";
+  // 这个值要拼 "18" / "35" 当透明度，只能是真 hex，不能写 var()
+  const c = OPP_STAGE_COLOR[stage] ?? "#6b7280";
   return (
     <Tag style={{ margin: 0, borderRadius: 6, fontSize: 13, color: c, background: c + "18", borderColor: c + "35" }}>
       {stage}

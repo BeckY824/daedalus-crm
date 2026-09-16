@@ -93,10 +93,10 @@ export default function LoginForm({ 可找回密码 }: { 可找回密码: boolea
 
         <Form form={form} layout="vertical" onFinish={onFinish} size="large" requiredMark={false}>
           <Form.Item name="email" rules={[{ required: true, message: "请输入用户名" }]}>
-            <Input prefix={<UserOutlined style={{ color: "#94a3b8" }} />} placeholder="用户名" autoComplete="username" />
+            <Input prefix={<UserOutlined style={{ color: "var(--text-muted)" }} />} placeholder="用户名" autoComplete="username" />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: "请输入密码" }]}>
-            <Input.Password prefix={<LockOutlined style={{ color: "#94a3b8" }} />} placeholder="登录密码" autoComplete="current-password" />
+            <Input.Password prefix={<LockOutlined style={{ color: "var(--text-muted)" }} />} placeholder="登录密码" autoComplete="current-password" />
           </Form.Item>
           <Form.Item style={{ marginBottom: 8 }}>
             <Button type="primary" htmlType="submit" block loading={loading}>

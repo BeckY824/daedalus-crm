@@ -94,7 +94,7 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
 
         <Button type="primary" onClick={onSave} loading={saving}>保存</Button>
         <Button type="text" style={{ marginLeft: 8 }} onClick={() => form.setFieldsValue(DEFAULT_BUSINESS)}>恢复默认</Button>
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12.5 }}>
+        <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 13 }}>
           不做的：自定义字段、自定义状态流转、多套模板切换——那是另一个量级的功能。
         </Typography.Paragraph>
       </Form>

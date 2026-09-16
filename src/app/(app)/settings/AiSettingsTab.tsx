@@ -218,7 +218,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
       {llm.source !== null && (
         <div style={{ marginTop: 22 }}>
           <Typography.Text strong>本月用量</Typography.Text>
-          <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 12.5 }}>
+          <Typography.Text type="secondary" style={{ marginLeft: 8, fontSize: 13 }}>
             共 {usage.reduce((s, u) => s + u.count, 0)} 次，按自然月统计，来自操作日志
           </Typography.Text>
           <Space wrap size={[16, 6]} style={{ marginTop: 6 }}>

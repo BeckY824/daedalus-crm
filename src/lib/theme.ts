@@ -1,16 +1,17 @@
 import type { ThemeConfig } from "antd";
 
 /**
- * 视觉体系（v0.5）：往 Attio 那一路靠——白底、细线、小圆角、中性灰文字、
- * 品牌蓝只出现在主按钮、选中态和链接上；不用大色块、不用投影堆层次。
- * 密度也收紧一档：基准 14px，控件 34px。
+ * antd 这边的 token。
+ *
+ * 真正的一份 token 在 `src/app/globals.css` 的 `:root` 里——字号四级、十组颜色、
+ * 间距圆角动效、骨架尺寸都在那儿。这里只是把同样的值喂给 antd，
+ * 因为 antd 的组件样式是 CSS-in-JS 生成的，读不到 CSS 变量。
+ * **两边的数必须一样**；改颜色改字号先改 globals.css，再回来对一遍。
+ *
+ * 早先这里还导出过 RAIL_WIDTH = 76 / PANE_WIDTH = 352，没有任何地方用，
+ * 值也停在侧栏加宽之前——已经删掉，宽度只由 --rail-w / --pane-w 说了算。
  */
 export const BRAND = "#2f6bff";
-export const BRAND_DEEP = "#1a3f9e";
-
-/** 三栏壳的两个固定宽度（2026-09-15 起）。样式表里 .rail / .pane 用的是同样的数，改要一起改 */
-export const RAIL_WIDTH = 76;
-export const PANE_WIDTH = 352;
 
 export const themeConfig: ThemeConfig = {
   token: {
@@ -26,14 +27,19 @@ export const themeConfig: ThemeConfig = {
     fontSize: 14,
     fontSizeSM: 12,
     fontSizeLG: 16,
-    fontSizeHeading4: 20,
-    fontSizeHeading5: 16,
+    /* 页面标题 22 / 区块标题 15，和 --fs-title / --fs-section 对齐 */
+    fontSizeHeading4: 22,
+    fontSizeHeading5: 15,
     controlHeight: 34,
     controlHeightSM: 28,
     controlHeightLG: 40,
     colorTextBase: "#111827",
     colorText: "#111827",
     colorTextSecondary: "#6b7280",
+    /* Typography type="secondary" 走的是这个，不是 colorTextSecondary。
+       派生值是 #9ca3af——跟进记录整列正文就是这么变成浅灰的。说明最浅到 #6b7280 */
+    colorTextDescription: "#6b7280",
+    /* --text-faint：placeholder、禁用、装饰。不许当正文 */
     colorTextTertiary: "#9ca3af",
     colorBorder: "#e5e7eb",
     colorBorderSecondary: "#eceef2",
@@ -72,7 +78,7 @@ export const themeConfig: ThemeConfig = {
       borderRadiusLG: 10,
       paddingLG: 18,
       headerHeight: 46,
-      headerFontSize: 14,
+      headerFontSize: 15,
       colorBorderSecondary: "#e5e7eb",
       boxShadowTertiary: "none",
     },
@@ -81,6 +87,8 @@ export const themeConfig: ThemeConfig = {
       headerColor: "#6b7280",
       headerSplitColor: "transparent",
       rowHoverBg: "#f7f8fa",
+      rowSelectedBg: "#eef2ff",
+      rowSelectedHoverBg: "#e6ecff",
       borderColor: "#eceef2",
       cellPaddingBlock: 12,
       cellPaddingInline: 14,
@@ -88,7 +96,8 @@ export const themeConfig: ThemeConfig = {
       cellPaddingInlineMD: 14,
       cellPaddingBlockSM: 8,
       cellPaddingInlineSM: 12,
-      fontSize: 13.5,
+      /* 表格正文就是正文，和别处一样 14。13.5 是上一版为了多塞一列凑出来的 */
+      fontSize: 14,
       headerBorderRadius: 8,
     },
     Button: {

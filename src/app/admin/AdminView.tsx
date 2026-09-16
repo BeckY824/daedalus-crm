@@ -105,7 +105,7 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
             render: (_, r) => (
               <div>
                 <div style={{ fontWeight: 500 }}>{r.name}</div>
-                <div style={{ fontSize: 11.5, color: "#9ca3af" }}>{r.slug}</div>
+                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{r.slug}</div>
               </div>
             ),
           },
@@ -130,7 +130,7 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
             title: "AI 次数",
             dataIndex: "ai",
             width: 90,
-            render: (_, r) => (r.paidUntil ? <span style={{ color: "#9ca3af" }}>不限</span> : <span style={{ color: r.ai.剩 === 0 ? "#b45309" : undefined }}>{r.ai.剩} / {r.ai.送}</span>),
+            render: (_, r) => (r.paidUntil ? <span style={{ color: "var(--text-muted)" }}>不限</span> : <span style={{ color: r.ai.剩 === 0 ? "#b45309" : undefined }}>{r.ai.剩} / {r.ai.送}</span>),
           },
           {
             title: "注册于",
@@ -218,7 +218,7 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
               message="密码只显示这一次"
               description="关掉之后没有任何地方能再看到它。忘了只能重开一个工作区。"
             />
-            <Input.TextArea value={交付文本} autoSize readOnly onFocus={(e) => e.currentTarget.select()} style={{ fontFamily: "ui-monospace, monospace", fontSize: 12.5 }} />
+            <Input.TextArea value={交付文本} autoSize readOnly onFocus={(e) => e.currentTarget.select()} style={{ fontFamily: "ui-monospace, monospace", fontSize: 13 }} />
             <Button
               size="small"
               style={{ marginTop: 8 }}

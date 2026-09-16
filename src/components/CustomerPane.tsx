@@ -48,7 +48,7 @@ export default function CustomerPane({ data }: { data: CustomerPaneData }) {
         </Link>
       </div>
       <div className="pane-search">
-        <SearchOutlined style={{ color: "#9ca3af" }} />
+        <SearchOutlined style={{ color: "var(--text-muted)" }} />
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -91,7 +91,7 @@ export default function CustomerPane({ data }: { data: CustomerPaneData }) {
             <span className="pane-row-m">
               <span className="pane-row-n">
                 {r.name}
-                <Tag color={FOLLOW_STATUS_COLOR[r.followStatus] ?? "default"} style={{ margin: 0, borderRadius: 5, fontSize: 11.5, lineHeight: "18px", padding: "0 5px" }}>
+                <Tag color={FOLLOW_STATUS_COLOR[r.followStatus] ?? "default"} style={{ margin: 0, borderRadius: 5, fontSize: 12, lineHeight: "18px", padding: "0 5px" }}>
                   {statusLabel(b, r.followStatus)}
                 </Tag>
               </span>

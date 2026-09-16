@@ -44,7 +44,7 @@ export default function ReportsView({
         trigger: "axis",
         backgroundColor: "#fff",
         borderColor: "#e6edf6",
-        textStyle: { color: "#334155", fontSize: 12 },
+        textStyle: { color: "#374151", fontSize: 12 },
         extraCssText: "box-shadow:0 6px 20px rgba(16,43,77,.12);border-radius:8px;",
         valueFormatter: (v: number) => "¥ " + v.toLocaleString(),
       },
@@ -54,12 +54,12 @@ export default function ReportsView({
         data: trend.map((t) => t.label),
         axisLine: { lineStyle: { color: "#e8eef6" } },
         axisTick: { show: false },
-        axisLabel: { color: "#94a3b8", fontSize: 12 },
+        axisLabel: { color: "#6b7280", fontSize: 12 },
       },
       yAxis: {
         type: "value",
         splitLine: { lineStyle: { color: "#f1f5f9" } },
-        axisLabel: { color: "#94a3b8", fontSize: 12, formatter: (v: number) => (v >= 10000 ? v / 10000 + "万" : String(v)) },
+        axisLabel: { color: "#6b7280", fontSize: 12, formatter: (v: number) => (v >= 10000 ? v / 10000 + "万" : String(v)) },
       },
       series: [
         {

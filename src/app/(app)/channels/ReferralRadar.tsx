@@ -100,7 +100,7 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
         <Link href={`/customers/${c.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
           {c.name}
         </Link>
-        <span style={{ flex: 1, minWidth: 160, color: "#64748b", fontSize: 14 }}>{c.reason}</span>
+        <span style={{ flex: 1, minWidth: 160, color: "var(--text-muted)", fontSize: 14 }}>{c.reason}</span>
         {aiEnabled && !text && (
           <Button size="small" icon={<ThunderboltOutlined />} loading={job?.status === "loading"} onClick={onDraft}>
             起草邀请

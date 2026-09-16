@@ -135,7 +135,7 @@ export default function BillingView({
           。托管版卖的是省事，不是功能。
         </div>
       </div>
-      <div style={{ fontSize: 12, color: "#b0b6c1", marginTop: 18 }}>当前状态：{status}</div>
+      <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 18 }}>当前状态：{status}</div>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, App, Tooltip } from "antd";
+import { Table, Button, Space, Tag, Modal, Form, Input, Select, App, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined, EditOutlined, DeleteOutlined, ShareAltOutlined, StopOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import { PageHead, UserCell } from "@/components/ui";
@@ -176,7 +176,7 @@ export default function ChannelsView({
         }
       />
 
-      <Card styles={{ body: { padding: 22 } }}>
+      <div className="list">
         <Table<Row>
           rowKey="id"
           locale={表格空态({
@@ -190,7 +190,7 @@ export default function ChannelsView({
           scroll={{ x: 1400 }}
           pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条` }}
         />
-      </Card>
+      </div>
 
       {/* 雷达在两栏都空时不出现，页面不该有一块常驻的空卡片 */}
       {(radar.topReferrers.length > 0 || radar.inviteCandidates.length > 0) && (

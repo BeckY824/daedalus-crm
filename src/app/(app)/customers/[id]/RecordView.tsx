@@ -210,7 +210,7 @@ export default function RecordView({
             </div>
             <div className="rec-field" style={{ cursor: "default" }}>
               <div className="rec-field-k">推荐人</div>
-              <div className="rec-field-v">{customer.referrerName ?? <span style={{ color: "#94a3b8" }}>自然流量</span>}</div>
+              <div className="rec-field-v">{customer.referrerName ?? <span style={{ color: "var(--text-muted)" }}>自然流量</span>}</div>
             </div>
             <Tooltip title="推荐链往上第二代，不足两代取链条最顶端" placement="left">
               <div className="rec-field" style={{ cursor: "default" }}>
@@ -232,7 +232,7 @@ export default function RecordView({
                 <Avatar size={26} style={{ background: avatarColor(c.name), color: AVATAR_TEXT, fontSize: 12 }}>{initial(c.name)}</Avatar>
                 <span className="rec-mini-n">
                   {c.name}
-                  {c.isPrimary && <Tag color="blue" style={{ marginLeft: 6, borderRadius: 6, fontSize: 11, lineHeight: "16px", padding: "0 5px" }}>关键</Tag>}
+                  {c.isPrimary && <Tag color="blue" style={{ marginLeft: 6, borderRadius: 6, fontSize: 12, lineHeight: "18px", padding: "0 5px" }}>关键</Tag>}
                 </span>
                 <span className="rec-mini-m">{c.position ?? c.phone ?? ""}</span>
                 <Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditingContact(c); setContactOpen(true); }} />
@@ -354,7 +354,7 @@ export default function RecordView({
 
           <div className="rec-tl">
             {entries.length === 0 && (
-              <div style={{ padding: "36px 0", textAlign: "center", color: "#94a3b8" }}>
+              <div style={{ padding: "36px 0", textAlign: "center", color: "var(--text-muted)" }}>
                 {filter === "全部" ? "还没有任何记录。上面随手记一笔，或粘一段聊天记录让 AI 整理。" : "这个类型下还没有记录"}
               </div>
             )}
@@ -596,7 +596,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
         <div className="rec-tl-content">{f.content}</div>
         {f.sourceText && (
           <div style={{ marginTop: 2 }}>
-            <Typography.Link style={{ fontSize: 12, color: "#94a3b8" }} onClick={() => setSrcOpen((v) => !v)}>
+            <Typography.Link style={{ fontSize: 12, color: "var(--text-muted)" }} onClick={() => setSrcOpen((v) => !v)}>
               {srcOpen ? "收起原文" : "查看原文"}
             </Typography.Link>
             <AnimatePresence>
@@ -608,7 +608,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
                   style={{
                     marginTop: 6, marginBottom: 0, padding: "10px 12px", background: "#f8fafc", border: "1px solid #eef2f7",
                     borderRadius: 8, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                    fontFamily: "inherit", color: "#475569", maxHeight: 320, overflow: "auto",
+                    fontFamily: "inherit", color: "var(--ink-soft)", maxHeight: 320, overflow: "auto",
                   }}
                 >
                   {f.sourceText}

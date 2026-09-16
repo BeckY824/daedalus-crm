@@ -70,7 +70,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         trigger: "axis",
         backgroundColor: "#fff",
         borderColor: "#e6edf6",
-        textStyle: { color: "#334155", fontSize: 12 },
+        textStyle: { color: "#374151", fontSize: 12 },
         extraCssText: "box-shadow:0 6px 20px rgba(16,43,77,.12);border-radius:8px;",
       },
       legend: {
@@ -80,7 +80,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         icon: "circle",
         itemWidth: 8,
         itemHeight: 8,
-        textStyle: { color: "#64748b", fontSize: 12 },
+        textStyle: { color: "#6b7280", fontSize: 12 },
       },
       grid: { left: 4, right: 10, top: 40, bottom: 4, containLabel: true },
       xAxis: {
@@ -89,12 +89,12 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         boundaryGap: false,
         axisLine: { lineStyle: { color: "#e8eef6" } },
         axisTick: { show: false },
-        axisLabel: { color: "#94a3b8", fontSize: 11, interval: Math.floor(sliced.length / 6) },
+        axisLabel: { color: "#6b7280", fontSize: 12, interval: Math.floor(sliced.length / 6) },
       },
       yAxis: {
         type: "value",
         splitLine: { lineStyle: { color: "#f1f5f9" } },
-        axisLabel: { color: "#94a3b8", fontSize: 11 },
+        axisLabel: { color: "#6b7280", fontSize: 12 },
       },
       series: [
         {
@@ -229,8 +229,8 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                         fontSize: 13,
                         fontWeight: 600,
                         flex: "none",
-                        color: i < 3 ? "#fff" : "#64748b",
-                        background: ["#f59e0b", "#94a3b8", "#d97706"][i] ?? "#f1f5f9",
+                        color: i < 3 ? "#fff" : "#6b7280",
+                        background: ["#f59e0b", "#6b7280", "#d97706"][i] ?? "#f1f5f9",
                       }}
                     >
                       {i + 1}
@@ -250,7 +250,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                         }}
                       />
                     </div>
-                    <span style={{ fontSize: 14, color: "#64748b", width: 78, textAlign: "right", flex: "none" }}>
+                    <span style={{ fontSize: 14, color: "#6b7280", width: 78, textAlign: "right", flex: "none" }}>
                       {r.amount.toLocaleString()}
                     </span>
                   </div>
@@ -298,11 +298,11 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   <div style={{ fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {t.title}
                   </div>
-                  <Link href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "#94a3b8" }}>
+                  <Link href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "#6b7280" }}>
                     {t.customerName}
                   </Link>
                 </div>
-                <span style={{ fontSize: 14, color: "#64748b", flex: "none" }}>{smartTime(t.dueAt)}</span>
+                <span style={{ fontSize: 14, color: "#6b7280", flex: "none" }}>{smartTime(t.dueAt)}</span>
                 <Tag color="orange" style={{ margin: 0, borderRadius: 6, flex: "none" }}>待处理</Tag>
               </div>
             ))}
@@ -327,7 +327,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
               <div key={f.stage} className="funnel-row">
                 <span className="funnel-dot" style={{ background: OPP_STAGE_COLOR[f.stage] }} />
                 <span style={{ width: 82, flex: "none" }}>{f.stage}</span>
-                <span style={{ width: 48, flex: "none", color: "#64748b" }}>{f.count}</span>
+                <span style={{ width: 48, flex: "none", color: "#6b7280" }}>{f.count}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{
@@ -339,7 +339,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                     }}
                   />
                 </div>
-                <span style={{ fontSize: 14, color: "#64748b", width: 104, textAlign: "right", flex: "none" }}>
+                <span style={{ fontSize: 14, color: "#6b7280", width: 104, textAlign: "right", flex: "none" }}>
                   {money(f.amount)}
                 </span>
               </div>

@@ -78,7 +78,8 @@ export const FOLLOW_TYPES = [
   { value: "SMS", label: "短信沟通", color: "#06b6d4", icon: "message" },
   { value: "TASK", label: "跟进任务", color: "#f59e0b", icon: "carry-out" },
   { value: "REMIND", label: "跟进提醒", color: "#f97316", icon: "bell" },
-  { value: "OTHER", label: "其他记录", color: "#94a3b8", icon: "ellipsis" },
+  // 这些 color 会被拼上透明度后缀（见 FollowUpsView），必须是真 hex
+  { value: "OTHER", label: "其他记录", color: "#6b7280", icon: "ellipsis" },
 ] as const;
 
 export const FOLLOW_TYPE_MAP = Object.fromEntries(

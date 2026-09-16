@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Table, Input, Button, Space, Avatar, Tag } from "antd";
+import { Table, Input, Button, Space, Avatar, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined, ContactsOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageHead, CustomerLink } from "@/components/ui";
@@ -40,7 +40,7 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
           <Avatar size={36} style={{ background: avatarColor(v), color: AVATAR_TEXT, fontSize: 16 }}>{initial(v)}</Avatar>
           <div style={{ lineHeight: 1.3 }}>
             <div style={{ fontWeight: 500 }}>{v}</div>
-            <div style={{ fontSize: 13, color: "#94a3b8" }}>{r.position ?? "—"}</div>
+            <div style={{ fontSize: 13, color: "var(--text-muted)" }}>{r.position ?? "—"}</div>
           </div>
           {r.isPrimary && <Tag color="blue" style={{ margin: 0, borderRadius: 6 }}>关键</Tag>}
         </Space>
@@ -74,12 +74,12 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
         tag="联系人管理"
         tagNote="沉淀客户决策链，沟通不断线"
       />
-      <Card styles={{ body: { padding: 22 } }}>
-        <Space style={{ marginBottom: 14 }} wrap>
+      <div className="list">
+        <Space wrap>
           <Input
             style={{ width: 300 }}
             placeholder="姓名 / 电话 / 所属客户"
-            prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+            prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
             value={kw}
             allowClear
             onChange={(e) => setKw(e.target.value)}
@@ -109,7 +109,7 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
           scroll={{ x: 1330 }}
           pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true }}
         />
-      </Card>
+      </div>
     </>
   );
 }

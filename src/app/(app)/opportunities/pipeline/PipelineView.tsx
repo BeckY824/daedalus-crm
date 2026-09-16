@@ -88,7 +88,7 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: color }} />
                 <span style={{ fontWeight: 600, fontSize: 14 }}>{stage}</span>
-                <Tag style={{ margin: 0, borderRadius: 10, fontSize: 11 }}>{items.length}</Tag>
+                <Tag style={{ margin: 0, borderRadius: 10, fontSize: 12 }}>{items.length}</Tag>
               </div>
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
                 {money(sum)}
@@ -115,14 +115,14 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
                     }}
                   >
                     <div style={{ fontWeight: 500, fontSize: 13, marginBottom: 4 }}>{r.name}</div>
-                    <Link href={`/customers/${r.customerId}`} style={{ fontSize: 12, color: "#64748b" }}>
+                    <Link href={`/customers/${r.customerId}`} style={{ fontSize: 12, color: "var(--text-muted)" }}>
                       {r.customerName}
                     </Link>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14, color: "#10233d" }}>{money(r.amount)}</span>
-                      <span style={{ fontSize: 12, color: "#94a3b8" }}>{r.probability}%</span>
+                      <span style={{ fontWeight: 600, fontSize: 14, color: "var(--ink)" }}>{money(r.amount)}</span>
+                      <span style={{ fontSize: 12, color: "var(--text-muted)" }}>{r.probability}%</span>
                     </div>
-                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 6, display: "flex", justifyContent: "space-between" }}>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, display: "flex", justifyContent: "space-between" }}>
                       <span>{r.ownerName}</span>
                       <span>{fmtDate(r.expectedDealAt)}</span>
                     </div>

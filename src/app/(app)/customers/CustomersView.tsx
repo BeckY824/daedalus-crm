@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Card, Table, Button, Input, Select, Space, Dropdown, App, Tag } from "antd";
+import { Table, Button, Input, Select, Space, Dropdown, App, Tag } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import {
   PlusOutlined,
@@ -203,14 +203,14 @@ export default function CustomersView({
         tagNote={`统一管理${b.customer}信息，追踪推荐来源与签约进度`}
       />
 
-      <Card styles={{ body: { padding: 22 } }}>
+      <div className="list">
         {/*
           一条数据都没有、也没在筛的时候，筛选栏和批量操作整条收起来：
           对着一张空表摆 5 个下拉 + 5 个按钮，第一次打开的人不知道该点哪个。
           **筛出 0 条时要留着**——那时人得能看见自己筛了什么、能点重置。
         */}
         {!空库 && (
-        <Space wrap size={[10, 10]} style={{ marginBottom: 14 }}>
+        <Space wrap size={[10, 10]}>
           <Select style={{ width: 130 }} placeholder={`全部${b.fields.grade}`} allowClear
             value={f.grade || undefined} onChange={(v) => apply({ grade: v ?? "" })}
             options={b.grades.map((g) => ({ value: g, label: g }))} />
@@ -227,7 +227,7 @@ export default function CustomersView({
             value={f.channelOwnerId || undefined} onChange={(v) => apply({ channelOwnerId: v ?? "" })}
             options={成员选项(users)} />
           <Input style={{ width: 260 }} placeholder="姓名 / 电话 / 院校 / 专业"
-            prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+            prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
             value={f.keyword} allowClear
             onChange={(e) => setF({ ...f, keyword: e.target.value })}
             onPressEnter={() => apply()} />
@@ -241,7 +241,7 @@ export default function CustomersView({
           不是它的替代品；老用户会去工具栏找它。空库时收起来的是导出和批量操作，
           那几个对着 0 条数据没有意义。
         */}
-        <Space wrap style={{ marginBottom: 14 }}>
+        <Space wrap>
           <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
             新建{b.customer}
           </Button>
@@ -344,7 +344,7 @@ export default function CustomersView({
             },
           }}
         />
-      </Card>
+      </div>
 
       <CustomerForm
         open={formOpen}

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Table, Input, Button, Space, Select, Tag, Typography } from "antd";
+import { Table, Input, Button, Space, Select, Tag, Typography } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined, InteractionOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
@@ -107,8 +107,8 @@ export default function FollowUpsView({
         tag="跟进管理"
         tagNote="全面记录客户动态，驱动成交进程"
       />
-      <Card styles={{ body: { padding: 22 } }}>
-        <Space style={{ marginBottom: 14 }} wrap>
+      <div className="list">
+        <Space wrap>
           <Select
             style={{ width: 156 }}
             placeholder="全部类型"
@@ -128,7 +128,7 @@ export default function FollowUpsView({
           <Input
             style={{ width: 300 }}
             placeholder="标题 / 内容 / 客户名称"
-            prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+            prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
             value={f.keyword}
             allowClear
             onChange={(e) => setF({ ...f, keyword: e.target.value })}
@@ -155,7 +155,7 @@ export default function FollowUpsView({
           scroll={{ x: 1490 }}
           pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true }}
         />
-      </Card>
+      </div>
     </>
   );
 }

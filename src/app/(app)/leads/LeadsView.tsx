@@ -4,7 +4,6 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Card,
   Table,
   Input,
   Button,
@@ -192,8 +191,8 @@ export default function LeadsView({
         tag="线索管理"
         tagNote="从线索到客户，转化路径清晰可控"
       />
-      <Card styles={{ body: { padding: 22 } }}>
-        <Space style={{ marginBottom: 14 }} wrap>
+      <div className="list">
+        <Space wrap>
           <Select
             style={{ width: 152 }}
             placeholder="全部状态"
@@ -205,7 +204,7 @@ export default function LeadsView({
           <Input
             style={{ width: 280 }}
             placeholder="线索名称 / 联系人"
-            prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+            prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
             value={f.keyword}
             allowClear
             onChange={(e) => setF({ ...f, keyword: e.target.value })}
@@ -247,7 +246,7 @@ export default function LeadsView({
           scroll={{ x: 1370 }}
           pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true }}
         />
-      </Card>
+      </div>
 
       <Modal
         open={open}

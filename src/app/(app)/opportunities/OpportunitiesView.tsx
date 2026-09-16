@@ -307,7 +307,7 @@ export default function OpportunitiesView({
           <Input
             style={{ width: 220 }}
             placeholder="商机名称 / 客户"
-            prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+            prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
             value={f.keyword}
             allowClear
             onChange={(e) => setF({ ...f, keyword: e.target.value })}

@@ -15,7 +15,7 @@ export default function AskDataResult({ result }: { result: AskResult }) {
         trigger: "axis",
         backgroundColor: "#fff",
         borderColor: "#e6edf6",
-        textStyle: { color: "#334155", fontSize: 12 },
+        textStyle: { color: "#374151", fontSize: 12 },
         valueFormatter: (v: number) => `${v}${result.unit === "%" ? "%" : ""}`,
       },
       grid: { left: 8, right: 12, top: 24, bottom: 4, containLabel: true },
@@ -24,12 +24,12 @@ export default function AskDataResult({ result }: { result: AskResult }) {
         data: result.rows.map((r) => r.label),
         axisLine: { lineStyle: { color: "#e8eef6" } },
         axisTick: { show: false },
-        axisLabel: { color: "#94a3b8", fontSize: 12, interval: 0, rotate: result.rows.length > 6 ? 30 : 0 },
+        axisLabel: { color: "#6b7280", fontSize: 12, interval: 0, rotate: result.rows.length > 6 ? 30 : 0 },
       },
       yAxis: {
         type: "value",
         splitLine: { lineStyle: { color: "#f1f5f9" } },
-        axisLabel: { color: "#94a3b8", fontSize: 12 },
+        axisLabel: { color: "#6b7280", fontSize: 12 },
       },
       series: [
         {
@@ -74,7 +74,7 @@ export default function AskDataResult({ result }: { result: AskResult }) {
               render: (v: number, r) => (
                 <span style={{ fontWeight: 500 }}>
                   {v.toLocaleString("zh-CN")}
-                  {r.note ? <span style={{ color: "#94a3b8", fontWeight: 400 }}>（{r.note}）</span> : null}
+                  {r.note ? <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>（{r.note}）</span> : null}
                 </span>
               ),
             },

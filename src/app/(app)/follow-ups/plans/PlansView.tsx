@@ -107,13 +107,13 @@ export default function PlansView({
                 <CompanyLogo name={t.customerName} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{t.title}</div>
-                  <a href={`/customers/${t.customerId}`} style={{ fontSize: 12, color: "#94a3b8" }}>
+                  <a href={`/customers/${t.customerId}`} style={{ fontSize: 12, color: "var(--text-muted)" }}>
                     {t.customerName}
                   </a>
                 </div>
                 <Space size={8}>
                   {overdue(t.dueAt) && <Tag color="error" style={{ margin: 0, borderRadius: 6 }}>逾期</Tag>}
-                  <span style={{ fontSize: 12, color: overdue(t.dueAt) ? "#dc2626" : "#64748b" }}>{smartTime(t.dueAt)}</span>
+                  <span style={{ fontSize: 12, color: overdue(t.dueAt) ? "#dc2626" : "var(--text-muted)" }}>{smartTime(t.dueAt)}</span>
                   {scope === "全部成员" && <UserCell name={t.ownerName} size={22} />}
                 </Space>
               </div>
@@ -138,10 +138,10 @@ export default function PlansView({
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 500 }}>{p.subject}</div>
                   <Space size={6}>
-                    <a href={`/customers/${p.customerId}`} style={{ fontSize: 12, color: "#94a3b8" }}>
+                    <a href={`/customers/${p.customerId}`} style={{ fontSize: 12, color: "var(--text-muted)" }}>
                       {p.customerName}
                     </a>
-                    <Tag style={{ margin: 0, borderRadius: 6, fontSize: 11 }}>{p.method}</Tag>
+                    <Tag style={{ margin: 0, borderRadius: 6, fontSize: 12 }}>{p.method}</Tag>
                   </Space>
                 </div>
                 <Space size={8}>

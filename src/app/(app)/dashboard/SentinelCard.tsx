@@ -106,8 +106,8 @@ function SentinelRow({
             <Link href={`/customers/${it.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
               {it.customerName}
             </Link>
-            <span style={{ flex: 1, minWidth: 200, color: "#64748b", fontSize: 14 }}>{it.reason}</span>
-            <span style={{ color: "#94a3b8", fontSize: 13, flex: "none" }}>{it.ownerName}</span>
+            <span style={{ flex: 1, minWidth: 200, color: "var(--text-muted)", fontSize: 14 }}>{it.reason}</span>
+            <span style={{ color: "var(--text-muted)", fontSize: 13, flex: "none" }}>{it.ownerName}</span>
             {aiEnabled && !draftText && (
               <Button size="small" icon={<ThunderboltOutlined />} loading={job?.status === "loading"} onClick={onDraft}>
                 起草跟进
@@ -115,7 +115,7 @@ function SentinelRow({
             )}
           </div>
           {note && (
-            <div style={{ marginTop: 6, paddingLeft: 2, fontSize: 14, color: "#334155" }}>
+            <div style={{ marginTop: 6, paddingLeft: 2, fontSize: 14, color: "var(--ink-soft)" }}>
               <BulbOutlined style={{ color: "#f59e0b", marginRight: 6 }} />
               {note}
             </div>

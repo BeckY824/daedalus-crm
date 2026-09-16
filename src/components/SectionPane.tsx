@@ -35,7 +35,7 @@ export default function SectionPane({ title, items }: { title: string; items: { 
               <span className="pane-link-t">{i.label}</span>
               <span className="pane-link-s">{i.hint}</span>
             </span>
-            <RightOutlined style={{ fontSize: 10, color: "#9ca3af" }} />
+            <RightOutlined style={{ fontSize: 10, color: "var(--text-muted)" }} />
           </Link>
         ))}
       </div>
