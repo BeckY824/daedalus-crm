@@ -60,19 +60,18 @@ a {
    侧栏 164 宽之后钮不用再挤了——整组 52 宽按标准的 20px 内缩放着，右边还剩 92 到竖线，
    和别的 macOS 应用一个观感。栏宽也就不必再比网页版多一截。 */
 .shell-desktop .rail { padding-top: 44px; }
-/* 桌面端：哪些地方按住能拖窗口。
-   去掉系统标题栏之后，窗口就只能从页面里拖了。原来只有图标栏顶上那 44px 能拖，
-   等于「要先猜到那一小块是把手」——和别的 macOS 应用不一样，那些应用是
-   「顶上任何空白处都能拖」。所以把三处顶栏都标成把手：图标栏顶、中栏头、正文页头。
+/* 桌面端：顶上那一条按住能拖窗口。
+   去掉系统标题栏之后，窗口就只能从页面里拖了。上一版把三处顶栏各自标成把手
+   （.rail-top / .pane-h / .page-head），结果只有中栏那块能拖：图标栏的把手在 44px 内边距
+   **下面**（红黄绿钮那一带不在它里面），正文的把手在 22px 内边距下面、而且不是每页都有。
+   把手不该依赖各栏自己的头部怎么排——改成一条固定在窗口顶部、横贯整个宽度的透明条，
+   高度和中栏头一致（52px），三栏顶上任何空白处都能拖，和别的 macOS 应用一样。
 
-   里面的按钮、输入框、链接一律标回 no-drag，否则按下去只会拖窗口、点不动。
-   :is() 里列的是这三处实际会出现的交互元素，含 antd 那几个包装类。 */
-.shell-desktop .rail-top,
-.shell-desktop .pane-h,
-.shell-desktop .page-head,
-.shell-desktop .rec-head { -webkit-app-region: drag; }
-.shell-desktop :is(.rail-top, .pane-h, .page-head, .rec-head)
-  :is(a, button, input, select, textarea, [role="button"], [role="tab"], .ant-select, .ant-input, .ant-input-affix-wrapper, .ant-btn, .ant-dropdown-trigger, .ant-segmented) { -webkit-app-region: no-drag; }
+   它不接鼠标事件（pointer-events: none），底下的按钮照常能点：Chromium 的拖拽区是按
+   几何并集算的，不看层叠顺序，所以要把交互元素标成 no-drag 才能从并集里抠掉——
+   这条规则改成整个壳范围生效，不再按头部逐个列，新加的页头也就不会漏。 */
+.shell-desktop .drag-strip { position: fixed; top: 0; left: 0; right: 0; height: 52px; -webkit-app-region: drag; pointer-events: none; }
+.shell-desktop :is(a, button, input, select, textarea, [role="button"], [role="tab"], [role="menuitem"], .ant-select, .ant-input, .ant-input-affix-wrapper, .ant-btn, .ant-dropdown-trigger, .ant-segmented) { -webkit-app-region: no-drag; }
 .rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 8px; }
 .rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: 8px; color: var(--ink); }
 .rail-mark:hover { background: #f0f1f4; }

@@ -184,6 +184,8 @@ export default function AppShell({ user, pendingCount, desktop, isAdmin, today, 
 
   return (
     <div className={`shell${desktop ? " shell-desktop" : ""}`}>
+      {/* 桌面端顶上那条能拖窗口的把手，见 globals.css 的 .drag-strip */}
+      {desktop && <div className="drag-strip" aria-hidden="true" />}
       <nav className="rail" aria-label="主导航">
         {/* 桌面端：这块是红黄绿钮的位置，也是拖动窗口的把手 */}
         <div className="rail-top">
