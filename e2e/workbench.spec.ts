@@ -1,5 +1,5 @@
 /**
- * 批 2「三张母版」的验收：首页工作台、学员列表、学员记录。
+ * 批 2「三张母版」和批 3「列表扩展」的验收。
  *
  * 首页只有配了 AI 才是对话面（没配就直接是数据看板），而默认 e2e 是不配的——
  * 配了每条用例都会真的去打模型，慢、花钱、结果还随模型抖动。
@@ -168,4 +168,57 @@ test("学员记录：窄屏下名单收成抽屉，但「换一位」这条路�
   await expect(按钮).toBeVisible();
   await 按钮.click();
   await expect(page.locator(".ant-drawer .roster-row").first()).toBeVisible();
+});
+
+/* ---------- 批 3 ---------- */
+
+test("跟进计划：按逾期 / 今天 / 本周分三组，逾期那组是红的", async ({ page }) => {
+  // 先清再造：前面几条已经造过一套，直接再造一次会撞渠道名的唯一约束
+  const p = 连库();
+  await 清空业务数据(p);
+  await 造模拟数据(p);
+  await p.$disconnect();
+
+  await 登录(page);
+  await page.goto("/follow-ups/plans");
+  await page.waitForSelector(".plan-g");
+
+  const 组名 = await page.locator(".plan-g-h b").allInnerTexts();
+  expect(组名.slice(0, 3)).toEqual(["逾期", "今天", "本周"]);
+
+  // 逾期不能只靠排在最前面：颜色得跟上，扫过去才看得见
+  const 红 = await page.locator(".plan-g-warn .plan-g-h b").evaluate((el) => getComputedStyle(el).color);
+  expect(红, "逾期那一组的标题没有标红").not.toBe("rgb(17, 24, 39)");
+
+  // 每一组都要说清自己是什么，空的那组也要
+  for (const 说明 of await page.locator(".plan-g-s").allInnerTexts()) {
+    expect(说明.trim().length).toBeGreaterThan(3);
+  }
+});
+
+test("商机管道：列头写着这一阶段压着多少钱", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/opportunities/pipeline");
+  await page.waitForSelector(".pipe-col");
+  const 合计 = await page.locator(".pipe-sum").allInnerTexts();
+  expect(合计.length).toBeGreaterThan(0);
+  for (const x of 合计) expect(x).toMatch(/¥|￥|\d/);
+});
+
+test("1024 下管道自己横滚，页面不跟着被撑开", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await 登录(page);
+  await page.goto("/opportunities/pipeline");
+  await page.waitForSelector(".pipe-col");
+
+  const r = await page.evaluate(() => {
+    const d = document.documentElement;
+    const pipe = document.querySelector(".pipe")!;
+    return {
+      页面溢出: d.scrollWidth > d.clientWidth + 1,
+      管道能横滚: pipe.scrollWidth > pipe.clientWidth,
+    };
+  });
+  expect(r.页面溢出, "整页被管道撑出了横向滚动条").toBe(false);
+  expect(r.管道能横滚, "管道那一块自己得能横滚，否则右边几列就看不到了").toBe(true);
 });

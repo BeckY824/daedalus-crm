@@ -49,7 +49,11 @@ type Props<T> = {
   /** 点一行去哪。给了就整行可点；点在按钮、链接、勾选框上不算 */
   行链接?: (r: T) => string;
   横向?: number;
-  分页?: { 当前页: number; 每页: number; 总数: number; 翻页: (页: number, 每页: number) => void };
+  /**
+   * 不给 = 在浏览器里分页（行已经一次全拿下来了，多数列表页是这样）。
+   * 给了 = 服务端分页，由调用方去翻。false = 不分页。
+   */
+  分页?: { 当前页: number; 每页: number; 总数: number; 翻页: (页: number, 每页: number) => void } | false;
 };
 
 const 列键 = <T,>(c: 列<T>) => String(c.key ?? c.dataIndex);
@@ -151,16 +155,18 @@ export default function DataList<T extends { id: string }>({
             : undefined
         }
         pagination={
-          分页
-            ? {
-                current: 分页.当前页,
-                pageSize: 分页.每页,
-                total: 分页.总数,
-                showTotal: (t) => `共 ${t} 条`,
-                showSizeChanger: true,
-                onChange: 分页.翻页,
-              }
-            : false
+          分页 === false
+            ? false
+            : 分页
+              ? {
+                  current: 分页.当前页,
+                  pageSize: 分页.每页,
+                  total: 分页.总数,
+                  showTotal: (t) => `共 ${t} 条`,
+                  showSizeChanger: true,
+                  onChange: 分页.翻页,
+                }
+              : { pageSize: 20, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true }
         }
       />
     </div>

@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Card, Row, Col, Segmented, Empty, Checkbox, Tag, Space, Button, App, Typography } from "antd";
-import { CarryOutOutlined, CheckCircleOutlined, CalendarOutlined } from "@ant-design/icons";
-import { PageHead, CompanyLogo, UserCell } from "@/components/ui";
-import { dayjs, smartTime, fmtDateTime } from "@/lib/utils";
-import { toggleTask } from "../../customers/[id]/actions";
-import { completePlan } from "../../customers/[id]/actions";
+import { Segmented, Space, Button, App, Tag } from "antd";
+import { CheckCircleOutlined } from "@ant-design/icons";
+import { PageHead, UserCell } from "@/components/ui";
+import EmptyState from "@/components/EmptyState";
+import { dayjs, fmtDateTime } from "@/lib/utils";
+import { useBusiness } from "@/lib/business-client";
+import { toggleTask, completePlan } from "../../customers/[id]/actions";
 
 type Plan = {
   id: string;
@@ -30,6 +31,30 @@ type Task = {
   ownerName: string;
 };
 
+/** 待办和跟进计划在这一页是同一件事：「我接下来要做的」。只是完成的方式不同 */
+type 事项 = {
+  key: string;
+  kind: "plan" | "task";
+  id: string;
+  标题: string;
+  时间: string | null;
+  方式?: string;
+  customerId: string;
+  customerName: string;
+  ownerId: string;
+  ownerName: string;
+};
+
+/**
+ * 跟进计划。
+ *
+ * 原来是左右两张卡：左边「待办任务」，右边「跟进计划」。可人早上打开这一页
+ * 想知道的不是「哪些是任务哪些是计划」，而是**哪些已经拖了、今天必须做哪些**——
+ * 所以改成按时间分三组：逾期、今天、本周。两类事项混在一组里，各自带一个小标。
+ *
+ * 点完成之后那一行**留在原地 600 毫秒**再消失（划掉、压暗）。
+ * 立刻抽走的话，下面的行会跳上来顶替它的位置，眼睛得重新找一遍自己看到哪儿了。
+ */
 export default function PlansView({
   plans,
   tasks,
@@ -41,130 +66,152 @@ export default function PlansView({
 }) {
   const router = useRouter();
   const { message } = App.useApp();
+  const b = useBusiness();
   const [scope, setScope] = useState<string | number>("我的");
-  const [when, setWhen] = useState<string | number>("全部");
+  /** 刚点过完成、还留在原地的那几条 */
+  const [刚完成, set刚完成] = useState<string[]>([]);
 
-  function inWindow(d: string | null) {
-    if (!d) return when === "全部";
-    const t = dayjs(d);
-    if (when === "逾期") return t.isBefore(dayjs());
-    if (when === "今天") return t.isSame(dayjs(), "day");
-    if (when === "本周") return t.isBefore(dayjs().endOf("week")) && t.isAfter(dayjs().startOf("day"));
-    return true;
+  const 全部: 事项[] = useMemo(
+    () => [
+      ...plans.map((p) => ({
+        key: `plan:${p.id}`, kind: "plan" as const, id: p.id, 标题: p.subject, 时间: p.plannedAt, 方式: p.method,
+        customerId: p.customerId, customerName: p.customerName, ownerId: p.ownerId, ownerName: p.ownerName,
+      })),
+      ...tasks.map((t) => ({
+        key: `task:${t.id}`, kind: "task" as const, id: t.id, 标题: t.title, 时间: t.dueAt,
+        customerId: t.customerId, customerName: t.customerName, ownerId: t.ownerId, ownerName: t.ownerName,
+      })),
+    ],
+    [plans, tasks],
+  );
+
+  const 我的 = useMemo(() => 全部.filter((x) => (scope === "我的" ? x.ownerId === meId : true)), [全部, scope, meId]);
+
+  /**
+   * 分组。没定时间的算「以后」而不是塞进本周——它不是这周要做的，
+   * 只是还没排期；混进来会让「本周」这个数变得不可信。
+   */
+  const 组 = useMemo(() => {
+    const 今天开始 = dayjs().startOf("day");
+    const 今天结束 = dayjs().endOf("day");
+    const 本周结束 = dayjs().endOf("week");
+    const out = { 逾期: [] as 事项[], 今天: [] as 事项[], 本周: [] as 事项[], 以后: [] as 事项[] };
+    for (const x of 我的) {
+      if (!x.时间) out.以后.push(x);
+      else {
+        const t = dayjs(x.时间);
+        if (t.isBefore(今天开始)) out.逾期.push(x);
+        else if (t.isBefore(今天结束)) out.今天.push(x);
+        else if (t.isBefore(本周结束)) out.本周.push(x);
+        else out.以后.push(x);
+      }
+    }
+    for (const k of Object.keys(out) as (keyof typeof out)[]) {
+      out[k].sort((a, c) => (a.时间 ?? "").localeCompare(c.时间 ?? ""));
+    }
+    return out;
+  }, [我的]);
+
+  async function 完成(x: 事项) {
+    set刚完成((v) => [...v, x.key]);
+    if (x.kind === "plan") await completePlan(x.id);
+    else await toggleTask(x.id, true);
+    message.success(x.kind === "plan" ? "计划已完成" : "任务已完成");
+    // 留位 600ms 再让它从列表里消失：立刻抽走，下面的行会跳上来顶替位置
+    setTimeout(() => {
+      set刚完成((v) => v.filter((k) => k !== x.key));
+      router.refresh();
+    }, 600);
   }
 
-  const myPlans = useMemo(
-    () => plans.filter((p) => (scope === "我的" ? p.ownerId === meId : true)).filter((p) => inWindow(p.plannedAt)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [plans, scope, when, meId],
-  );
-
-  const myTasks = useMemo(
-    () => tasks.filter((t) => (scope === "我的" ? t.ownerId === meId : true)).filter((t) => inWindow(t.dueAt)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tasks, scope, when, meId],
-  );
-
-  const overdue = (d: string | null) => d && dayjs(d).isBefore(dayjs());
+  const 空了 = 全部.length === 0;
 
   return (
     <>
-      <PageHead
-        icon={<CalendarOutlined />}
-        title="跟进计划"
-        subtitle="逾期、今天、本周要联系的人"
-        tag="跟进管理"
-        tagNote="计划先行，跟进不遗漏"
-      />
+      <PageHead title="跟进计划" subtitle="排好了还没做的：先看逾期，再看今天" />
 
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Segmented value={scope} onChange={setScope} options={["我的", "全部成员"]} />
-        <Segmented value={when} onChange={setWhen} options={["全部", "逾期", "今天", "本周"]} />
-      </Space>
+      {空了 ? (
+        <div className="card-soft">
+          <EmptyState
+            title="还没有排任何跟进"
+            hint={`跟进计划是「下次什么时候、找谁、谈什么」。它从${b.customer}的记录页上排——在那儿点「制定跟进计划」，到时间了这一页会把它顶到最前面。`}
+            primary={{ label: `去${b.customer}那边排一条`, onClick: () => router.push("/customers") }}
+          />
+        </div>
+      ) : (
+        <>
+          <Space wrap style={{ marginBottom: 16 }}>
+            <Segmented value={scope} onChange={setScope} options={["我的", "全部成员"]} />
+            {/* 自己名下空、团队里却有一堆的时候要说一声。
+                三组全写着「这一组是空的」，人会以为整个团队都没排 */}
+            {scope === "我的" && 我的.length === 0 && 全部.length > 0 && (
+              <button type="button" className="plan-switch" onClick={() => setScope("全部成员")}>
+                你名下没有；全部成员还有 {全部.length} 条 ›
+              </button>
+            )}
+          </Space>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={12}>
-          <Card
-            title={
-              <Space size={8}>
-                <CarryOutOutlined style={{ color: "#f59e0b" }} />
-                <span className="section-title">待办任务（{myTasks.length}）</span>
-              </Space>
-            }
-            styles={{ body: { paddingTop: 8 } }}
-          >
-            {myTasks.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有待办任务" />}
-            {myTasks.map((t) => (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: "1px dashed #eef2f7" }}>
-                <Checkbox
-                  onChange={async (e) => {
-                    if (!e.target.checked) return;
-                    await toggleTask(t.id, true);
-                    message.success("任务已完成");
-                    router.refresh();
-                  }}
-                />
-                <CompanyLogo name={t.customerName} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{t.title}</div>
-                  <a href={`/customers/${t.customerId}`} style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                    {t.customerName}
-                  </a>
-                </div>
-                <Space size={8}>
-                  {overdue(t.dueAt) && <Tag color="error" style={{ margin: 0, borderRadius: 6 }}>逾期</Tag>}
-                  <span style={{ fontSize: 12, color: overdue(t.dueAt) ? "#dc2626" : "var(--text-muted)" }}>{smartTime(t.dueAt)}</span>
-                  {scope === "全部成员" && <UserCell name={t.ownerName} size={22} />}
-                </Space>
-              </div>
-            ))}
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={12}>
-          <Card
-            title={
-              <Space size={8}>
-                <CalendarOutlined style={{ color: "#1668dc" }} />
-                <span className="section-title">跟进计划（{myPlans.length}）</span>
-              </Space>
-            }
-            styles={{ body: { paddingTop: 8 } }}
-          >
-            {myPlans.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有待执行的跟进计划" />}
-            {myPlans.map((p) => (
-              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 0", borderBottom: "1px dashed #eef2f7" }}>
-                <CompanyLogo name={p.customerName} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500 }}>{p.subject}</div>
-                  <Space size={6}>
-                    <a href={`/customers/${p.customerId}`} style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                      {p.customerName}
-                    </a>
-                    <Tag style={{ margin: 0, borderRadius: 6, fontSize: 12 }}>{p.method}</Tag>
-                  </Space>
-                </div>
-                <Space size={8}>
-                  {overdue(p.plannedAt) && <Tag color="error" style={{ margin: 0, borderRadius: 6 }}>逾期</Tag>}
-                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                    {fmtDateTime(p.plannedAt)}
-                  </Typography.Text>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={<CheckCircleOutlined style={{ color: "#16a34a" }} />}
-                    onClick={async () => {
-                      await completePlan(p.id);
-                      message.success("计划已完成");
-                      router.refresh();
-                    }}
-                  />
-                </Space>
-              </div>
-            ))}
-          </Card>
-        </Col>
-      </Row>
+          <div className="plans">
+            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} scope={scope} />
+            <组块 名="今天" 说明="今天之内要做的" 事项={组.今天} 完成={完成} 刚完成={刚完成} scope={scope} />
+            <组块 名="本周" 说明="这周剩下的几天" 事项={组.本周} 完成={完成} 刚完成={刚完成} scope={scope} />
+            {组.以后.length > 0 && (
+              <组块 名="以后" 说明="更远的，和还没定时间的" 事项={组.以后} 完成={完成} 刚完成={刚完成} scope={scope} />
+            )}
+          </div>
+        </>
+      )}
     </>
+  );
+}
+
+function 组块({
+  名, 说明, 事项, 危险, 完成, 刚完成, scope,
+}: {
+  名: string;
+  说明: string;
+  事项: 事项[];
+  危险?: boolean;
+  完成: (x: 事项) => void;
+  刚完成: string[];
+  scope: string | number;
+}) {
+  return (
+    <section className={`plan-g${危险 ? " plan-g-warn" : ""}`}>
+      <div className="plan-g-h">
+        <b>{名}</b>
+        <span className="plan-g-n">{事项.length}</span>
+        <span className="plan-g-s">{说明}</span>
+      </div>
+      {事项.length === 0 ? (
+        <div className="plan-empty">这一组是空的</div>
+      ) : (
+        事项.map((x) => {
+          const 完了 = 刚完成.includes(x.key);
+          return (
+            <div key={x.key} className={`plan-row${完了 ? " plan-row-done" : ""}`}>
+              <Button
+                type="text"
+                size="small"
+                aria-label={`完成 ${x.标题}`}
+                icon={<CheckCircleOutlined style={{ color: 完了 ? "var(--success)" : undefined }} />}
+                disabled={完了}
+                onClick={() => 完成(x)}
+              />
+              <span className="plan-row-m">
+                <span className="plan-row-t">{x.标题}</span>
+                <span className="plan-row-s">
+                  <a href={`/customers/${x.customerId}`}>{x.customerName}</a>
+                  {x.方式 && <Tag style={{ margin: 0, borderRadius: 6 }}>{x.方式}</Tag>}
+                  <Tag style={{ margin: 0, borderRadius: 6 }}>{x.kind === "plan" ? "跟进计划" : "待办"}</Tag>
+                </span>
+              </span>
+              {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
+              <span className="plan-row-d">{x.时间 ? fmtDateTime(x.时间) : "没定时间"}</span>
+            </div>
+          );
+        })
+      )}
+    </section>
   );
 }

@@ -796,6 +796,54 @@ a {
 .start-note { margin: var(--s3) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
 @media (max-width: 900px) { .start-steps { grid-template-columns: 1fr; } }
 
+/* ---------- 跟进计划：按时间分三组 ----------
+   原来是左右两张卡：左边「待办任务」、右边「跟进计划」。可早上打开这一页想知道的
+   不是「哪些是任务哪些是计划」，而是哪些已经拖了、今天必须做哪些。 */
+.plans { display: flex; flex-direction: column; gap: var(--s5); }
+.plan-g-h { display: flex; align-items: baseline; gap: var(--s2); padding-bottom: var(--s2); border-bottom: 1px solid var(--line); }
+.plan-g-h b { font-size: var(--fs-section); font-weight: 600; color: var(--ink); }
+.plan-g-n { font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.plan-g-s { font-size: var(--fs-note); color: var(--text-muted); margin-left: auto; }
+/* 逾期那一组：红只给标题和数字，不给整块底色——整块红会让人以为出错了 */
+.plan-g-warn .plan-g-h b, .plan-g-warn .plan-g-n { color: var(--danger); }
+.plan-g-warn .plan-g-h { border-bottom-color: var(--danger-line); }
+.plan-switch { border: 0; background: none; padding: 0; color: var(--brand); cursor: pointer; font: inherit; font-size: var(--fs-note); }
+.plan-empty { padding: var(--s3) 0; color: var(--text-muted); font-size: var(--fs-note); }
+.plan-row { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) 0; border-bottom: 1px solid var(--line-soft); }
+.plan-row:hover { background: var(--row-hover); }
+/* 点完成之后留位 600ms 再消失：立刻抽走的话下面的行会跳上来顶替，眼睛得重新找位置 */
+.plan-row-done { opacity: 0.45; transition: opacity var(--t-slow) ease; }
+.plan-row-done .plan-row-t { text-decoration: line-through; }
+.plan-row-m { flex: 1; min-width: 0; }
+.plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan-row-s { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: var(--fs-note); color: var(--text-muted); }
+.plan-row-d { flex: none; font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- 商机管道 ----------
+   列是横着排的，窄屏下**只有这一块横滚**，页面本身不跟着被撑开。 */
+.pipe { display: flex; gap: var(--s3); overflow-x: auto; padding-bottom: var(--s2); align-items: flex-start; }
+.pipe-col { flex: 0 0 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3); min-height: 220px;
+  transition: background var(--t-fast), border-color var(--t-fast); }
+/* 落点要看得出来：拖过去时整列亮一下，不然人不知道松手会掉进哪一列 */
+.pipe-col-on { background: var(--brand-bg); border-color: var(--brand-line); }
+.pipe-h { display: flex; align-items: baseline; gap: 6px; }
+.pipe-h b { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.pipe-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; flex: none; }
+.pipe-n { font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* 这一列压着多少钱。管道是拿来看钱怎么分布的，只数张数看不出这个 */
+.pipe-sum { margin-left: auto; font-size: var(--fs-note); font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pipe-bar { height: 3px; border-radius: 2px; opacity: 0.5; margin: var(--s2) 0 var(--s3); }
+.pipe-empty { padding: var(--s4) 0; text-align: center; color: var(--text-muted); font-size: var(--fs-note); }
+.pipe-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--r-ctl);
+  padding: var(--s2) var(--s3); margin-bottom: var(--s2); cursor: grab; }
+.pipe-card:hover { border-color: var(--line-strong); }
+.pipe-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.pipe-card-drag { opacity: 0.45; }
+.pipe-card-t { font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pipe-card-m { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); margin-top: var(--s1); }
+.pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pipe-card-o { font-size: var(--fs-note); color: var(--text-muted); }
+
 /* ---------- 空状态 ----------
    antd 默认那个「暂无数据」只说「没有」。第一次打开的人要知道的是「接下来做什么」，
    所以这里是：一句这是什么、一句为什么有用、一排能点的动作。见 components/EmptyState.tsx */

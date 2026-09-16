@@ -3,31 +3,17 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import {
-  Table,
-  Input,
-  Button,
-  Space,
-  Select,
-  Tag,
-  Modal,
-  Form,
-  Row,
-  Col,
-  App,
-} from "antd";
-import type { ColumnsType } from "antd/es/table";
+import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, App } from "antd";
 import {
   SearchOutlined,
-  ShareAltOutlined,
   PlusOutlined,
   SwapRightOutlined,
   DeleteOutlined,
   EditOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
-import { PageHead } from "@/components/ui";
-import { 表格空态 } from "@/components/EmptyState";
+import { PageHead, UserCell } from "@/components/ui";
+import DataList, { type 列 } from "@/components/DataList";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
 import { fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { saveLead, deleteLeads, convertLead } from "./actions";
@@ -65,6 +51,8 @@ export default function LeadsView({
   const b = useBusiness();
   const [pending, startTransition] = useTransition();
   const [f, setF] = useState(filters);
+  /** 空库 = 一条都没有**且**没在筛。筛出 0 条时筛选栏要留着，见 DataList */
+  const 空库 = rows.length === 0 && !Object.values(filters).some((v) => v);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [form] = Form.useForm();
@@ -98,32 +86,29 @@ export default function LeadsView({
     router.refresh();
   }
 
-  const columns: ColumnsType<Row> = [
-    { title: "线索名称", dataIndex: "name", width: 274, render: (v) => <span className="link-strong">{v}</span> },
-    { title: "联系人", dataIndex: "contact", width: 118, render: (v) => v ?? "—" },
-    { title: "联系电话", dataIndex: "phone", width: 152, render: (v) => v ?? "—" },
-    { title: "所属行业", dataIndex: "industry", width: 130, render: (v) => <span className="muted">{v ?? "—"}</span> },
-    { title: "线索来源", dataIndex: "source", width: 130, render: (v) => <Tag style={{ margin: 0, borderRadius: 6 }}>{v}</Tag> },
+  const 列表: 列<Row>[] = [
+    { title: "线索", key: "name", dataIndex: "name", width: 220, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
+    { title: "联系人", key: "contact", dataIndex: "contact", width: 120, render: (v) => v ?? <span className="muted">—</span> },
+    { title: "来源", key: "source", dataIndex: "source", width: 120, render: (v) => <Tag style={{ margin: 0, borderRadius: 6 }}>{v}</Tag> },
     {
-      title: "状态",
-      dataIndex: "status",
-      width: 114,
+      title: "状态", key: "status", dataIndex: "status", width: 110,
       render: (v) => (
         <Tag color={LEAD_STATUS_COLOR[v] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
           {v}
         </Tag>
       ),
     },
-    { title: "负责人", dataIndex: "ownerName", width: 114 },
-    { title: "创建时间", dataIndex: "createdAt", width: 138, render: (v) => fmtDate(v) },
+    { title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
+    { title: "创建时间", key: "createdAt", dataIndex: "createdAt", width: 116, render: (v) => <span className="muted nowrap">{fmtDate(v)}</span> },
+
+    { title: "联系电话", key: "phone", dataIndex: "phone", width: 140, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
+    { title: "所属行业", key: "industry", dataIndex: "industry", width: 130, 默认: false, render: (v) => <span className="muted">{v ?? "—"}</span> },
+    { title: "邮箱", key: "email", dataIndex: "email", width: 200, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
     {
-      title: "",
-      key: "act",
-      width: 178,
-      fixed: "right",
+      title: "", key: "act", width: 150, 常驻: true, fixed: "right",
       render: (_, r) =>
         r.customerId ? (
-          <Link href={`/customers/${r.customerId}`}>查看客户 ›</Link>
+          <Link href={`/customers/${r.customerId}`}>查看{b.customer} ›</Link>
         ) : (
           <Space size={2}>
             <Button
@@ -132,23 +117,25 @@ export default function LeadsView({
               icon={<SwapRightOutlined />}
               onClick={() =>
                 modal.confirm({
-                  title: `将「${r.name}」转为客户？`,
-                  content: "会自动创建客户记录与联系人，线索标记为已转化。",
-                  okText: "转为客户",
+                  title: `将「${r.name}」转为${b.customer}？`,
+                  content: `会自动创建${b.customer}记录与联系人，线索标记为已转化。`,
+                  okText: `转为${b.customer}`,
                   cancelText: "取消",
                   async onOk() {
                     const res = await convertLead(r.id);
                     if (res.ok) {
-                      message.success("已转为客户");
+                      message.success(`已转为${b.customer}`);
                       router.push(`/customers/${res.customerId}`);
                     } else message.error(res.error);
                   },
                 })
               }
             >
-              转客户
+              转{b.customer}
             </Button>
             <Button
+              aria-label={`编辑 ${r.name}`}
+              title="编辑"
               type="text"
               size="small"
               icon={<EditOutlined />}
@@ -158,6 +145,8 @@ export default function LeadsView({
               }}
             />
             <Button
+              aria-label={`删除 ${r.name}`}
+              title="删除"
               type="text"
               size="small"
               danger
@@ -184,42 +173,51 @@ export default function LeadsView({
 
   return (
     <>
-      <PageHead
-        icon={<ShareAltOutlined />}
-        title="线索管理"
-        subtitle="还没建档的线索"
-        tag="线索管理"
-        tagNote="从线索到客户，转化路径清晰可控"
-      />
-      <div className="list">
-        <Space wrap>
-          <Select
-            style={{ width: 152 }}
-            placeholder="全部状态"
-            allowClear
-            value={f.status || undefined}
-            onChange={(v) => apply({ status: v ?? "" })}
-            options={LEAD_STATUSES.map((s) => ({ value: s, label: s }))}
-          />
-          <Input
-            style={{ width: 280 }}
-            placeholder="线索名称 / 联系人"
-            prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
-            value={f.keyword}
-            allowClear
-            onChange={(e) => setF({ ...f, keyword: e.target.value })}
-            onPressEnter={() => apply()}
-          />
-          <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => {
-              setF({ keyword: "", status: "" });
-              startTransition(() => router.push("/leads"));
-            }}
-          >
-            重置
-          </Button>
+      <PageHead title="线索" subtitle={`还没建档的人，确认要跟了就转成${b.customer}`} />
+
+      <DataList<Row>
+        页="leads"
+        空库={空库}
+        列={列表}
+        行={rows}
+        加载中={pending}
+        空态={{
+          title: "还没有线索",
+          hint: `线索是还没确认要不要跟的人。确认要跟了就转成${b.customer}，之后的跟进、商机、签约都在${b.customer}那边走。`,
+          primary: { label: "新建第一条线索", onClick: () => { setEditing(null); setOpen(true); } },
+        }}
+        筛选={
+          <Space wrap size={[10, 10]}>
+            <Input
+              style={{ width: 280 }}
+              placeholder="线索名称 / 联系人"
+              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
+              value={f.keyword}
+              allowClear
+              onChange={(e) => setF({ ...f, keyword: e.target.value })}
+              onPressEnter={() => apply()}
+            />
+            <Select
+              style={{ width: 152 }}
+              placeholder="全部状态"
+              allowClear
+              value={f.status || undefined}
+              onChange={(v) => apply({ status: v ?? "" })}
+              options={LEAD_STATUSES.map((s2) => ({ value: s2, label: s2 }))}
+            />
+            <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                setF({ keyword: "", status: "" });
+                startTransition(() => router.push("/leads"));
+              }}
+            >
+              重置
+            </Button>
+          </Space>
+        }
+        动作={
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -230,23 +228,8 @@ export default function LeadsView({
           >
             新建线索
           </Button>
-        </Space>
-
-        <Table<Row>
-          rowKey="id"
-          locale={表格空态({
-            title: "还没有线索",
-            hint: "线索是还没确认要不要跟的人。确认要跟了就转成学员，之后的跟进、商机、签约都在学员那边走。",
-            primary: { label: "新建第一条线索", onClick: () => { setEditing(null); setOpen(true); } },
-          })}
-          size="middle"
-          dataSource={rows}
-          columns={columns}
-          loading={pending}
-          scroll={{ x: 1370 }}
-          pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true }}
-        />
-      </div>
+        }
+      />
 
       <Modal
         open={open}

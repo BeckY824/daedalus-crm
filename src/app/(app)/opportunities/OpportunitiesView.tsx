@@ -2,38 +2,22 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Card,
-  Table,
-  Input,
-  Button,
-  Space,
-  Select,
-  Tag,
-  Modal,
-  Form,
-  Row,
-  Col,
-  InputNumber,
-  DatePicker,
-  Slider,
-  App,
-  Statistic,
-} from "antd";
-import type { ColumnsType } from "antd/es/table";
+import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, InputNumber, DatePicker, Slider, App, Dropdown } from "antd";
 import {
   SearchOutlined,
-  DollarOutlined,
   PlusOutlined,
+  MoreOutlined,
   DeleteOutlined,
   EditOutlined,
   ReloadOutlined,
   PartitionOutlined,
 } from "@ant-design/icons";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
+import DataList, { type 列 } from "@/components/DataList";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { money, fmtDate, dayjs, 成员选项, 可选成员 } from "@/lib/utils";
 import { saveOpportunity, deleteOpportunities, moveStage, setOppStatus } from "./actions";
+import { useBusiness } from "@/lib/business-client";
 
 export type OppRow = {
   id: string;
@@ -62,6 +46,7 @@ export default function OpportunitiesView({
   filters: { keyword: string; stage: string; status: string; ownerId: string };
 }) {
   const router = useRouter();
+  const b = useBusiness();
   const { message, modal } = App.useApp();
   const [pending, startTransition] = useTransition();
   const [f, setF] = useState(filters);
@@ -118,53 +103,46 @@ export default function OpportunitiesView({
     .filter((r) => r.status === "OPEN")
     .reduce((s, r) => s + r.amount * (r.probability / 100), 0);
 
-  const columns: ColumnsType<OppRow> = [
-    { title: "商机名称", dataIndex: "name", width: 262, fixed: "left", render: (v) => <span className="link-strong">{v}</span> },
+  const 列表: 列<OppRow>[] = [
+    { title: "商机", key: "name", dataIndex: "name", width: 200, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
     {
-      title: "所属客户",
-      dataIndex: "customerName",
-      width: 274,
+      title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 170,
       render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
     },
     {
-      title: "金额",
-      dataIndex: "amount",
-      width: 154,
-      sorter: (a, b) => a.amount - b.amount,
+      title: "金额", key: "amount", dataIndex: "amount", width: 110,
+      sorter: (a, b2) => a.amount - b2.amount,
       render: (v) => <span style={{ fontWeight: 600 }}>{money(v)}</span>,
     },
     {
-      title: "阶段",
-      dataIndex: "stage",
-      width: 156,
+      title: "阶段", key: "stage", dataIndex: "stage", width: 140,
       render: (v, r) => (
         <Select
           size="small"
           value={v}
           variant="borderless"
-          style={{ width: 140 }}
+          style={{ width: 128 }}
           disabled={r.status !== "OPEN"}
-          options={OPP_STAGES.map((s) => ({ value: s, label: s }))}
-          onChange={async (s) => {
-            const res = await moveStage(r.id, s);
+          options={OPP_STAGES.map((s2) => ({ value: s2, label: s2 }))}
+          onChange={async (s2) => {
+            const res = await moveStage(r.id, s2);
             if (!res.ok) {
               message.error(res.error);
               router.refresh();
               return;
             }
-            message.success(`已推进到「${s}」`);
+            message.success(`已推进到「${s2}」`);
             router.refresh();
           }}
         />
       ),
     },
-    { title: "概率", dataIndex: "probability", width: 88, render: (v) => `${v}%` },
-    { title: "预计成交", dataIndex: "expectedDealAt", width: 138, render: (v) => fmtDate(v) },
-    { title: "负责人", dataIndex: "ownerName", width: 128, render: (v) => <UserCell name={v} size={30} /> },
+    { title: "概率", key: "probability", dataIndex: "probability", width: 76, render: (v) => `${v}%` },
+    { title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v) => <UserCell name={v} size={24} /> },
+
+    { title: "预计成交", key: "expectedDealAt", dataIndex: "expectedDealAt", width: 116, 默认: false, render: (v) => <span className="muted nowrap">{fmtDate(v)}</span> },
     {
-      title: "状态",
-      dataIndex: "status",
-      width: 114,
+      title: "状态", key: "status", dataIndex: "status", width: 106, 默认: false,
       render: (v) => (
         <Tag color={v === "WON" ? "success" : v === "LOST" ? "error" : "processing"} style={{ margin: 0, borderRadius: 6 }}>
           {v === "WON" ? "已赢单" : v === "LOST" ? "已丢单" : "进行中"}
@@ -172,39 +150,42 @@ export default function OpportunitiesView({
       ),
     },
     {
-      title: "",
-      key: "act",
-      width: 208,
-      fixed: "right",
+      title: "", key: "act", width: 110, 常驻: true, fixed: "right",
       render: (_, r) => (
         <Space size={2}>
+          {/* 赢单 / 丢单 收进「更多」：一行里摆两个文字按钮太吵，六列也就挤不下了。
+              它们是结果不是日常动作，一天点不了几次 */}
           {r.status === "OPEN" && (
-            <>
-              <Button
-                type="link"
-                size="small"
-                onClick={async () => {
-                  await setOppStatus(r.id, "WON");
-                  message.success("恭喜赢单！");
-                  router.refresh();
-                }}
-              >
-                赢单
-              </Button>
-              <Button
-                type="link"
-                size="small"
-                danger
-                onClick={async () => {
-                  await setOppStatus(r.id, "LOST");
-                  router.refresh();
-                }}
-              >
-                丢单
-              </Button>
-            </>
+            <Dropdown
+              menu={{
+                items: [
+                  {
+                    key: "won",
+                    label: "标记赢单",
+                    onClick: async () => {
+                      await setOppStatus(r.id, "WON");
+                      message.success("恭喜赢单！");
+                      router.refresh();
+                    },
+                  },
+                  {
+                    key: "lost",
+                    label: "标记丢单",
+                    danger: true,
+                    onClick: async () => {
+                      await setOppStatus(r.id, "LOST");
+                      router.refresh();
+                    },
+                  },
+                ],
+              }}
+            >
+              <Button aria-label={`${r.name} 的更多操作`} title="更多" type="text" size="small" icon={<MoreOutlined />} />
+            </Dropdown>
           )}
           <Button
+            aria-label={`编辑 ${r.name}`}
+            title="编辑"
             type="text"
             size="small"
             icon={<EditOutlined />}
@@ -214,6 +195,8 @@ export default function OpportunitiesView({
             }}
           />
           <Button
+            aria-label={`删除 ${r.name}`}
+            title="删除"
             type="text"
             size="small"
             danger
@@ -240,11 +223,8 @@ export default function OpportunitiesView({
   return (
     <>
       <PageHead
-        icon={<DollarOutlined />}
-        title="商机管理"
-        subtitle="进行中与已关闭的商机"
-        tag="商机管理"
-        tagNote="阶段推进标准化，预测更准确"
+        title="商机"
+        subtitle="在谈的单子：金额、阶段、预计什么时候成"
         extra={
           <Button icon={<PartitionOutlined />} onClick={() => router.push("/opportunities/pipeline")}>
             商机管道
@@ -252,77 +232,92 @@ export default function OpportunitiesView({
         }
       />
 
-      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
-        <Col xs={24} sm={8}>
-          <Card styles={{ body: { padding: 24 } }}>
-            <Statistic title="商机总金额" value={money(totalAmount)} styles={{ content: { fontSize: 24, fontWeight: 700 } }} />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card styles={{ body: { padding: 18 } }}>
-            <Statistic title="进行中金额" value={money(openAmount)} styles={{ content: { fontSize: 24, fontWeight: 700, color: "#1668dc" } }} />
-          </Card>
-        </Col>
-        <Col xs={24} sm={8}>
-          <Card styles={{ body: { padding: 18 } }}>
-            <Statistic
-              title="加权预测（金额 × 概率）"
-              value={money(forecast)}
-              styles={{ content: { fontSize: 24, fontWeight: 700, color: "#16a34a" } }}
-            />
-          </Card>
-        </Col>
-      </Row>
+      {/*
+        原来这里是三张各占三分之一屏的统计卡。它们说的是同一件事的三个侧面，
+        用不着三张卡、三条边框、三块留白——一行就够，而且紧挨着表格，
+        看完数直接往下看是哪几单撑起来的。
+        **一条商机都没有时整行不出现**：0 / 0 / 0 不是信息，是噪音。
+      */}
+      {rows.length > 0 && (
+        <div className="signals" style={{ marginTop: 0 }}>
+          <span className="signal" title="列表里这些商机的金额合计">
+            <b>{money(totalAmount)}</b>
+            <span>商机总额</span>
+          </span>
+          <span className="signal" title="其中还在谈的那些（不含已赢单、已丢单）">
+            <b>{money(openAmount)}</b>
+            <span>进行中</span>
+          </span>
+          <span className="signal" title="Σ(进行中商机金额 × 成交概率)。概率是每条商机上自己填的">
+            <b>{money(forecast)}</b>
+            <span>加权预测</span>
+          </span>
+        </div>
+      )}
 
-      <Card styles={{ body: { padding: 22 } }}>
-        <Space style={{ marginBottom: 14 }} wrap>
-          <Select
-            style={{ width: 130 }}
-            placeholder="全部阶段"
-            allowClear
-            value={f.stage || undefined}
-            onChange={(v) => apply({ stage: v ?? "" })}
-            options={OPP_STAGES.map((s) => ({ value: s, label: s }))}
-          />
-          <Select
-            style={{ width: 120 }}
-            placeholder="全部状态"
-            allowClear
-            value={f.status || undefined}
-            onChange={(v) => apply({ status: v ?? "" })}
-            options={[
-              { value: "OPEN", label: "进行中" },
-              { value: "WON", label: "已赢单" },
-              { value: "LOST", label: "已丢单" },
-            ]}
-          />
-          <Select
-            style={{ width: 126 }}
-            placeholder="全部成员"
-            allowClear
-            value={f.ownerId || undefined}
-            onChange={(v) => apply({ ownerId: v ?? "" })}
-            options={成员选项(users)}
-          />
-          <Input
-            style={{ width: 220 }}
-            placeholder="商机名称 / 客户"
-            prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
-            value={f.keyword}
-            allowClear
-            onChange={(e) => setF({ ...f, keyword: e.target.value })}
-            onPressEnter={() => apply()}
-          />
-          <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
-          <Button
-            icon={<ReloadOutlined />}
-            onClick={() => {
-              setF({ keyword: "", stage: "", status: "", ownerId: "" });
-              startTransition(() => router.push("/opportunities"));
-            }}
-          >
-            重置
-          </Button>
+      <DataList<OppRow>
+        页="opportunities"
+        空库={rows.length === 0 && !Object.values(filters).some((v) => v)}
+        列={列表}
+        行={rows}
+        加载中={pending}
+        空态={{
+          title: "还没有商机",
+          hint: `商机是「在谈的那一单」：金额多少、谈到哪一步、大概什么时候成。它挂在${b.customer}下面，签约之后再登记成签约记录。`,
+          primary: { label: "新建第一条商机", onClick: () => { setEditing(null); setOpen(true); } },
+        }}
+        筛选={
+          <Space wrap size={[10, 10]}>
+            <Input
+              style={{ width: 240 }}
+              placeholder={`商机名称 / ${b.customer}`}
+              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
+              value={f.keyword}
+              allowClear
+              onChange={(e) => setF({ ...f, keyword: e.target.value })}
+              onPressEnter={() => apply()}
+            />
+            <Select
+              style={{ width: 130 }}
+              placeholder="全部阶段"
+              allowClear
+              value={f.stage || undefined}
+              onChange={(v) => apply({ stage: v ?? "" })}
+              options={OPP_STAGES.map((s2) => ({ value: s2, label: s2 }))}
+            />
+            <Select
+              style={{ width: 120 }}
+              placeholder="全部状态"
+              allowClear
+              value={f.status || undefined}
+              onChange={(v) => apply({ status: v ?? "" })}
+              options={[
+                { value: "OPEN", label: "进行中" },
+                { value: "WON", label: "已赢单" },
+                { value: "LOST", label: "已丢单" },
+              ]}
+            />
+            <Select
+              style={{ width: 126 }}
+              placeholder="全部成员"
+              allowClear
+              value={f.ownerId || undefined}
+              onChange={(v) => apply({ ownerId: v ?? "" })}
+              options={成员选项(users)}
+            />
+            <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                setF({ keyword: "", stage: "", status: "", ownerId: "" });
+                startTransition(() => router.push("/opportunities"));
+              }}
+            >
+              重置
+            </Button>
+          </Space>
+        }
+        动作={
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -333,18 +328,8 @@ export default function OpportunitiesView({
           >
             新建商机
           </Button>
-        </Space>
-
-        <Table<OppRow>
-          rowKey="id"
-          size="middle"
-          dataSource={rows}
-          columns={columns}
-          loading={pending}
-          scroll={{ x: 1570 }}
-          pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true }}
-        />
-      </Card>
+        }
+      />
 
       <Modal
         open={open}

@@ -89,9 +89,11 @@ test("新建学员时可以就地建渠道，建完自动选中并同步到渠�
   await expect(page).toHaveURL(/\/customers\/[^/]+$/);
   await expect(page.getByText(渠道名).first()).toBeVisible();
 
-  // 同一条渠道要能在渠道管理里查到，不是只存在于这张表单里
+  // 同一条渠道要能在渠道管理里查到，不是只存在于这张表单里。
+  // exact 不能省：行尾那几个图标按钮带着「编辑 <渠道名>」这样的可访问名，
+  // 不加 exact 会同时命中操作列那一格
   await page.goto("/channels");
-  await expect(page.getByRole("cell", { name: 渠道名 })).toBeVisible();
+  await expect(page.getByRole("cell", { name: 渠道名, exact: true })).toBeVisible();
 });
 
 test("就地建渠道时重名会被挡住，且弹窗留在原地让人改", async ({ page }) => {

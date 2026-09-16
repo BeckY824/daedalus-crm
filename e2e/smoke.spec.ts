@@ -85,12 +85,13 @@ test("4. 线索转学员：学员库出现，线索标记已转化", async ({ pa
   await page.goto("/leads");
 
   const 行 = page.getByRole("row", { name: new RegExp(学员名) });
-  await 行.getByRole("button", { name: "转客户" }).click();
+  // 按钮上的名词跟着业务配置走（默认「学员」），不再写死「客户」
+  await 行.getByRole("button", { name: "转学员" }).click();
 
   // 转化是不可逆的，界面会先要一次确认
   const 确认框 = page.getByRole("dialog");
-  await expect(确认框).toContainText("转为客户");
-  await 确认框.getByRole("button", { name: /转为客户/ }).click();
+  await expect(确认框).toContainText("转为学员");
+  await 确认框.getByRole("button", { name: /转为学员/ }).click();
 
   // 转完直接跳到该学员详情
   await expect(page).toHaveURL(/\/customers\//);
@@ -99,7 +100,7 @@ test("4. 线索转学员：学员库出现，线索标记已转化", async ({ pa
   // 线索那边要留下痕迹，不能转完就查无此事
   await page.goto("/leads");
   await expect(行).toContainText("已转化");
-  await expect(行.getByRole("link", { name: /查看客户/ })).toBeVisible();
+  await expect(行.getByRole("link", { name: /查看学员/ })).toBeVisible();
 });
 
 test("5. 给学员录一条跟进，时间线上要看得见", async ({ page }) => {
