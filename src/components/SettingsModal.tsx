@@ -36,15 +36,26 @@ export default function SettingsModal({ children }: { children: React.ReactNode 
   }, [router]);
 
   return (
-    <div className="setm" role="presentation" onClick={() => router.back()}>
+    <motion.div
+      className="setm"
+      role="presentation"
+      onClick={() => router.back()}
+      /* 遮罩跟着淡，比浮层快一档：先暗下去，再看见设置长出来 */
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 少动 ? 0 : 0.16 }}
+    >
       <motion.div
         className="setm-box"
         role="dialog"
         aria-modal="true"
         aria-label="设置"
-        initial={{ opacity: 0, y: 少动 ? 0 : 8, scale: 少动 ? 1 : 0.99 }}
+        /* 它是**长出来的**，不是飞进来的：从 0.985 长到 1，位移只有 6px。
+           曲线用形变那条（两头慢、中间快），因为这一层的意思是「当前这一页变成了设置」，
+           不是「有个东西飞过来了」。0.26s——再快就看不出它从哪儿来 */
+        initial={{ opacity: 0, y: 少动 ? 0 : 6, scale: 少动 ? 1 : 0.985 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        transition={{ duration: 少动 ? 0 : 0.18, ease: [0.2, 0.8, 0.2, 1] }}
+        transition={{ duration: 少动 ? 0 : 0.26, ease: [0.33, 0.55, 0.2, 1] }}
         /* 点在浮层里面不关——只有点到外面那层灰才算「我要走了」 */
         onClick={(e) => e.stopPropagation()}
       >
@@ -53,6 +64,6 @@ export default function SettingsModal({ children }: { children: React.ReactNode 
         </button>
         <div className="setm-scroll">{children}</div>
       </motion.div>
-    </div>
+    </motion.div>
   );
 }

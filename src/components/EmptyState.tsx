@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { App, Button } from "antd";
+import { App, Button, Modal } from "antd";
+import Rise from "./Rise";
+import SlideConfirm from "./SlideConfirm";
 import { PlusOutlined, ExperimentOutlined } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import { 查演示数据状态, 灌一套演示数据, 清除演示数据, type 演示数据状态 } from "@/app/(app)/demo-data";
@@ -31,7 +33,8 @@ export default function EmptyState({
   demo?: boolean;
 }) {
   return (
-    <div className="empty-state">
+    /* 和 StatePage 同一张脸、同一个进场：空、404、出错在人眼里是一件事 */
+    <Rise className="empty-state">
       <div className="empty-state-t">{title}</div>
       <p className="empty-state-h">{hint}</p>
       <div className="empty-state-a">
@@ -47,7 +50,7 @@ export default function EmptyState({
         ))}
         {demo && <DemoDataButton />}
       </div>
-    </div>
+    </Rise>
   );
 }
 
@@ -59,8 +62,10 @@ export default function EmptyState({
  */
 export function DemoDataButton() {
   const [状态, set状态] = useState<演示数据状态 | null>(null);
+  /** 清除前那一问。它自己是个 Modal，因为要在框里放滑动确认 */
+  const [问, set问] = useState(false);
   const [pending, startTransition] = useTransition();
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
   const router = useRouter();
 
   useEffect(() => {
@@ -71,34 +76,40 @@ export function DemoDataButton() {
 
   if (状态.已灌) {
     return (
-      <Button
-        danger
-        loading={pending}
-        onClick={() =>
-          modal.confirm({
-            title: "清除演示数据？",
-            // 说清楚它删的是全部业务数据，不只是演示的那些——只写「清除演示数据」会骗人
-            content: "会删掉这个库里**全部**业务数据：学员、线索、渠道、商机、跟进、待办、操作日志。灌完演示数据之后你自己录的也一起没。设置和账号不动。",
-            okText: "清除",
-            okButtonProps: { danger: true },
-            cancelText: "取消",
-            onOk: () =>
+      <>
+        <Button danger loading={pending} onClick={() => set问(true)}>
+          清除演示数据
+        </Button>
+        {/*
+          **全站唯一一处滑动确认**（components/SlideConfirm.tsx）。
+          这一下删掉的是库里全部业务数据，而「确定」那颗键和「保存」长得一模一样——
+          手比脑子快的时候它挡不住任何人。解释仍然要写：闸门防的是误触，说清楚防的是误解。
+        */}
+        <Modal open={问} onCancel={() => set问(false)} title="清除演示数据？" footer={null} width={460}>
+          <p style={{ marginTop: 0, color: "var(--ink-soft)", lineHeight: 1.7 }}>
+            会删掉这个库里<b>全部</b>业务数据：学员、线索、渠道、商机、跟进、待办、操作日志。
+            灌完演示数据之后你自己录的也一起没。设置和账号不动。
+          </p>
+          <SlideConfirm
+            话="滑到右边清除"
+            忙={pending}
+            做={() =>
               new Promise<void>((resolve) =>
                 startTransition(async () => {
                   const r = await 清除演示数据();
                   if (r.ok) {
                     message.success("演示数据已清除");
                     set状态({ ...状态, 空库: true, 已灌: false });
+                    set问(false);
                     router.refresh();
                   } else message.error(r.error);
                   resolve();
                 }),
-              ),
-          })
-        }
-      >
-        清除演示数据
-      </Button>
+              )
+            }
+          />
+        </Modal>
+      </>
     );
   }
 

@@ -16,6 +16,7 @@ import {
   ThunderboltOutlined as AiOutlined,
 } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
+import InlineConfirm from "@/components/InlineConfirm";
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
 import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, money, smartTime, AVATAR_TEXT } from "@/lib/utils";
 import { FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
@@ -382,7 +383,7 @@ export default function RecordView({
             <AnimatePresence initial={false}>
               {entries.map((e, i) =>
                 e.kind === "contract" ? (
-                  <motion.div key={`c-${e.c.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(i, 8) * 0.03 }}>
+                  <motion.div key={`c-${e.c.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(i, 8) * 0.04, duration: 0.26, ease: [0.22, 1, 0.36, 1] }}>
                     <div className="rec-tl-dot" style={{ background: "#16a34a" }}>
                       <DollarOutlined />
                     </div>
@@ -397,7 +398,7 @@ export default function RecordView({
                     </div>
                   </motion.div>
                 ) : (
-                  <FollowItem key={e.f.id} f={e.f} index={i} onEdit={() => openFollow(e.f)} onDelete={() => confirmDeleteFollow(e.f)} />
+                  <FollowItem key={e.f.id} f={e.f} index={i} onEdit={() => openFollow(e.f)} onDelete={() => deleteFollow(e.f)} />
                 ),
               )}
             </AnimatePresence>
@@ -505,18 +506,15 @@ export default function RecordView({
     </>
   );
 
-  function confirmDeleteFollow(f: FollowUpRow) {
-    modal.confirm({
-      title: "删除这条跟进记录？",
-      okText: "删除",
-      okButtonProps: { danger: true },
-      cancelText: "取消",
-      async onOk() {
-        await deleteFollowUp(f.id, customer.id);
-        message.success("已删除");
-        router.refresh();
-      },
-    });
+  /**
+   * 删一条跟进记录。**确认在那一行上就地问**（见 FollowItem 里的 InlineConfirm），
+   * 所以这里不再弹框——原来那个框只有一句「删除这条跟进记录？」，
+   * 盖半屏问一句话，代价比它防住的误点还大。
+   */
+  async function deleteFollow(f: FollowUpRow) {
+    await deleteFollowUp(f.id, customer.id);
+    message.success("已删除");
+    router.refresh();
   }
 
   function confirmDeleteContract(r: ContractRow) {
@@ -603,7 +601,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
   const meta = FOLLOW_TYPE_MAP[f.type] ?? FOLLOW_TYPE_MAP.OTHER;
   const [srcOpen, setSrcOpen] = useState(false);
   return (
-    <motion.div id={`fu-${f.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * 0.03 }}>
+    <motion.div id={`fu-${f.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * 0.04, duration: 0.26, ease: [0.22, 1, 0.36, 1] }}>
       <div className="rec-tl-dot" style={{ background: meta.color }}>
         {FOLLOW_TYPE_ICON[f.type]}
       </div>
@@ -619,7 +617,11 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
           <span className="rec-tl-time">{fmtDateTime(f.occurredAt)}</span>
           <span className="rec-tl-acts">
             <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} aria-label="编辑跟进" />
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={onDelete} aria-label="删除跟进" />
+            {/* 就地确认，不弹框：一条跟进记录，删了还能再写一条——
+                后果一句话说得完的事，不值得一个盖住半屏的框（见 components/InlineConfirm.tsx） */}
+            <InlineConfirm 问="删除这条？" 做={onDelete}>
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除跟进" />
+            </InlineConfirm>
           </span>
         </div>
         <div className="rec-tl-content">{f.content}</div>

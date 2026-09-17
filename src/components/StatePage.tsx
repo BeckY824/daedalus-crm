@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "antd";
+import Rise from "./Rise";
 
 /**
  * 出错、404、空——这三种「页面上没有正文」的状态长同一个样子。
@@ -28,7 +29,9 @@ export default function StatePage({
   附注?: React.ReactNode;
 }) {
   return (
-    <div className="empty-state">
+    /* 空、404、出错这三张脸都是「没有正文」的结果，它们出现时页面往往刚等过一会儿。
+       托一下再出现，比直接砸在屏幕中央温和——人第一眼要读的是那句说明，不是一次闪现 */
+    <Rise className="empty-state">
       <div className="empty-state-t">{标题}</div>
       <p className="empty-state-h">{说明}</p>
       <div className="empty-state-a">
@@ -44,6 +47,6 @@ export default function StatePage({
         )}
       </div>
       {附注 && <p className="empty-state-h" style={{ marginTop: 12 }}>{附注}</p>}
-    </div>
+    </Rise>
   );
 }

@@ -136,6 +136,8 @@ export default function UpdateButton() {
       <span className="rail-up-lab">
         <span>{画.话}</span>
       </span>
+      {/* 进度那一排刻度。样式在 globals.css 的 .rail-up-bar——它已经不是"一条"了，
+          但类名留着：改名要动三处，而这行字比类名更能说明它是什么 */}
       {画.进度 !== undefined && (
         <span
           className={`rail-up-bar${画.进度 == null ? " idle" : ""}`}

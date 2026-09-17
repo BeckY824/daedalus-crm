@@ -7,6 +7,7 @@ import { Form, Input, Button, Typography, Alert } from "antd";
 import { UserOutlined, LockOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
 import { login, 桌面端登录 } from "./actions";
+import Rise, { 缓动 } from "@/components/Rise";
 
 /** server action 迟迟不返回时的等待上限。链路正常时登录在 3 秒内完成。 */
 const 请求超时毫秒 = 20000;
@@ -47,7 +48,9 @@ export default function LoginForm({
   const [form] = Form.useForm();
   /**
    * 登录页的动效只有三下，多一下都不加：
-   *   进场——卡片托一下（8px）、标志比正文早 60ms，让人知道这一页刚画好，不是卡住了
+   *   进场——卡片托一下（8px），里面按 标志 → 表单 → 底下那排链接 排队，一档 40ms。
+   *         人的眼睛读得出这个先后，但读不出它在等；这是整个产品的第一印象，
+   *         它要说的是「这一页刚画好」，不是「这一页在加载」
    *   报错——错误条是撑开的，不是砸下来的；后面的输入框跟着让位，不会跳一下
    *   登录失败——卡片横向抖一下（3px，一个来回）。密码错了这件事，看见比读见快
    * 系统开了「减弱动态效果」就全部按 0 处理（motion 的 useReducedMotion 读的是同一个开关）。
@@ -119,17 +122,17 @@ export default function LoginForm({
         initial={{ opacity: 0, y: 少动 ? 0 : 8 }}
         animate={{ opacity: 1, y: 0, x: 抖 && !少动 ? [0, -3, 3, -2, 2, 0] : 0 }}
         transition={{
-          opacity: { duration: 时长(0.28), ease: "easeOut" },
-          y: { duration: 时长(0.28), ease: "easeOut" },
+          opacity: { duration: 时长(0.28), ease: [...缓动] },
+          y: { duration: 时长(0.28), ease: [...缓动] },
           x: { duration: 时长(0.25) },
         }}
       >
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <Rise 第几个={0} style={{ textAlign: "center", marginBottom: 28 }}>
           <motion.div
             className="login-mark"
             initial={{ opacity: 0, scale: 少动 ? 1 : 0.94 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 时长(0.3), ease: "easeOut" }}
+            transition={{ duration: 时长(0.3), ease: [...缓动] }}
           >
             <Logo size={30} />
           </motion.div>
@@ -139,7 +142,7 @@ export default function LoginForm({
           <Typography.Text type="secondary" style={{ fontSize: 13 }}>
             {桌面端 ? "登录云端账号。数据只在这台机器上，账号只用来记 AI 次数。" : "下一代 CRM，跑在你自己的机器上。"}
           </Typography.Text>
-        </div>
+        </Rise>
 
         {提示 && <Alert type="warning" showIcon style={{ marginBottom: 16, textAlign: "left" }} title={提示} />}
         {/* 错误条撑开、收起，而不是砸下来又消失：下面的输入框跟着让位，位置不会跳 */}
@@ -158,6 +161,7 @@ export default function LoginForm({
           )}
         </AnimatePresence>
 
+        <Rise 第几个={1}>
         <Form form={form} onFinish={onFinish} size="large" requiredMark={false}>
           <Form.Item name="email" rules={[{ required: true, message: `请输入${账号名}` }]}>
             <Input
@@ -176,9 +180,10 @@ export default function LoginForm({
             </Button>
           </Form.Item>
         </Form>
+        </Rise>
 
         {(可找回密码 || (桌面端 && 可注册 && 注册地址)) && (
-          <div style={{ display: "flex", justifyContent: "center", gap: 18, marginTop: 12, fontSize: 13 }}>
+          <Rise 第几个={2} style={{ display: "flex", justifyContent: "center", gap: 18, marginTop: 12, fontSize: 13 }}>
             {可找回密码 && <Link href="/forgot">忘记密码？</Link>}
             {/* 注册在网页上办：壳会把站外链接交给系统浏览器（main.js 的 setWindowOpenHandler） */}
             {桌面端 && 可注册 && 注册地址 && (
@@ -186,7 +191,7 @@ export default function LoginForm({
                 注册新账号 ↗
               </a>
             )}
-          </div>
+          </Rise>
         )}
       </motion.div>
     </div>

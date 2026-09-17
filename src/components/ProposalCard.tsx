@@ -63,7 +63,16 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
 
   if (state === "done") {
     return (
-      <motion.div className="prop prop-done" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      /* 确认之后这张卡**收成一条**：从建议的高度落到一行回执。
+         用 height: auto 的形变而不是直接换内容——直接换的话，下面的对话会往上跳一大截，
+         人会以为自己点掉了什么东西 */
+      <motion.div
+        className="prop prop-done"
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: "auto" }}
+        transition={{ duration: 0.26, ease: [0.33, 0.55, 0.2, 1] }}
+        style={{ overflow: "hidden" }}
+      >
         <CheckOutlined />
         <span>{describeProposal(draft, b.customer)}</span>
         <Link href={draft.kind === "add_lead" ? "/leads" : draft.kind === "update_channel" ? "/channels" : `/customers/${draft.customerId}`} className="cli-link">

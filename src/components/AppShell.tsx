@@ -290,8 +290,23 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
       {/* antd 的 Content 自己就渲染成 <main>，外面不能再包一层：
           一个文档只能有一个 main，两个会让读屏和测试都认不出正文是哪块 */}
       <main className="main app-content" style={{ padding: "22px 26px" }}>
-        {/* 超宽屏下限制正文宽度并居中，避免表格被拉得过于稀疏 */}
-        <div style={{ maxWidth: 1720, margin: "0 auto" }}>{children}</div>
+        {/*
+          换页时正文淡进来、抬 2px。**只有 140ms，而且只有正文**——
+          左栏和中栏不动，动的只是"这一页的内容换了"这件事本身。
+          在这之前换页是硬切：上一页的表格原地变成下一页的表格，人得自己确认屏幕真的换了。
+
+          key 挂在 pathname 上：同一页里改筛选、翻页走的是 query，不会重来一遍。
+          超宽屏下限制正文宽度并居中，避免表格被拉得过于稀疏。
+        */}
+        <motion.div
+          key={pathname}
+          initial={{ opacity: 0, y: 少动 ? 0 : 2 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 少动 ? 0 : 0.14, ease: [0.22, 1, 0.36, 1] }}
+          style={{ maxWidth: 1720, margin: "0 auto" }}
+        >
+          {children}
+        </motion.div>
       </main>
     </div>
   );

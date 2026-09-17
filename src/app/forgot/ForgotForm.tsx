@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Form, Input, Button, Alert, Typography } from "antd";
 import { LockOutlined, MailOutlined, SafetyOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
+import Rise from "@/components/Rise";
 import { 发送重置码, 重置密码 } from "./actions";
 
 /**
@@ -87,7 +88,7 @@ export default function ForgotForm() {
   if (完成) {
     return (
       <div className="login-shell">
-        <div className="login-card">
+        <Rise className="login-card">
           <div style={{ textAlign: "center", marginBottom: 20 }}>
             <div className="login-mark">
               <Logo size={30} />
@@ -107,15 +108,15 @@ export default function ForgotForm() {
               去登录
             </Button>
           </Link>
-        </div>
+        </Rise>
       </div>
     );
   }
 
   return (
     <div className="login-shell">
-      <div className="login-card">
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
+      <Rise className="login-card">
+        <Rise 第几个={1} style={{ textAlign: "center", marginBottom: 24 }}>
           <div className="login-mark">
             <Logo size={30} />
           </div>
@@ -125,11 +126,12 @@ export default function ForgotForm() {
           <Typography.Text type="secondary" style={{ fontSize: 13 }}>
             用注册时的邮箱收一个验证码，就能设新密码
           </Typography.Text>
-        </div>
+        </Rise>
 
         {error && <Alert type="error" showIcon style={{ marginBottom: 14 }} title={error} />}
         {hint && 步骤 === 2 && <Alert type="info" showIcon style={{ marginBottom: 14 }} title={hint} />}
 
+        <Rise 第几个={2}>
         <Form form={form} layout="vertical" onFinish={onFinish} requiredMark={false} disabled={loading}>
           {/* ---------- 第一步：只有邮箱 ---------- */}
           <div style={{ display: 步骤 === 1 ? "block" : "none" }}>
@@ -195,11 +197,12 @@ export default function ForgotForm() {
             </Button>
           </div>
         </Form>
+        </Rise>
 
-        <div style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
+        <Rise 第几个={3} style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
           想起来了？<Link href="/login">去登录</Link>
-        </div>
-      </div>
+        </Rise>
+      </Rise>
     </div>
   );
 }

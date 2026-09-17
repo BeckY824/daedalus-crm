@@ -43,8 +43,20 @@
   --r-pop: 14px;             /* 浮层、抽屉、气泡 */
 
   /* ---------- 动效 ----------
-     120 给悬停这类要跟手的，180 给展开收起。再长界面就显得在拖。 */
-  --t-fast: 120ms; --t: 160ms; --t-slow: 180ms;
+     120 给悬停这类要跟手的，180 给展开收起。再长界面就显得在拖。
+
+     三条曲线，**全站只有这三条**。数值参考 bencho.dev（MIT，见 licenses/bencho-MIT.txt），
+     那是一整套已经调过的手感，不必我们再拍一遍脑袋：
+       --ease        绝大多数：出现、消失、位移。收尾很软，起步很快
+       --ease-spring 只给「弹出来」的东西：菜单、开关拨柄、确认态。过冲一点点，不许再大
+       --ease-morph  一个东西变成另一个东西（浮层展开、尺寸变化）。两头都慢，中间快
+
+     时长四档。**按下那档 90ms 是故意最短的**：按下要立刻，松开才慢慢回弹——
+     手感的差别几乎全在这一档上。上限 320ms，超过就是在让人等。 */
+  --t-press: 90ms; --t-fast: 120ms; --t: 160ms; --t-slow: 180ms; --t-enter: 200ms; --t-morph: 320ms;
+  --ease: cubic-bezier(.22, 1, .36, 1);
+  --ease-spring: cubic-bezier(.24, 1.34, .38, 1);
+  --ease-morph: cubic-bezier(.33, .55, .2, 1);
 
   /* ---------- 骨架尺寸 ----------
      这几个数样式表和 lib/theme.ts 都要用，改一处不算改。 */
@@ -179,9 +191,14 @@ a {
 /* 左栏右边那条能拖的缝：贴着分隔线骑在上面，平时看不见，指上去才显出来。
    6px 宽是拿得住的最小值——再窄就得瞄准，而这不是个需要精准的动作 */
 .rail-resizer { position: absolute; top: 0; right: -3px; bottom: 0; width: 6px; z-index: 5; cursor: col-resize;
-  background: none; transition: background var(--t-fast); }
-.rail-resizer:hover, .rail-resizer:focus-visible { background: var(--brand); opacity: 0.35; outline: none; }
-.rail-resizer:focus-visible { opacity: 0.6; }
+  background: none; outline: none; }
+/* 平时不画东西，指上去中间长出一条短线——**不是整条边变色**：
+   整条变色等于宣布「这里有个功能」，而它只需要在你手到了的时候承认自己在 */
+.rail-resizer::before { content: ""; position: absolute; top: 50%; left: 2px; width: 2px; height: 0;
+  border-radius: 999px; background: var(--text-faint); opacity: 0; transform: translateY(-50%);
+  transition: height var(--t) var(--ease), opacity var(--t-fast) var(--ease), background var(--t-fast); }
+.rail-resizer:hover::before, .rail-resizer:focus-visible::before { height: 28px; opacity: 1; }
+.rail-resizer:focus-visible::before, .rail-resizer:active::before { background: var(--brand); height: 44px; opacity: 1; }
 /* 拖动时：别让侧栏的字被选中，也别让光标跨过正文时变回箭头 */
 body.rail-resizing { cursor: col-resize; user-select: none; }
 .rail-up {
@@ -189,10 +206,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   height: 26px; padding: 0 2px; border: 0; border-radius: 999px;
   background: var(--brand); color: #fff; font-size: var(--fs-note); font-weight: 600; line-height: 1;
   cursor: pointer; text-align: left;
-  transition: gap var(--t) cubic-bezier(.2,.8,.2,1), padding var(--t) cubic-bezier(.2,.8,.2,1), filter var(--t-fast);
+  transition: gap var(--t) var(--ease), padding var(--t) var(--ease), filter var(--t-fast), scale var(--t-fast) var(--ease);
 }
 .rail-up-ico { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
-.rail-up-lab { display: grid; grid-template-columns: 0fr; transition: grid-template-columns var(--t) cubic-bezier(.2,.8,.2,1); }
+.rail-up-lab { display: grid; grid-template-columns: 0fr; transition: grid-template-columns var(--t) var(--ease); }
 .rail-up-lab > span { overflow: hidden; white-space: nowrap; }
 .rail-up:hover, .rail-up:focus-visible { filter: brightness(1.08); }
 .rail-up:hover, .rail-up:focus-visible, .rail-up.open { gap: 2px; padding-right: 10px; }
@@ -201,9 +218,19 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rail-up.busy { background: var(--hover); color: var(--text-muted); font-weight: 500; cursor: default; }
 .rail-up.warn { background: var(--warning-text); }
 /* 下载进度：垫在字底下的一条，不另占一行 */
-.rail-up-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: var(--p, 0%); background: var(--brand); transition: width var(--t-slow) linear; }
-.rail-up-bar.idle { width: 40%; animation: rail-up-sweep 1.4s ease-in-out infinite; }
-@keyframes rail-up-sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+/* 下载进度：一排刻度，不是一条线（形状参考 bencho.dev 的 Progress ticks，MIT）。
+   为什么换掉那条线：一条 2px 的线在 26px 高的药丸底边上，只能看出"在动"，看不出"到哪儿了"；
+   刻度天然有单位，眼睛不用量就知道走了几格。暗的一排是全程，亮的一排盖在上面，走到哪儿亮到哪儿。 */
+.rail-up-bar { position: absolute; left: 6px; right: 6px; bottom: 3px; height: 3px; overflow: hidden;
+  /* 全程那一排：同一个颜色兑掉七成。**不能用 opacity 淡**——父层一淡，盖在上面那排也跟着淡，
+     走过的和没走的就分不出来了（第一版就是这么画的，43% 反而比剩下的更浅） */
+  background: repeating-linear-gradient(90deg, color-mix(in srgb, currentColor 26%, transparent) 0 2px, transparent 2px 5px); }
+.rail-up-bar::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--p, 0%);
+  background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 5px);
+  transition: width var(--t-slow) linear; }
+/* 说不出百分比的时候（校验、解包）：一段刻度来回扫，说明"在动但没有进度" */
+.rail-up-bar.idle::after { width: 34%; animation: rail-up-sweep 1.4s ease-in-out infinite; }
+@keyframes rail-up-sweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(310%); } }
 .rail-item { position: relative; padding: 11px 12px; border-radius: var(--r-card); display: flex; align-items: center; gap: 12px; color: var(--text-muted); font-size: var(--ic); line-height: 1; transition: background var(--t-fast) ease, color var(--t-fast) ease; }
 /* 导航的字比正文大一档（15）：它是一列要扫的名字，不是一段要读的话。和 Claude 桌面端侧栏同一个数 */
 .rail-item b { font-size: var(--fs-section); font-weight: 500; letter-spacing: -0.2px; white-space: nowrap; }
@@ -284,12 +311,15 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 点得进明细的那几张卡。悬停时边框和数字一起变蓝——
    只让边框变色的话，鼠标不在卡上的人看不出这张卡和旁边那张有什么不同 */
 .stat-card-go {
-  transition: border-color var(--t-fast), background var(--t-fast);
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease), scale var(--t-press) var(--ease);
 }
 .stat-card-go:hover {
   border-color: var(--brand-line);
   background: var(--brand-bg);
+  transform: translateY(-1px);
 }
+.stat-card-go:active { scale: 0.99; }
 .stat-card-go:hover .stat-value {
   color: var(--brand-deep);
 }
@@ -1117,6 +1147,138 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .app-loading { animation: app-loading-in 0.2s ease-out 0.18s both; }
 @keyframes app-loading-in { from { opacity: 0; } to { opacity: 1; } }
 
+
+/* ---------- 手感：可点的东西都有回应（2026-09-18） ----------
+   参考 bencho.dev（MIT，见 licenses/bencho-MIT.txt）。**三条规矩，全站只有这三条**：
+
+     悬停 —— 颜色变一点，图标微微涨到 1.04。轻到你不会注意，但手知道那儿能点
+     按下 —— 缩到 0.96，**时长 90ms**。按下要立刻、松开才慢慢回弹：
+             差别几乎全在这一档上，之前我们这一档是空的（全站 0 处 :active）
+     聚焦 —— 1.5px 的环，只给键盘（:focus-visible）。鼠标点出来的焦点不画环
+
+   用的是 `scale` 属性不是 `transform`：两者互不覆盖，悬停想抬一下的地方
+   还能各自用 transform，不必把两件事塞进同一个值里。
+
+   **表格行、列表行不缩放**：一行缩一下会把整张表带着晃，那是廉价感不是高级感。
+   它们按下去只变底色。 */
+.press, .rail-item, .rail-fb, .pane-ib, .pane-chip, .rec-chip, .cli-tool, .cli-send, .cli-ic,
+.cli-q, .cli-sugg, .cli-cmd, .mp-btn, .prop-ok, .prop-no, .bill-plan, .set-nav-i, .cmdk-row,
+.setm-x, .list-sel-x, .plan-switch, .rail-user, .rail-mark, .ops-fb-item .ant-btn {
+  transition:
+    scale var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    opacity var(--t-fast) var(--ease);
+}
+.press:active, .rail-fb:active, .pane-ib:active, .pane-chip:active, .rec-chip:active,
+.cli-tool:active, .cli-send:active, .cli-ic:active, .cli-q:active, .cli-sugg:active,
+.cli-cmd:active, .mp-btn:active, .prop-ok:not(:disabled):active, .prop-no:active,
+.setm-x:active, .list-sel-x:active, .plan-switch:active, .rail-up:not(.busy):active {
+  scale: 0.96;
+  transition-duration: var(--t-press);
+}
+/* 大块头缩得更少：整条导航项缩 4% 会显得在跳，0.985 刚好只有手感觉得到 */
+.rail-item:active, .rail-user:active, .rail-mark:active, .bill-plan:active,
+.set-nav-i:active, .cmdk-row:active {
+  scale: 0.985;
+  transition-duration: var(--t-press);
+}
+/* 图标自己再涨一点点：指上去它是活的，但整块底色不必跟着变重 */
+.rail-fb:hover > svg, .pane-ib:hover > .anticon, .cli-tool:hover > .anticon,
+.cli-ic:hover > .anticon, .setm-x:hover > .anticon {
+  scale: 1.04;
+}
+.rail-fb > svg, .pane-ib > .anticon, .cli-tool > .anticon, .cli-ic > .anticon, .setm-x > .anticon {
+  transition: scale var(--t-fast) var(--ease);
+}
+/* 卡片式的可点项：悬停抬 1px。只给"一块东西"，不给一行字 */
+.bill-plan:hover, .cli-q:hover, .cli-sugg:hover { transform: translateY(-1px); }
+
+/* 焦点环统一。**只给键盘**：:focus-visible 在鼠标点击时不触发，
+   所以这一条不会在每次点按钮之后留下一个框 */
+.press:focus-visible, .rail-item:focus-visible, .rail-fb:focus-visible, .pane-ib:focus-visible,
+.pane-chip:focus-visible, .rec-chip:focus-visible, .cli-tool:focus-visible, .cli-send:focus-visible,
+.cli-ic:focus-visible, .cli-q:focus-visible, .cli-sugg:focus-visible, .cli-cmd:focus-visible,
+.mp-btn:focus-visible, .prop-ok:focus-visible, .prop-no:focus-visible, .bill-plan:focus-visible,
+.set-nav-i:focus-visible, .cmdk-row:focus-visible, .list-sel-x:focus-visible,
+.plan-switch:focus-visible, .rail-mark:focus-visible {
+  outline: 1.5px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: var(--r-ctl);
+}
+
+/* antd 的按钮和菜单项：它们自己带 transition: all，所以只补按下这一档。
+   不逐个改组件——全站的按钮都是 antd 的，一条规则比一百处调用点可靠 */
+.ant-btn:not(:disabled):active { scale: 0.96; transition-duration: var(--t-press); }
+.ant-dropdown-menu-item, .ant-select-item, .ant-picker-cell { transition: scale var(--t-press) var(--ease), background var(--t-fast) var(--ease); }
+.ant-dropdown-menu-item:active, .ant-select-item:active { scale: 0.985; }
+/* 表格行按下去只变底色：缩放会把整张表带着晃 */
+.ant-table-tbody > tr.ant-table-row:active > td { background: var(--hover); }
+
+
+/* antd 的弹出层（下拉、选单、气泡、日期）：只换曲线和时长，不碰它画什么。
+   它自带的 cubic-bezier(.08,.82,.17,1) 比我们这套软一档，两种曲线同屏会显得不是一套东西。
+   菜单用 --ease-spring：弹出来的东西允许过冲一点点，这是它和「淡入」的区别。 */
+.ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown, .ant-tooltip, .ant-popover {
+  --antd-motion-ease: var(--ease-spring);
+}
+.ant-slide-up-enter, .ant-slide-up-appear, .ant-slide-down-enter, .ant-slide-down-appear,
+.ant-zoom-big-enter, .ant-zoom-big-appear, .ant-zoom-enter, .ant-zoom-appear {
+  animation-duration: var(--t-enter) !important;
+  animation-timing-function: var(--ease-spring) !important;
+}
+.ant-slide-up-leave, .ant-slide-down-leave, .ant-zoom-big-leave, .ant-zoom-leave {
+  animation-duration: var(--t-fast) !important;
+  animation-timing-function: var(--ease) !important;
+}
+/* 模态框（反馈、⌘K、开工作区）：进场用 morph 那条，两头慢中间快 */
+.ant-modal-mask { transition-duration: var(--t-enter) !important; }
+.ant-modal .ant-zoom-enter, .ant-modal .ant-zoom-appear { animation-timing-function: var(--ease-morph) !important; }
+
+
+/* 中栏那份窄名单、跟进计划里的行：整行可点的地方，按下去只让底色深一档。
+   行不缩放——一行缩一下会把整列带着晃 */
+.roster-row, .plan-row { transition: background var(--t-fast) var(--ease); }
+.roster-row:active, .plan-row:active { background: var(--hover); }
+
+/* Segmented（数据页那三段、商机的管道/列表）：滑块用我们这条曲线。
+   它自带的那条更软，同屏两种曲线会显得不是一套东西 */
+.ant-segmented-thumb, .ant-segmented-item-label { transition-timing-function: var(--ease) !important; transition-duration: var(--t) !important; }
+
+
+/* 就地确认（components/InlineConfirm.tsx）。形状参考 bencho.dev 的 Inline confirm（MIT）。
+   问句用正常字色、「删除」用红——**红只给真的会删的那一下**，问句本身不必也红 */
+.inlc { display: inline-flex; align-items: center; }
+.inlc-ask { display: inline-flex; align-items: center; gap: 6px; padding-left: 4px; white-space: nowrap; }
+.inlc-q { font-size: var(--fs-min); color: var(--text-muted); }
+.inlc-yes, .inlc-no { font: inherit; font-size: var(--fs-min); line-height: 1; border: 0; background: none;
+  padding: 3px 6px; border-radius: var(--r-ctl); cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), scale var(--t-press) var(--ease); }
+.inlc-yes { color: var(--danger-text); font-weight: 600; }
+.inlc-yes:hover { background: var(--danger-bg); }
+.inlc-no { color: var(--text-muted); }
+.inlc-no:hover { background: var(--hover); color: var(--ink); }
+.inlc-yes:active, .inlc-no:active { scale: 0.94; }
+.inlc-yes:focus-visible, .inlc-no:focus-visible { outline: 1.5px solid var(--brand); outline-offset: 2px; }
+.inlc-yes:disabled { opacity: 0.5; cursor: default; }
+
+
+/* 滑动确认（components/SlideConfirm.tsx）。形状参考 bencho.dev 的 Slide to confirm（MIT）。
+   轨道是危险色的浅底，但**不是整块红**：红留给拖到头的那一刻 */
+.slc { position: relative; height: 40px; border-radius: 999px; background: var(--danger-bg);
+  border: 1px solid var(--danger-line); display: flex; align-items: center; justify-content: center;
+  overflow: hidden; user-select: none; transition: background var(--t) var(--ease), border-color var(--t) var(--ease); }
+.slc.on { background: var(--danger); border-color: var(--danger); }
+.slc-t { font-size: var(--fs-note); color: var(--danger-text); pointer-events: none; }
+.slc-k { position: absolute; left: 3px; top: 3px; width: 38px; height: 32px; border: 0; border-radius: 999px;
+  background: var(--panel); color: var(--danger-text); font-size: 16px; line-height: 1; cursor: grab;
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.16); display: inline-flex; align-items: center; justify-content: center; }
+.slc-k:active { cursor: grabbing; }
+.slc-k:focus-visible { outline: 1.5px solid var(--brand); outline-offset: 2px; }
+.slc.on .slc-k { color: var(--success-text); }
+
 /* 系统里把「减弱动态效果」打开的人，这里一律按不动处理。
    这一条放在文件最后，为的是压过上面所有的 transition / animation——
    动效是锦上添花，开了这个开关的人多半是因为它让人不舒服。 */
@@ -1126,5 +1288,14 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  /* 时长归零挡不住位移本身：按下去仍然会缩一下，只是缩得很快——
+     对开了这个开关的人来说，那正是他不想看到的那种跳。所以把位移也撤掉，
+     按下的回应交给颜色（:active 那条规则里的底色仍然生效）。 */
+  .press:active, .rail-item:active, .cli-q:active, .rail-fb:active, .rail-up:active,
+  .pane-ib:active, .set-nav-i:active, .bill-plan:active, .cli-tool:active, .cli-send:active,
+  .ant-btn:active, .ant-dropdown-menu-item:active, .rec-tl-act:active {
+    transform: none !important;
+    scale: none !important;
   }
 }

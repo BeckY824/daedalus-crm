@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Form, Input, Button, Alert, Typography, Checkbox } from "antd";
 import { LockOutlined, MailOutlined, SafetyOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
+import Rise from "@/components/Rise";
 import { requestCode, signup } from "./actions";
 
 /**
@@ -108,7 +109,7 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
   if (注册完成) {
     return (
       <div className="login-shell">
-        <div className="login-card" style={{ textAlign: "center" }}>
+        <Rise className="login-card" style={{ textAlign: "center" }}>
           <div className="login-mark" style={{ margin: "0 auto 16px" }}>
             <Logo size={30} />
           </div>
@@ -123,15 +124,15 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             这个账号用于桌面端。<Link href="/login">网页版</Link>是另一套账号，要试用请联系我们。
           </Typography.Text>
-        </div>
+        </Rise>
       </div>
     );
   }
 
   return (
     <div className="login-shell">
-      <div className="login-card">
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
+      <Rise className="login-card">
+        <Rise 第几个={1} style={{ textAlign: "center", marginBottom: 24 }}>
           <div className="login-mark">
             <Logo size={30} />
           </div>
@@ -141,11 +142,12 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
           <Typography.Text type="secondary" style={{ fontSize: 13 }}>
             桌面端用它登录，送 {注册赠送} 次 AI 对话。数据仍然只在你自己的机器上
           </Typography.Text>
-        </div>
+        </Rise>
 
         {error && <Alert type="error" showIcon style={{ marginBottom: 14 }} title={error} />}
         {hint && 步骤 === 2 && <Alert type="info" showIcon style={{ marginBottom: 14 }} title={hint} />}
 
+        <Rise 第几个={2}>
         <Form form={form} layout="vertical" onFinish={onFinish} requiredMark={false} disabled={loading}>
           {/* ---------- 第一步：只有邮箱 ---------- */}
           <div style={{ display: 步骤 === 1 ? "block" : "none" }}>
@@ -232,14 +234,17 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
             </Button>
           </div>
         </Form>
+        </Rise>
 
-        <div style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
-          已经有账号了？<Link href="/login">去登录</Link>
-        </div>
-        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 14, marginBottom: 0, textAlign: "center" }}>
-          数据存在你自己的工作区里，我们不会拿它训练任何模型。
-        </Typography.Paragraph>
-      </div>
+        <Rise 第几个={3}>
+          <div style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
+            已经有账号了？<Link href="/login">去登录</Link>
+          </div>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 14, marginBottom: 0, textAlign: "center" }}>
+            数据存在你自己的工作区里，我们不会拿它训练任何模型。
+          </Typography.Paragraph>
+        </Rise>
+      </Rise>
     </div>
   );
 }
