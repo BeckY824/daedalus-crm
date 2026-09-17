@@ -179,3 +179,39 @@ describe("登录窗要说清的五种状态", () => {
     expect(p).toMatch(/background:var\(--brand\)/);
   });
 });
+
+describe("令牌被吊销之后，桌面端要自己发现", () => {
+  const cloud = fs.readFileSync(path.join(桌面, "cloud.js"), "utf8");
+
+  /**
+   * 2026-09-17 起改密码会把该账号名下的设备令牌全部吊销。本地存着一枚不代表还能用——
+   * 不问一句的话，应用照常开着，只有 AI 在背后一路 401，而用户看到的是
+   * 「AI 怎么不响应了」，不会想到是自己在网页上改过密码。
+   */
+  it("校验分得清「服务端说不认」和「根本没问到」", () => {
+    // 请求要把状态码带回来，否则这两种情况长得一模一样
+    expect(cloud).toContain("状态: res.status");
+    expect(cloud).toMatch(/function 校验\(\)/);
+    // 401 才清本地那枚
+    expect(cloud).toContain("r.状态 === 401");
+    expect(cloud).toContain("清();");
+    // 断网当作还认：飞机上打不开自己的 CRM 是更糟的事
+    expect(cloud).toContain("离线: true");
+    expect(cloud).toContain("校验");
+  });
+
+  it("启动时和切回应用时各查一次", () => {
+    expect(main).toContain("if (云端.读()) await 云端.校验();");
+    // 切回应用那次更要紧：改完密码的人下一个动作是切回来，不是重启
+    expect(main).toMatch(/browser-window-focus[\s\S]*?云端\.校验\(\)/);
+    expect(main).toContain("令牌失效了()");
+  });
+
+  it("不是用户自己退的，就别问「要退出吗」", () => {
+    // 弹一个有取消键的确认框，会让人以为自己还有得选
+    const 段 = main.slice(main.indexOf("async function 令牌失效了"), main.indexOf("async function 退出云端"));
+    expect(段).toContain('buttons: ["知道了"]');
+    expect(段).toContain("云端账号的密码改过了");
+    expect(段).not.toContain("cancelId");
+  });
+})

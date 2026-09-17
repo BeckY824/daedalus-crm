@@ -100,7 +100,7 @@ export default function ForgotForm() {
             type="success"
             showIcon
             style={{ marginBottom: 16 }}
-            title="网页端其他设备上的登录状态已经作废，都要用新密码重新登录。桌面端已登录的机器不受影响——它用的是单独的设备令牌，可以在桌面端里退出登录来吊销。"
+            title="所有地方都要用新密码重新登录：网页端其他设备上的登录状态已经作废，桌面端已登录的机器也一起退出了。本机数据不受影响，重新登录即可恢复。"
           />
           <Link href="/login">
             <Button type="primary" size="large" block>

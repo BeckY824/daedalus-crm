@@ -77,7 +77,8 @@ async function 请求(url, init = {}) {
   }
   if (!res.ok) {
     const msg = data?.error?.message ?? data?.error ?? `服务器返回 ${res.status}`;
-    return { ok: false, error: String(msg) };
+    // 状态码带回去：调用方要分得清「服务端明确拒了」和「根本没问到」（见 校验）
+    return { ok: false, error: String(msg), 状态: res.status };
   }
   return { ok: true, data };
 }
@@ -166,6 +167,31 @@ async function 退出() {
   清();
 }
 
+/**
+ * 手上这枚令牌还认不认。
+ *
+ * 2026-09-17 起改密码会把该账号名下的设备令牌**全部吊销**，所以本地存着一枚
+ * 不代表还能用——不问一句的话，应用照常开着，只有 AI 在背后一路 401，
+ * 而用户看到的是「AI 怎么不响应了」，不会想到是自己在网页上改过密码。
+ *
+ * 三种结果要分清：
+ *   认  —— 继续用
+ *   不认（服务端明确说 401）—— 把本地那枚清掉，按未登录处理
+ *   问不到（断网、服务器挂了）—— **当作还认**。飞机上打不开自己的 CRM 是更糟的事，
+ *                               而真正的吊销下次联网时一定会被发现
+ */
+async function 校验() {
+  const c = 读();
+  if (!c) return { 有效: false, 原因: "没登录" };
+  const r = await 请求(`${c.baseUrl}/api/gateway/v1/credits`, { headers: { Authorization: `Bearer ${c.token}` } });
+  if (r.ok) return { 有效: true };
+  if (r.状态 === 401) {
+    清();
+    return { 有效: false, 原因: "已吊销" };
+  }
+  return { 有效: true, 离线: true };
+}
+
 async function 余额() {
   const c = 读();
   if (!c) return { ok: false, error: "还没登录云端账号" };
@@ -200,4 +226,4 @@ function 模型环境() {
   };
 }
 
-module.exports = { 初始化, 读, 登录, 策略, 发码, 重置密码, 退出, 余额, 模型环境, 默认云端 };
+module.exports = { 初始化, 读, 登录, 策略, 发码, 重置密码, 退出, 校验, 余额, 模型环境, 默认云端 };

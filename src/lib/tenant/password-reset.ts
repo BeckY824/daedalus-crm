@@ -26,6 +26,7 @@
 import { codeVisibleToClient, sendCode, smtpConfigured } from "./notify";
 import { checkPassword, consumeCode, findAccountByTarget, issueCode, parseTarget, updatePassword } from "./accounts";
 import { 记一次改密 } from "./session-cutoff";
+import { 吊销全部 } from "./device-token";
 import { 检查限流, 记一次失败, 清除限流, IP阈值 } from "../rate-limit";
 
 type Env = NodeJS.ProcessEnv | Record<string, string | undefined>;
@@ -134,7 +135,9 @@ export async function 重置密码(
   if (!account?.active) return 通用失败;
 
   await updatePassword(account.id, input.password);
+  // 改密码 = 到处都要重新登录：网页会话作废，桌面端那几枚设备令牌也一起吊掉
   await 记一次改密(account.id);
+  await 吊销全部(account.id);
   清除限流(`u:${t.value}`);
   return { ok: true };
 }

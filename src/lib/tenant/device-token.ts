@@ -71,6 +71,26 @@ export async function 列出(accountId: string) {
   });
 }
 
+/**
+ * 吊销这个账号名下的**全部**设备令牌，返回吊掉了几枚。
+ *
+ * 改密码时调它（2026-09-17）。原来改密码只作废网页会话、不碰设备令牌，
+ * 理由写的是「令牌是另一类凭证，它自己有列出与吊销的口子」——
+ * 可那个口子只有 `列出` 和 `吊销` 两个函数，界面上一处都没有。
+ * 于是机器丢了的人只剩「改密码」这一根杠杆，而那根杠杆对令牌不起作用，
+ * 唯一的吊销方式在那台丢了的机器上。等于没有退路。
+ *
+ * 所以改成：改密码 = 全部退出，和人对「我改了密码」的预期一致。
+ * 代价是手上几台机器都要重登一次——这件事在改密码那一屏上写明白了。
+ */
+export async function 吊销全部(accountId: string): Promise<number> {
+  const r = await control.deviceToken.updateMany({
+    where: { accountId, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  return r.count;
+}
+
 /** 吊销。只能吊销自己的——不带 accountId 的话，猜到 id 就能把别人的机器踢下线 */
 export async function 吊销(id: string, accountId: string): Promise<boolean> {
   const r = await control.deviceToken.updateMany({

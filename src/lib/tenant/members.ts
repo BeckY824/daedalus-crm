@@ -20,6 +20,7 @@ import bcrypt from "bcryptjs";
 import { control } from "./control";
 import { checkPassword, findAccountByTarget, parseTarget } from "./accounts";
 import { 记一次改密 } from "./session-cutoff";
+import { 吊销全部 } from "./device-token";
 
 export type 成员结果 = { ok: true; accountId: string } | { ok: false; error: string };
 
@@ -75,8 +76,10 @@ export async function 找账号(accountId: string | null | undefined) {
 /**
  * 改一个成员（或自己）的控制面密码。
  *
- * 顺手记一次改密：之前签出去的会话全部作废（见 session-cutoff.ts）。
- * 管理员替别人重置密码时这正是想要的——那个人手上的旧会话不该还留着。
+ * 改完两件事一起做，**改密码 = 到处都要重新登录**：
+ *   记一次改密 —— 之前签出去的网页会话全部作废（见 session-cutoff.ts）
+ *   吊销全部   —— 桌面端那几枚设备令牌也一起吊掉（见 device-token.ts）
+ * 管理员替别人重置密码时这正是想要的：那个人手上的旧会话和旧机器都不该还留着。
  * 自己改密码的调用方要记得**当场再签一张新票**，否则会把自己也踢下线。
  */
 export async function 改密码(accountId: string, password: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -84,6 +87,7 @@ export async function 改密码(accountId: string, password: string): Promise<{ 
   if (pwErr) return { ok: false, error: pwErr };
   await control.account.update({ where: { id: accountId }, data: { password: await bcrypt.hash(password, 10) } });
   await 记一次改密(accountId);
+  await 吊销全部(accountId);
   return { ok: true };
 }
 

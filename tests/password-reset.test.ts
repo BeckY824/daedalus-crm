@@ -274,3 +274,70 @@ describe("改完密码，旧会话不认了", () => {
     expect(await control.sessionCutoff.findUnique({ where: { accountId: a.id } })).not.toBeNull();
   });
 });
+
+/**
+ * 改密码之后，桌面端那几枚设备令牌也要一起失效。
+ *
+ * 2026-09-17 改的。原来只作废网页会话、不碰设备令牌，理由写的是「令牌是另一类凭证，
+ * 它自己有列出与吊销的口子」——可那个口子只有 `列出` / `吊销` 两个函数，界面上一处都没有。
+ * 于是机器丢了的人只剩「改密码」这一根杠杆，而那根杠杆对令牌不起作用，
+ * 唯一的吊销方式在那台丢了的机器上：等于没有退路。
+ */
+describe("改密码把设备令牌也一起吊掉", () => {
+  it("改完之后，之前那枚令牌不认了", async () => {
+    const { 签发, 认领 } = await import("@/lib/tenant/device-token");
+    const { 重置密码 } = await import("@/app/forgot/actions");
+    const { verifyAccount } = await import("@/lib/tenant/accounts");
+
+    const 邮箱 = 新邮箱();
+    await 建号(邮箱, "old12345");
+    const 账号 = await verifyAccount(邮箱, "old12345");
+    const { token } = await 签发(账号!.id, "某人的 Mac");
+    // 改之前当然是认的
+    expect(await 认领(token)).not.toBeNull();
+
+    const code = await 拿重置码(邮箱);
+    expect((await 重置密码({ target: 邮箱, code, password: "new12345" })).ok).toBe(true);
+
+    expect(await 认领(token), "改完密码这枚令牌还认，那机器丢了就真没救了").toBeNull();
+  });
+
+  it("手上三台一起吊，不是只吊一台", async () => {
+    const { 签发, 认领, 列出 } = await import("@/lib/tenant/device-token");
+    const { 重置密码 } = await import("@/app/forgot/actions");
+    const { verifyAccount } = await import("@/lib/tenant/accounts");
+
+    const 邮箱 = 新邮箱();
+    await 建号(邮箱, "old12345");
+    const 账号 = await verifyAccount(邮箱, "old12345");
+    const 三台 = [];
+    for (const n of ["Mac", "台式机", "备用本"]) 三台.push((await 签发(账号!.id, n)).token);
+    expect(await 列出(账号!.id)).toHaveLength(3);
+
+    const code = await 拿重置码(邮箱);
+    await 重置密码({ target: 邮箱, code, password: "new12345" });
+
+    for (const t of 三台) expect(await 认领(t)).toBeNull();
+    expect(await 列出(账号!.id), "列表里不该还剩活着的").toHaveLength(0);
+  });
+
+  it("吊掉的是这个账号的，别人的机器不受牵连", async () => {
+    const { 签发, 认领 } = await import("@/lib/tenant/device-token");
+    const { 重置密码 } = await import("@/app/forgot/actions");
+    const { verifyAccount } = await import("@/lib/tenant/accounts");
+
+    const 甲 = 新邮箱();
+    const 乙 = 新邮箱();
+    await 建号(甲, "old12345");
+    await 建号(乙, "old12345");
+    const 甲号 = await verifyAccount(甲, "old12345");
+    const 乙号 = await verifyAccount(乙, "old12345");
+    const 甲令牌 = (await 签发(甲号!.id, "甲的 Mac")).token;
+    const 乙令牌 = (await 签发(乙号!.id, "乙的 Mac")).token;
+
+    await 重置密码({ target: 甲, code: await 拿重置码(甲), password: "new12345" });
+
+    expect(await 认领(甲令牌)).toBeNull();
+    expect(await 认领(乙令牌), "改甲的密码把乙的机器也踢了").not.toBeNull();
+  });
+});

@@ -433,7 +433,7 @@ function 登录云端({ 必须 = false, 成功, 改密码 = false, 账号 = "" }
 
       <div id="p-reset" style="display:none">
         <div class="h">${改密码 ? "修改密码" : "找回密码"}</div>
-        <div class="s">${改密码 ? "服务端只有这一条改密码的路：先收一个验证码，再设新密码。" : "用注册时的邮箱收一个验证码，就能设新密码。"}<br>改完之后网页端的登录状态会全部失效，本机的令牌不受影响。</div>
+        <div class="s">${改密码 ? "服务端只有这一条改密码的路：先收一个验证码，再设新密码。" : "用注册时的邮箱收一个验证码，就能设新密码。"}<br>改完之后<b>所有地方都要重新登录</b>：网页端的登录状态、以及每一台已登录的机器（包括这一台）。本机数据不受影响。</div>
         <input type="text" id="fu" placeholder="注册时用的邮箱">
         <div class="codeline">
           <input type="text" id="fcode" placeholder="邮件里的 6 位验证码" maxlength="6">
@@ -627,6 +627,44 @@ function 登录云端({ 必须 = false, 成功, 改密码 = false, 账号 = "" }
         "\n在「账号」菜单里退出登录会把这枚令牌吊销，AI 功能随之停用；本机数据不受影响。",
     });
   });
+}
+
+/**
+ * 令牌在服务端被吊销了（多半是在别处改了密码）。
+ *
+ * 和「退出云端账号」几乎是同一件事，差别在于**不问**：不是用户主动退的，
+ * 弹一个「要退出吗」只会让人以为自己还有得选。先说清发生了什么，再回到门口。
+ */
+async function 令牌失效了() {
+  await dialog.showMessageBox(win ?? null, {
+    type: "warning",
+    title: "需要重新登录",
+    message: "云端账号的密码改过了",
+    detail:
+      "改密码会让所有已登录的机器退出，这一台也在内。本机数据不受影响，用新密码登录回来就行。",
+    buttons: ["知道了"],
+  });
+  if (读配置().mode === "local") {
+    const 旧 = win;
+    win = null;
+    旧?.close();
+    await 本地服务.stop();
+    await 必须登录();
+    try {
+      await 启动本地();
+      建窗口();
+    } catch (e) {
+      报告本地故障(e?.message ?? String(e));
+    }
+    建菜单();
+    return;
+  }
+  try {
+    await 重启本地服务();
+  } catch (e) {
+    报告本地故障(e?.message ?? String(e));
+  }
+  建菜单();
 }
 
 async function 退出云端() {
@@ -1025,6 +1063,12 @@ if (!app.requestSingleInstanceLock()) {
     建菜单();
     安装.清理旧包(应用包).catch(() => {});
     if (读配置().mode === "local") {
+      /*
+        先问一句手上这枚令牌还认不认。改密码会把设备令牌全部吊销（2026-09-17），
+        本地存着一枚不代表还能用——不问的话应用照常开着，只有 AI 在背后一路 401。
+        问不到（断网）当作还认，见 cloud.js 的 校验()。
+      */
+      if (云端.读()) await 云端.校验();
       if (!云端.读()) await 必须登录();
       try {
         await 启动本地();
@@ -1045,6 +1089,20 @@ if (!app.requestSingleInstanceLock()) {
       if (Date.now() - 上次焦点查 < 10 * 60 * 1000) return;
       上次焦点查 = Date.now();
       检查更新().catch(() => {});
+    });
+    /*
+      切回应用时校验令牌。**这条比启动时那次更要紧**：在网页上改完密码的人
+      下一个动作就是切回应用，而不是重启它。节流 30 秒，够挡住来回切窗口，
+      又不至于让人对着一个已经失效的账号用上半天。
+    */
+    let 上次校验 = Date.now();
+    app.on("browser-window-focus", async () => {
+      if (Date.now() - 上次校验 < 30_000 || !云端.读()) return;
+      上次校验 = Date.now();
+      const r = await 云端.校验().catch(() => ({ 有效: true }));
+      if (r.有效) return;
+      建菜单();
+      await 令牌失效了();
     });
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) 建窗口();
