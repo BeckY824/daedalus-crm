@@ -17,7 +17,19 @@ const 跳转超时毫秒 = 15000;
  * 由它读运行时环境决定要不要画「忘记密码」：这个部署发不出信时，
  * 那个链接点进去只能看到「请联系我们」，不如不摆。
  */
-export default function LoginForm({ 可找回密码, 用邮箱 }: { 可找回密码: boolean; 用邮箱: boolean }) {
+export default function LoginForm({
+  可找回密码,
+  用邮箱,
+  本机 = false,
+}: {
+  可找回密码: boolean;
+  用邮箱: boolean;
+  /**
+   * 桌面端本地模式。正常情况下这一页在本机根本打不开（page.tsx 直接跳回自动登录），
+   * 能站在这里说明自动登录失败了——那就得告诉他密码在哪，否则他打不开自己的 CRM。
+   */
+  本机?: boolean;
+}) {
   /** 托管版的账号就是邮箱，自部署是管理员建的登录名。见 page.tsx */
   const 账号名 = 用邮箱 ? "邮箱" : "用户名";
   const [loading, setLoading] = useState(false);
@@ -116,6 +128,20 @@ export default function LoginForm({ 可找回密码, 用邮箱 }: { 可找回密
           <div style={{ textAlign: "center", marginTop: 12, fontSize: 13 }}>
             <Link href="/forgot">忘记密码？</Link>
           </div>
+        )}
+
+        {/*
+          本机模式没有「忘记密码」可给：这台机器上的服务连不到控制面、也发不出信。
+          能给的是「密码在哪」——它是建库时生成的随机串，就在应用菜单里摆着。
+        */}
+        {本机 && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginTop: 16, textAlign: "left" }}
+            title="这是本机 CRM 的账号，不是云端账号"
+            description="密码在应用菜单 → 本机账号密码…（可一键复制）。云端账号那把是另一回事，它只管 AI，菜单里单独有入口。"
+          />
         )}
       </div>
     </div>

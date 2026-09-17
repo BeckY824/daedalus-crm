@@ -34,6 +34,8 @@ type Props = {
   pendingCount: number;
   /** 跑在桌面端（Electron）里：红黄绿钮嵌在图标栏顶上，系统标题栏不再画 */
   desktop: boolean;
+  /** 桌面端**本地模式**（数据在这台机器上）。和 desktop 不是一回事：连服务器时它是 false */
+  本机: boolean;
   /**
    * 中栏，由并行路由槽位 @pane/[[...slug]] 渲染好传进来，连 <aside class="pane"> 一起。
    * 没有中栏的路由那边返回 null，这里什么都不画——壳不该知道哪个模块有中栏。
@@ -58,7 +60,7 @@ type Props = {
  * 导航文案就是模块名，不带「管理」二字：那两个字每一项都有，等于每一项都没有。
  * 每个入口都带 aria-label，屏幕阅读器和 e2e 都按这个名字找。
  */
-export default function AppShell({ user, pendingCount, desktop, pane, children }: Props) {
+export default function AppShell({ user, pendingCount, desktop, 本机, pane, children }: Props) {
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
@@ -101,11 +103,23 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
     router.refresh();
   }
 
+  /**
+   * 本机模式下**不摆「退出登录」**。
+   *
+   * 数据就在这台机器上，退出不给任何人挡住什么；而退出之后落到的那张登录页，
+   * 要的是建库时生成的随机密码——用户从没见过它，那一页也没有「忘记密码」
+   * （本机的服务发不出信）。一个只会把自己锁在外面的按钮，不该摆在那儿。
+   * 真正要退的是云端账号，那条在应用菜单里（desktop/main.js）。
+   */
   const userMenu = {
     items: [
       { key: "profile", icon: <UserOutlined />, label: <Link href="/settings">个人设置</Link> },
-      { type: "divider" as const },
-      { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true, onClick: logout },
+      ...(本机
+        ? []
+        : [
+            { type: "divider" as const },
+            { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true, onClick: logout },
+          ]),
     ],
   };
 

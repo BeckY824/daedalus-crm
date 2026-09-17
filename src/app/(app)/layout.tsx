@@ -32,13 +32,19 @@ export default async function AppLayout({
    * 壳据此把红黄绿钮的位置留出来。只影响布局，不影响任何权限。
    */
   const desktop = /Electron\//.test(ua);
+  /**
+   * 本地模式（数据在用户自己机器上）。UA 分不出这个——连服务器时也是 Electron——
+   * 只有跑在本机的这个服务进程知道，它的环境变量里有 DESKTOP_LOCAL（local-server.js 设的）。
+   * 壳用它决定要不要摆「退出登录」：本机模式下那个按钮只会把人锁在自己机器外面。
+   */
+  const 本机 = process.env.DESKTOP_LOCAL === "1";
   // 网页版不再有试用期：只有一个长期运行的共享工作区，横条整条去掉了（2026-09-16）。
   // 到期只读那套机制还在 computeWritable 里，共享工作区靠 paidUntil 设在很远来绕过它——
   // 机制留着是因为运营台还要用它停用工作区，不是因为网页版还在计时。
 
   return (
     <BusinessProvider value={business}>
-      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} pane={pane}>
+      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} 本机={本机} pane={pane}>
         {children}
       </AppShell>
     </BusinessProvider>

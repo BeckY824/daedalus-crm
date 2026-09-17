@@ -18,8 +18,11 @@ export const dynamic = "force-dynamic";
  *   2. 令牌由 Electron 每次启动现生成，只存在于父子进程的环境变量里，不落盘。
  *   3. 令牌用定长比较，不给计时侧信道留口子。
  *
- * 登录的是业务库里第一个管理员。本地模式是单人使用，不存在"该登谁"的歧义；
- * 想以别的身份进去，登出后用账号密码正常登录即可（密码见应用菜单）。
+ * 登录的是业务库里第一个管理员。本地模式是单人使用，不存在"该登谁"的歧义。
+ *
+ * 本地模式下 `/login` 也会跳到这里（见 app/login/page.tsx）：那一页在本机是个死胡同——
+ * 密码是建库时生成的随机串，用户没见过，也没有「忘记密码」可点。所以「退出登录」
+ * 那条在本机模式下已经不摆了（AppShell），落到登录页的其他路径都由这个路由接回来。
  */
 export async function GET(req: Request) {
   const expected = process.env.DESKTOP_TOKEN;
@@ -40,7 +43,12 @@ export async function GET(req: Request) {
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });
-  if (!admin) return new NextResponse("本机数据库里还没有账号", { status: 500 });
+  /**
+   * 库里没有在职管理员（被停用过、或者搬了一个残缺的库进来）。
+   * 不能回 500：本地模式下 /login 会跳到这里来，一个 500 等于把人锁在应用外面，
+   * 连「密码在菜单里」这句话都看不到。带着 fallback 回登录页，那一页才画表单。
+   */
+  if (!admin) return new NextResponse(null, { status: 307, headers: { Location: "/login?fallback=1" } });
 
   await createSession(admin.id);
   /**
