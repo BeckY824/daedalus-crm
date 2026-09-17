@@ -343,14 +343,28 @@ function 必须登录() {
   return new Promise((resolve) => 登录云端({ 必须: true, 成功: resolve }));
 }
 
-function 登录云端({ 必须 = false, 成功 } = {}) {
+/**
+ * 已登录状态下改云端账号的密码。
+ *
+ * 走的是和「忘记密码」同一块面板、同一套接口（发验证码 → 用码设新密码），
+ * 因为服务端只有这一条改密码的路。**但入口必须单独有一个**：
+ * 那块面板原来只藏在登录窗里，而登录窗只在未登录时打得开——
+ * 于是已经登录的人想改密码，得先「退出云端账号」把设备令牌吊销掉。
+ * 为了改个密码先把自己踢出去，这不合理（2026-09-17 用户在真机上找不到入口才发现）。
+ */
+function 改云端密码() {
+  const c = 云端.读();
+  登录云端({ 改密码: true, 账号: c?.contact || "" });
+}
+
+function 登录云端({ 必须 = false, 成功, 改密码 = false, 账号 = "" } = {}) {
   let 成功了 = false;
   const w = new BrowserWindow({
     width: 470,
     // 打开时先按登录面板给个高度，页面量完自己会通知主进程调整（见下面的 cloud-resize）
     height: 330,
     resizable: false,
-    title: "云端账号",
+    title: 改密码 ? "修改云端账号密码" : "云端账号",
     parent: win ?? undefined,
     modal: Boolean(win),
     webPreferences: { preload: path.join(__dirname, "preload.js") },
@@ -418,8 +432,8 @@ function 登录云端({ 必须 = false, 成功 } = {}) {
       </div>
 
       <div id="p-reset" style="display:none">
-        <div class="h">找回密码</div>
-        <div class="s">用注册时的邮箱收一个验证码，就能设新密码。<br>改完之后网页端的登录状态会全部失效，本机的令牌不受影响。</div>
+        <div class="h">${改密码 ? "修改密码" : "找回密码"}</div>
+        <div class="s">${改密码 ? "服务端只有这一条改密码的路：先收一个验证码，再设新密码。" : "用注册时的邮箱收一个验证码，就能设新密码。"}<br>改完之后网页端的登录状态会全部失效，本机的令牌不受影响。</div>
         <input type="text" id="fu" placeholder="注册时用的邮箱">
         <div class="codeline">
           <input type="text" id="fcode" placeholder="邮件里的 6 位验证码" maxlength="6">
@@ -507,12 +521,31 @@ function 登录云端({ 必须 = false, 成功 } = {}) {
             $('to-reset').style.display = m.reset ? 'inline' : 'none';
             return;
           }
-          if (m.kind === 'reset-done') { 切('login'); $('u').value = m.target || ''; 说('密码已经改好了，用新密码登录', true); return; }
+          if (m.kind === 'reset-done') {
+            // 改密码模式下别切回登录面板：人还登录着，那一屏会让他以为自己被登出了
+            if (改密码) { 说('密码已经改好了。这台机器不受影响，不用重新登录', true); setTimeout(function () { window.close(); }, 2200); return; }
+            切('login'); $('u').value = m.target || ''; 说('密码已经改好了，用新密码登录', true); return;
+          }
           说(m.text, m.kind === 'hint');
         });
 
+        /*
+          从菜单「修改云端账号密码…」进来的：直接落在那块面板上，账号预填成当前登录的那个。
+          这时「返回登录」没有意义——人已经登录了，回到登录面板只会让他以为自己被登出了。
+          所以那条链接在这个模式下是「取消」，点了就关窗。
+        */
+        var 改密码 = ${JSON.stringify(改密码)};
+        if (改密码) {
+          $('fu').value = ${JSON.stringify(账号)};
+          for (var j = 0; j < backs.length; j++) {
+            backs[j].textContent = '取消';
+            backs[j].onclick = function () { window.close(); };
+          }
+          切('reset');
+        }
+
         crm.policy();
-        $('u').focus();
+        (改密码 ? ($('fu').value ? $('fcode') : $('fu')) : $('u')).focus();
         window.__量好了 = true;
         量高();
       </script>
@@ -915,6 +948,8 @@ function 建菜单() {
           ? [
               { label: `云端账号：${云端.读().contact || 云端.读().name}`, enabled: false },
               { label: "AI 剩余次数…", click: 显示额度 },
+              // 这一条以前没有：改密码的面板只在登录窗里，而登录窗只在未登录时开得了
+              { label: "修改云端账号密码…", click: 改云端密码 },
               { label: "退出云端账号", click: 退出云端 },
             ]
           : [{ label: "登录云端账号…（AI 功能需要）", click: 登录云端 }]

@@ -60,16 +60,47 @@ describe("云端账号窗", () => {
     /**
      * 整段页面本身就在一个模板字符串里。里面再写 ${...} 会被外层吃掉，
      * 写 `...` 会提前结束字符串——两种都不会报错，只会拼出一段坏 HTML。
-     * 故意插进去的只有两类：云端地址，和「必须登录」时改文案的那几个 `必须 ? … : …`
-     * （本地模式 2026-09-15 起把这个窗当门用，标题、说明、取消键的字都随之变）。除此以外不该有。
+     *
+     * 故意插进去的只有三类，除此以外不该有：
+     *   - 云端地址 `${JSON.stringify(云)}`
+     *   - 「必须登录」时改文案的那几个 `必须 ? … : …`（本地模式 2026-09-15 起把这个窗当门用）
+     *   - 「修改密码」模式的开关和预填账号（2026-09-17 加的菜单入口）
      */
     const p = 页面();
     const 插值 = [...p.matchAll(/\$\{[^}]*\}/g)].map((m) => m[0]);
-    expect(插值).toContain("${JSON.stringify(云)}");
+    const 认识的 = new Set(["${JSON.stringify(云)}", "${JSON.stringify(改密码)}", "${JSON.stringify(账号)}"]);
+    expect([...插值].some((x) => 认识的.has(x))).toBe(true);
     for (const x of 插值) {
-      expect(x === "${JSON.stringify(云)}" || x.startsWith("${必须 ? "), `不认识的插值：${x}`).toBe(true);
+      expect(
+        认识的.has(x) || x.startsWith("${必须 ? ") || x.startsWith("${改密码 ? "),
+        `不认识的插值：${x}`,
+      ).toBe(true);
     }
     expect(插值.filter((x) => x.startsWith("${必须 ? ")).length).toBe(3);
+  });
+
+  it("已登录也能改密码：菜单有入口，面板直接落在那一屏", () => {
+    /**
+     * 2026-09-17 用户在真机上找不到找回密码才发现的缺口：改密码那块面板只藏在登录窗里，
+     * 而登录窗只在**未登录**时打得开——已经登录的人要改密码，得先「退出云端账号」
+     * 把设备令牌吊销掉。为了改个密码先把自己踢出去，这不合理。
+     *
+     * 钉三件：菜单里有那一条、它开的是同一个窗口的改密码模式、
+     * 以及改密码模式下不会把人切回登录面板（那一屏会让还登录着的人以为自己被登出了）。
+     */
+    expect(main).toContain('label: "修改云端账号密码…"');
+    expect(main).toContain("click: 改云端密码");
+    expect(main).toMatch(/function 改云端密码\(\)/);
+    expect(main).toContain("登录云端({ 改密码: true");
+
+    const p = 页面();
+    // 进来就切到那一屏，账号预填
+    expect(p).toContain("切('reset')");
+    expect(p).toContain("$('fu').value = ${JSON.stringify(账号)}");
+    // 「返回登录」在这个模式下是「取消」，点了关窗
+    expect(p).toContain("'取消'");
+    // 改完不切回登录面板
+    expect(p).toContain("if (改密码) { 说('密码已经改好了。这台机器不受影响，不用重新登录'");
   });
 
   it("preload 暴露的能力、页面用到的能力、main 处理的通道，三边对得上", () => {
