@@ -146,10 +146,31 @@ test.describe("中栏跟着路由走", () => {
     await expect(page).toHaveURL(/\/follow-ups$/);
   });
 
-  test("设置页自己带左目录，也没有中栏——一页上不摆两列目录", async ({ page }) => {
+  test("设置从账号菜单进，弹的是一层浮层——不是另一页，也不摆两列目录", async ({ page }) => {
     await 登录(page);
-    await 点侧栏(page, "设置", 到.设置);
+    // 左栏 2026-09-17 起没有「设置」了：那一列是每天干活的地方，设置是偶尔去一趟的抽屉
+    await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "设置" })).toHaveCount(0);
+
+    await page.getByRole("button", { name: /账号菜单/ }).click();
+    await page.getByRole("menuitem").filter({ hasText: "设置" }).getByRole("link").click();
+
+    // 地址变了（能分享、后退就是关闭），但底下那一页还在——它是一层，不是一次跳转
+    await expect(page).toHaveURL(到.设置);
+    await expect(page.locator(".setm-box")).toBeVisible();
+    await expect(page.locator(".rail")).toBeVisible();
     await expect(中栏(page)).toHaveCount(0);
+    await expect(page.getByRole("tablist", { name: "设置分类" })).toBeVisible();
+
+    // Esc 关掉，回到原来那一页
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".setm-box")).toHaveCount(0);
+    await expect(page).toHaveURL(/\/dashboard/);
+  });
+
+  test("直接敲 /settings 落到的是整页，不是浮层", async ({ page }) => {
+    await 登录(page);
+    await page.goto("/settings");
+    await expect(page.locator(".setm-box")).toHaveCount(0);
     await expect(page.getByRole("tablist", { name: "设置分类" })).toBeVisible();
   });
 });

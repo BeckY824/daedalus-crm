@@ -214,20 +214,16 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
         <div className="rail-foot">
           {/* 正在跑 / 已答完的 AI 任务。切到别的页面也看得见，点一条回原处 */}
           <AiTasks />
-          <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
-            {/* 设置也在这块底色的行程里：选中它时同一块从上面那列滑下来（同一个 layoutId）。
-                漏掉这里的话，停在设置页时整条侧栏会没有任何一项是亮的 */}
-            {selectedKey === "/settings" && (
-              <motion.span layoutId="rail-on" className="rail-on-bg" transition={{ duration: 少动 ? 0 : 0.18, ease: [0.2, 0.8, 0.2, 1] }} />
-            )}
-            <SettingOutlined />
-            <b>设置</b>
-          </Link>
+          {/* 「设置」不在左栏里了（2026-09-17）：它在账号菜单里，和 Claude / Codex 一样。
+              左栏那一列是**你工作的地方**——学员、商机、跟进；设置是偶尔去一趟的抽屉，
+              把它摆成和「学员」同级的一项，等于每天提醒你它存在。 */}
           {/* 账号这一行右端留给更新键：有新版才出现，没有就当它不存在，一行都不占。
               它不能嵌在账号按钮里面（按钮套按钮点不动），所以这一行是个 flex 容器，
               左边账号自己撑开、右边那枚圆键跟着。形状照 Codex：名字在左，圆键在右。 */}
           <div className="rail-account">
-            <Dropdown placement="topLeft" menu={userMenu}>
+            {/* 点开，不是悬停。悬停开的菜单会在你只是路过时糊你一脸，
+                而且右边那个小箭头说的就是「点我」——两者得是一回事 */}
+            <Dropdown placement="topLeft" trigger={["click"]} menu={userMenu}>
               <button type="button" className="rail-user" aria-label={`${user.name}，账号菜单`}>
                 <Avatar size={24} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 11, fontWeight: 600, flex: "none" }}>
                   {initial(user.name)}

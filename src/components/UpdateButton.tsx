@@ -70,6 +70,14 @@ export default function UpdateButton() {
   // 老壳（0.24.1 及以前）没有 download，那时壳是自动下的，按钮退回「检查更新」也能把流程走起来
   const 开始下载 = () => void (api?.download ? api.download() : api?.check());
 
+  /**
+   * 壳算出来的百分比在这儿再夹一道。**这是第二道闸，不是修复**——
+   * 真正的修复在 desktop/delta.js（分子分母单位对不上，会一路涨过 100%）。
+   * 但进度条是拿它当宽度画的，一个坏数字会把那条线画到按钮外面去，
+   * 而按钮不该因为上游算错就画坏。
+   */
+  const 百分比 = s.进度 == null ? null : Math.max(0, Math.min(100, Math.round(s.进度)));
+
   const 画: 画法 | null = (() => {
     switch (s.阶段) {
       case "available":
@@ -83,10 +91,10 @@ export default function UpdateButton() {
       case "downloading":
         return {
           图标: <ArrowDownOutlined />,
-          话: s.进度 != null ? `${s.进度}%` : "下载中",
+          话: 百分比 != null ? `${百分比}%` : "下载中",
           摊开: true,
           样式: "busy",
-          进度: s.进度 ?? null,
+          进度: 百分比,
         };
       case "installing":
         return { 图标: <SyncOutlined spin />, 话: "安装中", 摊开: true, 样式: "busy" };

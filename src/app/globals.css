@@ -943,6 +943,23 @@ a {
    竖着排还能给每项留一句说明——只有名字的话，「业务配置」是个谜。 */
 .set { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--s5); align-items: start; }
 .set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: var(--s4); }
+/* ── 设置浮层 ──────────────────────────────────────────
+   设置不是一页，是一层：盖在你正看的东西上面，关掉回到原处。
+   照 Claude / Codex 桌面端那样。装它的是拦截路由，地址仍然是 /settings。 */
+.setm { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
+  padding: 40px 24px; background: rgba(17, 24, 39, 0.28); backdrop-filter: blur(2px); }
+.setm-box { position: relative; width: min(1040px, 100%); max-height: min(760px, calc(100vh - 80px));
+  display: flex; flex-direction: column; background: var(--page-bg); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: 0 24px 60px rgba(17, 24, 39, 0.18); overflow: hidden; }
+.setm-scroll { overflow: auto; padding: var(--s5); }
+.setm-x { position: absolute; top: 14px; right: 14px; z-index: 1; width: 30px; height: 30px; border: 0; border-radius: 8px;
+  background: none; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  transition: background var(--t-fast), color var(--t-fast); }
+.setm-x:hover { background: var(--hover); color: var(--ink); }
+.setm-x:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* 浮层里不再重复画一遍页头的大标题——它自己就有身份（aria-label + 那个关闭键） */
+.setm-scroll .page-head { margin-bottom: var(--s4); }
+
 /* 设置里的搜索框。项数到八个之后，「我知道那个开关叫什么、但不知道在哪一栏」才是最常见的一次来访 */
 .set-search { width: 100%; margin-bottom: 10px; padding: 7px 10px; font: inherit; font-size: var(--fs-note);
   color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-ctl); outline: 0;

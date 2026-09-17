@@ -70,11 +70,12 @@ describe("两条容易被下一个人改坏的约定", () => {
     /**
      * 服务端已经不给共享工作区过 requireAdmin 了，但界面还照旧画「AI 接入」那一栏的话：
      * 一是点了只会报错，二是那一栏会把平台 Key 的尾 4 位显示出来。
-     * 所以 settings/page.tsx 要在共享工作区里把 isAdmin 直接按 false 传。
+     * 所以取数那份（settings/SettingsBody.tsx，整页和浮层共用它）要在共享工作区里
+     * 把 isAdmin 直接按 false 传。2026-09-17 之前这段在 page.tsx 里，拆浮层时搬了家。
      */
     const fs = await import("node:fs");
     const path = await import("node:path");
-    const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/page.tsx"), "utf8");
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/SettingsBody.tsx"), "utf8");
     expect(src).toContain("当前是共享区");
     expect(src).toMatch(/isAdmin=\{[^}]*!\s*共享区\s*\}/);
   });

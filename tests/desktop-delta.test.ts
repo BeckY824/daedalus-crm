@@ -185,6 +185,27 @@ describe.skipIf(process.platform !== "darwin")("整条链：旧包 → 差量 �
     expect(fs.existsSync(path.join(沙盒, "cache.json"))).toBe(true);
   });
 
+  it("进度不会超过 100%（分子分母必须同一个单位）", async () => {
+    /**
+     * 2026-09-17 用户在真机上看到「126%」。
+     * 分母原来是各条目**压缩后大小之和**，分子加的是 **Range 段的跨度**——
+     * 而规划器会把相隔 64 KB 以内的条目并进同一段，跨度里含着条目之间的 zip 头和空隙。
+     * 那些字节我们真的下了，所以分母改成按段跨度算；这条就是钉住它别再错回去。
+     */
+    // 前一条用例已经把 .new 装好了，不清掉的话这条无事可下、一个回调都收不到
+    fs.rmSync(`${旧}.new`, { recursive: true, force: true });
+    const 百分比: number[] = [];
+    await 差量.差量安装({
+      清单Url: `${base}/m.json.gz`, zipUrl: `${base}/Fake.app.zip`, 已装: 旧,
+      运行: async () => {},
+      进度: (已: number, 总: number) => 总 && 百分比.push(Math.round((已 / 总) * 100)),
+    });
+    expect(百分比.length).toBeGreaterThan(0);
+    expect(Math.max(...百分比)).toBeLessThanOrEqual(100);
+    // 下完了就该是 100，不是 87 —— 少算一样是错的，只是没那么显眼
+    expect(百分比[百分比.length - 1]).toBe(100);
+  });
+
   it("再跑一次是断点续传：.new 里已经好了的一个字节都不再下", async () => {
     const 之前 = 统计.字节;
     const r = await 差量.差量安装({ 清单Url: `${base}/m.json.gz`, zipUrl: `${base}/Fake.app.zip`, 已装: 旧, 运行: async () => {} });

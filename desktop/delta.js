@@ -288,10 +288,17 @@ async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f =
   // 3) 要下的：先排掉 .new 里已经好了的（续传），再按 Range 段取
   const 还要下 = [];
   for (const e of 下载) if (!(await 已就绪(path.join(目标, e.p), e))) 还要下.push(e);
-  const 总 = 还要下.reduce((a, e) => a + e.cs, 0);
+  /**
+   * **总数必须和「已下」同一个单位：按 Range 段的跨度算，不是按条目压缩后大小之和。**
+   * 规划器会把相隔 64 KB 以内的条目并进同一个 Range，于是一段的跨度里含着条目之间的
+   * zip 头和空隙——那些字节我们真的下了。拿条目之和当分母、拿段跨度当分子，
+   * 进度就会一路涨过 100%（用户 2026-09-17 看到 126%）。
+   * 顺带一个好处：按钮上写的「差量更新 X MB」从此是真的下载量，不是一个偏小的估计。
+   */
+  const 段 = 规划Range(还要下);
+  const 总 = 段.reduce((a, s) => a + (s.end - s.start), 0);
   let 已 = 0;
   进度(0, 总);
-  const 段 = 规划Range(还要下);
   日志(`复用 ${复用.length}（硬链接 ${链过}），下载 ${还要下.length} 个文件，${段.length} 个 Range，${(总 / 1048576).toFixed(1)} MB`);
 
   let 直链 = await 解析直链({ url: zipUrl, fetch: f });

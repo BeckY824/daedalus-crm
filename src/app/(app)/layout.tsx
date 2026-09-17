@@ -10,11 +10,14 @@ import { 本地模式, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 export default async function AppLayout({
   children,
   pane,
+  modal,
 }: {
   children: React.ReactNode;
   /** 中栏。并行路由槽位 @pane/[[...slug]]，它是 page，每次导航都重算——
       别搬回这个 layout 里：layout 在客户端导航时不重新渲染，学员中栏就是这么消失的 */
   pane: React.ReactNode;
+  /** 浮层。并行路由槽位 @modal，目前只有设置（拦截 /settings）。没命中时是 default.tsx 的 null */
+  modal: React.ReactNode;
 }) {
   // JWT 有效但用户已被删除/停用时走这里：必须先清 Cookie 再回登录页，
   // 否则 proxy.ts 会把 /login 弹回 /dashboard 形成死循环。
@@ -48,6 +51,7 @@ export default async function AppLayout({
       <AppShell user={user} pendingCount={pendingCount} desktop={desktop} pane={pane}>
         {children}
       </AppShell>
+      {modal}
     </BusinessProvider>
   );
 }
