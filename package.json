@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "node scripts/ensure-env.mjs && next dev",
+    "dev:shots": "DATABASE_URL=\"file:./manual.db\" next dev --port 3300",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
