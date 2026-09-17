@@ -259,6 +259,33 @@ test("问数据和首页用的是同一个输入框", async ({ page }) => {
   await expect(page.locator(".cli-input textarea")).toBeVisible();
 });
 
+test("输入框：字多了就长高，长到头才在框内滚——不是永远一行", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/dashboard");
+  const ta = page.locator(".cli-input textarea");
+  await ta.waitFor();
+  const 一行 = (await ta.boundingBox())!.height;
+
+  // 首页这个框里有回形针和模型那一条，所以它是 column flex。
+  // .cli-input textarea 上的 flex:1 在 column 下作用在高度上，会把自适应高度顶掉——
+  // 那正是「打了一大段字只看得见一行」的成因，这条就是钉住它别再回来
+  await ta.fill("这是一句很长的问题".repeat(12));
+  const 多行 = (await ta.boundingBox())!.height;
+  expect(多行).toBeGreaterThan(一行 * 2);
+  // 长到这个程度应该整段都看得见，不该在框里滚
+  expect(await ta.evaluate((el) => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+
+  // 再长就顶到上限，框自己滚，不无限撑页面
+  await ta.fill("这是一句很长的问题".repeat(200));
+  const 到顶 = (await ta.boundingBox())!.height;
+  expect(到顶).toBeLessThanOrEqual(page.viewportSize()!.height * 0.45);
+  expect(await ta.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+
+  // 删回去要缩回来：发完一问框还占着半屏的话，下一问没法看
+  await ta.fill("短");
+  expect((await ta.boundingBox())!.height).toBeCloseTo(一行, 0);
+});
+
 test("⌘K：有输入框的页面回到输入框，没有的弹跳转单", async ({ page }) => {
   await 登录(page);
 

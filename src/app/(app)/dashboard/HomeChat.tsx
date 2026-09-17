@@ -200,7 +200,6 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
     if (!shouldQueue) start(turn);
     setQ("");
     setFiles([]);
-    if (taRef.current) taRef.current.style.height = "auto";
   }
 
   function stop() {
@@ -210,7 +209,7 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
 
   /**
    * 把输入框实测高度写进 --cli-composer-h，供 scroll-margin 和「贴着底部」判断用。
-   * 它会随输入的文字长高（最多 140px），写死一个常数迟早对不上。
+   * 它会随输入的文字长高（上限见 globals.css 里 .cli-input textarea 的 max-height），写死一个常数迟早对不上。
    */
   useEffect(() => {
     const el = composerRef.current;

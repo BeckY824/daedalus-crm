@@ -730,7 +730,11 @@ a {
 /* 发送 / 停止：一个圆钮，跑着的时候变成方块 */
 /* 框里那一条：左边动作（加文件），右边选择（模型）+ 发送键。照 Claude Code / Codex 的形状 */
 .cli-input-rich { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 12px 10px; }
-.cli-input-rich textarea { width: 100%; }
+/* 框里那一条（回形针 / 模型 / 发送）一出现，这个框就是 column flex——
+   而 .cli-input textarea 上的 flex:1 在 column 下作用在**高度**上（flex-basis:0），
+   于是自适应高度写进去的 height 一律被它顶掉，长文只显示一行。横排那版要 flex:1（撑宽），
+   竖排这版必须 flex:none（让 height 说了算）。 */
+.cli-input.cli-input-rich textarea { width: 100%; flex: none; }   /* 两个类名叠着写是为了压过下面那条 .cli-input textarea 的 flex:1——同权重时后写的赢，而那条在本文件更靠后 */
 .cli-bar2 { display: flex; align-items: center; gap: 8px; }
 .cli-bar2-l, .cli-bar2-r { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .cli-bar2-l { flex: 1; overflow: hidden; }
@@ -747,7 +751,7 @@ a {
 .cli-stop-sq { width: 10px; height: 10px; background: var(--panel); border-radius: 2px; }
 .cli-menu-row { display: flex; align-items: center; gap: 24px; justify-content: space-between; min-width: 180px; }
 .cli-menu-row kbd { font-size: var(--fs-min); color: var(--text-muted); }
-.cli-input textarea { flex: 1; border: 0; outline: 0; resize: none; background: transparent; font: inherit; font-size: var(--fs-body); line-height: 22px; color: var(--ink); padding: 0; min-height: 22px; max-height: 140px; }
+.cli-input textarea { flex: 1; border: 0; outline: 0; resize: none; background: transparent; font: inherit; font-size: var(--fs-body); line-height: 22px; color: var(--ink); padding: 0; min-height: 22px; max-height: min(40vh, 320px); }
 .cli-input textarea::placeholder { color: var(--text-faint); }
 .cli-hints { display: flex; align-items: center; gap: 8px; margin-top: 6px; padding: 0 4px; font-size: var(--fs-min); color: var(--text-muted); flex-wrap: wrap; }
 .cli-hints kbd { font-size: var(--fs-min); color: var(--text-muted); background: var(--hover); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-ctl); padding: 0 5px; }

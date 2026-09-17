@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { ArrowUpOutlined } from "@ant-design/icons";
 
 /**
@@ -55,6 +55,21 @@ export default function AskBox({
   const 自己的 = useRef<HTMLTextAreaElement>(null);
   const ta = 引用 ?? 自己的;
 
+  /**
+   * 自适应高度。**跟着 value 走，不是跟着 onChange 走**——
+   * 填进来的字不一定来自敲键盘：点命令补全、点建议、恢复草稿、发完清空都是直接改 value，
+   * 挂在 onChange 上的那版对这些一概不长高（也不缩回去）。
+   * 上限在 CSS 的 max-height，超过了框内自己滚。
+   */
+  useLayoutEffect(() => {
+    const el = ta.current;
+    if (!el) return;
+    el.style.height = "auto";
+    // 藏着的时候量不出东西（scrollHeight 是 0），别把 0px 写死在上面——
+    // 等它显出来那一下就是个压扁的框，而那时候 value 没变、这个 effect 不会再跑
+    if (el.scrollHeight > 0) el.style.height = `${el.scrollHeight}px`;
+  }, [value, ta]);
+
   return (
     <>
       {上方}
@@ -67,11 +82,7 @@ export default function AskBox({
           maxLength={maxLength}
           placeholder={placeholder}
           disabled={disabled}
-          onChange={(e) => {
-            onChange(e.target.value);
-            e.target.style.height = "auto";
-            e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px`;
-          }}
+          onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {
             onKeyDown?.(e);
             if (e.defaultPrevented) return;
