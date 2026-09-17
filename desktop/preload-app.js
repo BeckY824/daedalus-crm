@@ -4,6 +4,10 @@
  * 所以就算页面被换掉也做不了别的。
  *
  *   desktopUpdate —— 更新：问状态、请求下载、请求安装、请求检查、打开下载页，外加一个订阅
+ *   desktopNav    —— 菜单里的「设置…」（⌘,）：**让页面自己 push 过去**，不是壳去 loadURL。
+ *                    差别是设置那一层——软导航才命中拦截路由，才是盖在当前页上的浮层；
+ *                    硬跳转落到的是整页。收到就立刻回一声 nav:ok，主进程据此知道
+ *                    「对面有人接」；没人接（登录页、老版本的托管站）它会退回硬跳转。
  *   desktopShell  —— 壳的杂事，给设置页「桌面端」那一栏用：备份数据库、打开数据文件夹、
  *                    查看服务日志、复制诊断信息、连接服务器、问版本号。
  *                    这些原来都在系统菜单里（2026-09-17 之前）；菜单按 Claude 桌面端那套
@@ -31,4 +35,16 @@ contextBridge.exposeInMainWorld("desktopShell", {
   openLogs: () => ipcRenderer.invoke("shell:open-logs"),
   diagnostics: () => ipcRenderer.invoke("shell:diagnostics"),
   useServer: (url) => ipcRenderer.invoke("shell:use-server", String(url ?? "")),
+});
+
+contextBridge.exposeInMainWorld("desktopNav", {
+  onGo: (cb) => {
+    const h = (_e, 路径) => {
+      // 先应答再执行：主进程只等 400ms，cb 里哪怕抛了也不该让它以为没人接
+      ipcRenderer.send("nav:ok");
+      cb(String(路径));
+    };
+    ipcRenderer.on("nav:go", h);
+    return () => ipcRenderer.removeListener("nav:go", h);
+  },
 });

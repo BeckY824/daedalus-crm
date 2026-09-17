@@ -95,6 +95,26 @@ describe("壳给页面的口子", () => {
     for (const f of 页面用到) expect(暴露, `设置页调了 desktopShell.${f}()，preload 没暴露它`).toContain(f);
   });
 
+  it("菜单里的「设置」走软导航：三个文件里的通道名得对得上", () => {
+    /**
+     * ⌘, 打开的必须是**盖在当前页上的那一层**，和账号菜单里点「设置」同一个样子。
+     * 拦截路由只认软导航，所以壳不能 loadURL，得让页面自己 push——
+     * 这条路横跨主进程、preload 和 AppShell 三个文件，一个通道名写岔就是「按了没反应」。
+     */
+    expect(main).toContain('win.webContents.send("nav:go"');
+    expect(main).toContain('ipcMain.once("nav:ok"');
+    expect(preload).toContain('ipcRenderer.on("nav:go"');
+    expect(preload).toContain('ipcRenderer.send("nav:ok")');
+    // 设置那两个菜单项都不许再走硬跳转
+    expect(main).toMatch(/设置…[^\n]*click: \(\) => 去\(/);
+    expect(main).toMatch(/label: "设置", click: \(\) => 去\("\/settings"\)/);
+    // 对面没人接时还得有退路：没有这一段，登录页上按 ⌘, 就真的什么都不会发生
+    expect(main).toMatch(/应答了[\s\S]{0,200}前往\(路径\)/);
+
+    const shell = fs.readFileSync(path.resolve(__dirname, "../src/components/AppShell.tsx"), "utf8");
+    expect(shell).toContain("window.desktopNav?.onGo");
+  });
+
   it("连接服务器只认 http(s)，外链只放站外的出去", () => {
     expect(main).toMatch(/shell:use-server[\s\S]{0,400}\^https\?:\\\/\\\//);
     expect(main).toContain("setWindowOpenHandler");

@@ -22,7 +22,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   // 没配 token 就当这个页面不存在，免得自部署的人暴露一个无保护的运营台
   if (!multiTenant() || !token || given !== token) notFound();
 
-  const [rows, 赠送, 用量] = await Promise.all([
+  const [rows, 赠送, 用量, 反馈] = await Promise.all([
     control.workspace.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -31,6 +31,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     // AI 次数：每个工作区送了多少、用了多少，运营台一眼看到谁快用完了
     control.aiGrant.groupBy({ by: ["workspaceId"], _sum: { amount: true } }),
     control.aiUsage.findMany(),
+    /* 用户从界面里发来的话。没人看的收件箱等于没有这个功能，所以它和工作区摆在同一页 */
+    control.feedback.findMany({ orderBy: { at: "desc" }, take: 100 }),
   ]);
   const 送表 = new Map(赠送.map((g) => [g.workspaceId, g._sum.amount ?? 0]));
   const 用表 = new Map(用量.map((u) => [u.workspaceId, u.calls]));
@@ -59,5 +61,22 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     顶栏那个环境标记。这一页对着的是线上库，一个动作就能停掉别人的工作区——
     人得一眼知道自己点的是生产还是本地。
   */
-  return <AdminView token={given} rows={list} 环境={process.env.NODE_ENV === "production" ? "生产" : "本地"} />;
+  return (
+    <AdminView
+      token={given}
+      rows={list}
+      环境={process.env.NODE_ENV === "production" ? "生产" : "本地"}
+      反馈={反馈.map((f) => ({
+        id: f.id,
+        at: f.at.toISOString(),
+        source: f.source,
+        body: f.body,
+        path: f.path,
+        version: f.version,
+        platform: f.platform,
+        who: f.who,
+        handled: f.handled,
+      }))}
+    />
+  );
 }

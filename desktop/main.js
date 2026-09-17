@@ -192,6 +192,29 @@ function 前往(路径) {
   win.loadURL(`${当前根()}${路径}`);
 }
 
+/**
+ * 菜单里的「设置」走这条：**让页面自己 push 过去**。
+ * 应用里点设置弹的是一层浮层（Next 的拦截路由），而拦截只认软导航——
+ * 壳这边 loadURL 的话，同一个「设置」从菜单进是整页、从账号菜单进是浮层，
+ * 同一个标签两种样子。
+ *
+ * 对面可能没人接：登录页还没挂上应用的壳，服务器模式下连的托管站也可能比这个壳旧。
+ * 所以等一声 nav:ok，400ms 内没等到就退回硬跳转——那条路永远走得通。
+ */
+function 去(路径) {
+  if (!win || win.isDestroyed()) return 建窗口();
+  let 应答了 = false;
+  const 收 = () => {
+    应答了 = true;
+  };
+  ipcMain.once("nav:ok", 收);
+  win.webContents.send("nav:go", 路径);
+  setTimeout(() => {
+    ipcMain.removeListener("nav:ok", 收);
+    if (!应答了) 前往(路径);
+  }, 400);
+}
+
 function 当前地址() {
   const cfg = 读配置();
   return cfg.mode === "local" ? 本地入口() : cfg.serverUrl;
@@ -583,7 +606,7 @@ function 建菜单() {
     submenu: [
       { role: "about", label: `关于 ${APP_NAME}` },
       { type: "separator" },
-      { label: "设置…", accelerator: "CmdOrCtrl+,", click: () => 前往(cfg.mode === "local" ? "/settings?tab=desktop" : "/settings") },
+      { label: "设置…", accelerator: "CmdOrCtrl+,", click: () => 去(cfg.mode === "local" ? "/settings?tab=desktop" : "/settings") },
       ...(cfg.mode === "server" ? [{ type: "separator" }, { label: `改用本机数据（现在连着 ${cfg.serverUrl}）`, click: () => 切到本地() }] : []),
       { type: "separator" },
       ...(isMac ? [{ role: "hide", label: `隐藏 ${APP_NAME}` }, { role: "hideOthers", label: "隐藏其他" }, { role: "unhide", label: "全部显示" }, { type: "separator" }] : []),
@@ -636,7 +659,7 @@ function 建菜单() {
       },
       {
         label: "前往",
-        submenu: [...前往项, { type: "separator" }, { label: "设置", click: () => 前往("/settings") }],
+        submenu: [...前往项, { type: "separator" }, { label: "设置", click: () => 去("/settings") }],
       },
       {
         label: "窗口",

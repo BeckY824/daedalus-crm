@@ -225,3 +225,29 @@ model SessionCutoff {
   accountId String   @id
   since     DateTime
 }
+
+/// 用户从界面里发来的一句话。
+///
+/// 存控制面而不是业务库：反馈属于我们、不属于某个工作区，而桌面端本地模式的业务库
+/// 在用户自己机器上，我们根本读不到。附带的只有定位问题必须的几样——版本、系统、
+/// 当时在哪一页——**没有任何业务数据**，界面上也是这么向人承诺的。
+/// 自部署的开源版不往这儿发，那边的反馈走 GitHub issues。
+model Feedback {
+  id        String   @id @default(cuid())
+  at        DateTime @default(now())
+  /// desktop | web
+  source    String   @default("web")
+  body      String
+  /// 发的时候人在哪一页，如 /customers
+  path      String?
+  version   String?
+  platform  String?
+  /// 桌面端是云端账号 id；网页版是发的人所在工作区的成员，没有对应的 Account 就是 null
+  accountId String?
+  /// 给人看的一行：账号名/邮箱，或「工作区 · 成员名」
+  who       String?
+  /// 处理过了就打勾，运营台按它把看过的收起来
+  handled   Boolean  @default(false)
+
+  @@index([at])
+}

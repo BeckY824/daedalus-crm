@@ -152,7 +152,18 @@ test.describe("中栏跟着路由走", () => {
     await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "设置" })).toHaveCount(0);
 
     await page.getByRole("button", { name: /账号菜单/ }).click();
-    await page.getByRole("menuitem").filter({ hasText: "设置" }).getByRole("link").click();
+    // 「个人资料」不在这个菜单里：它是设置里的第一栏，同一个地方不开两个门（2026-09-18）
+    await expect(page.getByRole("menuitem").filter({ hasText: "个人资料" })).toHaveCount(0);
+    /**
+     * **点的是整行，不是那两个字。** 原来这条点的是 label 里的 <Link>，
+     * 于是漏掉了 0.34.1 上报的那个 bug：真人点在图标上或右边那片空白上，
+     * 菜单关掉、什么也没发生。这里故意点行的右端（⌘, 那一侧）。
+     */
+    const 设置行 = page.getByRole("menuitem").filter({ hasText: "设置" });
+    /* 用 position 而不是自己算坐标：菜单是弹出来的，自己量会量在动画中间那一帧上，
+       点出去就落到了遮罩上（第一版这么写，跑十次红一次）。
+       x=120 在那两个字右边一大截，行本身 min-width 150 */
+    await 设置行.click({ position: { x: 120, y: 12 } });
 
     // 地址变了（能分享、后退就是关闭），但底下那一页还在——它是一层，不是一次跳转
     await expect(page).toHaveURL(到.设置);
@@ -165,6 +176,57 @@ test.describe("中栏跟着路由走", () => {
     await page.keyboard.press("Escape");
     await expect(page.locator(".setm-box")).toHaveCount(0);
     await expect(page).toHaveURL(/\/dashboard/);
+  });
+
+  test("左栏能拖宽，宽度记得住；双击回默认", async ({ page }) => {
+    await 登录(page);
+    const 左栏 = page.locator("nav.rail");
+    const 缝 = page.getByRole("separator", { name: /调整左栏宽度/ });
+    const 原宽 = (await 左栏.boundingBox())!.width;
+
+    const 缝框 = (await 缝.boundingBox())!;
+    await page.mouse.move(缝框.x + 缝框.width / 2, 缝框.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(缝框.x + 60, 缝框.y + 200, { steps: 8 });
+    await page.mouse.up();
+    const 拖后 = (await 左栏.boundingBox())!.width;
+    expect(拖后).toBeGreaterThan(原宽 + 40);
+
+    // 记得住：这是它和「拖一下就弹回去」的区别，也是唯一值得测的一条
+    await page.reload();
+    await expect(左栏).toHaveJSProperty("offsetWidth", Math.round(拖后));
+
+    // 双击回默认——拖窄了之后总得有条退路，不用去设置里找
+    await 缝.dblclick();
+    expect((await 左栏.boundingBox())!.width).toBeCloseTo(原宽, 0);
+  });
+
+  test("自部署版的反馈键去 GitHub，不往我们这儿发", async ({ page }) => {
+    /* 截住 window.open：真开一个新页会被 GitHub 跳到登录页，断言就成了在测 GitHub。
+       这里要钉的只有一件事——点了以后去的是哪个地址 */
+    await page.addInitScript(() => {
+      (window as unknown as { 开过: string[] }).开过 = [];
+      window.open = (u?: string | URL) => {
+        (window as unknown as { 开过: string[] }).开过.push(String(u));
+        return null;
+      };
+    });
+    await 登录(page);
+    // 这套 e2e 跑的是单租户（自部署）：他的实例不该认识我们的云，
+    // 所以这里既不弹框也不发请求，点了直接开 issues
+    const 键 = page.getByRole("button", { name: /反馈/ });
+    await expect(键).toHaveAttribute("title", /GitHub/);
+
+    let 发了请求 = false;
+    page.on("request", (r) => {
+      if (r.url().includes("/api/feedback")) 发了请求 = true;
+    });
+    await 键.click();
+
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    const 开过 = await page.evaluate(() => (window as unknown as { 开过: string[] }).开过);
+    expect(开过[0]).toContain("github.com/BeckY824/daedalus-crm/issues");
+    expect(发了请求).toBe(false);
   });
 
   test("直接敲 /settings 落到的是整页，不是浮层", async ({ page }) => {

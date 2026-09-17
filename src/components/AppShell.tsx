@@ -18,7 +18,6 @@ import {
   BellOutlined,
   MenuOutlined,
   LogoutOutlined,
-  IdcardOutlined,
   DownOutlined,
 } from "@ant-design/icons";
 import type { SessionUser } from "@/lib/auth";
@@ -26,16 +25,30 @@ import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
 import UpdateButton from "./UpdateButton";
 import AiTasks from "./AiTasks";
+import FeedbackButton from "./FeedbackButton";
+import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
 import { useBusiness } from "@/lib/business-client";
 
 const { Header, Content } = Layout;
+
+declare global {
+  interface Window {
+    /** 壳→页面的一条单向指令：菜单里点了「设置」，由页面自己 push 过去（见 desktop/preload-app.js） */
+    desktopNav?: { onGo(cb: (路径: string) => void): () => void };
+  }
+}
 
 type Props = {
   user: SessionUser;
   pendingCount: number;
   /** 跑在桌面端（Electron）里：红黄绿钮嵌在图标栏顶上，系统标题栏不再画 */
   desktop: boolean;
+  /**
+   * 反馈发到哪儿。托管版和桌面端发到我们云端；自部署的开源版不发请求，
+   * 点了直接开 GitHub issues——他的实例不该认识我们的云。
+   */
+  反馈去向: "cloud" | "github";
   /**
    * 中栏，由并行路由槽位 @pane/[[...slug]] 渲染好传进来，连 <aside class="pane"> 一起。
    * 没有中栏的路由那边返回 null，这里什么都不画——壳不该知道哪个模块有中栏。
@@ -60,7 +73,7 @@ type Props = {
  * 导航文案就是模块名，不带「管理」二字：那两个字每一项都有，等于每一项都没有。
  * 每个入口都带 aria-label，屏幕阅读器和 e2e 都按这个名字找。
  */
-export default function AppShell({ user, pendingCount, desktop, pane, children }: Props) {
+export default function AppShell({ user, pendingCount, desktop, 反馈去向, pane, children }: Props) {
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
@@ -76,6 +89,14 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
     mq.addEventListener("change", 同步);
     return () => mq.removeEventListener("change", 同步);
   }, []);
+
+  /**
+   * 壳里按 ⌘, 或点菜单里的「设置」：**由这边 push**，不是壳去 loadURL。
+   * 软导航才命中拦截路由（@modal/(.)settings），设置才是盖在当前页上的那一层——
+   * 否则同一个「设置」从菜单进是整页、从账号菜单进是浮层，同一个标签两种样子。
+   * 网页版没有这座桥，这个 effect 什么都不做。
+   */
+  useEffect(() => window.desktopNav?.onGo((路径) => router.push(路径)), [router]);
 
   const nav = useMemo(
     () => [
@@ -111,13 +132,26 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
    * 本机随机密码的框。根子是两套身份，不是这个按钮；两套并成一套之后它就该回来。
    */
   /**
-   * 账号菜单。**这里只放三样**：我是谁、改我自己的、出去。
+   * 账号菜单。**这里只放两样**：我是谁、出去——中间那条是通往设置的门。
    * 参照 Claude / Codex 桌面端那两个菜单，但没把它们那一长串照抄——
    * 语言只有中文、升级套餐我们不卖、更新有自己的按钮，抄过来每一条都是死链。
    * 顶上那块是身份（名字、职位、登录名），不可点：菜单第一件事是告诉你「现在是谁」，
    * 尤其是一台机器上换过账号的时候。
+   *
+   * **「个人资料」不在这儿了（2026-09-18）**：它是设置里的第一栏，菜单里再摆一条
+   * 等于同一个地方开两个门，而且两条只差一个字——点哪条得先想一下。要改名字、改职位，
+   * 打开设置，第一栏就是。
+   *
+   * **每一条走 onClick，不在 label 里塞 `<Link>`。** 塞进去只有那两个字是可点的：
+   * 点在图标上、点在右边那片空白上，菜单关掉、什么也没发生——0.34.1 收到的
+   * 「点设置完全没反应」就是这个。antd 的 onClick 认的是整行，行有多宽就能点多宽。
    */
   const userMenu = {
+    onClick: ({ key }: { key: string }) => {
+      // 软导航才会命中拦截路由（@modal/(.)settings），设置才是盖在当前页上的一层
+      if (key === "settings") router.push("/settings");
+      if (key === "logout") void logout();
+    },
     items: [
       {
         type: "group" as const,
@@ -134,19 +168,18 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
         ),
       },
       { type: "divider" as const },
-      { key: "profile", icon: <IdcardOutlined />, label: <Link href="/settings?tab=profile">个人资料</Link> },
       {
         key: "settings",
         icon: <SettingOutlined />,
         label: (
           <span className="rail-menu-row">
-            <Link href="/settings">设置</Link>
+            设置
             {desktop && <kbd>⌘,</kbd>}
           </span>
         ),
       },
       { type: "divider" as const },
-      { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true, onClick: logout },
+      { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
     ],
   };
 
@@ -157,8 +190,10 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
           <Dropdown
             trigger={["click"]}
             menu={{
-              items: [...nav, { key: "/settings", icon: <SettingOutlined />, label: "设置管理" }].map((n) => ({ key: n.key, icon: n.icon, label: <Link href={n.key}>{n.label}</Link> })),
+              /* 整行可点：label 里塞 <Link> 的话，点在图标或右边空白上只会把菜单关掉 */
+              items: [...nav, { key: "/settings", icon: <SettingOutlined />, label: "设置管理" }],
               selectedKeys: [selectedKey],
+              onClick: ({ key }) => router.push(key),
             }}
           >
             <Button type="text" icon={<MenuOutlined />} aria-label="打开导航菜单" />
@@ -167,6 +202,8 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
             <Logo size={20} />
           </Link>
           <span style={{ flex: 1 }} />
+          {/* 手机上也要能说一句：用得别扭的时刻多半就发生在手机上（在路上翻学员的时候） */}
+          <FeedbackButton 去向={反馈去向} />
           <Badge count={pendingCount} size="small" color="#6b7280">
             <Button type="text" icon={<BellOutlined />} aria-label="待办计划" onClick={() => router.push("/follow-ups/plans")} />
           </Badge>
@@ -235,8 +272,13 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
               </button>
             </Dropdown>
             {desktop && <UpdateButton />}
+            {/* 反馈在更新键的右边，两枚都是这一行的「出口」：一个往外拿新版本，一个往外送一句话。
+                网页版没有更新键，那儿就只有它一枚 */}
+            <FeedbackButton 去向={反馈去向} />
           </div>
         </div>
+        {/* 右边那条能拖的缝。它贴着分隔线，平时看不见，指上去才显出来 */}
+        <RailResizer />
       </nav>
 
       {/* ⌘K：跳页或问一句。挂在壳上，哪一页都在 */}

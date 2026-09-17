@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
 import { 本地模式, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
+import { multiTenant } from "@/lib/tenant/context";
 
 export default async function AppLayout({
   children,
@@ -48,7 +49,8 @@ export default async function AppLayout({
 
   return (
     <BusinessProvider value={business}>
-      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} pane={pane}>
+      {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues */}
+      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} 反馈去向={本地模式() || multiTenant() ? "cloud" : "github"} pane={pane}>
         {children}
       </AppShell>
       {modal}

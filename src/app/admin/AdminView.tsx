@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { App, Alert, Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, Tooltip } from "antd";
-import { activate, extendTrial, grantAi, openWorkspace, suspend } from "./actions";
+import { activate, extendTrial, grantAi, openWorkspace, suspend, 标记反馈 } from "./actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
 import { dayjs } from "@/lib/utils";
 
@@ -22,12 +22,25 @@ type Row = {
   note: string | null;
 };
 
+/** 用户发来的一条反馈。正文是他自己写的，其余几样是界面替他附上的 */
+type 反馈条 = {
+  id: string;
+  at: string;
+  source: string;
+  body: string;
+  path: string | null;
+  version: string | null;
+  platform: string | null;
+  who: string | null;
+  handled: boolean;
+};
+
 /**
  * 运营台。开工作区、开通、延长试用、停用。
  * 不做成完整后台——工作区数量还在两位数的阶段，一张表加几个按钮就够，
  * 多做的每一块都要跟着业务改。
  */
-export default function AdminView({ token, rows, 环境 }: { token: string; rows: Row[]; 环境: "生产" | "本地" }) {
+export default function AdminView({ token, rows, 环境, 反馈 }: { token: string; rows: Row[]; 环境: "生产" | "本地"; 反馈: 反馈条[] }) {
   const { message } = App.useApp();
   const [plan, setPlan] = useState<PlanKey>("year");
   const [busy, setBusy] = useState<string | null>(null);
@@ -206,6 +219,50 @@ export default function AdminView({ token, rows, 环境 }: { token: string; rows
           },
         ]}
       />
+
+      {/*
+        用户反馈。**和工作区摆在同一页**：没人看的收件箱等于没有这个功能，
+        而我们每天都会开这一页。未处理的排在上面，读过的按一下收成灰的。
+      */}
+      <div className="ops-fb">
+        <h2>
+          反馈
+          <span>{反馈.filter((f) => !f.handled).length} 条没处理 · 共 {反馈.length}</span>
+        </h2>
+        {反馈.length === 0 ? (
+          <p className="ops-fb-empty">还没有人发过反馈。</p>
+        ) : (
+          [...反馈]
+            .sort((a, b) => Number(a.handled) - Number(b.handled))
+            .map((f) => (
+              <div key={f.id} className={`ops-fb-item${f.handled ? " done" : ""}`}>
+                <div className="ops-fb-h">
+                  <b>{f.who || "（不知道是谁）"}</b>
+                  <Tag color={f.source === "desktop" ? "blue" : "default"}>{f.source === "desktop" ? "桌面端" : "网页"}</Tag>
+                  <span>{dayjs(f.at).format("MM-DD HH:mm")}</span>
+                  {f.version && <span>v{f.version}</span>}
+                  {f.path && <span>{f.path}</span>}
+                  <span style={{ flex: 1 }} />
+                  {/* 系统信息挺长，放进 tooltip：它只在「复现不出来」的时候才要看 */}
+                  {f.platform && (
+                    <Tooltip title={f.platform}>
+                      <span className="ops-fb-ua">系统</span>
+                    </Tooltip>
+                  )}
+                  <Button
+                    size="small"
+                    type={f.handled ? "default" : "primary"}
+                    onClick={() => run(f.id, () => 标记反馈({ token, id: f.id, handled: !f.handled }))}
+                  >
+                    {f.handled ? "重新打开" : "处理过了"}
+                  </Button>
+                </div>
+                {/* 原话原样显示，换行照他敲的来——改写别人的话是复现问题时最容易丢线索的一步 */}
+                <p>{f.body}</p>
+              </div>
+            ))
+        )}
+      </div>
 
       {/* 开工作区：客户从官网发邮件过来，聊完在这里建号，把交付文本复制进邮件回复 */}
       <Modal

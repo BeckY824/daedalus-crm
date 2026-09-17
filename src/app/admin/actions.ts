@@ -135,3 +135,15 @@ export async function grantAi(input: { token: string; workspaceId: string; amoun
   revalidatePath("/admin");
   return { ok: true };
 }
+
+/**
+ * 反馈标记处理过了（可以来回切）。
+ * 不提供删除：一条反馈是有人花时间写的，读过就收起来，但不该被一个误点抹掉。
+ */
+export async function 标记反馈(input: { token: string; id: string; handled: boolean }): Promise<AdminResult> {
+  const g = guard(input.token);
+  if (!g.ok) return g;
+  await control.feedback.update({ where: { id: input.id }, data: { handled: input.handled } });
+  revalidatePath("/admin");
+  return { ok: true };
+}

@@ -159,6 +159,31 @@ a {
 .rail-account { display: flex; align-items: center; gap: 4px; }
 .rail-account .rail-user { min-width: 0; }
 .rail-up-slot { display: flex; flex: none; margin-top: 6px; }
+/* 反馈键。坐在更新键右边，形状和它同族（圆、22 高），但底色是透明的——
+   更新是「有事发生了」，反馈是「随时可以说」，后者不该一直举着手 */
+.rail-fb { flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 999px; background: none; color: var(--text-faint); font-size: 14px; cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast); }
+.rail-fb:hover { background: var(--hover); color: var(--ink); }
+.rail-fb:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* 侧栏里它和更新键并排，一起往下让 6px；手机顶栏里要和铃铛一样大、一样高 */
+.rail-account .rail-fb { margin-top: 6px; }
+.ant-layout-header .rail-fb { width: 34px; height: 34px; border-radius: var(--r-ctl); }
+/* 反馈弹窗里那两行 */
+.fb-note { margin: 10px 0 0; font-size: var(--fs-note); color: var(--text-muted); line-height: 1.6; }
+.fb-note b { color: var(--text-muted); font-weight: 600; }
+.fb-foot { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.fb-foot a { font-size: var(--fs-note); color: var(--text-muted); }
+.fb-foot a:hover { color: var(--brand); }
+
+/* 左栏右边那条能拖的缝：贴着分隔线骑在上面，平时看不见，指上去才显出来。
+   6px 宽是拿得住的最小值——再窄就得瞄准，而这不是个需要精准的动作 */
+.rail-resizer { position: absolute; top: 0; right: -3px; bottom: 0; width: 6px; z-index: 5; cursor: col-resize;
+  background: none; transition: background var(--t-fast); }
+.rail-resizer:hover, .rail-resizer:focus-visible { background: var(--brand); opacity: 0.35; outline: none; }
+.rail-resizer:focus-visible { opacity: 0.6; }
+/* 拖动时：别让侧栏的字被选中，也别让光标跨过正文时变回箭头 */
+body.rail-resizing { cursor: col-resize; user-select: none; }
 .rail-up {
   display: inline-flex; align-items: center; gap: 0; max-width: 100%; position: relative; overflow: hidden;
   height: 26px; padding: 0 2px; border: 0; border-radius: 999px;
@@ -1063,6 +1088,17 @@ a {
 /* 待核对不为 0 时整张卡变黄：它是这一页上唯一要人动手的那一项 */
 .ops-stat-warn { background: var(--warning-bg); border-color: var(--warning-line); }
 .ops-stat-warn b, .ops-stat-warn .ops-stat-n { color: var(--warning-text); }
+/* 运营台里的反馈列表。一条一块，原话占主要位置，附带信息压成一行小字 */
+.ops-fb { margin-top: var(--s5); }
+.ops-fb h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font-size: var(--fs-section); font-weight: 600; color: var(--ink); }
+.ops-fb h2 span { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }
+.ops-fb-empty { font-size: var(--fs-note); color: var(--text-muted); }
+.ops-fb-item { padding: 12px 14px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); }
+.ops-fb-item.done { opacity: 0.55; }
+.ops-fb-item p { margin: 8px 0 0; font-size: var(--fs-body); color: var(--ink); white-space: pre-wrap; word-break: break-word; }
+.ops-fb-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-min); color: var(--text-muted); }
+.ops-fb-h b { font-size: var(--fs-note); font-weight: 600; color: var(--ink); }
+.ops-fb-ua { cursor: help; text-decoration: underline dotted; }
 /* 表格再密一档：行高 34、字号到下限。工作区一屏能多看七八个 */
 .ops .ant-table-tbody > tr > td { height: 34px; padding-block: 2px !important; font-size: var(--fs-note); }
 .ops .ant-table-thead > tr > th { height: 32px; font-size: var(--fs-min); }

@@ -227,7 +227,27 @@ test("10 条款页不用登录就能读，注册页有勾选", async ({ page }) 
   await expect(page.getByRole("checkbox")).toBeVisible({ timeout: 15_000 });
 });
 
-test("11 忘记密码：收码、设新密码，旧会话当场作废", async ({ page }) => {
+test("11 反馈：界面里发一句话，运营台当场看得见", async ({ page }) => {
+  await 进共享区(page);
+  const 话 = `e2e 反馈 ${Date.now()}：学员列表的筛选记不住`;
+
+  await page.getByRole("button", { name: /反馈/ }).click();
+  await page.getByRole("dialog").getByRole("textbox").fill(话);
+  // 发之前先确认那句承诺在人眼前——它是这个框允许我们附带版本和路径的全部理由
+  await expect(page.getByRole("dialog")).toContainText("不含任何学员、商机或跟进数据");
+  // 限定在框里：首页那个问 AI 的输入框上也有个「发送」，页面上同时有两个。
+  // 名字用正则：antd 中文会在两个字之间插一个空格（和登录那条一样的坑）
+  await page.getByRole("dialog").getByRole("button", { name: /发\s*送/ }).click();
+  await expect(page.getByText("收到了，谢谢")).toBeVisible({ timeout: 15_000 });
+
+  // 落到控制面库，运营台那一页读的就是它。没人看的收件箱等于没有这个功能
+  await page.goto("/admin?token=e2e-admin-token");
+  await expect(page.getByText(话)).toBeVisible({ timeout: 15_000 });
+  // 附带那几样也要在：谁发的、哪一页发的
+  await expect(page.locator(".ops-fb-item").first()).toContainText("/dashboard");
+});
+
+test("12 忘记密码：收码、设新密码，旧会话当场作废", async ({ page }) => {
   /**
    * 三件事要一起成立才算真的「找回」：码收得到、新密码能登、**旧的登录状态没了**。
    * 最后一条最容易漏——会话是一张签了 7 天的 JWT，服务端不存它也就删不掉它，
@@ -267,12 +287,12 @@ test("11 忘记密码：收码、设新密码，旧会话当场作废", async ({
   /**
    * 这里**故意不把密码改回去**：再发一次码会撞上 60 秒的重发冷却，
    * 干等一分钟不值得。代价是这条用例跑完，共享工作区的密码就是 Newpass22 了——
-   * 所以它必须是最后一条要登录的用例。后面只剩第 12 条，它只看登录页上有没有那个链接。
+   * 所以它必须是最后一条要登录的用例。后面只剩第 13 条，它只看登录页上有没有那个链接。
    * 要在它后面加需要登录的用例，就得先把这里的密码问题解决掉。
    */
 });
 
-test("12 登录页把找回入口摆出来", async ({ page }) => {
+test("13 登录页把找回入口摆出来", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("link", { name: "忘记密码？" })).toHaveAttribute("href", "/forgot");
 });
