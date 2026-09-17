@@ -18,7 +18,8 @@ import {
   BellOutlined,
   MenuOutlined,
   LogoutOutlined,
-  UserOutlined,
+  IdcardOutlined,
+  DownOutlined,
 } from "@ant-design/icons";
 import type { SessionUser } from "@/lib/auth";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
@@ -109,9 +110,41 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
    * 2026-09-17 上午曾把这一条在本机模式下藏起来——因为那时退出之后落到的是一个要
    * 本机随机密码的框。根子是两套身份，不是这个按钮；两套并成一套之后它就该回来。
    */
+  /**
+   * 账号菜单。**这里只放三样**：我是谁、改我自己的、出去。
+   * 参照 Claude / Codex 桌面端那两个菜单，但没把它们那一长串照抄——
+   * 语言只有中文、升级套餐我们不卖、更新有自己的按钮，抄过来每一条都是死链。
+   * 顶上那块是身份（名字、职位、登录名），不可点：菜单第一件事是告诉你「现在是谁」，
+   * 尤其是一台机器上换过账号的时候。
+   */
   const userMenu = {
     items: [
-      { key: "profile", icon: <UserOutlined />, label: <Link href="/settings">个人设置</Link> },
+      {
+        type: "group" as const,
+        label: (
+          <div className="rail-menu-me">
+            <Avatar size={32} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 13, fontWeight: 600, flex: "none" }}>
+              {initial(user.name)}
+            </Avatar>
+            <div style={{ minWidth: 0 }}>
+              <b>{user.name}</b>
+              <span>{[user.title, user.email].filter(Boolean).join(" · ")}</span>
+            </div>
+          </div>
+        ),
+      },
+      { type: "divider" as const },
+      { key: "profile", icon: <IdcardOutlined />, label: <Link href="/settings?tab=profile">个人资料</Link> },
+      {
+        key: "settings",
+        icon: <SettingOutlined />,
+        label: (
+          <span className="rail-menu-row">
+            <Link href="/settings">设置</Link>
+            {desktop && <kbd>⌘,</kbd>}
+          </span>
+        ),
+      },
       { type: "divider" as const },
       { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true, onClick: logout },
     ],
@@ -199,7 +232,10 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
                 <Avatar size={24} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 11, fontWeight: 600, flex: "none" }}>
                   {initial(user.name)}
                 </Avatar>
+                {/* 名字长了就省略号收尾，不再把整行吃掉；右边那个小箭头是「这儿能点开」的唯一信号——
+                    在它之前，这一行和一条静态的署名长得一模一样 */}
                 <b>{user.name}</b>
+                <DownOutlined className="rail-user-caret" aria-hidden />
               </button>
             </Dropdown>
             {desktop && <UpdateButton />}

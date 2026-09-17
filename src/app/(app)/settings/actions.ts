@@ -308,6 +308,39 @@ export async function reactivateUser(id: string) {
 }
 
 /**
+ * 改自己的名字和职位。**任何人都可以改自己的**——不需要管理员。
+ *
+ * 在这之前，改名只存在于「团队成员 → 编辑成员」那个弹窗里，而那个弹窗只有管理员打得开：
+ * 一个销售想把自己的名字从邮箱前缀改成中文名，得去求管理员。
+ * 名字不是权限，是称呼——它出现在左下角、在每一条跟进的署名上、在业绩榜上。
+ *
+ * 登录名（email 那一列）**不在这里改**：它同时是控制面账号的标识，
+ * 改一边不改另一边就登不进来（见 saveUser 里那段注释）。
+ */
+export async function 改我的资料(input: { name: string; title: string }) {
+  const me = await requireUser();
+  const name = input.name.trim();
+  const title = input.title.trim();
+  if (!name) return { ok: false as const, error: "名字不能为空" };
+  if (name.length > 20) return { ok: false as const, error: "名字最多 20 个字" };
+  if (title.length > 20) return { ok: false as const, error: "职位最多 20 个字" };
+
+  const 旧 = await prisma.user.findUnique({ where: { id: me.id }, select: { name: true, title: true } });
+  if (!旧) return { ok: false as const, error: "用户不存在" };
+  if (旧.name === name && 旧.title === title) return { ok: true as const };
+
+  await prisma.user.update({ where: { id: me.id }, data: { name, title } });
+  await recordAudit({
+    user: me, action: "update", entity: "User", entityId: me.id,
+    summary: `改了自己的资料：${旧.name}${旧.title ? `（${旧.title}）` : ""} → ${name}${title ? `（${title}）` : ""}`,
+    detail: { from: { name: 旧.name, title: 旧.title }, to: { name, title } },
+  });
+  // 名字出现在左栏、署名、业绩榜上，改完整站都要跟着变
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
+/**
  * 改自己的密码。任何人都可以改自己的。
  *
  * **托管版改的是控制面那把。** 业务库这一列存的是不可用的占位符 `!managed`

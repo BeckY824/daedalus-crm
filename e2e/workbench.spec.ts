@@ -318,18 +318,43 @@ test("⌘K：一个页面都没匹配上时，第一条变成「问一句」", a
   await expect(page.locator(".cli-bubble")).toContainText("这个月谁签得最多");
 });
 
-test("设置：左目录五项，一页上只有一列目录", async ({ page }) => {
+test("设置：左目录分两组、带搜索，一页上只有一列目录", async ({ page }) => {
   await 登录(page, 管理员);
   await page.goto("/settings");
   await page.waitForSelector(".set-nav");
+  // 顺序按分组走，不按代码里谁先写。「我自己的」在前，「整个团队的」在后
   const 项 = await page.locator(".set-nav-i b").allInnerTexts();
-  expect(项).toEqual(["团队成员", "登录与密码", "AI 接入", "业务配置", "操作日志"]);
+  expect(项).toEqual(["个人资料", "登录与密码", "快捷键", "团队成员", "业务配置", "AI 接入", "操作日志"]);
+  expect(await page.locator(".set-nav-h").allInnerTexts()).toEqual(["个人", "工作区"]);
   // 中栏撤了：一页上摆两列目录，人得先弄清它们有什么区别
   await expect(page.locator("aside.pane")).toHaveCount(0);
   // 每一项都得说清自己管什么
   for (const 说明 of await page.locator(".set-nav-i span").allInnerTexts()) {
     expect(说明.trim().length).toBeGreaterThan(3);
   }
+
+  // 搜索：项数多了之后，「知道它叫什么、不知道在哪一栏」才是最常见的来访
+  await page.getByLabel("搜索设置").fill("密码");
+  expect(await page.locator(".set-nav-i b").allInnerTexts()).toEqual(["登录与密码"]);
+  // 搜的时候不摆组标题：那时要的是一份短名单，不是结构
+  await expect(page.locator(".set-nav-h")).toHaveCount(0);
+  await page.getByLabel("搜索设置").fill("这个设置不存在");
+  await expect(page.locator(".set-nav-empty")).toBeVisible();
+});
+
+test("个人资料：不是管理员也能改自己的名字，改完整站跟着变", async ({ page }) => {
+  // 用销售登录——这条要钉的正是「不用求管理员」
+  await 登录(page);
+  await page.goto("/settings?tab=profile");
+  await page.getByLabel("名字", { exact: true }).fill("张三改过的名字");
+  // antd 会在两个汉字中间插空格，按钮的无障碍名字是「保 存」——别处也是这么绕的
+  await page.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.locator(".ant-message")).toContainText("已保存");
+  // 左下角那一行是同一个名字的另一处出口，revalidate 没生效的话它还是旧的
+  await expect(page.locator(".rail-user b")).toHaveText("张三改过的名字");
+  await page.getByLabel("名字", { exact: true }).fill("张三");
+  await page.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.locator(".rail-user b")).toHaveText("张三");
 });
 
 test("AI 接入：没测过连接就保存会先拦一下", async ({ page }) => {

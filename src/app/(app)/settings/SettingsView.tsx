@@ -30,6 +30,8 @@ import { saveUser, deactivateUser, reactivateUser, changeMyPassword, 退出这�
 import AiSettingsTab, { type LlmView } from "./AiSettingsTab";
 import BusinessSettingsTab from "./BusinessSettingsTab";
 import DesktopTab, { type 桌面端信息 } from "./DesktopTab";
+import ProfileTab from "./ProfileTab";
+import KeymapTab from "./KeymapTab";
 import type { BusinessConfig } from "@/lib/business-config";
 import { useBusiness } from "@/lib/business-client";
 import type { AiUsage } from "@/lib/ai-usage";
@@ -81,6 +83,8 @@ const ACTION_COLOR: Record<string, string> = {
 
 /** 左目录里每一项底下那句话。放在组件外面，免得每次渲染重建 */
 const 说明表: Record<string, string> = {
+  profile: "你的名字、职位",
+  keymap: "键盘上那几个键",
   members: "谁能进、谁是管理员",
   password: "改密码、看哪几台机器登录着",
   desktop: "账号、备份、更新",
@@ -123,6 +127,7 @@ export default function SettingsView({
   用邮箱登录?: boolean;
 }) {
   const router = useRouter();
+  const [搜, set搜] = useState("");
   // 当前页签由地址栏 ?tab= 决定：中栏那列设置项就是一组带 tab 的链接，刷新、回退都对得上
   const pathname = usePathname();
   const tab = useSearchParams().get("tab") ?? "members";
@@ -324,8 +329,18 @@ export default function SettingsView({
     },
   ];
 
-  /** 设置的五项。说明一句话写清这一项管什么——只有名字的话，「业务配置」是个谜 */
+  /** 设置的几项。说明一句话写清这一项管什么——只有名字的话，「业务配置」是个谜 */
   const 目录: { key: string; label: string; 说明: string; children: React.ReactNode }[] = [
+    {
+      /**
+       * 个人资料排第一：这一页最常被打开的原因是「改我自己的什么」，
+       * 而不是「管别人」。改名以前只在「团队成员」那个只有管理员打得开的弹窗里，
+       * 于是销售想改自己的名字得去求管理员。
+       */
+      key: "profile",
+      label: "个人资料",
+      children: <ProfileTab me={{ name: me.name, title: me.title, email: me.email }} />,
+    },
     {
       key: "members",
       label: "团队成员",
@@ -363,6 +378,11 @@ export default function SettingsView({
           </>
         ),
       },
+    {
+      key: "keymap",
+      label: "快捷键",
+      children: <KeymapTab 桌面端={Boolean(桌面端)} />,
+    },
     {
       key: "password",
       label: "登录与密码",
@@ -556,19 +576,57 @@ export default function SettingsView({
     .filter((x) => !(桌面端 && x.key === "password"))
     .map((x) => ({ ...x, 说明: 说明表[x.key] ?? "" })) as { key: string; label: string; 说明: string; children: React.ReactNode }[];
 
+  /**
+   * 分组：**「我自己的」和「整个团队的」分开**——这两件事的心理位置不一样。
+   * 顺序就是这里的顺序，不跟着上面那个数组走（那个数组是按谁先写的排的）。
+   * 没列进来的 key 会落到最后一组，加了新栏忘了分组也不会凭空消失。
+   */
+  const 分组表: [string, string[]][] = [
+    ["个人", ["profile", "password", "keymap"]],
+    ["工作区", ["members", "business", "ai", "audit"]],
+    ["应用", ["desktop"]],
+  ];
+
+  const 词 = 搜.trim().toLowerCase();
+  const 搜到的 = 词 ? 目录.filter((x) => `${x.label}${x.说明}${x.key}`.toLowerCase().includes(词)) : 目录;
+  const 分好组: [string, typeof 目录][] = 词
+    ? [["", 搜到的]]
+    : 分组表
+        .map(([名, keys]) => [名, keys.map((k) => 搜到的.find((x) => x.key === k)).filter(Boolean)] as [string, typeof 目录])
+        .concat([["其它", 搜到的.filter((x) => !分组表.some(([, ks]) => ks.includes(x.key)))]])
+        .filter(([, 项]) => 项.length > 0);
+
   return (
     <>
       <PageHead title="设置" subtitle="成员、AI 与业务配置" />
 
       {/*
-        左目录，不是顶上一排页签。五项里有两项只有管理员看得到，页签横着排时
+        左目录，不是顶上一排页签。有两项只有管理员看得到，页签横着排时
         管理员和普通成员看到的宽度都不一样；竖着排还能给每项留一句说明。
         角色仍然是 tablist / tab / tabpanel——读屏按这个认，e2e 也按这个找。
         窄屏下目录仍然是单列，只是压到正文上面（见 globals.css 的 .set）。
+
+        **分组和搜索是 2026-09-17 加的**（对着 Claude / Codex 桌面端那两个设置窗口）：
+        项数到了八个，一列平铺就开始要一项项扫。分组把「我自己的」和「整个团队的」分开——
+        这两件事的心理位置完全不同。搜索框在项数少时是多余的，但它救的是
+        「我知道那个开关叫什么、但不知道它在哪一栏」，而那正是设置页最常见的一次来访。
       */}
       <div className="set">
         <div className="set-nav" role="tablist" aria-orientation="vertical" aria-label="设置分类">
-          {目录.map((x) => (
+          <input
+            className="set-search"
+            type="search"
+            value={搜}
+            onChange={(e) => set搜(e.target.value)}
+            placeholder="搜设置…"
+            aria-label="搜索设置"
+          />
+          {搜到的.length === 0 && <div className="set-nav-empty">没有匹配的设置项</div>}
+          {分好组.map(([组名, 项]) => (
+            <div key={组名} className="set-nav-g">
+              {/* 搜索时不摆组标题：那时人要的是一份短名单，不是结构 */}
+              {!搜.trim() && <div className="set-nav-h">{组名}</div>}
+              {项.map((x) => (
             <button
               key={x.key}
               type="button"
@@ -589,6 +647,8 @@ export default function SettingsView({
               <b>{x.label}</b>
               <span>{x.说明}</span>
             </button>
+              ))}
+            </div>
           ))}
         </div>
         <div className="set-body" role="tabpanel" id={`set-panel-${tab}`} aria-labelledby={`set-tab-${tab}`}>

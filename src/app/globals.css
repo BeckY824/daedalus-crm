@@ -192,7 +192,16 @@ a {
 .rail-user { border: 0; background: none; padding: 10px 12px; margin-top: 6px; cursor: pointer; border-radius: var(--r-card); line-height: 0; display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
 .rail-user:hover { background: var(--hover); }
 /* 名字。76px 那版塞不下，所以应用里哪一页都看不到自己是谁——侧栏宽了就该摆出来 */
-.rail-user b { font-size: var(--fs-body); font-weight: 500; color: var(--ink); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-user b { font-size: var(--fs-body); font-weight: 500; color: var(--ink); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+/* 「这儿能点开」的唯一信号。平时很淡，指上去才明显——它是提示，不是装饰 */
+.rail-user-caret { flex: none; font-size: 10px; color: var(--text-faint); transition: color var(--t-fast); }
+.rail-user:hover .rail-user-caret { color: var(--text-muted); }
+/* 账号菜单顶上那块身份 */
+.rail-menu-me { display: flex; align-items: center; gap: 10px; padding: 4px 4px 8px; min-width: 0; }
+.rail-menu-me b { display: block; font-size: var(--fs-body); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-menu-me span { display: block; font-size: var(--fs-min); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.rail-menu-row { display: flex; align-items: center; gap: 18px; justify-content: space-between; min-width: 150px; }
+.rail-menu-row kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-min); color: var(--text-muted); }
 .rail-user:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 .pane { width: var(--pane-w); flex: none; position: sticky; top: 0; height: 100vh; background: var(--panel); border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; min-height: 0; }
@@ -934,6 +943,23 @@ a {
    竖着排还能给每项留一句说明——只有名字的话，「业务配置」是个谜。 */
 .set { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--s5); align-items: start; }
 .set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: var(--s4); }
+/* 设置里的搜索框。项数到八个之后，「我知道那个开关叫什么、但不知道在哪一栏」才是最常见的一次来访 */
+.set-search { width: 100%; margin-bottom: 10px; padding: 7px 10px; font: inherit; font-size: var(--fs-note);
+  color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-ctl); outline: 0;
+  transition: border-color var(--t-fast); }
+.set-search:focus { border-color: var(--text-faint); }
+.set-search::placeholder { color: var(--text-faint); }
+.set-nav-g { display: flex; flex-direction: column; gap: 2px; }
+.set-nav-g + .set-nav-g { margin-top: 14px; }
+.set-nav-h { padding: 0 10px 6px; font-size: var(--fs-min); font-weight: 600; color: var(--text-faint); letter-spacing: 0.3px; }
+.set-nav-empty { padding: 8px 10px; font-size: var(--fs-note); color: var(--text-muted); }
+/* 快捷键那一栏 */
+.keymap { display: flex; flex-direction: column; gap: 8px; }
+.keymap-row { display: flex; align-items: baseline; gap: 12px; }
+.keymap-keys { flex: none; display: flex; gap: 4px; min-width: 116px; }
+.keymap-keys kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-min); color: var(--text-muted);
+  background: var(--hover); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-ctl); padding: 1px 6px; }
+.keymap-row span { font-size: var(--fs-note); color: var(--ink); }
 .set-nav-i { display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer; font: inherit;
   padding: var(--s2) var(--s3); border-radius: var(--r-ctl); }
 .set-nav-i:hover { background: var(--hover); }
