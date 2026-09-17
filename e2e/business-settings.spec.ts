@@ -112,6 +112,54 @@ test.describe.serial("业务配置", () => {
     await 保存并等提示(page, 面板);
   });
 
+  /**
+   * 整套措辞换成另一个行业，一次全走完。
+   *
+   * 上面两条各验一处（名词、一个字段名），而真正要回答的问题是
+   * 「一家外贸公司拿这套 CRM 能不能用」——那要求名词、三个档案字段、字段的选项
+   * 同时换掉，且换完每一页都对得上，数据库一列不动。2026-09-17 用户问到这条，
+   * 而当时没有任何一条用例把它整条走过。
+   */
+  test("整套换成外贸的说法：客户 / 公司 / 国家 / 产品，各页跟着变，数据不动", async ({ page }) => {
+    await 登录(page);
+    await 确保有一位学员(page);
+
+    let 面板 = await 打开业务配置(page);
+    /* 按表单 id 定位：「档案字段 2」这个名字同时属于那个输入框和它下面的「…的选项」下拉 */
+    await 面板.locator("#customer").fill("客户");
+    await 面板.locator("#fields_school").fill("公司");
+    await 面板.locator("#fields_grade").fill("国家");
+    await 面板.locator("#fields_major").fill("产品");
+    await 保存并等提示(page, 面板);
+
+    // 列表页：标题、主按钮、三个表头
+    await page.goto("/customers");
+    await expect(page.getByRole("heading", { name: "客户", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /新建客户/ })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "公司" })).toBeVisible();
+
+    // 新建表单里三个字段也要是新名字——表头改了而表单没改，人填的时候就对不上了
+    await page.getByRole("button", { name: /新建客户/ }).click();
+    const 表单 = page.getByRole("dialog");
+    for (const 名 of ["公司", "国家", "产品"]) {
+      await expect(表单.locator(".ant-form-item-label", { hasText: 名 }).first()).toBeVisible();
+    }
+    await 表单.getByRole("button", { name: /^取\s*消$/ }).click();
+
+    // 数据库列没动：改名词之前就有的那条记录照常读得出来
+    await expect(page.locator("main .ant-table-tbody tr").first()).toBeVisible({ timeout: 15_000 });
+
+    // 复原，后面的用例靠默认措辞定位
+    面板 = await 打开业务配置(page);
+    await 面板.locator("#customer").fill("学员");
+    await 面板.locator("#fields_school").fill("院校");
+    await 面板.locator("#fields_grade").fill("年级");
+    await 面板.locator("#fields_major").fill("专业");
+    await 保存并等提示(page, 面板);
+    await page.goto("/customers");
+    await expect(page.getByRole("heading", { name: "学员", exact: true })).toBeVisible();
+  });
+
   test("AI 接入：页签可见，接口地址格式不对会被表单拦下", async ({ page }) => {
     await 登录(page);
     await page.goto("/settings");

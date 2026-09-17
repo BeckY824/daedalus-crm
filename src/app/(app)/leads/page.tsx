@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import LeadsView from "./LeadsView";
 import type { Prisma } from "@/generated/prisma";
-import { 可担任负责人 } from "@/lib/constants";
+import { 负责人候选 } from "@/lib/owners";
 
 export const dynamic = "force-dynamic";
 
@@ -28,13 +28,21 @@ export default async function LeadsPage({
       take: 300,
       include: { owner: { select: { name: true } } },
     }),
-    prisma.user.findMany({ where: 可担任负责人, select: { id: true, name: true, email: true } }),
+    负责人候选(),
   ]);
+  /**
+   * 新建线索默认归「我」（LeadsView 里 ownerId: me）。我不在候选名单里时——桌面端单人用，
+   * 你就是管理员，灌了演示数据之后名单里只剩那四个销售——下拉会显示成一串 id
+   * （2026-09-17 在真机上看到的就是 `cmu58lup…`），编辑一条归管理员的线索也是同样的显示。
+   * 服务端本来就收管理员当负责人，所以把我补进名单只是让它显示成名字。
+   * 这一页原来直接查 可担任负责人 而不是走 负责人候选()，连单人工作区那条回退都没有。
+   */
+  const 候选 = users.some((u) => u.id === me.id) ? users : [...users, { id: me.id, name: me.name, email: me.email }];
 
   return (
     <LeadsView
       me={me.id}
-      users={users}
+      users={候选}
       filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "" }}
       rows={rows.map((l) => ({
         id: l.id,

@@ -23,39 +23,44 @@ export default async function ChannelsPage() {
     prisma.user.findMany({ where: 可担任负责人, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
   ]);
 
-  // 整条推荐链上的学员数与签约额，按渠道汇总
-  const chainStats = await Promise.all(
-    channels.map(async (c) => {
-      const customers = await prisma.customer.findMany({
-        where: { channelId: c.id },
-        select: { contracts: { select: { amount: true } } },
-      });
-      return {
-        id: c.id,
-        chainCustomers: customers.length,
-        chainAmount: customers.reduce((s, cu) => s + cu.contracts.reduce((a, ct) => a + ct.amount, 0), 0),
-      };
-    }),
-  );
-  const statMap = Object.fromEntries(chainStats.map((s) => [s.id, s]));
-
-  // 转介绍雷达：学员之间的直接推荐关系（纯规则，见 src/lib/referral.ts）
-  const radarCustomers = await prisma.customer.findMany({
+  /**
+   * 学员只查**一次**，渠道汇总和转介绍雷达都从这一份里算。
+   *
+   * 原来这里是 `channels.map(async ...)`：每个渠道各跑一次 `customer.findMany`，
+   * 渠道有几个就往返几次；紧接着又几乎重复地全表查了一遍学员给雷达用，
+   * 两处的差别只有一个 channelId 字段。渠道多起来之后，切到这一页要等的就是这些往返——
+   * 2026-09-17 在桌面端真机上看到这一页会闪一段骨架屏，量的就是它。
+   * 本地 CRM 的学员规模一次取回完全撑得住，按 channelId 在内存里分组即可。
+   */
+  const allCustomers = await prisma.customer.findMany({
     select: {
       id: true,
       name: true,
       followStatus: true,
       referrerCustomerId: true,
+      channelId: true,
       contracts: { select: { amount: true } },
     },
   });
+
+  const 签约额 = (c: { contracts: { amount: number }[] }) => c.contracts.reduce((s, ct) => s + ct.amount, 0);
+  const statMap: Record<string, { id: string; chainCustomers: number; chainAmount: number }> = Object.fromEntries(
+    channels.map((c) => [c.id, { id: c.id, chainCustomers: 0, chainAmount: 0 }]),
+  );
+  for (const cu of allCustomers) {
+    const 桶 = cu.channelId ? statMap[cu.channelId] : undefined;
+    if (!桶) continue;
+    桶.chainCustomers += 1;
+    桶.chainAmount += 签约额(cu);
+  }
+
   const radar = buildReferralRadar(
-    radarCustomers.map((c) => ({
+    allCustomers.map((c) => ({
       id: c.id,
       name: c.name,
       followStatus: c.followStatus,
       referrerCustomerId: c.referrerCustomerId,
-      signedAmount: c.contracts.reduce((s, ct) => s + ct.amount, 0),
+      signedAmount: 签约额(c),
     })),
   );
 

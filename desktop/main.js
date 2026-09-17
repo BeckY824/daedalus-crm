@@ -40,7 +40,12 @@ const APP_NAME = "Daedalus CRM";
  * 必须在 app ready 之前改，否则 Electron 自己的缓存已经落在旧路径上了。
  */
 const 旧数据目录 = app.getPath("userData");
-app.setPath("userData", path.join(app.getPath("appData"), "DaedalusCRM"));
+/**
+ * CRM_DATA_ROOT：把整个数据根挪到别处，只给本机联调用——用一份隔离的数据、隔离的单实例锁，
+ * 起第二个实例来测，而不碰装在机器上那个正在用的应用。macOS 的 appData 不认 $HOME，
+ * 所以改 HOME 没用，只能从这里给。发出去的包里没人会设它。
+ */
+app.setPath("userData", process.env.CRM_DATA_ROOT || path.join(app.getPath("appData"), "DaedalusCRM"));
 const 数据根 = app.getPath("userData");
 
 const CONFIG_FILE = path.join(数据根, "config.json");

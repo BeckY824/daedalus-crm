@@ -577,7 +577,14 @@ export default function SettingsView({
               aria-selected={tab === x.key}
               aria-controls={`set-panel-${x.key}`}
               className={`set-nav-i${tab === x.key ? " on" : ""}`}
-              onClick={() => router.replace(`${pathname}?tab=${x.key}`)}
+              /*
+                用原生 history 而不是 router.replace：这一页是 force-dynamic 的服务端组件，
+                router.replace 改个 ?tab= 会让 Next 把整页重新向服务端要一遍——200 条操作日志、
+                成员、AI 配置，桌面端还要去云端问一次余额。切个页签卡半秒，就是这么来的
+                （2026-09-17 用户在真机上感觉到「偶尔卡卡的」）。Next 会把原生 pushState/replaceState
+                同步进 useSearchParams，所以下面读 tab 的那行照旧生效，刷新、回退也照旧对得上。
+              */
+              onClick={() => window.history.replaceState(null, "", `${pathname}?tab=${x.key}`)}
             >
               <b>{x.label}</b>
               <span>{x.说明}</span>
