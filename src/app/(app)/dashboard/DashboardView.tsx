@@ -4,13 +4,13 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Row, Col, Card, Segmented, Typography, Space, Tag, Empty, Select } from "antd";
 import {
-  TeamOutlined,
   UserOutlined,
   ThunderboltOutlined,
   PayCircleOutlined,
   UserAddOutlined,
   RiseOutlined,
   SafetyCertificateOutlined,
+  ClockCircleOutlined,
 } from "@ant-design/icons";
 import type { EChartsCoreOption } from "echarts/core";
 import Chart, { Sparkline } from "@/components/Chart";
@@ -25,17 +25,21 @@ type Props = {
   /** 一条业务数据都没有。这时不画看板，画一张「从哪开始」 */
   空库: boolean;
   stats: {
-    leadTotal: number;
-    leadDelta: number;
-    activeCustomers: number;
-    activeDelta: number;
-    oppThisMonth: number;
-    oppDelta: number;
-    forecast: number;
+    /*
+      线索总数 / 活跃客户数 / 本月新增商机 / 预测销售额 四个字段 2026-09-17 删了：
+      指标卡换成设计稿那四个之后，它们在这一页上一处都没再用到，
+      而 Board 还在为它们各跑一条查询。留着不显示的数据 = 每次打开都白查一遍。
+    */
     newCustomersThisMonth: number;
     newCustomersDelta: number;
     oppTotalAmount: number;
     winRate: number;
+    /** 设计稿 08/DATA·NOW 那四张卡：这一刻真查出来的，每个都点得进明细 */
+    签约本月: number;
+    /** 上月一分钱都没有时是 undefined——分母为 0 的环比不显示，不编一个 */
+    签约环比?: number;
+    进行中商机: number;
+    逾期跟进: number;
     /** 卡片下方小曲线的真实数据，按最近 8 周 */
     newCustomerSeries: number[];
     oppAmountSeries: number[];
@@ -164,27 +168,55 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
       */}
       {!内嵌 && <PageHead title="首页" subtitle="今天的状态与要推进的事" />}
 
-      {/* 指标卡 */}
+      {/*
+        四张指标卡（设计稿 08/DATA·NOW）。原来是线索总数 / 活跃客户数 / 本月新增商机 /
+        预测销售额——四个「库里有多少」，没有一个回答「今天要关心什么」。
+        换成这四个，而且**每一张都点得进一个能把这个数重新数一遍的页面**：
+        一个落不了地的数只能让人干着急。
+        另外三个旧口径没丢，往下一屏的漏斗、趋势、排行里都还在。
+      */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<TeamOutlined />} color="#1668dc" label="线索总数" value={stats.leadTotal.toLocaleString()} delta={stats.leadDelta} />
-        </Col>
-        <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<UserOutlined />} color="#22c55e" label="活跃客户数" value={stats.activeCustomers.toLocaleString()} delta={stats.activeDelta} />
-        </Col>
-        <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<ThunderboltOutlined />} color="#f59e0b" label="本月新增商机" value={stats.oppThisMonth.toLocaleString()} delta={stats.oppDelta} />
-        </Col>
-        <Col xs={24} sm={12} xl={6}>
-          {/* 这里原本写死 delta={18.6}：零数据时也显示「较上月 ↑ 18.6%」。
-                数据首页上的假数字比没有数字更糟——人会拿它做判断。
-                没有可比口径就不显示涨跌，只说明算法。 */}
           <StatCard
             icon={<PayCircleOutlined />}
-            color="#8b5cf6"
-            label="预测销售额"
-            value={money(stats.forecast)}
-            note="进行中商机按成交概率加权"
+            color="#1668dc"
+            label="本月签约"
+            /* 0 就写 ¥0。「—」读起来是「不知道」，而这个月签了多少我们是知道的——
+               知道它是 0 和不知道它是多少，是两件完全不同的事 */
+            value={money(stats.签约本月)}
+            delta={stats.签约环比}
+            note={stats.签约环比 === undefined ? "按签约日期算，全团队" : undefined}
+            href="/overview?view=本月"
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <StatCard
+            icon={<UserOutlined />}
+            color="#22c55e"
+            label="新增学员"
+            value={stats.newCustomersThisMonth.toLocaleString()}
+            delta={stats.newCustomersDelta}
+            href="/customers?createdWithin=本月"
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <StatCard
+            icon={<ThunderboltOutlined />}
+            color="#f59e0b"
+            label="进行中商机"
+            value={stats.进行中商机.toLocaleString()}
+            note={`在谈 ${money(stats.oppTotalAmount)}`}
+            href="/opportunities?status=OPEN"
+          />
+        </Col>
+        <Col xs={24} sm={12} xl={6}>
+          <StatCard
+            icon={<ClockCircleOutlined />}
+            color={stats.逾期跟进 > 0 ? "#dc2626" : "#8b5cf6"}
+            label="逾期跟进"
+            value={stats.逾期跟进.toLocaleString()}
+            note={stats.逾期跟进 > 0 ? "计划时间已经过去了" : "都跟上了"}
+            href="/follow-ups/plans"
           />
         </Col>
       </Row>

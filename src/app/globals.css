@@ -219,6 +219,19 @@ a {
   padding: 16px 18px;
 }
 
+/* 点得进明细的那几张卡。悬停时边框和数字一起变蓝——
+   只让边框变色的话，鼠标不在卡上的人看不出这张卡和旁边那张有什么不同 */
+.stat-card-go {
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.stat-card-go:hover {
+  border-color: var(--brand-line);
+  background: var(--brand-bg);
+}
+.stat-card-go:hover .stat-value {
+  color: var(--brand-deep);
+}
+
 .stat-icon {
   font-size: var(--fs-section);
   opacity: 0.8;
@@ -933,3 +946,28 @@ a {
   .legal-cols { grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
   .legal-toc { position: static; flex-direction: row; flex-wrap: wrap; }
 }
+
+/* ---------- 运营台 /admin（设计稿 21/LOW-FREQUENCY）----------
+   密度比产品里高一档：这一页是我们自己每天扫一眼的，不是给客户用的。
+   深色顶栏 + 环境标记是为了让人一眼知道自己对着的是线上库还是本地。 */
+.ops { min-height: 100vh; background: var(--workbench); }
+.ops-top { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s5);
+  background: #111827; color: #fff; }
+.ops-top b { font-size: var(--fs-section); font-weight: 600; letter-spacing: -0.2px; }
+.ops-env { padding: 2px 10px; border-radius: 999px; background: #1f2937; color: #9ca3af;
+  font-size: var(--fs-min); font-weight: 600; letter-spacing: 0.4px; }
+.ops-env-live { background: #7f1d1d; color: #fecaca; }
+.ops-body { padding: var(--s5); }
+.ops-stats { display: flex; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s4); }
+.ops-stat { flex: 1; min-width: 180px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: var(--s3) var(--s4); }
+.ops-stat-k { display: block; font-size: var(--fs-note); color: var(--text-muted); }
+.ops-stat b { display: block; font-size: var(--fs-num); font-weight: 600; line-height: 1.3;
+  font-variant-numeric: tabular-nums; }
+.ops-stat-n { font-size: var(--fs-min); color: var(--text-muted); }
+/* 待核对不为 0 时整张卡变黄：它是这一页上唯一要人动手的那一项 */
+.ops-stat-warn { background: var(--warning-bg); border-color: var(--warning-line); }
+.ops-stat-warn b, .ops-stat-warn .ops-stat-n { color: var(--warning-text); }
+/* 表格再密一档：行高 34、字号到下限。工作区一屏能多看七八个 */
+.ops .ant-table-tbody > tr > td { height: 34px; padding-block: 2px !important; font-size: var(--fs-note); }
+.ops .ant-table-thead > tr > th { height: 32px; font-size: var(--fs-min); }

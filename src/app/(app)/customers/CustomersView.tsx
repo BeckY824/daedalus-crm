@@ -50,6 +50,12 @@ type Props = {
   customers: Option[];
   /** 进来就把新建表单打开（首页空库那张「开始」卡的落点） */
   直接新建?: boolean;
+  /**
+   * 「数据」页那张「新增学员」卡点进来的：只看这个月建的。
+   * 它不进筛选栏（筛选栏摆的是每天都在用的那几个），但**必须让人看见自己在看一个子集**——
+   * 所以工具栏第一格是一枚带叉的标记，点叉就回到全部。
+   */
+  本月新增?: boolean;
   filters: {
     keyword: string;
     grade: string;
@@ -72,7 +78,7 @@ type Props = {
  * 其余的收进「列」里，勾了记在这台机器上。
  */
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建,
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 本月新增,
 }: Props) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -85,7 +91,7 @@ export default function CustomersView({
    * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
    * 按 filters（服务端那次查询用的条件）判而不是 f（输入框里的草稿）。
    */
-  const 空库 = total === 0 && !Object.values(filters).some((v) => v);
+  const 空库 = total === 0 && !本月新增 && !Object.values(filters).some((v) => v);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
 
@@ -225,6 +231,12 @@ export default function CustomersView({
             收起来不等于可以不告诉人，否则人会对着一张筛过的表当成全部。
           */
           <Space wrap size={[10, 10]}>
+            {/* 从「数据」页那张卡走进来的：说清这是一个子集，并给一条回到全部的路 */}
+            {本月新增 && (
+              <Tag closable onClose={() => router.push("/customers")} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
+                只看本月新增
+              </Tag>
+            )}
             <Input style={{ width: 260 }} placeholder="姓名 / 电话 / 院校 / 专业"
               prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword} allowClear

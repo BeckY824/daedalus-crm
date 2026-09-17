@@ -4,6 +4,7 @@ import CustomersView from "./CustomersView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
+import { dayjs } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,14 @@ type SP = Promise<{
   channelOwnerId?: string;
   page?: string;
   pageSize?: string;
+  /**
+   * 「数据」页上那张「新增学员」卡点进来的。眼下只认「本月」一个值。
+   *
+   * 它不进筛选栏：筛选栏摆的是每天都在用的那几个，这一条是**从一个数走进它的明细**，
+   * 用完就走。但它必须写在筛选提示里让人看见自己正在看一个子集——
+   * 否则人会把一屏 24 条当成全部（见 CustomersView 里那条提示）。
+   */
+  createdWithin?: string;
   /** 从首页那张「开始」卡过来的：直接把新建表单打开，省一次点击 */
   new?: string;
 }>;
@@ -43,6 +52,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     ...(sp.decisionStatus ? { decisionStatus: sp.decisionStatus } : {}),
     ...(sp.salesOwnerId ? { salesOwnerId: sp.salesOwnerId } : {}),
     ...(sp.channelOwnerId ? { channelOwnerId: sp.channelOwnerId } : {}),
+    ...(sp.createdWithin === "本月" ? { createdAt: { gte: dayjs().startOf("month").toDate() } } : {}),
   };
 
   const [rows, total, users, channels, allCustomers] = await Promise.all([
@@ -115,6 +125,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         salesOwnerId: sp.salesOwnerId ?? "",
         channelOwnerId: sp.channelOwnerId ?? "",
       }}
+      本月新增={sp.createdWithin === "本月"}
     />
   );
 }

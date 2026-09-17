@@ -27,7 +27,7 @@ type Row = {
  * 不做成完整后台——工作区数量还在两位数的阶段，一张表加几个按钮就够，
  * 多做的每一块都要跟着业务改。
  */
-export default function AdminView({ token, rows }: { token: string; rows: Row[] }) {
+export default function AdminView({ token, rows, 环境 }: { token: string; rows: Row[]; 环境: "生产" | "本地" }) {
   const { message } = App.useApp();
   const [plan, setPlan] = useState<PlanKey>("year");
   const [busy, setBusy] = useState<string | null>(null);
@@ -68,21 +68,48 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
   }
 
   const 待核对 = rows.filter((r) => r.note?.includes("[待核对]")).length;
+  const 试用中 = rows.filter((r) => r.status === "TRIAL" && r.writable).length;
+  const 成员数 = rows.reduce((s2, r) => s2 + r.members, 0);
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 20, fontWeight: 600, margin: "0 0 4px" }}>工作区</h1>
-      <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 16 }}>
-        共 {rows.length} 个，{rows.filter((r) => r.status === "TRIAL" && r.writable).length} 个在试用
-        {待核对 > 0 && <span style={{ color: "#b45309" }}>，{待核对} 个待核对付款</span>}
-      </div>
-
-      <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
-        <Button type="primary" onClick={() => set开号弹窗(true)}>
+    <div className="ops">
+      {/*
+        深色顶栏（设计稿 21/LOW-FREQUENCY）。它不只是好看：这一页对着的是**线上库**，
+        一个动作就能停掉别人的工作区。顶栏和环境标记是为了让人一眼知道自己在哪儿——
+        运营台和产品长得一样的时候，人会以为自己还在自己的工作区里点。
+      */}
+      <header className="ops-top">
+        <b>Daedalus Ops</b>
+        <span className={`ops-env${环境 === "生产" ? " ops-env-live" : ""}`}>{环境 === "生产" ? "PRODUCTION" : "本地"}</span>
+        <span style={{ flex: 1 }} />
+        <Button type="primary" size="small" onClick={() => set开号弹窗(true)}>
           开工作区
         </Button>
+      </header>
+
+      <div className="ops-body">
+        {/* 三个数，每个都说清口径。待核对有人时整张卡变黄——它是唯一要人动手的那一项 */}
+        <div className="ops-stats">
+          <div className="ops-stat">
+            <span className="ops-stat-k">工作区</span>
+            <b>{rows.length}</b>
+            <span className="ops-stat-n">{试用中} 个在试用</span>
+          </div>
+          <div className="ops-stat">
+            <span className="ops-stat-k">成员合计</span>
+            <b>{成员数}</b>
+            <span className="ops-stat-n">全部工作区</span>
+          </div>
+          <div className={`ops-stat${待核对 > 0 ? " ops-stat-warn" : ""}`}>
+            <span className="ops-stat-k">待核对付款</span>
+            <b>{待核对}</b>
+            <span className="ops-stat-n">{待核对 > 0 ? "备注里有 [待核对]" : "没有要处理的"}</span>
+          </div>
+        </div>
+
+      <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ flex: 1 }} />
-        <span style={{ fontSize: 13, color: "#6b7280" }}>开通用的套餐</span>
+        <span style={{ fontSize: 13, color: "var(--text-muted)" }}>开通用的套餐</span>
         <Select
           size="small"
           value={plan}
@@ -105,7 +132,7 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
             render: (_, r) => (
               <div>
                 <div style={{ fontWeight: 500 }}>{r.name}</div>
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{r.slug}</div>
+                <div style={{ fontSize: "var(--fs-min)", color: "var(--text-muted)" }}>{r.slug}</div>
               </div>
             ),
           },
@@ -130,7 +157,7 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
             title: "AI 次数",
             dataIndex: "ai",
             width: 90,
-            render: (_, r) => (r.paidUntil ? <span style={{ color: "var(--text-muted)" }}>不限</span> : <span style={{ color: r.ai.剩 === 0 ? "#b45309" : undefined }}>{r.ai.剩} / {r.ai.送}</span>),
+            render: (_, r) => (r.paidUntil ? <span style={{ color: "var(--text-muted)" }}>不限</span> : <span style={{ color: r.ai.剩 === 0 ? "var(--warning-text)" : undefined }}>{r.ai.剩} / {r.ai.送}</span>),
           },
           {
             title: "注册于",
@@ -144,12 +171,12 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
             render: (v: string | null) =>
               v ? (
                 <Tooltip title={<span style={{ whiteSpace: "pre-wrap" }}>{v}</span>}>
-                  <span style={{ color: v.includes("[待核对]") ? "#b45309" : "#6b7280", fontSize: 12 }}>
+                  <span style={{ color: v.includes("[待核对]") ? "var(--warning-text)" : "var(--text-muted)", fontSize: "var(--fs-min)" }}>
                     {v.split("\n").slice(-1)[0].slice(0, 30)}
                   </span>
                 </Tooltip>
               ) : (
-                <span style={{ color: "#d1d5db" }}>—</span>
+                <span style={{ color: "var(--text-faint)" }}>—</span>
               ),
           },
           {
@@ -246,6 +273,7 @@ export default function AdminView({ token, rows }: { token: string; rows: Row[] 
           </Form>
         )}
       </Modal>
+      </div>
     </div>
   );
 }

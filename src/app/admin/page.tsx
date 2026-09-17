@@ -55,5 +55,9 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     };
   });
 
-  return <AdminView token={given} rows={list} />;
+  /*
+    顶栏那个环境标记。这一页对着的是线上库，一个动作就能停掉别人的工作区——
+    人得一眼知道自己点的是生产还是本地。
+  */
+  return <AdminView token={given} rows={list} 环境={process.env.NODE_ENV === "production" ? "生产" : "本地"} />;
 }

@@ -21,11 +21,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
 
   const [
     leadTotal,
-    leadLastMonth,
     activeCustomers,
-    activeLastMonth,
-    oppThisMonth,
-    oppLastMonth,
     openOpps,
     stageGroups,
     owners,
@@ -34,16 +30,17 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     wonCount,
     totalClosed,
     oppsForSeries,
+    本月签约,
+    上月签约,
+    逾期跟进,
   ] = await Promise.all([
+    // 这两个只用来判「空库」，不再进指标卡
     prisma.lead.count(),
-    prisma.lead.count({ where: { createdAt: { lt: monthStart } } }),
     prisma.customer.count({ where: { followStatus: { notIn: ["已流失"] } } }),
-    prisma.customer.count({ where: { createdAt: { lt: monthStart }, followStatus: { notIn: ["已流失"] } } }),
-    prisma.opportunity.count({ where: { createdAt: { gte: monthStart } } }),
-    prisma.opportunity.count({ where: { createdAt: { gte: lastMonthStart, lt: monthStart } } }),
     prisma.opportunity.findMany({
       where: { status: "OPEN" },
-      select: { amount: true, probability: true },
+      // 只要金额：预测销售额那张卡撤了之后，概率在这一页不再用到
+      select: { amount: true },
     }),
     // 管道只统计进行中的商机，已赢单/丢单不再占据漏斗
     prisma.opportunity.groupBy({
@@ -72,10 +69,18 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     prisma.opportunity.count({ where: { status: { in: ["WON", "LOST"] } } }),
     // 卡片下方那三条小曲线原本是写死的装饰数据，改成按周真算
     prisma.opportunity.findMany({ select: { createdAt: true, updatedAt: true, amount: true, status: true } }),
+    /*
+      设计稿 08/DATA·NOW 的四张指标卡：本月签约、新增学员、进行中商机、逾期跟进。
+      原来那四张是线索总数 / 活跃客户数 / 本月新增商机 / 预测销售额——都是「库里有多少」，
+      没有一个回答「今天要关心什么」。这四个都是**能落地**的：
+      每一个都点得进一个能把它重新数一遍的页面（页面规则「关键指标可跳到明细」）。
+    */
+    prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: monthStart } } }),
+    prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: lastMonthStart, lt: monthStart } } }),
+    // 逾期是全团队口径：这一页看的是整个盘子，不是「我的」
+    prisma.followPlan.count({ where: { done: false, plannedAt: { lt: now.startOf("day").toDate() } } }),
   ]);
 
-  // 预测销售额 = Σ(金额 × 概率)
-  const forecast = openOpps.reduce((s, o) => s + o.amount * (o.probability / 100), 0);
   const newCustomersThisMonth = customersForTrend.filter((c) =>
     dayjs(c.createdAt).isAfter(monthStart),
   ).length;
@@ -148,6 +153,8 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
 
   const oppTotalAmount = openOpps.reduce((s, o) => s + o.amount, 0);
   const winRate = totalClosed ? Math.round((wonCount / totalClosed) * 100) : 0;
+  const 本月签约额 = 本月签约._sum.amount ?? 0;
+  const 上月签约额 = 上月签约._sum.amount ?? 0;
 
   const watchlist = await loadWatchlist(now);
 
@@ -192,19 +199,17 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
        */
       空库={leadTotal === 0 && activeCustomers === 0 && oppsForSeries.length === 0}
       stats={{
-        leadTotal,
-        leadDelta: leadLastMonth ? Number((((leadTotal - leadLastMonth) / leadLastMonth) * 100).toFixed(1)) : 0,
-        activeCustomers,
-        activeDelta: activeLastMonth ? Number((((activeCustomers - activeLastMonth) / activeLastMonth) * 100).toFixed(1)) : 0,
-        oppThisMonth,
-        oppDelta: oppLastMonth ? Number((((oppThisMonth - oppLastMonth) / oppLastMonth) * 100).toFixed(1)) : 0,
-        forecast,
         newCustomersThisMonth,
         newCustomersDelta: newCustomersLastMonth
           ? Number((((newCustomersThisMonth - newCustomersLastMonth) / newCustomersLastMonth) * 100).toFixed(1))
           : 0,
         oppTotalAmount,
         winRate,
+        签约本月: 本月签约额,
+        // 上月一分钱都没有时不给环比：分母是 0 的百分比没有意义，只会是个吓人的数
+        签约环比: 上月签约额 ? Number((((本月签约额 - 上月签约额) / 上月签约额) * 100).toFixed(1)) : undefined,
+        进行中商机: openOpps.length,
+        逾期跟进,
         newCustomerSeries,
         oppAmountSeries,
         winRateSeries,

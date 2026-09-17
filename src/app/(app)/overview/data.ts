@@ -11,9 +11,13 @@ import { 成员选项 } from "@/lib/utils";
 
 export type Bucket = { label: string; amount: number; count: number };
 export type Agg = { id: string; name: string; amount: number; count: number };
+/** 趋势图上点开一根柱子时看到的那几行：这一段是哪几笔签约凑出来的 */
+export type 明细行 = { id: string; 学员: string; 学员id: string; 金额: number; 日期: string; 销售: string };
 
 export type 复盘 = {
   trend: Bucket[];
+  /** 按趋势图的横轴刻度分好的明细，key 就是 Bucket.label */
+  明细: Record<string, 明细行[]>;
   bySales: Agg[];
   byChannelOwner: Agg[];
   byChannel: Agg[];
@@ -36,10 +40,12 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
     where: { signedAt: { gte: from, lt: to } },
     orderBy: { signedAt: "asc" },
     select: {
+      id: true,
       amount: true,
       signedAt: true,
       customer: {
         select: {
+          id: true,
           name: true,
           salesOwner: { select: { id: true, name: true, email: true } },
           channelOwner: { select: { id: true, name: true, email: true } },
@@ -52,10 +58,26 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
   });
 
   const byBucket = new Map<string, { amount: number; count: number }>();
+  /**
+   * 每一根柱子对应的那几笔。**顺手分好，不另跑一趟查询**——
+   * 合同行已经全在手上了，分组是几行代码；为「点开一根柱子」再查一次库，
+   * 既慢又可能和图上的数对不上（两次查询之间有人签了一单）。
+   */
+  const 明细 = new Map<string, 明细行[]>();
   for (const c of contracts) {
     const k = bucketOf(c.signedAt, 粒);
     const cur = byBucket.get(k) ?? { amount: 0, count: 0 };
     byBucket.set(k, { amount: cur.amount + c.amount, count: cur.count + 1 });
+    const 行 = 明细.get(k) ?? [];
+    行.push({
+      id: c.id,
+      学员: c.customer.name,
+      学员id: c.customer.id,
+      金额: c.amount,
+      日期: c.signedAt.toISOString(),
+      销售: c.customer.salesOwner?.name ?? "—",
+    });
+    明细.set(k, 行);
   }
 
   /**
@@ -96,6 +118,7 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
 
   return {
     trend: [...byBucket.entries()].map(([label, v]) => ({ label, ...v })),
+    明细: Object.fromEntries(明细),
     bySales: 成员agg((c) => c.customer.salesOwner, "—"),
     byChannelOwner: 成员agg((c) => c.customer.channelOwner, "无渠道"),
     byChannel: agg((c) => c.customer.channel, "自然流量"),

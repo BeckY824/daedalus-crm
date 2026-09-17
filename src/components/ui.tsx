@@ -54,7 +54,13 @@ export function PageHead({
   );
 }
 
-/** 首页指标卡 */
+/**
+ * 指标卡。
+ *
+ * `href` 给了就整张卡可点——设计稿 08/DATA·NOW 的页面规则「关键指标可跳到明细」：
+ * 去处必须是一个**能把这个数重新数一遍**的页面，不是一个大概相关的列表。
+ * 落不了地的数只能让人干着急，所以点不进去的卡就不要装成能点的。
+ */
 export function StatCard({
   icon,
   color,
@@ -63,6 +69,7 @@ export function StatCard({
   delta,
   deltaLabel = "较上月",
   note,
+  href,
 }: {
   icon: React.ReactNode;
   color: string;
@@ -73,10 +80,12 @@ export function StatCard({
   deltaLabel?: string;
   /** 没有涨跌可显示时，用一句话说明这个数怎么算的，比留白强 */
   note?: string;
+  /** 点这张卡去哪把这个数重新数一遍 */
+  href?: string;
 }) {
   const up = (delta ?? 0) >= 0;
-  return (
-    <div className="card-soft stat-card">
+  const 卡 = (
+    <div className={`card-soft stat-card${href ? " stat-card-go" : ""}`}>
       <div className="stat-label">
         <span>{label}</span>
         <span className="stat-icon" style={{ color }}>
@@ -99,6 +108,13 @@ export function StatCard({
         <div className="stat-delta">{note}</div>
       ) : null}
     </div>
+  );
+  return href ? (
+    <Link href={href} aria-label={`${label}：${value}，查看明细`}>
+      {卡}
+    </Link>
+  ) : (
+    卡
   );
 }
 

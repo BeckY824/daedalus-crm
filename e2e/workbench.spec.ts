@@ -311,3 +311,90 @@ test("AI 接入：没测过连接就保存会先拦一下", async ({ page }) => 
   // 拦下来之后没有保存，提示也不该出现
   await expect(page.locator(".ant-message")).toHaveCount(0);
 });
+
+/* ---------- 收尾：指标落地、图表落地、联系人入口（2026-09-17 逐页核对后补的三件） ---------- */
+
+test("数据「现在」那四张卡，每一张都点得进一个能把这个数重新数一遍的页面", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/overview");
+
+  /**
+   * 设计稿 08/DATA·NOW 的页面规则：关键指标可跳到明细。
+   * 四张卡换成了本月签约 / 新增学员 / 进行中商机 / 逾期跟进——
+   * 四个「今天要关心什么」，而不是四个「库里有多少」。
+   * 这条钉的是**每一张都真的落得了地**：一个点不进去的数只能让人干着急。
+   */
+  const 卡 = ["本月签约", "新增学员", "进行中商机", "逾期跟进"];
+  const 名单 = await page.locator(".stat-label > span:first-child").allInnerTexts();
+  expect(名单.map((t) => t.trim())).toEqual(卡);
+
+  const 去处: Record<string, RegExp> = {
+    本月签约: /\/overview\?view=/,
+    新增学员: /\/customers\?createdWithin=/,
+    进行中商机: /\/opportunities\?status=OPEN/,
+    逾期跟进: /\/follow-ups\/plans/,
+  };
+  for (const 名 of 卡) {
+    await page.goto("/overview");
+    await page.locator(".stat-card-go", { hasText: 名 }).click();
+    await expect(page, `${名} 这张卡点了没去处`).toHaveURL(去处[名]);
+  }
+});
+
+test("从「新增学员」点进来时，列表要说清自己只是一个子集", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/customers?createdWithin=本月");
+  // 不说的话，人会把这一屏当成全部
+  await expect(page.getByText("只看本月新增")).toBeVisible();
+  // 而且要给一条回到全部的路
+  await page.locator(".ant-tag-close-icon").first().click();
+  await expect(page).toHaveURL(/\/customers$/);
+});
+
+test("趋势图点一根柱子，看得到这一段是哪几笔凑出来的", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/overview?view=" + encodeURIComponent("本年"));
+  const 图 = page.locator(".ant-card", { hasText: "签约金额趋势" });
+  await expect(图).toContainText("点柱子或下面的日期");
+
+  /*
+    echarts 画在 canvas 上，没有可点的 DOM 节点，只能按像素点；
+    而柱子落在哪个像素取决于这一年有几个月有签约、每根多高——在测试里不是定数。
+    所以在图形区里扫一遍：**只要有一处点得开，这张图就是能点的**，
+    这正是这条用例要钉的东西。扫不开才算红。
+  */
+  const 框 = await 图.locator("canvas").first().boundingBox();
+  if (!框) throw new Error("趋势图没渲染出来");
+  const 抽屉 = page.locator(".ant-drawer");
+  let 点开了 = false;
+  for (const fy of [0.55, 0.75, 0.9, 0.97]) {
+    for (const fx of [0.5, 0.35, 0.65, 0.2, 0.8]) {
+      await page.mouse.click(框.x + 框.width * fx, 框.y + 框.height * fy);
+      if (await 抽屉.isVisible().catch(() => false)) {
+        点开了 = true;
+        break;
+      }
+    }
+    if (点开了) break;
+  }
+  expect(点开了, "在趋势图上怎么点都打不开明细").toBe(true);
+
+  await expect(抽屉).toContainText("签约明细");
+  // 抽屉里那句合计必须和表里的行对得上——这是「明细」两个字的全部意义
+  const 行数 = await 抽屉.locator(".ant-table-tbody tr.ant-table-row").count();
+  await expect(抽屉).toContainText(`共 ${行数} 笔`);
+});
+
+test("联系人页能直接加一位，但第一格必须先选归属", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/contacts");
+  await page.getByRole("button", { name: /添加联系人/ }).click();
+
+  const 弹窗 = page.getByRole("dialog");
+  await expect(弹窗).toBeVisible();
+  // 只填姓名就保存：得被拦住。没有归属的联系人没有意义
+  await 弹窗.getByPlaceholder("王妈妈").fill("走查的家长");
+  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(弹窗.getByText(/请选择所属/)).toBeVisible();
+  await expect(弹窗).toBeVisible();
+});

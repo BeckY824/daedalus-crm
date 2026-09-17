@@ -170,7 +170,10 @@ test("7 运营台要 token：不带、带错都是 404", async ({ page }) => {
   expect((await page.goto("/admin"))?.status()).toBe(404);
   expect((await page.goto("/admin?token=乱填的"))?.status()).toBe(404);
   await page.goto("/admin?token=e2e-admin-token");
-  await expect(page.getByRole("heading", { name: "工作区" })).toBeVisible({ timeout: 15_000 });
+  // 深色顶栏 + 环境标记（2026-09-17 起）：这一页对着线上库，人得一眼知道自己在哪儿
+  await expect(page.locator(".ops-top")).toContainText("Daedalus Ops");
+  await expect(page.locator(".ops-env")).toBeVisible();
+  await expect(page.locator(".ops-stat").first()).toContainText("工作区", { timeout: 15_000 });
   await expect(page.getByText(共享工作区.名称, { exact: true })).toBeVisible();
 });
 

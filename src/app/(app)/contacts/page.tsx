@@ -24,19 +24,24 @@ export default async function ContactsPage({
       }
     : {};
 
-  const rows = await prisma.contact.findMany({
-    where,
-    orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
-    take: 300,
-    include: {
-      customer: { select: { id: true, name: true, school: true, salesOwner: { select: { name: true } } } },
-    },
-  });
+  const [rows, 学员们] = await Promise.all([
+    prisma.contact.findMany({
+      where,
+      orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
+      take: 300,
+      include: {
+        customer: { select: { id: true, name: true, school: true, salesOwner: { select: { name: true } } } },
+      },
+    }),
+    // 「添加联系人」要先选归属，所以把学员的名字一起带下来
+    prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  ]);
   const 号 = await 号码脱敏器();
 
   return (
     <ContactsView
       keyword={sp.keyword ?? ""}
+      学员们={学员们}
       rows={rows.map((c) => ({
         id: c.id,
         name: c.name,
