@@ -3,10 +3,18 @@
  * 桌面端侧栏里那个更新按钮。
  *
  * 壳（Electron 主进程）后台查，查到了**不自动下**，状态经 preload-app.js 的 window.desktopUpdate 推过来，
- * 这里只负责画：查到新版是一个蓝的「更新到 x · 差量 2.3 MB」，点了才开始下；下载中是一条灰的进度文字；
- * 下完变成「重启以更新」，点了就装。不弹任何对话框。网页版没有这个桥，什么都不画。
+ * 这里只负责画。网页版没有这个桥，什么都不画。
+ *
+ * **形状照 Codex 那个：平时只是一枚圆的下载键，鼠标放上去才摊开成一句话。**
+ * 规矩是「只有要你现在做点什么的状态才占地方」——
+ *   有新版（邀请，不急）→ 收着，指上去才说是什么版本、要下多少
+ *   正在下 / 下完了 / 失败了（要你等、要你点、要你重试）→ 一直摊开
+ * 摊开是 grid 0fr→1fr 的宽度过渡，不量像素也就不会在字长变了之后错位；
+ * 状态之间的形变交给 motion 的 layout，和别处一样是 0.18s、小位移、透明度打头，不弹不跳。
  */
 import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { ArrowDownOutlined, ReloadOutlined, WarningOutlined, SyncOutlined } from "@ant-design/icons";
 
 type 更新状态 = {
   阶段: "idle" | "checking" | "available" | "downloading" | "ready" | "installing" | "manual" | "error";
@@ -34,6 +42,17 @@ declare global {
   }
 }
 
+/** 一枚键长什么样：图标、那句话、点了干什么、是否一直摊开 */
+type 画法 = {
+  图标: React.ReactNode;
+  话: string;
+  点?: () => void;
+  摊开?: boolean;
+  样式?: string;
+  /** 进度条填到哪儿；null 是「在下但说不出百分比」，画成来回扫的那条 */
+  进度?: number | null;
+};
+
 export default function UpdateButton() {
   const [s, setS] = useState<更新状态 | null>(null);
 
@@ -48,47 +67,86 @@ export default function UpdateButton() {
   if (!s) return null;
   const api = window.desktopUpdate;
   // 老壳（0.24.1 及以前）没有 download，那时壳是自动下的，按钮退回「检查更新」也能把流程走起来
-  const 开始下载 = () => (api?.download ? api.download() : api?.check());
-  switch (s.阶段) {
-    case "available":
-      return (
-        <button type="button" className="rail-update" onClick={开始下载} title={s.说明}>
-          更新到 {s.版本}
-          {s.文字 ? ` · ${s.文字}` : ""}
-        </button>
-      );
-    case "downloading":
-      return (
-        <div className="rail-update busy" role="status">
-          {s.文字 ?? "正在下载更新"}
-          {s.进度 != null ? ` ${s.进度}%` : "…"}
-        </div>
-      );
-    case "installing":
-      return (
-        <div className="rail-update busy" role="status">
-          正在安装，马上重启…
-        </div>
-      );
-    case "ready":
-      return (
-        <button type="button" className="rail-update" onClick={() => api?.install()} title={s.文字}>
-          重启以更新到 {s.版本}
-        </button>
-      );
-    case "manual":
-      return (
-        <button type="button" className="rail-update" onClick={() => api?.openDownload()}>
-          有新版本 {s.版本}，去下载
-        </button>
-      );
-    case "error":
-      return (
-        <button type="button" className="rail-update warn" title={s.错误} onClick={开始下载}>
-          更新失败，点击重试
-        </button>
-      );
-    default:
-      return null;
-  }
+  const 开始下载 = () => void (api?.download ? api.download() : api?.check());
+
+  const 画: 画法 | null = (() => {
+    switch (s.阶段) {
+      case "available":
+        return {
+          // 只说版本。「差量 2.3 MB」留给 title 和下载中那一屏——
+          // 侧栏 220 宽，两样都塞进去的话尾巴会被裁掉，反而谁也没看清
+          图标: <ArrowDownOutlined />,
+          话: `更新到 ${s.版本}`,
+          点: 开始下载,
+        };
+      case "downloading":
+        return {
+          图标: <ArrowDownOutlined />,
+          话: `${s.文字 ?? "正在下载"}${s.进度 != null ? ` · ${s.进度}%` : ""}`,
+          摊开: true,
+          样式: "busy",
+          进度: s.进度 ?? null,
+        };
+      case "installing":
+        return { 图标: <SyncOutlined spin />, 话: "正在安装，马上重启", 摊开: true, 样式: "busy" };
+      case "ready":
+        return { 图标: <ReloadOutlined />, 话: `重启以更新到 ${s.版本}`, 点: () => void api?.install(), 摊开: true };
+      case "manual":
+        return { 图标: <ArrowDownOutlined />, 话: `有新版 ${s.版本}，去下载`, 点: () => void api?.openDownload(), 摊开: true };
+      case "error":
+        return { 图标: <WarningOutlined />, 话: "更新失败，点这儿重试", 点: 开始下载, 摊开: true, 样式: "warn" };
+      default:
+        return null;
+    }
+  })();
+
+  if (!画) return null;
+  const 静态 = !画.点;
+  const 类名 = `rail-up${画.摊开 ? " open" : ""}${画.样式 ? ` ${画.样式}` : ""}`;
+  // 收着的时候按钮上只有一个图标，读屏要能听见这是什么；title 给的是这一版改了什么
+  const 提示 = [s.文字, s.说明].filter(Boolean).join("\n");
+  const 无障碍 = { "aria-label": 画.话, title: 提示 || undefined };
+
+  const 里面 = (
+    <>
+      <span className="rail-up-ico" aria-hidden>
+        {画.图标}
+      </span>
+      {/* 0fr → 1fr：不量像素的宽度过渡。里面那层 overflow:hidden 负责把字裁住 */}
+      <span className="rail-up-lab">
+        <span>{画.话}</span>
+      </span>
+      {画.进度 !== undefined && (
+        <span
+          className={`rail-up-bar${画.进度 == null ? " idle" : ""}`}
+          style={画.进度 != null ? ({ "--p": `${画.进度}%` } as React.CSSProperties) : undefined}
+          aria-hidden
+        />
+      )}
+    </>
+  );
+
+  return (
+    <AnimatePresence initial={false} mode="popLayout">
+      <motion.div
+        key={s.阶段}
+        layout
+        initial={{ opacity: 0, y: 4 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        transition={{ duration: 0.18 }}
+        className="rail-up-slot"
+      >
+        {静态 ? (
+          <div className={类名} role="status" {...无障碍}>
+            {里面}
+          </div>
+        ) : (
+          <button type="button" className={类名} onClick={画.点} {...无障碍}>
+            {里面}
+          </button>
+        )}
+      </motion.div>
+    </AnimatePresence>
+  );
 }

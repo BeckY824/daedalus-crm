@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
+import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
 import { Layout, Avatar, Dropdown, Button, Badge } from "antd";
 import {
@@ -90,6 +91,7 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
   );
 
   // 选中项取最长匹配前缀，/customers/xxx 也算在客户管理下
+  const 少动 = useReducedMotion();
   const selectedKey = useMemo(() => {
     const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/follow-ups", "/settings"];
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
@@ -160,6 +162,12 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
         <div className="rail-nav">
           {nav.map((n) => (
             <Link key={n.key} href={n.key} aria-label={n.label} className={`rail-item${selectedKey === n.key ? " on" : ""}`}>
+              {/* 选中那块底色是**同一块**在两项之间滑过去的（layoutId），不是这边灭那边亮。
+                  切页时眼睛跟着它走，不用重新找自己在哪一项上。
+                  系统开了「减弱动态效果」就按 0 秒，等于原来的瞬切。 */}
+              {selectedKey === n.key && (
+                <motion.span layoutId="rail-on" className="rail-on-bg" transition={{ duration: 少动 ? 0 : 0.18, ease: [0.2, 0.8, 0.2, 1] }} />
+              )}
               {n.icon}
               <b>{n.label}</b>
             </Link>
@@ -175,6 +183,11 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
           <AiTasks />
           {desktop && <UpdateButton />}
           <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
+            {/* 设置也在这块底色的行程里：选中它时同一块从上面那列滑下来（同一个 layoutId）。
+                漏掉这里的话，停在设置页时整条侧栏会没有任何一项是亮的 */}
+            {selectedKey === "/settings" && (
+              <motion.span layoutId="rail-on" className="rail-on-bg" transition={{ duration: 少动 ? 0 : 0.18, ease: [0.2, 0.8, 0.2, 1] }} />
+            )}
             <SettingOutlined />
             <b>设置</b>
           </Link>
