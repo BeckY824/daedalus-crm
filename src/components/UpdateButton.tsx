@@ -5,10 +5,11 @@
  * 壳（Electron 主进程）后台查，查到了**不自动下**，状态经 preload-app.js 的 window.desktopUpdate 推过来，
  * 这里只负责画。网页版没有这个桥，什么都不画。
  *
- * **形状照 Codex 那个：平时只是一枚圆的下载键，鼠标放上去才摊开成一句话。**
- * 规矩是「只有要你现在做点什么的状态才占地方」——
- *   有新版（邀请，不急）→ 收着，指上去才说是什么版本、要下多少
- *   正在下 / 下完了 / 失败了（要你等、要你点、要你重试）→ 一直摊开
+ * **形状照 Codex 那个：它坐在侧栏最下面账号那一行的右端，不自己占一行。**
+ * 没有新版时整个组件返回 null——没有更新这件事，界面上就不该有它的位置。
+ * 平时是一枚圆的下载键，鼠标放上去才摊开成「更新」两个字；
+ * 正在下 / 下完了 / 失败了这三档一直摊着（要你等、要你点、要你重试），但也只写两三个字。
+ * **完整那句话在 aria-label 和 tooltip 里**：按钮上的字短，不代表信息可以少。
  * 摊开是 grid 0fr→1fr 的宽度过渡，不量像素也就不会在字长变了之后错位；
  * 状态之间的形变交给 motion 的 layout，和别处一样是 0.18s、小位移、透明度打头，不弹不跳。
  */
@@ -76,25 +77,25 @@ export default function UpdateButton() {
           // 只说版本。「差量 2.3 MB」留给 title 和下载中那一屏——
           // 侧栏 220 宽，两样都塞进去的话尾巴会被裁掉，反而谁也没看清
           图标: <ArrowDownOutlined />,
-          话: `更新到 ${s.版本}`,
+          话: "更新",
           点: 开始下载,
         };
       case "downloading":
         return {
           图标: <ArrowDownOutlined />,
-          话: `${s.文字 ?? "正在下载"}${s.进度 != null ? ` · ${s.进度}%` : ""}`,
+          话: s.进度 != null ? `${s.进度}%` : "下载中",
           摊开: true,
           样式: "busy",
           进度: s.进度 ?? null,
         };
       case "installing":
-        return { 图标: <SyncOutlined spin />, 话: "正在安装，马上重启", 摊开: true, 样式: "busy" };
+        return { 图标: <SyncOutlined spin />, 话: "安装中", 摊开: true, 样式: "busy" };
       case "ready":
-        return { 图标: <ReloadOutlined />, 话: `重启以更新到 ${s.版本}`, 点: () => void api?.install(), 摊开: true };
+        return { 图标: <ReloadOutlined />, 话: "重启", 点: () => void api?.install(), 摊开: true };
       case "manual":
-        return { 图标: <ArrowDownOutlined />, 话: `有新版 ${s.版本}，去下载`, 点: () => void api?.openDownload(), 摊开: true };
+        return { 图标: <ArrowDownOutlined />, 话: "去下载", 点: () => void api?.openDownload(), 摊开: true };
       case "error":
-        return { 图标: <WarningOutlined />, 话: "更新失败，点这儿重试", 点: 开始下载, 摊开: true, 样式: "warn" };
+        return { 图标: <WarningOutlined />, 话: "重试", 点: 开始下载, 摊开: true, 样式: "warn" };
       default:
         return null;
     }
@@ -103,9 +104,20 @@ export default function UpdateButton() {
   if (!画) return null;
   const 静态 = !画.点;
   const 类名 = `rail-up${画.摊开 ? " open" : ""}${画.样式 ? ` ${画.样式}` : ""}`;
-  // 收着的时候按钮上只有一个图标，读屏要能听见这是什么；title 给的是这一版改了什么
-  const 提示 = [s.文字, s.说明].filter(Boolean).join("\n");
-  const 无障碍 = { "aria-label": 画.话, title: 提示 || undefined };
+  /**
+   * 按钮上的字短，是因为它坐在账号那一行的右端，只有一小条空间。
+   * 但**说的话不能跟着变少**：读屏念的是完整那句，鼠标停住看到的是版本、体积、这一版改了什么。
+   */
+  const 全称: Record<string, string> = {
+    available: `有新版本 ${s.版本}，点击开始下载`,
+    downloading: `正在下载 ${s.版本}${s.进度 != null ? `，已完成 ${s.进度}%` : ""}`,
+    installing: "正在安装，马上重启",
+    ready: `${s.版本} 已下载完，点击重启以更新`,
+    manual: `有新版本 ${s.版本}，点击去下载页`,
+    error: "更新失败，点击重试",
+  };
+  const 提示 = [全称[s.阶段], s.文字, s.说明].filter(Boolean).join("\n");
+  const 无障碍 = { "aria-label": 全称[s.阶段] ?? 画.话, title: 提示 || undefined };
 
   const 里面 = (
     <>

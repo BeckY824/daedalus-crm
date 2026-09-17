@@ -155,19 +155,22 @@ a {
 /* 侧栏那枚更新键。平时是一枚圆的图标键，指上去才摊开成一句话——
    照 Codex 那个形状。摊开用 grid 0fr→1fr，不量像素，字长变了也不会错位。
    .open 是「要你现在做点什么」的状态（在下 / 下完 / 失败），它们一直摊着。 */
-.rail-up-slot { margin-bottom: 8px; display: flex; }
+/* 账号那一行：左边账号自己撑开，右端留给更新键（没更新时那一格根本不存在） */
+.rail-account { display: flex; align-items: center; gap: 4px; }
+.rail-account .rail-user { min-width: 0; }
+.rail-up-slot { display: flex; flex: none; margin-top: 6px; }
 .rail-up {
   display: inline-flex; align-items: center; gap: 0; max-width: 100%; position: relative; overflow: hidden;
-  height: 30px; padding: 0 3px; border: 0; border-radius: 999px;
+  height: 26px; padding: 0 2px; border: 0; border-radius: 999px;
   background: var(--brand); color: #fff; font-size: var(--fs-note); font-weight: 600; line-height: 1;
   cursor: pointer; text-align: left;
   transition: gap var(--t) cubic-bezier(.2,.8,.2,1), padding var(--t) cubic-bezier(.2,.8,.2,1), filter var(--t-fast);
 }
-.rail-up-ico { flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
+.rail-up-ico { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
 .rail-up-lab { display: grid; grid-template-columns: 0fr; transition: grid-template-columns var(--t) cubic-bezier(.2,.8,.2,1); }
 .rail-up-lab > span { overflow: hidden; white-space: nowrap; }
 .rail-up:hover, .rail-up:focus-visible { filter: brightness(1.08); }
-.rail-up:hover, .rail-up:focus-visible, .rail-up.open { gap: 2px; padding-right: 12px; }
+.rail-up:hover, .rail-up:focus-visible, .rail-up.open { gap: 2px; padding-right: 10px; }
 .rail-up:hover .rail-up-lab, .rail-up:focus-visible .rail-up-lab, .rail-up.open .rail-up-lab { grid-template-columns: 1fr; }
 .rail-up:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .rail-up.busy { background: var(--hover); color: var(--text-muted); font-weight: 500; cursor: default; }

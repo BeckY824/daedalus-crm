@@ -181,7 +181,6 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
         <div className="rail-foot">
           {/* 正在跑 / 已答完的 AI 任务。切到别的页面也看得见，点一条回原处 */}
           <AiTasks />
-          {desktop && <UpdateButton />}
           <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
             {/* 设置也在这块底色的行程里：选中它时同一块从上面那列滑下来（同一个 layoutId）。
                 漏掉这里的话，停在设置页时整条侧栏会没有任何一项是亮的 */}
@@ -191,14 +190,20 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
             <SettingOutlined />
             <b>设置</b>
           </Link>
-          <Dropdown placement="topLeft" menu={userMenu}>
-            <button type="button" className="rail-user" aria-label={`${user.name}，账号菜单`}>
-              <Avatar size={24} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 11, fontWeight: 600, flex: "none" }}>
-                {initial(user.name)}
-              </Avatar>
-              <b>{user.name}</b>
-            </button>
-          </Dropdown>
+          {/* 账号这一行右端留给更新键：有新版才出现，没有就当它不存在，一行都不占。
+              它不能嵌在账号按钮里面（按钮套按钮点不动），所以这一行是个 flex 容器，
+              左边账号自己撑开、右边那枚圆键跟着。形状照 Codex：名字在左，圆键在右。 */}
+          <div className="rail-account">
+            <Dropdown placement="topLeft" menu={userMenu}>
+              <button type="button" className="rail-user" aria-label={`${user.name}，账号菜单`}>
+                <Avatar size={24} style={{ background: avatarColor(user.name), color: AVATAR_TEXT, fontSize: 11, fontWeight: 600, flex: "none" }}>
+                  {initial(user.name)}
+                </Avatar>
+                <b>{user.name}</b>
+              </button>
+            </Dropdown>
+            {desktop && <UpdateButton />}
+          </div>
         </div>
       </nav>
 
