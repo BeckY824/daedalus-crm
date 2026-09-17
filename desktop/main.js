@@ -1,16 +1,22 @@
 /**
- * Daedalus CRM 桌面客户端。
+ * Daedalus CRM 桌面客户端——**只是壳**。
  *
  * 两种模式，同一个安装包：
- *   本地   —— 数据和服务都在这台机器上，装完就能用，不需要服务器、不需要联网
+ *   本地   —— 数据和服务都在这台机器上，装完就能用，不需要服务器
  *             （AI 功能除外，那要连模型接口）
  *   服务器 —— 连一台已经部署好的实例，团队共用一份数据
  *
  * 新装的默认是本地；从旧版本升上来的保持原样连服务器，见 读配置()。
  *
- * 本地模式**必须先登录云端账号**（2026-09-15 起）：账号免费、邮箱注册，
- * 数据仍然只在本机，账号只用来记 AI 次数——收费差异全在 AI 上。
- * 没登录就不开主窗口，见 必须登录()。
+ * 本地模式**必须登录云端账号**（2026-09-15 起）：账号免费、邮箱注册，
+ * 数据仍然只在本机，账号只用来记 AI 次数。**登录、退出、找回密码、改密码全在应用页面里**
+ * （2026-09-17 起，src/lib/desktop/cloud.ts）——壳不再画登录窗，菜单里也没有账号。
+ * 原来壳里另有一套，桌面端就有了两套身份、两扇门、两把密码，用户在应用里点了
+ * 「退出登录」，落到的是一个要本机随机密码的框。壳现在只管：起本地服务、开窗口、
+ * 启动和切回前台时问一句令牌还认不认、更新、以及菜单里那几个标准项。
+ *
+ * 菜单照 Claude 桌面端那套：应用 / 文件 / 编辑 / 显示 / 前往 / 窗口 / 帮助，全是标准项。
+ * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
 const { app, BrowserWindow, shell, dialog, Menu, clipboard, ipcMain } = require("electron");
 const path = require("node:path");
@@ -40,7 +46,6 @@ const 数据根 = app.getPath("userData");
 const CONFIG_FILE = path.join(数据根, "config.json");
 const 数据目录 = path.join(数据根, "data");
 const 日志文件 = path.join(数据根, "logs", "server.log");
-const 密码文件 = path.join(数据目录, ".init-password");
 /** 应用本身（主进程）没接住的错误。本地服务的输出在 日志文件，两个分开，各看各的 */
 const 应用日志 = path.join(数据根, "logs", "app.log");
 云端.初始化(数据目录);
@@ -54,6 +59,8 @@ const 默认服务器 = process.env.CRM_URL || "https://app.ai-daedalus.com";
 let win = null;
 /** 本地服务起来之后的地址与一次性令牌 */
 let 本地 = null;
+/** 启动那次校验发现令牌被吊销了。只用一次：第一次进门时把原因带上 */
+let 启动时被吊销 = false;
 
 function 读配置() {
   // 从旧版本升级上来的：配置还在带空格的老目录里，搬过来
@@ -149,25 +156,35 @@ app.on("child-process-gone", (_e, d) => 崩溃.写崩溃日志(应用日志, "�
 /* ---------- 启动 ---------- */
 
 async function 启动本地() {
-  // 云端账号带来的 AI 配置只在进程启动时读一次，所以登录状态一变就要重启，见 重启本地服务
+  /**
+   * AI 配置不再从这里塞环境变量：服务端自己读数据目录里的 .cloud.json（每次都重读），
+   * 登录、退出即时生效，不用重启服务。这里只告诉它云端在哪（本机联调时能指到别处）。
+   */
   本地 = await 本地服务.start({
     bundleDir: 服务目录,
     dataDir: 数据目录,
     logFile: 日志文件,
-    额外环境: 云端.模型环境(),
+    额外环境: { CRM_CLOUD_URL: 云端.默认云端 },
   });
 }
 
-/** 换了 AI 配置之后让它生效。旧进程要等它真的退出再起新的，否则两个进程开着同一个库 */
-async function 重启本地服务() {
-  await 本地服务.stop();
-  await 启动本地();
-  if (win) win.loadURL(本地入口());
+/** 本地模式的首页：带令牌换一张会话票据，换完自己跳去 /dashboard；没登录云端账号时它会落到 /login */
+function 本地入口() {
+  // 启动时发现令牌被吊销了：把原因带上，登录页那句话据此说清（见 api/desktop/session）
+  const reason = 启动时被吊销 ? "&reason=revoked" : "";
+  启动时被吊销 = false;
+  return `http://127.0.0.1:${本地.port}/api/desktop/session?t=${本地.token}${reason}`;
 }
 
-/** 本地模式的首页：带令牌换一张会话票据，换完自己跳去 /dashboard */
-function 本地入口() {
-  return `http://127.0.0.1:${本地.port}/api/desktop/session?t=${本地.token}`;
+/** 当前窗口里那个站的根地址：本地服务或所连的服务器。菜单「前往」和「设置…」按它拼路径 */
+function 当前根() {
+  const cfg = 读配置();
+  return cfg.mode === "local" ? `http://127.0.0.1:${本地?.port}` : cfg.serverUrl;
+}
+
+function 前往(路径) {
+  if (!win || win.isDestroyed()) return 建窗口();
+  win.loadURL(`${当前根()}${路径}`);
 }
 
 function 当前地址() {
@@ -257,12 +274,7 @@ function 报告本地故障(原因) {
 
 async function 切到本地() {
   写配置({ ...读配置(), mode: "local" });
-  if (!云端.读()) {
-    const 旧 = win;
-    win = null;
-    旧?.close();
-    await 必须登录();
-  }
+  // 没登录云端账号也照开：本地服务的 /login 就是云端账号的门，壳不用再拦一道
   try {
     if (!本地服务.运行中()) await 启动本地();
     win ? win.loadURL(本地入口()) : 建窗口();
@@ -317,412 +329,16 @@ function 问服务器地址() {
 /* ---------- 云端账号 ---------- */
 
 /**
- * 云端账号窗：登录 / 注册 / 找回密码，三块面板共用一个窗口。
- *
- * 本地模式下数据在这台机器上，云端只剩两件事：认领一个账号，和借它调模型——
- * 没有它 AI 入口整个不出现，CRM 其余功能照常。
- *
- * **注册跳去网页，不在这里做。** 试过在应用内直接开账号（只开账号不开工作区，
- * 因为数据在用户自己机器上），结果是那种账号进不了网页版——它没有工作区，
- * 网页登录会被挡下，而同一个邮箱又注册不了第二次。一个账号在两个地方行为不一样，
- * 比多点一次浏览器糟得多。所以注册只有一条路：网页那条，开出来的账号两边都能用。
- *
- * 找回密码留在窗口里：那时账号已经存在，没有上面那个问题。
- *
- * 画哪几个入口由服务端说了算：打开窗口时先问一次 /api/account/policy。
- * 问不到（断网、老版本服务端）就只留登录——那是永远走得通的那条。
- *
- * Electron 没有内置输入框，页面只能用 data: URL 拼。里面的脚本**不用模板字符串**：
- * 整段本身就在一个模板字符串里，嵌套那一层的转义极易写错且报错很难看懂。
+ * 令牌在服务端被吊销了：改了密码（该账号**每一台**机器都退出），或者在网页设置页的
+ * 「已登录的机器」里单独退了这一台。分不出是哪一条——服务端两种都只回 401，
+ * 区分开就成了令牌探测接口。cloud.js 的 校验() 已经把本地那枚清掉了，
+ * 这里只负责把人送回门口，原因由登录页那句话说（?reason=revoked）。
+ * **不弹系统对话框**：不是用户在这台机器上主动退的，弹一个「要退出吗」只会让人以为还有得选。
  */
-/**
- * 本地模式的门：没有云端账号就不开主窗口。关掉这个窗口等于退出应用。
- * 登录成功后由调用方接着起本地服务、开主窗口。
- */
-function 必须登录() {
-  return new Promise((resolve) => 登录云端({ 必须: true, 成功: resolve }));
-}
-
-/**
- * 已登录状态下改云端账号的密码。
- *
- * 走的是和「忘记密码」同一块面板、同一套接口（发验证码 → 用码设新密码），
- * 因为服务端只有这一条改密码的路。**但入口必须单独有一个**：
- * 那块面板原来只藏在登录窗里，而登录窗只在未登录时打得开——
- * 于是已经登录的人想改密码，得先「退出云端账号」把设备令牌吊销掉。
- * 为了改个密码先把自己踢出去，这不合理（2026-09-17 用户在真机上找不到入口才发现）。
- */
-function 改云端密码() {
-  const c = 云端.读();
-  登录云端({ 改密码: true, 账号: c?.contact || "" });
-}
-
-function 登录云端({ 必须 = false, 成功, 改密码 = false, 账号 = "" } = {}) {
-  let 成功了 = false;
-  const w = new BrowserWindow({
-    width: 470,
-    // 打开时先按登录面板给个高度，页面量完自己会通知主进程调整（见下面的 cloud-resize）
-    height: 330,
-    resizable: false,
-    title: 改密码 ? "修改云端账号密码" : "云端账号",
-    parent: win ?? undefined,
-    modal: Boolean(win),
-    webPreferences: { preload: path.join(__dirname, "preload.js") },
-  });
-  const 云 = 云端.默认云端.replace(/\/+$/, "");
-  // 必须登录时，没登成功就关窗 = 不想用了
-  w.on("closed", () => {
-    if (必须 && !成功了) app.quit();
-  });
-
-  w.loadURL(
-    "data:text/html;charset=utf-8," +
-      encodeURIComponent(`
-    <style>
-      /*
-        这几个值是从应用里那套 token 抄过来的（src/app/globals.css 的 :root）。
-        这个窗口是 data: URL，读不到应用的样式表，只能抄一份——
-        **改颜色字号先改那边，再回来对一遍**，否则登录窗会慢慢长成另一个产品。
-      */
-      :root {
-        --brand:#2f6bff; --ink:#111827; --text-muted:#6b7280;
-        --line:#e5e7eb; --line-strong:#d1d5db; --panel:#fff; --workbench:#fafafa;
-        --danger-text:#b91c1c; --danger-bg:#fef2f2;
-        --brand-bg:#eef2ff; --brand-deep:#1a3f9e;
-        --fs-section:15px; --fs-body:14px; --fs-note:13px; --fs-min:12px;
-        --r-ctl:6px; --r-card:10px;
-      }
-      body { font:var(--fs-note)/1.6 -apple-system,'PingFang SC','Microsoft YaHei'; padding:22px; margin:0; background:var(--workbench); color:var(--ink) }
-      .h { font-weight:600; font-size:var(--fs-section); margin-bottom:4px }
-      .s { color:var(--text-muted); font-size:var(--fs-min); margin-bottom:14px; line-height:1.6 }
-      input[type=text], input[type=password] {
-        width:100%; padding:9px 11px; font-size:var(--fs-body); border:1px solid var(--line-strong);
-        border-radius:var(--r-ctl); box-sizing:border-box; margin-bottom:10px; background:var(--panel) }
-      input:focus { outline:none; border-color:var(--brand) }
-      button { padding:7px 16px; font-size:var(--fs-note); border-radius:var(--r-ctl); border:1px solid var(--line-strong); background:var(--panel) }
-      button.primary { background:var(--brand); color:#fff; border:none }
-      button[disabled] { opacity:.55 }
-      .row { display:flex; align-items:center; justify-content:space-between; margin-top:18px }
-      .links a { color:var(--brand); margin-right:12px; cursor:pointer; font-size:var(--fs-min) }
-      .tip { color:var(--text-muted); font-size:var(--fs-min); margin:-4px 0 10px }
-      #msg { display:none; padding:8px 11px; border-radius:var(--r-ctl); font-size:var(--fs-min); margin-bottom:12px; line-height:1.6 }
-      #msg.err { background:var(--danger-bg); color:var(--danger-text) }
-      #msg.ok { background:var(--brand-bg); color:var(--brand-deep) }
-      .codeline { display:flex; gap:8px }
-      .codeline input { flex:1 }
-    </style>
-    <body>
-      <div id="msg"></div>
-
-      <div id="p-login">
-        <div class="h">${必须 ? "登录后开始使用" : "登录云端账号"}</div>
-        <div class="s">${必须 ? "账号免费，邮箱注册。数据仍然只在这台机器上，不会上传；账号只用来记 AI 次数。" : "用它来调 AI。数据仍然只在这台机器上，不会上传。"}<br>登录一次这台机器就记住了（存的是一枚设备令牌，不是密码）；在菜单里退出登录会把它吊销。</div>
-        <input type="text" id="u" placeholder="手机号或邮箱">
-        <input type="password" id="p" placeholder="密码">
-        <div class="row">
-          <div class="links">
-            <a id="to-reg" style="display:none">注册新账号 ↗</a>
-            <a id="to-reset" style="display:none">忘记密码？</a>
-          </div>
-          <div>
-            <button onclick="window.close()">${必须 ? "退出应用" : "取消"}</button>
-            <button class="primary" id="do-login">登录</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="p-reset" style="display:none">
-        <div class="h">${改密码 ? "修改密码" : "找回密码"}</div>
-        <div class="s">${改密码 ? "服务端只有这一条改密码的路：先收一个验证码，再设新密码。" : "用注册时的邮箱收一个验证码，就能设新密码。"}<br>改完之后<b>所有地方都要重新登录</b>：网页端的登录状态、以及每一台已登录的机器（包括这一台）。本机数据不受影响。</div>
-        <input type="text" id="fu" placeholder="注册时用的邮箱">
-        <div class="codeline">
-          <input type="text" id="fcode" placeholder="邮件里的 6 位验证码" maxlength="6">
-          <button id="fsend">发送验证码</button>
-        </div>
-        <input type="password" id="fp" placeholder="设置新密码">
-        <div class="tip">至少 8 位，含字母和数字</div>
-        <div class="row">
-          <div class="links"><a class="back">返回登录</a></div>
-          <div><button class="primary" id="do-reset">设置新密码</button></div>
-        </div>
-      </div>
-
-      <script>
-        var $ = function (id) { return document.getElementById(id); };
-        var 面板 = { login: $('p-login'), reset: $('p-reset') };
-        var 按钮 = document.getElementsByTagName('button');
-
-        function 说(text, 好) {
-          var m = $('msg');
-          m.textContent = text || '';
-          m.className = 好 ? 'ok' : 'err';
-          m.style.display = text ? 'block' : 'none';
-          if (window.__量好了) 量高();
-        }
-        /**
-         * 内容有多高窗口就多高：两块面板差了一截，固定高度必然有一块下面空着一片。
-         * 量的是**当前这块面板的底边**，不是 body 的高——body 会被窗口撑满，
-         * 拿它去算，窗口只会越变越高。
-         */
-        function 量高() {
-          var 开着 = null;
-          for (var k in 面板) if (面板[k].style.display !== 'none') 开着 = 面板[k];
-          if (!开着) return;
-          crm.resize(Math.ceil(开着.getBoundingClientRect().bottom) + 22);
-        }
-        function 切(名) {
-          for (var k in 面板) 面板[k].style.display = k === 名 ? 'block' : 'none';
-          说('');
-          量高();
-        }
-        function 忙(on) {
-          for (var i = 0; i < 按钮.length; i++) 按钮[i].disabled = on;
-        }
-
-        // 注册在网页上办：那条路开出来的账号带工作区，网页和桌面端都认
-        $('to-reg').onclick = function () { crm.open(云 + '/signup?from=desktop'); };
-        $('to-reset').onclick = function () { 切('reset'); };
-        var backs = document.getElementsByClassName('back');
-        for (var i = 0; i < backs.length; i++) backs[i].onclick = function () { 切('login'); };
-        var 云 = ${JSON.stringify(云)};
-
-        /** 长得像邮箱或手机号就行。真假由服务端说了算，这里只挡明显打错的 */
-        function 像账号(v) {
-          return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v) || /^1[3-9]\d{9}$/.test(v);
-        }
-        $('do-login').onclick = function () {
-          var u = $('u').value.trim();
-          if (!u || !$('p').value) return 说('手机号（或邮箱）和密码都要填');
-          // 当场判一次：格式明显不对还跑一趟服务器，等 20 秒才知道打错了一个字
-          if (!像账号(u)) return 说('这个不像邮箱，也不像手机号。邮箱要有 @ 和后缀，手机号是 11 位');
-          忙(true); 说(''); crm.login(u, $('p').value);
-        };
-        $('fsend').onclick = function () {
-          if (!$('fu').value.trim()) return 说('先填邮箱');
-          if (!像账号($('fu').value.trim())) return 说('这个不像邮箱。要有 @ 和后缀，比如 you@example.com');
-          忙(true); 说(''); crm.code($('fu').value.trim(), 'reset');
-        };
-        $('do-reset').onclick = function () {
-          if (!$('fu').value.trim() || !$('fcode').value.trim() || !$('fp').value) return 说('邮箱、验证码和新密码都要填');
-          忙(true); 说('');
-          crm.reset({ target: $('fu').value.trim(), code: $('fcode').value.trim(), password: $('fp').value });
-        };
-
-        document.body.addEventListener('keydown', function (e) {
-          if (e.key !== 'Enter') return;
-          if (面板.reset.style.display === 'block') $('do-reset').click();
-          else $('do-login').click();
-        });
-
-        crm.onReply(function (m) {
-          忙(false);
-          if (m.kind === 'policy') {
-            $('to-reg').style.display = m.register ? 'inline' : 'none';
-            $('to-reset').style.display = m.reset ? 'inline' : 'none';
-            return;
-          }
-          if (m.kind === 'reset-done') {
-            // 改密码模式下别切回登录面板：人还登录着，那一屏会让他以为自己被登出了
-            if (改密码) { 说('密码已经改好了。这台机器不受影响，不用重新登录', true); setTimeout(function () { window.close(); }, 2200); return; }
-            切('login'); $('u').value = m.target || ''; 说('密码已经改好了，用新密码登录', true); return;
-          }
-          说(m.text, m.kind === 'hint');
-        });
-
-        /*
-          从菜单「修改云端账号密码…」进来的：直接落在那块面板上，账号预填成当前登录的那个。
-          这时「返回登录」没有意义——人已经登录了，回到登录面板只会让他以为自己被登出了。
-          所以那条链接在这个模式下是「取消」，点了就关窗。
-        */
-        var 改密码 = ${JSON.stringify(改密码)};
-        if (改密码) {
-          $('fu').value = ${JSON.stringify(账号)};
-          for (var j = 0; j < backs.length; j++) {
-            backs[j].textContent = '取消';
-            backs[j].onclick = function () { window.close(); };
-          }
-          切('reset');
-        }
-
-        crm.policy();
-        (改密码 ? ($('fu').value ? $('fcode') : $('fu')) : $('u')).focus();
-        window.__量好了 = true;
-        量高();
-      </script>
-    </body>`),
-  );
-
-  w.webContents.on("ipc-message", async (_e, ch, payload) => {
-    const 回 = (m) => {
-      if (!w.isDestroyed()) w.webContents.send("cloud-reply", m);
-    };
-
-    if (ch === "open-external") {
-      // 只认我们自己的站点：这个窗口里的链接是写死的，出现别的一定是哪里错了
-      const u = String(payload ?? "");
-      if (u.startsWith(云 + "/")) shell.openExternal(u);
-      return;
-    }
-
-    if (ch === "cloud-resize") {
-      const h = Math.round(Number(payload));
-      // 只认合理范围内的数：页面是我们自己的，但窗口尺寸不该由一个数字随便摆布
-      if (Number.isFinite(h) && h >= 260 && h <= 760 && !w.isDestroyed()) w.setContentSize(470, h);
-      return;
-    }
-
-    if (ch === "cloud-policy") {
-      回({ kind: "policy", ...(await 云端.策略()) });
-      return;
-    }
-
-    if (ch === "cloud-code") {
-      const r = await 云端.发码(String(payload?.target ?? "").trim());
-      // hint 只在开发环境有值（线上永远不回显验证码），有就直接显示，省得去翻日志
-      回(r.ok ? { kind: "hint", text: r.data?.hint ?? "验证码已经发出去了，10 分钟内有效" } : { kind: "error", text: r.error });
-      return;
-    }
-
-    if (ch === "cloud-reset") {
-      const target = String(payload?.target ?? "").trim();
-      const r = await 云端.重置密码({ target, code: String(payload?.code ?? "").trim(), password: String(payload?.password ?? "") });
-      回(r.ok ? { kind: "reset-done", target } : { kind: "error", text: r.error });
-      return;
-    }
-
-    if (ch !== "cloud-login") return;
-
-    const target = String(payload?.target ?? "").trim();
-    const r = await 云端.登录(target, String(payload?.password ?? ""));
-    if (!r.ok) {
-      回({ kind: "error", text: r.error });
-      return;
-    }
-
-    if (必须) {
-      // 门开了：本地服务和主窗口由调用方接着起
-      成功了 = true;
-      w.close();
-      建菜单();
-      成功?.(r.data);
-      return;
-    }
-    // 手上有令牌了，重启本地服务让它带上新的 AI 配置
-    w.close();
-    建菜单();
-    try {
-      await 重启本地服务();
-    } catch (e) {
-      报告本地故障(e?.message ?? String(e));
-      return;
-    }
-    const 还剩 = r.data?.credits?.还剩;
-    dialog.showMessageBox(win ?? null, {
-      type: "info",
-      title: "登录成功",
-      message: `已登录：${r.data?.account?.name ?? target}`,
-      detail:
-        (还剩 == null ? "AI 功能已启用。" : `AI 功能已启用，免费次数还剩 ${还剩} 次。`) +
-        "\n这台机器已经记住了这个账号（存的是一枚设备令牌，不是密码），下次打开不用再登。" +
-        "\n在「账号」菜单里退出登录会把这枚令牌吊销，AI 功能随之停用；本机数据不受影响。",
-    });
-  });
-}
-
-/**
- * 令牌在服务端被吊销了。
- *
- * 两条路都会走到这里，所以话不能只说一半：
- *   改了密码 —— 那会让这个账号的**每一台**机器退出（含这一台）；
- *   在网页设置页的「已登录的机器」里单独退了这一台（2026-09-17 起有这一栏）。
- * 分不出是哪一条——服务端两种都只回 401，区分开就成了令牌探测接口。
- * 所以两种都写出来，人自己知道他刚做过哪件事。
- *
- * 和「退出云端账号」几乎是同一件事，差别在于**不问**：不是用户主动在这台机器上退的，
- * 弹一个「要退出吗」只会让人以为自己还有得选。先说清发生了什么，再回到门口。
- */
-async function 令牌失效了() {
-  await dialog.showMessageBox(win ?? null, {
-    type: "warning",
-    title: "需要重新登录",
-    message: "这台机器的云端登录已经失效",
-    detail:
-      "要么云端账号改过密码（改密码会让所有已登录的机器退出，这一台也在内），" +
-      "要么在网页端的「已登录的机器」里退出了这一台。\n\n" +
-      "本机数据不受影响，重新登录就能接着用。",
-    buttons: ["知道了"],
-  });
-  if (读配置().mode === "local") {
-    const 旧 = win;
-    win = null;
-    旧?.close();
-    await 本地服务.stop();
-    await 必须登录();
-    try {
-      await 启动本地();
-      建窗口();
-    } catch (e) {
-      报告本地故障(e?.message ?? String(e));
-    }
-    建菜单();
-    return;
-  }
-  try {
-    await 重启本地服务();
-  } catch (e) {
-    报告本地故障(e?.message ?? String(e));
-  }
-  建菜单();
-}
-
-async function 退出云端() {
-  const { response } = await dialog.showMessageBox(win ?? null, {
-    type: "question",
-    title: "退出云端账号",
-    message: 读配置().mode === "local" ? "退出之后要重新登录才能进应用" : "退出之后 AI 功能会停用",
-    detail: "本机的数据不受影响，仍然都在。重新登录即可恢复。",
-    buttons: ["退出", "取消"],
-    defaultId: 1,
-    cancelId: 1,
-  });
-  if (response !== 0) return;
-  await 云端.退出();
-  建菜单();
-  if (读配置().mode === "local") {
-    // 本地模式没有账号就不能用：关主窗、停服务、回到门口
-    const 旧 = win;
-    win = null;
-    旧?.close();
-    await 本地服务.stop();
-    await 必须登录();
-    try {
-      await 启动本地();
-      建窗口();
-    } catch (e) {
-      报告本地故障(e?.message ?? String(e));
-    }
-    return;
-  }
-  try {
-    await 重启本地服务();
-  } catch (e) {
-    报告本地故障(e?.message ?? String(e));
-  }
-}
-
-async function 显示额度() {
-  const r = await 云端.余额();
-  if (!r.ok) {
-    dialog.showMessageBox(win ?? null, { type: "error", title: "查不到额度", message: r.error });
-    return;
-  }
-  const { 上限, 用掉, 还剩, 每日赠送 } = r.data ?? {};
-  dialog.showMessageBox(win ?? null, {
-    type: "info",
-    title: "AI 免费次数",
-    message: `还剩 ${还剩} 次`,
-    detail: `一共送过 ${上限} 次，已经用掉 ${用掉} 次。${每日赠送 ? `\n每天登录再送 ${每日赠送} 次。` : ""}\n也可以在设置页填自己的模型 API Key，那样不走这个额度。`,
-  });
+function 令牌失效了() {
+  if (读配置().mode !== "local") return;
+  // 经 logout 走：业务会话 cookie 还活着，直接去 /login 会被弹回首页
+  前往("/api/auth/logout?reason=revoked");
 }
 
 /* ---------- 检查更新 ---------- */
@@ -907,113 +523,88 @@ ipcMain.handle("update:open", () => {
 
 /* ---------- 菜单 ---------- */
 
-/** 「备份数据库…」：让用户挑位置，用 SQLite 的在线备份拷一份，再验一遍 */
+/**
+ * 备份数据库：让用户挑位置，用 SQLite 的在线备份拷一份，再验一遍。
+ * 由设置页「桌面端」那一栏经 desktopShell.backup() 调；结果回给页面，页面自己说。
+ */
 async function 备份数据库() {
   const 源 = path.join(数据目录, "crm.db");
-  if (!fs.existsSync(源)) {
-    dialog.showMessageBox(win ?? null, { type: "info", title: "备份数据库", message: "还没有本机数据库", detail: "本机模式第一次启动后才会建库。" });
-    return;
-  }
+  if (!fs.existsSync(源)) return { ok: false, error: "还没有本机数据库：本机模式第一次启动后才会建库" };
   const { canceled, filePath } = await dialog.showSaveDialog(win ?? null, {
     title: "备份数据库",
     defaultPath: path.join(app.getPath("desktop"), 备份.建议文件名()),
     filters: [{ name: "SQLite 数据库", extensions: ["db"] }],
   });
-  if (canceled || !filePath) return;
+  if (canceled || !filePath) return { ok: false };
   try {
-    const { 表数 } = await 备份.备份数据库(源, filePath);
-    const { response } = await dialog.showMessageBox(win ?? null, {
-      type: "info",
-      title: "备份完成",
-      message: `已备份到 ${path.basename(filePath)}`,
-      detail: `${表数} 张表，已通过完整性检查。\n\n恢复方法：退出应用，把这个文件改名成 crm.db 放回数据文件夹的 data 目录。`,
-      buttons: ["在访达中显示", "好"],
-      defaultId: 1,
-      cancelId: 1,
-    });
-    if (response === 0) shell.showItemInFolder(filePath);
+    await 备份.备份数据库(源, filePath);
+    shell.showItemInFolder(filePath);
+    return { ok: true, 文件: path.basename(filePath) };
   } catch (e) {
     崩溃.写崩溃日志(应用日志, "备份失败", e);
-    dialog.showMessageBox(win ?? null, { type: "error", title: "备份失败", message: "没能完成备份", detail: String(e?.message ?? e) });
+    return { ok: false, error: `没能完成备份：${e?.message ?? e}` };
   }
 }
 
-function 显示本机密码() {
-  let 密码 = null;
-  try {
-    密码 = fs.readFileSync(密码文件, "utf8").trim();
-  } catch {
-    /* 还没建库，或者是从旧版本升上来的库 */
-  }
-  if (!密码) {
-    dialog.showMessageBox(win ?? null, {
-      type: "info",
-      title: "本机账号",
-      message: "还没有本机密码",
-      detail: "本地数据库还没建立，或者它是从别处搬来的。先用一次本地模式再来看。",
-    });
-    return;
-  }
-  dialog
-    .showMessageBox(win ?? null, {
-      type: "info",
-      title: "本机账号",
-      message: `管理员账号：${云端.读()?.contact || "admin"}`,
-      detail: `密码：${密码}\n\n本地模式下打开应用就是登录状态，平时用不到它。\n登出之后、或者把这个库搬到服务器上时才需要。`,
-      buttons: ["复制密码", "好"],
-      defaultId: 0,
-    })
-    .then(({ response }) => {
-      if (response === 0) clipboard.writeText(密码);
-    });
-}
+/* ---------- 壳给页面的口子（设置页「桌面端」那一栏） ---------- */
+
+ipcMain.handle("shell:version", () => app.getVersion());
+ipcMain.handle("shell:backup", () => 备份数据库());
+ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
+ipcMain.handle("shell:open-logs", () => shell.showItemInFolder(日志文件));
+ipcMain.handle("shell:diagnostics", () => 诊断文本());
+ipcMain.handle("shell:use-server", (_e, url) => {
+  const clean = String(url ?? "").trim().replace(/\/+$/, "");
+  // 只认 http(s)：填错协议会让窗口白屏，且看不出是为什么
+  if (!/^https?:\/\/.+/.test(clean)) return { ok: false, error: "地址要以 http:// 或 https:// 开头" };
+  写配置({ mode: "server", serverUrl: clean });
+  // 本地服务留着不停：切回来时不用再等一次冷启动
+  win ? win.loadURL(clean) : 建窗口();
+  建菜单();
+  return { ok: true };
+});
 
 function 建菜单() {
   const cfg = 读配置();
   const isMac = process.platform === "darwin";
+  /**
+   * 照 Claude 桌面端那套：应用 / 文件 / 编辑 / 显示 / 前往 / 窗口 / 帮助，全是标准项。
+   * 账号、备份、日志、诊断一条都不进菜单——它们在设置页「桌面端」那一栏。
+   * 唯一的例外是服务器模式下的「改用本机数据」：那时窗口里是别人的站，
+   * 它的设置页没有「桌面端」这一栏，切回来只能从壳这里走。
+   */
   const 应用菜单 = {
     label: APP_NAME,
     submenu: [
       { role: "about", label: `关于 ${APP_NAME}` },
       { type: "separator" },
-      {
-        label: "使用本机数据",
-        type: "radio",
-        checked: cfg.mode === "local",
-        click: () => 切到本地(),
-      },
-      {
-        label: cfg.mode === "server" ? `连接服务器（${cfg.serverUrl}）…` : "连接服务器…",
-        type: "radio",
-        checked: cfg.mode === "server",
-        click: () => 问服务器地址(),
-      },
+      { label: "设置…", accelerator: "CmdOrCtrl+,", click: () => 前往(cfg.mode === "local" ? "/settings?tab=desktop" : "/settings") },
+      ...(cfg.mode === "server" ? [{ type: "separator" }, { label: `改用本机数据（现在连着 ${cfg.serverUrl}）`, click: () => 切到本地() }] : []),
       { type: "separator" },
-      ...(cfg.mode === "local"
-        ? 云端.读()
-          ? [
-              { label: `云端账号：${云端.读().contact || 云端.读().name}`, enabled: false },
-              { label: "AI 剩余次数…", click: 显示额度 },
-              // 这一条以前没有：改密码的面板只在登录窗里，而登录窗只在未登录时开得了
-              { label: "修改云端账号密码…", click: 改云端密码 },
-              { label: "退出云端账号", click: 退出云端 },
-            ]
-          : [{ label: "登录云端账号…（AI 功能需要）", click: 登录云端 }]
-        : []),
-      { type: "separator" },
-      { label: "本机账号密码…", enabled: cfg.mode === "local", click: 显示本机密码 },
-      { label: "检查更新…", click: () => 检查更新({ 手动: true }) },
-      { label: "备份数据库…", enabled: cfg.mode === "local", click: 备份数据库 },
-      { label: "打开数据文件夹", click: () => shell.openPath(数据目录) },
-      { label: "查看服务日志", click: () => shell.showItemInFolder(日志文件) },
-      { type: "separator" },
-      ...(isMac ? [{ role: "hide", label: `隐藏 ${APP_NAME}` }] : []),
+      ...(isMac ? [{ role: "hide", label: `隐藏 ${APP_NAME}` }, { role: "hideOthers", label: "隐藏其他" }, { role: "unhide", label: "全部显示" }, { type: "separator" }] : []),
       { role: "quit", label: `退出 ${APP_NAME}` },
     ],
   };
+  // 左栏那几项，路径和 AppShell 里的一致。⌘N 不在这里：页面自己接了（新建当前页的那个东西）
+  const 前往项 = [
+    ["首页", "/dashboard"],
+    ["数据", "/overview"],
+    ["线索", "/leads"],
+    ["学员", "/customers"],
+    ["渠道", "/channels"],
+    ["联系人", "/contacts"],
+    ["商机", "/opportunities"],
+    ["跟进", "/follow-ups"],
+    ["报表", "/reports"],
+  ].map(([label, 路径], i) => ({ label, accelerator: i < 9 ? `CmdOrCtrl+${i + 1}` : undefined, click: () => 前往(路径) }));
+
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
       应用菜单,
+      {
+        label: "文件",
+        submenu: [{ role: "close", label: "关闭窗口" }],
+      },
       {
         label: "编辑",
         submenu: [
@@ -1027,14 +618,28 @@ function 建菜单() {
         ],
       },
       {
-        label: "视图",
+        label: "显示",
         submenu: [
           { role: "reload", label: "重新加载" },
+          { type: "separator" },
           { role: "resetZoom", label: "实际大小" },
           { role: "zoomIn", label: "放大" },
           { role: "zoomOut", label: "缩小" },
           { type: "separator" },
           { role: "togglefullscreen", label: "全屏" },
+        ],
+      },
+      {
+        label: "前往",
+        submenu: [...前往项, { type: "separator" }, { label: "设置", click: () => 前往("/settings") }],
+      },
+      {
+        label: "窗口",
+        role: "window",
+        submenu: [
+          { role: "minimize", label: "最小化" },
+          { role: "zoom", label: "缩放" },
+          ...(isMac ? [{ type: "separator" }, { role: "front", label: "前置全部窗口" }] : []),
         ],
       },
       {
@@ -1046,9 +651,6 @@ function 建菜单() {
             label: "反馈问题…",
             click: () => shell.openExternal(`${反馈地址}?body=${encodeURIComponent(`（描述一下遇到的问题，最好带上操作步骤）\n\n---\n${诊断文本()}`)}`),
           },
-          { type: "separator" },
-          { label: "复制诊断信息", click: () => clipboard.writeText(诊断文本()) },
-          { label: "打开日志文件夹", click: () => shell.openPath(path.dirname(日志文件)) },
         ],
       },
     ]),
@@ -1076,8 +678,8 @@ if (!app.requestSingleInstanceLock()) {
         本地存着一枚不代表还能用——不问的话应用照常开着，只有 AI 在背后一路 401。
         问不到（断网）当作还认，见 cloud.js 的 校验()。
       */
-      if (云端.读()) await 云端.校验();
-      if (!云端.读()) await 必须登录();
+      if (云端.读()) 启动时被吊销 = (await 云端.校验()).原因 === "已吊销";
+      // 没登录也照起：本地服务的 /login 就是云端账号的门
       try {
         await 启动本地();
       } catch (e) {
@@ -1105,12 +707,10 @@ if (!app.requestSingleInstanceLock()) {
     */
     let 上次校验 = Date.now();
     app.on("browser-window-focus", async () => {
-      if (Date.now() - 上次校验 < 30_000 || !云端.读()) return;
+      if (读配置().mode !== "local" || Date.now() - 上次校验 < 30_000 || !云端.读()) return;
       上次校验 = Date.now();
       const r = await 云端.校验().catch(() => ({ 有效: true }));
-      if (r.有效) return;
-      建菜单();
-      await 令牌失效了();
+      if (!r.有效) 令牌失效了();
     });
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) 建窗口();

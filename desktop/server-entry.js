@@ -47,8 +47,10 @@ if (新建) {
 
   /**
    * 模板库里的账号带的是构建期占位密码，所有安装包都一样。
-   * 换成这台机器独有的随机密码：本地模式自动登录，用不上它；
-   * 但哪天这个库被搬到服务器上，它就是唯一一把钥匙，不能是公开的。
+   * 换成这台机器独有的随机密码。**用户永远用不到它**：本地模式靠云端账号自动登录，
+   * 界面上也不再有任何地方显示它（2026-09-17 之前菜单里有一条「本机账号密码…」，
+   * 显示的是这个文件——而用户在设置里改过密码后文件不会跟着变，于是它撒谎）。
+   * 留着它只为一件事：哪天这个库被搬到服务器上，它是唯一一把钥匙，不能是公开的。
    */
   try {
     const bcrypt = require("./node_modules/bcryptjs");
@@ -92,13 +94,21 @@ if (fs.existsSync(迁移目录)) {
 /**
  * 本地模式必须登录云端账号（2026-09-15 起），所以本地库里那个管理员就应该是「你」：
  * 名字、登录邮箱都改成账号的。每次启动都对一遍——换了账号登录，身份跟着换，数据不动。
+ * 账号从数据目录的 .cloud.json 读（登录动作写的，见 src/lib/desktop/cloud.ts）；
+ * 登录时那个动作也会当场对一遍，这里管的是「上次登录之后这个库被换过」这类情况。
  *
  * 张三 / 李四是自部署演示用的样例账号，桌面端是单人用，新建的库里不该有他们。
  * 只在**新建**时删：老库里他们可能已经挂着客户和跟进，删了就是删别人的数据。
  */
 {
-  const 联系 = (process.env.DESKTOP_ACCOUNT_CONTACT || "").trim();
-  const 名字 = (process.env.DESKTOP_ACCOUNT_NAME || "").trim() || 联系.split("@")[0];
+  let 云 = null;
+  try {
+    云 = JSON.parse(fs.readFileSync(path.join(DATA, ".cloud.json"), "utf8"));
+  } catch {
+    /* 还没登录 */
+  }
+  const 联系 = String(云?.contact || "").trim().toLowerCase();
+  const 名字 = String(云?.name || "").trim() || 联系.split("@")[0];
   if (新建 || 联系) {
     const db = new DatabaseSync(DB);
     try {

@@ -29,6 +29,7 @@ import type { SessionUser } from "@/lib/auth";
 import { saveUser, deactivateUser, reactivateUser, changeMyPassword, 退出这台机器, type 机器 } from "./actions";
 import AiSettingsTab, { type LlmView } from "./AiSettingsTab";
 import BusinessSettingsTab from "./BusinessSettingsTab";
+import DesktopTab, { type 桌面端信息 } from "./DesktopTab";
 import type { BusinessConfig } from "@/lib/business-config";
 import { useBusiness } from "@/lib/business-client";
 import type { AiUsage } from "@/lib/ai-usage";
@@ -82,6 +83,7 @@ const ACTION_COLOR: Record<string, string> = {
 const 说明表: Record<string, string> = {
   members: "谁能进、谁是管理员",
   password: "改密码、看哪几台机器登录着",
+  desktop: "账号、备份、更新",
   ai: "走哪把 Key、还剩几次",
   business: "学员 / 客户这些叫法",
   audit: "每一次改动的记录",
@@ -96,6 +98,7 @@ export default function SettingsView({
   business,
   aiUsage,
   机器,
+  桌面端 = null,
   用邮箱登录 = false,
 }: {
   users: Row[];
@@ -110,6 +113,12 @@ export default function SettingsView({
    * 空数组表示一台都没有。见 actions.ts 的 我的控制面账号。
    */
   机器: 机器[] | null;
+  /**
+   * 桌面端本地模式：多一栏「桌面端」（账号、备份、更新），同时**不摆「登录与密码」**——
+   * 那一栏改的是本机业务账号的密码，而桌面端只有云端账号这一套身份（2026-09-17 起），
+   * 本机那把密码用户永远用不到，摆着只会再造出两把密码对不上的局面。null 表示不是桌面端。
+   */
+  桌面端?: 桌面端信息 | null;
   /** 托管版：成员的登录标识是邮箱，不是用户名。见这一页表单里那段注释 */
   用邮箱登录?: boolean;
 }) {
@@ -466,6 +475,7 @@ export default function SettingsView({
         </div>
         ),
       },
+      ...(桌面端 ? [{ key: "desktop", label: "桌面端", children: <DesktopTab 信息={桌面端} /> }] : []),
       ...(isAdmin
         ? [
             { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> },
@@ -542,7 +552,9 @@ export default function SettingsView({
           </>
         ),
       },
-  ].map((x) => ({ ...x, 说明: 说明表[x.key] ?? "" })) as { key: string; label: string; 说明: string; children: React.ReactNode }[];
+  ]
+    .filter((x) => !(桌面端 && x.key === "password"))
+    .map((x) => ({ ...x, 说明: 说明表[x.key] ?? "" })) as { key: string; label: string; 说明: string; children: React.ReactNode }[];
 
   return (
     <>

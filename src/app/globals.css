@@ -48,7 +48,7 @@
 
   /* ---------- 骨架尺寸 ----------
      这几个数样式表和 lib/theme.ts 都要用，改一处不算改。 */
-  --rail-w: 164px;           /* 左栏，永远在 */
+  --rail-w: 220px;           /* 左栏，永远在。比例照 Claude 桌面端：窗口的两成出头 */
   --pane-w: 312px;           /* 中栏 */
   --drag-h: 52px;            /* 顶部拖动区，任何页头都从它下面开始 */
   --row-h: 40px;             /* 表格行高 */
@@ -112,8 +112,10 @@ a {
    演进过程记在这儿，免得有人再绕回去：
      76px 只有图标，名字靠悬停 → 第一次打开的人不会去悬停，只看到一列认不出的方块
      92px 图标上、文字在下     → 认得出了，但两行一格，竖着占地方，也不像侧栏
-     164px 图标 + 文字同一行   → 现在这个。中栏相应收窄到 312 补回去 */
-.rail { width: var(--rail-w); flex: none; position: sticky; top: 0; height: 100vh; background: var(--workbench); border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; padding: 14px 10px 12px; }
+     164px 图标 + 文字同一行   → 认得出了，但一格 32 高、字 14，整栏像个工具条
+     220px、一格 38 高、字 15  → 现在这个（2026-09-17）。比例照 Claude 桌面端：栏占窗口两成出头，
+                                行高和字号都比正文大半档，一眼就是导航，不是一列标签 */
+.rail { width: var(--rail-w); flex: none; position: sticky; top: 0; height: 100vh; background: var(--workbench); border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; padding: 14px 12px 14px; }
 /* 桌面端：顶上给红黄绿钮留位，这一块也是拖窗口的把手。
    侧栏 164 宽之后钮不用再挤了——整组 52 宽按标准的 20px 内缩放着，右边还剩 92 到竖线，
    和别的 macOS 应用一个观感。栏宽也就不必再比网页版多一截。 */
@@ -130,7 +132,7 @@ a {
    这条规则改成整个壳范围生效，不再按头部逐个列，新加的页头也就不会漏。 */
 .shell-desktop .drag-strip { position: fixed; top: 0; left: 0; right: 0; height: var(--drag-h); -webkit-app-region: drag; pointer-events: none; }
 .shell-desktop :is(a, button, input, select, textarea, [role="button"], [role="tab"], [role="menuitem"], .ant-select, .ant-input, .ant-input-affix-wrapper, .ant-btn, .ant-dropdown-trigger, .ant-segmented) { -webkit-app-region: no-drag; }
-.rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 8px; }
+.rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 14px; }
 .rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: var(--r-card); color: var(--ink); }
 .rail-mark:hover { background: var(--hover); }
 .rail-mark b { font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
@@ -155,16 +157,17 @@ a {
 .rail-update:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .rail-update.busy { background: var(--hover); color: var(--text-muted); cursor: default; font-weight: 500; }
 .rail-update.warn { background: var(--warning-text); }
-.rail-item { position: relative; padding: 8px 10px; border-radius: var(--r-card); display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: var(--ic); line-height: 1; transition: background var(--t-fast) ease, color var(--t-fast) ease; }
-.rail-item b { font-size: var(--fs-body); font-weight: 500; letter-spacing: -0.2px; white-space: nowrap; }
+.rail-item { position: relative; padding: 11px 12px; border-radius: var(--r-card); display: flex; align-items: center; gap: 12px; color: var(--text-muted); font-size: var(--ic); line-height: 1; transition: background var(--t-fast) ease, color var(--t-fast) ease; }
+/* 导航的字比正文大一档（15）：它是一列要扫的名字，不是一段要读的话。和 Claude 桌面端侧栏同一个数 */
+.rail-item b { font-size: var(--fs-section); font-weight: 500; letter-spacing: -0.2px; white-space: nowrap; }
 .rail-item.on b { font-weight: 600; }
 .rail-item:hover { background: var(--hover); color: var(--ink); }
 .rail-item.on { background: var(--brand-bg); color: var(--brand-deep); }
 /* 数字摆在行尾，不要挤在图标和文字中间 */
-.rail-user { border: 0; background: none; padding: 7px 8px; margin-top: 6px; cursor: pointer; border-radius: var(--r-card); line-height: 0; display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; }
+.rail-user { border: 0; background: none; padding: 10px 12px; margin-top: 6px; cursor: pointer; border-radius: var(--r-card); line-height: 0; display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
 .rail-user:hover { background: var(--hover); }
 /* 名字。76px 那版塞不下，所以应用里哪一页都看不到自己是谁——侧栏宽了就该摆出来 */
-.rail-user b { font-size: var(--fs-note); font-weight: 500; color: var(--ink); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-user b { font-size: var(--fs-body); font-weight: 500; color: var(--ink); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail-user:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 .pane { width: var(--pane-w); flex: none; position: sticky; top: 0; height: 100vh; background: var(--panel); border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; min-height: 0; }
@@ -591,7 +594,13 @@ a {
    所有页面同一个左边缘」——首页一居中，从列表页切过来时整块内容会横着挪一下，
    像换了个应用。820 的上限留着：一行问答超过这个宽度就不好读了 */
 .cli-col { width: 100%; max-width: 820px; display: flex; flex-direction: column; flex: 1; }
-.cli-empty .cli-col { justify-content: center; }
+/* 还没问过：整列在页面正中，标题、信号、输入框、建议问题一条竖线对齐。
+   照 Claude 桌面端首页的比例——一个大字、一个输入框、一排可点的，别的都不抢眼（2026-09-17） */
+.cli-empty .cli-col { justify-content: center; margin: 0 auto; max-width: 760px; }
+.cli-empty .cli-welcome { text-align: center; }
+.cli-empty .cli-welcome-t { font-size: 30px; letter-spacing: -0.6px; }
+.cli-empty .signals { justify-content: center; border-bottom: 0; padding-bottom: 0; }
+.cli-empty .cli-welcome-hints { border-top: 0; padding-top: 0; }
 .cli-mono, .cli-prompt, .cli-step, .cli-sum, .cli-cmd-k, .cli-hints kbd, .cli-menu-row kbd { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace; }
 .cli-welcome { margin-bottom: var(--s5); }
 .cli-welcome-t { font-size: var(--fs-title); font-weight: 600; color: var(--ink); }

@@ -3,6 +3,7 @@ import { Typography } from "antd";
 import Logo from "@/components/Logo";
 import ForgotForm from "./ForgotForm";
 import { 能找回密码 } from "@/lib/tenant/password-reset";
+import { 本地模式, 策略 } from "@/lib/desktop/cloud";
 
 /**
  * 必须动态渲染：能不能自助找回取决于运行时的 MULTI_TENANT 和 SMTP_*，
@@ -12,7 +13,12 @@ import { 能找回密码 } from "@/lib/tenant/password-reset";
 export const dynamic = "force-dynamic";
 
 export default async function ForgotPage() {
-  if (能找回密码()) return <ForgotForm />;
+  // 桌面端本地模式：账号在云端，能不能找回由云端说了算（动作那边也转调云端，见 actions.ts）
+  if (本地模式()) {
+    if ((await 策略()).reset) return <ForgotForm />;
+  } else if (能找回密码()) {
+    return <ForgotForm />;
+  }
 
   /**
    * 通道没配好（或者这是自部署版）时不画表单。

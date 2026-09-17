@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
+import { 本地模式, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 
 export default async function AppLayout({
   children,
@@ -19,6 +20,12 @@ export default async function AppLayout({
   // 否则 proxy.ts 会把 /login 弹回 /dashboard 形成死循环。
   const user = await getCurrentUser();
   if (!user) redirect("/api/auth/logout");
+  /**
+   * 桌面端本地模式：身份是云端账号，业务会话只是它的影子。影子还在、本体没了
+   * （令牌被吊销后壳清了文件，而 cookie 还有几天寿命）就不给进——否则人会带着
+   * 一个失效的账号用上半天，只有 AI 在背后 401。
+   */
+  if (本地模式() && !读云端凭据()) redirect("/api/auth/logout?reason=revoked");
 
   // 铃铛计数：我名下未完成的待办。中栏要的数据在 @pane 槽位里各自查
   const [pendingCount, business, ua] = await Promise.all([
@@ -32,19 +39,13 @@ export default async function AppLayout({
    * 壳据此把红黄绿钮的位置留出来。只影响布局，不影响任何权限。
    */
   const desktop = /Electron\//.test(ua);
-  /**
-   * 本地模式（数据在用户自己机器上）。UA 分不出这个——连服务器时也是 Electron——
-   * 只有跑在本机的这个服务进程知道，它的环境变量里有 DESKTOP_LOCAL（local-server.js 设的）。
-   * 壳用它决定要不要摆「退出登录」：本机模式下那个按钮只会把人锁在自己机器外面。
-   */
-  const 本机 = process.env.DESKTOP_LOCAL === "1";
   // 网页版不再有试用期：只有一个长期运行的共享工作区，横条整条去掉了（2026-09-16）。
   // 到期只读那套机制还在 computeWritable 里，共享工作区靠 paidUntil 设在很远来绕过它——
   // 机制留着是因为运营台还要用它停用工作区，不是因为网页版还在计时。
 
   return (
     <BusinessProvider value={business}>
-      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} 本机={本机} pane={pane}>
+      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} pane={pane}>
         {children}
       </AppShell>
     </BusinessProvider>

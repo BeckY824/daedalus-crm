@@ -10,6 +10,8 @@ import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, 复成员 } from "@/lib/tenant/members";
 import { 列出 as 列出设备, 吊销 as 吊销设备 } from "@/lib/tenant/device-token";
+import { 本地模式, 读 as 读云端凭据, 发码 as 云端发码, 重置密码 as 云端重置密码, 清 as 清云端凭据 } from "@/lib/desktop/cloud";
+import { destroySession } from "@/lib/auth";
 import { isEmail } from "@/lib/tenant/accounts";
 import { createSession } from "@/lib/auth";
 import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, fetchRemoteModels, type ModelOption } from "@/lib/llm";
@@ -495,3 +497,32 @@ export async function saveBusinessSettings(cfg: BusinessConfig) {
 const BUSINESS_FIELD_LABELS: Record<keyof BusinessConfig, string> = {
   brief: "业务简介", customer: "核心名词", fields: "档案字段名", grades: "年级选项", sources: "线索来源", industries: "行业选项", statusLabels: "状态显示名",
 };
+
+/* ---------- 桌面端 ---------- */
+
+/**
+ * 桌面端改云端账号密码的两步。账号不让前端传：改的只能是**当前登录的那个**，
+ * 目标从本机那份 .cloud.json 里取。
+ */
+export async function 桌面端发码(): Promise<{ ok: true; hint?: string } | { ok: false; error: string }> {
+  await requireUser();
+  const c = 读云端凭据();
+  if (!本地模式() || !c) return { ok: false, error: "这个入口只有桌面端有" };
+  const r = await 云端发码(c.contact);
+  return r.ok ? { ok: true, hint: r.data?.hint } : { ok: false, error: r.error };
+}
+
+/**
+ * 改完 = 所有机器退出，这台也在内：令牌已经在云端作废了，本地那份清掉、业务会话也清掉，
+ * 前端接着送去登录页。留着只会让人看到一个「还登录着」的界面，而 AI 在背后一路 401。
+ */
+export async function 桌面端改密码(input: { code: string; password: string }): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireUser();
+  const c = 读云端凭据();
+  if (!本地模式() || !c) return { ok: false, error: "这个入口只有桌面端有" };
+  const r = await 云端重置密码({ target: c.contact, code: input.code, password: input.password });
+  if (!r.ok) return { ok: false, error: r.error };
+  清云端凭据();
+  await destroySession();
+  return { ok: true };
+}

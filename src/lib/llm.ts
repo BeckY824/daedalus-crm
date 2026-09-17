@@ -16,6 +16,7 @@
  */
 import { getSetting, setSetting, encryptSecret, decryptSecret, maskSecret } from "./settings";
 import { getBusiness } from "./business";
+import { 模型配置 as 桌面端云端配置 } from "./desktop/cloud";
 
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 export const DEFAULT_MODEL = "deepseek-chat";
@@ -30,6 +31,35 @@ type StoredLlm = { baseUrl?: string; model?: string; apiKeyEnc?: string; options
 
 const normBase = (u: string | undefined) => (u && u.trim() ? u.trim().replace(/\/+$/, "") : DEFAULT_BASE_URL);
 
+/**
+ * 环境这一级的配置：来自 .env（自部署、托管版），或桌面端登录的云端账号。
+ *
+ * 桌面端那份**每次都重读文件**（lib/desktop/cloud.ts）：登录、退出要即时生效。
+ * 2026-09-17 之前它也是走环境变量的，由 Electron 在起本地服务时塞进去——
+ * 代价是登录退出都得重启本地服务，而且账号那一半只能活在壳里。
+ * 非本地模式下 桌面端云端配置() 永远是 null，托管版和自部署版一行都不受影响。
+ */
+function 环境配置(): { apiKey: string; baseUrl: string; model: string; account?: string; models: string[] } | null {
+  const 云端 = 桌面端云端配置();
+  if (云端) {
+    return {
+      apiKey: 云端.apiKey,
+      baseUrl: 云端.baseUrl,
+      model: 云端.models[0]?.split("|")[0]?.trim() || DEFAULT_MODEL,
+      account: 云端.account,
+      models: 云端.models,
+    };
+  }
+  if (!process.env.LLM_API_KEY) return null;
+  return {
+    apiKey: process.env.LLM_API_KEY,
+    baseUrl: normBase(process.env.LLM_BASE_URL),
+    model: process.env.LLM_MODEL?.trim() || DEFAULT_MODEL,
+    account: process.env.CLOUD_ACCOUNT || undefined,
+    models: (process.env.LLM_MODELS ?? "").split(",").map((x) => x.trim()).filter(Boolean),
+  };
+}
+
 /** 当前生效的配置；null 表示 AI 未启用 */
 export async function getLlmConfig(): Promise<LlmConfig | null> {
   const stored = await getSetting<StoredLlm>(LLM_KEY);
@@ -38,13 +68,8 @@ export async function getLlmConfig(): Promise<LlmConfig | null> {
     // 解不出来（AUTH_SECRET 换了）就当没配，落到环境变量
     if (apiKey) return { apiKey, baseUrl: normBase(stored.baseUrl), model: stored.model?.trim() || DEFAULT_MODEL };
   }
-  if (process.env.LLM_API_KEY) {
-    return {
-      apiKey: process.env.LLM_API_KEY,
-      baseUrl: normBase(process.env.LLM_BASE_URL),
-      model: process.env.LLM_MODEL?.trim() || DEFAULT_MODEL,
-    };
-  }
+  const env = 环境配置();
+  if (env) return { apiKey: env.apiKey, baseUrl: env.baseUrl, model: env.model };
   return null;
 }
 
@@ -79,25 +104,20 @@ export async function describeLlmConfig(): Promise<{
   if (uiKey) {
     return { source: "ui", baseUrl: normBase(stored?.baseUrl), model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: maskSecret(uiKey), options };
   }
-  if (process.env.LLM_API_KEY && process.env.CLOUD_ACCOUNT) {
+  const env = 环境配置();
+  if (env?.account) {
     return {
       source: "cloud",
-      account: process.env.CLOUD_ACCOUNT,
-      credits: await 问云端余额(),
-      baseUrl: normBase(process.env.LLM_BASE_URL),
-      model: process.env.LLM_MODEL?.trim() || DEFAULT_MODEL,
-      keyMasked: maskSecret(process.env.LLM_API_KEY),
+      account: env.account,
+      credits: await 问云端余额(env),
+      baseUrl: env.baseUrl,
+      model: env.model,
+      keyMasked: maskSecret(env.apiKey),
       options,
     };
   }
-  if (process.env.LLM_API_KEY) {
-    return {
-      source: "env",
-      baseUrl: normBase(process.env.LLM_BASE_URL),
-      model: process.env.LLM_MODEL?.trim() || DEFAULT_MODEL,
-      keyMasked: maskSecret(process.env.LLM_API_KEY),
-      options,
-    };
+  if (env) {
+    return { source: "env", baseUrl: env.baseUrl, model: env.model, keyMasked: maskSecret(env.apiKey), options };
   }
   return { source: null, baseUrl: stored?.baseUrl?.trim() || DEFAULT_BASE_URL, model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: null, options };
 }
@@ -120,9 +140,9 @@ function 抹掉密钥(text: string, key: string): string {
  * 让一个「看一眼余额」的动作把设置页卡住是本末倒置。超时给 6 秒——
  * 断网时它要在页面渲染前就放弃。
  */
-async function 问云端余额(): Promise<{ 上限: number; 用掉: number; 还剩: number } | null> {
-  const base = process.env.LLM_BASE_URL?.replace(/\/+$/, "");
-  const key = process.env.LLM_API_KEY;
+async function 问云端余额(env: { apiKey: string; baseUrl: string }): Promise<{ 上限: number; 用掉: number; 还剩: number } | null> {
+  const base = env.baseUrl.replace(/\/+$/, "");
+  const key = env.apiKey;
   if (!base || !key) return null;
   try {
     const res = await fetch(`${base}/credits`, {
@@ -150,10 +170,7 @@ export async function listModelOptions(): Promise<ModelOption[]> {
   const cfg = await getLlmConfig();
   if (!cfg) return [];
   const stored = await getSetting<StoredLlm>(LLM_KEY);
-  const fromEnv = (process.env.LLM_MODELS ?? "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean)
+  const fromEnv = (环境配置()?.models ?? [])
     .map((x) => {
       const [id, ...note] = x.split("|");
       return { id: id.trim(), note: note.join("|").trim() || undefined };
@@ -239,9 +256,8 @@ export async function resolveLlmConfigForTest(input: { baseUrl: string; model: s
     const 存的地址 = normBase(stored?.baseUrl);
     if (stored?.apiKeyEnc && 目标 === 存的地址) apiKey = decryptSecret(stored.apiKeyEnc);
     // normBase 在没配 LLM_BASE_URL 时会回落到默认地址，所以只配了 Key 的自部署也对得上
-    if (!apiKey && process.env.LLM_API_KEY && 目标 === normBase(process.env.LLM_BASE_URL)) {
-      apiKey = process.env.LLM_API_KEY;
-    }
+    const env = 环境配置();
+    if (!apiKey && env && 目标 === env.baseUrl) apiKey = env.apiKey;
   }
   if (!apiKey) return null;
   return { apiKey, baseUrl: 目标, model: input.model.trim() || DEFAULT_MODEL };

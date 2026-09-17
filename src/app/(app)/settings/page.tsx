@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import SettingsView from "./SettingsView";
 import { 我的机器 } from "./actions";
+import { 本地模式, 读 as 读云端凭据, 余额 as 云端余额 } from "@/lib/desktop/cloud";
 import { describeLlmConfig } from "@/lib/llm";
 import { getBusiness } from "@/lib/business";
 import { aiUsageThisMonth } from "@/lib/ai-usage";
@@ -23,9 +24,13 @@ export default async function SettingsPage() {
    * 机器那一栏：托管版里用这个账号登录过桌面端的机器。
    * 自部署版和共享工作区拿到的是 null，界面上那一栏整个不出现（见 actions.ts 的 我的控制面账号）。
    */
-  const [llm, business, aiUsage, 共享区, 机器] = await Promise.all([
+  const [llm, business, aiUsage, 共享区, 机器, 余额] = await Promise.all([
     describeLlmConfig(), getBusiness(), aiUsageThisMonth(), 当前是共享区(), 我的机器(),
+    本地模式() ? 云端余额() : null,
   ]);
+  /** 桌面端本地模式才有的一栏：账号、备份、更新。网页版传 null，整栏不出现 */
+  const 云端 = 本地模式() ? 读云端凭据() : null;
+  const 桌面端 = 云端 ? { 账号: 云端.contact || 云端.name, 余额 } : null;
 
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "asc" },
@@ -51,6 +56,7 @@ export default async function SettingsPage() {
       business={business}
       aiUsage={aiUsage}
       机器={机器}
+      桌面端={桌面端}
       logs={logs.map((l) => ({
         id: l.id,
         at: l.at.toISOString(),

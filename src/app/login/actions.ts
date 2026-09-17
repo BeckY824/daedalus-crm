@@ -8,6 +8,7 @@ import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP
 import { multiTenant } from "@/lib/tenant/context";
 import { verifyAccount } from "@/lib/tenant/accounts";
 import { listWorkspacesFor } from "@/lib/tenant/workspaces";
+import { 本地模式, 登录 as 云端登录 } from "@/lib/desktop/cloud";
 
 export type LoginResult = { ok: true } | { ok: false; error: string };
 
@@ -93,5 +94,42 @@ export async function login(email: string, password: string): Promise<LoginResul
 
   keys.forEach(([k]) => 清除限流(k));
   await createSession(user.id);
+  return { ok: true };
+}
+
+/**
+ * 桌面端本地模式的登录：账号密码交给云端换一枚设备令牌，然后以本机那个管理员的身份进来。
+ *
+ * 桌面端只有这一套身份。2026-09-17 之前还有第二套——业务库里那个管理员自己的随机密码，
+ * 网页 /login 认的是它，用户从没见过它，于是「退出登录」之后就被锁在自己机器外面。
+ * 现在 /login 在本地模式画的就是这张表单，认的只有云端账号。
+ *
+ * 限流在云端那头（/api/account/token 按账号和 IP 两档），这里不重复记：
+ * 本机服务只听 127.0.0.1，来源 IP 永远是自己。
+ */
+export async function 桌面端登录(target: string, password: string): Promise<LoginResult> {
+  if (!本地模式()) return { ok: false, error: "这个入口只有桌面端有" };
+  const t = target.trim();
+  if (!t || !password) return { ok: false, error: "请填手机号（或邮箱）和密码" };
+
+  const r = await 云端登录(t, password);
+  if (!r.ok) return { ok: false, error: r.error };
+
+  /**
+   * 本机库里那个管理员就是「你」：名字、登录邮箱都改成账号的。
+   * server-entry.js 每次启动也会对一遍，这里是为了不等重启就对上——
+   * 登录完下一屏的左下角就该是你的名字，不是「管理员」。
+   */
+  const admin = await prisma.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" } });
+  if (!admin) return { ok: false, error: "本机数据库里没有管理员账号。请从「帮助 → 反馈问题」告诉我们" };
+  const 联系 = (r.data.contact || t).toLowerCase();
+  const 名字 = r.data.name || 联系.split("@")[0];
+  try {
+    await prisma.user.update({ where: { id: admin.id }, data: { email: 联系, name: 名字, title: "管理员" } });
+  } catch {
+    // 邮箱撞上了本地另一个账号（老库里手工建过同名同事）：名字照改，登录名不动
+    await prisma.user.update({ where: { id: admin.id }, data: { name: 名字 } }).catch(() => {});
+  }
+  await createSession(admin.id);
   return { ok: true };
 }

@@ -9,7 +9,10 @@
  * 由桌面端的实机验证覆盖：装出来的 app 首次启动确实自动登录成功。
  * 这里只钉「什么情况下不给进」。
  */
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, afterAll, beforeEach, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 // 路由引了 auth.ts，它在模块顶层就 import next/headers，vitest 里直接 import 会炸
 vi.mock("next/headers", () => ({
@@ -57,20 +60,33 @@ describe("开了本地模式，令牌必须对", () => {
 });
 
 /**
- * 本地模式下**不该有人停在登录页**。
+ * 本地模式下 /login 是**云端账号**的门（2026-09-17 起桌面端只有这一套身份）。
  *
- * 那一页在本机是个死胡同：密码是建库时生成的随机串（server-entry.js 写进
- * `.init-password`），用户从没见过；而「忘记密码」在本机永远画不出来——
- * 那个链接由 `能找回密码()` 决定，它要控制面 + SMTP，本机两个都没有。
- * 于是任何一条落到 /login 的路都是把人锁在自己机器外面。真的发生过：
- * 用户在应用里点了左下角的「退出登录」，然后对着一个填不进去的框。
- *
- * 两头一起堵：源头撤掉那个按钮，落点跳回自动登录。
+ * 在那之前 /login 认的是业务库里那个管理员自己的随机密码——用户从没见过它，
+ * 于是「退出登录」之后就被锁在自己机器外面。现在：手上有令牌的人不停在这一页
+ * （跳回自动登录），没有的人看到的是云端账号的表单，注册、找回密码都在。
  */
-describe("本地模式下不该有人停在登录页", () => {
-  it("/login 在本地模式直接跳回自动登录那条路", async () => {
+describe("本地模式下 /login 是云端账号的门", () => {
+  const 数据目录 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-login-"));
+  const 令牌文件 = path.join(数据目录, ".cloud.json");
+  afterAll(() => fs.rmSync(数据目录, { recursive: true, force: true }));
+  beforeEach(() => {
     process.env.DESKTOP_LOCAL = "1";
     process.env.DESKTOP_TOKEN = "desktop-token-for-tests";
+    process.env.CRM_DATA_DIR = 数据目录;
+    // 策略() 会去问云端；这里不联网，让它立刻失败——登录页只留登录那一条
+    process.env.CRM_CLOUD_URL = "http://127.0.0.1:9";
+    fs.rmSync(令牌文件, { force: true });
+    vi.resetModules();
+  });
+  afterEach(() => {
+    delete process.env.CRM_DATA_DIR;
+    delete process.env.CRM_CLOUD_URL;
+    vi.doUnmock("next/navigation");
+  });
+
+  it("手上有令牌：直接跳回自动登录那条路，不停在这一页", async () => {
+    fs.writeFileSync(令牌文件, JSON.stringify({ baseUrl: "http://127.0.0.1:9", token: "dk_x", name: "某人", contact: "a@b.c", models: [] }));
     const 跳了: string[] = [];
     vi.doMock("next/navigation", () => ({
       redirect: (u: string) => {
@@ -81,64 +97,71 @@ describe("本地模式下不该有人停在登录页", () => {
     const { default: LoginPage } = await import("@/app/login/page");
     await expect(LoginPage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT");
     expect(跳了).toEqual(["/api/desktop/session?t=desktop-token-for-tests"]);
-    vi.doUnmock("next/navigation");
-    vi.resetModules();
   });
 
-  it("带 fallback 时才画表单——否则自动登录失败就成了跳不出去的圈", async () => {
-    process.env.DESKTOP_LOCAL = "1";
-    process.env.DESKTOP_TOKEN = "desktop-token-for-tests";
+  it("没有令牌：画的是云端账号那张表单", async () => {
     vi.doMock("next/navigation", () => ({
       redirect: () => {
-        throw new Error("不该跳");
+        throw new Error("没令牌不该跳");
       },
     }));
     const { default: LoginPage } = await import("@/app/login/page");
-    const el = await LoginPage({ searchParams: Promise.resolve({ fallback: "1" }) });
-    // 画出来的表单要知道自己在本机，它据此说清「密码在应用菜单里」
-    expect((el as { props: { 本机: boolean } }).props.本机).toBe(true);
-    vi.doUnmock("next/navigation");
-    vi.resetModules();
+    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+    expect(el.props.桌面端).toBe(true);
+    expect(el.props.注册地址).toContain("/signup?from=desktop");
+  });
+
+  it("被吊销送回来的（?reason=revoked）：有令牌也不跳，先把原因说清", async () => {
+    fs.writeFileSync(令牌文件, JSON.stringify({ baseUrl: "http://127.0.0.1:9", token: "dk_x", name: "", contact: "a@b.c", models: [] }));
+    vi.doMock("next/navigation", () => ({
+      redirect: () => {
+        throw new Error("带原因来的不该跳");
+      },
+    }));
+    const { default: LoginPage } = await import("@/app/login/page");
+    const el = (await LoginPage({ searchParams: Promise.resolve({ reason: "revoked" }) })) as { props: Record<string, unknown> };
+    expect(String(el.props.提示)).toContain("改过密码");
+    expect(String(el.props.提示)).toContain("已登录的机器");
+  });
+
+  it("自动登录路由：没有令牌文件就先清 cookie 再回登录页，不签会话", async () => {
+    /**
+     * 直接跳 /login 不行：业务会话 cookie 可能还活着（7 天），proxy.ts 会把 /login 弹回
+     * /dashboard，人就带着一个失效的云端账号进了应用。经 logout 走，原因原样带过去。
+     */
+    const { GET } = await import("@/app/api/desktop/session/route");
+    const res = await GET(new Request(`${URL_}?t=desktop-token-for-tests`));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("/api/auth/logout");
+    const 带原因 = await GET(new Request(`${URL_}?t=desktop-token-for-tests&reason=revoked`));
+    expect(带原因.headers.get("location")).toBe("/api/auth/logout?reason=revoked");
+  });
+
+  it("应用壳：本地模式下令牌没了就不给进，哪怕业务会话还活着", async () => {
+    const layout = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/layout.tsx"), "utf8");
+    expect(layout).toContain('if (本地模式() && !读云端凭据()) redirect("/api/auth/logout?reason=revoked");');
+    const logout = fs.readFileSync(path.resolve(__dirname, "../src/app/api/auth/logout/route.ts"), "utf8");
+    expect(logout).toContain('url.searchParams.set("reason", reason)');
   });
 
   it("没开本地模式的部署照常画登录页，一步都不跳", async () => {
+    delete process.env.DESKTOP_LOCAL;
     vi.doMock("next/navigation", () => ({
       redirect: () => {
         throw new Error("自部署和托管版都不该跳");
       },
     }));
     const { default: LoginPage } = await import("@/app/login/page");
-    const el = await LoginPage({ searchParams: Promise.resolve({}) });
-    expect((el as { props: { 本机: boolean } }).props.本机).toBe(false);
-    vi.doUnmock("next/navigation");
-    vi.resetModules();
+    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+    expect(el.props.桌面端 ?? false).toBe(false);
   });
 
-  it("库里没有在职管理员时回登录页，不是 500——500 等于把人锁在应用外面", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
-    const src = fs.readFileSync(path.resolve(__dirname, "../src/app/api/desktop/session/route.ts"), "utf8");
-    const i = src.indexOf("if (!admin)");
-    expect(i, "找不到没有管理员那一支").toBeGreaterThan(0);
-    const 段 = src.slice(i, i + 200);
-    expect(段).toContain("/login?fallback=1");
-    expect(段).not.toContain("500");
-  });
-
-  it("本机模式下壳里不摆「退出登录」", async () => {
-    const fs = await import("node:fs");
-    const path = await import("node:path");
+  it("壳里「退出登录」一直在：本地模式下它退的是云端账号", async () => {
     const shell = fs.readFileSync(path.resolve(__dirname, "../src/components/AppShell.tsx"), "utf8");
-    const i = shell.indexOf("const userMenu");
-    expect(i).toBeGreaterThan(0);
-    const 段 = shell.slice(i, shell.indexOf("};", i));
-    // 那一条要被本机模式挡住，而不是永远摆着
-    expect(段).toMatch(/本机\s*\n?\s*\?\s*\[\]/);
-    expect(段).toContain("退出登录");
-
-    // 壳自己判断不了「是不是本地模式」（连服务器时 UA 也是 Electron），得由服务端给
-    const layout = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/layout.tsx"), "utf8");
-    expect(layout).toContain('process.env.DESKTOP_LOCAL === "1"');
-    expect(layout).toMatch(/本机=\{本机\}/);
+    expect(shell).toContain('label: "退出登录"');
+    expect(shell).not.toMatch(/本机\s*\?\s*\[\]/);
+    const logout = fs.readFileSync(path.resolve(__dirname, "../src/app/api/auth/logout/route.ts"), "utf8");
+    const post = logout.slice(logout.indexOf("export async function POST"), logout.indexOf("export async function GET"));
+    expect(post).toContain("退出云端()");
   });
 });
