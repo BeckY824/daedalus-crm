@@ -728,6 +728,20 @@ a {
 .cli-input:focus-within { border-color: var(--text-faint); }
 .cli-input .cli-prompt { line-height: 22px; color: var(--ink); }
 /* 发送 / 停止：一个圆钮，跑着的时候变成方块 */
+/* 框里那一条：左边动作（加文件），右边选择（模型）+ 发送键。照 Claude Code / Codex 的形状 */
+.cli-input-rich { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 12px 10px; }
+.cli-input-rich textarea { width: 100%; }
+.cli-bar2 { display: flex; align-items: center; gap: 8px; }
+.cli-bar2-l, .cli-bar2-r { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cli-bar2-l { flex: 1; overflow: hidden; }
+.cli-tool { flex: none; width: 28px; height: 28px; border-radius: var(--r-ctl); border: 0; background: none; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--ic); transition: background var(--t-fast), color var(--t-fast); }
+.cli-tool:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
+.cli-tool:disabled { color: var(--line-strong); cursor: default; }
+/* 带上的文件：一枚小标签，名字 + 一个叉。它只活到这一问发出去为止 */
+.cli-file { display: inline-flex; align-items: center; gap: 6px; max-width: 220px; padding: 3px 6px 3px 9px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--workbench); font-size: var(--fs-min); color: var(--ink); }
+.cli-file-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cli-file button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--text-faint); font-size: var(--fs-min); display: inline-flex; }
+.cli-file button:hover { color: var(--danger); }
 .cli-send { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-note); transition: opacity var(--t-fast), background var(--t-fast); }
 .cli-send:disabled { background: var(--line); color: #fff; cursor: default; }
 .cli-stop-sq { width: 10px; height: 10px; background: var(--panel); border-radius: 2px; }

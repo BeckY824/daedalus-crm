@@ -7,7 +7,19 @@
  */
 import { useSyncExternalStore } from "react";
 
-export type Turn = { id: string; question: string; kind: "ask" | "prep" | "recap"; at: number; /** 上一问还在跑时发的：排队，等它答完再起 */ queued?: boolean };
+export type Turn = {
+  id: string;
+  question: string;
+  kind: "ask" | "prep" | "recap";
+  at: number;
+  /** 上一问还在跑时发的：排队，等它答完再起 */
+  queued?: boolean;
+  /**
+   * 这一问带的文件（在浏览器里读成的文本）。**只在内存里**——这个线程本身就只活在内存里，
+   * 刷新即清，所以带文件提问不会让文件内容落到任何地方。见 components/AskFiles.tsx。
+   */
+  files?: { name: string; text: string }[];
+};
 
 let turns: Turn[] = [];
 const listeners = new Set<() => void>();

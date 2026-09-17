@@ -8,7 +8,18 @@ import { runJob, patchJob, type 任务标签 } from "./ai-jobs";
 import { mergeSteps, type StepEvent } from "./ai-steps";
 
 export type StreamBody =
-  | { mode: "agent"; question: string; model?: string; /** 之前几轮的问答，让模型接得住指代 */ history?: { q: string; a: string }[] }
+  | {
+      mode: "agent";
+      question: string;
+      model?: string;
+      /** 之前几轮的问答，让模型接得住指代 */
+      history?: { q: string; a: string }[];
+      /**
+       * 这一问带的文件：浏览器里读成的文本，只随这一问发一次，服务端不落库。
+       * 见 components/AskFiles.tsx 和 api/ai/stream 里的收法。
+       */
+      files?: { name: string; text: string }[];
+    }
   | { mode: "home"; question: string }
   | { mode: "quick"; intent: "prep" | "recap" }
   | { mode: "brief"; customerId: string; question?: string };

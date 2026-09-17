@@ -160,14 +160,37 @@ test.describe.serial("业务配置", () => {
     await expect(page.getByRole("heading", { name: "学员", exact: true })).toBeVisible();
   });
 
-  test("AI 接入：页签可见，接口地址格式不对会被表单拦下", async ({ page }) => {
+  /**
+   * AI 接入这一栏 2026-09-17 从「六个字段」压成「两个选择」：用我们的额度，
+   * 还是用你自己的 Key。接口地址不再挡在所有人前面——只有选了「其它」才出现。
+   * 这条钉住新形状，以及那句必须一直在的话：Key 存在你自己机器上。
+   */
+  test("AI 接入：只有两个选择，接口地址收进「其它」里", async ({ page }) => {
     await 登录(page);
     await page.goto("/settings");
     await page.getByRole("tab", { name: "AI 接入" }).click();
     const 面板 = page.getByRole("tabpanel", { name: "AI 接入" });
-    // dev server 会读 .env，本机可能配了 LLM_API_KEY 也可能没配——两种状态的提示都算对
-    await expect(面板.locator(".ant-alert")).toBeVisible();
-    await 面板.getByLabel("接口地址").fill("ftp://not-http");
+
+    // 两个选择，不是一堆字段
+    await expect(面板.getByRole("radio", { name: /用我们的/ })).toBeVisible();
+    await expect(面板.getByRole("radio", { name: /用我自己的 API Key/ })).toBeVisible();
+    await expect(面板.getByText(/Key 加密存在这台机器上/)).toBeVisible();
+
+    // 默认不摆接口地址：绝大多数人用不着它
+    await expect(面板.locator("#baseUrl")).toHaveCount(0);
+
+    await 面板.getByRole("radio", { name: /用我自己的 API Key/ }).click();
+    // 选一家就够了，地址和模型自动跟着来
+    await expect(面板.getByLabel("用哪一家")).toBeVisible();
+    await expect(面板.locator("#apiKey")).toBeVisible();
+    await expect(面板.locator("#baseUrl")).toHaveCount(0);
+
+    // 只有「其它」才要自己填地址，填错会被表单拦下
+    await 面板.getByLabel("用哪一家").click();
+    await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").getByText("其它（自己填接口地址）").click();
+    await 面板.locator("#baseUrl").fill("ftp://not-http");
+    await 面板.locator("#apiKey").fill("sk-e2e-not-a-real-key");
+    await 面板.locator("#model").fill("x");
     await 面板.getByRole("button", { name: /^保\s*存$/ }).click();
     await expect(面板.getByText("要以 http:// 或 https:// 开头")).toBeVisible();
   });

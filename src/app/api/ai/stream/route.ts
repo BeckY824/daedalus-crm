@@ -7,6 +7,7 @@ import { consumeAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { runAgent } from "@/lib/agent/run";
 import { resolveModel } from "@/lib/llm";
+import { 收文件, 拼文件 } from "@/lib/ask-files";
 
 /** 一个问题最多多长。300 太短，一句完整的业务问题经常就写不下 */
 const 问题上限 = 1000;
@@ -14,7 +15,6 @@ const 问题上限 = 1000;
 const 上下文轮数 = 6;
 const 单问上限 = 200;
 const 单答上限 = 600;
-
 /**
  * 上下文来自浏览器，一律当成不可信输入重新收一遍。
  *
@@ -82,8 +82,15 @@ export async function POST(req: Request) {
           req.signal.addEventListener("abort", () => abort.abort());
           // 浏览器报上来的模型名不可信，按设置页的白名单收一遍
           const model = await resolveModel(typeof body.model === "string" ? body.model : undefined);
-          const r = await runAgent({ question: body.question.trim().slice(0, 问题上限), user: { id: user.id, name: user.name }, b, history }, { emit, model, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
-          await recordAiUse(user, "ask", `AI 对话：「${body.question.trim().slice(0, 60)}」（${r.steps} 次工具调用${model ? `，${model}` : ""}）`);
+          const files = 收文件(body.files);
+          const 问 = 拼文件(body.question.trim().slice(0, 问题上限), files);
+          const r = await runAgent({ question: 问, user: { id: user.id, name: user.name }, b, history }, { emit, model, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
+          // 日志只记问题和文件**名**，不记文件内容——那张表全员可读
+          await recordAiUse(
+            user,
+            "ask",
+            `AI 对话：「${body.question.trim().slice(0, 60)}」（${r.steps} 次工具调用${model ? `，${model}` : ""}${files ? `，带了 ${files.map((f) => f.name).join("、")}` : ""}）`,
+          );
           res = { ok: true, answer: { text: r.text, records: r.records, customers: r.customers, proposals: r.proposals } };
         } else if (body.mode === "home" && typeof body.question === "string") {
           res = await askHome(body.question, emit);

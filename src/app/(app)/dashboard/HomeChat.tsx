@@ -9,6 +9,7 @@ import { motion } from "motion/react";
 import type { BriefRecord } from "@/lib/ai-draft";
 import ProposalCard from "@/components/ProposalCard";
 import ModelPicker, { useModel, setModel } from "@/components/ModelPicker";
+import AskFiles, { type 附件 } from "@/components/AskFiles";
 import type { ModelOption } from "@/lib/llm";
 import type { Proposal } from "@/lib/agent/proposals";
 import { draftWakeup } from "./ai";
@@ -63,6 +64,8 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
   const turns = useThread();
   const 地址栏 = useSearchParams();
   const model = useModel(models);
+  /** 这一问要带的文件。发出去就清空——它属于那一问，不属于这个输入框 */
+  const [files, setFiles] = useState<附件[]>([]);
   const [q, setQ] = useState("");
   const [cmdIdx, setCmdIdx] = useState(0);
   /** 输入框空着时，↑↓ 在下面那排建议问题里选，回车就发。-1 = 没选 */
@@ -123,7 +126,7 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
   function start(turn: Turn) {
     runStream<AgentAnswer>(
       `home:${turn.id}`,
-      { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id) },
+      { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files },
       undefined,
       // 带上标签，这一问就会出现在侧栏的「AI 任务」里：切去别的页面也看得见它跑完没有，
       // 点一下回到这一条。问题本身当名字，截短到一行
@@ -187,10 +190,16 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
     if (question.length < 2) return;
     // 正在答的时候再发：排队，不并发打模型
     const shouldQueue = opts.queue || Boolean(running);
-    const turn = addTurn({ question, kind: "ask", queued: shouldQueue });
+    const turn = addTurn({
+      question,
+      kind: "ask",
+      queued: shouldQueue,
+      files: files.length ? files.map((f) => ({ name: f.name, text: f.text })) : undefined,
+    });
     set刚发的(turn.id);
     if (!shouldQueue) start(turn);
     setQ("");
+    setFiles([]);
     if (taRef.current) taRef.current.style.height = "auto";
   }
 
@@ -286,6 +295,8 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
             }}
             onSubmit={() => submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q)}
             placeholder={running ? "正在回答… 再问会排队，Esc 打断" : `问一位${b.customer}，或问一个数`}
+            栏左={<AskFiles files={files} onChange={setFiles} disabled={running != null} />}
+            栏右={<ModelPicker options={models} value={model} />}
             上方={
               cmdMatches.length > 0 ? (
                 <div className="cli-cmds">
@@ -380,7 +391,6 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
           )}
 
           <div className="cli-hints">
-            <ModelPicker options={models} value={model} />
             <span>
               <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行 · <kbd>/</kbd> 命令
               {running && (

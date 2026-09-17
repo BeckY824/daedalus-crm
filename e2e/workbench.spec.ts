@@ -45,10 +45,14 @@ test.beforeAll(async () => {
 test("先把 AI 接入填上——首页是对话面还是数据看板，就看这一项", async ({ page }) => {
   await 登录(page, 管理员);
   await page.goto("/settings?tab=ai");
-  await page.getByLabel("接口地址").fill("http://127.0.0.1:9/v1");
+  // AI 接入 2026-09-17 起是「两个选择」：先说要用自己的 Key，再选「其它」才出现接口地址
+  await page.getByRole("radio", { name: /用我自己的 API Key/ }).click();
+  await page.getByLabel("用哪一家").click();
+  await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").getByText("其它（自己填接口地址）").click();
+  await page.locator("#baseUrl").fill("http://127.0.0.1:9/v1");
   // 纯 ASCII：中文塞进 Authorization 头会在 fetch 那一层就报错，掩盖掉真正的失败原因
-  await page.getByLabel("API Key").fill("e2e-not-a-real-key");
-  await page.getByLabel("模型名").fill("e2e-model");
+  await page.locator("#apiKey").fill("e2e-not-a-real-key");
+  await page.locator("#model").fill("e2e-model");
   await page.getByRole("button", { name: /保\s*存/ }).click();
   // 没测过连接会先拦一下：整套 AI 都走这套配置，地址不对会一起失灵
   await page.getByRole("button", { name: "仍然保存" }).click();
@@ -304,7 +308,8 @@ test("设置：左目录五项，一页上只有一列目录", async ({ page }) 
 test("AI 接入：没测过连接就保存会先拦一下", async ({ page }) => {
   await 登录(page, 管理员);
   await page.goto("/settings?tab=ai");
-  await page.getByLabel("模型名").fill("e2e-model-2");
+  /* 上一条用例已经存过自己的 Key，所以这一页进来就停在「用我自己的」那一屏 */
+  await page.locator("#model").fill("e2e-model-2");
   await page.getByRole("button", { name: /保\s*存/ }).click();
   await expect(page.getByRole("dialog")).toContainText("还没测试过连接");
   await page.getByRole("button", { name: "先测一下" }).click();

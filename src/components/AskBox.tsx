@@ -27,6 +27,8 @@ export default function AskBox({
   发送,
   上方,
   底部,
+  栏左,
+  栏右,
   引用,
 }: {
   value: string;
@@ -41,6 +43,13 @@ export default function AskBox({
   发送?: React.ReactNode;
   上方?: React.ReactNode;
   底部?: React.ReactNode;
+  /**
+   * 框**里面**那一条：左边放动作（加文件），右边放选择（模型），发送键永远在最右。
+   * 照 Claude Code / Codex 那个形状——动作和输入在同一个框里，不是散在框外的一行提示。
+   * 不给就还是原来那样：一行，提示符 + 输入 + 发送键。
+   */
+  栏左?: React.ReactNode;
+  栏右?: React.ReactNode;
   引用?: React.RefObject<HTMLTextAreaElement | null>;
 }) {
   const 自己的 = useRef<HTMLTextAreaElement>(null);
@@ -49,8 +58,8 @@ export default function AskBox({
   return (
     <>
       {上方}
-      <div className="cli-input">
-        <span className="cli-prompt">›</span>
+      <div className={`cli-input${栏左 || 栏右 ? " cli-input-rich" : ""}`}>
+        {!(栏左 || 栏右) && <span className="cli-prompt">›</span>}
         <textarea
           ref={ta}
           value={value}
@@ -72,10 +81,24 @@ export default function AskBox({
             }
           }}
         />
-        {发送 ?? (
-          <button type="button" className="cli-send" onClick={onSubmit} disabled={!value.trim()} aria-label="问">
-            <ArrowUpOutlined />
-          </button>
+        {栏左 || 栏右 ? (
+          <div className="cli-bar2">
+            <div className="cli-bar2-l">{栏左}</div>
+            <div className="cli-bar2-r">
+              {栏右}
+              {发送 ?? (
+                <button type="button" className="cli-send" onClick={onSubmit} disabled={!value.trim()} aria-label="问">
+                  <ArrowUpOutlined />
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          发送 ?? (
+            <button type="button" className="cli-send" onClick={onSubmit} disabled={!value.trim()} aria-label="问">
+              <ArrowUpOutlined />
+            </button>
+          )
         )}
       </div>
       {底部}
