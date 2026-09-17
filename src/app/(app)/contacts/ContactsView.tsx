@@ -76,7 +76,10 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
 
   return (
     <>
-      <PageHead title="联系人" subtitle={`${b.customer}那边真正在对话的人`} />
+      {/* 联系人没有「添加」主动作：他挂在某一位学员下面，从那位的记录页添加才填得对
+          （设计稿 14/PAGE 的页面规则也是这条：优先从记录页添加）。
+          空状态里那个「去建第一位学员」就是这条路的入口。 */}
+      <PageHead title="联系人" subtitle="档案里的联系人" />
 
       <DataList<Row>
         页="contacts"
@@ -98,19 +101,24 @@ export default function ContactsView({ rows, keyword }: { rows: Row[]; keyword: 
               prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={kw}
               allowClear
-              onChange={(e) => setKw(e.target.value)}
+              onChange={(e) => {
+                const v = e.target.value;
+                setKw(v);
+                if (!v) startTransition(() => router.push("/contacts"));
+              }}
               onPressEnter={search}
             />
-            <Button type="primary" onClick={search} loading={pending}>搜索</Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => {
-                setKw("");
-                startTransition(() => router.push("/contacts"));
-              }}
-            >
-              重置
-            </Button>
+            {keyword && (
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  setKw("");
+                  startTransition(() => router.push("/contacts"));
+                }}
+              >
+                重置
+              </Button>
+            )}
           </Space>
         }
       />

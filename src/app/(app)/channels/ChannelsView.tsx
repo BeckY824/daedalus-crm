@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Space, Tag, Modal, Form, Input, Select, App, Tooltip } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined, StopOutlined, CheckCircleOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, StopOutlined, CheckCircleOutlined, SearchOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
@@ -30,7 +30,7 @@ type Row = {
 };
 
 export default function ChannelsView({
-  rows,
+  rows: 全部行,
   users,
   radar,
   aiEnabled,
@@ -43,6 +43,19 @@ export default function ChannelsView({
   const router = useRouter();
   const { message, modal } = App.useApp();
   const b = useBusiness();
+  /* 三个筛选条件都在本地：行已经全在手上了 */
+  const [kw, setKw] = useState("");
+  const [ownerId, setOwnerId] = useState("");
+  const [active, setActive] = useState("");
+  const rows = useMemo(() => {
+    const k = kw.trim().toLowerCase();
+    return 全部行.filter(
+      (r) =>
+        (!k || r.name.toLowerCase().includes(k) || (r.phone ?? "").includes(k) || (r.remark ?? "").toLowerCase().includes(k)) &&
+        (!ownerId || r.channelOwnerId === ownerId) &&
+        (!active || (active === "on") === r.active),
+    );
+  }, [全部行, kw, ownerId, active]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [form] = Form.useForm();
@@ -156,11 +169,19 @@ export default function ChannelsView({
 
   return (
     <>
-      <PageHead title="渠道" subtitle="外部推荐来源与转介绍" />
+      <PageHead
+        title="渠道"
+        subtitle="外部推荐来源与转介绍"
+        extra={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openForm(null)}>
+            新建渠道
+          </Button>
+        }
+      />
 
       <DataList<Row>
         页="channels"
-        空库={rows.length === 0}
+        空库={全部行.length === 0}
         列={列表}
         行={rows}
         空态={{
@@ -168,10 +189,40 @@ export default function ChannelsView({
           hint: `渠道是${b.customer}从哪来的：合作老师、中介、家长社群。渠道负责人定了之后，这条线上进来的${b.customer}业绩自动归他；转介绍带来的下游也算在这条链上。`,
           primary: { label: "新建第一个渠道", onClick: () => openForm(null) },
         }}
-        动作={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openForm(null)}>
-            新建渠道
-          </Button>
+        筛选={
+          /* 渠道页一次就把行全拿下来了（没有服务端分页），所以筛在本地做：
+             不用为三个下拉多跑一趟服务端，改完立刻见效 */
+          <Space wrap size={[10, 10]}>
+            <Input
+              style={{ width: 240 }}
+              placeholder="搜索渠道"
+              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
+              value={kw}
+              allowClear
+              onChange={(e) => setKw(e.target.value)}
+            />
+            <Select
+              style={{ width: 150 }}
+              placeholder="全部负责人"
+              allowClear
+              value={ownerId || undefined}
+              onChange={(v) => setOwnerId(v ?? "")}
+              options={成员选项(users)}
+            />
+            <Select
+              style={{ width: 130 }}
+              placeholder="全部状态"
+              allowClear
+              value={active || undefined}
+              onChange={(v) => setActive(v ?? "")}
+              options={[{ value: "on", label: "合作中" }, { value: "off", label: "已停用" }]}
+            />
+            {(kw || ownerId || active) && (
+              <Button icon={<ReloadOutlined />} onClick={() => { setKw(""); setOwnerId(""); setActive(""); }}>
+                重置
+              </Button>
+            )}
+          </Space>
         }
       />
 

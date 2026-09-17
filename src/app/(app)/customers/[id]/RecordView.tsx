@@ -5,21 +5,12 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Drawer, Dropdown, Input, Space, Tag, Avatar, Checkbox, Tooltip, App, Select, Typography } from "antd";
 import {
-  ArrowLeftOutlined,
   DownOutlined,
   EditOutlined,
   DeleteOutlined,
   PlusOutlined,
   ThunderboltOutlined,
   CheckCircleOutlined,
-  PhoneOutlined,
-  TeamOutlined,
-  ShopOutlined,
-  MailOutlined,
-  MessageOutlined,
-  CarryOutOutlined,
-  BellOutlined,
-  EllipsisOutlined,
   DollarOutlined,
   UnorderedListOutlined,
   ThunderboltOutlined as AiOutlined,
@@ -27,7 +18,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
 import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, money, smartTime, AVATAR_TEXT } from "@/lib/utils";
-import { FollowStatusTag, StageTag, CompanyLogo, DecisionStatusTag } from "@/components/ui";
+import { FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
 import FollowUpForm from "./FollowUpForm";
@@ -50,17 +41,6 @@ import type { RecordProps, FollowUpRow, ContactRow } from "./types";
  *   右：AI 面板常驻——打开谁，它已经读完了谁；下面是计划与待办
  * 没有页签。联系人 / 商机 / 签约都是档案的一部分，放左栏。
  */
-
-const TYPE_ICON: Record<string, React.ReactNode> = {
-  PHONE: <PhoneOutlined />,
-  MEETING: <TeamOutlined />,
-  VISIT: <ShopOutlined />,
-  EMAIL: <MailOutlined />,
-  SMS: <MessageOutlined />,
-  TASK: <CarryOutOutlined />,
-  REMIND: <BellOutlined />,
-  OTHER: <EllipsisOutlined />,
-};
 
 /** 删掉最后一笔签约后跟进状态退到哪一档：退单和录错是两回事，由操作的人选 */
 const REVERT_CHOICES = [
@@ -154,11 +134,18 @@ export default function RecordView({
   return (
     <>
       <div className="rec-head">
-        <Link href="/customers" className="rec-head-back">
-          <ArrowLeftOutlined /> {b.customer}管理
-        </Link>
-        <h1 className="rec-head-name" style={{ margin: 0 }}>{customer.name}</h1>
-        {/* 名单收起来时，「换一个人」这条路必须还在页头上看得见 */}
+        {/*
+          没有「← 返回列表」。左边就是窄名单，换一个人点一下就换（设计稿 12/PAGE：
+          「切人不再返回列表」）；真要回列表，侧栏那一项一直在。
+          名单收窄进抽屉时（<1440）才补一个「换一位」——那时它才真的没了。
+        */}
+        <div className="rec-head-id">
+          <h1 className="rec-head-name" style={{ margin: 0 }}>{customer.name}</h1>
+          {/* 副标题是这个人的三个定位：年级 · 专业 · 谁在跟。没填的那项不占位 */}
+          <div className="rec-head-sub">
+            {[customer.grade, customer.major, customer.salesOwnerName].filter(Boolean).join(" · ")}
+          </div>
+        </div>
         {名单在抽屉里 && (
           <Button size="small" icon={<UnorderedListOutlined />} onClick={开名单}>
             换一位（⌘K）
@@ -172,7 +159,7 @@ export default function RecordView({
         )}
         <Space.Compact>
           <Button type="primary" onClick={() => openFollow(null)}>
-            新建跟进
+            记录跟进
           </Button>
           <Dropdown
             menu={{
@@ -188,29 +175,41 @@ export default function RecordView({
         </Space.Compact>
       </div>
 
+      {/*
+        标签行：跟进状态、决策状态、预计签约（设计稿 12/PAGE 里紧跟在名字下面那一行）。
+        这三样原来压在左栏档案卡里，要先把视线移到侧边才看得到这个人现在是什么状态——
+        而它恰恰是打开一条记录时第一个要知道的事。两个状态点一下就能改，
+        预计签约只读（在档案里改），所以它不长得像按钮。
+      */}
+      <div className="rec-tags">
+        <StatusPicker customerId={customer.id} field="followStatus" value={customer.followStatus} options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))}>
+          <FollowStatusTag status={customer.followStatus} />
+        </StatusPicker>
+        <StatusPicker customerId={customer.id} field="decisionStatus" value={customer.decisionStatus} options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))}>
+          <DecisionStatusTag status={customer.decisionStatus} />
+        </StatusPicker>
+        {/* 一个数都没有就不出现：「预计签约 —」占着一行却什么也没说 */}
+        {(customer.signedAmount > 0 || customer.expectedSignAt) && (
+          <span className="rec-tags-n">
+            {customer.signedAmount > 0 ? `已签约 ${money(customer.signedAmount)}` : "预计签约"}
+            {customer.expectedSignAt && ` · ${fmtDate(customer.expectedSignAt)}`}
+          </span>
+        )}
+      </div>
+
       <div className="rec">
         {/* ================= 左栏：档案 ================= */}
         <aside className="rec-rail rec-card">
-          <div className="rec-identity">
-            <CompanyLogo name={customer.name} size={44} />
-            <div style={{ minWidth: 0 }}>
-              <div className="rec-identity-n">{customer.name}</div>
-              <div className="rec-identity-s">{customer.phone}</div>
-            </div>
-          </div>
-          <div style={{ padding: "6px 20px 14px", display: "flex", gap: 6, flexWrap: "wrap" }}>
-            <StatusPicker customerId={customer.id} field="followStatus" value={customer.followStatus} options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))}>
-              <FollowStatusTag status={customer.followStatus} />
-            </StatusPicker>
-            <StatusPicker customerId={customer.id} field="decisionStatus" value={customer.decisionStatus} options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))}>
-              <DecisionStatusTag status={customer.decisionStatus} />
-            </StatusPicker>
-          </div>
-
+          {/* 名字和头像不在这儿重画一遍：页头上已经有了（设计稿 12/PAGE 的「基本资料」卡
+              第一行就是电话）。电话是只读的——改手机号要查重，走完整表单 */}
           <div className="rec-sec">
             <div className="rec-sec-t">
-              <span>档案</span>
+              <span>基本资料</span>
               <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => setCustOpen(true)}>编辑全部</Button>
+            </div>
+            <div className="rec-field" style={{ cursor: "default" }}>
+              <div className="rec-field-k">电话</div>
+              <div className="rec-field-v">{customer.phone || <span className="rec-field-empty">未填</span>}</div>
             </div>
             <InlineField customerId={customer.id} field="school" label={b.fields.school} value={customer.school} />
             <InlineField customerId={customer.id} field="major" label={b.fields.major} value={customer.major} />
@@ -606,7 +605,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
   return (
     <motion.div id={`fu-${f.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * 0.03 }}>
       <div className="rec-tl-dot" style={{ background: meta.color }}>
-        {TYPE_ICON[f.type]}
+        {FOLLOW_TYPE_ICON[f.type]}
       </div>
       <div className="rec-tl-body">
         <div className="rec-tl-head">

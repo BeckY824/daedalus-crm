@@ -90,7 +90,7 @@ test.describe("A 组：跨会话的数据可见性", () => {
     // 乙用侧边栏软导航离开再回来
     await 乙.page.getByRole("link", { name: "首页", exact: true }).click();
     await expect(乙.page).toHaveURL(/\/dashboard/);
-    await 乙.page.getByRole("link", { name: "学员管理" }).click();
+    await 乙.page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "学员", exact: true }).click();
     await expect(乙.page).toHaveURL(/\/customers/);
     const 软导航后看得到 = await 乙.page
       .getByRole("cell", { name: 姓名 })

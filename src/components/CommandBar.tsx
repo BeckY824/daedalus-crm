@@ -18,6 +18,13 @@ import { useBusiness } from "@/lib/business-client";
  * 快捷键要能被发现：左栏底部常驻一行「⌘K 跳转 / 提问」，这张单子底下也写着。
  * 藏起来的快捷键等于不存在。
  */
+/** 焦点在输入框 / 文本域 / 可编辑区里。⌘N 这类「页面级」快捷键那时不该接管 */
+function 在输入框里(e: KeyboardEvent) {
+  const t = e.target as HTMLElement | null;
+  if (!t) return false;
+  return t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName);
+}
+
 export default function CommandBar() {
   const router = useRouter();
   const b = useBusiness();
@@ -53,6 +60,20 @@ export default function CommandBar() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      /*
+        ⌘N：在当前页新建。它不知道每一页的新建长什么样，也不需要知道——
+        页头右上角那个主按钮就是这一页的主动作（见 ui.tsx 的 PageHead），点它就是。
+        页头上没有主按钮的页面（首页、数据）什么也不发生，这比弹一个「本页不支持」强。
+        在输入框里打字时不接管：那时 ⌘N 该由浏览器或输入法处理。
+      */
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n" && !在输入框里(e)) {
+        const 主按钮 = document.querySelector<HTMLButtonElement>(".page-head-a button.ant-btn-primary:not([disabled])");
+        if (主按钮) {
+          e.preventDefault();
+          主按钮.click();
+        }
+        return;
+      }
       if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k")) return;
       e.preventDefault();
       // 这一页自己有问答框就把光标给它——那才是这一页的主动作

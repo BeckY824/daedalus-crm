@@ -8,7 +8,6 @@ import { loadWatchlist } from "@/lib/sentinel-data";
 import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
 import StartCard from "./StartCard";
-import { PageHead } from "@/components/ui";
 import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { 查额度 } from "@/lib/tenant/ai-allowance";
@@ -28,12 +27,8 @@ export default async function DashboardPage() {
     */
     const 学员数 = await prisma.customer.count();
     if (学员数 === 0 && (await prisma.lead.count()) === 0) {
-      return (
-        <>
-          <PageHead title="首页" subtitle="先让它有点东西可看" />
-          <StartCard />
-        </>
-      );
+      // StartCard 自带那句「欢迎使用 Daedalus CRM」，这里不再叠一个页头
+      return <StartCard />;
     }
     return <Board />;
   }
@@ -63,12 +58,26 @@ export default async function DashboardPage() {
   if (mine.length > 0) parts.push(`${mine.length} 位${b.customer}正在被遗忘`);
   if (myLast?.customer.name) parts.push(`上次跟的是${myLast.customer.name}`);
 
+  /*
+    输入框底下那排问题。设计稿要求 4-6 条，而且**每一条都要是具体的问题**，
+    不是「试试问我点什么」这种。所以分两段：
+      先放这个库里真有的东西——名下有计划就「准备下次跟进」，有正在被遗忘的人就点名问他；
+      再用一组任何时候都问得出答案的兜底补到至少四条。
+    兜底不是凑数：这四条问的都是真表真列（计划、签约、商机阶段、跟进记录），
+    空库时首页压根不走这条路（走 StartCard），所以不存在「点了什么也答不出来」。
+  */
   const suggestions: Suggestion[] = [];
   if (myPlans > 0) suggestions.push({ label: "准备下次跟进", question: "", kind: "prep" });
   if (myLast) suggestions.push({ label: "回顾上次沟通", question: "", kind: "recap" });
   for (const w of mine.slice(0, 2)) suggestions.push({ label: `${w.customerName}：${w.reason.replace(/^「[^」]*」的\S+?/, "")}`, question: `${w.customerName}这边该怎么接上？` });
-  suggestions.push({ label: `各跟进状态各有多少${b.customer}`, question: `各跟进状态各有多少${b.customer}` });
-  suggestions.push({ label: "这个月谁签得最多", question: "这个月哪个销售的签约金额最多" });
+  const 兜底: Suggestion[] = [
+    { label: `今天谁最需要跟进？`, question: `今天最该跟进的${b.customer}是谁，为什么` },
+    { label: "这个月谁签得最多？", question: "这个月哪个销售的签约金额最多" },
+    { label: "哪些商机可能延期？", question: "哪些进行中的商机已经很久没动了，可能延期" },
+    { label: `各跟进状态各有多少${b.customer}？`, question: `各跟进状态各有多少${b.customer}` },
+    { label: "帮我记一次电话", question: "帮我记一次电话沟通" },
+  ];
+  for (const x of 兜底) if (suggestions.length < 6) suggestions.push(x);
 
   // 试用期的免费提问次数。付费与自部署都是 null，界面上就不出现这一项
   let aiQuota: { 上限: number; 还剩: number } | null = null;

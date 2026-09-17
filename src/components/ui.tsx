@@ -1,15 +1,33 @@
 "use client";
 
 import { Tag, Avatar, Space, Progress } from "antd";
-import { ArrowUpOutlined, ArrowDownOutlined } from "@ant-design/icons";
+import {
+  ArrowUpOutlined,
+  ArrowDownOutlined,
+  PhoneOutlined,
+  TeamOutlined,
+  ShopOutlined,
+  MailOutlined,
+  MessageOutlined,
+  CarryOutOutlined,
+  BellOutlined,
+  EllipsisOutlined,
+} from "@ant-design/icons";
 import Link from "next/link";
 import { avatarColor, companyInitial, initial, AVATAR_TEXT } from "@/lib/utils";
-import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR } from "@/lib/constants";
+import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR, FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
 
 /**
- * 页头：标题 + 一句副标题，右侧放动作。
+ * 页头：标题 + 一句副标题，**右侧放这一页的主动作**。
+ *
+ * 六张列表页、管道、计划、记录页的「新建 X / 记录跟进」全在这儿，位置一模一样——
+ * 原来它们散在筛选栏里、表格上方，人每换一页都要重新找一遍。
+ *
+ * `extra` 外面那层 `.page-head-a` 不只是布局：⌘N「当前页新建」按它找主按钮
+ * （见 CommandBar）。页头上有主按钮的页面，⌘N 就有意义；没有的页面它什么也不做。
+ *
  * 早先的大图标色块和「权限清晰，数据安全可控」这类标语已去掉——那是给客户看的宣传语，
  * 不是给每天用的人看的界面。tag / tagNote / icon 参数保留只为不改所有调用处，不再渲染。
  */
@@ -31,7 +49,7 @@ export function PageHead({
         <h1>{title}</h1>
         {subtitle && <p>{subtitle}</p>}
       </div>
-      {extra}
+      {extra && <div className="page-head-a">{extra}</div>}
     </div>
   );
 }
@@ -161,5 +179,38 @@ export function CustomerLink({ id, name }: { id: string; name: string }) {
         {name}
       </Link>
     </Space>
+  );
+}
+
+/**
+ * 跟进类型的图标。记录页的时间线和跟进记录表共用这一份——
+ * 两处各画一份的时候，同一个「上门拜访」在一边是商店图标、另一边是彩色标签。
+ */
+export const FOLLOW_TYPE_ICON: Record<string, React.ReactNode> = {
+  PHONE: <PhoneOutlined />,
+  MEETING: <TeamOutlined />,
+  VISIT: <ShopOutlined />,
+  EMAIL: <MailOutlined />,
+  SMS: <MessageOutlined />,
+  TASK: <CarryOutOutlined />,
+  REMIND: <BellOutlined />,
+  OTHER: <EllipsisOutlined />,
+};
+
+/**
+ * 跟进记录表里的「类型」列：**图标 + 文字**，不是一颗彩色药丸（设计稿 17/PAGE）。
+ *
+ * 这一页每行都有一个类型，八种类型八种颜色的话，整张表会变成一列跑马灯，
+ * 而真正要读的「内容」那一列反而退到后面。颜色只留给图标，文字照常。
+ */
+export function FollowTypeCell({ type }: { type: string }) {
+  const m = FOLLOW_TYPE_MAP[type] ?? FOLLOW_TYPE_MAP.OTHER;
+  return (
+    <span className="ftype">
+      <span className="ftype-i" style={{ color: m.color }}>
+        {FOLLOW_TYPE_ICON[type] ?? FOLLOW_TYPE_ICON.OTHER}
+      </span>
+      {m.label}
+    </span>
   );
 }

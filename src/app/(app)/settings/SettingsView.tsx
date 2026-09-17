@@ -451,7 +451,7 @@ export default function SettingsView({
 
   return (
     <>
-      <PageHead title="设置" subtitle="成员、密码、AI 与业务配置" />
+      <PageHead title="设置" subtitle="成员、AI 与业务配置" />
 
       {/*
         左目录，不是顶上一排页签。五项里有两项只有管理员看得到，页签横着排时

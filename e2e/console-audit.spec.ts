@@ -10,9 +10,9 @@ import { test } from "@playwright/test";
 const 页面 = [
   ["首页", "/dashboard"],
   ["数据看板", "/overview"],
-  ["线索管理", "/leads"],
-  ["学员管理", "/customers"],
-  ["渠道管理", "/channels"],
+  ["线索", "/leads"],
+  ["学员", "/customers"],
+  ["渠道", "/channels"],
   ["联系人", "/contacts"],
   ["商机列表", "/opportunities"],
   ["商机看板", "/opportunities/pipeline"],
@@ -54,8 +54,9 @@ test("控制台巡检", async ({ page }) => {
   }
   await 首个学员.click();
   await page.waitForTimeout(1200);
-  // 记录页没有页签；点一下状态标签把下拉也渲染一遍
-  await page.locator("aside.rec-card .ant-tag").first().click();
+  // 记录页没有页签；点一下状态标签把下拉也渲染一遍。
+  // 标签行 2026-09-17 起在页头名字底下（.rec-tags），不在左边那张档案卡里
+  await page.locator(".rec-tags .ant-tag").first().click();
   await page.waitForTimeout(800);
   await page.keyboard.press("Escape");
   console.log(问题.length === 0 ? "✓ 学员详情（含状态下拉）" : `✗ 学员详情\n    ${问题.join("\n    ")}`);

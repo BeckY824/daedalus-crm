@@ -8,7 +8,9 @@ import DashboardView from "./DashboardView";
 
 /**
  * 「现在」这个视图：指标卡、趋势、漏斗、排行、待办、盯盘。
- * 「数据」页和「没配 AI 时的首页」共用它。内嵌时页头由外面那层给，这里不画。
+ * 「数据」页和「没配 AI 时的首页」共用它。
+ * 内嵌（`内嵌`）= 在「数据」页里，页头由外面那层给，这里不画；
+ * 不内嵌 = 它就是没配 AI 的首页，页头写「首页」。
  */
 export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   await requireUser();

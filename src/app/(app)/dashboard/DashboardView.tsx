@@ -142,7 +142,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
   if (空库) {
     return (
       <>
-        {!内嵌 && <PageHead title="数据" subtitle="线索、学员、商机的当下状态与趋势" />}
+        {!内嵌 && <PageHead title="首页" subtitle="今天的状态与要推进的事" />}
         <div className="card-soft">
           <EmptyState
             title="还没有可以看的数据"
@@ -159,8 +159,10 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         页头不只是为了和别的页一致：桌面端顶上那 52px 是拖窗口的把手，
         没有页头时第一行指标卡有一半压在把手里——按住卡片标题会把整个窗口拖走。
         内嵌在「数据」页里时，那一层已经画了页头（还带着视图切换），这里就不能再画一个。
+        不内嵌时它是**没配 AI 的那版首页**，所以页头写「首页」——写「数据」的话，
+        侧栏两条入口会落到两个标题一样的页面上，人分不出自己点的是哪个。
       */}
-      {!内嵌 && <PageHead title="数据" subtitle="线索、学员、商机的当下状态与趋势" />}
+      {!内嵌 && <PageHead title="首页" subtitle="今天的状态与要推进的事" />}
 
       {/* 指标卡 */}
       <Row gutter={[16, 16]}>

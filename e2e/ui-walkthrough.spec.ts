@@ -34,16 +34,16 @@ const 戳 = String(Date.now()).slice(-6);
 
 const 页面 = [
   { 路径: "/dashboard", 名字: "首页" },
-  { 路径: "/overview", 名字: "数据看板" },
-  { 路径: "/leads", 名字: "线索管理" },
-  { 路径: "/customers", 名字: "学员管理" },
-  { 路径: "/channels", 名字: "渠道管理" },
+  { 路径: "/overview", 名字: "数据-现在" },
+  { 路径: "/leads", 名字: "线索" },
+  { 路径: "/customers", 名字: "学员" },
+  { 路径: "/channels", 名字: "渠道" },
   { 路径: "/contacts", 名字: "联系人" },
-  { 路径: "/opportunities", 名字: "商机管理" },
+  { 路径: "/opportunities", 名字: "商机" },
   { 路径: "/opportunities/pipeline", 名字: "商机管道" },
   { 路径: "/follow-ups", 名字: "跟进记录" },
   { 路径: "/follow-ups/plans", 名字: "跟进计划" },
-  { 路径: "/reports", 名字: "数据复盘" },
+  { 路径: "/reports", 名字: "数据-本年" },
   { 路径: "/settings", 名字: "设置管理" },
 ];
 
@@ -388,7 +388,8 @@ test("推荐链上的学员，详情页要能看出上下游与归属", async ({
   await 登录(page);
   await page.goto("/customers");
   await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").fill("链条3号");
-  await page.getByRole("button", { name: /搜\s*索/ }).click();
+  // 工具栏 2026-09-17 起没有「搜索」按钮：关键词回车生效
+  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").press("Enter");
   await page.waitForURL(/keyword=/);
   await page.reload();
 
@@ -426,7 +427,7 @@ test("键盘可用性：两个输入框按回车都能登录", async ({ page }) 
 test("浏览器后退在各页面之间表现正常", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.getByRole("link", { name: "线索管理" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "线索", exact: true }).click();
   await expect(page).toHaveURL(/\/leads/);
   await page.goBack();
   await expect(page, "从线索退回来应当回到学员列表").toHaveURL(/\/customers/);
@@ -438,7 +439,8 @@ test("刷新后筛选条件要还在，不能白筛一次", async ({ page }) => 
   await 登录(page);
   await page.goto("/customers");
   await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").fill("超长");
-  await page.getByRole("button", { name: /搜\s*索/ }).click();
+  // 工具栏 2026-09-17 起没有「搜索」按钮：关键词回车生效
+  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").press("Enter");
   await page.waitForURL(/keyword=/);
   const 筛选后 = page.url();
 
@@ -467,7 +469,8 @@ test("连点两次保存不会建出两条", async ({ page }) => {
 
   await page.reload();
   await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").fill(`连点${戳}`);
-  await page.getByRole("button", { name: /搜\s*索/ }).click();
+  // 工具栏 2026-09-17 起没有「搜索」按钮：关键词回车生效
+  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").press("Enter");
   await page.waitForURL(/keyword=/);
   await page.reload();
   await expect(page.locator(".ant-table-row"), "连点两次建出了多条").toHaveCount(1);

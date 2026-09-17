@@ -1,12 +1,14 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { dayjs } from "@/lib/utils";
-import TodayPane from "@/components/TodayPane";
-import SectionPane from "@/components/SectionPane";
 import CustomerRoster from "@/components/CustomerRoster";
 
 /**
- * 中栏（三栏里中间那 312px）的几种内容。槽位页各自 import 要用的那个。
+ * 中栏（312px）的内容。眼下**只有一种**：学员记录页的窄名单。
+ *
+ * 首页原来挂「今天」、商机和跟进各挂一张两行的子页目录——那三条都撤了（设计稿 03/LAYOUT：
+ * 「中栏不是默认栏位；只有记录切换等明确场景才出现」）。首页的待办进了信号行，
+ * 商机和跟进的两个子页进了各自页头的视图切换按钮：一个模块两个视图，
+ * 不值得为它常驻一列 312px。
  *
  * **为什么中栏是并行路由而不是在 layout 里算。** 原来 (app)/layout.tsx 读 proxy 塞的
  * `x-pathname` 决定中栏画什么、并顺手查数据。但 App Router 的 layout **在客户端导航时
@@ -22,38 +24,6 @@ import CustomerRoster from "@/components/CustomerRoster";
  * `<aside class="pane">` 由槽位渲染而不是由壳渲染：没有中栏的页面要一个节点都不出，
  * 否则壳那边拿到的永远是个「渲染结果为 null 的元素」，会留一列 312px 的空白。
  */
-
-function 包一层(children: React.ReactNode) {
-  return <aside className="pane">{children}</aside>;
-}
-
-/** 首页中栏：我今天要跟的人和到期的待办 */
-export async function 今天中栏() {
-  const user = await requireUser();
-  const 今天结束 = dayjs().endOf("day").toDate();
-  const [plans, tasks] = await Promise.all([
-    prisma.followPlan.findMany({
-      where: { ownerId: user.id, done: false, plannedAt: { lte: 今天结束 } },
-      orderBy: { plannedAt: "asc" },
-      take: 30,
-      select: { id: true, subject: true, plannedAt: true, method: true, customer: { select: { id: true, name: true } } },
-    }),
-    prisma.task.findMany({
-      where: { ownerId: user.id, done: false },
-      orderBy: [{ dueAt: "asc" }],
-      take: 30,
-      select: { id: true, title: true, dueAt: true, customer: { select: { id: true, name: true } } },
-    }),
-  ]);
-  return 包一层(
-    <TodayPane
-      today={{
-        plans: plans.map((p) => ({ id: p.id, subject: p.subject, plannedAt: p.plannedAt.toISOString(), method: p.method, customerId: p.customer.id, customerName: p.customer.name })),
-        tasks: tasks.map((t) => ({ id: t.id, title: t.title, dueAt: t.dueAt ? t.dueAt.toISOString() : null, customerId: t.customer.id, customerName: t.customer.name })),
-      }}
-    />,
-  );
-}
 
 /**
  * 记录页的窄名单：最近跟进过的 50 位。
@@ -90,30 +60,6 @@ export async function 学员名单() {
         })),
       }}
     />
-  );
-}
-
-export function 商机中栏() {
-  return 包一层(
-    <SectionPane
-      title="商机"
-      items={[
-        { href: "/opportunities", label: "商机列表", hint: "按阶段、金额、负责人筛" },
-        { href: "/opportunities/pipeline", label: "商机管道", hint: "按阶段拖着看" },
-      ]}
-    />,
-  );
-}
-
-export function 跟进中栏() {
-  return 包一层(
-    <SectionPane
-      title="跟进"
-      items={[
-        { href: "/follow-ups", label: "跟进记录", hint: "已经发生的沟通" },
-        { href: "/follow-ups/plans", label: "跟进计划", hint: "排好还没做的" },
-      ]}
-    />,
   );
 }
 

@@ -3,12 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Input, Button, Space, Select, Tag } from "antd";
-import { SearchOutlined, ReloadOutlined } from "@ant-design/icons";
-import { PageHead, CustomerLink, UserCell } from "@/components/ui";
+import { SearchOutlined, ReloadOutlined, CalendarOutlined, PlusOutlined } from "@ant-design/icons";
+import { PageHead, CustomerLink, UserCell, FollowTypeCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { useBusiness } from "@/lib/business-client";
-import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
-import { duration, fmtDateTime, 成员选项, 可选成员 } from "@/lib/utils";
+import { FOLLOW_TYPES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
+import { duration, 成员选项, 可选成员, smartTime } from "@/lib/utils";
 
 type Row = {
   id: string;
@@ -49,15 +49,8 @@ export default function FollowUpsView({
   const 列表: 列<Row>[] = [
     {
       // 类型三样齐全：颜色、图标、文字。只有颜色的话，色弱的人和扫得快的人都认不出来
-      title: "类型", key: "type", dataIndex: "type", width: 100, 常驻: true,
-      render: (v) => {
-        const m = FOLLOW_TYPE_MAP[v] ?? FOLLOW_TYPE_MAP.OTHER;
-        return (
-          <Tag style={{ margin: 0, borderRadius: 6, color: m.color, background: m.color + "18", borderColor: m.color + "35" }}>
-            {m.label}
-          </Tag>
-        );
-      },
+      title: "类型", key: "type", dataIndex: "type", width: 110, 常驻: true,
+      render: (v) => <FollowTypeCell type={v} />,
     },
     {
       // 这一页的正文就是「聊了什么」，所以它是最宽的一列。
@@ -81,7 +74,7 @@ export default function FollowUpsView({
     },
     { title: "对接人", key: "contactName", dataIndex: "contactName", width: 96, render: (v) => v ?? <span className="muted">—</span> },
     { title: "跟进人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v) => <UserCell name={v} size={24} /> },
-    { title: "时间", key: "occurredAt", dataIndex: "occurredAt", width: 140, render: (v) => <span className="muted nowrap">{fmtDateTime(v)}</span> },
+    { title: "时间", key: "occurredAt", dataIndex: "occurredAt", width: 130, render: (v) => <span className="muted nowrap">{smartTime(v)}</span> },
 
     { title: "时长", key: "duration", dataIndex: "duration", width: 90, 默认: false, render: (v) => (v ? duration(v) : <span className="muted">—</span>) },
     {
@@ -96,7 +89,23 @@ export default function FollowUpsView({
 
   return (
     <>
-      <PageHead title="跟进记录" subtitle="已经发生的沟通" />
+      {/* 记录和计划是同一件事的两头（发生过的 / 排好还没做的），
+          所以「计划」是页头上的次动作，不再为它常驻一列中栏。
+          记跟进本身要在某一位的记录页上做，这里的主动作就是去挑那个人 */}
+      <PageHead
+        title="跟进记录"
+        subtitle="全部跟进记录"
+        extra={
+          <Space>
+            <Button icon={<CalendarOutlined />} onClick={() => router.push("/follow-ups/plans")}>
+              计划
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/customers")}>
+              记录跟进
+            </Button>
+          </Space>
+        }
+      />
 
       <DataList<Row>
         页="follow-ups"
@@ -118,7 +127,12 @@ export default function FollowUpsView({
               prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword}
               allowClear
-              onChange={(e) => setF({ ...f, keyword: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                setF({ ...f, keyword: v });
+                // 点了清空的小叉：立刻生效，不用人再回车一次
+                if (!v) apply({ keyword: "" });
+              }}
               onPressEnter={() => apply()}
             />
             <Select
@@ -137,16 +151,17 @@ export default function FollowUpsView({
               onChange={(v) => apply({ ownerId: v ?? "" })}
               options={成员选项(users)}
             />
-            <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => {
-                setF({ keyword: "", type: "", ownerId: "" });
-                startTransition(() => router.push("/follow-ups"));
-              }}
-            >
-              重置
-            </Button>
+            {Object.values(f).some(Boolean) && (
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  setF({ keyword: "", type: "", ownerId: "" });
+                  startTransition(() => router.push("/follow-ups"));
+                }}
+              >
+                重置
+              </Button>
+            )}
           </Space>
         }
       />

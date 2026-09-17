@@ -36,7 +36,7 @@ test("1a 跟进速记：口述预填整张表单，相对时间换算成具体�
   await 登录(page);
   await 打开有跟进记录的学员(page);
 
-  await page.getByRole("button", { name: "新建跟进", exact: true }).click();
+  await page.getByRole("button", { name: "记录跟进", exact: true }).click();
   const 弹窗 = page.getByRole("dialog");
   await expect(弹窗.getByPlaceholder(/跟进速记/)).toBeVisible();
 
@@ -72,7 +72,7 @@ test("1b 微信聊天记录：分清双方说话人，类型识别为短信沟�
   await 登录(page);
   await 打开有跟进记录的学员(page);
 
-  await page.getByRole("button", { name: "新建跟进", exact: true }).click();
+  await page.getByRole("button", { name: "记录跟进", exact: true }).click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByPlaceholder(/跟进速记/).fill(
     [
@@ -115,7 +115,7 @@ test("1c 保存联动：勾选的待办与计划随跟进一起创建，取消�
   const 原待办 = await 待办数();
   const 原跟进条数 = await page.locator(".ant-timeline-item, [class*='timeline']").count();
 
-  await page.getByRole("button", { name: "新建跟进", exact: true }).click();
+  await page.getByRole("button", { name: "记录跟进", exact: true }).click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗
     .getByPlaceholder(/跟进速记/)
@@ -146,7 +146,7 @@ test("1d 可拒：无意义短文本明确报错，不硬编内容", async ({ pa
   await 登录(page);
   await 打开有跟进记录的学员(page);
 
-  await page.getByRole("button", { name: "新建跟进", exact: true }).click();
+  await page.getByRole("button", { name: "记录跟进", exact: true }).click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByPlaceholder(/跟进速记/).fill("嗯");
   await 弹窗.getByRole("button", { name: /AI 解析填表/ }).click();

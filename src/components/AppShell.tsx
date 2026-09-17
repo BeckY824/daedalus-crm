@@ -43,14 +43,20 @@ type Props = {
 };
 
 /**
- * 壳（2026-09-15 起三栏）：
- *   图标栏 76px —— 只放图标，产品名只剩一个标；桌面端的红黄绿钮嵌在最上面
- *   中栏 352px —— 当前模块的列表：首页是「今天」，学员是最近跟进的 50 位，商机 / 跟进是它们的两个子页；
- *                 其它模块还没有列表视图，中栏不出现，正文直接接在图标栏右边
- *   右栏      —— 各页正文
- * 参考 Claude Code / Codex 桌面版的窗口形态。网页版和桌面端共用这一份。
+ * 壳：
+ *   左栏 164px —— 全局导航，八个模块 + 底部 AI 任务 / 设置 / 账号。**永远在，永远这八个**
+ *   中栏 312px —— **不是默认栏位**。只有「要在同类记录之间连着切」的场景才出现，
+ *                 眼下只有学员记录页的窄名单一个。首页、数据、六张列表、设置都没有中栏
+ *   右栏       —— 各页正文
  *
- * 图标栏每个入口都带 aria-label 全名（首页 / 学员管理 …），屏幕阅读器和 e2e 都按这个名字找。
+ * 「全局导航稳定，局部结构服从任务」是全站唯一那条布局规则（设计稿 03/LAYOUT）：
+ *   首页 / 数据 = 导航 + 单一工作画布
+ *   列表页      = 导航 + 全宽表格
+ *   记录页      = 导航 + 窄名单 + 记录
+ *   设置        = 导航 + 设置目录 + 内容（目录在页内，不占中栏）
+ *
+ * 导航文案就是模块名，不带「管理」二字：那两个字每一项都有，等于每一项都没有。
+ * 每个入口都带 aria-label，屏幕阅读器和 e2e 都按这个名字找。
  */
 export default function AppShell({ user, pendingCount, desktop, pane, children }: Props) {
   const b = useBusiness();
@@ -73,12 +79,12 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
     () => [
       { key: "/dashboard", icon: <HomeOutlined />, label: "首页" },
       { key: "/overview", icon: <DashboardOutlined />, label: "数据" },
-      { key: "/leads", icon: <ShareAltOutlined />, label: "线索管理" },
-      { key: "/customers", icon: <TeamOutlined />, label: `${b.customer}管理` },
-      { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道管理" },
+      { key: "/leads", icon: <ShareAltOutlined />, label: "线索" },
+      { key: "/customers", icon: <TeamOutlined />, label: b.customer },
+      { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道" },
       { key: "/contacts", icon: <ContactsOutlined />, label: "联系人" },
-      { key: "/opportunities", icon: <DollarOutlined />, label: "商机管理" },
-      { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进管理" },
+      { key: "/opportunities", icon: <DollarOutlined />, label: "商机" },
+      { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进" },
     ],
     [b.customer],
   );
@@ -153,22 +159,18 @@ export default function AppShell({ user, pendingCount, desktop, pane, children }
             </Link>
           ))}
         </div>
+        {/* 侧栏底部按设计稿只留三样：AI 任务、设置、账号。
+            原来还挂着一条「⌘K 跳转 / 提问」的说明和一个「待办」铃铛——
+            快捷键的说明挪到了首页输入框下面（那儿才是用它的地方），
+            逾期待办改由首页第一个信号「逾期跟进 N · 先处理」承担：
+            那是一个带数字和去处的信号，比一个只有小红点的铃铛准。 */}
         <div className="rail-foot">
           {/* 正在跑 / 已答完的 AI 任务。切到别的页面也看得见，点一条回原处 */}
           <AiTasks />
-          {/* 快捷键要能被发现：藏起来的等于不存在 */}
-          <div className="rail-kbd">
-            <kbd>⌘K</kbd> 跳转 / 提问
-          </div>
           {desktop && <UpdateButton />}
           <Link href="/settings" aria-label="设置管理" className={`rail-item${selectedKey === "/settings" ? " on" : ""}`}>
             <SettingOutlined />
             <b>设置</b>
-          </Link>
-          <Link href="/follow-ups/plans" aria-label="待办计划" className="rail-item rail-bell">
-            <BellOutlined />
-            {pendingCount > 0 && <span className="rail-count">{pendingCount}</span>}
-            <b>待办</b>
           </Link>
           <Dropdown placement="topLeft" menu={userMenu}>
             <button type="button" className="rail-user" aria-label={`${user.name}，账号菜单`}>

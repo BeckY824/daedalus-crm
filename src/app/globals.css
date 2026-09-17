@@ -161,7 +161,6 @@ a {
 .rail-item:hover { background: var(--hover); color: var(--ink); }
 .rail-item.on { background: var(--brand-bg); color: var(--brand-deep); }
 /* 数字摆在行尾，不要挤在图标和文字中间 */
-.rail-count { position: absolute; top: 50%; transform: translateY(-50%); right: 9px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px; background: var(--line); color: var(--text-muted); font-size: var(--fs-min); line-height: 16px; text-align: center; font-variant-numeric: tabular-nums; }
 .rail-user { border: 0; background: none; padding: 7px 8px; margin-top: 6px; cursor: pointer; border-radius: var(--r-card); line-height: 0; display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; }
 .rail-user:hover { background: var(--hover); }
 /* 名字。76px 那版塞不下，所以应用里哪一页都看不到自己是谁——侧栏宽了就该摆出来 */
@@ -175,28 +174,9 @@ a {
 .pane-ib { width: 28px; height: 28px; border-radius: var(--r-ctl); display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .pane-ib:hover { background: var(--hover); color: var(--ink); }
 .pane-rows { flex: 1; overflow: auto; padding-bottom: 12px; }
-.pane-sec { padding: 14px 16px 6px; font-size: var(--fs-min); color: var(--text-muted); font-weight: 500; display: flex; align-items: center; gap: 6px; }
-.pane-sec b { color: var(--ink); font-weight: 600; font-size: var(--fs-note); }
 .pane-empty { padding: 4px 16px 6px; font-size: var(--fs-note); color: var(--text-muted); }
-.pane-item { display: flex; align-items: center; gap: 10px; padding: 8px 16px; }
-.pane-item.done { opacity: 0.45; }
-.pane-item.done .pane-item-n { text-decoration: line-through; }
-.pane-time { width: 44px; flex: none; font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
-.pane-time.late { color: var(--danger-text); }
-.pane-item-n { flex: 1; min-width: 0; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pane-item-n em { font-style: normal; color: var(--text-muted); }
-.pane-item-n:hover { color: var(--brand); }
-.pane-box { width: 16px; height: 16px; flex: none; border: 1.5px solid var(--line-strong); border-radius: var(--r-ctl); background: var(--panel); padding: 0; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #fff; }
-.pane-box:hover { border-color: var(--text-muted); }
-.pane-box.done { background: var(--ink); border-color: var(--ink); cursor: default; }
 .pane-more { display: flex; align-items: center; gap: 4px; margin: 10px 16px 0; font-size: var(--fs-note); color: var(--text-muted); }
 .pane-more:hover { color: var(--ink); }
-.pane-link { display: flex; align-items: center; gap: 10px; padding: 10px 16px; margin: 0 6px; border-radius: var(--r-card); color: var(--ink); }
-.pane-link:hover { background: var(--row-hover); }
-.pane-link.on { background: var(--brand-bg); }
-.pane-link-m { flex: 1; min-width: 0; }
-.pane-link-t { display: block; font-weight: 500; }
-.pane-link-s { display: block; font-size: var(--fs-note); color: var(--text-muted); margin-top: 1px; }
 
 .pane-ib.on { background: var(--brand-bg); color: var(--brand-deep); }
 .pane-search { margin: 10px 12px 6px; height: 30px; border-radius: var(--r-ctl); background: var(--hover); display: flex; align-items: center; gap: 6px; padding: 0 10px; }
@@ -206,14 +186,6 @@ a {
 .pane-chip { font: inherit; font-size: var(--fs-note); color: var(--text-muted); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
 .pane-chip:hover { color: var(--ink); border-color: var(--text-faint); }
 .pane-chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
-.pane-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line-soft); color: var(--ink); }
-.pane-row:hover { background: var(--row-hover); }
-.pane-row.on { background: var(--brand-bg); }
-.pane-avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--fs-note); font-weight: 600; }
-.pane-row-m { flex: 1; min-width: 0; }
-.pane-row-n { display: flex; align-items: center; gap: 6px; font-weight: 500; }
-.pane-row-s { display: block; font-size: var(--fs-note); color: var(--text-muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pane-row-r { flex: none; font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* 记录页左边那条窄名单。比别的中栏窄一档：它只要装得下
    「名字 + 状态 + 最近什么时候」，再宽就开始和正文抢地方 */
@@ -305,6 +277,9 @@ a {
   color: var(--text-muted);
   font-size: var(--fs-note);
 }
+
+/* 页头右上角那组动作。⌘N 也认这个选择器找主按钮，别改名 */
+.page-head-a { flex: none; display: flex; align-items: center; gap: var(--s2); }
 
 /* ---------- 跟进时间线 ---------- */
 .follow-item {
@@ -434,12 +409,13 @@ a {
   border-radius: var(--r-card);
 }
 .rec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-.rec-head-back { color: var(--text-muted); font-size: var(--fs-body); display: inline-flex; align-items: center; gap: 4px; }
-.rec-head-back:hover { color: var(--brand); }
+/* 记录页页头左边那一块：名字 + 一行「年级 · 专业 · 负责人」 */
+.rec-head-id { min-width: 0; }
+.rec-head-sub { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-note); }
 .rec-head-name { font-size: var(--fs-title); font-weight: 600; color: var(--ink); letter-spacing: -0.4px; }
-.rec-identity { padding: 20px 20px 8px; display: flex; gap: 12px; align-items: center; }
-.rec-identity-n { font-size: var(--fs-section); font-weight: 600; color: var(--ink); line-height: 1.3; }
-.rec-identity-s { font-size: var(--fs-note); color: var(--text-muted); margin-top: 2px; }
+/* 记录页名字底下那一行标签：两个状态（点得改）+ 预计 / 已签约（只读） */
+.rec-tags { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin: 0 0 var(--s3); }
+.rec-tags-n { font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .rec-sec { padding: 6px 12px 10px; border-top: 1px solid var(--border); }
 .rec-sec:first-of-type { border-top: none; }
 .rec-sec-t {
@@ -598,11 +574,16 @@ a {
 
 /* ---------- 首页：命令行式对话面（照 Claude Code / Codex） ---------- */
 .cli { min-height: calc(100vh - 100px); display: flex; flex-direction: column; font-size: var(--fs-body); }
-.cli-col { width: 100%; max-width: 820px; margin: 0 auto; display: flex; flex-direction: column; flex: 1; }
+/* 首页的正文列。**靠左，不居中**：全站布局规则那条是「正文列从左栏右边开始，
+   所有页面同一个左边缘」——首页一居中，从列表页切过来时整块内容会横着挪一下，
+   像换了个应用。820 的上限留着：一行问答超过这个宽度就不好读了 */
+.cli-col { width: 100%; max-width: 820px; display: flex; flex-direction: column; flex: 1; }
 .cli-empty .cli-col { justify-content: center; }
 .cli-mono, .cli-prompt, .cli-step, .cli-sum, .cli-cmd-k, .cli-hints kbd, .cli-menu-row kbd { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace; }
-.cli-welcome { border: 1px solid var(--border); border-radius: var(--r-card); padding: 18px 20px; margin-bottom: 18px; background: var(--panel); }
+.cli-welcome { margin-bottom: var(--s5); }
 .cli-welcome-t { font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
+/* 问候底下那行日期。设计稿里它独占一行，比信号的口径再弱一档 */
+.cli-welcome-d { margin-top: var(--s1); color: var(--text-muted); font-size: var(--fs-note); }
 .cli-welcome-s { margin-top: 4px; color: var(--text-muted); }
 .cli-welcome-hints { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); color: var(--text-muted); font-size: var(--fs-note); line-height: 1.9; }
 .cli-log { flex: 1; padding-bottom: 8px; }
@@ -748,7 +729,6 @@ a {
 .md-list li { margin: 2px 0; }
 .cite-dead { opacity: 0.5; cursor: default; }
 
-
 /* 首页输入框下的免费次数。常驻显示——等横条弹出来才知道，人已经在问第五句了 */
 .cli-quota { flex: none; padding: 1px 7px; border-radius: var(--r-ctl); background: var(--hover); color: var(--text-muted); font-size: var(--fs-min); }
 .cli-quota-low { background: var(--warning-bg); color: var(--warning-text); }
@@ -761,6 +741,14 @@ a {
    筛选栏、工具条、表格之间的距离由这里的 gap 统一给，各页不再自己写 marginBottom。 */
 .list { display: flex; flex-direction: column; gap: var(--s3); }
 /* 工具条：主动作在左，列设置在右 */
+/* 列表页那一条汇总药丸：商机页的「总额 · 加权预测」（设计稿 15/PAGE）。
+   原来是三张各占三分之一屏的统计卡，说的是同一件事的三个侧面 */
+.list-sum { align-self: flex-start; display: inline-block; padding: 6px 12px; border-radius: 999px;
+  background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-note); font-weight: 500;
+  font-variant-numeric: tabular-nums; }
+/* 跟进记录表的类型列：图标带色，文字照常 */
+.ftype { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ftype-i { display: inline-flex; font-size: var(--ic); }
 .list-bar { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .list-bar-gap { flex: 1; }
 /* 批量工具条。勾了行才出现，并且写明「已选 N 条」——
@@ -774,26 +762,36 @@ a {
 /* ---------- 首页：一行信号 ----------
    不是三张 KPI 卡。三张卡加三张「可以直接开始」卡说的是同一件事，
    还把输入框挤出了第一屏。一行三个数，每个点得进去、鼠标停上去说得清口径。 */
-.signals { display: flex; flex-wrap: wrap; gap: var(--s5); margin: var(--s3) 0 var(--s2); }
-.signal { display: inline-flex; align-items: baseline; gap: var(--s2); color: var(--text-muted); font-size: var(--fs-note); }
-.signal b { font-size: var(--fs-section); font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
-.signal:hover { color: var(--brand); }
-.signal:hover b { color: var(--brand); }
-.signal-warn b { color: var(--danger); }
+/* 首页信号行：口径在上、数在下、去处跟在数右边（设计稿 06/HOME·ACTIVE） */
+.signals { display: flex; flex-wrap: wrap; gap: var(--s6); margin: var(--s4) 0 var(--s4); padding-bottom: var(--s4); border-bottom: 1px solid var(--line-soft); }
+.signal { display: flex; flex-direction: column; gap: var(--s1); min-width: 116px; }
+.signal-k { font-size: var(--fs-note); color: var(--text-muted); }
+.signal-v { display: flex; align-items: baseline; gap: var(--s2); }
+.signal-v b { font-size: var(--fs-num); font-weight: 600; line-height: 1.2; color: var(--ink); font-variant-numeric: tabular-nums; }
+.signal-v em { font-style: normal; font-size: var(--fs-min); font-weight: 500; color: var(--brand); }
+.signal:hover .signal-v b { color: var(--brand); }
+.signal:hover .signal-v em { text-decoration: underline; }
+.signal-warn .signal-v b { color: var(--danger); }
+.signal-warn .signal-v em { color: var(--danger); }
 
 /* ---------- 首页：空库时的「开始」卡 ----------
    第一次打开的人需要一个能点的起点，不是一屏 0 和一个空输入框。 */
-.start { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s5) var(--s5) var(--s4); }
-.start-t { font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
-.start-s { margin: var(--s1) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
-.start-steps { list-style: none; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--s3); margin: var(--s4) 0 0; padding: 0; }
-.start-steps li { border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3); min-width: 0; }
-.start-steps b { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%;
-  background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-min); font-weight: 600; }
-.start-step-t { display: block; margin-top: var(--s2); font-weight: 600; color: var(--ink); }
-.start-step-s { display: block; margin-top: 2px; color: var(--text-muted); font-size: var(--fs-note); line-height: 1.6; }
-.start-a { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s4); }
-.start-note { margin: var(--s3) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
+/* 空库首页的「开始」卡（设计稿 05/HOME·EMPTY）：
+   一句欢迎在卡外，卡里是「第 1 步」→ 标题 → 三步一行 → 说明 → 按钮 → 脚注。
+   三步是横着的路标，不是三张说明卡，所以不给边框，用一条细线把它们连起来。 */
+.start-h { font-size: var(--fs-title); font-weight: 600; color: var(--ink); margin: 0 0 var(--s4); letter-spacing: -0.2px; }
+.start { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-pop); padding: var(--s5); max-width: 640px; }
+.start-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-min); font-weight: 500; }
+.start-t { margin-top: var(--s3); font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
+.start-s { margin: var(--s4) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
+.start-steps { list-style: none; display: flex; align-items: center; gap: var(--s3); margin: var(--s5) 0 0; padding: 0; flex-wrap: wrap; }
+.start-steps li { display: inline-flex; align-items: center; gap: var(--s2); min-width: 0; }
+.start-steps li + li::before { content: ""; width: 28px; height: 1px; background: var(--line); margin-right: var(--s3); }
+.start-steps b { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-min); font-weight: 600; flex: none; }
+.start-step-t { color: var(--ink); font-size: var(--fs-body); }
+.start-a { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s5); }
+.start-note { margin: var(--s3) 0 0; color: var(--text-muted); font-size: var(--fs-min); }
 @media (max-width: 900px) { .start-steps { grid-template-columns: 1fr; } }
 
 /* ---------- 跟进计划：按时间分三组 ----------
@@ -865,8 +863,6 @@ a {
 .cmdk-foot { padding: var(--s2) var(--s4); border-top: 1px solid var(--line); font-size: var(--fs-min); color: var(--text-muted); }
 .cmdk-foot kbd { font-size: var(--fs-min); background: var(--hover); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-ctl); padding: 0 5px; }
 /* 左栏底部那行「⌘K 跳转 / 提问」 */
-.rail-kbd { display: flex; align-items: center; gap: 6px; padding: 6px 10px; margin-bottom: 2px; font-size: var(--fs-min); color: var(--text-muted); }
-.rail-kbd kbd { font-size: var(--fs-min); background: var(--hover); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-ctl); padding: 0 4px; }
 
 /* ---------- 设置：左目录 ----------
    五项里有两项只有管理员看得到，横着排页签时两种人看到的宽度都不一样；
@@ -895,7 +891,6 @@ a {
 .empty-state-h { margin: 6px auto 0; max-width: 440px; font-size: var(--fs-note); line-height: 1.7; color: var(--text-muted); }
 .empty-state-a { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 18px; }
 /* 中栏空态里那个动作。中栏只有 312px，放不下按钮，用一条链接 */
-.pane-empty-a { display: inline-flex; align-items: center; gap: 3px; margin-left: 4px; color: var(--brand); white-space: nowrap; }
 
 /* 空首页上那排能直接点的问题。比说明文字更该占这个位置——
    第一次进来的人需要的是一个能点的起点，不是用法讲解 */
@@ -906,3 +901,35 @@ a {
 .cli-q-on { border-color: var(--brand); color: var(--brand); background: var(--brand-bg); }
 /* 回答后面那排追问。缩进和回答对齐，看得出是「接着这一段」而不是新的一轮 */
 .cli-next { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s3); padding-left: 20px; }
+
+/* ---------- 条款页（设计稿 21/LOW-FREQUENCY）----------
+   注册前没登录也要能读，所以它在应用壳外面；但颜色、字号、圆角全部走同一套 token，
+   不自己另画一份。左目录固定，正文跟着滚。 */
+.legal { min-height: 100vh; background: var(--panel); color: var(--ink); }
+.legal-top { display: flex; align-items: center; gap: var(--s3); max-width: 1080px; margin: 0 auto;
+  padding: var(--s4) var(--s5); border-bottom: 1px solid var(--line-soft); }
+.legal-mark { display: inline-flex; align-items: center; gap: var(--s2); }
+.legal-mark b { font-size: var(--fs-section); font-weight: 600; }
+.legal-top-n { margin-left: auto; display: flex; align-items: center; gap: var(--s4); font-size: var(--fs-note); color: var(--text-muted); }
+.legal-top-n a:hover { color: var(--brand); }
+.legal-back { color: var(--brand); }
+.legal-wrap { max-width: 1080px; margin: 0 auto; padding: var(--s6) var(--s5) 80px; }
+.legal-h { font-size: var(--fs-title); font-weight: 600; margin: 0 0 var(--s1); letter-spacing: -0.2px; }
+.legal-date { color: var(--text-muted); font-size: var(--fs-note); margin-bottom: var(--s6); }
+.legal-cols { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--s6); align-items: start; }
+.legal-toc { position: sticky; top: var(--s5); display: flex; flex-direction: column; gap: var(--s1); }
+.legal-toc a { padding: 6px 10px; border-radius: var(--r-ctl); color: var(--text-muted); font-size: var(--fs-note); line-height: 1.5; }
+.legal-toc a:hover { background: var(--hover); color: var(--ink); }
+.legal-toc a.on { background: var(--brand-bg); color: var(--brand-deep); font-weight: 500; }
+.legal-body { font-size: var(--fs-body); line-height: 1.85; color: var(--ink-soft); max-width: 720px; }
+.legal-body h2 { font-size: var(--fs-section); font-weight: 600; color: var(--ink); margin: var(--s6) 0 var(--s2); scroll-margin-top: var(--s5); }
+.legal-body h2:first-child { margin-top: 0; }
+.legal-body p { margin: 0 0 var(--s3); }
+.legal-body ul { margin: 0 0 var(--s3); padding-left: 22px; }
+.legal-body li { margin: 2px 0; }
+.legal-body a { color: var(--brand); }
+/* 窄屏：目录压到正文上面，横着排成一行 */
+@media (max-width: 899px) {
+  .legal-cols { grid-template-columns: minmax(0, 1fr); gap: var(--s4); }
+  .legal-toc { position: static; flex-direction: row; flex-wrap: wrap; }
+}

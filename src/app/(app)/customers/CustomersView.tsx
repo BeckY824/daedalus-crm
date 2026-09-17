@@ -105,6 +105,8 @@ export default function CustomersView({
 
   /** 收起来的那三个里还筛着几个。收起来不等于可以不告诉人 */
   const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId].filter(Boolean).length;
+  /** 一共筛着几个。0 的时候「重置」不出现——没筛过的页面上它是个哑按钮 */
+  const 筛了 = Object.values(f).filter(Boolean).length;
 
   const 列表: 列<CustomerRow>[] = [
     {
@@ -136,7 +138,7 @@ export default function CustomersView({
       title: "预计签约", key: "expectedSignAt", dataIndex: "expectedSignAt", width: 116,
       render: (v) => <span className="muted nowrap">{v ? fmtDate(v) : "—"}</span>,
     },
-    { title: "销售负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
+    { title: "负责人", 列名: "负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
     { title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 116, render: (v) => <span className="muted nowrap">{smartTime(v)}</span> },
 
     { title: "联系电话", key: "phone", dataIndex: "phone", width: 140, 默认: false, render: (v) => <span className="nowrap">{maskPhone(v)}</span> },
@@ -189,7 +191,20 @@ export default function CustomersView({
 
   return (
     <>
-      <PageHead title={b.customer} subtitle="按状态、负责人和来源筛选" />
+      <PageHead
+        title={b.customer}
+        subtitle="按状态、负责人和来源筛选"
+        extra={
+          /* 主动作在页头右上角，全站六张列表页同一个位置（设计稿 11/PAGE）。
+             导出是次动作，排在它左边，空库时没什么可导，不出现 */
+          <Space>
+            {!空库 && <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows, b)}>导出</Button>}
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
+              新建{b.customer}
+            </Button>
+          </Space>
+        }
+      />
 
       <DataList<CustomerRow>
         页="customers"
@@ -213,12 +228,17 @@ export default function CustomersView({
             <Input style={{ width: 260 }} placeholder="姓名 / 电话 / 院校 / 专业"
               prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword} allowClear
-              onChange={(e) => setF({ ...f, keyword: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                setF({ ...f, keyword: v });
+                // 点了清空的小叉：立刻生效，不用人再回车一次
+                if (!v) apply({ keyword: "" });
+              }}
               onPressEnter={() => apply()} />
             <Select style={{ width: 140 }} placeholder="全部跟进状态" allowClear
               value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
               options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
-            <Select style={{ width: 150 }} placeholder="全部销售负责人" allowClear
+            <Select style={{ width: 150 }} placeholder="全部负责人" allowClear
               value={f.salesOwnerId || undefined} onChange={(v) => apply({ salesOwnerId: v ?? "" })}
               options={成员选项(users)} />
             <Popover
@@ -240,17 +260,11 @@ export default function CustomersView({
             >
               <Button icon={<FilterOutlined />}>更多筛选{更多筛了 > 0 ? ` · ${更多筛了}` : ""}</Button>
             </Popover>
-            <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
-            <Button icon={<ReloadOutlined />} onClick={reset}>重置</Button>
+            {/* 没有「搜索」按钮：下拉改了就生效，关键词回车或清空就生效。
+                一个要再点一下才算数的筛选栏，会让人以为自己已经筛了其实没有。
+                「重置」只在真筛了东西的时候出现——没筛过的页面上它是个哑按钮 */}
+            {筛了 > 0 && <Button icon={<ReloadOutlined />} onClick={reset}>重置</Button>}
           </Space>
-        }
-        动作={
-          <>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
-              新建{b.customer}
-            </Button>
-            {!空库 && <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows, b)}>导出</Button>}
-          </>
         }
         批量={(selected, 清空) => (
           <>

@@ -8,13 +8,14 @@ import { 查演示数据状态, 灌一套演示数据, type 演示数据状态 }
 import { useBusiness } from "@/lib/business-client";
 
 /**
- * 空库时的首页：一张「开始」卡，不摆指标也不摆信号。
+ * 空库时的首页：一句欢迎 + 一张「开始」卡，不摆指标也不摆信号（设计稿 05/HOME·EMPTY）。
  *
  * 第一次打开这套系统的人需要的是一个能点的起点，不是一屏 0 和一个空输入框。
- * 三步说清它替你做什么：录一位 → 问一句 → 让它记一笔。
+ * 三步横着排，每步只有一个短句——它们是「这一步」的路标，不是说明书；
+ * 真正要解释的那句话放在三步下面一行。
  *
  * **一张卡上只有一个主按钮**。灌演示数据能最快看出它长什么样，所以它是主按钮；
- * 托管版和非管理员点不到演示数据（见 demo-data.ts 的护栏），那时「录第一位」
+ * 托管版和非管理员点不到演示数据（见 demo-data.ts 的护栏），那时「新建第一位」
  * 自己升为主按钮——不能出现一张卡上零个主按钮的情况。
  */
 export default function StartCard() {
@@ -31,52 +32,53 @@ export default function StartCard() {
   // 状态还没回来时先不画按钮组：画了再换主次，会当着人的面跳一下
   const 能灌演示 = Boolean(状态?.可用 && 状态.有权限 && 状态.空库);
 
-  const 步骤 = [
-    { n: 1, t: `录一位${b.customer}`, s: "姓名和电话就够，其余以后慢慢补" },
-    { n: 2, t: "问它一句", s: `「他还能怎么推进」——它会读完这位${b.customer}的记录再答` },
-    { n: 3, t: "让它记一笔", s: "它给一张建议卡，你点确认才写进库" },
-  ];
+  const 步骤 = [`录一位${b.customer}`, "问一句进展", "让它记一笔"];
 
   return (
-    <div className="start">
-      <div className="start-t">先让它有点东西可看</div>
-      <p className="start-s">这三步走完，你就知道它每天替你记什么、能替你想到什么。</p>
-      <ol className="start-steps">
-        {步骤.map((x) => (
-          <li key={x.n}>
-            <b>{x.n}</b>
-            <span className="start-step-t">{x.t}</span>
-            <span className="start-step-s">{x.s}</span>
-          </li>
-        ))}
-      </ol>
-      <div className="start-a">
-        {能灌演示 && (
+    <>
+      <h1 className="start-h">欢迎使用 Daedalus CRM</h1>
+      <div className="start">
+        <span className="start-badge">第 1 步</span>
+        <div className="start-t">完成第一次工作流</div>
+        <ol className="start-steps">
+          {步骤.map((t, i) => (
+            <li key={t}>
+              <b>{i + 1}</b>
+              <span className="start-step-t">{t}</span>
+            </li>
+          ))}
+        </ol>
+        <p className="start-s">
+          也可以一键加入演示{b.customer}、跟进、商机和计划；数据明确标为演示，可随时清除。
+        </p>
+        <div className="start-a">
+          {能灌演示 && (
+            <Button
+              type="primary"
+              icon={<ExperimentOutlined />}
+              loading={pending}
+              onClick={() =>
+                startTransition(async () => {
+                  const r = await 灌一套演示数据();
+                  if (!r.ok) return void message.error(r.error);
+                  message.success("演示数据已灌入，可以随便点");
+                  router.refresh();
+                })
+              }
+            >
+              灌一套演示数据
+            </Button>
+          )}
           <Button
-            type="primary"
-            icon={<ExperimentOutlined />}
-            loading={pending}
-            onClick={() =>
-              startTransition(async () => {
-                const r = await 灌一套演示数据();
-                if (!r.ok) return void message.error(r.error);
-                message.success("演示数据已灌入，可以随便点");
-                router.refresh();
-              })
-            }
+            type={能灌演示 ? "default" : "primary"}
+            icon={<PlusOutlined />}
+            onClick={() => router.push("/customers?new=1")}
           >
-            灌一套演示数据看看
+            新建第一位{b.customer}
           </Button>
-        )}
-        <Button
-          type={能灌演示 ? "default" : "primary"}
-          icon={<PlusOutlined />}
-          onClick={() => router.push("/customers?new=1")}
-        >
-          录第一位{b.customer}
-        </Button>
+        </div>
+        {能灌演示 && <p className="start-note">不会覆盖已有业务数据</p>}
       </div>
-      {能灌演示 && <p className="start-note">演示数据是单独的一套，不会覆盖你已经录的；随时能一键清掉。</p>}
-    </div>
+    </>
   );
 }

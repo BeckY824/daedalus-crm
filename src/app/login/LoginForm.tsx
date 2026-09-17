@@ -17,7 +17,9 @@ const 跳转超时毫秒 = 15000;
  * 由它读运行时环境决定要不要画「忘记密码」：这个部署发不出信时，
  * 那个链接点进去只能看到「请联系我们」，不如不摆。
  */
-export default function LoginForm({ 可找回密码 }: { 可找回密码: boolean }) {
+export default function LoginForm({ 可找回密码, 用邮箱 }: { 可找回密码: boolean; 用邮箱: boolean }) {
+  /** 托管版的账号就是邮箱，自部署是管理员建的登录名。见 page.tsx */
+  const 账号名 = 用邮箱 ? "邮箱" : "用户名";
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [form] = Form.useForm();
@@ -92,8 +94,13 @@ export default function LoginForm({ 可找回密码 }: { 可找回密码: boolea
         {error && <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />}
 
         <Form form={form} layout="vertical" onFinish={onFinish} size="large" requiredMark={false}>
-          <Form.Item name="email" rules={[{ required: true, message: "请输入用户名" }]}>
-            <Input prefix={<UserOutlined style={{ color: "var(--text-muted)" }} />} placeholder="用户名" autoComplete="username" />
+          <Form.Item name="email" rules={[{ required: true, message: `请输入${账号名}` }]}>
+            <Input
+              prefix={<UserOutlined style={{ color: "var(--text-muted)" }} />}
+              placeholder={账号名}
+              autoComplete={用邮箱 ? "email" : "username"}
+              inputMode={用邮箱 ? "email" : undefined}
+            />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: "请输入密码" }]}>
             <Input.Password prefix={<LockOutlined style={{ color: "var(--text-muted)" }} />} placeholder="登录密码" autoComplete="current-password" />

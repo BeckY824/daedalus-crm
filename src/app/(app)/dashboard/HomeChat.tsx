@@ -72,6 +72,11 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
   const composerRef = useRef<HTMLDivElement>(null);
   /** 刚发出去的那一问。只有它会在挂载时把自己滚到视口顶部，翻历史不该乱跳 */
   const [刚发的, set刚发的] = useState<string | null>(null);
+  /*
+    问候和日期都得在客户端算：服务端渲染出来的是服务器那台机器的「现在」。
+    useSyncExternalStore 的第三个参数是服务端快照——先给一个不带时间的中性值，
+    水合之后再换成真的，这样不会有 hydration mismatch，也不会闪一下别人的早上好。
+  */
   const greet = useSyncExternalStore(
     () => () => {},
     () => {
@@ -79,6 +84,15 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
       return h < 5 ? "夜深了" : h < 12 ? "早上好" : h < 18 ? "下午好" : "晚上好";
     },
     () => "你好",
+  );
+  /** 问候底下那行日期（设计稿 06/HOME·ACTIVE）：今天是几号、星期几 */
+  const 今天 = useSyncExternalStore(
+    () => () => {},
+    () => {
+      const d = new Date();
+      return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 周${"日一二三四五六"[d.getDay()]}`;
+    },
+    () => "",
   );
 
   const runningKey = useRunningKey(turns.map((t) => `home:${t.id}`));
@@ -227,6 +241,7 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
             <div className="cli-welcome-t">
               {greet}，{userName}。
             </div>
+            {今天 && <div className="cli-welcome-d">{今天}</div>}
             {/* 三个信号一行，不是三张卡。建议问题挪到输入框底下去了——
                 人的视线落在输入框上，可点的问题就该在那儿，不在半屏之外 */}
             <Signals 信号={信号} />

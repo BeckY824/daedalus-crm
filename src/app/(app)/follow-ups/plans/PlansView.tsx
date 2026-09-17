@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Segmented, Space, Button, App, Tag } from "antd";
-import { CheckCircleOutlined } from "@ant-design/icons";
+import { PlusOutlined, UnorderedListOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import { PageHead, UserCell } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import { dayjs, fmtDateTime } from "@/lib/utils";
@@ -128,7 +128,23 @@ export default function PlansView({
 
   return (
     <>
-      <PageHead title="跟进计划" subtitle="排好了还没做的：先看逾期，再看今天" />
+      {/* 计划和记录是同一件事的两头，「记录」是页头上的次动作，不再占一列中栏。
+          排计划要在某一位的记录页上做（那儿才知道上次谈到哪儿），
+          所以主动作是去挑那个人 */}
+      <PageHead
+        title="跟进计划"
+        subtitle="逾期、今天、本周要联系的人"
+        extra={
+          <Space>
+            <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/follow-ups")}>
+              记录
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/customers")}>
+              新建计划
+            </Button>
+          </Space>
+        }
+      />
 
       {空了 ? (
         <div className="card-soft">
@@ -152,11 +168,13 @@ export default function PlansView({
           </Space>
 
           <div className="plans">
-            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} scope={scope} />
-            <组块 名="今天" 说明="今天之内要做的" 事项={组.今天} 完成={完成} 刚完成={刚完成} scope={scope} />
-            <组块 名="本周" 说明="这周剩下的几天" 事项={组.本周} 完成={完成} 刚完成={刚完成} scope={scope} />
+            {/* 三组的空文案各不相同：全写「这一组是空的」，人分不出
+                「今天没排」和「已经全做完了」——那是两件完全不同的事 */}
+            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} scope={scope} />
+            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} scope={scope} />
+            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} scope={scope} />
             {组.以后.length > 0 && (
-              <组块 名="以后" 说明="更远的，和还没定时间的" 事项={组.以后} 完成={完成} 刚完成={刚完成} scope={scope} />
+              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} scope={scope} />
             )}
           </div>
         </>
@@ -166,10 +184,12 @@ export default function PlansView({
 }
 
 function 组块({
-  名, 说明, 事项, 危险, 完成, 刚完成, scope,
+  名, 说明, 空话, 事项, 危险, 完成, 刚完成, scope,
 }: {
   名: string;
   说明: string;
+  /** 这一组空着时说的那句话。每组都不一样 */
+  空话: string;
   事项: 事项[];
   危险?: boolean;
   完成: (x: 事项) => void;
@@ -184,7 +204,7 @@ function 组块({
         <span className="plan-g-s">{说明}</span>
       </div>
       {事项.length === 0 ? (
-        <div className="plan-empty">这一组是空的</div>
+        <div className="plan-empty">{空话}</div>
       ) : (
         事项.map((x) => {
           const 完了 = 刚完成.includes(x.key);

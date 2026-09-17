@@ -67,7 +67,7 @@ test("2. 未登录访问内页会被挡回登录页", async ({ page }) => {
 
 test("3. 新建线索后能在列表里看到", async ({ page }) => {
   await 登录(page);
-  await page.getByRole("link", { name: "线索管理" }).click();
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "线索", exact: true }).click();
   await expect(page).toHaveURL(/\/leads/);
 
   await page.getByRole("button", { name: /新建线索/ }).click();
@@ -108,7 +108,7 @@ test("5. 给学员录一条跟进，时间线上要看得见", async ({ page }) 
   await page.goto("/customers");
   await page.locator("main").getByRole("link", { name: 学员名 }).click();
 
-  await page.getByRole("button", { name: /新建跟进/ }).first().click();
+  await page.getByRole("button", { name: /记录跟进/ }).first().click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByLabel("标题").fill("首次电话沟通");
   await 弹窗.getByLabel("沟通内容").fill("介绍了课程与价格");
@@ -239,9 +239,10 @@ test("9. 筛选后导出 CSV：行数对得上、中文不乱码、公式不会�
   await 编辑框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(编辑框).toBeHidden();
 
-  // 用姓名筛出唯一一条，导出的行数应当跟着筛选走
+  // 用姓名筛出唯一一条，导出的行数应当跟着筛选走。
+  // 工具栏 2026-09-17 起没有「搜索」按钮了（下拉改了就生效，关键词回车生效）
   await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").fill(学员名);
-  await page.getByRole("button", { name: /搜\s*索/ }).click();
+  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").press("Enter");
   /**
    * 必须等 URL 真的带上筛选条件再刷新。搜索是 startTransition 里的
    * router.push，异步的；点完就 reload 会抢在它前面，把筛选条件冲掉，

@@ -15,7 +15,7 @@ import {
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
-import { fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
+import { 成员选项, 可选成员, smartTime } from "@/lib/utils";
 import { saveLead, deleteLeads, convertLead } from "./actions";
 import { useBusiness } from "@/lib/business-client";
 
@@ -99,7 +99,7 @@ export default function LeadsView({
       ),
     },
     { title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
-    { title: "创建时间", key: "createdAt", dataIndex: "createdAt", width: 116, render: (v) => <span className="muted nowrap">{fmtDate(v)}</span> },
+    { title: "创建时间", key: "createdAt", dataIndex: "createdAt", width: 116, render: (v) => <span className="muted nowrap">{smartTime(v)}</span> },
 
     { title: "联系电话", key: "phone", dataIndex: "phone", width: 140, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
     { title: "所属行业", key: "industry", dataIndex: "industry", width: 130, 默认: false, render: (v) => <span className="muted">{v ?? "—"}</span> },
@@ -173,7 +173,22 @@ export default function LeadsView({
 
   return (
     <>
-      <PageHead title="线索" subtitle={`还没建档的人，确认要跟了就转成${b.customer}`} />
+      <PageHead
+        title="线索"
+        subtitle="还没建档的线索"
+        extra={
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => {
+              setEditing(null);
+              setOpen(true);
+            }}
+          >
+            新建线索
+          </Button>
+        }
+      />
 
       <DataList<Row>
         页="leads"
@@ -194,7 +209,12 @@ export default function LeadsView({
               prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword}
               allowClear
-              onChange={(e) => setF({ ...f, keyword: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                setF({ ...f, keyword: v });
+                // 点了清空的小叉：立刻生效，不用人再回车一次
+                if (!v) apply({ keyword: "" });
+              }}
               onPressEnter={() => apply()}
             />
             <Select
@@ -205,29 +225,18 @@ export default function LeadsView({
               onChange={(v) => apply({ status: v ?? "" })}
               options={LEAD_STATUSES.map((s2) => ({ value: s2, label: s2 }))}
             />
-            <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => {
-                setF({ keyword: "", status: "" });
-                startTransition(() => router.push("/leads"));
-              }}
-            >
-              重置
-            </Button>
+            {(f.keyword || f.status) && (
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  setF({ keyword: "", status: "" });
+                  startTransition(() => router.push("/leads"));
+                }}
+              >
+                重置
+              </Button>
+            )}
           </Space>
-        }
-        动作={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
-          >
-            新建线索
-          </Button>
         }
       />
 

@@ -80,7 +80,8 @@ async function 建客户(page: Page, 姓名: string, 手机: string) {
 
 async function 登录(page: Page, 账号: string, 密码: string) {
   await page.goto("/login");
-  await page.getByPlaceholder("用户名").fill(账号);
+  // 托管版的账号就是邮箱，登录框那一格也就叫「邮箱」（自部署那边才是「用户名」）
+  await page.getByPlaceholder("邮箱").fill(账号);
   await page.getByPlaceholder("登录密码").fill(密码);
   await page.getByRole("button", { name: /登\s*录/ }).click();
 }

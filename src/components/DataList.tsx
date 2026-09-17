@@ -17,8 +17,8 @@ import { useLocalPref } from "@/lib/local-pref";
  * 几条不显然但踩过的：
  *   - 「空库」是「一条都没有**且**没在筛」。筛出 0 条不算——那时筛选栏必须留着，
  *     否则人看不见自己筛了什么，也点不到重置
- *   - 主动作永远在原位。空状态里那个「新建第一位」是给第一次进来的人的引导，
- *     不是它的替代品；老用户会去工具栏找它
+ *   - 主动作不在这张表里，它在页头右上角（每个列表页自己用 PageHead 的 extra 放）。
+ *     空状态里那个「新建第一位」是给第一次进来的人的引导，不是它的替代品
  *   - 列设置存在本地，一页一份。每个人常看的列不一样，不该逼所有人用同一套；
  *     后来新增的列按它自己的默认值补进去，不然加了列的人永远看不到
  */
@@ -39,10 +39,10 @@ type Props<T> = {
   /** 一条都没有**且**没在筛 */
   空库: boolean;
   空态: Parameters<typeof EmptyState>[0];
-  /** 主动作与常驻按钮，永远在 */
-  动作?: React.ReactNode;
   /** 筛选栏。空库时整条不渲染 */
   筛选?: React.ReactNode;
+  /** 工具栏和表格之间那一条汇总（商机页的「总额 · 加权预测」）。不给就没有 */
+  汇总?: React.ReactNode;
   /** 勾了行之后才出现的工具条。不给就不支持多选 */
   批量?: (选中: string[], 清空: () => void) => React.ReactNode;
   加载中?: boolean;
@@ -59,7 +59,7 @@ type Props<T> = {
 const 列键 = <T,>(c: 列<T>) => String(c.key ?? c.dataIndex);
 
 export default function DataList<T extends { id: string }>({
-  页, 列: 全部列, 行, 空库, 空态, 动作, 筛选, 批量, 加载中, 行链接, 横向, 分页,
+  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页,
 }: Props<T>) {
   const router = useRouter();
   const [选中, set选中] = useState<string[]>([]);
@@ -95,32 +95,37 @@ export default function DataList<T extends { id: string }>({
 
   return (
     <div className="list">
-      {!空库 && 筛选}
+      {/* 工具栏只有一条：搜索 + 筛选在左，列设置顶到最右（设计稿 10-17 的六张列表页都是这个形）。
+          主动作（新建 / 记录）不在这儿，它在页头右上角——那是全站找它的地方，
+          列表页不该把它藏在筛选中间。 */}
+      {!空库 && (
+        <div className="list-bar">
+          {筛选}
+          <span className="list-bar-gap" />
+          {可选的.length > 0 && (
+            <Dropdown
+              trigger={["click"]}
+              menu={{
+                items: 可选的.map((c) => {
+                  const k = 列键(c);
+                  return {
+                    key: k,
+                    label: (
+                      <Checkbox checked={可见.includes(k)} onChange={(e) => 切列(k, e.target.checked)}>
+                        {c.列名 ?? String(c.title)}
+                      </Checkbox>
+                    ),
+                  };
+                }),
+              }}
+            >
+              <Button icon={<SettingOutlined />} aria-label="选择要显示的列">列</Button>
+            </Dropdown>
+          )}
+        </div>
+      )}
 
-      <div className="list-bar">
-        {动作}
-        <span className="list-bar-gap" />
-        {!空库 && 可选的.length > 0 && (
-          <Dropdown
-            trigger={["click"]}
-            menu={{
-              items: 可选的.map((c) => {
-                const k = 列键(c);
-                return {
-                  key: k,
-                  label: (
-                    <Checkbox checked={可见.includes(k)} onChange={(e) => 切列(k, e.target.checked)}>
-                      {c.列名 ?? String(c.title)}
-                    </Checkbox>
-                  ),
-                };
-              }),
-            }}
-          >
-            <Button icon={<SettingOutlined />}>列</Button>
-          </Dropdown>
-        )}
-      </div>
+      {汇总}
 
       {/* 批量工具条：勾了才出现，而且要说清「已选 N 条」——不说人对不上自己勾了几条 */}
       {批量 && 选中.length > 0 && (

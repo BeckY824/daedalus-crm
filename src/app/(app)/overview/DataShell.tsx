@@ -25,16 +25,15 @@ export default function DataShell({
   const router = useRouter();
   return (
     <>
-      <PageHead
-        title="数据"
-        subtitle="现在是什么状态，这个月和今年签了多少"
-        extra={
-          <Segmented
-            value={view}
-            onChange={(v) => router.push(`/overview?view=${encodeURIComponent(String(v))}`)}
-            options={[...视图们]}
-          />
-        }
+      <PageHead title="数据" subtitle="业务现状与签约复盘" />
+      {/* 三视图切换在页头下面、内容上面，靠左（设计稿 08/DATA·NOW）。
+          它不是页头上的一个动作，它是「下面这一屏说的是哪一段时间」——
+          放在右上角时，人看完标题往下走，会先撞上数字再回头找它 */}
+      <Segmented
+        style={{ marginBottom: 16 }}
+        value={view}
+        onChange={(v) => router.push(`/overview?view=${encodeURIComponent(String(v))}`)}
+        options={[...视图们]}
       />
       {aiEnabled && <AskData />}
       {children}

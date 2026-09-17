@@ -84,7 +84,7 @@ test("存储型 XSS：跟进内容同样不会被执行", async ({ page }) => {
   await page.goto("/customers");
   await page.locator("main").getByRole("link", { name: `XSS${戳}` }).click();
 
-  await page.getByRole("button", { name: /新建跟进/ }).first().click();
+  await page.getByRole("button", { name: /记录跟进/ }).first().click();
   const 表单 = page.getByRole("dialog");
   await 表单.getByLabel("标题").fill(`跟进${戳}`);
   await 表单.getByLabel("沟通内容").fill(载荷.join(" "));

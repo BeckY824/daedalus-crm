@@ -39,18 +39,21 @@ export default function OpportunitiesView({
   users,
   customers,
   filters,
+  直接新建,
 }: {
   rows: OppRow[];
   users: 可选成员[];
   customers: { id: string; name: string }[];
   filters: { keyword: string; stage: string; status: string; ownerId: string };
+  /** 进来就把新建表单打开（管道页那个「新建商机」的落点） */
+  直接新建?: boolean;
 }) {
   const router = useRouter();
   const b = useBusiness();
   const { message, modal } = App.useApp();
   const [pending, startTransition] = useTransition();
   const [f, setF] = useState(filters);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(Boolean(直接新建));
   const [editing, setEditing] = useState<OppRow | null>(null);
   const [form] = Form.useForm();
 
@@ -222,13 +225,27 @@ export default function OpportunitiesView({
 
   return (
     <>
+      {/* 列表和管道是同一批商机的两种视图，所以「管道」是页头上的次动作，
+          不再为它常驻一列中栏（设计稿 03/LAYOUT：中栏不是默认栏位）。 */}
       <PageHead
         title="商机"
-        subtitle="在谈的单子：金额、阶段、预计什么时候成"
+        subtitle="进行中与已关闭的商机"
         extra={
-          <Button icon={<PartitionOutlined />} onClick={() => router.push("/opportunities/pipeline")}>
-            商机管道
-          </Button>
+          <Space>
+            <Button icon={<PartitionOutlined />} onClick={() => router.push("/opportunities/pipeline")}>
+              管道
+            </Button>
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => {
+                setEditing(null);
+                setOpen(true);
+              }}
+            >
+              新建商机
+            </Button>
+          </Space>
         }
       />
 
@@ -238,23 +255,6 @@ export default function OpportunitiesView({
         看完数直接往下看是哪几单撑起来的。
         **一条商机都没有时整行不出现**：0 / 0 / 0 不是信息，是噪音。
       */}
-      {rows.length > 0 && (
-        <div className="signals" style={{ marginTop: 0 }}>
-          <span className="signal" title="列表里这些商机的金额合计">
-            <b>{money(totalAmount)}</b>
-            <span>商机总额</span>
-          </span>
-          <span className="signal" title="其中还在谈的那些（不含已赢单、已丢单）">
-            <b>{money(openAmount)}</b>
-            <span>进行中</span>
-          </span>
-          <span className="signal" title="Σ(进行中商机金额 × 成交概率)。概率是每条商机上自己填的">
-            <b>{money(forecast)}</b>
-            <span>加权预测</span>
-          </span>
-        </div>
-      )}
-
       <DataList<OppRow>
         页="opportunities"
         空库={rows.length === 0 && !Object.values(filters).some((v) => v)}
@@ -266,6 +266,19 @@ export default function OpportunitiesView({
           hint: `商机是「在谈的那一单」：金额多少、谈到哪一步、大概什么时候成。它挂在${b.customer}下面，签约之后再登记成签约记录。`,
           primary: { label: "新建第一条商机", onClick: () => { setEditing(null); setOpen(true); } },
         }}
+        汇总={
+          /* 一条药丸，摆在工具栏和表格之间（设计稿 15/PAGE）：
+             筛完看到的就是这一筛的总额和预测，紧接着往下看是哪几单撑起来的。
+             **一条商机都没有时不出现**：0 / 0 不是信息，是噪音 */
+          rows.length > 0 ? (
+            <div
+              className="list-sum"
+              title={`总额：列表里这些商机的金额合计（进行中 ${money(openAmount)}）\n加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的`}
+            >
+              总额 {money(totalAmount)} · 加权预测 {money(forecast)}
+            </div>
+          ) : null
+        }
         筛选={
           <Space wrap size={[10, 10]}>
             <Input
@@ -274,7 +287,12 @@ export default function OpportunitiesView({
               prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword}
               allowClear
-              onChange={(e) => setF({ ...f, keyword: e.target.value })}
+              onChange={(e) => {
+                const v = e.target.value;
+                setF({ ...f, keyword: v });
+                // 点了清空的小叉：立刻生效，不用人再回车一次
+                if (!v) apply({ keyword: "" });
+              }}
               onPressEnter={() => apply()}
             />
             <Select
@@ -305,29 +323,18 @@ export default function OpportunitiesView({
               onChange={(v) => apply({ ownerId: v ?? "" })}
               options={成员选项(users)}
             />
-            <Button type="primary" onClick={() => apply()} loading={pending}>搜索</Button>
-            <Button
-              icon={<ReloadOutlined />}
-              onClick={() => {
-                setF({ keyword: "", stage: "", status: "", ownerId: "" });
-                startTransition(() => router.push("/opportunities"));
-              }}
-            >
-              重置
-            </Button>
+            {Object.values(f).some(Boolean) && (
+              <Button
+                icon={<ReloadOutlined />}
+                onClick={() => {
+                  setF({ keyword: "", stage: "", status: "", ownerId: "" });
+                  startTransition(() => router.push("/opportunities"));
+                }}
+              >
+                重置
+              </Button>
+            )}
           </Space>
-        }
-        动作={
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
-          >
-            新建商机
-          </Button>
         }
       />
 

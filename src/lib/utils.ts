@@ -25,13 +25,24 @@ export function moneyShort(n: number): string {
 }
 
 /** 设计稿里的「今天 10:30 / 昨天 16:20 / 05-20 14:15」 */
+/**
+ * 「最近一次」这类时间的人话写法。列表页的时间列全走它。
+ *
+ * 口径要能一眼比较：「3 天前」和「9 月 10 日」放在一列里，谁更久一目了然；
+ * 而「09-10 13:19」和「09-09 20:16」得先在脑子里换算一遍。
+ * 所以近处用相对（今天 / 昨天 / N 天前），远处用日期，跨年才补年份。
+ * 未来的时间（跟进计划）只特写「明天」，再往后按日期——没人会说「3 天后」再倒推是哪天。
+ */
 export function smartTime(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const t = dayjs(d);
+  const now = dayjs();
   if (t.isToday()) return `今天 ${t.format("HH:mm")}`;
   if (t.isTomorrow()) return `明天 ${t.format("HH:mm")}`;
-  if (t.isSame(dayjs().subtract(1, "day"), "day")) return `昨天 ${t.format("HH:mm")}`;
-  return t.format("MM-DD HH:mm");
+  if (t.isSame(now.subtract(1, "day"), "day")) return "昨天";
+  const 过去几天 = now.startOf("day").diff(t.startOf("day"), "day");
+  if (过去几天 >= 2 && 过去几天 <= 6) return `${过去几天} 天前`;
+  return t.isSame(now, "year") ? t.format("M 月 D 日") : t.format("YYYY 年 M 月 D 日");
 }
 
 export function fmtDate(d: Date | string | null | undefined): string {

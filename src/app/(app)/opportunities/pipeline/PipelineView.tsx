@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, Button, Dropdown } from "antd";
-import { UnorderedListOutlined } from "@ant-design/icons";
+import { App, Button, Dropdown, Space } from "antd";
+import { UnorderedListOutlined, PlusOutlined } from "@ant-design/icons";
 import { PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
@@ -76,7 +76,7 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
   if (rows.length === 0) {
     return (
       <>
-        <PageHead title="商机管道" subtitle="按阶段看在谈的单子" />
+        <PageHead title="商机管道" subtitle="拖动卡片推进阶段" />
         <div className="card-soft">
           <EmptyState
             title="还没有商机"
@@ -93,11 +93,17 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
     <>
       <PageHead
         title="商机管道"
-        subtitle="拖动卡片推进阶段；键盘用 Enter 打开卡片菜单"
+        subtitle="拖动卡片推进阶段"
         extra={
-          <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/opportunities")}>
-            列表视图
-          </Button>
+          <Space>
+            <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/opportunities")}>
+              列表
+            </Button>
+            {/* 这一页没有新建表单，带 ?new=1 回列表页把它直接打开 */}
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/opportunities?new=1")}>
+              新建商机
+            </Button>
+          </Space>
         }
       />
 
