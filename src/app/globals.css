@@ -228,6 +228,12 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rail-up-bar::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--p, 0%);
   background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 5px);
   transition: width var(--t-slow) linear; }
+/* 老浏览器没有 color-mix（Chromium 111 / Safari 16.2 以前）：整排刻度会一条都画不出来，
+   进度就成了一片空白。退回一个固定的浅灰——刻度只在下载中出现，那时药丸是 .busy 的浅底，
+   这个灰在它上面读得出来。桌面端是新 Chromium，这一段只为网页版上的老浏览器留着 */
+@supports not (color: color-mix(in srgb, red 50%, transparent)) {
+  .rail-up-bar { background: repeating-linear-gradient(90deg, var(--line-strong) 0 2px, transparent 2px 5px); }
+}
 /* 说不出百分比的时候（校验、解包）：一段刻度来回扫，说明"在动但没有进度" */
 .rail-up-bar.idle::after { width: 34%; animation: rail-up-sweep 1.4s ease-in-out infinite; }
 @keyframes rail-up-sweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(310%); } }
