@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Dropdown, Checkbox } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
@@ -63,6 +63,31 @@ export default function DataList<T extends { id: string }>({
 }: Props<T>) {
   const router = useRouter();
   const [选中, set选中] = useState<string[]>([]);
+
+  /**
+   * 刚出现的行亮两秒。**不用每个页面告诉我们它刚建了谁**——比一下 id 就知道。
+   * 新建完 router.refresh()，这张表就多出一个没见过的 id，那一行就是答案：
+   * 「我刚填的东西落在这儿」。原来新建完只有一句 message，人还要自己在列表里找。
+   *
+   * 一次冒出两个以上陌生 id 的不算：翻页、换筛选会一整页都是没见过的，
+   * 那不是「刚建的」，把它们全点亮只会让人以为出了什么事。
+   * 第一次挂载也不算——那时整页都是陌生的。
+   */
+  const 见过 = useRef<Set<string> | null>(null);
+  const [新来的, set新来的] = useState<string[]>([]);
+  useEffect(() => {
+    const ids = 行.map((r) => r.id);
+    if (见过.current === null) {
+      见过.current = new Set(ids);
+      return;
+    }
+    const 新 = ids.filter((id) => !见过.current!.has(id));
+    ids.forEach((id) => 见过.current!.add(id));
+    if (新.length === 0 || 新.length > 2) return;
+    set新来的(新);
+    const t = setTimeout(() => set新来的([]), 2000);
+    return () => clearTimeout(t);
+  }, [行]);
 
   const 可选的 = useMemo(() => 全部列.filter((c) => !c.常驻), [全部列]);
   const 默认可见 = useMemo(() => 可选的.filter((c) => c.默认 !== false).map(列键), [可选的]);
@@ -147,6 +172,7 @@ export default function DataList<T extends { id: string }>({
         locale={{ emptyText: <EmptyState {...空态} /> }}
         scroll={{ x }}
         rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]) } : undefined}
+        rowClassName={(r) => (新来的.includes(r.id) ? "row-fresh" : "")}
         onRow={
           行链接
             ? (r) => ({

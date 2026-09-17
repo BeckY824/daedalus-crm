@@ -1021,6 +1021,20 @@ a {
 .ops .ant-table-tbody > tr > td { height: 34px; padding-block: 2px !important; font-size: var(--fs-note); }
 .ops .ant-table-thead > tr > th { height: 32px; font-size: var(--fs-min); }
 
+/* 刚建出来的那一行：亮一下再退回去。两秒够看见，又不至于留在那儿碍眼。
+   用 background-color 从品牌浅底退到透明，不动尺寸——列表在动的时候最怕行高跳。 */
+.row-fresh > td { animation: row-fresh 2s ease-out 1 both; }
+@keyframes row-fresh {
+  0% { background-color: var(--brand-bg); }
+  55% { background-color: var(--brand-bg); }
+  100% { background-color: transparent; }
+}
+
+/* 骨架屏晚 180ms 再出现：这段时间内页面要是已经好了，就一眼都不会看见它。
+   原来快的那几页也会闪一下灰块，闪一下比等一下更像出了问题。 */
+.app-loading { animation: app-loading-in 0.2s ease-out 0.18s both; }
+@keyframes app-loading-in { from { opacity: 0; } to { opacity: 1; } }
+
 /* 系统里把「减弱动态效果」打开的人，这里一律按不动处理。
    这一条放在文件最后，为的是压过上面所有的 transition / animation——
    动效是锦上添花，开了这个开关的人多半是因为它让人不舒服。 */
