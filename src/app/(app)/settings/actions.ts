@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, 复成员 } from "@/lib/tenant/members";
+import { 列出 as 列出设备, 吊销 as 吊销设备 } from "@/lib/tenant/device-token";
 import { isEmail } from "@/lib/tenant/accounts";
 import { createSession } from "@/lib/auth";
 import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, fetchRemoteModels, type ModelOption } from "@/lib/llm";
@@ -355,6 +356,72 @@ export async function changeMyPassword(oldPwd: string, newPwd: string) {
     user: me, action: "password", entity: "User", entityId: me.id,
     summary: `${me.name} 修改了自己的登录密码`,
   });
+  return { ok: true as const };
+}
+
+/* ---------- 已登录的机器 ---------- */
+
+/**
+ * 这个人背后的控制面账号。设备令牌挂在它名下，不在业务库那条 User 上。
+ *
+ * 两种情况返回 null，那时「已登录的机器」整栏不出现：
+ *   自部署版    —— 桌面端不连我们的控制面，也就没有设备令牌这回事；
+ *   共享工作区  —— 那一套账号密码发给了多个团队（见 shared-ws/current.ts），
+ *                  列表里会是别的团队的机器名，而「退出」能把他们正在用的机器踢下线。
+ */
+async function 我的控制面账号(userId: string): Promise<string | null> {
+  if (!托管版()) return null;
+  const { 当前是共享区 } = await import("@/lib/shared-ws/current");
+  if (await 当前是共享区()) return null;
+  const link = await prisma.workspaceAccount.findUnique({ where: { userId } });
+  return link?.accountId ?? null;
+}
+
+/** 一台已登录的机器。时间序列化成字符串——这东西要过 Server → Client 那道边界 */
+export type 机器 = { id: string; 名字: string; 登录于: string; 最近使用: string | null };
+
+/**
+ * 我这个账号上还活着的设备令牌。**null 表示这一栏不适用**，空数组表示一台都没有。
+ *
+ * 改密码是一把大闩，一拉全部退出（见 members.ts 的 改密码）。但「只丢了备用本，
+ * 不想让另外两台重登」之前没有任何路：`列出` / `吊销` 两个函数一直是现成的，
+ * 界面上一处都没有（`列出` 全仓引用次数曾经是 0）。这一栏就是那个缺口。
+ */
+export async function 我的机器(): Promise<机器[] | null> {
+  const me = await requireUser();
+  const accountId = await 我的控制面账号(me.id);
+  if (!accountId) return null;
+  return (await 列出设备(accountId)).map((d) => ({
+    id: d.id,
+    名字: d.name,
+    登录于: d.createdAt.toISOString(),
+    最近使用: d.lastUsedAt?.toISOString() ?? null,
+  }));
+}
+
+/**
+ * 退出其中一台。
+ *
+ * `吊销` 的第二个参数就是那道闸：少了它，猜到一个 id 就能把别人的机器踢下线
+ * （gateway.test.ts 钉着这条）。这里只传自己的 accountId，别人的 id 传进来会一无所获。
+ *
+ * 那台机器不用等到下次调 AI 才发现：它切回前台时会问一句自己还认不认
+ * （cloud.js 的 校验），然后说清原因回到登录界面。
+ */
+export async function 退出这台机器(id: string) {
+  const me = await requireUser();
+  const accountId = await 我的控制面账号(me.id);
+  if (!accountId) return { ok: false as const, error: "这个部署没有云端账号，也就没有已登录的机器" };
+  // 名字要在吊销之前取：吊销之后 列出 就查不到它了，而日志里得写清是哪一台
+  const 名字 = (await 列出设备(accountId)).find((d) => d.id === id)?.name ?? "";
+  if (!(await 吊销设备(id, accountId))) {
+    return { ok: false as const, error: "这台机器已经退出了" };
+  }
+  await recordAudit({
+    user: me, action: "device_revoke", entity: "Device", entityId: id,
+    summary: `${me.name} 退出了已登录的机器「${名字 || "未命名设备"}」`,
+  });
+  revalidatePath("/settings");
   return { ok: true as const };
 }
 

@@ -79,6 +79,51 @@ describe("两条容易被下一个人改坏的约定", () => {
     expect(src).toMatch(/isAdmin=\{[^}]*!\s*共享区\s*\}/);
   });
 
+  it("共享工作区里不摆「已登录的机器」——那一栏里会是别人的机器", async () => {
+    /**
+     * 设备令牌挂在控制面账号上，而共享工作区那一套账号密码发给了多个团队：
+     * A 团队打开设置页会看到 B 团队的机器名，「退出」还能把 B 正在用的那台踢下线。
+     * 所以 我的控制面账号 在共享区直接回 null，界面上那一栏整个不出现（机器 && …）。
+     * 自部署版同理：那边桌面端不连控制面，压根没有设备令牌。
+     */
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const 动作 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/actions.ts"), "utf8");
+    const i = 动作.indexOf("async function 我的控制面账号");
+    expect(i, "找不到 我的控制面账号").toBeGreaterThan(0);
+    const 段 = 动作.slice(i, 动作.indexOf("\n}", i));
+    expect(段).toContain("当前是共享区");
+    expect(段).toContain("托管版()");
+    expect(段).toContain("return null");
+    // 列表和「退出」两条路都要过这道闸，只挡住一条等于没挡
+    for (const 名 of ["我的机器", "退出这台机器"]) {
+      const j = 动作.indexOf(`export async function ${名}`);
+      expect(j, `找不到 ${名}`).toBeGreaterThan(0);
+      expect(动作.slice(j, 动作.indexOf("\n}", j)), `${名} 没过 我的控制面账号`).toContain("我的控制面账号(me.id)");
+    }
+
+    const 界面 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/SettingsView.tsx"), "utf8");
+    expect(界面).toContain("已登录的机器");
+    // null 就整栏不画：共享区和自部署版拿到的都是 null
+    expect(界面).toMatch(/\{机器 && \(/);
+  });
+
+  it("改密码那一屏要写清「所有机器都要重新登录」", async () => {
+    /**
+     * 改密码会把这个账号的桌面端全部踢下线（members.ts 的 改密码）。
+     * /forgot 和桌面端那块面板都写了这句，设置页这一屏最早漏了——
+     * 而它正是自己改密码最常走的那条路。
+     */
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const 界面 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/SettingsView.tsx"), "utf8");
+    const i = 界面.indexOf('key: "password"');
+    expect(i).toBeGreaterThan(0);
+    const 段 = 界面.slice(i, i + 2000);
+    expect(段).toMatch(/所有地方都要重新登录|所有.{0,4}机器.{0,8}重新登录/);
+    expect(段, "还要指一条只退一台的路，否则人只能拿改密码当锤子").toContain("已登录的机器");
+  });
+
   it("AI 配置的操作日志不带 detail", async () => {
     /**
      * 操作日志那一栏**不在 isAdmin 判断之内**——普通销售也看得到。

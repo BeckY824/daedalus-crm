@@ -63,6 +63,10 @@ export function 取Bearer(req: Request): string | null {
   return m ? m[1].trim() : null;
 }
 
+/**
+ * 这个账号还活着的机器，新的在前。设置页「登录与密码」那一栏就是它
+ * （settings/actions.ts 的 我的机器），也只有那一处。
+ */
 export async function 列出(accountId: string) {
   return control.deviceToken.findMany({
     where: { accountId, revokedAt: null },
@@ -76,12 +80,14 @@ export async function 列出(accountId: string) {
  *
  * 改密码时调它（2026-09-17）。原来改密码只作废网页会话、不碰设备令牌，
  * 理由写的是「令牌是另一类凭证，它自己有列出与吊销的口子」——
- * 可那个口子只有 `列出` 和 `吊销` 两个函数，界面上一处都没有。
+ * 可那个口子当时只有 `列出` 和 `吊销` 两个函数，界面上一处都没有。
  * 于是机器丢了的人只剩「改密码」这一根杠杆，而那根杠杆对令牌不起作用，
  * 唯一的吊销方式在那台丢了的机器上。等于没有退路。
  *
  * 所以改成：改密码 = 全部退出，和人对「我改了密码」的预期一致。
- * 代价是手上几台机器都要重登一次——这件事在改密码那一屏上写明白了。
+ * 代价是手上几台机器都要重登一次——这件事在三处改密码的界面上都写明白了
+ * （设置页、网页 /forgot、桌面端那块面板）。只想退掉其中一台的，
+ * 走设置页的「已登录的机器」，那一栏同一天补上了。
  */
 export async function 吊销全部(accountId: string): Promise<number> {
   const r = await control.deviceToken.updateMany({

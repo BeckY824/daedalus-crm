@@ -126,6 +126,52 @@ describe("令牌", () => {
   });
 });
 
+/**
+ * 设置页「已登录的机器」那一栏的数据来源（settings/actions.ts 的 我的机器）。
+ *
+ * 这一栏 2026-09-17 才有。在那之前 `列出` 全仓引用次数是 0：改密码能一次吊光，
+ * 而「只丢了备用本，不想让另外两台重登」没有任何路。
+ */
+describe("已登录的机器这一栏", () => {
+  it("只列自己的机器——列表里出现别人的机器名，就等于能看也能踢", async () => {
+    const { 签发, 列出 } = await import("@/lib/tenant/device-token");
+    const 甲 = await 建账号带令牌();
+    const 乙 = await 建账号带令牌();
+    await 签发(乙.acc.id, "乙的台式机");
+
+    const 甲的 = await 列出(甲.acc.id);
+    expect(甲的.map((d) => d.name)).toEqual(["我的 MacBook"]);
+    expect(甲的.map((d) => d.id)).not.toContain(乙.tokenId);
+  });
+
+  it("退出过的不再出现——否则按钮点完那一行还在，看起来像没生效", async () => {
+    const { 签发, 吊销, 列出 } = await import("@/lib/tenant/device-token");
+    const { acc } = await 建账号带令牌();
+    const 备用本 = await 签发(acc.id, "备用本");
+    expect((await 列出(acc.id))).toHaveLength(2);
+
+    expect(await 吊销(备用本.id, acc.id)).toBe(true);
+    const 剩下 = await 列出(acc.id);
+    expect(剩下.map((d) => d.name), "只该退掉那一台，另一台照常用着").toEqual(["我的 MacBook"]);
+    // 同一台再退一次要回 false，界面据此说「这台机器已经退出了」
+    expect(await 吊销(备用本.id, acc.id)).toBe(false);
+  });
+
+  it("新登录的在最前面，还带上「最近调用 AI」那一列要的时间", async () => {
+    const { 签发, 认领, 列出 } = await import("@/lib/tenant/device-token");
+    const { acc, token } = await 建账号带令牌();
+    await new Promise((r) => setTimeout(r, 5));
+    await 签发(acc.id, "刚登的那台");
+
+    const 列 = await 列出(acc.id);
+    expect(列.map((d) => d.name)).toEqual(["刚登的那台", "我的 MacBook"]);
+    // 登录了但一次 AI 都没用过是常态，那一列显示「还没有」，不是「从未使用」
+    expect(列.every((d) => d.lastUsedAt === null)).toBe(true);
+    await 认领(token);
+    expect((await 列出(acc.id)).find((d) => d.id === 列[1].id)?.lastUsedAt).not.toBeNull();
+  });
+});
+
 describe("请求体", () => {
   it("模型不在白名单就拒——不限的话一个改字段的请求就能把额度花在最贵的模型上", async () => {
     const { token } = await 建账号带令牌();

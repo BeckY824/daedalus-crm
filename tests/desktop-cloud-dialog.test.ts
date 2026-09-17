@@ -211,7 +211,13 @@ describe("令牌被吊销之后，桌面端要自己发现", () => {
     // 弹一个有取消键的确认框，会让人以为自己还有得选
     const 段 = main.slice(main.indexOf("async function 令牌失效了"), main.indexOf("async function 退出云端"));
     expect(段).toContain('buttons: ["知道了"]');
-    expect(段).toContain("云端账号的密码改过了");
+    /*
+      两条路都会走到这里：改了密码（全部吊销），或者在网页端的「已登录的机器」里
+      单独退了这一台。服务端两种都只回 401，桌面端分不出是哪一条——
+      所以话不能只说改密码那一半，不然单独退一台的人对着「密码改过了」发懵。
+    */
+    expect(段).toContain("改过密码");
+    expect(段).toContain("已登录的机器");
     expect(段).not.toContain("cancelId");
   });
 })

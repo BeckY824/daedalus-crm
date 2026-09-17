@@ -150,6 +150,18 @@ test("5 共享工作区里不摆管理员那几栏——密码在多个团队手
    */
   await expect(page.getByText("AI 接入")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /测试连接/ })).toHaveCount(0);
+
+  /**
+   * 「已登录的机器」那一栏同理，而且更糟：设备令牌挂在控制面账号上，一套账号密码
+   * 在多个团队手里，于是 A 团队会看到 B 团队的机器名，「退出」还能把 B 正在用的
+   * 那台桌面端踢下线。服务端那一栏在共享区回 null（settings/actions.ts 的
+   * 我的控制面账号），这里钉的是界面真的没画它。
+   */
+  await page.goto("/settings?tab=password");
+  await expect(page.getByRole("heading", { name: "设置", exact: true })).toBeVisible({ timeout: 15_000 });
+  // 先确认真进了那一屏：在别的屏上断言「没有这一栏」是假的绿
+  await expect(page.getByLabel("原密码")).toBeVisible();
+  await expect(page.getByText("已登录的机器")).toHaveCount(0);
 });
 
 test("6 共享工作区里手机号要打码", async ({ page }) => {

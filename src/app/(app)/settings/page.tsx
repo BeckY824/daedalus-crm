@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import SettingsView from "./SettingsView";
+import { 我的机器 } from "./actions";
 import { describeLlmConfig } from "@/lib/llm";
 import { getBusiness } from "@/lib/business";
 import { aiUsageThisMonth } from "@/lib/ai-usage";
@@ -18,7 +19,13 @@ export default async function SettingsPage() {
     take: 200,
   });
 
-  const [llm, business, aiUsage, 共享区] = await Promise.all([describeLlmConfig(), getBusiness(), aiUsageThisMonth(), 当前是共享区()]);
+  /**
+   * 机器那一栏：托管版里用这个账号登录过桌面端的机器。
+   * 自部署版和共享工作区拿到的是 null，界面上那一栏整个不出现（见 actions.ts 的 我的控制面账号）。
+   */
+  const [llm, business, aiUsage, 共享区, 机器] = await Promise.all([
+    describeLlmConfig(), getBusiness(), aiUsageThisMonth(), 当前是共享区(), 我的机器(),
+  ]);
 
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "asc" },
@@ -43,6 +50,7 @@ export default async function SettingsPage() {
       llm={llm}
       business={business}
       aiUsage={aiUsage}
+      机器={机器}
       logs={logs.map((l) => ({
         id: l.id,
         at: l.at.toISOString(),

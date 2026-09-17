@@ -26,7 +26,7 @@ import { PageHead, UserCell } from "@/components/ui";
 import { dayjs } from "@/lib/utils";
 import { ROLES } from "@/lib/constants";
 import type { SessionUser } from "@/lib/auth";
-import { saveUser, deactivateUser, reactivateUser, changeMyPassword } from "./actions";
+import { saveUser, deactivateUser, reactivateUser, changeMyPassword, 退出这台机器, type 机器 } from "./actions";
 import AiSettingsTab, { type LlmView } from "./AiSettingsTab";
 import BusinessSettingsTab from "./BusinessSettingsTab";
 import type { BusinessConfig } from "@/lib/business-config";
@@ -58,10 +58,10 @@ export type AuditRow = {
 /** 动作与对象的中文叫法，日志里直接显示英文没人看得懂 */
 const ACTION_LABEL: Record<string, string> = {
   create: "新建", update: "修改", delete: "删除", assign: "转派",
-  convert: "转化", deactivate: "停用", reactivate: "恢复", password: "改密码", ai_use: "AI", ai_apply: "确认 AI 建议",
+  convert: "转化", deactivate: "停用", reactivate: "恢复", password: "改密码", device_revoke: "退出机器", ai_use: "AI", ai_apply: "确认 AI 建议",
 };
 const ENTITY_LABEL: Record<string, string> = {
-  Customer: "学员", Contract: "签约", Lead: "线索", User: "成员", Channel: "渠道", Setting: "系统设置", Ai: "AI 功能",
+  Customer: "学员", Contract: "签约", Lead: "线索", User: "成员", Channel: "渠道", Setting: "系统设置", Ai: "AI 功能", Device: "机器",
 };
 /** 明细是入库时序列化的 JSON，格式化给人看；万一存了非法内容也不能让页面崩 */
 function safeJson(raw: string | null): string {
@@ -81,7 +81,7 @@ const ACTION_COLOR: Record<string, string> = {
 /** 左目录里每一项底下那句话。放在组件外面，免得每次渲染重建 */
 const 说明表: Record<string, string> = {
   members: "谁能进、谁是管理员",
-  password: "改自己的登录密码",
+  password: "改密码、看哪几台机器登录着",
   ai: "走哪把 Key、还剩几次",
   business: "学员 / 客户这些叫法",
   audit: "每一次改动的记录",
@@ -95,6 +95,7 @@ export default function SettingsView({
   llm,
   business,
   aiUsage,
+  机器,
   用邮箱登录 = false,
 }: {
   users: Row[];
@@ -104,6 +105,11 @@ export default function SettingsView({
   llm: LlmView;
   business: BusinessConfig;
   aiUsage: AiUsage;
+  /**
+   * 用这个云端账号登录着的桌面端机器。**null 表示这一栏不适用**（自部署版、共享工作区），
+   * 空数组表示一台都没有。见 actions.ts 的 我的控制面账号。
+   */
+  机器: 机器[] | null;
   /** 托管版：成员的登录标识是邮箱，不是用户名。见这一页表单里那段注释 */
   用邮箱登录?: boolean;
 }) {
@@ -173,6 +179,34 @@ export default function SettingsView({
         } else if ("error" in again) {
           message.error(again.error);
         }
+      },
+    });
+  }
+
+  /**
+   * 退出一台机器。
+   *
+   * 问一句再退：这动作对那台机器是不可逆的（令牌吊了就是吊了，要人拿密码重登），
+   * 而按钮就摆在表格行里，误点的成本比翻一次确认框高。
+   */
+  function onRevoke(m: 机器) {
+    modal.confirm({
+      title: `退出「${m.名字}」？`,
+      content: (
+        <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 12, marginBottom: 0 }}>
+          那台机器上的 CRM 会回到登录界面，AI 立刻停。<b>本地数据都在那台机器上，不受影响</b>，
+          拿账号密码重新登录就能接着用。
+        </Typography.Paragraph>
+      ),
+      okText: "退出这台",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      async onOk() {
+        const res = await 退出这台机器(m.id);
+        if (res.ok) {
+          message.success("已退出");
+          router.refresh();
+        } else message.error(res.error);
       },
     });
   }
@@ -324,10 +358,25 @@ export default function SettingsView({
       key: "password",
       label: "登录与密码",
       children: (
+        <div style={{ paddingTop: 8 }}>
+          {/*
+            改密码的代价要写在按钮旁边，不是等人发现。它会把这个账号的桌面端
+            全部踢下线（见 lib/tenant/members.ts 的 改密码），而「我只是换个密码」
+            的人不会预期到手上那几台机器都要重登——尤其是他并不想动的那几台。
+          */}
+          {机器 && (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginBottom: 16, maxWidth: 560 }}
+              title="改完密码，所有地方都要重新登录"
+              description="网页端其他设备上的登录状态会作废，桌面端每一台已登录的机器也会退出（那些机器上的数据不受影响）。只想退出其中一台的话，用下面的「已登录的机器」，别动密码。"
+            />
+          )}
           <Form
             form={pwdForm}
             layout="vertical"
-            style={{ maxWidth: 380, paddingTop: 8 }}
+            style={{ maxWidth: 380 }}
             onFinish={async (v) => {
               const res = await changeMyPassword(v.oldPwd, v.newPwd);
               if (res.ok) {
@@ -369,6 +418,52 @@ export default function SettingsView({
               保存
             </Button>
           </Form>
+          {机器 && (
+            <div style={{ marginTop: 32, maxWidth: 620 }}>
+              <Typography.Title level={5} style={{ marginBottom: 4 }}>
+                已登录的机器
+              </Typography.Title>
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+                用这个云端账号登录过桌面端的机器。丢了一台就在这里把它退出来——
+                不用为此改密码，另外几台照常用着。
+              </Typography.Paragraph>
+              <Table<机器>
+                rowKey="id"
+                size="small"
+                dataSource={机器}
+                pagination={false}
+                locale={{ emptyText: "还没有机器用这个账号登录过桌面端" }}
+                columns={[
+                  { title: "机器", dataIndex: "名字", render: (v: string) => <b>{v}</b> },
+                  {
+                    title: "登录于",
+                    dataIndex: "登录于",
+                    width: 150,
+                    render: (v: string) => dayjs(v).format("YYYY-MM-DD HH:mm"),
+                  },
+                  {
+                    title: "最近调用 AI",
+                    dataIndex: "最近使用",
+                    width: 150,
+                    /* 只有走模型网关时才记，而且五分钟内只记一次（device-token.ts），
+                       所以「还没有」是常态：登录了但一次 AI 都没用过。别说成「从未使用」 */
+                    render: (v: string | null) =>
+                      v ? dayjs(v).format("YYYY-MM-DD HH:mm") : <span style={{ color: "var(--ink-soft)" }}>还没有</span>,
+                  },
+                  {
+                    title: "",
+                    width: 88,
+                    render: (_: unknown, r: 机器) => (
+                      <Button size="small" danger type="text" onClick={() => onRevoke(r)}>
+                        退出
+                      </Button>
+                    ),
+                  },
+                ]}
+              />
+            </div>
+          )}
+        </div>
         ),
       },
       ...(isAdmin
