@@ -24,6 +24,7 @@ import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
 import Signals from "./Signals";
 import type { StepEvent } from "@/lib/ai-steps";
+import { summarizeSteps } from "@/lib/agent/step-summary";
 import { dayjs } from "@/lib/utils";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
@@ -515,20 +516,6 @@ function MenuRow({ label, keys }: { label: string; keys: string }) {
   );
 }
 
-/** 把工具调用折成一句人话：「读了 1 位客户，查了 1 个数」 */
-function summarizeSteps(steps: StepEvent[], customer: string): string {
-  const n = (prefix: string) => steps.filter((s) => s.id.startsWith("tool") && s.label.startsWith(prefix)).length;
-  const parts: string[] = [];
-  const search = n("search_customers");
-  const read = n("get_customer");
-  const metric = n("query_metric");
-  if (search) parts.push(`搜了 ${search} 次`);
-  if (read) parts.push(`读了 ${read} 位${customer}的记录`);
-  if (metric) parts.push(`查了 ${metric} 个数`);
-  if (n("get_watchlist")) parts.push("看了盯盘");
-  if (n("get_my_plans")) parts.push("看了我的计划");
-  return parts.join("，") || "没有读取任何记录";
-}
 
 function whenLabel(at: number): string {
   const d = dayjs(at);

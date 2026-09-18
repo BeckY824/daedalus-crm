@@ -54,3 +54,21 @@ describe("工具表 ↔ schema 表", () => {
     for (const n of Object.keys(只读SCHEMAS)) expect(n.startsWith("propose_"), `${n} 不该在只读组里`).toBe(false);
   });
 });
+
+/**
+ * 第三份清单：过程条上的口语表（step-summary.ts）。
+ * 漏了的后果比前两份轻，但更丢人：明明查了渠道清单、答对了，过程条上写
+ * 「没有读取任何记录」——对用户来说这句话和"它没查就答"是一个意思（2026-09-18 截图）。
+ */
+describe("工具表 ↔ 过程条口语表", () => {
+  it("每个工具都有一句口语", async () => {
+    const { 工具口语 } = await import("@/lib/agent/step-summary");
+    const 漏了 = TOOLS.filter((t) => !工具口语[t.name]).map((t) => t.name);
+    expect(漏了, `这些工具过程条上不会说人话：${漏了.join("、")}`).toEqual([]);
+  });
+  it("口语表里也不该有已经删掉的工具", async () => {
+    const { 工具口语 } = await import("@/lib/agent/step-summary");
+    const 名字 = new Set(TOOLS.map((t) => t.name));
+    expect(Object.keys(工具口语).filter((n) => !名字.has(n))).toEqual([]);
+  });
+});
