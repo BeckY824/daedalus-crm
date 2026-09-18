@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import CustomerRoster from "@/components/CustomerRoster";
+import ConversationList from "@/app/(app)/dashboard/ConversationList";
+import { 列对话 } from "@/app/(app)/dashboard/threads";
+import { llmEnabled } from "@/lib/llm";
 
 /**
  * 中栏（312px）的内容。眼下**只有一种**：学员记录页的窄名单。
@@ -73,4 +76,19 @@ export async function 学员名单() {
  */
 export function 无中栏() {
   return null;
+}
+
+/**
+ * 首页的中栏：问过的对话（2026-09-18）。
+ *
+ * 中栏「只有要在同类记录之间连着切的场景才出现」——翻对话正是这种场景：
+ * 「上周问的那条回款怎么算的」现在要么翻不到，要么得把它和别的事混在同一屏。
+ * 列表只列自己的（threads.ts 按 ownerId 查）。
+ *
+ * 没配 AI 的库不出这一栏：那时首页是数据看板，根本没有对话这回事。
+ */
+export async function 对话列表() {
+  await requireUser();
+  if (!(await llmEnabled())) return null;
+  return <ConversationList rows={await 列对话()} />;
 }

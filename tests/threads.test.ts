@@ -114,6 +114,11 @@ describe("列表与增删改", () => {
   it("按最后一次提问倒序，置顶的排在最前面", async () => {
     const 早 = await 落一轮({ question: "早的", answer: "答" });
     const 晚 = await 落一轮({ question: "晚的", answer: "答" });
+    /*
+      两条是同一毫秒里建的，lastAskedAt 会一模一样——那样这条用例验的就成了
+      「SQLite 恰好按什么顺序返回」。把「早的」真的推早一天，验的才是排序本身。
+    */
+    await prisma.aiConversation.update({ where: { id: 早.conversationId }, data: { lastAskedAt: new Date(Date.now() - 86_400_000) } });
     expect((await 列对话()).map((c) => c.title)).toEqual(["晚的", "早的"]);
 
     await prisma.aiConversation.update({ where: { id: 早.conversationId }, data: { pinnedAt: new Date() } });
@@ -124,6 +129,7 @@ describe("列表与增删改", () => {
   it("重命名不改排序——改个名字不该让老对话跳到最前面", async () => {
     const 早 = await 落一轮({ question: "早的", answer: "答" });
     await 落一轮({ question: "晚的", answer: "答" });
+    await prisma.aiConversation.update({ where: { id: 早.conversationId }, data: { lastAskedAt: new Date(Date.now() - 86_400_000) } });
     await 重命名对话(早.conversationId, "改了名的");
     expect((await 列对话()).map((c) => c.title)).toEqual(["晚的", "改了名的"]);
   });

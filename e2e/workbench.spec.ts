@@ -42,8 +42,12 @@ test.beforeAll(async () => {
   await p.$disconnect();
 });
 
-test("先把 AI 接入填上——首页是对话面还是数据看板，就看这一项", async ({ page }) => {
-  await 登录(page, 管理员);
+/**
+ * 把 AI 接入填上。抽成函数是因为不止一条用例要它——
+ * 单跑某一条（`-g`）时前面那条不会执行，那时首页是数据看板，对话面根本不存在。
+ * 重复填一次是安全的：同一把假 Key 覆盖同一行设置。
+ */
+async function 配好AI(page: Page) {
   await page.goto("/settings?tab=ai");
   // AI 接入 2026-09-17 起是「两个选择」：先说要用自己的 Key，再选「其它」才出现接口地址
   await page.getByRole("radio", { name: /用你自己的 API Key/ }).click();
@@ -57,6 +61,11 @@ test("先把 AI 接入填上——首页是对话面还是数据看板，就看�
   // 没测过连接会先拦一下：整套 AI 都走这套配置，地址不对会一起失灵
   await page.getByRole("button", { name: "仍然保存" }).click();
   await expect(page.locator(".ant-message")).toContainText("已保存");
+}
+
+test("先把 AI 接入填上——首页是对话面还是数据看板，就看这一项", async ({ page }) => {
+  await 登录(page, 管理员);
+  await 配好AI(page);
 });
 
 test.afterAll(async () => {
@@ -65,6 +74,48 @@ test.afterAll(async () => {
   await p.setting.deleteMany({ where: { key: "llm" } });
   await 清空业务数据(p);
   await p.$disconnect();
+});
+
+/**
+ * 问过的对话（2026-09-18）。
+ *
+ * 在这之前首页那串问答只活在内存里，刷新即清，也开不出第二个——
+ * 「上周问的那条回款是怎么算的」没有任何地方翻得到。
+ *
+ * 这条不调模型：真去问一句要等模型，而且这套 e2e 的地址是假的。
+ * 直接往库里放一条答完的对话，验的是**读回来这条路**——列表、点开、清屏。
+ */
+test("对话历史：中栏列着问过的，点一条能把它读回来", async ({ page }) => {
+  const p = 连库();
+  const me = await p.user.findFirstOrThrow({ where: { email: "admin" } });
+  await p.aiConversation.deleteMany({ where: { ownerId: me.id } });
+  const c = await p.aiConversation.create({ data: { title: "这个月谁签得最多", ownerId: me.id } });
+  await p.aiMessage.create({ data: { conversationId: c.id, role: "user", text: "这个月谁签得最多" } });
+  await p.aiMessage.create({
+    data: { conversationId: c.id, role: "assistant", text: "这个月张三签得最多，合计 ¥32,600。", model: "e2e-model", ms: 4200 },
+  });
+  await p.$disconnect();
+
+  await 登录(page, 管理员);
+  await 配好AI(page); // 单跑这一条时前面那条不会执行，对话面得自己打开
+  await page.goto("/dashboard");
+
+  // 中栏在，标题是「对话」，里面有那一条
+  const 中栏 = page.locator("aside.pane");
+  await expect(中栏.locator(".pane-t")).toContainText("对话");
+  // exact：那一行旁边还有一颗「… 的操作」，不加会同时命中两个
+  await 中栏.getByRole("button", { name: "这个月谁签得最多", exact: true }).click();
+
+  // 地址跟着走，问和答都读回来了
+  await expect(page).toHaveURL(new RegExp(`\\?c=${c.id}`));
+  await expect(page.locator(".cli-bubble")).toContainText("这个月谁签得最多");
+  await expect(page.locator(".cli-a")).toContainText("32,600");
+
+  // 「新建对话」把这一屏清空，回到问候屏；库里那条不受影响
+  await 中栏.getByRole("button", { name: "新建对话" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.locator(".cli-turn")).toHaveCount(0);
+  await expect(中栏.getByRole("button", { name: "这个月谁签得最多", exact: true })).toBeVisible();
 });
 
 test("空库首页：一张「开始」卡，整页只有一个主按钮，没有指标卡", async ({ page }) => {

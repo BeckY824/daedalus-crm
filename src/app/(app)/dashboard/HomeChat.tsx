@@ -16,9 +16,10 @@ import { draftWakeup } from "./ai";
 import { draftInvite } from "../channels/ai";
 import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
-import { clearJob, getJob, runJob, useJob, useRunningKey } from "@/lib/ai-jobs";
+import { clearJob, getJob, runJob, setJobValue, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
-import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, type Turn } from "@/lib/home-thread";
+import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 载入对话, 认领对话, 当前对话, type Turn } from "@/lib/home-thread";
+import { 落一轮, type 历史消息 } from "./threads";
 import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
 import Signals from "./Signals";
@@ -26,6 +27,39 @@ import type { StepEvent } from "@/lib/ai-steps";
 import { dayjs } from "@/lib/utils";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
+
+/**
+ * 把库里读回来的消息摊成这一屏的「轮」。
+ *
+ * 一轮 = 一条 user + 紧跟着的一条 assistant。turn 的 id 直接用那条 user 消息的 id，
+ * 这样 ai-jobs 里的 key（home:<id>）在刷新前后是同一个，不会翻一次历史多出一份任务。
+ *
+ * **建议卡不还原**：那是「要不要写进库」的待办，人当时已经处理过了；
+ * 隔天翻历史再弹一张「点确认就写入」的卡片，等于把一件做完的事重新摆回台面。
+ */
+function 历史成屏(messages: 历史消息[]): { turns: Turn[]; jobs: { key: string; value: StreamJob<AgentAnswer> }[] } {
+  const turns: Turn[] = [];
+  const jobs: { key: string; value: StreamJob<AgentAnswer> }[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const u = messages[i];
+    if (u.role !== "user") continue;
+    const a = messages[i + 1]?.role === "assistant" ? messages[i + 1] : null;
+    if (!a) continue;
+    i++;
+    turns.push({ id: u.id, question: u.text, kind: "ask", at: Date.parse(u.createdAt) });
+    const refs = (a.refs ?? {}) as { records?: BriefRecord[]; customers?: AgentAnswer["customers"] };
+    jobs.push({
+      key: `home:${u.id}`,
+      value: {
+        steps: (Array.isArray(a.steps) ? a.steps : []) as StepEvent[],
+        text: a.text,
+        ms: a.ms ?? undefined,
+        answer: { text: a.text, records: refs.records ?? [], customers: refs.customers ?? [], proposals: [] },
+      },
+    });
+  }
+  return { turns, jobs };
+}
 
 type AgentAnswer = { text: string; records: BriefRecord[]; customers: { id: string; name: string; followStatus: string }[]; proposals: Proposal[] };
 
@@ -49,7 +83,9 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
  */
 export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: number; 高意向标签: string };
 
-export default function HomeChat({ userName, suggestions, context, models, aiQuota, 空库, 信号 }: {
+export default function HomeChat({ 会话, userName, suggestions, context, models, aiQuota, 空库, 信号 }: {
+  /** 地址上 ?c= 指的那条对话，服务端读好传进来。null = 一屏新对话 */
+  会话: { id: string; title: string; messages: 历史消息[] } | null;
   userName: string;
   suggestions: Suggestion[];
   context: string;
@@ -99,6 +135,58 @@ export default function HomeChat({ userName, suggestions, context, models, aiQuo
   );
 
   const runningKey = useRunningKey(turns.map((t) => `home:${t.id}`));
+
+  /**
+   * 库 → 这一屏。
+   *
+   * 只在「换了一条对话」时真的换内容（见 home-thread 的 载入对话）：
+   * 从客户页切回首页也会跑这个 effect，那时候不能把正在流的那一轮冲掉。
+   * 地址上没有 ?c= 时什么都不做——新建对话走的是中栏那颗键，不是靠地址栏。
+   */
+  useEffect(() => {
+    if (!会话) return;
+    const { turns: 轮, jobs } = 历史成屏(会话.messages);
+    if (!载入对话(会话.id, 轮)) return;
+    for (const j of jobs) setJobValue(j.key, j.value);
+    // 历史那几轮本来就在库里，别再落一遍
+    for (const t of 轮) 已落.current.add(t.id);
+  }, [会话]);
+
+  /**
+   * 答完一轮就落库。
+   *
+   * 在这儿做而不是在 runStream 里：那边是模块级的，不认识「当前是哪条对话」，
+   * 也没有 router。先把 id 记进 已落 再发请求——这个 effect 会因为任务表变动
+   * 跑好几次，不占位的话同一轮会落两遍。
+   */
+  const 已落 = useRef(new Set<string>());
+  useEffect(() => {
+    void (async () => {
+      for (const t of turns) {
+        if (已落.current.has(t.id)) continue;
+        const job = getJob<StreamJob<AgentAnswer>>(`home:${t.id}`);
+        if (job?.status !== "done") continue;
+        const 答 = (job.value?.answer?.text ?? job.value?.text ?? "").trim();
+        已落.current.add(t.id);
+        if (!答) continue;
+        const r = await 落一轮({
+          conversationId: 当前对话(),
+          question: t.question,
+          answer: 答,
+          model,
+          ms: job.value?.ms ?? null,
+          steps: job.value?.steps,
+          // 建议卡不存：它是一件当时就处理完的事，翻历史不该再摆回来
+          refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [] },
+        });
+        认领对话(r.conversationId);
+        // 地址对上那条对话（replace：翻历史时后退键不该退回「同一屏但没有 ?c=」）
+        router.replace(`/dashboard?c=${r.conversationId}`, { scroll: false });
+        // 中栏那条列表要跟着出现 / 换顺序
+        router.refresh();
+      }
+    })();
+  }, [turns, runningKey, model, router]);
   const running = runningKey ? turns.find((t) => `home:${t.id}` === runningKey) : undefined;
   const queued = turns.find((t) => t.queued);
   const showCmds = q.startsWith("/") && !q.includes(" ");

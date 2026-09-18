@@ -55,7 +55,8 @@ export async function 列对话(): Promise<对话概要[]> {
   const me = await requireUser();
   const rows = await prisma.aiConversation.findMany({
     where: { ownerId: me.id, archivedAt: null },
-    orderBy: [{ pinnedAt: "desc" }, { lastAskedAt: "desc" }],
+    // createdAt 是兜底的排序键：同一毫秒里建的两条，按 lastAskedAt 分不出先后
+    orderBy: [{ pinnedAt: "desc" }, { lastAskedAt: "desc" }, { createdAt: "desc" }],
     take: 200,
     select: { id: true, title: true, lastAskedAt: true, pinnedAt: true, _count: { select: { messages: true } } },
   });

@@ -9,6 +9,7 @@ import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
 import StartCard from "./StartCard";
 import { multiTenant } from "@/lib/tenant/context";
+import { 读对话 } from "./threads";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { 查额度 } from "@/lib/tenant/ai-allowance";
 
@@ -17,8 +18,15 @@ export const dynamic = "force-dynamic";
 /**
  * 首页。配了 AI 就是一个对话面（指标图表去了 /overview）；没配 AI 就直接是数据看板。
  */
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ q?: string; c?: string }> }) {
   const user = await requireUser();
+  /*
+    地址上的 ?c= 指哪条对话。在服务端读，不在浏览器里再取一次：
+    翻一条老对话时不该先看见一屏空白再看见内容。
+    读不到（别人的、删掉的）就当没给——落到一屏新对话，不报错。
+  */
+  const sp0 = await searchParams;
+  const 对话 = sp0.c ? await 读对话(sp0.c) : null;
   if (!(await llmEnabled())) {
     /*
       没配 AI 的首页就是数据看板。但**一条业务数据都没有**的时候，看板没什么可看，
@@ -91,6 +99,7 @@ export default async function DashboardPage() {
 
   return (
     <HomeChat
+      会话={对话}
       userName={user.name}
       suggestions={suggestions.slice(0, 6)}
       context={parts.join("，") + "。"}

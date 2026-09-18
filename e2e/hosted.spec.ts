@@ -62,7 +62,14 @@ async function 注册(page: Page, 邮箱: string, 密码: string) {
   await page.getByRole("button", { name: "开通账号" }).click();
 }
 
-/** 新建一个客户。销售负责人是必填项，要从下拉里挑一个 */
+/**
+ * 新建一个客户。
+ *
+ * 「销售负责人」**只在工作区里不止一个人时才出现**（2026-09-18）：
+ * 刚开出来的工作区只有开号那一个人，让他从一个只有自己的下拉里选一次自己，
+ * 是在问一个只有一个答案的问题，所以那一项整个不画，保存时由服务端填。
+ * 这个 helper 两种情况都要能用——托管版的用例里两种工作区都有。
+ */
 async function 建客户(page: Page, 姓名: string, 手机: string) {
   await page.goto("/customers");
   await page.getByRole("button", { name: /新建客户/ }).click();
@@ -70,10 +77,13 @@ async function 建客户(page: Page, 姓名: string, 手机: string) {
   await expect(弹窗).toBeVisible();
   await 弹窗.getByLabel("客户姓名").fill(姓名);
   await 弹窗.getByLabel("联系电话").fill(手机);
-  await 弹窗.getByLabel("销售负责人").click();
-  const 下拉 = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)");
-  await 下拉.waitFor({ state: "visible" });
-  await 下拉.locator(".ant-select-item-option").first().click();
+  const 负责人 = 弹窗.getByLabel("销售负责人");
+  if (await 负责人.count()) {
+    await 负责人.click();
+    const 下拉 = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)");
+    await 下拉.waitFor({ state: "visible" });
+    await 下拉.locator(".ant-select-item-option").first().click();
+  }
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
   await expect(弹窗).toBeHidden();
 }

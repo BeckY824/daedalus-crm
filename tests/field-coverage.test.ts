@@ -43,6 +43,8 @@ const 可写: Record<string, string[]> = {
   FollowUp: ["type", "title", "content", "status", "duration", "occurredAt", "dueAt", "participants", "customerId", "contactId", "opportunityId"],
   Task: ["title", "dueAt", "done", "customerId"],
   FollowPlan: ["subject", "plannedAt", "method", "done", "customerId"],
+  // 对话历史：人能改的只有标题（重命名）。其余是系统打的，见下面「派生」
+  AiConversation: ["title"],
 };
 
 /** 派生 / 只读：写明为什么不能直接改 */
@@ -59,6 +61,28 @@ const 派生: Record<string, Record<string, string>> = {
   Task: { doneAt: "toggleTask 完成时打上", ownerId: "创建者，不做转派" },
   FollowPlan: { ownerId: "创建者，不做转派" },
   FollowUp: { ownerId: "记录人，不做转派" },
+  AiConversation: {
+    ownerId: "问的人，落库时打上。对话只有自己看得见，转派没有意义",
+    lastAskedAt: "最后一次提问的时间，落一轮时自动维护——排序按它",
+    projectId: "项目那一层这一版只有表没有界面（列必须现在就建，migrations 只能加表不能加列）",
+    pinnedAt: "置顶。同上，列先留着，界面下一版再长出来",
+    archivedAt: "归档。同上；眼下删对话是真删，不是归档",
+  },
+  AiMessage: {
+    conversationId: "属于哪条对话，落库时定，之后不换",
+    role: "user 还是 assistant，由落库那一刻决定",
+    text: "问了什么、答了什么。**不给改**：能改的历史就不是历史了",
+    model: "这一答用的哪个模型，系统记的",
+    ms: "这一答用了多久，系统记的",
+    steps: "工具调用轨迹，系统记的",
+    refs: "这一答读到的记录，系统记的",
+  },
+  AiProject: {
+    name: "这一版只有表、没有界面，见 AiConversation.projectId",
+    brief: "同上",
+    ownerId: "同上",
+    archivedAt: "同上",
+  },
 };
 
 /** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼 */

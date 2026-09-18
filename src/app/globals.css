@@ -67,6 +67,7 @@
   --th-h: 36px;              /* 表头 */
   --field-h: 48px;           /* 主输入框下限 */
   --roster-w: 220px;         /* 记录页的窄名单 */
+  --chat-w: 232px;           /* 首页的对话列表。比中栏窄：一行就是一句话，主角是右边那块对话 */
   --ai-w: 340px;             /* 记录页的 AI 栏 */
 
   /* 旧名，调用处还在用，指到新 token 上 */
@@ -285,6 +286,52 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 记录页左边那条窄名单。比别的中栏窄一档：它只要装得下
    「名字 + 状态 + 最近什么时候」，再宽就开始和正文抢地方 */
 .pane-roster { width: var(--roster-w); }
+
+/* 首页中栏：问过的对话。
+   **比记录页那条名单还窄**（232 vs 312）：一行就是一句话，不摆头像不摆标签，
+   而主角是右边那块对话——列表宽一分，对话就窄一分。
+
+   一行的形照 shadcn/ui 的 sidebar menu-button（也是 Claude / Linear 那一路）：
+   30px 高、6px 圆角、13px 字，整块可点。**选中不用品牌蓝**——
+   一列里塞一个蓝块是这类侧栏最容易显廉价的地方；中性底 + 字加重一档就够了，
+   蓝色留给真正要人点的东西（发送键、主按钮）。 */
+.pane-chat { width: var(--chat-w); }
+/* 这一栏不要那条硬分隔线：列表本来就靠留白分组，再加一条横线就沉了 */
+.pane-chat .pane-h { border-bottom: 0; }
+.pane-chat .pane-rows { padding: 0 8px 12px; }
+
+.chat-row, .chat-new {
+  display: flex; align-items: center; gap: var(--s2);
+  width: 100%; min-height: 30px; padding: 6px 8px;
+  border: 0; border-radius: var(--r-ctl); background: none;
+  font: inherit; font-size: var(--fs-note); color: var(--ink-soft);
+  text-align: left; cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.chat-row:hover, .chat-new:hover { background: var(--hover); color: var(--ink); }
+/* 「新建对话」和一条对话长得一样，列表才有同一个节奏；只有图标那点颜色区分它 */
+.chat-new { margin-bottom: var(--s1); color: var(--ink); }
+.chat-new .anticon { color: var(--text-muted); font-size: var(--fs-note); }
+.chat-new:hover .anticon { color: var(--brand); }
+
+/* 组之间靠留白分开，不靠线。上面留一整档间距是这类列表「透气」的全部秘密 */
+.chat-g { margin-top: var(--s4); }
+.chat-g:first-of-type { margin-top: var(--s2); }
+.chat-g-h { padding: 0 8px 4px; font-size: var(--fs-min); font-weight: 500; color: var(--text-faint); letter-spacing: 0.02em; }
+
+.chat-row { padding-right: 2px; }
+.chat-row.on { background: var(--hover); color: var(--ink); }
+.chat-row.on .chat-row-b { font-weight: 500; }
+.chat-row-b { flex: 1; min-width: 0; border: 0; background: none; padding: 0; font: inherit; color: inherit;
+  text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 那颗「⋯」平时不占视觉：指上去或这条选中时才显形，列表才不像一排按钮 */
+.chat-row-m { flex: none; width: 22px; height: 22px; border: 0; background: none; border-radius: var(--r-ctl); color: var(--text-faint);
+  cursor: pointer; opacity: 0; transition: opacity var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-min); }
+.chat-row:hover .chat-row-m, .chat-row.on .chat-row-m { opacity: 1; }
+.chat-row-m:hover { color: var(--ink); }
+/* 键盘走到它时必须看得见——opacity:0 的东西拿到焦点却不显形，等于焦点消失了 */
+.chat-row-m:focus-visible { opacity: 1; }
 /* 名单的一行。220 宽里「头像 + 名字 + 状态标签 + 时间」挤在一行会把名字压成竖排，
    所以拆两行：上面是名字和时间，下面是状态和最近那一句。 */
 .roster-row { display: flex; gap: var(--s2); padding: 7px 12px; border-bottom: 1px solid var(--line-soft); color: var(--ink); }
@@ -701,7 +748,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-welcome-d { margin-top: var(--s1); color: var(--text-muted); font-size: var(--fs-note); }
 .cli-welcome-s { margin-top: 4px; color: var(--text-muted); }
 .cli-welcome-hints { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); color: var(--text-muted); font-size: var(--fs-note); line-height: 1.9; }
-.cli-log { flex: 1; padding-bottom: 8px; }
+/* 问答贴着输入框往上长。原来是 flex:1 顶在上边，于是只问了一句、答案还在流的时候，
+   过程条挂在页顶、输入框钉在页底，中间空一大片（2026-09-18 报上来的那张图）。
+   往上长还有一个好处：新的一轮总是出现在眼睛已经在看的地方。 */
+.cli-log { flex: 1; padding-bottom: 8px; display: flex; flex-direction: column; justify-content: flex-end; }
 /* 滚动目标要避开 sticky 输入框：scrollIntoView 对齐的是视口边，
    而输入框正盖在视口底部那一条上。--cli-composer-h 由 HomeChat 用
    ResizeObserver 实时量（输入框会随文字长高），兜底 104px。 */
