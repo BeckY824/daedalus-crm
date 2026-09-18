@@ -43,17 +43,33 @@ const str = (v: unknown, max = 60) => (typeof v === "string" ? v.trim().slice(0,
 export const TOOLS: Tool[] = [
   {
     name: "search_customers",
-    description: "按关键词找客户，返回总数和名单。关键词同时匹配姓名、学校、专业、备注（问「武汉大学的有几位、分别是谁」就用 query=\"武汉大学\"）；可选按跟进状态、只看我负责的过滤。找到具体某一位后再用 get_customer 读记录。",
-    args: '{"query": "姓名 / 学校 / 专业 / 备注里的关键词，可为空", "followStatus": "跟进状态，可选", "mine": true|false 可选}',
+    description:
+      "按关键词找客户，返回总数和名单。关键词同时匹配姓名、学校、年级、专业、备注（问「武汉大学的有几位、分别是谁」就用 query=\"武汉大学\"，问「大三的有哪些」就用 query=\"大三\"）；" +
+      "还能按渠道（channelName，问「小红这个渠道里有谁」用它，先用 list_channels 看渠道叫什么）、按负责人（ownerName，问「李四手上有哪些客户」用它）、" +
+      "按跟进状态、按决策状态、只看我负责的过滤。找到具体某一位后再用 get_customer 读记录。",
+    args: '{"query": "姓名 / 学校 / 年级 / 专业 / 备注里的关键词，可为空", "channelName": "渠道名称，可选", "ownerName": "销售负责人姓名，可选", "followStatus": "跟进状态，可选", "decisionStatus": "决策状态，可选", "mine": true|false 可选}',
     async run(args, ctx) {
       const q = str(args.query, 20);
+      const channel = str(args.channelName, 20);
+      const owner = str(args.ownerName, 20);
       const status = str(args.followStatus, 20);
+      const decision = str(args.decisionStatus, 20);
       const mine = args.mine === true;
-      const statusKey = status ? (Object.entries(ctx.b.statusLabels).find(([, v]) => v === status)?.[0] ?? status) : "";
-      if (!q && !status && !mine) return { summary: "没给条件", data: { error: "query / followStatus / mine 至少给一个" } };
+      // statusLabels 是「原值 → 这家的叫法」的重命名表，两个状态共用一张；反查回原值，查不到就按原样用
+      const 原值 = (v: string) => (v ? (Object.entries(ctx.b.statusLabels).find(([, x]) => x === v)?.[0] ?? v) : "");
+      const statusKey = 原值(status);
+      const decisionKey = 原值(decision);
+      if (!q && !channel && !owner && !status && !decision && !mine)
+        return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine 至少给一个" } };
       const where = {
-        ...(q ? { OR: [{ name: { contains: q } }, { school: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } }] } : {}),
+        ...(q ? { OR: [{ name: { contains: q } }, { school: { contains: q } }, { grade: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } }] } : {}),
+        // 用 channelId（推荐链**最顶端**的渠道，所有后代继承），不是 attributionChannelId
+        // （那个是「往上第二代」的归属口径，算提成用的）。「小红这个渠道里有谁」问的是
+        // 整条链上的人，包括转介绍来的后代——所以是前者。两个口径的数字会不一样。
+        ...(channel ? { channel: { name: { contains: channel } } } : {}),
+        ...(owner ? { salesOwner: { name: { contains: owner } } } : {}),
         ...(statusKey ? { followStatus: statusKey } : {}),
+        ...(decisionKey ? { decisionStatus: decisionKey } : {}),
         ...(mine ? { salesOwnerId: ctx.userId } : {}),
       };
       const [total, rows] = await Promise.all([
@@ -62,24 +78,46 @@ export const TOOLS: Tool[] = [
           where,
           take: 30,
           orderBy: { lastFollowAt: "desc" },
-          select: { id: true, name: true, phone: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, lastFollowAt: true },
+          select: { id: true, name: true, phone: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, channel: { select: { name: true } }, lastFollowAt: true },
         }),
       ]);
       const data = {
         total,
         shown: rows.length,
-        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
+        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, channel: r.channel?.name ?? null, lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
       };
-      const cond = [q && `「${q}」`, status && `状态 ${status}`, mine && "我负责的"].filter(Boolean).join("、");
+      const cond = [q && `「${q}」`, channel && `渠道 ${channel}`, owner && `负责人 ${owner}`, status && `状态 ${status}`, decision && `决策 ${decision}`, mine && "我负责的"].filter(Boolean).join("、");
       return { summary: total ? `${cond}：${total} 位${total > rows.length ? `，列出前 ${rows.length}` : ""}——${rows.slice(0, 6).map((r) => r.name).join("、")}${rows.length > 6 ? "…" : ""}` : `没有匹配 ${cond} 的${ctx.b.customer}`, data };
     },
   },
   {
     name: "get_customer",
-    description: "读一位客户的档案、商机、待办、下次计划和最近的跟进记录（含聊天原文）。回答里引用记录时用它给的 [编号]。",
-    args: '{"id": "客户 id"}',
+    description: "读一位客户的档案、联系人（家长/对接人的电话微信）、商机、待办、下次计划和最近的跟进记录（含聊天原文）。回答里引用记录时用它给的 [编号]。",
+    args: '{"id": "客户 id", "name": "或者直接给姓名，重名会让你去挑"}',
     async run(args, ctx) {
-      const id = str(args.id, 40);
+      let id = str(args.id, 40);
+      const name = str(args.name, 20);
+      /*
+        schema 从 0.37.0 起就声明了 name，实现却一直只认 id——模型照着 schema 传姓名，
+        拿回的是「客户不存在」，等于对着库里明明有的人说没有。比缺功能更伤。
+        重名不猜：把候选摆出来让人挑，挑错人比查不到严重得多。
+      */
+      if (!id && name) {
+        const 候选 = await prisma.customer.findMany({
+          where: { name: { contains: name } },
+          take: 6,
+          orderBy: { lastFollowAt: "desc" },
+          select: { id: true, name: true, school: true, phone: true, salesOwner: { select: { name: true } } },
+        });
+        if (!候选.length) return { summary: `没有叫「${name}」的${ctx.b.customer}`, data: { error: "查无此人" } };
+        if (候选.length > 1)
+          return {
+            summary: `叫「${name}」的有 ${候选.length} 位，要哪一位`,
+            data: { 需要挑一位: 候选.map((c) => ({ id: c.id, 姓名: c.name, 学校: c.school, 电话: c.phone, 负责人: c.salesOwner.name })) },
+          };
+        id = 候选[0].id;
+      }
+      if (!id) return { summary: "没给客户", data: { error: "id / name 至少给一个" } };
       const c = await prisma.customer.findUnique({
         where: { id },
         include: {
@@ -87,6 +125,9 @@ export const TOOLS: Tool[] = [
           referrerCustomer: { select: { name: true } },
           channel: { select: { name: true } },
           contracts: { select: { amount: true, signedAt: true } },
+          // 联系人是另一张表。不给的话，问「张三家长的微信是多少」时模型只能说没有——
+          // 而数据就在库里，等于向用户断言 CRM 丢了东西（同下面电话那条的道理）
+          contacts: { select: { name: true, position: true, phone: true, wechat: true, email: true, isPrimary: true }, orderBy: { isPrimary: "desc" } },
           opportunities: { select: { name: true, amount: true, stage: true, status: true }, orderBy: { createdAt: "desc" } },
           tasks: { where: { done: false }, select: { title: true, dueAt: true } },
           plans: { where: { done: false }, select: { subject: true, plannedAt: true, method: true }, take: 1 },
@@ -107,6 +148,7 @@ export const TOOLS: Tool[] = [
         // 然后建议人去补一条**本来就存在**的数据——比缺功能更伤，
         // 它是在向用户断言 CRM 丢了东西
         profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${c.phone || "未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.reduce((s, x) => s + x.amount, 0) || "无"}；备注：${c.remark || "无"}`,
+        contacts: c.contacts.map((p) => `${p.name}${p.position ? `（${p.position}）` : ""}${p.isPrimary ? " 主要联系人" : ""}：${[p.phone && `电话 ${p.phone}`, p.wechat && `微信 ${p.wechat}`, p.email && `邮箱 ${p.email}`].filter(Boolean).join("、") || "没留联系方式"}`),
         opportunities: c.opportunities.map((o) => `${o.name} ¥${Math.round(o.amount)} ${o.status === "OPEN" ? o.stage : o.status}`),
         openTasks: c.tasks.map((t) => `${t.title}${t.dueAt ? `（${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`),
         nextPlan: c.plans[0] ? `${dayjs(c.plans[0].plannedAt).format("MM-DD HH:mm")} ${c.plans[0].method}：${c.plans[0].subject}` : null,
@@ -264,6 +306,83 @@ export const TOOLS: Tool[] = [
             预计成交: o.expectedDealAt ? dayjs(o.expectedDealAt).format("YYYY-MM-DD") : null,
             多久没动: `${dayjs().diff(dayjs(o.updatedAt), "day")} 天`,
             负责人: o.owner?.name ?? null,
+          })),
+        },
+      };
+    },
+  },
+  {
+    /*
+      签约是这个 CRM 里最重要的一件事，却一直只有聚合没有名单：
+      问「这个月签了哪几单、分别是谁」，query_metric 只能回一个 {全部: 19800}。
+      老板问这句的频率不低于问渠道——所以单开一个列表工具，别让模型拿总额去圆名单。
+    */
+    name: "list_contracts",
+    description:
+      "列签约记录（已经成交的单子：谁、多少钱、什么时候签的）。可按时间段、客户、销售负责人、渠道过滤，按签约日期从近到远。" +
+      "问「这个月签了哪几单」「分别是谁」「李四这个季度签了多少」「小红这个渠道签了哪些」用它。" +
+      "只要总数不要名单时用 query_metric(contract_amount / contract_count)。",
+    args: '{"from": "YYYY-MM-DD，可空", "to": "YYYY-MM-DD，可空（含当天）", "customerName": "客户姓名，可空", "ownerName": "销售负责人姓名，可空", "channelName": "渠道名称，可空"}',
+    async run(args) {
+      // 和 report-query 的 asDate 一条路子：不较真格式，只看能不能解析
+      const 日期 = (v: unknown) => {
+        const s = str(v, 20);
+        if (!s) return null;
+        const d = dayjs(s);
+        return d.isValid() ? d : null;
+      };
+      let from = 日期(args.from);
+      let to = 日期(args.to);
+      if ((str(args.from, 20) && !from) || (str(args.to, 20) && !to))
+        return { summary: "日期不合法", data: { error: "from / to 要写成 YYYY-MM-DD" } };
+      // 写反了就换过来，别回一个空名单让人以为真没签
+      if (from && to && from.isAfter(to)) [from, to] = [to, from];
+      const name = str(args.customerName, 20);
+      const owner = str(args.ownerName, 20);
+      const channel = str(args.channelName, 20);
+      const where = {
+        // to 含当天：用户说「到 9 月 30 日」指的是那天签的也算
+        ...(from || to ? { signedAt: { ...(from ? { gte: from.startOf("day").toDate() } : {}), ...(to ? { lte: to.endOf("day").toDate() } : {}) } } : {}),
+        ...(name || owner || channel
+          ? {
+              customer: {
+                ...(name ? { name: { contains: name } } : {}),
+                ...(owner ? { salesOwner: { name: { contains: owner } } } : {}),
+                ...(channel ? { channel: { name: { contains: channel } } } : {}),
+              },
+            }
+          : {}),
+      };
+      const [total, 合计, rows] = await Promise.all([
+        prisma.contract.count({ where }),
+        prisma.contract.aggregate({ where, _sum: { amount: true } }),
+        prisma.contract.findMany({
+          where,
+          orderBy: { signedAt: "desc" },
+          take: 30,
+          select: {
+            id: true, amount: true, signedAt: true, remark: true,
+            customer: { select: { id: true, name: true, salesOwner: { select: { name: true } }, channel: { select: { name: true } } } },
+          },
+        }),
+      ]);
+      const 总额 = 合计._sum.amount ?? 0;
+      const 段 = [from && `${from.format("YYYY-MM-DD")} 起`, to && `${to.format("YYYY-MM-DD")} 止`, name && `客户「${name}」`, owner && `负责人 ${owner}`, channel && `渠道 ${channel}`].filter(Boolean).join("、");
+      return {
+        // 总额要给全量的，不是这 30 行的和——否则超过 30 单时它会报一个偏小的数
+        summary: total ? `${段 ? `${段}：` : ""}${total} 笔，合计 ¥${总额}${total > rows.length ? `（列出最近 ${rows.length} 笔）` : ""}` : `没有${段 ? `${段}的` : ""}签约记录`,
+        data: {
+          总数: total,
+          总额,
+          已列出: rows.length,
+          签约: rows.map((c) => ({
+            customerId: c.customer.id,
+            客户: c.customer.name,
+            金额: c.amount,
+            签约日: dayjs(c.signedAt).format("YYYY-MM-DD"),
+            负责人: c.customer.salesOwner.name,
+            渠道: c.customer.channel?.name ?? null,
+            备注: c.remark || null,
           })),
         },
       };

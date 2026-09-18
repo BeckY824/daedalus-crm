@@ -24,13 +24,16 @@ const 串 = (说明: string) => ({ type: "string", description: 说明 });
 const 数 = (说明: string) => ({ type: "number", description: 说明 });
 const 真假 = (说明: string) => ({ type: "boolean", description: 说明 });
 
-/** 只读的九个。MCP 开出去的就是这一组 */
+/** 只读的十个。MCP 开出去的就是这一组 */
 export const 只读SCHEMAS: Record<string, Schema> = {
   search_customers: {
     type: "object",
     properties: {
-      query: 串("姓名 / 公司 / 行业 / 备注里的关键词"),
+      query: 串("姓名 / 学校 / 年级 / 专业 / 备注里的关键词"),
+      channelName: 串("只看某个渠道带来的（「小红这个渠道里有谁」）"),
+      ownerName: 串("只看某位销售负责的（「李四手上有哪些客户」）"),
       followStatus: 串("只看某个跟进状态"),
+      decisionStatus: 串("只看某个决策状态（「还在犹豫的有谁」）"),
       mine: 真假("只看我负责的"),
     },
     additionalProperties: false,
@@ -66,6 +69,17 @@ export const 只读SCHEMAS: Record<string, Schema> = {
   list_opportunities: {
     type: "object",
     properties: { stage: 串("商机阶段"), status: 串("OPEN / WON / LOST，默认 OPEN"), customerName: 串("客户姓名") },
+    additionalProperties: false,
+  },
+  list_contracts: {
+    type: "object",
+    properties: {
+      from: 串("YYYY-MM-DD，可空"),
+      to: 串("YYYY-MM-DD，可空，含当天"),
+      customerName: 串("客户姓名"),
+      ownerName: 串("销售负责人姓名"),
+      channelName: 串("渠道名称"),
+    },
     additionalProperties: false,
   },
   search_followups: {

@@ -3,7 +3,7 @@
  *
  * 这一组盯三件事，每一件都是「开了一个对外的口子」之后最容易出事的地方：
  *   1. 没令牌 / 错令牌一律进不来，比对是常数时间的
- *   2. 开出去的**只有只读那九个**——propose_* 一个都不能在名单里，
+ *   2. 开出去的**只有只读那十个**——propose_* 一个都不能在名单里，
  *      否则「AI 只起草、人才落库」这条规矩就从后门绕掉了
  *   3. 协议的形要对：initialize 回能力、tools/list 回 JSON Schema、
  *      工具自己出的错回 isError 的结果而不是 JSON-RPC 的 error
@@ -63,12 +63,14 @@ describe("令牌", () => {
 });
 
 describe("开出去的工具", () => {
-  it("只有只读那九个，propose_* 一个都没有", () => {
+  it("只有只读那十个，propose_* 一个都没有", () => {
     const 名字 = 列工具().map((t) => t.name);
     expect(名字.sort()).toEqual([...MCP_TOOL_NAMES].sort());
     expect(名字.some((n) => n.startsWith("propose_"))).toBe(false);
     expect(名字).toContain("list_channels");
-    expect(名字.length).toBe(9);
+    // 2026-09-18 加的签约名单，只读，该开出去
+    expect(名字).toContain("list_contracts");
+    expect(名字.length).toBe(10);
   });
 
   it("每个工具都带说明和 JSON Schema——客户端拿它做补全和校验", () => {
