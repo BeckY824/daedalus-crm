@@ -1,8 +1,8 @@
 /**
- * 「新建学员」里就地新建外部渠道。
+ * 「新建客户」里就地新建外部渠道。
  *
- * 要验的是这一步真的省掉了「先去渠道管理建、再回来重填学员」的来回：
- * 建完要立刻可选中、跟着学员一起存下去，并且在渠道管理里能查到同一条记录。
+ * 要验的是这一步真的省掉了「先去渠道管理建、再回来重填客户」的来回：
+ * 建完要立刻可选中、跟着客户一起存下去，并且在渠道管理里能查到同一条记录。
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 连库, 清空业务数据 } from "./mock-data";
@@ -10,7 +10,7 @@ import { 连库, 清空业务数据 } from "./mock-data";
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 const 戳 = String(Date.now()).slice(-6);
 const 渠道名 = `就地建渠道${戳}`;
-const 学员名 = `就地建学员${戳}`;
+const 客户名 = `就地建客户${戳}`;
 
 async function 登录(page: Page) {
   await page.goto("/login");
@@ -42,13 +42,13 @@ test.beforeAll(async () => {
   await p.$disconnect();
 });
 
-test("新建学员时可以就地建渠道，建完自动选中并同步到渠道管理", async ({ page }) => {
+test("新建客户时可以就地建渠道，建完自动选中并同步到渠道管理", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
 
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  const 弹窗 = page.getByRole("dialog", { name: "新建学员" });
-  await 弹窗.getByLabel("客户姓名").fill(学员名);
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 弹窗 = page.getByRole("dialog", { name: "新建客户" });
+  await 弹窗.getByLabel("客户姓名").fill(客户名);
   await 弹窗.getByLabel("联系电话").fill(`139${戳}00`);
   await 弹窗.getByLabel("销售负责人").click();
   await 下拉选项(page, "salesOwnerId_list").first().click();
@@ -81,11 +81,11 @@ test("新建学员时可以就地建渠道，建完自动选中并同步到渠�
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
   await expect(弹窗).toBeHidden();
 
-  // 学员存下来后，来源渠道就是刚建的那条。
+  // 客户存下来后，来源渠道就是刚建的那条。
   // 列表默认只摆六列（批 2），渠道归属收在「列」里了，所以去记录页看——
   // 那一页本来就该把归属写出来，而且比列表上一个单元格更能说明问题
-  await expect(page.getByRole("cell", { name: 学员名, exact: true })).toBeVisible();
-  await page.getByRole("link", { name: 学员名, exact: true }).click();
+  await expect(page.getByRole("cell", { name: 客户名, exact: true })).toBeVisible();
+  await page.getByRole("link", { name: 客户名, exact: true }).click();
   await expect(page).toHaveURL(/\/customers\/[^/]+$/);
   await expect(page.getByText(渠道名).first()).toBeVisible();
 
@@ -100,8 +100,8 @@ test("就地建渠道时重名会被挡住，且弹窗留在原地让人改", as
   await 登录(page);
   await page.goto("/customers");
 
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  const 弹窗 = page.getByRole("dialog", { name: "新建学员" });
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 弹窗 = page.getByRole("dialog", { name: "新建客户" });
   await 弹窗.getByText("外部渠道", { exact: true }).click();
   await 弹窗.locator("#channelId").click();
   await page.getByRole("button", { name: /新建外部渠道/ }).click();

@@ -10,6 +10,7 @@ import { StatCard } from "@/components/ui";
 import EmptyState, { 表格空态 } from "@/components/EmptyState";
 import { money, fmtDate } from "@/lib/utils";
 import type { Agg, Bucket, 明细行 } from "../overview/data";
+import { useBusiness } from "@/lib/business-client";
 
 /**
  * 回看视图（本月 / 本年）的正文：总额、趋势、四个维度的拆解。
@@ -31,6 +32,7 @@ export default function ReportsView({
   /** 这一页的数是按什么口径算的。数字必须说得清自己是怎么来的 */
   口径: string;
 }) {
+  const b = useBusiness();
   /**
    * 点开的是哪一根柱子。设计稿 09/DATA·YEAR 的页面规则「图表提供查看明细」——
    * 一张只能看不能问的趋势图，看出「三月特别高」之后就断了：
@@ -212,7 +214,7 @@ export default function ReportsView({
           locale={表格空态({ title: "这一段没有签约", hint: "换一根柱子看看。", demo: false })}
           columns={[
             {
-              title: "学员",
+              title: b.customer,
               dataIndex: "学员",
               render: (v: string, r) => (
                 <Link href={`/customers/${r.学员id}`} className="link-strong">

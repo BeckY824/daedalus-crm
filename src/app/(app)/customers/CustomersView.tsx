@@ -237,7 +237,7 @@ export default function CustomersView({
                 只看本月新增
               </Tag>
             )}
-            <Input style={{ width: 260 }} placeholder="姓名 / 电话 / 院校 / 专业"
+            <Input style={{ width: 260 }} placeholder={`姓名 / 电话 / ${b.fields.school} / ${b.fields.major}`}
               prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword} allowClear
               onChange={(e) => {

@@ -40,7 +40,7 @@ export async function askData(question: string, emit?: Emit): Promise<{ ok: true
 
 可用指标与各自允许的拆分维度：
 ${combos}
-维度含义：month 按月走势 / sales 按销售负责人 / channel 按来源渠道 / source 按线索来源 / grade 按年级 / followStatus 按跟进状态 / decisionStatus 按决策状态 / type 按跟进类型
+维度含义：month 按月走势 / sales 按销售负责人 / channel 按来源渠道 / source 按线索来源 / grade 按${b.fields.grade} / followStatus 按跟进状态 / decisionStatus 按决策状态 / type 按跟进类型
 
 规则：
 - 相对时间基于今天换算成具体日期，from/to 都含当天；问题没限定时间就都给 null

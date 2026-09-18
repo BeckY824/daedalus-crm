@@ -42,8 +42,8 @@ function 下拉选项(page: Page, listId: string) {
     .locator(".ant-select-item-option");
 }
 
-async function 填学员(page: Page, 姓名: string, 手机: string) {
-  const 弹窗 = page.getByRole("dialog", { name: "新建学员" });
+async function 填客户(page: Page, 姓名: string, 手机: string) {
+  const 弹窗 = page.getByRole("dialog", { name: "新建客户" });
   await 弹窗.getByLabel("客户姓名").fill(姓名);
   await 弹窗.getByLabel("联系电话").fill(手机);
   await 弹窗.getByLabel("销售负责人").click();
@@ -66,11 +66,11 @@ test.beforeAll(async () => {
   await p.$disconnect();
 });
 
-test("先建一个学员，作为后面查重的靶子", async ({ page }) => {
+test("先建一个客户，作为后面查重的靶子", async ({ page }) => {
   await 登录(page, 销售);
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  const 弹窗 = await 填学员(page, 甲姓名, 甲手机);
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 弹窗 = await 填客户(page, 甲姓名, 甲手机);
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
   await expect(弹窗).toBeHidden();
   await expect(page.getByRole("cell", { name: 甲姓名, exact: true })).toBeVisible();
@@ -79,8 +79,8 @@ test("先建一个学员，作为后面查重的靶子", async ({ page }) => {
 test("手机号失焦就预警，且要说清楚撞的是谁——只报「重复」等于没说", async ({ page }) => {
   await 登录(page, 销售);
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  const 弹窗 = page.getByRole("dialog", { name: "新建学员" });
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 弹窗 = page.getByRole("dialog", { name: "新建客户" });
 
   await 弹窗.getByLabel("联系电话").fill(甲手机);
   await 弹窗.getByLabel("客户姓名").click(); // 失焦
@@ -96,8 +96,8 @@ test("手机号失焦就预警，且要说清楚撞的是谁——只报「重�
 test("预警只是预警，不能把人拦在这一步——填完仍然可以继续操作", async ({ page }) => {
   await 登录(page, 销售);
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  const 弹窗 = await 填学员(page, `换个名${戳}`, 甲手机);
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 弹窗 = await 填客户(page, `换个名${戳}`, 甲手机);
   await expect(弹窗.locator(".ant-alert-warning")).toBeVisible();
   // 保存按钮不该被禁用：拦截的活儿交给服务端，前端不替人做决定
   await expect(弹窗.getByRole("button", { name: /保\s*存/ })).toBeEnabled();
@@ -106,8 +106,8 @@ test("预警只是预警，不能把人拦在这一步——填完仍然可以�
 test("保存时服务端硬拦，且弹窗留在原地不能关——关了等于白填一遍", async ({ page }) => {
   await 登录(page, 销售);
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  const 弹窗 = await 填学员(page, `重复录入${戳}`, 甲手机);
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 弹窗 = await 填客户(page, `重复录入${戳}`, 甲手机);
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
 
   await expect(page.getByText(`手机号 ${甲手机} 已存在`)).toBeVisible();
@@ -121,7 +121,7 @@ test("编辑自己时不该把自己当成重复", async ({ page }) => {
   await page.goto("/customers");
   await page.getByRole("button", { name: `编辑 ${甲姓名}` }).click();
 
-  const 弹窗 = page.getByRole("dialog", { name: "编辑学员" });
+  const 弹窗 = page.getByRole("dialog", { name: "编辑客户" });
   await 弹窗.getByLabel("联系电话").click();
   await 弹窗.getByLabel("客户姓名").click(); // 原样失焦
   await expect(弹窗.locator(".ant-alert-warning")).toBeHidden();
@@ -134,8 +134,8 @@ test("编辑自己时不该把自己当成重复", async ({ page }) => {
 test("没有重名时，下拉不该给任何人加登录名后缀", async ({ page }) => {
   await 登录(page, 销售);
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  await page.getByRole("dialog", { name: "新建学员" }).getByLabel("销售负责人").click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  await page.getByRole("dialog", { name: "新建客户" }).getByLabel("销售负责人").click();
   await expect(下拉选项(page, "salesOwnerId_list").filter({ hasText: "（" })).toHaveCount(0);
 });
 
@@ -202,8 +202,8 @@ test("成员姓名重名会先确认，确认后建成且下拉能区分", async
 
   // 建成之后，负责人下拉必须能把两个「张三」分开
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  await page.getByRole("dialog", { name: "新建学员" }).getByLabel("销售负责人").click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  await page.getByRole("dialog", { name: "新建客户" }).getByLabel("销售负责人").click();
   const 选项 = 下拉选项(page, "salesOwnerId_list");
   await expect(选项.filter({ hasText: "张三（zhangsan）" })).toHaveCount(1);
   await expect(选项.filter({ hasText: `张三（zs2${戳}）` })).toHaveCount(1);
@@ -258,7 +258,7 @@ test("报表按 id 聚合：两个同名销售的业绩不能合并成一行", a
   for (const [i, u] of 两个张三.entries()) {
     const c = await p.customer.create({
       data: {
-        name: `报表学员${i}${戳}`,
+        name: `报表客户${i}${戳}`,
         phone: `138${戳}0${i}`,
         followStatus: "已签约",
         decisionStatus: "已决定报名",
@@ -297,10 +297,10 @@ test("报表按 id 聚合：两个同名销售的业绩不能合并成一行", a
 test("负责人下拉不列管理员，与业绩排行榜口径一致", async ({ page }) => {
   await 登录(page, 销售);
 
-  // 学员的销售负责人
+  // 客户的销售负责人
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
-  await page.getByRole("dialog", { name: "新建学员" }).getByLabel("销售负责人").click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  await page.getByRole("dialog", { name: "新建客户" }).getByLabel("销售负责人").click();
   const 销售候选 = 下拉选项(page, "salesOwnerId_list");
   await expect(销售候选.filter({ hasText: "管理员" }), "管理员不该能被选为销售负责人").toHaveCount(0);
   // 顺带确认没把正常销售一起筛掉。用张三而不是李四：

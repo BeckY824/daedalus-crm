@@ -1,6 +1,6 @@
 /**
  * 界面化配置：管理员改术语后全站同步；AI 接入页的校验。
- * 文件名以 b 开头、排在其余用例之前，跑完必须把术语改回「学员」，
+ * 文件名以 b 开头、排在其余用例之前，跑完必须把术语改回默认的「客户」，
  * 否则后面按文字定位的用例全部失配。
  */
 import { test, expect, type Page } from "@playwright/test";
@@ -43,8 +43,8 @@ async function 保存并等提示(page: Page, 面板: ReturnType<Page["getByRole
   await expect(page.getByText("已保存，全站措辞已更新")).toBeVisible({ timeout: 15_000 });
 }
 
-/** 库里至少有一位学员。已经有就什么都不做——这一组和别的用例共用一个库 */
-async function 确保有一位学员(page: Page) {
+/** 库里至少有一位客户。已经有就什么都不做——这一组和别的用例共用一个库 */
+async function 确保有一位客户(page: Page) {
   const db = 连库();
   try {
     if (await db.customer.count()) return;
@@ -79,36 +79,36 @@ test.afterAll(async () => {
 });
 
 test.describe.serial("业务配置", () => {
-  test("把「学员」改成「客户」，侧边栏、列表页标题与表头同步变；改回去后恢复", async ({ page }) => {
+  test("把「客户」改成「学员」，侧边栏、列表页标题与表头同步变；改回去后恢复", async ({ page }) => {
     await 登录(page);
-    await 改客户名词(page, "客户");
+    await 改客户名词(page, "学员");
 
     await page.goto("/customers");
-    // 页面标题是名词本身（批 2）：产品里这一页就叫「客户」，
+    // 页面标题是名词本身（批 2）：产品里这一页就叫它的名词，
     // 「客户管理：统一管理客户信息」那种是方案里的措辞，不是界面上的话。
     // 侧边栏那一条也是名词本身（2026-09-17）：「管理」两个字每一项都有，等于每一项都没有
-    await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "客户", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "客户", exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: /新建客户/ })).toBeVisible();
-
-    // 复原，后面的用例靠「学员」定位
-    await 改客户名词(page, "学员");
-    await page.goto("/customers");
     await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "学员", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "学员", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /新建学员/ })).toBeVisible();
+
+    // 复原成默认的「客户」，后面的用例靠它定位
+    await 改客户名词(page, "客户");
+    await page.goto("/customers");
+    await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "客户", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: /新建客户/ })).toBeVisible();
   });
 
   test("档案字段改名后表头跟着变，数据库列不动", async ({ page }) => {
     await 登录(page);
     let 面板 = await 打开业务配置(page);
-    await 面板.getByLabel("档案字段 1").fill("公司");
+    await 面板.getByLabel("档案字段 1").fill("所属机构");
     await 保存并等提示(page, 面板);
 
     await page.goto("/customers");
-    await expect(page.getByRole("columnheader", { name: "公司" })).toBeVisible();
+    await expect(page.getByRole("columnheader", { name: "所属机构" })).toBeVisible();
 
     面板 = await 打开业务配置(page);
-    await 面板.getByLabel("档案字段 1").fill("院校");
+    await 面板.getByLabel("档案字段 1").fill("公司");
     await 保存并等提示(page, 面板);
   });
 
@@ -122,7 +122,7 @@ test.describe.serial("业务配置", () => {
    */
   test("整套换成外贸的说法：客户 / 公司 / 国家 / 产品，各页跟着变，数据不动", async ({ page }) => {
     await 登录(page);
-    await 确保有一位学员(page);
+    await 确保有一位客户(page);
 
     let 面板 = await 打开业务配置(page);
     /* 按表单 id 定位：「档案字段 2」这个名字同时属于那个输入框和它下面的「…的选项」下拉 */
@@ -151,13 +151,13 @@ test.describe.serial("业务配置", () => {
 
     // 复原，后面的用例靠默认措辞定位
     面板 = await 打开业务配置(page);
-    await 面板.locator("#customer").fill("学员");
-    await 面板.locator("#fields_school").fill("院校");
-    await 面板.locator("#fields_grade").fill("年级");
-    await 面板.locator("#fields_major").fill("专业");
+    await 面板.locator("#customer").fill("客户");
+    await 面板.locator("#fields_school").fill("公司");
+    await 面板.locator("#fields_grade").fill("职位");
+    await 面板.locator("#fields_major").fill("行业");
     await 保存并等提示(page, 面板);
     await page.goto("/customers");
-    await expect(page.getByRole("heading", { name: "学员", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "客户", exact: true })).toBeVisible();
   });
 
   /**
@@ -203,9 +203,9 @@ test.describe.serial("状态显示名", () => {
     await 面板.getByLabel("已试听", { exact: true }).fill("已体验");
     await 保存并等提示(page, 面板);
 
-    // 学员页空库时筛选栏是收起来的（对着空表摆 5 个下拉没意义），所以先确保有一条。
+    // 客户页空库时筛选栏是收起来的（对着空表摆 5 个下拉没意义），所以先确保有一条。
     // 这条用例要验的是「改了显示名，筛选下拉跟着变」，和空态无关。
-    await 确保有一位学员(page);
+    await 确保有一位客户(page);
 
     await page.goto("/customers");
     // antd Select 的占位文字不可点，点它所在的选择框

@@ -37,9 +37,9 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 - ✅ Phone dedup, double-confirm on repeated contract amounts, field-level merge on concurrent edits, full audit trail
 - ✅ Model-agnostic: DeepSeek, OpenAI, local Ollama or any OpenAI-compatible relay — set it in Settings
 - ✅ AI never acts on its own: every model call is a click you make — opening a page never triggers one (free credits are counted per call; the UI shouldn't spend them for you)
-- ✅ Two columns, not three: navigation on the left is always there, content on the right. Only the student record page adds a narrow list — for when you flip through people one after another
+- ✅ Two columns, not three: navigation on the left is always there, content on the right. Only the customer record page adds a narrow list — for when you flip through people one after another
 - ✅ Keyboard-first where it matters: ⌘K to jump or ask, ⌘, for settings, ⌘1–9 for modules
-- ✅ Ships with education-industry wording; rename the terms once and it fits any sales team
+- ✅ Generic sales wording out of the box (customer / company / title / industry); education-sales wording is one preset click away
 
 <br/>
 
@@ -74,12 +74,14 @@ Open **http://localhost:3000** and sign in with a demo account:
 Change the password under the account menu (bottom-left) → Settings → Sign-in & password. That's it.
 
 - **Enable AI**: Settings → AI (the account menu at the bottom left, or press ⌘,), enter the endpoint, API key and model, hit "Test connection". Without it the AI entry points simply don't appear; everything else works
-- **Not in education?** Settings → Business config lets you rename "student" to "customer" and "school / grade / major" to your own fields, site-wide
+- **Different industry?** Settings → Business config renames the noun and the three profile fields site-wide (education admissions is a ready-made preset — one click swaps the whole set)
 - **HTTPS, upgrades, backups**: see [docs/部署.md](docs/部署.md)
 
-### Hosted trial
+### The web version (the one we host)
 
-Want a look before installing anything? [app.ai-daedalus.com](https://app.ai-daedalus.com) is a **single shared trial workspace** with demo data; ask us for the credentials via [book a demo](https://ai-daedalus.com/demo.html) or email. It's shared — don't enter real customers.
+[app.ai-daedalus.com](https://app.ai-daedalus.com) is our own instance, **for teams that want to start using it without installing anything**: one set of credentials for the team, everyone in the same workspace. [Tell us](https://ai-daedalus.com/demo.html) or email qy1g18@gmail.com and we'll set it up.
+
+Want the data entirely in your own hands? Install the desktop app (one person) or self-host (a team) — same codebase either way.
 
 [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) creates a **cloud account** for the desktop app (it tracks AI credits); it does not create a web workspace. For your own data, install the desktop app or self-host.
 
@@ -100,7 +102,7 @@ Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm
 
 ### Navigation always there, everything else serves the task
 
-A 220px rail on the left, with the eight module names spelled out — no hovering to find out what an icon means. **The middle column is not a default slot**: it shows up only when you flip between records of the same kind, which today means exactly one place — the narrow list on the student record page. A module with two views (deals: pipeline / list; follow-ups: plan / log) switches from a header button instead of spending a column on it. The rail's right edge can be dragged to resize, and that width is remembered on this machine. Settings is not a page but a **layer** over whatever you were looking at — Esc closes it and you're back. On desktop the system title bar is removed and the window buttons sit at the top of the rail.
+A 220px rail on the left, with the eight module names spelled out — no hovering to find out what an icon means. **The middle column is not a default slot**: it shows up only when you flip between records of the same kind, which today means exactly one place — the narrow list on the customer record page. A module with two views (deals: pipeline / list; follow-ups: plan / log) switches from a header button instead of spending a column on it. The rail's right edge can be dragged to resize, and that width is remembered on this machine. Settings is not a page but a **layer** over whatever you were looking at — Esc closes it and you're back. On desktop the system title bar is removed and the window buttons sit at the top of the rail.
 
 Things you press shrink a little and spring back, pages fade in, dialogs are centered — and with the system's "Reduce motion" on, nothing moves at all.
 
@@ -118,11 +120,11 @@ Profile on the left, editable with a click; a single timeline in the middle; a q
 
 ### Referral attribution with one clear rule
 
-Channel → student → referred student: attribution goes two generations up, or to the top of the chain if shorter; the channel owner is inherited along the whole chain. Attribution is frozen at entry — **changing an upstream referrer or a channel's owner never rewrites existing students' performance**. Individual mistakes are corrected on that one record.
+Channel → customer → referred customer: attribution goes two generations up, or to the top of the chain if shorter; the channel owner is inherited along the whole chain. Attribution is frozen at entry — **changing an upstream referrer or a channel's owner never rewrites existing customers' performance**. Individual mistakes are corrected on that one record.
 
 ### Optional multi-tenant hosting
 
-Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day). We run it for one shared trial workspace and the desktop app's cloud accounts. Self-hosted installs never execute a line of it.
+Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day). We run it for the web version (the workspace we hand to teams) and the desktop app's cloud accounts. Self-hosted installs never execute a line of it.
 
 ### Model-agnostic, per-user switching
 
@@ -134,10 +136,10 @@ Configure a model list in Settings (or pull it from the endpoint) and switch rig
 
 | Scenario | How |
 |---|---|
-| **Education / study-abroad admissions** | The default wording: students, schools, grades, majors, channel teachers, referral attribution |
-| **Any small sales team** | Rename the terms in Settings; the lead → customer → deal pipeline is generic |
+| **Any small sales team** | The default wording: customers, companies, titles, industries; the lead → customer → deal pipeline is generic |
+| **Education / study-abroad admissions** | One click on the "education admissions" preset in Settings → Business config: students, schools, grades, majors, referral attribution |
 | **Self-hosted, sensitive data** | One container, one SQLite file — backup is a file copy; AI is read-only |
-| **No deployment wanted** | Desktop app: install and go, data stays on your machine; or peek at the shared trial workspace |
+| **No deployment wanted** | Desktop app: install and go, data stays on your machine; or use the web version we host — ask us for credentials |
 
 <br/>
 
@@ -177,7 +179,7 @@ Ordered by "someone actually needs it". To push an item, [open an issue](https:/
 | Conversation & proposal cards | agent loop, streaming, citations, multi-turn context, 7 card types | ✅ Shipped |
 | Record page | inline profile editing, timeline, quick-note parsing, on-request briefing | ✅ Shipped |
 | Shell & feel | resizable rail, settings as an overlay, ⌘K / ⌘, / ⌘1–9, press feedback everywhere | ✅ Shipped |
-| Hosting | multi-tenant, sign-up and free credits, trials, subscriptions, ops console, desktop apps | ✅ Shipped |
+| Hosting | multi-tenant, sign-up and free credits, ops console, cloud accounts for the desktop app | ✅ Shipped |
 | List pages | inline editing without opening the record | 🔜 Planned |
 | Saved views | keep a set of filters and come back to it in one click | 🔜 Planned |
 | Online payments | WeChat / Alipay (requires ICP filing & merchant account) | ⏸ On demand |
@@ -209,9 +211,9 @@ Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.m
 ## 🌐 Community & contact
 
 - Website: [ai-daedalus.com](https://ai-daedalus.com)
-- Desktop app: [ai-daedalus.com/download.html](https://ai-daedalus.com/download.html) · shared trial workspace: ask us
+- Desktop app: [ai-daedalus.com/download.html](https://ai-daedalus.com/download.html) · the hosted web version: ask us
 - Questions & ideas: [GitHub Issues](https://github.com/BeckY824/daedalus-crm/issues)
-- Business & trials: [Book a demo](https://ai-daedalus.com/demo.html) · qy1g18@gmail.com
+- Want the web version, or just to talk: [tell us](https://ai-daedalus.com/demo.html) · qy1g18@gmail.com
 
 <br/>
 

@@ -65,7 +65,7 @@ async function 注册(page: Page, 邮箱: string, 密码: string) {
 /** 新建一个客户。销售负责人是必填项，要从下拉里挑一个 */
 async function 建客户(page: Page, 姓名: string, 手机: string) {
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
   const 弹窗 = page.getByRole("dialog");
   await expect(弹窗).toBeVisible();
   await 弹窗.getByLabel("客户姓名").fill(姓名);
@@ -123,8 +123,8 @@ test("2 这个账号登录网页版会被挡下，而且要说清去哪", async 
 
 test("3 共享工作区：那一套固定账号密码能进，建的客户看得见", async ({ page }) => {
   await 进共享区(page);
-  await 建客户(page, "共享区的学员甲", "13900001111");
-  await expect(page.locator("main").getByText("共享区的学员甲").first()).toBeVisible({ timeout: 15_000 });
+  await 建客户(page, "共享区的客户甲", "13900001111");
+  await expect(page.locator("main").getByText("共享区的客户甲").first()).toBeVisible({ timeout: 15_000 });
 });
 
 test("4 它不会过期：没有试用横条，写操作一直可用", async ({ page }) => {
@@ -211,7 +211,7 @@ test("9 AI 免费次数用完会被拦", async ({ page }) => {
   await 进共享区(page);
   写AI用量(9999);
   await page.reload();
-  await page.getByPlaceholder(/问一位学员/).fill("还剩多少次");
+  await page.getByPlaceholder(/问一位客户/).fill("还剩多少次");
   await page.keyboard.press("Enter");
   await expect(page.getByText(/次数|用完|额度/).first()).toBeVisible({ timeout: 30_000 });
 });
@@ -229,12 +229,12 @@ test("10 条款页不用登录就能读，注册页有勾选", async ({ page }) 
 
 test("11 反馈：界面里发一句话，运营台当场看得见", async ({ page }) => {
   await 进共享区(page);
-  const 话 = `e2e 反馈 ${Date.now()}：学员列表的筛选记不住`;
+  const 话 = `e2e 反馈 ${Date.now()}：客户列表的筛选记不住`;
 
   await page.getByRole("button", { name: /反馈/ }).click();
   await page.getByRole("dialog").getByRole("textbox").fill(话);
   // 发之前先确认那句承诺在人眼前——它是这个框允许我们附带版本和路径的全部理由
-  await expect(page.getByRole("dialog")).toContainText("不含任何学员、商机或跟进数据");
+  await expect(page.getByRole("dialog")).toContainText("不含任何客户、商机或跟进数据");
   // 限定在框里：首页那个问 AI 的输入框上也有个「发送」，页面上同时有两个。
   // 名字用正则：antd 中文会在两个字之间插一个空格（和登录那条一样的坑）
   await page.getByRole("dialog").getByRole("button", { name: /发\s*送/ }).click();

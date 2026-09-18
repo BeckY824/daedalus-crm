@@ -70,8 +70,8 @@ describe("业务配置", () => {
   });
   it("部分缺失、空串、空数组都回退到默认，不会让页面拿到空标签", () => {
     const m = mergeBusiness({ customer: "  ", fields: { school: "公司", grade: "", major: "行业" }, grades: [] } as never);
-    expect(m.customer).toBe("学员");
-    expect(m.fields).toEqual({ school: "公司", grade: "年级", major: "行业" });
+    expect(m.customer).toBe("客户");
+    expect(m.fields).toEqual({ school: "公司", grade: "职位", major: "行业" });
     expect(m.grades).toEqual(DEFAULT_BUSINESS.grades);
   });
   it("保存后读回，选项列表去掉空白项", async () => {
@@ -87,6 +87,7 @@ describe("业务配置", () => {
       "客户",
     );
     expect(items[0].reason).toContain("客户");
+    // 传进去的名词是「客户」，那句话里就不该再冒出默认之外的叫法
     expect(items[0].reason).not.toContain("学员");
   });
 });

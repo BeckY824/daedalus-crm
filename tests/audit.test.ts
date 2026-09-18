@@ -54,7 +54,7 @@ describe("该记的都记了", () => {
     expect(log.userName).toBe("甲");
   });
 
-  it("修改学员要记下改了哪几项、前后各是什么", async () => {
+  it("修改客户要记下改了哪几项、前后各是什么", async () => {
     const id = await 建一个("张三");
     const 行 = await prisma.customer.findUniqueOrThrow({ where: { id } });
     const base = {
@@ -65,18 +65,18 @@ describe("该记的都记了", () => {
     };
     await saveCustomer({
       id, updatedAt: 行.updatedAt.toISOString(), base,
-      ...base, school: "北京大学", followStatus: "意向较高",
+      ...base, school: "星辰科技", followStatus: "意向较高",
     } as Parameters<typeof saveCustomer>[0]);
 
     const log = await 最新日志();
     expect(log.action).toBe("update");
-    expect(log.summary).toContain("院校");
+    expect(log.summary).toContain("公司");
     expect(log.summary).toContain("跟进状态");
 
     const detail = JSON.parse(log.detail!) as { 字段: string; 原值: string; 新值: string }[];
-    const 院校 = detail.find((d) => d.字段 === "院校");
-    expect(院校?.原值).toBe("（空）");
-    expect(院校?.新值).toBe("北京大学");
+    const 公司 = detail.find((d) => d.字段 === "公司");
+    expect(公司?.原值).toBe("（空）");
+    expect(公司?.新值).toBe("星辰科技");
   });
 
   it("删除学员要在删之前把名字留下来", async () => {
@@ -93,7 +93,7 @@ describe("该记的都记了", () => {
     await assignSalesOwner([a, b], yi.id);
     const log = await 最新日志();
     expect(log.action).toBe("assign");
-    expect(log.summary).toContain("2 名学员");
+    expect(log.summary).toContain("2 名客户");
     expect(log.summary).toContain("乙");
   });
 
@@ -132,17 +132,17 @@ describe("该记的都记了", () => {
     // 乙先改院校
     const 乙行 = await prisma.customer.findUniqueOrThrow({ where: { id } });
     await saveCustomer({
-      id, updatedAt: 乙行.updatedAt.toISOString(), base, ...base, school: "北京大学",
+      id, updatedAt: 乙行.updatedAt.toISOString(), base, ...base, school: "星辰科技",
     } as Parameters<typeof saveCustomer>[0]);
 
-    // 甲拿旧版本改专业，走合并路径
+    // 甲拿旧版本改行业，走合并路径
     const r = await saveCustomer({
       id, updatedAt: 甲版本, base, ...base, major: "计算机",
     } as Parameters<typeof saveCustomer>[0]);
     expect(r.ok).toBe(true);
 
     const log = await 最新日志();
-    expect(log.summary).toContain("专业");
+    expect(log.summary).toContain("行业");
     expect(log.summary).toContain("自动合并");
   });
 });

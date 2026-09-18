@@ -1,7 +1,7 @@
 /**
  * 三栏壳的中栏（那 312px 的一列）。
  *
- * **2026-09-17 起中栏只剩一个地方：学员记录页的窄名单。**
+ * **2026-09-17 起中栏只剩一个地方：客户记录页的窄名单。**
  * 设计稿 03/LAYOUT 那条全站规则是「全局导航稳定，局部结构服从任务；
  * 中栏不是默认栏位，只有记录切换等明确场景才出现」。按这条撤掉的有三处：
  *   首页的「今天」   —— 待办进了信号行（逾期跟进 N · 先处理）
@@ -9,7 +9,7 @@
  *   跟进的两个子页   —— 进了页头的「计划 / 记录」切换
  * 一个模块两个视图，不值得为它常驻一列 312px。
  *
- * 钉的是 2026-09-16 那个 bug：**从侧栏点进学员时中栏不出现，⌘R 刷新才出现。**
+ * 钉的是 2026-09-16 那个 bug：**从侧栏点进客户时中栏不出现，⌘R 刷新才出现。**
  * 原因是中栏的数据在 `(app)/layout.tsx` 里按 `x-pathname` 查，而 App Router 的 layout
  * **在客户端导航时不重新渲染**。现在中栏是并行路由槽位 `@pane/…`，它是 page，每次导航都重算。
  *
@@ -23,7 +23,7 @@ const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 
 /**
  * 这一组自己造数据。**不能靠别的 spec 先跑过**：
- * 记录页的中栏要先有一位学员才点得进去，而单跑这个文件时库是空的
+ * 记录页的中栏要先有一位客户才点得进去，而单跑这个文件时库是空的
  * （第一版就是这样，整套绿、单跑全红）。
  */
 test.beforeAll(async () => {
@@ -61,19 +61,19 @@ async function 点侧栏(page: Page, 名字: string | RegExp, 落地: RegExp) {
 }
 
 /**
- * 从学员列表点第一行进记录页，也是客户端导航。
+ * 从客户列表点第一行进记录页，也是客户端导航。
  *
  * **先把窗口放到 1560。** 记录页的窄名单在 1440 以下会收成抽屉（那时 `aside.pane` 不存在，
  * 见 workbench 里「窄屏下名单收成抽屉」那条），而 playwright 的默认视口是 1280——
  * 不设宽度的话这一组验的其实是抽屉状态，全是假红。
  */
-async function 进第一位学员(page: Page) {
+async function 进第一位客户(page: Page) {
   await page.setViewportSize({ width: 1560, height: 900 });
   await page.locator(".ant-table-tbody tr.ant-table-row").first().click();
   await expect(page).toHaveURL(/\/customers\/[^/]+$/);
 }
 
-const 到 = { 学员: /\/customers$/, 线索: /\/leads$/, 商机: /\/opportunities$/, 跟进: /\/follow-ups$/, 设置: /\/settings$/ };
+const 到 = { 客户: /\/customers$/, 线索: /\/leads$/, 商机: /\/opportunities$/, 跟进: /\/follow-ups$/, 设置: /\/settings$/ };
 
 test.describe("中栏跟着路由走", () => {
   test("首页没有中栏——一块工作画布", async ({ page }) => {
@@ -83,25 +83,25 @@ test.describe("中栏跟着路由走", () => {
 
   test("六张列表页都没有中栏——全宽的一张表，旁边不挂同样内容的名单", async ({ page }) => {
     await 登录(page);
-    for (const [名字, 落地] of [["学员", 到.学员], ["线索", 到.线索], ["商机", 到.商机], ["跟进", 到.跟进]] as const) {
+    for (const [名字, 落地] of [["客户", 到.客户], ["线索", 到.线索], ["商机", 到.商机], ["跟进", 到.跟进]] as const) {
       await 点侧栏(page, 名字, 落地);
       await expect(中栏(page)).toHaveCount(0);
     }
   });
 
-  test("从列表点进学员记录页，中栏就该在——不用刷新", async ({ page }) => {
+  test("从列表点进客户记录页，中栏就该在——不用刷新", async ({ page }) => {
     await 登录(page);
-    await 点侧栏(page, "学员", 到.学员);
-    await 进第一位学员(page);
+    await 点侧栏(page, "客户", 到.客户);
+    await 进第一位客户(page);
     // 就是这一条在修之前是红的：槽位是 page，客户端导航时会重算
     await expect(中栏(page)).toBeVisible();
-    await expect(中栏(page).locator(".pane-t")).toContainText("学员");
+    await expect(中栏(page).locator(".pane-t")).toContainText("客户");
   });
 
   test("刷新之后还在，且和点进来时是同一个中栏", async ({ page }) => {
     await 登录(page);
-    await 点侧栏(page, "学员", 到.学员);
-    await 进第一位学员(page);
+    await 点侧栏(page, "客户", 到.客户);
+    await 进第一位客户(page);
     const 点进来的 = await 中栏(page).locator(".pane-t").innerText();
     await page.reload();
     await expect(中栏(page)).toBeVisible();
@@ -110,8 +110,8 @@ test.describe("中栏跟着路由走", () => {
 
   test("从记录页切走，中栏要跟着走干净——不能赖着上一页的", async ({ page }) => {
     await 登录(page);
-    await 点侧栏(page, "学员", 到.学员);
-    await 进第一位学员(page);
+    await 点侧栏(page, "客户", 到.客户);
+    await 进第一位客户(page);
     await expect(中栏(page)).toBeVisible();
     await 点侧栏(page, "线索", 到.线索);
     await expect(中栏(page)).toHaveCount(0);
@@ -119,8 +119,8 @@ test.describe("中栏跟着路由走", () => {
 
   test("浏览器后退回到记录页，中栏要回来", async ({ page }) => {
     await 登录(page);
-    await 点侧栏(page, "学员", 到.学员);
-    await 进第一位学员(page);
+    await 点侧栏(page, "客户", 到.客户);
+    await 进第一位客户(page);
     await expect(中栏(page)).toBeVisible();
     await 点侧栏(page, "线索", 到.线索);
     await expect(中栏(page)).toHaveCount(0);

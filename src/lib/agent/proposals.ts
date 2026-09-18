@@ -11,7 +11,7 @@
  * 校验放在纯函数里，生成时和落库时各跑一遍——卡片上的值人能改，改完的同样不可信。
  */
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, GRADES, OPP_STAGES, STAGE_PROBABILITY } from "../constants";
-import type { BusinessConfig } from "../business-config";
+import { DEFAULT_BUSINESS, type BusinessConfig } from "../business-config";
 import { dayjs } from "../utils";
 
 export type ProposalKind = "set_status" | "add_followup" | "add_plan" | "add_lead" | "update_customer" | "add_opportunity" | "add_contract" | "update_channel";
@@ -39,6 +39,24 @@ export const 可改字段 = {
   /** 单独订正这一位的渠道负责人；留空 = 恢复按推荐链。改渠道本身用 propose_channel_update */
   channelOwnerName: { label: "渠道负责人", kind: "name" },
 } as const;
+
+export type 字段规格 = { label: string; kind: "text" | "enum" | "date" | "name"; values?: readonly string[] };
+
+/**
+ * 这一次请求的字段表。三个档案字段的**名字和选项跟着业务配置走**——
+ * 通用版里它们是「公司 / 职位 / 行业」，教培预设下才是「院校 / 年级 / 专业」。
+ * 上面那个静态表只当形状和默认值用；真正拿去校验和展示的一律是这个函数的结果，
+ * 否则通用版里模型按提示词写「部门负责人」，校验拿教培的年级表一比就当场拒掉。
+ */
+export function 可改字段表(b: Pick<BusinessConfig, "fields" | "grades"> | null | undefined): Record<可改字段名, 字段规格> {
+  const 表 = { ...(可改字段 as Record<可改字段名, 字段规格>) };
+  // 半份配置也要能用：这张表会被拼进系统提示词，缺一项不该让整个 agent 崩在那一步
+  const f = b?.fields ?? DEFAULT_BUSINESS.fields;
+  表.school = { label: f.school, kind: "text" };
+  表.grade = { label: f.grade, kind: "enum", values: b?.grades ?? DEFAULT_BUSINESS.grades };
+  表.major = { label: f.major, kind: "text" };
+  return 表;
+}
 
 export type 可改字段名 = keyof typeof 可改字段;
 export const 可改字段名单 = Object.keys(可改字段) as 可改字段名[];
@@ -120,7 +138,7 @@ export function buildProposal(
   kind: ProposalKind,
   customer: { id: string; name: string },
   args: Record<string, unknown>,
-  b: Pick<BusinessConfig, "sources">,
+  b: Pick<BusinessConfig, "sources" | "fields" | "grades">,
 ): ProposalResult {
   const base = { id, customerId: customer.id, customerName: customer.name, reason: str(args.reason, 120) };
   if (!base.reason) return { ok: false, error: "reason 必填：用一句话说明为什么建议这么做" };
@@ -175,11 +193,11 @@ export function buildProposal(
     for (const [k, v] of 条目) {
       if (!(k in 可改字段)) return { ok: false, error: `没有「${k}」这个字段。能改的是：${可改字段名单.join("、")}` };
       const f = k as 可改字段名;
-      const spec = 可改字段[f];
+      const spec = 可改字段表(b)[f];
       // 枚举给错当场拒，让模型重说；给空是"还没填"，照样出卡片让人补
       if (spec.kind === "enum") {
-        const e = pickEnum(v, spec.values, "");
-        if (!e.ok) return { ok: false, error: `${spec.label}必须是：${spec.values.join("/")}` };
+        const e = pickEnum(v, spec.values ?? [], "");
+        if (!e.ok) return { ok: false, error: `${spec.label}必须是：${(spec.values ?? []).join("/")}` };
         changes.push({ field: f, value: e.value });
         continue;
       }
@@ -295,7 +313,7 @@ export function missingFields(p: Proposal): string[] {
 }
 
 /** 卡片抬头：一句话说清这张卡会改什么 */
-export function describeProposal(p: Proposal, customerNoun: string): string {
+export function describeProposal(p: Proposal, customerNoun: string, 字段表: Record<可改字段名, 字段规格> = 可改字段 as Record<可改字段名, 字段规格>): string {
   if (p.kind === "set_status") {
     const f = p.field === "followStatus" ? "跟进状态" : "决策状态";
     return `把${customerNoun}「${p.customerName}」的${f}改成「${p.to || "…"}」`;
@@ -303,7 +321,7 @@ export function describeProposal(p: Proposal, customerNoun: string): string {
   if (p.kind === "add_followup") return `给「${p.customerName}」记一条${FOLLOW_TYPE_MAP[p.type]?.label ?? p.type}`;
   if (p.kind === "add_plan") return `给「${p.customerName}」排一次${p.method || "跟进"}`;
   if (p.kind === "update_customer") {
-    const 项 = p.changes.map((c) => 可改字段[c.field].label);
+    const 项 = p.changes.map((c) => 字段表[c.field].label);
     return `改${customerNoun}「${p.customerName}」的${项.join("、")}`;
   }
   if (p.kind === "add_opportunity") return `给「${p.customerName}」新建商机${p.name ? `「${p.name}」` : ""}`;

@@ -94,7 +94,7 @@ beforeEach(async () => {
 
 afterAll(async () => { await prisma.$disconnect(); });
 
-describe("两人同时编辑同一条学员", () => {
+describe("两人同时编辑同一条客户", () => {
   it("改的是不同字段时自动合并，谁的改动都不丢", async () => {
     const c = await newCustomer("被同时改的", "13800000001");
     // 甲乙同时打开，看到的是同一版
@@ -120,7 +120,7 @@ describe("两人同时编辑同一条学员", () => {
     const r = await submit(乙, { school: "清华大学" });
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("unreachable");
-    expect(r.conflict?.fields).toEqual(["院校"]);
+    expect(r.conflict?.fields).toEqual(["公司"]);
 
     const after = await prisma.customer.findUniqueOrThrow({ where: { id: c.id } });
     expect(after.school).toBe("北京大学"); // 甲的没被盖
@@ -131,18 +131,18 @@ describe("两人同时编辑同一条学员", () => {
     const 甲 = await openForm(c.id);
     const 乙 = await openForm(c.id);
 
-    // 甲改了院校和跟进状态
+    // 甲改了公司和跟进状态
     await submit(甲, { school: "北京大学", followStatus: "意向较高" });
-    // 乙也改院校（撞车），另外改了专业（甲没碰）
+    // 乙也改公司（撞车），另外改了行业（甲没碰）
     const r = await submit(乙, { school: "清华大学", major: "金融学" });
     if (r.ok) throw new Error("应当冲突");
 
-    // 撞的只有院校；专业是乙自己改的，不该出现在冲突清单里
-    expect(r.conflict?.fields).toEqual(["院校"]);
+    // 撞的只有公司；行业是乙自己改的，不该出现在冲突清单里
+    expect(r.conflict?.fields).toEqual(["公司"]);
     // 但要告诉乙对方还动了什么，好让他判断要不要放弃自己的改动
-    expect(r.conflict?.theirFields).toContain("院校");
+    expect(r.conflict?.theirFields).toContain("公司");
     expect(r.conflict?.theirFields).toContain("跟进状态");
-    expect(r.conflict?.theirFields).not.toContain("专业");
+    expect(r.conflict?.theirFields).not.toContain("行业");
   });
 
   it("对方只录了跟进、没碰学员资料，保存不该被打扰", async () => {

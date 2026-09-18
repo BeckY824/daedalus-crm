@@ -4,13 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Col, Form, Input, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig } from "@/lib/business-config";
-import { DEFAULT_BUSINESS } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
 
 /**
- * 业务配置：把「学员 / 院校 / 年级 / 专业 / 教培销售」这些措辞交给用户自己定。
+ * 业务配置：把「客户 / 公司 / 职位 / 行业」这些措辞交给用户自己定。
  * 数据库列名与状态存储值都不动，改的只是显示与 AI 的语境。
+ *
+ * 顶上那两个预设是**填表的快捷方式**，不是一个新的配置项：点一下把整组字段填好，
+ * 之后每一项照样能自己改，也要自己点保存。默认那套是通用销售，教培招生是另一套。
  */
 export default function BusinessSettingsTab({ value }: { value: BusinessConfig }) {
   const router = useRouter();
@@ -33,8 +36,23 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
     <Select mode="tags" tokenSeparators={[",", "，", "\n"]} placeholder={placeholder} open={false} suffixIcon={null} />
   );
 
+  /** 套用预设：只填表，不保存——人得自己看一眼再点保存，免得一次误点改掉全站措辞 */
+  function 套用(名: string) {
+    form.setFieldsValue(BUSINESS_PRESETS[名]);
+    message.info(`已填入「${名}」这一套，看一眼再点保存`);
+  }
+
   return (
     <div className="set-col" style={{ paddingTop: 8 }}>
+      <div className="biz-preset">
+        <span>套用预设</span>
+        {Object.keys(BUSINESS_PRESETS).map((名) => (
+          <Button key={名} size="small" onClick={() => 套用(名)}>
+            {名}
+          </Button>
+        ))}
+        <i>把下面整组填好，还能再改</i>
+      </div>
       <Form form={form} layout="vertical" initialValues={value}>
         <Form.Item
           name="brief"
@@ -47,22 +65,22 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
 
         <Row gutter={16}>
           <Col xs={24} sm={6}>
-            <Form.Item name="customer" label="客户叫什么" extra="如：学员 / 客户 / 会员" rules={[{ required: true, message: "必填" }, { max: 6, message: "6 字以内" }]}>
+            <Form.Item name="customer" label="客户叫什么" extra="如：客户 / 学员 / 会员" rules={[{ required: true, message: "必填" }, { max: 6, message: "6 字以内" }]}>
               <Input placeholder={DEFAULT_BUSINESS.customer} />
             </Form.Item>
           </Col>
           <Col xs={8} sm={6}>
-            <Form.Item name={["fields", "school"]} label="档案字段 1" extra="默认「院校」" rules={[{ required: true, message: "必填" }, { max: 6, message: "6 字以内" }]}>
+            <Form.Item name={["fields", "school"]} label="档案字段 1" extra="默认「公司」" rules={[{ required: true, message: "必填" }, { max: 6, message: "6 字以内" }]}>
               <Input />
             </Form.Item>
           </Col>
           <Col xs={8} sm={6}>
-            <Form.Item name={["fields", "grade"]} label="档案字段 2" extra="默认「年级」，是下拉选项" rules={[{ required: true, message: "必填" }, { max: 6, message: "6 字以内" }]}>
+            <Form.Item name={["fields", "grade"]} label="档案字段 2" extra="默认「职位」，是下拉选项" rules={[{ required: true, message: "必填" }, { max: 6, message: "6 字以内" }]}>
               <Input />
             </Form.Item>
           </Col>
           <Col xs={8} sm={6}>
-            <Form.Item name={["fields", "major"]} label="档案字段 3" extra="默认「专业」" rules={[{ required: true, message: "必填" }, { max: 6, message: "6 字以内" }]}>
+            <Form.Item name={["fields", "major"]} label="档案字段 3" extra="默认「行业」" rules={[{ required: true, message: "必填" }, { max: 6, message: "6 字以内" }]}>
               <Input />
             </Form.Item>
           </Col>

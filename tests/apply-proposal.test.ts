@@ -74,10 +74,12 @@ describe("改档案会连带该变的都变", () => {
   });
 
   it("一次改多项，每一项都落下去", async () => {
-    const r = await applyProposal(卡({ school: "武汉大学", grade: "研一", remark: "家长同意" }));
+    /* grade 那一格是枚举，选项来自业务配置——默认这套是「职位」，
+       写「研一」会被当场拒掉（教培预设下才认它）。这正是通用版要的行为。 */
+    const r = await applyProposal(卡({ school: "远望信息", grade: "技术", remark: "对方同意" }));
     expect(r.ok).toBe(true);
     const 后 = await prisma.customer.findUnique({ where: { id: 客户 } });
-    expect([后!.school, 后!.grade, 后!.remark]).toEqual(["武汉大学", "研一", "家长同意"]);
+    expect([后!.school, 后!.grade, 后!.remark]).toEqual(["远望信息", "技术", "对方同意"]);
   });
 
   it("没动的字段一个都不许变", async () => {

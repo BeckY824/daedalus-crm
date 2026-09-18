@@ -1334,6 +1334,14 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-ai-idle { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 0 2px; }
 .rec-ai-idle span { font-size: var(--fs-min); color: var(--text-muted); line-height: 1.6; }
 
+
+/* 业务配置顶上那排预设。它是填表的快捷方式，所以做得比一个功能区轻：
+   一行小字 + 两颗小键，不画卡片、不占标题 */
+.biz-preset { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px;
+  padding-bottom: 14px; border-bottom: 1px solid var(--line-soft); }
+.biz-preset > span { font-size: var(--fs-note); color: var(--ink); font-weight: 500; }
+.biz-preset > i { font-style: normal; font-size: var(--fs-min); color: var(--text-muted); }
+
 /* 系统里把「减弱动态效果」打开的人，这里一律按不动处理。
    这一条放在文件最后，为的是压过上面所有的 transition / animation——
    动效是锦上添花，开了这个开关的人多半是因为它让人不舒服。 */

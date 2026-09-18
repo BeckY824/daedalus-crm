@@ -9,8 +9,13 @@ import { describe, it, expect } from "vitest";
 import { buildProposal, describeProposal, missingFields, summarizeApplied } from "@/lib/agent/proposals";
 import { dayjs } from "@/lib/utils";
 
-const 客户 = { id: "c1", name: "陈同学" };
-const 业务 = { sources: ["转介绍", "官网注册", "其他"] };
+const 客户 = { id: "c1", name: "陈立" };
+/* 默认那套通用措辞：公司 / 职位 / 行业。校验「职位」那一格时用的就是这里的 grades */
+const 业务 = {
+  sources: ["转介绍", "官网注册", "其他"],
+  fields: { school: "公司", grade: "职位", major: "行业" },
+  grades: ["创始人 / 老板", "高管", "部门负责人", "经办人", "技术", "财务", "其他"],
+};
 const 建 = (kind: Parameters<typeof buildProposal>[1], args: Record<string, unknown>) => buildProposal("p1", kind, 客户, args, 业务);
 /** 取出提议，断言它成立——大多数用例只关心提议本身 */
 const 提 = (kind: Parameters<typeof buildProposal>[1], args: Record<string, unknown>) => {
@@ -86,7 +91,7 @@ describe("排计划的提议", () => {
 describe("给人看的描述", () => {
   it("抬头说清改谁、改成什么，业务名词跟着配置走", () => {
     const r = 建("set_status", { to: "已签约", reason: "他说这周付款" });
-    expect(r.ok && describeProposal(r.proposal, "客户")).toBe("把客户「陈同学」的跟进状态改成「已签约」");
+    expect(r.ok && describeProposal(r.proposal, "客户")).toBe("把客户「陈立」的跟进状态改成「已签约」");
   });
 
   it("日志里能看出这条是人确认过的 AI 建议", () => {
@@ -161,7 +166,7 @@ describe("改档案的提议", () => {
   it("抬头要说清改的是哪几项", () => {
     const p = 提("update_customer", { changes: { followStatus: "已签约", expectedSignAt: "2026-10-01" }, reason: "x" });
     const t = describeProposal(p, "学员");
-    expect(t).toContain("陈同学");
+    expect(t).toContain("陈立");
     expect(t).toContain("跟进状态");
     expect(t).toContain("预计签约");
   });

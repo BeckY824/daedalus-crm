@@ -29,7 +29,7 @@ const PAGES = [
   { file: "09-follow-ups", url: "/follow-ups", label: "跟进记录" },
   { file: "10-plans", url: "/follow-ups/plans", label: "跟进计划" },
   { file: "10b-reports", url: "/reports", label: "数据复盘", settle: 2500 },
-  { file: "11-settings", url: "/settings", label: "设置管理" },
+  { file: "11-settings", url: "/settings", label: "设置" },
 ];
 
 const browser = await chromium.launch({ headless: true });
@@ -79,11 +79,11 @@ await page.setViewportSize({ width: 1680, height: 1050 });
 
 await login();
 
-// 详情页样本：优先取名为「陈同学」的（截图演示库里给它准备了原文、商机与计划），否则取第一个
+/* 详情页样本：挑一位「意向较高」的——演示库里这一档才同时有商机、下次计划和多条跟进。
+   随便取第一位的话多半是「暂缓」那几个，截出来一半的卡片都是「还没有…」 */
 const detailHref = await page.evaluate(async () => {
-  const r = await fetch("/customers?keyword=" + encodeURIComponent("陈同学"), { headers: { accept: "text/html" } });
-  const html = await r.text();
-  const m = html.match(/\/customers\/(c[a-z0-9]{20,})/);
+  const r = await fetch("/customers?followStatus=" + encodeURIComponent("意向较高"), { headers: { accept: "text/html" } });
+  const m = (await r.text()).match(/\/customers\/(c[a-z0-9]{20,})/);
   if (m) return m[0];
   const r2 = await fetch("/customers", { headers: { accept: "text/html" } });
   const m2 = (await r2.text()).match(/\/customers\/(c[a-z0-9]{20,})/);

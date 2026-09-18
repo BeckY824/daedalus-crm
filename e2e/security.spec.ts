@@ -35,7 +35,7 @@ async function 登录(page: Page) {
 
 test.describe.configure({ mode: "serial" });
 
-test("存储型 XSS：学员备注里的脚本不会被执行，按字面显示", async ({ page }) => {
+test("存储型 XSS：客户备注里的脚本不会被执行，按字面显示", async ({ page }) => {
   const 弹窗数 = { n: 0 };
   page.on("dialog", async (d) => { 弹窗数.n++; await d.dismiss(); });
 
@@ -43,7 +43,7 @@ test("存储型 XSS：学员备注里的脚本不会被执行，按字面显示"
   const 姓名 = `XSS${戳}`;
 
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
   const 表单 = page.getByRole("dialog");
   await 表单.getByLabel("客户姓名").fill(姓名);
   await 表单.getByLabel("联系电话").fill(`1375${戳}`.slice(0, 11).padEnd(11, "8"));
@@ -57,7 +57,7 @@ test("存储型 XSS：学员备注里的脚本不会被执行，按字面显示"
 
   // 重新加载，走的是「从库里读出来再渲染」这条路——存储型 XSS 真正发作的时机
   await page.goto("/customers");
-  // 三栏壳的中栏也列学员，同一个名字会出现两个链接——要点的是正文列表里那个
+  // 三栏壳的中栏也列客户，同一个名字会出现两个链接——要点的是正文列表里那个
   await page.locator("main").getByRole("link", { name: 姓名 }).click();
   // 记录页的备注常驻左栏，不用切页签
   await page.getByText("备注").first().waitFor();

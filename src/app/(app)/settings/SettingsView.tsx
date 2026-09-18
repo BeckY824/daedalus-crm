@@ -89,7 +89,7 @@ const 说明表: Record<string, string> = {
   password: "改密码、看哪几台机器登录着",
   desktop: "账号、备份、更新",
   ai: "走哪把 Key、还剩几次",
-  business: "学员 / 客户这些叫法",
+  business: "客户 / 学员 这些叫法",
   audit: "每一次改动的记录",
 };
 
@@ -573,7 +573,15 @@ export default function SettingsView({
         ),
       },
   ]
-    .filter((x) => !(桌面端 && x.key === "password"))
+    /**
+     * 桌面端是**一个人用的**：数据在他自己机器上，登录的是他自己的云端账号，
+     * 「团队成员」那一栏只会列出他一个人，还摆着「新增成员」——那是个会骗人的入口：
+     * 在本机库里加出来的人没有云端账号，登不进任何地方（2026-09-18 用户指出）。
+     * 要多人一起用，是「连接服务器」那条路，不是在这台机器上加账号。
+     *
+     * 「登录与密码」不摆的理由同源：桌面端只有云端账号这一套身份，本机那把密码用不到。
+     */
+    .filter((x) => !(桌面端 && (x.key === "password" || x.key === "members")))
     .map((x) => ({ ...x, 说明: 说明表[x.key] ?? "" })) as { key: string; label: string; 说明: string; children: React.ReactNode }[];
 
   /**

@@ -25,8 +25,8 @@ async function 登录(page: Page) {
   await expect(page).toHaveURL(/\/dashboard/, { timeout: 30_000 });
 }
 
-/** 挑一个有跟进记录的学员——简报和速记都需要真实上下文 */
-async function 打开有跟进记录的学员(page: Page) {
+/** 挑一个有跟进记录的客户——简报和速记都需要真实上下文 */
+async function 打开有跟进记录的客户(page: Page) {
   await page.goto("/customers");
   await page.getByRole("link", { name: "王同学" }).first().click();
   await expect(page.getByRole("heading", { name: "王同学" })).toBeVisible();
@@ -34,7 +34,7 @@ async function 打开有跟进记录的学员(page: Page) {
 
 test("1a 跟进速记：口述预填整张表单，相对时间换算成具体日期", async ({ page }) => {
   await 登录(page);
-  await 打开有跟进记录的学员(page);
+  await 打开有跟进记录的客户(page);
 
   await page.getByRole("button", { name: "记录跟进", exact: true }).click();
   const 弹窗 = page.getByRole("dialog");
@@ -70,7 +70,7 @@ test("1a 跟进速记：口述预填整张表单，相对时间换算成具体�
 
 test("1b 微信聊天记录：分清双方说话人，类型识别为短信沟通", async ({ page }) => {
   await 登录(page);
-  await 打开有跟进记录的学员(page);
+  await 打开有跟进记录的客户(page);
 
   await page.getByRole("button", { name: "记录跟进", exact: true }).click();
   const 弹窗 = page.getByRole("dialog");
@@ -83,7 +83,7 @@ test("1b 微信聊天记录：分清双方说话人，类型识别为短信沟�
       "王妈妈 09:07",
       "价格能再优惠点吗？我们还在和另一家比",
       "我 09:10",
-      "我申请个老学员介绍价给您，明天给您答复",
+      "我申请个老客户介绍价给您，明天给您答复",
       "王妈妈 09:11",
       "好的，那等你消息",
     ].join("\n"),
@@ -105,7 +105,7 @@ test("1b 微信聊天记录：分清双方说话人，类型识别为短信沟�
 
 test("1c 保存联动：勾选的待办与计划随跟进一起创建，取消勾选的不创建", async ({ page }) => {
   await 登录(page);
-  await 打开有跟进记录的学员(page);
+  await 打开有跟进记录的客户(page);
 
   // 记录页右栏的待办卡片标题形如「待办 3」，没有待办时不带数字
   const 待办数 = async () => {
@@ -144,7 +144,7 @@ test("1c 保存联动：勾选的待办与计划随跟进一起创建，取消�
 
 test("1d 可拒：无意义短文本明确报错，不硬编内容", async ({ page }) => {
   await 登录(page);
-  await 打开有跟进记录的学员(page);
+  await 打开有跟进记录的客户(page);
 
   await page.getByRole("button", { name: "记录跟进", exact: true }).click();
   const 弹窗 = page.getByRole("dialog");
@@ -157,7 +157,7 @@ test("1d 可拒：无意义短文本明确报错，不硬编内容", async ({ pa
   await expect(弹窗.getByLabel("沟通内容")).toHaveValue("");
 });
 
-test("2b 简报空数据兜底：没有跟进记录的学员明说，不硬生成", async ({ page }) => {
+test("2b 简报空数据兜底：没有跟进记录的客户明说，不硬生成", async ({ page }) => {
   await 登录(page);
   // 林同学有商机但没有任何跟进记录
   await page.goto("/customers");

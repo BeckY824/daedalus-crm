@@ -10,7 +10,7 @@
  * 过程通过 emit 推出去：每次工具调用一条 step（running → done + summary）。
  */
 import { chatMessagesJSON, chatTextStream, buildSystemPrompt, type ChatMessage } from "../llm";
-import { TOOLS, TOOL_MAP, PROPOSAL_VOCAB, type ToolContext } from "./tools";
+import { TOOLS, TOOL_MAP, proposalVocab, type ToolContext } from "./tools";
 import type { Proposal } from "./proposals";
 import type { Emit } from "../ai-steps";
 import type { BriefRecord } from "../ai-draft";
@@ -188,7 +188,7 @@ export async function runAgent(
 ${toolDoc}
 
 取值表（propose_* 的参数只能用这里的词）：
-${PROPOSAL_VOCAB}
+${proposalVocab(b)}
 
 工作方式：每一轮只输出严格 JSON，二选一：
   {"thought": "一句话：打算干什么、为什么", "action": {"tool": "工具名", "args": {...}}}

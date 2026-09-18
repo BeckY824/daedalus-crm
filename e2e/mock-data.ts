@@ -34,9 +34,9 @@ export async function 清空业务数据(p: PrismaClient) {
 
 const 姓 = ["张", "王", "李", "赵", "陈", "刘", "杨", "黄", "周", "吴"];
 const 名 = ["伟", "芳", "娜", "敏", "静", "磊", "洋", "艳", "勇", "杰"];
-const 院校 = ["北京大学", "清华大学", "复旦大学", "上海交通大学", "浙江大学", "南京大学", "武汉大学"];
-const 专业 = ["计算机科学与技术", "金融学", "软件工程", "电子信息工程", "工商管理", "临床医学"];
-const 年级 = ["大一", "大二", "大三", "大四", "研一", "研二"];
+const 公司 = ["星辰科技", "远望信息", "合德智造", "南屿文化", "长风建设", "锐维电子", "济安生物"];
+const 行业 = ["IT互联网", "软件服务", "智能制造", "文化传媒", "建筑工程", "电子科技"];
+const 职位 = ["创始人 / 老板", "高管", "部门负责人", "经办人", "技术", "财务"];
 const 跟进 = ["待跟进", "跟进中", "已加微信", "已试听", "意向较高", "暂缓跟进", "已签约", "已流失"];
 const 决策 = ["了解中", "对比中", "与家人商议", "等待预算", "已决定报名", "暂不考虑"];
 
@@ -50,7 +50,7 @@ export async function 造模拟数据(p: PrismaClient) {
   if (!员工.length) throw new Error("库里没有账号，globalSetup 没跑？");
 
   const 渠道 = [];
-  for (const [i, n] of ["小红老师", "王主任", "学长推荐群"].entries()) {
+  for (const [i, n] of ["小红咨询", "王主任（协会）", "老客户推荐群"].entries()) {
     渠道.push(await p.channel.create({
       data: { name: n, phone: `1380000${1000 + i}`, channelOwnerId: 员工[i % 员工.length].id },
     }));
@@ -64,9 +64,9 @@ export async function 造模拟数据(p: PrismaClient) {
       data: {
         name: `链条${i + 1}号`,
         phone: `13911110${String(i).padStart(3, "0")}`,
-        school: 院校[i % 院校.length],
-        major: 专业[i % 专业.length],
-        grade: 年级[i % 年级.length],
+        school: 公司[i % 公司.length],
+        major: 行业[i % 行业.length],
+        grade: 职位[i % 职位.length],
         followStatus: 跟进[i % 跟进.length],
         decisionStatus: 决策[i % 决策.length],
         salesOwnerId: 员工[i % 员工.length].id,
@@ -80,28 +80,28 @@ export async function 造模拟数据(p: PrismaClient) {
     链.push(c.id);
   }
 
-  // 再造一批普通学员，凑够多页
-  const 学员: string[] = [...链];
+  // 再造一批普通客户，凑够多页
+  const 客户: string[] = [...链];
   for (let i = 0; i < 56; i++) {
     const c = await p.customer.create({
       data: {
         name: `${姓[i % 姓.length]}${名[(i * 3) % 名.length]}${i > 9 ? i : ""}`,
         phone: `137${String(10000000 + i * 137).slice(0, 8)}`,
-        school: 院校[i % 院校.length],
-        major: 专业[i % 专业.length],
-        grade: 年级[i % 年级.length],
+        school: 公司[i % 公司.length],
+        major: 行业[i % 行业.length],
+        grade: 职位[i % 职位.length],
         followStatus: 跟进[i % 跟进.length],
         decisionStatus: 决策[i % 决策.length],
         salesOwnerId: 员工[i % 员工.length].id,
         expectedSignAt: i % 3 === 0 ? new Date(2026, 8, (i % 27) + 1) : null,
-        remark: i % 5 === 0 ? "家长比较关注就业情况，需要准备往届学员去向数据" : null,
+        remark: i % 5 === 0 ? "对方比较关注数据能不能不出内网，需要准备一份私有化部署说明" : null,
         ...(i % 4 === 0
           ? { channelId: 渠道[i % 渠道.length].id, channelOwnerId: 渠道[i % 渠道.length].channelOwnerId,
               attributionChannelId: 渠道[i % 渠道.length].id }
           : {}),
       },
     });
-    学员.push(c.id);
+    客户.push(c.id);
   }
 
   // 签约：给「已签约」的人配上金额
@@ -113,7 +113,7 @@ export async function 造模拟数据(p: PrismaClient) {
   }
 
   // 跟进记录：让时间线和沟通统计有东西
-  for (const [i, id] of 学员.slice(0, 20).entries()) {
+  for (const [i, id] of 客户.slice(0, 20).entries()) {
     await p.followUp.create({
       data: {
         customerId: id, ownerId: 员工[i % 员工.length].id,
@@ -129,7 +129,7 @@ export async function 造模拟数据(p: PrismaClient) {
 
   // 商机：铺满漏斗各阶段
   const 阶段 = ["初步沟通", "需求确认", "方案报价", "谈判审核", "赢单成交"];
-  for (const [i, id] of 学员.slice(0, 15).entries()) {
+  for (const [i, id] of 客户.slice(0, 15).entries()) {
     await p.opportunity.create({
       data: {
         customerId: id, ownerId: 员工[i % 员工.length].id,
@@ -158,7 +158,7 @@ export async function 造模拟数据(p: PrismaClient) {
   }
 
   // 联系人与待办
-  for (const [i, id] of 学员.slice(0, 12).entries()) {
+  for (const [i, id] of 客户.slice(0, 12).entries()) {
     await p.contact.create({
       data: { customerId: id, name: i % 2 ? "本人" : "母亲", phone: `1366000${1000 + i}`, isPrimary: true,
               position: i % 2 ? "学生" : "家长" },
@@ -170,7 +170,7 @@ export async function 造模拟数据(p: PrismaClient) {
   }
 
   return {
-    学员: await p.customer.count(),
+    客户: await p.customer.count(),
     线索: await p.lead.count(),
     商机: await p.opportunity.count(),
     签约: await p.contract.count(),

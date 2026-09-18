@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { usePathname } from "next/navigation";
 import { Modal, Input, Button, App } from "antd";
+import { useBusiness } from "@/lib/business-client";
 
 const ISSUES = "https://github.com/BeckY824/daedalus-crm/issues/new";
 
@@ -38,6 +39,7 @@ export default function FeedbackButton({ 去向 }: { 去向: "cloud" | "github" 
   const [发送中, set发送中] = useState(false);
   const pathname = usePathname();
   const { message } = App.useApp();
+  const b = useBusiness();
 
   function 点开() {
     if (去向 === "github") {
@@ -104,7 +106,7 @@ export default function FeedbackButton({ 去向 }: { 去向: "cloud" | "github" 
         />
         {/* 承诺写在人看得见的地方，不写在隐私政策的第七条里 */}
         <p className="fb-note">
-          会一起发过去：版本、系统、你正在看的页面（{pathname}）。<b>不含任何学员、商机或跟进数据。</b>
+          会一起发过去：版本、系统、你正在看的页面（{pathname}）。<b>不含任何{b.customer}、商机或跟进数据。</b>
         </p>
         <div className="fb-foot">
           <a href={ISSUES} target="_blank" rel="noopener noreferrer">

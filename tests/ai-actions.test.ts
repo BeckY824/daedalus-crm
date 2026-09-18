@@ -3,7 +3,7 @@
  *
  * AI 生成本身不进单测（不联网、不花钱、不引入不确定性），
  * 这里拦的是生成之前和之外的事：输入边界要拒得明白、
- * 学员不存在要报得清楚、key 未配置时必须优雅降级成一条人话错误——
+ * 客户不存在要报得清楚、key 未配置时必须优雅降级成一条人话错误——
  * 绝不能让"AI 没配好"表现为白屏或 500。
  */
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
@@ -60,10 +60,10 @@ describe("跟进速记守卫", () => {
     if (!res.ok) expect(res.error).toContain("过长");
   });
 
-  it("学员不存在要报得清楚", async () => {
+  it("客户不存在要报得清楚", async () => {
     const res = await parseFollowUpDraft({ customerId: "no-such-id", text: "刚跟家长聊了二十分钟" });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain("学员不存在");
+    if (!res.ok) expect(res.error).toContain("客户不存在");
   });
 
   it("key 未配置时降级为一条人话错误，且不留下任何 AI 使用痕迹", async () => {
@@ -77,10 +77,10 @@ describe("跟进速记守卫", () => {
 });
 
 describe("临战简报守卫", () => {
-  it("学员不存在要报得清楚", async () => {
+  it("客户不存在要报得清楚", async () => {
     const res = await generateBrief({ customerId: "no-such-id" });
     expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.error).toContain("学员不存在");
+    if (!res.ok) expect(res.error).toContain("客户不存在");
   });
 
   it("没有任何跟进记录时明说，不硬生成", async () => {
@@ -106,14 +106,14 @@ describe("问数据守卫", () => {
 });
 
 describe("起草话术守卫", () => {
-  it("唤醒与邀请：学员不存在都要报得清楚", async () => {
+  it("唤醒与邀请：客户不存在都要报得清楚", async () => {
     const wake = await draftWakeup({ customerId: "no-such-id", reason: "沉睡 20 天" });
     expect(wake.ok).toBe(false);
-    if (!wake.ok) expect(wake.error).toContain("学员不存在");
+    if (!wake.ok) expect(wake.error).toContain("客户不存在");
 
     const invite = await draftInvite({ customerId: "no-such-id" });
     expect(invite.ok).toBe(false);
-    if (!invite.ok) expect(invite.error).toContain("学员不存在");
+    if (!invite.ok) expect(invite.error).toContain("客户不存在");
   });
 
   it("key 未配置时降级，不抛异常", async () => {
@@ -186,7 +186,7 @@ describe("盯盘解读守卫", () => {
     expect(res.ok).toBe(false);
   });
 
-  it("学员不存在要报得清楚", async () => {
+  it("客户不存在要报得清楚", async () => {
     const res = await explainWatchlist({ items: [{ customerId: "nope", reason: "x" }] });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.error).toContain("不存在");

@@ -246,7 +246,7 @@ function CustomerFormInner({
           </Col>
           <Col span={8}>
             <Form.Item label={b.fields.school} name="school">
-              <Input placeholder={b.fields.school === "院校" ? "如：北京大学" : undefined} />
+              <Input placeholder={b.fields.school === "公司" ? "如：星辰科技" : undefined} />
             </Form.Item>
           </Col>
         </Row>
@@ -254,7 +254,7 @@ function CustomerFormInner({
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item label={b.fields.major} name="major">
-              <Input placeholder={b.fields.major === "专业" ? "如：计算机科学与技术" : undefined} />
+              <Input placeholder={b.fields.major === "行业" ? "如：IT互联网" : undefined} />
             </Form.Item>
           </Col>
           <Col span={8}>

@@ -21,20 +21,20 @@
 export const CUSTOMER_FIELD_LABELS: Record<string, string> = {
   name: "客户姓名",
   phone: "联系电话",
-  school: "院校",
-  grade: "年级",
-  major: "专业",
+  school: "公司",
+  grade: "职位",
+  major: "行业",
   followStatus: "跟进状态",
   decisionStatus: "客户决策状态",
   expectedSignAt: "预计签约时间",
   remark: "备注",
   salesOwnerId: "销售负责人",
   channelId: "推荐渠道",
-  referrerCustomerId: "推荐学员",
+  referrerCustomerId: "推荐客户",
   channelOwnerId: "渠道负责人",
 };
 
-/** 术语化版本：院校/年级/专业与「推荐学员」按业务配置显示 */
+/** 术语化版本：三个档案字段与「推荐客户」按业务配置显示 */
 export function customerFieldLabels(b: { customer: string; fields: { school: string; grade: string; major: string } }): Record<string, string> {
   return {
     ...CUSTOMER_FIELD_LABELS,

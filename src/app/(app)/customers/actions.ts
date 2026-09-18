@@ -346,7 +346,7 @@ export async function deleteCustomers(
       .join("、");
     return {
       ok: false,
-      error: `以下${b.customer}是他人的推荐来源，删除会导致下游业绩归属丢失，已阻止：${detail}。如确需删除，请先调整下游学员的推荐人。`,
+      error: `以下${b.customer}是他人的推荐来源，删除会导致下游业绩归属丢失，已阻止：${detail}。如确需删除，请先调整下游${b.customer}的推荐人。`,
     };
   }
 

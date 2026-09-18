@@ -13,6 +13,7 @@ import {
   ClockCircleOutlined,
 } from "@ant-design/icons";
 import type { EChartsCoreOption } from "echarts/core";
+import { useBusiness } from "@/lib/business-client";
 import Chart, { Sparkline } from "@/components/Chart";
 import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
@@ -59,6 +60,7 @@ type Props = {
 };
 
 export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, aiEnabled, 内嵌 }: Props & { 内嵌?: boolean }) {
+  const b = useBusiness();
   // 这个下拉原本没有接线，选了没反应，而卡片上又写着「本月」——比没有更误导
   const [窗口, set窗口] = useState<"本月" | "本季">("本月");
   const [range, setRange] = useState<string | number>("近30天");
@@ -193,7 +195,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
           <StatCard
             icon={<UserOutlined />}
             color="#22c55e"
-            label="新增学员"
+            label={`新增${b.customer}`}
             value={stats.newCustomersThisMonth.toLocaleString()}
             delta={stats.newCustomersDelta}
             href="/customers?createdWithin=本月"

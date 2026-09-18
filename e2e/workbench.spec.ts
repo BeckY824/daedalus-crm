@@ -109,7 +109,7 @@ test("首页：⌘K 把光标放回输入框", async ({ page }) => {
   await expect(page.locator(".cli-input textarea")).toBeFocused();
 });
 
-test("学员列表：空库时不摆筛选栏，主动作还在原位", async ({ page }) => {
+test("客户列表：空库时不摆筛选栏，主动作还在原位", async ({ page }) => {
   const p = 连库();
   await 清空业务数据(p);
   await p.$disconnect();
@@ -117,12 +117,12 @@ test("学员列表：空库时不摆筛选栏，主动作还在原位", async ({
   await 登录(page);
   await page.goto("/customers");
   await page.waitForSelector(".list");
-  await expect(page.getByPlaceholder("姓名 / 电话 / 院校 / 专业")).toHaveCount(0);
+  await expect(page.getByPlaceholder("姓名 / 电话 / 公司 / 行业")).toHaveCount(0);
   // 「新建」任何时候都在：空状态里那个是引导，不是它的替代品
-  await expect(page.getByRole("button", { name: /新建学员/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /新建客户/ })).toBeVisible();
 });
 
-test("学员列表：默认只摆六列，其余在「列」里", async ({ page }) => {
+test("客户列表：默认只摆六列，其余在「列」里", async ({ page }) => {
   const p = 连库();
   await 造模拟数据(p);
   await p.$disconnect();
@@ -143,7 +143,7 @@ test("学员列表：默认只摆六列，其余在「列」里", async ({ page 
   await expect(page.locator(".ant-table-thead th", { hasText: "联系电话" })).toBeVisible();
 });
 
-test("学员记录：左边有窄名单，切人不回列表", async ({ page }) => {
+test("客户记录：左边有窄名单，切人不回列表", async ({ page }) => {
   await page.setViewportSize({ width: 1560, height: 900 });
   await 登录(page);
   await page.goto("/customers");
@@ -162,7 +162,7 @@ test("学员记录：左边有窄名单，切人不回列表", async ({ page }) 
   await expect(名单).toBeVisible();
 });
 
-test("学员记录：窄屏下名单收成抽屉，但「换一位」这条路还在", async ({ page }) => {
+test("客户记录：窄屏下名单收成抽屉，但「换一位」这条路还在", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 860 });
   await 登录(page);
   await page.goto("/customers");
@@ -377,17 +377,17 @@ test("数据「现在」那四张卡，每一张都点得进一个能把这个�
 
   /**
    * 设计稿 08/DATA·NOW 的页面规则：关键指标可跳到明细。
-   * 四张卡换成了本月签约 / 新增学员 / 进行中商机 / 逾期跟进——
+   * 四张卡换成了本月签约 / 新增客户 / 进行中商机 / 逾期跟进——
    * 四个「今天要关心什么」，而不是四个「库里有多少」。
    * 这条钉的是**每一张都真的落得了地**：一个点不进去的数只能让人干着急。
    */
-  const 卡 = ["本月签约", "新增学员", "进行中商机", "逾期跟进"];
+  const 卡 = ["本月签约", "新增客户", "进行中商机", "逾期跟进"];
   const 名单 = await page.locator(".stat-label > span:first-child").allInnerTexts();
   expect(名单.map((t) => t.trim())).toEqual(卡);
 
   const 去处: Record<string, RegExp> = {
     本月签约: /\/overview\?view=/,
-    新增学员: /\/customers\?createdWithin=/,
+    新增客户: /\/customers\?createdWithin=/,
     进行中商机: /\/opportunities\?status=OPEN/,
     逾期跟进: /\/follow-ups\/plans/,
   };
@@ -398,7 +398,7 @@ test("数据「现在」那四张卡，每一张都点得进一个能把这个�
   }
 });
 
-test("从「新增学员」点进来时，列表要说清自己只是一个子集", async ({ page }) => {
+test("从「新增客户」点进来时，列表要说清自己只是一个子集", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers?createdWithin=本月");
   // 不说的话，人会把这一屏当成全部

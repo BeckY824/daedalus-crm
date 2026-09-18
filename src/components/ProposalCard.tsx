@@ -6,7 +6,7 @@ import { App, Select, Input, DatePicker, Checkbox } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import { applyProposal } from "@/app/(app)/dashboard/apply";
-import { describeProposal, missingFields, 只留选中的改动, 可改字段, type Proposal } from "@/lib/agent/proposals";
+import { describeProposal, missingFields, 只留选中的改动, 可改字段表, type Proposal } from "@/lib/agent/proposals";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
@@ -31,6 +31,8 @@ import { dayjs } from "@/lib/utils";
  */
 export default function ProposalCard({ proposal }: { proposal: Proposal }) {
   const b = useBusiness();
+  /* 三个档案字段叫什么、「职位」那一格有哪些选项，跟着业务配置走（通用版 vs 教培预设） */
+  const 字段表 = 可改字段表(b);
   const { message } = App.useApp();
   const [draft, setDraft] = useState<Proposal>(proposal);
   const [state, setState] = useState<"idle" | "saving" | "done" | "denied">("idle");
@@ -74,7 +76,7 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
         style={{ overflow: "hidden" }}
       >
         <CheckOutlined />
-        <span>{describeProposal(draft, b.customer)}</span>
+        <span>{describeProposal(draft, b.customer, 字段表)}</span>
         <Link href={draft.kind === "add_lead" ? "/leads" : draft.kind === "update_channel" ? "/channels" : `/customers/${draft.customerId}`} className="cli-link">
           查看 <RightOutlined style={{ fontSize: 10 }} />
         </Link>
@@ -98,7 +100,7 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
     >
       <div className="prop-h">
         <span className="prop-tag">建议</span>
-        <span className="prop-t">{describeProposal(draft, b.customer)}</span>
+        <span className="prop-t">{describeProposal(draft, b.customer, 字段表)}</span>
       </div>
       <div className="prop-why">{draft.reason}</div>
 
@@ -120,7 +122,7 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
             负责人 / 渠道 / 推荐人是名字不是 id——落库时服务端解析，重名会拒绝 */}
         {draft.kind === "update_customer" &&
           draft.changes.map((chg, i) => {
-            const spec = 可改字段[chg.field];
+            const spec = 字段表[chg.field];
             const 改这项 = (v: string) => setDraft({ ...draft, changes: draft.changes.map((c, j) => (j === i ? { ...c, value: v } : c)) });
             return (
               <Field
@@ -136,7 +138,7 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
                     style={{ width: 160 }}
                     placeholder="选一个"
                     value={chg.value || undefined}
-                    options={spec.values.map((v) => ({ value: v, label: chg.field === "grade" ? v : statusLabel(b, v) }))}
+                    options={(spec.values ?? []).map((v) => ({ value: v, label: chg.field === "grade" ? v : statusLabel(b, v) }))}
                     onChange={改这项}
                   />
                 ) : spec.kind === "date" ? (

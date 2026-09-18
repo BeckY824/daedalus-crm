@@ -8,7 +8,7 @@
  */
 import { prisma } from "../prisma";
 import { dayjs } from "../utils";
-import { FOLLOW_TYPE_MAP, OPP_STAGES, GRADES } from "../constants";
+import { FOLLOW_TYPE_MAP, OPP_STAGES } from "../constants";
 import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
 import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec } from "../report-query";
@@ -16,7 +16,7 @@ import { loadWatchlist } from "../sentinel-data";
 import { statusLabel } from "../business-config";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
-import { buildProposal, describeProposal, missingFields, 可改字段, 可改字段名单, type Proposal, type ProposalKind } from "./proposals";
+import { buildProposal, describeProposal, missingFields, 可改字段表, 可改字段名单, type Proposal, type ProposalKind } from "./proposals";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "../constants";
 
 export type ToolContext = {
@@ -256,18 +256,32 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
   };
 }
 
-/** 提议工具的取值表，拼进系统提示词，省得模型猜 */
-export const PROPOSAL_VOCAB = `线索状态：${LEAD_STATUSES.join(" / ")}
-跟进状态：${FOLLOW_STATUSES.join(" / ")}
-决策状态：${DECISION_STATUSES.join(" / ")}
+/**
+ * 提议工具的取值表，拼进系统提示词，省得模型猜。
+ *
+ * **状态那两行写成「显示名（值：存储值）」**：模型必须输出存储值（库里按值存、代码按值判），
+ * 但它读到的上下文里全是显示名——通用版里人看到的是「已演示」，值却是「已试听」。
+ * 只给值，模型会在回答里对着企业客户说「试听」；只给显示名，它写回来的值又落不了库。
+ * 两个都给，各归各位。名词和档案字段也一律跟着业务配置走，别写死「学员」。
+ */
+export function proposalVocab(b: BusinessConfig): string {
+  const 字段表 = 可改字段表(b);
+  const 带值 = (v: string) => {
+    const l = statusLabel(b, v);
+    return l === v ? v : `${l}（值：${v}）`;
+  };
+  return `线索状态：${LEAD_STATUSES.join(" / ")}
+跟进状态：${FOLLOW_STATUSES.map(带值).join(" / ")}
+决策状态：${DECISION_STATUSES.map(带值).join(" / ")}
 跟进类型：${FOLLOW_TYPES.map((t) => t.label).join(" / ")}
 计划方式：${FOLLOW_METHODS.join(" / ")}
 商机阶段：${OPP_STAGES.join(" / ")}
-档案里能改的字段：${可改字段名单.map((f) => `${f}（${可改字段[f].label}）`).join("、")}
+档案里能改的字段：${可改字段名单.map((f) => `${f}（${字段表[f].label}）`).join("、")}
 渠道负责人有两种改法，别混：
-  改**某一位**学员的渠道负责人（登记错误、单个订正）→ propose_customer_update 的 channelOwnerName，只动这一位
-  改**渠道本身**的负责人（换人接手）→ propose_channel_update，只影响之后新增的学员，已有学员不动
-channelName 收的是渠道名、referrerName 收的是学员名，绝不要把销售的名字塞进去。
-年级：${GRADES.join(" / ")}`;
+  改**某一位**${b.customer ?? "客户"}的渠道负责人（登记错误、单个订正）→ propose_customer_update 的 channelOwnerName，只动这一位
+  改**渠道本身**的负责人（换人接手）→ propose_channel_update，只影响之后新增的${b.customer ?? "客户"}，已有的不动
+channelName 收的是渠道名、referrerName 收的是${b.customer ?? "客户"}名，绝不要把销售的名字塞进去。
+${字段表.grade.label}：${(字段表.grade.values ?? []).join(" / ")}`;
+}
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));

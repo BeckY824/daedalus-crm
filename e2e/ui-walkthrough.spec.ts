@@ -36,7 +36,7 @@ const 页面 = [
   { 路径: "/dashboard", 名字: "首页" },
   { 路径: "/overview", 名字: "数据-现在" },
   { 路径: "/leads", 名字: "线索" },
-  { 路径: "/customers", 名字: "学员" },
+  { 路径: "/customers", 名字: "客户" },
   { 路径: "/channels", 名字: "渠道" },
   { 路径: "/contacts", 名字: "联系人" },
   { 路径: "/opportunities", 名字: "商机" },
@@ -159,7 +159,7 @@ test("必填项校验：不只是红框，文字必须真的看得见", async ({
    */
   await 登录(page);
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
   const 弹窗 = page.getByRole("dialog");
   await expect(弹窗).toBeVisible();
 
@@ -183,7 +183,7 @@ test("必填项校验：不只是红框，文字必须真的看得见", async ({
 test("手机号格式错误要给出能看懂的提示", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByLabel("客户姓名").fill("格式测试");
   await 弹窗.getByLabel("联系电话").fill("abc123");
@@ -203,12 +203,12 @@ test("手机号格式错误要给出能看懂的提示", async ({ page }) => {
 test("超长文本不能把列表撑出横向滚动条", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByLabel("客户姓名").fill("超长" + "名".repeat(48));
   await 弹窗.getByLabel("联系电话").fill(`1360${戳}`.slice(0, 11).padEnd(11, "8"));
-  await 弹窗.getByLabel("院校").fill("很长的院校名称".repeat(8));
-  await 弹窗.getByLabel("专业").fill("很长的专业名称".repeat(8));
+  await 弹窗.getByLabel("公司").fill("很长的公司名称".repeat(8));
+  await 弹窗.getByLabel("行业").fill("很长的行业名称".repeat(8));
   await 弹窗.getByLabel("备注").fill("第一行\n第二行\n" + "很长的备注".repeat(40));
   await 弹窗.getByLabel("销售负责人").click();
   const 下拉 = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)");
@@ -219,17 +219,17 @@ test("超长文本不能把列表撑出横向滚动条", async ({ page }) => {
 
   await page.reload();
   await page.waitForTimeout(600);
-  await page.screenshot({ path: "test-results/走查/超长文本-学员列表.png", fullPage: true });
+  await page.screenshot({ path: "test-results/走查/超长文本-客户列表.png", fullPage: true });
 
   const 列表 = await 横向溢出(page);
-  expect(列表.溢出, `学员列表被撑出横向滚动条：${JSON.stringify(列表)}`).toBe(false);
+  expect(列表.溢出, `客户列表被撑出横向滚动条：${JSON.stringify(列表)}`).toBe(false);
 
   // 详情页同样要扛得住
   await page.locator("main").getByRole("link", { name: /超长名/ }).first().click();
   await page.waitForTimeout(600);
-  await page.screenshot({ path: "test-results/走查/超长文本-学员详情.png", fullPage: true });
+  await page.screenshot({ path: "test-results/走查/超长文本-客户详情.png", fullPage: true });
   const 详情 = await 横向溢出(page);
-  expect(详情.溢出, `学员详情被撑出横向滚动条：${JSON.stringify(详情)}`).toBe(false);
+  expect(详情.溢出, `客户详情被撑出横向滚动条：${JSON.stringify(详情)}`).toBe(false);
 });
 
 test("窄屏（笔记本分屏）下各页面不该横向溢出", async ({ page }) => {
@@ -267,7 +267,7 @@ test("造一批模拟数据，供后面几条看「有数据时」的样子", as
   const 统计 = await 造模拟数据(p);
   await p.$disconnect();
   console.log(`[走查] 已造：${JSON.stringify(统计)}`);
-  expect(统计.学员).toBeGreaterThan(50); // 要够翻页
+  expect(统计.客户).toBeGreaterThan(50); // 要够翻页
 });
 
 test("有数据时各页面不该横向溢出，也不该有内容被截断", async ({ page }) => {
@@ -384,12 +384,12 @@ test("商机管道：末档不再结构性为零，且时间窗下拉是接线�
   expect(取数(本季), "切到本季后末档数量反而变少了").toBeGreaterThanOrEqual(取数(本月));
 });
 
-test("推荐链上的学员，详情页要能看出上下游与归属", async ({ page }) => {
+test("推荐链上的客户，详情页要能看出上下游与归属", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").fill("链条3号");
+  await page.getByPlaceholder("姓名 / 电话 / 公司 / 行业").fill("链条3号");
   // 工具栏 2026-09-17 起没有「搜索」按钮：关键词回车生效
-  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").press("Enter");
+  await page.getByPlaceholder("姓名 / 电话 / 公司 / 行业").press("Enter");
   await page.waitForURL(/keyword=/);
   await page.reload();
 
@@ -430,7 +430,7 @@ test("浏览器后退在各页面之间表现正常", async ({ page }) => {
   await page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "线索", exact: true }).click();
   await expect(page).toHaveURL(/\/leads/);
   await page.goBack();
-  await expect(page, "从线索退回来应当回到学员列表").toHaveURL(/\/customers/);
+  await expect(page, "从线索退回来应当回到客户列表").toHaveURL(/\/customers/);
   await page.goForward();
   await expect(page).toHaveURL(/\/leads/);
 });
@@ -438,15 +438,15 @@ test("浏览器后退在各页面之间表现正常", async ({ page }) => {
 test("刷新后筛选条件要还在，不能白筛一次", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").fill("超长");
+  await page.getByPlaceholder("姓名 / 电话 / 公司 / 行业").fill("超长");
   // 工具栏 2026-09-17 起没有「搜索」按钮：关键词回车生效
-  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").press("Enter");
+  await page.getByPlaceholder("姓名 / 电话 / 公司 / 行业").press("Enter");
   await page.waitForURL(/keyword=/);
   const 筛选后 = page.url();
 
   await page.reload();
   expect(page.url(), "刷新后筛选条件丢了").toBe(筛选后);
-  await expect(page.getByPlaceholder("姓名 / 电话 / 院校 / 专业")).toHaveValue("超长");
+  await expect(page.getByPlaceholder("姓名 / 电话 / 公司 / 行业")).toHaveValue("超长");
 });
 
 test("连点两次保存不会建出两条", async ({ page }) => {
@@ -454,7 +454,7 @@ test("连点两次保存不会建出两条", async ({ page }) => {
   await page.goto("/customers");
   const 手机 = `1361${戳}`.slice(0, 11).padEnd(11, "8");
 
-  await page.getByRole("button", { name: /新建学员/ }).click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByLabel("客户姓名").fill(`连点${戳}`);
   await 弹窗.getByLabel("联系电话").fill(手机);
@@ -468,9 +468,9 @@ test("连点两次保存不会建出两条", async ({ page }) => {
   await expect(弹窗).toBeHidden();
 
   await page.reload();
-  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").fill(`连点${戳}`);
+  await page.getByPlaceholder("姓名 / 电话 / 公司 / 行业").fill(`连点${戳}`);
   // 工具栏 2026-09-17 起没有「搜索」按钮：关键词回车生效
-  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").press("Enter");
+  await page.getByPlaceholder("姓名 / 电话 / 公司 / 行业").press("Enter");
   await page.waitForURL(/keyword=/);
   await page.reload();
   await expect(page.locator(".ant-table-row"), "连点两次建出了多条").toHaveCount(1);

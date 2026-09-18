@@ -38,9 +38,9 @@ async function 另一个人(browser: Browser, who: { 用户名: string; 密码: 
   return { ctx, page };
 }
 
-async function 新建学员(page: Page, 姓名: string, 手机: string) {
+async function 新建客户(page: Page, 姓名: string, 手机: string) {
   await page.goto("/customers");
-  await page.getByRole("button", { name: /新建学员/ }).click();
+  await page.getByRole("button", { name: /新建客户/ }).click();
   const 弹窗 = page.getByRole("dialog");
   await 弹窗.getByLabel("客户姓名").fill(姓名);
   await 弹窗.getByLabel("联系电话").fill(手机);
@@ -57,7 +57,7 @@ async function 新建学员(page: Page, 姓名: string, 手机: string) {
 test.describe.configure({ mode: "serial" });
 
 test.describe("A 组：跨会话的数据可见性", () => {
-  test("甲新建的学员，乙刷新后能看到", async ({ browser }) => {
+  test("甲新建的客户，乙刷新后能看到", async ({ browser }) => {
     const 甲 = await 另一个人(browser, 甲账号);
     const 乙 = await 另一个人(browser, 管理员);
 
@@ -65,7 +65,7 @@ test.describe("A 组：跨会话的数据可见性", () => {
     await 乙.page.goto("/customers");
     await expect(乙.page.getByRole("cell", { name: 姓名 })).toHaveCount(0);
 
-    await 新建学员(甲.page, 姓名, `1370${戳}01`.slice(0, 11).padEnd(11, "8"));
+    await 新建客户(甲.page, 姓名, `1370${戳}01`.slice(0, 11).padEnd(11, "8"));
 
     await 乙.page.reload();
     await expect(乙.page.getByRole("cell", { name: 姓名 }).first()).toBeVisible();
@@ -85,12 +85,12 @@ test.describe("A 组：跨会话的数据可见性", () => {
 
     const 姓名 = `缓存${戳}`;
     await 乙.page.goto("/customers");
-    await 新建学员(甲.page, 姓名, `1371${戳}01`.slice(0, 11).padEnd(11, "8"));
+    await 新建客户(甲.page, 姓名, `1371${戳}01`.slice(0, 11).padEnd(11, "8"));
 
     // 乙用侧边栏软导航离开再回来
     await 乙.page.getByRole("link", { name: "首页", exact: true }).click();
     await expect(乙.page).toHaveURL(/\/dashboard/);
-    await 乙.page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "学员", exact: true }).click();
+    await 乙.page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "客户", exact: true }).click();
     await expect(乙.page).toHaveURL(/\/customers/);
     const 软导航后看得到 = await 乙.page
       .getByRole("cell", { name: 姓名 })
@@ -114,7 +114,7 @@ test.describe("D 组：批量操作交叉", () => {
     const 乙 = await 另一个人(browser, 管理员);
 
     for (let i = 0; i < 3; i++) {
-      await 新建学员(甲.page, `批量${戳}${i}`, `1372${戳}${i}`.slice(0, 11).padEnd(11, "8"));
+      await 新建客户(甲.page, `批量${戳}${i}`, `1372${戳}${i}`.slice(0, 11).padEnd(11, "8"));
     }
 
     async function 批量改状态(page: Page, 状态: string) {
@@ -148,7 +148,7 @@ test.describe("D 组：批量操作交叉", () => {
     const 乙 = await 另一个人(browser, 管理员);
 
     const 姓名 = `交叉${戳}`;
-    await 新建学员(甲.page, 姓名, `1373${戳}01`.slice(0, 11).padEnd(11, "8"));
+    await 新建客户(甲.page, 姓名, `1373${戳}01`.slice(0, 11).padEnd(11, "8"));
 
     // 甲打开编辑框（此时拿到的是旧版本）
     await 甲.page.goto("/customers");
@@ -166,15 +166,15 @@ test.describe("D 组：批量操作交叉", () => {
     await 下拉.getByRole("menuitem", { name: "李四" }).click();
     await expect(乙.page.locator(".ant-message")).toContainText(/条/);
 
-    // 甲改的是院校，不是负责人，应当自动合并
-    await 甲.page.getByRole("dialog").getByLabel("院校").fill("北京大学");
+    // 甲改的是公司，不是负责人，应当自动合并
+    await 甲.page.getByRole("dialog").getByLabel("公司").fill("星辰科技");
     await 甲.page.getByRole("dialog").getByRole("button", { name: /保\s*存/ }).click();
     await expect(甲.page.getByText("已保存")).toBeVisible();
 
-    // 两边的改动都在：院校是甲写的，负责人是乙改的
+    // 两边的改动都在：公司是甲写的，负责人是乙改的
     await 甲.page.reload();
     const 行 = 甲.page.getByRole("row", { name: new RegExp(姓名) });
-    await expect(行).toContainText("北京大学");
+    await expect(行).toContainText("星辰科技");
 
     await 甲.ctx.close();
     await 乙.ctx.close();
@@ -187,7 +187,7 @@ test.describe("E 组：同账号多设备与在线停用", () => {
     const 设备二 = await 另一个人(browser, 甲账号);
 
     const 姓名 = `双设备${戳}`;
-    await 新建学员(设备一.page, 姓名, `1374${戳}01`.slice(0, 11).padEnd(11, "8"));
+    await 新建客户(设备一.page, 姓名, `1374${戳}01`.slice(0, 11).padEnd(11, "8"));
 
     await 设备二.page.goto("/customers");
     await expect(设备二.page.getByRole("cell", { name: 姓名 }).first()).toBeVisible();

@@ -7,9 +7,17 @@ import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type CustomerBrief } from "@/lib/ai-draft";
 import { dayjs } from "@/lib/utils";
-import { FOLLOW_TYPE_MAP } from "@/lib/constants";
+import { FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
-import { statusLabel } from "@/lib/business-config";
+import { statusLabel, type BusinessConfig } from "@/lib/business-config";
+
+/**
+ * 状态取值写给模型时带上显示名：`已演示（值：已试听）`。
+ * 库里存的是值、界面上写的是显示名——只给一边，模型要么用错词说话，要么写回来的值落不了库。
+ */
+function 取值表(b: Pick<BusinessConfig, "statusLabels">, 值们: readonly string[]): string {
+  return 值们.map((v) => (statusLabel(b, v) === v ? v : `${statusLabel(b, v)}（值：${v}）`)).join("/");
+}
 import { formatTimeline } from "@/lib/ai-context";
 import { stepStart, stepDone, type Emit } from "@/lib/ai-steps";
 import type { BriefRecord } from "@/lib/ai-draft";
@@ -103,8 +111,8 @@ ${text}
 - occurredAt 是这次沟通发生的时间，原话没提就 null
 - tasks：销售自己要做的事，最多 5 条；没有就 []
 - plan：下一次与${b.customer}的沟通安排，没有就 null；method 取值：电话沟通/线上会议/上门拜访/邮件沟通/微信沟通
-- followStatusSuggestion：仅当原话显示销售推进有明显变化时给，取值：待跟进/跟进中/已加微信/已试听/意向较高/暂缓跟进/已签约/已流失，否则 null
-- decisionStatusSuggestion：仅当${b.customer}决策阶段有明显变化时给，取值：了解中/对比中/与家人商议/等待预算/已决定报名/暂不考虑，否则 null
+- followStatusSuggestion：仅当原话显示销售推进有明显变化时给，取值：${取值表(b, FOLLOW_STATUSES)}，否则 null
+- decisionStatusSuggestion：仅当${b.customer}决策阶段有明显变化时给，取值：${取值表(b, DECISION_STATUSES)}，否则 null
 - contactId / opportunityId：只在原话能明确对应到上面列表中的某一项时填其 id，否则 null`;
 
   try {

@@ -43,11 +43,14 @@ import type { RecordProps, FollowUpRow, ContactRow } from "./types";
  * 没有页签。联系人 / 商机 / 签约都是档案的一部分，放左栏。
  */
 
-/** 删掉最后一笔签约后跟进状态退到哪一档：退单和录错是两回事，由操作的人选 */
+/**
+ * 删掉最后一笔签约后跟进状态退到哪一档：退单和录错是两回事，由操作的人选。
+ * 标签**运行时拼**，不写死——状态的显示名跟着业务配置走（通用版里「与家人商议」叫「内部讨论」）。
+ */
 const REVERT_CHOICES = [
-  { value: "意向较高", label: "意向较高 · 与家人商议（谈崩了，还想再争取）", decision: "与家人商议" },
-  { value: "跟进中", label: "跟进中 · 了解中（录错了，回到普通跟进）", decision: "了解中" },
-  { value: "已流失", label: "已流失 · 暂不考虑（确定不报了）", decision: "暂不考虑" },
+  { value: "意向较高", decision: "与家人商议", 说明: "谈崩了，还想再争取" },
+  { value: "跟进中", decision: "了解中", 说明: "录错了，回到普通跟进" },
+  { value: "已流失", decision: "暂不考虑", 说明: "确定不报了" },
 ] as const;
 
 type Entry =
@@ -534,7 +537,13 @@ export default function RecordView({
               style={{ width: "100%" }}
               defaultValue={revertChoice.current}
               onChange={(v) => (revertChoice.current = v)}
-              options={[...REVERT_CHOICES.map((c) => ({ value: c.value, label: c.label })), { value: "", label: "保持「已签约」不变（我知道自己在做什么）" }]}
+              options={[
+                ...REVERT_CHOICES.map((c) => ({
+                  value: c.value,
+                  label: `${statusLabel(b, c.value)} · ${statusLabel(b, c.decision)}（${c.说明}）`,
+                })),
+                { value: "", label: `保持「${statusLabel(b, "已签约")}」不变（我知道自己在做什么）` },
+              ]}
             />
           </div>
         </>

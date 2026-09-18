@@ -1,5 +1,5 @@
 /**
- * 上线冒烟：把一条学员从线索走到签约，中间每一步都要在界面上看得见。
+ * 上线冒烟：把一条客户从线索走到签约，中间每一步都要在界面上看得见。
  *
  * 这些用例故意按业务链条前后依赖（串行执行），因为要验的正是「链条通不通」，
  * 而不是单个页面能不能打开。数据用同一个时间戳后缀，跑完能一眼认出来。
@@ -12,7 +12,7 @@ const 管理员 = { 用户名: "admin", 密码: "admin123" };
 
 /** 同一轮跑出来的数据带同样的后缀，避免和别轮撞名 */
 const 戳 = String(Date.now()).slice(-6);
-const 学员名 = `冒烟王${戳}`;
+const 客户名 = `冒烟王${戳}`;
 const 手机号 = `139${戳}0` .slice(0, 11).padEnd(11, "8");
 
 /**
@@ -72,41 +72,41 @@ test("3. 新建线索后能在列表里看到", async ({ page }) => {
 
   await page.getByRole("button", { name: /新建线索/ }).click();
   const 弹窗 = page.getByRole("dialog");
-  await 弹窗.getByLabel("线索名称").fill(学员名);
-  await 弹窗.getByLabel("联系人").fill(学员名);
+  await 弹窗.getByLabel("线索名称").fill(客户名);
+  await 弹窗.getByLabel("联系人").fill(客户名);
   await 弹窗.getByLabel("联系电话").fill(手机号);
   await 弹窗.getByRole("button", { name: /确\s*定|保\s*存/ }).click();
 
-  await expect(page.getByRole("cell", { name: 学员名 }).first()).toBeVisible();
+  await expect(page.getByRole("cell", { name: 客户名 }).first()).toBeVisible();
 });
 
-test("4. 线索转学员：学员库出现，线索标记已转化", async ({ page }) => {
+test("4. 线索转客户：客户库出现，线索标记已转化", async ({ page }) => {
   await 登录(page);
   await page.goto("/leads");
 
-  const 行 = page.getByRole("row", { name: new RegExp(学员名) });
-  // 按钮上的名词跟着业务配置走（默认「学员」），不再写死「客户」
-  await 行.getByRole("button", { name: "转学员" }).click();
+  const 行 = page.getByRole("row", { name: new RegExp(客户名) });
+  // 按钮上的名词跟着业务配置走（默认「客户」），不再写死「客户」
+  await 行.getByRole("button", { name: "转客户" }).click();
 
   // 转化是不可逆的，界面会先要一次确认
   const 确认框 = page.getByRole("dialog");
-  await expect(确认框).toContainText("转为学员");
-  await 确认框.getByRole("button", { name: /转为学员/ }).click();
+  await expect(确认框).toContainText("转为客户");
+  await 确认框.getByRole("button", { name: /转为客户/ }).click();
 
-  // 转完直接跳到该学员详情
+  // 转完直接跳到该客户详情
   await expect(page).toHaveURL(/\/customers\//);
-  await expect(page.getByRole("heading", { name: 学员名 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: 客户名 })).toBeVisible();
 
   // 线索那边要留下痕迹，不能转完就查无此事
   await page.goto("/leads");
   await expect(行).toContainText("已转化");
-  await expect(行.getByRole("link", { name: /查看学员/ })).toBeVisible();
+  await expect(行.getByRole("link", { name: /查看客户/ })).toBeVisible();
 });
 
-test("5. 给学员录一条跟进，时间线上要看得见", async ({ page }) => {
+test("5. 给客户录一条跟进，时间线上要看得见", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.locator("main").getByRole("link", { name: 学员名 }).click();
+  await page.locator("main").getByRole("link", { name: 客户名 }).click();
 
   await page.getByRole("button", { name: /记录跟进/ }).first().click();
   const 弹窗 = page.getByRole("dialog");
@@ -129,7 +129,7 @@ test("5. 给学员录一条跟进，时间线上要看得见", async ({ page }) 
 test("6. 登记签约后，跟进状态变成已签约、金额显示出来", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.locator("main").getByRole("link", { name: 学员名 }).click();
+  await page.locator("main").getByRole("link", { name: 客户名 }).click();
 
   // 记录页没有页签：「登记签约」在左栏签约一节
   await page.getByRole("button", { name: /登记签约|新建签约|添加签约/ }).first().click();
@@ -144,7 +144,7 @@ test("6. 登记签约后，跟进状态变成已签约、金额显示出来", as
 test("7. 同一天同金额再录一笔，要弹窗确认而不是默默翻倍", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers");
-  await page.locator("main").getByRole("link", { name: 学员名 }).click();
+  await page.locator("main").getByRole("link", { name: 客户名 }).click();
 
   await page.getByRole("button", { name: /登记签约|新建签约|添加签约/ }).first().click();
   const 弹窗 = page.getByRole("dialog").first();
@@ -164,7 +164,7 @@ test("7. 同一天同金额再录一笔，要弹窗确认而不是默默翻倍",
   await expect(page.locator("aside.rec-card")).toContainText("19,800");
 });
 
-test("8. 两个人同时改同一条学员：改不同字段自动合并，改同一字段才拦", async ({ browser }) => {
+test("8. 两个人同时改同一条客户：改不同字段自动合并，改同一字段才拦", async ({ browser }) => {
   /**
    * 两个独立的 browser context = 两套互不干扰的 Cookie，
    * 一台机器就能模拟两个人同时在线，不需要第二台机器。
@@ -179,7 +179,7 @@ test("8. 两个人同时改同一条学员：改不同字段自动合并，改�
 
   async function 打开编辑框(page: Page) {
     await page.goto("/customers");
-    await page.getByRole("row", { name: new RegExp(学员名) }).getByRole("button").first().click();
+    await page.getByRole("row", { name: new RegExp(客户名) }).getByRole("button").first().click();
     await expect(page.getByRole("dialog")).toBeVisible();
   }
 
@@ -187,35 +187,35 @@ test("8. 两个人同时改同一条学员：改不同字段自动合并，改�
   await 打开编辑框(甲);
   await 打开编辑框(乙);
 
-  // 甲改院校，乙改专业——不是同一项，都该存下
-  await 甲.getByRole("dialog").getByLabel("院校").fill("北京大学");
+  // 甲改公司，乙改行业——不是同一项，都该存下
+  await 甲.getByRole("dialog").getByLabel("公司").fill("星辰科技");
   await 甲.getByRole("dialog").getByRole("button", { name: /保\s*存/ }).click();
   await expect(甲.getByText("已保存")).toBeVisible();
 
-  await 乙.getByRole("dialog").getByLabel("专业").fill("软件工程");
+  await 乙.getByRole("dialog").getByLabel("行业").fill("软件服务");
   await 乙.getByRole("dialog").getByRole("button", { name: /保\s*存/ }).click();
   await expect(乙.getByText("已保存")).toBeVisible();
 
   // 两人的改动都在
   await 甲.goto("/customers");
-  await expect(甲.getByRole("row", { name: new RegExp(学员名) })).toContainText("北京大学");
-  await expect(甲.getByRole("row", { name: new RegExp(学员名) })).toContainText("软件工程");
+  await expect(甲.getByRole("row", { name: new RegExp(客户名) })).toContainText("星辰科技");
+  await expect(甲.getByRole("row", { name: new RegExp(客户名) })).toContainText("软件服务");
 
   // 这次两人改同一项，后提交的必须被拦下
   await 打开编辑框(甲);
   await 打开编辑框(乙);
-  await 甲.getByRole("dialog").getByLabel("院校").fill("清华大学");
+  await 甲.getByRole("dialog").getByLabel("公司").fill("远望信息");
   await 甲.getByRole("dialog").getByRole("button", { name: /保\s*存/ }).click();
   await expect(甲.getByText("已保存")).toBeVisible();
 
-  await 乙.getByRole("dialog").getByLabel("院校").fill("复旦大学");
+  await 乙.getByRole("dialog").getByLabel("公司").fill("合德智造");
   await 乙.getByRole("dialog").getByRole("button", { name: /保\s*存/ }).click();
   await expect(乙.getByText("有人和你改了同一项，你的改动没有保存")).toBeVisible();
-  await expect(乙.getByRole("dialog")).toContainText("院校");
+  await expect(乙.getByRole("dialog")).toContainText("公司");
 
   // 甲的值保住了
   await 甲.goto("/customers");
-  await expect(甲.getByRole("row", { name: new RegExp(学员名) })).toContainText("清华大学");
+  await expect(甲.getByRole("row", { name: new RegExp(客户名) })).toContainText("远望信息");
 
   await 甲上下文.close();
   await 乙上下文.close();
@@ -230,19 +230,19 @@ test("9. 筛选后导出 CSV：行数对得上、中文不乱码、公式不会�
   await 登录(page);
 
   // 在一个「会被导出的」自由文本字段里埋一个公式。
-  // 备注不在导出列里，所以这里用专业——载荷必须落在真的会导出的列上，
+  // 备注不在导出列里，所以这里用行业——载荷必须落在真的会导出的列上，
   // 否则这条断言等于没测（第一版就是这么写的，白跑了一轮）。
   await page.goto("/customers");
-  await page.getByRole("row", { name: new RegExp(学员名) }).getByRole("button").first().click();
+  await page.getByRole("row", { name: new RegExp(客户名) }).getByRole("button").first().click();
   const 编辑框 = page.getByRole("dialog");
-  await 编辑框.getByLabel("专业").fill("=1+1");
+  await 编辑框.getByLabel("行业").fill("=1+1");
   await 编辑框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(编辑框).toBeHidden();
 
   // 用姓名筛出唯一一条，导出的行数应当跟着筛选走。
   // 工具栏 2026-09-17 起没有「搜索」按钮了（下拉改了就生效，关键词回车生效）
-  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").fill(学员名);
-  await page.getByPlaceholder("姓名 / 电话 / 院校 / 专业").press("Enter");
+  await page.getByPlaceholder("姓名 / 电话 / 公司 / 行业").fill(客户名);
+  await page.getByPlaceholder("姓名 / 电话 / 公司 / 行业").press("Enter");
   /**
    * 必须等 URL 真的带上筛选条件再刷新。搜索是 startTransition 里的
    * router.push，异步的；点完就 reload 会抢在它前面，把筛选条件冲掉，
@@ -255,7 +255,7 @@ test("9. 筛选后导出 CSV：行数对得上、中文不乱码、公式不会�
 
   // 表格里确实只剩这一条——这才是「筛选生效」的证据
   await expect(page.locator(".ant-table-row")).toHaveCount(1);
-  await expect(page.getByRole("row", { name: new RegExp(学员名) })).toHaveCount(1);
+  await expect(page.getByRole("row", { name: new RegExp(客户名) })).toHaveCount(1);
 
   const [下载] = await Promise.all([
     page.waitForEvent("download"),
@@ -270,7 +270,7 @@ test("9. 筛选后导出 CSV：行数对得上、中文不乱码、公式不会�
 
   // 2. 中文表头与数据都要能原样读出来
   expect(内容).toContain("客户姓名");
-  expect(内容).toContain(学员名);
+  expect(内容).toContain(客户名);
 
   // 3. 行数 = 表头 1 行 + 筛选出的 1 行
   const 行 = 内容.replace(/^\ufeff/, "").split("\r\n").filter((l) => l.trim());
@@ -279,5 +279,5 @@ test("9. 筛选后导出 CSV：行数对得上、中文不乱码、公式不会�
   // 4. 用户填的公式被前缀成纯文本，不会在 Excel 里执行
   expect(内容).toContain("'=1+1");
 
-  expect(下载.suggestedFilename()).toMatch(/学员列表-\d{4}-\d{2}-\d{2}\.csv/);
+  expect(下载.suggestedFilename()).toMatch(/客户列表-\d{4}-\d{2}-\d{2}\.csv/);
 });
