@@ -4,7 +4,8 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { getSetting, setSetting, invalidateSettingsCache, encryptSecret, decryptSecret, maskSecret } from "@/lib/settings";
-import { mergeBusiness, DEFAULT_BUSINESS } from "@/lib/business-config";
+import { mergeBusiness, DEFAULT_BUSINESS, BUSINESS_PRESETS, RELABELABLE_STATUSES, statusLabel } from "@/lib/business-config";
+import { FOLLOW_STATUSES } from "@/lib/constants";
 import { getBusiness, saveBusiness } from "@/lib/business";
 import { getLlmConfig, saveLlmConfig, clearLlmConfig, describeLlmConfig, DEFAULT_BASE_URL, DEFAULT_MODEL } from "@/lib/llm";
 import { buildWatchlist } from "@/lib/sentinel";
@@ -80,6 +81,33 @@ describe("业务配置", () => {
     expect(b.customer).toBe("客户");
     expect(b.grades).toEqual(["A", "B"]);
   });
+  /*
+    预设是填表的快捷方式，套用之后要能直接保存。所以每一套都必须是一份**完整且合法**的配置：
+    少一组选项、或者给一个不存在的状态值起了显示名，套用之后保存就会静默丢掉那一项——
+    人看到的是「我明明点了预设，怎么还是老样子」。
+  */
+  it("每一套预设都是完整合法的配置，套用后原样存得回来", () => {
+    for (const [名, 预设] of Object.entries(BUSINESS_PRESETS)) {
+      expect(预设.brief.trim(), 名).not.toBe("");
+      expect(预设.customer.trim(), 名).not.toBe("");
+      for (const k of ["school", "grade", "major"] as const) expect(预设.fields[k].trim(), `${名}.${k}`).not.toBe("");
+      for (const k of ["grades", "sources", "industries"] as const) expect(预设[k].length, `${名}.${k}`).toBeGreaterThan(0);
+      // 显示名只能挂在真实存在的状态值上，否则保存时会被 mergeBusiness 丢掉
+      for (const v of Object.keys(预设.statusLabels)) expect(RELABELABLE_STATUSES, `${名} 的 ${v}`).toContain(v);
+      expect(mergeBusiness(预设), 名).toEqual(预设);
+    }
+  });
+
+  it("外贸那套带着小红书和阿里国际站，状态显示名说的是寄样", () => {
+    const 外贸 = BUSINESS_PRESETS["外贸出口"];
+    expect(外贸.sources).toContain("小红书");
+    expect(外贸.sources).toContain("阿里国际站");
+    expect(外贸.industries).toContain("外贸 / 进出口");
+    expect(statusLabel(外贸, "已试听")).toBe("已寄样");
+    // 存储值不变，变的只是界面上怎么叫——盯盘权重和终态判断都按值引用
+    expect(FOLLOW_STATUSES).toContain("已试听");
+  });
+
   it("盯盘的沉睡文案跟着术语走", () => {
     const items = buildWatchlist(
       { overduePlans: [], opportunities: [], customers: [{ id: "c", name: "甲", followStatus: "跟进中", lastFollowAt: new Date(Date.now() - 30 * 86400_000), createdAt: new Date(0), ownerName: "张三" }] },

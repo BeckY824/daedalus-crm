@@ -13,8 +13,8 @@ import { DemoDataSection } from "@/components/EmptyState";
  * 业务配置：把「客户 / 公司 / 职位 / 行业」这些措辞交给用户自己定。
  * 数据库列名与状态存储值都不动，改的只是显示与 AI 的语境。
  *
- * 顶上那两个预设是**填表的快捷方式**，不是一个新的配置项：点一下把整组字段填好，
- * 之后每一项照样能自己改，也要自己点保存。默认那套是通用销售，教培招生是另一套。
+ * 顶上那几个预设是**填表的快捷方式**，不是一个新的配置项：点一下把整组字段填好，
+ * 之后每一项照样能自己改，也要自己点保存。默认那套是通用销售，教培招生和外贸出口各是一套。
  */
 export default function BusinessSettingsTab({ value }: { value: BusinessConfig }) {
   const router = useRouter();

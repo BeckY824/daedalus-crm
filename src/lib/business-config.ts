@@ -2,6 +2,8 @@
  * 业务配置：这套 CRM **默认是通用销售措辞**（客户、公司/职位/行业），
  * 数据模型本来就是一条通用的销售漏斗。教培招生那套（学员、院校/年级/专业、试听）
  * 留成一个预设，一键套用——2026-09-18 之前默认是教培那套，反了。
+ * 外贸出口是第三套：字段名和通用销售一样，差别在三组选项（询盘平台、展会、开发信）
+ * 和几个状态的显示名（寄样、已建联）。
  *
  * 措辞从这里读、不写死在代码里，所以换一套预设全站跟着变（界面、AI 提示词、导出）。
  *
@@ -10,7 +12,11 @@
  *
  * 客户端组件通过 <BusinessProvider> 拿（见 business-client.tsx），服务端直接 await getBusiness()。
  */
-import { GRADES, TITLES, CUSTOMER_SOURCES, INDUSTRIES, FOLLOW_STATUSES, DECISION_STATUSES } from "./constants";
+import {
+  GRADES, TITLES, CUSTOMER_SOURCES, INDUSTRIES,
+  TRADE_TITLES, TRADE_SOURCES, TRADE_INDUSTRIES,
+  FOLLOW_STATUSES, DECISION_STATUSES,
+} from "./constants";
 
 export type BusinessConfig = {
   /** 一段话：卖什么、客户是谁、怎么成交。注入全部 AI 提示词 */
@@ -63,6 +69,23 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     industries: [...INDUSTRIES],
     // 教培场景下这三个值本来就说得通，不另起显示名
     statusLabels: {},
+  },
+  外贸出口: {
+    brief:
+      "面向海外客户的外贸销售团队。客户是海外采购商、经销商和工程商，" +
+      "通过询盘、报价、寄样、验厂推进到下单；展会和老客户返单是重要来源。" +
+      "沟通主要在 WhatsApp、邮件和微信上进行。",
+    customer: "客户",
+    fields: { school: "公司", grade: "职位", major: "行业" },
+    grades: [...TRADE_TITLES],
+    sources: [...TRADE_SOURCES],
+    industries: [...TRADE_INDUSTRIES],
+    /*
+      三个带教培味的状态值在外贸这条链上各有对应的一步：试听 → 寄样，
+      与家人商议 → 客户内部讨论，决定报名 → 决定下单。「已加微信」对海外客户
+      多半不是微信，改成中性的「已建联」。值本身不动，只改显示名。
+    */
+    statusLabels: { 已加微信: "已建联", 已试听: "已寄样", 与家人商议: "内部讨论", 已决定报名: "已决定下单" },
   },
 };
 
