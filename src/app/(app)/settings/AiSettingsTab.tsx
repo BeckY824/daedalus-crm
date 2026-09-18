@@ -127,7 +127,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
   }
 
   return (
-    <div style={{ maxWidth: 620, paddingTop: 8 }}>
+    <div className="set-col" style={{ paddingTop: 8 }}>
       {llm.source === null && !有平台额度 && (
         <Alert
           type="info"

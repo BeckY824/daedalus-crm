@@ -34,7 +34,7 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
   );
 
   return (
-    <div style={{ maxWidth: 720, paddingTop: 8 }}>
+    <div className="set-col" style={{ paddingTop: 8 }}>
       <Form form={form} layout="vertical" initialValues={value}>
         <Form.Item
           name="brief"

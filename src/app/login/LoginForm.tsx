@@ -128,11 +128,13 @@ export default function LoginForm({
         }}
       >
         <Rise 第几个={0} style={{ textAlign: "center", marginBottom: 28 }}>
+          {/* 标志是**落定**的：从 0.8 长到 1，带一点点过冲（--ease-spring 那条曲线）。
+              它是这一页第一个画完的东西，也是唯一一个允许"弹"的——底下的表单一律平静地上浮 */}
           <motion.div
             className="login-mark"
-            initial={{ opacity: 0, scale: 少动 ? 1 : 0.94 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 时长(0.3), ease: [...缓动] }}
+            initial={{ opacity: 0, scale: 少动 ? 1 : 0.8, y: 少动 ? 0 : -6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 时长(0.5), ease: [0.24, 1.34, 0.38, 1] }}
           >
             <Logo size={30} />
           </motion.div>

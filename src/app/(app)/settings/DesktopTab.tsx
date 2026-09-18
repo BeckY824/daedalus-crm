@@ -84,7 +84,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
   const 版本文字 = 版本 ? `当前版本 ${版本}` : null;
 
   return (
-    <div style={{ maxWidth: 620, paddingTop: 8 }}>
+    <div className="set-col" style={{ paddingTop: 8 }}>
       <Space orientation="vertical" size={16} style={{ width: "100%" }}>
         <Card size="small" title="云端账号">
           <Typography.Paragraph style={{ marginBottom: 6 }}>

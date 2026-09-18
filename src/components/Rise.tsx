@@ -2,8 +2,10 @@
 /**
  * 进场：淡入 + 8px 上浮。**整站只有这一种进场**。
  *
- * 用 `第几个` 排队：0、1、2、3，每档 40ms。人的眼睛读得出这个先后，
- * 但读不出它在等——超过五六档就该让整组一起出来，那时排队只剩下拖沓。
+ * 用 `第几个` 排队：0、1、2、3，每档 **70ms**。40ms 那一版排是排了，但人看不出来
+ * （2026-09-18 装到机器上的反馈：「没感觉到哪里不一样」）——间隔要读得出先后，
+ * 又不能读出"它在等"，70 是这两者之间。位移同理：8px 改 16px。
+ * 超过五六档就该让整组一起出来，那时排队只剩下拖沓。
  *
  * 曲线是 globals.css 里的 --ease（cubic-bezier(.22,1,.36,1)，参考 bencho.dev）。
  * 这里写成数组是因为 motion 不认 CSS 变量——**同一条曲线，两个地方各写一遍**，
@@ -18,8 +20,8 @@
 import { motion, useReducedMotion } from "motion/react";
 
 export const 缓动 = [0.22, 1, 0.36, 1] as const;
-/** 一档 40ms。和 CSS 里的 --t-fast 不是一回事：那是过渡时长，这是队列间隔 */
-export const 一档 = 0.04;
+/** 一档 70ms。和 CSS 里的 --t-fast 不是一回事：那是过渡时长，这是队列间隔 */
+export const 一档 = 0.07;
 
 export default function Rise({
   第几个 = 0,
@@ -37,9 +39,9 @@ export default function Rise({
     <motion.div
       className={className}
       style={style}
-      initial={{ opacity: 0, y: 少动 ? 0 : 8 }}
+      initial={{ opacity: 0, y: 少动 ? 0 : 16 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 少动 ? 0 : 0.26, delay: 少动 ? 0 : 第几个 * 一档, ease: [...缓动] }}
+      transition={{ duration: 少动 ? 0 : 0.42, delay: 少动 ? 0 : 第几个 * 一档, ease: [...缓动] }}
     >
       {children}
     </motion.div>

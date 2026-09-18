@@ -291,7 +291,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
           一个文档只能有一个 main，两个会让读屏和测试都认不出正文是哪块 */}
       <main className="main app-content" style={{ padding: "22px 26px" }}>
         {/*
-          换页时正文淡进来、抬 2px。**只有 140ms，而且只有正文**——
+          换页时正文淡进来、抬 6px。**220ms，而且只有正文**——
           左栏和中栏不动，动的只是"这一页的内容换了"这件事本身。
           在这之前换页是硬切：上一页的表格原地变成下一页的表格，人得自己确认屏幕真的换了。
 
@@ -300,9 +300,9 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
         */}
         <motion.div
           key={pathname}
-          initial={{ opacity: 0, y: 少动 ? 0 : 2 }}
+          initial={{ opacity: 0, y: 少动 ? 0 : 6 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 少动 ? 0 : 0.14, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 少动 ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
           style={{ maxWidth: 1720, margin: "0 auto" }}
         >
           {children}

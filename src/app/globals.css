@@ -323,9 +323,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .stat-card-go:hover {
   border-color: var(--brand-line);
   background: var(--brand-bg);
-  transform: translateY(-1px);
 }
-.stat-card-go:active { scale: 0.99; }
 .stat-card-go:hover .stat-value {
   color: var(--brand-deep);
 }
@@ -1009,7 +1007,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    照 Claude / Codex 桌面端那样。装它的是拦截路由，地址仍然是 /settings。 */
 .setm { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center;
   padding: 40px 24px; background: rgba(17, 24, 39, 0.28); backdrop-filter: blur(2px); }
-.setm-box { position: relative; width: min(1040px, 100%); max-height: min(760px, calc(100vh - 80px));
+/* **高度是定的，不是跟着内容长的**：原来切到「业务配置」「桌面端」这种长栏时，
+   整层会当场蹿高一截——人看到的是"弹窗自己放大了"。窗口就该是一个固定的框，
+   内容多了在框里滚。760 是这个框的上限，小窗口时让出上下各 40。 */
+.setm-box { position: relative; width: min(1040px, 100%); height: min(760px, calc(100vh - 80px));
   display: flex; flex-direction: column; background: var(--page-bg); border: 1px solid var(--line);
   border-radius: 14px; box-shadow: 0 24px 60px rgba(17, 24, 39, 0.18); overflow: hidden; }
 .setm-scroll { overflow: auto; padding: var(--s5); }
@@ -1045,6 +1046,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .set-nav-i b { display: block; font-weight: 500; color: var(--ink); }
 .set-nav-i.on b { color: var(--brand-deep); font-weight: 600; }
 .set-nav-i span { display: block; margin-top: 1px; font-size: var(--fs-note); color: var(--text-muted); }
+/* 每一栏的正文宽度是**同一个数**：原来 380 / 620 / 720 各写各的，
+   于是切一次页签，里面那一列的宽度就变一次。表格那两栏（团队成员、操作日志）不受它管——
+   表格是数据，宽度该由列决定 */
+.set-col { max-width: 680px; }
 .set-body { min-width: 0; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s4); }
 @media (max-width: 1023px) {
   /* 窄屏下目录压到正文上面，**仍然是单列**——横过来会变成一排挤不下的页签 */
@@ -1182,25 +1187,35 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-tool:active, .cli-send:active, .cli-ic:active, .cli-q:active, .cli-sugg:active,
 .cli-cmd:active, .mp-btn:active, .prop-ok:not(:disabled):active, .prop-no:active,
 .setm-x:active, .list-sel-x:active, .plan-switch:active, .rail-up:not(.busy):active {
-  scale: 0.96;
+  scale: 0.92;
   transition-duration: var(--t-press);
 }
 /* 大块头缩得更少：整条导航项缩 4% 会显得在跳，0.985 刚好只有手感觉得到 */
 .rail-item:active, .rail-user:active, .rail-mark:active, .bill-plan:active,
 .set-nav-i:active, .cmdk-row:active {
-  scale: 0.985;
+  /* 0.985 在一条 195px 宽的导航项上只缩 2.9px——量出来是有的，眼睛看不见。
+     0.965 缩 6.8px，是"按下去了"和"什么也没发生"的分界 */
+  scale: 0.965;
   transition-duration: var(--t-press);
 }
 /* 图标自己再涨一点点：指上去它是活的，但整块底色不必跟着变重 */
 .rail-fb:hover > svg, .pane-ib:hover > .anticon, .cli-tool:hover > .anticon,
-.cli-ic:hover > .anticon, .setm-x:hover > .anticon {
-  scale: 1.04;
+.cli-ic:hover > .anticon, .setm-x:hover > .anticon, .rail-item:hover > .anticon {
+  scale: 1.08;
 }
-.rail-fb > svg, .pane-ib > .anticon, .cli-tool > .anticon, .cli-ic > .anticon, .setm-x > .anticon {
-  transition: scale var(--t-fast) var(--ease);
+.rail-fb > svg, .pane-ib > .anticon, .cli-tool > .anticon, .cli-ic > .anticon, .setm-x > .anticon,
+.rail-item > .anticon {
+  transition: scale var(--t) var(--ease);
 }
-/* 卡片式的可点项：悬停抬 1px。只给"一块东西"，不给一行字 */
-.bill-plan:hover, .cli-q:hover, .cli-sugg:hover { transform: translateY(-1px); }
+/* 卡片式的可点项：悬停抬 3px + 一层浅阴影，按下去回落到 1px。
+   1px 那一版量得出来但看不见——抬起要让人看见"它浮起来了"，那才是"能点"的信号 */
+.bill-plan, .cli-q, .cli-sugg, .stat-card-go {
+  transition: transform var(--t) var(--ease), box-shadow var(--t) var(--ease),
+    scale var(--t-press) var(--ease), background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
+.bill-plan:hover, .cli-q:hover, .cli-sugg:hover, .stat-card-go:hover {
+  transform: translateY(-3px); box-shadow: 0 8px 22px rgba(17, 24, 39, 0.09); }
+.bill-plan:active, .cli-q:active, .cli-sugg:active, .stat-card-go:active {
+  transform: translateY(-1px); transition-duration: var(--t-press); }
 
 /* 焦点环统一。**只给键盘**：:focus-visible 在鼠标点击时不触发，
    所以这一条不会在每次点按钮之后留下一个框 */
@@ -1217,9 +1232,9 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 
 /* antd 的按钮和菜单项：它们自己带 transition: all，所以只补按下这一档。
    不逐个改组件——全站的按钮都是 antd 的，一条规则比一百处调用点可靠 */
-.ant-btn:not(:disabled):active { scale: 0.96; transition-duration: var(--t-press); }
+.ant-btn:not(:disabled):active { scale: 0.92; transition-duration: var(--t-press); }
 .ant-dropdown-menu-item, .ant-select-item, .ant-picker-cell { transition: scale var(--t-press) var(--ease), background var(--t-fast) var(--ease); }
-.ant-dropdown-menu-item:active, .ant-select-item:active { scale: 0.985; }
+.ant-dropdown-menu-item:active, .ant-select-item:active { scale: 0.965; }
 /* 表格行按下去只变底色：缩放会把整张表带着晃 */
 .ant-table-tbody > tr.ant-table-row:active > td { background: var(--hover); }
 
@@ -1266,7 +1281,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .inlc-yes:hover { background: var(--danger-bg); }
 .inlc-no { color: var(--text-muted); }
 .inlc-no:hover { background: var(--hover); color: var(--ink); }
-.inlc-yes:active, .inlc-no:active { scale: 0.94; }
+.inlc-yes:active, .inlc-no:active { scale: 0.90; }
 .inlc-yes:focus-visible, .inlc-no:focus-visible { outline: 1.5px solid var(--brand); outline-offset: 2px; }
 .inlc-yes:disabled { opacity: 0.5; cursor: default; }
 
@@ -1284,6 +1299,34 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .slc-k:active { cursor: grabbing; }
 .slc-k:focus-visible { outline: 1.5px solid var(--brand); outline-offset: 2px; }
 .slc.on .slc-k { color: var(--success-text); }
+
+
+/* ── antd 的弹框：居中，并且不再"蹿"出来 ──────────────────────────
+   两件事都是 2026-09-18 改的：
+
+   **居中**。antd 默认把框钉在 top: 100px，窗口越高它越偏上——1600 高的屏上，
+   框在上面五分之一处，而鼠标刚点的那一下多半在屏幕中间。眼睛和手都要跑一趟。
+   （antd 有个 centered 属性，但那要在每一个调用处加，全站四十多处，漏一个就是不一致。）
+
+   **不再蹿**。它自带的 zoom 从 0.2 放大到 1——五倍，落到眼睛里就是"砸"出来一个框。
+   改成从 0.97 长到 1：还是同一个动作，但幅度小到只剩"它是长出来的"这一个意思。 */
+/* 选择器要比 antd 的多一层：它的样式是运行时注进 <head> 的，排在这张表后面，
+   同样特异度的话是它赢——`top: 100px` 就是这么活下来的（第一版写 `.ant-modal` 没生效） */
+.ant-modal-wrap { display: flex; align-items: center; justify-content: center; }
+.ant-modal-wrap .ant-modal { top: 0; margin: 0; padding-bottom: 0; max-height: calc(100vh - 80px); }
+.ant-modal-wrap .ant-modal .ant-modal-content { max-height: calc(100vh - 80px); overflow: auto; }
+@keyframes crm-modal-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
+@keyframes crm-modal-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.985); } }
+.ant-modal.ant-zoom-enter, .ant-modal.ant-zoom-appear {
+  animation-name: crm-modal-in !important; animation-duration: var(--t-enter) !important;
+  animation-timing-function: var(--ease-morph) !important; }
+.ant-modal.ant-zoom-leave {
+  animation-name: crm-modal-out !important; animation-duration: var(--t-fast) !important;
+  animation-timing-function: var(--ease) !important; }
+@media (max-width: 767px) {
+  /* 手机上贴着上边更好按（拇指够得着），而且键盘弹起来时不会把框顶出屏幕 */
+  .ant-modal-wrap { align-items: flex-start; padding-top: 24px; }
+}
 
 /* 系统里把「减弱动态效果」打开的人，这里一律按不动处理。
    这一条放在文件最后，为的是压过上面所有的 transition / animation——
