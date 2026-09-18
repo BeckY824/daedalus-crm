@@ -1,4 +1,5 @@
 import type { ThemeConfig } from "antd";
+import { palette, alpha } from "@/lib/palette";
 
 /**
  * antd 这边的 token。
@@ -6,21 +7,22 @@ import type { ThemeConfig } from "antd";
  * 真正的一份 token 在 `src/app/globals.css` 的 `:root` 里——字号四级、十组颜色、
  * 间距圆角动效、骨架尺寸都在那儿。这里只是把同样的值喂给 antd，
  * 因为 antd 的组件样式是 CSS-in-JS 生成的，读不到 CSS 变量。
- * **两边的数必须一样**；改颜色改字号先改 globals.css，再回来对一遍。
+ * **两边的数必须一样**：颜色从 lib/palette.ts 取（tests/design-tokens.test.ts 会和 :root 对一遍），
+ * 字号、圆角这些数字还是手抄——改了 globals.css 记得回来对。
  *
  * 早先这里还导出过 RAIL_WIDTH = 76 / PANE_WIDTH = 352，没有任何地方用，
  * 值也停在侧栏加宽之前——已经删掉，宽度只由 --rail-w / --pane-w 说了算。
  */
-export const BRAND = "#2f6bff";
+export const BRAND = palette.brand;
 
 export const themeConfig: ThemeConfig = {
   token: {
     colorPrimary: BRAND,
     colorInfo: BRAND,
     colorLink: BRAND,
-    colorSuccess: "#16a34a",
-    colorWarning: "#d97706",
-    colorError: "#dc2626",
+    colorSuccess: palette.success,
+    colorWarning: palette.warning,
+    colorError: palette.danger,
     borderRadius: 6,
     borderRadiusLG: 10,
     borderRadiusSM: 4,
@@ -33,19 +35,19 @@ export const themeConfig: ThemeConfig = {
     controlHeight: 34,
     controlHeightSM: 28,
     controlHeightLG: 40,
-    colorTextBase: "#111827",
-    colorText: "#111827",
-    colorTextSecondary: "#6b7280",
+    colorTextBase: palette.ink,
+    colorText: palette.ink,
+    colorTextSecondary: palette.textMuted,
     /* Typography type="secondary" 走的是这个，不是 colorTextSecondary。
        派生值是 #9ca3af——跟进记录整列正文就是这么变成浅灰的。说明最浅到 #6b7280 */
-    colorTextDescription: "#6b7280",
+    colorTextDescription: palette.textMuted,
     /* --text-faint：placeholder、禁用、装饰。不许当正文 */
-    colorTextTertiary: "#9ca3af",
-    colorBorder: "#e5e7eb",
-    colorBorderSecondary: "#eceef2",
-    colorBgLayout: "#fafafa",
-    colorBgContainer: "#ffffff",
-    colorFillTertiary: "#f4f5f7",
+    colorTextTertiary: palette.textFaint,
+    colorBorder: palette.line,
+    colorBorderSecondary: palette.lineSoft,
+    colorBgLayout: palette.workbench,
+    colorBgContainer: palette.panel,
+    colorFillTertiary: palette.hover,
     boxShadow: "0 1px 2px rgba(17, 24, 39, 0.04)",
     boxShadowSecondary: "0 8px 24px rgba(17, 24, 39, 0.08)",
     fontFamily:
@@ -53,19 +55,19 @@ export const themeConfig: ThemeConfig = {
   },
   components: {
     Layout: {
-      siderBg: "#fbfbfc",
-      bodyBg: "#fafafa",
-      headerBg: "#ffffff",
+      siderBg: palette.workbench,
+      bodyBg: palette.workbench,
+      headerBg: palette.panel,
       headerHeight: 52,
     },
     Menu: {
       itemBg: "transparent",
       subMenuItemBg: "transparent",
-      itemColor: "#4b5563",
-      itemHoverBg: "#f0f1f4",
-      itemHoverColor: "#111827",
-      itemSelectedBg: "#e9eefb",
-      itemSelectedColor: "#1f3fbf",
+      itemColor: palette.inkSoft,
+      itemHoverBg: palette.hover,
+      itemHoverColor: palette.ink,
+      itemSelectedBg: palette.brandBg,
+      itemSelectedColor: palette.brandDeep,
       itemMarginInline: 10,
       itemMarginBlock: 2,
       itemHeight: 34,
@@ -79,17 +81,18 @@ export const themeConfig: ThemeConfig = {
       paddingLG: 18,
       headerHeight: 46,
       headerFontSize: 15,
-      colorBorderSecondary: "#e5e7eb",
+      colorBorderSecondary: palette.line,
       boxShadowTertiary: "none",
     },
     Table: {
-      headerBg: "#fafafa",
-      headerColor: "#6b7280",
+      headerBg: palette.workbench,
+      headerColor: palette.textMuted,
       headerSplitColor: "transparent",
-      rowHoverBg: "#f7f8fa",
-      rowSelectedBg: "#eef2ff",
-      rowSelectedHoverBg: "#e6ecff",
-      borderColor: "#eceef2",
+      rowHoverBg: palette.rowHover,
+      rowSelectedBg: palette.brandBg,
+      // 选中又悬停：比选中再深一档。没有单独的 token，用主色加透明度
+      rowSelectedHoverBg: alpha(palette.brand, 0.14),
+      borderColor: palette.lineSoft,
       cellPaddingBlock: 12,
       cellPaddingInline: 14,
       cellPaddingBlockMD: 10,
@@ -105,18 +108,18 @@ export const themeConfig: ThemeConfig = {
       defaultShadow: "none",
       dangerShadow: "none",
       fontWeight: 500,
-      defaultBorderColor: "#e5e7eb",
-      defaultHoverBorderColor: "#cfd4dc",
-      defaultHoverColor: "#111827",
+      defaultBorderColor: palette.line,
+      defaultHoverBorderColor: palette.lineStrong,
+      defaultHoverColor: palette.ink,
     },
     Input: { activeShadow: "0 0 0 3px rgba(47, 107, 255, 0.12)" },
-    Select: { optionSelectedBg: "#e9eefb" },
+    Select: { optionSelectedBg: palette.brandBg },
     Statistic: { contentFontSize: 26, titleFontSize: 13 },
-    Tabs: { titleFontSize: 14, horizontalItemPadding: "10px 0", inkBarColor: "#111827", itemSelectedColor: "#111827", itemHoverColor: "#111827" },
-    Segmented: { trackPadding: 2, trackBg: "#f0f1f4" },
+    Tabs: { titleFontSize: 14, horizontalItemPadding: "10px 0", inkBarColor: palette.ink, itemSelectedColor: palette.ink, itemHoverColor: palette.ink },
+    Segmented: { trackPadding: 2, trackBg: palette.hover },
     Tag: { fontSizeSM: 12, borderRadiusSM: 999 },
     Modal: { titleFontSize: 16, borderRadiusLG: 12 },
-    Form: { labelFontSize: 13, verticalLabelPadding: "0 0 4px", labelColor: "#6b7280" },
+    Form: { labelFontSize: 13, verticalLabelPadding: "0 0 4px", labelColor: palette.textMuted },
     Breadcrumb: { fontSize: 13 },
     Dropdown: { borderRadiusLG: 10 },
     Alert: { borderRadiusLG: 8 },

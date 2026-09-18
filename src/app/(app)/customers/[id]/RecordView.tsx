@@ -255,7 +255,8 @@ export default function RecordView({
             {contacts.map((c) => (
               <div key={c.id} className="rec-mini">
                 <Avatar size={26} style={{ background: avatarColor(c.name), color: AVATAR_TEXT, fontSize: 12 }}>{initial(c.name)}</Avatar>
-                <span className="rec-mini-n">
+                {/* 截断成「母亲…」之后，鼠标停上去得看得到全名 */}
+                <span className="rec-mini-n" title={c.name}>
                   {c.name}
                   {c.isPrimary && <Tag color="blue" style={{ marginLeft: 6, borderRadius: 6, fontSize: 12, lineHeight: "18px", padding: "0 5px" }}>关键</Tag>}
                 </span>
@@ -291,7 +292,7 @@ export default function RecordView({
             {opportunities.length === 0 && <div className="rec-empty">还没有商机</div>}
             {opportunities.map((o) => (
               <Link key={o.id} href={`/opportunities?keyword=${encodeURIComponent(o.name)}`} className="rec-mini">
-                <span className="rec-mini-n">{o.name}</span>
+                <span className="rec-mini-n" title={o.name}>{o.name}</span>
                 <StageTag stage={o.stage} />
                 <span className="rec-mini-m">{money(o.amount)}</span>
               </Link>
@@ -306,7 +307,7 @@ export default function RecordView({
             {contracts.length === 0 && <div className="rec-empty">还没有签约</div>}
             {contracts.map((c) => (
               <div key={c.id} className="rec-mini">
-                <DollarOutlined style={{ color: "#16a34a" }} />
+                <DollarOutlined style={{ color: "var(--success)" }} />
                 <span className="rec-mini-n" style={{ fontWeight: 600 }}>{money(c.amount)}</span>
                 <span className="rec-mini-m">{fmtDate(c.signedAt)}</span>
                 <Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditingContract(c); setContractOpen(true); }} />
@@ -387,7 +388,7 @@ export default function RecordView({
               {entries.map((e, i) =>
                 e.kind === "contract" ? (
                   <motion.div key={`c-${e.c.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(i, 8) * 0.04, duration: 0.26, ease: [0.22, 1, 0.36, 1] }}>
-                    <div className="rec-tl-dot" style={{ background: "#16a34a" }}>
+                    <div className="rec-tl-dot" style={{ background: "var(--success)" }}>
                       <DollarOutlined />
                     </div>
                     <div className="rec-tl-body">
@@ -435,7 +436,7 @@ export default function RecordView({
                     }}
                   />
                   <span>{t.title}</span>
-                  <span className="rec-task-due" style={{ color: t.dueAt && dayjs(t.dueAt).isBefore(dayjs()) ? "#dc2626" : undefined }}>
+                  <span className="rec-task-due" style={{ color: t.dueAt && dayjs(t.dueAt).isBefore(dayjs()) ? "var(--danger)" : undefined }}>
                     {smartTime(t.dueAt)}
                   </span>
                   <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={async () => { await deleteTask(t.id); router.refresh(); }} />
@@ -646,7 +647,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
                   style={{
-                    marginTop: 6, marginBottom: 0, padding: "10px 12px", background: "#f8fafc", border: "1px solid #eef2f7",
+                    marginTop: 6, marginBottom: 0, padding: "10px 12px", background: "var(--workbench)", border: "1px solid var(--line-soft)",
                     borderRadius: 8, fontSize: 13, lineHeight: 1.7, whiteSpace: "pre-wrap", wordBreak: "break-word",
                     fontFamily: "inherit", color: "var(--ink-soft)", maxHeight: 320, overflow: "auto",
                   }}

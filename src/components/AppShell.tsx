@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { palette } from "@/lib/palette";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "motion/react";
 import Link from "next/link";
@@ -186,7 +187,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
   if (小屏) {
     return (
       <Layout style={{ minHeight: "100vh" }}>
-        <Header style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 12px", borderBottom: "1px solid #eceef2", position: "sticky", top: 0, zIndex: 10, height: 48 }}>
+        <Header style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 12px", borderBottom: "1px solid var(--line-soft)", position: "sticky", top: 0, zIndex: 10, height: 48 }}>
           <Dropdown
             trigger={["click"]}
             menu={{
@@ -204,7 +205,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
           <span style={{ flex: 1 }} />
           {/* 手机上也要能说一句：用得别扭的时刻多半就发生在手机上（在路上翻学员的时候） */}
           <FeedbackButton 去向={反馈去向} />
-          <Badge count={pendingCount} size="small" color="#6b7280">
+          <Badge count={pendingCount} size="small" color={palette.textMuted}>
             <Button type="text" icon={<BellOutlined />} aria-label="待办计划" onClick={() => router.push("/follow-ups/plans")} />
           </Badge>
         </Header>

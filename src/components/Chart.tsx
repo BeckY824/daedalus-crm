@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { palette } from "@/lib/palette";
 import * as echarts from "echarts/core";
 import { LineChart, BarChart } from "echarts/charts";
 import {
@@ -78,7 +79,7 @@ export default function Chart({
 /** 设计稿里指标卡右下角那种迷你趋势线 */
 export function Sparkline({
   data,
-  color = "#1668dc",
+  color = palette.brand,
   height = 44,
 }: {
   data: number[];

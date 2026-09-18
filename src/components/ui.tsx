@@ -1,6 +1,7 @@
 "use client";
 
 import { Tag, Avatar, Space, Progress } from "antd";
+import { palette, categorical } from "@/lib/palette";
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
@@ -99,7 +100,7 @@ export function StatCard({
           {delta === 0 ? (
             "持平"
           ) : (
-            <span style={{ color: up ? "#16a34a" : "#dc2626", fontWeight: 500 }}>
+            <span style={{ color: up ? "var(--success)" : "var(--danger)", fontWeight: 500 }}>
               {up ? <ArrowUpOutlined /> : <ArrowDownOutlined />} {Math.abs(delta)}%
             </span>
           )}
@@ -168,7 +169,7 @@ export function DecisionStatusTag({ status }: { status: string }) {
 
 export function StageTag({ stage }: { stage: string }) {
   // 这个值要拼 "18" / "35" 当透明度，只能是真 hex，不能写 var()
-  const c = OPP_STAGE_COLOR[stage] ?? "#6b7280";
+  const c = OPP_STAGE_COLOR[stage] ?? palette.textMuted;
   return (
     <Tag style={{ margin: 0, borderRadius: 6, fontSize: 13, color: c, background: c + "18", borderColor: c + "35" }}>
       {stage}
@@ -178,7 +179,7 @@ export function StageTag({ stage }: { stage: string }) {
 
 /** 成交概率：数值 + 细进度条 */
 export function ProbabilityCell({ value }: { value: number }) {
-  const color = value >= 70 ? "#16a34a" : value >= 40 ? "#1668dc" : "#f59e0b";
+  const color = value >= 70 ? palette.success : value >= 40 ? palette.brand : categorical.amber;
   return (
     <div style={{ minWidth: 90 }}>
       <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 3 }}>{value}%</div>

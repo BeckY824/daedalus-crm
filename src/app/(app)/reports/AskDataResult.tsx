@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { palette } from "@/lib/palette";
 import { Typography, Table } from "antd";
 import type { EChartsCoreOption } from "echarts/core";
 import Chart from "@/components/Chart";
@@ -13,30 +14,30 @@ export default function AskDataResult({ result }: { result: AskResult }) {
     return {
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#fff",
-        borderColor: "#e6edf6",
-        textStyle: { color: "#374151", fontSize: 12 },
+        backgroundColor: palette.panel,
+        borderColor: palette.lineSoft,
+        textStyle: { color: palette.inkSoft, fontSize: 12 },
         valueFormatter: (v: number) => `${v}${result.unit === "%" ? "%" : ""}`,
       },
       grid: { left: 8, right: 12, top: 24, bottom: 4, containLabel: true },
       xAxis: {
         type: "category",
         data: result.rows.map((r) => r.label),
-        axisLine: { lineStyle: { color: "#e8eef6" } },
+        axisLine: { lineStyle: { color: palette.lineSoft } },
         axisTick: { show: false },
-        axisLabel: { color: "#6b7280", fontSize: 12, interval: 0, rotate: result.rows.length > 6 ? 30 : 0 },
+        axisLabel: { color: palette.textMuted, fontSize: 12, interval: 0, rotate: result.rows.length > 6 ? 30 : 0 },
       },
       yAxis: {
         type: "value",
-        splitLine: { lineStyle: { color: "#f1f5f9" } },
-        axisLabel: { color: "#6b7280", fontSize: 12 },
+        splitLine: { lineStyle: { color: palette.lineSoft } },
+        axisLabel: { color: palette.textMuted, fontSize: 12 },
       },
       series: [
         {
           name: result.metricLabel,
           type: "bar",
           data: result.rows.map((r) => r.value),
-          itemStyle: { color: "#1668dc", borderRadius: [6, 6, 0, 0] },
+          itemStyle: { color: palette.brand, borderRadius: [6, 6, 0, 0] },
           barMaxWidth: 46,
         },
       ],

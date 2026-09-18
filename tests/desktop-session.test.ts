@@ -165,3 +165,17 @@ describe("本地模式下 /login 是云端账号的门", () => {
     expect(post).toContain("退出云端()");
   });
 });
+
+describe("回到上一页：next 只认站内的应用路径", () => {
+  it("正常的应用路径原样用，query 一起带", async () => {
+    const { 选落点 } = await import("@/app/api/desktop/session/route");
+    expect(选落点("/customers/abc")).toBe("/customers/abc");
+    expect(选落点("/customers?status=待跟进")).toBe("/customers?status=待跟进");
+  });
+  it("门口那些页、别的站、协议相对地址、空的：一律回 /dashboard", async () => {
+    const { 选落点 } = await import("@/app/api/desktop/session/route");
+    for (const v of [null, "", "/", "/login", "/login?x=1", "/api/auth/logout", "/admin", "//evil.com/x", "https://evil.com/x", "customers/abc"]) {
+      expect(选落点(v), String(v)).toBe("/dashboard");
+    }
+  });
+});

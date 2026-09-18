@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { palette, categorical } from "@/lib/palette";
 import { Card, Row, Col, Table, Typography, Drawer } from "antd";
 import { BarChartOutlined, PayCircleOutlined, FileDoneOutlined, RiseOutlined } from "@ant-design/icons";
 import Link from "next/link";
@@ -47,9 +48,9 @@ export default function ReportsView({
     () => ({
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#fff",
-        borderColor: "#e6edf6",
-        textStyle: { color: "#374151", fontSize: 12 },
+        backgroundColor: palette.panel,
+        borderColor: palette.lineSoft,
+        textStyle: { color: palette.inkSoft, fontSize: 12 },
         extraCssText: "box-shadow:0 6px 20px rgba(16,43,77,.12);border-radius:8px;",
         valueFormatter: (v: number) => "¥ " + v.toLocaleString(),
       },
@@ -59,21 +60,21 @@ export default function ReportsView({
         // 横轴刻度也能点：矮柱子点不中的时候，点它下面那个日期同样打开明细
         triggerEvent: true,
         data: trend.map((t) => t.label),
-        axisLine: { lineStyle: { color: "#e8eef6" } },
+        axisLine: { lineStyle: { color: palette.lineSoft } },
         axisTick: { show: false },
-        axisLabel: { color: "#6b7280", fontSize: 12 },
+        axisLabel: { color: palette.textMuted, fontSize: 12 },
       },
       yAxis: {
         type: "value",
-        splitLine: { lineStyle: { color: "#f1f5f9" } },
-        axisLabel: { color: "#6b7280", fontSize: 12, formatter: (v: number) => (v >= 10000 ? v / 10000 + "万" : String(v)) },
+        splitLine: { lineStyle: { color: palette.lineSoft } },
+        axisLabel: { color: palette.textMuted, fontSize: 12, formatter: (v: number) => (v >= 10000 ? v / 10000 + "万" : String(v)) },
       },
       series: [
         {
           name: "签约金额",
           type: "bar",
           data: trend.map((t) => t.amount),
-          itemStyle: { color: "#1668dc", borderRadius: [6, 6, 0, 0] },
+          itemStyle: { color: palette.brand, borderRadius: [6, 6, 0, 0] },
           barMaxWidth: 46,
         },
       ],
@@ -129,18 +130,18 @@ export default function ReportsView({
     <>
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<PayCircleOutlined />} color="#1668dc" label="签约总额" value={money(total.amount)} note={口径} />
+          <StatCard icon={<PayCircleOutlined />} color={palette.brand} label="签约总额" value={money(total.amount)} note={口径} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<FileDoneOutlined />} color="#22c55e" label="签约笔数" value={total.count} note={口径} />
+          <StatCard icon={<FileDoneOutlined />} color={categorical.green} label="签约笔数" value={total.count} note={口径} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<RiseOutlined />} color="#f59e0b" label="客单价" value={avg > 0 ? money(avg) : "—"} />
+          <StatCard icon={<RiseOutlined />} color={categorical.amber} label="客单价" value={avg > 0 ? money(avg) : "—"} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <StatCard
             icon={<BarChartOutlined />}
-            color="#8b5cf6"
+            color={categorical.violet}
             label="最佳周期"
             value={best ? best.label : "—"}
             deltaLabel={best ? money(best.amount) : ""}

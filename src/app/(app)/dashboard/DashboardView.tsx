@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { palette, categorical, alpha } from "@/lib/palette";
 import Link from "next/link";
 import { Row, Col, Card, Segmented, Typography, Space, Tag, Empty, Select } from "antd";
 import {
@@ -74,9 +75,9 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
     () => ({
       tooltip: {
         trigger: "axis",
-        backgroundColor: "#fff",
-        borderColor: "#e6edf6",
-        textStyle: { color: "#374151", fontSize: 12 },
+        backgroundColor: palette.panel,
+        borderColor: palette.lineSoft,
+        textStyle: { color: palette.inkSoft, fontSize: 12 },
         extraCssText: "box-shadow:0 6px 20px rgba(16,43,77,.12);border-radius:8px;",
       },
       legend: {
@@ -86,21 +87,21 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         icon: "circle",
         itemWidth: 8,
         itemHeight: 8,
-        textStyle: { color: "#6b7280", fontSize: 12 },
+        textStyle: { color: palette.textMuted, fontSize: 12 },
       },
       grid: { left: 4, right: 10, top: 40, bottom: 4, containLabel: true },
       xAxis: {
         type: "category",
         data: sliced.map((d) => d.label),
         boundaryGap: false,
-        axisLine: { lineStyle: { color: "#e8eef6" } },
+        axisLine: { lineStyle: { color: palette.lineSoft } },
         axisTick: { show: false },
-        axisLabel: { color: "#6b7280", fontSize: 12, interval: Math.floor(sliced.length / 6) },
+        axisLabel: { color: palette.textMuted, fontSize: 12, interval: Math.floor(sliced.length / 6) },
       },
       yAxis: {
         type: "value",
-        splitLine: { lineStyle: { color: "#f1f5f9" } },
-        axisLabel: { color: "#6b7280", fontSize: 12 },
+        splitLine: { lineStyle: { color: palette.lineSoft } },
+        axisLabel: { color: palette.textMuted, fontSize: 12 },
       },
       series: [
         {
@@ -109,7 +110,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
           smooth: true,
           symbolSize: 5,
           data: sliced.map((d) => d.created),
-          itemStyle: { color: "#1668dc" },
+          itemStyle: { color: palette.brand },
           lineStyle: { width: 2 },
         },
         {
@@ -118,15 +119,15 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
           smooth: true,
           symbolSize: 5,
           data: sliced.map((d) => d.active),
-          itemStyle: { color: "#22c55e" },
+          itemStyle: { color: categorical.green },
           lineStyle: { width: 2 },
           areaStyle: {
             color: {
               type: "linear",
               x: 0, y: 0, x2: 0, y2: 1,
               colorStops: [
-                { offset: 0, color: "rgba(34,197,94,.22)" },
-                { offset: 1, color: "rgba(34,197,94,0)" },
+                { offset: 0, color: alpha(categorical.green, 0.22) },
+                { offset: 1, color: alpha(categorical.green, 0) },
               ],
             },
           },
@@ -181,7 +182,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         <Col xs={24} sm={12} xl={6}>
           <StatCard
             icon={<PayCircleOutlined />}
-            color="#1668dc"
+            color={palette.brand}
             label="本月签约"
             /* 0 就写 ¥0。「—」读起来是「不知道」，而这个月签了多少我们是知道的——
                知道它是 0 和不知道它是多少，是两件完全不同的事 */
@@ -194,7 +195,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         <Col xs={24} sm={12} xl={6}>
           <StatCard
             icon={<UserOutlined />}
-            color="#22c55e"
+            color={categorical.green}
             label={`新增${b.customer}`}
             value={stats.newCustomersThisMonth.toLocaleString()}
             delta={stats.newCustomersDelta}
@@ -204,7 +205,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         <Col xs={24} sm={12} xl={6}>
           <StatCard
             icon={<ThunderboltOutlined />}
-            color="#f59e0b"
+            color={categorical.amber}
             label="进行中商机"
             value={stats.进行中商机.toLocaleString()}
             note={`在谈 ${money(stats.oppTotalAmount)}`}
@@ -214,7 +215,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         <Col xs={24} sm={12} xl={6}>
           <StatCard
             icon={<ClockCircleOutlined />}
-            color={stats.逾期跟进 > 0 ? "#dc2626" : "#8b5cf6"}
+            color={stats.逾期跟进 > 0 ? palette.danger : categorical.violet}
             label="逾期跟进"
             value={stats.逾期跟进.toLocaleString()}
             note={stats.逾期跟进 > 0 ? "计划时间已经过去了" : "都跟上了"}
@@ -266,8 +267,9 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                         fontSize: 13,
                         fontWeight: 600,
                         flex: "none",
-                        color: i < 3 ? "#fff" : "#6b7280",
-                        background: ["#f59e0b", "#6b7280", "#d97706"][i] ?? "#f1f5f9",
+                        color: i < 3 ? "var(--on-ink)" : "var(--text-muted)",
+                        // 金银铜：琥珀 / 灰 / 深琥珀。第四名起没有奖牌，只是个序号
+                        background: ["var(--cat-amber)", "var(--text-muted)", "var(--warning)"][i] ?? "var(--hover)",
                       }}
                     >
                       {i + 1}
@@ -282,12 +284,12 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                         style={{
                           height: 9,
                           borderRadius: 5,
-                          background: "#1668dc",
+                          background: "var(--brand)",
                           width: `${Math.max(6, (r.amount / maxRank) * 100)}%`,
                         }}
                       />
                     </div>
-                    <span style={{ fontSize: 14, color: "#6b7280", width: 78, textAlign: "right", flex: "none" }}>
+                    <span style={{ fontSize: 14, color: "var(--text-muted)", width: 78, textAlign: "right", flex: "none" }}>
                       {r.amount.toLocaleString()}
                     </span>
                   </div>
@@ -300,7 +302,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                   <div>
                     <Space size={8}>
-                      <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: "#f59e0b1f", color: "#f59e0b" }}>
+                      <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: alpha(categorical.amber, 0.12), color: categorical.amber }}>
                         <RiseOutlined />
                       </span>
                       <Typography.Text type="secondary" style={{ fontSize: 15 }}>
@@ -310,7 +312,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                     <div className="stat-value" style={{ marginTop: 8 }}>{money(stats.oppTotalAmount)}</div>
                   </div>
                   <div style={{ width: 130 }}>
-                    <Sparkline data={stats.oppAmountSeries} color="#1668dc" height={52} />
+                    <Sparkline data={stats.oppAmountSeries} color={palette.brand} height={52} />
                   </div>
                 </div>
               </Card>
@@ -329,17 +331,17 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
           >
             {tasks.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待办任务" />}
             {tasks.map((t) => (
-              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 0", borderBottom: "1px dashed #eef2f7" }}>
+              <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 0", borderBottom: "1px dashed var(--line-soft)" }}>
                 <CompanyLogo name={t.customerName} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {t.title}
                   </div>
-                  <Link href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "#6b7280" }}>
+                  <Link href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "var(--text-muted)" }}>
                     {t.customerName}
                   </Link>
                 </div>
-                <span style={{ fontSize: 14, color: "#6b7280", flex: "none" }}>{smartTime(t.dueAt)}</span>
+                <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{smartTime(t.dueAt)}</span>
                 <Tag color="orange" style={{ margin: 0, borderRadius: 6, flex: "none" }}>待处理</Tag>
               </div>
             ))}
@@ -364,7 +366,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
               <div key={f.stage} className="funnel-row">
                 <span className="funnel-dot" style={{ background: OPP_STAGE_COLOR[f.stage] }} />
                 <span style={{ width: 82, flex: "none" }}>{f.stage}</span>
-                <span style={{ width: 48, flex: "none", color: "#6b7280" }}>{f.count}</span>
+                <span style={{ width: 48, flex: "none", color: "var(--text-muted)" }}>{f.count}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{
@@ -376,12 +378,12 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                     }}
                   />
                 </div>
-                <span style={{ fontSize: 14, color: "#6b7280", width: 104, textAlign: "right", flex: "none" }}>
+                <span style={{ fontSize: 14, color: "var(--text-muted)", width: 104, textAlign: "right", flex: "none" }}>
                   {money(f.amount)}
                 </span>
               </div>
             ))}
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "1px solid #eef2f7", fontSize: 15 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--line-soft)", fontSize: 15 }}>
               <span className="muted">合计</span>
               <Space size={20}>
                 <span style={{ fontWeight: 500 }}>{funnelTotal}</span>
@@ -400,7 +402,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             <Col span={24}>
               <Card styles={{ body: { padding: 20 } }}>
                 <Space size={8}>
-                  <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: "#22c55e1f", color: "#22c55e" }}>
+                  <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: alpha(categorical.green, 0.12), color: categorical.green }}>
                     <UserAddOutlined />
                   </span>
                   <Typography.Text type="secondary" style={{ fontSize: 15 }}>新增客户（本月）</Typography.Text>
@@ -415,7 +417,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   ) : (
                     <span
                       style={{
-                        color: stats.newCustomersDelta > 0 ? "#16a34a" : "#dc2626",
+                        color: stats.newCustomersDelta > 0 ? "var(--success)" : "var(--danger)",
                         fontWeight: 500,
                       }}
                     >
@@ -423,13 +425,13 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                     </span>
                   )}
                 </div>
-                <Sparkline data={stats.newCustomerSeries} color="#22c55e" height={52} />
+                <Sparkline data={stats.newCustomerSeries} color={categorical.green} height={52} />
               </Card>
             </Col>
             <Col span={24}>
               <Card styles={{ body: { padding: 20 } }}>
                 <Space size={8}>
-                  <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: "#8b5cf61f", color: "#8b5cf6" }}>
+                  <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: alpha(categorical.violet, 0.12), color: categorical.violet }}>
                     <SafetyCertificateOutlined />
                   </span>
                   <Typography.Text type="secondary" style={{ fontSize: 15 }}>商机赢单率</Typography.Text>
@@ -438,7 +440,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                 <div className="stat-delta">
                   基于已关闭商机统计
                 </div>
-                <Sparkline data={stats.winRateSeries} color="#8b5cf6" height={52} />
+                <Sparkline data={stats.winRateSeries} color={categorical.violet} height={52} />
               </Card>
             </Col>
           </Row>

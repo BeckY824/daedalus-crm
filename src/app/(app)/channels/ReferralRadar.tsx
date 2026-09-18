@@ -45,7 +45,7 @@ export default function ReferralRadar({
       style={{ marginTop: 16 }}
       title={
         <Space size={8}>
-          <RadarChartOutlined style={{ color: "#1668dc" }} />
+          <RadarChartOutlined style={{ color: "var(--brand)" }} />
           <span className="section-title">转介绍雷达</span>
           <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
             只看{b.customer}之间的直接推荐
@@ -95,7 +95,7 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
   const job = useJob<string>(`draft:invite:${c.customerId}`);
   const text = job?.status === "done" ? job.value : undefined;
   return (
-    <div style={{ padding: "10px 0", borderBottom: "1px dashed #eef2f7" }}>
+    <div style={{ padding: "10px 0", borderBottom: "1px dashed var(--line-soft)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <Link href={`/customers/${c.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
           {c.name}
@@ -108,7 +108,7 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
         )}
       </div>
       {text && (
-        <div style={{ marginTop: 8, background: "#f6f9fe", border: "1px solid #dbe8fa", borderRadius: 8, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ marginTop: 8, background: "var(--brand-bg)", border: "1px solid var(--brand-line)", borderRadius: 8, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start" }}>
           <div style={{ flex: 1, fontSize: 14, lineHeight: 1.8 }}>{text}</div>
           <Button size="small" type="primary" ghost icon={<CopyOutlined />} onClick={() => onCopy(text)}>
             复制

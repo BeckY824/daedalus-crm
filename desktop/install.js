@@ -245,6 +245,22 @@ async function 换包(目标) {
   }
 }
 
+/**
+ * 换包的同步版，给 before-quit 用：进程正在退，await 不到回来那一刻。
+ * 逻辑和上面一模一样——第二步失败就把旧的改回去，用户手上还是能用的旧版。
+ */
+function 换包同步(目标) {
+  const 新 = `${目标}.new`;
+  const 旧 = `${目标}.old`;
+  fs.renameSync(目标, 旧);
+  try {
+    fs.renameSync(新, 目标);
+  } catch (e) {
+    try { fs.renameSync(旧, 目标); } catch { /* 旧的都改不回去：留给启动时的清理和用户重装 */ }
+    throw e;
+  }
+}
+
 /** 上次更新留下的 .old / .new，启动时清掉。删不掉也不报错，下次再试 */
 async function 清理旧包(目标, 运行 = 默认运行) {
   if (!目标) return;
@@ -264,4 +280,4 @@ async function 清理旧包(目标, 运行 = 默认运行) {
   }
 }
 
-module.exports = { 解析应用包, 能原地更新, 下载文件, 校验sha256, 安装dmg, 换包, 清理旧包, 删目录 };
+module.exports = { 解析应用包, 能原地更新, 下载文件, 校验sha256, 安装dmg, 换包, 换包同步, 清理旧包, 删目录 };

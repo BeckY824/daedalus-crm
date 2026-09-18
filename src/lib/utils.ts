@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import { palette, avatarBg } from "./palette";
 import relativeTime from "dayjs/plugin/relativeTime";
 import isToday from "dayjs/plugin/isToday";
 import isTomorrow from "dayjs/plugin/isTomorrow";
@@ -93,7 +94,7 @@ export function companyInitial(name: string): string {
 }
 
 /** 由姓名稳定生成一个头像底色 */
-const AVATAR_COLORS = ["#dbeafe", "#dcfce7", "#fef3c7", "#fde2e2", "#ede9fe", "#e0f2fe", "#fce7f3", "#e2e8f0"];
+const AVATAR_COLORS = avatarBg;
 export function avatarColor(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
@@ -135,4 +136,4 @@ export function 独自一人(users: 可选成员[], 现负责人?: string | null
 }
 
 /** 头像底色都是浅色，字一律深灰；配 avatarColor 用 */
-export const AVATAR_TEXT = "#374151";
+export const AVATAR_TEXT = palette.inkSoft;

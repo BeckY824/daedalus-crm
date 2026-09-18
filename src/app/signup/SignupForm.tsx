@@ -176,7 +176,7 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
 
           {/* ---------- 第二步：验证码 + 密码 + 团队名 ---------- */}
           <div style={{ display: 步骤 === 2 ? "block" : "none" }}>
-            <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14 }}>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
               {邮箱}
               <a
                 style={{ marginLeft: 8 }}

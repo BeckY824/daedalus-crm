@@ -160,7 +160,7 @@ export default function ForgotForm() {
 
           {/* ---------- 第二步：验证码 + 新密码 ---------- */}
           <div style={{ display: 步骤 === 2 ? "block" : "none" }}>
-            <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14 }}>
+            <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
               {邮箱}
               <a
                 style={{ marginLeft: 8 }}

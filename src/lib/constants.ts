@@ -1,5 +1,7 @@
 // 业务枚举常量。SQLite 不支持 enum，取值统一在此维护。
 
+import { palette, categorical } from "./palette";
+
 export const INDUSTRIES = [
   "IT互联网",
   "软件服务",
@@ -52,12 +54,13 @@ export const STAGE_PROBABILITY: Record<string, number> = {
 /** 商机状态。OPEN 进行中 / WON 已赢单 / LOST 已丢单 */
 export const OPP_STATUSES = ["OPEN", "WON", "LOST"] as const;
 
+/** 阶段之间没有高低，用分类色；走到哪一档不表示好坏 */
 export const OPP_STAGE_COLOR: Record<string, string> = {
-  初步沟通: "#2563eb",
-  需求确认: "#22c55e",
-  方案报价: "#eab308",
-  谈判审核: "#f97316",
-  赢单成交: "#ec4899",
+  初步沟通: categorical.blue,
+  需求确认: categorical.green,
+  方案报价: categorical.yellow,
+  谈判审核: categorical.orange,
+  赢单成交: categorical.pink,
 };
 
 
@@ -71,15 +74,16 @@ export const LEAD_STATUS_COLOR: Record<string, string> = {
 
 /** 跟进记录类型 */
 export const FOLLOW_TYPES = [
-  { value: "PHONE", label: "电话沟通", color: "#22c55e", icon: "phone" },
-  { value: "MEETING", label: "线上会议", color: "#2563eb", icon: "team" },
-  { value: "VISIT", label: "上门拜访", color: "#8b5cf6", icon: "shop" },
-  { value: "EMAIL", label: "邮件沟通", color: "#a855f7", icon: "mail" },
-  { value: "SMS", label: "短信沟通", color: "#06b6d4", icon: "message" },
-  { value: "TASK", label: "跟进任务", color: "#f59e0b", icon: "carry-out" },
-  { value: "REMIND", label: "跟进提醒", color: "#f97316", icon: "bell" },
-  // 这些 color 会被拼上透明度后缀（见 FollowUpsView），必须是真 hex
-  { value: "OTHER", label: "其他记录", color: "#6b7280", icon: "ellipsis" },
+  // 这些 color 会被拼上透明度后缀（见 FollowUpsView），必须是真 hex——所以取 palette 不取 var()
+  { value: "PHONE", label: "电话沟通", color: categorical.green, icon: "phone" },
+  { value: "MEETING", label: "线上会议", color: categorical.blue, icon: "team" },
+  { value: "VISIT", label: "上门拜访", color: categorical.violet, icon: "shop" },
+  // 以前是另一个紫（#a855f7），和上门拜访那个几乎分不出来；换成粉，八个类型八个色相
+  { value: "EMAIL", label: "邮件沟通", color: categorical.pink, icon: "mail" },
+  { value: "SMS", label: "短信沟通", color: categorical.cyan, icon: "message" },
+  { value: "TASK", label: "跟进任务", color: categorical.amber, icon: "carry-out" },
+  { value: "REMIND", label: "跟进提醒", color: categorical.orange, icon: "bell" },
+  { value: "OTHER", label: "其他记录", color: palette.textMuted, icon: "ellipsis" },
 ] as const;
 
 export const FOLLOW_TYPE_MAP = Object.fromEntries(

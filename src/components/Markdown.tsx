@@ -85,10 +85,10 @@ function Cite({ n, r }: { n: number; r?: BriefRecord }) {
       placement="top"
       content={
         <div style={{ maxWidth: 320, fontSize: 13, lineHeight: 1.6 }}>
-          <div style={{ color: "#6b7280", marginBottom: 4 }}>
+          <div style={{ color: "var(--text-muted)", marginBottom: 4 }}>
             {r.date} · {r.label}
           </div>
-          <div style={{ whiteSpace: "pre-wrap", color: "#1f2937" }}>{r.excerpt}</div>
+          <div style={{ whiteSpace: "pre-wrap", color: "var(--ink-soft)" }}>{r.excerpt}</div>
         </div>
       }
     >

@@ -219,8 +219,8 @@ export default function FollowUpForm({
       {showAi && (
         <div
           style={{
-            background: "#f6f9fe",
-            border: "1px solid #dbe8fa",
+            background: "var(--brand-bg)",
+            border: "1px solid var(--brand-line)",
             borderRadius: 8,
             padding: "12px 14px",
             marginTop: 8,
@@ -317,7 +317,7 @@ export default function FollowUpForm({
       </Form>
 
       {extras && !record?.id && (extras.tasks.length > 0 || extras.plan || suggestions.length > 0) && (
-        <div style={{ borderTop: "1px dashed #e2e8f2", paddingTop: 12, marginTop: 4 }}>
+        <div style={{ borderTop: "1px dashed var(--line-soft)", paddingTop: 12, marginTop: 4 }}>
           <Space orientation="vertical" size={6} style={{ width: "100%" }}>
             {extras.tasks.map((t, i) => (
               <Checkbox

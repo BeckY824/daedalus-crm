@@ -10,6 +10,7 @@
  */
 
 import { isEmail } from "./accounts";
+import { palette } from "@/lib/palette";
 
 export type SendResult = { ok: true; channel: "sms" | "email" | "log" } | { ok: false; error: string };
 
@@ -76,7 +77,7 @@ async function sendMail(email: string, code: string): Promise<SendResult> {
     to: email,
     subject: `${code} 是你的 ${产品} 验证码`,
     text: `验证码：${code}\n\n10 分钟内有效。如果不是你本人操作，忽略这封邮件即可。`,
-    html: `<p style="font-size:15px">你的 ${产品} 验证码：</p><p style="font-size:28px;font-weight:600;letter-spacing:4px;margin:8px 0">${code}</p><p style="color:#6b7280;font-size:13px">10 分钟内有效。如果不是你本人操作，忽略这封邮件即可。</p>`,
+    html: `<p style="font-size:15px">你的 ${产品} 验证码：</p><p style="font-size:28px;font-weight:600;letter-spacing:4px;margin:8px 0">${code}</p><p style="color:${palette.textMuted};font-size:13px">10 分钟内有效。如果不是你本人操作，忽略这封邮件即可。</p>`,
   });
   return { ok: true, channel: "email" };
 }

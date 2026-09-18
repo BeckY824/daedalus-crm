@@ -120,7 +120,7 @@ export default function UpdateButton() {
     available: `有新版本 ${s.版本}，点击开始下载`,
     downloading: `正在下载 ${s.版本}${s.进度 != null ? `，已完成 ${s.进度}%` : ""}`,
     installing: "正在安装，马上重启",
-    ready: `${s.版本} 已下载完，点击重启以更新`,
+    ready: `${s.版本} 已准备好：点击现在重启；不点的话退出时自动换上，下次打开就是新版`,
     manual: `有新版本 ${s.版本}，点击去下载页`,
     error: "更新失败，点击重试",
   };

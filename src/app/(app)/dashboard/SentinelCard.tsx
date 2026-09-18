@@ -56,7 +56,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
       style={{ marginTop: 16 }}
       title={
         <Space size={8}>
-          <EyeOutlined style={{ color: "#1668dc" }} />
+          <EyeOutlined style={{ color: "var(--brand)" }} />
           <span className="section-title">盯盘提醒</span>
           <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
             {items.length} 项正在被遗忘
@@ -98,7 +98,7 @@ function SentinelRow({
   const job = useJob<string>(`draft:wakeup:${it.customerId}`);
   const draftText = job?.status === "done" ? job.value : undefined;
   return (
-        <div style={{ padding: "12px 0", borderBottom: "1px dashed #eef2f7" }}>
+        <div style={{ padding: "12px 0", borderBottom: "1px dashed var(--line-soft)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <Tag color={KIND_COLOR[it.kind]} style={{ margin: 0, borderRadius: 6, flex: "none" }}>
               {kindLabel(it.kind)}
@@ -116,7 +116,7 @@ function SentinelRow({
           </div>
           {note && (
             <div style={{ marginTop: 6, paddingLeft: 2, fontSize: 14, color: "var(--ink-soft)" }}>
-              <BulbOutlined style={{ color: "#f59e0b", marginRight: 6 }} />
+              <BulbOutlined style={{ color: "var(--cat-amber)", marginRight: 6 }} />
               {note}
             </div>
           )}
@@ -124,8 +124,8 @@ function SentinelRow({
             <div
               style={{
                 marginTop: 10,
-                background: "#f6f9fe",
-                border: "1px solid #dbe8fa",
+                background: "var(--brand-bg)",
+                border: "1px solid var(--brand-line)",
                 borderRadius: 8,
                 padding: "10px 14px",
                 display: "flex",

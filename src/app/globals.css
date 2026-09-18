@@ -24,6 +24,15 @@
   --success: #16a34a; --success-text: #15803d; --success-bg: #f0fdf4; --success-line: #bbf7d0;
   --warning: #d97706; --warning-text: #92400e; --warning-bg: #fffbeb; --warning-line: #fde68a;
   --danger:  #dc2626; --danger-text:  #b91c1c; --danger-bg:  #fef2f2; --danger-line:  #fecaca;
+  --on-ink: #ffffff;         /* 压在深色底上的字。以前是散在各处的 #fff */
+
+  /* 分类色：给"只是不同、没有高低"的东西（商机阶段、跟进类型、并列的图表线）。
+     八个色相拉开；好坏另有 success / warning / danger。JS 那边同一套在 lib/palette.ts */
+  --cat-blue: #2563eb; --cat-green: #22c55e; --cat-yellow: #eab308; --cat-orange: #f97316;
+  --cat-pink: #ec4899; --cat-violet: #8b5cf6; --cat-cyan: #06b6d4; --cat-amber: #f59e0b;
+  /* 头像底色：八个淡色，按名字哈希选 */
+  --avatar-1: #dbeafe; --avatar-2: #dcfce7; --avatar-3: #fef3c7; --avatar-4: #fde2e2;
+  --avatar-5: #ede9fe; --avatar-6: #e0f2fe; --avatar-7: #fce7f3; --avatar-8: #e2e8f0;
 
   /* ---------- 字号：四级，外加一个下限 ----------
      方案里原写「正文 9pt、说明 7pt」，那是印刷品的尺寸，1440 屏上读不了。
@@ -205,7 +214,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rail-up {
   display: inline-flex; align-items: center; gap: 0; max-width: 100%; position: relative; overflow: hidden;
   height: 26px; padding: 0 2px; border: 0; border-radius: 999px;
-  background: var(--brand); color: #fff; font-size: var(--fs-note); font-weight: 600; line-height: 1;
+  background: var(--brand); color: var(--on-ink); font-size: var(--fs-note); font-weight: 600; line-height: 1;
   cursor: pointer; text-align: left;
   transition: gap var(--t) var(--ease), padding var(--t) var(--ease), filter var(--t-fast), scale var(--t-fast) var(--ease);
 }
@@ -281,7 +290,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .pane-chips { display: flex; gap: 6px; padding: 4px 12px 8px; flex-wrap: wrap; }
 .pane-chip { font: inherit; font-size: var(--fs-note); color: var(--text-muted); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); cursor: pointer; }
 .pane-chip:hover { color: var(--ink); border-color: var(--text-faint); }
-.pane-chip.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+.pane-chip.on { background: var(--ink); color: var(--on-ink); border-color: var(--ink); }
 
 /* 记录页左边那条窄名单。比别的中栏窄一档：它只要装得下
    「名字 + 状态 + 最近什么时候」，再宽就开始和正文抢地方 */
@@ -485,7 +494,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   border-radius: var(--r-card);
   display: grid;
   place-items: center;
-  color: #fff;
+  color: var(--on-ink);
   font-size: var(--fs-body);
   font-weight: 600;
   flex: none;
@@ -618,7 +627,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-tl { padding: 4px 16px 10px; }
 .rec-tl-item { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line-soft); }
 .rec-tl-item:last-child { border-bottom: none; }
-.rec-tl-dot { width: 36px; height: 36px; border-radius: var(--r-card); display: grid; place-items: center; color: #fff; font-size: var(--ic); flex: none; }
+.rec-tl-dot { width: 36px; height: 36px; border-radius: var(--r-card); display: grid; place-items: center; color: var(--on-ink); font-size: var(--ic); flex: none; }
 .rec-tl-body { flex: 1; min-width: 0; }
 .rec-tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .rec-tl-type { font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
@@ -834,7 +843,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .prop-f-arrow { color: var(--text-faint); text-decoration: none; display: inline-block; margin-left: 2px; }
 .prop-err { margin-top: 8px; color: var(--danger-text); font-size: var(--fs-note); }
 .prop-foot { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
-.prop-ok { display: inline-flex; align-items: center; gap: 5px; border: 0; background: var(--ink); color: #fff; font-size: var(--fs-note); padding: 5px 14px; border-radius: var(--r-ctl); cursor: pointer; }
+.prop-ok { display: inline-flex; align-items: center; gap: 5px; border: 0; background: var(--ink); color: var(--on-ink); font-size: var(--fs-note); padding: 5px 14px; border-radius: var(--r-ctl); cursor: pointer; }
 .prop-ok:disabled { background: var(--text-faint); cursor: default; }
 .prop-no { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text-muted); font-size: var(--fs-note); padding: 4px 12px; border-radius: var(--r-ctl); cursor: pointer; }
 .prop-no:hover { color: var(--ink); border-color: var(--text-faint); }
@@ -889,8 +898,8 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-file-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cli-file button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--text-faint); font-size: var(--fs-min); display: inline-flex; }
 .cli-file button:hover { color: var(--danger); }
-.cli-send { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--ink); color: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-note); transition: opacity var(--t-fast), background var(--t-fast); }
-.cli-send:disabled { background: var(--line); color: #fff; cursor: default; }
+.cli-send { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--ink); color: var(--on-ink); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-note); transition: opacity var(--t-fast), background var(--t-fast); }
+.cli-send:disabled { background: var(--line); color: var(--on-ink); cursor: default; }
 .cli-stop-sq { width: 10px; height: 10px; background: var(--panel); border-radius: 2px; }
 .cli-menu-row { display: flex; align-items: center; gap: 24px; justify-content: space-between; min-width: 180px; }
 .cli-menu-row kbd { font-size: var(--fs-min); color: var(--text-muted); }
@@ -1170,11 +1179,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    深色顶栏 + 环境标记是为了让人一眼知道自己对着的是线上库还是本地。 */
 .ops { min-height: 100vh; background: var(--workbench); }
 .ops-top { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s5);
-  background: #111827; color: #fff; }
+  background: var(--ink); color: var(--on-ink); }
 .ops-top b { font-size: var(--fs-section); font-weight: 600; letter-spacing: -0.2px; }
-.ops-env { padding: 2px 10px; border-radius: 999px; background: #1f2937; color: #9ca3af;
+.ops-env { padding: 2px 10px; border-radius: 999px; background: var(--ink-soft); color: var(--text-faint);
   font-size: var(--fs-min); font-weight: 600; letter-spacing: 0.4px; }
-.ops-env-live { background: #7f1d1d; color: #fecaca; }
+.ops-env-live { background: var(--danger-text); color: var(--danger-line); }
 .ops-body { padding: var(--s5); }
 .ops-stats { display: flex; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s4); }
 .ops-stat { flex: 1; min-width: 180px; background: var(--panel); border: 1px solid var(--line);

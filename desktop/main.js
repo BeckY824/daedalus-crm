@@ -26,6 +26,7 @@ const MCP桥 = require("./mcp-bridge");
 const 云端 = require("./cloud");
 const 更新 = require("./updater");
 const 安装 = require("./install");
+const 路径记忆 = require("./route-memory");
 const 差量 = require("./delta");
 const 备份 = require("./backup");
 const 崩溃 = require("./crashlog");
@@ -88,6 +89,8 @@ function 读配置() {
       // 每次启动照样提示；每天一次的节流也从没生效过
       skipVersion: c.skipVersion,
       lastUpdateCheck: c.lastUpdateCheck,
+      // 上次停在哪一页，见 route-memory.js
+      lastRoute: c.lastRoute,
     };
   } catch {
     return { mode: "local", serverUrl: 默认服务器 };
@@ -187,7 +190,10 @@ function 本地入口() {
   // 启动时发现令牌被吊销了：把原因带上，登录页那句话据此说清（见 api/desktop/session）
   const reason = 启动时被吊销 ? "&reason=revoked" : "";
   启动时被吊销 = false;
-  return `http://127.0.0.1:${本地.port}/api/desktop/session?t=${本地.token}${reason}`;
+  // 回到上次停的那一页（route-memory.js 记的）；session 路由那边还会再验一遍
+  const 上次 = 读配置().lastRoute;
+  const next = 上次 ? `&next=${encodeURIComponent(上次)}` : "";
+  return `http://127.0.0.1:${本地.port}/api/desktop/session?t=${本地.token}${reason}${next}`;
 }
 
 /** 当前窗口里那个站的根地址：本地服务或所连的服务器。菜单「前往」和「设置…」按它拼路径 */
@@ -226,7 +232,7 @@ function 去(路径) {
 
 function 当前地址() {
   const cfg = 读配置();
-  return cfg.mode === "local" ? 本地入口() : cfg.serverUrl;
+  return cfg.mode === "local" ? 本地入口() : `${cfg.serverUrl}${cfg.lastRoute ?? ""}`;
 }
 
 function 建窗口() {
@@ -252,6 +258,14 @@ function 建窗口() {
 
   win.once("ready-to-show", () => win.show());
   win.loadURL(当前地址());
+
+  // 记住停在哪一页：重启（包括更新后的那次）回到原地，不再每次都从首页开始
+  const 记路径 = (_e, url) => {
+    const p = 路径记忆.可恢复的路径(url, 当前根());
+    if (p && p !== 读配置().lastRoute) 写配置({ ...读配置(), lastRoute: p });
+  };
+  win.webContents.on("did-navigate", 记路径);
+  win.webContents.on("did-navigate-in-page", 记路径);
 
   // 站外链接交给系统浏览器，免得用户在没有地址栏的窗口里迷路
   win.webContents.setWindowOpenHandler(({ url }) => {
@@ -407,12 +421,18 @@ function 设更新状态(s) {
 /** 只查、只估算，**不下**。手动点菜单时 手动=true：已是最新要给句回话，其余情况都静默 */
 async function 检查更新({ 手动 = false } = {}) {
   if (正在查) return;
+  /*
+    差量包**自动下**。0.24.0 那次「先问再下」的理由是 160 MB 整包：自动下会把人的网占满，
+    断了还从头来。差量之后典型 2–6 MB、支持续传，那个理由不在了；整包仍然要人点。
+    下完不装：装等人点「重启」，或者退出时顺手换上（见 before-quit）。
+  */
+  let 自动下 = false;
   if (更新状态.阶段 === "available") {
-    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `有新版本 ${更新状态.版本}`, detail: "侧栏底部有按钮，点了才开始下载。" });
+    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `有新版本 ${更新状态.版本}`, detail: "这一版是整包，侧栏底部有按钮，点了才开始下载。" });
     return;
   }
   if (更新状态.阶段 === "downloading" || 更新状态.阶段 === "ready" || 更新状态.阶段 === "installing") {
-    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `${更新状态.版本} 已在准备中`, detail: "下载完成后侧栏会出现「重启以更新」按钮。" });
+    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `${更新状态.版本} 已在准备中`, detail: "下载完成后侧栏会出现「重启」按钮；不点的话，退出时会自动换上，下次打开就是新版。" });
     return;
   }
   正在查 = true;
@@ -452,12 +472,14 @@ async function 检查更新({ 手动 = false } = {}) {
       }
     }
     设更新状态({ 阶段: "available", 版本, 说明: 新版.说明, 文字: 计划.文字 });
+    自动下 = 计划.方式 === "差量";
   } catch (e) {
     崩溃.写崩溃日志(应用日志, "检查更新失败", e);
     设更新状态({ 阶段: "error", 错误: String(e?.message ?? e) });
   } finally {
     正在查 = false;
   }
+  if (自动下) await 下载更新();
 }
 
 /**
@@ -758,6 +780,19 @@ if (!app.requestSingleInstanceLock()) {
   app.on("before-quit", () => {
     本地服务.stop();
     MCP桥.stop();
+    /*
+      下好的差量包在退出时顺手换上（Claude Code 的做法）：下次打开就是新版，
+      多数人根本不用见到那个「重启」键。只做差量——.app.new 早已拼好、验过签，
+      换包就是两次 rename；整包要挂 dmg、复制、校验，进程正在退，做不完。
+    */
+    if (待装?.方式 === "差量" && 更新状态.阶段 === "ready") {
+      try {
+        安装.换包同步(应用包);
+        崩溃.写崩溃日志(应用日志, "退出时换包", `${待装.版本} 已换上，下次启动生效`);
+      } catch (e) {
+        崩溃.写崩溃日志(应用日志, "退出时换包失败", e);
+      }
+    }
   });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();

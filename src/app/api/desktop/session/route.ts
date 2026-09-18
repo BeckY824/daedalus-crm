@@ -26,6 +26,17 @@ export const dynamic = "force-dynamic";
  * 会话签给业务库里第一个管理员——本地模式是单人使用，他就是登录的那个云端账号
  * （登录动作和 server-entry.js 都会把他的名字、邮箱对成账号的）。
  */
+/**
+ * 壳带来的「回到上一页」。只认站内的应用路径：登录、找回、API、后台这些不是落点，
+ * 协议相对地址（//evil）更不是。收不下的一律回 /dashboard。
+ */
+export function 选落点(next: string | null): string {
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/dashboard";
+  const 路径 = next.split("?")[0];
+  if (路径 === "/" || /^\/(login|signup|forgot|api|admin|_next)(\/|$)/.test(路径)) return "/dashboard";
+  return next;
+}
+
 export async function GET(req: Request) {
   const expected = process.env.DESKTOP_TOKEN;
   if (process.env.DESKTOP_LOCAL !== "1" || !expected) {
@@ -68,5 +79,5 @@ export async function GET(req: Request) {
    * （实测 127.0.0.1 的请求会被规范成 localhost）——会话 cookie 是按访问时的
    * 主机名下发的，跳到另一个主机名上就等于没登录，表现是自动登录完又被弹回登录页。
    */
-  return new NextResponse(null, { status: 307, headers: { Location: "/dashboard" } });
+  return new NextResponse(null, { status: 307, headers: { Location: 选落点(new URL(req.url).searchParams.get("next")) } });
 }

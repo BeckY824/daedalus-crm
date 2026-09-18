@@ -299,3 +299,26 @@ describe("删目录：fs 删不掉就交给 /bin/rm", () => {
     expect(读版本(目标)).toBe("0.23.3");
   });
 });
+
+describe("换包同步：退出时顺手换上", () => {
+  /**
+   * before-quit 里 await 不到回来那一刻，所以要一个同步版。规矩和异步版一样：
+   * 第二步失败把旧的改回去，用户手上还是能用的旧版。
+   */
+  it("新包换到原位，旧包留成 .old", () => {
+    const 目标 = path.join(沙盒, "Daedalus CRM.app");
+    造包(目标, "0.37.3");
+    造包(`${目标}.new`, "0.37.4");
+    安装.换包同步(目标);
+    expect(读版本(目标)).toBe("0.37.4");
+    expect(读版本(`${目标}.old`)).toBe("0.37.3");
+    expect(fs.existsSync(`${目标}.new`)).toBe(false);
+  });
+  it("没有 .new（下到一半退出了）：抛错，但原包一动不动", () => {
+    const 目标 = path.join(沙盒, "Daedalus CRM.app");
+    造包(目标, "0.37.3");
+    expect(() => 安装.换包同步(目标)).toThrow();
+    expect(读版本(目标)).toBe("0.37.3");
+    expect(fs.existsSync(`${目标}.old`)).toBe(false);
+  });
+});
