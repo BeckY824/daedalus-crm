@@ -1342,6 +1342,12 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .biz-preset > span { font-size: var(--fs-note); color: var(--ink); font-weight: 500; }
 .biz-preset > i { font-style: normal; font-size: var(--fs-min); color: var(--text-muted); }
 
+
+/* 业务配置底下的演示数据那一小块。和表单隔开：它不是一个配置项，是一个动作 */
+.biz-demo { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--line-soft); }
+.biz-demo h4 { margin: 0 0 4px; font-size: var(--fs-note); font-weight: 600; color: var(--ink); }
+.biz-demo p { margin: 0 0 10px; font-size: var(--fs-min); color: var(--text-muted); line-height: 1.7; max-width: 52ch; }
+
 /* 系统里把「减弱动态效果」打开的人，这里一律按不动处理。
    这一条放在文件最后，为的是压过上面所有的 transition / animation——
    动效是锦上添花，开了这个开关的人多半是因为它让人不舒服。 */

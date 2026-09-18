@@ -7,6 +7,7 @@ import type { BusinessConfig } from "@/lib/business-config";
 import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
+import { DemoDataButton } from "@/components/EmptyState";
 
 /**
  * 业务配置：把「客户 / 公司 / 职位 / 行业」这些措辞交给用户自己定。
@@ -116,6 +117,17 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
           不做的：自定义字段、自定义状态流转、多套模板切换——那是另一个量级的功能。
         </Typography.Paragraph>
       </Form>
+
+      {/*
+        演示数据的入口。**在这之前它只长在空状态里**——灌完之后列表不空了，
+        那个卡片就再也不出现，于是「清除」成了一条走不到的路：灌过的人只能删库文件。
+        摆在这一栏是因为它和业务配置是同一类事：都是「这个库长什么样」，都只有管理员能动。
+      */}
+      <div className="biz-demo">
+        <h4>演示数据</h4>
+        <p>一套虚构的客户、跟进和签约，用来看这套系统装满之后长什么样。清除会删掉库里**全部**业务数据。</p>
+        <DemoDataButton />
+      </div>
     </div>
   );
 }
