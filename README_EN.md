@@ -36,6 +36,9 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 - ✅ Referral attribution: who introduced whom and whose performance it counts toward, frozen at entry — upstream edits never rewrite history
 - ✅ Phone dedup, double-confirm on repeated contract amounts, field-level merge on concurrent edits, full audit trail
 - ✅ Model-agnostic: DeepSeek, OpenAI, local Ollama or any OpenAI-compatible relay — set it in Settings
+- ✅ AI never acts on its own: every model call is a click you make — opening a page never triggers one (free credits are counted per call; the UI shouldn't spend them for you)
+- ✅ Two columns, not three: navigation on the left is always there, content on the right. Only the student record page adds a narrow list — for when you flip through people one after another
+- ✅ Keyboard-first where it matters: ⌘K to jump or ask, ⌘, for settings, ⌘1–9 for modules
 - ✅ Ships with education-industry wording; rename the terms once and it fits any sales team
 
 <br/>
@@ -68,9 +71,9 @@ Open **http://localhost:3000** and sign in with a demo account:
 | `zhangsan` | `admin123` | Sales (demo) |
 | `lisi` | `admin123` | Sales (demo) |
 
-Change the password under Settings → Change password. That's it.
+Change the password under the account menu (bottom-left) → Settings → Sign-in & password. That's it.
 
-- **Enable AI**: Settings → AI, enter the endpoint, API key and model, hit "Test connection". Without it the AI entry points simply don't appear; everything else works
+- **Enable AI**: Settings → AI (the account menu at the bottom left, or press ⌘,), enter the endpoint, API key and model, hit "Test connection". Without it the AI entry points simply don't appear; everything else works
 - **Not in education?** Settings → Business config lets you rename "student" to "customer" and "school / grade / major" to your own fields, site-wide
 - **HTTPS, upgrades, backups**: see [docs/部署.md](docs/部署.md)
 
@@ -95,11 +98,11 @@ Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm
 
 ## ✨ Key features
 
-### Three columns: icon rail, context, content
+### Navigation always there, everything else serves the task
 
-A 76px rail on the left holds icons only — names appear on hover. The middle column holds whatever that module makes you look at **right now**: on the home page it is Today (who to follow up with and what is due, overdue in red, tick to complete); on the students page it is the 50 most recently contacted (click a row and the profile opens on the right); in settings it is the five setting pages. The content itself lives on the right. On desktop the system title bar is removed and the window buttons sit at the top of the rail.
+A 220px rail on the left, with the eight module names spelled out — no hovering to find out what an icon means. **The middle column is not a default slot**: it shows up only when you flip between records of the same kind, which today means exactly one place — the narrow list on the student record page. A module with two views (deals: pipeline / list; follow-ups: plan / log) switches from a header button instead of spending a column on it. The rail's right edge can be dragged to resize, and that width is remembered on this machine. Settings is not a page but a **layer** over whatever you were looking at — Esc closes it and you're back. On desktop the system title bar is removed and the window buttons sit at the top of the rail.
 
-(Not to be confused with the record page's three columns below — those are *inside* the student detail view.)
+Things you press shrink a little and spring back, pages fade in, dialogs are centered — and with the system's "Reduce motion" on, nothing moves at all.
 
 ### The home page is an agent, not a search box
 
@@ -109,9 +112,9 @@ Interaction modeled on Claude Code / Codex: Enter to send, follow-ups queue whil
 
 Ask it to change a status or profile field, log a follow-up, schedule a plan, create a lead / deal / contract, or edit a channel — it returns a **proposal card**. Fields are editable in place; unknown ones are left blank for you. Confirming runs the exact same server actions the UI uses: dedup, cycle checks, attribution recompute and audit logging are never bypassed. Every confirmation is logged as `ai_apply`.
 
-### Record page: profile, timeline, docked AI
+### Record page: profile, timeline, AI on request
 
-Profile on the left, editable with a click; a single timeline in the middle; a quick-note box on top where you paste a chat and AI drafts the follow-up, tasks and next plan for you to review — the original text is kept for later briefings. AI stays docked on the right and has already read the record you opened.
+Profile on the left, editable with a click; a single timeline in the middle; a quick-note box on top where you paste a chat and AI drafts the follow-up, tasks and next plan for you to review — the original text is kept for later briefings. The AI column on the right **does not call the model when the page opens**: press "Generate briefing" and it reads this person's entire history, with the credit cost written next to the button. Deleting one follow-up doesn't open a dialog either — the delete button turns into "Delete this? Delete / Cancel" in place.
 
 ### Referral attribution with one clear rule
 
@@ -160,7 +163,7 @@ More in [docs/shots](docs/shots).
 | Data | Prisma 6 · SQLite (one file per install; one per workspace when hosted) |
 | UI | Ant Design 6 · motion |
 | AI | OpenAI-compatible API, ReAct loop, read-only tools; DeepSeek / OpenAI / Ollama / relays |
-| Tests | vitest (529 unit) · Playwright (58 self-hosted + 13 hosted e2e) · green CI required to merge |
+| Tests | vitest (645 unit) · Playwright (98 self-hosted + 13 hosted e2e) · green CI required to merge |
 | Delivery | Multi-arch Docker image (GHCR) · Electron desktop (macOS, Apple silicon) · Caddy auto-HTTPS |
 
 <br/>
@@ -172,11 +175,11 @@ Ordered by "someone actually needs it". To push an item, [open an issue](https:/
 | Area | Scope | Status |
 |---|---|---|
 | Conversation & proposal cards | agent loop, streaming, citations, multi-turn context, 7 card types | ✅ Shipped |
-| Record page | inline profile editing, timeline, quick-note parsing, docked AI | ✅ Shipped |
-| Three-column shell | icon rail / context column / content, a Today column on the home page, window buttons embedded on desktop | ✅ Shipped |
+| Record page | inline profile editing, timeline, quick-note parsing, on-request briefing | ✅ Shipped |
+| Shell & feel | resizable rail, settings as an overlay, ⌘K / ⌘, / ⌘1–9, press feedback everywhere | ✅ Shipped |
 | Hosting | multi-tenant, sign-up and free credits, trials, subscriptions, ops console, desktop apps | ✅ Shipped |
-| List pages | inline editing, saved views, filter chips, side drawer | 🔜 Planned |
-| ⌘K & motion | command palette for "ask about / ask a number / go to" | 🔜 Planned |
+| List pages | inline editing without opening the record | 🔜 Planned |
+| Saved views | keep a set of filters and come back to it in one click | 🔜 Planned |
 | Online payments | WeChat / Alipay (requires ICP filing & merchant account) | ⏸ On demand |
 
 <br/>
