@@ -70,26 +70,25 @@ export default function AiPanel({
     }
   }, [briefJob, briefKey]);
 
+  /**
+   * 进这一页**不自动生成简报**（2026-09-18 改）。
+   *
+   * 原来是打开一位学员就先去问一次 AI。看着贴心，实际是：随手点开三个人看看电话，
+   * 三次调用就没了——而免费额度一个月只有 30 次。翻记录和问 AI 是两件事，
+   * 前者是每天几十次的动作，后者是"我要准备这一通电话了"。
+   *
+   * 这里只做一件免费的事：把这一版记录**之前已经生成过**的简报从缓存里捞回来
+   * （key 里带 fingerprint，记录变了就自然落空）。要新的，点按钮。
+   */
   useEffect(() => {
-    let cancelled = false;
-    const t = setTimeout(() => {
-      if (cancelled || !hasRecords || getJob(briefKey)) return;
-      try {
-        const raw = sessionStorage.getItem(briefKey);
-        if (raw) {
-          setJobValue<StreamJob<BriefAnswer>>(briefKey, { steps: [], answer: JSON.parse(raw) as BriefAnswer });
-          return;
-        }
-      } catch {
-        /* 读不到就重新生成 */
-      }
-      runStream<BriefAnswer>(briefKey, { mode: "brief", customerId }, undefined, 标签);
-    }, 0);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-  }, [briefKey, hasRecords, customerId, 标签]);
+    if (!hasRecords || getJob(briefKey)) return;
+    try {
+      const raw = sessionStorage.getItem(briefKey);
+      if (raw) setJobValue<StreamJob<BriefAnswer>>(briefKey, { steps: [], answer: JSON.parse(raw) as BriefAnswer });
+    } catch {
+      /* 读不到就等人点「生成简报」 */
+    }
+  }, [briefKey, hasRecords]);
 
   function doDraft(kind: "wakeup" | "invite") {
     runJob(`draft:${kind}:${customerId}`, async () => {
@@ -109,16 +108,29 @@ export default function AiPanel({
     <div className="rec-ai">
       <div className="rec-ai-head">
         <span className="rec-ai-title">
-          <ThunderboltOutlined /> AI 已读完 {customerName} 的记录
+          {/* 没生成过就别说「已读完」——那是句还没发生的话 */}
+          <ThunderboltOutlined /> {result ? `AI 已读完 ${customerName} 的记录` : `AI 可以读 ${customerName} 的记录`}
         </span>
-        <Tooltip title="重新生成简报">
-          <Button size="small" type="text" icon={<ReloadOutlined spin={loading} />} onClick={regenerate} disabled={loading || !hasRecords} aria-label="简报">
-            简报
-          </Button>
-        </Tooltip>
+        {(result || loading) && (
+          <Tooltip title="重新生成简报">
+            <Button size="small" type="text" icon={<ReloadOutlined spin={loading} />} onClick={regenerate} disabled={loading || !hasRecords} aria-label="简报">
+              简报
+            </Button>
+          </Tooltip>
+        )}
       </div>
 
       {hasRecords && (loading || steps.length > 0) && <AiTrace steps={steps} done={!loading} ms={shown?.value?.ms} compact />}
+
+      {/* 还没生成过：摆一颗按钮，不替人做决定。点了才花那一次额度 */}
+      {hasRecords && !loading && !result && !error && (
+        <div className="rec-ai-idle">
+          <Button type="primary" size="small" icon={<ThunderboltOutlined />} onClick={regenerate}>
+            生成简报
+          </Button>
+          <span>读完这位{b.customer}的全部跟进，给一段故事线和下一步建议。会用掉 1 次 AI 额度。</span>
+        </div>
+      )}
 
       <AnimatePresence mode="wait">
         {!loading && error && (

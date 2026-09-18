@@ -1328,6 +1328,12 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   .ant-modal-wrap { align-items: flex-start; padding-top: 24px; }
 }
 
+
+/* 记录页 AI 栏的空态：一颗按钮 + 一句代价。
+   **不替人做决定**——进这一页原来会自动问一次 AI，随手点开三个人看电话就用掉三次额度 */
+.rec-ai-idle { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 0 2px; }
+.rec-ai-idle span { font-size: var(--fs-min); color: var(--text-muted); line-height: 1.6; }
+
 /* 系统里把「减弱动态效果」打开的人，这里一律按不动处理。
    这一条放在文件最后，为的是压过上面所有的 transition / animation——
    动效是锦上添花，开了这个开关的人多半是因为它让人不舒服。 */

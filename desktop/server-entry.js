@@ -118,13 +118,39 @@ if (fs.existsSync(迁移目录)) {
       }
       if (联系) {
         const admin = db.prepare("SELECT id, email, name FROM User WHERE role = 'ADMIN' AND active = 1 ORDER BY createdAt ASC LIMIT 1").get();
-        if (admin && (admin.email !== 联系 || admin.name !== 名字)) {
+        /**
+         * **在设置里改过名字的人，重启之后必须还是那个名字。**
+         * 这一段原来无条件写云端那个名字，于是「个人资料」里改完、重启一次就被改回去了
+         * （2026-09-18 报的 bug）。判断「改没改过」靠记账，不靠猜：
+         * 每次同步下来的云端名字记在 Setting 的 desktop.syncedName 里（key 见 lib/desktop/synced-name.ts），
+         * 本机名字和它不一样，就说明是人自己写的，不动。
+         * 登录邮箱不在此列——那是账号的身份，它该一直对着云端。
+         */
+        const 上次 = (() => {
           try {
-            db.prepare("UPDATE User SET email = ?, name = ?, title = '管理员', updatedAt = strftime('%s','now') * 1000 WHERE id = ?").run(联系, 名字, admin.id);
-            console.log(`[entry] 管理员已对上云端账号：${名字} <${联系}>`);
+            const r = db.prepare("SELECT value FROM Setting WHERE key = 'desktop.syncedName'").get();
+            return r ? JSON.parse(r.value) : null;
+          } catch {
+            return null; // 老库还没有这张表 / 值坏了：按「没记过」算
+          }
+        })();
+        const 人改过 = 上次 != null && admin && admin.name !== 上次;
+        const 要写的名字 = 人改过 ? admin.name : 名字;
+        try {
+          db.prepare(
+            "INSERT INTO Setting (key, value, updatedAt) VALUES ('desktop.syncedName', ?, strftime('%s','now') * 1000) " +
+              "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt",
+          ).run(JSON.stringify(名字));
+        } catch (e) {
+          console.warn("[entry] 记不下同步的名字（老库没有 Setting 表？）：", e?.message ?? e);
+        }
+        if (admin && (admin.email !== 联系 || admin.name !== 要写的名字)) {
+          try {
+            db.prepare("UPDATE User SET email = ?, name = ?, title = '管理员', updatedAt = strftime('%s','now') * 1000 WHERE id = ?").run(联系, 要写的名字, admin.id);
+            console.log(`[entry] 管理员已对上云端账号：${要写的名字} <${联系}>${人改过 ? "（名字是你自己改的，没动）" : ""}`);
           } catch (e) {
             // 邮箱撞上了别的本地账号（老库里手工建过同名同事）：名字照改，登录名不动
-            db.prepare("UPDATE User SET name = ? WHERE id = ?").run(名字, admin.id);
+            db.prepare("UPDATE User SET name = ? WHERE id = ?").run(要写的名字, admin.id);
             console.warn("[entry] 登录邮箱已被本地另一个账号占用，只改了名字：", e?.message ?? e);
           }
         }

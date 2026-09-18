@@ -162,7 +162,8 @@ test("2b 简报空数据兜底：没有跟进记录的学员明说，不硬生�
   // 林同学有商机但没有任何跟进记录
   await page.goto("/customers");
   await page.getByRole("link", { name: "林同学" }).first().click();
-  // 记录页的 AI 面板打开即生成；没有记录时不调模型，直接说明
+  // 记录页的 AI 面板**不再打开即生成**（2026-09-18：那会让随手点开三个人就用掉三次额度）。
+  // 没有记录的这位连按钮都不该摆——直接说明为什么
   await expect(page.getByText(/还没有任何跟进记录|没有可提炼/)).toBeVisible({ timeout: 60_000 });
 });
 

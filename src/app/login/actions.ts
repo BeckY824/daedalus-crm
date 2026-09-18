@@ -3,6 +3,8 @@
 import bcrypt from "bcryptjs";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
+import { getSetting, setSetting } from "@/lib/settings";
+import { 同步名字键 } from "@/lib/desktop/synced-name";
 import { createSession } from "@/lib/auth";
 import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP阈值 } from "@/lib/rate-limit";
 import { multiTenant } from "@/lib/tenant/context";
@@ -116,14 +118,15 @@ export async function 桌面端登录(target: string, password: string): Promise
   if (!r.ok) return { ok: false, error: r.error };
 
   /**
-   * 本机库里那个管理员就是「你」：名字、登录邮箱都改成账号的。
+   * 本机库里那个管理员就是「你」：登录邮箱对成账号的，名字**只在你没改过的时候**才跟着对。
    * server-entry.js 每次启动也会对一遍，这里是为了不等重启就对上——
    * 登录完下一屏的左下角就该是你的名字，不是「管理员」。
    */
   const admin = await prisma.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" } });
   if (!admin) return { ok: false, error: "本机数据库里没有管理员账号。请从「帮助 → 反馈问题」告诉我们" };
   const 联系 = (r.data.contact || t).toLowerCase();
-  const 名字 = r.data.name || 联系.split("@")[0];
+  const 云端名字 = r.data.name || 联系.split("@")[0];
+  const 名字 = await 该用的名字(admin.name, 云端名字);
   try {
     await prisma.user.update({ where: { id: admin.id }, data: { email: 联系, name: 名字, title: "管理员" } });
   } catch {
@@ -132,4 +135,24 @@ export async function 桌面端登录(target: string, password: string): Promise
   }
   await createSession(admin.id);
   return { ok: true };
+}
+
+/**
+ * 这次登录该把名字写成什么。
+ *
+ * **在设置里改过名字的人，重启之后必须还是那个名字。** 这条路原来是无条件写云端那个名字的，
+ * 于是「个人资料」里改完、重新登录一次就被改回去了——用户改了，我们又改回来，
+ * 而且不说一声（2026-09-18 报的 bug）。
+ *
+ * 判断「改没改过」不靠猜，靠记账：每次同步下来的云端名字记在 `desktop.syncedName` 里。
+ *   本机名字 == 上次同步下来的那个  → 这个名字是我们写的，云端改了就跟着改
+ *   不相等                        → 是人自己写的，不动
+ * 没有这条记录（老库、第一次登录）就按「跟着对」处理，并把账记上——
+ * 那时本机名字多半还是种子库里的「管理员」。
+ */
+async function 该用的名字(本机名字: string, 云端名字: string): Promise<string> {
+  const 上次 = await getSetting<string>(同步名字键);
+  const 人改过 = 上次 != null && 本机名字 !== 上次;
+  await setSetting(同步名字键, 云端名字);
+  return 人改过 ? 本机名字 : 云端名字;
 }
