@@ -15,7 +15,7 @@ import {
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
-import { 成员选项, 可选成员, smartTime } from "@/lib/utils";
+import { 成员选项, 独自一人, 可选成员, smartTime } from "@/lib/utils";
 import { saveLead, deleteLeads, convertLead } from "./actions";
 import { useBusiness } from "@/lib/business-client";
 
@@ -281,11 +281,14 @@ export default function LeadsView({
                 <Select options={LEAD_STATUSES.filter((s) => s !== "已转化").map((i) => ({ value: i, label: i }))} />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item name="ownerId" label="负责人">
-                <Select options={成员选项(users)} />
-              </Form.Item>
-            </Col>
+            {/* 只有一个人时不问归属，见 lib/utils.ts 的 独自一人 */}
+            {!独自一人(users, editing?.ownerId) && (
+              <Col span={8}>
+                <Form.Item name="ownerId" label="负责人">
+                  <Select options={成员选项(users)} />
+                </Form.Item>
+              </Col>
+            )}
             <Col span={24}>
               <Form.Item name="remark" label="备注">
                 <Input.TextArea rows={2} placeholder="线索来源细节、初步需求…" />

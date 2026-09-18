@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
+import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 
 /**
@@ -15,11 +16,14 @@ export async function saveChannel(input: {
   name: string;
   phone: string | null;
   remark: string | null;
-  channelOwnerId: string;
+  /** 一个人的工作区里界面上不问这一项，留空由服务端填成那唯一的人 */
+  channelOwnerId?: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const me = await requireUser();
   const b = await getBusiness();
   const name = input.name.trim();
+  const channelOwnerId = input.channelOwnerId || (await 唯一负责人());
+  if (!channelOwnerId) return { ok: false, error: "请选择渠道负责人" };
 
   const dup = await prisma.channel.findFirst({
     where: { name, ...(input.id ? { id: { not: input.id } } : {}) },
@@ -31,7 +35,7 @@ export async function saveChannel(input: {
     name,
     phone: input.phone?.trim() || null,
     remark: input.remark?.trim() || null,
-    channelOwnerId: input.channelOwnerId,
+    channelOwnerId,
   };
 
   let 新建id: string | undefined;
@@ -48,13 +52,13 @@ export async function saveChannel(input: {
      * 是同一条原则：没动那个学员的数据，他的归属就不该变。
      * 新负责人只对**之后新增**的学员生效；个别登记错的学员，到他档案里单独改。
      */
-    const 换人 = Boolean(改前 && 改前.channelOwnerId !== input.channelOwnerId);
+    const 换人 = Boolean(改前 && 改前.channelOwnerId !== channelOwnerId);
     const 已有 = 换人 ? await prisma.customer.count({ where: { channelId: input.id } }) : 0;
     await recordAudit({
       user: me, action: "update", entity: "Channel", entityId: input.id,
       summary: `修改渠道「${name}」` +
         (换人 ? `，渠道负责人变更，仅影响之后新增的${b.customer}；已有 ${已有} 名保持原归属` : ""),
-      detail: { name, 原负责人: 改前?.channelOwnerId, 新负责人: input.channelOwnerId, 已有学员不受影响: 已有 },
+      detail: { name, 原负责人: 改前?.channelOwnerId, 新负责人: channelOwnerId, 已有学员不受影响: 已有 },
     });
   } else {
     const c = await prisma.channel.create({ data });

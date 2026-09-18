@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { STAGE_PROBABILITY, OPP_STAGES, OPP_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
+import { 唯一负责人 } from "@/lib/owners";
 
 /** 状态在界面上叫什么。日志是给人看的，不能写 WON / LOST */
 const 状态名: Record<string, string> = { OPEN: "进行中", WON: "赢单", LOST: "丢单" };
@@ -19,7 +20,8 @@ export async function saveOpportunity(input: {
   probability: number;
   expectedDealAt?: string | null;
   remark?: string | null;
-  ownerId: string;
+  /** 一个人的工作区里界面上不问这一项，留空由服务端填成那唯一的人 */
+  ownerId?: string | null;
 }) {
   const me = await requireUser();
   // 与签约金额同一类问题：负数商机会让漏斗和加权预测的合计变小甚至为负
@@ -36,6 +38,9 @@ export async function saveOpportunity(input: {
   if (!OPP_STATUSES.includes(input.status as (typeof OPP_STATUSES)[number])) {
     return { ok: false as const, error: `商机状态「${input.status}」不是合法取值` };
   }
+  const ownerId = input.ownerId || (await 唯一负责人());
+  if (!ownerId) return { ok: false as const, error: "请选择负责人" };
+
   const data = {
     name: input.name.trim(),
     customerId: input.customerId,
@@ -45,7 +50,7 @@ export async function saveOpportunity(input: {
     probability: input.probability ?? STAGE_PROBABILITY[input.stage] ?? 20,
     expectedDealAt: input.expectedDealAt ? new Date(input.expectedDealAt) : null,
     remark: input.remark || null,
-    ownerId: input.ownerId,
+    ownerId,
   };
 
   if (input.id) {

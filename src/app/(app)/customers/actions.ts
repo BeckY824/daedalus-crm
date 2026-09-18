@@ -14,6 +14,7 @@ import {
 } from "@/lib/concurrency";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
+import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 
@@ -39,7 +40,8 @@ export type CustomerInput = {
   decisionStatus: string;
   expectedSignAt: Date | null;
   remark: string | null;
-  salesOwnerId: string;
+  /** 一个人的工作区里界面上不问这一项，留空由服务端填成那唯一的人 */
+  salesOwnerId?: string | null;
   /** 推荐人二选一：外部渠道 或 已有学员 */
   channelId: string | null;
   referrerCustomerId: string | null;
@@ -168,6 +170,9 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     }
   }
 
+  const salesOwnerId = input.salesOwnerId || (await 唯一负责人());
+  if (!salesOwnerId) return { ok: false, error: "请选择销售负责人" };
+
   const data = {
     name: input.name.trim(),
     phone,
@@ -178,7 +183,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     decisionStatus: input.decisionStatus,
     expectedSignAt: input.expectedSignAt,
     remark: input.remark?.trim() || null,
-    salesOwnerId: input.salesOwnerId,
+    salesOwnerId,
     referrerCustomerId: input.referrerCustomerId,
     ...attribution,
   };

@@ -49,3 +49,18 @@ export async function 按名字找负责人(名字: string) {
   const n = 名字.trim();
   return (await 负责人候选()).filter((u) => u.name === n);
 }
+
+/**
+ * 一个人的工作区：负责人这件事不必问。
+ *
+ * 桌面端就是一人公司，或者一个销售自己记账——库里只有他一个人。
+ * 让他从一个只有自己的下拉里选一次自己，是在问一个只有一个答案的问题；
+ * 更糟的是它还是必填的，等于每建一条记录都要多点两下。
+ *
+ * 返回候选名单里**唯一**那个人的 id；有第二个人就返回 null——
+ * 那时候归属是真问题，必须让人自己选，不能替他挑一个。
+ */
+export async function 唯一负责人(): Promise<string | null> {
+  const 候选 = await 负责人候选();
+  return 候选.length === 1 ? 候选[0].id : null;
+}

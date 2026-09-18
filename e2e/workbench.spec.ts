@@ -203,6 +203,45 @@ test("跟进计划：按逾期 / 今天 / 本周分三组，逾期那组是红�
   }
 });
 
+test("完成一条计划之后，它去了「已完成」那一屏（不是人间蒸发）", async ({ page }) => {
+  // 自带数据：这条用例单独跑（-g）时前面那条不会执行，库里一条计划都没有
+  const p = 连库();
+  await 清空业务数据(p);
+  await 造模拟数据(p);
+  await p.$disconnect();
+
+  await 登录(page);
+  await page.goto("/follow-ups/plans");
+  await page.waitForSelector(".plan-g");
+  // antd Segmented 的 radio 是隐藏 input，点不了，点标签本身。
+  // 这一页有两个：第一个是「待办 / 已完成」，第二个是「我的 / 全部成员」
+  const 视图 = page.locator(".ant-segmented").first();
+  const 范围 = page.locator(".ant-segmented").nth(1);
+  await 范围.getByText("全部成员", { exact: true }).click();
+
+  // 先确认「已完成」那一屏此刻是空的，等会儿的 1 条才说明得了问题
+  await 视图.getByText(/^已完成/).click();
+  await expect(page.locator(".plan-row-was")).toHaveCount(0);
+
+  await 视图.getByText("待办", { exact: true }).click();
+  const 行 = page.locator(".plan-row").first();
+  const 标题 = (await 行.locator(".plan-row-t").innerText()).trim();
+  await 行.getByRole("button", { name: /^完成/ }).click();
+  // 完成的那一行先留在原地 600ms 再消失（见 PlansView），之后这一页会重取
+  await expect(page.locator(".plan-row-done")).toHaveCount(0, { timeout: 10_000 });
+
+  /*
+    这一条盯的是 2026-09-18 问到的那个缺口：原来点完成之后，那条计划
+    在界面上再也找不到——「我上周排的回访到底做没做」没有地方答得上来。
+    不去断言它从待办里消失：模拟数据里的标题会重样，那个断言验的是别的事。
+  */
+  await 视图.getByText(/^已完成/).click();
+  await expect(page.locator(".plan-row-was")).toHaveCount(1);
+  const 那条 = page.locator(".plan-row-was").first();
+  await expect(那条).toContainText(标题);
+  await expect(那条).toContainText("完成");
+});
+
 test("商机管道：列头写着这一阶段压着多少钱", async ({ page }) => {
   await 登录(page);
   await page.goto("/opportunities/pipeline");

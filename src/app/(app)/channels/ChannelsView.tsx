@@ -7,7 +7,7 @@ import { Button, Space, Tag, Modal, Form, Input, Select, App, Tooltip } from "an
 import { PlusOutlined, EditOutlined, DeleteOutlined, StopOutlined, CheckCircleOutlined, SearchOutlined, ReloadOutlined } from "@ant-design/icons";
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
-import { money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
+import { money, fmtDate, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { saveChannel, toggleChannel, deleteChannel } from "./actions";
 import ReferralRadar from "./ReferralRadar";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
@@ -254,14 +254,22 @@ export default function ChannelsView({
             <Form.Item label="联系电话" name="phone">
               <Input placeholder="13700001111" />
             </Form.Item>
-            <Form.Item
-              label="渠道负责人"
-              name="channelOwnerId"
-              rules={[{ required: true, message: "请选择渠道负责人" }]}
-              extra={`之后由该渠道新增的${b.customer}及其下游转介绍归此人；已有${b.customer}的归属不变，个别要改的到其档案里单独改`}
-            >
-              <Select placeholder="请选择" options={成员选项(users)} />
-            </Form.Item>
+            {/*
+              **只有一个人时不问这一项**（2026-09-18）。桌面端是一人公司、或者一个销售
+              自己记账，库里就他一个人——让他从一个只有自己的下拉里选一次自己，
+              是在问一个只有一个答案的问题，而且它还是必填的。留空交给服务端填
+              （actions.ts 的 唯一负责人）。编辑一条挂在别人名下的旧记录时照样问。
+            */}
+            {!独自一人(users, editing?.channelOwnerId) && (
+              <Form.Item
+                label="渠道负责人"
+                name="channelOwnerId"
+                rules={[{ required: true, message: "请选择渠道负责人" }]}
+                extra={`之后由该渠道新增的${b.customer}及其下游转介绍归此人；已有${b.customer}的归属不变，个别要改的到其档案里单独改`}
+              >
+                <Select placeholder="请选择" options={成员选项(users)} />
+              </Form.Item>
+            )}
             <Form.Item label="备注" name="remark">
               <Input.TextArea rows={3} placeholder="渠道背景、合作方式…" />
             </Form.Item>

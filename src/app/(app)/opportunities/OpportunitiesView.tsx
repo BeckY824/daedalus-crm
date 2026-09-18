@@ -15,7 +15,7 @@ import {
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
-import { money, fmtDate, dayjs, 成员选项, 可选成员 } from "@/lib/utils";
+import { money, fmtDate, dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { saveOpportunity, deleteOpportunities, moveStage, setOppStatus } from "./actions";
 import { useBusiness } from "@/lib/business-client";
 
@@ -395,11 +395,14 @@ export default function OpportunitiesView({
                 />
               </Form.Item>
             </Col>
-            <Col span={8}>
-              <Form.Item name="ownerId" label="负责人" rules={[{ required: true }]}>
-                <Select options={成员选项(users)} />
-              </Form.Item>
-            </Col>
+            {/* 只有一个人时不问归属，见 lib/utils.ts 的 独自一人 */}
+            {!独自一人(users, editing?.ownerId) && (
+              <Col span={8}>
+                <Form.Item name="ownerId" label="负责人" rules={[{ required: true }]}>
+                  <Select options={成员选项(users)} />
+                </Form.Item>
+              </Col>
+            )}
             <Col span={8}>
               <Form.Item name="expectedDealAt" label="预计成交">
                 <DatePicker style={{ width: "100%" }} />

@@ -951,6 +951,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-row-s { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: var(--fs-note); color: var(--text-muted); }
 .plan-row-d { flex: none; font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* 做完的那一屏。标题不划掉——这里的行不是「刚被划掉」，而是一条已经完成的记录，
+   划掉会让人以为它作废了。左边那个对勾不是按钮，所以补上和按钮同宽的位置 */
+.plan-row-was .plan-row-t { color: var(--ink-soft); }
+.plan-row-was > .anticon { width: 24px; flex: none; text-align: center; }
+.plan-row-was-p { color: var(--text-faint); }
 
 /* ---------- 商机管道 ----------
    列是横着排的，窄屏下**只有这一块横滚**，页面本身不跟着被撑开。 */
@@ -1334,7 +1339,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 记录页 AI 栏的空态：一颗按钮 + 一句代价。
    **不替人做决定**——进这一页原来会自动问一次 AI，随手点开三个人看电话就用掉三次额度 */
 .rec-ai-idle { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 0 2px; }
-.rec-ai-idle span { font-size: var(--fs-min); color: var(--text-muted); line-height: 1.6; }
+/* 只挑**直接**子元素那句说明。写成 `.rec-ai-idle span` 的话，
+   antd 按钮把自己的文字也放在一个 span 里——「生成简报」四个字会被染成灰色、
+   字号还被压小，压在蓝底上等于看不见（2026-09-18 报上来的） */
+.rec-ai-idle > span { font-size: var(--fs-min); color: var(--text-muted); line-height: 1.6; }
 
 
 /* 带字数统计的多行输入（业务简介）。antd 把「x/500」绝对定位在框子下面那一行，

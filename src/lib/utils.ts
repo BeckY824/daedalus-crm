@@ -119,5 +119,20 @@ export function 成员选项(users: 可选成员[]): { value: string; label: str
   }));
 }
 
+/**
+ * 这个库里是不是只有一个人（而且这条记录本来就归他）。
+ *
+ * 只有一个人时，「负责人」这一项不该出现在表单上——桌面端是一人公司、或者
+ * 一个销售自己记账，那个下拉里只有他自己，却还是必填的。留空由服务端填
+ * （lib/owners.ts 的 唯一负责人）。
+ *
+ * 编辑一条挂在**别人**名下的旧记录时仍然要问：有人从销售转成管理员、或者
+ * 同事被停用之后，库里会留下候选名单之外的负责人，那时候藏起来等于悄悄改归属。
+ */
+export function 独自一人(users: 可选成员[], 现负责人?: string | null): boolean {
+  if (users.length > 1) return false;
+  return !现负责人 || users[0]?.id === 现负责人;
+}
+
 /** 头像底色都是浅色，字一律深灰；配 avatarColor 用 */
 export const AVATAR_TEXT = "#374151";

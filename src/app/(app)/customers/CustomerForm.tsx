@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Modal, Form, Input, Select, Row, Col, DatePicker, App, Alert, Radio, Space, Typography, Button, Divider } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
-import { dayjs, 成员选项, 可选成员 } from "@/lib/utils";
+import { dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } from "./actions";
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
@@ -262,16 +262,19 @@ function CustomerFormInner({
               <Select allowClear placeholder="请选择" options={b.grades.map((g) => ({ value: g, label: g }))} />
             </Form.Item>
           </Col>
-          <Col span={8}>
-            <Form.Item
-              label="销售负责人"
-              name="salesOwnerId"
-              rules={[{ required: true, message: "请选择销售负责人" }]}
-              extra="负责谈单签约"
-            >
-              <Select placeholder="请选择" options={负责人选项} />
-            </Form.Item>
-          </Col>
+          {/* 只有一个人时不问归属，见 lib/utils.ts 的 独自一人 */}
+          {!独自一人(users, editing?.salesOwnerId) && (
+            <Col span={8}>
+              <Form.Item
+                label="销售负责人"
+                name="salesOwnerId"
+                rules={[{ required: true, message: "请选择销售负责人" }]}
+                extra="负责谈单签约"
+              >
+                <Select placeholder="请选择" options={负责人选项} />
+              </Form.Item>
+            </Col>
+          )}
         </Row>
 
         {/* 推荐人：决定渠道归属与渠道负责人，两者由系统按规则自动计算 */}

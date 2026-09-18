@@ -31,6 +31,20 @@ type Task = {
   ownerName: string;
 };
 
+/** 做完的那些。计划没有 doneAt 列，完成时间取 updatedAt，见 page.tsx 的说明 */
+export type 已完成 = {
+  key: string;
+  kind: "plan" | "task";
+  标题: string;
+  方式?: string;
+  计划时间: string | null;
+  完成时间: string;
+  customerId: string;
+  customerName: string;
+  ownerId: string;
+  ownerName: string;
+};
+
 /** 待办和跟进计划在这一页是同一件事：「我接下来要做的」。只是完成的方式不同 */
 type 事项 = {
   key: string;
@@ -58,16 +72,26 @@ type 事项 = {
 export default function PlansView({
   plans,
   tasks,
+  done,
   meId,
 }: {
   plans: Plan[];
   tasks: Task[];
+  done: 已完成[];
   meId: string;
 }) {
   const router = useRouter();
   const { message } = App.useApp();
   const b = useBusiness();
   const [scope, setScope] = useState<string | number>("我的");
+  /**
+   * 看待办还是看做完的。
+   *
+   * 点完成之后那条计划原来就从界面上彻底消失了——「我上周排的那次回访到底做没做」
+   * 没有任何地方答得上来（2026-09-18 问到的）。默认仍然是「待办」：
+   * 这一页首先是今天要干什么，回顾是第二位的。
+   */
+  const [看, set看] = useState<string | number>("待办");
   /** 刚点过完成、还留在原地的那几条 */
   const [刚完成, set刚完成] = useState<string[]>([]);
 
@@ -124,7 +148,13 @@ export default function PlansView({
     }, 600);
   }
 
-  const 空了 = 全部.length === 0;
+  const 我的已完成 = useMemo(
+    () => done.filter((x) => (scope === "我的" ? x.ownerId === meId : true)),
+    [done, scope, meId],
+  );
+
+  // 待办空、但做完的有一堆时，不该说「还没有排任何跟进」——那是句不对的话
+  const 空了 = 全部.length === 0 && done.length === 0;
 
   return (
     <>
@@ -157,16 +187,49 @@ export default function PlansView({
       ) : (
         <>
           <Space wrap style={{ marginBottom: 16 }}>
+            <Segmented value={看} onChange={set看} options={["待办", `已完成${done.length ? ` ${done.length}` : ""}`]} />
             <Segmented value={scope} onChange={setScope} options={["我的", "全部成员"]} />
             {/* 自己名下空、团队里却有一堆的时候要说一声。
                 三组全写着「这一组是空的」，人会以为整个团队都没排 */}
-            {scope === "我的" && 我的.length === 0 && 全部.length > 0 && (
+            {看 === "待办" && scope === "我的" && 我的.length === 0 && 全部.length > 0 && (
               <button type="button" className="plan-switch" onClick={() => setScope("全部成员")}>
                 你名下没有；全部成员还有 {全部.length} 条 ›
               </button>
             )}
           </Space>
 
+          {String(看).startsWith("已完成") ? (
+            <div className="plans">
+              <section className="plan-g">
+                <div className="plan-g-h">
+                  <b>做完的</b>
+                  <span className="plan-g-n">{我的已完成.length}</span>
+                  <span className="plan-g-s">按完成时间倒序，最近 200 条</span>
+                </div>
+                {我的已完成.length === 0 ? (
+                  <div className="plan-empty">{scope === "我的" ? "你还没完成过计划或待办" : "还没有完成过的"}</div>
+                ) : (
+                  我的已完成.map((x) => (
+                    <div key={x.key} className="plan-row plan-row-was">
+                      <CheckCircleOutlined style={{ color: "var(--success)" }} />
+                      <span className="plan-row-m">
+                        <span className="plan-row-t">{x.标题}</span>
+                        <span className="plan-row-s">
+                          <a href={`/customers/${x.customerId}`}>{x.customerName}</a>
+                          {x.方式 && <Tag style={{ margin: 0, borderRadius: 6 }}>{x.方式}</Tag>}
+                          <Tag style={{ margin: 0, borderRadius: 6 }}>{x.kind === "plan" ? "跟进计划" : "待办"}</Tag>
+                          {/* 原定什么时候做，和实际什么时候做完，是两件事——两个都留着 */}
+                          {x.计划时间 && <span className="plan-row-was-p">原定 {fmtDateTime(x.计划时间)}</span>}
+                        </span>
+                      </span>
+                      {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
+                      <span className="plan-row-d">{fmtDateTime(x.完成时间)} 完成</span>
+                    </div>
+                  ))
+                )}
+              </section>
+            </div>
+          ) : (
           <div className="plans">
             {/* 三组的空文案各不相同：全写「这一组是空的」，人分不出
                 「今天没排」和「已经全做完了」——那是两件完全不同的事 */}
@@ -177,6 +240,7 @@ export default function PlansView({
               <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} scope={scope} />
             )}
           </div>
+          )}
         </>
       )}
     </>
