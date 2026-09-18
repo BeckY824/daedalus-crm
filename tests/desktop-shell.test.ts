@@ -120,3 +120,36 @@ describe("壳给页面的口子", () => {
     expect(main).toContain("setWindowOpenHandler");
   });
 });
+
+/**
+ * 打包清单。
+ *
+ * 2026-09-18 线上炸过一次：新加的 `desktop/mcp-bridge.js` 没写进
+ * `desktop/package.json` 的 `files` 白名单，`app.asar` 里就没有这个文件，
+ * 应用一启动就 `Cannot find module './mcp-bridge'`，**整个打不开**。
+ * 本地 `npm run dev` 一切正常——那条路不走 asar，压根不看白名单。
+ *
+ * 所以这条用例把「壳里 require 了哪些本地文件」和白名单对一遍：
+ * 加文件忘了改白名单，在这儿就红，而不是等用户装上之后白屏。
+ */
+describe("打包清单要盖住壳里 require 的每个文件", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(桌面, "package.json"), "utf8")) as { build?: { files?: string[] } };
+  const 白名单 = pkg.build?.files ?? [];
+  /** 壳里所有 require("./x") 的文件名（只看相对路径的，node_modules 由打包器自己管） */
+  const 本地依赖 = 去重(
+    fs
+      .readdirSync(桌面)
+      .filter((f) => f.endsWith(".js"))
+      .flatMap((f) => [...fs.readFileSync(path.join(桌面, f), "utf8").matchAll(/require\(["']\.\/([\w-]+)["']\)/g)].map((m) => `${m[1]}.js`)),
+  );
+
+  it("每个被 require 的本地文件都在 files 白名单里", () => {
+    const 漏了 = 本地依赖.filter((f) => !白名单.includes(f));
+    expect(漏了, `这些文件壳里 require 了，但不会被打进 app.asar：${漏了.join("、")}`).toEqual([]);
+  });
+
+  it("白名单里也不该有已经删掉的文件", () => {
+    const 不存在 = 白名单.filter((f) => f.endsWith(".js") && !fs.existsSync(path.join(桌面, f)));
+    expect(不存在, `白名单里这些文件不存在了：${不存在.join("、")}`).toEqual([]);
+  });
+});
