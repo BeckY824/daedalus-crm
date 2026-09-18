@@ -151,6 +151,160 @@ export const TOOLS: Tool[] = [
       return { summary: `${plans.length} 条`, data: plans.map((p) => ({ customerId: p.customer.id, name: p.customer.name, when: dayjs(p.plannedAt).format("MM-DD HH:mm"), method: p.method, subject: p.subject, overdue: dayjs(p.plannedAt).isBefore(dayjs()) })) };
     },
   },
+  /*
+    下面四个是 2026-09-18 补的「清单类」工具。在这之前 agent 手上只有客户那条线
+    （search_customers / get_customer）加一个指标聚合，于是问「我目前的渠道有哪些」
+    这种最普通的问题，它够不着数据，只能拿 query_metric(customers_count, groupBy=channel)
+    硬凑——那个结果里**没带来过客户的渠道根本不出现**，答案必然是错的，
+    而且模型会为了圆这个答案想很久。补工具比换模型、换框架都直接。
+  */
+  {
+    name: "list_channels",
+    description: "列渠道（客户是从哪儿来的：合作方、中介、转介绍人）。返回每个渠道的负责人、直接带来多少客户、这条链上的签约额、停用与否。问「有哪些渠道」「哪个渠道带来的客户最多」就用它。",
+    args: '{"keyword": "名字里的关键词，可空", "includeInactive": true|false 可空，默认不列停用的}',
+    async run(args) {
+      const q = str(args.keyword, 20);
+      const rows = await prisma.channel.findMany({
+        where: {
+          ...(q ? { name: { contains: q } } : {}),
+          ...(args.includeInactive === true ? {} : { active: true }),
+        },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: {
+          name: true, phone: true, active: true, remark: true,
+          channelOwner: { select: { name: true } },
+          directCustomers: { select: { contracts: { select: { amount: true } } } },
+        },
+      });
+      return {
+        summary: `${rows.length} 个渠道`,
+        data: rows.map((c) => ({
+          名称: c.name,
+          渠道负责人: c.channelOwner?.name ?? "未指定",
+          直接带来: c.directCustomers.length,
+          签约额: c.directCustomers.reduce((s, cu) => s + cu.contracts.reduce((t, x) => t + x.amount, 0), 0),
+          电话: c.phone ?? null,
+          状态: c.active ? "在用" : "已停用",
+          备注: c.remark ?? null,
+        })),
+      };
+    },
+  },
+  {
+    name: "list_leads",
+    description: "列线索（还没建档的潜在客户）。可按状态、来源、关键词过滤。问「有哪些线索」「哪些线索还没跟」用它；线索和客户是两张表，别用 search_customers 找线索。",
+    args: `{"keyword": "名称/联系人/电话里的关键词，可空", "status": "${LEAD_STATUSES.join("/")}，可空", "source": "线索来源，可空"}`,
+    async run(args) {
+      const q = str(args.keyword, 20);
+      const status = str(args.status, 10);
+      const source = str(args.source, 20);
+      const where = {
+        ...(q ? { OR: [{ name: { contains: q } }, { contact: { contains: q } }, { phone: { contains: q } }] } : {}),
+        ...(status ? { status } : {}),
+        ...(source ? { source } : {}),
+      };
+      const [total, rows] = await Promise.all([
+        prisma.lead.count({ where }),
+        prisma.lead.findMany({
+          where, orderBy: { createdAt: "desc" }, take: 30,
+          select: { id: true, name: true, contact: true, phone: true, source: true, status: true, industry: true, customerId: true, owner: { select: { name: true } } },
+        }),
+      ]);
+      return {
+        summary: `${total} 条线索${total > rows.length ? `（列出前 ${rows.length} 条）` : ""}`,
+        data: {
+          总数: total,
+          线索: rows.map((l) => ({
+            id: l.id, 名称: l.name, 联系人: l.contact, 电话: l.phone,
+            来源: l.source, 状态: l.status, 行业: l.industry,
+            负责人: l.owner?.name ?? null,
+            已转化: Boolean(l.customerId),
+          })),
+        },
+      };
+    },
+  },
+  {
+    name: "list_opportunities",
+    description: `列商机（在谈的单子）。可按阶段、状态、客户过滤，按金额从大到小。阶段只能是 ${OPP_STAGES.join(" / ")}；status: OPEN 进行中 / WON 赢单 / LOST 丢单。问「手上有哪些单子」「哪些单子快成了」用它。`,
+    args: '{"stage": "阶段，可空", "status": "OPEN/WON/LOST，可空，默认 OPEN", "customerName": "客户姓名，可空"}',
+    async run(args) {
+      const stage = str(args.stage, 10);
+      const status = str(args.status, 6).toUpperCase();
+      const name = str(args.customerName, 20);
+      const where = {
+        ...(stage ? { stage } : {}),
+        status: ["OPEN", "WON", "LOST"].includes(status) ? status : "OPEN",
+        ...(name ? { customer: { name: { contains: name } } } : {}),
+      };
+      const [total, rows] = await Promise.all([
+        prisma.opportunity.count({ where }),
+        prisma.opportunity.findMany({
+          where, orderBy: { amount: "desc" }, take: 30,
+          select: {
+            id: true, name: true, amount: true, stage: true, status: true, probability: true, expectedDealAt: true, updatedAt: true,
+            customer: { select: { id: true, name: true } }, owner: { select: { name: true } },
+          },
+        }),
+      ]);
+      return {
+        summary: `${total} 个商机，合计 ¥${Math.round(rows.reduce((s, o) => s + o.amount, 0))}`,
+        data: {
+          总数: total,
+          商机: rows.map((o) => ({
+            customerId: o.customer.id,
+            客户: o.customer.name,
+            名称: o.name,
+            金额: Math.round(o.amount),
+            阶段: o.stage,
+            状态: o.status === "OPEN" ? "进行中" : o.status === "WON" ? "赢单" : "丢单",
+            成交概率: o.probability,
+            预计成交: o.expectedDealAt ? dayjs(o.expectedDealAt).format("YYYY-MM-DD") : null,
+            多久没动: `${dayjs().diff(dayjs(o.updatedAt), "day")} 天`,
+            负责人: o.owner?.name ?? null,
+          })),
+        },
+      };
+    },
+  },
+  {
+    name: "search_followups",
+    description: "在**所有**跟进记录里按关键词搜（「谁提过预算」「哪几个人说过要对比方案」）。要读某一位客户的完整跟进，用 get_customer——那条是按人取全，这条是按词跨人找。",
+    args: '{"keyword": "内容里的关键词", "days": 最近多少天，可空, "mine": true|false 可空}',
+    async run(args, ctx) {
+      const q = str(args.keyword, 30);
+      if (!q) return { summary: "没给关键词", data: { error: "keyword 必填" } };
+      const days = typeof args.days === "number" && args.days > 0 ? Math.min(args.days, 365) : null;
+      const where = {
+        OR: [{ content: { contains: q } }, { title: { contains: q } }],
+        ...(days ? { occurredAt: { gte: dayjs().subtract(days, "day").toDate() } } : {}),
+        ...(args.mine === true ? { ownerId: ctx.userId } : {}),
+      };
+      const [total, rows] = await Promise.all([
+        prisma.followUp.count({ where }),
+        prisma.followUp.findMany({
+          where, orderBy: { occurredAt: "desc" }, take: 15,
+          select: { content: true, type: true, occurredAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
+        }),
+      ]);
+      return {
+        summary: `${total} 条提到「${q}」${total > rows.length ? `（列出最近 ${rows.length} 条）` : ""}`,
+        data: {
+          总数: total,
+          记录: rows.map((f) => ({
+            customerId: f.customer.id,
+            客户: f.customer.name,
+            时间: dayjs(f.occurredAt).format("YYYY-MM-DD"),
+            类型: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type,
+            跟进人: f.owner?.name ?? null,
+            // 截断：搜索给的是线索，要读全文再去 get_customer
+            内容: f.content.slice(0, 200),
+          })),
+        },
+      };
+    },
+  },
   proposeTool("propose_status_change", `建议改一位${"客户"}的状态。你改不了数据，这只是给人看的一张建议卡，人点确认才生效。`, '{"id": "客户 id", "to": "新状态", "reason": "一句话：为什么"}', "set_status"),
   proposeTool("propose_followup", "建议记一条跟进记录（比如人刚跟你口述了一次沟通）。你写不进去，人点确认才保存。", '{"id": "客户 id", "type": "电话沟通/线上会议/上门拜访/邮件沟通/短信沟通/跟进任务/跟进提醒/其他记录", "title": "可选，一句话标题", "content": "这次聊了什么", "occurredAt": "可选，YYYY-MM-DD HH:mm，不给就算刚刚", "reason": "一句话：为什么"}', "add_followup"),
   proposeTool("propose_plan", "建议排一次下次跟进计划。你排不了，人点确认才生效。", '{"id": "客户 id", "subject": "下次谈什么", "plannedAt": "YYYY-MM-DD HH:mm", "method": "电话沟通/线上会议/上门拜访/邮件沟通/微信沟通", "reason": "一句话：为什么"}', "add_plan"),
