@@ -9,8 +9,10 @@
  * 边界：工具全部只读；最多 6 步；每步与最终回答都有超时；用户按 Esc 时 signal 中断。
  * 过程通过 emit 推出去：每次工具调用一条 step（running → done + summary）。
  */
-import { chatMessagesJSON, chatTextStream, buildSystemPrompt, type ChatMessage } from "../llm";
+import { chatMessagesJSON, chatTextStream, buildSystemPrompt, type ChatMessage, chatTools, type ToolMessage} from "../llm";
 import { TOOLS, TOOL_MAP, proposalVocab, type ToolContext } from "./tools";
+import { SCHEMAS } from "./schemas";
+import { 认意图 } from "./intents";
 import type { Proposal } from "./proposals";
 import type { Emit } from "../ai-steps";
 import type { BriefRecord } from "../ai-draft";
@@ -181,18 +183,30 @@ export async function runAgent(
 ): Promise<AgentResult> {
   const { question, user, b, history } = input;
   const toolDoc = TOOLS.map((t) => `- ${t.name}：${t.description}\n  参数：${t.args}`).join("\n");
+
+  /**
+   * **两条路的提示词不一样，而且这件事比看上去要命。**
+   *
+   * 第一版的原生 function calling 8 道题错 7 道，原因不是模型不会调工具——
+   * 是系统提示词里还留着「工作方式：每一轮只输出严格 JSON」。模型老老实实照办了：
+   * 它输出了一段 JSON 文本，而不是发起一次工具调用。**两套说明书同时给，它只会听一套。**
+   * 所以原生这条路上，工具表和「怎么输出」这两段必须整个拿掉——工具在 API 的
+   * `tools` 字段里，怎么调是模型自己训练过的事，我们不该再教一遍。
+   */
+  const 原生模式 = process.env.AGENT_TOOLCALLS !== "0";
+  const 工作方式 = 原生模式
+    ? `工作方式：需要数据就直接调用工具（可以连着调几次）；够了就不要再调，直接开口回答。`
+    : `工作方式：每一轮只输出严格 JSON，二选一：
+  {"thought": "一句话：打算干什么、为什么", "action": {"tool": "工具名", "args": {...}}}
+  {"final": true}`;
   const system =
     buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
     `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${dayjs().format("YYYY-MM-DD HH:mm")}（周${"日一二三四五六"[dayjs().day()]}）。
-你能调用的工具：
-${toolDoc}
-
+${原生模式 ? "" : `你能调用的工具：\n${toolDoc}\n`}
 取值表（propose_* 的参数只能用这里的词）：
 ${proposalVocab(b)}
 
-工作方式：每一轮只输出严格 JSON，二选一：
-  {"thought": "一句话：打算干什么、为什么", "action": {"tool": "工具名", "args": {...}}}
-  {"final": true}
+${工作方式}
 规则：
 - 你不能修改任何数据。propose_* 工具只是生成一张建议卡，人在界面上点确认才真的写进去；提完在回答里说一句"已经给出建议，你确认一下"，不要说"我已经改好了"
 - 只在人明确要求做某件事时才提议（"帮我记一笔""把他改成已签约""约下周三""新建一条线索"）；人只是问情况时不要提议
@@ -202,40 +216,143 @@ ${proposalVocab(b)}
 - 问某一类人（某个学校 / 专业 / 跟进状态 / 我负责的，"有多少、分别是谁"）：search_customers 用那个关键词或过滤条件，它返回总数和名单，直接据此回答，不用逐个 get_customer
 - 工具没找到时如实说"没有匹配的"，不要把关键词当成人名
 - 问数字用 query_metric；问"该联系谁"用 get_watchlist / get_my_plans
-- 已经拿到足够信息就 final，不要重复调用同一个工具
+- 已经拿到足够信息就停下来回答，不要重复调用同一个工具
 - 最多 ${MAX_STEPS} 步
 - 问题前面可能附着我们之前的对话。它只用来解开指代（"他""这位""那个学校""再约一下"）；
   真正要回答的永远是最后那个"问题："。别把之前答过的内容再抄一遍，也别拿旧数字当现在的数字——
   该查还得查`;
 
-  const messages: ChatMessage[] = [
+  const messages: ToolMessage[] = [
     { role: "system", content: system },
     { role: "user", content: 拼上下文(history, question) },
   ];
+
+  /**
+   * 决策这一步怎么问模型。
+   *
+   * **默认走原生 function calling**：把工具表按 `tools` 字段发过去，模型走它自己
+   * 训练过的那条路。2026-09-18 实测，同一个 flash 模型在「我目前有哪些渠道」这种
+   * 问题上，JSON 协议那条路想了 70 多秒还选错工具，原生这条 226 个 prompt token
+   * 就选对了——小模型要同时记住「输出格式」和「选哪个工具」，前者是白白占用的。
+   *
+   * 网关或模型不吃 `tools` 时（老的自部署、某些兼容层）第一次就会 4xx，
+   * 那之后这一整轮退回原来的 JSON 协议。两条路都留着，因为用户填的是**他自己的**
+   * 接口地址，我们没法假设对面支持什么。`AGENT_TOOLCALLS=0` 可以直接关掉原生。
+   */
+  const 工具表 = TOOLS.filter((t) => SCHEMAS[t.name]).map((t) => ({
+    type: "function" as const,
+    function: { name: t.name, description: t.description, parameters: SCHEMAS[t.name] },
+  }));
+  let 用原生 = 原生模式 && 工具表.length > 0;
+
+  /**
+   * **意图直连**：固定的问题不问模型。
+   *
+   * 「有哪些渠道」「这个月谁签得最多」「今天该跟谁」的答案是一条确定的查询——
+   * 业务逻辑和字段是固定的，不该每次让模型重新推理一遍。命中就直接跑工具，
+   * 省掉一次决策往返（十几秒），也不留抖动的余地：同一句话永远走同一条路。
+   * 模型只负责最后把数据说成人话，那一步它很稳。
+   *
+   * 没命中的照常走下面的循环——那条路要处理的是真正开放的问题。
+   * 没命中的问句记一行日志，加规则时照着真实问句加，不拍脑袋。
+   * `AGENT_INTENTS=0` 关掉（对照实验用）。
+   */
+  const 直连 = process.env.AGENT_INTENTS === "0" ? null : 认意图(question, Boolean(history?.length));
+  if (直连) console.info(`[intent] 命中「${直连.名}」：${直连.调用.map((c) => c.name).join(" → ")}`);
+  else console.info(`[intent] 没命中：${question.slice(0, 60)}`);
   const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [] };
   const records: BriefRecord[] = [];
   const customers = new Map<string, { id: string; name: string; followStatus: string }>();
   const mentioned = new Map<string, { id: string; name: string; followStatus: string }>();
   let steps = 0;
 
+  /** 直连命中时先跑掉的那几个工具；循环里按下标认，跑完就轮到模型组织回答 */
+  const 待跑 = 直连 ? [...直连.调用] : [];
+
   for (let i = 0; i < MAX_STEPS; i++) {
     if (ev.signal?.aborted) throw new Error("已取消");
     // 决策步：关思维链、温度 0——只是选工具填参数，要快、要稳
     const t0 = Date.now();
-    const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal })) as Record<string, unknown>;
-    console.info(`[agent] 第 ${i + 1} 步决策 ${Date.now() - t0}ms：${JSON.stringify(raw).slice(0, 120)}`);
-    // 模型常把 final 塞进 action 里（{"action":{"final":true}}），或把 tool 直接放顶层：都认
-    const action = ((raw?.action && typeof raw.action === "object" ? raw.action : raw) ?? {}) as { tool?: unknown; args?: unknown; final?: unknown };
-    if (raw?.final || action.final || typeof action.tool !== "string") break;
-    const tool = TOOL_MAP.get(action.tool);
-    const thought = typeof raw.thought === "string" ? raw.thought.slice(0, 80) : "";
-    if (!tool) {
-      messages.push({ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: `没有叫「${String(action.tool)}」的工具。可用：${TOOLS.map((t) => t.name).join(", ")}` });
-      continue;
+    /** 这一步选了哪个工具、参数是什么、心里怎么想的；四条路（直连 / 原生 / JSON / 出错）都归到这个形 */
+    let 选择: { tool: string; args: Record<string, unknown>; thought: string; 回执: ToolMessage[] } | null = null;
+
+    /* 直连的工具还没跑完：直接取下一个，这一步完全不问模型 */
+    if (待跑.length) {
+      const c = 待跑.shift()!;
+      if (TOOL_MAP.get(c.name)) {
+        选择 = {
+          tool: c.name,
+          args: c.args,
+          thought: `按「${直连!.名}」直接查`,
+          // 直连没有模型的那轮对话，用一问一答两条消息把结果塞回上下文，供最后组织回答用
+          回执: [
+            { role: "assistant", content: `调用 ${c.name}` },
+            { role: "user", content: "" },
+          ],
+        };
+      }
     }
+
+    if (!选择 && 用原生) {
+      try {
+        const r = await chatTools(messages, 工具表, { maxTokens: 1500, timeoutMs: 60_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal });
+        console.info(`[agent] 第 ${i + 1} 步决策（原生）${Date.now() - t0}ms：${r.toolCalls.map((c) => c.function.name).join(",") || "没调工具"}`);
+        // 没调工具 = 它认为够了，可以去组织回答
+        if (!r.toolCalls.length) break;
+        const c = r.toolCalls[0];
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(c.function.arguments || "{}") as Record<string, unknown>;
+        } catch {
+          // 参数不是合法 JSON：交回去让它重来，比我们猜一个强
+          messages.push(
+            { role: "assistant", content: null, tool_calls: [c] },
+            { role: "tool", tool_call_id: c.id, content: `参数不是合法 JSON：${c.function.arguments.slice(0, 200)}` },
+          );
+          continue;
+        }
+        选择 = {
+          tool: c.function.name,
+          args,
+          thought: r.text.slice(0, 80),
+          回执: [{ role: "assistant", content: r.text || null, tool_calls: [c] }],
+        };
+        if (!TOOL_MAP.get(c.function.name)) {
+          messages.push(...选择.回执, { role: "tool", tool_call_id: c.id, content: `没有叫「${c.function.name}」的工具。可用：${工具表.map((t) => t.function.name).join(", ")}` });
+          continue;
+        }
+        // 结果要按 tool_call_id 回去，记下来给下面用
+        选择.回执.push({ role: "tool", tool_call_id: c.id, content: "" });
+      } catch (e) {
+        // 对面不吃 tools：这一整轮退回 JSON 协议，不再试
+        用原生 = false;
+        console.warn(`[agent] 原生 function calling 不可用，退回 JSON 协议：${e instanceof Error ? e.message.slice(0, 160) : e}`);
+      }
+    }
+
+    if (!选择) {
+      const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal })) as Record<string, unknown>;
+      console.info(`[agent] 第 ${i + 1} 步决策 ${Date.now() - t0}ms：${JSON.stringify(raw).slice(0, 120)}`);
+      // 模型常把 final 塞进 action 里（{"action":{"final":true}}），或把 tool 直接放顶层：都认
+      const action = ((raw?.action && typeof raw.action === "object" ? raw.action : raw) ?? {}) as { tool?: unknown; args?: unknown; final?: unknown };
+      if (raw?.final || action.final || typeof action.tool !== "string") break;
+      if (!TOOL_MAP.get(action.tool)) {
+        messages.push({ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: `没有叫「${String(action.tool)}」的工具。可用：${TOOLS.map((t) => t.name).join(", ")}` });
+        continue;
+      }
+      选择 = {
+        tool: action.tool,
+        args: (action.args && typeof action.args === "object" ? action.args : {}) as Record<string, unknown>,
+        thought: typeof raw.thought === "string" ? raw.thought.slice(0, 80) : "",
+        回执: [{ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: "" }],
+      };
+    }
+
+    const tool = TOOL_MAP.get(选择.tool)!;
+    const thought = 选择.thought;
     steps += 1;
     const stepId = `tool-${i}`;
-    const args = (action.args && typeof action.args === "object" ? action.args : {}) as Record<string, unknown>;
+    const args = 选择.args;
     const argText = Object.values(args).filter((v) => typeof v === "string" && v).join(", ");
     ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "running", thought: thought || undefined });
     let result;
@@ -257,7 +374,20 @@ ${proposalVocab(b)}
       for (const r of listCustomers(result.data)) mentioned.set(r.id, r);
     }
     ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "done", detail: result.summary, thought: thought || undefined });
-    messages.push({ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: `工具 ${tool.name} 的结果：\n${JSON.stringify(result.data).slice(0, 6000)}` });
+    // 结果交回去：原生那条按 tool_call_id 对上，JSON 协议那条还是一条 user 消息
+    const 结果文本 = `工具 ${tool.name} 的结果：\n${JSON.stringify(result.data).slice(0, 6000)}`;
+    const 回执 = 选择.回执;
+    const 末 = 回执[回执.length - 1] as { role: string; content: string };
+    末.content = 末.role === "tool" ? JSON.stringify(result.data).slice(0, 6000) : 结果文本;
+    messages.push(...回执);
+
+    /*
+      直连的工具跑完就直接去组织回答。**不 break 的话它会白问一次模型**
+      （下一轮 待跑 空了，就落进决策分支，模型答「不用再调工具了」）——
+      那正是直连想省掉的那次往返，第一版就漏在这儿：对照里 C 反而比 A 慢，
+      量了才发现决策步中位 7.4 秒一分没省。
+    */
+    if (直连 && !待跑.length) break;
   }
 
   // 最终回答：流式 Markdown

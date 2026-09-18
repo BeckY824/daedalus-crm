@@ -360,7 +360,20 @@ export function 重置模型探测() {
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean): Promise<Response> {
+/**
+ * 原生 function calling 用的消息。比 ChatMessage 多两种形状：
+ *   assistant 带 tool_calls —— 模型说「我要调这几个工具」
+ *   role: "tool"           —— 我们把那次调用的结果交回去（靠 tool_call_id 对上）
+ */
+export type ToolMessage =
+  | ChatMessage
+  | { role: "assistant"; content: string | null; tool_calls: 工具调用[] }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+export type 工具调用 = { id: string; type: "function"; function: { name: string; arguments: string } };
+export type 工具声明 = { type: "function"; function: { name: string; description: string; parameters: unknown } };
+
+async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean, tools?: 工具声明[]): Promise<Response> {
   const 模型 = opts.model ?? cfg.model;
   const 键 = 上游键(cfg, 模型);
   const body: Record<string, unknown> = {
@@ -369,7 +382,12 @@ async function chatRaw(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, 
     temperature: opts.temperature ?? 0.3,
     max_tokens: (opts.maxTokens ?? DEFAULT_MAX_TOKENS) + (思考模型.has(键) ? 思考预算 : 0),
   };
-  if (useJsonFormat) body.response_format = { type: "json_object" };
+  if (tools?.length) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
+  // 带着 tools 时不能再要 json_object：两个一起发，多数网关会二选一地忽略掉其中一个
+  if (useJsonFormat && !tools?.length) body.response_format = { type: "json_object" };
   if (opts.thinking === false && !不认thinking.has(键)) body.thinking = { type: "disabled" };
   if (stream) body.stream = true;
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
@@ -395,7 +413,7 @@ async function chatOnce(cfg: LlmConfig, system: string, prompt: string, opts: Ch
   return chatMessagesOnce(cfg, [{ role: "system", content: system }, { role: "user", content: prompt }], opts, useJsonFormat);
 }
 
-async function chatMessagesOnce(cfg: LlmConfig, messages: ChatMessage[], opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
+async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
   const res = await chatRaw(cfg, messages, opts, useJsonFormat, false);
   const data = (await res.json()) as {
     choices?: { message?: { content?: string }; finish_reason?: string }[];
@@ -428,7 +446,7 @@ async function chatMessagesOnce(cfg: LlmConfig, messages: ChatMessage[], opts: C
  * 多轮对话版的 JSON 调用：给 agent 循环用（system + 历史 + 工具结果）。
  * 同样带「不支持 json_object 就降级」和「坏 JSON 重试一次」两道保险。
  */
-export async function chatMessagesJSON(messages: ChatMessage[], opts: ChatOpts = {}): Promise<unknown> {
+export async function chatMessagesJSON(messages: ToolMessage[], opts: ChatOpts = {}): Promise<unknown> {
   const cfg = await getLlmConfig();
   if (!cfg) throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
   let content: string;
@@ -455,10 +473,35 @@ export async function chatMessagesJSON(messages: ChatMessage[], opts: ChatOpts =
 }
 
 /**
+ * 一轮**原生 function calling**。
+ *
+ * 和 chatMessagesJSON 的区别：那边是我们规定一套 JSON 格式、求模型照着填；
+ * 这边把工具表按 OpenAI 的 `tools` 字段发过去，模型走的是它自己训练过的那条路。
+ * 小模型在这件事上的差距很大——JSON 协议下它要同时记住「格式」和「选哪个工具」，
+ * 原生这条只剩后者。
+ *
+ * 网关或模型不支持时抛错，由调用方退回 JSON 协议那条路（run.ts 里做的）。
+ */
+export async function chatTools(
+  messages: ToolMessage[],
+  tools: 工具声明[],
+  opts: ChatOpts = {},
+): Promise<{ toolCalls: 工具调用[]; text: string }> {
+  const cfg = await getLlmConfig();
+  if (!cfg) throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
+  const res = await chatRaw(cfg, messages, opts, false, false, tools);
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string | null; tool_calls?: 工具调用[] }; finish_reason?: string }[];
+  };
+  const m = data.choices?.[0]?.message;
+  return { toolCalls: m?.tool_calls ?? [], text: (m?.content ?? "").trim() };
+}
+
+/**
  * 流式文本：逐 token 回调，给最终回答用——人看到字一个个出来，而不是等十几秒砸出一整块。
  * 网关不支持 stream 时（响应不是事件流）退化为一次性返回。
  */
-export async function chatTextStream(messages: ChatMessage[], opts: ChatOpts, onToken: (text: string) => void): Promise<string> {
+export async function chatTextStream(messages: ToolMessage[], opts: ChatOpts, onToken: (text: string) => void): Promise<string> {
   const cfg = await getLlmConfig();
   if (!cfg) throw new Error("AI 功能未启用");
   const res = await chatRaw(cfg, messages, opts, false, true);

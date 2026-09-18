@@ -16,6 +16,7 @@ import { loadWatchlist } from "../sentinel-data";
 import { statusLabel } from "../business-config";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
+import { 扩同义词 } from "./synonyms";
 import { buildProposal, describeProposal, missingFields, 可改字段表, 可改字段名单, type Proposal, type ProposalKind } from "./proposals";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "../constants";
 
@@ -270,14 +271,20 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "search_followups",
-    description: "在**所有**跟进记录里按关键词搜（「谁提过预算」「哪几个人说过要对比方案」）。要读某一位客户的完整跟进，用 get_customer——那条是按人取全，这条是按词跨人找。",
+    description: "在**所有**跟进记录里按关键词搜（「谁提过预算」「哪几个人说过要对比方案」）。会自动连同义词一起搜（预算＝费用＝学费＝价格），不用你换词重试。要读某一位客户的完整跟进，用 get_customer——那条是按人取全，这条是按词跨人找。",
     args: '{"keyword": "内容里的关键词", "days": 最近多少天，可空, "mine": true|false 可空}',
     async run(args, ctx) {
       const q = str(args.keyword, 30);
       if (!q) return { summary: "没给关键词", data: { error: "keyword 必填" } };
       const days = typeof args.days === "number" && args.days > 0 ? Math.min(args.days, 365) : null;
+      /*
+        同义词一起搜。库里写的是「费用」而人问的是「预算」——这一步不做的话，
+        工具如实回「0 条」，模型只能停下来问人「要不要换个词再搜一遍」，
+        而那次来回本来可以不发生（见 lib/agent/synonyms.ts）。
+      */
+      const 词们 = 扩同义词(q);
       const where = {
-        OR: [{ content: { contains: q } }, { title: { contains: q } }],
+        OR: 词们.flatMap((w) => [{ content: { contains: w } }, { title: { contains: w } }]),
         ...(days ? { occurredAt: { gte: dayjs().subtract(days, "day").toDate() } } : {}),
         ...(args.mine === true ? { ownerId: ctx.userId } : {}),
       };
@@ -288,9 +295,12 @@ export const TOOLS: Tool[] = [
           select: { content: true, type: true, occurredAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
         }),
       ]);
+      // 说清到底搜了哪些词：答案里出现「费用」而用户问的是「预算」时，人要能看懂为什么
+      const 搜了 = 词们.length > 1 ? `「${词们.slice(0, 4).join("」「")}」` : `「${q}」`;
       return {
-        summary: `${total} 条提到「${q}」${total > rows.length ? `（列出最近 ${rows.length} 条）` : ""}`,
+        summary: `${total} 条提到${搜了}${total > rows.length ? `（列出最近 ${rows.length} 条）` : ""}`,
         data: {
+          搜的词: 词们,
           总数: total,
           记录: rows.map((f) => ({
             customerId: f.customer.id,
