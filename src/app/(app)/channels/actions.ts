@@ -71,8 +71,12 @@ export async function saveChannel(input: {
 }
 
 export async function toggleChannel(id: string, active: boolean) {
-  await requireUser();
-  await prisma.channel.update({ where: { id }, data: { active } });
+  const me = await requireUser();
+  const c = await prisma.channel.update({ where: { id }, data: { active } });
+  await recordAudit({
+    user: me, action: "update", entity: "Channel", entityId: id,
+    summary: `${active ? "启用" : "停用"}渠道「${c.name}」`,
+  });
   revalidatePath("/channels");
 }
 

@@ -7,7 +7,7 @@ import type { BusinessConfig } from "@/lib/business-config";
 import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
-import { DemoDataButton } from "@/components/EmptyState";
+import { DemoDataSection } from "@/components/EmptyState";
 
 /**
  * 业务配置：把「客户 / 公司 / 职位 / 行业」这些措辞交给用户自己定。
@@ -58,6 +58,8 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
         <Form.Item
           name="brief"
           label="业务简介"
+          /* 右下角那个字数是绝对定位的，会压在 extra 这段说明上，靠 .field-count 让出一行 */
+          className="field-count"
           extra="一段话：你们卖什么、客户是谁、怎么成交。会注入全部 AI 功能的提示词，改这一段，速记、简报、问数据、唤醒与邀请话术全部跟着换语境。"
           rules={[{ required: true, message: "请写一段业务简介" }, { max: 500, message: "500 字以内" }]}
         >
@@ -122,12 +124,9 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
         演示数据的入口。**在这之前它只长在空状态里**——灌完之后列表不空了，
         那个卡片就再也不出现，于是「清除」成了一条走不到的路：灌过的人只能删库文件。
         摆在这一栏是因为它和业务配置是同一类事：都是「这个库长什么样」，都只有管理员能动。
+        整栏出不出现由 DemoDataSection 自己判断——桌面端不给灌，那边连标题都不该有。
       */}
-      <div className="biz-demo">
-        <h4>演示数据</h4>
-        <p>一套虚构的客户、跟进和签约，用来看这套系统装满之后长什么样。清除会删掉库里**全部**业务数据。</p>
-        <DemoDataButton />
-      </div>
+      <DemoDataSection />
     </div>
   );
 }

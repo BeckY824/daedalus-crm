@@ -173,13 +173,13 @@ test.describe.serial("业务配置", () => {
 
     // 两个选择，不是一堆字段
     await expect(面板.getByRole("radio", { name: /用我们的/ })).toBeVisible();
-    await expect(面板.getByRole("radio", { name: /用我自己的 API Key/ })).toBeVisible();
+    await expect(面板.getByRole("radio", { name: /用你自己的 API Key/ })).toBeVisible();
     await expect(面板.getByText(/Key 加密存在这台机器上/)).toBeVisible();
 
     // 默认不摆接口地址：绝大多数人用不着它
     await expect(面板.locator("#baseUrl")).toHaveCount(0);
 
-    await 面板.getByRole("radio", { name: /用我自己的 API Key/ }).click();
+    await 面板.getByRole("radio", { name: /用你自己的 API Key/ }).click();
     // 选一家就够了，地址和模型自动跟着来
     await expect(面板.getByLabel("用哪一家")).toBeVisible();
     await expect(面板.locator("#apiKey")).toBeVisible();

@@ -14,8 +14,8 @@ import { useBusiness } from "@/lib/business-client";
  * 三步横着排，每步只有一个短句——它们是「这一步」的路标，不是说明书；
  * 真正要解释的那句话放在三步下面一行。
  *
- * **一张卡上只有一个主按钮**。灌演示数据能最快看出它长什么样，所以它是主按钮；
- * 托管版和非管理员点不到演示数据（见 demo-data.ts 的护栏），那时「新建第一位」
+ * **一张卡上只有一个主按钮**。网页版上灌演示数据能最快看出它长什么样，所以那里它是主按钮；
+ * 桌面端、托管版和非管理员点不到演示数据（见 demo-data.ts 的护栏），那时「新建第一位」
  * 自己升为主按钮——不能出现一张卡上零个主按钮的情况。
  */
 export default function StartCard() {
@@ -30,7 +30,7 @@ export default function StartCard() {
   }, []);
 
   // 状态还没回来时先不画按钮组：画了再换主次，会当着人的面跳一下
-  const 能灌演示 = Boolean(状态?.可用 && 状态.有权限 && 状态.空库);
+  const 能灌演示 = Boolean(状态?.可灌 && 状态.有权限 && 状态.空库);
 
   const 步骤 = [`录一位${b.customer}`, "问一句进展", "让它记一笔"];
 
@@ -48,9 +48,11 @@ export default function StartCard() {
             </li>
           ))}
         </ol>
-        <p className="start-s">
-          也可以一键加入演示{b.customer}、跟进、商机和计划；数据明确标为演示，可随时清除。
-        </p>
+        {能灌演示 && (
+          <p className="start-s">
+            也可以一键加入演示{b.customer}、跟进、商机和计划；数据明确标为演示，可随时清除。
+          </p>
+        )}
         <div className="start-a">
           {能灌演示 && (
             <Button

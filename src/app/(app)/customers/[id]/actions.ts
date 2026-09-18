@@ -4,6 +4,25 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
+import { recordAudit } from "@/lib/audit";
+import { dayjs } from "@/lib/utils";
+
+/**
+ * 这一页上的写操作也要留痕。
+ *
+ * 跟进、待办、计划、联系人过去一条日志都不记——而它们恰恰是天天在动的东西：
+ * 一条跟进被谁改了、谁把待办删了，删完界面上什么都不剩，没有任何地方能回答。
+ * 「全员可见可改」成立的前提是有据可查（见 lib/audit.ts），那就不能只覆盖客户和合同。
+ */
+async function 客户名(id: string): Promise<string> {
+  const c = await prisma.customer.findUnique({ where: { id }, select: { name: true } });
+  return c?.name ?? id;
+}
+
+/** 跟进类型在界面上叫什么。日志给人看，不写 CALL 这种值 */
+function 类型名(v: string): string {
+  return FOLLOW_TYPES.find((t) => t.value === v)?.label ?? v;
+}
 
 /* ---------------- 跟进记录 ---------------- */
 
@@ -60,6 +79,7 @@ export async function saveFollowUp(input: FollowUpInput) {
     customerId: input.customerId,
   };
 
+  const 姓名 = await 客户名(input.customerId);
   if (input.id) {
     /**
      * 编辑时不能重写 ownerId。
@@ -68,14 +88,24 @@ export async function saveFollowUp(input: FollowUpInput) {
      * 而且没有任何痕迹。归属只在创建时确定。
      */
     await prisma.followUp.update({ where: { id: input.id }, data });
+    await recordAudit({
+      user, action: "update", entity: "FollowUp", entityId: input.id,
+      summary: `修改${姓名}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
+      detail: { 客户: 姓名, 类型: 类型名(data.type), 状态: data.status, 内容: data.content.slice(0, 120) },
+    });
   } else {
     const sourceText = input.sourceText?.trim().slice(0, SOURCE_TEXT_MAX);
-    await prisma.followUp.create({
+    const f = await prisma.followUp.create({
       data: {
         ...data,
         ownerId: user.id,
         source: sourceText ? { create: { text: sourceText } } : undefined,
       },
+    });
+    await recordAudit({
+      user, action: "create", entity: "FollowUp", entityId: f.id,
+      summary: `记了${姓名}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
+      detail: { 客户: 姓名, 类型: 类型名(data.type), 状态: data.status, 内容: data.content.slice(0, 120) },
     });
   }
 
@@ -97,8 +127,15 @@ export async function saveFollowUp(input: FollowUpInput) {
 }
 
 export async function deleteFollowUp(id: string, customerId: string) {
-  await requireUser();
+  const me = await requireUser();
+  // 删之前先取内容：删完这条记录就无从还原了
+  const 待删 = await prisma.followUp.findUnique({ where: { id }, select: { type: true, content: true, occurredAt: true } });
   await prisma.followUp.delete({ where: { id } });
+  await recordAudit({
+    user: me, action: "delete", entity: "FollowUp", entityId: id,
+    summary: `删除${await 客户名(customerId)}的一条${类型名(待删?.type ?? "")}跟进（${待删 ? dayjs(待删.occurredAt).format("YYYY-MM-DD") : ""}）`,
+    detail: { 类型: 类型名(待删?.type ?? ""), 内容: 待删?.content?.slice(0, 200) ?? null },
+  });
 
   const latest = await prisma.followUp.findFirst({
     where: { customerId },
@@ -130,8 +167,14 @@ export async function saveTask(input: {
     customerId: input.customerId,
   };
   // 同跟进记录：编辑别人的待办不该把负责人改成自己
-  if (input.id) await prisma.task.update({ where: { id: input.id }, data });
-  else await prisma.task.create({ data: { ...data, ownerId: user.id } });
+  const 姓名 = await 客户名(input.customerId);
+  if (input.id) {
+    await prisma.task.update({ where: { id: input.id }, data });
+    await recordAudit({ user, action: "update", entity: "Task", entityId: input.id, summary: `修改${姓名}的待办「${data.title}」`, detail: data });
+  } else {
+    const t = await prisma.task.create({ data: { ...data, ownerId: user.id } });
+    await recordAudit({ user, action: "create", entity: "Task", entityId: t.id, summary: `给${姓名}加了待办「${data.title}」`, detail: data });
+  }
 
   revalidatePath(`/customers/${input.customerId}`);
   revalidatePath("/dashboard");
@@ -140,10 +183,14 @@ export async function saveTask(input: {
 }
 
 export async function toggleTask(id: string, done: boolean) {
-  await requireUser();
+  const me = await requireUser();
   const t = await prisma.task.update({
     where: { id },
     data: { done, doneAt: done ? new Date() : null },
+  });
+  await recordAudit({
+    user: me, action: "update", entity: "Task", entityId: id,
+    summary: `待办「${t.title}」标记为${done ? "已完成" : "未完成"}`,
   });
   revalidatePath(`/customers/${t.customerId}`);
   revalidatePath("/dashboard");
@@ -152,8 +199,13 @@ export async function toggleTask(id: string, done: boolean) {
 }
 
 export async function deleteTask(id: string) {
-  await requireUser();
+  const me = await requireUser();
   const t = await prisma.task.delete({ where: { id } });
+  await recordAudit({
+    user: me, action: "delete", entity: "Task", entityId: id,
+    summary: `删除${await 客户名(t.customerId)}的待办「${t.title}」`,
+    detail: { 标题: t.title, 截止: t.dueAt ? dayjs(t.dueAt).format("YYYY-MM-DD") : null, 已完成: t.done },
+  });
   revalidatePath(`/customers/${t.customerId}`);
   revalidatePath("/dashboard");
   revalidatePath("/follow-ups/plans");
@@ -176,8 +228,15 @@ export async function savePlan(input: {
     method: input.method,
     customerId: input.customerId,
   };
-  if (input.id) await prisma.followPlan.update({ where: { id: input.id }, data });
-  else await prisma.followPlan.create({ data: { ...data, ownerId: user.id } });
+  const 姓名 = await 客户名(input.customerId);
+  const 说 = `${dayjs(data.plannedAt).format("YYYY-MM-DD")} ${data.method}·${data.subject}`;
+  if (input.id) {
+    await prisma.followPlan.update({ where: { id: input.id }, data });
+    await recordAudit({ user, action: "update", entity: "FollowPlan", entityId: input.id, summary: `修改${姓名}的跟进计划（${说}）`, detail: data });
+  } else {
+    const pl = await prisma.followPlan.create({ data: { ...data, ownerId: user.id } });
+    await recordAudit({ user, action: "create", entity: "FollowPlan", entityId: pl.id, summary: `给${姓名}排了跟进计划（${说}）`, detail: data });
+  }
 
   revalidatePath(`/customers/${input.customerId}`);
   revalidatePath("/follow-ups/plans");
@@ -185,8 +244,12 @@ export async function savePlan(input: {
 }
 
 export async function completePlan(id: string) {
-  await requireUser();
+  const me = await requireUser();
   const p = await prisma.followPlan.update({ where: { id }, data: { done: true } });
+  await recordAudit({
+    user: me, action: "update", entity: "FollowPlan", entityId: id,
+    summary: `完成跟进计划「${p.subject}」（${await 客户名(p.customerId)}）`,
+  });
   revalidatePath(`/customers/${p.customerId}`);
   revalidatePath("/follow-ups/plans");
   return { ok: true as const };
@@ -205,7 +268,7 @@ export async function saveContact(input: {
   isPrimary: boolean;
   remark?: string | null;
 }) {
-  await requireUser();
+  const me = await requireUser();
   const data = {
     name: input.name.trim(),
     position: input.position || null,
@@ -222,7 +285,7 @@ export async function saveContact(input: {
    * 两个人各自勾一条就会同时存在两个主要联系人；详情页按 isPrimary 倒序取第一条，
    * 显示哪一个取决于创建顺序，看上去像是对方的修改没生效。
    */
-  await prisma.$transaction(async (tx) => {
+  const 落库id = await prisma.$transaction(async (tx) => {
     const saved = input.id
       ? await tx.contact.update({ where: { id: input.id }, data })
       : await tx.contact.create({ data });
@@ -232,6 +295,12 @@ export async function saveContact(input: {
         data: { isPrimary: false },
       });
     }
+    return saved.id;
+  });
+  await recordAudit({
+    user: me, action: input.id ? "update" : "create", entity: "Contact", entityId: 落库id,
+    summary: `${input.id ? "修改" : "新建"}${await 客户名(input.customerId)}的联系人「${data.name}」${input.isPrimary ? "（主要联系人）" : ""}`,
+    detail: { 姓名: data.name, 职位: data.position, 电话: data.phone, 微信: data.wechat, 主要联系人: data.isPrimary },
   });
 
   revalidatePath(`/customers/${input.customerId}`);
@@ -240,8 +309,13 @@ export async function saveContact(input: {
 }
 
 export async function deleteContact(id: string) {
-  await requireUser();
+  const me = await requireUser();
   const c = await prisma.contact.delete({ where: { id } });
+  await recordAudit({
+    user: me, action: "delete", entity: "Contact", entityId: id,
+    summary: `删除${await 客户名(c.customerId)}的联系人「${c.name}」`,
+    detail: { 姓名: c.name, 职位: c.position, 电话: c.phone },
+  });
   revalidatePath(`/customers/${c.customerId}`);
   revalidatePath("/contacts");
   return { ok: true as const };

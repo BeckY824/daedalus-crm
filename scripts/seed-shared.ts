@@ -72,7 +72,7 @@ async function main() {
   let owner = await db.user.findFirst({ where: { role: "ADMIN" }, orderBy: { createdAt: "asc" } });
   if (!owner) {
     owner = await db.user.create({
-      data: { email: `${slug}@workspace.local`, password: "!managed", name: "教务主任", role: "ADMIN", title: "教务主任" },
+      data: { email: `${slug}@workspace.local`, password: "!managed", name: "销售主管", role: "ADMIN", title: "销售主管" },
     });
     await db.workspaceAccount.create({ data: { userId: owner.id, accountId: m.accountId } });
   }

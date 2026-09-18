@@ -914,6 +914,8 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    三步是横着的路标，不是三张说明卡，所以不给边框，用一条细线把它们连起来。 */
 .start-h { font-size: var(--fs-title); font-weight: 600; color: var(--ink); margin: 0 0 var(--s4); letter-spacing: -0.2px; }
 .start { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-pop); padding: var(--s5); max-width: 640px; }
+/* 首页（对话面）上它和输入框上下摞着，两个框不一样宽会显得歪——那一栏多宽它就多宽 */
+.cli .start, .cli .start-h { max-width: none; }
 .start-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-min); font-weight: 500; }
 .start-t { margin-top: var(--s3); font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
 .start-s { margin: var(--s4) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
@@ -1333,6 +1335,12 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    **不替人做决定**——进这一页原来会自动问一次 AI，随手点开三个人看电话就用掉三次额度 */
 .rec-ai-idle { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 0 2px; }
 .rec-ai-idle span { font-size: var(--fs-min); color: var(--text-muted); line-height: 1.6; }
+
+
+/* 带字数统计的多行输入（业务简介）。antd 把「x/500」绝对定位在框子下面那一行，
+   而 Form.Item 的说明文字也落在那儿——两行字叠在一起，看上去像一团乱码。
+   给说明让出一行，字数就落在空白处。 */
+.field-count .ant-form-item-extra { margin-top: 22px; }
 
 
 /* 业务配置顶上那排预设。它是填表的快捷方式，所以做得比一个功能区轻：

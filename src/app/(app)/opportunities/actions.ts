@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { STAGE_PROBABILITY, OPP_STAGES, OPP_STATUSES } from "@/lib/constants";
+import { recordAudit } from "@/lib/audit";
+
+/** 状态在界面上叫什么。日志是给人看的，不能写 WON / LOST */
+const 状态名: Record<string, string> = { OPEN: "进行中", WON: "赢单", LOST: "丢单" };
 
 export async function saveOpportunity(input: {
   id?: string;
@@ -17,7 +21,7 @@ export async function saveOpportunity(input: {
   remark?: string | null;
   ownerId: string;
 }) {
-  await requireUser();
+  const me = await requireUser();
   // 与签约金额同一类问题：负数商机会让漏斗和加权预测的合计变小甚至为负
   if (!Number.isFinite(input.amount) || input.amount < 0) {
     return { ok: false as const, error: "商机金额不能为负数" };
@@ -44,8 +48,21 @@ export async function saveOpportunity(input: {
     ownerId: input.ownerId,
   };
 
-  if (input.id) await prisma.opportunity.update({ where: { id: input.id }, data });
-  else await prisma.opportunity.create({ data });
+  if (input.id) {
+    await prisma.opportunity.update({ where: { id: input.id }, data });
+    await recordAudit({
+      user: me, action: "update", entity: "Opportunity", entityId: input.id,
+      summary: `修改商机「${data.name}」：${data.stage} · ${状态名[data.status] ?? data.status} · ¥${data.amount}`,
+      detail: { 名称: data.name, 金额: data.amount, 阶段: data.stage, 状态: 状态名[data.status] ?? data.status, 概率: data.probability },
+    });
+  } else {
+    const o = await prisma.opportunity.create({ data });
+    await recordAudit({
+      user: me, action: "create", entity: "Opportunity", entityId: o.id,
+      summary: `新建商机「${data.name}」：${data.stage} · ¥${data.amount}`,
+      detail: { 名称: data.name, 金额: data.amount, 阶段: data.stage, 状态: 状态名[data.status] ?? data.status },
+    });
+  }
 
   revalidatePath("/opportunities");
   revalidatePath("/opportunities/pipeline");
@@ -56,11 +73,11 @@ export async function saveOpportunity(input: {
 
 /** 拖拽/下拉切换阶段 */
 export async function moveStage(id: string, stage: string) {
-  await requireUser();
+  const me = await requireUser();
   if (!OPP_STAGES.includes(stage as (typeof OPP_STAGES)[number])) {
     return { ok: false as const, error: `商机阶段「${stage}」不是合法取值` };
   }
-  const before = await prisma.opportunity.findUnique({ where: { id }, select: { status: true } });
+  const before = await prisma.opportunity.findUnique({ where: { id }, select: { status: true, stage: true, name: true } });
   if (!before) return { ok: false as const, error: "商机不存在，可能已被其他人删除" };
 
   /**
@@ -74,6 +91,11 @@ export async function moveStage(id: string, stage: string) {
     where: { id },
     data: { stage, probability: STAGE_PROBABILITY[stage] ?? 20, status },
   });
+  await recordAudit({
+    user: me, action: "update", entity: "Opportunity", entityId: id,
+    summary: `商机「${o.name}」阶段：${before.stage} → ${stage}`,
+    detail: { 原阶段: before.stage, 新阶段: stage, 状态: 状态名[status] ?? status },
+  });
   revalidatePath("/opportunities");
   revalidatePath("/opportunities/pipeline");
   revalidatePath("/dashboard");
@@ -82,7 +104,7 @@ export async function moveStage(id: string, stage: string) {
 }
 
 export async function setOppStatus(id: string, status: "OPEN" | "WON" | "LOST") {
-  await requireUser();
+  const me = await requireUser();
   const o = await prisma.opportunity.update({
     where: { id },
     data: {
@@ -90,6 +112,11 @@ export async function setOppStatus(id: string, status: "OPEN" | "WON" | "LOST") 
       ...(status === "WON" ? { stage: "赢单成交", probability: 100 } : {}),
       ...(status === "LOST" ? { probability: 0 } : {}),
     },
+  });
+  await recordAudit({
+    user: me, action: "update", entity: "Opportunity", entityId: id,
+    summary: `商机「${o.name}」标记为${状态名[status] ?? status}`,
+    detail: { 状态: 状态名[status] ?? status, 金额: o.amount },
   });
   revalidatePath("/opportunities");
   revalidatePath("/opportunities/pipeline");
@@ -99,8 +126,24 @@ export async function setOppStatus(id: string, status: "OPEN" | "WON" | "LOST") 
 }
 
 export async function deleteOpportunities(ids: string[]) {
-  await requireUser();
-  await prisma.opportunity.deleteMany({ where: { id: { in: ids } } });
+  const me = await requireUser();
+  /*
+    先把名字查出来再删——删完就没得查了。
+    删除是最该留痕的一种写操作：删掉的东西在界面上再也找不到，日志是唯一能回答
+    「那个商机去哪了」的地方。
+  */
+  const 待删 = await prisma.opportunity.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, amount: true, stage: true, customer: { select: { name: true } } },
+  });
+  const res = await prisma.opportunity.deleteMany({ where: { id: { in: ids } } });
+  if (res.count) {
+    await recordAudit({
+      user: me, action: "delete", entity: "Opportunity",
+      summary: `删除 ${res.count} 个商机：${待删.map((o) => `「${o.name}」`).join("、")}`,
+      detail: 待删.map((o) => ({ 名称: o.name, 客户: o.customer?.name ?? null, 金额: o.amount, 阶段: o.stage })),
+    });
+  }
   revalidatePath("/opportunities");
   revalidatePath("/opportunities/pipeline");
   revalidatePath("/dashboard");

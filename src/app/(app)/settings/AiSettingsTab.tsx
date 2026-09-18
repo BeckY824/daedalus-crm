@@ -165,7 +165,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
           </div>
         </Radio>
         <Radio value="own">
-          <b>用我自己的 API Key</b>
+          <b>用你自己的 API Key</b>
           <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
             不计我们的免费次数。Key 加密存在这台机器上，请求由本机直接发给你选的那家，不经过我们
           </div>
@@ -251,7 +251,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
                   modal.confirm({
                     title: "不用自己的 Key 了？",
                     content: "你填的 Key 会从本机数据库里删掉，之后回到云端账号的免费次数（如果登录着），否则 AI 功能整体隐藏。",
-                    okText: "删掉我的 Key",
+                    okText: "删掉这把 Key",
                     okButtonProps: { danger: true },
                     onOk: async () => {
                       await clearLlmSettings();
@@ -262,7 +262,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
                   })
                 }
               >
-                删掉我的 Key
+                删掉这把 Key
               </Button>
             )}
           </Space>

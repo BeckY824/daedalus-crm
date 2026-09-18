@@ -38,8 +38,21 @@ export async function saveLead(input: {
     remark: input.remark || null,
     ownerId: input.ownerId || user.id,
   };
-  if (input.id) await prisma.lead.update({ where: { id: input.id }, data });
-  else await prisma.lead.create({ data });
+  if (input.id) {
+    await prisma.lead.update({ where: { id: input.id }, data });
+    await recordAudit({
+      user, action: "update", entity: "Lead", entityId: input.id,
+      summary: `修改线索「${data.name}」：${data.source} · ${data.status}`,
+      detail: { 名称: data.name, 来源: data.source, 状态: data.status, 联系人: data.contact, 电话: data.phone },
+    });
+  } else {
+    const l = await prisma.lead.create({ data });
+    await recordAudit({
+      user, action: "create", entity: "Lead", entityId: l.id,
+      summary: `新建线索「${data.name}」：${data.source} · ${data.status}`,
+      detail: { 名称: data.name, 来源: data.source, 状态: data.status, 联系人: data.contact, 电话: data.phone },
+    });
+  }
 
   revalidatePath("/leads");
   revalidatePath("/dashboard");

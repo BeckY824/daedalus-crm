@@ -16,6 +16,12 @@ vi.mock("@/lib/auth", () => ({ requireUser: async () => mocks.user }));
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { saveCustomer, deleteCustomers, saveContract, assignSalesOwner } from "@/app/(app)/customers/actions";
+import { saveOpportunity, moveStage, setOppStatus, deleteOpportunities } from "@/app/(app)/opportunities/actions";
+import {
+  saveFollowUp, deleteFollowUp, saveTask, toggleTask, deleteTask,
+  savePlan, completePlan, saveContact, deleteContact,
+} from "@/app/(app)/customers/[id]/actions";
+import { saveLead } from "@/app/(app)/leads/actions";
 import { recordAudit } from "@/lib/audit";
 
 let jia: { id: string };
@@ -144,6 +150,127 @@ describe("该记的都记了", () => {
     const log = await 最新日志();
     expect(log.summary).toContain("行业");
     expect(log.summary).toContain("自动合并");
+  });
+});
+
+/**
+ * 2026-09-18 补的一组。
+ *
+ * 在这之前留痕只覆盖客户、合同、渠道、线索删除和成员——**商机和跟进一条都不记**：
+ * 在商机里删掉一整条几万块的机会，操作日志里什么都没有。留痕要么覆盖所有写操作，
+ * 要么它就不是一个能用来追溯的东西。
+ */
+describe("商机、跟进、待办、计划、联系人的写操作也要记", () => {
+  async function 一个商机(name = "年度采购") {
+    const cid = await 建一个("商机的客户", "13800000101");
+    const r = await saveOpportunity({
+      name, customerId: cid, amount: 50000, stage: "初步沟通", status: "OPEN",
+      probability: 20, expectedDealAt: null, remark: null, ownerId: jia.id,
+    });
+    expect(r.ok).toBe(true);
+    const o = await prisma.opportunity.findFirstOrThrow({ where: { name } });
+    return { cid, id: o.id };
+  }
+
+  it("新建商机记下名字和金额", async () => {
+    await 一个商机();
+    const log = await 最新日志();
+    expect(log.action).toBe("create");
+    expect(log.entity).toBe("Opportunity");
+    expect(log.summary).toContain("年度采购");
+    expect(log.summary).toContain("50000");
+  });
+
+  it("换阶段记下从哪到哪", async () => {
+    const { id } = await 一个商机();
+    await moveStage(id, "方案报价");
+    const log = await 最新日志();
+    expect(log.summary).toContain("初步沟通");
+    expect(log.summary).toContain("方案报价");
+  });
+
+  it("标记丢单要写成人话，不是 LOST", async () => {
+    const { id } = await 一个商机();
+    await setOppStatus(id, "LOST");
+    const log = await 最新日志();
+    expect(log.summary).toContain("丢单");
+    expect(log.summary).not.toContain("LOST");
+  });
+
+  it("删商机要在删之前把名字和金额留下来", async () => {
+    const { id } = await 一个商机("要删的商机");
+    await deleteOpportunities([id]);
+    const log = await 最新日志();
+    expect(log.action).toBe("delete");
+    expect(log.entity).toBe("Opportunity");
+    expect(log.summary).toContain("要删的商机");
+    expect(log.detail).toContain("要删的商机");
+    // 删干净了，日志是唯一还知道它存在过的地方
+    expect(await prisma.opportunity.count({ where: { id } })).toBe(0);
+  });
+
+  it("记一条跟进、删一条跟进都留痕，且写的是「电话沟通」不是 PHONE", async () => {
+    const cid = await 建一个("跟进的客户", "13800000102");
+    await saveFollowUp({
+      customerId: cid, type: "PHONE", title: null, content: "聊了预算",
+      status: "已完成", occurredAt: new Date(2026, 8, 18, 10, 0, 0).toISOString(),
+    });
+    let log = await 最新日志();
+    expect(log.entity).toBe("FollowUp");
+    expect(log.summary).toContain("电话沟通");
+    expect(log.summary).toContain("跟进的客户");
+
+    const f = await prisma.followUp.findFirstOrThrow({ where: { customerId: cid } });
+    await deleteFollowUp(f.id, cid);
+    log = await 最新日志();
+    expect(log.action).toBe("delete");
+    expect(log.detail).toContain("聊了预算"); // 内容跟着一起留下来
+  });
+
+  it("待办的增、改状态、删都留痕", async () => {
+    const cid = await 建一个("待办的客户", "13800000103");
+    await saveTask({ customerId: cid, title: "发报价单", dueAt: null });
+    expect((await 最新日志()).summary).toContain("发报价单");
+
+    const t = await prisma.task.findFirstOrThrow({ where: { customerId: cid } });
+    await toggleTask(t.id, true);
+    expect((await 最新日志()).summary).toContain("已完成");
+
+    await deleteTask(t.id);
+    const log = await 最新日志();
+    expect(log.action).toBe("delete");
+    expect(log.entity).toBe("Task");
+  });
+
+  it("排计划、完成计划都留痕", async () => {
+    const cid = await 建一个("计划的客户", "13800000104");
+    await savePlan({ customerId: cid, subject: "谈合同", plannedAt: new Date(2026, 8, 20, 9, 0, 0).toISOString(), method: "电话沟通" });
+    expect((await 最新日志()).summary).toContain("谈合同");
+
+    const pl = await prisma.followPlan.findFirstOrThrow({ where: { customerId: cid } });
+    await completePlan(pl.id);
+    expect((await 最新日志()).summary).toContain("完成跟进计划");
+  });
+
+  it("联系人的增删都留痕", async () => {
+    const cid = await 建一个("联系人的客户", "13800000105");
+    await saveContact({ customerId: cid, name: "王经理", position: "采购", phone: "13900000001", email: null, wechat: null, isPrimary: true, remark: null });
+    expect((await 最新日志()).summary).toContain("王经理");
+
+    const c = await prisma.contact.findFirstOrThrow({ where: { customerId: cid } });
+    await deleteContact(c.id);
+    const log = await 最新日志();
+    expect(log.action).toBe("delete");
+    expect(log.entity).toBe("Contact");
+    expect(log.summary).toContain("王经理");
+  });
+
+  it("新建线索也留痕（原来只有删除记）", async () => {
+    await saveLead({ name: "某某公司", source: "官网注册", status: "待跟进" });
+    const log = await 最新日志();
+    expect(log.action).toBe("create");
+    expect(log.entity).toBe("Lead");
+    expect(log.summary).toContain("某某公司");
   });
 });
 
