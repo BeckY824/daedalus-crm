@@ -26,6 +26,8 @@ import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
 import UpdateButton from "./UpdateButton";
 import AiTasks from "./AiTasks";
+import AiDock from "./AiDock";
+import type { ModelOption } from "@/lib/llm";
 import FeedbackButton from "./FeedbackButton";
 import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
@@ -55,6 +57,11 @@ type Props = {
    * 没有中栏的路由那边返回 null，这里什么都不画——壳不该知道哪个模块有中栏。
    */
   pane: React.ReactNode;
+  /**
+   * 全局 AI 面板要的东西。没配 AI 时是 null——那时整个面板和那枚按钮都不该存在，
+   * 而不是点开一个说"先去设置里配 AI"的空壳。
+   */
+  ai: { models: ModelOption[]; aiQuota?: { 上限: number; 还剩: number } | null } | null;
   children: React.ReactNode;
 };
 
@@ -74,7 +81,7 @@ type Props = {
  * 导航文案就是模块名，不带「管理」二字：那两个字每一项都有，等于每一项都没有。
  * 每个入口都带 aria-label，屏幕阅读器和 e2e 都按这个名字找。
  */
-export default function AppShell({ user, pendingCount, desktop, 反馈去向, pane, children }: Props) {
+export default function AppShell({ user, pendingCount, desktop, 反馈去向, pane, ai, children }: Props) {
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
@@ -83,6 +90,12 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
    * 顶部一条栏 + 一个菜单按钮，正文占满。
    */
   const [小屏, set小屏] = useState(false);
+  /**
+   * AI 面板开着没有。壳要知道，因为 antd 的响应式断点看的是**视口**，
+   * 而面板一开正文就只剩 1440 - 220 - 380 ≈ 840——断点还以为自己有 1440，
+   * 于是 xl 的两栏照摆，表格被挤到「推荐人」三个字竖着排。见 globals.css 的 .shell-dock-open。
+   */
+  const [面板开着, set面板开着] = useState(false);
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const 同步 = () => set小屏(mq.matches);
@@ -217,7 +230,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
   }
 
   return (
-    <div className={`shell${desktop ? " shell-desktop" : ""}`}>
+    <div className={`shell${desktop ? " shell-desktop" : ""}${面板开着 && pathname !== "/dashboard" ? " shell-dock-open" : ""}`}>
       {/* 桌面端顶上那条能拖窗口的把手，见 globals.css 的 .drag-strip */}
       {desktop && <div className="drag-strip" aria-hidden="true" />}
       <nav className="rail" aria-label="主导航">
@@ -285,6 +298,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
       {/* ⌘K：跳页或问一句。挂在壳上，哪一页都在 */}
       <CommandBar />
 
+
       {/* 中栏：槽位自己带 <aside class="pane">，没有中栏的路由返回 null */}
       {pane}
 
@@ -309,6 +323,12 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
           {children}
         </motion.div>
       </main>
+      {/*
+        全局 AI 面板（⌘J）。挂在壳上所以切页不断流——正在跑的那一问跟着你走。
+        它自己决定首页不出现（首页就是宽模式的同一块东西）。
+        手机上不出现：390 宽摆不下正文 + 380 的面板。
+      */}
+      {ai && !小屏 && <AiDock userName={user.name} models={ai.models} aiQuota={ai.aiQuota} 开着={面板开着} set开着={set面板开着} />}
     </div>
   );
 }

@@ -15,6 +15,12 @@ export type StreamBody =
       /** 之前几轮的问答，让模型接得住指代 */
       history?: { q: string; a: string }[];
       /**
+       * 当前页是什么（lib/ai-context-page.ts 生成）。
+       * **不拼进 question**：意图直连的正则跑在 question 上，拼进去会误命中，
+       * 而且存进对话历史的问题会变成一坨。所以走单独的字段，服务端单独喂给模型。
+       */
+      pageContext?: string;
+      /**
        * 这一问带的文件：浏览器里读成的文本，只随这一问发一次，服务端不落库。
        * 见 components/AskFiles.tsx 和 api/ai/stream 里的收法。
        */

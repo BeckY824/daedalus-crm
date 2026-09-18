@@ -28,7 +28,9 @@ export type JobState<T> = {
 };
 
 /** 侧栏要显示一条任务，就得说清它是什么、点了回哪儿 */
-export type 任务标签 = { 名: string; 去: string };
+/** 去 = 点这条任务回哪儿。不给就只把面板/任务列表打开，不导航——
+    窄模式（右侧面板）下人是在别的页面问的，拽他去首页是把他赶走 */
+export type 任务标签 = { 名: string; 去?: string };
 
 type Result<T> = { ok: true; value: T } | { ok: false; error: string; value?: T };
 

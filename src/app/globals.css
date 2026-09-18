@@ -78,6 +78,7 @@
   --roster-w: 220px;         /* 记录页的窄名单 */
   --chat-w: 232px;           /* 首页的对话列表。比中栏窄：一行就是一句话，主角是右边那块对话 */
   --ai-w: 340px;             /* 记录页的 AI 栏 */
+  --dock-w: 380px;           /* 全局 AI 面板。照记录页那个抽屉的宽度，用户定的 */
 
   /* 旧名，调用处还在用，指到新 token 上 */
   --page-bg: var(--workbench);
@@ -1455,3 +1456,80 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
     scale: none !important;
   }
 }
+
+
+/* ---------- 全局 AI 面板（AiDock，⌘J） ----------
+   形照记录页那个 Drawer（380 宽），但**不是浮层**：它是 .shell 这条 flex 的最后一项，
+   正文跟着收窄。浮层会盖住正文，而人问的正是正文里的东西——盖住就得来回开关。 */
+.dock {
+  width: var(--dock-w); flex: none; position: sticky; top: 0; height: 100vh;
+  background: var(--panel); border-left: 1px solid var(--line);
+  display: flex; flex-direction: column; min-width: 0;
+}
+.shell-desktop .dock { padding-top: var(--drag-h); }
+.dock-h { display: flex; align-items: center; gap: var(--s2); padding: 14px 16px 10px; flex: none; }
+.dock-h b { font-size: var(--fs-section); font-weight: 600; color: var(--ink); flex: 1; }
+.dock-x, .dock-ctx-x {
+  border: 0; background: transparent; color: var(--text-muted); cursor: pointer;
+  width: 24px; height: 24px; border-radius: var(--r-ctl); display: grid; place-items: center;
+  font-size: var(--fs-min); transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.dock-x:hover, .dock-ctx-x:hover { background: var(--hover); color: var(--ink); }
+
+/* 上下文条：它带了什么，写出来。一个隐形的上下文，答歪了没人解释得清为什么 */
+.dock-ctx {
+  display: flex; align-items: center; gap: 6px; margin: 0 16px 10px; flex: none;
+  padding: 5px 6px 5px 10px; border-radius: var(--r-ctl);
+  background: var(--brand-bg); border: 1px solid var(--brand-line);
+}
+.dock-ctx-n {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: var(--fs-note); color: var(--brand-deep);
+}
+.dock-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+
+/* 收起时：右边一条 44px 的窄边，常驻。
+   **不能做成 position:fixed 的浮钮**——每个列表页的主动作（新建客户 / 新建渠道…）
+   都在右上角，浮钮正好压在上面。窄边是布局的一部分，正文跟着收窄，不遮挡任何东西。 */
+.dock-rail {
+  width: 44px; flex: none; position: sticky; top: 0; height: 100vh;
+  background: var(--workbench); border-left: 1px solid var(--line-soft);
+  display: flex; flex-direction: column; align-items: center; padding-top: 18px;
+}
+.shell-desktop .dock-rail { padding-top: calc(var(--drag-h) + 6px); }
+.dock-rail-b {
+  display: grid; place-items: center; gap: 2px;
+  width: 32px; height: 40px; border: 0; border-radius: var(--r-ctl);
+  background: transparent; color: var(--text-muted); cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.dock-rail-b:hover { background: var(--hover); color: var(--ink); }
+.dock-rail-b:active { transform: scale(0.94); transition-duration: var(--t-press); }
+.dock-rail-k { font-size: 9px; line-height: 1; letter-spacing: -0.2px; }
+
+/* 窄模式下的对话：380 宽里没有那套问候和建议，只有对话本身 */
+.cli-narrow .cli-col { max-width: none; padding: 0 16px 16px; }
+.cli-narrow .cli-composer { padding-bottom: 0; }
+/* 贴着输入框上方。**不能用 flex column**：那会把「输入」「<kbd>/</kbd>」「看命令。」
+   各自变成一个 flex item 竖着排成三行（第一版就是这样）。要的是一段会自己折行的话。 */
+.cli-narrow-hint {
+  margin-top: auto; padding-bottom: var(--s3);
+  font-size: var(--fs-note); color: var(--text-muted); line-height: 1.8;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dock-rail-b:active { transform: none !important; }
+}
+
+
+/* ---------- 面板开着时，正文只剩 ~840 ----------
+   antd 的响应式断点看**视口**，不看这一栏实际有多宽：1440 的窗口开了面板之后
+   正文 1440 - 220 - 380 ≈ 840，而 xl 断点（≥1200）还以为自己宽得很，
+   于是两栏照摆——实地看到的是「推荐人」三个字竖着排成三行。
+   840 落在 antd 的 md(768) 和 lg(992) 之间，所以把 xl 的跨度按那个宽度重新映射。
+   全站只用了五种 xl 跨度（6 / 9 / 12 / 15 / 24），一一对应，不写通配。 */
+.shell-dock-open :is(.ant-col-xl-12, .ant-col-xl-9, .ant-col-xl-15) {
+  flex: 0 0 100%; max-width: 100%;
+}
+/* 四张一排的指标卡：840 里摆四张每张 200，太挤；改成两张一排 */
+.shell-dock-open .ant-col-xl-6 { flex: 0 0 50%; max-width: 50%; }

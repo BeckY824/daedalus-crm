@@ -7,6 +7,9 @@ import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
 import { 本地模式, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
+import { llmEnabled, listModelOptions } from "@/lib/llm";
+import { resolveCurrentTenant } from "@/lib/tenant/resolve";
+import { 查额度 } from "@/lib/tenant/ai-allowance";
 
 export default async function AppLayout({
   children,
@@ -32,12 +35,27 @@ export default async function AppLayout({
   if (本地模式() && !读云端凭据()) redirect("/api/auth/logout?reason=revoked");
 
   // 铃铛计数：我名下未完成的待办。中栏要的数据在 @pane 槽位里各自查
-  const [pendingCount, business, ua] = await Promise.all([
+  const [pendingCount, business, ua, 有AI, models] = await Promise.all([
     prisma.task.count({ where: { ownerId: user.id, done: false } }),
     // 业务术语（学员/客户、院校/年级/专业…）：全站客户端组件从这里拿
     getBusiness(),
     headers().then((h) => h.get("user-agent") ?? ""),
+    /*
+      全局 AI 面板（AiDock）要的两样。放在 layout 里取：它哪一页都在，
+      而 layout 在客户端导航时不重新渲染——模型清单和额度都不需要每次换页重取，
+      额度变了下次整页加载会对上。真正每次导航要重算的东西在 @pane 槽位里，别搬进来。
+    */
+    llmEnabled(),
+    listModelOptions(),
   ]);
+  let aiQuota: { 上限: number; 还剩: number } | null = null;
+  if (有AI && multiTenant()) {
+    const t = await resolveCurrentTenant();
+    if (t) {
+      const q = await 查额度(t.workspaceId);
+      if (q.受限) aiQuota = { 上限: q.上限, 还剩: q.还剩 };
+    }
+  }
   /**
    * 跑在桌面端里：Electron 的 UA 带 "Electron/"。本地模式和连服务器两种都识别得到，
    * 壳据此把红黄绿钮的位置留出来。只影响布局，不影响任何权限。
@@ -50,7 +68,14 @@ export default async function AppLayout({
   return (
     <BusinessProvider value={business}>
       {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues */}
-      <AppShell user={user} pendingCount={pendingCount} desktop={desktop} 反馈去向={本地模式() || multiTenant() ? "cloud" : "github"} pane={pane}>
+      <AppShell
+        user={user}
+        pendingCount={pendingCount}
+        desktop={desktop}
+        反馈去向={本地模式() || multiTenant() ? "cloud" : "github"}
+        pane={pane}
+        ai={有AI ? { models, aiQuota } : null}
+      >
         {children}
       </AppShell>
       {modal}

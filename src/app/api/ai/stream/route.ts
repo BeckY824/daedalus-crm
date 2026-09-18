@@ -84,7 +84,9 @@ export async function POST(req: Request) {
           const model = await resolveModel(typeof body.model === "string" ? body.model : undefined);
           const files = 收文件(body.files);
           const 问 = 拼文件(body.question.trim().slice(0, 问题上限), files);
-          const r = await runAgent({ question: 问, user: { id: user.id, name: user.name }, b, history }, { emit, model, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
+          // 当前页的上下文。浏览器来的，收一道长度；空串当没给
+          const 页面 = typeof body.pageContext === "string" ? body.pageContext.trim().slice(0, 300) : "";
+          const r = await runAgent({ question: 问, user: { id: user.id, name: user.name }, b, history, 页面上下文: 页面 || undefined }, { emit, model, onToken: (t) => send({ type: "token", text: t }), signal: abort.signal });
           // 日志只记问题和文件**名**，不记文件内容——那张表全员可读
           await recordAiUse(
             user,

@@ -187,10 +187,10 @@ export function 开头清洗器(emit: (s: string) => void) {
 }
 
 export async function runAgent(
-  input: { question: string; user: { id: string; name: string }; b: BusinessConfig; history?: HistoryTurn[] },
+  input: { question: string; user: { id: string; name: string }; b: BusinessConfig; history?: HistoryTurn[]; 页面上下文?: string },
   ev: AgentEvents = {},
 ): Promise<AgentResult> {
-  const { question, user, b, history } = input;
+  const { question, user, b, history, 页面上下文 } = input;
   const toolDoc = TOOLS.map((t) => `- ${t.name}：${t.description}\n  参数：${t.args}`).join("\n");
 
   /**
@@ -229,7 +229,13 @@ ${工作方式}
 - 最多 ${MAX_STEPS} 步
 - 问题前面可能附着我们之前的对话。它只用来解开指代（"他""这位""那个学校""再约一下"）；
   真正要回答的永远是最后那个"问题："。别把之前答过的内容再抄一遍，也别拿旧数字当现在的数字——
-  该查还得查`;
+  该查还得查${
+    页面上下文
+      ? `
+- **当前所在页面：${页面上下文}** 这是用户此刻正在看的东西，用来解开"这些人""这一批""他"指的是谁、范围有多大。
+  它不代替查库：该调工具还得调，只是把范围用上。用户明确问了别的范围时以他说的为准`
+      : ""
+  }`;
 
   const messages: ToolMessage[] = [
     { role: "system", content: system },

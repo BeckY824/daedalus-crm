@@ -84,7 +84,7 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
  */
 export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: number; 高意向标签: string };
 
-export default function HomeChat({ 会话, userName, suggestions, context, models, aiQuota, 空库, 信号 }: {
+export default function HomeChat({ 会话, userName, suggestions, context, models, aiQuota, 空库, 信号, 模式 = "宽", 上下文提示 }: {
   /** 地址上 ?c= 指的那条对话，服务端读好传进来。null = 一屏新对话 */
   会话: { id: string; title: string; messages: 历史消息[] } | null;
   userName: string;
@@ -94,7 +94,15 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   aiQuota?: { 上限: number; 还剩: number } | null;
   /** 一条业务数据都没有：换成一张「开始」卡 */
   空库: boolean;
-  信号: 首页信号;
+  信号?: 首页信号;
+  /**
+   * 宽 = 首页，对话就是整页，带问候、信号、建议问题。
+   * 窄 = 右侧全局面板（AiDock），只有对话本身——380 宽塞不下那些，
+   * 而且人是在**别的页面上**顺手问一句，不需要再被问候一次。
+   */
+  模式?: "宽" | "窄";
+  /** 窄模式下带的当前页上下文（见 lib/ai-context-page.ts）。宽模式没有这回事 */
+  上下文提示?: string;
 }) {
   const b = useBusiness();
   const router = useRouter();
@@ -181,13 +189,16 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
           refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [] },
         });
         认领对话(r.conversationId);
-        // 地址对上那条对话（replace：翻历史时后退键不该退回「同一屏但没有 ?c=」）
-        router.replace(`/dashboard?c=${r.conversationId}`, { scroll: false });
+        /*
+          地址对上那条对话（replace：翻历史时后退键不该退回「同一屏但没有 ?c=」）。
+          **只在首页做**：窄模式下人在客户页顺手问一句，把地址改成 /dashboard 就是把他跳走了。
+        */
+        if (模式 === "宽") router.replace(`/dashboard?c=${r.conversationId}`, { scroll: false });
         // 中栏那条列表要跟着出现 / 换顺序
         router.refresh();
       }
     })();
-  }, [turns, runningKey, model, router]);
+  }, [turns, runningKey, model, router, 模式]);
   const running = runningKey ? turns.find((t) => `home:${t.id}` === runningKey) : undefined;
   const queued = turns.find((t) => t.queued);
   const showCmds = q.startsWith("/") && !q.includes(" ");
@@ -215,11 +226,12 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   function start(turn: Turn) {
     runStream<AgentAnswer>(
       `home:${turn.id}`,
-      { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files },
+      { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files, pageContext: 上下文提示 },
       undefined,
       // 带上标签，这一问就会出现在侧栏的「AI 任务」里：切去别的页面也看得见它跑完没有，
       // 点一下回到这一条。问题本身当名字，截短到一行
-      { 名: turn.question.slice(0, 18), 去: `/dashboard#turn-${turn.id}` },
+      // 窄模式下人在别的页面问的，点任务不该把他拽去首页——留在原地，面板里那一条就是
+      { 名: turn.question.slice(0, 18), 去: 模式 === "宽" ? `/dashboard#turn-${turn.id}` : undefined },
     );
   }
 
@@ -322,13 +334,26 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   const empty = turns.length === 0;
   const canSend = q.trim().length > 0;
   /** 输入框底下摆不摆那排建议问题：只在还没问过、且库里有东西的时候 */
-  const 摆建议 = empty && !空库 && suggestions.length > 0;
+  const 摆建议 = empty && !空库 && suggestions.length > 0 && 模式 === "宽";
   const 问这条 = (x: Suggestion) => submit(x.kind === "prep" ? "/prep" : x.kind === "recap" ? "/recap" : x.question);
 
+  const 窄 = 模式 === "窄";
+
   return (
-    <div className={`cli${empty ? " cli-empty" : ""}`}>
+    <div className={`cli${empty ? " cli-empty" : ""}${窄 ? " cli-narrow" : ""}`}>
       <div className="cli-col">
-        {empty && 空库 ? (
+        {empty && 窄 ? (
+          /*
+            窄模式（右侧面板）的空屏：380 宽塞不下问候、信号、建议问题那一套，
+            而且人是在**别的页面上**顺手问一句，不需要再被问候一次。
+            只留一句说明——它还要告诉人「这儿带着当前页」。
+          */
+          <div className="cli-narrow-hint">
+            问一句关于这一页的，或者任何{b.customer}、任何数。
+            <br />
+            输入 <kbd>/</kbd> 看命令。
+          </div>
+        ) : empty && 空库 ? (
           /* 一条业务数据都没有：不摆信号、不摆建议问题，只有一张「开始」卡 */
           <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
             <StartCard />
@@ -341,7 +366,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             {今天 && <div className="cli-welcome-d">{今天}</div>}
             {/* 三个信号一行，不是三张卡。建议问题挪到输入框底下去了——
                 人的视线落在输入框上，可点的问题就该在那儿，不在半屏之外 */}
-            <Signals 信号={信号} />
+            {信号 && <Signals 信号={信号} />}
             <div className="cli-welcome-s">{context}</div>
             <div className="cli-welcome-hints">
               <div>

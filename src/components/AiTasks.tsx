@@ -24,23 +24,36 @@ export default function AiTasks() {
   return (
     <div className="aitasks">
       <div className="aitasks-t">AI 任务</div>
-      {任务.slice(0, 4).map((t) => (
-        <Link
-          key={t.key}
-          href={t.标签.去}
-          className={`aitask aitask-${t.status}`}
-          // 答完的点开就算看过了，从列表里去掉；还在跑的点开只是过去看看，留着
-          onClick={() => t.status !== "loading" && clearJob(t.key)}
-        >
-          <span className="aitask-i">
-            {t.status === "loading" ? <LoadingOutlined /> : t.status === "error" ? <ExclamationCircleOutlined /> : <CheckCircleOutlined />}
-          </span>
-          <span className="aitask-n">{t.标签.名}</span>
-          <span className="aitask-s">
-            {t.status === "loading" ? "进行中" : t.status === "error" ? "失败" : t.有建议 ? "需确认" : "已答完"}
-          </span>
-        </Link>
-      ))}
+      {任务.slice(0, 4).map((t) => {
+        const 里面 = (
+          <>
+            <span className="aitask-i">
+              {t.status === "loading" ? <LoadingOutlined /> : t.status === "error" ? <ExclamationCircleOutlined /> : <CheckCircleOutlined />}
+            </span>
+            <span className="aitask-n">{t.标签.名}</span>
+            <span className="aitask-s">
+              {t.status === "loading" ? "进行中" : t.status === "error" ? "失败" : t.有建议 ? "需确认" : "已答完"}
+            </span>
+          </>
+        );
+        const 类名 = `aitask aitask-${t.status}`;
+        // 答完的点开就算看过了，从列表里去掉；还在跑的点开只是过去看看，留着
+        const 点 = () => t.status !== "loading" && clearJob(t.key);
+        /*
+          没有「去」的（右侧面板里问的那些）不画成链接：人就在他要待的那一页上，
+          点它只是把这条从列表里划掉。画成 <a href=undefined> 的话点了会跳到当前页、
+          白重载一次——那是把他刚问的上下文冲掉。
+        */
+        return t.标签.去 ? (
+          <Link key={t.key} href={t.标签.去} className={类名} onClick={点}>
+            {里面}
+          </Link>
+        ) : (
+          <button key={t.key} type="button" className={类名} onClick={点}>
+            {里面}
+          </button>
+        );
+      })}
     </div>
   );
 }
