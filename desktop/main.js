@@ -22,6 +22,7 @@ const { app, BrowserWindow, shell, dialog, Menu, clipboard, ipcMain } = require(
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
+const MCP桥 = require("./mcp-bridge");
 const 云端 = require("./cloud");
 const 更新 = require("./updater");
 const 安装 = require("./install");
@@ -171,6 +172,14 @@ async function 启动本地() {
     logFile: 日志文件,
     额外环境: { CRM_CLOUD_URL: 云端.默认云端 },
   });
+  /*
+    MCP 的固定端口。本地服务每次换一个随机端口，而别人的 agent（Claude Code / Codex）
+    那边配的是一行写死的地址——所以在一个固定端口上开一条只转 /api/mcp 的薄桥。
+    取端口现问不缓存：重启本地服务会换端口，这座桥要跨过那次重启。
+    开不起来（端口全被占）就不开，其余功能照常——MCP 是附加能力，不该挡着人用 CRM。
+  */
+  const p = await MCP桥.start({ 取端口: () => 本地?.port ?? null, dataDir: 数据目录 });
+  if (!p) console.warn("[mcp] 固定端口没开起来，MCP 只能按本次的随机端口连");
 }
 
 /** 本地模式的首页：带令牌换一张会话票据，换完自己跳去 /dashboard；没登录云端账号时它会落到 /login */
@@ -746,7 +755,10 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   // 退出前把本地服务收掉，别留一个孤儿进程占着端口和数据库
-  app.on("before-quit", () => 本地服务.stop());
+  app.on("before-quit", () => {
+    本地服务.stop();
+    MCP桥.stop();
+  });
   app.on("window-all-closed", () => {
     if (process.platform !== "darwin") app.quit();
   });

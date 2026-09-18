@@ -77,6 +77,29 @@ test.afterAll(async () => {
 });
 
 /**
+ * MCP 那个口子（2026-09-18）。**这是唯一一条别人能从外面连进来的路**，
+ * 所以先钉住它关着：没令牌一律 401，GET 不给挂流。
+ * 令牌真能用那一条在单测里（tests/mcp.test.ts），那边不用起浏览器。
+ */
+test("MCP 端点：没令牌进不来", async ({ request, baseURL }) => {
+  const 无票 = await request.post(`${baseURL}/api/mcp`, {
+    data: { jsonrpc: "2.0", id: 1, method: "initialize", params: {} },
+  });
+  expect(无票.status()).toBe(401);
+  expect(await 无票.text()).toContain("令牌");
+
+  const 乱票 = await request.post(`${baseURL}/api/mcp`, {
+    // 纯 ASCII：中文塞进 Authorization 头会在 fetch 那一层就报错，测不到服务端
+    headers: { Authorization: "Bearer dcrm_guessed_wrong" },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
+  });
+  expect(乱票.status()).toBe(401);
+
+  // 客户端会开一条 GET 收服务端主动发的消息；我们没有要说的话，明确回 405 让它别等
+  expect((await request.get(`${baseURL}/api/mcp`)).status()).toBe(405);
+});
+
+/**
  * 问过的对话（2026-09-18）。
  *
  * 在这之前首页那串问答只活在内存里，刷新即清，也开不出第二个——

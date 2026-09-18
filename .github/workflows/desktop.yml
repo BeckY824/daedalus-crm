@@ -14,7 +14,7 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
-# 产物要挂到 Release 上：桌面端的「检查更新」查的就是最新 Release，
+# 产物要挂到 Release 上：桌面端「检查更新」的兜底源查的是最新 Release（主源是官网 feed），
 # 只传成 Actions 产物的话，装出去的应用永远查不到新版本
 permissions:
   contents: write
@@ -85,11 +85,13 @@ jobs:
 
       # 打 tag 时顺手挂到 Release 上。Release 不存在就建一个；已存在就只补附件。
       #
-      # **小版本（0.36.1 这种，patch ≠ 0）建成 prerelease**，大版本（0.37.0）才是正式发布。
-      # 这一条决定了谁会被推送更新：官网那个 feed 由 deploy/latest-json.py 从
-      # `/releases/latest` 抄版本号，而 GitHub 的这个接口**不返回 prerelease**——
-      # 于是小版本照样有 tag、有镜像、有能手动下载的包，却不会推到用户的「检查更新」里。
-      # 同一天连发三个补丁不该让人装三次；攒到大版本一次发出去。
+      # **小版本（patch ≠ 0）不新建 Release**，包传到一个叫 `desktop-updates` 的
+      # 滚动 Release 上；大版本（0.37.0）才建自己那个正式 Release。
+      #
+      # 为什么这么分：GitHub 每 **publish 一个 Release** 就往所有关注者的动态里推一条
+      # （prerelease 也推），而往一个**已经存在**的 Release 上传资产不会。
+      # 桌面端的「检查更新」读的是官网那份 feed（desktop/latest.json），和 GitHub 无关——
+      # 所以小版本照样能推送给用户，只是不刷别人的 feed。滚动 Release 一辈子只 publish 一次。
       #
       # 说明取 CHANGELOG.md 里这一版那一段，不用 --generate-notes：后者产出的是
       # 「Full Changelog: v0.23.2...v0.23.3」这种一句正文都没有的东西，而这条会推到
@@ -102,22 +104,30 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           VER="${TAG#v}"
-          # patch 位不为 0 = 小版本 → prerelease（不进 /releases/latest，不推给用户）
           PATCH="${VER##*.}"
-          PRE=""
-          [ "$PATCH" != "0" ] && PRE="--prerelease"
-          echo "版本 $VER → ${PRE:-正式发布}"
+          ROLLING="desktop-updates"
           # 取 "## <版本>" 到下一个 "## " 之间
           awk -v v="$VER" '
             $0 ~ "^## " v "([（(]|$| )" { on = 1; next }
             on && /^## / { exit }
             on { print }
           ' CHANGELOG.md | sed '/./,$!d' > /tmp/notes.md
-          if [ -s /tmp/notes.md ]; then
-            echo "用 CHANGELOG 里 $VER 那一段作发布说明："; cat /tmp/notes.md
-            gh release view "$TAG" >/dev/null 2>&1               || gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md $PRE
+          if [ "$PATCH" = "0" ]; then
+            # 大版本：自己一个正式 Release，说明取 CHANGELOG 那一段。这一条会进关注者的动态，是有意的
+            echo "大版本 $VER → 正式 Release"
+            if [ -s /tmp/notes.md ]; then
+              echo "用 CHANGELOG 里 $VER 那一段作发布说明："; cat /tmp/notes.md
+              gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
+            else
+              echo "::warning::CHANGELOG.md 里没有 $VER 这一节，退回自动生成的说明"
+              gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes --title "$TAG"
+            fi
+            DEST="$TAG"   # bash 不认中文变量名，这里一律用 ASCII
           else
-            echo "::warning::CHANGELOG.md 里没有 $VER 这一节，退回自动生成的说明"
-            gh release view "$TAG" >/dev/null 2>&1               || gh release create "$TAG" --generate-notes --title "$TAG" $PRE
+            # 小版本：只往滚动 Release 里丢包，不新建 Release（不刷别人的 feed）。
+            # 它标成 prerelease，这样 /releases/latest 永远指向最近一个大版本
+            echo "小版本 $VER → 传到 $ROLLING，不新建 Release"
+            gh release view "$ROLLING" >/dev/null 2>&1 || gh release create "$ROLLING"               --title "桌面端更新包（滚动）"               --prerelease               --notes "小版本的安装包都挂在这儿——它们不单独建 Release，免得每个补丁都去刷一遍关注者的动态。每个版本对应的改动见 CHANGELOG.md；正式版本在 Releases 列表里。"
+            DEST="$ROLLING"
           fi
-          gh release upload "$TAG" desktop/dist/*.dmg desktop/dist/*.app.zip desktop/dist/*.manifest.json.gz --clobber
+          gh release upload "$DEST" desktop/dist/*.dmg desktop/dist/*.app.zip desktop/dist/*.manifest.json.gz --clobber

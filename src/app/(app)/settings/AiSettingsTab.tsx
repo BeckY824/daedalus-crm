@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Form, Input, Radio, Select, Space, Typography, App } from "antd";
-import { saveLlmSettings, testLlmSettings, clearLlmSettings } from "./actions";
+import { saveLlmSettings, testLlmSettings, clearLlmSettings, 查MCP接入, 开启MCP, 关闭MCP } from "./actions";
 import type { AiUsage } from "@/lib/ai-usage";
 import type { ModelOption } from "@/lib/llm";
 import { PROVIDERS, 认服务商 } from "@/lib/providers";
@@ -279,6 +279,8 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
         />
       )}
 
+      <McpBlock />
+
       {llm.source !== null && (
         <div style={{ marginTop: 24 }}>
           <Typography.Text strong>本月用量</Typography.Text>
@@ -293,6 +295,95 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
             ))}
           </Space>
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 让别的 agent 连进来（MCP）。
+ *
+ * 这一小块是整个产品里**唯一反方向**的接口：平时是我们拿着用户的 Key 去调模型，
+ * 这条是 Claude Code / Codex / Claude 桌面端拿我们当工具箱，用**他们自己的**订阅来查。
+ * 对一个人用的场景意义最大：他多半已经在付那份订阅，而数据一步不出这台机器。
+ *
+ * 开出去的只有九个只读查询，写不了任何东西（见 lib/mcp/tools.ts）。
+ */
+function McpBlock() {
+  const { message, modal } = App.useApp();
+  const [状态, set状态] = useState<{ 可用: boolean; 已开: boolean; 地址: string; 令牌: string | null } | null>(null);
+  const [忙, set忙] = useState(false);
+
+  useEffect(() => {
+    查MCP接入().then(set状态).catch(() => {});
+  }, []);
+
+  if (!状态?.可用) return null;
+
+  const 命令 = 状态.令牌
+    ? `claude mcp add --transport http daedalus ${状态.地址} --header "Authorization: Bearer ${状态.令牌}"`
+    : "";
+
+  async function 开() {
+    set忙(true);
+    const r = await 开启MCP();
+    set忙(false);
+    if (!r.ok) return void message.error(r.error);
+    set状态({ 可用: true, 已开: true, 地址: r.地址, 令牌: r.令牌 });
+    message.success("已生成接入令牌");
+  }
+
+  function 关() {
+    modal.confirm({
+      title: "关掉 MCP 接入？",
+      content: "令牌立刻作废，已经配好的 Claude Code / Codex 会连不上（重新开启会给一把新的，那边要改配置）。",
+      okText: "关掉",
+      okButtonProps: { danger: true },
+      cancelText: "算了",
+      onOk: async () => {
+        await 关闭MCP();
+        set状态((v) => (v ? { ...v, 已开: false, 令牌: null } : v));
+        message.success("已关闭");
+      },
+    });
+  }
+
+  return (
+    <div className="mcp-block">
+      <h4>让别的 agent 连进来</h4>
+      <p>
+        把这个 CRM 接到 Claude Code、Codex 或 Claude 桌面端：在那边直接问「张三最近跟进到哪了」「这个月谁签得最多」，
+        它会来查这台机器上的库，用的是<b>你自己</b>的订阅额度。开出去的是九个<b>只读</b>查询，
+        写不了任何东西——记一笔、改状态、排计划仍然只能在这里点。
+      </p>
+
+      {状态.已开 && 状态.令牌 ? (
+        <>
+          <div className="mcp-cmd">
+            <code>{命令}</code>
+            <Button
+              size="small"
+              onClick={() => {
+                navigator.clipboard.writeText(命令).then(
+                  () => message.success("命令已复制，去终端里粘贴执行"),
+                  () => message.error("复制不了，手动选中拷贝吧"),
+                );
+              }}
+            >
+              复制
+            </Button>
+          </div>
+          <p className="mcp-hint">
+            粘到终端里执行一次就接上了。Codex 用 <code>codex mcp add</code>，参数一样。
+            这把令牌等于这个库的只读钥匙，别贴到公开的地方；重新生成会让旧的立刻失效。
+          </p>
+          <Space wrap>
+            <Button size="small" onClick={开} loading={忙}>重新生成令牌</Button>
+            <Button size="small" danger type="text" onClick={关}>关掉接入</Button>
+          </Space>
+        </>
+      ) : (
+        <Button onClick={开} loading={忙}>生成接入令牌</Button>
       )}
     </div>
   );

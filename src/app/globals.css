@@ -1409,6 +1409,18 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .biz-preset > i { font-style: normal; font-size: var(--fs-min); color: var(--text-muted); }
 
 
+/* AI 接入底下的 MCP 那一小块。和上面的表单隔开：它不是一个配置项，是一个开关加一条命令 */
+.mcp-block { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--line-soft); }
+.mcp-block h4 { margin: 0 0 4px; font-size: var(--fs-note); font-weight: 600; color: var(--ink); }
+.mcp-block p { margin: 0 0 10px; font-size: var(--fs-min); color: var(--text-muted); line-height: 1.7; max-width: 60ch; }
+/* 命令要能一眼看出是「拿去粘贴的一整条」：等宽、可横滚、不折行 */
+.mcp-cmd { display: flex; align-items: center; gap: var(--s2); padding: 8px 10px; margin-bottom: 8px;
+  background: var(--workbench); border: 1px solid var(--line); border-radius: var(--r-card); }
+.mcp-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: var(--fs-min);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink); }
+.mcp-hint { margin-bottom: 10px; }
+.mcp-hint code { font-size: var(--fs-min); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+
 /* 业务配置底下的演示数据那一小块。和表单隔开：它不是一个配置项，是一个动作 */
 .biz-demo { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--line-soft); }
 .biz-demo h4 { margin: 0 0 4px; font-size: var(--fs-note); font-weight: 600; color: var(--ink); }

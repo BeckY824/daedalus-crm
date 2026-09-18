@@ -6,6 +6,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { ROLES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
+import { 读令牌, 生成令牌, 撤销令牌 } from "@/lib/mcp/token";
+import { MCP地址 } from "@/lib/mcp/address";
 import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, 复成员 } from "@/lib/tenant/members";
@@ -557,5 +559,48 @@ export async function 桌面端改密码(input: { code: string; password: string
   if (!r.ok) return { ok: false, error: r.error };
   清云端凭据();
   await destroySession();
+  return { ok: true };
+}
+
+/* ---------- MCP 接入 ---------- */
+
+/**
+ * 让别人的 agent 连进来查这个 CRM（Claude Code / Codex / Claude 桌面端）。
+ *
+ * 这是我们**唯一**一处「反过来」的接口：平时是我们去调模型，这条是别人来调我们。
+ * 对一人公司那个人群最有用——他多半已经在付 Claude 或 ChatGPT 的钱，
+ * 用自己的订阅和 agent 来问自己的客户本，数据一步不出本机。
+ *
+ * 令牌在这里明着回给管理员：它是本机的一把钥匙，而这一页只有管理员进得来。
+ * 「只显示一次」在这里帮倒忙——人复制到一半被打断，就只剩「重新生成」一条路，
+ * 而重新生成会把已经配好的客户端全部踢下线。
+ */
+export async function 查MCP接入(): Promise<{
+  可用: boolean;
+  已开: boolean;
+  地址: string;
+  令牌: string | null;
+}> {
+  const me = await requireUser();
+  const 可用 = !multiTenant();
+  if (!可用 || me.role !== "ADMIN") return { 可用: false, 已开: false, 地址: "", 令牌: null };
+  const t = await 读令牌();
+  return { 可用: true, 已开: Boolean(t), 地址: MCP地址(), 令牌: t?.token ?? null };
+}
+
+export async function 开启MCP(): Promise<{ ok: true; 令牌: string; 地址: string } | { ok: false; error: string }> {
+  const me = await requireUser();
+  if (multiTenant()) return { ok: false, error: "托管版不提供 MCP 接口" };
+  if (me.role !== "ADMIN") return { ok: false, error: "只有管理员能开这个口子" };
+  const t = await 生成令牌(me.id);
+  await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "mcpToken", summary: "生成了 MCP 接入令牌（旧的同时作废）" });
+  return { ok: true, 令牌: t.token, 地址: MCP地址() };
+}
+
+export async function 关闭MCP(): Promise<{ ok: boolean }> {
+  const me = await requireUser();
+  if (multiTenant() || me.role !== "ADMIN") return { ok: false };
+  await 撤销令牌();
+  await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "mcpToken", summary: "关掉了 MCP 接入（令牌已撤销）" });
   return { ok: true };
 }
