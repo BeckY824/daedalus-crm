@@ -10,7 +10,7 @@ import { saveFollowUp, savePlan } from "../customers/[id]/actions";
 import { saveLead } from "../leads/actions";
 import { saveOpportunity } from "../opportunities/actions";
 import { saveChannel } from "../channels/actions";
-import { 可担任负责人 } from "@/lib/constants";
+import { 按名字找负责人 } from "@/lib/owners";
 
 export type ApplyResult = { ok: true; message: string } | { ok: false; error: string };
 
@@ -48,7 +48,7 @@ async function 改档案(customerId: string, changes: 一处改动[]): Promise<{
   if (有("salesOwnerName")) {
     const n = (取值("salesOwnerName") ?? "").trim();
     if (!n) return { ok: false, error: "负责人不能留空" };
-    const hit = await prisma.user.findMany({ where: { name: n, ...可担任负责人 }, select: { id: true } });
+    const hit = await 按名字找负责人(n);
     if (hit.length === 0) return { ok: false, error: `没有叫「${n}」的在职销售` };
     if (hit.length > 1) return { ok: false, error: `有 ${hit.length} 位同事都叫「${n}」，请到档案页手动指定` };
     salesOwnerId = hit[0].id;
@@ -83,7 +83,7 @@ async function 改档案(customerId: string, changes: 一处改动[]): Promise<{
     const n = (取值("channelOwnerName") ?? "").trim();
     if (!n) channelOwnerId = null;
     else {
-      const hit = await prisma.user.findMany({ where: { name: n, ...可担任负责人 }, select: { id: true } });
+      const hit = await 按名字找负责人(n);
       if (hit.length === 0) return { ok: false, error: `没有叫「${n}」的在职销售` };
       if (hit.length > 1) return { ok: false, error: `有 ${hit.length} 位同事都叫「${n}」，请到档案页手动指定` };
       channelOwnerId = hit[0].id;
@@ -136,7 +136,7 @@ async function 改渠道(p: { channelName: string; ownerName: string; phone: str
 
   let channelOwnerId = ch.channelOwnerId;
   if (p.ownerName.trim()) {
-    const us = await prisma.user.findMany({ where: { name: p.ownerName.trim(), ...可担任负责人 }, select: { id: true } });
+    const us = await 按名字找负责人(p.ownerName);
     if (us.length === 0) return { ok: false, error: `没有叫「${p.ownerName}」的在职销售` };
     if (us.length > 1) return { ok: false, error: `有 ${us.length} 位同事都叫「${p.ownerName}」，请到渠道页手动指定` };
     channelOwnerId = us[0].id;

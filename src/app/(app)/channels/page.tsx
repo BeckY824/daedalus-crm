@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import ChannelsView from "./ChannelsView";
-import { 可担任负责人 } from "@/lib/constants";
+import { 负责人候选 } from "@/lib/owners";
 import { llmEnabled } from "@/lib/llm";
 import { buildReferralRadar } from "@/lib/referral";
 
@@ -20,7 +20,13 @@ export default async function ChannelsPage() {
         _count: { select: { directCustomers: true } },
       },
     }),
-    prisma.user.findMany({ where: 可担任负责人, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
+    /*
+      走 负责人候选()，不直接查「排除管理员」。
+      「渠道负责人」是必填项，而桌面端和刚注册的托管版工作区里只有一个人、那个人是管理员——
+      直接用严格口径的话这个下拉是空的，于是**新建渠道这条路整个走不通**（2026-09-18 报上来的）。
+      候选名单里留了「没有别人时列出全部在职成员」那条回退，见 lib/owners.ts。
+    */
+    负责人候选(),
   ]);
 
   /**

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { OPP_STAGES, 可担任负责人 } from "@/lib/constants";
+import { OPP_STAGES } from "@/lib/constants";
+import { 负责人口径 } from "@/lib/owners";
 import { dayjs } from "@/lib/utils";
 import { llmEnabled } from "@/lib/llm";
 import { loadWatchlist } from "@/lib/sentinel-data";
@@ -49,8 +50,13 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       _count: { _all: true },
       _sum: { amount: true },
     }),
+    /*
+      排行榜也走同一条口径。多人工作区里仍然排除管理员（他不做销售，业绩不该上榜）；
+      但**整个工作区只有他一个人**时，客户和商机全在他名下，用严格口径这张榜永远是空的——
+      桌面端就是这个情形。见 lib/owners.ts 里 负责人口径 的说明。
+    */
     prisma.user.findMany({
-      where: 可担任负责人,
+      where: await 负责人口径(),
       select: {
         id: true,
         name: true,
