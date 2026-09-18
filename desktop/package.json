@@ -1,6 +1,6 @@
 {
   "name": "daedalus-crm-desktop",
-  "version": "0.35.1",
+  "version": "0.35.2",
   "description": "Daedalus CRM 桌面客户端",
   "main": "main.js",
   "license": "AGPL-3.0-only",
