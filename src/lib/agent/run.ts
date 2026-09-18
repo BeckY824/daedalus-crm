@@ -39,6 +39,15 @@ export type AgentResult = {
 
 const MAX_STEPS = 6;
 
+/**
+ * 「关于数据有没有」的论断。只在**一次工具都没调**时用来拦回答——
+ * 那时模型手上一条数据都没有，说这种话必然是编的。
+ * 查过工具的回答不走这里：那时「没有匹配的」是如实回答，正是我们要它说的。
+ */
+export function 凭空断言(text: string): boolean {
+  return /(还?没有(任何|登记|录入|建立|添加)|一个都没有|一条都没有|一位都没有|都还没有|尚未(登记|录入|建立|添加)|(系统|库|里面)里?(还)?(没有|是空的)|暂无[^，。]{0,6}(数据|记录|渠道|客户|线索|商机)|目前(还)?没有)/.test(text);
+}
+
 /** 之前几轮的问答，用来理解「他」「那个」「再约一下」这类指代 */
 export type HistoryTurn = { q: string; a: string };
 
@@ -268,6 +277,10 @@ ${工作方式}
 
   /** 直连命中时先跑掉的那几个工具；循环里按下标认，跑完就轮到模型组织回答 */
   const 待跑 = 直连 ? [...直连.调用] : [];
+  /** 已经真正跑过几个工具。为 0 时模型要作答，说明它手上一条数据都没有 */
+  let 查过的工具 = 0;
+  /** 空手作答只顶一次，免得来回拉锯 */
+  let 顶过 = false;
 
   for (let i = 0; i < MAX_STEPS; i++) {
     if (ev.signal?.aborted) throw new Error("已取消");
@@ -297,8 +310,35 @@ ${工作方式}
       try {
         const r = await chatTools(messages, 工具表, { maxTokens: 1500, timeoutMs: 60_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal });
         console.info(`[agent] 第 ${i + 1} 步决策（原生）${Date.now() - t0}ms：${r.toolCalls.map((c) => c.function.name).join(",") || "没调工具"}`);
-        // 没调工具 = 它认为够了，可以去组织回答
-        if (!r.toolCalls.length) break;
+        /*
+          没调工具 = 它认为够了，可以去组织回答。
+
+          **但第一步就没调是另一回事**：那时上下文里一条数据都没有，
+          而最终提示词写着「只基于工具结果」——手上没有工具结果，它就自己编。
+          2026-09-18 线上真出过：问「我现在有什么渠道」，一个工具没调，
+          直接答「还没有登记任何渠道」，而库里有一个。凭空断言用户的数据
+          比答不上来严重得多——用户没法分辨哪句是查过的、哪句是编的。
+
+          所以第一步空手时顶回去一次。再空手就放它走：确实有不用查库的问题
+          （「你能做什么」「刚才那条帮我改改措辞」），顶两次纯属浪费时间。
+        */
+        if (!r.toolCalls.length) {
+          if (查过的工具 === 0 && !顶过) {
+            顶过 = true;
+            messages.push(
+              { role: "assistant", content: r.text || "（直接作答）" },
+              {
+                role: "user",
+                content:
+                  "你还没有查任何数据就要作答。凡是涉及这个 CRM 里的人、数字、记录的问题，" +
+                  "都必须先调工具查过再回答——不许凭印象断言「没有」「一个都没登记」这类结论。" +
+                  "如果这句话确实不需要查库（闲聊、改措辞、问你会什么），就直接回答。",
+              },
+            );
+            continue;
+          }
+          break;
+        }
         const c = r.toolCalls[0];
         let args: Record<string, unknown> = {};
         try {
@@ -358,6 +398,7 @@ ${工作方式}
     let result;
     try {
       result = await tool.run(args, ctx);
+      查过的工具 += 1;
     } catch (e) {
       result = { summary: "工具出错", data: { error: e instanceof Error ? e.message : "工具执行失败" } };
     }
@@ -398,10 +439,45 @@ ${工作方式}
 - 数字类问题：先一句结论，再给关键数字；不要把整张表抄一遍
 - 如果是"该怎么推进"这类问题，给 3~5 条具体可执行的建议，并指出风险
 - 不要再输出 JSON，不要提到"工具"这个词`;
-  const 清洗 = 开头清洗器((s) => ev.onToken?.(s));
-  await chatTextStream([...messages, { role: "user", content: finalPrompt }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal }, (t) => 清洗.推入(t));
-  清洗.收尾();
-  const text = 清洗.文本();
+  /** 跑一次最终回答。静默时只把文本拿回来，不往界面推 token */
+  const 组织回答 = async (提示: string, 静默: boolean) => {
+    const 清洗 = 开头清洗器((t) => { if (!静默) ev.onToken?.(t); });
+    await chatTextStream([...messages, { role: "user", content: 提示 }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal }, (t) => 清洗.推入(t));
+    清洗.收尾();
+    return 清洗.文本();
+  };
+
+  /*
+    **一次工具都没调，还敢下「没有」这种结论的，拦下来重答。**
+
+    循环里那道闸（第一步空手就顶回去）只顶一次——顶完它还是不查，就放它来组织回答了。
+    到这儿手上依然一条数据都没有，而它会照样写出「查了一下，系统里还没有登记任何渠道」。
+    2026-09-18 线上就是这么发生的，库里明明有一个。
+
+    用户分辨不出哪句是查过的、哪句是编的，所以这类断言一个都不能放过去。
+    这里只拦**最伤的那一种**：零工具 + 关于数据有没有的论断。别的照放——
+    「你能做什么」「帮我改改措辞」本来就不需要查库。
+
+    代价是零工具那次要先攒完再推（多等一个回答的时间），不流式。
+    但零工具本来就该是极少数，而让用户眼睁睁看着一句编的话逐字蹦出来更糟。
+
+    重答时不再试图逼它查——上面已经逼过一次了。这一轮只要求它**说实话**：
+    拿不到数据就说拿不到。答不上来是可以接受的，编是不可以的。
+  */
+  const 零工具 = 查过的工具 === 0;
+  let text = await 组织回答(finalPrompt, 零工具);
+  if (零工具 && 凭空断言(text)) {
+    console.warn(`[agent] 零工具却断言了数据，重答一次：${text.slice(0, 80)}`);
+    text = await 组织回答(
+      finalPrompt +
+        `\n\n**重要**：你这一轮一次数据都没查过，所以你不知道库里有什么。` +
+        `绝对不许出现「没有」「还没有登记」「一个都没有」「系统里是空的」这类关于数据的结论——那是编的。` +
+        `如实说你需要先查一下，或者只回答不依赖库里数据的那部分。`,
+      false,
+    );
+  } else if (零工具) {
+    ev.onToken?.(text); // 攒着的那份验过了，原样推出去
+  }
   ev.emit?.({ id: "answer", label: "组织回答", status: "done" });
   for (const r of mentioned.values()) if (!customers.has(r.id) && customers.size < 5 && text.includes(r.name)) customers.set(r.id, r);
   return { text, records, customers: [...customers.values()], proposals: ctx.proposals, steps };

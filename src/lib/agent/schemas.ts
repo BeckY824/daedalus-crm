@@ -24,7 +24,7 @@ const 串 = (说明: string) => ({ type: "string", description: 说明 });
 const 数 = (说明: string) => ({ type: "number", description: 说明 });
 const 真假 = (说明: string) => ({ type: "boolean", description: 说明 });
 
-/** 只读的十个。MCP 开出去的就是这一组 */
+/** 只读的十一个。MCP 开出去的就是这一组 */
 export const 只读SCHEMAS: Record<string, Schema> = {
   search_customers: {
     type: "object",
@@ -34,6 +34,10 @@ export const 只读SCHEMAS: Record<string, Schema> = {
       ownerName: 串("只看某位销售负责的（「李四手上有哪些客户」）"),
       followStatus: 串("只看某个跟进状态"),
       decisionStatus: 串("只看某个决策状态（「还在犹豫的有谁」）"),
+      createdFrom: 串("建档时间起，YYYY-MM-DD（「这周新增了哪些客户」）"),
+      createdTo: 串("建档时间止，YYYY-MM-DD，含当天"),
+      expectedSignFrom: 串("预计签约起，YYYY-MM-DD（「这个月预计能签哪几个」）"),
+      expectedSignTo: 串("预计签约止，YYYY-MM-DD，含当天"),
       mine: 真假("只看我负责的"),
     },
     additionalProperties: false,
@@ -68,7 +72,19 @@ export const 只读SCHEMAS: Record<string, Schema> = {
   },
   list_opportunities: {
     type: "object",
-    properties: { stage: 串("商机阶段"), status: 串("OPEN / WON / LOST，默认 OPEN"), customerName: 串("客户姓名") },
+    properties: {
+      stage: 串("商机阶段"),
+      status: 串("OPEN / WON / LOST，默认 OPEN"),
+      customerName: 串("客户姓名"),
+      minAmount: 数("金额下限，元（「超过 10 万的单子」）"),
+      dealFrom: 串("预计成交起，YYYY-MM-DD（「这个月要关的单子」）"),
+      dealTo: 串("预计成交止，YYYY-MM-DD，含当天"),
+    },
+    additionalProperties: false,
+  },
+  list_users: {
+    type: "object",
+    properties: { keyword: 串("姓名里的关键词"), includeInactive: 真假("连已停用的一起列") },
     additionalProperties: false,
   },
   list_contracts: {

@@ -40,14 +40,37 @@ type Tool = {
 
 const str = (v: unknown, max = 60) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
+/**
+ * 解析模型给的日期。和 report-query 的 asDate 一条路子：不较真格式，只看能不能解析。
+ * 返回 undefined 表示没给，null 表示给了但不合法——两者要分开，
+ * 「没给」是不筛，「不合法」要报错，不能当成不筛然后把全库倒出来。
+ */
+const 日期 = (v: unknown) => {
+  const s = str(v, 20);
+  if (!s) return undefined;
+  const d = dayjs(s);
+  return d.isValid() ? d : null;
+};
+/** 一对 from/to：写反了换过来。返回 null 表示有不合法的 */
+const 日期区间 = (a: unknown, b: unknown) => {
+  const [x, y] = [日期(a), 日期(b)];
+  if (x === null || y === null) return null;
+  return x && y && x.isAfter(y) ? { from: y, to: x } : { from: x, to: y };
+};
+/** 建成 Prisma 的 gte/lte，to 含当天——用户说「到 9 月 30 日」指那天也算 */
+const 区间条件 = (r: { from?: dayjs.Dayjs; to?: dayjs.Dayjs }) =>
+  r.from || r.to ? { ...(r.from ? { gte: r.from.startOf("day").toDate() } : {}), ...(r.to ? { lte: r.to.endOf("day").toDate() } : {}) } : null;
+
 export const TOOLS: Tool[] = [
   {
     name: "search_customers",
     description:
       "按关键词找客户，返回总数和名单。关键词同时匹配姓名、学校、年级、专业、备注（问「武汉大学的有几位、分别是谁」就用 query=\"武汉大学\"，问「大三的有哪些」就用 query=\"大三\"）；" +
       "还能按渠道（channelName，问「小红这个渠道里有谁」用它，先用 list_channels 看渠道叫什么）、按负责人（ownerName，问「李四手上有哪些客户」用它）、" +
-      "按跟进状态、按决策状态、只看我负责的过滤。找到具体某一位后再用 get_customer 读记录。",
-    args: '{"query": "姓名 / 学校 / 年级 / 专业 / 备注里的关键词，可为空", "channelName": "渠道名称，可选", "ownerName": "销售负责人姓名，可选", "followStatus": "跟进状态，可选", "decisionStatus": "决策状态，可选", "mine": true|false 可选}',
+      "按跟进状态、按决策状态、只看我负责的过滤。" +
+      "还能按建档时间（createdFrom/createdTo，问「这周新增了哪些客户」用它）、按预计签约时间（expectedSignFrom/expectedSignTo，问「这个月预计能签哪几个」用它，结果按预计签约日从近到远排）。" +
+      "找到具体某一位后再用 get_customer 读记录。",
+    args: '{"query": "姓名 / 学校 / 年级 / 专业 / 备注里的关键词，可为空", "channelName": "渠道名称，可选", "ownerName": "销售负责人姓名，可选", "followStatus": "跟进状态，可选", "decisionStatus": "决策状态，可选", "createdFrom": "建档起始 YYYY-MM-DD，可选", "createdTo": "建档截止，可选", "expectedSignFrom": "预计签约起始，可选", "expectedSignTo": "预计签约截止，可选", "mine": true|false 可选}',
     async run(args, ctx) {
       const q = str(args.query, 20);
       const channel = str(args.channelName, 20);
@@ -59,8 +82,13 @@ export const TOOLS: Tool[] = [
       const 原值 = (v: string) => (v ? (Object.entries(ctx.b.statusLabels).find(([, x]) => x === v)?.[0] ?? v) : "");
       const statusKey = 原值(status);
       const decisionKey = 原值(decision);
-      if (!q && !channel && !owner && !status && !decision && !mine)
-        return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine 至少给一个" } };
+      const 建档 = 日期区间(args.createdFrom, args.createdTo);
+      const 预签 = 日期区间(args.expectedSignFrom, args.expectedSignTo);
+      if (!建档 || !预签) return { summary: "日期不合法", data: { error: "日期要写成 YYYY-MM-DD" } };
+      const 建档条件 = 区间条件(建档);
+      const 预签条件 = 区间条件(预签);
+      if (!q && !channel && !owner && !status && !decision && !mine && !建档条件 && !预签条件)
+        return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine / createdFrom-To / expectedSignFrom-To 至少给一个" } };
       const where = {
         ...(q ? { OR: [{ name: { contains: q } }, { school: { contains: q } }, { grade: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } }] } : {}),
         // 用 channelId（推荐链**最顶端**的渠道，所有后代继承），不是 attributionChannelId
@@ -70,6 +98,8 @@ export const TOOLS: Tool[] = [
         ...(owner ? { salesOwner: { name: { contains: owner } } } : {}),
         ...(statusKey ? { followStatus: statusKey } : {}),
         ...(decisionKey ? { decisionStatus: decisionKey } : {}),
+        ...(建档条件 ? { createdAt: 建档条件 } : {}),
+        ...(预签条件 ? { expectedSignAt: 预签条件 } : {}),
         ...(mine ? { salesOwnerId: ctx.userId } : {}),
       };
       const [total, rows] = await Promise.all([
@@ -77,16 +107,19 @@ export const TOOLS: Tool[] = [
         prisma.customer.findMany({
           where,
           take: 30,
-          orderBy: { lastFollowAt: "desc" },
-          select: { id: true, name: true, phone: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, channel: { select: { name: true } }, lastFollowAt: true },
+          // 问「这个月预计能签哪几个」时按预计签约日从近到远排——那是在问顺序，不是在问最近聊过谁
+          orderBy: 预签条件 ? { expectedSignAt: "asc" } : { lastFollowAt: "desc" },
+          select: { id: true, name: true, phone: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, channel: { select: { name: true } }, expectedSignAt: true, createdAt: true, lastFollowAt: true },
         }),
       ]);
       const data = {
         total,
         shown: rows.length,
-        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, channel: r.channel?.name ?? null, lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
+        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, channel: r.channel?.name ?? null, expectedSignAt: r.expectedSignAt ? dayjs(r.expectedSignAt).format("YYYY-MM-DD") : null, createdAt: dayjs(r.createdAt).format("YYYY-MM-DD"), lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
       };
-      const cond = [q && `「${q}」`, channel && `渠道 ${channel}`, owner && `负责人 ${owner}`, status && `状态 ${status}`, decision && `决策 ${decision}`, mine && "我负责的"].filter(Boolean).join("、");
+      const 区间说法 = (r: { from?: dayjs.Dayjs; to?: dayjs.Dayjs }, 名: string) =>
+        r.from || r.to ? `${名} ${r.from ? r.from.format("YYYY-MM-DD") : "最早"}~${r.to ? r.to.format("YYYY-MM-DD") : "今天"}` : "";
+      const cond = [q && `「${q}」`, channel && `渠道 ${channel}`, owner && `负责人 ${owner}`, status && `状态 ${status}`, decision && `决策 ${decision}`, 区间说法(建档, "建档"), 区间说法(预签, "预计签约"), mine && "我负责的"].filter(Boolean).join("、");
       return { summary: total ? `${cond}：${total} 位${total > rows.length ? `，列出前 ${rows.length}` : ""}——${rows.slice(0, 6).map((r) => r.name).join("、")}${rows.length > 6 ? "…" : ""}` : `没有匹配 ${cond} 的${ctx.b.customer}`, data };
     },
   },
@@ -187,11 +220,27 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "get_my_plans",
-    description: "我（当前销售）未完成的跟进计划，按时间从早到晚。",
+    /*
+      跟进计划和待办是**两张表**（FollowPlan / Task），而用户问「我今天要做什么」
+      「我有哪些待办」时心里只有一件事：接下来该干的活。原来这里只查 FollowPlan，
+      Task 表除非逐个 get_customer 否则够不着——于是「我有哪些待办」答不全。
+      合在一起给，各自标明是哪一类；工具名不改，改了直连表和前端文案都要跟着动。
+    */
+    description: "我（当前销售）手上没做完的活：跟进计划 + 待办，都按时间从早到晚，逾期的会标出来。问「今天该做什么」「我有哪些待办」「还有哪些计划没做」都用它。",
     args: "{}",
     async run(_args, ctx) {
-      const plans = await prisma.followPlan.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: { plannedAt: "asc" }, take: 10, select: { subject: true, plannedAt: true, method: true, customer: { select: { id: true, name: true } } } });
-      return { summary: `${plans.length} 条`, data: plans.map((p) => ({ customerId: p.customer.id, name: p.customer.name, when: dayjs(p.plannedAt).format("MM-DD HH:mm"), method: p.method, subject: p.subject, overdue: dayjs(p.plannedAt).isBefore(dayjs()) })) };
+      const [plans, tasks] = await Promise.all([
+        prisma.followPlan.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: { plannedAt: "asc" }, take: 10, select: { subject: true, plannedAt: true, method: true, customer: { select: { id: true, name: true } } } }),
+        prisma.task.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: [{ dueAt: "asc" }], take: 10, select: { title: true, dueAt: true, customer: { select: { id: true, name: true } } } }),
+      ]);
+      const 逾期 = (d: Date | null) => (d ? dayjs(d).isBefore(dayjs()) : false);
+      const data = {
+        跟进计划: plans.map((p) => ({ customerId: p.customer.id, name: p.customer.name, when: dayjs(p.plannedAt).format("MM-DD HH:mm"), method: p.method, subject: p.subject, overdue: 逾期(p.plannedAt) })),
+        待办: tasks.map((t) => ({ customerId: t.customer.id, name: t.customer.name, when: t.dueAt ? dayjs(t.dueAt).format("MM-DD HH:mm") : null, title: t.title, overdue: 逾期(t.dueAt) })),
+      };
+      const 逾期数 = [...data.跟进计划, ...data.待办].filter((x) => x.overdue).length;
+      const 段 = [plans.length && `${plans.length} 条计划`, tasks.length && `${tasks.length} 条待办`].filter(Boolean).join("、");
+      return { summary: 段 ? `${段}${逾期数 ? `，其中 ${逾期数} 条已逾期` : ""}` : "手上没有没做完的", data };
     },
   },
   /*
@@ -270,16 +319,24 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "list_opportunities",
-    description: `列商机（在谈的单子）。可按阶段、状态、客户过滤，按金额从大到小。阶段只能是 ${OPP_STAGES.join(" / ")}；status: OPEN 进行中 / WON 赢单 / LOST 丢单。问「手上有哪些单子」「哪些单子快成了」用它。`,
-    args: '{"stage": "阶段，可空", "status": "OPEN/WON/LOST，可空，默认 OPEN", "customerName": "客户姓名，可空"}',
+    description: `列商机（在谈的单子）。可按阶段、状态、客户过滤，按金额从大到小。阶段只能是 ${OPP_STAGES.join(" / ")}；status: OPEN 进行中 / WON 赢单 / LOST 丢单。问「手上有哪些单子」「哪些单子快成了」用它；\
+问「超过 10 万的单子」用 minAmount，问「这个月要关的单子」用 dealFrom/dealTo。`,
+    args: '{"stage": "阶段，可空", "status": "OPEN/WON/LOST，可空，默认 OPEN", "customerName": "客户姓名，可空", "minAmount": 最小金额（元），可空, "dealFrom": "预计成交起始 YYYY-MM-DD，可空", "dealTo": "预计成交截止，可空"}',
     async run(args) {
       const stage = str(args.stage, 10);
       const status = str(args.status, 6).toUpperCase();
       const name = str(args.customerName, 20);
+      const 金额下限 = typeof args.minAmount === "number" && args.minAmount > 0 ? args.minAmount : null;
+      const 成交 = 日期区间(args.dealFrom, args.dealTo);
+      if (!成交) return { summary: "日期不合法", data: { error: "dealFrom / dealTo 要写成 YYYY-MM-DD" } };
+      const 成交条件 = 区间条件(成交);
       const where = {
         ...(stage ? { stage } : {}),
         status: ["OPEN", "WON", "LOST"].includes(status) ? status : "OPEN",
         ...(name ? { customer: { name: { contains: name } } } : {}),
+        ...(金额下限 ? { amount: { gte: 金额下限 } } : {}),
+        // 没填预计成交日的单子，问「这个月要关的」时不该混进来——Prisma 的 gte/lte 本来就会把 null 排除
+        ...(成交条件 ? { expectedDealAt: 成交条件 } : {}),
       };
       const [total, rows] = await Promise.all([
         prisma.opportunity.count({ where }),
@@ -324,25 +381,16 @@ export const TOOLS: Tool[] = [
       "只要总数不要名单时用 query_metric(contract_amount / contract_count)。",
     args: '{"from": "YYYY-MM-DD，可空", "to": "YYYY-MM-DD，可空（含当天）", "customerName": "客户姓名，可空", "ownerName": "销售负责人姓名，可空", "channelName": "渠道名称，可空"}',
     async run(args) {
-      // 和 report-query 的 asDate 一条路子：不较真格式，只看能不能解析
-      const 日期 = (v: unknown) => {
-        const s = str(v, 20);
-        if (!s) return null;
-        const d = dayjs(s);
-        return d.isValid() ? d : null;
-      };
-      let from = 日期(args.from);
-      let to = 日期(args.to);
-      if ((str(args.from, 20) && !from) || (str(args.to, 20) && !to))
-        return { summary: "日期不合法", data: { error: "from / to 要写成 YYYY-MM-DD" } };
-      // 写反了就换过来，别回一个空名单让人以为真没签
-      if (from && to && from.isAfter(to)) [from, to] = [to, from];
+      // 写反了换过来，别回一个空名单让人以为真没签
+      const 区间 = 日期区间(args.from, args.to);
+      if (!区间) return { summary: "日期不合法", data: { error: "from / to 要写成 YYYY-MM-DD" } };
+      const { from, to } = 区间;
       const name = str(args.customerName, 20);
       const owner = str(args.ownerName, 20);
       const channel = str(args.channelName, 20);
       const where = {
         // to 含当天：用户说「到 9 月 30 日」指的是那天签的也算
-        ...(from || to ? { signedAt: { ...(from ? { gte: from.startOf("day").toDate() } : {}), ...(to ? { lte: to.endOf("day").toDate() } : {}) } } : {}),
+        ...(区间条件({ from, to }) ? { signedAt: 区间条件({ from, to })! } : {}),
         ...(name || owner || channel
           ? {
               customer: {
@@ -385,6 +433,40 @@ export const TOOLS: Tool[] = [
             备注: c.remark || null,
           })),
         },
+      };
+    },
+  },
+  {
+    /*
+      团队名单。原来「我们有几个销售」「谁是渠道负责人」够不着——
+      query_metric 按 sales 分组只能列出**有数据的**那几个人，
+      刚入职、这个月还没开单的一个都不出现，和「有哪些渠道」当初那个坑一模一样。
+    */
+    name: "list_users",
+    description: "列这个工作区里的人：姓名、岗位、角色、手上多少客户、负责几个渠道。问「团队里有哪些人」「我们有几个销售」「谁是渠道负责人」用它。默认不列已停用的。",
+    args: '{"keyword": "姓名里的关键词，可空", "includeInactive": true|false 可空，默认不列停用的}',
+    async run(args) {
+      const kw = str(args.keyword, 20);
+      const rows = await prisma.user.findMany({
+        where: { ...(kw ? { name: { contains: kw } } : {}), ...(args.includeInactive === true ? {} : { active: true }) },
+        orderBy: { createdAt: "asc" },
+        take: 50,
+        select: {
+          id: true, name: true, title: true, role: true, active: true,
+          _count: { select: { salesCustomers: true, channels: true } },
+        },
+      });
+      return {
+        summary: rows.length ? `${rows.length} 人：${rows.slice(0, 6).map((u) => u.name).join("、")}${rows.length > 6 ? "…" : ""}` : "没有匹配的成员",
+        data: rows.map((u) => ({
+          id: u.id,
+          姓名: u.name,
+          岗位: u.title,
+          角色: u.role === "ADMIN" ? "管理员" : u.role === "MANAGER" ? "主管" : "销售",
+          负责客户: u._count.salesCustomers,
+          负责渠道: u._count.channels,
+          状态: u.active ? "在职" : "已停用",
+        })),
       };
     },
   },

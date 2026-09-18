@@ -410,3 +410,71 @@ describe("get_customer 直接给姓名", () => {
     expect((r.data as { error?: string }).error).toBeTruthy();
   });
 });
+
+/**
+ * 2026-09-18 第四轮：把剩下的几个缺口做完。
+ */
+describe("get_my_plans：计划和待办是两张表，得一起给", () => {
+  it("「我有哪些待办」——Task 表原来够不着，只能逐个 get_customer", async () => {
+    const c = await prisma.customer.create({
+      data: { name: "张三", phone: "13800000021", followStatus: "待跟进", decisionStatus: "了解中", salesOwnerId: 我.id },
+    });
+    await prisma.followPlan.create({ data: { subject: "回访", plannedAt: new Date("2026-09-20T10:00:00"), customerId: c.id, ownerId: 我.id } });
+    await prisma.task.create({ data: { title: "寄资料", dueAt: new Date("2026-09-19T10:00:00"), customerId: c.id, ownerId: 我.id } });
+
+    const r = await 用("get_my_plans").run({}, ctx());
+    const d = r.data as { 跟进计划: { subject: string }[]; 待办: { title: string }[] };
+    expect(d.跟进计划.map((x) => x.subject)).toEqual(["回访"]);
+    expect(d.待办.map((x) => x.title)).toEqual(["寄资料"]);
+    expect(r.summary).toContain("1 条计划");
+    expect(r.summary).toContain("1 条待办");
+  });
+
+  it("逾期的要标出来并且在 summary 里说一声", async () => {
+    const c = await prisma.customer.create({
+      data: { name: "李四", phone: "13800000022", followStatus: "待跟进", decisionStatus: "了解中", salesOwnerId: 我.id },
+    });
+    await prisma.task.create({ data: { title: "早该做的", dueAt: new Date("2020-01-01T10:00:00"), customerId: c.id, ownerId: 我.id } });
+    const r = await 用("get_my_plans").run({}, ctx());
+    expect((r.data as { 待办: { overdue: boolean }[] }).待办[0].overdue).toBe(true);
+    expect(r.summary).toContain("逾期");
+  });
+
+  it("做完的不算，别人的也不算", async () => {
+    const 乙 = await prisma.user.create({ data: { email: "yi2", name: "乙", title: "销售", role: "SALES", password: "x" } });
+    const c = await prisma.customer.create({
+      data: { name: "王五", phone: "13800000023", followStatus: "待跟进", decisionStatus: "了解中", salesOwnerId: 我.id },
+    });
+    await prisma.task.create({ data: { title: "已完成的", customerId: c.id, ownerId: 我.id, done: true } });
+    await prisma.task.create({ data: { title: "乙的", customerId: c.id, ownerId: 乙.id } });
+    const d = (await 用("get_my_plans").run({}, ctx())).data as { 待办: unknown[] };
+    expect(d.待办).toEqual([]);
+  });
+});
+
+describe("list_users：团队名单", () => {
+  it("一个客户都还没有的人也要列出来——和当初「没带来客户的渠道」是同一个坑", async () => {
+    await prisma.user.create({ data: { email: "xin", name: "新来的", title: "销售", role: "SALES", password: "x" } });
+    const d = (await 用("list_users").run({}, ctx())).data as { 姓名: string; 负责客户: number }[];
+    expect(d.map((u) => u.姓名).sort()).toEqual(["新来的", "甲"].sort());
+    expect(d.find((u) => u.姓名 === "新来的")!.负责客户).toBe(0);
+  });
+
+  it("带出岗位、角色、手上多少客户、负责几个渠道", async () => {
+    await prisma.customer.create({
+      data: { name: "张三", phone: "13800000024", followStatus: "待跟进", decisionStatus: "了解中", salesOwnerId: 我.id },
+    });
+    await prisma.channel.create({ data: { name: "小红", channelOwnerId: 我.id } });
+    const [甲] = (await 用("list_users").run({}, ctx())).data as { 姓名: string; 岗位: string; 角色: string; 负责客户: number; 负责渠道: number }[];
+    expect(甲).toMatchObject({ 姓名: "甲", 岗位: "销售", 角色: "销售", 负责客户: 1, 负责渠道: 1 });
+  });
+
+  it("默认不列已停用的，要看得显式要", async () => {
+    await prisma.user.create({ data: { email: "zou", name: "走了的", title: "销售", role: "SALES", password: "x", active: false } });
+    const 默认 = (await 用("list_users").run({}, ctx())).data as unknown[];
+    const 全部 = (await 用("list_users").run({ includeInactive: true }, ctx())).data as { 状态: string }[];
+    expect(默认.length).toBe(1);
+    expect(全部.length).toBe(2);
+    expect(全部.find((u) => u.状态 === "已停用")).toBeTruthy();
+  });
+});
