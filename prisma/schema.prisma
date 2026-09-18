@@ -325,3 +325,63 @@ model Setting {
   value     String
   updatedAt DateTime @updatedAt
 }
+
+/// 首页对话的历史。**只有自己看得见**：所有读取按 ownerId 过滤。
+///
+/// 在这之前这串问答只活在内存里（lib/home-thread.ts），刷新即清，也开不出第二个对话。
+/// 提问带的附件原文不入库，仍然只在内存里（components/AskFiles.tsx）——
+/// 一旦入库，人粘进去的聊天记录就进了备份，那是另一个量级的承诺。
+///
+/// 不与 User 建外键：成员被删不该带走他问过的东西，也不该让删人卡在这儿。
+/// 列一次留全（projectId / pinnedAt / archivedAt），因为 migrations/ 只能加表不能加列。
+model AiConversation {
+  id          String    @id @default(cuid())
+  /// 第一问的前 18 个字，可改
+  title       String
+  ownerId     String
+  /// 项目那一层先只有列，没有界面
+  projectId   String?
+  project     AiProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  pinnedAt    DateTime?
+  archivedAt  DateTime?
+  /// 排序按它，不按 updatedAt：重命名不该让一条老对话跳到最前面
+  lastAskedAt DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  messages    AiMessage[]
+
+  @@index([ownerId, lastAskedAt])
+  @@index([projectId])
+}
+
+/// 一轮问答里的一条。role = user | assistant。
+model AiMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  conversation   AiConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  text           String
+  model          String?
+  ms             Int?
+  /// 工具调用轨迹、涉及到的记录，各一段 JSON
+  steps          String?
+  refs           String?
+  createdAt      DateTime       @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+/// 项目：一组对话 + 一段说明（会和业务简介一起注入提示词）。
+/// 这一版只有表，界面下一版再长出来——列现在不留，以后就加不上了。
+model AiProject {
+  id            String           @id @default(cuid())
+  name          String
+  brief         String?
+  ownerId       String
+  archivedAt    DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  conversations AiConversation[]
+
+  @@index([ownerId])
+}

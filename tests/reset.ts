@@ -11,6 +11,9 @@
 import { prisma } from "@/lib/prisma";
 
 export async function resetDb() {
+  // 对话与消息（消息随对话级联删，先删对话就够；项目单列）
+  await prisma.aiConversation.deleteMany();
+  await prisma.aiProject.deleteMany();
   await prisma.setting.deleteMany();
   await prisma.auditLog.deleteMany();
   await prisma.task.deleteMany();
