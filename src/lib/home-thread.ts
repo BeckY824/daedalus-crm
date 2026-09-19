@@ -47,6 +47,11 @@ type 屏 = {
   turns: Turn[];
   /** 这一屏是哪条对话。null = 还没落过库的新对话（问第一句时才会建出来） */
   对话id: string | null;
+  /**
+   * 已经落过库的那几轮。**必须和 turns 放在一起（模块级），不能放组件的 ref 里**——
+   * 见 认落() 的说明。
+   */
+  已落: Set<string>;
 };
 
 const 屏们 = new Map<string, 屏>();
@@ -62,7 +67,7 @@ const notify = () => listeners.forEach((l) => l());
 function 取(scope: string): 屏 {
   let s = 屏们.get(scope);
   if (!s) {
-    s = { turns: [], 对话id: null };
+    s = { turns: [], 对话id: null, 已落: new Set() };
     屏们.set(scope, s);
   }
   return s;
@@ -79,7 +84,29 @@ export function 载入对话(scope: string, id: string | null, 历史: Turn[]): 
   if (id !== null && id === s.对话id) return false;
   s.对话id = id;
   s.turns = 历史;
+  // 从库里读回来的本来就在库里，认掉，别再落一遍
+  s.已落 = new Set(历史.map((t) => t.id));
   notify();
+  return true;
+}
+
+/**
+ * 认领「这一轮由我来落库」。第一次调返回 true，之后都是 false。
+ *
+ * **为什么在这儿而不是在组件里。** 2026-09-19 报上来的「一个问题两条一模一样的回答、
+ * 连用时都一样」：原来这道闸是 HomeChat 里的一个 `useRef(new Set())`——
+ * 跟着组件实例走。而 turns 和答案（ai-jobs）都在模块级，活得比组件久。
+ * 于是把面板关掉再打开（或者切去别的页面再回来）就是一次重挂载：
+ * 新实例的那个 Set 是空的，看见任务还是 done，就把同一轮又落了一遍。
+ * 两条的 ms 完全相同，因为那是同一次调用的用时——模型只跑了一次，
+ * 多花的不是钱，是历史里凭空多出来的一轮。
+ *
+ * 闸和它守的东西必须活得一样久，所以挪到这里，一屏一份。
+ */
+export function 认落(scope: string, id: string): boolean {
+  const s = 取(scope);
+  if (s.已落.has(id)) return false;
+  s.已落.add(id);
   return true;
 }
 
@@ -122,7 +149,9 @@ export function removeTurn(scope: string, id: string) {
 
 /** 清屏。`/clear` 命令用它——只清这一屏，不动库里那条对话 */
 export function clearThread(scope: string) {
-  取(scope).turns = [];
+  const s = 取(scope);
+  s.turns = [];
+  s.已落.clear();
   notify();
 }
 
@@ -131,6 +160,7 @@ export function 新起一屏(scope: string) {
   const s = 取(scope);
   s.turns = [];
   s.对话id = null;
+  s.已落.clear();
   notify();
 }
 

@@ -18,7 +18,7 @@ import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
 import { clearJob, getJob, runJob, setJobValue, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
-import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 载入对话, 认领对话, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
+import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 载入对话, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
 import { 落一轮, type 历史消息 } from "./threads";
 import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
@@ -167,28 +167,29 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   useEffect(() => {
     if (!会话) return;
     const { turns: 轮, jobs } = 历史成屏(会话.messages);
+    // 「历史那几轮本来就在库里、别再落一遍」由 载入对话 一并认掉，见 home-thread
     if (!载入对话(scope, 会话.id, 轮)) return;
     for (const j of jobs) setJobValue(j.key, j.value);
-    // 历史那几轮本来就在库里，别再落一遍
-    for (const t of 轮) 已落.current.add(t.id);
   }, [会话]);
 
   /**
    * 答完一轮就落库。
    *
    * 在这儿做而不是在 runStream 里：那边是模块级的，不认识「当前是哪条对话」，
-   * 也没有 router。先把 id 记进 已落 再发请求——这个 effect 会因为任务表变动
-   * 跑好几次，不占位的话同一轮会落两遍。
+   * 也没有 router。先认领再发请求——这个 effect 会因为任务表变动跑好几次，
+   * 不占位的话同一轮会落两遍。
+   *
+   * 占位用 认落()（模块级，一屏一份），**不是组件里的 ref**：把面板关掉再打开
+   * 就是一次重挂载，而 turns 和答案都活在模块级，ref 里那道闸会跟着新实例清零，
+   * 于是同一轮又落一遍——库里两条一模一样、连用时都一样的回答就是这么来的。
    */
-  const 已落 = useRef(new Set<string>());
   useEffect(() => {
     void (async () => {
       for (const t of turns) {
-        if (已落.current.has(t.id)) continue;
         const job = getJob<StreamJob<AgentAnswer>>(`home:${t.id}`);
         if (job?.status !== "done") continue;
         const 答 = (job.value?.answer?.text ?? job.value?.text ?? "").trim();
-        已落.current.add(t.id);
+        if (!认落(scope, t.id)) continue;
         if (!答) continue;
         const r = await 落一轮({
           conversationId: 当前对话(scope),
