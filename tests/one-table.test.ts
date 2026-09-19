@@ -20,14 +20,23 @@ const 列表页 = [
   "src/app/(app)/follow-ups/FollowUpsView.tsx",
 ];
 
-/** 这几处的表格不是「列表页」：运营台、复盘里的排行、AI 查询结果、渠道雷达 */
+/**
+ * 这几处的表格不是「列表页」：运营台、复盘里的排行、渠道雷达、设置页、导入那两屏。
+ *
+ * 判据是「它列的是不是库里某一张表的记录」。导入抽屉里那两张列的是
+ * **这份文件的列**和**读不懂的格子**——都还没进库，也没有筛选、分页、批量、空态
+ * 这些 DataList 存在的理由。硬套 DataList 只会让那个组件长出一堆只有导入用得上的口子。
+ */
 const 不算列表页 = [
   "src/components/DataList.tsx",
   "src/app/admin/AdminView.tsx",
   "src/app/(app)/reports/ReportsView.tsx",
-  "src/app/(app)/reports/AskDataResult.tsx",
   "src/app/(app)/channels/ReferralRadar.tsx",
   "src/app/(app)/settings/SettingsView.tsx",
+  // 导入记录：列的是导入批次，不是业务记录；只有一颗撤销，没有筛选分页批量
+  "src/app/(app)/settings/ImportsTab.tsx",
+  // 导入抽屉：一张列文件的列，一张列读不懂的格子。都还没进库
+  "src/app/(app)/customers/ImportDrawer.tsx",
 ];
 
 async function 全部源码(dir: string): Promise<string[]> {

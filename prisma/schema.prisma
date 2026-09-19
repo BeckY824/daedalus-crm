@@ -389,3 +389,40 @@ model AiProject {
 
   @@index([ownerId])
 }
+
+/// 一次导入 = 一个批次，整批可回滚。见 migrations/007 和 lib/import/。
+model ImportBatch {
+  id         String   @id @default(cuid())
+  at         DateTime @default(now())
+  /// 谁导的。冗余存储，不建外键——成员被删不该带走导入历史
+  userId     String
+  userName   String
+  /// 导的是哪个文件，给人认批次用。只存文件名，不存内容
+  fileName   String
+  /// 多工作表要支持时才用得上，眼下不填
+  sheetName  String?
+  created    Int      @default(0)
+  updated    Int      @default(0)
+  skipped    Int      @default(0)
+  failed     Int      @default(0)
+  /// 撤销过就有值；撤销过的批次不能再撤一次
+  revertedAt DateTime?
+  rows       ImportRow[]
+
+  @@index([at])
+}
+
+model ImportRow {
+  id         String      @id @default(cuid())
+  batchId    String
+  batch      ImportBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  customerId String
+  /// create = 这次导入建的（撤销时删掉）；update = 只补了空字段（撤销时还原那几格）
+  kind       String
+  /// update 时那几格原来是什么（JSON）。按定义全是空值，存下来是为了让撤销
+  /// 照着数据走，而不是照着「我记得只补空的」这条约定走
+  before     String?
+
+  @@index([batchId])
+  @@index([customerId])
+}

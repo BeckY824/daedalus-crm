@@ -16,6 +16,8 @@ export async function resetDb() {
   await prisma.aiProject.deleteMany();
   await prisma.setting.deleteMany();
   await prisma.auditLog.deleteMany();
+  // 导入批次（ImportRow 随批次级联删）
+  await prisma.importBatch.deleteMany();
   await prisma.task.deleteMany();
   await prisma.followPlan.deleteMany();
   await prisma.followUpSource.deleteMany();

@@ -7,6 +7,7 @@ import { Button, Input, Select, Space, Dropdown, App, Tag, Popover } from "antd"
 import {
   PlusOutlined,
   ExportOutlined,
+  ImportOutlined,
   UserSwitchOutlined,
   TagsOutlined,
   ReloadOutlined,
@@ -21,6 +22,7 @@ import { toCsv } from "@/lib/csv";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
+import ImportDrawer from "./ImportDrawer";
 import { deleteCustomers, assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
 import { useBusiness } from "@/lib/business-client";
 import type { BusinessConfig } from "@/lib/business-config";
@@ -94,6 +96,7 @@ export default function CustomersView({
   const 空库 = total === 0 && !本月新增 && !Object.values(filters).some((v) => v);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
+  const [导入开着, set导入开着] = useState(false);
 
   function apply(next: Partial<typeof f> = {}) {
     const merged = { ...f, ...next };
@@ -204,6 +207,9 @@ export default function CustomersView({
           /* 主动作在页头右上角，全站六张列表页同一个位置（设计稿 11/PAGE）。
              导出是次动作，排在它左边，空库时没什么可导，不出现 */
           <Space>
+            {/* 导入和导出都是次动作，排在主动作左边。导入空库时也要在——
+                第一次进来的人手上那份 Excel 正是他不想一条条录的原因 */}
+            <Button icon={<ImportOutlined />} onClick={() => set导入开着(true)}>导入</Button>
             {!空库 && <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows, b)}>导出</Button>}
             <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
               新建{b.customer}
@@ -223,6 +229,7 @@ export default function CustomersView({
           title: `还没有${b.customer}`,
           hint: `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。`,
           primary: { label: `新建第一位${b.customer}`, onClick: () => { setEditing(null); setFormOpen(true); } },
+          secondary: [{ label: "从 Excel 导入", onClick: () => set导入开着(true) }],
         }}
         筛选={
           /*
@@ -363,6 +370,13 @@ export default function CustomersView({
           setEditing(null);
           if (saved) router.refresh();
         }}
+      />
+
+      <ImportDrawer
+        open={导入开着}
+        b={b}
+        onClose={() => set导入开着(false)}
+        onDone={() => router.refresh()}
       />
     </>
   );

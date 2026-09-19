@@ -30,6 +30,7 @@ import { saveUser, deactivateUser, reactivateUser, changeMyPassword, 退出这�
 import AiSettingsTab, { type LlmView } from "./AiSettingsTab";
 import BusinessSettingsTab from "./BusinessSettingsTab";
 import DesktopTab, { type 桌面端信息 } from "./DesktopTab";
+import ImportsTab from "./ImportsTab";
 import ProfileTab from "./ProfileTab";
 import KeymapTab from "./KeymapTab";
 import type { BusinessConfig } from "@/lib/business-config";
@@ -90,6 +91,7 @@ const 说明表: Record<string, string> = {
   desktop: "账号、备份、更新",
   ai: "走哪把 Key、还剩几次",
   business: "客户 / 学员 这些叫法",
+  imports: "导进来的那几批，可撤销",
   audit: "每一次改动的记录",
 };
 
@@ -502,6 +504,7 @@ export default function SettingsView({
             { key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} /> },
           ]
         : []),
+    { key: "imports", label: "导入记录", children: <ImportsTab /> },
     {
       key: "audit",
       label: "操作日志",
@@ -591,7 +594,7 @@ export default function SettingsView({
    */
   const 分组表: [string, string[]][] = [
     ["个人", ["profile", "password", "keymap"]],
-    ["工作区", ["members", "business", "ai", "audit"]],
+    ["工作区", ["members", "business", "ai", "imports", "audit"]],
     ["应用", ["desktop"]],
   ];
 

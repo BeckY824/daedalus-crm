@@ -463,7 +463,7 @@ test("设置：左目录分两组、带搜索，一页上只有一列目录", as
   await page.waitForSelector(".set-nav");
   // 顺序按分组走，不按代码里谁先写。「我自己的」在前，「整个团队的」在后
   const 项 = await page.locator(".set-nav-i b").allInnerTexts();
-  expect(项).toEqual(["个人资料", "登录与密码", "快捷键", "团队成员", "业务配置", "AI 接入", "操作日志"]);
+  expect(项).toEqual(["个人资料", "登录与密码", "快捷键", "团队成员", "业务配置", "AI 接入", "导入记录", "操作日志"]);
   expect(await page.locator(".set-nav-h").allInnerTexts()).toEqual(["个人", "工作区"]);
   // 中栏撤了：一页上摆两列目录，人得先弄清它们有什么区别
   await expect(page.locator("aside.pane")).toHaveCount(0);
