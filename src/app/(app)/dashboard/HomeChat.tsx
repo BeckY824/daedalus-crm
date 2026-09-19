@@ -1,5 +1,6 @@
 "use client";
 
+import type { 页面范围 } from "@/lib/ai-context-page";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -48,7 +49,7 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
  */
 export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: number; 高意向标签: string };
 
-export default function HomeChat({ 会话, userName, suggestions, context, models, aiQuota, 空库, 信号, 模式 = "宽", 上下文提示, scope = 首页屏, 标题前缀 }: {
+export default function HomeChat({ 会话, userName, suggestions, context, models, aiQuota, 空库, 信号, 模式 = "宽", 上下文提示, 上下文范围, scope = 首页屏, 标题前缀 }: {
   /** 地址上 ?c= 指的那条对话，服务端读好传进来。null = 一屏新对话 */
   会话: { id: string; title: string; messages: 历史消息[] } | null;
   userName: string;
@@ -67,6 +68,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   模式?: "宽" | "窄";
   /** 窄模式下带的当前页上下文（见 lib/ai-context-page.ts）。宽模式没有这回事 */
   上下文提示?: string;
+  /** 同一份上下文的结构化那半：这一页是哪张表、上面列着谁。给服务端的意图直连用 */
+  上下文范围?: 页面范围;
   /**
    * 这一屏归哪儿。首页是 `首页屏`，全局面板按 pathname 一页一屏——
    * **不给就会和首页共用一屏**，那正是 2026-09-19 报上来的「在线索页问一句，
@@ -203,7 +206,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   function start(turn: Turn) {
     runStream<AgentAnswer>(
       `home:${turn.id}`,
-      { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files, pageContext: 上下文提示 },
+      { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files, pageContext: 上下文提示, pageScope: 上下文范围 },
       undefined,
       // 带上标签，这一问就会出现在侧栏的「AI 任务」里：切去别的页面也看得见它跑完没有，
       // 点一下回到这一条。问题本身当名字，截短到一行

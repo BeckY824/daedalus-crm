@@ -946,6 +946,13 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .md-h { font-weight: 600; color: var(--ink); margin: 10px 0 4px; }
 .md-list { margin: 0 0 8px; padding-left: 20px; }
 .md-list li { margin: 2px 0; }
+/* 回答里的表：窄面板里横向能滚，不把整栏撑开；密度和 DataList 一致 */
+.md-tw { overflow-x: auto; margin: 4px 0 10px; }
+.md-table { border-collapse: collapse; font-size: var(--fs-note); white-space: nowrap; }
+.md-table th, .md-table td { padding: 5px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.md-table th { color: var(--text-muted); font-weight: 500; }
+.md-table tr:last-child td { border-bottom: 0; }
+.md-code { font-family: var(--mono); font-size: 0.92em; padding: 1px 5px; border-radius: 4px; background: var(--hover); }
 .cite-dead { opacity: 0.5; cursor: default; }
 
 /* 首页输入框下的免费次数。常驻显示——等横条弹出来才知道，人已经在问第五句了 */

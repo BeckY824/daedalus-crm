@@ -27,6 +27,22 @@ export type 页面上下文 = {
   标签: string;
   /** 塞进提问里的那句，给模型看。空串 = 这一页没有值得带的上下文 */
   提示: string;
+  /**
+   * 这一页的范围，结构化的那份。给意图直连用：「明杰哥的电话」在渠道页上，
+   * 明杰哥又正列在表里，那就直接 list_channels(keyword=明杰哥)，不问模型。
+   * 只有登记了 `查一个` 的页面才有。
+   */
+  范围?: 页面范围;
+};
+
+export type 页面范围 = {
+  /** 这一页那张表叫什么，给人看 */
+  表: string;
+  /** 查这一页上某一条记录该用的工具，和它收名字的那个参数 */
+  工具: string;
+  参数: string;
+  /** 这一页上正列着的名字 */
+  名字: string[];
 };
 
 type 页 = {
@@ -52,6 +68,12 @@ type 页 = {
    * 一刀切套到每一页就成了这个样子。默认工具不是万能的，答不了的要写明去哪儿。
    */
   补?: string;
+  /**
+   * 「查这一页上的某一条」怎么查：工具名 + 收名字的那个参数。
+   * 有它，这一页的名字才会被带给模型，意图直连才认得「X 的电话」这种问法。
+   * 没它的页（数据页、跟进记录页）名字带过去也没有一个能按名字查的工具，不如不带。
+   */
+  查一个?: { 工具: string; 参数: string };
 };
 
 const 一级: Record<string, 页> = {
@@ -72,10 +94,17 @@ const 一级: Record<string, 页> = {
     名: "线索",
     提示: "用户正在看线索列表",
     工具: "list_leads",
+    查一个: { 工具: "list_leads", 参数: "keyword" },
     提醒: "线索和客户是**两张不同的表**。这一页上出现的名字（含「联系人」那一列）都在线索表里，search_customers 一条也查不到。",
   },
-  "/customers": { 名: "客户", 提示: "用户正在看客户列表", 工具: "search_customers" },
-  "/channels": { 名: "渠道", 提示: "用户正在看渠道列表", 工具: "list_channels" },
+  "/customers": { 名: "客户", 提示: "用户正在看客户列表", 工具: "search_customers", 查一个: { 工具: "search_customers", 参数: "query" } },
+  "/channels": {
+    名: "渠道",
+    提示: "用户正在看渠道列表",
+    工具: "list_channels",
+    查一个: { 工具: "list_channels", 参数: "keyword" },
+    提醒: "这一页上的每个名字都是**一个渠道**（合作方、中介、转介绍人），不是客户，也不是渠道负责人；渠道自己有电话和备注，list_channels 直接给。",
+  },
   "/contacts": {
     名: "联系人",
     提示: "用户正在看联系人列表",
@@ -89,7 +118,7 @@ const 一级: Record<string, 页> = {
     工具: "query_records（表=联系人）",
     提醒: "联系人在自己的一张表里，search_customers 查不到他们。问某一位学员有哪些联系人时另说——那走 search_customers 再 get_customer。",
   },
-  "/opportunities": { 名: "商机", 提示: "用户正在看商机列表", 工具: "list_opportunities" },
+  "/opportunities": { 名: "商机", 提示: "用户正在看商机列表", 工具: "list_opportunities", 查一个: { 工具: "list_opportunities", 参数: "customerName" } },
   "/opportunities/pipeline": { 名: "商机 · 管道", 提示: "用户正在看商机管道看板", 工具: "list_opportunities" },
   "/follow-ups": {
     名: "跟进记录",
@@ -144,7 +173,7 @@ function 指路(p: 页): string {
  * @param params   地址栏参数
  * @param 详情名   详情页上这条记录叫什么（客户姓名等）。列表页传 null
  */
-export function 认页面(pathname: string, params: URLSearchParams | null, 详情名?: string | null): 页面上下文 | null {
+export function 认页面(pathname: string, params: URLSearchParams | null, 详情名?: string | null, 可见行?: readonly string[]): 页面上下文 | null {
   const 命中 = 一级[pathname];
   if (命中) {
     const 条件: string[] = [];
@@ -154,10 +183,20 @@ export function 认页面(pathname: string, params: URLSearchParams | null, 详�
     }
     if (!命中.提示 && 条件.length === 0) return null; // 首页、设置这些：没什么可带的
     const 尾 = 条件.length ? `，筛了${条件.join("、")}` : "";
+    /*
+      这一页上正列着的名字。**这是上下文里最值钱的一句**：有了它，
+      「明杰哥在哪张表」不再是模型要猜的事——他就在这一页上，这一页就是渠道表。
+      只在登记了 查一个 的页面带（带了也得有工具能按名字查才有用），最多 50 个。
+    */
+    const 名字 = 命中.查一个 ? (可见行 ?? []).slice(0, 50) : [];
+    const 列着 = 名字.length
+      ? `\n  这一页上现在列着：${名字.join("、")}。**这些名字都是${命中.名}表里的记录**，问到其中任何一个，直接用 ${命中.查一个!.工具}（${命中.查一个!.参数}=那个名字）查，不要去别的表找。`
+      : "";
     return {
       名: 命中.名,
       标签: `${命中.名}${尾}`,
-      提示: `${命中.提示 || `用户正在看${命中.名}`}${尾}。回答时把这个范围考虑进去。${指路(命中)}`,
+      提示: `${命中.提示 || `用户正在看${命中.名}`}${尾}。回答时把这个范围考虑进去。${指路(命中)}${列着}`,
+      ...(命中.查一个 ? { 范围: { 表: 命中.名, 工具: 命中.查一个.工具, 参数: 命中.查一个.参数, 名字 } } : {}),
     };
   }
   // 客户详情 /customers/xxx

@@ -1,5 +1,6 @@
 "use client";
 
+import { 登记页面行 } from "@/lib/page-rows";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button, Dropdown, Checkbox } from "antd";
@@ -70,6 +71,16 @@ type Props<T> = {
 
 const 列键 = <T,>(c: 列<T>) => String(c.key ?? c.dataIndex);
 
+/**
+ * 一行叫什么名字。列表页的行各有各的形状，但「这条记录叫什么」总在这几个字段里的一个。
+ * 找不到就不登记这一行——上下文里放一个 id 没有意义。
+ */
+function 行名(r: object): string | null {
+  const o = r as Record<string, unknown>;
+  for (const k of ["name", "title", "subject", "customerName"]) if (typeof o[k] === "string" && o[k]) return o[k] as string;
+  return null;
+}
+
 export default function DataList<T extends { id: string }>({
   页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页, 截断,
 }: Props<T>) {
@@ -87,6 +98,14 @@ export default function DataList<T extends { id: string }>({
    */
   const 见过 = useRef<Set<string> | null>(null);
   const [新来的, set新来的] = useState<string[]>([]);
+  /*
+    把这一页上列着的名字登记给 AI 面板（lib/page-rows.ts）。每个列表页都走这里，
+    所以不用每页手写；离开这一页时清空，免得渠道页的名单跟着人跑到客户页去。
+  */
+  useEffect(() => {
+    登记页面行(行.map(行名).filter((n): n is string => n !== null));
+    return () => 登记页面行([]);
+  }, [行]);
   useEffect(() => {
     const ids = 行.map((r) => r.id);
     if (见过.current === null) {

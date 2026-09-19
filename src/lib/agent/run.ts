@@ -12,7 +12,7 @@
 import { chatMessagesJSON, chatTextStream, buildSystemPrompt, type ChatMessage, chatTools, type ToolMessage} from "../llm";
 import { TOOLS, TOOL_MAP, proposalVocab, type ToolContext } from "./tools";
 import { SCHEMAS } from "./schemas";
-import { 认意图 } from "./intents";
+import { 认意图, type 页面范围 } from "./intents";
 import type { Proposal } from "./proposals";
 import type { Emit } from "../ai-steps";
 import type { BriefRecord } from "../ai-draft";
@@ -94,13 +94,21 @@ export type HistoryTurn = { q: string; a: string };
  * assistant 回答，等于给它看了一堆"不按协议输出也行"的先例，它会开始直接
  * 回自然语言，整个循环就散了。折进一条消息里，协议不受影响。
  */
-function 拼上下文(history: HistoryTurn[] | undefined, question: string): string {
-  if (!history?.length) return `问题：${question}`;
+/**
+ * 页面上下文放在**问题的正上方**，不只放在系统提示词末尾。
+ *
+ * 系统提示词有二十来条规矩，页面那句排在最后、语气最弱；而「问到某个人先 search_customers」
+ * 那条排在前面、说得斩钉截铁。小模型两头都读到了，挑了后者——2026-09-19 渠道页那一问就是这样。
+ * 挨着问题放，它是模型作决定前最后看到的一段；系统提示词里那份照旧留着，两处说的是同一句话。
+ */
+function 拼上下文(history: HistoryTurn[] | undefined, question: string, 页面上下文?: string): string {
+  const 页 = 页面上下文 ? `当前所在页面：${页面上下文}\n\n` : "";
+  if (!history?.length) return `${页}问题：${question}`;
   const 之前 = history.map((h, i) => `[${i + 1}] 我问：${h.q}\n    你答：${h.a}`).join("\n");
   return `这是我们之前的对话，只用来理解我这次说的「他」「那个」「再约一下」指的是谁、是什么。不要重复回答里面的内容：
 ${之前}
 
-问题：${question}`;
+${页}问题：${question}`;
 }
 
 /**
@@ -222,10 +230,10 @@ export function 开头清洗器(emit: (s: string) => void) {
 }
 
 export async function runAgent(
-  input: { question: string; user: { id: string; name: string }; b: BusinessConfig; history?: HistoryTurn[]; 页面上下文?: string },
+  input: { question: string; user: { id: string; name: string }; b: BusinessConfig; history?: HistoryTurn[]; 页面上下文?: string; 页面范围?: 页面范围 },
   ev: AgentEvents = {},
 ): Promise<AgentResult> {
-  const { question, user, b, history, 页面上下文 } = input;
+  const { question, user, b, history, 页面上下文, 页面范围 } = input;
   const toolDoc = TOOLS.map((t) => `- ${t.name}：${t.description}\n  参数：${t.args}`).join("\n");
 
   /**
@@ -256,7 +264,7 @@ ${工作方式}
 - 只在人明确要求做某件事时才提议（"帮我记一笔""把他改成已签约""约下周三""新建一条线索"）；人只是问情况时不要提议
 - **信息不全也要提**：建议卡本身就是表单，你不知道的字段留空，人会在卡片上补。绝对不要在回答里列一张"姓名：__ 电话：__"让人照格式打字，也不要因为"信息不够"就拒绝——那是把本该一次点完的事变成打一屏字
 - 提了建议卡之后，回答里只说一句要点和还差什么，不要把卡片里已有的字段再抄一遍
-- 问到某个人，先 search_customers（用问题里出现的完整姓名，不要只截一个姓）再 get_customer；同名多位时不要猜，直接 final 并在回答里说清楚有哪几位
+- 问到某个人：**他的名字出现在「当前所在页面」列出的名单里时，用那一页指定的工具查**——名单里的名字就在那一页那张表里，别去客户表找。不在名单里的，才先 search_customers（用问题里出现的完整姓名，不要只截一个姓）再 get_customer；同名多位时不要猜，直接 final 并在回答里说清楚有哪几位
 - 问某一类人（某个学校 / 专业 / 跟进状态 / 我负责的，"有多少、分别是谁"）：search_customers 用那个关键词或过滤条件，它返回总数和名单，直接据此回答，不用逐个 get_customer
 - 工具没找到时如实说"没有匹配的"，不要把关键词当成人名
 - 问数字用 query_metric；问"该联系谁"用 get_watchlist / get_my_plans
@@ -274,7 +282,7 @@ ${工作方式}
 
   const messages: ToolMessage[] = [
     { role: "system", content: system },
-    { role: "user", content: 拼上下文(history, question) },
+    { role: "user", content: 拼上下文(history, question, 页面上下文) },
   ];
 
   /**
@@ -307,7 +315,7 @@ ${工作方式}
    * 没命中的问句记一行日志，加规则时照着真实问句加，不拍脑袋。
    * `AGENT_INTENTS=0` 关掉（对照实验用）。
    */
-  const 直连 = process.env.AGENT_INTENTS === "0" ? null : 认意图(question, Boolean(history?.length));
+  const 直连 = process.env.AGENT_INTENTS === "0" ? null : 认意图(question, Boolean(history?.length), 页面范围);
   if (直连) console.info(`[intent] 命中「${直连.名}」：${直连.调用.map((c) => c.name).join(" → ")}`);
   else console.info(`[intent] 没命中：${question.slice(0, 60)}`);
   /*
@@ -512,11 +520,21 @@ ${工作方式}
 
   // 最终回答：流式 Markdown
   ev.emit?.({ id: "answer", label: "组织回答", status: "running" });
+  /*
+    格式那几条是照着 DeepSeek 的毛病写的（2026-09-19 换成唯一模型之后）：
+    问「明杰哥的电话」，它先画一张六列的表（只有一行），再来一段「几点说明」，
+    最后兜售一句「想让我帮你建新渠道说一声就行」——电话号码埋在第二条要点里。
+    人要的是那个号码。所以：先答问的那个东西；一条记录不画表；不起小标题；不兜售。
+  */
   const finalPrompt = `现在直接回答用户的问题。要求：
-- 用给销售看的口语化中文，Markdown，短句短段；能用列表就用列表；不要空话
+- **第一句就是答案**：问电话给电话，问是谁给名字，问多少给数。铺垫、背景放后面或者不放
+- 用给销售看的口语化中文，短句短段，不要空话；能用列表就用列表，但一两句话说得清的不要列
+- **表格只在三条以上同构记录时用**，最多五列。一条记录不画表，直接说
+- 不起「几点说明」「总结」「建议」这类小标题，不用分隔线，不用 emoji
 - 只基于工具结果，禁止编造；引用某条跟进记录时在句末标它的 [编号]
 - 数字类问题：先一句结论，再给关键数字；不要把整张表抄一遍
 - 如果是"该怎么推进"这类问题，给 3~5 条具体可执行的建议，并指出风险
+- 人没问的不要主动揽活（不要以「想让我帮你……说一声就行」这类话收尾）
 - 不要再输出 JSON，不要提到"工具"这个词`;
   /** 跑一次最终回答。静默时只把文本拿回来，不往界面推 token */
   const 组织回答 = async (提示: string, 静默: boolean) => {

@@ -20,6 +20,8 @@ export type StreamBody =
        * 而且存进对话历史的问题会变成一坨。所以走单独的字段，服务端单独喂给模型。
        */
       pageContext?: string;
+      /** 同一份上下文的结构化那半（这一页哪张表、列着谁），服务端意图直连用。见 lib/ai-context-page.ts 的 页面范围 */
+      pageScope?: { 表: string; 工具: string; 参数: string; 名字: string[] };
       /**
        * 这一问带的文件：浏览器里读成的文本，只随这一问发一次，服务端不落库。
        * 见 components/AskFiles.tsx 和 api/ai/stream 里的收法。

@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
+import { type 页面范围 } from "@/lib/agent/intents";
 import { runAgent } from "@/lib/agent/run";
 import { resolveModel } from "@/lib/llm";
 import { 收文件, 拼文件 } from "@/lib/ask-files";
@@ -83,9 +84,11 @@ export async function POST(req: Request) {
           const model = await resolveModel(typeof body.model === "string" ? body.model : undefined);
           const files = 收文件(body.files);
           const 问 = 拼文件(body.question.trim().slice(0, 问题上限), files);
-          // 当前页的上下文。浏览器来的，收一道长度；空串当没给
-          const 页面 = typeof body.pageContext === "string" ? body.pageContext.trim().slice(0, 300) : "";
-          const r = await runAgent({ question: 问, user: { id: user.id, name: user.name }, b, history, 页面上下文: 页面 || undefined }, { emit, model, onToken: (t) => send({ type: "token", text: t }), onReset: () => send({ type: "reset" }), signal: abort.signal });
+          // 当前页的上下文。浏览器来的，收一道长度；空串当没给。
+          // 上限从 300 放到 1200：现在还带着这一页上列着的名字（最多 50 个）
+          const 页面 = typeof body.pageContext === "string" ? body.pageContext.trim().slice(0, 1200) : "";
+          const 范围 = 收页面范围(body.pageScope);
+          const r = await runAgent({ question: 问, user: { id: user.id, name: user.name }, b, history, 页面上下文: 页面 || undefined, 页面范围: 范围 }, { emit, model, onToken: (t) => send({ type: "token", text: t }), onReset: () => send({ type: "reset" }), signal: abort.signal });
           // 日志只记问题和文件**名**，不记文件内容——那张表全员可读
           await recordAiUse(
             user,
@@ -113,4 +116,19 @@ export async function POST(req: Request) {
   return new Response(stream, {
     headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive" },
   });
+}
+
+
+/**
+ * 浏览器报上来的页面范围，逐个字段收一道。形状不对就当没给——
+ * 它只影响意图直连走不走，给错了顶多退回模型那条路，不会出错答案。
+ */
+function 收页面范围(v: unknown): 页面范围 | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  const 串 = (x: unknown, n: number) => (typeof x === "string" ? x.trim().slice(0, n) : "");
+  const 表 = 串(o.表, 20), 工具 = 串(o.工具, 40), 参数 = 串(o.参数, 40);
+  if (!表 || !/^[a-z_]+$/.test(工具) || !/^[a-zA-Z_]+$/.test(参数)) return undefined;
+  const 名字 = Array.isArray(o.名字) ? o.名字.map((x) => 串(x, 40)).filter(Boolean).slice(0, 50) : [];
+  return { 表, 工具, 参数, 名字 };
 }

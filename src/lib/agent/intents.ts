@@ -138,11 +138,37 @@ export type 命中结果 = { 名: string; 调用: { name: string; args: Record<s
  * **带了上文就不匹配**：「他呢？」「那这个月呢？」这类指代要靠模型解，
  * 而这张表只认完整问句。宁可漏。
  */
-export function 认意图(问题: string, 有上文 = false): 命中结果 | null {
+export type 页面范围 = { 表: string; 工具: string; 参数: string; 名字: readonly string[] };
+
+/**
+ * 「X 的电话 / 联系方式」——X 正列在当前页上时，直接用这一页的工具查 X。
+ *
+ * 这一条不在上面那张表里，因为它要看当前页：同一句「明杰哥的电话是多少」
+ * 在渠道页该查渠道，在客户页该查客户，没有页面范围时谁也不该猜。
+ * 2026-09-19 那一问就是这么错的：人站在渠道页，明杰哥就在表里的唯一一行，
+ * 模型跑去客户库搜了个空，再让人「跟我说一声我按渠道那边查」。
+ * 名字在这一页上、这一页是哪张表，两件事我们都确定知道，不该留给模型。
+ *
+ * 只认唯一命中：问的是「明」而表里有「明杰哥」「明月」，就落回模型。宁可漏。
+ */
+function 认页面上的一个(q: string, 范围?: 页面范围): 命中结果 | null {
+  if (!范围 || 范围.名字.length === 0) return null;
+  const m = q.match(/^(.{1,20}?)(?:的|得)?(?:联系电话|联系方式|手机号码|手机号|电话号码|电话|手机|号码|微信)(?:是多少|是什么|是啥|多少|是|呢)?[？?。！!\s]*$/);
+  if (!m) return null;
+  const x = m[1].trim();
+  if (x.length < 2) return null;
+  const 中 = 范围.名字.filter((n) => n === x || n.includes(x) || x.includes(n));
+  if (中.length !== 1) return null;
+  return { 名: `页面上的一个（${范围.表}）`, 调用: [{ name: 范围.工具, args: { [范围.参数]: 中[0] } }] };
+}
+
+export function 认意图(问题: string, 有上文 = false, 范围?: 页面范围): 命中结果 | null {
   const q = 问题.trim();
   if (!q || 有上文) return null;
   // 一句话里塞了两个问题（「有哪些渠道？另外这个月谁签得最多？」）交给模型，别只答一半
   if ((q.match(/[？?]/g) ?? []).length > 1) return null;
+  const 页上 = 认页面上的一个(q, 范围);
+  if (页上) return 页上;
   for (const it of 意图表) {
     const m = q.match(it.配);
     if (!m) continue;

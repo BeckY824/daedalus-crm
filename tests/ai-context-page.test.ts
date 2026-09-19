@@ -148,3 +148,31 @@ describe("认页面", () => {
     expect(漏了, `这些页面没有上下文说法：${漏了.join("、")}`).toEqual([]);
   });
 });
+
+/**
+ * 「这一页上有什么」也要带过去——路由只说得出这一页是渠道，说不出明杰哥在上面。
+ */
+describe("这一页上列着的名字", () => {
+  it("渠道页把名字带给模型，并且说清它们是渠道表里的、该用 list_channels 查", () => {
+    const c = 认页面("/channels", null, null, ["明杰哥", "老周"])!;
+    expect(c.提示).toContain("明杰哥、老周");
+    expect(c.提示).toContain("渠道表里的记录");
+    expect(c.提示).toMatch(/list_channels（keyword=/);
+    expect(c.范围).toEqual({ 表: "渠道", 工具: "list_channels", 参数: "keyword", 名字: ["明杰哥", "老周"] });
+  });
+
+  it("没登记「查一个」的页面不带名字——带了也没有工具能按名字查", () => {
+    const c = 认页面("/overview", null, null, ["随便"])!;
+    expect(c.提示).not.toContain("随便");
+    expect(c.范围).toBeUndefined();
+  });
+
+  it("最多带 50 个，上下文是按 token 付钱的", () => {
+    const 多 = Array.from({ length: 80 }, (_, i) => `人${i}`);
+    expect(认页面("/customers", null, null, 多)!.范围!.名字).toHaveLength(50);
+  });
+
+  it("标签（给人看的那行）不带名字，只带页面名和筛选", () => {
+    expect(认页面("/channels", null, null, ["明杰哥"])!.标签).toBe("渠道");
+  });
+});

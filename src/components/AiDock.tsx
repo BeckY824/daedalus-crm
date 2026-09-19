@@ -13,7 +13,7 @@
  *   3. 首页不出现它：首页本身就是宽模式的同一块东西，两处同时画会共用同一条对话、互相打架。
  *   4. 动效只用四档时长；减弱动态时不位移（globals.css 里 .dock 那几条）。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { CloseOutlined, MessageOutlined } from "@ant-design/icons";
 import WidthHandle, { 面板把手 } from "./WidthHandle";
@@ -21,6 +21,10 @@ import DockThreads from "./DockThreads";
 import HomeChat, { type Suggestion } from "@/app/(app)/dashboard/HomeChat";
 import type { ModelOption } from "@/lib/llm";
 import { 认页面 } from "@/lib/ai-context-page";
+import { 订阅页面行, 读页面行 } from "@/lib/page-rows";
+
+/** 服务端快照。固定一个引用，useSyncExternalStore 才不会每次都当成变了 */
+const 空名单: string[] = [];
 
 /** 记录页那种「这一页说的是谁」——由页面自己登记，路径看不出人名 */
 let 详情名: string | null = null;
@@ -78,10 +82,13 @@ export default function AiDock({
     return () => window.removeEventListener("keydown", onKey);
   }, [开着]);
 
+  // 这一页上列着的名字（DataList 登记的）。Hook 要在早退之前调，顺序每次一样
+  const 可见行 = useSyncExternalStore(订阅页面行, 读页面行, () => 空名单);
+
   // 首页就是宽模式的它，不在那儿再开一块
   if (pathname === "/dashboard") return null;
 
-  const 上下文 = 认页面(pathname, params, 详情名);
+  const 上下文 = 认页面(pathname, params, 详情名, 可见行);
 
   /*
     收起时是右边一条 44px 的窄边，不是浮在页面上的一枚圆钮。
@@ -130,6 +137,7 @@ export default function AiDock({
         <HomeChat
           模式="窄"
           上下文提示={上下文 && !不带上下文 ? 上下文.提示 : undefined}
+          上下文范围={上下文 && !不带上下文 ? 上下文.范围 : undefined}
           /*
             **一页一屏，不是全局一份。** 2026-09-19 报上来的：在线索页问一句，
             换到客户页、回到首页，那一问那一答跟着到处走——因为这个组件在每一页
