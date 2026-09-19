@@ -74,18 +74,73 @@ test.describe("全局 AI 面板", () => {
     await expect(面板(page)).toHaveCount(0);
   });
 
-  test("其余页面有一条常驻窄边，点开是 380 的面板", async ({ page }) => {
+  test("其余页面**默认就开着**，宽 380——不用点、也不用 ⌘J", async ({ page }) => {
+    /** 用户定的：「保持常驻吧，不要点击或者 command J 才能开启」 */
     await 登录(page);
     await page.goto("/customers");
+    await expect(面板(page)).toBeVisible();
+    expect(Math.round((await 面板(page).boundingBox())!.width)).toBe(380);
+    await expect(窄边(page)).toHaveCount(0);
+  });
+
+  test("关掉之后记住：换一页还是关着，直到自己再打开", async ({ page }) => {
+    await 登录(page);
+    await page.goto("/customers");
+    await page.getByRole("button", { name: "关闭 AI 面板" }).click();
+    await expect(窄边(page)).toBeVisible();
+    await page.goto("/channels");
+    await expect(面板(page)).toHaveCount(0);
     await expect(窄边(page)).toBeVisible();
     await 开键(page).click();
     await expect(面板(page)).toBeVisible();
+  });
+
+  test("面板和对话列表都能拖宽，宽度记得住", async ({ page }) => {
+    /** 和左栏同一条缝（WidthHandle）。名字和句子多长不是我们定的，最后一寸交给用它的人 */
+    await 登录(page);
+    await page.goto("/channels");
+    const 缝 = page.getByRole("separator", { name: /调整 AI 面板宽度/ });
+    const 原 = (await 面板(page).boundingBox())!.width;
+    const 框 = (await 缝.boundingBox())!;
+    await page.mouse.move(框.x + 框.width / 2, 框.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(框.x - 60, 框.y + 200, { steps: 8 });
+    await page.mouse.up();
+    const 新 = (await 面板(page).boundingBox())!.width;
+    expect(新).toBeGreaterThan(原 + 40); // 往左拖是变宽
+
+    // 换一页还记得
+    await page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "客户" }).click();
+    await expect(page).toHaveURL(/\/customers/);
+    expect(Math.abs((await 面板(page).boundingBox())!.width - 新)).toBeLessThan(2);
+
+    // 双击回默认
+    await 缝.dblclick();
     expect(Math.round((await 面板(page).boundingBox())!.width)).toBe(380);
   });
 
-  test("⌘J 开、Esc 关", async ({ page }) => {
+  test("首页的对话列表也能拖", async ({ page }) => {
+    await 登录(page);
+    const 列 = page.locator(".pane-chat");
+    await expect(列).toBeVisible();
+    const 原 = (await 列.boundingBox())!.width;
+    const 缝 = page.getByRole("separator", { name: /调整对话列表宽度/ });
+    const 框 = (await 缝.boundingBox())!;
+    await page.mouse.move(框.x + 框.width / 2, 框.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(框.x + 70, 框.y + 200, { steps: 8 });
+    await page.mouse.up();
+    expect((await 列.boundingBox())!.width).toBeGreaterThan(原 + 40);
+    await 缝.dblclick();
+    expect(Math.round((await 列.boundingBox())!.width)).toBe(232);
+  });
+
+  test("⌘J 关了再开；Esc 也能关", async ({ page }) => {
     await 登录(page);
     await page.goto("/channels");
+    await expect(面板(page)).toBeVisible(); // 默认开着
+    await page.keyboard.press("ControlOrMeta+j");
+    await expect(面板(page)).toHaveCount(0);
     await page.keyboard.press("ControlOrMeta+j");
     await expect(面板(page)).toBeVisible();
     await page.keyboard.press("Escape");
@@ -98,8 +153,8 @@ test.describe("全局 AI 面板", () => {
     await page.goto("/customers");
     const 左栏 = page.locator("nav.rail");
     const 前 = (await 左栏.boundingBox())!;
-    await 开键(page).click();
-    await expect(面板(page)).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+j"); // 关
+    await expect(面板(page)).toHaveCount(0);
     const 后 = (await 左栏.boundingBox())!;
     expect(后.x).toBe(前.x);
     expect(后.width).toBe(前.width);
@@ -112,6 +167,8 @@ test.describe("全局 AI 面板", () => {
      */
     await 登录(page);
     await page.goto("/customers");
+    await page.keyboard.press("ControlOrMeta+j"); // 收起来才有窄边
+    await expect(窄边(page)).toBeVisible();
     const 主动作 = page.getByRole("button", { name: /新建/ }).first();
     await expect(主动作).toBeVisible();
     const a = (await 主动作.boundingBox())!;
@@ -123,7 +180,6 @@ test.describe("全局 AI 面板", () => {
   test("上下文：写出来、点得掉、换一页重新带上", async ({ page }) => {
     await 登录(page);
     await page.goto("/customers?followStatus=" + encodeURIComponent("已签约"));
-    await 开键(page).click();
     const 条 = page.locator(".dock-ctx");
     await expect(条).toBeVisible();
     await expect(条).toContainText("客户");
@@ -149,7 +205,6 @@ test.describe("全局 AI 面板", () => {
     await 登录(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/channels");
-    await 开键(page).click();
     await expect(面板(page)).toBeVisible();
     const 溢出 = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(溢出).toBeLessThanOrEqual(1);

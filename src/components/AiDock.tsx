@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { CloseOutlined, MessageOutlined } from "@ant-design/icons";
+import WidthHandle, { 面板把手 } from "./WidthHandle";
 import HomeChat, { type Suggestion } from "@/app/(app)/dashboard/HomeChat";
 import type { ModelOption } from "@/lib/llm";
 import { 认页面 } from "@/lib/ai-context-page";
@@ -92,6 +93,8 @@ export default function AiDock({
 
   return (
     <aside className="dock" aria-label="AI 面板">
+      {/* 左边那条能拖的缝。和左栏同一个组件，只是往左拖才变宽——它贴着窗口右缘 */}
+      <WidthHandle 规格={面板把手} />
       <div className="dock-h">
         <b>问一句</b>
         <button type="button" className="dock-x" onClick={() => set开着(false)} aria-label="关闭 AI 面板">

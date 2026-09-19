@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { palette } from "@/lib/palette";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "motion/react";
@@ -94,8 +94,34 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
    * AI 面板开着没有。壳要知道，因为 antd 的响应式断点看的是**视口**，
    * 而面板一开正文就只剩 1440 - 220 - 380 ≈ 840——断点还以为自己有 1440，
    * 于是 xl 的两栏照摆，表格被挤到「推荐人」三个字竖着排。见 globals.css 的 .shell-dock-open。
+   *
+   * **默认开着**（用户定的：「保持常驻吧，不要点击或者 command J 才能开启」）。
+   * 关掉之后记住——那是他这台机器上的选择，不必每次开窗口重来。
    */
-  const [面板开着, set面板开着] = useState(false);
+  const 存的面板 = useSyncExternalStore(
+    () => () => {},
+    () => {
+      try {
+        return localStorage.getItem("dock-open") !== "0";
+      } catch {
+        return true; // 隐私模式下读不到就用默认（开着）
+      }
+    },
+    // 服务端快照：先按默认（开着）渲染，水合之后再换成这台机器上存的那个。
+    // 不能在 effect 里 setState——那是「effect 里同步 setState」，会级联渲染
+    () => true,
+  );
+  /** 这一次会话里手动开合过。null = 还没动过，听存档的 */
+  const [手动, set手动] = useState<boolean | null>(null);
+  const 面板开着 = 手动 ?? 存的面板;
+  const 记住面板 = (开: boolean) => {
+    set手动(开);
+    try {
+      localStorage.setItem("dock-open", 开 ? "1" : "0");
+    } catch {
+      // 存不下就只在这一次会话里生效
+    }
+  };
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 767px)");
     const 同步 = () => set小屏(mq.matches);
@@ -328,7 +354,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
         它自己决定首页不出现（首页就是宽模式的同一块东西）。
         手机上不出现：390 宽摆不下正文 + 380 的面板。
       */}
-      {ai && !小屏 && <AiDock userName={user.name} models={ai.models} aiQuota={ai.aiQuota} 开着={面板开着} set开着={set面板开着} />}
+      {ai && !小屏 && <AiDock userName={user.name} models={ai.models} aiQuota={ai.aiQuota} 开着={面板开着} set开着={记住面板} />}
     </div>
   );
 }

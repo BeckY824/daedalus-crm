@@ -6,6 +6,7 @@ import { App, Dropdown, Input, Modal } from "antd";
 import { PlusOutlined, MoreOutlined } from "@ant-design/icons";
 import { 新起一屏, 当前对话 } from "@/lib/home-thread";
 import { 重命名对话, 删除对话, type 对话概要 } from "./threads";
+import WidthHandle, { 对话列表把手 } from "@/components/WidthHandle";
 
 /**
  * 首页中栏：问过的对话。
@@ -72,6 +73,8 @@ export default function ConversationList({ rows }: { rows: 对话概要[] }) {
 
   return (
     <aside className="pane pane-chat">
+      {/* 和左栏同一条能拖的缝：这一列装的是一句句问过的话，多长不是我们定的 */}
+      <WidthHandle 规格={对话列表把手} />
       <div className="pane-h">
         <span className="pane-t">
           对话

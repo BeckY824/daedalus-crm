@@ -211,6 +211,8 @@ a {
 .rail-resizer:hover::before, .rail-resizer:focus-visible::before { height: 28px; opacity: 1; }
 .rail-resizer:focus-visible::before, .rail-resizer:active::before { background: var(--brand); height: 44px; opacity: 1; }
 /* 拖动时：别让侧栏的字被选中，也别让光标跨过正文时变回箭头 */
+/* 贴在右侧面板左边的那条：它贴着窗口右缘，往左拖才变宽 */
+.rail-resizer-left { right: auto; left: -3px; }
 body.rail-resizing { cursor: col-resize; user-select: none; }
 .rail-up {
   display: inline-flex; align-items: center; gap: 0; max-width: 100%; position: relative; overflow: hidden;
@@ -1486,7 +1488,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-size: var(--fs-note); color: var(--brand-deep);
 }
-.dock-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.dock-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 /* 收起时：右边一条 44px 的窄边，常驻。
    **不能做成 position:fixed 的浮钮**——每个列表页的主动作（新建客户 / 新建渠道…）
@@ -1507,15 +1509,24 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .dock-rail-b:active { transform: scale(0.94); transition-duration: var(--t-press); }
 .dock-rail-k { font-size: 9px; line-height: 1; letter-spacing: -0.2px; }
 
-/* 窄模式下的对话：380 宽里没有那套问候和建议，只有对话本身 */
+/* 窄模式下的对话：380 宽里没有那套问候和建议，只有对话本身。
+   **min-height 必须归零**：.cli 默认是 calc(100vh - 100px)，那是给整页的首页算的，
+   放进面板里就把内容顶出容器——实地看到的是输入框贴着窗口最下沿、上面一大片空白。 */
+.cli-narrow { min-height: 0; flex: 1; min-width: 0; }
 .cli-narrow .cli-col { max-width: none; padding: 0 16px 16px; }
 .cli-narrow .cli-composer { padding-bottom: 0; }
-/* 贴着输入框上方。**不能用 flex column**：那会把「输入」「<kbd>/</kbd>」「看命令。」
+/* 还没问过：提示和输入框当成一组放在中间（和首页空屏一个道理），
+   不是把输入框钉在最下面、上面留一大片白。 */
+.cli-narrow.cli-empty .cli-col { justify-content: center; }
+/* **不能用 flex column**：那会把「输入」「<kbd>/</kbd>」「看命令。」
    各自变成一个 flex item 竖着排成三行（第一版就是这样）。要的是一段会自己折行的话。 */
 .cli-narrow-hint {
-  margin-top: auto; padding-bottom: var(--s3);
+  padding-bottom: var(--s3);
   font-size: var(--fs-note); color: var(--text-muted); line-height: 1.8;
 }
+/* 问过之后：记录往上长，输入框留在底下，整条自己滚——不跟着整页滚 */
+.cli-narrow:not(.cli-empty) .cli-col { justify-content: flex-end; }
+.dock-body { overflow-y: auto; }
 
 @media (prefers-reduced-motion: reduce) {
   .dock-rail-b:active { transform: none !important; }

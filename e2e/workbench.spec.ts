@@ -365,11 +365,21 @@ test("数据：三处看数并成一页，/reports 这条 URL 还在", async ({ 
 });
 
 test("问数据和首页用的是同一个输入框", async ({ page }) => {
+  /**
+   * 0.38.1 起全局 AI 面板在每一页都摆了一个同款输入框，所以这里要**限定在正文里**——
+   * 不限定的话 /overview 上会同时匹配到「问一个数」和面板里那个，strict mode 直接红。
+   * 两者确实是两件事：正文那个问的是数字、出图表（AskData），面板那个是 agent。
+   */
   await 登录(page);
   await page.goto("/overview");
-  await expect(page.locator(".cli-input textarea")).toBeVisible();
+  /* 正则锚在开头：面板那个是「问一位客户，或问一个数」，不锚的话两个都匹配上 */
+  const 问数据 = page.getByPlaceholder(/^问一个数/);
+  await expect(问数据).toBeVisible();
+  await expect(问数据.locator("xpath=ancestor::*[contains(@class,'cli-input')]")).toHaveCount(1);
   await page.goto("/dashboard");
-  await expect(page.locator(".cli-input textarea")).toBeVisible();
+  const 首页框 = page.getByPlaceholder(/^问一位/);
+  await expect(首页框).toBeVisible();
+  await expect(首页框.locator("xpath=ancestor::*[contains(@class,'cli-input')]")).toHaveCount(1);
 });
 
 test("输入框：字多了就长高，长到头才在框内滚——不是永远一行", async ({ page }) => {
@@ -524,6 +534,13 @@ test("从「新增客户」点进来时，列表要说清自己只是一个子�
 test("趋势图点一根柱子，看得到这一段是哪几笔凑出来的", async ({ page }) => {
   await 登录(page);
   await page.goto("/overview?view=" + encodeURIComponent("本年"));
+  /*
+    先把右边那块 AI 面板收起来（0.38 起它默认开着）。这条用例按**像素**在画布上扫着点，
+    而面板一开正文就窄 380，柱子全挪了位，扫到的都是空白。
+    要测的是「图能点开明细」，面板在不在不是这条的事。
+  */
+  await page.keyboard.press("ControlOrMeta+j");
+  await expect(page.locator("aside.dock")).toHaveCount(0);
   const 图 = page.locator(".ant-card", { hasText: "签约金额趋势" });
   await expect(图).toContainText("点柱子或下面的日期");
 

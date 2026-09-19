@@ -81,7 +81,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         extraCssText: "box-shadow:0 6px 20px rgba(16,43,77,.12);border-radius:8px;",
       },
       legend: {
-        data: ["新增客户", "活跃客户"],
+        data: ["累计客户", "活跃客户"],
         left: 0,
         top: 0,
         icon: "circle",
@@ -105,7 +105,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
       },
       series: [
         {
-          name: "新增客户",
+          name: "累计客户",
           type: "line",
           smooth: true,
           symbolSize: 5,
@@ -243,6 +243,15 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             }
           >
             <Chart option={trendOption} height={320} />
+            {/*
+              口径必须写出来。2026-09-19 用户报上来的：昨天加了一位客户，今天这条线还是 1，
+              而图例写着「新增客户」——按那个说法今天该是 0。**画的是累计，名字写的是新增**，
+              标签在说谎。数据没错，错的是它没说清自己是什么。
+              「活跃」更是没人猜得到，所以一并写明。这一页的规矩：数字必须说得清自己是怎么来的。
+            */}
+            <div className="stat-delta" style={{ marginTop: 8 }}>
+              累计客户 = 截至当天库里一共有多少位；活跃客户 = 其中最近 30 天有过跟进记录的
+            </div>
           </Card>
         </Col>
 

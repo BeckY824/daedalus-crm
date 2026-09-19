@@ -95,7 +95,12 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   ).length;
 
   // 近 90 天趋势：两条线都是「截至当天的累计值」
-  // 新增客户 = 累计客户数；活跃客户 = 其中当天之前 30 天内有过跟进的客户数
+  /*
+    两条线：**累计**客户数（不是当日新增）和活跃客户数。
+    2026-09-19 之前图例把第一条写成「新增客户」，而它画的是累计——
+    用户昨天加了一位，今天这条线还是 1，按「新增」的说法今天该是 0。
+    数据没错，是名字在说谎；名字和口径都在 DashboardView 里改正了。
+  */
   const days = Array.from({ length: 90 }, (_, i) => now.subtract(89 - i, "day"));
   const followDates = await prisma.followUp.findMany({
     select: { customerId: true, occurredAt: true },

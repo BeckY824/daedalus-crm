@@ -76,8 +76,13 @@ export default function CommandBar() {
       }
       if (!((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k")) return;
       e.preventDefault();
-      // 这一页自己有问答框就把光标给它——那才是这一页的主动作
-      const 框 = document.querySelector<HTMLTextAreaElement>(".cli-input textarea");
+      /*
+        这一页**自己**有问答框就把光标给它——那才是这一页的主动作。
+        「自己的」要当真：0.38 起右边那块全局 AI 面板在每一页都摆了一个同款输入框，
+        不排除它的话 ⌘K 在任何页面都只会去聚焦面板，跳转单再也弹不出来。
+        ⌘K 和 ⌘J 是两件事：一个是「去哪儿 / 问一句」，一个是那块面板。
+      */
+      const 框 = [...document.querySelectorAll<HTMLTextAreaElement>(".cli-input textarea")].find((el) => !el.closest(".dock"));
       if (框 && !open) {
         框.focus();
         框.select();
