@@ -9,8 +9,7 @@
  *   4. 收起时是窄边不是浮钮：浮钮会压住每个列表页右上角的主动作（第一版就是这么撞的）
  */
 import { test, expect, type Page } from "@playwright/test";
-import { createHash, createCipheriv, randomBytes } from "node:crypto";
-import { 连库 } from "./mock-data";
+import { 装个假模型, 拆掉假模型 } from "./fake-llm";
 
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 
@@ -18,34 +17,11 @@ const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
  * 面板只在配了 AI 时才渲染——没配就不该有这个入口，而不是点开一个说"先去配 AI"的空壳。
  * 默认 e2e 故意把 LLM_API_KEY 设成空（见 playwright.config.ts：记录页的 AI 面板打开即生成，
  * 有 key 的话每条用例都会真调一次模型）。所以这一组自己往库里写一条配置，
- * **baseUrl 指向一个死端口**：万一哪里真发了请求，立刻失败，绝不会打到真的中转站。
- * 跑完删掉，不留给后面的用例。
+ * 装的那个模型指向一个死端口（见 fake-llm.ts，它走的是人真正会走的那条设置路）。
+ * 跑完拆掉，不留给后面的用例。
  */
-const LLM设置 = "llm";
-/**
- * 和 lib/settings.ts 的 encryptSecret 同一套（aes-256-gcm，密钥是 `setting-secret:<AUTH_SECRET>` 的 sha256）。
- * 不直接 import 那个模块：它是服务端模块，Playwright 这个进程里加载不起来。
- * AUTH_SECRET 必须和 playwright.config.ts 里 webServer 的那个一字不差，否则服务端解不出来、当作没配。
- */
-function 加密(plain: string): string {
-  const key = createHash("sha256").update(`setting-secret:e2e-only-secret-not-used-in-production-0123456789`).digest();
-  const iv = randomBytes(12);
-  const c = createCipheriv("aes-256-gcm", key, iv);
-  const data = Buffer.concat([c.update(plain, "utf8"), c.final()]);
-  return "enc:v1:" + Buffer.concat([iv, c.getAuthTag(), data]).toString("base64");
-}
-
-test.beforeAll(async () => {
-  const db = 连库();
-  const value = JSON.stringify({ baseUrl: "http://127.0.0.1:9/v1", model: "e2e-fake", apiKeyEnc: 加密("e2e-fake-key") });
-  await db.setting.upsert({ where: { key: LLM设置 }, create: { key: LLM设置, value }, update: { value } });
-  await db.$disconnect();
-});
-test.afterAll(async () => {
-  const db = 连库();
-  await db.setting.deleteMany({ where: { key: LLM设置 } });
-  await db.$disconnect();
-});
+test.beforeAll(async ({ browser }) => 装个假模型(browser));
+test.afterAll(async ({ browser }) => 拆掉假模型(browser));
 
 async function 登录(page: Page) {
   await page.goto("/login");

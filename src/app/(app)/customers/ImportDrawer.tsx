@@ -1,12 +1,14 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { App, Alert, Button, Drawer, Empty, Radio, Select, Space, Steps, Switch, Table, Tag, Typography, Upload } from "antd";
-import { InboxOutlined } from "@ant-design/icons";
+import { App, Alert, Button, Drawer, Empty, Input, Radio, Segmented, Select, Space, Steps, Switch, Table, Tag, Typography, Upload } from "antd";
+import { InboxOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { 解析CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 猜列, 像表头, type 字段名 } from "@/lib/import/fields";
 import { 改动键 } from "@/lib/import/plan";
+import { 粘贴字数上限, type 编造格 } from "@/lib/import/paste";
 import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
+import { 粘成表格 } from "./ai";
 import type { BusinessConfig } from "@/lib/business-config";
 
 /**
@@ -18,12 +20,22 @@ import type { BusinessConfig } from "@/lib/business-config";
  * 全站那条布局规则（全局导航稳定，局部结构服从任务）在这儿的落法就是：
  * 不加第九个左栏条目，从客户列表页头上那颗按钮进。
  *
- * ## xlsx 在这一层变成和 csv 一样的东西
+ * ## 三个来路，一条管线
  *
- * 浏览器里解析完立刻转成同一个二维数组（`成表` 的入参），**从这里往后只有一套逻辑**。
- * 两条管线的下场是复核、预览、撤销各写两遍，其中一遍迟早落后。
- * 解析器在 lib/import/xlsx.ts，按需加载——它带着 fflate，
- * 只导 csv 的人不该为此多下一份 js。
+ * csv、xlsx、粘一段文本，三条路都在第一步里收成同一个二维数组，
+ * **从第二步「对列」往后只有一套逻辑**。两套管线的下场是复核、预览、撤销
+ * 各写两遍，其中一遍迟早落后。
+ *
+ * xlsx 的解析器在 lib/import/xlsx.ts，按需加载——它带着 fflate，
+ * 只导 csv 的人不该为此多下一份 js。粘贴那条路要过一次模型（lib/import/paste.ts
+ * 出提示词和核对，ai.ts 发那一次调用），**但模型的活儿只到「切成行和列」为止**：
+ * 切完的表和从 Excel 读出来的那个数组长得一模一样，日期怎么认、状态怎么对、
+ * 重复怎么并，全都还是下游那几个纯函数说了算。
+ *
+ * ## 粘贴那条路上 AI 不自动跑
+ *
+ * 粘进去不会有任何事发生，要人自己按「整理成表格」。这一次调用花钱、占次数，
+ * 而人往输入框里粘东西太便宜了——边想边粘、粘错了重粘都是常事。
  *
  * ## 这一版明确不做的
  *
@@ -34,17 +46,26 @@ export default function ImportDrawer({
   open,
   onClose,
   b,
+  aiEnabled,
   onDone,
 }: {
   open: boolean;
   onClose: () => void;
   b: BusinessConfig;
+  /** 接上模型了没有。没接上时「粘一段文本」那条路只说明原因，不给按钮 */
+  aiEnabled: boolean;
   onDone: () => void;
 }) {
   const { message, modal } = App.useApp();
   const 表 = useMemo(() => 字段表(b), [b]);
 
   const [步, set步] = useState(0);
+  const [来路, set来路] = useState<"文件" | "文本">("文件");
+  const [原文, set原文] = useState("");
+  /** 模型编出来、已经被清空的格子。只在粘贴那条路上会有 */
+  const [编造, set编造] = useState<编造格[]>([]);
+  /** 原文里有、整理出来的表里却没有的手机号 */
+  const [漏掉, set漏掉] = useState<string[]>([]);
   const [文件名, set文件名] = useState("");
   const [表头, set表头] = useState<string[]>([]);
   const [数据, set数据] = useState<string[][]>([]);
@@ -61,6 +82,10 @@ export default function ImportDrawer({
 
   function 重来() {
     set步(0);
+    set来路("文件");
+    set原文("");
+    set编造([]);
+    set漏掉([]);
     set文件名("");
     set表头([]);
     set数据([]);
@@ -92,15 +117,39 @@ export default function ImportDrawer({
         message.error("这份表里没有数据。第一行要是表头，第二行起是内容");
         return;
       }
-      set文件名(f.name);
-      set表头(t.表头);
-      set数据(t.数据);
-      set截断了(t.截断了);
-      set映射(猜列(t.表头, 表));
-      set改过({});
-      set步(1);
+      收表(f.name, t.表头, t.数据, t.截断了);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "这个文件读不出来");
+    } finally {
+      set忙(false);
+    }
+  }
+
+  /**
+   * 三条来路在这里汇合。**从这一行往后不再区分文件还是文本**——
+   * 猜列、复核、预览、落库、撤销看到的都是同一个二维数组。
+   */
+  function 收表(名: string, h: string[], d: string[][], 切了?: { 行?: number; 列?: number }) {
+    set文件名(名);
+    set表头(h);
+    set数据(d);
+    set截断了(切了);
+    set映射(猜列(h, 表));
+    set改过({});
+    set步(1);
+  }
+
+  /** 粘贴那条路：按了按钮才跑。跑完先让人看见这张表，确认无误再往下走 */
+  async function 整理() {
+    set忙(true);
+    try {
+      const r = await 粘成表格(原文);
+      if (!r.ok) return message.error(r.error);
+      set编造(r.编造);
+      set漏掉(r.漏掉);
+      收表(`粘贴的文本（${r.数据.length} 行）`, r.表头, r.数据, r.截断了);
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : "整理失败，请重试");
     } finally {
       set忙(false);
     }
@@ -180,6 +229,17 @@ export default function ImportDrawer({
 
       {步 === 0 && (
         <>
+          <Segmented
+            block
+            value={来路}
+            onChange={(v) => set来路(v as "文件" | "文本")}
+            options={["文件", "粘一段文本"].map((x) => ({ value: x === "文件" ? "文件" : "文本", label: x }))}
+            style={{ marginBottom: 16 }}
+          />
+          {来路 === "文本" ? (
+            <粘贴面板 {...{ 原文, set原文, 忙, aiEnabled, 整理, b }} />
+          ) : (
+        <>
           <Upload.Dragger
             accept=".csv,.xlsx,.xls,.txt,.tsv"
             maxCount={1}
@@ -202,11 +262,13 @@ export default function ImportDrawer({
             所以没有手机号的行进不来。导完可以整批撤销。
           </Typography.Paragraph>
         </>
+          )}
+        </>
       )}
 
       {步 === 1 && (
         <对列
-          {...{ 表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列 }}
+          {...{ 表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉 }}
         />
       )}
 
@@ -270,13 +332,84 @@ function 页脚({
   );
 }
 
+/**
+ * 第一步的另一条路：粘一段文本。
+ *
+ * 输入框是哑的——`onChange` 只存字，不触发任何调用。要人按下那颗按钮才走一次模型
+ * （见文件头「AI 不自动跑」）。按钮在没接模型、没粘东西、粘超了三种情况下都是灰的，
+ * 每一种旁边都写着为什么，而不是灰在那儿让人猜。
+ */
+function 粘贴面板({
+  原文, set原文, 忙, aiEnabled, 整理, b,
+}: {
+  原文: string; set原文: (v: string) => void; 忙: boolean; aiEnabled: boolean; 整理: () => void; b: BusinessConfig;
+}) {
+  const 称呼 = b.customer;
+  const 超了 = 原文.length > 粘贴字数上限;
+  return (
+    <>
+      <div style={{ background: "var(--brand-bg)", border: "1px solid var(--brand-line)", borderRadius: 8, padding: "12px 14px" }}>
+        <Input.TextArea
+          value={原文}
+          onChange={(e) => set原文(e.target.value)}
+          autoSize={{ minRows: 8, maxRows: 18 }}
+          disabled={忙 || !aiEnabled}
+          placeholder={`把${称呼}名单、群接龙、会议纪要，或者一段微信聊天记录粘进来。\n不用整理成表格，怎么来的就怎么粘。\n\n如：\n王强 13800001111 远山资本 下周三再聊\n李娜，手机 138-0000-2222，平川科技，已经加了微信`}
+        />
+        <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <Typography.Text type={超了 ? "danger" : "secondary"} style={{ fontSize: 12 }}>
+            {超了
+              ? `超了 ${(原文.length - 粘贴字数上限).toLocaleString()} 字。再多请存成 Excel 走「文件」那条路`
+              : `${原文.length.toLocaleString()} / ${粘贴字数上限.toLocaleString()} 字`}
+          </Typography.Text>
+          <Button
+            type="primary"
+            icon={<ThunderboltOutlined />}
+            loading={忙}
+            disabled={!aiEnabled || !原文.trim() || 超了}
+            onClick={整理}
+          >
+            整理成表格
+          </Button>
+        </div>
+      </div>
+
+      {!aiEnabled ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginTop: 14 }}
+          title="这条路要先接上模型"
+          description={
+            <span style={{ fontSize: 13 }}>
+              到「设置 → AI 接入」填上接口地址和 API Key 就能用。
+              在那之前，<b>从「文件」那条路导 Excel 或 CSV 一样能用</b>，而且不花钱、不走网络。
+            </span>
+          }
+        />
+      ) : (
+        <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14, marginBottom: 0 }}>
+          AI 只做一件事：把这段文本<b>切成行和列</b>，每一格都是原文里的原字——不改写、不补全、
+          不把「下周三」算成哪一天。切完先给你看，确认无误再往下走。
+          <br />
+          原文里找不到的格子会被清空并列给你；原文里有、表里没有的手机号也会列出来，
+          那多半是有人被漏掉了。
+          <br />
+          <b>要按上面那颗按钮才跑</b>，一次花一次 AI 次数。文本不传给我们，只发给你自己配的那个模型。
+        </Typography.Paragraph>
+      )}
+    </>
+  );
+}
+
 /** 第二步：每一列对到哪个字段。**认人那一列没指出来就不让走**，见下面那条提示 */
 function 对列({
-  表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列,
+  表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉,
 }: {
   表头: string[]; 数据: string[][]; 映射: (字段名 | null)[]; set映射: (m: (字段名 | null)[]) => void;
   表: ReturnType<typeof 字段表>; 认人列: number; 文件名: string; 截断了?: { 行?: number; 列?: number }; b: BusinessConfig;
   没对上的列: 导入方案["没对上的列"]; set没对上的列: (v: 导入方案["没对上的列"]) => void;
+  编造: 编造格[]; 漏掉: string[];
 }) {
   const 选项 = [{ value: "", label: "没有对应字段" }, ...表.map((f) => ({ value: f.名, label: f.label + (f.必填 ? "（必填）" : "") }))];
   // 有表头、却没对上任何字段的那几列。没表头的不算——它并进备注也是一串没出处的值
@@ -321,6 +454,44 @@ function 对列({
               第一行里有像电话号码的格子，而表头那一行不该有。
               照现在这样导，<b>第一行那个人会被当成表头吃掉</b>。
               请在 Excel 里最上面插一行、写上每列叫什么，再回来重导。
+            </span>
+          }
+        />
+      )}
+      {/*
+        下面这两条只会在粘贴那条路上出现，是 lib/import/paste.ts 里那两条核对的结果。
+        它们摆在这一步、摆在表格上面，因为这是人第一次看见模型切出来的东西——
+        等到第三步「复核」再说就晚了：那一屏说的是「这一格读不懂」，
+        而这两条说的是「这一格根本不该存在」和「这个人不见了」，不是一回事。
+      */}
+      {编造.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 14 }}
+          title={`有 ${编造.length} 格是 AI 编的，已经清空`}
+          description={
+            <span style={{ fontSize: 13 }}>
+              这些字在你粘的原文里找不到：
+              {编造.slice(0, 5).map((x) => `第 ${x.行号} 行「${x.列名}」写的是「${x.值}」`).join("；")}
+              {编造.length > 5 ? ` 等 ${编造.length} 格` : ""}。
+              <b>已经按空着处理</b>，不会进库。原文里确实有的话，回上一步补进去再整理一次。
+            </span>
+          }
+        />
+      )}
+      {漏掉.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 14 }}
+          title={`原文里有 ${漏掉.length} 个手机号没进这张表`}
+          description={
+            <span style={{ fontSize: 13 }}>
+              {漏掉.slice(0, 5).join("、")}
+              {漏掉.length > 5 ? ` 等 ${漏掉.length} 个` : ""}。
+              这几个人很可能被漏掉了——<b>照现在这样导，他们不会进来</b>。
+              回上一步把他们那几行单独粘一次，或者存成 Excel 走文件那条路。
             </span>
           }
         />

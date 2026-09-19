@@ -13,6 +13,7 @@ export const AI_FEATURES = {
   wakeup: "盯盘话术",
   explain: "盯盘解读",
   invite: "转介绍邀请",
+  paste: "粘成表格",
 } as const;
 export type AiFeature = keyof typeof AI_FEATURES;
 

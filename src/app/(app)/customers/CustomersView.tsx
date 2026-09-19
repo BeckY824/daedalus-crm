@@ -58,6 +58,8 @@ type Props = {
    * 所以工具栏第一格是一枚带叉的标记，点叉就回到全部。
    */
   本月新增?: boolean;
+  /** 接上模型了没有。没接上时导入抽屉里「粘一段文本」那条路只说明原因，不给按钮 */
+  aiEnabled?: boolean;
   filters: {
     keyword: string;
     grade: string;
@@ -80,7 +82,7 @@ type Props = {
  * 其余的收进「列」里，勾了记在这台机器上。
  */
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 本月新增,
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 本月新增, aiEnabled,
 }: Props) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -375,6 +377,7 @@ export default function CustomersView({
       <ImportDrawer
         open={导入开着}
         b={b}
+        aiEnabled={Boolean(aiEnabled)}
         onClose={() => set导入开着(false)}
         onDone={() => router.refresh()}
       />

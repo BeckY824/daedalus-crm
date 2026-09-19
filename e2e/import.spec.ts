@@ -12,6 +12,8 @@
  *   4. 撤销真的把这一批删干净
  */
 import { test, expect, type Page } from "@playwright/test";
+import { 装个假模型, 拆掉假模型 } from "./fake-llm";
+import { 粘贴字数上限 } from "../src/lib/import/paste";
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
 const 戳 = String(Date.now()).slice(-6);
@@ -42,15 +44,27 @@ const 名单 = [
   `导入丁${戳},不详,某公司,,,`,
 ].join("\n");
 
-async function 打开抽屉并选文件(page: Page, name: string, 内容: string | Buffer, mime: string) {
+async function 打开抽屉(page: Page) {
   await page.goto("/customers");
   // 库空时空状态里还有一颗「从 Excel 导入」，两颗都叫「…导入」。
   // 页头那颗在 DOM 里排前面（图标让它的可读名字是「import 导入」，精确匹配对不上）
   await page.getByRole("button", { name: "导入" }).first().click();
   const 抽屉 = page.locator(".ant-drawer");
   await expect(抽屉.getByText("把 Excel 或 CSV 拖到这里")).toBeVisible();
+  return 抽屉;
+}
+
+async function 打开抽屉并选文件(page: Page, name: string, 内容: string | Buffer, mime: string) {
+  const 抽屉 = await 打开抽屉(page);
   // 拖拽区那个 input 是隐藏的，直接喂给它——和人点开文件选择器等价
   await 抽屉.locator('input[type="file"]').setInputFiles({ name, mimeType: mime, buffer: Buffer.from(内容) });
+  return 抽屉;
+}
+
+/** 切到「粘一段文本」那条路 */
+async function 去粘贴那条路(page: Page) {
+  const 抽屉 = await 打开抽屉(page);
+  await 抽屉.getByText("粘一段文本").click();
   return 抽屉;
 }
 
@@ -114,4 +128,57 @@ test("手机号那一列不指出来就不让往下走", async ({ page }) => {
   await expect(抽屉.getByText(/读到了/)).toBeVisible();
   await expect(抽屉.getByText("手机号那一列必须指出来")).toBeVisible();
   await expect(抽屉.getByRole("button", { name: "先指出手机号那一列" })).toBeDisabled();
+});
+
+/**
+ * 「粘一段文本」那条路。
+ *
+ * 这一组**不调模型**——默认 e2e 的 LLM_API_KEY 是空的，装的那个假模型指向一个死端口。
+ * 钉的是模型之外的四件事，每一件都在模型答得再好时也照样会出错：
+ *
+ *   1. 没接模型时这条路只说明原因，不摆一颗按了会失败的按钮
+ *   2. 粘进去不会自己跑——这一次调用花钱、占次数，得人按那颗按钮
+ *   3. 打不通时要说话。server action 抛出来的失败不接住的话，界面一声不吭，
+ *      人只会以为按钮坏了（文件那条路上踩过一次同样的坑）
+ *   4. 超字数时按钮是灰的，而且说得出超了多少——灰在那儿让人猜是最糟的
+ */
+test("没接模型时，「粘一段文本」只说明原因，不给按钮", async ({ page }) => {
+  await 登录(page);
+  const 抽屉 = await 去粘贴那条路(page);
+  await expect(抽屉.getByText("这条路要先接上模型")).toBeVisible();
+  // 「从文件那条路一样能用」这句必须在：这时候人要的是一条还能走的路，不是一句抱歉
+  await expect(抽屉.getByText(/一样能用/)).toBeVisible();
+  await expect(抽屉.getByRole("button", { name: /整理成表格/ })).toBeDisabled();
+});
+
+test.describe("粘一段文本（接上模型之后）", () => {
+  test.beforeAll(async ({ browser }) => 装个假模型(browser));
+  test.afterAll(async ({ browser }) => 拆掉假模型(browser));
+
+  test("粘进去不会自己跑；按了按钮而模型打不通时要说话，不能一声不吭", async ({ page }) => {
+    await 登录(page);
+    const 抽屉 = await 去粘贴那条路(page);
+    const 按钮 = 抽屉.getByRole("button", { name: /整理成表格/ });
+    await expect(按钮).toBeDisabled(); // 什么都没粘
+
+    await 抽屉.locator("textarea").fill(`王强 138${戳}01 远山资本，下周三再聊`);
+    await expect(按钮).toBeEnabled();
+    // 粘完等一会儿：这一步没有按按钮，就不该有任何事发生
+    await page.waitForTimeout(1500);
+    await expect(抽屉.getByText(/读到了/)).toHaveCount(0);
+
+    await 按钮.click();
+    // 死端口，必失败。要的是「说了话」并且**还停在这一步**，而不是默默把人留在转圈的按钮前
+    await expect(page.locator(".ant-message")).toBeVisible({ timeout: 30_000 });
+    await expect(抽屉.getByText(/读到了/)).toHaveCount(0);
+    await expect(按钮).toBeEnabled();
+  });
+
+  test("超了字数按钮就是灰的，而且说得出超了多少", async ({ page }) => {
+    await 登录(page);
+    const 抽屉 = await 去粘贴那条路(page);
+    await 抽屉.locator("textarea").fill("人".repeat(粘贴字数上限 + 7));
+    await expect(抽屉.getByText(/超了 7 字/)).toBeVisible();
+    await expect(抽屉.getByRole("button", { name: /整理成表格/ })).toBeDisabled();
+  });
 });

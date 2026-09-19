@@ -4,6 +4,7 @@ import CustomersView from "./CustomersView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
+import { llmEnabled } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -81,6 +82,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
   const 号 = await 号码脱敏器();
+  const aiEnabled = await llmEnabled();
 
   return (
     <CustomersView
@@ -126,6 +128,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         channelOwnerId: sp.channelOwnerId ?? "",
       }}
       本月新增={sp.createdWithin === "本月"}
+      aiEnabled={aiEnabled}
     />
   );
 }
