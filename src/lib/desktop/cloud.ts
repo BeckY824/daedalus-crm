@@ -25,6 +25,12 @@ import path from "node:path";
 export type 云端凭据 = {
   baseUrl: string;
   token: string;
+  /**
+   * 云端账号 id。0.39.2 加的：桌面端按账号把数据分目录存（desktop/accounts.js），
+   * 壳用它算出目录名。**升级上来的 .cloud.json 里没有这一项**——那时还没有它，
+   * 而人不会为了升级再登录一次；壳会在启动校验那一下从云端补回来。
+   */
+  accountId?: string;
   name: string;
   contact: string;
   /** 网关开放的模型，`id` 或 `id|说明` */
@@ -45,6 +51,26 @@ function 文件(): string {
   const dir = process.env.CRM_DATA_DIR;
   if (!dir) throw new Error("没有 CRM_DATA_DIR，不知道令牌该放哪");
   return path.join(dir, ".cloud.json");
+}
+
+/**
+ * 这个数据目录归哪个账号。壳在认领时写下的（desktop/accounts.js 的 `.owner`）。
+ *
+ * **不看 .cloud.json**：那是令牌，退出登录会被删掉。甲退出、乙在同一个目录上登录，
+ * 那一刻 .cloud.json 不存在，就看不出「换人了」——于是乙的名字和邮箱会被写进甲的
+ * User 表里。归属得是一份退出也不动的记号。
+ *
+ * 没有标记 = 未认领（第一次装应用，或者 0.39.2 之前升级上来还没认领过的那份），
+ * 那种目录谁登录就归谁，不算换人。
+ */
+export function 本目录归谁(): string | null {
+  const dir = process.env.CRM_DATA_DIR;
+  if (!dir) return null;
+  try {
+    return fs.readFileSync(path.join(dir, ".owner"), "utf8").trim() || null;
+  } catch {
+    return null;
+  }
 }
 
 export function 读(): 云端凭据 | null {
@@ -73,6 +99,25 @@ export function 清() {
 /** 这台机器的名字，登录时带上去。网页设置页「已登录的机器」那一栏靠它认出是哪台 */
 export function 设备名(): string {
   return os.hostname().replace(/\.local$/, "").slice(0, 40) || "桌面端";
+}
+
+/**
+ * 这台机器的标识：硬件 UUID 加盐 sha256 的那 64 位十六进制。
+ *
+ * 不在这儿算——算它要跑 `ioreg` / 读注册表，那是壳的活。壳启动本地服务时把算好的值
+ * 放进环境变量（desktop/machine.js 算，desktop/main.js 传），这里只负责取和校验。
+ * 进程启动时读一次就够：这个值在同一台机器上不会变（重装系统才变）。
+ *
+ * 取不到（老壳、非桌面端、硬件 UUID 读不出来）就是 null，登录时那个字段干脆不带。
+ * 服务端那边「不知道是哪台机器」= **不发注册赠送**，不是照发——
+ * 详见 lib/tenant/credits.ts 的文件头。所以这里宁可返回 null，
+ * **也绝不能自己编一个**（随机值、机器名的哈希、存在本地文件里的 id 都算编）：
+ * 编出来的东西要么每次启动都不一样（那就是「每次都是一台新电脑」，白送），
+ * 要么删个文件就能换一个（那就是「清 cookie 换额度」），两种都比诚实地承认取不到糟。
+ */
+export function 机器哈希(): string | null {
+  const v = (process.env.CRM_MACHINE_HASH ?? "").trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(v) ? v : null;
 }
 
 type 结果<T = unknown> = { ok: true; data: T } | { ok: false; error: string; 状态?: number };
@@ -125,17 +170,30 @@ export async function 策略(): Promise<{ register: boolean; reset: boolean }> {
   return { register: Boolean(r.data?.register), reset: Boolean(r.data?.reset) };
 }
 
-type 登录响应 = { token?: string; account?: { name?: string; contact?: string }; credits?: { 还剩?: number } };
+type 登录响应 = { token?: string; account?: { id?: string; name?: string; contact?: string }; credits?: { 还剩?: number } };
 
 /** 登录：账号密码换一枚长期设备令牌，顺手把可用模型拉下来，一起写进 .cloud.json */
-export async function 登录(target: string, password: string): Promise<结果<{ name: string; contact: string; 还剩?: number }>> {
+export async function 登录(target: string, password: string): Promise<结果<{ name: string; contact: string; 还剩?: number; 换了账号: boolean }>> {
   const 拒 = 拒绝非本地();
   if (拒) return 拒;
+  /*
+    登录**之前**先看这个目录现在归谁。写完 .cloud.json 就看不出来了，
+    而调用方必须知道这次是不是换了人：数据目录一个账号一份（desktop/accounts.js），
+    换了人就得让壳去换目录、重起本地服务，**在那之前一个字都不能往本机库里写**——
+    这会儿连着的还是上一个人的库。
+  */
+  const 旧归谁 = 本目录归谁();
   const 云 = 云端地址();
+  /*
+    `machine` 是这台电脑的标识（加盐 sha256 的硬件 UUID）。云端拿它做一件事：
+    **注册赠送的那 30 次一台机器只发一次**——同一台电脑上注册第二个账号不再另送一份。
+    取不到就整个字段不带（`undefined` 不会出现在 JSON 里），云端据此不发注册赠送、
+    只发每日的那几次；见 机器哈希() 上面那段和 lib/tenant/credits.ts。
+  */
   const r = await 请求<登录响应>(`${云}/api/account/token`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target, password, name: 设备名() }),
+    body: JSON.stringify({ target, password, name: 设备名(), machine: 机器哈希() ?? undefined }),
   });
   if (!r.ok) return r;
   const token = r.data?.token;
@@ -150,13 +208,19 @@ export async function 登录(target: string, password: string): Promise<结果<{
   const c: 云端凭据 = {
     baseUrl: 云,
     token,
+    accountId: r.data?.account?.id,
     name: r.data?.account?.name ?? "",
     contact: r.data?.account?.contact ?? "",
     models,
     loggedAt: new Date().toISOString(),
   };
   写(c);
-  return { ok: true, data: { name: c.name, contact: c.contact, 还剩: r.data?.credits?.还剩 } };
+  /*
+    目录上没有归属标记就当没换人：那是未认领的那一份（第一次装应用，
+    或者 0.39.2 之前升级上来的），本来就在等人认领，认领的正是他。
+  */
+  const 换了账号 = !!(旧归谁 && c.accountId && 旧归谁 !== c.accountId);
+  return { ok: true, data: { name: c.name, contact: c.contact, 还剩: r.data?.credits?.还剩, 换了账号 } };
 }
 
 /**

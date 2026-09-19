@@ -29,6 +29,12 @@ declare global {
       openLogs(): Promise<void>;
       diagnostics(): Promise<string>;
       useServer(url: string): Promise<{ ok: boolean; error?: string }>;
+      /**
+       * 换了云端账号：让壳把数据目录切到新账号那份、重起本地服务、重载窗口。
+       * 数据一个账号一份（desktop/accounts.js），而 DATABASE_URL 是启动时读死的。
+       * 只有登录页会调（见 login/LoginForm.tsx）。
+       */
+      switchAccount(): Promise<void>;
     };
   }
 }

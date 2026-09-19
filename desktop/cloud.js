@@ -50,7 +50,14 @@ async function 请求(url, init = {}) {
     return { ok: false, error: 超时 ? "服务器 20 秒没回应" : "连不上服务器" };
   }
   if (!res.ok) return { ok: false, error: `服务器返回 ${res.status}`, 状态: res.status };
-  return { ok: true };
+  // 正文解不出来不算失败：调用方多数只关心「认不认」，只有 校验() 要读里面的 accountId
+  let data = null;
+  try {
+    data = await res.json();
+  } catch {
+    /* 没正文或者不是 JSON */
+  }
+  return { ok: true, data };
 }
 
 /**
@@ -71,7 +78,12 @@ async function 校验() {
   const c = 读();
   if (!c) return { 有效: false, 原因: "没登录" };
   const r = await 请求(`${c.baseUrl}/api/gateway/v1/credits`, { headers: { Authorization: `Bearer ${c.token}` } });
-  if (r.ok) return { 有效: true };
+  /*
+    顺手把「你是谁」带回来。**升级上来的安装全靠这一下认领自己那份数据**：
+    它的 .cloud.json 是 0.39.2 之前写的，里面没有账号 id，而人不会为了升级
+    再登录一次。本地那份没有就用云端这份补上，见 main.js 启动那一段。
+  */
+  if (r.ok) return { 有效: true, accountId: c.accountId ?? r.data?.accountId ?? null };
   if (r.状态 === 401) {
     清();
     return { 有效: false, 原因: "已吊销" };
@@ -79,4 +91,18 @@ async function 校验() {
   return { 有效: true, 离线: true };
 }
 
-module.exports = { 初始化, 读, 清, 校验, 默认云端 };
+/**
+ * 从指定的 .cloud.json 里读账号 id。给 accounts.js 的迁移用——
+ * 那一刻还没决定数据目录，所以不能走 读()（它认的是 初始化() 设好的那个路径）。
+ * 读不出来就是 null，调用方据此把那份数据放进「未认领」，绝不猜一个账号塞给它。
+ */
+function 读账号id(文件路径) {
+  try {
+    const c = JSON.parse(fs.readFileSync(文件路径, "utf8"));
+    return typeof c.accountId === "string" && c.accountId ? c.accountId : null;
+  } catch {
+    return null;
+  }
+}
+
+module.exports = { 初始化, 读, 清, 校验, 读账号id, 默认云端 };

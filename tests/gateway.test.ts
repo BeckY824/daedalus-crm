@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vites
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 const 临时根 = path.join(os.tmpdir(), `crm-gw-${process.pid}`);
@@ -54,17 +55,31 @@ beforeEach(async () => {
 });
 
 let 序号 = 0;
-/** 建一个账号，并给它签一枚设备令牌 */
-async function 建账号带令牌() {
+/**
+ * 建一个账号，并给它签一枚设备令牌。
+ *
+ * 默认**连注册赠送一起结掉**，等于"他在自己那台机器上登录过"——桌面端拿得到令牌
+ * 就必然经过登录接口，那一步会结。2026-09-19 起注册赠送要一台机器发一次，
+ * 只在登录接口上发得出来（credits.ts），所以这里得照着真实路径给它一个机器标识；
+ * 不给的话这个账号上限只有每日那几次，下面所有按 30+3 算的用例都会跟着错。
+ *
+ * `没登录过: true` 是故意跳过那一步：用来验"拿不到机器信息的接口不该白送"。
+ */
+async function 建账号带令牌(opts: { 没登录过?: boolean } = {}) {
   const { createAccount } = await import("@/lib/tenant/accounts");
   const { 签发 } = await import("@/lib/tenant/device-token");
+  const { 结算赠送 } = await import("@/lib/tenant/credits");
+  const 第几个 = 序号++;
   const acc = await createAccount({
-    target: { kind: "phone", value: `1380000${String(序号++).padStart(4, "0")}` },
+    target: { kind: "phone", value: `1380000${String(第几个).padStart(4, "0")}` },
     password: "abcd1234",
     name: "桌面用户",
   });
   const { token, id } = await 签发(acc.id, "我的 MacBook");
-  return { acc, token, tokenId: id };
+  // 一台机器一个账号，各自互不影响
+  const 机器 = createHash("sha256").update(`网关测试机器:${第几个}`).digest("hex");
+  if (!opts.没登录过) await 结算赠送({ kind: "account", id: acc.id }, 机器);
+  return { acc, token, tokenId: id, 机器 };
 }
 
 function 请求(token: string | null, body: unknown, url = "https://app.example.com/api/gateway/v1/chat/completions") {
@@ -313,12 +328,29 @@ describe("模型列表与余额查询", () => {
     expect((await GET(请求(null, {}, "https://app.example.com/api/gateway/v1/credits"))).status).toBe(401);
   });
 
-  it("第一次查余额就把注册赠送补上", async () => {
+  it("登录过的账号来查，看到的就是他账上那些", async () => {
     const { token } = await 建账号带令牌();
     const { GET } = await import("@/app/api/gateway/v1/credits/route");
     const res = await GET(请求(token, {}, "https://app.example.com/api/gateway/v1/credits"));
     const { 注册赠送 } = await import("@/lib/tenant/credits");
     expect((await res.json()).还剩).toBe(注册赠送);
+  });
+
+  it("这个接口不会凭空补注册赠送——它拿不到机器，补就是个后门", async () => {
+    /*
+      2026-09-19 改：注册赠送一台机器只发一次，而这个接口只认一枚令牌、
+      不知道是哪台机器。原来它是顺手补注册赠送的——留着那一下，
+      登录时被「这台电脑领过了」拦下的第二个账号，打开应用看一眼额度就补上了。
+      详见 route.ts 里那段和 credits.ts 的文件头。更细的用例在 tests/machine-signup.test.ts。
+    */
+    const { token, acc } = await 建账号带令牌({ 没登录过: true });
+    const { GET } = await import("@/app/api/gateway/v1/credits/route");
+    const res = await GET(请求(token, {}, "https://app.example.com/api/gateway/v1/credits"));
+    const { 每日赠送 } = await import("@/lib/tenant/credits");
+    // 每日赠送照发：不知道是哪台机器不等于不让人用 AI
+    expect((await res.json()).还剩).toBe(每日赠送);
+    const { control } = await import("@/lib/tenant/control");
+    expect(await control.accountAiGrant.count({ where: { accountId: acc.id, reason: "signup" } })).toBe(0);
   });
 });
 
@@ -358,11 +390,12 @@ describe("发令牌的接口", () => {
     expect(没这个号.status).toBe(401);
     expect(await 没这个号.json()).toEqual(await 错.clone().json());
 
-    const 对 = await 发({ target: "13900001111", password: "abcd1234", name: "我的 Mac" });
+    const 机器 = createHash("sha256").update("发令牌接口的那台机器").digest("hex");
+    const 对 = await 发({ target: "13900001111", password: "abcd1234", name: "我的 Mac", machine: 机器 });
     expect(对.status).toBe(200);
     const data = await 对.json();
     expect(data.token).toMatch(/^dk_/);
-    // 发完令牌就该看得到自己有多少次
+    // 发完令牌就该看得到自己有多少次。注册赠送在这一步发，一台机器一次（见 machine-signup.test.ts）
     const { 注册赠送 } = await import("@/lib/tenant/credits");
     expect(data.credits.还剩).toBe(注册赠送);
 

@@ -94,6 +94,18 @@ export default function LoginForm({
       return;
     }
 
+    /*
+      换了个云端账号登录：数据目录要跟着换（一个账号一份，见 desktop/accounts.js），
+      而 DATABASE_URL 和 CRM_DATA_DIR 都是本地服务启动时读死的，非重起不可。
+      所以这里不跳 /dashboard——**这会儿的 /dashboard 还是上一个人的库**。
+      交给壳：它换目录、重起服务、把窗口重新载到新库的入口上。
+      壳不在（浏览器里打开的、老版本的壳）就退回硬跳转，至少不卡在这一屏。
+    */
+    if (res.换账号 && typeof window !== "undefined" && window.desktopShell?.switchAccount) {
+      void window.desktopShell.switchAccount();
+      return;
+    }
+
     /**
      * 用整页跳转，不用 router.push。
      * 软导航只拉 RSC 数据，会话 cookie 万一没生效（HTTP 下的 secure cookie、
@@ -193,6 +205,24 @@ export default function LoginForm({
                 注册新账号 ↗
               </a>
             )}
+          </Rise>
+        )}
+
+        {/*
+          **把拦得住和拦不住的都说出来。**
+
+          0.39.2 起数据按云端账号分开存（desktop/accounts.js），换个账号登录
+          看到的是他自己那一份——这一句的前半段说的是这件事。
+          但两个人如果共用同一个 macOS 登录，就共用同一套文件权限：
+          拿任何 SQLite 工具直接打开对方那个库文件，应用层分目录是拦不住的。
+          不说清楚的话，人会以为分了账号就等于上了锁，然后把真该分开的东西放进来。
+          真要彻底隔开只有一条路——各用各的 macOS 账号，那时连数据根都是两份。
+        */}
+        {桌面端 && (
+          <Rise 第几个={3} style={{ marginTop: 18, fontSize: 12, lineHeight: 1.7, textAlign: "center", color: "var(--text-muted)" }}>
+            每个账号的数据在这台电脑上各存一份，换账号登录看到的是你自己的。
+            <br />
+            同一个电脑账户下的人仍能翻到彼此的数据文件；要彻底分开，请各用各的电脑账户。
           </Rise>
         )}
       </motion.div>

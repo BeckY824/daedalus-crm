@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld("desktopShell", {
   openLogs: () => ipcRenderer.invoke("shell:open-logs"),
   diagnostics: () => ipcRenderer.invoke("shell:diagnostics"),
   useServer: (url) => ipcRenderer.invoke("shell:use-server", String(url ?? "")),
+  /**
+   * 换了云端账号：换数据目录、重起本地服务、重载窗口。页面传不进任何参数——
+   * 换成谁由主进程自己去读 .cloud.json，页面说了不算。
+   */
+  switchAccount: () => ipcRenderer.invoke("shell:switch-account"),
 });
 
 contextBridge.exposeInMainWorld("desktopNotify", {

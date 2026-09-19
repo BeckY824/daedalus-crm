@@ -20,7 +20,7 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   if (!multiTenant()) return NextResponse.json({ error: "这个部署没有账号体系" }, { status: 404 });
 
-  let body: { target?: string; password?: string; name?: string };
+  let body: { target?: string; password?: string; name?: string; machine?: string };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -49,13 +49,29 @@ export async function POST(req: Request) {
   keys.forEach(([k]) => 清除限流(k));
 
   const { token } = await 签发(account.id, body.name?.trim() || "桌面端");
-  // 顺手把注册赠送补上，桌面端第一次登录就能看到自己有多少次
+  /*
+    顺手把赠送结掉，桌面端第一次登录就能看到自己有多少次。
+
+    `machine` 是这台电脑的标识：硬件 UUID 加盐 sha256，桌面端算好传上来的
+    （desktop/machine.js → lib/desktop/cloud.ts 的 登录()）。**注册赠送一台机器只发一次**，
+    这里是全局唯一一个拿得到机器信息的调用点，所以也是唯一一个发得出注册赠送的地方。
+
+    带不上来的三种情况——老版本桌面端、硬件 UUID 取不到、根本不是我们的客户端——
+    一律按「不知道是哪台机器」处理：**不发注册赠送，每日赠送照发**。
+    反过来（不知道就照发）等于把这个闸门做成一个删掉字段就能过的摆设。
+    机器哈希的格式校验在账本那一层（credits.ts 的 规整机器哈希），这里原样转过去。
+  */
   const owner = { kind: "account" as const, id: account.id };
-  await 结算赠送(owner);
+  await 结算赠送(owner, typeof body.machine === "string" ? body.machine : null);
 
   return NextResponse.json({
     token,
-    account: { name: account.name, contact: account.phone ?? account.email ?? "" },
+    /*
+      `id` 是 0.39.2 加的：桌面端要按账号把数据分目录存（desktop/accounts.js），
+      得有一个**稳定又不是隐私**的键。手机号/邮箱不行——它会变成目录名，
+      出现在日志、崩溃报告和「打开数据文件夹」的窗口标题里。
+    */
+    account: { id: account.id, name: account.name, contact: account.phone ?? account.email ?? "" },
     credits: await 余额(owner),
   });
 }

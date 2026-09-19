@@ -180,6 +180,40 @@ model AccountAiGrant {
   @@index([accountId])
 }
 
+/// 一台机器的「注册赠送」被哪个账号领走了。
+///
+/// 免费次数原来只按账号算（幂等键是 `<accountId>:signup`），于是同一台电脑上
+/// 注册第二个账号就又是一份 30 次，控制面这边没有任何机器维度的约束。
+/// 这张表补上那一维：**一台机器的注册赠送只发得出去一次**，
+/// 给第一个在这台机器上登录桌面端的账号。规则实现见 lib/tenant/credits.ts。
+///
+/// `machineHash` 是硬件 UUID（macOS 的 IOPlatformUUID、Windows 的 MachineGuid、
+/// Linux 的 machine-id）**加盐 sha256** 之后的那 64 位十六进制，
+/// 由 desktop/machine.js 在用户机器上算好再传上来。
+/// **控制面不存任何可还原的硬件标识符**——存的只有这一串哈希。
+/// 盐写在 desktop/machine.js 里，它不是秘密（防的是拿一张硬件 UUID 表来对撞，
+/// 不是防我们自己）。
+///
+/// 这一维是客户端自报的：改得动客户端的人当然报得出一个新哈希。它防的是
+/// 「同一个人在同一台电脑上顺手再注册一个账号」这种最普通的重复领取，
+/// 不是有决心的对手——那种要靠支付或实名，不该由这张表来扛。
+///
+/// **只在真的发出注册赠送的那一刻记一条**，所以「占住一台机器」和「发出一份注册赠送」
+/// 严格一对一：已经领过注册赠送的账号换台机器登录不会白占掉那台机器的名额，
+/// 那台机器仍然能把它那份 30 次给别人（家里共用的那台电脑就是这个情形）。
+///
+/// 单独一张表，理由和上面几张一样：control-migrations/ 每次启动整个重跑，
+/// 新表带 IF NOT EXISTS 天然幂等，不必押在 runner 的「列已存在就跳过」上。
+model MachineSignup {
+  /// 加盐 sha256 的十六进制。主键 = 一台机器一条，幂等交给唯一约束判，不先查再插
+  machineHash String   @id
+  /// 领走这台机器那份注册赠送的账号
+  accountId   String
+  createdAt   DateTime @default(now())
+
+  @@index([accountId])
+}
+
 /// 一个账号经模型网关用掉了多少次
 model AccountAiUsage {
   accountId String   @id

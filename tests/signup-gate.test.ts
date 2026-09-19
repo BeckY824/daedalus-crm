@@ -111,9 +111,13 @@ describe("配了 SIGNUP_REDIRECT 就等于关闭自助注册", () => {
 });
 
 describe("默认不要验证码：填账号密码就能注册", () => {
-  it("只开账号、不开工作区，注册赠送记在账号上", async () => {
+  it("只开账号、不开工作区；那 30 次留到桌面端第一次登录时才发", async () => {
+    /*
+      **注册这一刻不发赠送**（2026-09-19）。注册在网页上办，这里不知道人坐在哪台电脑前，
+      而用户拍板「同一台电脑不重复送 30 次」——所以注册赠送整个挪到桌面端登录那一刻，
+      那是唯一一个带着机器标识的地方。见 lib/tenant/credits.ts 与 tests/machine-signup.test.ts。
+    */
     const { signup } = await import("@/app/signup/actions");
-    const { 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { 余额 } = await import("@/lib/tenant/credits");
     const { control } = await import("@/lib/tenant/control");
     const 邮箱 = 新邮箱();
@@ -124,7 +128,7 @@ describe("默认不要验证码：填账号密码就能注册", () => {
     expect(await control.workspace.count(), "注册不该开出工作区").toBe(工作区数);
     const acc = await control.account.findFirst({ where: { email: 邮箱 } });
     expect(acc, "账号要真的建出来——桌面端靠它登录").not.toBeNull();
-    expect((await 余额({ kind: "account", id: acc!.id })).还剩).toBe(注册赠送);
+    expect((await 余额({ kind: "account", id: acc!.id })).上限, "注册这一刻账上还是空的").toBe(0);
   });
 
   it("密码必须够长且含字母和数字——不验证手机号时，密码是唯一一道门", async () => {
@@ -180,17 +184,14 @@ describe("打开 SIGNUP_VERIFY 之后要验证码", () => {
     if (!开.ok) expect(开.error).toContain("邮箱");
   });
 
-  it("发码、填对，开出账号并送注册赠送", async () => {
+  it("发码、填对，开出账号", async () => {
     const { signup } = await import("@/app/signup/actions");
-    const { 注册赠送 } = await import("@/lib/tenant/ai-allowance");
-    const { 余额 } = await import("@/lib/tenant/credits");
     const { control } = await import("@/lib/tenant/control");
     const 邮箱 = 新邮箱();
     const code = await 拿验证码(邮箱);
     const r = await signup({ target: 邮箱, code, password: "abcd1234", agreed: true });
     expect(r.ok).toBe(true);
-    const acc = await control.account.findFirst({ where: { email: 邮箱 } });
-    expect((await 余额({ kind: "account", id: acc!.id })).还剩).toBe(注册赠送);
+    expect(await control.account.findFirst({ where: { email: 邮箱 } })).not.toBeNull();
   });
 
   it("验证码不对开不了；对的码只能用一次", async () => {
@@ -246,7 +247,6 @@ describe("不再认任何码", () => {
    */
   it("多传一个 invite 字段不会改变任何结果：不报错，也不多送", async () => {
     const { signup } = await import("@/app/signup/actions");
-    const { 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { 余额 } = await import("@/lib/tenant/credits");
     const { control } = await import("@/lib/tenant/control");
     const 邮箱 = 新邮箱();
@@ -255,7 +255,8 @@ describe("不再认任何码", () => {
     const r = await signup({ target: 邮箱, code, password: "abcd1234", agreed: true, ...{ invite: "ABCD-EFGH-JKLM" } } as Parameters<typeof signup>[0]);
     expect(r.ok).toBe(true);
     const acc = await control.account.findFirst({ where: { email: 邮箱 } });
-    expect((await 余额({ kind: "account", id: acc!.id })).还剩).toBe(注册赠送);
+    // 填码不该换来任何额度；注册赠送本身也已经挪到桌面端登录那一刻（见上）
+    expect((await 余额({ kind: "account", id: acc!.id })).上限).toBe(0);
   });
 
   it("控制面里已经没有那三张码表的客户端了", async () => {

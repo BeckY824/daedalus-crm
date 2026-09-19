@@ -29,6 +29,8 @@
       "local-server.js",
       "mcp-bridge.js",
       "cloud.js",
+      "accounts.js",
+      "machine.js",
       "updater.js",
       "route-memory.js",
       "install.js",

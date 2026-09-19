@@ -24,6 +24,8 @@ const fs = require("node:fs");
 const 本地服务 = require("./local-server");
 const MCP桥 = require("./mcp-bridge");
 const 云端 = require("./cloud");
+const 账号 = require("./accounts");
+const 机器 = require("./machine");
 const 更新 = require("./updater");
 const 安装 = require("./install");
 const 路径记忆 = require("./route-memory");
@@ -51,11 +53,41 @@ app.setPath("userData", process.env.CRM_DATA_ROOT || path.join(app.getPath("appD
 const 数据根 = app.getPath("userData");
 
 const CONFIG_FILE = path.join(数据根, "config.json");
-const 数据目录 = path.join(数据根, "data");
+/**
+ * 数据目录**一个云端账号一份**（0.39.2 起，见 desktop/accounts.js）。
+ *
+ * 在这之前是写死的 `<数据根>/data`——那个路径跟着 macOS 账号走，不跟云端账号走，
+ * 于是同一个 macOS 登录下 A 退出、B 登录，B 打开的是同一个库，A 的客户和跟进全看得见。
+ *
+ * 所以它不再是常量：启动时按指针定下来，换账号时跟着换。`换数据目录()` 是唯一的入口，
+ * 因为 cloud.js 记着的 .cloud.json 路径必须跟它一起走。
+ */
+let 数据目录 = null;
 const 日志文件 = path.join(数据根, "logs", "server.log");
 /** 应用本身（主进程）没接住的错误。本地服务的输出在 日志文件，两个分开，各看各的 */
 const 应用日志 = path.join(数据根, "logs", "app.log");
-云端.初始化(数据目录);
+/**
+ * 把数据目录切到 dir：cloud.js 记的 .cloud.json 路径必须跟着一起走，
+ * 否则壳会对着上一个账号的令牌判断「登没登录」。
+ */
+function 换数据目录(dir) {
+  数据目录 = dir;
+  云端.初始化(dir);
+}
+
+/*
+  升级：把 0.39.2 之前那份单独的 `data/` 认领进 accounts/。只改名，不复制不删除。
+  归谁看它自己的 .cloud.json；读不出账号（旧版写的里面没有 accountId）就先放进
+  「未认领」，等启动校验那一下从云端问出账号来再认领。**在这儿做，是因为
+  这时本地服务还没起来**——目录改名之后，CRM_DATA_DIR 那个字符串就作废了。
+*/
+try {
+  账号.迁移旧数据(数据根, 云端.读账号id);
+} catch (e) {
+  // 迁不动就按老样子跑（当前目录 会落到未认领），绝不能因为这一步开不了应用
+  console.error("[accounts] 迁移旧数据失败：", e?.message ?? e);
+}
+换数据目录(账号.当前目录(数据根).目录);
 
 /** 随包发布的本地服务。打包后在 Resources/server，开发时在 desktop/server-bundle */
 const 服务目录 = app.isPackaged ? path.join(process.resourcesPath, "server") : path.join(__dirname, "server-bundle");
@@ -169,11 +201,18 @@ async function 启动本地() {
    * AI 配置不再从这里塞环境变量：服务端自己读数据目录里的 .cloud.json（每次都重读），
    * 登录、退出即时生效，不用重启服务。这里只告诉它云端在哪（本机联调时能指到别处）。
    */
+  /*
+    机器标识（加盐 sha256 的硬件 UUID，见 machine.js）也在这里传进去：
+    登录接口要拿它把「注册赠送的 30 次一台机器只发一次」那条规则落下来。
+    在壳里算而不是在服务端算——它要跑 ioreg / 读注册表，那是壳该干的事；
+    取不到就传空串，服务端据此当「不知道是哪台机器」（不发注册赠送，不是照发）。
+    值在同一台机器上不变，所以随环境变量传一次就够，不用做成接口。
+  */
   本地 = await 本地服务.start({
     bundleDir: 服务目录,
     dataDir: 数据目录,
     logFile: 日志文件,
-    额外环境: { CRM_CLOUD_URL: 云端.默认云端 },
+    额外环境: { CRM_CLOUD_URL: 云端.默认云端, CRM_MACHINE_HASH: 机器.机器哈希() ?? "" },
   });
   /*
     MCP 的固定端口。本地服务每次换一个随机端口，而别人的 agent（Claude Code / Codex）
@@ -640,6 +679,55 @@ ipcMain.handle("notify:show", (_e, 内容) => {
 ipcMain.handle("shell:version", () => app.getVersion());
 ipcMain.handle("shell:backup", () => 备份数据库());
 ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
+/**
+ * 换了个云端账号登录：把数据目录切过去，重起本地服务，窗口重载。
+ *
+ * **换成谁不由页面说**——页面只喊一声「换了」，换成谁由这里自己去读
+ * 刚写下的 .cloud.json。preload 那座桥的规矩就是页面传不进参数，
+ * 页面被换掉也做不了别的（见 preload-app.js 开头）。
+ *
+ * 非重起不可：`DATABASE_URL` 和 `CRM_DATA_DIR` 都是子进程启动时烤进去的，
+ * 不重起就还连着上一个人的库。登录那头已经先一步收住了，换账号时
+ * 一个字都没往上一个人的库里写（见 login/actions.ts 的 桌面端登录）。
+ */
+ipcMain.handle("shell:switch-account", async () => {
+  const c = 云端.读();
+  if (!c?.accountId) return { ok: false, error: "还没登录" };
+  let 目标;
+  try {
+    目标 = 账号.认领(数据根, c.accountId);
+  } catch (e) {
+    崩溃.写崩溃日志(应用日志, "换账号失败", e);
+    return { ok: false, error: "换不了数据目录" };
+  }
+  if (目标.换了目录) {
+    /*
+      .cloud.json 刚被上一个目录里的服务写下了，而那份令牌属于新账号——
+      把它搬到新目录去，不然重起之后新目录里没有令牌，人又落回登录页。
+      搬完把旧目录里那份清掉：它记的是新账号的令牌，留在上一个人的目录里
+      等于把令牌留在别人家。
+    */
+    try {
+      const 旧文件 = path.join(数据目录, ".cloud.json");
+      fs.mkdirSync(目标.目录, { recursive: true });
+      fs.copyFileSync(旧文件, path.join(目标.目录, ".cloud.json"));
+      fs.chmodSync(path.join(目标.目录, ".cloud.json"), 0o600);
+      fs.rmSync(旧文件, { force: true });
+    } catch (e) {
+      崩溃.写崩溃日志(应用日志, "搬令牌失败", e);
+    }
+    换数据目录(目标.目录);
+    await 本地服务.stop();
+    try {
+      await 启动本地();
+    } catch (e) {
+      报告本地故障(e?.message ?? String(e));
+      return { ok: false, error: "本地服务起不来" };
+    }
+  }
+  win?.loadURL(本地入口());
+  return { ok: true };
+});
 ipcMain.handle("shell:open-logs", () => shell.showItemInFolder(日志文件));
 ipcMain.handle("shell:diagnostics", () => 诊断文本());
 ipcMain.handle("shell:use-server", (_e, url) => {
@@ -767,7 +855,23 @@ if (!app.requestSingleInstanceLock()) {
         本地存着一枚不代表还能用——不问的话应用照常开着，只有 AI 在背后一路 401。
         问不到（断网）当作还认，见 cloud.js 的 校验()。
       */
-      if (云端.读()) 启动时被吊销 = (await 云端.校验()).原因 === "已吊销";
+      if (云端.读()) {
+        const r = await 云端.校验();
+        启动时被吊销 = r.原因 === "已吊销";
+        /*
+          认领这份数据。**必须赶在本地服务起来之前**——认领可能是一次目录改名
+          （升级上来的那份、或者第一次装应用时建在「未认领」里的那份），
+          而 CRM_DATA_DIR 是启动时就烤进子进程环境的一个字符串，改完名它就作废了。
+          启动这一刻服务还没起，是唯一不用重启就能换目录的时机。
+        */
+        if (r.accountId) {
+          try {
+            换数据目录(账号.认领(数据根, r.accountId).目录);
+          } catch (e) {
+            console.error("[accounts] 认领失败，先按当前目录跑：", e?.message ?? e);
+          }
+        }
+      }
       // 没登录也照起：本地服务的 /login 就是云端账号的门
       try {
         await 启动本地();

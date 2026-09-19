@@ -28,8 +28,14 @@ describe("壳里没有账号", () => {
     for (const 不该有 of ["function 登录云端", "function 必须登录", "显示本机密码", "本机账号密码", 'label: "退出云端账号"', "修改云端账号密码…", "AI 剩余次数…", "登录云端账号…", "cloud-login"]) {
       expect(main.includes(不该有), `main.js 里不该再有「${不该有}」`).toBe(false);
     }
-    // 壳这份 cloud.js 只剩读、清、校验——登录退出那些在 src/lib/desktop/cloud.ts
-    expect(cloud).toMatch(/module\.exports = \{ 初始化, 读, 清, 校验, 默认云端 \}/);
+    /*
+      壳这份 cloud.js 只剩读、清、校验——登录退出那些在 src/lib/desktop/cloud.ts。
+      按「不该有什么」钉，不按「导出那一行长什么样」钉：原来写死了整行 module.exports，
+      于是 0.39.2 加一个 读账号id（给 accounts.js 迁移用的）就把它碰红了，
+      而那次改动和「壳里有没有账号」这件事毫无关系。
+    */
+    const 导出 = (cloud.match(/module\.exports = \{([^}]*)\}/)?.[1] ?? "").split(",").map((x) => x.trim());
+    for (const 该有 of ["读", "清", "校验"]) expect(导出, `cloud.js 该导出 ${该有}`).toContain(该有);
     for (const 不该有 of ["function 登录(", "function 退出(", "function 模型环境", "function 发码"]) {
       expect(cloud.includes(不该有), `cloud.js 里不该再有「${不该有}」`).toBe(false);
     }
@@ -41,7 +47,10 @@ describe("壳里没有账号", () => {
   });
 
   it("令牌被吊销：启动时和切回前台时各查一次，失效就送回登录页，不弹框", () => {
-    expect(main).toMatch(/if \(云端\.读\(\)\) 启动时被吊销 = \(await 云端\.校验\(\)\)/);
+    // 启动那一下：读到令牌就去校验，结果决定 启动时被吊销。
+    // 不钉整行——0.39.2 起这里还要顺手认领数据目录（见 desktop/accounts.js），
+    // 那一段把单行拆成了一个块，但「启动时校验一次」这件事没变。
+    expect(main).toMatch(/if \(云端\.读\(\)\) \{[\s\S]{0,400}?云端\.校验\(\)[\s\S]{0,400}?启动时被吊销/);
     expect(main).toMatch(/browser-window-focus[\s\S]*?云端\.校验\(\)/);
     const 段 = main.slice(main.indexOf("function 令牌失效了"), main.indexOf("/* ---------- 检查更新"));
     // 经 logout 走：业务会话 cookie 还活着，直接去 /login 会被 proxy 弹回首页

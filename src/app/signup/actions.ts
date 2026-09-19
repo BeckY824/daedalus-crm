@@ -5,8 +5,6 @@ import { multiTenant } from "@/lib/tenant/context";
 import { codeVisibleToClient, sendCode } from "@/lib/tenant/notify";
 import { checkPassword, consumeCode, createAccount, findAccountByTarget, isDisposableEmail, issueCode, parseTarget } from "@/lib/tenant/accounts";
 import { 自助注册已关闭, 需要验证码, 能收到码, 收不到码的提示 } from "@/lib/tenant/signup-policy";
-import { 赠送 as 账本赠送 } from "@/lib/tenant/credits";
-import { 注册赠送 } from "@/lib/tenant/ai-allowance";
 import { 检查限流, 记一次失败, 解析来源IP, IP阈值, 今日注册数, 记一次注册, 每IP每日注册上限 } from "@/lib/rate-limit";
 
 /**
@@ -128,9 +126,9 @@ export async function signup(input: {
   // 验证码校验通过到建账号之间还有一个窗口，同一个号并发注册会撞唯一索引，交给数据库判
   if (await findAccountByTarget(t.value)) return { ok: false, error: "这个号已经注册过了，直接登录吧" };
 
-  let account;
   try {
-    account = await createAccount({ target: t, password: input.password, name: input.name?.trim() || 从邮箱取名(t.value) });
+    // 建出来就完事：赠送挪到桌面端登录那一刻发（见下），这里不再需要拿着这个账号做什么
+    await createAccount({ target: t, password: input.password, name: input.name?.trim() || 从邮箱取名(t.value) });
   } catch {
     return { ok: false, error: "这个号已经注册过了，直接登录吧" };
   }
@@ -145,7 +143,21 @@ export async function signup(input: {
    * 所以注册完不再签会话、不再跳 /dashboard：新账号在网页版没有工作区，
    * 跳进去只会撞上「你还没有工作区」。目的地一律是桌面端。
    */
-  await 账本赠送({ kind: "account", id: account.id }, { amount: 注册赠送, reason: "signup", key: `${account.id}:signup` });
+  /*
+    **注册这一刻不再发那 30 次**（2026-09-19，用户拍板「同一台电脑不重复赠送」）。
+
+    原来这里直接往账号的赠送账本上记一条 signup。问题是注册在网页上办，
+    这里根本不知道人坐在哪台电脑前——于是同一台电脑上注册第二个账号就又是一份 30 次，
+    而桌面端登录时再想拦已经晚了：账上那一条已经在了，只加不减的账本不会往回收。
+
+    所以注册赠送整个挪到「桌面端第一次登录」那一刻发（api/account/token →
+    lib/tenant/credits.ts 的 结算赠送）：那是唯一一个既必然经过、
+    又带着机器标识的地方，一台机器只发一次。
+
+    对正常用户没有差别：这个账号除了桌面端没有别的用处（注册不开工作区，
+    网页版是另一套固定账号），额度也只有桌面端看得见——他装上应用登录进去，
+    30 次就在那儿。注册页上那句「送 30 次」仍然算数。
+  */
   if (from) 记一次注册(from);
   return { ok: true };
 }

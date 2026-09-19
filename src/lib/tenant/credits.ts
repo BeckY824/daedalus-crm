@@ -19,6 +19,30 @@ import { control } from "./control";
  * （SQLite 没有 ADD COLUMN IF NOT EXISTS，而 control-migrations/ 每次启动整个重跑），
  * 而 AiGrant 已经按 workspaceId 建好了。表分开，规则只有一份——
  * 规则要是抄两遍，改定价时必然漏一边。
+ *
+ * ---
+ *
+ * **account 这一路还有第三个维度：机器**（2026-09-19）。
+ *
+ * 在这之前一个账号一份 30 次，而账号是网页上自助注册的——同一台电脑上再注册一个号
+ * 就是再送 30 次，没有任何约束。现在 account 归属方的**注册赠送要一台机器发一次**：
+ * 哪个账号领走了这台机器那一份，记在 MachineSignup 表里（主键是加盐 sha256 的
+ * 硬件 UUID，控制面不存可还原的硬件标识符，见 desktop/machine.js）。
+ *
+ * 三件事跟着定死，少一件这个闸门就是虚的：
+ *
+ *   1. **注册赠送只在拿得到机器哈希的调用点上发。** 现在只有一处：
+ *      桌面端登录（api/account/token）。那是唯一一个客户端必然经过、
+ *      并且带着机器信息的地方。
+ *   2. **不知道是哪台机器 → 不发**，不是「照发」。这里最容易写反：
+ *      `/api/gateway/v1/credits`、网关的 chat 接口都只认一枚令牌、拿不到机器，
+ *      要是它们也照旧补注册赠送，那把请求里的机器字段删掉就又是白送，
+ *      这整件事等于没做。不发不等于不能用——每日赠送照结，见下面 结算赠送()。
+ *   3. **只加不减。** 已经发出去的赠送一条都不动：改法只是「新的那一条还发不发」，
+ *      所以改版之后没有任何人的余额会变少。
+ *
+ * workspace 那一路完全不看机器：一个工作区好几个同事、各自好几台电脑，
+ * 机器在那边不构成任何口径。那一支的代码和改动之前一字不差。
  */
 
 export type Owner = { kind: "workspace"; id: string } | { kind: "account"; id: string };
@@ -27,6 +51,19 @@ export const 注册赠送 = 30;
 export const 每日赠送 = 3;
 /** 余额低于这个数，当天才送。攒着不用的人不会无限累积 */
 export const 每日赠送门槛 = 30;
+
+/**
+ * 机器哈希长什么样：加盐 sha256 的十六进制，64 位。
+ *
+ * 规整放在账本这一层而不是各个路由里：它是账本的规矩，抄到调用点上迟早两处不一致。
+ * 不是这个样子的（空、短一截、大小写混着、根本不是十六进制）**一律当「不知道是哪台机器」**，
+ * 不当成一台叫这个名字的机器——否则随手编一个字符串就能占住一台机器的名额，
+ * 或者反过来，所有编错的客户端挤在同一个"机器"上互相挡。
+ */
+export function 规整机器哈希(v: string | null | undefined): string | null {
+  const s = (v ?? "").trim().toLowerCase();
+  return /^[0-9a-f]{64}$/.test(s) ? s : null;
+}
 
 /** 每日赠送的「天」按北京时间算，和服务器时区、用户所在地都无关，免得跨时区的人一天领两次 */
 export function 今天(now = new Date()): string {
@@ -81,13 +118,74 @@ export async function 回退一次(owner: Owner): Promise<void> {
 }
 
 /**
- * 结一次账：没领过注册赠送的补上，今天还没领、余额又不足门槛的领一份。
+ * 占住这台机器的注册赠送名额。抢到了（或者本来就是自己的）返回 true。
+ *
+ * 不先查再插：两台设备、或者一个人连点两次登录，先查再插会两边都判「没人占」。
+ * 主键冲突就说明已经有主了，那时再读一次看是不是自己——
+ * **是自己也算占住**，否则「插完机器、发赠送之前进程被杀」这种情形会把自己挡在门外，
+ * 那台机器的名额就永远悬着、谁也拿不到。
+ */
+async function 占住机器(machineHash: string, accountId: string): Promise<boolean> {
+  try {
+    await control.machineSignup.create({ data: { machineHash, accountId } });
+    return true;
+  } catch {
+    const row = await control.machineSignup.findUnique({ where: { machineHash } });
+    return row?.accountId === accountId;
+  }
+}
+
+/**
+ * account 归属方的注册赠送：一台机器发一次。
+ *
+ * 顺序是刻意的——**先看这个账号有没有领过，领过就到此为止，一个字都不写机器表**。
+ * 这一句同时管住两种情形：
+ *
+ *   - 同一个人在同一台电脑上退出再登录、或者一天登十次：`key` 已经在了，
+ *     直接返回，既不会重复发，也不会重复占。
+ *   - 同一个人换台电脑登录：他早就领过了，于是**不去占新那台机器的名额**——
+ *     「占住一台机器」和「发出一份注册赠送」严格一对一。不这样的话，
+ *     一个老账号换到家里的共用电脑上登一次，就会把那台电脑的 30 次白白烧掉，
+ *     家里第二个人再注册就什么都没有，而我们并没有多发出去一份。
+ *     反过来也成立：换电脑不会让他领不到本该有的额度，他的那份还在账上。
+ */
+async function 结算注册赠送(accountId: string, 机器: string | null | undefined): Promise<void> {
+  const key = `${accountId}:signup`;
+  if (await control.accountAiGrant.findUnique({ where: { key } })) return;
+
+  const hash = 规整机器哈希(机器);
+  // 不知道是哪台机器就不发。理由见文件头第 2 条——这是整个改动最容易写反的一句
+  if (!hash) return;
+  // 这台机器的那一份已经被别的账号领走了
+  if (!(await 占住机器(hash, accountId))) return;
+
+  await 赠送({ kind: "account", id: accountId }, {
+    amount: 注册赠送,
+    reason: "signup",
+    key,
+    // 留一句给客服查「他为什么只有 3 次」。只记哈希的头一截，够对得上，也还是不可还原
+    note: `机器 ${hash.slice(0, 12)}`,
+  });
+}
+
+/**
+ * 结一次账：该补的注册赠送补上，今天还没领、余额又不足门槛的领一份。
  *
  * 注册赠送在这里补而不是只在注册时发，是为了让改版之前就存在的工作区和账号
  * 不需要任何数据迁移就自动进入新规则。
+ *
+ * `机器` 是这次请求来自哪台机器（加盐 sha256 的硬件 UUID，桌面端登录时带上来）：
+ *   - workspace 归属方**完全不看它**，那边没有机器这个口径；
+ *   - account 归属方**没有它就不发注册赠送**（每日赠送照发）。
+ *     所以拿不到机器信息的调用点（网关的 credits / chat：它们只认一枚令牌）
+ *     不传就对了——不传等于不发，而不是白送。见文件头那三条。
  */
-export async function 结算赠送(owner: Owner): Promise<void> {
-  await 赠送(owner, { amount: 注册赠送, reason: "signup", key: `${owner.id}:signup` });
+export async function 结算赠送(owner: Owner, 机器?: string | null): Promise<void> {
+  if (owner.kind === "workspace") {
+    await 赠送(owner, { amount: 注册赠送, reason: "signup", key: `${owner.id}:signup` });
+  } else {
+    await 结算注册赠送(owner.id, 机器);
+  }
   const [送, 用] = await Promise.all([赠送总和(owner), 用掉次数(owner)]);
   if (送 - 用 >= 每日赠送门槛) return;
   await 赠送(owner, { amount: 每日赠送, reason: "daily", key: `${owner.id}:daily:${今天()}` });
@@ -106,6 +204,11 @@ export async function 余额(owner: Owner): Promise<{ 上限: number; 用掉: nu
  * 扣在真正发起模型调用**之前**：失败的那次也算。限的是"发起"而不是"成功"，
  * 否则一个反复失败的问题可以无限重试，而每次重试都是真金白银的上游调用。
  * 先自增再判断，超了再还回去——顺序反过来在并发下会多放行。
+ *
+ * **这里不带机器信息，也不该带**：扣费的入口只认一枚令牌，机器是登录那一刻的事。
+ * 于是 account 归属方在这条路上只结每日赠送，注册赠送一分都不发——
+ * 想让这条路也能发，就等于给了一个「不带机器就白送」的后门。
+ * 实际也不缺：桌面端必须先登录才拿得到令牌，注册赠送在那一步就结过了。
  */
 export async function 扣一次(owner: Owner): Promise<{ ok: true; 还剩: number } | { ok: false; 上限: number }> {
   await 结算赠送(owner);

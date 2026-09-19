@@ -12,7 +12,7 @@ import { verifyAccount } from "@/lib/tenant/accounts";
 import { listWorkspacesFor } from "@/lib/tenant/workspaces";
 import { 本地模式, 登录 as 云端登录 } from "@/lib/desktop/cloud";
 
-export type LoginResult = { ok: true } | { ok: false; error: string };
+export type LoginResult = { ok: true; 换账号?: boolean } | { ok: false; error: string };
 
 /**
  * 限流的 key 同时按「账号」和「来源 IP」记。
@@ -116,6 +116,17 @@ export async function 桌面端登录(target: string, password: string): Promise
 
   const r = await 云端登录(t, password);
   if (!r.ok) return { ok: false, error: r.error };
+
+  /*
+    换了个人登录：**到此为止，一个字都不往本机库里写**。
+
+    数据目录一个云端账号一份（desktop/accounts.js），而这会儿进程连着的还是
+    **上一个人的库**——再往下走就是把新登录这位的名字和邮箱写进人家的 User 表里。
+    接下来该由壳去换目录、重起本地服务，起来之后 server-entry.js 会照着
+    新目录里的 .cloud.json 把名字对一遍，和这里做的是同一件事。
+    会话也不在这儿建：那是上一个库里的管理员的会话。
+  */
+  if (r.data.换了账号) return { ok: true, 换账号: true };
 
   /**
    * 本机库里那个管理员就是「你」：登录邮箱对成账号的，名字**只在你没改过的时候**才跟着对。
