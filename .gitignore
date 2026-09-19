@@ -82,3 +82,6 @@ prisma/ws/
 desktop/node_modules/
 desktop/dist/
 prisma/e2e-hosted/
+
+# 图标生成的临时目录（scripts/make-icon.mjs 每次开头就 rmSync 它，产物在 desktop/assets/）
+/.icon-build/

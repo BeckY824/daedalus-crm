@@ -96,7 +96,7 @@ export async function describeLlmConfig(): Promise<{
   /** source=cloud 时：登录的是哪个账号 */
   account?: string;
   /** source=cloud 时：免费次数。问不到（断网、服务端没开网关）就是 null */
-  credits?: { 上限: number; 用掉: number; 还剩: number } | null;
+  credits?: 云端余额 | null;
 }> {
   const stored = await getSetting<StoredLlm>(LLM_KEY);
   const options = stored?.options ?? [];
@@ -140,7 +140,23 @@ function 抹掉密钥(text: string, key: string): string {
  * 让一个「看一眼余额」的动作把设置页卡住是本末倒置。超时给 6 秒——
  * 断网时它要在页面渲染前就放弃。
  */
-async function 问云端余额(env: { apiKey: string; baseUrl: string }): Promise<{ 上限: number; 用掉: number; 还剩: number } | null> {
+export type 云端余额 = {
+  上限: number;
+  用掉: number;
+  还剩: number;
+  /** 每天登录再送几次。老版本服务端不返回，那就不提这句 */
+  每日赠送?: number;
+  /** 注册赠送是多少次。用来把「注册页说的」和「你实际有的」对上 */
+  注册赠送?: number;
+  /**
+   * 注册赠送那一份发出去了没有。**false 才需要解释**——
+   * 这台电脑上已经有别的账号领过了（一台机器只送一次）。
+   * 老版本服务端不返回这个字段，此时是 undefined：不知道就什么都不说，别猜。
+   */
+  注册赠送已发?: boolean;
+};
+
+async function 问云端余额(env: { apiKey: string; baseUrl: string }): Promise<云端余额 | null> {
   const base = env.baseUrl.replace(/\/+$/, "");
   const key = env.apiKey;
   if (!base || !key) return null;
@@ -150,9 +166,16 @@ async function 问云端余额(env: { apiKey: string; baseUrl: string }): Promis
       signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return null;
-    const d = (await res.json()) as { 上限?: number; 用掉?: number; 还剩?: number };
+    const d = (await res.json()) as Partial<云端余额>;
     if (typeof d.还剩 !== "number") return null;
-    return { 上限: d.上限 ?? 0, 用掉: d.用掉 ?? 0, 还剩: d.还剩 };
+    return {
+      上限: d.上限 ?? 0,
+      用掉: d.用掉 ?? 0,
+      还剩: d.还剩,
+      每日赠送: typeof d.每日赠送 === "number" ? d.每日赠送 : undefined,
+      注册赠送: typeof d.注册赠送 === "number" ? d.注册赠送 : undefined,
+      注册赠送已发: typeof d.注册赠送已发 === "boolean" ? d.注册赠送已发 : undefined,
+    };
   } catch {
     // 断网、服务端没开网关、老版本服务端——都按「查不到」处理
     return null;

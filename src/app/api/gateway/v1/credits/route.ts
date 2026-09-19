@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { 网关认证 } from "@/lib/tenant/gateway-auth";
-import { 余额, 结算赠送, 每日赠送 } from "@/lib/tenant/credits";
+import { 余额, 结算赠送, 每日赠送, 注册赠送, 注册赠送发过吗 } from "@/lib/tenant/credits";
 
 export const dynamic = "force-dynamic";
 
@@ -32,5 +32,18 @@ export async function GET(req: Request) {
     顺手把「你是谁」带回去——**升级上来的老安装靠它认领自己那份数据**：
     它的 .cloud.json 是旧版写的，里面没有账号 id，而人不会为了升级再登录一次。
   */
-  return NextResponse.json({ ...(await 余额(owner)), 每日赠送, accountId: auth.accountId });
+  /*
+    `注册赠送已发` 是 0.40.0 加的，为的是让界面能解释「我为什么只有 3 次」。
+
+    同一台电脑上的第二个账号拿不到那 30 次（上面那段说的就是这件事），
+    而在此之前**界面上没有任何地方说得出原因**——注册页写着送 30，
+    设置页显示还剩 3，中间那句话谁都没说。这个字段就是那句话的依据。
+  */
+  return NextResponse.json({
+    ...(await 余额(owner)),
+    每日赠送,
+    注册赠送,
+    注册赠送已发: await 注册赠送发过吗(owner),
+    accountId: auth.accountId,
+  });
 }

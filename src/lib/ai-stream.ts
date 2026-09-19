@@ -26,8 +26,6 @@ export type StreamBody =
        */
       files?: { name: string; text: string }[];
     }
-  | { mode: "home"; question: string }
-  | { mode: "quick"; intent: "prep" | "recap" }
   | { mode: "brief"; customerId: string; question?: string };
 
 export type StreamJob<T> = { steps: StepEvent[]; answer?: T; ms?: number; /** 流式回答的已到达文本 */ text?: string };

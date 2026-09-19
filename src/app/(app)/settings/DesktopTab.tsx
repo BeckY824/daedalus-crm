@@ -6,6 +6,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 const 无订阅 = () => () => {};
 import { Alert, App, Button, Card, Form, Input, Modal, Space, Typography } from "antd";
 import { 桌面端发码, 桌面端改密码 } from "./actions";
+import { 赠送说明 } from "@/lib/credits-copy";
 
 /**
  * 设置页的「桌面端」栏：账号、AI 次数、备份、更新、诊断——原来散在系统菜单里的那些。
@@ -15,9 +16,11 @@ import { 桌面端发码, 桌面端改密码 } from "./actions";
  * 壳只留了六个杂事口子（preload-app.js 的 window.desktopShell），这里按按钮调它们。
  * 网页版没有那个桥，这一栏根本不会出现（page.tsx 只在本地模式传 桌面端）。
  */
+import type { 云端余额 } from "@/lib/llm";
+
 export type 桌面端信息 = {
   账号: string;
-  余额: { 上限: number; 用掉: number; 还剩: number; 每日赠送?: number } | null;
+  余额: 云端余额 | null;
 };
 
 declare global {
@@ -98,7 +101,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
           </Typography.Paragraph>
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
             {余额
-              ? `AI 免费次数还剩 ${余额.还剩} 次（一共送过 ${余额.上限} 次，用掉 ${余额.用掉} 次${余额.每日赠送 ? `；每天登录再送 ${余额.每日赠送} 次` : ""}）。`
+              ? `AI 免费次数还剩 ${余额.还剩} 次（一共送过 ${余额.上限} 次，用掉 ${余额.用掉} 次${赠送说明(余额) ? `；${赠送说明(余额)}` : ""}）。`
               : "AI 免费次数暂时查不到（可能没联网）。"}
             也可以在「AI 接入」里填自己的 Key，那样不走这个额度。数据始终只在这台机器上。
           </Typography.Paragraph>

@@ -14,8 +14,9 @@ import { 视图们, type 视图 } from "./views";
  * 两件事确实不同，但**人分不出来**——只会以为这一页坏了一个，或者不知道该用哪个。
  * 少一个框不丢任何能力：数字类问题面板照样答（走的是同一条 query_metric）。
  *
- * 连带 AskData.tsx / AskDataResult.tsx 一起删了。服务端那条 `mode: "home"`
- * （api/ai/stream → dashboard/ask.ts 的 askHome）暂时留着没人调，记在交接里另扫。
+ * 连带 AskData.tsx / AskDataResult.tsx 一起删了。服务端那半（`mode: "home"` / `mode: "quick"`
+ * 两条分支、dashboard/ask.ts 的 askHome 与 quickBrief、reports/ask.ts 的 askData）
+ * 2026-09-19 一并扫掉——首页的 /prep 和 /recap 早就改成给 agent 的一句话了。
  */
 export default function DataShell({
   view,

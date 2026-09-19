@@ -140,7 +140,13 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
             开通云端账号
           </Typography.Title>
           <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-            桌面端用它登录，送 {注册赠送} 次 AI 对话。数据仍然只在你自己的机器上
+            {/*
+              「一台电脑只送一份」这半句是 0.40.0 补的，不是营销话术上的谨慎。
+              注册赠送在**桌面端第一次登录**那一刻才发，而且认机器
+              （lib/tenant/credits.ts）。原来这里只写「送 30 次」，
+              于是同一台电脑上开第二个账号的人看到的是 3 次，界面上找不到任何解释。
+            */}
+            桌面端用它登录，第一次登录送 {注册赠送} 次 AI 对话（一台电脑只送一份）。数据仍然只在你自己的机器上
           </Typography.Text>
         </Rise>
 

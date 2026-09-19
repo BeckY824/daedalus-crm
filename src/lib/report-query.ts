@@ -5,7 +5,7 @@
  * （指标 × 拆分维度 × 时间范围），能查什么、怎么组合在代码里白纸黑字。
  * 模型永远碰不到数据库，最坏结果是"这个问题答不了"，不会是查错或注入。
  *
- * 纯函数，不碰网络与数据库；取数在 reports/ask.ts 里用 Prisma 完成。
+ * 纯函数，不碰网络与数据库；取数在 lib/report-run.ts 里用 Prisma 完成（调用方是 agent 的 query_metric）。
  */
 import { dayjs } from "@/lib/utils";
 

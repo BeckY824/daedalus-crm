@@ -1,4 +1,3 @@
-import { askHome, quickBrief } from "@/app/(app)/dashboard/ask";
 import { generateBrief } from "@/app/(app)/customers/[id]/ai";
 import type { Emit } from "@/lib/ai-steps";
 import { requireUser } from "@/lib/auth";
@@ -94,10 +93,6 @@ export async function POST(req: Request) {
             `AI 对话：「${body.question.trim().slice(0, 60)}」（${r.steps} 次工具调用${model ? `，${model}` : ""}${files ? `，带了 ${files.map((f) => f.name).join("、")}` : ""}）`,
           );
           res = { ok: true, answer: { text: r.text, records: r.records, customers: r.customers, proposals: r.proposals } };
-        } else if (body.mode === "home" && typeof body.question === "string") {
-          res = await askHome(body.question, emit);
-        } else if (body.mode === "quick" && (body.intent === "prep" || body.intent === "recap")) {
-          res = await quickBrief(body.intent, emit);
         } else if (body.mode === "brief" && typeof body.customerId === "string") {
           const r = await generateBrief({ customerId: body.customerId, question: typeof body.question === "string" ? body.question : undefined }, emit);
           res = r.ok ? { ok: true, answer: { brief: r.brief, records: r.records } } : r;

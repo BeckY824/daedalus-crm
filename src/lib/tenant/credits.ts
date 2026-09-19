@@ -191,6 +191,24 @@ export async function 结算赠送(owner: Owner, 机器?: string | null): Promis
   await 赠送(owner, { amount: 每日赠送, reason: "daily", key: `${owner.id}:daily:${今天()}` });
 }
 
+/**
+ * 注册赠送那一份到底发出去了没有。
+ *
+ * 为什么要单独有这么一个函数，而不是拿「上限 < 30」倒推：**倒推会越推越错**。
+ * 每日赠送每天加 3，攒上十天，一个从没拿到注册赠送的账号上限也超过 30 了。
+ * 而这个事实要用来对人解释「你为什么只有 3 次」，说错比不说更糟。
+ *
+ * workspace 那一路永远为真：那边不看机器，注册赠送在 结算赠送() 里无条件发。
+ */
+export async function 注册赠送发过吗(owner: Owner): Promise<boolean> {
+  const key = `${owner.id}:signup`;
+  const row =
+    owner.kind === "workspace"
+      ? await control.aiGrant.findUnique({ where: { key } })
+      : await control.accountAiGrant.findUnique({ where: { key } });
+  return !!row;
+}
+
 /** 只看不扣 */
 export async function 余额(owner: Owner): Promise<{ 上限: number; 用掉: number; 还剩: number }> {
   const [送, 用] = await Promise.all([赠送总和(owner), 用掉次数(owner)]);

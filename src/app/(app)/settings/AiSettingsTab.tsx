@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Form, Input, Radio, Select, Space, Typography, App } from "antd";
+import { 赠送说明 } from "@/lib/credits-copy";
+import type { 云端余额 } from "@/lib/llm";
 import { saveLlmSettings, testLlmSettings, clearLlmSettings, 查MCP接入, 开启MCP, 关闭MCP } from "./actions";
 import type { AiUsage } from "@/lib/ai-usage";
 import type { ModelOption } from "@/lib/llm";
@@ -19,7 +21,7 @@ export type LlmView = {
   /** source=cloud：登录的是哪个账号 */
   account?: string;
   /** source=cloud：免费次数余额。查不到就是 null */
-  credits?: { 上限: number; 用掉: number; 还剩: number } | null;
+  credits?: 云端余额 | null;
 };
 
 /**
@@ -153,6 +155,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
               llm.credits ? (
                 <>
                   走你登录的云端账号 <b>{llm.account}</b>，免费次数还剩 <b>{llm.credits.还剩}</b> 次（共送过 {llm.credits.上限}、已用 {llm.credits.用掉}）
+                  {赠送说明(llm.credits) && <div style={{ marginTop: 2 }}>{赠送说明(llm.credits)}</div>}
                 </>
               ) : (
                 <>走你登录的云端账号 {llm.account}，余额暂时查不到（断网，或云端没开网关）</>

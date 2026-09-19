@@ -180,6 +180,72 @@ describe("一台电脑一份注册赠送", () => {
   });
 });
 
+describe("界面得说得出「你为什么只有 3 次」", () => {
+  /*
+    0.39.2 上线后留下的那个缺口：注册页写着「送 30 次」，
+    同一台电脑上的第二个账号登录后看到 3 次，中间那句话谁都没说。
+    这一组钉的是那句话的**依据**——界面文案本身在 tests/credits-copy.test.ts。
+  */
+  it("没领到的账号，注册赠送发过吗() 就是假——不能靠「上限不到 30」倒推", async () => {
+    const { 注册赠送发过吗, 每日赠送 } = await import("@/lib/tenant/credits");
+    const 这台 = 电脑("共用的那台");
+    const 甲 = await 建账号();
+    const 乙 = await 建账号();
+    await 登录(甲.phone!, 这台);
+    const r = await 登录(乙.phone!, 这台);
+
+    expect(r.credits.还剩).toBe(每日赠送);
+    expect(await 注册赠送发过吗({ kind: "account", id: 甲.id })).toBe(true);
+    expect(await 注册赠送发过吗({ kind: "account", id: 乙.id })).toBe(false);
+  });
+
+  it("每日赠送攒够十天、上限早就超过 30 了，它仍然如实说「没领过」", async () => {
+    const { 注册赠送发过吗, 赠送, 余额, 注册赠送 } = await import("@/lib/tenant/credits");
+    const 乙 = await 建账号();
+    const owner = { kind: "account" as const, id: 乙.id };
+    // 直接补十份每日赠送，模拟一个用了十天的账号
+    for (let i = 0; i < 10; i++) {
+      await 赠送(owner, { amount: 5, reason: "daily", key: `${乙.id}:daily:2026-09-0${i}` });
+    }
+    expect((await 余额(owner)).上限).toBeGreaterThan(注册赠送);
+    expect(await 注册赠送发过吗(owner), "倒推会在这里说反").toBe(false);
+  });
+
+  it("/api/gateway/v1/credits 要把这个事实带给界面", async () => {
+    const { GET } = await import("@/app/api/gateway/v1/credits/route");
+    const { 注册赠送, 每日赠送 } = await import("@/lib/tenant/credits");
+    // 网关没配 Key 时这个接口整个 404，和上面那组一样先把三个变量摆上
+    process.env.GATEWAY_API_KEY = "upstream-key";
+    process.env.GATEWAY_BASE_URL = "https://relay.example.com/v1";
+    process.env.GATEWAY_MODELS = "deepseek-chat";
+    try {
+      const 这台 = 电脑("带出去的那台");
+      const 甲 = await 建账号();
+      const 乙 = await 建账号();
+      const a = await 登录(甲.phone!, 这台);
+      const b = await 登录(乙.phone!, 这台);
+
+      const 查 = async (token: string) =>
+        (await (await GET(new Request("https://app.example.com/api/gateway/v1/credits", { headers: { Authorization: `Bearer ${token}` } }))).json()) as {
+          注册赠送已发?: boolean;
+          注册赠送?: number;
+          每日赠送?: number;
+        };
+
+      const 甲的 = await 查(a.token);
+      expect(甲的.注册赠送已发).toBe(true);
+      expect(甲的.注册赠送).toBe(注册赠送);
+      expect(甲的.每日赠送).toBe(每日赠送);
+
+      expect((await 查(b.token)).注册赠送已发, "这一条是界面上那句解释的唯一依据").toBe(false);
+    } finally {
+      delete process.env.GATEWAY_API_KEY;
+      delete process.env.GATEWAY_BASE_URL;
+      delete process.env.GATEWAY_MODELS;
+    }
+  });
+});
+
 describe("已经领过的一条都不许回收", () => {
   it("机器被别人占着，也不影响改版之前就领过的老账号", async () => {
     /*
