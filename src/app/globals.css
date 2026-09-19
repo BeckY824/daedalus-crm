@@ -1495,12 +1495,20 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .shell-desktop .dock { padding-top: var(--drag-h); }
 .dock-h { display: flex; align-items: center; gap: var(--s2); padding: 14px 16px 10px; flex: none; }
 .dock-h b { font-size: var(--fs-section); font-weight: 600; color: var(--ink); flex: 1; }
-.dock-x, .dock-ctx-x {
+.dock-x, .dock-ctx-x, .dock-b {
   border: 0; background: transparent; color: var(--text-muted); cursor: pointer;
   width: 24px; height: 24px; border-radius: var(--r-ctl); display: grid; place-items: center;
   font-size: var(--fs-min); transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
-.dock-x:hover, .dock-ctx-x:hover { background: var(--hover); color: var(--ink); }
+.dock-x:hover, .dock-ctx-x:hover, .dock-b:hover { background: var(--hover); color: var(--ink); }
+
+/* 面板头的历史下拉。窄，所以标题和时间各占一头，标题该省略就省略 */
+.dock-hist-r { display: flex; align-items: baseline; gap: var(--s2); max-width: 260px; }
+.dock-hist-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-hist-d { flex: none; font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dock-hist-r.on .dock-hist-t { color: var(--brand-deep); font-weight: 600; }
+/* 转圈和「还没问过什么」：同一个位置，别让下拉的高度跳一下 */
+.dock-hist-x { min-width: 180px; padding: 2px 0; color: var(--text-muted); font-size: var(--fs-note); }
 
 /* 上下文条：它带了什么，写出来。一个隐形的上下文，答歪了没人解释得清为什么 */
 .dock-ctx {

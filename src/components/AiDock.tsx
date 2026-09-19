@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { CloseOutlined, MessageOutlined } from "@ant-design/icons";
 import WidthHandle, { 面板把手 } from "./WidthHandle";
+import DockThreads from "./DockThreads";
 import HomeChat, { type Suggestion } from "@/app/(app)/dashboard/HomeChat";
 import type { ModelOption } from "@/lib/llm";
 import { 认页面 } from "@/lib/ai-context-page";
@@ -106,6 +107,12 @@ export default function AiDock({
       <WidthHandle 规格={面板把手} />
       <div className="dock-h">
         <b>问一句</b>
+        {/*
+          新对话 / 历史。面板那一屏是纯内存的，重开应用就没了——而首页有中栏
+          那条列表可以翻，面板没有：在这一页问过的话，换一次页就再也找不回来，
+          尽管它一直好好地躺在库里。历史只列**在这一页**问过的（scope）。
+        */}
+        <DockThreads scope={pathname} />
         <button type="button" className="dock-x" onClick={() => set开着(false)} aria-label="关闭 AI 面板">
           <CloseOutlined />
         </button>

@@ -1,0 +1,31 @@
+-- 对话记下自己是在哪一页问的。
+--
+-- 0.39.1 之前这件事**只写在标题里**：落库时给标题加一个前缀（「线索 · 」），
+-- 见 dashboard/threads.ts 的 取标题()。那是给人看的字符串——能被重命名、
+-- 会被截断（前缀自己就 slice(0,12)）、也分不开 /customers 和 /customers/abc。
+-- 拿它当「这一页的对话」的键，早晚出事。所以单独存一列。
+--
+-- 值就是 lib/home-thread.ts 里的 scope：
+--   "home"            首页那一整屏
+--   "/leads"          线索页面板里那一屏（pathname，不含 query）
+--   "/customers/abc"  那位客户记录页的面板
+--
+-- NULL = 这一列之前落的库，不知道是在哪问的。**不从标题前缀倒推**：
+-- 前缀正是因为不可靠才被这一列取代，拿它回填等于把不可靠搬进新列。
+-- 这些对话在首页那条列表里照样看得到（那条列表不按 scope 过滤），
+-- 只是不会出现在某一页面板的历史里。
+--
+-- ---
+--
+-- **这是这个目录里第一个 ALTER TABLE。** 规矩因此改了一条，见 README：
+-- 「只能加表」放宽成「只能加表和加列」。SQLite 没有 ADD COLUMN IF NOT EXISTS，
+-- 所以这一句第二次执行必然抛 "duplicate column name" —— 四个 runner
+-- （docker-entrypoint.sh 三处 + desktop/server-entry.js + scripts/build-template.mjs）
+-- 都把它当预期跳过。其中单租户那一处原来没有 catch，是跟着这个迁移一起补的。
+-- tests/migrations.test.ts 把这两件事都钉住了。
+ALTER TABLE "AiConversation" ADD COLUMN "scope" TEXT;
+
+-- 面板的历史列表查的是 ownerId + scope，排序按 lastAskedAt。
+-- 一个人的对话最多列 200 条，走不走索引都不慢；建它是为了别在这儿留个
+-- 「等数据多了再说」——加列的时候顺手，以后再加就得再开一个迁移文件。
+CREATE INDEX IF NOT EXISTS "AiConversation_ownerId_scope_lastAskedAt_idx" ON "AiConversation"("ownerId", "scope", "lastAskedAt");

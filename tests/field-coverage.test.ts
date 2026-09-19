@@ -63,6 +63,7 @@ const 派生: Record<string, Record<string, string>> = {
   FollowUp: { ownerId: "记录人，不做转派" },
   AiConversation: {
     ownerId: "问的人，落库时打上。对话只有自己看得见，转派没有意义",
+    scope: "在哪一页问的，新建那条对话时打上。一条对话在哪一页开的，之后不会变——面板按它翻这一页的历史",
     lastAskedAt: "最后一次提问的时间，落一轮时自动维护——排序按它",
     projectId: "项目那一层这一版只有表没有界面（列必须现在就建，migrations 只能加表不能加列）",
     pinnedAt: "置顶。同上，列先留着，界面下一版再长出来",

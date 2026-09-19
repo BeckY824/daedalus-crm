@@ -148,3 +148,68 @@ describe("列表与增删改", () => {
     expect(那条?.条数).toBe(0);
   });
 });
+
+/**
+ * 对话记下自己是在哪一页问的（scope，migrations/006）。
+ *
+ * 在这之前这件事只写在标题前缀里（「线索 · 」）——一个给人看的字符串，
+ * 能被重命名、会被截断、也分不开 /customers 和 /customers/abc。
+ * 面板头上那枚「历史」要按页翻，拿前缀当键早晚出事，所以单独一列。
+ *
+ * 分工要钉死：**首页那条列表列全部，面板只列这一页的**。用户原话是
+ * 「每个页面的聊天独立，但是记录可以留存在首页的 list 里面」。
+ */
+describe("在哪一页问的（scope）", () => {
+  it("落一轮时记下 scope，按 scope 只列那一页的", async () => {
+    await 落一轮({ question: "线索页问的", answer: "答", scope: "/leads" });
+    await 落一轮({ question: "客户页问的", answer: "答", scope: "/customers" });
+    await 落一轮({ question: "首页问的", answer: "答", scope: "home" });
+
+    expect((await 列对话({ scope: "/leads" })).map((c) => c.title)).toEqual(["线索页问的"]);
+    expect((await 列对话({ scope: "home" })).map((c) => c.title)).toEqual(["首页问的"]);
+    // 没人在这一页问过
+    expect(await 列对话({ scope: "/channels" })).toEqual([]);
+  });
+
+  it("不给 scope 就是全部——首页那条列表走的正是这条路", async () => {
+    await 落一轮({ question: "线索页问的", answer: "答", scope: "/leads" });
+    await 落一轮({ question: "首页问的", answer: "答", scope: "home" });
+    expect((await 列对话()).map((c) => c.title).sort()).toEqual(["线索页问的", "首页问的"].sort());
+  });
+
+  it("往已有对话里再落一轮，不改它的 scope——在哪一页开的，之后不会变", async () => {
+    const a = await 落一轮({ question: "在线索页开的", answer: "答", scope: "/leads" });
+    // 同一条对话，这次传了别的 scope（面板不会这么干，但接口挡得住才算数）
+    await 落一轮({ conversationId: a.conversationId, question: "追问", answer: "答", scope: "/customers" });
+    expect((await prisma.aiConversation.findUniqueOrThrow({ where: { id: a.conversationId } })).scope).toBe("/leads");
+    expect((await 列对话({ scope: "/customers" })).length).toBe(0);
+    expect((await 列对话({ scope: "/leads" }))[0].条数).toBe(4);
+  });
+
+  it("这一列之前落的库（scope 是 NULL）不冒充任何一页，但首页照样列得出", async () => {
+    /*
+      **不从标题前缀倒推**：前缀正是因为不可靠才被这一列取代，
+      拿它回填等于把不可靠搬进新列。见 migrations/006。
+    */
+    await prisma.aiConversation.create({ data: { title: "线索 · 老对话", ownerId: 甲.id } });
+    expect(await 列对话({ scope: "/leads" })).toEqual([]);
+    expect(await 列对话({ scope: "home" })).toEqual([]);
+    expect((await 列对话()).map((c) => c.title)).toEqual(["线索 · 老对话"]);
+  });
+
+  it("scope 一样也不串人——隔离仍然按 ownerId", async () => {
+    await 落一轮({ question: "甲在线索页问的", answer: "答", scope: "/leads" });
+    换成(乙, "乙");
+    await 落一轮({ question: "乙在线索页问的", answer: "答", scope: "/leads" });
+    expect((await 列对话({ scope: "/leads" })).map((c) => c.title)).toEqual(["乙在线索页问的"]);
+    换成(甲, "甲");
+    expect((await 列对话({ scope: "/leads" })).map((c) => c.title)).toEqual(["甲在线索页问的"]);
+  });
+
+  it("面板只要 10 条，条数收得住；也不许拿它把上限顶穿", async () => {
+    for (let i = 0; i < 12; i++) await 落一轮({ question: `第${i}问`, answer: "答", scope: "/leads" });
+    expect((await 列对话({ scope: "/leads", 条数: 10 })).length).toBe(10);
+    // 200 是这个接口的天花板，传再大也只到 200
+    expect((await 列对话({ scope: "/leads", 条数: 9999 })).length).toBe(12);
+  });
+});

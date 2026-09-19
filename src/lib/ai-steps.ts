@@ -41,3 +41,23 @@ export function mergeSteps(list: StepEvent[], e: StepEvent): StepEvent[] {
   next[i] = e;
   return next;
 }
+
+/**
+ * 库里读回来的那段轨迹，认成 StepEvent[]。
+ *
+ * **形状对不上的整条丢掉，而不是照单放行。** `AiMessage.steps` 存的是一段自由 JSON，
+ * 写它的是当时那一版代码；读它的 summarizeSteps 上来就 `s.id.startsWith(...)`，
+ * 少一个 id 就是一个运行时 TypeError——而它在 HomeChat 的渲染路径上，
+ * 炸的是**整页白屏**，首页和面板一起。
+ *
+ * 这和 threads.ts 里 解析() 那句是同一个道理，只是那一层只挡住了「JSON 都解不出来」：
+ * 「解得出来但不是这个形状」原来一路放进了渲染。翻历史时少一行轨迹，
+ * 总好过整页打不开——那一行本来也只是「读了什么」的摘要，回答正文不受影响。
+ */
+export function 认步骤(v: unknown): StepEvent[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter(
+    (s): s is StepEvent =>
+      !!s && typeof s === "object" && typeof (s as StepEvent).id === "string" && typeof (s as StepEvent).label === "string",
+  );
+}

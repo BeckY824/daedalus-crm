@@ -6,20 +6,19 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { App, Dropdown, Tooltip } from "antd";
 import { ArrowUpOutlined, CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
-import type { BriefRecord } from "@/lib/ai-draft";
 import ProposalCard from "@/components/ProposalCard";
 import ModelPicker, { useModel, setModel } from "@/components/ModelPicker";
 import AskFiles, { type 附件 } from "@/components/AskFiles";
 import type { ModelOption } from "@/lib/llm";
-import type { Proposal } from "@/lib/agent/proposals";
 import { draftWakeup } from "./ai";
 import { draftInvite } from "../channels/ai";
 import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
-import { clearJob, getJob, runJob, setJobValue, useJob, useRunningKey } from "@/lib/ai-jobs";
+import { clearJob, getJob, runJob, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
-import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 载入对话, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
-import { 落一轮, type 历史消息 } from "./threads";
+import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
+import { 载入历史, type AgentAnswer, type 历史消息 } from "@/lib/thread-history";
+import { 落一轮 } from "./threads";
 import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
 import Signals from "./Signals";
@@ -28,41 +27,6 @@ import { summarizeSteps } from "@/lib/agent/step-summary";
 import { dayjs } from "@/lib/utils";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
-
-/**
- * 把库里读回来的消息摊成这一屏的「轮」。
- *
- * 一轮 = 一条 user + 紧跟着的一条 assistant。turn 的 id 直接用那条 user 消息的 id，
- * 这样 ai-jobs 里的 key（home:<id>）在刷新前后是同一个，不会翻一次历史多出一份任务。
- *
- * **建议卡不还原**：那是「要不要写进库」的待办，人当时已经处理过了；
- * 隔天翻历史再弹一张「点确认就写入」的卡片，等于把一件做完的事重新摆回台面。
- */
-function 历史成屏(messages: 历史消息[]): { turns: Turn[]; jobs: { key: string; value: StreamJob<AgentAnswer> }[] } {
-  const turns: Turn[] = [];
-  const jobs: { key: string; value: StreamJob<AgentAnswer> }[] = [];
-  for (let i = 0; i < messages.length; i++) {
-    const u = messages[i];
-    if (u.role !== "user") continue;
-    const a = messages[i + 1]?.role === "assistant" ? messages[i + 1] : null;
-    if (!a) continue;
-    i++;
-    turns.push({ id: u.id, question: u.text, kind: "ask", at: Date.parse(u.createdAt) });
-    const refs = (a.refs ?? {}) as { records?: BriefRecord[]; customers?: AgentAnswer["customers"] };
-    jobs.push({
-      key: `home:${u.id}`,
-      value: {
-        steps: (Array.isArray(a.steps) ? a.steps : []) as StepEvent[],
-        text: a.text,
-        ms: a.ms ?? undefined,
-        answer: { text: a.text, records: refs.records ?? [], customers: refs.customers ?? [], proposals: [] },
-      },
-    });
-  }
-  return { turns, jobs };
-}
-
-type AgentAnswer = { text: string; records: BriefRecord[]; customers: { id: string; name: string; followStatus: string }[]; proposals: Proposal[] };
 
 /** 斜杠命令：像 Claude Code 那样，输入 / 弹一张单子 */
 const COMMANDS: { cmd: string; hint: string; question: string }[] = [
@@ -166,10 +130,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
    */
   useEffect(() => {
     if (!会话) return;
-    const { turns: 轮, jobs } = 历史成屏(会话.messages);
-    // 「历史那几轮本来就在库里、别再落一遍」由 载入对话 一并认掉，见 home-thread
-    if (!载入对话(scope, 会话.id, 轮)) return;
-    for (const j of jobs) setJobValue(j.key, j.value);
+    载入历史(scope, 会话);
   }, [会话]);
 
   /**
@@ -201,6 +162,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
           // 建议卡不存：它是一件当时就处理完的事，翻历史不该再摆回来
           refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [] },
           标题前缀: 标题前缀,
+          // 新建那条对话时记下「在哪一页问的」。标题前缀是给人看的，这个才是键
+          scope,
         });
         认领对话(scope, r.conversationId);
         /*

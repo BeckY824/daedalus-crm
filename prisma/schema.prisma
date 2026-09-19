@@ -339,6 +339,9 @@ model AiConversation {
   /// 第一问的前 18 个字，可改
   title       String
   ownerId     String
+  /// 在哪一页问的：home = 首页，别的是 pathname（见 lib/home-thread.ts 的 scope）。
+  /// NULL = 这一列之前落的库，不知道在哪问的；不从标题前缀倒推，见 migrations/006
+  scope       String?
   /// 项目那一层先只有列，没有界面
   projectId   String?
   project     AiProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
@@ -351,6 +354,7 @@ model AiConversation {
   messages    AiMessage[]
 
   @@index([ownerId, lastAskedAt])
+  @@index([ownerId, scope, lastAskedAt])
   @@index([projectId])
 }
 

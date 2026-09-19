@@ -2,6 +2,14 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import type { 历史消息 } from "@/lib/thread-history";
+
+/**
+ * 「一条消息长什么样」定义在 lib/thread-history.ts——面板要在浏览器里
+ * 把它摊成屏上的轮，那段代码不能引这个 "use server" 文件。这里只再导出，
+ * 免得同一个形状在两处各写一份、哪天悄悄分叉。
+ */
+export type { 历史消息 };
 
 /**
  * 首页对话的历史：列、新建、读、落一轮、重命名、删。
@@ -22,17 +30,6 @@ export type 对话概要 = {
   pinnedAt: string | null;
   /** 有几轮问答。列表上不显示，用来判断「这条是空的」 */
   条数: number;
-};
-
-export type 历史消息 = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  model: string | null;
-  ms: number | null;
-  steps: unknown;
-  refs: unknown;
-  createdAt: string;
 };
 
 /**
@@ -59,13 +56,23 @@ function 解析(s: string | null): unknown {
   }
 }
 
-export async function 列对话(): Promise<对话概要[]> {
+/**
+ * 列对话。
+ *
+ * @param 筛 不给 = 全部，**首页那条列表走的就是这条路**：在哪一页问的都列出来，
+ *   那是要的（用户原话「每个页面的聊天独立，但是记录可以留存在首页的 list 里面」）。
+ *   给 scope = 只列在那一页问过的，面板头上那枚「历史」走这条。
+ *
+ * scope 是 NULL 的那些（这一列之前落的库）**不会出现在任何一个 scope 的结果里**：
+ * 不知道在哪问的就别猜，见 migrations/006。它们在首页那条列表里照旧。
+ */
+export async function 列对话(筛?: { scope?: string; 条数?: number }): Promise<对话概要[]> {
   const me = await requireUser();
   const rows = await prisma.aiConversation.findMany({
-    where: { ownerId: me.id, archivedAt: null },
+    where: { ownerId: me.id, archivedAt: null, ...(筛?.scope ? { scope: 筛.scope } : {}) },
     // createdAt 是兜底的排序键：同一毫秒里建的两条，按 lastAskedAt 分不出先后
     orderBy: [{ pinnedAt: "desc" }, { lastAskedAt: "desc" }, { createdAt: "desc" }],
-    take: 200,
+    take: Math.min(Math.max(筛?.条数 ?? 200, 1), 200),
     select: { id: true, title: true, lastAskedAt: true, pinnedAt: true, _count: { select: { messages: true } } },
   });
   return rows.map((r) => ({
@@ -104,10 +111,11 @@ export async function 读对话(id: string): Promise<{ id: string; title: string
   };
 }
 
-export async function 新建对话(标题 = "新对话", 标题前缀?: string | null): Promise<{ id: string }> {
+/** @param scope 在哪一页问的（lib/home-thread 的 scope）。不给 = 不知道，见 migrations/006 */
+export async function 新建对话(标题 = "新对话", 标题前缀?: string | null, scope?: string | null): Promise<{ id: string }> {
   const me = await requireUser();
   const c = await prisma.aiConversation.create({
-    data: { title: 取标题(标题, 标题前缀), ownerId: me.id },
+    data: { title: 取标题(标题, 标题前缀), ownerId: me.id, scope: scope ?? null },
     select: { id: true },
   });
   return c;
@@ -130,6 +138,15 @@ export async function 落一轮(input: {
   refs?: unknown;
   /** 问这一句时人在哪一页（「线索」）。首页不传 */
   标题前缀?: string | null;
+  /**
+   * 这一屏归哪儿：`home` 或 pathname（lib/home-thread 的 scope）。
+   *
+   * 只在**新建**那条对话时写进去，接着往已有对话里落的轮不改它——
+   * 一条对话是在哪一页开的，之后不会变。
+   * 和 `标题前缀` 的分工：前缀是给人看的字符串（能被重命名、会被截断），
+   * 这一列才是键。见 migrations/006。
+   */
+  scope?: string | null;
 }): Promise<{ conversationId: string }> {
   const me = await requireUser();
 
@@ -138,7 +155,7 @@ export async function 落一轮(input: {
     const 有 = await prisma.aiConversation.count({ where: { id, ownerId: me.id } });
     if (!有) id = null;
   }
-  if (!id) id = (await 新建对话(input.question, input.标题前缀)).id;
+  if (!id) id = (await 新建对话(input.question, input.标题前缀, input.scope)).id;
 
   const 串 = (v: unknown) => (v == null ? null : JSON.stringify(v));
   await prisma.$transaction([
