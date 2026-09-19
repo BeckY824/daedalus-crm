@@ -14,7 +14,35 @@ import { TOOLS } from "@/lib/agent/tools";
 import { SCHEMAS, 只读SCHEMAS } from "@/lib/agent/schemas";
 
 /** 从 tools.ts 那串给人看的 args 样例里抠出参数名 */
-const 样例参数 = (args: string) => [...args.matchAll(/"(\w+)"\s*:/g)].map((m) => m[1]);
+/**
+ * 从 args 样例串里抠出**顶层**参数名。
+ *
+ * 两处不显然：
+ *   1. 原来是 `/"(\w+)"\s*:/g`——`\w` 只认 ASCII，**中文参数名一个都匹配不到**。
+ *      0.39 的 query_records 参数全是中文（表 / 条件 / 排序…），这道守卫对它
+ *      等于不存在：schema 和样例对不上也不会红。清单的守卫自己有洞是最糟的一种。
+ *   2. 只能取顶层。query_records 的样例里嵌着 `{"字段": …, "运算": …}`，
+ *      那些是条件对象的键，不是工具参数——连它们一起取会把两个方向的断言都判错。
+ *      所以数括号深度，只收最外层那一圈。
+ */
+const 样例参数 = (args: string): string[] => {
+  const out: string[] = [];
+  let 深 = 0;
+  for (let i = 0; i < args.length; i++) {
+    const ch = args[i];
+    if (ch === "{" || ch === "[") 深++;
+    else if (ch === "}" || ch === "]") 深--;
+    else if (ch === '"' && 深 === 1) {
+      const 末 = args.indexOf('"', i + 1);
+      if (末 < 0) break;
+      const 词 = args.slice(i + 1, 末);
+      // 只有后面跟冒号的才是键（允许中间隔一个 `（可空）` 之类的说明）
+      if (/^\s*[:：]/.test(args.slice(末 + 1))) out.push(词);
+      i = 末;
+    }
+  }
+  return out;
+};
 
 describe("工具表 ↔ schema 表", () => {
   it("每个工具都有 schema——没有的话原生 function calling 里它是隐形的", () => {

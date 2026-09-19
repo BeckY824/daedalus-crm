@@ -24,7 +24,7 @@ const 串 = (说明: string) => ({ type: "string", description: 说明 });
 const 数 = (说明: string) => ({ type: "number", description: 说明 });
 const 真假 = (说明: string) => ({ type: "boolean", description: 说明 });
 
-/** 只读的十一个。MCP 开出去的就是这一组 */
+/** 只读的十二个（0.39 加了 query_records）。MCP 开出去的就是这一组 */
 export const 只读SCHEMAS: Record<string, Schema> = {
   search_customers: {
     type: "object",
@@ -96,6 +96,53 @@ export const 只读SCHEMAS: Record<string, Schema> = {
       ownerName: 串("销售负责人姓名"),
       channelName: 串("渠道名称"),
     },
+    additionalProperties: false,
+  },
+  /**
+   * 通用查询（0.39）。结构比别的工具复杂，但**复杂的是形状不是自由度**：
+   * 表名、字段名、运算符、关联路径全是白名单里的词，填错了
+   * `lib/agent/query.ts` 会退回一句「能用的是这些」，照着改一次就对。
+   *
+   * 这里刻意不把白名单枚举进 schema：九张表几十个字段铺开会把 prompt 撑爆，
+   * 而小模型面对一张超长的枚举表反而更容易挑错。名单写在工具说明里，
+   * 填错一次由错误信息纠正——一次往返，比每轮都背一遍便宜。
+   */
+  query_records: {
+    type: "object",
+    properties: {
+      表: 串("查哪张表：客户 / 线索 / 商机 / 签约 / 联系人 / 跟进记录 / 跟进计划 / 任务 / 渠道"),
+      条件: {
+        type: "array",
+        description: "筛选条件，彼此是「且」的关系。不给就是不筛",
+        items: {
+          type: "object",
+          properties: {
+            字段: 串("字段名，用中文，如 跟进状态 / 金额 / 建档时间"),
+            运算: 串("包含 / 等于 / 不等于 / 属于 / 大于 / 小于 / 不早于 / 不晚于 / 最近天数 / 为空 / 非空"),
+            值: { description: "运算为 为空/非空 时不填；属于 时给数组；最近天数 时给天数" },
+          },
+          required: ["字段", "运算"],
+        },
+      },
+      关联: {
+        type: "object",
+        description: "跨一张表筛选（只能跨一张）。如 表=签约、路径=签约.客户，就能筛「所属客户的姓名包含陈」",
+        properties: {
+          路径: 串("如 客户.来源渠道 / 商机.客户 / 签约.客户 / 联系人.客户 / 跟进记录.客户 / 跟进计划.客户 / 任务.客户"),
+          条件: { type: "array", description: "在那张表上的条件，形状同上", items: { type: "object" } },
+        },
+        required: ["路径", "条件"],
+      },
+      排序: {
+        type: "object",
+        properties: { 字段: 串("按哪个字段排"), 降序: 真假("true = 从大到小，默认 true") },
+        required: ["字段"],
+      },
+      取: 数("要几条，最多 50，默认 20"),
+      只计数: 真假("只想知道有多少条时给 true，不返回名单"),
+      分组: 串("按这个字段分组数个数（如 跟进状态）。不能按日期分组"),
+    },
+    required: ["表"],
     additionalProperties: false,
   },
   search_followups: {

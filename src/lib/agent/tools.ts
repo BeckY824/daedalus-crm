@@ -17,6 +17,7 @@ import { statusLabel } from "../business-config";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
 import { 扩同义词 } from "./synonyms";
+import { 校验规格, 说人话, 编译, 表们, 分组上限 } from "./query";
 import { buildProposal, describeProposal, missingFields, 可改字段表, 可改字段名单, type Proposal, type ProposalKind } from "./proposals";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "../constants";
 
@@ -545,6 +546,90 @@ export const TOOLS: Tool[] = [
     '{"id": "客户 id", "amount": 金额数字, "signedAt": "YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
     "add_contract",
   ),
+  /**
+   * 通用查询。**别的工具答不了的问题，交给它。**
+   *
+   * 十一个专用工具各自只认自己那几个参数，于是一整类真实问法没人接：
+   * 联系人根本没有工具（「有几个联系人是母亲」）、不能排序（「哪条线索最久没动」）、
+   * 不能跨表（「9 月签约的学员里哪几个是小红老师带来的」）。
+   *
+   * 它**不写 SQL**，只填一段受限的规格（见 lib/agent/query.ts）——
+   * 那些 SQL 护栏在这儿不是拦住的，是表达不出来。
+   *
+   * 排在专用工具后面登记是有意的：模型按顺序读工具表，能用专用工具解决的
+   * 不该绕到这儿来（专用工具的返回更贴合问题，过程条也更好读）。
+   */
+  {
+    name: "query_records",
+    description:
+      "通用查询：按任意条件找记录、排序、数个数、按某个字段分组统计。" +
+      "**别的工具能直接答的就别用它**（找客户用 search_customers、列渠道用 list_channels……）；" +
+      "它是给那些答不了的问题准备的：联系人（没有专门的工具）、要排序（「哪条线索最久没动」）、" +
+      "要跨一张表（「9 月签约的学员里哪几个是小红老师带来的」）、要按某字段分组数个数。\n" +
+      "能查的表：" + Object.keys(表们).join("、") + "。" +
+      "每张表有哪些字段、每个字段能用什么运算，填错了会告诉你正确的选项，照着改一次就行。",
+    args:
+      '{"表": "客户/线索/商机/签约/联系人/跟进记录/跟进计划/任务/渠道", ' +
+      '"条件": [{"字段": "字段名", "运算": "包含/等于/不等于/属于/大于/小于/不早于/不晚于/最近天数/为空/非空", "值": "值，为空和非空不填"}], ' +
+      '"关联": {"路径": "如 客户.来源渠道", "条件": [同上]}（可空，只能跨一张表）, ' +
+      '"排序": {"字段": "字段名", "降序": true}（可空）, "取": 20, ' +
+      '"只计数": false（问「有多少」时给 true），"分组": "字段名"（可空，按它分组数个数）}',
+    async run(args) {
+      /*
+        校验失败**不抛异常**，而是当成一次正常的工具结果返回错误说明。
+        抛出去的话 run.ts 只会记一句「工具出错」，模型看不到哪儿错了；
+        而这些错误信息全是「没有『意向高』这个取值，只能是：…」这种照着改一次就对的话。
+      */
+      let 规格;
+      try {
+        规格 = 校验规格(args);
+      } catch (e) {
+        return { summary: "查询写得不对", data: { error: e instanceof Error ? e.message : "查询规格不合法" } };
+      }
+
+      const 话 = 说人话(规格);
+      const { where, orderBy, take } = 编译(规格);
+      const 表定义 = 表们[规格.表];
+      // 白名单已经把表名收死了，这里的动态取用是安全的
+      const 表 = (prisma as unknown as Record<string, {
+        count: (a: unknown) => Promise<number>;
+        findMany: (a: unknown) => Promise<Record<string, unknown>[]>;
+        groupBy: (a: unknown) => Promise<Record<string, unknown>[]>;
+      }>)[表定义.模型];
+
+      const 总数 = await 表.count({ where });
+
+      if (规格.分组) {
+        const 列 = (表定义.字段 as Record<string, { 列: string; 名: string }>)[规格.分组];
+        const g = await 表.groupBy({ by: [列.列], where, _count: { _all: true } });
+        const 行 = g
+          .map((r) => ({ [列.名]: r[列.列] ?? "(空)", 条数: (r._count as { _all: number })._all }))
+          .sort((a, b) => (b.条数 as number) - (a.条数 as number))
+          .slice(0, 分组上限);
+        return { summary: `${话} → ${行.length} 组，共 ${总数} 条`, data: { 查询: 话, 总数, 分组: 行 } };
+      }
+
+      if (规格.只计数) {
+        return { summary: `${话} → ${总数} 条`, data: { 查询: 话, 总数 } };
+      }
+
+      const 选 = Object.fromEntries(
+        Object.values(表定义.字段 as Record<string, { 列: string }>).map((f) => [f.列, true]),
+      );
+      const rows = await 表.findMany({ where, orderBy, take, select: { id: true, ...选 } });
+      // 列名换成中文名再喂回模型：它看到的和过程条上写的是同一套说法
+      const 中文 = Object.fromEntries(
+        Object.values(表定义.字段 as Record<string, { 列: string; 名: string }>).map((f) => [f.列, f.名]),
+      );
+      const 结果 = rows.map((r) =>
+        Object.fromEntries(Object.entries(r).map(([k, v]) => [中文[k] ?? k, v instanceof Date ? dayjs(v).format("YYYY-MM-DD") : v])),
+      );
+      return {
+        summary: `${话} → ${总数} 条${总数 > rows.length ? `（给出前 ${rows.length} 条）` : ""}`,
+        data: { 查询: 话, 总数, 列出: rows.length, 结果 },
+      };
+    },
+  },
   proposeTool(
     "propose_channel_update",
     "建议修改一个**渠道**（不是客户）的负责人 / 电话 / 备注。" +

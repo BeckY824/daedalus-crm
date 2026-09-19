@@ -19,6 +19,12 @@ export const 工具口语: Record<string, (次: number, 客户: string) => strin
   list_contracts: () => "查了签约记录",
   list_users: () => "查了团队名单",
   search_followups: (n) => `搜了 ${n} 次跟进记录`,
+  /*
+    通用查询说「按条件查」就够了——**它到底查了什么，写在每一步的 detail 里**
+    （lib/agent/query.ts 的 说人话()，形如「在客户里，找 跟进状态 是 意向较高，取 20 条」）。
+    这一句是折叠起来时的那行摘要，不该把整条查询再抄一遍。
+  */
+  query_records: (n) => `按条件查了 ${n} 次`,
   // 建议卡那几个：过程条上另有卡片，这里只说一声
   propose_status_change: () => "拟了一张建议卡",
   propose_followup: () => "拟了一张建议卡",

@@ -63,7 +63,7 @@ describe("令牌", () => {
 });
 
 describe("开出去的工具", () => {
-  it("只有只读那十一个，propose_* 一个都没有", () => {
+  it("只有只读那十二个，propose_* 一个都没有", () => {
     const 名字 = 列工具().map((t) => t.name);
     expect(名字.sort()).toEqual([...MCP_TOOL_NAMES].sort());
     expect(名字.some((n) => n.startsWith("propose_"))).toBe(false);
@@ -71,7 +71,13 @@ describe("开出去的工具", () => {
     // 2026-09-18 加的签约名单和团队名单，只读，都该开出去
     expect(名字).toContain("list_contracts");
     expect(名字).toContain("list_users");
-    expect(名字.length).toBe(11);
+    /*
+      2026-09-19（0.39）的通用查询也开出去：它只读、表和字段都在白名单里、
+      取数有硬上限，和别的只读工具是同一个安全等级——而它恰恰是别人的客户端
+      最用得上的那个（别的工具各自只认自己那几个参数）。
+    */
+    expect(名字).toContain("query_records");
+    expect(名字.length).toBe(12);
   });
 
   it("每个工具都带说明和 JSON Schema——客户端拿它做补全和校验", () => {
