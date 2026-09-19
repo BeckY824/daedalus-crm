@@ -21,6 +21,16 @@ services:
       # 配了就等于关闭自助注册：/signup 跳到这个地址，注册与发码动作一律拒绝。
       # 没有发码通道（短信要备案、邮件未接）时走人工开号，通道通了去掉它即可
       SIGNUP_REDIRECT: "${SIGNUP_REDIRECT:-}"
+      # 官网首页那排数字（/api/public/stats）。**都可选，缺哪个就少哪个字段**，
+      # 官网那边取不到就整排不渲染，不会白屏。
+      #
+      # UMAMI_API_KEY 一定要在这儿列出来：docker compose 读 .env 只是做变量替换，
+      # 不写进 environment 就进不了容器。2026-09-19 上线时就踩了这个——
+      # .env 里明明有，容器里 echo 出来是空的，接口一声不吭地少一个字段。
+      UMAMI_API_KEY: "${UMAMI_API_KEY:-}"
+      UMAMI_BASE_URL: "${UMAMI_BASE_URL:-}"
+      UMAMI_WEBSITE_ID: "${UMAMI_WEBSITE_ID:-}"
+      UMAMI_SINCE: "${UMAMI_SINCE:-}"
       # 验证码通道（都可选）。没配的那一种就把验证码打到容器日志里，照样能开号：
       #   docker compose logs crm | grep '\[verify\]'
       # 短信：阿里云，手机号注册用
