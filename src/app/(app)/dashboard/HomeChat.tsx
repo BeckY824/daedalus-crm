@@ -19,6 +19,7 @@ import { clearJob, getJob, runJob, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
 import { 载入历史, type AgentAnswer, type 历史消息 } from "@/lib/thread-history";
+import { 认死胡同 } from "@/lib/ask-dead-end";
 import { 落一轮 } from "./threads";
 import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
@@ -657,6 +658,9 @@ function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Tur
     .filter((s) => s.id !== "answer")
     .map((s) => (job?.status === "error" && s.status === "running" ? { ...s, status: interrupted ? ("done" as const) : ("error" as const), detail: interrupted ? "被打断" : s.detail } : s));
   const text = job?.value?.text ?? job?.value?.answer?.text ?? "";
+  /** 真的调用过几个工具。0 = 它一条数据都没查就答了 */
+  const 查过几次工具 = (job?.value?.steps ?? []).filter((x) => x.id !== "answer" && x.status === "done").length;
+  const 死胡同 = 认死胡同(text, turn.question, 查过几次工具);
   const answer = job?.status === "done" ? job.value?.answer : undefined;
   const writing = job?.value?.steps?.some((s) => s.id === "answer" && s.status === "running");
   const thinking = Boolean(job) && !done && !text;
@@ -723,6 +727,22 @@ function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Tur
         <div className="cli-a">
           <Markdown text={text} records={answer?.records ?? job?.value?.answer?.records ?? []} />
           {!done && <span className="cli-caret" />}
+        </div>
+      )}
+
+      {/*
+        **答不上来的时候别留死胡同。** 一天只有 3 次免费提问，一句「没查到，
+        你给个更完整的姓名」当场吃掉三分之一，而人只剩「再问一次、再烧一次」这一条路。
+        这里给一条**不走模型、一次额度都不花**的：直接去列表页搜那个词。
+        摘不出词就不出现——把人送到一个搜「的」的列表页比不给这条路更糟。
+      */}
+      {done && 死胡同 && (
+        <div className="cli-deadend">
+          <span>没查到？</span>
+          <Link className="cli-link" href={`/customers?keyword=${encodeURIComponent(死胡同.词)}`}>
+            去库里搜「{死胡同.词}」
+          </Link>
+          <span className="cli-deadend-n">不算一次提问</span>
         </div>
       )}
 

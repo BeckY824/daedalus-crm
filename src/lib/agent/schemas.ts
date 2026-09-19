@@ -64,6 +64,11 @@ export const 只读SCHEMAS: Record<string, Schema> = {
     required: ["name"],
     additionalProperties: false,
   },
+  my_recap: {
+    type: "object",
+    properties: { days: 数("最近多少天，默认 7，1~90") },
+    additionalProperties: false,
+  },
   get_watchlist: { type: "object", properties: {}, additionalProperties: false },
   get_my_plans: { type: "object", properties: {}, additionalProperties: false },
   list_channels: {

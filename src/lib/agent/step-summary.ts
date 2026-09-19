@@ -10,6 +10,7 @@
 export const 工具口语: Record<string, (次: number, 客户: string) => string> = {
   search_customers: (n) => `搜了 ${n} 次`,
   find_person: (n) => `找了 ${n} 个人`,
+  my_recap: () => "回顾了我这一段",
   get_customer: (n, 客户) => `读了 ${n} 位${客户}的记录`,
   query_metric: (n) => `查了 ${n} 个数`,
   get_watchlist: () => "看了盯盘",

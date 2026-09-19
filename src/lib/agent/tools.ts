@@ -280,6 +280,81 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    /*
+      **「我这周做了什么」在单人场景下是周五下午和周一早上最常问的那一句**，
+      而在此之前一个工具都答不了：跟进记录要 search_followups（必须给关键词）、
+      签约要 list_contracts、新客户要 search_customers，三次调用分三张表，
+      而人一天只有 3 次免费提问（每日赠送 = 3）。
+
+      刻意不读 AuditLog：那张表答的是「谁改了什么」，多人才有意义。
+      一个人用的时候他自己就是那个「谁」，要的是**我碰过哪些人、成了几单**。
+    */
+    name: "my_recap",
+    description:
+      "我这一段时间做了什么：跟了哪些人、记了几笔、签了几单、新建了几位客户。" +
+      "问「我这周做了什么」「这周跟了谁」「上个月我的情况」「最近怎么样」用它。" +
+      "默认最近 7 天，days 可以给 1~90。它只看**我自己**的；问全团队用 query_metric 或 list_contracts。",
+    args: '{"days": "最近多少天，默认 7，1~90"}',
+    async run(args, ctx) {
+      const n = typeof args.days === "number" && Number.isFinite(args.days) ? Math.min(90, Math.max(1, Math.round(args.days))) : 7;
+      const 起 = dayjs().subtract(n, "day").startOf("day").toDate();
+      const 号 = 脱敏(ctx);
+      const [跟进, 签约, 新建, 完成的计划] = await Promise.all([
+        prisma.followUp.findMany({
+          where: { ownerId: ctx.userId, occurredAt: { gte: 起 } },
+          orderBy: { occurredAt: "desc" },
+          take: 50,
+          select: { type: true, title: true, content: true, occurredAt: true, customer: { select: { id: true, name: true, followStatus: true } } },
+        }),
+        prisma.contract.findMany({
+          where: { signedAt: { gte: 起 }, customer: { salesOwnerId: ctx.userId } },
+          orderBy: { signedAt: "desc" },
+          take: 30,
+          select: { amount: true, signedAt: true, customer: { select: { name: true } } },
+        }),
+        prisma.customer.findMany({
+          where: { salesOwnerId: ctx.userId, createdAt: { gte: 起 } },
+          orderBy: { createdAt: "desc" },
+          take: 30,
+          select: { name: true, phone: true, followStatus: true, createdAt: true },
+        }),
+        prisma.followPlan.count({ where: { ownerId: ctx.userId, done: true, plannedAt: { gte: 起 } } }),
+      ]);
+      // 同一个人这一段里跟了几次，合成一行——一周跟同一位五次，列五行只是噪音
+      const 按人 = new Map<string, { 姓名: string; 次数: number; 最近: string; 最近聊了: string; 跟进状态: string }>();
+      for (const f of 跟进) {
+        const k = f.customer.id;
+        const 有 = 按人.get(k);
+        if (有) 有.次数++;
+        else
+          按人.set(k, {
+            姓名: f.customer.name,
+            次数: 1,
+            最近: dayjs(f.occurredAt).format("MM-DD"),
+            最近聊了: (f.title || f.content).slice(0, 60),
+            跟进状态: statusLabel(ctx.b, f.customer.followStatus),
+          });
+      }
+      const 金额 = 签约.reduce((t, c) => t + c.amount, 0);
+      return {
+        summary:
+          `最近 ${n} 天：跟了 ${按人.size} 位${ctx.b.customer}、${跟进.length} 笔记录` +
+          `${签约.length ? `，签了 ${签约.length} 单共 ${金额} 元` : "，没有签约"}` +
+          `${新建.length ? `，新建 ${新建.length} 位` : ""}`,
+        data: {
+          天数: n,
+          跟了几位: 按人.size,
+          跟进笔数: 跟进.length,
+          完成的计划: 完成的计划,
+          跟过的人: [...按人.values()],
+          签约: 签约.map((c) => ({ 客户: c.customer.name, 金额: c.amount, 签约日: dayjs(c.signedAt).format("YYYY-MM-DD") })),
+          签约合计: 金额,
+          新建的客户: 新建.map((c) => ({ 姓名: c.name, 电话: 号(c.phone), 跟进状态: statusLabel(ctx.b, c.followStatus), 建档日: dayjs(c.createdAt).format("YYYY-MM-DD") })),
+        },
+      };
+    },
+  },
+  {
     name: "get_watchlist",
     description: "盯盘清单：正在被遗忘的客户（沉睡 / 计划逾期 / 商机停滞），按紧急程度排好。",
     args: "{}",

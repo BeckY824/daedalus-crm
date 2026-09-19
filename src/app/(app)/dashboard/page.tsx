@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
+import { 唯一负责人 } from "@/lib/owners";
 import { dayjs } from "@/lib/utils";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
@@ -60,6 +61,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     prisma.customer.count(),
   ]);
 
+  const 就我一个人 = (await 唯一负责人()) !== null;
   const mine = watchlist.filter((w) => w.ownerName === user.name);
   const parts: string[] = [];
   parts.push(todayPlans > 0 ? `今天有 ${todayPlans} 条跟进计划` : myPlans > 0 ? `有 ${myPlans} 条未完成的跟进计划` : "今天没有排跟进计划");
@@ -78,13 +80,33 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   if (myPlans > 0) suggestions.push({ label: "准备下次跟进", question: "", kind: "prep" });
   if (myLast) suggestions.push({ label: "回顾上次沟通", question: "", kind: "recap" });
   for (const w of mine.slice(0, 2)) suggestions.push({ label: `${w.customerName}：${w.reason.replace(/^「[^」]*」的\S+?/, "")}`, question: `${w.customerName}这边该怎么接上？` });
-  const 兜底: Suggestion[] = [
-    { label: `今天谁最需要跟进？`, question: `今天最该跟进的${b.customer}是谁，为什么` },
-    { label: "这个月谁签得最多？", question: "这个月哪个销售的签约金额最多" },
-    { label: "哪些商机可能延期？", question: "哪些进行中的商机已经很久没动了，可能延期" },
-    { label: `各跟进状态各有多少${b.customer}？`, question: `各跟进状态各有多少${b.customer}` },
-    { label: "帮我记一次电话", question: "帮我记一次电话沟通" },
-  ];
+  /*
+    **一个人用的时候，团队类的问句是废话。**
+
+    「这个月谁签得最多」在单人库里答案永远是「就你自己」——点一下，
+    烧掉当天三次免费提问里的一次，换回一句他早就知道的话
+    （注册赠送 30 次一台电脑只发一次，之后每天只补 3 次，见 lib/tenant/credits.ts）。
+    这和 0.40 之前注册页写着「送 30 次」是同一类毛病：**界面上说着一句在你这儿不成立的话**。
+
+    判据用现成的 `唯一负责人()`——建档、导入、商机、渠道四处早就在用它决定
+    「要不要问负责人」，这里是第五处，口径一致。
+    单人那一套问的是「我」：我这周做了什么、谁被我落下了、我手上还剩多少。
+  */
+  const 兜底: Suggestion[] = 就我一个人
+    ? [
+        { label: "我这周做了什么？", question: "我这周做了什么" },
+        { label: `哪些${b.customer}我很久没碰了？`, question: `哪些${b.customer}我很久没跟进了，该先找谁` },
+        { label: "我手上还有哪些单子在谈？", question: "我手上进行中的商机有哪些，加起来多少钱" },
+        { label: `各跟进状态各有多少${b.customer}？`, question: `各跟进状态各有多少${b.customer}` },
+        { label: "帮我记一次电话", question: "帮我记一次电话沟通" },
+      ]
+    : [
+        { label: `今天谁最需要跟进？`, question: `今天最该跟进的${b.customer}是谁，为什么` },
+        { label: "这个月谁签得最多？", question: "这个月哪个销售的签约金额最多" },
+        { label: "哪些商机可能延期？", question: "哪些进行中的商机已经很久没动了，可能延期" },
+        { label: `各跟进状态各有多少${b.customer}？`, question: `各跟进状态各有多少${b.customer}` },
+        { label: "帮我记一次电话", question: "帮我记一次电话沟通" },
+      ];
   for (const x of 兜底) if (suggestions.length < 6) suggestions.push(x);
 
   // 试用期的免费提问次数。付费与自部署都是 null，界面上就不出现这一项
