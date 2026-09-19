@@ -71,18 +71,26 @@ fi
 # 里面每条语句都是幂等的（IF NOT EXISTS），所以不需要记录「执行到哪了」——
 # 少一套状态就少一处会和真实表结构对不上的地方。
 # 全新安装其实已经由 schema.sql 建全了，这里跑一遍是空转，无副作用。
+#
+# **「列已存在」必须当预期跳过。** SQLite 没有 ADD COLUMN IF NOT EXISTS，
+# 而这个目录里已经有 ALTER TABLE ADD COLUMN（006），所以第二次启动必然抛一次。
+# 这里原来是一个 shell for 循环 + `2>/dev/null`——那只挡住了报错文字，
+# 挡不住退出码，而这个脚本开着 set -e：存量单租户部署第二次启动会**起不来**，
+# 日志里还什么都没有（错误正好被那个重定向吞了）。本文件另外三处循环
+# （控制面、模板库、存量工作区）从一开始就是带 catch 的 JS 循环，
+# 只有这一处不是。现在四处一个写法。
 if [ -d /app/migrations ]; then
-  for f in /app/migrations/*.sql; do
-    [ -f "$f" ] || continue
-    echo "→ 迁移 $(basename "$f")"
-    node --experimental-sqlite -e "
-      const { DatabaseSync } = require('node:sqlite');
-      const fs = require('node:fs');
-      const db = new DatabaseSync('/data/crm.db');
-      db.exec(fs.readFileSync('$f', 'utf8'));
-      db.close();
-    " 2>/dev/null
-  done
+  echo "→ 补迁移"
+  node --experimental-sqlite -e "
+    const { DatabaseSync } = require('node:sqlite');
+    const fs = require('node:fs');
+    const db = new DatabaseSync('/data/crm.db');
+    for (const f of fs.readdirSync('/app/migrations').filter(f => f.endsWith('.sql')).sort()) {
+      try { db.exec(fs.readFileSync('/app/migrations/' + f, 'utf8')); }
+      catch (e) { if (!/duplicate column name|already exists/i.test(String(e.message))) throw e; }
+    }
+    db.close();
+  "
 fi
 
 # ---------- 托管版（MULTI_TENANT=1）----------

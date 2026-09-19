@@ -35,8 +35,12 @@ const db = new DatabaseSync(out);
 db.exec(fs.readFileSync(schemaSql, "utf8"));
 
 // 迁移在全新库上多数是空转：schema.sql 已经按当前模型建全了。
-// SQLite 没有 ADD COLUMN IF NOT EXISTS，所以「列已存在」是预期内的，跳过即可——
-// 容器入口用 2>/dev/null 达到同样效果，这里写明白一点。
+// SQLite 没有 ADD COLUMN IF NOT EXISTS，所以「列已存在」是预期内的，跳过即可。
+//
+// 这段注释原来写着「容器入口用 2>/dev/null 达到同样效果」——**那是错的**，
+// 而且错得很贵：重定向只吞掉报错文字，退出码照样非零，而 docker-entrypoint.sh
+// 开着 set -e。migrations/006 加了第一个 ADD COLUMN，那一处于是会让存量自部署的
+// 容器第二次启动直接起不来。已经跟着 006 一起改成和这里同一个写法（try/catch）。
 const migDir = "migrations";
 if (fs.existsSync(migDir)) {
   for (const f of fs.readdirSync(migDir).filter((f) => f.endsWith(".sql")).sort()) {
