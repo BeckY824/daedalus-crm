@@ -44,7 +44,7 @@ function 跑(cmd, args, opts = {}) {
 }
 
 function 步骤(n, 说明) {
-  console.log(`\n[${n}/8] ${说明}`);
+  console.log(`\n[${n}/9] ${说明}`);
 }
 
 /* ---------- 1. Prisma 客户端 ---------- */
@@ -56,7 +56,7 @@ function 步骤(n, 说明) {
 
 /* ---------- 2. 构建 ---------- */
 if (跳过构建) {
-  console.log("\n[2/6] 跳过 next build（--no-build）");
+  console.log("\n[2/9] 跳过 next build（--no-build）");
   if (!fs.existsSync(path.join(APP, ".next/standalone"))) {
     console.error("  !! 没有现成的 .next/standalone，去掉 --no-build 重跑");
     process.exit(1);
@@ -226,28 +226,73 @@ if (删了几个 === 0) {
 }
 console.log(`  删掉 ${删了几个} 个，省下 ${(省了 / 1024 / 1024).toFixed(0)} MB`);
 
-/* ---------- 8. 本平台的原生引擎必须还在 ---------- */
+/* ---------- 8. 裁掉控制面库的查询引擎 ---------- */
 /*
-  上面两步都在删文件，而删错了的下场是「装上打开就崩」，本机 `npm run dev`
-  完全看不出来（那条路不走这个产物）。所以最后再核一次：原生引擎在不在。
+  控制面库（账号、工作区、成员、AI 额度）只有托管版才有。本地桌面端是单租户：
+  local-server.js 把 MULTI_TENANT 明确置空，也从不给 CONTROL_DATABASE_URL；
+  而每一处用到 `control` 的地方——billing、admin、api/feedback、api/public/stats、
+  shared-ws/current——都先判 multiTenant() 再碰它。桌面端一次都走不到那行。
+
+  **但客户端本体必须留着。** `next build` 要靠它解析 @/generated/control；
+  而且 Next 现在是把整份 Prisma 客户端内联进 .next/server/chunks 的，
+  哪天它改回「当外部依赖」，目录不在就是启动即 MODULE_NOT_FOUND——应用直接打不开。
+  所以只删两个大文件，它们**只在真的去连控制面库那一刻（$connect）才加载**：
+
+    src/generated/control/libquery_engine-<平台>.node   18 MB
+    src/generated/control/query_engine_bg.wasm          2.1 MB
+
+  整个目录删掉能再省 1 MB 出头，不值这个险——理由同上。
+*/
+步骤(8, "裁掉控制面库的查询引擎");
+const 控制面 = path.join(OUT, "src/generated/control");
+if (!fs.existsSync(控制面)) {
+  console.error("  !! 产物里没有 src/generated/control，第 5 步的拷贝清单是不是改了");
+  process.exit(1);
+}
+let 控省 = 0;
+let 控删 = 0;
+for (const e of fs.readdirSync(控制面, { withFileTypes: true })) {
+  if (!e.isFile()) continue;
+  if (!e.name.startsWith("libquery_engine-") && e.name !== "query_engine_bg.wasm") continue;
+  const p = path.join(控制面, e.name);
+  控省 += fs.statSync(p).size;
+  fs.rmSync(p);
+  控删++;
+  console.log(`  删掉 src/generated/control/${e.name}`);
+}
+/** 删不到东西要吭声，理由同第 7 步：静悄悄空转，包胖回去 20 MB 没人发现 */
+if (控删 === 0) {
+  console.error("  !! 控制面客户端里一个查询引擎都没删到。多半是 Prisma 换了引擎的文件名——");
+  console.error("     去 src/generated/control 看一眼实际文件名，把上面的判断改对。");
+  console.error("     不改的话包会白胖 20 MB 以上，而且没有任何报错。");
+  process.exit(1);
+}
+/** 删过头的下场是「装上打不开」，本机 npm run dev 完全看不出来 */
+if (!fs.existsSync(path.join(控制面, "index.js"))) {
+  console.error("  !! 连控制面客户端本体都删掉了（缺 index.js），这个包装上打不开");
+  process.exit(1);
+}
+console.log(`  删掉 ${控删} 个，省下 ${(控省 / 1024 / 1024).toFixed(0)} MB`);
+
+/* ---------- 9. 业务库的原生引擎必须还在 ---------- */
+/*
+  上面三步都在删文件，而删错了的下场是「装上打开就崩」，本机 `npm run dev`
+  完全看不出来（那条路不走这个产物）。所以最后再核一次：业务库的原生引擎在不在。
   这是 0.37.0 那次事故（白名单漏了 mcp-bridge.js，应用整个打不开）留下的规矩——
   凡是「删了/漏了只在用户机器上才炸」的事，构建脚本里必须有一条断言。
+
+  这里盯死 src/generated/prisma 这一份，不是「全包里随便哪儿有一份就算数」：
+  第 8 步起，包里本来就存心少了一份引擎（控制面那份），
+  「哪儿都行」的判断会被别处的副本蒙混过去，而业务库那份才是每一次查询都要加载的。
 */
-步骤(8, "核对原生引擎还在");
+步骤(9, "核对业务库的原生引擎还在");
 if (本平台引擎) {
-  const 找到 = [];
-  (function 找(dir) {
-    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-      const p = path.join(dir, e.name);
-      if (e.isDirectory()) 找(p);
-      else if (e.name === 本平台引擎) 找到.push(path.relative(OUT, p));
-    }
-  })(OUT);
-  if (找到.length === 0) {
-    console.error(`  !! ${本平台引擎} 不见了，这个包装上一查库就崩`);
+  const 业务引擎 = path.join(OUT, "src/generated/prisma", 本平台引擎);
+  if (!fs.existsSync(业务引擎)) {
+    console.error(`  !! src/generated/prisma/${本平台引擎} 不见了，这个包装上一查库就崩`);
     process.exit(1);
   }
-  console.log(`  ✓ ${找到.length} 份：${找到.join("、")}`);
+  console.log(`  ✓ ${path.relative(OUT, 业务引擎)}`);
 }
 
 const 大小 = execFileSync("du", ["-sh", OUT], { encoding: "utf8" }).split("\t")[0];
