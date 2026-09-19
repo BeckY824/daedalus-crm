@@ -23,6 +23,19 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 <br/>
 
+## Two editions — take the one that fits
+
+**The desktop app is the one we lead with.** It is built for one person: install it and it runs, your data is a single file on your machine, no server needed.
+
+| | Who | How to get it | Version |
+|---|---|---|---|
+| 🖥 **Desktop app** (primary) | **One person.** A salesperson, a freelancer, a one-person company | [Download the .dmg](https://ai-daedalus.com/download.html) (macOS, Apple silicon); in-app "Check for updates" is delta-based | See the Assets on the [latest Release](https://github.com/BeckY824/daedalus-crm/releases/latest) |
+| 👥 **Team edition** | **A team.** Several people on one shared database | Self-host: `docker compose up -d` (see [docs/部署.md](docs/部署.md))<br/>or use the instance we host — [tell us](https://ai-daedalus.com/demo.html) | Image `ghcr.io/becky824/daedalus-crm:<version>` |
+
+**Same codebase and same version number, but they can ship on different days**: when the desktop app is on 0.42.0 the instance we host may still be on 0.41.0 — [app.ai-daedalus.com/api/health](https://app.ai-daedalus.com/api/health) is the source of truth.
+
+<br/>
+
 <div align="center">
 
 **100% open source &nbsp;·&nbsp; Self-hosted, data never leaves your network &nbsp;·&nbsp; AI only drafts — every write is a human click**
@@ -35,7 +48,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 - ✅ Paste a chat transcript on a record page; AI turns it into a follow-up, tasks and next steps, with the original kept
 - ✅ Referral attribution: who introduced whom and whose performance it counts toward, frozen at entry — upstream edits never rewrite history
 - ✅ Phone dedup, double-confirm on repeated contract amounts, field-level merge on concurrent edits, full audit trail
-- ✅ Model-agnostic: DeepSeek, OpenAI, local Ollama or any OpenAI-compatible relay — set it in Settings
+- ✅ Runs on DeepSeek: pick it in Settings, paste a key, done — endpoint and model name are filled in for you (any other OpenAI-compatible endpoint still works under "Other")
 - ✅ AI never acts on its own: every model call is a click you make — opening a page never triggers one (free credits are counted per call; the UI shouldn't spend them for you)
 - ✅ Two columns, not three: navigation on the left is always there, content on the right. Only the customer record page adds a narrow list — for when you flip through people one after another
 - ✅ Keyboard-first where it matters: ⌘K to jump or ask, ⌘, for settings, ⌘1–9 for modules
@@ -77,11 +90,11 @@ Change the password under the account menu (bottom-left) → Settings → Sign-i
 - **Different industry?** Settings → Business config renames the noun and the three profile fields site-wide (education admissions is a ready-made preset — one click swaps the whole set)
 - **HTTPS, upgrades, backups**: see [docs/部署.md](docs/部署.md)
 
-### The web version (the one we host)
+### The team edition
 
-[app.ai-daedalus.com](https://app.ai-daedalus.com) is our own instance, **for teams that want to start using it without installing anything**: one set of credentials for the team, everyone in the same workspace. [Tell us](https://ai-daedalus.com/demo.html) or email qy1g18@gmail.com and we'll set it up.
+**One person? Install the desktop app** (primary — see the next section): it runs as soon as you install it, your data stays on your machine, no server needed.
 
-Want the data entirely in your own hands? Install the desktop app (one person) or self-host (a team) — same codebase either way.
+For a team sharing one database there are two routes: `docker compose up -d` on your own box, or the [team edition we host](https://app.ai-daedalus.com) — nothing to install or configure, one set of credentials for the team, everyone in the same workspace. [Tell us](https://ai-daedalus.com/demo.html) or email qy1g18@gmail.com. Same codebase either way.
 
 [app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) creates a **cloud account** for the desktop app (it tracks AI credits); it does not create a web workspace. For your own data, install the desktop app or self-host.
 
@@ -132,13 +145,15 @@ An "Import" button on the customer list, two ways in: **drop an Excel / CSV file
 
 Channel → customer → referred customer: attribution goes two generations up, or to the top of the chain if shorter; the channel owner is inherited along the whole chain. Attribution is frozen at entry — **changing an upstream referrer or a channel's owner never rewrites existing customers' performance**. Individual mistakes are corrected on that one record.
 
-### Optional multi-tenant hosting
+### The team-edition backbone (optional)
 
-Same codebase; `MULTI_TENANT=1` turns on hosting: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day). We run it for the web version (the workspace we hand to teams) and the desktop app's cloud accounts. Self-hosted installs never execute a line of it.
+Same codebase; `MULTI_TENANT=1` turns on multi-tenancy: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day). We run it for the team edition (the workspace we hand to teams) and the desktop app's cloud accounts. Self-hosted and desktop installs never execute a line of it.
 
-### Model-agnostic, per-user switching
+### Runs on DeepSeek, or bring your own endpoint
 
-Configure a model list in Settings (or pull it from the endpoint) and switch right under the input box — each user picks their own. Reasoning models' "always thinking" quirks and token-budget issues are handled automatically.
+The one-click list has only DeepSeek on it — **the prompts are tuned to one model's quirks**. The same paragraph misbehaves differently elsewhere: one model answers "there aren't any" without looking, another wraps a single phone number in a six-column table. Offering a row of choices is inviting people down paths we never verified, and when it breaks they blame the product.
+
+To point somewhere else, "Other (enter your own endpoint)" in Settings takes an address, key and model name and works fine — we just haven't verified each one. Settings can also hold a model list (or pull it from the endpoint) and you switch right under the input box — each user picks their own. Reasoning models' "always thinking" quirks and token-budget issues are handled automatically.
 
 <br/>
 
@@ -148,6 +163,7 @@ Configure a model list in Settings (or pull it from the endpoint) and switch rig
 |---|---|
 | **Any small sales team** | The default wording: customers, companies, titles, industries; the lead → customer → deal pipeline is generic |
 | **Education / study-abroad admissions** | One click on the "education admissions" preset in Settings → Business config: students, schools, grades, majors, referral attribution |
+| **One person** | The desktop app (primary): install and go, data on your machine, no server |
 | **Self-hosted, sensitive data** | One container, one SQLite file — backup is a file copy; AI is read-only |
 | **No deployment wanted** | Desktop app: install and go, data stays on your machine; or use the web version we host — ask us for credentials |
 
@@ -172,10 +188,10 @@ More in [docs/shots](docs/shots).
 | Layer | Choice |
 |---|---|
 | Framework | Next.js 16 · React 19 · TypeScript 5 |
-| Data | Prisma 6 · SQLite (one file per install; one per workspace when hosted) |
+| Data | Prisma 6 · SQLite (one file per install; one per workspace in the team edition) |
 | UI | Ant Design 6 · motion |
-| AI | OpenAI-compatible API, ReAct loop, read-only tools; DeepSeek / OpenAI / Ollama / relays |
-| Tests | vitest (645 unit) · Playwright (98 self-hosted + 13 hosted e2e) · green CI required to merge |
+| AI | OpenAI-compatible API, ReAct loop, read-only tools; one-click DeepSeek, or bring your own endpoint |
+| Tests | vitest (1136 unit) · Playwright (117 self-hosted + 13 team-edition e2e) · green CI required to merge |
 | Delivery | Multi-arch Docker image (GHCR) · Electron desktop (macOS, Apple silicon) · Caddy auto-HTTPS |
 
 <br/>
@@ -189,7 +205,7 @@ Ordered by "someone actually needs it". To push an item, [open an issue](https:/
 | Conversation & proposal cards | agent loop, streaming, citations, multi-turn context, 7 card types | ✅ Shipped |
 | Record page | inline profile editing, timeline, quick-note parsing, on-request briefing | ✅ Shipped |
 | Shell & feel | resizable rail, settings as an overlay, ⌘K / ⌘, / ⌘1–9, press feedback everywhere | ✅ Shipped |
-| Hosting | multi-tenant, sign-up and free credits, ops console, cloud accounts for the desktop app | ✅ Shipped |
+| Team-edition backbone | multi-tenant, sign-up and free credits, ops console, cloud accounts for the desktop app | ✅ Shipped |
 | List pages | inline editing without opening the record | 🔜 Planned |
 | Saved views | keep a set of filters and come back to it in one click | 🔜 Planned |
 | Online payments | WeChat / Alipay (requires ICP filing & merchant account) | ⏸ On demand |
@@ -221,7 +237,7 @@ Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.m
 ## 🌐 Community & contact
 
 - Website: [ai-daedalus.com](https://ai-daedalus.com)
-- Desktop app: [ai-daedalus.com/download.html](https://ai-daedalus.com/download.html) · the hosted web version: ask us
+- Desktop app: [ai-daedalus.com/download.html](https://ai-daedalus.com/download.html) · the team edition: ask us
 - Questions & ideas: [GitHub Issues](https://github.com/BeckY824/daedalus-crm/issues)
 - Want the web version, or just to talk: [tell us](https://ai-daedalus.com/demo.html) · qy1g18@gmail.com
 

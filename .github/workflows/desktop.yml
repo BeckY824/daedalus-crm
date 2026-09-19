@@ -112,15 +112,30 @@ jobs:
             on && /^## / { exit }
             on { print }
           ' CHANGELOG.md | sed '/./,$!d' > /tmp/notes.md
+          # 一条 tag 同时产出两样东西，Release 上要写清楚哪个给谁——
+          # 光一个 v0.42.0 看不出「我该下哪个」。两个版本的发布节奏还可能不一样：
+          # 桌面端到 0.42.0 时，我们自己托管的那份可能还停在 0.41.0。
+          {
+            echo "**桌面端**（一个人用，主推）：下面 Assets 里的 \`Daedalus.CRM-$VER-arm64.dmg\`，仅 Apple 芯片。"
+            echo "应用内「检查更新」走差量，不用手动下。"
+            echo ""
+            echo "**自部署 / 多人团队版**（一个团队）：\`ghcr.io/becky824/daedalus-crm:$VER\`"
+            echo ""
+            echo "> 我们自己托管的那份不一定同步升到这一版，以 https://app.ai-daedalus.com/api/health 为准。"
+            echo ""
+            echo "---"
+            echo ""
+            cat /tmp/notes.md
+          } > /tmp/body.md
           if [ "$PATCH" = "0" ]; then
             # 大版本：自己一个正式 Release，说明取 CHANGELOG 那一段。这一条会进关注者的动态，是有意的
             echo "大版本 $VER → 正式 Release"
             if [ -s /tmp/notes.md ]; then
               echo "用 CHANGELOG 里 $VER 那一段作发布说明："; cat /tmp/notes.md
-              gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$TAG" --notes-file /tmp/notes.md
+              gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "$VER · 桌面端 + 团队版" --notes-file /tmp/body.md
             else
               echo "::warning::CHANGELOG.md 里没有 $VER 这一节，退回自动生成的说明"
-              gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes --title "$TAG"
+              gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --generate-notes --title "$VER · 桌面端 + 团队版"
             fi
             DEST="$TAG"   # bash 不认中文变量名，这里一律用 ASCII
           else
