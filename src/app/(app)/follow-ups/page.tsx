@@ -28,7 +28,9 @@ export default async function FollowUpsPage({
     ...(sp.ownerId ? { ownerId: sp.ownerId } : {}),
   };
 
-  const [rows, users] = await Promise.all([
+  const [总数, rows, users] = await Promise.all([
+    // take: 300 取回来的行数不是总数，分页条会拿它冒充总数。见 leads/page.tsx 的说明
+    prisma.followUp.count({ where }),
     prisma.followUp.findMany({
       where,
       orderBy: { occurredAt: "desc" },
@@ -45,6 +47,7 @@ export default async function FollowUpsPage({
 
   return (
     <FollowUpsView
+      总数={总数}
       users={users}
       filters={{ keyword: sp.keyword ?? "", type: sp.type ?? "", ownerId: sp.ownerId ?? "" }}
       rows={rows.map((f) => ({

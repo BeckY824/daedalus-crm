@@ -116,8 +116,24 @@ export default function ReportsView({
     },
   ];
 
-  const avg = total.count > 0 ? Math.round(total.amount / total.count) : 0;
-  const best = trend.reduce<Bucket | null>((m, t) => (!m || t.amount > m.amount ? t : m), null);
+  /**
+   * 客单价 = 总额 ÷ **签约的人数**，不是 ÷ 笔数。
+   *
+   * 原来除的是 `total.count`（签约笔数）。同一位学员续费、补课会签好几笔
+   * （schema 里 Contract 的注释就写着「同一学员可多次签约」），
+   * 那时算出来的是「每笔均价」，比真正的客单价低——而卡片上写的是「客单价」。
+   * 人数从明细里数：明细已经按桶分好了，摊平取 id 去重即可，不用再查一趟库。
+   */
+  const 签约人数 = new Set(Object.values(明细).flat().map((r) => r.学员id)).size;
+  const avg = 签约人数 > 0 ? Math.round(total.amount / 签约人数) : 0;
+  /*
+    2026-09-19 起横轴上没签约的日子也占一个刻度（值为 0，见 overview/data.ts），
+    所以「一条签约都没有」不能再看 trend 是不是空的了——它永远不空。
+    best 也要挡一道：全是 0 的时候挑出来的「最佳周期」会是第一根柱子，
+    界面上就成了「最佳周期 09-01 · ¥0」，一个不存在的结论。
+  */
+  const 有签约 = total.count > 0;
+  const best = 有签约 ? trend.reduce<Bucket | null>((m, t) => (!m || t.amount > m.amount ? t : m), null) : null;
 
   // 复盘的两张表：这一档没人时说清是「这个口径下没有」，不是「系统里没有」
   const empty = 表格空态({
@@ -136,7 +152,13 @@ export default function ReportsView({
           <StatCard icon={<FileDoneOutlined />} color={categorical.green} label="签约笔数" value={total.count} note={口径} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<RiseOutlined />} color={categorical.amber} label="客单价" value={avg > 0 ? money(avg) : "—"} />
+          <StatCard
+            icon={<RiseOutlined />}
+            color={categorical.amber}
+            label="客单价"
+            value={avg > 0 ? money(avg) : "—"}
+            note={签约人数 > 0 ? `${签约人数} 位${b.customer}签了 ${total.count} 笔` : undefined}
+          />
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <StatCard
@@ -153,9 +175,9 @@ export default function ReportsView({
       <Card
         style={{ marginTop: 16 }}
         title={<span className="section-title">签约金额趋势</span>}
-        extra={trend.length ? <Typography.Text type="secondary" style={{ fontSize: 13 }}>点柱子或下面的日期，看这一段签了哪几笔</Typography.Text> : null}
+        extra={有签约 ? <Typography.Text type="secondary" style={{ fontSize: 13 }}>点柱子或下面的日期，看这一段签了哪几笔</Typography.Text> : null}
       >
-        {trend.length ? (
+        {有签约 ? (
           <Chart option={trendOption} height={320} 点一段={(i) => set开着的(trend[i]?.label ?? null)} />
         ) : (
           <EmptyState

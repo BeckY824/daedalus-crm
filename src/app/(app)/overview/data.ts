@@ -35,6 +35,34 @@ function bucketOf(d: Date, 粒: 粒度) {
   return `${y}-${m}`;
 }
 
+/**
+ * 这一段里的每一个刻度，**一个都不能少**。
+ *
+ * 2026-09-19 报上来的：趋势图只给有签约的那天建桶，9/1、9/5、9/19 各签一单，
+ * 横轴上就是三根挨着的柱子——中间那十几个空白的日子根本不在图上，
+ * 看起来像天天在签。折线图和柱状图的横轴默认是等距的，缺刻度不是「少画一根」，
+ * 是**把时间轴本身压缩了**，读出来的走势是假的。
+ *
+ * 只铺到今天为止：本月视图的 `to` 是月末，把还没到的日子铺成 0，
+ * 会在右边拖出一条一路贴底的长尾，同样是在说一件没发生的事。
+ *
+ * `to` 是**开区间**——上面那条查询用的是 `lt: to`，刻度必须跟它一致，
+ * 否则会在右边多铺一个永远为 0 的刻度（这一版写成 `<=` 时就是这样）。
+ */
+function 刻度们(from: Date, to: Date, 粒: 粒度): string[] {
+  const 止 = new Date(Math.min(to.getTime(), Date.now()));
+  const out: string[] = [];
+  const d = new Date(from);
+  // 按月铺时从当月 1 号起步，免得 1 月 31 日 +1 个月跳过 2 月
+  if (粒 === "month") d.setDate(1);
+  while (d < 止) {
+    out.push(bucketOf(d, 粒));
+    if (粒 === "day") d.setDate(d.getDate() + 1);
+    else d.setMonth(d.getMonth() + 1);
+  }
+  return out;
+}
+
 export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<复盘> {
   const contracts = await prisma.contract.findMany({
     where: { signedAt: { gte: from, lt: to } },
@@ -57,7 +85,10 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
     },
   });
 
-  const byBucket = new Map<string, { amount: number; count: number }>();
+  // 先把刻度铺满，再把签约填进去——没有签约的那天是 0，不是「不存在」
+  const byBucket = new Map<string, { amount: number; count: number }>(
+    刻度们(from, to, 粒).map((k) => [k, { amount: 0, count: 0 }]),
+  );
   /**
    * 每一根柱子对应的那几笔。**顺手分好，不另跑一趟查询**——
    * 合同行已经全在手上了，分组是几行代码；为「点开一根柱子」再查一次库，

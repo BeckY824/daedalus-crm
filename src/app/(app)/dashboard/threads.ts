@@ -35,10 +35,18 @@ export type 历史消息 = {
   createdAt: string;
 };
 
-/** 标题取第一问的前 18 个字，和侧栏「AI 任务」那条的口径一致 */
-function 取标题(问题: string): string {
+/**
+ * 标题取第一问的前 18 个字，和侧栏「AI 任务」那条的口径一致。
+ *
+ * `前缀` 是问这一句时人在哪一页（「线索 · 」）。2026-09-19 起每个页面各有一屏
+ * 独立的对话（见 lib/home-thread.ts），首页那条列表里会并排躺着好几条，
+ * 光看问题本身认不出是在哪儿问的。前缀不占那 18 个字的额度。
+ */
+function 取标题(问题: string, 前缀?: string | null): string {
   const t = 问题.trim().replace(/\s+/g, " ");
-  return t.length > 18 ? `${t.slice(0, 18)}…` : t || "新对话";
+  const 正文 = t.length > 18 ? `${t.slice(0, 18)}…` : t || "新对话";
+  const p = 前缀?.trim().slice(0, 12);
+  return p ? `${p} · ${正文}` : 正文;
 }
 
 function 解析(s: string | null): unknown {
@@ -96,10 +104,10 @@ export async function 读对话(id: string): Promise<{ id: string; title: string
   };
 }
 
-export async function 新建对话(标题 = "新对话"): Promise<{ id: string }> {
+export async function 新建对话(标题 = "新对话", 标题前缀?: string | null): Promise<{ id: string }> {
   const me = await requireUser();
   const c = await prisma.aiConversation.create({
-    data: { title: 取标题(标题), ownerId: me.id },
+    data: { title: 取标题(标题, 标题前缀), ownerId: me.id },
     select: { id: true },
   });
   return c;
@@ -120,6 +128,8 @@ export async function 落一轮(input: {
   ms?: number | null;
   steps?: unknown;
   refs?: unknown;
+  /** 问这一句时人在哪一页（「线索」）。首页不传 */
+  标题前缀?: string | null;
 }): Promise<{ conversationId: string }> {
   const me = await requireUser();
 
@@ -128,7 +138,7 @@ export async function 落一轮(input: {
     const 有 = await prisma.aiConversation.count({ where: { id, ownerId: me.id } });
     if (!有) id = null;
   }
-  if (!id) id = (await 新建对话(input.question)).id;
+  if (!id) id = (await 新建对话(input.question, input.标题前缀)).id;
 
   const 串 = (v: unknown) => (v == null ? null : JSON.stringify(v));
   await prisma.$transaction([

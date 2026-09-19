@@ -27,13 +27,15 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     stageGroups,
     owners,
     upcomingTasks,
+    upcomingPlans,
     customersForTrend,
     wonCount,
     totalClosed,
     oppsForSeries,
     本月签约,
     上月签约,
-    逾期跟进,
+    逾期计划数,
+    逾期任务数,
   ] = await Promise.all([
     // 这两个只用来判「空库」，不再进指标卡
     prisma.lead.count(),
@@ -64,9 +66,22 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
         opportunities: { where: { status: "WON" }, select: { amount: true } },
       },
     }),
+    /*
+      「近期跟进任务」原来只读 Task。可落地页 `/follow-ups/plans` 是把
+      **Task 和 FollowPlan 两张表合在一起**按逾期/今天/本周分组的（见 PlansView），
+      于是只用「跟进计划」的人——新建客户时排的那种——首页这张卡永远是空的，
+      点进去却满满一屏。两边必须同一个口径。
+      各取 5 条，在内存里按时间合并后再取前 5。
+    */
     prisma.task.findMany({
       where: { done: false },
       orderBy: { dueAt: "asc" },
+      take: 5,
+      include: { customer: { select: { id: true, name: true } } },
+    }),
+    prisma.followPlan.findMany({
+      where: { done: false },
+      orderBy: { plannedAt: "asc" },
       take: 5,
       include: { customer: { select: { id: true, name: true } } },
     }),
@@ -83,8 +98,14 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     */
     prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: monthStart } } }),
     prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: lastMonthStart, lt: monthStart } } }),
-    // 逾期是全团队口径：这一页看的是整个盘子，不是「我的」
+    /*
+      逾期是全团队口径：这一页看的是整个盘子，不是「我的」。
+      **两张表都要数**：原来只数 FollowPlan，而 `/follow-ups/plans` 的「逾期」一组里
+      躺着 Task 和 FollowPlan 两种。有 5 条逾期任务、0 条逾期计划的人，
+      首页写「0 · 都跟上了」，点进去一片红——卡片和它自己的落地页对不上。
+    */
     prisma.followPlan.count({ where: { done: false, plannedAt: { lt: now.startOf("day").toDate() } } }),
+    prisma.task.count({ where: { done: false, dueAt: { lt: now.startOf("day").toDate() } } }),
   ]);
 
   const newCustomersThisMonth = customersForTrend.filter((c) =>
@@ -170,6 +191,33 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   const watchlist = await loadWatchlist(now);
 
   /**
+   * 待办 = 任务 + 跟进计划，按时间合并后取最近 5 条。
+   * 和 `/follow-ups/plans` 同一个口径——首页这张卡点进去就是那一页，
+   * 两处数出来的东西不一样的话，人只会以为有一处坏了。
+   * 没排时间的（Task.dueAt 可空）排在最后：它不是「近期」，只是还没排期。
+   */
+  const 待办 = [
+    ...upcomingTasks.map((t) => ({
+      id: `task:${t.id}`,
+      title: t.title,
+      customerId: t.customer.id,
+      customerName: t.customer.name,
+      dueAt: t.dueAt ? t.dueAt.toISOString() : null,
+      kind: "任务" as const,
+    })),
+    ...upcomingPlans.map((p) => ({
+      id: `plan:${p.id}`,
+      title: p.subject,
+      customerId: p.customer.id,
+      customerName: p.customer.name,
+      dueAt: p.plannedAt.toISOString(),
+      kind: "计划" as const,
+    })),
+  ]
+    .sort((a, b) => (a.dueAt ?? "9999").localeCompare(b.dueAt ?? "9999"))
+    .slice(0, 5);
+
+  /**
    * 卡片下方的三条小曲线。
    * 原本是写死的数组（[4,7,5,9,...] 之类），零数据时照样画出一条漂亮的上升线——
    * 数据首页上的假曲线比没有曲线更糟，人会照着它做判断。
@@ -220,7 +268,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
         // 上月一分钱都没有时不给环比：分母是 0 的百分比没有意义，只会是个吓人的数
         签约环比: 上月签约额 ? Number((((本月签约额 - 上月签约额) / 上月签约额) * 100).toFixed(1)) : undefined,
         进行中商机: openOpps.length,
-        逾期跟进,
+        逾期跟进: 逾期计划数 + 逾期任务数,
         newCustomerSeries,
         oppAmountSeries,
         winRateSeries,
@@ -228,13 +276,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       trend={trendData}
       funnel={funnel}
       ranking={ranking}
-      tasks={upcomingTasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        customerId: t.customer.id,
-        customerName: t.customer.name,
-        dueAt: t.dueAt ? t.dueAt.toISOString() : null,
-      }))}
+      tasks={待办}
       watchlist={watchlist}
       aiEnabled={await llmEnabled()}
     />

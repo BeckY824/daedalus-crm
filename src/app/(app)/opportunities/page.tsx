@@ -23,7 +23,9 @@ export default async function OpportunitiesPage({
     ...(sp.ownerId ? { ownerId: sp.ownerId } : {}),
   };
 
-  const [rows, users, customers] = await Promise.all([
+  const [总数, rows, users, customers] = await Promise.all([
+    // take: 300 取回来的行数不是总数，分页条会拿它冒充总数。见 leads/page.tsx 的说明
+    prisma.opportunity.count({ where }),
     prisma.opportunity.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -39,6 +41,7 @@ export default async function OpportunitiesPage({
 
   return (
     <OpportunitiesView
+      总数={总数}
       users={users}
       customers={customers}
       /* 管道页的「新建商机」落在这儿：那一页没有表单，带上 ?new=1 回列表页直接把它打开 */

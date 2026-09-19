@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { App, Dropdown, Input, Modal } from "antd";
 import { PlusOutlined, MoreOutlined } from "@ant-design/icons";
-import { 新起一屏, 当前对话 } from "@/lib/home-thread";
+import { 新起一屏, 当前对话, 首页屏 } from "@/lib/home-thread";
 import { 重命名对话, 删除对话, type 对话概要 } from "./threads";
 import WidthHandle, { 对话列表把手 } from "@/components/WidthHandle";
 
@@ -29,10 +29,10 @@ export default function ConversationList({ rows }: { rows: 对话概要[] }) {
   /** 正在改名的那条。null = 没有 */
   const [改名, set改名] = useState<{ id: string; title: string } | null>(null);
 
-  const 选中 = sp.get("c") ?? 当前对话() ?? "";
+  const 选中 = sp.get("c") ?? 当前对话(首页屏) ?? "";
 
   function 新建() {
-    新起一屏();
+    新起一屏(首页屏);
     router.push("/dashboard");
   }
 
@@ -61,7 +61,7 @@ export default function ConversationList({ rows }: { rows: 对话概要[] }) {
         if (!r.ok) return void message.error("删不掉这条对话");
         // 删的正好是开着的那条：回到一屏新对话
         if (c.id === 选中) {
-          新起一屏();
+          新起一屏(首页屏);
           router.push("/dashboard");
         }
         startTransition(() => router.refresh());

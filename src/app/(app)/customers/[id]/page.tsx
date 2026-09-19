@@ -57,22 +57,21 @@ export default async function CustomerDetailPage({
     prisma.customer.findMany({ where: { id: { not: id } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
   ]);
 
-  // 沟通统计
-  const stats = {
-    followCount: customer.followUps.length,
-    callSeconds: customer.followUps
-      .filter((f) => f.type === "PHONE")
-      .reduce((s, f) => s + (f.duration ?? 0), 0),
-    meetingCount: customer.followUps.filter((f) => f.type === "MEETING").length,
-    emailCount: customer.followUps.filter((f) => f.type === "EMAIL").length,
-  };
-
+  /*
+    这儿原来算了一组「沟通统计」（跟进次数 / 累计通话时长 / 会议数 / 邮件数）
+    并一路传到 RecordView——而 RecordView 从来没解构过它，界面上一个字都没有。
+    2026-09-19 删掉。两个理由：
+      1. 算了不显示的数据就是死代码，类型里还占着一行，下一个人会以为它在用
+      2. **它还是错的**：上面那个 followUps 带着 `take: 50`，所以这组数是从
+         最近 50 条里算的。真接上去的话，跟进超过 50 次的人「累计通话时长」
+         会停止增长——一个只在老客户身上出错的数，最不容易被发现。
+    要做这组数得单独 groupBy 聚合，不能借那 50 条现成的行。
+  */
   return (
     <RecordView
       users={users}
       channels={channels}
       referrableCustomers={referrableCustomers}
-      stats={stats}
       aiEnabled={await llmEnabled()}
       customer={{
         id: customer.id,

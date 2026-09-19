@@ -18,7 +18,7 @@ import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
 import { clearJob, getJob, runJob, setJobValue, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
-import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 载入对话, 认领对话, 当前对话, type Turn } from "@/lib/home-thread";
+import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 载入对话, 认领对话, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
 import { 落一轮, type 历史消息 } from "./threads";
 import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
@@ -84,7 +84,7 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
  */
 export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: number; 高意向标签: string };
 
-export default function HomeChat({ 会话, userName, suggestions, context, models, aiQuota, 空库, 信号, 模式 = "宽", 上下文提示 }: {
+export default function HomeChat({ 会话, userName, suggestions, context, models, aiQuota, 空库, 信号, 模式 = "宽", 上下文提示, scope = 首页屏, 标题前缀 }: {
   /** 地址上 ?c= 指的那条对话，服务端读好传进来。null = 一屏新对话 */
   会话: { id: string; title: string; messages: 历史消息[] } | null;
   userName: string;
@@ -103,10 +103,22 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   模式?: "宽" | "窄";
   /** 窄模式下带的当前页上下文（见 lib/ai-context-page.ts）。宽模式没有这回事 */
   上下文提示?: string;
+  /**
+   * 这一屏归哪儿。首页是 `首页屏`，全局面板按 pathname 一页一屏——
+   * **不给就会和首页共用一屏**，那正是 2026-09-19 报上来的「在线索页问一句，
+   * 所有页面都有记录」。见 lib/home-thread.ts 的说明。
+   */
+  scope?: string;
+  /**
+   * 落库时给对话标题加的前缀（「线索 · 」）。首页不加。
+   * 每一页各问各的之后，首页那条列表里会并排躺着好几条对话，
+   * 光看问题本身认不出是在哪一页问的。
+   */
+  标题前缀?: string;
 }) {
   const b = useBusiness();
   const router = useRouter();
-  const turns = useThread();
+  const turns = useThread(scope);
   const 地址栏 = useSearchParams();
   const model = useModel(models);
   /** 这一问要带的文件。发出去就清空——它属于那一问，不属于这个输入框 */
@@ -155,7 +167,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   useEffect(() => {
     if (!会话) return;
     const { turns: 轮, jobs } = 历史成屏(会话.messages);
-    if (!载入对话(会话.id, 轮)) return;
+    if (!载入对话(scope, 会话.id, 轮)) return;
     for (const j of jobs) setJobValue(j.key, j.value);
     // 历史那几轮本来就在库里，别再落一遍
     for (const t of 轮) 已落.current.add(t.id);
@@ -179,7 +191,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
         已落.current.add(t.id);
         if (!答) continue;
         const r = await 落一轮({
-          conversationId: 当前对话(),
+          conversationId: 当前对话(scope),
           question: t.question,
           answer: 答,
           model,
@@ -187,8 +199,9 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
           steps: job.value?.steps,
           // 建议卡不存：它是一件当时就处理完的事，翻历史不该再摆回来
           refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [] },
+          标题前缀: 标题前缀,
         });
-        认领对话(r.conversationId);
+        认领对话(scope, r.conversationId);
         /*
           地址对上那条对话（replace：翻历史时后退键不该退回「同一屏但没有 ?c=」）。
           **只在首页做**：窄模式下人在客户页顺手问一句，把地址改成 /dashboard 就是把他跳走了。
@@ -198,7 +211,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
         router.refresh();
       }
     })();
-  }, [turns, runningKey, model, router, 模式]);
+  }, [turns, runningKey, model, router, 模式, scope, 标题前缀]);
   const running = runningKey ? turns.find((t) => `home:${t.id}` === runningKey) : undefined;
   const queued = turns.find((t) => t.queued);
   const showCmds = q.startsWith("/") && !q.includes(" ");
@@ -256,7 +269,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
   useEffect(() => {
     if (running || !queued) return;
-    dequeueTurn(queued.id);
+    dequeueTurn(scope, queued.id);
     start(queued);
   }, [running, queued]);
 
@@ -268,7 +281,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
       const c = COMMANDS.find((x) => x.cmd === typed.split(/\s+/)[0]);
       if (c?.cmd === "/clear") {
         turns.forEach((t) => clearJob(`home:${t.id}`));
-        clearThread();
+        clearThread(scope);
         setQ("");
         return;
       }
@@ -291,7 +304,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     if (question.length < 2) return;
     // 正在答的时候再发：排队，不并发打模型
     const shouldQueue = opts.queue || Boolean(running);
-    const turn = addTurn({
+    const turn = addTurn(scope, {
       question,
       kind: "ask",
       queued: shouldQueue,
@@ -383,13 +396,13 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                 scrollOnMount={t.id === 刚发的}
                 onRetry={() => {
                   clearJob(`home:${t.id}`);
-                  if (running) dequeueTurn(t.id);
+                  if (running) dequeueTurn(scope, t.id);
                   start(t);
                 }}
                 onRemove={() => {
                   cancelStream(`home:${t.id}`);
                   clearJob(`home:${t.id}`);
-                  removeTurn(t.id);
+                  removeTurn(scope, t.id);
                 }}
                 onAsk={(q) => submit(q)}
               />

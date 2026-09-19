@@ -87,15 +87,28 @@ export default function ChannelsView({
     {
       title: "直接推荐", key: "directCount", dataIndex: "directCount", width: 110,
       sorter: (a, b2) => a.directCount - b2.directCount,
-      render: (v: number, r) =>
-        v > 0 ? <Link href={`/customers?keyword=${encodeURIComponent(r.name)}`}>{v} 人</Link> : <span className="muted">0</span>,
+      render: (v: number, r) => (
+        <Tooltip title={`这条渠道亲自带来的${b.customer}，不含他们再转介绍来的`}>
+          {v > 0 ? <Link href={`/customers?keyword=${encodeURIComponent(r.name)}`}>{v} 人</Link> : <span className="muted">0</span>}
+        </Tooltip>
+      ),
     },
     {
+      /*
+        这两列到 2026-09-19 为止永远相等：「直接」取的是 `_count.directCustomers`，
+        而那个关系走 `Customer.channelId`——按 schema 的定义它是**链条最顶端的渠道、
+        所有后代继承**，数的本来就是整条链。两列并排摆着、一列还写着「含下游转介绍」，
+        却是同一个谓词算了两遍。转介绍到底带来了多少人，这张表一直答不出来。
+        现在「直接」只数没有上游学员的那些，差额就是转介绍的部分。
+      */
       title: "整条推荐链", key: "chainCount", dataIndex: "chainCount", width: 120,
       sorter: (a, b2) => a.chainCount - b2.chainCount,
-      render: (v: number) => (
-        <Tooltip title={`含下游转介绍带来的全部${b.customer}`}>
-          <span>{v} 人</span>
+      render: (v: number, r) => (
+        <Tooltip title={`含下游转介绍带来的全部${b.customer}；其中 ${r.directCount} 位是这条渠道直接带来的`}>
+          <span>
+            {v} 人
+            {v > r.directCount && <span className="muted">（转介绍 {v - r.directCount}）</span>}
+          </span>
         </Tooltip>
       ),
     },

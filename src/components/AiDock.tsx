@@ -114,6 +114,15 @@ export default function AiDock({
         <HomeChat
           模式="窄"
           上下文提示={上下文 && !不带上下文 ? 上下文.提示 : undefined}
+          /*
+            **一页一屏，不是全局一份。** 2026-09-19 报上来的：在线索页问一句，
+            换到客户页、回到首页，那一问那一答跟着到处走——因为这个组件在每一页
+            都渲染同一个 HomeChat，而 home-thread 原来就一份 `let turns`。
+            scope 给 pathname：各页各一屏，互不相干；落库仍走同一张表，
+            所以首页那条列表照样看得到在哪一页问过什么。
+          */
+          scope={pathname}
+          标题前缀={上下文?.名}
           会话={null}
           userName={userName}
           suggestions={[] as Suggestion[]}

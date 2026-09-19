@@ -21,7 +21,14 @@ export default async function LeadsPage({
     ...(sp.status ? { status: sp.status } : {}),
   };
 
-  const [rows, users] = await Promise.all([
+  const [总数, rows, users] = await Promise.all([
+    /*
+      **总数要单独数一次。** 下面那条 `take: 300` 取回来的行数不是总数，
+      而 DataList 的分页条会照着行数写「共 N 条」——库里 500 条线索的人
+      看到的是「共 300 条」，一个错的总数（2026-09-19 报上来的）。
+      count 走的是同一个 where，和列表是同一个口径。
+    */
+    prisma.lead.count({ where }),
     prisma.lead.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -41,6 +48,7 @@ export default async function LeadsPage({
 
   return (
     <LeadsView
+      总数={总数}
       me={me.id}
       users={候选}
       filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "" }}

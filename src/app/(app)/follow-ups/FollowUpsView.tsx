@@ -26,10 +26,13 @@ type Row = {
 
 export default function FollowUpsView({
   rows,
+  总数,
   users,
   filters,
 }: {
   rows: Row[];
+  /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
+  总数: number;
   users: 可选成员[];
   filters: { keyword: string; type: string; ownerId: string };
 }) {
@@ -108,6 +111,7 @@ export default function FollowUpsView({
       />
 
       <DataList<Row>
+        截断={{ 总数 }}
         页="follow-ups"
         空库={rows.length === 0 && !Object.values(filters).some((v) => v)}
         列={列表}

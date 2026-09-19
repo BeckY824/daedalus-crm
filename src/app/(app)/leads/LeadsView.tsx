@@ -37,11 +37,14 @@ type Row = {
 
 export default function LeadsView({
   rows,
+  总数,
   users,
   filters,
   me,
 }: {
   rows: Row[];
+  /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
+  总数: number;
   users: 可选成员[];
   filters: { keyword: string; status: string };
   me: string;
@@ -191,6 +194,7 @@ export default function LeadsView({
       />
 
       <DataList<Row>
+        截断={{ 总数 }}
         页="leads"
         空库={空库}
         列={列表}

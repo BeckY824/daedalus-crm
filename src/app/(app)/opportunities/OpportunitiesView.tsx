@@ -36,12 +36,15 @@ export type OppRow = {
 
 export default function OpportunitiesView({
   rows,
+  总数,
   users,
   customers,
   filters,
   直接新建,
 }: {
   rows: OppRow[];
+  /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
+  总数: number;
   users: 可选成员[];
   customers: { id: string; name: string }[];
   filters: { keyword: string; stage: string; status: string; ownerId: string };
@@ -256,6 +259,7 @@ export default function OpportunitiesView({
         **一条商机都没有时整行不出现**：0 / 0 / 0 不是信息，是噪音。
       */}
       <DataList<OppRow>
+        截断={{ 总数 }}
         页="opportunities"
         空库={rows.length === 0 && !Object.values(filters).some((v) => v)}
         列={列表}

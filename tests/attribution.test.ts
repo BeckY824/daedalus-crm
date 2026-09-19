@@ -12,7 +12,7 @@
 import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { resolveAttribution, attributionLabel, wouldCreateCycle } from "../src/lib/attribution";
+import { resolveAttribution, attributionLabel, wouldCreateCycle, 渠道汇总 } from "../src/lib/attribution";
 
 
 let owner: { id: string };
@@ -237,5 +237,61 @@ describe("成环检查的早退分支", () => {
     // saveCustomer 另有一道「推荐人不能是本人」的校验，走不到这里，
     // 但这个函数是公开导出的，早退分支要自己锁住
     expect(await wouldCreateCycle("同一个人", "同一个人")).toBe(true);
+  });
+});
+
+/**
+ * 渠道列表那三列。
+ *
+ * 2026-09-19 报上来的：「直接推荐」和「整条推荐链」永远是同一个数。
+ * 根因是「直接」取的是 Prisma 关系 `Channel.directCustomers` 的 `_count`，
+ * 而那个关系走 `Customer.channelId`——按 schema 它是链条最顶端的渠道、所有后代继承，
+ * 数的本来就是整条链。关系名叫 direct，数的却是 chain。
+ *
+ * 这一组用例钉的就是「这两个数必须能不一样」：写回同一个谓词不会报错，
+ * 只会让一整列悄悄变成另一列的副本。
+ */
+describe("渠道汇总：直接推荐 vs 整条推荐链", () => {
+  const 学员 = (channelId: string | null, referrerCustomerId: string | null, ...金额: number[]) => ({
+    channelId,
+    referrerCustomerId,
+    contracts: 金额.map((amount) => ({ amount })),
+  });
+
+  it("转介绍来的算进链、不算进直接", () => {
+    // 小红 → 小明（直接）；小明 → 室友；室友 → 朋友。三个后代 channelId 都继承小红
+    const r = 渠道汇总(["小红"], [
+      学员("小红", null),      // 小明：渠道直荐
+      学员("小红", "小明"),    // 室友：学员转介绍
+      学员("小红", "室友"),    // 朋友：学员转介绍
+    ]);
+    expect(r["小红"].chainCustomers).toBe(3);
+    expect(r["小红"].directCustomers).toBe(1);
+    // 这一条才是这张表存在的理由：转介绍带来了 2 位
+    expect(r["小红"].chainCustomers - r["小红"].directCustomers).toBe(2);
+  });
+
+  it("一个转介绍都没有时两列相等——那是真相等，不是算错", () => {
+    const r = 渠道汇总(["小红"], [学员("小红", null), 学员("小红", null)]);
+    expect(r["小红"]).toMatchObject({ directCustomers: 2, chainCustomers: 2 });
+  });
+
+  it("链上签约额按整条链算，后代的签约也算进来", () => {
+    const r = 渠道汇总(["小红"], [
+      学员("小红", null, 10000),
+      学员("小红", "小明", 20000, 5000),
+    ]);
+    expect(r["小红"].chainAmount).toBe(35000);
+  });
+
+  it("自然流量（没有渠道）谁的桶都不进", () => {
+    const r = 渠道汇总(["小红"], [学员(null, null, 99999)]);
+    expect(r["小红"]).toEqual({ id: "小红", directCustomers: 0, chainCustomers: 0, chainAmount: 0 });
+  });
+
+  it("没有学员的渠道也要出现在结果里，不能缺行", () => {
+    const r = 渠道汇总(["小红", "王主任"], [学员("小红", null)]);
+    expect(Object.keys(r).sort()).toEqual(["小红", "王主任"].sort());
+    expect(r["王主任"].chainCustomers).toBe(0);
   });
 });

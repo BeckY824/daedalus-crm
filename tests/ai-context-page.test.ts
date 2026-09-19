@@ -59,6 +59,41 @@ describe("认页面", () => {
   });
 
   /**
+   * 每一页都要指名「这一页的数据用哪个工具查」。
+   *
+   * 2026-09-19 的线索页事故：模型连着四次 `search_customers()` 空参数，
+   * 而 Steven 在 Lead 表里。`list_leads` 的工具说明里**早就**写着「别用 search_customers 找线索」，
+   * 不顶用——十一个工具的说明一起摆着，小模型按名字的字面意思挑。
+   * 人站在哪一页是我们确定知道的，必须兑换成一句指名道姓的话。
+   *
+   * 漏一页的后果和上面那条一样：不报错，只是那一页永远选错工具。
+   */
+  it("每一页都指名了该用哪个工具", () => {
+    const 页 = ["/overview", "/reports", "/leads", "/customers", "/channels", "/contacts", "/opportunities", "/opportunities/pipeline", "/follow-ups", "/follow-ups/plans"];
+    const 漏了 = 页.filter((p) => !/这一页的数据用 \*\*[a-z_ 或]+\*\* 查/.test(认页面(p, null)?.提示 ?? ""));
+    expect(漏了, `这些页面没说该用哪个工具：${漏了.join("、")}`).toEqual([]);
+  });
+
+  it("线索页指的是 list_leads，不是 search_customers", () => {
+    const r = 认页面("/leads", null);
+    expect(r?.提示).toContain("list_leads");
+    // 「两张表」这句是这条 bug 的正解，不能被顺手删掉
+    expect(r?.提示).toContain("两张不同的表");
+    expect(r?.提示).toContain("search_customers 一条也查不到");
+  });
+
+  it("客户详情页把姓名塞进 get_customer 的参数里", () => {
+    expect(认页面("/customers/abc123", null, "张三")?.提示).toContain('get_customer** 查（参数 name="张三"）');
+  });
+
+  /** 落库时拿它当对话标题的前缀，所以不能带筛选条件——那是给人看的标签才有的 */
+  it("名 是干净的页面名，标签才带筛选", () => {
+    const r = 认页面("/customers", 参数("followStatus=已签约"));
+    expect(r?.名).toBe("客户");
+    expect(r?.标签).toBe("客户，筛了跟进状态 已签约");
+  });
+
+  /**
    * 左栏里有的路由，这张表里必须都有——漏一条的后果是那一页的面板安静地失去上下文：
    * 不报错，只是答得不对题。和打包白名单、工具 schema 是同一类洞。
    */

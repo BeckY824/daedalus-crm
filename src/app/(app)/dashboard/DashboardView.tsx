@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { palette, categorical, alpha } from "@/lib/palette";
 import Link from "next/link";
 import { Row, Col, Card, Segmented, Typography, Space, Tag, Empty, Select } from "antd";
@@ -20,7 +20,7 @@ import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
-import { money, moneyShort, smartTime, 成员选项 } from "@/lib/utils";
+import { money, smartTime, 成员选项 } from "@/lib/utils";
 import { OPP_STAGE_COLOR } from "@/lib/constants";
 
 type Props = {
@@ -54,7 +54,8 @@ type Props = {
    */
   funnel: Record<"本月" | "本季", { stage: string; count: number; amount: number }[]>;
   ranking: { id: string; name: string; email: string; amount: number }[];
-  tasks: { id: string; title: string; customerId: string; customerName: string; dueAt: string | null }[];
+  /** 待办 = 任务 + 跟进计划，和 `/follow-ups/plans` 同一个口径。`kind` 区分是哪一种 */
+  tasks: { id: string; title: string; customerId: string; customerName: string; dueAt: string | null; kind: "任务" | "计划" }[];
   watchlist: WatchItem[];
   /** 服务端是否配置了 AI。没配时盯盘照常显示，只是没有「起草跟进」按钮 */
   aiEnabled: boolean;
@@ -145,6 +146,21 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
   const funnelTotal = 当前漏斗.reduce((s, f) => s + f.count, 0);
   const funnelAmount = 当前漏斗.reduce((s, f) => s + f.amount, 0);
   const maxFunnel = Math.max(1, ...当前漏斗.map((f) => f.count));
+  /**
+   * 判「已经过了没有」的那一刻。**今天零点，不是此时此刻**——
+   * 和「逾期跟进」那张卡同一个口径（Board 里数的是 plannedAt < 今天零点）。
+   *
+   * 必须在客户端算：服务端渲染出来的是服务器那台机器的「今天」，
+   * 时区一差就是整整一天。走 useSyncExternalStore，服务端快照给空串
+   * （那一遍谁都不算逾期），水合之后换成真的——和 HomeChat 里的问候同一个办法，
+   * 不会有 hydration mismatch，也不会闪一下别人的日期。
+   */
+  const 今天零点 = useSyncExternalStore(
+    () => () => {},
+    () => new Date(new Date().setHours(0, 0, 0, 0)).toISOString(),
+    () => "",
+  );
+  const 逾期了 = (dueAt: string | null) => Boolean(今天零点 && dueAt && dueAt < 今天零点);
 
   if (空库) {
     return (
@@ -264,6 +280,11 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
               >
                 {ranking.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无数据" />}
                 {/* key 必须用 id：成员姓名允许重复，用 name 会撞 key，React 会把两行合并或漏掉 */}
+                {/*
+                  口径必须写出来。这张榜数的是**赢单商机**的金额、**不限时间**，
+                  而同屏第一张卡「本月签约」数的是 Contract 表、只算这个月——
+                  两个数来自两张表、两个时间窗，摆在一页上却都叫「业绩」。
+                */}
                 {榜单.map((r, i) => (
                   <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 0" }}>
                     <span
@@ -298,11 +319,18 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                         }}
                       />
                     </div>
-                    <span style={{ fontSize: 14, color: "var(--text-muted)", width: 78, textAlign: "right", flex: "none" }}>
-                      {r.amount.toLocaleString()}
+                    {/* 同一页别处的金额都走 money()，这里原来是裸数字——
+                        「120000」和「¥120,000」摆在同一屏上，前者会被当成人数或单量 */}
+                    <span style={{ fontSize: 14, color: "var(--text-muted)", width: 92, textAlign: "right", flex: "none" }}>
+                      {money(r.amount)}
                     </span>
                   </div>
                 ))}
+                {ranking.length > 0 && (
+                  <div className="stat-delta" style={{ marginTop: 8 }}>
+                    按赢单商机金额算，不限时间；「本月签约」那张卡数的是签约记录，两者口径不同
+                  </div>
+                )}
               </Card>
             </Col>
 
@@ -351,7 +379,14 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   </Link>
                 </div>
                 <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{smartTime(t.dueAt)}</span>
-                <Tag color="orange" style={{ margin: 0, borderRadius: 6, flex: "none" }}>待处理</Tag>
+                {/*
+                  原来一律是一枚橙色的「待处理」。两处不对：
+                  时间已经过去的那几条也写「待处理」，而它们正是上面「逾期跟进」数的那些；
+                  合进跟进计划之后，任务和计划也得分得清——落地页上它们各带一个小标。
+                */}
+                <Tag color={逾期了(t.dueAt) ? "red" : "orange"} style={{ margin: 0, borderRadius: 6, flex: "none" }}>
+                  {逾期了(t.dueAt) ? "已逾期" : t.kind}
+                </Tag>
               </div>
             ))}
           </Card>
@@ -455,10 +490,16 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
           </Row>
         </Col>
       </Row>
-      <div style={{ height: 4 }} />
-      <Typography.Text type="secondary" style={{ fontSize: 14 }}>
-        预测销售额 = Σ(进行中商机金额 × 成交概率)，共 {moneyShort(stats.oppTotalAmount)} 元在管道中。
-      </Typography.Text>
+      {/*
+        这儿原来有一行「预测销售额 = Σ(进行中商机金额 × 成交概率)，共 X 元在管道中」。
+        2026-09-19 删掉，两个原因，每一个单独都够：
+          1. **它在说谎**。预测销售额那张卡 09-17 撤了，Board 从此只取金额不取概率
+             （见 Board.tsx 的 select 注释），而这行字照旧写着乘了概率的公式，
+             后面跟的是没乘的裸和。和「新增客户」那条图例是同一种错：数是对的，名字不对。
+          2. 就算把概率补回来，这个数在同屏**已经出现两次**了——「进行中商机」卡的
+             note「在谈 X」、右边「商机总金额（进行中）」那张卡。第三遍不增加任何信息。
+        要真做预测销售额，它得是一张自己的卡、有自己的口径说明，不是页脚一句话。
+      */}
     </>
   );
 }

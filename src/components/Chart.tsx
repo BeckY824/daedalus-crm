@@ -51,14 +51,45 @@ export default function Chart({
       和点不动的图表对用户是一回事。横轴刻度要 xAxis.triggerEvent 才会发事件，
       它没有 dataIndex，只有 value，所以反查一下它在 category 里的位置。
     */
+    /** 同一次鼠标点击不要走两条路：图元认过了，下面那道兜底就不再认 */
+    let 这次认过了 = false;
     c.on("click", (e: { componentType?: string; dataIndex?: number; value?: unknown }) => {
       if (e.componentType === "xAxis") {
         const 刻度 = (c.getOption() as { xAxis?: { data?: unknown[] }[] }).xAxis?.[0]?.data ?? [];
         const i = 刻度.indexOf(e.value);
-        if (i >= 0) 回调.current?.(i);
+        if (i >= 0) {
+          这次认过了 = true;
+          回调.current?.(i);
+        }
         return;
       }
-      if (typeof e.dataIndex === "number") 回调.current?.(e.dataIndex);
+      if (typeof e.dataIndex === "number") {
+        这次认过了 = true;
+        回调.current?.(e.dataIndex);
+      }
+    });
+
+    /*
+      **点空白也算**：整根「列」都是热区，不只是那根柱子。
+
+      2026-09-19 给趋势图补上了没签约的日子（横轴缺刻度等于把时间轴压缩了，
+      走势是假的）。代价是那些日子的柱子高度为 0——而高度为 0 的图元点不中，
+      于是「点柱子看这一段签了哪几笔」在大半个图上失效了。
+      矮柱子本来就难点，补零之后成了压垮它的那一下。
+
+      zrender 的原生点击拿得到画布坐标，用 convertFromPixel 反查它落在哪个刻度上，
+      整块图形区就都能点了。抽屉本来就处理得了空的那一段（「这一段没有签约」），
+      所以点在 0 的那一天也是个有意义的回答，比点了没反应好——
+      点了没反应的图，人只会以为它坏了。
+    */
+    c.getZr().on("click", (e: { offsetX: number; offsetY: number }) => {
+      if (这次认过了) {
+        这次认过了 = false;
+        return;
+      }
+      if (!c.containPixel("grid", [e.offsetX, e.offsetY])) return;
+      const [i] = c.convertFromPixel({ seriesIndex: 0 }, [e.offsetX, e.offsetY]) as number[];
+      if (typeof i === "number" && i >= 0) 回调.current?.(Math.round(i));
     });
     const ro = new ResizeObserver(() => c.resize());
     ro.observe(ref.current);

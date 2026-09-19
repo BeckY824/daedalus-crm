@@ -52,7 +52,6 @@ export type RecordProps = {
   channels: { id: string; name: string }[];
   /** 可作为推荐人的已有学员 */
   referrableCustomers: { id: string; name: string }[];
-  stats: { followCount: number; callSeconds: number; meetingCount: number; emailCount: number };
   /** 服务端是否配置了 AI。没配时 AI 面板整体不渲染 */
   aiEnabled: boolean;
 };

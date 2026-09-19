@@ -102,6 +102,40 @@ export async function resolveAttribution(
   return empty;
 }
 
+/**
+ * 渠道列表那三列：直接推荐 / 整条推荐链 / 链上签约额。
+ *
+ * **「直接」和「整条链」必须用两个谓词算。** 2026-09-19 之前这两列永远一模一样：
+ * 「直接」取的是 Prisma 关系 `Channel.directCustomers` 的 `_count`，而那个关系走
+ * `Customer.channelId`——按 schema 的定义它是**链条最顶端的渠道、所有后代继承**，
+ * 数的本来就是整条链。关系名叫 direct，数的却是 chain，两列并排摆着、
+ * 一列还写着「含下游转介绍」，却是同一个谓词算了两遍。
+ * 转介绍到底带来了多少人，那张表一直答不出来。
+ *
+ * 真正的「直接」= channelId 命中**且没有上游学员**——见上面 resolveAttribution
+ * 的情况一：渠道直荐时 referrerCustomerId 留空，被学员转介绍来的则一定有值。
+ * 差额（chain - direct）就是转介绍带来的部分，那正是这张表想让人看见的东西。
+ *
+ * 抽成纯函数是为了钉得住：它是一处「两个数必须不同」的地方，
+ * 写回同一个谓词不会报错，只会让一整列悄悄变成另一列的副本。
+ */
+export function 渠道汇总(
+  渠道ids: string[],
+  学员们: { channelId: string | null; referrerCustomerId: string | null; contracts: { amount: number }[] }[],
+): Record<string, { id: string; directCustomers: number; chainCustomers: number; chainAmount: number }> {
+  const out = Object.fromEntries(
+    渠道ids.map((id) => [id, { id, directCustomers: 0, chainCustomers: 0, chainAmount: 0 }]),
+  );
+  for (const c of 学员们) {
+    const 桶 = c.channelId ? out[c.channelId] : undefined;
+    if (!桶) continue;
+    桶.chainCustomers += 1;
+    桶.chainAmount += c.contracts.reduce((s, ct) => s + ct.amount, 0);
+    if (!c.referrerCustomerId) 桶.directCustomers += 1;
+  }
+  return out;
+}
+
 /** 归属对象的展示名，供列表与详情统一使用 */
 export function attributionLabel(c: {
   attributionChannel?: { name: string } | null;

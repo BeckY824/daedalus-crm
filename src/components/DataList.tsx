@@ -54,12 +54,24 @@ type Props<T> = {
    * 给了 = 服务端分页，由调用方去翻。false = 不分页。
    */
   分页?: { 当前页: number; 每页: number; 总数: number; 翻页: (页: number, 每页: number) => void } | false;
+  /**
+   * 这一页只取了前 N 条时，库里到底有多少。
+   *
+   * 2026-09-19 报上来的一类：线索 / 商机 / 联系人 / 跟进四页都是 `take: 300` 配
+   * 浏览器端分页，而分页条上的 `showTotal` 数的是**取回来的行**——
+   * 库里有 500 条线索的人，页脚白纸黑字写着「共 300 条」。
+   * 这不是少显示了 200 条的问题，是页面报了一个错的总数。
+   *
+   * 说法照 CustomerRoster 那条来：「这里只有最近 N 条，全部 M 条…」。
+   * 不给 = 行已经是全部（走服务端分页的 `/customers`，或者本来就取全了）。
+   */
+  截断?: { 总数: number; 说明?: string };
 };
 
 const 列键 = <T,>(c: 列<T>) => String(c.key ?? c.dataIndex);
 
 export default function DataList<T extends { id: string }>({
-  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页,
+  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页, 截断,
 }: Props<T>) {
   const router = useRouter();
   const [选中, set选中] = useState<string[]>([]);
@@ -197,9 +209,19 @@ export default function DataList<T extends { id: string }>({
                   showSizeChanger: true,
                   onChange: 分页.翻页,
                 }
-              : { pageSize: 20, showTotal: (t) => `共 ${t} 条`, showSizeChanger: true }
+              : {
+                  pageSize: 20,
+                  // 截断时 `t` 是取回来的行数，不是库里的总数——别让它冒充总数
+                  showTotal: (t) => (截断 && 截断.总数 > 行.length ? `这里 ${t} 条` : `共 ${t} 条`),
+                  showSizeChanger: true,
+                }
         }
       />
+      {截断 && 截断.总数 > 行.length && (
+        <div className="muted" style={{ fontSize: 13, marginTop: 8, textAlign: "right" }}>
+          这里只有最近 {行.length} 条，库里一共 {截断.总数} 条{截断.说明 ? `。${截断.说明}` : "——用上面的筛选缩小范围"}
+        </div>
+      )}
     </div>
   );
 }

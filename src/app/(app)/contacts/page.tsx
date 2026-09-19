@@ -24,7 +24,9 @@ export default async function ContactsPage({
       }
     : {};
 
-  const [rows, 学员们] = await Promise.all([
+  const [总数, rows, 学员们] = await Promise.all([
+    // take: 300 取回来的行数不是总数，分页条会拿它冒充总数。见 leads/page.tsx 的说明
+    prisma.contact.count({ where }),
     prisma.contact.findMany({
       where,
       orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
@@ -40,6 +42,7 @@ export default async function ContactsPage({
 
   return (
     <ContactsView
+      总数={总数}
       keyword={sp.keyword ?? ""}
       学员们={学员们}
       rows={rows.map((c) => ({

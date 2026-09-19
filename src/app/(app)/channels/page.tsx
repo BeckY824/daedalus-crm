@@ -4,6 +4,7 @@ import ChannelsView from "./ChannelsView";
 import { 负责人候选 } from "@/lib/owners";
 import { llmEnabled } from "@/lib/llm";
 import { buildReferralRadar } from "@/lib/referral";
+import { 渠道汇总 } from "@/lib/attribution";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,6 @@ export default async function ChannelsPage() {
         id: true, name: true, phone: true, remark: true, active: true, createdAt: true,
         channelOwnerId: true,
         channelOwner: { select: { name: true } },
-        _count: { select: { directCustomers: true } },
       },
     }),
     /*
@@ -50,15 +50,9 @@ export default async function ChannelsPage() {
   });
 
   const 签约额 = (c: { contracts: { amount: number }[] }) => c.contracts.reduce((s, ct) => s + ct.amount, 0);
-  const statMap: Record<string, { id: string; chainCustomers: number; chainAmount: number }> = Object.fromEntries(
-    channels.map((c) => [c.id, { id: c.id, chainCustomers: 0, chainAmount: 0 }]),
-  );
-  for (const cu of allCustomers) {
-    const 桶 = cu.channelId ? statMap[cu.channelId] : undefined;
-    if (!桶) continue;
-    桶.chainCustomers += 1;
-    桶.chainAmount += 签约额(cu);
-  }
+  // 「直接」和「整条链」是两个谓词——到 2026-09-19 为止是同一个，两列永远相等。
+  // 口径和为什么抽成函数见 lib/attribution.ts 的 渠道汇总
+  const statMap = 渠道汇总(channels.map((c) => c.id), allCustomers);
 
   const radar = buildReferralRadar(
     allCustomers.map((c) => ({
@@ -84,7 +78,7 @@ export default async function ChannelsPage() {
         createdAt: c.createdAt.toISOString(),
         channelOwnerId: c.channelOwnerId,
         channelOwnerName: c.channelOwner.name,
-        directCount: c._count.directCustomers,
+        directCount: statMap[c.id]?.directCustomers ?? 0,
         chainCount: statMap[c.id]?.chainCustomers ?? 0,
         chainAmount: statMap[c.id]?.chainAmount ?? 0,
       }))}

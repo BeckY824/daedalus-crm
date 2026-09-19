@@ -26,10 +26,13 @@ type Row = {
 
 export default function ContactsView({
   rows: 全部行,
+  总数,
   keyword,
   学员们,
 }: {
   rows: Row[];
+  /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
+  总数: number;
   keyword: string;
   /** 「添加联系人」时挑归属用的。联系人挂在某一位学员下面，没有归属的联系人没有意义 */
   学员们: { id: string; name: string }[];
@@ -123,6 +126,7 @@ export default function ContactsView({
       />
 
       <DataList<Row>
+        截断={{ 总数 }}
         页="contacts"
         空库={全部行.length === 0 && !keyword}
         列={列表}

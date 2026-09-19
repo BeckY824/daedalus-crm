@@ -287,6 +287,8 @@ ${工作方式}
   let 查过的工具 = 0;
   /** 空手作答只顶一次，免得来回拉锯 */
   let 顶过 = false;
+  /** 这一轮调过哪些「工具 + 参数」，值是当时的结果摘要。用来拦原地打转 */
+  const 调过的 = new Map<string, string>();
 
   for (let i = 0; i < MAX_STEPS; i++) {
     if (ev.signal?.aborted) throw new Error("已取消");
@@ -396,9 +398,39 @@ ${工作方式}
 
     const tool = TOOL_MAP.get(选择.tool)!;
     const thought = 选择.thought;
+    const args = 选择.args;
+
+    /*
+      **同一个工具、同一套参数，第二次就别再跑了。**
+
+      2026-09-19 报上来的：在线索页问「Steven 是哪家公司的？」，过程条上
+      `search_customers() → 没给条件` 连着四行，一条数据都没查着。
+      Steven 是那条线索的联系人，在 Lead 表里——search_customers 翻的是 Customer 表，
+      给什么参数都查不到他。而工具原样把同一句「没给条件」退回去，
+      模型读到的等于「再试一次」，于是原地打转到步数用完。
+
+      这里不重复执行，直接把「换个工具」这件事说给它听，并且**把候选列出来**：
+      提示词里那句「不要重复调用同一个工具」它已经看过了，没用——
+      空泛的禁止改不了它的选择，给出下一步该做什么才行。
+    */
+    const 签名 = `${tool.name}:${JSON.stringify(args)}`;
+    if (调过的.has(签名)) {
+      const 劝 =
+        `你刚才已经用完全相同的参数调过 ${tool.name} 了，结果还是那一个：${调过的.get(签名)}。` +
+        `再调一次不会有不同的结果。要么换一套参数，要么换一个工具——可用的：` +
+        `${TOOLS.filter((t) => SCHEMAS[t.name] && t.name !== tool.name).map((t) => t.name).join("、")}。` +
+        `线索（list_leads）、商机（list_opportunities）、渠道（list_channels）和客户（search_customers）是**不同的表**，` +
+        `在一张表里查不到的东西要换一张表查。都查不到就直接作答，如实说没找到。`;
+      // 回执的最后一条是留给结果的占位：原生那条按 tool_call_id 对上，JSON 协议那条是 user
+      const 回执 = 选择.回执;
+      (回执[回执.length - 1] as { content: string }).content = 劝;
+      messages.push(...回执);
+      console.warn(`[agent] 原地打转，拦下第二次 ${签名.slice(0, 80)}`);
+      continue;
+    }
+
     steps += 1;
     const stepId = `tool-${i}`;
-    const args = 选择.args;
     const argText = Object.values(args).filter((v) => typeof v === "string" && v).join(", ");
     ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "running", thought: thought || undefined });
     let result;
@@ -420,6 +452,7 @@ ${工作方式}
       // 搜索 / 盯盘 / 计划里出现过的人先记着，回答里提到了才给动作
       for (const r of listCustomers(result.data)) mentioned.set(r.id, r);
     }
+    调过的.set(签名, result.summary);
     ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "done", detail: result.summary, thought: thought || undefined });
     // 结果交回去：原生那条按 tool_call_id 对上，JSON 协议那条还是一条 user 消息
     const 结果文本 = `工具 ${tool.name} 的结果：\n${JSON.stringify(result.data).slice(0, 6000)}`;
