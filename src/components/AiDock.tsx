@@ -55,14 +55,23 @@ export default function AiDock({
   const [不带上下文的页, set不带上下文的页] = useState<string | null>(null);
   const 不带上下文 = 不带上下文的页 === pathname;
 
-  // ⌘J / Ctrl+J 开关。在输入框里也认——它开的是另一块地方，不抢当前输入
+  /*
+    ⌘J / Ctrl+J 开关。在输入框里也认——它开的是另一块地方，不抢当前输入。
+
+    **Esc 不关面板**（2026-09-19 用户要求，而且它本来就是个 bug）：
+    面板是常驻的一栏，不是弹层——弹层按 Esc 关，一栏不该。
+    更硬的理由是 Esc 在面板里**已经有主人**：答案正在流的时候它是「打断」
+    （HomeChat 里那句 `Escape && running → cancelStream`，输入框下面也写着「Esc 打断」）。
+    两个处理器听同一个键，于是想按 Esc 停下一个跑偏的回答，会连面板一起收掉——
+    人失去的不只是那一栏，还有刚才那半截回答的上下文。
+    要关有两条路：⌘J，或者面板右上角那个 ×。两条都是明确说「我要关它」。
+  */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
         e.preventDefault();
         set开着(!开着);
       }
-      if (e.key === "Escape" && 开着) set开着(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

@@ -3,23 +3,25 @@
 import { useRouter } from "next/navigation";
 import { Segmented } from "antd";
 import { PageHead } from "@/components/ui";
-import AskData from "../reports/AskData";
 import { 视图们, type 视图 } from "./views";
 
 /**
- * 「数据」页的壳：标题、三视图切换、问数据的输入框。
+ * 「数据」页的壳：标题 + 三视图切换。
  *
- * 问数据这个框和首页那个是**同一个组件**（components/AskBox）。
- * 原来两处各写一个：一个是带命令和建议卡的对话框，一个是 antd 的搜索框，
- * 长得不一样、快捷键不一样、答案的样子也不一样——人会以为它们是两种能力。
+ * **这儿原来还有一个「问一个数」的输入框**（reports/AskData），2026-09-19 撤掉。
+ * 0.38 之后右边那条 AI 面板在每一页都常驻着，这一页于是同屏摆了两个长得一样的框：
+ * 正文那个只问数字、出图表，面板那个是完整的 agent。
+ * 两件事确实不同，但**人分不出来**——只会以为这一页坏了一个，或者不知道该用哪个。
+ * 少一个框不丢任何能力：数字类问题面板照样答（走的是同一条 query_metric）。
+ *
+ * 连带 AskData.tsx / AskDataResult.tsx 一起删了。服务端那条 `mode: "home"`
+ * （api/ai/stream → dashboard/ask.ts 的 askHome）暂时留着没人调，记在交接里另扫。
  */
 export default function DataShell({
   view,
-  aiEnabled,
   children,
 }: {
   view: 视图;
-  aiEnabled: boolean;
   children: React.ReactNode;
 }) {
   const router = useRouter();
@@ -35,7 +37,6 @@ export default function DataShell({
         onChange={(v) => router.push(`/overview?view=${encodeURIComponent(String(v))}`)}
         options={[...视图们]}
       />
-      {aiEnabled && <AskData />}
       {children}
     </>
   );

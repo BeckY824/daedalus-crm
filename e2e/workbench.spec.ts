@@ -364,19 +364,26 @@ test("数据：三处看数并成一页，/reports 这条 URL 还在", async ({ 
   await expect(page).toHaveURL(/view=/);
 });
 
-test("问数据和首页用的是同一个输入框", async ({ page }) => {
-  /**
-   * 0.38.1 起全局 AI 面板在每一页都摆了一个同款输入框，所以这里要**限定在正文里**——
-   * 不限定的话 /overview 上会同时匹配到「问一个数」和面板里那个，strict mode 直接红。
-   * 两者确实是两件事：正文那个问的是数字、出图表（AskData），面板那个是 agent。
-   */
+/**
+ * 数据页正文里那个「问一个数」2026-09-19 撤了。
+ *
+ * 0.38 之后 AI 面板在每一页常驻，这一页就同屏摆了两个长得一样的框：
+ * 正文那个只问数字、出图表，面板那个是完整的 agent。两件事确实不同，
+ * 但人分不出来——只会以为坏了一个，或者不知道该用哪个。
+ * 少一个框不丢能力：数字类问题面板照样答。
+ */
+test("数据页只剩面板那一个输入框，正文里不再有第二个", async ({ page }) => {
   await 登录(page);
   await page.goto("/overview");
-  /* 正则锚在开头：面板那个是「问一位客户，或问一个数」，不锚的话两个都匹配上 */
-  const 问数据 = page.getByPlaceholder(/^问一个数/);
-  await expect(问数据).toBeVisible();
-  await expect(问数据.locator("xpath=ancestor::*[contains(@class,'cli-input')]")).toHaveCount(1);
+  await expect(page.getByPlaceholder(/^问一个数/)).toHaveCount(0);
+
+  // 面板那个还在，而且**只有它**——.cli-input 全站只该在面板里出现这一次
+  await expect(page.locator("aside.dock .cli-input textarea")).toBeVisible();
+  await expect(page.locator(".cli-input textarea")).toHaveCount(1);
+
+  // 首页那个是整页的同一块，不受影响（首页不画面板）
   await page.goto("/dashboard");
+  await expect(page.locator("aside.dock")).toHaveCount(0);
   const 首页框 = page.getByPlaceholder(/^问一位/);
   await expect(首页框).toBeVisible();
   await expect(首页框.locator("xpath=ancestor::*[contains(@class,'cli-input')]")).toHaveCount(1);
@@ -427,6 +434,15 @@ test("⌘K：有输入框的页面回到输入框，没有的弹跳转单", asyn
   await page.keyboard.type("渠道");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/\/channels$/);
+
+  /*
+    数据页 2026-09-19 撤掉正文那个框之后也归入「没框」那一类——
+    ⌘K 找的是面板**以外**的 .cli-input，这一页现在一个都没有。
+    撤框是产品决定，⌘K 跟着变是连带后果，得钉住。
+  */
+  await page.goto("/overview");
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.locator(".cmdk")).toBeVisible();
 });
 
 test("⌘K：一个页面都没匹配上时，第一条变成「问一句」", async ({ page }) => {

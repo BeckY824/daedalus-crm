@@ -1,5 +1,4 @@
 import { requireUser } from "@/lib/auth";
-import { llmEnabled } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import Board from "../dashboard/Board";
 import ReportsView from "../reports/ReportsView";
@@ -25,11 +24,10 @@ export default async function DataPage({ searchParams }: { searchParams: SP }) {
   await requireUser();
   const sp = await searchParams;
   const view: 视图 = (视图们 as readonly string[]).includes(sp.view ?? "") ? (sp.view as 视图) : "现在";
-  const ai = await llmEnabled();
 
   if (view === "现在") {
     return (
-      <DataShell view={view} aiEnabled={ai}>
+      <DataShell view={view}>
         <Board 内嵌 />
       </DataShell>
     );
@@ -43,7 +41,7 @@ export default async function DataPage({ searchParams }: { searchParams: SP }) {
 
   const 数 = await 加载复盘(from, to, 本月 ? "day" : "month");
   return (
-    <DataShell view={view} aiEnabled={ai}>
+    <DataShell view={view}>
       <ReportsView {...数} 口径={口径} />
     </DataShell>
   );

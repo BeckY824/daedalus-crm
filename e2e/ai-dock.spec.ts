@@ -135,17 +135,34 @@ test.describe("全局 AI 面板", () => {
     expect(Math.round((await 列.boundingBox())!.width)).toBe(232);
   });
 
-  test("⌘J 关了再开；Esc 也能关", async ({ page }) => {
+  test("⌘J 关了再开；关掉之后那条窄边在", async ({ page }) => {
     await 登录(page);
     await page.goto("/channels");
     await expect(面板(page)).toBeVisible(); // 默认开着
     await page.keyboard.press("ControlOrMeta+j");
     await expect(面板(page)).toHaveCount(0);
+    await expect(窄边(page)).toBeVisible();
     await page.keyboard.press("ControlOrMeta+j");
     await expect(面板(page)).toBeVisible();
+  });
+
+  /**
+   * **Esc 不关面板。**
+   *
+   * 它是常驻的一栏，不是弹层。而且 Esc 在面板里已经有主人：答案正在流的时候
+   * 它是「打断」（输入框下面就写着「Esc 打断」）。两个处理器听同一个键的话，
+   * 想停下一个跑偏的回答会连面板一起收掉——2026-09-19 用户报上来的。
+   */
+  test("Esc 不收面板：它是一栏，不是弹层", async ({ page }) => {
+    await 登录(page);
+    await page.goto("/channels");
+    await expect(面板(page)).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(面板(page)).toHaveCount(0);
-    await expect(窄边(page)).toBeVisible();
+    await expect(面板(page)).toBeVisible();
+    // 输入框里按也一样——那儿的 Esc 是留给「打断」的
+    await page.locator("aside.dock textarea").first().click();
+    await page.keyboard.press("Escape");
+    await expect(面板(page)).toBeVisible();
   });
 
   test("导航稳定：开合面板时左栏一格不动", async ({ page }) => {
