@@ -98,6 +98,19 @@ export function runStream<T>(key: string, body: StreamBody, meta?: string, 标�
           } else if (e.type === "token" && typeof e.text === "string") {
             text += e.text;
             patchJob<StreamJob<T>>(key, { steps, text });
+          } else if (e.type === "reset") {
+            /*
+              **把已经推出去的正文抹掉，重新开始。**
+
+              服务端发现刚才那一段根本不是答案（工具调用的协议标记、光秃秃一个工具名、
+              只承诺不执行——三种都是 bakeoff 真跑出来的）时会发它，紧接着重答一遍。
+
+              没有它的话，重答只能靠「先攒完再验再推」，那等于所有回答都不流式了。
+              有了它，常见的好情况照样逐字蹦，坏情况一闪而过再被替换掉。
+              客户端和本地服务是同一个包发的，不存在只认 token 不认 reset 的旧客户端。
+            */
+            text = "";
+            patchJob<StreamJob<T>>(key, { steps, text });
           } else if (e.type === "result") {
             const r = e as unknown as { ok: boolean; answer?: T; error?: string };
             // 出错也把走过的步骤留着：人能看到卡在哪一步

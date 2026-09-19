@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { App, Select, Input, DatePicker, Checkbox } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
@@ -34,6 +35,7 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
   /* 三个档案字段叫什么、「职位」那一格有哪些选项，跟着业务配置走（通用版 vs 教培预设） */
   const 字段表 = 可改字段表(b);
   const { message } = App.useApp();
+  const router = useRouter();
   const [draft, setDraft] = useState<Proposal>(proposal);
   const [state, setState] = useState<"idle" | "saving" | "done" | "denied">("idle");
   const [err, setErr] = useState("");
@@ -55,6 +57,15 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
     if (r.ok) {
       setState("done");
       message.success(r.message);
+      /*
+        **落库之后要刷这一页。**
+        0.38.0 之前这张卡只出现在首页，首页没有会过期的列表，所以不刷也看不出来。
+        面板提到全局之后它跟着到了每一页：在客户列表上确认「改成已签约」，
+        卡片塌成一行绿字说改好了，而背后那张表还显示着旧状态——
+        人要么以为没生效再点一次，要么就信了那张旧表。
+        refresh 只重取服务端数据，不动这一屏的对话（那是模块级的，见 lib/home-thread.ts）。
+      */
+      router.refresh();
     } else {
       setState("idle");
       setErr(r.error);

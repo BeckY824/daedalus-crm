@@ -170,6 +170,21 @@ export async function listModelOptions(): Promise<ModelOption[]> {
   const cfg = await getLlmConfig();
   if (!cfg) return [];
   const stored = await getSetting<StoredLlm>(LLM_KEY);
+
+  /*
+    **用户填了自己的 Key，就只留他填的那一个模型。**
+
+    2026-09-19 报上来的。`saveLlmConfig` 里那句
+    `options: input.options ?? stored.options ?? []` 会把**上一次云端账号的型号表留着**，
+    于是一个填了自己 Key 的人，选单里仍然列着中转站那几个型号——
+    而那些型号在他自己的接口上根本不存在，选中一个就是一次必然失败的请求。
+    更别说 `resolveModel` 就是拿这张单子放行的，等于放行了一串注定 404 的名字。
+
+    他填的那个是他唯一验证过的（「测试连接」过的就是它），所以只留它。
+    要多几个的人，路是「高级」里自己填 `options`——那是留给知道自己在做什么的人的。
+  */
+  if (stored?.apiKeyEnc && decryptSecret(stored.apiKeyEnc)) return [{ id: cfg.model }];
+
   const fromEnv = (环境配置()?.models ?? [])
     .map((x) => {
       const [id, ...note] = x.split("|");

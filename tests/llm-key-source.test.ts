@@ -134,3 +134,51 @@ describe("存着的那把 Key 不会被发到别处", () => {
     }
   });
 });
+
+/**
+ * 首页那个模型选单里该有哪几个。
+ *
+ * 2026-09-19 报上来的：填了自己 Key 的人，选单里仍然列着中转站那几个型号。
+ * 根因在 `saveLlmConfig` 的 `options: input.options ?? stored.options ?? []`——
+ * 上一次云端账号的型号表被留着了。而那些型号在他自己的接口上根本不存在，
+ * 选中一个就是一次注定失败的请求；`resolveModel` 又正是拿这张单子放行的，
+ * 等于放行了一串 404。
+ */
+describe("模型选单", () => {
+  it("填了自己的 Key：只留他填的那一个", async () => {
+    const { saveLlmConfig, listModelOptions, clearLlmConfig } = await import("@/lib/llm");
+    // 先模拟「之前用过云端账号」，型号表留在库里
+    await saveLlmConfig({
+      baseUrl: "https://relay.example.com/v1",
+      model: "glm-5.3-flash",
+      apiKey: "FAKE-TEST-KEY-0003",
+      options: [{ id: "glm-5.3-flash" }, { id: "deepseek-v4.1-flash" }, { id: "hy3" }],
+    });
+    // 再换成自己的 Key 和自己的模型（界面上不传 options，于是旧表被继承）
+    await saveLlmConfig({ baseUrl: "https://mine.example.com/v1", model: "my-own-model", apiKey: "FAKE-TEST-KEY-0004" });
+    try {
+      const 单子 = await listModelOptions();
+      expect(单子.map((o) => o.id), "自己的 Key 下不该出现中转站的型号").toEqual(["my-own-model"]);
+    } finally {
+      await clearLlmConfig();
+    }
+  });
+
+  it("填了自己的 Key：选单外的模型名一律放行不了", async () => {
+    const { saveLlmConfig, resolveModel, clearLlmConfig } = await import("@/lib/llm");
+    await saveLlmConfig({
+      baseUrl: "https://mine.example.com/v1",
+      model: "my-own-model",
+      apiKey: "FAKE-TEST-KEY-0005",
+      options: [{ id: "glm-5.3-flash" }, { id: "hy3" }],
+    });
+    try {
+      expect(await resolveModel("my-own-model")).toBe("my-own-model");
+      // 浏览器把中转站的型号送上来也不认——他的接口上没有这个东西
+      expect(await resolveModel("glm-5.3-flash")).toBeUndefined();
+      expect(await resolveModel("hy3")).toBeUndefined();
+    } finally {
+      await clearLlmConfig();
+    }
+  });
+});

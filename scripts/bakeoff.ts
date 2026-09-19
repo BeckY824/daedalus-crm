@@ -27,6 +27,11 @@
  *   DATABASE_URL="file:./manual.db" npx tsx scripts/bakeoff.ts --只看直连   # 不花钱，先验题目
  *   DATABASE_URL="file:./manual.db" npx tsx scripts/bakeoff.ts
  *   DATABASE_URL="file:./manual.db" npx tsx scripts/bakeoff.ts --只跑 通用查询
+ *   DATABASE_URL="file:./manual.db" npx tsx scripts/bakeoff.ts --模型 deepseek-v4.1-flash
+ *
+ * **成绩单必须写明是哪个模型跑的。** 不写的话，换一次中转站的默认模型，
+ * 上一次的数字就悄悄变成了另一件事的记录，而没人看得出来。
+ * 不给 `--模型` 就用配置里的默认值，报告里照样把它打出来。
  */
 import { runAgent } from "../src/lib/agent/run";
 import { 认意图 } from "../src/lib/agent/intents";
@@ -119,9 +124,11 @@ const 题目: 题[] = [
   /* ---------- 故意写错枚举词：验「当场报错并纠正」那条路 ---------- */
   {
     q: "意向高的学员有几位？",
-    期望: ["query_records", "search_customers"],
+    // query_metric（customers_count 按 followStatus 分组）也答得了，实跑时它就是这么答对的——
+    // 期望写窄了会把一个正确答案判成错的
+    期望: ["query_records", "search_customers", "query_metric"],
     类: "陷阱",
-    验: "正确的词是「意向较高」。查询工具该当场退回正确取值让它改一次，而不是查出 0 条然后答「一位都没有」",
+    验: "正确的词是「意向较高」。不许查出 0 条就答「一位都没有」——要么当场退回正确取值让它改，要么按状态分组自己对上",
     必查: true,
   },
   {
@@ -225,7 +232,7 @@ function 参数(argv: string[], 名: string, 默认: string) {
   return i >= 0 && argv[i + 1] ? argv[i + 1] : 默认;
 }
 
-async function 跑一道(q: string, user: { id: string; name: string }) {
+async function 跑一道(q: string, user: { id: string; name: string }, model?: string) {
   const b = await getBusiness();
   const 工具: string[] = [];
   /** 每一步过程条上的那句话。通用查询的口径就写在这里，人要照着核对 */
@@ -245,6 +252,7 @@ async function 跑一道(q: string, user: { id: string; name: string }) {
           else if (e.status === "done" && e.detail) 说明.push(e.detail);
         },
         onToken: () => {},
+        model,
       },
     );
     text = r.text;
@@ -270,6 +278,7 @@ async function main() {
   const 只看直连 = argv.includes("--只看直连");
   const 只跑 = 参数(argv, "--只跑", "");
   const 轮 = Number(参数(argv, "--轮", "1"));
+  const 指定模型 = 参数(argv, "--模型", "");
   const 题 = 只跑 ? 题目.filter((t) => t.类 === 只跑) : 题目;
 
   /*
@@ -307,7 +316,7 @@ async function main() {
   for (let n = 0; n < 轮; n++) {
     for (const t of 题) {
       const 直连 = Boolean(认意图(t.q));
-      const r = await 跑一道(t.q, user);
+      const r = await 跑一道(t.q, user, 指定模型 || undefined);
       const 首 = r.工具[0] ?? "";
       const 选对 = t.期望.length === 0 ? r.工具.length === 0 : 首 !== "" && t.期望.includes(首);
       const 零工具编造 = Boolean(t.必查) && r.工具.length === 0 && 凭空断言(r.text);
@@ -348,7 +357,9 @@ async function main() {
     );
   };
 
-  console.log("\n\n================ 汇总 ================");
+  const { getLlmConfig } = await import("../src/lib/llm");
+  const 实际模型 = 指定模型 || (await getLlmConfig())?.model || "（没配）";
+  console.log(`\n\n================ 汇总 · 模型 ${实际模型} ================`);
   for (const [名, v] of Object.entries(按类)) 报(名, v);
   console.log("─".repeat(38));
   报("全部", 全局);

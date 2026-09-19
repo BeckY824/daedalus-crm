@@ -71,7 +71,7 @@ describe("认页面", () => {
   it("每一页都指名了该用哪个工具", () => {
     const 页 = ["/overview", "/reports", "/leads", "/customers", "/channels", "/contacts", "/opportunities", "/opportunities/pipeline", "/follow-ups", "/follow-ups/plans"];
     // 工具名后面允许跟一段中文限定（「query_records（表=联系人）」），别把字符类写死成 ASCII
-    const 漏了 = 页.filter((p) => !/这一页的数据用 \*\*[a-z_]+[^*]*\*\* 查/.test(认页面(p, null)?.提示 ?? ""));
+    const 漏了 = 页.filter((p) => !/这一页的数据先用 \*\*[a-z_]+[^*]*\*\* 查/.test(认页面(p, null)?.提示 ?? ""));
     expect(漏了, `这些页面没说该用哪个工具：${漏了.join("、")}`).toEqual([]);
   });
 
@@ -81,6 +81,41 @@ describe("认页面", () => {
     // 「两张表」这句是这条 bug 的正解，不能被顺手删掉
     expect(r?.提示).toContain("两张不同的表");
     expect(r?.提示).toContain("search_customers 一条也查不到");
+  });
+
+  /**
+   * **指路是起点，不是死路。**
+   *
+   * 2026-09-19 报上来的：在数据页问「新增的客户是谁？」答不出来。
+   * 那一页指的是 query_metric，而它返回的是 `{metric, rows:[{label,value}]}`——
+   * 只有聚合数字、没有姓名，「是谁」天生答不了；而指路那句原话还写着
+   * 「别挑别的工具试」，把出路也堵死了。那句话本来是为线索页写的
+   * （要挡「拿 search_customers 查线索表」），一刀切到每一页就成了这样。
+   */
+  it("每一页都写明「它答不了的就换工具」，不许堵死", () => {
+    const 页 = ["/overview", "/reports", "/leads", "/customers", "/channels", "/contacts", "/opportunities", "/follow-ups", "/follow-ups/plans"];
+    const 堵死的 = 页.filter((p) => !/换一个合适的工具/.test(认页面(p, null)?.提示 ?? ""));
+    expect(堵死的, `这些页面没给出路：${堵死的.join("、")}`).toEqual([]);
+    // 那句被删掉的绝对化措辞不许回来
+    for (const p of 页) expect(认页面(p, null)?.提示, `${p} 又写上「别挑别的工具试」了`).not.toContain("别挑别的工具试");
+  });
+
+  /**
+   * 默认工具给不出名单的那几页，必须写明「问『是谁』该换谁」。
+   * 这是第八份「必须一致的清单」：漏了不报错，只是那一页问「是谁」永远答不出来。
+   */
+  it("只给数 / 只给我的 / 必须带关键词的那几页，都写明了换谁", () => {
+    const 要补的: [string, string][] = [
+      ["/overview", "search_customers"],
+      ["/reports", "query_records"],
+      ["/follow-ups", "query_records"],
+      ["/follow-ups/plans", "query_records"],
+    ];
+    for (const [路, 该换成] of 要补的) {
+      const 提示 = 认页面(路, null)?.提示 ?? "";
+      expect(提示, `${路} 没写默认工具答不了什么`).toMatch(/只给数|只给「我的」|必须给关键词/);
+      expect(提示, `${路} 没写该换成 ${该换成}`).toContain(该换成);
+    }
   });
 
   /** 0.39 起联系人终于有对应的工具了（Contact 表原来一个工具都不管） */

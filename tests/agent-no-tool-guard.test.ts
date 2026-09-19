@@ -12,6 +12,7 @@
  * 所以第一步空手时顶回去一次；再空手就放行，免得「你能做什么」这种问题被卡住。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { 不是答案 } from "@/lib/agent/run";
 
 let 决策轮次: { messages: { role: string; content: string }[] }[] = [];
 /** 每一轮决策要不要调工具，由用例摆好 */
@@ -153,5 +154,94 @@ describe("零工具 + 编造 = 拦下重答", () => {
 
     expect(推给界面.join("")).toContain("我可以帮你查");
     expect(回答轮次.length).toBe(1); // 只组织了一次回答
+  });
+});
+
+/**
+ * 「吐的根本不是答案」。
+ *
+ * 三种形态都是 bakeoff 2.0 真跑出来的，**全都流到了用户屏幕上**：
+ *   deepseek-v4.1-flash：`<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="get_watchlist">…`
+ *   glm-5.3-flash：      `get_my_plans`（光秃秃一个工具名）
+ *   glm-5.3-flash：      `我来查一下各跟进状态的学员数量。`（说了要查，然后没查）
+ *
+ * 和「凭空断言」是两回事：那道闸问「有没有编造数据」，而且只在零工具时才开；
+ * DSML 那次调了两个工具，闸根本不会开。这道闸问的是**它到底答没答**。
+ */
+describe("吐的不是答案", () => {
+  const 工具名 = ["get_my_plans", "search_customers", "query_records"];
+  const 是 = (t: string) => 不是答案(t, 工具名);
+
+  it("工具调用的协议残片", () => {
+    expect(是('<｜｜DSML｜｜ calls> <｜｜DSML｜｜ invoke name="get_watchlist"> </｜｜DSML｜｜ calls>')).toBe(true);
+    expect(是('<tool_call>{"name":"x"}</tool_call>')).toBe(true);
+    expect(是("<function_call>")).toBe(true);
+  });
+
+  it("整段就是一个工具名", () => {
+    expect(是("get_my_plans")).toBe(true);
+    expect(是("get_my_plans。")).toBe(true);
+    expect(是("  search_customers  ")).toBe(true);
+  });
+
+  it("只承诺不执行", () => {
+    expect(是("我来查一下各跟进状态的学员数量。")).toBe(true);
+    expect(是("这就帮你查一下。")).toBe(true);
+  });
+
+  it("空的也算", () => {
+    expect(是("")).toBe(true);
+    expect(是("   \n ")).toBe(true);
+  });
+
+  /** 收得紧一点：正常答案一个都不能误伤，否则每次都白白多跑一轮回答 */
+  it("正常答案不误伤", () => {
+    expect(是("**19 位**学员填了预计签约时间。")).toBe(false);
+    expect(是("我来算一下：本月一共 12 笔，合计 ¥198,000。")).toBe(false); // 带数字的开场白是正常的
+    expect(是("没有匹配的学员。要不要换个条件再找一次？")).toBe(false);
+    expect(是("陈娜54 现在是「已签约」，上次跟进在 9 月 12 日。")).toBe(false);
+    // 正文里提到工具名不算——只有「整段就是一个工具名」才算
+    expect(是("我用 search_customers 查了一遍，武汉大学的有 3 位。")).toBe(false);
+  });
+});
+
+/**
+ * 重答之前要先把已经推出去的正文抹掉。
+ *
+ * 没有这一步的话，重答的文本会**接在**坏的那一段后面（lib/ai-stream.ts 里
+ * token 是 `text += e.text`），屏幕上就成了
+ * 「<｜｜DSML｜｜ calls>…没有匹配的学员。」——比只有坏的那一段更让人看不懂。
+ *
+ * 有了 reset，好情况（绝大多数）照样逐字蹦，不必为了这个把所有回答都改成先攒后推。
+ */
+describe("重答前先 reset", () => {
+  it("吐了协议标记：先 reset，再把正经答案推出去", async () => {
+    剧本 = ["调工具"];
+    回答剧本 = ['<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="get_watchlist">', "查到 3 位。"];
+    const 重置了: number[] = [];
+    const 推出去的: string[] = [];
+    const { runAgent } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    const r = await runAgent(
+      { question: "下个月能签几单", user, b },
+      { onToken: (t) => 推出去的.push(t), onReset: () => 重置了.push(推出去的.length) },
+    );
+    expect(重置了.length, "没有 reset，坏的那一段会留在屏幕上").toBe(1);
+    // reset 发生在第一段推完之后、第二段推出去之前
+    expect(重置了[0]).toBeGreaterThan(0);
+    expect(r.text).toBe("查到 3 位。");
+    expect(回答轮次.length, "该重答一次").toBe(2);
+    expect(回答轮次[1]).toContain("不要再输出任何工具调用");
+  });
+
+  it("答得好好的就不 reset，也不重答", async () => {
+    剧本 = ["调工具"];
+    回答剧本 = ["武汉大学的有 3 位：钱同学、孙同学、李同学。"];
+    const 重置了: number[] = [];
+    const { runAgent } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    await runAgent({ question: "武汉大学的有几位", user, b }, { onToken: () => {}, onReset: () => 重置了.push(1) });
+    expect(重置了.length).toBe(0);
+    expect(回答轮次.length).toBe(1);
   });
 });
