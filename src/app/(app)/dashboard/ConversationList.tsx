@@ -4,7 +4,8 @@ import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { App, Dropdown, Input, Modal } from "antd";
 import { PlusOutlined, MoreOutlined } from "@ant-design/icons";
-import { 新起一屏, 当前对话, 首页屏 } from "@/lib/home-thread";
+import { 删掉对话的屏, 新起一屏, 当前对话, 首页屏 } from "@/lib/home-thread";
+import { clearJob } from "@/lib/ai-jobs";
 import { 重命名对话, 删除对话, type 对话概要 } from "./threads";
 import WidthHandle, { 对话列表把手 } from "@/components/WidthHandle";
 
@@ -59,6 +60,13 @@ export default function ConversationList({ rows }: { rows: 对话概要[] }) {
       onOk: async () => {
         const r = await 删除对话(c.id);
         if (!r.ok) return void message.error("删不掉这条对话");
+        /*
+          库里删了还不算删完：**每一页的面板各自存着一屏**（见 lib/home-thread），
+          那几屏里还挂着这条对话问过的话。2026-09-19 报上来的：在这条列表里把对话
+          全删了，回到数据页、线索页，面板里那几句问过的话还在——人以为删干净了。
+          所以按对话 id 把所有挂在它名下的屏一并空掉，对应的任务（答案存在那儿）也清掉。
+        */
+        for (const id of 删掉对话的屏(c.id)) clearJob(`home:${id}`);
         // 删的正好是开着的那条：回到一屏新对话
         if (c.id === 选中) {
           新起一屏(首页屏);

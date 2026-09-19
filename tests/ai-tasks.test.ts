@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { clearJob, getJob, runJob, setJobValue, 任务快照, 收起任务 } from "@/lib/ai-jobs";
 
 /**
@@ -92,5 +94,40 @@ describe("收起任务", () => {
     setJobValue("home:a", { text: "x" });
     clearJob("home:a");
     expect(getJob("home:a")).toBeUndefined();
+  });
+});
+
+/**
+ * **清掉一个任务，就得同时把那一轮也处理掉。**
+ *
+ * 2026-09-19 用户的截图：面板里躺着一个光秃秃的问题气泡，底下什么都没有——
+ * 没有过程条、没有回答、也没有任何出路。那是 0.39.0 上点一下侧栏「AI 任务」
+ * 的后果：点的是 `clearJob`，任务连答案一起被删，而**问题那一轮还留在屏上**。
+ * 回答是从任务里读的（`useJob("home:" + turn.id)`），任务没了就等于答案凭空蒸发。
+ *
+ * 这条规矩不写在类型里、编译器看不见：`clearJob("home:x")` 单独出现永远合法，
+ * 只是会在界面上留下一具空壳。所以在这儿按调用点扫一遍——
+ * 每一处清 home 任务的地方，附近必须同时把那一轮**去掉、清屏、或者重新跑起来**。
+ */
+describe("清 home 任务的地方，那一轮不能被撇下", () => {
+  const 文件 = ["../src/app/(app)/dashboard/HomeChat.tsx", "../src/app/(app)/dashboard/ConversationList.tsx"];
+  /** 清完之后这一轮的去处：去掉它 / 整屏清掉 / 连同屏一起删 / 立刻重新跑 */
+  const 去处 = ["removeTurn", "clearThread", "删掉对话的屏", "start("];
+
+  it.each(文件)("%s 里每一处 clearJob(`home:…`) 都给那一轮安排了去处", (相对) => {
+    const src = readFileSync(resolve(__dirname, 相对), "utf8");
+    const 落单: string[] = [];
+    for (const m of src.matchAll(/clearJob\(`home:/g)) {
+      const i = m.index!;
+      const 附近 = src.slice(Math.max(0, i - 400), i + 400);
+      if (!去处.some((k) => 附近.includes(k))) 落单.push(src.slice(i, i + 60).split("\n")[0]);
+    }
+    expect(落单, `这几处清了任务却没处理那一轮，屏上会留下一个没有回答的问题：\n${落单.join("\n")}`).toEqual([]);
+  });
+
+  it("侧栏那条任务点一下走的是「收起」，不是 clearJob——答案不能跟着没", () => {
+    const src = readFileSync(resolve(__dirname, "../src/components/AiTasks.tsx"), "utf8");
+    expect(src).toContain("收起任务(");
+    expect(src).not.toContain("clearJob");
   });
 });

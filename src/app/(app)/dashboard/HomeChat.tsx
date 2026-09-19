@@ -678,6 +678,15 @@ function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Tur
   }, [job?.value?.text?.length, done]);
 
   const interrupted = job?.status === "error" && job.error === "已取消";
+  /*
+    问题还在、回答的任务没了。0.39.0 上这是**点一下侧栏「AI 任务」**的后果
+    （那时点的是 clearJob，把任务连答案一起删了），屏上就剩一个光秃秃的问题气泡，
+    没有任何解释、也没有出路。0.39.1 起那条路没了（收起任务只摘标签），
+    其余每一处 clearJob 都紧跟着把这一轮也去掉或重跑，所以这个状态不该再出现。
+    留这一行是兜底：万一哪天又漏出来，人看见的是一句话和一个「再问一次」，
+    而不是一个死胡同。排队中的那一轮不算——它本来就还没开跑。
+  */
+  const 答案没了 = !job && !turn.queued;
   const steps: StepEvent[] = (job?.value?.steps ?? [])
     .filter((s) => s.id !== "answer")
     .map((s) => (job?.status === "error" && s.status === "running" ? { ...s, status: interrupted ? ("done" as const) : ("error" as const), detail: interrupted ? "被打断" : s.detail } : s));
@@ -748,6 +757,16 @@ function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Tur
         <div className="cli-a">
           <Markdown text={text} records={answer?.records ?? job?.value?.answer?.records ?? []} />
           {!done && <span className="cli-caret" />}
+        </div>
+      )}
+
+      {答案没了 && (
+        <div className="cli-stopped">
+          <span className="cli-stop-mark" />
+          这一条的回答不在了
+          <button type="button" className="cli-link" onClick={onRetry}>
+            再问一次
+          </button>
         </div>
       )}
 

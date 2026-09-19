@@ -20,6 +20,7 @@ import {
   载入对话,
   认领对话,
   认落,
+  删掉对话的屏,
   当前对话,
   新起一屏,
   清空所有屏,
@@ -147,5 +148,70 @@ describe("同一轮只落一次库", () => {
     载入对话("/leads", "c2", []);
     const t = 问("/leads", "新的");
     expect(认落("/leads", t.id)).toBe(true);
+  });
+});
+
+/**
+ * 在首页那条列表里删掉一条对话，**每一页面板里挂着它的那一屏也得空掉**。
+ *
+ * 2026-09-19 报上来的：把首页 list 里的对话全删了，回到数据页、线索页，
+ * 面板里那几句问过的话还在——人以为删干净了，其实屏是按页各存一份的，
+ * 而删除那边原来只处理了「删的正好是首页开着的那条」。
+ */
+describe("删了那条对话，挂在它名下的屏一起空掉", () => {
+  beforeEach(() => 清空所有屏());
+
+  it("不管在哪一页，只要挂在这条对话名下就清", () => {
+    问("/overview", "新增的客户是谁");
+    问("/leads", "Steven是哪家公司的？");
+    认领对话("/overview", "c1");
+    认领对话("/leads", "c1");
+
+    删掉对话的屏("c1");
+    expect(问句("/overview")).toEqual([]);
+    expect(问句("/leads")).toEqual([]);
+    expect(当前对话("/overview")).toBeNull();
+    expect(当前对话("/leads")).toBeNull();
+  });
+
+  it("别的对话不受连累", () => {
+    问("/leads", "要删的");
+    问("/customers", "不该动的");
+    认领对话("/leads", "c1");
+    认领对话("/customers", "c2");
+
+    删掉对话的屏("c1");
+    expect(问句("/leads")).toEqual([]);
+    expect(问句("/customers")).toEqual(["不该动的"]);
+    expect(当前对话("/customers")).toBe("c2");
+  });
+
+  it("还没落过库的那一屏（对话 id 还是 null）一个字都不碰", () => {
+    问("/leads", "刚问的，还没答完");
+    删掉对话的屏("c1");
+    expect(问句("/leads")).toEqual(["刚问的，还没答完"]);
+  });
+
+  it("把清掉的那几轮报回去——答案存在任务里，调用方据此一并清掉", () => {
+    const a = 问("/leads", "一");
+    const b = 问("/leads", "二");
+    认领对话("/leads", "c1");
+    expect(删掉对话的屏("c1")).toEqual([a.id, b.id]);
+  });
+
+  it("清完之后闸也清了：同一条再问一句照落，不会被旧 id 挡住", () => {
+    const a = 问("/leads", "一");
+    认领对话("/leads", "c1");
+    认落("/leads", a.id);
+    删掉对话的屏("c1");
+    const b = 问("/leads", "重新问的");
+    expect(认落("/leads", b.id)).toBe(true);
+  });
+
+  it("没有一屏挂在它名下就什么都不做", () => {
+    问("/leads", "在的");
+    认领对话("/leads", "c1");
+    expect(删掉对话的屏("c2")).toEqual([]);
+    expect(问句("/leads")).toEqual(["在的"]);
   });
 });
