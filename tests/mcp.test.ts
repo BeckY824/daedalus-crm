@@ -63,7 +63,7 @@ describe("令牌", () => {
 });
 
 describe("开出去的工具", () => {
-  it("只有只读那十二个，propose_* 一个都没有", () => {
+  it("只有只读那十三个，propose_* 一个都没有", () => {
     const 名字 = 列工具().map((t) => t.name);
     expect(名字.sort()).toEqual([...MCP_TOOL_NAMES].sort());
     expect(名字.some((n) => n.startsWith("propose_"))).toBe(false);
@@ -77,7 +77,13 @@ describe("开出去的工具", () => {
       最用得上的那个（别的工具各自只认自己那几个参数）。
     */
     expect(名字).toContain("query_records");
-    expect(名字.length).toBe(12);
+    /*
+      2026-09-19（0.41）的跨表找人也开出去。它只读，而且是别人的客户端最常要的那一个：
+      「某某的电话是多少」——问的人不知道、也不该关心这个人在我们库里被登记成了
+      客户、渠道、联系人、线索还是同事。
+    */
+    expect(名字).toContain("find_person");
+    expect(名字.length).toBe(13);
   });
 
   it("每个工具都带说明和 JSON Schema——客户端拿它做补全和校验", () => {

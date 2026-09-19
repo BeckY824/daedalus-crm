@@ -58,6 +58,12 @@ export const 只读SCHEMAS: Record<string, Schema> = {
     required: ["metric"],
     additionalProperties: false,
   },
+  find_person: {
+    type: "object",
+    properties: { name: 串("人名，原样传，不要截短") },
+    required: ["name"],
+    additionalProperties: false,
+  },
   get_watchlist: { type: "object", properties: {}, additionalProperties: false },
   get_my_plans: { type: "object", properties: {}, additionalProperties: false },
   list_channels: {

@@ -14,6 +14,7 @@ import { runQuery } from "../report-run";
 import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec } from "../report-query";
 import { loadWatchlist } from "../sentinel-data";
 import { statusLabel } from "../business-config";
+import { 名字在别处, 别处说法, 别处附件, 找人 } from "./find-name";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
 import { 扩同义词 } from "./synonyms";
@@ -137,7 +138,50 @@ export const TOOLS: Tool[] = [
       const 区间说法 = (r: { from?: dayjs.Dayjs; to?: dayjs.Dayjs }, 名: string) =>
         r.from || r.to ? `${名} ${r.from ? r.from.format("YYYY-MM-DD") : "最早"}~${r.to ? r.to.format("YYYY-MM-DD") : "今天"}` : "";
       const cond = [q && `「${q}」`, channel && `渠道 ${channel}`, owner && `负责人 ${owner}`, status && `状态 ${status}`, decision && `决策 ${decision}`, 区间说法(建档, "建档"), 区间说法(预签, "预计签约"), mine && "我负责的"].filter(Boolean).join("、");
-      return { summary: total ? `${cond}：${total} 位${total > rows.length ? `，列出前 ${rows.length}` : ""}——${rows.slice(0, 6).map((r) => r.name).join("、")}${rows.length > 6 ? "…" : ""}` : `没有匹配 ${cond} 的${ctx.b.customer}`, data };
+      if (total) {
+        return { summary: `${cond}：${total} 位${total > rows.length ? `，列出前 ${rows.length}` : ""}——${rows.slice(0, 6).map((r) => r.name).join("、")}${rows.length > 6 ? "…" : ""}`, data };
+      }
+      /*
+        **搜空的时候，别只说「没有」。**
+
+        「找一个人」原来只有这一条路，客户表空了模型就没线索了，只能反过来问用户
+        「给个更完整的姓名」——而那个人可能好好地躺在渠道表里（2026-09-19 首页那一问：
+        明杰哥是一个渠道）。这里顺手把另外四张有人名的表查一遍，**连电话一起给回去**：
+        一次调用就够，不用第二次往返，也不指望模型愿意跟进一句「你去别处看看」的提示。
+
+        只在 q 非空且真的一条都没有时才多查这四次。有结果的那条路一次都不多花。
+      */
+      const 别处 = q ? await 名字在别处(q, 号) : [];
+      const 附 = 别处附件(q, 别处);
+      return {
+        summary: `没有匹配 ${cond} 的${ctx.b.customer}${别处说法(q, 别处)}`,
+        data: 附 ? { ...data, ...附 } : { ...data, 没有匹配: cond },
+      };
+    },
+  },
+  {
+    name: "find_person",
+    description:
+      "**按名字找一个人——不知道他是客户、渠道、联系人、线索还是同事时，用这个。**" +
+      "它把这五张表一起找，返回每一条的电话和身份。" +
+      "问「某某的电话是多少」「某某是谁」「某某的联系方式」一律先用它；" +
+      "确定是客户、而且要看他的跟进时间线时，再用它给的 id 调 get_customer。" +
+      "名字原样传，不要自己截短（「李老师」就传「李老师」，不要传「李」）。",
+    args: '{"name": "人名，原样传"}',
+    async run(args, ctx) {
+      const name = str(args.name, 20);
+      if (!name) return { summary: "没给名字", data: { error: "name 必填" } };
+      const 命中 = await 找人(name, 脱敏(ctx));
+      if (!命中.length) return { summary: `库里没有叫「${name}」的人`, data: { error: `客户、渠道、联系人、线索、团队成员五张表里都没有「${name}」` } };
+      const 条 = 命中.reduce((n, h) => n + h.条数, 0);
+      return {
+        summary: `「${name}」：${命中.map((h) => `${h.表} ${h.条数} 条`).join("、")}`,
+        data: {
+          找到: 条,
+          结果: 命中,
+          该怎么办: `上面就是「${name}」在这个库里的全部身份。电话、状态都在记录里，直接据此回答；不要说「没找到」，也不要反过来让用户给更完整的姓名。`,
+        },
+      };
     },
   },
   {
@@ -160,7 +204,15 @@ export const TOOLS: Tool[] = [
           orderBy: { lastFollowAt: "desc" },
           select: { id: true, name: true, school: true, phone: true, salesOwner: { select: { name: true } } },
         });
-        if (!候选.length) return { summary: `没有叫「${name}」的${ctx.b.customer}`, data: { error: "查无此人" } };
+        if (!候选.length) {
+          // 和 search_customers 同一条：查无此人时把别的表一起看了，别让模型只会说「没有」
+          const 别处 = await 名字在别处(name, 号);
+          const 附 = 别处附件(name, 别处);
+          return {
+            summary: `没有叫「${name}」的${ctx.b.customer}${别处说法(name, 别处)}`,
+            data: 附 ?? { error: "查无此人" },
+          };
+        }
         if (候选.length > 1)
           return {
             summary: `叫「${name}」的有 ${候选.length} 位，要哪一位`,
