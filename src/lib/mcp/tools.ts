@@ -1,6 +1,7 @@
 import { TOOLS, TOOL_MAP, type ToolContext } from "@/lib/agent/tools";
 import { 只读SCHEMAS, type Schema } from "@/lib/agent/schemas";
 import { getBusiness } from "@/lib/business";
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
 
 /**
  * 把 agent 的工具箱翻译成 MCP 的形。
@@ -43,7 +44,8 @@ export async function 跑工具(name: string, args: Record<string, unknown>, who
   if (!只读SCHEMAS[name]) throw new Error(`没有这个工具：${name}`);
   const tool = TOOL_MAP.get(name);
   if (!tool) throw new Error(`没有这个工具：${name}`);
-  const ctx: ToolContext = { userId: who.id, userName: who.name, b: await getBusiness(), recordOffset: 0, proposals: [] };
+  // 脱敏器同样要给（见 agent/run.ts 那段）：MCP 是第五个出口，别再漏一个
+  const ctx: ToolContext = { userId: who.id, userName: who.name, b: await getBusiness(), recordOffset: 0, proposals: [], 号: await 号码脱敏器() };
   const r = await tool.run(args ?? {}, ctx);
   return { summary: r.summary, data: r.data };
 }

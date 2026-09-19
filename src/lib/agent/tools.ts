@@ -29,7 +29,22 @@ export type ToolContext = {
   recordOffset: number;
   /** 这一轮攒下的写入提议。工具只往里放，落库要人在卡片上点确认 */
   proposals: Proposal[];
+  /**
+   * 号码脱敏器。共享工作区打码，自部署原样返回（lib/shared-ws/current.ts）。
+   *
+   * **2026-09-19 补上的洞**：那个脱敏器的注释写着「客户列表、联系人、记录页
+   * 三处共用同一个出口」——而 AI 工具是没人接上的**第四个出口**。
+   * 网页那个共享工作区是多个团队共用一套账号密码进来的，表格里显示 `139****1111`，
+   * 问一句 AI 却能拿到完整号码，而且它还会原样写进回答、写进对话存档。
+   * 数据多半是编的，但一串 11 位数字在截图和录屏里与真号无从分辨。
+   *
+   * 不给就是不打码（自部署实例、单测）——那也是 `号码脱敏器()` 在非多租户下的行为。
+   */
+  号?: <T extends string | null>(p: T) => T;
 };
+
+/** ctx 没带脱敏器时原样返回。自部署实例本来就该看见真号 */
+export const 脱敏 = (ctx: ToolContext) => ctx.号 ?? (<T extends string | null>(p: T): T => p);
 export type ToolResult = { summary: string; data: unknown; records?: BriefRecord[] };
 
 type Tool = {
@@ -88,6 +103,7 @@ export const TOOLS: Tool[] = [
       if (!建档 || !预签) return { summary: "日期不合法", data: { error: "日期要写成 YYYY-MM-DD" } };
       const 建档条件 = 区间条件(建档);
       const 预签条件 = 区间条件(预签);
+      const 号 = 脱敏(ctx);
       if (!q && !channel && !owner && !status && !decision && !mine && !建档条件 && !预签条件)
         return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine / createdFrom-To / expectedSignFrom-To 至少给一个" } };
       const where = {
@@ -116,7 +132,7 @@ export const TOOLS: Tool[] = [
       const data = {
         total,
         shown: rows.length,
-        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: r.phone, school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, channel: r.channel?.name ?? null, expectedSignAt: r.expectedSignAt ? dayjs(r.expectedSignAt).format("YYYY-MM-DD") : null, createdAt: dayjs(r.createdAt).format("YYYY-MM-DD"), lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
+        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: 号(r.phone), school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, channel: r.channel?.name ?? null, expectedSignAt: r.expectedSignAt ? dayjs(r.expectedSignAt).format("YYYY-MM-DD") : null, createdAt: dayjs(r.createdAt).format("YYYY-MM-DD"), lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
       };
       const 区间说法 = (r: { from?: dayjs.Dayjs; to?: dayjs.Dayjs }, 名: string) =>
         r.from || r.to ? `${名} ${r.from ? r.from.format("YYYY-MM-DD") : "最早"}~${r.to ? r.to.format("YYYY-MM-DD") : "今天"}` : "";
@@ -131,6 +147,7 @@ export const TOOLS: Tool[] = [
     async run(args, ctx) {
       let id = str(args.id, 40);
       const name = str(args.name, 20);
+      const 号 = 脱敏(ctx);
       /*
         schema 从 0.37.0 起就声明了 name，实现却一直只认 id——模型照着 schema 传姓名，
         拿回的是「客户不存在」，等于对着库里明明有的人说没有。比缺功能更伤。
@@ -147,7 +164,7 @@ export const TOOLS: Tool[] = [
         if (候选.length > 1)
           return {
             summary: `叫「${name}」的有 ${候选.length} 位，要哪一位`,
-            data: { 需要挑一位: 候选.map((c) => ({ id: c.id, 姓名: c.name, 学校: c.school, 电话: c.phone, 负责人: c.salesOwner.name })) },
+            data: { 需要挑一位: 候选.map((c) => ({ id: c.id, 姓名: c.name, 学校: c.school, 电话: 号(c.phone), 负责人: c.salesOwner.name })) },
           };
         id = 候选[0].id;
       }
@@ -181,8 +198,8 @@ export const TOOLS: Tool[] = [
         // 电话一定要给：不给的话模型会如实说「系统里没存电话」，
         // 然后建议人去补一条**本来就存在**的数据——比缺功能更伤，
         // 它是在向用户断言 CRM 丢了东西
-        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${c.phone || "未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.reduce((s, x) => s + x.amount, 0) || "无"}；备注：${c.remark || "无"}`,
-        contacts: c.contacts.map((p) => `${p.name}${p.position ? `（${p.position}）` : ""}${p.isPrimary ? " 主要联系人" : ""}：${[p.phone && `电话 ${p.phone}`, p.wechat && `微信 ${p.wechat}`, p.email && `邮箱 ${p.email}`].filter(Boolean).join("、") || "没留联系方式"}`),
+        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${号(c.phone) || "未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.reduce((s, x) => s + x.amount, 0) || "无"}；备注：${c.remark || "无"}`,
+        contacts: c.contacts.map((p) => `${p.name}${p.position ? `（${p.position}）` : ""}${p.isPrimary ? " 主要联系人" : ""}：${[p.phone && `电话 ${号(p.phone)}`, p.wechat && `微信 ${p.wechat}`, p.email && `邮箱 ${p.email}`].filter(Boolean).join("、") || "没留联系方式"}`),
         opportunities: c.opportunities.map((o) => `${o.name} ¥${Math.round(o.amount)} ${o.status === "OPEN" ? o.stage : o.status}`),
         openTasks: c.tasks.map((t) => `${t.title}${t.dueAt ? `（${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`),
         nextPlan: c.plans[0] ? `${dayjs(c.plans[0].plannedAt).format("MM-DD HH:mm")} ${c.plans[0].method}：${c.plans[0].subject}` : null,
@@ -255,7 +272,8 @@ export const TOOLS: Tool[] = [
     name: "list_channels",
     description: "列渠道（客户是从哪儿来的：合作方、中介、转介绍人）。返回每个渠道的负责人、直接带来多少客户、这条链上的签约额、停用与否。问「有哪些渠道」「哪个渠道带来的客户最多」就用它。",
     args: '{"keyword": "名字里的关键词，可空", "includeInactive": true|false 可空，默认不列停用的}',
-    async run(args) {
+    async run(args, ctx) {
+      const 号 = 脱敏(ctx);
       const q = str(args.keyword, 20);
       const rows = await prisma.channel.findMany({
         where: {
@@ -277,7 +295,7 @@ export const TOOLS: Tool[] = [
           渠道负责人: c.channelOwner?.name ?? "未指定",
           直接带来: c.directCustomers.length,
           签约额: c.directCustomers.reduce((s, cu) => s + cu.contracts.reduce((t, x) => t + x.amount, 0), 0),
-          电话: c.phone ?? null,
+          电话: 号(c.phone ?? null),
           状态: c.active ? "在用" : "已停用",
           备注: c.remark ?? null,
         })),
@@ -288,7 +306,8 @@ export const TOOLS: Tool[] = [
     name: "list_leads",
     description: "列线索（还没建档的潜在客户）。可按状态、来源、关键词过滤。问「有哪些线索」「哪些线索还没跟」用它；线索和客户是两张表，别用 search_customers 找线索。",
     args: `{"keyword": "名称/联系人/电话里的关键词，可空", "status": "${LEAD_STATUSES.join("/")}，可空", "source": "线索来源，可空"}`,
-    async run(args) {
+    async run(args, ctx) {
+      const 号 = 脱敏(ctx);
       const q = str(args.keyword, 20);
       const status = str(args.status, 10);
       const source = str(args.source, 20);
@@ -309,7 +328,7 @@ export const TOOLS: Tool[] = [
         data: {
           总数: total,
           线索: rows.map((l) => ({
-            id: l.id, 名称: l.name, 联系人: l.contact, 电话: l.phone,
+            id: l.id, 名称: l.name, 联系人: l.contact, 电话: 号(l.phone),
             来源: l.source, 状态: l.status, 行业: l.industry,
             负责人: l.owner?.name ?? null,
             已转化: Boolean(l.customerId),
@@ -574,7 +593,7 @@ export const TOOLS: Tool[] = [
       '"关联": {"路径": "如 客户.来源渠道", "条件": [同上]}（可空，只能跨一张表）, ' +
       '"排序": {"字段": "字段名", "降序": true}（可空）, "取": 20, ' +
       '"只计数": false（问「有多少」时给 true），"分组": "字段名"（可空，按它分组数个数）}',
-    async run(args) {
+    async run(args, ctx) {
       /*
         校验失败**不抛异常**，而是当成一次正常的工具结果返回错误说明。
         抛出去的话 run.ts 只会记一句「工具出错」，模型看不到哪儿错了；
@@ -621,8 +640,20 @@ export const TOOLS: Tool[] = [
       const 中文 = Object.fromEntries(
         Object.values(表定义.字段 as Record<string, { 列: string; 名: string }>).map((f) => [f.列, f.名]),
       );
+      /*
+        **电话要打码**（共享工作区）。这个工具一口气开了四张带电话的表
+        （客户 / 线索 / 联系人 / 渠道），是这个洞最宽的一处。
+        按列名认，不按中文名认——中文名是显示用的，可能重复也可能改。
+      */
+      const 号 = 脱敏(ctx);
+      const 是电话 = (列: string) => 列 === "phone";
       const 结果 = rows.map((r) =>
-        Object.fromEntries(Object.entries(r).map(([k, v]) => [中文[k] ?? k, v instanceof Date ? dayjs(v).format("YYYY-MM-DD") : v])),
+        Object.fromEntries(
+          Object.entries(r).map(([k, v]) => [
+            中文[k] ?? k,
+            是电话(k) && typeof v === "string" ? 号(v) : v instanceof Date ? dayjs(v).format("YYYY-MM-DD") : v,
+          ]),
+        ),
       );
       return {
         summary: `${话} → ${总数} 条${总数 > rows.length ? `（给出前 ${rows.length} 条）` : ""}`,
@@ -673,6 +704,12 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
         if (!found) return { summary: "没有这位", data: { error: "id 不对，先用 search_customers 拿到 id" } };
         c = { id: found.id, name: found.name };
         if (kind === "update_customer" || kind === "set_status") {
+          /*
+            **这里的 phone 不许打码。** 这是建议卡上的预填值，人点确认之后会原样写回库——
+            打了码就是把 `139****1111` 当成真号存进去，把用户的数据改坏了。
+            共享区的脱敏针对的是「读出来给人看」，不是「读出来再写回去」。
+            tests/agent-phone-mask.test.ts 里把这一处列成了具名例外。
+          */
           现值 = {
             name: found.name,
             phone: found.phone ?? "",

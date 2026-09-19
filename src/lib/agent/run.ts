@@ -18,6 +18,7 @@ import type { Emit } from "../ai-steps";
 import type { BriefRecord } from "../ai-draft";
 import type { BusinessConfig } from "../business-config";
 import { dayjs } from "../utils";
+import { 号码脱敏器 } from "../shared-ws/current";
 
 export type AgentEvents = {
   emit?: Emit;
@@ -275,7 +276,12 @@ ${工作方式}
   const 直连 = process.env.AGENT_INTENTS === "0" ? null : 认意图(question, Boolean(history?.length));
   if (直连) console.info(`[intent] 命中「${直连.名}」：${直连.调用.map((c) => c.name).join(" → ")}`);
   else console.info(`[intent] 没命中：${question.slice(0, 60)}`);
-  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [] };
+  /*
+    号码脱敏器一并交给工具（2026-09-19 补的洞）。共享工作区里表格显示 `139****1111`，
+    而 AI 工具原来是**没人接上的第四个出口**——问一句就能拿到完整号码，
+    还会原样写进回答和对话存档。见 lib/shared-ws/current.ts。
+  */
+  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [], 号: await 号码脱敏器() };
   const records: BriefRecord[] = [];
   const customers = new Map<string, { id: string; name: string; followStatus: string }>();
   const mentioned = new Map<string, { id: string; name: string; followStatus: string }>();

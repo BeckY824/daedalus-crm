@@ -70,7 +70,8 @@ describe("认页面", () => {
    */
   it("每一页都指名了该用哪个工具", () => {
     const 页 = ["/overview", "/reports", "/leads", "/customers", "/channels", "/contacts", "/opportunities", "/opportunities/pipeline", "/follow-ups", "/follow-ups/plans"];
-    const 漏了 = 页.filter((p) => !/这一页的数据用 \*\*[a-z_ 或]+\*\* 查/.test(认页面(p, null)?.提示 ?? ""));
+    // 工具名后面允许跟一段中文限定（「query_records（表=联系人）」），别把字符类写死成 ASCII
+    const 漏了 = 页.filter((p) => !/这一页的数据用 \*\*[a-z_]+[^*]*\*\* 查/.test(认页面(p, null)?.提示 ?? ""));
     expect(漏了, `这些页面没说该用哪个工具：${漏了.join("、")}`).toEqual([]);
   });
 
@@ -80,6 +81,13 @@ describe("认页面", () => {
     // 「两张表」这句是这条 bug 的正解，不能被顺手删掉
     expect(r?.提示).toContain("两张不同的表");
     expect(r?.提示).toContain("search_customers 一条也查不到");
+  });
+
+  /** 0.39 起联系人终于有对应的工具了（Contact 表原来一个工具都不管） */
+  it("联系人页指的是 query_records，不再是「先 search_customers 再 get_customer」", () => {
+    const r = 认页面("/contacts", null);
+    expect(r?.提示).toContain("query_records");
+    expect(r?.提示).toContain("search_customers 查不到他们");
   });
 
   it("客户详情页把姓名塞进 get_customer 的参数里", () => {

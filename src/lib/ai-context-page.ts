@@ -57,8 +57,15 @@ const 一级: Record<string, 页> = {
   "/contacts": {
     名: "联系人",
     提示: "用户正在看联系人列表",
-    工具: "get_customer",
-    提醒: "联系人没有单独的查询工具，它们挂在客户下面——先 search_customers 找到那位客户，再 get_customer 看他的联系人。",
+    /*
+      0.39 之前这里指的是 get_customer，提醒写着「联系人没有单独的查询工具」——
+      那时是实话：十一个只读工具一个都不管 Contact 表。
+      query_records 上了之后这个洞补上了，这一页终于有对应的工具。
+      仍然保留「问某一位学员的联系人走 get_customer」那条岔路：
+      那时人问的其实是那位学员，通用查询给不出他的跟进时间线。
+    */
+    工具: "query_records（表=联系人）",
+    提醒: "联系人在自己的一张表里，search_customers 查不到他们。问某一位学员有哪些联系人时另说——那走 search_customers 再 get_customer。",
   },
   "/opportunities": { 名: "商机", 提示: "用户正在看商机列表", 工具: "list_opportunities" },
   "/opportunities/pipeline": { 名: "商机 · 管道", 提示: "用户正在看商机管道看板", 工具: "list_opportunities" },
