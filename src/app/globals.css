@@ -845,7 +845,15 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .prop-f-was { font-size: var(--fs-note); color: var(--text-muted); text-decoration: line-through; }
 .prop-f-arrow { color: var(--text-faint); text-decoration: none; display: inline-block; margin-left: 2px; }
 .prop-err { margin-top: 8px; color: var(--danger-text); font-size: var(--fs-note); }
-.prop-foot { margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+/*
+  页脚：确认 / 忽略 / 一句提示。
+  **必须能换行**——面板只有 380 宽，三样挤一行时提示文字占掉 141px，
+  两个按钮被压到 66px，图标加两个字放不下，于是「确认」竖排成两行、按钮 47px 高。
+  （2026-09-19 实测；这张卡 0.38.0 之前只在宽模式的首页出现，挤不着。）
+  按钮不许参与压缩，放不下就让那句提示掉到下一行去。
+*/
+.prop-foot { margin-top: 12px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.prop-foot > .prop-ok, .prop-foot > .prop-no { flex: none; white-space: nowrap; }
 .prop-ok { display: inline-flex; align-items: center; gap: 5px; border: 0; background: var(--ink); color: var(--on-ink); font-size: var(--fs-note); padding: 5px 14px; border-radius: var(--r-ctl); cursor: pointer; }
 .prop-ok:disabled { background: var(--text-faint); cursor: default; }
 .prop-no { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text-muted); font-size: var(--fs-note); padding: 4px 12px; border-radius: var(--r-ctl); cursor: pointer; }
