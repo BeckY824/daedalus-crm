@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { LoadingOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from "@ant-design/icons";
-import { clearJob, useAiTasks } from "@/lib/ai-jobs";
+import { 收起任务, useAiTasks } from "@/lib/ai-jobs";
 
 /**
  * 侧栏底部的「AI 任务」。
@@ -37,8 +37,13 @@ export default function AiTasks() {
           </>
         );
         const 类名 = `aitask aitask-${t.status}`;
-        // 答完的点开就算看过了，从列表里去掉；还在跑的点开只是过去看看，留着
-        const 点 = () => t.status !== "loading" && clearJob(t.key);
+        /*
+          答完的点开就算看过了，从这张单子上划掉；还在跑的点开只是过去看看，留着。
+          **用 收起任务 不能用 clearJob**——后者把任务整个删掉，
+          而面板/首页里那条回答正是从这个任务读的（`useJob("home:" + turn.id)`），
+          删了答案当场消失。2026-09-19 报上来的就是这个。
+        */
+        const 点 = () => t.status !== "loading" && 收起任务(t.key);
         /*
           没有「去」的（右侧面板里问的那些）不画成链接：人就在他要待的那一页上，
           点它只是把这条从列表里划掉。画成 <a href=undefined> 的话点了会跳到当前页、

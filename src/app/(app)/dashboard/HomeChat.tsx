@@ -582,9 +582,51 @@ function composerH(): number {
   return Number.isFinite(n) && n > 0 ? n : 104;
 }
 
-function 贴着底部(): boolean {
+/**
+ * 这一屏在**哪个容器里**滚。
+ *
+ * 宽模式（首页）：聊天就是整页，容器是文档，返回 null。
+ * 窄模式（右侧面板）：容器是 `.dock-body`——**必须认出它来**，否则
+ * `scrollIntoView` 会把祖先链上每一个滚动容器都滚一遍，文档也在那条链上，
+ * 于是在功能页问一句，左边那一整栏跟着往下跑了 588px
+ * （2026-09-19 实测：发送前 scrollTop=0，发送后 588.5）。
+ * 对话是对话，正文不该动。
+ */
+function 滚动容器(el: HTMLElement | null): HTMLElement | null {
+  return el?.closest<HTMLElement>(".dock-body") ?? null;
+}
+
+/**
+ * 还在不在「跟着答案往下看」的状态。
+ *
+ * **不能靠位置推断。** 原来的判据是「离底部够近就跟」，在整页滚动下成立
+ * （页面一路跟着答案走，自然一直贴着底）。但在面板那个容器里不成立：
+ * 只要有一次没跟上，容器就永远显得「离底部很远」，从此再也不跟——
+ * 答案在看不见的地方一路生成完（2026-09-19 改容器滚动时当场踩到）。
+ *
+ * 所以改成显式的：**开始一轮就跟，人自己滚一下就停。**
+ * 人往上翻是想看前面的东西，那时再把他拽回来才是真的烦。
+ */
+function 贴着底部(容器: HTMLElement | null): boolean {
   const 余量 = composerH() + 90;
+  if (容器) return 容器.scrollHeight - 容器.scrollTop - 容器.clientHeight < 余量;
   return document.documentElement.scrollHeight - window.scrollY - window.innerHeight < 余量;
+}
+
+/** 把这一轮滚到容器顶部 / 底部。容器为 null 时才退回 scrollIntoView（那时滚的就是文档） */
+function 滚到(el: HTMLElement | null, 位置: "start" | "end") {
+  if (!el) return;
+  const 容器 = 滚动容器(el);
+  if (!容器) {
+    el.scrollIntoView({ behavior: "smooth", block: 位置 });
+    return;
+  }
+  if (位置 === "end") {
+    容器.scrollTo({ top: 容器.scrollHeight, behavior: "smooth" });
+    return;
+  }
+  const 相对 = el.getBoundingClientRect().top - 容器.getBoundingClientRect().top + 容器.scrollTop;
+  容器.scrollTo({ top: Math.max(0, 相对), behavior: "smooth" });
 }
 
 function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Turn; onRetry: () => void; onRemove: () => void; onAsk: (q: string) => void; scrollOnMount: boolean }) {
@@ -604,14 +646,34 @@ function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Tur
   // 不能用 block:"end"——那会把它顶到输入框后面，人看不见自己刚发的话。
   useEffect(() => {
     if (!scrollOnMount) return;
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    滚到(ref.current, "start");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 流式跟随：只在人已经贴着底部时才动
+  /*
+    流式跟随。整页滚动（首页）时沿用老判据「离底部够近就跟」；
+    面板那个容器里改用显式开关——见 贴着底部 上面那段：
+    位置推断在容器里会一次失手就永久失效。
+  */
+  const 跟随中 = useRef(true);
   useEffect(() => {
-    if (!贴着底部()) return;
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const 容器 = 滚动容器(ref.current);
+    if (!容器) return;
+    // 人自己滚一下就停下跟随；滚回底部再继续
+    const on = () => {
+      跟随中.current = 容器.scrollHeight - 容器.scrollTop - 容器.clientHeight < composerH() + 90;
+    };
+    容器.addEventListener("wheel", on, { passive: true });
+    容器.addEventListener("touchmove", on, { passive: true });
+    return () => {
+      容器.removeEventListener("wheel", on);
+      容器.removeEventListener("touchmove", on);
+    };
+  }, []);
+  useEffect(() => {
+    const 容器 = 滚动容器(ref.current);
+    if (容器 ? !跟随中.current : !贴着底部(null)) return;
+    滚到(ref.current, "end");
   }, [job?.value?.text?.length, done]);
 
   const interrupted = job?.status === "error" && job.error === "已取消";

@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, test } from "vitest";
-import { clearJob, runJob, setJobValue, 任务快照 } from "@/lib/ai-jobs";
+import { beforeEach, describe, expect, it, test } from "vitest";
+import { clearJob, getJob, runJob, setJobValue, 任务快照, 收起任务 } from "@/lib/ai-jobs";
 
 /**
  * 侧栏那条「AI 任务」（批 2）。
@@ -50,5 +50,47 @@ describe("AI 任务在侧栏里的那一份", () => {
     runJob("home:4", async () => ({ ok: true, value: {} }), undefined, { 名: "同一份", 去: "/dashboard" });
     await 等一下();
     expect(任务快照()).toBe(任务快照());
+  });
+});
+
+/**
+ * 从侧栏划掉一条任务 ≠ 把答案删掉。
+ *
+ * 2026-09-19 报上来的：点一下「AI 任务」里那一条，右边面板那条回答当场消失。
+ * 因为点的是 `clearJob`——那是把任务整个删掉，而回答正是从这个任务读出来的
+ * （HomeChat 里 `useJob("home:" + turn.id)`）。用户想的是「这条我看过了」，
+ * 结果连答案一起没了，只好再问一遍——那才是真花钱的。
+ */
+describe("收起任务", () => {
+  beforeEach(() => {
+    for (const k of ["home:a", "home:b"]) clearJob(k);
+  });
+
+  it("从侧栏列表里消失，但结果还在", () => {
+    setJobValue("home:a", { text: "答案还在这儿" });
+    // setJobValue 不带标签，先手工造一条带标签的完成态任务
+    runJob("home:b", async () => ({ ok: true as const, value: { text: "另一条" } }), undefined, { 名: "问了什么" });
+    return new Promise<void>((done) => {
+      setTimeout(() => {
+        expect(任务快照().some((t) => t.key === "home:b"), "刚跑完的该出现在侧栏").toBe(true);
+        收起任务("home:b");
+        expect(任务快照().some((t) => t.key === "home:b"), "收起之后不该再出现在侧栏").toBe(false);
+        expect(getJob<{ text: string }>("home:b")?.value?.text, "答案不该跟着没了").toBe("另一条");
+        expect(getJob("home:b")?.status).toBe("done");
+        done();
+      }, 20);
+    });
+  });
+
+  it("还在跑的不许收起——那条得留着让人知道它没完", () => {
+    runJob("home:a", () => new Promise(() => {}), undefined, { 名: "还在跑" });
+    收起任务("home:a");
+    expect(任务快照().some((t) => t.key === "home:a"), "loading 的收起不掉（组件也不给点）").toBe(true);
+  });
+
+  it("clearJob 仍然是真删——/clear 那条命令要的就是它", () => {
+    setJobValue("home:a", { text: "x" });
+    clearJob("home:a");
+    expect(getJob("home:a")).toBeUndefined();
   });
 });

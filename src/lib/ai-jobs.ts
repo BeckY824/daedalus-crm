@@ -75,6 +75,27 @@ export function clearJob(key: string): void {
   if (jobs.delete(key)) notify();
 }
 
+/**
+ * 把一条从侧栏的「AI 任务」里收起来，**但任务本身留着**。
+ *
+ * 2026-09-19 报上来的：点一下任务条，右边那条回答就没了。
+ * 因为原来点的是 `clearJob` —— 那是把任务整个删掉，
+ * 而面板里那条回答正是从这个任务读出来的（`useJob("home:" + turn.id)`）。
+ * 用户想的是「这条我看过了，从列表里划掉」，结果连答案一起划掉了。
+ *
+ * 侧栏那张单子是按 `标签` 过滤出来的（见 任务快照），所以摘掉标签就够了。
+ */
+export function 收起任务(key: string): void {
+  const cur = jobs.get(key);
+  if (!cur?.标签) return;
+  // 还在跑的不收：那条正是用来告诉人「它还没完」的。组件也挡了一道，这里是里子
+  if (cur.status === "loading") return;
+  const { 标签: _丢掉, ...剩下 } = cur;
+  void _丢掉;
+  jobs.set(key, 剩下 as JobState<unknown>);
+  notify();
+}
+
 export function getJob<T>(key: string): JobState<T> | undefined {
   return jobs.get(key) as JobState<T> | undefined;
 }
