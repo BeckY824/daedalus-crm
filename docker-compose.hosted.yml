@@ -27,7 +27,14 @@ services:
       # UMAMI_API_KEY 一定要在这儿列出来：docker compose 读 .env 只是做变量替换，
       # 不写进 environment 就进不了容器。2026-09-19 上线时就踩了这个——
       # .env 里明明有，容器里 echo 出来是空的，接口一声不吭地少一个字段。
+      # 认证三选一，按 route.ts 里的优先级：API key > 现成令牌 > 用户名密码。
+      # **三种都要在这儿列出来**——2026-09-19 只补了 API_KEY 那一个，
+      # 后来发现自部署的 umami 这个版本根本没有 /api/keys，只能走用户名密码，
+      # 于是 .env 里配好了、容器里还是空的，接口照旧一声不吭地少一个字段。
       UMAMI_API_KEY: "${UMAMI_API_KEY:-}"
+      UMAMI_TOKEN: "${UMAMI_TOKEN:-}"
+      UMAMI_USERNAME: "${UMAMI_USERNAME:-}"
+      UMAMI_PASSWORD: "${UMAMI_PASSWORD:-}"
       UMAMI_BASE_URL: "${UMAMI_BASE_URL:-}"
       UMAMI_WEBSITE_ID: "${UMAMI_WEBSITE_ID:-}"
       UMAMI_SINCE: "${UMAMI_SINCE:-}"
