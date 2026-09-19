@@ -18,7 +18,7 @@
  * 菜单照 Claude 桌面端那套：应用 / 文件 / 编辑 / 显示 / 前往 / 窗口 / 帮助，全是标准项。
  * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
-const { app, BrowserWindow, shell, dialog, Menu, clipboard, ipcMain } = require("electron");
+const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
@@ -606,6 +606,36 @@ async function 备份数据库() {
 }
 
 /* ---------- 壳给页面的口子（设置页「桌面端」那一栏） ---------- */
+
+/**
+ * 跑完了叫人一声。
+ *
+ * AI 问一句要十几秒，人不会盯着看——他会切去别的应用。侧栏那条进度只在窗口里有用，
+ * 人不看着它就等于没有。所以答完了发一条系统通知，点一下把窗口叫到前面。
+ *
+ * **在不在前台由壳判断，不由页面判断。** 页面那边只管「这一条答完了」，
+ * 前台与否是壳的事（页面的 document.hasFocus 分不清「窗口在前台但被别的窗口盖住」
+ * 这类情况，也不该让两处各判一遍——两处迟早不一致）。窗口在前台就不弹：
+ * 侧栏那一条已经说了，再弹一个系统通知是吵。
+ *
+ * 页面能传进来的只有两段字，别的一概没有：弹什么、点了干什么都在这儿定死。
+ */
+ipcMain.handle("notify:show", (_e, 内容) => {
+  if (!Notification.isSupported()) return { ok: false, 原因: "不支持" };
+  if (win && !win.isDestroyed() && win.isFocused()) return { ok: false, 原因: "在前台" };
+  const 截 = (v, n) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
+  const title = 截(内容?.标题, 60);
+  if (!title) return { ok: false, 原因: "没内容" };
+  const n = new Notification({ title, body: 截(内容?.正文, 160) });
+  n.on("click", () => {
+    if (!win || win.isDestroyed()) return 建窗口();
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+  });
+  n.show();
+  return { ok: true };
+});
 
 ipcMain.handle("shell:version", () => app.getVersion());
 ipcMain.handle("shell:backup", () => 备份数据库());

@@ -163,16 +163,32 @@ a {
 .rail-foot { margin-top: auto; }
 /* 侧栏底部的 AI 任务。问一句要十几秒，人会切走——切走之后总得有个地方
    看得见它跑完没有。跑着的排在前面，答完的点一下就消掉 */
+/* ---------- 侧栏底部的 AI 任务：一条完成通知，不是一张单子（2026-09-19 改） ----------
+   原来是一个方块列表，最多四行、答完了还要人点一下才消失，于是它一直占着左下角。
+   现在一次只有一条：跑着时一段刻度来回扫（说不出百分比就别装，和更新药丸的 idle
+   同一个说法），答完变一行字、3 秒后自己淡出。要人做事的（失败、待确认）不会自己走。
+   见 components/AiTasks.tsx 和 lib/ai-task-bar.ts。 */
 .aitasks { margin-bottom: var(--s2); }
-.aitasks-t { font-size: var(--fs-min); color: var(--text-muted); padding: 0 10px 4px; }
-.aitask { display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: var(--r-ctl); color: var(--ink); }
+.aitask { position: relative; display: block; width: 100%; padding: 6px 10px; border: 0; background: none;
+  text-align: left; cursor: pointer; border-radius: var(--r-ctl); color: var(--ink); overflow: hidden;
+  animation: aitask-in var(--t-enter) var(--ease); }
 .aitask:hover { background: var(--hover); }
-.aitask-i { flex: none; color: var(--text-muted); font-size: var(--fs-min); }
-.aitask-loading .aitask-i { color: var(--brand); }
+.aitask-l { display: flex; align-items: center; gap: 6px; }
+.aitask-i { flex: none; display: flex; color: var(--text-muted); font-size: var(--fs-min); }
 .aitask-error .aitask-i { color: var(--danger); }
+.aitask-wait .aitask-i { color: var(--brand); }
 .aitask-done .aitask-i { color: var(--success); }
 .aitask-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-note); }
+/* 同时还有几条。只是个提示，不是入口——真要翻，首页那条对话列表本来就在 */
+.aitask-m { flex: none; font-size: var(--fs-min); color: var(--text-faint); }
 .aitask-s { flex: none; font-size: var(--fs-min); color: var(--text-muted); }
+/* 进度条贴着这一条的底边，2px。它是这一行的下沿，不是另加的一个部件 */
+.aitask-bar { position: absolute; left: 10px; right: 10px; bottom: 0; height: 2px; border-radius: 1px;
+  background: color-mix(in srgb, var(--brand) 16%, transparent); overflow: hidden; }
+.aitask-bar::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 34%;
+  border-radius: 1px; background: var(--brand); animation: aitask-sweep 1.4s ease-in-out infinite; }
+@keyframes aitask-sweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(310%); } }
+@keyframes aitask-in { from { opacity: 0; } to { opacity: 1; } }
 
 /* 桌面端的更新按钮：壳后台下完了才出现，一条，点了就重启装。下载中是灰的只读文字 */
 /* 侧栏那枚更新键。平时是一枚圆的图标键，指上去才摊开成一句话——
@@ -1538,6 +1554,9 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .dock-rail-b:active { transform: none !important; }
+  /* 来回扫的那一段刻度是位移。时长归零之后它会停在起点（看着像没进度条），
+     所以直接换成一条静止的满格——「在跑」这件事由那行「正在想…」说，不靠它动。 */
+  .aitask-bar::after { width: 100%; animation: none !important; transform: none !important; }
 }
 
 

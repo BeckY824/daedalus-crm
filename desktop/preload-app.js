@@ -4,6 +4,7 @@
  * 所以就算页面被换掉也做不了别的。
  *
  *   desktopUpdate —— 更新：问状态、请求下载、请求安装、请求检查、打开下载页，外加一个订阅
+ *   desktopNotify —— 跑完了叫人一声：页面只传两段字，弹不弹（窗口在不在前台）由主进程判断
  *   desktopNav    —— 菜单里的「设置…」（⌘,）：**让页面自己 push 过去**，不是壳去 loadURL。
  *                    差别是设置那一层——软导航才命中拦截路由，才是盖在当前页上的浮层；
  *                    硬跳转落到的是整页。收到就立刻回一声 nav:ok，主进程据此知道
@@ -35,6 +36,10 @@ contextBridge.exposeInMainWorld("desktopShell", {
   openLogs: () => ipcRenderer.invoke("shell:open-logs"),
   diagnostics: () => ipcRenderer.invoke("shell:diagnostics"),
   useServer: (url) => ipcRenderer.invoke("shell:use-server", String(url ?? "")),
+});
+
+contextBridge.exposeInMainWorld("desktopNotify", {
+  通知: (标题, 正文) => ipcRenderer.invoke("notify:show", { 标题: String(标题 ?? ""), 正文: String(正文 ?? "") }),
 });
 
 contextBridge.exposeInMainWorld("desktopNav", {

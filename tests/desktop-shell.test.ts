@@ -153,3 +153,44 @@ describe("打包清单要盖住壳里 require 的每个文件", () => {
     expect(不存在, `白名单里这些文件不存在了：${不存在.join("、")}`).toEqual([]);
   });
 });
+
+/**
+ * 「跑完了叫你一声」（2026-09-19）。
+ *
+ * AI 问一句要十几秒，人会切去别的应用——侧栏那条进度只在窗口里有用。
+ * 这条链跨三处：页面调 window.desktopNotify → preload 的 IPC 通道 → 主进程弹。
+ * 通道名是一段编译器看不见的字符串，改坏了不报错，只是点完以后**永远不响**。
+ */
+describe("跑完了叫人一声", () => {
+  const 页面 = fs.readFileSync(path.resolve(__dirname, "../src/components/AiTasks.tsx"), "utf8");
+
+  it("三处对着同一个通道名", () => {
+    expect(preload).toContain('exposeInMainWorld("desktopNotify"');
+    expect(preload).toContain('ipcRenderer.invoke("notify:show"');
+    expect(main).toContain('ipcMain.handle("notify:show"');
+    expect(页面).toContain("window.desktopNotify?.通知(");
+  });
+
+  it("窗口在前台就不弹——侧栏那一条已经说了，再弹一个是吵", () => {
+    const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'));
+    expect(段.slice(0, 600)).toContain("win.isFocused()");
+  });
+
+  it("前台与否只在壳这一处判断，页面不跟着判一遍（两处迟早不一致）", () => {
+    expect(页面).not.toContain("hasFocus");
+    expect(页面).not.toContain("document.hidden");
+  });
+
+  it("页面只能传两段字，弹什么、点了干什么都在壳里定死", () => {
+    // 页面传得进来的就是标题和正文，别的字段一概不看
+    expect(preload).toMatch(/通知: \(标题, 正文\) => ipcRenderer\.invoke\("notify:show", \{ 标题: String\(/);
+    const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'));
+    expect(段.slice(0, 900)).toContain("new Notification({ title, body:");
+  });
+
+  it("点一下把窗口叫到前面来——不然人不知道该去哪看", () => {
+    const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'), main.indexOf('ipcMain.handle("shell:version"'));
+    expect(段).toContain('n.on("click"');
+    expect(段).toContain("win.focus()");
+  });
+});

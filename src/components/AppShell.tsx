@@ -289,7 +289,8 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
             逾期待办改由首页第一个信号「逾期跟进 N · 先处理」承担：
             那是一个带数字和去处的信号，比一个只有小红点的铃铛准。 */}
         <div className="rail-foot">
-          {/* 正在跑 / 已答完的 AI 任务。切到别的页面也看得见，点一条回原处 */}
+          {/* AI 跑完了没有：跑着一条细进度，答完一行字、3 秒自己走。点一条回原处。
+              人切去别的应用了则由桌面端发系统通知（desktop/main.js 的 notify:show） */}
           <AiTasks />
           {/* 「设置」不在左栏里了（2026-09-17）：它在账号菜单里，和 Claude / Codex 一样。
               左栏那一列是**你工作的地方**——学员、商机、跟进；设置是偶尔去一趟的抽屉，
