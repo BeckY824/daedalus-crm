@@ -44,7 +44,7 @@ function 跑(cmd, args, opts = {}) {
 }
 
 function 步骤(n, 说明) {
-  console.log(`\n[${n}/6] ${说明}`);
+  console.log(`\n[${n}/8] ${说明}`);
 }
 
 /* ---------- 1. Prisma 客户端 ---------- */
@@ -182,6 +182,73 @@ if (本平台引擎 && 留下 === 0) {
   process.exit(1);
 }
 console.log(`  删掉 ${删掉} 个其它平台的引擎`);
+
+/* ---------- 7. 裁掉别家数据库的 wasm 引擎 ---------- */
+/*
+  `@prisma/client/runtime` 里躺着五套数据库各自的 wasm 引擎，每套还分 .js / .mjs 两份：
+
+    query_engine_bg.{sqlite,postgresql,mysql,sqlserver,cockroachdb}.wasm-base64.{js,mjs}
+    query_compiler_bg.{同上}.wasm-base64.{js,mjs}
+
+  合计 **53 MB**，占整个桌面包的三分之一，而我们只用 SQLite，而且**走的是原生
+  libquery_engine-*.dylib.node，根本不走 wasm**。
+
+  为什么敢删：把整个 @prisma/client 翻了一遍，**运行时的 .js / .mjs 没有一个文件
+  提到 `wasm-base64`**，唯一提到它的是 `generator-build/index.js`——那是
+  `prisma generate` 时跑的代码生成器，它读这些大块、吐出各自库下面那个 query_engine_bg.wasm（注意别在块注释里写星号加斜杠，那会把注释提前闭掉）。
+  生成早在构建机上做完了，装到用户机器上的应用永远不会再跑一次生成器。
+  （文件里确实出现「cockroachdb」这类词，但那是校验用的字符串常量，不是文件名。）
+
+  **删不到东西要吭声。** Prisma 换个布局、改个命名，这一步就会静悄悄变成空转，
+  而包又胖回去 53 MB，没人会发现——和第 6 步那条「一个引擎都没留下就 exit 1」同一个道理。
+*/
+步骤(7, "裁掉别家数据库的 wasm 引擎");
+let 省了 = 0;
+let 删了几个 = 0;
+function 裁wasm(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) {
+      裁wasm(p);
+    } else if (/^query_(engine|compiler)_bg\..+\.wasm-base64\.(js|mjs)$/.test(e.name)) {
+      省了 += fs.statSync(p).size;
+      fs.rmSync(p);
+      删了几个++;
+    }
+  }
+}
+裁wasm(OUT);
+if (删了几个 === 0) {
+  console.error("  !! 一个 wasm-base64 都没删到。多半是 Prisma 换了文件布局——");
+  console.error("     去 node_modules/@prisma/client/runtime 看一眼实际文件名，把上面那条正则改对。");
+  console.error("     不改的话包会白胖 50 MB 以上，而且没有任何报错。");
+  process.exit(1);
+}
+console.log(`  删掉 ${删了几个} 个，省下 ${(省了 / 1024 / 1024).toFixed(0)} MB`);
+
+/* ---------- 8. 本平台的原生引擎必须还在 ---------- */
+/*
+  上面两步都在删文件，而删错了的下场是「装上打开就崩」，本机 `npm run dev`
+  完全看不出来（那条路不走这个产物）。所以最后再核一次：原生引擎在不在。
+  这是 0.37.0 那次事故（白名单漏了 mcp-bridge.js，应用整个打不开）留下的规矩——
+  凡是「删了/漏了只在用户机器上才炸」的事，构建脚本里必须有一条断言。
+*/
+步骤(8, "核对原生引擎还在");
+if (本平台引擎) {
+  const 找到 = [];
+  (function 找(dir) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) 找(p);
+      else if (e.name === 本平台引擎) 找到.push(path.relative(OUT, p));
+    }
+  })(OUT);
+  if (找到.length === 0) {
+    console.error(`  !! ${本平台引擎} 不见了，这个包装上一查库就崩`);
+    process.exit(1);
+  }
+  console.log(`  ✓ ${找到.length} 份：${找到.join("、")}`);
+}
 
 const 大小 = execFileSync("du", ["-sh", OUT], { encoding: "utf8" }).split("\t")[0];
 console.log(`\n装配完成：${OUT}（${大小}）`);
