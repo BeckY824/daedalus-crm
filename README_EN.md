@@ -118,6 +118,16 @@ Ask it to change a status or profile field, log a follow-up, schedule a plan, cr
 
 Profile on the left, editable with a click; a single timeline in the middle; a quick-note box on top where you paste a chat and AI drafts the follow-up, tasks and next plan for you to review — the original text is kept for later briefings. The AI column on the right **does not call the model when the page opens**: press "Generate briefing" and it reads this person's entire history, with the credit cost written next to the button. Deleting one follow-up doesn't open a dialog either — the delete button turns into "Delete this? Delete / Cancel" in place.
 
+### Bring in the list you already have
+
+An "Import" button on the customer list, two ways in: **drop an Excel / CSV file**, or **paste a block of text** — a message forwarded from WeChat, a group sign-up, a list of names from meeting notes — and AI slices it into a table. From step two on, both paths are identical: map columns, review, preview, run, each step telling you what happens next.
+
+- **Files are never uploaded**: parsed in your browser, written straight to your own database. The paste path sends the text only to the model you configured
+- **Identity is the phone number**: same number, same person. Rows already in the database can only be "skipped" or "fill blanks only" — **there is no overwrite**; a spreadsheet must never wipe what a person typed
+- **One unreadable cell doesn't block the row**: it's left blank and flagged, the rest goes in. Columns we don't have (WeChat ID, tier) are folded into the notes field rather than silently dropped
+- **AI only slices, never infers**: every cell must be verbatim from the source. Invented cells are cleared and listed; phone numbers present in the text but missing from the table are listed too
+- **Every batch can be undone**, even later, from Settings → Imports
+
 ### Referral attribution with one clear rule
 
 Channel → customer → referred customer: attribution goes two generations up, or to the top of the chain if shorter; the channel owner is inherited along the whole chain. Attribution is frozen at entry — **changing an upstream referrer or a channel's owner never rewrites existing customers' performance**. Individual mistakes are corrected on that one record.
