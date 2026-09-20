@@ -57,6 +57,9 @@ export default defineConfig({
        */
       LLM_API_KEY: "e2e-fake-key",
       LLM_BASE_URL: "http://127.0.0.1:9",
+      // 导入那一步的「自动判断」不调：默认套件不该依赖网络，也不该按次花钱。
+      // 空 key 时 判断可用() 为假，导入走内置的表头对照规则。
+      JEV_API_KEY: "",
       LLM_MODEL: "e2e-fake-model",
     },
   },

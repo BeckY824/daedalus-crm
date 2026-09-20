@@ -27,7 +27,8 @@
     "test:ai": "playwright test --config playwright.acceptance.config.ts",
     "test:all": "vitest run && playwright test",
     "test:e2e:prod": "E2E_PROD=1 playwright test",
-    "test:coverage": "vitest run --coverage --coverage.include='src/lib/attribution.ts' --coverage.reporter=text"
+    "test:coverage": "vitest run --coverage --coverage.include='src/lib/attribution.ts' --coverage.reporter=text",
+    "test:jev": "tsx --env-file=.env tests/jev/criteria.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -38,6 +39,7 @@
     "@ant-design/v5-patch-for-react-19": "^1.0.3",
     "@prisma/client": "6.16.2",
     "@types/bcryptjs": "^2.4.6",
+    "@typesafe-ai/sdk": "^0.6.0",
     "antd": "^6.6.1",
     "bcryptjs": "^3.0.3",
     "dayjs": "^1.11.23",

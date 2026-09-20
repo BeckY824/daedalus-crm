@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Form, Input, Radio, Select, Space, Typography, App } from "antd";
+import { Alert, Button, Form, Input, Radio, Select, Space, Switch, Typography, App } from "antd";
 import { 赠送说明 } from "@/lib/credits-copy";
 import type { 云端余额 } from "@/lib/llm";
-import { saveLlmSettings, testLlmSettings, clearLlmSettings, 查MCP接入, 开启MCP, 关闭MCP } from "./actions";
+import { saveLlmSettings, testLlmSettings, clearLlmSettings, 查MCP接入, 开启MCP, 关闭MCP, 查自动判断, 设自动判断开关 } from "./actions";
 import type { AiUsage } from "@/lib/ai-usage";
 import type { ModelOption } from "@/lib/llm";
 import { PROVIDERS, 认服务商 } from "@/lib/providers";
@@ -282,6 +282,8 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
         />
       )}
 
+      <AssistBlock />
+
       <McpBlock />
 
       {llm.source !== null && (
@@ -299,6 +301,68 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
           </Space>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * 「自动判断」的开关。
+ *
+ * 和这一栏其余部分不是一类东西，所以单独一块、也单独说一遍它发什么：
+ * 上面那些是**你点了才跑**的生成类调用（占 AI 次数、一次几分钱）；
+ * 这一个是**不用你点**的判断类调用，目前只在导入表格时猜列，不占次数。
+ *
+ * 界面上必须把「发出去的是什么」写在人眼前，不能只写一句「用 AI 提升准确率」——
+ * 政策里怎么写的，这儿就得怎么摆，否则那句「可以在设置里关掉」等于没给。
+ */
+function AssistBlock() {
+  const { message } = App.useApp();
+  const [状态, set状态] = useState<{ 可用: boolean; 已开: boolean } | null>(null);
+  const [忙, set忙] = useState(false);
+
+  useEffect(() => {
+    查自动判断().then(set状态).catch(() => {});
+  }, []);
+
+  if (!状态?.可用) return null;
+
+  async function 切(开: boolean) {
+    set忙(true);
+    try {
+      await 设自动判断开关(开);
+      set状态((v) => (v ? { ...v, 已开: 开 } : v));
+      message.success(开 ? "已打开" : "已关掉，导入改用内置的表头对照规则");
+    } catch {
+      message.error("改不了，刷新页面再试");
+    } finally {
+      set忙(false);
+    }
+  }
+
+  return (
+    <div className="mcp-block">
+      <h4>
+        自动判断
+        <Switch
+          checked={状态.已开}
+          loading={忙}
+          onChange={切}
+          style={{ marginLeft: 12 }}
+          checkedChildren="开"
+          unCheckedChildren="关"
+        />
+      </h4>
+      <p>
+        导入表格时自动猜每一列对应哪个字段。开着的时候，我们会把那份表的<b>表头</b>和
+        <b>前三行样例值</b>（其余行不发）发给一个判断模型，它只回「这一列是姓名还是手机号」这类
+        有固定选项的答案，不生成文字。猜出来的只是那几个下拉框的<b>默认选中项</b>，
+        你仍然要在复核那一步自己确认，确认之前不会有任何数据写进库。
+      </p>
+      <p className="mcp-hint">
+        <b>不占 AI 次数</b>，也不需要你点任何按钮——正因为它不用你点，才给这个开关。
+        关掉之后导入改用内置的表头对照规则，功能照常，只是能自动猜中的列会少一些。
+        详见<a href="/privacy" target="_blank" rel="noreferrer">《隐私政策》</a>第三节。
+      </p>
     </div>
   );
 }

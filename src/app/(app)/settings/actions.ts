@@ -18,6 +18,8 @@ import { isEmail } from "@/lib/tenant/accounts";
 import { createSession } from "@/lib/auth";
 import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, fetchRemoteModels, type ModelOption } from "@/lib/llm";
 import { getBusiness, saveBusiness, mergeBusiness, type BusinessConfig } from "@/lib/business";
+import { 判断可用 } from "@/lib/jev/client";
+import { 自动判断开着, 设自动判断 } from "@/lib/jev/settings";
 
 /** 密码最短长度。界面上有校验，但接口直调能绕开，空密码会让任何人登进来 */
 const MIN_PASSWORD = 8;
@@ -603,4 +605,30 @@ export async function 关闭MCP(): Promise<{ ok: boolean }> {
   await 撤销令牌();
   await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "mcpToken", summary: "关掉了 MCP 接入（令牌已撤销）" });
   return { ok: true };
+}
+
+/* ---------- 自动判断（判断类模型） ---------- */
+/**
+ * 那个「不用你点也会跑」的开关。
+ *
+ * 它必须存在，不是因为好用，是因为隐私政策第三节写了「可以在这里关掉」——
+ * 一个不用点就把数据发出去的东西，得给得出一个关掉它的地方，那节才诚实。
+ *
+ * 没配 JEV_API_KEY 的部署（自部署的开源版多半如此）一律「不可用」，界面上不摆这个开关：
+ * 摆一个关了也没区别的开关，只会让人以为自己关掉了什么。
+ */
+export async function 查自动判断(): Promise<{ 可用: boolean; 已开: boolean }> {
+  const me = await requireUser();
+  if (!判断可用() || me.role !== "ADMIN") return { 可用: false, 已开: false };
+  return { 可用: true, 已开: await 自动判断开着() };
+}
+
+export async function 设自动判断开关(开: boolean): Promise<void> {
+  const me = await requireUser();
+  if (me.role !== "ADMIN") throw new Error("只有管理员能改");
+  await 设自动判断(开);
+  await recordAudit({
+    user: me, action: "update", entity: "Setting", entityId: "assist",
+    summary: 开 ? "打开了导入的自动判断" : "关掉了导入的自动判断",
+  });
 }

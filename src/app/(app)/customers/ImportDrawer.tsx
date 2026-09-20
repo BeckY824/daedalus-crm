@@ -7,8 +7,9 @@ import { 解析CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/pars
 import { 字段表, 猜列, 像表头, type 字段名 } from "@/lib/import/fields";
 import { 改动键 } from "@/lib/import/plan";
 import { 粘贴字数上限, type 编造格 } from "@/lib/import/paste";
+import { 并进来, 样例行数 } from "@/lib/jev/columns";
 import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
-import { 粘成表格 } from "./ai";
+import { 粘成表格, 猜列建议 } from "./ai";
 import type { BusinessConfig } from "@/lib/business-config";
 
 /**
@@ -134,9 +135,31 @@ export default function ImportDrawer({
     set表头(h);
     set数据(d);
     set截断了(切了);
-    set映射(猜列(h, 表));
+    const 规则 = 猜列(h, 表);
+    set映射(规则);
     set改过({});
     set步(1);
+    void 补猜(h, d, 规则);
+  }
+
+  /**
+   * 规则认不出来的那几列，再问一次判断模型。
+   *
+   * **不 await、不转圈、不拦路。** 规则的结果已经摆在界面上了，人可以立刻开始复核；
+   * 这一趟回来只往还空着的格子里填。回不来（没配 key、关了开关、断网、超时）就什么都不发生，
+   * 界面停在规则给出的样子——那正是 2026-09-20 之前的样子，不是坏掉。
+   *
+   * 合并用 `并进来` 而不是直接 set：这一秒多里人可能已经手动选了某一列，
+   * 那一列必须赢。同一个字段被两列同时命中也在那儿去重——模型是一列一问、
+   * 彼此看不见的，「联系方式」和「TEL」它会都判成 phone。
+   */
+  async function 补猜(h: string[], d: string[][], 规则: (字段名 | null)[]) {
+    try {
+      const 答案 = await 猜列建议(h, d.slice(0, 样例行数), 规则);
+      if (答案) set映射((prev) => 并进来(prev, 答案, 表));
+    } catch {
+      // 兜底的兜底：这一层坏了也只是少猜几列，不该让导入报错
+    }
   }
 
   /** 粘贴那条路：按了按钮才跑。跑完先让人看见这张表，确认无误再往下走 */

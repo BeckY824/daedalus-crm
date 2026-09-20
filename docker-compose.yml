@@ -20,6 +20,9 @@ services:
       LLM_MODEL: "${LLM_MODEL:-}"
       # 首页模型选单（可选）。逗号分隔，用 | 加备注，如 deepseek-v4.1-flash|默认
       LLM_MODELS: "${LLM_MODELS:-}"
+      # 判断类模型（可选）。导入猜列用，不占 AI 次数；不填就走内置的表头对照规则
+      JEV_API_KEY: "${JEV_API_KEY:-}"
+      JEV_BASE_URL: "${JEV_BASE_URL:-}"
     volumes:
       - crm-data:/data
     # 日志封顶：默认 json-file 不限大小，跑久了会把盘吃满。三份 10 MB 滚动

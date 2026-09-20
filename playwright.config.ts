@@ -62,6 +62,9 @@ export default defineConfig({
       // 默认 e2e 不调模型：记录页的 AI 面板打开即生成，本机 .env 有 key 的话每条用例都会真调一次，
       // 慢、花钱、还让结果随模型响应时间抖动。AI 验收有自己的 config（ai-acceptance）。
       LLM_API_KEY: "",
+      // 同理，导入那一步的「自动判断」也不调：默认套件不该依赖网络，也不该按次花钱。
+      // 关掉之后导入走内置的表头对照规则——import.spec.ts 钉的本来就是那条路。
+      JEV_API_KEY: "",
       ...(生产模式 ? { NODE_ENV: "production" } : {}),
     },
   },
