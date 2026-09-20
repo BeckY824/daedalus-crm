@@ -19,6 +19,7 @@
  * 见隐私政策第三节：这两类是分开讲的。
  */
 import { TypeSafeClient, type ChoiceQuestion } from "@typesafe-ai/sdk";
+import { 本地模式, 云端地址, 读 as 读云端凭据 } from "../desktop/cloud";
 
 /** 一次判断最多等这么久。超了就当没有——让人多点两下下拉框，好过让导入卡住 */
 const 超时毫秒 = 8000;
@@ -26,27 +27,62 @@ const 超时毫秒 = 8000;
 /** 只重一次。判断类是可有可无的增强，为它把一个界面动作拖成三秒不值 */
 const 重试次数 = 1;
 
-let 缓存: TypeSafeClient | null | undefined;
-
-function 取客户端(): TypeSafeClient | null {
-  if (缓存 !== undefined) return 缓存;
-  const key = process.env.JEV_API_KEY?.trim();
-  const base = process.env.JEV_BASE_URL?.trim();
-  缓存 = key
-    ? new TypeSafeClient({
-        apiKey: key,
-        // 自建转发时指到别处。桌面端将来走我们的网关也是靠这一项
-        ...(base ? { baseURL: base } : {}),
-        timeout: 超时毫秒,
-        retry: { maxRetries: 重试次数 },
-      })
-    : null;
-  return 缓存;
+/** 上游地址。网关那条路要用它去转发，所以导出 */
+export function JEV上游(): string {
+  return (process.env.JEV_BASE_URL?.trim() || "https://api.typesafe.ai").replace(/\/+$/, "");
 }
 
-/** 配了 key 吗。界面拿它决定那个开关是不是灰的——没配就没什么可开的 */
+/** 只有这一个模型。网关不听客户端指定——能选模型就等于能选我们的账单 */
+export const JEV模型 = "jev-latest";
+
+type 接法 = { apiKey: string; baseURL: string };
+
+/**
+ * 这个部署该怎么连上判断模型。两条路，**顺序有讲究**：
+ *
+ *   1. **本机有 key**（托管版、自部署版里运维自己配的）→ 直连上游。
+ *      放在前面是为了让自部署的人能用自己的 key，也让本机联调能指到别处。
+ *   2. **桌面端本地模式** → 走我们的网关，拿设备令牌当 key。
+ *      用户手上不会有 TypeSafe 的 key，而我们的 key 不能打进安装包——
+ *      打进去就能被扒出来，谁拿到谁花我们的钱。和 DeepSeek 那条路同一个道理。
+ *
+ * 两条都不成立就返回 null，调用方回落规则。
+ */
+function 接法(): 接法 | null {
+  const key = process.env.JEV_API_KEY?.trim();
+  if (key) return { apiKey: key, baseURL: JEV上游() };
+  if (本地模式()) {
+    const 凭据 = 读云端凭据();
+    // 没登录云端账号就没有令牌。那时桌面端本来也调不了 AI，行为一致
+    if (凭据) return { apiKey: 凭据.token, baseURL: `${(凭据.baseUrl || 云端地址()).replace(/\/+$/, "")}/api/gateway` };
+  }
+  return null;
+}
+
+/** 缓存按「接法」存：桌面端退出再登录会换一把令牌，认着旧的会一直 401 */
+let 缓存: { 键: string; c: TypeSafeClient } | null = null;
+
+function 取客户端(): TypeSafeClient | null {
+  const 怎么接 = 接法();
+  if (!怎么接) return null;
+  const 键 = `${怎么接.baseURL}#${怎么接.apiKey}`;
+  if (缓存?.键 === 键) return 缓存.c;
+  const c = new TypeSafeClient({
+    apiKey: 怎么接.apiKey,
+    baseURL: 怎么接.baseURL,
+    timeout: 超时毫秒,
+    retry: { maxRetries: 重试次数 },
+  });
+  缓存 = { 键, c };
+  return c;
+}
+
+/**
+ * 这个部署连得上判断模型吗。界面拿它决定那个开关摆不摆——
+ * 摆一个关了也没区别的开关，只会让人以为自己关掉了什么。
+ */
 export function 判断可用(): boolean {
-  return !!process.env.JEV_API_KEY?.trim();
+  return 接法() !== null;
 }
 
 /** 一问一答：选中项 + 置信度。SDK 的类型不往外漏，调用方只认这两个数 */

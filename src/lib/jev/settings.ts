@@ -9,14 +9,21 @@
  * 所以「关掉」不是残废，是回到 2026-09-20 之前的样子。
  */
 import { getSetting, setSetting } from "../settings";
+import { 判断可用 } from "./client";
 
 const KEY = "assist";
 
 type 存的 = { 开?: boolean };
 
-/** 没配 key 的部署（自部署的开源版多半如此）一律当关着，界面上也不用摆那个开关 */
+/**
+ * 连不上判断模型的部署（自部署的开源版多半如此）一律当关着，界面上也不用摆那个开关。
+ *
+ * **这里必须问 `判断可用()`，不能直接看 JEV_API_KEY。** 桌面端本机没有那个环境变量
+ * ——它靠设备令牌走我们的网关。写成看环境变量的话，桌面端会在调用之前就被自己拦掉，
+ * 而且一声不吭：日志干净、界面只是少猜几列，看不出是被谁挡的。这个坑踩过一次了。
+ */
 export async function 自动判断开着(): Promise<boolean> {
-  if (!process.env.JEV_API_KEY?.trim()) return false;
+  if (!判断可用()) return false;
   const s = await getSetting<存的>(KEY);
   return s?.开 !== false;
 }
