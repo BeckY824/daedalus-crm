@@ -32,7 +32,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 | 🖥 **Desktop app** (primary) | **One person.** A salesperson, a freelancer, a one-person company | [Download the .dmg](https://ai-daedalus.com/download.html) (macOS, Apple silicon); in-app "Check for updates" is delta-based | See the Assets on the [latest Release](https://github.com/BeckY824/daedalus-crm/releases/latest) |
 | 👥 **Team edition** | **A team.** Several people on one shared database | Self-host: `docker compose up -d` (see [docs/部署.md](docs/部署.md))<br/>or use the instance we host — [tell us](https://ai-daedalus.com/demo.html) | Image `ghcr.io/becky824/daedalus-crm:<version>` |
 
-**Same codebase and same version number, but they can ship on different days**: when the desktop app is on 0.42.0 the instance we host may still be on 0.41.0 — [app.ai-daedalus.com/api/health](https://app.ai-daedalus.com/api/health) is the source of truth.
+**Same codebase and same version number, but they can ship on different days**: after a desktop release the instance we host may still be on the previous version — [app.ai-daedalus.com/api/health](https://app.ai-daedalus.com/api/health) is the source of truth.
 
 <br/>
 
@@ -137,7 +137,9 @@ An "Import" button on the customer list, two ways in: **drop an Excel / CSV file
 
 - **Files are never uploaded**: parsed in your browser, written straight to your own database. The paste path sends the text only to the model you configured
 - **Identity is the phone number**: same number, same person. Rows already in the database can only be "skipped" or "fill blanks only" — **there is no overwrite**; a spreadsheet must never wipe what a person typed
+- **Columns it can't match, it reads again**: for the columns the synonym table misses, the **header plus the first three rows of values** (and nothing else) go to the model for a second pass. What comes back is only the pre-selection in those dropdowns — **you still confirm it in the review step** — and when it isn't sure it leaves the column unmapped rather than forcing a guess. It costs none of your free AI credits, and Settings → AI → auto-detect turns it off, falling back to the synonym table
 - **One unreadable cell doesn't block the row**: it's left blank and flagged, the rest goes in. Columns we don't have (WeChat ID, tier) are folded into the notes field rather than silently dropped
+- **Job title / grade takes whatever your sheet says**: the dropdown is only a **suggestion** — a value that isn't on it goes in **verbatim**, flagged "imported as-is" in the review step. The same field in the new-customer form and on the record page is **pick-or-type**. Follow-up status and decision status are deliberately not opened up: the watchlist, the suggestion cards and the report groupings all key off those categories, so a word only its author understands would drop that record out of the numbers
 - **AI only slices, never infers**: every cell must be verbatim from the source. Invented cells are cleared and listed; phone numbers present in the text but missing from the table are listed too
 - **Every batch can be undone**, even later, from Settings → Imports
 
