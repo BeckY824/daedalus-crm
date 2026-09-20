@@ -35,9 +35,11 @@ declare global {
       /**
        * 换了云端账号：让壳把数据目录切到新账号那份、重起本地服务、重载窗口。
        * 数据一个账号一份（desktop/accounts.js），而 DATABASE_URL 是启动时读死的。
-       * 只有登录页会调（见 login/LoginForm.tsx）。
+       * 只有登录页会调（见 login/LoginForm.tsx），而且**必须看回话**：
+       * 换不成就得把人挡住，不能让他落进上一个账号的库（2026-09-20 的 bug）。
+       * 壳那边不等页面这一声也会自己换（desktop/main.js 的 看凭据换没换），这一声只是提速。
        */
-      switchAccount(): Promise<void>;
+      switchAccount(): Promise<{ ok: boolean; error?: string }>;
     };
   }
 }

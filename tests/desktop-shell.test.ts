@@ -203,3 +203,48 @@ describe("跑完了叫人一声", () => {
     expect(段).toContain("win.focus()");
   });
 });
+
+/**
+ * 换账号要换数据目录，而这件事**不许挂在页面的配合上**。
+ *
+ * 2026-09-20 用户报的那个 bug：换了账号登录，看到的还是上一个账号的客户。
+ * 当时换目录只有一条路——登录页调 `desktopShell.switchAccount()`。桥不在就没人接，
+ * 而且那一声是 `void` 出去的，失败了页面也不知道。现在壳自己盯着令牌文件，
+ * 页面那一声只是提速；服务端另有一道「对不上就不给进」的闸（desktop-session.test.ts）。
+ */
+describe("换账号：壳自己发现，不等页面", () => {
+  it("盯着数据目录里的 .cloud.json，一变就自己去换", () => {
+    expect(main).toContain("function 盯住凭据(");
+    expect(main).toMatch(/fs\.watch\(dir/);
+    // 只认令牌文件那几下：同一个目录里 crm.db 一直在写
+    expect(main).toContain('startsWith(".cloud.json")');
+  });
+
+  it("监视跟着「唯一入口」走：目录一换，盯的就是新目录", () => {
+    const 入口 = main.slice(main.indexOf("function 换数据目录("), main.indexOf("function 盯住凭据("));
+    expect(入口).toContain("盯住凭据(dir)");
+  });
+
+  it("归属和令牌对不上才换，且没登录时目录一个字节都不动", () => {
+    const 看 = main.slice(main.indexOf("async function 看凭据换没换()"), main.indexOf("/** 随包发布的本地服务"));
+    expect(看).toContain("账号.归谁(数据目录)");
+    expect(看).toContain("c?.accountId");
+  });
+
+  it("令牌跟着人走：换目录时把 .cloud.json 一起搬过去，两条路都搬", () => {
+    // 不搬的话：新目录里没有令牌，人登录完又落回登录页；而旧目录里躺着的是别人的令牌
+    const 启动 = main.slice(main.indexOf("if (r.accountId) {"), main.indexOf("// 没登录也照起"));
+    expect(启动).toContain("搬令牌(数据目录, 目标.目录)");
+    const 切 = main.slice(main.indexOf("async function 切一次()"));
+    expect(切).toContain("搬令牌(数据目录, 目标.目录)");
+    expect(main).toContain("function 搬令牌(");
+  });
+
+  it("页面那一声和壳自己发现的，进的是同一个 切账号()，同一时刻只切一次", () => {
+    expect(main).toContain('ipcMain.handle("shell:switch-account", () => 切账号())');
+    expect(main).toContain("let 切换中 = null");
+    // 页面那一声不能再是 void 出去就不管了——换不成得把人挡住
+    const form = fs.readFileSync(path.resolve(__dirname, "../src/app/login/LoginForm.tsx"), "utf8");
+    expect(form).not.toContain("void window.desktopShell.switchAccount()");
+  });
+});

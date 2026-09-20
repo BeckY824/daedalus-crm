@@ -179,3 +179,106 @@ describe("回到上一页：next 只认站内的应用路径", () => {
     }
   });
 });
+
+/**
+ * 换了账号登录，但数据目录还是上一个账号那份。
+ *
+ * 2026-09-20 用户报的：在桌面端换了一个云端账号登录，进去看到的还是上一个账号的
+ * 客户、跟进和 AI 对话。目录**分是分开的**（desktop/accounts.js 钉在 desktop-accounts.test.ts），
+ * 坏的是那道接缝——换目录这件事当时全指望登录页喊一声 `shell:switch-account`：
+ *
+ *   桥不在（浏览器里打开的、桥没挂上）→ 那一声没人接
+ *   → 登录页退回硬跳转 /dashboard
+ *   → proxy.ts 见没有会话把人弹回 /login
+ *   → /login 见 .cloud.json 还在（新账号的令牌已经写进**旧目录**了）就自动登录
+ *   → 会话签给旧库里那个管理员 → 乙进了甲的库，一声不响
+ *
+ * 所以这里钉的是**失败即关**：归属和令牌对不上时，哪条路都不给进。
+ * 让它真的换过去是壳那边的事（desktop/main.js 的 盯住凭据 / 看凭据换没换，
+ * 钉在 desktop-shell.test.ts）。
+ */
+describe("换了账号但目录还没换：哪儿都不给进", () => {
+  const 目录 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-switch-"));
+  const 令牌文件 = path.join(目录, ".cloud.json");
+  const 归属文件 = path.join(目录, ".owner");
+  afterAll(() => fs.rmSync(目录, { recursive: true, force: true }));
+
+  /** 写一份令牌。accountId 是「手上这枚令牌属于谁」 */
+  const 写令牌 = (accountId?: string) =>
+    fs.writeFileSync(令牌文件, JSON.stringify({ baseUrl: "http://127.0.0.1:9", token: "dk_x", accountId, name: "", contact: "b@b.c", models: [] }));
+
+  beforeEach(() => {
+    process.env.DESKTOP_LOCAL = "1";
+    process.env.DESKTOP_TOKEN = "desktop-token-for-tests";
+    process.env.CRM_DATA_DIR = 目录;
+    fs.rmSync(令牌文件, { force: true });
+    fs.rmSync(归属文件, { force: true });
+  });
+  afterEach(() => delete process.env.CRM_DATA_DIR);
+
+  it("归属是甲、令牌是乙 → 对不上", async () => {
+    fs.writeFileSync(归属文件, "acc_甲");
+    写令牌("acc_乙");
+    const { 归属对不上 } = await import("@/lib/desktop/cloud");
+    expect(归属对不上()).toBe(true);
+  });
+
+  it("同一个人 → 对得上，不能把正常使用也拦了", async () => {
+    fs.writeFileSync(归属文件, "acc_甲");
+    写令牌("acc_甲");
+    const { 归属对不上 } = await import("@/lib/desktop/cloud");
+    expect(归属对不上()).toBe(false);
+  });
+
+  it("未认领的目录（没有归属标记）→ 谁登录就归谁，不算对不上", async () => {
+    写令牌("acc_乙");
+    const { 归属对不上 } = await import("@/lib/desktop/cloud");
+    expect(归属对不上()).toBe(false);
+  });
+
+  it("老版本写下的令牌（没有 accountId）→ 不算对不上，壳启动时会去云端补", async () => {
+    fs.writeFileSync(归属文件, "acc_甲");
+    写令牌(undefined);
+    const { 归属对不上 } = await import("@/lib/desktop/cloud");
+    expect(归属对不上()).toBe(false);
+  });
+
+  it("不是桌面端本地模式的部署一律不管这件事", async () => {
+    fs.writeFileSync(归属文件, "acc_甲");
+    写令牌("acc_乙");
+    delete process.env.DESKTOP_LOCAL;
+    const { 归属对不上 } = await import("@/lib/desktop/cloud");
+    expect(归属对不上()).toBe(false);
+  });
+
+  it("自动登录路由：对不上就不签会话，先清 cookie 再回门口说清原因", async () => {
+    fs.writeFileSync(归属文件, "acc_甲");
+    写令牌("acc_乙");
+    const { GET } = await import("@/app/api/desktop/session/route");
+    const res = await GET(new Request(`${URL_}?t=desktop-token-for-tests`));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("/api/auth/logout?reason=switched");
+  });
+
+  it("应用壳：对不上就把人挡在门口——这会儿进去看到的是上一个账号的库", () => {
+    const layout = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/layout.tsx"), "utf8");
+    expect(layout).toContain('if (归属对不上()) redirect("/api/auth/logout?reason=switched");');
+  });
+
+  it("登录页把这件事说成人话，并且说清「重开应用就好、数据不丢」", async () => {
+    const page = fs.readFileSync(path.resolve(__dirname, "../src/app/login/page.tsx"), "utf8");
+    const 文案 = page.slice(page.indexOf("switched:"), page.indexOf("changed:"));
+    expect(文案).toContain("退出应用再打开一次");
+    expect(文案).toContain("一份都不会丢");
+  });
+
+  it("登录页换账号那条路上不许有硬跳转——那正是 2026-09-20 那个 bug 的正身", () => {
+    const form = fs.readFileSync(path.resolve(__dirname, "../src/app/login/LoginForm.tsx"), "utf8");
+    const 那段 = form.slice(form.indexOf("if (res.换账号)"), form.indexOf("window.location.assign"));
+    expect(那段.length).toBeGreaterThan(0);
+    expect(那段).not.toContain("location.assign");
+    // 壳的回话要等：换不成得把人挡住，不能让他落进上一个账号的库
+    expect(那段).toContain("await 壳.switchAccount()");
+    expect(那段).toContain("报错(");
+  });
+});

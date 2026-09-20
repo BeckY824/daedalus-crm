@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
-import { 本地模式, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
+import { 本地模式, 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
@@ -33,6 +33,12 @@ export default async function AppLayout({
    * 一个失效的账号用上半天，只有 AI 在背后 401。
    */
   if (本地模式() && !读云端凭据()) redirect("/api/auth/logout?reason=revoked");
+  /**
+   * 换了账号登录，但数据目录还是上一个账号那份（壳还没换完、或者压根没接到那一声）。
+   * **这时进来看到的会是上一个账号的客户**——2026-09-20 报的就是这个。
+   * 宁可把人挡在门口：壳换完目录、本地服务重起之后，这里自然就放行了。
+   */
+  if (归属对不上()) redirect("/api/auth/logout?reason=switched");
 
   // 铃铛计数：我名下未完成的待办。中栏要的数据在 @pane 槽位里各自查
   const [pendingCount, business, ua, 有AI, models] = await Promise.all([

@@ -73,6 +73,85 @@ const 应用日志 = path.join(数据根, "logs", "app.log");
 function 换数据目录(dir) {
   数据目录 = dir;
   云端.初始化(dir);
+  盯住凭据(dir);
+}
+
+/**
+ * 盯住 .cloud.json：**换账号这件事由壳自己发现**，页面那一声只是提速。
+ *
+ * 登录成功时，是本地服务把新令牌写进**当前**这个目录的——而当前这个目录还是上一个人的。
+ * 2026-09-20 报的 bug 就在这里：换了账号登录，看到的还是上一个账号的客户。那时换目录
+ * 全指望登录页喊一声 shell:switch-account，桥不在时（浏览器里打开的、桥没挂上）
+ * 那一声没人接，页面落到 /dashboard，而 /login 见还有令牌又自动登录回来，
+ * 于是乙一路进了甲的库，一声不响。一个隔离机制不能挂在页面的配合上。
+ *
+ * 盯目录而不是盯那个文件：文件可能被删掉再写回来（退出再登录），盯着文件的监视器
+ * 会跟着失去目标。代价是同目录里 crm.db 每写一下都会叫一声，所以只认名字以
+ * .cloud.json 开头的那几下，再防抖 400ms。
+ */
+let 凭据监视 = null;
+let 凭据防抖 = null;
+function 盯住凭据(dir) {
+  try {
+    凭据监视?.close();
+  } catch {
+    /* 已经关了 */
+  }
+  凭据监视 = null;
+  try {
+    凭据监视 = fs.watch(dir, (_事件, 名字) => {
+      if (名字 && !String(名字).startsWith(".cloud.json")) return;
+      clearTimeout(凭据防抖);
+      凭据防抖 = setTimeout(() => {
+        // 这一路上每一步都自己收着错，这个 catch 只是不让它变成未处理的拒绝
+        看凭据换没换().catch(() => {});
+      }, 400);
+    });
+  } catch {
+    /* 盯不住不致命：启动时那次认领和页面那一声都还在 */
+  }
+}
+
+/**
+ * 把 .cloud.json 从一个目录搬到另一个目录。
+ *
+ * 换账号那一刻，新令牌是**上一个人的目录里**那个服务写下的。不搬走的话：新目录里
+ * 没有令牌，人重起之后又落回登录页；而旧目录里躺着的是别人的令牌——
+ * 等于把令牌留在别人家。所以是搬，不是复制。
+ *
+ * 搬不动不致命（只是要再登一次），但要留个案：这一步失败时的表现是「登录了又回登录页」，
+ * 日志里没有记录就只能瞎猜。
+ */
+function 搬令牌(从, 到) {
+  if (从 === 到) return;
+  try {
+    const 旧文件 = path.join(从, ".cloud.json");
+    if (!fs.existsSync(旧文件)) return;
+    fs.mkdirSync(到, { recursive: true });
+    const 新文件 = path.join(到, ".cloud.json");
+    fs.copyFileSync(旧文件, 新文件);
+    fs.chmodSync(新文件, 0o600);
+    fs.rmSync(旧文件, { force: true });
+  } catch (e) {
+    崩溃.写崩溃日志(应用日志, "搬令牌失败", e);
+  }
+}
+
+/** 手上这枚令牌还是这个目录的主人吗。不是就把目录换过去——换账号登录走的就是这条 */
+async function 看凭据换没换() {
+  // 服务还没起来（启动中）时不插手：那时换目录是 whenReady 里那次认领的事，它不用重起
+  if (读配置().mode !== "local" || !本地) return;
+  const c = 云端.读();
+  // 没登录、或者刚退出登录：目录一个字节都不动（见 accounts.js 的 退出()）
+  if (!c?.accountId) return;
+  // 未认领的那份（第一次装、升级上来的）没有归属标记，谁登录就归谁，不算换人
+  const 归谁 = 账号.归谁(数据目录);
+  if (!归谁 || 归谁 === c.accountId) return;
+  try {
+    await 切账号();
+  } catch (e) {
+    崩溃.写崩溃日志(应用日志, "换账号失败（壳自己发现的）", e);
+  }
 }
 
 /*
@@ -689,11 +768,26 @@ ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
  * 刚写下的 .cloud.json。preload 那座桥的规矩就是页面传不进参数，
  * 页面被换掉也做不了别的（见 preload-app.js 开头）。
  *
+ * **而且这一声只是提速，不是机制**：页面喊不出来（桥不在）时壳自己也会发现，
+ * 见上面的 盯住凭据()。两条路进同一个 切账号()，同一时刻只切一次。
+ *
  * 非重起不可：`DATABASE_URL` 和 `CRM_DATA_DIR` 都是子进程启动时烤进去的，
  * 不重起就还连着上一个人的库。登录那头已经先一步收住了，换账号时
  * 一个字都没往上一个人的库里写（见 login/actions.ts 的 桌面端登录）。
  */
-ipcMain.handle("shell:switch-account", async () => {
+ipcMain.handle("shell:switch-account", () => 切账号());
+
+let 切换中 = null;
+function 切账号() {
+  if (!切换中) {
+    切换中 = 切一次().finally(() => {
+      切换中 = null;
+    });
+  }
+  return 切换中;
+}
+
+async function 切一次() {
   const c = 云端.读();
   if (!c?.accountId) return { ok: false, error: "还没登录" };
   let 目标;
@@ -704,21 +798,7 @@ ipcMain.handle("shell:switch-account", async () => {
     return { ok: false, error: "换不了数据目录" };
   }
   if (目标.换了目录) {
-    /*
-      .cloud.json 刚被上一个目录里的服务写下了，而那份令牌属于新账号——
-      把它搬到新目录去，不然重起之后新目录里没有令牌，人又落回登录页。
-      搬完把旧目录里那份清掉：它记的是新账号的令牌，留在上一个人的目录里
-      等于把令牌留在别人家。
-    */
-    try {
-      const 旧文件 = path.join(数据目录, ".cloud.json");
-      fs.mkdirSync(目标.目录, { recursive: true });
-      fs.copyFileSync(旧文件, path.join(目标.目录, ".cloud.json"));
-      fs.chmodSync(path.join(目标.目录, ".cloud.json"), 0o600);
-      fs.rmSync(旧文件, { force: true });
-    } catch (e) {
-      崩溃.写崩溃日志(应用日志, "搬令牌失败", e);
-    }
+    搬令牌(数据目录, 目标.目录);
     换数据目录(目标.目录);
     await 本地服务.stop();
     try {
@@ -730,7 +810,7 @@ ipcMain.handle("shell:switch-account", async () => {
   }
   win?.loadURL(本地入口());
   return { ok: true };
-});
+}
 ipcMain.handle("shell:open-logs", () => shell.showItemInFolder(日志文件));
 ipcMain.handle("shell:diagnostics", () => 诊断文本());
 ipcMain.handle("shell:use-server", (_e, url) => {
@@ -869,7 +949,14 @@ if (!app.requestSingleInstanceLock()) {
         */
         if (r.accountId) {
           try {
-            换数据目录(账号.认领(数据根, r.accountId).目录);
+            const 目标 = 账号.认领(数据根, r.accountId);
+            /*
+              上一回运行时在别人的目录上换过账号（页面那一声没人接、壳是老版本），
+              令牌就还躺在上一个人的目录里。这一步把它带到它自己的目录去——
+              不搬的话新主人打开应用还要再登一次，而别人的目录里留着他的令牌。
+            */
+            if (目标.换了目录) 搬令牌(数据目录, 目标.目录);
+            换数据目录(目标.目录);
           } catch (e) {
             console.error("[accounts] 认领失败，先按当前目录跑：", e?.message ?? e);
           }

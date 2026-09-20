@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { 读 as 读云端凭据 } from "@/lib/desktop/cloud";
+import { 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +49,15 @@ export async function GET(req: Request) {
   // 长度不同时 timingSafeEqual 会抛错，先比长度再比内容
   if (a.length !== b.length || !timingSafeEqual(a, b)) {
     return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  /**
+   * 换了账号，但这个目录还是上一个账号那份（壳还没换完，或者没人告诉它）。
+   * **绝不能在这儿签会话**：签出来的是上一个账号那个管理员，人一进去就是别人的客户。
+   * 经 logout 走是为了把还活着的业务 cookie 一起清掉（理由同下面那段）。
+   */
+  if (归属对不上()) {
+    return new NextResponse(null, { status: 307, headers: { Location: "/api/auth/logout?reason=switched" } });
   }
 
   if (!读云端凭据()) {
