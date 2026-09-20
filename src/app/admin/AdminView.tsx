@@ -3,6 +3,13 @@
 import { useState } from "react";
 import { App, Alert, Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, Tooltip } from "antd";
 import { activate, extendTrial, grantAi, openWorkspace, suspend, 标记反馈 } from "./actions";
+import type { 成本概览 } from "@/lib/tenant/ai-cost";
+
+const 千分位 = (n: number) => n.toLocaleString("zh-CN");
+/** 短的原样给，长的（cuid）只留尾巴——截成半截的名字比不显示更难认 */
+const 短id = (id: string) => (id.length <= 12 ? id : `…${id.slice(-8)}`);
+/** 近 N 天一共多少钱。没配单价时不会被调到 */
+const 钱 = (c: 成本概览) => ((c.合计.入 * (c.单价?.入 ?? 0)) + (c.合计.出 * (c.单价?.出 ?? 0))) / 1e6;
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
 import { dayjs } from "@/lib/utils";
 
@@ -40,7 +47,7 @@ type 反馈条 = {
  * 不做成完整后台——工作区数量还在两位数的阶段，一张表加几个按钮就够，
  * 多做的每一块都要跟着业务改。
  */
-export default function AdminView({ token, rows, 环境, 反馈 }: { token: string; rows: Row[]; 环境: "生产" | "本地"; 反馈: 反馈条[] }) {
+export default function AdminView({ token, rows, 环境, 反馈, 成本 }: { token: string; rows: Row[]; 环境: "生产" | "本地"; 反馈: 反馈条[]; 成本: 成本概览 }) {
   const { message } = App.useApp();
   const [plan, setPlan] = useState<PlanKey>("year");
   const [busy, setBusy] = useState<string | null>(null);
@@ -219,6 +226,81 @@ export default function AdminView({ token, rows, 环境, 反馈 }: { token: stri
           },
         ]}
       />
+
+      {/*
+        模型成本。**「¥29 / 300 次」现在是照公开价估的**，这一块就是为了把它换成算出来的。
+        数据只能随时间攒、补不回来，所以它先于任何「看起来更要紧」的东西。
+
+        钱只在配了单价时才显示：我们走中转站，公开价不是实付价，
+        先拍一个估值再拿它算，等于把猜测洗成「数据」。没配就只给 token。
+      */}
+      <div className="ops-cost">
+        <h2>
+          模型成本
+          <span>
+            近 {成本.天数} 天 · {成本.合计.次数} 次 · 入 {千分位(成本.合计.入)} / 出 {千分位(成本.合计.出)} token
+            {成本.合计.次数 > 0 && ` · 平均一次 ${Math.round((成本.合计.入 + 成本.合计.出) / 成本.合计.次数)} token`}
+          </span>
+        </h2>
+
+        {成本.合计.次数 === 0 ? (
+          <p className="ops-fb-empty">还没有记录。这张表从 0.44.0 起才开始写——在那之前的调用补不回来。</p>
+        ) : (
+          <>
+            <p className="ops-cost-money">
+              {成本.单价
+                ? `按 入 ¥${成本.单价.入} / 出 ¥${成本.单价.出} 每百万 token 算：近 ${成本.天数} 天 ¥${钱(成本).toFixed(2)}，` +
+                  `平均一次 ¥${(钱(成本) / Math.max(1, 成本.合计.次数)).toFixed(4)}`
+                : "没配单价，只显示 token。等账单对上了把真实数字填进 LLM_PRICE_IN / LLM_PRICE_OUT，历史能整个重算。"}
+            </p>
+
+            <div className="ops-cost-grid">
+              <div>
+                <h3>按天</h3>
+                <table>
+                  <tbody>
+                    {成本.按天.map((d) => (
+                      <tr key={d.日}>
+                        <td>{d.日.slice(5)}</td>
+                        <td>{d.次数} 次</td>
+                        <td>{千分位(d.入 + d.出)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h3>按模型</h3>
+                <table>
+                  <tbody>
+                    {成本.按模型.map((m) => (
+                      <tr key={m.model}>
+                        <td>{m.model}</td>
+                        <td>{m.次数} 次</td>
+                        <td>{千分位(m.入 + m.出)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <h3>烧得最多的前 10</h3>
+                <table>
+                  <tbody>
+                    {成本.按归属.map((o) => (
+                      <tr key={`${o.kind}:${o.id}`}>
+                        <td>{o.kind === "account" ? "桌面端" : "工作区"} {短id(o.id)}</td>
+                        <td>{o.次数} 次</td>
+                        <td>{千分位(o.入 + o.出)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       {/*
         用户反馈。**和工作区摆在同一页**：没人看的收件箱等于没有这个功能，

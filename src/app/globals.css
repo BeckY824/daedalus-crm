@@ -1233,6 +1233,19 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .ops-stat-warn { background: var(--warning-bg); border-color: var(--warning-line); }
 .ops-stat-warn b, .ops-stat-warn .ops-stat-n { color: var(--warning-text); }
 /* 运营台里的反馈列表。一条一块，原话占主要位置，附带信息压成一行小字 */
+/* 运营台的模型成本块。样式沿用反馈那一块的骨架，不另起一套 */
+.ops-cost { margin-top: var(--s5); }
+.ops-cost h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font-size: var(--fs-section); font-weight: 600; color: var(--ink); }
+.ops-cost h2 span { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }
+.ops-cost-money { margin: 0 0 12px; font-size: var(--fs-note); color: var(--text-muted); }
+.ops-cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s4); }
+.ops-cost-grid > div { padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); }
+.ops-cost-grid h3 { margin: 0 0 8px; font-size: var(--fs-note); font-weight: 600; color: var(--ink); }
+.ops-cost-grid table { width: 100%; border-collapse: collapse; font-size: var(--fs-min); color: var(--ink-soft); }
+.ops-cost-grid td { padding: 3px 0; }
+.ops-cost-grid td:nth-child(2) { text-align: right; color: var(--text-muted); white-space: nowrap; }
+.ops-cost-grid td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
 .ops-fb { margin-top: var(--s5); }
 .ops-fb h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font-size: var(--fs-section); font-weight: 600; color: var(--ink); }
 .ops-fb h2 span { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }

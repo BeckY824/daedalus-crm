@@ -3,6 +3,7 @@ import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 收拾请求体 } from "@/lib/gateway";
 import { 扣一次 } from "@/lib/tenant/credits";
 import { consumeAiQuota } from "@/lib/ai-quota";
+import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -76,7 +77,13 @@ export async function POST(req: Request) {
     return 网关错误(upstream.status, `上游模型接口返回 ${upstream.status}：${text}`, 剩余头);
   }
 
-  // 流式：直接把上游的流接出去，不缓冲——缓冲了就没有"逐字出现"这回事了
+  /*
+    流式：直接把上游的流接出去，不缓冲——缓冲了就没有"逐字出现"这回事了。
+    **代价是这一条记不到 token**：usage 在事件流的最后一块里，而我们没有拆流。
+    要记的话得给上游加 `stream_options: {include_usage: true}` 再把流接一道，
+    中转站支不支持要先试。眼下只有「最终回答」那一次是流式的，agent 循环里
+    每一步（chatTools / chatMessagesJSON）都是非流式的，下面那条记得到。
+  */
   if (整理.stream) {
     return new NextResponse(upstream.body, {
       status: 200,
@@ -90,6 +97,19 @@ export async function POST(req: Request) {
   }
 
   const data = await upstream.text();
+
+  /*
+    成本账。桌面端的请求只有经过这里才看得见 token——它那边的 llm.ts 跑在
+    用户自己机器上，连不到控制面库。**记不上不许影响这次回答**：
+    try/catch 全包在 记一次 里，这里连 await 都不 await。
+  */
+  try {
+    const u = 读用量(JSON.parse(data));
+    if (u) await 记一次({ kind: "account", id: accountId }, { model: String(整理.body.model ?? ""), usage: u });
+  } catch {
+    // 上游回的不是 JSON —— 那是上面 upstream.ok 该管的事，这儿不掺和
+  }
+
   return new NextResponse(data, {
     status: 200,
     headers: { "Content-Type": "application/json; charset=utf-8", ...剩余头 },

@@ -285,3 +285,36 @@ model Feedback {
 
   @@index([at])
 }
+
+/// 一次模型调用烧了多少 token。**按次留行，不是计数器。**
+///
+/// AiUsage / AccountAiUsage 那两张是单行计数器（一个 owner 一行、只有 calls），
+/// 能回答「一共几次」，回答不了「这三周每天烧多少、哪个功能烧得最凶」——
+/// 而定价要的是后者。所以另起一张，按次留行。
+///
+/// **为什么连 model 一起记**：token 换不成钱，得乘单价；而中转站会改价、我们也会换模型。
+/// 只记 token 不记模型的话，改价那天之前的数据全废——回头没法重算。
+///
+/// 两条路分别记，不会重复：
+///   桌面端  请求经我们的网关 → 网关记，owner 是**账号**
+///   托管版  本进程直接打上游 → llm.ts 记，owner 是**工作区**
+///   自部署  不记。那是人家自己的 key，花的不是我们的钱
+///
+/// 记不上不许影响请求：记录是 fire-and-forget，出错只打一行日志。
+/// 这张表少一条记录无所谓，为了它让用户的提问失败才是真的错。
+model AiCall {
+  id           String   @id @default(cuid())
+  /// account（桌面端）| workspace（托管版）
+  ownerKind    String
+  ownerId      String
+  /// 上游实际用的模型名。单价按它查
+  model        String
+  inputTokens  Int      @default(0)
+  outputTokens Int      @default(0)
+  /// 哪个功能烧的（ask / brief / parse…）。网关只看得见一个 OpenAI 请求，那条路是 null
+  feature      String?
+  at           DateTime @default(now())
+
+  @@index([at])
+  @@index([ownerKind, ownerId])
+}

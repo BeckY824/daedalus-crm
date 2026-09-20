@@ -17,6 +17,7 @@
 import { getSetting, setSetting, encryptSecret, decryptSecret, maskSecret } from "./settings";
 import { getBusiness } from "./business";
 import { 模型配置 as 桌面端云端配置 } from "./desktop/cloud";
+import { 记托管版一次 } from "./tenant/ai-cost";
 
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 export const DEFAULT_MODEL = "deepseek-chat";
@@ -336,6 +337,11 @@ type ChatOpts = {
   /** 这次调用改用哪个模型。必须是 resolveModel 校验过的名字 */
   model?: string;
   /**
+   * 这次调用是哪个功能发起的（ask / brief / parse…），只进成本账，不影响请求。
+   * 不填也能用——只是回头算「哪块烧得最凶」时这一行归不了类。
+   */
+  feature?: string;
+  /**
    * false = 关掉推理模型的思维链（DeepSeek 的 thinking 参数）。
    * agent 的每步决策只是选工具、填参数，让它"想"一分钟是浪费：真实测过同一段
    * 上下文开着思维链 24~73 秒、关掉 3 秒。最终回答仍开着，质量要紧。
@@ -466,6 +472,9 @@ async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: C
     console.warn(`[llm] 模型 ${model} 在 ${cfg.baseUrl} 上会输出思维链，后续 max_tokens 额外加 ${思考预算}`);
   }
 
+  // 成本账。fire-and-forget，不 await、不判断成败——记不上不该影响这次回答
+  await 记托管版一次(data, model, opts.feature);
+
   const choice = data.choices?.[0];
   const content = (choice?.message?.content ?? "").trim();
 
@@ -531,6 +540,7 @@ export async function chatTools(
   const data = (await res.json()) as {
     choices?: { message?: { content?: string | null; tool_calls?: 工具调用[] }; finish_reason?: string }[];
   };
+  await 记托管版一次(data, opts.model ?? cfg.model, opts.feature);
   const m = data.choices?.[0]?.message;
   return { toolCalls: m?.tool_calls ?? [], text: (m?.content ?? "").trim() };
 }

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { control } from "@/lib/tenant/control";
 import { multiTenant } from "@/lib/tenant/context";
+import { 成本概览 } from "@/lib/tenant/ai-cost";
 import { computeWritable, daysLeft } from "@/lib/tenant/workspaces";
 import AdminView from "./AdminView";
 
@@ -22,7 +23,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   // 没配 token 就当这个页面不存在，免得自部署的人暴露一个无保护的运营台
   if (!multiTenant() || !token || given !== token) notFound();
 
-  const [rows, 赠送, 用量, 反馈] = await Promise.all([
+  const [rows, 赠送, 用量, 反馈, 成本] = await Promise.all([
     control.workspace.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -33,6 +34,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     control.aiUsage.findMany(),
     /* 用户从界面里发来的话。没人看的收件箱等于没有这个功能，所以它和工作区摆在同一页 */
     control.feedback.findMany({ orderBy: { at: "desc" }, take: 100 }),
+    /* 模型成本：把「¥29 / 300 次」从估的换成算的，全靠这一份随时间攒的数据 */
+    成本概览(14),
   ]);
   const 送表 = new Map(赠送.map((g) => [g.workspaceId, g._sum.amount ?? 0]));
   const 用表 = new Map(用量.map((u) => [u.workspaceId, u.calls]));
@@ -66,6 +69,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       token={given}
       rows={list}
       环境={process.env.NODE_ENV === "production" ? "生产" : "本地"}
+      成本={成本}
       反馈={反馈.map((f) => ({
         id: f.id,
         at: f.at.toISOString(),
