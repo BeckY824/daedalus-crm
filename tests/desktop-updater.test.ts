@@ -146,3 +146,43 @@ describe("候选带不带差量要的 zip 和清单", () => {
     expect(结果?.manifest).toBe("https://s/a.m.gz");
   });
 });
+
+/**
+ * 「备用」是 2026-09-20 加的：feed 里的 dmg/zip/manifest 现在可能指向我们自己的香港镜像
+ * （国内下 GitHub 几百 KB/s），GitHub 原址挪进这个字段。镜像下不动时桌面端换它再试。
+ */
+describe("feed 里的备用地址", () => {
+  it("透传出去——镜像下不动时全靠它换回 GitHub 原址", async () => {
+    假网络(
+      {
+        version: "0.46.0",
+        dmg: "https://ai-daedalus.com/dl/a.dmg",
+        notes: "",
+        备用: { dmg: "https://github.com/x/y/a.dmg", zip: "https://github.com/x/y/a.zip", manifest: "https://github.com/x/y/a.m.gz" },
+      },
+      null,
+    );
+    const 结果 = await 检查({ 当前版本: "0.45.0" });
+    expect(结果?.dmg).toBe("https://ai-daedalus.com/dl/a.dmg");
+    expect(结果?.备用?.dmg).toBe("https://github.com/x/y/a.dmg");
+    expect(结果?.备用?.zip).toBe("https://github.com/x/y/a.zip");
+  });
+
+  it("非 http(s) 的值一律丢掉：这份 JSON 是从网上取的，不该直接交给 fetch", async () => {
+    假网络({ version: "0.46.0", notes: "", 备用: { dmg: "javascript:alert(1)", zip: "/dl/a.zip" } }, null);
+    const 结果 = await 检查({ 当前版本: "0.45.0" });
+    expect(结果?.备用).toBeNull();
+  });
+
+  it("没有备用字段（老 feed / 这一版没开镜像）就是 null，不是 undefined 也不是 {}", async () => {
+    假网络({ version: "0.46.0", dmg: "https://s/a.dmg", notes: "" }, null);
+    const 结果 = await 检查({ 当前版本: "0.45.0" });
+    expect(结果?.备用).toBeNull();
+  });
+
+  it("GitHub 那一支给的本来就是原址，没有备用", async () => {
+    假网络(null, GitHub("v0.46.0"));
+    const 结果 = await 检查({ 当前版本: "0.45.0" });
+    expect(结果?.备用).toBeNull();
+  });
+});

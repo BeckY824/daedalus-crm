@@ -97,8 +97,11 @@ function 能原地更新(bundle, { platform = process.platform, 可写 = 目录�
  * （0.24.0 真机首验就是这么失败的）。所以 .part 出错**不删**，下次从它的长度发 Range 续传；
  * 一次调用里自己先重试几回（指数退避），都不行再抛给上层，.part 留给用户点「重试」时接着用。
  * 服务器不理 Range（回 200）就从头来；416 说明 .part 比文件还长，扔掉重来。
+ *
+ * 传了「备用」就是同一个包的另一个地址（feed 里的镜像 / GitHub 原址）：
+ * 第一个地址把重试用完还不行，扔掉 .part 换下一个从头下。
  */
-async function 下载文件({ url, 目标, sha256 = null, 进度 = () => {}, fetch: f = globalThis.fetch, 重试 = 4, 等待 = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
+async function 下载文件({ url, 备用 = null, 目标, sha256 = null, 进度 = () => {}, fetch: f = globalThis.fetch, 重试 = 4, 等待 = (ms) => new Promise((r) => setTimeout(r, ms)), 日志 = () => {} }) {
   // 上次下完没装（比如直接退出了）：文件还在、哈希对得上，就不再下一遍 160 MB
   if (sha256 && fs.existsSync(目标)) {
     try {
@@ -111,16 +114,28 @@ async function 下载文件({ url, 目标, sha256 = null, 进度 = () => {}, fet
   }
   await fsp.mkdir(path.dirname(目标), { recursive: true });
   const 临时 = `${目标}.part`;
+  // 同一个包的几个地址，按顺序试。第一个通常是我们自己的镜像（国内快），
+  // 备用是 GitHub 原址。镜像那边 404（比如某一版忘了同步）属于「不重试」，
+  // 正好立刻换到下一个地址——这种情况恰恰是备用最该顶上的时候。
+  const 地址们 = [url, ...(Array.isArray(备用) ? 备用 : 备用 ? [备用] : [])].filter(Boolean);
   let 最后错误 = null;
-  for (let 第 = 0; 第 <= 重试; 第++) {
-    if (第 > 0) await 等待(Math.min(1000 * 2 ** (第 - 1), 8000));
-    try {
-      await 下一段({ url, 临时, 进度, fetch: f });
-      await fsp.rename(临时, 目标);
-      return 目标;
-    } catch (e) {
-      最后错误 = e;
-      if (e?.不重试) break;
+  for (const [第几个, 这个地址] of 地址们.entries()) {
+    if (第几个 > 0) {
+      // **换源就从头下**：两个源理论上是同一个文件，但万一不是，续传拼出来的包
+      // 只会在最后校验 sha256 时才暴露，那时 100 多 MB 已经白下了。
+      await fsp.rm(临时, { force: true });
+      日志(`换个地址再试：${这个地址}`);
+    }
+    for (let 第 = 0; 第 <= 重试; 第++) {
+      if (第 > 0) await 等待(Math.min(1000 * 2 ** (第 - 1), 8000));
+      try {
+        await 下一段({ url: 这个地址, 临时, 进度, fetch: f });
+        await fsp.rename(临时, 目标);
+        return 目标;
+      } catch (e) {
+        最后错误 = e;
+        if (e?.不重试) break;
+      }
     }
   }
   throw 最后错误;

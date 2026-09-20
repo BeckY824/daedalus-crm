@@ -322,3 +322,64 @@ describe("换包同步：退出时顺手换上", () => {
     expect(fs.existsSync(`${目标}.old`)).toBe(false);
   });
 });
+
+/**
+ * 2026-09-20：feed 里的 dmg 现在可能指向我们自己的香港镜像（国内下 GitHub 慢），
+ * GitHub 原址作为「备用」一起传进来。这几条钉的是换地址的时机和方式。
+ */
+describe("下载文件：镜像不行就换备用地址", () => {
+  const 假应答 = (体: string, 声称长度?: number, status = 200) => ({
+    ok: status === 200,
+    status,
+    headers: { get: (k: string) => (k === "content-length" && 声称长度 !== undefined ? String(声称长度) : null) },
+    body: (async function* () {
+      for (const c of 体.match(/.{1,3}/g) ?? []) yield Buffer.from(c);
+    })(),
+  });
+
+  it("镜像 404（某一版忘了同步）：立刻换备用，而且镜像只试一次——4xx 重试没有意义", async () => {
+    const 目标 = path.join(沙盒, "m.dmg");
+    const 次数 = { 镜像: 0, 备用: 0 };
+    const f = async (u: string) => {
+      if (u === "镜像") return (次数.镜像++, 假应答("", undefined, 404));
+      return (次数.备用++, 假应答("0123456789", 10));
+    };
+    await 安装.下载文件({ url: "镜像", 备用: "备用", 目标, fetch: f, 重试: 3, 等待: async () => {} });
+    expect(fs.readFileSync(目标, "utf8")).toBe("0123456789");
+    expect(次数).toEqual({ 镜像: 1, 备用: 1 });
+  });
+
+  it("换地址时从头下：不拿镜像下了一半的 .part 去续传另一个源", async () => {
+    const 目标 = path.join(沙盒, "n.dmg");
+    const 备用收到的Range: (string | null)[] = [];
+    const f = async (u: string, init: { headers: Record<string, string> }) => {
+      if (u === "镜像") return 假应答("0123", 10); // 声称 10 字节只给 4，算下载不完整
+      备用收到的Range.push(init.headers.Range ?? null);
+      return 假应答("0123456789", 10);
+    };
+    await 安装.下载文件({ url: "镜像", 备用: "备用", 目标, fetch: f, 重试: 1, 等待: async () => {} });
+    // 带 Range 就说明它在拿另一个源的字节接着镜像的半截拼——拼出来的包只有最后校验
+    // sha256 时才会暴露，那时 100 多 MB 已经白下了
+    expect(备用收到的Range).toEqual([null]);
+    expect(fs.readFileSync(目标, "utf8")).toBe("0123456789");
+  });
+
+  it("两个地址都不行才抛错，两个都试过", async () => {
+    const 目标 = path.join(沙盒, "o.dmg");
+    const 试过: string[] = [];
+    const f = async (u: string) => (试过.push(u), 假应答("", undefined, 500));
+    await expect(
+      安装.下载文件({ url: "镜像", 备用: "备用", 目标, fetch: f, 重试: 1, 等待: async () => {} }),
+    ).rejects.toThrow(/500/);
+    expect(new Set(试过)).toEqual(new Set(["镜像", "备用"]));
+    expect(fs.existsSync(目标)).toBe(false);
+  });
+
+  it("没有备用（老 feed / 这一版没开镜像）：行为和以前一模一样", async () => {
+    const 目标 = path.join(沙盒, "p.dmg");
+    let 次 = 0;
+    const f = async () => (次++, 假应答("", undefined, 404));
+    await expect(安装.下载文件({ url: "只有这一个", 目标, fetch: f, 重试: 3, 等待: async () => {} })).rejects.toThrow(/404/);
+    expect(次).toBe(1);
+  });
+});

@@ -54,6 +54,21 @@ function 剥哈希前缀(v) {
   return v ? String(v).replace(/^sha256:/i, "").toLowerCase() : null;
 }
 
+/**
+ * feed 里的「备用」。只认 http(s) 的绝对地址：这份 JSON 是从网上取的，
+ * 里面的字符串不该被当成可以直接交给 fetch 的东西，随手校一下不亏。
+ * 一个能用的都没有就返回 null，调用方按「没有备用」处理。
+ */
+function 取备用(原始) {
+  if (!原始 || typeof 原始 !== "object") return null;
+  const 出 = {};
+  for (const 键 of ["dmg", "zip", "manifest"]) {
+    const v = 原始[键];
+    if (typeof v === "string" && /^https?:\/\//i.test(v)) 出[键] = v;
+  }
+  return Object.keys(出).length ? 出 : null;
+}
+
 async function 取JSON(url) {
   try {
     const res = await fetch(url, {
@@ -88,6 +103,9 @@ async function 查最新() {
       // 差量要的两样：ditto 打的 zip 和它的清单。老的 feed 没有，那就只能整包
       zip: 自家.zip || null,
       manifest: 自家.manifest || null,
+      // 上面三个地址可能指向我们自己的镜像（国内下 GitHub 慢，见官网仓库 deploy/mirror.sh）。
+      // 镜像下不动时换这里的原址再试一次——同一个包，sha256 照样对得上。
+      备用: 取备用(自家.备用),
     });
   }
   if (gh?.tag_name) {
@@ -101,6 +119,8 @@ async function 查最新() {
       sha256: 剥哈希前缀(资产?.digest),
       zip: 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
       manifest: 挑资产(gh.assets, /\.manifest\.json\.gz$/)?.browser_download_url || null,
+      // GitHub 这一支给的就是原址，没有再备一份的必要
+      备用: null,
     });
   }
   if (!候选.length) return null;
@@ -112,7 +132,7 @@ async function 查最新() {
 /**
  * 检查更新。
  * @param {{当前版本: string, 跳过的版本?: string}} 选项
- * @returns {Promise<null | {版本, 地址, 说明, 当前, dmg, sha256, zip, manifest}>}
+ * @returns {Promise<null | {版本, 地址, 说明, 当前, dmg, sha256, zip, manifest, 备用}>}
  *   null 表示不用提示（已是最新 / 查不到 / 用户跳过了这版）。dmg 为 null 时只能打开下载页；
  *   zip 和 manifest 都有才能差量，缺一个就整包
  */
