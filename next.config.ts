@@ -16,9 +16,28 @@ const 安全头 = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
 ];
 
+/**
+ * 静态资源（`/_next/static/*`）换一个域名发。**默认关着**，只有设了 ASSET_PREFIX 才开。
+ *
+ * 为什么要有它：我们托管的那份跑在香港，而用户在国内。一个登录页压缩后 758 KB，
+ * 其中 **729 KB 是那 34 个 JS/CSS**——跨境线路实测 200-700 KB/s 且剧烈抖动，
+ * 这些字节就是「点开很慢」的全部来源。把它们指到国内节点（那儿做了缓存反代），
+ * 第一个人回源一次，后面所有人都走国内。
+ *
+ * **必须是环境变量，不能写死**：同一个镜像还要给自部署的人和桌面端用。
+ * 写死的话，自部署的人打开自己的 CRM 会去我们的服务器上取 JS（他们凭什么信任我们），
+ * 而桌面端断网就直接白屏——它整个服务是跑在用户自己机器上的。
+ *
+ * 这些文件名自带内容 hash、响应头是 `max-age=31536000, immutable`（Next 自己设的），
+ * 所以换版本不用清缓存，旧文件也不会被新文件顶掉。
+ */
+const 静态资源前缀 = process.env.ASSET_PREFIX?.trim() || undefined;
+
 const nextConfig: NextConfig = {
   // 容器部署：产出自带最小 node_modules 的独立 server.js
   output: "standalone",
+
+  assetPrefix: 静态资源前缀,
 
   // 不报框架名——对外少说一句是一句
   poweredByHeader: false,

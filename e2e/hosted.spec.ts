@@ -310,3 +310,12 @@ test("13 登录页把找回入口摆出来", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("link", { name: "忘记密码？" })).toHaveAttribute("href", "/forgot");
 });
+
+/**
+ * 2026-09-20：注册入口原来只画给桌面端看，网页登录页一个字都没有——于是网页上点进登录的人
+ * 会以为这个产品不收新用户。两端现在是同一个入口、同一句话。
+ */
+test("13b 登录页也给注册入口，两端同一句话", async ({ page }) => {
+  await page.goto("/login");
+  await expect(page.getByRole("link", { name: "注册新账号" })).toHaveAttribute("href", "/signup");
+});

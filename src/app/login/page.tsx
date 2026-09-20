@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import LoginForm from "./LoginForm";
 import { 能找回密码 } from "@/lib/tenant/password-reset";
 import { multiTenant } from "@/lib/tenant/context";
+import { 自助注册已关闭 } from "@/lib/tenant/signup-policy";
 import { 本地模式, 读 as 读云端凭据, 策略, 云端地址 } from "@/lib/desktop/cloud";
 
 /**
@@ -49,5 +50,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       自部署  —— 管理员在设置里建的成员，登录名是 admin、zhangsan 这样的用户名
     写死一个的话，另一半人会对着一个填不进去的框反复试。
   */
-  return <LoginForm 可找回密码={能找回密码()} 用邮箱={multiTenant()} />;
+  return (
+    <LoginForm
+      可找回密码={能找回密码()}
+      用邮箱={multiTenant()}
+      /* 注册入口两端一致（2026-09-20）。托管版才有自助注册这回事：
+         自部署的成员是管理员在设置里建的，那儿没有注册这条路。
+         关掉自助注册（SIGNUP_REDIRECT）时这个入口跟着消失，和桌面端问 policy 得到的答案同源。 */
+      可注册={multiTenant() && !自助注册已关闭()}
+      注册地址="/signup"
+    />
+  );
 }

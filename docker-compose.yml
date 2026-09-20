@@ -23,6 +23,10 @@ services:
       # 判断类模型（可选）。导入猜列用，不占 AI 次数；不填就走内置的表头对照规则
       JEV_API_KEY: "${JEV_API_KEY:-}"
       JEV_BASE_URL: "${JEV_BASE_URL:-}"
+      # 静态资源（/_next/static/*）换个域名发，形如 https://cn.example.com:8443。
+      # 默认空 = 不开，页面照旧从本站取。只有「服务器在境外、用户在国内」这类情况才用得上：
+      # 那个域名要能把请求回源到这个应用并缓存下来。做法见 docs/托管版.md
+      ASSET_PREFIX: "${ASSET_PREFIX:-}"
     volumes:
       - crm-data:/data
     # 日志封顶：默认 json-file 不限大小，跑久了会把盘吃满。三份 10 MB 滚动

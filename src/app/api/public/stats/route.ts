@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { 来源允许 } from "@/lib/lead";
 import { control } from "@/lib/tenant/control";
 import { multiTenant } from "@/lib/tenant/context";
+import { 镜像计数里的, 合并下载数 } from "@/lib/download-count";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,6 +26,7 @@ export const runtime = "nodejs";
  *   用户数  控制面库里的真人账号数（control.account）。**官网目前不显示它**，
  *           显示与否是首页那边一行数组的事，见 index.html 里的 `要显示的`。
  *   下载数  **只算当前版本那一个 dmg 的下载次数**，不做「历史总下载」。
+ *           2026-09-20 起是**两边相加**：GitHub 的 download_count + 国内节点自己数的那份。
  *           打包 workflow 用 `--clobber`（删掉重传，计数归零）而且能 workflow_dispatch
  *           手动重跑，历史总量得不出一个站得住的数——那种数只能靠攒，攒的就是假的。
  *
@@ -134,6 +136,16 @@ const 仓库 = "https://api.github.com/repos/BeckY824/daedalus-crm";
 const 滚动 = "desktop-updates";
 /** 「当前版本」以官网正在发的那个 feed 为准——下载按钮下的就是它，说的才是同一件事 */
 const 默认feed = "https://ai-daedalus.com/desktop/latest.json";
+/**
+ * 国内节点自己数出来的下载次数。
+ *
+ * 2026-09-20 起官网的下载按钮指向杭州那台（跨境线路实测 200–700 KB/s 且剧烈抖动，
+ * GitHub、香港、公共代理都一样，瓶颈在线路不在源头）。于是绝大多数人下载时
+ * **GitHub 那个 download_count 根本不动**——只有点了「从 GitHub 下载」备用链接的人才算。
+ * 那台机器从自己的 nginx 日志里数一份（只数「200 且发出字节数够整包」的 .dmg，
+ * 断点续传和差量更新的 206 不算），写成这个 JSON。实现见官网仓库 deploy/dl-count.py。
+ */
+const 默认镜像计数 = "https://cn.ai-daedalus.com:8443/dl/counts.json";
 
 type 资产 = { name?: string; download_count?: number };
 
@@ -161,9 +173,20 @@ async function 当前版本(): Promise<string> {
   return v;
 }
 
+/** 国内节点上这一版被完整下载了多少次。口径和「没有这个键算 0」的理由见 lib/download-count.ts */
+async function 取镜像下载(版本: string): Promise<number | undefined> {
+  const r = await fetch(process.env.MIRROR_COUNTS_URL?.trim() || 默认镜像计数, {
+    signal: AbortSignal.timeout(8000),
+    cache: "no-store",
+  });
+  if (!r.ok) throw new Error(`镜像计数回了 ${r.status}`);
+  return 镜像计数里的(版本, await r.json());
+}
+
 async function 取下载(): Promise<{ 版本: string; 次数: number } | undefined> {
   const 版本 = await 当前版本();
   // 和 latest-json.py 的 找资产() 一样：先看这一版自己的 Release，没有再去滚动 Release 里按文件名认
+  let GitHub次数: number | undefined;
   for (const 路径 of [`releases/tags/v${版本}`, `releases/tags/${滚动}`]) {
     let rel: { assets?: 资产[] };
     try {
@@ -173,9 +196,16 @@ async function 取下载(): Promise<{ 版本: string; 次数: number } | undefin
     }
     const dmg = (rel.assets ?? []).filter((a) => a.name?.includes(`-${版本}-`) && a.name?.endsWith(".dmg"));
     const 挑 = dmg.find((a) => a.name?.includes("arm64")) ?? dmg[0];
-    if (挑 && typeof 挑.download_count === "number") return { 版本, 次数: 挑.download_count };
+    if (挑 && typeof 挑.download_count === "number") {
+      GitHub次数 = 挑.download_count;
+      break;
+    }
   }
-  return undefined;
+  if (GitHub次数 === undefined) return undefined;
+
+  // 两边相加才是「这一版被下了多少次」。任一边取不到就整个不给这个数，理由见 lib/download-count.ts
+  const 次数 = 合并下载数(GitHub次数, await 取镜像下载(版本));
+  return 次数 === undefined ? undefined : { 版本, 次数 };
 }
 
 /* ── 用户数 ───────────────────────────────────────────────── */
@@ -253,4 +283,5 @@ export async function GET(req: Request) {
  *   UMAMI_SINCE        访问量起算日，默认 2026-09-15（统计脚本上线那天）
  *   DESKTOP_FEED_URL   默认 https://ai-daedalus.com/desktop/latest.json
  *   GITHUB_TOKEN       可选，只为抬高 GitHub 的匿名限额
+ *   MIRROR_COUNTS_URL  默认 https://cn.ai-daedalus.com:8443/dl/counts.json（国内节点的下载计数）
  */

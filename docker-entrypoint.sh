@@ -160,4 +160,30 @@ if [ "${MULTI_TENANT:-}" = "1" ]; then
   echo "→ 托管版就绪：$(ls -1 "$WS_DIR"/*.db 2>/dev/null | grep -cv _template || echo 0) 个工作区"
 fi
 
+# ── 静态资源换个域名发（可选，默认不开）────────────────────────
+# 设了 ASSET_PREFIX 才动，值形如 https://cn.example.com:8443。
+#
+# **为什么是在启动时改文件，而不是构建时配好**：output:"standalone" 会把整份 Next 配置
+# 烤进 /app/server.js（那一大行 JSON），运行时的环境变量它根本不看。而同一个镜像要给
+# 三种人用：我们托管的那份（要这个前缀，让国内用户就近取 JS）、自部署的人（凭什么去
+# 我们的服务器取 JS）、桌面端（整个服务跑在用户自己机器上，断网也得能起）。
+# 构建期写死就把后两种人一起害了，所以只能在这里按环境变量改一处。
+#
+# 认不出格式就**停下来报错**，不静默跳过：静默的后果是「配了却没生效」，
+# 而那种问题在线上要靠一页一页看网络面板才能发现。
+if [ -n "${ASSET_PREFIX:-}" ]; then
+  if grep -q "\"assetPrefix\":\"${ASSET_PREFIX}\"" /app/server.js; then
+    echo "→ 静态资源前缀已是 ${ASSET_PREFIX}（容器被重启过，不用再改）"
+  elif grep -q '"assetPrefix":""' /app/server.js; then
+    sed -i "s|\"assetPrefix\":\"\"|\"assetPrefix\":\"${ASSET_PREFIX}\"|g" /app/server.js
+    [ -f /app/.next/required-server-files.json ] && \
+      sed -i "s|\"assetPrefix\":\"\"|\"assetPrefix\":\"${ASSET_PREFIX}\"|g" /app/.next/required-server-files.json
+    echo "→ 静态资源前缀：${ASSET_PREFIX}"
+  else
+    echo "!! /app/server.js 里找不到 \"assetPrefix\":\"\" 这一处——Next 可能换了产物格式。" >&2
+    echo "   要么升级这段逻辑，要么去掉 ASSET_PREFIX 再起。" >&2
+    exit 1
+  fi
+fi
+
 exec "$@"

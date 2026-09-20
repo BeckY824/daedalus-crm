@@ -199,11 +199,18 @@ export default function LoginForm({
         {(可找回密码 || (桌面端 && 可注册 && 注册地址)) && (
           <Rise 第几个={2} style={{ display: "flex", justifyContent: "center", gap: 18, marginTop: 12, fontSize: 13 }}>
             {可找回密码 && <Link href="/forgot">忘记密码？</Link>}
-            {/* 注册在网页上办：壳会把站外链接交给系统浏览器（main.js 的 setWindowOpenHandler） */}
-            {桌面端 && 可注册 && 注册地址 && (
-              <a href={注册地址} target="_blank" rel="noreferrer">
-                注册新账号 ↗
-              </a>
+            {/* 两端同一个入口、同一句话。桌面端那条要开系统浏览器（站外链接由 main.js
+                的 setWindowOpenHandler 交出去），网页版就是站内跳转。
+                注册开的是**云端账号**——网页版没有工作区这件事由注册页和登录失败那句话说，
+                不在这个链接上解释，否则一个按钮要背一段话。 */}
+            {可注册 && 注册地址 && (
+              桌面端 ? (
+                <a href={注册地址} target="_blank" rel="noreferrer">
+                  注册新账号 ↗
+                </a>
+              ) : (
+                <Link href={注册地址}>注册新账号</Link>
+              )
             )}
           </Rise>
         )}
