@@ -308,3 +308,48 @@ describe("同一份表里手机号重复的行", () => {
     expect(行).toHaveLength(3);
   });
 });
+
+/**
+ * 开放的枚举：职位 / 年级。
+ *
+ * 这一档错了不会报错，只会有两种安静的结局：
+ *   丢值 —— 人那份表里的「结构工程师」没进来，档案缺一块，他事后才发现
+ *   塞脏 —— 反过来，要是把封闭的那两个也放开，有人填了「再看看」，
+ *           从此盯盘清单、建议卡、报表分组全都不认识他
+ * 所以两边都要钉：grade 收得下，followStatus 收不下。
+ */
+describe("开放的枚举：对不上就原样收下", () => {
+  const 表头 = ["姓名", "手机号", DEFAULT_BUSINESS.fields.grade, "跟进状态"];
+  const 跑 = (职位: string, 跟进: string) =>
+    摊开({
+      表头,
+      数据: [["张三", "13800000000", 职位, 跟进]],
+      映射: 猜列(表头, 表),
+      字段表: 表,
+    })[0];
+
+  it("职位不在选项里，值原样进去，并且标成「照收」而不是问题", () => {
+    const r = 跑("结构工程师", FOLLOW_STATUSES[0]);
+    expect(r.值.grade, "对不上就丢的话，人那份表里的职位就没了").toBe("结构工程师");
+    const q = r.问题.find((x) => x.字段 === "grade");
+    expect(q?.严重).toBe("照收");
+  });
+
+  it("在选项里的照旧规整成标准写法", () => {
+    const r = 跑(DEFAULT_BUSINESS.grades[0], FOLLOW_STATUSES[0]);
+    expect(r.值.grade).toBe(DEFAULT_BUSINESS.grades[0]);
+    expect(r.问题.find((x) => x.字段 === "grade")).toBeUndefined();
+  });
+
+  it("**跟进状态不能开**：它被盯盘、建议卡、报表分组吃着，认不出就得用默认值", () => {
+    const r = 跑("结构工程师", "再看看");
+    const q = r.问题.find((x) => x.字段 === "followStatus");
+    expect(q?.严重, "放开这一个的后果是统计悄悄漏人").toBe("用默认");
+    expect(r.值.followStatus, "没认出来就不该写进去").toBeUndefined();
+  });
+
+  it("字段表里只有职位是开放的——别的字段被顺手放开了要在这儿红", () => {
+    const 开着的 = 表.filter((f) => f.开放).map((f) => f.名);
+    expect(开着的).toEqual(["grade"]);
+  });
+});

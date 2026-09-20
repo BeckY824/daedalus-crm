@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Modal, Form, Input, Select, Row, Col, DatePicker, App, Alert, Radio, Space, Typography, Button, Divider } from "antd";
+import { Alert, App, AutoComplete, Button, Col, DatePicker, Divider, Form, Input, Modal, Radio, Row, Select, Space, Typography } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
@@ -259,7 +259,18 @@ function CustomerFormInner({
           </Col>
           <Col span={8}>
             <Form.Item label={b.fields.grade} name="grade">
-              <Select allowClear placeholder="请选择" options={b.grades.map((g) => ({ value: g, label: g }))} />
+              {/*
+                能选也能填。库里这一列是自由文本，那张下拉表只是建议——
+                人手上的职位千奇百怪（结构工程师、班主任、采购总监），
+                封死下拉的结果是他根本录不进来，只能空着。
+                跟进状态 / 决策状态不这么做：那两个被盯盘和报表吃着，必须封闭。
+              */}
+              <AutoComplete
+                allowClear
+                placeholder="选一个，或直接填"
+                options={b.grades.map((g) => ({ value: g }))}
+                filterOption={(输入, o) => String(o?.value ?? "").toLowerCase().includes(输入.toLowerCase())}
+              />
             </Form.Item>
           </Col>
           {/* 只有一个人时不问归属，见 lib/utils.ts 的 独自一人 */}

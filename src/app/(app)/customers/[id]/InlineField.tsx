@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Input, Select, DatePicker, App } from "antd";
+import { App, AutoComplete, DatePicker, Input, Select } from "antd";
 import { dayjs } from "@/lib/utils";
 import { patchCustomer, type PatchableKey } from "../actions";
 
@@ -26,7 +26,8 @@ export default function InlineField({
   field: PatchableKey;
   label: string;
   value: string | null;
-  kind?: "text" | "textarea" | "select" | "date";
+  /** combo = 能选也能填的下拉。给职位 / 年级那种「库里是自由文本、下拉只是建议」的字段 */
+  kind?: "text" | "textarea" | "select" | "combo" | "date";
   options?: Option[];
   placeholder?: string;
 }) {
@@ -52,7 +53,11 @@ export default function InlineField({
   }
 
   const display =
-    kind === "select" && options ? (options.find((o) => o.value === value)?.label ?? value) : kind === "date" && value ? dayjs(value).format("YYYY-MM-DD") : value;
+    (kind === "select" || kind === "combo") && options
+      ? (options.find((o) => o.value === value)?.label ?? value)
+      : kind === "date" && value
+        ? dayjs(value).format("YYYY-MM-DD")
+        : value;
 
   if (!editing) {
     return (
@@ -78,6 +83,27 @@ export default function InlineField({
             void commit(v);
           }}
           onBlur={() => setEditing(false)}
+        />
+      )}
+      {kind === "combo" && (
+        /*
+          能选也能填。和上面那个 select 的区别只有一条：不在选项里的值也收。
+          所以不能用 onChange 提交（打字的每一下都会触发），改成失焦 / 回车提交，
+          和 text 那一支一个节奏。
+        */
+        <AutoComplete
+          {...common}
+          defaultOpen
+          allowClear
+          value={draft ?? undefined}
+          options={options?.map((o) => ({ value: o.value }))}
+          filterOption={(输入, o) => String(o?.value ?? "").toLowerCase().includes(输入.toLowerCase())}
+          onChange={(v) => setDraft(v ?? "")}
+          onBlur={() => void commit(draft ?? "")}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void commit(draft ?? "");
+            if (e.key === "Escape") setEditing(false);
+          }}
         />
       )}
       {kind === "date" && (

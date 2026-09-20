@@ -638,8 +638,10 @@ function 复核({
               title: "会怎么处理",
               render: (_: unknown, r: 预览["待复核"][number]) => (
                 <Space size={6}>
-                  <Tag color={r.严重 === "拦行" ? "error" : r.严重 === "留空" ? "warning" : "default"}>
-                    {r.严重 === "拦行" ? "这一行进不来" : r.严重 === "留空" ? "这一格留空" : "用默认值"}
+                  {/* 「照收」不是问题是提示：值不在选项里，但这个字段开放，原样写进去。
+                      漏了这一档的话它会掉进兜底，显示成「用默认值」——正好说反 */}
+                  <Tag color={r.严重 === "拦行" ? "error" : r.严重 === "留空" ? "warning" : r.严重 === "照收" ? "blue" : "default"}>
+                    {r.严重 === "拦行" ? "这一行进不来" : r.严重 === "留空" ? "这一格留空" : r.严重 === "照收" ? "按原样导入" : "用默认值"}
                   </Tag>
                   <Typography.Text type="secondary" style={{ fontSize: 12 }}>{r.说法}</Typography.Text>
                 </Space>

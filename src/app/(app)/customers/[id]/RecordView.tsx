@@ -217,7 +217,7 @@ export default function RecordView({
             </div>
             <InlineField customerId={customer.id} field="school" label={b.fields.school} value={customer.school} />
             <InlineField customerId={customer.id} field="major" label={b.fields.major} value={customer.major} />
-            <InlineField customerId={customer.id} field="grade" label={b.fields.grade} value={customer.grade} kind="select" options={b.grades.map((g) => ({ value: g, label: g }))} />
+            <InlineField customerId={customer.id} field="grade" label={b.fields.grade} value={customer.grade} kind="combo" options={b.grades.map((g) => ({ value: g, label: g }))} />
             <InlineField customerId={customer.id} field="salesOwnerId" label="销售负责人" value={customer.salesOwnerId} kind="select" options={users.map((u) => ({ value: u.id, label: u.name }))} />
             {/* 渠道负责人默认跟着推荐链；这里改的是这一位的单独订正，清空即恢复按推荐链 */}
             <InlineField customerId={customer.id} field="channelOwnerId" label="渠道负责人" value={customer.channelOwnerId} kind="select" options={users.map((u) => ({ value: u.id, label: u.name }))} placeholder="按推荐链自动确定" />

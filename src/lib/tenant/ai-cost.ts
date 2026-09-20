@@ -111,7 +111,8 @@ export type 成本概览 = {
   合计: { 次数: number; 入: number; 出: number };
   按天: { 日: string; 次数: number; 入: number; 出: number }[];
   按模型: { model: string; 次数: number; 入: number; 出: number }[];
-  按归属: { kind: string; id: string; 次数: number; 入: number; 出: number }[];
+  /** 名：运营台把 id 换成人。ai-cost 本身不认识账号表，由调用方填 */
+  按归属: { kind: string; id: string; 名?: string; 次数: number; 入: number; 出: number }[];
   单价: { 入: number; 出: number } | null;
 };
 

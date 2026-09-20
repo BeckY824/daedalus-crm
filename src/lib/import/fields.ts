@@ -34,6 +34,17 @@ export type 字段规格 = {
   kind: "text" | "enum" | "date" | "name";
   /** kind=enum 时的合法值 */
   values?: readonly string[];
+  /**
+   * 「开放的枚举」：values 只是**建议**，不在里面的值原样收下。
+   *
+   * 职位 / 年级是这一类——库里它就是 `String?`，那张下拉表纯粹是界面约定。
+   * 人手上那份表里的职位千奇百怪（结构工程师、班主任、采购总监），
+   * 对不上就丢掉的话，导进来的档案缺一块，而他当时只看到一行灰字提示。
+   *
+   * **跟进状态 / 决策状态不能开**：它们被盯盘清单、建议卡、话术、报表分组吃着，
+   * 放开的后果不是报错，是有人填了「再看看」，从此盯盘清单再也不提醒他。
+   */
+  开放?: true;
   /** 这一列不填会怎样 */
   必填?: true;
   /** 表头长什么样算命中这一列（全部小写、去掉空格和标点后比对） */
@@ -55,7 +66,8 @@ export function 字段表(b: { fields: { school: string; grade: string; major: s
     { 名: "name", label: "姓名", kind: "text", 必填: true, 别名: ["姓名", "名字", "客户姓名", "客户名称", "客户", b.customer, "学员", "学员姓名", "name", "fullname", "联系人", "联系人姓名"] },
     { 名: "phone", label: "手机号", kind: "text", 必填: true, 别名: ["手机号", "手机", "电话", "联系电话", "联系方式", "手机号码", "电话号码", "mobile", "phone", "tel", "telephone"] },
     { 名: "school", label: b.fields.school, kind: "text", 别名: [b.fields.school, "院校", "学校", "公司", "单位", "公司名称", "school", "company", "org"] },
-    { 名: "grade", label: b.fields.grade, kind: "enum", values: b.grades, 别名: [b.fields.grade, "年级", "职位", "职务", "岗位", "grade", "title", "position"] },
+    // 开放：values 只当建议，导入时对不上也原样收下（库里这一列就是自由文本）
+    { 名: "grade", label: b.fields.grade, kind: "enum", values: b.grades, 开放: true, 别名: [b.fields.grade, "年级", "职位", "职务", "岗位", "grade", "title", "position"] },
     { 名: "major", label: b.fields.major, kind: "text", 别名: [b.fields.major, "专业", "行业", "所属行业", "major", "industry"] },
     { 名: "followStatus", label: "跟进状态", kind: "enum", values: FOLLOW_STATUSES, 别名: ["跟进状态", "状态", "跟进情况", "followstatus", "status"] },
     { 名: "decisionStatus", label: "决策状态", kind: "enum", values: DECISION_STATUSES, 别名: ["决策状态", "意向", "意向度", "决策阶段", "decisionstatus"] },

@@ -4,10 +4,23 @@ import { useState } from "react";
 import { App, Alert, Button, Form, Input, Modal, Popconfirm, Select, Table, Tag, Tooltip } from "antd";
 import { activate, extendTrial, grantAi, openWorkspace, suspend, 标记反馈 } from "./actions";
 import type { 成本概览 } from "@/lib/tenant/ai-cost";
+import { palette } from "@/lib/palette";
 
 const 千分位 = (n: number) => n.toLocaleString("zh-CN");
 /** 短的原样给，长的（cuid）只留尾巴——截成半截的名字比不显示更难认 */
 const 短id = (id: string) => (id.length <= 12 ? id : `…${id.slice(-8)}`);
+/** 「三天前」这种说法比一串时间戳好认——运营台是扫一眼的地方，不是查档的地方 */
+/** 送过、而且用光了。没送过的不算——那是「没有过」，不是「用完了」 */
+const 用完了 = (a: { ai: { 送: number; 剩: number } }) => a.ai.送 > 0 && a.ai.剩 === 0;
+
+function 何时(iso: string | null): string {
+  if (!iso) return "—";
+  const 天 = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+  if (天 <= 0) return "今天";
+  if (天 === 1) return "昨天";
+  if (天 < 30) return `${天} 天前`;
+  return iso.slice(0, 10);
+}
 /** 近 N 天一共多少钱。没配单价时不会被调到 */
 const 钱 = (c: 成本概览) => ((c.合计.入 * (c.单价?.入 ?? 0)) + (c.合计.出 * (c.单价?.出 ?? 0))) / 1e6;
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
@@ -47,7 +60,21 @@ type 反馈条 = {
  * 不做成完整后台——工作区数量还在两位数的阶段，一张表加几个按钮就够，
  * 多做的每一块都要跟着业务改。
  */
-export default function AdminView({ token, rows, 环境, 反馈, 成本 }: { token: string; rows: Row[]; 环境: "生产" | "本地"; 反馈: 反馈条[]; 成本: 成本概览 }) {
+/** 一个云端账号。**桌面端用户就是这个**，他没有工作区 */
+type 账号条 = {
+  id: string;
+  name: string;
+  contact: string;
+  createdAt: string;
+  lastLoginAt: string | null;
+  active: boolean;
+  设备: number;
+  最近用令牌: string | null;
+  ai: { 送: number; 用: number; 剩: number };
+  工作区数: number;
+};
+
+export default function AdminView({ token, rows, 环境, 反馈, 成本, 账号 }: { token: string; rows: Row[]; 环境: "生产" | "本地"; 反馈: 反馈条[]; 成本: 成本概览; 账号: 账号条[] }) {
   const { message } = App.useApp();
   const [plan, setPlan] = useState<PlanKey>("year");
   const [busy, setBusy] = useState<string | null>(null);
@@ -228,6 +255,73 @@ export default function AdminView({ token, rows, 环境, 反馈, 成本 }: { tok
       />
 
       {/*
+        账号。**桌面端用户全在这儿，上面那张按工作区列的表里一个都没有**——
+        桌面端注册只开一个云端账号（记 AI 次数、发设备令牌），数据在他自己机器上，
+        根本不存在工作区。内测用户全是这一类。
+
+        「剩」是最该盯的一列：送的是注册 30 + 每天补 3，用完了他就问不了了，
+        而他多半不会来告诉你，只会觉得「这东西不好用」。
+      */}
+      <div className="ops-cost">
+        <h2>
+          账号
+          <span>
+            共 {账号.length} 个 · 其中纯桌面端 {账号.filter((a) => a.工作区数 === 0).length} 个
+            {/* 「送过但用完了」才算用完。从来没送过次数的（网页版账号）不是用完，是没有过 */}
+            {账号.some(用完了) && ` · ${账号.filter(用完了).length} 个次数已用完`}
+          </span>
+        </h2>
+        {账号.length === 0 ? (
+          <p className="ops-fb-empty">还没有人注册。</p>
+        ) : (
+          <Table
+            size="small"
+            rowKey="id"
+            pagination={false}
+            dataSource={账号}
+            columns={[
+              {
+                title: "账号",
+                render: (_: unknown, a: 账号条) => (
+                  <>
+                    <b>{a.name}</b>
+                    {a.contact && <span style={{ color: palette.textMuted, marginLeft: 8 }}>{a.contact}</span>}
+                    {!a.active && <Tag color="red" style={{ marginLeft: 8 }}>已停用</Tag>}
+                  </>
+                ),
+              },
+              {
+                title: "来路",
+                width: 110,
+                render: (_: unknown, a: 账号条) =>
+                  a.工作区数 === 0 ? <Tag color="blue">桌面端</Tag> : <Tag>网页版</Tag>,
+              },
+              { title: "设备", width: 70, render: (_: unknown, a: 账号条) => `${a.设备} 台` },
+              {
+                title: "AI 次数",
+                width: 170,
+                render: (_: unknown, a: 账号条) =>
+                  a.ai.送 === 0 && a.ai.用 === 0 ? (
+                    // 没送过也没用过：网页版账号走工作区那本账，这一列对它没有意义
+                    <span style={{ color: palette.textFaint }}>—</span>
+                  ) : (
+                    <span style={{ color: 用完了(a) ? palette.dangerText : undefined }}>
+                      剩 <b>{a.ai.剩}</b> · 送 {a.ai.送} / 用 {a.ai.用}
+                    </span>
+                  ),
+              },
+              {
+                title: "最近活跃",
+                width: 150,
+                render: (_: unknown, a: 账号条) => 何时(a.最近用令牌 ?? a.lastLoginAt),
+              },
+              { title: "注册", width: 120, render: (_: unknown, a: 账号条) => a.createdAt.slice(0, 10) },
+            ]}
+          />
+        )}
+      </div>
+
+      {/*
         模型成本。**「¥29 / 300 次」现在是照公开价估的**，这一块就是为了把它换成算出来的。
         数据只能随时间攒、补不回来，所以它先于任何「看起来更要紧」的东西。
 
@@ -289,7 +383,7 @@ export default function AdminView({ token, rows, 环境, 反馈, 成本 }: { tok
                   <tbody>
                     {成本.按归属.map((o) => (
                       <tr key={`${o.kind}:${o.id}`}>
-                        <td>{o.kind === "account" ? "桌面端" : "工作区"} {短id(o.id)}</td>
+                        <td>{o.名 ?? `${o.kind === "account" ? "桌面端" : "工作区"} ${短id(o.id)}`}</td>
                         <td>{o.次数} 次</td>
                         <td>{千分位(o.入 + o.出)}</td>
                       </tr>

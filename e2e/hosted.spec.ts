@@ -196,7 +196,11 @@ test("7 运营台要 token：不带、带错都是 404", async ({ page }) => {
   await expect(page.locator(".ops-top")).toContainText("Daedalus Ops");
   await expect(page.locator(".ops-env")).toBeVisible();
   await expect(page.locator(".ops-stat").first()).toContainText("工作区", { timeout: 15_000 });
-  await expect(page.getByText(共享工作区.名称, { exact: true })).toBeVisible();
+  /*
+    收进第一张表（工作区表）再找：0.45.0 起这一页下面还有一张「账号」表，
+    而那个账号的名字恰好也叫这个——不收范围就是 strict mode 撞车。
+  */
+  await expect(page.locator(".ant-table").first().getByText(共享工作区.名称, { exact: true })).toBeVisible();
 });
 
 test("8 没登录时能打开的就是那几页；演示区已经不存在", async ({ page }) => {

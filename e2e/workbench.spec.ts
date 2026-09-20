@@ -198,6 +198,48 @@ test("客户列表：默认只摆六列，其余在「列」里", async ({ page 
   await expect(page.locator(".ant-table-thead th", { hasText: "联系电话" })).toBeVisible();
 });
 
+/*
+  勾一项不该把单子收掉。选列天然是连着点好几下的事——点一下关一次，
+  每改一列都要重新打开一次，改三列就是开三次。
+  antd 的菜单项默认点完就收，所以这个 Dropdown 是受控的（DataList.tsx）：
+  来源是 menu 的关闭一概不理，只认再点一次按钮和点到外面。
+  这条用例钉的就是那个「不理」——它坏了不会报错，只会退回每点一次关一次。
+*/
+test("列设置：能连着勾好几项，单子不会自己收；再点按钮才收", async ({ page }) => {
+  const p = 连库();
+  // 这个文件串行共库，上一条已经造过同名渠道——不先清就是唯一键撞车。
+  // 单独跑能过、进整套就挂，正是这么回事
+  await 清空业务数据(p);
+  await 造模拟数据(p);
+  await p.$disconnect();
+
+  await 登录(page);
+  await page.goto("/customers");
+  await page.waitForSelector(".ant-table-row");
+
+  const 列按钮 = page.getByRole("button", { name: "列" });
+  const 菜单 = page.locator(".ant-dropdown:not(.ant-dropdown-hidden)");
+
+  await 列按钮.click();
+  await 菜单.waitFor({ state: "visible" });
+
+  // 连着勾两项，每勾一次单子都还得在。
+  // 挑这两个是因为它们的名字不跟业务配置走（「职位/年级」那一列会跟着变）
+  for (const 列名 of ["联系电话", "决策状态"]) {
+    await 菜单.getByText(列名, { exact: true }).click();
+    await expect(菜单, `勾了「${列名}」之后单子不该收起来`).toBeVisible();
+  }
+
+  // 两列都出来了，说明两次点击都真的生效了（不是只有第一次）
+  for (const 列名 of ["联系电话", "决策状态"]) {
+    await expect(page.locator(".ant-table-thead th", { hasText: 列名 })).toBeVisible();
+  }
+
+  // 再点一次按钮才收——这是「自己再点击它就关闭」那一条
+  await 列按钮.click();
+  await expect(菜单).toBeHidden();
+});
+
 test("客户记录：左边有窄名单，切人不回列表", async ({ page }) => {
   await page.setViewportSize({ width: 1560, height: 900 });
   await 登录(page);

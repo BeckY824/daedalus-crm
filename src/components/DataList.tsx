@@ -120,6 +120,7 @@ export default function DataList<T extends { id: string }>({
     return () => clearTimeout(t);
   }, [行]);
 
+  const [列单开着, set列单开着] = useState(false);
   const 可选的 = useMemo(() => 全部列.filter((c) => !c.常驻), [全部列]);
   const 默认可见 = useMemo(() => 可选的.filter((c) => c.默认 !== false).map(列键), [可选的]);
   /** 列设置存在这台机器上，一页一份。丢了就回到默认那套，不影响用 */
@@ -159,8 +160,19 @@ export default function DataList<T extends { id: string }>({
           {筛选}
           <span className="list-bar-gap" />
           {可选的.length > 0 && (
+            /*
+              勾一项**不关**这张单子：选列天然是连着点好几下的事，
+              点一下关一次等于每改一列都要重新打开。
+              antd 默认菜单项点完就收，所以这里受控：来源是 menu 的关闭一律不理，
+              只认「再点一次按钮」和「点到外面」（那两种来源都是 trigger）。
+            */
             <Dropdown
               trigger={["click"]}
+              open={列单开着}
+              onOpenChange={(开, info) => {
+                if (!开 && info.source === "menu") return;
+                set列单开着(开);
+              }}
               menu={{
                 items: 可选的.map((c) => {
                   const k = 列键(c);

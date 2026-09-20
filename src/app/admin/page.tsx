@@ -23,7 +23,7 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
   // 没配 token 就当这个页面不存在，免得自部署的人暴露一个无保护的运营台
   if (!multiTenant() || !token || given !== token) notFound();
 
-  const [rows, 赠送, 用量, 反馈, 成本] = await Promise.all([
+  const [rows, 赠送, 用量, 反馈, 成本, 账号们, 账号赠送, 账号用量, 设备们] = await Promise.all([
     control.workspace.findMany({
       orderBy: { createdAt: "desc" },
       take: 200,
@@ -36,9 +36,69 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
     control.feedback.findMany({ orderBy: { at: "desc" }, take: 100 }),
     /* 模型成本：把「¥29 / 300 次」从估的换成算的，全靠这一份随时间攒的数据 */
     成本概览(14),
+    /*
+      桌面端用户。**他们没有工作区**——桌面端注册只开一个云端账号（记 AI 次数、发设备令牌），
+      数据全在他自己机器上。所以上面那张按工作区列的表里一个都看不到，
+      而内测用户全是这一类：谁注册了、领了几台设备、免费次数还剩多少，得另有一张表。
+
+      这几张表和 Account 之间没有关系字段（只有裸的 accountId），所以分开查、在内存里拼。
+      量很小：一个账号一行。
+    */
+    control.account.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: { memberships: { select: { workspaceId: true } } },
+    }),
+    control.accountAiGrant.groupBy({ by: ["accountId"], _sum: { amount: true } }),
+    control.accountAiUsage.findMany(),
+    // 只算没被吊销的：吊销过的设备不再代表「他手上有几台」
+    control.deviceToken.findMany({ where: { revokedAt: null }, select: { accountId: true, lastUsedAt: true } }),
   ]);
   const 送表 = new Map(赠送.map((g) => [g.workspaceId, g._sum.amount ?? 0]));
   const 用表 = new Map(用量.map((u) => [u.workspaceId, u.calls]));
+
+  const 账送 = new Map(账号赠送.map((g) => [g.accountId, g._sum.amount ?? 0]));
+  const 账用 = new Map(账号用量.map((u) => [u.accountId, u.calls]));
+  const 设备表 = new Map<string, { 台数: number; 最近: Date | null }>();
+  for (const d of 设备们) {
+    const 旧 = 设备表.get(d.accountId) ?? { 台数: 0, 最近: null };
+    旧.台数 += 1;
+    if (d.lastUsedAt && (!旧.最近 || d.lastUsedAt > 旧.最近)) 旧.最近 = d.lastUsedAt;
+    设备表.set(d.accountId, 旧);
+  }
+
+  const 账号 = 账号们.map((a) => {
+    const 送 = 账送.get(a.id) ?? 0;
+    const 用 = 账用.get(a.id) ?? 0;
+    const d = 设备表.get(a.id);
+    return {
+      id: a.id,
+      name: a.name,
+      contact: a.phone ?? a.email ?? "",
+      createdAt: a.createdAt.toISOString(),
+      lastLoginAt: a.lastLoginAt ? a.lastLoginAt.toISOString() : null,
+      active: a.active,
+      设备: d?.台数 ?? 0,
+      最近用令牌: d?.最近 ? d.最近.toISOString() : null,
+      ai: { 送, 用, 剩: Math.max(0, 送 - 用) },
+      /** 有工作区的是网页版那条路；没有的才是纯桌面端 */
+      工作区数: a.memberships.length,
+    };
+  });
+
+  /*
+    成本块里「烧得最多的前 10」原来显示的是一串 id——知道有人烧得凶，不知道是谁。
+    在这儿把 id 换成人：账号给名字和联系方式，工作区给名字。
+  */
+  const 账号名 = new Map(账号们.map((a) => [a.id, `${a.name}${a.phone ?? a.email ? ` · ${a.phone ?? a.email}` : ""}`]));
+  const 工作区名 = new Map(rows.map((w) => [w.id, w.name]));
+  const 成本带名 = {
+    ...成本,
+    按归属: 成本.按归属.map((o) => ({
+      ...o,
+      名: (o.kind === "account" ? 账号名.get(o.id) : 工作区名.get(o.id)) ?? undefined,
+    })),
+  };
 
   const list = rows.map((w) => {
     const owner = w.memberships.find((m) => m.role === "OWNER")?.account;
@@ -69,7 +129,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       token={given}
       rows={list}
       环境={process.env.NODE_ENV === "production" ? "生产" : "本地"}
-      成本={成本}
+      成本={成本带名}
+      账号={账号}
       反馈={反馈.map((f) => ({
         id: f.id,
         at: f.at.toISOString(),
