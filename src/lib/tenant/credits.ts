@@ -185,6 +185,16 @@ export async function 结算赠送(owner: Owner, 机器?: string | null): Promis
     await 赠送(owner, { amount: 注册赠送, reason: "signup", key: `${owner.id}:signup` });
   } else {
     await 结算注册赠送(owner.id, 机器);
+    // 付费订阅那一份（个人版每月 N 次）。懒发放：付款时发一次，之后每次结账顺手补。
+    // 桌面端那条线没有我们的定时任务够得着的地方——用户的机器可能一个月才开一次，
+    // cron 发出去的次数他也用不上。
+    // 动态 import 是为了避开 billing → credits → billing 的循环依赖（同 ai-allowance 的写法）。
+    const { 结算订阅次数, 订阅中 } = await import("@/lib/billing/orders");
+    await 结算订阅次数(owner.id);
+    // **订阅期内不再发每日那 3 次。** 和工作区那一侧一个道理（付费的根本不走结算）：
+    // 每日赠送是给试用的人续命的，付了钱的人用超了该买加购包。
+    // 照发的话「每月 300 次」就不是 300——每天再多 3 次，一个月白多 90。
+    if (await 订阅中(owner.id)) return;
   }
   const [送, 用] = await Promise.all([赠送总和(owner), 用掉次数(owner)]);
   if (送 - 用 >= 每日赠送门槛) return;
@@ -228,6 +238,111 @@ export async function 余额(owner: Owner): Promise<{ 上限: number; 用掉: nu
  * 想让这条路也能发，就等于给了一个「不带机器就白送」的后门。
  * 实际也不缺：桌面端必须先登录才拿得到令牌，注册赠送在那一步就结过了。
  */
+/**
+ * 一个问题最多允许几次模型调用。
+ *
+ * agent 一个问题最多跑 6 步（lib/agent/run.ts 的 MAX_STEPS），加上「吐的不是答案」
+ * 那两次重答，正常上限在 9 上下。12 是宽到不会误伤的地板。
+ *
+ * 超过它不是拒绝，是**当作新的一个问题再扣一次**——拒绝会把人正在等的回答打断，
+ * 而多扣一次只是少一次额度。宁可少收一点钱，也不要在回答到一半时把门关上。
+ * 它同时是那道防滥用的闸：客户端拿同一个 requestId 无限调用，扣费照样会跟上。
+ */
+export const 每问最多步 = 12;
+
+/**
+ * 规整客户端给的问题编号。
+ *
+ * 只认 1–64 位的 `[A-Za-z0-9_-]`（uuid、cuid、随机串都在里面）。不是这个样子的一律当
+ * **没给**——退回「每次调用扣一次」的老路，而不是拿一个奇怪的字符串去建索引行。
+ * 规整放在账本这一层，和 规整机器哈希 同一个道理：抄到各个路由里迟早两处不一致。
+ */
+export function 规整请求id(v: string | null | undefined): string | null {
+  const s = (v ?? "").trim();
+  return /^[A-Za-z0-9_-]{1,64}$/.test(s) ? s : null;
+}
+
+export type 扣的结果 = { ok: true; 还剩: number; 扣了: boolean } | { ok: false; 上限: number };
+
+/**
+ * 按**一个问题**扣一次。
+ *
+ * 价格页的原话是「一次提问算一次」，而这条路一直按网关请求扣——agent 回答一个问题
+ * 要跑好几步，每步一次请求。2026-09-21 实测：6 个提问吃掉 39 次额度。
+ * 这个函数就是那句承诺的实现：
+ *
+ *   没带 requestId  →  老路，每次调用扣一次（老版本桌面端、第三方 OpenAI 客户端）
+ *   第一次见到它    →  扣一次，记一行
+ *   同一个 id 再来  →  **不扣**，只把步数加一
+ *   退过 / 步数超了 →  当作新的一个问题，重新扣
+ *
+ * 返回里多一个 `扣了`：调用方拿它决定上游失败时要不要退（没扣过的那几步不用退）。
+ *
+ * **不抛。** 记账这一层出问题不该让用户的提问失败——建行失败时按「扣了」返回，
+ * 最坏的情况是这个问题退回老口径，而不是问不出来。
+ */
+export async function 按问题扣一次(owner: Owner, requestId: string | null): Promise<扣的结果> {
+  if (!requestId) {
+    const r = await 扣一次(owner);
+    return r.ok ? { ok: true, 还剩: r.还剩, 扣了: true } : r;
+  }
+  const where = { ownerKind_ownerId_requestId: { ownerKind: owner.kind, ownerId: owner.id, requestId } };
+
+  let 已有: { id: string; calls: number; refunded: boolean } | null = null;
+  try {
+    已有 = await control.aiCharge.findUnique({ where, select: { id: true, calls: true, refunded: true } });
+  } catch (e) {
+    // 查不动就退回老口径：宁可多扣一次，也不要因为账本抖了一下让人问不出话
+    console.warn("[credits] 问题编号查不动，按老口径扣：", e instanceof Error ? e.message : e);
+    const r = await 扣一次(owner);
+    return r.ok ? { ok: true, 还剩: r.还剩, 扣了: true } : r;
+  }
+
+  // 同一个问题的后续几步：不扣，只计数
+  if (已有 && !已有.refunded && 已有.calls < 每问最多步) {
+    await control.aiCharge.update({ where: { id: 已有.id }, data: { calls: { increment: 1 } } }).catch(() => {});
+    const b = await 余额(owner);
+    return { ok: true, 还剩: b.还剩, 扣了: false };
+  }
+
+  const r = await 扣一次(owner);
+  if (!r.ok) return r;
+  try {
+    if (已有) await control.aiCharge.update({ where: { id: 已有.id }, data: { calls: 1, refunded: false, at: new Date() } });
+    else await control.aiCharge.create({ data: { ownerKind: owner.kind, ownerId: owner.id, requestId } });
+  } catch (e) {
+    // 并发下两步同时到、都没查到行：后到的那个建不上（唯一索引）。它已经扣过了，
+    // 就让它这么算——多扣一次，不至于让这一步失败
+    console.warn("[credits] 问题编号记不上：", e instanceof Error ? e.message : e);
+  }
+  return { ok: true, 还剩: r.还剩, 扣了: true };
+}
+
+/**
+ * 把这一次退还。**只在「我们这边没给出东西」时调**：上游超时、5xx、429、连不上。
+ *
+ * 不退的两种：用户自己中断（上游已经在跑了，钱花掉了），以及本来就没扣的那几步。
+ *
+ * 幂等靠 `refunded` 这个标记：同一个问题重试几次只退一次。没有 requestId 的老路
+ * 没有幂等可言——那条路上一次调用就是一次，退就完了。
+ */
+export async function 退这一次(owner: Owner, requestId: string | null, 扣了: boolean): Promise<void> {
+  if (!扣了) return;
+  if (!requestId) {
+    await 回退一次(owner);
+    return;
+  }
+  try {
+    const n = await control.aiCharge.updateMany({
+      where: { ownerKind: owner.kind, ownerId: owner.id, requestId, refunded: false },
+      data: { refunded: true },
+    });
+    if (n.count === 1) await 回退一次(owner);
+  } catch (e) {
+    console.warn("[credits] 退这一次没退成：", e instanceof Error ? e.message : e);
+  }
+}
+
 export async function 扣一次(owner: Owner): Promise<{ ok: true; 还剩: number } | { ok: false; 上限: number }> {
   await 结算赠送(owner);
   const 上限 = await 赠送总和(owner);

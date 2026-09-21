@@ -117,7 +117,8 @@ ${text}
 
   try {
     // 速记要读联系人、商机再换算时间，推理模型偶尔会超过 60 秒；且记录页打开时简报可能正在并发跑
-    const raw = await chatJSON(prompt, { timeoutMs: 120_000 });
+    // feature 只进成本账（运营台「哪块烧得最凶」按它分组），不影响请求
+    const raw = await chatJSON(prompt, { timeoutMs: 120_000, feature: "parse" });
     const draft = sanitizeFollowUpDraft(raw, {
       contactIds: customer.contacts.map((c) => c.id),
       opportunityIds: customer.opportunities.map((o) => o.id),
@@ -246,7 +247,7 @@ ${question ? `\n【销售此刻的问题】\n${question}\n` : ""}
 
   try {
     // 简报要读整条时间线还要标引用，推理模型常常要想 60 秒以上；给到 120 秒
-    const raw = await chatJSON(prompt, { timeoutMs: 120_000 });
+    const raw = await chatJSON(prompt, { timeoutMs: 120_000, feature: "brief" });
     stepDone(emit, "think", question ? "围绕问题重读" : "生成简报");
     await recordAiUse(user, "brief", `AI 生成简报（${b.customer}「${customer.name}」${question ? `，问题「${question.slice(0, 40)}」` : ""}）`, input.customerId);
     return { ok: true, brief: sanitizeBrief(raw), records };

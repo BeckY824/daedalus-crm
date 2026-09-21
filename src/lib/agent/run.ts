@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 /**
  * agent 循环（ReAct，JSON 协议）。
  *
@@ -234,6 +235,16 @@ export async function runAgent(
   ev: AgentEvents = {},
 ): Promise<AgentResult> {
   const { question, user, b, history, 页面上下文, 页面范围 } = input;
+  /**
+   * **这一个问题的编号。** 下面每一次模型调用（每步决策、工具那一轮、最终回答、
+   * 以及「吐的不是答案」的重答）都带着它，网关据此**一个问题只扣一次**——
+   * 价格页写的就是「一次提问算一次」，而在这之前是每步扣一次：
+   * 2026-09-21 实测 6 个提问吃掉 39 次额度。见 lib/tenant/credits.ts 的 按问题扣一次。
+   *
+   * 生成在这里而不是调用方：它要覆盖这一次回答的全部调用，而「一次回答」的边界
+   * 正好就是这个函数。调用方给不给都不影响——这个函数每跑一次就是一个问题。
+   */
+  const 问题id = randomUUID();
   const toolDoc = TOOLS.map((t) => `- ${t.name}：${t.description}\n  参数：${t.args}`).join("\n");
 
   /**
@@ -367,7 +378,7 @@ ${工作方式}
 
     if (!选择 && 用原生) {
       try {
-        const r = await chatTools(messages, 工具表, { maxTokens: 1500, timeoutMs: 60_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal });
+        const r = await chatTools(messages, 工具表, { maxTokens: 1500, timeoutMs: 60_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" });
         console.info(`[agent] 第 ${i + 1} 步决策（原生）${Date.now() - t0}ms：${r.toolCalls.map((c) => c.function.name).join(",") || "没调工具"}`);
         /*
           没调工具 = 它认为够了，可以去组织回答。
@@ -430,7 +441,7 @@ ${工作方式}
     }
 
     if (!选择) {
-      const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal })) as Record<string, unknown>;
+      const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" })) as Record<string, unknown>;
       console.info(`[agent] 第 ${i + 1} 步决策 ${Date.now() - t0}ms：${JSON.stringify(raw).slice(0, 120)}`);
       // 模型常把 final 塞进 action 里（{"action":{"final":true}}），或把 tool 直接放顶层：都认
       const action = ((raw?.action && typeof raw.action === "object" ? raw.action : raw) ?? {}) as { tool?: unknown; args?: unknown; final?: unknown };
@@ -542,7 +553,7 @@ ${工作方式}
   /** 跑一次最终回答。静默时只把文本拿回来，不往界面推 token */
   const 组织回答 = async (提示: string, 静默: boolean) => {
     const 清洗 = 开头清洗器((t) => { if (!静默) ev.onToken?.(t); });
-    await chatTextStream([...messages, { role: "user", content: 提示 }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal }, (t) => 清洗.推入(t));
+    await chatTextStream([...messages, { role: "user", content: 提示 }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" }, (t) => 清洗.推入(t));
     清洗.收尾();
     return 清洗.文本();
   };

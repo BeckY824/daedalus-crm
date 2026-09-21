@@ -247,6 +247,33 @@ describe("赠送账本", () => {
   });
 });
 
+describe("退一次额度：我们这边出错时把那一次还回去", () => {
+  /*
+    2026-09-21 加的。价格页卖的是「一次提问」，而模型超时、上游报错的时候
+    用户什么都没拿到——那一次不该算在他头上。
+    路由那边还会再判一道「用户自己中断的不退」（api/ai/stream 的 catch）。
+  */
+  it("扣了一次再退，账本回到原样", async () => {
+    const { 扣一次额度, 查额度 } = await import("@/lib/tenant/ai-allowance");
+    const { 退一次额度 } = await import("@/lib/tenant/ai-allowance");
+    const 账本 = await import("@/lib/tenant/credits");
+    const ws = await 建工作区();
+    await 扣一次额度(ws);
+    expect((await 查额度(ws)).用掉).toBe(1);
+    // 退一次额度() 走的是「当前工作区」那条路，这里直接验它底下那一下：账本的回退
+    await 账本.回退一次({ kind: "workspace", id: ws });
+    expect((await 查额度(ws)).用掉).toBe(0);
+    expect(typeof 退一次额度).toBe("function");
+  });
+
+  it("付费工作区当初就没扣，也就没得退", async () => {
+    const { 扣一次额度, 查额度 } = await import("@/lib/tenant/ai-allowance");
+    const ws = await 建工作区({ 付费: true });
+    await 扣一次额度(ws);
+    expect((await 查额度(ws)).用掉).toBe(0);
+  });
+});
+
 describe("自部署版", () => {
   it("没开 MULTI_TENANT 时闸门直接放行，一次都不限", async () => {
     const { 试用额度闸门 } = await import("@/lib/tenant/ai-allowance");

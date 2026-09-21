@@ -73,6 +73,28 @@ export async function 扣一次额度(workspaceId: string): Promise<额度判定
   return { ok: true, 用掉: (await 账本.用掉次数(归属(workspaceId))), 还剩: r.还剩 };
 }
 
+/**
+ * 把刚才那一次退回去。**和 试用额度闸门() 对称**：它扣在分发之前，这个退在出错之后。
+ *
+ * 为什么「出错就退」而不是只退上游的错：从用户那一侧看，他点了一下、什么都没拿到，
+ * 这一次就不该算在他头上——不管是模型超时、我们自己抛异常，还是工具查不动。
+ * 想靠反复失败白嫖也没有意义：失败就是没有答案，限流那道闸另外管着循环脚本。
+ *
+ * **用户自己中断的不退**：那一次上游已经在跑了，钱是真花出去的（由调用方判断）。
+ * 自部署版一次都不扣，所以这里也一次都不退。
+ */
+export async function 退一次额度(): Promise<void> {
+  const { multiTenant } = await import("./context");
+  if (!multiTenant()) return;
+  const { resolveCurrentTenant } = await import("./resolve");
+  const t = await resolveCurrentTenant();
+  if (!t) return;
+  const ws = await control.workspace.findUnique({ where: { id: t.workspaceId } });
+  // 付费工作区当初就没扣（见 扣一次额度），这里自然也不退
+  if (!ws || 已付费(ws)) return;
+  await 账本.回退一次(归属(t.workspaceId));
+}
+
 /** 运营台给某个工作区手动加次数（谈单时想让对方多试几次） */
 export async function 加次数(workspaceId: string, amount: number, note?: string): Promise<void> {
   const n = Math.max(1, Math.min(1000, Math.floor(amount)));

@@ -291,14 +291,74 @@ describe("额度", () => {
     expect(用!.calls).toBe(放行);
   });
 
-  it("上游报错也算一次——限的是发起，否则反复失败可以无限重试", async () => {
+  /*
+    2026-09-21 改口径：**我们这边的错要退，请求本身的错照旧算一次。**
+
+    原来是「失败也算一次，限的是发起」，理由是「否则反复失败可以无限重试」。
+    那条理由只对后半句成立：上游炸了、上游限我们、上游超时，用户什么都没拿到，
+    让他买单说不过去——价格页卖的是「一次提问」，不是「一次发起」。
+    而 4xx 那半句照旧：构造一个必定失败的请求如果能退，就是一条无限免费的路。
+  */
+  it("上游 5xx：退还——那不是用户的问题，他什么都没拿到", async () => {
     const { token, acc } = await 建账号带令牌();
     vi.stubGlobal("fetch", async () => new Response("上游炸了", { status: 500 }));
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
     const res = await POST(请求(token, 一次问话));
     expect(res.status).toBe(500);
     const { 余额 } = await import("@/lib/tenant/credits");
+    expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(0);
+  });
+
+  it("上游 429（它在限我们）：也退", async () => {
+    const { token, acc } = await 建账号带令牌();
+    vi.stubGlobal("fetch", async () => new Response("slow down", { status: 429 }));
+    const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
+    await POST(请求(token, 一次问话));
+    const { 余额 } = await import("@/lib/tenant/credits");
+    expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(0);
+  });
+
+  it("上游 400（请求本身不对）：照旧算一次——不然构造一个必失败的请求就是无限免费", async () => {
+    const { token, acc } = await 建账号带令牌();
+    vi.stubGlobal("fetch", async () => new Response("bad request", { status: 400 }));
+    const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
+    await POST(请求(token, 一次问话));
+    const { 余额 } = await import("@/lib/tenant/credits");
     expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(1);
+  });
+
+  it("连不上上游：退——和 5xx 同一个道理", async () => {
+    const { token, acc } = await 建账号带令牌();
+    vi.stubGlobal("fetch", async () => { throw new Error("connect ECONNREFUSED"); });
+    const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
+    const res = await POST(请求(token, 一次问话));
+    expect(res.status).toBe(504);
+    const { 余额 } = await import("@/lib/tenant/credits");
+    expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(0);
+  });
+
+  it("**同一个问题的几步只扣一次**：带同一个 X-Question-Id 打三次", async () => {
+    const { token, acc } = await 建账号带令牌();
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
+    for (let i = 0; i < 3; i++) {
+      const req = 请求(token, 一次问话);
+      req.headers.set("X-Question-Id", "q-same");
+      req.headers.set("X-Feature", "ask");
+      const res = await POST(req);
+      expect(res.status).toBe(200);
+    }
+    const { 余额 } = await import("@/lib/tenant/credits");
+    expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(1);
+  });
+
+  it("不带 X-Question-Id 的老客户端照旧每次扣", async () => {
+    const { token, acc } = await 建账号带令牌();
+    vi.stubGlobal("fetch", async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
+    for (let i = 0; i < 3; i++) await POST(请求(token, 一次问话));
+    const { 余额 } = await import("@/lib/tenant/credits");
+    expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(3);
   });
 
   it("两个账号各算各的", async () => {

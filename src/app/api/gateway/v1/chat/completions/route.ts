@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 收拾请求体 } from "@/lib/gateway";
-import { 扣一次 } from "@/lib/tenant/credits";
+import { 按问题扣一次, 规整请求id, 退这一次 } from "@/lib/tenant/credits";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 
@@ -18,9 +18,24 @@ export const runtime = "nodejs";
  * 三道闸，顺序有讲究：
  *   1. 令牌 —— 认不出直接 401，不碰账本也不碰上游
  *   2. 频率 —— 内存滑动窗口，防的是失控的循环脚本，不是恶意（和 ai-quota 同一套）
- *   3. 额度 —— **在转发之前扣**。失败的那次也算：限的是"发起"而不是"成功"，
- *      否则一个反复失败的请求可以无限重试，而每次重试都是真金白银的上游调用
+ *   3. 额度 —— **在转发之前扣**，但扣的单位是**一个问题**，不是一次请求：
+ *      客户端给每个问题一个 `X-Question-Id`，同一个 id 的后续几步不再扣
+ *      （agent 一个问题要跑好几步，见 lib/tenant/credits.ts 的 按问题扣一次）。
+ *      仍然是「在转发之前」：限的是发起而不是成功，否则反复重试等于无限免费。
+ *      **但上游自己出的错要退**（超时 / 5xx / 429 / 连不上）——那不是用户的问题，
+ *      他什么都没拿到。用户自己中断的不退：那一次上游已经在跑了。
  */
+/**
+ * 这次调用是哪个功能发起的。**只进成本账**，不影响任何判断，所以认不出就当没有。
+ * 白名单而不是原样收下：它会进库、会出现在运营台的分组里，不该让客户端往里写任意字符串。
+ * 和 lib/llm.ts 里发出去的那几个名字必须对得上——加一个就两处都要加。
+ */
+const 功能白名单 = new Set(["ask", "brief", "draft", "parse", "paste", "import", "other"]);
+function 认功能(v: string | null): string | null {
+  const s = (v ?? "").trim().toLowerCase();
+  return 功能白名单.has(s) ? s : null;
+}
+
 export async function POST(req: Request) {
   const auth = await 网关认证(req);
   if (!auth.ok) return auth.res;
@@ -39,7 +54,15 @@ export async function POST(req: Request) {
   if (!整理.ok) return 网关错误(400, 整理.error);
 
   const owner = { kind: "account" as const, id: accountId };
-  const 扣 = await 扣一次(owner);
+  /*
+    这个问题的编号，和这次调用是哪个功能发起的。两样都来自客户端的头，都可以没有：
+      没有 requestId → 退回「一次调用扣一次」的老口径（老版本桌面端、第三方客户端）
+      没有 feature   → 成本账里这一行归不了类，仅此而已
+    feature 只进成本账、不影响任何判断，所以白名单卡一下就够，不值得为它拒绝请求。
+  */
+  const 问题id = 规整请求id(req.headers.get("x-question-id"));
+  const 功能 = 认功能(req.headers.get("x-feature"));
+  const 扣 = await 按问题扣一次(owner, 问题id);
   if (!扣.ok) {
     return 网关错误(
       402,
@@ -58,6 +81,8 @@ export async function POST(req: Request) {
       signal: AbortSignal.timeout(120_000),
     });
   } catch (e) {
+    // 上游没给出任何东西：这一次不该由用户买单
+    await 退这一次(owner, 问题id, 扣.扣了);
     const 超时 = e instanceof Error && e.name === "TimeoutError";
     return 网关错误(504, 超时 ? "上游模型接口超时" : "连不上上游模型接口", 剩余头);
   }
@@ -71,6 +96,18 @@ export async function POST(req: Request) {
      * 回显在错误体里，而这里的客户端是**用户的桌面端**——那把 Key 是我们的，
      * 一旦回显出去，拿到的人就能直接花我们的钱。
      */
+    /*
+      **只退我们这边的错。** 5xx 是上游炸了、429 是上游限我们、408 是它自己超时——
+      这三种用户什么都没拿到，不该他买单。
+
+      其余 4xx 不退（400 请求体不对、413 太大……）：那是这次请求本身有毛病，
+      而「构造一个必定失败的请求」如果能退，就等于一条无限免费的路。
+      这正是 2026-09-20 之前那条「失败也算一次」的规矩要挡的东西，规矩没变，
+      只是把「我们的锅」从里面摘了出来。
+    */
+    if (upstream.status >= 500 || upstream.status === 429 || upstream.status === 408) {
+      await 退这一次(owner, 问题id, 扣.扣了);
+    }
     const 上游Key = process.env.GATEWAY_API_KEY ?? "";
     let text = (await upstream.text()).slice(0, 500);
     if (上游Key.length >= 8) text = text.split(上游Key).join("****");
@@ -105,7 +142,7 @@ export async function POST(req: Request) {
   */
   try {
     const u = 读用量(JSON.parse(data));
-    if (u) await 记一次({ kind: "account", id: accountId }, { model: String(整理.body.model ?? ""), usage: u });
+    if (u) await 记一次({ kind: "account", id: accountId }, { model: String(整理.body.model ?? ""), usage: u, feature: 功能 });
   } catch {
     // 上游回的不是 JSON —— 那是上面 upstream.ok 该管的事，这儿不掺和
   }

@@ -6,7 +6,9 @@
 
 **The next-generation CRM that runs on your own machine. AI drafts, you decide.**
 
-A CRM for teams of 1–20: leads → customers → follow-ups → deals → contracts, with referral attribution computed for you.<br/>
+**A CRM for one person**: leads → customers → follow-ups → deals → contracts, with referral attribution computed for you.<br/>
+Solo founders, independent consultants, salespeople who own their book — your data is a file on your machine, not a row in someone else's system.<br/>
+(Small teams that need a shared database can self-host; see below.)<br/>
 The home page is an agent: ask a question and it decides what to look up; ask it to change data and it hands you a proposal card — nothing is written until you confirm.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)

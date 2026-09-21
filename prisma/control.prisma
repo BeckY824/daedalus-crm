@@ -318,3 +318,34 @@ model AiCall {
   @@index([at])
   @@index([ownerKind, ownerId])
 }
+
+/// 一个问题扣一次的凭据。
+///
+/// 价格页的原话是「一次提问算一次」，而代码一直按**网关请求**扣：agent 回答一个问题
+/// 要跑好几步（lib/agent/run.ts 的 MAX_STEPS = 6），每步一次请求。2026-09-21 实测，
+/// 6 个提问吃掉 39 次额度——承诺和代码差了一个量级。
+///
+/// 客户端给每个问题一个 requestId（同一个问题的每一步都带同一个），这张表按
+/// (owner, requestId) 记一行：**第一次扣，后面几步只计数**。
+///
+/// 为什么落库不放内存：这是收费契约，而托管版每次发版都会重启进程——
+/// 内存方案会让「正在回答中的那个问题」被重扣一次。
+///
+/// refunded 是标记不是删除：同一个问题可能重试几次，标记才幂等（删了就没法判断退过没有）。
+/// 退过之后这个 id 再来算新的一次——上一次他什么都没拿到。
+model AiCharge {
+  id        String   @id @default(cuid())
+  /// account（桌面端）| workspace（托管版）
+  ownerKind String
+  ownerId   String
+  /// 客户端给这个问题的编号
+  requestId String
+  /// 这个问题到现在发起过几次模型调用。封顶见 lib/tenant/credits.ts 的 每问最多步
+  calls     Int      @default(1)
+  /// 上游失败退还过了没有
+  refunded  Boolean  @default(false)
+  at        DateTime @default(now())
+
+  @@unique([ownerKind, ownerId, requestId])
+  @@index([at])
+}

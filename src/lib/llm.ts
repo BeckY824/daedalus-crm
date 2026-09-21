@@ -342,6 +342,15 @@ type ChatOpts = {
    */
   feature?: string;
   /**
+   * **这一次属于哪个问题。** 同一个问题的每一步（agent 决策、工具、最终回答）都带同一个，
+   * 网关据此只扣一次——价格页那句「一次提问算一次」的实现就在这一对头上
+   * （见 lib/tenant/credits.ts 的 按问题扣一次）。
+   *
+   * 不填也能用：网关认不出就退回「一次调用扣一次」的老口径。自己填 Key 的人
+   * （BYOK、自部署）根本不走我们的网关，这个头对上游是个无害的多余字段。
+   */
+  requestId?: string;
+  /**
    * false = 关掉推理模型的思维链（DeepSeek 的 thinking 参数）。
    * agent 的每步决策只是选工具、填参数，让它"想"一分钟是浪费：真实测过同一段
    * 上下文开着思维链 24~73 秒、关掉 3 秒。最终回答仍开着，质量要紧。
@@ -434,9 +443,19 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
   if (useJsonFormat && !tools?.length) body.response_format = { type: "json_object" };
   if (opts.thinking === false && !不认thinking.has(键)) body.thinking = { type: "disabled" };
   if (stream) body.stream = true;
+  /*
+    两个只有我们自己的网关会看的头。对别家上游（DeepSeek 直连、第三方中转）是多余字段，
+    HTTP 的规矩是不认识的头忽略掉，所以无条件带上比「判断是不是我们的网关」更稳——
+    后者要拿 baseUrl 做字符串匹配，而那个地址是用户在设置里填的。
+      X-Question-Id —— 这一次属于哪个问题（不用 X-Request-Id：那个名字网关和 CDN 自己会注入），网关据此一个问题只扣一次
+      X-Feature    —— 哪个功能发起的，只进成本账。名字要和网关那份白名单对得上
+  */
+  const 额外头: Record<string, string> = {};
+  if (opts.requestId) 额外头["X-Question-Id"] = opts.requestId;
+  if (opts.feature) 额外头["X-Feature"] = opts.feature;
   const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}`, ...额外头 },
     body: JSON.stringify(body),
     signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 60_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 60_000),
   });

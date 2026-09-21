@@ -35,7 +35,7 @@ function 收上下文(v: unknown): { q: string; a: string }[] | undefined {
   return out.length ? out : undefined;
 }
 
-import { 试用额度闸门 } from "@/lib/tenant/ai-allowance";
+import { 试用额度闸门, 退一次额度 } from "@/lib/tenant/ai-allowance";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +59,8 @@ export async function POST(req: Request) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      /** 闸门扣没扣成。出错时据此决定要不要退——闸门自己拦下的那次不算 */
+      let 扣过了 = false;
       const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       const emit: Emit = (e) => send({ type: "step", at: Date.now(), ...e });
       try {
@@ -69,6 +71,8 @@ export async function POST(req: Request) {
          */
         const 超额 = await 试用额度闸门();
         if (超额) throw new Error(超额);
+        // 闸门在这一行之前扣掉了一次。下面任何一步没走通，都要在 catch 里退回去
+        扣过了 = true;
 
         let res: { ok: true; answer: unknown } | { ok: false; error: string };
         if (body.mode === "agent" && typeof body.question === "string") {
@@ -104,6 +108,12 @@ export async function POST(req: Request) {
         }
         send(res.ok ? { type: "result", ok: true, answer: res.answer } : { type: "result", ok: false, error: res.error });
       } catch (e) {
+        /*
+          没给出答案就把那一次退回去。**用户自己中断的不退**——那一次上游已经在跑了，
+          钱是真花出去的；而超额被闸门拦下的那次本来就没扣（扣一次 内部已经还过了）。
+          见 lib/tenant/ai-allowance.ts 的 退一次额度()。
+        */
+        if (扣过了 && !req.signal.aborted) await 退一次额度().catch(() => {});
         // requireUser 未登录时会 redirect()，在路由里表现为抛错
         const msg = e instanceof Error && /NEXT_REDIRECT/.test(e.message) ? "登录已失效，请刷新页面" : e instanceof Error ? e.message : "生成失败";
         send({ type: "result", ok: false, error: msg });
