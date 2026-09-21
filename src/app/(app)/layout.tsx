@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
-import { 本地模式, 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
+import { 本地模式, 归属对不上 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
@@ -27,12 +27,15 @@ export default async function AppLayout({
   // 否则 proxy.ts 会把 /login 弹回 /dashboard 形成死循环。
   const user = await getCurrentUser();
   if (!user) redirect("/api/auth/logout");
-  /**
-   * 桌面端本地模式：身份是云端账号，业务会话只是它的影子。影子还在、本体没了
-   * （令牌被吊销后壳清了文件，而 cookie 还有几天寿命）就不给进——否则人会带着
-   * 一个失效的账号用上半天，只有 AI 在背后 401。
-   */
-  if (本地模式() && !读云端凭据()) redirect("/api/auth/logout?reason=revoked");
+  /*
+    2026-09-21 之前这里还有一条：桌面端本地模式下没有云端账号就踢回登录页。
+    去掉了——**账号是可选的**：它买的是「用我们的模型」，不是「能不能打开自己的客户本」。
+    数据是他机器上的一个文件，把他锁在自己的数据外面换不来任何安全性。
+
+    令牌被吊销这件事仍然会告诉他，但不是靠踢人：壳在启动校验那一下发现之后
+    带着 reason 回来（见 api/desktop/session），登录页会把原因说清；
+    进了应用之后，设置页那一栏也会显示「没登录」。
+  */
   /**
    * 换了账号登录，但数据目录还是上一个账号那份（壳还没换完、或者压根没接到那一声）。
    * **这时进来看到的会是上一个账号的客户**——2026-09-20 报的就是这个。

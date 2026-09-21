@@ -37,7 +37,15 @@ export default async function SettingsBody() {
    * 不再单独问第二遍——这一页每次打开去云端一趟就够了。
    */
   const 云端 = 本地模式() ? 读云端凭据() : null;
-  const 桌面端 = 云端 ? { 账号: 云端.contact || 云端.name, 余额: llm.source === "cloud" ? (llm.credits ?? null) : null } : null;
+  /*
+    **这一栏按「是不是桌面端」给，不按「登没登录」给**（2026-09-21）。
+    原来是没登录就整栏不出现，而里面的备份数据库、打开数据文件夹、查看服务日志、
+    检查更新、连接服务器和云端账号一点关系都没有——账号可选之后，
+    不登录的人会连这些一起丢掉。没登录时 账号 是 null，那张卡自己画成「没登录」。
+  */
+  const 桌面端 = 本地模式()
+    ? { 账号: 云端 ? 云端.contact || 云端.name : null, 余额: llm.source === "cloud" ? (llm.credits ?? null) : null }
+    : null;
 
   const users = await prisma.user.findMany({
     orderBy: { createdAt: "asc" },

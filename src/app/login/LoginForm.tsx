@@ -30,6 +30,7 @@ export default function LoginForm({
   可注册 = false,
   注册地址,
   提示,
+  跳过地址,
 }: {
   可找回密码: boolean;
   用邮箱: boolean;
@@ -40,6 +41,12 @@ export default function LoginForm({
   注册地址?: string;
   /** 为什么会站在这一页——比如令牌在别处被吊销了。有就先说清，再让人登 */
   提示?: string;
+  /**
+   * 「先不登录，直接用」去哪。**只有桌面端有这条路**：数据在他自己机器上，
+   * 账号买的是「用我们的模型」，不该拿它挡住一个本来就能用的 CRM（2026-09-21）。
+   * 给的是壳那条一次性令牌的自动登录地址；没有它（老版本的壳）就不画这条。
+   */
+  跳过地址?: string;
 }) {
   /** 托管版和桌面端的账号是邮箱（或手机号），自部署是管理员建的登录名。见 page.tsx */
   const 账号名 = 桌面端 ? "邮箱或手机号" : 用邮箱 ? "邮箱" : "用户名";
@@ -234,6 +241,23 @@ export default function LoginForm({
         )}
 
         {/*
+          「先不登录，直接用」。**它是这一页上唯一一条不需要密码的路**——
+          进去就是一个能用的本地 CRM，AI 那一块在设置里可以填自己的 Key，
+          也可以回来登。放在表单下面而不是上面：来到这一页的人多半是要登录的，
+          这条是给「我只是想先看看」的人留的门，不是主路。
+        */}
+        {桌面端 && 跳过地址 && (
+          <Rise 第几个={3} style={{ marginTop: 14, textAlign: "center" }}>
+            <a href={跳过地址} style={{ fontSize: 13 }}>
+              先不登录，直接用 →
+            </a>
+            <div style={{ marginTop: 4, fontSize: 12, color: "var(--text-muted)" }}>
+              数据本来就在这台机器上。登录只为用我们的模型，也可以在「AI 接入」里填自己的 Key
+            </div>
+          </Rise>
+        )}
+
+        {/*
           **把拦得住和拦不住的都说出来。**
 
           0.39.2 起数据按云端账号分开存（desktop/accounts.js），换个账号登录
@@ -244,7 +268,7 @@ export default function LoginForm({
           真要彻底隔开只有一条路——各用各的 macOS 账号，那时连数据根都是两份。
         */}
         {桌面端 && (
-          <Rise 第几个={3} style={{ marginTop: 18, fontSize: 12, lineHeight: 1.7, textAlign: "center", color: "var(--text-muted)" }}>
+          <Rise 第几个={4} style={{ marginTop: 18, fontSize: 12, lineHeight: 1.7, textAlign: "center", color: "var(--text-muted)" }}>
             每个账号的数据在这台电脑上各存一份，换账号登录看到的是你自己的。
             <br />
             同一个电脑账户下的人仍能翻到彼此的数据文件；要彻底分开，请各用各的电脑账户。
