@@ -43,6 +43,16 @@ export function computeWritable(w: { status: string; trialEndsAt: Date; paidUnti
   return w.trialEndsAt > now;
 }
 
+/**
+ * 这个「还剩几天」其实是「不过期」。
+ *
+ * 共享工作区的 trialEndsAt 设在 2100 年（scripts/seed-shared.ts 里那句「永远可写」），
+ * 于是 daysLeft 算出来是 26764 天——这个数每天变一次、永远没有意义，
+ * 而运营台把它当真报出来的时候看着像个 bug（2026-09-21 用户就是这么发现的）。
+ * 超过十年就别再报天数了。
+ */
+export const 长期有效 = (天: number) => 天 > 3650;
+
 /** 还剩几天（试用或订阅）。过期为 0 */
 export function daysLeft(w: { trialEndsAt: Date; paidUntil: Date | null }, now = new Date()): number {
   const end = w.paidUntil && w.paidUntil > w.trialEndsAt ? w.paidUntil : w.trialEndsAt;

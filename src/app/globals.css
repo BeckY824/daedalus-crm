@@ -1214,51 +1214,127 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* ---------- 运营台 /admin（设计稿 21/LOW-FREQUENCY）----------
    密度比产品里高一档：这一页是我们自己每天扫一眼的，不是给客户用的。
    深色顶栏 + 环境标记是为了让人一眼知道自己对着的是线上库还是本地。 */
-.ops { min-height: 100vh; background: var(--workbench); }
-.ops-top { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--s5);
-  background: var(--ink); color: var(--on-ink); }
-.ops-top b { font-size: var(--fs-section); font-weight: 600; letter-spacing: -0.2px; }
-.ops-env { padding: 2px 10px; border-radius: 999px; background: var(--ink-soft); color: var(--text-faint);
-  font-size: var(--fs-min); font-weight: 600; letter-spacing: 0.4px; }
-.ops-env-live { background: var(--danger-text); color: var(--danger-line); }
-.ops-body { padding: var(--s5); }
-.ops-stats { display: flex; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s4); }
-.ops-stat { flex: 1; min-width: 180px; background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--r-card); padding: var(--s3) var(--s4); }
-.ops-stat-k { display: block; font-size: var(--fs-note); color: var(--text-muted); }
-.ops-stat b { display: block; font-size: var(--fs-num); font-weight: 600; line-height: 1.3;
-  font-variant-numeric: tabular-nums; }
-.ops-stat-n { font-size: var(--fs-min); color: var(--text-muted); }
-/* 待核对不为 0 时整张卡变黄：它是这一页上唯一要人动手的那一项 */
-.ops-stat-warn { background: var(--warning-bg); border-color: var(--warning-line); }
-.ops-stat-warn b, .ops-stat-warn .ops-stat-n { color: var(--warning-text); }
-/* 运营台里的反馈列表。一条一块，原话占主要位置，附带信息压成一行小字 */
-/* 运营台的模型成本块。样式沿用反馈那一块的骨架，不另起一套 */
-.ops-cost { margin-top: var(--s5); }
-.ops-cost h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font-size: var(--fs-section); font-weight: 600; color: var(--ink); }
-.ops-cost h2 span { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }
-.ops-cost-money { margin: 0 0 12px; font-size: var(--fs-note); color: var(--text-muted); }
-.ops-cost-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--s4); }
-.ops-cost-grid > div { padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); }
-.ops-cost-grid h3 { margin: 0 0 8px; font-size: var(--fs-note); font-weight: 600; color: var(--ink); }
-.ops-cost-grid table { width: 100%; border-collapse: collapse; font-size: var(--fs-min); color: var(--ink-soft); }
-.ops-cost-grid td { padding: 3px 0; }
-.ops-cost-grid td:nth-child(2) { text-align: right; color: var(--text-muted); white-space: nowrap; }
-.ops-cost-grid td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* ── 运营台 ──────────────────────────────────────────────────
+   这一页对着线上库，一个动作就能停掉别人的工作区。所以它的样子要做两件事：
+   一眼知道「我在哪儿」（深色顶栏 + 环境标），一眼扫到「谁要我动手」（数字和状态，
+   而不是一墙按钮）。2026-09-21 重做：原来五个区块各长一套，字号和间距全凭手写，
+   按钮把每一行都撑满，真正要看的数（还剩多少次、烧了多少 token）反而最不显眼。
+   现在统一成一套：24px 的区块节奏、hairline、数字一律等宽右对齐、动作收进「⋯」。 */
+.ops { min-height: 100vh; background: var(--workbench); color: var(--ink); }
 
-.ops-fb { margin-top: var(--s5); }
-.ops-fb h2 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font-size: var(--fs-section); font-weight: 600; color: var(--ink); }
-.ops-fb h2 span { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }
-.ops-fb-empty { font-size: var(--fs-note); color: var(--text-muted); }
-.ops-fb-item { padding: 12px 14px; margin-bottom: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); }
-.ops-fb-item.done { opacity: 0.55; }
+/* 顶栏。深色不是装饰，是「你不在自己的工作区里」那句话 */
+.ops-top { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: var(--s3);
+  padding: 0 var(--s5); height: 52px; background: var(--ink); color: var(--on-ink);
+  border-bottom: 1px solid var(--ink-soft); }
+.ops-top b { font-size: var(--fs-section); font-weight: 600; letter-spacing: -0.2px; }
+.ops-top-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--success); }
+.ops-env { padding: 3px 10px; border-radius: 999px; background: var(--ink-soft); color: var(--text-faint);
+  font-size: var(--fs-min); font-weight: 600; letter-spacing: 0.4px; }
+.ops-env-live { background: var(--danger); color: var(--on-ink); }
+.ops-top-at { font-size: var(--fs-min); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.ops-body { padding: var(--s5) var(--s5) var(--s6); max-width: 1440px; margin: 0 auto; }
+
+/* ── KPI 行。五个数，每个都带一句口径——没有口径的数没人敢用 ── */
+.ops-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: var(--s3); }
+.ops-stat { position: relative; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-card); padding: var(--s3) var(--s4) 14px; overflow: hidden; }
+.ops-stat-k { display: block; font-size: var(--fs-min); font-weight: 600; letter-spacing: 0.3px;
+  color: var(--text-muted); text-transform: uppercase; }
+.ops-stat b { display: block; margin-top: 6px; font-size: var(--fs-num); font-weight: 600; line-height: 1.15;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
+.ops-stat b i { font-size: var(--fs-note); font-weight: 500; font-style: normal; color: var(--text-muted);
+  margin-left: 4px; letter-spacing: 0; }
+.ops-stat-n { display: block; margin-top: 4px; font-size: var(--fs-min); color: var(--text-muted); }
+/* 要人动手的那一张：左侧一道竖条，不整卡变色——整卡变色会把旁边四张一起压下去 */
+.ops-stat-warn::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--warning); }
+.ops-stat-warn b { color: var(--warning-text); }
+
+/* ── 区块：标题 + 计数 + 一句口径，24px 节奏 ── */
+.ops-sec { margin-top: var(--s5); }
+.ops-sec-h { display: flex; align-items: baseline; gap: var(--s2); margin: 0 0 var(--s3); }
+.ops-sec-h h2 { margin: 0; font-size: var(--fs-section); font-weight: 600; letter-spacing: -0.2px; color: var(--ink); }
+.ops-sec-h span { font-size: var(--fs-min); color: var(--text-muted); }
+.ops-sec-h .ops-sec-r { margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
+.ops-empty { margin: 0; padding: var(--s4); background: var(--panel); border: 1px dashed var(--line);
+  border-radius: var(--r-card); font-size: var(--fs-note); color: var(--text-muted); }
+
+/* ── 表格。密一档，但让数字和状态先被看见 ── */
+.ops-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; }
+.ops .ant-table { background: transparent; }
+.ops .ant-table-tbody > tr > td { height: 38px; padding-block: 2px !important; font-size: var(--fs-note); border-color: var(--line-soft) !important; }
+.ops .ant-table-thead > tr > th { height: 34px; font-size: var(--fs-min); font-weight: 600; letter-spacing: 0.2px;
+  color: var(--text-muted); background: var(--hover) !important; border-color: var(--line) !important; }
+.ops .ant-table-tbody > tr:hover > td { background: var(--row-hover); }
+.ops .ant-table-cell.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ops-mono { font-size: var(--fs-min); color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ops-name { font-weight: 500; color: var(--ink); }
+.ops-sub { font-size: var(--fs-min); color: var(--text-muted); }
+/* 共享区那一行：它是发给别人试用的那套账号，和真实客户不是一回事 */
+.ops-badge { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: var(--r-ctl);
+  background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-min); font-weight: 600; }
+
+/* 状态：一个点加一句话。彩色胶囊摆五行就成了圣诞树，而这一列本来只有四种可能 */
+.ops-st { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.ops-st::before { content: ""; width: 6px; height: 6px; border-radius: 999px; background: var(--text-faint); flex: none; }
+.ops-st-trial::before { background: var(--brand); }
+.ops-st-paid::before { background: var(--success); }
+.ops-st-warn::before { background: var(--warning); }
+.ops-st-dead::before { background: var(--danger); }
+.ops-st-warn { color: var(--warning-text); }
+.ops-st-dead { color: var(--danger-text); }
+.ops-st-sub { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+/* AI 次数：一条细条 + 「剩/送」。看的人要的是「快用完没」，不是两个数做减法 */
+.ops-meter { display: flex; align-items: center; gap: var(--s2); justify-content: flex-end; }
+.ops-meter-bar { position: relative; width: 56px; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; flex: none; }
+.ops-meter-bar i { position: absolute; inset: 0 auto 0 0; background: var(--brand); border-radius: 999px; }
+.ops-meter-low i { background: var(--warning); }
+.ops-meter-out i { background: var(--danger); }
+.ops-meter-t { font-size: var(--fs-note); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ops-meter-out .ops-meter-t { color: var(--danger-text); }
+.ops-meter-t s { text-decoration: none; color: var(--text-muted); }
+
+/* ── 模型成本 ── */
+.ops-cost-top { display: grid; grid-template-columns: minmax(280px, 1.4fr) repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s3); }
+.ops-box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3) var(--s4) 14px; }
+.ops-box h3 { display: flex; align-items: baseline; gap: 6px; margin: 0 0 10px; font-size: var(--fs-min); font-weight: 600;
+  letter-spacing: 0.3px; text-transform: uppercase; color: var(--text-muted); }
+.ops-box h3 em { font-style: normal; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--text-faint); }
+.ops-box table { width: 100%; border-collapse: collapse; font-size: var(--fs-note); }
+.ops-box td { padding: 4px 0; color: var(--ink-soft); }
+.ops-box td:nth-child(2) { text-align: right; color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: var(--s3); }
+.ops-box td:last-child { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; padding-left: var(--s3); }
+.ops-box tr + tr td { border-top: 1px solid var(--line-soft); }
+/* 按天那张：14 根柱子。趋势是这块唯一真正要看的东西，用数字表达要读十四行 */
+.ops-spark { display: flex; align-items: flex-end; gap: 3px; height: 56px; margin: 2px 0 8px; }
+.ops-spark-b { flex: 1; min-width: 4px; border-radius: 2px 2px 0 0; background: var(--brand-line);
+  transition: background var(--t-fast) var(--ease); }
+.ops-spark-b.on { background: var(--brand); }
+.ops-spark-b:hover { background: var(--brand-deep); }
+.ops-spark-x { display: flex; justify-content: space-between; font-size: var(--fs-min); color: var(--text-faint);
+  font-variant-numeric: tabular-nums; }
+.ops-cost-money { margin: var(--s3) 0 0; font-size: var(--fs-min); color: var(--text-muted); }
+
+/* ── 反馈。原话占主要位置，附带信息压成一行小字；没处理的排在前面 ── */
+.ops-fb-item { padding: 12px 14px; margin-bottom: var(--s2); background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r-card); transition: border-color var(--t-fast) var(--ease); }
+.ops-fb-item:hover { border-color: var(--line-strong); }
+.ops-fb-item.done { opacity: 0.5; }
+.ops-fb-item.todo { border-left: 3px solid var(--brand); }
 .ops-fb-item p { margin: 8px 0 0; font-size: var(--fs-body); color: var(--ink); white-space: pre-wrap; word-break: break-word; }
-.ops-fb-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-min); color: var(--text-muted); }
+.ops-fb-h { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-min); color: var(--text-muted); }
 .ops-fb-h b { font-size: var(--fs-note); font-weight: 600; color: var(--ink); }
 .ops-fb-ua { cursor: help; text-decoration: underline dotted; }
-/* 表格再密一档：行高 34、字号到下限。工作区一屏能多看七八个 */
-.ops .ant-table-tbody > tr > td { height: 34px; padding-block: 2px !important; font-size: var(--fs-note); }
-.ops .ant-table-thead > tr > th { height: 32px; font-size: var(--fs-min); }
+
+/* 交付文本那一块：开完号要整段发给客户，所以它是可选中的等宽文本，不是一行输入框 */
+.ops-hand { margin: 0; padding: var(--s3) var(--s4); background: var(--hover); border: 1px solid var(--line);
+  border-radius: var(--r-card); font-size: var(--fs-note); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; user-select: all; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ops-spark-b, .ops-fb-item { transition: none; }
+}
 
 /* 刚建出来的那一行：亮一下再退回去。两秒够看见，又不至于留在那儿碍眼。
    用 background-color 从品牌浅底退到透明，不动尺寸——列表在动的时候最怕行高跳。 */

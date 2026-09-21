@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { control } from "@/lib/tenant/control";
 import { multiTenant } from "@/lib/tenant/context";
 import { 成本概览 } from "@/lib/tenant/ai-cost";
-import { computeWritable, daysLeft } from "@/lib/tenant/workspaces";
+import { computeWritable, daysLeft, 长期有效 } from "@/lib/tenant/workspaces";
 import AdminView from "./AdminView";
 
 export const dynamic = "force-dynamic";
@@ -110,6 +110,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
       status: w.status,
       writable: computeWritable(w),
       daysLeft: daysLeft(w),
+      // 共享工作区的 trialEndsAt 在 2100 年，天数报出来是 26764；判定放服务端，视图只读这个布尔
+      长期: 长期有效(daysLeft(w)),
       createdAt: w.createdAt.toISOString(),
       paidUntil: w.paidUntil ? w.paidUntil.toISOString() : null,
       members: w.memberships.length,
@@ -142,6 +144,8 @@ export default async function AdminPage({ searchParams }: { searchParams: Promis
         who: f.who,
         handled: f.handled,
       }))}
+      /* 这一页是快照，不会自己刷新。截至时间写在顶栏上，免得有人拿半小时前的数做决定 */
+      渲染于={new Date().toISOString()}
     />
   );
 }
