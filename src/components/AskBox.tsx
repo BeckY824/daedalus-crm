@@ -21,6 +21,7 @@ export default function AskBox({
   onChange,
   onSubmit,
   onKeyDown,
+  onPaste,
   placeholder,
   disabled,
   maxLength = 1000,
@@ -36,6 +37,11 @@ export default function AskBox({
   onSubmit: () => void;
   /** 先给这一页自己处理；调了 preventDefault 就不再走默认的 Enter 发送 */
   onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  /**
+   * 粘进来了什么。**框里那份可能是截断过的**（textarea 有 maxLength），
+   * 要全文得从 `e.clipboardData` 里拿——首页靠它认出「这是一段聊天记录」。
+   */
+  onPaste?: (e: React.ClipboardEvent<HTMLTextAreaElement>) => void;
   placeholder: string;
   disabled?: boolean;
   maxLength?: number;
@@ -83,6 +89,7 @@ export default function AskBox({
           placeholder={placeholder}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
+          onPaste={onPaste}
           onKeyDown={(e) => {
             onKeyDown?.(e);
             if (e.defaultPrevented) return;

@@ -52,6 +52,8 @@ type Props = {
   customers: Option[];
   /** 进来就把新建表单打开（首页空库那张「开始」卡的落点） */
   直接新建?: boolean;
+  /** 进来就把导入抽屉开在「粘一段文本」那一栏。主线入口，见 dashboard/HomeChat.tsx */
+  直接粘贴?: boolean;
   /**
    * 「数据」页那张「新增学员」卡点进来的：只看这个月建的。
    * 它不进筛选栏（筛选栏摆的是每天都在用的那几个），但**必须让人看见自己在看一个子集**——
@@ -82,7 +84,7 @@ type Props = {
  * 其余的收进「列」里，勾了记在这台机器上。
  */
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 本月新增, aiEnabled,
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, aiEnabled,
 }: Props) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -98,7 +100,7 @@ export default function CustomersView({
   const 空库 = total === 0 && !本月新增 && !Object.values(filters).some((v) => v);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
-  const [导入开着, set导入开着] = useState(false);
+  const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
 
   function apply(next: Partial<typeof f> = {}) {
     const merged = { ...f, ...next };
@@ -378,6 +380,7 @@ export default function CustomersView({
         open={导入开着}
         b={b}
         aiEnabled={Boolean(aiEnabled)}
+        初始来路={直接粘贴 ? "文本" : undefined}
         onClose={() => set导入开着(false)}
         onDone={() => router.refresh()}
       />

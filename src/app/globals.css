@@ -942,6 +942,28 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-cmd-on, .cli-cmd:hover { background: var(--hover); }
 .cli-cmd-k { color: var(--ink); font-weight: 600; min-width: 64px; }
 .cli-cmd-h { color: var(--text-muted); }
+
+/* 框内左下角那个带字的工具键（「粘一段聊天」）。图标键是 28 见方的，
+   这一个要带字——主线入口不能是个没标签的图标，人认不出来 */
+.cli-tool-t { width: auto; padding: 0 10px; gap: 6px; font-size: var(--fs-min); font-weight: 500; }
+.cli-tool-t > .anticon { font-size: var(--ic); }
+
+/* 粘进来一段像记录的东西时，输入框上方那一条。
+   形状沿用命令补全那一块（同一个位置、同一个边框），但它是一条不是一列。
+   **它只是问一句**：切还是不切由人点，AI 不自动跑 */
+.cli-paste { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 12px;
+  background: var(--brand-bg); border: 1px solid var(--brand-line); border-bottom: 0;
+  border-radius: var(--r-card) 8px 0 0; margin-bottom: -1px; font-size: var(--fs-note); }
+.cli-paste + .cli-input { border-radius: 0 0 8px 8px; }
+.cli-paste > .anticon { color: var(--brand); font-size: var(--ic); flex: none; }
+.cli-paste-t { flex: 1; min-width: 0; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cli-paste-y, .cli-paste-n { flex: none; border: 0; border-radius: var(--r-ctl); cursor: pointer;
+  padding: 4px 10px; font-size: var(--fs-min); font-weight: 500;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+.cli-paste-y { background: var(--brand); color: var(--on-ink); }
+.cli-paste-y:hover { background: var(--brand-deep); }
+.cli-paste-n { background: none; color: var(--text-muted); }
+.cli-paste-n:hover { background: var(--hover); color: var(--ink); }
 .md-p { margin: 0 0 8px; }
 .md-h { font-weight: 600; color: var(--ink); margin: 10px 0 4px; }
 .md-list { margin: 0 0 8px; padding-left: 20px; }

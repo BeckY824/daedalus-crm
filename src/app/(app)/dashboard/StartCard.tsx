@@ -3,7 +3,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button } from "antd";
-import { ExperimentOutlined, PlusOutlined } from "@ant-design/icons";
+import { ExperimentOutlined, PlusOutlined, SnippetsOutlined } from "@ant-design/icons";
 import { 查演示数据状态, 灌一套演示数据, type 演示数据状态 } from "@/app/(app)/demo-data";
 import { useBusiness } from "@/lib/business-client";
 
@@ -32,7 +32,12 @@ export default function StartCard() {
   // 状态还没回来时先不画按钮组：画了再换主次，会当着人的面跳一下
   const 能灌演示 = Boolean(状态?.可灌 && 状态.有权限 && 状态.空库);
 
-  const 步骤 = [`录一位${b.customer}`, "问一句进展", "让它记一笔"];
+  /*
+    三步的第一步 2026-09-21 从「录一位客户」改成「粘一段聊天」：
+    空库的人手上没有数据，让他一个字一个字敲第一位是最慢的一条路，
+    而他微信里就有现成的名单。主线是「粘一段 → 客户本自己长出来」。
+  */
+  const 步骤 = [`粘一段聊天，切成${b.customer}`, "问一句进展", "让它记一笔"];
 
   return (
     <>
@@ -71,12 +76,16 @@ export default function StartCard() {
               灌一套演示数据
             </Button>
           )}
+          {/* 主按钮是「粘」：它比手敲快一个量级，而这一屏的人手上多半有一段微信记录 */}
           <Button
             type={能灌演示 ? "default" : "primary"}
-            icon={<PlusOutlined />}
-            onClick={() => router.push("/customers?new=1")}
+            icon={<SnippetsOutlined />}
+            onClick={() => router.push("/customers?import=paste")}
           >
-            新建第一位{b.customer}
+            粘一段聊天
+          </Button>
+          <Button icon={<PlusOutlined />} onClick={() => router.push("/customers?new=1")}>
+            手动录一位
           </Button>
         </div>
         {能灌演示 && <p className="start-note">不会覆盖已有业务数据</p>}

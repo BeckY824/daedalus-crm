@@ -28,6 +28,13 @@ type SP = Promise<{
   createdWithin?: string;
   /** 从首页那张「开始」卡过来的：直接把新建表单打开，省一次点击 */
   new?: string;
+  /**
+   * `paste`：直接把导入抽屉开在「粘一段文本」那一栏。
+   *
+   * 主线是「粘一段聊天 → 客户本自己长出来」，而这条路原来要先点「导入」、
+   * 再在抽屉里切到第二个栏位。首页那张「开始」卡、以后的菜单项和快捷键都指这个地址。
+   */
+  import?: string;
 }>;
 
 export default async function CustomersPage({ searchParams }: { searchParams: SP }) {
@@ -119,6 +126,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       channels={channels}
       customers={allCustomers}
       直接新建={sp.new === "1"}
+      /* ?import=paste：直接把导入抽屉开在「粘一段文本」那一栏（首页那张「开始」卡指过来） */
+      直接粘贴={sp.import === "paste"}
       filters={{
         keyword: sp.keyword ?? "",
         grade: sp.grade ?? "",

@@ -5,11 +5,12 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { App, Dropdown, Tooltip } from "antd";
-import { ArrowUpOutlined, CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
+import { ArrowUpOutlined, CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined, SnippetsOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import ProposalCard from "@/components/ProposalCard";
 import ModelPicker, { useModel, setModel } from "@/components/ModelPicker";
 import AskFiles, { type 附件 } from "@/components/AskFiles";
+import ImportDrawer from "../customers/ImportDrawer";
 import type { ModelOption } from "@/lib/llm";
 import { draftWakeup } from "./ai";
 import { draftInvite } from "../channels/ai";
@@ -91,6 +92,36 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   const model = useModel(models);
   /** 这一问要带的文件。发出去就清空——它属于那一问，不属于这个输入框 */
   const [files, setFiles] = useState<附件[]>([]);
+
+  /*
+    ── 粘一段聊天 ────────────────────────────────────────────
+    主线是「粘一段 → 客户本自己长出来」，而这条路原来藏在客户页的导入抽屉里、
+    还是第二个栏位。首页是人每天看的第一屏，入口就该在这儿（2026-09-21）。
+
+    两个入口，都**不自动跑**：
+      1. 框里粘进来一段像聊天的东西 → 输入框上方出一条提示，点了才走
+      2. 框内左下角一个常驻的按钮 → 空着打开那扇门
+
+    识别只看形状不看内容：**三行以上、六十字以上**才算。一句长问题不该被拦下来问
+    「这是不是聊天记录」，而真正的聊天记录几乎不可能只有两行。
+  */
+  const [粘贴开着, set粘贴开着] = useState(false);
+  /** 递给抽屉的全文。框里那份被 maxLength 截过，所以单独存一份 */
+  const [粘来的, set粘来的] = useState("");
+  /** 上方那条提示。人点了「当成问题问」就收起来，不再纠缠 */
+  const [提示粘贴, set提示粘贴] = useState<{ 文本: string; 行数: number } | null>(null);
+
+  function 认一下粘的是什么(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const 全文 = e.clipboardData?.getData("text") ?? "";
+    const 行数 = 全文.split(/\r?\n/).filter((l) => l.trim()).length;
+    if (行数 >= 3 && 全文.trim().length >= 60) set提示粘贴({ 文本: 全文, 行数 });
+  }
+
+  function 去粘贴(文本: string) {
+    set粘来的(文本);
+    set提示粘贴(null);
+    set粘贴开着(true);
+  }
   const [q, setQ] = useState("");
   const [cmdIdx, setCmdIdx] = useState(0);
   /** 输入框空着时，↑↓ 在下面那排建议问题里选，回车就发。-1 = 没选 */
@@ -388,11 +419,50 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
               setCmdIdx(0);
             }}
             onSubmit={() => submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q)}
+            onPaste={认一下粘的是什么}
             placeholder={running ? "正在回答… 再问会排队，Esc 打断" : `问一位${b.customer}，或问一个数`}
-            栏左={<AskFiles files={files} onChange={setFiles} disabled={running != null} />}
+            栏左={
+              <>
+                <AskFiles files={files} onChange={setFiles} disabled={running != null} />
+                {/*
+                  主线入口。和加文件并排——都是「把外面的东西弄进来」，不是「问一句」。
+                  **窄模式（右侧面板）只留图标**：380 宽那一条里还要塞模型选单和发送键，
+                  带字的话三样挤在一起，而那一屏本来就是「在别的页面上顺手问一句」，
+                  粘一段名单是首页的事。
+                */}
+                <button
+                  type="button"
+                  className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}`}
+                  onClick={() => 去粘贴("")}
+                  disabled={running != null}
+                  title="把一段聊天记录粘进来，切成客户记录"
+                >
+                  <SnippetsOutlined />
+                  {模式 === "宽" && <span>粘一段聊天</span>}
+                </button>
+              </>
+            }
             栏右={<ModelPicker options={models} value={model} />}
             上方={
-              cmdMatches.length > 0 ? (
+              提示粘贴 ? (
+                /*
+                  粘进来的像是一段聊天。**只提示，不自动跑**——这是 2026-09 拍板的那条
+                  「AI 不自动跑」：一次切分要花一次 AI 次数，得他点。
+                  右边那个「当成问题问」是给误判留的门，点一次就不再纠缠。
+                */
+                <div className="cli-paste">
+                  <SnippetsOutlined />
+                  <span className="cli-paste-t">
+                    粘进来 {提示粘贴.行数} 行，像是一段记录——要切成{b.customer}吗？
+                  </span>
+                  <button type="button" className="cli-paste-y" onClick={() => 去粘贴(提示粘贴.文本)}>
+                    切成{b.customer}
+                  </button>
+                  <button type="button" className="cli-paste-n" onClick={() => set提示粘贴(null)}>
+                    当成问题问
+                  </button>
+                </div>
+              ) : cmdMatches.length > 0 ? (
                 <div className="cli-cmds">
                   {cmdMatches.map((c, i) => (
                     <div key={c.cmd} className={`cli-cmd${i === cmdIdx ? " cli-cmd-on" : ""}`} onMouseDown={() => submit(c.cmd)}>
@@ -509,6 +579,24 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
           </div>
         </div>
       </div>
+
+      {/*
+        「粘一段聊天」那扇门。复用客户页那个导入抽屉——切分、两条核对（抓编造、抓漏人）、
+        整批可撤销全在里面，主线入口不该另起一套规矩。
+        aiEnabled 按「有没有模型可选」判：和右边那个模型选单同一个依据。
+      */}
+      <ImportDrawer
+        open={粘贴开着}
+        b={b}
+        aiEnabled={models.length > 0}
+        初始来路="文本"
+        初始文本={粘来的}
+        onClose={() => {
+          set粘贴开着(false);
+          set粘来的("");
+        }}
+        onDone={() => router.refresh()}
+      />
     </div>
   );
 }

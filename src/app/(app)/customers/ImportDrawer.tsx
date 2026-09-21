@@ -49,6 +49,8 @@ export default function ImportDrawer({
   b,
   aiEnabled,
   onDone,
+  初始来路,
+  初始文本,
 }: {
   open: boolean;
   onClose: () => void;
@@ -56,6 +58,16 @@ export default function ImportDrawer({
   /** 接上模型了没有。没接上时「粘一段文本」那条路只说明原因，不给按钮 */
   aiEnabled: boolean;
   onDone: () => void;
+  /**
+   * 开门停在哪一栏。**「粘」是主线入口**（2026-09-21）：首页认出你粘的是一段聊天时，
+   * 直接把人送到这一栏，而不是先落到「文件」上再让人自己找。
+   */
+  初始来路?: "文件" | "文本";
+  /**
+   * 开门时就把这段文本填好。首页那一下粘的是全文——
+   * 输入框里那份被 maxLength 截过，所以必须由调用方把全文递进来。
+   */
+  初始文本?: string;
 }) {
   const { message, modal } = App.useApp();
   const 表 = useMemo(() => 字段表(b), [b]);
@@ -68,6 +80,25 @@ export default function ImportDrawer({
   /** 原文里有、整理出来的表里却没有的手机号 */
   const [漏掉, set漏掉] = useState<string[]>([]);
   const [文件名, set文件名] = useState("");
+
+  /**
+   * 开门时按调用方说的停在哪一栏、填好哪段文本。
+   *
+   * **不用 effect**：effect 里 setState 是「先画一遍旧的、再画一遍新的」，
+   * 抽屉会当着人的面从「文件」跳到「文本」。这是 React 文档里那条
+   * 「props 变了要调整 state」的写法——在渲染中比对上一次的值，当场改完再画。
+   *
+   * 只在 open 从假变真那一下做：关掉之后调用方多半会把 `初始文本` 清成空串，
+   * 而那时人可能已经在框里改过字了，跟着 props 一路同步会把他改的抹掉。
+   */
+  const [上次open, set上次open] = useState(open);
+  if (open !== 上次open) {
+    set上次open(open);
+    if (open) {
+      if (初始来路) set来路(初始来路);
+      if (初始文本) set原文(初始文本);
+    }
+  }
   const [表头, set表头] = useState<string[]>([]);
   const [数据, set数据] = useState<string[][]>([]);
   const [截断了, set截断了] = useState<{ 行?: number; 列?: number } | undefined>();
@@ -369,6 +400,16 @@ function 粘贴面板({
 }) {
   const 称呼 = b.customer;
   const 超了 = 原文.length > 粘贴字数上限;
+  /**
+   * 一段能直接点来用的例子。**空白页是第一次用的人最容易退出去的地方**——
+   * 他手上不一定正好有一段聊天，而「粘一段」这件事光靠一句提示说不清楚。
+   * 内容是编的、明显是样例（远山资本 / 平川科技），不会和真数据混。
+   */
+  const 例子 = [
+    "老王 13800001111 远山资本，昨天见过面，说预算要等下个季度",
+    "@李娜 138-0000-2222 平川科技 已经加微信，让我周三再联系一次",
+    "还有个张总，手机 13700002222，他是老王介绍过来的，暂时只是了解",
+  ].join("\n");
   return (
     <>
       <div style={{ background: "var(--brand-bg)", border: "1px solid var(--brand-line)", borderRadius: 8, padding: "12px 14px" }}>
@@ -380,6 +421,11 @@ function 粘贴面板({
           placeholder={`把${称呼}名单、群接龙、会议纪要，或者一段微信聊天记录粘进来。\n不用整理成表格，怎么来的就怎么粘。\n\n如：\n王强 13800001111 远山资本 下周三再聊\n李娜，手机 138-0000-2222，平川科技，已经加了微信`}
         />
         <div style={{ marginTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          {!原文.trim() && aiEnabled && (
+            <Button size="small" type="link" style={{ padding: 0 }} onClick={() => set原文(例子)}>
+              没有现成的？先看个例子
+            </Button>
+          )}
           <Typography.Text type={超了 ? "danger" : "secondary"} style={{ fontSize: 12 }}>
             {超了
               ? `超了 ${(原文.length - 粘贴字数上限).toLocaleString()} 字。再多请存成 Excel 走「文件」那条路`
