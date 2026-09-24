@@ -185,16 +185,6 @@ export async function 结算赠送(owner: Owner, 机器?: string | null): Promis
     await 赠送(owner, { amount: 注册赠送, reason: "signup", key: `${owner.id}:signup` });
   } else {
     await 结算注册赠送(owner.id, 机器);
-    // 付费订阅那一份（个人版每月 N 次）。懒发放：付款时发一次，之后每次结账顺手补。
-    // 桌面端那条线没有我们的定时任务够得着的地方——用户的机器可能一个月才开一次，
-    // cron 发出去的次数他也用不上。
-    // 动态 import 是为了避开 billing → credits → billing 的循环依赖（同 ai-allowance 的写法）。
-    const { 结算订阅次数, 订阅中 } = await import("@/lib/billing/orders");
-    await 结算订阅次数(owner.id);
-    // **订阅期内不再发每日那 3 次。** 和工作区那一侧一个道理（付费的根本不走结算）：
-    // 每日赠送是给试用的人续命的，付了钱的人用超了该买加购包。
-    // 照发的话「每月 300 次」就不是 300——每天再多 3 次，一个月白多 90。
-    if (await 订阅中(owner.id)) return;
   }
   const [送, 用] = await Promise.all([赠送总和(owner), 用掉次数(owner)]);
   if (送 - 用 >= 每日赠送门槛) return;
