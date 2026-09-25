@@ -703,6 +703,12 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 @media (max-width: 900px) {
   .rec { grid-template-columns: 1fr; }
 }
+/* 上面两条看视口，只管第一帧（还没量到正文多宽的时候）。量到之后由 RecordView 按正文实际宽度
+   挂这两个类——右边的全局面板开着时视口断点会误判，见 lib/roster.ts 的 DockOpenContext */
+.rec.rec-2col { grid-template-columns: 240px minmax(0, 1fr); }
+.rec.rec-2col .rec-right { grid-column: 1 / -1; }
+.rec.rec-2col .rec-rail { position: static; }
+.rec.rec-1col { grid-template-columns: 1fr; }
 
 /* ---------- 首页：对话面 ---------- */
 .home { min-height: calc(100vh - 140px); display: flex; flex-direction: column; }

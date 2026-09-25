@@ -32,6 +32,7 @@ import FeedbackButton from "./FeedbackButton";
 import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
 import { useBusiness } from "@/lib/business-client";
+import { DockOpenContext } from "@/lib/roster";
 
 const { Header, Content } = Layout;
 
@@ -114,6 +115,8 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
   /** 这一次会话里手动开合过。null = 还没动过，听存档的 */
   const [手动, set手动] = useState<boolean | null>(null);
   const 面板开着 = 手动 ?? 存的面板;
+  /** 名单和记录页的断点要知道右边这条面板占了地方（见 lib/roster.ts 的 DockOpenContext） */
+  const 面板占着地方 = Boolean(ai) && !小屏 && 面板开着 && pathname !== "/dashboard";
   const 记住面板 = (开: boolean) => {
     set手动(开);
     try {
@@ -256,6 +259,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
   }
 
   return (
+    <DockOpenContext.Provider value={面板占着地方}>
     <div className={`shell${desktop ? " shell-desktop" : ""}${面板开着 && pathname !== "/dashboard" ? " shell-dock-open" : ""}`}>
       {/* 桌面端顶上那条能拖窗口的把手，见 globals.css 的 .drag-strip */}
       {desktop && <div className="drag-strip" aria-hidden="true" />}
@@ -357,5 +361,6 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
       */}
       {ai && !小屏 && <AiDock userName={user.name} models={ai.models} aiQuota={ai.aiQuota} 开着={面板开着} set开着={记住面板} />}
     </div>
+    </DockOpenContext.Provider>
   );
 }

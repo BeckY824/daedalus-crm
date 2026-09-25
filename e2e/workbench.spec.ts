@@ -241,7 +241,8 @@ test("列设置：能连着勾好几项，单子不会自己收；再点按钮�
 });
 
 test("客户记录：左边有窄名单，切人不回列表", async ({ page }) => {
-  await page.setViewportSize({ width: 1560, height: 900 });
+  // 1960：右边 AI 面板开着时名单要多让出 380 才摆得下（lib/roster.ts 的 DockOpenContext）
+  await page.setViewportSize({ width: 1960, height: 900 });
   await 登录(page);
   await page.goto("/customers");
   await page.waitForSelector(".ant-table-row");
@@ -619,7 +620,7 @@ test("联系人页能直接加一位，但第一格必须先选归属", async ({
   const 弹窗 = page.getByRole("dialog");
   await expect(弹窗).toBeVisible();
   // 只填姓名就保存：得被拦住。没有归属的联系人没有意义
-  await 弹窗.getByPlaceholder("王妈妈").fill("走查的家长");
+  await 弹窗.getByPlaceholder("张经理").fill("走查的家长");
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
   await expect(弹窗.getByText(/请选择所属/)).toBeVisible();
   await expect(弹窗).toBeVisible();

@@ -231,7 +231,7 @@ export default function FollowUpForm({
             onChange={(e) => setAiText(e.target.value)}
             autoSize={{ minRows: 2, maxRows: 6 }}
             maxLength={5000}
-            placeholder={'跟进速记：把沟通过程随手倒出来，或直接粘贴微信聊天记录，AI 帮你填表。\n如："刚跟王妈妈打了20分钟，她担心孩子时间不够，想先试两节课，下周三晚上再约她聊报价"'}
+            placeholder={'跟进速记：把沟通过程随手倒出来，或直接粘贴微信聊天记录，AI 帮你填表。\n如："刚和周总通了 20 分钟电话，他担心交期，想先小批量试一单，下周三再约他聊报价"'}
           />
           <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
@@ -265,7 +265,7 @@ export default function FollowUpForm({
           <Col span={24}>
             {/* 选填：时间线上已有跟进类型，标题只在需要一句话概括时才有意义 */}
             <Form.Item name="title" label="标题" extra="选填，填了会显示在跟进记录上">
-              <Input placeholder="如：与王妈妈沟通试听安排与报价" />
+              <Input placeholder="如：与周总沟通试单与报价" />
             </Form.Item>
           </Col>
           <Col span={24}>
@@ -309,7 +309,7 @@ export default function FollowUpForm({
           {type === "MEETING" && (
             <Col span={12}>
               <Form.Item name="participants" label="参与人" tooltip="多人用逗号分隔">
-                <Input placeholder="王妈妈, 王同学" />
+                <Input placeholder="周总, 小李" />
               </Form.Item>
             </Col>
           )}

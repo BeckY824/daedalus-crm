@@ -90,7 +90,7 @@ export default function ContactForm({
           )}
           <Col span={12}>
             <Form.Item name="name" label="姓名" rules={[{ required: true, message: "请填写姓名" }]}>
-              <Input placeholder="王妈妈" />
+              <Input placeholder="张经理" />
             </Form.Item>
           </Col>
           <Col span={12}>
@@ -105,7 +105,7 @@ export default function ContactForm({
           </Col>
           <Col span={12}>
             <Form.Item name="email" label="邮箱">
-              <Input placeholder="wangmama@example.com" />
+              <Input placeholder="name@company.com" />
             </Form.Item>
           </Col>
           <Col span={12}>

@@ -66,12 +66,14 @@ async function 点侧栏(page: Page, 名字: string | RegExp, 落地: RegExp) {
 /**
  * 从客户列表点第一行进记录页，也是客户端导航。
  *
- * **先把窗口放到 1560。** 记录页的窄名单在 1440 以下会收成抽屉（那时 `aside.pane` 不存在，
+ * **先把窗口放到 1960。** 记录页的窄名单在 1440 以下会收成抽屉（那时 `aside.pane` 不存在，
  * 见 workbench 里「窄屏下名单收成抽屉」那条），而 playwright 的默认视口是 1280——
  * 不设宽度的话这一组验的其实是抽屉状态，全是假红。
+ * 右边的 AI 面板开着时它还要再让出 380（见 lib/roster.ts 的 DockOpenContext），
+ * 而这套 e2e 里 AI 配没配要看别的 spec 留下了什么，所以按面板开着的情况给足宽度。
  */
 async function 进第一位客户(page: Page) {
-  await page.setViewportSize({ width: 1560, height: 900 });
+  await page.setViewportSize({ width: 1960, height: 900 });
   await page.locator(".ant-table-tbody tr.ant-table-row").first().click();
   await expect(page).toHaveURL(/\/customers\/[^/]+$/);
 }
@@ -108,6 +110,18 @@ test.describe("中栏跟着路由走", () => {
     // 就是这一条在修之前是红的：槽位是 page，客户端导航时会重算
     await expect(中栏(page)).toBeVisible();
     await expect(中栏(page).locator(".pane-t")).toContainText("客户");
+  });
+
+  test("默认窗口 1440、右边面板开着：记录页的时间线不能被挤成一条缝", async ({ page }) => {
+    // 2026-09-25 录教程时撞到：面板开着时视口断点以为还有 1440，名单和 AI 栏照摆，时间线只剩 30 来宽、字竖着排
+    await 登录(page);
+    await 点侧栏(page, "客户", 到.客户);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.locator(".ant-table-tbody tr.ant-table-row").first().click();
+    await expect(page).toHaveURL(/\/customers\/[^/]+$/);
+    const 时间线 = page.locator(".rec > .rec-col").first();
+    await expect(时间线).toBeVisible();
+    await expect.poll(async () => (await 时间线.boundingBox())?.width ?? 0).toBeGreaterThan(300);
   });
 
   test("刷新之后还在，且和点进来时是同一个中栏", async ({ page }) => {

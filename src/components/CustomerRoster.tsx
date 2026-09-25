@@ -9,7 +9,7 @@ import { FOLLOW_STATUSES, FOLLOW_STATUS_COLOR } from "@/lib/constants";
 import { avatarColor, initial, smartTime, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
-import { 开名单, 关名单, useRosterOpen, useNarrow } from "@/lib/roster";
+import { 开名单, 关名单, useRosterOpen, useRosterInDrawer } from "@/lib/roster";
 
 export type CustomerRosterData = {
   total: number;
@@ -34,7 +34,7 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
   const pathname = usePathname();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("");
-  const 抽屉里 = useNarrow("(max-width: 1439px)");
+  const 抽屉里 = useRosterInDrawer();
   const 抽屉开着 = useRosterOpen();
   const 搜索框 = useRef<HTMLInputElement>(null);
   const activeId = pathname.startsWith("/customers/") ? pathname.split("/")[2] : "";

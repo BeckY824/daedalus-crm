@@ -108,3 +108,18 @@ describe("优先级与去重", () => {
     expect(buildWatchlist({ ...empty, customers }, now)).toHaveLength(8);
   });
 });
+
+describe("逾期计划的说法", () => {
+  const plan = (hoursAgo: number) => ({
+    customerId: "c1", customerName: "王同学", ownerName: "张三", subject: "发报价",
+    plannedAt: new Date(now.getTime() - hoursAgo * 36e5),
+  });
+  it("今天约好、时间已过不满一天：说「今天该做」，不说「已逾期 0 天」", () => {
+    const [it0] = buildWatchlist({ ...empty, overduePlans: [plan(3)] }, now);
+    expect(it0.reason).toBe("跟进计划「发报价」今天该做，还没做");
+  });
+  it("满一天才按天数说", () => {
+    const [it1] = buildWatchlist({ ...empty, overduePlans: [plan(26)] }, now);
+    expect(it1.reason).toBe("跟进计划「发报价」已逾期 1 天");
+  });
+});

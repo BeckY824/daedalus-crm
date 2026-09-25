@@ -262,7 +262,7 @@ export default function LeadsView({
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="contact" label="联系人"><Input placeholder="王妈妈" /></Form.Item>
+              <Form.Item name="contact" label="联系人"><Input placeholder="张经理" /></Form.Item>
             </Col>
             <Col span={12}>
               <Form.Item name="phone" label="联系电话"><Input placeholder="13800002211" /></Form.Item>

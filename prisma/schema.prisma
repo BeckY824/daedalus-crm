@@ -54,7 +54,7 @@ model Lead {
   phone     String?
   email     String?
   industry  String?
-  source    String    @default("其他") // 官网注册 | 电话咨询 | 展会 | 转介绍 | 广告投放 | 其他
+  source    String    @default("其他") // 官网注册 | 电话咨询 | 展会获取 | 转介绍 | 广告投放 | 商务拓展 | 其他（见 lib/constants.ts 的 CUSTOMER_SOURCES）
   status    String    @default("待跟进") // 待跟进 | 跟进中 | 已转化 | 已放弃
   remark    String?
   ownerId   String?

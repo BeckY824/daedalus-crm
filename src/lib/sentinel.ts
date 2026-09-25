@@ -67,7 +67,8 @@ export function buildWatchlist(
       customerId: p.customerId,
       customerName: p.customerName,
       ownerName: p.ownerName,
-      reason: `跟进计划「${p.subject}」已逾期 ${days} 天`,
+      // 不满一天（今天约好的、时间已过）说「今天该做」——「已逾期 0 天」读着像没逾期
+      reason: days < 1 ? `跟进计划「${p.subject}」今天该做，还没做` : `跟进计划「${p.subject}」已逾期 ${days} 天`,
       score: 100 + Math.min(days, 30),
     });
   }

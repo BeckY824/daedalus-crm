@@ -240,7 +240,7 @@ export async function 灌演示数据(db: PrismaClient, ownerUserId: string): Pr
   const 线索 = [
     { name: "郑工（沐野数据）", contact: "郑工", phone: "13702003001", source: "官网注册", status: "待跟进", remark: "留言问私有化部署" },
     { name: "何女士（白羽设计）", contact: "何女士", phone: "13702003002", source: "电话咨询", status: "跟进中", remark: "十来个人的团队，问按年付" },
-    { name: "秋季行业展 A12", contact: "现场登记", phone: "13702003003", source: "展会", status: "待跟进", remark: "展会现场扫码留资 17 家，这是其中之一" },
+    { name: "秋季行业展 A12", contact: "现场登记", phone: "13702003003", source: "展会获取", status: "待跟进", remark: "展会现场扫码留资 17 家，这是其中之一" },
     { name: "吴总（通元商贸）", contact: "吴总", phone: "13702003004", source: "转介绍", status: "跟进中", remark: "老客户介绍" },
   ];
   for (const [i, l] of 线索.entries()) {

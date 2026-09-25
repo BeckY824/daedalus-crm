@@ -31,7 +31,7 @@ import CustomerForm from "../CustomerForm";
 import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
 import { toggleTask, deleteTask, deleteFollowUp, completePlan, deleteContact, saveFollowUp } from "./actions";
-import { 开名单, useNarrow } from "@/lib/roster";
+import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
 import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 
@@ -93,8 +93,17 @@ export default function RecordView({
    * 1440 以下名单收成抽屉，1180 以下 AI 也收成抽屉。
    * 收起来的东西必须有一个看得见的开关，否则就是没了。
    */
-  const 名单在抽屉里 = useNarrow("(max-width: 1439px)");
-  const AI在抽屉里 = useNarrow("(max-width: 1179px)");
+  const 名单在抽屉里 = useRosterInDrawer();
+  /**
+   * AI 栏收不收看正文实际多宽，不看视口：右边的全局面板开着时视口断点会误判（见 lib/roster.ts）。
+   * 908 = 视口 1180 减左栏 220、正文留白 52——没开面板时和原来的视口断点一模一样；630 以下单栏（对应视口 900）。
+   * 量到之前先按视口猜，和改之前一样。
+   */
+  const recRef = useRef<HTMLDivElement>(null);
+  const 正文宽 = useWidth(recRef);
+  const 视口窄 = useNarrow("(max-width: 1179px)");
+  const AI在抽屉里 = 正文宽 === null ? 视口窄 : 正文宽 < 908;
+  const 单栏 = 正文宽 !== null && 正文宽 < 630;
   const [AI抽屉开着, setAI抽屉开着] = useState(false);
 
   const entries = useMemo<Entry[]>(() => {
@@ -201,7 +210,7 @@ export default function RecordView({
         )}
       </div>
 
-      <div className="rec">
+      <div ref={recRef} className={`rec${AI在抽屉里 ? " rec-2col" : ""}${单栏 ? " rec-1col" : ""}`}>
         {/* ================= 左栏：档案 ================= */}
         <aside className="rec-rail rec-card">
           {/* 名字和头像不在这儿重画一遍：页头上已经有了（设计稿 12/PAGE 的「基本资料」卡
