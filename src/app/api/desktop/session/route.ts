@@ -19,9 +19,9 @@ export const dynamic = "force-dynamic";
  *   2. 令牌由 Electron 每次启动现生成，只存在于父子进程的环境变量里，不落盘。
  *   3. 令牌用定长比较，不给计时侧信道留口子。
  *
- * **门不是云端账号**（2026-09-21 起）：没有 .cloud.json 也照样签会话——账号买的是
- * 「用我们的模型」，而不是「能不能打开自己的客户本」。云端账号在设置里登，
- * 登录页只有两种人会看见：壳说令牌被吊销了（带 reason 回来），以及他自己点「登录」。
+ * **门是云端账号**：本机没有 .cloud.json（还没登录、或者退出了、或者令牌被吊销后清掉了）
+ * 就回登录页，那一页画的是云端账号的登录表单（app/login/page.tsx）。登录成功后
+ * 由那个表单的动作直接建会话，不再回到这里。
  *
  * 会话签给业务库里第一个管理员——本地模式是单人使用，他就是登录的那个云端账号
  * （登录动作和 server-entry.js 都会把他的名字、邮箱对成账号的）。
@@ -60,22 +60,14 @@ export async function GET(req: Request) {
     return new NextResponse(null, { status: 307, headers: { Location: "/api/auth/logout?reason=switched" } });
   }
 
-  /*
-    ── 云端账号是可选的（2026-09-21 改） ──────────────────────────
-    在这之前：没有 .cloud.json 就把人送回登录页——于是桌面端第一次打开就是一张登录表单，
-    而那个账号买的其实只有「用我们的模型」。数据在他自己机器上，库是他自己的文件，
-    再要一次密码不增加任何安全性，只是把第一次打开变成一道门。
-
-    现在：**没登录也照样进**，进去就是一个能用的本地 CRM。想用我们的模型再去登
-    （设置 → 桌面端），或者在「AI 接入」里填自己的 Key——那条路本来就不要账号。
-
-    **但带着原因回来的还是要先说清**：壳在启动校验里发现令牌被吊销时会带 `reason=revoked`，
-    那是一件他该知道的事（AI 会停），不能一声不吭地放进去。经 logout 走是因为
-    业务会话 cookie 可能还活着，直接去 /login 会被 proxy.ts 弹回 /dashboard。
-  */
-  const reason = new URL(req.url).searchParams.get("reason");
-  if (reason) {
-    return new NextResponse(null, { status: 307, headers: { Location: `/api/auth/logout?reason=${encodeURIComponent(reason)}` } });
+  if (!读云端凭据()) {
+    /**
+     * 没登录云端账号（还没登、退出了、被吊销后清掉了）。**经 logout 走**而不是直接去 /login：
+     * 业务会话 cookie 可能还活着（7 天），直接去 /login 会被 proxy.ts 弹回 /dashboard，
+     * 人就带着一个失效的云端账号进了应用。壳传来的原因（reason）原样带过去。
+     */
+    const reason = new URL(req.url).searchParams.get("reason");
+    return new NextResponse(null, { status: 307, headers: { Location: `/api/auth/logout${reason ? `?reason=${encodeURIComponent(reason)}` : ""}` } });
   }
 
   const admin = await prisma.user.findFirst({

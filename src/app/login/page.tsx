@@ -25,20 +25,14 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
 
   /**
-   * 桌面端本地模式：这一页画的是**云端账号**（2026-09-17 起桌面端只有这一套身份）。
-   *
-   * **但它不再是大门**（2026-09-21）：账号买的是「用我们的模型」，不是「能不能打开
-   * 自己的客户本」。会走到这一页的只有两种人——壳说令牌被吊销了（带 reason 回来），
-   * 和他自己从设置里点「登录」。两种都给一条「先不登录，直接用」的路走回应用。
-   *
-   * 手上有令牌、又不是带着原因回来的，一步都不该停：走自动登录那条路。
+   * 桌面端本地模式：这一页就是**云端账号**的门（2026-09-17 起桌面端只有这一套身份）。
+   * 手上有令牌的人不该停在这里——走自动登录那条路，和壳启动时同一个路由。
    * 画哪几个入口由云端说了算：注册收不收、能不能自助找回，问一次 /api/account/policy。
    */
   if (本地模式()) {
-    const 进应用 = process.env.DESKTOP_TOKEN
-      ? `/api/desktop/session?t=${encodeURIComponent(process.env.DESKTOP_TOKEN)}`
-      : undefined;
-    if (读云端凭据() && 进应用 && !sp.reason) redirect(进应用);
+    if (读云端凭据() && process.env.DESKTOP_TOKEN && !sp.reason) {
+      redirect(`/api/desktop/session?t=${encodeURIComponent(process.env.DESKTOP_TOKEN)}`);
+    }
     const p = await 策略();
     return (
       <LoginForm
@@ -48,7 +42,6 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         可注册={p.register}
         注册地址={`${云端地址()}/signup?from=desktop`}
         提示={sp.reason ? 原因文案[sp.reason] : undefined}
-        跳过地址={进应用}
       />
     );
   }

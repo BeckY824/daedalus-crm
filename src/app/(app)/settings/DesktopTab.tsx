@@ -19,8 +19,7 @@ import { 赠送说明 } from "@/lib/credits-copy";
 import type { 云端余额 } from "@/lib/llm";
 
 export type 桌面端信息 = {
-  /** 登录的云端账号。**null = 没登录**——账号是可选的（2026-09-21），见下面那张卡 */
-  账号: string | null;
+  账号: string;
   余额: 云端余额 | null;
 };
 
@@ -99,44 +98,21 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
     <div className="set-col" style={{ paddingTop: 8 }}>
       <Space orientation="vertical" size={16} style={{ width: "100%" }}>
         <Card size="small" title="云端账号">
-          {账号 ? (
-            <>
-              <Typography.Paragraph style={{ marginBottom: 6 }}>
-                已登录：<b>{账号}</b>
-              </Typography.Paragraph>
-              <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-                {余额
-                  ? `AI 免费次数还剩 ${余额.还剩} 次（一共送过 ${余额.上限} 次，用掉 ${余额.用掉} 次${赠送说明(余额) ? `；${赠送说明(余额)}` : ""}）。`
-                  : "AI 免费次数暂时查不到（可能没联网）。"}
-                也可以在「AI 接入」里填自己的 Key，那样不走这个额度。数据始终只在这台机器上。
-              </Typography.Paragraph>
-              <Space>
-                <Button onClick={() => set改密码开着(true)}>修改密码</Button>
-                <Button danger onClick={退出}>
-                  退出登录
-                </Button>
-              </Space>
-            </>
-          ) : (
-            /*
-              没登录。**这不是一个要修的状态**（2026-09-21 起账号是可选的）：
-              CRM 本来就在这台机器上跑，账号买的只有「用我们的模型」。
-              所以这里说的是「能换来什么」，不是「你还没完成设置」。
-            */
-            <>
-              <Typography.Paragraph style={{ marginBottom: 6 }}>
-                <b>没登录</b>——CRM 照常用，数据在这台机器上。
-              </Typography.Paragraph>
-              <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-                登录一个云端账号就能用我们的模型，第一次登录送 30 次 AI 对话（一台电脑只送一份）。
-                不想登录也行：在「AI 接入」里填自己的 Key，那条路不走我们的额度、也不需要账号。
-              </Typography.Paragraph>
-              {/* 整页跳：登录那一步要换会话，软导航会被 proxy 弹来弹去 */}
-              <Button type="primary" href="/login">
-                登录云端账号
-              </Button>
-            </>
-          )}
+          <Typography.Paragraph style={{ marginBottom: 6 }}>
+            已登录：<b>{账号 || "（未知）"}</b>
+          </Typography.Paragraph>
+          <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
+            {余额
+              ? `AI 免费次数还剩 ${余额.还剩} 次（一共送过 ${余额.上限} 次，用掉 ${余额.用掉} 次${赠送说明(余额) ? `；${赠送说明(余额)}` : ""}）。`
+              : "AI 免费次数暂时查不到（可能没联网）。"}
+            也可以在「AI 接入」里填自己的 Key，那样不走这个额度。数据始终只在这台机器上。
+          </Typography.Paragraph>
+          <Space>
+            <Button onClick={() => set改密码开着(true)}>修改密码</Button>
+            <Button danger onClick={退出}>
+              退出登录
+            </Button>
+          </Space>
         </Card>
 
         <Card size="small" title="本机数据">
@@ -201,8 +177,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
         </Card>
       </Space>
 
-      {/* 改密码是「已登录」那半边的事：没账号时连这个弹窗都不该存在 */}
-      {账号 && <ChangePasswordModal open={改密码开着} 账号={账号} onClose={() => set改密码开着(false)} />}
+      <ChangePasswordModal open={改密码开着} 账号={账号} onClose={() => set改密码开着(false)} />
     </div>
   );
 }

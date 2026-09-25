@@ -85,7 +85,7 @@ describe("本地模式下 /login 是云端账号的门", () => {
     vi.doUnmock("next/navigation");
   });
 
-  it("手上有令牌、又不是带着原因回来的：一步都不停，直接进应用", async () => {
+  it("手上有令牌：直接跳回自动登录那条路，不停在这一页", async () => {
     fs.writeFileSync(令牌文件, JSON.stringify({ baseUrl: "http://127.0.0.1:9", token: "dk_x", name: "某人", contact: "a@b.c", models: [] }));
     const 跳了: string[] = [];
     vi.doMock("next/navigation", () => ({
@@ -124,61 +124,24 @@ describe("本地模式下 /login 是云端账号的门", () => {
     expect(String(el.props.提示)).toContain("已登录的机器");
   });
 
-  /*
-    2026-09-21 改口径：**云端账号是可选的**。
-
-    原来这一条钉的是「没有令牌文件就把人送回登录页」，那时桌面端第一次打开就是一张
-    登录表单。但那个账号买的只有「用我们的模型」——数据在他自己机器上，库是他自己的
-    文件，再要一次密码不增加任何安全性，只是把第一次打开变成一道门。
-
-    现在：没令牌也照样签会话。**带着原因回来的还是要先说清**（壳发现令牌被吊销时会带
-    reason=revoked，那是他该知道的事），那一条原样保留。
-  */
-  it("没登录云端账号也照样进得去——账号买的是模型，不是自己的客户本", async () => {
-    // 这一段没有令牌文件（beforeEach 删掉了），照样要走到「签会话」那一步。
-    // 库里没有管理员时会落到 ?reason=noadmin，那也说明它没被「没登录」挡在更早的地方
-    const { GET } = await import("@/app/api/desktop/session/route");
-    const res = await GET(new Request(`${URL_}?t=desktop-token-for-tests`));
-    expect(res.status).toBe(307);
-    expect(res.headers.get("location"), "不该再被送回登录页").not.toMatch(/\/api\/auth\/logout$/);
-  });
-
-  it("壳说令牌被吊销（?reason=revoked）：还是先清 cookie 再把原因说清", async () => {
+  it("自动登录路由：没有令牌文件就先清 cookie 再回登录页，不签会话", async () => {
     /**
      * 直接跳 /login 不行：业务会话 cookie 可能还活着（7 天），proxy.ts 会把 /login 弹回
      * /dashboard，人就带着一个失效的云端账号进了应用。经 logout 走，原因原样带过去。
      */
     const { GET } = await import("@/app/api/desktop/session/route");
+    const res = await GET(new Request(`${URL_}?t=desktop-token-for-tests`));
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toBe("/api/auth/logout");
     const 带原因 = await GET(new Request(`${URL_}?t=desktop-token-for-tests&reason=revoked`));
-    expect(带原因.status).toBe(307);
     expect(带原因.headers.get("location")).toBe("/api/auth/logout?reason=revoked");
   });
 
-  it("应用壳**不再**因为「没登录」把人挡在门外", () => {
-    // 同一条产品决定的另一半：2026-09-21 之前这里会 redirect 到 logout?reason=revoked
+  it("应用壳：本地模式下令牌没了就不给进，哪怕业务会话还活着", async () => {
     const layout = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/layout.tsx"), "utf8");
-    expect(layout).not.toMatch(/if \(本地模式\(\) && !读云端凭据\(\)\) redirect/);
-    // 但「归属对不上」那道闸要还在——那是数据隔离，和登不登录是两件事
-    expect(layout).toContain('if (归属对不上()) redirect("/api/auth/logout?reason=switched");');
+    expect(layout).toContain('if (本地模式() && !读云端凭据()) redirect("/api/auth/logout?reason=revoked");');
     const logout = fs.readFileSync(path.resolve(__dirname, "../src/app/api/auth/logout/route.ts"), "utf8");
     expect(logout).toContain('url.searchParams.set("reason", reason)');
-  });
-
-  it("登录页给一条「先不登录，直接用」的路——它是这一页上唯一不要密码的出口", async () => {
-    const page = fs.readFileSync(path.resolve(__dirname, "../src/app/login/page.tsx"), "utf8");
-    const form = fs.readFileSync(path.resolve(__dirname, "../src/app/login/LoginForm.tsx"), "utf8");
-    expect(page).toContain("跳过地址={进应用}");
-    expect(form).toContain("先不登录，直接用");
-  });
-
-  it("设置页那一栏按「是不是桌面端」给，不按「登没登录」给", () => {
-    // 备份数据库、打开数据文件夹、查看服务日志和账号没关系，
-    // 账号可选之后不能让没登录的人连这些一起丢掉
-    const body = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/SettingsBody.tsx"), "utf8");
-    expect(body).toMatch(/const 桌面端 = 本地模式\(\)/);
-    const tab = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/DesktopTab.tsx"), "utf8");
-    expect(tab).toContain("没登录");
-    expect(tab).toContain("登录云端账号");
   });
 
   it("没开本地模式的部署照常画登录页，一步都不跳", async () => {
