@@ -1,7 +1,8 @@
 /**
- * 官网首页那个「下载次数」的口径。
+ * 官网首页那两个「下载次数」的口径：桌面端**累计**被下载了多少次，官网（国内节点）和 GitHub 分开报。
+ * 2026-09-25 起；之前是「当前这一版、两边相加」一个数，用户要的是累计、而且分开看。
  *
- * 一个数，两个出处：GitHub 资产的 download_count，加上国内节点自己数的那一份。
+ * 两个出处：GitHub 资产的 download_count，和国内节点自己数的那一份。
  * 2026-09-20 起官网的下载按钮指向杭州那台（跨境线路实测 200–700 KB/s 且剧烈抖动，
  * GitHub、香港、公共代理都一样，瓶颈在线路不在源头），于是绝大多数人下载时
  * **GitHub 那个计数根本不动**——只有点了「从 GitHub 下载」备用链接的人才算进去。
@@ -16,34 +17,47 @@
 /** 国内节点的 counts.json 长这样：{"按版本": {"0.45.0": 3}} */
 type 镜像计数 = { 按版本?: Record<string, unknown> };
 
+const 是次数 = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0;
+
 /**
- * 从 counts.json 里取某一版的次数。
+ * 国内节点上**所有版本**加起来被完整下载了多少次。
  *
- * **「这一版没有这个键」= 0，不是「取不到」**：一版刚发出去还没人下的时候，
- * dl-count.py 根本不会给它建键。把这种情况当成取不到的话，每发一版首页那一格
- * 都会消失几小时，而那几小时恰恰是最想看这个数的时候。
+ * 2026-09-25 口径从「当前这一版」改成「累计」（用户定的：首页那个数要说一共被下了多少次，
+ * 不是这一版）。一版都还没人下时 dl-count.py 不建键，那就是没有这一项，不影响总数。
  *
- * 返回 undefined 表示**这份数据不可信**（结构不对、不是数、是负数），
- * 调用方应当整个不给「下载次数」这个字段。
+ * 返回 undefined 表示**这份数据不可信**（结构不对、有一项不是正常的数），
+ * 调用方应当整个不给「官网下载数」这个字段。
  */
-export function 镜像计数里的(版本: string, 原始: unknown): number | undefined {
+export function 镜像累计(原始: unknown): number | undefined {
   if (原始 === null || typeof 原始 !== "object") return undefined;
   const 按版本 = (原始 as 镜像计数).按版本;
-  if (按版本 === undefined) return undefined; // 文件在、但结构不对，不能当 0
-  if (按版本 === null || typeof 按版本 !== "object") return undefined;
-  const n = (按版本 as Record<string, unknown>)[版本];
-  if (n === undefined) return 0;
-  return typeof n === "number" && Number.isFinite(n) && n >= 0 ? Math.round(n) : undefined;
+  if (按版本 === null || typeof 按版本 !== "object") return undefined; // 文件在、但结构不对，不能当 0
+  let 和 = 0;
+  for (const n of Object.values(按版本 as Record<string, unknown>)) {
+    if (!是次数(n)) return undefined;
+    和 += Math.round(n);
+  }
+  return 和;
 }
 
 /**
- * 两边相加。
+ * GitHub 上**现存**的每一个 dmg 的 download_count 之和（所有 Release，含滚动的 desktop-updates）。
  *
- * **任一边取不到，整个数就不给**（返回 undefined，官网那边看到没有字段就不渲染那一格）。
- * 少数了一半的「下载次数」比没有这个数更糟——这是 api/public/stats 开头那条规矩：
- * 算不出来就不显示，绝不摆一个看起来像那么回事的数。
+ * **这是一个下限，不是精确总量**：打包 workflow 用 `--clobber` 重传过的包计数归零了，
+ * 那部分历史找不回来。但它是真的——每一次都确实发生过，不靠攒、不靠估。
+ * 只数 .dmg：.app.zip 和清单是应用内更新用的，不是「有人下载了桌面端」。
  */
-export function 合并下载数(GitHub次数: number | undefined, 镜像次数: number | undefined): number | undefined {
-  if (GitHub次数 === undefined || 镜像次数 === undefined) return undefined;
-  return GitHub次数 + 镜像次数;
+export function GitHub累计(releases: unknown): number | undefined {
+  if (!Array.isArray(releases)) return undefined;
+  let 和 = 0;
+  for (const r of releases) {
+    const 资产 = (r as { assets?: unknown })?.assets;
+    if (!Array.isArray(资产)) continue;
+    for (const a of 资产 as { name?: unknown; download_count?: unknown }[]) {
+      if (typeof a?.name !== "string" || !a.name.endsWith(".dmg")) continue;
+      if (!是次数(a.download_count)) return undefined;
+      和 += a.download_count;
+    }
+  }
+  return 和;
 }

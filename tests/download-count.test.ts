@@ -1,49 +1,63 @@
 /**
- * 首页那个「下载次数」的口径。
+ * 首页那两个「下载次数」的口径。
  *
- * 2026-09-20 官网把下载切到国内节点之后，这个数变成两边相加：GitHub 的 download_count
- * 加上国内节点从自己 nginx 日志里数的那份。这两条规则**错了都不会报错**，
+ * 2026-09-25 起：**累计**，而且官网（国内节点）和 GitHub **分开报**——用户定的。
+ * 之前是「当前这一版、两边相加」一个数。这些规则**错了都不会报错**，
  * 只会让首页安静地说一个假数——所以钉在这儿。
  */
 import { describe, it, expect } from "vitest";
-import { 镜像计数里的, 合并下载数 } from "@/lib/download-count";
+import { 镜像累计, GitHub累计 } from "@/lib/download-count";
 
-describe("镜像计数里的", () => {
-  it("有这个版本就取它的次数", () => {
-    expect(镜像计数里的("0.45.0", { 按版本: { "0.45.0": 7, "0.44.0": 2 } })).toBe(7);
+describe("镜像累计（官网下载数）", () => {
+  it("所有版本加起来，不是只看当前这一版", () => {
+    expect(镜像累计({ 按版本: { "0.45.0": 2, "0.46.1": 6, "0.46.3": 1 } })).toBe(9);
   });
 
-  it("**刚发的一版还没人下时没有这个键，那是 0，不是取不到**——否则每发一版首页那格都要消失几小时", () => {
-    expect(镜像计数里的("0.46.0", { 按版本: { "0.45.0": 7 } })).toBe(0);
+  it("一版都还没人下（没有任何键）是 0，不是取不到", () => {
+    expect(镜像累计({ 按版本: {} })).toBe(0);
   });
 
   it("整份结构不对（文件在但不是我们写的那种）就是取不到，不能当 0", () => {
-    expect(镜像计数里的("0.45.0", { 别的字段: 1 })).toBeUndefined();
-    expect(镜像计数里的("0.45.0", "一段字符串")).toBeUndefined();
-    expect(镜像计数里的("0.45.0", null)).toBeUndefined();
+    expect(镜像累计({ 别的字段: 1 })).toBeUndefined();
+    expect(镜像累计("一段字符串")).toBeUndefined();
+    expect(镜像累计(null)).toBeUndefined();
   });
 
-  it("值不是个正常的数就是取不到", () => {
-    expect(镜像计数里的("0.45.0", { 按版本: { "0.45.0": "7" } })).toBeUndefined();
-    expect(镜像计数里的("0.45.0", { 按版本: { "0.45.0": -1 } })).toBeUndefined();
-    expect(镜像计数里的("0.45.0", { 按版本: { "0.45.0": Number.NaN } })).toBeUndefined();
+  it("有一项不是正常的数，整个就不可信——少数一项的累计也是假数", () => {
+    expect(镜像累计({ 按版本: { "0.45.0": 2, "0.46.1": "6" } })).toBeUndefined();
+    expect(镜像累计({ 按版本: { "0.45.0": -1 } })).toBeUndefined();
+    expect(镜像累计({ 按版本: { "0.45.0": Number.NaN } })).toBeUndefined();
   });
 });
 
-describe("合并下载数", () => {
-  it("两边相加——只报一边就等于少数了大多数人（按钮指向国内节点，GitHub 那个计数几乎不动）", () => {
-    expect(合并下载数(2, 7)).toBe(9);
+describe("GitHub累计（GitHub下载数）", () => {
+  const rel = (...assets: { name: string; download_count: unknown }[]) => ({ assets });
+
+  it("所有 Release 里的 dmg 加起来，含滚动的 desktop-updates", () => {
+    const 全部 = [
+      rel({ name: "Daedalus.CRM-0.46.0-arm64.dmg", download_count: 5 }),
+      rel({ name: "Daedalus.CRM-0.46.1-arm64.dmg", download_count: 3 }, { name: "Daedalus.CRM-0.46.3-arm64.dmg", download_count: 2 }),
+    ];
+    expect(GitHub累计(全部)).toBe(10);
   });
 
-  it("国内节点那边取不到时，整个数不给：宁可首页少一格，也不显示一个只数了一半的数", () => {
-    expect(合并下载数(2, undefined)).toBeUndefined();
+  it("只数 dmg：app.zip 和清单是应用内更新用的，不算「有人下载了桌面端」", () => {
+    const 全部 = [
+      rel(
+        { name: "Daedalus.CRM-0.46.3-arm64.dmg", download_count: 2 },
+        { name: "Daedalus.CRM-0.46.3-arm64.app.zip", download_count: 40 },
+        { name: "Daedalus.CRM-0.46.3-arm64.manifest.json.gz", download_count: 90 },
+      ),
+    ];
+    expect(GitHub累计(全部)).toBe(2);
   });
 
-  it("GitHub 那边取不到时同理", () => {
-    expect(合并下载数(undefined, 7)).toBeUndefined();
+  it("没挂任何资产的 Release（只发镜像的版本）不影响", () => {
+    expect(GitHub累计([{ assets: [] }, { tag_name: "v0.1.0" }, rel({ name: "a.dmg", download_count: 1 })])).toBe(1);
   });
 
-  it("两边都是 0 是个合法答案（这一版真的还没人下），不是取不到", () => {
-    expect(合并下载数(0, 0)).toBe(0);
+  it("不是列表、或某个 dmg 的计数不是正常的数，就是取不到", () => {
+    expect(GitHub累计({ message: "rate limited" })).toBeUndefined();
+    expect(GitHub累计([rel({ name: "a.dmg", download_count: "3" })])).toBeUndefined();
   });
 });

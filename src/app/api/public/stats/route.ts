@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { 来源允许 } from "@/lib/lead";
 import { control } from "@/lib/tenant/control";
 import { multiTenant } from "@/lib/tenant/context";
-import { 镜像计数里的, 合并下载数 } from "@/lib/download-count";
+import { 镜像累计, GitHub累计 } from "@/lib/download-count";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -25,10 +25,10 @@ export const runtime = "nodejs";
  *           返回（`访问量起算日`），让官网的说明文字只有一个出处，不会和这里说的不一致。
  *   用户数  控制面库里的真人账号数（control.account）。**官网目前不显示它**，
  *           显示与否是首页那边一行数组的事，见 index.html 里的 `要显示的`。
- *   下载数  **只算当前版本那一个 dmg 的下载次数**，不做「历史总下载」。
- *           2026-09-20 起是**两边相加**：GitHub 的 download_count + 国内节点自己数的那份。
- *           打包 workflow 用 `--clobber`（删掉重传，计数归零）而且能 workflow_dispatch
- *           手动重跑，历史总量得不出一个站得住的数——那种数只能靠攒，攒的就是假的。
+ *   官网下载数   国内节点（官网下载按钮指向它）数出来的**累计**次数，所有版本相加。
+ *   GitHub下载数 GitHub 上现存所有 dmg 的 download_count 之和。是个**下限**：打包 workflow 用
+ *               `--clobber` 重传过的包计数归零，那些次数找不回来，但留下来的每一次都真实发生过。
+ *   2026-09-25 起两个分开报（之前是「当前这一版、两边相加」一个数）。口径和守卫见 lib/download-count.ts。
  *
  * 凭证**只从环境变量读**，见文件末尾那张表。一个都没配时这个接口不报错，
  * 只是少一个字段——官网跟着少一格，不会白屏。
@@ -129,13 +129,9 @@ async function 取访问量(): Promise<number | undefined> {
   return typeof v === "number" && Number.isFinite(v) && v >= 0 ? Math.round(v) : undefined;
 }
 
-/* ── 下载数：GitHub 上当前版本那一个 dmg ─────────────────── */
+/* ── 下载数：桌面端累计 ─────────────────────────────────── */
 
 const 仓库 = "https://api.github.com/repos/BeckY824/daedalus-crm";
-/** 小版本的包都挂在这个滚动 Release 上，理由见 website/deploy/latest-json.py 的文件头 */
-const 滚动 = "desktop-updates";
-/** 「当前版本」以官网正在发的那个 feed 为准——下载按钮下的就是它，说的才是同一件事 */
-const 默认feed = "https://ai-daedalus.com/desktop/latest.json";
 /**
  * 国内节点自己数出来的下载次数。
  *
@@ -147,9 +143,7 @@ const 默认feed = "https://ai-daedalus.com/desktop/latest.json";
  */
 const 默认镜像计数 = "https://cn.ai-daedalus.com:8443/dl/counts.json";
 
-type 资产 = { name?: string; download_count?: number };
-
-async function gh(路径: string): Promise<{ assets?: 资产[] }> {
+async function gh(路径: string): Promise<unknown> {
   const 头: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "User-Agent": "daedalus-public-stats",
@@ -159,53 +153,28 @@ async function gh(路径: string): Promise<{ assets?: 资产[] }> {
   if (token) 头.Authorization = `Bearer ${token}`;
   const r = await fetch(`${仓库}/${路径}`, { headers: 头, signal: AbortSignal.timeout(8000), cache: "no-store" });
   if (!r.ok) throw new Error(`GitHub ${路径} 回了 ${r.status}`);
-  return (await r.json()) as { assets?: 资产[] };
+  return r.json();
 }
 
-/** 官网正在发哪一版。不从本仓库的 package.json 读：托管版的版本号常常落后于桌面端发版 */
-async function 当前版本(): Promise<string> {
-  const feed = process.env.DESKTOP_FEED_URL?.trim() || 默认feed;
-  const r = await fetch(feed, { signal: AbortSignal.timeout(8000), cache: "no-store" });
-  if (!r.ok) throw new Error(`版本 feed 回了 ${r.status}`);
-  const d = (await r.json()) as { version?: unknown };
-  const v = String(d?.version ?? "").replace(/^v/, "");
-  if (!/^\d+\.\d+\.\d+$/.test(v)) throw new Error(`版本 feed 里的 version 不像版本号：${v}`);
-  return v;
+/** GitHub 上所有 Release（含滚动的 desktop-updates），一页 100 个，翻到不满一页为止 */
+async function 取GitHub下载(): Promise<number | undefined> {
+  const 全部: unknown[] = [];
+  for (let 页 = 1; 页 <= 5; 页++) {
+    const 这页 = await gh(`releases?per_page=100&page=${页}`);
+    if (!Array.isArray(这页)) return undefined;
+    全部.push(...这页);
+    if (这页.length < 100) break;
+  }
+  return GitHub累计(全部);
 }
 
-/** 国内节点上这一版被完整下载了多少次。口径和「没有这个键算 0」的理由见 lib/download-count.ts */
-async function 取镜像下载(版本: string): Promise<number | undefined> {
+async function 取官网下载(): Promise<number | undefined> {
   const r = await fetch(process.env.MIRROR_COUNTS_URL?.trim() || 默认镜像计数, {
     signal: AbortSignal.timeout(8000),
     cache: "no-store",
   });
   if (!r.ok) throw new Error(`镜像计数回了 ${r.status}`);
-  return 镜像计数里的(版本, await r.json());
-}
-
-async function 取下载(): Promise<{ 版本: string; 次数: number } | undefined> {
-  const 版本 = await 当前版本();
-  // 和 latest-json.py 的 找资产() 一样：先看这一版自己的 Release，没有再去滚动 Release 里按文件名认
-  let GitHub次数: number | undefined;
-  for (const 路径 of [`releases/tags/v${版本}`, `releases/tags/${滚动}`]) {
-    let rel: { assets?: 资产[] };
-    try {
-      rel = await gh(路径);
-    } catch {
-      continue; // 大版本没有独立 Release 时第一条必然 404，这是正常的
-    }
-    const dmg = (rel.assets ?? []).filter((a) => a.name?.includes(`-${版本}-`) && a.name?.endsWith(".dmg"));
-    const 挑 = dmg.find((a) => a.name?.includes("arm64")) ?? dmg[0];
-    if (挑 && typeof 挑.download_count === "number") {
-      GitHub次数 = 挑.download_count;
-      break;
-    }
-  }
-  if (GitHub次数 === undefined) return undefined;
-
-  // 两边相加才是「这一版被下了多少次」。任一边取不到就整个不给这个数，理由见 lib/download-count.ts
-  const 次数 = 合并下载数(GitHub次数, await 取镜像下载(版本));
-  return 次数 === undefined ? undefined : { 版本, 次数 };
+  return 镜像累计(await r.json());
 }
 
 /* ── 用户数 ───────────────────────────────────────────────── */
@@ -245,10 +214,11 @@ export async function GET(req: Request) {
   // 跨域头只发给白名单里的来源，所以浏览器那边的约束一点没松。
   if (origin && !来源允许(origin)) return NextResponse.json({ error: "来源不允许" }, { status: 403 });
 
-  const [访问量, 用户数, 下载] = await Promise.all([
+  const [访问量, 用户数, 官网下载数, GitHub下载数] = await Promise.all([
     取("umami:pageviews", 取访问量),
     取("control:accounts", 取用户数),
-    取("github:downloads", 取下载),
+    取("mirror:downloads", 取官网下载),
+    取("github:downloads", 取GitHub下载),
   ]);
 
   // 取不到的字段一个都不放进来：宁可官网少一格，也不让它显示一个假数
@@ -258,10 +228,8 @@ export async function GET(req: Request) {
     数.访问量起算日 = 起算日();
   }
   if (用户数 !== undefined) 数.用户数 = 用户数;
-  if (下载 !== undefined) {
-    数.下载数 = 下载.次数;
-    数.下载版本 = 下载.版本;
-  }
+  if (官网下载数 !== undefined) 数.官网下载数 = 官网下载数;
+  if (GitHub下载数 !== undefined) 数.GitHub下载数 = GitHub下载数;
 
   return NextResponse.json(数, {
     status: 200,
@@ -281,7 +249,6 @@ export async function GET(req: Request) {
  *   UMAMI_BASE_URL     默认 https://stats.ai-daedalus.com
  *   UMAMI_WEBSITE_ID   默认 58fa34cd-7485-44ff-ac3c-c9d147a9f14d（官网 HTML 里那个）
  *   UMAMI_SINCE        访问量起算日，默认 2026-09-15（统计脚本上线那天）
- *   DESKTOP_FEED_URL   默认 https://ai-daedalus.com/desktop/latest.json
  *   GITHUB_TOKEN       可选，只为抬高 GitHub 的匿名限额
  *   MIRROR_COUNTS_URL  默认 https://cn.ai-daedalus.com:8443/dl/counts.json（国内节点的下载计数）
  */
