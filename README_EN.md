@@ -108,7 +108,7 @@ The Mac build (Apple silicon) **ships the whole server inside the app**: install
 
 Two ways to get AI: sign in to a cloud account under **Settings → Desktop** and use our models (30 free questions on your first sign-in, one grant per computer; 3 more on any day you use it while under 30; sign-up happens in the browser, password reset works in the app), or put your own model API key in **Settings → AI** — no account needed, it bypasses our allowance entirely, and the key is encrypted on your machine and only ever sent to the endpoint you typed. Credits are counted per question, not per model call, and a question that fails on our side is refunded. The settings page tells you which of the two is in use and how many are left.
 
-To share one database across a team, switch the menu to "Connect to a server" and point it at your own deployment. There are no Windows or Intel Mac builds yet; on those machines use the self-hosted version for now.
+To share one database across a team, use Settings → Desktop → Connect to a server and enter your own deployment's address. There are no Windows or Intel Mac builds yet; on those machines use the self-hosted version for now.
 
 Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm/actions/workflows/desktop.yml) on every tag. Install, Gatekeeper and updates: [docs/桌面端安装.md](docs/桌面端安装.md).
 
