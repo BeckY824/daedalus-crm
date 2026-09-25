@@ -58,7 +58,12 @@ export async function proxy(request: NextRequest) {
   //   /admin  —— 我们自己常是登录状态，弹了就进不去运营台；
   //   /forgot —— 要允许「已登录的人也能给自己重置」：密码泄露了想立刻换掉，
   //              弹回去他就没路走了（应用内还没有改密码的入口）。
-  if (valid && (pathname === "/login" || pathname === "/signup")) {
+  //   桌面端本地模式的 /login —— 那一页是「云端账号」的门（2026-09-21 起账号可选）。
+  //              人已经在本地 CRM 里了，正是从「设置 → 桌面端 → 登录云端账号」过来登云端的；
+  //              弹回首页等于这扇门永远进不去（0.46.3 就是这样，录教程时撞到）。
+  //              已经登过云端的，登录页自己会一步不停地送回应用（login/page.tsx）。
+  const 本地云端门 = process.env.DESKTOP_LOCAL === "1" && pathname === "/login";
+  if (valid && !本地云端门 && (pathname === "/login" || pathname === "/signup")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

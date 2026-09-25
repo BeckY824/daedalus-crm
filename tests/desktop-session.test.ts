@@ -319,3 +319,13 @@ describe("换了账号但目录还没换：哪儿都不给进", () => {
     expect(那段).toContain("报错(");
   });
 });
+
+describe("设置里的「登录云端账号」要能进得去", () => {
+  it("本地模式下，已在本地 CRM 里的人访问 /login 不会被 proxy 弹回首页", () => {
+    // 0.46.3 的真 bug：账号改成可选之后，第一次打开就有本地会话；设置页那颗按钮 href=/login，
+    // proxy 见「已登录」把它弹回 /dashboard，云端账号永远登不上，送的 30 次也就用不了
+    const proxy = fs.readFileSync(path.resolve(__dirname, "../src/proxy.ts"), "utf8");
+    expect(proxy).toMatch(/const 本地云端门 = process\.env\.DESKTOP_LOCAL === "1" && pathname === "\/login";/);
+    expect(proxy).toMatch(/if \(valid && !本地云端门 && \(pathname === "\/login"/);
+  });
+});
