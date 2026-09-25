@@ -47,11 +47,12 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 - ✅ One command: `docker compose up -d`. Zero config, no credit card
 - ✅ The home page is an agent: ask about a customer or a number and it decides what to search, read and query — every step visible
 - ✅ Tell it "log a call", "mark as signed", "schedule next Wednesday", "create a deal" — it returns an editable proposal card; nothing lands until you confirm
+- ✅ "Paste a chat" right in the home-page input box: drop in a list someone forwarded you on WeChat, AI splits it into customers, nothing is saved until you confirm, and the whole batch can be undone
 - ✅ Paste a chat transcript on a record page; AI turns it into a follow-up, tasks and next steps, with the original kept
 - ✅ Referral attribution: who introduced whom and whose performance it counts toward, frozen at entry — upstream edits never rewrite history
 - ✅ Phone dedup, double-confirm on repeated contract amounts, field-level merge on concurrent edits, full audit trail
 - ✅ Runs on DeepSeek: pick it in Settings, paste a key, done — endpoint and model name are filled in for you (any other OpenAI-compatible endpoint still works under "Other")
-- ✅ AI never acts on its own: every model call is a click you make — opening a page never triggers one (free credits are counted per call; the UI shouldn't spend them for you)
+- ✅ AI never acts on its own: every model call is a click you make — opening a page never triggers one (free credits are counted per question; the UI shouldn't spend them for you)
 - ✅ Two columns, not three: navigation on the left is always there, content on the right. Only the customer record page adds a narrow list — for when you flip through people one after another
 - ✅ Keyboard-first where it matters: ⌘K to jump or ask, ⌘, for settings, ⌘1–9 for modules
 - ✅ Generic sales wording out of the box (customer / company / title / industry); education-sales wording is one preset click away
@@ -103,9 +104,9 @@ For a team sharing one database there are two routes: `docker compose up -d` on 
 ### Desktop apps
 
 The Mac build (Apple silicon) **ships the whole server inside the app**: install it and it runs, your data is a single file on your machine, no server needed.
-The first launch opens a sign-in window — **sign up with an email, it's free** (the window links out to sign-up and can reset your password). The account only tracks AI credits; your data is never uploaded.
+**The first launch goes straight into the CRM — no sign-up, no sign-in** (since 0.46.3).
 
-Two ways to get AI: use the account's free credits (30 on sign-up, 3 more each day you use it), or put your own model API key in **Settings → AI**, which bypasses our allowance entirely — the key is encrypted on your machine and only ever sent to the endpoint you typed. The settings page tells you which of the two is in use and how many calls are left.
+Two ways to get AI: sign in to a cloud account under **Settings → Desktop** and use our models (30 free questions on your first sign-in, one grant per computer; 3 more on any day you use it while under 30; sign-up happens in the browser, password reset works in the app), or put your own model API key in **Settings → AI** — no account needed, it bypasses our allowance entirely, and the key is encrypted on your machine and only ever sent to the endpoint you typed. Credits are counted per question, not per model call, and a question that fails on our side is refunded. The settings page tells you which of the two is in use and how many are left.
 
 To share one database across a team, switch the menu to "Connect to a server" and point it at your own deployment. There are no Windows or Intel Mac builds yet; on those machines use the self-hosted version for now.
 
@@ -151,7 +152,7 @@ Channel → customer → referred customer: attribution goes two generations up,
 
 ### The team-edition backbone (optional)
 
-Same codebase; `MULTI_TENANT=1` turns on multi-tenancy: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, subscriptions and an ops console, a free-AI-credits ledger (30 on sign-up, 3 per active day). We run it for the team edition (the workspace we hand to teams) and the desktop app's cloud accounts. Self-hosted and desktop installs never execute a line of it.
+Same codebase; `MULTI_TENANT=1` turns on multi-tenancy: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, subscriptions and an ops console, a free-AI-credits ledger (30 to start, 3 per active day, one credit per question). We run it for the team edition (the workspace we hand to teams) and the desktop app's cloud accounts. Self-hosted and desktop installs never execute a line of it.
 
 ### Runs on DeepSeek, or bring your own endpoint
 
