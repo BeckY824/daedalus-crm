@@ -19,7 +19,7 @@
 
 **简体中文** · [English](README_EN.md)
 
-[官网](https://ai-daedalus.com) · [下载桌面端](https://ai-daedalus.com/download.html) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues)
+[官网](https://ai-daedalus.com) · [下载 Mac 版](https://ai-daedalus.com/download.html) · [下载 Windows 版](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues)
 
 </div>
 
@@ -31,7 +31,7 @@
 
 | | 给谁 | 怎么拿 | 版本 |
 |---|---|---|---|
-| 🖥 **桌面端**（主推） | **一个人**。销售自己、个体户、一人公司 | [下载 .dmg](https://ai-daedalus.com/download.html)（macOS Apple 芯片）；应用内「检查更新」走差量 | 见[最新 Release](https://github.com/BeckY824/daedalus-crm/releases/latest) 的 Assets |
+| 🖥 **桌面端**（主推） | **一个人**。销售自己、个体户、一人公司 | [Mac（Apple 芯片）](https://ai-daedalus.com/download.html) · [Windows x64（.exe，0.46.5）](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe) | 正式版见[最新 Release](https://github.com/BeckY824/daedalus-crm/releases/latest)，补丁包见[滚动 Release](https://github.com/BeckY824/daedalus-crm/releases/tag/desktop-updates) |
 | 👥 **多人团队版** | **一个团队**。要几个人看同一份数据 | 自己部署：`docker compose up -d`（见 [docs/部署.md](docs/部署.md)）<br/>或者用我们托管的那份，[跟我们说一声](https://ai-daedalus.com/demo.html) | 镜像 `ghcr.io/becky824/daedalus-crm:<版本>` |
 
 **两边是同一套代码、同一个版本号，但发布节奏可以不一样**：桌面端发了新版之后，
@@ -111,8 +111,8 @@ npm install && npm run setup && npm run dev
 
 ### 桌面客户端
 
-Mac 版（Apple 芯片）**自带一整套服务**：装完直接用，数据是你机器上的一个文件，不需要服务器。
-**第一次打开是登录页**：用邮箱注册一个免费账号（登录页上的「注册新账号 ↗」），登录就进。更新是**差量**的：改了什么下什么，不是每次重下一整个包。
+Mac 版（Apple 芯片）和 Windows 版（x64）都**自带一整套服务**：装完直接用，数据是你机器上的一个文件，不需要服务器。
+**第一次打开是登录页**：用邮箱注册一个免费账号（登录页上的「注册新账号 ↗」），登录就进。Mac 使用**差量更新**，Windows 使用完整安装包覆盖更新。
 
 AI 有两条路：在「设置 → 桌面端」登录云端账号，用我们的模型（第一次登录送 30 次，一台电脑一份；
 余额不足 30 时当天用过再补 3 次；注册在浏览器里办，找回密码在应用内）；
@@ -121,7 +121,7 @@ AI 有两条路：在「设置 → 桌面端」登录云端账号，用我们的
 次数按提问算：问一句扣一次，我们这边出错的那次退回。设置页会写清楚当前走的是哪一条、还剩几次。
 
 团队要共用一份数据时，在「设置 → 桌面端 → 连接服务器」填你们自己部署的实例地址。
-Windows x64 构建与安装说明见 [Windows 版](docs/Windows版.md)，与 Mac 共用本地数据和云端账号架构。Intel Mac 暂无安装包。
+[下载 Windows x64 0.46.5 安装包](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe)。此安装包未签名；构建与安装说明见 [Windows 版](docs/Windows版.md)，与 Mac 共用本地数据和云端账号架构。Intel Mac 暂无安装包。
 
 安装、放行与更新见 [docs/桌面端安装.md](docs/桌面端安装.md)；实现见 [desktop/README.md](desktop/README.md)；
 接 Claude Code / Codex 见 [docs/MCP接入.md](docs/MCP接入.md)；

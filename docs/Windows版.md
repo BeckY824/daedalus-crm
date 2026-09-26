@@ -4,6 +4,7 @@
 
 ## 安装与数据
 
+- [下载 Windows x64 0.46.5 安装包](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe)，发布于现有 `desktop-updates` 滚动 Release。包的校验值与验收情况见 [Windows验证记录.md](Windows验证记录.md)。
 - 当前目标为 Windows x64，安装包名为 `Daedalus-CRM-<版本>-x64-setup.exe`。
 - 安装向导可选择安装目录。程序包含运行时，无需额外安装 Node 或数据库。
 - 数据根目录默认是 `%APPDATA%\DaedalusCRM`，账号数据在 `accounts\<账号哈希>` 下。
@@ -65,4 +66,4 @@ Windows 不读取旧 feed 的 Mac 版本，也不使用 Mac 安装包的哈希�
 - 截图说明：当时 0.46.3、0.46.4、0.46.5 的安装包在滚动 Release 下，Latest 仍为 0.46.0；官网 feed 和下载按钮已经指向 0.46.5，下载优先国内镜像、GitHub 备用。
 - Windows 沿用这一发布节奏，补齐自身平台条目、安装包和校验值；不能因为 Mac 已发布同版本，就认为本地生成的 Windows 安装包也已上传或上线。
 
-本次用户先验证本地 Windows 安装包；记录此约定不代表执行发布或修改远端 feed。
+用户已验证本地 Windows 安装包及真实 AI 功能，随后授权将同一安装包上传到滚动 Release 并添加 README 下载入口。本次未修改远端 feed。

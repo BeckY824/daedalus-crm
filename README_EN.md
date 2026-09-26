@@ -19,7 +19,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 [简体中文](README.md) · **English**
 
-[Website](https://ai-daedalus.com) · [Download the desktop app](https://ai-daedalus.com/download.html) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
+[Website](https://ai-daedalus.com) · [Download for Mac](https://ai-daedalus.com/download.html) · [Download for Windows](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
 
 </div>
 
@@ -31,7 +31,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 | | Who | How to get it | Version |
 |---|---|---|---|
-| 🖥 **Desktop app** (primary) | **One person.** A salesperson, a freelancer, a one-person company | [Download the .dmg](https://ai-daedalus.com/download.html) (macOS, Apple silicon); in-app "Check for updates" is delta-based | See the Assets on the [latest Release](https://github.com/BeckY824/daedalus-crm/releases/latest) |
+| 🖥 **Desktop app** (primary) | **One person.** A salesperson, a freelancer, a one-person company | [Mac (Apple silicon)](https://ai-daedalus.com/download.html) · [Windows x64 (.exe, 0.46.5)](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe) | Stable versions: [latest Release](https://github.com/BeckY824/daedalus-crm/releases/latest). Patches: [rolling Release](https://github.com/BeckY824/daedalus-crm/releases/tag/desktop-updates) |
 | 👥 **Team edition** | **A team.** Several people on one shared database | Self-host: `docker compose up -d` (see [docs/部署.md](docs/部署.md))<br/>or use the instance we host — [tell us](https://ai-daedalus.com/demo.html) | Image `ghcr.io/becky824/daedalus-crm:<version>` |
 
 **Same codebase and same version number, but they can ship on different days**: after a desktop release the instance we host may still be on the previous version — [app.ai-daedalus.com/api/health](https://app.ai-daedalus.com/api/health) is the source of truth.
@@ -103,12 +103,14 @@ For a team sharing one database there are two routes: `docker compose up -d` on 
 
 ### Desktop apps
 
-The Mac build (Apple silicon) **ships the whole server inside the app**: install it and it runs, your data is a single file on your machine, no server needed.
-**The first launch goes straight into the CRM — no sign-up, no sign-in** (since 0.46.3).
+The Mac (Apple silicon) and Windows (x64) builds **ship the whole server inside the app**: install it and it runs, your data is a single file on your machine, no server needed.
+**The first launch opens the sign-in page**: register a free account through the sign-up link, then sign in. Mac uses delta updates; Windows updates use the full installer.
 
 Two ways to get AI: sign in to a cloud account under **Settings → Desktop** and use our models (30 free questions on your first sign-in, one grant per computer; 3 more on any day you use it while under 30; sign-up happens in the browser, password reset works in the app), or put your own model API key in **Settings → AI** — no account needed, it bypasses our allowance entirely, and the key is encrypted on your machine and only ever sent to the endpoint you typed. Credits are counted per question, not per model call, and a question that fails on our side is refunded. The settings page tells you which of the two is in use and how many are left.
 
-To share one database across a team, use Settings → Desktop → Connect to a server and enter your own deployment's address. There are no Windows or Intel Mac builds yet; on those machines use the self-hosted version for now.
+To share one database across a team, use Settings → Desktop → Connect to a server and enter your own deployment's address.
+
+[Download Windows x64 0.46.5](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe). The installer is unsigned. See the [Windows guide](docs/Windows版.md) for installation and build details. Intel Mac builds are not available yet.
 
 Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm/actions/workflows/desktop.yml) on every tag. Install, Gatekeeper and updates: [docs/桌面端安装.md](docs/桌面端安装.md).
 
