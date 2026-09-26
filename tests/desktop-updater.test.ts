@@ -26,6 +26,27 @@ const GitHub = (tag: string) => ({ tag_name: tag, html_url: `https://github.com/
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("Windows 更新按平台隔离", () => {
+  const win = { 当前版本: "0.46.5", platform: "win32", arch: "x64" };
+  it("只有 Mac 资产时不提示 Windows 更新", async () => {
+    假网络({ version: "1.0.0", dmg: "https://example.com/mac.dmg" }, {
+      tag_name: "v1.0.0", assets: [{ name: "mac-arm64.dmg", browser_download_url: "https://example.com/mac.dmg" }],
+    });
+    expect(await 检查(win)).toBeNull();
+  });
+  it("选择 Windows x64 安装包，不混用 Mac 或 ARM 的哈希", async () => {
+    假网络(null, { tag_name: "v1.0.0", assets: [
+      { name: "Daedalus-CRM-1.0.0-arm64-setup.exe", digest: "sha256:wrong" },
+      { name: "Daedalus-CRM-1.0.0-x64-setup.exe", digest: `sha256:${"a".repeat(64)}`, browser_download_url: "https://example.com/setup.exe" },
+    ] });
+    expect(await 检查(win)).toMatchObject({ exe: "https://example.com/setup.exe", sha256: "a".repeat(64), dmg: null, zip: null });
+  });
+  it("读取独立的 Windows feed 版本", async () => {
+    假网络({ version: "9.0.0", platforms: { "win32-x64": { version: "0.47.0", exe: "https://example.com/setup.exe", sha256: "b".repeat(64) } } }, null);
+    expect(await 检查(win)).toMatchObject({ 版本: "0.47.0", exe: "https://example.com/setup.exe" });
+  });
+});
+
 describe("检查更新取哪个源", () => {
   it("自家源过期时，GitHub 上更新的版本要能顶上来——这正是 0.18.1 把人按住的那次", async () => {
     假网络(自家("0.18.1"), GitHub("v0.20.1"));

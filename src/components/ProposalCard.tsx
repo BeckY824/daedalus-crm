@@ -1,4 +1,5 @@
 "use client";
+import Shortcut from "./Shortcut";
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -341,7 +342,7 @@ export default function ProposalCard({ proposal }: { proposal: Proposal }) {
           <CloseOutlined /> 忽略
         </button>
         <span className="prop-note">
-          {勾了.length === 0 ? "一项都没选" : missing.length ? `还差${missing.join("、")}` : "确认前不会写入任何数据 · ⌘↵"}
+          {勾了.length === 0 ? "一项都没选" : missing.length ? `还差${missing.join("、")}` : <Shortcut>确认前不会写入任何数据 · ⌘↵</Shortcut>}
         </span>
       </div>
     </motion.div>

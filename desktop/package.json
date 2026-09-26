@@ -34,6 +34,7 @@
       "updater.js",
       "route-memory.js",
       "install.js",
+      "windows-install.js",
       "delta.js",
       "backup.js",
       "crashlog.js",
@@ -63,6 +64,7 @@
       "title": "Daedalus CRM"
     },
     "win": {
+      "artifactName": "Daedalus-CRM-${version}-${arch}-setup.${ext}",
       "target": [
         {
           "target": "nsis",
@@ -74,6 +76,7 @@
       "icon": "assets/icon.png"
     },
     "nsis": {
+      "deleteAppDataOnUninstall": false,
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "shortcutName": "Daedalus CRM"

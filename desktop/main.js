@@ -35,6 +35,7 @@ const 崩溃 = require("./crashlog");
 const os = require("node:os");
 
 const APP_NAME = "Daedalus CRM";
+if (process.platform === "win32") app.setAppUserModelId("com.daedalus.crm");
 
 /**
  * 把用户数据目录挪到一个**不含空格**的路径下。
@@ -366,8 +367,10 @@ function 建窗口() {
      * -webkit-app-region: drag，窗口照样拖得动——页面是服务端渲染的也不妨碍这条 CSS 生效。
      * 壳靠 UA 里的 "Electron/" 判断自己在桌面端里，见 (app)/layout.tsx。
      */
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 20, y: 16 },
+    ...(process.platform === "darwin" ? {
+      titleBarStyle: "hiddenInset",
+      trafficLightPosition: { x: 20, y: 16 },
+    } : {}),
     backgroundColor: "#fafafa",
     show: false,
     icon: path.join(__dirname, "assets/icon.png"),
@@ -442,7 +445,8 @@ function 报告本地故障(原因) {
 /* ---------- 模式切换 ---------- */
 
 async function 切到本地() {
-  写配置({ ...读配置(), mode: "local" });
+  // 远端的路径可能在本机不存在，不能把远端最后一页带进本地服务。
+  写配置({ ...读配置(), mode: "local", lastRoute: "/dashboard" });
   // 没登录云端账号也照开：本地服务的 /login 就是云端账号的门，壳不用再拦一道
   try {
     if (!本地服务.运行中()) await 启动本地();
@@ -557,14 +561,16 @@ async function 检查更新({ 手动 = false } = {}) {
   try {
     写配置({ ...读配置(), lastUpdateCheck: new Date().toISOString() });
     设更新状态({ 阶段: "checking" });
-    const 新版 = await 更新.检查({ 当前版本: app.getVersion() });
+    const 新版 = await 更新.检查({ 当前版本: app.getVersion(), platform: process.platform, arch: process.arch });
     if (!新版) {
       设更新状态({ 阶段: "idle" });
       if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: "已经是最新版本", detail: `当前版本 ${app.getVersion()}。` });
       return;
     }
     const 版本 = String(新版.版本).replace(/^v/, "");
-    const 可原地 = 新版.dmg ? 安装.能原地更新(应用包) : { ok: false, 原因: "这一版没有提供直接下载地址" };
+    const 可原地 = process.platform === "win32"
+      ? { ok: app.isPackaged && !!新版.exe && /^[a-f0-9]{64}$/i.test(新版.sha256 || ""), 原因: "这一版没有提供可校验的 Windows 安装包" }
+      : 新版.dmg ? 安装.能原地更新(应用包) : { ok: false, 原因: "这一版没有提供直接下载地址" };
     if (!可原地.ok) {
       设更新状态({ 阶段: "manual", 版本, 地址: 新版.地址, 原因: 可原地.原因 });
       return;
@@ -575,7 +581,7 @@ async function 检查更新({ 手动 = false } = {}) {
      * 「差量 2.3 MB」；任何不划算或对不上的情况（老 Release 没有清单、变得太多、包名不对…）
      * 都退回整包，按钮上写整包的体积。见 delta.js 顶部。
      */
-    if (新版.zip && 新版.manifest) {
+    if (process.platform === "darwin" && 新版.zip && 新版.manifest) {
       try {
         设更新状态({ 阶段: "checking", 文字: "正在比对已装的文件…" });
         const 估 = await 差量.差量估算({
@@ -633,19 +639,19 @@ async function 下载更新() {
         计划 = { ...计划, 方式: "整包", 文字: 新版.体积 ? `整包 ${新版.体积}` : "整包" };
       }
     }
-    const 文件 = path.join(数据根, "updates", `Daedalus-CRM-${版本}.dmg`);
+    const 文件 = path.join(数据根, "updates", `Daedalus-CRM-${版本.replace(/[^a-zA-Z0-9.-]/g, "_")}.${process.platform === "win32" ? "exe" : "dmg"}`);
     设更新状态({ 阶段: "downloading", 版本, 进度: 0, 文字: "整包下载" });
     await 安装.下载文件({
-      url: 新版.dmg,
+      url: process.platform === "win32" ? 新版.exe : 新版.dmg,
       // 上面那个地址可能是我们自己的镜像；下不动就换 GitHub 原址从头来
-      备用: 新版.备用?.dmg || null,
+      备用: 新版.备用?.[process.platform === "win32" ? "exe" : "dmg"] || null,
       目标: 文件,
       sha256: 新版.sha256,
       日志: (行) => 崩溃.写崩溃日志(应用日志, "整包下载", 行),
       进度: (已, 总) => 设更新状态({ 阶段: "downloading", 版本, 进度: 总 ? Math.round((已 / 总) * 100) : null, 文字: `整包下载 ${(总 / 1048576).toFixed(0)} MB` }),
     });
     if (新版.sha256) await 安装.校验sha256(文件, 新版.sha256);
-    待装 = { 版本, 方式: "整包", 文件, 地址: 新版.地址 };
+    待装 = { 版本, 方式: "整包", 文件, 地址: 新版.地址, sha256: 新版.sha256 };
     设更新状态({ 阶段: "ready", 版本, 说明: 新版.说明 });
   } catch (e) {
     崩溃.写崩溃日志(应用日志, "下载更新失败", e);
@@ -668,6 +674,12 @@ async function 安装更新() {
     if (本地服务.运行中()) {
       服务停过 = true;
       await 本地服务.stop();
+    }
+    if (process.platform === "win32") {
+      await require("./windows-install").启动安装({ 文件, sha256: 待装.sha256 });
+      待装 = null;
+      app.quit();
+      return;
     }
     // 差量：X.app.new 已经组装好、验过签，只剩把它换到原位。整包：挂 dmg、复制、换包
     if (方式 === "差量") await 安装.换包(应用包);
@@ -790,14 +802,25 @@ function 切账号() {
 async function 切一次() {
   const c = 云端.读();
   if (!c?.accountId) return { ok: false, error: "还没登录" };
+  // Windows 不允许移动仍被 SQLite/目录监视器占用的目录。
+  // 先停服务再认领，账号切换失败时恢复原目录的服务。
+  const 先停 = process.platform === "win32" && 本地服务.运行中();
+  if (先停) {
+    凭据监视?.close();
+    await 本地服务.stop();
+  }
   let 目标;
   try {
     目标 = 账号.认领(数据根, c.accountId);
   } catch (e) {
+    if (先停) {
+      盯住凭据(数据目录);
+      await 启动本地().catch((err) => 报告本地故障(String(err)));
+    }
     崩溃.写崩溃日志(应用日志, "换账号失败", e);
     return { ok: false, error: "换不了数据目录" };
   }
-  if (目标.换了目录) {
+  if (目标.换了目录 || 先停) {
     搬令牌(数据目录, 目标.目录);
     换数据目录(目标.目录);
     await 本地服务.stop();

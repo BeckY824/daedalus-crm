@@ -1,4 +1,5 @@
 "use client";
+import Shortcut from "./Shortcut";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -153,7 +154,7 @@ export default function CommandBar() {
           )}
         </div>
         <div className="cmdk-foot">
-          <kbd>↑↓</kbd> 选 · <kbd>↵</kbd> 去 · <kbd>Esc</kbd> 关 · 在首页和数据页，<kbd>⌘K</kbd> 是回到输入框
+          <kbd>↑↓</kbd> 选 · <kbd>↵</kbd> 去 · <kbd>Esc</kbd> 关 · 在首页和数据页，<kbd><Shortcut>⌘K</Shortcut></kbd> 是回到输入框
         </div>
       </div>
     </Modal>

@@ -31,8 +31,8 @@ const 跳过构建 = process.argv.includes("--no-build");
 const 构建期环境 = {
   ...process.env,
   NEXT_TELEMETRY_DISABLED: "1",
-  DATABASE_URL: "file:/tmp/desktop-build.db",
-  CONTROL_DATABASE_URL: "file:/tmp/desktop-build-control.db",
+  DATABASE_URL: `file:${path.join(os.tmpdir(), "desktop-build.db").replaceAll("\\", "/")}`,
+  CONTROL_DATABASE_URL: `file:${path.join(os.tmpdir(), "desktop-build-control.db").replaceAll("\\", "/")}`,
   // next build 跑的是 NODE_ENV=production，而 auth.ts 在模块顶层就校验密钥长度，
   // 不给的话所有引了 requireUser 的页面都会在收集页面数据时失败。理由同 Dockerfile。
   AUTH_SECRET: "build-time-placeholder-never-used-at-runtime-0123456789",
@@ -40,6 +40,10 @@ const 构建期环境 = {
 
 function 跑(cmd, args, opts = {}) {
   console.log(`  $ ${cmd} ${args.join(" ")}`);
+  if (cmd === "npx") {
+    return 跑("node", [path.join(APP, "node_modules", args[0] === "tsx" ? "tsx/dist/cli.mjs" : args[0] === "next" ? "next/dist/bin/next" : "prisma/build/index.js"), ...args.slice(1)], opts);
+  }
+  if (cmd === "node") cmd = process.execPath;
   execFileSync(cmd, args, { cwd: APP, env: 构建期环境, stdio: "inherit", ...opts });
 }
 
@@ -69,8 +73,8 @@ if (跳过构建) {
 /* ---------- 3. 建表 SQL ---------- */
 步骤(3, "导出建表 SQL");
 const schemaSql = execFileSync(
-  "npx",
-  ["prisma", "migrate", "diff", "--from-empty", "--to-schema-datamodel", "prisma/schema.prisma", "--script"],
+  process.execPath,
+  [path.join(APP, "node_modules/prisma/build/index.js"), "migrate", "diff", "--from-empty", "--to-schema-datamodel", "prisma/schema.prisma", "--script"],
   { cwd: APP, env: 构建期环境, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },
 );
 const 临时 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-desktop-"));
@@ -96,7 +100,7 @@ const 干净模板 = path.join(临时, "template-clean.db");
 跑("node", ["--experimental-sqlite", "-e", `
   const { DatabaseSync } = require('node:sqlite');
   const db = new DatabaseSync(process.argv[1]);
-  db.exec("VACUUM INTO '" + process.argv[2] + "'");
+  db.prepare("VACUUM INTO ?").run(process.argv[2]);
   const n = db.prepare('SELECT COUNT(*) AS n FROM User').get().n;
   db.close();
   if (!n) { console.error('模板库里一个账号都没有'); process.exit(1); }
@@ -108,10 +112,21 @@ const 干净模板 = path.join(临时, "template-clean.db");
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 
+// Node 22 的 cpSync 在部分 Windows 环境复制 standalone 时会原生崩溃。
+// 显式遍历并复制文件，同时解引用 Next 的依赖链接。
+function 拷目录(src, dest) {
+  if (fs.statSync(src).isDirectory()) {
+    fs.mkdirSync(dest, { recursive: true });
+    for (const name of fs.readdirSync(src)) 拷目录(path.join(src, name), path.join(dest, name));
+  } else {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+  }
+}
 const 拷 = (从, 到) => {
   const src = path.join(APP, 从);
   if (!fs.existsSync(src)) throw new Error(`缺少 ${从}`);
-  fs.cpSync(src, path.join(OUT, 到), { recursive: true, dereference: true });
+  拷目录(src, path.join(OUT, 到));
   console.log(`  + ${到}`);
 };
 
@@ -151,7 +166,7 @@ fs.rmSync(临时, { recursive: true, force: true });
 步骤(6, "裁掉非本平台的 Prisma 引擎");
 const 本平台引擎 =
   process.platform === "win32"
-    ? "libquery_engine-windows.dll.node"
+    ? "query_engine-windows.dll.node"
     : process.platform === "darwin"
       ? process.arch === "arm64"
         ? "libquery_engine-darwin-arm64.dylib.node"
@@ -165,7 +180,7 @@ function 走一遍(dir) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) {
       走一遍(p);
-    } else if (e.name.startsWith("libquery_engine-")) {
+    } else if (/^(lib)?query_engine-/.test(e.name)) {
       if (本平台引擎 && e.name !== 本平台引擎) {
         fs.rmSync(p);
         删掉++;
@@ -253,7 +268,7 @@ let 控省 = 0;
 let 控删 = 0;
 for (const e of fs.readdirSync(控制面, { withFileTypes: true })) {
   if (!e.isFile()) continue;
-  if (!e.name.startsWith("libquery_engine-") && e.name !== "query_engine_bg.wasm") continue;
+  if (!/^(lib)?query_engine-/.test(e.name) && e.name !== "query_engine_bg.wasm") continue;
   const p = path.join(控制面, e.name);
   控省 += fs.statSync(p).size;
   fs.rmSync(p);
@@ -295,5 +310,11 @@ if (本平台引擎) {
   console.log(`  ✓ ${path.relative(OUT, 业务引擎)}`);
 }
 
-const 大小 = execFileSync("du", ["-sh", OUT], { encoding: "utf8" }).split("\t")[0];
+function 字节数(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).reduce((sum, e) => {
+    const p = path.join(dir, e.name);
+    return sum + (e.isDirectory() ? 字节数(p) : fs.statSync(p).size);
+  }, 0);
+}
+const 大小 = `${(字节数(OUT) / 1048576).toFixed(1)} MB`;
 console.log(`\n装配完成：${OUT}（${大小}）`);

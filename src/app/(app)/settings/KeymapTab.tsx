@@ -1,4 +1,5 @@
 "use client";
+import Shortcut, { useModifierKey } from "@/components/Shortcut";
 
 /**
  * 快捷键一览。**只读**——列的是代码里真接了的那几个，不是愿望清单。
@@ -32,6 +33,7 @@ const 组: { 名: string; 项: { 键: string[]; 说明: string; 仅桌面端?: b
 ];
 
 export default function KeymapTab({ 桌面端 }: { 桌面端: boolean }) {
+  const modifier = useModifierKey();
   return (
     <div className="set-body">
       {组.map((g) => {
@@ -45,10 +47,10 @@ export default function KeymapTab({ 桌面端 }: { 桌面端: boolean }) {
                 <div key={x.键.join("+") + x.说明} className="keymap-row">
                   <div className="keymap-keys">
                     {x.键.map((k) => (
-                      <kbd key={k}>{k}</kbd>
+                      <kbd key={k}>{k === "⌘" ? modifier.replace("+", "") : k}</kbd>
                     ))}
                   </div>
-                  <span>{x.说明}</span>
+                  <span><Shortcut>{x.说明}</Shortcut></span>
                 </div>
               ))}
             </div>
@@ -56,7 +58,7 @@ export default function KeymapTab({ 桌面端 }: { 桌面端: boolean }) {
         );
       })}
       <p className="muted" style={{ fontSize: 13, margin: 0 }}>
-        {桌面端 ? "⌘ 是 Command 键。" : "Windows / Linux 上把 ⌘ 换成 Ctrl。带 ⌘1–9 和 ⌘, 的那几条只在桌面端有。"}
+        {modifier === "⌘" ? "⌘ 是 Command 键。" : "Ctrl 是 Control 键。"} 模块切换和设置快捷键仅桌面端可用。
       </p>
     </div>
   );

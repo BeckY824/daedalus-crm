@@ -8,7 +8,7 @@ name: Desktop apps
 #
 # 产物只适用于打包机器的架构：装配时会按平台裁掉其它平台的 Prisma 引擎。
 # 所以 Apple 芯片的包和 Intel 的包必须各自在对应架构的 runner 上打。
-# Windows 版配置留着了，但还没验证过，先不进矩阵。
+# Windows x64 使用 NSIS，并在打包后运行隔离的 Electron 冒烟验证。
 on:
   push:
     tags: ["v*"]
@@ -21,13 +21,21 @@ permissions:
 
 jobs:
   build:
+    defaults:
+      run:
+        shell: bash
     strategy:
       fail-fast: false
+      # 两个平台向同一个 Release 上传，顺序执行避免并发创建 Release。
+      max-parallel: 1
       matrix:
         include:
           - os: macos-latest # Apple 芯片
             script: dist:mac
             artifact: dmg-arm64
+          - os: windows-latest
+            script: dist:win
+            artifact: exe-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -57,10 +65,17 @@ jobs:
           PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
       - name: 安装桌面端依赖
         working-directory: desktop
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
       - name: 打包
         working-directory: desktop
         run: npm run ${{ matrix.script }}
+      - name: Windows 安装包启动、登录、备份与服务器切换
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: node scripts/smoke-windows.mjs
+      - name: Windows 桌面回归测试
+        if: runner.os == 'Windows'
+        run: npx vitest run
       # 差量更新要的两个产物：ditto 打的 zip（逐条 deflate，保符号链接和权限，解开后 codesign 能过）
       # 和它的清单（每个文件的哈希、权限、在 zip 里的偏移）。客户端拿清单和已装的包比对，
       # 对 zip 发 HTTP Range 只取变了的文件。dmg 照旧：首次安装和退路都靠它。
@@ -116,8 +131,8 @@ jobs:
           # 光一个 v0.42.0 看不出「我该下哪个」。两个版本的发布节奏还可能不一样：
           # 桌面端到 0.42.0 时，我们自己托管的那份可能还停在 0.41.0。
           {
-            echo "**桌面端**（一个人用，主推）：下面 Assets 里的 \`Daedalus.CRM-$VER-arm64.dmg\`，仅 Apple 芯片。"
-            echo "应用内「检查更新」走差量，不用手动下。"
+            echo "**桌面端**：Mac Apple 芯片下载 Assets 中的 arm64.dmg；Windows x64 下载 x64-setup.exe。"
+            echo "Mac 应用内差量更新；Windows 下载校验后运行安装器更新。"
             echo ""
             echo "**自部署 / 多人团队版**（一个团队）：\`ghcr.io/becky824/daedalus-crm:$VER\`"
             echo ""
@@ -145,4 +160,5 @@ jobs:
             gh release view "$ROLLING" >/dev/null 2>&1 || gh release create "$ROLLING"               --title "桌面端更新包（滚动）"               --prerelease               --notes "小版本的安装包都挂在这儿——它们不单独建 Release，免得每个补丁都去刷一遍关注者的动态。每个版本对应的改动见 CHANGELOG.md；正式版本在 Releases 列表里。"
             DEST="$ROLLING"
           fi
-          gh release upload "$DEST" desktop/dist/*.dmg desktop/dist/*.app.zip desktop/dist/*.manifest.json.gz --clobber
+          shopt -s nullglob
+          gh release upload "$DEST" desktop/dist/*.dmg desktop/dist/*.app.zip desktop/dist/*.manifest.json.gz desktop/dist/*-setup.exe --clobber

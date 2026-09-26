@@ -1,4 +1,5 @@
 "use client";
+import Shortcut from "./Shortcut";
 /**
  * 全局 AI 面板。任何页面 ⌘J 拉出来，或者点右上角那枚常驻按钮。
  *
@@ -100,9 +101,9 @@ export default function AiDock({
   if (!开着) {
     return (
       <aside className="dock-rail">
-        <button type="button" className="dock-rail-b" onClick={() => set开着(true)} aria-label="打开 AI 面板（⌘J）" title="问一句 · ⌘J">
+        <button type="button" className="dock-rail-b" onClick={() => set开着(true)} aria-label="打开 AI 面板（Ctrl+J / ⌘J）" title="问一句 · Ctrl+J / ⌘J">
           <MessageOutlined />
-          <span className="dock-rail-k">⌘J</span>
+          <span className="dock-rail-k"><Shortcut>⌘J</Shortcut></span>
         </button>
       </aside>
     );

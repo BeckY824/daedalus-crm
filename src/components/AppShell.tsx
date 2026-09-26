@@ -31,6 +31,7 @@ import type { ModelOption } from "@/lib/llm";
 import FeedbackButton from "./FeedbackButton";
 import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
+import Shortcut from "./Shortcut";
 import { useBusiness } from "@/lib/business-client";
 import { DockOpenContext } from "@/lib/roster";
 
@@ -217,7 +218,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
         label: (
           <span className="rail-menu-row">
             设置
-            {desktop && <kbd>⌘,</kbd>}
+            {desktop && <kbd><Shortcut>⌘,</Shortcut></kbd>}
           </span>
         ),
       },

@@ -39,7 +39,7 @@ describe("色值只在 :root 和 palette.ts 里写死", () => {
   it("别处一律用 token", () => {
     const 散的: string[] = [];
     for (const f of 所有源文件(根目录)) {
-      const rel = path.relative(根目录, f);
+      const rel = path.relative(根目录, f).replaceAll("\\", "/");
       if (放行.has(rel)) continue;
       const 行 = 去注释(fs.readFileSync(f, "utf8")).split("\n");
       行.forEach((l, i) => {

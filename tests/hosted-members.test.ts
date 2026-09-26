@@ -1,3 +1,4 @@
+import { closeTestDatabases } from "./close-databases";
 /**
  * 托管版的成员：管理员在「设置管理 → 用户管理」里加的人，**必须真的能登录**。
  *
@@ -27,8 +28,8 @@ beforeAll(() => {
   process.env.WORKSPACE_TEMPLATE = 模板;
   process.env.CONTROL_DATABASE_URL = `file:${path.join(临时根, "control.db")}`;
   const sql = execFileSync(
-    "npx",
-    ["prisma", "migrate", "diff", "--from-empty", "--to-schema-datamodel", "prisma/control.prisma", "--script"],
+    process.execPath,
+    [path.resolve("node_modules/prisma/build/index.js"), "migrate", "diff", "--from-empty", "--to-schema-datamodel", "prisma/control.prisma", "--script"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
   const ddl = path.join(临时根, "control.sql");
@@ -42,8 +43,9 @@ beforeAll(() => {
   `, path.join(临时根, "control.db"), ddl], { stdio: "pipe" });
 });
 
-afterAll(() => {
+afterAll(async () => {
   delete process.env.MULTI_TENANT;
+  await closeTestDatabases(临时根);
   fs.rmSync(临时根, { recursive: true, force: true });
 });
 

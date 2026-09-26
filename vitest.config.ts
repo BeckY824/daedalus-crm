@@ -9,7 +9,7 @@ export default defineConfig({
   test: {
     // 测试跑在独立的 SQLite 文件上，不碰开发库
     env: {
-      DATABASE_URL: `file:${path.resolve(__dirname, "prisma/test.db")}`,
+      DATABASE_URL: `file:${path.resolve(__dirname, "prisma/test.db").replaceAll("\\", "/")}`,
       NODE_ENV: "test",
       /**
        * 时区要和生产一致（Dockerfile 里是 ENV TZ=Asia/Shanghai）。

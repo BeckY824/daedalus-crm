@@ -81,6 +81,9 @@ prisma/ws/
 # 桌面客户端的依赖与产物
 desktop/node_modules/
 desktop/dist/
+desktop/server-bundle/
+desktop/.smoke-data/
+desktop/*.log
 prisma/e2e-hosted/
 
 # 图标生成的临时目录（scripts/make-icon.mjs 每次开头就 rmSync 它，产物在 desktop/assets/）

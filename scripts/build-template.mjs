@@ -13,13 +13,14 @@ import { execSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 const out = process.argv[2] ?? "prisma/ws/_template.db";
 let schemaSql = process.argv[3] ?? "";
 
 if (!schemaSql) {
   // 本地没有现成的 schema.sql（那是 Docker 构建期产物），现场生成一份
-  schemaSql = path.join(process.env.TMPDIR ?? "/tmp", `crm-schema-${process.pid}.sql`);
+  schemaSql = path.join(os.tmpdir(), `crm-schema-${process.pid}.sql`);
   const sql = execSync(
     "npx prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
     { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] },

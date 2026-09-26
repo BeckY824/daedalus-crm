@@ -1,4 +1,5 @@
 "use client";
+import Shortcut from "./Shortcut";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
@@ -90,7 +91,7 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
             if (e.key === "Enter" && q.trim() && rows.length === 0) router.push(`/customers?keyword=${encodeURIComponent(q.trim())}`);
           }}
         />
-        <kbd className="pane-kbd">⌘K</kbd>
+        <kbd className="pane-kbd"><Shortcut>⌘K</Shortcut></kbd>
       </div>
       {状态们.length > 1 && (
         <div className="pane-chips">

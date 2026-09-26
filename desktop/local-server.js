@@ -127,7 +127,7 @@ async function start({ bundleDir, dataDir, logFile, 额外环境 = {} }) {
       PORT: String(port),
       HOSTNAME: "127.0.0.1",
       CRM_DATA_DIR: dataDir,
-      DATABASE_URL: `file:${path.join(dataDir, "crm.db")}`,
+      DATABASE_URL: `file:${path.join(dataDir, "crm.db").replaceAll("\\", "/")}`,
       AUTH_SECRET: 读或生成密钥(dataDir),
       // http://127.0.0.1 下必须关掉，否则 cookie 会被浏览器丢弃
       COOKIE_SECURE: "false",

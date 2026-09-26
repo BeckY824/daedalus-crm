@@ -62,7 +62,7 @@ function 剥哈希前缀(v) {
 function 取备用(原始) {
   if (!原始 || typeof 原始 !== "object") return null;
   const 出 = {};
-  for (const 键 of ["dmg", "zip", "manifest"]) {
+  for (const 键 of ["dmg", "zip", "manifest", "exe"]) {
     const v = 原始[键];
     if (typeof v === "string" && /^https?:\/\//i.test(v)) 出[键] = v;
   }
@@ -86,9 +86,11 @@ async function 取JSON(url) {
  * 问一下有没有新版。查不到就返回 null——检查更新失败不该打扰用户，
  * 网络不通、GitHub 被墙、我们自己的站挂了，都不是他该处理的事。
  */
-async function 查最新() {
+async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
   // 两边一起问：任一边不通都不影响另一边，总耗时也还是一次超时
-  const [自家, gh] = await Promise.all([取JSON(自家源), 取JSON(GitHub源)]);
+  const [feed, gh] = await Promise.all([取JSON(自家源), 取JSON(GitHub源)]);
+  // 新 feed 按平台/架构隔离；旧的顶层字段只供 Mac 使用。
+  const 自家 = feed?.platforms?.[`${platform}-${arch}`] || (platform === "darwin" ? feed : null);
 
   const 候选 = [];
   if (自家?.version) {
@@ -97,6 +99,7 @@ async function 查最新() {
       地址: 自家.url || 下载页,
       说明: 自家.notes || "",
       dmg: 自家.dmg || null,
+      ...(platform === "win32" ? { exe: 自家.exe || null } : {}),
       // 整包多大，按钮上要写给用户看（feed 里是「161 MB」这样的字）
       体积: 自家.size ? String(自家.size) : null,
       sha256: 剥哈希前缀(自家.sha256),
@@ -109,16 +112,21 @@ async function 查最新() {
     });
   }
   if (gh?.tag_name) {
-    const 资产 = 挑dmg(gh.assets);
+    const 资产 = platform === "win32"
+      ? (gh.assets || []).find((a) => new RegExp(`-${arch}-setup\\.exe$`, "i").test(a.name || ""))
+      : 挑dmg(gh.assets);
+    // Mac 发布不能让 Windows 用户收到没有对应安装包的更新。
+    if (platform === "win32" && !资产) return 候选.length ? 候选.reduce((a, b) => 比版本(b.版本, a.版本) > 0 ? b : a) : null;
     候选.push({
       版本: String(gh.tag_name),
       地址: gh.html_url || 下载页,
       说明: String(gh.body || "").slice(0, 600),
-      dmg: 资产?.browser_download_url || null,
+      dmg: platform === "darwin" ? 资产?.browser_download_url || null : null,
+      ...(platform === "win32" ? { exe: 资产?.browser_download_url || null } : {}),
       体积: 资产?.size ? `${Math.round(资产.size / 1048576)} MB` : null,
       sha256: 剥哈希前缀(资产?.digest),
-      zip: 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
-      manifest: 挑资产(gh.assets, /\.manifest\.json\.gz$/)?.browser_download_url || null,
+      zip: platform === "darwin" ? 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null : null,
+      manifest: platform === "darwin" ? 挑资产(gh.assets, /\.manifest\.json\.gz$/)?.browser_download_url || null : null,
       // GitHub 这一支给的就是原址，没有再备一份的必要
       备用: null,
     });
@@ -136,8 +144,8 @@ async function 查最新() {
  *   null 表示不用提示（已是最新 / 查不到 / 用户跳过了这版）。dmg 为 null 时只能打开下载页；
  *   zip 和 manifest 都有才能差量，缺一个就整包
  */
-async function 检查({ 当前版本, 跳过的版本 } = {}) {
-  const 最新 = await 查最新();
+async function 检查({ 当前版本, 跳过的版本, platform, arch } = {}) {
+  const 最新 = await 查最新({ platform, arch });
   if (!最新) return null;
   const 当前 = 当前版本;
   if (比版本(最新.版本, 当前) <= 0) return null;

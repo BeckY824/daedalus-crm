@@ -121,7 +121,7 @@ AI 有两条路：在「设置 → 桌面端」登录云端账号，用我们的
 次数按提问算：问一句扣一次，我们这边出错的那次退回。设置页会写清楚当前走的是哪一条、还剩几次。
 
 团队要共用一份数据时，在「设置 → 桌面端 → 连接服务器」填你们自己部署的实例地址。
-Windows 与 Intel Mac 的包还没有，那两种机器先用自部署版。
+Windows x64 构建与安装说明见 [Windows 版](docs/Windows版.md)，与 Mac 共用本地数据和云端账号架构。Intel Mac 暂无安装包。
 
 安装、放行与更新见 [docs/桌面端安装.md](docs/桌面端安装.md)；实现见 [desktop/README.md](desktop/README.md)；
 接 Claude Code / Codex 见 [docs/MCP接入.md](docs/MCP接入.md)；

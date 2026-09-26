@@ -16,6 +16,15 @@
  */
 const { contextBridge, ipcRenderer } = require("electron");
 
+// 原生 Windows 标题栏已经提供拖动区，不复用 Mac 顶部的透明拖动条。
+if (process.platform === "win32") {
+  window.addEventListener("DOMContentLoaded", () => {
+    const style = document.createElement("style");
+    style.textContent = ".shell-desktop .rail{padding-top:14px}.shell-desktop .drag-strip{display:none}";
+    document.head.appendChild(style);
+  });
+}
+
 contextBridge.exposeInMainWorld("desktopUpdate", {
   state: () => ipcRenderer.invoke("update:state"),
   download: () => ipcRenderer.invoke("update:download"),

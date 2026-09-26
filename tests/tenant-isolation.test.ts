@@ -1,3 +1,4 @@
+import { closeTestDatabases } from "./close-databases";
 /**
  * 租户隔离。这是托管版唯一不能出错的地方——串一次库就是把 A 公司的客户名单
  * 给了 B 公司，没有补救余地。所以这里不测「功能对不对」，只测「隔离破不破得了」。
@@ -24,8 +25,9 @@ beforeAll(() => {
   process.env.CONTROL_DATABASE_URL = `file:${path.join(临时根, "control.db")}`;
 });
 
-afterAll(() => {
+afterAll(async () => {
   delete process.env.MULTI_TENANT;
+  await closeTestDatabases(临时根);
   fs.rmSync(临时根, { recursive: true, force: true });
 });
 

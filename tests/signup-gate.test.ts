@@ -1,3 +1,4 @@
+import { closeTestDatabases } from "./close-databases";
 /**
  * 自助注册：开关、密码、可选邀请码、条款勾选、赠送，以及可选的验证码。
  *
@@ -32,8 +33,8 @@ beforeAll(() => {
   process.env.MULTI_TENANT = "1";
   process.env.CONTROL_DATABASE_URL = `file:${path.join(临时根, "control.db")}`;
   const sql = execFileSync(
-    "npx",
-    ["prisma", "migrate", "diff", "--from-empty", "--to-schema-datamodel", "prisma/control.prisma", "--script"],
+    process.execPath,
+    [path.resolve("node_modules/prisma/build/index.js"), "migrate", "diff", "--from-empty", "--to-schema-datamodel", "prisma/control.prisma", "--script"],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
   const ddl = path.join(临时根, "control.sql");
@@ -64,8 +65,9 @@ afterEach(() => {
   delete process.env.SIGNUP_VERIFY;
 });
 
-afterAll(() => {
+afterAll(async () => {
   delete process.env.MULTI_TENANT;
+  await closeTestDatabases(临时根);
   fs.rmSync(临时根, { recursive: true, force: true });
 });
 

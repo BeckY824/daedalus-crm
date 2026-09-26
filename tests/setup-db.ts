@@ -15,7 +15,7 @@ const TEST_DB = path.resolve(ROOT, "prisma/test.db");
 export default function setup() {
   // Prisma 客户端是 generate 出来的、不进版本库，新克隆的仓库里还没有
   if (!existsSync(path.resolve(ROOT, "src/generated/prisma"))) {
-    execFileSync("npx", ["prisma", "generate"], { cwd: ROOT, stdio: "pipe" });
+    execFileSync(process.execPath, [path.join(ROOT, "node_modules/prisma/build/index.js"), "generate"], { cwd: ROOT, stdio: "pipe" });
   }
 
   // 每轮从空库开始，避免上一轮残留的表结构与当前 schema 不一致
@@ -23,11 +23,11 @@ export default function setup() {
     rmSync(f, { force: true });
   }
   execFileSync(
-    "npx",
-    ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"],
+    process.execPath,
+    ["--experimental-sqlite", path.join(ROOT, "scripts/build-template.mjs"), TEST_DB],
     {
       cwd: ROOT,
-      env: { ...process.env, DATABASE_URL: `file:${TEST_DB}` },
+      env: { ...process.env, DATABASE_URL: `file:${TEST_DB.replaceAll("\\", "/")}` },
       stdio: "pipe",
     },
   );
