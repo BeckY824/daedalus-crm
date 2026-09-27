@@ -19,7 +19,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 [简体中文](README.md) · **English**
 
-[Website](https://ai-daedalus.com) · [Download for Mac](https://ai-daedalus.com/download.html) · [Download for Windows](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
+[Website](https://ai-daedalus.com) · [Download for Mac](https://ai-daedalus.com/download.html) · [Download for Windows](https://ai-daedalus.com/download.html) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
 
 </div>
 
@@ -31,7 +31,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 | | Who | How to get it | Version |
 |---|---|---|---|
-| 🖥 **Desktop app** (primary) | **One person.** A salesperson, a freelancer, a one-person company | [Mac (Apple silicon)](https://ai-daedalus.com/download.html) · [Windows x64 (.exe, 0.46.5)](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe) | Stable versions: [latest Release](https://github.com/BeckY824/daedalus-crm/releases/latest). Patches: [rolling Release](https://github.com/BeckY824/daedalus-crm/releases/tag/desktop-updates) |
+| 🖥 **Desktop app** (primary) | **One person.** A salesperson, a freelancer, a one-person company | [Mac (Apple silicon)](https://ai-daedalus.com/download.html) · [Windows x64 (.exe)](https://ai-daedalus.com/download.html) | Stable versions: [latest Release](https://github.com/BeckY824/daedalus-crm/releases/latest). Patches: [rolling Release](https://github.com/BeckY824/daedalus-crm/releases/tag/desktop-updates) |
 | 👥 **Team edition** | **A team.** Several people on one shared database | Self-host: `docker compose up -d` (see [docs/部署.md](docs/部署.md))<br/>or use the instance we host — [tell us](https://ai-daedalus.com/demo.html) | Image `ghcr.io/becky824/daedalus-crm:<version>` |
 
 **Same codebase and same version number, but they can ship on different days**: after a desktop release the instance we host may still be on the previous version — [app.ai-daedalus.com/api/health](https://app.ai-daedalus.com/api/health) is the source of truth.
@@ -110,7 +110,7 @@ Two ways to get AI: sign in to a cloud account under **Settings → Desktop** an
 
 To share one database across a team, use Settings → Desktop → Connect to a server and enter your own deployment's address.
 
-[Download Windows x64 0.46.5](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe). The installer is unsigned. See the [Windows guide](docs/Windows版.md) for installation and build details. Intel Mac builds are not available yet.
+[Download Windows x64](https://ai-daedalus.com/download.html). The installer is unsigned. See the [Windows guide](docs/Windows版.md) for installation and build details. Intel Mac builds are not available yet.
 
 Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm/actions/workflows/desktop.yml) on every tag. Install, Gatekeeper and updates: [docs/桌面端安装.md](docs/桌面端安装.md).
 

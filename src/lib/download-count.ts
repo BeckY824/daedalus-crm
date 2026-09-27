@@ -41,12 +41,15 @@ export function 镜像累计(原始: unknown): number | undefined {
 }
 
 /**
- * GitHub 上**现存**的每一个 dmg 的 download_count 之和（所有 Release，含滚动的 desktop-updates）。
+ * GitHub 上**现存**的每一个安装包的 download_count 之和（所有 Release，含滚动的 desktop-updates）。
+ * 安装包 = Mac 的 .dmg + Windows 的 -setup.exe（2026-09-27 起有 Windows 版）。
  *
  * **这是一个下限，不是精确总量**：打包 workflow 用 `--clobber` 重传过的包计数归零了，
  * 那部分历史找不回来。但它是真的——每一次都确实发生过，不靠攒、不靠估。
- * 只数 .dmg：.app.zip 和清单是应用内更新用的，不是「有人下载了桌面端」。
+ * 只数安装包：.app.zip 和清单是应用内差量更新用的，不是「有人下载了桌面端」。
  */
+const 是安装包 = (名字: string) => 名字.endsWith(".dmg") || 名字.endsWith("-setup.exe");
+
 export function GitHub累计(releases: unknown): number | undefined {
   if (!Array.isArray(releases)) return undefined;
   let 和 = 0;
@@ -54,7 +57,7 @@ export function GitHub累计(releases: unknown): number | undefined {
     const 资产 = (r as { assets?: unknown })?.assets;
     if (!Array.isArray(资产)) continue;
     for (const a of 资产 as { name?: unknown; download_count?: unknown }[]) {
-      if (typeof a?.name !== "string" || !a.name.endsWith(".dmg")) continue;
+      if (typeof a?.name !== "string" || !是安装包(a.name)) continue;
       if (!是次数(a.download_count)) return undefined;
       和 += a.download_count;
     }

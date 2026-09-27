@@ -4,7 +4,7 @@
 
 ## 安装与数据
 
-- [下载 Windows x64 0.46.5 安装包](https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates/Daedalus-CRM-0.46.5-x64-setup.exe)，发布于现有 `desktop-updates` 滚动 Release。包的校验值与验收情况见 [Windows验证记录.md](Windows验证记录.md)。
+- 下载：[官网下载页](https://ai-daedalus.com/download.html)（国内节点优先，GitHub 备用；版本号跟官网 feed 走）。安装包也挂在 GitHub Release 上，补丁版在 `desktop-updates` 滚动 Release。包的校验值与验收情况见 [Windows验证记录.md](Windows验证记录.md)。
 - 当前目标为 Windows x64，安装包名为 `Daedalus-CRM-<版本>-x64-setup.exe`。
 - 安装向导可选择安装目录。程序包含运行时，无需额外安装 Node 或数据库。
 - 数据根目录默认是 `%APPDATA%\DaedalusCRM`，账号数据在 `accounts\<账号哈希>` 下。
@@ -53,7 +53,10 @@ Windows 使用 NSIS 整包更新：检查版本 → 用户点击下载 → SHA-2
 
 Windows 不读取旧 feed 的 Mac 版本，也不使用 Mac 安装包的哈希。GitHub 正式 Release 可作为备用源，资产须遵循 `*-x64-setup.exe` 命名；补丁版仍进入现有滚动 Release，因此补丁更新需同步官网 feed。缺少哈希时仅提供手动下载入口，不执行安装器。
 
-官网及 feed 位于另一个仓库，本仓库的适配不会自动发布官网改动。
+官网及 feed 位于另一个仓库（~/Daedalus.AI/website）。2026-09-27 起已接入 Windows：
+`deploy/latest-json.py` 从 GitHub 资产现取 `Daedalus-CRM-<版本>-x64-setup.exe` 的地址、sha256、体积，写进 `platforms["win32-x64"]`
+（取不到就不写这一条，不影响 Mac）；`deploy/mirror.sh` 把 exe 同步到国内节点并核 sha256；下载页和首页按 feed 显示 Windows 的版本和直链。
+每次发版的顺序和 Mac 一样：打 tag → CI 打出 dmg + exe 挂到 Release → `deploy/mirror.sh` → `deploy/deploy.sh`。
 
 ## 协作者确认的发布约定（2026-09-26 记录）
 

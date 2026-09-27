@@ -52,6 +52,18 @@ describe("GitHub累计（GitHub下载数）", () => {
     expect(GitHub累计(全部)).toBe(2);
   });
 
+  it("Windows 的 -setup.exe 也是安装包，和 dmg 加在一起", () => {
+    expect(
+      GitHub累计([
+        rel(
+          { name: "Daedalus.CRM-0.46.5-arm64.dmg", download_count: 4 },
+          { name: "Daedalus-CRM-0.46.5-x64-setup.exe", download_count: 3 },
+          { name: "Daedalus-CRM-0.46.5-x64-setup.exe.blockmap", download_count: 9 },
+        ),
+      ]),
+    ).toBe(7);
+  });
+
   it("没挂任何资产的 Release（只发镜像的版本）不影响", () => {
     expect(GitHub累计([{ assets: [] }, { tag_name: "v0.1.0" }, rel({ name: "a.dmg", download_count: 1 })])).toBe(1);
   });

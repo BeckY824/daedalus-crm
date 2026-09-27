@@ -26,7 +26,7 @@ export const runtime = "nodejs";
  *   用户数  控制面库里的真人账号数（control.account）。**官网目前不显示它**，
  *           显示与否是首页那边一行数组的事，见 index.html 里的 `要显示的`。
  *   官网下载数   国内节点（官网下载按钮指向它）数出来的**累计**次数，所有版本相加。
- *   GitHub下载数 GitHub 上现存所有 dmg 的 download_count 之和。是个**下限**：打包 workflow 用
+ *   GitHub下载数 GitHub 上现存所有安装包（dmg + Windows exe）的 download_count 之和。是个**下限**：打包 workflow 用
  *               `--clobber` 重传过的包计数归零，那些次数找不回来，但留下来的每一次都真实发生过。
  *   2026-09-25 起两个分开报（之前是「当前这一版、两边相加」一个数）。口径和守卫见 lib/download-count.ts。
  *
