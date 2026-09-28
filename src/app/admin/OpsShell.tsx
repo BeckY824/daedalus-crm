@@ -1,6 +1,7 @@
 "use client";
 
-import Link from "next/link";
+import { useTransition } from "react";
+import Link, { useLinkStatus } from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AppstoreOutlined,
@@ -36,6 +37,28 @@ const 导航: { 组: string; 项: { 名: 页; 去: string; icon: React.ReactNode
 export const 站内 = (token: string, 路径: string) => (token ? `/admin${路径}?token=${encodeURIComponent(token)}` : `/admin${路径}`);
 
 /**
+ * 「点了，还在等」的记号。2026-09-28 用户说运营台点起来好卡：服务器渲染一页 50–200 ms，
+ * 慢的是到香港那一趟（首字节 1.3–1.8 s），而点下去之后页面纹丝不动，像没点上。
+ *
+ * 不能用 loading.tsx 解决：外壳要等验完口令才画（见 layout.tsx），骨架屏会先于验证露出来，
+ * 而且流式一开始，口令不对就回不了 404 了。所以两手：
+ *   - 导航整页预取（prefetch={true}）：进了任一页，其余几页在后台取好，点了就换
+ *   - 没取好时当场给反馈：哪里在等，就在那里放一个 .opx-pending，
+ *     样式用 :has() 从外面认——导航那一项先亮、正文先暗、指针转圈（ops.css）
+ */
+export const 等待中 = () => <span className="opx-pending" hidden />;
+
+/** 放在 <Link> 里面：这个链接点了还没到，就挂上记号 */
+export function LinkPending() {
+  const { pending } = useLinkStatus();
+  return pending ? <等待中 /> : null;
+}
+
+/** 整页预取一个运营台地址（用户列表悬停时用）。PrefetchKind 没公开导出，它的值就是这个字符串 */
+export const 预取 = (router: ReturnType<typeof useRouter>, href: string) =>
+  router.prefetch(href, { kind: "full" } as Parameters<typeof router.prefetch>[1]);
+
+/**
  * 运营台的外壳：左边一条导航，右边正文。每一页验完口令再画它（见 layout.tsx 那段为什么）。
  *
  * 左下角写清数据截至什么时候：这几页是快照，不会自己刷新——
@@ -57,6 +80,7 @@ export default function OpsShell({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const [刷新中, 开始] = useTransition();
   return (
     <div className="opx">
       <aside className="opx-side">
@@ -75,7 +99,14 @@ export default function OpsShell({
             <div key={g.组}>
               <div className="opx-nav-h">{g.组}</div>
               {g.项.map((x) => (
-                <Link key={x.名} href={站内(token, x.去)} className={当前 === x.名 ? "on" : undefined} aria-current={当前 === x.名 ? "page" : undefined}>
+                <Link
+                  key={x.名}
+                  href={站内(token, x.去)}
+                  prefetch
+                  className={当前 === x.名 ? "on" : undefined}
+                  aria-current={当前 === x.名 ? "page" : undefined}
+                >
+                  <LinkPending />
                   {x.icon}
                   <span>{x.名}</span>
                   {x.名 === "反馈" && 反馈没处理 > 0 && (
@@ -91,8 +122,9 @@ export default function OpsShell({
         <div className="opx-side-foot">
           数据截至 {dayjs(渲染于).format("MM-DD HH:mm")}
           <br />
-          <button type="button" onClick={() => router.refresh()}>
-            <ReloadOutlined /> 刷新
+          <button type="button" onClick={() => 开始(() => router.refresh())} disabled={刷新中}>
+            {刷新中 && <等待中 />}
+            <ReloadOutlined spin={刷新中} /> {刷新中 ? "刷新中…" : "刷新"}
           </button>
         </div>
       </aside>

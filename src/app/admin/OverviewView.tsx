@@ -11,7 +11,7 @@ import {
 } from "@ant-design/icons";
 import Chart from "@/components/Chart";
 import { 分布说法 } from "@/lib/device-os";
-import { 站内, 页头 } from "./OpsShell";
+import { 站内, 页头, LinkPending } from "./OpsShell";
 import { Kpi, 卡片, 按天柱图, 横条图, 头像, 何时, 千分位, 次数条, 系统们, 系统分段 } from "./ui";
 import type { 总览数 } from "./data";
 
@@ -95,7 +95,7 @@ export default function OverviewView({ token, 数 }: { token: string; 数: 总�
           {卡住的.length ? (
             <div className="opx-list">
               {卡住的.slice(0, 6).map((a) => (
-                <Link key={a.id} href={站内(token, `/users/${a.id}`)}>
+                <Link key={a.id} href={站内(token, `/users/${a.id}`)}><LinkPending />
                   <头像 名={a.name} />
                   <span className="opx-who">
                     <span style={{ minWidth: 0 }}>
@@ -114,11 +114,11 @@ export default function OverviewView({ token, 数 }: { token: string; 数: 总�
           )}
         </卡片>
 
-        <卡片 标题="最近注册" 右={<Link href={站内(token, "/users")} style={{ fontSize: 12.5 }}>全部用户 →</Link>}>
+        <卡片 标题="最近注册" 右={<Link href={站内(token, "/users")} style={{ fontSize: 12.5 }}><LinkPending />全部用户 →</Link>}>
           {最近注册.length ? (
             <div className="opx-list">
               {最近注册.map((a) => (
-                <Link key={a.id} href={站内(token, `/users/${a.id}`)}>
+                <Link key={a.id} href={站内(token, `/users/${a.id}`)}><LinkPending />
                   <头像 名={a.name} />
                   <span className="opx-who">
                     <span style={{ minWidth: 0 }}>
@@ -137,11 +137,11 @@ export default function OverviewView({ token, 数 }: { token: string; 数: 总�
           )}
         </卡片>
 
-        <卡片 标题="最新反馈" 右={<Link href={站内(token, "/feedback")} style={{ fontSize: 12.5 }}>全部反馈 →</Link>}>
+        <卡片 标题="最新反馈" 右={<Link href={站内(token, "/feedback")} style={{ fontSize: 12.5 }}><LinkPending />全部反馈 →</Link>}>
           {数.反馈.最新.length ? (
             <div className="opx-list">
               {数.反馈.最新.map((f) => (
-                <Link key={f.id} href={站内(token, "/feedback")} style={{ alignItems: "flex-start" }}>
+                <Link key={f.id} href={站内(token, "/feedback")} style={{ alignItems: "flex-start" }}><LinkPending />
                   <span style={{ minWidth: 0, flex: 1 }}>
                     <b style={{ fontSize: 13 }}>{f.who || "（不知道是谁）"}</b>
                     <span

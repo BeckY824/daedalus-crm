@@ -5,7 +5,7 @@ import Link from "next/link";
 import { App, Button, Segmented, Tooltip } from "antd";
 import { dayjs } from "@/lib/utils";
 import { 标记反馈 } from "../actions";
-import { 站内, 页头 } from "../OpsShell";
+import { 站内, 页头, LinkPending } from "../OpsShell";
 import type { 反馈条 } from "../data";
 
 type 看 = "没处理" | "处理过了" | "全部";
@@ -56,7 +56,7 @@ export default function FeedbackView({ token, 反馈 }: { token: string; 反馈:
           <div key={f.id} className={`opx-fb ${f.handled ? "opx-fb-done" : "opx-fb-todo"}`}>
             <div className="opx-fb-h">
               {f.accountId ? (
-                <Link href={站内(token, `/users/${f.accountId}`)}>
+                <Link href={站内(token, `/users/${f.accountId}`)}><LinkPending />
                   <b>{f.who || "（不知道是谁）"}</b>
                 </Link>
               ) : (

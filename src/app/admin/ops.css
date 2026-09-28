@@ -105,7 +105,18 @@
 .opx-side-foot button:hover { border-color: var(--x-blue); color: var(--x-blue-deep); }
 
 /* ---------- 右边正文 ---------- */
-.opx-main { min-width: 0; padding: 28px 36px 64px; max-width: 1440px; }
+.opx-main { min-width: 0; padding: 28px 36px 64px; max-width: 1440px; transition: opacity var(--t) var(--ease); }
+
+/* 点了还在等服务器（到香港一趟 1 秒上下，见 OpsShell 的 等待中）：导航那一项先亮、正文先暗、指针转圈。
+   只动透明度，减弱动态时也没有位移 */
+.opx:has(.opx-pending) { cursor: progress; }
+.opx:has(.opx-pending) .opx-main { opacity: 0.55; }
+.opx-nav:has(.opx-pending) a.on:not(:has(.opx-pending)) { background: transparent; color: var(--x-ink-2); font-weight: 500; }
+.opx-nav:has(.opx-pending) a.on:not(:has(.opx-pending)) .anticon { color: var(--x-faint); }
+.opx-nav:has(.opx-pending) a.on:not(:has(.opx-pending))::before { opacity: 0; }
+.opx-nav a:has(.opx-pending) { background: var(--x-blue-50); color: var(--x-blue-deep); font-weight: 600; }
+.opx-nav a:has(.opx-pending) .anticon { color: var(--x-blue); }
+.opx-side-foot button:disabled { cursor: progress; opacity: 0.7; }
 .opx-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
 .opx-head h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.4px; color: var(--x-ink); }
 .opx-head p { margin: 4px 0 0; color: var(--x-muted); font-size: 13px; }

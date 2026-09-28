@@ -8,7 +8,7 @@ import Chart from "@/components/Chart";
 import { dayjs } from "@/lib/utils";
 import { 分布说法 } from "@/lib/device-os";
 import { grantAccountAi } from "../../actions";
-import { 站内 } from "../../OpsShell";
+import { 站内, LinkPending } from "../../OpsShell";
 import { Kpi, 卡片, 按天柱图, 横条图, 头像, 何时, 千分位, 次数条, 系统 } from "../../ui";
 import type { 用户详情, 设备行 } from "../../data";
 
@@ -37,7 +37,7 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
   return (
     <>
       <div className="opx-crumb">
-        <Link href={站内(token, "/users")}>用户</Link> / {a.name}
+        <Link href={站内(token, "/users")}><LinkPending />用户</Link> / {a.name}
       </div>
 
       <section className="opx-card" style={{ marginBottom: 14 }}>
@@ -153,7 +153,7 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
           />
         </卡片>
 
-        <卡片 标题="他发过的反馈" 右={<Link href={站内(token, "/feedback")} style={{ fontSize: 12.5 }}>全部反馈 →</Link>}>
+        <卡片 标题="他发过的反馈" 右={<Link href={站内(token, "/feedback")} style={{ fontSize: 12.5 }}><LinkPending />全部反馈 →</Link>}>
           {详情.反馈.length ? (
             详情.反馈.map((f) => (
               <div key={f.id} className={`opx-fb ${f.handled ? "opx-fb-done" : "opx-fb-todo"}`}>

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Table } from "antd";
 import { DollarOutlined, FireOutlined, ImportOutlined, ExportOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import Chart from "@/components/Chart";
-import { 站内, 页头 } from "../OpsShell";
+import { 站内, 页头, LinkPending } from "../OpsShell";
 import { Kpi, 卡片, 按天柱图, 横条图, 千分位 } from "../ui";
 
 type 榜条 = { kind: string; id: string; 名: string | null; 次数: number; token: number };
@@ -81,7 +81,7 @@ export default function UsageView({
               title: "是谁",
               render: (_, o) =>
                 o.kind === "account" ? (
-                  <Link href={站内(token, `/users/${o.id}`)} style={{ fontWeight: 500 }}>
+                  <Link href={站内(token, `/users/${o.id}`)} style={{ fontWeight: 500 }}><LinkPending />
                     {o.名 ?? `桌面端 …${o.id.slice(-8)}`}
                   </Link>
                 ) : (

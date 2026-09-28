@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Input, Segmented, Select, Table } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
-import { 站内, 页头 } from "../OpsShell";
+import { 站内, 等待中, 预取, 页头 } from "../OpsShell";
 import { 卡片, 头像, 何时, 千分位, 次数条, 系统们 } from "../ui";
 import type { 账号行 } from "../data";
 
@@ -19,6 +19,7 @@ type 系统筛 = "全部" | "Mac" | "Windows" | "未知";
  */
 export default function UsersView({ token, 账号 }: { token: string; 账号: 账号行[] }) {
   const router = useRouter();
+  const [跳转中, 开始] = useTransition();
   const [搜, set搜] = useState("");
   const [来路, set来路] = useState<来路筛>("全部");
   const [系统, set系统] = useState<系统筛>("全部");
@@ -37,6 +38,7 @@ export default function UsersView({ token, 账号 }: { token: string; 账号: �
 
   return (
     <>
+      {跳转中 && <等待中 />}
       <页头 标题="用户" 说明={`共 ${账号.length} 个账号，其中 ${桌面} 个只用桌面端。点一行看这个人的设备、AI 用量和反馈`} />
 
       <卡片 平>
@@ -72,7 +74,11 @@ export default function UsersView({ token, 账号 }: { token: string; 账号: �
           scroll={{ x: 980 }}
           locale={{ emptyText: <div className="opx-empty">没有符合条件的人</div> }}
           rowClassName={() => "opx-row-link"}
-          onRow={(a) => ({ onClick: () => router.push(站内(token, `/users/${a.id}`)) })}
+          // 悬停就开始取：从移到那一行到按下去通常有几百毫秒，够把香港那一趟吃掉一大半
+          onRow={(a) => ({
+            onMouseEnter: () => 预取(router, 站内(token, `/users/${a.id}`)),
+            onClick: () => 开始(() => router.push(站内(token, `/users/${a.id}`))),
+          })}
           columns={[
             {
               title: "用户",
