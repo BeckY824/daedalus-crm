@@ -176,3 +176,29 @@ describe("这一页上列着的名字", () => {
     expect(认页面("/channels", null, null, ["明杰哥"])!.标签).toBe("渠道");
   });
 });
+
+/**
+ * 记录页的名字路径里没有，得页面自己登记。以前登记函数写好了却没人调，
+ * 面板在记录页上一直是空的上下文：问「他的电话」，它不知道「他」是谁（2026-09-28 摸底时查出）。
+ */
+describe("记录页登记的名字", () => {
+  it("登记后面板读得到并广播，卸载登记 null 后清空", async () => {
+    const { 登记详情名, 读详情名, 订阅页面行 } = await import("@/lib/page-rows");
+    let 次数 = 0;
+    const 退订 = 订阅页面行(() => 次数++);
+    登记详情名("王建国");
+    expect(读详情名()).toBe("王建国");
+    expect(认页面("/customers/c1", null, 读详情名())?.标签).toBe("客户 · 王建国");
+    登记详情名("王建国");
+    expect(次数).toBe(1);
+    登记详情名(null);
+    expect(读详情名()).toBeNull();
+    expect(次数).toBe(2);
+    退订();
+  });
+
+  it("RecordView 真的登记了（不是只写了函数）", async () => {
+    const src = (await import("node:fs")).readFileSync(new URL("../src/app/(app)/customers/[id]/RecordView.tsx", import.meta.url), "utf8");
+    expect(src).toContain("登记详情名(customer.name)");
+  });
+});

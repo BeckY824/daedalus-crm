@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Drawer, Dropdown, Input, Space, Tag, Avatar, Checkbox, Tooltip, App, Select, Typography } from "antd";
@@ -32,6 +32,7 @@ import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
 import { toggleTask, deleteTask, deleteFollowUp, completePlan, deleteContact, saveFollowUp } from "./actions";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
+import { 登记详情名 } from "@/lib/page-rows";
 import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 
@@ -74,6 +75,11 @@ export default function RecordView({
   const { message, modal } = App.useApp();
   const b = useBusiness();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
+  // 右边的全局 AI 面板据此知道「他」「这位」是谁（lib/ai-context-page.ts 的客户详情那支）
+  useEffect(() => {
+    登记详情名(customer.name);
+    return () => 登记详情名(null);
+  }, [customer.name]);
 
   const [filter, setFilter] = useState<string>("全部");
   const [memo, setMemo] = useState("");

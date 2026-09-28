@@ -12,6 +12,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 装个假模型, 拆掉假模型 } from "./fake-llm";
+import { 连库 } from "./mock-data";
 
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 
@@ -194,6 +195,21 @@ test.describe("全局 AI 面板", () => {
     await expect(page).toHaveURL(/\/channels/);
     await expect(面板(page)).toBeVisible();
     await expect(page.locator(".dock-ctx")).toContainText("渠道");
+  });
+
+  test("记录页：面板知道看的是谁", async ({ page }) => {
+    // 路径里只有 id，名字要记录页自己登记（lib/page-rows.ts）。以前没人登记，这一页的上下文一直是空的
+    const p = 连库();
+    const 销售 = await p.user.findFirstOrThrow({ where: { role: { not: "ADMIN" } } });
+    const c = await p.customer.create({ data: { name: "面板认人", phone: "13900009999", salesOwnerId: 销售.id } });
+    try {
+      await 登录(page);
+      await page.goto(`/customers/${c.id}`);
+      await expect(page.locator(".dock-ctx")).toContainText("客户 · 面板认人");
+    } finally {
+      await p.customer.delete({ where: { id: c.id } });
+      await p.$disconnect();
+    }
   });
 
   test("面板开着时正文跟着收窄，不出横向滚动条", async ({ page }) => {

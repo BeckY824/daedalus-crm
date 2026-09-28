@@ -22,16 +22,10 @@ import DockThreads from "./DockThreads";
 import HomeChat, { type Suggestion } from "@/app/(app)/dashboard/HomeChat";
 import type { ModelOption } from "@/lib/llm";
 import { 认页面 } from "@/lib/ai-context-page";
-import { 订阅页面行, 读页面行 } from "@/lib/page-rows";
+import { 订阅页面行, 读页面行, 读详情名 } from "@/lib/page-rows";
 
 /** 服务端快照。固定一个引用，useSyncExternalStore 才不会每次都当成变了 */
 const 空名单: string[] = [];
-
-/** 记录页那种「这一页说的是谁」——由页面自己登记，路径看不出人名 */
-let 详情名: string | null = null;
-export function 登记详情名(名: string | null) {
-  详情名 = 名;
-}
 
 export default function AiDock({
   userName,
@@ -90,6 +84,8 @@ export default function AiDock({
 
   // 这一页上列着的名字（DataList 登记的）。Hook 要在早退之前调，顺序每次一样
   const 可见行 = useSyncExternalStore(订阅页面行, 读页面行, () => 空名单);
+  // 记录页上这条记录叫什么（RecordView 登记的）
+  const 详情名 = useSyncExternalStore(订阅页面行, 读详情名, () => null);
 
   // 首页就是宽模式的它，不在那儿再开一块
   if (pathname === "/dashboard") return null;
