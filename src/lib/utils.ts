@@ -18,14 +18,6 @@ export function money(n: number | null | undefined): string {
   return "¥ " + Math.round(n).toLocaleString("zh-CN");
 }
 
-/** 大额缩写：126 万 */
-export function moneyShort(n: number): string {
-  if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(2)} 亿`;
-  if (n >= 10_000) return `${(n / 10_000).toFixed(1)} 万`;
-  return `${Math.round(n)}`;
-}
-
-/** 设计稿里的「今天 10:30 / 昨天 16:20 / 05-20 14:15」 */
 /**
  * 「最近一次」这类时间的人话写法。列表页的时间列全走它。
  *
@@ -67,12 +59,6 @@ export function duration(sec: number | null | undefined): string {
 export function maskPhone(p?: string | null): string {
   if (!p) return "—";
   return p.length >= 11 ? `${p.slice(0, 3)}****${p.slice(-4)}` : p;
-}
-
-/** 环比增长文本用：正数返回 true */
-export function growth(cur: number, prev: number): number {
-  if (!prev) return cur > 0 ? 100 : 0;
-  return Number((((cur - prev) / prev) * 100).toFixed(1));
 }
 
 /** 人名头像：中文取末字（姓名去掉姓），英文取首字母 */

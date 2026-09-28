@@ -40,7 +40,6 @@ export const OPP_STAGES = [
   "谈判审核",
   "赢单成交",
 ] as const;
-export type OppStage = (typeof OPP_STAGES)[number];
 
 /** 各阶段默认成交概率 */
 export const STAGE_PROBABILITY: Record<string, number> = {

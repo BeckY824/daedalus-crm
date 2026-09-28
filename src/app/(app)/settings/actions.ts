@@ -16,7 +16,7 @@ import { 本地模式, 读 as 读云端凭据, 发码 as 云端发码, 重置密
 import { destroySession } from "@/lib/auth";
 import { isEmail } from "@/lib/tenant/accounts";
 import { createSession } from "@/lib/auth";
-import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, fetchRemoteModels, type ModelOption } from "@/lib/llm";
+import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, type ModelOption } from "@/lib/llm";
 import { getBusiness, saveBusiness, mergeBusiness, type BusinessConfig } from "@/lib/business";
 import { 判断可用 } from "@/lib/jev/client";
 import { 自动判断开着, 设自动判断 } from "@/lib/jev/settings";
@@ -488,15 +488,6 @@ export async function clearLlmSettings() {
   await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "llm", summary: "清除了界面里的 AI 接入配置" });
   revalidatePath("/", "layout");
   return { ok: true as const };
-}
-
-/** 问接口它支持哪些模型，给设置页挑。拉不到就手填，不阻塞配置 */
-export async function listRemoteModels(input: { baseUrl: string; apiKey?: string | null }) {
-  await requireAdmin();
-  if (!/^https?:\/\//.test(input.baseUrl.trim())) {
-    return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
-  }
-  return fetchRemoteModels(input);
 }
 
 /** 用表单里当前填的值发一次最小请求；key 留空则用已保存的 */

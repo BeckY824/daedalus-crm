@@ -30,17 +30,6 @@ export function currentTenant(): TenantContext | null {
   return storage.getStore() ?? null;
 }
 
-/**
- * 取当前工作区，没有就抛错。
- * 用在「只有托管版才会走到」的路径上，比如工作区设置页；
- * 业务代码不要用它——业务代码应该对单 / 多租户无感。
- */
-export function requireTenant(): TenantContext {
-  const t = currentTenant();
-  if (!t) throw new Error("当前请求没有工作区上下文");
-  return t;
-}
-
 /** 托管版开关。只认显式的 "1"，避免误开 */
 export function multiTenant(): boolean {
   return process.env.MULTI_TENANT === "1";

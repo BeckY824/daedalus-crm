@@ -46,7 +46,6 @@ function 取名(i: number): string {
   return `${姓[i % n]}${名[(i * 5 + Math.floor(i / n) * 7) % 名.length]}`;
 }
 
-const 跟进状态 = ["待跟进", "跟进中", "意向较高", "已签约", "暂缓"];
 const 决策状态 = ["了解中", "与家人商议", "对比中", "已决定报名", "暂不考虑"];
 
 const 跟进话术: Record<string, [string, string][]> = {

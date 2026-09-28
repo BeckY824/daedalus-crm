@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import {
-  Card,
   Table,
   Button,
   Space,
@@ -16,12 +15,11 @@ import {
   Row,
   Col,
   App,
-  Tabs,
   Alert,
   Typography,
 } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { SettingOutlined, PlusOutlined, EditOutlined, StopOutlined, UndoOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, StopOutlined, UndoOutlined } from "@ant-design/icons";
 import { PageHead, UserCell } from "@/components/ui";
 import { dayjs } from "@/lib/utils";
 import { ROLES } from "@/lib/constants";

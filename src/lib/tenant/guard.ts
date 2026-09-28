@@ -1,4 +1,3 @@
-import { multiTenant } from "./context";
 
 /**
  * 试用 / 订阅到期后把写操作拦住。
@@ -14,11 +13,4 @@ export class TrialExpiredError extends Error {
     super("试用已结束，数据可以继续查看和导出，恢复编辑请开通订阅");
     this.name = "TrialExpiredError";
   }
-}
-
-/** 给界面用：现在能不能写。真正的闸门在 prisma 代理里，这只是拿来显示状态的 */
-export async function canWrite(): Promise<boolean> {
-  if (!multiTenant()) return true;
-  const { resolveCurrentTenant } = await import("./resolve");
-  return (await resolveCurrentTenant())?.writable ?? false;
 }

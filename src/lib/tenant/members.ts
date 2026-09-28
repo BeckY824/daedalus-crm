@@ -67,12 +67,6 @@ export async function 配账号(input: {
   return { ok: true, accountId: account.id };
 }
 
-/** 这条业务库 User 背后的控制面账号。自部署版、以及还没配账号的老成员，返回 null */
-export async function 找账号(accountId: string | null | undefined) {
-  if (!accountId) return null;
-  return control.account.findUnique({ where: { id: accountId } });
-}
-
 /**
  * 改一个成员（或自己）的控制面密码。
  *

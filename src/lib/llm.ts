@@ -232,25 +232,6 @@ export async function resolveModel(requested: string | undefined): Promise<strin
   return allowed.some((o) => o.id === requested) ? requested : undefined;
 }
 
-/** 设置页「拉取可用模型」：问接口它支持哪些（OpenAI 兼容的 /models） */
-export async function fetchRemoteModels(input: { baseUrl: string; apiKey?: string | null }): Promise<{ ok: true; models: string[] } | { ok: false; error: string }> {
-  const cfg = await resolveLlmConfigForTest({ baseUrl: input.baseUrl, model: "", apiKey: input.apiKey });
-  if (!cfg) return { ok: false, error: "还没填 API Key" };
-  try {
-    const res = await fetch(`${cfg.baseUrl}/models`, {
-      headers: { Authorization: `Bearer ${cfg.apiKey}` },
-      signal: AbortSignal.timeout(20_000),
-    });
-    if (!res.ok) return { ok: false, error: `接口返回 ${res.status}` };
-    const data = (await res.json()) as { data?: { id?: string }[] };
-    const models = (data.data ?? []).map((m) => m.id).filter((x): x is string => Boolean(x));
-    if (!models.length) return { ok: false, error: "接口没返回任何模型，手动填模型名吧" };
-    return { ok: true, models };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error && e.name === "TimeoutError" ? "拉取超时" : "拉不到模型列表，手动填模型名吧" };
-  }
-}
-
 /**
  * 保存界面配置。apiKey 传空表示"不改 key"，只更新地址与模型——
  * 界面上 key 只回显尾 4 位，用户改个模型名不该被迫重新粘一遍 key。

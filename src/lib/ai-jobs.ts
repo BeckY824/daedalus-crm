@@ -127,7 +127,6 @@ export function 收起任务(key: string): void {
   // 还在跑的不收：那条正是用来告诉人「它还没完」的。组件也挡了一道，这里是里子
   if (cur.status === "loading") return;
   const { 标签: _丢掉, ...剩下 } = cur;
-  void _丢掉;
   jobs.set(key, 剩下 as JobState<unknown>);
   notify();
 }

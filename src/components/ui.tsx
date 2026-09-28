@@ -1,7 +1,7 @@
 "use client";
 
-import { Tag, Avatar, Space, Progress } from "antd";
-import { palette, categorical } from "@/lib/palette";
+import { Tag, Avatar, Space } from "antd";
+import { palette } from "@/lib/palette";
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
@@ -174,17 +174,6 @@ export function StageTag({ stage }: { stage: string }) {
     <Tag style={{ margin: 0, borderRadius: 6, fontSize: 13, color: c, background: c + "18", borderColor: c + "35" }}>
       {stage}
     </Tag>
-  );
-}
-
-/** 成交概率：数值 + 细进度条 */
-export function ProbabilityCell({ value }: { value: number }) {
-  const color = value >= 70 ? palette.success : value >= 40 ? palette.brand : categorical.amber;
-  return (
-    <div style={{ minWidth: 90 }}>
-      <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 3 }}>{value}%</div>
-      <Progress percent={value} showInfo={false} size="small" strokeColor={color} />
-    </div>
   );
 }
 

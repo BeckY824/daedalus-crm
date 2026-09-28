@@ -358,7 +358,7 @@ export const TOOLS: Tool[] = [
     name: "get_watchlist",
     description: "盯盘清单：正在被遗忘的客户（沉睡 / 计划逾期 / 商机停滞），按紧急程度排好。",
     args: "{}",
-    async run(_args, ctx) {
+    async run() {
       const list = (await loadWatchlist()).slice(0, 12);
       return { summary: `${list.length} 项`, data: list.map((w) => ({ customerId: w.customerId, name: w.customerName, owner: w.ownerName, reason: w.reason })) };
     },

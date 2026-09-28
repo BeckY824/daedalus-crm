@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
  * 边界：工具全部只读；最多 6 步；每步与最终回答都有超时；用户按 Esc 时 signal 中断。
  * 过程通过 emit 推出去：每次工具调用一条 step（running → done + summary）。
  */
-import { chatMessagesJSON, chatTextStream, buildSystemPrompt, type ChatMessage, chatTools, type ToolMessage} from "../llm";
+import { chatMessagesJSON, chatTextStream, buildSystemPrompt, chatTools, type ToolMessage } from "../llm";
 import { TOOLS, TOOL_MAP, proposalVocab, type ToolContext } from "./tools";
 import { SCHEMAS } from "./schemas";
 import { 有DSML, 解析DSML } from "@/lib/llm-dsml";

@@ -131,20 +131,9 @@ export function 清除限流(key: string) {
  */
 export const 每IP每日注册上限 = 3;
 
-/**
- * 演示区每个 IP 每天能新开几个访客。
- *
- * 演示区进门不要码了（整套码 2026-09-15 下线），一次进门 = 一份新的 5 次额度，
- * 而「换一个访客」只要把 cookie 丢掉。上面那套冷却管的是**频率**（5 分钟 30 次），
- * 管不住总量：一天能刷出几万次免费调用。这条管总量。
- *
- * 只数**新**访客：带着 cookie 回来的人不占额度，他本来就只有那一份 5 次。
- */
-export const 每IP每日演示上限 = 5;
-
 const 日计数 = new Map<string, { day: string; n: number }>();
 
-/** 今天这个 key 计了几次。key 自带前缀区分用途（signup: / demo:） */
+/** 今天这个 key 计了几次。key 自带前缀区分用途（signup: 注册、lead: 官网留资） */
 export function 今日计数(key: string, now = new Date()): number {
   const day = now.toISOString().slice(0, 10);
   const r = 日计数.get(key);

@@ -8,7 +8,7 @@ import { App, Dropdown, Tooltip } from "antd";
 import { ArrowUpOutlined, CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined, SnippetsOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import ProposalCard from "@/components/ProposalCard";
-import ModelPicker, { useModel, setModel } from "@/components/ModelPicker";
+import ModelPicker, { useModel } from "@/components/ModelPicker";
 import AskFiles, { type 附件 } from "@/components/AskFiles";
 import ImportDrawer from "../customers/ImportDrawer";
 import type { ModelOption } from "@/lib/llm";

@@ -89,8 +89,6 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
   },
 };
 
-export const PRESET_NAMES = Object.keys(BUSINESS_PRESETS);
-
 /** 允许改显示名的状态值全集 */
 export const RELABELABLE_STATUSES: readonly string[] = [...FOLLOW_STATUSES, ...DECISION_STATUSES];
 

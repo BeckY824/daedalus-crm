@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Col, Form, Input, Row, Select, Typography, App } from "antd";
+import { Button, Col, Form, Input, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig } from "@/lib/business-config";
 import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";

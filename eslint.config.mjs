@@ -18,6 +18,12 @@ const eslintConfig = defineConfig([
     // 用 Next 这套规则去 lint 它只会得到一堆「不许 require」的假阳性
     "desktop/**",
   ]),
+  {
+    rules: {
+      // 下划线开头 = 故意不用（占位参数、从对象里剥掉一个字段）；剥字段剩下的那部分也不算没用
+      "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_", varsIgnorePattern: "^_", ignoreRestSiblings: true }],
+    },
+  },
 ]);
 
 export default eslintConfig;
