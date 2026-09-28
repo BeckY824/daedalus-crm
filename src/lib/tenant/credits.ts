@@ -12,6 +12,13 @@ import { control } from "./control";
  * 规则对标 eigent：注册送 30；余额不足 30 的，当天有使用就送 3（一天一次）。
  * 余额 = 赠送之和 − 用掉次数。赠送只加不减。
  *
+ * **桌面端账号的每日赠送只发注册后的前 30 天**（2026-09-28 用户拍板）。
+ * 每天 3 次是给刚来的人试用的，不是一个永久免费层——9 月定过「不做永久免费层」，
+ * 而永久每天 3 次恰恰就是一个。过了 30 天还想用：填自己的 Key（永远免费），或者订阅。
+ * 注册当天算第 1 天，按北京时间的日历天数，第 30 天那天照发，第 31 天起不发。
+ * **workspace 那一路不设这个窗口**：普通工作区 7 天试用一过就只读、AI 本来就停了；
+ * 唯一长期可写的是网页版那个共享工作区，它整个就靠每日赠送续命，设了窗口它会在一个月后哑掉。
+ *
  * 原来还有一档「填邀请码再送 50」，整套码 2026-09-15 下线时一起去掉了。
  * 运营台的「AI +10」还在——要给谁多送几次，那条路更直接，也不用先发一个码出去。
  *
@@ -37,7 +44,7 @@ import { control } from "./control";
  *   2. **不知道是哪台机器 → 不发**，不是「照发」。这里最容易写反：
  *      `/api/gateway/v1/credits`、网关的 chat 接口都只认一枚令牌、拿不到机器，
  *      要是它们也照旧补注册赠送，那把请求里的机器字段删掉就又是白送，
- *      这整件事等于没做。不发不等于不能用——每日赠送照结，见下面 结算赠送()。
+ *      这整件事等于没做。不发不等于不能用——注册后 30 天内每日赠送照结，见下面 结算赠送()。
  *   3. **只加不减。** 已经发出去的赠送一条都不动：改法只是「新的那一条还发不发」，
  *      所以改版之后没有任何人的余额会变少。
  *
@@ -51,6 +58,8 @@ export const 注册赠送 = 30;
 export const 每日赠送 = 3;
 /** 余额低于这个数，当天才送。攒着不用的人不会无限累积 */
 export const 每日赠送门槛 = 30;
+/** 桌面端账号的每日赠送发几天（从注册那天算起，含当天）。见文件头 */
+export const 每日赠送天数 = 30;
 
 /**
  * 机器哈希长什么样：加盐 sha256 的十六进制，64 位。
@@ -68,6 +77,31 @@ export function 规整机器哈希(v: string | null | undefined): string | null 
 /** 每日赠送的「天」按北京时间算，和服务器时区、用户所在地都无关，免得跨时区的人一天领两次 */
 export function 今天(now = new Date()): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+/** 北京时间的某一天往后数 n 天，还是 YYYY-MM-DD。只做日历加法，不碰时区 */
+function 加天(日: string, n: number): string {
+  return new Date(Date.parse(`${日}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * 每日赠送发到哪一天为止（含这一天，北京时间）。
+ *
+ * workspace 归属方返回 null——那边不设窗口，理由见文件头。
+ * 账号查不到也返回 null：走到这里的都过了令牌认证，查不到只可能是库出了事，
+ * 那时候不该顺手把人的 AI 停掉。
+ */
+export async function 每日赠送截至(owner: Owner): Promise<string | null> {
+  if (owner.kind === "workspace") return null;
+  const a = await control.account.findUnique({ where: { id: owner.id }, select: { createdAt: true } });
+  if (!a) return null;
+  return 加天(今天(a.createdAt), 每日赠送天数 - 1);
+}
+
+/** 今天还在不在每日赠送的窗口里。给界面和报错文案用，账本自己的判断在 结算赠送() 里 */
+export async function 每日赠送期(owner: Owner, now = new Date()): Promise<{ 截至: string | null; 期内: boolean }> {
+  const 截至 = await 每日赠送截至(owner);
+  return { 截至, 期内: !截至 || 今天(now) <= 截至 };
 }
 
 /**
@@ -176,7 +210,7 @@ async function 结算注册赠送(accountId: string, 机器: string | null | und
  *
  * `机器` 是这次请求来自哪台机器（加盐 sha256 的硬件 UUID，桌面端登录时带上来）：
  *   - workspace 归属方**完全不看它**，那边没有机器这个口径；
- *   - account 归属方**没有它就不发注册赠送**（每日赠送照发）。
+ *   - account 归属方**没有它就不发注册赠送**（每日赠送照发——只要还在注册后 30 天内）。
  *     所以拿不到机器信息的调用点（网关的 credits / chat：它们只认一枚令牌）
  *     不传就对了——不传等于不发，而不是白送。见文件头那三条。
  */
@@ -188,6 +222,8 @@ export async function 结算赠送(owner: Owner, 机器?: string | null): Promis
   }
   const [送, 用] = await Promise.all([赠送总和(owner), 用掉次数(owner)]);
   if (送 - 用 >= 每日赠送门槛) return;
+  // 过了注册后那 30 天就不再发（只对账号）。已经发出去的一条都不动：只加不减
+  if (!(await 每日赠送期(owner)).期内) return;
   await 赠送(owner, { amount: 每日赠送, reason: "daily", key: `${owner.id}:daily:${今天()}` });
 }
 

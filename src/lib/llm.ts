@@ -145,8 +145,10 @@ export type 云端余额 = {
   上限: number;
   用掉: number;
   还剩: number;
-  /** 每天登录再送几次。老版本服务端不返回，那就不提这句 */
+  /** 每天登录再送几次。老版本服务端不返回，那就不提这句；过了注册后 30 天是 0 */
   每日赠送?: number;
+  /** 每日赠送发到哪天（YYYY-MM-DD，含当天）。0.46.6 起才有，老服务端没有 */
+  每日赠送截至?: string | null;
   /** 注册赠送是多少次。用来把「注册页说的」和「你实际有的」对上 */
   注册赠送?: number;
   /**
@@ -174,6 +176,7 @@ async function 问云端余额(env: { apiKey: string; baseUrl: string }): Promis
       用掉: d.用掉 ?? 0,
       还剩: d.还剩,
       每日赠送: typeof d.每日赠送 === "number" ? d.每日赠送 : undefined,
+      每日赠送截至: typeof d.每日赠送截至 === "string" ? d.每日赠送截至 : undefined,
       注册赠送: typeof d.注册赠送 === "number" ? d.注册赠送 : undefined,
       注册赠送已发: typeof d.注册赠送已发 === "boolean" ? d.注册赠送已发 : undefined,
     };

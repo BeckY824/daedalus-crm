@@ -286,7 +286,7 @@ export async function 重置密码(input: { target: string; code: string; passwo
   });
 }
 
-export type 余额信息 = { 上限: number; 用掉: number; 还剩: number; 每日赠送?: number };
+export type 余额信息 = { 上限: number; 用掉: number; 还剩: number; 每日赠送?: number; 每日赠送截至?: string | null };
 
 /** 还剩几次。问不到（断网）就是 null，设置页据此写「查不到」，不能把整页拖垮 */
 export async function 余额(): Promise<余额信息 | null> {

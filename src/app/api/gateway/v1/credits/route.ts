@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { 网关认证 } from "@/lib/tenant/gateway-auth";
-import { 余额, 结算赠送, 每日赠送, 注册赠送, 注册赠送发过吗 } from "@/lib/tenant/credits";
+import { 余额, 结算赠送, 每日赠送, 每日赠送期, 注册赠送, 注册赠送发过吗 } from "@/lib/tenant/credits";
 
 export const dynamic = "force-dynamic";
 
@@ -39,9 +39,16 @@ export async function GET(req: Request) {
     而在此之前**界面上没有任何地方说得出原因**——注册页写着送 30，
     设置页显示还剩 3，中间那句话谁都没说。这个字段就是那句话的依据。
   */
+  /*
+    `每日赠送截至` 是 0.46.6 加的：每日赠送只发注册后 30 天（见 lib/tenant/credits.ts）。
+    过了期 `每日赠送` 报 0 而不是 3——**老版本桌面端只认这个数**，是 0 它就不说
+    「每天登录再送 3 次」，不会对着一个已经不发的赠送许诺。新版本再拿截至日期说清楚到哪天。
+  */
+  const 期 = await 每日赠送期(owner);
   return NextResponse.json({
     ...(await 余额(owner)),
-    每日赠送,
+    每日赠送: 期.期内 ? 每日赠送 : 0,
+    每日赠送截至: 期.截至,
     注册赠送,
     注册赠送已发: await 注册赠送发过吗(owner),
     accountId: auth.accountId,

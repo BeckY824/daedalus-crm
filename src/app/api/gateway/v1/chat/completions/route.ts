@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 收拾请求体 } from "@/lib/gateway";
-import { 按问题扣一次, 规整请求id, 退这一次 } from "@/lib/tenant/credits";
+import { 按问题扣一次, 每日赠送期, 规整请求id, 退这一次 } from "@/lib/tenant/credits";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 
@@ -64,9 +64,13 @@ export async function POST(req: Request) {
   const 功能 = 认功能(req.headers.get("x-feature"));
   const 扣 = await 按问题扣一次(owner, 问题id);
   if (!扣.ok) {
+    // 过了注册后 30 天就不再每天送了，这时候说「明天再送」是空头支票
+    const { 期内 } = await 每日赠送期(owner);
     return 网关错误(
       402,
-      `免费的 AI 次数已经用完（共 ${扣.上限} 次），明天登录再送几次。也可以在设置里填自己的模型 API Key，那样不走我们的额度。`,
+      `免费的 AI 次数已经用完（共 ${扣.上限} 次），` +
+        (期内 ? "明天登录再送几次。" : "注册后 30 天的每日赠送也已经结束。") +
+        "也可以在设置里填自己的模型 API Key，那样不走我们的额度。",
     );
   }
 
