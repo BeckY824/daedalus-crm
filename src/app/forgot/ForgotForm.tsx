@@ -7,6 +7,7 @@ import { LockOutlined, MailOutlined, SafetyOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
 import Rise from "@/components/Rise";
 import { 发送重置码, 重置密码 } from "./actions";
+import { useCountdown } from "@/lib/use-countdown";
 
 /**
  * 找回密码。两步，形状照着注册页来——同一件事在两个页面上长得一样，
@@ -30,20 +31,10 @@ export default function ForgotForm() {
   const [邮箱, set邮箱] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [left, setLeft] = useState(0);
+  const [left, 开始倒计时] = useCountdown(倒计时秒);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [完成, set完成] = useState(false);
-
-  function 开始倒计时() {
-    setLeft(倒计时秒);
-    const t = setInterval(() => {
-      setLeft((n) => {
-        if (n <= 1) clearInterval(t);
-        return n - 1;
-      });
-    }, 1000);
-  }
 
   async function 发码(target: string, 首次: boolean) {
     setSending(true);

@@ -7,6 +7,7 @@ import { LockOutlined, MailOutlined, SafetyOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
 import Rise from "@/components/Rise";
 import { requestCode, signup } from "./actions";
+import { useCountdown } from "@/lib/use-countdown";
 
 /**
  * 注册。两步，照常见的 SaaS 做法：先证明邮箱是你的，再设密码。
@@ -41,19 +42,9 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
   const [邮箱, set邮箱] = useState("");
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
-  const [left, setLeft] = useState(0);
+  const [left, 开始倒计时] = useCountdown(倒计时秒);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
-
-  function 开始倒计时() {
-    setLeft(倒计时秒);
-    const t = setInterval(() => {
-      setLeft((n) => {
-        if (n <= 1) clearInterval(t);
-        return n - 1;
-      });
-    }, 1000);
-  }
 
   /** 第一步：发码。没开验证码的部署直接进第二步 */
   async function 下一步() {
