@@ -18,6 +18,7 @@ import { clearJob, getJob, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
 import { 载入历史, type AgentAnswer, type 历史消息 } from "@/lib/thread-history";
+import type { 提到的客户 } from "@/lib/agent/run";
 import { 认死胡同 } from "@/lib/ask-dead-end";
 import { 落一轮 } from "./threads";
 import AskBox from "@/components/AskBox";
@@ -930,7 +931,7 @@ function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Tur
 }
 
 /** 卡片里的一行：客户名、状态、动作；草稿就地展开，与记录页、盯盘、雷达共用同一份 */
-function CustomerRow({ customer }: { customer: { id: string; name: string; followStatus: string } }) {
+function CustomerRow({ customer }: { customer: 提到的客户 }) {
   const 复制 = useCopyDraft();
   const wakeup = useJob<string>(草稿键("wakeup", customer.id));
   const invite = useJob<string>(草稿键("invite", customer.id));

@@ -14,7 +14,7 @@ import { setJobValue } from "./ai-jobs";
 import { 认步骤 } from "./ai-steps";
 import { 载入对话, type Turn } from "./home-thread";
 import type { BriefRecord } from "./ai-draft";
-import type { Proposal } from "./agent/proposals";
+import type { AgentResult } from "./agent/run";
 import type { StreamJob } from "./ai-stream";
 
 /** 库里的一条消息。落库那头见 dashboard/threads.ts */
@@ -29,12 +29,7 @@ export type 历史消息 = {
   createdAt: string;
 };
 
-export type AgentAnswer = {
-  text: string;
-  records: BriefRecord[];
-  customers: { id: string; name: string; followStatus: string }[];
-  proposals: Proposal[];
-};
+export type AgentAnswer = Omit<AgentResult, "steps">;
 
 /** 一条对话，读出来的样子。首页由服务端传进来，面板点开时自己去要 */
 export type 会话 = { id: string; title: string; messages: 历史消息[] };

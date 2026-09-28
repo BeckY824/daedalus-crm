@@ -32,11 +32,13 @@ export type AgentEvents = {
   signal?: AbortSignal;
 };
 
+/** 回答里提到的客户，前端据此给「打开记录页 / 起草话术」动作 */
+export type 提到的客户 = { id: string; name: string; followStatus: string };
+
 export type AgentResult = {
   text: string;
   records: BriefRecord[];
-  /** 回答里提到的客户，前端据此给「打开记录页 / 起草话术」动作 */
-  customers: { id: string; name: string; followStatus: string }[];
+  customers: 提到的客户[];
   /** 写入提议：渲染成卡片，人点确认才落库 */
   proposals: Proposal[];
   steps: number;
@@ -379,8 +381,8 @@ ${工作方式}
   */
   const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [], 号: await 号码脱敏器() };
   const records: BriefRecord[] = [];
-  const customers = new Map<string, { id: string; name: string; followStatus: string }>();
-  const mentioned = new Map<string, { id: string; name: string; followStatus: string }>();
+  const customers = new Map<string, 提到的客户>();
+  const mentioned = new Map<string, 提到的客户>();
   let steps = 0;
 
   /** 直连命中时先跑掉的那几个工具；循环里按下标认，跑完就轮到模型组织回答 */
@@ -758,9 +760,9 @@ ${工作方式}
 }
 
 /** 从工具结果里捞出「id + 姓名」的行（搜索名单、盯盘、计划的形状各不同，只认字段名） */
-function listCustomers(data: unknown): { id: string; name: string; followStatus: string }[] {
+function listCustomers(data: unknown): 提到的客户[] {
   const rows: unknown[] = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray((data as { customers?: unknown }).customers) ? (data as { customers: unknown[] }).customers : [];
-  const out: { id: string; name: string; followStatus: string }[] = [];
+  const out: 提到的客户[] = [];
   for (const r of rows) {
     if (!r || typeof r !== "object") continue;
     const o = r as { id?: unknown; customerId?: unknown; name?: unknown; followStatus?: unknown };
