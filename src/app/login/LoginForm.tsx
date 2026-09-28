@@ -8,7 +8,7 @@ import { UserOutlined, LockOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
 import { login, 桌面端登录 } from "./actions";
 import Rise from "@/components/Rise";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 /** server action 迟迟不返回时的等待上限。链路正常时登录在 3 秒内完成。 */
 const 请求超时毫秒 = 20000;
@@ -42,6 +42,7 @@ export default function LoginForm({
   /** 为什么会站在这一页——比如令牌在别处被吊销了。有就先说清，再让人登 */
   提示?: string;
 }) {
+  const { 曲线, 时长 } = useMotionTheme();
   /** 托管版和桌面端的账号是邮箱（或手机号），自部署是管理员建的登录名。见 page.tsx */
   const 账号名 = 桌面端 ? "邮箱或手机号" : 用邮箱 ? "邮箱" : "用户名";
   const [loading, setLoading] = useState(false);

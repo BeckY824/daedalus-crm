@@ -45,3 +45,67 @@ export const 时长 = {
  * 间隔要读得出先后，又不能读出「它在等」。超过八档就整组一起出来。
  */
 export const 间隔 = 0.07;
+
+/* ---------- 主题换了曲线和时长，JS 这边跟着读 ----------
+ * 设置 → 外观 → 主题可以换 --ease-* / --t-* 的值（像素是阶跃、高级更慢更柔……，规矩见 src/app/skins/）。
+ * CSS 动的那一半自己就跟着变了；motion 读不了 CSS 变量，所以在浏览器里从 <html> 上把当前值读出来，
+ * 经 components/MotionTheme.tsx 发给各处（useMotionTheme()）。**上面那几个常量仍是现状的值、也是读不到时的兜底**。
+ *
+ * 读的规矩和样式表一样严：只认 cubic-bezier(…) 和 steps(n[, 起止])，时长只认 ms/s；
+ * 认不出的那一项回到现状的值，不让一个写坏的主题把动效整个弄没。
+ */
+export type 缓动 = 贝塞尔 | ((t: number) => number);
+export type 动效 = {
+  曲线: { ease: 缓动; spring: 缓动; morph: 缓动 };
+  时长: { press: number; fast: number; base: number; morph: number; seal: number };
+  间隔: number;
+};
+export const 现状动效: 动效 = { 曲线, 时长, 间隔 };
+
+/** steps(n, jump-end) 那种阶跃，写成 motion 认的缓动函数 */
+function 阶跃(n: number, 起: string): (t: number) => number {
+  const 先跳 = 起 === "start" || 起 === "jump-start" || 起 === "jump-both";
+  return (t) => {
+    if (t >= 1) return 1;
+    const k = 先跳 ? Math.ceil(t * n) : Math.floor(t * n);
+    return Math.min(1, Math.max(0, k / n));
+  };
+}
+
+export function 读曲线(v: string | null | undefined, 兜底: 缓动): 缓动 {
+  const s = (v ?? "").trim();
+  const b = /^cubic-bezier\(\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*,\s*([-\d.]+)\s*\)$/.exec(s);
+  if (b) {
+    const 数 = b.slice(1, 5).map(Number);
+    if (数.every(Number.isFinite)) return 数 as unknown as 贝塞尔;
+  }
+  const st = /^steps\(\s*(\d+)\s*(?:,\s*([\w-]+)\s*)?\)$/.exec(s);
+  if (st && Number(st[1]) > 0) return 阶跃(Number(st[1]), st[2] ?? "end");
+  return 兜底;
+}
+
+export function 读秒(v: string | null | undefined, 兜底: number): number {
+  const m = /^([\d.]+)(ms|s)$/.exec((v ?? "").trim());
+  if (!m) return 兜底;
+  const n = Number(m[1]) / (m[2] === "ms" ? 1000 : 1);
+  return Number.isFinite(n) ? n : 兜底;
+}
+
+/** 给一个「按名字取 CSS 变量」的函数（浏览器里是 getComputedStyle(html).getPropertyValue），读出当前主题的动效 */
+export function 从样式读动效(取: (name: string) => string): 动效 {
+  return {
+    曲线: {
+      ease: 读曲线(取("--ease"), 曲线.ease),
+      spring: 读曲线(取("--ease-spring"), 曲线.spring),
+      morph: 读曲线(取("--ease-morph"), 曲线.morph),
+    },
+    时长: {
+      press: 读秒(取("--t-press"), 时长.press),
+      fast: 读秒(取("--t-fast"), 时长.fast),
+      base: 读秒(取("--t"), 时长.base),
+      morph: 读秒(取("--t-morph"), 时长.morph),
+      seal: 读秒(取("--t-seal"), 时长.seal),
+    },
+    间隔: 读秒(取("--stagger"), 间隔),
+  };
+}

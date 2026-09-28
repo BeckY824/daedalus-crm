@@ -14,7 +14,7 @@ import { 建议结果, 记下建议结果, 清掉建议结果, 记下回执, 读
 import { statusLabel, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 /**
  * AI 建议卡：唯一一条让模型的输出进到数据库的路。
@@ -39,6 +39,7 @@ import { 曲线, 时长 } from "@/lib/motion";
  * 卡片重挂时照它恢复，侧栏也靠它知道还有没有要人确认的。不给就只在这张卡自己身上记。
  */
 export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal; 记号?: string }) {
+  const { 曲线, 时长 } = useMotionTheme();
   const b = useBusiness();
   /* 三个档案字段叫什么、「职位」那一格有哪些选项，跟着业务配置走（通用版 vs 教培预设） */
   const 字段表 = 可改字段表(b);

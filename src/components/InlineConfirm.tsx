@@ -16,7 +16,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 export default function InlineConfirm({
   问,
@@ -29,6 +29,7 @@ export default function InlineConfirm({
   /** 平时那颗键。展开之后它会被问句替掉 */
   children: React.ReactNode;
 }) {
+  const { 曲线, 时长 } = useMotionTheme();
   const [开, set开] = useState(false);
   const [忙, set忙] = useState(false);
   const 计时 = useRef<ReturnType<typeof setTimeout> | null>(null);

@@ -135,3 +135,31 @@ describe("动效底座", () => {
     expect(块).toContain("scale: none !important");
   });
 });
+
+describe("减弱动态：按下用 translate 的也要撤", () => {
+  it("globals.css 的减弱动态块里有 translate: none", () => {
+    const i = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    expect(css.slice(i)).toContain("translate: none !important");
+  });
+});
+
+describe("过渡和动画都走曲线 token（主题换曲线时才跟得上）", () => {
+  /**
+   * 2026-09-28：globals.css 里有一批写的是 CSS 关键字 ease / ease-out，或者干脆没写曲线（默认就是 ease）。
+   * 主题换了 --ease 之后它们纹丝不动：像素主题里一半一格一格跳、一半照旧滑。现在一律 var(--ease*)。
+   * 例外两类，逐条列在这里：
+   *   环境动画  无限循环的呼吸、扫光、光标闪（infinite）。它们不是「一个东西变成另一个」，是背景里的节拍
+   *   进度      跟着真实进度走的宽度，匀速（linear）才不骗人
+   */
+  const 进度例外 = ["width var(--t) linear"];
+  it("一次性的 transition / animation 必须写 var(--ease*)", () => {
+    const 正文 = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const 散的: string[] = [];
+    for (const m of 正文.matchAll(/(?:^|[;{\s])(transition|animation)\s*:\s*([^;{}]+)/g)) {
+      const 值 = m[2].trim();
+      if (/^none\b/.test(值) || /infinite/.test(值) || 进度例外.includes(值)) continue;
+      for (const 段 of 值.split(/,(?![^()]*\))/)) if (!/var\(--ease/.test(段)) 散的.push(`${m[1]}: ${段.trim()}`);
+    }
+    expect(散的, `这些过渡没走曲线 token：\n${散的.join("\n")}`).toEqual([]);
+  });
+});

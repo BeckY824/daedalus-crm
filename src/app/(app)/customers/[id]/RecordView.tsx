@@ -37,7 +37,7 @@ import { 登记详情名 } from "@/lib/page-rows";
 import Heat, { 冷热说法, 要看冷热 } from "@/components/Heat";
 import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
-import { 曲线, 时长, 间隔 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 /**
  * 记录页（v0.4）：三栏。
@@ -74,6 +74,7 @@ export default function RecordView({
   referrableCustomers,
   aiEnabled,
 }: RecordProps) {
+  const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
   const { message, modal } = App.useApp();
   const b = useBusiness();
@@ -718,6 +719,7 @@ function StatusPicker({
 }
 
 function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: number; onEdit: () => void; onDelete: () => void }) {
+  const { 曲线, 时长, 间隔 } = useMotionTheme();
   const meta = FOLLOW_TYPE_MAP[f.type] ?? FOLLOW_TYPE_MAP.OTHER;
   const [srcOpen, setSrcOpen] = useState(false);
   return (

@@ -4,9 +4,8 @@ import { Typography, Space, Tag, Popover } from "antd";
 import { motion } from "motion/react";
 import type { CustomerBrief, BriefRecord } from "@/lib/ai-draft";
 import { splitCitations } from "@/lib/ai-draft";
-import { 曲线, 时长, 间隔 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
-const fade = { hidden: { opacity: 0, y: 6 }, show: { opacity: 1, y: 0, transition: { duration: 时长.morph, ease: 曲线.ease } } };
 
 /**
  * 临战简报的正文：故事线 / 当前局面 / 建议谈 / 风险。弹窗、首页提问、记录页共用。
@@ -14,6 +13,7 @@ const fade = { hidden: { opacity: 0, y: 6 }, show: { opacity: 1, y: 0, transitio
  * 在记录页上点一下会滚到时间线里的那条（元素 id 为 fu-<记录 id>）。
  */
 export default function BriefBody({ brief, records = [] }: { brief: CustomerBrief; records?: BriefRecord[] }) {
+  const { 间隔 } = useMotionTheme();
   const byN = new Map(records.map((r) => [r.n, r]));
   return (
     <motion.div className="brief" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 间隔 } } }}>
@@ -57,6 +57,8 @@ export default function BriefBody({ brief, records = [] }: { brief: CustomerBrie
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const { 曲线, 时长 } = useMotionTheme();
+  const fade = { hidden: { opacity: 0, y: 6 }, show: { opacity: 1, y: 0, transition: { duration: 时长.morph, ease: 曲线.ease } } };
   return (
     <motion.div variants={fade} className="brief-sec">
       <div className="stat-label" style={{ marginBottom: 6 }}>

@@ -17,7 +17,7 @@
  * 中文名的函数里调 hook 会被判成非组件。属性名照旧用中文。
  */
 import { motion, useReducedMotion } from "motion/react";
-import { 曲线, 时长, 间隔 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 export default function Rise({
   第几个 = 0,
@@ -30,6 +30,7 @@ export default function Rise({
   style?: React.CSSProperties;
   children: React.ReactNode;
 }) {
+  const { 曲线, 时长, 间隔 } = useMotionTheme();
   const 少动 = useReducedMotion();
   return (
     <motion.div
