@@ -16,7 +16,7 @@ import { 不是答案 } from "@/lib/agent/run";
 
 let 决策轮次: { messages: { role: string; content: string }[] }[] = [];
 /** 每一轮决策要不要调工具，由用例摆好 */
-let 剧本: ("空手" | "调工具")[] = [];
+let 剧本: ("空手" | "调工具" | "一步两个")[] = [];
 /** 每一轮最终回答吐什么 */
 let 回答剧本: string[] = [];
 /** 每一轮最终回答收到的提示词 */
@@ -41,6 +41,14 @@ vi.mock("@/lib/llm", () => ({
     决策轮次.push({ messages: messages.map((m) => ({ role: m.role, content: String(m.content ?? "") })) });
     const 这轮 = 剧本.shift() ?? "空手";
     if (这轮 === "空手") return { text: "", toolCalls: [] };
+    if (这轮 === "一步两个")
+      return {
+        text: "",
+        toolCalls: [
+          { id: "c1", function: { name: "list_channels", arguments: "{}" } },
+          { id: "c2", function: { name: "list_channels", arguments: '{"keyword":"老带新"}' } },
+        ],
+      };
     return { text: "", toolCalls: [{ id: "c1", function: { name: "list_channels", arguments: "{}" } }] };
   },
 }));
@@ -234,6 +242,22 @@ describe("重答前先 reset", () => {
     expect(回答轮次[1]).toContain("不要再输出任何工具调用");
   });
 
+  it("重答还是吐标记：标记一个字都不上屏，换成一句「没做成」（2026-09-28 桌面端连着四次就是这样留在屏幕上的）", async () => {
+    剧本 = ["调工具"];
+    const 标记 = '<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="find_person">';
+    回答剧本 = [标记, 标记];
+    let 屏幕 = "";
+    const { runAgent, 没答成 } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    const r = await runAgent(
+      { question: "我没有看到卡片", user, b },
+      { onToken: (t) => { 屏幕 += t; }, onReset: () => { 屏幕 = ""; } },
+    );
+    expect(r.text).toBe(没答成);
+    expect(屏幕, "reset 之后屏幕上只该有那句话").toBe(没答成);
+    expect(屏幕).not.toMatch(/DSML/);
+  });
+
   it("答得好好的就不 reset，也不重答", async () => {
     剧本 = ["调工具"];
     回答剧本 = ["武汉大学的有 3 位：钱同学、孙同学、李同学。"];
@@ -243,5 +267,108 @@ describe("重答前先 reset", () => {
     await runAgent({ question: "武汉大学的有几位", user, b }, { onToken: () => {}, onReset: () => 重置了.push(1) });
     expect(重置了.length).toBe(0);
     expect(回答轮次.length).toBe(1);
+  });
+});
+
+/**
+ * 说有卡片、这一轮其实一张都没生成（2026-09-28 桌面端：「你在卡片上确认一下」，屏幕上什么都没有）。
+ * 抹掉重答；重答还提卡片，就换成一句实话。
+ */
+describe("说有卡片但没有卡片", () => {
+  it("抹掉、重答，重答不提卡片就用重答的", async () => {
+    剧本 = ["调工具"];
+    回答剧本 = ["这条挂在李文龙名下，你在卡片上确认一下。", "要记这条交付，还差客户是哪一位——请告诉我全名。"];
+    let 屏幕 = "";
+    const { runAgent } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    const r = await runAgent({ question: "明天去李文龙那边交付", user, b }, { onToken: (t) => { 屏幕 += t; }, onReset: () => { 屏幕 = ""; } });
+    expect(r.proposals).toEqual([]);
+    expect(r.text).toBe("要记这条交付，还差客户是哪一位——请告诉我全名。");
+    expect(屏幕).toBe(r.text);
+    expect(回答轮次[1]).toContain("没有生成任何卡片");
+  });
+
+  it("重答还说有卡片：换成实话，不把「卡片上确认」留在屏幕上", async () => {
+    剧本 = ["调工具"];
+    回答剧本 = ["你在卡片上确认一下。", "已生成建议卡，请确认。"];
+    let 屏幕 = "";
+    const { runAgent, 没出卡片 } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    const r = await runAgent({ question: "明天去李文龙那边交付", user, b }, { onToken: (t) => { 屏幕 += t; }, onReset: () => { 屏幕 = ""; } });
+    expect(r.text).toBe(没出卡片);
+    expect(屏幕).toBe(没出卡片);
+  });
+
+  it("没提卡片的回答不受影响", async () => {
+    剧本 = ["调工具"];
+    回答剧本 = ["查到 3 个渠道。"];
+    const { runAgent } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    await runAgent({ question: "有几个渠道", user, b }, { onToken: () => {}, onReset: () => {} });
+    expect(回答轮次.length).toBe(1);
+  });
+});
+
+/**
+ * 回答这步吐了一个完整的工具调用（2026-09-28：决策几步都「没调工具」，回答时才想起要 find_person）。
+ * 替它真跑，拿结果再答——不是叫它「别调了直接说」。
+ */
+describe("回答里吐了认得出来的工具调用", () => {
+  it("回炉那步还是不调：退回标记里认出来的那个跑一次、拿结果再答；标记不上屏，过程条多一步", async () => {
+    剧本 = ["调工具", "空手", "空手"];
+    回答剧本 = [
+      // 参数和决策那步不一样（那步是空参数）：一样的话会被「同工具同参数不跑第二次」拦下，那也是对的
+      '<｜｜DSML｜｜ calls>\n<｜｜DSML｜｜ invoke name="list_channels">\n<｜｜DSML｜｜ parameter name="keyword" string="true">老带新</｜｜DSML｜｜ parameter>\n</｜｜DSML｜｜ invoke>\n</｜｜DSML｜｜ calls>',
+      "查到了，渠道都在上面。",
+    ];
+    let 屏幕 = "";
+    const 步骤: string[] = [];
+    const { runAgent } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    const r = await runAgent(
+      { question: "有哪些渠道", user, b },
+      { onToken: (t) => { 屏幕 += t; }, onReset: () => { 屏幕 = ""; }, emit: (e) => { if (e.status === "done") 步骤.push(String(e.id)); } },
+    );
+    expect(步骤.filter((x) => x.startsWith("tool-late-")).length, "回答里那个调用要真跑").toBe(1);
+    expect(回答轮次.length).toBe(2);
+    expect(回答轮次[1]).toContain("你刚才想调的已经调过了");
+    // 回炉那一步是带着工具定义问的，而且告诉了它刚才想调什么
+    expect(决策轮次.at(-1)!.messages.at(-1)!.content).toContain("你刚才在回答里想调 list_channels");
+    expect(r.text).toBe("查到了，渠道都在上面。");
+    expect(屏幕).not.toMatch(/DSML/);
+    expect(屏幕).toBe(r.text);
+  });
+});
+
+describe("回炉那步正式调了", () => {
+  it("用它正式调的那个（参数照工具定义），不用标记里猜的", async () => {
+    // 第 1 步调工具、第 2 步空手去作答；作答吐标记（参数是猜的）；回炉那步正式调（空参数的 list_channels 已调过，换一套）
+    剧本 = ["调工具", "空手", "一步两个"];
+    回答剧本 = [
+      '<｜DSML｜invoke name="list_channels"><｜DSML｜parameter name="猜的键" string="true">x</｜DSML｜parameter></｜DSML｜invoke>',
+      "好了。",
+    ];
+    const 步骤: string[] = [];
+    const { runAgent } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    await runAgent({ question: "有哪些渠道", user, b }, { onToken: () => {}, onReset: () => {}, emit: (e) => { if (e.status === "done" && String(e.id).startsWith("tool-late-")) 步骤.push(String(e.label)); } });
+    // 回炉给了两个：空参数那个刚才跑过（不重跑），老带新那个是新的——猜的键那个没跑
+    expect(步骤.length).toBe(1);
+    expect(步骤[0]).toContain("老带新");
+  });
+});
+
+/** 一步里要了两个工具（「记一条跟进 + 排一次计划」常一起来）：两个都要跑，不能只认第一个 */
+describe("一步里要了好几个", () => {
+  it("第二个排进队列接着跑，不再问模型", async () => {
+    剧本 = ["一步两个", "空手"];
+    const 步骤: string[] = [];
+    const { runAgent } = await import("@/lib/agent/run");
+    process.env.AGENT_INTENTS = "0";
+    await runAgent({ question: "记一条再排一个", user, b }, { onToken: () => {}, emit: (e) => { if (e.status === "done" && String(e.id).startsWith("tool-")) 步骤.push(String(e.label)); } });
+    expect(步骤.length, "两个都得跑").toBe(2);
+    expect(步骤[1]).toContain("老带新");
+    // 第二个是从队列里取的，没为它再问一次模型：两次决策 = 第一步 + 队列跑完后那一步
+    expect(决策轮次.length).toBe(2);
   });
 });

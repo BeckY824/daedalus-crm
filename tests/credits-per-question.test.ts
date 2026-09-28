@@ -213,11 +213,12 @@ describe("守卫：三处口径必须一致", () => {
     expect((网关.match(/退这一次\(owner, 问题id, 扣\.扣了\)/g) ?? []).length).toBe(2);
   });
 
-  it("agent 一个问题只生成一个编号，三处调用都带着它", () => {
+  it("agent 一个问题只生成一个编号，四处调用都带着它", () => {
     const run = fs.readFileSync(path.resolve(__dirname, "../src/lib/agent/run.ts"), "utf8");
     expect((run.match(/const 问题id = randomUUID\(\)/g) ?? []).length).toBe(1);
-    // 每步决策、原生工具那一轮、最终回答
-    expect((run.match(/requestId: 问题id/g) ?? []).length).toBe(3);
+    // 每步决策、原生工具那一轮、最终回答，和「回答里吐了工具调用」时回炉的那一步（2026-09-28 加的）——
+    // 回炉是同一个问题的一部分，带同一个编号才不会多扣一次
+    expect((run.match(/requestId: 问题id/g) ?? []).length).toBe(4);
   });
 
   it("网页端那条路失败也退，但用户自己中断的不退", () => {

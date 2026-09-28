@@ -18,6 +18,7 @@ import { getSetting, setSetting, encryptSecret, decryptSecret, maskSecret } from
 import { getBusiness } from "./business";
 import { 模型配置 as 桌面端云端配置 } from "./desktop/cloud";
 import { 记托管版一次 } from "./tenant/ai-cost";
+import { 有DSML, 解析DSML } from "./llm-dsml";
 
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 export const DEFAULT_MODEL = "deepseek-chat";
@@ -564,7 +565,20 @@ export async function chatTools(
   };
   await 记托管版一次(data, opts.model ?? cfg.model, opts.feature);
   const m = data.choices?.[0]?.message;
-  return { toolCalls: m?.tool_calls ?? [], text: (m?.content ?? "").trim() };
+  const toolCalls = m?.tool_calls ?? [];
+  const text = (m?.content ?? "").trim();
+  /*
+    中转站没把 DeepSeek 的原生标记转成 tool_calls、原样塞在正文里交回来（2026-09-28 桌面端真碰到的）。
+    不认回来的话，这一步就被当成「没调工具」：工具没跑、建议卡没出，回答时它还以为出了。见 llm-dsml.ts
+  */
+  if (!toolCalls.length && 有DSML(text)) {
+    const 认 = 解析DSML(text, tools.map((t) => t.function.name));
+    if (认.调用.length) {
+      console.warn(`[llm] 工具调用被当正文吐回（DSML），已认回：${认.调用.map((c) => c.function.name).join(",")}`);
+      return { toolCalls: 认.调用, text: 认.余下 };
+    }
+  }
+  return { toolCalls, text };
 }
 
 /**
