@@ -678,8 +678,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 
 .rec-composer { padding: 14px 16px 12px; }
 .rec-composer textarea { font-size: var(--fs-section); }
-.rec-composer-bar { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.rec-composer-hint { font-size: var(--fs-note); color: var(--text-muted); flex: 1; }
+.rec-composer-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 8px; }
+/* 说明至少留 240px；中栏窄时整行放说明、按钮换到下一行靠右，不再把说明挤成五行 */
+.rec-composer-hint { font-size: var(--fs-note); color: var(--text-muted); flex: 1 1 240px; min-width: 0; }
+.rec-composer-bar > .ant-btn { flex: none; }
+.rec-composer-hint + .ant-btn { margin-left: auto; }
 .rec-filters { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 16px 4px; }
 .rec-chip {
   font-size: var(--fs-note); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
