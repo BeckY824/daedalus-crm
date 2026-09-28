@@ -1,6 +1,6 @@
 "use client";
 
-import { Alert, Button, Empty, Input, Radio, Select, Space, Switch, Table, Tag, Typography } from "antd";
+import { Alert, Button, Empty, Input, Popconfirm, Radio, Select, Space, Switch, Table, Tag, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import { 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 像表头, type 字段名 } from "@/lib/import/fields";
@@ -10,22 +10,45 @@ import type { 预览, 导入方案 } from "./import-actions";
 import type { BusinessConfig } from "@/lib/business-config";
 import AiWait from "@/components/AiWait";
 
+/**
+ * 报第几行时怎么说（审查 D15）。行号按文件那条路算（1 是表头，第一条数据是 2，人照着去 Excel 里找）；
+ * 可粘贴那条路没有人看得见的表头——上面写「读到了粘贴的文本（3 行）」，警告里却说「第 4 行」。
+ * 粘贴的就按人看到的第几条说。
+ */
+export function 第几行(行号: number, 粘贴: boolean): string {
+  return 粘贴 ? `第 ${行号 - 1} 条` : `第 ${行号} 行`;
+}
+
 /** 导入抽屉（ImportDrawer.tsx）的各一步：粘贴、对列、复核、确认，外加页脚那排按钮。流程和状态在抽屉里 */
 
 export function 页脚({
-  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, onClose,
+  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批,
 }: {
   步: number; 忙: boolean; 认人列: number; 看: 预览 | null;
-  set步: (n: number) => void; 去预览: () => void; 落库: () => void; 撤: () => void; 重来: () => void; onClose: () => void;
+  set步: (n: number) => void; 去预览: () => void; 落库: () => void; 撤: () => void; 重来: () => void;
+  /** 点「完成」：收起抽屉，列表只显示这一批（审查 D10） */
+  完成: () => void;
+  /** 刚导进来的这一批：新建几条、补空几条。撤销的确认里要写清会动哪些 */
+  这一批: { 新建: number; 补空: number } | null;
 }) {
   if (步 === 0) return null;
   if (步 === 4)
     return (
       <Space style={{ display: "flex", justifyContent: "space-between" }}>
-        <Button danger onClick={撤} loading={忙}>撤销这一批</Button>
+        {/* 整批撤销一次动很多条，和「设置 → 导入记录」里同一个确认（审查 M15）。原来一点就删 */}
+        <Popconfirm
+          title="撤销这一批导入？"
+          description={`会删掉 ${这一批?.新建 ?? 0} 条新建的记录${这一批?.补空 ? `、还原 ${这一批.补空} 条补过的` : ""}。导入之后你改过的那几位会留着。`}
+          okText="撤销"
+          okButtonProps={{ danger: true }}
+          cancelText="不了"
+          onConfirm={撤}
+        >
+          <Button danger loading={忙}>撤销这一批</Button>
+        </Popconfirm>
         <Space>
           <Button onClick={重来}>再导一份</Button>
-          <Button type="primary" onClick={() => { 重来(); onClose(); }}>完成</Button>
+          <Button type="primary" onClick={完成}>完成</Button>
         </Space>
       </Space>
     );
@@ -214,7 +237,7 @@ export function 对列({
           description={
             <span style={{ fontSize: 13 }}>
               这些字在你粘的原文里找不到：
-              {编造.slice(0, 5).map((x) => `第 ${x.行号} 行「${x.列名}」写的是「${x.值}」`).join("；")}
+              {编造.slice(0, 5).map((x) => `${第几行(x.行号, true)}「${x.列名}」写的是「${x.值}」`).join("；")}
               {编造.length > 5 ? ` 等 ${编造.length} 格` : ""}。
               <b>已经按空着处理</b>，不会进库。原文里确实有的话，回上一步补进去再整理一次。
             </span>
@@ -306,10 +329,12 @@ export function 对列({
 
 /** 第三步：只列有问题的格子。**一列里同一个写法只让人改一次** */
 export function 复核({
-  看, 改过, set改过, 表,
+  看, 改过, set改过, 表, 粘贴 = false,
 }: {
   看: 预览; 改过: Record<string, string>; set改过: (v: Record<string, string>) => void;
   表: ReturnType<typeof 字段表>;
+  /** 这张表是粘贴的文本整理出来的：报行号时按第几条说 */
+  粘贴?: boolean;
 }) {
   const 规格 = new Map(表.map((f) => [f.名, f]));
   if (看.待复核.length === 0 && 看.挡下.length === 0) {
@@ -330,7 +355,7 @@ export function 复核({
           title={`有 ${看.进不了} 行进不来`}
           description={
             <span style={{ fontSize: 13 }}>
-              {看.挡下.slice(0, 5).map((x) => `第 ${x.行号} 行：${x.原因}`).join("；")}
+              {看.挡下.slice(0, 5).map((x) => `${第几行(x.行号, 粘贴)}：${x.原因}`).join("；")}
               {看.挡下.length > 5 ? ` 等 ${看.进不了} 行` : ""}
             </span>
           }
@@ -402,14 +427,19 @@ export function 确认({
 }: {
   看: 预览; 重复行: 导入方案["重复行"]; set重复行: (v: 导入方案["重复行"]) => void; b: BusinessConfig;
 }) {
+  /**
+   * 表里的号码有几位已经在库里。两种处置下 跳过 + 补空 都是这个数（见 import-actions 的 预览）。
+   * 一位都没有时，「跳过 / 只补空」这道题和那段解释整块不出现（审查 D10）——问一个不存在的情况只是添堵
+   */
+  const 已有 = 看.跳过 + 看.补空;
   return (
     <>
       <Space size={24} style={{ marginBottom: 18 }}>
-        {[
+        {([
           ["新建", 看.新建],
-          [重复行 === "补空" ? "补空字段" : "跳过（已有）", 重复行 === "补空" ? 看.补空 : 看.跳过],
+          ...(已有 > 0 ? [[重复行 === "补空" ? "补空字段" : "跳过（已有）", 重复行 === "补空" ? 看.补空 : 看.跳过]] : []),
           ["进不来", 看.进不了],
-        ].map(([k, v]) => (
+        ] as [string, number][]).map(([k, v]) => (
           <div key={String(k)}>
             <div style={{ fontSize: 26, fontWeight: 600, lineHeight: 1.2 }}>{v as number}</div>
             <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{k as string}</div>
@@ -427,6 +457,7 @@ export function 确认({
         />
       )}
 
+      {已有 > 0 && (<>
       <Typography.Title level={5} style={{ fontSize: 14, marginBottom: 8 }}>
         手机号已经在库里的那些行怎么办
       </Typography.Title>
@@ -444,6 +475,7 @@ export function 确认({
           </div>
         </Radio>
       </Radio.Group>
+      </>)}
     </>
   );
 }

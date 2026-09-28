@@ -36,6 +36,8 @@ type SP = Promise<{
    * 再在抽屉里切到第二个栏位。首页那张「开始」卡、以后的菜单项和快捷键都指这个地址。
    */
   import?: string;
+  /** 导入抽屉点「完成」过来的：只看这一批导入建的 / 补过的那几位（审查 D10） */
+  batch?: string;
 }>;
 
 export default async function CustomersPage({ searchParams }: { searchParams: SP }) {
@@ -45,7 +47,13 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   const page = Math.max(1, Number(sp.page ?? 1));
   const pageSize = Math.min(100, Math.max(10, Number(sp.pageSize ?? 20)));
 
+  // 这一批导入动过的人。撤销过的批次不算（那些人已经删了 / 还原了）
+  const 本批 = sp.batch
+    ? await prisma.importRow.findMany({ where: { batchId: sp.batch, batch: { revertedAt: null } }, select: { customerId: true } })
+    : null;
+
   const where: Prisma.CustomerWhereInput = {
+    ...(本批 ? { id: { in: 本批.map((r) => r.customerId) } } : {}),
     ...(sp.keyword
       ? {
           OR: [
@@ -138,6 +146,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         channelOwnerId: sp.channelOwnerId ?? "",
       }}
       本月新增={sp.createdWithin === "本月"}
+      本批={本批 ? { 几位: total } : null}
       aiEnabled={aiEnabled}
     />
   );

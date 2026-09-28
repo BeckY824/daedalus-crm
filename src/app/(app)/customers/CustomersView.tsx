@@ -11,7 +11,6 @@ import {
   ImportOutlined,
   UserSwitchOutlined,
   TagsOutlined,
-  ReloadOutlined,
   DeleteOutlined,
   EditOutlined,
   FilterOutlined,
@@ -30,6 +29,8 @@ import type { BusinessConfig } from "@/lib/business-config";
 import { statusLabel } from "@/lib/business-config";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 删除确认标题 } from "@/lib/list-select";
+import { 列表不问归属 } from "@/lib/solo";
+import ResetFilters from "@/components/ResetFilters";
 
 /**
  * 批量操作的结果文案。
@@ -63,6 +64,11 @@ type Props = {
    * 所以工具栏第一格是一枚带叉的标记，点叉就回到全部。
    */
   本月新增?: boolean;
+  /**
+   * 从导入抽屉点「完成」过来的：只看刚导进来的这一批（审查 D10）。
+   * 和「只看本月新增」一样是一枚带叉的标记，点叉回到全部
+   */
+  本批?: { 几位: number } | null;
   /** 接上模型了没有。没接上时导入抽屉里「粘一段文本」那条路只说明原因，不给按钮 */
   aiEnabled?: boolean;
   filters: {
@@ -87,7 +93,7 @@ type Props = {
  * 其余的收进「列」里，勾了记在这台机器上。
  */
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, aiEnabled,
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 本批, aiEnabled,
 }: Props) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -99,15 +105,23 @@ export default function CustomersView({
    * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
    * 按 filters（服务端那次查询用的条件）判而不是 f（输入框里的草稿）。
    */
-  const 空库 = total === 0 && !本月新增 && !Object.values(filters).some((v) => v);
+  const 空库 = total === 0 && !本月新增 && !本批 && !Object.values(filters).some((v) => v);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
   const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
 
   /** 收起来的那三个里还筛着几个。收起来不等于可以不告诉人 */
   const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId].filter(Boolean).length;
-  /** 一共筛着几个。0 的时候「重置」不出现——没筛过的页面上它是个哑按钮 */
+  /** 一共筛着几个。0 的时候「重置」看不见——没筛过的页面上它是个哑按钮（位置留着，见 ResetFilters） */
   const 筛了 = Object.values(f).filter(Boolean).length;
+  /**
+   * 只有一个人的库：负责人列、负责人筛选、渠道负责人、批量分配都不摆（审查 D2 / M3）。
+   * 13 寸窗口下负责人那一列正好把「最近跟进」挤出视野，而它每一格都是同一个名字。
+   * 正筛着某个负责人（从数据页点名字进来的）时照摆，不然人看不见自己筛了什么
+   */
+  const 不问归属 =
+    !f.salesOwnerId && !f.channelOwnerId &&
+    列表不问归属(users, rows.flatMap((r) => [r.salesOwnerName, r.channelOwnerName]));
 
   const 列表: 列<CustomerRow>[] = [
     {
@@ -139,7 +153,7 @@ export default function CustomersView({
       title: "预计签约", key: "expectedSignAt", dataIndex: "expectedSignAt", width: 116,
       render: (v) => <span className="muted nowrap">{v ? fmtDate(v) : "—"}</span>,
     },
-    { title: "负责人", 列名: "负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
+    ...(不问归属 ? [] : [{ title: "负责人", 列名: "负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140, render: (v: string) => <UserCell name={v} size={24} /> }]),
     {
       title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 132,
       // 冷热在前：扫一眼这一列就知道谁凉了，日期留着给要细看的人
@@ -164,10 +178,10 @@ export default function CustomersView({
       title: "渠道归属", key: "attributionName", dataIndex: "attributionName", width: 120, 默认: false,
       render: (v) => (v ? <Tag style={{ margin: 0, borderRadius: 6 }}>{v}</Tag> : <span className="muted">—</span>),
     },
-    {
+    ...(不问归属 ? [] : [{
       title: "渠道负责人", key: "channelOwnerName", dataIndex: "channelOwnerName", width: 130, 默认: false,
-      render: (v) => (v ? <UserCell name={v} size={24} /> : <span className="muted">—</span>),
-    },
+      render: (v: string | null) => (v ? <UserCell name={v} size={24} /> : <span className="muted">—</span>),
+    }]),
     {
       title: "", key: "action", width: 78, 常驻: true, fixed: "right",
       render: (_, r) => (
@@ -203,7 +217,7 @@ export default function CustomersView({
     <>
       <PageHead
         title={b.customer}
-        subtitle="按状态、负责人和来源筛选"
+        subtitle="全部档案与跟进"
         extra={
           /* 主动作在页头右上角，全站六张列表页同一个位置（设计稿 11/PAGE）。
              导出是次动作，排在它左边，空库时没什么可导，不出现 */
@@ -245,6 +259,11 @@ export default function CustomersView({
                 只看本月新增
               </Tag>
             )}
+            {本批 && (
+              <Tag closable onClose={() => router.push("/customers")} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
+                只看刚导入的这一批 · {本批.几位} 位
+              </Tag>
+            )}
             <ListSearch
               placeholder={`姓名 / 电话 / ${b.fields.school} / ${b.fields.major}`}
               value={f.keyword}
@@ -254,9 +273,11 @@ export default function CustomersView({
             <Select style={{ width: 140 }} placeholder="全部跟进状态" allowClear
               value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
               options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
-            <Select style={{ width: 150 }} placeholder="全部负责人" allowClear
-              value={f.salesOwnerId || undefined} onChange={(v) => apply({ salesOwnerId: v ?? "" })}
-              options={成员选项(users)} />
+            {!不问归属 && (
+              <Select style={{ width: 150 }} placeholder="全部负责人" allowClear
+                value={f.salesOwnerId || undefined} onChange={(v) => apply({ salesOwnerId: v ?? "" })}
+                options={成员选项(users)} />
+            )}
             <Popover
               trigger="click"
               placement="bottomLeft"
@@ -268,9 +289,11 @@ export default function CustomersView({
                   <Select style={{ width: "100%" }} placeholder="全部决策状态" allowClear
                     value={f.decisionStatus || undefined} onChange={(v) => apply({ decisionStatus: v ?? "" })}
                     options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
-                  <Select style={{ width: "100%" }} placeholder="全部渠道负责人" allowClear
-                    value={f.channelOwnerId || undefined} onChange={(v) => apply({ channelOwnerId: v ?? "" })}
-                    options={成员选项(users)} />
+                  {!不问归属 && (
+                    <Select style={{ width: "100%" }} placeholder="全部渠道负责人" allowClear
+                      value={f.channelOwnerId || undefined} onChange={(v) => apply({ channelOwnerId: v ?? "" })}
+                      options={成员选项(users)} />
+                  )}
                 </Space>
               }
             >
@@ -278,13 +301,13 @@ export default function CustomersView({
             </Popover>
             {/* 没有「搜索」按钮：下拉改了就生效，关键词回车或清空就生效。
                 一个要再点一下才算数的筛选栏，会让人以为自己已经筛了其实没有。
-                「重置」只在真筛了东西的时候出现——没筛过的页面上它是个哑按钮 */}
-            {筛了 > 0 && <Button icon={<ReloadOutlined />} onClick={reset}>重置</Button>}
+                「重置」只在真筛了东西的时候看得见；位置一直留着，筛的那一下表格不往下跳（M17） */}
+            <ResetFilters 显示={筛了 > 0} onClick={reset} />
           </Space>
         }
         批量={(selected, 清空, 选中行) => (
           <>
-            <Dropdown
+            {!不问归属 && <Dropdown
               menu={{
                 // 同样走 成员选项：批量分配比单条更需要认清人，转错了是一批数据
                 items: 成员选项(users).map((o) => ({
@@ -301,7 +324,7 @@ export default function CustomersView({
               }}
             >
               <Button size="small" icon={<UserSwitchOutlined />}>批量分配</Button>
-            </Dropdown>
+            </Dropdown>}
             <Dropdown
               menu={{
                 items: FOLLOW_STATUSES.map((s) => ({
@@ -371,6 +394,7 @@ export default function CustomersView({
         初始来路={直接粘贴 ? "文本" : undefined}
         onClose={() => set导入开着(false)}
         onDone={() => router.refresh()}
+        看这一批={(id) => router.push(`/customers?batch=${id}`)}
       />
     </>
   );

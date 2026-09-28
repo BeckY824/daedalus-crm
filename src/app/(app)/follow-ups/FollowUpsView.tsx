@@ -2,7 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { Button, Space, Select, Tag } from "antd";
-import { ReloadOutlined, CalendarOutlined, PlusOutlined } from "@ant-design/icons";
+import { CalendarOutlined, PlusOutlined } from "@ant-design/icons";
+import ResetFilters from "@/components/ResetFilters";
+import { 列表不问归属 } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell, FollowTypeCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -40,12 +42,20 @@ export default function FollowUpsView({
   const router = useRouter();
   const b = useBusiness();
   const { f, setF, apply, reset, pending } = useUrlFilters("/follow-ups", filters);
+  /** 只有一个人：跟进人那一列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
+  const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
 
   const 列表: 列<Row>[] = [
     {
       // 第一列是「这条是谁的」，和别的列表一样钉在左边；类型再有用也回答不了「是谁」
       title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 150, 常驻: true,
       render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
+    },
+    {
+      // 「什么时候」紧跟在「是谁」后面（审查 M3）：原来排在最右，13 寸窗口下只剩一个数字露在外面。
+      // 这张表按时间倒序排，时间是扫一眼就要对上的东西
+      title: "时间", key: "occurredAt", dataIndex: "occurredAt", width: 110, 常驻: true,
+      render: (v) => <span className="muted nowrap">{smartTime(v)}</span>,
     },
     {
       // 类型三样齐全：颜色、图标、文字。只有颜色的话，色弱的人和扫得快的人都认不出来
@@ -69,8 +79,7 @@ export default function FollowUpsView({
       ),
     },
     { title: "对接人", key: "contactName", dataIndex: "contactName", width: 96, render: (v) => v ?? <span className="muted">—</span> },
-    { title: "跟进人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v) => <UserCell name={v} size={24} /> },
-    { title: "时间", key: "occurredAt", dataIndex: "occurredAt", width: 130, render: (v) => <span className="muted nowrap">{smartTime(v)}</span> },
+    ...(不问归属 ? [] : [{ title: "跟进人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v: string) => <UserCell name={v} size={24} /> }]),
 
     { title: "时长", key: "duration", dataIndex: "duration", width: 90, 默认: false, render: (v) => (v ? duration(v) : <span className="muted">—</span>) },
     {
@@ -133,22 +142,17 @@ export default function FollowUpsView({
               onChange={(v) => apply({ type: v ?? "" })}
               options={FOLLOW_TYPES.map((t) => ({ value: t.value, label: t.label }))}
             />
-            <Select
-              style={{ width: 150 }}
-              placeholder="全部成员"
-              allowClear
-              value={f.ownerId || undefined}
-              onChange={(v) => apply({ ownerId: v ?? "" })}
-              options={成员选项(users)}
-            />
-            {Object.values(f).some(Boolean) && (
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={reset}
-              >
-                重置
-              </Button>
+            {!不问归属 && (
+              <Select
+                style={{ width: 150 }}
+                placeholder="全部成员"
+                allowClear
+                value={f.ownerId || undefined}
+                onChange={(v) => apply({ ownerId: v ?? "" })}
+                options={成员选项(users)}
+              />
             )}
+            <ResetFilters 显示={Object.values(f).some(Boolean)} onClick={reset} />
           </Space>
         }
       />

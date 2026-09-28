@@ -83,6 +83,8 @@ type Props<T> = {
    * 由调用方给 id，因为 id 没变、这里比不出来。
    */
   亮?: string[];
+  /** 这一行额外挂的类名。渠道页用它把停用的那几行压淡（审查 D12） */
+  行类?: (r: T) => string | undefined;
 };
 
 const 列键 = <T,>(c: 列<T>) => String(c.key ?? c.dataIndex);
@@ -98,7 +100,7 @@ function 行名(r: object): string | null {
 }
 
 export default function DataList<T extends { id: string }>({
-  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页, 截断, 亮,
+  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页, 截断, 亮, 行类,
 }: Props<T>) {
   const router = useRouter();
   const [选中, set选中] = useState<string[]>([]);
@@ -289,7 +291,7 @@ export default function DataList<T extends { id: string }>({
         locale={{ emptyText: <EmptyState {...空态} /> }}
         scroll={{ x }}
         rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]), fixed: true } : undefined}
-        rowClassName={(r) => (新来的.includes(r.id) || 亮?.includes(r.id) ? "row-fresh" : "")}
+        rowClassName={(r) => [新来的.includes(r.id) || 亮?.includes(r.id) ? "row-fresh" : "", 行类?.(r) ?? ""].filter(Boolean).join(" ")}
         onRow={
           行链接
             ? (r) => ({

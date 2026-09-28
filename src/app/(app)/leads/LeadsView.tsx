@@ -9,8 +9,9 @@ import {
   SwapRightOutlined,
   DeleteOutlined,
   EditOutlined,
-  ReloadOutlined,
 } from "@ant-design/icons";
+import ResetFilters from "@/components/ResetFilters";
+import { 列表不问归属 } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -65,7 +66,9 @@ export default function LeadsView({
     if (editing) form.setFieldsValue(editing);
     else {
       form.resetFields();
-      form.setFieldsValue({ source: "官网注册", status: "待跟进", ownerId: me });
+      // 来源不预填（审查 M13）：原来默认「官网注册」，忘了改就悄悄进了「按来源」统计，
+      // 外贸预设里压根没有这一项，下拉还会显示一个不在选项里的值。不选就记成「其他」
+      form.setFieldsValue({ status: "待跟进", ownerId: me });
     }
   }, [open, editing, form, me]);
 
@@ -81,6 +84,9 @@ export default function LeadsView({
     router.refresh();
   }
 
+  /** 只有一个人：负责人列不摆（审查 D2），见 lib/solo.ts */
+  const 不问归属 = 列表不问归属(users, rows.map((r) => r.ownerName));
+
   const 列表: 列<Row>[] = [
     { title: "线索", key: "name", dataIndex: "name", width: 220, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
     { title: "联系人", key: "contact", dataIndex: "contact", width: 120, render: (v) => v ?? <span className="muted">—</span> },
@@ -93,7 +99,7 @@ export default function LeadsView({
         </Tag>
       ),
     },
-    { title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
+    ...(不问归属 ? [] : [{ title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v: string) => <UserCell name={v} size={24} /> }]),
     { title: "创建时间", key: "createdAt", dataIndex: "createdAt", width: 116, render: (v) => <span className="muted nowrap">{smartTime(v)}</span> },
 
     { title: "联系电话", key: "phone", dataIndex: "phone", width: 140, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
@@ -113,7 +119,7 @@ export default function LeadsView({
               onClick={() =>
                 modal.confirm({
                   title: `将「${r.name}」转为${b.customer}？`,
-                  content: `会自动创建${b.customer}记录与联系人，线索标记为已转化。`,
+                  content: `会建一位${b.customer}，联系人、公司、行业、来源一起带过去，线索标记为已转化。`,
                   okText: `转为${b.customer}`,
                   cancelText: "取消",
                   async onOk() {
@@ -214,14 +220,7 @@ export default function LeadsView({
               onChange={(v) => apply({ status: v ?? "" })}
               options={LEAD_STATUSES.map((s2) => ({ value: s2, label: s2 }))}
             />
-            {(f.keyword || f.status) && (
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={reset}
-              >
-                重置
-              </Button>
-            )}
+            <ResetFilters 显示={Boolean(f.keyword || f.status)} onClick={reset} />
           </Space>
         }
       />
@@ -259,7 +258,7 @@ export default function LeadsView({
             </Col>
             <Col span={8}>
               <Form.Item name="source" label="线索来源">
-                <Select options={b.sources.map((i) => ({ value: i, label: i }))} />
+                <Select allowClear placeholder="不选记为「其他」" options={b.sources.map((i) => ({ value: i, label: i }))} />
               </Form.Item>
             </Col>
             <Col span={8}>

@@ -5,6 +5,7 @@ import ReportsView from "../reports/ReportsView";
 import { 加载复盘 } from "./data";
 import { 视图们, type 视图 } from "./views";
 import DataShell from "./DataShell";
+import { 唯一负责人 } from "@/lib/owners";
 
 export const dynamic = "force-dynamic";
 
@@ -39,10 +40,10 @@ export default async function DataPage({ searchParams }: { searchParams: SP }) {
   const to = (本月 ? now.endOf("month") : now.endOf("year")).toDate();
   const 口径 = 本月 ? `${now.format("YYYY 年 M 月")}，按签约日期算` : `${now.year()} 年，按签约日期算`;
 
-  const 数 = await 加载复盘(from, to, 本月 ? "day" : "month");
+  const [数, 只有一个人] = await Promise.all([加载复盘(from, to, 本月 ? "day" : "month"), 唯一负责人().then((id) => id !== null)]);
   return (
     <DataShell view={view}>
-      <ReportsView {...数} 口径={口径} />
+      <ReportsView {...数} 口径={口径} 单人={只有一个人} />
     </DataShell>
   );
 }

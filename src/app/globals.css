@@ -1188,6 +1188,15 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .ftype-i { display: inline-flex; font-size: var(--ic); }
 .list-bar { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .list-bar-gap { flex: 1; }
+/* 渠道表里停用的那几行整行压淡，名字旁边写「已停用」（审查 D12）。操作列不压：恢复键要看得清 */
+.row-off > td:not(.ant-table-cell-fix-end) { color: var(--text-muted); }
+.row-off .link-strong { color: var(--text-muted); }
+.chan-name { display: inline-flex; align-items: center; gap: var(--s2); }
+/* 「重置」一直占着位置，没筛时只是看不见（审查 M17）：原来它一出现就把「列」挤到第二行，
+   整张表往下跳一截。出现消失只淡入淡出，不位移。visibility 晚一拍再收，淡出才看得见 */
+.list-reset { transition: opacity var(--t-fast) var(--ease), visibility 0s linear 0s; }
+.list-reset.is-off { opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease), visibility 0s linear var(--t-fast); }
 /* 批量工具条。勾了行才出现，并且写明「已选 N 条」——
    原来它一直摆在那儿、按钮是灰的，人得先猜哪几个是给多选用的 */
 .list-sel { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
@@ -1264,7 +1273,14 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* ---------- 商机管道 ----------
    列是横着排的，窄屏下**只有这一块横滚**，页面本身不跟着被撑开。 */
 .pipe { display: flex; gap: var(--s3); overflow-x: auto; padding-bottom: var(--s2); align-items: flex-start; }
-.pipe-col { flex: 0 0 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3); min-height: 220px;
+/* 右边还有列没露出来：右沿一道渐隐，滚到底收起（审查 M3）。压在滚动条上方，不挡横滚 */
+.pipe-wrap { position: relative; }
+.pipe-wrap::after { content: ""; position: absolute; top: 0; right: 0; bottom: var(--s2); width: var(--s6);
+  background: linear-gradient(to left, var(--page-bg), transparent); pointer-events: none;
+  opacity: 0; transition: opacity var(--t) var(--ease); }
+.pipe-wrap[data-more]::after { opacity: 1; }
+/* 列宽跟着窗口分（审查 M3）：原来写死 260，1280 宽也只露到第四列半。最窄 184，再窄才横滚 */
+.pipe-col { flex: 1 0 184px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3); min-height: 220px;
   transition: background var(--t-fast), border-color var(--t-fast); }
 /* 落点要看得出来：拖过去时整列亮一下，不然人不知道松手会掉进哪一列 */
 .pipe-col-on { background: var(--brand-bg); border-color: var(--brand-line); }

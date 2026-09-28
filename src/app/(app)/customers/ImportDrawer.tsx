@@ -53,6 +53,7 @@ export default function ImportDrawer({
   b,
   aiEnabled,
   onDone,
+  看这一批,
   初始来路,
   初始文本,
 }: {
@@ -62,6 +63,11 @@ export default function ImportDrawer({
   /** 接上模型了没有。没接上时「粘一段文本」那条路只说明原因，不给按钮 */
   aiEnabled: boolean;
   onDone: () => void;
+  /**
+   * 导完点「完成」：列表只显示这一批（审查 D10）。原来回到列表，新导的人既不高亮
+   * （一次冒出两条以上不点亮）也没筛出来，人得自己在一整张表里找
+   */
+  看这一批?: (batchId: string) => void;
   /**
    * 开门停在哪一栏。**「粘」是主线入口**（2026-09-21）：首页认出你粘的是一段聊天时，
    * 直接把人送到这一栏，而不是先落到「文件」上再让人自己找。
@@ -230,7 +236,7 @@ export default function ImportDrawer({
       set整理(null);
       set编造(r.编造);
       set漏掉(r.漏掉);
-      收表(`粘贴的文本（${r.数据.length} 行）`, r.表头, r.数据, r.截断了);
+      收表(`粘贴的文本（${r.数据.length} 条）`, r.表头, r.数据, r.截断了);
     } catch (e) {
       if (轮 !== 这一次.current) return;
       set整理({ 起, 出错: e instanceof Error ? e.message : "整理失败，请重试" });
@@ -303,7 +309,18 @@ export default function ImportDrawer({
         // 关掉再打开是重新导一份，不是接着上一份走
         setTimeout(重来, 200);
       }}
-      footer={<页脚 {...{ 步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, onClose }} />}
+      footer={
+        <页脚
+          {...{ 步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来 }}
+          这一批={结果}
+          完成={() => {
+            const id = 结果?.batchId;
+            重来();
+            onClose();
+            if (id && (结果?.新建 ?? 0) + (结果?.补空 ?? 0) > 0) 看这一批?.(id);
+          }}
+        />
+      }
     >
       <Steps
         size="small"
@@ -358,7 +375,7 @@ export default function ImportDrawer({
       )}
 
       {步 === 2 && 看 && (
-        <复核 {...{ 看, 改过, set改过, 表 }} />
+        <复核 {...{ 看, 改过, set改过, 表 }} 粘贴={文件名.startsWith("粘贴的文本")} />
       )}
 
       {步 === 3 && 看 && <确认 {...{ 看, 重复行, set重复行, b }} />}
@@ -374,7 +391,7 @@ export default function ImportDrawer({
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14 }}>
             导错了可以整批撤销：新建的删掉、补上的还原。
             <b>导入之后你已经动过的那几位会留着</b>，撤销时会告诉你是哪几位。
-            这一批也能之后在「设置 → 数据」里找到。
+            这一批也能之后在「设置 → 导入记录」里找到、撤销。
           </Typography.Paragraph>
         </div>
       )}

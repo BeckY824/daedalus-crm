@@ -5,16 +5,16 @@ import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Select } from 
 import { saveContact } from "./actions";
 import type { ContactRow } from "./types";
 import { useBusiness } from "@/lib/business-client";
+import { 关系候选 } from "@/lib/business-config";
 
-/**
- * 与学员的关系。教培场景里联系人绝大多数是家长，
- * 但也可能是姑姑、哥哥这类——取值有限却不封闭，
- * 所以用 AutoComplete 给常用项、同时允许自己填，不用 Select 硬约束。
- *
- * 数据库列名仍是 position（原本是 To B 的「职务」），
- * 改列要动迁移，而迁移纪律是只增不改；列名是内部的，界面上叫什么才是用户看到的。
- */
-const 关系选项 = ["母亲", "父亲", "学生本人", "其他亲属"].map((v) => ({ value: v }));
+/*
+  与客户的关系。取值有限却不封闭（教培里有姑姑、哥哥，公司里有「副总」），
+  所以用 AutoComplete 给常用项、同时允许自己填，不用 Select 硬约束。
+  候选跟着业务配置走（lib/business-config.ts 的 关系候选，审查 M14）。
+
+  数据库列名仍是 position（原本是 To B 的「职务」），
+  改列要动迁移，而迁移纪律是只增不改；列名是内部的，界面上叫什么才是用户看到的。
+*/
 
 /**
  * 联系人表单。两处共用：学员记录页（已经知道是谁，不问）和联系人列表页
@@ -95,7 +95,7 @@ export default function ContactForm({
           </Col>
           <Col span={12}>
             <Form.Item name="position" label={`与${b.customer}关系`}>
-              <AutoComplete options={关系选项} placeholder="母亲" />
+              <AutoComplete options={关系候选(b).map((v) => ({ value: v }))} placeholder={关系候选(b)[0]} />
             </Form.Item>
           </Col>
           <Col span={12}>
