@@ -1,18 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button, Input, Alert, Typography, App, Tooltip } from "antd";
+import { Button, Input, Alert, Typography, Tooltip } from "antd";
 import { ThunderboltOutlined, ReloadOutlined, CopyOutlined, ArrowRightOutlined } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
-import { draftWakeup } from "../../dashboard/ai";
-import { draftInvite } from "../../channels/ai";
 import type { CustomerBrief, BriefRecord } from "@/lib/ai-draft";
 import { useBusiness } from "@/lib/business-client";
-import { runJob, useJob, setJobValue, clearJob, getJob } from "@/lib/ai-jobs";
+import { useJob, setJobValue, clearJob, getJob } from "@/lib/ai-jobs";
 import { runStream, type StreamJob } from "@/lib/ai-stream";
 import AiTrace from "@/components/AiTrace";
 import AiWait from "@/components/AiWait";
 import BriefBody from "./BriefBody";
+import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
 
 type BriefAnswer = { brief: CustomerBrief; records: BriefRecord[] };
 
@@ -38,14 +37,13 @@ export default function AiPanel({
   hasRecords: boolean;
 }) {
   const b = useBusiness();
-  const { message } = App.useApp();
   const briefKey = `brief:${customerId}:${fingerprint}`;
   const askKey = `brief-q:${customerId}`;
 
   const briefJob = useJob<StreamJob<BriefAnswer>>(briefKey);
   const askJob = useJob<StreamJob<BriefAnswer> & { question?: string }>(askKey);
-  const wakeupJob = useJob<string>(`draft:wakeup:${customerId}`);
-  const inviteJob = useJob<string>(`draft:invite:${customerId}`);
+  const wakeupJob = useJob<string>(草稿键("wakeup", customerId));
+  const inviteJob = useJob<string>(草稿键("invite", customerId));
   const [q, setQ] = useState("");
 
   /** 侧栏那条「AI 任务」认这个：叫什么、点了回哪儿 */
@@ -91,12 +89,8 @@ export default function AiPanel({
     }
   }, [briefKey, hasRecords]);
 
-  function doDraft(kind: "wakeup" | "invite") {
-    runJob(`draft:${kind}:${customerId}`, async () => {
-      const res = kind === "wakeup" ? await draftWakeup({ customerId, reason: "从记录页发起" }) : await draftInvite({ customerId });
-      return res.ok ? { ok: true, value: res.message } : res;
-    });
-  }
+  const doDraft = (kind: 草稿类) => 起草(kind, customerId, "从记录页发起");
+  const 复制 = useCopyDraft();
 
   // 有追问就显示追问的结果，否则显示简报本身
   const shown = askJob ?? briefJob;
@@ -220,14 +214,11 @@ export default function AiPanel({
                   type="link"
                   icon={<CopyOutlined />}
                   style={{ padding: 0 }}
-                  onClick={async () => {
-                    await navigator.clipboard.writeText(job.value!);
-                    message.success(`已复制，去微信发给${b.customer}吧`);
-                  }}
+                  onClick={() => 复制(job.value!)}
                 >
                   复制
                 </Button>
-                <Button size="small" type="link" style={{ padding: 0 }} onClick={() => clearJob(`draft:${kind}:${customerId}`)}>
+                <Button size="small" type="link" style={{ padding: 0 }} onClick={() => clearJob(草稿键(kind, customerId))}>
                   收起
                 </Button>
               </div>

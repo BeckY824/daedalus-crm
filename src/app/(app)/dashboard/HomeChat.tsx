@@ -12,11 +12,9 @@ import ModelPicker, { useModel } from "@/components/ModelPicker";
 import AskFiles, { type 附件 } from "@/components/AskFiles";
 import ImportDrawer from "../customers/ImportDrawer";
 import type { ModelOption } from "@/lib/llm";
-import { draftWakeup } from "./ai";
-import { draftInvite } from "../channels/ai";
 import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
-import { clearJob, getJob, runJob, useJob, useRunningKey } from "@/lib/ai-jobs";
+import { clearJob, getJob, useJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
 import { 载入历史, type AgentAnswer, type 历史消息 } from "@/lib/thread-history";
@@ -28,6 +26,7 @@ import Signals from "./Signals";
 import type { StepEvent } from "@/lib/ai-steps";
 import { summarizeSteps } from "@/lib/agent/step-summary";
 import { dayjs } from "@/lib/utils";
+import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -932,15 +931,10 @@ function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Tur
 
 /** 卡片里的一行：客户名、状态、动作；草稿就地展开，与记录页、盯盘、雷达共用同一份 */
 function CustomerRow({ customer }: { customer: { id: string; name: string; followStatus: string } }) {
-  const b = useBusiness();
-  const { message } = App.useApp();
-  const wakeup = useJob<string>(`draft:wakeup:${customer.id}`);
-  const invite = useJob<string>(`draft:invite:${customer.id}`);
-  const run = (kind: "wakeup" | "invite") =>
-    runJob(`draft:${kind}:${customer.id}`, async () => {
-      const res = kind === "wakeup" ? await draftWakeup({ customerId: customer.id, reason: "从首页发起" }) : await draftInvite({ customerId: customer.id });
-      return res.ok ? { ok: true, value: res.message } : res;
-    });
+  const 复制 = useCopyDraft();
+  const wakeup = useJob<string>(草稿键("wakeup", customer.id));
+  const invite = useJob<string>(草稿键("invite", customer.id));
+  const run = (kind: 草稿类) => 起草(kind, customer.id, "从首页发起");
   return (
     <div className="cli-card-row">
       <div className="cli-card-main">
@@ -967,17 +961,10 @@ function CustomerRow({ customer }: { customer: { id: string; name: string; follo
           <div key={kind} className="cli-draft">
             <div>{job.value}</div>
             <div>
-              <button
-                type="button"
-                className="cli-link"
-                onClick={async () => {
-                  await navigator.clipboard.writeText(job.value!);
-                  message.success(`已复制，去微信发给${b.customer}吧`);
-                }}
-              >
+              <button type="button" className="cli-link" onClick={() => 复制(job.value!)}>
                 复制
               </button>
-              <button type="button" className="cli-link" onClick={() => clearJob(`draft:${kind}:${customer.id}`)}>
+              <button type="button" className="cli-link" onClick={() => clearJob(草稿键(kind, customer.id))}>
                 收起
               </button>
             </div>

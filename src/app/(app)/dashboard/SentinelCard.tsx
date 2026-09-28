@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { Card, Tag, Button, Space, Typography, App } from "antd";
+import { Card, Tag, Button, Space, Typography } from "antd";
 import { EyeOutlined, ThunderboltOutlined, CopyOutlined, BulbOutlined } from "@ant-design/icons";
 import type { WatchItem } from "@/lib/sentinel";
 import { KIND_LABEL } from "@/lib/sentinel";
-import { draftWakeup, explainWatchlist } from "./ai";
+import { explainWatchlist } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
+import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
   overdue_plan: "error",
@@ -21,7 +22,6 @@ const KIND_COLOR: Record<WatchItem["kind"], string> = {
  * 「起草跟进」生成微信话术草稿，由销售自己复制发出——AI 起草、人签发。
  */
 export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[]; aiEnabled: boolean }) {
-  const { message } = App.useApp();
   const b = useBusiness();
   const kindLabel = (k: WatchItem["kind"]) => KIND_LABEL[k].replace("学员", b.customer);
   // 解读与话术都挂在进程内任务表上（ai-jobs），离开首页再回来，转圈和结果都还在。
@@ -39,17 +39,8 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
     });
   }
 
-  function draft(it: WatchItem) {
-    runJob(`draft:wakeup:${it.customerId}`, async () => {
-      const res = await draftWakeup({ customerId: it.customerId, reason: it.reason });
-      return res.ok ? { ok: true, value: res.message } : res;
-    });
-  }
-
-  async function copy(text: string) {
-    await navigator.clipboard.writeText(text);
-    message.success(`已复制，去微信发给${b.customer}吧`);
-  }
+  const draft = (it: WatchItem) => 起草("wakeup", it.customerId, it.reason);
+  const copy = useCopyDraft();
 
   return (
     <Card
@@ -105,7 +96,7 @@ function SentinelRow({
   onDraft: () => void;
   onCopy: (t: string) => void;
 }) {
-  const job = useJob<string>(`draft:wakeup:${it.customerId}`);
+  const job = useJob<string>(草稿键("wakeup", it.customerId));
   const draftText = job?.status === "done" ? job.value : undefined;
   return (
         <div style={{ padding: "12px 0", borderBottom: "1px dashed var(--line-soft)" }}>
@@ -156,7 +147,7 @@ function SentinelRow({
               <Button size="small" type="primary" ghost icon={<CopyOutlined />} onClick={() => onCopy(draftText)}>
                 复制
               </Button>
-              <Button size="small" type="text" onClick={() => clearJob(`draft:wakeup:${it.customerId}`)}>
+              <Button size="small" type="text" onClick={() => clearJob(草稿键("wakeup", it.customerId))}>
                 收起
               </Button>
             </div>

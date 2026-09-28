@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { Card, Row, Col, Table, Button, Space, Typography, App, Empty } from "antd";
+import { Card, Row, Col, Table, Button, Space, Typography, Empty } from "antd";
 import { RadarChartOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icons";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
 import { money } from "@/lib/utils";
-import { draftInvite } from "./ai";
 import { useBusiness } from "@/lib/business-client";
-import { runJob, useJob } from "@/lib/ai-jobs";
+import { useJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
+import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
 
 /**
  * 转介绍雷达：左边是谁在帮我们带人，右边是下一个该请谁开口。
@@ -23,21 +23,10 @@ export default function ReferralRadar({
   inviteCandidates: InviteCandidate[];
   aiEnabled: boolean;
 }) {
-  const { message } = App.useApp();
   const b = useBusiness();
-  // 话术挂在进程内任务表上（ai-jobs）：切走再回来，转圈和结果都还在；key 与记录页共用
-  function draft(c: InviteCandidate) {
-    runJob(`draft:invite:${c.customerId}`, async () => {
-      const res = await draftInvite({ customerId: c.customerId });
-      // 出错写在这一行下面（AiWait），不再弹一条几秒就走的提示
-      return res.ok ? { ok: true, value: res.message } : res;
-    });
-  }
-
-  async function copy(text: string) {
-    await navigator.clipboard.writeText(text);
-    message.success(`已复制，去微信发给${b.customer}吧`);
-  }
+  // 出错写在这一行下面（AiWait），不再弹一条几秒就走的提示；key 与记录页共用，见 lib/draft-jobs
+  const draft = (c: InviteCandidate) => 起草("invite", c.customerId);
+  const copy = useCopyDraft();
 
   const emptyNode = (text: string) => <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={text} />;
 
@@ -93,7 +82,7 @@ export default function ReferralRadar({
 
 /** 单行拆成组件，各自订阅自己的邀请话术任务 */
 function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEnabled: boolean; onDraft: () => void; onCopy: (t: string) => void }) {
-  const job = useJob<string>(`draft:invite:${c.customerId}`);
+  const job = useJob<string>(草稿键("invite", c.customerId));
   const text = job?.status === "done" ? job.value : undefined;
   return (
     <div style={{ padding: "10px 0", borderBottom: "1px dashed var(--line-soft)" }}>
