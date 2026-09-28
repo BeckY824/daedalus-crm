@@ -17,6 +17,7 @@ import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
+import { 查电话, 规整手机号 } from "@/lib/phone";
 
 
 /** 状态不在取值表里就给那句报错，合法给 null。建客户、批量改、撤销、行内改四处共用，报错文案一字不改 */
@@ -78,11 +79,13 @@ export type DuplicateHit = {
   createdAt: string;
 } | null;
 
-/** 按手机号查重。手机号唯一性最可靠，姓名可能重名 */
+/** 按手机号查重。手机号唯一性最可靠，姓名可能重名。和保存那一步一样先规整：「138 0000 1111」就是 13800001111 */
 export async function checkDuplicate(phone: string, excludeId?: string): Promise<DuplicateHit> {
   await requireUser();
+  const 号 = 规整手机号(phone);
+  if (!号) return null;
   const hit = await prisma.customer.findFirst({
-    where: { phone: phone.trim(), ...(excludeId ? { id: { not: excludeId } } : {}) },
+    where: { phone: 号, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: {
       id: true,
       name: true,
@@ -119,14 +122,29 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   const me = await requireUser();
   const b = await getBusiness();
   const labels = customerFieldLabels(b);
-  const phone = input.phone.trim();
 
-  // 服务端再查一次重：表单上的提示只是给人看的，不能作为约束
-  const dup = await prisma.customer.findFirst({
-    where: { phone, ...(input.id ? { id: { not: input.id } } : {}) },
-    select: { name: true },
-  });
-  if (dup) return { ok: false, error: `手机号 ${phone} 已存在（${dup.name}），请勿重复录入` };
+  const 改前 = input.id ? await prisma.customer.findUnique({ where: { id: input.id } }) : null;
+  if (input.id && !改前) return { ok: false, error: `这条${b.customer}已被其他人删除，无法保存` };
+
+  /*
+    电话：和导入、表单同一条规矩（lib/phone.ts）。新建必填；编辑时原来有号码的不许清空，
+    原来就没有的可以继续空着。**原样没动的号码不重新规整**——库里老数据的写法
+    不该因为人改了一下备注就被悄悄换掉，留痕里平白多一条「手机号」。
+  */
+  const 原号 = (input.phone ?? "").trim();
+  const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: !改前 || Boolean(改前.phone) });
+  if (!电话.ok) return { ok: false, error: 电话.error };
+  const phone = 电话.phone;
+
+  // 服务端再查一次重：表单上的提示只是给人看的，不能作为约束。
+  // 空电话不查：两个都没留电话的人不是同一个人（原来这里会拿 "" 去比，没电话的人一个都存不了）
+  if (phone) {
+    const dup = await prisma.customer.findFirst({
+      where: { phone, ...(input.id ? { id: { not: input.id } } : {}) },
+      select: { name: true },
+    });
+    if (dup) return { ok: false, error: `手机号 ${phone} 已存在（${dup.name}），请勿重复录入` };
+  }
 
   // 推荐链不能成环。只挡「推荐人是自己」不够：A→B→A 两步就能绕过去
   if (input.id && input.referrerCustomerId) {
@@ -153,8 +171,6 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
    * （已经换了人的）渠道重新算一遍，学员照样静默换主，等于级联从后门溜回来。
    * 规则和渠道那边一致：没动他的推荐链，他的归属就不动。
    */
-  const 改前 = input.id ? await prisma.customer.findUnique({ where: { id: input.id } }) : null;
-  if (input.id && !改前) return { ok: false, error: `这条${b.customer}已被其他人删除，无法保存` };
   const 推荐链变了 = !改前 || 改前.channelId !== input.channelId || 改前.referrerCustomerId !== input.referrerCustomerId;
   const attribution = 推荐链变了
     ? await resolveAttribution({ channelId: input.channelId, referrerCustomerId: input.referrerCustomerId })

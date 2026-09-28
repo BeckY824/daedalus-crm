@@ -9,6 +9,7 @@ import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } fr
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
+import { 查电话 } from "@/lib/phone";
 
 export type CustomerRow = {
   id: string;
@@ -87,6 +88,8 @@ function CustomerFormInner({
    * 已存在的记录仍可能挂在一个不在候选里的人名下——不补回去的话，
    * 下拉会显示空白，一保存就把负责人静默换成别人。
    */
+  /** 新建必填；编辑时只有原来就有号码的才必填（和 saveCustomer 同一条，见 lib/phone.ts） */
+  const 电话必填 = !editing || Boolean(editing.phone);
   const 负责人选项 = 成员选项(users);
   if (editing && !users.some((u) => u.id === editing.salesOwnerId)) {
     负责人选项.push({ value: editing.salesOwnerId, label: `${editing.salesOwnerName}（已不再担任负责人）` });
@@ -131,7 +134,7 @@ function CustomerFormInner({
             }
           : null,
         name: v.name,
-        phone: v.phone,
+        phone: v.phone ?? "",
         school: v.school ?? null,
         grade: v.grade ?? null,
         major: v.major ?? null,
@@ -233,15 +236,22 @@ function CustomerFormInner({
             </Form.Item>
           </Col>
           <Col span={8}>
+            {/* 和导入、服务端同一条规矩（lib/phone.ts）：收海外号和座机；
+                只有新建、或原来就有号码的才必填——原来没电话的人改个备注不该被它卡住 */}
             <Form.Item
               label="联系电话"
               name="phone"
+              required={电话必填}
               rules={[
-                { required: true, message: "请输入联系电话" },
-                { pattern: /^1[3-9]\d{9}$/, message: "手机号格式不正确" },
+                {
+                  validator: (_, v: string | undefined) => {
+                    const r = 查电话(v, { 必填: 电话必填 });
+                    return r.ok ? Promise.resolve() : Promise.reject(new Error(r.error));
+                  },
+                },
               ]}
             >
-              <Input placeholder="13800001111" onBlur={onPhoneBlur} />
+              <Input placeholder={电话必填 ? "13800001111" : "没有可以先空着"} onBlur={onPhoneBlur} />
             </Form.Item>
           </Col>
           <Col span={8}>
