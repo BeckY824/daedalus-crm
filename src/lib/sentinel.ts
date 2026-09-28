@@ -60,7 +60,9 @@ export function buildWatchlist(
 
   // 逾期计划最优先：这是销售自己写下的承诺，过期没做比"忘了跟"严重
   for (const p of input.overduePlans) {
-    const days = n.diff(p.plannedAt, "day");
+    // 按日历天数（和记录页、计划页的「逾期 N 天」同一个口径，见 lib/deadline.ts，审查 D1）：
+    // 按 24 小时算的话，同一条计划这边写「逾期 4 天」、记录页写「逾期 5 天」
+    const days = n.startOf("day").diff(dayjs(p.plannedAt).startOf("day"), "day");
     if (days < 0) continue;
     items.push({
       kind: "overdue_plan",

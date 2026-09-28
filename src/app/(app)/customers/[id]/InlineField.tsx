@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, AutoComplete, DatePicker, Input, Select } from "antd";
 import { dayjs } from "@/lib/utils";
 import { patchCustomer, type PatchableKey } from "../actions";
+import Shortcut from "@/components/Shortcut";
 
 type Option = { value: string; label: string };
 
@@ -12,6 +13,11 @@ type Option = { value: string; label: string };
  * 记录页左栏的"点一下就能改"字段。
  * 平时是一行文字；点击变成输入框，失焦或回车即存，Esc 放弃。
  * 不弹窗、不用"保存"按钮——改一个字段本来就该是一个动作。
+ *
+ * Esc 一律**还原并收起**（审查 D4）：原来「能选也能填」那一类按 Esc 不还原草稿，
+ * 下次点开看到的是上次没存的字；而且输入框一收起，浏览器补发的那次失焦会拿着旧草稿去存——
+ * 所以放弃用一个 ref 记着，commit 看见它就什么都不做。每次点开也从当前值起步。
+ * 多行的「备注」回车是换行，⌘↵ 才存（框下面有一行淡字说）。
  */
 export default function InlineField({
   customerId,
@@ -36,8 +42,22 @@ export default function InlineField({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string | null>(value);
   const [saving, setSaving] = useState(false);
+  /** 这一次编辑是不是按 Esc 放弃了。放弃之后的失焦不许存 */
+  const 放弃了 = useRef(false);
+
+  function 开始() {
+    放弃了.current = false;
+    setDraft(value);
+    setEditing(true);
+  }
+  function 放弃() {
+    放弃了.current = true;
+    setDraft(value);
+    setEditing(false);
+  }
 
   async function commit(next: string | null) {
+    if (放弃了.current) return;
     setEditing(false);
     const normalized = next?.trim() ? next.trim() : null;
     if ((normalized ?? null) === (value ?? null)) return;
@@ -61,7 +81,7 @@ export default function InlineField({
 
   if (!editing) {
     return (
-      <div className="rec-field" onClick={() => setEditing(true)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && setEditing(true)} aria-label={`编辑${label}`}>
+      <div className="rec-field" onClick={开始} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && 开始()} aria-label={`编辑${label}`}>
         <div className="rec-field-k">{label}</div>
         <div className={`rec-field-v${display ? "" : " rec-field-empty"}${saving ? " rec-field-saving" : ""}`}>{display || placeholder}</div>
       </div>
@@ -102,7 +122,7 @@ export default function InlineField({
           onBlur={() => void commit(draft ?? "")}
           onKeyDown={(e) => {
             if (e.key === "Enter") void commit(draft ?? "");
-            if (e.key === "Escape") setEditing(false);
+            if (e.key === "Escape") 放弃();
           }}
         />
       )}
@@ -120,19 +140,23 @@ export default function InlineField({
         />
       )}
       {kind === "textarea" && (
-        <Input.TextArea
-          {...common}
-          autoSize={{ minRows: 2, maxRows: 8 }}
-          value={draft ?? ""}
-          onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void commit(draft)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setDraft(value);
-              setEditing(false);
-            }
-          }}
-        />
+        <div>
+          <Input.TextArea
+            {...common}
+            autoSize={{ minRows: 2, maxRows: 8 }}
+            value={draft ?? ""}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={() => void commit(draft)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") 放弃();
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void commit(draft);
+              }
+            }}
+          />
+          <div className="rec-field-hint"><Shortcut>⌘↵</Shortcut> 保存 · Esc 放弃</div>
+        </div>
       )}
       {kind === "text" && (
         <Input
@@ -142,10 +166,7 @@ export default function InlineField({
           onBlur={() => void commit(draft)}
           onPressEnter={() => void commit(draft)}
           onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              setDraft(value);
-              setEditing(false);
-            }
+            if (e.key === "Escape") 放弃();
           }}
         />
       )}

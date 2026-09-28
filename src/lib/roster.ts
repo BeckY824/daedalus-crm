@@ -25,6 +25,27 @@ export function 关名单() {
   notify();
 }
 
+/**
+ * ⌘K 在记录页上是「换一位」（审查 M8）。
+ *
+ * 原来名单自己在 window 上听 ⌘K，跳转单（CommandBar）也听，一按两响：名单的搜索框和
+ * 跳转单同时抢焦点，最后落在谁身上不确定。现在 **⌘K 只有 CommandBar 一个人听**，
+ * 名单在的时候把「换一位」登记在这里，CommandBar 先问一句「这一页有没有人接」。
+ */
+let 换一位处理: (() => void) | null = null;
+export function 登记换一位(fn: () => void): () => void {
+  换一位处理 = fn;
+  return () => {
+    if (换一位处理 === fn) 换一位处理 = null;
+  };
+}
+/** 这一页有人接「换一位」就交给它，返回 true；没有返回 false，照常开跳转单 */
+export function 换一位(): boolean {
+  if (!换一位处理) return false;
+  换一位处理();
+  return true;
+}
+
 export function useRosterOpen() {
   return useSyncExternalStore(
     (l) => {

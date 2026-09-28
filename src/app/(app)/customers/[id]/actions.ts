@@ -244,15 +244,19 @@ export async function savePlan(input: {
   return { ok: true as const };
 }
 
-export async function completePlan(id: string) {
+/** 完成一条计划。`完成 = false` 是撤销（审查 M10）：提示条里那个「撤销」走这里，改回未完成 */
+export async function completePlan(id: string, 完成 = true) {
   const me = await requireUser();
-  const p = await prisma.followPlan.update({ where: { id }, data: { done: true } });
+  const p = await prisma.followPlan.update({ where: { id }, data: { done: 完成 } });
   await recordAudit({
     user: me, action: "update", entity: "FollowPlan", entityId: id,
-    summary: `完成跟进计划「${p.subject}」（${await 客户名(p.customerId)}）`,
+    summary: 完成
+      ? `完成跟进计划「${p.subject}」（${await 客户名(p.customerId)}）`
+      : `撤销完成跟进计划「${p.subject}」（${await 客户名(p.customerId)}）`,
   });
   revalidatePath(`/customers/${p.customerId}`);
   revalidatePath("/follow-ups/plans");
+  revalidatePath("/dashboard");
   return { ok: true as const };
 }
 

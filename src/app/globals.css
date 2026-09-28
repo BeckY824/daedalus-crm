@@ -670,13 +670,30 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-field-v { font-size: var(--fs-body); color: var(--ink); line-height: 22px; word-break: break-word; }
 .rec-field-empty { color: var(--text-faint); }
 .rec-field-saving { opacity: 0.5; }
-.rec-mini { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-card); font-size: var(--fs-body); }
+.rec-field-hint { margin-top: var(--s1); font-size: var(--fs-min); color: var(--text-muted); }
+.rec-mini { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-card); font-size: var(--fs-body); }
 .rec-mini:hover { background: var(--row-hover); }
 .rec-mini-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .rec-mini-m { font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
 /* 签约那行金额是要看的东西，不许被日期和两颗图标挤成「¥…」；挤不下时让日期先省略 */
 .rec-mini-amt { flex: 1 0 auto; font-weight: 600; }
 .rec-mini-amt + .rec-mini-m { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 左栏小行的编辑 / 删除（审查 M4）：平时不占位，悬停或焦点进来时盖在行尾那段说明上，左缘渐隐。
+   原来两颗图标常驻，名字只剩「周明远…」。触屏没有悬停，就一直摆在行尾 */
+.rec-mini-acts { position: absolute; right: var(--s1); top: 50%; translate: 0 -50%; display: flex;
+  padding-left: var(--s5); background: linear-gradient(to right, transparent, var(--row-hover) var(--s4));
+  opacity: 0; pointer-events: none; transition: opacity var(--t-fast) var(--ease); }
+.rec-mini:hover .rec-mini-acts, .rec-mini-acts:focus-within { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .rec-mini-acts { position: static; translate: none; opacity: 1; pointer-events: auto; background: none; padding-left: 0; }
+}
+/* 联系人那一行：名字不让位，让「关系 / 电话」那段先省略 */
+.rec-mini > .rec-mini-n:not(.rec-mini-amt):has(+ .rec-mini-m + .rec-mini-acts) { flex: 0 1 auto; }
+.rec-mini-n + .rec-mini-m:has(+ .rec-mini-acts) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+/* 商机那一行分两行：名字独占一行，阶段和金额在下面 */
+.rec-mini-2 { flex-direction: column; align-items: stretch; gap: 2px; }
+.rec-mini-2 .rec-mini-n { flex: none; }
+.rec-mini-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rec-empty { padding: 4px 8px 8px; font-size: var(--fs-note); color: var(--text-faint); }
 
 .rec-composer { padding: 14px 16px 12px; }
@@ -702,14 +719,18 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-plan-k { color: var(--brand); font-weight: 600; white-space: nowrap; }
 .rec-plan-v { flex: 1 1 100%; min-width: 0; color: var(--ink); order: 3; }
 .rec-plan-m { color: var(--text-muted); font-size: var(--fs-note); white-space: nowrap; margin-left: auto; }
+.rec-plan-m.is-over { color: var(--danger-text); }
 .rec-tl { padding: 4px 16px 10px; }
 .rec-tl-item { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line-soft); }
 .rec-tl-item:last-child { border-bottom: none; }
 .rec-tl-dot { width: 36px; height: 36px; border-radius: var(--r-card); display: grid; place-items: center; color: var(--on-ink); font-size: var(--ic); flex: none; }
 .rec-tl-body { flex: 1; min-width: 0; }
-.rec-tl-head { position: relative; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.rec-tl-type { font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
-.rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); }
+/* 标题只占一行、超出省略，时间一直钉在右边（审查 D5）：AI 起的长标题原来把头部挤成两行，
+   时间单独掉到第二行。全文在悬停里 */
+.rec-tl-head { position: relative; display: flex; align-items: center; gap: 8px; }
+.rec-tl-type { flex: none; font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
+.rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-tl-head > .ant-tag { flex: none; }
 .rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
 /* 编辑 / 删除平时不占位：原来它透明但占着宽度，中栏一窄就被挤到第二行，每条记录标题下空出一行。
    现在悬停（或键盘焦点进来）时盖在时间上出现，左缘渐隐；触屏没有悬停，就一直显示在时间下面那行 */
