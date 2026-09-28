@@ -5,6 +5,7 @@ import zhCN from "antd/locale/zh_CN";
 import { MotionConfig } from "motion/react";
 import { themeConfig } from "@/lib/theme";
 import { 曲线, 时长 } from "@/lib/motion";
+import { 外观预设脚本, 默认外观 } from "@/lib/appearance";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,7 +17,12 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="zh-CN">
+    /* data-paper / data-skin 是外观（lib/appearance.ts）。服务端先按默认渲染，
+       <head> 里那段在第一次绘制前换成这台电脑存的——所以 html 上这两个属性和服务端对不上是预期的 */
+    <html lang="zh-CN" data-paper={默认外观.paper} data-skin={默认外观.skin} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: 外观预设脚本 }} />
+      </head>
       <body>
         <AntdRegistry>
           <ConfigProvider locale={zhCN} theme={themeConfig}>

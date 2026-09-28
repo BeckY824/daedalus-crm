@@ -14,6 +14,7 @@ import DesktopTab, { type 桌面端信息 } from "./DesktopTab";
 import ImportsTab from "./ImportsTab";
 import ProfileTab from "./ProfileTab";
 import KeymapTab from "./KeymapTab";
+import AppearanceTab from "./AppearanceTab";
 import type { BusinessConfig } from "@/lib/business-config";
 import type { AiUsage } from "@/lib/ai-usage";
 
@@ -21,6 +22,7 @@ import type { AiUsage } from "@/lib/ai-usage";
 const 说明表: Record<string, string> = {
   profile: "你的名字、职位",
   keymap: "键盘上那几个键",
+  appearance: "底色；以后的主题也在这儿",
   members: "谁能进、谁是管理员",
   password: "改密码、看哪几台机器登录着",
   desktop: "账号、备份、更新",
@@ -78,6 +80,7 @@ export default function SettingsView({
     { key: "profile", label: "个人资料", children: <ProfileTab me={{ name: me.name, title: me.title, email: me.email }} /> },
     { key: "members", label: "团队成员", children: <MembersTab users={users} me={me} isAdmin={isAdmin} 用邮箱登录={用邮箱登录} /> },
     { key: "keymap", label: "快捷键", children: <KeymapTab 桌面端={Boolean(桌面端)} /> },
+    { key: "appearance", label: "外观", children: <AppearanceTab /> },
     { key: "password", label: "登录与密码", children: <PasswordTab 机器={机器} /> },
     ...(桌面端 ? [{ key: "desktop", label: "桌面端", children: <DesktopTab 信息={桌面端} /> }] : []),
     ...(isAdmin
@@ -106,7 +109,7 @@ export default function SettingsView({
    * 没列进来的 key 会落到最后一组，加了新栏忘了分组也不会凭空消失。
    */
   const 分组表: [string, string[]][] = [
-    ["个人", ["profile", "password", "keymap"]],
+    ["个人", ["profile", "password", "keymap", "appearance"]],
     ["工作区", ["members", "business", "ai", "imports", "audit"]],
     ["应用", ["desktop"]],
   ];

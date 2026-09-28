@@ -100,10 +100,36 @@
   --ai-w: 340px;             /* 记录页的 AI 栏 */
   --dock-w: 380px;           /* 全局 AI 面板。照记录页那个抽屉的宽度，用户定的 */
 
-  /* 旧名，调用处还在用，指到新 token 上 */
+  /* 页面的「地面」：页面本身、左栏、登录页、设置浮层都铺这一层。
+     和 --workbench 分开，是因为「设置 → 外观」的白底只换地面——卡片里那些小灰块（草稿框、文件签）
+     还是 --workbench，不能跟着一起变白，否则它们就和白卡片糊成一片 */
   --page-bg: var(--workbench);
   --border: var(--line);
 }
+
+/* ---------- 外观（设置 → 外观，lib/appearance.ts） ----------
+   只换值，不换结构。<html> 上的 data-paper / data-skin 在第一次绘制前由 layout 里那段小脚本挂好，
+   所以刷新时不会先闪一下原底。这里不许写裸色值（tests/design-tokens.test.ts），只许指到已有 token 上 */
+:root[data-paper="white"] { --page-bg: var(--panel); }
+/* 设置 → 外观 那一栏 */
+.appr { display: flex; flex-direction: column; gap: var(--s5); max-width: 640px; }
+.appr-note { margin: 0; color: var(--text-muted); font-size: var(--fs-note); }
+.appr-row { display: flex; flex-direction: column; gap: var(--s2); }
+.appr-h { font-size: var(--fs-section); font-weight: 600; color: var(--ink); }
+.appr-opts { display: flex; flex-wrap: wrap; gap: var(--s3); }
+.appr-opt { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 200px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel); text-align: left; cursor: pointer; color: var(--ink);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
+.appr-opt:hover { border-color: var(--line-strong); }
+.appr-opt.on { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.appr-opt b { font-size: var(--fs-body); font-weight: 600; }
+.appr-opt > span:last-child { font-size: var(--fs-min); color: var(--text-muted); line-height: 1.5; }
+.appr-opt:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* 小样：左边一条左栏、右边一张卡。原底的地面是工作台灰，白底的地面是白 */
+.appr-mini { display: flex; gap: 6px; width: 100%; height: 64px; padding: 6px; margin-bottom: 4px; border-radius: var(--r-ctl); border: 1px solid var(--line-soft); }
+.appr-mini-tone { background: var(--workbench); }
+.appr-mini-white { background: var(--panel); }
+.appr-mini-rail { width: 22%; border-radius: 3px; background: color-mix(in srgb, var(--line) 60%, transparent); }
+.appr-mini-card { flex: 1; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); }
 
 * {
   box-sizing: border-box;
@@ -131,7 +157,7 @@ a {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  background: var(--workbench);
+  background: var(--page-bg);
   padding: 24px;
 }
 
@@ -158,7 +184,7 @@ a {
      164px 图标 + 文字同一行   → 认得出了，但一格 32 高、字 14，整栏像个工具条
      220px、一格 38 高、字 15  → 现在这个（2026-09-17）。比例照 Claude 桌面端：栏占窗口两成出头，
                                 行高和字号都比正文大半档，一眼就是导航，不是一列标签 */
-.rail { width: var(--rail-w); flex: none; position: sticky; top: 0; height: 100vh; background: var(--workbench); border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; padding: 14px 12px 14px; }
+.rail { width: var(--rail-w); flex: none; position: sticky; top: 0; height: 100vh; background: var(--page-bg); border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; padding: 14px 12px 14px; }
 /* 桌面端：顶上给红黄绿钮留位，这一块也是拖窗口的把手。
    侧栏 164 宽之后钮不用再挤了——整组 52 宽按标准的 20px 内缩放着，右边还剩 92 到竖线，
    和别的 macOS 应用一个观感。栏宽也就不必再比网页版多一截。 */

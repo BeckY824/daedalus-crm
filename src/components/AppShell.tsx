@@ -241,8 +241,9 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
   };
 
   if (小屏) {
+    // 底色走 --page-bg：外观选白底时地面跟着变白（antd 的 bodyBg 是 JS 里写死的色值，读不到外观）
     return (
-      <Layout style={{ minHeight: "100vh" }}>
+      <Layout style={{ minHeight: "100vh", background: "var(--page-bg)" }}>
         <Header style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 12px", borderBottom: "1px solid var(--line-soft)", position: "sticky", top: 0, zIndex: 10, height: 48 }}>
           <Dropdown
             trigger={["click"]}
