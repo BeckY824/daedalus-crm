@@ -29,6 +29,9 @@
      全站只有这一条视觉语法区分「AI 说的」和「已经是事实的」，不新增颜色，只借现有的两级 */
   --pencil: var(--text-faint);
   --pencil-text: var(--text-muted);
+  /* 冷热信号条：亮的格子用主色，灭的用分隔线色 */
+  --heat-on: var(--brand);
+  --heat-off: var(--line);
 
   /* 分类色：给"只是不同、没有高低"的东西（商机阶段、跟进类型、并列的图表线）。
      八个色相拉开；好坏另有 success / warning / danger。JS 那边同一套在 lib/palette.ts */
@@ -935,6 +938,14 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .prop-seal.is-new { animation: prop-seal var(--t-morph) var(--ease-spring) both; }
 @keyframes prop-seal { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: none; } }
 .prop-done-acts { display: inline-flex; align-items: center; gap: 12px; }
+/* 冷热信号条（components/Heat.tsx）：四格竖条，从左往右亮。形不跟着字号缩 */
+.heat { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex: none; vertical-align: -1px; }
+.heat i { width: 3px; height: 100%; border-radius: 1px; background: var(--heat-off); }
+.heat[data-l="1"] i:nth-child(-n+1), .heat[data-l="2"] i:nth-child(-n+2),
+.heat[data-l="3"] i:nth-child(-n+3), .heat[data-l="4"] i { background: var(--heat-on); }
+.heat-cell { display: inline-flex; align-items: center; gap: 8px; }
+.rec-heat { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-note); color: var(--text-muted); }
+
 /* 底栏：小图标 + 时间 */
 .cli-bar { margin-top: 8px; padding-left: 16px; display: flex; align-items: center; gap: 2px; }
 .cli-ic { border: 0; background: none; width: 26px; height: 26px; border-radius: var(--r-ctl); color: var(--text-muted); cursor: pointer; font-size: var(--fs-note); display: inline-flex; align-items: center; justify-content: center; }

@@ -1,4 +1,5 @@
 "use client";
+import Heat from "./Heat";
 import Shortcut from "./Shortcut";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -129,7 +130,9 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
             <span className="roster-m">
               <span className="roster-l1">
                 <span className="roster-n">{r.name}</span>
-                <span className="roster-t">{r.lastFollowAt ? smartTime(r.lastFollowAt) : ""}</span>
+                <span className="roster-t">
+                  <Heat at={r.lastFollowAt} /> {r.lastFollowAt ? smartTime(r.lastFollowAt) : ""}
+                </span>
               </span>
               <span className="roster-l2">
                 <Tag color={FOLLOW_STATUS_COLOR[r.followStatus] ?? "default"} style={{ margin: 0, borderRadius: 5, fontSize: 12, lineHeight: "18px", padding: "0 5px", flex: "none" }}>

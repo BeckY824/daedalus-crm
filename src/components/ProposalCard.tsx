@@ -112,6 +112,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
          用 height: auto 的形变而不是直接换内容——直接换的话，下面的对话会往上跳一大截，
          人会以为自己点掉了什么东西 */
       <motion.div
+        key="done"
         className="prop prop-done"
         initial={{ opacity: 0, height: 0 }}
         animate={{ opacity: 1, height: "auto" }}
@@ -137,7 +138,10 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
   }
 
   return (
+    /* key 分开：撤销后从回执回到这张卡时要重新挂载——同一个节点复用的话，
+       回执那段高度动画留下的固定高度还在，卡片内容会溢出去压住下面的东西 */
     <motion.div
+      key="pending"
       className="prop"
       initial={{ opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}

@@ -33,6 +33,7 @@ import AiPanel from "./AiPanel";
 import { toggleTask, deleteTask, deleteFollowUp, completePlan, deleteContact, saveFollowUp } from "./actions";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
 import { 登记详情名 } from "@/lib/page-rows";
+import Heat, { 冷热说法 } from "@/components/Heat";
 import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 
@@ -214,6 +215,10 @@ export default function RecordView({
             {customer.expectedSignAt && ` · ${fmtDate(customer.expectedSignAt)}`}
           </span>
         )}
+        <span className="rec-heat">
+          <Heat at={customer.lastFollowAt} />
+          {冷热说法(customer.lastFollowAt)}
+        </span>
       </div>
 
       <div ref={recRef} className={`rec${AI在抽屉里 ? " rec-2col" : ""}${单栏 ? " rec-1col" : ""}`}>

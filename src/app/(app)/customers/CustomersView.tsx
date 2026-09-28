@@ -1,5 +1,6 @@
 "use client";
 
+import Heat from "@/components/Heat";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -138,7 +139,16 @@ export default function CustomersView({
       render: (v) => <span className="muted nowrap">{v ? fmtDate(v) : "—"}</span>,
     },
     { title: "负责人", 列名: "负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
-    { title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 116, render: (v) => <span className="muted nowrap">{smartTime(v)}</span> },
+    {
+      title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 132,
+      // 冷热在前：扫一眼这一列就知道谁凉了，日期留着给要细看的人
+      render: (v) => (
+        <span className="heat-cell">
+          <Heat at={v} />
+          <span className="muted nowrap">{smartTime(v)}</span>
+        </span>
+      ),
+    },
 
     { title: "联系电话", key: "phone", dataIndex: "phone", width: 140, 默认: false, render: (v) => <span className="nowrap">{maskPhone(v)}</span> },
     { title: b.fields.grade, key: "grade", dataIndex: "grade", width: 90, 默认: false, render: (v) => v ?? <span className="muted">—</span> },

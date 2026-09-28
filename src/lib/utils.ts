@@ -38,6 +38,19 @@ export function smartTime(d: Date | string | null | undefined): string {
   return t.isSame(now, "year") ? t.format("M 月 D 日") : t.format("YYYY 年 M 月 D 日");
 }
 
+/**
+ * 冷热：这位客户多久没跟了，折成四格。单人销售手里最稀缺的是注意力，
+ * 「今天该碰谁」要一眼看出来，而不是在一列日期里挨个换算。
+ *   两天内 4 格 · 一周内 3 · 两周内 2 · 一个月内 1 · 更久或从没跟过 0
+ * 按**本地日历天**数，和 smartTime 同一个口径：昨晚跟的，今天早上还是「1 天」。
+ */
+export function 冷热(最近跟进: Date | string | null | undefined, now = dayjs()): { 格: 0 | 1 | 2 | 3 | 4; 天: number | null } {
+  if (!最近跟进) return { 格: 0, 天: null };
+  const 天 = Math.max(0, now.startOf("day").diff(dayjs(最近跟进).startOf("day"), "day"));
+  const 格 = 天 <= 2 ? 4 : 天 <= 6 ? 3 : 天 <= 13 ? 2 : 天 <= 29 ? 1 : 0;
+  return { 格, 天 };
+}
+
 export function fmtDate(d: Date | string | null | undefined): string {
   return d ? dayjs(d).format("YYYY-MM-DD") : "—";
 }
