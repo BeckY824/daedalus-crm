@@ -41,17 +41,31 @@ const notify = () => {
   listeners.forEach((l) => l());
 };
 
+/**
+ * 每个 key 当前是第几轮。结果回来时轮次对不上就丢掉——
+ * 跑到一半被 clearJob 清掉（人把弹窗关了 = 不要了），模型那边照样会回来，
+ * 原来的写法会把它原样写回任务表：弹窗里已经没人接，侧栏却冒出一条「答完了」，
+ * 人在别的应用里还会收到一条系统通知，说一件他已经取消的事。
+ */
+const 轮次 = new Map<string, number>();
+let 轮次号 = 0;
+
 export function runJob<T>(key: string, fn: () => Promise<Result<T>>, meta?: string, 标签?: 任务标签): void {
   const cur = jobs.get(key);
   if (cur?.status === "loading") return;
   const 起 = Date.now();
+  const 这一轮 = ++轮次号;
+  轮次.set(key, 这一轮);
   jobs.set(key, { status: "loading", meta, startedAt: 起, 标签 });
   notify();
+  const 还算数 = () => 轮次.get(key) === 这一轮;
   void fn()
     .then((r) => {
+      if (!还算数()) return;
       jobs.set(key, r.ok ? { status: "done", value: r.value, meta, startedAt: 起, 标签 } : { status: "error", error: r.error, value: r.value, meta, startedAt: 起, 标签 });
     })
     .catch((e: unknown) => {
+      if (!还算数()) return;
       jobs.set(key, { status: "error", error: e instanceof Error ? e.message : "调用失败", meta, startedAt: 起, 标签 });
     })
     .finally(notify);
@@ -71,7 +85,9 @@ export function setJobValue<T>(key: string, value: T): void {
   notify();
 }
 
+/** 删掉一条任务。还在跑的也算作废：之后回来的结果不再写进来（见上面的 轮次） */
 export function clearJob(key: string): void {
+  轮次.delete(key);
   if (jobs.delete(key)) notify();
 }
 

@@ -168,8 +168,9 @@ test.describe("粘一段文本（接上模型之后）", () => {
     await expect(抽屉.getByText(/读到了/)).toHaveCount(0);
 
     await 按钮.click();
-    // 死端口，必失败。要的是「说了话」并且**还停在这一步**，而不是默默把人留在转圈的按钮前
-    await expect(page.locator(".ant-message")).toBeVisible({ timeout: 30_000 });
+    // 死端口，必失败。要的是「说了话」并且**还停在这一步**，而不是默默把人留在转圈的按钮前。
+    // 这句话写在按钮旁边那一行（红字，留着不走），不是一条几秒就消失的提示
+    await expect(抽屉.locator(".aiw-text-err")).toBeVisible({ timeout: 30_000 });
     await expect(抽屉.getByText(/读到了/)).toHaveCount(0);
     await expect(按钮).toBeEnabled();
   });

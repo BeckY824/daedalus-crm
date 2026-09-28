@@ -8,6 +8,8 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { saveFollowUp, saveTask, savePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
 import { useBusiness } from "@/lib/business-client";
+import AiWait from "@/components/AiWait";
+import { clearJob, runJob } from "@/lib/ai-jobs";
 import { statusLabel } from "@/lib/business-config";
 
 type Rec = {
@@ -60,14 +62,27 @@ export default function FollowUpForm({
   const type = Form.useWatch("type", form);
 
   const [aiText, setAiText] = useState("");
-  const [aiLoading, setAiLoading] = useState(false);
+  /** 这一次解析走到哪儿了：null = 没解析过；有「起」没结果 = 跑着 */
+  const [解析, set解析] = useState<{ 起: number; 结果?: string; 出错?: string } | null>(null);
+  const aiLoading = Boolean(解析 && !解析.结果 && !解析.出错);
   const [extras, setExtras] = useState<Extras | null>(null);
+  /*
+    解析也登记进任务表（lib/ai-jobs）：要十来秒，人会切去别的应用，
+    答完了侧栏那条和系统通知会叫他回来。弹窗关了 = 不要了，任务一起清掉——
+    清掉之后模型那边回来的结果不会再写回去，也就不会冒出一条「答完了」。
+  */
+  const 任务键 = `followup-parse:${customerId}`;
+  /** 弹窗在解析途中被关掉：回来的结果没人接，不许再往一个已经关掉的表单里填 */
+  const 这一次 = useRef(0);
 
   // AI 面板的状态在关闭/保存的事件处理里重置（见 resetAi），
   // 不放进 effect——react-hooks/set-state-in-effect 禁止，且事件里重置语义更准
   function resetAi() {
+    这一次.current++;
+    clearJob(任务键);
     setAiText("");
     setExtras(null);
+    set解析(null);
   }
 
   async function onAiParse() {
@@ -79,11 +94,26 @@ export default function FollowUpForm({
       message.warning("先把沟通过程随手写几句");
       return;
     }
-    setAiLoading(true);
-    const res = await parseFollowUpDraft({ customerId, text });
-    setAiLoading(false);
+    const 轮 = ++这一次.current;
+    const 起 = Date.now();
+    set解析({ 起 });
+    const 请求 = parseFollowUpDraft({ customerId, text });
+    // 任务表只记「跑着 / 好了 / 出错」给侧栏和系统通知用；草稿本身由下面这条 await 接
+    runJob<null>(
+      任务键,
+      () => 请求.then((r) => (r.ok ? { ok: true as const, value: null } : { ok: false as const, error: r.error })),
+      undefined,
+      { 名: "解析跟进速记", 去: `/customers/${customerId}` },
+    );
+    let res: Awaited<typeof 请求>;
+    try {
+      res = await 请求;
+    } catch (e) {
+      res = { ok: false, error: e instanceof Error ? e.message : "解析失败，请重试" };
+    }
+    if (轮 !== 这一次.current) return;
     if (!res.ok) {
-      message.error(res.error);
+      set解析({ 起, 出错: res.error });
       return;
     }
     const d = res.draft;
@@ -103,7 +133,15 @@ export default function FollowUpForm({
       followStatusSuggestion: d.followStatusSuggestion,
       decisionStatusSuggestion: d.decisionStatusSuggestion,
     });
-    message.success("已按原话预填，请核对后保存");
+    // 做完留一行摘要在原地，替掉原来那条一闪就走的提示：人一眼看到 AI 认出了什么，再去核对下面的表
+    const 摘要 = [
+      FOLLOW_TYPES.find((t) => t.value === d.followUp.type)?.label,
+      d.followUp.status,
+      d.plan?.plannedAt ? `下次 ${dayjs(d.plan.plannedAt).format("M 月 D 日")}` : null,
+      d.tasks.length ? `${d.tasks.length} 条待办` : null,
+      `${((Date.now() - 起) / 1000).toFixed(1)}s`,
+    ].filter(Boolean);
+    set解析({ 起, 结果: `已预填：${摘要.join(" · ")}` });
   }
 
   const autoParsed = useRef<string | null>(null);
@@ -234,11 +272,18 @@ export default function FollowUpForm({
             placeholder={'跟进速记：把沟通过程随手倒出来，或直接粘贴微信聊天记录，AI 帮你填表。\n如："刚和周总通了 20 分钟电话，他担心交期，想先小批量试一单，下周三再约他聊报价"'}
           />
           <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              解析结果只是预填，核对无误再保存
-            </Typography.Text>
-            <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} loading={aiLoading} onClick={onAiParse}>
-              AI 解析填表
+            {解析 ? (
+              <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+                <AiWait 在做="从这段话里认出跟进方式、结果和下次时间" 起={解析.起} 结果={解析.结果} 出错={解析.出错} />
+              </div>
+            ) : (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                解析结果只是预填，核对无误再保存
+              </Typography.Text>
+            )}
+            {/* 跑着时不转圈：在做什么、过了几秒，左边那一行已经说了。按钮只负责「现在不能再点」 */}
+            <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={aiLoading} onClick={onAiParse}>
+              {解析?.结果 ? "重新解析" : "AI 解析填表"}
             </Button>
           </div>
         </div>

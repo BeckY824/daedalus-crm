@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { App, Alert, Button, Drawer, Empty, Input, Radio, Segmented, Select, Space, Steps, Switch, Table, Tag, Typography, Upload } from "antd";
 import { InboxOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { 解析CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
@@ -11,6 +11,11 @@ import { 并进来, 样例行数 } from "@/lib/jev/columns";
 import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
 import { 粘成表格, 猜列建议 } from "./ai";
 import type { BusinessConfig } from "@/lib/business-config";
+import AiWait from "@/components/AiWait";
+import { clearJob, runJob } from "@/lib/ai-jobs";
+
+/** 粘贴整理那一次在任务表里的 key。同一时刻只会有一个抽屉在导 */
+const 整理任务键 = "import:paste";
 
 /**
  * 把手上那份表导进来。五步一屏，走完能整批撤销。
@@ -108,11 +113,22 @@ export default function ImportDrawer({
   const [没对上的列, set没对上的列] = useState<导入方案["没对上的列"]>("并进备注");
   const [看, set看] = useState<预览 | null>(null);
   const [忙, set忙] = useState(false);
+  /**
+   * 粘贴整理走到哪儿了。这一次调用最长要等两分钟（ai.ts 里给了 120 秒），
+   * 原来只有按钮上一个圈——人不知道它在干什么、是不是卡住了。现在按钮旁边一行说清楚，
+   * 同时登记进任务表：人切去别的应用，好了侧栏和系统通知会叫他。
+   */
+  const [整理, set整理] = useState<{ 起: number; 出错?: string } | null>(null);
+  /** 抽屉在整理途中被关掉 / 重来：回来的表没人接，不许再往一个已经重来的抽屉里填 */
+  const 这一次 = useRef(0);
   const [结果, set结果] = useState<{ batchId: string; 新建: number; 补空: number; 跳过: number; 进不了: number } | null>(null);
 
   const 方案 = (): 导入方案 => ({ 表头, 数据, 映射, 改过, 重复行, 没对上的列 });
 
   function 重来() {
+    这一次.current++;
+    clearJob(整理任务键);
+    set整理(null);
     set步(0);
     set来路("文件");
     set原文("");
@@ -194,17 +210,33 @@ export default function ImportDrawer({
   }
 
   /** 粘贴那条路：按了按钮才跑。跑完先让人看见这张表，确认无误再往下走 */
-  async function 整理() {
+  async function 整理成表() {
+    const 轮 = ++这一次.current;
+    const 起 = Date.now();
+    set整理({ 起 });
     set忙(true);
+    const 请求 = 粘成表格(原文);
+    // 任务表只记「跑着 / 好了 / 出错」给侧栏和系统通知用；表本身由下面这条 await 接
+    runJob<null>(
+      整理任务键,
+      () => 请求.then((r) => (r.ok ? { ok: true as const, value: null } : { ok: false as const, error: r.error })),
+      undefined,
+      { 名: "把粘贴的文本整理成表", 去: "/customers" },
+    );
     try {
-      const r = await 粘成表格(原文);
-      if (!r.ok) return message.error(r.error);
+      const r = await 请求;
+      if (轮 !== 这一次.current) return;
+      // 出错写在原地那一行，红字留着——原来是一条几秒就走的提示，人回头看时已经不知道刚才怎么了
+      if (!r.ok) return set整理({ 起, 出错: r.error });
+      set整理(null);
       set编造(r.编造);
       set漏掉(r.漏掉);
       收表(`粘贴的文本（${r.数据.length} 行）`, r.表头, r.数据, r.截断了);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "整理失败，请重试");
+      if (轮 !== 这一次.current) return;
+      set整理({ 起, 出错: e instanceof Error ? e.message : "整理失败，请重试" });
     } finally {
+      // 不管这一轮还算不算数都要放开：关掉再打开时按钮不能还灰着
       set忙(false);
     }
   }
@@ -291,7 +323,7 @@ export default function ImportDrawer({
             style={{ marginBottom: 16 }}
           />
           {来路 === "文本" ? (
-            <粘贴面板 {...{ 原文, set原文, 忙, aiEnabled, 整理, b }} />
+            <粘贴面板 {...{ 原文, set原文, 忙, aiEnabled, 整理: 整理成表, 进度: 整理, b }} />
           ) : (
         <>
           <Upload.Dragger
@@ -394,9 +426,10 @@ function 页脚({
  * 每一种旁边都写着为什么，而不是灰在那儿让人猜。
  */
 function 粘贴面板({
-  原文, set原文, 忙, aiEnabled, 整理, b,
+  原文, set原文, 忙, aiEnabled, 整理, 进度, b,
 }: {
-  原文: string; set原文: (v: string) => void; 忙: boolean; aiEnabled: boolean; 整理: () => void; b: BusinessConfig;
+  原文: string; set原文: (v: string) => void; 忙: boolean; aiEnabled: boolean; 整理: () => void;
+  进度: { 起: number; 出错?: string } | null; b: BusinessConfig;
 }) {
   const 称呼 = b.customer;
   const 超了 = 原文.length > 粘贴字数上限;
@@ -426,16 +459,26 @@ function 粘贴面板({
               没有现成的？先看个例子
             </Button>
           )}
-          <Typography.Text type={超了 ? "danger" : "secondary"} style={{ fontSize: 12 }}>
-            {超了
-              ? `超了 ${(原文.length - 粘贴字数上限).toLocaleString()} 字。再多请存成 Excel 走「文件」那条路`
-              : `${原文.length.toLocaleString()} / ${粘贴字数上限.toLocaleString()} 字`}
-          </Typography.Text>
+          {进度 ? (
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <AiWait
+                在做={`把这 ${原文.length.toLocaleString()} 字切成一行一${称呼}，每一格都对回原文`}
+                起={进度.起}
+                出错={进度.出错}
+              />
+            </div>
+          ) : (
+            <Typography.Text type={超了 ? "danger" : "secondary"} style={{ fontSize: 12 }}>
+              {超了
+                ? `超了 ${(原文.length - 粘贴字数上限).toLocaleString()} 字。再多请存成 Excel 走「文件」那条路`
+                : `${原文.length.toLocaleString()} / ${粘贴字数上限.toLocaleString()} 字`}
+            </Typography.Text>
+          )}
+          {/* 跑着时不转圈：在做什么、过了几秒，左边那一行已经说了。按钮只负责「现在不能再点」 */}
           <Button
             type="primary"
             icon={<ThunderboltOutlined />}
-            loading={忙}
-            disabled={!aiEnabled || !原文.trim() || 超了}
+            disabled={忙 || !aiEnabled || !原文.trim() || 超了}
             onClick={整理}
           >
             整理成表格

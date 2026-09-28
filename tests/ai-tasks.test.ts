@@ -131,3 +131,40 @@ describe("清 home 任务的地方，那一轮不能被撇下", () => {
     expect(src).not.toContain("clearJob");
   });
 });
+
+describe("跑到一半被清掉 = 作废", () => {
+  test("弹窗关了，模型那边照样回来——结果不许写回任务表，侧栏也不许冒出「答完了」", async () => {
+    let 放行!: () => void;
+    const 等着 = new Promise<void>((r) => (放行 = r));
+    runJob("parse:c1", async () => {
+      await 等着;
+      return { ok: true, value: "草稿" };
+    }, undefined, { 名: "解析跟进速记", 去: "/customers/c1" });
+    await 等一下();
+    expect(getJob("parse:c1")?.status).toBe("loading");
+
+    clearJob("parse:c1");
+    放行();
+    await 等一下();
+    await 等一下();
+    expect(getJob("parse:c1")).toBeUndefined();
+    expect(任务快照().some((t) => t.key === "parse:c1")).toBe(false);
+  });
+
+  test("清掉之后马上重跑：旧那一轮回来得晚，也不能把新那一轮的结果盖掉", async () => {
+    let 放旧!: () => void;
+    const 旧 = new Promise<void>((r) => (放旧 = r));
+    runJob("parse:c2", async () => {
+      await 旧;
+      return { ok: true, value: "旧的" };
+    });
+    await 等一下();
+    clearJob("parse:c2");
+    runJob("parse:c2", async () => ({ ok: true, value: "新的" }));
+    await 等一下();
+    放旧();
+    await 等一下();
+    await 等一下();
+    expect(getJob<string>("parse:c2")?.value).toBe("新的");
+  });
+});
