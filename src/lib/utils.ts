@@ -46,6 +46,11 @@ export function fmtDateTime(d: Date | string | null | undefined): string {
   return d ? dayjs(d).format("YYYY-MM-DD HH:mm") : "—";
 }
 
+/** 写给 AI 的「现在」：2026-09-28 14:05（周一）。带上周几，它推「周三」「下周五」才有依据 */
+export function 现在带周几(t = dayjs()): string {
+  return `${t.format("YYYY-MM-DD HH:mm")}（周${"日一二三四五六"[t.day()]}）`;
+}
+
 /** 秒 -> 00:18:32 */
 export function duration(sec: number | null | undefined): string {
   if (!sec) return "—";

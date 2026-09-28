@@ -15,6 +15,8 @@
  * 照着真实问句加。
  */
 
+import { dayjs } from "../utils";
+
 export type 意图 = {
   /** 规则名，出现在日志和用例里 */
   名: string;
@@ -41,12 +43,8 @@ function 摘关键词(原: string): string {
 
 /** 本月的起止，给 query_metric 用。按自然月，和「本月签约」那张卡口径一致 */
 function 本月(): { from: string; to: string } {
-  const d = new Date();
-  const p = (n: number) => String(n).padStart(2, "0");
-  const 年 = d.getFullYear();
-  const 月 = d.getMonth() + 1;
-  const 末 = new Date(年, 月, 0).getDate();
-  return { from: `${年}-${p(月)}-01`, to: `${年}-${p(月)}-${p(末)}` };
+  const d = dayjs();
+  return { from: d.startOf("month").format("YYYY-MM-DD"), to: d.endOf("month").format("YYYY-MM-DD") };
 }
 
 export const 意图表: 意图[] = [

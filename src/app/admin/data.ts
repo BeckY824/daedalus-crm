@@ -1,4 +1,5 @@
 import { control } from "@/lib/tenant/control";
+import { fmtDate } from "@/lib/utils";
 import { 系统名, 数设备, type 设备分布 } from "@/lib/tenant/device-info";
 
 /**
@@ -13,10 +14,7 @@ import { 系统名, 数设备, type 设备分布 } from "@/lib/tenant/device-inf
 const 天毫秒 = 86_400_000;
 
 /** 本机时区的 YYYY-MM-DD。线上容器 TZ=Asia/Shanghai，和人看报表的口径一致 */
-export function 日(d: Date): string {
-  const p = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
+const 日 = (d: Date) => fmtDate(d);
 
 /** 从今天往前数 n 天（含今天）的每一天，旧的在前 */
 export function 近几天(n: number, now = new Date()): string[] {

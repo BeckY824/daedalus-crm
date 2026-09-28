@@ -19,7 +19,7 @@ import type { Proposal } from "./proposals";
 import type { Emit } from "../ai-steps";
 import type { BriefRecord } from "../ai-draft";
 import type { BusinessConfig } from "../business-config";
-import { dayjs } from "../utils";
+import { dayjs, 现在带周几 } from "../utils";
 import { 号码脱敏器 } from "../shared-ws/current";
 
 export type AgentEvents = {
@@ -303,7 +303,7 @@ export async function runAgent(
   {"final": true}`;
   const system =
     buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
-    `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${dayjs().format("YYYY-MM-DD HH:mm")}（周${"日一二三四五六"[dayjs().day()]}）。
+    `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${现在带周几()}。
 ${日期对照()}
 ${原生模式 ? "" : `你能调用的工具：\n${toolDoc}\n`}
 取值表（propose_* 的参数只能用这里的词）：

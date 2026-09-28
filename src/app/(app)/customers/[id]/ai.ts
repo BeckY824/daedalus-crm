@@ -6,7 +6,7 @@ import { consumeAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type CustomerBrief } from "@/lib/ai-draft";
-import { dayjs } from "@/lib/utils";
+import { dayjs, 现在带周几 } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
 import { statusLabel, type BusinessConfig } from "@/lib/business-config";
@@ -27,13 +27,6 @@ import type { BriefRecord } from "@/lib/ai-draft";
  * 速记解析的结果回到表单由人核对后走原有的 saveFollowUp / saveTask / savePlan，
  * 保证 AI 辅助的写入和手工写入走完全相同的校验与留痕路径。
  */
-
-const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-
-function nowLine(): string {
-  const n = dayjs();
-  return `${n.format("YYYY-MM-DD HH:mm")}（${WEEKDAYS[n.day()]}）`;
-}
 
 /* ---------------- 跟进速记 ---------------- */
 
@@ -69,7 +62,7 @@ export async function parseFollowUpDraft(input: {
     ? customer.opportunities.map((o) => `  - ${o.id}：${o.name}`).join("\n")
     : "  （无）";
 
-  const prompt = `现在时间：${nowLine()}
+  const prompt = `现在时间：${现在带周几()}
 ${b.customer}：${customer.name}${[customer.school, customer.grade].filter(Boolean).length ? `（${[customer.school, customer.grade].filter(Boolean).join(" · ")}）` : ""}
 该${b.customer}的联系人（contactId：姓名）：
 ${contactLines}
@@ -212,7 +205,7 @@ export async function generateBrief(input: {
   const plan = customer.plans[0];
   const signedTotal = customer.contracts.reduce((s, c) => s + c.amount, 0);
 
-  const prompt = `现在时间：${nowLine()}
+  const prompt = `现在时间：${现在带周几()}
 你要为销售「${customer.salesOwner.name}」生成联系${b.customer}前的一页简报。
 
 【${b.customer}档案】

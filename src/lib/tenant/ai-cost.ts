@@ -27,6 +27,7 @@
  * 两条路不会重叠：托管版不走网关，桌面端的 llm.ts 跑在用户自己机器上、连不到控制面库。
  */
 import { control } from "./control";
+import { fmtDate } from "../utils";
 import { multiTenant } from "./context";
 import { currentTenant } from "./context";
 import { resolveCurrentTenant } from "./resolve";
@@ -144,7 +145,7 @@ export async function 成本概览(天数 = 14): Promise<成本概览> {
     合计.入 += r.inputTokens;
     合计.出 += r.outputTokens;
     // 按本地日历天分（生产 TZ=Asia/Shanghai），和运营看报表的口径一致
-    const 日 = `${r.at.getFullYear()}-${String(r.at.getMonth() + 1).padStart(2, "0")}-${String(r.at.getDate()).padStart(2, "0")}`;
+    const 日 = fmtDate(r.at);
     for (const [表, 键, 额外] of [
       [天, 日, null],
       [模, r.model || "（未知）", null],
