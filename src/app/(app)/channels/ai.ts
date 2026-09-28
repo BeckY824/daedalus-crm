@@ -8,12 +8,18 @@ import { chatJSON } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
+import { 带额度 } from "@/lib/tenant/ai-allowance";
 
 /**
  * 转介绍雷达的「起草邀请」：给已签约学员写一条请求转介绍的微信草稿。
  * AI 只起草——由销售自己复制发出，系统不做任何触达。
+ * 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）。
  */
-export async function draftInvite(input: {
+export async function draftInvite(input: { customerId: string }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  return 带额度("invite", () => 起草邀请(input));
+}
+
+async function 起草邀请(input: {
   customerId: string;
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const user = await requireUser();

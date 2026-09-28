@@ -21,16 +21,27 @@ function 取值表(b: Pick<BusinessConfig, "statusLabels">, 值们: readonly str
 import { formatTimeline } from "@/lib/ai-context";
 import { stepStart, stepDone, type Emit } from "@/lib/ai-steps";
 import type { BriefRecord } from "@/lib/ai-draft";
+import { 带额度 } from "@/lib/tenant/ai-allowance";
 
 /**
  * AI 只起草、不落库：这两个 action 都不写业务表。
  * 速记解析的结果回到表单由人核对后走原有的 saveFollowUp / saveTask / savePlan，
  * 保证 AI 辅助的写入和手工写入走完全相同的校验与留痕路径。
+ *
+ * 两个都套了 带额度（lib/tenant/ai-allowance.ts）：托管版各占一次 AI 次数，没给出结果的那次退回去。
+ * 简报**只在这里扣**——/api/ai/stream 的 brief 那一支直接调它，路由那边不再另扣。
  */
 
 /* ---------------- 跟进速记 ---------------- */
 
 export async function parseFollowUpDraft(input: {
+  customerId: string;
+  text: string;
+}): Promise<{ ok: true; draft: FollowUpDraft } | { ok: false; error: string }> {
+  return 带额度("parse", () => 解析速记(input));
+}
+
+async function 解析速记(input: {
   customerId: string;
   text: string;
 }): Promise<{ ok: true; draft: FollowUpDraft } | { ok: false; error: string }> {
@@ -126,11 +137,20 @@ ${text}
 
 /* ---------------- 临战简报 ---------------- */
 
+type 简报回执 = { ok: true; brief: CustomerBrief; records: BriefRecord[] } | { ok: false; error: string };
+
 export async function generateBrief(input: {
   customerId: string;
   /** 销售此刻想问的具体问题（来自首页提问）。给了就让「这次建议谈」围绕它回答 */
   question?: string;
-}, emit?: Emit): Promise<{ ok: true; brief: CustomerBrief; records: BriefRecord[] } | { ok: false; error: string }> {
+}, emit?: Emit): Promise<简报回执> {
+  return 带额度("brief", () => 生成简报(input, emit));
+}
+
+async function 生成简报(input: {
+  customerId: string;
+  question?: string;
+}, emit?: Emit): Promise<简报回执> {
   const user = await requireUser();
   const b = await getBusiness();
   const wait = consumeAiQuota(user.id);

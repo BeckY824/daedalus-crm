@@ -1,6 +1,7 @@
 import { control } from "./control";
 import { computeWritable } from "./workspaces";
 import * as 账本 from "./credits";
+import type { AiFeature } from "../ai-usage";
 
 /**
  * 托管版网页端的 AI 免费次数。
@@ -110,12 +111,72 @@ export async function 加次数(workspaceId: string, amount: number, note?: stri
  * 自部署版（没开 MULTI_TENANT）整个不走这里，一次都不限。
  */
 export async function 试用额度闸门(): Promise<string | null> {
+  return (await 过闸()).拦;
+}
+
+/**
+ * 工作区在设置里填了自己的模型 Key：请求发给他自己那家，花的是他的钱——不扣也不拦。
+ * 和 lib/ai-meter.ts「填了自己 Key 的一次都不扣」是同一条规矩，角标那边也按这个不挂「1 次」。
+ * 读不到设置（库还没建好之类）当作没填：宁可照常计次，也不能因为读失败就敞开。
+ */
+export async function 自带Key(): Promise<boolean> {
+  try {
+    const { 模型来源 } = await import("../llm-config");
+    return (await 模型来源()) === "ui";
+  } catch {
+    return false;
+  }
+}
+
+/** 拦了就给那句话；没拦时说清这一次是不是真扣了——没扣的（付费、自带 Key）出错也不该退 */
+async function 过闸(): Promise<{ 拦: string | null; 扣了: boolean }> {
   const { multiTenant } = await import("./context");
-  if (!multiTenant()) return null;
+  if (!multiTenant()) return { 拦: null, 扣了: false };
   const { resolveCurrentTenant } = await import("./resolve");
   const t = await resolveCurrentTenant();
   // 没有工作区上下文时不在这里报错：调用方自己的 requireUser 会给出更清楚的提示
-  if (!t) return null;
+  if (!t) return { 拦: null, 扣了: false };
+  if (await 自带Key()) return { 拦: null, 扣了: false };
   const r = await 扣一次额度(t.workspaceId);
-  return r.ok ? null : r.error;
+  if (!r.ok) return { 拦: r.error, 扣了: false };
+  // 付费工作区放行但不计数（还剩 null），那一次也就无从退起
+  return { 拦: null, 扣了: r.还剩 !== null };
+}
+
+/**
+ * 花模型钱的入口一律套这一层：先过 试用额度闸门()，没给出答案就把那一次退回去。
+ *
+ *   额度不够   不跑 fn，原样返回闸门那句中文（和 /api/ai/stream 一字不差）
+ *   fn 抛了    退一次，再把异常原样抛给调用方
+ *   fn 回 ok:false（客户不存在、模型没答上来、太频繁……）  也退——人什么都没拿到
+ *   调用方传了 中断 且已经中断   不退：上游已经在跑，钱是真花出去的（stream 的老约定）
+ *
+ * 自部署、桌面端（没开 MULTI_TENANT）闸门直接放行，退也是空操作——一次都不扣。
+ *
+ * `用途` 必须是 lib/ai-usage.ts 的 AI_FEATURES 里登记过的键：它和同一个动作里
+ * recordAiUse() 记的是同一个键（tests/ai-allowance-gate.test.ts 钉着这两处对得上），
+ * 这样「扣了哪一类」和「本月用量表里记的哪一类」永远是一回事。
+ *
+ * 为什么要包成一层而不是每处写两行：2026-09-28 之前只有 stream 过闸门，
+ * 起草话术、起草邀请、AI 解析、盯盘解读、粘贴切分五扇门都没上锁——托管版照样无限免费。
+ * 每处手写「扣 / 失败退」迟早漏一处，漏了不报错，只是悄悄不扣。
+ */
+export async function 带额度<T extends { ok: boolean }>(
+  用途: AiFeature,
+  fn: () => Promise<T>,
+  opts: { 中断?: AbortSignal } = {},
+): Promise<T | { ok: false; error: string }> {
+  const { 拦, 扣了 } = await 过闸();
+  if (拦) return { ok: false, error: 拦 };
+  // 真扣了一次（托管版试用工作区、用的是我们的模型）才谈得上退。下面没走通就退
+  const 该退 = () => 扣了 && !opts.中断?.aborted;
+  let r: T;
+  try {
+    r = await fn();
+  } catch (e) {
+    if (该退()) await 退一次额度().catch(() => {});
+    throw e;
+  }
+  if (!r.ok && 该退()) await 退一次额度().catch(() => {});
+  return r;
 }
