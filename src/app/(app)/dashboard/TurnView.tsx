@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { App, Tooltip } from "antd";
 import { CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import ProposalCard from "@/components/ProposalCard";
 import AiWait from "@/components/AiWait";
-import Markdown from "@/components/Markdown";
+import StreamMarkdown from "@/components/StreamMarkdown";
+import type { BriefRecord } from "@/lib/ai-draft";
 import { useBusiness } from "@/lib/business-client";
 import { clearJob, useJob } from "@/lib/ai-jobs";
 import type { StreamJob } from "@/lib/ai-stream";
@@ -20,6 +21,9 @@ import { dayjs } from "@/lib/utils";
 import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
 
 /** 对话里的一轮：问题、过程条、回答、建议卡、提到的客户。首页和右侧 AI 面板共用 */
+
+/** 回答还没带引用时给同一个空数组：每次给个新的 []，StreamMarkdown 里所有块都会当成变了重渲 */
+const 没有引用: BriefRecord[] = [];
 
 function whenLabel(at: number): string {
   const d = dayjs(at);
@@ -130,11 +134,12 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
       容器.removeEventListener("touchmove", on);
     };
   }, []);
-  useEffect(() => {
+  const 跟一下 = useCallback(() => {
     const 容器 = 滚动容器(ref.current);
     if (容器 ? !跟随中.current : !贴着底部(null)) return;
     滚到(ref.current, "end");
-  }, [job?.value?.text?.length, done]);
+  }, []);
+  useEffect(跟一下, [跟一下, job?.value?.text?.length, done]);
 
   const interrupted = job?.status === "error" && job.error === "已取消";
   /*
@@ -208,7 +213,7 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
 
       {text && (
         <div className="cli-a">
-          <Markdown text={text} records={answer?.records ?? job?.value?.answer?.records ?? []} />
+          <StreamMarkdown text={text} records={answer?.records ?? job?.value?.answer?.records ?? 没有引用} 流着={!done} 出字了={跟一下} />
           {!done && <span className="cli-caret" />}
         </div>
       )}
