@@ -9,6 +9,7 @@ import { Layout, Avatar, Dropdown, Button, Badge } from "antd";
 import {
   HomeOutlined,
   DashboardOutlined,
+  MessageOutlined,
   ShareAltOutlined,
   TeamOutlined,
   ContactsOutlined,
@@ -136,7 +137,9 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
       return () => mq.removeEventListener("change", 变了);
     },
     () => window.matchMedia(面板放不下).matches,
-    () => false,
+    // 服务端不知道窗口多宽，按多数（笔记本）当窄的、先收着：宽屏水合后展开一次，
+    // 好过笔记本上每次先渲染出 380 的面板、再在水合后收回去
+    () => true,
   );
   /** 这一次会话里手动开合过。null = 还没动过，听存档的 */
   const [手动, set手动] = useState<boolean | null>(null);
@@ -321,6 +324,15 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
         <div className="rail-foot">
           {/* AI 跑完了没有：跑着一条细进度，答完一行字、3 秒自己走。点一条回原处。
               人切去别的应用了则由桌面端发系统通知（desktop/main.js 的 notify:show） */}
+          {/* AI 面板收着时的入口。原来是正文右边一条 44px 的窄边，笔记本上每张表都被它挤掉最右一列，
+              挪到这里就哪边都不占（见 AiDock 收起时那段）。首页就是对话本身，不用它 */}
+          {ai && !小屏 && !面板开着 && 底下那页 !== "/dashboard" && (
+            <button type="button" className="rail-item rail-ask" onClick={() => 记住面板(true)} aria-label="打开 AI 面板（Ctrl+J / ⌘J）">
+              <MessageOutlined />
+              <b>问一句</b>
+              <span className="rail-ask-k"><Shortcut>⌘J</Shortcut></span>
+            </button>
+          )}
           <AiTasks />
           {/* 「设置」不在左栏里了（2026-09-17）：它在账号菜单里，和 Claude / Codex 一样。
               左栏那一列是**你工作的地方**——学员、商机、跟进；设置是偶尔去一趟的抽屉，

@@ -272,6 +272,9 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rail-item.on b { font-weight: 600; }
 .rail-item:hover { background: var(--hover); color: var(--ink); }
 .rail-item.on { color: var(--brand-deep); }
+/* 左栏底部「问一句 ⌘J」：AI 面板收着时的入口，长得和导航项一样，只是个按钮 */
+.rail-ask { border: 0; background: none; width: 100%; font: inherit; cursor: pointer; text-align: left; }
+.rail-ask-k { margin-left: auto; font-size: var(--fs-min); color: var(--text-faint); }
 /* 选中的底色是一块会滑动的层（AppShell 里的 layoutId），压在图标和字下面 */
 .rail-on-bg { position: absolute; inset: 0; border-radius: var(--r-card); background: var(--brand-bg); z-index: 0; }
 .rail-item > :not(.rail-on-bg) { position: relative; z-index: 1; }
@@ -1560,24 +1563,6 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 }
 .dock-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-/* 收起时：右边一条 44px 的窄边，常驻。
-   **不能做成 position:fixed 的浮钮**——每个列表页的主动作（新建客户 / 新建渠道…）
-   都在右上角，浮钮正好压在上面。窄边是布局的一部分，正文跟着收窄，不遮挡任何东西。 */
-.dock-rail {
-  width: 44px; flex: none; position: sticky; top: 0; height: 100vh;
-  background: var(--workbench); border-left: 1px solid var(--line-soft);
-  display: flex; flex-direction: column; align-items: center; padding-top: 18px;
-}
-.shell-desktop .dock-rail { padding-top: calc(var(--drag-h) + 6px); }
-.dock-rail-b {
-  display: grid; place-items: center; gap: 2px;
-  width: 32px; height: 40px; border: 0; border-radius: var(--r-ctl);
-  background: transparent; color: var(--text-muted); cursor: pointer;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
-}
-.dock-rail-b:hover { background: var(--hover); color: var(--ink); }
-.dock-rail-b:active { transform: scale(0.94); transition-duration: var(--t-press); }
-.dock-rail-k { font-size: 9px; line-height: 1; letter-spacing: -0.2px; }
 
 /* 窄模式下的对话：380 宽里没有那套问候和建议，只有对话本身。
    **min-height 必须归零**：.cli 默认是 calc(100vh - 100px)，那是给整页的首页算的，
@@ -1599,7 +1584,6 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .dock-body { overflow-y: auto; }
 
 @media (prefers-reduced-motion: reduce) {
-  .dock-rail-b:active { transform: none !important; }
   /* 来回扫的那一段刻度是位移。时长归零之后它会停在起点（看着像没进度条），
      所以直接换成一条静止的满格——「在跑」这件事由那行「正在想…」说，不靠它动。 */
   .aitask-bar::after { width: 100%; animation: none !important; transform: none !important; }

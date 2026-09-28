@@ -6,7 +6,9 @@
  *   1. 它在该在的页面上在，不该在的地方不在（首页就是宽模式的同一块，两处同时画会打架）
  *   2. 导航稳定：开合面板时左栏一格不动——这是拍过板的规矩
  *   3. 上下文看得见、点得掉；换一页重新带上
- *   4. 收起时是窄边不是浮钮：浮钮会压住每个列表页右上角的主动作（第一版就是这么撞的）
+ *   4. 收起时入口在左栏底部（「问一句 ⌘J」）：第一版的浮钮压住列表页右上角的主动作，
+ *      第二版右边 44px 的窄边又把笔记本上每张表挤掉最右一列
+ *   5. 放得下才常驻：窗口不到 1600 宽默认收着（13、14 寸笔记本上看板和表格才摆得开）
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 装个假模型, 拆掉假模型 } from "./fake-llm";
@@ -40,33 +42,36 @@ async function 登录(page: Page) {
 }
 
 const 面板 = (p: Page) => p.locator("aside.dock");
-const 窄边 = (p: Page) => p.locator(".dock-rail");
-const 开键 = (p: Page) => p.getByRole("button", { name: /打开 AI 面板/ });
+/** 面板收着时的入口，在左栏底部 */
+const 开键 = (p: Page) => p.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: /打开 AI 面板/ });
 
 test.describe("全局 AI 面板", () => {
+  // 常驻要窗口够宽（≥1600，见 AppShell 的 面板放不下）；窄窗口的行为在最后那组单独测
+  test.use({ viewport: { width: 1680, height: 1000 } });
+
   test("首页不出现——那儿本来就是宽模式的同一块东西", async ({ page }) => {
     await 登录(page);
-    await expect(窄边(page)).toHaveCount(0);
+    await expect(开键(page)).toHaveCount(0);
     await expect(面板(page)).toHaveCount(0);
   });
 
-  test("其余页面**默认就开着**，宽 380——不用点、也不用 ⌘J", async ({ page }) => {
+  test("窗口够宽时其余页面**默认就开着**，宽 380——不用点、也不用 ⌘J", async ({ page }) => {
     /** 用户定的：「保持常驻吧，不要点击或者 command J 才能开启」 */
     await 登录(page);
     await page.goto("/customers");
     await expect(面板(page)).toBeVisible();
     expect(Math.round((await 面板(page).boundingBox())!.width)).toBe(380);
-    await expect(窄边(page)).toHaveCount(0);
+    await expect(开键(page)).toHaveCount(0);
   });
 
   test("关掉之后记住：换一页还是关着，直到自己再打开", async ({ page }) => {
     await 登录(page);
     await page.goto("/customers");
     await page.getByRole("button", { name: "关闭 AI 面板" }).click();
-    await expect(窄边(page)).toBeVisible();
+    await expect(开键(page)).toBeVisible();
     await page.goto("/channels");
     await expect(面板(page)).toHaveCount(0);
-    await expect(窄边(page)).toBeVisible();
+    await expect(开键(page)).toBeVisible();
     await 开键(page).click();
     await expect(面板(page)).toBeVisible();
   });
@@ -111,13 +116,13 @@ test.describe("全局 AI 面板", () => {
     expect(Math.round((await 列.boundingBox())!.width)).toBe(232);
   });
 
-  test("⌘J 关了再开；关掉之后那条窄边在", async ({ page }) => {
+  test("⌘J 关了再开；关掉之后左栏有入口", async ({ page }) => {
     await 登录(page);
     await page.goto("/channels");
     await expect(面板(page)).toBeVisible(); // 默认开着
     await page.keyboard.press("ControlOrMeta+j");
     await expect(面板(page)).toHaveCount(0);
-    await expect(窄边(page)).toBeVisible();
+    await expect(开键(page)).toBeVisible();
     await page.keyboard.press("ControlOrMeta+j");
     await expect(面板(page)).toBeVisible();
   });
@@ -153,21 +158,18 @@ test.describe("全局 AI 面板", () => {
     expect(后.width).toBe(前.width);
   });
 
-  test("收起时那条窄边不压住页面右上角的主动作", async ({ page }) => {
+  test("收起时正文一直铺到窗口右边，入口在左栏不占正文", async ({ page }) => {
     /**
-     * 第一版做成 position:fixed 的药丸，实地一看正好盖在「新建学员」上——
-     * 每个列表页的主动作都在右上角，那正是浮钮要去的位置。
+     * 第一版的浮钮压在「新建」上；第二版右边 44px 的窄边不压东西了，可 1120 宽时
+     * 客户表的负责人、跟进表的时间都被它挤出去（2026-09-28 核对教程时看到）。
      */
     await 登录(page);
     await page.goto("/customers");
-    await page.keyboard.press("ControlOrMeta+j"); // 收起来才有窄边
-    await expect(窄边(page)).toBeVisible();
-    const 主动作 = page.getByRole("button", { name: /新建/ }).first();
-    await expect(主动作).toBeVisible();
-    const a = (await 主动作.boundingBox())!;
-    const b = (await 窄边(page).boundingBox())!;
-    // 窄边整个在主动作右边，横向不重叠
-    expect(b.x).toBeGreaterThanOrEqual(a.x + a.width);
+    await page.keyboard.press("ControlOrMeta+j"); // 收起来
+    await expect(面板(page)).toHaveCount(0);
+    await expect(开键(page)).toBeVisible();
+    const 正文 = (await page.locator("main").boundingBox())!;
+    expect(正文.x + 正文.width).toBeGreaterThanOrEqual(1680 - 1);
   });
 
   test("上下文：写出来、点得掉、换一页重新带上", async ({ page }) => {
@@ -196,12 +198,27 @@ test.describe("全局 AI 面板", () => {
 
   test("面板开着时正文跟着收窄，不出横向滚动条", async ({ page }) => {
     await 登录(page);
-    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto("/channels");
     await expect(面板(page)).toBeVisible();
     const 溢出 = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(溢出).toBeLessThanOrEqual(1);
     // antd 的 xl 断点看视口不看这一栏，所以壳要标出「面板开着」让样式表重映射
     await expect(page.locator(".shell.shell-dock-open")).toHaveCount(1);
+  });
+});
+
+test.describe("窗口不到 1600 宽", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("默认收着，正文占满；左栏入口和 ⌘J 都打得开", async ({ page }) => {
+    /** 1440 是桌面端的默认窗口。常驻时正文只剩 840，商机看板只露两列半（2026-09-28 核对教程时看到） */
+    await 登录(page);
+    await page.goto("/customers");
+    await expect(面板(page)).toHaveCount(0);
+    await expect(page.locator(".shell.shell-dock-open")).toHaveCount(0);
+    await 开键(page).click();
+    await expect(面板(page)).toBeVisible();
+    await page.keyboard.press("ControlOrMeta+j");
+    await expect(面板(page)).toHaveCount(0);
   });
 });

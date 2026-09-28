@@ -1,5 +1,4 @@
 "use client";
-import Shortcut from "./Shortcut";
 /**
  * 全局 AI 面板。任何页面 ⌘J 拉出来，或者点右上角那枚常驻按钮。
  *
@@ -17,7 +16,7 @@ import Shortcut from "./Shortcut";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useSearchParams } from "next/navigation";
 import { usePageUnderOverlay } from "@/lib/page-under-overlay";
-import { CloseOutlined, MessageOutlined } from "@ant-design/icons";
+import { CloseOutlined } from "@ant-design/icons";
 import WidthHandle, { 面板把手 } from "./WidthHandle";
 import DockThreads from "./DockThreads";
 import HomeChat, { type Suggestion } from "@/app/(app)/dashboard/HomeChat";
@@ -98,22 +97,12 @@ export default function AiDock({
   const 上下文 = 认页面(pathname, params, 详情名, 可见行);
 
   /*
-    收起时是右边一条 44px 的窄边，不是浮在页面上的一枚圆钮。
-    第一版做成 position:fixed 的药丸，实地一看**正好压在「新建客户」上**——
-    每个列表页的主动作都在右上角，那正是它要去的位置。
-    窄边是布局的一部分，正文跟着收窄，永远不会盖住任何东西；
-    形也更接近参考里那条常驻的右列。
+    收起时这里什么都不画：入口在左栏底部那一行「问一句 ⌘J」（AppShell）。
+    第一版是 position:fixed 的药丸，正好压在每个列表页右上角的「新建」上；
+    第二版改成右边 44px 的窄边，不压东西了，可 13、14 寸笔记本上它把每张表格挤掉最右一列
+    （1120 宽时客户表的负责人、跟进表的时间，2026-09-28 核对教程时看到）。放进左栏两头都不占。
   */
-  if (!开着) {
-    return (
-      <aside className="dock-rail">
-        <button type="button" className="dock-rail-b" onClick={() => set开着(true)} aria-label="打开 AI 面板（Ctrl+J / ⌘J）" title="问一句 · Ctrl+J / ⌘J">
-          <MessageOutlined />
-          <span className="dock-rail-k"><Shortcut>⌘J</Shortcut></span>
-        </button>
-      </aside>
-    );
-  }
+  if (!开着) return null;
 
   return (
     <aside className="dock" aria-label="AI 面板">

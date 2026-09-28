@@ -375,7 +375,8 @@ test("数据：三处看数并成一页，/reports 这条 URL 还在", async ({ 
   await expect(page.getByRole("heading", { name: "数据", exact: true })).toBeVisible();
 
   // 三个视图，切过去地址跟着变
-  const 切换 = page.locator(".ant-segmented");
+  // 页头那个视图切换是第一个；面板收着、正文够宽时，下面图表的时间窗也是一个 segmented，也有「本月」
+  const 切换 = page.locator(".ant-segmented").first();
   for (const v of ["本月", "本年"]) {
     await 切换.getByText(v, { exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`view=${encodeURIComponent(v)}`));
@@ -401,7 +402,9 @@ test("数据页只剩面板那一个输入框，正文里不再有第二个", as
   await page.goto("/overview");
   await expect(page.getByPlaceholder(/^问一个数/)).toHaveCount(0);
 
-  // 面板那个还在，而且**只有它**——.cli-input 全站只该在面板里出现这一次
+  // 面板那个还在，而且**只有它**——.cli-input 全站只该在面板里出现这一次。
+  // e2e 的窗口是 1280，不到 1600 面板默认收着（见 AppShell 的 面板放不下），先从左栏打开
+  await page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: /打开 AI 面板/ }).click();
   await expect(page.locator("aside.dock .cli-input textarea")).toBeVisible();
   await expect(page.locator(".cli-input textarea")).toHaveCount(1);
 
@@ -486,9 +489,11 @@ test("设置：左目录分两组、带搜索，一页上只有一列目录", as
   await page.goto("/settings");
   await page.waitForSelector(".set-nav");
   // 顺序按分组走，不按代码里谁先写。「我自己的」在前，「整个团队的」在后
-  const 项 = await page.locator(".set-nav-i b").allInnerTexts();
+  // 限定在正文里：流式渲染时 Next 会先把新内容放进 body 下一块隐藏的容器再挪过来，
+  // allInnerTexts 连隐藏的也读，赶上那一瞬间就是两份
+  const 项 = await page.locator("main .set-nav-i b").allInnerTexts();
   expect(项).toEqual(["个人资料", "登录与密码", "快捷键", "团队成员", "业务配置", "AI 接入", "导入记录", "操作日志"]);
-  expect(await page.locator(".set-nav-h").allInnerTexts()).toEqual(["个人", "工作区"]);
+  expect(await page.locator("main .set-nav-h").allInnerTexts()).toEqual(["个人", "工作区"]);
   // 中栏撤了：一页上摆两列目录，人得先弄清它们有什么区别
   await expect(page.locator("aside.pane")).toHaveCount(0);
   // 每一项都得说清自己管什么
@@ -498,9 +503,9 @@ test("设置：左目录分两组、带搜索，一页上只有一列目录", as
 
   // 搜索：项数多了之后，「知道它叫什么、不知道在哪一栏」才是最常见的来访
   await page.getByLabel("搜索设置").fill("密码");
-  expect(await page.locator(".set-nav-i b").allInnerTexts()).toEqual(["登录与密码"]);
+  expect(await page.locator("main .set-nav-i b").allInnerTexts()).toEqual(["登录与密码"]);
   // 搜的时候不摆组标题：那时要的是一份短名单，不是结构
-  await expect(page.locator(".set-nav-h")).toHaveCount(0);
+  await expect(page.locator("main .set-nav-h")).toHaveCount(0);
   await page.getByLabel("搜索设置").fill("这个设置不存在");
   await expect(page.locator(".set-nav-empty")).toBeVisible();
 });
@@ -575,11 +580,9 @@ test("趋势图点一根柱子，看得到这一段是哪几笔凑出来的", as
   await 登录(page);
   await page.goto("/overview?view=" + encodeURIComponent("本年"));
   /*
-    先把右边那块 AI 面板收起来（0.38 起它默认开着）。这条用例按**像素**在画布上扫着点，
-    而面板一开正文就窄 380，柱子全挪了位，扫到的都是空白。
-    要测的是「图能点开明细」，面板在不在不是这条的事。
+    右边那块 AI 面板得是收着的：这条用例按**像素**在画布上扫着点，面板一开正文就窄 380，
+    柱子全挪了位。e2e 的窗口是 1280，不到 1600 面板默认就收着，这里只确认一下。
   */
-  await page.keyboard.press("ControlOrMeta+j");
   await expect(page.locator("aside.dock")).toHaveCount(0);
   const 图 = page.locator(".ant-card", { hasText: "签约金额趋势" });
   await expect(图).toContainText("点柱子或下面的日期");
