@@ -236,14 +236,20 @@ function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe�
     输出 = fs.openSync(输出文件, "a");
   } catch { /* 打不开就不记，不能因为日志挡住换目录 */ }
   /*
-    **不要 detached**。Node 在 Windows 上把 detached 实现成 DETACHED_PROCESS：子进程没有控制台，
-    Windows PowerShell 5.1 没有控制台就一声不吭地立刻退出——CI 上连着栽了几次（壳记下了 pid，两分钟后进程早没了，
-    一个字没输出、update-swap.log 一行没写，2026-09-29）。只要 windowsHide：给它一个隐藏的控制台（CREATE_NO_WINDOW）。
-    Windows 不会因为父进程退出就杀子进程（不像 Unix 的进程组），unref 之后 Electron 照样退，脚本照样等它退完再换
+    两条都是 CI 上一次次栽出来的（2026-09-29）：
+    1. **不要 detached**。Node 在 Windows 上把它实现成 DETACHED_PROCESS：没有控制台，Windows PowerShell 5.1
+       一声不吭立刻退出。只要 windowsHide（隐藏的控制台）。
+    2. **不挂在 Electron 的进程树上**。经 cmd /c start "" /b 转一手：cmd 起完 PowerShell 就退（几十毫秒），
+       PowerShell 的父进程随即不存在，谁按进程树杀 Electron（任务管理器「结束进程树」、Playwright 收尾的
+       taskkill /T /F）都杀不到它——它得活过 Electron 的退出，才能在那之后换目录。
+       直接从 node 起能换（真 Windows 用例里过了），从 Electron 退出时起就被连树带走，日志一行都没有。
+    参数原样拼（windowsVerbatimArguments）：start 的空标题 "" 经 node 的转义会变成 \"\"，cmd 认不了；
+    其余参数都没有空格（base64 也没有），拼起来不会断
   */
-  const child = 启动("powershell.exe", 参数, { stdio: ["ignore", 输出, 输出], windowsHide: true });
-  // 起没起来要留一笔：spawn 失败（找不到 powershell.exe 之类）原来被一个空的 error 回调吞掉，什么都看不出来
-  记(`启动 powershell.exe pid=${child.pid ?? "无"} 版本=${版本 || "-"} 目录=${目录}`);
+  const 命令 = ["/d", "/c", "start", '""', "/b", "powershell.exe", ...参数];
+  const child = 启动("cmd.exe", 命令, { stdio: ["ignore", 输出, 输出], windowsHide: true, windowsVerbatimArguments: true });
+  // 起没起来要留一笔：spawn 失败原来被一个空的 error 回调吞掉，什么都看不出来。这个 pid 是转手的 cmd，不是 PowerShell
+  记(`经 cmd 启动 powershell.exe（cmd pid=${child.pid ?? "无"}）版本=${版本 || "-"} 目录=${目录}`);
   child.on?.("error", (e) => 记(`起不来：${e?.code ?? ""} ${e?.message ?? e}`));
   child.unref?.();
   if (typeof 输出 === "number") try { fs.closeSync(输出); } catch { /* 子进程已经拿到了自己那份 */ }
