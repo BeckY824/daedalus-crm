@@ -51,11 +51,17 @@ try {
   await page.getByRole("button", { name: /保\s*存/ }).click();
   await expect(page.getByText("Windows 验证客户", { exact: true }).first()).toBeVisible();
   console.log("PASS: customer creation through the packaged UI");
-  for (const route of ["customers", "channels", "contacts", "opportunities", "follow-ups", "reports", "settings"]) {
-    await page.goto(`${new URL(page.url()).origin}/${route}`);
+  const origin = new URL(page.url()).origin;
+  for (const route of ["customers", "channels", "contacts", "opportunities", "follow-ups", "overview", "settings"]) {
+    await page.goto(`${origin}/${route}`);
     await expect(page.locator(".rail")).toBeVisible();
     if ((await page.locator("body").innerText()).includes("Application error")) throw new Error(`Failed route ${route}`);
   }
+  // /reports 是旧地址，服务端 redirect 到 /overview。页面已经开始流式输出时 Next 改走客户端跳转——
+  // goto 先返回、跳转随后才发生，紧接着的下一次 goto 会撞上它（0.46.8 首次 CI 偶发红就是这个）。所以单独等它落地
+  await page.goto(`${origin}/reports`);
+  await page.waitForURL("**/overview**");
+  await expect(page.locator(".rail")).toBeVisible();
   console.log("PASS: CRM routes render with native Windows Prisma engine");
   const backup = path.join(root, "备份 空格.db");
   await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, backup);
