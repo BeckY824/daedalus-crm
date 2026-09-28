@@ -31,7 +31,10 @@ const 不算列表页 = [
   "src/components/DataList.tsx",
   "src/app/(app)/reports/ReportsView.tsx",
   "src/app/(app)/channels/ReferralRadar.tsx",
-  "src/app/(app)/settings/SettingsView.tsx",
+  // 设置里的成员、登录机器、操作日志：都是一页就放得下的小表，没有筛选分页批量
+  "src/app/(app)/settings/MembersTab.tsx",
+  "src/app/(app)/settings/PasswordTab.tsx",
+  "src/app/(app)/settings/AuditTab.tsx",
   // 导入记录：列的是导入批次，不是业务记录；只有一颗撤销，没有筛选分页批量
   "src/app/(app)/settings/ImportsTab.tsx",
   // 导入抽屉：一张列文件的列，一张列读不懂的格子。都还没进库

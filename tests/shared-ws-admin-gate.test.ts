@@ -103,7 +103,7 @@ describe("两条容易被下一个人改坏的约定", () => {
       expect(动作.slice(j, 动作.indexOf("\n}", j)), `${名} 没过 我的控制面账号`).toContain("我的控制面账号(me.id)");
     }
 
-    const 界面 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/SettingsView.tsx"), "utf8");
+    const 界面 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/PasswordTab.tsx"), "utf8");
     expect(界面).toContain("已登录的机器");
     // null 就整栏不画：共享区和自部署版拿到的都是 null
     expect(界面).toMatch(/\{机器 && \(/);
@@ -117,10 +117,7 @@ describe("两条容易被下一个人改坏的约定", () => {
      */
     const fs = await import("node:fs");
     const path = await import("node:path");
-    const 界面 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/SettingsView.tsx"), "utf8");
-    const i = 界面.indexOf('key: "password"');
-    expect(i).toBeGreaterThan(0);
-    const 段 = 界面.slice(i, i + 2000);
+    const 段 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/PasswordTab.tsx"), "utf8");
     expect(段).toMatch(/所有地方都要重新登录|所有.{0,4}机器.{0,8}重新登录/);
     expect(段, "还要指一条只退一台的路，否则人只能拿改密码当锤子").toContain("已登录的机器");
   });
