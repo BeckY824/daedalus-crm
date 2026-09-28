@@ -21,6 +21,14 @@
  *   - 任何一步不对就抛 退回整包，上层走今天的 dmg 路径；首次安装一行不改
  *
  * 不引 electron，全是 node 内置模块；fetch 和执行外部命令的函数可注入，能直接拿 node 测。
+ *
+ * **Windows（2026-09-28 起）**：同一套，比的是安装目录（…\Programs\daedalus-crm）而不是 .app。
+ * 差别只有三处，都由 平台 参数切换：
+ *   - zip 是 CI 上 7z 打的，不带 unix 权限（mode 读出来是 0）。Windows 上权限位没有意义，
+ *     而 node 在 Windows 上按 mode 有没有写位决定「只读」属性——照 0 写，文件全成只读，
+ *     下次启动删 .old 就删不掉。所以 Windows 上一律按 0o666 写、不 chmod、硬链接不看权限
+ *   - 清单里的包名是 win-unpacked，和装在哪个目录无关（安装时能改目录），不核对
+ *   - 没有 codesign；换目录在 windows-install.js（运行中的文件被锁，要等进程退出后换）
  */
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
@@ -48,6 +56,10 @@ function 默认运行(cmd, args) {
 }
 
 const sha256 = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
+
+/** Windows 上权限位不算数，见顶部说明 */
+const 是Win = (平台) => 平台 === "win32";
+const 写权限 = (e, 平台) => (是Win(平台) ? 0o666 : e.m);
 
 async function 文件哈希(p) {
   const h = crypto.createHash("sha256");
@@ -234,10 +246,10 @@ async function 并发(items, n, fn) {
 
 /* ---------- 组装 ---------- */
 
-async function 写文件(dest, data, mode) {
+async function 写文件(dest, data, mode, 平台 = process.platform) {
   await fsp.mkdir(path.dirname(dest), { recursive: true });
   await fsp.writeFile(dest, data, { mode });
-  await fsp.chmod(dest, mode);
+  if (!是Win(平台)) await fsp.chmod(dest, mode);
 }
 
 /** .new 里这个路径已经是清单要的内容了吗——断点续传就靠它 */
@@ -255,7 +267,7 @@ async function 已就绪(dest, e) {
  * 把清单描述的包组装到 目标 目录（调用方传 X.app.new）。
  * 进度回调收 (已下字节, 要下总字节)。返回统计。
  */
-async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f = globalThis.fetch, 并发数 = 4, 进度 = () => {}, 日志 = () => {} }) {
+async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f = globalThis.fetch, 并发数 = 4, 进度 = () => {}, 日志 = () => {}, 平台 = process.platform }) {
   const { 复用, 下载, 链接 } = 比对结果;
   await fsp.mkdir(目标, { recursive: true });
 
@@ -269,7 +281,7 @@ async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f =
     await fsp.mkdir(path.dirname(dest), { recursive: true });
     await fsp.rm(dest, { force: true });
     const st = await fsp.lstat(src);
-    if ((st.mode & 0o7777) === e.m) {
+    if (是Win(平台) || (st.mode & 0o7777) === e.m) {
       try {
         await fsp.link(src, dest);
         链过++;
@@ -279,7 +291,7 @@ async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f =
       }
     }
     await fsp.copyFile(src, dest);
-    await fsp.chmod(dest, e.m);
+    if (!是Win(平台)) await fsp.chmod(dest, e.m);
   }
 
   // 2) 符号链接
@@ -320,7 +332,7 @@ async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f =
       const raw = buf.subarray(e.off - s.start, e.off - s.start + e.cs);
       const data = e.method === 8 ? zlib.inflateRawSync(raw) : raw;
       if (data.length !== e.s || sha256(data) !== e.h) throw new Error(`${e.p}：下下来的内容和清单对不上`);
-      await 写文件(path.join(目标, e.p), data, e.m);
+      await 写文件(path.join(目标, e.p), data, 写权限(e, 平台), 平台);
     }
     已 += s.end - s.start;
     进度(已, 总);
@@ -336,9 +348,10 @@ async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f =
  * 所以可以在问用户之前先做，侧栏按钮上才写得出「差量 2.3 MB」。
  * 不划算或对不上的情况抛 退回整包，上层按钮就写整包的体积。
  */
-async function 差量估算({ 清单Url, 已装, 缓存路径 = null, 最大占比 = 0.6, fetch: f = globalThis.fetch, 日志 = () => {} }) {
+async function 差量估算({ 清单Url, 已装, 缓存路径 = null, 最大占比 = 0.6, fetch: f = globalThis.fetch, 日志 = () => {}, 平台 = process.platform }) {
   const 清单 = await 拉清单({ url: 清单Url, fetch: f });
-  if (清单.bundle !== path.basename(已装)) throw new 退回整包(`清单里的包名 ${清单.bundle} 和已装的 ${path.basename(已装)} 对不上`);
+  // Windows 的安装目录名由安装时决定，和清单里的 win-unpacked 无关（见顶部说明）
+  if (!是Win(平台) && 清单.bundle !== path.basename(已装)) throw new 退回整包(`清单里的包名 ${清单.bundle} 和已装的 ${path.basename(已装)} 对不上`);
 
   日志("比对已装的文件");
   const 本地 = await 本地状态(已装, { 缓存路径 });
@@ -357,9 +370,11 @@ async function 差量组装(opts) {
   return 不管asar(() => 差量组装_(opts));
 }
 
-async function 差量组装_({ 清单, 比对结果, zipUrl, 已装, fetch: f = globalThis.fetch, 运行 = 默认运行, 进度 = () => {}, 日志 = () => {} }) {
+async function 差量组装_({ 清单, 比对结果, zipUrl, 已装, fetch: f = globalThis.fetch, 运行 = 默认运行, 进度 = () => {}, 日志 = () => {}, 平台 = process.platform }) {
   const 目标 = `${已装}.new`;
-  const 统计 = await 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f, 进度, 日志 });
+  const 统计 = await 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f, 进度, 日志, 平台 });
+  // Windows 没有签名这一步：组装时每个文件都验过哈希，这就是全部的完整性保证
+  if (是Win(平台)) return { 目标, 统计 };
 
   // 组装出来的包必须能过签名校验。过不了先 ad-hoc 重签一次——我们本来就没有 Developer ID，
   // CI 的 sign.js 做的就是这个，客户端做一样的事。再过不了才放弃

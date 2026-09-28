@@ -30,6 +30,7 @@ const 更新 = require("./updater");
 const 安装 = require("./install");
 const 路径记忆 = require("./route-memory");
 const 差量 = require("./delta");
+const 窗装 = require("./windows-install");
 const 备份 = require("./backup");
 const 崩溃 = require("./crashlog");
 const 提醒 = require("./reminders");
@@ -679,8 +680,26 @@ function 令牌失效了() {
 
 /* ---------- 检查更新 ---------- */
 
-/** 应用包的路径（…/Daedalus CRM.app）。开发态 `electron .` 时是 null */
-const 应用包 = 安装.解析应用包(process.execPath);
+/**
+ * 应用包的路径：Mac 是 …/Daedalus CRM.app；Windows 是 NSIS 的安装目录（…\Programs\daedalus-crm，
+ * 里面得有卸载程序才算）。开发态、解压版是 null。差量组装、换包、启动时清 .old/.new 都以它为准。
+ */
+const 应用包 = process.platform === "win32"
+  ? (app.isPackaged ? 窗装.安装目录(process.execPath) : null)
+  : 安装.解析应用包(process.execPath);
+const 更新目录 = path.join(数据根, "updates");
+
+/** Windows 上换目录要等进程退出，交给 PowerShell（windows-install.js）。重启=true 是点了按钮，false 是退出时顺手换 */
+function 窗换目录(重启) {
+  窗装.启动换目录({
+    目录: 应用包,
+    等PID: process.pid,
+    重启,
+    版本: 待装?.版本 ?? "",
+    exe名: path.basename(process.execPath),
+    更新目录,
+  });
+}
 
 /**
  * 更新是「后台查、查到了给个按钮、点了才下、下完再给个按钮」的模式，**不弹对话框**。
@@ -759,7 +778,10 @@ async function 检查更新({ 手动 = false } = {}) {
      * 「差量 2.3 MB」；任何不划算或对不上的情况（老 Release 没有清单、变得太多、包名不对…）
      * 都退回整包，按钮上写整包的体积。见 delta.js 顶部。
      */
-    if (process.platform === "darwin" && 新版.zip && 新版.manifest) {
+    // Windows 只在 NSIS 装在自己能写的地方时差量；不能就照旧整包，原因记一笔
+    const 窗可差量 = process.platform === "win32" ? 窗装.能差量更新(应用包) : { ok: false };
+    if (process.platform === "win32" && 新版.zip && !窗可差量.ok) 崩溃.写崩溃日志(应用日志, "差量不可用", 窗可差量.原因);
+    if ((process.platform === "darwin" || 窗可差量.ok) && 新版.zip && 新版.manifest) {
       try {
         设更新状态({ 阶段: "checking", 文字: "正在比对已装的文件…" });
         const 备 = 新版.备用 || {};
@@ -815,6 +837,8 @@ async function 下载更新() {
           进度: (已, 总) => 设更新状态({ 阶段: "downloading", 版本, 进度: 总 ? Math.round((已 / 总) * 100) : null, 文字: `差量更新 ${(总 / 1048576).toFixed(1)} MB` }),
           日志: (行) => 崩溃.写崩溃日志(应用日志, "差量更新", 行),
         }));
+        // NSIS 放的卸载程序不在清单里，不拷过去的话换完「应用和功能」里就卸不掉了
+        if (process.platform === "win32") await 窗装.补齐安装器文件(应用包, `${应用包}.new`);
         待装 = { 版本, 方式: "差量", 地址: 新版.地址 };
         设更新状态({ 阶段: "ready", 版本, 说明: 新版.说明, 文字: `差量 ${(统计.字节 / 1048576).toFixed(1)} MB，复用 ${统计.复用} 个文件` });
         return;
@@ -862,7 +886,10 @@ async function 安装更新() {
       await 本地服务.stop();
     }
     if (process.platform === "win32") {
-      await require("./windows-install").启动安装({ 文件, sha256: 待装.sha256 });
+      // 差量：.new 已组装好、逐个文件验过哈希，退出后由 PowerShell 换目录并重新打开
+      if (方式 === "差量") 窗换目录(true);
+      else await 窗装.启动安装({ 文件, sha256: 待装.sha256 });
+      // 先清掉：app.quit() 会触发 before-quit，不清的话那边会再起一个换目录
       待装 = null;
       app.quit();
       return;
@@ -1271,8 +1298,10 @@ if (!app.requestSingleInstanceLock()) {
     */
     if (待装?.方式 === "差量" && 更新状态.阶段 === "ready") {
       try {
-        安装.换包同步(应用包);
-        崩溃.写崩溃日志(应用日志, "退出时换包", `${待装.版本} 已换上，下次启动生效`);
+        // Windows 上运行中的文件锁着，现在换不了：交给 PowerShell 等本进程退出后再换，不重新打开
+        if (process.platform === "win32") 窗换目录(false);
+        else 安装.换包同步(应用包);
+        崩溃.写崩溃日志(应用日志, "退出时换包", process.platform === "win32" ? `${待装.版本} 交给换目录脚本，结果见 updates/update-swap.log` : `${待装.版本} 已换上，下次启动生效`);
       } catch (e) {
         崩溃.写崩溃日志(应用日志, "退出时换包失败", e);
       }
