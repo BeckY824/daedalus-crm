@@ -742,14 +742,17 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
               {f.status}
             </Tag>
           )}
-          <span className="rec-tl-time">{fmtDateTime(f.occurredAt)}</span>
-          <span className="rec-tl-acts">
-            <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} aria-label="编辑跟进" />
-            {/* 就地确认，不弹框：一条跟进记录，删了还能再写一条——
-                后果一句话说得完的事，不值得一个盖住半屏的框（见 components/InlineConfirm.tsx） */}
-            <InlineConfirm 问="删除这条？" 做={onDelete}>
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除跟进" />
-            </InlineConfirm>
+          {/* 时间和编辑/删除包在一起：标题一长时间会换到第二行，图标得跟着时间走，不能按整个头部居中 */}
+          <span className="rec-tl-when">
+            <span className="rec-tl-time">{fmtDateTime(f.occurredAt)}</span>
+            <span className="rec-tl-acts">
+              <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} aria-label="编辑跟进" />
+              {/* 就地确认，不弹框：一条跟进记录，删了还能再写一条——
+                  后果一句话说得完的事，不值得一个盖住半屏的框（见 components/InlineConfirm.tsx） */}
+              <InlineConfirm 问="删除这条？" 做={onDelete}>
+                <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除跟进" />
+              </InlineConfirm>
+            </span>
           </span>
         </div>
         <div className="rec-tl-content">{f.content}</div>

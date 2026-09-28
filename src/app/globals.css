@@ -740,10 +740,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-tl-item:last-child { border-bottom: none; }
 .rec-tl-dot { width: 36px; height: 36px; border-radius: var(--r-card); display: grid; place-items: center; color: var(--on-ink); font-size: var(--ic); flex: none; }
 .rec-tl-body { flex: 1; min-width: 0; }
-.rec-tl-head { position: relative; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rec-tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .rec-tl-type { font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
 .rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); }
 .rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
+.rec-tl-when { position: relative; margin-left: auto; display: inline-flex; align-items: center; }
 /* 编辑 / 删除平时不占位：原来它透明但占着宽度，中栏一窄就被挤到第二行，每条记录标题下空出一行。
    现在悬停（或键盘焦点进来）时盖在时间上出现，左缘渐隐；触屏没有悬停，就一直显示在时间下面那行 */
 .rec-tl-acts { position: absolute; right: 0; top: 50%; translate: 0 -50%; display: flex; gap: 0;
