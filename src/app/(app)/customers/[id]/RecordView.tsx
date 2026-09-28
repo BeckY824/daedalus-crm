@@ -486,7 +486,9 @@ export default function RecordView({
                 {filter === "全部" ? "还没有任何记录。上面随手记一笔，或粘一段聊天记录让 AI 整理。" : "这个类型下还没有记录"}
               </div>
             )}
-            <AnimatePresence initial={false}>
+            {/* 打开一位的记录时逐条进场（间隔 70ms、八条以后一起）——原来 initial={false}，
+                下面算好的 delay 从来没机会生效，整条时间线是「啪」一下出来的 */}
+            <AnimatePresence>
               {entries.map((e, i) =>
                 e.kind === "contract" ? (
                   <motion.div key={`c-${e.c.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(i, 8) * 间隔, duration: 时长.base, ease: 曲线.ease }}>
