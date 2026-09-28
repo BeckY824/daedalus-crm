@@ -131,7 +131,7 @@ describe("收起任务", () => {
  * 每一处清 home 任务的地方，附近必须同时把那一轮**去掉、清屏、或者重新跑起来**。
  */
 describe("清 home 任务的地方，那一轮不能被撇下", () => {
-  const 文件 = ["../src/app/(app)/dashboard/HomeChat.tsx", "../src/app/(app)/dashboard/ConversationList.tsx"];
+  const 文件 = ["../src/app/(app)/dashboard/HomeChat.tsx", "../src/app/(app)/dashboard/TurnView.tsx", "../src/app/(app)/dashboard/ConversationList.tsx"];
   /** 清完之后这一轮的去处：去掉它 / 整屏清掉 / 连同屏一起删 / 立刻重新跑 */
   const 去处 = ["removeTurn", "clearThread", "删掉对话的屏", "start("];
 
