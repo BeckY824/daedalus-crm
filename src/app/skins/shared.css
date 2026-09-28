@@ -1,0 +1,286 @@
+/*
+ * 四套换皮主题共用的一层（设置 → 外观 → 主题，lib/appearance.ts）。「现状」不走这里——
+ * 现状下 antd 用的仍是 lib/theme.ts 算出来的那套值，一个像素都不变。
+ *
+ * 为什么要这一层：antd 的组件色是它自己在 JS 里从 colorPrimary 派生出来的（hover 浅一档、active 深一档、
+ * 选中底、描边……二十来个），写成 CSS 变量挂在 `.css-var-dd` 上（key 在 lib/theme.ts 钉死）。
+ * 主题只换我们自己的 token（--brand、--ink……），不接这一层的话按钮、表格、分页、下拉还是那个蓝。
+ * 所以这里把 antd 的变量全部接到我们的 token 上，派生色用 color-mix 从 token 现算：
+ * 主题文件只管「我们的名字」，antd 自己跟着变。
+ *
+ * 规矩：
+ *   - 这里不许有色值（tests/design-tokens.test.ts）；只许 var(--我们的 token) 和 color-mix
+ *   - 覆盖的 --ant-* 名字必须是 antd 真有的（tests/skins.test.ts 对着 antd 的 token 表查，拼错就红）
+ *   - 选择器权重：antd 的全局变量在 `.css-var-dd`（0,1,0），组件变量在 `.css-var-dd:is(.ant-xxx, .ant-xxx-css-var)`（0,2,0）；
+ *     这里前面多一个 :root[data-skin]:not(...)，总压得过它们
+ */
+
+/* ---------- 全局：色、字、形、动 ---------- */
+:root[data-skin]:not([data-skin="now"]) .css-var-dd {
+  --ant-color-primary: var(--brand);
+  --ant-color-primary-hover: color-mix(in srgb, var(--brand) 80%, var(--panel));
+  --ant-color-primary-active: var(--brand-deep);
+  --ant-color-primary-bg: var(--brand-bg);
+  --ant-color-primary-bg-hover: color-mix(in srgb, var(--brand) 16%, var(--panel));
+  --ant-color-primary-border: var(--brand-line);
+  --ant-color-primary-border-hover: color-mix(in srgb, var(--brand) 60%, var(--panel));
+  --ant-color-primary-text: var(--brand);
+  --ant-color-primary-text-hover: color-mix(in srgb, var(--brand) 80%, var(--panel));
+  --ant-color-primary-text-active: var(--brand-deep);
+  --ant-color-info: var(--brand);
+  --ant-color-info-bg: var(--brand-bg);
+  --ant-color-info-bg-hover: color-mix(in srgb, var(--brand) 16%, var(--panel));
+  --ant-color-info-border: var(--brand-line);
+  --ant-color-info-border-hover: color-mix(in srgb, var(--brand) 60%, var(--panel));
+  --ant-color-info-hover: color-mix(in srgb, var(--brand) 80%, var(--panel));
+  --ant-color-info-active: var(--brand-deep);
+  --ant-color-info-text: var(--brand);
+  --ant-color-info-text-hover: color-mix(in srgb, var(--brand) 80%, var(--panel));
+  --ant-color-info-text-active: var(--brand-deep);
+  --ant-color-link: var(--brand);
+  --ant-color-link-hover: color-mix(in srgb, var(--brand) 80%, var(--panel));
+  --ant-color-link-active: var(--brand-deep);
+
+  --ant-color-success: var(--success);
+  --ant-color-success-bg: var(--success-bg);
+  --ant-color-success-bg-hover: var(--success-line);
+  --ant-color-success-border: var(--success-line);
+  --ant-color-success-border-hover: var(--success);
+  --ant-color-success-hover: var(--success);
+  --ant-color-success-active: var(--success-text);
+  --ant-color-success-text: var(--success-text);
+  --ant-color-success-text-hover: var(--success);
+  --ant-color-success-text-active: var(--success-text);
+  --ant-color-warning: var(--warning);
+  --ant-color-warning-bg: var(--warning-bg);
+  --ant-color-warning-bg-hover: var(--warning-line);
+  --ant-color-warning-border: var(--warning-line);
+  --ant-color-warning-border-hover: var(--warning);
+  --ant-color-warning-hover: var(--warning);
+  --ant-color-warning-active: var(--warning-text);
+  --ant-color-warning-text: var(--warning-text);
+  --ant-color-warning-text-hover: var(--warning);
+  --ant-color-warning-text-active: var(--warning-text);
+  --ant-color-warning-outline: color-mix(in srgb, var(--warning) 12%, transparent);
+  --ant-color-warning-affix: var(--warning);
+  --ant-color-error: var(--danger);
+  --ant-color-error-bg: var(--danger-bg);
+  --ant-color-error-bg-hover: var(--danger-line);
+  --ant-color-error-bg-filled-hover: var(--danger-line);
+  --ant-color-error-bg-active: var(--danger-line);
+  --ant-color-error-border: var(--danger-line);
+  --ant-color-error-border-hover: var(--danger);
+  --ant-color-error-hover: var(--danger);
+  --ant-color-error-active: var(--danger-text);
+  --ant-color-error-text: var(--danger-text);
+  --ant-color-error-text-hover: var(--danger);
+  --ant-color-error-text-active: var(--danger-text);
+  --ant-color-error-outline: color-mix(in srgb, var(--danger) 12%, transparent);
+  --ant-color-error-affix: var(--danger);
+  --ant-color-highlight: var(--danger);
+
+  --ant-color-text-base: var(--ink);
+  --ant-color-text: var(--ink);
+  --ant-color-text-heading: var(--ink);
+  --ant-color-text-secondary: var(--text-muted);
+  --ant-color-text-description: var(--text-muted);
+  --ant-color-text-label: var(--text-muted);
+  --ant-color-text-tertiary: var(--text-faint);
+  --ant-color-text-quaternary: var(--text-faint);
+  --ant-color-text-placeholder: var(--text-faint);
+  --ant-color-text-disabled: var(--text-faint);
+  --ant-color-text-light-solid: var(--on-ink);
+  --ant-color-white: var(--on-ink);
+  --ant-color-icon: var(--text-faint);
+  --ant-color-icon-hover: var(--ink);
+
+  --ant-color-bg-base: var(--panel);
+  --ant-color-bg-container: var(--panel);
+  --ant-color-bg-elevated: var(--panel);
+  --ant-color-bg-layout: var(--workbench);
+  --ant-color-bg-container-disabled: var(--hover);
+  --ant-color-bg-spotlight: color-mix(in srgb, var(--ink) 88%, var(--panel));
+  --ant-color-bg-mask: color-mix(in srgb, var(--ink) 40%, transparent);
+  --ant-color-bg-solid: var(--ink);
+  --ant-color-bg-solid-hover: color-mix(in srgb, var(--ink) 80%, var(--panel));
+  --ant-color-bg-solid-active: var(--ink);
+  --ant-color-bg-text-hover: color-mix(in srgb, var(--ink) 6%, transparent);
+  --ant-color-bg-text-active: color-mix(in srgb, var(--ink) 14%, transparent);
+  --ant-color-border: var(--line);
+  --ant-color-border-secondary: var(--line-soft);
+  --ant-color-border-bg: var(--panel);
+  --ant-color-border-disabled: var(--line-soft);
+  --ant-color-split: var(--line-soft);
+  --ant-color-fill: color-mix(in srgb, var(--ink) 14%, transparent);
+  --ant-color-fill-secondary: color-mix(in srgb, var(--ink) 6%, transparent);
+  --ant-color-fill-tertiary: var(--hover);
+  --ant-color-fill-quaternary: color-mix(in srgb, var(--ink) 2%, transparent);
+  --ant-color-fill-alter: color-mix(in srgb, var(--ink) 2%, transparent);
+  --ant-color-fill-content: color-mix(in srgb, var(--ink) 6%, transparent);
+  --ant-color-fill-content-hover: color-mix(in srgb, var(--ink) 14%, transparent);
+  --ant-control-item-bg-hover: var(--hover);
+  --ant-control-item-bg-active: var(--brand-bg);
+  --ant-control-item-bg-active-hover: color-mix(in srgb, var(--brand) 16%, var(--panel));
+  --ant-control-item-bg-active-disabled: color-mix(in srgb, var(--ink) 14%, transparent);
+  --ant-control-outline: color-mix(in srgb, var(--brand) 14%, transparent);
+  --ant-control-tmp-outline: color-mix(in srgb, var(--ink) 2%, transparent);
+
+  --ant-font-family: var(--font-ui);
+  --ant-line-width: var(--bw);
+  --ant-border-radius: var(--r-ctl);
+  --ant-border-radius-sm: min(var(--r-ctl), 4px);
+  --ant-border-radius-xs: min(var(--r-ctl), 2px);
+  --ant-border-radius-lg: var(--r-card);
+  --ant-border-radius-outer: min(var(--r-ctl), 4px);
+  --ant-box-shadow: var(--shadow-card);
+  --ant-box-shadow-secondary: var(--shadow-pop);
+
+  /* antd 自己的动效也跟着主题走：像素的阶跃、高级的慢、科技的利落，下拉和弹窗里一样看得出来 */
+  --ant-motion-ease-out: var(--ease);
+  --ant-motion-ease-out-circ: var(--ease);
+  --ant-motion-ease-in-out: var(--ease-morph);
+  --ant-motion-ease-in-out-circ: var(--ease-morph);
+  --ant-motion-ease-out-back: var(--ease-spring);
+  --ant-motion-ease-out-quint: var(--ease);
+  --ant-motion-duration-fast: var(--t-fast);
+  --ant-motion-duration-mid: var(--t);
+  --ant-motion-duration-slow: var(--t-morph);
+
+  /* 预设色（状态标签用 color="green" 这类）：各主题不要八个色相，只留好坏两级 + 主色 + 一档中性 */
+  --ant-blue-1: var(--brand-bg); --ant-blue-3: var(--brand-line); --ant-blue-6: var(--brand); --ant-blue-7: var(--brand-deep);
+  --ant-geekblue-1: var(--brand-bg); --ant-geekblue-3: var(--brand-line); --ant-geekblue-6: var(--brand); --ant-geekblue-7: var(--brand-deep);
+  --ant-cyan-1: var(--brand-bg); --ant-cyan-3: var(--brand-line); --ant-cyan-6: var(--brand); --ant-cyan-7: var(--brand-deep);
+  --ant-purple-1: var(--hover); --ant-purple-3: var(--line); --ant-purple-6: var(--ink-soft); --ant-purple-7: var(--ink-soft);
+  --ant-green-1: var(--success-bg); --ant-green-3: var(--success-line); --ant-green-6: var(--success); --ant-green-7: var(--success-text);
+  --ant-lime-1: var(--success-bg); --ant-lime-3: var(--success-line); --ant-lime-6: var(--success); --ant-lime-7: var(--success-text);
+  --ant-orange-1: var(--warning-bg); --ant-orange-3: var(--warning-line); --ant-orange-6: var(--warning); --ant-orange-7: var(--warning-text);
+  --ant-gold-1: var(--warning-bg); --ant-gold-3: var(--warning-line); --ant-gold-6: var(--warning); --ant-gold-7: var(--warning-text);
+  --ant-yellow-1: var(--warning-bg); --ant-yellow-3: var(--warning-line); --ant-yellow-6: var(--warning); --ant-yellow-7: var(--warning-text);
+  --ant-volcano-1: var(--warning-bg); --ant-volcano-3: var(--warning-line); --ant-volcano-6: var(--warning); --ant-volcano-7: var(--warning-text);
+  --ant-red-1: var(--danger-bg); --ant-red-3: var(--danger-line); --ant-red-6: var(--danger); --ant-red-7: var(--danger-text);
+  --ant-magenta-1: var(--danger-bg); --ant-magenta-3: var(--danger-line); --ant-magenta-6: var(--danger); --ant-magenta-7: var(--danger-text);
+  --ant-pink-1: var(--danger-bg); --ant-pink-3: var(--danger-line); --ant-pink-6: var(--danger); --ant-pink-7: var(--danger-text);
+}
+
+/* ---------- 组件：lib/theme.ts 里单独给过值的那些（它们写成了字面量，不跟全局变量走） ---------- */
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-table, .ant-table-css-var) {
+  --ant-table-header-bg: var(--workbench);
+  --ant-table-header-color: var(--text-muted);
+  --ant-table-header-sort-active-bg: var(--hover);
+  --ant-table-header-sort-hover-bg: var(--hover);
+  --ant-table-fixed-header-sort-active-bg: var(--hover);
+  --ant-table-header-filter-hover-bg: var(--hover);
+  --ant-table-body-sort-bg: var(--row-hover);
+  --ant-table-row-hover-bg: var(--row-hover);
+  --ant-table-row-selected-bg: var(--brand-bg);
+  --ant-table-row-selected-hover-bg: color-mix(in srgb, var(--brand) 16%, var(--panel));
+  --ant-table-row-expanded-bg: var(--row-hover);
+  --ant-table-border-color: var(--line-soft);
+  --ant-table-footer-bg: var(--workbench);
+  --ant-table-footer-color: var(--ink);
+  --ant-table-filter-dropdown-bg: var(--panel);
+  --ant-table-filter-dropdown-menu-bg: var(--panel);
+  --ant-table-expand-icon-bg: var(--panel);
+  --ant-table-header-border-radius: var(--r-card);
+  --ant-table-header-icon-color: var(--text-faint);
+  --ant-table-header-icon-hover-color: var(--ink);
+  --ant-table-sticky-scroll-bar-bg: var(--text-faint);
+}
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-input, .ant-input-css-var) {
+  --ant-input-active-border-color: var(--brand);
+  --ant-input-hover-border-color: var(--line-strong);
+  --ant-input-active-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 14%, transparent);
+  --ant-input-hover-bg: var(--panel);
+  --ant-input-active-bg: var(--panel);
+  --ant-input-addon-bg: var(--workbench);
+}
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-select, .ant-select-css-var) {
+  --ant-select-option-selected-color: var(--ink);
+  --ant-select-option-selected-bg: var(--brand-bg);
+  --ant-select-option-active-bg: var(--hover);
+  --ant-select-selector-bg: var(--panel);
+  --ant-select-clear-bg: var(--panel);
+  --ant-select-multiple-item-bg: var(--hover);
+  --ant-select-hover-border-color: var(--line-strong);
+  --ant-select-active-border-color: var(--brand);
+  --ant-select-active-outline-color: color-mix(in srgb, var(--brand) 14%, transparent);
+}
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-modal, .ant-modal-css-var) {
+  --ant-modal-content-bg: var(--panel);
+  --ant-modal-header-bg: var(--panel);
+  --ant-modal-footer-bg: transparent;
+  --ant-modal-title-color: var(--ink);
+  --ant-border-radius-lg: var(--r-pop);   /* 组件里重设全局名：只在弹窗这一层生效 */
+}
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-btn, .ant-btn-css-var) {
+  /* 按钮的组件变量叫 --ant-button-*（不是 --ant-btn-*，那一套是它每个按钮自己算的局部变量） */
+  --ant-button-primary-color: var(--on-ink);
+  --ant-button-danger-color: var(--on-ink);
+  --ant-button-solid-text-color: var(--on-ink);
+  --ant-button-default-color: var(--ink);
+  --ant-button-default-bg: var(--panel);
+  --ant-button-default-border-color: var(--line);
+  --ant-button-default-hover-color: var(--ink);
+  --ant-button-default-hover-bg: var(--panel);
+  --ant-button-default-hover-border-color: var(--line-strong);
+  --ant-button-default-active-color: var(--ink);
+  --ant-button-default-active-bg: var(--hover);
+  --ant-button-default-active-border-color: var(--line-strong);
+  --ant-button-default-bg-disabled: var(--hover);
+  --ant-button-dashed-bg-disabled: var(--hover);
+  --ant-button-border-color-disabled: var(--line-soft);
+  --ant-button-default-border-color-disabled: var(--line-soft);
+  --ant-button-default-ghost-color: var(--panel);
+  --ant-button-default-ghost-border-color: var(--panel);
+  --ant-button-group-border-color: var(--brand-line);
+  --ant-button-text-text-color: var(--ink);
+  --ant-button-text-text-hover-color: var(--ink);
+  --ant-button-text-text-active-color: var(--ink);
+  --ant-button-text-hover-bg: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-pagination, .ant-pagination-css-var) {
+  --ant-pagination-item-bg: var(--panel);
+  --ant-pagination-item-active-bg: var(--panel);
+  --ant-pagination-item-active-color: var(--brand);
+  --ant-pagination-item-active-color-hover: var(--brand);
+  --ant-pagination-item-link-bg: var(--panel);
+  --ant-pagination-item-active-color-disabled: var(--text-faint);
+  --ant-pagination-item-active-bg-disabled: var(--hover);
+  --ant-pagination-item-input-bg: var(--panel);
+  --ant-pagination-addon-bg: var(--hover);
+  --ant-pagination-active-border-color: var(--brand);
+  --ant-pagination-hover-border-color: var(--line-strong);
+  --ant-pagination-hover-bg: var(--hover);
+  --ant-pagination-active-bg: var(--panel);
+}
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-skeleton, .ant-skeleton-css-var) {
+  --ant-skeleton-color: var(--hover);
+  --ant-skeleton-color-gradient-end: color-mix(in srgb, var(--ink) 10%, var(--hover));
+  --ant-skeleton-gradient-from-color: var(--hover);
+  --ant-skeleton-gradient-to-color: color-mix(in srgb, var(--ink) 10%, var(--hover));
+}
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-avatar, .ant-avatar-css-var) { --ant-avatar-group-border-color: var(--panel); }
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-tabs, .ant-tabs-css-var) {
+  --ant-tabs-ink-bar-color: var(--ink);
+  --ant-tabs-item-selected-color: var(--ink);
+  --ant-tabs-item-hover-color: var(--ink);
+}
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-segmented, .ant-segmented-css-var) { --ant-segmented-track-bg: var(--hover); --ant-segmented-item-selected-bg: var(--panel); }
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-card, .ant-card-css-var) { --ant-color-border-secondary: var(--line); --ant-card-actions-bg: var(--panel); --ant-card-extra-color: var(--ink); }
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-dropdown, .ant-dropdown-css-var) { --ant-border-radius-lg: var(--r-pop); }
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-tag, .ant-tag-css-var) { --ant-tag-default-bg: var(--hover); --ant-tag-default-color: var(--ink-soft); --ant-tag-solid-text-color: var(--on-ink); }
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-form, .ant-form-css-var) { --ant-form-label-color: var(--text-muted); }
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-menu, .ant-menu-css-var) {
+  --ant-menu-item-color: var(--ink-soft);
+  --ant-menu-item-hover-bg: var(--hover);
+  --ant-menu-item-hover-color: var(--ink);
+  --ant-menu-item-selected-bg: var(--nav-on-bg);
+  --ant-menu-item-selected-color: var(--nav-on-fg);
+}
+
+/* ---------- 四套共用的两条形状：分类色收起来 ----------
+   时间线的类型方块、头像底色是按类型 / 名字哈希从八个色相里挑的（lib/palette.ts，行内 style）。
+   现状要那份热闹；换皮的四套都是「一种强调色」的约束，八个色相一出来整页就回到了现状。
+   行内 style 只能靠 !important 压 */
+:root[data-skin]:not([data-skin="now"]) .rec-tl-dot { background: var(--hover) !important; color: var(--ink-soft); }
+:root[data-skin]:not([data-skin="now"]) :is(.ant-avatar, .roster-av) { background: var(--hover) !important; color: var(--ink-soft) !important; }

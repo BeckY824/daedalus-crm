@@ -6,6 +6,8 @@ import { themeConfig } from "@/lib/theme";
 import MotionTheme from "@/components/MotionTheme";
 import { 外观预设脚本, 默认外观 } from "@/lib/appearance";
 import "./globals.css";
+/* 换皮主题共用的一层：把 antd 的 CSS 变量接到我们的 token 上。现状下一条都不命中 */
+import "./skins/shared.css";
 
 export const metadata: Metadata = {
   title: "Daedalus CRM",

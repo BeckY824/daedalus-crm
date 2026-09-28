@@ -15,7 +15,17 @@ import { palette, alpha } from "@/lib/palette";
  */
 export const BRAND = palette.brand;
 
+/**
+ * antd 的 CSS 变量挂在哪个类上。antd 6 默认就是 CSS 变量模式，但 key 取自 React 的 useId（`css-var-_R_2lb_` 这种），
+ * 换个组件树就变——主题样式表（src/app/skins/）要按类名覆盖 `--ant-*`，所以钉死成一个固定的 key。
+ * 给了 key 之后 antd 直接拿它当类名（不再加 css-var- 前缀），所以 key 本身写成 `css-var-dd`。
+ * 固定之后服务端和浏览器算出来的也是同一个，SSR 不会对不上。改名要同步 skins/shared.css 里的 `.css-var-dd`
+ * （tests/skins.test.ts 钉着）
+ */
+export const ANTD_CSS_VAR_KEY = "css-var-dd";
+
 export const themeConfig: ThemeConfig = {
+  cssVar: { key: ANTD_CSS_VAR_KEY },
   token: {
     colorPrimary: BRAND,
     colorInfo: BRAND,
