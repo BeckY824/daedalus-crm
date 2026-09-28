@@ -17,6 +17,7 @@ import type { StepEvent } from "@/lib/ai-steps";
 import { summarizeSteps } from "@/lib/agent/step-summary";
 import { dayjs } from "@/lib/utils";
 import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
+import AiCost from "@/components/AiCost";
 
 /** 对话里的一轮：问题、过程条、回答、建议卡、提到的客户。首页和右侧 AI 面板共用 */
 
@@ -325,6 +326,7 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
           <Tooltip title="重新回答">
             <button type="button" className="cli-ic" aria-label="重新回答" onClick={onRetry}>
               <ReloadOutlined />
+              <AiCost />
             </button>
           </Tooltip>
           <Tooltip title="移除这一轮">
@@ -353,10 +355,12 @@ function CustomerRow({ customer }: { customer: 提到的客户 }) {
         <span style={{ flex: 1 }} />
         <button type="button" className="cli-link" onClick={() => run("wakeup")} disabled={wakeup?.status === "loading"}>
           {wakeup?.status === "loading" ? "起草中…" : "起草跟进话术"}
+          {wakeup?.status !== "loading" && <AiCost />}
         </button>
         {customer.followStatus === "已签约" && (
           <button type="button" className="cli-link" onClick={() => run("invite")} disabled={invite?.status === "loading"}>
             {invite?.status === "loading" ? "起草中…" : "起草转介绍邀请"}
+            {invite?.status !== "loading" && <AiCost />}
           </button>
         )}
         <Link href={`/customers/${customer.id}`} className="cli-link cli-card-open">

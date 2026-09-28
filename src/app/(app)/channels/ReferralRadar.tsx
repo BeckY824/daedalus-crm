@@ -9,6 +9,7 @@ import { useBusiness } from "@/lib/business-client";
 import { useJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
+import AiCost from "@/components/AiCost";
 
 /**
  * 转介绍雷达：左边是谁在帮我们带人，右边是下一个该请谁开口。
@@ -94,6 +95,7 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
         {aiEnabled && !text && (
           <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>
             起草邀请
+            <AiCost />
           </Button>
         )}
       </div>

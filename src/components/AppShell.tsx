@@ -65,7 +65,7 @@ type Props = {
    * 全局 AI 面板要的东西。没配 AI 时是 null——那时整个面板和那枚按钮都不该存在，
    * 而不是点开一个说"先去设置里配 AI"的空壳。
    */
-  ai: { models: ModelOption[]; aiQuota?: { 上限: number; 还剩: number } | null } | null;
+  ai: { models: ModelOption[] } | null;
   children: React.ReactNode;
 };
 
@@ -382,7 +382,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
         它自己决定首页不出现（首页就是宽模式的同一块东西）。
         手机上不出现：390 宽摆不下正文 + 380 的面板。
       */}
-      {ai && !小屏 && <AiDock userName={user.name} models={ai.models} aiQuota={ai.aiQuota} 开着={面板开着} set开着={记住面板} />}
+      {ai && !小屏 && <AiDock userName={user.name} models={ai.models} 开着={面板开着} set开着={记住面板} />}
     </div>
     </DockOpenContext.Provider>
   );

@@ -9,6 +9,7 @@ import { saveFollowUp, saveTask, savePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import AiWait from "@/components/AiWait";
+import AiCost from "@/components/AiCost";
 import { clearJob, runJob } from "@/lib/ai-jobs";
 import { statusLabel } from "@/lib/business-config";
 import { 只填没动过的, 跳过说明 } from "@/lib/fill-untouched";
@@ -306,6 +307,7 @@ export default function FollowUpForm({
             {/* 跑着时不转圈：在做什么、过了几秒，左边那一行已经说了。按钮只负责「现在不能再点」 */}
             <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={aiLoading} onClick={onAiParse}>
               {解析?.结果 ? "重新解析" : "AI 解析填表"}
+              <AiCost />
             </Button>
           </div>
         </div>

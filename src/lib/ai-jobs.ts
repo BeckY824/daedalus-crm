@@ -219,3 +219,19 @@ export function useRunningKey(keys: string[]): string | null {
     () => null,
   );
 }
+
+/**
+ * 正在跑的任务有几个。计次那一行（components/AiCost.tsx）靠它知道「刚答完一个」，
+ * 好去问一次还剩几次——不用每个 AI 按钮各自记得去刷新。
+ */
+export function useRunningCount(): number {
+  return useSyncExternalStore(
+    subscribe,
+    () => {
+      let n = 0;
+      for (const j of jobs.values()) if (j.status === "loading") n++;
+      return n;
+    },
+    () => 0,
+  );
+}

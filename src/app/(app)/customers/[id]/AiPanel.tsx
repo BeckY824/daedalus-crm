@@ -11,6 +11,7 @@ import { runStream, type StreamJob } from "@/lib/ai-stream";
 import AiTrace from "@/components/AiTrace";
 import AiWait from "@/components/AiWait";
 import BriefBody from "./BriefBody";
+import AiCost, { useAiMeter } from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
 
 type BriefAnswer = { brief: CustomerBrief; records: BriefRecord[] };
@@ -37,6 +38,8 @@ export default function AiPanel({
   hasRecords: boolean;
 }) {
   const b = useBusiness();
+  // 自己 Key、付费、自部署的人不花次数，那句「会用掉 1 次」对他们不成立（lib/ai-meter.ts）
+  const { 计次 } = useAiMeter();
   const briefKey = `brief:${customerId}:${fingerprint}`;
   const askKey = `brief-q:${customerId}`;
 
@@ -110,6 +113,7 @@ export default function AiPanel({
           <Tooltip title="重新生成简报">
             <Button size="small" type="text" icon={<ReloadOutlined spin={loading} />} onClick={regenerate} disabled={loading || !hasRecords} aria-label="简报">
               简报
+              <AiCost />
             </Button>
           </Tooltip>
         )}
@@ -123,7 +127,7 @@ export default function AiPanel({
           <Button type="primary" size="small" icon={<ThunderboltOutlined />} onClick={regenerate}>
             生成简报
           </Button>
-          <span>读完这位{b.customer}的全部跟进，给一段故事线和下一步建议。会用掉 1 次 AI 额度。</span>
+          <span>读完这位{b.customer}的全部跟进，给一段故事线和下一步建议。{计次 && "会用掉 1 次 AI 额度。"}</span>
         </div>
       )}
 
@@ -181,10 +185,12 @@ export default function AiPanel({
         {/* 跑着时不转圈：在做什么、过了几秒，下面那一行说 */}
         <Button size="small" disabled={wakeupJob?.status === "loading"} onClick={() => doDraft("wakeup")}>
           起草跟进话术
+          <AiCost />
         </Button>
         {signed && (
           <Button size="small" disabled={inviteJob?.status === "loading"} onClick={() => doDraft("invite")}>
             起草转介绍邀请
+            <AiCost />
           </Button>
         )}
       </div>

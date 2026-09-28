@@ -9,6 +9,7 @@ import { explainWatchlist } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
+import AiCost from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
@@ -59,6 +60,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
           /* 跑着时不转圈：在做什么、过了几秒，卡片里那一行说 */
           <Button size="small" icon={<BulbOutlined />} disabled={explaining} onClick={explain}>
             AI 解读
+            <AiCost />
           </Button>
         ) : null
       }
@@ -112,6 +114,7 @@ function SentinelRow({
             {aiEnabled && !draftText && (
               <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>
                 起草跟进
+                <AiCost />
               </Button>
             )}
           </div>

@@ -9,10 +9,7 @@ import { loadWatchlist } from "@/lib/sentinel-data";
 import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
 import StartCard from "./StartCard";
-import { multiTenant } from "@/lib/tenant/context";
 import { 读对话 } from "./threads";
-import { resolveCurrentTenant } from "@/lib/tenant/resolve";
-import { 查额度 } from "@/lib/tenant/ai-allowance";
 import { 数逾期跟进 } from "@/lib/overdue";
 
 export const dynamic = "force-dynamic";
@@ -111,15 +108,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ];
   for (const x of 兜底) if (suggestions.length < 6) suggestions.push(x);
 
-  // 试用期的免费提问次数。付费与自部署都是 null，界面上就不出现这一项
-  let aiQuota: { 上限: number; 还剩: number } | null = null;
-  if (multiTenant()) {
-    const t = await resolveCurrentTenant();
-    if (t) {
-      const q = await 查额度(t.workspaceId);
-      if (q.受限) aiQuota = { 上限: q.上限, 还剩: q.还剩 };
-    }
-  }
 
   return (
     <HomeChat
@@ -128,7 +116,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       suggestions={suggestions.slice(0, 6)}
       context={parts.join("，") + "。"}
       models={models}
-      aiQuota={aiQuota}
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
       空库={学员数 === 0 && watchlist.length === 0 && myPlans === 0}
       信号={{
