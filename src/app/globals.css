@@ -689,12 +689,6 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-ai-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .rec-ai-title { font-size: var(--fs-body); font-weight: 600; color: var(--ink); display: inline-flex; gap: 6px; align-items: center; }
 .rec-ai-title .anticon { color: var(--warning); }
-.rec-ai-loading { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: var(--fs-body); padding: 14px 0; }
-.rec-ai-dots { display: inline-flex; gap: 4px; }
-.rec-ai-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); animation: rec-bounce 1s infinite ease-in-out; }
-.rec-ai-dots i:nth-child(2) { animation-delay: 0.15s; }
-.rec-ai-dots i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes rec-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-4px); opacity: 1; } }
 .rec-ai-q { font-size: var(--fs-note); color: var(--brand); background: var(--brand-bg); border-radius: var(--r-card); padding: 6px 10px; margin-bottom: 10px; }
 .rec-ai-sec { margin-bottom: 12px; }
 .rec-ai-sec-k { font-size: var(--fs-min); font-weight: 600; color: var(--text-muted); margin-bottom: 4px; letter-spacing: 0.02em; }
@@ -972,9 +966,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-step-l { color: var(--ink-soft); }
 .cli-step-d { color: var(--text-muted); }
 .cli-step-d::before { content: "→"; margin-right: 6px; color: var(--text-faint); }
-.cli-think-dots i { font-style: normal; animation: cli-blink 1.2s infinite; }
-.cli-think-dots i:nth-child(2) { animation-delay: 0.2s; }
-.cli-think-dots i:nth-child(3) { animation-delay: 0.4s; }
+/* 「在想 / 在写」那一行是 AiWait（等 AI 全站一个样子），这里只让它和上面的步骤对齐；
+   秒数紧跟在字后面，不推到最右——这一栏宽，推过去眼睛要跨半屏去找 */
+.cli-wait { margin-top: 6px; padding-left: 2px; }
+.cli-wait .aiw-sec { margin-left: 0; }
+/* 只剩流式光标在用 */
 @keyframes cli-blink { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
 .cli-a { margin-top: 10px; padding-left: 20px; color: var(--ink); line-height: 1.75; }
 .cli-caret { display: inline-block; width: 7px; height: 15px; background: var(--ink); vertical-align: -2px; margin-left: 2px; animation: cli-blink 0.9s steps(2) infinite; }

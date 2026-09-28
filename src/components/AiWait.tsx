@@ -18,6 +18,10 @@ import { useEffect, useState } from "react";
  * 样子照首页那条过程条：同一个呼吸点、同一种字号。跑着的那句话上走一道光——
  * 扫一遍、停一下、再扫，而不是一直匀速转（那是加载，不是在想）。
  * 开了「减弱动态」：光不走、点不呼吸，只剩字和秒数。
+ *
+ * **全站等 AI 只有这一种样子**（2026-09-28 统一）：原来首页对话是「在想...」三个点轮流闪，
+ * 记录页还留着一套上下跳的三点（位移循环，减弱动态下也该停的那种），同一件事三种长相。
+ * 首页对话的「在想 / 在写」现在也是这个组件，它要多写一句「Esc 打断」，走 附注。
  */
 export default function AiWait({
   在做,
@@ -25,6 +29,8 @@ export default function AiWait({
   结果,
   出错,
   慢于秒 = 15,
+  附注,
+  className,
 }: {
   /** 跑着时的那句话。要具体：「从这段话里认出跟进方式、结果和下次时间」，不是「AI 处理中」 */
   在做: string;
@@ -34,6 +40,9 @@ export default function AiWait({
   结果?: string | null;
   出错?: string | null;
   慢于秒?: number;
+  /** 跑着时跟在秒数后面的一句，比如「Esc 打断」 */
+  附注?: string;
+  className?: string;
 }) {
   const 跑着 = !结果 && !出错;
   const [现在, set现在] = useState(() => Date.now());
@@ -46,14 +55,18 @@ export default function AiWait({
   const 慢 = 跑着 && 秒 >= 慢于秒;
 
   return (
-    <div className="aiw" role="status" aria-live="polite">
+    <div className={`aiw${className ? ` ${className}` : ""}`} role="status" aria-live="polite">
       <div className="aiw-row">
         <span className={`aiw-dot ${出错 ? "aiw-dot-err" : 结果 ? "aiw-dot-done" : "aiw-dot-run"}`} aria-hidden />
         {/* key 跟着状态换：从「在做」换成「结果」时整句淡进来，不是原地改字 */}
         <span key={出错 ? "err" : 结果 ? "done" : "run"} className={`aiw-text${跑着 ? " aiw-shine" : ""}${出错 ? " aiw-text-err" : ""}`}>
           {出错 ?? 结果 ?? 在做}
         </span>
-        {跑着 && <span className="aiw-sec">{秒}s</span>}
+        {跑着 && (
+          <span className="aiw-sec">
+            {秒}s{附注 ? ` · ${附注}` : ""}
+          </span>
+        )}
       </div>
       {慢 && <div className="aiw-slow">比平时慢一些，模型那边可能在排队。可以先去做别的，好了会提醒你。</div>}
     </div>
