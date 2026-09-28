@@ -30,6 +30,7 @@ import ContractForm, { type ContractRow } from "./ContractForm";
 import CustomerForm from "../CustomerForm";
 import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
+import AiCost from "@/components/AiCost";
 import { toggleTask, deleteTask, deleteFollowUp, completePlan, deleteContact, saveFollowUp } from "./actions";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
 import { 登记详情名 } from "@/lib/page-rows";
@@ -430,6 +431,7 @@ export default function RecordView({
               {aiEnabled && (
                 <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={memo.trim().length < 5} onClick={() => openFollow(null, memo)}>
                   AI 解析
+                  <AiCost />
                 </Button>
               )}
               <Button size="small" loading={quickSaving} disabled={!memo.trim()} onClick={() => void quickSave()}>

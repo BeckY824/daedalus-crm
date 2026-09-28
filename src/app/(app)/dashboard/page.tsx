@@ -9,10 +9,8 @@ import { loadWatchlist } from "@/lib/sentinel-data";
 import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
 import StartCard from "./StartCard";
-import { multiTenant } from "@/lib/tenant/context";
 import { 读对话 } from "./threads";
-import { resolveCurrentTenant } from "@/lib/tenant/resolve";
-import { 查额度 } from "@/lib/tenant/ai-allowance";
+import { 数逾期跟进 } from "@/lib/overdue";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +53,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       一个能把它重新数一遍的页面去——首页上写死过一次数字（手工测试清单里记着），
       从那以后规矩是：算不出来就不显示，绝不摆一个看起来像那么回事的数。
     */
-    prisma.followPlan.count({ where: { ownerId: user.id, done: false, plannedAt: { lt: now.startOf("day").toDate() } } }),
+    // 计划 + 待办都算，和点进去的计划页「我的 · 逾期」、数据页那张卡同一个函数（lib/overdue.ts）
+    数逾期跟进(prisma, { ownerId: user.id }),
     prisma.customer.count({ where: { followStatus: "意向较高" } }),
     prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: now.startOf("month").toDate(), lt: now.endOf("month").toDate() } } }),
     prisma.customer.count(),
@@ -109,15 +108,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ];
   for (const x of 兜底) if (suggestions.length < 6) suggestions.push(x);
 
-  // 试用期的免费提问次数。付费与自部署都是 null，界面上就不出现这一项
-  let aiQuota: { 上限: number; 还剩: number } | null = null;
-  if (multiTenant()) {
-    const t = await resolveCurrentTenant();
-    if (t) {
-      const q = await 查额度(t.workspaceId);
-      if (q.受限) aiQuota = { 上限: q.上限, 还剩: q.还剩 };
-    }
-  }
 
   return (
     <HomeChat
@@ -126,7 +116,6 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       suggestions={suggestions.slice(0, 6)}
       context={parts.join("，") + "。"}
       models={models}
-      aiQuota={aiQuota}
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
       空库={学员数 === 0 && watchlist.length === 0 && myPlans === 0}
       信号={{

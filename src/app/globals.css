@@ -1096,10 +1096,18 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-deadend { display: flex; align-items: baseline; gap: 8px; margin-top: 6px; font-size: var(--fs-note); color: var(--text-muted); }
 .cli-deadend-n { font-size: var(--fs-min); color: var(--text-faint); }
 
-/* 首页输入框下的免费次数。常驻显示——等横条弹出来才知道，人已经在问第五句了 */
-.cli-quota { flex: none; padding: 1px 7px; border-radius: var(--r-ctl); background: var(--hover); color: var(--text-muted); font-size: var(--fs-min); }
-.cli-quota-low { background: var(--warning-bg); color: var(--warning-text); }
-.cli-quota-out { background: var(--danger-bg); color: var(--danger-text); }
+/* 首页和 ⌘J 面板输入框下的免费次数（components/AiCost.tsx 的 AiRemaining）。常驻显示——等横条弹出来才知道，人已经在问第五句了。
+   一行淡字，不做成胶囊：快用完了才换颜色 */
+.cli-quota { flex: none; color: var(--text-muted); font-size: var(--fs-min); }
+.cli-quota-low { color: var(--warning-text); }
+.cli-quota-out { color: var(--danger-text); }
+
+/* 会花 AI 次数的按钮里那个「1 次」（components/AiCost.tsx）。描边跟着按钮自己的字色走，
+   实心蓝、描边蓝、灰按钮里都读得出来，又不抢按钮本身的字 */
+.ai-cost { display: inline-block; margin-left: 6px; padding: 0 4px; border: 1px solid currentColor; border-radius: var(--r-ctl); font-size: var(--fs-min); line-height: 14px; opacity: 0.65; vertical-align: 1px; white-space: nowrap; }
+/* 「↻ 重新回答」那种方形图标钮：挂了角标就撑开，不让字溢出去 */
+.cli-ic:has(.ai-cost) { width: auto; padding: 0 6px; }
+.cli-ic .ai-cost { margin-left: 4px; }
 
 /* ---------- 列表页 ----------
    原则一「内容先于容器」：列表页不再套外层白卡。

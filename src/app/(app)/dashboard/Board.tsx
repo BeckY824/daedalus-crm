@@ -6,6 +6,7 @@ import { dayjs } from "@/lib/utils";
 import { llmEnabled } from "@/lib/llm";
 import { loadWatchlist } from "@/lib/sentinel-data";
 import DashboardView from "./DashboardView";
+import { 数逾期跟进 } from "@/lib/overdue";
 
 /**
  * 「现在」这个视图：指标卡、趋势、漏斗、排行、待办、盯盘。
@@ -34,8 +35,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     oppsForSeries,
     本月签约,
     上月签约,
-    逾期计划数,
-    逾期任务数,
+    逾期跟进,
   ] = await Promise.all([
     // 这两个只用来判「空库」，不再进指标卡
     prisma.lead.count(),
@@ -104,8 +104,8 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       躺着 Task 和 FollowPlan 两种。有 5 条逾期任务、0 条逾期计划的人，
       首页写「0 · 都跟上了」，点进去一片红——卡片和它自己的落地页对不上。
     */
-    prisma.followPlan.count({ where: { done: false, plannedAt: { lt: now.startOf("day").toDate() } } }),
-    prisma.task.count({ where: { done: false, dueAt: { lt: now.startOf("day").toDate() } } }),
+    // 口径只在 lib/overdue.ts 写一次：首页、计划页、这张卡三处共用
+    数逾期跟进(prisma),
   ]);
 
   const newCustomersThisMonth = customersForTrend.filter((c) =>
@@ -268,7 +268,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
         // 上月一分钱都没有时不给环比：分母是 0 的百分比没有意义，只会是个吓人的数
         签约环比: 上月签约额 ? Number((((本月签约额 - 上月签约额) / 上月签约额) * 100).toFixed(1)) : undefined,
         进行中商机: openOpps.length,
-        逾期跟进: 逾期计划数 + 逾期任务数,
+        逾期跟进,
         newCustomerSeries,
         oppAmountSeries,
         winRateSeries,

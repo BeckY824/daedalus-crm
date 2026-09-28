@@ -74,6 +74,18 @@ export async function llmEnabled(): Promise<boolean> {
 }
 
 /**
+ * 只要「从哪来」，不去云端问余额——describeLlmConfig 在 cloud 那一支要联网等最多 6 秒，
+ * 全站布局每次整页加载都要知道「这个人的 AI 计不计次」，等不起。三种来源的含义见下面那段。
+ */
+export async function 模型来源(): Promise<"ui" | "cloud" | "env" | null> {
+  const stored = await getSetting<StoredLlm>(LLM_KEY);
+  if (stored?.apiKeyEnc && decryptSecret(stored.apiKeyEnc)) return "ui";
+  const env = 环境配置();
+  if (env?.account) return "cloud";
+  return env ? "env" : null;
+}
+
+/**
  * 给设置页看的状态：**不含明文 key**，只回显尾 4 位。
  *
  * 三种来源，界面上要说三种不同的话：

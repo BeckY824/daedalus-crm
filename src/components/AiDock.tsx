@@ -30,13 +30,11 @@ const 空名单: string[] = [];
 export default function AiDock({
   userName,
   models,
-  aiQuota,
   开着,
   set开着,
 }: {
   userName: string;
   models: ModelOption[];
-  aiQuota?: { 上限: number; 还剩: number } | null;
   /**
    * 开合状态**由壳持有**，不在这儿。因为正文宽度跟着它变，壳要据此调响应式断点
    * （见 globals.css 的 .shell-dock-open）。放在这儿再用 effect 往上报的话，
@@ -144,7 +142,6 @@ export default function AiDock({
           suggestions={[] as Suggestion[]}
           context=""
           models={models}
-          aiQuota={aiQuota}
           空库={false}
         />
       </div>

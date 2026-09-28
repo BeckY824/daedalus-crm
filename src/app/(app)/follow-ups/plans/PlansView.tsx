@@ -7,6 +7,7 @@ import { PlusOutlined, UnorderedListOutlined, CheckCircleOutlined } from "@ant-d
 import { PageHead, UserCell } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import { dayjs, fmtDateTime } from "@/lib/utils";
+import { 是逾期 } from "@/lib/overdue";
 import { useBusiness } from "@/lib/business-client";
 import { toggleTask, completePlan } from "../../customers/[id]/actions";
 
@@ -116,7 +117,6 @@ export default function PlansView({
    * 只是还没排期；混进来会让「本周」这个数变得不可信。
    */
   const 组 = useMemo(() => {
-    const 今天开始 = dayjs().startOf("day");
     const 今天结束 = dayjs().endOf("day");
     const 本周结束 = dayjs().endOf("week");
     const out = { 逾期: [] as 事项[], 今天: [] as 事项[], 本周: [] as 事项[], 以后: [] as 事项[] };
@@ -124,7 +124,8 @@ export default function PlansView({
       if (!x.时间) out.以后.push(x);
       else {
         const t = dayjs(x.时间);
-        if (t.isBefore(今天开始)) out.逾期.push(x);
+        // 「逾期」和首页信号、数据页那张卡同一个判断（lib/overdue.ts），数才对得上
+        if (是逾期(x.时间)) out.逾期.push(x);
         else if (t.isBefore(今天结束)) out.今天.push(x);
         else if (t.isBefore(本周结束)) out.本周.push(x);
         else out.以后.push(x);

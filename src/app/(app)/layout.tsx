@@ -8,8 +8,8 @@ import { BusinessProvider } from "@/lib/business-client";
 import { 本地模式, 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
-import { resolveCurrentTenant } from "@/lib/tenant/resolve";
-import { 查额度 } from "@/lib/tenant/ai-allowance";
+import { 读AI计次, 不计次 } from "@/lib/ai-meter";
+import { AiMeterProvider } from "@/components/AiCost";
 
 export default async function AppLayout({
   children,
@@ -54,14 +54,11 @@ export default async function AppLayout({
     llmEnabled(),
     listModelOptions(),
   ]);
-  let aiQuota: { 上限: number; 还剩: number } | null = null;
-  if (有AI && multiTenant()) {
-    const t = await resolveCurrentTenant();
-    if (t) {
-      const q = await 查额度(t.workspaceId);
-      if (q.受限) aiQuota = { 上限: q.上限, 还剩: q.还剩 };
-    }
-  }
+  /*
+    这个人点 AI 按钮花不花次数、还剩几次（lib/ai-meter.ts）：全站的「1 次」角标和输入框下那行字都认它。
+    这里**不去云端问余额**（桌面端要联网，断网时会把整页拖住），数由浏览器随后问 /api/ai/meter。
+  */
+  const AI计次 = 有AI ? await 读AI计次({ 问余额: false }) : 不计次;
   /**
    * 跑在桌面端里：Electron 的 UA 带 "Electron/"。本地模式和连服务器两种都识别得到，
    * 壳据此把红黄绿钮的位置留出来。只影响布局，不影响任何权限。
@@ -74,17 +71,19 @@ export default async function AppLayout({
   return (
     <BusinessProvider value={business}>
       {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues */}
+      <AiMeterProvider 初值={AI计次}>
       <AppShell
         user={user}
         pendingCount={pendingCount}
         desktop={desktop}
         反馈去向={本地模式() || multiTenant() ? "cloud" : "github"}
         pane={pane}
-        ai={有AI ? { models, aiQuota } : null}
+        ai={有AI ? { models } : null}
       >
         {children}
       </AppShell>
       {modal}
+      </AiMeterProvider>
     </BusinessProvider>
   );
 }

@@ -20,6 +20,7 @@ import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
 import TurnView from "./TurnView";
 import Signals from "./Signals";
+import { AiRemaining } from "@/components/AiCost";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -43,14 +44,13 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
  */
 export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: number; 高意向标签: string };
 
-export default function HomeChat({ 会话, userName, suggestions, context, models, aiQuota, 空库, 信号, 模式 = "宽", 上下文提示, 上下文范围, scope = 首页屏, 标题前缀 }: {
+export default function HomeChat({ 会话, userName, suggestions, context, models, 空库, 信号, 模式 = "宽", 上下文提示, 上下文范围, scope = 首页屏, 标题前缀 }: {
   /** 地址上 ?c= 指的那条对话，服务端读好传进来。null = 一屏新对话 */
   会话: { id: string; title: string; messages: 历史消息[] } | null;
   userName: string;
   suggestions: Suggestion[];
   context: string;
   models: ModelOption[];
-  aiQuota?: { 上限: number; 还剩: number } | null;
   /** 一条业务数据都没有：换成一张「开始」卡 */
   空库: boolean;
   信号?: 首页信号;
@@ -556,12 +556,9 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                 </>
               )}
             </span>
-            {/* 免费次数常驻显示。等横条弹出来才知道，人已经在问第五句了 */}
-            {aiQuota && (
-              <span className={`cli-quota${aiQuota.还剩 === 0 ? " cli-quota-out" : aiQuota.还剩 <= 2 ? " cli-quota-low" : ""}`}>
-                免费提问 {aiQuota.还剩}/{aiQuota.上限}
-              </span>
-            )}
+            {/* 免费次数常驻显示。等横条弹出来才知道，人已经在问第五句了。
+                每一问、每个建议问题都花 1 次，在这儿说一次，不在每个胶囊上挂角标（components/AiCost.tsx） */}
+            <AiRemaining />
             <span style={{ flex: 1 }} />
             {!empty && suggestions.slice(0, 3).map((x) => (
               <button key={x.label} type="button" className="cli-sugg" onClick={() => 问这条(x)}>
