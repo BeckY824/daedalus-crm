@@ -99,6 +99,30 @@ export function 不是答案(text: string, 工具名: string[]): boolean {
   return false;
 }
 
+/**
+ * 「这周三」「下周五」照这张表算，不让模型自己推。
+ * 2026-09-28 核对教程时看到：周一说「下周三」，它算成了两天后的本周三，还写进了建议卡。
+ * 周一算一周的第一天（国内的习惯）。
+ */
+export function 日期对照(今天 = dayjs()): string {
+  const 周一 = 今天.subtract((今天.day() + 6) % 7, "day");
+  const 一周 = (起: typeof 周一) => Array.from({ length: 7 }, (_, i) => `周${"一二三四五六日"[i]} ${起.add(i, "day").format("MM-DD")}`).join("、");
+  return `日期对照（「这周几」「下周几」一律照这张表，不要自己推算）：本周 ${一周(周一)}；下周 ${一周(周一.add(7, "day"))}。`;
+}
+
+/**
+ * 这一轮提了建议卡时，回答要守的两条。按调用时的卡片数算：回炉那一步可能刚提了卡。
+ * 2026-09-28 核对教程时真出过：卡还没确认，它开口就说「这笔已经给你记上了」；
+ * 又叫人「在卡片上补电话」，可跟进记录那张卡上根本没有电话这一栏。
+ */
+export function 有卡时的要求(卡片数: number): string {
+  if (!卡片数) return "";
+  return (
+    `\n- 这一轮提了 ${卡片数} 张建议卡，**还没写进去**：要说「拟好了，你确认后才写入」，不许说「已经记上」「已保存」「已写入」` +
+    `\n- 要人补的信息只提卡片上本来就有的栏位；卡片上没有的（比如跟进记录卡上没有电话），请人直接在对话里告诉你`
+  );
+}
+
 /** 之前几轮的问答，用来理解「他」「那个」「再约一下」这类指代 */
 export type HistoryTurn = { q: string; a: string };
 
@@ -280,6 +304,7 @@ export async function runAgent(
   const system =
     buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
     `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${dayjs().format("YYYY-MM-DD HH:mm")}（周${"日一二三四五六"[dayjs().day()]}）。
+${日期对照()}
 ${原生模式 ? "" : `你能调用的工具：\n${toolDoc}\n`}
 取值表（propose_* 的参数只能用这里的词）：
 ${proposalVocab(b)}
@@ -585,7 +610,7 @@ ${工作方式}
   /** 跑一次最终回答。静默时只把文本拿回来，不往界面推 token */
   const 组织回答 = async (提示: string, 静默: boolean) => {
     const 清洗 = 开头清洗器((t) => { if (!静默) ev.onToken?.(t); });
-    await chatTextStream([...messages, { role: "user", content: 提示 }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" }, (t) => 清洗.推入(t));
+    await chatTextStream([...messages, { role: "user", content: 提示 + 有卡时的要求(ctx.proposals.length) }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" }, (t) => 清洗.推入(t));
     清洗.收尾();
     return 清洗.文本();
   };

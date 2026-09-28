@@ -12,7 +12,8 @@
  * 所以第一步空手时顶回去一次；再空手就放行，免得「你能做什么」这种问题被卡住。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { 不是答案 } from "@/lib/agent/run";
+import { 不是答案, 日期对照, 有卡时的要求 } from "@/lib/agent/run";
+import { dayjs } from "@/lib/utils";
 
 let 决策轮次: { messages: { role: string; content: string }[] }[] = [];
 /** 每一轮决策要不要调工具，由用例摆好 */
@@ -370,5 +371,27 @@ describe("一步里要了好几个", () => {
     expect(步骤[1]).toContain("老带新");
     // 第二个是从队列里取的，没为它再问一次模型：两次决策 = 第一步 + 队列跑完后那一步
     expect(决策轮次.length).toBe(2);
+  });
+});
+
+/** 「下周三」照表算（2026-09-28：周一说下周三，它算成了本周三）；周一是一周的第一天 */
+describe("日期对照", () => {
+  it("周一：下周三是 7 天后的那个周三", () => {
+    const t = 日期对照(dayjs("2026-09-28"));
+    expect(t).toContain("本周 周一 09-28");
+    expect(t).toContain("下周 周一 10-05、周二 10-06、周三 10-07");
+  });
+  it("周日还算这一周：本周从前一个周一算起", () => {
+    expect(日期对照(dayjs("2026-10-04"))).toContain("本周 周一 09-28");
+  });
+});
+
+describe("有卡时的回答要求", () => {
+  it("没卡不加；有卡就说清「还没写进去」、只提卡上有的栏位", () => {
+    expect(有卡时的要求(0)).toBe("");
+    const t = 有卡时的要求(2);
+    expect(t).toContain("2 张建议卡");
+    expect(t).toContain("不许说「已经记上」");
+    expect(t).toContain("只提卡片上本来就有的栏位");
   });
 });
