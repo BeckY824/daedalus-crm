@@ -674,6 +674,9 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-mini:hover { background: var(--row-hover); }
 .rec-mini-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .rec-mini-m { font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
+/* 签约那行金额是要看的东西，不许被日期和两颗图标挤成「¥…」；挤不下时让日期先省略 */
+.rec-mini-amt { flex: 1 0 auto; font-weight: 600; }
+.rec-mini-amt + .rec-mini-m { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .rec-empty { padding: 4px 8px 8px; font-size: var(--fs-note); color: var(--text-faint); }
 
 .rec-composer { padding: 14px 16px 12px; }
@@ -1597,7 +1600,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 
 /* 商机列表操作列：「标为丢单？」比这一格宽，往左盖在负责人那一格上，不撑宽整列 */
 .opp-act { position: relative; display: flex; justify-content: flex-start; min-height: 24px; }
-.opp-act .inlc-ask { position: absolute; right: 0; top: 0; bottom: 0; background: var(--panel); padding-left: var(--s2); }
+/* 问句盖在左边「负责人」那格上：左边缘一段渐隐，名字尾巴淡出而不是被一刀切；底色跟着行（悬停时是 --row-hover） */
+.opp-act .inlc-ask { position: absolute; right: 0; top: 0; bottom: 0; padding-left: var(--s5);
+  background: linear-gradient(to right, transparent, var(--inlc-bg, var(--panel)) var(--s4)); }
+.ant-table-row:hover .opp-act .inlc-ask { --inlc-bg: var(--row-hover); }
 
 /* 商机「标记赢单」的就地确认（OpportunitiesView 的 WonAsk）：一句问话、两个可改的数、三颗键 */
 .won-ask { display: flex; flex-direction: column; gap: var(--s2); max-width: 320px; }

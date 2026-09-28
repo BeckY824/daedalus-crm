@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, Form, InputNumber, DatePicker, Input, App, Checkbox } from "antd";
 import { dayjs, money, fmtDate } from "@/lib/utils";
 import { saveContract, listContractLinks, type 签约联动, type 签约联动结果 } from "../actions";
@@ -70,9 +70,22 @@ function Inner({
       if (!还在) return;
       set可收(r);
       set勾({ 赢单: r.商机.map((x) => x.id), 完成计划: r.计划.map((x) => x.id), 完成待办: r.待办.map((x) => x.id) });
+      带金额(r.商机.map((x) => x.id), r);
     });
     return () => { 还在 = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, editing]);
+  /*
+    勾着的商机金额之和先填进「签约金额」——多数时候签的就是那一单，不必再抄一遍。
+    人自己动过金额就不再跟着勾选变（同 lib/fill-untouched 的规矩：不覆盖手填）。
+  */
+  // 不用 form.isFieldTouched：setFieldsValue 也会把格子记成「动过」，第一次带出之后就再也不跟了
+  const 手填金额 = useRef(false);
+  function 带金额(赢单: string[], r: 可收尾 | null = 可收) {
+    if (!r || 手填金额.current) return;
+    const 和 = r.商机.filter((o) => 赢单.includes(o.id)).reduce((a, o) => a + o.amount, 0);
+    form.setFieldsValue({ amount: 和 > 0 ? 和 : null });
+  }
   const 有可收 = 可收 && 可收.商机.length + 可收.计划.length + 可收.待办.length > 0;
 
   async function submit(force: boolean) {
@@ -169,6 +182,7 @@ function Inner({
             prefix="¥"
             placeholder="如 19,800"
             formatter={金额格式}
+            onChange={() => { 手填金额.current = true; }}
           />
         </Form.Item>
         <Form.Item label="签约时间" name="signedAt" rules={[{ required: true, message: "请选择签约时间" }]}>
@@ -184,7 +198,7 @@ function Inner({
                 <div className="contract-links-t">同时标为赢单</div>
                 <Checkbox.Group
                   value={勾.赢单}
-                  onChange={(v) => set勾({ ...勾, 赢单: v as string[] })}
+                  onChange={(v) => { set勾({ ...勾, 赢单: v as string[] }); 带金额(v as string[]); }}
                   options={可收.商机.map((o) => ({
                     value: o.id,
                     label: (

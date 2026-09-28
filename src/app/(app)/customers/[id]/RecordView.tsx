@@ -409,7 +409,7 @@ export default function RecordView({
             {contracts.map((c) => (
               <div key={c.id} className="rec-mini">
                 <DollarOutlined style={{ color: "var(--success)" }} />
-                <span className="rec-mini-n" style={{ fontWeight: 600 }}>{money(c.amount)}</span>
+                <span className="rec-mini-n rec-mini-amt">{money(c.amount)}</span>
                 <span className="rec-mini-m">{fmtDate(c.signedAt)}</span>
                 <Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditingContract(c); setContractOpen(true); }} />
                 <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => confirmDeleteContract(c)} />
