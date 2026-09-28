@@ -257,3 +257,91 @@ describe("开工作区", () => {
     expect(await control.account.count()).toBe(前);
   });
 });
+
+describe("给桌面端账号加 AI 次数（用户详情页的「+10」）", () => {
+  async function 建账号(手机号: string) {
+    const { createAccount } = await import("@/lib/tenant/accounts");
+    return createAccount({ target: { kind: "phone", value: 手机号 }, password: "abcd1234", name: "内测用户" });
+  }
+  const 送了多少 = async (accountId: string) => {
+    const { control } = await import("@/lib/tenant/control");
+    return (await control.accountAiGrant.aggregate({ where: { accountId, reason: "admin" }, _sum: { amount: true } }))._sum.amount ?? 0;
+  };
+
+  it("不带、带错口令都拒——不验就等于任何人都能给自己续免费额度", async () => {
+    const { grantAccountAi } = await import("@/app/admin/actions");
+    const a = await 建账号("13600000001");
+    expect((await grantAccountAi({ token: "", accountId: a.id, amount: 10 })).ok).toBe(false);
+    expect((await grantAccountAi({ token: "猜的", accountId: a.id, amount: 10 })).ok).toBe(false);
+    expect(await 送了多少(a.id)).toBe(0);
+  });
+
+  it("账号不存在就说不存在，不往空里送", async () => {
+    const { grantAccountAi } = await import("@/app/admin/actions");
+    const r = await grantAccountAi({ token: TOKEN, accountId: "没有这个人", amount: 10 });
+    expect(r).toEqual({ ok: false, error: "账号不存在" });
+  });
+
+  it("口令对才真的加上，记成「运营台加的」；一次最多 1000", async () => {
+    const { grantAccountAi } = await import("@/app/admin/actions");
+    const a = await 建账号("13600000002");
+    expect((await grantAccountAi({ token: TOKEN, accountId: a.id, amount: 10 })).ok).toBe(true);
+    expect(await 送了多少(a.id)).toBe(10);
+    await grantAccountAi({ token: TOKEN, accountId: a.id, amount: 5000 });
+    expect(await 送了多少(a.id)).toBe(1010);
+  });
+});
+
+describe("运营台的数（src/app/admin/data.ts）", () => {
+  it("按天的序列补满 30 天，旧的在前；没数的日子是 0 不是缺", async () => {
+    const { 按天数, 近几天 } = await import("@/app/admin/data");
+    const 现在 = new Date(2026, 8, 28, 15, 0);
+    const 天们 = 近几天(30, 现在);
+    expect(天们).toHaveLength(30);
+    expect(天们[0]).toBe("2026-08-30");
+    expect(天们[29]).toBe("2026-09-28");
+    const 序列 = 按天数([new Date(2026, 8, 28, 9), new Date(2026, 8, 28, 20), new Date(2026, 8, 1, 8), new Date(2026, 6, 1)], 30, 现在);
+    expect(序列).toHaveLength(30);
+    expect(序列.at(-1)).toEqual({ 日: "2026-09-28", 数: 2 });
+    expect(序列.find((x) => x.日 === "2026-09-01")?.数).toBe(1);
+    expect(序列.reduce((s, x) => s + x.数, 0), "30 天以外的不算进来").toBe(3);
+  });
+
+  it("版本号按数字比，不按字符串（0.46.10 比 0.46.9 新）", async () => {
+    const { 比版本 } = await import("@/app/admin/data");
+    expect(["0.46.9", "0.46.10", "0.45.12"].sort(比版本)).toEqual(["0.45.12", "0.46.9", "0.46.10"]);
+  });
+
+  it("一个人的设备：按系统分、版本取最新、吊销的不算在用；没报过的是「未知」", async () => {
+    const { createAccount } = await import("@/lib/tenant/accounts");
+    const { control } = await import("@/lib/tenant/control");
+    const { 读账号们 } = await import("@/app/admin/data");
+    const a = await createAccount({ target: { kind: "phone", value: "13600000003" }, password: "abcd1234", name: "两台电脑的人" });
+    const 令牌 = async (id: string, 吊销 = false) =>
+      control.deviceToken.create({ data: { id, accountId: a.id, tokenHash: `hash-${id}`, name: id, lastUsedAt: new Date(), revokedAt: 吊销 ? new Date() : null } });
+    await 令牌("t-mac");
+    await 令牌("t-win");
+    await 令牌("t-old");
+    await 令牌("t-gone", true);
+    await control.deviceInfo.createMany({
+      data: [
+        { deviceTokenId: "t-mac", platform: "darwin", arch: "arm64", version: "0.46.10" },
+        { deviceTokenId: "t-win", platform: "win32", arch: "x64", version: "0.46.9" },
+        { deviceTokenId: "t-gone", platform: "win32", arch: "x64", version: "0.47.0" },
+      ],
+    });
+    await control.aiCall.createMany({
+      data: [
+        { ownerKind: "account", ownerId: a.id, model: "m", inputTokens: 10, outputTokens: 5, feature: "ask" },
+        { ownerKind: "account", ownerId: a.id, model: "m", inputTokens: 10, outputTokens: 5, feature: null },
+        { ownerKind: "account", ownerId: a.id, model: "m", inputTokens: 10, outputTokens: 5, at: new Date(Date.now() - 40 * 86_400_000) },
+      ],
+    });
+    const 行 = (await 读账号们()).find((x) => x.id === a.id)!;
+    expect(行.分布).toEqual({ Mac: 1, Windows: 1, Linux: 0, 未知: 1 });
+    expect(行.版本, "吊销的那台是 0.47.0，但它不算他手上的").toBe("0.46.10");
+    expect(行.近30天调用).toBe(2);
+    expect(行.设备.at(-1)?.revoked, "吊销过的垫底").toBe(true);
+    expect(行.来路).toBe("桌面端");
+  });
+});

@@ -8,6 +8,7 @@ import { isPlanKey, PLANS } from "@/lib/tenant/plans";
 import { createWorkspace } from "@/lib/tenant/workspaces";
 import { createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
 import { 加次数 } from "@/lib/tenant/ai-allowance";
+import { 赠送 } from "@/lib/tenant/credits";
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
 
@@ -41,7 +42,7 @@ export async function activate(input: { token: string; workspaceId: string; plan
     where: { id: input.workspaceId },
     data: { status: "ACTIVE", paidUntil, note: ws.note ? `${ws.note}\n${记录}` : 记录 },
   });
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
   return { ok: true };
 }
 
@@ -59,7 +60,7 @@ export async function extendTrial(input: { token: string; workspaceId: string; d
     where: { id: input.workspaceId },
     data: { trialEndsAt: new Date(base.getTime() + days * 86_400_000), status: ws.status === "SUSPENDED" ? "TRIAL" : ws.status },
   });
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
   return { ok: true };
 }
 
@@ -71,7 +72,7 @@ export async function suspend(input: { token: string; workspaceId: string; on: b
     where: { id: input.workspaceId },
     data: { status: input.on ? "SUSPENDED" : "TRIAL" },
   });
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
   return { ok: true };
 }
 
@@ -117,7 +118,7 @@ export async function openWorkspace(input: {
 
   try {
     const ws = await createWorkspace({ name: input.workspace, account });
-    revalidatePath("/admin");
+    revalidatePath("/admin", "layout");
     return { ok: true, slug: ws.slug, contact: t.value, password };
   } catch (e) {
     // 和注册那条路一样：工作区没开成，账号留着只会让这个号再也开不了
@@ -132,7 +133,22 @@ export async function grantAi(input: { token: string; workspaceId: string; amoun
   const g = guard(input.token);
   if (!g.ok) return g;
   await 加次数(input.workspaceId, input.amount, input.note ?? "运营台");
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}
+
+/**
+ * 给一个桌面端账号手动加 AI 次数（用户详情页的「AI 次数 +10」）。
+ * 和工作区那条一个口径：一次 1–1000，记成 admin；账号不存在就说不存在，不往空里送。
+ */
+export async function grantAccountAi(input: { token: string; accountId: string; amount: number; note?: string }): Promise<AdminResult> {
+  const g = guard(input.token);
+  if (!g.ok) return g;
+  const a = await control.account.findUnique({ where: { id: input.accountId }, select: { id: true } });
+  if (!a) return { ok: false, error: "账号不存在" };
+  const n = Math.max(1, Math.min(1000, Math.floor(input.amount)));
+  await 赠送({ kind: "account", id: a.id }, { amount: n, reason: "admin", note: input.note ?? "运营台" });
+  revalidatePath("/admin", "layout");
   return { ok: true };
 }
 
@@ -144,6 +160,6 @@ export async function 标记反馈(input: { token: string; id: string; handled: 
   const g = guard(input.token);
   if (!g.ok) return g;
   await control.feedback.update({ where: { id: input.id }, data: { handled: input.handled } });
-  revalidatePath("/admin");
+  revalidatePath("/admin", "layout");
   return { ok: true };
 }

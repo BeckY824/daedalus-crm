@@ -1,0 +1,258 @@
+/* ============================================================
+   运营台（/admin）的样子。2026-09-28 改版：左边一条导航、分页、能点进用户详情，蓝白色调。
+
+   只在运营台加载（admin/layout.tsx 引入），不进应用的 globals.css——
+   运营台和产品长得一样的时候，人会以为自己还在自己的工作区里点。
+   颜色全是这里的变量；蓝是数据色板的第 1 档（#2a78d6），Windows 那一格用第 2 档橙，
+   两者一起过了色板校验（色弱下 ΔE 24.7）。曲线和时长用 globals.css 里的 token。
+   ============================================================ */
+
+.opx {
+  --x-bg: #f4f7fb;
+  --x-panel: #ffffff;
+  --x-line: #e3e9f2;
+  --x-line-soft: #eef2f8;
+  --x-ink: #0f1c2e;
+  --x-ink-2: #3d4b60;
+  --x-muted: #6f7d92;
+  --x-faint: #a3aec0;
+  --x-blue: #2a78d6;
+  --x-blue-deep: #1c5cab;
+  --x-blue-50: #eef5fd;
+  --x-blue-100: #d9e7fa;
+  --x-orange: #eb6834;
+  --x-gray-dot: #b8c1cf;
+  --x-warn: #b45309;
+  --x-warn-bg: #fff6ea;
+  --x-danger: #cf2f3a;
+  --x-danger-bg: #fdf1f2;
+  --x-ok: #15803d;
+  --x-ok-bg: #eefaf2;
+  --x-shadow: 0 1px 2px rgba(16, 38, 76, 0.04), 0 4px 16px rgba(16, 38, 76, 0.04);
+
+  color-scheme: light;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 100vh;
+  background: var(--x-bg);
+  color: var(--x-ink);
+  font-size: 14px;
+}
+.opx .num, .opx-num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+
+/* ---------- 左边那一条 ---------- */
+.opx-side {
+  position: sticky; top: 0; height: 100vh;
+  display: flex; flex-direction: column;
+  background: var(--x-panel);
+  border-right: 1px solid var(--x-line);
+  padding: 20px 14px 16px;
+}
+.opx-brand { display: flex; align-items: center; gap: 10px; padding: 0 8px 20px; }
+.opx-logo {
+  width: 32px; height: 32px; border-radius: 9px; flex: none;
+  display: grid; place-items: center;
+  background: linear-gradient(145deg, #3b8ae6, var(--x-blue-deep));
+  color: #fff; font-weight: 700; font-size: 15px; letter-spacing: -0.5px;
+  box-shadow: 0 4px 10px rgba(42, 120, 214, 0.28);
+}
+.opx-brand b { display: block; font-size: 15px; font-weight: 650; letter-spacing: -0.2px; }
+.opx-brand small { display: block; font-size: 12px; color: var(--x-muted); margin-top: 1px; }
+.opx-env {
+  margin-left: auto; font-size: 10.5px; font-weight: 650; letter-spacing: 0.4px;
+  padding: 2px 7px; border-radius: 999px; border: 1px solid var(--x-line); color: var(--x-muted);
+}
+/* 对着线上库时要一眼看出来：这一格是状态色，不是装饰 */
+.opx-env-live { color: var(--x-danger); border-color: #f4c7cb; background: var(--x-danger-bg); }
+
+.opx-nav-h { padding: 14px 12px 6px; font-size: 11.5px; font-weight: 600; color: var(--x-faint); letter-spacing: 0.6px; }
+.opx-nav a {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  height: 38px; padding: 0 12px; margin: 1px 0; border-radius: 10px;
+  color: var(--x-ink-2); font-weight: 500; text-decoration: none;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.opx-nav a .anticon { font-size: 16px; color: var(--x-faint); transition: color var(--t-fast) var(--ease); }
+.opx-nav a:hover { background: #f3f6fb; color: var(--x-ink); }
+.opx-nav a.on { background: var(--x-blue-50); color: var(--x-blue-deep); font-weight: 600; }
+.opx-nav a.on .anticon { color: var(--x-blue); }
+.opx-nav a.on::before {
+  content: ""; position: absolute; left: -14px; top: 9px; bottom: 9px; width: 3px;
+  border-radius: 0 3px 3px 0; background: var(--x-blue);
+}
+.opx-nav-n {
+  margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
+  display: grid; place-items: center; font-size: 11.5px; font-weight: 650;
+  background: var(--x-danger); color: #fff;
+}
+.opx-side-foot {
+  margin-top: auto; padding: 14px 10px 0; border-top: 1px solid var(--x-line-soft);
+  font-size: 12px; color: var(--x-muted); line-height: 1.7;
+}
+.opx-side-foot button {
+  margin-top: 6px; display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--x-line); background: #fff; color: var(--x-ink-2);
+  height: 28px; padding: 0 10px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12.5px;
+  transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.opx-side-foot button:hover { border-color: var(--x-blue); color: var(--x-blue-deep); }
+
+/* ---------- 右边正文 ---------- */
+.opx-main { min-width: 0; padding: 28px 36px 64px; max-width: 1440px; }
+.opx-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
+.opx-head h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.4px; color: var(--x-ink); }
+.opx-head p { margin: 4px 0 0; color: var(--x-muted); font-size: 13px; }
+.opx-head-r { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.opx-crumb { font-size: 13px; color: var(--x-muted); margin-bottom: 6px; }
+.opx-crumb a { color: var(--x-blue-deep); text-decoration: none; }
+.opx-crumb a:hover { text-decoration: underline; }
+
+.opx-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.opx-kpi {
+  background: var(--x-panel); border: 1px solid var(--x-line); border-radius: 14px;
+  padding: 16px 18px 14px; box-shadow: var(--x-shadow); min-width: 0;
+}
+.opx-kpi-k { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--x-muted); font-weight: 500; }
+.opx-kpi-k .anticon { color: var(--x-blue); font-size: 13px; }
+.opx-kpi-v { margin-top: 8px; font-size: 28px; font-weight: 650; letter-spacing: -0.6px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.opx-kpi-v i { font-style: normal; font-size: 13px; font-weight: 500; color: var(--x-muted); margin-left: 3px; letter-spacing: 0; }
+.opx-kpi-n { margin-top: 6px; font-size: 12px; color: var(--x-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opx-kpi-warn .opx-kpi-v { color: var(--x-danger); }
+.opx-kpi-warn .opx-kpi-k .anticon { color: var(--x-danger); }
+.opx-kpi-quiet .opx-kpi-v { color: var(--x-faint); }
+
+.opx-card {
+  background: var(--x-panel); border: 1px solid var(--x-line); border-radius: 14px;
+  box-shadow: var(--x-shadow); padding: 18px 20px; min-width: 0;
+}
+.opx-card + .opx-card { margin-top: 14px; }
+.opx-card-h { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+.opx-card-h h2 { margin: 0; font-size: 15px; font-weight: 620; color: var(--x-ink); }
+.opx-card-h span { font-size: 12.5px; color: var(--x-muted); }
+.opx-card-h .opx-card-r { margin-left: auto; }
+.opx-card-flush { padding: 0; overflow: hidden; }
+.opx-card-flush > .opx-card-h { padding: 18px 20px 0; }
+
+.opx-grid { display: grid; gap: 14px; margin-top: 14px; }
+.opx-grid-21 { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+.opx-grid-11 { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.opx-grid-111 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.opx-grid > .opx-card + .opx-card { margin-top: 0; }
+@media (max-width: 1180px) {
+  .opx-grid-21, .opx-grid-111 { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .opx { grid-template-columns: 1fr; }
+  .opx-side { position: static; height: auto; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px; padding: 12px; }
+  .opx-brand { padding: 0 8px 0 0; }
+  .opx-nav { display: flex; flex-wrap: wrap; gap: 2px; }
+  .opx-nav-h, .opx-side-foot { display: none; }
+  .opx-nav a.on::before { display: none; }
+  .opx-main { padding: 20px 16px 48px; }
+  .opx-grid-11 { grid-template-columns: minmax(0, 1fr); }
+}
+
+.opx-empty { padding: 28px 0; text-align: center; color: var(--x-faint); font-size: 13px; }
+.opx-muted { color: var(--x-muted); }
+.opx-faint { color: var(--x-faint); }
+.opx-mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; color: var(--x-muted); }
+
+/* ---------- 人 ---------- */
+.opx-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.opx-av {
+  width: 32px; height: 32px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-weight: 600; font-size: 13px;
+  background: var(--x-blue-50); color: var(--x-blue-deep); border: 1px solid var(--x-blue-100);
+}
+.opx-av-lg { width: 56px; height: 56px; font-size: 22px; }
+.opx-who b { display: block; font-weight: 600; color: var(--x-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opx-who small { display: block; font-size: 12px; color: var(--x-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 系统：一个色点 + 字。颜色只是辅助，名字永远写出来 */
+.opx-os { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--x-ink-2); white-space: nowrap; }
+.opx-os::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--x-gray-dot); }
+.opx-os-mac::before { background: var(--x-blue); }
+.opx-os-win::before { background: var(--x-orange); }
+.opx-oss { display: inline-flex; gap: 10px; flex-wrap: wrap; }
+
+.opx-tag {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px;
+  font-size: 12px; font-weight: 500; background: #f1f4f9; color: var(--x-ink-2); white-space: nowrap;
+}
+.opx-tag-blue { background: var(--x-blue-50); color: var(--x-blue-deep); }
+.opx-tag-ok { background: var(--x-ok-bg); color: var(--x-ok); }
+.opx-tag-warn { background: var(--x-warn-bg); color: var(--x-warn); }
+.opx-tag-dead { background: var(--x-danger-bg); color: var(--x-danger); }
+
+/* AI 次数：一条细条 + 「剩 / 送」。一条走到头的红条不用读就知道出事了 */
+.opx-meter { display: inline-flex; align-items: center; gap: 8px; min-width: 110px; }
+.opx-meter-bar { flex: 1; height: 6px; border-radius: 999px; background: var(--x-line-soft); overflow: hidden; min-width: 48px; }
+.opx-meter-bar i { display: block; height: 100%; border-radius: 999px; background: var(--x-blue); transition: width var(--t) var(--ease); }
+.opx-meter-t { font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--x-ink); white-space: nowrap; }
+.opx-meter-t s { text-decoration: none; color: var(--x-faint); }
+.opx-meter-low .opx-meter-bar i { background: var(--x-orange); }
+.opx-meter-out .opx-meter-bar i { background: var(--x-danger); }
+.opx-meter-out .opx-meter-t { color: var(--x-danger); }
+
+/* 一条横着的分段条（设备系统）。段与段之间留 2px 白缝，每段下面有图例——不靠颜色认 */
+.opx-split { display: flex; gap: 2px; height: 10px; border-radius: 999px; overflow: hidden; background: var(--x-line-soft); }
+.opx-split i { display: block; height: 100%; }
+.opx-split-legend { display: flex; gap: 18px; margin-top: 12px; flex-wrap: wrap; }
+.opx-split-legend > div { display: flex; flex-direction: column; gap: 2px; }
+.opx-split-legend b { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -0.4px; }
+
+/* 一行一件事的清单（需要关注 / 最近注册 / 最新反馈） */
+.opx-list { display: flex; flex-direction: column; }
+.opx-list > a, .opx-list > div {
+  display: flex; align-items: center; gap: 10px; padding: 10px 6px; margin: 0 -6px;
+  border-radius: 10px; color: inherit; text-decoration: none; min-width: 0;
+  transition: background var(--t-fast) var(--ease);
+}
+.opx-list > a:hover { background: #f5f8fc; }
+.opx-list > * + * { border-top: 1px solid var(--x-line-soft); }
+.opx-list-r { margin-left: auto; font-size: 12.5px; color: var(--x-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* antd 表格收进卡片里：表头浅一档，行可点 */
+.opx .ant-table { background: transparent; }
+.opx .ant-table-thead > tr > th {
+  background: #f7f9fc !important; color: var(--x-muted); font-size: 12.5px; font-weight: 600;
+  border-bottom: 1px solid var(--x-line) !important;
+}
+.opx .ant-table-thead > tr > th::before { display: none; }
+.opx .ant-table-tbody > tr > td { border-bottom: 1px solid var(--x-line-soft) !important; }
+.opx .ant-table-tbody > tr.opx-row-link { cursor: pointer; }
+.opx .ant-table-tbody > tr.opx-row-link:hover > td { background: var(--x-blue-50) !important; }
+.opx .ant-table-cell.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* 工具条：搜索 + 筛选，一行，在表格上面 */
+.opx-bar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 14px 20px; border-bottom: 1px solid var(--x-line-soft); }
+.opx-bar .opx-bar-r { margin-left: auto; font-size: 12.5px; color: var(--x-muted); }
+
+/* 用户详情的头 */
+.opx-profile { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.opx-profile h1 { margin: 0; font-size: 22px; font-weight: 650; letter-spacing: -0.4px; }
+.opx-profile-meta { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 6px; font-size: 13px; color: var(--x-muted); }
+.opx-profile-meta b { color: var(--x-ink-2); font-weight: 500; }
+
+/* 键值两列 */
+.opx-kv { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 10px 14px; font-size: 13px; }
+.opx-kv dt { color: var(--x-muted); }
+.opx-kv dd { margin: 0; color: var(--x-ink); min-width: 0; overflow-wrap: anywhere; }
+
+/* 反馈 */
+.opx-fb { padding: 14px 16px; border: 1px solid var(--x-line); border-radius: 12px; background: #fff; }
+.opx-fb + .opx-fb { margin-top: 10px; }
+.opx-fb-todo { border-left: 3px solid var(--x-blue); }
+.opx-fb-done { background: #fafbfd; }
+.opx-fb-done p { color: var(--x-muted); }
+.opx-fb-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--x-muted); }
+.opx-fb-h b { color: var(--x-ink); font-size: 13.5px; }
+.opx-fb p { margin: 8px 0 0; white-space: pre-wrap; line-height: 1.7; color: var(--x-ink); }
+
+.opx-hand { white-space: pre-wrap; padding: 12px 14px; background: #f5f8fc; border: 1px solid var(--x-line); border-radius: 10px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; user-select: all; }
+
+@media (prefers-reduced-motion: reduce) {
+  .opx *, .opx *::before { transition: none !important; }
+}

@@ -191,16 +191,19 @@ test("6 共享工作区里手机号要打码", async ({ page }) => {
 test("7 运营台要 token：不带、带错都是 404", async ({ page }) => {
   expect((await page.goto("/admin"))?.status()).toBe(404);
   expect((await page.goto("/admin?token=乱填的"))?.status()).toBe(404);
+  // 2026-09-28 改版成左边导航 + 分页：每一页都各自验口令，子页带错口令同样 404（连外壳都不画）
+  for (const 页 of ["/admin/users", "/admin/workspaces", "/admin/usage", "/admin/feedback", "/admin/users/whoever"]) {
+    expect((await page.goto(`${页}?token=乱填的`))?.status(), `${页} 带错口令该是 404`).toBe(404);
+  }
   await page.goto("/admin?token=e2e-admin-token");
-  // 深色顶栏 + 环境标记（2026-09-17 起）：这一页对着线上库，人得一眼知道自己在哪儿
-  await expect(page.locator(".ops-top")).toContainText("Daedalus Ops");
-  await expect(page.locator(".ops-env")).toBeVisible();
-  await expect(page.locator(".ops-stat").first()).toContainText("工作区", { timeout: 15_000 });
-  /*
-    收进第一张表（工作区表）再找：0.45.0 起这一页下面还有一张「账号」表，
-    而那个账号的名字恰好也叫这个——不收范围就是 strict mode 撞车。
-  */
-  await expect(page.locator(".ant-table").first().getByText(共享工作区.名称, { exact: true })).toBeVisible();
+  // 品牌 + 环境标记：这几页对着线上库，人得一眼知道自己在哪儿
+  await expect(page.locator(".opx-brand")).toContainText("Daedalus Ops");
+  await expect(page.locator(".opx-env")).toBeVisible();
+  await expect(page.locator(".opx-kpi").first()).toContainText("注册用户", { timeout: 15_000 });
+  // 工作区搬去了导航里的「工作区」页；导航的链接要把口令带着走，否则一点就 404
+  await page.getByRole("navigation", { name: "运营台导航" }).getByRole("link", { name: "工作区" }).click();
+  await expect(page).toHaveURL(/\/admin\/workspaces\?token=e2e-admin-token/);
+  await expect(page.locator(".ant-table").first().getByText(共享工作区.名称, { exact: true })).toBeVisible({ timeout: 15_000 });
 });
 
 test("8 没登录时能打开的就是那几页；演示区已经不存在", async ({ page }) => {
@@ -255,10 +258,11 @@ test("11 反馈：界面里发一句话，运营台当场看得见", async ({ pa
   await expect(page.getByText("收到了，谢谢")).toBeVisible({ timeout: 15_000 });
 
   // 落到控制面库，运营台那一页读的就是它。没人看的收件箱等于没有这个功能
-  await page.goto("/admin?token=e2e-admin-token");
+  // 2026-09-28 起反馈是运营台的一页（导航上带着没处理的红数）
+  await page.goto("/admin/feedback?token=e2e-admin-token");
   await expect(page.getByText(话)).toBeVisible({ timeout: 15_000 });
   // 附带那几样也要在：谁发的、哪一页发的
-  await expect(page.locator(".ops-fb-item").first()).toContainText("/dashboard");
+  await expect(page.locator(".opx-fb").first()).toContainText("/dashboard");
 });
 
 test("12 忘记密码：收码、设新密码，旧会话当场作废", async ({ page }) => {
