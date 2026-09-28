@@ -67,6 +67,29 @@ describe("动效底座", () => {
     expect(别处, `这些选择器不是落印，不许用 --t-seal：${别处.join(" / ")}`).toEqual([]);
   });
 
+  it("lib/motion.ts 和 :root 逐值一致，一个不多一个不少", async () => {
+    /**
+     * motion 认不了 CSS 变量，JS 那边只能抄一份数。抄的那份一漂，同一屏上 CSS 动的和 JS 动的
+     * 就不是一套手感（2026-09-28 之前就是这样：Rise 0.42s、左栏底块第四条曲线）。照 palette.ts 那条钉住。
+     */
+    const { 曲线, 时长, 间隔 } = await import("@/lib/motion");
+    const 名 = (前缀: string, k: string, 本名: string) => (k === 本名 ? 前缀 : `${前缀}-${k}`);
+
+    const css时长 = Object.fromEntries([...根.matchAll(/(--t(?:-[\w-]+)?):\s*(\d+)ms/g)].map((m) => [m[1], Number(m[2]) / 1000]));
+    const js时长 = Object.fromEntries(Object.entries(时长).map(([k, v]) => [名("--t", k, "base"), v]));
+    expect(js时长, "时长对不上 :root").toEqual(css时长);
+
+    const css曲线 = Object.fromEntries(
+      [...根.matchAll(/(--ease(?:-[\w-]+)?):\s*cubic-bezier\(([^)]*)\)/g)].map((m) => [m[1], m[2].split(",").map(Number)]),
+    );
+    const js曲线 = Object.fromEntries(Object.entries(曲线).map(([k, v]) => [名("--ease", k, "ease"), [...v]]));
+    expect(js曲线, "曲线对不上 :root").toEqual(css曲线);
+
+    const stagger = /--stagger:\s*(\d+)ms/.exec(根);
+    expect(stagger, "--stagger 应该定义在 :root").not.toBeNull();
+    expect(间隔).toBe(Number(stagger![1]) / 1000);
+  });
+
   it("开了「减弱动态」之后不许再有位移", () => {
     const i = css.indexOf("@media (prefers-reduced-motion: reduce)");
     expect(i).toBeGreaterThan(-1);
