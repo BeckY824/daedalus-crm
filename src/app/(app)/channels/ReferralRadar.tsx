@@ -8,6 +8,7 @@ import { money } from "@/lib/utils";
 import { draftInvite } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob } from "@/lib/ai-jobs";
+import AiWait from "@/components/AiWait";
 
 /**
  * 转介绍雷达：左边是谁在帮我们带人，右边是下一个该请谁开口。
@@ -28,7 +29,7 @@ export default function ReferralRadar({
   function draft(c: InviteCandidate) {
     runJob(`draft:invite:${c.customerId}`, async () => {
       const res = await draftInvite({ customerId: c.customerId });
-      if (!res.ok) message.error(res.error);
+      // 出错写在这一行下面（AiWait），不再弹一条几秒就走的提示
       return res.ok ? { ok: true, value: res.message } : res;
     });
   }
@@ -102,11 +103,20 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
         </Link>
         <span style={{ flex: 1, minWidth: 160, color: "var(--text-muted)", fontSize: 14 }}>{c.reason}</span>
         {aiEnabled && !text && (
-          <Button size="small" icon={<ThunderboltOutlined />} loading={job?.status === "loading"} onClick={onDraft}>
+          <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>
             起草邀请
           </Button>
         )}
       </div>
+      {(job?.status === "loading" || job?.status === "error") && (
+        <div style={{ marginTop: 6 }}>
+          <AiWait
+            在做={`照 ${c.name} 的情况，起草一段请他介绍朋友的微信`}
+            起={job.startedAt}
+            出错={job.status === "error" ? job.error ?? "起草失败，请重试" : null}
+          />
+        </div>
+      )}
       {text && (
         <div style={{ marginTop: 8, background: "var(--brand-bg)", border: "1px solid var(--brand-line)", borderRadius: 8, padding: "10px 14px", display: "flex", gap: 12, alignItems: "flex-start" }}>
           <div style={{ flex: 1, fontSize: 14, lineHeight: 1.8 }}>{text}</div>

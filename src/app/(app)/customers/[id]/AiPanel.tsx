@@ -11,6 +11,7 @@ import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, setJobValue, clearJob, getJob } from "@/lib/ai-jobs";
 import { runStream, type StreamJob } from "@/lib/ai-stream";
 import AiTrace from "@/components/AiTrace";
+import AiWait from "@/components/AiWait";
 import BriefBody from "./BriefBody";
 
 type BriefAnswer = { brief: CustomerBrief; records: BriefRecord[] };
@@ -183,21 +184,27 @@ export default function AiPanel({
       </div>
 
       <div className="rec-ai-actions">
-        <Button size="small" loading={wakeupJob?.status === "loading"} onClick={() => doDraft("wakeup")}>
+        {/* 跑着时不转圈：在做什么、过了几秒，下面那一行说 */}
+        <Button size="small" disabled={wakeupJob?.status === "loading"} onClick={() => doDraft("wakeup")}>
           起草跟进话术
         </Button>
         {signed && (
-          <Button size="small" loading={inviteJob?.status === "loading"} onClick={() => doDraft("invite")}>
+          <Button size="small" disabled={inviteJob?.status === "loading"} onClick={() => doDraft("invite")}>
             起草转介绍邀请
           </Button>
         )}
       </div>
 
       {[
-        { kind: "wakeup" as const, job: wakeupJob, title: "跟进话术草稿" },
-        { kind: "invite" as const, job: inviteJob, title: "转介绍邀请草稿" },
-      ].map(({ kind, job, title }) => (
+        { kind: "wakeup" as const, job: wakeupJob, title: "跟进话术草稿", 在做: `读 ${customerName} 的跟进，起草一段能直接发的微信` },
+        { kind: "invite" as const, job: inviteJob, title: "转介绍邀请草稿", 在做: `照 ${customerName} 的情况，起草一段请他介绍朋友的微信` },
+      ].map(({ kind, job, title, 在做 }) => (
         <AnimatePresence key={kind}>
+          {job?.status === "loading" && (
+            <div key="run" style={{ marginTop: 8 }}>
+              <AiWait 在做={在做} 起={job.startedAt} />
+            </div>
+          )}
           {job?.status === "error" && (
             <motion.div key="err" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} style={{ marginTop: 8 }}>
               <Alert type="warning" showIcon title={job.error} closable onClose={() => clearJob(`draft:${kind}:${customerId}`)} />

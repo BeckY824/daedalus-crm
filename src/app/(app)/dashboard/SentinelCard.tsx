@@ -8,6 +8,7 @@ import { KIND_LABEL } from "@/lib/sentinel";
 import { draftWakeup, explainWatchlist } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
+import AiWait from "@/components/AiWait";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
   overdue_plan: "error",
@@ -31,9 +32,9 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
 
   /** 一次调用给整张清单各补一句"从哪接上"。按需触发，不随页面加载自动跑 */
   function explain() {
+    // 出错写在卡片里那一行（AiWait），不再弹一条几秒就走的提示
     runJob("sentinel:explain", async () => {
       const res = await explainWatchlist({ items: items.map((it) => ({ customerId: it.customerId, reason: it.reason })) });
-      if (!res.ok) message.error(res.error);
       return res.ok ? { ok: true, value: res.notes } : res;
     });
   }
@@ -41,7 +42,6 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
   function draft(it: WatchItem) {
     runJob(`draft:wakeup:${it.customerId}`, async () => {
       const res = await draftWakeup({ customerId: it.customerId, reason: it.reason });
-      if (!res.ok) message.error(res.error);
       return res.ok ? { ok: true, value: res.message } : res;
     });
   }
@@ -65,13 +65,23 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
       }
       extra={
         aiEnabled && !notes ? (
-          <Button size="small" icon={<BulbOutlined />} loading={explaining} onClick={explain}>
+          /* 跑着时不转圈：在做什么、过了几秒，卡片里那一行说 */
+          <Button size="small" icon={<BulbOutlined />} disabled={explaining} onClick={explain}>
             AI 解读
           </Button>
         ) : null
       }
       styles={{ body: { paddingTop: 6 } }}
     >
+      {(explaining || explainJob?.status === "error") && (
+        <div style={{ padding: "6px 0 4px" }}>
+          <AiWait
+            在做={`给这 ${items.length} 位各找一句「从哪接上」`}
+            起={explainJob!.startedAt}
+            出错={explainJob?.status === "error" ? explainJob.error ?? "解读失败，请重试" : null}
+          />
+        </div>
+      )}
       {items.map((it) => (
         <SentinelRow key={it.customerId} it={it} aiEnabled={aiEnabled} note={notes?.[it.customerId]} kindLabel={kindLabel} onDraft={() => draft(it)} onCopy={copy} />
       ))}
@@ -109,11 +119,20 @@ function SentinelRow({
             <span style={{ flex: 1, minWidth: 200, color: "var(--text-muted)", fontSize: 14 }}>{it.reason}</span>
             <span style={{ color: "var(--text-muted)", fontSize: 13, flex: "none" }}>{it.ownerName}</span>
             {aiEnabled && !draftText && (
-              <Button size="small" icon={<ThunderboltOutlined />} loading={job?.status === "loading"} onClick={onDraft}>
+              <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>
                 起草跟进
               </Button>
             )}
           </div>
+          {(job?.status === "loading" || job?.status === "error") && (
+            <div style={{ marginTop: 6 }}>
+              <AiWait
+                在做={`读 ${it.customerName} 的跟进，起草一段能直接发的微信`}
+                起={job.startedAt}
+                出错={job.status === "error" ? job.error ?? "起草失败，请重试" : null}
+              />
+            </div>
+          )}
           {note && (
             <div style={{ marginTop: 6, paddingLeft: 2, fontSize: 14, color: "var(--ink-soft)" }}>
               <BulbOutlined style={{ color: "var(--cat-amber)", marginRight: 6 }} />
