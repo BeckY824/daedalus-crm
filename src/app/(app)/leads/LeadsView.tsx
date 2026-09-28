@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, App } from "antd";
 import {
-  SearchOutlined,
   PlusOutlined,
   SwapRightOutlined,
   DeleteOutlined,
   EditOutlined,
   ReloadOutlined,
 } from "@ant-design/icons";
+import ListSearch from "@/components/ListSearch";
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
@@ -207,19 +207,12 @@ export default function LeadsView({
         }}
         筛选={
           <Space wrap size={[10, 10]}>
-            <Input
-              style={{ width: 280 }}
+            <ListSearch
+              width={280}
               placeholder="线索名称 / 联系人"
-              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword}
-              allowClear
-              onChange={(e) => {
-                const v = e.target.value;
-                setF({ ...f, keyword: v });
-                // 点了清空的小叉：立刻生效，不用人再回车一次
-                if (!v) apply({ keyword: "" });
-              }}
-              onPressEnter={() => apply()}
+              onChange={(v) => setF({ ...f, keyword: v })}
+              onSearch={(v) => apply({ keyword: v })}
             />
             <Select
               style={{ width: 152 }}

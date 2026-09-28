@@ -2,8 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Input, Button, Space, Avatar, Tag, Select } from "antd";
-import { SearchOutlined, ReloadOutlined, PlusOutlined } from "@ant-design/icons";
+import { Button, Space, Avatar, Tag, Select } from "antd";
+import { ReloadOutlined, PlusOutlined } from "@ant-design/icons";
+import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import ContactForm from "../customers/[id]/ContactForm";
@@ -101,10 +102,8 @@ export default function ContactsView({
     { title: "邮箱", key: "email", dataIndex: "email", width: 220, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
   ];
 
-  function search() {
-    startTransition(() =>
-      router.push(kw ? `/contacts?keyword=${encodeURIComponent(kw)}` : "/contacts"),
-    );
+  function search(v: string) {
+    startTransition(() => router.push(v ? `/contacts?keyword=${encodeURIComponent(v)}` : "/contacts"));
   }
 
   return (
@@ -143,19 +142,7 @@ export default function ContactsView({
         }}
         筛选={
           <Space wrap size={[10, 10]}>
-            <Input
-              style={{ width: 300 }}
-              placeholder={`姓名 / 电话 / 微信 / ${b.customer}`}
-              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
-              value={kw}
-              allowClear
-              onChange={(e) => {
-                const v = e.target.value;
-                setKw(v);
-                if (!v) startTransition(() => router.push("/contacts"));
-              }}
-              onPressEnter={search}
-            />
+            <ListSearch width={300} placeholder={`姓名 / 电话 / 微信 / ${b.customer}`} value={kw} onChange={setKw} onSearch={search} />
             <Select
               style={{ width: 140 }}
               placeholder="全部关系"

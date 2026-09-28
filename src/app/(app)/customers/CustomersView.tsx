@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button, Input, Select, Space, Dropdown, App, Tag, Popover } from "antd";
+import { Button, Select, Space, Dropdown, App, Tag, Popover } from "antd";
 import {
   PlusOutlined,
   ExportOutlined,
@@ -11,7 +11,6 @@ import {
   UserSwitchOutlined,
   TagsOutlined,
   ReloadOutlined,
-  SearchOutlined,
   DeleteOutlined,
   EditOutlined,
   FilterOutlined,
@@ -19,6 +18,7 @@ import {
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { maskPhone, smartTime, money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { toCsv } from "@/lib/csv";
+import ListSearch from "@/components/ListSearch";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
@@ -248,16 +248,12 @@ export default function CustomersView({
                 只看本月新增
               </Tag>
             )}
-            <Input style={{ width: 260 }} placeholder={`姓名 / 电话 / ${b.fields.school} / ${b.fields.major}`}
-              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
-              value={f.keyword} allowClear
-              onChange={(e) => {
-                const v = e.target.value;
-                setF({ ...f, keyword: v });
-                // 点了清空的小叉：立刻生效，不用人再回车一次
-                if (!v) apply({ keyword: "" });
-              }}
-              onPressEnter={() => apply()} />
+            <ListSearch
+              placeholder={`姓名 / 电话 / ${b.fields.school} / ${b.fields.major}`}
+              value={f.keyword}
+              onChange={(v) => setF({ ...f, keyword: v })}
+              onSearch={(v) => apply({ keyword: v })}
+            />
             <Select style={{ width: 140 }} placeholder="全部跟进状态" allowClear
               value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
               options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />

@@ -4,7 +4,6 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, InputNumber, DatePicker, Slider, App, Dropdown } from "antd";
 import {
-  SearchOutlined,
   PlusOutlined,
   MoreOutlined,
   DeleteOutlined,
@@ -12,6 +11,7 @@ import {
   ReloadOutlined,
   PartitionOutlined,
 } from "@ant-design/icons";
+import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
@@ -285,19 +285,12 @@ export default function OpportunitiesView({
         }
         筛选={
           <Space wrap size={[10, 10]}>
-            <Input
-              style={{ width: 240 }}
+            <ListSearch
+              width={240}
               placeholder={`商机名称 / ${b.customer}`}
-              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword}
-              allowClear
-              onChange={(e) => {
-                const v = e.target.value;
-                setF({ ...f, keyword: v });
-                // 点了清空的小叉：立刻生效，不用人再回车一次
-                if (!v) apply({ keyword: "" });
-              }}
-              onPressEnter={() => apply()}
+              onChange={(v) => setF({ ...f, keyword: v })}
+              onSearch={(v) => apply({ keyword: v })}
             />
             <Select
               style={{ width: 130 }}

@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Input, Button, Space, Select, Tag } from "antd";
-import { SearchOutlined, ReloadOutlined, CalendarOutlined, PlusOutlined } from "@ant-design/icons";
+import { Button, Space, Select, Tag } from "antd";
+import { ReloadOutlined, CalendarOutlined, PlusOutlined } from "@ant-design/icons";
+import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell, FollowTypeCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { useBusiness } from "@/lib/business-client";
@@ -125,19 +126,12 @@ export default function FollowUpsView({
         }}
         筛选={
           <Space wrap size={[10, 10]}>
-            <Input
-              style={{ width: 300 }}
+            <ListSearch
+              width={300}
               placeholder={`标题 / 内容 / ${b.customer}`}
-              prefix={<SearchOutlined style={{ color: "var(--text-muted)" }} />}
               value={f.keyword}
-              allowClear
-              onChange={(e) => {
-                const v = e.target.value;
-                setF({ ...f, keyword: v });
-                // 点了清空的小叉：立刻生效，不用人再回车一次
-                if (!v) apply({ keyword: "" });
-              }}
-              onPressEnter={() => apply()}
+              onChange={(v) => setF({ ...f, keyword: v })}
+              onSearch={(v) => apply({ keyword: v })}
             />
             <Select
               style={{ width: 156 }}
