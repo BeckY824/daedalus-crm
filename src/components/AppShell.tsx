@@ -36,6 +36,7 @@ import CommandBar from "./CommandBar";
 import Shortcut from "./Shortcut";
 import { useBusiness } from "@/lib/business-client";
 import { DockOpenContext, useNarrow } from "@/lib/roster";
+import { 曲线, 时长 } from "@/lib/motion";
 
 const { Header, Content } = Layout;
 
@@ -293,7 +294,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
                   切页时眼睛跟着它走，不用重新找自己在哪一项上。
                   系统开了「减弱动态效果」就按 0 秒，等于原来的瞬切。 */}
               {selectedKey === n.key && (
-                <motion.span layoutId="rail-on" className="rail-on-bg" transition={{ duration: 少动 ? 0 : 0.18, ease: [0.2, 0.8, 0.2, 1] }} />
+                <motion.span layoutId="rail-on" className="rail-on-bg" transition={{ duration: 少动 ? 0 : 时长.base, ease: 曲线.ease }} />
               )}
               {n.icon}
               <b>{n.label}</b>
@@ -359,7 +360,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
           一个文档只能有一个 main，两个会让读屏和测试都认不出正文是哪块 */}
       <main className="main app-content" style={{ padding: "22px 26px" }}>
         {/*
-          换页时正文淡进来、抬 6px。**220ms，而且只有正文**——
+          换页时正文淡进来、抬 6px。**--t（180ms），而且只有正文**——
           左栏和中栏不动，动的只是"这一页的内容换了"这件事本身。
           在这之前换页是硬切：上一页的表格原地变成下一页的表格，人得自己确认屏幕真的换了。
 
@@ -371,7 +372,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
           key={底下那页}
           initial={{ opacity: 0, y: 少动 ? 0 : 6 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 少动 ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 少动 ? 0 : 时长.base, ease: 曲线.ease }}
           style={{ maxWidth: 1720, margin: "0 auto" }}
         >
           {children}

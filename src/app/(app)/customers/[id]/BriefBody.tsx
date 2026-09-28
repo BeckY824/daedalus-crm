@@ -4,8 +4,9 @@ import { Typography, Space, Tag, Popover } from "antd";
 import { motion } from "motion/react";
 import type { CustomerBrief, BriefRecord } from "@/lib/ai-draft";
 import { splitCitations } from "@/lib/ai-draft";
+import { 曲线, 时长, 间隔 } from "@/lib/motion";
 
-const fade = { hidden: { opacity: 0, y: 6 }, show: { opacity: 1, y: 0, transition: { duration: 0.28 } } };
+const fade = { hidden: { opacity: 0, y: 6 }, show: { opacity: 1, y: 0, transition: { duration: 时长.morph, ease: 曲线.ease } } };
 
 /**
  * 临战简报的正文：故事线 / 当前局面 / 建议谈 / 风险。弹窗、首页提问、记录页共用。
@@ -15,7 +16,7 @@ const fade = { hidden: { opacity: 0, y: 6 }, show: { opacity: 1, y: 0, transitio
 export default function BriefBody({ brief, records = [] }: { brief: CustomerBrief; records?: BriefRecord[] }) {
   const byN = new Map(records.map((r) => [r.n, r]));
   return (
-    <motion.div className="brief" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.1 } } }}>
+    <motion.div className="brief" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 间隔 } } }}>
       <Section title="故事线">
         <Typography.Paragraph style={{ marginBottom: 0 }}>{brief.story}</Typography.Paragraph>
       </Section>

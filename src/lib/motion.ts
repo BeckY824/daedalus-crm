@@ -12,9 +12,10 @@
  * Rise 0.42s 超过 320 上限（守卫只查样式表，查不到 JS）、时间线排队 40ms 而 Rise 70ms、
  * 左栏底块用的 [0.2, 0.8, 0.2, 1] 是第四条曲线、MotionConfig 默认 0.26 不是任何一档。
  * 现在 src 下别处写裸的 duration / ease 会被守卫抓出来。
- *
- * 数组要展开再传（`ease: [...曲线.ease]`）：motion 的类型要可变数组，这里是 readonly。
  */
+
+/** 和 motion 的 BezierDefinition 同形：直接传 `ease: 曲线.ease`，不用展开 */
+type 贝塞尔 = readonly [number, number, number, number];
 
 export const 曲线 = {
   /** 绝大多数：出现、消失、位移。起步快、收尾软 */
@@ -23,7 +24,7 @@ export const 曲线 = {
   spring: [0.24, 1.34, 0.38, 1],
   /** 一个东西变成另一个东西：浮层长出来、卡片收成一行。两头慢中间快 */
   morph: [0.33, 0.55, 0.2, 1],
-} as const;
+} as const satisfies Record<string, 贝塞尔>;
 
 /** 秒 */
 export const 时长 = {

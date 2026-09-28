@@ -16,6 +16,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowDownOutlined, ReloadOutlined, WarningOutlined, SyncOutlined } from "@ant-design/icons";
+import { 曲线, 时长 } from "@/lib/motion";
 
 type 更新状态 = {
   阶段: "idle" | "checking" | "available" | "downloading" | "ready" | "installing" | "manual" | "error";
@@ -156,7 +157,7 @@ export default function UpdateButton() {
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -4 }}
-        transition={{ duration: 0.18 }}
+        transition={{ duration: 时长.base, ease: 曲线.ease }}
         className="rail-up-slot"
       >
         {静态 ? (

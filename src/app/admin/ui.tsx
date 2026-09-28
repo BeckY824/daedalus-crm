@@ -5,7 +5,7 @@ import type { 设备分布 } from "@/lib/device-os";
 
 /**
  * 运营台几页共用的小件。颜色全走 ops.css 里的变量；图表那边 echarts 不认 CSS 变量，
- * 所以同一组色值在下面 色 里再写一遍——**两处要一起改**（和 Rise.tsx 的 缓动 一个道理）。
+ * 所以同一组色值在下面 色 里再写一遍——**两处要一起改**（和 lib/motion.ts 镜像 globals.css 的动效一个道理）。
  */
 export const 色 = {
   蓝: "#2a78d6",

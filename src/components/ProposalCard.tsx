@@ -14,6 +14,7 @@ import { 建议结果, 记下建议结果, 清掉建议结果 } from "@/lib/ai-j
 import { statusLabel, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
+import { 曲线, 时长 } from "@/lib/motion";
 
 /**
  * AI 建议卡：唯一一条让模型的输出进到数据库的路。
@@ -116,7 +117,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
         className="prop prop-done"
         initial={{ opacity: 0, height: 0 }}
         animate={{ opacity: 1, height: "auto" }}
-        transition={{ duration: 0.26, ease: [0.33, 0.55, 0.2, 1] }}
+        transition={{ duration: 时长.morph, ease: 曲线.morph }}
         style={{ overflow: "hidden" }}
       >
         <span className={`prop-seal${落印 ? " is-new" : ""}`}>
