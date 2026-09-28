@@ -106,6 +106,8 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       // 差量要的两样：ditto 打的 zip 和它的清单。老的 feed 没有，那就只能整包
       zip: 自家.zip || null,
       manifest: 自家.manifest || null,
+      // 清单的 sha256：差量先核它再信清单（delta.js 拉清单）。发版时从 GitHub 原件算的，不经过镜像
+      清单哈希: 剥哈希前缀(自家.manifest_sha256),
       // 上面三个地址可能指向我们自己的镜像（国内下 GitHub 慢，见官网仓库 deploy/mirror.sh）。
       // 镜像下不动时换这里的原址再试一次——同一个包，sha256 照样对得上。
       备用: 取备用(自家.备用),
@@ -117,6 +119,9 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       : 挑dmg(gh.assets);
     // Mac 发布不能让 Windows 用户收到没有对应安装包的更新。
     if (platform === "win32" && !资产) return 候选.length ? 候选.reduce((a, b) => 比版本(b.版本, a.版本) > 0 ? b : a) : null;
+    const 清单资产 = platform === "win32"
+      ? 挑资产(gh.assets, new RegExp(`-${arch}-win\\.manifest\\.json\\.gz$`, "i"))
+      : 挑资产(gh.assets, /(?<!-win)\.manifest\.json\.gz$/);
     候选.push({
       版本: String(gh.tag_name),
       地址: gh.html_url || 下载页,
@@ -130,9 +135,9 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       zip: platform === "win32"
         ? 挑资产(gh.assets, new RegExp(`-${arch}-win\\.zip$`, "i"))?.browser_download_url || null
         : 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
-      manifest: platform === "win32"
-        ? 挑资产(gh.assets, new RegExp(`-${arch}-win\\.manifest\\.json\\.gz$`, "i"))?.browser_download_url || null
-        : 挑资产(gh.assets, /(?<!-win)\.manifest\.json\.gz$/)?.browser_download_url || null,
+      manifest: 清单资产?.browser_download_url || null,
+      // GitHub 自己给每个资产算的 sha256（API 的 digest 字段），直连 GitHub 拿，镜像碰不到
+      清单哈希: 剥哈希前缀(清单资产?.digest),
       // GitHub 这一支给的就是原址，没有再备一份的必要
       备用: null,
     });

@@ -9,7 +9,7 @@
  *
  * ditto 是 macOS 的，集成那组在 CI 的 ubuntu 跳过；纯逻辑那组哪都跑。
  */
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
 import http from "node:http";
@@ -162,6 +162,21 @@ describe.skipIf(process.platform !== "darwin")("整条链：旧包 → 差量 �
     return out;
   }
 
+  it("清单被人换了（sha256 和发布时的对不上）：不信它，退回整包，zip 一个字节都不取", async () => {
+    const 前 = 统计.请求;
+    const 错 = "0".repeat(64);
+    await expect(差量.差量安装({ 清单Url: `${base}/m.json.gz`, 清单哈希: 错, zipUrl: `${base}/Fake.app.zip`, 已装: 旧, 运行: async () => {} }))
+      .rejects.toMatchObject({ name: "退回整包", message: expect.stringMatching(/sha256/) });
+    expect(统计.请求).toBe(前);
+  });
+
+  it("feed 没给清单的 sha256：连清单都不拉，直接整包", async () => {
+    const f = vi.fn();
+    await expect(差量.差量估算({ 清单Url: `${base}/m.json.gz`, 已装: 旧, fetch: f }))
+      .rejects.toMatchObject({ name: "退回整包" });
+    expect(f).not.toHaveBeenCalled();
+  });
+
   it("组装出来的 .new 和新包逐字节一致（含权限、符号链接、删掉的不在、改名的在），且只下了变了的", async () => {
     const 调用: string[][] = [];
     // 假包过不了真的 codesign；桩在第一次 --verify 抛，逼它走「验 → ad-hoc 重签 → 再验」那条恢复路径
@@ -171,7 +186,7 @@ describe.skipIf(process.platform !== "darwin")("整条链：旧包 → 差量 �
     };
     const 日志: string[] = [];
     const r = await 差量.差量安装({
-      清单Url: `${base}/m.json.gz`, zipUrl: `${base}/Fake.app.zip`, 已装: 旧,
+      清单Url: `${base}/m.json.gz`, 清单哈希: sha(fs.readFileSync(清单路径)), zipUrl: `${base}/Fake.app.zip`, 已装: 旧,
       缓存路径: path.join(沙盒, "cache.json"), 运行, 日志: (l: string) => 日志.push(l),
     });
     expect(r.目标).toBe(`${旧}.new`);
@@ -196,7 +211,7 @@ describe.skipIf(process.platform !== "darwin")("整条链：旧包 → 差量 �
     fs.rmSync(`${旧}.new`, { recursive: true, force: true });
     const 百分比: number[] = [];
     await 差量.差量安装({
-      清单Url: `${base}/m.json.gz`, zipUrl: `${base}/Fake.app.zip`, 已装: 旧,
+      清单Url: `${base}/m.json.gz`, 清单哈希: sha(fs.readFileSync(清单路径)), zipUrl: `${base}/Fake.app.zip`, 已装: 旧,
       运行: async () => {},
       进度: (已: number, 总: number) => 总 && 百分比.push(Math.round((已 / 总) * 100)),
     });
@@ -208,20 +223,20 @@ describe.skipIf(process.platform !== "darwin")("整条链：旧包 → 差量 �
 
   it("再跑一次是断点续传：.new 里已经好了的一个字节都不再下", async () => {
     const 之前 = 统计.字节;
-    const r = await 差量.差量安装({ 清单Url: `${base}/m.json.gz`, zipUrl: `${base}/Fake.app.zip`, 已装: 旧, 运行: async () => {} });
+    const r = await 差量.差量安装({ 清单Url: `${base}/m.json.gz`, 清单哈希: sha(fs.readFileSync(清单路径)), zipUrl: `${base}/Fake.app.zip`, 已装: 旧, 运行: async () => {} });
     expect(r.统计.下载).toBe(0);
     expect(统计.字节).toBe(之前);
   });
 
   it("变得太多就退回整包，而不是硬差量", async () => {
     await expect(
-      差量.差量安装({ 清单Url: `${base}/m.json.gz`, zipUrl: `${base}/Fake.app.zip`, 已装: path.join(沙盒, "nowhere", "Fake.app"), 最大占比: 0.01, 运行: async () => {} }),
+      差量.差量安装({ 清单Url: `${base}/m.json.gz`, 清单哈希: sha(fs.readFileSync(清单路径)), zipUrl: `${base}/Fake.app.zip`, 已装: path.join(沙盒, "nowhere", "Fake.app"), 最大占比: 0.01, 运行: async () => {} }),
     ).rejects.toThrow(差量.退回整包);
   });
 
   it("包名对不上直接退回整包", async () => {
     const 别的 = path.join(沙盒, "Other.app");
     fs.mkdirSync(别的, { recursive: true });
-    await expect(差量.差量安装({ 清单Url: `${base}/m.json.gz`, zipUrl: `${base}/Fake.app.zip`, 已装: 别的, 运行: async () => {} })).rejects.toThrow(/包名/);
+    await expect(差量.差量安装({ 清单Url: `${base}/m.json.gz`, 清单哈希: sha(fs.readFileSync(清单路径)), zipUrl: `${base}/Fake.app.zip`, 已装: 别的, 运行: async () => {} })).rejects.toThrow(/包名/);
   });
 });

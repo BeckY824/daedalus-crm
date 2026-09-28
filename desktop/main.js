@@ -753,13 +753,16 @@ async function 检查更新({ 手动 = false } = {}) {
      * 都退回整包，按钮上写整包的体积。见 delta.js 顶部。
      */
     // Windows 只在 NSIS 装在自己能写的地方时差量；不能就照旧整包，原因记一笔
-    const 窗可差量 = process.platform === "win32" ? 窗装.能差量更新(应用包) : { ok: false };
+    let 窗可差量 = process.platform === "win32" ? 窗装.能差量更新(应用包) : { ok: false };
+    // 这一版已经连着两次换不成目录（组策略禁了 PowerShell、杀毒拦了……）：再下一遍差量只会再失败一遍，走整包
+    if (窗可差量.ok && 窗装.换目录屡败(更新目录, 版本)) 窗可差量 = { ok: false, 原因: `${版本} 连着两次没能换上（见 updates/update-swap.log），这次走整包` };
     if (process.platform === "win32" && 新版.zip && !窗可差量.ok) 崩溃.写崩溃日志(应用日志, "差量不可用", 窗可差量.原因);
     if ((process.platform === "darwin" || 窗可差量.ok) && 新版.zip && 新版.manifest) {
       try {
         设更新状态({ 阶段: "checking", 文字: "正在比对已装的文件…" });
         const 估 = await 差量.差量估算({
           清单Url: 新版.manifest,
+          清单哈希: 新版.清单哈希,
           已装: 应用包,
           缓存路径: path.join(数据根, "updates", "hash-cache.json"),
           日志: (行) => 崩溃.写崩溃日志(应用日志, "差量估算", 行),
@@ -1146,6 +1149,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(async () => {
     建菜单();
     安装.清理旧包(应用包).catch(() => {});
+    // 换目录成了的话，现在跑的就是新版本：失败计数清掉（windows-install.js 的 换目录屡败）
+    if (process.platform === "win32") 窗装.换目录已生效(更新目录, app.getVersion());
     if (读配置().mode === "local") {
       /*
         先问一句手上这枚令牌还认不认。改密码会把设备令牌全部吊销（2026-09-17），
