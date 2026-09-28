@@ -18,6 +18,7 @@ import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { money, fmtDate, dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { saveOpportunity, deleteOpportunities, moveStage, setOppStatus } from "./actions";
 import { useBusiness } from "@/lib/business-client";
+import { 金额格式 } from "@/lib/money-input";
 import { useUrlFilters } from "@/lib/url-filters";
 
 export type OppRow = {
@@ -69,11 +70,11 @@ export default function OpportunitiesView({
       });
     } else {
       form.resetFields();
+      // 金额不给默认值：原来默认 ¥100,000，忘了改就平白多出一单十万，直接进总额和加权预测
       form.setFieldsValue({
         stage: "初步沟通",
         status: "OPEN",
         probability: 20,
-        amount: 100000,
         ownerId: users[0]?.id,
       });
     }
@@ -352,13 +353,14 @@ export default function OpportunitiesView({
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="amount" label="商机金额（元）" rules={[{ required: true }]}>
+              <Form.Item name="amount" label="商机金额（元）" rules={[{ required: true, message: "请填写商机金额" }]}>
                 <InputNumber<number>
                   min={0}
                   step={10000}
                   style={{ width: "100%" }}
-                  formatter={(v) => `¥ ${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
-                  parser={(v) => Number(v?.replace(/[¥,\s]/g, "") ?? 0)}
+                  prefix="¥"
+                  placeholder="如 50,000"
+                  formatter={金额格式}
                 />
               </Form.Item>
             </Col>

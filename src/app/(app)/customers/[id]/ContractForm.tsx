@@ -5,6 +5,7 @@ import { Modal, Form, InputNumber, DatePicker, Input, App } from "antd";
 import { dayjs, money } from "@/lib/utils";
 import { saveContract } from "../actions";
 import { useBusiness } from "@/lib/business-client";
+import { 金额格式 } from "@/lib/money-input";
 
 export type ContractRow = {
   id: string;
@@ -127,13 +128,14 @@ function Inner({
         }
       >
         <Form.Item label="签约金额（元）" name="amount" rules={[{ required: true, message: "请输入签约金额" }]}>
+          {/* 和商机金额同一个坑：parser 把空串读成 0，清空后再敲会多出一个 0（见 lib/money-input.ts） */}
           <InputNumber<number>
             style={{ width: "100%" }}
             min={0}
             step={1000}
-            placeholder="19800"
-            formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}
-            parser={(v) => Number(v?.replace(/,/g, "") ?? 0)}
+            prefix="¥"
+            placeholder="如 19,800"
+            formatter={金额格式}
           />
         </Form.Item>
         <Form.Item label="签约时间" name="signedAt" rules={[{ required: true, message: "请选择签约时间" }]}>
