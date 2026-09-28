@@ -70,6 +70,10 @@
      时长四档。**按下那档 90ms 是故意最短的**：按下要立刻，松开才慢慢回弹——
      手感的差别几乎全在这一档上。上限 320ms，超过就是在让人等。 */
   --t-press: 90ms; --t-fast: 120ms; --t: 160ms; --t-slow: 180ms; --t-enter: 200ms; --t-morph: 320ms;
+  /* 落印（建议卡确认那一下）专用，也只许它用。别的都守 320，唯独它上限放到 480（2026-09-28 拍板）：
+     那一刻数据已经写了、还能撤，它是回执不是等待；一天十几次；盖章要落下、压实、回弹三段，
+     压进 320 看不出是在盖。现状主题先用 320，以后账簿 / 高级这类主题才往上调 */
+  --t-seal: 320ms;
   --ease: cubic-bezier(.22, 1, .36, 1);
   --ease-spring: cubic-bezier(.24, 1.34, .38, 1);
   --ease-morph: cubic-bezier(.33, .55, .2, 1);
@@ -935,7 +939,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .prop-done { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; border: 1px solid var(--ink-soft); background: var(--panel); border-radius: var(--r-card); padding: 8px 12px; color: var(--ink); font-size: var(--fs-note); }
 .prop-done-t { flex: 1 1 180px; min-width: 0; }
 .prop-seal { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; line-height: 20px; border: 1.5px solid var(--ink); border-radius: var(--r-ctl); color: var(--ink); font-size: var(--fs-min); font-weight: 600; letter-spacing: .04em; font-variant-numeric: tabular-nums; rotate: -2deg; }
-.prop-seal.is-new { animation: prop-seal var(--t-morph) var(--ease-spring) both; }
+.prop-seal.is-new { animation: prop-seal var(--t-seal) var(--ease-spring) both; }
 @keyframes prop-seal { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: none; } }
 .prop-done-acts { display: inline-flex; align-items: center; gap: 12px; }
 /* 冷热信号条（components/Heat.tsx）：四格竖条，从左往右亮。形不跟着字号缩 */

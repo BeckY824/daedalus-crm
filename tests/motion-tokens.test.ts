@@ -42,8 +42,24 @@ describe("动效底座", () => {
   });
 
   it("上限 320ms：超过就是在让人等", () => {
-    const 毫秒 = [...css.matchAll(/--t[\w-]*:\s*(\d+)ms/g)].map((m) => Number(m[1]));
+    // --t-seal 单独一条规矩，见下一条
+    const 毫秒 = [...css.matchAll(/--t(?!-seal)[\w-]*:\s*(\d+)ms/g)].map((m) => Number(m[1]));
     expect(Math.max(...毫秒)).toBeLessThanOrEqual(320);
+  });
+
+  it("只有落印能放到 480ms，而且只许落印用它", () => {
+    /**
+     * 2026-09-28 拍板的唯一例外：建议卡确认时落的那个印。它是回执不是等待（数据已经写了、还能撤），
+     * 一天十几次，盖章要三段才看得出。其余照旧 ≤320——所以要钉住「只有它」，
+     * 不然 480 很快会被拿去给别的东西用。
+     */
+    const 值 = [...css.matchAll(/--t-seal:\s*(\d+)ms/g)].map((m) => Number(m[1]));
+    expect(值.length).toBeGreaterThan(0);
+    expect(Math.max(...值)).toBeLessThanOrEqual(480);
+    const 用处 = [...css.matchAll(/([^{}]*)\{[^{}]*var\(--t-seal\)/g)].map((m) => m[1].trim());
+    expect(用处.length).toBeGreaterThan(0);
+    const 别处 = 用处.filter((sel) => !/seal/.test(sel));
+    expect(别处, `这些选择器不是落印，不许用 --t-seal：${别处.join(" / ")}`).toEqual([]);
   });
 
   it("开了「减弱动态」之后不许再有位移", () => {
