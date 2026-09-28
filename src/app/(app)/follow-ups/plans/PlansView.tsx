@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Segmented, Space, Button, App, Tag } from "antd";
 import { PlusOutlined, UnorderedListOutlined, CheckCircleOutlined } from "@ant-design/icons";
@@ -8,11 +8,13 @@ import { PageHead, UserCell } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 是逾期 } from "@/lib/overdue";
-import { useBusiness } from "@/lib/business-client";
 import { toggleTask, completePlan } from "../../customers/[id]/actions";
 import PlanForm from "../../customers/[id]/PlanForm";
 import { 截止说法 } from "@/lib/deadline";
 
+
+/** 只用来认「水合完了没有」（见下面的 已水合） */
+const 无订阅 = () => () => {};
 type Plan = {
   id: string;
   subject: string;
@@ -77,15 +79,20 @@ export default function PlansView({
   tasks,
   done,
   meId,
+  预选客户,
+  直接新建,
 }: {
   plans: Plan[];
   tasks: Task[];
   done: 已完成[];
   meId: string;
+  /** 从某位客户带过来的（?customer=）：「新建计划」预填这一位 */
+  预选客户: { id: string; name: string } | null;
+  /** ?new=1：进来就把新建框打开 */
+  直接新建: boolean;
 }) {
   const router = useRouter();
   const { message } = App.useApp();
-  const b = useBusiness();
   const [scope, setScope] = useState<string | number>("我的");
   /**
    * 看待办还是看做完的。
@@ -99,6 +106,26 @@ export default function PlansView({
   const [刚完成, set刚完成] = useState<string[]>([]);
   /** 「排下一次」给哪一位排：完成一条计划之后提示条里点进来（审查 M10） */
   const [排给, set排给] = useState<string | null>(null);
+  /**
+   * 「新建计划」就地弹框（2026-09-29）。原来它跳去客户列表，让人自己挑一位再进记录页排——
+   * 按钮写着「新建」却把人带走了，被当成 bug 报上来。现在框里第一格挑人，
+   * 挑中后给一行「上次谈到哪儿」（CustomerPick），保存后人还在这一页，新的那行亮一下
+   */
+  const [新建开着, set新建开着] = useState(直接新建);
+  /** ?new=1 进来就开：等水合完再开。服务端先画一个开着的弹窗，会和客户端那一版对不上 */
+  const 已水合 = useSyncExternalStore(无订阅, () => true, () => false);
+  /** 刚建的那条计划：等它出现在列表里亮两秒（和 DataList 的 row-fresh 同一个样子） */
+  const [刚建, set刚建] = useState<string | null>(null);
+  const 刚建那行 = useRef<HTMLDivElement | null>(null);
+  const 刚建到了 = 刚建 !== null && plans.some((p) => `plan:${p.id}` === 刚建);
+  useEffect(() => {
+    if (!刚建到了) return;
+    // 排在下面几组的时候人看不见它：滚到眼前。减弱动态时直接跳过去，不滑
+    const 减弱 = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    刚建那行.current?.scrollIntoView({ block: "nearest", behavior: 减弱 ? "auto" : "smooth" });
+    const t = setTimeout(() => set刚建(null), 2000);
+    return () => clearTimeout(t);
+  }, [刚建到了]);
   /**
    * 这一页上的事全是我的（一个人的库就是这样）：「我的 / 全部成员」这一层不摆（审查 D2）——
    * 两边永远一样，摆着只是让人多想一下「全部成员」里会不会还有别的
@@ -201,8 +228,7 @@ export default function PlansView({
   return (
     <>
       {/* 计划和记录是同一件事的两头，「记录」是页头上的次动作，不再占一列中栏。
-          排计划要在某一位的记录页上做（那儿才知道上次谈到哪儿），
-          所以主动作是去挑那个人 */}
+          「新建计划」就地弹框、第一格挑人；「上次谈到哪儿」跟着挑中的人进框里 */}
       <PageHead
         title="跟进计划"
         subtitle="逾期、今天、本周要联系的人"
@@ -211,7 +237,7 @@ export default function PlansView({
             <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/follow-ups")}>
               记录
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/customers")}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => set新建开着(true)}>
               新建计划
             </Button>
           </Space>
@@ -222,8 +248,8 @@ export default function PlansView({
         <div className="card-soft">
           <EmptyState
             title="还没有排任何跟进"
-            hint={`跟进计划是「下次什么时候、找谁、谈什么」。它从${b.customer}的记录页上排——在那儿点「制定跟进计划」，到时间了这一页会把它顶到最前面。`}
-            primary={{ label: `去${b.customer}那边排一条`, onClick: () => router.push("/customers") }}
+            hint={`跟进计划是「下次什么时候、找谁、谈什么」。排好之后，到时间了这一页会把它顶到最前面。`}
+            primary={{ label: "排第一条计划", onClick: () => set新建开着(true) }}
           />
         </div>
       ) : (
@@ -275,11 +301,11 @@ export default function PlansView({
           <div className="plans">
             {/* 三组的空文案各不相同：全写「这一组是空的」，人分不出
                 「今天没排」和「已经全做完了」——那是两件完全不同的事 */}
-            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} scope={scope} />
-            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} scope={scope} />
-            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} scope={scope} />
+            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} />
+            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} />
+            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} />
             {组.以后.length > 0 && (
-              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} scope={scope} />
+              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} />
             )}
           </div>
           )}
@@ -289,12 +315,25 @@ export default function PlansView({
       {排给 && (
         <PlanForm open onClose={() => set排给(null)} onSaved={() => { set排给(null); router.refresh(); }} customerId={排给} record={null} 默认天数={7} />
       )}
+      <PlanForm
+        open={新建开着 && 已水合}
+        onClose={() => set新建开着(false)}
+        onSaved={(id) => {
+          set新建开着(false);
+          // 新的一条在「待办」里；人正看着「已完成」的话切回来，不然亮的那行看不见
+          set看("待办");
+          if (id) set刚建(`plan:${id}`);
+          router.refresh();
+        }}
+        预选客户={预选客户}
+        record={null}
+      />
     </>
   );
 }
 
 function 组块({
-  名, 说明, 空话, 事项, 危险, 完成, 刚完成, scope,
+  名, 说明, 空话, 事项, 危险, 完成, 刚完成, 刚建, 刚建那行, scope,
 }: {
   名: string;
   说明: string;
@@ -304,6 +343,9 @@ function 组块({
   危险?: boolean;
   完成: (x: 事项) => void;
   刚完成: string[];
+  /** 刚在这一页新建的那条的 key：亮两秒 */
+  刚建: string | null;
+  刚建那行: React.RefObject<HTMLDivElement | null>;
   scope: string | number;
 }) {
   return (
@@ -319,7 +361,11 @@ function 组块({
         事项.map((x) => {
           const 完了 = 刚完成.includes(x.key);
           return (
-            <div key={x.key} className={`plan-row${完了 ? " plan-row-done" : ""}`}>
+            <div
+              key={x.key}
+              ref={x.key === 刚建 ? 刚建那行 : undefined}
+              className={`plan-row${完了 ? " plan-row-done" : ""}${x.key === 刚建 ? " row-fresh" : ""}`}
+            >
               <Button
                 type="text"
                 size="small"

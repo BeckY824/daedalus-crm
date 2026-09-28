@@ -340,6 +340,87 @@ test("完成一条计划之后，它去了「已完成」那一屏（不是人�
   await expect(那条).toContainText("完成");
 });
 
+/**
+ * 「新建计划」「记录跟进」就地弹框，不再跳去客户列表（2026-09-29 报上来的：按钮写着「新建」却把人带走了）。
+ * 造一位有上次跟进、有一条到期计划的客户，两条路各走一遍：挑人 → 框里写出上下文 → 保存后还在原页、新行亮、提示里有去记录页的路。
+ */
+async function 造一位要跟的() {
+  const p = 连库();
+  const 我 = await p.user.findUniqueOrThrow({ where: { email: 账号.用户名 } });
+  const 名 = `挑人测试${Date.now() % 100000}`;
+  const c = await p.customer.create({ data: { name: 名, phone: `1370000${String(Date.now() % 10000).padStart(4, "0")}`, salesOwnerId: 我.id } });
+  await p.followUp.create({
+    data: { customerId: c.id, ownerId: 我.id, type: "PHONE", title: "报价反馈", content: "嫌贵", status: "已完成", occurredAt: new Date(Date.now() - 3 * 86400_000) },
+  });
+  const 旧计划 = await p.followPlan.create({
+    data: { customerId: c.id, ownerId: 我.id, subject: "发二版报价", method: "电话沟通", plannedAt: new Date(Date.now() - 86400_000) },
+  });
+  await p.$disconnect();
+  return { 名, id: c.id, 旧计划id: 旧计划.id };
+}
+
+async function 挑(page: Page, 名: string) {
+  const 弹窗 = page.getByRole("dialog");
+  // 打开时焦点就在「客户」这一格：直接打字就是在搜
+  await expect(弹窗.locator(".ant-select-focused").first()).toBeVisible();
+  await page.keyboard.type(名.slice(0, 4));
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option").filter({ hasText: 名 }).first().click();
+  await expect(弹窗.locator(".pick-ctx")).toContainText("上次跟进");
+  // 下拉收起的动画走完再往下：收起途中按的 Esc 归下拉，不归弹窗
+  await expect(page.locator(".ant-select-dropdown:visible")).toHaveCount(0);
+  return 弹窗;
+}
+
+test("计划页「新建计划」就地弹框：挑人、说清另加不替换、保存后留在原页并点亮新行", async ({ page }) => {
+  const 客 = await 造一位要跟的();
+  await 登录(page);
+  await page.goto("/follow-ups/plans");
+  await page.getByRole("button", { name: "新建计划" }).click();
+  const 弹窗 = await 挑(page, 客.名);
+  await expect(page).toHaveURL(/\/follow-ups\/plans$/);
+  await expect(弹窗.locator(".pick-ctx")).toContainText("报价反馈");
+  // savePlan 不带 id 是另加一条：框里必须明说，不能让人以为改了原来那条
+  await expect(弹窗.locator(".pick-ctx")).toContainText("「发二版报价」");
+  await expect(弹窗.locator(".pick-ctx")).toContainText("不替换");
+
+  await 弹窗.getByLabel("跟进主题").fill("约第三次沟通");
+  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(弹窗).toBeHidden();
+  await expect(page).toHaveURL(/\/follow-ups\/plans$/);
+  await expect(page.locator(".plan-row.row-fresh")).toContainText("约第三次沟通");
+  await expect(page.locator(".ant-message")).toContainText(`去${客.名}的记录页`);
+  // 原来那条还在
+  await expect(page.locator(".plan-row").filter({ hasText: "发二版报价" }).filter({ hasText: 客.名 })).toHaveCount(1);
+
+  // 取消 / Esc 关框不留痕：再打开是空的
+  await page.getByRole("button", { name: "新建计划" }).click();
+  await 挑(page, 客.名);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toBeHidden();
+  await page.getByRole("button", { name: "新建计划" }).click();
+  await expect(page.getByRole("dialog").locator(".pick-ctx")).not.toContainText("上次跟进");
+});
+
+test("跟进页「记录跟进」就地弹框：挑人后到期计划默认一并完成，保存后留在原页并点亮新行", async ({ page }) => {
+  const 客 = await 造一位要跟的();
+  await 登录(page);
+  await page.goto("/follow-ups");
+  await page.getByRole("button", { name: "记录跟进" }).click();
+  const 弹窗 = await 挑(page, 客.名);
+  await expect(弹窗.getByText("同时完成计划「发二版报价」")).toBeVisible();
+  await 弹窗.getByLabel("沟通内容").fill("电话里对了交期");
+  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(弹窗).toBeHidden();
+  await expect(page).toHaveURL(/\/follow-ups$/);
+  await expect(page.locator(".row-fresh")).toContainText("电话里对了交期");
+  await expect(page.locator(".ant-message")).toContainText("一并完成");
+
+  const p = 连库();
+  const 那条 = await p.followPlan.findUniqueOrThrow({ where: { id: 客.旧计划id } });
+  await p.$disconnect();
+  expect(那条.done).toBe(true);
+});
+
 test("商机管道：列头写着这一阶段压着多少钱", async ({ page }) => {
   await 登录(page);
   await page.goto("/opportunities/pipeline");

@@ -1,11 +1,18 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import PlansView from "./PlansView";
+import { 带过来的客户 } from "@/lib/options";
 
 export const dynamic = "force-dynamic";
 
-export default async function PlansPage() {
+export default async function PlansPage({
+  searchParams,
+}: {
+  /** customer：从某位客户带过来的，「新建计划」预填他；new=1：进来就把新建框打开 */
+  searchParams: Promise<{ customer?: string; new?: string }>;
+}) {
   const me = await requireUser();
+  const sp = await searchParams;
 
   /*
     「完成之后去哪了」这一页原来答不上来：三处读取全是 done: false，
@@ -13,7 +20,7 @@ export default async function PlansPage() {
     所以这里把做完的也取回来，按完成时间倒序，界面上用一个切换看。
     只取最近 200 条：这一页是回顾，不是档案馆；再往前翻属于操作日志的事。
   */
-  const [plans, tasks, donePlans, doneTasks] = await Promise.all([
+  const [plans, tasks, donePlans, doneTasks, 预选客户] = await Promise.all([
     prisma.followPlan.findMany({
       where: { done: false },
       orderBy: { plannedAt: "asc" },
@@ -54,11 +61,14 @@ export default async function PlansPage() {
         owner: { select: { id: true, name: true } },
       },
     }),
+    带过来的客户(sp.customer),
   ]);
 
   return (
     <PlansView
       meId={me.id}
+      预选客户={预选客户}
+      直接新建={sp.new === "1"}
       plans={plans.map((p) => ({
         id: p.id,
         subject: p.subject,

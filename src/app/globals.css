@@ -1309,6 +1309,20 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .plan-row-was .plan-row-t { color: var(--ink-soft); }
 .plan-row-was > .anticon { width: 24px; flex: none; text-align: center; }
 .plan-row-was-p { color: var(--text-faint); }
+/* 计划页上刚新建的那一条：和列表的 row-fresh 同一个亮法，只是这里是 div 不是 td，退回透明（这一组没有底色） */
+.plan-row.row-fresh { animation: plan-fresh 2s var(--ease) 1 both; }
+@keyframes plan-fresh {
+  0% { background-color: var(--brand-bg); }
+  55% { background-color: var(--brand-bg); }
+  100% { background-color: transparent; }
+}
+/* 列表页上新建计划 / 跟进时的第一格「挑人」（CustomerPick）。
+   候选里名字后面跟公司和号码（同名的人靠它分）；挑中后底下一行淡字说上次谈到哪儿。
+   那一行没挑之前是一句更淡的说明（--text-faint 只给弱提示），占住位置 */
+.pick-opt { display: flex; align-items: baseline; gap: var(--s2); min-width: 0; }
+.pick-opt-n { min-width: 0; color: var(--text-muted); font-size: var(--fs-note); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick-ctx { display: flex; flex-direction: column; font-size: var(--fs-note); color: var(--text-muted); }
+.pick-ctx-0 { color: var(--text-faint); }
 
 /* ---------- 商机管道 ----------
    列是横着排的，窄屏下**只有这一块横滚**，页面本身不跟着被撑开。 */
