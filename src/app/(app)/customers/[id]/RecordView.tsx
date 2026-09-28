@@ -124,6 +124,76 @@ export default function RecordView({
   }, [followUps, contracts, filter]);
 
   const openTasks = tasks.filter((t) => !t.done);
+
+  /**
+   * 待办勾完成：这一条原地留几秒（划线），提示里给「撤销」，然后再收起（交互审查 S7-③）。
+   * 原来一勾就从记录页消失，记录页又不列已完成的，误勾了只能去「跟进 → 计划 → 已完成」里找。
+   *
+   *   勾选态 —— 先按人点的来（乐观），服务端的 done 跟上来以后这一条自己退掉
+   *   留着   —— 勾完成的那几条，到点收起；撤销了（服务端又是未完成）也自己退掉
+   * 撤销 = 取消完成，走同一个 toggleTask；在留着的那几秒里把勾点掉也是撤销。
+   */
+  const [勾选态, set勾选态] = useState<Record<string, boolean>>({});
+  const [留着, set留着] = useState<string[]>([]);
+  const 收起计时 = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const m = 收起计时.current;
+    return () => m.forEach((t) => clearTimeout(t));
+  }, []);
+  // 服务端的待办换了一版（router.refresh 回来）就对一下账，在渲染里改，不放 effect
+  const [上次的待办, set上次的待办] = useState(tasks);
+  if (上次的待办 !== tasks) {
+    set上次的待办(tasks);
+    const 服务端 = new Map(tasks.map((t) => [t.id, t.done]));
+    const 剩态 = Object.entries(勾选态).filter(([id, v]) => 服务端.has(id) && 服务端.get(id) !== v);
+    if (剩态.length !== Object.keys(勾选态).length) set勾选态(Object.fromEntries(剩态));
+    const 剩留 = 留着.filter((id) => 服务端.get(id) !== false);
+    if (剩留.length !== 留着.length) set留着(剩留);
+  }
+  const 已完成 = (t: { id: string; done: boolean }) => 勾选态[t.id] ?? t.done;
+  // 服务端按「未完成在前、再按截止」排，刚勾完的那条会跳到末尾；这里只按截止排，它就还在原处
+  const 待办行 = tasks
+    .filter((t) => !已完成(t) || 留着.includes(t.id))
+    .sort((a, b2) => (a.dueAt ?? "").localeCompare(b2.dueAt ?? ""));
+  /** 留几秒。和提示条一样长：提示收了，这一条也收 */
+  const 留秒 = 5;
+
+  async function 勾待办(t: (typeof tasks)[number], 完成: boolean) {
+    const 计时 = 收起计时.current.get(t.id);
+    if (计时) clearTimeout(计时);
+    收起计时.current.delete(t.id);
+    set勾选态((s) => ({ ...s, [t.id]: 完成 }));
+    if (完成) set留着((s) => (s.includes(t.id) ? s : [...s, t.id]));
+    else message.destroy(`task-${t.id}`);
+    try {
+      await toggleTask(t.id, 完成);
+    } catch {
+      set勾选态((s) => ({ ...s, [t.id]: !完成 }));
+      message.error("没改成，再试一次");
+      return;
+    }
+    router.refresh();
+    if (!完成) return void message.success(`「${t.title}」已改回未完成`);
+    message.success({
+      key: `task-${t.id}`,
+      duration: 留秒,
+      content: (
+        <span>
+          「{t.title}」已完成
+          <Button type="link" size="small" onClick={() => void 勾待办(t, false)}>
+            撤销
+          </Button>
+        </span>
+      ),
+    });
+    收起计时.current.set(
+      t.id,
+      setTimeout(() => {
+        收起计时.current.delete(t.id);
+        set留着((s) => s.filter((x) => x !== t.id));
+      }, 留秒 * 1000),
+    );
+  }
   const fingerprint = `${followUps.length}:${followUps[0]?.occurredAt ?? ""}:${followUps[0]?.id ?? ""}`;
 
   function openFollow(record: FollowUpRow | null, aiText?: string) {
@@ -450,23 +520,35 @@ export default function RecordView({
                   新建任务
                 </Button>
               </div>
-              {openTasks.length === 0 && <Typography.Text type="secondary" style={{ fontSize: 13 }}>暂无待办</Typography.Text>}
-              {openTasks.map((t) => (
-                <div key={t.id} className="rec-task">
-                  <Checkbox
-                    checked={t.done}
-                    onChange={async (e) => {
-                      await toggleTask(t.id, e.target.checked);
-                      router.refresh();
-                    }}
-                  />
-                  <span>{t.title}</span>
-                  <span className="rec-task-due" style={{ color: t.dueAt && dayjs(t.dueAt).isBefore(dayjs()) ? "var(--danger)" : undefined }}>
-                    {smartTime(t.dueAt)}
-                  </span>
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={async () => { await deleteTask(t.id); router.refresh(); }} />
-                </div>
-              ))}
+              {待办行.length === 0 && <Typography.Text type="secondary" style={{ fontSize: 13 }}>暂无待办</Typography.Text>}
+              {/* 收起只淡出、不收高度：减弱动态时不许有位移，淡出在两种设置下都一样 */}
+              <AnimatePresence initial={false}>
+                {待办行.map((t) => (
+                  <motion.div
+                    key={t.id}
+                    className={`rec-task${已完成(t) ? " is-done" : ""}`}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                  >
+                    <Checkbox checked={已完成(t)} onChange={(e) => void 勾待办(t, e.target.checked)} aria-label={`完成 ${t.title}`} />
+                    <span className="rec-task-t">{t.title}</span>
+                    <span className="rec-task-due" style={{ color: !已完成(t) && t.dueAt && dayjs(t.dueAt).isBefore(dayjs()) ? "var(--danger)" : undefined }}>
+                      {smartTime(t.dueAt)}
+                    </span>
+                    {/* 就地确认：一条待办删了还能再建，一句话说得完，不值得弹框（见 components/InlineConfirm.tsx） */}
+                    <InlineConfirm
+                      问="删除这条？"
+                      做={async () => {
+                        await deleteTask(t.id);
+                        message.success("待办已删除");
+                        router.refresh();
+                      }}
+                    >
+                      <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除待办" />
+                    </InlineConfirm>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
             </div>
 
             {!plan && (

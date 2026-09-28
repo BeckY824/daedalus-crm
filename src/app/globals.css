@@ -702,6 +702,8 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-side-t { font-size: var(--fs-note); font-weight: 600; color: var(--text-muted); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
 .rec-task { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: var(--fs-body); }
 .rec-task-due { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
+/* 刚勾完成、还留在原处的那几秒：划线变淡，一眼看得出「这条完了」，也看得出还能撤 */
+.rec-task.is-done .rec-task-t { text-decoration: line-through; color: var(--text-muted); }
 
 /* 记录页在什么宽度上收。两个断点都是算出来的，不是拍的：
      1440（桌面端窗口的默认尺寸）：左栏 164 + 名单 220 + 正文内边距 52 = 436，正文 1004。
