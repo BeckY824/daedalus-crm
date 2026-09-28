@@ -205,9 +205,7 @@ function 读配置() {
       // 升级后突然切到空空如也的本地库会以为数据没了，所以保持连服务器
       mode: c.mode ?? "server",
       serverUrl: (c.serverUrl || 默认服务器).replace(/\/+$/, ""),
-      // 更新相关的两项。以前这里没把它们读回来，于是「跳过这个版本」写进去就丢了，
-      // 每次启动照样提示；每天一次的节流也从没生效过
-      skipVersion: c.skipVersion,
+      // 每天查一次更新的节流。以前这里没把它读回来，节流从没生效过
       lastUpdateCheck: c.lastUpdateCheck,
       // 上次停在哪一页，见 route-memory.js
       lastRoute: c.lastRoute,
@@ -603,6 +601,17 @@ async function 切到本地() {
   建菜单();
 }
 
+/**
+ * 改连一台服务器。配置照旧展开再改：以前这里整个换成 {mode, serverUrl}，
+ * 连一次服务器就把「上次检查更新」这些别的项一起抹了
+ */
+function 连服务器(地址) {
+  写配置({ ...读配置(), mode: "server", serverUrl: 地址 });
+  // 本地服务留着不停：切回来时不用再等一次冷启动
+  win ? win.loadURL(地址) : 建窗口();
+  建菜单();
+}
+
 function 问服务器地址() {
   const cur = 读配置().serverUrl;
   // Electron 没有内置输入框，用一个极简页面代替
@@ -637,11 +646,8 @@ function 问服务器地址() {
     const clean = String(url).trim().replace(/\/+$/, "");
     // 只认 http(s)：填错协议会让窗口白屏，且看不出是为什么
     if (!/^https?:\/\/.+/.test(clean)) return;
-    写配置({ mode: "server", serverUrl: clean });
     input.close();
-    // 本地服务留着不停：切回来时不用再等一次冷启动
-    win ? win.loadURL(clean) : 建窗口();
-    建菜单();
+    连服务器(clean);
   });
 }
 
@@ -999,10 +1005,7 @@ ipcMain.handle("shell:use-server", (_e, url) => {
   const clean = String(url ?? "").trim().replace(/\/+$/, "");
   // 只认 http(s)：填错协议会让窗口白屏，且看不出是为什么
   if (!/^https?:\/\/.+/.test(clean)) return { ok: false, error: "地址要以 http:// 或 https:// 开头" };
-  写配置({ mode: "server", serverUrl: clean });
-  // 本地服务留着不停：切回来时不用再等一次冷启动
-  win ? win.loadURL(clean) : 建窗口();
-  建菜单();
+  连服务器(clean);
   return { ok: true };
 });
 
