@@ -27,6 +27,7 @@ import Logo from "./Logo";
 import UpdateButton from "./UpdateButton";
 import AiTasks from "./AiTasks";
 import AiDock from "./AiDock";
+import { usePageUnderOverlay } from "@/lib/page-under-overlay";
 import type { ModelOption } from "@/lib/llm";
 import FeedbackButton from "./FeedbackButton";
 import RailResizer from "./RailResizer";
@@ -87,6 +88,8 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
+  /** 设置浮层开着时，底下那页（不是地址栏的 /settings）。见 lib/page-under-overlay.ts */
+  const 底下那页 = usePageUnderOverlay();
   /**
    * 手机上没有图标栏和中栏：390px 宽的屏幕摆不下三栏。
    * 顶部一条栏 + 一个菜单按钮，正文占满。
@@ -117,7 +120,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
   const [手动, set手动] = useState<boolean | null>(null);
   const 面板开着 = 手动 ?? 存的面板;
   /** 名单和记录页的断点要知道右边这条面板占了地方（见 lib/roster.ts 的 DockOpenContext） */
-  const 面板占着地方 = Boolean(ai) && !小屏 && 面板开着 && pathname !== "/dashboard";
+  const 面板占着地方 = Boolean(ai) && !小屏 && 面板开着 && 底下那页 !== "/dashboard";
   const 记住面板 = (开: boolean) => {
     set手动(开);
     try {
@@ -261,7 +264,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
 
   return (
     <DockOpenContext.Provider value={面板占着地方}>
-    <div className={`shell${desktop ? " shell-desktop" : ""}${面板开着 && pathname !== "/dashboard" ? " shell-dock-open" : ""}`}>
+    <div className={`shell${desktop ? " shell-desktop" : ""}${面板开着 && 底下那页 !== "/dashboard" ? " shell-dock-open" : ""}`}>
       {/* 桌面端顶上那条能拖窗口的把手，见 globals.css 的 .drag-strip */}
       {desktop && <div className="drag-strip" aria-hidden="true" />}
       <nav className="rail" aria-label="主导航">
@@ -342,11 +345,12 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
           左栏和中栏不动，动的只是"这一页的内容换了"这件事本身。
           在这之前换页是硬切：上一页的表格原地变成下一页的表格，人得自己确认屏幕真的换了。
 
-          key 挂在 pathname 上：同一页里改筛选、翻页走的是 query，不会重来一遍。
+          key 挂在底下那页上：同一页里改筛选、翻页走的是 query，不会重来一遍；
+          开设置浮层也不算换页——挂在 pathname 上的话，一开设置底下整页重挂、状态丢掉。
           超宽屏下限制正文宽度并居中，避免表格被拉得过于稀疏。
         */}
         <motion.div
-          key={pathname}
+          key={底下那页}
           initial={{ opacity: 0, y: 少动 ? 0 : 6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 少动 ? 0 : 0.22, ease: [0.22, 1, 0.36, 1] }}

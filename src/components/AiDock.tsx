@@ -15,7 +15,8 @@ import Shortcut from "./Shortcut";
  *   4. 动效只用四档时长；减弱动态时不位移（globals.css 里 .dock 那几条）。
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { usePathname, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { usePageUnderOverlay } from "@/lib/page-under-overlay";
 import { CloseOutlined, MessageOutlined } from "@ant-design/icons";
 import WidthHandle, { 面板把手 } from "./WidthHandle";
 import DockThreads from "./DockThreads";
@@ -51,7 +52,12 @@ export default function AiDock({
   开着: boolean;
   set开着: (开: boolean) => void;
 }) {
-  const pathname = usePathname();
+  /*
+    不是地址栏：设置浮层开着时地址栏是 /settings，而底下还是刚才那页。
+    照地址栏判断的话，从首页开设置，这块面板会在浮层后面冒出来（首页本来不出现它），
+    上下文和对话范围也会跳到「设置」上。见 lib/page-under-overlay.ts
+  */
+  const pathname = usePageUnderOverlay();
   const params = useSearchParams();
   /**
    * 用户在**哪一页**把上下文点掉了。存页面而不是存布尔值：
