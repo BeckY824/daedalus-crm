@@ -142,9 +142,9 @@ export default function CustomersView({
     {
       title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 132,
       // 冷热在前：扫一眼这一列就知道谁凉了，日期留着给要细看的人
-      render: (v) => (
+      render: (v, r) => (
         <span className="heat-cell">
-          <Heat at={v} />
+          <Heat at={v} status={r.followStatus} />
           <span className="muted nowrap">{smartTime(v)}</span>
         </span>
       ),

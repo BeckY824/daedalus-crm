@@ -33,7 +33,7 @@ import AiPanel from "./AiPanel";
 import { toggleTask, deleteTask, deleteFollowUp, completePlan, deleteContact, saveFollowUp } from "./actions";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
 import { 登记详情名 } from "@/lib/page-rows";
-import Heat, { 冷热说法 } from "@/components/Heat";
+import Heat, { 冷热说法, 要看冷热 } from "@/components/Heat";
 import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 
@@ -76,6 +76,8 @@ export default function RecordView({
   const { message, modal } = App.useApp();
   const b = useBusiness();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
+  /** 下次跟进过了几天（按日历天；今天到期不算过） */
+  const 计划过期天 = plan ? Math.max(0, dayjs().startOf("day").diff(dayjs(plan.plannedAt).startOf("day"), "day")) : 0;
   // 右边的全局 AI 面板据此知道「他」「这位」是谁（lib/ai-context-page.ts 的客户详情那支）
   useEffect(() => {
     登记详情名(customer.name);
@@ -215,10 +217,13 @@ export default function RecordView({
             {customer.expectedSignAt && ` · ${fmtDate(customer.expectedSignAt)}`}
           </span>
         )}
-        <span className="rec-heat">
-          <Heat at={customer.lastFollowAt} />
-          {冷热说法(customer.lastFollowAt)}
-        </span>
+        {要看冷热(customer.followStatus) && (
+          <span className={`rec-heat${计划过期天 > 0 ? " is-over" : ""}`}>
+            <Heat at={customer.lastFollowAt} />
+            {/* 排了计划又过了期，比「几天没跟」更要紧：那是答应过的事 */}
+            {计划过期天 > 0 ? `下次跟进已过 ${计划过期天} 天` : 冷热说法(customer.lastFollowAt)}
+          </span>
+        )}
       </div>
 
       <div ref={recRef} className={`rec${AI在抽屉里 ? " rec-2col" : ""}${单栏 ? " rec-1col" : ""}`}>

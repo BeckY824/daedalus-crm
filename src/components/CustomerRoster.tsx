@@ -131,7 +131,7 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
               <span className="roster-l1">
                 <span className="roster-n">{r.name}</span>
                 <span className="roster-t">
-                  <Heat at={r.lastFollowAt} /> {r.lastFollowAt ? smartTime(r.lastFollowAt) : ""}
+                  <Heat at={r.lastFollowAt} status={r.followStatus} /> {r.lastFollowAt ? smartTime(r.lastFollowAt) : ""}
                 </span>
               </span>
               <span className="roster-l2">

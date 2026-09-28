@@ -89,6 +89,7 @@ export function setJobValue<T>(key: string, value: T): void {
 export function clearJob(key: string): void {
   轮次.delete(key);
   for (const k of 处理过的建议.keys()) if (k.startsWith(`${key}:`)) 处理过的建议.delete(k);
+  for (const k of 落印回执.keys()) if (k.startsWith(`${key}:`)) 落印回执.delete(k);
   if (jobs.delete(key)) notify();
 }
 
@@ -107,8 +108,25 @@ export function 记下建议结果(记号: string, 结果: "done" | "denied"): v
   notify();
 }
 
-/** 撤销之后这张卡回到「等你确认」 */
+/**
+ * 确认之后的回执：几点写入的、怎么撤。和上面那张表一样放在模块里，
+ * 所以关掉面板再打开、切到别的对话再回来，卡片上还是「已写入 21:51 · 撤销」——
+ * 撤销能用到刷新页面为止。原来放在卡片自己的 state 里，一重挂就只剩「查看」了。
+ */
+export type 落印回执 = { at: string; 撤销?: unknown };
+const 落印回执 = new Map<string, 落印回执>();
+
+export function 记下回执(记号: string, 回执: 落印回执): void {
+  落印回执.set(记号, 回执);
+}
+
+export function 读回执(记号: string): 落印回执 | undefined {
+  return 落印回执.get(记号);
+}
+
+/** 撤销之后这张卡回到「等你确认」，回执一起清掉 */
 export function 清掉建议结果(记号: string): void {
+  落印回执.delete(记号);
   if (处理过的建议.delete(记号)) notify();
 }
 

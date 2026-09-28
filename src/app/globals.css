@@ -942,13 +942,18 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .prop-seal.is-new { animation: prop-seal var(--t-seal) var(--ease-spring) both; }
 @keyframes prop-seal { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: none; } }
 .prop-done-acts { display: inline-flex; align-items: center; gap: 12px; }
+/* 撤销：墨擦掉，框从实线的墨色褪回铅笔。比落印快——反悔不该还要等一段戏 */
+.prop.is-unsealed { animation: prop-unseal var(--t) var(--ease) both; }
+@keyframes prop-unseal { from { border-color: var(--ink-soft); } to { border-color: var(--pencil); } }
 /* 冷热信号条（components/Heat.tsx）：四格竖条，从左往右亮。形不跟着字号缩 */
 .heat { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; flex: none; vertical-align: -1px; }
 .heat i { width: 3px; height: 100%; border-radius: 1px; background: var(--heat-off); }
 .heat[data-l="1"] i:nth-child(-n+1), .heat[data-l="2"] i:nth-child(-n+2),
 .heat[data-l="3"] i:nth-child(-n+3), .heat[data-l="4"] i { background: var(--heat-on); }
+.heat-skip { width: 18px; }  /* 四格 3px + 三道 2px 缝，和画出来的一样宽 */
 .heat-cell { display: inline-flex; align-items: center; gap: 8px; }
 .rec-heat { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-note); color: var(--text-muted); }
+.rec-heat.is-over { color: var(--warning-text); }
 
 /* 底栏：小图标 + 时间 */
 .cli-bar { margin-top: 8px; padding-left: 16px; display: flex; align-items: center; gap: 2px; }

@@ -1,7 +1,7 @@
 "use client";
 import Shortcut from "./Shortcut";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { App, Select, Input, DatePicker, Checkbox } from "antd";
@@ -10,7 +10,7 @@ import { motion } from "motion/react";
 import { applyProposal, undoProposal, type 撤销凭据 } from "@/app/(app)/dashboard/apply";
 import { describeProposal, missingFields, 只留选中的改动, 可改字段表, type Proposal } from "@/lib/agent/proposals";
 import { useBusiness } from "@/lib/business-client";
-import { 建议结果, 记下建议结果, 清掉建议结果 } from "@/lib/ai-jobs";
+import { 建议结果, 记下建议结果, 清掉建议结果, 记下回执, 读回执 } from "@/lib/ai-jobs";
 import { statusLabel, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
@@ -50,9 +50,12 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
     if (记号 && (s === "done" || s === "denied")) 记下建议结果(记号, s);
   };
   const [err, setErr] = useState("");
-  /** 刚确认的这一次：落印的时刻、怎么撤。卡片重挂后没有了——撤销只给「刚点完发现不对」那一下 */
-  const [落印, set落印] = useState<{ at: string; 撤销?: 撤销凭据 } | null>(null);
+  /** 确认之后的回执：几点写入、怎么撤。存在任务表里（lib/ai-jobs 的 落印回执），卡片重挂也还在，刷新页面才没 */
+  const [落印, set落印] = useState<{ at: string; 撤销?: 撤销凭据 } | null>(() => (记号 ? (读回执(记号) as { at: string; 撤销?: 撤销凭据 } | undefined) ?? null : null));
+  /** 这一下刚发生：只有刚点的那次落印才「盖下去」、刚撤销的那次才「褪回去」；重挂时都是静止的结果 */
+  const [刚, set刚] = useState<"落印" | "撤销" | null>(null);
   const [撤销中, set撤销中] = useState(false);
+  const 根 = useRef<HTMLDivElement>(null);
   /** 改档案时逐项勾选。默认全勾上——建议是它提的，人只需要否掉不想要的那几项 */
   const [勾了, set勾了] = useState<number[]>(() => (proposal.kind === "update_customer" ? proposal.changes.map((_, i) => i) : [0]));
   const 逐项 = draft.kind === "update_customer" && draft.changes.length > 1;
@@ -67,11 +70,18 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
     if (!能确认) return;
     setState("saving");
     setErr("");
+    // 确认完这张卡就没有输入框了：焦点原来在卡里的，送回对话框，让人接着说下一句
+    const 焦点在卡里 = !!根.current?.contains(document.activeElement);
+    const 对话框 = 找对话框(根.current);
     const r = await applyProposal(要提交的);
     if (r.ok) {
-      set落印({ at: dayjs().format("HH:mm"), 撤销: r.撤销 });
+      const 回执 = { at: dayjs().format("HH:mm"), 撤销: r.撤销 };
+      set落印(回执);
+      if (记号) 记下回执(记号, 回执);
+      set刚("落印");
       setState("done");
-      message.success(r.message);
+      // 不再弹「已给某某记了一条…」：卡上落的那个印说的就是这件事，同一句话说两遍是噪音
+      if (焦点在卡里) requestAnimationFrame(() => 对话框?.focus());
       /*
         **落库之后要刷这一页。**
         0.38.0 之前这张卡只出现在首页，首页没有会过期的列表，所以不刷也看不出来。
@@ -96,8 +106,9 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
       message.error(r.error);
       return;
     }
-    // 回到「等你确认」：卡片还是那张，人可以改一改再确认，或者忽略
+    // 回到「等你确认」：卡片还是那张，人可以改一改再确认，或者忽略。原地褪回铅笔，不重新浮现一遍
     set落印(null);
+    set刚("撤销");
     set状态("idle");
     if (记号) 清掉建议结果(记号);
     message.success("已撤销，档案回到确认之前");
@@ -119,7 +130,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
         transition={{ duration: 0.26, ease: [0.33, 0.55, 0.2, 1] }}
         style={{ overflow: "hidden" }}
       >
-        <span className={`prop-seal${落印 ? " is-new" : ""}`}>
+        <span className={`prop-seal${刚 === "落印" ? " is-new" : ""}`}>
           <CheckOutlined /> 已写入{落印 ? ` ${落印.at}` : ""}
         </span>
         <span className="prop-done-t">{describeProposal(draft, b.customer, 字段表)}</span>
@@ -142,8 +153,9 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
        回执那段高度动画留下的固定高度还在，卡片内容会溢出去压住下面的东西 */
     <motion.div
       key="pending"
-      className="prop"
-      initial={{ opacity: 0, y: 4 }}
+      ref={根}
+      className={`prop${刚 === "撤销" ? " is-unsealed" : ""}`}
+      initial={刚 === "撤销" ? false : { opacity: 0, y: 4 }}
       animate={{ opacity: 1, y: 0 }}
       /* ⌘↵ = 点「确认」。光标在卡片里任何一个输入框时都管用——
          改完最后一个字段还要伸手去点按钮，是这张卡最烦的一下 */
@@ -428,4 +440,13 @@ function 现值文本(p: Proposal, field: string, b: BusinessConfig): string | u
   if (v === undefined) return undefined;
   if (field === "followStatus" || field === "decisionStatus") return v ? statusLabel(b, v) : "";
   return v;
+}
+
+/** 这张卡所在那一屏的对话框（首页或右侧面板）。往上找，找到第一个装着它的 */
+function 找对话框(el: HTMLElement | null): HTMLTextAreaElement | null {
+  for (let p = el?.parentElement; p; p = p.parentElement) {
+    const t = p.querySelector<HTMLTextAreaElement>(".cli-input textarea");
+    if (t) return t;
+  }
+  return null;
 }

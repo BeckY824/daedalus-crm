@@ -32,3 +32,28 @@ describe("冷热", () => {
     expect(冷热(今天.add(3, "day").toISOString(), 今天)).toEqual({ 格: 4, 天: 0 });
   });
 });
+
+describe("哪些人不画冷热", () => {
+  it("签了的、丢了的不用跟，不画——亮一格「凉了」只会把真该跟的人淹掉", async () => {
+    const { 要看冷热 } = await import("@/components/Heat");
+    expect(要看冷热("已签约")).toBe(false);
+    expect(要看冷热("已流失")).toBe(false);
+    expect(要看冷热("跟进中")).toBe(true);
+    expect(要看冷热(null)).toBe(true);
+  });
+});
+
+describe("建议卡的回执跟着任务表走", () => {
+  it("重挂后还读得到；撤销、清掉任务时一起清", async () => {
+    const { 记下回执, 读回执, 清掉建议结果, 记下建议结果, clearJob } = await import("@/lib/ai-jobs");
+    记下建议结果("home:t1:p1", "done");
+    记下回执("home:t1:p1", { at: "21:51", 撤销: { kind: "add_followup" } });
+    expect(读回执("home:t1:p1")?.at).toBe("21:51");
+    清掉建议结果("home:t1:p1");
+    expect(读回执("home:t1:p1")).toBeUndefined();
+
+    记下回执("home:t2:p1", { at: "09:00" });
+    clearJob("home:t2");
+    expect(读回执("home:t2:p1")).toBeUndefined();
+  });
+});
