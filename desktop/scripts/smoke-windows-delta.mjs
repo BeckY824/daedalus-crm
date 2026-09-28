@@ -138,7 +138,7 @@ const env = { ...process.env, CRM_DATA_ROOT: 数据, CRM_CLOUD_URL: base, CRM_UP
 delete env.ELECTRON_RUN_AS_NODE;
 const exe = path.join(装到, "Daedalus CRM.exe");
 const 日志尾 = () => {
-  for (const f of [path.join(数据, "logs", "app.log"), path.join(数据, "updates", "update-swap.log")]) {
+  for (const f of [path.join(数据, "logs", "app.log"), path.join(数据, "updates", "update-swap.log"), path.join(数据, "updates", "update-swap.out.log")]) {
     if (fs.existsSync(f)) console.error(`--- ${f}\n${fs.readFileSync(f, "utf8").slice(-4000)}`);
   }
 };
@@ -158,8 +158,16 @@ try {
   if (统计.整包) throw new Error("有整包请求：差量没兜住");
   if (!fs.existsSync(`${装到}.new`)) throw new Error("阶段 ready 了却没有 .new");
 
-  // 5) 关掉 → before-quit 交给 PowerShell 换目录
-  await app.close();
+  /*
+    5) 关掉 → before-quit 交给 PowerShell 换目录。
+    **像人一样退出（app.quit），不用 Playwright 的 app.close()**：它在 Windows 上收尾时 taskkill /T /F 整棵进程树，
+    我们刚起的那个 PowerShell（父进程是 Electron）一起被杀，一行日志都来不及写（2026-09-29 CI 上第三次就栽在这）。
+    真用户退出时没人杀进程树
+  */
+  const 进程 = app.process();
+  const 退了 = new Promise((r) => (进程.exitCode !== null ? r() : 进程.once("exit", r)));
+  await app.evaluate(({ app: a }) => a.quit()).catch(() => {});
+  await Promise.race([退了, new Promise((r) => setTimeout(r, 30_000))]);
   app = null;
   await 等(() => fs.existsSync(`${装到}.old`) && !fs.existsSync(`${装到}.new`) && fs.existsSync(exe), 120_000, "换目录完成");
   console.log("PASS: 退出后换目录完成（旧的成了 .old）");

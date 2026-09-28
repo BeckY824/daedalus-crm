@@ -67,7 +67,12 @@ describe("换目录脚本", () => {
       const { 参数 } = 窗装.启动换目录({
         目录: "C:\\Users\\张三\\Programs\\daedalus-crm", 等PID: 4321, 重启: true, 版本: "0.46.8", exe名: "Daedalus CRM.exe", 更新目录, 启动,
       });
-      expect(启动).toHaveBeenCalledWith("powershell.exe", 参数, { detached: true, stdio: "ignore", windowsHide: true });
+      expect(启动).toHaveBeenCalledWith("powershell.exe", 参数, expect.objectContaining({ detached: true, windowsHide: true }));
+      // PowerShell 自己的输出记到文件里：起不来的时候要有线索
+      const stdio = (启动.mock.calls[0] as unknown as [string, string[], { stdio: unknown[] }])[2].stdio;
+      expect(stdio[0]).toBe("ignore");
+      expect(typeof stdio[1]).toBe("number");
+      expect(fs.existsSync(path.join(更新目录, "update-swap.out.log"))).toBe(true);
       expect(参数).not.toContain("-File");
       expect(参数).not.toContain("-ExecutionPolicy");
       expect(fs.readdirSync(更新目录).filter((n) => n.endsWith(".ps1"))).toEqual([]);

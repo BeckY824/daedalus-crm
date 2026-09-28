@@ -225,9 +225,18 @@ function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe�
   const 日志 = path.join(更新目录, "update-swap.log");
   if (版本) 记换目录尝试(更新目录, 版本);
   const 参数 = ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", 编码命令({ 目录, 等PID, 重启, 版本, exe名, 日志 })];
-  const child = 启动("powershell.exe", 参数, { detached: true, stdio: "ignore", windowsHide: true });
+  /*
+    PowerShell 自己的输出（解析错误、被策略拦下、起都起不来）写到 update-swap.out.log。
+    原来是 ignore：脚本连第一行 begin 都没写出来时，什么线索都没有（2026-09-29 CI 上就是这样）
+  */
+  let 输出 = "ignore";
+  try {
+    输出 = fs.openSync(path.join(更新目录, "update-swap.out.log"), "a");
+  } catch { /* 打不开就不记，不能因为日志挡住换目录 */ }
+  const child = 启动("powershell.exe", 参数, { detached: true, stdio: ["ignore", 输出, 输出], windowsHide: true });
   child.on?.("error", () => {});
   child.unref?.();
+  if (typeof 输出 === "number") try { fs.closeSync(输出); } catch { /* 子进程已经拿到了自己那份 */ }
   return { 参数 };
 }
 
