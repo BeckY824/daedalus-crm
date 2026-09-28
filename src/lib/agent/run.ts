@@ -1,13 +1,17 @@
 import { randomUUID } from "node:crypto";
 /**
- * agent 循环（ReAct，JSON 协议）。
+ * agent 循环（ReAct）。
  *
- * 不依赖网关的 function calling：每一步让模型只输出严格 JSON——
- *   {"thought": "一句话打算", "action": {"tool": "get_customer", "args": {...}}}   → 执行工具，把结果喂回去
- *   {"final": true}                                                              → 结束循环，进入最终回答
+ * 每一步让模型挑一个工具，执行完把结果喂回去，直到它说够了，再进最终回答。挑工具有两条路：
+ *   - 默认走原生 function calling（请求带 `tools`）；中转站有时把调用写成 DSML 文本吐回来，
+ *     由 lib/llm-dsml.ts 认回来（见下面「决策这一步怎么问模型」）
+ *   - 对面不吃 `tools` 时退回 JSON 协议，每一步只输出
+ *     {"thought": "一句话打算", "action": {"tool": "get_customer", "args": {...}}} 或 {"final": true}
+ * 意图直连（intents.ts）命中的问题跳过挑工具这一步。
  * 最终回答用流式文本（Markdown），逐 token 推给浏览器；句末 [n] 引用工具读到的记录。
  *
- * 边界：工具全部只读；最多 6 步；每步与最终回答都有超时；用户按 Esc 时 signal 中断。
+ * 边界：工具只读，要写的只拟建议卡（proposals.ts），人点确认才落库；最多 6 步；
+ * 每步与最终回答都有超时；用户按 Esc 时 signal 中断。
  * 过程通过 emit 推出去：每次工具调用一条 step（running → done + summary）。
  */
 import { chatMessagesJSON, chatTextStream, buildSystemPrompt, chatTools, type ToolMessage } from "../llm";
@@ -131,7 +135,7 @@ export type HistoryTurn = { q: string; a: string };
 /**
  * 把历史折进**当前这条 user 消息**，而不是插成一串独立的 user/assistant。
  *
- * 因为这个循环跑的是严格 JSON 协议：每一轮模型只能输出
+ * 因为退回 JSON 协议时，每一轮模型只能输出
  * {"thought":..,"action":..} 或 {"final":true}。要是往消息里塞几条自然语言的
  * assistant 回答，等于给它看了一堆"不按协议输出也行"的先例，它会开始直接
  * 回自然语言，整个循环就散了。折进一条消息里，协议不受影响。
