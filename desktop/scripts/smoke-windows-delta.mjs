@@ -169,7 +169,17 @@ try {
   await app.evaluate(({ app: a }) => a.quit()).catch(() => {});
   await Promise.race([退了, new Promise((r) => setTimeout(r, 30_000))]);
   app = null;
-  await 等(() => fs.existsSync(`${装到}.old`) && !fs.existsSync(`${装到}.new`) && fs.existsSync(exe), 120_000, "换目录完成");
+  try {
+    await 等(() => fs.existsSync(`${装到}.old`) && !fs.existsSync(`${装到}.new`) && fs.existsSync(exe), 120_000, "换目录完成");
+  } catch (e) {
+    // 分清「PowerShell 没起来」和「起来了卡住」：看看机器上还有没有 powershell 在跑、Electron 退干净没有
+    const ps = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+      "Get-CimInstance Win32_Process | Where-Object { $_.Name -in 'powershell.exe','Daedalus CRM.exe' } | ForEach-Object { '{0} {1} parent={2} {3}' -f $_.ProcessId, $_.Name, $_.ParentProcessId, ($_.CommandLine -replace '-EncodedCommand \\S+', '-EncodedCommand …').Substring(0, [Math]::Min(160, $_.CommandLine.Length)) }",
+    ], { encoding: "utf8" });
+    console.error("--- 超时时还在跑的 powershell / Daedalus 进程：\n" + (ps.stdout || ps.stderr || "（没有）"));
+    console.error(`--- .new 在不在：${fs.existsSync(`${装到}.new`)}，.old 在不在：${fs.existsSync(`${装到}.old`)}`);
+    throw e;
+  }
   console.log("PASS: 退出后换目录完成（旧的成了 .old）");
 
   // 6) 验
