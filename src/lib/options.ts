@@ -17,3 +17,12 @@ export function 可选客户(除了?: string) {
     orderBy: { name: "asc" },
   });
 }
+
+/**
+ * 地址栏 `?customer=<id>` 带过来的那一位（跟进 / 计划页「新建」时预填）。
+ * 查不到就当没带：id 是地址栏里的，可能过期、可能被人改过，不能原样信
+ */
+export async function 带过来的客户(id: string | undefined): Promise<{ id: string; name: string } | null> {
+  if (!id) return null;
+  return prisma.customer.findUnique({ where: { id }, select: { id: true, name: true } });
+}

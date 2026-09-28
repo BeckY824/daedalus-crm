@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Space, Select, Tag } from "antd";
 import { CalendarOutlined, PlusOutlined } from "@ant-design/icons";
@@ -12,7 +13,11 @@ import { useBusiness } from "@/lib/business-client";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
 import { duration, 成员选项, 可选成员, smartTime } from "@/lib/utils";
 import { useUrlFilters } from "@/lib/url-filters";
+import FollowUpForm from "../customers/[id]/FollowUpForm";
 
+
+/** 只用来认「水合完了没有」（见下面的 已水合） */
+const 无订阅 = () => () => {};
 type Row = {
   id: string;
   type: string;
@@ -32,18 +37,35 @@ export default function FollowUpsView({
   总数,
   users,
   filters,
+  预选客户,
+  直接新建,
+  aiEnabled,
 }: {
   rows: Row[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
   总数: number;
   users: 可选成员[];
   filters: { keyword: string; type: string; ownerId: string };
+  /** 从某位客户带过来的（?customer=）：「记录跟进」预填这一位 */
+  预选客户: { id: string; name: string } | null;
+  /** ?new=1：进来就把框打开 */
+  直接新建: boolean;
+  /** AI 速记开没开，和记录页同一个开关 */
+  aiEnabled: boolean;
 }) {
   const router = useRouter();
   const b = useBusiness();
   const { f, setF, apply, reset, pending } = useUrlFilters("/follow-ups", filters);
   /** 只有一个人：跟进人那一列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
   const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
+  /**
+   * 「记录跟进」就地弹框（2026-09-29）。原来它跳去客户列表让人自己挑一位——按钮写着「记录」
+   * 却把人带走了，被当成 bug 报上来。现在框里第一格挑人（CustomerPick），保存后留在这一页：
+   * 列表刷新，新的那行由 DataList 自己认出来亮两秒
+   */
+  const [新建开着, set新建开着] = useState(直接新建);
+  /** ?new=1 进来就开：等水合完再开。服务端先画一个开着的弹窗，会和客户端那一版对不上 */
+  const 已水合 = useSyncExternalStore(无订阅, () => true, () => false);
 
   const 列表: 列<Row>[] = [
     {
@@ -95,8 +117,7 @@ export default function FollowUpsView({
   return (
     <>
       {/* 记录和计划是同一件事的两头（发生过的 / 排好还没做的），
-          所以「计划」是页头上的次动作，不再为它常驻一列中栏。
-          记跟进本身要在某一位的记录页上做，这里的主动作就是去挑那个人 */}
+          所以「计划」是页头上的次动作，不再为它常驻一列中栏 */}
       <PageHead
         title="跟进记录"
         subtitle="全部跟进记录"
@@ -105,7 +126,7 @@ export default function FollowUpsView({
             <Button icon={<CalendarOutlined />} onClick={() => router.push("/follow-ups/plans")}>
               计划
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/customers")}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => set新建开着(true)}>
               记录跟进
             </Button>
           </Space>
@@ -122,8 +143,8 @@ export default function FollowUpsView({
         行链接={(r) => `/customers/${r.customerId}`}
         空态={{
           title: "还没有跟进记录",
-          hint: `一条跟进记录就是一次真实发生过的沟通。它从${b.customer}的记录页上记——在那儿随手记一笔，或粘一段聊天记录让 AI 整理；这一页把全团队的汇总起来查。`,
-          primary: { label: `去${b.customer}那边记一笔`, onClick: () => router.push("/customers") },
+          hint: `一条跟进记录就是一次真实发生过的沟通：随手记一笔，或粘一段聊天记录让 AI 整理；这一页把全团队的汇总起来查。`,
+          primary: { label: "记第一条跟进", onClick: () => set新建开着(true) },
         }}
         筛选={
           <Space wrap size={[10, 10]}>
@@ -155,6 +176,18 @@ export default function FollowUpsView({
             <ResetFilters 显示={Object.values(f).some(Boolean)} onClick={reset} />
           </Space>
         }
+      />
+
+      <FollowUpForm
+        open={新建开着 && 已水合}
+        onClose={() => set新建开着(false)}
+        onSaved={() => {
+          set新建开着(false);
+          router.refresh();
+        }}
+        预选客户={预选客户}
+        record={null}
+        aiEnabled={aiEnabled}
       />
     </>
   );

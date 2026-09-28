@@ -231,17 +231,24 @@ export async function savePlan(input: {
   };
   const 姓名 = await 客户名(input.customerId);
   const 说 = `${dayjs(data.plannedAt).format("YYYY-MM-DD")} ${data.method}·${data.subject}`;
+  /*
+    不带 id 永远是**另加一条**，不会顶掉这位已有的计划（一位客户可以同时欠着几条，
+    记录页只摆最早那条）。计划页上就地新建时，框里照这个口径说「这条另加，不替换它」
+  */
+  let id = input.id ?? "";
   if (input.id) {
     await prisma.followPlan.update({ where: { id: input.id }, data });
     await recordAudit({ user, action: "update", entity: "FollowPlan", entityId: input.id, summary: `修改${姓名}的跟进计划（${说}）`, detail: data });
   } else {
     const pl = await prisma.followPlan.create({ data: { ...data, ownerId: user.id } });
+    id = pl.id;
     await recordAudit({ user, action: "create", entity: "FollowPlan", entityId: pl.id, summary: `给${姓名}排了跟进计划（${说}）`, detail: data });
   }
 
   revalidatePath(`/customers/${input.customerId}`);
   revalidatePath("/follow-ups/plans");
-  return { ok: true as const };
+  // 带回 id：计划页新建完要把那一行点亮（和 saveFollowUp 一样）
+  return { ok: true as const, id };
 }
 
 /** 完成一条计划。`完成 = false` 是撤销（审查 M10）：提示条里那个「撤销」走这里，改回未完成 */

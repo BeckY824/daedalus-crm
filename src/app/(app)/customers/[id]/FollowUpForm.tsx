@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Modal, Form, Input, Select, DatePicker, InputNumber, Row, Col, App, Button, Checkbox, Space, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
 import { dayjs, fmtDateTime } from "@/lib/utils";
-import { saveFollowUp, saveTask, savePlan } from "./actions";
+import { saveFollowUp, saveTask, savePlan, completePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import AiWait from "@/components/AiWait";
@@ -13,6 +14,7 @@ import AiCost from "@/components/AiCost";
 import { clearJob, runJob } from "@/lib/ai-jobs";
 import { statusLabel } from "@/lib/business-config";
 import { 只填没动过的, 跳过说明 } from "@/lib/fill-untouched";
+import CustomerPick, { type 客户近况 } from "./CustomerPick";
 
 /** 「标题你改过，没动」里说的名字：和表单上的标签对得上，说短一点 */
 const 字段名: Record<string, string> = {
@@ -48,14 +50,19 @@ type Extras = {
   decisionStatusSuggestion: string | null;
 };
 
+/**
+ * 跟进表单。两处用：记录页（给了 customerId 和他的联系人、商机）和跟进页页头的「记录跟进」
+ * （都不给，第一格挑人，挑中后联系人、商机、到期计划从 CustomerPick 取回来）。只有一份。
+ */
 export default function FollowUpForm({
   open,
   onClose,
   onSaved,
-  customerId,
+  customerId: 给定客户,
+  预选客户,
   record,
-  contacts,
-  opportunities,
+  contacts: 给定联系人,
+  opportunities: 给定商机,
   aiEnabled,
   initialAiText,
   待收口计划 = null,
@@ -64,10 +71,14 @@ export default function FollowUpForm({
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
-  customerId: string;
+  /** 记录页上给定；跟进页上不给，改由表单第一格挑 */
+  customerId?: string;
+  /** 不给 customerId 时预填的那一位（从某位客户带过来的） */
+  预选客户?: { id: string; name: string } | null;
   record: Rec | null;
-  contacts: { id: string; name: string; position: string | null }[];
-  opportunities: { id: string; name: string }[];
+  /** 记录页上给；挑人时用挑中那位的 */
+  contacts?: { id: string; name: string; position: string | null }[];
+  opportunities?: { id: string; name: string }[];
   aiEnabled: boolean;
   /** 记录页顶部的速记框直接带过来的原文：打开即解析，少点一次 */
   initialAiText?: string;
@@ -77,13 +88,34 @@ export default function FollowUpForm({
    * 首页照样催「发二版阶梯报价已逾期 4 天」
    */
   待收口计划?: { id: string; subject: string; plannedAt: string; method: string } | null;
-  /** 勾着「同时完成」保存之后，由记录页去完成它（提示条里带撤销和排下一次） */
+  /**
+   * 勾着「同时完成」保存之后，由记录页去完成它（提示条里带撤销和排下一次）。
+   * 不给（跟进页上挑人时）就由这张表单自己完成，提示条里带撤销和去他记录页的路
+   */
   完成了计划?: (p: { id: string; subject: string; plannedAt: string; method: string }) => void;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
+  const router = useRouter();
   const b = useBusiness();
   const type = Form.useWatch("type", form);
+
+  const 挑人 = !给定客户;
+  /** 挑中那位的近况：联系人、商机、到期计划都从这儿来。关框、保存时清掉 */
+  const [近况, set近况] = useState<客户近况 | null>(null);
+  const customerId = 给定客户 ?? 近况?.id;
+  const contacts = 给定联系人 ?? 近况?.contacts ?? [];
+  const opportunities = 给定商机 ?? 近况?.opportunities ?? [];
+  /** 挑人时的「到期计划」和记录页同一个口径：最早那条没做完的，今天或更早到期 */
+  const 收口计划 = 挑人
+    ? 近况?.未完成计划 && !dayjs(近况.未完成计划.plannedAt).isAfter(dayjs().endOf("day")) ? 近况.未完成计划 : null
+    : 待收口计划;
+
+  function 换人(v: 客户近况 | null) {
+    set近况(v);
+    // 联系人、商机是上一位的，换了人就不作数了（AI 解析填进去的也一样）
+    form.setFieldsValue({ contactId: undefined, opportunityId: undefined });
+  }
 
   const [aiText, setAiText] = useState("");
   /** 这一次解析走到哪儿了：null = 没解析过；有「起」没结果 = 跑着 */
@@ -111,6 +143,7 @@ export default function FollowUpForm({
     set解析(null);
     // 下次打开「同时完成计划」重新默认勾上。在关闭的事件里复位，不放 effect（同上）
     set收口(true);
+    set近况(null);
   }
 
   async function onAiParse() {
@@ -118,6 +151,10 @@ export default function FollowUpForm({
   }
 
   async function runParse(text: string) {
+    if (!customerId) {
+      message.warning(`先挑一位${b.customer}`);
+      return;
+    }
     if (text.trim().length < 5) {
       message.warning("先把沟通过程随手写几句");
       return;
@@ -213,9 +250,11 @@ export default function FollowUpForm({
 
   async function onOk() {
     const v = await form.validateFields();
+    const 谁 = 给定客户 ?? (v.customerId as string);
+    const 名 = 近况?.name;
     const res = await saveFollowUp({
       id: record?.id,
-      customerId,
+      customerId: 谁,
       type: v.type,
       title: v.title,
       content: v.content,
@@ -240,12 +279,12 @@ export default function FollowUpForm({
     if (!record?.id && extras) {
       const jobs: Promise<{ ok: boolean }>[] = [];
       for (const t of extras.tasks) {
-        if (t.checked) jobs.push(saveTask({ customerId, title: t.title, dueAt: t.dueAt }));
+        if (t.checked) jobs.push(saveTask({ customerId: 谁, title: t.title, dueAt: t.dueAt }));
       }
       if (extras.plan?.checked) {
         jobs.push(
           savePlan({
-            customerId,
+            customerId: 谁,
             subject: extras.plan.subject,
             plannedAt: extras.plan.plannedAt,
             method: extras.plan.method,
@@ -264,16 +303,56 @@ export default function FollowUpForm({
       }
     }
 
+    const 要收口 = !record?.id && 收口计划 && 收口 ? 收口计划 : null;
     resetAi();
     onSaved();
-    // 顺手完成那条到期计划：提示由记录页出（带撤销、排下一次），这里就不再单说一句「跟进已记录」
-    if (!record?.id && 待收口计划 && 收口 && 完成了计划) return void 完成了计划(待收口计划);
-    message.success(record?.id ? "已保存" : "跟进已记录");
+    // 顺手完成那条到期计划：记录页上提示由它出（带撤销、排下一次），这里就不再单说一句「跟进已记录」
+    if (要收口 && 完成了计划) return void 完成了计划(要收口);
+    if (!挑人 || !名) {
+      if (要收口) await completePlan(要收口.id);
+      return void message.success(record?.id ? "已保存" : "跟进已记录");
+    }
+
+    // 跟进页上挑人记的：人留在原地（新的那行会亮一下），提示里给撤销和去他记录页的路
+    if (要收口) {
+      await completePlan(要收口.id);
+      void window.desktopReminders?.刷新();
+    }
+    const key = `followup-new-${res.id}`;
+    message.success({
+      key,
+      duration: 6,
+      content: (
+        <span>
+          {要收口 ? `跟进已记录，计划「${要收口.subject}」一并完成` : `已记下和${名}的这次跟进`}
+          {要收口 && (
+            <Button
+              type="link"
+              size="small"
+              onClick={async () => {
+                message.destroy(key);
+                await completePlan(要收口.id, false);
+                void window.desktopReminders?.刷新();
+                message.success(`「${要收口.subject}」已改回未完成`);
+                router.refresh();
+              }}
+            >
+              撤销
+            </Button>
+          )}
+          <Button type="link" size="small" onClick={() => { message.destroy(key); router.push(`/customers/${谁}`); }}>
+            去{名}的记录页
+          </Button>
+        </span>
+      ),
+    });
   }
 
   const showDuration = type === "PHONE" || type === "MEETING";
   const showDue = type === "TASK" || type === "REMIND";
   const showAi = aiEnabled && !record?.id;
+  /** 挑人模式下还没挑：AI 解析要知道是谁（认联系人、商机），先不让点 */
+  const 还没挑 = !customerId;
   const suggestions = [
     extras?.followStatusSuggestion ? `跟进状态 → ${statusLabel(b, extras.followStatusSuggestion)}` : null,
     extras?.decisionStatusSuggestion ? `决策状态 → ${statusLabel(b, extras.decisionStatusSuggestion)}` : null,
@@ -293,43 +372,44 @@ export default function FollowUpForm({
       width={640}
       destroyOnHidden
     >
-      {showAi && (
-        <div
-          style={{
-            background: "var(--brand-bg)",
-            border: "1px solid var(--brand-line)",
-            borderRadius: 8,
-            padding: "12px 14px",
-            marginTop: 8,
-          }}
-        >
-          <Input.TextArea
-            value={aiText}
-            onChange={(e) => setAiText(e.target.value)}
-            autoSize={{ minRows: 2, maxRows: 6 }}
-            maxLength={5000}
-            placeholder={'跟进速记：把沟通过程随手倒出来，或直接粘贴微信聊天记录，AI 帮你填表。\n如："刚和周总通了 20 分钟电话，他担心交期，想先小批量试一单，下周三再约他聊报价"'}
-          />
-          <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            {解析 ? (
-              <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                <AiWait 在做="从这段话里认出跟进方式、结果和下次时间" 起={解析.起} 结果={解析.结果} 出错={解析.出错} />
-              </div>
-            ) : (
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                解析结果只是预填，核对无误再保存
-              </Typography.Text>
-            )}
-            {/* 跑着时不转圈：在做什么、过了几秒，左边那一行已经说了。按钮只负责「现在不能再点」 */}
-            <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={aiLoading} onClick={onAiParse}>
-              {解析?.结果 ? "重新解析" : "AI 解析填表"}
-              <AiCost />
-            </Button>
-          </div>
-        </div>
-      )}
-
+      {/* AI 速记块放在 Form 里面（它不是字段）：挑人那一格是 Form.Item，得在它上面、仍是第一格 */}
       <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+        {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={换人} 不提计划={Boolean(收口计划)} />}
+        {showAi && (
+          <div
+            style={{
+              background: "var(--brand-bg)",
+              border: "1px solid var(--brand-line)",
+              borderRadius: 8,
+              padding: "12px 14px",
+              marginBottom: 8,
+            }}
+          >
+            <Input.TextArea
+              value={aiText}
+              onChange={(e) => setAiText(e.target.value)}
+              autoSize={{ minRows: 2, maxRows: 6 }}
+              maxLength={5000}
+              placeholder={'跟进速记：把沟通过程随手倒出来，或直接粘贴微信聊天记录，AI 帮你填表。\n如："刚和周总通了 20 分钟电话，他担心交期，想先小批量试一单，下周三再约他聊报价"'}
+            />
+            <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              {解析 ? (
+                <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+                  <AiWait 在做="从这段话里认出跟进方式、结果和下次时间" 起={解析.起} 结果={解析.结果} 出错={解析.出错} />
+                </div>
+              ) : (
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  {还没挑 ? `先挑一位${b.customer}，AI 才认得出他的联系人和商机` : "解析结果只是预填，核对无误再保存"}
+                </Typography.Text>
+              )}
+              {/* 跑着时不转圈：在做什么、过了几秒，左边那一行已经说了。按钮只负责「现在不能再点」 */}
+              <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={aiLoading || 还没挑} onClick={onAiParse}>
+                {解析?.结果 ? "重新解析" : "AI 解析填表"}
+                <AiCost />
+              </Button>
+            </div>
+          </div>
+        )}
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item name="type" label="跟进类型" rules={[{ required: true }]}>
@@ -401,11 +481,11 @@ export default function FollowUpForm({
         </Row>
       </Form>
 
-      {!record?.id && 待收口计划 && (
+      {!record?.id && 收口计划 && (
         <div style={{ borderTop: "1px dashed var(--line-soft)", paddingTop: 12, marginTop: 4 }}>
           <Checkbox checked={收口} onChange={(e) => set收口(e.target.checked)}>
-            同时完成计划「{待收口计划.subject}」
-            <Typography.Text type="secondary" style={{ fontSize: 13 }}>（原定 {fmtDateTime(待收口计划.plannedAt)}）</Typography.Text>
+            同时完成计划「{收口计划.subject}」
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>（原定 {fmtDateTime(收口计划.plannedAt)}）</Typography.Text>
           </Checkbox>
         </div>
       )}
