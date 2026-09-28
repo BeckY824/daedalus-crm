@@ -19,6 +19,8 @@ import { getBusiness } from "./business";
 import { 模型配置 as 桌面端云端配置 } from "./desktop/cloud";
 import { 记托管版一次 } from "./tenant/ai-cost";
 import { 有DSML, 解析DSML } from "./llm-dsml";
+import { 抹掉密钥 } from "./secret";
+import type { AI功能 } from "./ai-features";
 
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 export const DEFAULT_MODEL = "deepseek-chat";
@@ -122,17 +124,6 @@ export async function describeLlmConfig(): Promise<{
     return { source: "env", baseUrl: env.baseUrl, model: env.model, keyMasked: maskSecret(env.apiKey), options };
   }
   return { source: null, baseUrl: stored?.baseUrl?.trim() || DEFAULT_BASE_URL, model: stored?.model?.trim() || DEFAULT_MODEL, keyMasked: null, options };
-}
-
-/**
- * 上游的报错原文会同时去两个地方：浏览器（设置页的「测试连接」、AI 对话的错误提示）
- * 和日志（桌面端连 stdout 一起写进日志文件）。而有些中转站鉴权失败时会把
- * 收到的 Key 回显在错误体里——那一刻「Key 不进日志、不回浏览器」两条承诺一起破。
- * 拼进 Error 之前先抹掉。
- */
-function 抹掉密钥(text: string, key: string): string {
-  if (!key || key.length < 8) return text;
-  return text.split(key).join("****");
 }
 
 /**
@@ -325,7 +316,7 @@ type ChatOpts = {
    * 这次调用是哪个功能发起的（ask / brief / parse…），只进成本账，不影响请求。
    * 不填也能用——只是回头算「哪块烧得最凶」时这一行归不了类。
    */
-  feature?: string;
+  feature?: AI功能;
   /**
    * **这一次属于哪个问题。** 同一个问题的每一步（agent 决策、工具、最终回答）都带同一个，
    * 网关据此只扣一次——价格页那句「一次提问算一次」的实现就在这一对头上

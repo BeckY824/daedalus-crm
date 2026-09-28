@@ -4,6 +4,7 @@ import { 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 认领, 取Bearer } from "@/lib/tenant/device-token";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { JEV上游, JEV模型 } from "@/lib/jev/client";
+import { 抹掉密钥 } from "@/lib/secret";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -79,9 +80,7 @@ export async function POST(req: Request) {
      * 原样带回状态码和（截断的）正文，但**把我们的 key 抹掉**——理由同 /chat/completions：
      * 有些上游鉴权失败时会把收到的 Key 回显在错误体里，而这里的客户端是用户的桌面端。
      */
-    const 我们的key = process.env.JEV_API_KEY!.trim();
-    let text = (await upstream.text()).slice(0, 500);
-    if (我们的key.length >= 8) text = text.split(我们的key).join("****");
+    const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.JEV_API_KEY?.trim());
     return 网关错误(upstream.status, `判断模型返回 ${upstream.status}：${text}`);
   }
 

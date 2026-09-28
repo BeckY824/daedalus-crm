@@ -32,3 +32,13 @@ export function readSecret(env: NodeJS.ProcessEnv | Record<string, string | unde
   }
   return 开发回落密钥;
 }
+
+/**
+ * 把一段要回给客户端或写进错误的文本里的 Key 抹掉。
+ * 有些上游鉴权失败时会把收到的 Key 原样回显在错误体里，那一刻「Key 不进日志、不回浏览器」就破了。
+ * 太短的不抹：几个字符的串到处都是，抹了反而把正常文本弄花。
+ */
+export function 抹掉密钥(text: string, key: string | null | undefined): string {
+  if (!key || key.length < 8) return text;
+  return text.split(key).join("****");
+}

@@ -4,6 +4,8 @@ import { 收拾请求体 } from "@/lib/gateway";
 import { 按问题扣一次, 每日赠送期, 规整请求id, 退这一次 } from "@/lib/tenant/credits";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
+import { 抹掉密钥 } from "@/lib/secret";
+import { AI功能 } from "@/lib/ai-features";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,9 +30,9 @@ export const runtime = "nodejs";
 /**
  * 这次调用是哪个功能发起的。**只进成本账**，不影响任何判断，所以认不出就当没有。
  * 白名单而不是原样收下：它会进库、会出现在运营台的分组里，不该让客户端往里写任意字符串。
- * 和 lib/llm.ts 里发出去的那几个名字必须对得上——加一个就两处都要加。
+ * 名单和发请求那边共用一份（lib/ai-features.ts）。
  */
-const 功能白名单 = new Set(["ask", "brief", "draft", "parse", "paste", "import", "other"]);
+const 功能白名单 = new Set<string>(AI功能);
 function 认功能(v: string | null): string | null {
   const s = (v ?? "").trim().toLowerCase();
   return 功能白名单.has(s) ? s : null;
@@ -112,9 +114,7 @@ export async function POST(req: Request) {
     if (upstream.status >= 500 || upstream.status === 429 || upstream.status === 408) {
       await 退这一次(owner, 问题id, 扣.扣了);
     }
-    const 上游Key = process.env.GATEWAY_API_KEY ?? "";
-    let text = (await upstream.text()).slice(0, 500);
-    if (上游Key.length >= 8) text = text.split(上游Key).join("****");
+    const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
     return 网关错误(upstream.status, `上游模型接口返回 ${upstream.status}：${text}`, 剩余头);
   }
 
