@@ -11,6 +11,10 @@
  *   1. :root 和 palette.ts 之外不许有 hex——散一个就红，红的那行告诉你该用哪个 token
  *   2. palette.ts 里的每个值都必须在 :root 里有同样的值——两份镜像不许漂
  * Logo 是品牌图形不是界面色，放行。
+ *
+ * 运营台（/admin）有意另用一套蓝白色板，不进 globals.css（和产品长得一样，人会以为还在自己工作区里）。
+ * 它照同一个规矩来：色值只写在 ops.css 的 `.opx { … }` 变量块，和给 echarts 用的镜像 ui.tsx 的 `色`；
+ * 两个块之外照样一个 hex 都不许有，镜像也不许漂。
  */
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
@@ -35,13 +39,30 @@ function 所有源文件(dir: string): string[] {
 
 const 放行 = new Set(["app/globals.css", "lib/palette.ts", "components/Logo.tsx"]);
 
+/** 运营台那一对：只放行这两个块本身，块外照查。块抹成同样多的换行，行号不乱 */
+const 运营台块: Record<string, (s: string) => [number, number]> = {
+  "app/admin/ops.css": (s) => { const i = s.indexOf(".opx {"); return [i, s.indexOf("\n}", i)]; },
+  "app/admin/ui.tsx": (s) => { const i = s.indexOf("export const 色 = {"); return [i, s.indexOf("\n};", i)]; },
+};
+const 块 = (rel: string) => {
+  const s = 去注释(fs.readFileSync(path.join(根目录, rel), "utf8"));
+  const [a, b] = 运营台块[rel](s);
+  return { s, a, b };
+};
+
 describe("色值只在 :root 和 palette.ts 里写死", () => {
   it("别处一律用 token", () => {
     const 散的: string[] = [];
     for (const f of 所有源文件(根目录)) {
       const rel = path.relative(根目录, f).replaceAll("\\", "/");
       if (放行.has(rel)) continue;
-      const 行 = 去注释(fs.readFileSync(f, "utf8")).split("\n");
+      let 文 = 去注释(fs.readFileSync(f, "utf8"));
+      if (运营台块[rel]) {
+        const { a, b } = 块(rel);
+        expect(a, `${rel} 里找不到色值块`).toBeGreaterThanOrEqual(0);
+        文 = 文.slice(0, a) + 文.slice(a, b).replace(/[^\n]/g, "") + 文.slice(b);
+      }
+      const 行 = 文.split("\n");
       行.forEach((l, i) => {
         for (const m of l.match(HEX) ?? []) 散的.push(`${rel}:${i + 1} ${m}`);
       });
@@ -62,6 +83,14 @@ describe("色值只在 :root 和 palette.ts 里写死", () => {
     for (const [k, v] of Object.entries({ ...palette, ...categorical })) if (!根里的值.has(v.toLowerCase())) 漏了.push(`${k}=${v}`);
     avatarBg.forEach((v, i) => { if (!根里的值.has(v.toLowerCase())) 漏了.push(`avatar[${i}]=${v}`); });
     expect(漏了, `palette.ts 里这些值 :root 没有：${漏了.join("、")}`).toEqual([]);
+  });
+
+  it("运营台：ui.tsx 的 色 每个值都在 ops.css 的 .opx 块里", () => {
+    const css块 = (({ s, a, b }) => s.slice(a, b))(块("app/admin/ops.css"));
+    const 色块 = (({ s, a, b }) => s.slice(a, b))(块("app/admin/ui.tsx"));
+    const 有 = new Set((css块.match(HEX) ?? []).map((h) => h.toLowerCase()));
+    const 漏了 = (色块.match(HEX) ?? []).filter((h) => !有.has(h.toLowerCase()));
+    expect(漏了, `ui.tsx 的 色 里这些值 ops.css 没有：${漏了.join("、")}`).toEqual([]);
   });
 
   it("颜色总数有上限：语义色 + 八个分类色 + 八个头像色，再多就是又开始各拍各的", () => {

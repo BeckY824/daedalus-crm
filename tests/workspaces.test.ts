@@ -82,9 +82,9 @@ describe("长期有效：共享区那个 26764 天", () => {
   });
 
   it("运营台不再直接把天数写在共享区那一行上", () => {
-    const view = fs.readFileSync(path.resolve(__dirname, "../src/app/admin/AdminView.tsx"), "utf8");
-    const page = fs.readFileSync(path.resolve(__dirname, "../src/app/admin/page.tsx"), "utf8");
-    // 判定在服务端做（page.tsx），视图只读那个布尔——AdminView 是 "use client"，
+    const view = fs.readFileSync(path.resolve(__dirname, "../src/app/admin/workspaces/WorkspacesView.tsx"), "utf8");
+    const page = fs.readFileSync(path.resolve(__dirname, "../src/app/admin/data.ts"), "utf8");
+    // 判定在服务端做（data.ts），视图只读那个布尔——WorkspacesView 是 "use client"，
     // 而 lib/tenant/workspaces.ts 带着 node:fs 和 prisma，一 import 就把服务端代码拖进浏览器
     expect(page).toContain("长期有效(daysLeft(");
     // 注释里提它没关系，import 它才要命

@@ -17,6 +17,8 @@ export const 色 = {
   字: "#3d4b60",
   淡字: "#6f7d92",
   墨: "#0f1c2e",
+  绿: "#1baf7a",
+  白: "#ffffff",
 };
 
 export const 千分位 = (n: number) => n.toLocaleString("zh-CN");
@@ -121,7 +123,7 @@ export function 系统分段({ 分 }: { 分: 设备分布 }) {
   const 段 = [
     { 名: "Mac", 数: 分.Mac, 色: 色.蓝 },
     { 名: "Windows", 数: 分.Windows, 色: 色.橙 },
-    ...(分.Linux ? [{ 名: "Linux", 数: 分.Linux, 色: "#1baf7a" }] : []),
+    ...(分.Linux ? [{ 名: "Linux", 数: 分.Linux, 色: 色.绿 }] : []),
     { 名: "未知", 数: 分.未知, 色: 色.灰点 },
   ];
   const 共 = 段.reduce((s, x) => s + x.数, 0);
@@ -160,7 +162,7 @@ export function 按天柱图(数据: { 日: string; 数: number; token?: number 
     tooltip: {
       trigger: "axis",
       axisPointer: { type: "shadow", shadowStyle: { color: "rgba(42,120,214,0.06)" } },
-      backgroundColor: "#fff",
+      backgroundColor: 色.白,
       borderColor: 色.轴,
       textStyle: { color: 色.墨, fontSize: 12 },
       formatter: (ps: { dataIndex: number }[]) => {
@@ -206,7 +208,7 @@ export function 横条图(数据: { 名: string; 数: number }[], 单位 = "次"
     grid: { left: 4, right: 48, top: 4, bottom: 4, containLabel: true },
     tooltip: {
       trigger: "item",
-      backgroundColor: "#fff",
+      backgroundColor: 色.白,
       borderColor: 色.轴,
       textStyle: { color: 色.墨, fontSize: 12 },
       formatter: (p: { name: string; value: number }) => `${p.name}<br/><b>${千分位(p.value)}</b> ${单位}`,

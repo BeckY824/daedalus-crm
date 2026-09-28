@@ -28,6 +28,12 @@
   --x-danger-bg: #fdf1f2;
   --x-ok: #15803d;
   --x-ok-bg: #eefaf2;
+  --x-blue-light: #3b8ae6;
+  --x-green: #1baf7a;
+  --x-danger-line: #f4c7cb;
+  --x-tint: #f1f4f9;
+  --x-hover: #f5f8fc;
+  --x-head: #f7f9fc;
   --x-shadow: 0 1px 2px rgba(16, 38, 76, 0.04), 0 4px 16px rgba(16, 38, 76, 0.04);
 
   color-scheme: light;
@@ -52,8 +58,8 @@
 .opx-logo {
   width: 32px; height: 32px; border-radius: 9px; flex: none;
   display: grid; place-items: center;
-  background: linear-gradient(145deg, #3b8ae6, var(--x-blue-deep));
-  color: #fff; font-weight: 700; font-size: 15px; letter-spacing: -0.5px;
+  background: linear-gradient(145deg, var(--x-blue-light), var(--x-blue-deep));
+  color: var(--x-panel); font-weight: 700; font-size: 15px; letter-spacing: -0.5px;
   box-shadow: 0 4px 10px rgba(42, 120, 214, 0.28);
 }
 .opx-brand b { display: block; font-size: 15px; font-weight: 650; letter-spacing: -0.2px; }
@@ -63,7 +69,7 @@
   padding: 2px 7px; border-radius: 999px; border: 1px solid var(--x-line); color: var(--x-muted);
 }
 /* 对着线上库时要一眼看出来：这一格是状态色，不是装饰 */
-.opx-env-live { color: var(--x-danger); border-color: #f4c7cb; background: var(--x-danger-bg); }
+.opx-env-live { color: var(--x-danger); border-color: var(--x-danger-line); background: var(--x-danger-bg); }
 
 .opx-nav-h { padding: 14px 12px 6px; font-size: 11.5px; font-weight: 600; color: var(--x-faint); letter-spacing: 0.6px; }
 .opx-nav a {
@@ -74,7 +80,7 @@
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .opx-nav a .anticon { font-size: 16px; color: var(--x-faint); transition: color var(--t-fast) var(--ease); }
-.opx-nav a:hover { background: #f3f6fb; color: var(--x-ink); }
+.opx-nav a:hover { background: var(--x-hover); color: var(--x-ink); }
 .opx-nav a.on { background: var(--x-blue-50); color: var(--x-blue-deep); font-weight: 600; }
 .opx-nav a.on .anticon { color: var(--x-blue); }
 .opx-nav a.on::before {
@@ -84,7 +90,7 @@
 .opx-nav-n {
   margin-left: auto; min-width: 20px; height: 20px; padding: 0 6px; border-radius: 999px;
   display: grid; place-items: center; font-size: 11.5px; font-weight: 650;
-  background: var(--x-danger); color: #fff;
+  background: var(--x-danger); color: var(--x-panel);
 }
 .opx-side-foot {
   margin-top: auto; padding: 14px 10px 0; border-top: 1px solid var(--x-line-soft);
@@ -92,7 +98,7 @@
 }
 .opx-side-foot button {
   margin-top: 6px; display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--x-line); background: #fff; color: var(--x-ink-2);
+  border: 1px solid var(--x-line); background: var(--x-panel); color: var(--x-ink-2);
   height: 28px; padding: 0 10px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12.5px;
   transition: border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
@@ -178,7 +184,7 @@
 
 .opx-tag {
   display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border-radius: 6px;
-  font-size: 12px; font-weight: 500; background: #f1f4f9; color: var(--x-ink-2); white-space: nowrap;
+  font-size: 12px; font-weight: 500; background: var(--x-tint); color: var(--x-ink-2); white-space: nowrap;
 }
 .opx-tag-blue { background: var(--x-blue-50); color: var(--x-blue-deep); }
 .opx-tag-ok { background: var(--x-ok-bg); color: var(--x-ok); }
@@ -209,14 +215,14 @@
   border-radius: 10px; color: inherit; text-decoration: none; min-width: 0;
   transition: background var(--t-fast) var(--ease);
 }
-.opx-list > a:hover { background: #f5f8fc; }
+.opx-list > a:hover { background: var(--x-hover); }
 .opx-list > * + * { border-top: 1px solid var(--x-line-soft); }
 .opx-list-r { margin-left: auto; font-size: 12.5px; color: var(--x-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 /* antd 表格收进卡片里：表头浅一档，行可点 */
 .opx .ant-table { background: transparent; }
 .opx .ant-table-thead > tr > th {
-  background: #f7f9fc !important; color: var(--x-muted); font-size: 12.5px; font-weight: 600;
+  background: var(--x-head) !important; color: var(--x-muted); font-size: 12.5px; font-weight: 600;
   border-bottom: 1px solid var(--x-line) !important;
 }
 .opx .ant-table-thead > tr > th::before { display: none; }
@@ -241,16 +247,16 @@
 .opx-kv dd { margin: 0; color: var(--x-ink); min-width: 0; overflow-wrap: anywhere; }
 
 /* 反馈 */
-.opx-fb { padding: 14px 16px; border: 1px solid var(--x-line); border-radius: 12px; background: #fff; }
+.opx-fb { padding: 14px 16px; border: 1px solid var(--x-line); border-radius: 12px; background: var(--x-panel); }
 .opx-fb + .opx-fb { margin-top: 10px; }
 .opx-fb-todo { border-left: 3px solid var(--x-blue); }
-.opx-fb-done { background: #fafbfd; }
+.opx-fb-done { background: var(--x-head); }
 .opx-fb-done p { color: var(--x-muted); }
 .opx-fb-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--x-muted); }
 .opx-fb-h b { color: var(--x-ink); font-size: 13.5px; }
 .opx-fb p { margin: 8px 0 0; white-space: pre-wrap; line-height: 1.7; color: var(--x-ink); }
 
-.opx-hand { white-space: pre-wrap; padding: 12px 14px; background: #f5f8fc; border: 1px solid var(--x-line); border-radius: 10px;
+.opx-hand { white-space: pre-wrap; padding: 12px 14px; background: var(--x-hover); border: 1px solid var(--x-line); border-radius: 10px;
   font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; user-select: all; }
 
 @media (prefers-reduced-motion: reduce) {
