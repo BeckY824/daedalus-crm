@@ -18,9 +18,14 @@ describe("动效底座", () => {
     for (const t of ["--ease:", "--ease-spring:", "--ease-morph:"]) {
       expect(根, `${t} 应该定义在 :root`).toContain(t);
     }
-    for (const t of ["--t-press:", "--t-fast:", "--t:", "--t-enter:", "--t-morph:"]) {
-      expect(根, `${t} 应该定义在 :root`).toContain(t);
-    }
+    // 四档 + 落印，一档不多：2026-09-28 之前实际有六档（160/180/200 挤在 40ms 里），注释却写四档
+    const 档 = [...根.matchAll(/(--t(?:-[\w-]+)?):\s*\d+ms/g)].map((m) => m[1]).sort();
+    expect(档).toEqual(["--t", "--t-fast", "--t-morph", "--t-press", "--t-seal"]);
+  });
+
+  it("并掉的档位没人再用", () => {
+    // 删了定义、没删用处的话，var(--t-enter) 会悄悄变成 0 秒——不报错，只是那一下没了动效
+    expect(css).not.toMatch(/var\(--t-(?:slow|enter)\)/);
   });
 
   it("按下那一档最短：90ms，比悬停还快", () => {
