@@ -39,6 +39,7 @@ const 不算列表页 = [
   "src/app/(app)/settings/ImportsTab.tsx",
   // 导入抽屉：一张列文件的列，一张列读不懂的格子。都还没进库
   "src/app/(app)/customers/ImportDrawer.tsx",
+  "src/app/(app)/customers/import-steps.tsx",
 ];
 
 async function 全部源码(dir: string): Promise<string[]> {
