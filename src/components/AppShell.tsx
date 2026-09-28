@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { palette } from "@/lib/palette";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "motion/react";
+import { 要跟Context } from "./FollowDue";
 import Link from "next/link";
 import { Layout, Avatar, Dropdown, Button, Badge } from "antd";
 import {
@@ -49,7 +50,11 @@ declare global {
 
 type Props = {
   user: SessionUser;
-  pendingCount: number;
+  /**
+   * 要跟的：我名下逾期 + 今天到期、还没做的计划和待办（lib/reminders-db.ts）。
+   * 和桌面端 Dock 上的数是同一个——左栏「跟进」、手机顶栏铃铛都挂它，人在 Dock 上看见 1，打开应用能顺着找到那个 1
+   */
+  要跟: { 逾期: number; 今天: number };
   /** 跑在桌面端（Electron）里：红黄绿钮嵌在图标栏顶上，系统标题栏不再画 */
   desktop: boolean;
   /**
@@ -89,7 +94,7 @@ type Props = {
 /** 面板常驻要的最小窗口宽度，见 AppShell 里 窄窗 那段 */
 const 面板放不下 = "(max-width: 1599px)";
 
-export default function AppShell({ user, pendingCount, desktop, 反馈去向, pane, ai, children }: Props) {
+export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai, children }: Props) {
   const { 曲线, 时长 } = useMotionTheme();
   const b = useBusiness();
   const router = useRouter();
@@ -155,6 +160,19 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
    * 网页版没有这座桥，这个 effect 什么都不做。
    */
   useEffect(() => window.desktopNav?.onGo((路径) => router.push(路径)), [router]);
+
+  const 要跟数 = 要跟.逾期 + 要跟.今天;
+  const 要跟说法 = 要跟数 > 0 ? `要跟 ${要跟数} 条${要跟.逾期 > 0 ? `（逾期 ${要跟.逾期}）` : ""}` : "";
+  /*
+    这个数一变（在哪儿完成了计划、勾了待办、改了时间——各处都会 router.refresh()，layout 重算），
+    就叫桌面端的壳马上再问一次，Dock 上的数跟着变。原来只有计划页会叫，别处处理完 Dock 要等下一分钟。
+    首次挂载不叫：壳自己启动后就在问
+  */
+  const 上次要跟 = useRef<number | null>(null);
+  useEffect(() => {
+    if (上次要跟.current !== null && 上次要跟.current !== 要跟数) void window.desktopReminders?.刷新();
+    上次要跟.current = 要跟数;
+  }, [要跟数]);
 
   const nav = useMemo(
     () => [
@@ -263,12 +281,12 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
           <span style={{ flex: 1 }} />
           {/* 手机上也要能说一句：用得别扭的时刻多半就发生在手机上（在路上翻学员的时候） */}
           <FeedbackButton 去向={反馈去向} />
-          <Badge count={pendingCount} size="small" color={palette.textMuted}>
-            <Button type="text" icon={<BellOutlined />} aria-label="待办计划" onClick={() => router.push("/follow-ups/plans")} />
+          <Badge count={要跟数} size="small" color={要跟.逾期 > 0 ? "var(--danger)" : palette.textMuted}>
+            <Button type="text" icon={<BellOutlined />} aria-label={要跟说法 ? `跟进计划，${要跟说法}` : "跟进计划"} onClick={() => router.push("/follow-ups/plans")} />
           </Badge>
         </Header>
         <Content className="app-content" style={{ padding: "22px 26px" }}>
-          {children}
+          <要跟Context.Provider value={要跟}>{children}</要跟Context.Provider>
         </Content>
       </Layout>
     );
@@ -291,7 +309,12 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
             他只看到一列认不出的方块。aria-label 保留原样，e2e 和读屏都认它。 */}
         <div className="rail-nav">
           {nav.map((n) => (
-            <Link key={n.key} href={n.key} aria-label={n.label} className={`rail-item${selectedKey === n.key ? " on" : ""}`}>
+            <Link
+              key={n.key}
+              href={n.key}
+              aria-label={n.key === "/follow-ups" && 要跟说法 ? `${n.label}，${要跟说法}` : n.label}
+              className={`rail-item${selectedKey === n.key ? " on" : ""}`}
+            >
               {/* 选中那块底色是**同一块**在两项之间滑过去的（layoutId），不是这边灭那边亮。
                   切页时眼睛跟着它走，不用重新找自己在哪一项上。
                   系统开了「减弱动态效果」就按 0 秒，等于原来的瞬切。 */}
@@ -300,6 +323,11 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
               )}
               {n.icon}
               <b>{n.label}</b>
+              {/* 和 Dock 上那个红数字同一个数、同一种红：人从 Dock 看见 1，打开应用第一眼就能对上它在哪。
+                  点进去是记录页，页头「计划」按钮上还挂着同一个数，再点就是逾期和今天那两组 */}
+              {n.key === "/follow-ups" && 要跟数 > 0 && (
+                <span className="rail-count" title={`${要跟说法}，和 Dock 上的数一样`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
+              )}
             </Link>
           ))}
         </div>
@@ -377,7 +405,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
           transition={{ duration: 少动 ? 0 : 时长.base, ease: 曲线.ease }}
           style={{ maxWidth: 1720, margin: "0 auto" }}
         >
-          {children}
+          <要跟Context.Provider value={要跟}>{children}</要跟Context.Provider>
         </motion.div>
       </main>
       {/*

@@ -137,7 +137,8 @@ describe("串起来：问服务、发通知、记下来、重启不重发", () =
     await r.刷新();
     r.停();
     expect(发了).toEqual([
-      ["到点了：给王总回电话", "王总", "/customers/c1"],
+      // 带上是哪一条（plan:p1），记录页据此把它闪一下
+      ["到点了：给王总回电话", "王总", "/customers/c1?focus=plan%3Ap1"],
       ["今天有 2 个要跟进", "其中 1 个已经逾期，最久的是李娜，已经拖了 2 天", "/follow-ups/plans"],
     ]);
     expect(角标[0]).toBe(2);

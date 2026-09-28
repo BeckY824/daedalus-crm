@@ -405,9 +405,20 @@ function 画红点() {
   return nativeImage.createFromBitmap(buf, { width: 边, height: 边 });
 }
 let 上次角标 = -1;
+/** 要跟的数（逾期 + 今天）现在是几。点 Dock 图标重新开窗口时靠它决定落在哪一页 */
+let 要跟数 = 0;
+const 计划页 = "/follow-ups/plans";
 function 设角标(n) {
   if (n === 上次角标) return;
   上次角标 = n;
+  要跟数 = n;
+  /*
+    右键 Dock 图标的菜单里放一项「今天要跟 N 条」，点了直接去计划页：Dock 上那个红数字的去处，
+    不用先打开应用再找（2026-09-29 用户：「用户不知道哪里去阅读或者处理这个 1」）。0 就不放
+  */
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.setMenu(Menu.buildFromTemplate(n > 0 ? [{ label: `今天要跟 ${n} 条`, click: () => 打开到(计划页) }] : []));
+  }
   if (process.platform === "win32") {
     if (!win || win.isDestroyed()) {
       上次角标 = -1; // 窗口回来之后要重画
@@ -912,7 +923,10 @@ ipcMain.handle("notify:show", (_e, 内容) => {
   const title = 截(内容?.标题, 60);
   if (!title) return { ok: false, 原因: "没内容" };
   const n = new Notification({ title, body: 截(内容?.正文, 160) });
+  // 点了回到那件事所在的地方（那条回答、那张表）。只认站内的相对路径：页面传来的字符串不许把窗口带去别的站
+  const 去处 = 站内路径(内容?.去);
   n.on("click", () => {
+    if (去处) return 打开到(去处);
     if (!win || win.isDestroyed()) return 建窗口();
     if (win.isMinimized()) win.restore();
     win.show();
@@ -921,6 +935,12 @@ ipcMain.handle("notify:show", (_e, 内容) => {
   n.show();
   return { ok: true };
 });
+
+/** "/customers/abc?x=1" 这种才算；"//evil.com"、"https://…"、带换行的都不算 */
+function 站内路径(v) {
+  const s = String(v ?? "");
+  return /^\/(?!\/)[^\s\\]*$/.test(s) && s.length < 300 ? s : null;
+}
 
 ipcMain.handle("shell:version", () => app.getVersion());
 /*
@@ -933,6 +953,15 @@ ipcMain.handle("reminders:set", (_e, 新) => 提醒器?.改设置(新) ?? 提醒
 ipcMain.handle("reminders:refresh", () => {
   void 提醒器?.刷新();
   return true;
+});
+/*
+  设置里的「发一条试试」：收不到提醒时，人要能自己分清是「没到点」还是「系统把通知关了」。
+  走和真提醒同一个出口（发提醒），点了也去同一个地方
+*/
+ipcMain.handle("reminders:test", () => {
+  if (!Notification.isSupported()) return { ok: false, 原因: "这台电脑不支持系统通知" };
+  发提醒("试一条：提醒能收到", "点这条会打开跟进计划。Dock 上的数就是那里「逾期」和「今天」两组加起来", 计划页);
+  return { ok: true };
 });
 ipcMain.handle("shell:backup", () => 备份数据库());
 ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
@@ -1200,7 +1229,10 @@ if (!app.requestSingleInstanceLock()) {
       if (!r.有效) 令牌失效了();
     });
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) 建窗口();
+      if (BrowserWindow.getAllWindows().length !== 0) return;
+      // 窗口关着、Dock 上挂着数：人多半就是冲着那个数点的，直接开到计划页。没有数就回上次停的那一页
+      if (要跟数 > 0) 打开到(计划页);
+      else 建窗口();
     });
   });
 

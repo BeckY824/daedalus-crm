@@ -1,7 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { 算提醒, type 提醒项 } from "@/lib/reminders";
+import { 算提醒 } from "@/lib/reminders";
+import { 取提醒项 } from "@/lib/reminders-db";
 import { 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 
 export const dynamic = "force-dynamic";
@@ -35,19 +36,6 @@ export async function GET(req: Request) {
   const 我 = await prisma.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
   if (!我) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null });
 
-  const [plans, tasks] = await Promise.all([
-    prisma.followPlan.findMany({
-      where: { done: false, ownerId: 我.id },
-      select: { id: true, subject: true, plannedAt: true, method: true, customer: { select: { id: true, name: true } } },
-    }),
-    prisma.task.findMany({
-      where: { done: false, ownerId: 我.id },
-      select: { id: true, title: true, dueAt: true, customer: { select: { id: true, name: true } } },
-    }),
-  ]);
-  const 项: 提醒项[] = [
-    ...plans.map((p) => ({ id: p.id, kind: "plan" as const, 标题: p.subject, 时间: p.plannedAt, customerId: p.customer.id, 客户: p.customer.name, 方式: p.method })),
-    ...tasks.map((t) => ({ id: t.id, kind: "task" as const, 标题: t.title, 时间: t.dueAt, customerId: t.customer.id, 客户: t.customer.name })),
-  ];
+  const 项 = await 取提醒项(我.id);
   return NextResponse.json(算提醒(项));
 }

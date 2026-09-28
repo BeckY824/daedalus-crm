@@ -153,7 +153,8 @@ function 开始({ 文件, 取端口, 取令牌, 通知, 设角标, 现在 = () =
       let 改了 = false;
       for (const x of 该到点的(状态.设置, 状态, 摘要, now)) {
         const 文 = 到点文案(x);
-        通知(文.标题, 文.正文, `/customers/${x.customerId}`);
+        // 带上是哪一条：记录页据此把那条计划 / 待办闪一下，不用人自己找
+        通知(文.标题, 文.正文, `/customers/${x.customerId}?focus=${encodeURIComponent(x.key)}`);
         状态.已提醒 = [...状态.已提醒, 到点键(x)];
         改了 = true;
       }

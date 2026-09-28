@@ -9,7 +9,7 @@ import { 挑一条, 类名 as 态类名, 该自动消, 通知文案, 自动消�
 declare global {
   interface Window {
     /** 桌面端的壳给的（desktop/preload-app.js）。网页版没有这个口子 */
-    desktopNotify?: { 通知: (标题: string, 正文: string) => void };
+    desktopNotify?: { 通知: (标题: string, 正文: string, 去?: string) => void };
   }
 }
 
@@ -77,7 +77,8 @@ export default function AiTasks() {
       if (t.status === "loading" || 已叫过.current.has(t.key)) continue;
       已叫过.current.add(t.key);
       const 文 = 通知文案(t);
-      if (文) window.desktopNotify?.通知(文.标题, 文.正文);
+      // 点通知回到那件事所在的地方（那条回答、那张表），和点侧栏这一条去的是同一处
+      if (文) window.desktopNotify?.通知(文.标题, 文.正文, t.标签?.去);
     }
   }, [任务]);
 

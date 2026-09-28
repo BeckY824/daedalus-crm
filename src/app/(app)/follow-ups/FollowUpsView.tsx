@@ -1,7 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { Button, Space, Select, Tag } from "antd";
+import { Badge, Button, Space, Select, Tag } from "antd";
+import { useFollowDue } from "@/components/FollowDue";
 import { CalendarOutlined, PlusOutlined } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
 import { 列表不问归属 } from "@/lib/solo";
@@ -40,6 +41,7 @@ export default function FollowUpsView({
   filters: { keyword: string; type: string; ownerId: string };
 }) {
   const router = useRouter();
+  const 要跟 = useFollowDue();
   const b = useBusiness();
   const { f, setF, apply, reset, pending } = useUrlFilters("/follow-ups", filters);
   /** 只有一个人：跟进人那一列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
@@ -102,9 +104,16 @@ export default function FollowUpsView({
         subtitle="全部跟进记录"
         extra={
           <Space>
-            <Button icon={<CalendarOutlined />} onClick={() => router.push("/follow-ups/plans")}>
-              计划
-            </Button>
+            {/* 左栏「跟进」上那个红数字到了这一页，就挂在「计划」上：它数的正是计划页里逾期和今天那两组 */}
+            <Badge count={要跟.逾期 + 要跟.今天} size="small" color="var(--danger)" offset={[-4, 2]}>
+              <Button
+                icon={<CalendarOutlined />}
+                onClick={() => router.push("/follow-ups/plans")}
+                aria-label={要跟.逾期 + 要跟.今天 > 0 ? `计划，要跟 ${要跟.逾期 + 要跟.今天} 条` : "计划"}
+              >
+                计划
+              </Button>
+            </Badge>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/customers")}>
               记录跟进
             </Button>

@@ -53,7 +53,8 @@ contextBridge.exposeInMainWorld("desktopShell", {
 });
 
 contextBridge.exposeInMainWorld("desktopNotify", {
-  通知: (标题, 正文) => ipcRenderer.invoke("notify:show", { 标题: String(标题 ?? ""), 正文: String(正文 ?? "") }),
+  // 去：点通知回到哪一页（站内相对路径，主进程再校一遍）。老页面不传也行
+  通知: (标题, 正文, 去) => ipcRenderer.invoke("notify:show", { 标题: String(标题 ?? ""), 正文: String(正文 ?? ""), 去: 去 ? String(去) : "" }),
 });
 
 /*
@@ -66,6 +67,7 @@ contextBridge.exposeInMainWorld("desktopReminders", {
     角标: Boolean(s?.角标), 早报: Boolean(s?.早报), 早报时间: String(s?.早报时间 ?? ""), 到点: Boolean(s?.到点),
   }),
   刷新: () => ipcRenderer.invoke("reminders:refresh"),
+  试一条: () => ipcRenderer.invoke("reminders:test"),
 });
 
 contextBridge.exposeInMainWorld("desktopNav", {

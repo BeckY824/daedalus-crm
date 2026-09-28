@@ -46,6 +46,8 @@ declare global {
       设置(): Promise<提醒设置>;
       改设置(s: 提醒设置): Promise<提醒设置>;
       刷新(): Promise<boolean>;
+      /** 设置里「发一条试试」：老版本的壳没有，按钮就不出现 */
+      试一条?(): Promise<{ ok: boolean; 原因?: string }>;
     };
   }
 }
@@ -199,6 +201,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
 function ReminderCard() {
   const 桥 = useSyncExternalStore(无订阅, () => window.desktopReminders, () => undefined);
   const [设置, set设置] = useState<提醒设置 | null>(null);
+  const [试过, set试过] = useState<"" | "发了" | string>("");
   useEffect(() => {
     桥?.设置().then(set设置).catch(() => {});
   }, [桥]);
@@ -210,6 +213,14 @@ function ReminderCard() {
     桥.改设置(新).then(set设置).catch(() => {});
   };
   const 是Windows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+  /*
+    「发一条试试」：收不到提醒时，人要能分清是「还没到点」还是「系统把通知关了」。
+    发出去之后就地说一句该看到什么，看不到就是系统那边关了——直接告诉他去哪儿开
+  */
+  const 试 = async () => {
+    const r = await 桥.试一条?.().catch(() => null);
+    set试过(r?.ok ? "发了" : r?.原因 || "没发出去");
+  };
   const 时刻 = ["07:00", "07:30", "08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00"];
 
   const 行 = (开: boolean, 切: (v: boolean) => void, 名: string, 说明: string, 尾?: React.ReactNode) => (
@@ -233,7 +244,9 @@ function ReminderCard() {
         设置.角标,
         (v) => 改({ 角标: v }),
         是Windows ? "任务栏图标上显示红点" : "Dock 图标上显示要跟进的数",
-        "今天到期和已经逾期、还没做的跟进。0 个就不显示",
+        是Windows
+          ? "今天到期和已经逾期、还没做的跟进；数字和左栏「跟进」上的红数字是同一个。0 个就不显示"
+          : "今天到期和已经逾期、还没做的跟进；和左栏「跟进」上的红数字是同一个。右键 Dock 图标能直接去跟进计划。0 个就不显示",
       )}
       {行(
         设置.早报,
@@ -258,8 +271,21 @@ function ReminderCard() {
       )}
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: "8px 0 0" }}>
         应用开着才提醒——关了窗口没关系{是Windows ? "" : "（在 Dock 里就算开着）"}，退出了就收不到。
-        收不到通知的话，去系统设置的「通知」里看看 Daedalus CRM 是不是被关掉了。
       </Typography.Paragraph>
+      {桥.试一条 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+          <Button size="small" onClick={() => void 试()}>
+            发一条试试
+          </Button>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }} aria-live="polite">
+            {试过 === "发了"
+              ? `刚发了一条「试一条：提醒能收到」。${是Windows ? "屏幕右下角" : "屏幕右上角"}没看到的话，是系统把通知关了：${是Windows ? "设置 → 系统 → 通知" : "系统设置 → 通知"} 里找到 Daedalus CRM 打开`
+              : 试过
+                ? `没发出去：${试过}`
+                : "收不到提醒时先点这个，分清是没到点还是系统把通知关了"}
+          </Typography.Text>
+        </div>
+      )}
     </Card>
   );
 }

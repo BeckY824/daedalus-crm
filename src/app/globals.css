@@ -345,6 +345,9 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 导航的字比正文大一档（15）：它是一列要扫的名字，不是一段要读的话。和 Claude 桌面端侧栏同一个数 */
 .rail-item b { font-size: var(--fs-section); font-weight: 500; letter-spacing: -0.2px; white-space: nowrap; }
 .rail-item.on b { font-weight: 600; }
+/* 左栏「跟进」上的要跟数（逾期 + 今天）：和 Dock 角标同一种红、同一个数。靠右，不挤标签 */
+.rail-count { margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--danger); color: var(--on-ink); font-size: var(--fs-min); font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
 .rail-item:hover { background: var(--hover); color: var(--ink); }
 .rail-item.on { color: var(--nav-on-fg); }
 /* 左栏底部「问一句 ⌘J」：AI 面板收着时的入口，长得和导航项一样，只是个按钮 */
@@ -907,6 +910,9 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cite:hover { background: var(--brand-bg); color: var(--brand); }
 .rec-tl-item-flash { animation: rec-flash 1.6s var(--ease); border-radius: var(--r-card); }
 @keyframes rec-flash { 0% { background: var(--brand-bg); } 100% { background: transparent; } }
+/* 到点提醒点进来要指出的那一条（计划块 / 待办行）：它们自己就带浅蓝底，再闪一层浅蓝看不出来——改成边上一圈，只动阴影不动尺寸 */
+.rec-plan.rec-tl-item-flash, .rec-task.rec-tl-item-flash { animation: rec-ring 1.6s var(--ease); }
+@keyframes rec-ring { 0%, 35% { box-shadow: 0 0 0 3px var(--brand-line); } 100% { box-shadow: 0 0 0 3px transparent; } }
 .brief-sec { margin-bottom: 14px; }
 
 /* ---------- 首页：命令行式对话面（照 Claude Code / Codex） ---------- */

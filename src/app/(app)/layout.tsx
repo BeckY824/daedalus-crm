@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
+import { 算提醒 } from "@/lib/reminders";
+import { 取提醒项 } from "@/lib/reminders-db";
 import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
 import { 本地模式, 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
@@ -40,9 +41,13 @@ export default async function AppLayout({
    */
   if (归属对不上()) redirect("/api/auth/logout?reason=switched");
 
-  // 铃铛计数：我名下未完成的待办。中栏要的数据在 @pane 槽位里各自查
-  const [pendingCount, business, ua, 有AI, models] = await Promise.all([
-    prisma.task.count({ where: { ownerId: user.id, done: false } }),
+  /*
+    要跟的数：我名下逾期 + 今天到期、还没做的计划和待办。左栏「跟进」上的红数字、手机顶栏的铃铛、
+    桌面端 Dock 上的数都是这一个（lib/reminders-db.ts）。layout 在客户端导航时不重算，
+    但完成、改期、新建之后各处都会 router.refresh()——那时它跟着变。中栏要的数据在 @pane 槽位里各自查
+  */
+  const [提醒项, business, ua, 有AI, models] = await Promise.all([
+    取提醒项(user.id),
     // 业务术语（学员/客户、院校/年级/专业…）：全站客户端组件从这里拿
     getBusiness(),
     headers().then((h) => h.get("user-agent") ?? ""),
@@ -74,7 +79,7 @@ export default async function AppLayout({
       <AiMeterProvider 初值={AI计次}>
       <AppShell
         user={user}
-        pendingCount={pendingCount}
+        要跟={(({ 逾期, 今天 }) => ({ 逾期, 今天 }))(算提醒(提醒项))}
         desktop={desktop}
         反馈去向={本地模式() || multiTenant() ? "cloud" : "github"}
         pane={pane}

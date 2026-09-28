@@ -96,6 +96,23 @@ export default function RecordView({
   const [followInit, setFollowInit] = useState<{ record: FollowUpRow | null; aiText?: string }>({ record: null });
   const [taskOpen, setTaskOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  /*
+    从到点提醒点进来（desktop/reminders.js 带 ?focus=plan:… / task:…）：把那一条滚到眼前、闪一下，
+    人不用在一页里自己找「刚才叫我的是哪件事」。闪完把参数去掉，刷新不会再闪一遍
+  */
+  useEffect(() => {
+    const 要 = new URLSearchParams(window.location.search).get("focus");
+    if (!要) return;
+    const el = document.querySelector<HTMLElement>(`[data-focus="${CSS.escape(要)}"]`);
+    router.replace(window.location.pathname, { scroll: false });
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    el.classList.add("rec-tl-item-flash");
+    const t = setTimeout(() => el.classList.remove("rec-tl-item-flash"), 1600);
+    return () => clearTimeout(t);
+    // 只在进来那一下看
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   /** 这次打开计划表单是「排下一次」（新建，默认一周后），不是改眼前这条（审查 M10） */
   const [排新计划, set排新计划] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
@@ -495,7 +512,7 @@ export default function RecordView({
           </div>
 
           {plan && (
-            <div className="rec-plan">
+            <div className="rec-plan" data-focus={`plan:${plan.id}`}>
               <span className="rec-plan-k">下次跟进</span>
               <span className="rec-plan-v">
                 {plan.subject} · {plan.method}
@@ -579,6 +596,7 @@ export default function RecordView({
                 {待办行.map((t) => (
                   <motion.div
                     key={t.id}
+                    data-focus={`task:${t.id}`}
                     className={`rec-task${已完成(t) ? " is-done" : ""}`}
                     exit={{ opacity: 0 }}
                     transition={{ duration: 时长.base, ease: 曲线.ease }}

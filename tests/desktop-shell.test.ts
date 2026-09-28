@@ -190,16 +190,23 @@ describe("跑完了叫人一声", () => {
     expect(页面).not.toContain("document.hidden");
   });
 
-  it("页面只能传两段字，弹什么、点了干什么都在壳里定死", () => {
-    // 页面传得进来的就是标题和正文，别的字段一概不看
-    expect(preload).toMatch(/通知: \(标题, 正文\) => ipcRenderer\.invoke\("notify:show", \{ 标题: String\(/);
+  it("页面能传的只有标题、正文、去处三段字；去处只认站内相对路径，弹什么在壳里定死", () => {
+    expect(preload).toMatch(/通知: \(标题, 正文, 去\) => ipcRenderer\.invoke\("notify:show", \{ 标题: String\(/);
     const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'));
     expect(段.slice(0, 900)).toContain("new Notification({ title, body:");
+    expect(段.slice(0, 900)).toContain("站内路径(内容?.去)");
+    // 站内路径 的规则：/ 开头、不是 //、不带空白和反斜杠
+    const 规则 = /function 站内路径\(v\) \{[\s\S]*?return (\/.+\/)\.test/.exec(main)?.[1];
+    expect(规则).toBeTruthy();
+    const re = new RegExp(规则!.slice(1, -1));
+    for (const ok of ["/customers/abc", "/follow-ups/plans", "/customers/a?focus=plan%3Ap1"]) expect(re.test(ok), ok).toBe(true);
+    for (const bad of ["//evil.com", "https://evil.com", "javascript:alert(1)", "/a b", "/a\\b", ""]) expect(re.test(bad), bad).toBe(false);
   });
 
-  it("点一下把窗口叫到前面来——不然人不知道该去哪看", () => {
+  it("点一下：有去处就去那儿，没有就把窗口叫到前面——不然人不知道该去哪看", () => {
     const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'), main.indexOf('ipcMain.handle("shell:version"'));
     expect(段).toContain('n.on("click"');
+    expect(段).toContain("if (去处) return 打开到(去处)");
     expect(段).toContain("win.focus()");
   });
 });
