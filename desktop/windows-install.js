@@ -51,12 +51,19 @@ function 安装目录(exePath, { 列目录 = (d) => fs.readdirSync(d) } = {}) {
   }
 }
 
+/**
+ * 真去建一个再删掉，建得了才算能写。**不用 fs.accessSync(W_OK)**：它在 Windows 上只看只读属性、不看 ACL，
+ * 装在 Program Files 里（普通用户没有写权限）它也说能写——于是差量组装到一半才 EPERM，白下一截。
+ */
 function 可写(dir) {
+  let 探 = null;
   try {
-    fs.accessSync(dir, fs.constants.W_OK);
+    探 = fs.mkdtempSync(path.join(dir, ".dcrm-probe-"));
     return true;
   } catch {
     return false;
+  } finally {
+    if (探) try { fs.rmdirSync(探); } catch { /* 删不掉也不影响判断 */ }
   }
 }
 
@@ -149,25 +156,79 @@ exit 0
  * 等不到异步回来；spawn 本身是同步建进程的，建好就 unref 撒手。
  * 脚本写到 更新目录 下（每次覆盖），日志也在那：出了问题看 update-swap.log。
  */
+/** PowerShell 单引号字符串：里面的单引号写两遍，别的字符（含中文、空格、$）原样 */
+const 单引号 = (v) => `'${String(v).replace(/'/g, "''")}'`;
+
+/**
+ * 拼成 -EncodedCommand 要的那一串：`& { 脚本 } -Dir '…' …`，UTF-16LE 再 base64。
+ *
+ * **为什么不用 -File 脚本.ps1 -ExecutionPolicy Bypass**（第一版就是这么写的）：公司电脑常用组策略锁执行策略
+ * （MachinePolicy / UserPolicy），它压过命令行上的 Bypass——脚本文件根本不让跑，换目录一次都没发生，
+ * 下次启动 .new 被清掉、又下一遍差量，无限循环。执行策略只管「脚本文件」，不管 -Command / -EncodedCommand 传进来的命令，
+ * 组策略就拦不住了。编码是 UTF-16，中文用户名的路径原样过去；命令行上限 32767 字符，这串约 10K。
+ */
+function 编码命令({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe名 = "", 日志, 尝试次数 = 60 }) {
+  const 命令 = [
+    `& {\n${换目录脚本}\n}`,
+    "-Dir", 单引号(目录),
+    "-WaitPid", String(Number(等PID) || 0),
+    "-Relaunch", 重启 ? "1" : "0",
+    "-Version", 单引号(版本 || ""),
+    "-Exe", 单引号(exe名 || ""),
+    "-Log", 单引号(日志 || ""),
+    "-Tries", String(Number(尝试次数) || 60),
+  ].join(" ");
+  return Buffer.from(命令, "utf16le").toString("base64");
+}
+
+/**
+ * 同一个版本换目录失败的次数，记在 更新目录/swap-attempts.json：{ 版本, 次数 }。
+ * 每次交给 PowerShell 之前 +1；下次启动时发现自己已经是那个版本了，就是换成了，清掉。
+ * 连着两次没换成（组策略把 PowerShell 整个禁了、杀毒把脚本拦了……）就别再差量了——
+ * 再下一遍只会再失败一遍。那时走整包安装程序，它不靠 PowerShell。
+ */
+const 尝试文件 = (更新目录) => path.join(更新目录, "swap-attempts.json");
+function 读尝试(更新目录) {
+  try {
+    const j = JSON.parse(fs.readFileSync(尝试文件(更新目录), "utf8"));
+    return j && typeof j.版本 === "string" && Number.isFinite(j.次数) ? j : null;
+  } catch {
+    return null;
+  }
+}
+function 记换目录尝试(更新目录, 版本) {
+  const 旧 = 读尝试(更新目录);
+  const 次数 = 旧?.版本 === 版本 ? 旧.次数 + 1 : 1;
+  try {
+    fs.mkdirSync(更新目录, { recursive: true });
+    fs.writeFileSync(尝试文件(更新目录), JSON.stringify({ 版本, 次数 }));
+  } catch { /* 记不下来只是少一道保险 */ }
+  return 次数;
+}
+/** 启动时调：已经是记着的那个版本了，说明换成了，清掉记录 */
+function 换目录已生效(更新目录, 当前版本) {
+  if (读尝试(更新目录)?.版本 === 当前版本) try { fs.rmSync(尝试文件(更新目录), { force: true }); } catch { /* 无妨 */ }
+}
+/** 这个版本已经换失败 上限 次了吗（当前还不是它） */
+function 换目录屡败(更新目录, 版本, 上限 = 2) {
+  const j = 读尝试(更新目录);
+  return Boolean(j && j.版本 === 版本 && j.次数 >= 上限);
+}
+
+/**
+ * 把换目录交给 PowerShell，自己立刻返回（调用方接着退出）。**同步**：before-quit 里进程正在退，
+ * 等不到异步回来；spawn 本身是同步建进程的，建好就 unref 撒手。日志在 更新目录/update-swap.log。
+ */
 function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe名 = "", 更新目录, 启动 = spawn }) {
   if (!目录 || !更新目录) throw new Error("换目录缺参数");
   fs.mkdirSync(更新目录, { recursive: true });
-  const 脚本 = path.join(更新目录, "swap-install-dir.ps1");
-  fs.writeFileSync(脚本, 换目录脚本, "ascii");
-  const 参数 = [
-    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden",
-    "-File", 脚本,
-    "-Dir", 目录,
-    "-WaitPid", String(等PID || 0),
-    "-Relaunch", 重启 ? "1" : "0",
-    "-Version", String(版本 || ""),
-    "-Exe", String(exe名 || ""),
-    "-Log", path.join(更新目录, "update-swap.log"),
-  ];
+  const 日志 = path.join(更新目录, "update-swap.log");
+  if (版本) 记换目录尝试(更新目录, 版本);
+  const 参数 = ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", 编码命令({ 目录, 等PID, 重启, 版本, exe名, 日志 })];
   const child = 启动("powershell.exe", 参数, { detached: true, stdio: "ignore", windowsHide: true });
   child.on?.("error", () => {});
   child.unref?.();
-  return { 脚本, 参数 };
+  return { 参数 };
 }
 
-module.exports = { 启动安装, 安装目录, 能差量更新, 补齐安装器文件, 换目录脚本, 启动换目录 };
+module.exports = { 启动安装, 安装目录, 可写, 能差量更新, 补齐安装器文件, 换目录脚本, 编码命令, 启动换目录, 记换目录尝试, 换目录已生效, 换目录屡败 };

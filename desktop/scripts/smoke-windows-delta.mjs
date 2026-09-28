@@ -89,7 +89,7 @@ const server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
     return res.end(JSON.stringify({
       version: "99.0.0",
-      platforms: { "win32-x64": { version: "99.0.0", notes: "冒烟", exe: `${base}/setup.exe`, sha256: sha(setup), size: "1 MB", zip: `${base}/win.zip`, manifest: `${base}/win.manifest` } },
+      platforms: { "win32-x64": { version: "99.0.0", notes: "冒烟", exe: `${base}/setup.exe`, sha256: sha(setup), size: "1 MB", zip: `${base}/win.zip`, manifest: `${base}/win.manifest`, manifest_sha256: sha(清单文件) } },
     }));
   }
   if (u === "/win.manifest") return fs.createReadStream(清单文件).pipe(res);

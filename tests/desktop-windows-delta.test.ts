@@ -59,24 +59,81 @@ describe("换目录脚本", () => {
     expect(窗装.换目录脚本).toMatch(/rolling back/);
     expect(窗装.换目录脚本).toMatch(/still locked, keep old version/);
   });
-  it("起脚本：路径全走参数（UTF-16 命令行，中文用户名没事），不经 shell，脱离本进程", () => {
+  const 解 = (参数: string[]) => Buffer.from(参数[参数.indexOf("-EncodedCommand") + 1], "base64").toString("utf16le");
+  it("起脚本：-EncodedCommand 传命令，不写 .ps1、不靠 -ExecutionPolicy（组策略锁执行策略时 Bypass 不管用）", () => {
     const 更新目录 = fs.mkdtempSync(path.join(os.tmpdir(), "更新 目录-"));
     const 启动 = vi.fn(() => ({ unref: vi.fn(), on: vi.fn() }));
     try {
-      const { 脚本, 参数 } = 窗装.启动换目录({
+      const { 参数 } = 窗装.启动换目录({
         目录: "C:\\Users\\张三\\Programs\\daedalus-crm", 等PID: 4321, 重启: true, 版本: "0.46.8", exe名: "Daedalus CRM.exe", 更新目录, 启动,
       });
-      expect(fs.readFileSync(脚本, "utf8")).toBe(窗装.换目录脚本);
       expect(启动).toHaveBeenCalledWith("powershell.exe", 参数, { detached: true, stdio: "ignore", windowsHide: true });
-      const 取 = (k: string) => 参数[参数.indexOf(k) + 1];
-      expect(取("-File")).toBe(脚本);
-      expect(取("-Dir")).toBe("C:\\Users\\张三\\Programs\\daedalus-crm");
-      expect(取("-WaitPid")).toBe("4321");
-      expect(取("-Relaunch")).toBe("1");
-      expect(取("-Version")).toBe("0.46.8");
-      expect(参数).toContain("Bypass");
+      expect(参数).not.toContain("-File");
+      expect(参数).not.toContain("-ExecutionPolicy");
+      expect(fs.readdirSync(更新目录).filter((n) => n.endsWith(".ps1"))).toEqual([]);
+      const 命令 = 解(参数);
+      expect(命令).toContain(窗装.换目录脚本);
+      // 中文路径原样进去（UTF-16），数字参数不加引号
+      expect(命令).toContain("-Dir 'C:\\Users\\张三\\Programs\\daedalus-crm'");
+      expect(命令).toContain("-WaitPid 4321");
+      expect(命令).toContain("-Relaunch 1");
+      expect(命令).toContain("-Version '0.46.8'");
+      expect(命令).toContain("-Exe 'Daedalus CRM.exe'");
     } finally {
       fs.rmSync(更新目录, { recursive: true, force: true });
+    }
+  });
+  it("路径里有单引号（O'Brien 这种用户名）：写两遍，不会把命令截断", () => {
+    const 命令 = Buffer.from(窗装.编码命令({ 目录: "C:\\Users\\O'Brien\\app", 日志: "C:\\l.log" }), "base64").toString("utf16le");
+    expect(命令).toContain("-Dir 'C:\\Users\\O''Brien\\app'");
+  });
+});
+
+describe("换目录失败计数：连着换不成就别再下差量", () => {
+  let 更新目录: string;
+  beforeAll(() => { 更新目录 = fs.mkdtempSync(path.join(os.tmpdir(), "swap-attempts-")); });
+  afterAll(() => fs.rmSync(更新目录, { recursive: true, force: true }));
+  it("每交给 PowerShell 一次记一笔；同一版本到 2 次就算屡败，换了版本重新数", () => {
+    const 启动 = () => ({ unref() {}, on() {} });
+    const 换 = (版本: string) => 窗装.启动换目录({ 目录: "C:\\a\\app", 版本, 更新目录, 启动 });
+    换("0.46.10");
+    expect(窗装.换目录屡败(更新目录, "0.46.10")).toBe(false);
+    换("0.46.10");
+    expect(窗装.换目录屡败(更新目录, "0.46.10")).toBe(true);
+    expect(窗装.换目录屡败(更新目录, "0.46.11")).toBe(false);
+    换("0.46.11");
+    expect(窗装.换目录屡败(更新目录, "0.46.10")).toBe(false);
+  });
+  it("启动时已经是那个版本：说明换成了，记录清掉；还是旧版本就留着", () => {
+    窗装.记换目录尝试(更新目录, "0.46.12");
+    窗装.记换目录尝试(更新目录, "0.46.12");
+    窗装.换目录已生效(更新目录, "0.46.11");
+    expect(窗装.换目录屡败(更新目录, "0.46.12")).toBe(true);
+    窗装.换目录已生效(更新目录, "0.46.12");
+    expect(窗装.换目录屡败(更新目录, "0.46.12")).toBe(false);
+    expect(fs.existsSync(path.join(更新目录, "swap-attempts.json"))).toBe(false);
+  });
+});
+
+describe("能不能写：真建一个试，不信 accessSync", () => {
+  it("能写的目录说能写，探针用完就删；不存在的目录说不能写", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "可写-"));
+    try {
+      expect(窗装.可写(d)).toBe(true);
+      expect(fs.readdirSync(d)).toEqual([]);
+      expect(窗装.可写(path.join(d, "没有这个"))).toBe(false);
+    } finally {
+      fs.rmSync(d, { recursive: true, force: true });
+    }
+  });
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("只读目录说不能写", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "只读-"));
+    fs.chmodSync(d, 0o555);
+    try {
+      expect(窗装.可写(d)).toBe(false);
+    } finally {
+      fs.chmodSync(d, 0o755);
+      fs.rmSync(d, { recursive: true, force: true });
     }
   });
 });
@@ -86,10 +143,10 @@ describe("更新器挑差量资产（GitHub 那一支）", () => {
   const 资产 = [
     { name: "Daedalus.CRM-1.0.0-arm64.dmg", browser_download_url: "https://g/mac.dmg", digest: `sha256:${"a".repeat(64)}` },
     { name: "Daedalus.CRM-1.0.0-arm64.app.zip", browser_download_url: "https://g/mac.zip" },
-    { name: "Daedalus.CRM-1.0.0-arm64.manifest.json.gz", browser_download_url: "https://g/mac.manifest" },
+    { name: "Daedalus.CRM-1.0.0-arm64.manifest.json.gz", browser_download_url: "https://g/mac.manifest", digest: `sha256:${"c".repeat(64)}` },
     { name: "Daedalus-CRM-1.0.0-x64-setup.exe", browser_download_url: "https://g/setup.exe", digest: `sha256:${"b".repeat(64)}` },
     { name: "Daedalus-CRM-1.0.0-x64-win.zip", browser_download_url: "https://g/win.zip" },
-    { name: "Daedalus-CRM-1.0.0-x64-win.manifest.json.gz", browser_download_url: "https://g/win.manifest" },
+    { name: "Daedalus-CRM-1.0.0-x64-win.manifest.json.gz", browser_download_url: "https://g/win.manifest", digest: `sha256:${"D".repeat(64)}` },
   ];
   function 只有GitHub(assets: unknown[]) {
     vi.stubGlobal("fetch", async (url: string) => {
@@ -100,16 +157,17 @@ describe("更新器挑差量资产（GitHub 那一支）", () => {
   it("Windows 拿 -x64-win 的 zip 和清单", async () => {
     只有GitHub(资产);
     const r = await 检查({ 当前版本: "0.46.8", platform: "win32", arch: "x64" });
-    expect(r).toMatchObject({ zip: "https://g/win.zip", manifest: "https://g/win.manifest" });
+    expect(r).toMatchObject({ zip: "https://g/win.zip", manifest: "https://g/win.manifest", 清单哈希: "d".repeat(64) });
   });
   it("Mac 不会拿到 Windows 的清单——哪怕列表里 Windows 的排在前面", async () => {
     只有GitHub([...资产].reverse());
     const r = await 检查({ 当前版本: "0.46.8", platform: "darwin", arch: "arm64" });
-    expect(r).toMatchObject({ zip: "https://g/mac.zip", manifest: "https://g/mac.manifest" });
+    expect(r).toMatchObject({ zip: "https://g/mac.zip", manifest: "https://g/mac.manifest", 清单哈希: "c".repeat(64) });
   });
 });
 
 describe("整条链：旧安装目录 → CI 的 zip + 清单 → Windows 规则组装", () => {
+  let 清单哈希 = "";
   let 沙盒: string, 已装: string, 新: string, 产物: string, server: http.Server, base: string;
   const 统计 = { 字节: 0, 整包请求: 0 };
 
@@ -138,6 +196,7 @@ describe("整条链：旧安装目录 → CI 的 zip + 清单 → Windows 规则
     execFileSync(process.execPath, [打包脚本, 新, "1.0.0", 产物], { stdio: "pipe" });
     const zip = path.join(产物, "Daedalus-CRM-1.0.0-x64-win.zip");
     const 清单 = path.join(产物, "Daedalus-CRM-1.0.0-x64-win.manifest.json.gz");
+    清单哈希 = sha(fs.readFileSync(清单));
     server = http.createServer((req, res) => {
       const f = req.url === "/m" ? 清单 : zip;
       const size = fs.statSync(f).size;
@@ -174,7 +233,7 @@ describe("整条链：旧安装目录 → CI 的 zip + 清单 → Windows 规则
   }
 
   it("组装出来和新版逐字节一致、卸载程序在、旧版留下的不在，且只下了变了的", async () => {
-    const 估 = await 差量.差量估算({ 清单Url: `${base}/m`, 已装, 平台: "win32" });
+    const 估 = await 差量.差量估算({ 清单Url: `${base}/m`, 清单哈希, 已装, 平台: "win32" });
     const r = await 差量.差量组装({ ...估, zipUrl: `${base}/zip`, 已装, 平台: "win32", 运行: async () => { throw new Error("Windows 上不该调外部命令"); } });
     const 拷了 = await 窗装.补齐安装器文件(已装, r.目标);
     expect(拷了).toEqual(["Uninstall Daedalus CRM.exe"]);
@@ -213,7 +272,6 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
     沙盒 = fs.mkdtempSync(path.join(os.tmpdir(), "换 目录 测试-"));
     更新目录 = path.join(沙盒, "updates");
     fs.mkdirSync(更新目录, { recursive: true });
-    fs.writeFileSync(path.join(更新目录, "swap.ps1"), 窗装.换目录脚本, "ascii");
   });
   afterAll(() => fs.rmSync(沙盒, { recursive: true, force: true }));
 
@@ -225,11 +283,11 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
     fs.writeFileSync(path.join(`${目录}.new`, "a.txt"), "new");
     return 目录;
   }
-  function 跑(目录: string, 额外: string[] = []) {
+  /** 和应用走同一条路：-EncodedCommand，不带 -ExecutionPolicy */
+  function 跑(目录: string, 额外: { 等PID?: number; 版本?: string; 尝试次数?: number } = {}) {
     const 日志 = path.join(更新目录, `${path.basename(目录)}.log`);
     const r = spawnSync("powershell.exe", [
-      "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path.join(更新目录, "swap.ps1"),
-      "-Dir", 目录, "-Log", 日志, ...额外,
+      "-NoProfile", "-NonInteractive", "-EncodedCommand", 窗装.编码命令({ 目录, 日志, ...额外 }),
     ], { encoding: "utf8", timeout: 90_000 });
     return { 退出码: r.status, 日志: fs.existsSync(日志) ? fs.readFileSync(日志, "utf8") : "" };
   }
@@ -237,7 +295,7 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
   it("等指定进程退出后换：旧的成了 .old，新的到了原位", async () => {
     const 目录 = 摆("daedalus-crm");
     const 占位 = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1500)"]);
-    const r = 跑(目录, ["-WaitPid", String(占位.pid)]);
+    const r = 跑(目录, { 等PID: 占位.pid });
     expect(r.退出码, r.日志).toBe(0);
     expect(fs.readFileSync(path.join(目录, "a.txt"), "utf8")).toBe("new");
     expect(fs.readFileSync(path.join(`${目录}.old`, "a.txt"), "utf8")).toBe("old");
@@ -250,13 +308,20 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
     const 占着 = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"], { cwd: 目录 });
     try {
       await new Promise((r) => setTimeout(r, 500));
-      const r = 跑(目录, ["-Tries", "4"]);
+      const r = 跑(目录, { 尝试次数: 4 });
       expect(r.退出码, r.日志).toBe(3);
       expect(fs.readFileSync(path.join(目录, "a.txt"), "utf8")).toBe("old");
       expect(fs.existsSync(`${目录}.new`)).toBe(true);
     } finally {
       占着.kill();
     }
+  });
+
+  it("路径里有单引号和中文也换得过去", () => {
+    const 目录 = 摆("O'Brien 的 app");
+    const r = 跑(目录);
+    expect(r.退出码, r.日志).toBe(0);
+    expect(fs.readFileSync(path.join(目录, "a.txt"), "utf8")).toBe("new");
   });
 
   it("没有 .new：什么都不动", () => {
@@ -274,7 +339,7 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
     reg("add", 键, "/v", "UninstallString", "/d", `"${目录}\\Uninstall Daedalus CRM.exe" /currentuser`, "/f");
     reg("add", 键, "/v", "DisplayVersion", "/d", "0.46.7", "/f");
     try {
-      const r = 跑(目录, ["-Version", "0.46.8"]);
+      const r = 跑(目录, { 版本: "0.46.8" });
       expect(r.退出码, r.日志).toBe(0);
       expect(reg("query", 键, "/v", "DisplayVersion").toString()).toMatch(/0\.46\.8/);
     } finally {

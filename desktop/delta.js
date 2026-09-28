@@ -69,10 +69,19 @@ async function 文件哈希(p) {
 
 /* ---------- 清单 ---------- */
 
-async function 拉清单({ url, fetch: f = globalThis.fetch }) {
+/**
+ * **清单先核 sha256 再信。** 组装时每个文件都对着清单验哈希——可清单本身要是被换了，那些哈希也跟着换了，
+ * 验了等于没验：清单和 zip 走的是国内镜像（镜像经第三方代理从 GitHub 拉），镜像或代理把两样一起换掉，
+ * 就能往用户机器里放任何程序（2026-09-29 补上的缺口）。整包那条路有 feed 里的 sha256 兜着，差量这里补同样一道：
+ * 期望值来自我们自己站上的 feed（发版时从 GitHub 原件算的），或 GitHub API 给资产算的 digest——都不经过镜像。
+ * 拿不到期望值就不差量，走整包。
+ */
+async function 拉清单({ url, 期望哈希, fetch: f = globalThis.fetch }) {
+  if (!/^[a-f0-9]{64}$/i.test(期望哈希 || "")) throw new 退回整包("这一版的清单没有可核对的 sha256，不走差量");
   const res = await f(url, { headers: { "User-Agent": "DaedalusCRM-Desktop" } });
   if (!res.ok) throw new Error(`拉清单失败：HTTP ${res.status}`);
   const 字节 = Buffer.from(await res.arrayBuffer());
+  if (sha256(字节) !== 期望哈希.toLowerCase()) throw new 退回整包("清单的 sha256 和发布时的对不上，不走差量");
   let m;
   try {
     m = JSON.parse(zlib.gunzipSync(字节).toString("utf8"));
@@ -348,8 +357,8 @@ async function 组装({ 清单, 已装, 目标, zipUrl, 比对结果, fetch: f =
  * 所以可以在问用户之前先做，侧栏按钮上才写得出「差量 2.3 MB」。
  * 不划算或对不上的情况抛 退回整包，上层按钮就写整包的体积。
  */
-async function 差量估算({ 清单Url, 已装, 缓存路径 = null, 最大占比 = 0.6, fetch: f = globalThis.fetch, 日志 = () => {}, 平台 = process.platform }) {
-  const 清单 = await 拉清单({ url: 清单Url, fetch: f });
+async function 差量估算({ 清单Url, 清单哈希, 已装, 缓存路径 = null, 最大占比 = 0.6, fetch: f = globalThis.fetch, 日志 = () => {}, 平台 = process.platform }) {
+  const 清单 = await 拉清单({ url: 清单Url, 期望哈希: 清单哈希, fetch: f });
   // Windows 的安装目录名由安装时决定，和清单里的 win-unpacked 无关（见顶部说明）
   if (!是Win(平台) && 清单.bundle !== path.basename(已装)) throw new 退回整包(`清单里的包名 ${清单.bundle} 和已装的 ${path.basename(已装)} 对不上`);
 
