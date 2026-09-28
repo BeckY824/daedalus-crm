@@ -205,6 +205,11 @@
   --ant-select-active-border-color: var(--brand);
   --ant-select-active-outline-color: color-mix(in srgb, var(--brand) 14%, transparent);
 }
+/* 顶上那条提示（message）：antd 把它的底色算成组件变量写死 #fff，全局的 --ant-color-bg-elevated 管不到它——
+   科技那种深色主题下就成了白底浅字，一个字都看不清（2026-09-29 查出来的，所有保存/撤销提示都是它） */
+:root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-message, .ant-message-css-var) {
+  --ant-message-content-bg: var(--panel);
+}
 :root[data-skin]:not([data-skin="now"]) .css-var-dd:is(.ant-modal, .ant-modal-css-var) {
   --ant-modal-content-bg: var(--panel);
   --ant-modal-header-bg: var(--panel);
