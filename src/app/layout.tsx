@@ -6,8 +6,21 @@ import { themeConfig } from "@/lib/theme";
 import MotionTheme from "@/components/MotionTheme";
 import { 外观预设脚本, 默认外观 } from "@/lib/appearance";
 import "./globals.css";
-/* 换皮主题共用的一层：把 antd 的 CSS 变量接到我们的 token 上。现状下一条都不命中 */
+/* 主题（设置 → 外观 → 主题）。每套只在 <html data-skin="x"> 时生效，现状下这几份一条都不命中。
+   字体只登记 @font-face、不预加载：浏览器只在某段字真用上这个字体时才去下载，所以不选这套主题就一个字节都不下。
+   只取拉丁子集——中文走系统字（宋体 / 苹方），不打包中文字体 */
 import "./skins/shared.css";
+import "./skins/pixel.css";
+import "./skins/tech.css";
+import "./skins/luxe.css";
+import "./skins/ledger.css";
+import "@fontsource/pixelify-sans/latin-500.css";
+import "@fontsource/pixelify-sans/latin-700.css";
+import "@fontsource/silkscreen/latin-400.css";
+import "@fontsource/jetbrains-mono/latin-400.css";
+import "@fontsource/jetbrains-mono/latin-500.css";
+import "@fontsource/jetbrains-mono/latin-700.css";
+import "@fontsource/instrument-serif/latin-400.css";
 
 export const metadata: Metadata = {
   title: "Daedalus CRM",

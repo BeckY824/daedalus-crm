@@ -1,0 +1,62 @@
+/*
+ * 账簿：稿纸绿格、墨色正文、宋体标题；朱红全站只留给「你确认」——建议卡落下的那枚印。
+ * 设置 → 外观 → 主题（lib/appearance.ts）。规矩同 pixel.css 顶上：token 只用 :root 已有的名字、色值只在 token 块、
+ * 形状规则不超过 10 条。
+ * 守三条，免得滑向仿古：不用书法字、不用宣纸纹理、朱红不许挪作他用（--seal 只有 .prop-seal 在用）。
+ * 动效：近乎没有弹性——落笔就是落笔（ease 收尾干脆、不过冲）；唯一的一点回弹留给盖章，也只过冲一丝；
+ * 时长和现状同四档，落印 440：落下、压实、抬起三段要看得出来。
+ */
+:root[data-skin="ledger"], [data-skin-preview="ledger"] {
+  --brand: #1f5a44; --brand-deep: #123a2b; --brand-bg: #e1ede5; --brand-line: #a9c9b6;
+  --ink: #1c2420; --ink-soft: #36413b; --text-muted: #5f6b64; --text-faint: #9aa59e;
+  --line: #b7d0c0; --line-soft: #d6e5da; --line-strong: #86ab95;
+  --panel: #fcfdfb; --workbench: #f4f7f3; --hover: #e9f0ea; --row-hover: #f1f6f1;
+  --success: #1f5a44; --success-text: #1f5a44; --success-bg: #e1ede5; --success-line: #a9c9b6;
+  --warning: #94660f; --warning-text: #7a540c; --warning-bg: #f6eedb; --warning-line: #e3cf9f;
+  --danger: #b3321f; --danger-text: #9a2a1a; --danger-bg: #f7e4e0; --danger-line: #e7b3a8;
+  --on-ink: #ffffff;
+  --pencil: #7d9185; --pencil-text: #5f6b64;
+  --heat-on: #1c2420; --heat-off: #d6e5da;
+  --seal: #c8321e;
+  --nav-on-bg: #e1ede5; --nav-on-fg: #123a2b;
+
+  --font-display: "Songti SC", STSong, SimSun, "Instrument Serif", serif;
+  --font-num: "Songti SC", STSong, SimSun, serif;
+  --fs-title: 28px;
+
+  --r-ctl: 2px; --r-card: 0px; --r-pop: 2px; --r-tag: 2px;
+  --shadow-card: none;
+  --shadow-pop: 0 10px 30px -12px rgba(28, 36, 32, 0.22);
+  --page-pattern: repeating-linear-gradient(to bottom, transparent 0 31px, #dde9e0 31px 32px);
+  --row-h: 44px;
+
+  --ease: cubic-bezier(.25, .9, .3, 1);
+  --ease-spring: cubic-bezier(.3, 1.12, .5, 1);
+  --ease-morph: cubic-bezier(.4, 0, .2, 1);
+  --t-press: 90ms; --t-fast: 120ms; --t: 180ms; --t-morph: 320ms;
+  --t-seal: 440ms;
+  --stagger: 60ms;
+}
+:root[data-skin="ledger"][data-paper="white"] {
+  --panel: #ffffff; --hover: #eff5f0; --row-hover: #f6faf6;
+  --page-pattern: repeating-linear-gradient(to bottom, transparent 0 31px, #e4eee7 31px 32px);
+}
+
+/* ---------- 形状规则（≤10） ---------- */
+/* 1. 金额和大数字：会计双下划线（记账的惯例，表示合计） */
+:root[data-skin="ledger"] :is(.signal-v b, .stat-value) { display: inline-block; border-bottom: 3px double var(--ink); line-height: 1.1; }
+/* 2. 表头下面一道双线，行与行之间是稿纸格线 */
+:root[data-skin="ledger"] .ant-table-thead > tr > th { border-bottom: 3px double var(--line-strong) !important; }
+:root[data-skin="ledger"] .ant-table-tbody > tr > td { border-bottom-color: var(--line) !important; }
+/* 3. 状态标签：描边，不填底 */
+:root[data-skin="ledger"] .ant-tag { background: transparent !important; border: 1px solid currentColor !important; line-height: 18px; }
+/* 4. 分区标题下一道双线，像账页的栏目 */
+:root[data-skin="ledger"] :is(.rec-sec-t, .rec-side-t) { border-bottom: 3px double var(--line-strong); padding-bottom: 4px; margin-bottom: 4px; }
+/* 5. 时间线类型块：没有底，右边一道格线 */
+:root[data-skin="ledger"] .rec-tl-item .rec-tl-dot { background: none !important; border-right: 1px solid var(--line); }
+/* 6. 标题字距放开，宋体不加粗到发黑 */
+:root[data-skin="ledger"] :is(.page-head h1, .rec-head-name, .cli-welcome-t) { letter-spacing: .06em; }
+/* 7. 印：朱红实底、白字、方角，歪一点——唯一一处朱红 */
+:root[data-skin="ledger"] .prop-seal { background: var(--seal); color: var(--on-ink); border-radius: 2px; rotate: -4deg; }
+/* 8. 按下像落笔：不缩放，往下压 1px（减弱动态时由 globals.css 撤掉） */
+:root[data-skin="ledger"] .ant-btn:not(:disabled):active { scale: none; translate: 0 1px; }

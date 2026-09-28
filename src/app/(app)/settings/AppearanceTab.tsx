@@ -7,9 +7,10 @@ import { 外观键, 底色表, 主题表, 默认外观, 读外观, 挂外观, ty
 /**
  * 外观：这台电脑上的样子。只换值，不动数据，也不影响同事（规则见 lib/appearance.ts）。
  *
- * 眼下只有底色可选（原底 / 白底）。主题那一行等有第二套主题时才出现——
- * 一个只有一个选项的选择器是在让人找一个不存在的东西。
- * 每个选项带一张小样：看得见选了以后长什么样，比一句说明管用。
+ * 两行：底色（原底 / 白底）和主题（现状 / 像素 / 科技 / 高级 / 账簿），两行互不影响、可以任意组合。
+ * 主题那一行只在主题多于一套时出现——一个只有一个选项的选择器是在让人找一个不存在的东西。
+ * 每个选项带一张小样：看得见选了以后长什么样，比一句说明管用。主题的小样挂 data-skin-preview，
+ * 主题样式表对它也生效（skins/*.css 的 token 块同时写在 [data-skin-preview="x"] 上），所以小样就是那套主题本身的值。
  */
 export default function AppearanceTab() {
   const [存的, 存] = useLocalPref<Partial<外观>>(外观键, 默认外观);
@@ -55,7 +56,15 @@ export default function AppearanceTab() {
                 className={`appr-opt${当前.skin === x.key ? " on" : ""}`}
                 onClick={() => 存({ ...当前, skin: x.key })}
               >
+                <span className="appr-mini appr-mini-skin" data-skin-preview={x.key} aria-hidden="true">
+                  <i className="appr-mini-rail" />
+                  <span className="appr-mini-card">
+                    <em>客户 Aa 12</em>
+                    <i className="appr-mini-bar" />
+                  </span>
+                </span>
                 <b>{x.名}</b>
+                <span>{x.说明}</span>
               </button>
             ))}
           </div>

@@ -22,7 +22,7 @@ import type { AiUsage } from "@/lib/ai-usage";
 const 说明表: Record<string, string> = {
   profile: "你的名字、职位",
   keymap: "键盘上那几个键",
-  appearance: "底色；以后的主题也在这儿",
+  appearance: "底色和主题",
   members: "谁能进、谁是管理员",
   password: "改密码、看哪几台机器登录着",
   desktop: "账号、备份、更新",
