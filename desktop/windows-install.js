@@ -235,7 +235,13 @@ function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe�
   try {
     输出 = fs.openSync(输出文件, "a");
   } catch { /* 打不开就不记，不能因为日志挡住换目录 */ }
-  const child = 启动("powershell.exe", 参数, { detached: true, stdio: ["ignore", 输出, 输出], windowsHide: true });
+  /*
+    **不要 detached**。Node 在 Windows 上把 detached 实现成 DETACHED_PROCESS：子进程没有控制台，
+    Windows PowerShell 5.1 没有控制台就一声不吭地立刻退出——CI 上连着栽了几次（壳记下了 pid，两分钟后进程早没了，
+    一个字没输出、update-swap.log 一行没写，2026-09-29）。只要 windowsHide：给它一个隐藏的控制台（CREATE_NO_WINDOW）。
+    Windows 不会因为父进程退出就杀子进程（不像 Unix 的进程组），unref 之后 Electron 照样退，脚本照样等它退完再换
+  */
+  const child = 启动("powershell.exe", 参数, { stdio: ["ignore", 输出, 输出], windowsHide: true });
   // 起没起来要留一笔：spawn 失败（找不到 powershell.exe 之类）原来被一个空的 error 回调吞掉，什么都看不出来
   记(`启动 powershell.exe pid=${child.pid ?? "无"} 版本=${版本 || "-"} 目录=${目录}`);
   child.on?.("error", (e) => 记(`起不来：${e?.code ?? ""} ${e?.message ?? e}`));

@@ -60,14 +60,16 @@ describe("换目录脚本", () => {
     expect(窗装.换目录脚本).toMatch(/still locked, keep old version/);
   });
   const 解 = (参数: string[]) => Buffer.from(参数[参数.indexOf("-EncodedCommand") + 1], "base64").toString("utf16le");
-  it("起脚本：-EncodedCommand 传命令，不写 .ps1、不靠 -ExecutionPolicy（组策略锁执行策略时 Bypass 不管用）", () => {
+  it("起脚本：-EncodedCommand 传命令，不写 .ps1、不靠 -ExecutionPolicy；不 detached；输出落文件", () => {
     const 更新目录 = fs.mkdtempSync(path.join(os.tmpdir(), "更新 目录-"));
     const 启动 = vi.fn(() => ({ unref: vi.fn(), on: vi.fn() }));
     try {
       const { 参数 } = 窗装.启动换目录({
         目录: "C:\\Users\\张三\\Programs\\daedalus-crm", 等PID: 4321, 重启: true, 版本: "0.46.8", exe名: "Daedalus CRM.exe", 更新目录, 启动,
       });
-      expect(启动).toHaveBeenCalledWith("powershell.exe", 参数, expect.objectContaining({ detached: true, windowsHide: true }));
+      expect(启动).toHaveBeenCalledWith("powershell.exe", 参数, expect.objectContaining({ windowsHide: true }));
+      // 不许 detached：Windows 上那是 DETACHED_PROCESS，PowerShell 5.1 没有控制台就一声不吭地退出（CI 上栽过）
+      expect((启动.mock.calls[0] as unknown as [string, string[], { detached?: boolean }])[2].detached).toBeFalsy();
       // PowerShell 自己的输出记到文件里：起不来的时候要有线索
       const stdio = (启动.mock.calls[0] as unknown as [string, string[], { stdio: unknown[] }])[2].stdio;
       expect(stdio[0]).toBe("ignore");
@@ -321,6 +323,18 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
       占着.kill();
     }
   });
+
+  it("走应用自己的那条路（启动换目录：spawn、不等它、unref）也真能换过去——直接调 PowerShell 的用例抓不到启动方式的问题", async () => {
+    // 2026-09-29：原来 detached 启动，PowerShell 没控制台一声不吭就退了；上面几条是 spawnSync 直接调，全绿，没抓到
+    const 目录 = 摆("via-app-spawn 中文");
+    const 自己的更新目录 = path.join(沙盒, "updates-app");
+    窗装.启动换目录({ 目录, 版本: "9.9.9", 更新目录: 自己的更新目录 });
+    const 止 = Date.now() + 45_000;
+    while (Date.now() < 止 && !(fs.existsSync(`${目录}.old`) && !fs.existsSync(`${目录}.new`))) await new Promise((r) => setTimeout(r, 300));
+    const 日志 = (f: string) => (fs.existsSync(path.join(自己的更新目录, f)) ? fs.readFileSync(path.join(自己的更新目录, f), "utf8") : "");
+    expect(fs.readFileSync(path.join(目录, "a.txt"), "utf8"), 日志("update-swap.out.log") + 日志("update-swap.log")).toBe("new");
+    expect(日志("update-swap.log")).toMatch(/swapped/);
+  }, 60_000);
 
   it("路径里有单引号和中文也换得过去", () => {
     const 目录 = 摆("O'Brien 的 app");
