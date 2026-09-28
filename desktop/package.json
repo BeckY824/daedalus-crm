@@ -38,6 +38,7 @@
       "delta.js",
       "backup.js",
       "crashlog.js",
+      "reminders.js",
       "sign.js",
       "assets/**"
     ],

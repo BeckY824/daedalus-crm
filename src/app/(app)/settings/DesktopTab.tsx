@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 
 /** 壳的桥不会变，订阅什么都不用做 */
 const 无订阅 = () => () => {};
-import { Alert, App, Button, Card, Form, Input, Modal, Space, Typography } from "antd";
+import { Alert, App, Button, Card, Form, Input, Modal, Select, Space, Switch, Typography } from "antd";
 import { 桌面端发码, 桌面端改密码 } from "./actions";
 import { 赠送说明 } from "@/lib/credits-copy";
 
@@ -41,8 +41,16 @@ declare global {
        */
       switchAccount(): Promise<{ ok: boolean; error?: string }>;
     };
+    /** 提醒（desktop/reminders.js）：Dock 数字、早上汇总、到点提醒的开关。老版本的壳没有这个口子 */
+    desktopReminders?: {
+      设置(): Promise<提醒设置>;
+      改设置(s: 提醒设置): Promise<提醒设置>;
+      刷新(): Promise<boolean>;
+    };
   }
 }
+
+type 提醒设置 = { 角标: boolean; 早报: boolean; 早报时间: string; 到点: boolean };
 
 export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
   const { message, modal } = App.useApp();
@@ -115,6 +123,8 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
           </Space>
         </Card>
 
+        <ReminderCard />
+
         <Card size="small" title="本机数据">
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
             一个 SQLite 文件，就在这台机器上。备份出去的文件退出应用后改名成 crm.db 放回数据目录就能恢复。
@@ -179,6 +189,78 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
 
       <ChangePasswordModal open={改密码开着} 账号={账号} onClose={() => set改密码开着(false)} />
     </div>
+  );
+}
+
+/**
+ * 提醒的三个开关。设置存在壳那边（窗口关着时是壳在发提醒，它得自己知道开关），
+ * 这里只是读一次、改了就交回去。老版本的壳没有这个口子：整张卡不出现，不摆几个点了没用的开关。
+ */
+function ReminderCard() {
+  const 桥 = useSyncExternalStore(无订阅, () => window.desktopReminders, () => undefined);
+  const [设置, set设置] = useState<提醒设置 | null>(null);
+  useEffect(() => {
+    桥?.设置().then(set设置).catch(() => {});
+  }, [桥]);
+  if (!桥 || !设置) return null;
+
+  const 改 = (部分: Partial<提醒设置>) => {
+    const 新 = { ...设置, ...部分 };
+    set设置(新); // 先改界面，开关不能等一个来回才动
+    桥.改设置(新).then(set设置).catch(() => {});
+  };
+  const 是Windows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+  const 时刻 = ["07:00", "07:30", "08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00"];
+
+  const 行 = (开: boolean, 切: (v: boolean) => void, 名: string, 说明: string, 尾?: React.ReactNode) => (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "8px 0" }}>
+      <Switch size="small" checked={开} onChange={切} style={{ marginTop: 2 }} aria-label={名} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span>{名}</span>
+          {尾}
+        </div>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          {说明}
+        </Typography.Text>
+      </div>
+    </div>
+  );
+
+  return (
+    <Card size="small" title="提醒">
+      {行(
+        设置.角标,
+        (v) => 改({ 角标: v }),
+        是Windows ? "任务栏图标上显示红点" : "Dock 图标上显示要跟进的数",
+        "今天到期和已经逾期、还没做的跟进。0 个就不显示",
+      )}
+      {行(
+        设置.早报,
+        (v) => 改({ 早报: v }),
+        "每天早上一条汇总",
+        "只发一条，说今天有几个要跟进、拖得最久的是谁。那时应用没开，就在今天第一次打开时补发；没事就不发",
+        <Select
+          size="small"
+          value={设置.早报时间}
+          disabled={!设置.早报}
+          onChange={(v) => 改({ 早报时间: v })}
+          options={时刻.map((t) => ({ value: t, label: t }))}
+          style={{ width: 84 }}
+          aria-label="早上汇总的时间"
+        />,
+      )}
+      {行(
+        设置.到点,
+        (v) => 改({ 到点: v }),
+        "定了钟点的计划，到点提醒",
+        "比如「3 点给王总回电话」，到 3 点叫你一次，点一下直接到这位客户。只选了日期、没定钟点的不会在半夜叫你",
+      )}
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: "8px 0 0" }}>
+        应用开着才提醒——关了窗口没关系{是Windows ? "" : "（在 Dock 里就算开着）"}，退出了就收不到。
+        收不到通知的话，去系统设置的「通知」里看看 Daedalus CRM 是不是被关掉了。
+      </Typography.Paragraph>
+    </Card>
   );
 }
 

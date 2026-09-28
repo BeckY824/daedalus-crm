@@ -141,6 +141,8 @@ export default function PlansView({
     if (x.kind === "plan") await completePlan(x.id);
     else await toggleTask(x.id, true);
     message.success(x.kind === "plan" ? "计划已完成" : "任务已完成");
+    // 桌面端：Dock 上那个数马上跟着少一个，不等壳下一分钟再问（网页版没有这个口子）
+    void window.desktopReminders?.刷新();
     // 留位 600ms 再让它从列表里消失：立刻抽走，下面的行会跳上来顶替位置
     setTimeout(() => {
       set刚完成((v) => v.filter((k) => k !== x.key));

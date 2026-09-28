@@ -56,6 +56,18 @@ contextBridge.exposeInMainWorld("desktopNotify", {
   通知: (标题, 正文) => ipcRenderer.invoke("notify:show", { 标题: String(标题 ?? ""), 正文: String(正文 ?? "") }),
 });
 
+/*
+  desktopReminders —— 提醒的设置（Dock 数字 / 早上汇总 / 到点提醒）和「现在就再问一次」。
+  设置只有四个字段，由主进程规整；刷新不带参数。页面完成一条计划之后喊一声，Dock 上的数马上跟着变。
+*/
+contextBridge.exposeInMainWorld("desktopReminders", {
+  设置: () => ipcRenderer.invoke("reminders:get"),
+  改设置: (s) => ipcRenderer.invoke("reminders:set", {
+    角标: Boolean(s?.角标), 早报: Boolean(s?.早报), 早报时间: String(s?.早报时间 ?? ""), 到点: Boolean(s?.到点),
+  }),
+  刷新: () => ipcRenderer.invoke("reminders:refresh"),
+});
+
 contextBridge.exposeInMainWorld("desktopNav", {
   onGo: (cb) => {
     const h = (_e, 路径) => {

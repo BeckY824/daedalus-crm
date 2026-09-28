@@ -18,7 +18,7 @@
  * 菜单照 Claude 桌面端那套：应用 / 文件 / 编辑 / 显示 / 前往 / 窗口 / 帮助，全是标准项。
  * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
-const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain } = require("electron");
+const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
@@ -32,6 +32,7 @@ const 路径记忆 = require("./route-memory");
 const 差量 = require("./delta");
 const 备份 = require("./backup");
 const 崩溃 = require("./crashlog");
+const 提醒 = require("./reminders");
 const os = require("node:os");
 
 const APP_NAME = "Daedalus CRM";
@@ -348,6 +349,73 @@ function 去(路径) {
     if (!应答了) 前往(路径);
   }, 400);
 }
+
+/**
+ * 点通知去某一页。窗口还在：叫到前面、软跳过去（和菜单里的「设置」一样走页面自己 push）。
+ * 窗口已经关了（Mac 上关了窗口应用还在 Dock 里）：先把要去的地方记成「上次停的那一页」，再开窗口——
+ * 自动登录那条路本来就会带着它落过去（见 本地入口 的 next），不用另开一条。
+ */
+function 打开到(路径) {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    去(路径);
+    return;
+  }
+  写配置({ ...读配置(), lastRoute: 路径 });
+  建窗口();
+}
+
+/** 提醒发的通知：和「AI 答完了」那条不同，**窗口在前台也发**——到点就是到点，界面里没有别的地方会说这句话 */
+function 发提醒(标题, 正文, 路径) {
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) });
+  n.on("click", () => 打开到(路径));
+  n.show();
+}
+
+/**
+ * Dock / 任务栏上的数。Mac（和 Linux 的 Unity）有现成的角标；
+ * Windows 没有，只能在任务栏图标上叠一个小图——叠一个红点，数字放进悬停说明里。
+ * 红点现画不用图片文件：多一个资源就多一处要进 files 白名单的东西。
+ */
+let 红点图 = null;
+function 画红点() {
+  const 边 = 16;
+  const buf = Buffer.alloc(边 * 边 * 4);
+  for (let y = 0; y < 边; y++) {
+    for (let x = 0; x < 边; x++) {
+      // 离圆心的距离，边上 1px 做个渐变，不然锯齿很明显
+      const d = Math.hypot(x + 0.5 - 边 / 2, y + 0.5 - 边 / 2);
+      const a = Math.max(0, Math.min(1, 边 / 2 - 0.5 - d + 0.5));
+      const i = (y * 边 + x) * 4;
+      // BGRA：#E5484D
+      buf[i] = 0x4d;
+      buf[i + 1] = 0x48;
+      buf[i + 2] = 0xe5;
+      buf[i + 3] = Math.round(a * 255);
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: 边, height: 边 });
+}
+let 上次角标 = -1;
+function 设角标(n) {
+  if (n === 上次角标) return;
+  上次角标 = n;
+  if (process.platform === "win32") {
+    if (!win || win.isDestroyed()) {
+      上次角标 = -1; // 窗口回来之后要重画
+      return;
+    }
+    if (!红点图) 红点图 = 画红点();
+    win.setOverlayIcon(n > 0 ? 红点图 : null, n > 0 ? `${n} 个要跟进` : "");
+    return;
+  }
+  app.setBadgeCount(n);
+}
+
+let 提醒器 = null;
 
 function 当前地址() {
   const cfg = 读配置();
@@ -771,6 +839,17 @@ ipcMain.handle("notify:show", (_e, 内容) => {
 });
 
 ipcMain.handle("shell:version", () => app.getVersion());
+/*
+  提醒的设置和「现在就再问一次」。设置存在壳这边（数据根下的 reminders.json）：
+  窗口关着时是壳在发提醒，它得自己知道开关，不能等页面来告诉它。
+  页面传进来的设置只认那四个字段（规整设置 里收），多余的一概丢掉。
+*/
+ipcMain.handle("reminders:get", () => 提醒器?.设置() ?? 提醒.默认设置);
+ipcMain.handle("reminders:set", (_e, 新) => 提醒器?.改设置(新) ?? 提醒.规整设置(新));
+ipcMain.handle("reminders:refresh", () => {
+  void 提醒器?.刷新();
+  return true;
+});
 ipcMain.handle("shell:backup", () => 备份数据库());
 ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
 /**
@@ -994,6 +1073,20 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
     建窗口();
+    /*
+      提醒：Dock 上的数、早上那条汇总、到点提醒（desktop/reminders.js）。
+      连服务器的模式下也照样起：「能不能问」每一轮现判断，本地服务在才问，
+      中途切去服务器模式，Dock 上的数就跟着清掉，不会挂着一个过期的数。
+    */
+    提醒器 = 提醒.开始({
+      文件: path.join(数据根, "reminders.json"),
+      取端口: () => (读配置().mode === "local" ? 本地?.port ?? null : null),
+      取令牌: () => (读配置().mode === "local" ? 本地?.token ?? null : null),
+      通知: 发提醒,
+      设角标,
+    });
+    // 切回应用时立刻再问一次：人刚在别处把事做完，Dock 上的数不该还是一分钟前的
+    app.on("browser-window-focus", () => void 提醒器?.刷新());
     // 开机就查会和冷启动抢资源，等一会儿再说；之后每 6 小时再查一次。都是静默的，有新版就后台下
     setTimeout(() => 检查更新().catch(() => {}), 15_000);
     setInterval(() => 检查更新().catch(() => {}), 6 * 60 * 60 * 1000);
@@ -1025,6 +1118,7 @@ if (!app.requestSingleInstanceLock()) {
 
   // 退出前把本地服务收掉，别留一个孤儿进程占着端口和数据库
   app.on("before-quit", () => {
+    提醒器?.停();
     本地服务.stop();
     MCP桥.stop();
     /*
