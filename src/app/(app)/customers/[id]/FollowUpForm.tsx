@@ -11,6 +11,19 @@ import { useBusiness } from "@/lib/business-client";
 import AiWait from "@/components/AiWait";
 import { clearJob, runJob } from "@/lib/ai-jobs";
 import { statusLabel } from "@/lib/business-config";
+import { 只填没动过的, 跳过说明 } from "@/lib/fill-untouched";
+
+/** 「标题你改过，没动」里说的名字：和表单上的标签对得上，说短一点 */
+const 字段名: Record<string, string> = {
+  type: "类型",
+  status: "状态",
+  title: "标题",
+  content: "内容",
+  durationMinutes: "时长",
+  occurredAt: "时间",
+  contactId: "联系人",
+  opportunityId: "商机",
+};
 
 type Rec = {
   id?: string;
@@ -117,16 +130,24 @@ export default function FollowUpForm({
       return;
     }
     const d = res.draft;
-    form.setFieldsValue({
-      type: d.followUp.type,
-      status: d.followUp.status,
-      title: d.followUp.title || undefined,
-      content: d.followUp.content,
-      durationMinutes: d.followUp.durationMinutes,
-      occurredAt: d.followUp.occurredAt ? dayjs(d.followUp.occurredAt) : dayjs(),
-      contactId: d.followUp.contactId ?? undefined,
-      opportunityId: d.followUp.opportunityId ?? undefined,
-    });
+    /*
+      只填人没动过的格子（lib/fill-untouched.ts）。解析要十来秒，这期间人可能已经补了标题、改了类型——
+      结果回来整个盖掉，他刚写的就没了。「重新解析」同理：上一轮 AI 填的没人碰过，照换；人改过的留着。
+    */
+    const { 填, 跳过 } = 只填没动过的(
+      {
+        type: d.followUp.type,
+        status: d.followUp.status,
+        title: d.followUp.title || undefined,
+        content: d.followUp.content,
+        durationMinutes: d.followUp.durationMinutes,
+        occurredAt: d.followUp.occurredAt ? dayjs(d.followUp.occurredAt) : dayjs(),
+        contactId: d.followUp.contactId ?? undefined,
+        opportunityId: d.followUp.opportunityId ?? undefined,
+      },
+      (name) => form.isFieldTouched(name),
+    );
+    form.setFieldsValue(填);
     setExtras({
       tasks: d.tasks.map((t) => ({ ...t, checked: true })),
       plan: d.plan ? { ...d.plan, checked: true } : null,
@@ -139,6 +160,7 @@ export default function FollowUpForm({
       d.followUp.status,
       d.plan?.plannedAt ? `下次 ${dayjs(d.plan.plannedAt).format("M 月 D 日")}` : null,
       d.tasks.length ? `${d.tasks.length} 条待办` : null,
+      跳过说明(跳过, 字段名),
       `${((Date.now() - 起) / 1000).toFixed(1)}s`,
     ].filter(Boolean);
     set解析({ 起, 结果: `已预填：${摘要.join(" · ")}` });
