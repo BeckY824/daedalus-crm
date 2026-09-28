@@ -77,6 +77,12 @@ type Props<T> = {
    * 不给 = 行已经是全部（走服务端分页的 `/customers`，或者本来就取全了）。
    */
   截断?: { 总数: number; 说明?: string };
+  /**
+   * 原地变了的行也亮一下（和新建的行同一个 row-fresh）：标赢单 / 丢单 / 撤销之后，
+   * 那一行的阶段、概率换了，光一句 message 人还要自己去找是哪行变了。
+   * 由调用方给 id，因为 id 没变、这里比不出来。
+   */
+  亮?: string[];
 };
 
 const 列键 = <T,>(c: 列<T>) => String(c.key ?? c.dataIndex);
@@ -92,7 +98,7 @@ function 行名(r: object): string | null {
 }
 
 export default function DataList<T extends { id: string }>({
-  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页, 截断,
+  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页, 截断, 亮,
 }: Props<T>) {
   const router = useRouter();
   const [选中, set选中] = useState<string[]>([]);
@@ -283,7 +289,7 @@ export default function DataList<T extends { id: string }>({
         locale={{ emptyText: <EmptyState {...空态} /> }}
         scroll={{ x }}
         rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]), fixed: true } : undefined}
-        rowClassName={(r) => (新来的.includes(r.id) ? "row-fresh" : "")}
+        rowClassName={(r) => (新来的.includes(r.id) || 亮?.includes(r.id) ? "row-fresh" : "")}
         onRow={
           行链接
             ? (r) => ({

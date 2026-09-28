@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, InputNumber, DatePicker, Slider, App, Dropdown, Popover } from "antd";
 import {
@@ -102,6 +102,16 @@ export default function OpportunitiesView({
   const [问丢单, set问丢单] = useState<string | null>(null);
   const [问赢单, set问赢单] = useState<string | null>(null);
 
+  /** 状态刚变的那一行亮两秒（DataList 的 亮）。先清一帧再点亮：同一行两秒内再变一次（丢单后马上撤销），动画要重播 */
+  const [亮行, set亮行] = useState<string[]>([]);
+  const 亮计时 = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function 亮一下(id: string) {
+    if (亮计时.current) clearTimeout(亮计时.current);
+    set亮行([]);
+    requestAnimationFrame(() => set亮行([id]));
+    亮计时.current = setTimeout(() => set亮行([]), 2000);
+  }
+
   /**
    * 标丢单：就地确认之后才写，写完给一次撤销（2026-09-28 审查 S7）。
    * 撤销走 setOppStatus 改回进行中，**阶段和概率原样带回去**——丢单会把概率清零，
@@ -111,6 +121,7 @@ export default function OpportunitiesView({
     const res = await setOppStatus(r.id, "LOST");
     if (!res.ok) return void message.error(res.error);
     router.refresh();
+    亮一下(r.id);
     const key = `lost-${r.id}`;
     message.success({
       key,
@@ -126,6 +137,7 @@ export default function OpportunitiesView({
               if (!back.ok) return void message.error(back.error);
               message.success(`「${r.name}」已改回进行中`);
               router.refresh();
+              亮一下(r.id);
             }}
           >
             撤销
@@ -155,6 +167,7 @@ export default function OpportunitiesView({
     }
     message.success(`恭喜赢单${另}`);
     router.refresh();
+    亮一下(r.id);
   }
 
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
@@ -322,6 +335,7 @@ export default function OpportunitiesView({
         空库={rows.length === 0 && !Object.values(filters).some((v) => v)}
         列={列表}
         行={rows}
+        亮={亮行}
         加载中={pending}
         空态={{
           title: "还没有商机",
