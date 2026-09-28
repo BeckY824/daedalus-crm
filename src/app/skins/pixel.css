@@ -1,0 +1,67 @@
+/*
+ * 像素：1 位黑白 + 一个信号蓝。线就是墨（2px 实线），零圆角，实心投影，地面 8px 点阵。
+ * 设置 → 外观 → 主题（lib/appearance.ts）。一套主题 = 一块 token + 不超过 10 条形状规则：
+ *   - token 只许用 globals.css :root 里已有的名字（tests/skins.test.ts 钉着，拼错不会报错、只会悄悄沿用现状）
+ *   - 色值只许写在 token 块里（tests/design-tokens.test.ts）
+ *   - 动效：三条曲线换成 steps() 阶跃——一格一格跳，像老游戏机的菜单；时长只落在 90/120/180/320 四档，
+ *     按下 90，落印 ≤480（tests/motion-tokens.test.ts）
+ * 中文没有像素字（Google Fonts 上没有简体像素体），中文走系统黑体；只有拉丁字母和数字是像素字。
+ */
+:root[data-skin="pixel"], [data-skin-preview="pixel"] {
+  --brand: #2d3cff; --brand-deep: #1a22a8; --brand-bg: #e0e3ff; --brand-line: #9aa1ff;
+  --ink: #111111; --ink-soft: #2b2b2b; --text-muted: #5d5d5d; --text-faint: #8e8e8e;
+  --line: #111111; --line-soft: #cfd0d3; --line-strong: #111111;
+  --panel: #ffffff; --workbench: #ebecee; --hover: #e1e2e5; --row-hover: #f3f3f5;
+  --success: #0f7a35; --success-text: #0b5e28; --success-bg: #dcf2e3; --success-line: #9fd4b0;
+  --warning: #9a5a00; --warning-text: #7a4700; --warning-bg: #fbecd2; --warning-line: #e8c688;
+  --danger: #c4122f; --danger-text: #a30f27; --danger-bg: #fadde2; --danger-line: #f0a3b0;
+  --on-ink: #ffffff;
+  --pencil: #707070; --pencil-text: #5d5d5d;
+  --heat-on: #111111; --heat-off: #cfd0d3;
+  --seal: #2d3cff;
+  --nav-on-bg: #111111; --nav-on-fg: #ffffff;
+
+  --font-display: "Pixelify Sans", -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  --font-num: "Silkscreen", "Pixelify Sans", ui-monospace, monospace;
+  --fw-display: 700;
+  --fs-title: 24px;
+
+  --r-ctl: 0px; --r-card: 0px; --r-pop: 0px; --r-tag: 0px;
+  --bw: 2px;
+  --shadow-card: 4px 4px 0 #111111;
+  --shadow-pop: 6px 6px 0 #111111;
+  --page-pattern: radial-gradient(#cdced1 1px, transparent 1.2px);
+  --page-pattern-size: 8px 8px;
+
+  --ease: steps(3, end);
+  --ease-spring: steps(4, end);
+  --ease-morph: steps(5, end);
+  --t-press: 90ms; --t-fast: 120ms; --t: 120ms; --t-morph: 180ms;
+  --t-seal: 360ms;
+  --stagger: 60ms;
+}
+:root[data-skin="pixel"][data-paper="white"] {
+  --hover: #ededf0; --row-hover: #f5f5f7;
+  --page-pattern: radial-gradient(#dcdde1 1px, transparent 1.2px);
+}
+
+/* ---------- 形状规则（≤10） ---------- */
+/* 1. 控件是 2px 墨线 + 2px 实心投影 */
+:root[data-skin="pixel"] :is(.ant-btn-variant-outlined, .ant-btn-variant-solid, .ant-input-outlined, .ant-input-affix-wrapper, .ant-select-outlined, .ant-picker-outlined, .cli-input) { box-shadow: 2px 2px 0 var(--ink); }
+/* 2. 按下去：投影没了，本体沉下去 2px（减弱动态时这 2px 由 globals.css 撤掉） */
+:root[data-skin="pixel"] :is(.ant-btn:active, .press:active) { box-shadow: none; translate: 2px 2px; scale: none; }
+/* 3. 卡片 2px 墨线 */
+:root[data-skin="pixel"] :is(.rec-card, .card-soft, .ant-card, .cli-card, .prop-done) { border-width: 2px; border-color: var(--ink); }
+/* 4. 状态标签：不填底，2px 方框 */
+:root[data-skin="pixel"] .ant-tag { background: transparent !important; border: 2px solid currentColor !important; line-height: 16px; }
+/* 5. 头像、冷热格、时间线类型块：方的 */
+:root[data-skin="pixel"] :is(.ant-avatar, .roster-av, .heat i, .rec-tl-dot, .pane-chip, .rec-chip, .cli-q) { border-radius: 0; }
+/* 6. 表头下一道 2px 墨线 */
+:root[data-skin="pixel"] .ant-table-thead > tr > th { border-bottom: 2px solid var(--ink) !important; }
+/* 7. 悬停整行反白 */
+:root[data-skin="pixel"] .list .ant-table-tbody > tr.ant-table-row:hover > td { background: var(--ink) !important; color: var(--panel); }
+:root[data-skin="pixel"] .list .ant-table-tbody > tr.ant-table-row:hover > td :is(*, .ant-tag) { color: var(--panel) !important; }
+/* 8. AI 草稿：底上一层网点（铅笔），确认后网点没了，换成信号蓝的实心投影 */
+:root[data-skin="pixel"] .prop { border-width: 2px; background-image: repeating-conic-gradient(color-mix(in srgb, var(--line-soft) 55%, transparent) 0 25%, transparent 0 50%); background-size: 4px 4px; }
+/* 9. 像素字不做抗锯齿 */
+:root[data-skin="pixel"] :is(.page-head h1, .rec-head-name, .cli-welcome-t, .rail-mark b, .stat-value, .signal-v b) { -webkit-font-smoothing: none; }

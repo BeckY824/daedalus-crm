@@ -2,11 +2,25 @@ import type { Metadata } from "next";
 import { AntdRegistry } from "@ant-design/nextjs-registry";
 import { ConfigProvider, App as AntdApp } from "antd";
 import zhCN from "antd/locale/zh_CN";
-import { MotionConfig } from "motion/react";
 import { themeConfig } from "@/lib/theme";
-import { 曲线, 时长 } from "@/lib/motion";
+import MotionTheme from "@/components/MotionTheme";
 import { 外观预设脚本, 默认外观 } from "@/lib/appearance";
 import "./globals.css";
+/* 主题（设置 → 外观 → 主题）。每套只在 <html data-skin="x"> 时生效，现状下这几份一条都不命中。
+   字体只登记 @font-face、不预加载：浏览器只在某段字真用上这个字体时才去下载，所以不选这套主题就一个字节都不下。
+   只取拉丁子集——中文走系统字（宋体 / 苹方），不打包中文字体 */
+import "./skins/shared.css";
+import "./skins/pixel.css";
+import "./skins/tech.css";
+import "./skins/luxe.css";
+import "./skins/ledger.css";
+import "@fontsource/pixelify-sans/latin-500.css";
+import "@fontsource/pixelify-sans/latin-700.css";
+import "@fontsource/silkscreen/latin-400.css";
+import "@fontsource/jetbrains-mono/latin-400.css";
+import "@fontsource/jetbrains-mono/latin-500.css";
+import "@fontsource/jetbrains-mono/latin-700.css";
+import "@fontsource/instrument-serif/latin-400.css";
 
 export const metadata: Metadata = {
   title: "Daedalus CRM",
@@ -26,21 +40,11 @@ export default function RootLayout({
       <body>
         <AntdRegistry>
           <ConfigProvider locale={zhCN} theme={themeConfig}>
-            {/*
-              动效的两条全局约定，挂在最外面一层：
-
-              reducedMotion="user" —— 系统开了「减弱动态效果」，**所有 motion 组件自动不动**。
-                globals.css 末尾那条 @media 只管 CSS 的 transition/animation，
-                管不到 JS 驱动的值：在这一行之前，时间线、AI 面板、建议卡在那个开关下照动不误。
-                一个一个组件去调 useReducedMotion 也行，但漏一个就是漏一个。
-
-              transition —— 没写 transition 的 motion 组件一律用全站那条曲线
-                （--t 和 --ease 的数值版，见 lib/motion.ts）。默认那条弹簧和 CSS 里的
-                不是一套东西，同屏出现时能看出来是两个人做的。
-            */}
-            <MotionConfig reducedMotion="user" transition={{ duration: 时长.base, ease: 曲线.ease }}>
+            {/* 动效的两条全局约定（减弱动态时 motion 不动、默认过渡用全站那条曲线）挂在 MotionTheme 里，
+                值跟着当前主题读——见 components/MotionTheme.tsx */}
+            <MotionTheme>
               <AntdApp>{children}</AntdApp>
-            </MotionConfig>
+            </MotionTheme>
           </ConfigProvider>
         </AntdRegistry>
       </body>

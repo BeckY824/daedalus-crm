@@ -1,4 +1,6 @@
-:root {
+/* 设置 → 外观里每张主题小样（[data-skin-preview]）先吃这一块，再叠自己那套：别的主题开着时，小样得从现状本来的值起步，
+   而不是从 <html> 上继承到的当前主题 */
+:root, [data-skin-preview] {
   /* ---------- 色板 ----------
      十组，每组「底 / 字 / 线」齐全。页面里不再出现裸 hex。
      以前同一个浅蓝有 #e9eefb / #eaf2ff / #eef2ff / #eef5ff 四个版本，
@@ -105,6 +107,25 @@
      还是 --workbench，不能跟着一起变白，否则它们就和白卡片糊成一片 */
   --page-bg: var(--workbench);
   --border: var(--line);
+
+  /* ---------- 主题要换、现状用不着的几个钩子（2026-09-28，设置 → 外观 → 主题） ----------
+     「现状」下每一个都等于原来写死的那个值，所以加上它们界面一个像素都不变；
+     别的主题（src/app/skins/*.css）只在这里已有的名字上换值——名字拼错不会报错，
+     只会悄悄沿用现状，所以 tests/skins.test.ts 钉着「主题只许定义 :root 里有的名字」。 */
+  --seal: var(--ink);                  /* 你确认的那一下（建议卡落的印）。账簿换成朱红，且只许它用 */
+  --nav-on-bg: var(--brand-bg);        /* 左栏当前项的底 */
+  --nav-on-fg: var(--brand-deep);      /* 左栏当前项的字 */
+  --font-ui: Inter, -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  --font-display: var(--font-ui);      /* 页面标题、记录页名字、首页问候 */
+  --font-num: var(--font-ui);          /* 大数字 */
+  --fw-display: 600;
+  --r-tag: 999px;                      /* 状态标签 */
+  --bw: 1px;                           /* 控件边框粗细（喂给 antd 的 lineWidth） */
+  --draft: dashed;                     /* 铅笔的线型：AI 起草、还没确认的 */
+  --shadow-card: none;
+  --shadow-pop: 0 8px 24px rgba(17, 24, 39, 0.08);
+  --page-pattern: none;                /* 地面纹理：像素的点阵、科技的坐标格、账簿的稿纸线 */
+  --page-pattern-size: auto;
 }
 
 /* ---------- 外观（设置 → 外观，lib/appearance.ts） ----------
@@ -130,6 +151,12 @@
 .appr-mini-white { background: var(--panel); }
 .appr-mini-rail { width: 22%; border-radius: 3px; background: color-mix(in srgb, var(--line) 60%, transparent); }
 .appr-mini-card { flex: 1; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); }
+/* 主题的小样：挂着 data-skin-preview，读的是那套主题自己的 token——地面、纸、线、标题字、主色都是真的 */
+.appr-mini-skin { background: var(--workbench); background-image: var(--page-pattern); background-size: var(--page-pattern-size); border-radius: var(--r-ctl); }
+.appr-mini-skin .appr-mini-rail { background: var(--nav-on-bg); border-radius: min(var(--r-ctl), 3px); }
+.appr-mini-skin .appr-mini-card { display: flex; flex-direction: column; justify-content: space-between; padding: 6px 8px; border: var(--bw) solid var(--line); border-radius: var(--r-card); box-shadow: var(--shadow-card); }
+.appr-mini-skin em { font-style: normal; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-section); line-height: 1.2; color: var(--ink); white-space: nowrap; overflow: hidden; }
+.appr-mini-bar { display: block; width: 44%; height: 6px; border-radius: min(var(--r-ctl), 3px); background: var(--brand); }
 
 * {
   box-sizing: border-box;
@@ -141,6 +168,8 @@ body {
   padding: 0;
   height: 100%;
   background: var(--page-bg);
+  background-image: var(--page-pattern);
+  background-size: var(--page-pattern-size);
   -webkit-font-smoothing: antialiased;
   font-size: var(--fs-body);
   line-height: 1.6;
@@ -204,7 +233,7 @@ a {
 .rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 14px; }
 .rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: var(--r-card); color: var(--ink); }
 .rail-mark:hover { background: var(--hover); }
-.rail-mark b { font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
+.rail-mark b { font-family: var(--font-display); font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
 .rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 2px; }
 .rail-foot { margin-top: auto; }
 /* 侧栏底部的 AI 任务。问一句要十几秒，人会切走——切走之后总得有个地方
@@ -248,7 +277,7 @@ a {
    更新是「有事发生了」，反馈是「随时可以说」，后者不该一直举着手 */
 .rail-fb { flex: none; width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
   border: 0; border-radius: 999px; background: none; color: var(--text-faint); font-size: 14px; cursor: pointer;
-  transition: background var(--t-fast), color var(--t-fast); }
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .rail-fb:hover { background: var(--hover); color: var(--ink); }
 .rail-fb:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 /* 侧栏里它和更新键并排，一起往下让 6px；手机顶栏里要和铃铛一样大、一样高 */
@@ -269,7 +298,7 @@ a {
    整条变色等于宣布「这里有个功能」，而它只需要在你手到了的时候承认自己在 */
 .rail-resizer::before { content: ""; position: absolute; top: 50%; left: 2px; width: 2px; height: 0;
   border-radius: 999px; background: var(--text-faint); opacity: 0; transform: translateY(-50%);
-  transition: height var(--t) var(--ease), opacity var(--t-fast) var(--ease), background var(--t-fast); }
+  transition: height var(--t) var(--ease), opacity var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
 .rail-resizer:hover::before, .rail-resizer:focus-visible::before { height: 28px; opacity: 1; }
 .rail-resizer:focus-visible::before, .rail-resizer:active::before { background: var(--brand); height: 44px; opacity: 1; }
 /* 拖动时：别让侧栏的字被选中，也别让光标跨过正文时变回箭头 */
@@ -281,7 +310,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   height: 26px; padding: 0 2px; border: 0; border-radius: 999px;
   background: var(--brand); color: var(--on-ink); font-size: var(--fs-note); font-weight: 600; line-height: 1;
   cursor: pointer; text-align: left;
-  transition: gap var(--t) var(--ease), padding var(--t) var(--ease), filter var(--t-fast), scale var(--t-fast) var(--ease);
+  transition: gap var(--t) var(--ease), padding var(--t) var(--ease), filter var(--t-fast) var(--ease), scale var(--t-fast) var(--ease);
 }
 .rail-up-ico { flex: none; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; }
 .rail-up-lab { display: grid; grid-template-columns: 0fr; transition: grid-template-columns var(--t) var(--ease); }
@@ -312,17 +341,17 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 说不出百分比的时候（校验、解包）：一段刻度来回扫，说明"在动但没有进度" */
 .rail-up-bar.idle::after { width: 34%; animation: rail-up-sweep 1.4s ease-in-out infinite; }
 @keyframes rail-up-sweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(310%); } }
-.rail-item { position: relative; padding: 11px 12px; border-radius: var(--r-card); display: flex; align-items: center; gap: 12px; color: var(--text-muted); font-size: var(--ic); line-height: 1; transition: background var(--t-fast) ease, color var(--t-fast) ease; }
+.rail-item { position: relative; padding: 11px 12px; border-radius: var(--r-card); display: flex; align-items: center; gap: 12px; color: var(--text-muted); font-size: var(--ic); line-height: 1; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 /* 导航的字比正文大一档（15）：它是一列要扫的名字，不是一段要读的话。和 Claude 桌面端侧栏同一个数 */
 .rail-item b { font-size: var(--fs-section); font-weight: 500; letter-spacing: -0.2px; white-space: nowrap; }
 .rail-item.on b { font-weight: 600; }
 .rail-item:hover { background: var(--hover); color: var(--ink); }
-.rail-item.on { color: var(--brand-deep); }
+.rail-item.on { color: var(--nav-on-fg); }
 /* 左栏底部「问一句 ⌘J」：AI 面板收着时的入口，长得和导航项一样，只是个按钮 */
 .rail-ask { border: 0; background: none; width: 100%; font: inherit; cursor: pointer; text-align: left; }
 .rail-ask-k { margin-left: auto; font-size: var(--fs-min); color: var(--text-faint); }
 /* 选中的底色是一块会滑动的层（AppShell 里的 layoutId），压在图标和字下面 */
-.rail-on-bg { position: absolute; inset: 0; border-radius: var(--r-card); background: var(--brand-bg); z-index: 0; }
+.rail-on-bg { position: absolute; inset: 0; border-radius: var(--r-card); background: var(--nav-on-bg); z-index: 0; }
 .rail-item > :not(.rail-on-bg) { position: relative; z-index: 1; }
 /* 数字摆在行尾，不要挤在图标和文字中间 */
 .rail-user { border: 0; background: none; padding: 10px 12px; margin-top: 6px; cursor: pointer; border-radius: var(--r-card); line-height: 0; display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; }
@@ -330,7 +359,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 名字。76px 那版塞不下，所以应用里哪一页都看不到自己是谁——侧栏宽了就该摆出来 */
 .rail-user b { font-size: var(--fs-body); font-weight: 500; color: var(--ink); line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 /* 「这儿能点开」的唯一信号。平时很淡，指上去才明显——它是提示，不是装饰 */
-.rail-user-caret { flex: none; font-size: 10px; color: var(--text-faint); transition: color var(--t-fast); }
+.rail-user-caret { flex: none; font-size: 10px; color: var(--text-faint); transition: color var(--t-fast) var(--ease); }
 .rail-user:hover .rail-user-caret { color: var(--text-muted); }
 /* 账号菜单顶上那块身份 */
 .rail-menu-me { display: flex; align-items: center; gap: 10px; padding: 4px 4px 8px; min-width: 0; }
@@ -429,6 +458,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 
 /* ---------- 卡片 / 通用 ---------- */
 .card-soft {
+  box-shadow: var(--shadow-card);
   background: var(--panel);
   border-radius: var(--r-card);
   border: 1px solid var(--border);
@@ -468,6 +498,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 }
 
 .stat-value {
+  font-family: var(--font-num);
   font-size: var(--fs-num);
   white-space: nowrap;
   font-weight: 600;
@@ -499,8 +530,9 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 
 .page-head h1 {
   margin: 0;
+  font-family: var(--font-display);
   font-size: var(--fs-title);
-  font-weight: 600;
+  font-weight: var(--fw-display);
   color: var(--ink);
   letter-spacing: -0.3px;
 }
@@ -637,6 +669,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-rail { position: sticky; top: 16px; }
 .rec-col { min-width: 0; }
 .rec-card {
+  box-shadow: var(--shadow-card);
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--r-card);
@@ -648,7 +681,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 记录页页头左边那一块：名字 + 一行「年级 · 专业 · 负责人」。至少留八个字宽，再长的名字省略 */
 .rec-head-id { min-width: 8em; flex: 0 1 auto; }
 .rec-head-sub { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-note); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rec-head-name { font-size: var(--fs-title); font-weight: 600; color: var(--ink); letter-spacing: -0.4px;
+.rec-head-name { font-family: var(--font-display); font-size: var(--fs-title); font-weight: var(--fw-display); color: var(--ink); letter-spacing: -0.4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 记录页名字底下那一行标签：两个状态（点得改）+ 预计 / 已签约（只读） */
 .rec-tags { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin: 0 0 var(--s3); }
@@ -662,7 +695,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-sec-t a { font-weight: 400; color: var(--brand); }
 .rec-field {
   display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; align-items: start;
-  padding: 6px 8px; border-radius: var(--r-card); cursor: text; transition: background var(--t-fast) ease;
+  padding: 6px 8px; border-radius: var(--r-card); cursor: text; transition: background var(--t-fast) var(--ease);
 }
 .rec-field:hover { background: var(--row-hover); }
 .rec-field-editing { background: var(--row-hover); cursor: default; }
@@ -689,7 +722,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-filters { display: flex; gap: 6px; flex-wrap: wrap; padding: 12px 16px 4px; }
 .rec-chip {
   font-size: var(--fs-note); padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
-  color: var(--text-muted); cursor: pointer; background: var(--panel); transition: all var(--t-fast) ease;
+  color: var(--text-muted); cursor: pointer; background: var(--panel); transition: all var(--t-fast) var(--ease);
 }
 .rec-chip:hover { border-color: var(--brand-line); color: var(--ink); }
 .rec-chip-on { background: var(--brand-bg); border-color: var(--brand-line); color: var(--brand); }
@@ -776,7 +809,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .home { min-height: calc(100vh - 140px); display: flex; flex-direction: column; }
 
 /* ---------- 视觉体系：标签、链接、表格 ---------- */
-.ant-tag { border-radius: 999px; padding-inline: 9px; font-weight: 500; line-height: 20px; }
+.ant-tag { border-radius: var(--r-tag); padding-inline: 9px; font-weight: 500; line-height: 20px; }
 .link-strong { color: var(--ink); font-weight: 500; }
 .link-strong:hover { color: var(--brand); }
 .ant-table-thead > tr > th { font-size: var(--fs-note); font-weight: 500; letter-spacing: 0.01em; }
@@ -847,10 +880,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cite {
   display: inline-flex; align-items: center; justify-content: center; min-width: 16px; height: 16px; padding: 0 4px; margin: 0 2px;
   border-radius: 999px; background: var(--brand-bg); color: var(--text-muted); font-size: var(--fs-min); font-weight: 600; vertical-align: 2px; cursor: pointer;
-  transition: background var(--t-fast);
+  transition: background var(--t-fast) var(--ease);
 }
 .cite:hover { background: var(--brand-bg); color: var(--brand); }
-.rec-tl-item-flash { animation: rec-flash 1.6s ease-out; border-radius: var(--r-card); }
+.rec-tl-item-flash { animation: rec-flash 1.6s var(--ease); border-radius: var(--r-card); }
 @keyframes rec-flash { 0% { background: var(--brand-bg); } 100% { background: transparent; } }
 .brief-sec { margin-bottom: 14px; }
 
@@ -869,7 +902,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-empty .cli-welcome-hints { border-top: 0; padding-top: 0; }
 .cli-mono, .cli-prompt, .cli-step, .cli-sum, .cli-cmd-k, .cli-hints kbd, .cli-menu-row kbd { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace; }
 .cli-welcome { margin-bottom: var(--s5); }
-.cli-welcome-t { font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
+.cli-welcome-t { font-family: var(--font-display); font-size: var(--fs-title); font-weight: var(--fw-display); color: var(--ink); }
 /* 问候底下那行日期。设计稿里它独占一行，比信号的口径再弱一档 */
 .cli-welcome-d { margin-top: var(--s1); color: var(--text-muted); font-size: var(--fs-note); }
 .cli-welcome-s { margin-top: 4px; color: var(--text-muted); }
@@ -889,7 +922,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-sum { display: inline-flex; align-items: center; gap: 8px; border: 0; background: none; padding: 2px 0; margin-top: 2px; font-size: var(--fs-note); color: var(--text-muted); cursor: pointer; }
 .cli-sum:hover { color: var(--ink); }
 .cli-sum-ms { color: var(--text-faint); }
-.cli-sum-chev { font-size: var(--fs-min); color: var(--text-faint); transition: transform var(--t-fast); }
+.cli-sum-chev { font-size: var(--fs-min); color: var(--text-faint); transition: transform var(--t-fast) var(--ease); }
 .cli-sum-open .cli-sum-chev { transform: rotate(90deg); }
 .cli-step-b { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .cli-step-t { flex-basis: 100%; color: var(--text-muted); font-style: italic; }
@@ -912,7 +945,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .bill-h { font-size: var(--fs-title); font-weight: 600; color: var(--ink); margin: 0 0 4px; }
 .bill-sub { color: var(--text-muted); font-size: var(--fs-note); margin-bottom: 20px; }
 .bill-plans { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
-.bill-plan { flex: 1 1 220px; text-align: left; border: 1px solid var(--border); border-radius: var(--r-card); background: var(--panel); padding: 14px 16px; cursor: pointer; transition: border-color var(--t-fast); }
+.bill-plan { flex: 1 1 220px; text-align: left; border: 1px solid var(--border); border-radius: var(--r-card); background: var(--panel); padding: 14px 16px; cursor: pointer; transition: border-color var(--t-fast) var(--ease); }
 .bill-plan:hover { border-color: var(--text-faint); }
 .bill-plan-on { border-color: var(--brand); box-shadow: inset 0 0 0 1px var(--brand); }
 .bill-plan-h { display: flex; align-items: center; gap: 8px; font-size: var(--fs-note); color: var(--text-muted); }
@@ -944,9 +977,9 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* AI 建议卡：唯一一条让模型输出进库的路，所以要显眼但不喧宾夺主 */
 .prop-list { margin-top: 12px; margin-left: 20px; display: flex; flex-direction: column; gap: 8px; }
 /* 建议卡没确认之前是铅笔：虚线框、「AI 草稿」字样也是虚线。确认之后换成 .prop-done 的墨水 */
-.prop { border: 1px dashed var(--pencil); border-radius: var(--r-card); background: var(--panel); padding: 12px 14px; }
+.prop { border: 1px var(--draft) var(--pencil); border-radius: var(--r-card); background: var(--panel); padding: 12px 14px; }
 .prop-h { display: flex; align-items: baseline; gap: 8px; }
-.prop-tag { flex: none; font-size: var(--fs-min); color: var(--pencil-text); border: 1px dashed var(--pencil); border-radius: var(--r-ctl); padding: 0 6px; }
+.prop-tag { flex: none; font-size: var(--fs-min); color: var(--pencil-text); border: 1px var(--draft) var(--pencil); border-radius: var(--r-ctl); padding: 0 6px; }
 .prop-t { color: var(--ink); font-weight: 500; font-size: var(--fs-body); }
 .prop-why { margin-top: 6px; color: var(--text-muted); font-size: var(--fs-note); line-height: 1.6; }
 .prop-body { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 16px; }
@@ -982,7 +1015,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 */
 .prop-done { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; border: 1px solid var(--ink-soft); background: var(--panel); border-radius: var(--r-card); padding: 8px 12px; color: var(--ink); font-size: var(--fs-note); }
 .prop-done-t { flex: 1 1 180px; min-width: 0; }
-.prop-seal { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; line-height: 20px; border: 1.5px solid var(--ink); border-radius: var(--r-ctl); color: var(--ink); font-size: var(--fs-min); font-weight: 600; letter-spacing: .04em; font-variant-numeric: tabular-nums; rotate: -2deg; }
+.prop-seal { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; line-height: 20px; border: 1.5px solid var(--seal); border-radius: var(--r-ctl); color: var(--seal); font-size: var(--fs-min); font-weight: 600; letter-spacing: .04em; font-variant-numeric: tabular-nums; rotate: -2deg; }
 .prop-seal.is-new { animation: prop-seal var(--t-seal) var(--ease-spring) both; }
 @keyframes prop-seal { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: none; } }
 .prop-done-acts { display: inline-flex; align-items: center; gap: 12px; }
@@ -1028,7 +1061,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-draft > div:last-child { margin-top: 6px; display: flex; gap: 12px; }
 .cli-composer { padding-top: 8px; }
 .cli-composer-sticky { position: sticky; bottom: 0; background: linear-gradient(to bottom, rgba(250, 250, 250, 0), var(--page-bg) 28%); padding-top: 22px; padding-bottom: 6px; }
-.cli-input { display: flex; align-items: flex-end; gap: 10px; min-height: var(--field-h); padding: 10px 14px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-card); transition: border-color var(--t-fast); }
+.cli-input { display: flex; align-items: flex-end; gap: 10px; min-height: var(--field-h); padding: 10px 14px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--r-card); transition: border-color var(--t-fast) var(--ease); }
 .cli-input:focus-within { border-color: var(--text-faint); }
 .cli-input .cli-prompt { line-height: 22px; color: var(--ink); }
 /* 发送 / 停止：一个圆钮，跑着的时候变成方块 */
@@ -1042,7 +1075,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-bar2 { display: flex; align-items: center; gap: 8px; }
 .cli-bar2-l, .cli-bar2-r { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .cli-bar2-l { flex: 1; overflow: hidden; }
-.cli-tool { flex: none; width: 28px; height: 28px; border-radius: var(--r-ctl); border: 0; background: none; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--ic); transition: background var(--t-fast), color var(--t-fast); }
+.cli-tool { flex: none; width: 28px; height: 28px; border-radius: var(--r-ctl); border: 0; background: none; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--ic); transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .cli-tool:hover:not(:disabled) { background: var(--hover); color: var(--ink); }
 .cli-tool:disabled { color: var(--line-strong); cursor: default; }
 /* 带上的文件：一枚小标签，名字 + 一个叉。它只活到这一问发出去为止 */
@@ -1050,7 +1083,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-file-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cli-file button { border: 0; background: none; padding: 0; cursor: pointer; color: var(--text-faint); font-size: var(--fs-min); display: inline-flex; }
 .cli-file button:hover { color: var(--danger); }
-.cli-send { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--ink); color: var(--on-ink); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-note); transition: opacity var(--t-fast), background var(--t-fast); }
+.cli-send { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--ink); color: var(--on-ink); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--fs-note); transition: opacity var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
 .cli-send:disabled { background: var(--line); color: var(--on-ink); cursor: default; }
 .cli-stop-sq { width: 10px; height: 10px; background: var(--panel); border-radius: 2px; }
 .cli-menu-row { display: flex; align-items: center; gap: 24px; justify-content: space-between; min-width: 180px; }
@@ -1178,7 +1211,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .signal { display: flex; flex-direction: column; gap: var(--s1); min-width: 116px; }
 .signal-k { font-size: var(--fs-note); color: var(--text-muted); }
 .signal-v { display: flex; align-items: baseline; gap: var(--s2); }
-.signal-v b { font-size: var(--fs-num); font-weight: 600; line-height: 1.2; color: var(--ink); font-variant-numeric: tabular-nums; }
+.signal-v b { font-family: var(--font-num); font-size: var(--fs-num); font-weight: 600; line-height: 1.2; color: var(--ink); font-variant-numeric: tabular-nums; }
 .signal-v em { font-style: normal; font-size: var(--fs-min); font-weight: 500; color: var(--brand); }
 .signal:hover .signal-v b { color: var(--brand); }
 .signal:hover .signal-v em { text-decoration: underline; }
@@ -1223,7 +1256,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .plan-row { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) 0; border-bottom: 1px solid var(--line-soft); }
 .plan-row:hover { background: var(--row-hover); }
 /* 点完成之后留位 600ms 再消失：立刻抽走的话下面的行会跳上来顶替，眼睛得重新找位置 */
-.plan-row-done { opacity: 0.45; transition: opacity var(--t) ease; }
+.plan-row-done { opacity: 0.45; transition: opacity var(--t) var(--ease); }
 .plan-row-done .plan-row-t { text-decoration: line-through; }
 .plan-row-m { flex: 1; min-width: 0; }
 .plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1239,7 +1272,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    列是横着排的，窄屏下**只有这一块横滚**，页面本身不跟着被撑开。 */
 .pipe { display: flex; gap: var(--s3); overflow-x: auto; padding-bottom: var(--s2); align-items: flex-start; }
 .pipe-col { flex: 0 0 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3); min-height: 220px;
-  transition: background var(--t-fast), border-color var(--t-fast); }
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
 /* 落点要看得出来：拖过去时整列亮一下，不然人不知道松手会掉进哪一列 */
 .pipe-col-on { background: var(--brand-bg); border-color: var(--brand-line); }
 .pipe-h { display: flex; align-items: baseline; gap: 6px; }
@@ -1301,7 +1334,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .setm-scroll { overflow: auto; padding: var(--s5); }
 .setm-x { position: absolute; top: 14px; right: 14px; z-index: 1; width: 30px; height: 30px; border: 0; border-radius: 8px;
   background: none; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-  transition: background var(--t-fast), color var(--t-fast); }
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 .setm-x:hover { background: var(--hover); color: var(--ink); }
 .setm-x:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 /* 浮层里不再重复画一遍页头的大标题——它自己就有身份（aria-label + 那个关闭键） */
@@ -1310,7 +1343,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 设置里的搜索框。项数到八个之后，「我知道那个开关叫什么、但不知道在哪一栏」才是最常见的一次来访 */
 .set-search { width: 100%; margin-bottom: 10px; padding: 7px 10px; font: inherit; font-size: var(--fs-note);
   color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-ctl); outline: 0;
-  transition: border-color var(--t-fast); }
+  transition: border-color var(--t-fast) var(--ease); }
 .set-search:focus { border-color: var(--text-faint); }
 .set-search::placeholder { color: var(--text-faint); }
 .set-nav-g { display: flex; flex-direction: column; gap: 2px; }
@@ -1354,7 +1387,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 空首页上那排能直接点的问题。比说明文字更该占这个位置——
    第一次进来的人需要的是一个能点的起点，不是用法讲解 */
 .cli-welcome-q { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 14px; }
-.cli-q { font: inherit; font-size: var(--fs-note); color: var(--ink); background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 6px 13px; cursor: pointer; transition: border-color var(--t-fast) ease, background var(--t-fast) ease; }
+.cli-q { font: inherit; font-size: var(--fs-note); color: var(--ink); background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 6px 13px; cursor: pointer; transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
 .cli-q:hover { border-color: var(--brand); color: var(--brand); }
 /* ↑↓ 选中的那条。只靠 hover 的话键盘走到哪儿是看不见的 */
 .cli-q-on { border-color: var(--brand); color: var(--brand); background: var(--brand-bg); }
@@ -1399,7 +1432,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    用 background-color 从品牌浅底退到表格底色，不动尺寸——列表在动的时候最怕行高跳。
    退到 --panel 而不是透明：名字列和操作列固定着（sticky），底色一透明，
    横滚过的正文就从它们底下透出来，亮起的那一行反而认不出是谁。 */
-.row-fresh > td { animation: row-fresh 2s ease-out 1 both; }
+.row-fresh > td { animation: row-fresh 2s var(--ease) 1 both; }
 @keyframes row-fresh {
   0% { background-color: var(--brand-bg); }
   55% { background-color: var(--brand-bg); }
@@ -1408,7 +1441,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 
 /* 骨架屏晚 180ms 再出现：这段时间内页面要是已经好了，就一眼都不会看见它。
    原来快的那几页也会闪一下灰块，闪一下比等一下更像出了问题。 */
-.app-loading { animation: app-loading-in 0.2s ease-out 0.18s both; }
+.app-loading { animation: app-loading-in var(--t) var(--ease) var(--t) both; }
 @keyframes app-loading-in { from { opacity: 0; } to { opacity: 1; } }
 
 
@@ -1661,6 +1694,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   .ant-btn:active, .ant-dropdown-menu-item:active, .rec-tl-act:active {
     transform: none !important;
     scale: none !important;
+    translate: none !important;  /* 像素主题按下是「沉下去 2px」，走的是 translate，也算位移 */
   }
   /* 落印不放大落下，直接就是盖好的样子 */
   .prop-seal.is-new { animation: none !important; }

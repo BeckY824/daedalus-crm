@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowDownOutlined, ReloadOutlined, WarningOutlined, SyncOutlined } from "@ant-design/icons";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 type 更新状态 = {
   阶段: "idle" | "checking" | "available" | "downloading" | "ready" | "installing" | "manual" | "error";
@@ -56,6 +56,7 @@ type 画法 = {
 };
 
 export default function UpdateButton() {
+  const { 曲线, 时长 } = useMotionTheme();
   const [s, setS] = useState<更新状态 | null>(null);
 
   useEffect(() => {

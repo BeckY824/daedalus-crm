@@ -3,9 +3,10 @@
  *
  * 一个外观 = 挂在 <html> 上的两个属性，globals.css 按属性换 token：
  *   data-paper  底色。tone = 原底（左栏和页面是浅灰的工作台色，现在的样子）；white = 白底（地面铺白）
- *   data-skin   主题。一套主题 = 一组 token 值 + 少量形状规则。眼下只有「现状」一套；
- *               以后加主题（账簿、高级……）只在 主题表 里加一项、在样式表里加一块 :root[data-skin="x"]，
- *               调用处一行都不用改——这正是现在先把基建搭好的理由
+ *   data-skin   主题。一套主题 = 一组 token 值 + 不超过 10 条形状规则 + 自己的动效曲线和时长，
+ *               样式在 src/app/skins/<key>.css（现状就是 globals.css 的 :root，不另开文件）。
+ *               加一套主题：主题表 加一项、skins/ 下加一个文件、layout.tsx 引入——调用处一行都不用改。
+ *               tests/skins.test.ts 会核对这三处对得上（「必须一致的清单」，见 docs/架构.md）
  *
  * 存在浏览器本地（localStorage），不进库：外观是「我这台电脑怎么看」，不是团队配置。
  * 首次绘制前由 外观预设脚本 读出来挂上（layout.tsx 的 <head>），否则刷新时会先闪一下默认样子。
@@ -19,7 +20,13 @@ export const 底色表 = [
 ] as const;
 export type 底色 = (typeof 底色表)[number]["key"];
 
-export const 主题表 = [{ key: "now", 名: "现状" }] as const;
+export const 主题表 = [
+  { key: "now", 名: "现状", 说明: "一直以来的样子" },
+  { key: "pixel", 名: "像素", 说明: "黑白硬边、方角、一格一格地动" },
+  { key: "tech", 名: "科技", 说明: "等宽字、细线；原底是深色" },
+  { key: "luxe", 名: "高级", 说明: "宋体标题、大留白、慢一点" },
+  { key: "ledger", 名: "账簿", 说明: "稿纸格线；朱红只留给你确认的那一下" },
+] as const;
 export type 主题 = (typeof 主题表)[number]["key"];
 
 export type 外观 = { paper: 底色; skin: 主题 };

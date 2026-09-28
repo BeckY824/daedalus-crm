@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { CloseOutlined } from "@ant-design/icons";
 import { motion, useReducedMotion } from "motion/react";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 /**
  * 设置的浮层。**设置不是一页，是一层**——照 Claude / Codex 桌面端那样，
@@ -19,6 +19,7 @@ import { 曲线, 时长 } from "@/lib/motion";
  * 内置滚动会和它打架；一个 div 加一层遮罩反而更少东西要拆。
  */
 export default function SettingsModal({ children }: { children: React.ReactNode }) {
+  const { 曲线, 时长 } = useMotionTheme();
   const router = useRouter();
   const 少动 = useReducedMotion();
 

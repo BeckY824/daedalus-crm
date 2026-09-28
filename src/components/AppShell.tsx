@@ -36,7 +36,7 @@ import CommandBar from "./CommandBar";
 import Shortcut from "./Shortcut";
 import { useBusiness } from "@/lib/business-client";
 import { DockOpenContext, useNarrow } from "@/lib/roster";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 const { Header, Content } = Layout;
 
@@ -90,6 +90,7 @@ type Props = {
 const 面板放不下 = "(max-width: 1599px)";
 
 export default function AppShell({ user, pendingCount, desktop, 反馈去向, pane, ai, children }: Props) {
+  const { 曲线, 时长 } = useMotionTheme();
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();

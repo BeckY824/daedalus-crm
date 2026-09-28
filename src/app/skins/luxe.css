@@ -1,0 +1,59 @@
+/*
+ * 高级：大留白、宋体标题、暖灰纸面，墨绿只出现在主动作上。卡片没有边也没有投影，只是一张白纸压在浅灰上。
+ * 设置 → 外观 → 主题（lib/appearance.ts）。规矩同 pixel.css 顶上：token 只用 :root 已有的名字、色值只在 token 块、
+ * 形状规则不超过 10 条。
+ * 动效：慢、柔、不回弹——spring 和 ease 同值；悬停 180、过渡和形变 320；落印 480（上限），只是一行字慢慢落定。
+ * 标题拉丁字母用 Instrument Serif（OFL，自托管），中文用系统宋体（"Songti SC" / STSong / SimSun），不打包中文字体。
+ */
+:root[data-skin="luxe"], [data-skin-preview="luxe"] {
+  --brand: #1f3d36; --brand-deep: #14281f; --brand-bg: #e6eeeb; --brand-line: #b9cbc4;
+  --ink: #161616; --ink-soft: #3b3b39; --text-muted: #6e6e68; --text-faint: #a8a8a1;
+  --line: #e2e2dc; --line-soft: #ebebe6; --line-strong: #cbcbc4;
+  --panel: #ffffff; --workbench: #f3f3f0; --hover: #ecece8; --row-hover: #f7f7f4;
+  --success: #3e6a50; --success-text: #335a43; --success-bg: #eaf1ec; --success-line: #c3d8ca;
+  --warning: #8a6726; --warning-text: #735520; --warning-bg: #f4efe3; --warning-line: #e0d1ae;
+  --danger: #9a3a30; --danger-text: #843128; --danger-bg: #f5e9e7; --danger-line: #e3c2bd;
+  --on-ink: #ffffff;
+  --pencil: #a1a19a; --pencil-text: #6e6e68;
+  --heat-on: #161616; --heat-off: #dcdcd5;
+  --seal: #1f3d36;
+  --nav-on-bg: transparent; --nav-on-fg: #161616;
+
+  --font-display: "Instrument Serif", "Songti SC", STSong, SimSun, serif;
+  --font-num: "Instrument Serif", "Songti SC", STSong, serif;
+  --fw-display: 400;
+  --fs-title: 32px; --fs-num: 34px;
+
+  --r-ctl: 2px; --r-card: 4px; --r-pop: 6px; --r-tag: 0px;
+  --draft: dotted;
+  --shadow-card: none;
+  --shadow-pop: 0 24px 48px -24px rgba(22, 22, 22, 0.18);
+  --row-h: 52px; --th-h: 44px;
+
+  --ease: cubic-bezier(.2, .7, .1, 1);
+  --ease-spring: cubic-bezier(.2, .7, .1, 1);
+  --ease-morph: cubic-bezier(.45, 0, .2, 1);
+  --t-press: 90ms; --t-fast: 180ms; --t: 320ms; --t-morph: 320ms;
+  --t-seal: 480ms;
+  --stagger: 90ms;
+}
+:root[data-skin="luxe"][data-paper="white"] { --hover: #f4f4f1; --row-hover: #fafaf8; }
+
+/* ---------- 形状规则（≤10） ---------- */
+/* 1. 卡片没有边：一张白纸压在浅灰上。白底上纸和地一样白，只好补一道极细的线 */
+:root[data-skin="luxe"] :is(.rec-card, .card-soft, .ant-card, .cli-card) { border-color: transparent; }
+:root[data-skin="luxe"][data-paper="white"] :is(.rec-card, .card-soft, .ant-card, .cli-card) { border-color: var(--line-soft); }
+/* 2. 状态标签：一个小圆点 + 字，没有底 */
+:root[data-skin="luxe"] .ant-tag { background: transparent !important; border: 0 !important; padding-inline: 0; font-weight: 400; }
+:root[data-skin="luxe"] .ant-tag::before { content: ""; display: inline-block; width: 5px; height: 5px; margin-right: 6px; border-radius: 50%; background: currentColor; vertical-align: 2px; }
+/* 3. 时间线只有点，没有图标（多一层 .rec-tl-item 是为了压过 shared.css 那条收分类色的） */
+:root[data-skin="luxe"] .rec-tl-item .rec-tl-dot { display: flex; align-items: center; justify-content: center; width: 20px; height: 26px; background: none !important; font-size: 0; }
+:root[data-skin="luxe"] .rec-tl-item .rec-tl-dot::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ink); }
+/* 4. 冷热也是点 */
+:root[data-skin="luxe"] .heat i { width: 4px; height: 4px; border-radius: 50%; align-self: center; }
+/* 5. 表头：小字、拉开字距、不要底色 */
+:root[data-skin="luxe"] .ant-table-thead > tr > th { background: transparent !important; font-size: var(--fs-min); letter-spacing: .14em; }
+/* 6. 标题：宋体本身够重，字距放开一点 */
+:root[data-skin="luxe"] :is(.page-head h1, .rec-head-name, .cli-welcome-t) { letter-spacing: .02em; }
+/* 7. 按下只陷一点点：0.97，不是现状的 0.92——高级的手感是「按到了」，不是「弹了一下」（减弱动态时由 globals.css 撤掉） */
+:root[data-skin="luxe"] .ant-btn:not(:disabled):active { scale: 0.97; }

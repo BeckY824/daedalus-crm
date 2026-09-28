@@ -31,6 +31,17 @@ describe("外观", () => {
     expect(跑脚本(raw)).toEqual(读外观(raw));
   });
 
+  it("五套主题（现状、像素、科技、高级、账簿）两边都认，底色和主题任意组合", async () => {
+    const { 主题表 } = await import("@/lib/appearance");
+    expect(主题表.map((x) => x.key)).toEqual(["now", "pixel", "tech", "luxe", "ledger"]);
+    for (const { key } of 主题表)
+      for (const paper of ["tone", "white"]) {
+        const raw = JSON.stringify({ paper, skin: key });
+        expect(读外观(raw)).toEqual({ paper, skin: key });
+        expect(跑脚本(raw)).toEqual(读外观(raw));
+      }
+  });
+
   it("白底只换地面，不许在 :root 之外写色值", () => {
     const css = fs.readFileSync(path.resolve(__dirname, "../src/app/globals.css"), "utf8");
     const 块 = /:root\[data-paper="white"\]\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";

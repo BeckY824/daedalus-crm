@@ -9,6 +9,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { 拆块, 变量, 主题文件 } from "./skin-css";
 
 const css = fs.readFileSync(path.resolve(__dirname, "../src/app/globals.css"), "utf8");
 const 根 = css.slice(css.indexOf(":root"), css.indexOf("\n}"));
@@ -133,5 +134,93 @@ describe("动效底座", () => {
     // 时长归零挡不住位移本身：按下去照样缩，只是缩得飞快，而那正是开这个开关的人不想要的
     expect(块).toContain("transform: none !important");
     expect(块).toContain("scale: none !important");
+  });
+});
+
+/* ---------- 主题（src/app/skins/*.css）换的曲线和时长：同一套规矩，一套一套查 ---------- */
+describe("主题的动效", () => {
+  const 档 = new Set([90, 120, 180, 320]);
+  const 主题们 = 主题文件();
+
+  it("时长只落在 90 / 120 / 180 / 320 四档，按下 90 且比悬停快，落印 ≤480", () => {
+    const 错: string[] = [];
+    for (const { key, 文 } of 主题们)
+      for (const b of 拆块(文).filter((b) => b.token块)) {
+        const v = 变量(b.体);
+        for (const [k, 值] of v) {
+          if (!/^--t(-|$)/.test(k)) continue;
+          const ms = /^(\d+)ms$/.exec(值)?.[1];
+          if (!ms) { 错.push(`${key} ${k}: ${值} 不是毫秒`); continue; }
+          if (k === "--t-seal") { if (Number(ms) > 480) 错.push(`${key} --t-seal ${ms} > 480`); continue; }
+          if (!档.has(Number(ms))) 错.push(`${key} ${k}: ${ms}ms 不在四档里`);
+        }
+        const 按下 = v.get("--t-press"), 悬停 = v.get("--t-fast");
+        if (按下 && 按下 !== "90ms") 错.push(`${key} --t-press 必须是 90ms`);
+        if (按下 && 悬停 && parseInt(按下) >= parseInt(悬停)) 错.push(`${key} 按下不比悬停快`);
+      }
+    expect(错).toEqual([]);
+  });
+
+  it("曲线只许 cubic-bezier() 或 steps()，而且只写在 token 块里", () => {
+    const 错: string[] = [];
+    for (const { key, 文 } of 主题们)
+      for (const b of 拆块(文)) {
+        if (!b.token块) {
+          if (/cubic-bezier\(|steps\(/.test(b.体)) 错.push(`${key} 形状规则里写了曲线：${b.选择器}`);
+          continue;
+        }
+        for (const [k, 值] of 变量(b.体))
+          if (/^--ease/.test(k) && !/^(cubic-bezier\([^)]*\)|steps\(\s*\d+\s*(,\s*[\w-]+\s*)?\))$/.test(值)) 错.push(`${key} ${k}: ${值}`);
+      }
+    expect(错).toEqual([]);
+  });
+
+  it("主题的曲线 JS 也读得懂（lib/motion 从 CSS 变量读，读不懂会悄悄回到现状）", async () => {
+    const { 读曲线 } = await import("@/lib/motion");
+    const 兜底 = [9, 9, 9, 9] as const;
+    for (const { key, 文 } of 主题们)
+      for (const b of 拆块(文).filter((b) => b.token块))
+        for (const [k, 值] of 变量(b.体)) if (/^--ease/.test(k)) expect(读曲线(值, 兜底), `${key} ${k}`).not.toBe(兜底);
+  });
+
+  it("主题绕不过减弱动态：形状规则里的位移、动画、过渡不许带 !important", () => {
+    const 错: string[] = [];
+    for (const { key, 文 } of 主题们)
+      for (const b of 拆块(文).filter((b) => !b.token块))
+        for (const d of b.体.split(";"))
+          if (/!important/.test(d) && /^\s*(transform|translate|scale|rotate|animation|transition)/.test(d)) 错.push(`${key}: ${d.trim()}`);
+    expect(错).toEqual([]);
+  });
+
+  it("像素那种「沉下去」的按下用 translate：减弱动态时也要撤", () => {
+    const i = css.indexOf("@media (prefers-reduced-motion: reduce)");
+    expect(css.slice(i)).toContain("translate: none !important");
+  });
+
+  it("落印那档（--t-seal）主题里也只许落印用", () => {
+    for (const { key, 文 } of 主题们)
+      for (const b of 拆块(文).filter((b) => !b.token块))
+        if (b.体.includes("var(--t-seal)")) expect(b.选择器, `${key}`).toMatch(/seal/);
+  });
+});
+
+describe("过渡和动画都走曲线 token（主题换曲线时才跟得上）", () => {
+  /**
+   * 2026-09-28：globals.css 里有一批写的是 CSS 关键字 ease / ease-out，或者干脆没写曲线（默认就是 ease）。
+   * 主题换了 --ease 之后它们纹丝不动：像素主题里一半一格一格跳、一半照旧滑。现在一律 var(--ease*)。
+   * 例外两类，逐条列在这里：
+   *   环境动画  无限循环的呼吸、扫光、光标闪（infinite）。它们不是「一个东西变成另一个」，是背景里的节拍
+   *   进度      跟着真实进度走的宽度，匀速（linear）才不骗人
+   */
+  const 进度例外 = ["width var(--t) linear"];
+  it("一次性的 transition / animation 必须写 var(--ease*)", () => {
+    const 正文 = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    const 散的: string[] = [];
+    for (const m of 正文.matchAll(/(?:^|[;{\s])(transition|animation)\s*:\s*([^;{}]+)/g)) {
+      const 值 = m[2].trim();
+      if (/^none\b/.test(值) || /infinite/.test(值) || 进度例外.includes(值)) continue;
+      for (const 段 of 值.split(/,(?![^()]*\))/)) if (!/var\(--ease/.test(段)) 散的.push(`${m[1]}: ${段.trim()}`);
+    }
+    expect(散的, `这些过渡没走曲线 token：\n${散的.join("\n")}`).toEqual([]);
   });
 });

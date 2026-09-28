@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import { animate, useReducedMotion } from "motion/react";
-import { 曲线 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 /**
  * 从 0 滚到这个数。**只滚第一次**。
@@ -32,6 +32,7 @@ export default function CountUp({
   格式?: (n: number) => string;
   时长?: number;
 }) {
+  const { 曲线 } = useMotionTheme();
   const 少动 = useReducedMotion();
   const [显示, set显示] = useState(值);
 
@@ -50,7 +51,7 @@ export default function CountUp({
       onComplete: () => set显示(值),
     });
     return () => 控制.stop();
-  }, [值, 记号, 少动, 时长]);
+  }, [值, 记号, 少动, 时长, 曲线.ease]);
 
   return <>{格式(显示)}</>;
 }

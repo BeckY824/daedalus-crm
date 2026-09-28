@@ -16,7 +16,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 export default function InlineConfirm({
   问,
@@ -40,6 +40,7 @@ export default function InlineConfirm({
   开?: boolean;
   set开?: (v: boolean) => void;
 }) {
+  const { 曲线, 时长 } = useMotionTheme();
   const [内开, set内开] = useState(false);
   const 开 = 外开 ?? 内开;
   const set开 = 外set开 ?? set内开;

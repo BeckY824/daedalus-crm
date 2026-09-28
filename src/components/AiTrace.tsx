@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import type { StepEvent } from "@/lib/ai-steps";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 /**
  * AI 工作流的过程条，样式照 Claude Code / Codex 那类命令行的"思考轨迹"：
@@ -11,6 +11,7 @@ import { 曲线, 时长 } from "@/lib/motion";
  * 跑完以后折成一行摘要（「读了 6 条跟进 · 2 段原文 · 8.2s」），点开还能看每一步。
  */
 export default function AiTrace({ steps, done, ms, compact = false }: { steps: StepEvent[]; done: boolean; ms?: number; compact?: boolean }) {
+  const { 曲线, 时长 } = useMotionTheme();
   const [open, setOpen] = useState(false);
   if (steps.length === 0 && !done) {
     return (

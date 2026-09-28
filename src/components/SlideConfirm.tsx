@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform } from "motion/react";
-import { 曲线, 时长 } from "@/lib/motion";
+import { useMotionTheme } from "@/components/MotionTheme";
 
 export default function SlideConfirm({
   话 = "滑动以确认",
@@ -25,6 +25,7 @@ export default function SlideConfirm({
   忙?: boolean;
   做: () => void | Promise<void>;
 }) {
+  const { 曲线, 时长 } = useMotionTheme();
   const 轨 = useRef<HTMLDivElement>(null);
   const [成了, set成了] = useState(false);
   /** 轨道宽度存进 state 而不是渲染时读 ref：读 ref 的那一帧还没量到，值会是 0 */
