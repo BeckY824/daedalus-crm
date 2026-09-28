@@ -48,7 +48,8 @@ const 等 = async (条件, 毫秒, 说明) => {
 
 // 长路径：tmpdir 在 runner 上是 RUNNER~1 这种 8.3 短名，真用户的快捷方式指向的是长路径
 const 根 = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "差量 冒烟-"));
-const 装到 = path.join(根, "Programs 中文", "daedalus-crm");
+/** 想装到的地方（长路径 + 中文 + 空格）。安装程序不一定照办，见第 1 步 */
+let 装到 = path.join(根, "Programs 中文", "daedalus-crm");
 const 数据 = path.join(根, "data");
 fs.mkdirSync(数据, { recursive: true });
 
@@ -63,7 +64,24 @@ function 显示版本() {
 {
   const r = spawnSync(setup, ["/S", "/currentuser", `/D=${装到}`], { windowsVerbatimArguments: true, timeout: 300_000 });
   if (r.status !== 0) throw new Error(`安装程序退出码 ${r.status}`);
-  await 等(() => fs.existsSync(path.join(装到, "Daedalus CRM.exe")), 60_000, "安装完成");
+  /*
+    2026-09-29 第一次在 CI 上跑：安装程序退出码 0，60 秒后 /D= 指的地方还是没有 exe——electron-builder 的
+    多用户逻辑见到 /currentuser 可能把目录改回默认的 %LOCALAPPDATA%\Programs\daedalus-crm。
+    所以装在哪儿**以注册表里的卸载项为准**，和 /D= 不一样就照实说一句、后面都用实际那个目录
+    （那也正是真用户默认会装到的地方）
+  */
+  const 实际 = await 等(() => {
+    if (fs.existsSync(path.join(装到, "Daedalus CRM.exe"))) return 装到;
+    const q = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+      "Get-ChildItem 'HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall' | ForEach-Object { $p = Get-ItemProperty -LiteralPath $_.PSPath; if ($p.DisplayName -like 'Daedalus CRM*' -and $p.UninstallString) { $p.UninstallString } }",
+    ], { encoding: "utf8" });
+    const m = /"?([^"]+)\\Uninstall [^"\\]+\.exe"?/i.exec(q.stdout || "");
+    return m && fs.existsSync(path.join(m[1], "Daedalus CRM.exe")) ? m[1] : null;
+  }, 90_000, "安装完成（/D= 指的目录和注册表卸载项里都找不到 Daedalus CRM.exe）");
+  if (path.resolve(实际).toLowerCase() !== path.resolve(装到).toLowerCase()) {
+    console.log(`注意：安装程序没照 /D= 装，实际在 ${实际}（后面都用这个目录）`);
+    装到 = 实际;
+  }
   if (!fs.readdirSync(装到).some((n) => /^Uninstall .+\.exe$/i.test(n))) throw new Error("装好的目录里没有卸载程序");
   console.log(`PASS: NSIS 静默装到 ${装到}，注册表版本 ${显示版本()}`);
 }
