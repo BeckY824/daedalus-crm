@@ -7,7 +7,8 @@ import { Form, Input, Button, Typography, Alert } from "antd";
 import { UserOutlined, LockOutlined } from "@ant-design/icons";
 import Logo from "@/components/Logo";
 import { login, 桌面端登录 } from "./actions";
-import Rise, { 缓动 } from "@/components/Rise";
+import Rise from "@/components/Rise";
+import { 曲线, 时长 } from "@/lib/motion";
 
 /** server action 迟迟不返回时的等待上限。链路正常时登录在 3 秒内完成。 */
 const 请求超时毫秒 = 20000;
@@ -48,7 +49,7 @@ export default function LoginForm({
   const [form] = Form.useForm();
   /**
    * 登录页的动效只有三下，多一下都不加：
-   *   进场——卡片托一下（8px），里面按 标志 → 表单 → 底下那排链接 排队，一档 40ms。
+   *   进场——卡片托一下（8px），里面按 标志 → 表单 → 底下那排链接 排队（Rise，一档 70ms）。
    *         人的眼睛读得出这个先后，但读不出它在等；这是整个产品的第一印象，
    *         它要说的是「这一页刚画好」，不是「这一页在加载」
    *   报错——错误条是撑开的，不是砸下来的；后面的输入框跟着让位，不会跳一下
@@ -143,7 +144,7 @@ export default function LoginForm({
     }, 跳转超时毫秒);
   }
 
-  const 时长 = (t: number) => (少动 ? 0 : t);
+  const 秒 = (t: number) => (少动 ? 0 : t);
 
   return (
     <div className="login-shell">
@@ -152,9 +153,9 @@ export default function LoginForm({
         initial={{ opacity: 0, y: 少动 ? 0 : 8 }}
         animate={{ opacity: 1, y: 0, x: 抖 && !少动 ? [0, -3, 3, -2, 2, 0] : 0 }}
         transition={{
-          opacity: { duration: 时长(0.28), ease: [...缓动] },
-          y: { duration: 时长(0.28), ease: [...缓动] },
-          x: { duration: 时长(0.25) },
+          opacity: { duration: 秒(时长.morph), ease: 曲线.ease },
+          y: { duration: 秒(时长.morph), ease: 曲线.ease },
+          x: { duration: 秒(时长.morph), ease: 曲线.ease },
         }}
       >
         <Rise 第几个={0} style={{ textAlign: "center", marginBottom: 28 }}>
@@ -164,7 +165,7 @@ export default function LoginForm({
             className="login-mark"
             initial={{ opacity: 0, scale: 少动 ? 1 : 0.8, y: 少动 ? 0 : -6 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 时长(0.5), ease: [0.24, 1.34, 0.38, 1] }}
+            transition={{ duration: 秒(时长.morph), ease: 曲线.spring }}
           >
             <Logo size={30} />
           </motion.div>
@@ -185,7 +186,7 @@ export default function LoginForm({
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: "auto" }}
               exit={{ opacity: 0, height: 0 }}
-              transition={{ duration: 时长(0.2), ease: "easeOut" }}
+              transition={{ duration: 秒(时长.base), ease: 曲线.ease }}
               style={{ overflow: "hidden" }}
             >
               <Alert type="error" title={error} showIcon style={{ marginBottom: 16 }} />

@@ -68,8 +68,17 @@
        --ease-morph  一个东西变成另一个东西（浮层展开、尺寸变化）。两头都慢，中间快
 
      时长四档。**按下那档 90ms 是故意最短的**：按下要立刻，松开才慢慢回弹——
-     手感的差别几乎全在这一档上。上限 320ms，超过就是在让人等。 */
-  --t-press: 90ms; --t-fast: 120ms; --t: 160ms; --t-slow: 180ms; --t-enter: 200ms; --t-morph: 320ms;
+     手感的差别几乎全在这一档上。上限 320ms，超过就是在让人等。
+       --t-press 90   按下
+       --t-fast  120  悬停、收起、撤销：要跟手的
+       --t       180  绝大多数过渡：进场、展开、换页、列表
+       --t-morph 320  一个东西变成另一个东西（浮层长出来、卡片收成一行）
+     2026-09-28 并档：原来还有 --t 160 / --t-slow 180 / --t-enter 200 三档挤在 40ms 里，
+     人分不出来，写的人每次都要挑一个——挑来挑去就是「各拍各的」。三档并成现在的 --t。
+     JS 那边的镜像在 lib/motion.ts，数值逐个对得上（tests/motion-tokens.test.ts 钉着）。 */
+  --t-press: 90ms; --t-fast: 120ms; --t: 180ms; --t-morph: 320ms;
+  /* 进场排队的一档间隔（Rise、时间线）。不是过渡时长，所以不叫 --t-*，也不受 320 上限管 */
+  --stagger: 70ms;
   /* 落印（建议卡确认那一下）专用，也只许它用。别的都守 320，唯独它上限放到 480（2026-09-28 拍板）：
      那一刻数据已经写了、还能撤，它是回执不是等待；一天十几次；盖章要落下、压实、回弹三段，
      压进 320 看不出是在盖。现状主题先用 320，以后账簿 / 高级这类主题才往上调 */
@@ -182,7 +191,7 @@ a {
 .aitasks { margin-bottom: var(--s2); }
 .aitask { position: relative; display: block; width: 100%; padding: 6px 10px; border: 0; background: none;
   text-align: left; cursor: pointer; border-radius: var(--r-ctl); color: var(--ink); overflow: hidden;
-  animation: aitask-in var(--t-enter) var(--ease); }
+  animation: aitask-in var(--t) var(--ease); }
 .aitask:hover { background: var(--hover); }
 .aitask-l { display: flex; align-items: center; gap: 6px; }
 .aitask-i { flex: none; display: flex; color: var(--text-muted); font-size: var(--fs-min); }
@@ -267,7 +276,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   background: repeating-linear-gradient(90deg, color-mix(in srgb, currentColor 26%, transparent) 0 2px, transparent 2px 5px); }
 .rail-up-bar::after { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: var(--p, 0%);
   background: repeating-linear-gradient(90deg, currentColor 0 2px, transparent 2px 5px);
-  transition: width var(--t-slow) linear; }
+  transition: width var(--t) linear; }
 /* 老浏览器没有 color-mix（Chromium 111 / Safari 16.2 以前）：整排刻度会一条都画不出来，
    进度就成了一片空白。退回一个固定的浅灰——刻度只在下载中出现，那时药丸是 .busy 的浅底，
    这个灰在它上面读得出来。桌面端是新 Chromium，这一段只为网页版上的老浏览器留着 */
@@ -680,12 +689,6 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-ai-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .rec-ai-title { font-size: var(--fs-body); font-weight: 600; color: var(--ink); display: inline-flex; gap: 6px; align-items: center; }
 .rec-ai-title .anticon { color: var(--warning); }
-.rec-ai-loading { display: flex; align-items: center; gap: 10px; color: var(--text-muted); font-size: var(--fs-body); padding: 14px 0; }
-.rec-ai-dots { display: inline-flex; gap: 4px; }
-.rec-ai-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); animation: rec-bounce 1s infinite ease-in-out; }
-.rec-ai-dots i:nth-child(2) { animation-delay: 0.15s; }
-.rec-ai-dots i:nth-child(3) { animation-delay: 0.3s; }
-@keyframes rec-bounce { 0%, 80%, 100% { transform: translateY(0); opacity: 0.4; } 40% { transform: translateY(-4px); opacity: 1; } }
 .rec-ai-q { font-size: var(--fs-note); color: var(--brand); background: var(--brand-bg); border-radius: var(--r-card); padding: 6px 10px; margin-bottom: 10px; }
 .rec-ai-sec { margin-bottom: 12px; }
 .rec-ai-sec-k { font-size: var(--fs-min); font-weight: 600; color: var(--text-muted); margin-bottom: 4px; letter-spacing: 0.02em; }
@@ -786,16 +789,16 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   opacity: 0; animation: aiw-halo 2.2s var(--ease) infinite; }
 .aiw-dot-done { background: var(--success); animation: aiw-pop var(--t-morph) var(--ease-spring) 1 both; }
 .aiw-dot-err { background: var(--danger); }
-.aiw-text { color: var(--ink-soft); animation: aiw-in var(--t-enter) var(--ease) 1 both; min-width: 0; }
+.aiw-text { color: var(--ink-soft); animation: aiw-in var(--t) var(--ease) 1 both; min-width: 0; }
 .aiw-text-err { color: var(--danger); }
 .aiw-shine {
   background: linear-gradient(100deg, var(--ink-soft) 0%, var(--ink-soft) 42%, var(--brand) 50%, var(--ink-soft) 58%, var(--ink-soft) 100%);
   background-size: 260% 100%; background-position: 130% 0;
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  animation: aiw-in var(--t-enter) var(--ease) 1 both, aiw-shine 2.6s var(--ease-morph) infinite;
+  animation: aiw-in var(--t) var(--ease) 1 both, aiw-shine 2.6s var(--ease-morph) infinite;
 }
 .aiw-sec { margin-left: auto; color: var(--text-faint); font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
-.aiw-slow { margin: 2px 0 0 15px; font-size: var(--fs-min); color: var(--text-faint); animation: aiw-in var(--t-enter) var(--ease) 1 both; }
+.aiw-slow { margin: 2px 0 0 15px; font-size: var(--fs-min); color: var(--text-faint); animation: aiw-in var(--t) var(--ease) 1 both; }
 @keyframes aiw-shine { 0% { background-position: 130% 0; } 60%, 100% { background-position: -30% 0; } }
 @keyframes aiw-halo { 0% { opacity: 0.28; transform: scale(0.6); } 70%, 100% { opacity: 0; transform: scale(1.6); } }
 @keyframes aiw-pop { 0% { transform: scale(0.4); } 100% { transform: scale(1); } }
@@ -970,9 +973,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .cli-step-l { color: var(--ink-soft); }
 .cli-step-d { color: var(--text-muted); }
 .cli-step-d::before { content: "→"; margin-right: 6px; color: var(--text-faint); }
-.cli-think-dots i { font-style: normal; animation: cli-blink 1.2s infinite; }
-.cli-think-dots i:nth-child(2) { animation-delay: 0.2s; }
-.cli-think-dots i:nth-child(3) { animation-delay: 0.4s; }
+/* 「在想 / 在写」那一行是 AiWait（等 AI 全站一个样子），这里只让它和上面的步骤对齐；
+   秒数紧跟在字后面，不推到最右——这一栏宽，推过去眼睛要跨半屏去找 */
+.cli-wait { margin-top: 6px; padding-left: 2px; }
+.cli-wait .aiw-sec { margin-left: 0; }
+/* 只剩流式光标在用 */
 @keyframes cli-blink { 0%, 100% { opacity: 0.2; } 50% { opacity: 1; } }
 .cli-a { margin-top: 10px; padding-left: 20px; color: var(--ink); line-height: 1.75; }
 .cli-caret { display: inline-block; width: 7px; height: 15px; background: var(--ink); vertical-align: -2px; margin-left: 2px; animation: cli-blink 0.9s steps(2) infinite; }
@@ -1167,7 +1172,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .plan-row { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) 0; border-bottom: 1px solid var(--line-soft); }
 .plan-row:hover { background: var(--row-hover); }
 /* 点完成之后留位 600ms 再消失：立刻抽走的话下面的行会跳上来顶替，眼睛得重新找位置 */
-.plan-row-done { opacity: 0.45; transition: opacity var(--t-slow) ease; }
+.plan-row-done { opacity: 0.45; transition: opacity var(--t) ease; }
 .plan-row-done .plan-row-t { text-decoration: line-through; }
 .plan-row-m { flex: 1; min-width: 0; }
 .plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1444,7 +1449,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 }
 .ant-slide-up-enter, .ant-slide-up-appear, .ant-slide-down-enter, .ant-slide-down-appear,
 .ant-zoom-big-enter, .ant-zoom-big-appear, .ant-zoom-enter, .ant-zoom-appear {
-  animation-duration: var(--t-enter) !important;
+  animation-duration: var(--t) !important;
   animation-timing-function: var(--ease-spring) !important;
 }
 .ant-slide-up-leave, .ant-slide-down-leave, .ant-zoom-big-leave, .ant-zoom-leave {
@@ -1452,7 +1457,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   animation-timing-function: var(--ease) !important;
 }
 /* 模态框（反馈、⌘K、开工作区）：进场用 morph 那条，两头慢中间快 */
-.ant-modal-mask { transition-duration: var(--t-enter) !important; }
+.ant-modal-mask { transition-duration: var(--t) !important; }
 .ant-modal .ant-zoom-enter, .ant-modal .ant-zoom-appear { animation-timing-function: var(--ease-morph) !important; }
 
 
@@ -1515,7 +1520,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 @keyframes crm-modal-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
 @keyframes crm-modal-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.985); } }
 .ant-modal.ant-zoom-enter, .ant-modal.ant-zoom-appear {
-  animation-name: crm-modal-in !important; animation-duration: var(--t-enter) !important;
+  animation-name: crm-modal-in !important; animation-duration: var(--t) !important;
   animation-timing-function: var(--ease-morph) !important; }
 .ant-modal.ant-zoom-leave {
   animation-name: crm-modal-out !important; animation-duration: var(--t-fast) !important;

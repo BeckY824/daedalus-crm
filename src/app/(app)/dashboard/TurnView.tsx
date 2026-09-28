@@ -5,6 +5,7 @@ import Link from "next/link";
 import { App, Tooltip } from "antd";
 import { CopyOutlined, ReloadOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import ProposalCard from "@/components/ProposalCard";
+import AiWait from "@/components/AiWait";
 import Markdown from "@/components/Markdown";
 import { useBusiness } from "@/lib/business-client";
 import { clearJob, useJob } from "@/lib/ai-jobs";
@@ -100,13 +101,7 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
   const job = useJob<StreamJob<AgentAnswer>>(`home:${turn.id}`);
   const ref = useRef<HTMLDivElement>(null);
   const done = job?.status === "done" || job?.status === "error";
-  const [elapsed, setElapsed] = useState(0);
   const [open, setOpen] = useState(false);
-  useEffect(() => {
-    if (done || !job) return;
-    const t = setInterval(() => setElapsed(Math.floor((Date.now() - job.startedAt) / 1000)), 1000);
-    return () => clearInterval(t);
-  }, [done, job]);
   // 刚发出的这一问：把问题滚到视口顶部，答案往下面的空白里生成。
   // 不能用 block:"end"——那会把它顶到输入框后面，人看不见自己刚发的话。
   useEffect(() => {
@@ -205,19 +200,10 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
             </span>
           </div>
         ))}
-      {thinking && (
-        <div className="cli-step cli-step-running">
-          <span className="cli-dot" />
-          <span className="cli-step-l cli-think">
-            {writing ? "在写" : "在想"}
-            <span className="cli-think-dots">
-              <i>.</i>
-              <i>.</i>
-              <i>.</i>
-            </span>
-          </span>
-          <span className="cli-step-d">{elapsed}s · Esc 打断</span>
-        </div>
+      {/* 等 AI 全站一个样子（AiWait）：呼吸点 + 字上扫光 + 秒数。
+          「比平时慢」那行不要：agent 一步步查，二三十秒是常态，不是慢 */}
+      {thinking && job && (
+        <AiWait className="cli-wait" 在做={writing ? "在写" : "在想"} 起={job.startedAt} 慢于秒={Infinity} 附注="Esc 打断" />
       )}
 
       {text && (

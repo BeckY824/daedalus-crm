@@ -36,6 +36,7 @@ import { 登记详情名 } from "@/lib/page-rows";
 import Heat, { 冷热说法, 要看冷热 } from "@/components/Heat";
 import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
+import { 曲线, 时长, 间隔 } from "@/lib/motion";
 
 /**
  * 记录页（v0.4）：三栏。
@@ -482,7 +483,7 @@ export default function RecordView({
             <AnimatePresence initial={false}>
               {entries.map((e, i) =>
                 e.kind === "contract" ? (
-                  <motion.div key={`c-${e.c.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(i, 8) * 0.04, duration: 0.26, ease: [0.22, 1, 0.36, 1] }}>
+                  <motion.div key={`c-${e.c.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(i, 8) * 间隔, duration: 时长.base, ease: 曲线.ease }}>
                     <div className="rec-tl-dot" style={{ background: "var(--success)" }}>
                       <DollarOutlined />
                     </div>
@@ -718,7 +719,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
   const meta = FOLLOW_TYPE_MAP[f.type] ?? FOLLOW_TYPE_MAP.OTHER;
   const [srcOpen, setSrcOpen] = useState(false);
   return (
-    <motion.div id={`fu-${f.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * 0.04, duration: 0.26, ease: [0.22, 1, 0.36, 1] }}>
+    <motion.div id={`fu-${f.id}`} className="rec-tl-item" layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: Math.min(index, 8) * 间隔, duration: 时长.base, ease: 曲线.ease }}>
       <div className="rec-tl-dot" style={{ background: meta.color }}>
         {FOLLOW_TYPE_ICON[f.type]}
       </div>

@@ -14,6 +14,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useTransform } from "motion/react";
+import { 曲线, 时长 } from "@/lib/motion";
 
 export default function SlideConfirm({
   话 = "滑动以确认",
@@ -75,7 +76,7 @@ export default function SlideConfirm({
           else void x.set(0);
         }}
         animate={成了 ? { x: Math.max(0, 轨宽 - 44) } : undefined}
-        transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+        transition={{ duration: 时长.base, ease: 曲线.ease }}
       >
         {成了 ? "✓" : "›"}
       </motion.button>

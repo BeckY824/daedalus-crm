@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import type { StepEvent } from "@/lib/ai-steps";
+import { 曲线, 时长 } from "@/lib/motion";
 
 /**
  * AI 工作流的过程条，样式照 Claude Code / Codex 那类命令行的"思考轨迹"：
@@ -38,7 +39,7 @@ export default function AiTrace({ steps, done, ms, compact = false }: { steps: S
     <div className={`trace${compact ? " trace-compact" : ""}`} onClick={() => done && setOpen(false)} role={done ? "button" : undefined}>
       <AnimatePresence initial={false}>
         {steps.map((s) => (
-          <motion.div key={s.id} className="trace-row" initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.18 }}>
+          <motion.div key={s.id} className="trace-row" initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 时长.base, ease: 曲线.ease }}>
             <span className={`trace-dot ${s.status === "running" ? "trace-dot-run" : s.status === "error" ? "trace-dot-err" : "trace-dot-done"}`} />
             <span className="trace-label">{s.label}</span>
             {s.detail && <span className="trace-detail">{s.detail}</span>}

@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 import { animate, useReducedMotion } from "motion/react";
+import { 曲线 } from "@/lib/motion";
 
 /**
  * 从 0 滚到这个数。**只滚第一次**。
@@ -44,7 +45,7 @@ export default function CountUp({
     set显示(0);
     const 控制 = animate(0, 值, {
       duration: 时长,
-      ease: [0.2, 0.8, 0.2, 1],
+      ease: 曲线.ease,
       onUpdate: set显示,
       onComplete: () => set显示(值),
     });

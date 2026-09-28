@@ -16,6 +16,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { 曲线, 时长 } from "@/lib/motion";
 
 export default function InlineConfirm({
   问,
@@ -60,7 +61,7 @@ export default function InlineConfirm({
             initial={{ opacity: 0, x: 6 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 6 }}
-            transition={{ duration: 0.18, ease: [0.24, 1.34, 0.38, 1] }}
+            transition={{ duration: 时长.base, ease: 曲线.spring }}
           >
             <span className="inlc-q">{问}</span>
             <button type="button" className="inlc-yes" disabled={忙} onClick={() => void 确认()}>
@@ -76,7 +77,7 @@ export default function InlineConfirm({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.12 }}
+            transition={{ duration: 时长.fast, ease: 曲线.ease }}
             onClick={() => set开(true)}
           >
             {children}
