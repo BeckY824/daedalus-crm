@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, InputNumber, DatePicker, Slider, App, Dropdown } from "antd";
 import {
@@ -18,6 +18,7 @@ import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { money, fmtDate, dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { saveOpportunity, deleteOpportunities, moveStage, setOppStatus } from "./actions";
 import { useBusiness } from "@/lib/business-client";
+import { useUrlFilters } from "@/lib/url-filters";
 
 export type OppRow = {
   id: string;
@@ -54,8 +55,7 @@ export default function OpportunitiesView({
   const router = useRouter();
   const b = useBusiness();
   const { message, modal } = App.useApp();
-  const [pending, startTransition] = useTransition();
-  const [f, setF] = useState(filters);
+  const { f, setF, apply, reset, pending } = useUrlFilters("/opportunities", filters);
   const [open, setOpen] = useState(Boolean(直接新建));
   const [editing, setEditing] = useState<OppRow | null>(null);
   const [form] = Form.useForm();
@@ -78,14 +78,6 @@ export default function OpportunitiesView({
       });
     }
   }, [open, editing, form, users]);
-
-  function apply(next: Partial<typeof f> = {}) {
-    const merged = { ...f, ...next };
-    setF(merged);
-    const q = new URLSearchParams();
-    Object.entries(merged).forEach(([k, v]) => v && q.set(k, String(v)));
-    startTransition(() => router.push(`/opportunities?${q}`));
-  }
 
   async function onOk() {
     const v = await form.validateFields();
@@ -323,10 +315,7 @@ export default function OpportunitiesView({
             {Object.values(f).some(Boolean) && (
               <Button
                 icon={<ReloadOutlined />}
-                onClick={() => {
-                  setF({ keyword: "", stage: "", status: "", ownerId: "" });
-                  startTransition(() => router.push("/opportunities"));
-                }}
+                onClick={reset}
               >
                 重置
               </Button>

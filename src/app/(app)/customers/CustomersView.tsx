@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Select, Space, Dropdown, App, Tag, Popover } from "antd";
@@ -27,6 +27,7 @@ import { deleteCustomers, assignSalesOwner, bulkFollowStatus, type BulkResult } 
 import { useBusiness } from "@/lib/business-client";
 import type { BusinessConfig } from "@/lib/business-config";
 import { statusLabel } from "@/lib/business-config";
+import { useUrlFilters } from "@/lib/url-filters";
 
 /**
  * 批量操作的结果文案。
@@ -88,10 +89,9 @@ export default function CustomersView({
 }: Props) {
   const router = useRouter();
   const { message, modal } = App.useApp();
-  const [pending, startTransition] = useTransition();
   const b = useBusiness();
 
-  const [f, setF] = useState(filters);
+  const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", filters);
   /**
    * 「空库」是「一条都没有 **且** 没在筛」。筛出 0 条不算——
    * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
@@ -101,20 +101,6 @@ export default function CustomersView({
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
   const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
-
-  function apply(next: Partial<typeof f> = {}) {
-    const merged = { ...f, ...next };
-    setF(merged);
-    const q = new URLSearchParams();
-    Object.entries(merged).forEach(([k, v]) => v && q.set(k, String(v)));
-    startTransition(() => router.push(`/customers?${q}`));
-  }
-
-  function reset() {
-    const blank = { keyword: "", grade: "", followStatus: "", decisionStatus: "", salesOwnerId: "", channelOwnerId: "" };
-    setF(blank);
-    startTransition(() => router.push("/customers"));
-  }
 
   /** 收起来的那三个里还筛着几个。收起来不等于可以不告诉人 */
   const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId].filter(Boolean).length;
@@ -349,13 +335,7 @@ export default function CustomersView({
           当前页: page,
           每页: pageSize,
           总数: total,
-          翻页: (p, ps) => {
-            const q = new URLSearchParams();
-            Object.entries(f).forEach(([k, v]) => v && q.set(k, String(v)));
-            q.set("page", String(p));
-            q.set("pageSize", String(ps));
-            startTransition(() => router.push(`/customers?${q}`));
-          },
+          翻页,
         }}
       />
 

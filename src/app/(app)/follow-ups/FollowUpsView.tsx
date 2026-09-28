@@ -1,6 +1,5 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Space, Select, Tag } from "antd";
 import { ReloadOutlined, CalendarOutlined, PlusOutlined } from "@ant-design/icons";
@@ -10,6 +9,7 @@ import DataList, { type 列 } from "@/components/DataList";
 import { useBusiness } from "@/lib/business-client";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
 import { duration, 成员选项, 可选成员, smartTime } from "@/lib/utils";
+import { useUrlFilters } from "@/lib/url-filters";
 
 type Row = {
   id: string;
@@ -38,17 +38,8 @@ export default function FollowUpsView({
   filters: { keyword: string; type: string; ownerId: string };
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
   const b = useBusiness();
-  const [f, setF] = useState(filters);
-
-  function apply(next: Partial<typeof f> = {}) {
-    const merged = { ...f, ...next };
-    setF(merged);
-    const q = new URLSearchParams();
-    Object.entries(merged).forEach(([k, v]) => v && q.set(k, String(v)));
-    startTransition(() => router.push(`/follow-ups?${q}`));
-  }
+  const { f, setF, apply, reset, pending } = useUrlFilters("/follow-ups", filters);
 
   const 列表: 列<Row>[] = [
     {
@@ -152,10 +143,7 @@ export default function FollowUpsView({
             {Object.values(f).some(Boolean) && (
               <Button
                 icon={<ReloadOutlined />}
-                onClick={() => {
-                  setF({ keyword: "", type: "", ownerId: "" });
-                  startTransition(() => router.push("/follow-ups"));
-                }}
+                onClick={reset}
               >
                 重置
               </Button>

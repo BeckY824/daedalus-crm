@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, App } from "antd";
@@ -18,6 +18,7 @@ import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, 独自一人, 可选成员, smartTime } from "@/lib/utils";
 import { saveLead, deleteLeads, convertLead } from "./actions";
 import { useBusiness } from "@/lib/business-client";
+import { useUrlFilters } from "@/lib/url-filters";
 
 type Row = {
   id: string;
@@ -52,8 +53,7 @@ export default function LeadsView({
   const router = useRouter();
   const { message, modal } = App.useApp();
   const b = useBusiness();
-  const [pending, startTransition] = useTransition();
-  const [f, setF] = useState(filters);
+  const { f, setF, apply, reset, pending } = useUrlFilters("/leads", filters);
   /** 空库 = 一条都没有**且**没在筛。筛出 0 条时筛选栏要留着，见 DataList */
   const 空库 = rows.length === 0 && !Object.values(filters).some((v) => v);
   const [open, setOpen] = useState(false);
@@ -68,14 +68,6 @@ export default function LeadsView({
       form.setFieldsValue({ source: "官网注册", status: "待跟进", ownerId: me });
     }
   }, [open, editing, form, me]);
-
-  function apply(next: Partial<typeof f> = {}) {
-    const merged = { ...f, ...next };
-    setF(merged);
-    const q = new URLSearchParams();
-    Object.entries(merged).forEach(([k, v]) => v && q.set(k, String(v)));
-    startTransition(() => router.push(`/leads?${q}`));
-  }
 
   async function onOk() {
     const v = await form.validateFields();
@@ -225,10 +217,7 @@ export default function LeadsView({
             {(f.keyword || f.status) && (
               <Button
                 icon={<ReloadOutlined />}
-                onClick={() => {
-                  setF({ keyword: "", status: "" });
-                  startTransition(() => router.push("/leads"));
-                }}
+                onClick={reset}
               >
                 重置
               </Button>
