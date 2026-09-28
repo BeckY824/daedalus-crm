@@ -20,7 +20,7 @@ export default function AppearanceTab() {
 
   return (
     <div className="appr">
-      <p className="appr-note">只改这台电脑上的样子，不动数据，也不影响同事。</p>
+      <p className="appr-note">只改这台电脑上的样子，不动数据，也不影响同事。（测试包 2）</p>
       <section className="appr-row" aria-labelledby="appr-paper">
         <div className="appr-h" id="appr-paper">底色</div>
         <div className="appr-opts" role="radiogroup" aria-labelledby="appr-paper">
