@@ -69,7 +69,13 @@ export function 字段表(b: { fields: { school: string; grade: string; major: s
     // 开放：values 只当建议，导入时对不上也原样收下（库里这一列就是自由文本）
     { 名: "grade", label: b.fields.grade, kind: "enum", values: b.grades, 开放: true, 别名: [b.fields.grade, "年级", "职位", "职务", "岗位", "grade", "title", "position"] },
     { 名: "major", label: b.fields.major, kind: "text", 别名: [b.fields.major, "专业", "行业", "所属行业", "major", "industry"] },
-    { 名: "followStatus", label: "跟进状态", kind: "enum", values: FOLLOW_STATUSES, 别名: ["跟进状态", "状态", "跟进情况", "followstatus", "status"] },
+    /*
+      **「跟进情况」不收。** 它在销售手上的表里几乎总是一句自由文字（「想要年底上线」
+      「在比价」「预算在批」），不是那几个固定值。收进来的结果是整列对不上、
+      全部落成默认值——2026-09-28 审查实测过，原话一个字都没留下。
+      不收，它就走「没有对应字段 → 并进备注」那条路。
+    */
+    { 名: "followStatus", label: "跟进状态", kind: "enum", values: FOLLOW_STATUSES, 别名: ["跟进状态", "状态", "followstatus", "status"] },
     { 名: "decisionStatus", label: "决策状态", kind: "enum", values: DECISION_STATUSES, 别名: ["决策状态", "意向", "意向度", "决策阶段", "decisionstatus"] },
     { 名: "expectedSignAt", label: "预计签约", kind: "date", 别名: ["预计签约", "预计签约时间", "预计成交", "预计签约日期", "expectedsign", "expectedsignat"] },
     { 名: "remark", label: "备注", kind: "text", 别名: ["备注", "说明", "描述", "note", "notes", "remark", "comment"] },

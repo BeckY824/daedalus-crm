@@ -22,20 +22,38 @@ export default function InlineConfirm({
   问,
   做,
   children,
+  是 = "删除",
+  开: 外开,
+  set开: 外set开,
 }: {
   /** 问句。一句话，不带句号——它和两个键在同一行 */
   问: string;
   做: () => void | Promise<void>;
   /** 平时那颗键。展开之后它会被问句替掉 */
   children: React.ReactNode;
+  /** 确认键上的字。默认「删除」；不是删除的事（比如标丢单）要写成那件事本身 */
+  是?: string;
+  /**
+   * 受控：由外面决定什么时候展开（比如从「更多」菜单里点进来）。
+   * 受控时点平时那颗键**不会**展开——那颗键可能是一整排别的按钮。
+   */
+  开?: boolean;
+  set开?: (v: boolean) => void;
 }) {
-  const [开, set开] = useState(false);
+  const [内开, set内开] = useState(false);
+  const 开 = 外开 ?? 内开;
+  const set开 = 外set开 ?? set内开;
   const [忙, set忙] = useState(false);
   const 计时 = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 外面传进来的 set开 多半是每次渲染新建的箭头函数；放进依赖里，5 秒的计时会被每次重渲重置
+  const 收起 = useRef(set开);
+  useEffect(() => {
+    收起.current = set开;
+  });
 
   useEffect(() => {
     if (!开) return;
-    计时.current = setTimeout(() => set开(false), 5000);
+    计时.current = setTimeout(() => 收起.current(false), 5000);
     return () => {
       if (计时.current) clearTimeout(计时.current);
     };
@@ -65,7 +83,7 @@ export default function InlineConfirm({
           >
             <span className="inlc-q">{问}</span>
             <button type="button" className="inlc-yes" disabled={忙} onClick={() => void 确认()}>
-              删除
+              {是}
             </button>
             <button type="button" className="inlc-no" onClick={() => set开(false)}>
               取消
@@ -78,7 +96,7 @@ export default function InlineConfirm({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 时长.fast, ease: 曲线.ease }}
-            onClick={() => set开(true)}
+            onClick={外开 === undefined ? () => set开(true) : undefined}
           >
             {children}
           </motion.span>

@@ -1587,6 +1587,24 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .field-count .ant-form-item-extra { margin-top: 22px; }
 
 
+/* 登记签约弹窗底下「顺手收个尾」那一块（ContractForm）：商机标赢单、计划和待办一并完成。
+   和上面的表单用一道细线隔开——它不是签约的字段，是签约带出来的几件事 */
+.contract-links { border-top: 1px solid var(--line-soft); padding-top: var(--s3); display: flex; flex-direction: column; gap: var(--s3); }
+.contract-links-t { font-size: var(--fs-note); color: var(--text-muted); margin-bottom: var(--s1); }
+.contract-links-g .ant-checkbox-group { display: flex; flex-direction: column; gap: var(--s1); }
+.contract-links-i { display: inline-flex; align-items: center; gap: var(--s2); }
+.contract-links-m { color: var(--text-muted); font-size: var(--fs-note); white-space: nowrap; }
+
+/* 商机列表操作列：「标为丢单？」比这一格宽，往左盖在负责人那一格上，不撑宽整列 */
+.opp-act { position: relative; display: flex; justify-content: flex-start; min-height: 24px; }
+.opp-act .inlc-ask { position: absolute; right: 0; top: 0; bottom: 0; background: var(--panel); padding-left: var(--s2); }
+
+/* 商机「标记赢单」的就地确认（OpportunitiesView 的 WonAsk）：一句问话、两个可改的数、三颗键 */
+.won-ask { display: flex; flex-direction: column; gap: var(--s2); max-width: 320px; }
+.won-ask-t { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.won-ask-s { font-size: var(--fs-note); color: var(--text-muted); }
+.won-ask-b { margin-top: var(--s1); }
+
 /* 业务配置顶上那排预设。它是填表的快捷方式，所以做得比一个功能区轻：
    一行小字 + 两颗小键，不画卡片、不占标题 */
 .biz-preset { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 18px;

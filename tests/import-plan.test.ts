@@ -284,6 +284,60 @@ describe("表里有我们没有的列", () => {
   });
 });
 
+/**
+ * 2026-09-28 审查 S1：「跟进情况」那一列写的是「想要年底上线 / 在比价」这类原话，
+ * 被自动对到跟进状态、每格落成默认值，导完原话哪儿都找不到。
+ * 两条一起钉：别名表不再收它；真被人对到封闭枚举上，对不上的原文也要进备注。
+ */
+describe("固定选项对不上：用默认值，原文并进备注", () => {
+  const 排 = (csv: string, opts: { 没对上的列?: "并进备注" | "丢掉"; 改过?: Record<string, string>; 映射?: (m: ReturnType<typeof 猜列>) => void } = {}) => {
+    const { 表头, 数据 } = 成表(解析CSV(csv));
+    const m = 猜列(表头, 表);
+    opts.映射?.(m);
+    return 摊开({ 表头, 数据, 映射: m, 字段表: 表, 没对上的列: opts.没对上的列, 改过: opts.改过 });
+  };
+
+  it("「跟进情况」不再被猜成跟进状态，默认走并进备注", () => {
+    expect(猜列(["姓名", "手机号", "跟进情况"], 表)[2]).toBeNull();
+    const r = 排("姓名,手机号,跟进情况\n张三,13800000001,想要年底上线");
+    expect(r[0].值.followStatus).toBeUndefined();
+    expect(r[0].值.remark).toBe("跟进情况：想要年底上线");
+  });
+
+  it("「跟进状态」照旧能猜到——拿掉的只是那一个别名", () => {
+    expect(猜列(["跟进状态", "状态"], 表)).toEqual(["followStatus", null]);
+  });
+
+  it("人手工把自由文字列对到跟进状态：字段用默认，原文按「表头：值」进备注", () => {
+    const r = 排("姓名,手机号,跟进情况,备注\n张三,13800000001,在比价,回电积极", { 映射: (m) => { m[2] = "followStatus"; } });
+    expect(r[0].值.followStatus, "认不出的值不许塞进封闭枚举").toBeUndefined();
+    expect(r[0].问题.find((q) => q.字段 === "followStatus")?.严重).toBe("用默认");
+    expect(r[0].值.remark).toBe("回电积极\n跟进情况：在比价");
+  });
+
+  it("决策状态也一样；认得出的那一格不进备注", () => {
+    const r = 排(`姓名,手机号,跟进状态,决策状态\n张三,13800000001,${FOLLOW_STATUSES[0]},预算在批`);
+    expect(r[0].值.followStatus).toBe(FOLLOW_STATUSES[0]);
+    expect(r[0].值.remark).toBe("决策状态：预算在批");
+  });
+
+  it("复核时改成了合法值，就不再进备注", () => {
+    const r = 排("姓名,手机号,跟进状态\n张三,13800000001,再看看", { 改过: { [改动键(2, "再看看")]: FOLLOW_STATUSES[1] } });
+    expect(r[0].值.followStatus).toBe(FOLLOW_STATUSES[1]);
+    expect(r[0].值.remark).toBeUndefined();
+  });
+
+  it("「丢掉没对上的列」只管我们没有的列，管不到这一列——人明确要它", () => {
+    const r = 排("姓名,手机号,跟进状态,微信号\n张三,13800000001,再看看,zs_wx", { 没对上的列: "丢掉" });
+    expect(r[0].值.remark).toBe("跟进状态：再看看");
+  });
+
+  it("按列的顺序并：对上字段的原文和没对上的列排在一起", () => {
+    const r = 排("姓名,手机号,微信号,跟进状态,客户等级\n张三,13800000001,zs_wx,再看看,A");
+    expect(r[0].值.remark).toBe("微信号：zs_wx\n跟进状态：再看看\n客户等级：A");
+  });
+});
+
 describe("同一份表里手机号重复的行", () => {
   const 排 = (csv: string) => {
     const { 表头, 数据 } = 成表(解析CSV(csv));

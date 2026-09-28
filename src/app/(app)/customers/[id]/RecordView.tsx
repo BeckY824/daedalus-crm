@@ -286,7 +286,11 @@ export default function RecordView({
         {(customer.signedAmount > 0 || customer.expectedSignAt) && (
           <span className="rec-tags-n">
             {customer.signedAmount > 0 ? `已签约 ${money(customer.signedAmount)}` : "预计签约"}
-            {customer.expectedSignAt && ` · ${fmtDate(customer.expectedSignAt)}`}
+            {/* 已签约后面跟的是实际签约日（最近一笔；contracts 按签约日倒序）。原来跟的是预计签约日，
+                9 月 28 日签的约读起来像 10 月 5 日签的（2026-09-28 审查 M2） */}
+            {customer.signedAmount > 0
+              ? contracts[0] && ` · ${fmtDate(contracts[0].signedAt)}`
+              : customer.expectedSignAt && ` · ${fmtDate(customer.expectedSignAt)}`}
           </span>
         )}
         {要看冷热(customer.followStatus) && (
