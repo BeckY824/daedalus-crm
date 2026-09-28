@@ -18,6 +18,16 @@ import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 
+
+/** 状态不在取值表里就给那句报错，合法给 null。建客户、批量改、撤销、行内改四处共用，报错文案一字不改 */
+const 不合法 = (名: string, 表: readonly string[], v: unknown) => (表.includes(v as string) ? null : `${名}「${v}」不是合法取值`);
+const 跟进不对 = (v: unknown) => 不合法("跟进状态", FOLLOW_STATUSES, v);
+const 决策不对 = (v: unknown) => 不合法("决策状态", DECISION_STATUSES, v);
+
+/** 是不是一位在职成员。各处下拉只列在职的；把客户交给停用的人等于丢进黑洞 */
+async function 在职(id: string): Promise<boolean> {
+  return Boolean((await prisma.user.findUnique({ where: { id }, select: { active: true } }))?.active);
+}
 export type CustomerInput = {
   id?: string;
   /**
@@ -131,12 +141,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     }
   }
 
-  if (!FOLLOW_STATUSES.includes(input.followStatus as (typeof FOLLOW_STATUSES)[number])) {
-    return { ok: false, error: `跟进状态「${input.followStatus}」不是合法取值` };
-  }
-  if (!DECISION_STATUSES.includes(input.decisionStatus as (typeof DECISION_STATUSES)[number])) {
-    return { ok: false, error: `决策状态「${input.decisionStatus}」不是合法取值` };
-  }
+  const 状态错 = 跟进不对(input.followStatus) ?? 决策不对(input.decisionStatus);
+  if (状态错) return { ok: false, error: 状态错 };
 
   /**
    * 归属字段什么时候重算。
@@ -161,8 +167,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   // 显式指定压过推荐链：登记错误的单个订正走这里。null 表示清掉手工值、按推荐链重算
   if (input.channelOwnerId !== undefined) {
     if (input.channelOwnerId) {
-      const u = await prisma.user.findUnique({ where: { id: input.channelOwnerId }, select: { active: true } });
-      if (!u || !u.active) return { ok: false, error: "渠道负责人不存在或已停用" };
+      if (!(await 在职(input.channelOwnerId))) return { ok: false, error: "渠道负责人不存在或已停用" };
       attribution.channelOwnerId = input.channelOwnerId;
     } else {
       const 重算 = await resolveAttribution({ channelId: input.channelId, referrerCustomerId: input.referrerCustomerId });
@@ -400,14 +405,7 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
   const b = await getBusiness();
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
 
-  // 转给一个已停用的人等于把这些学员丢进黑洞：各处下拉只列在职成员
-  const owner = await prisma.user.findUnique({
-    where: { id: salesOwnerId },
-    select: { active: true },
-  });
-  if (!owner?.active) {
-    return { ok: false, error: "该成员不存在或已停用，请选择一位在职成员" };
-  }
+  if (!(await 在职(salesOwnerId))) return { ok: false, error: "该成员不存在或已停用，请选择一位在职成员" };
 
   // 本来就归他的不算「改动」，分开统计才对得上操作人看到的选中条数
   const already = await prisma.customer.count({ where: { id: { in: ids }, salesOwnerId } });
@@ -432,9 +430,8 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
   const me = await requireUser();
   const b = await getBusiness();
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
-  if (!FOLLOW_STATUSES.includes(followStatus as (typeof FOLLOW_STATUSES)[number])) {
-    return { ok: false, error: `跟进状态「${followStatus}」不是合法取值` };
-  }
+  const 状态错 = 跟进不对(followStatus);
+  if (状态错) return { ok: false, error: 状态错 };
 
   const already = await prisma.customer.count({ where: { id: { in: ids }, followStatus } });
   const res = await prisma.customer.updateMany({
@@ -564,12 +561,8 @@ export async function deleteContract(
   const b = await getBusiness();
 
   if (revertTo) {
-    if (!FOLLOW_STATUSES.includes(revertTo.followStatus as (typeof FOLLOW_STATUSES)[number])) {
-      return { ok: false, error: `跟进状态「${revertTo.followStatus}」不是合法取值` };
-    }
-    if (!DECISION_STATUSES.includes(revertTo.decisionStatus as (typeof DECISION_STATUSES)[number])) {
-      return { ok: false, error: `决策状态「${revertTo.decisionStatus}」不是合法取值` };
-    }
+    const 状态错 = 跟进不对(revertTo.followStatus) ?? 决策不对(revertTo.decisionStatus);
+    if (状态错) return { ok: false, error: 状态错 };
   }
 
   // 删完就查不到金额了，先留一份
@@ -618,20 +611,20 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   const v = typeof value === "string" ? value.trim() : value;
   const data: Record<string, unknown> = {};
   if (key === "followStatus") {
-    if (!FOLLOW_STATUSES.includes(v as (typeof FOLLOW_STATUSES)[number])) return { ok: false, error: `跟进状态「${v}」不是合法取值` };
+    const 错 = 跟进不对(v);
+    if (错) return { ok: false, error: 错 };
     data.followStatus = v;
   } else if (key === "decisionStatus") {
-    if (!DECISION_STATUSES.includes(v as (typeof DECISION_STATUSES)[number])) return { ok: false, error: `决策状态「${v}」不是合法取值` };
+    const 错 = 决策不对(v);
+    if (错) return { ok: false, error: 错 };
     data.decisionStatus = v;
   } else if (key === "salesOwnerId") {
-    const u = v ? await prisma.user.findUnique({ where: { id: v }, select: { active: true, role: true } }) : null;
-    if (!u || !u.active) return { ok: false, error: "负责人不存在或已停用" };
+    if (typeof v !== "string" || !v || !(await 在职(v))) return { ok: false, error: "负责人不存在或已停用" };
     data.salesOwnerId = v;
   } else if (key === "channelOwnerId") {
     // 清空 = 恢复跟着推荐链走；给了人 = 手工钉死。只动这一条学员，不影响任何其他人
     if (v) {
-      const u = await prisma.user.findUnique({ where: { id: v }, select: { active: true } });
-      if (!u || !u.active) return { ok: false, error: "渠道负责人不存在或已停用" };
+      if (typeof v !== "string" || !(await 在职(v))) return { ok: false, error: "渠道负责人不存在或已停用" };
       data.channelOwnerId = v;
     } else {
       const cur = await prisma.customer.findUnique({ where: { id }, select: { channelId: true, referrerCustomerId: true } });
