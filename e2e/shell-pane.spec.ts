@@ -208,6 +208,13 @@ test.describe("中栏跟着路由走", () => {
     await 登录(page);
     const 左栏 = page.locator("nav.rail");
     const 缝 = page.getByRole("separator", { name: /调整左栏宽度/ });
+    /*
+      先等左栏宽度落定再量。整套连跑时偶尔在样式还没到位的那一刻就量了：
+      量到 1264（整个窗口宽），拖完 277，断言「比原来宽 40」自然不成立（2026-09-28 撞过一次，单独重跑 5 遍全过）。
+      左栏默认两百来宽，半个窗口是个足够松的上限。
+    */
+    await expect(缝).toBeVisible();
+    await expect.poll(async () => (await 左栏.boundingBox())?.width ?? Infinity).toBeLessThan(600);
     const 原宽 = (await 左栏.boundingBox())!.width;
 
     const 缝框 = (await 缝.boundingBox())!;
