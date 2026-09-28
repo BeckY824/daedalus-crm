@@ -7,7 +7,8 @@
  * 对他们写「1 次」就是一句在他那儿不成立的话。
  *
  * 谁计次，和真正扣次数的地方一一对应：
- *   托管版（MULTI_TENANT）   lib/tenant/ai-allowance.ts 的 带额度()——stream 和各个 AI 动作都套着它：付费工作区不扣（查额度().受限）
+ *   托管版（MULTI_TENANT）   lib/tenant/ai-allowance.ts 的 带额度()——stream 和各个 AI 动作都套着它：付费工作区不扣（查额度().受限），
+ *                            工作区在设置里填了自己 Key 的也不扣（自带Key()）
  *   桌面端登录了云端账号     云端网关按账号扣（lib/tenant/credits.ts 的 account 那一路）
  *   桌面端填了自己的 Key      请求直接发给他选的那家，不经过我们——不计
  *   自部署（.env 里配的 Key） 一次都不扣——不计
@@ -27,7 +28,8 @@ export async function 读AI计次({ 问余额 }: { 问余额: boolean }): Promis
     const { resolveCurrentTenant } = await import("./tenant/resolve");
     const t = await resolveCurrentTenant();
     if (!t) return 不计次;
-    const { 查额度 } = await import("./tenant/ai-allowance");
+    const { 查额度, 自带Key } = await import("./tenant/ai-allowance");
+    if (await 自带Key()) return 不计次;
     const q = await 查额度(t.workspaceId);
     return q.受限 ? { 计次: true, 还剩: q.还剩, 上限: q.上限 } : 不计次;
   }

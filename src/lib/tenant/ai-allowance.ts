@@ -111,14 +111,36 @@ export async function 加次数(workspaceId: string, amount: number, note?: stri
  * 自部署版（没开 MULTI_TENANT）整个不走这里，一次都不限。
  */
 export async function 试用额度闸门(): Promise<string | null> {
+  return (await 过闸()).拦;
+}
+
+/**
+ * 工作区在设置里填了自己的模型 Key：请求发给他自己那家，花的是他的钱——不扣也不拦。
+ * 和 lib/ai-meter.ts「填了自己 Key 的一次都不扣」是同一条规矩，角标那边也按这个不挂「1 次」。
+ * 读不到设置（库还没建好之类）当作没填：宁可照常计次，也不能因为读失败就敞开。
+ */
+export async function 自带Key(): Promise<boolean> {
+  try {
+    const { 模型来源 } = await import("../llm-config");
+    return (await 模型来源()) === "ui";
+  } catch {
+    return false;
+  }
+}
+
+/** 拦了就给那句话；没拦时说清这一次是不是真扣了——没扣的（付费、自带 Key）出错也不该退 */
+async function 过闸(): Promise<{ 拦: string | null; 扣了: boolean }> {
   const { multiTenant } = await import("./context");
-  if (!multiTenant()) return null;
+  if (!multiTenant()) return { 拦: null, 扣了: false };
   const { resolveCurrentTenant } = await import("./resolve");
   const t = await resolveCurrentTenant();
   // 没有工作区上下文时不在这里报错：调用方自己的 requireUser 会给出更清楚的提示
-  if (!t) return null;
+  if (!t) return { 拦: null, 扣了: false };
+  if (await 自带Key()) return { 拦: null, 扣了: false };
   const r = await 扣一次额度(t.workspaceId);
-  return r.ok ? null : r.error;
+  if (!r.ok) return { 拦: r.error, 扣了: false };
+  // 付费工作区放行但不计数（还剩 null），那一次也就无从退起
+  return { 拦: null, 扣了: r.还剩 !== null };
 }
 
 /**
@@ -144,10 +166,10 @@ export async function 带额度<T extends { ok: boolean }>(
   fn: () => Promise<T>,
   opts: { 中断?: AbortSignal } = {},
 ): Promise<T | { ok: false; error: string }> {
-  const 超额 = await 试用额度闸门();
-  if (超额) return { ok: false, error: 超额 };
-  // 闸门在这一行之前扣掉了一次（托管版试用工作区）。下面没走通就退
-  const 该退 = () => !opts.中断?.aborted;
+  const { 拦, 扣了 } = await 过闸();
+  if (拦) return { ok: false, error: 拦 };
+  // 真扣了一次（托管版试用工作区、用的是我们的模型）才谈得上退。下面没走通就退
+  const 该退 = () => 扣了 && !opts.中断?.aborted;
   let r: T;
   try {
     r = await fn();

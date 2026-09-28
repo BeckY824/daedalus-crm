@@ -14,9 +14,14 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-const 状态 = vi.hoisted(() => ({ 当前工作区: null as string | null, requireUser调用: 0 }));
+const 状态 = vi.hoisted(() => ({ 当前工作区: null as string | null, requireUser调用: 0, 自带Key: false }));
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+// 工作区在设置里填没填自己的 Key。其余照真的走
+vi.mock("@/lib/llm-config", async (orig) => ({
+  ...(await orig<typeof import("@/lib/llm-config")>()),
+  模型来源: async () => (状态.自带Key ? "ui" : "env"),
+}));
 vi.mock("@/lib/tenant/resolve", () => ({
   resolveCurrentTenant: async () =>
     状态.当前工作区 ? { workspaceId: 状态.当前工作区, slug: 状态.当前工作区, dbFile: `${状态.当前工作区}.db`, role: "ADMIN", writable: true } : null,
@@ -91,6 +96,7 @@ beforeEach(async () => {
   process.env.MULTI_TENANT = "1";
   状态.当前工作区 = null;
   状态.requireUser调用 = 0;
+  状态.自带Key = false;
   const { control } = await import("@/lib/tenant/control");
   await control.aiUsage.deleteMany({});
   await control.aiGrant.deleteMany({});
@@ -168,6 +174,32 @@ describe("带额度：收费契约", () => {
     const ws = await 建工作区({ 付费: true });
     for (let i = 0; i < 5; i++) expect((await 带额度("brief", async () => ({ ok: true as const }))).ok).toBe(true);
     expect(await 用掉(ws)).toBe(0);
+  });
+
+  it("付费工作区失败了也不「退」：本来就没扣，退了等于白送一次", async () => {
+    const { 带额度 } = await import("@/lib/tenant/ai-allowance");
+    const ws = await 建工作区({ 付费: true });
+    await 带额度("parse", async () => ({ ok: false as const, error: "x" }));
+    await expect(带额度("parse", async () => { throw new Error("上游超时"); })).rejects.toThrow();
+    expect(await 用掉(ws)).toBe(0);
+  });
+
+  it("工作区填了自己的 Key：花的是他自己的钱——不扣、用完了也不拦、角标不挂「1 次」", async () => {
+    const { 带额度 } = await import("@/lib/tenant/ai-allowance");
+    const { 读AI计次 } = await import("@/lib/ai-meter");
+    const ws = await 建工作区();
+    await 用光(ws);
+    const 之前 = await 用掉(ws);
+    状态.自带Key = true;
+    const fn = vi.fn(async () => ({ ok: true as const }));
+    expect((await 带额度("wakeup", fn)).ok).toBe(true);
+    expect(fn).toHaveBeenCalledOnce();
+    // 失败也不退：没扣过
+    await 带额度("wakeup", async () => ({ ok: false as const, error: "x" }));
+    expect(await 用掉(ws)).toBe(之前);
+    expect((await 读AI计次({ 问余额: true })).计次).toBe(false);
+    状态.自带Key = false;
+    expect((await 读AI计次({ 问余额: true })).计次).toBe(true);
   });
 
   it("自部署 / 桌面端（没开 MULTI_TENANT）：一次都不扣，也不拦", async () => {
@@ -290,6 +322,13 @@ describe("守卫：花模型钱的入口都套了 带额度", () => {
       }
     }
     expect(漏的, "这些动作会调模型却没套 带额度（lib/tenant/ai-allowance.ts）——托管版里它们不扣次数").toEqual([]);
+  });
+
+  it("调模型的 Server Action 文件只许用 function 声明导出——上面那条按 function 切段，箭头函数会被漏过去", () => {
+    const 箭头 = 文件们
+      .filter((x) => /^["']use server["']/m.test(x.src))
+      .flatMap(({ f, src }) => [...src.matchAll(/^export\s+const\s+([^\s=:]+)\s*[:=]/gm)].map((m) => `${f}#${m[1]}`));
+    expect(箭头, "改成 export async function，守卫才认得出它有没有套 带额度").toEqual([]);
   });
 
   it("其余调模型的文件（路由、lib）：要么整份套了 带额度，要么在「不扣」里写了理由", () => {
