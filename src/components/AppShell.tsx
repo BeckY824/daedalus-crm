@@ -35,7 +35,7 @@ import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
 import Shortcut from "./Shortcut";
 import { useBusiness } from "@/lib/business-client";
-import { DockOpenContext } from "@/lib/roster";
+import { DockOpenContext, useNarrow } from "@/lib/roster";
 
 const { Header, Content } = Layout;
 
@@ -98,7 +98,7 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
    * 手机上没有图标栏和中栏：390px 宽的屏幕摆不下三栏。
    * 顶部一条栏 + 一个菜单按钮，正文占满。
    */
-  const [小屏, set小屏] = useState(false);
+  const 小屏 = useNarrow("(max-width: 767px)");
   /**
    * AI 面板开着没有。壳要知道，因为 antd 的响应式断点看的是**视口**，
    * 而面板一开正文就只剩 1440 - 220 - 380 ≈ 840——断点还以为自己有 1440，
@@ -130,17 +130,9 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
    * 常驻是用户定的，所以不是去掉，而是放得下才常驻：1600 起正文还有 1000，看板和表格都摆得开
    * （16 寸 MacBook、外接屏）；13、14 寸笔记本的 1440–1512 默认收着，和教程里的样子一致。
    */
-  const 窄窗 = useSyncExternalStore(
-    (变了) => {
-      const mq = window.matchMedia(面板放不下);
-      mq.addEventListener("change", 变了);
-      return () => mq.removeEventListener("change", 变了);
-    },
-    () => window.matchMedia(面板放不下).matches,
-    // 服务端不知道窗口多宽，按多数（笔记本）当窄的、先收着：宽屏水合后展开一次，
-    // 好过笔记本上每次先渲染出 380 的面板、再在水合后收回去
-    () => true,
-  );
+  // 服务端不知道窗口多宽，按多数（笔记本）当窄的、先收着：宽屏水合后展开一次，
+  // 好过笔记本上每次先渲染出 380 的面板、再在水合后收回去
+  const 窄窗 = useNarrow(面板放不下, true);
   /** 这一次会话里手动开合过。null = 还没动过，听存档的 */
   const [手动, set手动] = useState<boolean | null>(null);
   const 面板开着 = 手动 ?? (窄窗 ? false : 存的面板);
@@ -154,14 +146,6 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
       // 存不下就只在这一次会话里生效
     }
   };
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const 同步 = () => set小屏(mq.matches);
-    同步();
-    mq.addEventListener("change", 同步);
-    return () => mq.removeEventListener("change", 同步);
-  }, []);
-
   /**
    * 壳里按 ⌘, 或点菜单里的「设置」：**由这边 push**，不是壳去 loadURL。
    * 软导航才命中拦截路由（@modal/(.)settings），设置才是盖在当前页上的那一层——

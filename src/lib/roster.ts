@@ -37,12 +37,10 @@ export function useRosterOpen() {
 }
 
 /**
- * 当前视口是不是窄到要把名单收起来。
- *
- * 1440 是记录页三栏（名单 220 + 正文 + AI 340）在 220 的左栏旁边还站得住的下限，
- * 再窄时间线就被压到三百出头，「下次跟进」那行字会竖排。
+ * 这条媒体查询命中没有（窗口够不够宽）。
+ * 服务端不知道窗口多宽，水合前先给 服务端 那个值，之后换成真的。
  */
-export function useNarrow(查询: string) {
+export function useNarrow(查询: string, 服务端 = false) {
   const 订阅 = useCallback(
     (l: () => void) => {
       const mq = window.matchMedia(查询);
@@ -51,7 +49,7 @@ export function useNarrow(查询: string) {
     },
     [查询],
   );
-  return useSyncExternalStore(订阅, () => window.matchMedia(查询).matches, () => false);
+  return useSyncExternalStore(订阅, () => window.matchMedia(查询).matches, () => 服务端);
 }
 
 /**
@@ -65,7 +63,12 @@ export const DockOpenContext = createContext(false);
 /** 和 globals.css 的 --dock-w 是同一个数 */
 export const DOCK_W = 380;
 
-/** 名单该不该收进抽屉：视口不够「名单 + 正文 + AI + 开着的面板」时收 */
+/**
+ * 名单该不该收进抽屉：视口不够「名单 + 正文 + AI + 开着的面板」时收。
+ *
+ * 1440 是记录页三栏（名单 220 + 正文 + AI 340）在 220 的左栏旁边还站得住的下限，
+ * 再窄时间线就被压到三百出头，「下次跟进」那行字会竖排。
+ */
 export function useRosterInDrawer() {
   const 面板开着 = useContext(DockOpenContext);
   return useNarrow(`(max-width: ${1439 + (面板开着 ? DOCK_W : 0)}px)`);
