@@ -19,6 +19,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { 拆块 } from "./skin-css";
 
 const 根目录 = path.resolve(__dirname, "../src");
 const css = fs.readFileSync(path.join(根目录, "app/globals.css"), "utf8");
@@ -44,6 +45,13 @@ const 运营台块: Record<string, (s: string) => [number, number]> = {
   "app/admin/ops.css": (s) => { const i = s.indexOf(".opx {"); return [i, s.indexOf("\n}", i)]; },
   "app/admin/ui.tsx": (s) => { const i = s.indexOf("export const 色 = {"); return [i, s.indexOf("\n};", i)]; },
 };
+/** 主题（app/skins/*.css）：色值只许写在 token 块里（:root[data-skin="x"] {…}、白底那块、小样那块），形状规则里一个都不许有 */
+const 抹主题token块 = (文: string) => {
+  let out = 文;
+  // 从后往前抹：抹掉的块会变短，先抹前面的话后面那些块的位置就错了
+  for (const b of 拆块(文).reverse()) if (b.token块) out = out.slice(0, b.起) + out.slice(b.起, b.止).replace(/[^\n]/g, "") + out.slice(b.止);
+  return out;
+};
 const 块 = (rel: string) => {
   const s = 去注释(fs.readFileSync(path.join(根目录, rel), "utf8"));
   const [a, b] = 运营台块[rel](s);
@@ -62,6 +70,7 @@ describe("色值只在 :root 和 palette.ts 里写死", () => {
         expect(a, `${rel} 里找不到色值块`).toBeGreaterThanOrEqual(0);
         文 = 文.slice(0, a) + 文.slice(a, b).replace(/[^\n]/g, "") + 文.slice(b);
       }
+      if (rel.startsWith("app/skins/")) 文 = 抹主题token块(文);
       const 行 = 文.split("\n");
       行.forEach((l, i) => {
         for (const m of l.match(HEX) ?? []) 散的.push(`${rel}:${i + 1} ${m}`);

@@ -69,7 +69,10 @@ JS 那边的镜像在 `src/lib/palette.ts`。这份文档不是第二份出处�
 - `--t-seal` 只给落印，上限 480
 
 按下那档故意最短：按下要立刻，松开才回弹。**减弱动态时不许有位移**——时长归零挡不住 transform。
-JS 里的 motion 认不了 CSS 变量，数值只许从 `src/lib/motion.ts` 拿（`时长.base`、`曲线.ease`、`间隔`），它和 `:root` 逐值对齐，别处写裸数守卫会红。
+JS 里的 motion 认不了 CSS 变量：组件里用 `useMotionTheme()`（`components/MotionTheme.tsx`）拿 `时长 / 曲线 / 间隔`——
+它在浏览器里从 `<html>` 读当前主题的 `--ease-* / --t-*`，读不到时回到 `src/lib/motion.ts` 里那份现状的值（和 `:root` 逐值对齐）。别处写裸数守卫会红。
+样式表里的 `transition` / `animation` 一律写 `var(--ease*)`，连默认的 `ease` 也不许省略——否则主题换了曲线它不跟；
+只有无限循环的环境动画（呼吸、扫光、光标闪）和跟真实进度走的 `linear` 例外。
 
 ## 五、骨架
 
@@ -80,6 +83,15 @@ JS 里的 motion 认不了 CSS 变量，数值只许从 `src/lib/motion.ts` 拿�
 ## 六、组件
 
 基础组件 = antd（主题在 `lib/theme.ts`，值取自 palette）+ `components/ui.tsx`（StatCard、状态徽章、进度）。
+
+## 六½、主题（设置 → 外观 → 主题）
+
+默认「现状」就是上面这一套；另有像素 / 科技 / 高级 / 账簿四套可选，只在这台电脑上生效（`lib/appearance.ts`）。
+一套主题 = `src/app/skins/<key>.css` 里**一块 token**（只许用 `:root` 已有的名字、色值只写在这块里）
++ **不超过 10 条形状规则**（按真实类名改形：边、角、标签画法；不许改布局、文案、加元素）
++ **自己的动效性格**（换 `--ease*` 的值和 `--t*` 落在哪一档；四档、按下 90、落印 ≤480、减弱动态时不位移，这些不变）。
+antd 的组件色由 `skins/shared.css` 接到我们的 token 上（antd 6 的 CSS 变量，key 钉死在 `lib/theme.ts`），主题文件不碰 `--ant-*`。
+现状下 `shared.css` 一条都不命中，antd 仍用 `lib/theme.ts` 算出来的值。
 新页面先用现成的；要造新组件，先问它和现有哪个是同一种东西。
 
 ## 七、原则（拍板过的）
