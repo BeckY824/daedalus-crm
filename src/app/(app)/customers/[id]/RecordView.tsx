@@ -529,7 +529,7 @@ export default function RecordView({
                     key={t.id}
                     className={`rec-task${已完成(t) ? " is-done" : ""}`}
                     exit={{ opacity: 0 }}
-                    transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                    transition={{ duration: 时长.base, ease: 曲线.ease }}
                   >
                     <Checkbox checked={已完成(t)} onChange={(e) => void 勾待办(t, e.target.checked)} aria-label={`完成 ${t.title}`} />
                     <span className="rec-task-t">{t.title}</span>
