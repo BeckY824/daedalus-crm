@@ -1079,12 +1079,22 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    有右固定的操作列时落在操作列左边，没有时落在表格右沿。滚到底就收起。 */
 .list .ant-table-container::after,
 .list .ant-table-cell-fix-end::after {
-  background: linear-gradient(to left, color-mix(in srgb, var(--ink) 8%, transparent), transparent);
+  /* 表格底色渐变到透明：滑到固定列底下的字是淡出去的，不是被一刀切成半截；
+     贴着固定列那一侧再压一点墨色，看得出那儿是一道边 */
+  background: linear-gradient(to left, color-mix(in srgb, var(--ink) 6%, var(--panel)), var(--panel) 35%, transparent);
   opacity: 0;
   transition: opacity var(--t) var(--ease);
 }
 .list .ant-table-fix-end-shadow-show .ant-table-container::after,
 .list .ant-table-cell-fix-end-shadow-show::after { box-shadow: none; opacity: 1; }
+/* 左边对称的那一道：名字列钉住之后往右滚，紧挨着它的那一列会从它底下滑过去，
+   没有这道渐隐，被压住的标签只剩半截（「进」「微信」），看着像渲染坏了 */
+.list .ant-table-cell-fix-start::after {
+  background: linear-gradient(to right, color-mix(in srgb, var(--ink) 6%, var(--panel)), var(--panel) 35%, transparent);
+  opacity: 0;
+  transition: opacity var(--t) var(--ease);
+}
+.list .ant-table-cell-fix-start-shadow-show::after { box-shadow: none; opacity: 1; }
 /* 工具条：主动作在左，列设置在右 */
 /* 列表页那一条汇总药丸：商机页的「总额 · 加权预测」（设计稿 15/PAGE）。
    原来是三张各占三分之一屏的统计卡，说的是同一件事的三个侧面 */

@@ -43,6 +43,11 @@ export default function FollowUpsView({
 
   const 列表: 列<Row>[] = [
     {
+      // 第一列是「这条是谁的」，和别的列表一样钉在左边；类型再有用也回答不了「是谁」
+      title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 150, 常驻: true,
+      render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
+    },
+    {
       // 类型三样齐全：颜色、图标、文字。只有颜色的话，色弱的人和扫得快的人都认不出来
       title: "类型", key: "type", dataIndex: "type", width: 110, 常驻: true,
       render: (v) => <FollowTypeCell type={v} />,
@@ -62,10 +67,6 @@ export default function FollowUpsView({
           <span className="muted">{r.content}</span>
         </span>
       ),
-    },
-    {
-      title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 150,
-      render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
     },
     { title: "对接人", key: "contactName", dataIndex: "contactName", width: 96, render: (v) => v ?? <span className="muted">—</span> },
     { title: "跟进人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v) => <UserCell name={v} size={24} /> },
