@@ -903,6 +903,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    而输入框正盖在视口底部那一条上。--cli-composer-h 由 HomeChat 用
    ResizeObserver 实时量（输入框会随文字长高），兜底 104px。 */
 .cli-turn { padding: 14px 0 10px; scroll-margin-bottom: calc(var(--cli-composer-h, 104px) + 16px); scroll-margin-top: 12px; }
+/* 刚点了「移除」的那一轮：收成一行，5 秒内能撤销（审查 M16）。只淡入，不位移 */
+.cli-turn-gone { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-note); color: var(--text-muted);
+  animation: cli-gone-in var(--t) var(--ease) both; }
+.cli-turn-gone-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes cli-gone-in { from { opacity: 0; } to { opacity: 1; } }
 /* 一轮：右侧你的话（气泡），下面是过程、回答、卡片、底栏 */
 .cli-user { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .cli-bubble { max-width: 78%; padding: 9px 14px; background: var(--hover); border-radius: var(--r-pop); color: var(--ink); white-space: pre-wrap; line-height: 1.6; }
@@ -1645,6 +1650,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   padding-bottom: 14px; border-bottom: 1px solid var(--line-soft); }
 .biz-preset > span { font-size: var(--fs-note); color: var(--ink); font-weight: 500; }
 .biz-preset > i { font-style: normal; font-size: var(--fs-min); color: var(--text-muted); }
+/* 套了预设还没保存：就在这一行说，并给保存 / 放弃（审查 D7）。淡入，不位移 */
+.biz-preset > .biz-preset-todo { display: inline-flex; align-items: center; gap: var(--s1); margin-left: var(--s1);
+  padding: 2px 4px 2px 10px; border-radius: var(--r-ctl); background: var(--warning-bg); border: 1px solid var(--warning-line);
+  color: var(--warning-text); font-weight: 400; animation: biz-todo-in var(--t) var(--ease) both; }
+@keyframes biz-todo-in { from { opacity: 0; } to { opacity: 1; } }
 
 
 /* AI 接入底下的 MCP 那一小块。和上面的表单隔开：它不是一个配置项，是一个开关加一条命令 */

@@ -15,7 +15,15 @@ import { 改我的资料 } from "./actions";
  * **登录名不在这里改**，那是另一回事（它同时是控制面账号的标识，改一边不改另一边就登不进来）。
  * 头像也没有上传：颜色由名字算出来（lib/utils 的 avatarColor），改名就换色，不用管理一堆图片文件。
  */
-export default function ProfileTab({ me }: { me: { name: string; title: string; email: string } }) {
+export default function ProfileTab({ me, 云端账号 = null }: {
+  me: { name: string; title: string; email: string };
+  /**
+   * 桌面端：登录用的是云端账号（邮箱），不是本机库里那个「admin」（审查 D8）。
+   * 原来这里写着「登录名 admin，登录用的就是它」——桌面端从来不用它登录
+   */
+  云端账号?: string | null;
+}) {
+  const 登录用的 = 云端账号 ?? me.email;
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -42,7 +50,7 @@ export default function ProfileTab({ me }: { me: { name: string; title: string; 
         </Avatar>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 600 }}>{预览 || me.name}</div>
-          <div className="muted" style={{ fontSize: 13 }}>{me.email}</div>
+          <div className="muted" style={{ fontSize: 13 }}>{登录用的}</div>
         </div>
       </div>
 
@@ -61,9 +69,15 @@ export default function ProfileTab({ me }: { me: { name: string; title: string; 
         <Form.Item name="title" label="职位" extra="比如「销售」「课程顾问」。不填也行" rules={[{ max: 20, message: "最多 20 个字" }]}>
           <Input placeholder="销售" />
         </Form.Item>
-        <Form.Item label="登录名" extra="登录用的就是它，建好之后不能改——它同时是账号的标识">
-          <Input value={me.email} disabled />
-        </Form.Item>
+        {云端账号 ? (
+          <Form.Item label="登录账号" extra="桌面端用这个云端账号登录。换账号在「设置 → 桌面端」里">
+            <Input value={云端账号} disabled />
+          </Form.Item>
+        ) : (
+          <Form.Item label="登录名" extra="登录用的就是它，建好之后不能改——它同时是账号的标识">
+            <Input value={me.email} disabled />
+          </Form.Item>
+        )}
         <Button type="primary" onClick={保存} loading={saving}>
           保存
         </Button>

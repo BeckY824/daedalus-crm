@@ -107,6 +107,30 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
   const ref = useRef<HTMLDivElement>(null);
   const done = job?.status === "done" || job?.status === "error";
   const [open, setOpen] = useState(false);
+  /**
+   * 「移除这一轮」先不真移（审查 M16）：原地收成一行「已移除 · 撤销」，5 秒后才真的去掉。
+   * × 紧挨着 ↻，一点就连同还没确认的建议卡一起没了，原来也不能反悔。
+   * 这 5 秒里离开这一页（组件卸掉）就当默认了，照样移除。
+   */
+  const [移走中, set移走中] = useState(false);
+  const 移走 = useRef(onRemove);
+  useEffect(() => {
+    移走.current = onRemove;
+  });
+  useEffect(() => {
+    if (!移走中) return;
+    const t = setTimeout(() => 移走.current(), 5000);
+    return () => {
+      clearTimeout(t);
+    };
+  }, [移走中]);
+  const 移走中Ref = useRef(false);
+  useEffect(() => {
+    移走中Ref.current = 移走中;
+  }, [移走中]);
+  useEffect(() => () => {
+    if (移走中Ref.current) 移走.current();
+  }, []);
   // 刚发出的这一问：把问题滚到视口顶部，答案往下面的空白里生成。
   // 不能用 block:"end"——那会把它顶到输入框后面，人看不见自己刚发的话。
   useEffect(() => {
@@ -171,6 +195,17 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
         ...answer.customers.slice(0, 2).map((c) => `${c.name}这边下一步该做什么`),
         ...(answer.customers.length > 0 && answer.proposals.length === 0 ? [`帮我给${answer.customers[0].name}排一次跟进`] : []),
       ].slice(0, 3);
+
+  if (移走中) {
+    return (
+      <div ref={ref} className="cli-turn cli-turn-gone" role="status">
+        <span className="cli-turn-gone-t">已移除「{turn.question.length > 24 ? turn.question.slice(0, 24) + "…" : turn.question}」</span>
+        <button type="button" className="cli-link" onClick={() => set移走中(false)}>
+          撤销
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div ref={ref} className="cli-turn">
@@ -321,7 +356,7 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
             </button>
           </Tooltip>
           <Tooltip title="移除这一轮">
-            <button type="button" className="cli-ic" aria-label="移除这一轮" onClick={onRemove}>
+            <button type="button" className="cli-ic" aria-label="移除这一轮" onClick={() => set移走中(true)}>
               <CloseOutlined />
             </button>
           </Tooltip>

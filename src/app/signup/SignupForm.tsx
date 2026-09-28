@@ -107,14 +107,13 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
           <Typography.Title level={4} style={{ margin: "0 0 8px", letterSpacing: -0.4 }}>
             注册成功
           </Typography.Title>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 14, marginBottom: 20 }}>
+          {/* 成功这一刻只说下一步（审查 D11）。「网页版是另一套账号」原来也摆在这儿，
+              人刚注册完就读到一句「但是」——那句话在登录页被挡下时才有用，那边已经说了 */}
+          <Typography.Paragraph type="secondary" style={{ fontSize: 14, marginBottom: 0 }}>
             回到 <strong>Daedalus CRM 桌面端</strong>，用 <strong>{邮箱}</strong> 和刚才设的密码登录。
             <br />
             这个页面可以关掉了。
           </Typography.Paragraph>
-          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            这个账号用于桌面端。<Link href="/login">网页版</Link>是另一套账号，要试用请联系我们。
-          </Typography.Text>
         </Rise>
       </div>
     );

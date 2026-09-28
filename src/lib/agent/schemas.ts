@@ -185,7 +185,7 @@ export const 建议SCHEMAS: Record<string, Schema> = {
       type: 串("电话沟通 / 线上会议 / 上门拜访 / 邮件沟通 / 短信沟通 / 跟进任务 / 跟进提醒 / 其他记录"),
       title: 串("可选，一句话标题"),
       content: 串("这次聊了什么"),
-      occurredAt: 串("可选，YYYY-MM-DD HH:mm，不给就算刚刚"),
+      occurredAt: 串("可选，这次沟通**已经发生**的时间，YYYY-MM-DD HH:mm，不给就算刚刚。不是下次约的时间——约了下次另提 propose_plan"),
       reason: 串("一句话：为什么"),
     },
     required: ["id", "type", "content", "reason"],
