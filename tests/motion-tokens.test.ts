@@ -90,6 +90,42 @@ describe("动效底座", () => {
     expect(间隔).toBe(Number(stagger![1]) / 1000);
   });
 
+  it("JS 里的时长、间隔、曲线只许写在 lib/motion.ts", () => {
+    /**
+     * 镜像对上了还不够：别处照样可以绕开它直接写 0.42。这条扫 src 下所有 .ts/.tsx，
+     * 抓的是 motion 那几个键的值里写死的数（`duration: 0.26`、`少动 ? 0 : 0.42`、`delay: i * 0.04`、
+     * `staggerChildren: 0.1`）和写死的曲线（`ease: [..]`、`ease: "easeOut"`、cubic-bezier）。
+     * 只认小数：`duration: 6` 是 antd 提示停几秒、`duration: 300 + …` 是演示数据里的通话时长，都不是动效。
+     */
+    const 根目录 = path.resolve(__dirname, "../src");
+    const 去注释 = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, "")).replace(/^\s*\/\/.*$/gm, "");
+    const 规矩: [RegExp, string][] = [
+      // 值里任何位置出现小数都算：`少动 ? 0 : 0.18`、`时长(0.28)` 也是写死
+      [/\b(?:duration|staggerChildren|delayChildren|repeatDelay)\s*:[^,}\n]*\d*\.\d/, "裸时长"],
+      // delay 常写成 `Math.min(i, 8) * 0.04`，括号里有逗号，所以放宽到整个花括号
+      [/\bdelay\s*:[^}\n]*\d*\.\d/, "裸间隔"],
+      [/\bease\s*:\s*(?:\[|["'`])/, "裸曲线"],
+      [/cubic-bezier\(/, "裸曲线"],
+    ];
+    const 文件 = (dir: string): string[] =>
+      fs.readdirSync(dir).flatMap((n) => {
+        const p = path.join(dir, n);
+        if (fs.statSync(p).isDirectory()) return n === "generated" ? [] : 文件(p);
+        return /\.tsx?$/.test(n) ? [p] : [];
+      });
+    const 散的: string[] = [];
+    for (const f of 文件(根目录)) {
+      const rel = path.relative(根目录, f).replaceAll("\\", "/");
+      if (rel === "lib/motion.ts") continue;
+      去注释(fs.readFileSync(f, "utf8"))
+        .split("\n")
+        .forEach((l, i) => {
+          for (const [re, 叫] of 规矩) if (re.test(l)) 散的.push(`${rel}:${i + 1} ${叫}：${l.trim().slice(0, 120)}`);
+        });
+    }
+    expect(散的, `这些地方还写着裸的动效数值，改成 lib/motion.ts 的 时长 / 曲线 / 间隔：\n${散的.join("\n")}`).toEqual([]);
+  });
+
   it("开了「减弱动态」之后不许再有位移", () => {
     const i = css.indexOf("@media (prefers-reduced-motion: reduce)");
     expect(i).toBeGreaterThan(-1);
