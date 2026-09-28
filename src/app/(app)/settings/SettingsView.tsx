@@ -598,6 +598,15 @@ export default function SettingsView({
     ["应用", ["desktop"]],
   ];
 
+  /**
+   * **真正摆出来的是哪一栏**。地址栏没带 ?tab= 时默认是 members，
+   * 但桌面端不摆「团队成员」，网页版的普通成员也看不到它——这时正文落到第一栏（个人资料），
+   * 而左边目录还在找 members，于是**哪一项都不亮**，看上去像选中了鼠标停着的那项
+   * （2026-09-28 用户截图：「桌面端」发灰、正文是个人资料）。
+   * 左边亮哪项、正文画哪栏、读屏的 aria 指向，三处都只认这一个值。
+   */
+  const 当前 = 目录.some((x) => x.key === tab) ? tab : 目录[0].key;
+
   const 词 = 搜.trim().toLowerCase();
   const 搜到的 = 词 ? 目录.filter((x) => `${x.label}${x.说明}${x.key}`.toLowerCase().includes(词)) : 目录;
   const 分好组: [string, typeof 目录][] = 词
@@ -643,9 +652,9 @@ export default function SettingsView({
               type="button"
               role="tab"
               id={`set-tab-${x.key}`}
-              aria-selected={tab === x.key}
+              aria-selected={当前 === x.key}
               aria-controls={`set-panel-${x.key}`}
-              className={`set-nav-i${tab === x.key ? " on" : ""}`}
+              className={`set-nav-i${当前 === x.key ? " on" : ""}`}
               /*
                 用原生 history 而不是 router.replace：这一页是 force-dynamic 的服务端组件，
                 router.replace 改个 ?tab= 会让 Next 把整页重新向服务端要一遍——200 条操作日志、
@@ -662,8 +671,8 @@ export default function SettingsView({
             </div>
           ))}
         </div>
-        <div className="set-body" role="tabpanel" id={`set-panel-${tab}`} aria-labelledby={`set-tab-${tab}`}>
-          {目录.find((x) => x.key === tab)?.children ?? 目录[0].children}
+        <div className="set-body" role="tabpanel" id={`set-panel-${当前}`} aria-labelledby={`set-tab-${当前}`}>
+          {目录.find((x) => x.key === 当前)?.children}
         </div>
       </div>
 
