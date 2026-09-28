@@ -116,4 +116,30 @@ function 读账号id(文件路径) {
   }
 }
 
-module.exports = { 初始化, 读, 清, 校验, 读账号id, 默认云端 };
+/**
+ * 登录着的这个账号能不能开运营台（云端 /api/ops/can，只有运营名单里的那一个账号能）。
+ * 问不到——断网、云端还是没这条接口的老版本（404）、没登录——一律当不能：
+ * 菜单里不摆一项点了没反应的东西。
+ */
+async function 能开运营台() {
+  const c = 读();
+  if (!c) return false;
+  const r = await 请求(`${c.baseUrl}/api/ops/can`, { headers: { Authorization: `Bearer ${c.token}` } });
+  return Boolean(r.ok && r.data?.ok);
+}
+
+/**
+ * 拿设备令牌换一枚一次性进门码，返回运营台窗口要打开的完整地址。
+ * 码 60 秒有效、用一次就作废；换成的运营台票在那个窗口的 cookie 里，本机不落任何口令。
+ */
+async function 运营台地址() {
+  const c = 读();
+  if (!c) return { ok: false, error: "还没登录云端账号" };
+  const r = await 请求(`${c.baseUrl}/api/ops/enter`, { method: "POST", headers: { Authorization: `Bearer ${c.token}` } });
+  if (!r.ok) return { ok: false, error: r.状态 === 403 ? "这个账号不能打开运营台" : r.error };
+  const 路径 = typeof r.data?.path === "string" && r.data.path.startsWith("/admin/enter?") ? r.data.path : null;
+  if (!路径) return { ok: false, error: "服务器没给进门的地址" };
+  return { ok: true, url: `${c.baseUrl}${路径}` };
+}
+
+module.exports = { 初始化, 读, 清, 校验, 读账号id, 默认云端, 能开运营台, 运营台地址 };

@@ -32,8 +32,8 @@ const 导航: { 组: string; 项: { 名: 页; 去: string; icon: React.ReactNode
   },
 ];
 
-/** 运营台里的站内链接：口令要跟着走（它就在网址上，这一页才进得来） */
-export const 站内 = (token: string, 路径: string) => `/admin${路径}?token=${encodeURIComponent(token)}`;
+/** 运营台里的站内链接：走口令进来的，口令要跟着走；走运营台票进来的（桌面端），网址上什么都不带 */
+export const 站内 = (token: string, 路径: string) => (token ? `/admin${路径}?token=${encodeURIComponent(token)}` : `/admin${路径}`);
 
 /**
  * 运营台的外壳：左边一条导航，右边正文。每一页验完口令再画它（见 layout.tsx 那段为什么）。

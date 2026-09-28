@@ -2,6 +2,8 @@
 
 import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import { 口令对 } from "./guard";
+import { 当前运营账号 } from "@/lib/ops-auth";
 import { control } from "@/lib/tenant/control";
 import { multiTenant } from "@/lib/tenant/context";
 import { isPlanKey, PLANS } from "@/lib/tenant/plans";
@@ -18,15 +20,17 @@ export type AdminResult = { ok: true } | { ok: false; error: string };
  * 每个动作都要重新验 token：Server Action 是独立的 HTTP 端点，页面那次校验
  * 拦不住直接调用它的人。「页面进得来所以动作能调」是最常见的一类越权。
  */
-function guard(token: string): AdminResult {
-  const expected = process.env.ADMIN_TOKEN;
-  if (!multiTenant() || !expected || token !== expected) return { ok: false, error: "无权操作" };
-  return { ok: true };
+async function guard(token: string): Promise<AdminResult> {
+  if (!multiTenant()) return { ok: false, error: "无权操作" };
+  if (口令对(token)) return { ok: true };
+  // 从桌面端进来的没有口令，认运营台票（见 lib/ops-auth.ts）
+  if (await 当前运营账号()) return { ok: true };
+  return { ok: false, error: "无权操作" };
 }
 
 /** 手动开通：按套餐从今天或现有到期日往后顺延 */
 export async function activate(input: { token: string; workspaceId: string; plan: string; note?: string }): Promise<AdminResult> {
-  const g = guard(input.token);
+  const g = await guard(input.token);
   if (!g.ok) return g;
   if (!isPlanKey(input.plan)) return { ok: false, error: "套餐不对" };
 
@@ -48,7 +52,7 @@ export async function activate(input: { token: string; workspaceId: string; plan
 
 /** 延长试用：谈单过程中常用，比直接开通更轻 */
 export async function extendTrial(input: { token: string; workspaceId: string; days: number }): Promise<AdminResult> {
-  const g = guard(input.token);
+  const g = await guard(input.token);
   if (!g.ok) return g;
   const days = Math.max(1, Math.min(90, Math.round(input.days)));
 
@@ -66,7 +70,7 @@ export async function extendTrial(input: { token: string; workspaceId: string; d
 
 /** 停用：滥用或欠费时用。数据不动，只是进不去 */
 export async function suspend(input: { token: string; workspaceId: string; on: boolean }): Promise<AdminResult> {
-  const g = guard(input.token);
+  const g = await guard(input.token);
   if (!g.ok) return g;
   await control.workspace.update({
     where: { id: input.workspaceId },
@@ -97,7 +101,7 @@ export async function openWorkspace(input: {
   name: string;
   target: string;
 }): Promise<OpenResult> {
-  const g = guard(input.token);
+  const g = await guard(input.token);
   if (!g.ok) return g;
 
   const t = parseTarget(input.target);
@@ -130,7 +134,7 @@ export async function openWorkspace(input: {
 
 /** 给某个工作区手动加 AI 次数。谈单时想让对方多试几次 */
 export async function grantAi(input: { token: string; workspaceId: string; amount: number; note?: string }): Promise<AdminResult> {
-  const g = guard(input.token);
+  const g = await guard(input.token);
   if (!g.ok) return g;
   await 加次数(input.workspaceId, input.amount, input.note ?? "运营台");
   revalidatePath("/admin", "layout");
@@ -142,7 +146,7 @@ export async function grantAi(input: { token: string; workspaceId: string; amoun
  * 和工作区那条一个口径：一次 1–1000，记成 admin；账号不存在就说不存在，不往空里送。
  */
 export async function grantAccountAi(input: { token: string; accountId: string; amount: number; note?: string }): Promise<AdminResult> {
-  const g = guard(input.token);
+  const g = await guard(input.token);
   if (!g.ok) return g;
   const a = await control.account.findUnique({ where: { id: input.accountId }, select: { id: true } });
   if (!a) return { ok: false, error: "账号不存在" };
@@ -157,7 +161,7 @@ export async function grantAccountAi(input: { token: string; accountId: string; 
  * 不提供删除：一条反馈是有人花时间写的，读过就收起来，但不该被一个误点抹掉。
  */
 export async function 标记反馈(input: { token: string; id: string; handled: boolean }): Promise<AdminResult> {
-  const g = guard(input.token);
+  const g = await guard(input.token);
   if (!g.ok) return g;
   await control.feedback.update({ where: { id: input.id }, data: { handled: input.handled } });
   revalidatePath("/admin", "layout");

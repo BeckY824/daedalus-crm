@@ -18,7 +18,7 @@
  * 菜单照 Claude 桌面端那套：应用 / 文件 / 编辑 / 显示 / 前往 / 窗口 / 帮助，全是标准项。
  * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
-const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage } = require("electron");
+const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
@@ -423,6 +423,77 @@ function 设角标(n) {
 }
 
 let 提醒器 = null;
+
+/*
+  运营台（2026-09-28）：只有运营名单里的那一个云端账号，菜单里才有「运营台…」。
+  它开在一个单独的窗口里：装的是云端的 /admin（看所有用户、设备、AI 用量），和本地 CRM 是两回事，
+  用单独的存储分区（persist:ops），运营台票不和本地会话混在一起。进门靠一次性码，见 cloud.js 的 运营台地址。
+*/
+let 运营台可用 = false;
+let 运营窗 = null;
+let 上次问运营台 = 0;
+
+async function 查运营台(force = false) {
+  if (!force && Date.now() - 上次问运营台 < 5 * 60_000) return;
+  上次问运营台 = Date.now();
+  const 能 = 读配置().mode === "local" ? await 云端.能开运营台().catch(() => false) : false;
+  if (能 !== 运营台可用) {
+    运营台可用 = 能;
+    建菜单();
+  }
+  /*
+    不能开了（换了人、被移出运营名单、退出了）：开着的运营台窗口关掉，那个分区里存着的运营台票也清掉——
+    不给下一个坐到这台电脑前的人留一扇开着的门。
+  */
+  if (!能) {
+    if (运营窗 && !运营窗.isDestroyed()) 运营窗.close();
+    await session.fromPartition("persist:ops").clearStorageData().catch(() => {});
+  }
+}
+
+async function 打开运营台() {
+  if (运营窗 && !运营窗.isDestroyed()) {
+    if (运营窗.isMinimized()) 运营窗.restore();
+    运营窗.show();
+    运营窗.focus();
+    return;
+  }
+  const r = await 云端.运营台地址();
+  if (!r.ok) {
+    dialog.showMessageBox({ type: "warning", message: "打不开运营台", detail: r.error ?? "" });
+    // 可能是被移出名单了：重新问一次，菜单里那一项该收就收
+    void 查运营台(true);
+    return;
+  }
+  const 源 = new URL(r.url).origin;
+  运营窗 = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 1024,
+    minHeight: 700,
+    title: "Daedalus Ops",
+    backgroundColor: "#f4f7fb",
+    webPreferences: { partition: "persist:ops", contextIsolation: true, sandbox: true, nodeIntegration: false },
+  });
+  // 只在运营台那个站里走：别的地址（外链）交给系统浏览器，新窗口一律不开
+  const 外开 = (url) => {
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+  };
+  运营窗.webContents.setWindowOpenHandler(({ url }) => {
+    外开(url);
+    return { action: "deny" };
+  });
+  运营窗.webContents.on("will-navigate", (e, url) => {
+    if (new URL(url).origin !== 源) {
+      e.preventDefault();
+      外开(url);
+    }
+  });
+  运营窗.on("closed", () => {
+    运营窗 = null;
+  });
+  运营窗.loadURL(r.url);
+}
 
 function 当前地址() {
   const cfg = 读配置();
@@ -880,6 +951,8 @@ function 切账号() {
   if (!切换中) {
     切换中 = 切一次().finally(() => {
       切换中 = null;
+      // 换了人：运营台能不能开要马上重问，不等 5 分钟
+      void 查运营台(true);
     });
   }
   return 切换中;
@@ -948,6 +1021,8 @@ function 建菜单() {
       { role: "about", label: `关于 ${APP_NAME}` },
       { type: "separator" },
       { label: "设置…", accelerator: "CmdOrCtrl+,", click: () => 去(cfg.mode === "local" ? "/settings?tab=desktop" : "/settings") },
+      // 只有运营名单里的账号才有这一项（见 查运营台）
+      ...(运营台可用 ? [{ label: "运营台…", accelerator: "CmdOrCtrl+Shift+O", click: () => void 打开运营台() }] : []),
       ...(cfg.mode === "server" ? [{ type: "separator" }, { label: `改用本机数据（现在连着 ${cfg.serverUrl}）`, click: () => 切到本地() }] : []),
       { type: "separator" },
       ...(isMac ? [{ role: "hide", label: `隐藏 ${APP_NAME}` }, { role: "hideOthers", label: "隐藏其他" }, { role: "unhide", label: "全部显示" }, { type: "separator" }] : []),
@@ -1094,6 +1169,9 @@ if (!app.requestSingleInstanceLock()) {
     });
     // 切回应用时立刻再问一次：人刚在别处把事做完，Dock 上的数不该还是一分钟前的
     app.on("browser-window-focus", () => void 提醒器?.刷新());
+    // 这个账号能不能开运营台：启动时问一次，之后切回应用时最多 5 分钟问一次（换了账号、被移出名单都跟得上）
+    void 查运营台(true);
+    app.on("browser-window-focus", () => void 查运营台());
     // 开机就查会和冷启动抢资源，等一会儿再说；之后每 6 小时再查一次。都是静默的，有新版就后台下
     setTimeout(() => 检查更新().catch(() => {}), 15_000);
     setInterval(() => 检查更新().catch(() => {}), 6 * 60 * 60 * 1000);
