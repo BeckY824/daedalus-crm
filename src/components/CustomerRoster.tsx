@@ -11,7 +11,7 @@ import { FOLLOW_STATUSES, FOLLOW_STATUS_COLOR } from "@/lib/constants";
 import { avatarColor, initial, smartTime, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
-import { 开名单, 关名单, useRosterOpen, useRosterInDrawer } from "@/lib/roster";
+import { 开名单, 关名单, useRosterOpen, useRosterInDrawer, 登记换一位 } from "@/lib/roster";
 
 export type CustomerRosterData = {
   total: number;
@@ -49,19 +49,19 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
   // 只摆用到的状态：50 位里没有的状态不占一个筛选条
   const 状态们 = useMemo(() => FOLLOW_STATUSES.filter((s) => data.rows.some((r) => r.followStatus === s)), [data.rows]);
 
-  /** ⌘K：光标进搜索框。记录页上「换一个人」是最常用的动作，值得一个快捷键 */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
+  /**
+   * ⌘K：光标进搜索框（窄屏时先把抽屉打开）。记录页上「换一个人」是最常用的动作，值得一个快捷键。
+   * 键本身由 CommandBar 听，这里只登记「⌘K 在这一页是什么意思」（lib/roster.ts 的 登记换一位，审查 M8）
+   */
+  useEffect(
+    () =>
+      登记换一位(() => {
         if (抽屉里) return 开名单();
         搜索框.current?.focus();
         搜索框.current?.select();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [抽屉里]);
+      }),
+    [抽屉里],
+  );
 
   // 抽屉一打开就把光标放进搜索框——打开它就是为了找人
   useEffect(() => {

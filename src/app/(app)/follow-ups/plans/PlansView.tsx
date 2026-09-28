@@ -10,6 +10,8 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 是逾期 } from "@/lib/overdue";
 import { useBusiness } from "@/lib/business-client";
 import { toggleTask, completePlan } from "../../customers/[id]/actions";
+import PlanForm from "../../customers/[id]/PlanForm";
+import { 截止说法 } from "@/lib/deadline";
 
 type Plan = {
   id: string;
@@ -95,6 +97,13 @@ export default function PlansView({
   const [看, set看] = useState<string | number>("待办");
   /** 刚点过完成、还留在原地的那几条 */
   const [刚完成, set刚完成] = useState<string[]>([]);
+  /** 「排下一次」给哪一位排：完成一条计划之后提示条里点进来（审查 M10） */
+  const [排给, set排给] = useState<string | null>(null);
+  /**
+   * 这一页上的事全是我的（一个人的库就是这样）：「我的 / 全部成员」这一层不摆（审查 D2）——
+   * 两边永远一样，摆着只是让人多想一下「全部成员」里会不会还有别的
+   */
+  const 只有我 = plans.every((p) => p.ownerId === meId) && tasks.every((t) => t.ownerId === meId) && done.every((d) => d.ownerId === meId);
 
   const 全部: 事项[] = useMemo(
     () => [
@@ -141,7 +150,28 @@ export default function PlansView({
     set刚完成((v) => [...v, x.key]);
     if (x.kind === "plan") await completePlan(x.id);
     else await toggleTask(x.id, true);
-    message.success(x.kind === "plan" ? "计划已完成" : "任务已完成");
+    /*
+      提示里带「撤销」，计划还带「排下一次」（审查 M10）：原来点完 600ms 这条就没了，
+      点错了只能去「已完成」里找也改不回来；做完一次跟进，下一次什么时候也没人问
+    */
+    const key = `done-${x.key}`;
+    message.success({
+      key,
+      duration: 6,
+      content: (
+        <span>
+          「{x.标题}」已完成
+          <Button type="link" size="small" onClick={() => { message.destroy(key); void 撤销完成(x); }}>
+            撤销
+          </Button>
+          {x.kind === "plan" && (
+            <Button type="link" size="small" onClick={() => { message.destroy(key); set排给(x.customerId); }}>
+              排下一次
+            </Button>
+          )}
+        </span>
+      ),
+    });
     // 桌面端：Dock 上那个数马上跟着少一个，不等壳下一分钟再问（网页版没有这个口子）
     void window.desktopReminders?.刷新();
     // 留位 600ms 再让它从列表里消失：立刻抽走，下面的行会跳上来顶替位置
@@ -149,6 +179,15 @@ export default function PlansView({
       set刚完成((v) => v.filter((k) => k !== x.key));
       router.refresh();
     }, 600);
+  }
+
+  async function 撤销完成(x: 事项) {
+    if (x.kind === "plan") await completePlan(x.id, false);
+    else await toggleTask(x.id, false);
+    set刚完成((v) => v.filter((k) => k !== x.key));
+    message.success(`「${x.标题}」已改回未完成`);
+    void window.desktopReminders?.刷新();
+    router.refresh();
   }
 
   const 我的已完成 = useMemo(
@@ -191,7 +230,7 @@ export default function PlansView({
         <>
           <Space wrap style={{ marginBottom: 16 }}>
             <Segmented value={看} onChange={set看} options={["待办", `已完成${done.length ? ` ${done.length}` : ""}`]} />
-            <Segmented value={scope} onChange={setScope} options={["我的", "全部成员"]} />
+            {!只有我 && <Segmented value={scope} onChange={setScope} options={["我的", "全部成员"]} />}
             {/* 自己名下空、团队里却有一堆的时候要说一声。
                 三组全写着「这一组是空的」，人会以为整个团队都没排 */}
             {看 === "待办" && scope === "我的" && 我的.length === 0 && 全部.length > 0 && (
@@ -246,6 +285,10 @@ export default function PlansView({
           )}
         </>
       )}
+
+      {排给 && (
+        <PlanForm open onClose={() => set排给(null)} onSaved={() => { set排给(null); router.refresh(); }} customerId={排给} record={null} 默认天数={7} />
+      )}
     </>
   );
 }
@@ -294,7 +337,8 @@ function 组块({
                 </span>
               </span>
               {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
-              <span className="plan-row-d">{x.时间 ? fmtDateTime(x.时间) : "没定时间"}</span>
+              {/* 截止时间一种说法：逾期 N 天 / 今天 / 明天 / M 月 D 日（审查 D1，lib/deadline.ts） */}
+              <span className="plan-row-d" title={x.时间 ? fmtDateTime(x.时间) : undefined}>{截止说法(x.时间)}</span>
             </div>
           );
         })

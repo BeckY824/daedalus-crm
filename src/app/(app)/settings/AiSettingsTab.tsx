@@ -128,6 +128,23 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
     } else message.error(res.error);
   }
 
+  /** 删掉自己的 Key、回到「用我们的」。单选切回去和底下那颗红字键走同一个确认 */
+  function 删Key() {
+    modal.confirm({
+      title: "不用自己的 Key 了？",
+      content: "你填的 Key 会从本机数据库里删掉，之后回到云端账号的免费次数（如果登录着），否则 AI 功能整体隐藏。",
+      okText: "删掉这把 Key",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        await clearLlmSettings();
+        message.success("已清除");
+        set用自己的(false);
+        setTestResult(null);
+        router.refresh();
+      },
+    });
+  }
+
   return (
     <div className="set-col" style={{ paddingTop: 8 }}>
       {llm.source === null && !有平台额度 && (
@@ -143,6 +160,12 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
       <Radio.Group
         value={用自己的 ? "own" : "ours"}
         onChange={(e) => {
+          /*
+            已经存了自己的 Key 时，点「用我们的」不能只是把表单收起来（审查 D6）：那样实际仍在用自己的 Key，
+            离开再回来又跳回原样——单选成了一个假开关。切回去就是「删掉这把 Key」，走同一个确认，
+            取消的话单选留在原处
+          */
+          if (e.target.value === "ours" && llm.source === "ui") return 删Key();
           set用自己的(e.target.value === "own");
           setTestResult(null);
         }}
@@ -247,24 +270,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
               保存
             </Button>
             {llm.source === "ui" && (
-              <Button
-                danger
-                type="text"
-                onClick={() =>
-                  modal.confirm({
-                    title: "不用自己的 Key 了？",
-                    content: "你填的 Key 会从本机数据库里删掉，之后回到云端账号的免费次数（如果登录着），否则 AI 功能整体隐藏。",
-                    okText: "删掉这把 Key",
-                    okButtonProps: { danger: true },
-                    onOk: async () => {
-                      await clearLlmSettings();
-                      message.success("已清除");
-                      set用自己的(false);
-                      router.refresh();
-                    },
-                  })
-                }
-              >
+              <Button danger type="text" onClick={删Key}>
                 删掉这把 Key
               </Button>
             )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button, Dropdown, Space } from "antd";
 import { UnorderedListOutlined, PlusOutlined } from "@ant-design/icons";
@@ -41,6 +41,25 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
   const { message } = App.useApp();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
+  /**
+   * 右边还有没露出来的列（审查 M3）：13 寸窗口下五列只露到第四列半，原来一点提示都没有。
+   * 能往右滚且没滚到底时，右沿一道渐隐（.pipe-wrap[data-more]）；滚到底收起。
+   */
+  const 滚框 = useRef<HTMLDivElement>(null);
+  const [还有, set还有] = useState(false);
+  useEffect(() => {
+    const el = 滚框.current;
+    if (!el) return;
+    const 量 = () => set还有(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    量();
+    el.addEventListener("scroll", 量, { passive: true });
+    const ro = new ResizeObserver(量);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", 量);
+      ro.disconnect();
+    };
+  }, [rows.length]);
 
   async function 推进(r: Row, 到: string, 是撤销 = false) {
     if (r.stage === 到) return;
@@ -107,7 +126,8 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
         }
       />
 
-      <div className="pipe">
+      <div className="pipe-wrap" data-more={还有 ? "" : undefined}>
+      <div className="pipe" ref={滚框}>
         {OPP_STAGES.map((stage) => {
           const items = rows.filter((r) => r.stage === stage);
           const sum = items.reduce((s, r) => s + r.amount, 0);
@@ -177,6 +197,7 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
             </div>
           );
         })}
+      </div>
       </div>
     </>
   );

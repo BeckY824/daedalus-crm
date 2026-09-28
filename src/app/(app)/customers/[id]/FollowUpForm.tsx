@@ -58,6 +58,8 @@ export default function FollowUpForm({
   opportunities,
   aiEnabled,
   initialAiText,
+  待收口计划 = null,
+  完成了计划,
 }: {
   open: boolean;
   onClose: () => void;
@@ -69,6 +71,14 @@ export default function FollowUpForm({
   aiEnabled: boolean;
   /** 记录页顶部的速记框直接带过来的原文：打开即解析，少点一次 */
   initialAiText?: string;
+  /**
+   * 这位客户已经到期（今天或更早）的那条跟进计划（审查 M9）。
+   * 记的这一笔多半就是在做那件事，所以新建时默认勾上「同时完成」——原来记完了，
+   * 首页照样催「发二版阶梯报价已逾期 4 天」
+   */
+  待收口计划?: { id: string; subject: string; plannedAt: string; method: string } | null;
+  /** 勾着「同时完成」保存之后，由记录页去完成它（提示条里带撤销和排下一次） */
+  完成了计划?: (p: { id: string; subject: string; plannedAt: string; method: string }) => void;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
@@ -80,6 +90,8 @@ export default function FollowUpForm({
   const [解析, set解析] = useState<{ 起: number; 结果?: string; 出错?: string } | null>(null);
   const aiLoading = Boolean(解析 && !解析.结果 && !解析.出错);
   const [extras, setExtras] = useState<Extras | null>(null);
+  /** 「同时完成那条到期计划」勾没勾。每次打开都重新默认勾上 */
+  const [收口, set收口] = useState(true);
   /*
     解析也登记进任务表（lib/ai-jobs）：要十来秒，人会切去别的应用，
     答完了侧栏那条和系统通知会叫他回来。弹窗关了 = 不要了，任务一起清掉——
@@ -97,6 +109,8 @@ export default function FollowUpForm({
     setAiText("");
     setExtras(null);
     set解析(null);
+    // 下次打开「同时完成计划」重新默认勾上。在关闭的事件里复位，不放 effect（同上）
+    set收口(true);
   }
 
   async function onAiParse() {
@@ -250,9 +264,11 @@ export default function FollowUpForm({
       }
     }
 
-    message.success(record?.id ? "已保存" : "跟进已记录");
     resetAi();
     onSaved();
+    // 顺手完成那条到期计划：提示由记录页出（带撤销、排下一次），这里就不再单说一句「跟进已记录」
+    if (!record?.id && 待收口计划 && 收口 && 完成了计划) return void 完成了计划(待收口计划);
+    message.success(record?.id ? "已保存" : "跟进已记录");
   }
 
   const showDuration = type === "PHONE" || type === "MEETING";
@@ -384,6 +400,15 @@ export default function FollowUpForm({
           )}
         </Row>
       </Form>
+
+      {!record?.id && 待收口计划 && (
+        <div style={{ borderTop: "1px dashed var(--line-soft)", paddingTop: 12, marginTop: 4 }}>
+          <Checkbox checked={收口} onChange={(e) => set收口(e.target.checked)}>
+            同时完成计划「{待收口计划.subject}」
+            <Typography.Text type="secondary" style={{ fontSize: 13 }}>（原定 {fmtDateTime(待收口计划.plannedAt)}）</Typography.Text>
+          </Checkbox>
+        </div>
+      )}
 
       {extras && !record?.id && (extras.tasks.length > 0 || extras.plan || suggestions.length > 0) && (
         <div style={{ borderTop: "1px dashed var(--line-soft)", paddingTop: 12, marginTop: 4 }}>

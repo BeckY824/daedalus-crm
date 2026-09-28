@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
 import { getBusiness } from "@/lib/business";
+import { 线索转档案 } from "@/lib/lead-convert";
 
 export async function saveLead(input: {
   id?: string;
@@ -24,7 +25,9 @@ export async function saveLead(input: {
   if (!LEAD_STATUSES.includes(input.status as (typeof LEAD_STATUSES)[number])) {
     return { ok: false as const, error: `线索状态「${input.status}」不是合法取值` };
   }
-  if (!b.sources.includes(input.source)) {
+  // 来源不再预填（审查 M13）：没选就是数据库默认的「其他」，三套预设里都有这一项
+  input = { ...input, source: input.source?.trim() || "其他" };
+  if (!b.sources.includes(input.source) && input.source !== "其他") {
     return { ok: false as const, error: `线索来源「${input.source}」不是合法取值` };
   }
   const data = {
@@ -112,21 +115,25 @@ export async function convertLead(id: string) {
       return { ok: false as const, error: "该线索刚刚已被其他人转化，请刷新查看" };
     }
 
+    // 线索名 → 公司、联系人 → 姓名、行业和来源一起带过去（审查 M13），规则在 lib/lead-convert.ts
+    const 档案 = 线索转档案(lead, b.fields);
     const customer = await tx.customer.create({
       data: {
-        name: lead.name,
+        name: 档案.name,
         phone,
-        school: null,
+        school: 档案.school,
         grade: null,
-        major: null,
+        major: 档案.major,
         followStatus: "待跟进",
         decisionStatus: "了解中",
-        remark: lead.remark,
+        remark: 档案.remark,
         salesOwnerId: lead.ownerId ?? user.id,
         contacts: lead.contact
           ? {
               create: {
                 name: lead.contact,
+                // 联系人就是客户本人时写明「本人」，联系人表里一眼看得出这条是谁
+                position: 档案.name === lead.contact.trim() && 档案.school ? "本人" : null,
                 phone,
                 email: lead.email,
                 isPrimary: true,

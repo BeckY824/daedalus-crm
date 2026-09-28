@@ -89,6 +89,16 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
   },
 };
 
+/**
+ * 「与客户关系」的候选（审查 M14）。原来写死成教培那组「母亲 / 父亲 / 学生本人 / 其他亲属」，
+ * 通用销售和外贸的人添加联系人时占位符写着「母亲」，而他列表里填的全是「本人 / 助理 / 财务」。
+ * 业务配置里不存「套的是哪个预设」，按档案字段 1 认：叫「院校」就是教培那套。
+ * 只是候选，框里照样能自己填。
+ */
+export function 关系候选(b: Pick<BusinessConfig, "fields">): string[] {
+  return b.fields.school === "院校" ? ["母亲", "父亲", "学生本人", "其他亲属"] : ["本人", "老板", "采购", "财务", "助理"];
+}
+
 /** 允许改显示名的状态值全集 */
 export const RELABELABLE_STATUSES: readonly string[] = [...FOLLOW_STATUSES, ...DECISION_STATUSES];
 

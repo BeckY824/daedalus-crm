@@ -85,7 +85,7 @@ export async function moveStage(id: string, stage: string) {
   if (!OPP_STAGES.includes(stage as (typeof OPP_STAGES)[number])) {
     return { ok: false as const, error: `商机阶段「${stage}」不是合法取值` };
   }
-  const before = await prisma.opportunity.findUnique({ where: { id }, select: { status: true, stage: true, name: true } });
+  const before = await prisma.opportunity.findUnique({ where: { id }, select: { status: true, stage: true, name: true, probability: true } });
   if (!before) return { ok: false as const, error: "商机不存在，可能已被其他人删除" };
 
   /**
@@ -95,9 +95,16 @@ export async function moveStage(id: string, stage: string) {
    * 重新计入漏斗和预测金额——丢单记录凭空消失，没人会注意到。
    */
   const status = stage === "赢单成交" ? "WON" : before.status === "LOST" ? "LOST" : "OPEN";
+  /*
+    概率只在「人没动过」时跟着阶段变（审查 M11）：还等于旧阶段的默认值，才换成新阶段的默认值；
+    人手填过的（蓝鲸那单的 75%）原样留着——系统帮你填的字段，人动过手就不许自动改回去。
+    赢单成交一律 100。撤销（改回原阶段）也走这一条，所以撤销之后概率也回得去。
+  */
+  const probability =
+    stage === "赢单成交" ? 100 : before.probability === (STAGE_PROBABILITY[before.stage] ?? 20) ? STAGE_PROBABILITY[stage] ?? 20 : before.probability;
   const o = await prisma.opportunity.update({
     where: { id },
-    data: { stage, probability: STAGE_PROBABILITY[stage] ?? 20, status },
+    data: { stage, probability, status },
   });
   await recordAudit({
     user: me, action: "update", entity: "Opportunity", entityId: id,

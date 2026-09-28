@@ -273,7 +273,8 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
 
         <Col xs={24} xl={9}>
           <Row gutter={[16, 16]}>
-            <Col span={24}>
+            {/* 榜上只有一个人（一个人的库）就不画榜（审查 D2）：一根满格的条，名次永远第一 */}
+            {ranking.length > 1 && <Col span={24}>
               <Card
                 title={<span className="section-title">销售团队业绩排行</span>}
                 styles={{ body: { paddingTop: 10 } }}
@@ -332,7 +333,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   </div>
                 )}
               </Card>
-            </Col>
+            </Col>}
 
             <Col xs={24} sm={12} xl={24}>
               <Card styles={{ body: { padding: 20 } }}>

@@ -21,6 +21,7 @@ import StartCard from "./StartCard";
 import TurnView from "./TurnView";
 import Signals from "./Signals";
 import { AiRemaining } from "@/components/AiCost";
+import { Esc归别人 } from "@/lib/esc";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -30,9 +31,15 @@ const COMMANDS: { cmd: string; hint: string; question: string }[] = [
   { cmd: "/recap", hint: "回顾上次沟通：上次跟的那位聊到哪了", question: "找我最近一次跟进的那位，读记录，告诉我上次聊到哪、有什么没接住" },
   { cmd: "/watch", hint: "盯盘：正在被遗忘的人，各自该从哪接上", question: "看盯盘清单，对前几位各给一句现在该从哪接上" },
   { cmd: "/model", hint: "换个模型", question: "" },
-  { cmd: "/board", hint: "打开数据看板", question: "" },
+  // 左栏那一项叫「数据」，这里也叫「数据」（审查 D3）
+  { cmd: "/board", hint: "打开数据", question: "" },
   { cmd: "/clear", hint: "清空这一屏", question: "" },
 ];
+
+/** 只有一个模型时 /model 按下去什么也不会发生（没有选单可开），就不列出来（审查 D3） */
+function 命令表(几个模型: number) {
+  return 几个模型 > 1 ? COMMANDS : COMMANDS.filter((c) => c.cmd !== "/model");
+}
 
 /**
  * 首页 = 一个对话面，交互照 Claude Code / Codex：
@@ -206,7 +213,10 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   const running = runningKey ? turns.find((t) => `home:${t.id}` === runningKey) : undefined;
   const queued = turns.find((t) => t.queued);
   const showCmds = q.startsWith("/") && !q.includes(" ");
-  const cmdMatches = showCmds ? COMMANDS.filter((c) => c.cmd.startsWith(q.trim())) : [];
+  const 可用命令 = 命令表(models.length);
+  const cmdMatches = showCmds ? 可用命令.filter((c) => c.cmd.startsWith(q.trim())) : [];
+  /** 打了一个斜杠开头、却一条命令都对不上：就地说一句，不再回车后整行静默清空 */
+  const 没这个命令 = showCmds && q.trim().length > 1 && cmdMatches.length === 0;
 
   /**
    * 把这一问之前已经答完的几轮带上去，模型才接得住「他」「那个」「再约一下」。
@@ -269,7 +279,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     if (!typed) return;
     let question = typed;
     if (typed.startsWith("/")) {
-      const c = COMMANDS.find((x) => x.cmd === typed.split(/\s+/)[0]);
+      const c = 命令表(models.length).find((x) => x.cmd === typed.split(/\s+/)[0]);
       if (c?.cmd === "/clear") {
         turns.forEach((t) => clearJob(`home:${t.id}`));
         clearThread(scope);
@@ -286,10 +296,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
         document.querySelector<HTMLButtonElement>(".mp-btn")?.click();
         return;
       }
-      if (!c) {
-        setQ("");
-        return;
-      }
+      // 打错命令：原文留着，下面那行「没有这个命令」已经说了（审查 D3）。原来整行静默清空
+      if (!c) return;
       question = c.question;
     }
     if (question.length < 2) return;
@@ -326,10 +334,15 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     return () => ro.disconnect();
   }, []);
 
-  // Esc：打断正在跑的那一问（页面任何地方按都行）。⌘K 聚焦在 AskBox 里，两页共用一份
+  /*
+    Esc：打断正在跑的那一问（页面任何地方按都行）。⌘K 聚焦在 AskBox 里，两页共用一份。
+    **只接没人要的那一下**（审查 M7）：关斜杠菜单、关跳转单、关日期选择、取消输入法拼音时，
+    Esc 是给最上面那一层的，不该顺手把底下已经花了次数的回答打断。判断在 lib/esc.ts
+  */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && running) cancelStream(`home:${running.id}`);
+      if (!running || Esc归别人(e)) return;
+      cancelStream(`home:${running.id}`);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -422,16 +435,19 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                   带字的话三样挤在一起，而那一屏本来就是「在别的页面上顺手问一句」，
                   粘一段名单是首页的事。
                 */}
-                <button
-                  type="button"
-                  className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}`}
-                  onClick={() => 去粘贴("")}
-                  disabled={running != null}
-                  title="把一段聊天记录粘进来，切成客户记录"
-                >
-                  <SnippetsOutlined />
-                  {模式 === "宽" && <span>粘一段聊天</span>}
-                </button>
+                {/* 空库的欢迎态上那张「开始」卡已经有一颗「粘一段聊天」，这里不再摆第二颗（审查 D11） */}
+                {!(empty && 空库 && 模式 === "宽") && (
+                  <button
+                    type="button"
+                    className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}`}
+                    onClick={() => 去粘贴("")}
+                    disabled={running != null}
+                    title="把一段聊天记录粘进来，切成客户记录"
+                  >
+                    <SnippetsOutlined />
+                    {模式 === "宽" && <span>粘一段聊天</span>}
+                  </button>
+                )}
               </>
             }
             栏右={<ModelPicker options={models} value={model} />}
@@ -453,6 +469,13 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                   <button type="button" className="cli-paste-n" onClick={() => set提示粘贴(null)}>
                     当成问题问
                   </button>
+                </div>
+              ) : 没这个命令 ? (
+                <div className="cli-cmds">
+                  <div className="cli-cmd">
+                    <span className="cli-cmd-k">{q.trim()}</span>
+                    <span className="cli-cmd-h">没有这个命令。删掉「/」直接问，或者 Esc 清空</span>
+                  </div>
                 </div>
               ) : cmdMatches.length > 0 ? (
                 <div className="cli-cmds">
@@ -504,6 +527,13 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
               if (cmdMatches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
                 e.preventDefault();
                 setCmdIdx((i) => (i + (e.key === "ArrowDown" ? 1 : cmdMatches.length - 1)) % cmdMatches.length);
+                return;
+              }
+              // Esc 先关斜杠菜单 / 「没有这个命令」 / 粘贴提示这一层，不往下传去打断回答
+              if (e.key === "Escape" && !e.nativeEvent.isComposing && (showCmds || 提示粘贴)) {
+                e.preventDefault();
+                if (提示粘贴) set提示粘贴(null);
+                else setQ("");
                 return;
               }
               if (cmdMatches.length && e.key === "Tab") {

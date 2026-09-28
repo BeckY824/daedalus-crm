@@ -3,7 +3,10 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Space, Avatar, Tag, Select } from "antd";
-import { ReloadOutlined, PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
+import ResetFilters from "@/components/ResetFilters";
+import { 列表不问归属 } from "@/lib/solo";
+import { 关系候选 } from "@/lib/business-config";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -30,6 +33,7 @@ export default function ContactsView({
   总数,
   keyword,
   学员们,
+  users,
 }: {
   rows: Row[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
@@ -37,6 +41,8 @@ export default function ContactsView({
   keyword: string;
   /** 「添加联系人」时挑归属用的。联系人挂在某一位学员下面，没有归属的联系人没有意义 */
   学员们: { id: string; name: string }[];
+  /** 负责人候选。只用来判断是不是只有一个人 */
+  users: { name: string }[];
 }) {
   const b = useBusiness();
   const router = useRouter();
@@ -58,6 +64,8 @@ export default function ContactsView({
     () => [...new Set(全部行.map((r) => r.ownerName))].map((v) => ({ value: v, label: v })),
     [全部行],
   );
+  /** 只有一个人：负责人列和筛选都不摆（审查 D2），见 lib/solo.ts */
+  const 不问归属 = !负责人 && 列表不问归属(users, 全部行.map((r) => r.ownerName));
   const rows = useMemo(
     () => 全部行.filter((r) => (!关系 || r.position === 关系) && (!负责人 || r.ownerName === 负责人)),
     [全部行, 关系, 负责人],
@@ -82,7 +90,7 @@ export default function ContactsView({
       title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 240,
       render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
     },
-    // 「关系」就是他和这位的关系（母亲、班主任、同学），不是公司里的职务
+    // 「关系」就是他和这位的关系（本人、采购、财务；教培里是母亲、父亲），候选跟着业务配置走
     { title: "关系", key: "position", dataIndex: "position", width: 120, render: (v) => v ?? <span className="muted">—</span> },
     {
       title: "电话 · 微信", 列名: "电话 · 微信", key: "phone", width: 220,
@@ -96,7 +104,7 @@ export default function ContactsView({
           <span className="muted">—</span>
         ),
     },
-    { title: "负责人", 列名: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
+    ...(不问归属 ? [] : [{ title: "负责人", 列名: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v: string) => <UserCell name={v} size={24} /> }]),
 
     { title: b.fields.school, key: "school", dataIndex: "school", width: 180, 默认: false, render: (v) => <span className="muted">{v ?? "—"}</span> },
     { title: "邮箱", key: "email", dataIndex: "email", width: 220, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
@@ -134,7 +142,7 @@ export default function ContactsView({
         行链接={(r) => `/customers/${r.customerId}`}
         空态={{
           title: "还没有联系人",
-          hint: `联系人是${b.customer}那边真正在对话的人：家长、同学、带教老师。他挂在某一位${b.customer}下面，所以要先有${b.customer}。`,
+          hint: `联系人是${b.customer}那边真正在对话的人：${关系候选(b).slice(0, 3).join("、")}。他挂在某一位${b.customer}下面，所以要先有${b.customer}。`,
           primary:
             学员们.length > 0
               ? { label: "添加第一位联系人", onClick: () => set表单开着(true) }
@@ -151,27 +159,25 @@ export default function ContactsView({
               onChange={(v) => set关系(v ?? "")}
               options={关系选项}
             />
-            <Select
-              style={{ width: 150 }}
-              placeholder="全部负责人"
-              allowClear
-              value={负责人 || undefined}
-              onChange={(v) => set负责人(v ?? "")}
-              options={负责人选项}
-            />
-            {(keyword || 关系 || 负责人) && (
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={() => {
-                  setKw("");
-                  set关系("");
-                  set负责人("");
-                  startTransition(() => router.push("/contacts"));
-                }}
-              >
-                重置
-              </Button>
+            {!不问归属 && (
+              <Select
+                style={{ width: 150 }}
+                placeholder="全部负责人"
+                allowClear
+                value={负责人 || undefined}
+                onChange={(v) => set负责人(v ?? "")}
+                options={负责人选项}
+              />
             )}
+            <ResetFilters
+              显示={Boolean(keyword || 关系 || 负责人)}
+              onClick={() => {
+                setKw("");
+                set关系("");
+                set负责人("");
+                startTransition(() => router.push("/contacts"));
+              }}
+            />
           </Space>
         }
       />

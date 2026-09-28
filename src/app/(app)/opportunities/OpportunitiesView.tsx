@@ -8,9 +8,10 @@ import {
   MoreOutlined,
   DeleteOutlined,
   EditOutlined,
-  ReloadOutlined,
   PartitionOutlined,
 } from "@ant-design/icons";
+import ResetFilters from "@/components/ResetFilters";
+import { 列表不问归属 } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -170,11 +171,60 @@ export default function OpportunitiesView({
     亮一下(r.id);
   }
 
-  const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
-  const openAmount = rows.filter((r) => r.status === "OPEN").reduce((s, r) => s + r.amount, 0);
-  const forecast = rows
+  /**
+   * 汇总药丸（审查 M12）：没按状态筛时只算**进行中**的——原来「总额」把已丢单、已赢单也加进去，
+   * 旁边的「加权预测」却只算进行中的，两个数摆在一起口径不一样。想看赢了多少、丢了多少，用「状态」筛；
+   * 筛了状态就是那一类的合计。口径写在药丸上，不藏在悬停提示里。
+   */
+  const 筛的状态 = filters.status;
+  const 算的行 = 筛的状态 ? rows : rows.filter((r) => r.status === "OPEN");
+  const 合计 = 算的行.reduce((s, r) => s + r.amount, 0);
+  const forecast = 算的行
     .filter((r) => r.status === "OPEN")
     .reduce((s, r) => s + r.amount * (r.probability / 100), 0);
+  const 合计叫 = 筛的状态 === "WON" ? "已赢单" : 筛的状态 === "LOST" ? "已丢单" : "进行中";
+  /** 只有一个人：负责人列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
+  const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
+
+  /**
+   * 列表里改阶段，和看板拖卡片一样给一次撤销（审查 M11）。
+   * 撤销就是改回原阶段；概率由 moveStage 按「人没改过才跟着变」的规矩处理，手填的 75% 不会被冲掉
+   */
+  async function 改阶段(r: OppRow, 到: string, 是撤销 = false) {
+    const res = await moveStage(r.id, 到);
+    if (!res.ok) {
+      message.error(res.error);
+      router.refresh();
+      return;
+    }
+    router.refresh();
+    亮一下(r.id);
+    const key = `stage-${r.id}`;
+    if (是撤销) return void message.success({ key, content: `「${r.name}」已退回 ${到}` });
+    message.success({
+      key,
+      duration: 6,
+      content: (
+        <span>
+          「{r.name}」已推进到 {到}
+          <Button type="link" size="small" onClick={() => { message.destroy(key); void 改阶段({ ...r, stage: 到 }, r.stage, true); }}>
+            撤销
+          </Button>
+        </span>
+      ),
+    });
+  }
+
+  /** 已关闭的商机重新打开（审查 D13）。原来只能进编辑表单改状态 */
+  async function 重开(r: OppRow) {
+    // 赢单时阶段被推到了「赢单成交」，重开退回上一步「谈判审核」；丢单的阶段原样留着
+    const 阶段 = r.stage === "赢单成交" ? "谈判审核" : r.stage;
+    const res = await setOppStatus(r.id, "OPEN", { stage: 阶段, probability: STAGE_PROBABILITY[阶段] ?? 20 });
+    if (!res.ok) return void message.error(res.error);
+    message.success(`「${r.name}」已重新打开，回到 ${阶段}`);
+    router.refresh();
+    亮一下(r.id);
+  }
 
   const 列表: 列<OppRow>[] = [
     { title: "商机", key: "name", dataIndex: "name", width: 200, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
@@ -189,29 +239,25 @@ export default function OpportunitiesView({
     },
     {
       title: "阶段", key: "stage", dataIndex: "stage", width: 140,
-      render: (v, r) => (
-        <Select
-          size="small"
-          value={v}
-          variant="borderless"
-          style={{ width: 128 }}
-          disabled={r.status !== "OPEN"}
-          options={OPP_STAGES.map((s2) => ({ value: s2, label: s2 }))}
-          onChange={async (s2) => {
-            const res = await moveStage(r.id, s2);
-            if (!res.ok) {
-              message.error(res.error);
-              router.refresh();
-              return;
-            }
-            message.success(`已推进到「${s2}」`);
-            router.refresh();
-          }}
-        />
-      ),
+      render: (v, r) =>
+        // 已关闭的不再摆一个灰掉的下拉（看着像空占位符，审查 D13），直接写结果
+        r.status !== "OPEN" ? (
+          <Tag color={r.status === "WON" ? "success" : "error"} style={{ margin: "0 0 0 11px", borderRadius: 6 }}>
+            {r.status === "WON" ? "已赢单" : "已丢单"}
+          </Tag>
+        ) : (
+          <Select
+            size="small"
+            value={v}
+            variant="borderless"
+            style={{ width: 128 }}
+            options={OPP_STAGES.map((s2) => ({ value: s2, label: s2 }))}
+            onChange={(s2) => void 改阶段(r, s2)}
+          />
+        ),
     },
     { title: "概率", key: "probability", dataIndex: "probability", width: 76, render: (v) => `${v}%` },
-    { title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v) => <UserCell name={v} size={24} /> },
+    ...(不问归属 ? [] : [{ title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v: string) => <UserCell name={v} size={24} /> }]),
 
     { title: "预计成交", key: "expectedDealAt", dataIndex: "expectedDealAt", width: 116, 默认: false, render: (v) => <span className="muted nowrap">{fmtDate(v)}</span> },
     {
@@ -238,6 +284,11 @@ export default function OpportunitiesView({
           {/* 赢单 / 丢单 收进「更多」：一行里摆两个文字按钮太吵，六列也就挤不下了。
               它们是结果不是日常动作，一天点不了几次。
               两样都不再一点就生效：丢单就地问一句，赢单就地问要不要顺手登记签约 */}
+          {r.status !== "OPEN" && (
+            <Dropdown menu={{ items: [{ key: "reopen", label: "重新打开", onClick: () => void 重开(r) }] }}>
+              <Button aria-label={`${r.name} 的更多操作`} title="更多" type="text" size="small" icon={<MoreOutlined />} />
+            </Dropdown>
+          )}
           {r.status === "OPEN" && (
             <Popover
               open={问赢单 === r.id}
@@ -347,11 +398,9 @@ export default function OpportunitiesView({
              筛完看到的就是这一筛的总额和预测，紧接着往下看是哪几单撑起来的。
              **一条商机都没有时不出现**：0 / 0 不是信息，是噪音 */
           rows.length > 0 ? (
-            <div
-              className="list-sum"
-              title={`总额：列表里这些商机的金额合计（进行中 ${money(openAmount)}）\n加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的`}
-            >
-              总额 {money(totalAmount)} · 加权预测 {money(forecast)}
+            <div className="list-sum" title="加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的">
+              {合计叫} {算的行.length} 单 · {money(合计)}
+              {合计叫 === "进行中" && <> · 加权预测 {money(forecast)}</>}
             </div>
           ) : null
         }
@@ -384,22 +433,17 @@ export default function OpportunitiesView({
                 { value: "LOST", label: "已丢单" },
               ]}
             />
-            <Select
-              style={{ width: 126 }}
-              placeholder="全部成员"
-              allowClear
-              value={f.ownerId || undefined}
-              onChange={(v) => apply({ ownerId: v ?? "" })}
-              options={成员选项(users)}
-            />
-            {Object.values(f).some(Boolean) && (
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={reset}
-              >
-                重置
-              </Button>
+            {!不问归属 && (
+              <Select
+                style={{ width: 126 }}
+                placeholder="全部成员"
+                allowClear
+                value={f.ownerId || undefined}
+                onChange={(v) => apply({ ownerId: v ?? "" })}
+                options={成员选项(users)}
+              />
             )}
+            <ResetFilters 显示={Object.values(f).some(Boolean)} onClick={reset} />
           </Space>
         }
       />

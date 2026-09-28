@@ -12,12 +12,15 @@ export default function PlanForm({
   onSaved,
   customerId,
   record,
+  默认天数 = 2,
 }: {
   open: boolean;
   onClose: () => void;
   onSaved: () => void;
   customerId: string;
   record: { id: string; subject: string; plannedAt: string; method: string } | null;
+  /** 新建时计划时间默认几天后的 9 点。完成一次之后「排下一次」默认一周后（审查 M10） */
+  默认天数?: number;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
@@ -30,10 +33,10 @@ export default function PlanForm({
       form.resetFields();
       form.setFieldsValue({
         method: "电话沟通",
-        plannedAt: dayjs().add(2, "day").hour(9).minute(0),
+        plannedAt: dayjs().add(默认天数, "day").hour(9).minute(0),
       });
     }
-  }, [open, record, form]);
+  }, [open, record, form, 默认天数]);
 
   async function onOk() {
     const v = await form.validateFields();

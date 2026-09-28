@@ -21,7 +21,7 @@ import { useBusiness } from "@/lib/business-client";
  * 自己的年份下拉和月/季/年切换（三处看数、两个问答框的来路就是它）。
  */
 export default function ReportsView({
-  trend, 明细, bySales, byChannelOwner, byChannel, byAttribution, total, 口径,
+  trend, 明细, bySales, byChannelOwner, byChannel, byAttribution, total, 口径, 单人 = false,
 }: {
   trend: Bucket[];
   明细: Record<string, 明细行[]>;
@@ -32,6 +32,11 @@ export default function ReportsView({
   total: { amount: number; count: number };
   /** 这一页的数是按什么口径算的。数字必须说得清自己是怎么来的 */
   口径: string;
+  /**
+   * 库里只有一个人：「按销售负责人」「按渠道负责人」两张表不摆（审查 D2）——
+   * 每张都只有一行，就是你自己，数和上面的合计一模一样
+   */
+  单人?: boolean;
 }) {
   const b = useBusiness();
   /**
@@ -189,16 +194,20 @@ export default function ReportsView({
       </Card>
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} xl={12}>
-          <Card title={<span className="section-title">按销售负责人</span>} styles={{ body: { paddingTop: 8 } }}>
-            <Table size="small" rowKey="id" dataSource={bySales} columns={cols("销售负责人", (r) => `/customers?salesOwnerId=${r.id}`)} pagination={false} locale={empty} />
-          </Card>
-        </Col>
-        <Col xs={24} xl={12}>
-          <Card title={<span className="section-title">按渠道负责人</span>} styles={{ body: { paddingTop: 8 } }}>
-            <Table size="small" rowKey="id" dataSource={byChannelOwner} columns={cols("渠道负责人", (r) => `/customers?channelOwnerId=${r.id}`)} pagination={false} locale={empty} />
-          </Card>
-        </Col>
+        {!单人 && (
+          <>
+            <Col xs={24} xl={12}>
+              <Card title={<span className="section-title">按销售负责人</span>} styles={{ body: { paddingTop: 8 } }}>
+                <Table size="small" rowKey="id" dataSource={bySales} columns={cols("销售负责人", (r) => `/customers?salesOwnerId=${r.id}`)} pagination={false} locale={empty} />
+              </Card>
+            </Col>
+            <Col xs={24} xl={12}>
+              <Card title={<span className="section-title">按渠道负责人</span>} styles={{ body: { paddingTop: 8 } }}>
+                <Table size="small" rowKey="id" dataSource={byChannelOwner} columns={cols("渠道负责人", (r) => `/customers?channelOwnerId=${r.id}`)} pagination={false} locale={empty} />
+              </Card>
+            </Col>
+          </>
+        )}
         <Col xs={24} xl={12}>
           <Card
             title={<span className="section-title">按来源渠道</span>}

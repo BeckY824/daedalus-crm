@@ -21,6 +21,11 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
   const { message } = App.useApp();
   const [form] = Form.useForm<BusinessConfig>();
   const [saving, setSaving] = useState(false);
+  /**
+   * 刚套上、还没保存的那一套（审查 D7）。原来点预设只飘过一句提示，保存键在长表单最底下，
+   * 界面上看不出「这些改动还没生效」。现在就在预设那一行说，保存 / 放弃也在那一行
+   */
+  const [套了, set套了] = useState<string | null>(null);
 
   async function onSave() {
     const v = await form.validateFields();
@@ -28,6 +33,7 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
     const res = await saveBusinessSettings(v);
     setSaving(false);
     if (res.ok) {
+      set套了(null);
       message.success("已保存，全站措辞已更新");
       router.refresh();
     } else message.error(res.error);
@@ -40,7 +46,11 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
   /** 套用预设：只填表，不保存——人得自己看一眼再点保存，免得一次误点改掉全站措辞 */
   function 套用(名: string) {
     form.setFieldsValue(BUSINESS_PRESETS[名]);
-    message.info(`已填入「${名}」这一套，看一眼再点保存`);
+    set套了(名);
+  }
+  function 放弃() {
+    form.resetFields();
+    set套了(null);
   }
 
   return (
@@ -48,11 +58,19 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
       <div className="biz-preset">
         <span>套用预设</span>
         {Object.keys(BUSINESS_PRESETS).map((名) => (
-          <Button key={名} size="small" onClick={() => 套用(名)}>
+          <Button key={名} size="small" type={套了 === 名 ? "primary" : "default"} ghost={套了 === 名} onClick={() => 套用(名)}>
             {名}
           </Button>
         ))}
-        <i>把下面整组填好，还能再改</i>
+        {套了 ? (
+          <span className="biz-preset-todo" role="status">
+            已填入「{套了}」，还没保存
+            <Button size="small" type="primary" loading={saving} onClick={onSave}>保存</Button>
+            <Button size="small" type="text" onClick={放弃}>放弃</Button>
+          </span>
+        ) : (
+          <i>把下面整组填好，还能再改</i>
+        )}
       </div>
       <Form form={form} layout="vertical" initialValues={value}>
         <Form.Item
@@ -114,7 +132,7 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
         </Row>
 
         <Button type="primary" onClick={onSave} loading={saving}>保存</Button>
-        <Button type="text" style={{ marginLeft: 8 }} onClick={() => form.setFieldsValue(DEFAULT_BUSINESS)}>恢复默认</Button>
+        <Button type="text" style={{ marginLeft: 8 }} onClick={() => 套用("通用销售")}>恢复默认</Button>
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 13 }}>
           不做的：自定义字段、自定义状态流转、多套模板切换——那是另一个量级的功能。
         </Typography.Paragraph>

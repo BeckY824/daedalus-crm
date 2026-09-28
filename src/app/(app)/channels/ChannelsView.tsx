@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Space, Tag, Modal, Form, Input, Select, App, Tooltip } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined, StopOutlined, CheckCircleOutlined, SearchOutlined, ReloadOutlined } from "@ant-design/icons";
+import { PlusOutlined, EditOutlined, DeleteOutlined, StopOutlined, CheckCircleOutlined, SearchOutlined } from "@ant-design/icons";
+import ResetFilters from "@/components/ResetFilters";
+import { 列表不问归属 } from "@/lib/solo";
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { money, fmtDate, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
@@ -60,6 +62,17 @@ export default function ChannelsView({
   const [editing, setEditing] = useState<Row | null>(null);
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  /** 只有一个人：渠道负责人那一列和筛选都不摆（审查 D2 / M3）。1120 宽时它正好把「状态」挤出视野 */
+  const 不问归属 = !ownerId && 列表不问归属(users, 全部行.map((r) => r.channelOwnerName));
+  /** 刚停用 / 恢复的那一行亮两秒（row-fresh）：原来点完表里什么也没变，只飘过一句提示 */
+  const [亮行, set亮行] = useState<string[]>([]);
+  const 亮计时 = useRef<ReturnType<typeof setTimeout> | null>(null);
+  function 亮一下(id: string) {
+    if (亮计时.current) clearTimeout(亮计时.current);
+    set亮行([]);
+    requestAnimationFrame(() => set亮行([id]));
+    亮计时.current = setTimeout(() => set亮行([]), 2000);
+  }
 
   function openForm(r: Row | null) {
     setEditing(r);
@@ -82,14 +95,24 @@ export default function ChannelsView({
   }
 
   const 列表: 列<Row>[] = [
-    { title: "渠道", key: "name", dataIndex: "name", width: 180, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
-    { title: "渠道负责人", key: "channelOwnerName", dataIndex: "channelOwnerName", width: 140, render: (v) => <UserCell name={v} size={24} /> },
+    {
+      title: "渠道", key: "name", dataIndex: "name", width: 180, 常驻: true,
+      // 停用的在名字旁边就写明（审查 D12）：「状态」那一列在窄窗口下可能在视野外
+      render: (v, r) => (
+        <span className="chan-name">
+          <span className="link-strong">{v}</span>
+          {!r.active && <Tag style={{ margin: 0, borderRadius: 6 }}>已停用</Tag>}
+        </span>
+      ),
+    },
+    ...(不问归属 ? [] : [{ title: "渠道负责人", key: "channelOwnerName", dataIndex: "channelOwnerName", width: 140, render: (v: string) => <UserCell name={v} size={24} /> }]),
     {
       title: "直接推荐", key: "directCount", dataIndex: "directCount", width: 110,
       sorter: (a, b2) => a.directCount - b2.directCount,
       render: (v: number, r) => (
         <Tooltip title={`这条渠道亲自带来的${b.customer}，不含他们再转介绍来的`}>
-          {v > 0 ? <Link href={`/customers?keyword=${encodeURIComponent(r.name)}`}>{v} 人</Link> : <span className="muted">0</span>}
+          {/* 空值和别的列一样写「—」（审查 D12），原来这一列写 0、隔壁写「0 人」 */}
+          {v > 0 ? <Link href={`/customers?keyword=${encodeURIComponent(r.name)}`}>{v} 人</Link> : <span className="muted">—</span>}
         </Tooltip>
       ),
     },
@@ -105,10 +128,10 @@ export default function ChannelsView({
       sorter: (a, b2) => a.chainCount - b2.chainCount,
       render: (v: number, r) => (
         <Tooltip title={`含下游转介绍带来的全部${b.customer}；其中 ${r.directCount} 位是这条渠道直接带来的`}>
-          <span>
+          {v === 0 ? <span className="muted">—</span> : <span>
             {v} 人
             {v > r.directCount && <span className="muted">（转介绍 {v - r.directCount}）</span>}
-          </span>
+          </span>}
         </Tooltip>
       ),
     },
@@ -148,8 +171,9 @@ export default function ChannelsView({
               icon={r.active ? <StopOutlined /> : <CheckCircleOutlined />}
               onClick={async () => {
                 await toggleChannel(r.id, !r.active);
-                message.success(r.active ? "已停用" : "已恢复");
+                message.success(r.active ? `「${r.name}」已停用` : `「${r.name}」已恢复`);
                 router.refresh();
+                亮一下(r.id);
               }}
             />
           </Tooltip>
@@ -197,6 +221,8 @@ export default function ChannelsView({
         空库={全部行.length === 0}
         列={列表}
         行={rows}
+        亮={亮行}
+        行类={(r) => (r.active ? undefined : "row-off")}
         空态={{
           title: "还没有渠道",
           hint: `渠道是${b.customer}从哪来的：合作老师、中介、家长社群。渠道负责人定了之后，这条线上进来的${b.customer}业绩自动归他；转介绍带来的下游也算在这条链上。`,
@@ -214,14 +240,16 @@ export default function ChannelsView({
               allowClear
               onChange={(e) => setKw(e.target.value)}
             />
-            <Select
-              style={{ width: 150 }}
-              placeholder="全部负责人"
-              allowClear
-              value={ownerId || undefined}
-              onChange={(v) => setOwnerId(v ?? "")}
-              options={成员选项(users)}
-            />
+            {!不问归属 && (
+              <Select
+                style={{ width: 150 }}
+                placeholder="全部负责人"
+                allowClear
+                value={ownerId || undefined}
+                onChange={(v) => setOwnerId(v ?? "")}
+                options={成员选项(users)}
+              />
+            )}
             <Select
               style={{ width: 130 }}
               placeholder="全部状态"
@@ -230,11 +258,7 @@ export default function ChannelsView({
               onChange={(v) => setActive(v ?? "")}
               options={[{ value: "on", label: "合作中" }, { value: "off", label: "已停用" }]}
             />
-            {(kw || ownerId || active) && (
-              <Button icon={<ReloadOutlined />} onClick={() => { setKw(""); setOwnerId(""); setActive(""); }}>
-                重置
-              </Button>
-            )}
+            <ResetFilters 显示={Boolean(kw || ownerId || active)} onClick={() => { setKw(""); setOwnerId(""); setActive(""); }} />
           </Space>
         }
       />

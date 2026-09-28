@@ -77,7 +77,7 @@ export default function SettingsView({
      * 而不是「管别人」。改名以前只在「团队成员」那个只有管理员打得开的弹窗里，
      * 于是销售想改自己的名字得去求管理员。
      */
-    { key: "profile", label: "个人资料", children: <ProfileTab me={{ name: me.name, title: me.title, email: me.email }} /> },
+    { key: "profile", label: "个人资料", children: <ProfileTab me={{ name: me.name, title: me.title, email: me.email }} 云端账号={桌面端?.账号 ?? null} /> },
     { key: "members", label: "团队成员", children: <MembersTab users={users} me={me} isAdmin={isAdmin} 用邮箱登录={用邮箱登录} /> },
     { key: "keymap", label: "快捷键", children: <KeymapTab 桌面端={Boolean(桌面端)} /> },
     { key: "appearance", label: "外观", children: <AppearanceTab /> },

@@ -703,13 +703,30 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-field-v { font-size: var(--fs-body); color: var(--ink); line-height: 22px; word-break: break-word; }
 .rec-field-empty { color: var(--text-faint); }
 .rec-field-saving { opacity: 0.5; }
-.rec-mini { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-card); font-size: var(--fs-body); }
+.rec-field-hint { margin-top: var(--s1); font-size: var(--fs-min); color: var(--text-muted); }
+.rec-mini { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-card); font-size: var(--fs-body); }
 .rec-mini:hover { background: var(--row-hover); }
 .rec-mini-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .rec-mini-m { font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
 /* 签约那行金额是要看的东西，不许被日期和两颗图标挤成「¥…」；挤不下时让日期先省略 */
 .rec-mini-amt { flex: 1 0 auto; font-weight: 600; }
 .rec-mini-amt + .rec-mini-m { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* 左栏小行的编辑 / 删除（审查 M4）：平时不占位，悬停或焦点进来时盖在行尾那段说明上，左缘渐隐。
+   原来两颗图标常驻，名字只剩「周明远…」。触屏没有悬停，就一直摆在行尾 */
+.rec-mini-acts { position: absolute; right: var(--s1); top: 50%; translate: 0 -50%; display: flex;
+  padding-left: var(--s5); background: linear-gradient(to right, transparent, var(--row-hover) var(--s4));
+  opacity: 0; pointer-events: none; transition: opacity var(--t-fast) var(--ease); }
+.rec-mini:hover .rec-mini-acts, .rec-mini-acts:focus-within { opacity: 1; pointer-events: auto; }
+@media (hover: none) {
+  .rec-mini-acts { position: static; translate: none; opacity: 1; pointer-events: auto; background: none; padding-left: 0; }
+}
+/* 联系人那一行：名字不让位，让「关系 / 电话」那段先省略 */
+.rec-mini > .rec-mini-n:not(.rec-mini-amt):has(+ .rec-mini-m + .rec-mini-acts) { flex: 0 1 auto; }
+.rec-mini-n + .rec-mini-m:has(+ .rec-mini-acts) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; text-align: right; }
+/* 商机那一行分两行：名字独占一行，阶段和金额在下面 */
+.rec-mini-2 { flex-direction: column; align-items: stretch; gap: 2px; }
+.rec-mini-2 .rec-mini-n { flex: none; }
+.rec-mini-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .rec-empty { padding: 4px 8px 8px; font-size: var(--fs-note); color: var(--text-faint); }
 
 .rec-composer { padding: 14px 16px 12px; }
@@ -735,14 +752,18 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-plan-k { color: var(--brand); font-weight: 600; white-space: nowrap; }
 .rec-plan-v { flex: 1 1 100%; min-width: 0; color: var(--ink); order: 3; }
 .rec-plan-m { color: var(--text-muted); font-size: var(--fs-note); white-space: nowrap; margin-left: auto; }
+.rec-plan-m.is-over { color: var(--danger-text); }
 .rec-tl { padding: 4px 16px 10px; }
 .rec-tl-item { display: flex; gap: 14px; padding: 16px 0; border-bottom: 1px solid var(--line-soft); }
 .rec-tl-item:last-child { border-bottom: none; }
 .rec-tl-dot { width: 36px; height: 36px; border-radius: var(--r-card); display: grid; place-items: center; color: var(--on-ink); font-size: var(--ic); flex: none; }
 .rec-tl-body { flex: 1; min-width: 0; }
-.rec-tl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.rec-tl-type { font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
-.rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); }
+/* 标题只占一行、超出省略，时间一直钉在右边（审查 D5）：AI 起的长标题原来把头部挤成两行，
+   时间单独掉到第二行。全文在悬停里 */
+.rec-tl-head { display: flex; align-items: center; gap: 8px; }
+.rec-tl-type { flex: none; font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
+.rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-tl-head > .ant-tag { flex: none; }
 .rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
 .rec-tl-when { position: relative; margin-left: auto; display: inline-flex; align-items: center; }
 /* 编辑 / 删除平时不占位：原来它透明但占着宽度，中栏一窄就被挤到第二行，每条记录标题下空出一行。
@@ -916,6 +937,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    而输入框正盖在视口底部那一条上。--cli-composer-h 由 HomeChat 用
    ResizeObserver 实时量（输入框会随文字长高），兜底 104px。 */
 .cli-turn { padding: 14px 0 10px; scroll-margin-bottom: calc(var(--cli-composer-h, 104px) + 16px); scroll-margin-top: 12px; }
+/* 刚点了「移除」的那一轮：收成一行，5 秒内能撤销（审查 M16）。只淡入，不位移 */
+.cli-turn-gone { display: flex; align-items: center; gap: var(--s2); font-size: var(--fs-note); color: var(--text-muted);
+  animation: cli-gone-in var(--t) var(--ease) both; }
+.cli-turn-gone-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes cli-gone-in { from { opacity: 0; } to { opacity: 1; } }
 /* 一轮：右侧你的话（气泡），下面是过程、回答、卡片、底栏 */
 .cli-user { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .cli-bubble { max-width: 78%; padding: 9px 14px; background: var(--hover); border-radius: var(--r-pop); color: var(--ink); white-space: pre-wrap; line-height: 1.6; }
@@ -1196,6 +1222,15 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .ftype-i { display: inline-flex; font-size: var(--ic); }
 .list-bar { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .list-bar-gap { flex: 1; }
+/* 渠道表里停用的那几行整行压淡，名字旁边写「已停用」（审查 D12）。操作列不压：恢复键要看得清 */
+.row-off > td:not(.ant-table-cell-fix-end) { color: var(--text-muted); }
+.row-off .link-strong { color: var(--text-muted); }
+.chan-name { display: inline-flex; align-items: center; gap: var(--s2); }
+/* 「重置」一直占着位置，没筛时只是看不见（审查 M17）：原来它一出现就把「列」挤到第二行，
+   整张表往下跳一截。出现消失只淡入淡出，不位移。visibility 晚一拍再收，淡出才看得见 */
+.list-reset { transition: opacity var(--t-fast) var(--ease), visibility 0s var(--ease) 0s; }
+.list-reset.is-off { opacity: 0; visibility: hidden; pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease), visibility 0s var(--ease) var(--t-fast); }
 /* 批量工具条。勾了行才出现，并且写明「已选 N 条」——
    原来它一直摆在那儿、按钮是灰的，人得先猜哪几个是给多选用的 */
 .list-sel { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
@@ -1272,7 +1307,14 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* ---------- 商机管道 ----------
    列是横着排的，窄屏下**只有这一块横滚**，页面本身不跟着被撑开。 */
 .pipe { display: flex; gap: var(--s3); overflow-x: auto; padding-bottom: var(--s2); align-items: flex-start; }
-.pipe-col { flex: 0 0 260px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3); min-height: 220px;
+/* 右边还有列没露出来：右沿一道渐隐，滚到底收起（审查 M3）。压在滚动条上方，不挡横滚 */
+.pipe-wrap { position: relative; }
+.pipe-wrap::after { content: ""; position: absolute; top: 0; right: 0; bottom: var(--s2); width: var(--s6);
+  background: linear-gradient(to left, var(--page-bg), transparent); pointer-events: none;
+  opacity: 0; transition: opacity var(--t) var(--ease); }
+.pipe-wrap[data-more]::after { opacity: 1; }
+/* 列宽跟着窗口分（审查 M3）：原来写死 260，1280 宽也只露到第四列半。最窄 184，再窄才横滚 */
+.pipe-col { flex: 1 0 184px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-card); padding: var(--s3); min-height: 220px;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease); }
 /* 落点要看得出来：拖过去时整列亮一下，不然人不知道松手会掉进哪一列 */
 .pipe-col-on { background: var(--brand-bg); border-color: var(--brand-line); }
@@ -1658,6 +1700,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   padding-bottom: 14px; border-bottom: 1px solid var(--line-soft); }
 .biz-preset > span { font-size: var(--fs-note); color: var(--ink); font-weight: 500; }
 .biz-preset > i { font-style: normal; font-size: var(--fs-min); color: var(--text-muted); }
+/* 套了预设还没保存：就在这一行说，并给保存 / 放弃（审查 D7）。淡入，不位移 */
+.biz-preset > .biz-preset-todo { display: inline-flex; align-items: center; gap: var(--s1); margin-left: var(--s1);
+  padding: 2px 4px 2px 10px; border-radius: var(--r-ctl); background: var(--warning-bg); border: 1px solid var(--warning-line);
+  color: var(--warning-text); font-weight: 400; animation: biz-todo-in var(--t) var(--ease) both; }
+@keyframes biz-todo-in { from { opacity: 0; } to { opacity: 1; } }
 
 
 /* AI 接入底下的 MCP 那一小块。和上面的表单隔开：它不是一个配置项，是一个开关加一条命令 */

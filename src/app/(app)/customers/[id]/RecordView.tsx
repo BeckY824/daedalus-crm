@@ -18,7 +18,7 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import InlineConfirm from "@/components/InlineConfirm";
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
-import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, money, smartTime, AVATAR_TEXT } from "@/lib/utils";
+import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, money, AVATAR_TEXT } from "@/lib/utils";
 import { FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
@@ -38,6 +38,7 @@ import Heat, { 冷热说法, 要看冷热 } from "@/components/Heat";
 import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 import { useMotionTheme } from "@/components/MotionTheme";
+import { 截止说法, 已过期 } from "@/lib/deadline";
 
 /**
  * 记录页（v0.4）：三栏。
@@ -95,6 +96,8 @@ export default function RecordView({
   const [followInit, setFollowInit] = useState<{ record: FollowUpRow | null; aiText?: string }>({ record: null });
   const [taskOpen, setTaskOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  /** 这次打开计划表单是「排下一次」（新建，默认一周后），不是改眼前这条（审查 M10） */
+  const [排新计划, set排新计划] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<ContactRow | null>(null);
   const [custOpen, setCustOpen] = useState(false);
@@ -197,6 +200,40 @@ export default function RecordView({
       }, 留秒 * 1000),
     );
   }
+  /**
+   * 完成眼前这条计划（审查 M10）。提示里带「撤销」和「排下一次」：
+   * 原来点完「下次跟进」那块直接变成「尚未安排」，点错了改不回来，做完了也没人问下一次什么时候
+   */
+  async function 完成计划(p: NonNullable<typeof plan>, 顺带?: string) {
+    await completePlan(p.id);
+    router.refresh();
+    const key = `plan-${p.id}`;
+    message.success({
+      key,
+      duration: 6,
+      content: (
+        <span>
+          {顺带 ?? `「${p.subject}」已完成`}
+          <Button
+            type="link"
+            size="small"
+            onClick={async () => {
+              message.destroy(key);
+              await completePlan(p.id, false);
+              message.success(`「${p.subject}」已改回未完成`);
+              router.refresh();
+            }}
+          >
+            撤销
+          </Button>
+          <Button type="link" size="small" onClick={() => { message.destroy(key); set排新计划(true); setPlanOpen(true); }}>
+            排下一次
+          </Button>
+        </span>
+      ),
+    });
+  }
+
   const fingerprint = `${followUps.length}:${followUps[0]?.occurredAt ?? ""}:${followUps[0]?.id ?? ""}`;
 
   function openFollow(record: FollowUpRow | null, aiText?: string) {
@@ -363,25 +400,31 @@ export default function RecordView({
                   {c.isPrimary && <Tag color="blue" style={{ marginLeft: 6, borderRadius: 6, fontSize: 12, lineHeight: "18px", padding: "0 5px" }}>关键</Tag>}
                 </span>
                 <span className="rec-mini-m">{c.position ?? c.phone ?? ""}</span>
-                <Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditingContact(c); setContactOpen(true); }} />
-                <Button
-                  type="text"
-                  size="small"
-                  danger
-                  icon={<DeleteOutlined />}
-                  onClick={() =>
-                    modal.confirm({
-                      title: `删除联系人「${c.name}」？`,
-                      okText: "删除",
-                      okButtonProps: { danger: true },
-                      cancelText: "取消",
-                      async onOk() {
-                        await deleteContact(c.id);
-                        router.refresh();
-                      },
-                    })
-                  }
-                />
+                {/* 编辑 / 删除平时不占位（审查 M4）：原来两颗图标常驻，三个字的名字被挤成「周明远…」。
+                    悬停或键盘焦点进来时盖在右边那段说明上出现，和时间线每条的做法一样 */}
+                <span className="rec-mini-acts">
+                  <Button type="text" size="small" icon={<EditOutlined />} aria-label={`编辑联系人 ${c.name}`} onClick={() => { setEditingContact(c); setContactOpen(true); }} />
+                  <Button
+                    type="text"
+                    size="small"
+                    danger
+                    icon={<DeleteOutlined />}
+                    aria-label={`删除联系人 ${c.name}`}
+                    onClick={() =>
+                      modal.confirm({
+                        title: `删除联系人「${c.name}」？`,
+                        okText: "删除",
+                        okButtonProps: { danger: true },
+                        cancelText: "取消",
+                        async onOk() {
+                          await deleteContact(c.id);
+                          message.success(`联系人「${c.name}」已删除`);
+                          router.refresh();
+                        },
+                      })
+                    }
+                  />
+                </span>
               </div>
             ))}
           </div>
@@ -393,10 +436,14 @@ export default function RecordView({
             </div>
             {opportunities.length === 0 && <div className="rec-empty">还没有商机</div>}
             {opportunities.map((o) => (
-              <Link key={o.id} href={`/opportunities?keyword=${encodeURIComponent(o.name)}`} className="rec-mini">
+              // 两行：名字独占一行，阶段和金额在下面（审查 M4）。原来三样挤一行，
+              // 264 宽的左栏里名字只剩「恒拓 · …」，截掉的恰恰是认出这一单的那半截
+              <Link key={o.id} href={`/opportunities?keyword=${encodeURIComponent(o.name)}`} className="rec-mini rec-mini-2">
                 <span className="rec-mini-n" title={o.name}>{o.name}</span>
-                <StageTag stage={o.stage} />
-                <span className="rec-mini-m">{money(o.amount)}</span>
+                <span className="rec-mini-sub">
+                  <StageTag stage={o.stage} />
+                  <span className="rec-mini-m">{money(o.amount)}</span>
+                </span>
               </Link>
             ))}
           </div>
@@ -412,8 +459,10 @@ export default function RecordView({
                 <DollarOutlined style={{ color: "var(--success)" }} />
                 <span className="rec-mini-n rec-mini-amt">{money(c.amount)}</span>
                 <span className="rec-mini-m">{fmtDate(c.signedAt)}</span>
-                <Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditingContract(c); setContractOpen(true); }} />
-                <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => confirmDeleteContract(c)} />
+                <span className="rec-mini-acts">
+                  <Button type="text" size="small" icon={<EditOutlined />} aria-label="编辑这笔签约" onClick={() => { setEditingContract(c); setContractOpen(true); }} />
+                  <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除这笔签约" onClick={() => confirmDeleteContract(c)} />
+                </span>
               </div>
             ))}
           </div>
@@ -451,20 +500,14 @@ export default function RecordView({
               <span className="rec-plan-v">
                 {plan.subject} · {plan.method}
               </span>
-              <span className="rec-plan-m">{fmtDateTime(plan.plannedAt)}</span>
-              <Button size="small" type="text" onClick={() => setPlanOpen(true)}>
+              {/* 截止时间和计划页、待办同一种说法（审查 D1）；具体几点在悬停里 */}
+              <span className={`rec-plan-m${已过期(plan.plannedAt) ? " is-over" : ""}`} title={fmtDateTime(plan.plannedAt)}>
+                {截止说法(plan.plannedAt)}
+              </span>
+              <Button size="small" type="text" onClick={() => { set排新计划(false); setPlanOpen(true); }}>
                 改
               </Button>
-              <Button
-                size="small"
-                type="text"
-                icon={<CheckCircleOutlined />}
-                onClick={async () => {
-                  await completePlan(plan.id);
-                  message.success("计划已完成");
-                  router.refresh();
-                }}
-              >
+              <Button size="small" type="text" icon={<CheckCircleOutlined />} onClick={() => void 完成计划(plan)}>
                 完成
               </Button>
             </div>
@@ -500,7 +543,7 @@ export default function RecordView({
                       <div className="rec-tl-contract">
                         <div className="rec-tl-head">
                           <span className="rec-tl-type">签约 {money(e.c.amount)}</span>
-                          {e.c.remark && <span className="rec-tl-title">· {e.c.remark}</span>}
+                          {e.c.remark && <span className="rec-tl-title" title={e.c.remark}>· {e.c.remark}</span>}
                           <span className="rec-tl-time">{fmtDate(e.c.signedAt)}</span>
                         </div>
                       </div>
@@ -542,8 +585,9 @@ export default function RecordView({
                   >
                     <Checkbox checked={已完成(t)} onChange={(e) => void 勾待办(t, e.target.checked)} aria-label={`完成 ${t.title}`} />
                     <span className="rec-task-t">{t.title}</span>
-                    <span className="rec-task-due" style={{ color: !已完成(t) && t.dueAt && dayjs(t.dueAt).isBefore(dayjs()) ? "var(--danger)" : undefined }}>
-                      {smartTime(t.dueAt)}
+                    {/* 「逾期 2 天」而不是「2 天前」（审查 D1）：欠着没做的事，不是发生过的事 */}
+                    <span className="rec-task-due" title={t.dueAt ? fmtDateTime(t.dueAt) : undefined} style={{ color: !已完成(t) && 已过期(t.dueAt) ? "var(--danger)" : undefined }}>
+                      {t.dueAt ? 截止说法(t.dueAt) : ""}
                     </span>
                     {/* 就地确认：一条待办删了还能再建，一句话说得完，不值得弹框（见 components/InlineConfirm.tsx） */}
                     <InlineConfirm
@@ -596,12 +640,22 @@ export default function RecordView({
         customerId={customer.id}
         record={followInit.record}
         initialAiText={followInit.aiText}
+        /* 到期了（今天或更早）的那条计划：记完这一笔默认顺手完成它（审查 M9） */
+        待收口计划={plan && !dayjs(plan.plannedAt).isAfter(dayjs().endOf("day")) ? plan : null}
+        完成了计划={(p) => void 完成计划(p, `跟进已记录，计划「${p.subject}」一并完成`)}
         contacts={contacts}
         opportunities={opportunities}
         aiEnabled={aiEnabled}
       />
       <TaskForm open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={() => { setTaskOpen(false); router.refresh(); }} customerId={customer.id} />
-      <PlanForm open={planOpen} onClose={() => setPlanOpen(false)} onSaved={() => { setPlanOpen(false); router.refresh(); }} customerId={customer.id} record={plan} />
+      <PlanForm
+        open={planOpen}
+        onClose={() => setPlanOpen(false)}
+        onSaved={() => { setPlanOpen(false); router.refresh(); }}
+        customerId={customer.id}
+        record={排新计划 ? null : plan}
+        默认天数={排新计划 ? 7 : 2}
+      />
       <ContactForm open={contactOpen} onClose={() => setContactOpen(false)} onSaved={() => { setContactOpen(false); router.refresh(); }} customerId={customer.id} record={editingContact} />
       <ContractForm
         open={contractOpen}
@@ -736,15 +790,18 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
       <div className="rec-tl-body">
         <div className="rec-tl-head">
           <span className="rec-tl-type">{meta.label}</span>
-          {f.title?.trim() && <span className="rec-tl-title">· {f.title}</span>}
+          {f.title?.trim() && <span className="rec-tl-title" title={f.title}>· {f.title}</span>}
           {f.status !== "已完成" && (
             <Tag color={FOLLOW_RECORD_STATUS_COLOR[f.status] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
               {f.status}
             </Tag>
           )}
-          {/* 时间和编辑/删除包在一起：标题一长时间会换到第二行，图标得跟着时间走，不能按整个头部居中 */}
+          {/* 时间和编辑/删除包在一起：图标得跟着时间走，不能按整个头部居中 */}
           <span className="rec-tl-when">
-            <span className="rec-tl-time">{fmtDateTime(f.occurredAt)}</span>
+            {/* 今年的不写年份（审查 D5）：标题改成一行省略之后，每省一截时间就多露几个字的标题。全的在悬停里 */}
+            <span className="rec-tl-time" title={fmtDateTime(f.occurredAt)}>
+              {dayjs(f.occurredAt).isSame(dayjs(), "year") ? dayjs(f.occurredAt).format("M 月 D 日 HH:mm") : fmtDateTime(f.occurredAt)}
+            </span>
             <span className="rec-tl-acts">
               <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} aria-label="编辑跟进" />
               {/* 就地确认，不弹框：一条跟进记录，删了还能再写一条——

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { useBusiness } from "@/lib/business-client";
+import { 换一位 } from "@/lib/roster";
 
 /**
  * ⌘K。
@@ -89,6 +90,8 @@ export default function CommandBar() {
         框.select();
         return;
       }
+      // 记录页上 ⌘K 是「换一位」：名单登记过就交给它，不再和跳转单一起响（审查 M8）
+      if (!open && 换一位()) return;
       setOpen((v) => !v);
       setQ("");
       setIdx(0);
@@ -133,6 +136,8 @@ export default function CommandBar() {
                 e.preventDefault();
                 走();
               } else if (e.key === "Escape") {
+                // 标记成「处理过了」：底下首页那句「Esc 打断回答」看到它就不再接（lib/esc.ts）
+                e.preventDefault();
                 setOpen(false);
               }
             }}
@@ -154,7 +159,7 @@ export default function CommandBar() {
           )}
         </div>
         <div className="cmdk-foot">
-          <kbd>↑↓</kbd> 选 · <kbd>↵</kbd> 去 · <kbd>Esc</kbd> 关 · 在首页和数据页，<kbd><Shortcut>⌘K</Shortcut></kbd> 是回到输入框
+          <kbd>↑↓</kbd> 选 · <kbd>↵</kbd> 去 · <kbd>Esc</kbd> 关 · 在首页和数据页 <kbd><Shortcut>⌘K</Shortcut></kbd> 是回到输入框，在{b.customer}记录页是换一位
         </div>
       </div>
     </Modal>
