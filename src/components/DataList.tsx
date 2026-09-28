@@ -8,6 +8,7 @@ import { SettingOutlined } from "@ant-design/icons";
 import type { ColumnType } from "antd/es/table";
 import EmptyState from "@/components/EmptyState";
 import { useLocalPref } from "@/lib/local-pref";
+import { 只留当前行, 露出这一列 } from "@/lib/list-select";
 
 /**
  * 列表页的那张表。**全站只有这一个表格实现**（批 2 抽出来，批 3 六页照用）。
@@ -22,6 +23,12 @@ import { useLocalPref } from "@/lib/local-pref";
  *     空状态里那个「新建第一位」是给第一次进来的人的引导，不是它的替代品
  *   - 列设置存在本地，一页一份。每个人常看的列不一样，不该逼所有人用同一套；
  *     后来新增的列按它自己的默认值补进去，不然加了列的人永远看不到
+ *   - 勾选只认眼前的行：行一变（筛选、搜索、翻页）就清掉不在当前行里的勾选。
+ *     看不见的勾选留着，下一次批量删除删的就是人没看见的人（交互审查 S4）
+ *   - 勾选框和第一列（名字）固定在左边，页面不用自己写 fixed。列一多、表格一横滚，
+ *     每一行是谁不能跟着滚走——右边的编辑、删除还固定着，认不出是谁却能删（S5）
+ *   - 右边还能往右滚时，表格右沿有一道渐隐（globals.css 的 .list 那几条），
+ *     不然被挤出去的列连个提示都没有（M3）
  */
 export type 列<T> = ColumnType<T> & {
   /** 列设置里显示的名字。title 不是纯文字（带图标之类）时必须给 */
@@ -44,8 +51,11 @@ type Props<T> = {
   筛选?: React.ReactNode;
   /** 工具栏和表格之间那一条汇总（商机页的「总额 · 加权预测」）。不给就没有 */
   汇总?: React.ReactNode;
-  /** 勾了行之后才出现的工具条。不给就不支持多选 */
-  批量?: (选中: string[], 清空: () => void) => React.ReactNode;
+  /**
+   * 勾了行之后才出现的工具条。不给就不支持多选。
+   * 第三个参数是勾中的那几行本身——确认框要写出「是谁」，只有 id 写不出来
+   */
+  批量?: (选中: string[], 清空: () => void, 选中行: T[]) => React.ReactNode;
   加载中?: boolean;
   /** 点一行去哪。给了就整行可点；点在按钮、链接、勾选框上不算 */
   行链接?: (r: T) => string;
@@ -86,6 +96,21 @@ export default function DataList<T extends { id: string }>({
 }: Props<T>) {
   const router = useRouter();
   const [选中, set选中] = useState<string[]>([]);
+  /*
+    行一换就把看不见的勾选清掉。在渲染里比上一次的行来改（React 文档「props 变了调整 state」的写法），
+    不放 effect：放 effect 会先用旧勾选画一帧「已选 3 条」再改。
+    router.refresh() 之后行数组也会换一个，但 id 没变，只留当前行 原样返回，不会多设一次
+  */
+  const [上次的行, set上次的行] = useState(行);
+  if (上次的行 !== 行) {
+    set上次的行(行);
+    const 留 = 只留当前行(选中, 行.map((r) => r.id));
+    if (留 !== 选中) set选中(留);
+  }
+  const 选中行 = useMemo(() => {
+    const 在 = new Set(选中);
+    return 行.filter((r) => 在.has(r.id));
+  }, [行, 选中]);
 
   /**
    * 刚出现的行亮两秒。**不用每个页面告诉我们它刚建了谁**——比一下 id 就知道。
@@ -142,7 +167,8 @@ export default function DataList<T extends { id: string }>({
   /**
    * 刚勾上的那一列挪进视野。1120 宽时默认几列加起来就比表格框宽（客户表 1012 对 804），
    * 新勾的列落在横滚区外面，表格看上去纹丝不动——教程「勾上签约金额」那一步录出来就是这样。
-   * 只挪到刚好露出来，还要让开右边固定的操作列。
+   * 只挪到刚好露出来，左右都要让开固定列：右边是操作列，左边是勾选框和名字列。
+   * 算法在 lib/list-select.ts 的 露出这一列，单测钉着。
    */
   const 表框 = useRef<HTMLDivElement>(null);
   /** 刚勾上、等渲染出来再挪的那一列。放 ref 里、在下面的 effect 里挪：那时新列已经在 DOM 里了 */
@@ -151,20 +177,32 @@ export default function DataList<T extends { id: string }>({
     const 框 = 表框.current?.querySelector<HTMLElement>(".ant-table-content");
     const th = 表框.current?.querySelector<HTMLElement>(`th.dl-col-${CSS.escape(k)}`);
     if (!框 || !th) return;
-    // antd 6 的右侧固定列叫 fix-end（5 叫 fix-right），两个都认
-    const 固定宽 = [...框.querySelectorAll<HTMLElement>("thead th:is(.ant-table-cell-fix-end, .ant-table-cell-fix-right)")].reduce((s2, x) => s2 + x.offsetWidth, 0);
-    const 右边 = th.offsetLeft + th.offsetWidth;
-    const 露到 = 框.scrollLeft + 框.clientWidth - 固定宽;
+    // antd 6 的固定列叫 fix-start / fix-end（5 叫 fix-left / fix-right），都认
+    const 宽 = (sel: string) => [...框.querySelectorAll<HTMLElement>(`thead th:is(${sel})`)].reduce((s2, x) => s2 + x.offsetWidth, 0);
+    const 到 = 露出这一列({
+      滚到: 框.scrollLeft,
+      框宽: 框.clientWidth,
+      列左: th.offsetLeft,
+      列宽: th.offsetWidth,
+      左固定: 宽(".ant-table-cell-fix-start, .ant-table-cell-fix-left"),
+      右固定: 宽(".ant-table-cell-fix-end, .ant-table-cell-fix-right"),
+    });
     // 直接跳过去，不做平滑滚动：表格随即还会重排一次，平滑那一下会被打断，停在原地
-    if (右边 > 露到) 框.scrollLeft = 右边 - 框.clientWidth + 固定宽;
+    if (到 !== null) 框.scrollLeft = 到;
   }
 
   const 显示的列 = useMemo(
     () =>
       全部列
         .filter((c) => c.常驻 || 可见.includes(列键(c)))
-        // 带上列键做类名，挪到看得见 靠它找表头
-        .map((c) => ({ ...c, className: [c.className, `dl-col-${列键(c)}`].filter(Boolean).join(" ") })),
+        .map((c, i) => ({
+          ...c,
+          // 第一列就是「这一行是谁」（客户 / 线索 / 商机 / 渠道 / 联系人的名字），钉在左边。
+          // 只钉常驻的：能被收进「列」里的列不该当名字
+          ...(i === 0 && c.常驻 && !c.fixed ? { fixed: "left" as const } : {}),
+          // 带上列键做类名，挪到看得见 靠它找表头
+          className: [c.className, `dl-col-${列键(c)}`].filter(Boolean).join(" "),
+        })),
     [全部列, 可见],
   );
   useEffect(() => {
@@ -229,7 +267,7 @@ export default function DataList<T extends { id: string }>({
       {批量 && 选中.length > 0 && (
         <div className="list-sel">
           <b>已选 {选中.length} 条</b>
-          {批量(选中, () => set选中([]))}
+          {批量(选中, () => set选中([]), 选中行)}
           <button type="button" className="list-sel-x" onClick={() => set选中([])}>
             取消选择
           </button>
@@ -244,7 +282,7 @@ export default function DataList<T extends { id: string }>({
         loading={加载中}
         locale={{ emptyText: <EmptyState {...空态} /> }}
         scroll={{ x }}
-        rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]) } : undefined}
+        rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]), fixed: true } : undefined}
         rowClassName={(r) => (新来的.includes(r.id) ? "row-fresh" : "")}
         onRow={
           行链接

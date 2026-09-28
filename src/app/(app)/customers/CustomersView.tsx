@@ -29,6 +29,7 @@ import { useBusiness } from "@/lib/business-client";
 import type { BusinessConfig } from "@/lib/business-config";
 import { statusLabel } from "@/lib/business-config";
 import { useUrlFilters } from "@/lib/url-filters";
+import { 删除确认标题 } from "@/lib/list-select";
 
 /**
  * 批量操作的结果文案。
@@ -281,7 +282,7 @@ export default function CustomersView({
             {筛了 > 0 && <Button icon={<ReloadOutlined />} onClick={reset}>重置</Button>}
           </Space>
         }
-        批量={(selected, 清空) => (
+        批量={(selected, 清空, 选中行) => (
           <>
             <Dropdown
               menu={{
@@ -324,7 +325,8 @@ export default function CustomersView({
               icon={<DeleteOutlined />}
               onClick={() =>
                 modal.confirm({
-                  title: `确认删除选中的 ${selected.length} 名${b.customer}？`,
+                  // 写出是谁，不只写几个：删除连带跟进和签约、不可恢复，人得对得上自己勾的是哪几位
+                  title: 删除确认标题(选中行.map((r) => r.name), selected.length, b.customer),
                   content: "其跟进记录、待办与签约记录会一并删除，且不可恢复。",
                   okText: "确认删除", okButtonProps: { danger: true }, cancelText: "取消",
                   async onOk() {

@@ -1070,6 +1070,19 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    还让每页多出一层要对齐的边界。卡从此只留给「一条记录」和「可以拖动的对象」。
    筛选栏、工具条、表格之间的距离由这里的 gap 统一给，各页不再自己写 marginBottom。 */
 .list { display: flex; flex-direction: column; gap: var(--s3); }
+/* 右边还能往右滚：表格右沿一道渐隐的阴影（交互审查 M3）。
+   13 寸窗口、开着 AI 面板时，负责人、时间这些列被挤到横滚区外面，原来一点提示都没有。
+   开关用 antd 自己的判断（能往右滚时它给表格挂 fix-end-shadow-show，给第一个右固定格挂
+   cell-fix-end-shadow-show），我们只换长相：antd 那道 8px 的分隔色阴影在白底上几乎看不见。
+   有右固定的操作列时落在操作列左边，没有时落在表格右沿。滚到底就收起。 */
+.list .ant-table-container::after,
+.list .ant-table-cell-fix-end::after {
+  background: linear-gradient(to left, color-mix(in srgb, var(--ink) 8%, transparent), transparent);
+  opacity: 0;
+  transition: opacity var(--t) var(--ease);
+}
+.list .ant-table-fix-end-shadow-show .ant-table-container::after,
+.list .ant-table-cell-fix-end-shadow-show::after { box-shadow: none; opacity: 1; }
 /* 工具条：主动作在左，列设置在右 */
 /* 列表页那一条汇总药丸：商机页的「总额 · 加权预测」（设计稿 15/PAGE）。
    原来是三张各占三分之一屏的统计卡，说的是同一件事的三个侧面 */
@@ -1315,12 +1328,14 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 /* 运营台（/admin）的样式在 src/app/admin/ops.css，只在那几页加载（2026-09-28 改版） */
 
 /* 刚建出来的那一行：亮一下再退回去。两秒够看见，又不至于留在那儿碍眼。
-   用 background-color 从品牌浅底退到透明，不动尺寸——列表在动的时候最怕行高跳。 */
+   用 background-color 从品牌浅底退到表格底色，不动尺寸——列表在动的时候最怕行高跳。
+   退到 --panel 而不是透明：名字列和操作列固定着（sticky），底色一透明，
+   横滚过的正文就从它们底下透出来，亮起的那一行反而认不出是谁。 */
 .row-fresh > td { animation: row-fresh 2s ease-out 1 both; }
 @keyframes row-fresh {
   0% { background-color: var(--brand-bg); }
   55% { background-color: var(--brand-bg); }
-  100% { background-color: transparent; }
+  100% { background-color: var(--panel); }
 }
 
 /* 骨架屏晚 180ms 再出现：这段时间内页面要是已经好了，就一眼都不会看见它。
