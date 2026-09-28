@@ -88,7 +88,27 @@ export function setJobValue<T>(key: string, value: T): void {
 /** 删掉一条任务。还在跑的也算作废：之后回来的结果不再写进来（见上面的 轮次） */
 export function clearJob(key: string): void {
   轮次.delete(key);
+  for (const k of 处理过的建议.keys()) if (k.startsWith(`${key}:`)) 处理过的建议.delete(k);
   if (jobs.delete(key)) notify();
+}
+
+/**
+ * 建议卡处理过没有（确认 / 忽略），按「任务 key:卡片 id」记。
+ *
+ * 原来卡片把这件事记在自己的 state 里，2026-09-28 核对教程时看到两个后果：
+ * 侧栏一直挂着「等你确认」（它只看答案里有没有卡，不知道卡已经点过）；
+ * 切去别的对话再切回来卡片重挂，确认过的又成了待确认，能再点一次、再写一条。
+ * 放在任务表旁边：卡片重挂时照这里恢复，侧栏按这里数还剩几张没处理。
+ */
+const 处理过的建议 = new Map<string, "done" | "denied">();
+
+export function 记下建议结果(记号: string, 结果: "done" | "denied"): void {
+  处理过的建议.set(记号, 结果);
+  notify();
+}
+
+export function 建议结果(记号: string): "done" | "denied" | undefined {
+  return 处理过的建议.get(记号);
 }
 
 /**
@@ -149,9 +169,9 @@ export function 任务快照() {
       key,
       status: j.status,
       标签: j.标签!,
-      /* 「需确认」= 答完了、但里面有还没点确认的建议卡。
+      /* 「需确认」= 答完了、但里面有还没处理（确认 / 忽略）的建议卡。
          各种模式的返回结构不一样，这里只认这一个共同的形状 */
-      有建议: Boolean((j.value as { answer?: { proposals?: unknown[] } } | undefined)?.answer?.proposals?.length),
+      有建议: ((j.value as { answer?: { proposals?: { id: string }[] } } | undefined)?.answer?.proposals ?? []).some((p) => !处理过的建议.has(`${key}:${p.id}`)),
     }))
     .sort((a, b) => (a.status === "loading" ? -1 : b.status === "loading" ? 1 : 0));
   return 快照;

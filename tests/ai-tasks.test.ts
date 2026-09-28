@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { clearJob, getJob, runJob, setJobValue, 任务快照, 收起任务 } from "@/lib/ai-jobs";
+import { clearJob, getJob, runJob, setJobValue, 任务快照, 收起任务, 建议结果, 记下建议结果 } from "@/lib/ai-jobs";
 
 /**
  * 侧栏那条「AI 任务」（批 2）。
@@ -38,6 +38,27 @@ describe("AI 任务在侧栏里的那一份", () => {
     const t = 任务快照().find((x) => x.key === "home:2")!;
     expect(t.status).toBe("done");
     expect(t.有建议).toBe(true);
+  });
+
+  test("卡片都处理过（确认或忽略）就不再「等你确认」；还剩一张没处理就还等（2026-09-28 核对教程时看到一直挂着）", async () => {
+    runJob("home:4", async () => ({ ok: true, value: { answer: { proposals: [{ id: "p1" }, { id: "p2" }] } } }), undefined, { 名: "记两笔", 去: "/dashboard" });
+    await 等一下();
+    const 这条 = () => 任务快照().find((x) => x.key === "home:4")!;
+    记下建议结果("home:4:p1", "done");
+    expect(这条().有建议, "还有 p2 没处理").toBe(true);
+    记下建议结果("home:4:p2", "denied");
+    expect(这条().有建议).toBe(false);
+  });
+
+  test("卡片重挂时照任务表恢复：确认过的不会又变回待确认、能再点一次", async () => {
+    记下建议结果("home:5:p1", "done");
+    expect(建议结果("home:5:p1")).toBe("done");
+    expect(建议结果("home:5:p2")).toBeUndefined();
+    // 任务清掉，它名下的记号一起清，不留垃圾
+    runJob("home:5", async () => ({ ok: true, value: {} }), undefined, { 名: "x", 去: "/dashboard" });
+    await 等一下();
+    clearJob("home:5");
+    expect(建议结果("home:5:p1")).toBeUndefined();
   });
 
   test("点开看过就清掉，不会一直堆在侧栏里", async () => {

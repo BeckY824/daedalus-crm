@@ -865,7 +865,7 @@ function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount }: { turn: Tur
       {answer && answer.proposals?.length > 0 && (
         <div className="prop-list">
           {answer.proposals.map((p) => (
-            <ProposalCard key={p.id} proposal={p} />
+            <ProposalCard key={p.id} proposal={p} 记号={`home:${turn.id}:${p.id}`} />
           ))}
         </div>
       )}

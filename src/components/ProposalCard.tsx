@@ -10,6 +10,7 @@ import { motion } from "motion/react";
 import { applyProposal } from "@/app/(app)/dashboard/apply";
 import { describeProposal, missingFields, 只留选中的改动, 可改字段表, type Proposal } from "@/lib/agent/proposals";
 import { useBusiness } from "@/lib/business-client";
+import { 建议结果, 记下建议结果 } from "@/lib/ai-jobs";
 import { statusLabel, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
@@ -31,14 +32,22 @@ import { dayjs } from "@/lib/utils";
  * 现在每一项各有一个勾，各自写清「现在是什么 → 改成什么」，
  * 底下是「确认选中 N 项」。⌘↵ 等于点它。
  */
-export default function ProposalCard({ proposal }: { proposal: Proposal }) {
+/**
+ * 记号：「任务 key:卡片 id」。给了就把确认 / 忽略记进任务表（lib/ai-jobs 的 处理过的建议）——
+ * 卡片重挂时照它恢复，侧栏也靠它知道还有没有要人确认的。不给就只在这张卡自己身上记。
+ */
+export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal; 记号?: string }) {
   const b = useBusiness();
   /* 三个档案字段叫什么、「职位」那一格有哪些选项，跟着业务配置走（通用版 vs 教培预设） */
   const 字段表 = 可改字段表(b);
   const { message } = App.useApp();
   const router = useRouter();
   const [draft, setDraft] = useState<Proposal>(proposal);
-  const [state, setState] = useState<"idle" | "saving" | "done" | "denied">("idle");
+  const [state, set状态] = useState<"idle" | "saving" | "done" | "denied">(() => (记号 && 建议结果(记号)) || "idle");
+  const setState = (s: "idle" | "saving" | "done" | "denied") => {
+    set状态(s);
+    if (记号 && (s === "done" || s === "denied")) 记下建议结果(记号, s);
+  };
   const [err, setErr] = useState("");
   /** 改档案时逐项勾选。默认全勾上——建议是它提的，人只需要否掉不想要的那几项 */
   const [勾了, set勾了] = useState<number[]>(() => (proposal.kind === "update_customer" ? proposal.changes.map((_, i) => i) : [0]));
