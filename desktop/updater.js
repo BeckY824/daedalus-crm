@@ -125,8 +125,14 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       ...(platform === "win32" ? { exe: 资产?.browser_download_url || null } : {}),
       体积: 资产?.size ? `${Math.round(资产.size / 1048576)} MB` : null,
       sha256: 剥哈希前缀(资产?.digest),
-      zip: platform === "darwin" ? 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null : null,
-      manifest: platform === "darwin" ? 挑资产(gh.assets, /\.manifest\.json\.gz$/)?.browser_download_url || null : null,
+      // 差量两样按平台各取各的：Windows 的叫 …-x64-win.zip / …-x64-win.manifest.json.gz（CI 的 7z 打的），
+      // Mac 的清单规则要排除它——不然两边都挂在滚动 Release 上时，Mac 可能拿到 Windows 的清单
+      zip: platform === "win32"
+        ? 挑资产(gh.assets, new RegExp(`-${arch}-win\\.zip$`, "i"))?.browser_download_url || null
+        : 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
+      manifest: platform === "win32"
+        ? 挑资产(gh.assets, new RegExp(`-${arch}-win\\.manifest\\.json\\.gz$`, "i"))?.browser_download_url || null
+        : 挑资产(gh.assets, /(?<!-win)\.manifest\.json\.gz$/)?.browser_download_url || null,
       // GitHub 这一支给的就是原址，没有再备一份的必要
       备用: null,
     });

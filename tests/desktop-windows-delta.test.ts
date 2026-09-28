@@ -1,0 +1,284 @@
+/**
+ * Windows 差量更新（2026-09-28 起）：desktop/windows-install.js + delta.js 的 win32 分支 +
+ * scripts/make-win-delta.mjs。
+ *
+ * 三组：
+ *   - 纯逻辑，哪都跑：认不认安装目录、能不能差量、换目录脚本只许 ASCII、起脚本的参数、更新器挑资产
+ *   - 整条链，哪都跑（7za 随 electron-builder 的 7zip-bin 带着三个平台的二进制）：
+ *     用 CI 那个脚本把「新版 win-unpacked」打成 zip + 清单，以「旧安装目录」为基准按 Windows 规则组装，
+ *     出来的 .new 必须和新版逐字节一致、卸载程序拷过去了、文件都可写（照 zip 里的 mode 0 写会全成只读）
+ *   - 真的 PowerShell 换目录，只在 Windows 跑（CI 的 Windows job 跑全量 vitest）：
+ *     等进程退出后换、目录被占着就放弃并保留旧版、没有 .new 不动、「应用和功能」的版本号跟着改
+ */
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { createRequire } from "node:module";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import http from "node:http";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import crypto from "node:crypto";
+
+const require_ = createRequire(import.meta.url);
+const 窗装 = require_("../desktop/windows-install.js");
+const 差量 = require_("../desktop/delta.js");
+const { 检查 } = require_("../desktop/updater.js");
+const 打包脚本 = path.resolve(__dirname, "../desktop/scripts/make-win-delta.mjs");
+const sha = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
+
+describe("认安装目录", () => {
+  const 列 = (名们: string[]) => () => 名们;
+  it("目录里有 NSIS 的卸载程序才算安装目录", () => {
+    const exe = "C:\\Users\\张三\\AppData\\Local\\Programs\\daedalus-crm\\Daedalus CRM.exe";
+    expect(窗装.安装目录(exe, { 列目录: 列(["Daedalus CRM.exe", "Uninstall Daedalus CRM.exe", "resources"]) })).toBe(
+      "C:\\Users\\张三\\AppData\\Local\\Programs\\daedalus-crm",
+    );
+    // 解压版 / 开发态：没有卸载程序，不归差量换
+    expect(窗装.安装目录(exe, { 列目录: 列(["Daedalus CRM.exe", "resources"]) })).toBeNull();
+  });
+  it("装在盘符根上、目录读不了：都不算", () => {
+    expect(窗装.安装目录("D:\\Daedalus CRM.exe", { 列目录: 列(["Uninstall Daedalus CRM.exe"]) })).toBeNull();
+    expect(窗装.安装目录("C:\\x\\a.exe", { 列目录: () => { throw new Error("EACCES"); } })).toBeNull();
+    expect(窗装.安装目录("", {})).toBeNull();
+  });
+  it("父目录写不了（给所有用户装在 Program Files）就走整包，并说清原因", () => {
+    expect(窗装.能差量更新(null).ok).toBe(false);
+    const r = 窗装.能差量更新("C:\\Program Files\\Daedalus CRM", { 能写: (d: string) => d !== "C:\\Program Files" });
+    expect(r).toMatchObject({ ok: false });
+    expect(r.原因).toMatch(/Program Files/);
+    expect(窗装.能差量更新("C:\\u\\Programs\\daedalus-crm", { 能写: () => true })).toEqual({ ok: true });
+  });
+});
+
+describe("换目录脚本", () => {
+  it("只有 ASCII：Windows PowerShell 5.1 按代码页读没有 BOM 的脚本，中文写进来就是乱码", () => {
+    const 非ASCII = [...窗装.换目录脚本].filter((c: string) => c.charCodeAt(0) > 0x7f);
+    expect(非ASCII).toEqual([]);
+  });
+  it("换不成要把旧的改回去；目录被占着就放弃、保留旧版", () => {
+    expect(窗装.换目录脚本).toMatch(/rolling back/);
+    expect(窗装.换目录脚本).toMatch(/still locked, keep old version/);
+  });
+  it("起脚本：路径全走参数（UTF-16 命令行，中文用户名没事），不经 shell，脱离本进程", () => {
+    const 更新目录 = fs.mkdtempSync(path.join(os.tmpdir(), "更新 目录-"));
+    const 启动 = vi.fn(() => ({ unref: vi.fn(), on: vi.fn() }));
+    try {
+      const { 脚本, 参数 } = 窗装.启动换目录({
+        目录: "C:\\Users\\张三\\Programs\\daedalus-crm", 等PID: 4321, 重启: true, 版本: "0.46.8", exe名: "Daedalus CRM.exe", 更新目录, 启动,
+      });
+      expect(fs.readFileSync(脚本, "utf8")).toBe(窗装.换目录脚本);
+      expect(启动).toHaveBeenCalledWith("powershell.exe", 参数, { detached: true, stdio: "ignore", windowsHide: true });
+      const 取 = (k: string) => 参数[参数.indexOf(k) + 1];
+      expect(取("-File")).toBe(脚本);
+      expect(取("-Dir")).toBe("C:\\Users\\张三\\Programs\\daedalus-crm");
+      expect(取("-WaitPid")).toBe("4321");
+      expect(取("-Relaunch")).toBe("1");
+      expect(取("-Version")).toBe("0.46.8");
+      expect(参数).toContain("Bypass");
+    } finally {
+      fs.rmSync(更新目录, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("更新器挑差量资产（GitHub 那一支）", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const 资产 = [
+    { name: "Daedalus.CRM-1.0.0-arm64.dmg", browser_download_url: "https://g/mac.dmg", digest: `sha256:${"a".repeat(64)}` },
+    { name: "Daedalus.CRM-1.0.0-arm64.app.zip", browser_download_url: "https://g/mac.zip" },
+    { name: "Daedalus.CRM-1.0.0-arm64.manifest.json.gz", browser_download_url: "https://g/mac.manifest" },
+    { name: "Daedalus-CRM-1.0.0-x64-setup.exe", browser_download_url: "https://g/setup.exe", digest: `sha256:${"b".repeat(64)}` },
+    { name: "Daedalus-CRM-1.0.0-x64-win.zip", browser_download_url: "https://g/win.zip" },
+    { name: "Daedalus-CRM-1.0.0-x64-win.manifest.json.gz", browser_download_url: "https://g/win.manifest" },
+  ];
+  function 只有GitHub(assets: unknown[]) {
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (!String(url).includes("api.github.com")) throw new Error("不通");
+      return { ok: true, json: async () => ({ tag_name: "v1.0.0", assets }) };
+    });
+  }
+  it("Windows 拿 -x64-win 的 zip 和清单", async () => {
+    只有GitHub(资产);
+    const r = await 检查({ 当前版本: "0.46.8", platform: "win32", arch: "x64" });
+    expect(r).toMatchObject({ zip: "https://g/win.zip", manifest: "https://g/win.manifest" });
+  });
+  it("Mac 不会拿到 Windows 的清单——哪怕列表里 Windows 的排在前面", async () => {
+    只有GitHub([...资产].reverse());
+    const r = await 检查({ 当前版本: "0.46.8", platform: "darwin", arch: "arm64" });
+    expect(r).toMatchObject({ zip: "https://g/mac.zip", manifest: "https://g/mac.manifest" });
+  });
+});
+
+describe("整条链：旧安装目录 → CI 的 zip + 清单 → Windows 规则组装", () => {
+  let 沙盒: string, 已装: string, 新: string, 产物: string, server: http.Server, base: string;
+  const 统计 = { 字节: 0, 整包请求: 0 };
+
+  function 造(root: string, 变体: "旧" | "新") {
+    fs.mkdirSync(path.join(root, "resources", "app.asar.unpacked"), { recursive: true });
+    fs.mkdirSync(path.join(root, "locales"), { recursive: true });
+    fs.writeFileSync(path.join(root, "Daedalus CRM.exe"), Buffer.alloc(200 * 1024, 3)); // 没变、大
+    fs.writeFileSync(path.join(root, "resources", "app.asar"), `asar ${变体}`.repeat(3000)); // 改了
+    fs.writeFileSync(path.join(root, "locales", "zh-CN.pak"), "中文资源 ".repeat(500)); // 没变
+    fs.writeFileSync(path.join(root, "resources", `chunk-${变体 === "新" ? "b" : "a"}.js`), "same ".repeat(4000)); // 只改了名
+    if (变体 === "旧") {
+      fs.writeFileSync(path.join(root, "resources", "旧版留下的.txt"), "gone"); // 新版没有
+      // NSIS 装的时候放进来的：清单里没有，得从已装的拷过去
+      fs.writeFileSync(path.join(root, "Uninstall Daedalus CRM.exe"), "uninstaller");
+    }
+    if (变体 === "新") fs.writeFileSync(path.join(root, "resources", "app.asar.unpacked", "新增 文件.node"), "native ".repeat(300));
+  }
+
+  beforeAll(async () => {
+    沙盒 = fs.mkdtempSync(path.join(os.tmpdir(), "win-delta 测试-"));
+    已装 = path.join(沙盒, "Programs", "daedalus-crm"); // 目录名和清单里的 win-unpacked 不一样：Windows 不核对
+    新 = path.join(沙盒, "dist", "win-unpacked");
+    造(已装, "旧");
+    造(新, "新");
+    产物 = path.join(沙盒, "out");
+    execFileSync(process.execPath, [打包脚本, 新, "1.0.0", 产物], { stdio: "pipe" });
+    const zip = path.join(产物, "Daedalus-CRM-1.0.0-x64-win.zip");
+    const 清单 = path.join(产物, "Daedalus-CRM-1.0.0-x64-win.manifest.json.gz");
+    server = http.createServer((req, res) => {
+      const f = req.url === "/m" ? 清单 : zip;
+      const size = fs.statSync(f).size;
+      if (req.method === "HEAD") return res.writeHead(200, { "Content-Length": size }).end();
+      const m = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? "");
+      if (!m) {
+        if (req.url !== "/m") 统计.整包请求++;
+        res.writeHead(200, { "Content-Length": size });
+        return fs.createReadStream(f).pipe(res);
+      }
+      const [start, end] = [Number(m[1]), Number(m[2])];
+      统计.字节 += end - start + 1;
+      res.writeHead(206, { "Content-Range": `bytes ${start}-${end}/${size}`, "Content-Length": end - start + 1 });
+      fs.createReadStream(f, { start, end }).pipe(res);
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  });
+  afterAll(async () => {
+    await new Promise((r) => server.close(r));
+    fs.rmSync(沙盒, { recursive: true, force: true });
+  });
+
+  function 树(root: string) {
+    const out: Record<string, string> = {};
+    (function 走(d: string) {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) 走(p);
+        else out[path.relative(root, p).replaceAll("\\", "/")] = sha(fs.readFileSync(p));
+      }
+    })(root);
+    return out;
+  }
+
+  it("组装出来和新版逐字节一致、卸载程序在、旧版留下的不在，且只下了变了的", async () => {
+    const 估 = await 差量.差量估算({ 清单Url: `${base}/m`, 已装, 平台: "win32" });
+    const r = await 差量.差量组装({ ...估, zipUrl: `${base}/zip`, 已装, 平台: "win32", 运行: async () => { throw new Error("Windows 上不该调外部命令"); } });
+    const 拷了 = await 窗装.补齐安装器文件(已装, r.目标);
+    expect(拷了).toEqual(["Uninstall Daedalus CRM.exe"]);
+
+    const 期望 = { ...树(新), "Uninstall Daedalus CRM.exe": sha(Buffer.from("uninstaller")) };
+    expect(树(r.目标)).toEqual(期望);
+    expect(fs.existsSync(path.join(r.目标, "resources", "旧版留下的.txt"))).toBe(false);
+    // 改了 app.asar + 新增一个 = 下 2 个；exe、语言包、改名的 chunk 都复用
+    expect(r.统计.下载).toBe(2);
+    expect(r.统计.复用).toBe(3);
+    expect(统计.整包请求).toBe(0);
+    expect(统计.字节).toBeLessThan(fs.statSync(path.join(产物, "Daedalus-CRM-1.0.0-x64-win.zip")).size / 2);
+  });
+
+  it("写出来的文件都可写：照 zip 里的权限写，Windows 上会全成只读，下次启动删 .old 就删不掉", () => {
+    const 只读: string[] = [];
+    (function 走(d: string) {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) 走(p);
+        else if (!(fs.statSync(p).mode & 0o200)) 只读.push(p);
+      }
+    })(`${已装}.new`);
+    expect(只读).toEqual([]);
+  });
+
+  it("已装的目录里找不到卸载程序：不能换（换完「应用和功能」就卸不掉了）", async () => {
+    const 空 = fs.mkdtempSync(path.join(沙盒, "no-uninst-"));
+    await expect(窗装.补齐安装器文件(空, 沙盒)).rejects.toThrow(/卸载程序/);
+  });
+});
+
+describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Windows）", () => {
+  let 沙盒: string, 更新目录: string;
+  beforeAll(() => {
+    沙盒 = fs.mkdtempSync(path.join(os.tmpdir(), "换 目录 测试-"));
+    更新目录 = path.join(沙盒, "updates");
+    fs.mkdirSync(更新目录, { recursive: true });
+    fs.writeFileSync(path.join(更新目录, "swap.ps1"), 窗装.换目录脚本, "ascii");
+  });
+  afterAll(() => fs.rmSync(沙盒, { recursive: true, force: true }));
+
+  function 摆(名: string) {
+    const 目录 = path.join(沙盒, "Programs 中文", 名);
+    fs.mkdirSync(目录, { recursive: true });
+    fs.mkdirSync(`${目录}.new`, { recursive: true });
+    fs.writeFileSync(path.join(目录, "a.txt"), "old");
+    fs.writeFileSync(path.join(`${目录}.new`, "a.txt"), "new");
+    return 目录;
+  }
+  function 跑(目录: string, 额外: string[] = []) {
+    const 日志 = path.join(更新目录, `${path.basename(目录)}.log`);
+    const r = spawnSync("powershell.exe", [
+      "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", path.join(更新目录, "swap.ps1"),
+      "-Dir", 目录, "-Log", 日志, ...额外,
+    ], { encoding: "utf8", timeout: 90_000 });
+    return { 退出码: r.status, 日志: fs.existsSync(日志) ? fs.readFileSync(日志, "utf8") : "" };
+  }
+
+  it("等指定进程退出后换：旧的成了 .old，新的到了原位", async () => {
+    const 目录 = 摆("daedalus-crm");
+    const 占位 = spawn(process.execPath, ["-e", "setTimeout(() => {}, 1500)"]);
+    const r = 跑(目录, ["-WaitPid", String(占位.pid)]);
+    expect(r.退出码, r.日志).toBe(0);
+    expect(fs.readFileSync(path.join(目录, "a.txt"), "utf8")).toBe("new");
+    expect(fs.readFileSync(path.join(`${目录}.old`, "a.txt"), "utf8")).toBe("old");
+    expect(fs.existsSync(`${目录}.new`)).toBe(false);
+    expect(r.日志).toMatch(/swapped/);
+  });
+
+  it("目录一直被占着（有进程的当前目录在里面）：放弃，旧版原样留着", async () => {
+    const 目录 = 摆("locked-app");
+    const 占着 = spawn(process.execPath, ["-e", "setTimeout(() => {}, 20000)"], { cwd: 目录 });
+    try {
+      await new Promise((r) => setTimeout(r, 500));
+      const r = 跑(目录, ["-Tries", "4"]);
+      expect(r.退出码, r.日志).toBe(3);
+      expect(fs.readFileSync(path.join(目录, "a.txt"), "utf8")).toBe("old");
+      expect(fs.existsSync(`${目录}.new`)).toBe(true);
+    } finally {
+      占着.kill();
+    }
+  });
+
+  it("没有 .new：什么都不动", () => {
+    const 目录 = path.join(沙盒, "Programs 中文", "no-new");
+    fs.mkdirSync(目录, { recursive: true });
+    fs.writeFileSync(path.join(目录, "a.txt"), "old");
+    expect(跑(目录).退出码).toBe(2);
+    expect(fs.readFileSync(path.join(目录, "a.txt"), "utf8")).toBe("old");
+  });
+
+  it("「应用和功能」里的版本号跟着改（只改卸载路径指向这个目录的那一条）", () => {
+    const 目录 = 摆("with-reg");
+    const 键 = `HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\crm-delta-test-${Date.now()}`;
+    const reg = (...a: string[]) => execFileSync("reg.exe", a, { stdio: "pipe" });
+    reg("add", 键, "/v", "UninstallString", "/d", `"${目录}\\Uninstall Daedalus CRM.exe" /currentuser`, "/f");
+    reg("add", 键, "/v", "DisplayVersion", "/d", "0.46.7", "/f");
+    try {
+      const r = 跑(目录, ["-Version", "0.46.8"]);
+      expect(r.退出码, r.日志).toBe(0);
+      expect(reg("query", 键, "/v", "DisplayVersion").toString()).toMatch(/0\.46\.8/);
+    } finally {
+      reg("delete", 键, "/f");
+    }
+  });
+});
