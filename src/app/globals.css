@@ -592,11 +592,15 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   border: 1px solid var(--border);
   border-radius: var(--r-card);
 }
-.rec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-/* 记录页页头左边那一块：名字 + 一行「年级 · 专业 · 负责人」 */
-.rec-head-id { min-width: 0; }
-.rec-head-sub { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-note); }
-.rec-head-name { font-size: var(--fs-title); font-weight: 600; color: var(--ink); letter-spacing: -0.4px; }
+/* 窄的时候放不下的按钮换到下一行，不和名字抢地方。
+   窗口最窄 1024、右边 AI 面板开着时，正文只剩四百来宽——原来名字那一块 min-width: 0，
+   被右边四颗按钮挤到 3px，「钱同学」竖着一字一行（2026-09-28 走查时看到） */
+.rec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; row-gap: 8px; }
+/* 记录页页头左边那一块：名字 + 一行「年级 · 专业 · 负责人」。至少留八个字宽，再长的名字省略 */
+.rec-head-id { min-width: 8em; flex: 0 1 auto; }
+.rec-head-sub { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-note); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-head-name { font-size: var(--fs-title); font-weight: 600; color: var(--ink); letter-spacing: -0.4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 记录页名字底下那一行标签：两个状态（点得改）+ 预计 / 已签约（只读） */
 .rec-tags { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin: 0 0 var(--s3); }
 .rec-tags-n { font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
