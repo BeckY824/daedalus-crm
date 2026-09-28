@@ -19,7 +19,10 @@ const 状态 = vi.hoisted(() => ({
 
 vi.mock("@/lib/tenant/context", () => ({ multiTenant: () => 状态.多租户 }));
 vi.mock("@/lib/tenant/resolve", () => ({ resolveCurrentTenant: async () => ({ workspaceId: "ws1" }) }));
-vi.mock("@/lib/tenant/ai-allowance", () => ({ 查额度: async () => ({ 上限: 30, 用掉: 3, 还剩: 27, 受限: 状态.受限 }) }));
+vi.mock("@/lib/tenant/ai-allowance", () => ({
+  查额度: async () => ({ 上限: 30, 用掉: 3, 还剩: 27, 受限: 状态.受限 }),
+  自带Key: async () => 状态.来源 === "ui",
+}));
 vi.mock("@/lib/llm-config", () => ({
   模型来源: async () => 状态.来源,
   describeLlmConfig: async () => ({ source: 状态.来源, credits: 状态.余额 ? { ...状态.余额, 用掉: 0 } : null }),
@@ -62,6 +65,12 @@ describe("谁计次", () => {
     状态.来源 = "env";
     expect(await 读AI计次({ 问余额: false })).toEqual({ 计次: true, 还剩: 27, 上限: 30 });
     状态.受限 = false;
+    expect((await 读AI计次({ 问余额: false })).计次).toBe(false);
+  });
+
+  it("托管版：工作区在设置里填了自己的 Key——花他自己的钱，不计次", async () => {
+    状态.多租户 = true;
+    状态.来源 = "ui";
     expect((await 读AI计次({ 问余额: false })).计次).toBe(false);
   });
 });
