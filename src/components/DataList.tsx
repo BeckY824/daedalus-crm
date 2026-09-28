@@ -136,12 +136,42 @@ export default function DataList<T extends { id: string }>({
 
   function 切列(k: string, 显示: boolean) {
     存列(显示 ? [...可见, k] : 可见.filter((x) => x !== k));
+    if (显示) 待露.current = k;
+  }
+
+  /**
+   * 刚勾上的那一列挪进视野。1120 宽时默认几列加起来就比表格框宽（客户表 1012 对 804），
+   * 新勾的列落在横滚区外面，表格看上去纹丝不动——教程「勾上签约金额」那一步录出来就是这样。
+   * 只挪到刚好露出来，还要让开右边固定的操作列。
+   */
+  const 表框 = useRef<HTMLDivElement>(null);
+  /** 刚勾上、等渲染出来再挪的那一列。放 ref 里、在下面的 effect 里挪：那时新列已经在 DOM 里了 */
+  const 待露 = useRef<string | null>(null);
+  function 挪到看得见(k: string) {
+    const 框 = 表框.current?.querySelector<HTMLElement>(".ant-table-content");
+    const th = 表框.current?.querySelector<HTMLElement>(`th.dl-col-${CSS.escape(k)}`);
+    if (!框 || !th) return;
+    // antd 6 的右侧固定列叫 fix-end（5 叫 fix-right），两个都认
+    const 固定宽 = [...框.querySelectorAll<HTMLElement>("thead th:is(.ant-table-cell-fix-end, .ant-table-cell-fix-right)")].reduce((s2, x) => s2 + x.offsetWidth, 0);
+    const 右边 = th.offsetLeft + th.offsetWidth;
+    const 露到 = 框.scrollLeft + 框.clientWidth - 固定宽;
+    // 直接跳过去，不做平滑滚动：表格随即还会重排一次，平滑那一下会被打断，停在原地
+    if (右边 > 露到) 框.scrollLeft = 右边 - 框.clientWidth + 固定宽;
   }
 
   const 显示的列 = useMemo(
-    () => 全部列.filter((c) => c.常驻 || 可见.includes(列键(c))),
+    () =>
+      全部列
+        .filter((c) => c.常驻 || 可见.includes(列键(c)))
+        // 带上列键做类名，挪到看得见 靠它找表头
+        .map((c) => ({ ...c, className: [c.className, `dl-col-${列键(c)}`].filter(Boolean).join(" ") })),
     [全部列, 可见],
   );
+  useEffect(() => {
+    if (!待露.current) return;
+    挪到看得见(待露.current);
+    待露.current = null;
+  });
 
   /**
    * 表格自己的最小宽度。不给就按显示中的列宽加起来算。
@@ -151,7 +181,7 @@ export default function DataList<T extends { id: string }>({
   const x = 横向 ?? 显示的列.reduce((s2, c) => s2 + (typeof c.width === "number" ? c.width : 120), 0);
 
   return (
-    <div className="list">
+    <div className="list" ref={表框}>
       {/* 工具栏只有一条：搜索 + 筛选在左，列设置顶到最右（设计稿 10-17 的六张列表页都是这个形）。
           主动作（新建 / 记录）不在这儿，它在页头右上角——那是全站找它的地方，
           列表页不该把它藏在筛选中间。 */}
