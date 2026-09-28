@@ -13,7 +13,8 @@ import { 认领, 取Bearer } from "./device-token";
  * 报错能被原样显示出来，用户看到的是一句中文，而不是一串状态码。
  */
 
-export type 认证结果 = { ok: true; cfg: 网关配置; accountId: string } | { ok: false; res: NextResponse };
+/** deviceTokenId：是哪一枚设备令牌——记「这台装的是什么」要按它来（lib/tenant/device-info.ts） */
+export type 认证结果 = { ok: true; cfg: 网关配置; accountId: string; deviceTokenId: string } | { ok: false; res: NextResponse };
 
 export function 网关错误(status: number, message: string, extra?: Record<string, string>): NextResponse {
   return NextResponse.json({ error: { message, type: "gateway_error" } }, { status, headers: extra });
@@ -29,5 +30,5 @@ export async function 网关认证(req: Request): Promise<认证结果> {
   if (!who) {
     return { ok: false, res: 网关错误(401, "设备令牌无效或已被吊销，请在桌面端重新登录") };
   }
-  return { ok: true, cfg, accountId: who.accountId };
+  return { ok: true, cfg, accountId: who.accountId, deviceTokenId: who.id };
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { 网关认证 } from "@/lib/tenant/gateway-auth";
+import { 读客户端, 记设备 } from "@/lib/tenant/device-info";
 import { 余额, 结算赠送, 每日赠送, 每日赠送期, 注册赠送, 注册赠送发过吗 } from "@/lib/tenant/credits";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,11 @@ export async function GET(req: Request) {
   if (!auth.ok) return auth.res;
   const owner = { kind: "account" as const, id: auth.accountId };
   await 结算赠送(owner);
+  /*
+    这台装的是什么（系统 / 芯片 / 版本）。桌面端每次启动验令牌都走这里，
+    所以升级之后不用重新登录，下次打开就更新了。老版本不带那几个头，这一步什么都不做。
+  */
+  await 记设备(auth.deviceTokenId, 读客户端(req));
   /*
     `accountId` 是 0.39.2 加的。桌面端每次启动都用这个接口验一遍令牌还认不认，
     顺手把「你是谁」带回去——**升级上来的老安装靠它认领自己那份数据**：

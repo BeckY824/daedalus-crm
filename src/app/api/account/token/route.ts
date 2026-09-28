@@ -4,6 +4,7 @@ import { verifyAccount } from "@/lib/tenant/accounts";
 import { 签发, 认领, 吊销, 取Bearer } from "@/lib/tenant/device-token";
 import { 结算赠送, 余额 } from "@/lib/tenant/credits";
 import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP阈值 } from "@/lib/rate-limit";
+import { 读客户端, 记设备 } from "@/lib/tenant/device-info";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -48,7 +49,9 @@ export async function POST(req: Request) {
   }
   keys.forEach(([k]) => 清除限流(k));
 
-  const { token } = await 签发(account.id, body.name?.trim() || "桌面端");
+  const { id: 令牌id, token } = await 签发(account.id, body.name?.trim() || "桌面端");
+  // 这台装的是什么：运营台分 Mac / Windows、看谁停在老版本（lib/tenant/device-info.ts）
+  await 记设备(令牌id, 读客户端(req));
   /*
     顺手把赠送结掉，桌面端第一次登录就能看到自己有多少次。
 

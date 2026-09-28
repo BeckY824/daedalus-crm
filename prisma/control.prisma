@@ -349,3 +349,22 @@ model AiCharge {
   @@unique([ownerKind, ownerId, requestId])
   @@index([at])
 }
+
+/// 每台桌面端装的是什么：系统、芯片、版本号。**一枚设备令牌一行**。
+///
+/// 运营台要分得出 Mac 和 Windows（2026-09-28 起两边都发），还要看得出谁停在老版本。
+/// 登录时记一次，之后每次启动验令牌（/api/gateway/v1/credits）顺手更新——
+/// 升级之后不用重新登录，下次打开就报上来了。
+///
+/// 单独一张表而不是加在 DeviceToken 上：控制面的迁移只能加表不能加列（见 control-migrations/）。
+/// 0.46.6 及之前装出去的版本不带这几个头，它们没有这一行，运营台上是「未知」——不猜。
+model DeviceInfo {
+  deviceTokenId String   @id
+  /// darwin | win32 | linux
+  platform      String
+  /// arm64 | x64 | ia32
+  arch          String?
+  /// 应用版本号，如 0.46.7
+  version       String?
+  updatedAt     DateTime @default(now())
+}

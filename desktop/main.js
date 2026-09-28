@@ -33,6 +33,13 @@ const 差量 = require("./delta");
 const 备份 = require("./backup");
 const 崩溃 = require("./crashlog");
 const 提醒 = require("./reminders");
+
+/*
+  这台装的是哪个版本。写进主进程自己的环境变量：desktop/cloud.js 发云端请求时带上它，
+  本地服务是子进程（env 里展开了 process.env）也继承同一个值——云端据此给运营台记
+  「这台是 Mac 还是 Windows、停在哪一版」（lib/tenant/device-info.ts）。
+*/
+process.env.CRM_APP_VERSION = app.getVersion();
 const os = require("node:os");
 
 const APP_NAME = "Daedalus CRM";

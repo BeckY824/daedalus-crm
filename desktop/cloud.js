@@ -37,6 +37,17 @@ function 清() {
   }
 }
 
+/**
+ * 这台装的是什么：系统、芯片、版本号。云端拿它给运营台分 Mac / Windows、看谁停在老版本
+ * （lib/tenant/device-info.ts）。版本号由 main.js 一启动就写进 CRM_APP_VERSION——
+ * 这个文件不引 electron，本地服务是子进程、也读得到同一个环境变量，两边报的是同一个数。
+ */
+function 客户端头() {
+  const h = { "X-Client-Platform": process.platform, "X-Client-Arch": process.arch };
+  if (process.env.CRM_APP_VERSION) h["X-Client-Version"] = process.env.CRM_APP_VERSION;
+  return h;
+}
+
 async function 请求(url, init = {}) {
   /**
    * 连不上要当一个**结果**回去，不能让它抛出去。状态码带回去：
@@ -44,7 +55,7 @@ async function 请求(url, init = {}) {
    */
   let res;
   try {
-    res = await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
+    res = await fetch(url, { ...init, headers: { ...客户端头(), ...(init.headers ?? {}) }, signal: AbortSignal.timeout(20_000) });
   } catch (e) {
     const 超时 = e?.name === "TimeoutError" || e?.name === "AbortError";
     return { ok: false, error: 超时 ? "服务器 20 秒没回应" : "连不上服务器" };

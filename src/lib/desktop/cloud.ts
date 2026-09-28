@@ -149,10 +149,21 @@ type 结果<T = unknown> = { ok: true; data: T } | { ok: false; error: string; �
  * 连不上要当一个**结果**回去，不能让它抛出去：断网点登录，按钮一直转、一个字的提示都没有，
  * 看起来就是点了没反应。状态码也带回去——调用方要分得清「服务端明确拒了」和「根本没问到」。
  */
+/**
+ * 这台装的是什么：系统、芯片、版本号——和壳（desktop/cloud.js 的 客户端头）报的是同一组。
+ * 版本号是壳启动时写进环境变量的 CRM_APP_VERSION，本地服务作为子进程继承下来。
+ */
+function 客户端头(): Record<string, string> {
+  const h: Record<string, string> = { "X-Client-Platform": process.platform, "X-Client-Arch": process.arch };
+  if (process.env.CRM_APP_VERSION) h["X-Client-Version"] = process.env.CRM_APP_VERSION;
+  return h;
+}
+
 async function 请求<T = unknown>(url: string, init: RequestInit = {}, 超时毫秒 = 20_000): Promise<结果<T>> {
   let res: Response;
   try {
-    res = await fetch(url, { ...init, signal: AbortSignal.timeout(超时毫秒), cache: "no-store" });
+    const headers = { ...客户端头(), ...Object.fromEntries(new Headers(init.headers).entries()) };
+    res = await fetch(url, { ...init, headers, signal: AbortSignal.timeout(超时毫秒), cache: "no-store" });
   } catch (e) {
     const 超时 = e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
     return {
