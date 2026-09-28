@@ -148,7 +148,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
   const maxFunnel = Math.max(1, ...当前漏斗.map((f) => f.count));
   /**
    * 判「已经过了没有」的那一刻。**今天零点，不是此时此刻**——
-   * 和「逾期跟进」那张卡同一个口径（Board 里数的是 plannedAt < 今天零点）。
+   * 和「逾期跟进」那张卡同一个口径（lib/overdue.ts：计划和待办，时间早于今天零点）。
    *
    * 必须在客户端算：服务端渲染出来的是服务器那台机器的「今天」，
    * 时区一差就是整整一天。走 useSyncExternalStore，服务端快照给空串
@@ -234,7 +234,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             color={stats.逾期跟进 > 0 ? palette.danger : categorical.violet}
             label="逾期跟进"
             value={stats.逾期跟进.toLocaleString()}
-            note={stats.逾期跟进 > 0 ? "计划时间已经过去了" : "都跟上了"}
+            note={stats.逾期跟进 > 0 ? "计划和待办，时间已经过去了" : "都跟上了"}
             href="/follow-ups/plans"
           />
         </Col>
