@@ -48,8 +48,13 @@ const 等 = async (条件, 毫秒, 说明) => {
 
 // 长路径：tmpdir 在 runner 上是 RUNNER~1 这种 8.3 短名，真用户的快捷方式指向的是长路径
 const 根 = fs.mkdtempSync(path.join(fs.realpathSync.native(os.tmpdir()), "差量 冒烟-"));
-/** 想装到的地方（长路径 + 中文 + 空格）。安装程序不一定照办，见第 1 步 */
-let 装到 = path.join(根, "Programs 中文", "daedalus-crm");
+/**
+ * 装到默认位置（只为我安装：%LOCALAPPDATA%\Programs\daedalus-crm）——真用户装到的就是这儿。
+ * 原来用 /D= 指到临时目录下一条「Programs 中文」长路径：CI 上两次都坏在这一步
+ * （一次退出码 0 却没装到那儿，一次 NSIS 直接崩 0xC0000005）。中文 + 单引号路径的换目录
+ * 由 tests/desktop-windows-delta.test.ts 在真 PowerShell 上覆盖。实际装在哪以注册表卸载项为准，见第 1 步
+ */
+let 装到 = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "Programs", "daedalus-crm");
 const 数据 = path.join(根, "data");
 fs.mkdirSync(数据, { recursive: true });
 
@@ -62,7 +67,7 @@ function 显示版本() {
 
 // 1) 静默装。/D= 必须是最后一个、不能带引号（哪怕有空格）——所以参数原样传，不让 node 加引号
 {
-  const r = spawnSync(setup, ["/S", "/currentuser", `/D=${装到}`], { windowsVerbatimArguments: true, timeout: 300_000 });
+  const r = spawnSync(setup, ["/S", "/currentuser"], { timeout: 300_000 });
   if (r.status !== 0) throw new Error(`安装程序退出码 ${r.status}`);
   /*
     2026-09-29 第一次在 CI 上跑：安装程序退出码 0，60 秒后 /D= 指的地方还是没有 exe——electron-builder 的
@@ -77,9 +82,9 @@ function 显示版本() {
     ], { encoding: "utf8" });
     const m = /"?([^"]+)\\Uninstall [^"\\]+\.exe"?/i.exec(q.stdout || "");
     return m && fs.existsSync(path.join(m[1], "Daedalus CRM.exe")) ? m[1] : null;
-  }, 90_000, "安装完成（/D= 指的目录和注册表卸载项里都找不到 Daedalus CRM.exe）");
+  }, 90_000, "安装完成（默认位置和注册表卸载项里都找不到 Daedalus CRM.exe）");
   if (path.resolve(实际).toLowerCase() !== path.resolve(装到).toLowerCase()) {
-    console.log(`注意：安装程序没照 /D= 装，实际在 ${实际}（后面都用这个目录）`);
+    console.log(`注意：实际装在 ${实际}，不是默认位置（后面都用这个目录）`);
     装到 = 实际;
   }
   if (!fs.readdirSync(装到).some((n) => /^Uninstall .+\.exe$/i.test(n))) throw new Error("装好的目录里没有卸载程序");
