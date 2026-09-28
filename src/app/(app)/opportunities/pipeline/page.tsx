@@ -1,23 +1,32 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import PipelineView from "./PipelineView";
+import { 可选客户 } from "@/lib/options";
+import { 负责人候选 } from "@/lib/owners";
 
 export const dynamic = "force-dynamic";
 
 export default async function PipelinePage() {
   await requireUser();
 
-  const opps = await prisma.opportunity.findMany({
-    where: { status: "OPEN" },
-    orderBy: { amount: "desc" },
-    include: {
-      customer: { select: { id: true, name: true } },
-      owner: { select: { name: true } },
-    },
-  });
+  const [opps, users, customers] = await Promise.all([
+    prisma.opportunity.findMany({
+      where: { status: "OPEN" },
+      orderBy: { amount: "desc" },
+      include: {
+        customer: { select: { id: true, name: true } },
+        owner: { select: { name: true } },
+      },
+    }),
+    // 新建框要的候选：和列表页同一个框（../OpportunityForm.tsx）
+    负责人候选(),
+    可选客户(),
+  ]);
 
   return (
     <PipelineView
+      users={users}
+      customers={customers}
       rows={opps.map((o) => ({
         id: o.id,
         name: o.name,

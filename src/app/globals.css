@@ -1496,6 +1496,8 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    退到 --panel 而不是透明：名字列和操作列固定着（sticky），底色一透明，
    横滚过的正文就从它们底下透出来，亮起的那一行反而认不出是谁。 */
 .row-fresh > td { animation: row-fresh 2s var(--ease) 1 both; }
+/* 管道页新建的那张卡：和列表里新建的行同一种亮法（底色从品牌浅底退回卡片底） */
+.pipe-card.pipe-card-fresh { animation: row-fresh 2s var(--ease) 1 both; }
 @keyframes row-fresh {
   0% { background-color: var(--brand-bg); }
   55% { background-color: var(--brand-bg); }

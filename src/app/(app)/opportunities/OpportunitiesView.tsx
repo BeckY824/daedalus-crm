@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, InputNumber, DatePicker, Slider, App, Dropdown, Popover } from "antd";
+import { Button, Space, Select, Tag, InputNumber, DatePicker, App, Dropdown, Popover } from "antd";
 import {
   PlusOutlined,
   MoreOutlined,
@@ -16,10 +16,11 @@ import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
-import { money, fmtDate, dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
-import { saveOpportunity, deleteOpportunities, moveStage, setOppStatus } from "./actions";
+import { money, fmtDate, dayjs, 成员选项, 可选成员 } from "@/lib/utils";
+import { deleteOpportunities, moveStage, setOppStatus } from "./actions";
 import { saveContract } from "../customers/actions";
 import InlineConfirm from "@/components/InlineConfirm";
+import OpportunityForm from "./OpportunityForm";
 import { 金额格式 } from "@/lib/money-input";
 import { useBusiness } from "@/lib/business-client";
 import { useUrlFilters } from "@/lib/url-filters";
@@ -45,7 +46,6 @@ export default function OpportunitiesView({
   users,
   customers,
   filters,
-  直接新建,
 }: {
   rows: OppRow[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
@@ -53,51 +53,13 @@ export default function OpportunitiesView({
   users: 可选成员[];
   customers: { id: string; name: string }[];
   filters: { keyword: string; stage: string; status: string; ownerId: string };
-  /** 进来就把新建表单打开（管道页那个「新建商机」的落点） */
-  直接新建?: boolean;
 }) {
   const router = useRouter();
   const b = useBusiness();
   const { message, modal } = App.useApp();
   const { f, setF, apply, reset, pending } = useUrlFilters("/opportunities", filters);
-  const [open, setOpen] = useState(Boolean(直接新建));
+  const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<OppRow | null>(null);
-  const [form] = Form.useForm();
-
-  useEffect(() => {
-    if (!open) return;
-    if (editing) {
-      form.setFieldsValue({
-        ...editing,
-        expectedDealAt: editing.expectedDealAt ? dayjs(editing.expectedDealAt) : null,
-      });
-    } else {
-      form.resetFields();
-      // 金额不给默认值：原来默认 ¥100,000，忘了改就平白多出一单十万，直接进总额和加权预测
-      form.setFieldsValue({
-        stage: "初步沟通",
-        status: "OPEN",
-        probability: 20,
-        ownerId: users[0]?.id,
-      });
-    }
-  }, [open, editing, form, users]);
-
-  async function onOk() {
-    const v = await form.validateFields();
-    const res = await saveOpportunity({
-      id: editing?.id,
-      ...v,
-      expectedDealAt: v.expectedDealAt ? v.expectedDealAt.toISOString() : null,
-    });
-    if (!res.ok) {
-      message.error(res.error);
-      return;
-    }
-    message.success(editing ? "已保存" : "商机已创建");
-    setOpen(false);
-    router.refresh();
-  }
 
   /** 哪一行正在问「标为丢单？」/「标为赢单」。从「更多」菜单里点进来，就地问，不弹框 */
   const [问丢单, set问丢单] = useState<string | null>(null);
@@ -448,90 +410,17 @@ export default function OpportunitiesView({
         }
       />
 
-      <Modal
+      <OpportunityForm
         open={open}
-        title={editing ? "编辑商机" : "新建商机"}
-        onCancel={() => setOpen(false)}
-        onOk={onOk}
-        okText="保存"
-        cancelText="取消"
-        width={640}
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-          <Row gutter={16}>
-            <Col span={24}>
-              <Form.Item name="name" label="商机名称" rules={[{ required: true, message: "请填写商机名称" }]}>
-                <Input placeholder="如：CRM 系统企业版年度采购" />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="customerId" label="所属客户" rules={[{ required: true, message: "请选择客户" }]}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="选择客户"
-                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={12}>
-              <Form.Item name="amount" label="商机金额（元）" rules={[{ required: true, message: "请填写商机金额" }]}>
-                <InputNumber<number>
-                  min={0}
-                  step={10000}
-                  style={{ width: "100%" }}
-                  prefix="¥"
-                  placeholder="如 50,000"
-                  formatter={金额格式}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="stage" label="阶段">
-                <Select
-                  options={OPP_STAGES.map((s) => ({ value: s, label: s }))}
-                  onChange={(v) => form.setFieldValue("probability", STAGE_PROBABILITY[v] ?? 20)}
-                />
-              </Form.Item>
-            </Col>
-            <Col span={8}>
-              <Form.Item name="status" label="状态">
-                <Select
-                  options={[
-                    { value: "OPEN", label: "进行中" },
-                    { value: "WON", label: "已赢单" },
-                    { value: "LOST", label: "已丢单" },
-                  ]}
-                />
-              </Form.Item>
-            </Col>
-            {/* 只有一个人时不问归属，见 lib/utils.ts 的 独自一人 */}
-            {!独自一人(users, editing?.ownerId) && (
-              <Col span={8}>
-                <Form.Item name="ownerId" label="负责人" rules={[{ required: true }]}>
-                  <Select options={成员选项(users)} />
-                </Form.Item>
-              </Col>
-            )}
-            <Col span={8}>
-              <Form.Item name="expectedDealAt" label="预计成交">
-                <DatePicker style={{ width: "100%" }} />
-              </Form.Item>
-            </Col>
-            <Col span={16}>
-              <Form.Item name="probability" label="成交概率 (%)">
-                <Slider marks={{ 0: "0", 50: "50", 100: "100" }} />
-              </Form.Item>
-            </Col>
-            <Col span={24}>
-              <Form.Item name="remark" label="备注">
-                <Input.TextArea rows={2} placeholder="竞争对手、决策周期、风险点…" />
-              </Form.Item>
-            </Col>
-          </Row>
-        </Form>
-      </Modal>
+        editing={editing}
+        users={users}
+        customers={customers}
+        onClose={() => setOpen(false)}
+        onSaved={() => {
+          setOpen(false);
+          router.refresh();
+        }}
+      />
     </>
   );
 }

@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function OpportunitiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ keyword?: string; stage?: string; status?: string; ownerId?: string; new?: string }>;
+  searchParams: Promise<{ keyword?: string; stage?: string; status?: string; ownerId?: string }>;
 }) {
   await requireUser();
   const sp = await searchParams;
@@ -45,8 +45,6 @@ export default async function OpportunitiesPage({
       总数={总数}
       users={users}
       customers={customers}
-      /* 管道页的「新建商机」落在这儿：那一页没有表单，带上 ?new=1 回列表页直接把它打开 */
-      直接新建={sp.new === "1"}
       filters={{
         keyword: sp.keyword ?? "",
         stage: sp.stage ?? "",

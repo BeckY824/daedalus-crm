@@ -9,6 +9,8 @@ import EmptyState from "@/components/EmptyState";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
 import { money } from "@/lib/utils";
 import { moveStage } from "../actions";
+import OpportunityForm from "../OpportunityForm";
+import type { 可选成员 } from "@/lib/utils";
 
 type Row = {
   id: string;
@@ -36,9 +38,51 @@ type Row = {
  *   推进之后给一次撤销。拖拽最容易手滑，而这一下是真写库的；
  *   没有撤销，人就只能再拖回去——而且未必记得原来在哪一列。
  */
-export default function PipelineView({ rows }: { rows: Row[] }) {
+export default function PipelineView({
+  rows,
+  users,
+  customers,
+}: {
+  rows: Row[];
+  /** 新建框要的两份候选（和列表页同一个框，见 ../OpportunityForm.tsx） */
+  users: 可选成员[];
+  customers: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const { message } = App.useApp();
+  /*
+    「新建商机」就地弹框（2026-09-29）：原来这一页没有表单，点了跳回列表页再打开——按钮写着新建，人却被带走了。
+    保存后留在管道里，新的那张卡亮两秒（和列表里新建的行同一种亮法），人一眼看见它落在哪一列
+  */
+  const [新建开着, set新建开着] = useState(false);
+  const 见过 = useRef<Set<string> | null>(null);
+  const [新来的, set新来的] = useState<string | null>(null);
+  useEffect(() => {
+    const ids = rows.map((r) => r.id);
+    if (见过.current === null) {
+      见过.current = new Set(ids);
+      return;
+    }
+    const 新 = ids.filter((id) => !见过.current!.has(id));
+    ids.forEach((id) => 见过.current!.add(id));
+    if (新.length !== 1) return;
+    set新来的(新[0]);
+    const t = setTimeout(() => set新来的(null), 2000);
+    return () => clearTimeout(t);
+  }, [rows]);
+  const 新建框 = (
+    <OpportunityForm
+      open={新建开着}
+      editing={null}
+      users={users}
+      customers={customers}
+      onClose={() => set新建开着(false)}
+      onSaved={() => {
+        set新建开着(false);
+        router.refresh();
+      }}
+    />
+  );
   const [dragId, setDragId] = useState<string | null>(null);
   const [overStage, setOverStage] = useState<string | null>(null);
   /**
@@ -99,11 +143,12 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
         <div className="card-soft">
           <EmptyState
             title="还没有商机"
-            hint="管道是把在谈的单子按阶段摆开看：哪些卡在方案报价、哪一阶段压着最多钱。先去商机列表建一条。"
-            primary={{ label: "去商机列表", onClick: () => router.push("/opportunities") }}
+            hint="管道是把在谈的单子按阶段摆开看：哪些卡在方案报价、哪一阶段压着最多钱。"
+            primary={{ label: "新建第一条商机", onClick: () => set新建开着(true) }}
             demo={false}
           />
         </div>
+        {新建框}
       </>
     );
   }
@@ -118,8 +163,7 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
             <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/opportunities")}>
               列表
             </Button>
-            {/* 这一页没有新建表单，带 ?new=1 回列表页把它直接打开 */}
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/opportunities?new=1")}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => set新建开着(true)}>
               新建商机
             </Button>
           </Space>
@@ -168,7 +212,7 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
                   }}
                 >
                   <div
-                    className={`pipe-card${dragId === r.id ? " pipe-card-drag" : ""}`}
+                    className={`pipe-card${dragId === r.id ? " pipe-card-drag" : ""}${新来的 === r.id ? " pipe-card-fresh" : ""}`}
                     style={{ borderLeftColor: color }}
                     draggable
                     tabIndex={0}
@@ -199,6 +243,7 @@ export default function PipelineView({ rows }: { rows: Row[] }) {
         })}
       </div>
       </div>
+      {新建框}
     </>
   );
 }
