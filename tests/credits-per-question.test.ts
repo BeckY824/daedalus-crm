@@ -222,8 +222,10 @@ describe("守卫：三处口径必须一致", () => {
   });
 
   it("网页端那条路失败也退，但用户自己中断的不退", () => {
+    // 退不退的判断收进了 带额度（2026-09-28），语义由 tests/ai-allowance-gate.test.ts 钉着；
+    // 这里只钉路由确实套了它、而且把请求的中断信号交了进去——少了这个，中断的那次也会被退
     const 路由 = fs.readFileSync(path.resolve(__dirname, "../src/app/api/ai/stream/route.ts"), "utf8");
-    expect(路由).toContain("扣过了 && !req.signal.aborted");
-    expect(路由).toContain("退一次额度()");
+    expect(路由).toMatch(/带额度\(\s*"ask"/);
+    expect(路由).toContain("{ 中断: req.signal }");
   });
 });

@@ -35,7 +35,7 @@ function 收上下文(v: unknown): { q: string; a: string }[] | undefined {
   return out.length ? out : undefined;
 }
 
-import { 试用额度闸门, 退一次额度 } from "@/lib/tenant/ai-allowance";
+import { 带额度 } from "@/lib/tenant/ai-allowance";
 
 export const dynamic = "force-dynamic";
 
@@ -59,47 +59,48 @@ export async function POST(req: Request) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      /** 闸门扣没扣成。出错时据此决定要不要退——闸门自己拦下的那次不算 */
-      let 扣过了 = false;
       const send = (obj: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
       const emit: Emit = (e) => send({ type: "step", at: Date.now(), ...e });
       try {
         /**
-         * 试用期的免费次数。放在分发之前一处，覆盖所有 AI 入口——
-         * 只堵对话的话，简报、话术、盯盘解读还是无限免费，而它们同样是
-         * 按量计费的上游调用。自部署版不走这里。
+         * 试用期的免费次数：每一支各自套 带额度（lib/tenant/ai-allowance.ts）——
+         * 过闸门、没给出答案就退、**用户自己中断的不退**（那一次上游已经在跑，钱是真花出去的）。
+         * 简报那一支在 generateBrief 里面扣：它也是记录页之外能被直接调用的动作，
+         * 扣在它身上才堵得住；这里再扣一次就成了一问两扣。自部署版不走闸门。
          */
-        const 超额 = await 试用额度闸门();
-        if (超额) throw new Error(超额);
-        // 闸门在这一行之前扣掉了一次。下面任何一步没走通，都要在 catch 里退回去
-        扣过了 = true;
-
         let res: { ok: true; answer: unknown } | { ok: false; error: string };
         if (body.mode === "agent" && typeof body.question === "string") {
-          const history = 收上下文(body.history);
-          // agent：模型自己决定读谁、查什么，每次工具调用推一条 step，最终回答逐 token 推
-          const user = await requireUser();
-          const wait = consumeAiQuota(user.id);
-          if (wait !== null) throw new Error(`AI 调用太频繁，请 ${wait} 秒后再试`);
-          const b = await getBusiness();
-          const abort = new AbortController();
-          req.signal.addEventListener("abort", () => abort.abort());
-          // 浏览器报上来的模型名不可信，按设置页的白名单收一遍
-          const model = await resolveModel(typeof body.model === "string" ? body.model : undefined);
-          const files = 收文件(body.files);
-          const 问 = 拼文件(body.question.trim().slice(0, 问题上限), files);
-          // 当前页的上下文。浏览器来的，收一道长度；空串当没给。
-          // 上限从 300 放到 1200：现在还带着这一页上列着的名字（最多 50 个）
-          const 页面 = typeof body.pageContext === "string" ? body.pageContext.trim().slice(0, 1200) : "";
-          const 范围 = 收页面范围(body.pageScope);
-          const r = await runAgent({ question: 问, user: { id: user.id, name: user.name }, b, history, 页面上下文: 页面 || undefined, 页面范围: 范围 }, { emit, model, onToken: (t) => send({ type: "token", text: t }), onReset: () => send({ type: "reset" }), signal: abort.signal });
-          // 日志只记问题和文件**名**，不记文件内容——那张表全员可读
-          await recordAiUse(
-            user,
+          const question = body.question;
+          res = await 带额度(
             "ask",
-            `AI 对话：「${body.question.trim().slice(0, 60)}」（${r.steps} 次工具调用${model ? `，${model}` : ""}${files ? `，带了 ${files.map((f) => f.name).join("、")}` : ""}）`,
+            async () => {
+              const history = 收上下文(body.history);
+              // agent：模型自己决定读谁、查什么，每次工具调用推一条 step，最终回答逐 token 推
+              const user = await requireUser();
+              const wait = consumeAiQuota(user.id);
+              if (wait !== null) throw new Error(`AI 调用太频繁，请 ${wait} 秒后再试`);
+              const b = await getBusiness();
+              const abort = new AbortController();
+              req.signal.addEventListener("abort", () => abort.abort());
+              // 浏览器报上来的模型名不可信，按设置页的白名单收一遍
+              const model = await resolveModel(typeof body.model === "string" ? body.model : undefined);
+              const files = 收文件(body.files);
+              const 问 = 拼文件(question.trim().slice(0, 问题上限), files);
+              // 当前页的上下文。浏览器来的，收一道长度；空串当没给。
+              // 上限从 300 放到 1200：现在还带着这一页上列着的名字（最多 50 个）
+              const 页面 = typeof body.pageContext === "string" ? body.pageContext.trim().slice(0, 1200) : "";
+              const 范围 = 收页面范围(body.pageScope);
+              const r = await runAgent({ question: 问, user: { id: user.id, name: user.name }, b, history, 页面上下文: 页面 || undefined, 页面范围: 范围 }, { emit, model, onToken: (t) => send({ type: "token", text: t }), onReset: () => send({ type: "reset" }), signal: abort.signal });
+              // 日志只记问题和文件**名**，不记文件内容——那张表全员可读
+              await recordAiUse(
+                user,
+                "ask",
+                `AI 对话：「${question.trim().slice(0, 60)}」（${r.steps} 次工具调用${model ? `，${model}` : ""}${files ? `，带了 ${files.map((f) => f.name).join("、")}` : ""}）`,
+              );
+              return { ok: true as const, answer: { text: r.text, records: r.records, customers: r.customers, proposals: r.proposals } };
+            },
+            { 中断: req.signal },
           );
-          res = { ok: true, answer: { text: r.text, records: r.records, customers: r.customers, proposals: r.proposals } };
         } else if (body.mode === "brief" && typeof body.customerId === "string") {
           const r = await generateBrief({ customerId: body.customerId, question: typeof body.question === "string" ? body.question : undefined }, emit);
           res = r.ok ? { ok: true, answer: { brief: r.brief, records: r.records } } : r;
@@ -108,12 +109,7 @@ export async function POST(req: Request) {
         }
         send(res.ok ? { type: "result", ok: true, answer: res.answer } : { type: "result", ok: false, error: res.error });
       } catch (e) {
-        /*
-          没给出答案就把那一次退回去。**用户自己中断的不退**——那一次上游已经在跑了，
-          钱是真花出去的；而超额被闸门拦下的那次本来就没扣（扣一次 内部已经还过了）。
-          见 lib/tenant/ai-allowance.ts 的 退一次额度()。
-        */
-        if (扣过了 && !req.signal.aborted) await 退一次额度().catch(() => {});
+        // 次数该退的已经在 带额度 里退过了，这里只管把错误说成人话
         // requireUser 未登录时会 redirect()，在路由里表现为抛错
         const msg = e instanceof Error && /NEXT_REDIRECT/.test(e.message) ? "登录已失效，请刷新页面" : e instanceof Error ? e.message : "生成失败";
         send({ type: "result", ok: false, error: msg });

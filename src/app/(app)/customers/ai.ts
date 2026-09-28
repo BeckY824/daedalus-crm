@@ -20,10 +20,16 @@ import { 问选择, type 选择答案 } from "@/lib/jev/client";
 import { 组问题 } from "@/lib/jev/columns";
 import { 自动判断开着 } from "@/lib/jev/settings";
 import { 组提示词, 核对, 粘贴字数上限, type 粘贴结果 } from "@/lib/import/paste";
+import { 带额度 } from "@/lib/tenant/ai-allowance";
 
 export type 粘贴回执 = ({ ok: true } & 粘贴结果) | { ok: false; error: string };
 
+/** 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）；没切出人来的那次退回去 */
 export async function 粘成表格(原文: string): Promise<粘贴回执> {
+  return 带额度("paste", () => 切成表(原文));
+}
+
+async function 切成表(原文: string): Promise<粘贴回执> {
   const user = await requireUser();
   const 文 = (原文 ?? "").trim();
   if (!文) return { ok: false, error: "先把名单或聊天记录粘进来" };

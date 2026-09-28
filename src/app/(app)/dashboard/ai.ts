@@ -8,12 +8,18 @@ import { chatJSON } from "@/lib/llm";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 import { formatTimeline } from "@/lib/ai-context";
+import { 带额度 } from "@/lib/tenant/ai-allowance";
 
 /**
  * 盯盘清单的「起草跟进」：给一条唤醒话术草稿。
  * AI 只起草——消息由销售自己复制到微信发出，系统不做任何触达。
+ * 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）。
  */
-export async function draftWakeup(input: {
+export async function draftWakeup(input: { customerId: string; reason: string }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  return 带额度("wakeup", () => 起草唤醒话术(input));
+}
+
+async function 起草唤醒话术(input: {
   customerId: string;
   reason: string;
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
@@ -73,8 +79,15 @@ ${timeline}
  * 规则只知道"18 天没跟"，不知道上次聊到哪——这句话得看原文才写得出来。
  * 一次调用覆盖整张清单（最多 8 条），由销售点按钮触发；不在页面加载时自动跑：
  * 每刷一次首页打 8 次模型既慢又费，盯盘本身不依赖它。不落库。
+ * 整张清单一次调用，托管版占一次 AI 次数。
  */
 export async function explainWatchlist(input: {
+  items: { customerId: string; reason: string }[];
+}): Promise<{ ok: true; notes: Record<string, string> } | { ok: false; error: string }> {
+  return 带额度("explain", () => 解读盯盘(input));
+}
+
+async function 解读盯盘(input: {
   items: { customerId: string; reason: string }[];
 }): Promise<{ ok: true; notes: Record<string, string> } | { ok: false; error: string }> {
   const user = await requireUser();
