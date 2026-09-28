@@ -229,12 +229,16 @@ function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe�
     PowerShell 自己的输出（解析错误、被策略拦下、起都起不来）写到 update-swap.out.log。
     原来是 ignore：脚本连第一行 begin 都没写出来时，什么线索都没有（2026-09-29 CI 上就是这样）
   */
+  const 输出文件 = path.join(更新目录, "update-swap.out.log");
+  const 记 = (行) => { try { fs.appendFileSync(输出文件, `${new Date().toISOString()} [壳] ${行}\n`); } catch { /* 记不下就算了 */ } };
   let 输出 = "ignore";
   try {
-    输出 = fs.openSync(path.join(更新目录, "update-swap.out.log"), "a");
+    输出 = fs.openSync(输出文件, "a");
   } catch { /* 打不开就不记，不能因为日志挡住换目录 */ }
   const child = 启动("powershell.exe", 参数, { detached: true, stdio: ["ignore", 输出, 输出], windowsHide: true });
-  child.on?.("error", () => {});
+  // 起没起来要留一笔：spawn 失败（找不到 powershell.exe 之类）原来被一个空的 error 回调吞掉，什么都看不出来
+  记(`启动 powershell.exe pid=${child.pid ?? "无"} 版本=${版本 || "-"} 目录=${目录}`);
+  child.on?.("error", (e) => 记(`起不来：${e?.code ?? ""} ${e?.message ?? e}`));
   child.unref?.();
   if (typeof 输出 === "number") try { fs.closeSync(输出); } catch { /* 子进程已经拿到了自己那份 */ }
   return { 参数 };
