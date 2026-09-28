@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { 可选客户 } from "@/lib/options";
 import ContactsView from "./ContactsView";
 import type { Prisma } from "@/generated/prisma";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
@@ -36,7 +37,7 @@ export default async function ContactsPage({
       },
     }),
     // 「添加联系人」要先选归属，所以把学员的名字一起带下来
-    prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    可选客户(),
   ]);
   const 号 = await 号码脱敏器();
 

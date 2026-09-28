@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
 import { 负责人候选 } from "@/lib/owners";
+import { 可选渠道, 可选客户 } from "@/lib/options";
 import { llmEnabled } from "@/lib/llm";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 
@@ -52,9 +53,9 @@ export default async function CustomerDetailPage({
 
   const [users, channels, referrableCustomers] = await Promise.all([
     负责人候选(),
-    prisma.channel.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    可选渠道(),
     // 排除自己，避免把自己设为推荐人导致推荐链成环
-    prisma.customer.findMany({ where: { id: { not: id } }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    可选客户(id),
   ]);
 
   /*

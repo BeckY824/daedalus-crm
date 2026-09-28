@@ -19,6 +19,11 @@ async function 客户名(id: string): Promise<string> {
   return c?.name ?? id;
 }
 
+/** 待办会出现在首页和计划页上 */
+function 刷新待办(客户id: string) {
+  for (const p of [`/customers/${客户id}`, "/dashboard", "/follow-ups/plans"]) revalidatePath(p);
+}
+
 /** 跟进类型在界面上叫什么。日志给人看，不写 CALL 这种值 */
 function 类型名(v: string): string {
   return FOLLOW_TYPES.find((t) => t.value === v)?.label ?? v;
@@ -176,9 +181,7 @@ export async function saveTask(input: {
     await recordAudit({ user, action: "create", entity: "Task", entityId: t.id, summary: `给${姓名}加了待办「${data.title}」`, detail: data });
   }
 
-  revalidatePath(`/customers/${input.customerId}`);
-  revalidatePath("/dashboard");
-  revalidatePath("/follow-ups/plans");
+  刷新待办(input.customerId);
   return { ok: true as const };
 }
 
@@ -192,9 +195,7 @@ export async function toggleTask(id: string, done: boolean) {
     user: me, action: "update", entity: "Task", entityId: id,
     summary: `待办「${t.title}」标记为${done ? "已完成" : "未完成"}`,
   });
-  revalidatePath(`/customers/${t.customerId}`);
-  revalidatePath("/dashboard");
-  revalidatePath("/follow-ups/plans");
+  刷新待办(t.customerId);
   return { ok: true as const };
 }
 
@@ -206,9 +207,7 @@ export async function deleteTask(id: string) {
     summary: `删除${await 客户名(t.customerId)}的待办「${t.title}」`,
     detail: { 标题: t.title, 截止: t.dueAt ? dayjs(t.dueAt).format("YYYY-MM-DD") : null, 已完成: t.done },
   });
-  revalidatePath(`/customers/${t.customerId}`);
-  revalidatePath("/dashboard");
-  revalidatePath("/follow-ups/plans");
+  刷新待办(t.customerId);
   return { ok: true as const };
 }
 

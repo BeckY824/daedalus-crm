@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import CustomersView from "./CustomersView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
+import { 可选渠道, 可选客户 } from "@/lib/options";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { llmEnabled } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
@@ -85,8 +86,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     }),
     prisma.customer.count({ where }),
     负责人候选(),
-    prisma.channel.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
-    prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    可选渠道(),
+    可选客户(),
   ]);
   const 号 = await 号码脱敏器();
   const aiEnabled = await llmEnabled();

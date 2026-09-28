@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { 可选客户 } from "@/lib/options";
 import OpportunitiesView from "./OpportunitiesView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
@@ -36,7 +37,7 @@ export default async function OpportunitiesPage({
       },
     }),
     负责人候选(),
-    prisma.customer.findMany({ select: { id: true, name: true }, orderBy: { name: "asc" } }),
+    可选客户(),
   ]);
 
   return (

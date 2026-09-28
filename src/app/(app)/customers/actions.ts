@@ -199,8 +199,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       user: me, action: "create", entity: "Customer", entityId: created.id,
       summary: `新建${b.customer}「${created.name}」`,
     });
-    revalidatePath("/customers");
-    revalidatePath("/dashboard");
+    revalidateCustomer();
     return { ok: true, id: created.id };
   }
 
@@ -322,9 +321,9 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   };
 }
 
-function revalidateCustomer(id: string) {
+function revalidateCustomer(id?: string) {
   revalidatePath("/customers");
-  revalidatePath(`/customers/${id}`);
+  if (id) revalidatePath(`/customers/${id}`);
   revalidatePath("/dashboard");
 }
 
@@ -374,8 +373,7 @@ export async function deleteCustomers(
       detail: 待删,
     });
   }
-  revalidatePath("/customers");
-  revalidatePath("/dashboard");
+  revalidateCustomer();
   return { ok: true, deleted: res.count };
 }
 
@@ -421,8 +419,7 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
       detail: { ids, salesOwnerId },
     });
   }
-  revalidatePath("/customers");
-  revalidatePath("/dashboard");
+  revalidateCustomer();
   return { ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already };
 }
 
@@ -446,8 +443,7 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
       detail: { ids, followStatus },
     });
   }
-  revalidatePath("/customers");
-  revalidatePath("/dashboard");
+  revalidateCustomer();
   return { ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already };
 }
 

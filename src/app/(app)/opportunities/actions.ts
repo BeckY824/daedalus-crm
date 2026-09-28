@@ -10,6 +10,12 @@ import { 唯一负责人 } from "@/lib/owners";
 /** 状态在界面上叫什么。日志是给人看的，不能写 WON / LOST */
 const 状态名: Record<string, string> = { OPEN: "进行中", WON: "赢单", LOST: "丢单" };
 
+/** 商机一动，列表、看板、首页数字都得重算；带上客户就连那张详情页一起 */
+function 刷新商机(客户id?: string) {
+  for (const p of ["/opportunities", "/opportunities/pipeline", "/dashboard"]) revalidatePath(p);
+  if (客户id) revalidatePath(`/customers/${客户id}`);
+}
+
 export async function saveOpportunity(input: {
   id?: string;
   name: string;
@@ -69,10 +75,7 @@ export async function saveOpportunity(input: {
     });
   }
 
-  revalidatePath("/opportunities");
-  revalidatePath("/opportunities/pipeline");
-  revalidatePath("/dashboard");
-  revalidatePath(`/customers/${input.customerId}`);
+  刷新商机(input.customerId);
   return { ok: true as const };
 }
 
@@ -101,10 +104,7 @@ export async function moveStage(id: string, stage: string) {
     summary: `商机「${o.name}」阶段：${before.stage} → ${stage}`,
     detail: { 原阶段: before.stage, 新阶段: stage, 状态: 状态名[status] ?? status },
   });
-  revalidatePath("/opportunities");
-  revalidatePath("/opportunities/pipeline");
-  revalidatePath("/dashboard");
-  revalidatePath(`/customers/${o.customerId}`);
+  刷新商机(o.customerId);
   return { ok: true as const };
 }
 
@@ -123,10 +123,7 @@ export async function setOppStatus(id: string, status: "OPEN" | "WON" | "LOST") 
     summary: `商机「${o.name}」标记为${状态名[status] ?? status}`,
     detail: { 状态: 状态名[status] ?? status, 金额: o.amount },
   });
-  revalidatePath("/opportunities");
-  revalidatePath("/opportunities/pipeline");
-  revalidatePath("/dashboard");
-  revalidatePath(`/customers/${o.customerId}`);
+  刷新商机(o.customerId);
   return { ok: true as const };
 }
 
@@ -149,8 +146,6 @@ export async function deleteOpportunities(ids: string[]) {
       detail: 待删.map((o) => ({ 名称: o.name, 客户: o.customer?.name ?? null, 金额: o.amount, 阶段: o.stage })),
     });
   }
-  revalidatePath("/opportunities");
-  revalidatePath("/opportunities/pipeline");
-  revalidatePath("/dashboard");
+  刷新商机();
   return { ok: true as const };
 }
