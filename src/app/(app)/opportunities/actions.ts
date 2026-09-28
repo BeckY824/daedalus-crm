@@ -108,20 +108,40 @@ export async function moveStage(id: string, stage: string) {
   return { ok: true as const };
 }
 
-export async function setOppStatus(id: string, status: "OPEN" | "WON" | "LOST") {
+/**
+ * 改商机状态。
+ *
+ * `还原` 给撤销用：标丢单会把概率清零、标赢单会把阶段推到「赢单成交」，
+ * 只把 status 改回 OPEN 的话，阶段和人手填的概率就回不来了——撤销得原样撤。
+ */
+export async function setOppStatus(
+  id: string,
+  status: "OPEN" | "WON" | "LOST",
+  还原?: { stage: string; probability: number },
+) {
   const me = await requireUser();
+  if (!OPP_STATUSES.includes(status)) return { ok: false as const, error: `商机状态「${status}」不是合法取值` };
+  if (还原) {
+    if (!OPP_STAGES.includes(还原.stage as (typeof OPP_STAGES)[number])) {
+      return { ok: false as const, error: `商机阶段「${还原.stage}」不是合法取值` };
+    }
+    if (!Number.isFinite(还原.probability) || 还原.probability < 0 || 还原.probability > 100) {
+      return { ok: false as const, error: "成交概率必须在 0~100 之间" };
+    }
+  }
   const o = await prisma.opportunity.update({
     where: { id },
     data: {
       status,
       ...(status === "WON" ? { stage: "赢单成交", probability: 100 } : {}),
       ...(status === "LOST" ? { probability: 0 } : {}),
+      ...(还原 ? { stage: 还原.stage, probability: Math.round(还原.probability) } : {}),
     },
   });
   await recordAudit({
     user: me, action: "update", entity: "Opportunity", entityId: id,
-    summary: `商机「${o.name}」标记为${状态名[status] ?? status}`,
-    detail: { 状态: 状态名[status] ?? status, 金额: o.amount },
+    summary: 还原 ? `商机「${o.name}」撤销改状态，回到${状态名[status] ?? status}（${o.stage}）` : `商机「${o.name}」标记为${状态名[status] ?? status}`,
+    detail: { 状态: 状态名[status] ?? status, 金额: o.amount, ...(还原 ? { 阶段: o.stage, 概率: o.probability } : {}) },
   });
   刷新商机(o.customerId);
   return { ok: true as const };

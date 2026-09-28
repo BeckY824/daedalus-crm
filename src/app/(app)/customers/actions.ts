@@ -18,6 +18,8 @@ import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 import { 查电话, 规整手机号 } from "@/lib/phone";
+import { setOppStatus } from "../opportunities/actions";
+import { completePlan, toggleTask } from "./[id]/actions";
 
 
 /** 状态不在取值表里就给那句报错，合法给 null。建客户、批量改、撤销、行内改四处共用，报错文案一字不改 */
@@ -473,9 +475,39 @@ export type ContractDuplicate = {
 };
 
 export type SaveContractResult =
-  | { ok: true }
+  | { ok: true; 联动?: 签约联动结果 }
   | { ok: false; error: string }
   | { ok: false; duplicate: ContractDuplicate };
+
+/**
+ * 登记签约时顺手收的尾：哪几个商机一起标赢单、哪几条计划 / 待办一起完成。
+ *
+ * 2026-09-28 审查 S3：签约和赢单原来是两条互不相通的线——签了 ¥86,000，
+ * 商机还挂在「方案报价」、照样算进在谈金额；逾期计划也还在首页催你「先处理」
+ * 一个已经签下来的人。弹窗里把这几样列出来、默认勾上，人可以取消勾选。
+ * 服务端**只照勾选的做**，一项不勾就一项不动。
+ */
+export type 签约联动 = { 赢单: string[]; 完成计划: string[]; 完成待办: string[] };
+export type 签约联动结果 = { 赢单: number; 完成计划: number; 完成待办: number };
+
+/** 登记签约弹窗要列的东西：这位客户进行中的商机、没完成的计划和待办 */
+export async function listContractLinks(customerId: string): Promise<{
+  商机: { id: string; name: string; amount: number; stage: string }[];
+  计划: { id: string; subject: string; plannedAt: string }[];
+  待办: { id: string; title: string; dueAt: string | null }[];
+}> {
+  await requireUser();
+  const [商机, 计划, 待办] = await Promise.all([
+    prisma.opportunity.findMany({ where: { customerId, status: "OPEN" }, orderBy: { createdAt: "desc" }, select: { id: true, name: true, amount: true, stage: true } }),
+    prisma.followPlan.findMany({ where: { customerId, done: false }, orderBy: { plannedAt: "asc" }, select: { id: true, subject: true, plannedAt: true } }),
+    prisma.task.findMany({ where: { customerId, done: false }, orderBy: { dueAt: "asc" }, select: { id: true, title: true, dueAt: true } }),
+  ]);
+  return {
+    商机,
+    计划: 计划.map((x) => ({ ...x, plannedAt: x.plannedAt.toISOString() })),
+    待办: 待办.map((x) => ({ ...x, dueAt: x.dueAt?.toISOString() ?? null })),
+  };
+}
 
 /**
  * 登记签约。
@@ -492,6 +524,8 @@ export async function saveContract(input: {
   remark: string | null;
   /** 用户已在弹窗里确认「确实是另一笔」 */
   force?: boolean;
+  /** 一起收尾的商机 / 计划 / 待办（弹窗里勾上的）。只在新登记时生效，编辑一笔旧签约不牵动别的 */
+  联动?: 签约联动;
 }): Promise<SaveContractResult> {
   const me = await requireUser();
   if (!Number.isFinite(input.amount) || input.amount <= 0) {
@@ -553,8 +587,31 @@ export async function saveContract(input: {
     data: { followStatus: "已签约", decisionStatus: "已决定报名" },
   });
 
+  const 联动 = !input.id && input.联动 ? await 签约收尾(input.customerId, input.联动) : undefined;
+
   revalidateCustomer(input.customerId);
-  return { ok: true };
+  return { ok: true, ...(联动 ? { 联动 } : {}) };
+}
+
+/**
+ * 照勾选把商机标赢单、计划和待办标完成。
+ *
+ * **每一样都走它原本的 action**（setOppStatus / completePlan / toggleTask），
+ * 留痕、刷新各管各的——自己在这里另写一遍 update，日志里就少了「商机标记为赢单」
+ * 那一条，而那正是事后回答「这单什么时候赢的」的唯一地方。
+ * 只动属于这位客户、而且还没收尾的：id 是从浏览器来的，别人家的商机、已丢单的商机
+ * 不该因为一次签约被改掉。
+ */
+async function 签约收尾(customerId: string, 勾: 签约联动): Promise<签约联动结果> {
+  const [商机, 计划, 待办] = await Promise.all([
+    prisma.opportunity.findMany({ where: { id: { in: 勾.赢单 ?? [] }, customerId, status: "OPEN" }, select: { id: true } }),
+    prisma.followPlan.findMany({ where: { id: { in: 勾.完成计划 ?? [] }, customerId, done: false }, select: { id: true } }),
+    prisma.task.findMany({ where: { id: { in: 勾.完成待办 ?? [] }, customerId, done: false }, select: { id: true } }),
+  ]);
+  for (const o of 商机) await setOppStatus(o.id, "WON");
+  for (const p of 计划) await completePlan(p.id);
+  for (const t of 待办) await toggleTask(t.id, true);
+  return { 赢单: 商机.length, 完成计划: 计划.length, 完成待办: 待办.length };
 }
 
 /**

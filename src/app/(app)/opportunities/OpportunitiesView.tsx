@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, InputNumber, DatePicker, Slider, App, Dropdown } from "antd";
+import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, InputNumber, DatePicker, Slider, App, Dropdown, Popover } from "antd";
 import {
   PlusOutlined,
   MoreOutlined,
@@ -17,8 +17,10 @@ import DataList, { type 列 } from "@/components/DataList";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { money, fmtDate, dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { saveOpportunity, deleteOpportunities, moveStage, setOppStatus } from "./actions";
-import { useBusiness } from "@/lib/business-client";
+import { saveContract } from "../customers/actions";
+import InlineConfirm from "@/components/InlineConfirm";
 import { 金额格式 } from "@/lib/money-input";
+import { useBusiness } from "@/lib/business-client";
 import { useUrlFilters } from "@/lib/url-filters";
 
 export type OppRow = {
@@ -96,6 +98,65 @@ export default function OpportunitiesView({
     router.refresh();
   }
 
+  /** 哪一行正在问「标为丢单？」/「标为赢单」。从「更多」菜单里点进来，就地问，不弹框 */
+  const [问丢单, set问丢单] = useState<string | null>(null);
+  const [问赢单, set问赢单] = useState<string | null>(null);
+
+  /**
+   * 标丢单：就地确认之后才写，写完给一次撤销（2026-09-28 审查 S7）。
+   * 撤销走 setOppStatus 改回进行中，**阶段和概率原样带回去**——丢单会把概率清零，
+   * 只改 status 的话人手填的 75% 就没了。
+   */
+  async function 标丢单(r: OppRow) {
+    const res = await setOppStatus(r.id, "LOST");
+    if (!res.ok) return void message.error(res.error);
+    router.refresh();
+    const key = `lost-${r.id}`;
+    message.success({
+      key,
+      content: (
+        <span>
+          「{r.name}」已标为丢单
+          <Button
+            type="link"
+            size="small"
+            onClick={async () => {
+              message.destroy(key);
+              const back = await setOppStatus(r.id, "OPEN", { stage: r.stage, probability: r.probability });
+              if (!back.ok) return void message.error(back.error);
+              message.success(`「${r.name}」已改回进行中`);
+              router.refresh();
+            }}
+          >
+            撤销
+          </Button>
+        </span>
+      ),
+      duration: 6,
+    });
+  }
+
+  /**
+   * 标赢单，顺手问一句要不要登记签约（2026-09-28 审查 S3）。
+   * 原来这两条线互不相通：赢了单，本月签约金额和客户状态都不动。
+   * 选登记就走 saveContract——查重、留痕、把客户推到「已签约」都在那里面，这里不另写一遍。
+   */
+  async function 标赢单(r: OppRow, 签约: { amount: number; signedAt: Date } | null) {
+    const res = await setOppStatus(r.id, "WON");
+    if (!res.ok) return void message.error(res.error);
+    set问赢单(null);
+    let 另 = "";
+    if (签约) {
+      const c = await saveContract({ customerId: r.customerId, amount: 签约.amount, signedAt: 签约.signedAt, remark: `商机「${r.name}」赢单时登记` });
+      if (c.ok) 另 = `，签约 ${money(签约.amount)} 已登记`;
+      else if ("duplicate" in c) {
+        message.warning(`${r.customerName} 在 ${fmtDate(c.duplicate.signedAt)} 已有一笔 ${money(c.duplicate.amount)} 的签约，没有重复登记`);
+      } else message.error(c.error);
+    }
+    message.success(`恭喜赢单${另}`);
+    router.refresh();
+  }
+
   const totalAmount = rows.reduce((s, r) => s + r.amount, 0);
   const openAmount = rows.filter((r) => r.status === "OPEN").reduce((s, r) => s + r.amount, 0);
   const forecast = rows
@@ -151,36 +212,38 @@ export default function OpportunitiesView({
     {
       title: "", key: "act", width: 110, 常驻: true, fixed: "right",
       render: (_, r) => (
+        // 问「标为丢单？」那一句比这一格宽：盖在左边一格上（.opp-act），不临时加宽——加宽整张表会跳一下
+        <span className="opp-act">
+        <InlineConfirm
+          问="标为丢单？"
+          是="丢单"
+          开={问丢单 === r.id}
+          set开={(v) => set问丢单(v ? r.id : null)}
+          做={() => 标丢单(r)}
+        >
         <Space size={2}>
           {/* 赢单 / 丢单 收进「更多」：一行里摆两个文字按钮太吵，六列也就挤不下了。
-              它们是结果不是日常动作，一天点不了几次 */}
+              它们是结果不是日常动作，一天点不了几次。
+              两样都不再一点就生效：丢单就地问一句，赢单就地问要不要顺手登记签约 */}
           {r.status === "OPEN" && (
-            <Dropdown
-              menu={{
-                items: [
-                  {
-                    key: "won",
-                    label: "标记赢单",
-                    onClick: async () => {
-                      await setOppStatus(r.id, "WON");
-                      message.success("恭喜赢单！");
-                      router.refresh();
-                    },
-                  },
-                  {
-                    key: "lost",
-                    label: "标记丢单",
-                    danger: true,
-                    onClick: async () => {
-                      await setOppStatus(r.id, "LOST");
-                      router.refresh();
-                    },
-                  },
-                ],
-              }}
+            <Popover
+              open={问赢单 === r.id}
+              trigger={[]}
+              placement="bottomRight"
+              destroyOnHidden
+              content={<WonAsk r={r} 做={(签约) => 标赢单(r, 签约)} 取消={() => set问赢单(null)} />}
             >
-              <Button aria-label={`${r.name} 的更多操作`} title="更多" type="text" size="small" icon={<MoreOutlined />} />
-            </Dropdown>
+              <Dropdown
+                menu={{
+                  items: [
+                    { key: "won", label: "标记赢单", onClick: () => { set问丢单(null); set问赢单(r.id); } },
+                    { key: "lost", label: "标记丢单", danger: true, onClick: () => { set问赢单(null); set问丢单(r.id); } },
+                  ],
+                }}
+              >
+                <Button aria-label={`${r.name} 的更多操作`} title="更多" type="text" size="small" icon={<MoreOutlined />} />
+              </Dropdown>
+            </Popover>
           )}
           <Button
             aria-label={`编辑 ${r.name}`}
@@ -215,6 +278,8 @@ export default function OpportunitiesView({
             }
           />
         </Space>
+        </InlineConfirm>
+        </span>
       ),
     },
   ];
@@ -410,5 +475,52 @@ export default function OpportunitiesView({
         </Form>
       </Modal>
     </>
+  );
+}
+
+/**
+ * 「标记赢单」的就地确认：顺手登记签约吗。金额带商机金额、日期今天，都能改；也可以只标赢单。
+ * 放在 Popover 里而不是弹框：它就是一句问话加两个可改的数，盖半屏不值得。
+ */
+function WonAsk({ r, 做, 取消 }: { r: OppRow; 做: (签约: { amount: number; signedAt: Date } | null) => Promise<void>; 取消: () => void }) {
+  const [amount, setAmount] = useState<number | null>(r.amount > 0 ? r.amount : null);
+  const [day, setDay] = useState(dayjs());
+  const [忙, set忙] = useState<"签" | "只" | null>(null);
+  const 跑 = async (哪个: "签" | "只") => {
+    set忙(哪个);
+    try {
+      await 做(哪个 === "签" && amount ? { amount, signedAt: day.toDate() } : null);
+    } finally {
+      set忙(null);
+    }
+  };
+  return (
+    <div className="won-ask">
+      <div className="won-ask-t">「{r.name}」标为赢单</div>
+      <div className="won-ask-s">顺手给 {r.customerName} 登记一笔签约？</div>
+      <Space size={8}>
+        <InputNumber<number>
+          aria-label="签约金额"
+          prefix="¥"
+          min={0}
+          step={1000}
+          style={{ width: 150 }}
+          placeholder="签约金额"
+          value={amount}
+          onChange={(v) => setAmount(v)}
+          formatter={金额格式}
+        />
+        <DatePicker aria-label="签约日期" allowClear={false} value={day} onChange={(d) => d && setDay(d)} style={{ width: 140 }} />
+      </Space>
+      <Space size={8} className="won-ask-b">
+        <Button type="primary" size="small" loading={忙 === "签"} disabled={!amount || (忙 !== null && 忙 !== "签")} onClick={() => void 跑("签")}>
+          赢单并登记签约
+        </Button>
+        <Button size="small" loading={忙 === "只"} disabled={忙 !== null && 忙 !== "只"} onClick={() => void 跑("只")}>
+          只标赢单
+        </Button>
+        <Button size="small" type="text" onClick={取消}>取消</Button>
+      </Space>
+    </div>
   );
 }

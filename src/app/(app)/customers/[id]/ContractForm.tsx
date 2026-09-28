@@ -1,11 +1,25 @@
 "use client";
 
-import { useState } from "react";
-import { Modal, Form, InputNumber, DatePicker, Input, App } from "antd";
-import { dayjs, money } from "@/lib/utils";
-import { saveContract } from "../actions";
+import { useEffect, useState } from "react";
+import { Modal, Form, InputNumber, DatePicker, Input, App, Checkbox } from "antd";
+import { dayjs, money, fmtDate } from "@/lib/utils";
+import { saveContract, listContractLinks, type 签约联动, type 签约联动结果 } from "../actions";
 import { useBusiness } from "@/lib/business-client";
+import { StageTag } from "@/components/ui";
 import { 金额格式 } from "@/lib/money-input";
+
+type 可收尾 = Awaited<ReturnType<typeof listContractLinks>>;
+
+/** 「签约已记录，同时：1 个商机标为赢单、完成 2 条计划」——做了什么就说什么，一样没做就不提 */
+function 联动说法(r?: 签约联动结果): string {
+  if (!r) return "";
+  const 句 = [
+    r.赢单 ? `${r.赢单} 个商机标为赢单` : "",
+    r.完成计划 ? `完成 ${r.完成计划} 条计划` : "",
+    r.完成待办 ? `完成 ${r.完成待办} 条待办` : "",
+  ].filter(Boolean);
+  return 句.length ? `，同时：${句.join("、")}` : "";
+}
 
 export type ContractRow = {
   id: string;
@@ -42,6 +56,24 @@ function Inner({
   const b = useBusiness();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  /*
+    登记新签约时顺手收尾（2026-09-28 审查 S3）：这位客户进行中的商机默认勾「同时标为赢单」，
+    没完成的计划和待办默认勾「一并完成」。人可以取消勾选，服务端只照勾选的做。
+    编辑一笔旧签约不列——那不是「刚签下来」，牵动别的东西只会吓人一跳。
+  */
+  const [可收, set可收] = useState<可收尾 | null>(null);
+  const [勾, set勾] = useState<签约联动>({ 赢单: [], 完成计划: [], 完成待办: [] });
+  useEffect(() => {
+    if (editing) return;
+    let 还在 = true;
+    void listContractLinks(customerId).then((r) => {
+      if (!还在) return;
+      set可收(r);
+      set勾({ 赢单: r.商机.map((x) => x.id), 完成计划: r.计划.map((x) => x.id), 完成待办: r.待办.map((x) => x.id) });
+    });
+    return () => { 还在 = false; };
+  }, [customerId, editing]);
+  const 有可收 = 可收 && 可收.商机.length + 可收.计划.length + 可收.待办.length > 0;
 
   async function submit(force: boolean) {
     const v = await form.validateFields();
@@ -52,6 +84,7 @@ function Inner({
       signedAt: v.signedAt.toDate(),
       remark: v.remark ?? null,
       force,
+      ...(editing ? {} : { 联动: 勾 }),
     });
   }
 
@@ -60,7 +93,7 @@ function Inner({
     try {
       const res = await submit(false);
       if (res.ok) {
-        message.success(editing ? "已保存" : "签约已记录");
+        message.success(editing ? "已保存" : `签约已记录${联动说法(res.联动)}`);
         onClose(true);
         return;
       }
@@ -94,7 +127,7 @@ function Inner({
         async onOk() {
           const again = await submit(true);
           if (again.ok) {
-            message.success(editing ? "已保存" : "签约已记录");
+            message.success(editing ? "已保存" : `签约已记录${联动说法(again.联动)}`);
             onClose(true);
           } else if ("error" in again) {
             message.error(again.error);
@@ -144,6 +177,51 @@ function Inner({
         <Form.Item label="备注" name="remark" extra="课程内容、付款方式、分期安排等">
           <Input.TextArea rows={3} placeholder="选填" />
         </Form.Item>
+        {有可收 && (
+          <div className="contract-links">
+            {可收.商机.length > 0 && (
+              <div className="contract-links-g">
+                <div className="contract-links-t">同时标为赢单</div>
+                <Checkbox.Group
+                  value={勾.赢单}
+                  onChange={(v) => set勾({ ...勾, 赢单: v as string[] })}
+                  options={可收.商机.map((o) => ({
+                    value: o.id,
+                    label: (
+                      <span className="contract-links-i">
+                        <span>{o.name}</span>
+                        <StageTag stage={o.stage} />
+                        <span className="contract-links-m">{money(o.amount)}</span>
+                      </span>
+                    ),
+                  }))}
+                />
+              </div>
+            )}
+            {可收.计划.length + 可收.待办.length > 0 && (
+              <div className="contract-links-g">
+                <div className="contract-links-t">没做完的计划和待办，一并完成</div>
+                <Checkbox.Group
+                  value={[...勾.完成计划, ...勾.完成待办]}
+                  onChange={(v) => {
+                    const 选 = new Set(v as string[]);
+                    set勾({ ...勾, 完成计划: 可收.计划.filter((x) => 选.has(x.id)).map((x) => x.id), 完成待办: 可收.待办.filter((x) => 选.has(x.id)).map((x) => x.id) });
+                  }}
+                  options={[
+                    ...可收.计划.map((x) => ({
+                      value: x.id,
+                      label: <span className="contract-links-i"><span>计划 · {x.subject}</span><span className="contract-links-m">{fmtDate(x.plannedAt)}</span></span>,
+                    })),
+                    ...可收.待办.map((x) => ({
+                      value: x.id,
+                      label: <span className="contract-links-i"><span>待办 · {x.title}</span>{x.dueAt && <span className="contract-links-m">{fmtDate(x.dueAt)}</span>}</span>,
+                    })),
+                  ]}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </Form>
     </Modal>
   );
