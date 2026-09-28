@@ -70,6 +70,20 @@ export async function proxy(request: NextRequest) {
   }
 
   /**
+   * /reports 并进了 /overview（见 app/(app)/reports/page.tsx，那份留着兜底）。跳转放在这里而不是页面里：
+   * 页面里的 redirect() 碰上已经开始流式输出的布局，Next 只能退成客户端跳转——旧书签点进来
+   * 先看到一页空白的外壳再跳（e2e 零数据巡检 600ms 时抓到的就是这一瞬）。这里是一个干净的 307。
+   * 不写进 next.config 的 redirects：目标里有中文，那边会把它解码进 Location 头，直接 500。
+   */
+  if (valid && pathname === "/reports") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/overview";
+    url.search = "";
+    url.searchParams.set("view", "本年");
+    return NextResponse.redirect(url);
+  }
+
+  /**
    * 把路径写进请求头：(app)/layout.tsx 要按路由决定中栏放什么（首页放「今天」、学员放列表），
    * 而 Server Component 的布局拿不到路径，只有这里能给。只是一个只读的提示，不涉及权限。
    */
