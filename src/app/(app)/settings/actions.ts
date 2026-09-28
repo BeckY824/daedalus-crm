@@ -466,15 +466,15 @@ export async function 退出这台机器(id: string) {
 
 /* ---------- AI 接入 ---------- */
 
+const 是网址 = (s: string) => /^https?:\/\//.test(s.trim());
+
 /**
  * 保存 AI 接入配置。只有管理员能改；日志只记"改了"，不记任何值——
  * 地址与模型名无所谓，但同一条日志里不能出现 key，哪怕是尾号。
  */
 export async function saveLlmSettings(input: { baseUrl: string; model: string; apiKey?: string | null; options?: ModelOption[] }) {
   const me = await requireAdmin();
-  if (!/^https?:\/\//.test(input.baseUrl.trim())) {
-    return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
-  }
+  if (!是网址(input.baseUrl)) return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
   if (!input.model.trim()) return { ok: false as const, error: "请填写模型名" };
   await saveLlmConfig(input);
   await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "llm", summary: "修改了 AI 接入配置" });
@@ -493,9 +493,7 @@ export async function clearLlmSettings() {
 /** 用表单里当前填的值发一次最小请求；key 留空则用已保存的 */
 export async function testLlmSettings(input: { baseUrl: string; model: string; apiKey?: string | null }) {
   await requireAdmin();
-  if (!/^https?:\/\//.test(input.baseUrl.trim())) {
-    return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
-  }
+  if (!是网址(input.baseUrl)) return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
   const cfg = await resolveLlmConfigForTest(input);
   if (!cfg) return { ok: false as const, error: "还没有 API Key：请先填写" };
   return testLlm(cfg);
