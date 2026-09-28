@@ -10,6 +10,8 @@ npm run dev
 
 打开 http://localhost:3000，`admin` / `admin123`（开发库与 compose 的默认密码）。测试说明见 [docs/测试.md](docs/测试.md)。
 
+代码怎么分、想加一个 AI 工具 / 行业预设 / 模型接入 / 列表页该改哪几个文件，见 [docs/架构.md](docs/架构.md)。
+
 ## 跑测试
 
 ```bash
