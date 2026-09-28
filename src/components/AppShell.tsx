@@ -84,6 +84,9 @@ type Props = {
  * 导航文案就是模块名，不带「管理」二字：那两个字每一项都有，等于每一项都没有。
  * 每个入口都带 aria-label，屏幕阅读器和 e2e 都按这个名字找。
  */
+/** 面板常驻要的最小窗口宽度，见 AppShell 里 窄窗 那段 */
+const 面板放不下 = "(max-width: 1599px)";
+
 export default function AppShell({ user, pendingCount, desktop, 反馈去向, pane, ai, children }: Props) {
   const b = useBusiness();
   const router = useRouter();
@@ -117,20 +120,22 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
     () => true,
   );
   /**
-   * **窗口窄（< 1280）时面板默认收着**，⌘J 照样打得开。
+   * **放得下才常驻**：窗口不到 1600 宽时面板默认收着，⌘J 照样打得开，手动开合过就听手动的。
    *
-   * 2026-09-28 拿教程录制脚本对着当前代码重跑时查出来的：教程是 1120 宽录的，那时没开 AI 所以没有面板；
-   * 登录了云端账号的真实用户面板默认常驻，1120 宽的窗口里正文只剩 1120 - 220 - 380 = 520，
-   * 客户表只剩「客户」「公司」两列，状态、负责人全被挤出去，档案页也塌成一栏。应用允许把窗口拉到 1024。
-   * 常驻是用户定的，所以不改默认——只在放不下的时候先收着。1440 的默认窗口照旧常驻。
+   * 2026-09-28 拿 11 段教程的录制脚本对着当前代码重跑查出来的。教程录的时候没登录 AI，画面里没有面板；
+   * 登录了的真实用户面板默认常驻，正文只剩「窗口 - 左栏 220 - 面板 380」：
+   *   - 1120 宽剩 520：客户表只剩「客户」「公司」两列，档案页塌成一栏
+   *   - 1440（应用的默认窗口）剩 840：商机看板只露两列半，拖卡片拖不到右边那几列
+   * 常驻是用户定的，所以不是去掉，而是放得下才常驻：1600 起正文还有 1000，看板和表格都摆得开
+   * （16 寸 MacBook、外接屏）；13、14 寸笔记本的 1440–1512 默认收着，和教程里的样子一致。
    */
   const 窄窗 = useSyncExternalStore(
     (变了) => {
-      const mq = window.matchMedia("(max-width: 1279px)");
+      const mq = window.matchMedia(面板放不下);
       mq.addEventListener("change", 变了);
       return () => mq.removeEventListener("change", 变了);
     },
-    () => window.matchMedia("(max-width: 1279px)").matches,
+    () => window.matchMedia(面板放不下).matches,
     () => false,
   );
   /** 这一次会话里手动开合过。null = 还没动过，听存档的 */
