@@ -116,9 +116,26 @@ export default function AppShell({ user, pendingCount, desktop, 反馈去向, pa
     // 不能在 effect 里 setState——那是「effect 里同步 setState」，会级联渲染
     () => true,
   );
+  /**
+   * **窗口窄（< 1280）时面板默认收着**，⌘J 照样打得开。
+   *
+   * 2026-09-28 拿教程录制脚本对着当前代码重跑时查出来的：教程是 1120 宽录的，那时没开 AI 所以没有面板；
+   * 登录了云端账号的真实用户面板默认常驻，1120 宽的窗口里正文只剩 1120 - 220 - 380 = 520，
+   * 客户表只剩「客户」「公司」两列，状态、负责人全被挤出去，档案页也塌成一栏。应用允许把窗口拉到 1024。
+   * 常驻是用户定的，所以不改默认——只在放不下的时候先收着。1440 的默认窗口照旧常驻。
+   */
+  const 窄窗 = useSyncExternalStore(
+    (变了) => {
+      const mq = window.matchMedia("(max-width: 1279px)");
+      mq.addEventListener("change", 变了);
+      return () => mq.removeEventListener("change", 变了);
+    },
+    () => window.matchMedia("(max-width: 1279px)").matches,
+    () => false,
+  );
   /** 这一次会话里手动开合过。null = 还没动过，听存档的 */
   const [手动, set手动] = useState<boolean | null>(null);
-  const 面板开着 = 手动 ?? 存的面板;
+  const 面板开着 = 手动 ?? (窄窗 ? false : 存的面板);
   /** 名单和记录页的断点要知道右边这条面板占了地方（见 lib/roster.ts 的 DockOpenContext） */
   const 面板占着地方 = Boolean(ai) && !小屏 && 面板开着 && 底下那页 !== "/dashboard";
   const 记住面板 = (开: boolean) => {
