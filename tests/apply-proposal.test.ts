@@ -18,7 +18,7 @@ vi.mock("@/lib/auth", () => ({
   requireUser: async () => ({ id: "tester-id", name: "测试员", email: "t", role: "ADMIN", title: "" }),
 }));
 
-import { applyProposal } from "@/app/(app)/dashboard/apply";
+import { applyProposal, undoProposal } from "@/app/(app)/dashboard/apply";
 
 let 销售A: string;
 let 销售B: string;
@@ -167,5 +167,66 @@ describe("商机与签约也走原有 action", () => {
     expect(r.ok).toBe(true);
     const k = await prisma.contract.findFirst({ where: { customerId: 客户 } });
     expect(k!.amount).toBe(19800);
+  });
+});
+
+/**
+ * 撤销：确认之后发现不对，点一下回到确认之前。
+ * 只开了两种能干净还原的（记跟进、改状态）；凭据从前端带回来，和卡片一样不可信。
+ */
+describe("撤销刚确认的建议卡", () => {
+  // 记跟进要落 ownerId，登录的那位得真在库里
+  beforeEach(async () => {
+    await prisma.user.create({ data: { id: "tester-id", email: "tester@t", name: "测试员", role: "ADMIN", password: "x" } });
+  });
+
+  const 跟进卡 = () => ({
+    id: "u1", kind: "add_followup" as const, customerId: 客户, customerName: "陈同学", reason: "测试",
+    type: "PHONE", title: "", content: "电话聊了报价", occurredAt: new Date("2026-09-20T10:00:00").toISOString(),
+  });
+
+  it("记跟进：撤销后那条跟进没了，「最近跟进」退回原来的时间", async () => {
+    const 旧 = new Date("2026-09-01T09:00:00");
+    await prisma.followUp.create({ data: { customerId: 客户, type: "PHONE", title: "", content: "早先那次", status: "已完成", occurredAt: 旧, ownerId: 销售A } });
+    await prisma.customer.update({ where: { id: 客户 }, data: { lastFollowAt: 旧 } });
+
+    const r = await applyProposal(跟进卡());
+    expect(r.ok && r.撤销?.kind).toBe("add_followup");
+    expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.lastFollowAt!.getTime()).toBeGreaterThan(旧.getTime());
+
+    const u = await undoProposal(r.ok ? r.撤销! : (null as never));
+    expect(u.ok).toBe(true);
+    expect(await prisma.followUp.count({ where: { customerId: 客户 } })).toBe(1);
+    expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.lastFollowAt!.getTime()).toBe(旧.getTime());
+    expect(await prisma.auditLog.count({ where: { action: "ai_undo" } })).toBe(1);
+  });
+
+  it("改状态：撤销后回到原值", async () => {
+    await prisma.customer.update({ where: { id: 客户 }, data: { followStatus: "跟进中" } });
+    const r = await applyProposal({ id: "u2", kind: "set_status", customerId: 客户, customerName: "陈同学", reason: "测试", field: "followStatus", to: "意向较高" });
+    expect(r.ok).toBe(true);
+    expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.followStatus).toBe("意向较高");
+    expect(await undoProposal(r.ok ? r.撤销! : (null as never))).toEqual({ ok: true });
+    expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.followStatus).toBe("跟进中");
+  });
+
+  it("凭据被改成别的客户的跟进：一条都不删", async () => {
+    const 别人的 = await prisma.followUp.create({ data: { customerId: 推荐人, type: "PHONE", title: "", content: "赵同学的", status: "已完成", occurredAt: new Date(), ownerId: 销售A } });
+    const u = await undoProposal({ kind: "add_followup", customerId: 客户, id: 别人的.id });
+    expect(u.ok).toBe(false);
+    expect(await prisma.followUp.findUnique({ where: { id: 别人的.id } })).not.toBeNull();
+  });
+
+  it("不支持的种类不动任何东西", async () => {
+    const u = await undoProposal({ kind: "add_contract", customerId: 客户 } as never);
+    expect(u.ok).toBe(false);
+  });
+
+  it("签约、商机这些不给撤销凭据——撤回会牵连别处，没想清楚之前不开", async () => {
+    const r = await applyProposal({
+      id: "u3", kind: "add_contract", customerId: 客户, customerName: "陈同学", reason: "测试",
+      amount: 5000, signedAt: new Date("2026-09-01").toISOString(), remark: "",
+    });
+    expect(r.ok && r.撤销).toBeUndefined();
   });
 });

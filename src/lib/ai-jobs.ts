@@ -107,6 +107,11 @@ export function 记下建议结果(记号: string, 结果: "done" | "denied"): v
   notify();
 }
 
+/** 撤销之后这张卡回到「等你确认」 */
+export function 清掉建议结果(记号: string): void {
+  if (处理过的建议.delete(记号)) notify();
+}
+
 export function 建议结果(记号: string): "done" | "denied" | undefined {
   return 处理过的建议.get(记号);
 }

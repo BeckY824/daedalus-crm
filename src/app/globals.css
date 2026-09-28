@@ -25,6 +25,10 @@
   --warning: #d97706; --warning-text: #92400e; --warning-bg: #fffbeb; --warning-line: #fde68a;
   --danger:  #dc2626; --danger-text:  #b91c1c; --danger-bg:  #fef2f2; --danger-line:  #fecaca;
   --on-ink: #ffffff;         /* 压在深色底上的字。以前是散在各处的 #fff */
+  /* 铅笔与墨水：AI 起草、还没确认的一律铅笔（虚线、浅灰）；你确认过的是墨水（实线、墨色）。
+     全站只有这一条视觉语法区分「AI 说的」和「已经是事实的」，不新增颜色，只借现有的两级 */
+  --pencil: var(--text-faint);
+  --pencil-text: var(--text-muted);
 
   /* 分类色：给"只是不同、没有高低"的东西（商机阶段、跟进类型、并列的图表线）。
      八个色相拉开；好坏另有 success / warning / danger。JS 那边同一套在 lib/palette.ts */
@@ -888,9 +892,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .mp-note { margin-left: auto; font-size: var(--fs-min); color: var(--success); background: var(--success-bg); border-radius: var(--r-ctl); padding: 0 5px; }
 /* AI 建议卡：唯一一条让模型输出进库的路，所以要显眼但不喧宾夺主 */
 .prop-list { margin-top: 12px; margin-left: 20px; display: flex; flex-direction: column; gap: 8px; }
-.prop { border: 1px solid var(--line-strong); border-left: 2px solid var(--brand); border-radius: var(--r-card); background: var(--panel); padding: 12px 14px; }
+/* 建议卡没确认之前是铅笔：虚线框、「AI 草稿」字样也是虚线。确认之后换成 .prop-done 的墨水 */
+.prop { border: 1px dashed var(--pencil); border-radius: var(--r-card); background: var(--panel); padding: 12px 14px; }
 .prop-h { display: flex; align-items: baseline; gap: 8px; }
-.prop-tag { flex: none; font-size: var(--fs-min); color: var(--brand); background: var(--brand-bg); border-radius: var(--r-ctl); padding: 1px 6px; }
+.prop-tag { flex: none; font-size: var(--fs-min); color: var(--pencil-text); border: 1px dashed var(--pencil); border-radius: var(--r-ctl); padding: 0 6px; }
 .prop-t { color: var(--ink); font-weight: 500; font-size: var(--fs-body); }
 .prop-why { margin-top: 6px; color: var(--text-muted); font-size: var(--fs-note); line-height: 1.6; }
 .prop-body { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px 16px; }
@@ -918,7 +923,18 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .prop-no { display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--line-strong); background: var(--panel); color: var(--text-muted); font-size: var(--fs-note); padding: 4px 12px; border-radius: var(--r-ctl); cursor: pointer; }
 .prop-no:hover { color: var(--ink); border-color: var(--text-faint); }
 .prop-note { margin-left: auto; font-size: var(--fs-min); color: var(--text-faint); }
-.prop-done { display: flex; align-items: center; gap: 8px; border: 1px solid var(--success-line); background: var(--success-bg); border-radius: var(--r-card); padding: 8px 12px; color: var(--success-text); font-size: var(--fs-note); }
+/*
+  墨水：确认之后框变实线、字变墨色，左边落一个印「已写入 21:40」。
+  落印是全站唯一「用力」的一下（放大落下、微微回弹，--ease-spring）；卡片重挂时不再落一遍，
+  只有刚点确认的那一次才有 .is-new。减弱动态下时长归零，只剩结果。
+  以前这里是一行绿字——绿色说的是「成功」，而这张卡要说的是「这件事现在是真的了，是你盖的章」。
+*/
+.prop-done { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; border: 1px solid var(--ink-soft); background: var(--panel); border-radius: var(--r-card); padding: 8px 12px; color: var(--ink); font-size: var(--fs-note); }
+.prop-done-t { flex: 1 1 180px; min-width: 0; }
+.prop-seal { flex: none; display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; line-height: 20px; border: 1.5px solid var(--ink); border-radius: var(--r-ctl); color: var(--ink); font-size: var(--fs-min); font-weight: 600; letter-spacing: .04em; font-variant-numeric: tabular-nums; rotate: -2deg; }
+.prop-seal.is-new { animation: prop-seal var(--t-morph) var(--ease-spring) both; }
+@keyframes prop-seal { from { opacity: 0; transform: scale(1.35); } to { opacity: 1; transform: none; } }
+.prop-done-acts { display: inline-flex; align-items: center; gap: 12px; }
 /* 底栏：小图标 + 时间 */
 .cli-bar { margin-top: 8px; padding-left: 16px; display: flex; align-items: center; gap: 2px; }
 .cli-ic { border: 0; background: none; width: 26px; height: 26px; border-radius: var(--r-ctl); color: var(--text-muted); cursor: pointer; font-size: var(--fs-note); display: inline-flex; align-items: center; justify-content: center; }
@@ -1522,6 +1538,8 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
     transform: none !important;
     scale: none !important;
   }
+  /* 落印不放大落下，直接就是盖好的样子 */
+  .prop-seal.is-new { animation: none !important; }
 }
 
 

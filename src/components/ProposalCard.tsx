@@ -7,10 +7,10 @@ import Link from "next/link";
 import { App, Select, Input, DatePicker, Checkbox } from "antd";
 import { CheckOutlined, CloseOutlined, RightOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
-import { applyProposal } from "@/app/(app)/dashboard/apply";
+import { applyProposal, undoProposal, type 撤销凭据 } from "@/app/(app)/dashboard/apply";
 import { describeProposal, missingFields, 只留选中的改动, 可改字段表, type Proposal } from "@/lib/agent/proposals";
 import { useBusiness } from "@/lib/business-client";
-import { 建议结果, 记下建议结果 } from "@/lib/ai-jobs";
+import { 建议结果, 记下建议结果, 清掉建议结果 } from "@/lib/ai-jobs";
 import { statusLabel, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
@@ -24,7 +24,8 @@ import { dayjs } from "@/lib/utils";
  *
  * 它同时是一张表单：模型不知道的字段就留空，人在卡片上补，而不是被要求
  * 回到对话里照格式打一遍字。缺必填项时「确认」是灰的，旁边写明还差什么。
- * 确认之前什么都没发生；确认之后卡片塌成一行绿字，不留按钮，避免重复点。
+ * 确认之前什么都没发生；确认之后卡片从铅笔（虚线）换成墨水（实线），落一个印，
+ * 不再有确认按钮，避免重复点。刚确认的那一次还能撤销（只限记跟进、改状态，见 apply.ts 的 撤销凭据）。
  * 人改过的值不在这里判对错，服务端会用生成时同一套校验再收一遍。
  *
  * **改档案是逐项的**（批 2，照 Codex 在线程里审改动那一套）：一张卡里建议改三个字段，
@@ -49,6 +50,9 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
     if (记号 && (s === "done" || s === "denied")) 记下建议结果(记号, s);
   };
   const [err, setErr] = useState("");
+  /** 刚确认的这一次：落印的时刻、怎么撤。卡片重挂后没有了——撤销只给「刚点完发现不对」那一下 */
+  const [落印, set落印] = useState<{ at: string; 撤销?: 撤销凭据 } | null>(null);
+  const [撤销中, set撤销中] = useState(false);
   /** 改档案时逐项勾选。默认全勾上——建议是它提的，人只需要否掉不想要的那几项 */
   const [勾了, set勾了] = useState<number[]>(() => (proposal.kind === "update_customer" ? proposal.changes.map((_, i) => i) : [0]));
   const 逐项 = draft.kind === "update_customer" && draft.changes.length > 1;
@@ -65,6 +69,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
     setErr("");
     const r = await applyProposal(要提交的);
     if (r.ok) {
+      set落印({ at: dayjs().format("HH:mm"), 撤销: r.撤销 });
       setState("done");
       message.success(r.message);
       /*
@@ -82,11 +87,28 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
     }
   }
 
+  async function undo() {
+    if (!落印?.撤销) return;
+    set撤销中(true);
+    const r = await undoProposal(落印.撤销);
+    set撤销中(false);
+    if (!r.ok) {
+      message.error(r.error);
+      return;
+    }
+    // 回到「等你确认」：卡片还是那张，人可以改一改再确认，或者忽略
+    set落印(null);
+    set状态("idle");
+    if (记号) 清掉建议结果(记号);
+    message.success("已撤销，档案回到确认之前");
+    router.refresh();
+  }
+
   if (state === "denied") return null;
 
   if (state === "done") {
     return (
-      /* 确认之后这张卡**收成一条**：从建议的高度落到一行回执。
+      /* 确认之后这张卡**收成一条**：从建议的高度落到一行墨水回执。
          用 height: auto 的形变而不是直接换内容——直接换的话，下面的对话会往上跳一大截，
          人会以为自己点掉了什么东西 */
       <motion.div
@@ -96,11 +118,20 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
         transition={{ duration: 0.26, ease: [0.33, 0.55, 0.2, 1] }}
         style={{ overflow: "hidden" }}
       >
-        <CheckOutlined />
-        <span>{describeProposal(draft, b.customer, 字段表)}</span>
-        <Link href={draft.kind === "add_lead" ? "/leads" : draft.kind === "update_channel" ? "/channels" : `/customers/${draft.customerId}`} className="cli-link">
-          查看 <RightOutlined style={{ fontSize: 10 }} />
-        </Link>
+        <span className={`prop-seal${落印 ? " is-new" : ""}`}>
+          <CheckOutlined /> 已写入{落印 ? ` ${落印.at}` : ""}
+        </span>
+        <span className="prop-done-t">{describeProposal(draft, b.customer, 字段表)}</span>
+        <span className="prop-done-acts">
+          {落印?.撤销 && (
+            <button type="button" className="cli-link" onClick={undo} disabled={撤销中}>
+              {撤销中 ? "撤销中…" : "撤销"}
+            </button>
+          )}
+          <Link href={draft.kind === "add_lead" ? "/leads" : draft.kind === "update_channel" ? "/channels" : `/customers/${draft.customerId}`} className="cli-link">
+            查看 <RightOutlined style={{ fontSize: 10 }} />
+          </Link>
+        </span>
       </motion.div>
     );
   }
@@ -120,7 +151,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
       }}
     >
       <div className="prop-h">
-        <span className="prop-tag">建议</span>
+        <span className="prop-tag">AI 草稿</span>
         <span className="prop-t">{describeProposal(draft, b.customer, 字段表)}</span>
       </div>
       <div className="prop-why">{draft.reason}</div>

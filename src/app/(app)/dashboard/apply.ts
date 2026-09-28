@@ -6,13 +6,22 @@ import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
 import { buildProposal, missingFields, summarizeApplied, type Proposal, type 一处改动 } from "@/lib/agent/proposals";
 import { patchCustomer, saveCustomer, saveContract } from "../customers/actions";
-import { saveFollowUp, savePlan } from "../customers/[id]/actions";
+import { saveFollowUp, savePlan, deleteFollowUp } from "../customers/[id]/actions";
 import { saveLead } from "../leads/actions";
 import { saveOpportunity } from "../opportunities/actions";
 import { saveChannel } from "../channels/actions";
 import { 按名字找负责人 } from "@/lib/owners";
 
-export type ApplyResult = { ok: true; message: string } | { ok: false; error: string };
+/**
+ * 确认之后怎么撤回去。只给能**干净还原**的两种：记了一条跟进（删掉它）、改了一个状态（改回原值）。
+ * 别的几种撤回会牵连别处——签约会顺手把客户改成「已签约」，排计划会顶掉原来那条计划，
+ * 删掉新建的商机或线索前还可能已经被人接着改过——这些要各自想清楚再开，不在这里凑合。
+ */
+export type 撤销凭据 =
+  | { kind: "add_followup"; customerId: string; id: string }
+  | { kind: "set_status"; customerId: string; field: "followStatus" | "decisionStatus"; to: string };
+
+export type ApplyResult = { ok: true; message: string; 撤销?: 撤销凭据 } | { ok: false; error: string };
 
 /**
  * 确认一张 AI 建议卡，把它真的写进去。
@@ -174,6 +183,7 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   if (miss.length) return { ok: false, error: `还差${miss.join("、")}，填好再确认` };
 
   let done: { ok: true } | { ok: false; error: string };
+  let 撤销: 撤销凭据 | undefined;
   if (p.kind === "update_customer") {
     done = await 改档案(p.customerId, p.changes);
   } else if (p.kind === "add_opportunity") {
@@ -201,7 +211,10 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   } else if (p.kind === "update_channel") {
     done = await 改渠道(p);
   } else if (p.kind === "set_status") {
+    // 改之前记下原值：撤销就是把它改回去
+    const 原 = await prisma.customer.findUnique({ where: { id: p.customerId }, select: { followStatus: true, decisionStatus: true } });
     done = await patchCustomer(p.customerId, p.field, p.to);
+    if (done.ok && 原) 撤销 = { kind: "set_status", customerId: p.customerId, field: p.field, to: 原[p.field] };
   } else if (p.kind === "add_followup") {
     const r = await saveFollowUp({
       customerId: p.customerId,
@@ -212,6 +225,7 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
       occurredAt: p.occurredAt,
     });
     done = r.ok ? { ok: true } : { ok: false, error: r.error };
+    if (r.ok) 撤销 = { kind: "add_followup", customerId: p.customerId, id: r.id };
   } else if (p.kind === "add_plan") {
     const r = await savePlan({ customerId: p.customerId, subject: p.subject, plannedAt: p.plannedAt, method: p.method });
     done = r.ok ? { ok: true } : { ok: false, error: "计划没能保存" };
@@ -223,5 +237,29 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
 
   const summary = summarizeApplied(p, b.customer);
   await recordAudit({ user: me, action: "ai_apply", entity: "Ai", entityId: p.kind, summary, detail: { 对象: c.name || p.customerName, 理由: p.reason } });
-  return { ok: true, message: summary.replace("确认 AI 建议：", "已") };
+  return { ok: true, message: summary.replace("确认 AI 建议：", "已"), 撤销 };
+}
+
+/**
+ * 撤回刚确认的那张卡。凭据是前端带回来的，和卡片一样不可信：
+ * 只认上面两种形状，而且照样走原有的删除 / 改状态动作——权限、留痕、「最近跟进」重算都在那里面。
+ */
+export async function undoProposal(u: 撤销凭据): Promise<{ ok: true } | { ok: false; error: string }> {
+  const me = await requireUser();
+  const 名 = await prisma.customer.findUnique({ where: { id: String(u?.customerId ?? "") }, select: { name: true } });
+  if (!名) return { ok: false, error: "这条记录已被删除，没法撤销" };
+
+  if (u.kind === "add_followup") {
+    // 只删这位客户名下的那一条：凭据里的 id 对不上客户就不动
+    const f = await prisma.followUp.findFirst({ where: { id: String(u.id), customerId: u.customerId }, select: { id: true } });
+    if (!f) return { ok: false, error: "那条跟进已经不在了，可能已被删掉" };
+    await deleteFollowUp(f.id, u.customerId);
+  } else if (u.kind === "set_status" && (u.field === "followStatus" || u.field === "decisionStatus")) {
+    const r = await patchCustomer(u.customerId, u.field, String(u.to ?? ""));
+    if (!r.ok) return r;
+  } else {
+    return { ok: false, error: "这张卡不支持撤销" };
+  }
+  await recordAudit({ user: me, action: "ai_undo", entity: "Ai", entityId: u.kind, summary: `撤销 AI 建议：${名.name}的${u.kind === "add_followup" ? "一条跟进" : "状态改动"}` });
+  return { ok: true };
 }

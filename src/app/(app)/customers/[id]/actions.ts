@@ -85,6 +85,7 @@ export async function saveFollowUp(input: FollowUpInput) {
   };
 
   const 姓名 = await 客户名(input.customerId);
+  let id = input.id ?? "";
   if (input.id) {
     /**
      * 编辑时不能重写 ownerId。
@@ -107,6 +108,7 @@ export async function saveFollowUp(input: FollowUpInput) {
         source: sourceText ? { create: { text: sourceText } } : undefined,
       },
     });
+    id = f.id;
     await recordAudit({
       user, action: "create", entity: "FollowUp", entityId: f.id,
       summary: `记了${姓名}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
@@ -128,7 +130,7 @@ export async function saveFollowUp(input: FollowUpInput) {
   revalidatePath(`/customers/${input.customerId}`);
   revalidatePath("/follow-ups");
   revalidatePath("/dashboard");
-  return { ok: true as const };
+  return { ok: true as const, id };
 }
 
 export async function deleteFollowUp(id: string, customerId: string) {
