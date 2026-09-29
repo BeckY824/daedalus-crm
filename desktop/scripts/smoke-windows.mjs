@@ -131,7 +131,7 @@ try {
   await new Promise((r) => setTimeout(r, 5000));
   if (服务启动次数() !== 之前) throw new Error("安装还没结束，本地服务就起了");
   console.log("PASS: opening the app mid-install waits instead of starting a half-written app");
-  // 安装程序退出 → 应用 relaunch。重开的是新进程，Playwright 接管不到：看日志和记录，最后按进程名收掉
+  // 安装程序退出 → 应用 relaunch。重开的是新进程，Playwright 接管不到：看日志和记录，最后只收测试路径的进程。
   假安装.kill();
   const 截止 = Date.now() + 120000;
   while ((服务启动次数() === 之前 || fs.existsSync(记录)) && Date.now() < 截止) await new Promise((r) => setTimeout(r, 1000));
@@ -139,7 +139,11 @@ try {
   if (fs.existsSync(记录)) throw new Error("安装记录没清掉");
   console.log("PASS: after the installer exits the app relaunches from the installed files");
   app = null;
-  try { execFileSync("taskkill", ["/IM", "Daedalus CRM.exe", "/F", "/T"], { stdio: "ignore" }); } catch { /* 已经没了 */ }
+  try {
+    execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+      "$target = [IO.Path]::GetFullPath($env:CRM_SMOKE_EXE); Get-Process | Where-Object { $_.Path -eq $target } | Stop-Process -Force",
+    ], { stdio: "ignore", windowsHide: true, env: { ...process.env, CRM_SMOKE_EXE: path.resolve(executablePath) } });
+  } catch { /* 已经没了 */ }
 
   console.log(`Evidence: ${root}`);
 } catch (error) {

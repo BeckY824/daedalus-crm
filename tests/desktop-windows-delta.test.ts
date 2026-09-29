@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { EventEmitter } from "node:events";
 
 const require_ = createRequire(import.meta.url);
 const 窗装 = require_("../desktop/windows-install.js");
@@ -71,11 +72,17 @@ describe("换目录脚本", () => {
     expect(窗装.换目录脚本).toMatch(/still locked, keep old version/);
   });
   const 解 = (参数: string[]) => Buffer.from(参数[参数.indexOf("-EncodedCommand") + 1], "base64").toString("utf16le");
-  it("起脚本：-EncodedCommand 传命令，不写 .ps1、不靠 -ExecutionPolicy；不 detached；输出落文件", () => {
+  it("起脚本：等待脚本就绪和中转退出；编码短引导命令，输出落文件", async () => {
     const 更新目录 = fs.mkdtempSync(path.join(os.tmpdir(), "更新 目录-"));
-    const 启动 = vi.fn(() => ({ unref: vi.fn(), on: vi.fn() }));
+    const 启动 = vi.fn((_exe: string, args: string[]) => {
+      const child = Object.assign(new EventEmitter(), { unref: vi.fn() });
+      const 命令 = 解(args);
+      const 交接 = 命令.match(/-Handshake '([^']+)'/)![1];
+      setTimeout(() => { fs.writeFileSync(`${交接}.ready`, String(process.pid)); child.emit("exit", 0); }, 10);
+      return child;
+    });
     try {
-      const { 参数 } = 窗装.启动换目录({
+      const { 参数 } = await 窗装.启动换目录({
         目录: "C:\\Users\\张三\\Programs\\daedalus-crm", 等PID: 4321, 重启: true, 版本: "0.46.8", exe名: "Daedalus CRM.exe", 更新目录, 启动,
       });
       // 经 cmd /c start "" /b 转一手：PowerShell 不挂在 Electron 的进程树上，按树杀 Electron 时杀不到它
@@ -93,7 +100,10 @@ describe("换目录脚本", () => {
       expect(参数).not.toContain("-ExecutionPolicy");
       expect(fs.readdirSync(更新目录).filter((n) => n.endsWith(".ps1"))).toEqual([]);
       const 命令 = 解(参数);
-      expect(命令).toContain(窗装.换目录脚本);
+      expect(命令).toContain("[scriptblock]::Create");
+      expect(参数.join(" ").length).toBeLessThan(8000);
+      const 脚本 = 命令.match(/ReadAllText\('([^']+)'\)/)![1];
+      expect(fs.readFileSync(脚本, "ascii")).toBe(窗装.换目录脚本);
       // 中文路径原样进去（UTF-16），数字参数不加引号
       expect(命令).toContain("-Dir 'C:\\Users\\张三\\Programs\\daedalus-crm'");
       expect(命令).toContain("-WaitPid 4321");
@@ -115,8 +125,7 @@ describe("换目录失败计数：连着换不成就别再下差量", () => {
   beforeAll(() => { 更新目录 = fs.mkdtempSync(path.join(os.tmpdir(), "swap-attempts-")); });
   afterAll(() => fs.rmSync(更新目录, { recursive: true, force: true }));
   it("每交给 PowerShell 一次记一笔；同一版本到 2 次就算屡败，换了版本重新数", () => {
-    const 启动 = () => ({ unref() {}, on() {} });
-    const 换 = (版本: string) => 窗装.启动换目录({ 目录: "C:\\a\\app", 版本, 更新目录, 启动 });
+    const 换 = (版本: string) => 窗装.记换目录尝试(更新目录, 版本);
     换("0.46.10");
     expect(窗装.换目录屡败(更新目录, "0.46.10")).toBe(false);
     换("0.46.10");
@@ -343,7 +352,7 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
     // 2026-09-29：原来 detached 启动，PowerShell 没控制台一声不吭就退了；上面几条是 spawnSync 直接调，全绿，没抓到
     const 目录 = 摆("via-app-spawn 中文");
     const 自己的更新目录 = path.join(沙盒, "updates-app");
-    窗装.启动换目录({ 目录, 版本: "9.9.9", 更新目录: 自己的更新目录 });
+    await 窗装.启动换目录({ 目录, 版本: "9.9.9", 更新目录: 自己的更新目录 });
     const 止 = Date.now() + 45_000;
     while (Date.now() < 止 && !(fs.existsSync(`${目录}.old`) && !fs.existsSync(`${目录}.new`))) await new Promise((r) => setTimeout(r, 300));
     const 日志 = (f: string) => (fs.existsSync(path.join(自己的更新目录, f)) ? fs.readFileSync(path.join(自己的更新目录, f), "utf8") : "");
@@ -359,10 +368,12 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
     const 模块 = path.resolve(__dirname, "../desktop/windows-install.js");
     const 父 = spawn(process.execPath, ["-e", `
       const w = require(${JSON.stringify(模块)});
-      w.启动换目录({ 目录: ${JSON.stringify(目录)}, 等PID: process.pid, 版本: "9.9.9", 更新目录: ${JSON.stringify(更新)} });
+      w.启动换目录({ 目录: ${JSON.stringify(目录)}, 等PID: process.pid, 版本: "9.9.9", 更新目录: ${JSON.stringify(更新)} }).then(() => require('node:fs').writeFileSync(${JSON.stringify(path.join(更新, 'test-ready'))}, 'ready'));
       setTimeout(() => {}, 30000);
     `], { stdio: "ignore" });
-    await new Promise((r) => setTimeout(r, 1500));
+    const 交接止 = Date.now() + 25_000;
+    while (!fs.existsSync(path.join(更新, 'test-ready')) && Date.now() < 交接止) await new Promise((r) => setTimeout(r, 50));
+    expect(fs.existsSync(path.join(更新, 'test-ready'))).toBe(true);
     spawnSync("taskkill", ["/pid", String(父.pid), "/T", "/F"]);
     const 止 = Date.now() + 45_000;
     while (Date.now() < 止 && !(fs.existsSync(`${目录}.old`) && !fs.existsSync(`${目录}.new`))) await new Promise((r) => setTimeout(r, 300));
