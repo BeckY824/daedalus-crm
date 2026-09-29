@@ -6,7 +6,8 @@ const { 校验sha256 } = require("./install");
 
 // NSIS 负责等待旧实例退出、覆盖程序、保留数据并重新启动。
 // 启动前再次验哈希，避免下载后安装文件被替换。路径不经 shell。
-async function 启动安装({ 文件, sha256, 启动 = spawn }) {
+// 传了 更新目录 就记一笔「正在装哪一版、安装程序是哪个进程」，见下面 安装进行中()
+async function 启动安装({ 文件, sha256, 更新目录 = null, 版本 = "", 启动 = spawn }) {
   if (!/^[a-f0-9]{64}$/i.test(sha256 || "")) throw new Error("Windows 更新缺少 SHA-256 校验值");
   await 校验sha256(文件, sha256);
   await new Promise((resolve, reject) => {
@@ -14,8 +15,63 @@ async function 启动安装({ 文件, sha256, 启动 = spawn }) {
       detached: true, stdio: "ignore", windowsHide: true,
     });
     child.once("error", reject);
-    child.once("spawn", () => { child.unref(); resolve(); });
+    child.once("spawn", () => {
+      if (更新目录 && child.pid) 记安装中(更新目录, { 版本, pid: child.pid });
+      child.unref();
+      resolve();
+    });
   });
+}
+
+/* ---------- 整包安装进行中（2026-09-29 起） ----------
+ *
+ * 整包更新用 /S 静默安装：先卸旧版、再往安装目录写两千多个文件，杀毒还要逐个扫，一两分钟里**屏幕上什么都没有**。
+ * 用户看着像「点了重启，应用没了」，就去点开它——程序文件才写了一半，本地服务找不到 next 起不来，
+ * 弹框里再点「改用服务器」就进了托管版的共享账号：掉登录、每页从香港加载。2026-09-29 Sam 那台就是这么一路走下来的。
+ *
+ * 所以启动安装程序时记下它的进程号；应用启动时先看这一笔，安装程序还活着就不起本地服务，
+ * 等它装完再从新文件重新打开（main.js 的 等安装装完）。记录超过 15 分钟不算数：进程号会被系统复用，
+ * 而正常的安装没有那么久。
+ */
+const 安装中文件 = (更新目录) => path.join(更新目录, "installing.json");
+const 安装最久毫秒 = 15 * 60 * 1000;
+
+function 记安装中(更新目录, { 版本 = "", pid, 现在 = Date.now() }) {
+  try {
+    fs.mkdirSync(更新目录, { recursive: true });
+    fs.writeFileSync(安装中文件(更新目录), `${JSON.stringify({ 版本, pid, at: 现在 })}\n`);
+  } catch { /* 记不下只是少一道保护，不能因此不装 */ }
+}
+
+function 清掉安装记录(更新目录) {
+  try { fs.rmSync(安装中文件(更新目录), { force: true }); } catch { /* 删不掉下次再删 */ }
+}
+
+/** 进程还在不在。EPERM 是「在，但不让碰」——也算在 */
+function 进程活着(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return e?.code === "EPERM";
+  }
+}
+
+/**
+ * 安装程序还在跑吗。在跑就返回那一笔 { 版本, pid, at }；没在跑（装完了、失败了、记录太旧）就删掉记录、返回 null。
+ * 只读一个小文件、问一次进程，启动时每次都可以调。
+ */
+function 安装进行中(更新目录, { 活着 = 进程活着, 现在 = Date.now() } = {}) {
+  let 记录 = null;
+  try {
+    记录 = JSON.parse(fs.readFileSync(安装中文件(更新目录), "utf8"));
+  } catch {
+    return null;
+  }
+  const 有效 = Number.isInteger(记录?.pid) && 记录.pid > 0 && Number.isFinite(记录?.at) && 现在 - 记录.at < 安装最久毫秒;
+  if (有效 && 活着(记录.pid)) return 记录;
+  清掉安装记录(更新目录);
+  return null;
 }
 
 /* ---------- 差量（2026-09-28 起） ----------
@@ -256,4 +312,4 @@ function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe�
   return { 参数 };
 }
 
-module.exports = { 启动安装, 安装目录, 可写, 能差量更新, 补齐安装器文件, 换目录脚本, 编码命令, 启动换目录, 记换目录尝试, 换目录已生效, 换目录屡败 };
+module.exports = { 启动安装, 记安装中, 清掉安装记录, 进程活着, 安装进行中, 安装目录, 可写, 能差量更新, 补齐安装器文件, 换目录脚本, 编码命令, 启动换目录, 记换目录尝试, 换目录已生效, 换目录屡败 };

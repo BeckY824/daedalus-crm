@@ -283,7 +283,18 @@ app.on("child-process-gone", (_e, d) => 崩溃.写崩溃日志(应用日志, "�
 
 /* ---------- 启动 ---------- */
 
-async function 启动本地() {
+/**
+ * 同一时间只起一次本地服务：两处同时要起（比如「改用本机数据」被连点两下），后到的等前一次，不另起一个。
+ * 2026-09-29 Sam 那台：服务刚打印 Ready、还没登记到 本地 上，另一处看见「运行中」就去拼地址，
+ * 读到 本地.port 为 null，弹出一个谁也看不懂的「Cannot read properties of null (reading 'port')」。
+ */
+let 启动中 = null;
+function 启动本地() {
+  if (!启动中) 启动中 = 真启动本地().finally(() => { 启动中 = null; });
+  return 启动中;
+}
+
+async function 真启动本地() {
   /**
    * AI 配置不再从这里塞环境变量：服务端自己读数据目录里的 .cloud.json（每次都重读），
    * 登录、退出即时生效，不用重启服务。这里只告诉它云端在哪（本机联调时能指到别处）。
@@ -319,6 +330,8 @@ function 本地入口() {
   // 回到上次停的那一页（route-memory.js 记的）；session 路由那边还会再验一遍
   const 上次 = 读配置().lastRoute;
   const next = 上次 ? `&next=${encodeURIComponent(上次)}` : "";
+  // 调用方应当先 await 启动本地()；走到这里还没有，说明服务停了或者没起来——说清楚，别让它变成读 null 的报错
+  if (!本地) throw new Error("本机的 CRM 服务还没起来（没启动，或者刚停掉）");
   return `http://127.0.0.1:${本地.port}/api/desktop/session?t=${本地.token}${reason}${next}`;
 }
 
@@ -533,7 +546,8 @@ function 建窗口() {
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, "preload-app.js") },
   });
 
-  win.once("ready-to-show", () => win.show());
+  // 主窗口露面了再关「正在完成更新」那个小窗，中间不留一个窗口都没有的空档（Windows 上那会让应用直接退出）
+  win.once("ready-to-show", () => { win.show(); 关过渡小窗(); });
   win.loadURL(当前地址());
 
   // 记住停在哪一页：重启（包括更新后的那次）回到原地，不再每次都从首页开始
@@ -581,21 +595,46 @@ function 建窗口() {
   });
 }
 
-function 报告本地故障(原因) {
+/**
+ * 本地服务没起来。原因可以是一句话，也可以是错误对象（带堆栈的记进 app.log——原来只弹框不记，
+ * 2026-09-29 那次「读 port 为 null」事后一点线索都没有）。
+ *
+ * 按钮原来有一个「改用服务器」：桌面端是本机数据，这个按钮会把人带进托管版的共享试用账号——
+ * 要重新登录、看到的不是自己的客户、每一页从香港加载。Sam 那台就是点了它，以为应用坏了、变卡了。
+ * 连服务器是团队版的用法，留在菜单里；这里只给「重试」。
+ */
+function 报告本地故障(原因或错误) {
+  const 原因 = typeof 原因或错误 === "string" ? 原因或错误 : (原因或错误?.message ?? String(原因或错误));
+  崩溃.写崩溃日志(应用日志, "本地服务没能启动", 原因或错误);
+  关过渡小窗();
   dialog
     .showMessageBox(win ?? null, {
       type: "error",
       title: "本地服务没能启动",
       message: "本机的 CRM 服务没能起来",
-      detail: `${原因}\n\n最后几行日志：\n${本地服务.日志尾巴() || "（没有输出）"}`,
-      buttons: ["查看完整日志", "改用服务器", "退出"],
+      detail: `${原因}\n\n最后几行日志：\n${本地服务.日志尾巴() || "（没有输出）"}\n\n刚更新完的话，可能是安装还没结束：等一两分钟再点「重试」。`,
+      buttons: ["重试", "查看完整日志", "退出"],
       defaultId: 0,
+      cancelId: 2,
     })
     .then(({ response }) => {
-      if (response === 0) shell.showItemInFolder(日志文件);
-      else if (response === 1) 问服务器地址();
+      if (response === 0) 重开本地服务();
+      else if (response === 1) shell.showItemInFolder(日志文件);
       else app.quit();
     });
+}
+
+/** 「重试」：停掉（可能半死不活的）本地服务，重新起，起来了就回到本机的页面 */
+async function 重开本地服务() {
+  try {
+    await 本地服务.stop();
+    本地 = null;
+    await 启动本地();
+    if (win && !win.isDestroyed()) win.loadURL(本地入口());
+    else 建窗口();
+  } catch (e) {
+    报告本地故障(e);
+  }
 }
 
 /* ---------- 模式切换 ---------- */
@@ -605,10 +644,11 @@ async function 切到本地() {
   写配置({ ...读配置(), mode: "local", lastRoute: "/dashboard" });
   // 没登录云端账号也照开：本地服务的 /login 就是云端账号的门，壳不用再拦一道
   try {
-    if (!本地服务.运行中()) await 启动本地();
+    // 「运行中」不等于「已就绪」：起到一半时子进程已经在，本地 还没登记。这两种都交给 启动本地()，它会等那一次
+    if (!本地 || !本地服务.运行中()) await 启动本地();
     win ? win.loadURL(本地入口()) : 建窗口();
   } catch (e) {
-    报告本地故障(e?.message ?? String(e));
+    报告本地故障(e);
   }
   建菜单();
 }
@@ -879,6 +919,60 @@ async function 下载更新() {
  * 点了按钮：停本地服务 → 换包 → 重启。
  * 换包前失败什么都没动；换包失败会退回旧包；服务停了但没换成，就把服务再拉起来。
  */
+/** Windows 上点了「重启以更新」、窗口消失之前发一条系统通知：接下来一段时间没有界面是正常的 */
+function 通知安装中(版本, 方式) {
+  try {
+    if (!Notification.isSupported()) return;
+    new Notification({
+      title: `正在更新到 ${版本}`,
+      body: 方式 === "差量" ? "几秒后自动重新打开。" : "正在安装，一两分钟后会自动打开，这段时间不用再点开它。",
+    }).show();
+  } catch { /* 通知发不出去不挡更新 */ }
+}
+
+/**
+ * 启动时发现整包安装程序还在跑（windows-install.js 的 安装进行中）：程序文件可能才写了一半，
+ * 先不起本地服务、不开主窗口，开一个小窗说明情况，等安装程序退出。两种人会走到这里：
+ *
+ *   - 装到一半点开应用的用户：本进程还是旧版本（app.getVersion() ≠ 正在装的版本），代码可能半新半旧。
+ *     等安装程序退出后从新文件重开自己；安装程序 --force-run 拉起的那个实例撞上单实例锁会自己退出。
+ *   - 安装程序装完、用 --force-run 拉起的那一次：版本已经是新的，只是安装程序还没来得及退出。
+ *     等它退出（最多 60 秒）就照常往下启动。进程号会被系统复用——等满 60 秒还「在」，多半已经不是它了，
+ *     删掉记录照常启动，不能让用户卡在这儿。
+ *
+ * 返回 true 表示照常往下启动；旧版本那种情况不会返回（重开了）。
+ */
+async function 等安装装完(记录) {
+  const 版本 = String(记录.版本 || "新版本");
+  const 已是新版 = app.getVersion() === 版本;
+  const 页 = `<!doctype html><meta charset="utf-8"><title>正在更新</title>
+<body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#fafafa;color:#1f1f1f;font:14px/1.6 'Microsoft YaHei UI','PingFang SC',system-ui,sans-serif">
+<div style="max-width:320px;padding:0 24px"><div style="font-size:16px;font-weight:600;margin-bottom:6px">${已是新版 ? "正在完成更新" : `正在安装 ${版本.replace(/[<>&]/g, "")}`}</div>
+<div style="color:#666">${已是新版 ? "马上就好。" : "装好后会自动打开，不用做别的。一般一两分钟。"}</div></div></body>`;
+  const 小窗 = new BrowserWindow({ width: 420, height: 180, resizable: false, minimizable: false, maximizable: false, autoHideMenuBar: true, backgroundColor: "#fafafa", title: "正在更新", show: false });
+  小窗.once("ready-to-show", () => 小窗.show());
+  小窗.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(页)}`);
+  崩溃.写崩溃日志(应用日志, "启动时安装还没结束", `安装程序 pid=${记录.pid} 正在装 ${版本}，本进程是 ${app.getVersion()}，先等它`);
+  const 截止 = Date.now() + (已是新版 ? 60 : 10 * 60) * 1000;
+  while (窗装.安装进行中(更新目录) && Date.now() < 截止) await new Promise((r) => setTimeout(r, 1000));
+  if (!已是新版) {
+    app.relaunch();
+    app.exit(0);
+    return false;
+  }
+  窗装.清掉安装记录(更新目录);
+  // 小窗先留着：Windows 上最后一个窗口一关应用就退出（window-all-closed），得等主窗口出来再关（见 关过渡小窗）
+  过渡小窗 = 小窗;
+  return true;
+}
+
+/** 等安装时开的那个小窗：主窗口出来了、或者要报错了，再关 */
+let 过渡小窗 = null;
+function 关过渡小窗() {
+  if (过渡小窗 && !过渡小窗.isDestroyed()) 过渡小窗.destroy();
+  过渡小窗 = null;
+}
+
 async function 安装更新() {
   if (!待装 || 更新状态.阶段 !== "ready") return;
   const { 版本, 方式, 文件, 地址 } = 待装;
@@ -892,7 +986,9 @@ async function 安装更新() {
     if (process.platform === "win32") {
       // 差量：.new 已组装好、逐个文件验过哈希，退出后由 PowerShell 换目录并重新打开
       if (方式 === "差量") 窗换目录(true);
-      else await 窗装.启动安装({ 文件, sha256: 待装.sha256 });
+      else await 窗装.启动安装({ 文件, sha256: 待装.sha256, 更新目录, 版本 });
+      // 窗口马上要消失。整包是静默安装，一两分钟里屏幕上什么都没有——不说一声，用户会以为坏了再去点开它
+      通知安装中(版本, 方式);
       // 先清掉：app.quit() 会触发 before-quit，不清的话那边会再起一个换目录
       待装 = null;
       app.quit();
@@ -1063,7 +1159,7 @@ async function 切一次() {
   } catch (e) {
     if (先停) {
       盯住凭据(数据目录);
-      await 启动本地().catch((err) => 报告本地故障(String(err)));
+      await 启动本地().catch((err) => 报告本地故障(err));
     }
     崩溃.写崩溃日志(应用日志, "换账号失败", e);
     return { ok: false, error: "换不了数据目录" };
@@ -1075,7 +1171,7 @@ async function 切一次() {
     try {
       await 启动本地();
     } catch (e) {
-      报告本地故障(e?.message ?? String(e));
+      报告本地故障(e);
       return { ok: false, error: "本地服务起不来" };
     }
   }
@@ -1200,6 +1296,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(async () => {
+    // 整包安装程序还在跑：程序文件可能写了一半，这时什么都别起（见 等安装装完）
+    if (process.platform === "win32") {
+      const 装着 = 窗装.安装进行中(更新目录);
+      if (装着 && !(await 等安装装完(装着))) return;
+    }
     建菜单();
     安装.清理旧包(应用包).catch(() => {});
     // 换目录成了的话，现在跑的就是新版本：失败计数清掉（windows-install.js 的 换目录屡败）
@@ -1238,7 +1339,7 @@ if (!app.requestSingleInstanceLock()) {
       try {
         await 启动本地();
       } catch (e) {
-        报告本地故障(e?.message ?? String(e));
+        报告本地故障(e);
         return;
       }
     }
