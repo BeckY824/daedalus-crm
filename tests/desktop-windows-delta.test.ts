@@ -24,6 +24,17 @@ const 窗装 = require_("../desktop/windows-install.js");
 const 差量 = require_("../desktop/delta.js");
 const { 检查 } = require_("../desktop/updater.js");
 const 打包脚本 = path.resolve(__dirname, "../desktop/scripts/make-win-delta.mjs");
+// 打包脚本要 7zip-bin（electron-builder 带进 desktop/node_modules 的）。主 CI 的单测 job 不装桌面端依赖，
+// 那里找不到就跳过「整条链」；Desktop apps 的 Windows job 装了桌面端依赖、也跑全量单测，这条在那儿照跑。
+// 2026-09-29 0.46.11 的主 CI 因此红过一次。
+const 有7zip = (() => {
+  try {
+    createRequire(打包脚本).resolve("7zip-bin");
+    return true;
+  } catch {
+    return false;
+  }
+})();
 const sha = (b: Buffer) => crypto.createHash("sha256").update(b).digest("hex");
 
 describe("认安装目录", () => {
@@ -176,7 +187,7 @@ describe("更新器挑差量资产（GitHub 那一支）", () => {
   });
 });
 
-describe("整条链：旧安装目录 → CI 的 zip + 清单 → Windows 规则组装", () => {
+describe.skipIf(!有7zip)("整条链：旧安装目录 → CI 的 zip + 清单 → Windows 规则组装", () => {
   let 清单哈希 = "";
   let 沙盒: string, 已装: string, 新: string, 产物: string, server: http.Server, base: string;
   const 统计 = { 字节: 0, 整包请求: 0 };
@@ -226,8 +237,9 @@ describe("整条链：旧安装目录 → CI 的 zip + 清单 → Windows 规则
     base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
   });
   afterAll(async () => {
-    await new Promise((r) => server.close(r));
-    fs.rmSync(沙盒, { recursive: true, force: true });
+    // beforeAll 中途失败时 server 还没建：别在收尾再报一个错，把真正的原因盖掉
+    if (server) await new Promise((r) => server.close(r));
+    if (沙盒) fs.rmSync(沙盒, { recursive: true, force: true });
   });
 
   function 树(root: string) {
