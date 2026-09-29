@@ -157,10 +157,16 @@ jobs:
               URL=$(echo "$INFO" | jq -r '.url // empty' 2>/dev/null)
               if [ -z "$URL" ]; then echo "拿不到上传地址（第 $try 次）：$INFO"; sleep 5; continue; fi
               echo "$INFO" | jq -r '.headers | to_entries[] | "header = \"" + .key + ": " + .value + "\""' > "$RUNNER_TEMP/up.curl"
-              CODE=$(curl -sS --connect-timeout 30 --max-time 1800 -o "$RUNNER_TEMP/up.out" -w '%{http_code}' \
+              # Expect 清掉：不等 100 Continue，直接传（2026-09-29 第一次跑：收到 100 之后 30 分钟 0 字节回应）。
+              # 60 秒平均不到 1 KB/s 算卡住，立刻重试，别干等到超时。传了多少、多快都打出来，失败了看得出是哪种
+              : > "$RUNNER_TEMP/up.out"
+              R=$(curl -sS --connect-timeout 30 --max-time 3600 --speed-limit 1024 --speed-time 60 \
+                -H "Expect:" -o "$RUNNER_TEMP/up.out" -w '%{http_code} %{size_upload} %{speed_upload} %{time_total}' \
                 -X PUT -K "$RUNNER_TEMP/up.curl" --data-binary "@assets/$FILE" "$URL" || true)
+              read -r CODE SENT SPEED TOOK <<< "$R"
+              echo "  HTTP ${CODE:-?}，传了 ${SENT:-0} / $(stat -c %s "assets/$FILE") 字节，${SPEED:-0} B/s，用时 ${TOOK:-?} 秒"
               if [ "${CODE:0:1}" = "2" ]; then ok=1; echo "传好：$FILE"; break; fi
-              echo "传失败 HTTP $CODE（第 $try 次）"; head -c 500 "$RUNNER_TEMP/up.out"; echo; sleep 5
+              echo "传失败（第 $try 次）"; head -c 500 "$RUNNER_TEMP/up.out" || true; echo; sleep 5
             done
             [ -n "$ok" ] || { echo "::error::$FILE 传了三次都没成"; exit 1; }
           done
