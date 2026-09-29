@@ -703,6 +703,21 @@ function 设更新状态(s) {
   if (win && !win.isDestroyed()) win.webContents.send("update:state", 更新状态);
 }
 
+/**
+ * 差量的清单和 zip：先打主地址，**网络上不通**（不是「不划算」那种退回整包）再换 feed 里的备用（GitHub 原址）。
+ * 2026-09-29 查出来：国内镜像的域名没备案，阿里云按 SNI 断连接，应用里一次都没连上过——
+ * 原来清单拉不到就直接整包，而备用地址明明就在 feed 里。整包那条路本来就会换备用，差量这边补上同一步。
+ */
+async function 先主后备(主, 备, 做) {
+  try {
+    return await 做(主, false);
+  } catch (e) {
+    if (e?.name === "退回整包" || !备 || 备 === 主) throw e;
+    崩溃.写崩溃日志(应用日志, "差量：主地址不通，换备用再试", `${主} → ${备}：${e?.message ?? e}`);
+    return 做(备, true);
+  }
+}
+
 /** 只查、只估算，**不下**。手动点菜单时 手动=true：已是最新要给句回话，其余情况都静默 */
 async function 检查更新({ 手动 = false } = {}) {
   if (正在查) return;
@@ -747,13 +762,20 @@ async function 检查更新({ 手动 = false } = {}) {
     if (process.platform === "darwin" && 新版.zip && 新版.manifest) {
       try {
         设更新状态({ 阶段: "checking", 文字: "正在比对已装的文件…" });
-        const 估 = await 差量.差量估算({
-          清单Url: 新版.manifest,
-          已装: 应用包,
-          缓存路径: path.join(数据根, "updates", "hash-cache.json"),
-          日志: (行) => 崩溃.写崩溃日志(应用日志, "差量估算", 行),
+        const 备 = 新版.备用 || {};
+        let 用了备用 = false;
+        const 估 = await 先主后备(新版.manifest, 备.manifest, (url, 是备用) => {
+          用了备用 = 是备用;
+          return 差量.差量估算({
+            清单Url: url,
+            已装: 应用包,
+            缓存路径: path.join(数据根, "updates", "hash-cache.json"),
+            日志: (行) => 崩溃.写崩溃日志(应用日志, "差量估算", 行),
+          });
         });
-        计划 = { ...计划, 方式: "差量", 清单: 估.清单, 比对结果: 估.比对结果, 文字: `差量 ${(估.要下 / 1048576).toFixed(1)} MB` };
+        // 清单是从备用拿到的，zip 也先走备用：同一个源通了一个，另一个多半也通
+        const zip地址 = 用了备用 && 备.zip ? [备.zip, 新版.zip] : [新版.zip, 备.zip];
+        计划 = { ...计划, 方式: "差量", 清单: 估.清单, 比对结果: 估.比对结果, zip地址, 文字: `差量 ${(估.要下 / 1048576).toFixed(1)} MB` };
       } catch (e) {
         崩溃.写崩溃日志(应用日志, e?.name === "退回整包" ? "差量退回整包" : "差量估算失败，退回整包", e);
       }
@@ -784,14 +806,15 @@ async function 下载更新() {
     if (计划.方式 === "差量") {
       try {
         设更新状态({ 阶段: "downloading", 版本, 进度: 0, 文字: 计划.文字 });
-        const { 统计 } = await 差量.差量组装({
+        const [主zip, 备zip] = 计划.zip地址 ?? [新版.zip, 新版.备用?.zip];
+        const { 统计 } = await 先主后备(主zip, 备zip, (zipUrl) => 差量.差量组装({
           清单: 计划.清单,
           比对结果: 计划.比对结果,
-          zipUrl: 新版.zip,
+          zipUrl,
           已装: 应用包,
           进度: (已, 总) => 设更新状态({ 阶段: "downloading", 版本, 进度: 总 ? Math.round((已 / 总) * 100) : null, 文字: `差量更新 ${(总 / 1048576).toFixed(1)} MB` }),
           日志: (行) => 崩溃.写崩溃日志(应用日志, "差量更新", 行),
-        });
+        }));
         待装 = { 版本, 方式: "差量", 地址: 新版.地址 };
         设更新状态({ 阶段: "ready", 版本, 说明: 新版.说明, 文字: `差量 ${(统计.字节 / 1048576).toFixed(1)} MB，复用 ${统计.复用} 个文件` });
         return;
