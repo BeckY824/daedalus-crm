@@ -140,8 +140,13 @@ const 仓库 = "https://api.github.com/repos/BeckY824/daedalus-crm";
  * **GitHub 那个 download_count 根本不动**——只有点了「从 GitHub 下载」备用链接的人才算。
  * 那台机器从自己的 nginx 日志里数一份（只数「200 且发出字节数够整包」的 .dmg，
  * 断点续传和差量更新的 206 不算），写成这个 JSON。实现见官网仓库 deploy/dl-count.py。
+ *
+ * **2026-09-29 起改读官网那份**：安装包搬到了 GitCode（杭州节点没备案被按 SNI 断），GitCode 不给下载次数，
+ * 改数官网上「去 GitCode 的下载按钮」被点了几次（同 IP 同天同版本同平台算一次），
+ * 杭州节点时代的累计作为底数一并算在里面。结构不变，还是 {"按版本": {...}}。
+ * 实现见官网仓库 deploy/dl-hit-count.py、deploy/setup-dl-hit.sh。
  */
-const 默认镜像计数 = "https://cn.ai-daedalus.com:8443/dl/counts.json";
+const 默认镜像计数 = "https://ai-daedalus.com/dl/counts.json";
 
 async function gh(路径: string): Promise<unknown> {
   const 头: Record<string, string> = {
@@ -250,5 +255,5 @@ export async function GET(req: Request) {
  *   UMAMI_WEBSITE_ID   默认 58fa34cd-7485-44ff-ac3c-c9d147a9f14d（官网 HTML 里那个）
  *   UMAMI_SINCE        访问量起算日，默认 2026-09-15（统计脚本上线那天）
  *   GITHUB_TOKEN       可选，只为抬高 GitHub 的匿名限额
- *   MIRROR_COUNTS_URL  默认 https://cn.ai-daedalus.com:8443/dl/counts.json（国内节点的下载计数）
+ *   MIRROR_COUNTS_URL  默认 https://ai-daedalus.com/dl/counts.json（官网下载次数：杭州时代底数 + 之后去 GitCode 的点击）
  */
