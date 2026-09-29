@@ -98,7 +98,7 @@ describe("取Range 的判定", () => {
 
 describe.skipIf(process.platform !== "darwin")("整条链：旧包 → 差量 → 新包", () => {
   let 沙盒: string, 旧: string, 新: string, zip: string, 清单路径: string, server: http.Server, base: string;
-  const 统计 = { 请求: 0, 字节: 0, 整包请求: 0 };
+  const 统计 = { 请求: 0, 字节: 0, 整包请求: 0, 探路: 0 };
 
   function 造包(root: string, 变体: "旧" | "新") {
     fs.mkdirSync(path.join(root, "Contents/MacOS"), { recursive: true });
@@ -123,11 +123,18 @@ describe.skipIf(process.platform !== "darwin")("整条链：旧包 → 差量 �
     execFileSync("ditto", ["-c", "-k", "--keepParent", "--norsrc", 新, zip]);
     execFileSync(process.execPath, [生成器, zip, "2.0.0", 清单路径], { stdio: "pipe" });
 
-    // 只认 Range 的服务；HEAD 给 200（解析直链要用）；没带 Range 的 GET 给整包（用来证明客户端会拒绝）
+    // 照 GitCode 发行版附件的样子（2026-09-29 实测）：HEAD 一律 401；附件地址 302 到带签名的
+    // CDN 直链，直链只认 Range。没带 Range 的 GET 给整包（用来证明客户端会拒绝）。
+    // 解析直链那一下「只要 1 个字节」单独记，不算进下载量。
     server = http.createServer((req, res) => {
+      if (req.method === "HEAD") return res.writeHead(401).end();
+      if (req.url === "/Fake.app.zip") return res.writeHead(302, { Location: "/cdn/Fake.app.zip?auth_key=x" }).end();
       const f = req.url === "/m.json.gz" ? 清单路径 : zip;
       const size = fs.statSync(f).size;
-      if (req.method === "HEAD") return res.writeHead(200, { "Content-Length": size }).end();
+      if (req.headers.range === "bytes=0-0") {
+        统计.探路++;
+        return res.writeHead(206, { "Content-Range": `bytes 0-0/${size}`, "Content-Length": 1 }).end(fs.readFileSync(f).subarray(0, 1));
+      }
       const m = /^bytes=(\d+)-(\d+)$/.exec(req.headers.range ?? "");
       if (!m || req.url === "/m.json.gz") {
         if (req.url !== "/m.json.gz") 统计.整包请求++;
@@ -180,6 +187,7 @@ describe.skipIf(process.platform !== "darwin")("整条链：旧包 → 差量 �
     expect(r.统计.下载).toBe(2);
     expect(r.统计.复用).toBe(3);
     expect(统计.整包请求).toBe(0);
+    expect(统计.探路).toBeGreaterThan(0); // 走的是 GET 探路，不是 HEAD（HEAD 在这儿是 401）
     expect(统计.字节).toBeLessThan(fs.statSync(zip).size / 4);
     expect(调用.map((c) => c[1])).toEqual(["--verify", "--force", "--verify"]);
     expect(fs.existsSync(path.join(沙盒, "cache.json"))).toBe(true);

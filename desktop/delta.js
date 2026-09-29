@@ -197,9 +197,14 @@ function 规划Range(下载, { 间隔 = 64 * 1024 } = {}) {
 /**
  * GitHub 的资产地址是 302 到一个带签名的直链，签名约 1 小时有效。解析一次，之后所有 Range
  * 都打直链（少一次跳转，也不会每次都被 GitHub 的 API 限流）；403/410 表示过期，重解析。
+ *
+ * 用「只要 1 个字节的 GET」而不是 HEAD：GitCode 的发行版附件对 HEAD 回 401，GET 才 302 到
+ * file-cdn.gitcode.com 的签名直链（2026-09-29 实测）。GitHub 两样都认。
  */
 async function 解析直链({ url, fetch: f = globalThis.fetch }) {
-  const res = await f(url, { method: "HEAD", redirect: "follow", headers: { "User-Agent": "DaedalusCRM-Desktop" } });
+  const res = await f(url, { redirect: "follow", headers: { Range: "bytes=0-0", "User-Agent": "DaedalusCRM-Desktop" } });
+  // 只要跳转后的地址，body 不读；不理 Range 的源回 200 会开始吐整个文件，得掐掉
+  await res.body?.cancel?.().catch(() => {});
   if (!res.ok) throw new Error(`解析下载地址失败：HTTP ${res.status}`);
   return res.url || url;
 }
