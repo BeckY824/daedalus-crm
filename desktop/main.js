@@ -730,15 +730,21 @@ const 应用包 = process.platform === "win32"
 const 更新目录 = path.join(数据根, "updates");
 
 /** Windows 上换目录要等进程退出，交给 PowerShell（windows-install.js）。重启=true 是点了按钮，false 是退出时顺手换 */
-function 窗换目录(重启) {
-  窗装.启动换目录({
-    目录: 应用包,
-    等PID: process.pid,
-    重启,
-    版本: 待装?.版本 ?? "",
-    exe名: path.basename(process.execPath),
-    更新目录,
-  });
+let 窗更新交接中 = false;
+async function 窗换目录(重启) {
+  窗更新交接中 = true;
+  try {
+    await 窗装.启动换目录({
+      目录: 应用包,
+      等PID: process.pid,
+      重启,
+      版本: 待装?.版本 ?? "",
+      exe名: path.basename(process.execPath),
+      更新目录,
+    });
+  } finally {
+    窗更新交接中 = false;
+  }
 }
 
 /**
@@ -985,7 +991,7 @@ async function 安装更新() {
     }
     if (process.platform === "win32") {
       // 差量：.new 已组装好、逐个文件验过哈希，退出后由 PowerShell 换目录并重新打开
-      if (方式 === "差量") 窗换目录(true);
+      if (方式 === "差量") await 窗换目录(true);
       else await 窗装.启动安装({ 文件, sha256: 待装.sha256, 更新目录, 版本 });
       // 窗口马上要消失。整包是静默安装，一两分钟里屏幕上什么都没有——不说一声，用户会以为坏了再去点开它
       通知安装中(版本, 方式);
@@ -1014,6 +1020,7 @@ async function 安装更新() {
       }
     }
     设更新状态({ 阶段: "error", 错误: String(e?.message ?? e), 地址 });
+    if (process.platform === "win32" && (!win || win.isDestroyed())) 建窗口();
   }
 }
 
@@ -1394,7 +1401,27 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   // 退出前把本地服务收掉，别留一个孤儿进程占着端口和数据库
-  app.on("before-quit", () => {
+  app.on("before-quit", (event) => {
+    if (窗更新交接中 || (process.platform === "win32" && 待装?.方式 === "差量" && 更新状态.阶段 === "installing")) {
+      event.preventDefault(); return;
+    }
+    if (process.platform === "win32" && 待装?.方式 === "差量" && 更新状态.阶段 === "ready") {
+      // before-quit 不会等待 Promise。先阻止退出，完成交接后再发起一次退出。
+      event.preventDefault();
+      const { 版本, 地址 } = 待装;
+      窗换目录(false).then(() => {
+        待装 = null;
+        崩溃.写崩溃日志(应用日志, "退出时换包", `${版本} 已交接，结果见 updates/update-swap.log`);
+        app.quit();
+      }).catch((e) => {
+        待装 = null;
+        崩溃.写崩溃日志(应用日志, "退出时换包失败", e);
+        设更新状态({ 阶段: "error", 错误: String(e?.message ?? e), 地址 });
+        if (!win || win.isDestroyed()) 建窗口();
+        dialog.showMessageBox(win, { type: "error", message: "更新未能启动，已取消本次退出", detail: `${e?.message ?? e}。旧版本仍可使用，请重试更新。` });
+      });
+      return;
+    }
     提醒器?.停();
     本地服务.stop();
     MCP桥.stop();
@@ -1405,10 +1432,9 @@ if (!app.requestSingleInstanceLock()) {
     */
     if (待装?.方式 === "差量" && 更新状态.阶段 === "ready") {
       try {
-        // Windows 上运行中的文件锁着，现在换不了：交给 PowerShell 等本进程退出后再换，不重新打开
-        if (process.platform === "win32") 窗换目录(false);
-        else 安装.换包同步(应用包);
-        崩溃.写崩溃日志(应用日志, "退出时换包", process.platform === "win32" ? `${待装.版本} 交给换目录脚本，结果见 updates/update-swap.log` : `${待装.版本} 已换上，下次启动生效`);
+        // Windows 已在上面异步交接；Mac 保持原有同步换包路径。
+        安装.换包同步(应用包);
+        崩溃.写崩溃日志(应用日志, "退出时换包", `${待装.版本} 已换上，下次启动生效`);
       } catch (e) {
         崩溃.写崩溃日志(应用日志, "退出时换包失败", e);
       }

@@ -154,6 +154,7 @@ const 换目录脚本 = `param(
   [string]$Version = '',
   [string]$Exe = '',
   [string]$Log = '',
+  [string]$Handshake = '',
   [int]$Tries = 60
 )
 $ErrorActionPreference = 'Stop'
@@ -171,8 +172,20 @@ $New = $Dir + '.new'
 $Leaf = Split-Path -Leaf $Dir
 $Old = $Dir + '.old'
 Say ('begin ' + $Dir + ' -> ' + $Version + ' wait ' + $WaitPid)
-if (-not (Test-Path -LiteralPath $New)) { Say 'no .new, nothing to do'; Start-App; exit 2 }
+if ($Handshake -and (Test-Path -LiteralPath ($Handshake + '.cancel'))) { Say 'handoff cancelled'; exit 5 }
+if (-not (Test-Path -LiteralPath $New)) { Say 'no .new, nothing to do'; if (-not $Handshake) { Start-App }; exit 2 }
+if ($Handshake) {
+  Set-Content -LiteralPath ($Handshake + '.tmp') -Encoding ASCII -Value $PID
+  Move-Item -LiteralPath ($Handshake + '.tmp') -Destination ($Handshake + '.ready')
+  $deadline = (Get-Date).AddSeconds(30)
+  while (-not (Test-Path -LiteralPath ($Handshake + '.go'))) {
+    if ((Test-Path -LiteralPath ($Handshake + '.cancel')) -or (Get-Date) -gt $deadline) { Say 'handoff cancelled'; exit 5 }
+    Start-Sleep -Milliseconds 50
+  }
+  if (Test-Path -LiteralPath ($Handshake + '.cancel')) { Say 'handoff cancelled'; exit 5 }
+}
 if ($WaitPid -gt 0) { try { Wait-Process -Id $WaitPid -Timeout 60 -ErrorAction SilentlyContinue } catch {} }
+if ($WaitPid -gt 0 -and (Get-Process -Id $WaitPid -ErrorAction SilentlyContinue)) { Say 'app still running, abort'; exit 6 }
 if (Test-Path -LiteralPath $Old) {
   try { Remove-Item -LiteralPath $Old -Recurse -Force } catch { $Old = $Dir + '.old-' + (Get-Date -Format yyyyMMddHHmmss) }
 }
@@ -207,31 +220,23 @@ Start-App
 exit 0
 `;
 
-/**
- * 把换目录交给 PowerShell，自己立刻返回（调用方接着退出）。**同步**：before-quit 里进程正在退，
- * 等不到异步回来；spawn 本身是同步建进程的，建好就 unref 撒手。
- * 脚本写到 更新目录 下（每次覆盖），日志也在那：出了问题看 update-swap.log。
- */
 /** PowerShell 单引号字符串：里面的单引号写两遍，别的字符（含中文、空格、$）原样 */
 const 单引号 = (v) => `'${String(v).replace(/'/g, "''")}'`;
 
 /**
- * 拼成 -EncodedCommand 要的那一串：`& { 脚本 } -Dir '…' …`，UTF-16LE 再 base64。
- *
- * **为什么不用 -File 脚本.ps1 -ExecutionPolicy Bypass**（第一版就是这么写的）：公司电脑常用组策略锁执行策略
- * （MachinePolicy / UserPolicy），它压过命令行上的 Bypass——脚本文件根本不让跑，换目录一次都没发生，
- * 下次启动 .new 被清掉、又下一遍差量，无限循环。执行策略只管「脚本文件」，不管 -Command / -EncodedCommand 传进来的命令，
- * 组策略就拦不住了。编码是 UTF-16，中文用户名的路径原样过去；命令行上限 32767 字符，这串约 10K。
+ * UTF-16LE 编码命令，保留中文与单引号路径。生产调用编码短引导命令，读取本次生成的 ASCII 脚本，
+ * 避免完整脚本的 base64 撑过 cmd 的命令行上限；直接调用 PowerShell 的脚本测试可内联全文。
  */
-function 编码命令({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe名 = "", 日志, 尝试次数 = 60 }) {
+function 编码命令({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe名 = "", 日志, 尝试次数 = 60, 交接 = "", 脚本 = "" }) {
   const 命令 = [
-    `& {\n${换目录脚本}\n}`,
+    脚本 ? `& ([scriptblock]::Create([IO.File]::ReadAllText(${单引号(脚本)})))` : `& {\n${换目录脚本}\n}`,
     "-Dir", 单引号(目录),
     "-WaitPid", String(Number(等PID) || 0),
     "-Relaunch", 重启 ? "1" : "0",
     "-Version", 单引号(版本 || ""),
     "-Exe", 单引号(exe名 || ""),
     "-Log", 单引号(日志 || ""),
+    "-Handshake", 单引号(交接),
     "-Tries", String(Number(尝试次数) || 60),
   ].join(" ");
   return Buffer.from(命令, "utf16le").toString("base64");
@@ -272,15 +277,21 @@ function 换目录屡败(更新目录, 版本, 上限 = 2) {
 }
 
 /**
- * 把换目录交给 PowerShell，自己立刻返回（调用方接着退出）。**同步**：before-quit 里进程正在退，
- * 等不到异步回来；spawn 本身是同步建进程的，建好就 unref 撒手。日志在 更新目录/update-swap.log。
+ * 等 PowerShell 写就绪信号、cmd 中转退出后才授权更新并返回。调用方必须 await 后再退出；
+ * before-quit 要先 preventDefault。只有 cmd pid 不能证明交接完成，Electron 太早退出会丢失更新。
  */
-function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe名 = "", 更新目录, 启动 = spawn }) {
+async function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe名 = "", 更新目录, 启动 = spawn, 就绪超时 = 20_000 }) {
   if (!目录 || !更新目录) throw new Error("换目录缺参数");
   fs.mkdirSync(更新目录, { recursive: true });
   const 日志 = path.join(更新目录, "update-swap.log");
   if (版本) 记换目录尝试(更新目录, 版本);
-  const 参数 = ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", 编码命令({ 目录, 等PID, 重启, 版本, exe名, 日志 })];
+  // 每次独立交接文件，历史日志或迟到的上一次进程不能误触发本次更新。
+  const 会话 = fs.mkdtempSync(path.join(更新目录, "swap-"));
+  const 交接 = path.join(会话, "handoff");
+  const 脚本 = path.join(会话, "swap.ps1");
+  fs.writeFileSync(脚本, 换目录脚本, "ascii");
+  // cmd 命令行比 CreateProcess 短：只编码引导命令，完整脚本在本机读取。
+  const 参数 = ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-EncodedCommand", 编码命令({ 目录, 等PID, 重启, 版本, exe名, 日志, 交接, 脚本 })];
   /*
     PowerShell 自己的输出（解析错误、被策略拦下、起都起不来）写到 update-swap.out.log。
     原来是 ignore：脚本连第一行 begin 都没写出来时，什么线索都没有（2026-09-29 CI 上就是这样）
@@ -303,13 +314,41 @@ function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = "", exe�
     其余参数都没有空格（base64 也没有），拼起来不会断
   */
   const 命令 = ["/d", "/c", "start", '""', "/b", "powershell.exe", ...参数];
-  const child = 启动("cmd.exe", 命令, { stdio: ["ignore", 输出, 输出], windowsHide: true, windowsVerbatimArguments: true });
-  // 起没起来要留一笔：spawn 失败原来被一个空的 error 回调吞掉，什么都看不出来。这个 pid 是转手的 cmd，不是 PowerShell
-  记(`经 cmd 启动 powershell.exe（cmd pid=${child.pid ?? "无"}）版本=${版本 || "-"} 目录=${目录}`);
-  child.on?.("error", (e) => 记(`起不来：${e?.code ?? ""} ${e?.message ?? e}`));
-  child.unref?.();
-  if (typeof 输出 === "number") try { fs.closeSync(输出); } catch { /* 子进程已经拿到了自己那份 */ }
-  return { 参数 };
+  let child;
+  try {
+    child = 启动("cmd.exe", 命令, { stdio: ["ignore", 输出, 输出], windowsHide: true, windowsVerbatimArguments: true });
+    记(`经 cmd 启动 powershell.exe（cmd pid=${child.pid ?? "无"}）版本=${版本 || "-"} 目录=${目录}`);
+    await new Promise((resolve, reject) => {
+      let 中转已退出 = false;
+      const 起不来 = (e) => { clearInterval(timer); clearTimeout(timeout); reject(e); };
+      const timer = setInterval(() => {
+        if (!中转已退出 || !fs.existsSync(`${交接}.ready`)) return;
+        try {
+          const pid = Number(fs.readFileSync(`${交接}.ready`, "utf8").replace(/^\uFEFF/, "").trim());
+          if (!Number.isInteger(pid) || pid <= 0 || !进程活着(pid)) throw new Error("更新辅助程序在交接前退出");
+          fs.writeFileSync(`${交接}.go`, "go");
+          clearInterval(timer); clearTimeout(timeout);
+          resolve();
+        } catch (e) { 起不来(e); }
+      }, 25);
+      const timeout = setTimeout(() => 起不来(new Error("更新辅助程序启动超时，已取消本次更新，请重试")), 就绪超时);
+      child.once("error", 起不来);
+      child.once("exit", (code) => {
+        if (code !== 0) 起不来(new Error(`更新中转进程退出（${code}），请重试`));
+        else 中转已退出 = true;
+      });
+    });
+    记("PowerShell 已就绪，中转进程已退出，允许应用退出");
+    child.unref();
+    return { 参数 };
+  } catch (e) {
+    // 迟到的辅助进程也必须取消，不能在用户稍后退出时意外安装。
+    fs.writeFileSync(`${交接}.cancel`, "cancel");
+    记(`交接失败：${e?.message ?? e}`);
+    throw e;
+  } finally {
+    if (typeof 输出 === "number") try { fs.closeSync(输出); } catch { /* 子进程持有自己的句柄 */ }
+  }
 }
 
 module.exports = { 启动安装, 记安装中, 清掉安装记录, 进程活着, 安装进行中, 安装目录, 可写, 能差量更新, 补齐安装器文件, 换目录脚本, 编码命令, 启动换目录, 记换目录尝试, 换目录已生效, 换目录屡败 };
