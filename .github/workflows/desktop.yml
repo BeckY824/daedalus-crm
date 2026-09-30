@@ -76,6 +76,18 @@ jobs:
       - name: Windows 桌面回归测试
         if: runner.os == 'Windows'
         run: npx vitest run
+      # Windows 的差量产物：win-unpacked 用 7za 打成 zip（逐条 deflate）+ 清单。
+      # 客户端拿清单和安装目录比，只对 zip 发 Range 取变了的文件；exe 照旧：首次安装、给所有用户装的、差量失败都靠它
+      - name: 差量产物（Windows：zip + 清单）
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: node scripts/make-win-delta.mjs dist/win-unpacked "$(node -p 'require("./package.json").version')" dist
+      # 真装一遍、走应用自己的检查更新做一次差量、退出后换目录，再拿换过的目录跑整套冒烟。
+      # 差量这条路只有在真的 NSIS 安装 + 真的 PowerShell + 真的文件锁下才验得出来
+      - name: Windows 差量更新冒烟（装 → 差量 → 换目录 → 再跑整套）
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: node scripts/smoke-windows-delta.mjs
       # 差量更新要的两个产物：ditto 打的 zip（逐条 deflate，保符号链接和权限，解开后 codesign 能过）
       # 和它的清单（每个文件的哈希、权限、在 zip 里的偏移）。客户端拿清单和已装的包比对，
       # 对 zip 发 HTTP Range 只取变了的文件。dmg 照旧：首次安装和退路都靠它。
@@ -94,6 +106,7 @@ jobs:
           path: |
             desktop/dist/*.dmg
             desktop/dist/*.app.zip
+            desktop/dist/*-win.zip
             desktop/dist/*.manifest.json.gz
             desktop/dist/*.exe
           if-no-files-found: error
@@ -132,7 +145,7 @@ jobs:
           # 桌面端到 0.42.0 时，我们自己托管的那份可能还停在 0.41.0。
           {
             echo "**桌面端**：Mac Apple 芯片下载 Assets 中的 arm64.dmg；Windows x64 下载 x64-setup.exe。"
-            echo "Mac 应用内差量更新；Windows 下载校验后运行安装器更新。"
+            echo "Mac 和 Windows 都是应用内差量更新（Windows 给所有用户装在 Program Files 的，退回下载安装程序更新）。"
             echo ""
             echo "**自部署 / 多人团队版**（一个团队）：\`ghcr.io/becky824/daedalus-crm:$VER\`"
             echo ""
@@ -161,4 +174,4 @@ jobs:
             DEST="$ROLLING"
           fi
           shopt -s nullglob
-          gh release upload "$DEST" desktop/dist/*.dmg desktop/dist/*.app.zip desktop/dist/*.manifest.json.gz desktop/dist/*-setup.exe --clobber
+          gh release upload "$DEST" desktop/dist/*.dmg desktop/dist/*.app.zip desktop/dist/*-win.zip desktop/dist/*.manifest.json.gz desktop/dist/*-setup.exe --clobber

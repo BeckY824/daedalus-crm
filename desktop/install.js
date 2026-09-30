@@ -44,7 +44,7 @@ function 默认运行(cmd, args) {
  * 顺带把这一次的更新也拦下了。纯 node 里跑单测是好的，所以没提前抓到。
  *
  * 所以：删之前把 process.noAsar 打开（Electron 的开关，普通 node 里没这个属性，赋了也无害），
- * 带重试；还是不行就交给 /bin/rm -rf，它不认识什么 asar。
+ * 带重试；还是不行就交给 /bin/rm -rf（Windows 上是 rmdir /s /q），它不认识什么 asar。
  */
 async function 删目录(p, 运行 = 默认运行) {
   if (!fs.existsSync(p)) return;
@@ -57,7 +57,11 @@ async function 删目录(p, 运行 = 默认运行) {
   } finally {
     process.noAsar = 原;
   }
-  if (fs.existsSync(p)) await 运行("/bin/rm", ["-rf", p]);
+  if (fs.existsSync(p)) {
+    // Windows 没有 /bin/rm。rmdir /s /q 同样不认识 asar；路径作为单独一个参数传，不拼命令行
+    if (process.platform === "win32") await 运行("cmd.exe", ["/d", "/c", "rmdir", "/s", "/q", p]).catch(() => {});
+    else await 运行("/bin/rm", ["-rf", p]);
+  }
   if (fs.existsSync(p)) throw new Error(`删不掉 ${p}`);
 }
 

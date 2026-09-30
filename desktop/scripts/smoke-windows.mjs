@@ -4,6 +4,7 @@ import path from "node:path";
 import http from "node:http";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { spawn, execFileSync } from "node:child_process";
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 fs.mkdirSync(path.join(desktop, ".smoke-data"), { recursive: true });
@@ -111,6 +112,35 @@ try {
   original.close();
   if (restored?.value !== "account A") throw new Error("Account A data lost");
   console.log("PASS: account A/B isolation and return to existing data");
+
+  /*
+    整包静默安装进行中时点开应用（2026-09-29 Sam 那台的起点）：程序文件可能写了一半，
+    不能起本地服务，要开小窗说明情况；安装程序退出后从新文件重开。
+    用一个空跑的 node 进程冒充安装程序，版本写一个本进程肯定不是的号。
+  */
+  await app.close(); app = null;
+  const 服务启动次数 = () => (fs.readFileSync(path.join(root, "logs", "server.log"), "utf8").match(/启动 =====/g) || []).length;
+  const 假安装 = spawn(process.execPath, ["-e", "setTimeout(() => {}, 180000)"], { stdio: "ignore" });
+  const 记录 = path.join(root, "updates", "installing.json");
+  fs.mkdirSync(path.dirname(记录), { recursive: true });
+  fs.writeFileSync(记录, JSON.stringify({ 版本: "9.9.9", pid: 假安装.pid, at: Date.now() }));
+  const 之前 = 服务启动次数();
+  app = await electron.launch({ executablePath, env, timeout: 60000 });
+  const 小窗 = await app.firstWindow();
+  await expect(小窗.getByText("正在安装 9.9.9")).toBeVisible({ timeout: 30000 });
+  await new Promise((r) => setTimeout(r, 5000));
+  if (服务启动次数() !== 之前) throw new Error("安装还没结束，本地服务就起了");
+  console.log("PASS: opening the app mid-install waits instead of starting a half-written app");
+  // 安装程序退出 → 应用 relaunch。重开的是新进程，Playwright 接管不到：看日志和记录，最后按进程名收掉
+  假安装.kill();
+  const 截止 = Date.now() + 120000;
+  while ((服务启动次数() === 之前 || fs.existsSync(记录)) && Date.now() < 截止) await new Promise((r) => setTimeout(r, 1000));
+  if (服务启动次数() === 之前) throw new Error("安装程序退出后应用没有重新打开");
+  if (fs.existsSync(记录)) throw new Error("安装记录没清掉");
+  console.log("PASS: after the installer exits the app relaunches from the installed files");
+  app = null;
+  try { execFileSync("taskkill", ["/IM", "Daedalus CRM.exe", "/F", "/T"], { stdio: "ignore" }); } catch { /* 已经没了 */ }
+
   console.log(`Evidence: ${root}`);
 } catch (error) {
   console.error(`Evidence: ${root}`);

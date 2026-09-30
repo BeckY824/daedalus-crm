@@ -21,6 +21,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import crypto from "node:crypto";
 
 const [源app, 目标版本, zipUrl, manifestUrl] = process.argv.slice(2);
 if (!源app || !目标版本 || !zipUrl || !manifestUrl) {
@@ -39,7 +40,9 @@ fs.mkdirSync(数据根, { recursive: true });
 console.log(`拷贝到 ${app}，装的是 ${版本(app)}`);
 
 // 2. 假 feed
-const feed = { version: "9.9.9", url: "https://example.invalid", dmg: "https://example.invalid/none.dmg", zip: zipUrl, manifest: manifestUrl, notes: "验证用", size: "0 MB" };
+// 客户端要先核清单的 sha256 才肯差量（delta.js 拉清单）。这里是本机验证，直接取一次算出来
+const 清单哈希 = crypto.createHash("sha256").update(Buffer.from(await (await fetch(manifestUrl)).arrayBuffer())).digest("hex");
+const feed = { version: "9.9.9", url: "https://example.invalid", dmg: "https://example.invalid/none.dmg", zip: zipUrl, manifest: manifestUrl, manifest_sha256: 清单哈希, notes: "验证用", size: "0 MB" };
 const 服务器 = http.createServer((_req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(feed)); });
 await new Promise((r) => 服务器.listen(0, "127.0.0.1", r));
 const feedUrl = `http://127.0.0.1:${服务器.address().port}/latest.json`;
