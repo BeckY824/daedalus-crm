@@ -19,7 +19,7 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 [简体中文](README.md) · **English**
 
-[Website](https://ai-daedalus.com) · [Download for Mac](https://ai-daedalus.com/download.html) · [Download for Windows](https://ai-daedalus.com/download.html) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues)
+[Website](https://ai-daedalus.com) · [Download for Mac](https://ai-daedalus.com/download.html) · [Download for Windows](https://ai-daedalus.com/download.html) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues) · [☕ Buy us a coffee](#-buy-us-a-coffee)
 
 </div>
 
@@ -113,6 +113,25 @@ To share one database across a team, use Settings → Desktop → Connect to a s
 [Download Windows x64](https://ai-daedalus.com/download.html). The installer is unsigned. See the [Windows guide](docs/Windows版.md) for installation and build details. Intel Mac builds are not available yet.
 
 Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm/actions/workflows/desktop.yml) on every tag. Install, Gatekeeper and updates: [docs/桌面端安装.md](docs/桌面端安装.md).
+
+<br/>
+
+## ☕ Buy us a coffee
+
+The desktop app is free, and the open-source edition stays free with nothing held back — **whether or not you chip in.**
+If it saves you time, a coffee is about $3. For now we can only take WeChat Pay and Alipay:
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/coffee/coffee-wechat.png" width="180" alt="WeChat Pay QR code" /><br/><sub>WeChat Pay</sub></td>
+    <td align="center"><img src="docs/coffee/coffee-alipay.png" width="180" alt="Alipay QR code" /><br/><sub>Alipay</sub></td>
+  </tr>
+</table>
+
+No WeChat or Alipay? We don't take cards or PayPal yet — and the free ways help just as much:
+a ⭐ star, [an issue](https://github.com/BeckY824/daedalus-crm/issues) about what's broken,
+or sending the [download page](https://ai-daedalus.com/en/download.html) to a friend who manages their own clients.
+It's a tip, not a purchase: no invoice, and it doesn't unlock features, AI credits or priority support.
 
 <br/>
 

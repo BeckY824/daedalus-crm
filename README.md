@@ -19,7 +19,7 @@
 
 **简体中文** · [English](README_EN.md)
 
-[官网](https://ai-daedalus.com) · [下载 Mac 版](https://ai-daedalus.com/download.html) · [下载 Windows 版](https://ai-daedalus.com/download.html) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues)
+[官网](https://ai-daedalus.com) · [下载 Mac 版](https://ai-daedalus.com/download.html) · [下载 Windows 版](https://ai-daedalus.com/download.html) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues) · [☕ 请我们喝杯咖啡](#-请我们喝杯咖啡)
 
 </div>
 
@@ -126,6 +126,24 @@ AI 有两条路：在「设置 → 桌面端」登录云端账号，用我们的
 安装、放行与更新见 [docs/桌面端安装.md](docs/桌面端安装.md)；实现见 [desktop/README.md](desktop/README.md)；
 接 Claude Code / Codex 见 [docs/MCP接入.md](docs/MCP接入.md)；
 官网要提供的下载页与版本信息见 [docs/网站对接.md](docs/网站对接.md)。
+
+<br/>
+
+## ☕ 请我们喝杯咖啡
+
+桌面端免费，开源版永久免费、功能不阉割——**这一点不会因为你付不付钱而改变。**
+如果它替你省下了时间，扫下面任意一个码就好。一杯咖啡大约 ¥20，多少都是心意。
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/coffee/coffee-wechat.png" width="180" alt="微信收款码" /><br/><sub>微信</sub></td>
+    <td align="center"><img src="docs/coffee/coffee-alipay.png" width="180" alt="支付宝收款码" /><br/><sub>支付宝</sub></td>
+  </tr>
+</table>
+
+这是自愿的赞赏，不是购买：不开发票，也不换任何功能、AI 次数或优先支持。
+不花钱也一样管用：点个 ⭐ Star、[提一个 issue](https://github.com/BeckY824/daedalus-crm/issues)，
+或者把[下载页](https://ai-daedalus.com/download.html)转给一个同样自己管客户的朋友。
 
 <br/>
 
