@@ -3,6 +3,11 @@
  *
  *   BASE_URL=http://localhost:3300 node scripts/shoot.mjs
  *
+ * 按桌面端本机模式拍（2026-09-30 起 README 用这一种：单人使用，界面和用户装的桌面端一样）：
+ * 起服务时带 DESKTOP_LOCAL=1 DESKTOP_TOKEN=<随便一串>，这里设同一串 SHOT_DESKTOP_TOKEN，
+ * 走 /api/desktop/session 免密进去（数据目录里要有 .cloud.json，否则会被送回登录页）。
+ * SHOT_CUSTOMER_ID 可以指定详情页拍哪位。
+ *
  * 只对演示库拍：截图会进公开仓库，不能带任何真实客户数据。
  */
 import { chromium } from "@playwright/test";
@@ -28,7 +33,6 @@ const PAGES = [
   { file: "08-pipeline", url: "/opportunities/pipeline", label: "商机管道" },
   { file: "09-follow-ups", url: "/follow-ups", label: "跟进记录" },
   { file: "10-plans", url: "/follow-ups/plans", label: "跟进计划" },
-  { file: "10b-reports", url: "/reports", label: "数据复盘", settle: 2500 },
   { file: "11-settings", url: "/settings", label: "设置" },
 ];
 
@@ -53,6 +57,12 @@ await page.addInitScript(() => {
 });
 
 async function login() {
+  if (process.env.SHOT_DESKTOP_TOKEN) {
+    await page.goto(`${BASE}/api/desktop/session?t=${encodeURIComponent(process.env.SHOT_DESKTOP_TOKEN)}`);
+    await page.waitForURL(/\/dashboard/, { timeout: 60000 });
+    await page.waitForLoadState("load");
+    return;
+  }
   await page.goto(`${BASE}/login`, { waitUntil: "networkidle" });
   await page.fill('input[placeholder="用户名"]', process.env.SHOT_USER ?? "zhangsan");
   await page.fill('input[placeholder="登录密码"]', process.env.SHOT_PASSWORD ?? "admin123");
@@ -61,7 +71,9 @@ async function login() {
   await page.waitForLoadState("networkidle");
 }
 
-async function shoot(name, settle = 900) {
+async function shoot(name, settle = 1500) {
+  // 鼠标挪到角落：停在某一行上会拍进悬停态（编辑、删除钮冒出来，日期被挤成「9 月」）
+  await page.mouse.move(2, 1040);
   // 等图表等异步绘制完成
   await page.waitForTimeout(settle);
   const file = path.join(OUT, `${name}.png`);
@@ -72,8 +84,8 @@ async function shoot(name, settle = 900) {
 // 未登录页先拍
 for (const p of PAGES.filter((p) => p.auth === false)) {
   if (p.viewport) await page.setViewportSize(p.viewport);
-  await page.goto(`${BASE}${p.url}`, { waitUntil: "networkidle" });
-  await shoot(p.file);
+  await page.goto(`${BASE}${p.url}`, { waitUntil: "load" });
+  await shoot(p.file, 2500);
 }
 await page.setViewportSize({ width: 1680, height: 1050 });
 
@@ -81,7 +93,7 @@ await login();
 
 /* 详情页样本：挑一位「意向较高」的——演示库里这一档才同时有商机、下次计划和多条跟进。
    随便取第一位的话多半是「暂缓」那几个，截出来一半的卡片都是「还没有…」 */
-const detailHref = await page.evaluate(async () => {
+const detailHref = process.env.SHOT_CUSTOMER_ID ? `/customers/${process.env.SHOT_CUSTOMER_ID}` : await page.evaluate(async () => {
   const r = await fetch("/customers?followStatus=" + encodeURIComponent("意向较高"), { headers: { accept: "text/html" } });
   const m = (await r.text()).match(/\/customers\/(c[a-z0-9]{20,})/);
   if (m) return m[0];
@@ -97,7 +109,7 @@ for (const p of PAGES.filter((p) => p.auth !== false)) {
     continue;
   }
   // 记录页的 AI 面板会持续流式请求，networkidle 永远等不到，用 load
-  await page.goto(`${BASE}${url}`, { waitUntil: p.url ? "networkidle" : "load" });
+  await page.goto(`${BASE}${url}`, { waitUntil: "load" });
   // 记录页的 AI 面板是打开后异步生成的，等它出结果再拍（最多 90 秒；没配 AI 时立刻返回）
   if (!p.url) await page.waitForFunction(() => /这次建议谈|建议|还没有任何跟进记录/.test(document.querySelector(".rec-ai")?.innerText ?? "x"), null, { timeout: 90000 }).catch(() => {});
   await shoot(p.file, p.settle);
