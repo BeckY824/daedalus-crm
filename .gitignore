@@ -88,3 +88,7 @@ prisma/e2e-hosted/
 
 # 图标生成的临时目录（scripts/make-icon.mjs 每次开头就 rmSync 它，产物在 desktop/assets/）
 /.icon-build/
+
+# 本机联调时 desktop/node_modules 常是指向别处的符号链接：它是文件不是目录，上面的 node_modules/ 匹配不上，
+# 2026-09-29 被 git add 带进过仓库（指向一个 Mac 临时目录）。不带斜杠的这条连链接一起忽略
+node_modules
