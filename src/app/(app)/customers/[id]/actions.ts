@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma";
 import { requireUser } from "@/lib/auth";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
@@ -269,44 +270,52 @@ export async function completePlan(id: string, 完成 = true) {
 
 /* ---------------- 联系人 ---------------- */
 
-export async function saveContact(input: {
-  id?: string;
-  customerId: string;
+/**
+ * 「主要联系人」全客户只能有一个。
+ * 原本只是照着表单写 isPrimary，谁都能把自己那条勾成主要，
+ * 两个人各自勾一条就会同时存在两个主要联系人；详情页按 isPrimary 倒序取第一条，
+ * 显示哪一个取决于创建顺序，看上去像是对方的修改没生效。
+ */
+async function 只留这一个关键(tx: Prisma.TransactionClient, customerId: string, id: string) {
+  await tx.contact.updateMany({
+    where: { customerId, id: { not: id }, isPrimary: true },
+    data: { isPrimary: false },
+  });
+}
+
+function 刷新联系人(customerId?: string | null) {
+  if (customerId) revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/contacts");
+}
+
+type 联系人字段 = {
   name: string;
   position?: string | null;
   phone?: string | null;
   email?: string | null;
   wechat?: string | null;
-  isPrimary: boolean;
   remark?: string | null;
-}) {
-  const me = await requireUser();
-  const data = {
+};
+
+function 规整(input: 联系人字段) {
+  return {
     name: input.name.trim(),
     position: input.position || null,
     phone: input.phone || null,
     email: input.email || null,
     wechat: input.wechat || null,
-    isPrimary: input.isPrimary,
     remark: input.remark || null,
-    customerId: input.customerId,
   };
-  /**
-   * 「主要联系人」全客户只能有一个。
-   * 原本只是照着表单写 isPrimary，谁都能把自己那条勾成主要，
-   * 两个人各自勾一条就会同时存在两个主要联系人；详情页按 isPrimary 倒序取第一条，
-   * 显示哪一个取决于创建顺序，看上去像是对方的修改没生效。
-   */
+}
+
+export async function saveContact(input: 联系人字段 & { id?: string; customerId: string; isPrimary: boolean }) {
+  const me = await requireUser();
+  const data = { ...规整(input), isPrimary: input.isPrimary, customerId: input.customerId };
   const 落库id = await prisma.$transaction(async (tx) => {
     const saved = input.id
       ? await tx.contact.update({ where: { id: input.id }, data })
       : await tx.contact.create({ data });
-    if (input.isPrimary) {
-      await tx.contact.updateMany({
-        where: { customerId: input.customerId, id: { not: saved.id }, isPrimary: true },
-        data: { isPrimary: false },
-      });
-    }
+    if (input.isPrimary) await 只留这一个关键(tx, input.customerId, saved.id);
     return saved.id;
   });
   await recordAudit({
@@ -315,20 +324,212 @@ export async function saveContact(input: {
     detail: { 姓名: data.name, 职位: data.position, 电话: data.phone, 微信: data.wechat, 主要联系人: data.isPrimary },
   });
 
-  revalidatePath(`/customers/${input.customerId}`);
-  revalidatePath("/contacts");
+  刷新联系人(input.customerId);
   return { ok: true as const };
 }
 
+/* ---------- 未归属：从客户上移出、人留着（2026-10-01 用户反馈） ---------- */
+
+/**
+ * 把一位未归属的人挂到某位客户下面：Contact 里按原 id 建回来，UnassignedContact 那行删掉。
+ * 挂回的正是原来那位时，原来指着他的跟进记录也接回去（只接这会儿还空着的——
+ * 移出之后有人在那条跟进上另挑了联系人，就不抢回来）。挂到别人下面时不接：那几条是原来那位的跟进。
+ */
+async function 挂上(
+  tx: Prisma.TransactionClient,
+  u: { id: string; fromCustomerId: string | null; followUpIds: string | null; createdAt: Date } & ReturnType<typeof 规整>,
+  customerId: string,
+  isPrimary: boolean,
+) {
+  await tx.contact.create({
+    data: {
+      id: u.id, name: u.name, position: u.position, phone: u.phone, email: u.email, wechat: u.wechat, remark: u.remark,
+      isPrimary, customerId, createdAt: u.createdAt,
+    },
+  });
+  if (isPrimary) await 只留这一个关键(tx, customerId, u.id);
+  const 跟进 = u.fromCustomerId === customerId ? (JSON.parse(u.followUpIds ?? "[]") as string[]) : [];
+  if (跟进.length) {
+    await tx.followUp.updateMany({ where: { id: { in: 跟进 }, customerId, contactId: null }, data: { contactId: u.id } });
+  }
+  await tx.unassignedContact.delete({ where: { id: u.id } });
+}
+
+/**
+ * 只从这位客户上移出，人留着：联系人页里写「未归属」，以后能挂到哪一位下面。
+ * 回的 `原来是关键` 给撤销用。
+ */
+export async function detachContact(id: string) {
+  const me = await requireUser();
+  const c = await prisma.contact.findUnique({ where: { id }, include: { customer: { select: { name: true } } } });
+  if (!c) return { ok: false as const, error: "这位联系人已经不在这儿了，刷新看看" };
+  const 跟进 = await prisma.followUp.findMany({ where: { contactId: id }, select: { id: true } });
+  await prisma.$transaction([
+    prisma.unassignedContact.create({
+      data: {
+        id: c.id, name: c.name, position: c.position, phone: c.phone, email: c.email, wechat: c.wechat, remark: c.remark,
+        fromCustomerId: c.customerId, fromCustomerName: c.customer.name,
+        followUpIds: 跟进.length ? JSON.stringify(跟进.map((f) => f.id)) : null,
+        createdAt: c.createdAt,
+      },
+    }),
+    // 原来那条删掉。跟进记录上的 contactId 由外键置空，id 记在上面那行里，挂回来时接上
+    prisma.contact.delete({ where: { id } }),
+  ]);
+  await recordAudit({
+    user: me, action: "update", entity: "Contact", entityId: id,
+    summary: `把联系人「${c.name}」从${c.customer.name}移出（联系人页里还留着）`,
+    detail: { 姓名: c.name },
+  });
+  刷新联系人(c.customerId);
+  return { ok: true as const, 原来是关键: c.isPrimary };
+}
+
+/** 撤销移出：挂回原来那位，关键联系人原样回去 */
+export async function undoDetachContact(id: string, 原来是关键: boolean) {
+  const me = await requireUser();
+  const u = await prisma.unassignedContact.findUnique({ where: { id } });
+  if (!u) return { ok: true as const };
+  if (!u.fromCustomerId || !(await prisma.customer.findUnique({ where: { id: u.fromCustomerId }, select: { id: true } }))) {
+    return { ok: false as const, error: "原来那位客户已经不在了，撤不回去" };
+  }
+  await prisma.$transaction((tx) => 挂上(tx, u, u.fromCustomerId!, 原来是关键));
+  await recordAudit({
+    user: me, action: "update", entity: "Contact", entityId: id,
+    summary: `撤销移出：联系人「${u.name}」回到${u.fromCustomerName ?? "原来那位"}`,
+    detail: { 姓名: u.name },
+  });
+  刷新联系人(u.fromCustomerId);
+  return { ok: true as const };
+}
+
+/**
+ * 联系人页上改一位未归属的人。给了 `customerId` 就是挂到那位下面，不给就还留在未归属、只改资料。
+ */
+export async function saveUnassignedContact(input: 联系人字段 & { id: string; customerId?: string | null; isPrimary?: boolean }) {
+  const me = await requireUser();
+  const u = await prisma.unassignedContact.findUnique({ where: { id: input.id } });
+  if (!u) return { ok: false as const, error: "这位联系人已经不在了，刷新看看" };
+  const data = 规整(input);
+  if (input.customerId) {
+    const 客户 = await prisma.customer.findUnique({ where: { id: input.customerId }, select: { name: true } });
+    if (!客户) return { ok: false as const, error: "那位客户已经不在了，换一位" };
+    await prisma.$transaction((tx) => 挂上(tx, { ...u, ...data }, input.customerId!, Boolean(input.isPrimary)));
+    await recordAudit({
+      user: me, action: "update", entity: "Contact", entityId: u.id,
+      summary: `把未归属的联系人「${data.name}」挂到${客户.name}`,
+      detail: { 姓名: data.name, 职位: data.position, 电话: data.phone, 微信: data.wechat },
+    });
+    刷新联系人(input.customerId);
+    return { ok: true as const, 挂到: 客户.name };
+  }
+  await prisma.unassignedContact.update({ where: { id: u.id }, data });
+  await recordAudit({
+    user: me, action: "update", entity: "Contact", entityId: u.id,
+    summary: `修改未归属的联系人「${data.name}」`,
+    detail: { 姓名: data.name, 职位: data.position, 电话: data.phone, 微信: data.wechat },
+  });
+  刷新联系人();
+  return { ok: true as const, 挂到: null };
+}
+
+/* ---------- 彻底删除 + 撤销 ---------- */
+
+/** 彻底删掉之后撤销要用的：原样的那一行（挂着的或未归属的），加上原来指着他的跟进记录 */
+export type 删掉的联系人 =
+  | {
+      哪种: "挂着";
+      id: string; name: string; position: string | null; phone: string | null; email: string | null;
+      wechat: string | null; remark: string | null; isPrimary: boolean; customerId: string; createdAt: string;
+      跟进: string[];
+    }
+  | {
+      哪种: "未归属";
+      id: string; name: string; position: string | null; phone: string | null; email: string | null;
+      wechat: string | null; remark: string | null; fromCustomerId: string | null; fromCustomerName: string | null;
+      followUpIds: string | null; detachedAt: string; createdAt: string;
+    };
+
+/** 彻底删除：联系人页里也没了。他名下的跟进记录留着，只是不再写「跟谁谈的」 */
 export async function deleteContact(id: string) {
   const me = await requireUser();
+  const 跟进 = await prisma.followUp.findMany({ where: { contactId: id }, select: { id: true } });
   const c = await prisma.contact.delete({ where: { id } });
   await recordAudit({
     user: me, action: "delete", entity: "Contact", entityId: id,
     summary: `删除${await 客户名(c.customerId)}的联系人「${c.name}」`,
     detail: { 姓名: c.name, 职位: c.position, 电话: c.phone },
   });
-  revalidatePath(`/customers/${c.customerId}`);
-  revalidatePath("/contacts");
+  刷新联系人(c.customerId);
+  const 快照: 删掉的联系人 = {
+    哪种: "挂着",
+    id: c.id, name: c.name, position: c.position, phone: c.phone, email: c.email, wechat: c.wechat, remark: c.remark,
+    isPrimary: c.isPrimary, customerId: c.customerId, createdAt: c.createdAt.toISOString(),
+    跟进: 跟进.map((f) => f.id),
+  };
+  return { ok: true as const, 快照 };
+}
+
+/** 联系人页上彻底删一位未归属的人 */
+export async function deleteUnassignedContact(id: string) {
+  const me = await requireUser();
+  const u = await prisma.unassignedContact.delete({ where: { id } });
+  await recordAudit({
+    user: me, action: "delete", entity: "Contact", entityId: id,
+    summary: `删除未归属的联系人「${u.name}」`,
+    detail: { 姓名: u.name, 职位: u.position, 电话: u.phone },
+  });
+  刷新联系人();
+  const 快照: 删掉的联系人 = {
+    哪种: "未归属",
+    id: u.id, name: u.name, position: u.position, phone: u.phone, email: u.email, wechat: u.wechat, remark: u.remark,
+    fromCustomerId: u.fromCustomerId, fromCustomerName: u.fromCustomerName, followUpIds: u.followUpIds,
+    detachedAt: u.detachedAt.toISOString(), createdAt: u.createdAt.toISOString(),
+  };
+  return { ok: true as const, 快照 };
+}
+
+/** 撤销删除：同一个 id 原样建回来；挂着的那种连原来的跟进记录一起接回去 */
+export async function restoreContact(快照: 删掉的联系人) {
+  const me = await requireUser();
+  const 在 = await Promise.all([
+    prisma.contact.findUnique({ where: { id: 快照.id }, select: { id: true } }),
+    prisma.unassignedContact.findUnique({ where: { id: 快照.id }, select: { id: true } }),
+  ]);
+  if (在[0] || 在[1]) return { ok: true as const };
+  if (快照.哪种 === "未归属") {
+    await prisma.unassignedContact.create({
+      data: {
+        id: 快照.id, name: 快照.name, position: 快照.position, phone: 快照.phone, email: 快照.email, wechat: 快照.wechat,
+        remark: 快照.remark, fromCustomerId: 快照.fromCustomerId, fromCustomerName: 快照.fromCustomerName,
+        followUpIds: 快照.followUpIds, detachedAt: new Date(快照.detachedAt), createdAt: new Date(快照.createdAt),
+      },
+    });
+  } else {
+    if (!(await prisma.customer.findUnique({ where: { id: 快照.customerId }, select: { id: true } }))) {
+      return { ok: false as const, error: "原来那位客户已经不在了，撤不回来" };
+    }
+    await prisma.$transaction(async (tx) => {
+      await tx.contact.create({
+        data: {
+          id: 快照.id, name: 快照.name, position: 快照.position, phone: 快照.phone, email: 快照.email, wechat: 快照.wechat,
+          remark: 快照.remark, isPrimary: 快照.isPrimary, customerId: 快照.customerId, createdAt: new Date(快照.createdAt),
+        },
+      });
+      if (快照.isPrimary) await 只留这一个关键(tx, 快照.customerId, 快照.id);
+      if (快照.跟进.length) {
+        await tx.followUp.updateMany({
+          where: { id: { in: 快照.跟进 }, customerId: 快照.customerId, contactId: null },
+          data: { contactId: 快照.id },
+        });
+      }
+    });
+  }
+  await recordAudit({
+    user: me, action: "create", entity: "Contact", entityId: 快照.id,
+    summary: `撤销删除：联系人「${快照.name}」回来了`,
+    detail: { 姓名: 快照.name },
+  });
+  刷新联系人(快照.哪种 === "挂着" ? 快照.customerId : null);
   return { ok: true as const };
 }

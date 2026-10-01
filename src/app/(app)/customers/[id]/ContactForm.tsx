@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Select } from "antd";
-import { saveContact } from "./actions";
+import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Select, Button } from "antd";
+import { saveContact, saveUnassignedContact } from "./actions";
 import type { ContactRow } from "./types";
 import { useBusiness } from "@/lib/business-client";
 import { 关系候选 } from "@/lib/business-config";
@@ -30,6 +30,8 @@ export default function ContactForm({
   customerId,
   学员们,
   record,
+  未归属 = false,
+  onDelete,
 }: {
   open: boolean;
   onClose: () => void;
@@ -39,14 +41,24 @@ export default function ContactForm({
   /** 只有不给 customerId 时才用得上：可选的学员 */
   学员们?: { id: string; name: string }[];
   record: ContactRow | null;
+  /**
+   * 改的是一位从客户上移出的联系人（联系人页里写「未归属」那种）。
+   * 这时「所属」可以不挑——不挑就还留在未归属，挑了就是挂回去
+   */
+  未归属?: boolean;
+  /** 给了就在左下角摆「彻底删除」。联系人页上未归属的人只有这儿能删 */
+  onDelete?: () => void;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const b = useBusiness();
+  const 挑的 = Form.useWatch("customerId", form) as string | undefined;
+  /** 未归属又还没挑客户：谈不上是谁的关键联系人，那个开关不摆 */
+  const 还没归属 = 未归属 && !挑的;
 
   useEffect(() => {
     if (!open) return;
-    if (record) form.setFieldsValue(record);
+    if (record) form.setFieldsValue({ ...record, customerId: undefined });
     else {
       form.resetFields();
       form.setFieldsValue({ isPrimary: false });
@@ -57,7 +69,14 @@ export default function ContactForm({
     const v = await form.validateFields();
     // 记录页给的 customerId 说了算；列表页上它在表单里
     const 归属 = customerId ?? (v.customerId as string);
-    await saveContact({ id: record?.id, ...v, customerId: 归属 });
+    if (未归属 && record) {
+      // 未归属的人：挑了客户就是挂过去，不挑就还留在未归属、只改资料
+      const r = await saveUnassignedContact({ id: record.id, ...v, isPrimary: Boolean(v.isPrimary), customerId: 归属 || null });
+      if (!r.ok) return void message.error(r.error);
+      message.success(r.挂到 ? `已挂到「${r.挂到}」` : "已保存");
+      return void onSaved();
+    }
+    await saveContact({ id: record?.id, ...v, isPrimary: Boolean(v.isPrimary), customerId: 归属 });
     message.success(record ? "已保存" : "联系人已添加");
     onSaved();
   }
@@ -72,17 +91,35 @@ export default function ContactForm({
       cancelText="取消"
       width={560}
       destroyOnHidden
+      footer={(原来的) =>
+        onDelete ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Button danger type="text" onClick={onDelete}>
+              彻底删除
+            </Button>
+            <div style={{ display: "flex", gap: 8 }}>{原来的}</div>
+          </div>
+        ) : (
+          原来的
+        )
+      }
     >
       <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
         <Row gutter={16}>
           {/* 从联系人列表进来时先选人：联系人挂在某一位学员下面，没有归属的联系人没有意义 */}
           {!customerId && (
             <Col span={24}>
-              <Form.Item name="customerId" label={`所属${b.customer}`} rules={[{ required: true, message: `请选择所属${b.customer}` }]}>
+              <Form.Item
+                name="customerId"
+                label={`所属${b.customer}`}
+                rules={未归属 ? [] : [{ required: true, message: `请选择所属${b.customer}` }]}
+                extra={未归属 && !挑的 ? `现在不在任何${b.customer}下面。挑一位就挂过去，不挑就还留在未归属` : undefined}
+              >
                 <Select
                   showSearch
+                  allowClear={未归属}
                   optionFilterProp="label"
-                  placeholder={`搜索并选择一位${b.customer}`}
+                  placeholder={未归属 ? `未归属（挑一位${b.customer}挂过去）` : `搜索并选择一位${b.customer}`}
                   options={(学员们 ?? []).map((c) => ({ value: c.id, label: c.name }))}
                 />
               </Form.Item>
@@ -113,11 +150,13 @@ export default function ContactForm({
               <Input placeholder="微信号" />
             </Form.Item>
           </Col>
-          <Col span={12}>
-            <Form.Item name="isPrimary" label="关键联系人" valuePropName="checked">
-              <Switch checkedChildren="是" unCheckedChildren="否" />
-            </Form.Item>
-          </Col>
+          {!还没归属 && (
+            <Col span={12}>
+              <Form.Item name="isPrimary" label="关键联系人" valuePropName="checked">
+                <Switch checkedChildren="是" unCheckedChildren="否" />
+              </Form.Item>
+            </Col>
+          )}
           <Col span={24}>
             <Form.Item name="remark" label="备注">
               <Input.TextArea rows={2} placeholder="决策角色、沟通偏好、注意事项…" />

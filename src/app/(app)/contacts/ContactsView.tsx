@@ -11,6 +11,7 @@ import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import ContactForm from "../customers/[id]/ContactForm";
+import { useContactRemoval } from "../customers/[id]/useContactRemoval";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 
@@ -22,6 +23,11 @@ type Row = {
   email: string | null;
   wechat: string | null;
   isPrimary: boolean;
+  remark: string | null;
+  /** 从客户上移出、人留着的（UnassignedContact）。没有所属客户，customerId 是空串 */
+  未归属: boolean;
+  /** 未归属的人原来是哪位客户的，鼠标停上去给人看 */
+  原来: string | null;
   customerId: string;
   customerName: string;
   school: string | null;
@@ -49,6 +55,9 @@ export default function ContactsView({
   const [kw, setKw] = useState(keyword);
   const [pending, startTransition] = useTransition();
   const [表单开着, set表单开着] = useState(false);
+  /** 点开的那位未归属联系人（编辑、挂回某位客户、彻底删除都在这个框里） */
+  const [在改, set在改] = useState<Row | null>(null);
+  const { 彻底删 } = useContactRemoval();
 
   /*
     关系和负责人两个筛选在本地做：这一页一次最多取 300 行，已经全在手上了，
@@ -56,19 +65,27 @@ export default function ContactsView({
   */
   const [关系, set关系] = useState("");
   const [负责人, set负责人] = useState("");
+  const [归属, set归属] = useState<"" | "有" | "无">("");
+  const 有未归属 = 全部行.some((r) => r.未归属);
   const 关系选项 = useMemo(
     () => [...new Set(全部行.map((r) => r.position).filter(Boolean))].map((v) => ({ value: v as string, label: v as string })),
     [全部行],
   );
   const 负责人选项 = useMemo(
-    () => [...new Set(全部行.map((r) => r.ownerName))].map((v) => ({ value: v, label: v })),
+    () => [...new Set(全部行.filter((r) => !r.未归属).map((r) => r.ownerName))].map((v) => ({ value: v, label: v })),
     [全部行],
   );
   /** 只有一个人：负责人列和筛选都不摆（审查 D2），见 lib/solo.ts */
-  const 不问归属 = !负责人 && 列表不问归属(users, 全部行.map((r) => r.ownerName));
+  const 不问归属 = !负责人 && 列表不问归属(users, 全部行.filter((r) => !r.未归属).map((r) => r.ownerName));
   const rows = useMemo(
-    () => 全部行.filter((r) => (!关系 || r.position === 关系) && (!负责人 || r.ownerName === 负责人)),
-    [全部行, 关系, 负责人],
+    () =>
+      全部行.filter(
+        (r) =>
+          (!关系 || r.position === 关系) &&
+          (!负责人 || (!r.未归属 && r.ownerName === 负责人)) &&
+          (!归属 || (归属 === "无") === r.未归属),
+      ),
+    [全部行, 关系, 负责人, 归属],
   );
 
   const 列表: 列<Row>[] = [
@@ -88,7 +105,14 @@ export default function ContactsView({
     },
     {
       title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 240,
-      render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
+      render: (v, r) =>
+        r.未归属 ? (
+          <span className="muted" title={r.原来 ? `原来在「${r.原来}」下面` : undefined}>
+            未归属
+          </span>
+        ) : (
+          <CustomerLink id={r.customerId} name={v} />
+        ),
     },
     // 「关系」就是他和这位的关系（本人、采购、财务；教培里是母亲、父亲），候选跟着业务配置走
     { title: "关系", key: "position", dataIndex: "position", width: 120, render: (v) => v ?? <span className="muted">—</span> },
@@ -104,9 +128,9 @@ export default function ContactsView({
           <span className="muted">—</span>
         ),
     },
-    ...(不问归属 ? [] : [{ title: "负责人", 列名: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v: string) => <UserCell name={v} size={24} /> }]),
+    ...(不问归属 ? [] : [{ title: "负责人", 列名: "负责人", key: "ownerName", dataIndex: "ownerName", width: 140, render: (v: string, r: Row) => (r.未归属 ? <span className="muted">—</span> : <UserCell name={v} size={24} />) }]),
 
-    { title: b.fields.school, key: "school", dataIndex: "school", width: 180, 默认: false, render: (v) => <span className="muted">{v ?? "—"}</span> },
+    { title: b.fields.school, key: "school", dataIndex: "school", width: 180, 默认: false, render: (v, r) => <span className="muted">{(!r.未归属 && v) || "—"}</span> },
     { title: "邮箱", key: "email", dataIndex: "email", width: 220, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
   ];
 
@@ -139,7 +163,9 @@ export default function ContactsView({
         列={列表}
         行={rows}
         加载中={pending}
-        行链接={(r) => `/customers/${r.customerId}`}
+        // 未归属的人没有「他的客户」可去：点开就地编辑，在框里挂回某位或彻底删除
+        行链接={(r) => (r.未归属 ? "" : `/customers/${r.customerId}`)}
+        行点击={(r) => set在改(r)}
         空态={{
           title: "还没有联系人",
           hint: `联系人是${b.customer}那边真正在对话的人：${关系候选(b).slice(0, 3).join("、")}。他挂在某一位${b.customer}下面，所以要先有${b.customer}。`,
@@ -169,12 +195,26 @@ export default function ContactsView({
                 options={负责人选项}
               />
             )}
+            {(有未归属 || 归属) && (
+              <Select
+                style={{ width: 140 }}
+                placeholder="全部归属"
+                allowClear
+                value={归属 || undefined}
+                onChange={(v) => set归属(v ?? "")}
+                options={[
+                  { value: "有", label: `挂在${b.customer}下` },
+                  { value: "无", label: "未归属" },
+                ]}
+              />
+            )}
             <ResetFilters
-              显示={Boolean(keyword || 关系 || 负责人)}
+              显示={Boolean(keyword || 关系 || 负责人 || 归属)}
               onClick={() => {
                 setKw("");
                 set关系("");
                 set负责人("");
+                set归属("");
                 startTransition(() => router.push("/contacts"));
               }}
             />
@@ -191,6 +231,27 @@ export default function ContactsView({
         }}
         学员们={学员们}
         record={null}
+      />
+
+      <ContactForm
+        open={在改 !== null}
+        onClose={() => set在改(null)}
+        onSaved={() => {
+          set在改(null);
+          router.refresh();
+        }}
+        学员们={学员们}
+        record={在改}
+        未归属
+        onDelete={
+          在改
+            ? () => {
+                const r = 在改;
+                set在改(null);
+                void 彻底删(r);
+              }
+            : undefined
+        }
       />
     </>
   );

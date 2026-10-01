@@ -25,6 +25,7 @@ export async function resetDb() {
   await prisma.contract.deleteMany();
   await prisma.opportunity.deleteMany();
   await prisma.contact.deleteMany();
+  await prisma.unassignedContact.deleteMany();
   await prisma.lead.deleteMany();
   // 自引用先断开，否则删学员时互相牵制
   await prisma.customer.updateMany({

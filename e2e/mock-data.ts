@@ -26,6 +26,7 @@ export async function 清空业务数据(p: PrismaClient) {
   await p.contract.deleteMany();
   await p.opportunity.deleteMany();
   await p.contact.deleteMany();
+  await p.unassignedContact.deleteMany();
   await p.lead.deleteMany();
   await p.customer.updateMany({ data: { referrerCustomerId: null, attributionCustomerId: null } });
   await p.customer.deleteMany();

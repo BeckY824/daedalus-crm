@@ -59,6 +59,8 @@ type Props<T> = {
   加载中?: boolean;
   /** 点一行去哪。给了就整行可点；点在按钮、链接、勾选框上不算 */
   行链接?: (r: T) => string;
+  /** 点行不去别的页、在这儿做点事（比如打开编辑框）。行链接给了空串的行也走它 */
+  行点击?: (r: T) => void;
   横向?: number;
   /**
    * 不给 = 在浏览器里分页（行已经一次全拿下来了，多数列表页是这样）。
@@ -100,7 +102,7 @@ function 行名(r: object): string | null {
 }
 
 export default function DataList<T extends { id: string }>({
-  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 横向, 分页, 截断, 亮, 行类,
+  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 行点击, 横向, 分页, 截断, 亮, 行类,
 }: Props<T>) {
   const router = useRouter();
   const [选中, set选中] = useState<string[]>([]);
@@ -293,12 +295,14 @@ export default function DataList<T extends { id: string }>({
         rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]), fixed: true } : undefined}
         rowClassName={(r) => [新来的.includes(r.id) || 亮?.includes(r.id) ? "row-fresh" : "", 行类?.(r) ?? ""].filter(Boolean).join(" ")}
         onRow={
-          行链接
+          行链接 || 行点击
             ? (r) => ({
                 onClick: (e) => {
                   // 点在按钮、链接、勾选框上时不算「点这一行」
                   if ((e.target as HTMLElement).closest("a, button, .ant-checkbox-wrapper, .ant-select, .ant-dropdown-trigger")) return;
-                  router.push(行链接(r));
+                  const 去 = 行链接?.(r);
+                  if (去) router.push(去);
+                  else 行点击?.(r);
                 },
                 style: { cursor: "pointer" },
               })

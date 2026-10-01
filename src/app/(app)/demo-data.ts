@@ -100,6 +100,7 @@ export async function 清除演示数据(): Promise<{ ok: true } | { ok: false; 
   await prisma.contract.deleteMany();
   await prisma.opportunity.deleteMany();
   await prisma.contact.deleteMany();
+  await prisma.unassignedContact.deleteMany();
   await prisma.lead.deleteMany();
   await prisma.customer.updateMany({ data: { referrerCustomerId: null, attributionCustomerId: null } });
   await prisma.customer.deleteMany();

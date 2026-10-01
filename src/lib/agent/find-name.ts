@@ -36,7 +36,7 @@ export async function 名字在别处(名: string, 号: (p: string | null) => st
   const q = 名.trim();
   if (!q) return [];
 
-  const [渠道, 联系人, 线索, 成员] = await Promise.all([
+  const [渠道, 联系人, 散的, 线索, 成员] = await Promise.all([
     prisma.channel.findMany({
       where: { name: { contains: q } },
       take: 每表最多,
@@ -46,6 +46,12 @@ export async function 名字在别处(名: string, 号: (p: string | null) => st
       where: { name: { contains: q } },
       take: 每表最多,
       select: { name: true, phone: true, position: true, wechat: true, customer: { select: { name: true } } },
+    }),
+    // 从客户上移出、人留着的那些（未归属）。不查的话 AI 会说「库里没有这个人」，其实人在联系人页里
+    prisma.unassignedContact.findMany({
+      where: { name: { contains: q } },
+      take: 每表最多,
+      select: { name: true, phone: true, position: true, wechat: true, fromCustomerName: true },
     }),
     prisma.lead.findMany({
       // 线索有两个人名字段：线索本身的名称（多半是公司）和它的联系人
@@ -68,11 +74,17 @@ export async function 名字在别处(名: string, 号: (p: string | null) => st
       记录: 渠道.map((c) => ({ 名称: c.name, 电话: 号(c.phone), 渠道负责人: c.channelOwner?.name ?? "未指定", 状态: c.active ? "在用" : "已停用", 备注: c.remark ?? null })),
       怎么查: `list_channels（keyword="${q}"）`,
     });
-  if (联系人.length)
+  if (联系人.length || 散的.length)
     out.push({
       表: "联系人",
-      条数: 联系人.length,
-      记录: 联系人.map((c) => ({ 姓名: c.name, 电话: 号(c.phone), 职位: c.position ?? null, 微信: c.wechat ?? null, 属于: c.customer?.name ?? null })),
+      条数: 联系人.length + 散的.length,
+      记录: [
+        ...联系人.map((c) => ({ 姓名: c.name, 电话: 号(c.phone), 职位: c.position ?? null, 微信: c.wechat ?? null, 属于: c.customer?.name ?? null })),
+        ...散的.map((c) => ({
+          姓名: c.name, 电话: 号(c.phone), 职位: c.position ?? null, 微信: c.wechat ?? null,
+          属于: c.fromCustomerName ? `未归属（原来在${c.fromCustomerName}下面）` : "未归属",
+        })),
+      ],
       怎么查: `query_records（表=联系人）`,
     });
   if (线索.length)

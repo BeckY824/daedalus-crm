@@ -26,7 +26,12 @@ export default async function ContactsPage({
       }
     : {};
 
-  const [总数, rows, 学员们, users] = await Promise.all([
+  // 从客户上移出、人留着的（UnassignedContact，2026-10-01）。没有客户可搜，只按姓名、电话
+  const 散的where: Prisma.UnassignedContactWhereInput = sp.keyword
+    ? { OR: [{ name: { contains: sp.keyword } }, { phone: { contains: sp.keyword } }] }
+    : {};
+
+  const [总数, rows, 散的总数, 散的, 学员们, users] = await Promise.all([
     // take: 300 取回来的行数不是总数，分页条会拿它冒充总数。见 leads/page.tsx 的说明
     prisma.contact.count({ where }),
     prisma.contact.findMany({
@@ -37,6 +42,8 @@ export default async function ContactsPage({
         customer: { select: { id: true, name: true, school: true, salesOwner: { select: { name: true } } } },
       },
     }),
+    prisma.unassignedContact.count({ where: 散的where }),
+    prisma.unassignedContact.findMany({ where: 散的where, orderBy: { detachedAt: "desc" }, take: 300 }),
     // 「添加联系人」要先选归属，所以把学员的名字一起带下来
     可选客户(),
     // 只拿来判断「是不是只有一个人」（负责人那一列摆不摆，见 lib/solo.ts）
@@ -46,7 +53,7 @@ export default async function ContactsPage({
 
   return (
     <ContactsView
-      总数={总数}
+      总数={总数 + 散的总数}
       keyword={sp.keyword ?? ""}
       学员们={学员们}
       users={users}
@@ -58,11 +65,31 @@ export default async function ContactsPage({
         email: c.email,
         wechat: c.wechat,
         isPrimary: c.isPrimary,
+        remark: c.remark,
+        未归属: false,
+        原来: null as string | null,
         customerId: c.customer.id,
         customerName: c.customer.name,
         school: c.customer.school,
         ownerName: c.customer.salesOwner.name,
-      }))}
+      })).concat(
+        散的.map((u) => ({
+          id: u.id,
+          name: u.name,
+          position: u.position,
+          phone: 号(u.phone),
+          email: u.email,
+          wechat: u.wechat,
+          isPrimary: false,
+          remark: u.remark,
+          未归属: true,
+          原来: u.fromCustomerName,
+          customerId: "",
+          customerName: "",
+          school: null,
+          ownerName: "",
+        })),
+      )}
     />
   );
 }

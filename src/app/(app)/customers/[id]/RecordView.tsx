@@ -31,7 +31,8 @@ import CustomerForm from "../CustomerForm";
 import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
 import AiCost from "@/components/AiCost";
-import { toggleTask, deleteTask, deleteFollowUp, completePlan, deleteContact, saveFollowUp } from "./actions";
+import { toggleTask, deleteTask, deleteFollowUp, completePlan, saveFollowUp } from "./actions";
+import { useContactRemoval } from "./useContactRemoval";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
 import { 登记详情名 } from "@/lib/page-rows";
 import Heat, { 冷热说法, 要看冷热 } from "@/components/Heat";
@@ -79,6 +80,7 @@ export default function RecordView({
   const router = useRouter();
   const { message, modal } = App.useApp();
   const b = useBusiness();
+  const { 问怎么拿掉 } = useContactRemoval();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   const 计划过期天 = plan ? Math.max(0, dayjs().startOf("day").diff(dayjs(plan.plannedAt).startOf("day"), "day")) : 0;
@@ -427,19 +429,8 @@ export default function RecordView({
                     danger
                     icon={<DeleteOutlined />}
                     aria-label={`删除联系人 ${c.name}`}
-                    onClick={() =>
-                      modal.confirm({
-                        title: `删除联系人「${c.name}」？`,
-                        okText: "删除",
-                        okButtonProps: { danger: true },
-                        cancelText: "取消",
-                        async onOk() {
-                          await deleteContact(c.id);
-                          message.success(`联系人「${c.name}」已删除`);
-                          router.refresh();
-                        },
-                      })
-                    }
+                    // 先问只移出还是彻底删（2026-10-01 用户反馈：删完联系人页里也没了）
+                    onClick={() => 问怎么拿掉(c)}
                   />
                 </span>
               </div>

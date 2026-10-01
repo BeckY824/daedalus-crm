@@ -189,6 +189,25 @@ model Contact {
   @@index([customerId])
 }
 
+/// 从客户上移出、人留着的联系人（2026-10-01 用户反馈：在客户详情里删联系人，联系人页里也跟着没了）。
+/// 单独一张表，不留在 Contact 里加个标记：Contact.customerId 不能为空、删客户会级联删联系人，
+/// 留在那儿早晚被原来那位客户一起带走。id 沿用原来那条 Contact 的，挂回去时原样搬回。
+model UnassignedContact {
+  id               String   @id
+  name             String
+  position         String?
+  phone            String?
+  email            String?
+  wechat           String?
+  remark           String?
+  fromCustomerId   String? // 原来是谁的。不连外键：那位之后可能被删了
+  fromCustomerName String? // 原来那位的名字，给人看
+  followUpIds      String? // 原来指着他的跟进记录 id（JSON 数组）。挂回原来那位时接回去
+  detachedAt       DateTime @default(now())
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
 model Opportunity {
   id            String    @id @default(cuid())
   name          String

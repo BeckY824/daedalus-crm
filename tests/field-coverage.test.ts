@@ -39,6 +39,8 @@ const 可写: Record<string, string[]> = {
   Lead: ["name", "contact", "phone", "email", "industry", "source", "status", "remark", "ownerId"],
   Contract: ["customerId", "amount", "signedAt", "remark"],
   Contact: ["name", "position", "phone", "email", "wechat", "isPrimary", "remark", "customerId"],
+  // 未归属联系人：联系人页上点开改资料（saveUnassignedContact）
+  UnassignedContact: ["name", "position", "phone", "email", "wechat", "remark"],
   Opportunity: ["name", "amount", "stage", "status", "probability", "expectedDealAt", "remark", "customerId", "ownerId"],
   FollowUp: ["type", "title", "content", "status", "duration", "occurredAt", "dueAt", "participants", "customerId", "contactId", "opportunityId"],
   Task: ["title", "dueAt", "done", "customerId"],
@@ -59,6 +61,12 @@ const 派生: Record<string, Record<string, string>> = {
     customerId: "转化后指向新建的客户，由 convertLead 设置",
   },
   Task: { doneAt: "toggleTask 完成时打上", ownerId: "创建者，不做转派" },
+  UnassignedContact: {
+    fromCustomerId: "detachContact 移出时记下原来是谁的，挂回原处时接回跟进记录用",
+    fromCustomerName: "同上，给人看（那位之后可能被删）",
+    followUpIds: "detachContact 移出时记下原来指着他的跟进记录",
+    detachedAt: "移出的时刻，系统打上",
+  },
   FollowPlan: { ownerId: "创建者，不做转派" },
   FollowUp: { ownerId: "记录人，不做转派" },
   AiConversation: {
