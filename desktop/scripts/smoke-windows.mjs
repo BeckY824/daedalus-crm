@@ -31,11 +31,18 @@ try {
   const page = await app.firstWindow();
   page.setDefaultTimeout(30000);
   await expect(page.locator('input[type="password"]')).toBeVisible();
+  await page.waitForLoadState("networkidle");
   console.log("PASS: packaged app starts at cloud login");
-  await page.locator('input:not([type="password"]):not([type="hidden"])').first().fill("smoke@example.test");
-  await page.locator('input[type="password"]').fill("smoke-password");
+  const accountInput = page.getByPlaceholder("邮箱或手机号");
+  await accountInput.fill("smoke@example.test");
+  await page.getByPlaceholder("登录密码").fill("smoke-password");
+  await expect(accountInput).toHaveValue("smoke@example.test");
   await page.locator('button[type="submit"]').click();
-  await page.waitForURL("**/dashboard", { timeout: 60000 });
+  try { await page.waitForURL("**/dashboard", { timeout: 60000 }); }
+  catch (error) {
+    console.error(`Login remained at ${page.url()}: ${(await page.locator("body").innerText().catch(() => "")).slice(0, 1200)}`);
+    throw error;
+  }
   await expect(page.locator(".rail")).toBeVisible();
   console.log("PASS: cloud login and local session");
   await expect(page.getByRole("heading", { name: "欢迎使用 Daedalus CRM" })).toBeVisible();
@@ -113,12 +120,38 @@ try {
   if (restored?.value !== "account A") throw new Error("Account A data lost");
   console.log("PASS: account A/B isolation and return to existing data");
 
+  // 差量换目录时旧 exe 一直开着会锁住安装目录；再次启动只提示片刻就必须退出，
+  // 由独立的 PowerShell 换完目录后重开。用活着的进程代表更新辅助程序。
+  await app.close(); app = null;
+  const 差量辅助 = spawn(process.execPath, ["-e", "setTimeout(() => {}, 180000)"], { stdio: "ignore" });
+  const 差量记录 = path.join(root, "updates", "installing.json");
+  fs.mkdirSync(path.dirname(差量记录), { recursive: true });
+  fs.writeFileSync(差量记录, JSON.stringify({ 版本: "9.9.9", pid: 差量辅助.pid, 方式: "差量", at: Date.now() }));
+  const 差量前服务次数 = () => (fs.readFileSync(path.join(root, "logs", "server.log"), "utf8").match(/启动 =====/g) || []).length;
+  const 差量前 = 差量前服务次数();
+  try {
+    app = await electron.launch({ executablePath, env, timeout: 60000 });
+    const 提示 = await app.firstWindow();
+    await expect(提示.getByText("正在安装 9.9.9")).toBeVisible({ timeout: 30000 });
+    const 退出 = app.process();
+    await Promise.race([
+      new Promise((resolve) => 退出.once("exit", resolve)),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("差量提示窗口未退出，安装目录仍会被占用")), 10000)),
+    ]);
+    app = null;
+    if (差量前服务次数() !== 差量前) throw new Error("差量更新期间启动了本地服务");
+    console.log("PASS: delta restart shows the install window, then releases the old executable");
+  } finally {
+    差量辅助.kill();
+    fs.rmSync(差量记录, { force: true });
+  }
+
   /*
     整包静默安装进行中时点开应用（2026-09-29 Sam 那台的起点）：程序文件可能写了一半，
     不能起本地服务，要开小窗说明情况；安装程序退出后从新文件重开。
     用一个空跑的 node 进程冒充安装程序，版本写一个本进程肯定不是的号。
   */
-  await app.close(); app = null;
+  await app?.close(); app = null;
   const 服务启动次数 = () => (fs.readFileSync(path.join(root, "logs", "server.log"), "utf8").match(/启动 =====/g) || []).length;
   const 假安装 = spawn(process.execPath, ["-e", "setTimeout(() => {}, 180000)"], { stdio: "ignore" });
   const 记录 = path.join(root, "updates", "installing.json");

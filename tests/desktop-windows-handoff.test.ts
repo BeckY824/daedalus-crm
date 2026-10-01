@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 
 const require_ = createRequire(import.meta.url);
 const 模块 = path.resolve(__dirname, "../desktop/windows-install.js");
-const { 启动换目录 } = require_(模块);
+const { 启动换目录, 安装进行中 } = require_(模块);
 const 根们: string[] = [];
 function 沙盒() {
   const 根 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-handoff-"));
@@ -48,6 +48,7 @@ describe("Windows 更新交接", () => {
     (顺序 === "ready-first" ? exit : ready)();
     await result;
     expect(fs.existsSync(`${fake.路径()}.go`)).toBe(true);
+    expect(安装进行中(更新目录)).toMatchObject({ pid: process.pid, 方式: "差量" });
   });
 
   it.each(["timeout", "spawn-error", "exit-error"])("%s 时取消，旧就绪日志不能授权迟到的脚本", async (失败) => {
@@ -60,6 +61,7 @@ describe("Windows 更新交接", () => {
     else fake.child.emit("exit", 失败 === "exit-error" ? 1 : 0);
     await assertion;
     expect(fs.existsSync(`${fake.路径()}.cancel`)).toBe(true);
+    expect(fs.existsSync(path.join(更新目录, "installing.json"))).toBe(false);
     fs.writeFileSync(`${fake.路径()}.ready`, String(process.pid));
     await 等(50);
     expect(fs.existsSync(`${fake.路径()}.go`)).toBe(false);

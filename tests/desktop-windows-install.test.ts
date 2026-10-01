@@ -44,7 +44,7 @@ it("启动安装程序时记下「正在装哪一版、进程号」，应用启�
   try {
     await 启动安装({ 文件: file, sha256, 更新目录, 版本: "0.46.12", 启动: spawn });
     const 在跑 = 安装进行中(更新目录, { 活着: (pid: number) => pid === 4321 });
-    expect(在跑).toMatchObject({ 版本: "0.46.12", pid: 4321 });
+    expect(在跑).toMatchObject({ 版本: "0.46.12", pid: 4321, 方式: "整包" });
     // 安装程序退出了：记录作废，而且顺手删掉，下次启动不再问
     expect(安装进行中(更新目录, { 活着: () => false })).toBeNull();
     expect(fs.existsSync(path.join(更新目录, "installing.json"))).toBe(false);

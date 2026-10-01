@@ -23,7 +23,7 @@ async function 启动安装({ 文件, sha256, 更新目录 = null, 版本 = "", 
   });
 }
 
-/* ---------- 整包安装进行中（2026-09-29 起） ----------
+/* ---------- Windows 安装进行中（2026-09-29 起） ----------
  *
  * 整包更新用 /S 静默安装：先卸旧版、再往安装目录写两千多个文件，杀毒还要逐个扫，一两分钟里**屏幕上什么都没有**。
  * 用户看着像「点了重启，应用没了」，就去点开它——程序文件才写了一半，本地服务找不到 next 起不来，
@@ -36,11 +36,12 @@ async function 启动安装({ 文件, sha256, 更新目录 = null, 版本 = "", 
 const 安装中文件 = (更新目录) => path.join(更新目录, "installing.json");
 const 安装最久毫秒 = 15 * 60 * 1000;
 
-function 记安装中(更新目录, { 版本 = "", pid, 现在 = Date.now() }) {
+function 记安装中(更新目录, { 版本 = "", pid, 方式 = "整包", 现在 = Date.now() }) {
   try {
     fs.mkdirSync(更新目录, { recursive: true });
-    fs.writeFileSync(安装中文件(更新目录), `${JSON.stringify({ 版本, pid, at: 现在 })}\n`);
-  } catch { /* 记不下只是少一道保护，不能因此不装 */ }
+    fs.writeFileSync(安装中文件(更新目录), `${JSON.stringify({ 版本, pid, 方式, at: 现在 })}\n`);
+    return true;
+  } catch { return false; }
 }
 
 function 清掉安装记录(更新目录) {
@@ -58,7 +59,7 @@ function 进程活着(pid) {
 }
 
 /**
- * 安装程序还在跑吗。在跑就返回那一笔 { 版本, pid, at }；没在跑（装完了、失败了、记录太旧）就删掉记录、返回 null。
+ * 安装程序或差量换目录辅助程序还在跑吗。在跑就返回那一笔；没在跑（装完了、失败了、记录太旧）就删掉记录、返回 null。
  * 只读一个小文件、问一次进程，启动时每次都可以调。
  */
 function 安装进行中(更新目录, { 活着 = 进程活着, 现在 = Date.now() } = {}) {
@@ -326,6 +327,9 @@ async function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = ""
         try {
           const pid = Number(fs.readFileSync(`${交接}.ready`, "utf8").replace(/^\uFEFF/, "").trim());
           if (!Number.isInteger(pid) || pid <= 0 || !进程活着(pid)) throw new Error("更新辅助程序在交接前退出");
+          // 先记录辅助进程，再放行换目录：用户此时再次点开旧 exe，启动保护才能认出差量安装。
+          // 旧进程只显示短暂提示就退出；持续运行会锁住 Windows 的安装目录，反而无法换包。
+          if (!记安装中(更新目录, { 版本, pid, 方式: "差量" })) throw new Error("无法记录差量安装状态，已取消换包");
           fs.writeFileSync(`${交接}.go`, "go");
           clearInterval(timer); clearTimeout(timeout);
           resolve();
@@ -343,6 +347,7 @@ async function 启动换目录({ 目录, 等PID = 0, 重启 = false, 版本 = ""
     return { 参数 };
   } catch (e) {
     // 迟到的辅助进程也必须取消，不能在用户稍后退出时意外安装。
+    清掉安装记录(更新目录);
     fs.writeFileSync(`${交接}.cancel`, "cancel");
     记(`交接失败：${e?.message ?? e}`);
     throw e;
