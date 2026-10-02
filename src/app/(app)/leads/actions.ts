@@ -26,7 +26,6 @@ export async function saveLead(input: {
   版本?: string | null;
 }) {
   const user = await requireUser();
-  const b = await getBusiness();
   if (!LEAD_STATUSES.includes(input.status as (typeof LEAD_STATUSES)[number])) {
     return { ok: false as const, error: `线索状态「${input.status}」不是合法取值` };
   }
@@ -45,9 +44,11 @@ export async function saveLead(input: {
   const 号 = 认回打码号(input.phone?.trim() || null, 原?.phone);
   if (号 && 号.includes("*")) return { ok: false as const, error: "电话里不能有 *" };
   input = { ...input, phone: 号 };
-  if (!b.sources.includes(input.source) && input.source !== "其他" && input.source !== 原来源) {
-    return { ok: false as const, error: `线索来源「${input.source}」不是合法取值` };
-  }
+  /*
+    来源能选也能填（2026-10-02 用户定）：不在业务配置列表里的也收——没有程序按来源的值去判断什么，
+    人手上的说法（「视频号直播间」「老板朋友圈」）只让选等于逼他挑一个不对的。只限个长度
+  */
+  if (input.source.length > 30) return { ok: false as const, error: "线索来源太长了，30 个字以内" };
   const data = {
     name: input.name.trim(),
     contact: input.contact || null,

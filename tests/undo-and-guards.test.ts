@@ -38,9 +38,11 @@ describe("D5 改了业务配置，旧线索还存得了", () => {
     expect((await prisma.lead.findUniqueOrThrow({ where: { id: l.id } })).remark).toBe("补个备注");
   });
 
-  it("新选一个不在列表里的来源：照样拦", async () => {
+  it("填一个不在列表里的来源：收下（2026-10-02 起来源能选也能填）；太长的拦", async () => {
     const l = await prisma.lead.create({ data: { name: "老线索", ownerId: mocks.user.id, source: "其他" } });
-    expect(await saveLead({ id: l.id, name: "老线索", source: "瞎编的来源", status: "待跟进" })).toMatchObject({ ok: false });
+    expect(await saveLead({ id: l.id, name: "老线索", source: "视频号直播间", status: "待跟进" })).toMatchObject({ ok: true });
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: l.id } })).source).toBe("视频号直播间");
+    expect(await saveLead({ id: l.id, name: "老线索", source: "长".repeat(31), status: "待跟进" })).toMatchObject({ ok: false });
   });
 });
 

@@ -50,7 +50,8 @@ describe("壳里没有账号", () => {
     // 启动那一下：读到令牌就去校验，结果决定 启动时被吊销。
     // 不钉整行——0.39.2 起这里还要顺手认领数据目录（见 desktop/accounts.js），
     // 那一段把单行拆成了一个块，但「启动时校验一次」这件事没变。
-    expect(main).toMatch(/if \(云端\.读\(\)\) \{[\s\S]{0,400}?云端\.校验\(\)[\s\S]{0,400}?启动时被吊销/);
+    // 启动那次只等 5 秒（2026-10-02 排查桌面端 D3），所以括号里带着超时
+    expect(main).toMatch(/if \(云端\.读\(\)\) \{[\s\S]{0,800}?云端\.校验\([^)]*\)[\s\S]{0,400}?启动时被吊销/);
     expect(main).toMatch(/browser-window-focus[\s\S]*?云端\.校验\(\)/);
     const 段 = main.slice(main.indexOf("function 令牌失效了"), main.indexOf("/* ---------- 检查更新"));
     // 经 logout 走：业务会话 cookie 还活着，直接去 /login 会被 proxy 弹回首页

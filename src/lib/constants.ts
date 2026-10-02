@@ -16,16 +16,47 @@ export const INDUSTRIES = [
   "物流运输",
   "专业服务",
   "教育培训",
+  "人工智能",
+  "电商 / 新零售",
+  "本地生活",
+  "新能源",
   "其他",
 ] as const;
 
+/**
+ * 线索来源的预设（2026-10-02 用户：「国内现在都是微信、小红书、抖音之类的，传统一点的适当保留」）。
+ * 只是候选——来源一格能选也能填（components/OptionInput），不在这里的照样收。
+ * 老的几个（官网注册、电话咨询、展会获取、广告投放、商务拓展）原样留着：存量线索用的就是这些字。
+ */
 export const CUSTOMER_SOURCES = [
+  "微信",
+  "小红书",
+  "抖音",
+  "视频号",
+  "朋友圈 / 社群",
+  "转介绍",
   "官网注册",
   "电话咨询",
   "展会获取",
-  "转介绍",
+  "线下活动",
   "广告投放",
   "商务拓展",
+  "其他",
+] as const;
+
+/** 教培招生的来源：社媒 + 校园地推 + 转介绍为主 */
+export const EDU_SOURCES = [
+  "小红书",
+  "抖音",
+  "微信",
+  "视频号",
+  "朋友圈 / 社群",
+  "转介绍",
+  "校园地推",
+  "公众号",
+  "官网注册",
+  "电话咨询",
+  "广告投放",
   "其他",
 ] as const;
 
@@ -89,12 +120,14 @@ export const FOLLOW_TYPE_MAP = Object.fromEntries(
   FOLLOW_TYPES.map((t) => [t.value, t]),
 ) as Record<string, (typeof FOLLOW_TYPES)[number]>;
 
+/** 跟进方式的候选。计划表单里能选也能填，这里只是常用的几种 */
 export const FOLLOW_METHODS = [
   "电话沟通",
+  "微信沟通",
+  "企业微信",
   "线上会议",
   "上门拜访",
   "邮件沟通",
-  "微信沟通",
 ] as const;
 
 export const FOLLOW_RECORD_STATUSES = ["已完成", "待处理", "已发送"] as const;
@@ -163,10 +196,14 @@ export const TRADE_TITLES = [
 
 export const TRADE_SOURCES = [
   "阿里国际站",
-  "展会获取",
   "独立站询盘",
+  "谷歌搜索",
+  "展会获取",
+  "WhatsApp",
   "邮件开发",
   "领英",
+  "Facebook / Instagram",
+  "TikTok",
   "小红书",
   "老客户返单",
   "转介绍",

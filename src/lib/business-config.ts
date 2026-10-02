@@ -13,7 +13,7 @@
  * 客户端组件通过 <BusinessProvider> 拿（见 business-client.tsx），服务端直接 await getBusiness()。
  */
 import {
-  GRADES, TITLES, CUSTOMER_SOURCES, INDUSTRIES,
+  GRADES, TITLES, CUSTOMER_SOURCES, EDU_SOURCES, INDUSTRIES,
   TRADE_TITLES, TRADE_SOURCES, TRADE_INDUSTRIES,
   FOLLOW_STATUSES, DECISION_STATUSES,
 } from "./constants";
@@ -65,7 +65,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     customer: "学员",
     fields: { school: "院校", grade: "年级", major: "专业" },
     grades: [...GRADES],
-    sources: [...CUSTOMER_SOURCES],
+    sources: [...EDU_SOURCES],
     industries: [...INDUSTRIES],
     // 教培场景下这三个值本来就说得通，不另起显示名
     statusLabels: {},

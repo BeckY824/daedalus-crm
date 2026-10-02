@@ -1,5 +1,6 @@
 "use client";
 
+import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -255,12 +256,12 @@ export default function LeadsView({
             </Col>
             <Col span={12}>
               <Form.Item name="industry" label="所属行业">
-                <Select allowClear showSearch options={b.industries.map((i) => ({ value: i, label: i }))} />
+                <OptionInput options={b.industries} />
               </Form.Item>
             </Col>
             <Col span={8}>
               <Form.Item name="source" label="线索来源">
-                <Select allowClear placeholder="不选记为「其他」" options={b.sources.map((i) => ({ value: i, label: i }))} />
+                <OptionInput options={b.sources} placeholder="选一个或直接填；空着记为「其他」" />
               </Form.Item>
             </Col>
             <Col span={8}>

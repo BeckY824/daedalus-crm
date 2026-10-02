@@ -1,4 +1,5 @@
 "use client";
+import OptionInput from "@/components/OptionInput";
 import Shortcut from "./Shortcut";
 
 import { useMemo, useRef, useState } from "react";
@@ -333,14 +334,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
               />
             </Field>
             <Field label="方式">
-              <Select
-                size="small"
-                style={{ width: 140 }}
-                placeholder="选一种"
-                value={draft.method || undefined}
-                options={FOLLOW_METHODS.map((v) => ({ value: v, label: v }))}
-                onChange={(v) => setDraft({ ...draft, method: v })}
-              />
+              <OptionInput size="small" style={{ width: 140 }} placeholder="选一种或直接填" allowClear={false} value={draft.method} options={FOLLOW_METHODS} onChange={(v) => setDraft({ ...draft, method: v })} />
             </Field>
             <Field label="谈什么" block>
               <Input size="small" value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} />
@@ -360,13 +354,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
               <Input size="small" style={{ width: 150 }} placeholder="可留空" value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
             </Field>
             <Field label="来源">
-              <Select
-                size="small"
-                style={{ width: 130 }}
-                value={draft.source}
-                options={b.sources.map((v) => ({ value: v, label: v }))}
-                onChange={(v) => setDraft({ ...draft, source: v })}
-              />
+              <OptionInput size="small" style={{ width: 130 }} allowClear={false} value={draft.source} options={b.sources} onChange={(v) => setDraft({ ...draft, source: v })} />
             </Field>
             <Field label="状态">
               <Select

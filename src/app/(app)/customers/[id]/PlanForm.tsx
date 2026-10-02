@@ -1,8 +1,9 @@
 "use client";
 
+import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Modal, Form, Input, DatePicker, Select, App, Button } from "antd";
+import { Modal, Form, Input, DatePicker, App, Button } from "antd";
 import { FOLLOW_METHODS } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
 import { savePlan } from "./actions";
@@ -124,7 +125,7 @@ export default function PlanForm({
           <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="method" label="跟进方式">
-          <Select options={FOLLOW_METHODS.map((m) => ({ value: m, label: m }))} />
+          <OptionInput options={FOLLOW_METHODS} allowClear={false} />
         </Form.Item>
       </Form>
     </Modal>

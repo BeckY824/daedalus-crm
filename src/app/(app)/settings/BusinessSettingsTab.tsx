@@ -110,10 +110,10 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
         <Form.Item name="grades" label="档案字段 2 的选项" extra="回车或逗号分隔。删掉某项不会影响已存了该值的记录，只是新录入时选不到。" rules={[{ required: true, message: "至少一项" }]}>
           {tags("大一、大二…")}
         </Form.Item>
-        <Form.Item name="sources" label="线索来源选项" rules={[{ required: true, message: "至少一项" }]}>
-          {tags("官网注册、转介绍…")}
+        <Form.Item name="sources" label="线索来源选项" extra="录入时的候选；不在这里的也能直接填。" rules={[{ required: true, message: "至少一项" }]}>
+          {tags("微信、小红书、抖音、转介绍…")}
         </Form.Item>
-        <Form.Item name="industries" label="线索行业选项" rules={[{ required: true, message: "至少一项" }]}>
+        <Form.Item name="industries" label="行业选项" extra="线索和客户的「行业」都用这份当候选，也能直接填。" rules={[{ required: true, message: "至少一项" }]}>
           {tags("教育培训、设计服务…")}
         </Form.Item>
 

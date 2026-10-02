@@ -1,5 +1,6 @@
 "use client";
 
+import OptionInput from "@/components/OptionInput";
 import { useState } from "react";
 import { Alert, App, AutoComplete, Button, Col, DatePicker, Divider, Form, Input, Modal, Radio, Row, Select, Space, Typography } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
@@ -273,7 +274,8 @@ function CustomerFormInner({
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item label={b.fields.major} name="major">
-              <Input placeholder={b.fields.major === "行业" ? "如：IT互联网" : undefined} />
+              {/* 叫「行业」时给候选（业务配置里那份），也能直接填；教培的「专业」千变万化，照旧手填 */}
+              {b.fields.major === "行业" ? <OptionInput options={b.industries} placeholder="选一个，或直接填" /> : <Input />}
             </Form.Item>
           </Col>
           <Col span={8}>
