@@ -50,7 +50,12 @@ export function 认分隔符(第一行: string): string {
 export function 解析CSV(text: string): string[][] {
   const s = text.replace(/^﻿/, "");
   if (!s.trim()) return [];
-  const sep = 认分隔符(s.split(/\r?\n/, 1)[0] ?? "");
+  /*
+    分隔符看前几行里最「像表」的那一行，不只看第一行：第一行常是一个大标题（「2026 客户名单」），
+    里面一个制表符都没有，原来就被认成逗号、整张表塌成一列（第二轮 r2-data）
+  */
+  const 前几行 = s.split(/\r?\n/, 6).filter((l) => l.trim());
+  const sep = 认分隔符(前几行.reduce((最长, l) => (l.length > 最长.length ? l : 最长), 前几行[0] ?? ""));
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = "";
@@ -66,7 +71,11 @@ export function 解析CSV(text: string): string[][] {
       } else cell += c;
       continue;
     }
-    if (c === '"') 引号里 = true;
+    /*
+      引号只在一格的开头才算「开引号」（RFC 4180）。格子中间的一个英文双引号（「张总"老客户」）是普通字符——
+      原来一律当开引号，后面所有人被吞进这一格的备注，预览只剩 1 条（第二轮 r2-data A）
+    */
+    if (c === '"' && cell === "") 引号里 = true;
     else if (c === sep) {
       row.push(cell);
       cell = "";
@@ -92,9 +101,19 @@ export function 解析CSV(text: string): string[][] {
  * **列数不齐是常态**（Excel 里后面几列是空的，存出来的 csv 行长短不一），
  * 所以一律按表头的列数补齐或截断，后面的代码可以假定每行长度一样。
  */
-export function 成表(rows: string[][]): { 表头: string[]; 数据: string[][]; 截断了?: { 行?: number; 列?: number } } {
-  if (rows.length === 0) return { 表头: [], 数据: [] };
-  const 原列数 = rows[0].length;
+export function 成表(原始: string[][]): { 表头: string[]; 数据: string[][]; 截断了?: { 行?: number; 列?: number } } {
+  if (原始.length === 0) return { 表头: [], 数据: [] };
+  /*
+    表头不一定在第一行：很多名单第一行是合并的大标题（「2026 客户名单」），表头在第二、三行。
+    原来按第一行定列数，标题只有一格，整张表只剩一列（第一轮 2-6、第二轮又见）。
+    前 5 行里挑第一个「填了的格子不少于最宽那行一半、且至少 2 格」的当表头，上面的标题行丢掉
+  */
+  const 填了几格 = (r: string[]) => r.filter((x) => x.trim() !== "").length;
+  const 最宽 = Math.max(...原始.slice(0, 20).map(填了几格));
+  const 表头行 = 原始.slice(0, 5).findIndex((r) => 填了几格(r) >= Math.max(2, Math.ceil(最宽 / 2)));
+  const rows = 表头行 > 0 ? 原始.slice(表头行) : 原始;
+  // 列数取表头和数据里最宽的那一行：表头后面几格空着、数据却有值的，不该被截掉
+  const 原列数 = Math.max(rows[0].length, ...rows.slice(1, 200).map((r) => r.length));
   const 列数 = Math.min(原列数, 列数上限);
   const 表头 = rows[0].slice(0, 列数).map((h) => h.trim());
   const 全部数据 = rows.slice(1);
@@ -118,6 +137,9 @@ export function 成表(rows: string[][]): { 表头: string[]; 数据: string[][]
  */
 export function 解码CSV(bytes: Uint8Array): string {
   let s: string;
+  // Excel「另存为 Unicode 文本」是 UTF-16（带 BOM、制表符分隔）：按 BOM 认（第二轮 r2-data）
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder("utf-16le").decode(bytes.subarray(2));
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return new TextDecoder("utf-16be").decode(bytes.subarray(2));
   try {
     s = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
   } catch {

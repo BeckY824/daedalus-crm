@@ -56,6 +56,13 @@ export { 规整手机号, 像手机号 };
 export function 认日期(v: string): Date | null {
   const s = v.trim();
   if (!s) return null;
+  // 8 位连写的 20260919（不少系统这么导，第二轮 r2-data）。年份 1900–2100、月日合法才认，否则往下当序列号 / 别的
+  const 连写 = /^(19\d{2}|20\d{2}|2100)(\d{2})(\d{2})$/.exec(s);
+  if (连写) {
+    const [y, mo, d] = [Number(连写[1]), Number(连写[2]), Number(连写[3])];
+    const dt = new Date(y, mo - 1, d);
+    if (dt.getMonth() === mo - 1 && dt.getDate() === d) return dt;
+  }
   // Excel 序列号。25569 = 1970-01-01；小于它的当不是日期（那更可能是个数量）
   if (/^\d{4,6}(\.\d+)?$/.test(s)) {
     const n = Number(s);
@@ -254,7 +261,14 @@ export function 摊开(p: 排布): 一行[] {
       const v = (r[列] ?? "").trim();
       // 没有表头的列并进去只会是一串没有出处的值，那比丢掉还糟
       if (!头 || !v) return;
-      捡回来.push(`${头}：${v}`);
+      /*
+        表头看着是日期、格子是 Excel 序列号（46284）的：写成日期再并进去。原来备注里是「最近联系：46284」，
+        人看不懂（第一轮 2-7、第二轮又见）
+      */
+      const 像日期列 = /日期|时间|生日|日$/.test(头) && /^\d{5}(\.\d+)?$/.test(v);
+      const d = 像日期列 ? 认日期(v) : null;
+      const 写 = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : v;
+      捡回来.push(`${头}：${写}`);
     });
     if (捡回来.length > 0) {
       值.remark = 值.remark ? `${值.remark}\n${捡回来.join("\n")}` : 捡回来.join("\n");

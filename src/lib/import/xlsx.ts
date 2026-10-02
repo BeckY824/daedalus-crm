@@ -111,11 +111,15 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
   if (!sheet) throw new 读不出来("这个 xlsx 里找不到工作表");
 
   const rows: string[][] = [];
-  const 行re = /<row\b[^>]*>([\s\S]*?)<\/row>|<row\b[^>]*\/>/g;
+  /** 每一行在表里的真实行号（从 0 起）。合并单元格按行号对位；没有 r 属性的按顺序数 */
+  const 行号们: number[] = [];
+  const 行re = /<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g;
   let rm: RegExpExecArray | null;
   while ((rm = 行re.exec(sheet))) {
     if (rows.length > 行数上限 + 1) break;
-    const 行 = rm[1] ?? "";
+    const 行号 = Number(/\br="(\d+)"/.exec(rm[1] ?? "")?.[1] ?? 0) - 1;
+    行号们.push(行号 >= 0 ? 行号 : (行号们.at(-1) ?? -1) + 1);
+    const 行 = rm[2] ?? "";
     const cells: string[] = [];
     /*
       属性那段必须是非贪婪：Excel / WPS 把「带边框、底色但没填」的空格子写成自闭合的 <c r="C2" s="1"/>，
@@ -147,6 +151,29 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
       cells[at] = v;
     }
     rows.push(cells);
+  }
+
+  /*
+    合并单元格：只有左上那一格存着值，其余格子在 XML 里是空的。几行同一家公司竖着合并很常见，
+    原来只有第一个人拿到公司，其余人是空的、没有任何提示（第二轮 r2-data）。把左上的值填满整个合并区
+  */
+  const 位置 = new Map(行号们.map((n, i) => [n, i]));
+  const 合并re = /<mergeCell\b[^>]*\bref="([A-Z]+\d+):([A-Z]+\d+)"/g;
+  let mm: RegExpExecArray | null;
+  while ((mm = 合并re.exec(sheet))) {
+    const [c0, r0] = [列号(mm[1]), Number(/\d+/.exec(mm[1])![0]) - 1];
+    const [c1, r1] = [列号(mm[2]), Number(/\d+/.exec(mm[2])![0]) - 1];
+    const 源行 = 位置.get(r0);
+    const 值 = 源行 === undefined ? "" : rows[源行][c0] ?? "";
+    if (!值) continue;
+    for (let r = r0; r <= r1 && r - r0 < 行数上限; r++) {
+      const i = 位置.get(r);
+      if (i === undefined) continue;
+      for (let c = c0; c <= c1 && c < 列数上限 + 5; c++) {
+        while (rows[i].length <= c) rows[i].push("");
+        if (!rows[i][c]) rows[i][c] = 值;
+      }
+    }
   }
   // 全空的行丢掉，和 CSV 那条路一致
   return rows.filter((r) => r.some((x) => x.trim() !== ""));
