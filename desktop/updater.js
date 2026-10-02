@@ -118,7 +118,11 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
     大版本 CI 一建正式 Release，GitHub 的 releases/latest 立刻变新，所有桌面端不等 feed 放行、不等真机验证就收到更新，
     Windows 还拿着 -win.zip 走差量，绕开了「Windows 一律整包」。feed 是我们放行的那道闸，GitHub 只在 feed 取不到时兜底
   */
-  if (gh?.tag_name && !自家?.version) {
+  /*
+    看的是 **feed 本身取没取到**，不是「feed 里有没有这个平台那一条」（第三轮 B8）：
+    运营把 Windows 那条撤下来想按住时，Windows 不该反而从 GitHub 拿到新版
+  */
+  if (gh?.tag_name && !feed) {
     const 资产 = platform === "win32"
       ? (gh.assets || []).find((a) => new RegExp(`-${arch}-setup\\.exe$`, "i").test(a.name || ""))
       : 挑dmg(gh.assets);
@@ -137,12 +141,11 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       sha256: 剥哈希前缀(资产?.digest),
       // 差量两样按平台各取各的：Windows 的叫 …-x64-win.zip / …-x64-win.manifest.json.gz（CI 的 7z 打的），
       // Mac 的清单规则要排除它——不然两边都挂在滚动 Release 上时，Mac 可能拿到 Windows 的清单
-      zip: platform === "win32"
-        ? 挑资产(gh.assets, new RegExp(`-${arch}-win\\.zip$`, "i"))?.browser_download_url || null
-        : 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
-      manifest: 清单资产?.browser_download_url || null,
+      // Windows 一律整包（2026-10-02 起）：兜底这一支也不给 Windows 差量的两样，main.js 见不到就走整包（第三轮 B8）
+      zip: platform === "win32" ? null : 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
+      manifest: platform === "win32" ? null : 清单资产?.browser_download_url || null,
       // GitHub 自己给每个资产算的 sha256（API 的 digest 字段），直连 GitHub 拿，镜像碰不到
-      清单哈希: 剥哈希前缀(清单资产?.digest),
+      清单哈希: platform === "win32" ? null : 剥哈希前缀(清单资产?.digest),
       // GitHub 这一支给的就是原址，没有再备一份的必要
       备用: null,
     });

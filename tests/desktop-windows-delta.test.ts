@@ -184,10 +184,11 @@ describe("更新器挑差量资产（GitHub 那一支）", () => {
       return { ok: true, json: async () => ({ tag_name: "v1.0.0", assets }) };
     });
   }
-  it("Windows 拿 -x64-win 的 zip 和清单", async () => {
+  // 10-02 起 Windows 一律整包：GitHub 兜底这一支也不给差量的两样，只给安装包（第三轮 B8）
+  it("Windows 只拿安装包，不拿 -x64-win 的 zip 和清单", async () => {
     只有GitHub(资产);
     const r = await 检查({ 当前版本: "0.46.8", platform: "win32", arch: "x64" });
-    expect(r).toMatchObject({ zip: "https://g/win.zip", manifest: "https://g/win.manifest", 清单哈希: "d".repeat(64) });
+    expect(r).toMatchObject({ exe: "https://g/setup.exe", zip: null, manifest: null, 清单哈希: null });
   });
   it("Mac 不会拿到 Windows 的清单——哪怕列表里 Windows 的排在前面", async () => {
     只有GitHub([...资产].reverse());
