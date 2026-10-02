@@ -8,6 +8,7 @@
  *
  * 纯函数，浏览器和服务端都能用。
  */
+import { maskPhone } from "./utils";
 
 /**
  * 手机号规整：只留数字，去掉国家码和分隔符。
@@ -53,7 +54,23 @@ export function 像手机号(s: string): boolean {
 export function 查电话(v: string | null | undefined, opts: { 必填: boolean }): { ok: true; phone: string } | { ok: false; error: string } {
   const 原 = (v ?? "").trim();
   if (!原) return opts.必填 ? { ok: false, error: "请输入联系电话" } : { ok: true, phone: "" };
+  // 带 * 的是打了码给人看的样子（共享试用区），不是号码。规整会把 * 去掉、剩下的 7 位数字照样「像号码」，所以在规整之前拦
+  if (原.includes("*")) return { ok: false, error: "电话里不能有 *" };
   const phone = 规整手机号(原);
   if (!像手机号(phone)) return { ok: false, error: "电话看不出是个号码（6–20 位数字，可以带 +）" };
   return { ok: true, phone };
 }
+
+/**
+ * 表单交回来的号码，如果正是我们打码给人看的那个样子（共享试用区，`138****1111`），就当没改、认回原号。
+ *
+ * 共享区的页面把号码打码后交给表单，人只改了年级，表单把 `138****1111` 原样交回来；
+ * 原来服务端看它和库里不一样，规整一下就写进去了——真号被换成带星号的那串，永远找不回来（2026-10-01 排查 A2）。
+ * 不是原号打码的样子就原样返回，交给 查电话 去拒。
+ */
+export function 认回打码号<T extends string | null | undefined>(交回: T, 原: string | null | undefined): T | string {
+  const v = (交回 ?? "").trim();
+  if (!v.includes("*") || !原) return 交回;
+  return maskPhone(原) === v ? 原 : 交回;
+}
+

@@ -76,7 +76,9 @@ export default function ContactForm({
       message.success(r.挂到 ? `已挂到「${r.挂到}」` : "已保存");
       return void onSaved();
     }
-    await saveContact({ id: record?.id, ...v, isPrimary: Boolean(v.isPrimary), customerId: 归属 });
+    const r = await saveContact({ id: record?.id, ...v, isPrimary: Boolean(v.isPrimary), customerId: 归属 });
+    // 原来不看返回值：联系人刚被别人移出、或电话不收时，弹框卡在那儿什么也不说（排查 D8）
+    if (!r.ok) return void message.error(r.error);
     message.success(record ? "已保存" : "联系人已添加");
     onSaved();
   }

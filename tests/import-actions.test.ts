@@ -229,6 +229,33 @@ describe("整批撤销", () => {
     expect(r.没动[0].原因).toContain("改过");
   });
 
+  it("导进来之后被别人当了推荐人的那位：留着，不然下游的推荐人会被悄悄清空（排查 A7）", async () => {
+    const w = await 执行导入(方案("姓名,手机号\n张三,13800000001"), "a.csv");
+    if (!w.ok) throw new Error(w.error);
+    const 张三 = await prisma.customer.findFirstOrThrow({ where: { phone: "13800000001" } });
+    // 别人新建了李四、推荐人选张三——张三本身一个字没动
+    const 李四 = await 建客户("李四", "13800000002", { referrerCustomerId: 张三.id, attributionCustomerId: 张三.id });
+
+    const r = await 撤销批次(w.batchId);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.删掉).toBe(0);
+    expect(r.没动[0]).toMatchObject({ name: "张三" });
+    expect(r.没动[0].原因).toContain("李四");
+    expect(await prisma.customer.findUniqueOrThrow({ where: { id: 李四.id } })).toMatchObject({ referrerCustomerId: 张三.id });
+  });
+
+  it("行多、导得久：后面那些行没人动过，照样撤得掉（不再按批次开始 + 2 秒算）", async () => {
+    const w = await 执行导入(方案("姓名,手机号\n张三,13800000001\n李四,13800000002"), "a.csv");
+    if (!w.ok) throw new Error(w.error);
+    // 装作这一批开始于 10 秒之前：原来的判断会把两位都当成「导入之后有人改过」
+    await prisma.importBatch.update({ where: { id: w.batchId }, data: { at: new Date(Date.now() - 10_000) } });
+
+    const r = await 撤销批次(w.batchId);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.删掉).toBe(2);
+    expect(r.没动).toEqual([]);
+  });
+
   it("导入和撤销各留一条痕", async () => {
     const w = await 执行导入(方案("姓名,手机号\n张三,13800000001"), "a.csv");
     if (!w.ok) throw new Error(w.error);

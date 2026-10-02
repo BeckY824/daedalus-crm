@@ -10,6 +10,7 @@ import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
 import { 查电话 } from "@/lib/phone";
+import { 推荐方式 } from "@/lib/referrer-kind";
 
 export type CustomerRow = {
   id: string;
@@ -75,9 +76,8 @@ function CustomerFormInner({
   const [dup, setDup] = useState<DuplicateHit | null>(null);
   /** 保存时发现别人已经改过这条记录 */
   const [conflict, setConflict] = useState<SaveConflict | null>(null);
-  const [referrerType, setReferrerType] = useState<"channel" | "customer" | "none">(
-    editing?.channelId ? "channel" : editing?.referrerCustomerId ? "customer" : "none",
-  );
+  // 先看推荐人再看渠道：转介绍的人 channelId 也有值（排查 A1，见 lib/referrer-kind.ts）
+  const [referrerType, setReferrerType] = useState<"channel" | "customer" | "none">(推荐方式(editing));
   /**
    * 渠道下拉的选项。以 props 为初值，但就地新建的渠道要立刻出现在这里——
    * 服务端的 revalidatePath 要等本弹窗关闭、页面重取数据才生效，等不及。
@@ -145,8 +145,11 @@ function CustomerFormInner({
         salesOwnerId: v.salesOwnerId,
         channelId: referrerType === "channel" ? (v.channelId ?? null) : null,
         referrerCustomerId: referrerType === "customer" ? (v.referrerCustomerId ?? null) : null,
-        // 新建不传（按推荐链算）；编辑时用户选了就钉死，清空就 null（恢复按推荐链）
-        ...(editing ? { channelOwnerId: v.channelOwnerId ?? null } : {}),
+        /*
+          新建不传（按推荐链算）。编辑时**只有人动过这一格才传**：选了就钉死，清空就 null（恢复按推荐链）。
+          原来每次都传——这一格的初值就是现在的渠道负责人，于是换了推荐渠道，负责人还被当成「手工指定」钉在旧的人身上（排查 A4）
+        */
+        ...(editing && form.isFieldTouched("channelOwnerId") ? { channelOwnerId: v.channelOwnerId ?? null } : {}),
       });
       if (!res.ok) {
         // 并发冲突要留在原地把话说清楚，用一闪而过的 toast 说不明白
@@ -245,6 +248,8 @@ function CustomerFormInner({
               rules={[
                 {
                   validator: (_, v: string | undefined) => {
+                    // 共享试用区里号码是打了码给人看的：没动它就放行，服务端会认回原号（排查 A2）
+                    if (editing && v && v.includes("*") && v === editing.phone) return Promise.resolve();
                     const r = 查电话(v, { 必填: 电话必填 });
                     return r.ok ? Promise.resolve() : Promise.reject(new Error(r.error));
                   },

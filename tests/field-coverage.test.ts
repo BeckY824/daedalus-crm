@@ -115,6 +115,7 @@ const 派生: Record<string, Record<string, string>> = {
     customerId: "这一行落到了哪位客户身上，落库时定",
     kind: "create 还是 update，落库时定——撤销按它决定是删还是还原",
     before: "补空之前那几格是什么。**不给改**：撤销照着它还原，能改就等于能让撤销写任意值",
+    writtenAt: "写完那一刻客户的 updatedAt，落库时定——撤销拿它判断之后有没有人改过",
   },
 };
 

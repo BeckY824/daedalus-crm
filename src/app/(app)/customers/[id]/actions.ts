@@ -6,6 +6,7 @@ import type { Prisma } from "@/generated/prisma";
 import { requireUser } from "@/lib/auth";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
+import { 认回打码号 } from "@/lib/phone";
 import { dayjs } from "@/lib/utils";
 
 /**
@@ -297,6 +298,16 @@ type 联系人字段 = {
   remark?: string | null;
 };
 
+/**
+ * 联系人的电话：共享区表单交回的是打码的样子，认回原号（排查 A2）；认不回来又带 * 的不收。
+ * 联系人电话一直不做格式校验（座机、分机、「找前台转」都有人写），这里只拦打码那一种。
+ */
+function 联系人电话(交回: string | null | undefined, 原: string | null | undefined): { ok: true; phone: string | null } | { ok: false; error: string } {
+  const v = String(认回打码号(交回, 原) ?? "").trim();
+  if (v.includes("*")) return { ok: false, error: "电话里不能有 *" };
+  return { ok: true, phone: v || null };
+}
+
 function 规整(input: 联系人字段) {
   return {
     name: input.name.trim(),
@@ -310,7 +321,11 @@ function 规整(input: 联系人字段) {
 
 export async function saveContact(input: 联系人字段 & { id?: string; customerId: string; isPrimary: boolean }) {
   const me = await requireUser();
-  const data = { ...规整(input), isPrimary: input.isPrimary, customerId: input.customerId };
+  const 原 = input.id ? await prisma.contact.findUnique({ where: { id: input.id }, select: { phone: true } }) : null;
+  if (input.id && !原) return { ok: false as const, error: "这位联系人已经不在这儿了，刷新看看" };
+  const 电话 = 联系人电话(input.phone, 原?.phone);
+  if (!电话.ok) return 电话;
+  const data = { ...规整(input), phone: 电话.phone, isPrimary: input.isPrimary, customerId: input.customerId };
   const 落库id = await prisma.$transaction(async (tx) => {
     const saved = input.id
       ? await tx.contact.update({ where: { id: input.id }, data })
@@ -410,7 +425,9 @@ export async function saveUnassignedContact(input: 联系人字段 & { id: strin
   const me = await requireUser();
   const u = await prisma.unassignedContact.findUnique({ where: { id: input.id } });
   if (!u) return { ok: false as const, error: "这位联系人已经不在了，刷新看看" };
-  const data = 规整(input);
+  const 电话 = 联系人电话(input.phone, u.phone);
+  if (!电话.ok) return 电话;
+  const data = { ...规整(input), phone: 电话.phone };
   if (input.customerId) {
     const 客户 = await prisma.customer.findUnique({ where: { id: input.customerId }, select: { name: true } });
     if (!客户) return { ok: false as const, error: "那位客户已经不在了，换一位" };
@@ -453,6 +470,10 @@ export type 删掉的联系人 =
 /** 彻底删除：联系人页里也没了。他名下的跟进记录留着，只是不再写「跟谁谈的」 */
 export async function deleteContact(id: string) {
   const me = await requireUser();
+  // 别人刚删了 / 刚移出了：说一句，不抛（原来抛出去，界面上什么反应都没有）
+  if (!(await prisma.contact.findUnique({ where: { id }, select: { id: true } }))) {
+    return { ok: false as const, error: "这位联系人已经不在这儿了，刷新看看" };
+  }
   const 跟进 = await prisma.followUp.findMany({ where: { contactId: id }, select: { id: true } });
   const c = await prisma.contact.delete({ where: { id } });
   await recordAudit({
@@ -473,6 +494,9 @@ export async function deleteContact(id: string) {
 /** 联系人页上彻底删一位未归属的人 */
 export async function deleteUnassignedContact(id: string) {
   const me = await requireUser();
+  if (!(await prisma.unassignedContact.findUnique({ where: { id }, select: { id: true } }))) {
+    return { ok: false as const, error: "这位联系人已经不在了，刷新看看" };
+  }
   const u = await prisma.unassignedContact.delete({ where: { id } });
   await recordAudit({
     user: me, action: "delete", entity: "Contact", entityId: id,

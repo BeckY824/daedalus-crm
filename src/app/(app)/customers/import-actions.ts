@@ -223,8 +223,10 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         跳过++;
         continue;
       }
-      await prisma.customer.update({ where: { id: 旧.id }, data: 补 });
-      await prisma.importRow.create({ data: { batchId: batch.id, customerId: 旧.id, kind: "update", before: JSON.stringify(before) } });
+      const 写后 = await prisma.customer.update({ where: { id: 旧.id }, data: 补, select: { updatedAt: true } });
+      await prisma.importRow.create({
+        data: { batchId: batch.id, customerId: 旧.id, kind: "update", before: JSON.stringify(before), writtenAt: 写后.updatedAt },
+      });
       补空++;
       continue;
     }
@@ -248,7 +250,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
           ...attribution,
         },
       });
-      await prisma.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create" } });
+      await prisma.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
       新建++;
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
       库里.set(phone, { id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark });
@@ -332,16 +334,32 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
         name: true,
         updatedAt: true,
         _count: { select: { followUps: true, opportunities: true, contracts: true, contacts: true, tasks: true, plans: true } },
+        /*
+          被别人当推荐人、或是别人的业绩归属对象：删掉他，下游那几位的推荐人和归属会被外键悄悄置空。
+          手工删客户（deleteCustomers）早就拦了这种，撤销导入原来漏了（2026-10-01 排查 A7）
+        */
+        referrals: { select: { name: true }, take: 3 },
+        attributedCustomers: { select: { name: true }, take: 3 },
       },
     });
     // 已经被删了：撤销的目的达到了，不算「没动」
     if (!c) continue;
 
     const 有挂件 = Object.values(c._count).some((n) => n > 0);
-    // 毫秒级的相等不能当「改过」：建完马上写 ImportRow，updatedAt 和批次时刻只差几毫秒
-    const 被改过 = c.updatedAt.getTime() - batch.at.getTime() > 2000;
+    const 下游 = [...new Set([...c.referrals, ...c.attributedCustomers].map((x) => x.name))];
+    /*
+      有 writtenAt 就精确比：写完那一刻的 updatedAt 和现在的不一样，就是之后有人改过。
+      老批次没有，照旧按批次时刻 + 2 秒（毫秒级的相等不能当「改过」：建完马上写 ImportRow，只差几毫秒）
+    */
+    const 被改过 = row.writtenAt
+      ? c.updatedAt.getTime() !== row.writtenAt.getTime()
+      : c.updatedAt.getTime() - batch.at.getTime() > 2000;
 
     if (row.kind === "create") {
+      if (下游.length) {
+        没动.push({ name: c.name, 原因: `他是${下游.join("、")}的推荐人或业绩归属，删了他们的归属会断` });
+        continue;
+      }
       if (有挂件) {
         没动.push({ name: c.name, 原因: "名下已经有跟进记录或商机了" });
         continue;

@@ -50,6 +50,10 @@ export function useContactRemoval() {
   /** `未归属` = 联系人页上那种从客户上移出过的人，删的是另一张表 */
   async function 彻底删(c: { id: string; name: string; 未归属?: boolean }) {
     const r = c.未归属 ? await deleteUnassignedContact(c.id) : await deleteContact(c.id);
+    if (!r.ok) {
+      router.refresh();
+      return void message.error(r.error);
+    }
     router.refresh();
     const key = `contact-${c.id}`;
     message.success({

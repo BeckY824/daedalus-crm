@@ -441,6 +441,8 @@ model ImportRow {
   /// update 时那几格原来是什么（JSON）。按定义全是空值，存下来是为了让撤销
   /// 照着数据走，而不是照着「我记得只补空的」这条约定走
   before     String?
+  /// 写完那一刻客户档案的 updatedAt。撤销时和现在的比，判断导入之后有没有人改过（迁移 010）。老批次为空，照旧按批次时刻 + 2 秒
+  writtenAt  DateTime?
 
   @@index([batchId])
   @@index([customerId])

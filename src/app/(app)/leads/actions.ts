@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { 查电话 } from "@/lib/phone";
 import { requireUser } from "@/lib/auth";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
@@ -95,10 +96,17 @@ export async function convertLead(id: string) {
   if (!lead) return { ok: false as const, error: "线索不存在" };
   if (lead.customerId) return { ok: false as const, error: "该线索已转化" };
   // 手机号是学员的查重主键，没有就无法建档
-  const phone = lead.phone?.trim();
-  if (!phone) {
+  if (!lead.phone?.trim()) {
     return { ok: false as const, error: "该线索没有联系电话，请先补充后再转化" };
   }
+  /*
+    先规整再查重，和客户表单、导入同一条规矩（lib/phone.ts）。原来只 trim 就拿去精确比：
+    线索上写「138 0000 1111」，库里已有「13800001111」，认不出来，同一个人建出第二份档案，
+    号码格式还和其他客户都不一样（2026-10-01 排查 A8）
+  */
+  const 电话 = 查电话(lead.phone, { 必填: true });
+  if (!电话.ok) return { ok: false as const, error: `线索上的电话「${lead.phone}」${电话.error.replace(/^电话/, "")}，先改一下再转化` };
+  const phone = 电话.phone;
 
   const outcome = await prisma.$transaction(async (tx) => {
     const dup = await tx.customer.findFirst({ where: { phone }, select: { name: true } });

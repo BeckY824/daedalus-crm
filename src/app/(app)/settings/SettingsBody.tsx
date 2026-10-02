@@ -56,6 +56,7 @@ export default async function SettingsBody() {
        * 摆着点了只会报错，而 AI 接入那一栏还会把平台 Key 的尾 4 位显示出来。
        */
       isAdmin={me.role === "ADMIN" && !共享区}
+      共享区={共享区}
       /* 托管版的登录标识是邮箱（控制面账号按邮箱认，找回密码也靠它）；
          自部署版是用户名，既有账号是 admin / zhangsan 这种，不能改 */
       用邮箱登录={multiTenant()}

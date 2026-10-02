@@ -17,7 +17,7 @@ import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
-import { 查电话, 规整手机号 } from "@/lib/phone";
+import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { setOppStatus } from "../opportunities/actions";
 import { completePlan, toggleTask } from "./[id]/actions";
 
@@ -133,7 +133,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     原来就没有的可以继续空着。**原样没动的号码不重新规整**——库里老数据的写法
     不该因为人改了一下备注就被悄悄换掉，留痕里平白多一条「手机号」。
   */
-  const 原号 = (input.phone ?? "").trim();
+  // 共享区表单交回的是打码的样子：认回原号，当没改（排查 A2）
+  const 原号 = String(认回打码号(input.phone, 改前?.phone) ?? "").trim();
   const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: !改前 || Boolean(改前.phone) });
   if (!电话.ok) return { ok: false, error: 电话.error };
   const phone = 电话.phone;
@@ -173,7 +174,15 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
    * （已经换了人的）渠道重新算一遍，学员照样静默换主，等于级联从后门溜回来。
    * 规则和渠道那边一致：没动他的推荐链，他的归属就不动。
    */
-  const 推荐链变了 = !改前 || 改前.channelId !== input.channelId || 改前.referrerCustomerId !== input.referrerCustomerId;
+  /*
+    有推荐人时，channelId 是从推荐链顶端继承的派生值（attribution.ts），只比推荐人；
+    表单在「已有客户」那一档不回传渠道，拿 null 去比库里的链顶渠道，会把没动的人判成「变了」。
+  */
+  const 推荐链变了 =
+    !改前 ||
+    (input.referrerCustomerId
+      ? 改前.referrerCustomerId !== input.referrerCustomerId
+      : 改前.referrerCustomerId !== null || 改前.channelId !== input.channelId);
   const attribution = 推荐链变了
     ? await resolveAttribution({ channelId: input.channelId, referrerCustomerId: input.referrerCustomerId })
     : {
@@ -290,7 +299,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       };
     }
 
-    const baseRow = input.base as unknown as Record<string, unknown>;
+    // 共享区打开表单时看到的号码是打了码的：快照里的也认回原号，不然一碰上并发就误报「你们都改了手机号」（排查 A2）
+    const baseRow = { ...input.base, phone: 认回打码号(input.base.phone, 改前?.phone) } as unknown as Record<string, unknown>;
     const theirs = diffKeys(baseRow, currentRow);
     const mine = diffKeys(baseRow, data);
     const overlap = mine.filter((k) => theirs.includes(k));
@@ -581,11 +591,17 @@ export async function saveContract(input: {
     detail: { customerId: input.customerId, amount, signedAt: input.signedAt, force: !!input.force },
   });
 
-  // 签约后把跟进状态推进到「已签约」，避免两处状态打架
-  await prisma.customer.update({
-    where: { id: input.customerId },
-    data: { followStatus: "已签约", decisionStatus: "已决定报名" },
-  });
+  /*
+    新登记一笔签约，把跟进状态推进到「已签约」，避免两处状态打架。
+    **编辑一笔旧签约不碰状态**：退费后人工改成「已流失」的客户，改一下那笔签约的备注，
+    原来会被硬改回「已签约 / 已决定报名」（2026-10-01 排查 A5）。
+  */
+  if (!input.id) {
+    await prisma.customer.update({
+      where: { id: input.customerId },
+      data: { followStatus: "已签约", decisionStatus: "已决定报名" },
+    });
+  }
 
   const 联动 = !input.id && input.联动 ? await 签约收尾(input.customerId, input.联动) : undefined;
 

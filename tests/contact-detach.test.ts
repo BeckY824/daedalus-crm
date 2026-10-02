@@ -35,6 +35,12 @@ beforeEach(async () => {
 
 afterAll(async () => { await prisma.$disconnect(); });
 
+/** 删除成功才有快照（对方已经删了时回 ok: false） */
+function 快照<T>(r: { ok: true; 快照: T } | { ok: false; error: string }): T {
+  if (!r.ok) throw new Error(r.error);
+  return r.快照;
+}
+
 /** A 下面一位关键联系人王经理，外加一位普通的李助理；王经理名下有一条跟进 */
 async function 造人() {
   const 王 = await prisma.contact.create({ data: { customerId: A.id, name: "王经理", phone: "13900000001", isPrimary: true } });
@@ -122,7 +128,7 @@ describe("彻底删除 + 撤销", () => {
     expect(await prisma.contact.findUnique({ where: { id: 王.id } })).toBeNull();
     expect(await prisma.unassignedContact.count()).toBe(0);
 
-    expect(await restoreContact(r.快照)).toMatchObject({ ok: true });
+    expect(await restoreContact(快照(r))).toMatchObject({ ok: true });
     expect(await prisma.contact.findUniqueOrThrow({ where: { id: 王.id } })).toMatchObject({ customerId: A.id, isPrimary: true });
     expect((await prisma.followUp.findUniqueOrThrow({ where: { id: f.id } })).contactId).toBe(王.id);
   });
@@ -132,15 +138,15 @@ describe("彻底删除 + 撤销", () => {
     await detachContact(王.id);
     const r = await deleteUnassignedContact(王.id);
     expect(await prisma.unassignedContact.count()).toBe(0);
-    await restoreContact(r.快照);
+    await restoreContact(快照(r));
     expect(await prisma.unassignedContact.findUniqueOrThrow({ where: { id: 王.id } })).toMatchObject({ fromCustomerName: "甲公司" });
   });
 
   it("撤销点两次不会建出两条", async () => {
     const { 王 } = await 造人();
     const r = await deleteContact(王.id);
-    await restoreContact(r.快照);
-    await restoreContact(r.快照);
+    await restoreContact(快照(r));
+    await restoreContact(快照(r));
     expect(await prisma.contact.count({ where: { id: 王.id } })).toBe(1);
   });
 });
@@ -154,3 +160,13 @@ describe("AI 按名字找人", () => {
     expect(联系人?.记录).toEqual([expect.objectContaining({ 姓名: "王经理", 属于: "未归属（原来在甲公司下面）" })]);
   });
 });
+
+describe("对方已经删了", () => {
+  it("再删一次不抛，回一句话", async () => {
+    const { 王 } = await 造人();
+    await deleteContact(王.id);
+    expect(await deleteContact(王.id)).toMatchObject({ ok: false });
+    expect(await deleteUnassignedContact(王.id)).toMatchObject({ ok: false });
+  });
+});
+

@@ -85,6 +85,14 @@ async function 改档案(customerId: string, changes: 一处改动[]): Promise<{
       referrerCustomerId = hit[0].id;
     }
   }
+  /*
+    推荐人和渠道是两档，和表单一样互斥（lib/referrer-kind.ts）：
+      改成某位推荐人 → 渠道交给推荐链去推（channelId 是链顶继承的派生值），不能带着原来的渠道一起交
+      改成某个渠道   → 推荐人清空，算渠道直荐
+    原来两个都原样带着：推荐人记成了 X，归属却还按原来的渠道算（2026-10-01 排查 A6）。两样都给了，以推荐人为准。
+  */
+  if (有("referrerName") && referrerCustomerId) channelId = null;
+  else if (有("channelName") && channelId) referrerCustomerId = null;
 
   // 渠道负责人：给了名字就钉死为这个人；给空字符串 = 清掉手工值、恢复按推荐链；没提这个字段 = 不碰
   let channelOwnerId: string | null | undefined = undefined;
@@ -134,8 +142,8 @@ async function 改档案(customerId: string, changes: 一处改动[]): Promise<{
 /**
  * 改渠道。走 saveChannel，重名检查和留痕都在那里面。
  *
- * 改渠道负责人会影响这条推荐链上**所有**学员的归属统计（Customer.channelOwnerId
- * 是冗余存储的），所以这张卡的抬头要说清改的是渠道而不是某一位学员。
+ * 改渠道负责人**只影响之后新来的学员**，已有学员的归属不追溯改写（09 月拍板「归属固化」）。
+ * 卡片抬头仍要说清改的是渠道而不是某一位学员。
  */
 async function 改渠道(p: { channelName: string; ownerName: string; phone: string; remark: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   const hit = await prisma.channel.findMany({ where: { name: p.channelName.trim() }, select: { id: true, name: true, phone: true, remark: true, channelOwnerId: true } });

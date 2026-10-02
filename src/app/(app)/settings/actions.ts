@@ -48,6 +48,12 @@ function 托管版(): boolean {
  *   - AI 接入那一栏的「测试连接」会把服务端的 LLM Key 发到调用方自己填的地址；
  *   - 业务配置、成员、角色随便改，而别的团队也在用同一个工作区。
  */
+/** 当前是不是网页试用版那个共享工作区 */
+async function 是共享区() {
+  const { 当前是共享区 } = await import("@/lib/shared-ws/current");
+  return 当前是共享区();
+}
+
 async function requireAdmin() {
   const me = await requireUser();
   if (me.role !== "ADMIN") throw new Error("FORBIDDEN");
@@ -322,6 +328,7 @@ export async function reactivateUser(id: string) {
  */
 export async function 改我的资料(input: { name: string; title: string }) {
   const me = await requireUser();
+  if (await 是共享区()) return { ok: false as const, error: "这是几个试用团队共用的账号，名字和密码不能改——改了别的团队就登不进来了" };
   const name = input.name.trim();
   const title = input.title.trim();
   if (!name) return { ok: false as const, error: "名字不能为空" };
@@ -353,6 +360,11 @@ export async function 改我的资料(input: { name: string; title: string }) {
  */
 export async function changeMyPassword(oldPwd: string, newPwd: string) {
   const me = await requireUser();
+  /*
+    网页试用版是几个团队共用一个账号（memory: web-trial-shared-workspace）。原来这里不拦：
+    任何一个团队改了密码，会吊销这个账号的全部会话，别的团队全被踢出、也登不回来（2026-10-01 排查 A3）
+  */
+  if (await 是共享区()) return { ok: false as const, error: "这是几个试用团队共用的账号，名字和密码不能改——改了别的团队就登不进来了" };
   const user = await prisma.user.findUnique({ where: { id: me.id } });
   if (!user) return { ok: false as const, error: "用户不存在" };
 

@@ -43,6 +43,7 @@ export default function SettingsView({
   机器,
   桌面端 = null,
   用邮箱登录 = false,
+  共享区 = false,
 }: {
   users: Row[];
   me: SessionUser;
@@ -64,6 +65,8 @@ export default function SettingsView({
   桌面端?: 桌面端信息 | null;
   /** 托管版：成员的登录标识是邮箱，不是用户名。见 MembersTab 表单里那段注释 */
   用邮箱登录?: boolean;
+  /** 网页试用版那个共享工作区：个人资料、登录与密码两栏不摆 */
+  共享区?: boolean;
 }) {
   const [搜, set搜] = useState("");
   // 当前页签由地址栏 ?tab= 决定：中栏那列设置项就是一组带 tab 的链接，刷新、回退都对得上
@@ -101,6 +104,8 @@ export default function SettingsView({
      * 「登录与密码」不摆的理由同源：桌面端只有云端账号这一套身份，本机那把密码用不到。
      */
     .filter((x) => !(桌面端 && (x.key === "password" || x.key === "members")))
+    // 共享试用区：账号是几个团队共用的，名字和密码不给改（排查 A3）
+    .filter((x) => !(共享区 && (x.key === "password" || x.key === "profile")))
     .map((x) => ({ ...x, 说明: 说明表[x.key] ?? "" })) as { key: string; label: string; 说明: string; children: React.ReactNode }[];
 
   /**
