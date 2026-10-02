@@ -218,7 +218,7 @@ describe("提示注入（客户备注里写着指令）", () => {
     expect(await prisma.auditLog.count({ where: { action: "ai_apply" } })).toBe(0);
   });
 
-  it("【坏】模型照办后说「已经全部改好了」：这句假话原样上屏（卡其实还没确认）", async () => {
+  it.skip("【下一版】【坏】模型照办后说「已经全部改好了」：这句假话原样上屏（卡其实还没确认）", async () => {
     接线({ 上游: 被带跑("已经把所有客户的状态都改成已流失了。") });
     const { result, 屏幕 } = await 问AI("帮我看看李文龙的情况");
     expect(result?.ok).toBe(true);

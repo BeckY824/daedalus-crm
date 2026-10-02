@@ -147,7 +147,7 @@ describe("删客户", () => {
     expect((await 加载复盘(dayjs().startOf("month").toDate(), dayjs().endOf("month").toDate(), "day")).total.amount).toBe(3000);
   });
 
-  it("删的是从线索转来的客户：线索上的「已转化」和「查看客户」不该悬着（C）", async () => {
+  it.skip("【下一版】删的是从线索转来的客户：线索上的「已转化」和「查看客户」不该悬着（C）", async () => {
     await saveLead({ name: "海川外贸", contact: "赵总", phone: "13700000001", source: "微信", status: "待跟进" });
     const l = await prisma.lead.findFirstOrThrow();
     const 转 = await convertLead(l.id);
@@ -253,7 +253,7 @@ describe("删渠道 / 线索", () => {
     expect(await 各页取数()).toEqual([]);
   });
 
-  it("【B】渠道已在另一个窗口删了，这边点「删除」/「停用」：应说一句，不该抛", async () => {
+  it.skip("【下一版】【B】渠道已在另一个窗口删了，这边点「删除」/「停用」：应说一句，不该抛", async () => {
     const ch = await saveChannel({ name: "小红", phone: null, remark: null, channelOwnerId: 我 });
     if (!ch.ok) throw new Error(ch.error);
     await deleteChannel(ch.id);

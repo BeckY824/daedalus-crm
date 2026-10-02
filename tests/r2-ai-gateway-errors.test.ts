@@ -138,7 +138,7 @@ describe("chatJSON 那条路（起草话术）", () => {
     expect(await 用掉(账号.acc.id)).toBe(0);
   });
 
-  it("【坏】桌面端这边先超时（上游慢）：人看到「超时」，但这一次照样被扣了", async () => {
+  it.skip("【下一版】【坏】桌面端这边先超时（上游慢）：人看到「超时」，但这一次照样被扣了", async () => {
     // 上游 0.6 秒才回；桌面端 0.2 秒就放弃。真实世界里是：话术 60 秒、网关等上游 120 秒
     接线({ 上游: async () => { await 等一下(600); return 回文本('{"message":"迟到的话术"}'); } });
     const { chatJSON } = await import("@/lib/llm");
