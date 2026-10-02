@@ -113,7 +113,12 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       备用: 取备用(自家.备用),
     });
   }
-  if (gh?.tag_name) {
+  /*
+    **官网 feed 取得到就只听它的**（2026-10-02 排查 5-A7 / 第二轮 A-3）。原来两边谁新听谁的：
+    大版本 CI 一建正式 Release，GitHub 的 releases/latest 立刻变新，所有桌面端不等 feed 放行、不等真机验证就收到更新，
+    Windows 还拿着 -win.zip 走差量，绕开了「Windows 一律整包」。feed 是我们放行的那道闸，GitHub 只在 feed 取不到时兜底
+  */
+  if (gh?.tag_name && !自家?.version) {
     const 资产 = platform === "win32"
       ? (gh.assets || []).find((a) => new RegExp(`-${arch}-setup\\.exe$`, "i").test(a.name || ""))
       : 挑dmg(gh.assets);
