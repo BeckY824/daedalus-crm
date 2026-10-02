@@ -15,7 +15,7 @@ export default async function ChannelsPage() {
     prisma.channel.findMany({
       orderBy: [{ active: "desc" }, { createdAt: "desc" }],
       select: {
-        id: true, name: true, phone: true, remark: true, active: true, createdAt: true,
+        id: true, name: true, phone: true, remark: true, active: true, createdAt: true, updatedAt: true,
         channelOwnerId: true,
         channelOwner: { select: { name: true } },
       },
@@ -76,6 +76,7 @@ export default async function ChannelsPage() {
         remark: c.remark,
         active: c.active,
         createdAt: c.createdAt.toISOString(),
+        updatedAt: c.updatedAt.toISOString(),
         channelOwnerId: c.channelOwnerId,
         channelOwnerName: c.channelOwner.name,
         directCount: statMap[c.id]?.directCustomers ?? 0,

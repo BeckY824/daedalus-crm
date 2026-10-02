@@ -31,7 +31,7 @@ import CustomerForm from "../CustomerForm";
 import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
 import AiCost from "@/components/AiCost";
-import { toggleTask, deleteTask, deleteFollowUp, completePlan, saveFollowUp } from "./actions";
+import { toggleTask, deleteTask, deleteFollowUp, restoreFollowUp, completePlan, saveFollowUp } from "./actions";
 import { useContactRemoval } from "./useContactRemoval";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
 import { 登记详情名 } from "@/lib/page-rows";
@@ -62,6 +62,13 @@ const REVERT_CHOICES = [
 type Entry =
   | { kind: "follow"; at: string; f: FollowUpRow }
   | { kind: "contract"; at: string; c: ContractRow };
+
+/** 负责人下拉的选项：现任不在候选里（管理员、已停用）时补进去，标上「（不在候选里）」，别显示成一串 id */
+function 带上现任(users: { id: string; name: string }[], 现任: string | null, 现任名: string | null | undefined) {
+  const 选项 = users.map((u) => ({ value: u.id, label: u.name }));
+  if (现任 && !users.some((u) => u.id === 现任)) 选项.unshift({ value: 现任, label: `${现任名 ?? "（已删除的成员）"}（不在候选里）` });
+  return 选项;
+}
 
 export default function RecordView({
   customer,
@@ -376,9 +383,10 @@ export default function RecordView({
             <InlineField customerId={customer.id} field="school" label={b.fields.school} value={customer.school} />
             <InlineField customerId={customer.id} field="major" label={b.fields.major} value={customer.major} />
             <InlineField customerId={customer.id} field="grade" label={b.fields.grade} value={customer.grade} kind="combo" options={b.grades.map((g) => ({ value: g, label: g }))} />
-            <InlineField customerId={customer.id} field="salesOwnerId" label="销售负责人" value={customer.salesOwnerId} kind="select" options={users.map((u) => ({ value: u.id, label: u.name }))} />
+            {/* 选项里带上现任：负责人是管理员或已停用时不在候选里，原来下拉直接显示一串 id（排查 D8） */}
+            <InlineField customerId={customer.id} field="salesOwnerId" label="销售负责人" value={customer.salesOwnerId} kind="select" options={带上现任(users, customer.salesOwnerId, customer.salesOwnerName)} />
             {/* 渠道负责人默认跟着推荐链；这里改的是这一位的单独订正，清空即恢复按推荐链 */}
-            <InlineField customerId={customer.id} field="channelOwnerId" label="渠道负责人" value={customer.channelOwnerId} kind="select" options={users.map((u) => ({ value: u.id, label: u.name }))} placeholder="按推荐链自动确定" />
+            <InlineField customerId={customer.id} field="channelOwnerId" label="渠道负责人" value={customer.channelOwnerId} kind="select" options={带上现任(users, customer.channelOwnerId, customer.channelOwnerName)} placeholder="按推荐链自动确定" 可清空 />
             <InlineField customerId={customer.id} field="expectedSignAt" label="预计签约" value={customer.expectedSignAt} kind="date" placeholder="未定" />
             <div className="rec-field" style={{ cursor: "default" }}>
               <div className="rec-field-k">签约金额</div>
@@ -696,9 +704,33 @@ export default function RecordView({
    * 盖半屏问一句话，代价比它防住的误点还大。
    */
   async function deleteFollow(f: FollowUpRow) {
-    await deleteFollowUp(f.id, customer.id);
-    message.success("已删除");
+    const r = await deleteFollowUp(f.id, customer.id);
     router.refresh();
+    if (!r.ok) return void message.error(r.error);
+    // 给一次撤销（排查 D2）：AI 速记的跟进连原文一起删，原来删了就再也找不回来
+    const key = `follow-${f.id}`;
+    message.success({
+      key,
+      duration: 6,
+      content: (
+        <span>
+          已删除这条跟进
+          <Button
+            type="link"
+            size="small"
+            onClick={async () => {
+              message.destroy(key);
+              const u = await restoreFollowUp(r.快照);
+              if (!u.ok) return void message.error(u.error);
+              message.success("这条跟进回来了");
+              router.refresh();
+            }}
+          >
+            撤销
+          </Button>
+        </span>
+      ),
+    });
   }
 
   function confirmDeleteContract(r: ContractRow) {

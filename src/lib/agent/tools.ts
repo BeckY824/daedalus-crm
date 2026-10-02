@@ -8,6 +8,7 @@
  */
 import { 是逾期, 数逾期跟进 } from "../overdue";
 import { 渠道汇总 } from "../attribution";
+import { 现值选取, 现值表 } from "./current-values";
 import { prisma } from "../prisma";
 import { dayjs } from "../utils";
 import { FOLLOW_TYPE_MAP, OPP_STAGES } from "../constants";
@@ -873,17 +874,7 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
       if (needsCustomer) {
         const id = str(a.id, 40);
         const found = id
-          ? await prisma.customer.findUnique({
-              where: { id },
-              select: {
-                id: true, name: true, phone: true, school: true, grade: true, major: true,
-                followStatus: true, decisionStatus: true, expectedSignAt: true, remark: true,
-                salesOwner: { select: { name: true } },
-                channelOwner: { select: { name: true } },
-                channel: { select: { name: true } },
-                referrerCustomer: { select: { name: true } },
-              },
-            })
+          ? await prisma.customer.findUnique({ where: { id }, select: 现值选取 })
           : null;
         if (!found) return { summary: "没有这位", data: { error: "id 不对，先用 search_customers 拿到 id" } };
         c = { id: found.id, name: found.name };
@@ -894,21 +885,7 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
             共享区的脱敏针对的是「读出来给人看」，不是「读出来再写回去」。
             tests/agent-phone-mask.test.ts 里把这一处列成了具名例外。
           */
-          现值 = {
-            name: found.name,
-            phone: found.phone ?? "",
-            school: found.school ?? "",
-            grade: found.grade ?? "",
-            major: found.major ?? "",
-            followStatus: found.followStatus,
-            decisionStatus: found.decisionStatus,
-            expectedSignAt: found.expectedSignAt ? dayjs(found.expectedSignAt).format("YYYY-MM-DD") : "",
-            remark: found.remark ?? "",
-            salesOwnerName: found.salesOwner?.name ?? "",
-            channelOwnerName: found.channelOwner?.name ?? "",
-            channelName: found.channel?.name ?? "",
-            referrerName: found.referrerCustomer?.name ?? "",
-          };
+          现值 = 现值表(found);
         }
       }
       // 同一个对象同一类提议只留一张，模型重复调用不会刷出一摞卡

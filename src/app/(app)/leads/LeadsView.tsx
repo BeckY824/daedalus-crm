@@ -35,6 +35,8 @@ type Row = {
   ownerName: string;
   customerId: string | null;
   createdAt: string;
+  /** 编辑框的版本号（排查 D3） */
+  updatedAt: string;
 };
 
 export default function LeadsView({
@@ -74,7 +76,7 @@ export default function LeadsView({
 
   async function onOk() {
     const v = await form.validateFields();
-    const res = await saveLead({ id: editing?.id, ...v });
+    const res = await saveLead({ id: editing?.id, 版本: editing?.updatedAt, ...v });
     if (!res.ok) {
       message.error(res.error);
       return;

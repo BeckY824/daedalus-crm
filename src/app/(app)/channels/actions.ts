@@ -1,5 +1,6 @@
 "use server";
 
+import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
@@ -18,6 +19,8 @@ export async function saveChannel(input: {
   remark: string | null;
   /** 一个人的工作区里界面上不问这一项，留空由服务端填成那唯一的人 */
   channelOwnerId?: string | null;
+  /** 打开编辑框那一刻的 updatedAt。给了就当闸门：期间有人改过不盖掉（排查 D3） */
+  版本?: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const me = await requireUser();
   const b = await getBusiness();
@@ -42,7 +45,9 @@ export async function saveChannel(input: {
 
   if (input.id) {
     const 改前 = await prisma.channel.findUnique({ where: { id: input.id }, select: { channelOwnerId: true } });
-    await prisma.channel.update({ where: { id: input.id }, data });
+    if (!改前) return { ok: false, error: "这个渠道已经不在了，可能被别人删了" };
+    const 写了 = await prisma.channel.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data });
+    if (写了.count === 0) return { ok: false, error: 版本冲突 };
     /**
      * 改渠道负责人**不再**连带改写已有学员。
      *

@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
 import { 认回打码号 } from "@/lib/phone";
+import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { dayjs } from "@/lib/utils";
 
 /**
@@ -137,8 +138,9 @@ export async function saveFollowUp(input: FollowUpInput) {
 
 export async function deleteFollowUp(id: string, customerId: string) {
   const me = await requireUser();
-  // 删之前先取内容：删完这条记录就无从还原了
-  const 待删 = await prisma.followUp.findUnique({ where: { id }, select: { type: true, content: true, occurredAt: true } });
+  // 删之前先取内容：删完这条记录就无从还原了。整条连 AI 速记的原文一起留着，给撤销用（排查 D2）
+  const 待删 = await prisma.followUp.findUnique({ where: { id }, include: { source: true } });
+  if (!待删) return { ok: false as const, error: "这条跟进已经不在了，刷新看看" };
   await prisma.followUp.delete({ where: { id } });
   await recordAudit({
     user: me, action: "delete", entity: "FollowUp", entityId: id,
@@ -157,6 +159,53 @@ export async function deleteFollowUp(id: string, customerId: string) {
   });
 
   revalidatePath(`/customers/${customerId}`);
+  revalidatePath("/follow-ups");
+  const { source, ...行 } = 待删;
+  const 快照: 删掉的跟进 = {
+    ...行,
+    occurredAt: 行.occurredAt.toISOString(), dueAt: 行.dueAt?.toISOString() ?? null,
+    createdAt: 行.createdAt.toISOString(), updatedAt: 行.updatedAt.toISOString(),
+    原文: source?.text ?? null,
+  };
+  return { ok: true as const, 快照 };
+}
+
+export type 删掉的跟进 = {
+  id: string; type: string; title: string; content: string; status: string; duration: number | null;
+  occurredAt: string; dueAt: string | null; participants: string | null;
+  customerId: string; contactId: string | null; opportunityId: string | null; ownerId: string;
+  createdAt: string; updatedAt: string;
+  /** AI 速记时粘贴的原文，没有就是 null */
+  原文: string | null;
+};
+
+/** 撤销删除一条跟进：原样建回来，连 AI 速记的原文（排查 D2）。联系人、商机这会儿已经不在了的，那一格空着 */
+export async function restoreFollowUp(快照: 删掉的跟进) {
+  const me = await requireUser();
+  if (await prisma.followUp.findUnique({ where: { id: 快照.id }, select: { id: true } })) return { ok: true as const };
+  if (!(await prisma.customer.findUnique({ where: { id: 快照.customerId }, select: { id: true } }))) {
+    return { ok: false as const, error: "这位客户已经不在了，撤不回来" };
+  }
+  const [联系人在, 商机在] = await Promise.all([
+    快照.contactId ? prisma.contact.findUnique({ where: { id: 快照.contactId }, select: { id: true } }) : null,
+    快照.opportunityId ? prisma.opportunity.findUnique({ where: { id: 快照.opportunityId }, select: { id: true } }) : null,
+  ]);
+  await prisma.followUp.create({
+    data: {
+      id: 快照.id, type: 快照.type, title: 快照.title, content: 快照.content, status: 快照.status, duration: 快照.duration,
+      occurredAt: new Date(快照.occurredAt), dueAt: 快照.dueAt ? new Date(快照.dueAt) : null, participants: 快照.participants,
+      customerId: 快照.customerId, contactId: 联系人在 ? 快照.contactId : null, opportunityId: 商机在 ? 快照.opportunityId : null,
+      ownerId: 快照.ownerId, createdAt: new Date(快照.createdAt),
+      ...(快照.原文 ? { source: { create: { text: 快照.原文 } } } : {}),
+    },
+  });
+  const latest = await prisma.followUp.findFirst({ where: { customerId: 快照.customerId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
+  await prisma.customer.update({ where: { id: 快照.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
+  await recordAudit({
+    user: me, action: "create", entity: "FollowUp", entityId: 快照.id,
+    summary: `撤销删除：${await 客户名(快照.customerId)}的一条${类型名(快照.type)}跟进回来了`,
+  });
+  revalidatePath(`/customers/${快照.customerId}`);
   revalidatePath("/follow-ups");
   return { ok: true as const };
 }
@@ -319,7 +368,7 @@ function 规整(input: 联系人字段) {
   };
 }
 
-export async function saveContact(input: 联系人字段 & { id?: string; customerId: string; isPrimary: boolean }) {
+export async function saveContact(input: 联系人字段 & { id?: string; customerId: string; isPrimary: boolean; 版本?: string | null }) {
   const me = await requireUser();
   const 原 = input.id ? await prisma.contact.findUnique({ where: { id: input.id }, select: { phone: true } }) : null;
   if (input.id && !原) return { ok: false as const, error: "这位联系人已经不在这儿了，刷新看看" };
@@ -327,12 +376,16 @@ export async function saveContact(input: 联系人字段 & { id?: string; custom
   if (!电话.ok) return 电话;
   const data = { ...规整(input), phone: 电话.phone, isPrimary: input.isPrimary, customerId: input.customerId };
   const 落库id = await prisma.$transaction(async (tx) => {
-    const saved = input.id
-      ? await tx.contact.update({ where: { id: input.id }, data })
-      : await tx.contact.create({ data });
-    if (input.isPrimary) await 只留这一个关键(tx, input.customerId, saved.id);
-    return saved.id;
+    // 编辑走版本闸门（排查 D3）：期间有人改过就一行不写
+    if (input.id) {
+      const 写了 = await tx.contact.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data });
+      if (写了.count === 0) return null;
+    }
+    const savedId = input.id ?? (await tx.contact.create({ data })).id;
+    if (input.isPrimary) await 只留这一个关键(tx, input.customerId, savedId);
+    return savedId;
   });
+  if (!落库id) return { ok: false as const, error: 版本冲突 };
   await recordAudit({
     user: me, action: input.id ? "update" : "create", entity: "Contact", entityId: 落库id,
     summary: `${input.id ? "修改" : "新建"}${await 客户名(input.customerId)}的联系人「${data.name}」${input.isPrimary ? "（主要联系人）" : ""}`,
@@ -421,10 +474,12 @@ export async function undoDetachContact(id: string, 原来是关键: boolean) {
 /**
  * 联系人页上改一位未归属的人。给了 `customerId` 就是挂到那位下面，不给就还留在未归属、只改资料。
  */
-export async function saveUnassignedContact(input: 联系人字段 & { id: string; customerId?: string | null; isPrimary?: boolean }) {
+export async function saveUnassignedContact(input: 联系人字段 & { id: string; customerId?: string | null; isPrimary?: boolean; 版本?: string | null }) {
   const me = await requireUser();
   const u = await prisma.unassignedContact.findUnique({ where: { id: input.id } });
   if (!u) return { ok: false as const, error: "这位联系人已经不在了，刷新看看" };
+  // 版本闸门（排查 D3）：打开编辑框之后有人改过（或已经被别人挂走），不盖掉
+  if (input.版本 && 版本条件(input.版本).updatedAt?.getTime() !== u.updatedAt.getTime()) return { ok: false as const, error: 版本冲突 };
   const 电话 = 联系人电话(input.phone, u.phone);
   if (!电话.ok) return 电话;
   const data = { ...规整(input), phone: 电话.phone };

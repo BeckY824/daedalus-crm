@@ -7,6 +7,7 @@ import SlideConfirm from "./SlideConfirm";
 import { PlusOutlined, ExperimentOutlined } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
 import { 查演示数据状态, 灌一套演示数据, 清除演示数据, type 演示数据状态 } from "@/app/(app)/demo-data";
+import { useBusiness } from "@/lib/business-client";
 
 /**
  * 空状态。
@@ -90,18 +91,21 @@ export function DemoDataButton() {
  * 桌面端（没灌过的）连标题都不该看到。
  */
 export function DemoDataSection() {
+  const b = useBusiness();
   const [状态, set状态] = useDemoState();
   if (!有演示数据入口(状态)) return null;
   return (
     <div className="biz-demo">
       <h4>演示数据</h4>
-      <p>一套虚构的客户、跟进和签约，用来看这套系统装满之后长什么样。清除会删掉库里**全部**业务数据。</p>
+      {/* 原来这里写的是 **全部**：JSX 里不是 Markdown，界面上原样显示两对星号 */}
+      <p>一套虚构的{b.customer}、跟进和签约，用来看这套系统装满之后长什么样。清除会删掉库里<b>全部</b>业务数据。</p>
       <DemoDataControls 状态={状态!} set状态={set状态} />
     </div>
   );
 }
 
 function DemoDataControls({ 状态, set状态 }: { 状态: 演示数据状态; set状态: (s: 演示数据状态) => void }) {
+  const b = useBusiness();
   /** 清除前那一问。它自己是个 Modal，因为要在框里放滑动确认 */
   const [问, set问] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -120,8 +124,9 @@ function DemoDataControls({ 状态, set状态 }: { 状态: 演示数据状态; s
           手比脑子快的时候它挡不住任何人。解释仍然要写：闸门防的是误触，说清楚防的是误解。
         */}
         <Modal open={问} onCancel={() => set问(false)} title="清除演示数据？" footer={null} width={460}>
+          {/* 列全、用这个工作区的叫法（排查 D7）：原来写死「学员」，也没提联系人、签约、计划、导入记录 */}
           <p style={{ marginTop: 0, color: "var(--ink-soft)", lineHeight: 1.7 }}>
-            会删掉这个库里<b>全部</b>业务数据：学员、线索、渠道、商机、跟进、待办、操作日志。
+            会删掉这个库里<b>全部</b>业务数据：{b.customer}和他们的联系人、线索、渠道、商机、签约、跟进记录、计划和待办、导入记录、操作日志。
             灌完演示数据之后你自己录的也一起没。设置和账号不动。
           </p>
           <SlideConfirm

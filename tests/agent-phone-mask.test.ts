@@ -101,7 +101,8 @@ describe("别再长出第六个出口", () => {
     const 例外 = [
       { 记: '"phone": "电话，可空"', 因: "propose_lead 的 args 样例，是给模型看的输入说明，不是输出" },
       { 记: '"ownerName": "新的渠道负责人姓名，可空"', 因: "propose_channel_update 的 args 样例，同上" },
-      { 记: "phone: found.phone ?? \"\"", 因: "建议卡的预填值，人点确认后原样写回库——打了码就是把假号存进去" },
+      // 建议卡的预填值（phone: found.phone ?? ""）2026-10-02 搬到了 lib/agent/current-values.ts（排查 D4，确认时要再取一份比对）：
+      // 那里的 phone 故意不打码——人点确认后原样写回库，打了码就是把假号存进去
     ];
     const 可疑: string[] = [];
     // 注释里提 phone 不算（这一段的说明本身就在讲 phone）。块注释要跟状态：

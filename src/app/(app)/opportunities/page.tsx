@@ -71,6 +71,7 @@ export default async function OpportunitiesPage({
         stage: o.stage,
         status: o.status,
         probability: o.probability,
+        updatedAt: o.updatedAt.toISOString(),
         expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
         remark: o.remark,
         customerId: o.customer.id,

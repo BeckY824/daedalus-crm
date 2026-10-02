@@ -108,6 +108,10 @@ export async function 清除演示数据(): Promise<{ ok: true } | { ok: false; 
   // 演示数据造的那几个同事。只删这一批：真实同事的邮箱不会长这样
   await prisma.user.deleteMany({ where: { email: { endsWith: "@qiming.local" } } });
   await prisma.setting.delete({ where: { key: 标记 } });
+  // 导入记录也清（排查 D7）：它们指着的客户刚被删光，导入页还挂着「撤销」按钮，点了也没意义
+  await prisma.importBatch.deleteMany();
+  // 操作日志清空之后留下第一笔：清除这件事本身要查得到（原来清完一片空白，谁清的、什么时候清的都不知道）
+  await recordAudit({ user: me, action: "delete", entity: "Setting", entityId: 标记, summary: "清除演示数据（连同之前的业务数据和操作日志）" });
 
   revalidatePath("/", "layout");
   return { ok: true };

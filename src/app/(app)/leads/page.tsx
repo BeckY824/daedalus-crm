@@ -66,6 +66,7 @@ export default async function LeadsPage({
         ownerName: l.owner?.name ?? "—",
         customerId: l.customerId,
         createdAt: l.createdAt.toISOString(),
+        updatedAt: l.updatedAt.toISOString(),
       }))}
     />
   );

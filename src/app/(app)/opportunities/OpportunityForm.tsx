@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Input, Modal, Form, Row, Col, InputNumber, Select, DatePicker, Slider, App } from "antd";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, type 可选成员 } from "@/lib/utils";
@@ -32,9 +32,12 @@ export default function OpportunityForm({
 }) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  /** 换阶段前是哪一档：概率还等于那一档的默认值，才算「人没动过」、跟着换（排查 D6） */
+  const 上一个阶段 = useRef("初步沟通");
 
   useEffect(() => {
     if (!open) return;
+    上一个阶段.current = editing?.stage ?? "初步沟通";
     if (editing) {
       form.setFieldsValue({
         ...editing,
@@ -46,7 +49,7 @@ export default function OpportunityForm({
       form.setFieldsValue({
         stage: "初步沟通",
         status: "OPEN",
-        probability: 20,
+        probability: STAGE_PROBABILITY["初步沟通"] ?? 20,
         ownerId: users[0]?.id,
       });
     }
@@ -57,6 +60,7 @@ export default function OpportunityForm({
     const v = await form.validateFields();
     const res = await saveOpportunity({
       id: editing?.id,
+      版本: editing?.updatedAt,
       ...v,
       expectedDealAt: v.expectedDealAt ? v.expectedDealAt.toISOString() : null,
     });
@@ -112,7 +116,17 @@ export default function OpportunityForm({
             <Form.Item name="stage" label="阶段">
               <Select
                 options={OPP_STAGES.map((s) => ({ value: s, label: s }))}
-                onChange={(v) => form.setFieldValue("probability", STAGE_PROBABILITY[v] ?? 20)}
+                /*
+                  和拖拽同一个规矩（moveStage）：概率只在人没动过时跟着阶段变，手填的 75% 不冲掉；
+                  原来一换阶段就覆盖（排查 D6）。赢单成交一律 100
+                */
+                onChange={(v: string) => {
+                  const 现在 = form.getFieldValue("probability") as number | undefined;
+                  const 人没动过 = 现在 == null || 现在 === (STAGE_PROBABILITY[上一个阶段.current] ?? 20);
+                  if (v === "赢单成交") form.setFieldValue("probability", 100);
+                  else if (人没动过) form.setFieldValue("probability", STAGE_PROBABILITY[v] ?? 20);
+                  上一个阶段.current = v;
+                }}
               />
             </Form.Item>
           </Col>
@@ -131,7 +145,15 @@ export default function OpportunityForm({
           {!独自一人(users, editing?.ownerId) && (
             <Col span={8}>
               <Form.Item name="ownerId" label="负责人" rules={[{ required: true }]}>
-                <Select options={成员选项(users)} />
+                {/* 现任不在候选里（管理员、已停用）时补进去，不然下拉显示一串 id，一保存还可能被换掉（排查 D8） */}
+                <Select
+                  options={[
+                    ...(editing && !users.some((u) => u.id === editing.ownerId)
+                      ? [{ value: editing.ownerId, label: `${editing.ownerName}（不在候选里）` }]
+                      : []),
+                    ...成员选项(users),
+                  ]}
+                />
               </Form.Item>
             </Col>
           )}

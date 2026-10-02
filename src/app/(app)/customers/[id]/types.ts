@@ -30,6 +30,8 @@ export type ContactRow = {
   wechat: string | null;
   isPrimary: boolean;
   remark: string | null;
+  /** 编辑框的版本号（排查 D3） */
+  updatedAt: string;
 };
 
 export type RecordProps = {

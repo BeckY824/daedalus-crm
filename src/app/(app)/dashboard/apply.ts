@@ -1,10 +1,12 @@
 "use server";
 
+import { 读现值 } from "@/lib/agent/current-values";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
-import { buildProposal, missingFields, summarizeApplied, type Proposal, type 一处改动 } from "@/lib/agent/proposals";
+import { buildProposal, missingFields, summarizeApplied, 可改字段表, type Proposal, type 一处改动 } from "@/lib/agent/proposals";
+import { statusLabel, type BusinessConfig } from "@/lib/business-config";
 import { patchCustomer, saveCustomer, saveContract } from "../customers/actions";
 import { saveFollowUp, savePlan, deleteFollowUp } from "../customers/[id]/actions";
 import { saveLead } from "../leads/actions";
@@ -169,6 +171,16 @@ async function 改渠道(p: { channelName: string; ownerName: string; phone: str
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
+/** 「这张卡出来之后有人改过」那句话里用：字段怎么叫、值怎么显示（状态按设置里改过的显示名） */
+function 字段名(f: string, b: BusinessConfig): string {
+  if (f === "followStatus") return "跟进状态";
+  if (f === "decisionStatus") return "决策状态";
+  return (可改字段表(b) as Record<string, { label: string }>)[f]?.label ?? f;
+}
+function 显示值(f: string, v: string, b: BusinessConfig): string {
+  return f === "followStatus" || f === "decisionStatus" ? statusLabel(b, v) : v;
+}
+
 export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   const me = await requireUser();
   const b = await getBusiness();
@@ -189,6 +201,22 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   // 前端禁用按钮不算防线：必填项没填齐就不写
   const miss = missingFields(p);
   if (miss.length) return { ok: false, error: `还差${miss.join("、")}，填好再确认` };
+
+  /*
+    卡片出来之后，要改的那几格有没有被同事改过（2026-10-01 排查 D4）。
+    卡上记着生成那一刻的值（现值）；原来落库时拿「此刻库里的值」当基准，于是卡上建议「→ 意向较高」，
+    期间同事已经改成「已签约」，一点确认就被改回去，不报冲突。现在比一下：动过就不落库，说清是哪一格。
+    现值是前端交回来的，可能被人改过——只用来判断「是不是过时了」，不拿它写库。
+  */
+  if ((p.kind === "update_customer" || p.kind === "set_status") && input.现值) {
+    const 此刻 = await 读现值(c.id);
+    const 要改 = p.kind === "set_status" ? [p.field] : p.changes.map((x) => x.field);
+    const 动过 = 要改.filter((f) => f in input.现值! && 此刻 && 此刻[f] !== input.现值![f]);
+    if (此刻 && 动过.length) {
+      const 说 = 动过.map((f) => `「${字段名(f, b)}」已经是「${显示值(f, 此刻[f], b) || "空"}」`).join("，");
+      return { ok: false, error: `这张卡出来之后有人改过：${说}。为了不盖掉刚改的，这次没保存——重新问一次再确认` };
+    }
+  }
 
   let done: { ok: true } | { ok: false; error: string };
   let 撤销: 撤销凭据 | undefined;

@@ -102,6 +102,45 @@ export default function CustomersView({
   const router = useRouter();
   const { message } = App.useApp();
   const { 问删除 } = useDeleteCustomers();
+
+  /**
+   * 批量改完给一次撤销（排查 D1）。原来点一下就写库、没有退路，选错一页就是一批数据改错。
+   * 撤销 = 按原值分组再调一次同一个批量动作：改负责人那边，没做完的活也会跟着回到原来的人手上（B3 是对称的）
+   */
+  function 可撤销提示(res: Extract<BulkResult, { ok: true }>, 文案: string, 退回: (ids: string[], 值: string) => Promise<BulkResult>) {
+    const 原值 = res.原值 ?? [];
+    if (!原值.length) return void message.success(文案);
+    const key = `bulk-${原值[0].id}-${原值.length}`;
+    message.success({
+      key,
+      duration: 6,
+      content: (
+        <span>
+          {文案}
+          <Button
+            type="link"
+            size="small"
+            onClick={async () => {
+              message.destroy(key);
+              const 组 = new Map<string, string[]>();
+              for (const x of 原值) 组.set(x.值, [...(组.get(x.值) ?? []), x.id]);
+              for (const [值, ids] of 组) {
+                const r = await 退回(ids, 值);
+                if (!r.ok) {
+                  router.refresh();
+                  return void message.error(`没能全部改回去：${r.error}`);
+                }
+              }
+              router.refresh();
+              message.success(`已撤销，${原值.length} 条改回原样`);
+            }}
+          >
+            撤销
+          </Button>
+        </span>
+      ),
+    });
+  }
   const b = useBusiness();
 
   const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", filters);
@@ -317,7 +356,7 @@ export default function CustomersView({
                     清空();
                     router.refresh();
                     if (!res.ok) return void message.error(res.error);
-                    message.success(bulkSummary(res, `已转给 ${o.label}`));
+                    可撤销提示(res, bulkSummary(res, `已转给 ${o.label}`), assignSalesOwner);
                   },
                 })),
               }}
@@ -334,7 +373,7 @@ export default function CustomersView({
                     清空();
                     router.refresh();
                     if (!res.ok) return void message.error(res.error);
-                    message.success(bulkSummary(res, `已改为「${statusLabel(b, s)}」`));
+                    可撤销提示(res, bulkSummary(res, `已改为「${statusLabel(b, s)}」`), bulkFollowStatus);
                   },
                 })),
               }}

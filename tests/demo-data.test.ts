@@ -72,3 +72,16 @@ describe("桌面端", () => {
     expect(await prisma.customer.count()).toBe(0);
   });
 });
+
+describe("清除演示数据（排查 D7）", () => {
+  it("导入记录一起清；清除这件事本身留一笔", async () => {
+    expect((await 灌一套演示数据()).ok).toBe(true);
+    await prisma.importBatch.create({ data: { userId: mocks.user.id, userName: "甲", fileName: "老表.xlsx" } });
+
+    expect((await 清除演示数据()).ok).toBe(true);
+    expect(await prisma.importBatch.count()).toBe(0);
+    const 痕 = await prisma.auditLog.findMany();
+    expect(痕).toHaveLength(1);
+    expect(痕[0].summary).toContain("清除演示数据");
+  });
+});

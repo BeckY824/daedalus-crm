@@ -22,6 +22,8 @@ type Row = {
   remark: string | null;
   active: boolean;
   createdAt: string;
+  /** 编辑框的版本号（排查 D3） */
+  updatedAt: string;
   channelOwnerId: string;
   channelOwnerName: string;
   /** 该渠道直接推荐的学员数 */
@@ -83,7 +85,7 @@ export default function ChannelsView({
     const v = await form.validateFields();
     setSaving(true);
     try {
-      const res = await saveChannel({ id: editing?.id, ...v });
+      const res = await saveChannel({ id: editing?.id, 版本: editing?.updatedAt, ...v });
       if (!res.ok) return message.error(res.error);
       message.success(editing ? "已保存" : "渠道已创建");
       setOpen(false);

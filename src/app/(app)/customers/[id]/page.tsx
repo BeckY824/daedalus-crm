@@ -106,6 +106,7 @@ export default async function CustomerDetailPage({
         wechat: c.wechat,
         isPrimary: c.isPrimary,
         remark: c.remark,
+        updatedAt: c.updatedAt.toISOString(),
       }))}
       contracts={customer.contracts.map((c) => ({
         id: c.id,

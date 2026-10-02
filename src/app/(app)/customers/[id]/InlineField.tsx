@@ -28,6 +28,7 @@ export default function InlineField({
   kind = "text",
   options,
   placeholder = "点击填写",
+  可清空 = false,
 }: {
   customerId: string;
   field: PatchableKey;
@@ -37,6 +38,11 @@ export default function InlineField({
   kind?: "text" | "textarea" | "select" | "combo" | "date";
   options?: Option[];
   placeholder?: string;
+  /**
+   * 下拉能清空（排查 D8）。渠道负责人那一格说明里写着「清空即恢复按推荐链」，原来下拉却没有清空的叉，
+   * 一旦手工指定过就回不去了
+   */
+  可清空?: boolean;
 }) {
   const router = useRouter();
   const { message } = App.useApp();
@@ -102,9 +108,10 @@ export default function InlineField({
           defaultOpen
           value={draft ?? undefined}
           options={options}
+          allowClear={可清空}
           onChange={(v) => {
-            setDraft(v);
-            void commit(v);
+            setDraft(v ?? null);
+            void commit(v ?? null);
           }}
           onBlur={() => setEditing(false)}
         />

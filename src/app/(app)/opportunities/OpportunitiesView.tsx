@@ -17,7 +17,7 @@ import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { money, fmtDate, dayjs, 成员选项, 可选成员 } from "@/lib/utils";
-import { deleteOpportunities, moveStage, setOppStatus } from "./actions";
+import { deleteOpportunities, restoreOpportunities, 删商机前清点, moveStage, setOppStatus } from "./actions";
 import { saveContract } from "../customers/actions";
 import InlineConfirm from "@/components/InlineConfirm";
 import OpportunityForm from "./OpportunityForm";
@@ -38,6 +38,8 @@ export type OppRow = {
   customerName: string;
   ownerId: string;
   ownerName: string;
+  /** 编辑框的版本号：保存时带回去，期间有人改过就不盖掉（排查 D3，lib/edit-version.ts） */
+  updatedAt: string;
 };
 
 export default function OpportunitiesView({
@@ -152,7 +154,8 @@ export default function OpportunitiesView({
    * 撤销就是改回原阶段；概率由 moveStage 按「人没改过才跟着变」的规矩处理，手填的 75% 不会被冲掉
    */
   async function 改阶段(r: OppRow, 到: string, 是撤销 = false) {
-    const res = await moveStage(r.id, 到);
+    // 撤销时把原来的概率带回去（排查 D6）：r 是推进之前那一行，r.probability 就是人原来填的
+    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined);
     if (!res.ok) {
       message.error(res.error);
       router.refresh();
@@ -173,6 +176,52 @@ export default function OpportunitiesView({
           </Button>
         </span>
       ),
+    });
+  }
+
+  /**
+   * 删商机（排查 D2）：先说清关联着几条跟进（删了那几条不再写是哪个商机）、是不是赢单的；删完给一次撤销。
+   * 原来只问一句标题，删了就没了
+   */
+  async function 问删商机(r: OppRow) {
+    const 数 = await 删商机前清点([r.id]).catch(() => null);
+    const 话 = [
+      数?.跟进 ? `有 ${数.跟进} 条跟进记录关联着它，删了之后那几条不再写是哪个商机` : "",
+      数?.赢单 ? "这是一个已经赢单的商机，数据页的赢单数会跟着少" : "",
+    ].filter(Boolean);
+    modal.confirm({
+      title: `删除商机「${r.name}」？`,
+      content: 话.length ? <div style={{ lineHeight: 1.7 }}>{话.map((x) => <div key={x}>{x}。</div>)}</div> : undefined,
+      okText: "删除",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      async onOk() {
+        const res = await deleteOpportunities([r.id]);
+        router.refresh();
+        const key = `opp-del-${r.id}`;
+        message.success({
+          key,
+          duration: 6,
+          content: (
+            <span>
+              已删除「{r.name}」
+              <Button
+                type="link"
+                size="small"
+                onClick={async () => {
+                  message.destroy(key);
+                  const u = await restoreOpportunities(res.快照);
+                  if (!u.回来) return void message.error("没能撤回来：这位客户可能已经不在了");
+                  message.success(`「${r.name}」回来了`);
+                  router.refresh();
+                }}
+              >
+                撤销
+              </Button>
+            </span>
+          ),
+        });
+      },
     });
   }
 
@@ -288,19 +337,7 @@ export default function OpportunitiesView({
             size="small"
             danger
             icon={<DeleteOutlined />}
-            onClick={() =>
-              modal.confirm({
-                title: `删除商机「${r.name}」？`,
-                okText: "删除",
-                okButtonProps: { danger: true },
-                cancelText: "取消",
-                async onOk() {
-                  await deleteOpportunities([r.id]);
-                  message.success("已删除");
-                  router.refresh();
-                },
-              })
-            }
+            onClick={() => void 问删商机(r)}
           />
         </Space>
         </InlineConfirm>

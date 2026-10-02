@@ -501,6 +501,11 @@ export type BulkResult =
       updated: number;
       /** 改负责人时跟着走的没做完的活（排查 B3） */
       带走?: 带走数;
+      /**
+       * 真被改动的那几条原来是什么值，给「撤销」用（排查 D1）。原来批量改完不能撤，
+       * 留痕里也只记了新值，事后连手工恢复都做不到
+       */
+      原值?: { id: string; 值: string }[];
       /** 本来就是这个值、无需改动的条数 */
       unchanged: number;
       /** 选中但库里已经没有的条数（多半是被别人删了） */
@@ -533,11 +538,15 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
     await recordAudit({
       user: me, action: "assign", entity: "Customer",
       summary: `把 ${res.count} 名${b.customer}的销售负责人改为「${(await prisma.user.findUnique({ where: { id: salesOwnerId }, select: { name: true } }))?.name ?? salesOwnerId}」`,
-      detail: { ids, salesOwnerId },
+      // 原值也记下：撤销提示条过了 6 秒，还能照着这里手工改回去（排查 D1）
+      detail: { ids, salesOwnerId, 原负责人: 换人的.map((c) => ({ id: c.id, salesOwnerId: c.salesOwnerId })) },
     });
   }
   revalidateCustomer();
-  return { ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already, 带走 };
+  return {
+    ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already, 带走,
+    原值: 换人的.map((c) => ({ id: c.id, 值: c.salesOwnerId })),
+  };
 }
 
 export async function bulkFollowStatus(ids: string[], followStatus: string): Promise<BulkResult> {
@@ -548,8 +557,13 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
   if (状态错) return { ok: false, error: 状态错 };
 
   const already = await prisma.customer.count({ where: { id: { in: ids }, followStatus } });
-  const res = await prisma.customer.updateMany({
+  // 先记下每位原来的状态，给撤销用（排查 D1）
+  const 要改的 = await prisma.customer.findMany({
     where: { id: { in: ids }, followStatus: { not: followStatus } },
+    select: { id: true, followStatus: true },
+  });
+  const res = await prisma.customer.updateMany({
+    where: { id: { in: 要改的.map((c) => c.id) }, followStatus: { not: followStatus } },
     data: { followStatus },
   });
 
@@ -557,11 +571,14 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
     await recordAudit({
       user: me, action: "assign", entity: "Customer",
       summary: `把 ${res.count} 名${b.customer}的跟进状态改为「${statusLabel(b, followStatus)}」`,
-      detail: { ids, followStatus },
+      detail: { ids, followStatus, 原状态: 要改的.map((c) => ({ id: c.id, followStatus: c.followStatus })) },
     });
   }
   revalidateCustomer();
-  return { ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already };
+  return {
+    ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already,
+    原值: 要改的.map((c) => ({ id: c.id, 值: c.followStatus })),
+  };
 }
 
 /* ---------- 签约 ---------- */

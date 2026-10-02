@@ -107,7 +107,8 @@ export default function PipelineView({
 
   async function 推进(r: Row, 到: string, 是撤销 = false) {
     if (r.stage === 到) return;
-    const res = await moveStage(r.id, 到);
+    // 撤销时带回原来的概率（排查 D6）：r 是拖之前那一行，手填的 75% 不能变成阶段默认值
+    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined);
     if (!res.ok) {
       message.error(res.error);
       router.refresh();

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { 查电话 } from "@/lib/phone";
+import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { requireUser } from "@/lib/auth";
 import { LEAD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
@@ -20,6 +21,8 @@ export async function saveLead(input: {
   status: string;
   remark?: string | null;
   ownerId?: string | null;
+  /** 打开编辑框那一刻的 updatedAt。给了就当闸门：期间有人改过不盖掉（排查 D3） */
+  版本?: string | null;
 }) {
   const user = await requireUser();
   const b = await getBusiness();
@@ -28,7 +31,12 @@ export async function saveLead(input: {
   }
   // 来源不再预填（审查 M13）：没选就是数据库默认的「其他」，三套预设里都有这一项
   input = { ...input, source: input.source?.trim() || "其他" };
-  if (!b.sources.includes(input.source) && input.source !== "其他") {
+  /*
+    没改过的旧来源照样放行（排查 D5）：设置里换了预设、删了某个来源以后，
+    带着旧来源的线索连改个备注都存不了，报「不是合法取值」。新选的来源才必须在当前列表里。
+  */
+  const 原来源 = input.id ? (await prisma.lead.findUnique({ where: { id: input.id }, select: { source: true } }))?.source : null;
+  if (!b.sources.includes(input.source) && input.source !== "其他" && input.source !== 原来源) {
     return { ok: false as const, error: `线索来源「${input.source}」不是合法取值` };
   }
   const data = {
@@ -43,7 +51,8 @@ export async function saveLead(input: {
     ownerId: input.ownerId || user.id,
   };
   if (input.id) {
-    await prisma.lead.update({ where: { id: input.id }, data });
+    const 写了 = await prisma.lead.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data });
+    if (写了.count === 0) return { ok: false as const, error: 原来源 === undefined ? "这条线索已经不在了，可能被别人删了" : 版本冲突 };
     await recordAudit({
       user, action: "update", entity: "Lead", entityId: input.id,
       summary: `修改线索「${data.name}」：${data.source} · ${data.status}`,

@@ -20,8 +20,19 @@ export default function ImportsTab() {
   const { message, modal } = App.useApp();
   const [行, set行] = useState<批次[] | null>(null);
   const [忙, set忙] = useState<string | null>(null);
+  /** 读失败了。原来失败也当成空列表，显示「还没有导入过」——人会以为导入记录丢了（排查 D8） */
+  const [读不到, set读不到] = useState(false);
 
-  const 拉 = () => 最近批次().then(set行).catch(() => set行([]));
+  const 拉 = () =>
+    最近批次()
+      .then((r) => {
+        set读不到(false);
+        set行(r);
+      })
+      .catch(() => {
+        set读不到(true);
+        set行([]);
+      });
   useEffect(() => {
     void 拉();
   }, []);
@@ -56,7 +67,18 @@ export default function ImportsTab() {
         loading={行 === null}
         dataSource={行 ?? []}
         pagination={false}
-        locale={{ emptyText: "还没有导入过" }}
+        locale={{
+          emptyText: 读不到 ? (
+            <span>
+              导入记录没读出来。
+              <Button type="link" size="small" onClick={() => { set行(null); void 拉(); }}>
+                再读一次
+              </Button>
+            </span>
+          ) : (
+            "还没有导入过"
+          ),
+        }}
         columns={[
           { title: "文件", dataIndex: "fileName", ellipsis: true },
           { title: "什么时候", dataIndex: "at", width: 140, render: (v: string) => smartTime(new Date(v)) },

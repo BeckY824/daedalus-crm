@@ -24,6 +24,7 @@ type Row = {
   wechat: string | null;
   isPrimary: boolean;
   remark: string | null;
+  updatedAt: string;
   /** 从客户上移出、人留着的（UnassignedContact）。没有所属客户，customerId 是空串 */
   未归属: boolean;
   /** 未归属的人原来是哪位客户的，鼠标停上去给人看 */
