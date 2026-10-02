@@ -249,12 +249,25 @@ async function chatOnce(cfg: LlmConfig, system: string, prompt: string, opts: Ch
   return chatMessagesOnce(cfg, [{ role: "system", content: system }, { role: "user", content: prompt }], opts, useJsonFormat);
 }
 
+/**
+ * 读回模型接口的 JSON。读不出来的（酒店 / 公司网的登录页、反代回的 HTML）说人话，不摆英文的 SyntaxError（第二轮 AI）
+ */
+async function 读回JSON<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    console.warn(`[llm] 回来的不是 JSON：${text.slice(0, 200)}`);
+    throw new Error("AI 服务回来的东西看不懂（可能网络被拦了，比如要先登录的 Wi-Fi），换个网络或稍后再试");
+  }
+}
+
 async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
   const res = await chatRaw(cfg, messages, opts, useJsonFormat, false);
-  const data = (await res.json()) as {
+  const data = await 读回JSON<{
     choices?: { message?: { content?: string }; finish_reason?: string }[];
     usage?: { completion_tokens_details?: { reasoning_tokens?: number } };
-  };
+  }>(res);
   const model = opts.model ?? cfg.model;
   const 键 = 上游键(cfg, model);
 
@@ -269,6 +282,8 @@ async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: C
 
   const choice = data.choices?.[0];
   const content = (choice?.message?.content ?? "").trim();
+  // 200 但什么都没回（choices 空）：原来往下走成「不是合法 JSON：」后面空着
+  if (!choice) throw new Error("AI 这次什么都没回，再试一次");
 
   /**
    * 被 max_tokens 截断。必须在这里就炸出来，不能把半截内容交给 JSON.parse：
@@ -329,9 +344,9 @@ export async function chatTools(
   const cfg = await getLlmConfig();
   if (!cfg) throw new Error(AI未启用说法());
   const res = await chatRaw(cfg, messages, opts, false, false, tools);
-  const data = (await res.json()) as {
+  const data = await 读回JSON<{
     choices?: { message?: { content?: string | null; tool_calls?: 工具调用[] }; finish_reason?: string }[];
-  };
+  }>(res);
   await 记托管版一次(data, opts.model ?? cfg.model, opts.feature);
   const m = data.choices?.[0]?.message;
   const toolCalls = m?.tool_calls ?? [];
@@ -356,7 +371,7 @@ export async function chatTools(
  */
 export async function chatTextStream(messages: ToolMessage[], opts: ChatOpts, onToken: (text: string) => void): Promise<string> {
   const cfg = await getLlmConfig();
-  if (!cfg) throw new Error("AI 功能未启用");
+  if (!cfg) throw new Error(AI未启用说法());
   const res = await chatRaw(cfg, messages, opts, false, true);
   const ctype = res.headers.get("content-type") ?? "";
   if (!ctype.includes("text/event-stream") || !res.body) {
@@ -370,7 +385,15 @@ export async function chatTextStream(messages: ToolMessage[], opts: ChatOpts, on
   let buf = "";
   let full = "";
   while (true) {
-    const { value, done } = await reader.read();
+    let 这段: ReadableStreamReadResult<Uint8Array>;
+    try {
+      这段 = await reader.read();
+    } catch (e) {
+      if (e instanceof Error && e.name === "AbortError") throw e;
+      // 流到一半断了：原来对话框里是一句英文「terminated」（第二轮 AI）。已经出来的那些留着，说一声
+      throw new Error(full ? "回答写到一半断了（网络不稳），上面是已经写出来的部分，可以再问一次" : "回答还没开始就断了（网络不稳），再问一次试试");
+    }
+    const { value, done } = 这段;
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     let idx: number;

@@ -487,7 +487,7 @@ ${工作方式}
         const c = r.toolCalls[0];
         let args: Record<string, unknown> = {};
         try {
-          args = JSON.parse(c.function.arguments || "{}") as Record<string, unknown>;
+          args = 解参数(c.function.arguments);
         } catch {
           // 参数不是合法 JSON：交回去让它重来，比我们猜一个强
           messages.push(
@@ -503,7 +503,7 @@ ${工作方式}
         */
         for (const 余 of r.toolCalls.slice(1)) {
           try {
-            待跑.push({ name: 余.function.name, args: JSON.parse(余.function.arguments || "{}") as Record<string, unknown> });
+            待跑.push({ name: 余.function.name, args: 解参数(余.function.arguments) });
           } catch {
             /* 参数不是合法 JSON 的那个丢掉：它要的话下一步会再要 */
           }
@@ -701,7 +701,7 @@ ${工作方式}
       const tool = TOOL_MAP.get(c.function.name)!;
       let args: Record<string, unknown> = {};
       try {
-        args = JSON.parse(c.function.arguments || "{}") as Record<string, unknown>;
+        args = 解参数(c.function.arguments);
       } catch {
         回执.push({ role: "tool", tool_call_id: c.id, content: `参数不是合法 JSON：${c.function.arguments.slice(0, 200)}` });
         continue;
@@ -784,4 +784,13 @@ function listCustomers(data: unknown): 提到的客户[] {
     if (id && typeof o.name === "string") out.push({ id, name: o.name, followStatus: typeof o.followStatus === "string" ? o.followStatus : "" });
   }
   return out;
+}
+
+/**
+ * 工具参数：JSON 解析，解出来不是对象的（无参工具时有的中转站给 `null`、给数组）一律当空对象。
+ * 原来 null 直接往下走，第一次读字段就抛，整个问题崩成一句英文（第二轮 AI）。解析失败照旧抛给调用方
+ */
+function 解参数(raw: string | null | undefined): Record<string, unknown> {
+  const v = JSON.parse(raw || "{}") as unknown;
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
 }

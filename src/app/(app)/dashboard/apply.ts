@@ -184,8 +184,35 @@ function 显示值(f: string, v: string, b: BusinessConfig): string {
   return f === "followStatus" || f === "decisionStatus" ? statusLabel(b, v) : v;
 }
 
+const 确认过的卡 = new Map<string, number>();
+const 卡记多久 = 10 * 60_000;
+function 记下确认过(k: string) {
+  const now = Date.now();
+  if (确认过的卡.size > 2000) for (const [key, t] of 确认过的卡) if (now - t > 卡记多久) 确认过的卡.delete(key);
+  确认过的卡.set(k, now);
+}
+
 export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   const me = await requireUser();
+  /*
+    同一张卡确认第二次：不再做一遍（第二轮 AI）。原来只靠前端按钮变灰，网慢时连点、或者刷新后又点一次，
+    记跟进卡就记成两条。按「谁 + 卡的内容」认，10 分钟内同样的一张算同一张。
+    **一进来就占位**（两次几乎同时到时，后到的那次也看得见），没做成就把位让出来
+  */
+  const 卡键 = `${me.id}:${JSON.stringify({ ...input, 现值: undefined })}`;
+  const 上次 = 确认过的卡.get(卡键);
+  if (上次 && Date.now() - 上次 < 卡记多久) return { ok: false, error: "这张卡刚刚已经确认过了，没有再做一次" };
+  记下确认过(卡键);
+  let r: ApplyResult | undefined;
+  try {
+    r = await 做这张卡(input, me);
+    return r;
+  } finally {
+    if (!r?.ok) 确认过的卡.delete(卡键);
+  }
+}
+
+async function 做这张卡(input: Proposal, me: Awaited<ReturnType<typeof requireUser>>): Promise<ApplyResult> {
   const b = await getBusiness();
 
   // 新建线索不挂在任何客户下，其余三种都必须指到一个还在的客户
@@ -222,6 +249,22 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
       const 说 = 动过.map((f) => `「${字段名(f, b)}」已经是「${显示值(f, 此刻[f], b) || "空"}」`).join("，");
       // 不说「有人改过」：桌面端一个人也会撞上（同一轮两张卡都动了同一格，或出卡后自己去档案页改了）
       return { ok: false, error: `这张卡出来之后，${说}。为了不盖掉，这次没保存——重新问一次再确认` };
+    }
+  }
+
+  /*
+    改渠道卡也核对（第二轮 AI A3）：卡上记着电话 / 备注的「现在」，期间人在渠道页刚改过要改的那一格，就不拿卡上的旧判断盖回去
+  */
+  if (p.kind === "update_channel" && input.现值) {
+    const 渠道们 = await prisma.channel.findMany({ where: { name: p.channelName.trim() }, select: { phone: true, remark: true }, take: 2 });
+    if (渠道们.length === 1) {
+      const 号 = await 号码脱敏器();
+      const 此刻 = { phone: 号(渠道们[0].phone ?? ""), remark: 渠道们[0].remark ?? "" };
+      const 动过 = (["phone", "remark"] as const).filter((f) => p[f].trim() && f in input.现值! && 此刻[f] !== input.现值![f]);
+      if (动过.length) {
+        const 说 = 动过.map((f) => `「${f === "phone" ? "电话" : "备注"}」已经是「${此刻[f] || "空"}」`).join("，");
+        return { ok: false, error: `这张卡出来之后，${说}。为了不盖掉，这次没保存——重新问一次再确认` };
+      }
     }
   }
 

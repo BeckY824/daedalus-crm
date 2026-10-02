@@ -147,6 +147,11 @@ export async function POST(req: Request) {
       await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
     }
     const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
+    // 上游在限我们（429）：退了次数，话也别带上游的英文原文（第二轮 AI）
+    if (upstream.status === 429) {
+      console.warn(`[gateway] 上游 429：${text}`);
+      return 网关错误(429, "AI 那边这会儿太忙了，这次没扣次数，过一会儿再试", 剩余头);
+    }
     if (我们的锅) {
       console.error(`[gateway] 上游 ${upstream.status}（我们这边的配置 / 余额问题）：${text}`);
       return 网关错误(503, "AI 服务这边出了点问题（不是你的问题），这次没扣次数，稍后再试", 剩余头);
