@@ -432,18 +432,19 @@ export async function detachContact(id: string) {
   const c = await prisma.contact.findUnique({ where: { id }, include: { customer: { select: { name: true } } } });
   if (!c) return { ok: false as const, error: "这位联系人已经不在这儿了，刷新看看" };
   const 跟进 = await prisma.followUp.findMany({ where: { contactId: id }, select: { id: true } });
-  await prisma.$transaction([
-    prisma.unassignedContact.create({
+  // 函数式事务：数组式在托管版的工作区代理下会抛错（见 customers/actions.ts 带走没做完的）
+  await prisma.$transaction(async (tx) => {
+    await tx.unassignedContact.create({
       data: {
         id: c.id, name: c.name, position: c.position, phone: c.phone, email: c.email, wechat: c.wechat, remark: c.remark,
         fromCustomerId: c.customerId, fromCustomerName: c.customer.name,
         followUpIds: 跟进.length ? JSON.stringify(跟进.map((f) => f.id)) : null,
         createdAt: c.createdAt,
       },
-    }),
+    });
     // 原来那条删掉。跟进记录上的 contactId 由外键置空，id 记在上面那行里，挂回来时接上
-    prisma.contact.delete({ where: { id } }),
-  ]);
+    await tx.contact.delete({ where: { id } });
+  });
   await recordAudit({
     user: me, action: "update", entity: "Contact", entityId: id,
     summary: `把联系人「${c.name}」从${c.customer.name}移出（联系人页里还留着）`,

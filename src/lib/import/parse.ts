@@ -108,3 +108,20 @@ export function 成表(rows: string[][]): { 表头: string[]; 数据: string[][]
   if (原列数 > 列数上限) 截断了.列 = 原列数;
   return { 表头, 数据, ...(截断了.行 || 截断了.列 ? { 截断了 } : {}) };
 }
+
+/**
+ * CSV 的字节 → 文字。先按 UTF-8 严格解，解不通就按 GB18030（GBK 的超集）解。
+ *
+ * 中文 Windows 上 Excel / WPS「另存为 CSV」默认存的是 GBK，原来一律按 UTF-8 读，
+ * 整张表是乱码，表头认不出来；人手动指出手机号列以后，乱码的姓名、公司照样进库（2026-10-02 排查）。
+ * 严格模式下 GBK 的字节几乎不可能恰好是合法 UTF-8，所以这个判断够用；开头的 BOM 去掉。
+ */
+export function 解码CSV(bytes: Uint8Array): string {
+  let s: string;
+  try {
+    s = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    s = new TextDecoder("gb18030").decode(bytes);
+  }
+  return s.replace(/^\uFEFF/, "");
+}

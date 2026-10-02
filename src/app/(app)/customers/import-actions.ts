@@ -35,6 +35,12 @@ export type 预览 = {
   新建: number;
   补空: number;
   跳过: number;
+  /**
+   * 库里已有、能认出是谁的几位，和库里同号多条、认不清的几位。补空 / 跳过 由它们按「重复行」的处置算出来——
+   * 界面在第 4 步改处置时据此当场重算（import-steps 的 按处置），不用退回去再预览一次（2026-10-02 排查）
+   */
+  已在库里: number;
+  说不清: number;
   进不了: number;
   /** 表里手机号重复、被合成一条的行数 */
   合掉几行: number;
@@ -64,7 +70,10 @@ function 库里几条(rows: { phone: string }[]): Map<string, number> {
 async function 排好(方案: 导入方案) {
   const b = await getBusiness();
   const 表 = 字段表(b);
-  const rows = 摊开({ ...方案, 字段表: 表 });
+  // 来源渠道当场对库里的名单：对不上的预览里就标出来、原文并进备注，和落库是同一个结果
+  const 用到渠道 = 方案.映射.includes("channelName");
+  const 认得的渠道 = 用到渠道 ? new Set((await prisma.channel.findMany({ select: { name: true } })).map((c) => c.name)) : undefined;
+  const rows = 摊开({ ...方案, 字段表: 表, 认得的渠道 });
   const { 行, 合掉几行 } = 并重复行(rows);
   return { b, 表, 行, 合掉几行 };
 }
@@ -128,6 +137,8 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
     ok: true,
     预览: {
       新建,
+      已在库里: 撞上,
+      说不清,
       补空: 方案.重复行 === "补空" ? 撞上 : 0,
       // 库里同号多条的那些一律算跳过：不知道该算谁的，就谁也不动
       跳过: (方案.重复行 === "补空" ? 0 : 撞上) + 说不清,
@@ -161,7 +172,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
 
   const salesOwnerId = await 唯一负责人() ?? me.id;
 
-  // 渠道名 → id。对不上的留空并不吭声地跳过那一格：预览里已经标过了
+  // 渠道名 → id。对不上的在 排好 里已经留空、并进备注、预览里标过了
   const 渠道名单 = [...new Set(行.map((r) => r.值.channelName).filter(Boolean) as string[])];
   const 渠道 = new Map(
     (await prisma.channel.findMany({ where: { name: { in: 渠道名单 } }, select: { id: true, name: true } })).map((c) => [c.name, c.id]),

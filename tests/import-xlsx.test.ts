@@ -21,6 +21,13 @@ import { 成表 } from "@/lib/import/parse";
 const 读 = (名: string) => 读xlsx(new Uint8Array(readFileSync(path.join(__dirname, "fixtures", 名))));
 
 describe("读 xlsx", () => {
+  it("带边框、没填的空格子（自闭合 <c …/>）不吞掉下一格（2026-10-02 排查）", () => {
+    const rows = 读("带边框空格.xlsx");
+    expect(rows[1]).toEqual(["张三", "13800000001", "", "老客户"]);
+    expect(rows[2]).toEqual(["李四", "", "星辰", "x"]);
+  });
+
+
   it("表头和数据都读得出来，中文不乱码", () => {
     const rows = 读("名单.xlsx");
     expect(rows[0]).toEqual(["姓名", "手机号", "公司", "预计签约", "备注"]);

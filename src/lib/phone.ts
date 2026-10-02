@@ -22,9 +22,26 @@ import { maskPhone } from "./utils";
 export function 规整手机号(v: string): string {
   let s = v.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).trim();
   s = s.replace(/^'/, "");
+  // 有的系统导出 CSV 时把号码当数字写成「13800001111.0」：先把这个尾巴去掉，不然点被删后成了 12 位的另一个号（2026-10-02 排查）
+  s = s.replace(/^(\+?\d[\d\s\-]*)\.0+$/, "$1");
   s = s.replace(/[\s\-()（）.]/g, "");
+  /*
+    号码前后带着字（「13800001111（微信同号）」「手机:13800001111」「138 0000 1111/王总」）：只取那一串号码。
+    原来原样进库，存成「13800001111微信同号」，下次用干净的号码导入或建档就认不出是同一个人（2026-10-02 排查）。
+    带 * 的是打码给人看的样子，不在这里猜，交给 像手机号 / 查电话 去拒。
+  */
+  if (!s.includes("*") && /[^\d+]/.test(s)) {
+    const m = s.match(/\+?\d{6,20}/);
+    if (m) s = m[0];
+  }
   s = s.replace(/^\+?0*86(?=\d{11}$)/, "");
   return s;
+}
+
+/** 规整时有没有丢掉号码以外的字（「微信同号」这种）：导入据此把原文并进备注，一个字都不丢 */
+export function 号码带着字(v: string): boolean {
+  const 去分隔 = v.replace(/[０-９]/g, "0").replace(/^'/, "").replace(/\.0+$/, "").replace(/[\s\-()（）.+]/g, "");
+  return !去分隔.includes("*") && /[^\d]/.test(去分隔) && /\d{6,}/.test(去分隔);
 }
 
 /**
@@ -37,6 +54,8 @@ export function 规整手机号(v: string): string {
  * 只挡两种：根本没有数字（把姓名列当成手机号列对错了），和长得离谱。
  */
 export function 像手机号(s: string): boolean {
+  // 打了码的（138****1111）不是号码：规整后还剩 7 位数字、长度上过得去，导入会把它当查重主键收下（2026-10-02 排查 X9）
+  if (s.includes("*")) return false;
   const 数字 = s.replace(/\D/g, "");
   return 数字.length >= 6 && 数字.length <= 20;
 }

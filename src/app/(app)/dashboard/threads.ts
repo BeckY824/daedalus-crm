@@ -158,9 +158,10 @@ export async function 落一轮(input: {
   if (!id) id = (await 新建对话(input.question, input.标题前缀, input.scope)).id;
 
   const 串 = (v: unknown) => (v == null ? null : JSON.stringify(v));
-  await prisma.$transaction([
-    prisma.aiMessage.create({ data: { conversationId: id, role: "user", text: input.question } }),
-    prisma.aiMessage.create({
+  // 函数式事务：数组式在托管版的工作区代理下会抛错（2026-10-02 排查 A3）
+  await prisma.$transaction(async (tx) => {
+    await tx.aiMessage.create({ data: { conversationId: id, role: "user", text: input.question } });
+    await tx.aiMessage.create({
       data: {
         conversationId: id,
         role: "assistant",
@@ -170,9 +171,9 @@ export async function 落一轮(input: {
         steps: 串(input.steps),
         refs: 串(input.refs),
       },
-    }),
-    prisma.aiConversation.update({ where: { id }, data: { lastAskedAt: new Date() } }),
-  ]);
+    });
+    await tx.aiConversation.update({ where: { id }, data: { lastAskedAt: new Date() } });
+  });
   return { conversationId: id };
 }
 

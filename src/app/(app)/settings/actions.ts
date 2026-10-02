@@ -289,20 +289,21 @@ export async function deactivateUser(id: string, transferToId: string) {
     计划: 只要id(计划们), 线索: 只要id(线索们), 渠道: 只要id(渠道们),
   };
 
-  await prisma.$transaction([
-    prisma.customer.updateMany({ where: { id: { in: 转走了.客户 } }, data: { salesOwnerId: transferToId } }),
-    prisma.opportunity.updateMany({ where: { id: { in: 转走了.商机 } }, data: { ownerId: transferToId } }),
-    prisma.task.updateMany({ where: { id: { in: 转走了.待办 } }, data: { ownerId: transferToId } }),
-    prisma.followPlan.updateMany({ where: { id: { in: 转走了.计划 } }, data: { ownerId: transferToId } }),
+  // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）
+  await prisma.$transaction(async (tx) => {
+    await tx.customer.updateMany({ where: { id: { in: 转走了.客户 } }, data: { salesOwnerId: transferToId } });
+    await tx.opportunity.updateMany({ where: { id: { in: 转走了.商机 } }, data: { ownerId: transferToId } });
+    await tx.task.updateMany({ where: { id: { in: 转走了.待办 } }, data: { ownerId: transferToId } });
+    await tx.followPlan.updateMany({ where: { id: { in: 转走了.计划 } }, data: { ownerId: transferToId } });
     /**
      * 线索、渠道原本漏了转交：
      *   线索      —— 留在停用的人名下，列表按负责人筛选时谁都看不到，等于丢了
      *   渠道负责人 —— Channel.channelOwnerId 还指着停用的人，之后这个渠道新带来的学员会继续算到一个离职的人头上
      */
-    prisma.lead.updateMany({ where: { id: { in: 转走了.线索 } }, data: { ownerId: transferToId } }),
-    prisma.channel.updateMany({ where: { id: { in: 转走了.渠道 } }, data: { channelOwnerId: transferToId } }),
-    prisma.user.update({ where: { id }, data: { active: false } }),
-  ]);
+    await tx.lead.updateMany({ where: { id: { in: 转走了.线索 } }, data: { ownerId: transferToId } });
+    await tx.channel.updateMany({ where: { id: { in: 转走了.渠道 } }, data: { channelOwnerId: transferToId } });
+    await tx.user.update({ where: { id }, data: { active: false } });
+  });
 
   if (托管版()) {
     const t = await resolveCurrentTenant();

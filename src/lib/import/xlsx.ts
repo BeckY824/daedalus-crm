@@ -36,7 +36,8 @@ function 列号(ref: string): number {
 /** 取出每一个 <t> 的文字。富文本的一个单元格会被拆成好几段 <t>，拼起来才是原文 */
 function 取文字(xml: string): string {
   const out: string[] = [];
-  const re = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>|<t\s*\/>/g;
+  // 自闭合的 <t …/> 放前面认：否则 `\s[^>]*` 会把 `/` 吃进去，当成开标签一路吞到下一段的 </t>（2026-10-02 排查）
+  const re = /<t\b[^>]*?\/>|<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(xml))) out.push(解转义(m[1] ?? ""));
   return out.join("");
@@ -116,7 +117,12 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
     if (rows.length > 行数上限 + 1) break;
     const 行 = rm[1] ?? "";
     const cells: string[] = [];
-    const 格re = /<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g;
+    /*
+      属性那段必须是非贪婪：Excel / WPS 把「带边框、底色但没填」的空格子写成自闭合的 <c r="C2" s="1"/>，
+      贪婪的 [^>]* 会把 `/` 吃进去，接着一路匹配到下一格的 </c>——下一格被吞掉，还可能写成共享字符串的下标数字
+      （公司变成「6」）。名单整片加边框很常见（2026-10-02 排查）
+    */
+    const 格re = /<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g;
     let cm: RegExpExecArray | null;
     while ((cm = 格re.exec(行))) {
       const attrs = cm[1] ?? "";

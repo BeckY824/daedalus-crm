@@ -304,6 +304,13 @@ describe("固定选项对不上：用默认值，原文并进备注", () => {
     expect(r[0].值.remark).toBe("跟进情况：想要年底上线");
   });
 
+  it("手机号后面带字：号码取出来认人，原文并进备注；打码的号码拦行（2026-10-02 排查）", () => {
+    const r = 排("姓名,手机号\n张三,13800000001（微信同号）\n李四,138****1111");
+    expect(r[0].值.phone).toBe("13800000001");
+    expect(r[0].值.remark).toBe("手机号：13800000001（微信同号）");
+    expect(r[1].问题.find((q) => q.字段 === "phone")?.严重).toBe("拦行");
+  });
+
   it("「跟进状态」照旧能猜到——拿掉的只是那一个别名", () => {
     expect(猜列(["跟进状态", "状态"], 表)).toEqual(["followStatus", null]);
   });
@@ -405,5 +412,30 @@ describe("开放的枚举：对不上就原样收下", () => {
   it("字段表里只有职位是开放的——别的字段被顺手放开了要在这儿红", () => {
     const 开着的 = 表.filter((f) => f.开放).map((f) => f.名);
     expect(开着的).toEqual(["grade"]);
+  });
+});
+
+describe("CSV 编码", () => {
+  it("UTF-8 照读、去 BOM；GBK（中文 Windows 另存的）认得出来，不是乱码（2026-10-02 排查）", async () => {
+    const { 解码CSV } = await import("@/lib/import/parse");
+    const utf8 = new TextEncoder().encode("﻿姓名,手机号\n张三,13800000001");
+    expect(解码CSV(utf8)).toBe("姓名,手机号\n张三,13800000001");
+    // 「姓名,手机号」的 GBK 字节
+    const gbk = new Uint8Array([0xd0, 0xd5, 0xc3, 0xfb, 0x2c, 0xca, 0xd6, 0xbb, 0xfa, 0xba, 0xc5]);
+    expect(解码CSV(gbk)).toBe("姓名,手机号");
+  });
+});
+
+describe("来源渠道对不上库里的渠道", () => {
+  it("给了库里的渠道名单：对不上的留空、原文并进备注、标出来；对得上的照收（2026-10-02 排查）", () => {
+    const { 表头, 数据 } = 成表(解析CSV("姓名,手机号,来源\n张三,13800000001,官网\n李四,13800000002,小红"));
+    const m = 猜列(表头, 表);
+    expect(m[2]).toBe("channelName");
+    const r = 摊开({ 表头, 数据, 映射: m, 字段表: 表, 认得的渠道: new Set(["小红"]) });
+    expect(r[0].值.channelName).toBeUndefined();
+    expect(r[0].值.remark).toBe("来源：官网");
+    expect(r[0].问题.find((q) => q.字段 === "channelName")?.严重).toBe("用默认");
+    expect(r[1].值.channelName).toBe("小红");
+    expect(r[1].值.remark).toBeUndefined();
   });
 });

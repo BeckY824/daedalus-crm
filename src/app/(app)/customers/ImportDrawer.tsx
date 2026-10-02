@@ -3,14 +3,14 @@
 import { useMemo, useRef, useState } from "react";
 import { App, Alert, Drawer, Segmented, Steps, Typography, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
-import { 解析CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
+import { 解析CSV, 解码CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 猜列, type 字段名 } from "@/lib/import/fields";
 import { type 编造格 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
 import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
 import { 粘成表格, 猜列建议 } from "./ai";
 import type { BusinessConfig } from "@/lib/business-config";
-import { 页脚, 粘贴面板, 对列, 复核, 确认 } from "./import-steps";
+import { 页脚, 粘贴面板, 对列, 复核, 确认, 按处置 } from "./import-steps";
 import { clearJob, runJob } from "@/lib/ai-jobs";
 
 /** 粘贴整理那一次在任务表里的 key。同一时刻只会有一个抽屉在导 */
@@ -163,7 +163,8 @@ export default function ImportDrawer({
         message.error("这是 2003 年那种老格式，请在 Excel 里另存为 .xlsx 或 .csv 再来");
         return;
       } else {
-        rows = 解析CSV(await f.text());
+        // 不用 f.text()：它固定按 UTF-8 解，中文 Windows 存出来的 GBK 会是乱码
+        rows = 解析CSV(解码CSV(new Uint8Array(await f.arrayBuffer())));
       }
       const t = 成表(rows);
       if (t.表头.length === 0 || t.数据.length === 0) {
@@ -247,6 +248,8 @@ export default function ImportDrawer({
   }
 
   const 认人列 = 映射.indexOf("phone");
+  // 第 4 步改「重复行」处置时当场重算的那几个数（预览只在第 2 步算一次）
+  const 现看 = 看 ? 按处置(看, 重复行) : null;
 
   async function 去预览() {
     set忙(true);
@@ -311,7 +314,8 @@ export default function ImportDrawer({
       }}
       footer={
         <页脚
-          {...{ 步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来 }}
+          {...{ 步, 忙, 认人列, set步, 去预览, 落库, 撤, 重来 }}
+          看={现看}
           这一批={结果}
           完成={() => {
             const id = 结果?.batchId;
@@ -378,7 +382,7 @@ export default function ImportDrawer({
         <复核 {...{ 看, 改过, set改过, 表 }} 粘贴={文件名.startsWith("粘贴的文本")} />
       )}
 
-      {步 === 3 && 看 && <确认 {...{ 看, 重复行, set重复行, b }} />}
+      {步 === 3 && 现看 && <确认 {...{ 重复行, set重复行, b }} 看={现看} />}
 
       {步 === 4 && 结果 && (
         <div>

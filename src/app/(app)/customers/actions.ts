@@ -126,10 +126,14 @@ async function 带走没做完的(换: { customerId: string; 旧: string }[], �
   const 数: 带走数 = { 计划和待办: 0, 商机: 0 };
   for (const { customerId, 旧 } of 换) {
     if (旧 === 新) continue;
-    const [计划, 待办, 商机] = await prisma.$transaction([
-      prisma.followPlan.updateMany({ where: { customerId, ownerId: 旧, done: false }, data: { ownerId: 新 } }),
-      prisma.task.updateMany({ where: { customerId, ownerId: 旧, done: false }, data: { ownerId: 新 } }),
-      prisma.opportunity.updateMany({ where: { customerId, ownerId: 旧, status: "OPEN" }, data: { ownerId: 新 } }),
+    /*
+      函数式事务，不用数组式：托管版的 prisma 是按工作区解析的代理，模型方法一调就执行、返回原生 Promise，
+      数组式 $transaction 收到它会直接抛错（而那几条已经写进去了）。函数式拿到的 tx 是真客户端，两边都对（2026-10-02 排查 A3）
+    */
+    const [计划, 待办, 商机] = await prisma.$transaction(async (tx) => [
+      await tx.followPlan.updateMany({ where: { customerId, ownerId: 旧, done: false }, data: { ownerId: 新 } }),
+      await tx.task.updateMany({ where: { customerId, ownerId: 旧, done: false }, data: { ownerId: 新 } }),
+      await tx.opportunity.updateMany({ where: { customerId, ownerId: 旧, status: "OPEN" }, data: { ownerId: 新 } }),
     ]);
     数.计划和待办 += 计划.count + 待办.count;
     数.商机 += 商机.count;
