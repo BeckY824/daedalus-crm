@@ -549,6 +549,29 @@ function 当前地址() {
   return cfg.mode === "local" ? 本地入口() : `${cfg.serverUrl}${cfg.lastRoute ?? ""}`;
 }
 
+/*
+  毛玻璃（2026-10-02，学的是 MonoCode）：窗口背后透出用户自己的桌面，左栏最透、正文稍实。
+  Mac 用系统的 vibrancy（sidebar 那种材质，和访达侧栏同一套），Windows 11 用 acrylic；
+  Windows 10 没有这两样，就不开——实底照旧，设置里那个开关也不摆。
+  开没开存在 config.json 的 glass（默认开）。页面靠 <html class="glass"> 知道，
+  这个类由 preload 在每次载入时同步问一次主进程加上（不读启动参数：中途改了开关，参数是旧的）。
+*/
+function 玻璃可用() {
+  if (process.platform === "darwin") return true;
+  if (process.platform === "win32") return Number(os.release().split(".")[2] ?? 0) >= 22000;
+  return false;
+}
+function 玻璃开着() {
+  return 玻璃可用() && 读配置().glass !== false;
+}
+const 实底 = "#fafafa";
+function 上玻璃(w, 开) {
+  if (!w || w.isDestroyed()) return;
+  if (process.platform === "darwin") w.setVibrancy(开 ? "sidebar" : null);
+  if (process.platform === "win32" && typeof w.setBackgroundMaterial === "function") w.setBackgroundMaterial(开 ? "acrylic" : "none");
+  w.setBackgroundColor(开 ? "#00000000" : 实底);
+}
+
 function 建窗口() {
   win = new BrowserWindow({
     width: 1440,
@@ -566,7 +589,11 @@ function 建窗口() {
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 20, y: 16 },
     } : {}),
-    backgroundColor: "#fafafa",
+    ...(玻璃开着()
+      ? process.platform === "darwin"
+        ? { vibrancy: "sidebar", visualEffectState: "active", backgroundColor: "#00000000" }
+        : { backgroundMaterial: "acrylic", backgroundColor: "#00000000" }
+      : { backgroundColor: 实底 }),
     show: false,
     icon: path.join(__dirname, "assets/icon.png"),
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, "preload-app.js") },
@@ -1126,6 +1153,18 @@ function 站内路径(v) {
 }
 
 ipcMain.handle("shell:version", () => app.getVersion());
+// 毛玻璃：preload 每次载入同步问一次（不能异步：等回话那一下页面会先画出实底再变透明，闪一下）
+ipcMain.on("shell:glass-now", (e) => {
+  e.returnValue = 玻璃开着();
+});
+ipcMain.handle("shell:glass", () => ({ 可用: 玻璃可用(), 开: 玻璃开着() }));
+ipcMain.handle("shell:set-glass", (_e, 开) => {
+  if (!玻璃可用()) return { 可用: false, 开: false };
+  写配置({ ...读配置(), glass: 开 === true });
+  上玻璃(win, 开 === true);
+  win?.webContents.send("shell:glass", 开 === true);
+  return { 可用: true, 开: 开 === true };
+});
 /*
   提醒的设置和「现在就再问一次」。设置存在壳这边（数据根下的 reminders.json）：
   窗口关着时是壳在发提醒，它得自己知道开关，不能等页面来告诉它。

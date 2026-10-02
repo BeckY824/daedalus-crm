@@ -42,6 +42,25 @@ export default function StartCard() {
   return (
     <>
       <h1 className="start-h">欢迎使用 Daedalus CRM</h1>
+      {/*
+        三句介绍（2026-10-02，原型第二页「先放点客户进来」那张清单改成的）：
+        第一次进来的人先知道这东西能替他做什么，再看下面那张卡从哪儿开始。
+        不做成单独一页、不要勾选和进度条——三件事的入口左栏本来就有，再摆一份清单是重复。
+      */}
+      <ul className="start-intro">
+        <li>
+          <b>{b.customer}本自己长出来</b>
+          <span>粘一段微信或 WhatsApp 聊天、拖进一张 Excel，AI 切成一位位{b.customer}。</span>
+        </li>
+        <li>
+          <b>AI 帮你盯跟进</b>
+          <span>谁该联系了、上次聊到哪、下一句怎么说，问一句就知道。</span>
+        </li>
+        <li>
+          <b>数据只在你的电脑上</b>
+          <span>账号只用来记 AI 次数，{b.customer}资料不上传。</span>
+        </li>
+      </ul>
       <div className="start">
         <span className="start-badge">第 1 步</span>
         <div className="start-t">完成第一次工作流</div>

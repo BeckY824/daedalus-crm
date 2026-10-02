@@ -157,6 +157,78 @@
 .appr-mini-skin .appr-mini-card { display: flex; flex-direction: column; justify-content: space-between; padding: 6px 8px; border: var(--bw) solid var(--line); border-radius: var(--r-card); box-shadow: var(--shadow-card); }
 .appr-mini-skin em { font-style: normal; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-section); line-height: 1.2; color: var(--ink); white-space: nowrap; overflow: hidden; }
 .appr-mini-bar { display: block; width: 44%; height: 6px; border-radius: min(var(--r-ctl), 3px); background: var(--brand); }
+/* 窗口那一行的小样：毛玻璃那张底下垫一块淡色「壁纸」，左栏透出来；实底那张就是原底 */
+.appr-mini-glass { background: linear-gradient(135deg, color-mix(in srgb, var(--cat-blue) 28%, var(--panel)), color-mix(in srgb, var(--cat-amber) 26%, var(--panel))); }
+.appr-mini-glass .appr-mini-rail { background: color-mix(in srgb, var(--panel) 45%, transparent); }
+.appr-mini-solid { background: var(--workbench); }
+
+/* ---------- 毛玻璃（2026-10-02，desktop/main.js 的 玻璃开着；学 MonoCode） ----------
+   <html class="glass"> 只在桌面端、系统支持、设置里没关时由 preload 挂上。窗口本身已经是系统材质
+   （Mac 的 vibrancy、Win11 的 acrylic），这里做的只是把各层的底色调成半透明，让材质透出来：
+     地面（body）全透 → 左栏只压一层薄色，最透 → 正文压得厚，读字不受影响 → 卡片、表格、浮层照旧实底。
+   字永远压在带底色的那一层上，壁纸再花也看得清。 */
+html.glass, html.glass body { background: transparent; background-image: none; }
+html.glass .rail { background: color-mix(in srgb, var(--page-bg) 14%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
+html.glass .pane { background: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .main { background: color-mix(in srgb, var(--page-bg) 78%, transparent); }
+html.glass .login-shell { background: color-mix(in srgb, var(--page-bg) 55%, transparent); }
+
+/* ---------- 桌面端的门（login/DesktopAuth.tsx）：左边一句话，右边一个表单 ---------- */
+.auth { position: relative; min-height: 100vh; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.15fr); background: var(--page-bg); }
+/* 顶上一条拖窗口的把手（Mac 的红黄绿钮嵌在左上，没有系统标题栏） */
+.auth::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: var(--drag-h); -webkit-app-region: drag; }
+.auth-side { display: flex; flex-direction: column; gap: var(--s4); padding: calc(var(--drag-h) + var(--s5)) var(--s6) var(--s6); background: var(--page-bg); border-right: 1px solid var(--line-soft); }
+.auth-mark { margin-top: auto; display: flex; align-items: center; gap: var(--s4); }
+/* 名字打字机（login/TypeBrand.tsx）：没打到的字占位不显示，方块光标贴在刚打出的字后面 */
+.auth-brand { display: inline-flex; align-items: baseline; font-family: var(--font-num); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); white-space: nowrap; }
+.auth-brand > span { position: relative; }
+.auth-brand > span[data-ai] { color: var(--brand); }
+.auth-brand-todo { visibility: hidden; }
+.auth-brand-caret { position: absolute; left: calc(100% + 2px); bottom: 0.12em; width: 0.5em; height: 0.85em; background: var(--brand); animation: auth-blink 1s steps(1) infinite; }
+.auth-brand-caret.at-start { left: 0; }
+.auth-brand-todo .auth-brand-caret { visibility: visible; }
+@keyframes auth-blink { 50% { opacity: 0; } }
+.auth-claim { margin: 0; max-width: 16em; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-title); line-height: 1.4; color: var(--ink); text-wrap: balance; }
+.auth-fine { margin: 0; max-width: 30em; font-size: var(--fs-min); line-height: 1.7; color: var(--text-muted); }
+.auth-main { display: grid; place-items: center; padding: var(--s6) var(--s5); background: var(--panel); }
+.auth-form { width: min(340px, 100%); display: flex; flex-direction: column; gap: var(--s3); }
+.auth-step { display: flex; flex-direction: column; gap: var(--s3); }
+.auth-step h1 { margin: 0; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-title); color: var(--ink); }
+.auth-hint { margin: 0 0 var(--s1); font-size: var(--fs-note); line-height: 1.7; color: var(--text-muted); }
+.auth-hint .auth-link { margin-left: var(--s2); }
+.auth-hint b { color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+.auth-label { margin-top: var(--s1); margin-bottom: calc(-1 * var(--s2)); font-size: var(--fs-note); color: var(--ink-soft); }
+.auth-alt { margin: 0; font-size: var(--fs-note); color: var(--text-muted); }
+.auth-link { padding: 0; border: 0; background: none; font: inherit; color: var(--brand); cursor: pointer; }
+.auth-link:hover { text-decoration: underline; }
+.auth-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.auth-link:disabled { color: var(--text-faint); cursor: default; text-decoration: none; }
+.auth-num { font-variant-numeric: tabular-nums; }
+.auth-agree { font-size: var(--fs-note); color: var(--ink-soft); }
+.auth-alert { margin-top: var(--s1); }
+html.glass .auth { background: transparent; }
+html.glass .auth-side { background: color-mix(in srgb, var(--page-bg) 14%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
+html.glass .auth-main { background: color-mix(in srgb, var(--panel) 90%, transparent); }
+/* 窄窗口（Windows 上有人把窗口拉到很小）：只留表单那一半 */
+@media (max-width: 760px) { .auth { grid-template-columns: 1fr; } .auth-side { display: none; } }
+
+/* 验证码（components/OtpInput.tsx）：真正接键盘的是那个透明 input，格子只是画出来的样子 */
+.otp { --otp-gap: var(--s2); position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: var(--otp-gap); cursor: text; }
+.otp-cell { height: 52px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--r-card); background: var(--panel);
+  font-family: var(--font-num); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
+.otp-cell.on { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+/* 数字从格子下沿滚上来 */
+.otp-cell span { display: block; animation: otp-roll var(--t) var(--ease); }
+@keyframes otp-roll { from { transform: translateY(70%); opacity: 0; } to { transform: none; opacity: 1; } }
+/* 一根光标按 --i 算位置，换格时滑过去 */
+.otp-caret { position: absolute; top: 12px; width: 2px; height: 28px; border-radius: 1px; background: var(--brand); pointer-events: none;
+  left: calc((100% + var(--otp-gap)) / var(--n) * var(--i) + (100% + var(--otp-gap)) / var(--n) / 2 - var(--otp-gap) / 2 - 1px);
+  transition: left var(--t) var(--ease); animation: otp-blink 1s steps(1) infinite; }
+@keyframes otp-blink { 50% { opacity: 0; } }
+.otp-err .otp-cell { border-color: var(--danger); animation: otp-nudge var(--t-morph) var(--ease); }
+@keyframes otp-nudge { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.otp-real { position: absolute; inset: 0; opacity: 0; border: 0; padding: 0; color: transparent; background: transparent; caret-color: transparent; font-size: 16px; }
 
 * {
   box-sizing: border-box;
@@ -1266,9 +1338,14 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    一句欢迎在卡外，卡里是「第 1 步」→ 标题 → 三步一行 → 说明 → 按钮 → 脚注。
    三步是横着的路标，不是三张说明卡，所以不给边框，用一条细线把它们连起来。 */
 .start-h { font-size: var(--fs-title); font-weight: 600; color: var(--ink); margin: 0 0 var(--s4); letter-spacing: -0.2px; }
+/* 三句介绍：三格并排，窄了就竖着排；不加框，和下面那张「开始」卡分出主次 */
+.start-intro { list-style: none; margin: 0 0 var(--s5); padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s4); max-width: 640px; }
+.start-intro li { display: flex; flex-direction: column; gap: 4px; padding-left: var(--s3); border-left: 2px solid var(--brand-line); }
+.start-intro b { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.start-intro span { font-size: var(--fs-note); line-height: 1.6; color: var(--text-muted); }
 .start { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-pop); padding: var(--s5); max-width: 640px; }
 /* 首页（对话面）上它和输入框上下摞着，两个框不一样宽会显得歪——那一栏多宽它就多宽 */
-.cli .start, .cli .start-h { max-width: none; }
+.cli .start, .cli .start-h, .cli .start-intro { max-width: none; }
 .start-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-min); font-weight: 500; }
 .start-t { margin-top: var(--s3); font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
 .start-s { margin: var(--s4) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
@@ -1772,6 +1849,11 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   }
   /* 落印不放大落下，直接就是盖好的样子 */
   .prop-seal.is-new { animation: none !important; }
+  /* 验证码：数字直接出现，填错不抖，光标原地闪 */
+  .otp-cell span, .otp-err .otp-cell { animation: none !important; }
+  .otp-caret { transition: none !important; }
+  /* 登录页的名字：直接是打好的样子，光标不闪 */
+  .auth-brand-caret { display: none !important; }
 }
 
 

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import LoginForm from "./LoginForm";
+import DesktopAuth from "./DesktopAuth";
 import { 能找回密码 } from "@/lib/tenant/password-reset";
 import { multiTenant } from "@/lib/tenant/context";
 import { 自助注册已关闭 } from "@/lib/tenant/signup-policy";
@@ -34,6 +35,8 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       redirect(`/api/desktop/session?t=${encodeURIComponent(process.env.DESKTOP_TOKEN)}`);
     }
     const p = await 策略();
+    // 云端有应用内注册的接口就用新的门（一个邮箱框走到底）；没有就照旧，注册开浏览器
+    if (p.inApp) return <DesktopAuth 可找回密码={p.reset} 可注册={p.register} 提示={sp.reason ? 原因文案[sp.reason] : undefined} />;
     return (
       <LoginForm
         桌面端

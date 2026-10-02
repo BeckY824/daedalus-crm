@@ -10,7 +10,7 @@ import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP
 import { multiTenant } from "@/lib/tenant/context";
 import { verifyAccount } from "@/lib/tenant/accounts";
 import { listWorkspacesFor } from "@/lib/tenant/workspaces";
-import { 本地模式, 登录 as 云端登录 } from "@/lib/desktop/cloud";
+import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, type 注册去向 } from "@/lib/desktop/cloud";
 
 export type LoginResult = { ok: true; 换账号?: boolean } | { ok: false; error: string };
 
@@ -166,4 +166,28 @@ async function 该用的名字(本机名字: string, 云端名字: string): Prom
   const 人改过 = 上次 != null && 本机名字 !== 上次;
   await setSetting(同步名字键, 云端名字);
   return 人改过 ? 本机名字 : 云端名字;
+}
+
+/**
+ * 桌面端登录页的「继续」：填了邮箱，问云端这个人该去哪一步。
+ * 手机号不问——注册只收邮箱，填手机号的一定是老账号，直接去输密码。
+ */
+export async function 桌面端下一步(target: string): Promise<{ ok: true; data: 注册去向 } | { ok: false; error: string }> {
+  if (!本地模式()) return { ok: false, error: "这个入口只有桌面端有" };
+  const t = target.trim();
+  if (!t) return { ok: false, error: "请填邮箱" };
+  if (!t.includes("@")) return { ok: true, data: { 去: "密码" } };
+  const r = await 云端注册开始(t);
+  return r.ok ? { ok: true, data: r.data! } : { ok: false, error: r.error };
+}
+
+/**
+ * 在应用里注册，开完号直接登进来——和登录走同一条 桌面端登录()，
+ * 换目录、写名字、签会话都在那里，注册不另起一套。
+ */
+export async function 桌面端注册(input: { target: string; code?: string; password: string; agreed: boolean }): Promise<LoginResult> {
+  if (!本地模式()) return { ok: false, error: "这个入口只有桌面端有" };
+  const r = await 云端注册({ ...input, target: input.target.trim() });
+  if (!r.ok) return { ok: false, error: r.error };
+  return 桌面端登录(input.target, input.password);
 }
