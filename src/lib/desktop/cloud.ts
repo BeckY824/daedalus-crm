@@ -109,8 +109,19 @@ export function 归属对不上(): boolean {
 export function 读(): 云端凭据 | null {
   if (!本地模式()) return null;
   try {
-    const c = JSON.parse(fs.readFileSync(文件(), "utf8")) as Partial<云端凭据>;
-    return c.token ? (c as 云端凭据) : null;
+    const c = JSON.parse(fs.readFileSync(文件(), "utf8")) as Partial<云端凭据> & { models?: unknown };
+    /*
+      文件要能用才算登录着（第二轮 AI）：没有令牌或没有地址（被截掉一半但还是合法 JSON）都当没登录——
+      原来缺地址时拼出「undefined/api/gateway/v1」，点 AI 说「检查网络」，其实该重新登录。
+      models 规整成字符串：手改过 / 别的版本写成 {id, note} 的，原来读配置就抛 TypeError，所有页面的布局跟着崩
+    */
+    if (typeof c.token !== "string" || !c.token || typeof c.baseUrl !== "string" || !c.baseUrl) return null;
+    const models = Array.isArray(c.models)
+      ? c.models
+          .map((m) => (typeof m === "string" ? m : m && typeof m === "object" && typeof (m as { id?: unknown }).id === "string" ? [(m as { id: string }).id, (m as { note?: unknown }).note].filter((x) => typeof x === "string" && x).join("|") : ""))
+          .filter(Boolean)
+      : [];
+    return { ...(c as 云端凭据), models };
   } catch {
     return null;
   }

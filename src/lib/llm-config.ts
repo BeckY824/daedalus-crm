@@ -11,7 +11,7 @@
  * 调用方一律从 llm.ts 引（它把这里的导出原样转出去）。
  */
 import { getSetting, setSetting, encryptSecret, decryptSecret, maskSecret } from "./settings";
-import { 模型配置 as 桌面端云端配置 } from "./desktop/cloud";
+import { 模型配置 as 桌面端云端配置, 本地模式 } from "./desktop/cloud";
 
 export const DEFAULT_BASE_URL = "https://api.deepseek.com/v1";
 export const DEFAULT_MODEL = "deepseek-chat";
@@ -45,6 +45,8 @@ function 环境配置(): { apiKey: string; baseUrl: string; model: string; accou
       models: 云端.models,
     };
   }
+  // 桌面端只认登录的云端账号：没登录（或登录信息坏了）就是没有，不退到环境变量（那是自部署 / 托管版的配置）
+  if (本地模式()) return null;
   if (!process.env.LLM_API_KEY) return null;
   return {
     apiKey: process.env.LLM_API_KEY,

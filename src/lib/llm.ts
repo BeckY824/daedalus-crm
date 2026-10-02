@@ -16,6 +16,7 @@ import { 有DSML, 解析DSML } from "./llm-dsml";
 import { 抹掉密钥 } from "./secret";
 import type { AI功能 } from "./ai-features";
 import { getLlmConfig, type LlmConfig } from "./llm-config";
+import { 本地模式 } from "./desktop/cloud";
 
 export * from "./llm-config";
 
@@ -286,7 +287,7 @@ async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: C
  */
 export async function chatMessagesJSON(messages: ToolMessage[], opts: ChatOpts = {}): Promise<unknown> {
   const cfg = await getLlmConfig();
-  if (!cfg) throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
+  if (!cfg) throw new Error(AI未启用说法());
   let content: string;
   try {
     content = await chatMessagesOnce(cfg, messages, opts, true);
@@ -326,7 +327,7 @@ export async function chatTools(
   opts: ChatOpts = {},
 ): Promise<{ toolCalls: 工具调用[]; text: string }> {
   const cfg = await getLlmConfig();
-  if (!cfg) throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
+  if (!cfg) throw new Error(AI未启用说法());
   const res = await chatRaw(cfg, messages, opts, false, false, tools);
   const data = (await res.json()) as {
     choices?: { message?: { content?: string | null; tool_calls?: 工具调用[] }; finish_reason?: string }[];
@@ -421,7 +422,7 @@ export async function testLlm(cfg: LlmConfig): Promise<{ ok: true; ms: number; r
 export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unknown> {
   const cfg = await getLlmConfig();
   if (!cfg) {
-    throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
+    throw new Error(AI未启用说法());
   }
   const system = buildSystemPrompt((await getBusiness()).brief);
   /*
@@ -490,4 +491,11 @@ export function AI报错人话(status: number, 正文: string): string {
   if (中文) return 中文;
   console.warn(`[llm] 接口返回 ${status}：${正文.slice(0, 300)}`);
   return `AI 接口没接受这次请求（${status}），稍后再试；一直这样请从「反馈」告诉我们`;
+}
+
+/** 没有可用的 AI 配置时那句话。桌面端没有「管理员」也没有「设置管理」：那里是没登录、或登录信息坏了（第二轮 AI） */
+function AI未启用说法(): string {
+  return 本地模式()
+    ? "AI 要先登录云端账号：在设置里退出登录，再登录一次"
+    : "AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key";
 }
