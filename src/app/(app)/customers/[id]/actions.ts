@@ -58,6 +58,26 @@ export type FollowUpInput = {
 /** 原文最多存这么多字，与速记解析的输入上限一致 */
 const SOURCE_TEXT_MAX = 5000;
 
+/**
+ * 「跟进提醒 / 跟进任务」顺带建的那条待办（2026-10-02 排查 3-2）。没有外键连着——认它靠「同一位客户、
+ * 同一个标题、同一个时间、还没做」。跟进删了、改成已完成、改了时间，这条待办要跟着（复查 R：原来跟进删了待办照样到点提醒）
+ */
+type 带时间的跟进 = { type: string; title: string; content: string; status: string; dueAt: Date | null };
+const 会带待办 = (f: 带时间的跟进) => (f.type === "TASK" || f.type === "REMIND") && Boolean(f.dueAt);
+const 待办标题 = (f: 带时间的跟进) => (f.title || f.content).trim().slice(0, 60) || 类型名(f.type);
+async function 跟着改待办(customerId: string, 旧: 带时间的跟进, 新: 带时间的跟进 | null) {
+  if (!会带待办(旧)) return;
+  const where = { customerId, title: 待办标题(旧), dueAt: 旧.dueAt!, done: false };
+  if (!新 || !会带待办(新)) {
+    await prisma.task.deleteMany({ where });
+  } else if (新.status === "已完成") {
+    await prisma.task.updateMany({ where, data: { done: true, doneAt: new Date() } });
+  } else {
+    await prisma.task.updateMany({ where, data: { title: 待办标题(新), dueAt: 新.dueAt } });
+  }
+  刷新待办(customerId);
+}
+
 export async function saveFollowUp(input: FollowUpInput) {
   const user = await requireUser();
 
@@ -98,7 +118,9 @@ export async function saveFollowUp(input: FollowUpInput) {
      * 这条跟进记录就变成乙做的了——「谁跟进的」和按人统计的跟进量一起失真，
      * 而且没有任何痕迹。归属只在创建时确定。
      */
+    const 改前 = await prisma.followUp.findUnique({ where: { id: input.id }, select: { type: true, title: true, content: true, status: true, dueAt: true } });
     await prisma.followUp.update({ where: { id: input.id }, data });
+    if (改前) await 跟着改待办(input.customerId, 改前, data);
     await recordAudit({
       user, action: "update", entity: "FollowUp", entityId: input.id,
       summary: `修改${姓名}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
@@ -124,9 +146,8 @@ export async function saveFollowUp(input: FollowUpInput) {
       Dock 数字、早报、到点通知、计划页都只看计划和待办——原来这里填的「提醒时间」只是记录上的一格，到点什么都不会发生，
       而人选「跟进提醒」就是想被提醒。只在新建时做：编辑一条老记录不该再冒出一条待办。
     */
-    if ((data.type === "TASK" || data.type === "REMIND") && data.dueAt && data.status !== "已完成") {
-      const 标题 = (data.title || data.content).trim().slice(0, 60) || 类型名(data.type);
-      const t = await prisma.task.create({ data: { title: 标题, dueAt: data.dueAt, customerId: input.customerId, ownerId: user.id } });
+    if (会带待办(data) && data.status !== "已完成") {
+      const t = await prisma.task.create({ data: { title: 待办标题(data), dueAt: data.dueAt!, customerId: input.customerId, ownerId: user.id } });
       待办id = t.id;
       刷新待办(input.customerId);
     }
@@ -155,6 +176,7 @@ export async function deleteFollowUp(id: string, customerId: string) {
   const 待删 = await prisma.followUp.findUnique({ where: { id }, include: { source: true } });
   if (!待删) return { ok: false as const, error: "这条跟进已经不在了，刷新看看" };
   await prisma.followUp.delete({ where: { id } });
+  await 跟着改待办(customerId, 待删, null);
   await recordAudit({
     user: me, action: "delete", entity: "FollowUp", entityId: id,
     summary: `删除${await 客户名(customerId)}的一条${类型名(待删?.type ?? "")}跟进（${待删 ? dayjs(待删.occurredAt).format("YYYY-MM-DD") : ""}）`,
@@ -212,6 +234,13 @@ export async function restoreFollowUp(快照: 删掉的跟进) {
       ...(快照.原文 ? { source: { create: { text: 快照.原文 } } } : {}),
     },
   });
+  // 删的时候顺带的待办一起删了：撤销时一起回来
+  const 回来的 = { ...快照, dueAt: 快照.dueAt ? new Date(快照.dueAt) : null };
+  if (会带待办(回来的) && 快照.status !== "已完成") {
+    const 在 = await prisma.task.count({ where: { customerId: 快照.customerId, title: 待办标题(回来的), dueAt: 回来的.dueAt!, done: false } });
+    if (!在) await prisma.task.create({ data: { title: 待办标题(回来的), dueAt: 回来的.dueAt!, customerId: 快照.customerId, ownerId: 快照.ownerId } });
+    刷新待办(快照.customerId);
+  }
   const latest = await prisma.followUp.findFirst({ where: { customerId: 快照.customerId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
   await prisma.customer.update({ where: { id: 快照.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
   await recordAudit({

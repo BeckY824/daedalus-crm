@@ -40,8 +40,18 @@ export async function 钉住老签约(): Promise<number> {
     select: { id: true, customer: { select: { salesOwnerId: true, channelOwnerId: true } } },
   });
   if (缺的.length === 0) return 0;
-  const r = await prisma.contractOwner.createMany({
-    data: 缺的.map((c) => ({ contractId: c.id, salesOwnerId: c.customer.salesOwnerId, channelOwnerId: c.customer.channelOwnerId })),
-  });
-  return r.count;
+  /*
+    一行一行 upsert（update 留空 = 已有就不动）：两个动作同时进来时，后到的那次不能撞唯一键抛错（复查 C），
+    SQLite 上 createMany 不支持 skipDuplicates
+  */
+  let n = 0;
+  for (const c of 缺的) {
+    await prisma.contractOwner.upsert({
+      where: { contractId: c.id },
+      create: { contractId: c.id, salesOwnerId: c.customer.salesOwnerId, channelOwnerId: c.customer.channelOwnerId },
+      update: {},
+    });
+    n++;
+  }
+  return n;
 }

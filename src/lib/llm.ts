@@ -143,8 +143,12 @@ export type ToolMessage =
 export type 工具调用 = { id: string; type: "function"; function: { name: string; arguments: string } };
 export type 工具声明 = { type: "function"; function: { name: string; description: string; parameters: unknown } };
 
-/** 第一次等多久就重发（见 chatRaw）。导出给测试改小 */
-export const 首字等待毫秒 = { 流式: 20_000, 短输出: 25_000 };
+/**
+ * 第一次等多久就重发（见 chatRaw）。导出给测试改小。
+ * 实测（2026-10-02）：「AI 解析」同一份请求跑 6 次，正常 9–14 秒，3 次卡了 140–235 秒；agent 决策正常 2–3 秒。
+ * 非流式要等整段写完才回：短的（≤2000，agent 决策）25 秒，中等（≤4000，解析 / 简报）45 秒；流式收到响应头就算回音，20 秒
+ */
+export const 首字等待毫秒 = { 流式: 20_000, 短输出: 25_000, 中输出: 45_000 };
 
 async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean, tools?: 工具声明[]): Promise<Response> {
   const 模型 = opts.model ?? cfg.model;
@@ -176,12 +180,15 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
   /*
     等不到就快点重发一次（2026-10-02 实测）：中转站偶尔对同一份请求卡 30–200 秒才回第一个字，
     原样重发通常 3 秒内就回来了。原来干等满 60 / 120 秒，用户对着「在想」等两分钟。
-    只对「回第一个字本该很快」的请求这么做：流式（fetch 在收到响应头时就返回）和输出短的非流式；
+    只对「本该很快回来」的请求这么做：流式（fetch 在收到响应头时就返回）和输出不超过 4000 的非流式；
     要长篇输出的（粘贴整理 8000 token）照旧等满。重发带着同一个问题编号，网关不会多扣次数。
   */
   const 总超时 = opts.timeoutMs ?? 60_000;
-  const 该快 = stream || Number(body.max_tokens) <= 2_000;
-  const 首轮 = 该快 ? Math.min(总超时, stream ? 首字等待毫秒.流式 : 首字等待毫秒.短输出) : 总超时;
+  // 按调用方要的输出长度判（body.max_tokens 里可能叠了思考预算）：粘贴大名单那种 8000 的照旧等满
+  const 该快 = stream || (opts.maxTokens ?? DEFAULT_MAX_TOKENS) <= 4_000;
+  // agent 每一步决策（1500）正常 2–3 秒，25 秒就算卡住；解析 / 简报（默认 4000）正常 9–14 秒，给 45 秒
+  const 要多长 = opts.maxTokens ?? DEFAULT_MAX_TOKENS;
+  const 首轮 = 该快 ? Math.min(总超时, stream ? 首字等待毫秒.流式 : 要多长 <= 2_000 ? 首字等待毫秒.短输出 : 首字等待毫秒.中输出) : 总超时;
   const 发 = (等: number) =>
     fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",

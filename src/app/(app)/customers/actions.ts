@@ -153,8 +153,11 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
   const 改前 = input.id ? await prisma.customer.findUnique({ where: { id: input.id } }) : null;
   if (input.id && !改前) return { ok: false, error: `这条${b.customer}已经不在了（可能已删除），无法保存` };
-  // 换负责人之前先把老签约的「签约那一刻是谁的」钉住（排查 X1）
-  if (改前 && (改前.salesOwnerId !== (input.salesOwnerId ?? 改前.salesOwnerId) || "channelOwnerId" in input)) await 钉住老签约();
+  /*
+    编辑之前先把老签约的「签约那一刻是谁的」钉住（排查 X1）。不只换负责人：改来源渠道 / 推荐人也会重算渠道负责人（复查 R）。
+    没有缺的时候它只是一次很轻的查询，所以编辑一律先调，不去猜这次会不会动到归属
+  */
+  if (改前) await 钉住老签约();
 
   /*
     电话：和导入、表单同一条规矩（lib/phone.ts）。新建必填；编辑时原来有号码的不许清空，
@@ -811,6 +814,8 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   const me = await requireUser();
   const b = await getBusiness();
   if (!PATCHABLE.includes(key)) return { ok: false, error: "这个字段不能在这里改" };
+  // 动到归属的几格（负责人、渠道负责人、来源、推荐人）之前先钉住老签约（排查 X1 / 复查 R）
+  if (["salesOwnerId", "channelOwnerId", "channelId", "referrerCustomerId"].includes(key)) await 钉住老签约();
 
   const v = typeof value === "string" ? value.trim() : value;
   const data: Record<string, unknown> = {};
@@ -824,10 +829,8 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
     data.decisionStatus = v;
   } else if (key === "salesOwnerId") {
     if (typeof v !== "string" || !v || !(await 在职(v))) return { ok: false, error: "负责人不存在或已停用" };
-    await 钉住老签约();
     data.salesOwnerId = v;
   } else if (key === "channelOwnerId") {
-    await 钉住老签约();
     // 清空 = 恢复跟着推荐链走；给了人 = 手工钉死。只动这一条学员，不影响任何其他人
     if (v) {
       if (typeof v !== "string" || !(await 在职(v))) return { ok: false, error: "渠道负责人不存在或已停用" };
