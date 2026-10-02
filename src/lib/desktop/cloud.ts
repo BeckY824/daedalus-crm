@@ -63,6 +63,16 @@ function 文件(): string {
  * 没有标记 = 未认领（第一次装应用，或者 0.39.2 之前升级上来还没认领过的那份），
  * 那种目录谁登录就归谁，不算换人。
  */
+function 记本目录归属(accountId: string) {
+  const dir = process.env.CRM_DATA_DIR;
+  if (!dir) return;
+  try {
+    fs.writeFileSync(path.join(dir, ".owner"), accountId, { mode: 0o600 });
+  } catch {
+    /* 记不上：启动认领时还会再记一遍 */
+  }
+}
+
 export function 本目录归谁(): string | null {
   const dir = process.env.CRM_DATA_DIR;
   if (!dir) return null;
@@ -252,7 +262,13 @@ export async function 登录(target: string, password: string): Promise<结果<{
   /*
     目录上没有归属标记就当没换人：那是未认领的那一份（第一次装应用，
     或者 0.39.2 之前升级上来的），本来就在等人认领，认领的正是他。
+
+    **当场把归属记下来**（2026-10-02 排查桌面端 A2）。原来要等「带着令牌重启」那一下才记：
+    第一次装好、甲登录录了客户、退出，乙再登录——目录还是没主的，于是判「没换人」，乙直接进了甲的库，
+    下次启动还把这份整个认领走。现在甲一登录这份就归甲；乙登录时对不上，壳把他换到自己的目录。
+    只写记号不改目录名：改名要重起本地服务，那是壳在启动时做的事（desktop/accounts.js 认领）。
   */
+  if (!旧归谁 && c.accountId) 记本目录归属(c.accountId);
   const 换了账号 = !!(旧归谁 && c.accountId && 旧归谁 !== c.accountId);
   return { ok: true, data: { name: c.name, contact: c.contact, 还剩: r.data?.credits?.还剩, 换了账号 } };
 }
@@ -312,9 +328,32 @@ export async function 余额(): Promise<余额信息 | null> {
  * 没登录返回 null——那时 AI 入口整个隐藏，CRM 其余功能照常，和自部署版没配 Key 时一样。
  * 每次调用都重新读文件：登录、退出要**即时**生效，不能像环境变量那样要重启服务才换。
  */
+/**
+ * 模型列表过一阵就重拉一次（2026-10-02 排查桌面端 D2）。原来只在登录那一刻拉、存进 .cloud.json 后再不动：
+ * 网关一改白名单，选单里就只剩下线的那几个，要退出重登才好。网关那头对白名单外的已经改成换默认模型（不再 400），
+ * 这里管的是选单别一直摆着用不了的名字。后台拉、不挡这一次调用；拉不到就留着旧的。
+ */
+let 上次拉模型 = 0;
+const 拉模型间隔 = 6 * 3600_000;
+async function 刷新模型(c: 云端凭据) {
+  const m = await 请求<{ data?: { id: string; note?: string }[] }>(`${c.baseUrl}/api/gateway/v1/models`, {
+    headers: { Authorization: `Bearer ${c.token}` },
+  });
+  if (!m.ok) return;
+  const models = (m.data?.data ?? []).map((x) => (x.note ? `${x.id}|${x.note}` : x.id)).filter(Boolean);
+  const 现在的 = 读();
+  // 拉的这会儿换了账号 / 退出了：不往别人的凭据里写
+  if (!models.length || !现在的 || 现在的.token !== c.token) return;
+  if (JSON.stringify(现在的.models) !== JSON.stringify(models)) 写({ ...现在的, models });
+}
+
 export function 模型配置(): { apiKey: string; baseUrl: string; account: string; models: string[] } | null {
   const c = 读();
   if (!c) return null;
+  if (Date.now() - 上次拉模型 > 拉模型间隔) {
+    上次拉模型 = Date.now();
+    void 刷新模型(c).catch(() => {});
+  }
   return {
     apiKey: c.token,
     baseUrl: `${c.baseUrl}/api/gateway/v1`,

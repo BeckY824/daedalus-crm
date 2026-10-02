@@ -168,7 +168,13 @@ function 认领(数据根, accountId) {
 
   const 他的 = 账号目录(数据根, k);
   const 未认领目录 = 账号目录(数据根, 未认领);
-  if (现在 === null && fs.existsSync(未认领目录) && !fs.existsSync(他的)) {
+  /*
+    未认领的那份只在「没主、或者主就是他」时归他（2026-10-02 排查桌面端 A2）：
+    登录那一刻服务端就会在它上面记下 .owner（lib/desktop/cloud.ts 登录），
+    甲登录过、退出、乙再登录切过来时，不能把甲那份改名成乙的。
+  */
+  const 未认领归谁 = 归谁(未认领目录);
+  if (现在 === null && fs.existsSync(未认领目录) && !fs.existsSync(他的) && (!未认领归谁 || 未认领归谁 === String(accountId))) {
     fs.renameSync(未认领目录, 他的);
     记归属(他的, accountId);
     写指针(数据根, k);

@@ -67,10 +67,14 @@ export function 收拾请求体(
   body: Record<string, unknown>,
   cfg: 网关配置,
 ): { ok: true; body: Record<string, unknown>; stream: boolean } | { ok: false; error: string } {
-  const model = typeof body.model === "string" && body.model.trim() ? body.model.trim() : cfg.models[0].id;
-  if (!cfg.models.some((m) => m.id === model)) {
-    return { ok: false, error: `不支持的模型 ${model}，可用：${cfg.models.map((m) => m.id).join("、")}` };
-  }
+  /*
+    不在白名单里的模型：**换成默认模型，不报错**（2026-10-02 排查 D2）。
+    桌面端的模型列表是登录那一刻拉的、存在本机，之后不刷新；09-19 线上把白名单收成一个以后，
+    那之前登录的桌面端点任何 AI 按钮都是一句 400「不支持的模型 glm-…」，只能退出重登，而用户不会知道要这么做。
+    白名单照旧是闸：花的是我们的钱，客户端点名要什么都只会落在我们许可的那几个里。
+  */
+  const 要的 = typeof body.model === "string" && body.model.trim() ? body.model.trim() : cfg.models[0].id;
+  const model = cfg.models.some((m) => m.id === 要的) ? 要的 : cfg.models[0].id;
   const messages = body.messages;
   if (!Array.isArray(messages) || messages.length === 0) return { ok: false, error: "messages 不能为空" };
 

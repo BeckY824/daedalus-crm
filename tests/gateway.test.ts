@@ -190,12 +190,13 @@ describe("已登录的机器这一栏", () => {
 });
 
 describe("请求体", () => {
-  it("模型不在白名单就拒——不限的话一个改字段的请求就能把额度花在最贵的模型上", async () => {
-    const { token } = await 建账号带令牌();
-    const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
-    const res = await POST(请求(token, { ...一次问话, model: "gpt-4o" }));
-    expect(res.status).toBe(400);
-    expect((await res.json()).error.message).toContain("不支持的模型");
+  it("模型不在白名单：换成默认模型，不报错也不放行——老桌面端存着下线的模型名照样能用（2026-10-02 排查 D2）", async () => {
+    const { 收拾请求体, 读网关配置 } = await import("@/lib/gateway");
+    const cfg = 读网关配置()!;
+    const r = 收拾请求体({ model: "gpt-4o", messages: [{ role: "user", content: "x" }] }, cfg);
+    expect(r.ok && r.body.model).toBe(cfg.models[0].id);
+    const r2 = 收拾请求体({ model: "glm-5.3-flash-已下线", messages: [{ role: "user", content: "x" }] }, cfg);
+    expect(r2.ok && r2.body.model).toBe(cfg.models[0].id);
   });
 
   it("messages 为空就拒", async () => {

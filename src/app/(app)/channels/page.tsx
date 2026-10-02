@@ -1,3 +1,4 @@
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import ChannelsView from "./ChannelsView";
@@ -64,6 +65,7 @@ export default async function ChannelsPage() {
     })),
   );
 
+  const 号 = await 号码脱敏器();
   return (
     <ChannelsView
       users={users}
@@ -72,7 +74,8 @@ export default async function ChannelsPage() {
       rows={channels.map((c) => ({
         id: c.id,
         name: c.name,
-        phone: c.phone,
+        // 共享试用区打码，和客户、联系人同一个出口（2026-10-02 排查 A6）
+        phone: 号(c.phone),
         remark: c.remark,
         active: c.active,
         createdAt: c.createdAt.toISOString(),

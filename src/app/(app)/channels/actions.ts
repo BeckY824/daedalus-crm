@@ -3,6 +3,7 @@
 import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { 认回打码号 } from "@/lib/phone";
 import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
@@ -34,9 +35,13 @@ export async function saveChannel(input: {
   });
   if (dup) return { ok: false, error: `渠道「${name}」已存在` };
 
+  // 共享试用区的渠道页给的是打码号码：交回来的正是原号打码的样子就认回原号，别的带 * 的不收（2026-10-02 排查 A6）
+  const 原号 = input.id ? (await prisma.channel.findUnique({ where: { id: input.id }, select: { phone: true } }))?.phone : null;
+  const 号 = 认回打码号(input.phone?.trim() || null, 原号);
+  if (号 && 号.includes("*")) return { ok: false, error: "电话里不能有 *" };
   const data = {
     name,
-    phone: input.phone?.trim() || null,
+    phone: 号 || null,
     remark: input.remark?.trim() || null,
     channelOwnerId,
   };

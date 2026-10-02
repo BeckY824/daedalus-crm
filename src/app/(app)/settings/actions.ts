@@ -175,7 +175,16 @@ export async function saveUser(input: {
         if (!r.ok) return r;
       }
       const { email: _忽略登录名, ...可改 } = base;
+      const 之前 = await prisma.user.findUnique({ where: { id: input.id }, select: { active: true } });
       await prisma.user.update({ where: { id: input.id }, data: 可改 });
+      /*
+        在编辑框里把停用的人拨回在职：和「恢复」按钮一样，把停用时撤掉的成员资格补回来。
+        原来只改了业务库的 active，提示「已保存」，那个人照样登不进来（2026-10-02 排查 A4）
+      */
+      if (之前 && !之前.active && input.active && link) {
+        const t = await resolveCurrentTenant();
+        if (t) await 复成员(link.accountId, t.workspaceId, input.role);
+      }
     } else {
       await prisma.user.update({
         where: { id: input.id },

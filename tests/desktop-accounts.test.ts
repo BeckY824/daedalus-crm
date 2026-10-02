@@ -186,6 +186,26 @@ describe("升级：老的那一份 data/", () => {
     expect(账号.认领(根, "acc_甲").换了目录).toBe(true);
   });
 
+  it("第一次装好：甲登录（服务端当场记下归属）→ 退出 → 乙登录切过来，甲那份不许改名成乙的（2026-10-02 排查桌面端 A2）", () => {
+    const 未认领目录 = 账号.账号目录(根, 账号.未认领);
+    fs.mkdirSync(未认领目录, { recursive: true });
+    fs.writeFileSync(path.join(未认领目录, "crm.db"), "甲刚录的客户");
+    // lib/desktop/cloud.ts 登录()：没主的目录，登录那一刻记上归属
+    fs.writeFileSync(path.join(未认领目录, 账号.归属文件), "acc_甲");
+    expect(账号.归谁(未认领目录)).toBe("acc_甲");
+
+    const 乙 = 账号.认领(根, "acc_乙");
+    expect(乙.认领了未认领的).toBeUndefined();
+    expect(fs.existsSync(path.join(乙.目录!, "crm.db"))).toBe(false);
+    expect(fs.readFileSync(path.join(未认领目录, "crm.db"), "utf8")).toBe("甲刚录的客户");
+
+    // 甲回来：那份还归他
+    账号.退出(根);
+    const 甲 = 账号.认领(根, "acc_甲");
+    expect(甲.认领了未认领的).toBe(true);
+    expect(fs.readFileSync(path.join(甲.目录!, "crm.db"), "utf8")).toBe("甲刚录的客户");
+  });
+
   it("他以前就有自己那份时，未认领的不许盖上去", () => {
     /*
       场景：甲登录过（有 accounts/<甲>/），退出了，这时来了一份未认领的数据

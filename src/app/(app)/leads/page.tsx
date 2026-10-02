@@ -1,3 +1,4 @@
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import LeadsView from "./LeadsView";
@@ -46,6 +47,7 @@ export default async function LeadsPage({
    */
   const 候选 = users.some((u) => u.id === me.id) ? users : [...users, { id: me.id, name: me.name, email: me.email }];
 
+  const 号 = await 号码脱敏器();
   return (
     <LeadsView
       总数={总数}
@@ -56,7 +58,8 @@ export default async function LeadsPage({
         id: l.id,
         name: l.name,
         contact: l.contact,
-        phone: l.phone,
+        // 共享试用区打码，和客户、联系人同一个出口（2026-10-02 排查 A6）
+        phone: 号(l.phone),
         email: l.email,
         industry: l.industry,
         source: l.source,

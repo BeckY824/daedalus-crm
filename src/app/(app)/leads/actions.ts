@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { 认回打码号 } from "@/lib/phone";
 import { 查电话 } from "@/lib/phone";
 import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { requireUser } from "@/lib/auth";
@@ -35,7 +36,15 @@ export async function saveLead(input: {
     没改过的旧来源照样放行（排查 D5）：设置里换了预设、删了某个来源以后，
     带着旧来源的线索连改个备注都存不了，报「不是合法取值」。新选的来源才必须在当前列表里。
   */
-  const 原来源 = input.id ? (await prisma.lead.findUnique({ where: { id: input.id }, select: { source: true } }))?.source : null;
+  const 原 = input.id ? await prisma.lead.findUnique({ where: { id: input.id }, select: { source: true, phone: true } }) : null;
+  const 原来源 = input.id ? 原?.source : null;
+  /*
+    共享试用区的线索页给的是打码号码（2026-10-02 排查 A6）：交回来的正是原号打码的样子就认回原号；
+    别的带 * 的（AI 卡照抄的打码号）不收——星号进库就再也找不回真号
+  */
+  const 号 = 认回打码号(input.phone?.trim() || null, 原?.phone);
+  if (号 && 号.includes("*")) return { ok: false as const, error: "电话里不能有 *" };
+  input = { ...input, phone: 号 };
   if (!b.sources.includes(input.source) && input.source !== "其他" && input.source !== 原来源) {
     return { ok: false as const, error: `线索来源「${input.source}」不是合法取值` };
   }
