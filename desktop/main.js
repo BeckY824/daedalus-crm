@@ -570,7 +570,7 @@ const 实底 = "#fafafa";
   用哪条在建窗口时定下来（transparent 只能建窗口时给），记在 透明窗 里，开关拨来拨去都按它走。
 */
 const 模糊 = require("./glass-blur");
-const 模糊半径 = 20;
+const 模糊半径 = 36;
 let 透明窗 = false;
 function 上玻璃(w, 开) {
   if (!w || w.isDestroyed()) return;

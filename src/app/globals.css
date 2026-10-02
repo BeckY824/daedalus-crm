@@ -168,9 +168,9 @@
      地面（body）全透 → 左栏只压一层薄色，最透 → 正文压得厚，读字不受影响 → 卡片、表格、浮层照旧实底。
    字永远压在带底色的那一层上，壁纸再花也看得清。 */
 html.glass, html.glass body { background: transparent; background-image: none; }
-html.glass .rail { background: color-mix(in srgb, var(--page-bg) 42%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
-html.glass .pane { background: color-mix(in srgb, var(--panel) 62%, transparent); }
-html.glass .main { background: color-mix(in srgb, var(--page-bg) 88%, transparent); }
+html.glass .rail { background: color-mix(in srgb, var(--page-bg) 50%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
+html.glass .pane { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+html.glass .main { background: color-mix(in srgb, var(--page-bg) 93%, transparent); }
 html.glass .login-shell { background: color-mix(in srgb, var(--page-bg) 55%, transparent); }
 
 /* ---------- 桌面端的门（login/DesktopAuth.tsx）：左边一句话，右边一个表单 ---------- */
@@ -207,7 +207,7 @@ html.glass .login-shell { background: color-mix(in srgb, var(--page-bg) 55%, tra
 .auth-agree { font-size: var(--fs-note); color: var(--ink-soft); }
 .auth-alert { margin-top: var(--s1); }
 html.glass .auth { background: transparent; }
-html.glass .auth-side { background: color-mix(in srgb, var(--page-bg) 32%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
+html.glass .auth-side { background: color-mix(in srgb, var(--page-bg) 42%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
 html.glass .auth-main { background: color-mix(in srgb, var(--panel) 97%, transparent); }
 /* 左边压在壁纸上的字：深一档，再垫一圈很淡的白光，壁纸再花也读得出 */
 html.glass .auth-claim, html.glass .auth-fine, html.glass .auth-brand { text-shadow: 0 0 12px color-mix(in srgb, var(--panel) 85%, transparent), 0 0 2px color-mix(in srgb, var(--panel) 70%, transparent); }
