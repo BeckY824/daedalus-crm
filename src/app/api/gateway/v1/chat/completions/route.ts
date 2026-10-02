@@ -181,6 +181,28 @@ export async function POST(req: Request) {
   const data = await upstream.text();
 
   /*
+    上游 200 但正文不是 JSON（中转站出错时偶尔回一段 HTML）：用户什么都没拿到，退掉，说人话（第二轮 AI）
+  */
+  let 解得出 = true;
+  try {
+    JSON.parse(data);
+  } catch {
+    解得出 = false;
+  }
+  if (!解得出) {
+    await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
+    console.warn(`[gateway] 上游 200 但不是 JSON：${data.slice(0, 200)}`);
+    return 网关错误(502, "AI 服务这次回来的东西不完整，没扣次数，再试一次", 剩余头);
+  }
+  /*
+    桌面端已经等不及走了（它那边超时、或者人点了停）：这次结果没人收到，退掉（第二轮 AI）。
+    快速重发时第一次那条会走到这里——第二次带着同一个问题编号，本来就不重复扣
+  */
+  if (req.signal.aborted && 扣.扣了) {
+    await 退这一次(owner, 问题id, true);
+  }
+
+  /*
     成本账。桌面端的请求只有经过这里才看得见 token——它那边的 llm.ts 跑在
     用户自己机器上，连不到控制面库。**记不上不许影响这次回答**：
     try/catch 全包在 记一次 里，这里连 await 都不 await。

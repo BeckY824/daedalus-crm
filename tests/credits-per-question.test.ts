@@ -207,10 +207,10 @@ describe("守卫：三处口径必须一致", () => {
     expect(llm).toContain('额外头["X-Feature"]');
   });
 
-  it("网关在上游出错的两条路上都退了", () => {
+  it("网关在上游出错的几条路上都退了（同一问题后续步骤失败也退，2026-10-02 起）", () => {
     const 网关 = fs.readFileSync(path.resolve(__dirname, "../src/app/api/gateway/v1/chat/completions/route.ts"), "utf8");
-    // 连不上 / 超时那一条，和上游回了非 2xx 那一条
-    expect((网关.match(/退这一次\(owner, 问题id, 扣\.扣了\)/g) ?? []).length).toBe(2);
+    // 连不上 / 超时、上游回了非 2xx、上游 200 但不是 JSON
+    expect((网关.match(/退这一次\(owner, 问题id, 扣\.扣了 \|\| Boolean\(问题id\)\)/g) ?? []).length).toBe(3);
   });
 
   it("agent 一个问题只生成一个编号，四处调用都带着它", () => {
