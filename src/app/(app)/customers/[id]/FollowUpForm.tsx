@@ -310,6 +310,11 @@ export default function FollowUpForm({
     if (要收口 && 完成了计划) return void 完成了计划(要收口);
     if (!挑人 || !名) {
       if (要收口) await completePlan(要收口.id);
+      if ("待办id" in res && res.待办id) {
+        // 顺带建了待办：Dock 数和到点提醒要马上跟上
+        void window.desktopReminders?.刷新();
+        return void message.success("跟进已记录，也加进了待办——到点会提醒你");
+      }
       return void message.success(record?.id ? "已保存" : "跟进已记录");
     }
 
@@ -466,7 +471,11 @@ export default function FollowUpForm({
           )}
           {showDue && (
             <Col span={12}>
-              <Form.Item name="dueAt" label={type === "TASK" ? "截止时间" : "提醒时间"}>
+              <Form.Item
+                name="dueAt"
+                label={type === "TASK" ? "截止时间" : "提醒时间"}
+                extra={record?.id ? undefined : "填了会同时加进待办，到点提醒"}
+              >
                 <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
               </Form.Item>
             </Col>

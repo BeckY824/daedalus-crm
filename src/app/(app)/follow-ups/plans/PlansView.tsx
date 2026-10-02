@@ -3,12 +3,14 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Segmented, Space, Button, App, Tag } from "antd";
-import { PlusOutlined, UnorderedListOutlined, CheckCircleOutlined } from "@ant-design/icons";
+import { PlusOutlined, UnorderedListOutlined, CheckCircleOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import { PageHead, UserCell } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import { dayjs, fmtDateTime } from "@/lib/utils";
 import { 是逾期 } from "@/lib/overdue";
-import { toggleTask, completePlan } from "../../customers/[id]/actions";
+import { toggleTask, completePlan, deletePlan, deleteTask } from "../../customers/[id]/actions";
+import TaskForm from "../../customers/[id]/TaskForm";
+import InlineConfirm from "@/components/InlineConfirm";
 import PlanForm from "../../customers/[id]/PlanForm";
 import { 截止说法 } from "@/lib/deadline";
 
@@ -112,6 +114,23 @@ export default function PlansView({
   const [刚完成, set刚完成] = useState<string[]>([]);
   /** 「排下一次」给哪一位排：完成一条计划之后提示条里点进来（审查 M10） */
   const [排给, set排给] = useState<string | null>(null);
+  /** 正在改的那一条（计划或待办） */
+  const [在改, set在改] = useState<事项 | null>(null);
+  // 表单的 record 要稳定：它是 useEffect 的依赖，每次渲染新建一个对象会让表单边输入边被重置
+  const 改计划 = useMemo(
+    () => (在改?.kind === "plan" ? { id: 在改.id, subject: 在改.标题, plannedAt: 在改.时间 ?? new Date().toISOString(), method: 在改.方式 ?? "电话沟通" } : null),
+    [在改],
+  );
+  const 改待办 = useMemo(() => (在改?.kind === "task" ? { id: 在改.id, title: 在改.标题, dueAt: 在改.时间 } : null), [在改]);
+
+  async function 删掉(x: 事项) {
+    const r = x.kind === "plan" ? await deletePlan(x.id) : await deleteTask(x.id);
+    if (!r.ok) return void message.error("error" in r ? r.error : "没删掉，请重试");
+    message.success(x.kind === "plan" ? "计划已删除" : "待办已删除");
+    // Dock 上的数、到点提醒要马上跟上
+    void window.desktopReminders?.刷新();
+    router.refresh();
+  }
   /**
    * 「新建计划」就地弹框（2026-09-29）。原来它跳去客户列表，让人自己挑一位再进记录页排——
    * 按钮写着「新建」却把人带走了，被当成 bug 报上来。现在框里第一格挑人，
@@ -307,11 +326,11 @@ export default function PlansView({
           <div className="plans">
             {/* 三组的空文案各不相同：全写「这一组是空的」，人分不出
                 「今天没排」和「已经全做完了」——那是两件完全不同的事 */}
-            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} />
-            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} />
-            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} />
+            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
+            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
+            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
             {组.以后.length > 0 && (
-              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} />
+              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
             )}
           </div>
           )}
@@ -320,6 +339,24 @@ export default function PlansView({
 
       {排给 && (
         <PlanForm open onClose={() => set排给(null)} onSaved={() => { set排给(null); router.refresh(); }} customerId={排给} record={null} 默认天数={7} />
+      )}
+      {在改?.kind === "plan" && (
+        <PlanForm
+          open
+          onClose={() => set在改(null)}
+          onSaved={() => { set在改(null); void window.desktopReminders?.刷新(); router.refresh(); }}
+          customerId={在改.customerId}
+          record={改计划}
+        />
+      )}
+      {在改?.kind === "task" && (
+        <TaskForm
+          open
+          onClose={() => set在改(null)}
+          onSaved={() => { set在改(null); router.refresh(); }}
+          customerId={在改.customerId}
+          record={改待办}
+        />
       )}
       <PlanForm
         open={新建开着 && 已水合}
@@ -339,8 +376,11 @@ export default function PlansView({
 }
 
 function 组块({
-  名, 说明, 空话, 事项, 危险, 完成, 刚完成, 刚建, 刚建那行, scope,
+  名, 说明, 空话, 事项, 危险, 完成, 刚完成, 刚建, 刚建那行, scope, 改, 删,
 }: {
+  /** 改这一条：计划开计划表单，待办开待办表单（2026-10-02 排查 3-4：原来计划页上只能「完成」） */
+  改: (x: 事项) => void;
+  删: (x: 事项) => Promise<void>;
   名: string;
   说明: string;
   /** 这一组空着时说的那句话。每组都不一样 */
@@ -391,6 +431,14 @@ function 组块({
               {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
               {/* 截止时间一种说法：逾期 N 天 / 今天 / 明天 / M 月 D 日（审查 D1，lib/deadline.ts） */}
               <span className="plan-row-d" title={x.时间 ? fmtDateTime(x.时间) : undefined}>{截止说法(x.时间)}</span>
+              {!完了 && (
+                <span className="plan-row-act">
+                  <Button type="text" size="small" icon={<EditOutlined />} aria-label={`改 ${x.标题}`} onClick={() => 改(x)} />
+                  <InlineConfirm 问="删除这条？" 做={() => 删(x)}>
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`删除 ${x.标题}`} />
+                  </InlineConfirm>
+                </span>
+              )}
             </div>
           );
         })

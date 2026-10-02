@@ -89,6 +89,8 @@ export async function saveFollowUp(input: FollowUpInput) {
 
   const 姓名 = await 客户名(input.customerId);
   let id = input.id ?? "";
+  /** 「跟进提醒 / 跟进任务」顺带建的那条待办 */
+  let 待办id: string | undefined;
   if (input.id) {
     /**
      * 编辑时不能重写 ownerId。
@@ -117,6 +119,17 @@ export async function saveFollowUp(input: FollowUpInput) {
       summary: `记了${姓名}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
       detail: { 客户: 姓名, 类型: 类型名(data.type), 状态: data.status, 内容: data.content.slice(0, 120) },
     });
+    /*
+      「跟进任务 / 跟进提醒」填了时间、还没做完的：同时建一条待办（2026-10-02 排查 3-2）。
+      Dock 数字、早报、到点通知、计划页都只看计划和待办——原来这里填的「提醒时间」只是记录上的一格，到点什么都不会发生，
+      而人选「跟进提醒」就是想被提醒。只在新建时做：编辑一条老记录不该再冒出一条待办。
+    */
+    if ((data.type === "TASK" || data.type === "REMIND") && data.dueAt && data.status !== "已完成") {
+      const 标题 = (data.title || data.content).trim().slice(0, 60) || 类型名(data.type);
+      const t = await prisma.task.create({ data: { title: 标题, dueAt: data.dueAt, customerId: input.customerId, ownerId: user.id } });
+      待办id = t.id;
+      刷新待办(input.customerId);
+    }
   }
 
   // 同步客户的「最近跟进」时间
@@ -133,7 +146,7 @@ export async function saveFollowUp(input: FollowUpInput) {
   revalidatePath(`/customers/${input.customerId}`);
   revalidatePath("/follow-ups");
   revalidatePath("/dashboard");
-  return { ok: true as const, id };
+  return { ok: true as const, id, ...(待办id ? { 待办id } : {}) };
 }
 
 export async function deleteFollowUp(id: string, customerId: string) {
@@ -300,6 +313,26 @@ export async function savePlan(input: {
   revalidatePath("/follow-ups/plans");
   // 带回 id：计划页新建完要把那一行点亮（和 saveFollowUp 一样）
   return { ok: true as const, id };
+}
+
+/**
+ * 删一条计划（2026-10-02 排查 3-4）。原来计划在哪儿都删不掉：排错了、客户说不用了，只能一直挂在逾期里，
+ * 每天早报还数它。和删待办同一个口径：就地确认、留痕。
+ */
+export async function deletePlan(id: string) {
+  const me = await requireUser();
+  const p = await prisma.followPlan.findUnique({ where: { id } });
+  if (!p) return { ok: false as const, error: "这条计划已经不在了，刷新看看" };
+  await prisma.followPlan.delete({ where: { id } });
+  await recordAudit({
+    user: me, action: "delete", entity: "FollowPlan", entityId: id,
+    summary: `删除${await 客户名(p.customerId)}的跟进计划「${p.subject}」`,
+    detail: { 主题: p.subject, 时间: dayjs(p.plannedAt).format("YYYY-MM-DD HH:mm"), 方式: p.method, 已完成: p.done },
+  });
+  revalidatePath(`/customers/${p.customerId}`);
+  revalidatePath("/follow-ups/plans");
+  revalidatePath("/dashboard");
+  return { ok: true as const };
 }
 
 /** 完成一条计划。`完成 = false` 是撤销（审查 M10）：提示条里那个「撤销」走这里，改回未完成 */

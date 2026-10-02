@@ -1304,6 +1304,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-row-s { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: var(--fs-note); color: var(--text-muted); }
 .plan-row-d { flex: none; font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* 改 / 删：悬停或键盘落到这一行时才出现，平时不和截止时间抢眼（2026-10-02 排查 3-4） */
+.plan-row-act { flex: none; display: inline-flex; gap: 2px; opacity: 0; transition: opacity var(--t-fast) var(--ease); }
+.plan-row:hover .plan-row-act, .plan-row:focus-within .plan-row-act { opacity: 1; }
+@media (hover: none) { .plan-row-act { opacity: 1; } }
 /* 做完的那一屏。标题不划掉——这里的行不是「刚被划掉」，而是一条已经完成的记录，
    划掉会让人以为它作废了。左边那个对勾不是按钮，所以补上和按钮同宽的位置 */
 .plan-row-was .plan-row-t { color: var(--ink-soft); }
