@@ -168,13 +168,14 @@
      地面（body）全透 → 左栏只压一层薄色，最透 → 正文压得厚，读字不受影响 → 卡片、表格、浮层照旧实底。
    字永远压在带底色的那一层上，壁纸再花也看得清。 */
 html.glass, html.glass body { background: transparent; background-image: none; }
-/* 三栏的浓淡照原型第 4 版：左栏最透（32%）、中栏一半（55%）、正文七成（72%）；正文里的卡片仍是实白，浮在玻璃上一层。
+/* 三栏的浓淡照原型第 4 版：左栏最透（40%，掺一点品牌蓝——原型是模糊 + 加饱和，真窗口的系统模糊加不了饱和，拿这一点蓝补）、中栏一半（55%）、正文七成（72%），都是纯白叠；正文里的卡片仍是实白，浮在玻璃上一层。
    栏和栏之间不用灰线，用一道半透明的白——玻璃的边是亮的，不是脏的 */
-html.glass .rail { background: color-mix(in srgb, var(--page-bg) 32%, transparent); border-right-color: color-mix(in srgb, var(--panel) 55%, transparent); }
-html.glass .pane { background: color-mix(in srgb, var(--panel) 55%, transparent); border-right-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .rail { background: color-mix(in srgb, color-mix(in srgb, var(--panel) 82%, var(--brand)) 40%, transparent); border-right-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .pane { background: color-mix(in srgb, color-mix(in srgb, var(--panel) 94%, var(--brand)) 55%, transparent); border-right-color: color-mix(in srgb, var(--panel) 55%, transparent); }
 html.glass .pane-search { background: color-mix(in srgb, var(--panel) 70%, transparent); }
 html.glass .pane-h { border-bottom-color: color-mix(in srgb, var(--panel) 55%, transparent); }
-html.glass .main { background: color-mix(in srgb, var(--page-bg) 72%, transparent); }
+html.glass .main { background: color-mix(in srgb, var(--panel) 72%, transparent); }
+html.glass .rail-meter { border-top-color: color-mix(in srgb, var(--panel) 55%, transparent); }
 html.glass .login-shell { background: color-mix(in srgb, var(--page-bg) 55%, transparent); }
 /* 正文里的东西在玻璃上（照原型第 4 版）：卡片、表格是实白的一层，浮在 72% 的正文玻璃上——
    边换成半透明白线、垫一道很浅的影子；筛选框、分段切换这些小控件是更薄的一层白，看得出底下的玻璃 */
@@ -223,7 +224,7 @@ html.glass .ant-pagination .ant-pagination-item, html.glass .ant-pagination .ant
 .auth-agree { font-size: var(--fs-note); color: var(--ink-soft); }
 .auth-alert { margin-top: var(--s1); }
 html.glass .auth { background: transparent; }
-html.glass .auth-side { background: color-mix(in srgb, var(--page-bg) 42%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
+html.glass .auth-side { background: color-mix(in srgb, color-mix(in srgb, var(--panel) 82%, var(--brand)) 40%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
 html.glass .auth-main { background: color-mix(in srgb, var(--panel) 97%, transparent); }
 /* 左边压在壁纸上的字：深一档，再垫一圈很淡的白光，壁纸再花也读得出 */
 html.glass .auth-claim, html.glass .auth-fine, html.glass .auth-brand { text-shadow: 0 0 12px color-mix(in srgb, var(--panel) 85%, transparent), 0 0 2px color-mix(in srgb, var(--panel) 70%, transparent); }
