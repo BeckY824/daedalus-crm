@@ -210,7 +210,7 @@ test("8. 两个人同时改同一条客户：改不同字段自动合并，改�
 
   await 乙.getByRole("dialog").getByLabel("公司").fill("合德智造");
   await 乙.getByRole("dialog").getByRole("button", { name: /保\s*存/ }).click();
-  await expect(乙.getByText("有人和你改了同一项，你的改动没有保存")).toBeVisible();
+  await expect(乙.getByText("这一项在你编辑期间也被改过，你的改动没有保存")).toBeVisible();
   await expect(乙.getByRole("dialog")).toContainText("公司");
 
   // 甲的值保住了
