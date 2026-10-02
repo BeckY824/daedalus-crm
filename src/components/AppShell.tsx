@@ -27,7 +27,7 @@ import {
 import type { SessionUser } from "@/lib/auth";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
-import UpdateButton from "./UpdateButton";
+import UpdateRow from "./UpdateRow";
 import AiTasks from "./AiTasks";
 import AiDock from "./AiDock";
 import { usePageUnderOverlay } from "@/lib/page-under-overlay";
@@ -396,6 +396,8 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
           )}
           <AiTasks />
           <AiMeterBar />
+          {/* 检查更新那一行（学 MonoCode 左下角）：常驻，写着当前版本；有新版变蓝、下载有进度、下好了点它重启 */}
+          {desktop && <UpdateRow />}
           {/* 「设置」不在左栏里了（2026-09-17）：它在账号菜单里，和 Claude / Codex 一样。
               左栏那一列是**你工作的地方**——学员、商机、跟进；设置是偶尔去一趟的抽屉，
               把它摆成和「学员」同级的一项，等于每天提醒你它存在。 */}
@@ -416,7 +418,6 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
                 <DownOutlined className="rail-user-caret" aria-hidden />
               </button>
             </Dropdown>
-            {desktop && <UpdateButton />}
             {/* 反馈在更新键的右边，两枚都是这一行的「出口」：一个往外拿新版本，一个往外送一句话。
                 网页版没有更新键，那儿就只有它一枚 */}
             <FeedbackButton 去向={反馈去向} />

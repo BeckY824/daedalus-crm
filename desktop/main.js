@@ -857,7 +857,9 @@ async function 先主后备(主, 备, 做) {
 }
 
 /** 只查、只估算，**不下**。手动点菜单时 手动=true：已是最新要给句回话，其余情况都静默 */
-async function 检查更新({ 手动 = false } = {}) {
+async function 检查更新({ 手动 = false, 静默 = false } = {}) {
+  /* 静默：左栏「检查更新」那一行点的——结果它自己会显示，不再弹系统对话框（菜单里的「检查更新」照旧弹） */
+  if (静默) 手动 = false;
   if (正在查) return;
   /*
     差量包**自动下**。0.24.0 那次「先问再下」的理由是 160 MB 整包：自动下会把人的网占满，
@@ -1100,7 +1102,7 @@ async function 安装更新() {
 ipcMain.handle("update:state", () => 更新状态);
 ipcMain.handle("update:download", () => 下载更新());
 ipcMain.handle("update:install", () => 安装更新());
-ipcMain.handle("update:check", () => 检查更新({ 手动: true }));
+ipcMain.handle("update:check", (_e, 静默) => 检查更新({ 手动: true, 静默: 静默 === true }));
 // 只开主进程自己状态里的地址，页面传不进任何 URL
 ipcMain.handle("update:open", () => {
   if (更新状态.地址) shell.openExternal(更新状态.地址);

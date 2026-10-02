@@ -49,7 +49,8 @@ contextBridge.exposeInMainWorld("desktopUpdate", {
   state: () => ipcRenderer.invoke("update:state"),
   download: () => ipcRenderer.invoke("update:download"),
   install: () => ipcRenderer.invoke("update:install"),
-  check: () => ipcRenderer.invoke("update:check"),
+  // 静默=true：左栏那一行自己显示结果，壳不弹对话框
+  check: (静默) => ipcRenderer.invoke("update:check", 静默 === true),
   openDownload: () => ipcRenderer.invoke("update:open"),
   onState: (cb) => {
     const h = (_e, s) => cb(s);

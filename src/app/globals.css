@@ -168,9 +168,13 @@
      地面（body）全透 → 左栏只压一层薄色，最透 → 正文压得厚，读字不受影响 → 卡片、表格、浮层照旧实底。
    字永远压在带底色的那一层上，壁纸再花也看得清。 */
 html.glass, html.glass body { background: transparent; background-image: none; }
-html.glass .rail { background: color-mix(in srgb, var(--page-bg) 50%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
-html.glass .pane { background: color-mix(in srgb, var(--panel) 70%, transparent); }
-html.glass .main { background: color-mix(in srgb, var(--page-bg) 93%, transparent); }
+/* 三栏的浓淡照原型第 4 版：左栏最透（32%）、中栏一半（55%）、正文七成（72%）；正文里的卡片仍是实白，浮在玻璃上一层。
+   栏和栏之间不用灰线，用一道半透明的白——玻璃的边是亮的，不是脏的 */
+html.glass .rail { background: color-mix(in srgb, var(--page-bg) 32%, transparent); border-right-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .pane { background: color-mix(in srgb, var(--panel) 55%, transparent); border-right-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .pane-search { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+html.glass .pane-h { border-bottom-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .main { background: color-mix(in srgb, var(--page-bg) 72%, transparent); }
 html.glass .login-shell { background: color-mix(in srgb, var(--page-bg) 55%, transparent); }
 
 /* ---------- 桌面端的门（login/DesktopAuth.tsx）：左边一句话，右边一个表单 ---------- */
@@ -339,6 +343,24 @@ html.glass .rail-item:hover, html.glass .rail-fav-i:hover { background: color-mi
 html.glass .rail-fav-i.on { background: color-mix(in srgb, var(--panel) 72%, transparent); color: var(--ink); }
 .rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 2px; }
 .rail-foot { margin-top: auto; }
+/* 左栏底部「检查更新 · v0.46.14」（UpdateRow.tsx）：平时淡、有新版蓝底、失败黄底 */
+.rail-upd { position: relative; display: flex; align-items: center; gap: var(--s2); width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-card); background: none; font: inherit; font-size: var(--fs-note); color: var(--text-muted); text-align: left; cursor: pointer; overflow: hidden;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+div.rail-upd { cursor: default; }
+button.rail-upd:hover { background: var(--hover); color: var(--ink); }
+button.rail-upd:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.rail-upd-ico { display: grid; place-items: center; width: 16px; flex: none; }
+.rail-upd-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-upd-v { flex: none; font-size: var(--fs-min); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.rail-upd.hot { background: var(--brand-bg); color: var(--brand-deep); font-weight: 500; }
+button.rail-upd.hot:hover { background: color-mix(in srgb, var(--brand) 16%, var(--brand-bg)); color: var(--brand-deep); }
+.rail-upd.warn { background: var(--warning-bg); color: var(--warning-text); }
+.rail-upd-bar { position: absolute; left: 10px; right: 10px; bottom: 3px; height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--brand) 18%, transparent); overflow: hidden; }
+.rail-upd-bar i { display: block; height: 100%; background: var(--brand); transition: width var(--t) var(--ease); }
+.rail-upd-bar.idle i { width: 30%; animation: rail-upd-scan 1.2s var(--ease) infinite; }
+@keyframes rail-upd-scan { from { transform: translateX(-100%); } to { transform: translateX(330%); } }
+html.glass button.rail-upd:hover { background: color-mix(in srgb, var(--panel) 45%, transparent); }
+html.glass .rail-upd.hot { background: color-mix(in srgb, var(--brand-bg) 85%, transparent); }
 /* 左栏底部的 AI 用量（AiCost.tsx 的 AiMeterBar）：一行字一条细槽，快用完变黄、用完变红 */
 .rail-meter { display: flex; flex-direction: column; gap: 5px; margin: var(--s1) 0 var(--s2); padding: var(--s2) 10px; border-top: 1px solid var(--line-soft); }
 .rail-meter-row { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-min); color: var(--text-muted); }
@@ -1933,6 +1955,7 @@ html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, tra
   /* 验证码：数字直接出现，填错不抖，光标原地闪 */
   .otp-cell span, .otp-err .otp-cell { animation: none !important; }
   .otp-caret { transition: none !important; }
+  .rail-upd-bar.idle i { animation: none !important; }
   /* 登录页的名字：直接是打好的样子，光标不闪 */
   .auth-brand-caret { display: none !important; }
 }
