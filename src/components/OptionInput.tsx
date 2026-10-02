@@ -12,6 +12,7 @@ import { AutoComplete } from "antd";
  * 一打字候选就按包含筛；清空 / 失焦都保留人打的字。Form.Item 直接包它即可（value / onChange）。
  */
 export default function OptionInput({
+  id,
   value,
   onChange,
   options,
@@ -19,8 +20,12 @@ export default function OptionInput({
   allowClear = true,
   style,
   size,
-  maxLength = 30,
+  maxLength,
+  "aria-label": ariaLabel,
 }: {
+  /** Form.Item 注入的 id：表单标签靠它和输入框关联（读屏、按标签找输入框都靠这个） */
+  id?: string;
+  "aria-label"?: string;
   value?: string | null;
   onChange?: (v: string) => void;
   options: readonly string[];
@@ -32,8 +37,13 @@ export default function OptionInput({
 }) {
   return (
     <AutoComplete
+      id={id}
+      aria-label={ariaLabel}
       value={value ?? undefined}
-      onChange={(v) => onChange?.(String(v ?? "").slice(0, maxLength))}
+      onChange={(v) => {
+        const s = String(v ?? "");
+        onChange?.(maxLength ? s.slice(0, maxLength) : s);
+      }}
       options={options.map((o) => ({ value: o }))}
       filterOption={(输入, o) => !输入 || String(o?.value ?? "").toLowerCase().includes(输入.toLowerCase())}
       placeholder={placeholder ?? "选一个，或直接填"}

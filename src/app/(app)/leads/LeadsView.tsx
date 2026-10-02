@@ -261,7 +261,7 @@ export default function LeadsView({
             </Col>
             <Col span={8}>
               <Form.Item name="source" label="线索来源">
-                <OptionInput options={b.sources} placeholder="选或直接填" />
+                <OptionInput options={b.sources} placeholder="选或直接填" maxLength={30} />
               </Form.Item>
             </Col>
             <Col span={8}>
