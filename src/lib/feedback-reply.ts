@@ -1,12 +1,12 @@
 import { isEmail } from "./tenant/accounts";
 import { 建立SMTP, smtpConfigured } from "./tenant/notify";
-import { 收件人 } from "./lead";
 
 /**
  * 运营台回复反馈（2026-10-02）：运营台里写，用邮件发到对方邮箱。
  *
- * 发件地址还是 no-reply@（阿里那边的触发类型地址，收不了信），所以 **Reply-To 一定要设**：
- * 设成回信的那个运营的邮箱，对方在邮箱里点「回复」就直接到人手上，来回几封都不用再进运营台。
+ * 发件地址还是 no-reply@（阿里那边的触发类型地址，收不了信；也只能用我们验证过的域名发），
+ * 所以 **Reply-To 一定要设**：固定成公司邮箱（2026-10-02 用户定），对方在邮箱里点「回复」
+ * 就到公司邮箱，来回几封都在那边聊，不用再进运营台。
  *
  * 信里带上他当时的原话：隔了几天收到一封「已经修好了」，不附原话谁也想不起是哪件事。
  */
@@ -28,12 +28,12 @@ export function 查回复(to: string, body: string): 回复检查 {
   return { ok: true, to: 邮箱, body: 正文 };
 }
 
-/**
- * 对方点「回复」会到哪：配了 FEEDBACK_REPLY_TO 用它；否则是回信的运营本人；
- * 用网址口令进来的（不知道是谁）落到收线索的那个邮箱。
- */
-export function 回信地址(运营邮箱: string | null, env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): string {
-  return env.FEEDBACK_REPLY_TO?.trim() || 运营邮箱?.trim() || 收件人(env as NodeJS.ProcessEnv);
+/** 公司邮箱。换地址改服务器 .env 的 FEEDBACK_REPLY_TO，不用发版 */
+export const 默认回信地址 = "qy1g18@gmail.com";
+
+/** 对方点「回复」会到哪：固定一个公司邮箱，不跟着是哪个运营在回 */
+export function 回信地址(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env): string {
+  return env.FEEDBACK_REPLY_TO?.trim() || 默认回信地址;
 }
 
 export function 组回复邮件(

@@ -182,11 +182,11 @@ export async function 回复反馈(input: { token: string; id: string; to: strin
   const f = await control.feedback.findUnique({ where: { id: input.id } });
   if (!f) return { ok: false, error: "这条反馈不在了" };
 
-  // 谁在回：从桌面端进来的有运营账号；用网址口令进来的不知道是谁
+  // 谁在回（只留底用，回信地址是固定的公司邮箱）：从桌面端进来的有运营账号；用网址口令进来的不知道是谁
   const 运营 = await 当前运营账号();
   const 运营邮箱 = 运营 ? ((await control.account.findUnique({ where: { id: 运营 }, select: { email: true } }))?.email ?? null) : null;
 
-  const 信 = 组回复邮件({ to: 查.to, body: 查.body, 原话: f.body, 原话时间: f.at, replyTo: 回信地址(运营邮箱) });
+  const 信 = 组回复邮件({ to: 查.to, body: 查.body, 原话: f.body, 原话时间: f.at, replyTo: 回信地址() });
   try {
     await 发回复(信);
   } catch (e) {

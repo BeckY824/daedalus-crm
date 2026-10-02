@@ -18,7 +18,7 @@ type 看 = "没处理" | "处理过了" | "全部";
  * 「回复」就地展开一个小框，写完用邮件发到对方邮箱（桌面端默认填他的注册邮箱）。
  * 发出去的那几封留在原话下面，免得两个人回同一条、或者忘了答应过什么。
  */
-export default function FeedbackView({ token, 反馈 }: { token: string; 反馈: 反馈条[] }) {
+export default function FeedbackView({ token, 反馈, 回信到 }: { token: string; 反馈: 反馈条[]; 回信到: string }) {
   const { message } = App.useApp();
   const 没处理 = 反馈.filter((f) => !f.handled);
   const [看, set看] = useState<看>(没处理.length ? "没处理" : "全部");
@@ -100,6 +100,7 @@ export default function FeedbackView({ token, 反馈 }: { token: string; 反馈:
               <ReplyBox
                 token={token}
                 f={f}
+                回信到={回信到}
                 草稿={草稿[f.id] ?? { to: f.邮箱 ?? "", body: "" }}
                 改草稿={(d) => set草稿((m) => ({ ...m, [f.id]: d }))}
                 收起={() => set写(null)}
@@ -123,6 +124,7 @@ export default function FeedbackView({ token, 反馈 }: { token: string; 反馈:
 function ReplyBox({
   token,
   f,
+  回信到,
   草稿,
   改草稿,
   收起,
@@ -130,6 +132,7 @@ function ReplyBox({
 }: {
   token: string;
   f: 反馈条;
+  回信到: string;
   草稿: { to: string; body: string };
   改草稿: (d: { to: string; body: string }) => void;
   收起: () => void;
@@ -193,7 +196,7 @@ function ReplyBox({
         value={草稿.body}
         autoSize={{ minRows: 3, maxRows: 12 }}
         maxLength={4000}
-        placeholder="写给对方的话。信里会附上原话，对方点「回复」会回到你的邮箱"
+        placeholder="写给对方的话。信里会附上原话"
         aria-label="回复内容"
         onChange={(e) => 改草稿({ ...草稿, body: e.target.value })}
       />
@@ -203,7 +206,7 @@ function ReplyBox({
         </div>
       )}
       <div className="opx-fb-compose-f">
-        <span className="opx-fb-compose-hint">⌘↩ 发送 · Esc 收起（草稿留着）</span>
+        <span className="opx-fb-compose-hint">对方回信到 {回信到} · ⌘↩ 发送 · Esc 收起（草稿留着）</span>
         <Button size="small" onClick={收起}>
           取消
         </Button>

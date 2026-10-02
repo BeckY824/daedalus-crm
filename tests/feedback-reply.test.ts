@@ -81,11 +81,11 @@ describe("组信", () => {
     expect(m.text).toContain("你 10-01 14:30 的反馈：\n> 第一行\n> 第二行");
   });
 
-  it("回信地址：FEEDBACK_REPLY_TO > 运营本人 > 收线索的邮箱", async () => {
+  it("回信地址固定是公司邮箱，FEEDBACK_REPLY_TO 可以换，不跟着是哪个运营在回", async () => {
     const { 回信地址 } = await import("@/lib/feedback-reply");
-    expect(回信地址("ops@x.com", { FEEDBACK_REPLY_TO: "fb@x.com" })).toBe("fb@x.com");
-    expect(回信地址("ops@x.com", {})).toBe("ops@x.com");
-    expect(回信地址(null, { LEAD_TO: "lead@x.com" })).toBe("lead@x.com");
+    expect(回信地址({})).toBe("qy1g18@gmail.com");
+    expect(回信地址({ FEEDBACK_REPLY_TO: " fb@x.com " })).toBe("fb@x.com");
+    expect(回信地址({ LEAD_TO: "lead@x.com" })).toBe("qy1g18@gmail.com");
   });
 
   it("收件人和正文先校验", async () => {
@@ -115,7 +115,7 @@ describe("回复反馈（运营台动作）", () => {
     expect(r).toEqual({ ok: true });
     expect(发出).toHaveLength(1);
     expect(发出[0].text).toContain("> 导入的时候卡住了");
-    expect(发出[0].replyTo).toBeTruthy();
+    expect(发出[0].replyTo).toBe("qy1g18@gmail.com");
 
     const 条 = (await 读反馈()).find((x) => x.id === f.id)!;
     expect(条.handled).toBe(true);
