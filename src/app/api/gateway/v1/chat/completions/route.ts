@@ -38,13 +38,38 @@ function 认功能(v: string | null): string | null {
   return 功能白名单.has(s) ? s : null;
 }
 
+/**
+ * 这一阵子见过的问题编号（账号:编号 → 第一次见的时刻）。频率闸据此只给每个问题算一次。
+ * 放内存：托管版单进程，重启丢了无非是下一步多算一次频率，不影响扣费（扣费在库里按编号去重）
+ */
+const 问过的 = new Map<string, number>();
+const 问过留多久 = 15 * 60_000;
+function 问过(k: string): boolean {
+  const t = 问过的.get(k);
+  return t !== undefined && Date.now() - t < 问过留多久;
+}
+function 记下问过(k: string) {
+  const now = Date.now();
+  if (问过的.size > 5000) for (const [key, t] of 问过的) if (now - t > 问过留多久) 问过的.delete(key);
+  问过的.set(k, now);
+}
+
 export async function POST(req: Request) {
   const auth = await 网关认证(req);
   if (!auth.ok) return auth.res;
   const { cfg, accountId } = auth;
 
-  const 等 = consumeAiQuota(`gw:${accountId}`);
-  if (等 !== null) return 网关错误(429, `请求太频繁，请 ${等} 秒后再试`);
+  /*
+    频率闸按**问题**算，不按请求算（第二轮 AI A2）：一个问题要 3–11 次请求（agent 每一步一次），
+    按请求算的话连问七八个就在半路被 429 拦下，而第一步那次已经扣了。同一个问题编号的后续几步不再计数；
+    一个问题能发几次请求由 每问最多步 封顶。没带编号的（老客户端）照旧按请求算
+  */
+  const 早问题id = 规整请求id(req.headers.get("x-question-id"));
+  if (!早问题id || !问过(`${accountId}:${早问题id}`)) {
+    const 等 = consumeAiQuota(`gw:${accountId}`);
+    if (等 !== null) return 网关错误(429, `请求太频繁，请 ${等} 秒后再试`);
+    if (早问题id) 记下问过(`${accountId}:${早问题id}`);
+  }
 
   let raw: unknown;
   try {
@@ -87,8 +112,8 @@ export async function POST(req: Request) {
       signal: AbortSignal.timeout(120_000),
     });
   } catch (e) {
-    // 上游没给出任何东西：这一次不该由用户买单
-    await 退这一次(owner, 问题id, 扣.扣了);
+    // 上游没给出任何东西：这一次不该由用户买单。不是扣的那一步也退——这个问题整个答不出来了（第二轮 AI A4）
+    await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
     const 超时 = e instanceof Error && e.name === "TimeoutError";
     return 网关错误(504, 超时 ? "上游模型接口超时" : "连不上上游模型接口", 剩余头);
   }
@@ -111,10 +136,21 @@ export async function POST(req: Request) {
       这正是 2026-09-20 之前那条「失败也算一次」的规矩要挡的东西，规矩没变，
       只是把「我们的锅」从里面摘了出来。
     */
-    if (upstream.status >= 500 || upstream.status === 429 || upstream.status === 408) {
-      await 退这一次(owner, 问题id, 扣.扣了);
+    /*
+      401 / 402 / 403 / 404 也是我们的锅（第二轮 AI A1）：请求体已经被 收拾请求体 收拾过，
+      上游说 Key 不对、余额不足、没权限、模型不存在，都是我们和中转站之间的事——原来照扣用户，
+      每点一次扣一次，界面上还是上游的英文原文。这几种退掉，并说一句人话；原文只进日志。
+      不是扣的那一步（同一问题的第 2 步以后）失败了也退：这个问题整个答不出来了（第二轮 AI A4）
+    */
+    const 我们的锅 = [401, 402, 403, 404].includes(upstream.status);
+    if (upstream.status >= 500 || upstream.status === 429 || upstream.status === 408 || 我们的锅) {
+      await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
     }
     const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
+    if (我们的锅) {
+      console.error(`[gateway] 上游 ${upstream.status}（我们这边的配置 / 余额问题）：${text}`);
+      return 网关错误(503, "AI 服务这边出了点问题（不是你的问题），这次没扣次数，稍后再试", 剩余头);
+    }
     return 网关错误(upstream.status, `上游模型接口返回 ${upstream.status}：${text}`, 剩余头);
   }
 

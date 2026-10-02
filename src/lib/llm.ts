@@ -211,6 +211,20 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
     // 断网时 fetch 抛的是一句英文「fetch failed」，原来直接摆到界面上（2026-10-02 排查 AI B1）
     throw new Error("连不上 AI 服务，检查一下网络再试");
   }
+  /*
+    502 / 503 / 504：中转站或网关临时出错，原样重发一次（第二轮 AI）。原来 agent 碰到它会退回 JSON 协议「碰巧」救回来，
+    现在 agent 不再为 5xx 换协议（换了只是多等），这一跳改在这里做。网关对失败的那次已经退了，重发不会多扣
+  */
+  if ([502, 503, 504].includes(res.status) && !opts.signal?.aborted) {
+    console.warn(`[llm] 上游 ${res.status}，重发一次`);
+    await res.body?.cancel().catch(() => {});
+    try {
+      res = await 发(Math.max(15_000, 总超时 - 首轮));
+    } catch (e) {
+      if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e;
+      throw new Error("连不上 AI 服务，检查一下网络再试");
+    }
+  }
   if (!res.ok) {
     const errText = 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey);
     // 带了 thinking 又被 4xx 拒：记下这个模型，后面所有调用都不再带，
@@ -426,6 +440,8 @@ export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unk
     if (e instanceof Error && e.name === "TimeoutError") {
       throw new Error("AI 响应超时，请稍后重试");
     }
+    // 5xx 在 chatRaw 里已经原样重发过一次了：再降级重试只是给正在出错的上游多加一倍请求
+    if (((e as { status?: number }).status ?? 0) >= 500) throw e;
     content = await chatOnce(cfg, system, prompt, opts, false);
   }
 
