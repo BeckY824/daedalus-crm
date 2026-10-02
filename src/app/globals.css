@@ -176,6 +176,18 @@ html.glass .pane-search { background: color-mix(in srgb, var(--panel) 70%, trans
 html.glass .pane-h { border-bottom-color: color-mix(in srgb, var(--panel) 55%, transparent); }
 html.glass .main { background: color-mix(in srgb, var(--page-bg) 72%, transparent); }
 html.glass .login-shell { background: color-mix(in srgb, var(--page-bg) 55%, transparent); }
+/* 正文里的东西在玻璃上（照原型第 4 版）：卡片、表格是实白的一层，浮在 72% 的正文玻璃上——
+   边换成半透明白线、垫一道很浅的影子；筛选框、分段切换这些小控件是更薄的一层白，看得出底下的玻璃 */
+html.glass .card-soft, html.glass .ant-card, html.glass .set-body {
+  border-color: color-mix(in srgb, var(--panel) 70%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent), 0 6px 18px -10px color-mix(in srgb, var(--ink) 14%, transparent); }
+html.glass .ant-table-wrapper .ant-table { border: 1px solid color-mix(in srgb, var(--panel) 70%, transparent); border-radius: var(--r-card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent), 0 6px 18px -10px color-mix(in srgb, var(--ink) 14%, transparent); overflow: hidden; }
+html.glass .ant-table-wrapper .ant-table-thead > tr > th { background: color-mix(in srgb, var(--workbench) 70%, var(--panel)); }
+html.glass .ant-input-affix-wrapper, html.glass .ant-input-outlined, html.glass .ant-select-outlined .ant-select-selector, html.glass .ant-picker-outlined {
+  background: color-mix(in srgb, var(--panel) 78%, transparent); }
+html.glass .ant-segmented { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+html.glass .ant-pagination .ant-pagination-item, html.glass .ant-pagination .ant-select-selector { background: color-mix(in srgb, var(--panel) 70%, transparent); }
 
 /* ---------- 桌面端的门（login/DesktopAuth.tsx）：左边一句话，右边一个表单 ---------- */
 .auth { position: relative; min-height: 100vh; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.15fr); background: var(--page-bg); }
