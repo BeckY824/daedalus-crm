@@ -192,3 +192,36 @@ describe("AI 报错说人话（2026-10-02 排查 AI B1）", () => {
     expect(AI报错人话(400, "{}")).not.toContain("{");
   });
 });
+
+describe("等不到就重发一次（2026-10-02 实测中转站偶尔卡 30–200 秒）", () => {
+  it("第一次超时：重发一次，第二次回来就用它；带同一个问题编号", async () => {
+    const { chatJSON, 首字等待毫秒 } = await import("@/lib/llm");
+    const 原 = { ...首字等待毫秒 };
+    首字等待毫秒.短输出 = 50;
+    process.env.LLM_API_KEY = "k";
+    process.env.LLM_BASE_URL = "https://relay.example/v1";
+    process.env.LLM_MODEL = "m";
+    const 编号们: (string | null)[] = [];
+    let 次 = 0;
+    vi.stubGlobal("fetch", async (_u: string, init: RequestInit) => {
+      次++;
+      编号们.push(new Headers(init.headers).get("X-Question-Id"));
+      if (次 === 1) {
+        // 第一次一直不回，直到被 signal 掐掉
+        await new Promise((_, rej) => init.signal?.addEventListener("abort", () => rej(Object.assign(new Error("timeout"), { name: "TimeoutError" }))));
+      }
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":1}' }, finish_reason: "stop" }] }), { status: 200 });
+    });
+    try {
+      expect(await chatJSON("x", { maxTokens: 500, timeoutMs: 30_000 })).toEqual({ ok: 1 });
+      expect(次).toBe(2);
+      expect(编号们[0]).toBeTruthy();
+      expect(编号们[1]).toBe(编号们[0]);
+    } finally {
+      Object.assign(首字等待毫秒, 原);
+      delete process.env.LLM_API_KEY;
+      delete process.env.LLM_BASE_URL;
+      delete process.env.LLM_MODEL;
+    }
+  });
+});

@@ -143,6 +143,9 @@ export type ToolMessage =
 export type 工具调用 = { id: string; type: "function"; function: { name: string; arguments: string } };
 export type 工具声明 = { type: "function"; function: { name: string; description: string; parameters: unknown } };
 
+/** 第一次等多久就重发（见 chatRaw）。导出给测试改小 */
+export const 首字等待毫秒 = { 流式: 20_000, 短输出: 25_000 };
+
 async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean, tools?: 工具声明[]): Promise<Response> {
   const 模型 = opts.model ?? cfg.model;
   const 键 = 上游键(cfg, 模型);
@@ -170,14 +173,32 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
   const 额外头: Record<string, string> = {};
   if (opts.requestId) 额外头["X-Question-Id"] = opts.requestId;
   if (opts.feature) 额外头["X-Feature"] = opts.feature;
-  let res: Response;
-  try {
-    res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+  /*
+    等不到就快点重发一次（2026-10-02 实测）：中转站偶尔对同一份请求卡 30–200 秒才回第一个字，
+    原样重发通常 3 秒内就回来了。原来干等满 60 / 120 秒，用户对着「在想」等两分钟。
+    只对「回第一个字本该很快」的请求这么做：流式（fetch 在收到响应头时就返回）和输出短的非流式；
+    要长篇输出的（粘贴整理 8000 token）照旧等满。重发带着同一个问题编号，网关不会多扣次数。
+  */
+  const 总超时 = opts.timeoutMs ?? 60_000;
+  const 该快 = stream || Number(body.max_tokens) <= 2_000;
+  const 首轮 = 该快 ? Math.min(总超时, stream ? 首字等待毫秒.流式 : 首字等待毫秒.短输出) : 总超时;
+  const 发 = (等: number) =>
+    fetch(`${cfg.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}`, ...额外头 },
       body: JSON.stringify(body),
-      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 60_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(等)]) : AbortSignal.timeout(等),
     });
+  let res: Response;
+  try {
+    try {
+      res = await 发(首轮);
+    } catch (e) {
+      const 人停的 = opts.signal?.aborted;
+      if (!(e instanceof Error && e.name === "TimeoutError") || 人停的 || 首轮 >= 总超时) throw e;
+      console.warn(`[llm] ${Math.round(首轮 / 1000)} 秒没等到回音，重发一次`);
+      res = await 发(Math.max(15_000, 总超时 - 首轮));
+    }
   } catch (e) {
     // 超时、人点了停：原样抛，调用方按 name 认（TimeoutError / AbortError）
     if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e;

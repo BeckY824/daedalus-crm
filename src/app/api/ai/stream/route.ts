@@ -111,7 +111,17 @@ export async function POST(req: Request) {
       } catch (e) {
         // 次数该退的已经在 带额度 里退过了，这里只管把错误说成人话
         // requireUser 未登录时会 redirect()，在路由里表现为抛错
-        const msg = e instanceof Error && /NEXT_REDIRECT/.test(e.message) ? "登录已失效，请刷新页面" : e instanceof Error ? e.message : "生成失败";
+        const msg =
+          e instanceof Error && /NEXT_REDIRECT/.test(e.message)
+            ? "登录已失效，请刷新页面"
+            : e instanceof Error && e.name === "TimeoutError"
+              ? // 原来摆的是英文「The operation was aborted due to timeout」（2026-10-02）
+                "AI 这次一直没回音（已经重发过一次），稍后再问一次试试"
+              : e instanceof Error && e.name === "AbortError"
+                ? "已停止"
+                : e instanceof Error
+                  ? e.message
+                  : "生成失败";
         send({ type: "result", ok: false, error: msg });
       } finally {
         controller.close();

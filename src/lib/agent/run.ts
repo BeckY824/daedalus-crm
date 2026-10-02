@@ -521,7 +521,14 @@ ${工作方式}
         // 结果要按 tool_call_id 回去，记下来给下面用
         选择.回执.push({ role: "tool", tool_call_id: c.id, content: "" });
       } catch (e) {
-        // 对面不吃 tools：这一整轮退回 JSON 协议，不再试
+        /*
+          只有「对面不吃 tools」（4xx 里的 400 / 404 / 415 / 422）才退回 JSON 协议。
+          超时、5xx、429、次数用完、令牌失效、人点了停：原样抛出去，这一问说清楚失败了——
+          原来一律退回 JSON 协议再等 90 秒，用户对着「在想」干等两三分钟（2026-10-02 实测：
+          中转站偶尔一次卡 30–200 秒，换协议也救不回来，只是多等）
+        */
+        const 状态 = (e as { status?: number }).status;
+        if (!(状态 && [400, 404, 415, 422].includes(状态))) throw e;
         用原生 = false;
         console.warn(`[agent] 原生 function calling 不可用，退回 JSON 协议：${e instanceof Error ? e.message.slice(0, 160) : e}`);
       }
