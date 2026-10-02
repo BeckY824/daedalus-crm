@@ -122,24 +122,45 @@ function 读账号id(文件路径) {
  * 菜单里不摆一项点了没反应的东西。
  */
 async function 能开运营台() {
+  return (await 运营台状态()) === true;
+}
+
+/**
+ * 同一个问题的三态版：能 true / 明确不能 false / 问不到 null（断网、云端 5xx）。
+ * 运营通知用它：断一会儿网不该把通知停掉、把游标清掉——那样联网后中间那段就漏了。
+ */
+async function 运营台状态() {
   const c = 读();
   if (!c) return false;
   const r = await 请求(`${c.baseUrl}/api/ops/can`, { headers: { Authorization: `Bearer ${c.token}` } });
-  return Boolean(r.ok && r.data?.ok);
+  if (r.ok) return Boolean(r.data?.ok);
+  return r.状态 && r.状态 < 500 ? false : null;
 }
 
 /**
  * 拿设备令牌换一枚一次性进门码，返回运营台窗口要打开的完整地址。
  * 码 60 秒有效、用一次就作废；换成的运营台票在那个窗口的 cookie 里，本机不落任何口令。
  */
-async function 运营台地址() {
+async function 运营台地址(去处 = null) {
   const c = 读();
   if (!c) return { ok: false, error: "还没登录云端账号" };
-  const r = await 请求(`${c.baseUrl}/api/ops/enter`, { method: "POST", headers: { Authorization: `Bearer ${c.token}` } });
+  const q = 去处 ? `?next=${encodeURIComponent(去处)}` : "";
+  const r = await 请求(`${c.baseUrl}/api/ops/enter${q}`, { method: "POST", headers: { Authorization: `Bearer ${c.token}` } });
   if (!r.ok) return { ok: false, error: r.状态 === 403 ? "这个账号不能打开运营台" : r.error };
   const 路径 = typeof r.data?.path === "string" && r.data.path.startsWith("/admin/enter?") ? r.data.path : null;
   if (!路径) return { ok: false, error: "服务器没给进门的地址" };
   return { ok: true, url: `${c.baseUrl}${路径}` };
 }
 
-module.exports = { 初始化, 读, 清, 校验, 读账号id, 默认云端, 能开运营台, 运营台地址 };
+/**
+ * 运营通知（云端 /api/ops/notices，只有运营账号拿得到）。问不到返回 null，调用方把游标留在原地。
+ */
+async function 运营通知(since) {
+  const c = 读();
+  if (!c) return null;
+  const q = since ? `?since=${encodeURIComponent(since)}` : "";
+  const r = await 请求(`${c.baseUrl}/api/ops/notices${q}`, { headers: { Authorization: `Bearer ${c.token}` } });
+  return r.ok ? r.data : null;
+}
+
+module.exports = { 初始化, 读, 清, 校验, 读账号id, 默认云端, 能开运营台, 运营台状态, 运营台地址, 运营通知 };

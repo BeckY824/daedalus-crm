@@ -39,6 +39,7 @@
       "backup.js",
       "crashlog.js",
       "reminders.js",
+      "ops-notices.js",
       "sign.js",
       "assets/**"
     ],

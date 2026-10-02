@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { multiTenant } from "@/lib/tenant/context";
-import { 用进门码, 签运营票, 运营COOKIE, 运营票秒, 票要HTTPS } from "@/lib/ops-auth";
+import { 用进门码, 签运营票, 运营COOKIE, 运营票秒, 票要HTTPS, 运营去处 } from "@/lib/ops-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -11,10 +11,11 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   if (!multiTenant()) return new NextResponse("Not Found", { status: 404 });
-  const accountId = 用进门码(new URL(req.url).searchParams.get("code"));
+  const sp = new URL(req.url).searchParams;
+  const accountId = 用进门码(sp.get("code"));
   if (!accountId) return new NextResponse("Not Found", { status: 404 });
   // 相对地址跳：和 /api/desktop/session 一个道理，不把 req.url 里的主机名拼回去
-  const res = new NextResponse(null, { status: 303, headers: { Location: "/admin" } });
+  const res = new NextResponse(null, { status: 303, headers: { Location: 运营去处(sp.get("next")) ?? "/admin" } });
   res.cookies.set(运营COOKIE, await 签运营票(accountId), {
     httpOnly: true,
     sameSite: "lax",

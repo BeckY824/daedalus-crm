@@ -34,6 +34,7 @@ const 窗装 = require("./windows-install");
 const 备份 = require("./backup");
 const 崩溃 = require("./crashlog");
 const 提醒 = require("./reminders");
+const 运营通知 = require("./ops-notices");
 
 /*
   这台装的是哪个版本。写进主进程自己的环境变量：desktop/cloud.js 发云端请求时带上它，
@@ -455,14 +456,34 @@ let 提醒器 = null;
 let 运营台可用 = false;
 let 运营窗 = null;
 let 上次问运营台 = 0;
+/*
+  运营通知（desktop/ops-notices.js）：新注册、新反馈、用量异常。**跟着「运营台…」那一项一起开关**——
+  能开运营台才起轮询，不能了马上停、游标文件删掉。别的账号的电脑上这个东西根本不存在。
+*/
+let 运营通知器 = null;
+
+function 发运营通知(标题, 正文, 去处) {
+  if (!Notification.isSupported()) return;
+  const n = new Notification({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) });
+  n.on("click", () => void 打开运营台(去处));
+  n.show();
+}
 
 async function 查运营台(force = false) {
   if (!force && Date.now() - 上次问运营台 < 5 * 60_000) return;
   上次问运营台 = Date.now();
-  const 能 = 读配置().mode === "local" ? await 云端.能开运营台().catch(() => false) : false;
+  const 态 = 读配置().mode === "local" ? await 云端.运营台状态().catch(() => null) : false;
+  const 能 = 态 === true;
   if (能 !== 运营台可用) {
     运营台可用 = 能;
     建菜单();
+  }
+  if (能 && !运营通知器) {
+    运营通知器 = 运营通知.开始({ 文件: path.join(数据根, "ops-notices.json"), 问: (since) => 云端.运营通知(since), 通知: 发运营通知 });
+  } else if (态 === false && 运营通知器) {
+    // 只在「明确不能」时停：问不到（断网）就让它留着，它自己那几轮也问不到，游标不动，联网后接着补
+    运营通知器.停();
+    运营通知器 = null;
   }
   /*
     不能开了（换了人、被移出运营名单、退出了）：开着的运营台窗口关掉，那个分区里存着的运营台票也清掉——
@@ -474,14 +495,19 @@ async function 查运营台(force = false) {
   }
 }
 
-async function 打开运营台() {
+async function 打开运营台(去处 = null) {
   if (运营窗 && !运营窗.isDestroyed()) {
+    // 点通知进来的：开着的窗口直接换到那一页（票在这个分区的 cookie 里，过期了会 404，那就重新走进门）
+    if (去处) {
+      const 源 = new URL(运营窗.webContents.getURL() || "about:blank").origin;
+      if (源 && 源 !== "null") 运营窗.loadURL(`${源}${去处}`);
+    }
     if (运营窗.isMinimized()) 运营窗.restore();
     运营窗.show();
     运营窗.focus();
     return;
   }
-  const r = await 云端.运营台地址();
+  const r = await 云端.运营台地址(去处);
   if (!r.ok) {
     dialog.showMessageBox({ type: "warning", message: "打不开运营台", detail: r.error ?? "" });
     // 可能是被移出名单了：重新问一次，菜单里那一项该收就收

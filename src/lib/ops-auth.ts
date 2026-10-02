@@ -32,6 +32,15 @@ export function 运营名单(env: Record<string, string | undefined> = process.e
     .filter(Boolean);
 }
 
+/**
+ * 进门后跳去哪：只认运营台自己的路径（/admin、/admin/users/xxx 这种），别的一律不认——
+ * 不然 next 就成了一个开放跳转，能把拿着运营台票的人带去任何地方。
+ */
+export function 运营去处(next: string | null | undefined): string | null {
+  if (!next) return null;
+  return /^\/admin(\/[A-Za-z0-9_-]+)*$/.test(next) ? next : null;
+}
+
 /** 这个账号能不能开运营台：在名单里、而且没被停用 */
 export async function 是运营账号(accountId: string): Promise<boolean> {
   const 名单 = 运营名单();
