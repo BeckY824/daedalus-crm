@@ -214,7 +214,8 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
     const 动过 = 要改.filter((f) => f in input.现值! && 此刻 && 此刻[f] !== input.现值![f]);
     if (此刻 && 动过.length) {
       const 说 = 动过.map((f) => `「${字段名(f, b)}」已经是「${显示值(f, 此刻[f], b) || "空"}」`).join("，");
-      return { ok: false, error: `这张卡出来之后有人改过：${说}。为了不盖掉刚改的，这次没保存——重新问一次再确认` };
+      // 不说「有人改过」：桌面端一个人也会撞上（同一轮两张卡都动了同一格，或出卡后自己去档案页改了）
+      return { ok: false, error: `这张卡出来之后，${说}。为了不盖掉，这次没保存——重新问一次再确认` };
     }
   }
 

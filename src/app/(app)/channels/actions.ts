@@ -45,7 +45,7 @@ export async function saveChannel(input: {
 
   if (input.id) {
     const 改前 = await prisma.channel.findUnique({ where: { id: input.id }, select: { channelOwnerId: true } });
-    if (!改前) return { ok: false, error: "这个渠道已经不在了，可能被别人删了" };
+    if (!改前) return { ok: false, error: "这个渠道已经不在了（可能已删除）" };
     const 写了 = await prisma.channel.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data });
     if (写了.count === 0) return { ok: false, error: 版本冲突 };
     /**

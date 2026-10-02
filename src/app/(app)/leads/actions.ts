@@ -52,7 +52,7 @@ export async function saveLead(input: {
   };
   if (input.id) {
     const 写了 = await prisma.lead.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data });
-    if (写了.count === 0) return { ok: false as const, error: 原来源 === undefined ? "这条线索已经不在了，可能被别人删了" : 版本冲突 };
+    if (写了.count === 0) return { ok: false as const, error: 原来源 === undefined ? "这条线索已经不在了（可能已删除）" : 版本冲突 };
     await recordAudit({
       user, action: "update", entity: "Lead", entityId: input.id,
       summary: `修改线索「${data.name}」：${data.source} · ${data.status}`,
@@ -129,7 +129,7 @@ export async function convertLead(id: string) {
     });
     // 没抢到闸门说明别人刚刚转化过，此处尚未写入任何数据，直接退出即可
     if (gate.count === 0) {
-      return { ok: false as const, error: "该线索刚刚已被其他人转化，请刷新查看" };
+      return { ok: false as const, error: "这条线索刚刚已经转化过了，刷新看看" };
     }
 
     // 线索名 → 公司、联系人 → 姓名、行业和来源一起带过去（审查 M13），规则在 lib/lead-convert.ts

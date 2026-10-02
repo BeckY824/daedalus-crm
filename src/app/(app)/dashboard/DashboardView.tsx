@@ -61,7 +61,11 @@ type Props = {
   aiEnabled: boolean;
 };
 
-export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, aiEnabled, 内嵌 }: Props & { 内嵌?: boolean }) {
+export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, aiEnabled, 内嵌, 多人 = true }: Props & {
+  内嵌?: boolean;
+  /** 不止一个负责人。一个人用（桌面端）时卡片说明不写「全团队」——没有团队（2026-10-02 按桌面端复核） */
+  多人?: boolean;
+}) {
   const b = useBusiness();
   // 这个下拉原本没有接线，选了没反应，而卡片上又写着「本月」——比没有更误导
   const [窗口, set窗口] = useState<"本月" | "本季">("本月");
@@ -204,7 +208,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                知道它是 0 和不知道它是多少，是两件完全不同的事 */
             value={money(stats.签约本月)}
             delta={stats.签约环比}
-            note={stats.签约环比 === undefined ? "按签约日期算，全团队" : undefined}
+            note={stats.签约环比 === undefined ? (多人 ? "按签约日期算，全团队" : "按签约日期算") : undefined}
             href="/overview?view=本月"
           />
         </Col>
@@ -234,7 +238,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             color={stats.逾期跟进 > 0 ? palette.danger : categorical.violet}
             label="逾期跟进"
             value={stats.逾期跟进.toLocaleString()}
-            note={stats.逾期跟进 > 0 ? "全团队的计划和待办，时间已经过去了" : "都跟上了"}
+            note={stats.逾期跟进 > 0 ? `${多人 ? "全团队的" : ""}计划和待办，时间已经过去了` : "都跟上了"}
             // 这张卡是全团队口径：点进去先看「全部成员」，数才对得上（排查 C2）
             href="/follow-ups/plans?scope=all"
           />

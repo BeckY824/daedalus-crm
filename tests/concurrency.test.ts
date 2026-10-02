@@ -219,7 +219,7 @@ describe("两人同时编辑同一条客户", () => {
     const r = await submit(甲, { school: "北京大学" });
     expect(r.ok).toBe(false);
     if (r.ok) throw new Error("unreachable");
-    expect(r.error).toContain("已被其他人删除");
+    expect(r.error).toContain("已经不在了");
   });
 
   it("不带版本号的修改请求一律拒绝，避免绕开闸门", async () => {
@@ -626,7 +626,7 @@ describe("删除签约后的状态回退", () => {
     const again = await deleteContract(ct.id, c.id, null);
     expect(again.ok).toBe(false);
     if (again.ok) throw new Error("unreachable");
-    expect(again.error).toContain("已不存在");
+    expect(again.error).toContain("已经不在了");
   });
 
   it("回退档位有白名单，接口直调塞不进枚举外的值", async () => {

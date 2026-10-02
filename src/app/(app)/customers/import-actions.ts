@@ -365,7 +365,7 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
         continue;
       }
       if (被改过) {
-        没动.push({ name: c.name, 原因: "导入之后有人改过他的档案" });
+        没动.push({ name: c.name, 原因: "导入之后又改过他的档案" });
         continue;
       }
       await prisma.customer.delete({ where: { id: c.id } });
@@ -375,7 +375,7 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
 
     // update：把当时补进去的那几格还原成原来的样子（按定义全是空）
     if (被改过) {
-      没动.push({ name: c.name, 原因: "导入之后有人改过他的档案" });
+      没动.push({ name: c.name, 原因: "导入之后又改过他的档案" });
       continue;
     }
     let before: Record<string, unknown> = {};

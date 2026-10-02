@@ -198,21 +198,22 @@ function CustomerFormInner({
             type="error"
             showIcon
             style={{ marginBottom: 16 }}
-            title="有人和你改了同一项，你的改动没有保存"
+            // 不说「有人」「对方」：桌面端一个人开两个窗口也会撞上（2026-10-02 按桌面端 / 网页端复核）
+            title="这一项在你编辑期间也被改过，你的改动没有保存"
             description={
               <>
                 <div>
-                  对方在 {dayjs(conflict.currentUpdatedAt).format("MM-DD HH:mm:ss")} 也改了这条记录，
-                  你们都动了：<b>{conflict.fields.join("、")}</b>。
+                  这条记录在 {dayjs(conflict.currentUpdatedAt).format("MM-DD HH:mm:ss")} 又被改过，
+                  两边都动了：<b>{conflict.fields.join("、")}</b>。
                   {conflict.theirFields.length > conflict.fields.length && (
-                    <> 对方另外还改了：{conflict.theirFields
+                    <> 那一次另外还改了：{conflict.theirFields
                       .filter((f) => !conflict.fields.includes(f))
                       .join("、")}。</>
                   )}
                 </div>
                 <div style={{ marginTop: 8 }}>
-                  两个人改到同一项，系统不替你决定用谁的。请关闭后刷新，
-                  看清对方填的是什么，再决定保留哪一个。
+                  两次改到同一项，系统不替你决定留哪一个。请关闭后刷新，
+                  看清现在是什么，再决定要不要改回来。
                 </div>
               </>
             }
@@ -369,7 +370,8 @@ function CustomerFormInner({
 
         {/* 渠道负责人：默认跟着推荐链算；只有登记错误才需要在这里单独指定，
             指定后不再随渠道变动，也不影响任何其他学员 */}
-        {editing && (
+        {/* 一个人用时不摆：推荐链和手选都只能是自己（2026-10-02 按桌面端复核） */}
+        {editing && !独自一人(users, editing.channelOwnerId) && (
           <Form.Item
             name="channelOwnerId"
             label="渠道负责人"
@@ -490,14 +492,17 @@ function QuickChannelModal({
         <Form.Item label="联系电话" name="phone">
           <Input placeholder="选填" />
         </Form.Item>
-        <Form.Item
-          label="渠道负责人"
-          name="channelOwnerId"
-          rules={[{ required: true, message: "请选择渠道负责人" }]}
-          extra={`该渠道带来的${b.customer}及其下游转介绍，渠道负责人都归此人`}
-        >
-          <Select placeholder="请选择" options={成员选项(users)} />
-        </Form.Item>
+        {/* 一个人用时不问：不传，服务端填成那唯一的人（saveChannel 的 唯一负责人） */}
+        {!独自一人(users) && (
+          <Form.Item
+            label="渠道负责人"
+            name="channelOwnerId"
+            rules={[{ required: true, message: "请选择渠道负责人" }]}
+            extra={`该渠道带来的${b.customer}及其下游转介绍，渠道负责人都归此人`}
+          >
+            <Select placeholder="请选择" options={成员选项(users)} />
+          </Form.Item>
+        )}
         <Form.Item label="备注" name="remark">
           <Input.TextArea rows={2} placeholder="选填" />
         </Form.Item>

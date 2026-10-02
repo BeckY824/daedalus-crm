@@ -90,7 +90,7 @@ export async function saveOpportunity(input: {
   if (input.id) {
     const 写了 = await prisma.opportunity.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data });
     if (写了.count === 0) {
-      return { ok: false as const, error: 原状态 === null ? "这个商机已经不在了，可能被别人删了" : 版本冲突 };
+      return { ok: false as const, error: 原状态 === null ? "这个商机已经不在了（可能已删除）" : 版本冲突 };
     }
     await 记结单(input.id, 原状态, data.status);
     await recordAudit({
@@ -123,7 +123,7 @@ export async function moveStage(id: string, stage: string, 还原概率?: number
     return { ok: false as const, error: `商机阶段「${stage}」不是合法取值` };
   }
   const before = await prisma.opportunity.findUnique({ where: { id }, select: { status: true, stage: true, name: true, probability: true } });
-  if (!before) return { ok: false as const, error: "商机不存在，可能已被其他人删除" };
+  if (!before) return { ok: false as const, error: "商机不存在（可能已删除）" };
 
   /**
    * 已丢单的商机不因为换个阶段就复活。
@@ -177,7 +177,7 @@ export async function setOppStatus(
     }
   }
   const 原 = await prisma.opportunity.findUnique({ where: { id }, select: { status: true } });
-  if (!原) return { ok: false as const, error: "商机不存在，可能已被其他人删除" };
+  if (!原) return { ok: false as const, error: "商机不存在（可能已删除）" };
   const o = await prisma.opportunity.update({
     where: { id },
     data: {

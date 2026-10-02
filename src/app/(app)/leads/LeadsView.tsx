@@ -163,7 +163,7 @@ export default function LeadsView({
                   async onOk() {
                     const res = await deleteLeads([r.id]);
                     // 行可能已被别人删掉，如实说，别一律提示「已删除」
-                    message.success(res.deleted ? "已删除" : "该线索已不存在，可能已被其他人删除");
+                    message.success(res.deleted ? "已删除" : "这条线索已经不在了（可能已删除）");
                     router.refresh();
                   },
                 })

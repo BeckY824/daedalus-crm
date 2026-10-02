@@ -254,6 +254,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   return (
     <DashboardView
       内嵌={内嵌}
+      多人={owners.length > 1}
       /**
        * 空库时整页换成一张「从哪开始」——对着空库画四个 0、一条平的折线和全 0 的管道，
        * 既不好看也不给信息，第一次打开的人还以为是坏了。

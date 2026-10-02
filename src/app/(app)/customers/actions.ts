@@ -147,7 +147,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   const labels = customerFieldLabels(b);
 
   const 改前 = input.id ? await prisma.customer.findUnique({ where: { id: input.id } }) : null;
-  if (input.id && !改前) return { ok: false, error: `这条${b.customer}已被其他人删除，无法保存` };
+  if (input.id && !改前) return { ok: false, error: `这条${b.customer}已经不在了（可能已删除），无法保存` };
 
   /*
     电话：和导入、表单同一条规矩（lib/phone.ts）。新建必填；编辑时原来有号码的不许清空，
@@ -309,7 +309,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   for (let attempt = 0; attempt < 3; attempt++) {
     const current = await prisma.customer.findUnique({ where: { id: input.id } });
     if (!current) {
-      return { ok: false, error: `这条${b.customer}已被其他人删除，无法保存` };
+      return { ok: false, error: `这条${b.customer}已经不在了（可能已删除），无法保存` };
     }
     const currentRow = current as unknown as Record<string, unknown>;
 
@@ -318,7 +318,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       const fields = conflictingFields(currentRow, data);
       return {
         ok: false,
-        error: `这条${b.customer}在你编辑期间已被其他人修改，本次保存已取消`,
+        error: `这条${b.customer}在你打开编辑框之后又变过了，本次保存已取消`,
         conflict: { currentUpdatedAt: current.updatedAt.toISOString(), fields, theirFields: fields },
       };
     }
@@ -332,7 +332,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     if (overlap.length) {
       return {
         ok: false,
-        error: `这条${b.customer}在你编辑期间已被其他人修改，本次保存已取消`,
+        error: `这条${b.customer}在你打开编辑框之后又变过了，本次保存已取消`,
         conflict: {
           currentUpdatedAt: current.updatedAt.toISOString(),
           fields: labelsOf(overlap),
@@ -765,7 +765,7 @@ export async function deleteContract(
   const 待删 = await prisma.contract.findUnique({ where: { id }, select: { amount: true, signedAt: true } });
   const gone = await prisma.contract.deleteMany({ where: { id, customerId } });
   if (gone.count === 0) {
-    return { ok: false, error: "这条签约记录已不存在，可能已被其他人删除" };
+    return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
   }
 
   const remaining = await prisma.contract.count({ where: { customerId } });
