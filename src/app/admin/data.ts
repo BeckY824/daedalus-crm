@@ -289,10 +289,19 @@ export type 反馈条 = {
   who: string | null;
   accountId: string | null;
   handled: boolean;
+  /** 回复默认发到哪：桌面端是云端账号的邮箱；网页版、只留了手机号的账号没有，要运营自己填 */
+  邮箱: string | null;
+  回复: { id: string; at: string; to: string; body: string; by: string | null }[];
 };
 
 export async function 读反馈(): Promise<反馈条[]> {
   const 行 = await control.feedback.findMany({ orderBy: { at: "desc" }, take: 300 });
+  const 账号ids = [...new Set(行.map((f) => f.accountId).filter((x): x is string => Boolean(x)))];
+  const [账号们, 回复们] = await Promise.all([
+    control.account.findMany({ where: { id: { in: 账号ids } }, select: { id: true, email: true } }),
+    control.feedbackReply.findMany({ where: { feedbackId: { in: 行.map((f) => f.id) } }, orderBy: { at: "asc" } }),
+  ]);
+  const 邮箱of = new Map(账号们.map((a) => [a.id, a.email]));
   return 行.map((f) => ({
     id: f.id,
     at: f.at.toISOString(),
@@ -304,6 +313,10 @@ export async function 读反馈(): Promise<反馈条[]> {
     who: f.who,
     accountId: f.accountId,
     handled: f.handled,
+    邮箱: (f.accountId && 邮箱of.get(f.accountId)) || null,
+    回复: 回复们
+      .filter((r) => r.feedbackId === f.id)
+      .map((r) => ({ id: r.id, at: r.at.toISOString(), to: r.to, body: r.body, by: r.by })),
   }));
 }
 

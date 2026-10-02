@@ -11,6 +11,7 @@ import { createWorkspace } from "@/lib/tenant/workspaces";
 import { createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
 import { 加次数 } from "@/lib/tenant/ai-allowance";
 import { 赠送 } from "@/lib/tenant/credits";
+import { 查回复, 回复通道可用, 组回复邮件, 回信地址, 发回复 } from "@/lib/feedback-reply";
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
 
@@ -164,6 +165,38 @@ export async function 标记反馈(input: { token: string; id: string; handled: 
   const g = await guard(input.token);
   if (!g.ok) return g;
   await control.feedback.update({ where: { id: input.id }, data: { handled: input.handled } });
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}
+
+/**
+ * 回复一条反馈：用邮件发到对方邮箱（见 lib/feedback-reply.ts），发出去了才留底、才算处理过了。
+ * 发不出去就原样报错、什么都不记——「运营台上显示回过了、其实对方没收到」比没回更糟。
+ */
+export async function 回复反馈(input: { token: string; id: string; to: string; body: string }): Promise<AdminResult> {
+  const g = await guard(input.token);
+  if (!g.ok) return g;
+  const 查 = 查回复(input.to, input.body);
+  if (!查.ok) return 查;
+  if (!回复通道可用()) return { ok: false, error: "邮件通道没配好（SMTP），发不出去" };
+  const f = await control.feedback.findUnique({ where: { id: input.id } });
+  if (!f) return { ok: false, error: "这条反馈不在了" };
+
+  // 谁在回：从桌面端进来的有运营账号；用网址口令进来的不知道是谁
+  const 运营 = await 当前运营账号();
+  const 运营邮箱 = 运营 ? ((await control.account.findUnique({ where: { id: 运营 }, select: { email: true } }))?.email ?? null) : null;
+
+  const 信 = 组回复邮件({ to: 查.to, body: 查.body, 原话: f.body, 原话时间: f.at, replyTo: 回信地址(运营邮箱) });
+  try {
+    await 发回复(信);
+  } catch (e) {
+    console.error("[feedback] 回复邮件发送失败：", e instanceof Error ? e.message : e);
+    return { ok: false, error: "邮件没发出去，稍后再试" };
+  }
+  await control.$transaction([
+    control.feedbackReply.create({ data: { feedbackId: f.id, to: 查.to, body: 查.body, by: 运营邮箱 ?? "口令" } }),
+    control.feedback.update({ where: { id: f.id }, data: { handled: true } }),
+  ]);
   revalidatePath("/admin", "layout");
   return { ok: true };
 }

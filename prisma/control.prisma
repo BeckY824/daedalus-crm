@@ -368,3 +368,18 @@ model DeviceInfo {
   version       String?
   updatedAt     DateTime @default(now())
 }
+
+/// 运营台回复反馈（2026-10-02）：在运营台写，用邮件发到对方邮箱，这里留一份底。
+/// 单独一张表而不是给 Feedback 加列：控制面只能加表。一条反馈可以来回好几封。
+model FeedbackReply {
+  id         String   @id @default(cuid())
+  feedbackId String
+  at         DateTime @default(now())
+  /// 发到哪个邮箱
+  to         String
+  body       String
+  /// 谁回的：运营账号的邮箱，用网址口令进来的记「口令」
+  by         String?
+
+  @@index([feedbackId])
+}
