@@ -112,7 +112,7 @@ export default function ChannelsView({
       render: (v: number, r) => (
         <Tooltip title={`这条渠道亲自带来的${b.customer}，不含他们再转介绍来的`}>
           {/* 空值和别的列一样写「—」（审查 D12），原来这一列写 0、隔壁写「0 人」 */}
-          {v > 0 ? <Link href={`/customers?keyword=${encodeURIComponent(r.name)}`}>{v} 人</Link> : <span className="muted">—</span>}
+          {v > 0 ? <Link href={`/customers?directOf=${encodeURIComponent(r.id)}`}>{v} 人</Link> : <span className="muted">—</span>}
         </Tooltip>
       ),
     },

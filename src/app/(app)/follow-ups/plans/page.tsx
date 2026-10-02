@@ -9,7 +9,7 @@ export default async function PlansPage({
   searchParams,
 }: {
   /** customer：从某位客户带过来的，「新建计划」预填他；new=1：进来就把新建框打开 */
-  searchParams: Promise<{ customer?: string; new?: string }>;
+  searchParams: Promise<{ customer?: string; new?: string; scope?: string }>;
 }) {
   const me = await requireUser();
   const sp = await searchParams;
@@ -69,6 +69,7 @@ export default async function PlansPage({
       meId={me.id}
       预选客户={预选客户}
       直接新建={sp.new === "1"}
+      全员={sp.scope === "all"}
       plans={plans.map((p) => ({
         id: p.id,
         subject: p.subject,

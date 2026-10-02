@@ -11,6 +11,8 @@ import HomeChat, { type Suggestion } from "./HomeChat";
 import StartCard from "./StartCard";
 import { 读对话 } from "./threads";
 import { 数逾期跟进 } from "@/lib/overdue";
+import { 取提醒项 } from "@/lib/reminders-db";
+import { 算提醒 } from "@/lib/reminders";
 
 export const dynamic = "force-dynamic";
 
@@ -42,11 +44,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const b = await getBusiness();
   const now = dayjs();
-  const [todayPlans, myPlans, myLast, watchlist, models, 逾期, 高意向, 本月签约, 学员数] = await Promise.all([
-    prisma.followPlan.count({ where: { ownerId: user.id, done: false, plannedAt: { gte: now.startOf("day").toDate(), lt: now.endOf("day").toDate() } } }),
+  const [提醒项, 没做完的待办, myPlans, myLast, mine, models, 逾期, 高意向, 本月签约, 学员数] = await Promise.all([
+    // 欢迎句「今天要跟 N 条」和左栏角标、Dock 同一个函数（lib/reminders）：计划 + 待办、逾期 + 今天（排查 C5）
+    取提醒项(user.id),
+    prisma.task.count({ where: { ownerId: user.id, done: false } }),
     prisma.followPlan.count({ where: { ownerId: user.id, done: false } }),
     prisma.followUp.findFirst({ where: { ownerId: user.id }, orderBy: { occurredAt: "desc" }, select: { customer: { select: { name: true } } } }),
-    loadWatchlist(now),
+    // 只看我名下的、先筛再排前 8（排查 C7）。原来先取全团队前 8 再按姓名筛，会数漏、重名会混
+    loadWatchlist(now, { ownerId: user.id }),
     listModelOptions(),
     /*
       首页那一行信号。三个数都必须是**这一刻真查出来的**，而且每个都能点到
@@ -61,9 +66,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   ]);
 
   const 就我一个人 = (await 唯一负责人()) !== null;
-  const mine = watchlist.filter((w) => w.ownerName === user.name);
   const parts: string[] = [];
-  parts.push(todayPlans > 0 ? `今天有 ${todayPlans} 条跟进计划` : myPlans > 0 ? `有 ${myPlans} 条未完成的跟进计划` : "今天没有排跟进计划");
+  const 要跟 = 算提醒(提醒项);
+  const 今天要跟 = 要跟.逾期 + 要跟.今天;
+  const 没做完 = myPlans + 没做完的待办;
+  parts.push(
+    今天要跟 > 0
+      ? `今天要跟 ${今天要跟} 条${要跟.逾期 ? `（${要跟.逾期} 条已逾期）` : ""}`
+      : 没做完 > 0
+        ? `有 ${没做完} 条没做完的计划和待办`
+        : "今天没有要跟的",
+  );
   if (mine.length > 0) parts.push(`${mine.length} 位${b.customer}正在被遗忘`);
   if (myLast?.customer.name) parts.push(`上次跟的是${myLast.customer.name}`);
 
@@ -117,7 +130,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       context={parts.join("，") + "。"}
       models={models}
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
-      空库={学员数 === 0 && watchlist.length === 0 && myPlans === 0}
+      空库={学员数 === 0 && mine.length === 0 && myPlans === 0}
       信号={{
         逾期,
         高意向,

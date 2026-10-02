@@ -2,24 +2,31 @@
  * 盯盘清单的取数：从库里捞出三类原料，交给 sentinel.ts 的纯规则打分。
  * 首页（AI 对话的建议 chip）和数据看板（盯盘卡片）共用，避免两处各写一遍查询。
  */
+import { 今天零点 } from "./overdue";
 import { prisma } from "./prisma";
 import { dayjs } from "./utils";
 import { buildWatchlist, type WatchItem } from "./sentinel";
 import { getBusiness } from "./business";
 import { statusLabel } from "./business-config";
 
-export async function loadWatchlist(now = dayjs()): Promise<WatchItem[]> {
+/**
+ * `范围.ownerId` 给了就只看这个人名下的，**先筛再排前 8**（排查 C7）：
+ * 原来首页先取全团队前 8 位、再按姓名筛出「我的」，我的那几位排不进全团队前 8 就数漏了，重名的还会混在一起。
+ */
+export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): Promise<WatchItem[]> {
+  const 谁的 = 范围.ownerId;
   const [overduePlans, customers, opps, business] = await Promise.all([
     prisma.followPlan.findMany({
-      where: { done: false, plannedAt: { lt: now.toDate() } },
+      // 逾期按今天零点算，和首页、左栏角标、计划页一个口径（lib/overdue.ts）：今天上午没做的还算今天的
+      where: { done: false, plannedAt: { lt: 今天零点(now.toDate()) }, ...(谁的 ? { ownerId: 谁的 } : {}) },
       select: { subject: true, plannedAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
     prisma.customer.findMany({
-      where: { followStatus: { notIn: ["已签约", "已流失", "暂缓跟进"] } },
+      where: { followStatus: { notIn: ["已签约", "已流失", "暂缓跟进"] }, ...(谁的 ? { salesOwnerId: 谁的 } : {}) },
       select: { id: true, name: true, followStatus: true, lastFollowAt: true, createdAt: true, salesOwner: { select: { name: true } } },
     }),
     prisma.opportunity.findMany({
-      where: { status: "OPEN" },
+      where: { status: "OPEN", ...(谁的 ? { ownerId: 谁的 } : {}) },
       select: { name: true, stage: true, updatedAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
     getBusiness(),

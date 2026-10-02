@@ -238,9 +238,21 @@ model Opportunity {
   updatedAt     DateTime  @updatedAt
 
   followUps FollowUp[]
+  /// 赢单 / 丢单的那一刻（排查 C6）。见 OpportunityClose
+  closed    OpportunityClose?
 
   @@index([customerId])
   @@index([stage])
+}
+
+/// 商机赢单 / 丢单的那一刻（2026-10-02 排查 C6，迁移 012）。重新打开就删掉这一行。
+/// 原来「本月赢单」拿 updatedAt 近似：老的赢单改一下备注，就被算进本月。
+/// 单独一张表、不给 Opportunity 加列：理由同 ContractOwner（Opportunity 是 schema 建的表，迁移只能加表）。
+/// 0.46.15 之前结单的没有这一行，看板退回按 updatedAt。
+model OpportunityClose {
+  opportunityId String      @id
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  closedAt      DateTime    @default(now())
 }
 
 model FollowUp {

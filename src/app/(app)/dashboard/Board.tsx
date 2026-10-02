@@ -20,6 +20,8 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   const now = dayjs();
   const monthStart = now.startOf("month").toDate();
   const lastMonthStart = now.subtract(1, "month").startOf("month").toDate();
+  /** 下月 1 号零点。「本月」要两头都截：签约日期能选到未来，只有下界会把下个月登记的单算进本月（排查 C3） */
+  const nextMonthStart = now.add(1, "month").startOf("month").toDate();
 
   const [
     leadTotal,
@@ -89,14 +91,14 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     prisma.opportunity.count({ where: { status: "WON" } }),
     prisma.opportunity.count({ where: { status: { in: ["WON", "LOST"] } } }),
     // 卡片下方那三条小曲线原本是写死的装饰数据，改成按周真算
-    prisma.opportunity.findMany({ select: { createdAt: true, updatedAt: true, amount: true, status: true } }),
+    prisma.opportunity.findMany({ select: { createdAt: true, updatedAt: true, amount: true, status: true, closed: { select: { closedAt: true } } } }),
     /*
       设计稿 08/DATA·NOW 的四张指标卡：本月签约、新增学员、进行中商机、逾期跟进。
       原来那四张是线索总数 / 活跃客户数 / 本月新增商机 / 预测销售额——都是「库里有多少」，
       没有一个回答「今天要关心什么」。这四个都是**能落地**的：
       每一个都点得进一个能把它重新数一遍的页面（页面规则「关键指标可跳到明细」）。
     */
-    prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: monthStart } } }),
+    prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: monthStart, lt: nextMonthStart } } }),
     prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: lastMonthStart, lt: monthStart } } }),
     /*
       逾期是全团队口径：这一页看的是整个盘子，不是「我的」。
@@ -109,10 +111,11 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   ]);
 
   const newCustomersThisMonth = customersForTrend.filter((c) =>
-    dayjs(c.createdAt).isAfter(monthStart),
+    // 含月初零点那一刻（>=），和客户列表「本月新增」的筛选一个口径（排查 C3）
+    !dayjs(c.createdAt).isBefore(monthStart),
   ).length;
   const newCustomersLastMonth = customersForTrend.filter(
-    (c) => dayjs(c.createdAt).isAfter(lastMonthStart) && dayjs(c.createdAt).isBefore(monthStart),
+    (c) => !dayjs(c.createdAt).isBefore(lastMonthStart) && dayjs(c.createdAt).isBefore(monthStart),
   ).length;
 
   // 近 90 天趋势：两条线都是「截至当天的累计值」
@@ -150,12 +153,12 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
    * 所以那一档结构性永远是 0，等于砍掉了漏斗最有用的读数（转化终点）。
    * 改为统计选定窗口内赢单的数量与金额。
    *
-   * 赢单时间用 updatedAt 近似：模型里没有单独的「赢单时间」字段，
-   * 而加字段要 ALTER TABLE，与现有的「只增不改」迁移约定冲突。
-   * 商机一旦赢单通常不再改动，这个近似在实践中够用，口径已标在卡片上。
+   * 赢单时间按 OpportunityClose.closedAt（2026-10-02 起记，排查 C6）。
+   * 原来拿 updatedAt 近似：老的赢单改一下备注就被算进本月。之前赢的没有记录，仍退回 updatedAt。
    */
   const 赢单窗口 = (起: Date) => {
-    const 命中 = oppsForSeries.filter((o) => o.status === "WON" && o.updatedAt >= 起);
+    // 按赢单那一刻算（OpportunityClose，排查 C6）；0.46.15 之前赢的没有记录，退回 updatedAt
+    const 命中 = oppsForSeries.filter((o) => o.status === "WON" && (o.closed?.closedAt ?? o.updatedAt) >= 起);
     return { count: 命中.length, amount: 命中.reduce((sum, o) => sum + o.amount, 0) };
   };
   const 本月赢单 = 赢单窗口(monthStart);

@@ -66,6 +66,8 @@ type Props = {
    * 所以工具栏第一格是一枚带叉的标记，点叉就回到全部。
    */
   本月新增?: boolean;
+  /** 渠道页「直接推荐」点进来时是哪个渠道的名字；null = 不是从那儿来的 */
+  直接推荐?: string | null;
   /**
    * 从导入抽屉点「完成」过来的：只看刚导进来的这一批（审查 D10）。
    * 和「只看本月新增」一样是一枚带叉的标记，点叉回到全部
@@ -95,7 +97,7 @@ type Props = {
  * 其余的收进「列」里，勾了记在这台机器上。
  */
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 本批, aiEnabled,
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled,
 }: Props) {
   const router = useRouter();
   const { message } = App.useApp();
@@ -108,7 +110,7 @@ export default function CustomersView({
    * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
    * 按 filters（服务端那次查询用的条件）判而不是 f（输入框里的草稿）。
    */
-  const 空库 = total === 0 && !本月新增 && !本批 && !Object.values(filters).some((v) => v);
+  const 空库 = total === 0 && !本月新增 && !直接推荐 && !本批 && !Object.values(filters).some((v) => v);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
   const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
@@ -251,13 +253,18 @@ export default function CustomersView({
                 只看本月新增
               </Tag>
             )}
+            {直接推荐 && (
+              <Tag closable onClose={() => router.push("/customers")} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
+                只看「{直接推荐}」直接带来的 · {total} 位
+              </Tag>
+            )}
             {本批 && (
               <Tag closable onClose={() => router.push("/customers")} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
                 只看刚导入的这一批 · {本批.几位} 位
               </Tag>
             )}
             <ListSearch
-              placeholder={`姓名 / 电话 / ${b.fields.school} / ${b.fields.major}`}
+              placeholder={`姓名 / 电话 / ${b.fields.school} / ${b.fields.major} / 备注`}
               value={f.keyword}
               onChange={(v) => setF({ ...f, keyword: v })}
               onSearch={(v) => apply({ keyword: v })}

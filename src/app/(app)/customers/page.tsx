@@ -27,6 +27,8 @@ type SP = Promise<{
    * 否则人会把一屏 24 条当成全部（见 CustomersView 里那条提示）。
    */
   createdWithin?: string;
+  /** 只看这个渠道直接带来的（渠道页「直接推荐 N 人」点进来）。口径同 lib/attribution.ts 渠道汇总 */
+  directOf?: string;
   /** 从首页那张「开始」卡过来的：直接把新建表单打开，省一次点击 */
   new?: string;
   /**
@@ -61,6 +63,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
             { phone: { contains: sp.keyword } },
             { school: { contains: sp.keyword } },
             { major: { contains: sp.keyword } },
+            // 年级、备注也搜，和 AI 的 search_customers 一个范围（排查 C7）：AI 说「大三的有 12 位」，点「去库里搜」不能是 0 条
+            { grade: { contains: sp.keyword } },
+            { remark: { contains: sp.keyword } },
           ],
         }
       : {}),
@@ -70,6 +75,11 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     ...(sp.salesOwnerId ? { salesOwnerId: sp.salesOwnerId } : {}),
     ...(sp.channelOwnerId ? { channelOwnerId: sp.channelOwnerId } : {}),
     ...(sp.createdWithin === "本月" ? { createdAt: { gte: dayjs().startOf("month").toDate() } } : {}),
+    /*
+      渠道页「直接推荐 5 人」点进来：渠道对得上、且没有上游学员，和 渠道汇总() 的 directCustomers 一个口径。
+      原来链接用 keyword=渠道名，而关键词不搜渠道，点进去基本是 0 条（2026-10-01 排查 C1）
+    */
+    ...(sp.directOf ? { channelId: sp.directOf, referrerCustomerId: null } : {}),
   };
 
   const [rows, total, users, channels, allCustomers] = await Promise.all([
@@ -146,6 +156,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         channelOwnerId: sp.channelOwnerId ?? "",
       }}
       本月新增={sp.createdWithin === "本月"}
+      直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={本批 ? { 几位: total } : null}
       aiEnabled={aiEnabled}
     />

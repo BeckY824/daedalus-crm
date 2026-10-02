@@ -234,8 +234,9 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             color={stats.逾期跟进 > 0 ? palette.danger : categorical.violet}
             label="逾期跟进"
             value={stats.逾期跟进.toLocaleString()}
-            note={stats.逾期跟进 > 0 ? "计划和待办，时间已经过去了" : "都跟上了"}
-            href="/follow-ups/plans"
+            note={stats.逾期跟进 > 0 ? "全团队的计划和待办，时间已经过去了" : "都跟上了"}
+            // 这张卡是全团队口径：点进去先看「全部成员」，数才对得上（排查 C2）
+            href="/follow-ups/plans?scope=all"
           />
         </Col>
       </Row>
@@ -364,7 +365,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         <Col xs={24} xl={9}>
           <Card
             title={<span className="section-title">近期跟进任务</span>}
-            extra={<Link href="/follow-ups/plans" style={{ fontSize: 15 }}>查看全部</Link>}
+            extra={<Link href="/follow-ups/plans?scope=all" style={{ fontSize: 15 }}>查看全部</Link>}
             styles={{ body: { paddingTop: 8 } }}
           >
             {tasks.length === 0 && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待办任务" />}

@@ -61,6 +61,10 @@ const 派生: Record<string, Record<string, string>> = {
     customerId: "转化后指向新建的客户，由 convertLead 设置",
   },
   Task: { doneAt: "toggleTask 完成时打上", ownerId: "创建者，不做转派" },
+  OpportunityClose: {
+    opportunityId: "哪个商机，变成赢单或丢单时一起写",
+    closedAt: "赢单 / 丢单的那一刻，系统打上；回到进行中就删掉这一行",
+  },
   ContractOwner: {
     contractId: "哪一笔签约，saveContract 新登记时一起建",
     salesOwnerId: "签约那一刻客户的销售负责人，新登记时打上；业绩按它算，之后不跟着换人",

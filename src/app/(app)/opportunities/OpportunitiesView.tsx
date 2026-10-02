@@ -41,6 +41,7 @@ export type OppRow = {
 };
 
 export default function OpportunitiesView({
+  汇总,
   rows,
   总数,
   users,
@@ -50,6 +51,8 @@ export default function OpportunitiesView({
   rows: OppRow[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
   总数: number;
+  /** 汇总药丸的两个数，服务端按全量算好（行只取了前 300，拿行去加会少） */
+  汇总: { 单数: number; 合计: number; 预测: number };
   users: 可选成员[];
   customers: { id: string; name: string }[];
   filters: { keyword: string; stage: string; status: string; ownerId: string };
@@ -139,11 +142,7 @@ export default function OpportunitiesView({
    * 筛了状态就是那一类的合计。口径写在药丸上，不藏在悬停提示里。
    */
   const 筛的状态 = filters.status;
-  const 算的行 = 筛的状态 ? rows : rows.filter((r) => r.status === "OPEN");
-  const 合计 = 算的行.reduce((s, r) => s + r.amount, 0);
-  const forecast = 算的行
-    .filter((r) => r.status === "OPEN")
-    .reduce((s, r) => s + r.amount * (r.probability / 100), 0);
+  const { 合计, 预测: forecast } = 汇总;
   const 合计叫 = 筛的状态 === "WON" ? "已赢单" : 筛的状态 === "LOST" ? "已丢单" : "进行中";
   /** 只有一个人：负责人列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
   const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
@@ -361,7 +360,7 @@ export default function OpportunitiesView({
              **一条商机都没有时不出现**：0 / 0 不是信息，是噪音 */
           rows.length > 0 ? (
             <div className="list-sum" title="加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的">
-              {合计叫} {算的行.length} 单 · {money(合计)}
+              {合计叫} {汇总.单数} 单 · {money(合计)}
               {合计叫 === "进行中" && <> · 加权预测 {money(forecast)}</>}
             </div>
           ) : null

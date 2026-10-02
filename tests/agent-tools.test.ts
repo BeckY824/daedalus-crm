@@ -46,10 +46,10 @@ describe("list_channels", () => {
     });
     await prisma.contract.create({ data: { customerId: c.id, amount: 19800, signedAt: new Date() } });
 
-    const [行] = (await 用("list_channels").run({}, ctx())).data as { 渠道负责人: string; 直接带来: number; 签约额: number }[];
+    const [行] = (await 用("list_channels").run({}, ctx())).data as { 渠道负责人: string; 直接带来: number; 这条链的签约额: number }[];
     expect(行.渠道负责人).toBe("甲");
     expect(行.直接带来).toBe(1);
-    expect(行.签约额).toBe(19800);
+    expect(行.这条链的签约额).toBe(19800);
   });
 
   it("默认不列停用的，要看得显式要", async () => {
@@ -211,9 +211,12 @@ describe("search_customers 按渠道筛", () => {
  *
  * Customer 上有**两个**渠道字段：`channelId`（推荐链最顶端，所有后代继承）和
  * `attributionChannelId`（往上第二代的归属口径，算提成用的）。两个数天然不一样。
- * list_channels 的「直接带来」、query_metric 的 groupBy=channel、
- * search_customers 的 channelName——三处现在都走 `channelId`。
+ * list_channels 的「连转介绍一共」、query_metric 的 groupBy=channel、
+ * search_customers 的 channelName——三处都走 `channelId`。
  * 哪天有人把其中一处改成归属口径，用户就会看到「渠道清单说 3 个，点进去只有 2 个」。
+ *
+ * 2026-10-02（排查 C4）：list_channels 原来把整条链叫「直接带来」，和渠道页的「直接推荐」对不上。
+ * 现在两个数都给：「直接带来」= 没有上游学员的（同渠道页），「连转介绍一共」= 整条链（= 这里的名单）。
  */
 describe("渠道口径：清单上的数 = 点进去的人", () => {
   it("list_channels 报几个，search_customers 就得列出几个", async () => {
@@ -226,10 +229,11 @@ describe("渠道口径：清单上的数 = 点进去的人", () => {
       data: { name: "李四", phone: "13800000012", followStatus: "待跟进", decisionStatus: "了解中", salesOwnerId: 我.id, channelId: ch.id, referrerCustomerId: 张三.id },
     });
 
-    const [清单] = (await 用("list_channels").run({}, ctx())).data as { 名称: string; 直接带来: number }[];
+    const [清单] = (await 用("list_channels").run({}, ctx())).data as { 名称: string; 直接带来: number; 连转介绍一共: number }[];
     const 名单 = (await 用("search_customers").run({ channelName: "小红" }, ctx())).data as { total: number };
-    expect(清单.直接带来).toBe(2);
-    expect(名单.total).toBe(清单.直接带来);
+    expect(清单.直接带来).toBe(1);
+    expect(清单.连转介绍一共).toBe(2);
+    expect(名单.total).toBe(清单.连转介绍一共);
   });
 });
 

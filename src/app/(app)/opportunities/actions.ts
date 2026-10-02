@@ -16,6 +16,23 @@ function 刷新商机(客户id?: string) {
   if (客户id) revalidatePath(`/customers/${客户id}`);
 }
 
+/**
+ * 记下 / 撤掉结单时刻（排查 C6）。变成赢单或丢单的那一下记一笔；回到进行中就删掉；
+ * 本来就是这个状态（改个备注）不碰——「本月赢单」按它数，不能因为改备注就挪到本月。
+ */
+async function 记结单(id: string, 原状态: string | null, 新状态: string) {
+  if (新状态 === "OPEN") {
+    await prisma.opportunityClose.deleteMany({ where: { opportunityId: id } });
+    return;
+  }
+  if (原状态 === 新状态) return;
+  await prisma.opportunityClose.upsert({
+    where: { opportunityId: id },
+    create: { opportunityId: id, closedAt: new Date() },
+    update: { closedAt: new Date() },
+  });
+}
+
 export async function saveOpportunity(input: {
   id?: string;
   name: string;
@@ -46,6 +63,14 @@ export async function saveOpportunity(input: {
   }
   const ownerId = input.ownerId || (await 唯一负责人());
   if (!ownerId) return { ok: false as const, error: "请选择负责人" };
+  /*
+    阶段和状态绑在一起（排查 C6）：阶段是「赢单成交」就是赢单，标了赢单阶段就是「赢单成交」。
+    原来可以存出「进行中 + 赢单成交」：数据页「进行中商机」算它、漏斗前四档没有它、管道的赢单列里却躺着一张进行中的卡。
+    丢单不限阶段——丢在哪一步本身有用。
+  */
+  if (input.stage === "赢单成交") input = { ...input, status: "WON" };
+  else if (input.status === "WON") input = { ...input, stage: "赢单成交" };
+  const 原状态 = input.id ? (await prisma.opportunity.findUnique({ where: { id: input.id }, select: { status: true } }))?.status ?? null : null;
 
   const data = {
     name: input.name.trim(),
@@ -61,6 +86,7 @@ export async function saveOpportunity(input: {
 
   if (input.id) {
     await prisma.opportunity.update({ where: { id: input.id }, data });
+    await 记结单(input.id, 原状态, data.status);
     await recordAudit({
       user: me, action: "update", entity: "Opportunity", entityId: input.id,
       summary: `修改商机「${data.name}」：${data.stage} · ${状态名[data.status] ?? data.status} · ¥${data.amount}`,
@@ -68,6 +94,7 @@ export async function saveOpportunity(input: {
     });
   } else {
     const o = await prisma.opportunity.create({ data });
+    await 记结单(o.id, null, data.status);
     await recordAudit({
       user: me, action: "create", entity: "Opportunity", entityId: o.id,
       summary: `新建商机「${data.name}」：${data.stage} · ¥${data.amount}`,
@@ -106,6 +133,7 @@ export async function moveStage(id: string, stage: string) {
     where: { id },
     data: { stage, probability, status },
   });
+  await 记结单(id, before.status, status);
   await recordAudit({
     user: me, action: "update", entity: "Opportunity", entityId: id,
     summary: `商机「${o.name}」阶段：${before.stage} → ${stage}`,
@@ -136,6 +164,8 @@ export async function setOppStatus(
       return { ok: false as const, error: "成交概率必须在 0~100 之间" };
     }
   }
+  const 原 = await prisma.opportunity.findUnique({ where: { id }, select: { status: true } });
+  if (!原) return { ok: false as const, error: "商机不存在，可能已被其他人删除" };
   const o = await prisma.opportunity.update({
     where: { id },
     data: {
@@ -145,6 +175,7 @@ export async function setOppStatus(
       ...(还原 ? { stage: 还原.stage, probability: Math.round(还原.probability) } : {}),
     },
   });
+  await 记结单(id, 原.status, status);
   await recordAudit({
     user: me, action: "update", entity: "Opportunity", entityId: id,
     summary: 还原 ? `商机「${o.name}」撤销改状态，回到${状态名[status] ?? status}（${o.stage}）` : `商机「${o.name}」标记为${状态名[status] ?? status}`,

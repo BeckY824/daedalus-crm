@@ -81,6 +81,7 @@ export default function PlansView({
   meId,
   预选客户,
   直接新建,
+  全员 = false,
 }: {
   plans: Plan[];
   tasks: Task[];
@@ -90,10 +91,15 @@ export default function PlansView({
   预选客户: { id: string; name: string } | null;
   /** ?new=1：进来就把新建框打开 */
   直接新建: boolean;
+  /**
+   * ?scope=all：从数据页那几张全团队口径的卡点进来，先看「全部成员」。
+   * 原来写死「我的」：卡上写团队逾期 12，点进来「逾期 3」，对不上（2026-10-01 排查 C2）
+   */
+  全员?: boolean;
 }) {
   const router = useRouter();
   const { message } = App.useApp();
-  const [scope, setScope] = useState<string | number>("我的");
+  const [scope, setScope] = useState<string | number>(全员 ? "全部成员" : "我的");
   /**
    * 看待办还是看做完的。
    *
@@ -255,7 +261,7 @@ export default function PlansView({
       ) : (
         <>
           <Space wrap style={{ marginBottom: 16 }}>
-            <Segmented value={看} onChange={set看} options={["待办", `已完成${done.length ? ` ${done.length}` : ""}`]} />
+            <Segmented value={看} onChange={set看} options={["待办", `已完成${我的已完成.length ? ` ${我的已完成.length}` : ""}`]} />
             {!只有我 && <Segmented value={scope} onChange={setScope} options={["我的", "全部成员"]} />}
             {/* 自己名下空、团队里却有一堆的时候要说一声。
                 三组全写着「这一组是空的」，人会以为整个团队都没排 */}

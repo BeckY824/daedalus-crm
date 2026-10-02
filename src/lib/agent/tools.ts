@@ -6,6 +6,8 @@
  *   data：   喂回模型的结构化内容（截断过，控制上下文）
  *   records：这次读到的跟进记录（带编号），最终回答里的 [n] 引用它们
  */
+import { 是逾期, 数逾期跟进 } from "../overdue";
+import { 渠道汇总 } from "../attribution";
 import { prisma } from "../prisma";
 import { dayjs } from "../utils";
 import { FOLLOW_TYPE_MAP, OPP_STAGES } from "../constants";
@@ -299,21 +301,38 @@ export const TOOLS: Tool[] = [
       const n = typeof args.days === "number" && Number.isFinite(args.days) ? Math.min(90, Math.max(1, Math.round(args.days))) : 7;
       const 起 = dayjs().subtract(n, "day").startOf("day").toDate();
       const 号 = 脱敏(ctx);
+      /*
+        条数、金额一律数全量（count / aggregate / groupBy），列表只是给模型看几条样子。
+        原来拿只取了 50 / 30 条的列表去数：这个月 80 笔记录，AI 说 50 笔（2026-10-01 排查 C4）。
+        「我签的单」按签约那一刻是谁的单算（ContractOwner，排查 B2）；老签约没有那一行，按客户现在的负责人。
+      */
+      const 我的跟进 = { ownerId: ctx.userId, occurredAt: { gte: 起 } };
+      const 我的签约 = {
+        signedAt: { gte: 起 },
+        OR: [{ owner: { is: { salesOwnerId: ctx.userId } } }, { owner: { is: null }, customer: { salesOwnerId: ctx.userId } }],
+      };
+      const 我新建的 = { salesOwnerId: ctx.userId, createdAt: { gte: 起 } };
+      const [跟进笔数, 跟过的, 签约合计, 新建数] = await Promise.all([
+        prisma.followUp.count({ where: 我的跟进 }),
+        prisma.followUp.groupBy({ by: ["customerId"], where: 我的跟进 }),
+        prisma.contract.aggregate({ where: 我的签约, _count: true, _sum: { amount: true } }),
+        prisma.customer.count({ where: 我新建的 }),
+      ]);
       const [跟进, 签约, 新建, 完成的计划] = await Promise.all([
         prisma.followUp.findMany({
-          where: { ownerId: ctx.userId, occurredAt: { gte: 起 } },
+          where: 我的跟进,
           orderBy: { occurredAt: "desc" },
           take: 50,
           select: { type: true, title: true, content: true, occurredAt: true, customer: { select: { id: true, name: true, followStatus: true } } },
         }),
         prisma.contract.findMany({
-          where: { signedAt: { gte: 起 }, customer: { salesOwnerId: ctx.userId } },
+          where: 我的签约,
           orderBy: { signedAt: "desc" },
           take: 30,
           select: { amount: true, signedAt: true, customer: { select: { name: true } } },
         }),
         prisma.customer.findMany({
-          where: { salesOwnerId: ctx.userId, createdAt: { gte: 起 } },
+          where: 我新建的,
           orderBy: { createdAt: "desc" },
           take: 30,
           select: { name: true, phone: true, followStatus: true, createdAt: true },
@@ -335,16 +354,18 @@ export const TOOLS: Tool[] = [
             跟进状态: statusLabel(ctx.b, f.customer.followStatus),
           });
       }
-      const 金额 = 签约.reduce((t, c) => t + c.amount, 0);
+      const 金额 = 签约合计._sum.amount ?? 0;
+      const 签约数 = 签约合计._count;
       return {
         summary:
-          `最近 ${n} 天：跟了 ${按人.size} 位${ctx.b.customer}、${跟进.length} 笔记录` +
-          `${签约.length ? `，签了 ${签约.length} 单共 ${金额} 元` : "，没有签约"}` +
-          `${新建.length ? `，新建 ${新建.length} 位` : ""}`,
+          `最近 ${n} 天：跟了 ${跟过的.length} 位${ctx.b.customer}、${跟进笔数} 笔记录` +
+          `${签约数 ? `，签了 ${签约数} 单共 ${金额} 元` : "，没有签约"}` +
+          `${新建数 ? `，新建 ${新建数} 位` : ""}`,
         data: {
           天数: n,
-          跟了几位: 按人.size,
-          跟进笔数: 跟进.length,
+          跟了几位: 跟过的.length,
+          跟进笔数,
+          ...(跟进笔数 > 跟进.length || 签约数 > 签约.length || 新建数 > 新建.length ? { 说明: "下面的明细只列了最近的一部分，数字以上面为准" } : {}),
           完成的计划: 完成的计划,
           跟过的人: [...按人.values()],
           签约: 签约.map((c) => ({ 客户: c.customer.name, 金额: c.amount, 签约日: dayjs(c.signedAt).format("YYYY-MM-DD") })),
@@ -378,13 +399,21 @@ export const TOOLS: Tool[] = [
         prisma.followPlan.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: { plannedAt: "asc" }, take: 10, select: { subject: true, plannedAt: true, method: true, customer: { select: { id: true, name: true } } } }),
         prisma.task.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: [{ dueAt: "asc" }], take: 10, select: { title: true, dueAt: true, customer: { select: { id: true, name: true } } } }),
       ]);
-      const 逾期 = (d: Date | null) => (d ? dayjs(d).isBefore(dayjs()) : false);
+      /*
+        口径和首页、左栏角标、Dock 一个（lib/overdue.ts）：早于**今天零点**才算逾期，今天上午 9 点没做的还算今天的。
+        条数用 count 数全量，不拿只取了 10 条的列表去数——手上 15 条，原来会说 10 条（2026-10-01 排查 C4）。
+      */
+      const [计划数, 待办数, 逾期数] = await Promise.all([
+        prisma.followPlan.count({ where: { done: false, ownerId: ctx.userId } }),
+        prisma.task.count({ where: { done: false, ownerId: ctx.userId } }),
+        数逾期跟进(prisma, { ownerId: ctx.userId }),
+      ]);
       const data = {
-        跟进计划: plans.map((p) => ({ customerId: p.customer.id, name: p.customer.name, when: dayjs(p.plannedAt).format("MM-DD HH:mm"), method: p.method, subject: p.subject, overdue: 逾期(p.plannedAt) })),
-        待办: tasks.map((t) => ({ customerId: t.customer.id, name: t.customer.name, when: t.dueAt ? dayjs(t.dueAt).format("MM-DD HH:mm") : null, title: t.title, overdue: 逾期(t.dueAt) })),
+        跟进计划: plans.map((p) => ({ customerId: p.customer.id, name: p.customer.name, when: dayjs(p.plannedAt).format("MM-DD HH:mm"), method: p.method, subject: p.subject, overdue: 是逾期(p.plannedAt) })),
+        待办: tasks.map((t) => ({ customerId: t.customer.id, name: t.customer.name, when: t.dueAt ? dayjs(t.dueAt).format("MM-DD HH:mm") : null, title: t.title, overdue: 是逾期(t.dueAt) })),
+        ...(计划数 > plans.length || 待办数 > tasks.length ? { 说明: "下面只列了最早的各 10 条，条数以 summary 为准" } : {}),
       };
-      const 逾期数 = [...data.跟进计划, ...data.待办].filter((x) => x.overdue).length;
-      const 段 = [plans.length && `${plans.length} 条计划`, tasks.length && `${tasks.length} 条待办`].filter(Boolean).join("、");
+      const 段 = [计划数 && `${计划数} 条计划`, 待办数 && `${待办数} 条待办`].filter(Boolean).join("、");
       return { summary: 段 ? `${段}${逾期数 ? `，其中 ${逾期数} 条已逾期` : ""}` : "手上没有没做完的", data };
     },
   },
@@ -397,7 +426,7 @@ export const TOOLS: Tool[] = [
   */
   {
     name: "list_channels",
-    description: "列渠道（客户是从哪儿来的：合作方、中介、转介绍人）。返回每个渠道的负责人、直接带来多少客户、这条链上的签约额、停用与否。问「有哪些渠道」「哪个渠道带来的客户最多」就用它。",
+    description: "列渠道（客户是从哪儿来的：合作方、中介、转介绍人）。返回每个渠道的负责人、直接带来多少客户、连转介绍一共多少、这条链上的签约额、停用与否。问「有哪些渠道」「哪个渠道带来的客户最多」就用它。",
     args: '{"keyword": "名字里的关键词，可空", "includeInactive": true|false 可空，默认不列停用的}',
     async run(args, ctx) {
       const 号 = 脱敏(ctx);
@@ -410,18 +439,28 @@ export const TOOLS: Tool[] = [
         orderBy: { createdAt: "desc" },
         take: 50,
         select: {
-          name: true, phone: true, active: true, remark: true,
+          id: true, name: true, phone: true, active: true, remark: true,
           channelOwner: { select: { name: true } },
-          directCustomers: { select: { contracts: { select: { amount: true } } } },
+          // 这个关系名叫 directCustomers，其实是 channelId 命中的整条链（转介绍来的也继承链顶渠道）
+          directCustomers: { select: { referrerCustomerId: true, contracts: { select: { amount: true } } } },
         },
       });
+      /*
+        「直接带来」和渠道页同一个口径（lib/attribution.ts 渠道汇总）：没有上游学员的才算直接。
+        原来把整条链都算成「直接带来」：渠道直接带来 5 人、转介绍 7 人，AI 答 12（2026-10-01 排查 C4）。
+      */
+      const 汇总 = 渠道汇总(
+        rows.map((c) => c.id),
+        rows.flatMap((c) => c.directCustomers.map((cu) => ({ channelId: c.id, referrerCustomerId: cu.referrerCustomerId, contracts: cu.contracts }))),
+      );
       return {
         summary: `${rows.length} 个渠道`,
         data: rows.map((c) => ({
           名称: c.name,
           渠道负责人: c.channelOwner?.name ?? "未指定",
-          直接带来: c.directCustomers.length,
-          签约额: c.directCustomers.reduce((s, cu) => s + cu.contracts.reduce((t, x) => t + x.amount, 0), 0),
+          直接带来: 汇总[c.id].directCustomers,
+          连转介绍一共: 汇总[c.id].chainCustomers,
+          这条链的签约额: 汇总[c.id].chainAmount,
           电话: 号(c.phone ?? null),
           状态: c.active ? "在用" : "已停用",
           备注: c.remark ?? null,
@@ -458,7 +497,8 @@ export const TOOLS: Tool[] = [
             id: l.id, 名称: l.name, 联系人: l.contact, 电话: 号(l.phone),
             来源: l.source, 状态: l.status, 行业: l.industry,
             负责人: l.owner?.name ?? null,
-            已转化: Boolean(l.customerId),
+            // 按状态认，和报表的转化率一个口径（排查 C7）：客户后来被删了，customerId 会被置空，但这条线索确实转化过
+            已转化: l.status === "已转化",
           })),
         },
       };
@@ -485,8 +525,10 @@ export const TOOLS: Tool[] = [
         // 没填预计成交日的单子，问「这个月要关的」时不该混进来——Prisma 的 gte/lte 本来就会把 null 排除
         ...(成交条件 ? { expectedDealAt: 成交条件 } : {}),
       };
-      const [total, rows] = await Promise.all([
+      // 合计用 aggregate 算全量：原来拿前 30 行加起来，超过 30 个时和页面上的数对不上（排查 C4）
+      const [total, 合计, rows] = await Promise.all([
         prisma.opportunity.count({ where }),
+        prisma.opportunity.aggregate({ where, _sum: { amount: true } }),
         prisma.opportunity.findMany({
           where, orderBy: { amount: "desc" }, take: 30,
           select: {
@@ -496,7 +538,7 @@ export const TOOLS: Tool[] = [
         }),
       ]);
       return {
-        summary: `${total} 个商机，合计 ¥${Math.round(rows.reduce((s, o) => s + o.amount, 0))}`,
+        summary: `${total} 个商机，合计 ¥${Math.round(合计._sum.amount ?? 0)}${total > rows.length ? `（下面列了金额最大的 ${rows.length} 个）` : ""}`,
         data: {
           总数: total,
           商机: rows.map((o) => ({
@@ -633,7 +675,8 @@ export const TOOLS: Tool[] = [
       const 词们 = 扩同义词(q);
       const where = {
         OR: 词们.flatMap((w) => [{ content: { contains: w } }, { title: { contains: w } }]),
-        ...(days ? { occurredAt: { gte: dayjs().subtract(days, "day").toDate() } } : {}),
+        // 「最近 N 天」从 N 天前的零点起算，和 my_recap、query_records 一个口径（排查 C7）
+        ...(days ? { occurredAt: { gte: dayjs().subtract(days, "day").startOf("day").toDate() } } : {}),
         ...(args.mine === true ? { ownerId: ctx.userId } : {}),
       };
       const [total, rows] = await Promise.all([
@@ -744,19 +787,33 @@ export const TOOLS: Tool[] = [
       }>)[表定义.模型];
 
       const 总数 = await 表.count({ where });
+      /*
+        联系人页还列着「未归属」的人（从客户上移出的，UnassignedContact，0.46.14），这张表里没有他们。
+        不加条件数联系人时说一声，不然 AI 报 18、页面写 20，人以为丢了两个（2026-10-01 排查 C4）。
+        带了条件就不说：未归属那张表没按同样的条件筛过，硬加进去反而是错的。
+      */
+      const 未归属 = 规格.表 === "联系人" && 规格.条件.length === 0 && !规格.关联 ? await prisma.unassignedContact.count() : 0;
+      const 补一句 = 未归属 ? `；另有 ${未归属} 位未归属联系人（从客户上移出的）不在这张表里，联系人页里看得到` : "";
+
+      /*
+        跟进状态、决策状态按设置里改过的显示名说（排查 C7）：存的还是「已试听」，
+        设置里改成了「已演示」，别处都显示「已演示」，AI 分组出来却是「已试听」。
+      */
+      const 显示 = (列: string, v: unknown) =>
+        (列 === "followStatus" || 列 === "decisionStatus") && typeof v === "string" ? statusLabel(ctx.b, v) : v;
 
       if (规格.分组) {
         const 列 = (表定义.字段 as Record<string, { 列: string; 名: string }>)[规格.分组];
         const g = await 表.groupBy({ by: [列.列], where, _count: { _all: true } });
         const 行 = g
-          .map((r) => ({ [列.名]: r[列.列] ?? "(空)", 条数: (r._count as { _all: number })._all }))
+          .map((r) => ({ [列.名]: 显示(列.列, r[列.列]) ?? "(空)", 条数: (r._count as { _all: number })._all }))
           .sort((a, b) => (b.条数 as number) - (a.条数 as number))
           .slice(0, 分组上限);
-        return { summary: `${话} → ${行.length} 组，共 ${总数} 条`, data: { 查询: 话, 总数, 分组: 行 } };
+        return { summary: `${话} → ${行.length} 组，共 ${总数} 条${补一句}`, data: { 查询: 话, 总数, 分组: 行 } };
       }
 
       if (规格.只计数) {
-        return { summary: `${话} → ${总数} 条`, data: { 查询: 话, 总数 } };
+        return { summary: `${话} → ${总数} 条${补一句}`, data: { 查询: 话, 总数 } };
       }
 
       const 选 = Object.fromEntries(
@@ -778,12 +835,12 @@ export const TOOLS: Tool[] = [
         Object.fromEntries(
           Object.entries(r).map(([k, v]) => [
             中文[k] ?? k,
-            是电话(k) && typeof v === "string" ? 号(v) : v instanceof Date ? dayjs(v).format("YYYY-MM-DD") : v,
+            是电话(k) && typeof v === "string" ? 号(v) : v instanceof Date ? dayjs(v).format("YYYY-MM-DD") : 显示(k, v),
           ]),
         ),
       );
       return {
-        summary: `${话} → ${总数} 条${总数 > rows.length ? `（给出前 ${rows.length} 条）` : ""}`,
+        summary: `${话} → ${总数} 条${总数 > rows.length ? `（给出前 ${rows.length} 条）` : ""}${补一句}`,
         data: { 查询: 话, 总数, 列出: rows.length, 结果 },
       };
     },

@@ -24,9 +24,17 @@ export default async function OpportunitiesPage({
     ...(sp.ownerId ? { ownerId: sp.ownerId } : {}),
   };
 
-  const [总数, rows, users, customers] = await Promise.all([
+  const [总数, 汇总行, rows, users, customers] = await Promise.all([
     // take: 300 取回来的行数不是总数，分页条会拿它冒充总数。见 leads/page.tsx 的说明
     prisma.opportunity.count({ where }),
+    /*
+      汇总药丸按全量算（排查 C7）：原来拿取回来的前 300 行加，商机一多就和卡片上的数对不上。
+      没筛状态时只算进行中的（审查 M12 的口径），只要金额和概率两列，很轻
+    */
+    prisma.opportunity.findMany({
+      where: { ...where, ...(sp.status ? {} : { status: "OPEN" }) },
+      select: { amount: true, probability: true, status: true },
+    }),
     prisma.opportunity.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -43,6 +51,11 @@ export default async function OpportunitiesPage({
   return (
     <OpportunitiesView
       总数={总数}
+      汇总={{
+        单数: 汇总行.length,
+        合计: 汇总行.reduce((s, o) => s + o.amount, 0),
+        预测: 汇总行.filter((o) => o.status === "OPEN").reduce((s, o) => s + o.amount * (o.probability / 100), 0),
+      }}
       users={users}
       customers={customers}
       filters={{
