@@ -14,6 +14,9 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+/** node:sqlite 运行时认 { readOnly }，这版 @types/node 的构造函数只写了一个参数 */
+const 只读库 = (f: string) =>
+  new (DatabaseSync as unknown as new (f: string, o: { readOnly: boolean }) => InstanceType<typeof DatabaseSync>)(f, { readOnly: true });
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -156,7 +159,7 @@ function 造老库(tag: string, 名 = tag) {
 
 /** 整库快照：每张表按 rowid 排好的全部行 */
 function 快照(file: string) {
-  const db = new DatabaseSync(file, { readOnly: true });
+  const db = 只读库(file);
   const 表 = (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all() as { name: string }[]).map((r) => r.name);
   const out: Record<string, 行[]> = {};
   for (const t of 表) out[t] = db.prepare(`SELECT * FROM "${t}" ORDER BY rowid`).all() as 行[];
@@ -221,7 +224,7 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
   });
 
   it("样例同事张三李四和他们名下的客户都还在（老库不删，删了就是删别人的数据）", () => {
-    const db = new DatabaseSync(path.join(目录, "crm.db"), { readOnly: true });
+    const db = 只读库(path.join(目录, "crm.db"));
     const 人 = db.prepare("SELECT email, name FROM User ORDER BY createdAt").all();
     expect(人.map((r) => (r as 行).email)).toEqual(["me@x.com", "zhangsan", "lisi"]);
     expect(db.prepare("SELECT salesOwnerId FROM Customer WHERE id='c_zs'").get()).toEqual({ salesOwnerId: "u_zs" });
@@ -230,7 +233,7 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
   });
 
   it("管理员对上了云端账号（邮箱小写、名字取云端的）", () => {
-    const db = new DatabaseSync(path.join(目录, "crm.db"), { readOnly: true });
+    const db = 只读库(path.join(目录, "crm.db"));
     expect(db.prepare("SELECT email, name FROM User WHERE id='u_admin'").get()).toEqual({ email: "me@x.com", name: "我自己" });
     db.close();
   });
@@ -269,7 +272,7 @@ describe("全新安装（没有 crm.db）", () => {
     fs.writeFileSync(path.join(d, ".cloud.json"), JSON.stringify({ token: "t", accountId: "acc_me", name: "", contact: "new@x.com", models: [] }));
     const r = await 跑入口(d);
     expect(r.code).toBe(0);
-    const db = new DatabaseSync(path.join(d, "crm.db"), { readOnly: true });
+    const db = 只读库(path.join(d, "crm.db"));
     expect(db.prepare("SELECT email, name FROM User").all()).toEqual([{ email: "new@x.com", name: "new" }]);
     db.close();
     expect(fs.statSync(path.join(d, ".init-password")).mode & 0o777).toBe(0o600);
@@ -333,7 +336,7 @@ describe("迁移中途出事", () => {
     const r = await 跑入口(d, { R2_FAIL_MATCH: '"ContractOwner"', R2_FAIL_MODE: "whole" }, true);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/迁移 011-contract-owner\.sql 失败.*disk is full/);
-    const chk = new DatabaseSync(path.join(d, "crm.db"), { readOnly: true });
+    const chk = 只读库(path.join(d, "crm.db"));
     expect(chk.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
     chk.close();
     const 再 = await 跑入口(d);
@@ -349,7 +352,7 @@ describe("迁移中途出事", () => {
     先.close();
     const r = await 跑入口(d, { R2_FAIL_MATCH: 'CREATE TABLE IF NOT EXISTS "ImportBatch"', R2_FAIL_MODE: "partial" }, true);
     expect(r.code).toBe(1);
-    const 中间 = new DatabaseSync(path.join(d, "crm.db"), { readOnly: true });
+    const 中间 = 只读库(path.join(d, "crm.db"));
     const 有 = (n: string) => !!中间.prepare("SELECT 1 FROM sqlite_master WHERE name=?").get(n);
     expect([有("ImportBatch"), 有("ImportRow")]).toEqual([true, false]); // 确实只写了一半
     中间.close();

@@ -262,6 +262,7 @@ describe("真库：计划改删、跟进提醒顺带建的待办", () => {
     const { savePlan, deletePlan } = await import("@/app/(app)/customers/[id]/actions");
     const t = 一小时后();
     const r = await savePlan({ customerId, subject: "回电话", plannedAt: t.toISOString(), method: "电话" });
+    if (!r.ok) throw new Error(r.error);
     expect((await 摘要(t)).定时.map((x) => x.at)).toEqual([t.toISOString()]);
     const t2 = new Date(t.getTime() + 30 * 60_000);
     await savePlan({ id: r.id, customerId, subject: "回电话", plannedAt: t2.toISOString(), method: "电话" });

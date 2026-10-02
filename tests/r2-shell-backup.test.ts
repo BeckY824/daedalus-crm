@@ -9,6 +9,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createRequire } from "node:module";
 import { spawn, spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+/** node:sqlite 运行时认 { readOnly }，这版 @types/node 的构造函数只写了一个参数 */
+const 只读库 = (f: string) =>
+  new (DatabaseSync as unknown as new (f: string, o: { readOnly: boolean }) => InstanceType<typeof DatabaseSync>)(f, { readOnly: true });
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,7 +35,7 @@ function 造库(f: string, 行数: number) {
   return db;
 }
 const 行数 = (f: string) => {
-  const db = new DatabaseSync(f, { readOnly: true });
+  const db = 只读库(f);
   try {
     return (db.prepare("SELECT count(*) AS n FROM Customer").get() as { n: number }).n;
   } finally {
@@ -41,7 +44,7 @@ const 行数 = (f: string) => {
 };
 const 完整 = (f: string) => {
   try {
-    const db = new DatabaseSync(f, { readOnly: true });
+    const db = 只读库(f);
     const r = (db.prepare("PRAGMA integrity_check").get() as { integrity_check: string }).integrity_check;
     db.close();
     return r;
