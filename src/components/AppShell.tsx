@@ -32,6 +32,7 @@ import AiDock from "./AiDock";
 import { usePageUnderOverlay } from "@/lib/page-under-overlay";
 import type { ModelOption } from "@/lib/llm";
 import FeedbackButton from "./FeedbackButton";
+import { AiMeterBar } from "./AiCost";
 import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
 import Shortcut from "./Shortcut";
@@ -349,6 +350,7 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
             </button>
           )}
           <AiTasks />
+          <AiMeterBar />
           {/* 「设置」不在左栏里了（2026-09-17）：它在账号菜单里，和 Claude / Codex 一样。
               左栏那一列是**你工作的地方**——学员、商机、跟进；设置是偶尔去一趟的抽屉，
               把它摆成和「学员」同级的一项，等于每天提醒你它存在。 */}

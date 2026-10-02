@@ -311,6 +311,15 @@ a {
 .rail-mark b { font-family: var(--font-display); font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
 .rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 2px; }
 .rail-foot { margin-top: auto; }
+/* 左栏底部的 AI 用量（AiCost.tsx 的 AiMeterBar）：一行字一条细槽，快用完变黄、用完变红 */
+.rail-meter { display: flex; flex-direction: column; gap: 5px; margin: var(--s1) 0 var(--s2); padding: var(--s2) 10px; border-top: 1px solid var(--line-soft); }
+.rail-meter-row { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-min); color: var(--text-muted); }
+.rail-meter-row b { font-weight: 500; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.rail-meter-bar { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--line) 80%, transparent); overflow: hidden; }
+.rail-meter-bar span { display: block; height: 100%; border-radius: 2px; background: var(--brand); transition: width var(--t) var(--ease); }
+.rail-meter.low .rail-meter-bar span { background: var(--warning); }
+.rail-meter.out .rail-meter-bar span { background: var(--danger); }
+.rail-meter.out .rail-meter-row b { color: var(--danger-text); }
 /* 侧栏底部的 AI 任务。问一句要十几秒，人会切走——切走之后总得有个地方
    看得见它跑完没有。跑着的排在前面，答完的点一下就消掉 */
 /* ---------- 侧栏底部的 AI 任务：一条完成通知，不是一张单子（2026-09-19 改） ----------
@@ -518,9 +527,17 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .chat-row-m:focus-visible { opacity: 1; }
 /* 名单的一行。220 宽里「头像 + 名字 + 状态标签 + 时间」挤在一行会把名字压成竖排，
    所以拆两行：上面是名字和时间，下面是状态和最近那一句。 */
-.roster-row { display: flex; gap: var(--s2); padding: 7px 12px; border-bottom: 1px solid var(--line-soft); color: var(--ink); }
+.roster-row { display: flex; gap: var(--s2); margin: 1px var(--s2); padding: 8px 10px; border-radius: var(--r-card); color: var(--ink); }
 .roster-row:hover { background: var(--row-hover); }
-.roster-row.on { background: var(--brand-bg); box-shadow: inset 2px 0 0 var(--brand); }
+.roster-row.on { background: var(--brand-bg); }
+/* 组头：点一下收起 / 摊开，右边是这一组几位 */
+.roster-group + .roster-group { margin-top: var(--s1); }
+.roster-sec { display: flex; align-items: center; gap: 6px; width: calc(100% - 2 * var(--s2)); margin: 0 var(--s2); padding: var(--s2) 10px var(--s1); border: 0; background: none; font: inherit; font-size: var(--fs-note); font-weight: 500; color: var(--ink-soft); text-align: left; cursor: pointer; border-radius: var(--r-ctl); }
+.roster-sec:hover { color: var(--ink); }
+.roster-sec:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.roster-car { display: inline-block; color: var(--text-faint); transition: transform var(--t-fast) var(--ease); }
+.roster-sec[aria-expanded="false"] .roster-car { transform: rotate(-90deg); }
+.roster-cnt { margin-left: auto; font-size: var(--fs-min); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .roster-av { width: 24px; height: 24px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--fs-min); font-weight: 600; margin-top: 1px; }
 .roster-m { flex: 1; min-width: 0; }
 .roster-l1 { display: flex; align-items: baseline; gap: var(--s2); }

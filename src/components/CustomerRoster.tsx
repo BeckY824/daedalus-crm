@@ -12,6 +12,7 @@ import { avatarColor, initial, smartTime, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
 import { 开名单, 关名单, useRosterOpen, useRosterInDrawer, 登记换一位 } from "@/lib/roster";
+import { useLocalPref } from "@/lib/local-pref";
 
 export type CustomerRosterData = {
   total: number;
@@ -35,7 +36,6 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
   const router = useRouter();
   const pathname = usePathname();
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string>("");
   const 抽屉里 = useRosterInDrawer();
   const 抽屉开着 = useRosterOpen();
   const 搜索框 = useRef<HTMLInputElement>(null);
@@ -43,11 +43,22 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
 
   const rows = useMemo(() => {
     const k = q.trim();
-    return data.rows.filter((r) => (!status || r.followStatus === status) && (!k || r.name.includes(k) || (r.lastNote ?? "").includes(k)));
-  }, [data.rows, q, status]);
+    return data.rows.filter((r) => !k || r.name.includes(k) || (r.lastNote ?? "").includes(k));
+  }, [data.rows, q]);
 
-  // 只摆用到的状态：50 位里没有的状态不占一个筛选条
-  const 状态们 = useMemo(() => FOLLOW_STATUSES.filter((s) => data.rows.some((r) => r.followStatus === s)), [data.rows]);
+  /*
+    按跟进状态分组、组可以折叠（2026-10-02，学 MonoCode 的会话列表）：50 位挤成一列时，
+    「哪些人在谈、哪些人睡着了」得一位位看标签才分得出；分了组，组头带人数，不想看的那组一收。
+    只在没搜、没筛的时候分组——搜和筛本身就是在挑人，再分组是叠床架屋。折叠记在这台电脑上。
+  */
+  const [收起的, set收起的] = useLocalPref<string[]>("roster.collapsed", []);
+  const 分组 = !q.trim();
+  const 组们 = useMemo(
+    () => FOLLOW_STATUSES.map((s) => ({ s, rows: rows.filter((r) => r.followStatus === s) })).filter((g) => g.rows.length > 0),
+    [rows],
+  );
+  const 切组 = (s: string) => set收起的(收起的.includes(s) ? 收起的.filter((x) => x !== s) : [...收起的, s]);
+
 
   /**
    * ⌘K：光标进搜索框（窄屏时先把抽屉打开）。记录页上「换一个人」是最常用的动作，值得一个快捷键。
@@ -67,6 +78,35 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
   useEffect(() => {
     if (抽屉开着) setTimeout(() => 搜索框.current?.focus(), 80);
   }, [抽屉开着]);
+
+  /** 一行：名字和时间、最近一句。分组时状态已经写在组头上，行里不再挂标签 */
+  const 一行 = (r: CustomerRosterData["rows"][number], 带状态: boolean) => (
+    <Link
+      key={r.id}
+      href={`/customers/${r.id}`}
+      className={`roster-row${activeId === r.id ? " on" : ""}`}
+      onClick={() => 抽屉开着 && 关名单()}
+    >
+      <span className="roster-av" style={{ background: avatarColor(r.name), color: AVATAR_TEXT }}>
+        {initial(r.name)}
+      </span>
+      <span className="roster-m">
+        <span className="roster-l1">
+          <span className="roster-n">{r.name}</span>
+          <span className="roster-t">{r.lastFollowAt ? smartTime(r.lastFollowAt) : ""}</span>
+        </span>
+        <span className="roster-l2">
+          {带状态 && (
+            <Tag color={FOLLOW_STATUS_COLOR[r.followStatus] ?? "default"} style={{ margin: 0, borderRadius: 5, fontSize: 12, lineHeight: "18px", padding: "0 5px", flex: "none" }}>
+              {statusLabel(b, r.followStatus)}
+            </Tag>
+          )}
+          <span className="roster-note">{r.lastNote ?? `还没跟进 · ${r.ownerName}`}</span>
+          <Heat at={r.lastFollowAt} status={r.followStatus} />
+        </span>
+      </span>
+    </Link>
+  );
 
   const 内容 = (
     <>
@@ -94,55 +134,32 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
         />
         <kbd className="pane-kbd"><Shortcut>⌘K</Shortcut></kbd>
       </div>
-      {状态们.length > 1 && (
-        <div className="pane-chips">
-          <button type="button" className={`pane-chip${status === "" ? " on" : ""}`} onClick={() => setStatus("")}>
-            全部
-          </button>
-          {状态们.map((s) => (
-            <button key={s} type="button" className={`pane-chip${status === s ? " on" : ""}`} onClick={() => setStatus(status === s ? "" : s)}>
-              {statusLabel(b, s)}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* 原来这里有一排状态筛选（全部 / 待跟进 / 跟进中…）。分组以后它和组头说的是同一件事，
+          想只看一种就把别的组收起来——同一个功能摆两套入口是在让人选一个不存在的区别（2026-10-02） */}
       <div className="pane-rows">
         {rows.length === 0 && (
           <div className="pane-empty">
             {q
               ? "这 50 位里没有，回车去全量里搜"
-              : status
-                ? `这 50 位里没有「${statusLabel(b, status)}」的`
-                : /* 一条都没有 ≠ 筛完没有。空库时说「还没有这个状态的」是句错话 */
-                  `还没有${b.customer}`}
+              : /* 一条都没有 ≠ 搜完没有。空库时说「没搜到」是句错话 */
+                `还没有${b.customer}`}
           </div>
         )}
-        {rows.map((r) => (
-          <Link
-            key={r.id}
-            href={`/customers/${r.id}`}
-            className={`roster-row${activeId === r.id ? " on" : ""}`}
-            onClick={() => 抽屉开着 && 关名单()}
-          >
-            <span className="roster-av" style={{ background: avatarColor(r.name), color: AVATAR_TEXT }}>
-              {initial(r.name)}
-            </span>
-            <span className="roster-m">
-              <span className="roster-l1">
-                <span className="roster-n">{r.name}</span>
-                <span className="roster-t">
-                  <Heat at={r.lastFollowAt} status={r.followStatus} /> {r.lastFollowAt ? smartTime(r.lastFollowAt) : ""}
-                </span>
-              </span>
-              <span className="roster-l2">
-                <Tag color={FOLLOW_STATUS_COLOR[r.followStatus] ?? "default"} style={{ margin: 0, borderRadius: 5, fontSize: 12, lineHeight: "18px", padding: "0 5px", flex: "none" }}>
-                  {statusLabel(b, r.followStatus)}
-                </Tag>
-                <span className="roster-note">{r.lastNote ?? `还没跟进 · ${r.ownerName}`}</span>
-              </span>
-            </span>
-          </Link>
-        ))}
+        {分组
+          ? 组们.map((g) => {
+              const 开 = !收起的.includes(g.s);
+              return (
+                <div key={g.s} className="roster-group">
+                  <button type="button" className="roster-sec" aria-expanded={开} onClick={() => 切组(g.s)}>
+                    <span className="roster-car" aria-hidden="true">▾</span>
+                    {statusLabel(b, g.s)}
+                    <span className="roster-cnt">{g.rows.length}</span>
+                  </button>
+                  {开 && g.rows.map((r) => 一行(r, false))}
+                </div>
+              );
+            })
+          : rows.map((r) => 一行(r, true))}
         {data.total > data.rows.length && (
           <Link href="/customers" className="pane-more">
             这里只有最近 {data.rows.length} 位，全部 {data.total} 位在表格里 ›
