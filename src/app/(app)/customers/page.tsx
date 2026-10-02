@@ -1,12 +1,11 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import CustomersView from "./CustomersView";
-import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
 import { 可选渠道, 可选客户 } from "@/lib/options";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { llmEnabled } from "@/lib/llm";
-import { dayjs } from "@/lib/utils";
+import { 客户筛选条件, 客户行字段, 成客户行 } from "./query";
 
 export const dynamic = "force-dynamic";
 
@@ -49,38 +48,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   const page = Math.max(1, Number(sp.page ?? 1));
   const pageSize = Math.min(100, Math.max(10, Number(sp.pageSize ?? 20)));
 
-  // 这一批导入动过的人。撤销过的批次不算（那些人已经删了 / 还原了）
-  const 本批 = sp.batch
-    ? await prisma.importRow.findMany({ where: { batchId: sp.batch, batch: { revertedAt: null } }, select: { customerId: true } })
-    : null;
-
-  const where: Prisma.CustomerWhereInput = {
-    ...(本批 ? { id: { in: 本批.map((r) => r.customerId) } } : {}),
-    ...(sp.keyword
-      ? {
-          OR: [
-            { name: { contains: sp.keyword } },
-            { phone: { contains: sp.keyword } },
-            { school: { contains: sp.keyword } },
-            { major: { contains: sp.keyword } },
-            // 年级、备注也搜，和 AI 的 search_customers 一个范围（排查 C7）：AI 说「大三的有 12 位」，点「去库里搜」不能是 0 条
-            { grade: { contains: sp.keyword } },
-            { remark: { contains: sp.keyword } },
-          ],
-        }
-      : {}),
-    ...(sp.grade ? { grade: sp.grade } : {}),
-    ...(sp.followStatus ? { followStatus: sp.followStatus } : {}),
-    ...(sp.decisionStatus ? { decisionStatus: sp.decisionStatus } : {}),
-    ...(sp.salesOwnerId ? { salesOwnerId: sp.salesOwnerId } : {}),
-    ...(sp.channelOwnerId ? { channelOwnerId: sp.channelOwnerId } : {}),
-    ...(sp.createdWithin === "本月" ? { createdAt: { gte: dayjs().startOf("month").toDate() } } : {}),
-    /*
-      渠道页「直接推荐 5 人」点进来：渠道对得上、且没有上游学员，和 渠道汇总() 的 directCustomers 一个口径。
-      原来链接用 keyword=渠道名，而关键词不搜渠道，点进去基本是 0 条（2026-10-01 排查 C1）
-    */
-    ...(sp.directOf ? { channelId: sp.directOf, referrerCustomerId: null } : {}),
-  };
+  const where = await 客户筛选条件(sp);
 
   const [rows, total, users, channels, allCustomers] = await Promise.all([
     prisma.customer.findMany({
@@ -88,19 +56,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       orderBy: { createdAt: "desc" },
       skip: (page - 1) * pageSize,
       take: pageSize,
-      select: {
-        id: true, name: true, phone: true, school: true, grade: true, major: true,
-        followStatus: true, decisionStatus: true, expectedSignAt: true, lastFollowAt: true,
-        remark: true, referrerCustomerId: true, channelId: true, salesOwnerId: true, channelOwnerId: true,
-        updatedAt: true,
-        salesOwner: { select: { name: true } },
-        channelOwner: { select: { name: true } },
-        channel: { select: { name: true } },
-        referrerCustomer: { select: { name: true } },
-        attributionChannel: { select: { name: true } },
-        attributionCustomer: { select: { name: true } },
-        contracts: { select: { amount: true } },
-      },
+      select: 客户行字段,
     }),
     prisma.customer.count({ where }),
     负责人候选(),
@@ -112,32 +68,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
 
   return (
     <CustomersView
-      rows={rows.map((r) => ({
-        id: r.id,
-        name: r.name,
-        phone: 号(r.phone),
-        school: r.school,
-        grade: r.grade,
-        major: r.major,
-        followStatus: r.followStatus,
-        decisionStatus: r.decisionStatus,
-        expectedSignAt: r.expectedSignAt?.toISOString() ?? null,
-        lastFollowAt: r.lastFollowAt?.toISOString() ?? null,
-        remark: r.remark,
-        referrerCustomerId: r.referrerCustomerId,
-        channelId: r.channelId,
-        // 推荐人可能是渠道，也可能是已有学员
-        referrerName: r.referrerCustomer?.name ?? r.channel?.name ?? null,
-        // 渠道归属：往上两代的计算结果
-        attributionName: r.attributionChannel?.name ?? r.attributionCustomer?.name ?? null,
-        channelOwnerId: r.channelOwnerId,
-        channelOwnerName: r.channelOwner?.name ?? null,
-        salesOwnerId: r.salesOwnerId,
-        salesOwnerName: r.salesOwner.name,
-        signedAmount: r.contracts.reduce((s, c) => s + c.amount, 0),
-        // 并发闸门：编辑框拿它作为「我看到的是哪一版」
-        updatedAt: r.updatedAt.toISOString(),
-      }))}
+      rows={rows.map((r) => 成客户行(r, 号))}
       total={total}
       page={page}
       pageSize={pageSize}
@@ -154,10 +85,13 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         decisionStatus: sp.decisionStatus ?? "",
         salesOwnerId: sp.salesOwnerId ?? "",
         channelOwnerId: sp.channelOwnerId ?? "",
+        createdWithin: sp.createdWithin ?? "",
+        directOf: sp.directOf ?? "",
+        batch: sp.batch ?? "",
       }}
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
-      本批={本批 ? { 几位: total } : null}
+      本批={sp.batch ? { 几位: total } : null}
       aiEnabled={aiEnabled}
     />
   );

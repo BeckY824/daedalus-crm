@@ -168,7 +168,7 @@ async function 生成简报(input: {
         select: { name: true, amount: true, stage: true, status: true, expectedDealAt: true },
         orderBy: { createdAt: "desc" },
       },
-      tasks: { where: { done: false }, select: { title: true, dueAt: true }, orderBy: { dueAt: "asc" } },
+      tasks: { where: { done: false }, select: { title: true, dueAt: true }, orderBy: { dueAt: { sort: "asc", nulls: "last" } } },
       plans: { where: { done: false }, select: { subject: true, plannedAt: true, method: true }, take: 1 },
       followUps: {
         orderBy: { occurredAt: "desc" },

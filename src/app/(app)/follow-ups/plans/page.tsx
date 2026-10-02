@@ -31,7 +31,7 @@ export default async function PlansPage({
     }),
     prisma.task.findMany({
       where: { done: false },
-      orderBy: { dueAt: "asc" },
+      orderBy: { dueAt: { sort: "asc", nulls: "last" } },
       include: {
         customer: { select: { id: true, name: true } },
         owner: { select: { id: true, name: true } },

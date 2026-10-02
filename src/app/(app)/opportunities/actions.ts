@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { STAGE_PROBABILITY, OPP_STAGES, OPP_STATUSES } from "@/lib/constants";
+import { 对齐阶段与状态 } from "@/lib/opp-stage";
 import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 
@@ -71,9 +72,13 @@ export async function saveOpportunity(input: {
     原来可以存出「进行中 + 赢单成交」：数据页「进行中商机」算它、漏斗前四档没有它、管道的赢单列里却躺着一张进行中的卡。
     丢单不限阶段——丢在哪一步本身有用。
   */
-  if (input.stage === "赢单成交") input = { ...input, status: "WON" };
-  else if (input.status === "WON") input = { ...input, stage: "赢单成交" };
-  const 原状态 = input.id ? (await prisma.opportunity.findUnique({ where: { id: input.id }, select: { status: true } }))?.status ?? null : null;
+  const 原 = input.id ? await prisma.opportunity.findUnique({ where: { id: input.id }, select: { status: true, stage: true } }) : null;
+  const 原状态 = 原?.status ?? null;
+  input = { ...input, ...对齐阶段与状态(input, 原) };
+  // 从赢单成交退回来、概率还挂着 100 的：跟着新阶段走（100% 的进行中商机会把预测金额整笔算进去）
+  if (原?.stage === "赢单成交" && input.stage !== "赢单成交" && input.probability === 100) {
+    input = { ...input, probability: STAGE_PROBABILITY[input.stage] ?? 20 };
+  }
 
   const data = {
     name: input.name.trim(),
@@ -280,3 +285,4 @@ export async function restoreOpportunities(快照: 删掉的商机[]) {
   刷新商机();
   return { ok: true as const, 回来, 没回来: 快照.length - 回来 };
 }
+

@@ -620,7 +620,7 @@ export async function listContractLinks(customerId: string): Promise<{
   const [商机, 计划, 待办] = await Promise.all([
     prisma.opportunity.findMany({ where: { customerId, status: "OPEN" }, orderBy: { createdAt: "desc" }, select: { id: true, name: true, amount: true, stage: true } }),
     prisma.followPlan.findMany({ where: { customerId, done: false }, orderBy: { plannedAt: "asc" }, select: { id: true, subject: true, plannedAt: true } }),
-    prisma.task.findMany({ where: { customerId, done: false }, orderBy: { dueAt: "asc" }, select: { id: true, title: true, dueAt: true } }),
+    prisma.task.findMany({ where: { customerId, done: false }, orderBy: { dueAt: { sort: "asc", nulls: "last" } }, select: { id: true, title: true, dueAt: true } }),
   ]);
   return {
     商机,

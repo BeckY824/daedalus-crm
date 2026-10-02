@@ -124,7 +124,10 @@ export default function OpportunityForm({
                   const 现在 = form.getFieldValue("probability") as number | undefined;
                   const 人没动过 = 现在 == null || 现在 === (STAGE_PROBABILITY[上一个阶段.current] ?? 20);
                   if (v === "赢单成交") form.setFieldValue("probability", 100);
-                  else if (人没动过) form.setFieldValue("probability", STAGE_PROBABILITY[v] ?? 20);
+                  else if (人没动过 || 上一个阶段.current === "赢单成交") form.setFieldValue("probability", STAGE_PROBABILITY[v] ?? 20);
+                  // 阶段和状态当场对上（服务端 对齐阶段与状态 同一个规矩），保存前人就看得见会存成什么
+                  if (v === "赢单成交") form.setFieldValue("status", "WON");
+                  else if (form.getFieldValue("status") === "WON") form.setFieldValue("status", "OPEN");
                   上一个阶段.current = v;
                 }}
               />
@@ -133,6 +136,20 @@ export default function OpportunityForm({
           <Col span={8}>
             <Form.Item name="status" label="状态">
               <Select
+                onChange={(v: string) => {
+                  const 阶段 = form.getFieldValue("stage") as string;
+                  if (v === "WON" && 阶段 !== "赢单成交") {
+                    form.setFieldValue("stage", "赢单成交");
+                    form.setFieldValue("probability", 100);
+                    上一个阶段.current = "赢单成交";
+                  } else if (v !== "WON" && 阶段 === "赢单成交") {
+                    // 赢了的单后来黄了：阶段退回前一档，不能挂在「赢单成交」上
+                    const 前一档 = OPP_STAGES[OPP_STAGES.indexOf("赢单成交") - 1];
+                    form.setFieldValue("stage", 前一档);
+                    form.setFieldValue("probability", STAGE_PROBABILITY[前一档] ?? 20);
+                    上一个阶段.current = 前一档;
+                  }
+                }}
                 options={[
                   { value: "OPEN", label: "进行中" },
                   { value: "WON", label: "已赢单" },

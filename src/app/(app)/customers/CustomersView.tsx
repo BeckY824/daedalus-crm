@@ -22,6 +22,7 @@ import ListSearch from "@/components/ListSearch";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
+import { 导出客户 } from "./export-action";
 import ImportDrawer from "./ImportDrawer";
 import { assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
 import { useDeleteCustomers } from "./useDeleteCustomers";
@@ -82,6 +83,13 @@ type Props = {
     decisionStatus: string;
     salesOwnerId: string;
     channelOwnerId: string;
+    /**
+     * 三种子集（数据页「本月新增」、渠道页「直接推荐」、导入「看这一批」）也放进条件里：
+     * 原来只在地址栏上，一翻页、一搜索、一改筛选就丢了，第 2 页成了全库的第 2 页（2026-10-02 排查）
+     */
+    createdWithin: string;
+    directOf: string;
+    batch: string;
   };
 };
 
@@ -151,6 +159,7 @@ export default function CustomersView({
    */
   const 空库 = total === 0 && !本月新增 && !直接推荐 && !本批 && !Object.values(filters).some((v) => v);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
+  const [导出中, set导出中] = useState(false);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
   const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
 
@@ -258,7 +267,28 @@ export default function CustomersView({
             {/* 导入和导出都是次动作，排在主动作左边。导入空库时也要在——
                 第一次进来的人手上那份 Excel 正是他不想一条条录的原因 */}
             <Button icon={<ImportOutlined />} onClick={() => set导入开着(true)}>导入</Button>
-            {!空库 && <Button icon={<ExportOutlined />} onClick={() => exportCsv(rows, b)}>导出</Button>}
+            {!空库 && (
+              <Button
+                icon={<ExportOutlined />}
+                loading={导出中}
+                onClick={async () => {
+                  // 按服务端这次查询用的条件导全部（filters），不是当前这一页，也不是输入框里还没搜的草稿
+                  set导出中(true);
+                  try {
+                    const r = await 导出客户(filters);
+                    if (!r.ok) return void message.error(r.error);
+                    exportCsv(r.rows, b);
+                    message.success(r.截断了 ? `导出了前 ${r.rows.length} 条（一次最多这么多，先筛一下再导剩下的）` : `导出了 ${r.rows.length} 条`);
+                  } catch {
+                    message.error("导出失败，请重试");
+                  } finally {
+                    set导出中(false);
+                  }
+                }}
+              >
+                导出
+              </Button>
+            )}
             <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
               新建{b.customer}
             </Button>
@@ -288,17 +318,17 @@ export default function CustomersView({
           <Space wrap size={[10, 10]}>
             {/* 从「数据」页那张卡走进来的：说清这是一个子集，并给一条回到全部的路 */}
             {本月新增 && (
-              <Tag closable onClose={() => router.push("/customers")} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
+              <Tag closable onClose={() => apply({ createdWithin: "" })} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
                 只看本月新增
               </Tag>
             )}
             {直接推荐 && (
-              <Tag closable onClose={() => router.push("/customers")} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
+              <Tag closable onClose={() => apply({ directOf: "" })} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
                 只看「{直接推荐}」直接带来的 · {total} 位
               </Tag>
             )}
             {本批 && (
-              <Tag closable onClose={() => router.push("/customers")} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
+              <Tag closable onClose={() => apply({ batch: "" })} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
                 只看刚导入的这一批 · {本批.几位} 位
               </Tag>
             )}

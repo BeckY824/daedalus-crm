@@ -33,7 +33,8 @@ type Props = {
       而 Board 还在为它们各跑一条查询。留着不显示的数据 = 每次打开都白查一遍。
     */
     newCustomersThisMonth: number;
-    newCustomersDelta: number;
+    /** 上月是 0 时是 null：没有可比的口径 */
+    newCustomersDelta: number | null;
     oppTotalAmount: number;
     winRate: number;
     /** 设计稿 08/DATA·NOW 那四张卡：这一刻真查出来的，每个都点得进明细 */
@@ -218,7 +219,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             color={categorical.green}
             label={`新增${b.customer}`}
             value={stats.newCustomersThisMonth.toLocaleString()}
-            delta={stats.newCustomersDelta}
+            delta={stats.newCustomersDelta ?? undefined}
             href="/customers?createdWithin=本月"
           />
         </Col>
@@ -461,8 +462,8 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                 {/* 原本写死 ↑ 和绿色，还用 Math.abs 把负数也显示成上升——
                     下降会被显示成增长，这是会误导决策的 */}
                 <div className="stat-delta">
-                  较上月{" "}
-                  {stats.newCustomersDelta === 0 ? (
+                  {stats.newCustomersDelta === null ? "上月没有新增" : "较上月 "}
+                  {stats.newCustomersDelta === null ? null : stats.newCustomersDelta === 0 ? (
                     "持平"
                   ) : (
                     <span

@@ -77,7 +77,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
     */
     prisma.task.findMany({
       where: { done: false },
-      orderBy: { dueAt: "asc" },
+      orderBy: { dueAt: { sort: "asc", nulls: "last" } },
       take: 5,
       include: { customer: { select: { id: true, name: true } } },
     }),
@@ -263,9 +263,10 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       空库={leadTotal === 0 && activeCustomers === 0 && oppsForSeries.length === 0}
       stats={{
         newCustomersThisMonth,
+        // 上月是 0：没有可比的口径，不给环比（原来给 0，显示成「较上月 持平」，实际是从 0 涨上来的，2026-10-02 排查）
         newCustomersDelta: newCustomersLastMonth
           ? Number((((newCustomersThisMonth - newCustomersLastMonth) / newCustomersLastMonth) * 100).toFixed(1))
-          : 0,
+          : null,
         oppTotalAmount,
         winRate,
         签约本月: 本月签约额,
