@@ -62,7 +62,7 @@ ${timeline}
 输出严格 JSON：{"message": "..."}`;
 
   try {
-    const raw = (await chatJSON(prompt, { maxTokens: 2000 })) as { message?: unknown };
+    const raw = (await chatJSON(prompt)) as { message?: unknown };
     const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 300) : "";
     if (!message) return { ok: false, error: "AI 未能生成话术，请重试" };
     await recordAiUse(user, "wakeup", `AI 起草唤醒话术（${b.customer}「${customer.name}」：${input.reason.slice(0, 50)}）`, input.customerId);
@@ -134,7 +134,7 @@ ${blocks}
 输出严格 JSON，key 是上面 ### 后面的 id：{"<id>": "一句话", ...}`;
 
   try {
-    const raw = (await chatJSON(prompt, { maxTokens: 2000 })) as Record<string, unknown>;
+    const raw = (await chatJSON(prompt)) as Record<string, unknown>;
     const notes: Record<string, string> = {};
     for (const c of customers) {
       const v = raw?.[c.id];
