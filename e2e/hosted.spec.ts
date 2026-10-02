@@ -167,11 +167,19 @@ test("5 共享工作区里不摆管理员那几栏——密码在多个团队手
    * 那台桌面端踢下线。服务端那一栏在共享区回 null（settings/actions.ts 的
    * 我的控制面账号），这里钉的是界面真的没画它。
    */
+  /*
+    2026-10-02（排查 A3）起，共享区里「登录与密码」「个人资料」两栏整个不摆：账号是几个团队共用的，
+    任何一个团队改了密码，会吊销全部会话，别的团队全被踢出、也登不回来。服务端 changeMyPassword / 改我的资料 同样拦。
+    直接带 ?tab=password 进来，也看不到改密码的框、看不到「已登录的机器」。
+  */
   await page.goto("/settings?tab=password");
   await expect(page.getByRole("heading", { name: "设置", exact: true })).toBeVisible({ timeout: 15_000 });
-  // 先确认真进了那一屏：在别的屏上断言「没有这一栏」是假的绿
-  await expect(page.getByLabel("原密码")).toBeVisible();
+  // 先确认设置页真的画出来了（左目录有「外观」），再断言没有那两栏——在空白页上断言「没有」是假的绿
+  await expect(page.getByText("外观").first()).toBeVisible();
+  await expect(page.getByLabel("原密码")).toHaveCount(0);
   await expect(page.getByText("已登录的机器")).toHaveCount(0);
+  await expect(page.getByText("登录与密码")).toHaveCount(0);
+  await expect(page.getByText("个人资料")).toHaveCount(0);
 });
 
 test("6 共享工作区里手机号要打码", async ({ page }) => {
