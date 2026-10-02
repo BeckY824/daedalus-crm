@@ -176,21 +176,22 @@ describe("网关：快速重发时原请求其实没死（只是慢）", () => {
 /* ---------------- 三、频率闸按问题算 ---------------- */
 
 describe("网关：频率闸按问题算之后，同一个编号能不能绕过", () => {
-  it("上游一直 502、客户端拿同一个编号死循环：40 次请求一次都没被频率闸拦（原来第 31 次就 429），而且全部退掉不扣", async () => {
+  // 修法：同一编号前 每问最多步（20）次免频率闸，再往后照常过（30 次 / 5 分钟），所以 60 次之内一定会被拦
+  it("上游一直 502、客户端拿同一个编号死循环：60 次请求里得有被频率闸拦下的", async () => {
     假上游(() => new Response("bad gateway", { status: 502 }));
     const qid = `q-loop-${Date.now()}`;
     const 状态: number[] = [];
-    for (let i = 0; i < 40; i++) 状态.push((await 打网关(qid)).status);
+    for (let i = 0; i < 60; i++) 状态.push((await 打网关(qid)).status);
     // 失控的循环脚本正是频率闸要防的（ai-quota.ts 文件头）；每问最多步 20 只决定「再扣一次」，挡不住请求本身，
     // 失败又全退，所以这条循环对用户 0 成本、对上游无上限
     expect(状态.filter((s) => s === 429).length, `状态：${[...new Set(状态)].join(",")}`).toBeGreaterThan(0);
   });
 
-  it("上游正常、同一个编号连发 45 次：一次 429 都没有（只在每 20 次时多扣 1 次）", async () => {
+  it("上游正常、同一个编号连发 60 次：得有被频率闸拦下的", async () => {
     假上游(() => 回文本('{"message":"好"}'));
     const qid = `q-many-${Date.now()}`;
     const 状态: number[] = [];
-    for (let i = 0; i < 45; i++) 状态.push((await 打网关(qid)).status);
+    for (let i = 0; i < 60; i++) 状态.push((await 打网关(qid)).status);
     expect(状态.filter((s) => s === 429).length).toBeGreaterThan(0);
   });
 });

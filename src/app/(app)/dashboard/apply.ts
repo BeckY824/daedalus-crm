@@ -191,6 +191,9 @@ function 记下确认过(k: string) {
   if (确认过的卡.size > 2000) for (const [key, t] of 确认过的卡) if (now - t > 卡记多久) 确认过的卡.delete(key);
   确认过的卡.set(k, now);
 }
+/** 撤销凭据 → 那张卡的占位。撤销成功就把位让出来：撤完卡又回到能确认的样子，再点不该被说「已经确认过了」（第三轮 B7） */
+const 凭据对应卡 = new Map<string, string>();
+const 凭据键 = (userId: string, u: unknown) => `${userId}:${JSON.stringify(u)}`;
 
 export async function applyProposal(input: Proposal): Promise<ApplyResult> {
   const me = await requireUser();
@@ -209,6 +212,10 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
     return r;
   } finally {
     if (!r?.ok) 确认过的卡.delete(卡键);
+    else if (r.撤销) {
+      if (凭据对应卡.size > 2000) 凭据对应卡.clear();
+      凭据对应卡.set(凭据键(me.id, r.撤销), 卡键);
+    }
   }
 }
 
@@ -345,6 +352,11 @@ export async function undoProposal(u: 撤销凭据): Promise<{ ok: true } | { ok
     if (!r.ok) return r;
   } else {
     return { ok: false, error: "这张卡不支持撤销" };
+  }
+  const 卡 = 凭据对应卡.get(凭据键(me.id, u));
+  if (卡) {
+    确认过的卡.delete(卡);
+    凭据对应卡.delete(凭据键(me.id, u));
   }
   await recordAudit({ user: me, action: "ai_undo", entity: "Ai", entityId: u.kind, summary: `撤销 AI 建议：${名.name}的${u.kind === "add_followup" ? "一条跟进" : "状态改动"}` });
   return { ok: true };

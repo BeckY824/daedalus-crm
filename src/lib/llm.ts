@@ -197,6 +197,8 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(等)]) : AbortSignal.timeout(等),
     });
   let res: Response;
+  /** 超时重发和 5xx 重发共用这一个名额：同一次调用最多打两次（第三轮 B5，原来叠起来是 3 次） */
+  let 重发过 = false;
   try {
     try {
       res = await 发(首轮);
@@ -204,6 +206,7 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       const 人停的 = opts.signal?.aborted;
       if (!(e instanceof Error && e.name === "TimeoutError") || 人停的 || 首轮 >= 总超时) throw e;
       console.warn(`[llm] ${Math.round(首轮 / 1000)} 秒没等到回音，重发一次`);
+      重发过 = true;
       res = await 发(Math.max(15_000, 总超时 - 首轮));
     }
   } catch (e) {
@@ -216,7 +219,7 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
     502 / 503 / 504：中转站或网关临时出错，原样重发一次（第二轮 AI）。原来 agent 碰到它会退回 JSON 协议「碰巧」救回来，
     现在 agent 不再为 5xx 换协议（换了只是多等），这一跳改在这里做。网关对失败的那次已经退了，重发不会多扣
   */
-  if ([502, 503, 504].includes(res.status) && !opts.signal?.aborted) {
+  if ([502, 503, 504].includes(res.status) && !opts.signal?.aborted && !重发过) {
     console.warn(`[llm] 上游 ${res.status}，重发一次`);
     await res.body?.cancel().catch(() => {});
     try {
@@ -300,6 +303,12 @@ async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: C
  * 多轮对话版的 JSON 调用：给 agent 循环用（system + 历史 + 工具结果）。
  * 同样带「不支持 json_object 就降级」和「坏 JSON 重试一次」两道保险。
  */
+/** 降级（去掉 response_format / thinking 再来一次）只救得了「请求体不被认」的 4xx；这几种换了也一样 */
+function 换协议也没用(e: unknown): boolean {
+  const st = (e as { status?: number }).status ?? 0;
+  return st >= 500 || st === 429 || st === 401 || st === 402 || st === 403;
+}
+
 export async function chatMessagesJSON(messages: ToolMessage[], opts: ChatOpts = {}): Promise<unknown> {
   const cfg = await getLlmConfig();
   if (!cfg) throw new Error(AI未启用说法());
@@ -308,6 +317,8 @@ export async function chatMessagesJSON(messages: ToolMessage[], opts: ChatOpts =
     content = await chatMessagesOnce(cfg, messages, opts, true);
   } catch (e) {
     if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e.name === "AbortError" ? e : new Error("AI 响应超时，请稍后重试");
+    // 换个请求体也救不回来的（5xx 已在 chatRaw 重发过、限流、令牌 / 权限）：直接抛，别给出错的上游再加一轮（第三轮 B5）
+    if (换协议也没用(e)) throw e;
     // 网关不认 response_format / thinking 时是 4xx：两个都去掉再试一次
     console.warn(`[llm] JSON 调用失败，降级重试：${e instanceof Error ? e.message.slice(0, 160) : e}`);
     content = await chatMessagesOnce(cfg, messages, { ...opts, thinking: undefined }, false);
@@ -465,7 +476,7 @@ export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unk
       throw new Error("AI 响应超时，请稍后重试");
     }
     // 5xx 在 chatRaw 里已经原样重发过一次了：再降级重试只是给正在出错的上游多加一倍请求
-    if (((e as { status?: number }).status ?? 0) >= 500) throw e;
+    if (换协议也没用(e)) throw e;
     content = await chatOnce(cfg, system, prompt, opts, false);
   }
 

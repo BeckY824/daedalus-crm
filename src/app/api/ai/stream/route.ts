@@ -116,7 +116,7 @@ export async function POST(req: Request) {
             ? "登录已失效，请刷新页面"
             : e instanceof Error && e.name === "TimeoutError"
               ? // 原来摆的是英文「The operation was aborted due to timeout」（2026-10-02）
-                "AI 这次超时没回音（已经重发过一次），稍后再问一次试试"
+                "AI 这次超时没回音，稍后再问一次试试"
               : e instanceof Error && e.name === "AbortError"
                 ? "已停止"
                 : e instanceof Error

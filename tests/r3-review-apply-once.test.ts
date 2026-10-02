@@ -55,7 +55,7 @@ describe("同一张卡不确认两次：误拦", () => {
     const 卡 = await 出卡("propose_status_change", { id: 客户, to: "意向较高", reason: "r" });
     const 一 = await applyProposal(卡);
     expect(一.ok).toBe(true);
-    expect((await undoProposal((一 as { 撤销: never }).撤销)).ok).toBe(true);
+    expect((await undoProposal((一 as unknown as { 撤销: never }).撤销)).ok).toBe(true);
     const 二 = await applyProposal(卡);
     expect(二.ok, 二.ok ? "" : 二.error).toBe(true);
     expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.followStatus).toBe("意向较高");

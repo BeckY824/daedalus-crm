@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 收拾请求体 } from "@/lib/gateway";
-import { 按问题扣一次, 每日赠送期, 规整请求id, 退这一次 } from "@/lib/tenant/credits";
+import { 按问题扣一次, 每日赠送期, 规整请求id, 退这一次, 每问最多步 } from "@/lib/tenant/credits";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
@@ -39,19 +39,23 @@ function 认功能(v: string | null): string | null {
 }
 
 /**
- * 这一阵子见过的问题编号（账号:编号 → 第一次见的时刻）。频率闸据此只给每个问题算一次。
+ * 这一阵子见过的问题编号（账号:编号 → 第一次见的时刻、发过几次）。频率闸据此只给每个问题算一次。
  * 放内存：托管版单进程，重启丢了无非是下一步多算一次频率，不影响扣费（扣费在库里按编号去重）
+ *
+ * **免频率闸也有个数**（第三轮 B6）：同一个编号前 每问最多步 次请求不过频率闸，再往后每一次都照常过。
+ * 否则客户端拿同一个编号死循环，频率闸一次都不拦，上游一直 5xx 时还全退。
+ * 不直接拒：退回 JSON 协议时一个正常的问题就要十几次，超了照 credits.ts 的规矩是多扣、不是关门。
  */
-const 问过的 = new Map<string, number>();
+const 问过的 = new Map<string, { t: number; n: number }>();
 const 问过留多久 = 15 * 60_000;
-function 问过(k: string): boolean {
-  const t = 问过的.get(k);
-  return t !== undefined && Date.now() - t < 问过留多久;
+function 问过(k: string): { t: number; n: number } | null {
+  const r = 问过的.get(k);
+  return r && Date.now() - r.t < 问过留多久 ? r : null;
 }
 function 记下问过(k: string) {
   const now = Date.now();
-  if (问过的.size > 5000) for (const [key, t] of 问过的) if (now - t > 问过留多久) 问过的.delete(key);
-  问过的.set(k, now);
+  if (问过的.size > 5000) for (const [key, r] of 问过的) if (now - r.t > 问过留多久) 问过的.delete(key);
+  问过的.set(k, { t: now, n: 1 });
 }
 
 export async function POST(req: Request) {
@@ -62,13 +66,14 @@ export async function POST(req: Request) {
   /*
     频率闸按**问题**算，不按请求算（第二轮 AI A2）：一个问题要 3–11 次请求（agent 每一步一次），
     按请求算的话连问七八个就在半路被 429 拦下，而第一步那次已经扣了。同一个问题编号的后续几步不再计数；
-    一个问题能发几次请求由 每问最多步 封顶。没带编号的（老客户端）照旧按请求算
+    同一编号前 每问最多步 次不计数、再往后照常计（见 问过的 那段）。没带编号的（老客户端）照旧按请求算
   */
   const 早问题id = 规整请求id(req.headers.get("x-question-id"));
-  if (!早问题id || !问过(`${accountId}:${早问题id}`)) {
+  const 见过 = 早问题id ? 问过(`${accountId}:${早问题id}`) : null;
+  if (!见过 || ++见过.n > 每问最多步) {
     const 等 = consumeAiQuota(`gw:${accountId}`);
     if (等 !== null) return 网关错误(429, `请求太频繁，请 ${等} 秒后再试`);
-    if (早问题id) 记下问过(`${accountId}:${早问题id}`);
+    if (早问题id && !见过) 记下问过(`${accountId}:${早问题id}`);
   }
 
   let raw: unknown;
@@ -195,12 +200,11 @@ export async function POST(req: Request) {
     return 网关错误(502, "AI 服务这次回来的东西不完整，没扣次数，再试一次", 剩余头);
   }
   /*
-    桌面端已经等不及走了（它那边超时、或者人点了停）：这次结果没人收到，退掉（第二轮 AI）。
-    快速重发时第一次那条会走到这里——第二次带着同一个问题编号，本来就不重复扣
+    桌面端已经走了（它那边首轮超时、或者人点了停）时**不退**（第三轮 A1）：
+    快速重发时第一次那条走到这里，重发那份带着同一个编号、不扣，已经把答案给了用户——
+    这里再退，这个问题就成了 0 次；故意「发 → 立刻断 → 同编号再发」更是每个问题都白拿。
+    重发那份要是也失败了，它自己的出错路径会把这个问题退掉。
   */
-  if (req.signal.aborted && 扣.扣了) {
-    await 退这一次(owner, 问题id, true);
-  }
 
   /*
     成本账。桌面端的请求只有经过这里才看得见 token——它那边的 llm.ts 跑在
