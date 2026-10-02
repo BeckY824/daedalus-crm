@@ -48,16 +48,48 @@ function 日志尾巴() {
  * 先问系统要一个空端口再把它交给服务。
  * 中间有一个极小的窗口可能被别的程序抢走，所以调用方要能重试。
  */
-function 找一个空端口() {
+function 找一个空端口(想要 = 0) {
   return new Promise((resolve, reject) => {
     const s = net.createServer();
     s.unref();
     s.on("error", reject);
-    s.listen(0, "127.0.0.1", () => {
+    s.listen(想要, "127.0.0.1", () => {
       const { port } = s.address();
       s.close(() => resolve(port));
     });
   });
+}
+
+/**
+ * **尽量每次用同一个端口**（2026-10-02 排查桌面端 A1）。
+ *
+ * 页面的 localStorage 按 origin 存，origin 带着端口。原来每次启动问系统要一个随机端口，
+ * 于是外观主题、列表显示哪几列、选的模型、左栏开合、栏宽——每次重启都回到默认。
+ * 现在把上次的端口记在这个账号的数据目录里（.port），下次先试它；被占了才换一个新的、再记下来。
+ * 一个账号一个目录，所以不同账号的这些偏好也是分开的。
+ */
+async function 拿端口(dataDir) {
+  const f = path.join(dataDir, ".port");
+  let 上次 = 0;
+  try {
+    上次 = Number(fs.readFileSync(f, "utf8").trim()) || 0;
+  } catch {
+    /* 第一次 */
+  }
+  if (上次 >= 1024 && 上次 <= 65535) {
+    try {
+      return await 找一个空端口(上次);
+    } catch {
+      /* 被别的程序占了：换一个 */
+    }
+  }
+  const port = await 找一个空端口();
+  try {
+    fs.writeFileSync(f, String(port));
+  } catch {
+    /* 记不下只是下次又换一个 */
+  }
+  return port;
 }
 
 /** 会话密钥：有就用，没有就生成一个存下来 */
@@ -108,7 +140,7 @@ async function start({ bundleDir, dataDir, logFile, 额外环境 = {} }) {
   日志流 = fs.createWriteStream(logFile, { flags: "a" });
   日志流.write(`\n===== ${new Date().toISOString()} 启动 =====\n`);
 
-  const port = await 找一个空端口();
+  const port = await 拿端口(dataDir);
   const token = crypto.randomBytes(24).toString("hex");
 
   子进程 = utilityProcess.fork(entry, [], {
@@ -211,4 +243,4 @@ function stop() {
   });
 }
 
-module.exports = { start, stop, 日志尾巴, 运行中: () => 子进程 !== null };
+module.exports = { start, stop, 日志尾巴, 运行中: () => 子进程 !== null, 拿端口 };

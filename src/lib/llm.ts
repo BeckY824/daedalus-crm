@@ -16,6 +16,7 @@ import { 有DSML, 解析DSML } from "./llm-dsml";
 import { 抹掉密钥 } from "./secret";
 import type { AI功能 } from "./ai-features";
 import { getLlmConfig, type LlmConfig } from "./llm-config";
+import { 本地模式 } from "./desktop/cloud";
 
 export * from "./llm-config";
 
@@ -169,12 +170,20 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
   const 额外头: Record<string, string> = {};
   if (opts.requestId) 额外头["X-Question-Id"] = opts.requestId;
   if (opts.feature) 额外头["X-Feature"] = opts.feature;
-  const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}`, ...额外头 },
-    body: JSON.stringify(body),
-    signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 60_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 60_000),
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}`, ...额外头 },
+      body: JSON.stringify(body),
+      signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 60_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+    });
+  } catch (e) {
+    // 超时、人点了停：原样抛，调用方按 name 认（TimeoutError / AbortError）
+    if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e;
+    // 断网时 fetch 抛的是一句英文「fetch failed」，原来直接摆到界面上（2026-10-02 排查 AI B1）
+    throw new Error("连不上 AI 服务，检查一下网络再试");
+  }
   if (!res.ok) {
     const errText = 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey);
     // 带了 thinking 又被 4xx 拒：记下这个模型，后面所有调用都不再带，
@@ -183,7 +192,12 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       不认thinking.add(键);
       console.warn(`[llm] 模型 ${模型} 在 ${cfg.baseUrl} 上不支持关闭思考，后续不再发送该参数`);
     }
-    throw new Error(`接口返回 ${res.status}：${errText}`);
+    /*
+      走我们网关的（桌面端）说人话；自己填 Key 的（自部署、网页设置里测连接）照旧给原文——
+      那些人要靠这串原文去查自己的接口哪里不对（Key 已抹掉）
+    */
+    const 网关的 = 本地模式() || /"type"\s*:\s*"gateway_error"/.test(errText);
+    throw Object.assign(new Error(网关的 ? AI报错人话(res.status, errText) : `接口返回 ${res.status}：${errText}`), { status: res.status });
   }
   return res;
 }
@@ -404,4 +418,32 @@ export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unk
       throw new Error(`AI 返回内容不是合法 JSON：${retried.slice(0, 200)}`);
     }
   }
+}
+
+/**
+ * 模型接口报错时给人看的那一句（2026-10-02 排查 AI B1）。
+ *
+ * 原来是「接口返回 402：{"error":{"message":"免费的 AI 次数已经用完…","type":"gateway_error"}}」整串摆到界面上，
+ * 桌面端用户看不懂，也看不出该做什么。网关自己的报错正文是中文的那句 message，取出来；其余按状态码说人话。
+ * 原文照旧进服务端日志（抹掉 Key 之后）。
+ */
+export function AI报错人话(status: number, 正文: string): string {
+  let 说: string | undefined;
+  try {
+    const j = JSON.parse(正文) as { error?: { message?: string } | string; message?: string };
+    说 = typeof j.error === "string" ? j.error : j.error?.message ?? j.message;
+  } catch {
+    /* 不是 JSON */
+  }
+  const 中文 = 说 && /[\u4e00-\u9fa5]/.test(说) ? 说 : undefined;
+  if (status === 402) return 中文 ?? "AI 次数用完了";
+  if (status === 401 || status === 403) return 中文 ?? "AI 登录凭据失效了，请在设置里退出登录再登录一次";
+  if (status === 429) return 中文 ?? "问得太快了，稍等一会儿再试";
+  if (status >= 500) {
+    console.warn(`[llm] 上游 ${status}：${正文.slice(0, 300)}`);
+    return "AI 服务暂时不可用，稍后再试";
+  }
+  if (中文) return 中文;
+  console.warn(`[llm] 接口返回 ${status}：${正文.slice(0, 300)}`);
+  return `AI 接口没接受这次请求（${status}），稍后再试；一直这样请从「反馈」告诉我们`;
 }

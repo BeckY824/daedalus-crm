@@ -1,7 +1,7 @@
 "use client";
 
 import Heat from "@/components/Heat";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Select, Space, Dropdown, App, Tag, Popover } from "antd";
@@ -162,6 +162,20 @@ export default function CustomersView({
   const [导出中, set导出中] = useState(false);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
   const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
+  /*
+    ?new=1 / ?import=paste 是「一次性」的：读完就从地址上抹掉（2026-10-02 排查桌面端 D5）。
+    桌面端的壳会记住最后停在哪一页（带着 query），不抹的话第一天点过「手动录一位」，
+    之后每次打开应用、每次刷新都会自己弹出新建框。首页的 ?q= 也是这么抹的。
+  */
+  useEffect(() => {
+    if (!直接新建 && !直接粘贴) return;
+    const q = new URLSearchParams(window.location.search);
+    q.delete("new");
+    q.delete("import");
+    router.replace(q.size ? `/customers?${q}` : "/customers", { scroll: false });
+    // 只在进来那一下
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** 收起来的那三个里还筛着几个。收起来不等于可以不告诉人 */
   const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId].filter(Boolean).length;

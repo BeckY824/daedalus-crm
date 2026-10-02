@@ -129,7 +129,11 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
 
         <Card size="small" title="本机数据">
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-            一个 SQLite 文件，就在这台机器上。备份出去的文件退出应用后改名成 crm.db 放回数据目录就能恢复。
+            {/*
+              恢复步骤要写全（2026-10-02 排查桌面端 D1）：库开着 WAL，退出后旁边常留着 crm.db-wal / crm.db-shm，
+              不删的话下次启动旧 WAL 会重放到换进来的备份上——要么恢复没生效，要么库直接坏掉
+            */}
+            一个 SQLite 文件，就在这台机器上。要从备份恢复：先退出应用，在数据文件夹里删掉 crm.db-wal 和 crm.db-shm（有的话），再把备份改名成 crm.db 放进去。
           </Typography.Paragraph>
           <Space wrap>
             <Button onClick={备份} disabled={!shell}>
@@ -270,7 +274,10 @@ function ReminderCard() {
         "比如「3 点给王总回电话」，到 3 点叫你一次，点一下直接到这位客户。只选了日期、没定钟点的不会在半夜叫你",
       )}
       <Typography.Paragraph type="secondary" style={{ fontSize: 12, margin: "8px 0 0" }}>
-        应用开着才提醒——关了窗口没关系{是Windows ? "" : "（在 Dock 里就算开着）"}，退出了就收不到。
+        {/* Windows 上关掉最后一个窗口应用就退出了（没有托盘），不能说「关了窗口没关系」（2026-10-02 排查桌面端 D4） */}
+        {是Windows
+          ? "应用开着才提醒——在 Windows 上关掉窗口应用就退出了，想收提醒就把窗口最小化。"
+          : "应用开着才提醒——关了窗口没关系（在 Dock 里就算开着），退出了就收不到。"}
       </Typography.Paragraph>
       {桥.试一条 && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>

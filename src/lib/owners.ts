@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { 可担任负责人 } from "./constants";
+import { 本地模式 } from "./desktop/cloud";
 
 /**
  * 「谁能被指派为负责人」的候选名单。
@@ -32,6 +33,12 @@ export async function 负责人候选() {
  * 后者会让一个多人工作区里的管理员因为重名之类的巧合被悄悄放进来。
  */
 export async function 负责人口径() {
+  /*
+    桌面端：库里的管理员就是用户本人（server-entry 每次启动把它对上云端账号），他是这个库唯一真实的人。
+    老版本建的库里还留着样例同事「张三 / 李四」——按「有别人就排除管理员」的规矩，负责人下拉只有他俩、
+    业绩榜上没有用户自己（2026-10-02 排查 B5）。桌面端一律把本人算进候选。
+  */
+  if (本地模式()) return { active: true };
   const 有别人 = await prisma.user.count({ where: 可担任负责人 });
   return 有别人 > 0 ? 可担任负责人 : { active: true };
 }

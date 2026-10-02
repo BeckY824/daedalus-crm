@@ -48,17 +48,17 @@ function 客户端头() {
   return h;
 }
 
-async function 请求(url, init = {}) {
+async function 请求(url, init = {}, 超时毫秒 = 20_000) {
   /**
    * 连不上要当一个**结果**回去，不能让它抛出去。状态码带回去：
    * 调用方要分得清「服务端明确拒了」和「根本没问到」（见 校验）。
    */
   let res;
   try {
-    res = await fetch(url, { ...init, headers: { ...客户端头(), ...(init.headers ?? {}) }, signal: AbortSignal.timeout(20_000) });
+    res = await fetch(url, { ...init, headers: { ...客户端头(), ...(init.headers ?? {}) }, signal: AbortSignal.timeout(超时毫秒) });
   } catch (e) {
     const 超时 = e?.name === "TimeoutError" || e?.name === "AbortError";
-    return { ok: false, error: 超时 ? "服务器 20 秒没回应" : "连不上服务器" };
+    return { ok: false, error: 超时 ? `服务器 ${Math.round(超时毫秒 / 1000)} 秒没回应` : "连不上服务器" };
   }
   if (!res.ok) return { ok: false, error: `服务器返回 ${res.status}`, 状态: res.status };
   // 正文解不出来不算失败：调用方多数只关心「认不认」，只有 校验() 要读里面的 accountId
@@ -85,10 +85,10 @@ async function 请求(url, init = {}) {
  *   问不到（断网、服务器挂了）—— **当作还认**。飞机上打不开自己的 CRM 是更糟的事，
  *                               而真正的吊销下次联网时一定会被发现
  */
-async function 校验() {
+async function 校验(超时毫秒 = 20_000) {
   const c = 读();
   if (!c) return { 有效: false, 原因: "没登录" };
-  const r = await 请求(`${c.baseUrl}/api/gateway/v1/credits`, { headers: { Authorization: `Bearer ${c.token}` } });
+  const r = await 请求(`${c.baseUrl}/api/gateway/v1/credits`, { headers: { Authorization: `Bearer ${c.token}` } }, 超时毫秒);
   /*
     顺手把「你是谁」带回来。**升级上来的安装全靠这一下认领自己那份数据**：
     它的 .cloud.json 是 0.39.2 之前写的，里面没有账号 id，而人不会为了升级

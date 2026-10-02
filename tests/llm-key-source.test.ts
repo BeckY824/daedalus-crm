@@ -182,3 +182,13 @@ describe("模型选单", () => {
     }
   });
 });
+
+describe("AI 报错说人话（2026-10-02 排查 AI B1）", () => {
+  it("网关的报错取中文那句；没中文的按状态码说；不再整串 JSON", async () => {
+    const { AI报错人话 } = await import("@/lib/llm");
+    expect(AI报错人话(402, '{"error":{"message":"免费的 AI 次数已经用完，明天再来","type":"gateway_error"}}')).toBe("免费的 AI 次数已经用完，明天再来");
+    expect(AI报错人话(401, '{"error":{"message":"invalid token","type":"gateway_error"}}')).toContain("退出登录再登录");
+    expect(AI报错人话(502, "<html>bad gateway</html>")).toBe("AI 服务暂时不可用，稍后再试");
+    expect(AI报错人话(400, "{}")).not.toContain("{");
+  });
+});
