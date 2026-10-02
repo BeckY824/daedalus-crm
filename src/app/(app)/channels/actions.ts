@@ -24,6 +24,8 @@ export async function saveChannel(input: {
   版本?: string | null;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const me = await requireUser();
+  // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
+  if (!String(input.name ?? "").trim()) return { ok: false, error: "请填写渠道名称" };
   const b = await getBusiness();
   const name = input.name.trim();
   const channelOwnerId = input.channelOwnerId || (await 唯一负责人());

@@ -1,5 +1,6 @@
 "use server";
 
+import { 不在了 } from "@/lib/not-there";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -148,6 +149,8 @@ export type SaveCustomerResult =
 
 export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerResult> {
   const me = await requireUser();
+  // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
+  if (!String(input.name ?? "").trim()) return { ok: false, error: "请填写姓名" };
   const b = await getBusiness();
   const labels = customerFieldLabels(b);
 
@@ -654,81 +657,88 @@ export async function saveContract(input: {
   /** 一起收尾的商机 / 计划 / 待办（弹窗里勾上的）。只在新登记时生效，编辑一笔旧签约不牵动别的 */
   联动?: 签约联动;
 }): Promise<SaveContractResult> {
-  const me = await requireUser();
-  if (!Number.isFinite(input.amount) || input.amount <= 0) {
-    return { ok: false, error: "签约金额必须为正数" };
-  }
-  const amount = Math.round(input.amount);
-
-  if (!input.force) {
-    // 「同一天」按自然日算，不是 24 小时
-    const dayStart = new Date(input.signedAt);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-
-    const hit = await prisma.contract.findFirst({
-      where: {
-        customerId: input.customerId,
-        amount,
-        signedAt: { gte: dayStart, lt: dayEnd },
-        ...(input.id ? { id: { not: input.id } } : {}),
-      },
-      select: { amount: true, signedAt: true, remark: true },
-    });
-    if (hit) {
-      return {
-        ok: false,
-        duplicate: {
-          amount: hit.amount,
-          signedAt: hit.signedAt.toISOString(),
-          remark: hit.remark,
-        },
-      };
+  try {
+    const me = await requireUser();
+    if (!Number.isFinite(input.amount) || input.amount <= 0) {
+      return { ok: false, error: "签约金额必须为正数" };
     }
-  }
-
-  const data = {
-    customerId: input.customerId,
-    amount,
-    signedAt: input.signedAt,
-    remark: input.remark?.trim() || null,
-  };
-  const 学员 = await prisma.customer.findUnique({
-    where: { id: input.customerId },
-    select: { name: true, salesOwnerId: true, channelOwnerId: true },
-  });
-  if (input.id) await prisma.contract.update({ where: { id: input.id }, data });
-  else {
-    // 记下签约这一刻是谁的单（排查 B2）。编辑旧签约不改它：那笔业绩当时是谁的就一直是谁的
-    await prisma.contract.create({
-      data: { ...data, owner: { create: { salesOwnerId: 学员?.salesOwnerId ?? null, channelOwnerId: 学员?.channelOwnerId ?? null } } },
-    });
-  }
-
-  await recordAudit({
-    user: me, action: input.id ? "update" : "create", entity: "Contract", entityId: input.id ?? null,
-    summary: `${input.id ? "修改" : "登记"}「${学员?.name ?? input.customerId}」的签约 ¥${amount.toLocaleString("zh-CN")}` +
-      (input.force ? "（已确认不是重复录入）" : ""),
-    detail: { customerId: input.customerId, amount, signedAt: input.signedAt, force: !!input.force },
-  });
-
-  /*
-    新登记一笔签约，把跟进状态推进到「已签约」，避免两处状态打架。
-    **编辑一笔旧签约不碰状态**：退费后人工改成「已流失」的客户，改一下那笔签约的备注，
-    原来会被硬改回「已签约 / 已决定报名」（2026-10-01 排查 A5）。
-  */
-  if (!input.id) {
-    await prisma.customer.update({
+    const amount = Math.round(input.amount);
+    // 四舍五入后是 0（0.4 元）、或者超过库里整数的上限（约 21 亿）：说一句，不让数据库抛（第二轮 r2-data）
+    if (amount <= 0) return { ok: false as const, error: "签约金额至少 1 元" };
+    if (amount > 2_147_483_647) return { ok: false as const, error: "签约金额太大了，单笔最多 21 亿" };
+  
+    if (!input.force) {
+      // 「同一天」按自然日算，不是 24 小时
+      const dayStart = new Date(input.signedAt);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+  
+      const hit = await prisma.contract.findFirst({
+        where: {
+          customerId: input.customerId,
+          amount,
+          signedAt: { gte: dayStart, lt: dayEnd },
+          ...(input.id ? { id: { not: input.id } } : {}),
+        },
+        select: { amount: true, signedAt: true, remark: true },
+      });
+      if (hit) {
+        return {
+          ok: false,
+          duplicate: {
+            amount: hit.amount,
+            signedAt: hit.signedAt.toISOString(),
+            remark: hit.remark,
+          },
+        };
+      }
+    }
+  
+    const data = {
+      customerId: input.customerId,
+      amount,
+      signedAt: input.signedAt,
+      remark: input.remark?.trim() || null,
+    };
+    const 学员 = await prisma.customer.findUnique({
       where: { id: input.customerId },
-      data: { followStatus: "已签约", decisionStatus: "已决定报名" },
+      select: { name: true, salesOwnerId: true, channelOwnerId: true },
     });
+    if (input.id) await prisma.contract.update({ where: { id: input.id }, data });
+    else {
+      // 记下签约这一刻是谁的单（排查 B2）。编辑旧签约不改它：那笔业绩当时是谁的就一直是谁的
+      await prisma.contract.create({
+        data: { ...data, owner: { create: { salesOwnerId: 学员?.salesOwnerId ?? null, channelOwnerId: 学员?.channelOwnerId ?? null } } },
+      });
+    }
+  
+    await recordAudit({
+      user: me, action: input.id ? "update" : "create", entity: "Contract", entityId: input.id ?? null,
+      summary: `${input.id ? "修改" : "登记"}「${学员?.name ?? input.customerId}」的签约 ¥${amount.toLocaleString("zh-CN")}` +
+        (input.force ? "（已确认不是重复录入）" : ""),
+      detail: { customerId: input.customerId, amount, signedAt: input.signedAt, force: !!input.force },
+    });
+  
+    /*
+      新登记一笔签约，把跟进状态推进到「已签约」，避免两处状态打架。
+      **编辑一笔旧签约不碰状态**：退费后人工改成「已流失」的客户，改一下那笔签约的备注，
+      原来会被硬改回「已签约 / 已决定报名」（2026-10-01 排查 A5）。
+    */
+    if (!input.id) {
+      await prisma.customer.update({
+        where: { id: input.customerId },
+        data: { followStatus: "已签约", decisionStatus: "已决定报名" },
+      });
+    }
+  
+    const 联动 = !input.id && input.联动 ? await 签约收尾(input.customerId, input.联动) : undefined;
+  
+    revalidateCustomer(input.customerId);
+    return { ok: true, ...(联动 ? { 联动 } : {}) };
+  } catch (e) {
+    return 不在了(e);
   }
-
-  const 联动 = !input.id && input.联动 ? await 签约收尾(input.customerId, input.联动) : undefined;
-
-  revalidateCustomer(input.customerId);
-  return { ok: true, ...(联动 ? { 联动 } : {}) };
 }
 
 /**
@@ -764,40 +774,44 @@ export async function deleteContract(
   customerId: string,
   revertTo?: { followStatus: string; decisionStatus: string } | null,
 ): Promise<{ ok: true; remaining: number } | { ok: false; error: string }> {
-  const me = await requireUser();
-  const b = await getBusiness();
-
-  if (revertTo) {
-    const 状态错 = 跟进不对(revertTo.followStatus) ?? 决策不对(revertTo.decisionStatus);
-    if (状态错) return { ok: false, error: 状态错 };
-  }
-
-  // 删完就查不到金额了，先留一份
-  const 待删 = await prisma.contract.findUnique({ where: { id }, select: { amount: true, signedAt: true } });
-  const gone = await prisma.contract.deleteMany({ where: { id, customerId } });
-  if (gone.count === 0) {
-    return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
-  }
-
-  const remaining = await prisma.contract.count({ where: { customerId } });
-  // 只在确实一笔不剩时才谈回退；还有别的签约就不该动状态
-  if (revertTo && remaining === 0) {
-    await prisma.customer.update({
-      where: { id: customerId },
-      data: { followStatus: revertTo.followStatus, decisionStatus: revertTo.decisionStatus },
+  try {
+    const me = await requireUser();
+    const b = await getBusiness();
+  
+    if (revertTo) {
+      const 状态错 = 跟进不对(revertTo.followStatus) ?? 决策不对(revertTo.decisionStatus);
+      if (状态错) return { ok: false, error: 状态错 };
+    }
+  
+    // 删完就查不到金额了，先留一份
+    const 待删 = await prisma.contract.findUnique({ where: { id }, select: { amount: true, signedAt: true } });
+    const gone = await prisma.contract.deleteMany({ where: { id, customerId } });
+    if (gone.count === 0) {
+      return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
+    }
+  
+    const remaining = await prisma.contract.count({ where: { customerId } });
+    // 只在确实一笔不剩时才谈回退；还有别的签约就不该动状态
+    if (revertTo && remaining === 0) {
+      await prisma.customer.update({
+        where: { id: customerId },
+        data: { followStatus: revertTo.followStatus, decisionStatus: revertTo.decisionStatus },
+      });
+    }
+  
+    await recordAudit({
+      user: me, action: "delete", entity: "Contract", entityId: id,
+      summary: `删除签约 ¥${(待删?.amount ?? 0).toLocaleString("zh-CN")}` +
+        (revertTo && remaining === 0 ? `，跟进状态退回「${statusLabel(b, revertTo.followStatus)}」` : "") +
+        (remaining ? `，该${b.customer}还剩 ${remaining} 笔` : ""),
+      detail: { customerId, amount: 待删?.amount, signedAt: 待删?.signedAt, revertTo, remaining },
     });
+  
+    revalidateCustomer(customerId);
+    return { ok: true, remaining };
+  } catch (e) {
+    return 不在了(e);
   }
-
-  await recordAudit({
-    user: me, action: "delete", entity: "Contract", entityId: id,
-    summary: `删除签约 ¥${(待删?.amount ?? 0).toLocaleString("zh-CN")}` +
-      (revertTo && remaining === 0 ? `，跟进状态退回「${statusLabel(b, revertTo.followStatus)}」` : "") +
-      (remaining ? `，该${b.customer}还剩 ${remaining} 笔` : ""),
-    detail: { customerId, amount: 待删?.amount, signedAt: 待删?.signedAt, revertTo, remaining },
-  });
-
-  revalidateCustomer(customerId);
-  return { ok: true, remaining };
 }
 
 /* ---------- 记录页的行内编辑 ---------- */

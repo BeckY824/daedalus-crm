@@ -198,6 +198,7 @@ export default function OpportunitiesView({
       async onOk() {
         const res = await deleteOpportunities([r.id]);
         router.refresh();
+        if (!res.ok) return void message.error(res.error);
         const key = `opp-del-${r.id}`;
         message.success({
           key,
@@ -210,7 +211,9 @@ export default function OpportunitiesView({
                 size="small"
                 onClick={async () => {
                   message.destroy(key);
+                  if (!res.ok) return;
                   const u = await restoreOpportunities(res.快照);
+                  if (!u.ok) return void message.error(u.error);
                   if (!u.回来) return void message.error("没能撤回来：这位客户可能已经不在了");
                   message.success(`「${r.name}」回来了`);
                   router.refresh();

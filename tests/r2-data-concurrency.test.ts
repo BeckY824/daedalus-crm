@@ -56,6 +56,12 @@ const 打开 = async (id: string) => {
 
 /* ------------------------------------------------------------------ */
 
+/** savePlan 现在可能回 { ok: false }（那条不在了）：测试里造数时断言一下它成了 */
+function 有id<T>(r: T): Extract<T, { ok: true }> {
+  if (!(r as { ok?: boolean }).ok) throw new Error("造数失败");
+  return r as Extract<T, { ok: true }>;
+}
+
 describe("两个窗口同时改同一位客户", () => {
   it("不同字段：两边都留下", async () => {
     const c = await 造客户(我);
@@ -116,7 +122,7 @@ describe("编辑框开着时记录在另一处被删了（B：应回一句话，
 
   it("改一条已被删的计划", async () => {
     const c = await 造客户(我);
-    const p = await savePlan({ customerId: c.id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" });
+    const p = 有id(await savePlan({ customerId: c.id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" }));
     await deletePlan(p.id);
     const r = await 结局(savePlan({ id: p.id, customerId: c.id, subject: "回访（改）", plannedAt: new Date().toISOString(), method: "电话沟通" }));
     expect(r.抛了, r.抛了 ? r.错 : "").toBe(false);
@@ -147,7 +153,7 @@ describe("编辑框开着时记录在另一处被删了（B：应回一句话，
 describe("完成 / 撤销完成 时那一条已经没了", () => {
   it("计划在另一个窗口删了，这边点「完成」", async () => {
     const c = await 造客户(我);
-    const p = await savePlan({ customerId: c.id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" });
+    const p = 有id(await savePlan({ customerId: c.id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" }));
     await deletePlan(p.id);
     const r = await 结局(completePlan(p.id));
     expect(r.抛了, r.抛了 ? r.错 : "").toBe(false);
@@ -165,7 +171,7 @@ describe("完成 / 撤销完成 时那一条已经没了", () => {
 
   it("计划完成后撤销：回到未完成", async () => {
     const c = await 造客户(我);
-    const p = await savePlan({ customerId: c.id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" });
+    const p = 有id(await savePlan({ customerId: c.id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" }));
     await completePlan(p.id);
     await completePlan(p.id, false);
     expect((await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).done).toBe(false);
@@ -253,7 +259,7 @@ describe("删客户之后再点各处的「撤销」", () => {
       跟进: await 结局(restoreFollowUp(删跟进.ok ? 删跟进.快照 : (null as never))),
       移出: await 结局(undoDetachContact(王.id, 移出.ok ? 移出.原来是关键 : false)),
       联系人: await 结局(restoreContact(删联系人.ok ? 删联系人.快照 : (null as never))),
-      商机: await 结局(restoreOpportunities(删商机.快照)),
+      商机: await 结局(restoreOpportunities(删商机.ok ? 删商机.快照 : (null as never))),
     };
     expect(Object.values(结果).every((r) => !r.抛了)).toBe(true);
     expect(await prisma.followUp.count()).toBe(0);
@@ -273,7 +279,7 @@ describe("连点：同一个动作并发调两次（B：第二下应是无事发
 
   it("删计划连点两下", async () => {
     const c = await 造客户(我);
-    const p = await savePlan({ customerId: c.id, subject: "x", plannedAt: new Date().toISOString(), method: "电话沟通" });
+    const p = 有id(await savePlan({ customerId: c.id, subject: "x", plannedAt: new Date().toISOString(), method: "电话沟通" }));
     const rs = await Promise.all([结局(deletePlan(p.id)), 结局(deletePlan(p.id))]);
     expect(rs.filter((r) => r.抛了).length).toBe(0);
   });
@@ -319,6 +325,7 @@ describe("连点：同一个动作并发调两次（B：第二下应是无事发
     const c = await 造客户(我);
     await saveOpportunity({ name: "x", customerId: c.id, amount: 1, stage: "初步沟通", status: "OPEN", probability: 20, ownerId: 我 });
     const d = await deleteOpportunities((await prisma.opportunity.findMany()).map((x) => x.id));
+    if (!d.ok) throw new Error(d.error);
     const rs = await Promise.all([结局(restoreOpportunities(d.快照)), 结局(restoreOpportunities(d.快照))]);
     expect(rs.filter((r) => r.抛了).length).toBe(0);
     expect(await prisma.opportunity.count()).toBe(1);
@@ -387,10 +394,10 @@ describe("没有版本闸门的几样：两个窗口改同一条，后存的整�
   it("同一条计划：窗口 1 改时间、窗口 2 改主题，窗口 1 的时间被盖回去", async () => {
     const c = await 造客户(我);
     const t0 = new Date(Date.now() + 86400000).toISOString();
-    const p = await savePlan({ customerId: c.id, subject: "回访", plannedAt: t0, method: "电话沟通" });
+    const p = 有id(await savePlan({ customerId: c.id, subject: "回访", plannedAt: t0, method: "电话沟通" }));
     const 新时间 = new Date(Date.now() + 3 * 86400000).toISOString();
     await savePlan({ id: p.id, customerId: c.id, subject: "回访", plannedAt: 新时间, method: "电话沟通" });
-    const r2 = await savePlan({ id: p.id, customerId: c.id, subject: "回访：带报价单", plannedAt: t0, method: "电话沟通" });
+    const r2 = 有id(await savePlan({ id: p.id, customerId: c.id, subject: "回访：带报价单", plannedAt: t0, method: "电话沟通" }));
     const 现 = await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } });
     expect(现.plannedAt.toISOString() === 新时间 || (r2 as { ok: boolean }).ok === false, "窗口 1 改的时间被静默覆盖").toBe(true);
   });

@@ -1,5 +1,6 @@
 "use server";
 
+import { 不在了 } from "@/lib/not-there";
 import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -51,6 +52,8 @@ export async function saveOpportunity(input: {
   版本?: string | null;
 }) {
   const me = await requireUser();
+  // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
+  if (!String(input.name ?? "").trim()) return { ok: false as const, error: "请填写商机名称" };
   // 与签约金额同一类问题：负数商机会让漏斗和加权预测的合计变小甚至为负
   if (!Number.isFinite(input.amount) || input.amount < 0) {
     return { ok: false as const, error: "商机金额不能为负数" };
@@ -123,41 +126,45 @@ export async function saveOpportunity(input: {
  * 100 正是赢单成交的默认值，于是手填的 75% 被换成了目标阶段的默认值。撤销得原样撤。
  */
 export async function moveStage(id: string, stage: string, 还原概率?: number) {
-  const me = await requireUser();
-  if (!OPP_STAGES.includes(stage as (typeof OPP_STAGES)[number])) {
-    return { ok: false as const, error: `商机阶段「${stage}」不是合法取值` };
+  try {
+    const me = await requireUser();
+    if (!OPP_STAGES.includes(stage as (typeof OPP_STAGES)[number])) {
+      return { ok: false as const, error: `商机阶段「${stage}」不是合法取值` };
+    }
+    const before = await prisma.opportunity.findUnique({ where: { id }, select: { status: true, stage: true, name: true, probability: true } });
+    if (!before) return { ok: false as const, error: "商机不存在（可能已删除）" };
+  
+    /**
+     * 已丢单的商机不因为换个阶段就复活。
+     * 原本写死 status = stage === "赢单成交" ? "WON" : "OPEN"，
+     * 于是把一张 LOST 的卡片拖回任意阶段，它就被静默改回进行中，
+     * 重新计入漏斗和预测金额——丢单记录凭空消失，没人会注意到。
+     */
+    const status = stage === "赢单成交" ? "WON" : before.status === "LOST" ? "LOST" : "OPEN";
+    /*
+      概率只在「人没动过」时跟着阶段变（审查 M11）：还等于旧阶段的默认值，才换成新阶段的默认值；
+      人手填过的（蓝鲸那单的 75%）原样留着——系统帮你填的字段，人动过手就不许自动改回去。
+      赢单成交一律 100。撤销（改回原阶段）也走这一条，所以撤销之后概率也回得去。
+    */
+    const probability =
+      还原概率 !== undefined && Number.isFinite(还原概率) && 还原概率 >= 0 && 还原概率 <= 100
+        ? Math.round(还原概率)
+        : stage === "赢单成交" ? 100 : before.probability === (STAGE_PROBABILITY[before.stage] ?? 20) ? STAGE_PROBABILITY[stage] ?? 20 : before.probability;
+    const o = await prisma.opportunity.update({
+      where: { id },
+      data: { stage, probability, status },
+    });
+    await 记结单(id, before.status, status);
+    await recordAudit({
+      user: me, action: "update", entity: "Opportunity", entityId: id,
+      summary: `商机「${o.name}」阶段：${before.stage} → ${stage}`,
+      detail: { 原阶段: before.stage, 新阶段: stage, 状态: 状态名[status] ?? status },
+    });
+    刷新商机(o.customerId);
+    return { ok: true as const };
+  } catch (e) {
+    return 不在了(e);
   }
-  const before = await prisma.opportunity.findUnique({ where: { id }, select: { status: true, stage: true, name: true, probability: true } });
-  if (!before) return { ok: false as const, error: "商机不存在（可能已删除）" };
-
-  /**
-   * 已丢单的商机不因为换个阶段就复活。
-   * 原本写死 status = stage === "赢单成交" ? "WON" : "OPEN"，
-   * 于是把一张 LOST 的卡片拖回任意阶段，它就被静默改回进行中，
-   * 重新计入漏斗和预测金额——丢单记录凭空消失，没人会注意到。
-   */
-  const status = stage === "赢单成交" ? "WON" : before.status === "LOST" ? "LOST" : "OPEN";
-  /*
-    概率只在「人没动过」时跟着阶段变（审查 M11）：还等于旧阶段的默认值，才换成新阶段的默认值；
-    人手填过的（蓝鲸那单的 75%）原样留着——系统帮你填的字段，人动过手就不许自动改回去。
-    赢单成交一律 100。撤销（改回原阶段）也走这一条，所以撤销之后概率也回得去。
-  */
-  const probability =
-    还原概率 !== undefined && Number.isFinite(还原概率) && 还原概率 >= 0 && 还原概率 <= 100
-      ? Math.round(还原概率)
-      : stage === "赢单成交" ? 100 : before.probability === (STAGE_PROBABILITY[before.stage] ?? 20) ? STAGE_PROBABILITY[stage] ?? 20 : before.probability;
-  const o = await prisma.opportunity.update({
-    where: { id },
-    data: { stage, probability, status },
-  });
-  await 记结单(id, before.status, status);
-  await recordAudit({
-    user: me, action: "update", entity: "Opportunity", entityId: id,
-    summary: `商机「${o.name}」阶段：${before.stage} → ${stage}`,
-    detail: { 原阶段: before.stage, 新阶段: stage, 状态: 状态名[status] ?? status },
-  });
-  刷新商机(o.customerId);
-  return { ok: true as const };
 }
 
 /**
@@ -171,66 +178,74 @@ export async function setOppStatus(
   status: "OPEN" | "WON" | "LOST",
   还原?: { stage: string; probability: number },
 ) {
-  const me = await requireUser();
-  if (!OPP_STATUSES.includes(status)) return { ok: false as const, error: `商机状态「${status}」不是合法取值` };
-  if (还原) {
-    if (!OPP_STAGES.includes(还原.stage as (typeof OPP_STAGES)[number])) {
-      return { ok: false as const, error: `商机阶段「${还原.stage}」不是合法取值` };
+  try {
+    const me = await requireUser();
+    if (!OPP_STATUSES.includes(status)) return { ok: false as const, error: `商机状态「${status}」不是合法取值` };
+    if (还原) {
+      if (!OPP_STAGES.includes(还原.stage as (typeof OPP_STAGES)[number])) {
+        return { ok: false as const, error: `商机阶段「${还原.stage}」不是合法取值` };
+      }
+      if (!Number.isFinite(还原.probability) || 还原.probability < 0 || 还原.probability > 100) {
+        return { ok: false as const, error: "成交概率必须在 0~100 之间" };
+      }
     }
-    if (!Number.isFinite(还原.probability) || 还原.probability < 0 || 还原.probability > 100) {
-      return { ok: false as const, error: "成交概率必须在 0~100 之间" };
-    }
+    const 原 = await prisma.opportunity.findUnique({ where: { id }, select: { status: true } });
+    if (!原) return { ok: false as const, error: "商机不存在（可能已删除）" };
+    const o = await prisma.opportunity.update({
+      where: { id },
+      data: {
+        status,
+        ...(status === "WON" ? { stage: "赢单成交", probability: 100 } : {}),
+        ...(status === "LOST" ? { probability: 0 } : {}),
+        ...(还原 ? { stage: 还原.stage, probability: Math.round(还原.probability) } : {}),
+      },
+    });
+    await 记结单(id, 原.status, status);
+    await recordAudit({
+      user: me, action: "update", entity: "Opportunity", entityId: id,
+      summary: 还原 ? `商机「${o.name}」撤销改状态，回到${状态名[status] ?? status}（${o.stage}）` : `商机「${o.name}」标记为${状态名[status] ?? status}`,
+      detail: { 状态: 状态名[status] ?? status, 金额: o.amount, ...(还原 ? { 阶段: o.stage, 概率: o.probability } : {}) },
+    });
+    刷新商机(o.customerId);
+    return { ok: true as const };
+  } catch (e) {
+    return 不在了(e);
   }
-  const 原 = await prisma.opportunity.findUnique({ where: { id }, select: { status: true } });
-  if (!原) return { ok: false as const, error: "商机不存在（可能已删除）" };
-  const o = await prisma.opportunity.update({
-    where: { id },
-    data: {
-      status,
-      ...(status === "WON" ? { stage: "赢单成交", probability: 100 } : {}),
-      ...(status === "LOST" ? { probability: 0 } : {}),
-      ...(还原 ? { stage: 还原.stage, probability: Math.round(还原.probability) } : {}),
-    },
-  });
-  await 记结单(id, 原.status, status);
-  await recordAudit({
-    user: me, action: "update", entity: "Opportunity", entityId: id,
-    summary: 还原 ? `商机「${o.name}」撤销改状态，回到${状态名[status] ?? status}（${o.stage}）` : `商机「${o.name}」标记为${状态名[status] ?? status}`,
-    detail: { 状态: 状态名[status] ?? status, 金额: o.amount, ...(还原 ? { 阶段: o.stage, 概率: o.probability } : {}) },
-  });
-  刷新商机(o.customerId);
-  return { ok: true as const };
 }
 
 export async function deleteOpportunities(ids: string[]) {
-  const me = await requireUser();
-  /*
-    先把名字查出来再删——删完就没得查了。
-    删除是最该留痕的一种写操作：删掉的东西在界面上再也找不到，日志是唯一能回答
-    「那个商机去哪了」的地方。
-  */
-  const 待删 = await prisma.opportunity.findMany({
-    where: { id: { in: ids } },
-    include: { customer: { select: { name: true } }, closed: true, followUps: { select: { id: true } } },
-  });
-  const res = await prisma.opportunity.deleteMany({ where: { id: { in: ids } } });
-  if (res.count) {
-    await recordAudit({
-      user: me, action: "delete", entity: "Opportunity",
-      summary: `删除 ${res.count} 个商机：${待删.map((o) => `「${o.name}」`).join("、")}`,
-      detail: 待删.map((o) => ({ 名称: o.name, 客户: o.customer?.name ?? null, 金额: o.amount, 阶段: o.stage })),
+  try {
+    const me = await requireUser();
+    /*
+      先把名字查出来再删——删完就没得查了。
+      删除是最该留痕的一种写操作：删掉的东西在界面上再也找不到，日志是唯一能回答
+      「那个商机去哪了」的地方。
+    */
+    const 待删 = await prisma.opportunity.findMany({
+      where: { id: { in: ids } },
+      include: { customer: { select: { name: true } }, closed: true, followUps: { select: { id: true } } },
     });
+    const res = await prisma.opportunity.deleteMany({ where: { id: { in: ids } } });
+    if (res.count) {
+      await recordAudit({
+        user: me, action: "delete", entity: "Opportunity",
+        summary: `删除 ${res.count} 个商机：${待删.map((o) => `「${o.name}」`).join("、")}`,
+        detail: 待删.map((o) => ({ 名称: o.name, 客户: o.customer?.name ?? null, 金额: o.amount, 阶段: o.stage })),
+      });
+    }
+    刷新商机();
+    // 撤销要用的原样快照（排查 D2）：一并记下原来指着它的跟进记录、结单时刻
+    const 快照: 删掉的商机[] = 待删.map(({ customer: _客户, closed, followUps, ...o }) => ({
+      ...o,
+      expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
+      createdAt: o.createdAt.toISOString(),
+      closedAt: closed?.closedAt.toISOString() ?? null,
+      跟进: followUps.map((f) => f.id),
+    }));
+    return { ok: true as const, 快照 };
+  } catch (e) {
+    return 不在了(e);
   }
-  刷新商机();
-  // 撤销要用的原样快照（排查 D2）：一并记下原来指着它的跟进记录、结单时刻
-  const 快照: 删掉的商机[] = 待删.map(({ customer: _客户, closed, followUps, ...o }) => ({
-    ...o,
-    expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
-    createdAt: o.createdAt.toISOString(),
-    closedAt: closed?.closedAt.toISOString() ?? null,
-    跟进: followUps.map((f) => f.id),
-  }));
-  return { ok: true as const, 快照 };
 }
 
 export type 删掉的商机 = {
@@ -254,35 +269,39 @@ export async function 删商机前清点(ids: string[]) {
  * 客户已经不在了的那几个撤不回来，回 没回来 的个数。
  */
 export async function restoreOpportunities(快照: 删掉的商机[]) {
-  const me = await requireUser();
-  let 回来 = 0;
-  for (const o of 快照) {
-    if (await prisma.opportunity.findUnique({ where: { id: o.id }, select: { id: true } })) continue;
-    if (!(await prisma.customer.findUnique({ where: { id: o.customerId }, select: { id: true } }))) continue;
-    if (!OPP_STAGES.includes(o.stage as (typeof OPP_STAGES)[number]) || !OPP_STATUSES.includes(o.status as (typeof OPP_STATUSES)[number])) continue;
-    await prisma.$transaction(async (tx) => {
-      await tx.opportunity.create({
-        data: {
-          id: o.id, name: o.name, amount: o.amount, stage: o.stage, status: o.status, probability: o.probability,
-          expectedDealAt: o.expectedDealAt ? new Date(o.expectedDealAt) : null, remark: o.remark,
-          customerId: o.customerId, ownerId: o.ownerId, createdAt: new Date(o.createdAt),
-          ...(o.closedAt ? { closed: { create: { closedAt: new Date(o.closedAt) } } } : {}),
-        },
+  try {
+    const me = await requireUser();
+    let 回来 = 0;
+    for (const o of 快照) {
+      if (await prisma.opportunity.findUnique({ where: { id: o.id }, select: { id: true } })) continue;
+      if (!(await prisma.customer.findUnique({ where: { id: o.customerId }, select: { id: true } }))) continue;
+      if (!OPP_STAGES.includes(o.stage as (typeof OPP_STAGES)[number]) || !OPP_STATUSES.includes(o.status as (typeof OPP_STATUSES)[number])) continue;
+      await prisma.$transaction(async (tx) => {
+        await tx.opportunity.create({
+          data: {
+            id: o.id, name: o.name, amount: o.amount, stage: o.stage, status: o.status, probability: o.probability,
+            expectedDealAt: o.expectedDealAt ? new Date(o.expectedDealAt) : null, remark: o.remark,
+            customerId: o.customerId, ownerId: o.ownerId, createdAt: new Date(o.createdAt),
+            ...(o.closedAt ? { closed: { create: { closedAt: new Date(o.closedAt) } } } : {}),
+          },
+        });
+        if (o.跟进.length) {
+          await tx.followUp.updateMany({ where: { id: { in: o.跟进 }, opportunityId: null }, data: { opportunityId: o.id } });
+        }
       });
-      if (o.跟进.length) {
-        await tx.followUp.updateMany({ where: { id: { in: o.跟进 }, opportunityId: null }, data: { opportunityId: o.id } });
-      }
-    });
-    回来++;
+      回来++;
+    }
+    if (回来) {
+      await recordAudit({
+        user: me, action: "create", entity: "Opportunity",
+        summary: `撤销删除：${回来} 个商机回来了`,
+        detail: 快照.map((o) => ({ 名称: o.name })),
+      });
+    }
+    刷新商机();
+    return { ok: true as const, 回来, 没回来: 快照.length - 回来 };
+  } catch (e) {
+    return 不在了(e);
   }
-  if (回来) {
-    await recordAudit({
-      user: me, action: "create", entity: "Opportunity",
-      summary: `撤销删除：${回来} 个商机回来了`,
-      detail: 快照.map((o) => ({ 名称: o.name })),
-    });
-  }
-  刷新商机();
-  return { ok: true as const, 回来, 没回来: 快照.length - 回来 };
 }
 

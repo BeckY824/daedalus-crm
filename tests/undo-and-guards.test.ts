@@ -114,6 +114,7 @@ describe("D2 删商机、删跟进都能撤销，撤回去是原样", () => {
 
     const r = await deleteOpportunities([o.id]);
     expect((await prisma.followUp.findUniqueOrThrow({ where: { id: f.id } })).opportunityId).toBeNull();
+    if (!r.ok) throw new Error(r.error);
     expect(await restoreOpportunities(r.快照)).toMatchObject({ 回来: 1, 没回来: 0 });
     const 回来 = await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id }, include: { closed: true } });
     expect(回来).toMatchObject({ name: "暑期班", status: "WON", amount: 5000 });

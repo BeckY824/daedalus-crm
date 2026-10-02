@@ -194,7 +194,7 @@ describe("删商机 / 联系人", () => {
     expect(await prisma.opportunityClose.count()).toBe(0);
     expect(await 外键体检()).toEqual([]);
     expect(await 各页取数(c.id)).toEqual([]);
-    await restoreOpportunities(d.快照);
+    if (d.ok) await restoreOpportunities(d.快照);
     expect((await prisma.followUp.findFirstOrThrow({ where: { content: "聊报价" } })).opportunityId).toBe(年框.id);
     expect(await prisma.opportunityClose.count(), "赢单那个的结单时刻原样回来").toBe(1);
   });

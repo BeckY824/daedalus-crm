@@ -126,7 +126,8 @@ describe("手机号（表单 / 查重这条路）", () => {
     expect(await 新客户({ phone: "138****1111", name: "打码" })).toMatchObject({ ok: false });
     expect(await 新客户({ phone: "   ", name: "空" })).toMatchObject({ ok: false, error: "请输入联系电话" });
     const 存的 = (await prisma.customer.findMany({ orderBy: { createdAt: "asc" } })).map((c) => c.phone);
-    expect(存的).toEqual(["+14155550123", "075512345678"]);
+    // 分机号留着（第二轮复查）
+    expect(存的).toEqual(["+14155550123", "075512345678转801"]);
   });
 
   it("线索转客户：线索上的号码带全角数字 / 空格也能转，转过去是规整后的号", async () => {
@@ -219,6 +220,7 @@ describe("日期与时长", () => {
     const c = await 造客户(我);
     for (const t of [new Date(2028, 1, 29, 10), new Date(2026, 11, 31, 23, 59), new Date(2027, 0, 1, 0, 0)]) {
       const p = await savePlan({ customerId: c.id, subject: "x", plannedAt: t.toISOString(), method: "电话沟通" });
+      if (!p.ok) throw new Error(p.error);
       expect((await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).plannedAt.getTime()).toBe(t.getTime());
     }
   });

@@ -26,6 +26,8 @@ export async function saveLead(input: {
   版本?: string | null;
 }) {
   const user = await requireUser();
+  // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
+  if (!String(input.name ?? "").trim()) return { ok: false as const, error: "请填写线索名称" };
   if (!LEAD_STATUSES.includes(input.status as (typeof LEAD_STATUSES)[number])) {
     return { ok: false as const, error: `线索状态「${input.status}」不是合法取值` };
   }

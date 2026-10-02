@@ -85,6 +85,8 @@ export default function PlanForm({
       plannedAt: v.plannedAt.toISOString(),
       method: v.method,
     });
+    // 这位客户在别处被删了之类：说一句，框留着
+    if (!res.ok) return void message.error(res.error);
     set近况(null);
     onSaved(res.id);
     if (!挑人 || !近况) return void message.success("跟进计划已保存");
