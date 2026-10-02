@@ -880,12 +880,26 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
         c = { id: found.id, name: found.name };
         if (kind === "update_customer" || kind === "set_status") {
           /*
-            **这里的 phone 不许打码。** 这是建议卡上的预填值，人点确认之后会原样写回库——
-            打了码就是把 `139****1111` 当成真号存进去，把用户的数据改坏了。
-            共享区的脱敏针对的是「读出来给人看」，不是「读出来再写回去」。
-            tests/agent-phone-mask.test.ts 里把这一处列成了具名例外。
+            现值里的电话**也打码**（2026-10-02 排查 AI A3）。原来说「这是预填值、会原样写回」所以不打码——那句不成立：
+            现值只给卡片显示和确认时的比对（apply.ts D4）用，写库用的是 changes；而它整份发到了浏览器，
+            共享试用区里打开 devtools 就能看到别的团队客户的完整号码。比对那边按同样的打码比。
+            卡上改电话时交回来的若正是打码的样子，saveCustomer 的 认回打码号 认回原号，不会写坏。
           */
-          现值 = 现值表(found);
+          const 表 = 现值表(found);
+          const 号 = 脱敏(ctx);
+          现值 = { ...表, phone: 号(表.phone) };
+        }
+      }
+      /*
+        改渠道：也带上「现在是什么」。原来这张卡上的电话一格根本没画、备注没有「现在 → 改成」，
+        人看不见要被换掉的是什么，一点确认就写进库——提示注入也能借这一格塞进一个没人看见的号码（2026-10-02 排查 AI A4）
+      */
+      if (kind === "update_channel") {
+        const 名 = str(a.channelName, 60);
+        const 渠道们 = 名 ? await prisma.channel.findMany({ where: { name: 名 }, select: { phone: true, remark: true }, take: 2 }) : [];
+        if (渠道们.length === 1) {
+          const 号 = 脱敏(ctx);
+          现值 = { phone: 号(渠道们[0].phone ?? ""), remark: 渠道们[0].remark ?? "" };
         }
       }
       // 同一个对象同一类提议只留一张，模型重复调用不会刷出一摞卡

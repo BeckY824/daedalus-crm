@@ -277,8 +277,12 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
             <Field label="渠道负责人">
               <Input size="small" style={{ width: 160 }} value={draft.ownerName} placeholder="写姓名，不填就不改" onChange={(e) => setDraft({ ...draft, ownerName: e.target.value })} />
             </Field>
-            <Field label="备注" block>
-              <Input.TextArea size="small" autoSize={{ minRows: 1, maxRows: 4 }} value={draft.remark} placeholder="不填就不改" onChange={(e) => setDraft({ ...draft, remark: e.target.value })} />
+            {/* 电话也摆出来：模型给了就看得见、改得了（原来这一格不画，确认时却照写进库） */}
+            <Field label="电话" 现值={现值文本(draft, "phone", b)}>
+              <Input size="small" style={{ width: 160 }} value={draft.phone} placeholder="不填就不改" onChange={(e) => setDraft({ ...draft, phone: e.target.value })} />
+            </Field>
+            <Field label="备注" block 现值={现值文本(draft, "remark", b)}>
+              <Input.TextArea size="small" autoSize={{ minRows: 1, maxRows: 4 }} value={draft.remark} placeholder="不填就不改；填了会整段换掉原来的备注" onChange={(e) => setDraft({ ...draft, remark: e.target.value })} />
             </Field>
           </>
         )}

@@ -53,6 +53,10 @@ export function 读网关配置(env: NodeJS.ProcessEnv = process.env): 网关配
   };
 }
 
+/** 工具表的上限：我们自己的 agent 现在二十来个工具、几十 KB；再大就不是我们的客户端了 */
+const 最多工具数 = 64;
+const 工具表最大字节 = 200_000;
+
 /**
  * 把客户端传来的请求体收拾干净再转发。
  *
@@ -77,6 +81,21 @@ export function 收拾请求体(
   // 这两个是 llm.ts 会发的：JSON 模式、关思维链。原样透传，上游不认时由它自己报错
   if (body.response_format) out.response_format = body.response_format;
   if (body.thinking) out.thinking = body.thinking;
+  /*
+    工具表原样转（2026-10-02 排查 AI A1）。原来白名单里没有这两个，桌面端带着工具表来问，
+    转到上游时工具表没了：模型不知道能查库，建议卡几乎出不来，只能靠它照提示词自己写一段 DSML 碰运气
+    ——09-28 那次「工具调用被当正文吐回来」根子就在这里。工具表不是计费参数，限个数和大小防滥用即可。
+  */
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    if (body.tools.length > 最多工具数) return { ok: false, error: `工具最多 ${最多工具数} 个` };
+    if (!body.tools.every((t) => t && typeof t === "object" && (t as { type?: unknown }).type === "function")) {
+      return { ok: false, error: "tools 里只能是 function 类型" };
+    }
+    if (JSON.stringify(body.tools).length > 工具表最大字节) return { ok: false, error: "工具表太大" };
+    out.tools = body.tools;
+    const tc = body.tool_choice;
+    if (tc === "auto" || tc === "none" || tc === "required" || (tc && typeof tc === "object")) out.tool_choice = tc;
+  }
   const stream = body.stream === true;
   if (stream) {
     out.stream = true;

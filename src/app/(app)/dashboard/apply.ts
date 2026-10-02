@@ -1,6 +1,8 @@
 "use server";
 
 import { 读现值 } from "@/lib/agent/current-values";
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
+import { 认回打码号 } from "@/lib/phone";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
@@ -164,7 +166,8 @@ async function 改渠道(p: { channelName: string; ownerName: string; phone: str
   const r = await saveChannel({
     id: ch.id,
     name: ch.name,
-    phone: p.phone.trim() || ch.phone,
+    // 卡上的现值是打过码的（共享试用区）：交回来的若正是原号打码的样子，认回原号，不把星号写进库
+    phone: 认回打码号(p.phone.trim(), ch.phone) || ch.phone,
     remark: p.remark.trim() || ch.remark,
     channelOwnerId,
   });
@@ -209,7 +212,10 @@ export async function applyProposal(input: Proposal): Promise<ApplyResult> {
     现值是前端交回来的，可能被人改过——只用来判断「是不是过时了」，不拿它写库。
   */
   if ((p.kind === "update_customer" || p.kind === "set_status") && input.现值) {
-    const 此刻 = await 读现值(c.id);
+    const 此刻原样 = await 读现值(c.id);
+    // 卡上的现值电话是打过码的（共享试用区），比对时这边也按同样的打码比
+    const 号 = await 号码脱敏器();
+    const 此刻: Record<string, string> | null = 此刻原样 ? { ...此刻原样, phone: 号(此刻原样.phone) } : null;
     const 要改 = p.kind === "set_status" ? [p.field] : p.changes.map((x) => x.field);
     const 动过 = 要改.filter((f) => f in input.现值! && 此刻 && 此刻[f] !== input.现值![f]);
     if (此刻 && 动过.length) {

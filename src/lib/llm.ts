@@ -368,6 +368,12 @@ export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unk
     throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
   }
   const system = buildSystemPrompt((await getBusiness()).brief);
+  /*
+    这一次 chatJSON 里的几道重试（降级、修 JSON）共用一个问题编号：桌面端走我们的网关，
+    网关按编号一个问题只扣一次。原来不带编号，按钮标「1 次」，模型回了坏 JSON 或中转站不认 response_format 时
+    实际扣 2–4 次，而且不退（2026-10-02 排查 AI A2）。调用方自己给了编号（同一个问题的多步）就用它的。
+  */
+  opts = { ...opts, requestId: opts.requestId ?? globalThis.crypto.randomUUID() };
 
   let content: string;
   try {

@@ -226,6 +226,22 @@ describe("请求体", () => {
   });
 });
 
+describe("工具表原样转（2026-10-02 排查 AI A1）", () => {
+  it("tools / tool_choice 转给上游；不是 function 的、太多的拒", async () => {
+    const { 收拾请求体, 读网关配置 } = await import("@/lib/gateway");
+    const cfg = 读网关配置()!;
+    const 工具 = [{ type: "function", function: { name: "find_person", description: "找人", parameters: { type: "object", properties: {} } } }];
+    const r = 收拾请求体({ messages: [{ role: "user", content: "x" }], tools: 工具, tool_choice: "auto" }, cfg);
+    expect(r.ok && r.body.tools).toEqual(工具);
+    expect(r.ok && r.body.tool_choice).toBe("auto");
+    expect(收拾请求体({ messages: [{ role: "user", content: "x" }], tools: [{ type: "code_interpreter" }] }, cfg).ok).toBe(false);
+    expect(收拾请求体({ messages: [{ role: "user", content: "x" }], tools: Array(65).fill(工具[0]) }, cfg).ok).toBe(false);
+    // 没带工具的照旧没有这两格
+    const 无 = 收拾请求体({ messages: [{ role: "user", content: "x" }], tool_choice: "required" }, cfg);
+    expect(无.ok && "tool_choice" in 无.body).toBe(false);
+  });
+});
+
 describe("额度", () => {
   it("放行时扣一次，并把剩余次数写在响应头上", async () => {
     const { token, acc } = await 建账号带令牌();
