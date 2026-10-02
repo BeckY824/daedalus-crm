@@ -162,12 +162,25 @@ model Contract {
   amount     Int /// 签约金额，单位：元
   signedAt   DateTime /// 签约时间
   remark     String?
+  /// 签约那一刻是谁的单（排查 B2）。见 ContractOwner
+  owner      ContractOwner?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([customerId])
   @@index([signedAt])
+}
+
+/// 签约那一刻的销售负责人 / 渠道负责人（2026-10-02 排查 B2，迁移 011）。
+/// 业绩按它算：之后换负责人、停用同事，都不再把历史业绩搬到接手的人头上（09 月拍板「谁的数据没动，谁的归属就不变」）。
+/// 单独一张表、不给 Contract 加列：Contract 是全新安装时由 schema 建的表，迁移只能加表（tests/migrations.test.ts 在空库上从头跑）。
+/// 负责人不连外键：停用的人不删，名字照样查得到。0.46.15 之前的老签约没有这一行，报表退回按客户现在的负责人算。
+model ContractOwner {
+  contractId     String   @id
+  contract       Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  salesOwnerId   String?
+  channelOwnerId String?
 }
 
 model Contact {

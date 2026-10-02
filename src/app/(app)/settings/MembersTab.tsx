@@ -7,6 +7,7 @@ import type { ColumnsType } from "antd/es/table";
 import { PlusOutlined, EditOutlined, StopOutlined, UndoOutlined } from "@ant-design/icons";
 import { UserCell } from "@/components/ui";
 import { ROLES } from "@/lib/constants";
+import { useBusiness } from "@/lib/business-client";
 import type { SessionUser } from "@/lib/auth";
 import { saveUser, deactivateUser, reactivateUser } from "./actions";
 
@@ -38,6 +39,7 @@ export default function MembersTab({
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const b = useBusiness();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
   const [form] = Form.useForm();
@@ -112,8 +114,9 @@ export default function MembersTab({
       title: `停用成员「${r.name}」`,
       content: (
         <div style={{ marginTop: 12 }}>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 13 }}>
-            该成员名下有 {r.customerCount} 个客户、{r.oppCount} 个商机，停用前需转交给：
+          {/* 说清转交的是往后要跟的活、历史业绩不动（排查 B2）。原来只写「名下 N 个客户、N 个商机」，叫法还写死成「客户」 */}
+          <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 8 }}>
+            {r.customerCount} 位{b.customer}，连同进行中的商机、没做完的计划和待办、线索、渠道，一起转交给：
           </Typography.Paragraph>
           <Select
             defaultValue={target}
@@ -121,6 +124,9 @@ export default function MembersTab({
             onChange={(v) => (target = v)}
             options={others.map((u) => ({ value: u.id, label: `${u.name}（${u.title}）` }))}
           />
+          <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 8, marginBottom: 0 }}>
+            已经签下的业绩、赢单和丢单的商机，还算在「{r.name}」头上。
+          </Typography.Paragraph>
         </div>
       ),
       okText: "确认停用",

@@ -404,8 +404,13 @@ describe("成员停用与转交的完整性", () => {
 
     expect(await prisma.lead.count({ where: { ownerId: yi.id } })).toBe(0);
     expect(await prisma.channel.count({ where: { channelOwnerId: yi.id } })).toBe(0);
-    expect(await prisma.customer.count({ where: { channelOwnerId: yi.id } })).toBe(0);
     expect(await prisma.customer.count({ where: { salesOwnerId: yi.id } })).toBe(0);
+    /*
+      已有学员身上的渠道负责人**不改写**（2026-10-02 排查 B2）：那是业绩归属，不是要跟的活。
+      原来这里断言「也要改成接手人」——他带来的学员整批算到接手人头上，和 09 月拍板
+      「谁的数据没动，谁的归属就不变」矛盾。渠道本身照转，管以后新来的（上面那条）。
+    */
+    expect(await prisma.customer.count({ where: { channelOwnerId: yi.id } })).toBe(1);
   });
 
   it("不能把数据转交给一个已经停用的人", async () => {

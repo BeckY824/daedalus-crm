@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { App, AutoComplete, DatePicker, Input, Select } from "antd";
 import { dayjs } from "@/lib/utils";
 import { patchCustomer, type PatchableKey } from "../actions";
+import { 带走说法 } from "@/lib/carry-over";
 import Shortcut from "@/components/Shortcut";
 
 type Option = { value: string; label: string };
@@ -69,6 +70,9 @@ export default function InlineField({
       setDraft(value);
       return;
     }
+    // 换了销售负责人，原负责人没做完的活一起转过去了：说一声，不然人不知道计划和待办换了主（排查 B3）
+    const 带走 = 带走说法(res.带走);
+    if (带走) message.success(`已转给新负责人${带走}`);
     router.refresh();
   }
 

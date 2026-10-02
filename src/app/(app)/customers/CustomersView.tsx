@@ -23,12 +23,13 @@ import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/compon
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import ImportDrawer from "./ImportDrawer";
-import { deleteCustomers, assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
+import { assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
+import { useDeleteCustomers } from "./useDeleteCustomers";
+import { 带走说法 } from "@/lib/carry-over";
 import { useBusiness } from "@/lib/business-client";
 import type { BusinessConfig } from "@/lib/business-config";
 import { statusLabel } from "@/lib/business-config";
 import { useUrlFilters } from "@/lib/url-filters";
-import { 删除确认标题 } from "@/lib/list-select";
 import { 列表不问归属 } from "@/lib/solo";
 import ResetFilters from "@/components/ResetFilters";
 
@@ -41,7 +42,8 @@ function bulkSummary(res: Extract<BulkResult, { ok: true }>, action: string): st
   const parts = [`${action}：${res.updated} 条`];
   if (res.unchanged) parts.push(`${res.unchanged} 条本来就是`);
   if (res.missing) parts.push(`${res.missing} 条已不存在（可能已被其他人删除）`);
-  return parts.join("，");
+  // 改负责人时原负责人没做完的活一起转了（排查 B3）。带走说法自带开头的逗号
+  return parts.join("，") + 带走说法(res.带走);
 }
 
 type Option = { id: string; name: string };
@@ -96,7 +98,8 @@ export default function CustomersView({
   rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 本批, aiEnabled,
 }: Props) {
   const router = useRouter();
-  const { message, modal } = App.useApp();
+  const { message } = App.useApp();
+  const { 问删除 } = useDeleteCustomers();
   const b = useBusiness();
 
   const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", filters);
@@ -194,19 +197,8 @@ export default function CustomersView({
           <Button
             aria-label={`删除 ${r.name}`} title="删除"
             type="text" size="small" danger icon={<DeleteOutlined />}
-            onClick={() =>
-              modal.confirm({
-                title: `删除${b.customer}「${r.name}」？`,
-                content: "其跟进记录、待办与签约记录将一并删除。",
-                okText: "删除", okButtonProps: { danger: true }, cancelText: "取消",
-                async onOk() {
-                  const res = await deleteCustomers([r.id]);
-                  if (!res.ok) return message.error(res.error, 8);
-                  message.success("已删除");
-                  router.refresh();
-                },
-              })
-            }
+            // 先数清会一起删掉什么再问（排查 B1，见 useDeleteCustomers）
+            onClick={() => void 问删除([{ id: r.id, name: r.name }])}
           />
         </Space>
       ),
@@ -346,20 +338,12 @@ export default function CustomersView({
               size="small"
               danger
               icon={<DeleteOutlined />}
+              // 写出是谁、会一起删掉什么（排查 B1）：人得对得上自己勾的是哪几位
               onClick={() =>
-                modal.confirm({
-                  // 写出是谁，不只写几个：删除连带跟进和签约、不可恢复，人得对得上自己勾的是哪几位
-                  title: 删除确认标题(选中行.map((r) => r.name), selected.length, b.customer),
-                  content: "其跟进记录、待办与签约记录会一并删除，且不可恢复。",
-                  okText: "确认删除", okButtonProps: { danger: true }, cancelText: "取消",
-                  async onOk() {
-                    const res = await deleteCustomers(selected);
-                    if (!res.ok) return message.error(res.error, 8);
-                    清空();
-                    message.success(`已删除 ${res.deleted} 条`);
-                    router.refresh();
-                  },
-                })
+                void 问删除(
+                  selected.map((id) => ({ id, name: 选中行.find((r) => r.id === id)?.name ?? "" })),
+                  清空,
+                )
               }
             >
               删除

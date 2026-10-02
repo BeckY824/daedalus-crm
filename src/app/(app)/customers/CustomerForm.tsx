@@ -11,6 +11,7 @@ import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
 import { 查电话 } from "@/lib/phone";
 import { 推荐方式 } from "@/lib/referrer-kind";
+import { 带走说法 } from "@/lib/carry-over";
 
 export type CustomerRow = {
   id: string;
@@ -160,7 +161,9 @@ function CustomerFormInner({
         message.error(res.error);
         return;
       }
-      message.success(editing ? "已保存" : `${b.customer}已创建`);
+      // 换了负责人时，原负责人没做完的活一起转了过去，说一声（排查 B3）
+      const 带走 = 带走说法(res.带走);
+      message.success(editing ? (带走 ? `已保存${带走}一起转给了新负责人` : "已保存") : `${b.customer}已创建`);
       onClose(true);
     } finally {
       setSaving(false);

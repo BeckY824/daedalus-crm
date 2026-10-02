@@ -4,6 +4,7 @@
  * 能查什么在 report-query.ts 里白纸黑字。
  */
 import { prisma } from "./prisma";
+import { 签约归属人 } from "./contract-owner";
 import { dayjs } from "./utils";
 import { FOLLOW_TYPE_MAP } from "./constants";
 import { sumRows, rateRows, bucketMonth, type QuerySpec, type ResultRow, type GroupBy } from "./report-query";
@@ -69,16 +70,25 @@ export async function runQuery(spec: QuerySpec, b: BusinessConfig): Promise<Resu
   if (spec.metric === "contract_amount" || spec.metric === "contract_count") {
     const contracts = await prisma.contract.findMany({
       where: dateWhere("signedAt", spec),
-      select: { amount: true, signedAt: true, customer: { select: { salesOwner: { select: { id: true, name: true } }, channel: { select: { id: true, name: true } } } } },
+      select: {
+        amount: true, signedAt: true,
+        owner: { select: { salesOwnerId: true, channelOwnerId: true } },
+        customer: { select: { salesOwner: { select: { id: true, name: true, email: true } }, channel: { select: { id: true, name: true } } } },
+      },
     });
+    // 按销售拆时算在签约那一刻的负责人头上，和数据页同一份规则（排查 B2，lib/contract-owner.ts）
+    const 归属 = await 签约归属人(contracts);
     return sumRows(
-      contracts.map((c) => ({
-        ...keyOf(spec.groupBy, c.signedAt, {
-          sales: { id: c.customer.salesOwner.id, label: c.customer.salesOwner.name },
-          channel: c.customer.channel ? { id: c.customer.channel.id, label: c.customer.channel.name } : null,
-        }),
-        value: spec.metric === "contract_amount" ? c.amount : 1,
-      })),
+      contracts.map((c) => {
+        const 销售 = 归属.销售(c);
+        return {
+          ...keyOf(spec.groupBy, c.signedAt, {
+            sales: 销售 ? { id: 销售.id, label: 销售.name } : null,
+            channel: c.customer.channel ? { id: c.customer.channel.id, label: c.customer.channel.name } : null,
+          }),
+          value: spec.metric === "contract_amount" ? c.amount : 1,
+        };
+      }),
       { byMonth },
     );
   }

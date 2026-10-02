@@ -258,21 +258,49 @@ export async function deactivateUser(id: string, transferToId: string) {
     };
   }
 
+  /*
+    转交的是「往后要跟的活」，不是历史（2026-10-02 排查 B2，09 月拍板「谁的数据没动，谁的归属就不变」）：
+      客户的销售负责人、线索、渠道（管以后新来的）—— 全转，不然没人跟
+      商机 —— 只转进行中的；赢单、丢单的留在他名下，业绩排行按赢单商机算
+      计划、待办 —— 只转没完成的；完成了的是他做的
+      已有客户身上的渠道负责人 —— **不改写**：那是业绩归属，不是活。原来这里一起改了，
+        他带来的学员整批算到接手人头上（签约的业绩现在按签约那一刻记，见 lib/contract-owner.ts）
+    转走了哪些记下 id，留痕里查得到，要手工退回也有据可依。
+  */
+  const 转 = {
+    客户: { salesOwnerId: id },
+    商机: { ownerId: id, status: "OPEN" },
+    待办: { ownerId: id, done: false },
+    计划: { ownerId: id, done: false },
+    线索: { ownerId: id },
+    渠道: { channelOwnerId: id },
+  } as const;
+  const [客户们, 商机们, 待办们, 计划们, 线索们, 渠道们] = await Promise.all([
+    prisma.customer.findMany({ where: 转.客户, select: { id: true } }),
+    prisma.opportunity.findMany({ where: 转.商机, select: { id: true } }),
+    prisma.task.findMany({ where: 转.待办, select: { id: true } }),
+    prisma.followPlan.findMany({ where: 转.计划, select: { id: true } }),
+    prisma.lead.findMany({ where: 转.线索, select: { id: true } }),
+    prisma.channel.findMany({ where: 转.渠道, select: { id: true } }),
+  ]);
+  const 只要id = (rows: { id: string }[]) => rows.map((r) => r.id);
+  const 转走了 = {
+    客户: 只要id(客户们), 商机: 只要id(商机们), 待办: 只要id(待办们),
+    计划: 只要id(计划们), 线索: 只要id(线索们), 渠道: 只要id(渠道们),
+  };
+
   await prisma.$transaction([
-    prisma.customer.updateMany({ where: { salesOwnerId: id }, data: { salesOwnerId: transferToId } }),
-    prisma.opportunity.updateMany({ where: { ownerId: id }, data: { ownerId: transferToId } }),
-    prisma.task.updateMany({ where: { ownerId: id }, data: { ownerId: transferToId } }),
-    prisma.followPlan.updateMany({ where: { ownerId: id }, data: { ownerId: transferToId } }),
+    prisma.customer.updateMany({ where: { id: { in: 转走了.客户 } }, data: { salesOwnerId: transferToId } }),
+    prisma.opportunity.updateMany({ where: { id: { in: 转走了.商机 } }, data: { ownerId: transferToId } }),
+    prisma.task.updateMany({ where: { id: { in: 转走了.待办 } }, data: { ownerId: transferToId } }),
+    prisma.followPlan.updateMany({ where: { id: { in: 转走了.计划 } }, data: { ownerId: transferToId } }),
     /**
-     * 这两类原本漏了转交：
+     * 线索、渠道原本漏了转交：
      *   线索      —— 留在停用的人名下，列表按负责人筛选时谁都看不到，等于丢了
-     *   渠道负责人 —— Channel.channelOwnerId 还指着停用的人，
-     *                之后这个渠道新带来的学员会继续算到一个离职的人头上
-     * 学员身上冗余的 channelOwnerId 也要跟着改，否则筛选统计对不上。
+     *   渠道负责人 —— Channel.channelOwnerId 还指着停用的人，之后这个渠道新带来的学员会继续算到一个离职的人头上
      */
-    prisma.lead.updateMany({ where: { ownerId: id }, data: { ownerId: transferToId } }),
-    prisma.channel.updateMany({ where: { channelOwnerId: id }, data: { channelOwnerId: transferToId } }),
-    prisma.customer.updateMany({ where: { channelOwnerId: id }, data: { channelOwnerId: transferToId } }),
+    prisma.lead.updateMany({ where: { id: { in: 转走了.线索 } }, data: { ownerId: transferToId } }),
+    prisma.channel.updateMany({ where: { id: { in: 转走了.渠道 } }, data: { channelOwnerId: transferToId } }),
     prisma.user.update({ where: { id }, data: { active: false } }),
   ]);
 
@@ -288,8 +316,10 @@ export async function deactivateUser(id: string, transferToId: string) {
   ]);
   await recordAudit({
     user: me, action: "deactivate", entity: "User", entityId: id,
-    summary: `停用成员「${被停?.name ?? id}」，名下数据转交给「${接手?.name ?? transferToId}」`,
-    detail: { userId: id, transferToId },
+    summary: `停用成员「${被停?.name ?? id}」，转交给「${接手?.name ?? transferToId}」：` +
+      `${转走了.客户.length} 位客户、${转走了.商机.length} 个进行中商机、${转走了.计划.length + 转走了.待办.length} 条没完成的计划和待办、` +
+      `${转走了.线索.length} 条线索、${转走了.渠道.length} 个渠道（历史业绩不动）`,
+    detail: { userId: id, transferToId, 转走了 },
   });
 
   revalidatePath("/settings");

@@ -18,6 +18,7 @@ import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
+import type { 带走数 } from "@/lib/carry-over";
 import { setOppStatus } from "../opportunities/actions";
 import { completePlan, toggleTask } from "./[id]/actions";
 
@@ -116,8 +117,28 @@ export type SaveConflict = {
   theirFields: string[];
 };
 
+/**
+ * 客户换了销售负责人，原负责人在他身上**没做完的活**跟着走（2026-10-02 排查 B3）：
+ * 没完成的计划、待办，进行中的商机。原来不跟：客户转给李四以后，到点提醒、早报还发给张三，李四收不到。
+ * 只动原负责人名下的——别的同事挂在这位客户上的活不碰；做完的、赢单丢单的是历史，不动。
+ */
+async function 带走没做完的(换: { customerId: string; 旧: string }[], 新: string): Promise<带走数> {
+  const 数: 带走数 = { 计划和待办: 0, 商机: 0 };
+  for (const { customerId, 旧 } of 换) {
+    if (旧 === 新) continue;
+    const [计划, 待办, 商机] = await prisma.$transaction([
+      prisma.followPlan.updateMany({ where: { customerId, ownerId: 旧, done: false }, data: { ownerId: 新 } }),
+      prisma.task.updateMany({ where: { customerId, ownerId: 旧, done: false }, data: { ownerId: 新 } }),
+      prisma.opportunity.updateMany({ where: { customerId, ownerId: 旧, status: "OPEN" }, data: { ownerId: 新 } }),
+    ]);
+    数.计划和待办 += 计划.count + 待办.count;
+    数.商机 += 商机.count;
+  }
+  return 数;
+}
+
 export type SaveCustomerResult =
-  | { ok: true; id: string }
+  | { ok: true; id: string; 带走?: 带走数 }
   | { ok: false; error: string; conflict?: SaveConflict };
 
 export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerResult> {
@@ -270,8 +291,11 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   if (first.count === 1) {
     const 改前行 = 改前 as unknown as Record<string, unknown>;
     await 记一笔(diffKeys(改前行, data as Record<string, unknown>), 改前行);
+    const 带走 = 改前 && 改前.salesOwnerId !== data.salesOwnerId
+      ? await 带走没做完的([{ customerId: input.id, 旧: 改前.salesOwnerId }], data.salesOwnerId)
+      : undefined;
     revalidateCustomer(input.id);
-    return { ok: true, id: input.id };
+    return { ok: true, id: input.id, 带走 };
   }
 
   /**
@@ -338,8 +362,11 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     });
     if (merged.count === 1) {
       await 记一笔(mine, currentRow, true);
+      const 带走 = mine.includes("salesOwnerId")
+        ? await 带走没做完的([{ customerId: input.id, 旧: current.salesOwnerId }], data.salesOwnerId)
+        : undefined;
       revalidateCustomer(input.id);
-      return { ok: true, id: input.id };
+      return { ok: true, id: input.id, 带走 };
     }
   }
 
@@ -357,10 +384,10 @@ function revalidateCustomer(id?: string) {
 
 export async function deleteCustomers(
   ids: string[],
-): Promise<{ ok: true; deleted: number } | { ok: false; error: string }> {
+): Promise<{ ok: true; deleted: number; 留下联系人: number } | { ok: false; error: string }> {
   const me = await requireUser();
   const b = await getBusiness();
-  if (!ids.length) return { ok: true, deleted: 0 };
+  if (!ids.length) return { ok: true, deleted: 0, 留下联系人: 0 };
 
   /**
    * 被别人当作推荐人或渠道归属对象的学员不能删。
@@ -392,17 +419,71 @@ export async function deleteCustomers(
     where: { id: { in: ids } },
     select: { id: true, name: true, phone: true },
   });
-  const res = await prisma.customer.deleteMany({ where: { id: { in: ids } } });
+  const 清点 = await 删除前清点(ids);
+  /*
+    联系人不跟着删，搬进「未归属」（2026-10-02 排查 B1，和 0.46.14「只移出」同一个道理：
+    人还是那个人，客户这条档案没了不等于这个人没了）。外键是级联删的，所以先搬再删、在同一个事务里。
+    跟进记录随客户一起删，所以不记 followUpIds。
+  */
+  const 联系人 = await prisma.contact.findMany({
+    where: { customerId: { in: ids } },
+    include: { customer: { select: { name: true } } },
+  });
+  const res = await prisma.$transaction(async (tx) => {
+    for (const c of 联系人) {
+      await tx.unassignedContact.create({
+        data: {
+          id: c.id, name: c.name, position: c.position, phone: c.phone, email: c.email, wechat: c.wechat, remark: c.remark,
+          fromCustomerId: c.customerId, fromCustomerName: c.customer.name, createdAt: c.createdAt,
+        },
+      });
+    }
+    return tx.customer.deleteMany({ where: { id: { in: ids } } });
+  });
   if (res.count) {
     await recordAudit({
       user: me, action: "delete", entity: "Customer",
       entityId: 待删.length === 1 ? 待删[0].id : null,
-      summary: `删除 ${res.count} 名${b.customer}：${待删.map((c) => c.name).join("、")}`,
-      detail: 待删,
+      summary: `删除 ${res.count} 名${b.customer}：${待删.map((c) => c.name).join("、")}` +
+        (联系人.length ? `（${联系人.length} 位联系人留在联系人页，未归属）` : ""),
+      detail: { 客户: 待删, 一起删掉的: 清点 },
     });
   }
   revalidateCustomer();
-  return { ok: true, deleted: res.count };
+  revalidatePath("/contacts");
+  return { ok: true, deleted: res.count, 留下联系人: 联系人.length };
+}
+
+/** 删客户之前数一数：会一起删掉什么、什么会留下来。确认框照着它说，不再只写「跟进、待办与签约」 */
+export type 删除清点 = {
+  跟进: number;
+  商机: number;
+  计划和待办: number;
+  签约: number;
+  签约金额: number;
+  /** 联系人不删，搬进未归属 */
+  联系人: number;
+  /** 从线索转来的：线索还在，只是不再连着这位客户 */
+  线索: number;
+};
+
+export async function 删除前清点(ids: string[]): Promise<删除清点> {
+  await requireUser();
+  const 在 = { customerId: { in: ids } };
+  const [跟进, 商机, 计划, 待办, 签约, 联系人, 线索] = await Promise.all([
+    prisma.followUp.count({ where: 在 }),
+    prisma.opportunity.count({ where: 在 }),
+    prisma.followPlan.count({ where: 在 }),
+    prisma.task.count({ where: 在 }),
+    prisma.contract.aggregate({ where: 在, _count: true, _sum: { amount: true } }),
+    prisma.contact.count({ where: 在 }),
+    prisma.lead.count({ where: 在 }),
+  ]);
+  return {
+    跟进, 商机, 计划和待办: 计划 + 待办,
+    签约: 签约._count, 签约金额: 签约._sum.amount ?? 0,
+    联系人, 线索,
+  };
 }
 
 /**
@@ -418,6 +499,8 @@ export type BulkResult =
       ok: true;
       /** 真正被改动的条数 */
       updated: number;
+      /** 改负责人时跟着走的没做完的活（排查 B3） */
+      带走?: 带走数;
       /** 本来就是这个值、无需改动的条数 */
       unchanged: number;
       /** 选中但库里已经没有的条数（多半是被别人删了） */
@@ -435,10 +518,16 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
 
   // 本来就归他的不算「改动」，分开统计才对得上操作人看到的选中条数
   const already = await prisma.customer.count({ where: { id: { in: ids }, salesOwnerId } });
+  // 先记下每位原来归谁：他们没做完的活要跟着走（排查 B3）
+  const 换人的 = await prisma.customer.findMany({
+    where: { id: { in: ids }, salesOwnerId: { not: salesOwnerId } },
+    select: { id: true, salesOwnerId: true },
+  });
   const res = await prisma.customer.updateMany({
     where: { id: { in: ids }, salesOwnerId: { not: salesOwnerId } },
     data: { salesOwnerId },
   });
+  const 带走 = await 带走没做完的(换人的.map((c) => ({ customerId: c.id, 旧: c.salesOwnerId })), salesOwnerId);
 
   if (res.count) {
     await recordAudit({
@@ -448,7 +537,7 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
     });
   }
   revalidateCustomer();
-  return { ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already };
+  return { ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already, 带走 };
 }
 
 export async function bulkFollowStatus(ids: string[], followStatus: string): Promise<BulkResult> {
@@ -579,10 +668,15 @@ export async function saveContract(input: {
   };
   const 学员 = await prisma.customer.findUnique({
     where: { id: input.customerId },
-    select: { name: true },
+    select: { name: true, salesOwnerId: true, channelOwnerId: true },
   });
   if (input.id) await prisma.contract.update({ where: { id: input.id }, data });
-  else await prisma.contract.create({ data });
+  else {
+    // 记下签约这一刻是谁的单（排查 B2）。编辑旧签约不改它：那笔业绩当时是谁的就一直是谁的
+    await prisma.contract.create({
+      data: { ...data, owner: { create: { salesOwnerId: 学员?.salesOwnerId ?? null, channelOwnerId: 学员?.channelOwnerId ?? null } } },
+    });
+  }
 
   await recordAudit({
     user: me, action: input.id ? "update" : "create", entity: "Contract", entityId: input.id ?? null,
@@ -688,7 +782,7 @@ export type PatchableKey = (typeof PATCHABLE)[number];
  * 只改一个字段。和 saveCustomer 的整表提交不同，单字段写入天然不会覆盖别人改的其它字段，
  * 所以不需要快照比对；留痕照记。
  */
-export async function patchCustomer(id: string, key: PatchableKey, value: string | null): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function patchCustomer(id: string, key: PatchableKey, value: string | null): Promise<{ ok: true; 带走?: 带走数 } | { ok: false; error: string }> {
   const me = await requireUser();
   const b = await getBusiness();
   if (!PATCHABLE.includes(key)) return { ok: false, error: "这个字段不能在这里改" };
@@ -732,7 +826,12 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
     summary: `修改${b.customer}「${(before as { name: string }).name}」：${labels[key] ?? key}`,
     detail: describeCustomerChanges([key], before as Record<string, unknown>, data, labels),
   });
+  // 换了销售负责人：原负责人在他身上没做完的活跟着走（排查 B3）
+  const 原负责人 = (before as { salesOwnerId?: string }).salesOwnerId;
+  const 带走 = key === "salesOwnerId" && 原负责人 && 原负责人 !== data.salesOwnerId
+    ? await 带走没做完的([{ customerId: id, 旧: 原负责人 }], data.salesOwnerId as string)
+    : undefined;
   revalidatePath(`/customers/${id}`);
   revalidatePath("/customers");
-  return { ok: true };
+  return { ok: true, 带走 };
 }

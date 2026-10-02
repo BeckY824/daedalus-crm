@@ -61,6 +61,11 @@ const 派生: Record<string, Record<string, string>> = {
     customerId: "转化后指向新建的客户，由 convertLead 设置",
   },
   Task: { doneAt: "toggleTask 完成时打上", ownerId: "创建者，不做转派" },
+  ContractOwner: {
+    contractId: "哪一笔签约，saveContract 新登记时一起建",
+    salesOwnerId: "签约那一刻客户的销售负责人，新登记时打上；业绩按它算，之后不跟着换人",
+    channelOwnerId: "签约那一刻客户的渠道负责人，同上",
+  },
   UnassignedContact: {
     fromCustomerId: "detachContact 移出时记下原来是谁的，挂回原处时接回跟进记录用",
     fromCustomerName: "同上，给人看（那位之后可能被删）",

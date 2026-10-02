@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { 签约归属人 } from "@/lib/contract-owner";
 import { 成员选项 } from "@/lib/utils";
 
 /**
@@ -71,6 +72,7 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
       id: true,
       amount: true,
       signedAt: true,
+      owner: { select: { salesOwnerId: true, channelOwnerId: true } },
       customer: {
         select: {
           id: true,
@@ -84,6 +86,11 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
       },
     },
   });
+
+  // 业绩算在签约那一刻的负责人头上（排查 B2，lib/contract-owner.ts）
+  const 归属 = await 签约归属人(contracts);
+  const 签约销售 = 归属.销售;
+  const 签约渠道负责人 = 归属.渠道负责人;
 
   // 先把刻度铺满，再把签约填进去——没有签约的那天是 0，不是「不存在」
   const byBucket = new Map<string, { amount: number; count: number }>(
@@ -106,7 +113,7 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
       学员id: c.customer.id,
       金额: c.amount,
       日期: c.signedAt.toISOString(),
-      销售: c.customer.salesOwner?.name ?? "—",
+      销售: 签约销售(c)?.name ?? "—",
     });
     明细.set(k, 行);
   }
@@ -150,8 +157,8 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
   return {
     trend: [...byBucket.entries()].map(([label, v]) => ({ label, ...v })),
     明细: Object.fromEntries(明细),
-    bySales: 成员agg((c) => c.customer.salesOwner, "—"),
-    byChannelOwner: 成员agg((c) => c.customer.channelOwner, "无渠道"),
+    bySales: 成员agg(签约销售, "—"),
+    byChannelOwner: 成员agg(签约渠道负责人, "无渠道"),
     byChannel: agg((c) => c.customer.channel, "自然流量"),
     byAttribution: agg((c) => c.customer.attributionChannel ?? c.customer.attributionCustomer, "无归属"),
     total: { amount: contracts.reduce((s, c) => s + c.amount, 0), count: contracts.length },
