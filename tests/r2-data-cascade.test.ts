@@ -221,6 +221,17 @@ describe("跟进「提醒 / 任务」顺带建的待办", () => {
     expect(await prisma.task.count({ where: { done: false } }), "记录删了，提醒还挂着").toBe(0);
   });
 
+  it("两条同标题、同时间的提醒删掉一条：只带走一条待办，另一条还在（第三轮复查）", async () => {
+    const c = await 造客户(我);
+    const t = 昨天();
+    const 一 = await saveFollowUp({ customerId: c.id, type: "REMIND", content: "周五回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: t });
+    const 二 = await saveFollowUp({ customerId: c.id, type: "REMIND", content: "周五回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: t });
+    if (!一.ok || !二.ok) throw new Error("x");
+    expect(await prisma.task.count({ where: { done: false } })).toBe(2);
+    await deleteFollowUp(一.id, c.id);
+    expect(await prisma.task.count({ where: { done: false } })).toBe(1);
+  });
+
   it("【B】改了「跟进提醒」上的提醒时间：待办的时间没跟着改，到点按旧时间叫", async () => {
     const c = await 造客户(我);
     const 旧 = new Date(Date.now() + 86400000);

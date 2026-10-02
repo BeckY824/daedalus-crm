@@ -68,13 +68,22 @@ const 会带待办 = (f: 带时间的跟进) => (f.type === "TASK" || f.type ===
 const 待办标题 = (f: 带时间的跟进) => (f.title || f.content).trim().slice(0, 60) || 类型名(f.type);
 async function 跟着改待办(customerId: string, 旧: 带时间的跟进, 新: 带时间的跟进 | null) {
   if (!会带待办(旧)) return;
-  const where = { customerId, title: 待办标题(旧), dueAt: 旧.dueAt!, done: false };
+  /*
+    只动**一条**（第三轮复查）：原来 deleteMany / updateMany，两条同标题同时间的提醒删一条，两条待办都没了，
+    人手建的同名同时间待办也被带走。一条跟进只顺带建过一条待办，就只认最早那一条
+  */
+  const 那条 = await prisma.task.findFirst({
+    where: { customerId, title: 待办标题(旧), dueAt: 旧.dueAt!, done: false },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  if (!那条) return;
   if (!新 || !会带待办(新)) {
-    await prisma.task.deleteMany({ where });
+    await prisma.task.delete({ where: { id: 那条.id } });
   } else if (新.status === "已完成") {
-    await prisma.task.updateMany({ where, data: { done: true, doneAt: new Date() } });
+    await prisma.task.update({ where: { id: 那条.id }, data: { done: true, doneAt: new Date() } });
   } else {
-    await prisma.task.updateMany({ where, data: { title: 待办标题(新), dueAt: 新.dueAt } });
+    await prisma.task.update({ where: { id: 那条.id }, data: { title: 待办标题(新), dueAt: 新.dueAt } });
   }
   刷新待办(customerId);
 }

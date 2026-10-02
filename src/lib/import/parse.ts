@@ -110,7 +110,15 @@ export function 成表(原始: string[][]): { 表头: string[]; 数据: string[]
   */
   const 填了几格 = (r: string[]) => r.filter((x) => x.trim() !== "").length;
   const 最宽 = Math.max(...原始.slice(0, 20).map(填了几格));
-  const 表头行 = 原始.slice(0, 5).findIndex((r) => 填了几格(r) >= Math.max(2, Math.ceil(最宽 / 2)));
+  /*
+    表头里不会有一串号码；数据行几乎都有（手机号）。不挑带长串数字的行，
+    否则表头只起了两列名、数据每行五格时，第一位客户因为「更宽」被认成表头（第三轮 A2）。
+    够宽的表头没有，就退一步：第一个至少 2 格、不带长串数字的行
+  */
+  const 像表头 = (r: string[]) => !r.some((x) => (x.match(/\d/g)?.length ?? 0) >= 6);
+  const 前几行 = 原始.slice(0, 5);
+  let 表头行 = 前几行.findIndex((r) => 填了几格(r) >= Math.max(2, Math.ceil(最宽 / 2)) && 像表头(r));
+  if (表头行 < 0) 表头行 = 前几行.findIndex((r) => 填了几格(r) >= 2 && 像表头(r));
   const rows = 表头行 > 0 ? 原始.slice(表头行) : 原始;
   // 列数取表头和数据里最宽的那一行：表头后面几格空着、数据却有值的，不该被截掉
   const 原列数 = Math.max(rows[0].length, ...rows.slice(1, 200).map((r) => r.length));

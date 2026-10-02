@@ -162,17 +162,19 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
   let mm: RegExpExecArray | null;
   while ((mm = 合并re.exec(sheet))) {
     const [c0, r0] = [列号(mm[1]), Number(/\d+/.exec(mm[1])![0]) - 1];
-    const [c1, r1] = [列号(mm[2]), Number(/\d+/.exec(mm[2])![0]) - 1];
+    const r1 = Number(/\d+/.exec(mm[2])![0]) - 1;
     const 源行 = 位置.get(r0);
     const 值 = 源行 === undefined ? "" : rows[源行][c0] ?? "";
-    if (!值) continue;
-    for (let r = r0; r <= r1 && r - r0 < 行数上限; r++) {
+    /*
+      **只往下填，不往右填**（第三轮 B1）：横着合并的多半是大标题（A1:D1「2026 年 9 月客户名单」），
+      往右填满后标题行有 4 格，被认成表头；竖着合并的才是「几个人同一家公司」。往下填只填左边那一列
+    */
+    if (!值 || r1 === r0) continue;
+    for (let r = r0 + 1; r <= r1 && r - r0 < 行数上限; r++) {
       const i = 位置.get(r);
       if (i === undefined) continue;
-      for (let c = c0; c <= c1 && c < 列数上限 + 5; c++) {
-        while (rows[i].length <= c) rows[i].push("");
-        if (!rows[i][c]) rows[i][c] = 值;
-      }
+      while (rows[i].length <= c0) rows[i].push("");
+      if (!rows[i][c0]) rows[i][c0] = 值;
     }
   }
   // 全空的行丢掉，和 CSV 那条路一致
