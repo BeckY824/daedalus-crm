@@ -345,6 +345,19 @@ describe("list_contracts", () => {
     expect(按渠道.签约[0].渠道).toBe("小红");
   });
 
+  it("按负责人筛用签约那一刻的人（ContractOwner），和数据页一个口径（2026-10-02 排查 X2）", async () => {
+    const c = await 签("转过手的", 30000, "2026-09-05", { salesOwnerId: 乙.id });
+    const 合同 = await prisma.contract.findFirstOrThrow({ where: { customerId: c.id } });
+    await prisma.contractOwner.create({ data: { contractId: 合同.id, salesOwnerId: 乙.id } });
+    // 客户后来转给了「我」
+    await prisma.customer.update({ where: { id: c.id }, data: { salesOwnerId: 我.id } });
+    const 乙的 = (await 用("list_contracts").run({ ownerName: "乙" }, ctx())).data as { 签约: { 客户: string; 负责人: string }[] };
+    expect(乙的.签约.map((x) => x.客户)).toEqual(["转过手的"]);
+    expect(乙的.签约[0].负责人).toBe("乙");
+    const 甲的 = (await 用("list_contracts").run({ ownerName: "甲" }, ctx())).data as { 签约: { 客户: string }[] };
+    expect(甲的.签约.map((x) => x.客户)).not.toContain("转过手的");
+  });
+
   it("超过 30 笔时，总额算的是全量，不是列出来那几行的和", async () => {
     for (let i = 0; i < 32; i++) await 签(`客户${i}`, 1000, "2026-09-10");
     const d = (await 用("list_contracts").run({}, ctx())).data as { 总数: number; 已列出: number; 总额: number };

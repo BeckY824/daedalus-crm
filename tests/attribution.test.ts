@@ -295,3 +295,16 @@ describe("渠道汇总：直接推荐 vs 整条推荐链", () => {
     expect(r["王主任"].chainCustomers).toBe(0);
   });
 });
+
+describe("转介绍新人的渠道负责人按链顶渠道现在的人（2026-10-02 排查 X3）", () => {
+  it("渠道换了负责人以后，老学员转介绍来的新人归新负责人；老学员自己不动", async () => {
+    const 室友 = await add("室友", { channelId: channel.id });
+    expect((await readBack(室友)).channelOwnerId).toBe(owner.id);
+    await prisma.channel.update({ where: { id: channel.id }, data: { channelOwnerId: owner2.id } });
+    const 朋友 = await add("朋友", { referrerCustomerId: 室友 });
+    expect((await readBack(朋友)).channelOwnerId).toBe(owner2.id);
+    const 朋友2 = await add("朋友2", { referrerCustomerId: 朋友 });
+    expect((await readBack(朋友2)).channelOwnerId).toBe(owner2.id);
+    expect((await readBack(室友)).channelOwnerId).toBe(owner.id);
+  });
+});

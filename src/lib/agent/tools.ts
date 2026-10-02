@@ -6,6 +6,7 @@
  *   data：   喂回模型的结构化内容（截断过，控制上下文）
  *   records：这次读到的跟进记录（带编号），最终回答里的 [n] 引用它们
  */
+import { 签约归属人 } from "../contract-owner";
 import { 是逾期, 数逾期跟进 } from "../overdue";
 import { 渠道汇总 } from "../attribution";
 import { 现值选取, 现值表 } from "./current-values";
@@ -578,6 +579,8 @@ export const TOOLS: Tool[] = [
       const name = str(args.customerName, 20);
       const owner = str(args.ownerName, 20);
       const channel = str(args.channelName, 20);
+      // ContractOwner 只存 id、不连外键（停用的人不删）：先按名字找到这些人
+      const 叫这个名字的 = owner ? (await prisma.user.findMany({ where: { name: { contains: owner } }, select: { id: true } })).map((u) => u.id) : [];
       const where = {
         // to 含当天：用户说「到 9 月 30 日」指的是那天签的也算
         ...(区间条件({ from, to }) ? { signedAt: 区间条件({ from, to })! } : {}),
@@ -585,9 +588,20 @@ export const TOOLS: Tool[] = [
           ? {
               customer: {
                 ...(name ? { name: { contains: name } } : {}),
-                ...(owner ? { salesOwner: { name: { contains: owner } } } : {}),
                 ...(channel ? { channel: { name: { contains: channel } } } : {}),
               },
+            }
+          : {}),
+        /*
+          「李四签了多少」按**签约那一刻**的负责人算，和数据页、query_metric 同一个口径（ContractOwner，排查 X2）。
+          没有这一行的老签约退回按客户现在的负责人。原来一律按现在的：数据页说张三 3 万，问 AI 张三签了哪些，它说没有
+        */
+        ...(owner
+          ? {
+              OR: [
+                { owner: { is: { salesOwnerId: { in: 叫这个名字的 } } } },
+                { owner: { is: null }, customer: { salesOwner: { name: { contains: owner } } } },
+              ],
             }
           : {}),
       };
@@ -600,11 +614,13 @@ export const TOOLS: Tool[] = [
           take: 30,
           select: {
             id: true, amount: true, signedAt: true, remark: true,
-            customer: { select: { id: true, name: true, salesOwner: { select: { name: true } }, channel: { select: { name: true } } } },
+            customer: { select: { id: true, name: true, salesOwner: { select: { id: true, name: true, email: true } }, channelOwner: { select: { id: true, name: true, email: true } }, channel: { select: { name: true } } } },
+            owner: { select: { salesOwnerId: true, channelOwnerId: true } },
           },
         }),
       ]);
       const 总额 = 合计._sum.amount ?? 0;
+      const 归属 = await 签约归属人(rows);
       const 段 = [from && `${from.format("YYYY-MM-DD")} 起`, to && `${to.format("YYYY-MM-DD")} 止`, name && `客户「${name}」`, owner && `负责人 ${owner}`, channel && `渠道 ${channel}`].filter(Boolean).join("、");
       return {
         // 总额要给全量的，不是这 30 行的和——否则超过 30 单时它会报一个偏小的数
@@ -618,7 +634,7 @@ export const TOOLS: Tool[] = [
             客户: c.customer.name,
             金额: c.amount,
             签约日: dayjs(c.signedAt).format("YYYY-MM-DD"),
-            负责人: c.customer.salesOwner.name,
+            负责人: 归属.销售(c)?.name ?? null,
             渠道: c.customer.channel?.name ?? null,
             备注: c.remark || null,
           })),
@@ -947,3 +963,4 @@ ${字段表.grade.label}：${(字段表.grade.values ?? []).join(" / ")}`;
 }
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
+

@@ -78,6 +78,17 @@ export async function resolveAttribution(
     });
     if (!referrer) return empty;
 
+    /*
+      渠道负责人取链顶渠道**此刻**的负责人，不抄推荐人身上那个值（2026-10-02 排查 X3）。
+      推荐人身上的是他建档那一刻的：渠道换了人以后，老学员转介绍来的新人还归旧负责人；
+      停用同事后（老客户的渠道负责人不再改写，09 月归属固化），新人甚至记到已停用的人头上，之后的签约业绩也落给他。
+      新人是现在才来的，按现在的算——这和「已有的不追溯」不冲突。链顶渠道没了才退回推荐人身上的。
+    */
+    const 链顶 = referrer.channelId
+      ? await prisma.channel.findUnique({ where: { id: referrer.channelId }, select: { channelOwnerId: true } })
+      : null;
+    const 现负责人 = 链顶?.channelOwnerId ?? referrer.channelOwnerId;
+
     // 往上第二代 = 推荐人的推荐人
     if (referrer.referrerCustomerId) {
       // 推荐人本身也是被学员推荐来的 → 第二代是那位学员（朋友 → 小明）
@@ -85,7 +96,7 @@ export async function resolveAttribution(
         channelId: referrer.channelId,
         attributionChannelId: null,
         attributionCustomerId: referrer.referrerCustomerId,
-        channelOwnerId: referrer.channelOwnerId,
+        channelOwnerId: 现负责人,
       };
     }
 
@@ -94,7 +105,7 @@ export async function resolveAttribution(
       channelId: referrer.channelId,
       attributionChannelId: referrer.channelId,
       attributionCustomerId: null,
-      channelOwnerId: referrer.channelOwnerId,
+      channelOwnerId: 现负责人,
     };
   }
 

@@ -1,5 +1,6 @@
 "use server";
 
+import { 钉住老签约 } from "@/lib/contract-owner";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -298,6 +299,8 @@ export async function deactivateUser(id: string, transferToId: string) {
     计划: 只要id(计划们), 线索: 只要id(线索们), 渠道: 只要id(渠道们),
   };
 
+  // 转之前先钉住老签约「签约那一刻是谁的」：停用留痕说「历史业绩不动」，就得真不动（2026-10-02 排查 X1）
+  await 钉住老签约();
   // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）
   await prisma.$transaction(async (tx) => {
     await tx.customer.updateMany({ where: { id: { in: 转走了.客户 } }, data: { salesOwnerId: transferToId } });

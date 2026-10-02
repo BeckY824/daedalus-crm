@@ -1,5 +1,6 @@
 "use server";
 
+import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
@@ -152,6 +153,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
   const 改前 = input.id ? await prisma.customer.findUnique({ where: { id: input.id } }) : null;
   if (input.id && !改前) return { ok: false, error: `这条${b.customer}已经不在了（可能已删除），无法保存` };
+  // 换负责人之前先把老签约的「签约那一刻是谁的」钉住（排查 X1）
+  if (改前 && (改前.salesOwnerId !== (input.salesOwnerId ?? 改前.salesOwnerId) || "channelOwnerId" in input)) await 钉住老签约();
 
   /*
     电话：和导入、表单同一条规矩（lib/phone.ts）。新建必填；编辑时原来有号码的不许清空，
@@ -527,6 +530,7 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
 
   // 本来就归他的不算「改动」，分开统计才对得上操作人看到的选中条数
   const already = await prisma.customer.count({ where: { id: { in: ids }, salesOwnerId } });
+  await 钉住老签约();
   // 先记下每位原来归谁：他们没做完的活要跟着走（排查 B3）
   const 换人的 = await prisma.customer.findMany({
     where: { id: { in: ids }, salesOwnerId: { not: salesOwnerId } },
@@ -820,8 +824,10 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
     data.decisionStatus = v;
   } else if (key === "salesOwnerId") {
     if (typeof v !== "string" || !v || !(await 在职(v))) return { ok: false, error: "负责人不存在或已停用" };
+    await 钉住老签约();
     data.salesOwnerId = v;
   } else if (key === "channelOwnerId") {
+    await 钉住老签约();
     // 清空 = 恢复跟着推荐链走；给了人 = 手工钉死。只动这一条学员，不影响任何其他人
     if (v) {
       if (typeof v !== "string" || !(await 在职(v))) return { ok: false, error: "渠道负责人不存在或已停用" };

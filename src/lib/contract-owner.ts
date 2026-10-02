@@ -25,3 +25,23 @@ export async function 签约归属人<T extends 签约行>(rows: T[]) {
     渠道负责人: (c: T): 人 | null => (c.owner ? 找(c.owner.channelOwnerId) : c.customer.channelOwner ?? null),
   };
 }
+
+/**
+ * 给还没记「签约那一刻是谁的」的老签约补上一行，按**此刻**客户的负责人（2026-10-02 排查 X1）。
+ *
+ * 0.46.15 之前登记的签约都没有 ContractOwner，报表对它们退回按客户「现在」的负责人算——
+ * 于是升级后一停用张三、转给李四，张三的老业绩整笔搬到李四名下，而停用留痕写的是「历史业绩不动」。
+ * 迁移里不许写 INSERT（tests/migrations.test.ts），所以在**任何换负责人的动作之前**调一次：
+ * 那一刻的负责人就是升级以来一直的负责人，钉住它，之后怎么换都不追溯。没有缺的就什么都不写。
+ */
+export async function 钉住老签约(): Promise<number> {
+  const 缺的 = await prisma.contract.findMany({
+    where: { owner: { is: null } },
+    select: { id: true, customer: { select: { salesOwnerId: true, channelOwnerId: true } } },
+  });
+  if (缺的.length === 0) return 0;
+  const r = await prisma.contractOwner.createMany({
+    data: 缺的.map((c) => ({ contractId: c.id, salesOwnerId: c.customer.salesOwnerId, channelOwnerId: c.customer.channelOwnerId })),
+  });
+  return r.count;
+}
