@@ -1855,3 +1855,6 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 }
 /* 四张一排的指标卡：840 里摆四张每张 200，太挤；改成两张一排 */
 .shell-dock-open .ant-col-xl-6 { flex: 0 0 50%; max-width: 50%; }
+
+/* 列表筛出 0 条时那一句（DataList）。不是空库引导，安安静静一行 */
+.list-none { padding: 40px 0; text-align: center; color: var(--text-muted); font-size: var(--fs-note); }

@@ -290,7 +290,13 @@ export default function DataList<T extends { id: string }>({
         dataSource={行}
         columns={显示的列}
         loading={加载中}
-        locale={{ emptyText: <EmptyState {...空态} /> }}
+        /*
+          筛出 0 条 ≠ 空库（2026-10-02 排查 H5）：原来一律画空库引导「还没有… / 新建第一位 / 从 Excel 导入 / 演示数据」，
+          人筛了一下就以为数据没了。在筛的时候只说没对上，指一条回去的路（筛选栏上的「重置」）
+        */
+        locale={{
+          emptyText: 空库 ? <EmptyState {...空态} /> : <div className="list-none">没有符合条件的，换个条件或点「重置」看全部</div>,
+        }}
         scroll={{ x }}
         rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]), fixed: true } : undefined}
         rowClassName={(r) => [新来的.includes(r.id) || 亮?.includes(r.id) ? "row-fresh" : "", 行类?.(r) ?? ""].filter(Boolean).join(" ")}

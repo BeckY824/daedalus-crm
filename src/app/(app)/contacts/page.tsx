@@ -21,6 +21,8 @@ export default async function ContactsPage({
         OR: [
           { name: { contains: sp.keyword } },
           { phone: { contains: sp.keyword } },
+          // 搜索框写着能搜微信（2026-10-02 排查 H6）
+          { wechat: { contains: sp.keyword } },
           { customer: { name: { contains: sp.keyword } } },
         ],
       }
@@ -28,7 +30,7 @@ export default async function ContactsPage({
 
   // 从客户上移出、人留着的（UnassignedContact，2026-10-01）。没有客户可搜，只按姓名、电话
   const 散的where: Prisma.UnassignedContactWhereInput = sp.keyword
-    ? { OR: [{ name: { contains: sp.keyword } }, { phone: { contains: sp.keyword } }] }
+    ? { OR: [{ name: { contains: sp.keyword } }, { phone: { contains: sp.keyword } }, { wechat: { contains: sp.keyword } }] }
     : {};
 
   const [总数, rows, 散的总数, 散的, 学员们, users] = await Promise.all([
