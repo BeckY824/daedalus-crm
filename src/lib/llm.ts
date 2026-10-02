@@ -143,8 +143,11 @@ export type ToolMessage =
 export type 工具调用 = { id: string; type: "function"; function: { name: string; arguments: string } };
 export type 工具声明 = { type: "function"; function: { name: string; description: string; parameters: unknown } };
 
-/** 第一次等多久就重发（见 chatRaw）。导出给测试改小 */
-export const 首字等待毫秒 = { 流式: 20_000, 短输出: 25_000 };
+/**
+ * 第一次等多久就重发（见 chatRaw）。导出给测试改小。
+ * 短输出（≤ 2000 token）的那些（解析、简报、话术……）实际输出几百 token、正常 5–15 秒，30 秒没回就是卡住了
+ */
+export const 首字等待毫秒 = { 流式: 20_000, 短输出: 30_000 };
 
 async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean, tools?: 工具声明[]): Promise<Response> {
   const 模型 = opts.model ?? cfg.model;
@@ -180,7 +183,8 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
     要长篇输出的（粘贴整理 8000 token）照旧等满。重发带着同一个问题编号，网关不会多扣次数。
   */
   const 总超时 = opts.timeoutMs ?? 60_000;
-  const 该快 = stream || Number(body.max_tokens) <= 2_000;
+  // 按调用方要的输出长度判（body.max_tokens 里可能叠了思考预算）
+  const 该快 = stream || (opts.maxTokens ?? DEFAULT_MAX_TOKENS) <= 2_000;
   const 首轮 = 该快 ? Math.min(总超时, stream ? 首字等待毫秒.流式 : 首字等待毫秒.短输出) : 总超时;
   const 发 = (等: number) =>
     fetch(`${cfg.baseUrl}/chat/completions`, {
