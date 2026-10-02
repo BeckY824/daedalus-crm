@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Select, Button } from "antd";
 import { saveContact, saveUnassignedContact } from "./actions";
 import type { ContactRow } from "./types";
@@ -65,6 +65,21 @@ export default function ContactForm({
     }
   }, [open, record, form]);
 
+  /*
+    保存中：网慢时连点两下会建出两条一样的记录（跟进带的 AI 待办和计划也各建两份，2026-10-02 排查）。
+    校验没过（validateFields 抛出）也会走 finally 放开
+  */
+  const [存着, set存着] = useState(false);
+  async function 保存() {
+    if (存着) return;
+    set存着(true);
+    try {
+      await onOk();
+    } finally {
+      set存着(false);
+    }
+  }
+
   async function onOk() {
     const v = await form.validateFields();
     // 记录页给的 customerId 说了算；列表页上它在表单里
@@ -88,7 +103,8 @@ export default function ContactForm({
       open={open}
       title={record ? `编辑联系人 · ${record.name}` : "添加联系人"}
       onCancel={onClose}
-      onOk={onOk}
+      onOk={保存}
+      confirmLoading={存着}
       okText="保存"
       cancelText="取消"
       width={560}

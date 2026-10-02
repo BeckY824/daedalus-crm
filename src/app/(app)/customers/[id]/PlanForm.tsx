@@ -59,6 +59,21 @@ export default function PlanForm({
     onClose();
   }
 
+  /*
+    保存中：网慢时连点两下会建出两条一样的记录（跟进带的 AI 待办和计划也各建两份，2026-10-02 排查）。
+    校验没过（validateFields 抛出）也会走 finally 放开
+  */
+  const [存着, set存着] = useState(false);
+  async function 保存() {
+    if (存着) return;
+    set存着(true);
+    try {
+      await onOk();
+    } finally {
+      set存着(false);
+    }
+  }
+
   async function onOk() {
     const v = await form.validateFields();
     const 谁 = customerId ?? (v.customerId as string);
@@ -94,7 +109,8 @@ export default function PlanForm({
       open={open}
       title={record ? "编辑跟进计划" : 挑人 ? "新建跟进计划" : "制定跟进计划"}
       onCancel={关}
-      onOk={onOk}
+      onOk={保存}
+      confirmLoading={存着}
       okText="保存"
       cancelText="取消"
       destroyOnHidden

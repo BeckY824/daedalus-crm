@@ -11,11 +11,18 @@ export const dynamic = "force-dynamic";
 
 export default async function CustomerDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ focus?: string }>;
 }) {
   await requireUser();
   const { id } = await params;
+  /*
+    从到点提醒点进来（?focus=plan:…）：记录页只摆一条计划（最早那条），叫你的那条若不是最早的，
+    点进来就找不到它、也闪不了（2026-10-02 排查 3-3）。这时摆的是叫你的那一条
+  */
+  const 要看的计划 = /^plan:(.+)$/.exec((await searchParams).focus ?? "")?.[1] ?? null;
 
   const customer = await prisma.customer.findUnique({
     where: { id },
@@ -32,7 +39,7 @@ export default async function CustomerDetailPage({
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
       opportunities: { orderBy: { createdAt: "desc" } },
       tasks: { orderBy: [{ done: "asc" }, { dueAt: "asc" }] },
-      plans: { where: { done: false }, orderBy: { plannedAt: "asc" }, take: 1 },
+      plans: { where: { done: false, ...(要看的计划 ? { id: 要看的计划 } : {}) }, orderBy: { plannedAt: "asc" }, take: 1 },
       followUps: {
         orderBy: { occurredAt: "desc" },
         take: 50,
@@ -46,6 +53,10 @@ export default async function CustomerDetailPage({
   });
 
   if (!customer) notFound();
+  // 叫你的那条已经做完 / 删了：照旧摆最早那条没做完的
+  if (要看的计划 && customer.plans.length === 0) {
+    customer.plans = await prisma.followPlan.findMany({ where: { customerId: id, done: false }, orderBy: { plannedAt: "asc" }, take: 1 });
+  }
 
   // 演示区是公开的，同一份数据所有访客共用：号码一律打码。
   // 自己部署的实例不受影响——销售要照着这个号打电话。

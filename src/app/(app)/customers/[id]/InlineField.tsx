@@ -51,9 +51,13 @@ export default function InlineField({
   const [saving, setSaving] = useState(false);
   /** 这一次编辑是不是按 Esc 放弃了。放弃之后的失焦不许存 */
   const 放弃了 = useRef(false);
+  /** combo 那一格眼下的值。回车 / 失焦晚一拍提交时读它，不读闭包里那个旧的 draft */
+  const 最新 = useRef<string>(value ?? "");
 
   function 开始() {
     放弃了.current = false;
+    交过了.current = false;
+    最新.current = value ?? "";
     setDraft(value);
     setEditing(true);
   }
@@ -63,8 +67,11 @@ export default function InlineField({
     setEditing(false);
   }
 
+  /** 这一次编辑交过了没有：combo 的选中 / 回车 / 失焦可能接连到，只交一次 */
+  const 交过了 = useRef(false);
   async function commit(next: string | null) {
-    if (放弃了.current) return;
+    if (放弃了.current || 交过了.current) return;
+    交过了.current = true;
     setEditing(false);
     const normalized = next?.trim() ? next.trim() : null;
     if ((normalized ?? null) === (value ?? null)) return;
@@ -129,10 +136,23 @@ export default function InlineField({
           value={draft ?? undefined}
           options={options?.map((o) => ({ value: o.value }))}
           filterOption={(输入, o) => String(o?.value ?? "").toLowerCase().includes(输入.toLowerCase())}
-          onChange={(v) => setDraft(v ?? "")}
-          onBlur={() => void commit(draft ?? "")}
+          /*
+            用键盘 ↓ 选候选项再回车：keydown 比 onSelect 先到，原来回车时提交的是打了一半的字（「大」而不是「大三」）；
+            点选时 blur 又可能抢在 onChange 前面，什么都没存（2026-10-02 排查 1-5）。
+            现在选中就直接提交选中的那个；回车等一拍再交——有候选项被选中的话 onSelect 已经先交了，这次就是同值跳过
+          */
+          onChange={(v) => {
+            最新.current = v ?? "";
+            setDraft(v ?? "");
+          }}
+          onSelect={(v: string) => {
+            最新.current = v;
+            setDraft(v);
+            void commit(v);
+          }}
+          onBlur={() => setTimeout(() => void commit(最新.current), 0)}
           onKeyDown={(e) => {
-            if (e.key === "Enter") void commit(draft ?? "");
+            if (e.key === "Enter") setTimeout(() => void commit(最新.current), 0);
             if (e.key === "Escape") 放弃();
           }}
         />
