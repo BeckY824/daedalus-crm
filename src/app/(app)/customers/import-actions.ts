@@ -27,6 +27,7 @@ import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { 字段表, type 字段名 } from "@/lib/import/fields";
 import { 摊开, 并重复行, type 排布 } from "@/lib/import/plan";
+import { 同号写法, 主号 } from "@/lib/phone";
 
 /** 一次导入最多落多少条。和 parse.ts 的行数上限一致，服务端再收一道 */
 const 落库上限 = 10000;
@@ -91,7 +92,8 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
   const { 行, 合掉几行 } = await 排好(方案);
   if (行.length > 落库上限) return { ok: false, error: `一次最多导 ${落库上限} 行，这份表有 ${行.length} 行` };
 
-  const 号码 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
+  // 带分机的号也认老库里只存了主号的那位（第三轮 B4，见 lib/phone 的 同号写法）
+  const 号码 = 行.filter((r) => !r.进不了 && r.值.phone).flatMap((r) => 同号写法(r.值.phone!));
   const 几条 = 库里几条(await prisma.customer.findMany({ where: { phone: { in: 号码 } }, select: { phone: true } }));
 
   let 新建 = 0;
@@ -105,7 +107,7 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: r.进不了 });
       continue;
     }
-    const n = 几条.get(r.值.phone!) ?? 0;
+    const n = 几条.get(r.值.phone!) ?? 几条.get(主号(r.值.phone!)) ?? 0;
     if (n > 1) {
       说不清++;
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: `库里有 ${n} 位都是这个号码，不知道该算谁的` });
@@ -178,7 +180,8 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     (await prisma.channel.findMany({ where: { name: { in: 渠道名单 } }, select: { id: true, name: true } })).map((c) => [c.name, c.id]),
   );
 
-  const 号码 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
+  // 带分机的号也认老库里只存了主号的那位（第三轮 B4，见 lib/phone 的 同号写法）
+  const 号码 = 行.filter((r) => !r.进不了 && r.值.phone).flatMap((r) => 同号写法(r.值.phone!));
   const 命中 = await prisma.customer.findMany({
     where: { phone: { in: 号码 } },
     select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true },
@@ -209,11 +212,11 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       而随手挑一条去补，就是把一份表里的信息写到了另一个人的档案上。
       和归属那条规则同一个道理：重名不猜，同号也不猜。
     */
-    if ((几条.get(phone) ?? 0) > 1) {
+    if ((几条.get(phone) ?? 几条.get(主号(phone)) ?? 0) > 1) {
       跳过++;
       continue;
     }
-    const 旧 = 库里.get(phone);
+    const 旧 = 库里.get(phone) ?? 库里.get(主号(phone));
 
     if (旧) {
       if (方案.重复行 !== "补空") {

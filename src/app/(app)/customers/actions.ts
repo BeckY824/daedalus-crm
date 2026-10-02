@@ -19,7 +19,7 @@ import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
-import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
+import { 查电话, 规整手机号, 认回打码号, 同号写法 } from "@/lib/phone";
 import type { 带走数 } from "@/lib/carry-over";
 import { setOppStatus } from "../opportunities/actions";
 import { completePlan, toggleTask } from "./[id]/actions";
@@ -90,7 +90,7 @@ export async function checkDuplicate(phone: string, excludeId?: string): Promise
   const 号 = 规整手机号(phone);
   if (!号) return null;
   const hit = await prisma.customer.findFirst({
-    where: { phone: 号, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    where: { phone: { in: 同号写法(号) }, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: {
       id: true,
       name: true,
@@ -177,7 +177,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   // 空电话不查：两个都没留电话的人不是同一个人（原来这里会拿 "" 去比，没电话的人一个都存不了）
   if (phone) {
     const dup = await prisma.customer.findFirst({
-      where: { phone, ...(input.id ? { id: { not: input.id } } : {}) },
+      where: { phone: { in: 同号写法(phone) }, ...(input.id ? { id: { not: input.id } } : {}) },
       select: { name: true },
     });
     if (dup) return { ok: false, error: `手机号 ${phone} 已存在（${dup.name}），请勿重复录入` };
