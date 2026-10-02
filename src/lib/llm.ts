@@ -16,7 +16,6 @@ import { 有DSML, 解析DSML } from "./llm-dsml";
 import { 抹掉密钥 } from "./secret";
 import type { AI功能 } from "./ai-features";
 import { getLlmConfig, type LlmConfig } from "./llm-config";
-import { 本地模式 } from "./desktop/cloud";
 
 export * from "./llm-config";
 
@@ -224,7 +223,8 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       走我们网关的（桌面端）说人话；自己填 Key 的（自部署、网页设置里测连接）照旧给原文——
       那些人要靠这串原文去查自己的接口哪里不对（Key 已抹掉）
     */
-    const 网关的 = 本地模式() || /"type"\s*:\s*"gateway_error"/.test(errText);
+    // 认的是「这次打的是不是我们的网关」，不是「是不是桌面端」：桌面端也能自己填 Key（复查 R：原来 Key 填错了被叫去退出重登我们的账号）
+    const 网关的 = /\/api\/gateway\/v1\/?$/.test(cfg.baseUrl) || /"type"\s*:\s*"gateway_error"/.test(errText);
     throw Object.assign(new Error(网关的 ? AI报错人话(res.status, errText) : `接口返回 ${res.status}：${errText}`), { status: res.status });
   }
   return res;

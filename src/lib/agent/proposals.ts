@@ -168,9 +168,10 @@ export function buildProposal(
   if (kind === "add_plan") {
     const when = parseWhen(args.plannedAt);
     if (!when.ok) return { ok: false, error: "plannedAt 解析不了，用 YYYY-MM-DD HH:mm" };
+    // 方式能选也能填（2026-10-02 用户定）：认得出就用规范的写法，认不出也照收（人在卡上自己填的、模型说的「抖音私信」）
     const m = pickEnum(args.method, FOLLOW_METHODS, "");
-    if (!m.ok) return { ok: false, error: `method 必须是：${FOLLOW_METHODS.join("/")}` };
-    return { ok: true, proposal: { ...base, kind, subject: str(args.subject, 100), plannedAt: when.at, method: m.value } };
+    const method = m.ok ? m.value : str(args.method, 20);
+    return { ok: true, proposal: { ...base, kind, subject: str(args.subject, 100), plannedAt: when.at, method } };
   }
 
   if (kind === "update_customer") {
@@ -259,8 +260,9 @@ export function buildProposal(
     return { ok: true, proposal: { ...base, kind, amount, signedAt: when.at, remark: str(args.remark, 500) } };
   }
 
-  const src = pickEnum(args.source, b.sources, "其他");
-  if (!src.ok) return { ok: false, error: `source 必须是：${b.sources.join("/")}` };
+  // 来源能选也能填（同上）：列表外的照收，限 30 字
+  const 认 = pickEnum(args.source, b.sources, "其他");
+  const src = { value: 认.ok ? 认.value : str(args.source, 30) || "其他" };
   const st = pickEnum(args.status, LEAD_STATUSES, "待跟进");
   if (!st.ok) return { ok: false, error: `status 必须是：${LEAD_STATUSES.join("/")}` };
   return {

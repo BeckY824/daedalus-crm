@@ -83,8 +83,9 @@ describe("排计划的提议", () => {
     expect(missingFields(p)).toEqual(["时间", "方式"]);
   });
 
-  it("跟进方式只能用系统里的那几种", () => {
-    expect(建("add_plan", { subject: "确认预算", plannedAt: "2026-09-15 19:00", method: "托梦", reason: "x" }).ok).toBe(false);
+  it("跟进方式能选也能填（2026-10-02 起）：认得出的用规范写法，列表外的照收", () => {
+    const r = 建("add_plan", { subject: "确认预算", plannedAt: "2026-09-15 19:00", method: "抖音私信", reason: "x" });
+    expect(r.ok && r.proposal.kind === "add_plan" && r.proposal.method).toBe("抖音私信");
   });
 });
 
@@ -111,8 +112,9 @@ describe("新建线索的提议", () => {
     expect(missingFields(提("add_lead", { reason: "用户要求新建" }))).toEqual(["名称"]);
   });
 
-  it("来源必须是这套业务配置里有的，编的要拒", () => {
-    expect(建("add_lead", { name: "吴小雯", source: "天上掉的", reason: "x" }).ok).toBe(false);
+  it("来源能选也能填（2026-10-02 起）：列表外的照收", () => {
+    const r = 建("add_lead", { name: "吴小雯", source: "老板朋友圈", reason: "x" });
+    expect(r.ok && r.proposal.kind === "add_lead" && r.proposal.source).toBe("老板朋友圈");
     expect(建("add_lead", { name: "吴小雯", source: "转介绍", reason: "x" }).ok).toBe(true);
   });
 
