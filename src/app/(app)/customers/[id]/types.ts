@@ -35,6 +35,8 @@ export type ContactRow = {
 };
 
 export type RecordProps = {
+  /** 这位在不在我左栏的「收藏的客户」里（lib/favorites.ts） */
+  已收藏?: boolean;
   customer: CustomerRow;
   contacts: ContactRow[];
   opportunities: {

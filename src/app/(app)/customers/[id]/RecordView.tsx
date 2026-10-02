@@ -30,6 +30,7 @@ import ContractForm, { type ContractRow } from "./ContractForm";
 import CustomerForm from "../CustomerForm";
 import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
+import StarButton from "./StarButton";
 import AiCost from "@/components/AiCost";
 import { toggleTask, deleteTask, deleteFollowUp, restoreFollowUp, completePlan, saveFollowUp } from "./actions";
 import { useContactRemoval } from "./useContactRemoval";
@@ -82,6 +83,7 @@ export default function RecordView({
   channels,
   referrableCustomers,
   aiEnabled,
+  已收藏 = false,
 }: RecordProps) {
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
@@ -297,8 +299,15 @@ export default function RecordView({
           「切人不再返回列表」）；真要回列表，侧栏那一项一直在。
           名单收窄进抽屉时（<1440）才补一个「换一位」——那时它才真的没了。
         */}
+        {/* 头像圆片 + 名字 + 星（2026-10-02 照毛玻璃原型）：一眼认出这是谁，星是「放到左栏，下次一点就到」 */}
+        <span className="rec-head-av" aria-hidden="true" style={{ background: avatarColor(customer.name), color: AVATAR_TEXT }}>
+          {initial(customer.name)}
+        </span>
         <div className="rec-head-id">
-          <h1 className="rec-head-name" style={{ margin: 0 }}>{customer.name}</h1>
+          <div className="rec-head-line">
+            <h1 className="rec-head-name" style={{ margin: 0 }}>{customer.name}</h1>
+            <StarButton customerId={customer.id} 初值={已收藏} />
+          </div>
           {/* 副标题是这个人的三个定位：年级 · 专业 · 谁在跟。没填的那项不占位 */}
           <div className="rec-head-sub">
             {[customer.grade, customer.major, customer.salesOwnerName].filter(Boolean).join(" · ")}

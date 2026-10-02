@@ -309,6 +309,34 @@ a {
 .rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: var(--r-card); color: var(--ink); }
 .rail-mark:hover { background: var(--hover); }
 .rail-mark b { font-family: var(--font-display); font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
+/* 桌面端左栏顶上的搜索框（AppShell，点开就是 ⌘K 那张跳转单）。样子是个输入框，其实是个按钮 */
+.rail-search { display: flex; align-items: center; gap: var(--s2); width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel); color: var(--text-faint); font: inherit; font-size: var(--fs-note); cursor: pointer; -webkit-app-region: no-drag;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
+.rail-search:hover { border-color: var(--line-strong); color: var(--text-muted); }
+.rail-search:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.rail-search kbd { margin-left: auto; font-family: var(--font-ui); font-size: var(--fs-min); color: var(--text-faint); }
+html.glass .rail-search { background: color-mix(in srgb, var(--panel) 62%, transparent); border-color: color-mix(in srgb, var(--panel) 70%, transparent); }
+/* 导航项右边的灰数：有多少，不催人（红的那个 .rail-count 才是要处理的） */
+.rail-num { margin-left: auto; font-size: var(--fs-note); font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.rail-count + .rail-num { margin-left: var(--s2); }
+/* 收藏的客户：导航下面一小栏，名字前一个首字圆片 */
+.rail-fav { display: flex; flex-direction: column; gap: 2px; margin-top: var(--s4); }
+/* 「更多」那一组：线索 / 联系人 / 渠道，比主导航轻一档（字小、行矮） */
+.rail-more { display: flex; flex-direction: column; gap: 2px; margin-top: var(--s4); }
+.rail-more .rail-item { padding: 8px 12px; }
+.rail-more .rail-item b { font-size: var(--fs-body); }
+.rail-fav-h { padding: 0 12px var(--s1); font-size: var(--fs-note); color: var(--text-muted); }
+.rail-fav-i { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: var(--r-card); color: var(--ink-soft); font-size: var(--fs-body); transition: background var(--t-fast) var(--ease); }
+.rail-fav-i:hover { background: var(--hover); color: var(--ink); }
+.rail-fav-i.on { background: var(--nav-on-bg); color: var(--nav-on-fg); }
+.rail-fav-av { width: 20px; height: 20px; flex: none; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 600; }
+.rail-fav-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 毛玻璃下：当前项是一块白玻璃（原型第 4 版），字压深一档；悬停也是薄薄一层白 */
+html.glass .rail-item { color: var(--ink-soft); }
+html.glass .rail-on-bg { background: color-mix(in srgb, var(--panel) 72%, transparent); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent); }
+html.glass .rail-item.on { color: var(--ink); }
+html.glass .rail-item:hover, html.glass .rail-fav-i:hover { background: color-mix(in srgb, var(--panel) 45%, transparent); }
+html.glass .rail-fav-i.on { background: color-mix(in srgb, var(--panel) 72%, transparent); color: var(--ink); }
 .rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 2px; }
 .rail-foot { margin-top: auto; }
 /* 左栏底部的 AI 用量（AiCost.tsx 的 AiMeterBar）：一行字一条细槽，快用完变黄、用完变红 */
@@ -462,7 +490,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .pane-n { color: var(--text-muted); font-weight: 400; font-size: var(--fs-note); margin-left: 6px; }
 .pane-ib { width: 28px; height: 28px; border-radius: var(--r-ctl); display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .pane-ib:hover { background: var(--hover); color: var(--ink); }
-.pane-rows { flex: 1; overflow: auto; padding-bottom: 12px; }
+.pane-rows { scrollbar-width: thin;  flex: 1; overflow: auto; padding-bottom: 12px; }
 .pane-empty { padding: 4px 16px 6px; font-size: var(--fs-note); color: var(--text-muted); }
 .pane-more { display: flex; align-items: center; gap: 4px; margin: 10px 16px 0; font-size: var(--fs-note); color: var(--text-muted); }
 .pane-more:hover { color: var(--ink); }
@@ -540,11 +568,26 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .roster-cnt { margin-left: auto; font-size: var(--fs-min); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .roster-av { width: 24px; height: 24px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--fs-min); font-weight: 600; margin-top: 1px; }
 .roster-m { flex: 1; min-width: 0; }
-.roster-l1 { display: flex; align-items: baseline; gap: var(--s2); }
-.roster-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.roster-l0 { display: flex; align-items: baseline; gap: var(--s2); }
+.roster-src { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-min); color: var(--text-muted); }
+.roster-m > .roster-n { display: block; margin-top: 1px; }
+.roster-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .roster-t { flex: none; font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .roster-l2 { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .roster-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-note); color: var(--text-muted); }
+/* 右下角的圆点：橙 = 计划到期、灰 = 一个月没动静、绿 = 正常（CustomerRoster 的 点()） */
+.roster-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--success); }
+.roster-dot.due { background: var(--warning); }
+.roster-dot.cold { background: var(--text-faint); }
+/* 名单顶上的页签：全部 / 我的 / 本周要跟 */
+.roster-tabs { display: flex; gap: 4px; padding: 0 var(--s3) var(--s2); }
+.roster-tab { padding: 4px 10px; border: 0; border-radius: var(--r-ctl); background: none; font: inherit; font-size: var(--fs-note); color: var(--text-muted); cursor: pointer; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+.roster-tab:hover { color: var(--ink); }
+.roster-tab.on { background: var(--panel); color: var(--ink); font-weight: 500; box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent); }
+.roster-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+html.glass .roster-tab.on { background: color-mix(in srgb, var(--panel) 80%, transparent); }
+html.glass .roster-row:hover { background: color-mix(in srgb, var(--panel) 50%, transparent); }
+html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, transparent); box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 6%, transparent); }
 .pane-kbd { flex: none; font-size: var(--fs-min); color: var(--text-faint); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 0 4px; line-height: 16px; }
 /* 收成抽屉时，里面那套样式原样复用 */
 .pane-drawer .pane-h { border-bottom: 1px solid var(--line-soft); }
@@ -775,6 +818,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; row-gap: 8px; }
 /* 记录页页头左边那一块：名字 + 一行「年级 · 专业 · 负责人」。至少留八个字宽，再长的名字省略 */
 .rec-head-id { min-width: 8em; flex: 0 1 auto; }
+.rec-head-av { width: 44px; height: 44px; flex: none; border-radius: 12px; display: grid; place-items: center; font-size: 18px; font-weight: 600; }
+.rec-head-line { display: flex; align-items: center; gap: 4px; }
+.rec-star.ant-btn { color: var(--text-faint); }
+.rec-star.on.ant-btn, .rec-star.on.ant-btn:hover { color: var(--warning); }
 .rec-head-sub { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-note); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-head-name { font-family: var(--font-display); font-size: var(--fs-title); font-weight: var(--fw-display); color: var(--ink); letter-spacing: -0.4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -859,7 +906,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-tl-type { flex: none; font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
 .rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-tl-head > .ant-tag { flex: none; }
-.rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
+.rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rec-tl-when { position: relative; margin-left: auto; display: inline-flex; align-items: center; }
 /* 编辑 / 删除平时不占位：原来它透明但占着宽度，中栏一窄就被挤到第二行，每条记录标题下空出一行。
    现在悬停（或键盘焦点进来）时盖在时间上出现，左缘渐隐；触屏没有悬停，就一直显示在时间下面那行 */
@@ -886,6 +933,20 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-ai-list li { margin-bottom: 4px; }
 .rec-ai-risk { font-size: var(--fs-body); color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-line); border-radius: var(--r-card); padding: 6px 10px; margin-bottom: 6px; }
 .rec-ai-ask { margin-top: 12px; }
+/* AI 栏的输入框（AiPanel）：一个框，上面问一句，下面一排芯片（起草 / 语言 / 语气）+ 发送 */
+.rec-composer { margin-top: 12px; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s2) var(--s2); border: 1px solid var(--line); border-radius: var(--r-pop); background: var(--panel);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
+.rec-composer:focus-within { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.rec-composer.off { opacity: 0.6; }
+.rec-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rec-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--workbench); font: inherit; font-size: var(--fs-min); color: var(--ink-soft); cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
+.rec-chip:hover { border-color: var(--line-strong); color: var(--ink); }
+.rec-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.rec-chip-main { color: var(--brand-deep); border-color: var(--brand-line); background: var(--brand-bg); }
+.rec-chip-caret { font-size: 9px; color: var(--text-faint); }
+.rec-send.ant-btn { border-radius: var(--r-ctl); }
+.rec-composer .ant-input-affix-wrapper { padding-inline: 4px 0; }
 .rec-ai-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .rec-ai-draft { margin-top: 12px; background: var(--workbench); border: 1px solid var(--line); border-radius: var(--r-card); padding: 10px 12px; font-size: var(--fs-body); line-height: 1.7; color: var(--ink); white-space: pre-wrap; }
 .rec-ai-draft-t { font-size: var(--fs-min); color: var(--text-muted); margin-bottom: 4px; }

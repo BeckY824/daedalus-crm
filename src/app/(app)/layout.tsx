@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import { 读收藏 } from "@/lib/favorites";
+import { prisma } from "@/lib/prisma";
 import { headers } from "next/headers";
 import { getCurrentUser } from "@/lib/auth";
 import AppShell from "@/components/AppShell";
@@ -46,7 +48,7 @@ export default async function AppLayout({
     桌面端 Dock 上的数都是这一个（lib/reminders-db.ts）。layout 在客户端导航时不重算，
     但完成、改期、新建之后各处都会 router.refresh()——那时它跟着变。中栏要的数据在 @pane 槽位里各自查
   */
-  const [提醒项, business, ua, 有AI, models] = await Promise.all([
+  const [提醒项, business, ua, 有AI, models, 收藏, 客户数, 在谈商机数] = await Promise.all([
     取提醒项(user.id),
     // 业务术语（学员/客户、院校/年级/专业…）：全站客户端组件从这里拿
     getBusiness(),
@@ -58,6 +60,10 @@ export default async function AppLayout({
     */
     llmEnabled(),
     listModelOptions(),
+    // 左栏下半截（2026-10-02 照毛玻璃原型）：收藏的客户、客户和在谈商机的数。都很便宜，和上面一起查
+    读收藏(user.id),
+    prisma.customer.count(),
+    prisma.opportunity.count({ where: { status: "OPEN" } }),
   ]);
   /*
     这个人点 AI 按钮花不花次数、还剩几次（lib/ai-meter.ts）：全站的「1 次」角标和输入框下那行字都认它。
@@ -84,6 +90,8 @@ export default async function AppLayout({
         反馈去向={本地模式() || multiTenant() ? "cloud" : "github"}
         pane={pane}
         ai={有AI ? { models } : null}
+        收藏={收藏}
+        计数={{ "/customers": 客户数, "/opportunities": 在谈商机数 }}
       >
         {children}
       </AppShell>

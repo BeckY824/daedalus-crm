@@ -1,5 +1,5 @@
 "use client";
-import Heat from "./Heat";
+import dayjs from "dayjs";
 import Shortcut from "./Shortcut";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -16,7 +16,20 @@ import { useLocalPref } from "@/lib/local-pref";
 
 export type CustomerRosterData = {
   total: number;
-  rows: { id: string; name: string; followStatus: string; lastFollowAt: string | null; ownerName: string; lastNote: string | null }[];
+  rows: {
+    id: string;
+    name: string;
+    followStatus: string;
+    lastFollowAt: string | null;
+    ownerName: string;
+    lastNote: string | null;
+    /** 我名下的（「我的」页签） */
+    mine?: boolean;
+    /** 卡片第一行：从哪儿来（渠道 / 转介绍 / 最近一次怎么联系的），见 @pane/panes.tsx */
+    source?: string | null;
+    /** 最近一条还没做的计划：「本周要跟」和右下角圆点看它 */
+    nextPlanAt?: string | null;
+  }[];
 };
 
 /**
@@ -52,10 +65,28 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
     只在没搜、没筛的时候分组——搜和筛本身就是在挑人，再分组是叠床架屋。折叠记在这台电脑上。
   */
   const [收起的, set收起的] = useLocalPref<string[]>("roster.collapsed", []);
+  /*
+    页签（照毛玻璃原型）：全部 / 我的 / 本周要跟。「我的」只在名单里真有别人的客户时才出现——
+    桌面端就你一个人，「全部」和「我的」是同一张单子，摆两个一样的页签是让人找不同。
+    「本周要跟」= 计划排在七天之内的，已经过期没做的也算（那更该跟）。
+  */
+  const [页签, set页签] = useState<"全部" | "我的" | "本周">("全部");
+  const 有别人的 = data.rows.some((r) => r.mine === false);
+  const 七天后 = dayjs().add(7, "day").endOf("day");
+  const 当前页签 = 页签 === "我的" && !有别人的 ? "全部" : 页签;
+  const 页签里 = useMemo(
+    () =>
+      rows.filter((r) =>
+        当前页签 === "我的" ? r.mine !== false : 当前页签 === "本周" ? Boolean(r.nextPlanAt && dayjs(r.nextPlanAt).isBefore(七天后)) : true,
+      ),
+    // 七天后 每次渲染都新算，按天变就够了，不进依赖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, 当前页签],
+  );
   const 分组 = !q.trim();
   const 组们 = useMemo(
-    () => FOLLOW_STATUSES.map((s) => ({ s, rows: rows.filter((r) => r.followStatus === s) })).filter((g) => g.rows.length > 0),
-    [rows],
+    () => FOLLOW_STATUSES.map((s) => ({ s, rows: 页签里.filter((r) => r.followStatus === s) })).filter((g) => g.rows.length > 0),
+    [页签里],
   );
   const 切组 = (s: string) => set收起的(收起的.includes(s) ? 收起的.filter((x) => x !== s) : [...收起的, s]);
 
@@ -79,34 +110,51 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
     if (抽屉开着) setTimeout(() => 搜索框.current?.focus(), 80);
   }, [抽屉开着]);
 
-  /** 一行：名字和时间、最近一句。分组时状态已经写在组头上，行里不再挂标签 */
-  const 一行 = (r: CustomerRosterData["rows"][number], 带状态: boolean) => (
-    <Link
-      key={r.id}
-      href={`/customers/${r.id}`}
-      className={`roster-row${activeId === r.id ? " on" : ""}`}
-      onClick={() => 抽屉开着 && 关名单()}
-    >
-      <span className="roster-av" style={{ background: avatarColor(r.name), color: AVATAR_TEXT }}>
-        {initial(r.name)}
-      </span>
-      <span className="roster-m">
-        <span className="roster-l1">
+  /**
+   * 一行三层（照毛玻璃原型）：从哪儿来 · 时间 / 名字 / 最近一句 · 圆点。
+   * 圆点只有三种：橙 = 计划到期了（今天或更早），灰 = 一个月没动静，绿 = 正常。
+   * 分组时状态已经写在组头上，行里不再挂标签；搜索时没有组头，标签补回来。
+   */
+  const 今天末 = dayjs().endOf("day");
+  const 点 = (r: CustomerRosterData["rows"][number]) =>
+    r.nextPlanAt && dayjs(r.nextPlanAt).isBefore(今天末)
+      ? { cls: "due", 说: "计划的跟进到期了" }
+      : !r.lastFollowAt || dayjs().diff(dayjs(r.lastFollowAt), "day") >= 30
+        ? { cls: "cold", 说: "一个月没跟进了" }
+        : { cls: "ok", 说: "最近跟进过" };
+  const 一行 = (r: CustomerRosterData["rows"][number], 带状态: boolean) => {
+    const d = 点(r);
+    return (
+      <Link
+        key={r.id}
+        href={`/customers/${r.id}`}
+        className={`roster-row${activeId === r.id ? " on" : ""}`}
+        onClick={() => 抽屉开着 && 关名单()}
+      >
+        <span className="roster-av" style={{ background: avatarColor(r.name), color: AVATAR_TEXT }}>
+          {initial(r.name)}
+        </span>
+        <span className="roster-m">
+          <span className="roster-l0">
+            <span className="roster-src">
+              {带状态 && (
+                <Tag color={FOLLOW_STATUS_COLOR[r.followStatus] ?? "default"} style={{ margin: "0 6px 0 0", borderRadius: 5, fontSize: 12, lineHeight: "18px", padding: "0 5px" }}>
+                  {statusLabel(b, r.followStatus)}
+                </Tag>
+              )}
+              {r.source ?? ""}
+            </span>
+            <span className="roster-t">{r.lastFollowAt ? smartTime(r.lastFollowAt) : ""}</span>
+          </span>
           <span className="roster-n">{r.name}</span>
-          <span className="roster-t">{r.lastFollowAt ? smartTime(r.lastFollowAt) : ""}</span>
+          <span className="roster-l2">
+            <span className="roster-note">{r.lastNote ?? `还没跟进 · ${r.ownerName}`}</span>
+            <span className={`roster-dot ${d.cls}`} title={d.说} aria-label={d.说} />
+          </span>
         </span>
-        <span className="roster-l2">
-          {带状态 && (
-            <Tag color={FOLLOW_STATUS_COLOR[r.followStatus] ?? "default"} style={{ margin: 0, borderRadius: 5, fontSize: 12, lineHeight: "18px", padding: "0 5px", flex: "none" }}>
-              {statusLabel(b, r.followStatus)}
-            </Tag>
-          )}
-          <span className="roster-note">{r.lastNote ?? `还没跟进 · ${r.ownerName}`}</span>
-          <Heat at={r.lastFollowAt} status={r.followStatus} />
-        </span>
-      </span>
-    </Link>
-  );
+      </Link>
+    );
+  };
 
   const 内容 = (
     <>
@@ -118,6 +166,13 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
         <Link href="/customers" className="pane-ib" aria-label={`${b.customer}表格`} title="表格视图">
           <TableOutlined />
         </Link>
+      </div>
+      <div className="roster-tabs" role="tablist" aria-label={`${b.customer}名单`}>
+        {(有别人的 ? (["全部", "我的", "本周"] as const) : (["全部", "本周"] as const)).map((t) => (
+          <button key={t} type="button" role="tab" aria-selected={当前页签 === t} className={`roster-tab${当前页签 === t ? " on" : ""}`} onClick={() => set页签(t)}>
+            {t === "本周" ? "本周要跟" : t}
+          </button>
+        ))}
       </div>
       <div className="pane-search">
         <SearchOutlined style={{ color: "var(--text-muted)" }} />
@@ -137,12 +192,16 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
       {/* 原来这里有一排状态筛选（全部 / 待跟进 / 跟进中…）。分组以后它和组头说的是同一件事，
           想只看一种就把别的组收起来——同一个功能摆两套入口是在让人选一个不存在的区别（2026-10-02） */}
       <div className="pane-rows">
-        {rows.length === 0 && (
+        {页签里.length === 0 && (
           <div className="pane-empty">
             {q
               ? "这 50 位里没有，回车去全量里搜"
-              : /* 一条都没有 ≠ 搜完没有。空库时说「没搜到」是句错话 */
-                `还没有${b.customer}`}
+              : 当前页签 === "本周"
+                ? "这一周没有排好的跟进"
+                : 当前页签 === "我的"
+                  ? `名下还没有${b.customer}`
+                  : /* 一条都没有 ≠ 搜完没有。空库时说「没搜到」是句错话 */
+                    `还没有${b.customer}`}
           </div>
         )}
         {分组
@@ -159,7 +218,7 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
                 </div>
               );
             })
-          : rows.map((r) => 一行(r, true))}
+          : 页签里.map((r) => 一行(r, true))}
         {data.total > data.rows.length && (
           <Link href="/customers" className="pane-more">
             这里只有最近 {data.rows.length} 位，全部 {data.total} 位在表格里 ›

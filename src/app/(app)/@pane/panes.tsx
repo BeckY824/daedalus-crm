@@ -4,6 +4,7 @@ import CustomerRoster from "@/components/CustomerRoster";
 import ConversationList from "@/app/(app)/dashboard/ConversationList";
 import { 列对话 } from "@/app/(app)/dashboard/threads";
 import { llmEnabled } from "@/lib/llm";
+import { FOLLOW_TYPE_MAP } from "@/lib/constants";
 
 /**
  * 中栏（312px）的内容。眼下**只有一种**：学员记录页的窄名单。
@@ -38,16 +39,20 @@ import { llmEnabled } from "@/lib/llm";
  * 它自己渲染 <aside>，不走 包一层：窄屏下整条要变成抽屉，那时不能留一个空的 aside。
  */
 export async function 学员名单() {
-  await requireUser();
+  const me = await requireUser();
   const [total, rows] = await Promise.all([
     prisma.customer.count(),
     prisma.customer.findMany({
       orderBy: [{ lastFollowAt: "desc" }, { createdAt: "desc" }],
       take: 50,
       select: {
-        id: true, name: true, followStatus: true, lastFollowAt: true,
+        id: true, name: true, followStatus: true, lastFollowAt: true, salesOwnerId: true,
         salesOwner: { select: { name: true } },
-        followUps: { orderBy: { occurredAt: "desc" }, take: 1, select: { content: true } },
+        channel: { select: { name: true } },
+        referrerCustomerId: true,
+        followUps: { orderBy: { occurredAt: "desc" }, take: 1, select: { content: true, type: true } },
+        // 最近一条还没做的计划：「本周要跟」那个页签和右下角的圆点都看它
+        plans: { where: { done: false }, orderBy: { plannedAt: "asc" }, take: 1, select: { plannedAt: true } },
       },
     }),
   ]);
@@ -59,7 +64,14 @@ export async function 学员名单() {
           id: c.id, name: c.name, followStatus: c.followStatus,
           lastFollowAt: c.lastFollowAt ? c.lastFollowAt.toISOString() : null,
           ownerName: c.salesOwner.name,
+          mine: c.salesOwnerId === me.id,
           lastNote: c.followUps[0]?.content?.trim().slice(0, 60) || null,
+          /*
+            卡片第一行那个「从哪儿来」（照毛玻璃原型：WhatsApp / 邮件 / 展会…）：
+            渠道名 > 转介绍 > 最近一次跟进是怎么联系的。都没有就空着，不编一个
+          */
+          source: c.channel?.name ?? (c.referrerCustomerId ? "转介绍" : c.followUps[0] ? (FOLLOW_TYPE_MAP[c.followUps[0].type]?.label ?? null) : null),
+          nextPlanAt: c.plans[0]?.plannedAt.toISOString() ?? null,
         })),
       }}
     />
