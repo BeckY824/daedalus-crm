@@ -46,3 +46,34 @@ export function 这次新的(全部: 一版[], 看过: string, 现在: string): 
     .filter((s) => 比版本(s.版本, 看过) > 0 && 比版本(s.版本, 现在) <= 0)
     .sort((a, b) => 比版本(b.版本, a.版本));
 }
+
+/**
+ * 桌面端只看桌面端的那部分：「### 网页团队版…」这一小节（到下一个三级标题或段尾）去掉。
+ * 同一份 CHANGELOG 两边都用，网页团队版另外改的那几条写在这一小节里——
+ * 桌面端的人看到「同事」「换负责人」只会纳闷这说的是谁。
+ */
+export function 只留桌面端(正文: string): string {
+  const 出: string[] = [];
+  let 跳 = false;
+  for (const 行 of 正文.split("\n")) {
+    if (/^###\s/.test(行)) 跳 = /^###\s*网页团队版/.test(行);
+    if (!跳) 出.push(行);
+  }
+  return 出.join("\n").trim();
+}
+
+/**
+ * CHANGELOG 里一段话为了在编辑器里好读是折行写的，渲染器（components/Markdown）一行算一段，
+ * 弹框里就成了半句一段。连续的普通文字行并成一行；列表、标题、表格、空行照旧分开。
+ */
+export function 并成段(正文: string): string {
+  const 普通 = (行: string) => 行.trim() !== "" && !/^\s*([-*+]\s|\d+[.)]\s|#|\||>)/.test(行);
+  const 出: string[] = [];
+  for (const 行 of 正文.split("\n")) {
+    const 上 = 出.length ? 出[出.length - 1] : null;
+    if (上 !== null && 普通(上) && 普通(行) && !/^\*\*.*\*\*$/.test(上.trim()) && !/^\*\*.*\*\*$/.test(行.trim())) {
+      出[出.length - 1] = 上 + 行.trim();
+    } else 出.push(行);
+  }
+  return 出.join("\n");
+}

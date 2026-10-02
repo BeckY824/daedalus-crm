@@ -158,6 +158,8 @@ const 拷 = (从, 到) => {
 fs.copyFileSync(干净模板, path.join(OUT, "template.db"));
 console.log("  + template.db");
 拷("migrations", "migrations");
+// 左栏「新」和账号菜单「更新记录」读它（whats-new-actions.ts 读 cwd 下的 CHANGELOG.md，本地服务的 cwd 就是这里）
+拷("CHANGELOG.md", "CHANGELOG.md");
 fs.copyFileSync(path.join(DESKTOP, "server-entry.js"), path.join(OUT, "entry.js"));
 console.log("  + entry.js");
 fs.rmSync(临时, { recursive: true, force: true });

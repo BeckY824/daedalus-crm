@@ -17,6 +17,7 @@ import {
   DollarOutlined,
   InteractionOutlined,
   SettingOutlined,
+  HistoryOutlined,
   DeploymentUnitOutlined,
   BellOutlined,
   MenuOutlined,
@@ -27,6 +28,7 @@ import type { SessionUser } from "@/lib/auth";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
 import UpdateButton from "./UpdateButton";
+import WhatsNew from "./WhatsNew";
 import AiTasks from "./AiTasks";
 import AiDock from "./AiDock";
 import { usePageUnderOverlay } from "@/lib/page-under-overlay";
@@ -142,6 +144,8 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
   const 窄窗 = useNarrow(面板放不下, true);
   /** 这一次会话里手动开合过。null = 还没动过，听存档的 */
   const [手动, set手动] = useState<boolean | null>(null);
+  /** 账号菜单「更新记录」开着没有（桌面端才有这一条） */
+  const [更新记录开着, set更新记录开着] = useState(false);
   const 面板开着 = 手动 ?? (窄窗 ? false : 存的面板);
   /** 名单和记录页的断点要知道右边这条面板占了地方（见 lib/roster.ts 的 DockOpenContext） */
   const 面板占着地方 = Boolean(ai) && !小屏 && 面板开着 && 底下那页 !== "/dashboard";
@@ -226,6 +230,7 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
     onClick: ({ key }: { key: string }) => {
       // 软导航才会命中拦截路由（@modal/(.)settings），设置才是盖在当前页上的一层
       if (key === "settings") router.push("/settings");
+      if (key === "whats-new") set更新记录开着(true);
       if (key === "logout") void logout();
     },
     items: [
@@ -254,6 +259,8 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
           </span>
         ),
       },
+      // 更新记录只有桌面端有：网页版一直是最新的，没有「从哪一版升上来」这回事
+      ...(desktop ? [{ key: "whats-new", icon: <HistoryOutlined />, label: "更新记录" }] : []),
       { type: "divider" as const },
       { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
     ],
@@ -369,6 +376,7 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
                 <DownOutlined className="rail-user-caret" aria-hidden />
               </button>
             </Dropdown>
+            {desktop && <WhatsNew 全部开着={更新记录开着} 关全部={() => set更新记录开着(false)} />}
             {desktop && <UpdateButton />}
             {/* 反馈在更新键的右边，两枚都是这一行的「出口」：一个往外拿新版本，一个往外送一句话。
                 网页版没有更新键，那儿就只有它一枚 */}

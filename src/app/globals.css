@@ -282,6 +282,20 @@ a {
 .rail-fb:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 /* 侧栏里它和更新键并排，一起往下让 6px；手机顶栏里要和铃铛一样大、一样高 */
 .rail-account .rail-fb { margin-top: 6px; }
+/* 更新后的那枚「新」：和反馈键一样大、一样往下让 6px。右上角一个红点说「这儿有没看过的」；
+   不闪不跳——它不是要你马上处理的事，看过就收 */
+.rail-new { position: relative; flex: none; width: 26px; height: 26px; margin-top: 6px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: 999px; background: var(--hover); color: var(--brand); font-size: 12px; font-weight: 600; line-height: 1; cursor: pointer; }
+.rail-new::after { content: ""; position: absolute; top: 1px; right: 1px; width: 7px; height: 7px; border-radius: 999px;
+  background: var(--danger); box-shadow: 0 0 0 2px var(--page-bg); }
+.rail-new:hover { color: var(--ink); }
+.rail-new:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* 「更新内容」框里一版一段：版本号做小标题，日期淡在后面 */
+.wn-list { display: flex; flex-direction: column; gap: 20px; }
+.wn-ver h3 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 6px; font-size: var(--fs-body, 14px); font-weight: 600; color: var(--ink); }
+.wn-ver h3 span { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }
+.wn-ver + .wn-ver { padding-top: 16px; border-top: 1px solid var(--line-soft); }
+.wn-empty { margin: 8px 0; color: var(--text-muted); }
 .ant-layout-header .rail-fb { width: 34px; height: 34px; border-radius: var(--r-ctl); }
 /* 反馈弹窗里那两行 */
 .fb-note { margin: 10px 0 0; font-size: var(--fs-note); color: var(--text-muted); line-height: 1.6; }
@@ -1527,7 +1541,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 
    **表格行、列表行不缩放**：一行缩一下会把整张表带着晃，那是廉价感不是高级感。
    它们按下去只变底色。 */
-.press, .rail-item, .rail-fb, .pane-ib, .pane-chip, .rec-chip, .cli-tool, .cli-send, .cli-ic,
+.press, .rail-item, .rail-fb, .rail-new, .pane-ib, .pane-chip, .rec-chip, .cli-tool, .cli-send, .cli-ic,
 .cli-q, .cli-sugg, .cli-cmd, .mp-btn, .prop-ok, .prop-no, .bill-plan, .set-nav-i, .cmdk-row,
 .setm-x, .list-sel-x, .plan-switch, .rail-user, .rail-mark {
   transition:
@@ -1538,7 +1552,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
     border-color var(--t-fast) var(--ease),
     opacity var(--t-fast) var(--ease);
 }
-.press:active, .rail-fb:active, .pane-ib:active, .pane-chip:active, .rec-chip:active,
+.press:active, .rail-fb:active, .rail-new:active, .pane-ib:active, .pane-chip:active, .rec-chip:active,
 .cli-tool:active, .cli-send:active, .cli-ic:active, .cli-q:active, .cli-sugg:active,
 .cli-cmd:active, .mp-btn:active, .prop-ok:not(:disabled):active, .prop-no:active,
 .setm-x:active, .list-sel-x:active, .plan-switch:active, .rail-up:not(.busy):active {

@@ -16,7 +16,9 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { ArrowDownOutlined, ReloadOutlined, WarningOutlined, SyncOutlined } from "@ant-design/icons";
+import { Button, Modal } from "antd";
 import { useMotionTheme } from "@/components/MotionTheme";
+import Markdown from "@/components/Markdown";
 
 type 更新状态 = {
   阶段: "idle" | "checking" | "available" | "downloading" | "ready" | "installing" | "manual" | "error";
@@ -58,6 +60,8 @@ type 画法 = {
 export default function UpdateButton() {
   const { 曲线, 时长 } = useMotionTheme();
   const [s, setS] = useState<更新状态 | null>(null);
+  /** 「更新」点下去先摊开说这版改了什么、要下多大，人点了「更新」才开始下（2026-10-02） */
+  const [问一句, set问一句] = useState(false);
 
   useEffect(() => {
     const api = window.desktopUpdate;
@@ -88,7 +92,7 @@ export default function UpdateButton() {
           // 侧栏 220 宽，两样都塞进去的话尾巴会被裁掉，反而谁也没看清
           图标: <ArrowDownOutlined />,
           话: "更新",
-          点: 开始下载,
+          点: () => set问一句(true),
         };
       case "downloading":
         return {
@@ -119,7 +123,7 @@ export default function UpdateButton() {
    * 但**说的话不能跟着变少**：读屏念的是完整那句，鼠标停住看到的是版本、体积、这一版改了什么。
    */
   const 全称: Record<string, string> = {
-    available: `有新版本 ${s.版本}，点击开始下载`,
+    available: `有新版本 ${s.版本}，点击看看改了什么`,
     downloading: `正在下载 ${s.版本}${s.进度 != null ? `，已完成 ${s.进度}%` : ""}`,
     installing: "正在安装，马上重启",
     ready: `${s.版本} 已准备好：点击现在重启；不点的话退出时自动换上，下次打开就是新版`,
@@ -151,6 +155,32 @@ export default function UpdateButton() {
   );
 
   return (
+    <>
+    <Modal
+      open={问一句 && s.阶段 === "available"}
+      onCancel={() => set问一句(false)}
+      title={`有新版本 ${s.版本 ?? ""}`}
+      width={520}
+      footer={
+        <>
+          <Button onClick={() => set问一句(false)}>稍后</Button>
+          <Button
+            type="primary"
+            autoFocus
+            onClick={() => {
+              set问一句(false);
+              开始下载();
+            }}
+          >
+            更新
+          </Button>
+        </>
+      }
+    >
+      {s.说明 ? <Markdown text={s.说明} /> : <p className="wn-empty">这一版改了什么，装好之后左栏的「新」里能看到。</p>}
+      {/* 差量 2.3 MB / 整包 161 MB：下之前就知道要等多久 */}
+      {s.文字 && <p className="wn-empty">要下：{s.文字}。下完点「重启」换上，数据不动。</p>}
+    </Modal>
     <AnimatePresence initial={false} mode="popLayout">
       <motion.div
         key={s.阶段}
@@ -172,5 +202,6 @@ export default function UpdateButton() {
         )}
       </motion.div>
     </AnimatePresence>
+    </>
   );
 }
