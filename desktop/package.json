@@ -29,6 +29,7 @@
       "local-server.js",
       "mcp-bridge.js",
       "cloud.js",
+      "glass-blur.js",
       "accounts.js",
       "machine.js",
       "updater.js",
@@ -84,5 +85,8 @@
       "shortcutName": "Daedalus CRM"
     },
     "afterPack": "./sign.js"
+  },
+  "dependencies": {
+    "koffi": "^3.3.2"
   }
 }

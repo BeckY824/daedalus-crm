@@ -565,14 +565,27 @@ function 玻璃开着() {
   return 玻璃可用() && 读配置().glass !== false;
 }
 const 实底 = "#fafafa";
+/*
+  Mac 上优先用「透明窗口 + 小模糊半径」（desktop/glass-blur.js，看得见壁纸），拿不到私有接口才退回 vibrancy。
+  用哪条在建窗口时定下来（transparent 只能建窗口时给），记在 透明窗 里，开关拨来拨去都按它走。
+*/
+const 模糊 = require("./glass-blur");
+const 模糊半径 = 20;
+let 透明窗 = false;
 function 上玻璃(w, 开) {
   if (!w || w.isDestroyed()) return;
+  if (透明窗) {
+    模糊.设模糊(w, 开 ? 模糊半径 : 0);
+    w.setBackgroundColor(开 ? "#00000000" : 实底);
+    return;
+  }
   if (process.platform === "darwin") w.setVibrancy(开 ? "sidebar" : null);
   if (process.platform === "win32" && typeof w.setBackgroundMaterial === "function") w.setBackgroundMaterial(开 ? "acrylic" : "none");
   w.setBackgroundColor(开 ? "#00000000" : 实底);
 }
 
 function 建窗口() {
+  透明窗 = process.platform === "darwin" && 模糊.可用();
   win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -589,7 +602,9 @@ function 建窗口() {
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 20, y: 16 },
     } : {}),
-    ...(玻璃开着()
+    ...(透明窗
+      ? { transparent: true, backgroundColor: 玻璃开着() ? "#00000000" : 实底 }
+      : 玻璃开着()
       ? process.platform === "darwin"
         ? { vibrancy: "sidebar", visualEffectState: "active", backgroundColor: "#00000000" }
         : { backgroundMaterial: "acrylic", backgroundColor: "#00000000" }
@@ -600,7 +615,12 @@ function 建窗口() {
   });
 
   // 主窗口露面了再关「正在完成更新」那个小窗，中间不留一个窗口都没有的空档（Windows 上那会让应用直接退出）
-  win.once("ready-to-show", () => { win.show(); 关过渡小窗(); });
+  win.once("ready-to-show", () => {
+    win.show();
+    关过渡小窗();
+    // 窗口号要等窗口真的建出来才有；露面那一刻设上模糊，之后 WindowServer 一直记着
+    if (透明窗 && 玻璃开着()) 模糊.设模糊(win, 模糊半径);
+  });
   win.loadURL(当前地址());
 
   // 记住停在哪一页：重启（包括更新后的那次）回到原地，不再每次都从首页开始
