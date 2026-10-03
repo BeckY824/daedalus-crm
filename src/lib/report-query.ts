@@ -13,7 +13,8 @@ export const METRICS = {
   leads_count: { label: "新增线索数", unit: "条" },
   lead_conversion: { label: "线索转化率", unit: "%" },
   customers_count: { label: "新增学员数", unit: "人" },
-  contract_amount: { label: "签约金额", unit: "元" },
+  // 2026-10-03 起按币种分行、不换汇：每行的 currency 就是那一行的币种
+  contract_amount: { label: "签约金额", unit: "按币种（见每行 currency，不换汇）" },
   contract_count: { label: "签约单数", unit: "笔" },
   followups_count: { label: "跟进次数", unit: "次" },
 } as const;
@@ -90,21 +91,21 @@ export function sanitizeQuerySpec(raw: unknown): QuerySpec {
   return { metric, groupBy, from, to };
 }
 
-export type ResultRow = { label: string; value: number; note?: string };
+export type ResultRow = { label: string; value: number; note?: string; /** 金额类指标：这一行是哪种币 */ currency?: string };
 
 /**
  * 计数/求和类聚合。key 用实体 id 而不是显示名——成员和学员姓名允许重复，
  * 按姓名归组会把两个人的数字悄悄加进同一行（数据复盘页同款硬规则）。
  */
 export function sumRows(
-  items: { key: string; label: string; value: number }[],
+  items: { key: string; label: string; value: number; currency?: string }[],
   opts: { byMonth?: boolean } = {},
 ): ResultRow[] {
   const map = new Map<string, ResultRow>();
   for (const it of items) {
     const cur = map.get(it.key);
     if (cur) cur.value += it.value;
-    else map.set(it.key, { label: it.label, value: it.value });
+    else map.set(it.key, { label: it.label, value: it.value, ...(it.currency ? { currency: it.currency } : {}) });
   }
   const rows = [...map.values()];
   // 按月看的是走势，必须按时间排；其余按数值倒序，第一行就是答案

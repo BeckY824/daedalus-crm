@@ -5,6 +5,7 @@
  */
 import { prisma } from "./prisma";
 import { 签约归属人 } from "./contract-owner";
+import { 带币种, 签约币种, 签约金额 } from "./money-db";
 import { dayjs } from "./utils";
 import { FOLLOW_TYPE_MAP } from "./constants";
 import { sumRows, rateRows, bucketMonth, type QuerySpec, type ResultRow, type GroupBy } from "./report-query";
@@ -72,22 +73,26 @@ export async function runQuery(spec: QuerySpec, b: BusinessConfig): Promise<Resu
       where: dateWhere("signedAt", spec),
       select: {
         amount: true, signedAt: true,
+        ...带币种.签约,
         owner: { select: { salesOwnerId: true, channelOwnerId: true } },
         customer: { select: { salesOwner: { select: { id: true, name: true, email: true } }, channel: { select: { id: true, name: true } } } },
       },
     });
     // 按销售拆时算在签约那一刻的负责人头上，和数据页同一份规则（排查 B2，lib/contract-owner.ts）
     const 归属 = await 签约归属人(contracts);
+    // 金额按币种分行（不换汇）：同一个人签了美元也签了人民币，就是两行。只有一种币时行名不加后缀
+    const 金额 = spec.metric === "contract_amount";
+    const 多币 = 金额 && new Set(contracts.map(签约币种)).size > 1;
     return sumRows(
       contracts.map((c) => {
         const 销售 = 归属.销售(c);
-        return {
-          ...keyOf(spec.groupBy, c.signedAt, {
-            sales: 销售 ? { id: 销售.id, label: 销售.name } : null,
-            channel: c.customer.channel ? { id: c.customer.channel.id, label: c.customer.channel.name } : null,
-          }),
-          value: spec.metric === "contract_amount" ? c.amount : 1,
-        };
+        const k = keyOf(spec.groupBy, c.signedAt, {
+          sales: 销售 ? { id: 销售.id, label: 销售.name } : null,
+          channel: c.customer.channel ? { id: c.customer.channel.id, label: c.customer.channel.name } : null,
+        });
+        if (!金额) return { ...k, value: 1 };
+        const 币 = 签约币种(c);
+        return { key: `${k.key}|${币}`, label: 多币 ? `${k.label}（${币}）` : k.label, value: 签约金额(c), currency: 币 };
       }),
       { byMonth },
     );

@@ -18,7 +18,7 @@ import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
-import { 写签约金额, 带币种, 商机币种, 签约币种, 签约金额 } from "@/lib/money-db";
+import { 写签约金额, 带币种, 商机币种, 签约币种, 签约金额, 签约合计 } from "@/lib/money-db";
 import { 金额 as 显示金额, 是币种, 规整币种 } from "@/lib/currency";
 import { statusLabel } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
@@ -476,7 +476,8 @@ export type 删除清点 = {
   商机: number;
   计划和待办: number;
   签约: number;
-  签约金额: number;
+  /** 按币种分开（2026-10-03，不换汇） */
+  签约金额: { 币种: string; 合计: number }[];
   /** 联系人不删，搬进未归属 */
   联系人: number;
   /** 从线索转来的：线索还在，只是不再连着这位客户 */
@@ -491,13 +492,13 @@ export async function 删除前清点(ids: string[]): Promise<删除清点> {
     prisma.opportunity.count({ where: 在 }),
     prisma.followPlan.count({ where: 在 }),
     prisma.task.count({ where: 在 }),
-    prisma.contract.aggregate({ where: 在, _count: true, _sum: { amount: true } }),
+    prisma.contract.findMany({ where: 在, select: { amount: true, ...带币种.签约 } }),
     prisma.contact.count({ where: 在 }),
     prisma.lead.count({ where: 在 }),
   ]);
   return {
     跟进, 商机, 计划和待办: 计划 + 待办,
-    签约: 签约._count, 签约金额: 签约._sum.amount ?? 0,
+    签约: 签约.length, 签约金额: 签约合计(签约),
     联系人, 线索,
   };
 }

@@ -16,7 +16,8 @@ import {
   FilterOutlined,
 } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
-import { maskPhone, smartTime, money, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
+import { 合计文字 } from "@/lib/currency";
+import { maskPhone, smartTime, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import { toCsv } from "@/lib/csv";
 import ListSearch from "@/components/ListSearch";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
@@ -104,6 +105,11 @@ type Props = {
  * 原来十四列全摆出来，1440 屏上要横着拖两屏才看得完，而每天真正要扫的就这六样；
  * 其余的收进「列」里，勾了记在这台机器上。
  */
+/** 行上的签约按币种；老的调用方没给 signedTotals 时把 signedAmount 当人民币 */
+function 签约各币(r: { signedAmount: number; signedTotals?: { 币种: string; 合计: number }[] }) {
+  return r.signedTotals ?? (r.signedAmount ? [{ 币种: "CNY", 合计: r.signedAmount }] : []);
+}
+
 export default function CustomersView({
   rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled,
 }: Props) {
@@ -238,7 +244,7 @@ export default function CustomersView({
     {
       title: "签约金额", key: "signedAmount", dataIndex: "signedAmount", width: 120, 默认: false,
       sorter: (a, b2) => a.signedAmount - b2.signedAmount,
-      render: (v: number) => (v > 0 ? <span style={{ fontWeight: 500 }}>{money(v)}</span> : <span className="muted">—</span>),
+      render: (v: number, r) => (v > 0 ? <span style={{ fontWeight: 500 }}>{合计文字(签约各币(r))}</span> : <span className="muted">—</span>),
     },
     { title: "推荐人", key: "referrerName", dataIndex: "referrerName", width: 120, 默认: false, render: (v) => v ?? <span className="muted">自然流量</span> },
     {
@@ -479,7 +485,8 @@ function exportCsv(rows: CustomerRow[], b: BusinessConfig) {
   const body = rows.map((r) => [
     r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
     r.referrerName ?? "", r.attributionName ?? "", statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus),
-    r.expectedSignAt ? fmtDate(r.expectedSignAt) : "", r.signedAmount || "",
+    // 导出写「USD 3,200 · CNY 19,800」：只写数字的话，美元单在表里就成了人民币
+    r.expectedSignAt ? fmtDate(r.expectedSignAt) : "", 签约各币(r).filter((x) => x.合计 > 0).map((x) => `${x.币种} ${x.合计}`).join(" · "),
     r.salesOwnerName, r.channelOwnerName ?? "",
   ]);
 

@@ -10,14 +10,17 @@
  * 口径：只算**直接推荐**这一层。整条链的归属业绩已经在渠道表里有了，
  * 雷达要回答的是"该找谁开口"，看直接关系就够，把链路全展开只会更难读。
  */
+import { 合并合计, 合计文字, type 币种合计 } from "./currency";
 
 export type RadarCustomer = {
   id: string;
   name: string;
   followStatus: string;
   referrerCustomerId: string | null;
-  /** 本人签约总额（元） */
+  /** 本人签约总额（各币种数字直接相加，只用来排序和判「签过没有」，不显示） */
   signedAmount: number;
+  /** 本人签约按币种（2026-10-03）。不给就当 signedAmount 是人民币 */
+  signed?: 币种合计[];
 };
 
 export type TopReferrer = {
@@ -27,8 +30,10 @@ export type TopReferrer = {
   referralCount: number;
   /** 其中已签约的人数 */
   signedCount: number;
-  /** 直接推荐的学员签约总额 */
+  /** 直接推荐的学员签约总额（只用来排序，显示用 downstream） */
   downstreamAmount: number;
+  /** 同上，按币种分开（不换汇），显示用 */
+  downstream: 币种合计[];
 };
 
 export type InviteCandidate = {
@@ -36,6 +41,8 @@ export type InviteCandidate = {
   name: string;
   reason: string;
 };
+
+const 按币 = (c: RadarCustomer): 币种合计[] => c.signed ?? (c.signedAmount ? [{ 币种: "CNY", 合计: c.signedAmount }] : []);
 
 export function buildReferralRadar(customers: RadarCustomer[]): {
   topReferrers: TopReferrer[];
@@ -53,10 +60,12 @@ export function buildReferralRadar(customers: RadarCustomer[]): {
       referralCount: 0,
       signedCount: 0,
       downstreamAmount: 0,
+      downstream: [],
     };
     cur.referralCount += 1;
     if (c.followStatus === "已签约") cur.signedCount += 1;
     cur.downstreamAmount += c.signedAmount;
+    cur.downstream = 合并合计(cur.downstream, 按币(c));
     stats.set(referrer.id, cur);
   }
   const topReferrers = [...stats.values()]
@@ -71,7 +80,7 @@ export function buildReferralRadar(customers: RadarCustomer[]): {
     .map((c) => ({
       customerId: c.id,
       name: c.name,
-      reason: `已签约 ¥${Math.round(c.signedAmount).toLocaleString("zh-CN")}，还没请 TA 转介绍过`,
+      reason: `已签约 ${合计文字(按币(c))}，还没请 TA 转介绍过`,
     }));
 
   return { topReferrers, inviteCandidates };

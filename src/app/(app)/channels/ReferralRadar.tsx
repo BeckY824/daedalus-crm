@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Card, Row, Col, Table, Button, Space, Typography, Empty } from "antd";
 import { RadarChartOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icons";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
-import { money } from "@/lib/utils";
+import { 合计文字 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
 import { useJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
@@ -63,7 +63,7 @@ export default function ReferralRadar({
                 },
                 { title: "推荐人数", dataIndex: "referralCount", width: 100 },
                 { title: "其中签约", dataIndex: "signedCount", width: 100 },
-                { title: "带来签约额", dataIndex: "downstreamAmount", width: 130, render: (v) => money(v) },
+                { title: "带来签约额", dataIndex: "downstreamAmount", width: 130, render: (_v, r) => 合计文字(r.downstream) },
               ]}
             />
           )}

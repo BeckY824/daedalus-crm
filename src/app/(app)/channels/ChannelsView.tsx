@@ -9,7 +9,8 @@ import ResetFilters from "@/components/ResetFilters";
 import { 列表不问归属 } from "@/lib/solo";
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
-import { money, fmtDate, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
+import { 合计文字 } from "@/lib/currency";
+import { fmtDate, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { saveChannel, toggleChannel, deleteChannel } from "./actions";
 import ReferralRadar from "./ReferralRadar";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
@@ -32,6 +33,8 @@ type Row = {
   /** 整条推荐链上的学员数（含转介绍的下游） */
   chainCount: number;
   chainAmount: number;
+  /** 链上签约额按币种（2026-10-03，不换汇）。上面那个数只用来排序 */
+  chainMoney: { 币种: string; 合计: number }[];
 };
 
 export default function ChannelsView({
@@ -141,7 +144,7 @@ export default function ChannelsView({
     {
       title: "链上签约额", key: "chainAmount", dataIndex: "chainAmount", width: 130,
       sorter: (a, b2) => a.chainAmount - b2.chainAmount,
-      render: (v: number) => (v > 0 ? <span style={{ fontWeight: 500 }}>{money(v)}</span> : <span className="muted">—</span>),
+      render: (v: number, r) => (v > 0 ? <span style={{ fontWeight: 500 }}>{合计文字(r.chainMoney)}</span> : <span className="muted">—</span>),
     },
     {
       // 状态三样齐全：颜色、图标、文字。只靠一个灰标签，扫过去认不出哪条停用了

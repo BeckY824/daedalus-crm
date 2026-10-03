@@ -1,9 +1,9 @@
 "use client";
 
+import { 合计文字 } from "@/lib/currency";
 import { App, Checkbox } from "antd";
 import { useRouter } from "next/navigation";
 import { useBusiness } from "@/lib/business-client";
-import { money } from "@/lib/utils";
 import { 删除确认标题 } from "@/lib/list-select";
 import { deleteCustomers, 删除前清点, type 删除清点 } from "./actions";
 
@@ -44,7 +44,7 @@ export function useDeleteCustomers() {
           {一起删.length > 0 && <div>会一起删掉：{一起删.join("、")}。</div>}
           {有签约 && (
             <div>
-              还有 <b>{数.签约} 笔签约（{money(数.签约金额)}）</b>，数据页的业绩会跟着少。
+              还有 <b>{数.签约} 笔签约（{合计文字(数.签约金额)}）</b>，数据页的业绩会跟着少。
             </div>
           )}
           {数.联系人 > 0 && <div>{数.联系人} 位联系人不删，留在联系人页，写「未归属」。</div>}

@@ -5,6 +5,7 @@ import ChannelsView from "./ChannelsView";
 import { 负责人候选 } from "@/lib/owners";
 import { llmEnabled } from "@/lib/llm";
 import { buildReferralRadar } from "@/lib/referral";
+import { 带币种, 签约合计 } from "@/lib/money-db";
 import { 渠道汇总 } from "@/lib/attribution";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +47,7 @@ export default async function ChannelsPage() {
       followStatus: true,
       referrerCustomerId: true,
       channelId: true,
-      contracts: { select: { amount: true } },
+      contracts: { select: { amount: true, ...带币种.签约 } },
     },
   });
 
@@ -62,6 +63,7 @@ export default async function ChannelsPage() {
       followStatus: c.followStatus,
       referrerCustomerId: c.referrerCustomerId,
       signedAmount: 签约额(c),
+      signed: 签约合计(c.contracts),
     })),
   );
 
@@ -85,6 +87,7 @@ export default async function ChannelsPage() {
         directCount: statMap[c.id]?.directCustomers ?? 0,
         chainCount: statMap[c.id]?.chainCustomers ?? 0,
         chainAmount: statMap[c.id]?.chainAmount ?? 0,
+        chainMoney: statMap[c.id]?.chainMoney ?? [],
       }))}
     />
   );

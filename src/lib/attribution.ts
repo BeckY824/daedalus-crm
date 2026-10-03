@@ -1,4 +1,6 @@
 import { prisma } from "./prisma";
+import { 合并合计, type 币种合计 } from "./currency";
+import { 签约合计 } from "./money-db";
 
 /**
  * 推荐归属计算。
@@ -132,16 +134,18 @@ export async function resolveAttribution(
  */
 export function 渠道汇总(
   渠道ids: string[],
-  学员们: { channelId: string | null; referrerCustomerId: string | null; contracts: { amount: number }[] }[],
-): Record<string, { id: string; directCustomers: number; chainCustomers: number; chainAmount: number }> {
-  const out = Object.fromEntries(
-    渠道ids.map((id) => [id, { id, directCustomers: 0, chainCustomers: 0, chainAmount: 0 }]),
+  学员们: { channelId: string | null; referrerCustomerId: string | null; contracts: { amount: number; money?: { currency: string | null; amountExact?: number | null } | null }[] }[],
+): Record<string, { id: string; directCustomers: number; chainCustomers: number; chainAmount: number; chainMoney: 币种合计[] }> {
+  const out: Record<string, { id: string; directCustomers: number; chainCustomers: number; chainAmount: number; chainMoney: 币种合计[] }> = Object.fromEntries(
+    渠道ids.map((id) => [id, { id, directCustomers: 0, chainCustomers: 0, chainAmount: 0, chainMoney: [] }]),
   );
   for (const c of 学员们) {
     const 桶 = c.channelId ? out[c.channelId] : undefined;
     if (!桶) continue;
     桶.chainCustomers += 1;
     桶.chainAmount += c.contracts.reduce((s, ct) => s + ct.amount, 0);
+    // 显示用按币种分开（2026-10-03，不换汇）；chainAmount 那个数只剩排序和「有没有」用
+    桶.chainMoney = 合并合计(桶.chainMoney, 签约合计(c.contracts));
     if (!c.referrerCustomerId) 桶.directCustomers += 1;
   }
   return out;
