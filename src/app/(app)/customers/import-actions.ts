@@ -27,7 +27,8 @@ import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { 字段表, type 字段名 } from "@/lib/import/fields";
 import { 摊开, 并重复行, type 排布 } from "@/lib/import/plan";
-import { 同号写法, 主号 } from "@/lib/phone";
+import { 同号写法 } from "@/lib/phone";
+import { 认人表, 分机留存起 } from "@/lib/phone-dedupe";
 
 /** 一次导入最多落多少条。和 parse.ts 的行数上限一致，服务端再收一道 */
 const 落库上限 = 10000;
@@ -61,12 +62,6 @@ export type 导入方案 = Omit<排布, "字段表"> & {
 /** 「只补空字段」能碰的那几格。**故意不含推荐链和状态**，理由见文件头第 3 条 */
 const 补空字段名单 = ["school", "grade", "major", "expectedSignAt", "remark"] as const;
 
-/** 每个号码在库里有几条。> 1 的那些认不出人来，见 执行导入 里那段 */
-function 库里几条(rows: { phone: string }[]): Map<string, number> {
-  const m = new Map<string, number>();
-  for (const c of rows) m.set(c.phone, (m.get(c.phone) ?? 0) + 1);
-  return m;
-}
 
 async function 排好(方案: 导入方案) {
   const b = await getBusiness();
@@ -92,9 +87,13 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
   const { 行, 合掉几行 } = await 排好(方案);
   if (行.length > 落库上限) return { ok: false, error: `一次最多导 ${落库上限} 行，这份表有 ${行.length} 行` };
 
-  // 带分机的号也认老库里只存了主号的那位（第三轮 B4，见 lib/phone 的 同号写法）
-  const 号码 = 行.filter((r) => !r.进不了 && r.值.phone).flatMap((r) => 同号写法(r.值.phone!));
-  const 几条 = 库里几条(await prisma.customer.findMany({ where: { phone: { in: 号码 } }, select: { phone: true } }));
+  // 带分机的号也认老库里只存了主号的那位，规矩见 lib/phone-dedupe 的 认人表（预览和执行同一张表，数才对得上）
+  const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
+  const 表 = 认人表(
+    await prisma.customer.findMany({ where: { phone: { in: 这一批.flatMap(同号写法) } }, select: { phone: true, createdAt: true } }),
+    这一批,
+    await 分机留存起(),
+  );
 
   let 新建 = 0;
   let 撞上 = 0;
@@ -107,10 +106,10 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: r.进不了 });
       continue;
     }
-    const n = 几条.get(r.值.phone!) ?? 几条.get(主号(r.值.phone!)) ?? 0;
+    const { n, 说法 } = 表.认(r.值.phone!);
     if (n > 1) {
       说不清++;
-      if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: `库里有 ${n} 位都是这个号码，不知道该算谁的` });
+      if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: 说法 ?? `库里有 ${n} 位都是这个号码，不知道该算谁的` });
     } else if (n === 1) 撞上++;
     else 新建++;
   }
@@ -181,13 +180,12 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
   );
 
   // 带分机的号也认老库里只存了主号的那位（第三轮 B4，见 lib/phone 的 同号写法）
-  const 号码 = 行.filter((r) => !r.进不了 && r.值.phone).flatMap((r) => 同号写法(r.值.phone!));
+  const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
   const 命中 = await prisma.customer.findMany({
-    where: { phone: { in: 号码 } },
-    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true },
+    where: { phone: { in: 这一批.flatMap(同号写法) } },
+    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true },
   });
-  const 几条 = 库里几条(命中);
-  const 库里 = new Map(命中.map((c) => [c.phone, c]));
+  const 表 = 认人表(命中, 这一批, await 分机留存起());
 
   const batch = await prisma.importBatch.create({
     data: { userId: me.id, userName: me.name, fileName: fileName.slice(0, 200), created: 0, updated: 0, skipped: 0, failed: 0 },
@@ -212,11 +210,12 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       而随手挑一条去补，就是把一份表里的信息写到了另一个人的档案上。
       和归属那条规则同一个道理：重名不猜，同号也不猜。
     */
-    if ((几条.get(phone) ?? 几条.get(主号(phone)) ?? 0) > 1) {
+    const 认 = 表.认(phone);
+    if (认.n > 1) {
       跳过++;
       continue;
     }
-    const 旧 = 库里.get(phone) ?? 库里.get(主号(phone));
+    const 旧 = 认.旧;
 
     if (旧) {
       if (方案.重复行 !== "补空") {
@@ -267,7 +266,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       await prisma.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
       新建++;
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
-      库里.set(phone, { id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark });
+      表.记下({ id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt });
     } catch {
       // 唯一约束、非法枚举之类：这一条不进，别把整批带下水
       进不了++;

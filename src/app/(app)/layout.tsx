@@ -11,6 +11,7 @@ import { multiTenant } from "@/lib/tenant/context";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { 读AI计次, 不计次 } from "@/lib/ai-meter";
 import { AiMeterProvider } from "@/components/AiCost";
+import { 记下分机留存起 } from "@/lib/phone-dedupe";
 
 export default async function AppLayout({
   children,
@@ -40,6 +41,8 @@ export default async function AppLayout({
    * 宁可把人挡在门口：壳换完目录、本地服务重起之后，这里自然就放行了。
    */
   if (归属对不上()) redirect("/api/auth/logout?reason=switched");
+  // 升级后第一次进来：记下「号码从这一刻起留着分机」，查重据此只拿主号认这之前的老记录（lib/phone-dedupe）。只写一次
+  await 记下分机留存起();
 
   /*
     要跟的数：我名下逾期 + 今天到期、还没做的计划和待办。左栏「跟进」上的红数字、手机顶栏的铃铛、

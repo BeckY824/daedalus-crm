@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { 认回打码号 } from "@/lib/phone";
-import { 查电话, 同号写法 } from "@/lib/phone";
+import { 查电话 } from "@/lib/phone";
+import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { requireUser } from "@/lib/auth";
 import { LEAD_STATUSES } from "@/lib/constants";
@@ -129,8 +130,9 @@ export async function convertLead(id: string) {
   if (!电话.ok) return { ok: false as const, error: `线索上的电话「${lead.phone}」${电话.error.replace(/^电话/, "")}，先改一下再转化` };
   const phone = 电话.phone;
 
+  const 起 = await 分机留存起();
   const outcome = await prisma.$transaction(async (tx) => {
-    const dup = await tx.customer.findFirst({ where: { phone: { in: 同号写法(phone) } }, select: { name: true } });
+    const dup = await tx.customer.findFirst({ where: 同号条件(phone, 起), select: { name: true } });
     if (dup) {
       return { ok: false as const, error: `手机号已存在于${b.customer}「${dup.name}」，请勿重复建档` };
     }
