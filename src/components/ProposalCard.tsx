@@ -11,6 +11,7 @@ import { motion } from "motion/react";
 import { applyProposal, undoProposal, type 撤销凭据 } from "@/app/(app)/dashboard/apply";
 import { describeProposal, missingFields, 只留选中的改动, 可改字段表, type Proposal } from "@/lib/agent/proposals";
 import { useBusiness } from "@/lib/business-client";
+import { 币种符号 } from "@/lib/currency";
 import { 建议结果, 记下建议结果, 清掉建议结果, 记下回执, 读回执 } from "@/lib/ai-jobs";
 import { statusLabel, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
@@ -241,7 +242,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
               <Input size="small" style={{ width: 220 }} value={draft.name} placeholder="这单叫什么" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             </Field>
             <Field label="金额">
-              <Input size="small" style={{ width: 120 }} prefix="¥" value={draft.amount || ""} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
+              <Input size="small" style={{ width: 120 }} prefix={币种符号(draft.currency || b.currency)} value={draft.amount || ""} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
             </Field>
             <Field label="阶段">
               <Select size="small" style={{ width: 140 }} value={draft.stage} options={OPP_STAGES.map((v) => ({ value: v, label: v }))} onChange={(v) => setDraft({ ...draft, stage: v })} />
@@ -258,7 +259,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
         {draft.kind === "add_contract" && (
           <>
             <Field label="签约金额">
-              <Input size="small" style={{ width: 140 }} prefix="¥" value={draft.amount || ""} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
+              <Input size="small" style={{ width: 140 }} prefix={币种符号(draft.currency || b.currency)} value={draft.amount || ""} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
             </Field>
             <Field label="签约日期">
               <DatePicker size="small" format="YYYY-MM-DD" allowClear={false} value={draft.signedAt ? dayjs(draft.signedAt) : null} onChange={(d) => d && setDraft({ ...draft, signedAt: d.toISOString() })} />

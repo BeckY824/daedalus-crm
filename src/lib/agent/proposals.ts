@@ -13,6 +13,7 @@
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, GRADES, OPP_STAGES, STAGE_PROBABILITY } from "../constants";
 import { DEFAULT_BUSINESS, type BusinessConfig } from "../business-config";
 import { dayjs } from "../utils";
+import { 是币种, 金额 } from "../currency";
 
 export type ProposalKind = "set_status" | "add_followup" | "add_plan" | "add_lead" | "update_customer" | "add_opportunity" | "add_contract" | "update_channel";
 
@@ -86,8 +87,8 @@ export type Proposal =
   | (Base & { kind: "add_plan"; subject: string; plannedAt: string; method: string })
   | (Base & { kind: "add_lead"; name: string; contact: string; phone: string; source: string; status: string; remark: string })
   | (Base & { kind: "update_customer"; changes: 一处改动[] })
-  | (Base & { kind: "add_opportunity"; name: string; amount: number; stage: string; probability: number; expectedDealAt: string; remark: string })
-  | (Base & { kind: "add_contract"; amount: number; signedAt: string; remark: string })
+  | (Base & { kind: "add_opportunity"; name: string; amount: number; /** 币种（2026-10-03）。老的建议卡没有：当本位币 */ currency?: string; stage: string; probability: number; expectedDealAt: string; remark: string })
+  | (Base & { kind: "add_contract"; amount: number; currency?: string; signedAt: string; remark: string })
   | (Base & { kind: "update_channel"; channelName: string; ownerName: string; phone: string; remark: string });
 
 export type ProposalResult = { ok: true; proposal: Proposal } | { ok: false; error: string };
@@ -125,6 +126,13 @@ function 收金额(v: unknown): number | null {
   return Math.round(n * 100) / 100;
 }
 
+/** 币种：给了就必须认得（USD / usd 都收）；没给用本位币。返回 null = 给了个认不得的 */
+function 收币种(v: unknown, 本位币 = "CNY"): string | null {
+  const s = str(v, 10).toUpperCase();
+  if (!s) return 本位币;
+  return 是币种(s) ? s : null;
+}
+
 /** 成交概率：没给返回 undefined，由阶段推一个默认值 */
 function 收概率(v: unknown): number | null | undefined {
   if (v === undefined || v === null || v === "") return undefined;
@@ -138,7 +146,7 @@ export function buildProposal(
   kind: ProposalKind,
   customer: { id: string; name: string },
   args: Record<string, unknown>,
-  b: Pick<BusinessConfig, "sources" | "fields" | "grades">,
+  b: Pick<BusinessConfig, "sources" | "fields" | "grades"> & { currency?: string },
 ): ProposalResult {
   const base = { id, customerId: customer.id, customerName: customer.name, reason: str(args.reason, 120) };
   if (!base.reason) return { ok: false, error: "reason 必填：用一句话说明为什么建议这么做" };
@@ -221,11 +229,13 @@ export function buildProposal(
     if (!when.ok) return { ok: false, error: "expectedDealAt 解析不了，用 YYYY-MM-DD" };
     const amount = 收金额(args.amount);
     if (amount === null) return { ok: false, error: "amount 要是个非负数字" };
+    const currency = 收币种(args.currency, b.currency);
+    if (currency === null) return { ok: false, error: "currency 要是三位币种代码，如 USD / EUR / CNY" };
     const p = 收概率(args.probability);
     if (p === null) return { ok: false, error: "probability 要在 0~100 之间" };
     return {
       ok: true,
-      proposal: { ...base, kind, name: str(args.name, 60), amount, stage: stage.value, probability: p ?? STAGE_PROBABILITY[stage.value] ?? 10, expectedDealAt: when.at, remark: str(args.remark, 500) },
+      proposal: { ...base, kind, name: str(args.name, 60), amount, currency, stage: stage.value, probability: p ?? STAGE_PROBABILITY[stage.value] ?? 10, expectedDealAt: when.at, remark: str(args.remark, 500) },
     };
   }
 
@@ -257,7 +267,9 @@ export function buildProposal(
     if (!when.ok) return { ok: false, error: "signedAt 解析不了，用 YYYY-MM-DD" };
     const amount = 收金额(args.amount);
     if (amount === null) return { ok: false, error: "amount 要是个非负数字" };
-    return { ok: true, proposal: { ...base, kind, amount, signedAt: when.at, remark: str(args.remark, 500) } };
+    const currency = 收币种(args.currency, b.currency);
+    if (currency === null) return { ok: false, error: "currency 要是三位币种代码，如 USD / EUR / CNY" };
+    return { ok: true, proposal: { ...base, kind, amount, currency, signedAt: when.at, remark: str(args.remark, 500) } };
   }
 
   // 来源能选也能填（同上）：列表外的照收，限 30 字
@@ -327,7 +339,7 @@ export function describeProposal(p: Proposal, customerNoun: string, 字段表: R
     return `改${customerNoun}「${p.customerName}」的${项.join("、")}`;
   }
   if (p.kind === "add_opportunity") return `给「${p.customerName}」新建商机${p.name ? `「${p.name}」` : ""}`;
-  if (p.kind === "add_contract") return `给「${p.customerName}」记一笔签约${p.amount ? ` ¥${p.amount}` : ""}`;
+  if (p.kind === "add_contract") return `给「${p.customerName}」记一笔签约${p.amount ? ` ${金额(p.amount, p.currency)}` : ""}`;
   if (p.kind === "update_channel") {
     const 项 = [p.ownerName && "负责人", p.phone && "电话", p.remark && "备注"].filter(Boolean);
     return `改渠道「${p.channelName}」的${项.join("、") || "信息"}`;

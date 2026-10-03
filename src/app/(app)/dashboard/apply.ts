@@ -284,6 +284,8 @@ async function 做这张卡(input: Proposal, me: Awaited<ReturnType<typeof requi
       name: p.name || `${c.name} 的商机`,
       customerId: p.customerId,
       amount: p.amount,
+      // 老建议卡没有币种：不传，saveOpportunity 用本位币
+      currency: p.currency || undefined,
       stage: p.stage,
       status: "OPEN",
       probability: p.probability,
@@ -297,6 +299,7 @@ async function 做这张卡(input: Proposal, me: Awaited<ReturnType<typeof requi
     const r = await saveContract({
       customerId: p.customerId,
       amount: p.amount,
+      currency: p.currency || undefined,
       signedAt: new Date(p.signedAt),
       remark: p.remark || null,
     });

@@ -9,6 +9,8 @@
 import { 签约归属人 } from "../contract-owner";
 import { 是逾期, 数逾期跟进 } from "../overdue";
 import { 渠道汇总 } from "../attribution";
+import { 带币种, 商机币种, 签约币种, 签约金额, 签约合计 } from "../money-db";
+import { 金额 as 显示金额, 合计文字, 按币种合计 } from "../currency";
 import { 现值选取, 现值表 } from "./current-values";
 import { prisma } from "../prisma";
 import { dayjs } from "../utils";
@@ -231,11 +233,11 @@ export const TOOLS: Tool[] = [
           salesOwner: { select: { name: true } },
           referrerCustomer: { select: { name: true } },
           channel: { select: { name: true } },
-          contracts: { select: { amount: true, signedAt: true } },
+          contracts: { select: { amount: true, signedAt: true, ...带币种.签约 } },
           // 联系人是另一张表。不给的话，问「张三家长的微信是多少」时模型只能说没有——
           // 而数据就在库里，等于向用户断言 CRM 丢了东西（同下面电话那条的道理）
           contacts: { select: { name: true, position: true, phone: true, wechat: true, email: true, isPrimary: true }, orderBy: { isPrimary: "desc" } },
-          opportunities: { select: { name: true, amount: true, stage: true, status: true }, orderBy: { createdAt: "desc" } },
+          opportunities: { select: { name: true, amount: true, stage: true, status: true, ...带币种.商机 }, orderBy: { createdAt: "desc" } },
           tasks: { where: { done: false }, select: { title: true, dueAt: true } },
           plans: { where: { done: false }, select: { subject: true, plannedAt: true, method: true }, take: 1 },
           followUps: { orderBy: { occurredAt: "desc" }, take: 20, select: { id: true, type: true, title: true, content: true, occurredAt: true, duration: true, owner: { select: { name: true } }, source: { select: { text: true } } } },
@@ -254,9 +256,9 @@ export const TOOLS: Tool[] = [
         // 电话一定要给：不给的话模型会如实说「系统里没存电话」，
         // 然后建议人去补一条**本来就存在**的数据——比缺功能更伤，
         // 它是在向用户断言 CRM 丢了东西
-        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${号(c.phone) || "未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.reduce((s, x) => s + x.amount, 0) || "无"}；备注：${c.remark || "无"}`,
+        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${号(c.phone) || "未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.length ? 合计文字(签约合计(c.contracts)) : "无"}；备注：${c.remark || "无"}`,
         contacts: c.contacts.map((p) => `${p.name}${p.position ? `（${p.position}）` : ""}${p.isPrimary ? " 主要联系人" : ""}：${[p.phone && `电话 ${号(p.phone)}`, p.wechat && `微信 ${p.wechat}`, p.email && `邮箱 ${p.email}`].filter(Boolean).join("、") || "没留联系方式"}`),
-        opportunities: c.opportunities.map((o) => `${o.name} ¥${Math.round(o.amount)} ${o.status === "OPEN" ? o.stage : o.status}`),
+        opportunities: c.opportunities.map((o) => `${o.name} ${显示金额(o.amount, 商机币种(o))} ${o.status === "OPEN" ? o.stage : o.status}`),
         openTasks: c.tasks.map((t) => `${t.title}${t.dueAt ? `（${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`),
         nextPlan: c.plans[0] ? `${dayjs(c.plans[0].plannedAt).format("MM-DD HH:mm")} ${c.plans[0].method}：${c.plans[0].subject}` : null,
         timeline: timeline || "（从未跟进过）",
@@ -314,10 +316,11 @@ export const TOOLS: Tool[] = [
         OR: [{ owner: { is: { salesOwnerId: ctx.userId } } }, { owner: { is: null }, customer: { salesOwnerId: ctx.userId } }],
       };
       const 我新建的 = { salesOwnerId: ctx.userId, createdAt: { gte: 起 } };
-      const [跟进笔数, 跟过的, 签约合计, 新建数] = await Promise.all([
+      const [跟进笔数, 跟过的, 全部签约, 新建数] = await Promise.all([
         prisma.followUp.count({ where: 我的跟进 }),
         prisma.followUp.groupBy({ by: ["customerId"], where: 我的跟进 }),
-        prisma.contract.aggregate({ where: 我的签约, _count: true, _sum: { amount: true } }),
+        // 取行按币种合计（不换汇）：币种在 ContractMoney 上，aggregate 分不了
+        prisma.contract.findMany({ where: 我的签约, select: { amount: true, ...带币种.签约 } }),
         prisma.customer.count({ where: 我新建的 }),
       ]);
       const [跟进, 签约, 新建, 完成的计划] = await Promise.all([
@@ -331,7 +334,7 @@ export const TOOLS: Tool[] = [
           where: 我的签约,
           orderBy: { signedAt: "desc" },
           take: 30,
-          select: { amount: true, signedAt: true, customer: { select: { name: true } } },
+          select: { amount: true, signedAt: true, customer: { select: { name: true } }, ...带币种.签约 },
         }),
         prisma.customer.findMany({
           where: 我新建的,
@@ -356,12 +359,12 @@ export const TOOLS: Tool[] = [
             跟进状态: statusLabel(ctx.b, f.customer.followStatus),
           });
       }
-      const 金额 = 签约合计._sum.amount ?? 0;
-      const 签约数 = 签约合计._count;
+      const 金额 = 合计文字(签约合计(全部签约));
+      const 签约数 = 全部签约.length;
       return {
         summary:
           `最近 ${n} 天：跟了 ${跟过的.length} 位${ctx.b.customer}、${跟进笔数} 笔记录` +
-          `${签约数 ? `，签了 ${签约数} 单共 ${金额} 元` : "，没有签约"}` +
+          `${签约数 ? `，签了 ${签约数} 单共 ${金额}` : "，没有签约"}` +
           `${新建数 ? `，新建 ${新建数} 位` : ""}`,
         data: {
           天数: n,
@@ -370,7 +373,7 @@ export const TOOLS: Tool[] = [
           ...(跟进笔数 > 跟进.length || 签约数 > 签约.length || 新建数 > 新建.length ? { 说明: "下面的明细只列了最近的一部分，数字以上面为准" } : {}),
           完成的计划: 完成的计划,
           跟过的人: [...按人.values()],
-          签约: 签约.map((c) => ({ 客户: c.customer.name, 金额: c.amount, 签约日: dayjs(c.signedAt).format("YYYY-MM-DD") })),
+          签约: 签约.map((c) => ({ 客户: c.customer.name, 金额: 签约金额(c), 币种: 签约币种(c), 签约日: dayjs(c.signedAt).format("YYYY-MM-DD") })),
           签约合计: 金额,
           新建的客户: 新建.map((c) => ({ 姓名: c.name, 电话: 号(c.phone), 跟进状态: statusLabel(ctx.b, c.followStatus), 建档日: dayjs(c.createdAt).format("YYYY-MM-DD") })),
         },
@@ -444,7 +447,7 @@ export const TOOLS: Tool[] = [
           id: true, name: true, phone: true, active: true, remark: true,
           channelOwner: { select: { name: true } },
           // 这个关系名叫 directCustomers，其实是 channelId 命中的整条链（转介绍来的也继承链顶渠道）
-          directCustomers: { select: { referrerCustomerId: true, contracts: { select: { amount: true } } } },
+          directCustomers: { select: { referrerCustomerId: true, contracts: { select: { amount: true, ...带币种.签约 } } } },
         },
       });
       /*
@@ -462,7 +465,8 @@ export const TOOLS: Tool[] = [
           渠道负责人: c.channelOwner?.name ?? "未指定",
           直接带来: 汇总[c.id].directCustomers,
           连转介绍一共: 汇总[c.id].chainCustomers,
-          这条链的签约额: 汇总[c.id].chainAmount,
+          // 按币种写（不换汇）：「US$ 3,200 · ¥ 19,800」
+          这条链的签约额: 汇总[c.id].chainMoney.length ? 合计文字(汇总[c.id].chainMoney) : 0,
           电话: 号(c.phone ?? null),
           状态: c.active ? "在用" : "已停用",
           备注: c.remark ?? null,
@@ -510,7 +514,7 @@ export const TOOLS: Tool[] = [
     name: "list_opportunities",
     description: `列商机（在谈的单子）。可按阶段、状态、客户过滤，按金额从大到小。阶段只能是 ${OPP_STAGES.join(" / ")}；status: OPEN 进行中 / WON 赢单 / LOST 丢单。问「手上有哪些单子」「哪些单子快成了」用它；\
 问「超过 10 万的单子」用 minAmount，问「这个月要关的单子」用 dealFrom/dealTo。`,
-    args: '{"stage": "阶段，可空", "status": "OPEN/WON/LOST，可空，默认 OPEN", "customerName": "客户姓名，可空", "minAmount": 最小金额（元），可空, "dealFrom": "预计成交起始 YYYY-MM-DD，可空", "dealTo": "预计成交截止，可空"}',
+    args: '{"stage": "阶段，可空", "status": "OPEN/WON/LOST，可空，默认 OPEN", "customerName": "客户姓名，可空", "minAmount": 最小金额（按商机自己的币种比），可空, "dealFrom": "预计成交起始 YYYY-MM-DD，可空", "dealTo": "预计成交截止，可空"}',
     async run(args) {
       const stage = str(args.stage, 10);
       const status = str(args.status, 6).toUpperCase();
@@ -530,24 +534,26 @@ export const TOOLS: Tool[] = [
       // 合计用 aggregate 算全量：原来拿前 30 行加起来，超过 30 个时和页面上的数对不上（排查 C4）
       const [total, 合计, rows] = await Promise.all([
         prisma.opportunity.count({ where }),
-        prisma.opportunity.aggregate({ where, _sum: { amount: true } }),
+        // 按币种合计（不换汇），所以取行不用 aggregate
+        prisma.opportunity.findMany({ where, select: { amount: true, ...带币种.商机 } }),
         prisma.opportunity.findMany({
           where, orderBy: { amount: "desc" }, take: 30,
           select: {
-            id: true, name: true, amount: true, stage: true, status: true, probability: true, expectedDealAt: true, updatedAt: true,
+            id: true, name: true, amount: true, stage: true, status: true, probability: true, expectedDealAt: true, updatedAt: true, ...带币种.商机,
             customer: { select: { id: true, name: true } }, owner: { select: { name: true } },
           },
         }),
       ]);
       return {
-        summary: `${total} 个商机，合计 ¥${Math.round(合计._sum.amount ?? 0)}${total > rows.length ? `（下面列了金额最大的 ${rows.length} 个）` : ""}`,
+        summary: `${total} 个商机，合计 ${合计文字(按币种合计(合计, (o) => o.amount, 商机币种))}${total > rows.length ? `（下面列了金额最大的 ${rows.length} 个）` : ""}`,
         data: {
           总数: total,
           商机: rows.map((o) => ({
             customerId: o.customer.id,
             客户: o.customer.name,
             名称: o.name,
-            金额: Math.round(o.amount),
+            金额: o.amount,
+            币种: 商机币种(o),
             阶段: o.stage,
             状态: o.status === "OPEN" ? "进行中" : o.status === "WON" ? "赢单" : "丢单",
             成交概率: o.probability,
@@ -607,24 +613,25 @@ export const TOOLS: Tool[] = [
       };
       const [total, 合计, rows] = await Promise.all([
         prisma.contract.count({ where }),
-        prisma.contract.aggregate({ where, _sum: { amount: true } }),
+        prisma.contract.findMany({ where, select: { amount: true, ...带币种.签约 } }),
         prisma.contract.findMany({
           where,
           orderBy: { signedAt: "desc" },
           take: 30,
           select: {
-            id: true, amount: true, signedAt: true, remark: true,
+            id: true, amount: true, signedAt: true, remark: true, ...带币种.签约,
             customer: { select: { id: true, name: true, salesOwner: { select: { id: true, name: true, email: true } }, channelOwner: { select: { id: true, name: true, email: true } }, channel: { select: { name: true } } } },
             owner: { select: { salesOwnerId: true, channelOwnerId: true } },
           },
         }),
       ]);
-      const 总额 = 合计._sum.amount ?? 0;
+      // 按币种分开（不换汇）：「US$ 3,200 · ¥ 19,800」
+      const 总额 = 合计文字(签约合计(合计));
       const 归属 = await 签约归属人(rows);
       const 段 = [from && `${from.format("YYYY-MM-DD")} 起`, to && `${to.format("YYYY-MM-DD")} 止`, name && `客户「${name}」`, owner && `负责人 ${owner}`, channel && `渠道 ${channel}`].filter(Boolean).join("、");
       return {
         // 总额要给全量的，不是这 30 行的和——否则超过 30 单时它会报一个偏小的数
-        summary: total ? `${段 ? `${段}：` : ""}${total} 笔，合计 ¥${总额}${total > rows.length ? `（列出最近 ${rows.length} 笔）` : ""}` : `没有${段 ? `${段}的` : ""}签约记录`,
+        summary: total ? `${段 ? `${段}：` : ""}${total} 笔，合计 ${总额}${total > rows.length ? `（列出最近 ${rows.length} 笔）` : ""}` : `没有${段 ? `${段}的` : ""}签约记录`,
         data: {
           总数: total,
           总额,
@@ -632,7 +639,8 @@ export const TOOLS: Tool[] = [
           签约: rows.map((c) => ({
             customerId: c.customer.id,
             客户: c.customer.name,
-            金额: c.amount,
+            金额: 签约金额(c),
+            币种: 签约币种(c),
             签约日: dayjs(c.signedAt).format("YYYY-MM-DD"),
             负责人: 归属.销售(c)?.name ?? null,
             渠道: c.customer.channel?.name ?? null,
@@ -743,13 +751,13 @@ export const TOOLS: Tool[] = [
   proposeTool(
     "propose_opportunity",
     "建议给一位客户新建商机（在谈的单子：金额、阶段、预计成交时间）。你建不了，人点确认才生效。",
-    '{"id": "客户 id", "name": "商机名称", "amount": 金额数字, "stage": "初步沟通/需求确认/方案报价/谈判审核/赢单成交", "probability": "0~100，可空", "expectedDealAt": "可空，YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
+    '{"id": "客户 id", "name": "商机名称", "amount": 金额数字, "currency": "币种代码如 USD/EUR，可空（空 = 本位币）", "stage": "初步沟通/需求确认/方案报价/谈判审核/赢单成交", "probability": "0~100，可空", "expectedDealAt": "可空，YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
     "add_opportunity",
   ),
   proposeTool(
     "propose_contract",
     "建议记一笔签约（已经成交、要入账的那笔钱）。注意这不是商机——商机是在谈，签约是谈成了。",
-    '{"id": "客户 id", "amount": 金额数字, "signedAt": "YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
+    '{"id": "客户 id", "amount": 金额数字, "currency": "币种代码如 USD/EUR，可空（空 = 本位币）", "signedAt": "YYYY-MM-DD", "remark": "可空", "reason": "一句话：为什么"}',
     "add_contract",
   ),
   /**

@@ -22,6 +22,8 @@ import { formatTimeline } from "@/lib/ai-context";
 import { stepStart, stepDone, type Emit } from "@/lib/ai-steps";
 import type { BriefRecord } from "@/lib/ai-draft";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
+import { 带币种, 商机币种, 签约合计 } from "@/lib/money-db";
+import { 金额 as 显示金额, 合计文字 } from "@/lib/currency";
 
 /**
  * AI 只起草、不落库：这两个 action 都不写业务表。
@@ -163,9 +165,9 @@ async function 生成简报(input: {
       salesOwner: { select: { name: true } },
       referrerCustomer: { select: { name: true } },
       channel: { select: { name: true } },
-      contracts: { select: { amount: true, signedAt: true } },
+      contracts: { select: { amount: true, signedAt: true, ...带币种.签约 } },
       opportunities: {
-        select: { name: true, amount: true, stage: true, status: true, expectedDealAt: true },
+        select: { name: true, amount: true, stage: true, status: true, expectedDealAt: true, ...带币种.商机 },
         orderBy: { createdAt: "desc" },
       },
       tasks: { where: { done: false }, select: { title: true, dueAt: true }, orderBy: { dueAt: { sort: "asc", nulls: "last" } } },
@@ -215,7 +217,7 @@ async function 生成简报(input: {
     ? customer.opportunities
         .map(
           (o) =>
-            `- ${o.name}：¥${Math.round(o.amount)}，${o.status === "WON" ? "已赢单" : o.status === "LOST" ? "已丢单" : `进行中（${o.stage}）`}`,
+            `- ${o.name}：${显示金额(o.amount, 商机币种(o))}，${o.status === "WON" ? "已赢单" : o.status === "LOST" ? "已丢单" : `进行中（${o.stage}）`}`,
         )
         .join("\n")
     : "（无）";
@@ -223,7 +225,8 @@ async function 生成简报(input: {
     ? customer.tasks.map((t) => `- ${t.title}${t.dueAt ? `（截止 ${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`).join("\n")
     : "（无）";
   const plan = customer.plans[0];
-  const signedTotal = customer.contracts.reduce((s, c) => s + c.amount, 0);
+  // 按币种写（不换汇）：「US$ 3,200 · ¥ 19,800」
+  const 已签 = 签约合计(customer.contracts).filter((x) => x.合计 > 0);
 
   const prompt = `现在时间：${现在带周几()}
 你要为销售「${customer.salesOwner.name}」生成联系${b.customer}前的一页简报。
@@ -233,7 +236,7 @@ async function 生成简报(input: {
 ${b.fields.school}/${b.fields.grade}/${b.fields.major}：${[customer.school, customer.grade, customer.major].filter(Boolean).join(" / ") || "未填"}
 跟进状态：${statusLabel(b, customer.followStatus)}；决策状态：${statusLabel(b, customer.decisionStatus)}
 推荐来源：${customer.referrerCustomer?.name ?? customer.channel?.name ?? "无记录"}
-预计签约：${customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约金额：${signedTotal > 0 ? `¥${signedTotal}` : "未签约"}
+预计签约：${customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约金额：${已签.length ? 合计文字(已签) : "未签约"}
 备注：${customer.remark || "（无）"}
 
 【商机】

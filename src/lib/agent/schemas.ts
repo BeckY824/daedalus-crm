@@ -233,6 +233,7 @@ export const 建议SCHEMAS: Record<string, Schema> = {
       id: 串("客户 id"),
       name: 串("商机名称"),
       amount: 数("金额"),
+      currency: 串("币种代码，如 USD / EUR / CNY；可空，空 = 本位币"),
       stage: 串("初步沟通 / 需求确认 / 方案报价 / 谈判审核 / 赢单成交"),
       probability: 数("0~100，可空"),
       expectedDealAt: 串("可空，YYYY-MM-DD"),
@@ -244,7 +245,7 @@ export const 建议SCHEMAS: Record<string, Schema> = {
   },
   propose_contract: {
     type: "object",
-    properties: { id: 串("客户 id"), amount: 数("签约金额"), signedAt: 串("YYYY-MM-DD"), remark: 串("可空"), reason: 串("一句话：为什么") },
+    properties: { id: 串("客户 id"), amount: 数("签约金额"), currency: 串("币种代码，如 USD / EUR / CNY；可空，空 = 本位币"), signedAt: 串("YYYY-MM-DD"), remark: 串("可空"), reason: 串("一句话：为什么") },
     required: ["id", "amount", "signedAt", "reason"],
     additionalProperties: false,
   },
