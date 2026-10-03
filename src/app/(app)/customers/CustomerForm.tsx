@@ -42,6 +42,8 @@ export type CustomerRow = {
   signedAmount: number;
   /** 已签约按币种合计（2026-10-03）。老调用方没给就当没有 */
   signedTotals?: { 币种: string; 合计: number }[];
+  /** 在公海里（2026-10-03 第 6 块）。老调用方没给就当不在 */
+  pool?: { reason: string } | null;
   /** 这条记录的版本号，保存时回传做并发校验 */
   updatedAt: string;
 };

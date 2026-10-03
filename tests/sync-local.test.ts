@@ -223,6 +223,27 @@ describe("推拉合并", () => {
     }
   });
 
+  it("公海：甲放进去、乙领走，两边一致；领过再放回去（删了又建的同一行）也过得去", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c7", name: "Bolt", phone: "13800000007", salesOwnerId: "acct_jia" } });
+    await 甲.customerPool.create({ data: { customerId: "c7", userId: "acct_jia" } });
+    await 同步(甲, 乙);
+    expect(await 乙.customerPool.count()).toBe(1);
+    await 乙.$transaction([
+      乙.customerPool.delete({ where: { customerId: "c7" } }),
+      乙.customer.update({ where: { id: "c7" }, data: { salesOwnerId: "acct_yi" } }),
+    ]);
+    await 同步(甲, 乙);
+    for (const db of [甲, 乙]) {
+      expect(await db.customerPool.count()).toBe(0);
+      expect((await db.customer.findUniqueOrThrow({ where: { id: "c7" } })).salesOwnerId).toBe("acct_yi");
+    }
+    await 睡(5);
+    await 乙.customerPool.create({ data: { customerId: "c7", userId: "acct_yi" } });
+    await 同步(甲, 乙);
+    for (const db of [甲, 乙]) expect((await db.customerPool.findMany()).map((x) => x.userId)).toEqual(["acct_yi"]);
+  });
+
   it("钥匙不对拆不开；密文里看不到客户名", async () => {
     const { 甲 } = await 一对();
     await 甲.customer.create({ data: { name: "看不见的王总", phone: "13800000009", salesOwnerId: "acct_jia" } });

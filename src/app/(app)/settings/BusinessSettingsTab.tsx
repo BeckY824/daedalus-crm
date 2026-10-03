@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Col, Form, Input, Radio, Row, Select, Typography, App } from "antd";
+import { Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig } from "@/lib/business-config";
 import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
 import { 币种选项 } from "@/lib/currency";
@@ -17,7 +17,7 @@ import { DemoDataSection } from "@/components/EmptyState";
  * 顶上那几个预设是**填表的快捷方式**，不是一个新的配置项：点一下把整组字段填好，
  * 之后每一项照样能自己改，也要自己点保存。默认那套是通用销售，教培招生和外贸出口各是一套。
  */
-export default function BusinessSettingsTab({ value }: { value: BusinessConfig }) {
+export default function BusinessSettingsTab({ value, 多人 = false }: { value: BusinessConfig; /** 在职的不止一个人：才摆公海那一项 */ 多人?: boolean }) {
   const router = useRouter();
   const { message } = App.useApp();
   const [form] = Form.useForm<BusinessConfig>();
@@ -29,9 +29,11 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
   const [套了, set套了] = useState<string | null>(null);
 
   async function onSave() {
-    const v = await form.validateFields();
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     setSaving(true);
-    const res = await saveBusinessSettings(v);
+    // 公海那一项只在多人时摆：没摆的时候表单里没有它，照原值存回去，别悄悄关掉
+    const res = await saveBusinessSettings({ ...v, poolDays: v.poolDays ?? value.poolDays });
     setSaving(false);
     if (res.ok) {
       set套了(null);
@@ -46,7 +48,8 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
 
   /** 套用预设：只填表，不保存——人得自己看一眼再点保存，免得一次误点改掉全站措辞 */
   function 套用(名: string) {
-    form.setFieldsValue(BUSINESS_PRESETS[名]);
+    // 预设只管措辞：公海天数不是措辞，不跟着变
+    form.setFieldsValue({ ...BUSINESS_PRESETS[名], poolDays: form.getFieldValue("poolDays") ?? value.poolDays });
     set套了(名);
   }
   function 放弃() {
@@ -91,6 +94,15 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
             </Form.Item>
           </Col>
         </Row>
+        {多人 && (
+          <Form.Item
+            name="poolDays"
+            label="自动放进公海"
+            extra="多少天没跟进就自动放进公海，谁都能领；已签约、已流失的不放。填 0 不开。团队同步时全团队一份。"
+          >
+            <InputNumber min={0} max={365} precision={0} suffix="天" style={{ width: 140 }} />
+          </Form.Item>
+        )}
         <Form.Item
           name="brief"
           label="业务简介"

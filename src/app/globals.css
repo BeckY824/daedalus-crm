@@ -2261,3 +2261,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 
 /* 列表筛出 0 条时那一句（DataList）。不是空库引导，安安静静一行 */
 .list-none { padding: 40px 0; text-align: center; color: var(--text-muted); font-size: var(--fs-note); }
+
+/* 公海（2026-10-03 第 6 块）：虚线框的「公海（原 X）」——人还挂着原负责人，但这一格是空出来的 */
+.pool-tag { margin: 0; border-radius: 6px; border-style: dashed; color: var(--ink-soft); background: transparent; }
+.rec-pool { display: inline-flex; align-items: center; gap: 2px; }

@@ -37,6 +37,8 @@ export type ContactRow = {
 export type RecordProps = {
   /** 这位在不在我左栏的「收藏的客户」里（lib/favorites.ts） */
   已收藏?: boolean;
+  /** 我能把这位放进公海吗：负责人本人或管理员（第 6 块） */
+  能放公海?: boolean;
   customer: CustomerRow;
   contacts: ContactRow[];
   opportunities: {

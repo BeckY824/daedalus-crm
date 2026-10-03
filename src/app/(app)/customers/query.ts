@@ -18,6 +18,8 @@ export type 客户条件 = {
   createdWithin?: string;
   directOf?: string;
   batch?: string;
+  /** 「1」= 只看公海里的（第 6 块） */
+  pool?: string;
 };
 
 export async function 客户筛选条件(
@@ -61,6 +63,7 @@ export async function 客户筛选条件(
     ...(sp.directOf
       ? { channelId: sp.directOf, referrerCustomerId: null }
       : {}),
+    ...(sp.pool === "1" ? { pool: { isNot: null } } : {}),
   };
 }
 
@@ -88,6 +91,7 @@ export const 客户行字段 = {
   attributionChannel: { select: { name: true } },
   attributionCustomer: { select: { name: true } },
   contracts: { select: { amount: true, ...带币种.签约 } },
+  pool: { select: { reason: true } },
 } satisfies Prisma.CustomerSelect;
 
 type 取到的行 = Prisma.CustomerGetPayload<{ select: typeof 客户行字段 }>;
@@ -118,6 +122,8 @@ export function 成客户行(r: 取到的行, 号: (p: string) => string) {
     salesOwnerName: r.salesOwner.name,
     signedAmount: r.contracts.reduce((s, c) => s + 签约金额(c), 0),
     signedTotals: 签约合计(r.contracts),
+    /** 在公海里：负责人那一格写「公海（原 X）」，行上能领取。null = 不在 */
+    pool: r.pool ? { reason: r.pool.reason } : null,
     // 并发闸门：编辑框拿它作为「我看到的是哪一版」
     updatedAt: r.updatedAt.toISOString(),
   };

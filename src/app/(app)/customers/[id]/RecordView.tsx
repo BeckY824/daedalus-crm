@@ -14,6 +14,8 @@ import {
   CheckCircleOutlined,
   DollarOutlined,
   UnorderedListOutlined,
+  InboxOutlined,
+  UserAddOutlined,
   ThunderboltOutlined as AiOutlined,
 } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
@@ -44,6 +46,9 @@ import { useMotionTheme } from "@/components/MotionTheme";
 import { 截止说法, 已过期 } from "@/lib/deadline";
 import { 记下最近客户 } from "@/lib/last-customer";
 import { 金额, 合计文字 } from "@/lib/currency";
+import { 公海标签 } from "@/lib/pool";
+import { 带走说法 } from "@/lib/carry-over";
+import { 放进公海, 领取, 撤销公海 } from "../pool-actions";
 
 /**
  * 记录页（v0.4）：三栏。
@@ -89,6 +94,7 @@ export default function RecordView({
   referrableCustomers,
   aiEnabled,
   已收藏 = false,
+  能放公海 = false,
 }: RecordProps) {
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
@@ -277,6 +283,32 @@ export default function RecordView({
 
   const fingerprint = `${followUps.length}:${followUps[0]?.occurredAt ?? ""}:${followUps[0]?.id ?? ""}`;
 
+  /** 公海（第 6 块）：放进 / 领取这一位，提示条上带一次撤销（和列表上同一个做法） */
+  async function 公海动作(动作: "放进" | "领取") {
+    const res = 动作 === "放进" ? await 放进公海([customer.id]) : await 领取([customer.id]);
+    router.refresh();
+    if (!res.ok) return void message.error(res.error);
+    if (!res.updated) return void message.info(动作 === "放进" ? "已经在公海里了" : "已经被别人领走了");
+    const 原 = 动作 === "领取" ? (res.原负责人 ?? []) : [{ id: customer.id, 值: "" }];
+    const key = `pool-${动作}-${customer.id}`;
+    message.success({
+      key,
+      duration: 6,
+      content: (
+        <span>
+          {动作 === "放进" ? "已放进公海，谁都能领" : `已领取，负责人改成你${带走说法(res.带走)}`}
+          <Button type="link" size="small" onClick={async () => {
+            message.destroy(key);
+            const r = await 撤销公海(动作, 原);
+            router.refresh();
+            if (!r.ok) return void message.error(`没能撤销：${r.error}`);
+            message.success("已撤销");
+          }}>撤销</Button>
+        </span>
+      ),
+    });
+  }
+
   function openFollow(record: FollowUpRow | null, aiText?: string) {
     setFollowInit({ record, aiText });
     setFollowOpen(true);
@@ -347,6 +379,10 @@ export default function RecordView({
                 ...FOLLOW_TYPES.map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
                 { type: "divider" as const },
                 { key: "edit", icon: <EditOutlined />, label: `编辑${b.customer}资料`, onClick: () => setCustOpen(true) },
+                // 公海（第 6 块）：多人时、我是负责人或管理员、还不在公海里
+                ...(!独自一人(users) && 能放公海 && !customer.pool
+                  ? [{ key: "pool", icon: <InboxOutlined />, label: "放进公海", onClick: () => void 公海动作("放进") }]
+                  : []),
               ],
             }}
           >
@@ -370,6 +406,13 @@ export default function RecordView({
         </StatusPicker>
         {/* 来源（照毛玻璃原型的那枚「来源：WhatsApp」）：渠道或推荐人。自然流量不摆——没有来源就不占位 */}
         {customer.referrerName && <span className="rec-tags-n">来源：{customer.referrerName}</span>}
+        {/* 在公海里（第 6 块）：标签写原负责人，旁边就是「领取」——看到就能接手 */}
+        {customer.pool && (
+          <span className="rec-tags-n rec-pool">
+            <Tag className="pool-tag" title={customer.pool.reason === "手动" ? "手动放进公海" : customer.pool.reason}>{公海标签(customer.salesOwnerName)}</Tag>
+            <Button size="small" type="link" icon={<UserAddOutlined />} onClick={() => void 公海动作("领取")}>领取</Button>
+          </span>
+        )}
         {/* 一个数都没有就不出现：「预计签约 —」占着一行却什么也没说 */}
         {(customer.signedAmount > 0 || customer.expectedSignAt) && (
           <span className="rec-tags-n">

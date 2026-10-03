@@ -47,6 +47,11 @@ export type BusinessConfig = {
   template: BusinessTemplate;
   /** 本位币：新建商机 / 签约时默认选它。通用 CNY、外贸 USD；见 lib/currency.ts */
   currency: string;
+  /**
+   * 公海：多少天没跟进就自动放进公海。0 = 不开（默认）。只在多人时有意义，随团队同步（整个 business 一份）。
+   * 不是「措辞」，套用预设时不动它（见 BusinessSettingsTab）
+   */
+  poolDays: number;
 };
 
 export const DEFAULT_BUSINESS: BusinessConfig = {
@@ -65,6 +70,7 @@ export const DEFAULT_BUSINESS: BusinessConfig = {
   statusLabels: { 已试听: "已演示", 与家人商议: "内部讨论", 已决定报名: "已决定采购" },
   template: "general",
   currency: "CNY",
+  poolDays: 0,
 };
 
 /**
@@ -86,6 +92,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     statusLabels: {},
     template: "general",
     currency: "CNY",
+    poolDays: 0,
   },
   外贸出口: {
     brief:
@@ -105,6 +112,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     statusLabels: { 已加微信: "已建联", 已试听: "已寄样", 与家人商议: "内部讨论", 已决定报名: "已决定下单" },
     template: "trade",
     currency: "USD",
+    poolDays: 0,
   },
 };
 
@@ -173,6 +181,12 @@ export function 阶段值(b: Pick<BusinessConfig, "template"> | null | undefined
 
 export const BUSINESS_KEY = "business";
 
+/** 公海天数规整成 0 或 1–365 的整数；乱填的、负的都当不开 */
+export function 公海天数(v: unknown): number {
+  const n = Math.floor(Number(v));
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 365) : 0;
+}
+
 /**
  * 与默认值合并：某一项没存过或存坏了，就用默认，页面不会因为一项缺失而空白。
  *
@@ -211,5 +225,6 @@ export function mergeBusiness(partial: Partial<BusinessConfig> | null | undefine
     statusLabels: 存过 ? labels(p.statusLabels) : { ...DEFAULT_BUSINESS.statusLabels },
     template: p.template === "general" || p.template === "trade" ? p.template : 推断模版(p),
     currency: 规整币种(p.currency, (p.template === "trade" || (p.template == null && 推断模版(p) === "trade")) ? "USD" : "CNY"),
+    poolDays: 公海天数(p.poolDays),
   };
 }

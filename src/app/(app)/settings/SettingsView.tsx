@@ -93,7 +93,7 @@ export default function SettingsView({
     ...(isAdmin
       ? [
           { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> },
-          { key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} /> },
+          { key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} /> },
         ]
       : []),
     { key: "imports", label: "导入记录", children: <ImportsTab /> },

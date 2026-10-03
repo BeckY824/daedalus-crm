@@ -145,6 +145,8 @@ model Customer {
   contracts     Contract[]
   /// 外贸订单（2026-10-03）。见 TradeOrder
   tradeOrders   TradeOrder[]
+  /// 在公海里（2026-10-03 第 6 块）。见 CustomerPool
+  pool          CustomerPool?
   lead          Lead?
 
   @@index([phone])
@@ -349,6 +351,19 @@ model TradeOrder {
 
   @@index([customerId])
   @@index([opportunityId])
+}
+
+/// 公海（2026-10-03，0.46.15 第 6 块，迁移 018）：有这一行 = 这位客户在公海里，谁都能领。
+/// 原负责人（Customer.salesOwnerId）不清空——列表上显示「公海（原 X）」，领取时才换成领的人。
+/// 只在多人时有入口（一个人用的库里公海没有意义）。自动掉公海见 lib/pool-db.ts
+model CustomerPool {
+  customerId String   @id
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 谁放进去的；自动掉进去的为空。不建外键：同 AuditLog，人停用了这条照留
+  userId     String?
+  /// 手动 / 自动（N 天没跟进）
+  reason     String   @default("手动")
+  at         DateTime @default(now())
 }
 
 /// 订单的采购（2026-10-03 外贸第 3c 块，迁移 017）：从哪家采、采购额多少、按什么汇率折，毛利就出来了。

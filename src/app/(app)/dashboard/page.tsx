@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { 要选模版 } from "@/lib/onboarding";
 import { requireUser } from "@/lib/auth";
+import { 自动掉公海 } from "@/lib/pool-db";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { 唯一负责人 } from "@/lib/owners";
 import { dayjs } from "@/lib/utils";
@@ -26,6 +27,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const user = await requireUser();
   // 桌面端新库第一次进来先选模版（lib/onboarding.ts）。登录后、新建账号后都落在首页，在这一处拦就够
   if (await 要选模版()) redirect("/start");
+  // 公海：开了「N 天没跟进自动放进公海」就一天扫一次（lib/pool-db.ts）。首页是每天第一眼，在这儿扫
+  await 自动掉公海(user);
   /*
     地址上的 ?c= 指哪条对话。在服务端读，不在浏览器里再取一次：
     翻一条老对话时不该先看见一屏空白再看见内容。

@@ -562,7 +562,7 @@ export async function detachContact(id: string) {
     const c = await prisma.contact.findUnique({ where: { id }, include: { customer: { select: { name: true } } } });
     if (!c) return { ok: false as const, error: "这位联系人已经不在这儿了，刷新看看" };
     const 跟进 = await prisma.followUp.findMany({ where: { contactId: id }, select: { id: true } });
-    // 函数式事务：数组式在托管版的工作区代理下会抛错（见 customers/actions.ts 带走没做完的）
+    // 函数式事务：数组式在托管版的工作区代理下会抛错（见 lib/carry-over-db.ts 带走没做完的）
     await prisma.$transaction(async (tx) => {
       await tx.unassignedContact.create({
         data: {

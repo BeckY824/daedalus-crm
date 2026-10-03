@@ -6,6 +6,7 @@ import { 可选渠道, 可选客户 } from "@/lib/options";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { llmEnabled } from "@/lib/llm";
 import { 客户筛选条件, 客户行字段, 成客户行 } from "./query";
+import { 自动掉公海 } from "@/lib/pool-db";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +40,15 @@ type SP = Promise<{
   import?: string;
   /** 导入抽屉点「完成」过来的：只看这一批导入建的 / 补过的那几位（审查 D10） */
   batch?: string;
+  /** 「1」= 只看公海 */
+  pool?: string;
 }>;
 
 export default async function CustomersPage({ searchParams }: { searchParams: SP }) {
-  await requireUser();
+  const me = await requireUser();
   const sp = await searchParams;
+  // 开了「N 天没跟进自动放进公海」的话，一天扫一次；扫出来的这一页就能看到
+  await 自动掉公海(me);
 
   const page = Math.max(1, Number(sp.page ?? 1));
   const pageSize = Math.min(100, Math.max(10, Number(sp.pageSize ?? 20)));
@@ -88,6 +93,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         createdWithin: sp.createdWithin ?? "",
         directOf: sp.directOf ?? "",
         batch: sp.batch ?? "",
+        pool: sp.pool === "1" ? "1" : "",
       }}
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}

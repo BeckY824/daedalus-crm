@@ -37,6 +37,7 @@ export default async function CustomerDetailPage({
       referrerCustomer: { select: { id: true, name: true } },
       attributionChannel: { select: { name: true } },
       attributionCustomer: { select: { id: true, name: true } },
+      pool: { select: { reason: true } },
       // 该学员自己推荐来的人，用于展示推荐链下游
       referrals: { select: { id: true, name: true, followStatus: true }, orderBy: { createdAt: "desc" } },
       contracts: { orderBy: { signedAt: "desc" }, include: 带币种.签约 },
@@ -90,6 +91,7 @@ export default async function CustomerDetailPage({
       referrableCustomers={referrableCustomers}
       aiEnabled={await llmEnabled()}
       已收藏={await 收藏了吗(me.id, id)}
+      能放公海={me.role === "ADMIN" || customer.salesOwnerId === me.id}
       customer={{
         id: customer.id,
         name: customer.name,
@@ -112,6 +114,7 @@ export default async function CustomerDetailPage({
         salesOwnerName: customer.salesOwner.name,
         signedAmount: customer.contracts.reduce((a, c) => a + 签约金额(c), 0),
         signedTotals: 签约合计(customer.contracts),
+        pool: customer.pool ? { reason: customer.pool.reason } : null,
         updatedAt: customer.updatedAt.toISOString(),
       }}
       contacts={customer.contacts.map((c) => ({

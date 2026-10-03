@@ -95,6 +95,13 @@ const 派生: Record<string, Record<string, string>> = {
   TradeOrderDoc: { orderId: "属于哪张订单", sort: "清单里的顺序，加一样时排在最后" },
   SupplierQuote: { opportunityId: "哪个商机（询盘）的比价，建行时定", quotedAt: "记下这一行的那一刻，系统打上" },
   TradeOrderPurchase: { orderId: "哪张订单，一张一行" },
+  // 公海（第 6 块）：整行是「放进 / 领取」两个动作的结果，没有单改某一格的入口
+  CustomerPool: {
+    customerId: "哪位客户，有这一行 = 在公海；放进公海时建、领取时删",
+    userId: "谁放进去的，放进公海时打上；自动掉进去的为空",
+    reason: "手动 / N 天没跟进自动放进，系统打上",
+    at: "放进去的那一刻，系统打上",
+  },
   FollowUpOrder: { followUpId: "哪条跟进，在节点上记一笔时一起建", orderId: "挂在哪张订单上", nodeIdx: "挂在第几步上" },
   ContractOwner: {
     contractId: "哪一笔签约，saveContract 新登记时一起建",

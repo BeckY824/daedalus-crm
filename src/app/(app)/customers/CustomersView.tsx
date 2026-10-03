@@ -14,6 +14,8 @@ import {
   DeleteOutlined,
   EditOutlined,
   FilterOutlined,
+  InboxOutlined,
+  UserAddOutlined,
 } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { 合计文字 } from "@/lib/currency";
@@ -33,6 +35,8 @@ import type { BusinessConfig } from "@/lib/business-config";
 import { statusLabel } from "@/lib/business-config";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 列表不问归属 } from "@/lib/solo";
+import { 公海标签 } from "@/lib/pool";
+import { 放进公海, 领取, 撤销公海, type 公海结果 } from "./pool-actions";
 import ResetFilters from "@/components/ResetFilters";
 
 /**
@@ -49,6 +53,9 @@ function bulkSummary(res: Extract<BulkResult, { ok: true }>, action: string): st
 }
 
 type Option = { id: string; name: string };
+
+/** 负责人下拉里「公海」那一项的值（不会和成员 id 撞：cuid 没有冒号） */
+const 公海值 = "pool:";
 
 type Props = {
   rows: CustomerRow[];
@@ -91,6 +98,8 @@ type Props = {
     createdWithin: string;
     directOf: string;
     batch: string;
+    /** 「1」= 只看公海 */
+    pool: string;
   };
 };
 
@@ -155,6 +164,47 @@ export default function CustomersView({
       ),
     });
   }
+  /**
+   * 公海两个动作的提示条：说清动了几位、几位没动为什么，带一次撤销（和批量改同一个做法）。
+   * 「领取」撤销 = 还给原来的人、放回公海；「放进」撤销 = 拿回来
+   */
+  function 公海提示(res: 公海结果, 动作: "放进" | "领取", ids: string[]) {
+    router.refresh();
+    if (!res.ok) return void message.error(res.error);
+    const 名 = 动作 === "放进" ? "放进公海" : "领取";
+    if (!res.updated) {
+      return void message.info(动作 === "放进" ? "选中的已经都在公海里了" : "选中的已经被领走了，没有可领的");
+    }
+    const 另 = [
+      res.unchanged && (动作 === "放进" ? `${res.unchanged} 位本来就在公海` : `${res.unchanged} 位已被别人领走或不在公海`),
+      res.没权限 && `${res.没权限} 位不是你负责的，没放（只有负责人或管理员能放）`,
+    ].filter(Boolean);
+    const 文案 = `已${名} ${res.updated} 位${另.length ? `；${另.join("，")}` : ""}${带走说法(res.带走)}`;
+    const 原 = 动作 === "领取" ? (res.原负责人 ?? []) : ids.map((id) => ({ id, 值: "" }));
+    const key = `pool-${动作}-${ids[0]}-${ids.length}`;
+    message.success({
+      key,
+      duration: 6,
+      content: (
+        <span>
+          {文案}
+          <Button
+            type="link"
+            size="small"
+            onClick={async () => {
+              message.destroy(key);
+              const r = await 撤销公海(动作, 原);
+              router.refresh();
+              if (!r.ok) return void message.error(`没能撤销：${r.error}`);
+              message.success(`已撤销，${r.updated} 位改回原样`);
+            }}
+          >
+            撤销
+          </Button>
+        </span>
+      ),
+    });
+  }
   const b = useBusiness();
 
   const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", filters);
@@ -193,7 +243,7 @@ export default function CustomersView({
    * 正筛着某个负责人（从数据页点名字进来的）时照摆，不然人看不见自己筛了什么
    */
   const 不问归属 =
-    !f.salesOwnerId && !f.channelOwnerId &&
+    !f.salesOwnerId && !f.channelOwnerId && !f.pool &&
     列表不问归属(users, rows.flatMap((r) => [r.salesOwnerName, r.channelOwnerName]));
 
   const 列表: 列<CustomerRow>[] = [
@@ -226,7 +276,13 @@ export default function CustomersView({
       title: "预计签约", key: "expectedSignAt", dataIndex: "expectedSignAt", width: 116,
       render: (v) => <span className="muted nowrap">{v ? fmtDate(v) : "—"}</span>,
     },
-    ...(不问归属 ? [] : [{ title: "负责人", 列名: "负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140, render: (v: string) => <UserCell name={v} size={24} /> }]),
+    ...(不问归属 ? [] : [{
+      title: "负责人", 列名: "负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140,
+      // 在公海里：写「公海（原 X）」——原负责人还挂着，但谁都能领
+      render: (v: string, r: CustomerRow) => r.pool
+        ? <Tag className="pool-tag" title={r.pool.reason === "手动" ? "手动放进公海" : r.pool.reason}>{公海标签(v)}</Tag>
+        : <UserCell name={v} size={24} />,
+    }]),
     {
       title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 132,
       // 冷热在前：扫一眼这一列就知道谁凉了，日期留着给要细看的人
@@ -256,12 +312,17 @@ export default function CustomersView({
       render: (v: string | null) => (v ? <UserCell name={v} size={24} /> : <span className="muted">—</span>),
     }]),
     {
-      title: "", key: "action", width: 78, 常驻: true, fixed: "right",
+      // 这一页有公海里的才多一个「领取」、才加宽：表格本来就比 13 寸窗口宽一点，不为用不上的按钮再挤 30px
+      title: "", key: "action", width: !不问归属 && rows.some((r) => r.pool) ? 108 : 78, 常驻: true, fixed: "right",
       render: (_, r) => (
         // 纯图标按钮必须自带可访问名称：没有它，屏幕阅读器只会读出「按钮」，
         // 自动化也只能按位置取第一个——这类选择器一改动就漂。
         // 原来还有个「详情」按钮，去掉了：整行点进去就是详情，一行里不摆两条同样的路
         <Space size={2}>
+          {r.pool && !不问归属 && (
+            <Button aria-label={`领取 ${r.name}`} title="领取：负责人改成我"
+              type="text" size="small" icon={<UserAddOutlined />} onClick={async () => 公海提示(await 领取([r.id]), "领取", [r.id])} />
+          )}
           <Button aria-label={`编辑 ${r.name}`} title="编辑"
             type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditing(r); setFormOpen(true); }} />
           <Button
@@ -362,9 +423,12 @@ export default function CustomersView({
               value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
               options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
             {!不问归属 && (
+              /* 公海是负责人下拉的第一项（第 6 块）：它就是「没人负责的那一池」。
+                 原来单摆一个开关，1024 宽时把「更多筛选」挤到了第二行 */
               <Select style={{ width: 150 }} placeholder="全部负责人" allowClear
-                value={f.salesOwnerId || undefined} onChange={(v) => apply({ salesOwnerId: v ?? "" })}
-                options={成员选项(users)} />
+                value={f.pool ? 公海值 : f.salesOwnerId || undefined}
+                onChange={(v) => apply(v === 公海值 ? { pool: "1", salesOwnerId: "" } : { salesOwnerId: v ?? "", pool: "" })}
+                options={[{ value: 公海值, label: "公海" }, ...成员选项(users)]} />
             )}
             <Popover
               trigger="click"
@@ -413,6 +477,17 @@ export default function CustomersView({
             >
               <Button size="small" icon={<UserSwitchOutlined />}>批量分配</Button>
             </Dropdown>}
+            {!不问归属 && (选中行.some((r) => r.pool) ? (
+              <Button size="small" icon={<UserAddOutlined />}
+                onClick={async () => { const ids = 选中行.filter((r) => r.pool).map((r) => r.id); 公海提示(await 领取(ids), "领取", ids); 清空(); }}>
+                领取
+              </Button>
+            ) : (
+              <Button size="small" icon={<InboxOutlined />}
+                onClick={async () => { 公海提示(await 放进公海(selected), "放进", selected); 清空(); }}>
+                放进公海
+              </Button>
+            ))}
             <Dropdown
               menu={{
                 items: FOLLOW_STATUSES.map((s) => ({
