@@ -5,6 +5,7 @@ import { 要选模版 } from "@/lib/onboarding";
 import { createSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
+import { 本机我 } from "@/lib/desktop/me";
 
 export const dynamic = "force-dynamic";
 
@@ -61,11 +62,8 @@ export async function GET(req: Request) {
     return new NextResponse(null, { status: 307, headers: { Location: `/api/auth/logout${reason ? `?reason=${encodeURIComponent(reason)}` : ""}` } });
   }
 
-  const admin = await prisma.user.findFirst({
-    where: { role: "ADMIN", active: true },
-    orderBy: { createdAt: "asc" },
-    select: { id: true },
-  });
+  // 「我」：开了团队就是按云端账号改过身份的那一行，不是「第一个管理员」（同事也是管理员）
+  const admin = await 本机我(prisma);
   /**
    * 库里没有在职管理员（被停用过、或者搬了一个残缺的库进来）。不能回 500：
    * 500 等于把人锁在应用外面，一个字的解释都没有。回登录页，带上原因。

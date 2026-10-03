@@ -33,5 +33,7 @@ export async function resetDb() {
   });
   await prisma.customer.deleteMany();
   await prisma.channel.deleteMany();
+  // 供应商不挂在客户和人下面，不会被级联带走（2026-10-03 加；比价、订单采购随它和商机 / 订单级联）
+  await prisma.supplier.deleteMany();
   await prisma.user.deleteMany();
 }

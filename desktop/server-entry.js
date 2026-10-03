@@ -117,7 +117,9 @@ if (fs.existsSync(迁移目录)) {
         if (r.changes) console.log(`[entry] 已去掉 ${r.changes} 个样例账号`);
       }
       if (联系) {
-        const admin = db.prepare("SELECT id, email, name FROM User WHERE role = 'ADMIN' AND active = 1 ORDER BY createdAt ASC LIMIT 1").get();
+        // 「我」：开了团队同步的库里同事也是管理员，按云端账号改过身份的那一行优先（同 src/lib/desktop/me.ts）
+        const 我id = 云?.accountId ? `acct_${云.accountId}` : "";
+        const admin = db.prepare("SELECT id, email, name FROM User WHERE active = 1 AND (id = ? OR role = 'ADMIN') ORDER BY (id = ?) DESC, createdAt ASC LIMIT 1").get(我id, 我id);
         /**
          * **在设置里改过名字的人，重启之后必须还是那个名字。**
          * 这一段原来无条件写云端那个名字，于是「个人资料」里改完、重启一次就被改回去了

@@ -1,5 +1,6 @@
 "use server";
 
+import { 本机我 } from "@/lib/desktop/me";
 import bcrypt from "bcryptjs";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
@@ -136,7 +137,8 @@ export async function 桌面端登录(target: string, password: string): Promise
    * server-entry.js 每次启动也会对一遍，这里是为了不等重启就对上——
    * 登录完下一屏的左下角就该是你的名字，不是「管理员」。
    */
-  const admin = await prisma.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" } });
+  const 我 = await 本机我(prisma);
+  const admin = 我 ? await prisma.user.findUnique({ where: { id: 我.id } }) : null;
   if (!admin) return { ok: false, error: "本机数据库里没有管理员账号。请从「帮助 → 反馈问题」告诉我们" };
   const 联系 = (r.data.contact || t).toLowerCase();
   const 云端名字 = r.data.name || 联系.split("@")[0];

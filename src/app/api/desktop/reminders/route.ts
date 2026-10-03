@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { 算提醒 } from "@/lib/reminders";
 import { 取提醒项, 取订单提醒项 } from "@/lib/reminders-db";
 import { 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
+import { 本机我 } from "@/lib/desktop/me";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,7 @@ export async function GET(req: Request) {
   */
   if (归属对不上() || !读云端凭据()) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
 
-  const 我 = await prisma.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
+  const 我 = await 本机我(prisma);
   if (!我) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
 
   const [项, 订单项] = await Promise.all([取提醒项(我.id), 取订单提醒项(我.id)]);
