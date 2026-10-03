@@ -8,6 +8,7 @@ import { getBusiness } from "@/lib/business";
 import { aiUsageThisMonth } from "@/lib/ai-usage";
 import { multiTenant } from "@/lib/tenant/context";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
+import { 文字里号码打码 } from "@/lib/utils";
 
 /**
  * 设置的正文（服务端组件，负责取数）。**两条路由共用它**：
@@ -65,14 +66,15 @@ export default async function SettingsBody() {
       aiUsage={aiUsage}
       机器={机器}
       桌面端={桌面端}
+      /* 共享试用区：留痕里记的是原号，别的团队也翻得到——号码在这儿打掉再交给浏览器（2026-10-01 排查 A5） */
       logs={logs.map((l) => ({
         id: l.id,
         at: l.at.toISOString(),
         userName: l.userName,
         action: l.action,
         entity: l.entity,
-        summary: l.summary,
-        detail: l.detail,
+        summary: 共享区 ? 文字里号码打码(l.summary) : l.summary,
+        detail: 共享区 && l.detail ? 文字里号码打码(l.detail) : l.detail,
       }))}
       users={users.map((u) => ({
         id: u.id,
