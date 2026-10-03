@@ -11,6 +11,7 @@ import AuditTab, { type AuditRow } from "./AuditTab";
 import AiSettingsTab, { type LlmView } from "./AiSettingsTab";
 import BusinessSettingsTab from "./BusinessSettingsTab";
 import DesktopTab, { type 桌面端信息 } from "./DesktopTab";
+import TeamTab from "./TeamTab";
 import ImportsTab from "./ImportsTab";
 import ProfileTab from "./ProfileTab";
 import KeymapTab from "./KeymapTab";
@@ -26,6 +27,7 @@ const 说明表: Record<string, string> = {
   members: "谁能进、谁是管理员",
   password: "改密码、看哪几台机器登录着",
   desktop: "账号、备份、更新",
+  team: "和同事同步客户、跟进、订单",
   ai: "走哪把 Key、还剩几次",
   business: "客户 / 学员 这些叫法",
   imports: "导进来的那几批，可撤销",
@@ -86,6 +88,8 @@ export default function SettingsView({
     { key: "appearance", label: "外观", children: <AppearanceTab /> },
     { key: "password", label: "登录与密码", children: <PasswordTab 机器={机器} /> },
     ...(桌面端 ? [{ key: "desktop", label: "桌面端", children: <DesktopTab 信息={桌面端} /> }] : []),
+    // 团队同步（2026-10-03）：几个人各用桌面端时互相同步。只在桌面端本地模式有——网页版本来就是一份库
+    ...(桌面端 ? [{ key: "team", label: "团队", children: <TeamTab /> }] : []),
     ...(isAdmin
       ? [
           { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> },

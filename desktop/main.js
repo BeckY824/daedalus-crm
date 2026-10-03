@@ -34,6 +34,7 @@ const 窗装 = require("./windows-install");
 const 备份 = require("./backup");
 const 崩溃 = require("./crashlog");
 const 提醒 = require("./reminders");
+const 团队同步 = require("./sync");
 const 运营通知 = require("./ops-notices");
 
 /*
@@ -467,6 +468,8 @@ function 设角标(n) {
 }
 
 let 提醒器 = null;
+/** 团队同步的定时器（desktop/sync.js）。没加入团队时本地服务回「跳过」 */
+let 同步器 = null;
 
 /*
   运营台（2026-09-28）：只有运营名单里的那一个云端账号，菜单里才有「运营台…」。
@@ -1500,6 +1503,12 @@ if (!app.requestSingleInstanceLock()) {
     });
     // 切回应用时立刻再问一次：人刚在别处把事做完，Dock 上的数不该还是一分钟前的
     app.on("browser-window-focus", () => void 提醒器?.刷新());
+    // 团队同步：30 秒一轮、切回应用时立刻一轮（同事刚改的，切回来就该看得到）
+    同步器 = 团队同步.开始({
+      取端口: () => (读配置().mode === "local" ? 本地?.port ?? null : null),
+      取令牌: () => (读配置().mode === "local" ? 本地?.token ?? null : null),
+    });
+    app.on("browser-window-focus", () => void 同步器?.刷新());
     // 这个账号能不能开运营台：启动时问一次，之后切回应用时最多 5 分钟问一次（换了账号、被移出名单都跟得上）
     void 查运营台(true);
     app.on("browser-window-focus", () => void 查运营台());

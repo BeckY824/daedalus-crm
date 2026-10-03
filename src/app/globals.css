@@ -1497,6 +1497,18 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
    一句欢迎在卡外，卡里是「第 1 步」→ 标题 → 三步一行 → 说明 → 按钮 → 脚注。
    三步是横着的路标，不是三张说明卡，所以不给边框，用一条细线把它们连起来。 */
 /* 新用户选模版（2026-10-03）：两张卡二选一，整张卡是按钮 */
+/* 设置 → 团队（2026-10-03 团队同步） */
+.team-intro { margin: 0 0 var(--s4); line-height: 1.8; color: var(--ink-soft); max-width: 640px; }
+.team-card { padding: var(--s4) 0; border-top: 1px solid var(--line-soft); }
+.team-card h3, .team-head h3 { margin: 0 0 var(--s2); font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.team-card p { margin: 0 0 var(--s3); font-size: var(--fs-note); }
+.team-head { display: flex; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
+.team-head h3 { margin: 0; font-size: var(--fs-title); }
+.team-sync { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s3); font-size: var(--fs-note); }
+.team-members { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s2); }
+.team-members li { display: flex; align-items: baseline; gap: var(--s2); }
+.team-dupes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-note); }
+
 /* 选模版：在登录页右半边（app/start），两张卡并排，窗口窄了上下排 */
 .tpl { width: min(640px, 100%); display: flex; flex-direction: column; }
 .tpl-h { margin: 0 0 var(--s3); font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-title); color: var(--ink); }

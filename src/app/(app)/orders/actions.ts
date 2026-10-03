@@ -7,7 +7,8 @@ import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { 是币种, 规整币种, 金额 as 显示金额 } from "@/lib/currency";
 import { 商机币种, 带币种 } from "@/lib/money-db";
-import { 节点名们, 节点状态们, 单据状态们, 默认单据, 默认订单号, 成交前节点数 } from "@/lib/order";
+import { 节点名们, 节点状态们, 单据状态们, 默认单据, 默认订单号, 成交前节点数, 团队订单前缀 } from "@/lib/order";
+import { 读团队 } from "@/lib/sync/client";
 import { saveFollowUp } from "../customers/[id]/actions";
 
 /**
@@ -98,10 +99,12 @@ export async function createOrder(input: 订单输入 & { customerId: string; op
       if (已有) return { ok: true as const, id: 已有.id, 已有: true };
     }
     const 今天 = new Date();
-    const 日 = `${今天.getFullYear()}${String(今天.getMonth() + 1).padStart(2, "0")}${String(今天.getDate()).padStart(2, "0")}`;
+    // 开了团队同步：编号带上下单人的第一个字，几台电脑各编各的不会撞号
+    const 前缀 = 读团队() ? 团队订单前缀(me.name) : "";
+    const 日 = `${前缀}${今天.getFullYear()}${String(今天.getMonth() + 1).padStart(2, "0")}${String(今天.getDate()).padStart(2, "0")}`;
     const 今天的号 = (await prisma.tradeOrder.findMany({ where: { no: { startsWith: 日 } }, select: { no: true } })).map((x) => x.no);
     const 表头 = 整理({
-      no: input.no || 默认订单号(今天的号, 今天),
+      no: input.no || 默认订单号(今天的号, 今天, 前缀),
       amount: input.amount ?? 商机?.amount ?? 0,
       currency: input.currency ?? (商机 ? 商机币种(商机) : "USD"),
       ...(input.incoterm !== undefined ? { incoterm: input.incoterm } : {}),

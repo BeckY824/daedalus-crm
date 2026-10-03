@@ -20,7 +20,7 @@ import { resetDb } from "./reset";
 import { 造本人, 造客户 } from "./r2-data-helpers";
 import { saveOpportunity } from "@/app/(app)/opportunities/actions";
 import { createOrder, saveOrder, saveOrderNode, saveOrderDoc, addOrderDoc, deleteOrderDoc, addOrderNodeNote, deleteOrder } from "@/app/(app)/orders/actions";
-import { 当前节点, 节点灯, 进度, 超期数, 订单的钱, 默认订单号, 默认单据, 节点名们, 定金比例 } from "@/lib/order";
+import { 当前节点, 节点灯, 进度, 超期数, 订单的钱, 默认订单号, 默认单据, 节点名们, 定金比例, 团队订单前缀 } from "@/lib/order";
 import { 订单列表, 订单详情 } from "@/lib/order-db";
 import { TOOLS } from "@/lib/agent/tools";
 import { DEFAULT_BUSINESS } from "@/lib/business-config";
@@ -70,6 +70,13 @@ describe("规则", () => {
     expect(定金比例("L/C at sight")).toBeNull();
     expect(定金比例("30/60")).toBeNull();
     expect(定金比例(null)).toBeNull();
+  });
+
+  it("团队模式下订单号带下单人名字的第一个字：几台电脑各编各的不撞号", () => {
+    expect(团队订单前缀("甲")).toBe("甲-");
+    expect(团队订单前缀("  Alice")).toBe("A-");
+    expect(团队订单前缀("")).toBe("");
+    expect(默认订单号(["甲-20261010-1"], 今天, "甲-")).toBe("甲-20261010-2");
   });
 
   it("默认订单号按日期编号，同一天往后排；单据按贸易条款", () => {

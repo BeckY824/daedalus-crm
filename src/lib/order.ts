@@ -129,9 +129,18 @@ export function 订单的钱(o: { amount: number; depositDue: number; depositPai
  * 订单号默认「年月日-序号」：20261003-1。和 DDW 那种「国家缩写 + 年月日 + 序号」比少了国家——
  * 客户国家我们不一定有；人可以自己改成 PI 号。`今天已有` 是今天已经用掉的号（同一天第二单就是 -2）。
  */
-export function 默认订单号(今天已有: string[], 现在: Date = new Date()): string {
-  const 日 = `${现在.getFullYear()}${String(现在.getMonth() + 1).padStart(2, "0")}${String(现在.getDate()).padStart(2, "0")}`;
+export function 默认订单号(今天已有: string[], 现在: Date = new Date(), 前缀 = ""): string {
+  const 日 = `${前缀}${现在.getFullYear()}${String(现在.getMonth() + 1).padStart(2, "0")}${String(现在.getDate()).padStart(2, "0")}`;
   let n = 1;
   while (今天已有.includes(`${日}-${n}`)) n++;
   return `${日}-${n}`;
+}
+
+/**
+ * 团队模式下订单号的前缀：业务员名字的第一个字（「甲-20261003-1」）。
+ * 几台电脑各自从 -1 开始编号，同一天会撞成同号的两张单（团队同步探针验出来的）；带上人就分开了。
+ */
+export function 团队订单前缀(名字: string | null | undefined): string {
+  const 字 = [...String(名字 ?? "").trim()][0];
+  return 字 ? `${字}-` : "";
 }
