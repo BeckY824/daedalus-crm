@@ -20,7 +20,7 @@ import { resetDb } from "./reset";
 import { 造本人, 造客户 } from "./r2-data-helpers";
 import { saveOpportunity } from "@/app/(app)/opportunities/actions";
 import { createOrder, saveOrder, saveOrderNode, saveOrderDoc, addOrderDoc, deleteOrderDoc, addOrderNodeNote, deleteOrder } from "@/app/(app)/orders/actions";
-import { 当前节点, 节点灯, 进度, 超期数, 订单的钱, 默认订单号, 默认单据, 节点名们 } from "@/lib/order";
+import { 当前节点, 节点灯, 进度, 超期数, 订单的钱, 默认订单号, 默认单据, 节点名们, 定金比例 } from "@/lib/order";
 import { 订单列表, 订单详情 } from "@/lib/order-db";
 import { TOOLS } from "@/lib/agent/tools";
 import { DEFAULT_BUSINESS } from "@/lib/business-config";
@@ -61,6 +61,15 @@ describe("规则", () => {
     expect(进度([{ status: "不适用" }])).toBe(100);
     expect(订单的钱({ amount: 10000, depositDue: 3000, depositPaid: 3000, balancePaid: 2000 })).toEqual({ 尾款应收: 7000, 未收: 5000 });
     expect(订单的钱({ amount: 100, depositDue: 30, depositPaid: 80, balancePaid: 80 }).未收).toBe(0);
+  });
+
+  it("付款方式读定金比例：T/T 30/70 是 0.3，全款前是 1，L/C 读不出", () => {
+    expect(定金比例("T/T 30/70")).toBe(0.3);
+    expect(定金比例("TT 50 / 50")).toBe(0.5);
+    expect(定金比例("T/T 100% 前")).toBe(1);
+    expect(定金比例("L/C at sight")).toBeNull();
+    expect(定金比例("30/60")).toBeNull();
+    expect(定金比例(null)).toBeNull();
   });
 
   it("默认订单号按日期编号，同一天往后排；单据按贸易条款", () => {

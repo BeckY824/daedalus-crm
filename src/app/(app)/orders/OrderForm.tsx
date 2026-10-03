@@ -6,7 +6,8 @@ import CurrencySelect from "@/components/CurrencySelect";
 import { 金额格式 } from "@/lib/money-input";
 import { 聚焦首项 } from "@/lib/modal-focus";
 import { useBusiness } from "@/lib/business-client";
-import { 贸易条款们, 常用付款方式 } from "@/lib/order";
+import { 贸易条款们, 常用付款方式, 定金比例 } from "@/lib/order";
+import { useRef } from "react";
 import { createOrder, saveOrder } from "./actions";
 
 export type 订单表头 = {
@@ -41,6 +42,13 @@ export default function OrderForm({
   const b = useBusiness();
   const [form] = Form.useForm();
   const 币种 = (Form.useWatch("currency", form) as string | undefined) ?? editing?.currency ?? b.currency;
+  /** 定金应收人自己填过就不再替他算（同 lib/fill-untouched）；编辑一张已有定金的单也算填过 */
+  const 手填定金 = useRef(!!editing?.depositDue);
+  function 跟着算定金(_: unknown, all: { amount?: number; payment?: string }) {
+    if (手填定金.current) return;
+    const 比 = 定金比例(all.payment);
+    if (比 !== null && all.amount) form.setFieldValue("depositDue", Math.round(all.amount * 比 * 100) / 100);
+  }
 
   async function onOk() {
     const v = await form.validateFields();
@@ -85,6 +93,10 @@ export default function OrderForm({
         form={form}
         layout="vertical"
         style={{ marginTop: 8 }}
+        onValuesChange={(changed, all) => {
+          if ("depositDue" in changed) 手填定金.current = true;
+          else if ("payment" in changed || "amount" in changed) 跟着算定金(changed, all);
+        }}
         initialValues={
           editing
             ? { ...editing, incoterm: editing.incoterm ?? undefined, payment: editing.payment ?? undefined }
@@ -135,7 +147,7 @@ export default function OrderForm({
                   validator: (_, v) => ((v ?? 0) > (getFieldValue("amount") ?? 0) ? Promise.reject(new Error("定金比订单金额还多")) : Promise.resolve()),
                 }),
               ]}
-              extra="全款前 T/T 就填全额；没有定金留空"
+              extra="选了「T/T 30/70」这类会按比例先算好；没有定金留空"
             >
               <InputNumber<number> min={0} style={{ width: "100%" }} formatter={金额格式} prefix={币种} />
             </Form.Item>

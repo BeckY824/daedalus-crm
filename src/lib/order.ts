@@ -103,6 +103,21 @@ export function 进度(nodes: Pick<节点, "status">[]): number {
   return Math.round((适用.filter((n) => n.status === "已完成").length / 适用.length) * 100);
 }
 
+/**
+ * 从付款方式里读出定金比例：「T/T 30/70」→ 0.3，「T/T 100% 前」→ 1。读不出来（L/C、D/P、自由文本）返回 null。
+ * 只拿来**预填**定金应收，人可以改。
+ */
+export function 定金比例(payment?: string | null): number | null {
+  const s = payment ?? "";
+  const 分 = s.match(/(\d{1,3})\s*\/\s*(\d{1,3})/);
+  if (分) {
+    const a = Number(分[1]), b = Number(分[2]);
+    if (a + b === 100) return a / 100;
+  }
+  if (/100\s*%?\s*前|全款|100%\s*in advance/i.test(s)) return 1;
+  return null;
+}
+
 /** 钱：尾款应收 = 金额 - 定金应收；未收 = 金额 - 定金实收 - 尾款实收（不小于 0） */
 export function 订单的钱(o: { amount: number; depositDue: number; depositPaid: number; balancePaid: number }) {
   const 尾款应收 = Math.max(0, Math.round((o.amount - o.depositDue) * 100) / 100);
