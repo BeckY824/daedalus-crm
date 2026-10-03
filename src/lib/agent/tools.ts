@@ -11,6 +11,7 @@ import { 是逾期, 数逾期跟进 } from "../overdue";
 import { 渠道汇总 } from "../attribution";
 import { 带币种, 商机币种, 签约币种, 签约金额, 签约合计 } from "../money-db";
 import { 金额 as 显示金额, 合计文字, 按币种合计 } from "../currency";
+import { 一行说法 } from "../quote";
 import { 现值选取, 现值表 } from "./current-values";
 import { prisma } from "../prisma";
 import { dayjs } from "../utils";
@@ -237,7 +238,14 @@ export const TOOLS: Tool[] = [
           // 联系人是另一张表。不给的话，问「张三家长的微信是多少」时模型只能说没有——
           // 而数据就在库里，等于向用户断言 CRM 丢了东西（同下面电话那条的道理）
           contacts: { select: { name: true, position: true, phone: true, wechat: true, email: true, isPrimary: true }, orderBy: { isPrimary: "desc" } },
-          opportunities: { select: { name: true, amount: true, stage: true, status: true, ...带币种.商机 }, orderBy: { createdAt: "desc" } },
+          opportunities: {
+            select: {
+              name: true, amount: true, stage: true, status: true, ...带币种.商机,
+              // 当前那一版报价（2026-10-03）：问「上次给他报的什么价」时它得看得到
+              quotes: { orderBy: [{ quotedAt: "desc" }, { id: "desc" }], take: 1, select: { quotedAt: true, lines: { orderBy: { sort: "asc" } } } },
+            },
+            orderBy: { createdAt: "desc" },
+          },
           tasks: { where: { done: false }, select: { title: true, dueAt: true } },
           plans: { where: { done: false }, select: { subject: true, plannedAt: true, method: true }, take: 1 },
           followUps: { orderBy: { occurredAt: "desc" }, take: 20, select: { id: true, type: true, title: true, content: true, occurredAt: true, duration: true, owner: { select: { name: true } }, source: { select: { text: true } } } },
@@ -258,7 +266,11 @@ export const TOOLS: Tool[] = [
         // 它是在向用户断言 CRM 丢了东西
         profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${号(c.phone) || "未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.length ? 合计文字(签约合计(c.contracts)) : "无"}；备注：${c.remark || "无"}`,
         contacts: c.contacts.map((p) => `${p.name}${p.position ? `（${p.position}）` : ""}${p.isPrimary ? " 主要联系人" : ""}：${[p.phone && `电话 ${号(p.phone)}`, p.wechat && `微信 ${p.wechat}`, p.email && `邮箱 ${p.email}`].filter(Boolean).join("、") || "没留联系方式"}`),
-        opportunities: c.opportunities.map((o) => `${o.name} ${显示金额(o.amount, 商机币种(o))} ${o.status === "OPEN" ? o.stage : o.status}`),
+        opportunities: c.opportunities.map((o) => {
+          const q = o.quotes[0];
+          const 报 = q?.lines.length ? `；${dayjs(q.quotedAt).format("YYYY-MM-DD")} 报价（${商机币种(o)}）：${q.lines.map(一行说法).join("、")}` : "";
+          return `${o.name} ${显示金额(o.amount, 商机币种(o))} ${o.status === "OPEN" ? o.stage : o.status}${报}`;
+        }),
         openTasks: c.tasks.map((t) => `${t.title}${t.dueAt ? `（${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`),
         nextPlan: c.plans[0] ? `${dayjs(c.plans[0].plannedAt).format("MM-DD HH:mm")} ${c.plans[0].method}：${c.plans[0].subject}` : null,
         timeline: timeline || "（从未跟进过）",
@@ -540,6 +552,7 @@ export const TOOLS: Tool[] = [
           where, orderBy: { amount: "desc" }, take: 30,
           select: {
             id: true, name: true, amount: true, stage: true, status: true, probability: true, expectedDealAt: true, updatedAt: true, ...带币种.商机,
+            quotes: { orderBy: [{ quotedAt: "desc" }, { id: "desc" }], take: 1, select: { lines: { orderBy: { sort: "asc" } } } },
             customer: { select: { id: true, name: true } }, owner: { select: { name: true } },
           },
         }),
@@ -554,6 +567,7 @@ export const TOOLS: Tool[] = [
             名称: o.name,
             金额: o.amount,
             币种: 商机币种(o),
+            ...(o.quotes[0]?.lines.length ? { 报价明细: o.quotes[0].lines.map(一行说法) } : {}),
             阶段: o.stage,
             状态: o.status === "OPEN" ? "进行中" : o.status === "WON" ? "赢单" : "丢单",
             成交概率: o.probability,

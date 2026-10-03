@@ -45,6 +45,8 @@ const 可写: Record<string, string[]> = {
   // 币种（2026-10-03）：saveOpportunity / saveContract 收 currency，签约的精确金额跟着 amount 一起写
   OpportunityMoney: ["currency"],
   ContractMoney: ["currency", "amountExact"],
+  // 报价明细（2026-10-03）：saveOpportunity 收 报价，一行五个字段
+  QuoteLine: ["product", "spec", "qty", "unit", "unitPrice"],
   FollowUp: ["type", "title", "content", "status", "duration", "occurredAt", "dueAt", "participants", "customerId", "contactId", "opportunityId"],
   Task: ["title", "dueAt", "done", "customerId"],
   FollowPlan: ["subject", "plannedAt", "method", "done", "customerId"],
@@ -70,6 +72,12 @@ const 派生: Record<string, Record<string, string>> = {
   },
   OpportunityMoney: { opportunityId: "哪个商机，saveOpportunity 新建 / 改币种时一起写" },
   ContractMoney: { contractId: "哪一笔签约，saveContract 保存时一起写" },
+  Quote: {
+    opportunityId: "哪个商机，saveOpportunity 带报价时一起写",
+    quotedAt: "这一版报价记下的那一刻，系统打上；改价另记一版，不改旧的",
+    currency: "报价那一刻商机的币种，跟着商机走",
+  },
+  QuoteLine: { quoteId: "属于哪一版报价", sort: "这一版里的第几行，按界面上的顺序打上" },
   ContractOwner: {
     contractId: "哪一笔签约，saveContract 新登记时一起建",
     salesOwnerId: "签约那一刻客户的销售负责人，新登记时打上；业绩按它算，之后不跟着换人",

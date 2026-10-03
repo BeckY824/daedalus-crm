@@ -78,6 +78,7 @@ export default function RecordView({
   contacts,
   contracts,
   opportunities,
+  报价记录 = [],
   tasks,
   plan,
   followUps,
@@ -93,6 +94,7 @@ export default function RecordView({
   const b = useBusiness();
   const { 问怎么拿掉 } = useContactRemoval();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
+  const [报价全开, set报价全开] = useState(false);
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
   const 已签约文字 = 合计文字(customer.signedTotals ?? [{ 币种: "CNY", 合计: customer.signedAmount }]);
@@ -487,6 +489,37 @@ export default function RecordView({
               </Link>
             ))}
           </div>
+
+          {/*
+            报价记录（2026-10-03）：这个客户历次报过的产品和单价，新的在前。没报过就不出现这一节（少即是多）。
+            先摆 5 行，多了点开——左栏是档案，不是报价单
+          */}
+          {报价记录.length > 0 && (
+            <div className="rec-sec">
+              <div className="rec-sec-t">
+                <span>报价记录 {报价记录.length}</span>
+                {报价记录.length > 5 && (
+                  <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => set报价全开(!报价全开)} aria-expanded={报价全开}>
+                    {报价全开 ? "收起" : "全部"}
+                  </Button>
+                )}
+              </div>
+              {(报价全开 ? 报价记录 : 报价记录.slice(0, 5)).map((r, i) => (
+                <Link key={`${r.quotedAt}-${i}`} href={`/opportunities?keyword=${encodeURIComponent(r.商机)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
+                  <span className="rec-mini-n" title={r.spec ? `${r.product}（${r.spec}）` : r.product}>
+                    {r.product}
+                    {r.spec && <span className="rec-mini-m"> · {r.spec}</span>}
+                  </span>
+                  <span className="rec-mini-sub">
+                    <span className="rec-mini-m">
+                      {金额(r.unitPrice, r.currency)} × {r.qty}{r.unit ? ` ${r.unit}` : ""}
+                    </span>
+                    <span className="rec-mini-m">{r.状态 === "WON" ? "成交 · " : ""}{fmtDate(r.quotedAt)}</span>
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
 
           <div className="rec-sec">
             <div className="rec-sec-t">

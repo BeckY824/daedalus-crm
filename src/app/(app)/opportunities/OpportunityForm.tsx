@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Input, Modal, Form, Row, Col, InputNumber, Select, DatePicker, Slider, App, Space } from "antd";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, type 可选成员 } from "@/lib/utils";
 import { 金额格式 } from "@/lib/money-input";
-import { saveOpportunity } from "./actions";
+import { saveOpportunity, 读报价 } from "./actions";
+import QuoteLines, { 新行, 交出去, 草稿合计, type 草稿行 } from "./QuoteLines";
+import type { 一次报价 } from "@/lib/quote-db";
 import type { OppRow } from "./OpportunitiesView";
 import { 聚焦首项 } from "@/lib/modal-focus";
 import CurrencySelect from "@/components/CurrencySelect";
@@ -38,6 +40,45 @@ export default function OpportunityForm({
   const [form] = Form.useForm();
   /** 换阶段前是哪一档：概率还等于那一档的默认值，才算「人没动过」、跟着换（排查 D6） */
   const 上一个阶段 = useRef("初步沟通");
+  /*
+    报价明细（2026-10-03）。编辑时打开框再去取（列表一次 300 个商机，不在那时候带）；
+    没取回来之前不往服务端交报价——交一个空表会被当成「清空了明细」另记一版。
+  */
+  const [行, set行] = useState<草稿行[]>([]);
+  const [历次, set历次] = useState<一次报价[]>([]);
+  const [报价到了, set报价到了] = useState(true);
+  /** 金额跟着明细合计走，人自己改过金额就不再跟（含税、折扣、运费另算都可能）。同 lib/fill-untouched 的规矩 */
+  const 手填金额 = useRef(false);
+  const 币种 = (Form.useWatch("currency", form) as string | undefined) ?? b.currency;
+  const 客户 = Form.useWatch("customerId", form) as string | undefined;
+
+  function 改明细(新: 草稿行[]) {
+    set行(新);
+    const 合 = 草稿合计(新);
+    if (!手填金额.current && 合 > 0) form.setFieldValue("amount", 合);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    set行([]);
+    set历次([]);
+    手填金额.current = false;
+    if (editing) {
+      set报价到了(false);
+      let 还在 = true;
+      void 读报价(editing.id).then((qs) => {
+        if (!还在) return;
+        set历次(qs);
+        const 当前 = qs[0]?.行 ?? [];
+        set行(当前.map((r) => 新行({ product: r.product, spec: r.spec ?? "", qty: r.qty, unit: r.unit ?? "", unitPrice: r.unitPrice })));
+        // 金额和明细合计对不上：说明人手改过（或者先有金额后补的明细），以后不替他改
+        手填金额.current = 当前.length > 0 && Math.abs((qs[0]?.合计 ?? 0) - editing.amount) > 0.005;
+        set报价到了(true);
+      });
+      return () => { 还在 = false; };
+    }
+    set报价到了(true);
+  }, [open, editing]);
 
   useEffect(() => {
     if (!open) return;
@@ -69,6 +110,7 @@ export default function OpportunityForm({
       版本: editing?.updatedAt,
       ...v,
       expectedDealAt: v.expectedDealAt ? v.expectedDealAt.toISOString() : null,
+      ...(报价到了 ? { 报价: 交出去(行) } : {}),
     });
     if (!res.ok) {
       message.error(res.error);
@@ -87,7 +129,7 @@ export default function OpportunityForm({
       onOk={onOk}
       okText="保存"
       cancelText="取消"
-      width={640}
+      width={760}
       destroyOnHidden
     >
       <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
@@ -122,6 +164,7 @@ export default function OpportunityForm({
                     placeholder="如 50,000"
                     formatter={金额格式}
                     aria-label="商机金额"
+                    onChange={() => { 手填金额.current = true; }}
                   />
                 </Form.Item>
               </Space.Compact>
@@ -197,6 +240,11 @@ export default function OpportunityForm({
           <Col span={16}>
             <Form.Item name="probability" label="成交概率 (%)">
               <Slider marks={{ 0: "0", 50: "50", 100: "100" }} />
+            </Form.Item>
+          </Col>
+          <Col span={24}>
+            <Form.Item label="报价明细" style={{ marginBottom: 16 }}>
+              <QuoteLines 行={行} onChange={改明细} currency={币种} customerId={客户} opportunityId={editing?.id} 历次={历次} />
             </Form.Item>
           </Col>
           <Col span={24}>

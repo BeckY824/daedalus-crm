@@ -12,6 +12,8 @@ import { 唯一负责人 } from "@/lib/owners";
 import { 写商机币种 } from "@/lib/money-db";
 import { 金额 as 显示金额, 是币种, 规整币种 } from "@/lib/currency";
 import { getBusiness } from "@/lib/business";
+import { 整理报价行, 报价合计 } from "@/lib/quote";
+import { 写报价, 历次报价, 上次报价 as 查上次报价, type 一次报价 } from "@/lib/quote-db";
 
 /** 状态在界面上叫什么。日志是给人看的，不能写 WON / LOST */
 const 状态名: Record<string, string> = { OPEN: "进行中", WON: "赢单", LOST: "丢单" };
@@ -55,6 +57,11 @@ export async function saveOpportunity(input: {
   ownerId?: string | null;
   /** 打开编辑框那一刻的 updatedAt。给了就当闸门：期间有人改过不盖掉（排查 D3） */
   版本?: string | null;
+  /**
+   * 报价明细（2026-10-03）：当前这一版的行。不给（undefined）= 不碰报价；给了且和上一版不同 = 另记一版（lib/quote-db.ts）。
+   * 商机金额不由服务端按明细重算：界面上默认跟着合计走，但人可以手改（含税、折扣、运费另算），以人填的为准
+   */
+  报价?: unknown;
 }) {
   const me = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
@@ -89,6 +96,8 @@ export async function saveOpportunity(input: {
   }
 
   if (input.currency != null && !是币种(String(input.currency).toUpperCase())) return { ok: false as const, error: "不认识这个币种" };
+  const 报价 = input.报价 === undefined ? null : 整理报价行(input.报价);
+  if (报价 && !报价.ok) return { ok: false as const, error: 报价.error };
   const data = {
     name: input.name.trim(),
     customerId: input.customerId,
@@ -110,6 +119,7 @@ export async function saveOpportunity(input: {
     await 记结单(input.id, 原状态, data.status);
     if (input.currency != null) await 写商机币种(prisma, input.id, input.currency);
     const 币 = (await prisma.opportunityMoney.findUnique({ where: { opportunityId: input.id } }))?.currency ?? "CNY";
+    if (报价?.ok) await 记报价(me, input.id, data.name, 币, 报价.行);
     await recordAudit({
       user: me, action: "update", entity: "Opportunity", entityId: input.id,
       summary: `修改商机「${data.name}」：${data.stage} · ${状态名[data.status] ?? data.status} · ${显示金额(data.amount, 币)}`,
@@ -118,8 +128,9 @@ export async function saveOpportunity(input: {
   } else {
     const o = await prisma.opportunity.create({ data });
     await 记结单(o.id, null, data.status);
-    const 币 = input.currency ?? (await getBusiness()).currency;
+    const 币 = 规整币种(input.currency ?? (await getBusiness()).currency);
     await 写商机币种(prisma, o.id, 币);
+    if (报价?.ok) await 记报价(me, o.id, data.name, 币, 报价.行);
     await recordAudit({
       user: me, action: "create", entity: "Opportunity", entityId: o.id,
       summary: `新建商机「${data.name}」：${data.stage} · ${显示金额(data.amount, 币)}`,
@@ -129,6 +140,30 @@ export async function saveOpportunity(input: {
 
   刷新商机(input.customerId);
   return { ok: true as const };
+}
+
+/** 写一版报价；真记了一版才留一条日志（和上一版一样就什么都没发生） */
+async function 记报价(me: Awaited<ReturnType<typeof requireUser>>, 商机id: string, 名称: string, 币: string, 行: Parameters<typeof 写报价>[3]) {
+  const q = await 写报价(prisma, 商机id, 币, 行);
+  if (!q) return;
+  await recordAudit({
+    user: me, action: "update", entity: "Opportunity", entityId: 商机id,
+    summary: q.行.length ? `给商机「${名称}」报价：${q.行.length} 行，合计 ${显示金额(报价合计(q.行), 币)}` : `清空了商机「${名称}」的报价明细`,
+    detail: { 币种: 币, 明细: q.行 },
+  });
+}
+
+/** 编辑框打开时取这个商机的历次报价（新的在前，第一个是当前那一版）。列表一次取 300 个商机，不在那时候带 */
+export async function 读报价(opportunityId: string): Promise<一次报价[]> {
+  await requireUser();
+  return 历次报价(String(opportunityId ?? ""));
+}
+
+/** 录报价时单价框下面那句「上次报这个客户 US$ 3.20（08-12）」 */
+export async function 上次报价(customerId: string, product: string, 除了?: string) {
+  await requireUser();
+  if (typeof customerId !== "string" || typeof product !== "string") return null;
+  return 查上次报价(customerId, product, typeof 除了 === "string" ? 除了 : undefined);
 }
 
 /**
@@ -234,7 +269,11 @@ export async function deleteOpportunities(ids: string[]) {
     */
     const 待删 = await prisma.opportunity.findMany({
       where: { id: { in: ids } },
-      include: { customer: { select: { name: true } }, closed: true, followUps: { select: { id: true } }, money: true },
+      include: {
+        customer: { select: { name: true } }, closed: true, followUps: { select: { id: true } }, money: true,
+        // 报价跟着级联删了；撤销时要原样建回来，不然「历次报价」就丢了
+        quotes: { include: { lines: { orderBy: { sort: "asc" } } } },
+      },
     });
     const res = await prisma.opportunity.deleteMany({ where: { id: { in: ids } } });
     if (res.count) {
@@ -246,9 +285,13 @@ export async function deleteOpportunities(ids: string[]) {
     }
     刷新商机();
     // 撤销要用的原样快照（排查 D2）：一并记下原来指着它的跟进记录、结单时刻
-    const 快照: 删掉的商机[] = 待删.map(({ customer: _客户, closed, followUps, money, ...o }) => ({
+    const 快照: 删掉的商机[] = 待删.map(({ customer: _客户, closed, followUps, money, quotes, ...o }) => ({
       ...o,
       currency: money?.currency ?? null,
+      报价: quotes.map((q) => ({
+        quotedAt: q.quotedAt.toISOString(), currency: q.currency,
+        行: q.lines.map((r) => ({ product: r.product, spec: r.spec, qty: r.qty, unit: r.unit, unitPrice: r.unitPrice })),
+      })),
       expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
       createdAt: o.createdAt.toISOString(),
       closedAt: closed?.closedAt.toISOString() ?? null,
@@ -266,6 +309,8 @@ export type 删掉的商机 = {
   createdAt: string; closedAt: string | null; 跟进: string[];
   /** 币种（2026-10-03）。null = 0.46.15 之前没记币种的老商机，撤销回来也不补那一行 */
   currency?: string | null;
+  /** 历次报价（2026-10-03）。撤销时照原来的日期建回来 */
+  报价?: { quotedAt: string; currency: string; 行: { product: string; spec: string | null; qty: number; unit: string | null; unitPrice: number }[] }[];
 };
 
 /** 删之前数一数：关联着几条跟进（删了它们就不再写是哪个商机）、有几个已经赢单（排查 D2） */
@@ -302,6 +347,13 @@ export async function restoreOpportunities(快照: 删掉的商机[]) {
         });
         if (o.跟进.length) {
           await tx.followUp.updateMany({ where: { id: { in: o.跟进 }, opportunityId: null }, data: { opportunityId: o.id } });
+        }
+        // 快照是从浏览器回来的：行再过一遍整理（和保存同一道关），坏的那一版跳过，不让撤销把脏数据写进库
+        for (const q of o.报价 ?? []) {
+          const 行 = 整理报价行(q.行);
+          const 时 = new Date(q.quotedAt);
+          if (!行.ok || Number.isNaN(时.getTime())) continue;
+          await tx.quote.create({ data: { opportunityId: o.id, quotedAt: 时, currency: 规整币种(q.currency), lines: { create: 行.行.map((r, i) => ({ ...r, sort: i })) } } });
         }
       });
       回来++;

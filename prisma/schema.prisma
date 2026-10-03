@@ -255,6 +255,8 @@ model Opportunity {
   closed    OpportunityClose?
   /// 币种（2026-10-03）。见 OpportunityMoney
   money     OpportunityMoney?
+  /// 报价明细，一次报价一行（2026-10-03）。见 Quote
+  quotes    Quote[]
 
   @@index([customerId])
   @@index([stage])
@@ -275,6 +277,34 @@ model OpportunityMoney {
   opportunityId String      @id
   opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   currency      String      @default("CNY")
+}
+
+/// 一次报价（2026-10-03 外贸第 3 块，迁移 015）。改价不覆盖，另记一版：同一个商机的几行 Quote 就是「历次报价」，
+/// 最新那一版是当前报价。币种是报价那一刻商机的币种。单独建表的理由同 OpportunityMoney。
+model Quote {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  quotedAt      DateTime    @default(now())
+  currency      String      @default("CNY")
+  lines         QuoteLine[]
+
+  @@index([opportunityId])
+}
+
+/// 报价的一行：产品 / 规格（自由文本，不强制建产品库）、数量、单位、单价。小计 = 数量 × 单价，不存
+model QuoteLine {
+  id        String  @id @default(cuid())
+  quoteId   String
+  quote     Quote   @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  sort      Int     @default(0)
+  product   String
+  spec      String?
+  qty       Float   @default(0)
+  unit      String?
+  unitPrice Float   @default(0)
+
+  @@index([quoteId])
 }
 
 model FollowUp {

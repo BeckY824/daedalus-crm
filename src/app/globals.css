@@ -1979,6 +1979,26 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 
 /* 登记签约弹窗底下「顺手收个尾」那一块（ContractForm）：商机标赢单、计划和待办一并完成。
    和上面的表单用一道细线隔开——它不是签约的字段，是签约带出来的几件事 */
+/* 商机框里的报价明细（2026-10-03）：产品、规格、数量、单位、单价、小计、删。760 宽的框里一行放得下 */
+.qt { display: flex; flex-direction: column; gap: 6px; }
+.qt-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.6fr) 84px 76px 96px 96px 28px; gap: 6px; align-items: center; }
+.qt-head { font-size: var(--fs-min); color: var(--text-muted); }
+.qt-num { text-align: right; font-variant-numeric: tabular-nums; font-size: var(--fs-note); color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qt-hint { margin: 2px 0 0; font-size: var(--fs-min); color: var(--text-muted); }
+.qt-use { margin-left: var(--s2); padding: 0; border: 0; background: none; font: inherit; color: var(--brand); cursor: pointer; }
+.qt-use:hover { text-decoration: underline; }
+.qt-use:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.qt-foot { display: flex; justify-content: space-between; align-items: center; padding-top: 6px; border-top: 1px solid var(--line-soft); font-size: var(--fs-note); color: var(--text-muted); }
+.qt-foot b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.qt-note { font-size: var(--fs-min); color: var(--text-muted); }
+.qt-his { font-size: var(--fs-min); color: var(--text-muted); }
+.qt-his .qt-use { margin-left: 0; }
+.qt-his ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.qt-his li { display: flex; gap: var(--s2); align-items: baseline; min-width: 0; }
+.qt-his b { color: var(--ink-soft); font-weight: 500; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qt-his-d { flex: none; font-variant-numeric: tabular-nums; }
+.qt-his-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 .contract-links { border-top: 1px solid var(--line-soft); padding-top: var(--s3); display: flex; flex-direction: column; gap: var(--s3); }
 .contract-links-t { font-size: var(--fs-note); color: var(--text-muted); margin-bottom: var(--s1); }
 .contract-links-g .ant-checkbox-group { display: flex; flex-direction: column; gap: var(--s1); }
