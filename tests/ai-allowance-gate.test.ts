@@ -145,7 +145,7 @@ describe("带额度：收费契约", () => {
   });
 
   it("次数用完：fn 一下都不跑，回的是和 stream 一字不差的那句中文", async () => {
-    const { 带额度, 每日赠送 } = await import("@/lib/tenant/ai-allowance");
+    const { 带额度 } = await import("@/lib/tenant/ai-allowance");
     const ws = await 建工作区();
     const 那句话 = await 用光(ws);
     const 之前 = await 用掉(ws);
@@ -154,7 +154,9 @@ describe("带额度：收费契约", () => {
     expect(fn).not.toHaveBeenCalled();
     expect(r).toEqual({ ok: false, error: 那句话 });
     expect(那句话).toContain("用完");
-    expect(那句话).toContain(`明天登录再送 ${每日赠送} 次`);
+    // 10-03 起没有每日赠送：不许诺明天再送，给出订阅这条路
+    expect(那句话).not.toContain("明天");
+    expect(那句话).toContain("订阅");
     // 被拦下的那次不算用掉
     expect(await 用掉(ws)).toBe(之前);
   });

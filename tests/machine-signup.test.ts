@@ -112,8 +112,8 @@ describe("一台电脑一份注册赠送", () => {
     expect(await 赠送条数(甲.id, "daily")).toBe(0);
   });
 
-  it("同一台电脑上注册的第二个账号不再拿到注册赠送——只剩每天那几次", async () => {
-    const { 注册赠送, 每日赠送 } = await import("@/lib/tenant/credits");
+  it("同一台电脑上注册的第二个账号不再拿到注册赠送，每天那几次也没有（10-03 起一台电脑一辈子最多 120 次）", async () => {
+    const { 注册赠送, 扣一次 } = await import("@/lib/tenant/credits");
     const { control } = await import("@/lib/tenant/control");
     const 这台 = 电脑("办公室那台");
     const 甲 = await 建账号();
@@ -122,8 +122,11 @@ describe("一台电脑一份注册赠送", () => {
     expect((await 登录(甲.phone!, 这台)).credits.还剩).toBe(注册赠送);
     const r = await 登录(乙.phone!, 这台);
 
-    expect(r.credits.还剩, "第二个账号不该再得一份 30").toBe(每日赠送);
+    expect(r.credits.还剩, "第二个账号不该再得一份 30，也不该有每日赠送").toBe(0);
     expect(await 赠送条数(乙.id, "signup"), "连一条注册赠送都不该有").toBe(0);
+    // 用一次也结不出每日赠送：原来每日按账号发，一台电脑注册十个邮箱就是每天 30 次
+    expect((await 扣一次({ kind: "account", id: 乙.id })).ok).toBe(false);
+    expect(await 赠送条数(乙.id, "daily")).toBe(0);
     // 名额还在甲名下，没被后来的人改写
     const 占用 = await control.machineSignup.findUnique({ where: { machineHash: 这台 } });
     expect(占用?.accountId).toBe(甲.id);
@@ -173,12 +176,12 @@ describe("一台电脑一份注册赠送", () => {
   });
 
   it("大小写不算两台电脑", async () => {
-    const { 注册赠送, 每日赠送 } = await import("@/lib/tenant/credits");
+    const { 注册赠送 } = await import("@/lib/tenant/credits");
     const 这台 = 电脑("大小写");
     const 甲 = await 建账号();
     const 乙 = await 建账号();
     expect((await 登录(甲.phone!, 这台)).credits.还剩).toBe(注册赠送);
-    expect((await 登录(乙.phone!, 这台.toUpperCase())).credits.还剩).toBe(每日赠送);
+    expect((await 登录(乙.phone!, 这台.toUpperCase())).credits.还剩).toBe(0);
   });
 });
 
@@ -189,14 +192,14 @@ describe("界面得说得出「你为什么只有 3 次」", () => {
     这一组钉的是那句话的**依据**——界面文案本身在 tests/credits-copy.test.ts。
   */
   it("没领到的账号，注册赠送发过吗() 就是假——不能靠「上限不到 30」倒推", async () => {
-    const { 注册赠送发过吗, 每日赠送 } = await import("@/lib/tenant/credits");
+    const { 注册赠送发过吗 } = await import("@/lib/tenant/credits");
     const 这台 = 电脑("共用的那台");
     const 甲 = await 建账号();
     const 乙 = await 建账号();
     await 登录(甲.phone!, 这台);
     const r = await 登录(乙.phone!, 这台);
 
-    expect(r.credits.还剩).toBe(每日赠送);
+    expect(r.credits.还剩).toBe(0);
     expect(await 注册赠送发过吗({ kind: "account", id: 甲.id })).toBe(true);
     expect(await 注册赠送发过吗({ kind: "account", id: 乙.id })).toBe(false);
   });
@@ -215,7 +218,7 @@ describe("界面得说得出「你为什么只有 3 次」", () => {
 
   it("/api/gateway/v1/credits 要把这个事实带给界面", async () => {
     const { GET } = await import("@/app/api/gateway/v1/credits/route");
-    const { 注册赠送, 每日赠送 } = await import("@/lib/tenant/credits");
+    const { 注册赠送 } = await import("@/lib/tenant/credits");
     // 网关没配 Key 时这个接口整个 404，和上面那组一样先把三个变量摆上
     process.env.GATEWAY_API_KEY = "upstream-key";
     process.env.GATEWAY_BASE_URL = "https://relay.example.com/v1";
@@ -237,7 +240,8 @@ describe("界面得说得出「你为什么只有 3 次」", () => {
       const 甲的 = await 查(a.token);
       expect(甲的.注册赠送已发).toBe(true);
       expect(甲的.注册赠送).toBe(注册赠送);
-      expect(甲的.每日赠送).toBe(每日赠送);
+      // 10-03 起没有每日赠送：恒报 0，老版本桌面端就不会说「每天登录再送 3 次」
+      expect(甲的.每日赠送).toBe(0);
 
       expect((await 查(b.token)).注册赠送已发, "这一条是界面上那句解释的唯一依据").toBe(false);
     } finally {
@@ -270,7 +274,7 @@ describe("已经领过的一条都不许回收", () => {
   });
 
   it("用掉一部分之后再登录，用量和余额都不会被改写", async () => {
-    const { 注册赠送, 每日赠送, 扣一次 } = await import("@/lib/tenant/credits");
+    const { 注册赠送, 扣一次 } = await import("@/lib/tenant/credits");
     const 这台 = 电脑("用过几次的机器");
     const 甲 = await 建账号();
     await 登录(甲.phone!, 这台);
@@ -278,38 +282,41 @@ describe("已经领过的一条都不许回收", () => {
     const 前 = await 余额(甲.id);
     await 登录(甲.phone!, 这台);
     expect(await 余额(甲.id), "再登录一次不该改动任何数字").toEqual(前);
-    // 用掉之后余额掉到门槛以下，当天那份每日赠送会被结出来——这是原有行为，和机器无关
-    expect(前.上限).toBe(注册赠送 + 每日赠送);
+    // 用掉一些也不会再补（10-03 起没有每日赠送）
+    expect(前.上限).toBe(注册赠送);
     expect(前.用掉).toBe(5);
   });
 });
 
 describe("取不到机器标识时：不发注册赠送，但不是不能用", () => {
-  it("不带机器字段（老版本桌面端 / 硬件 UUID 读不出来）→ 没有 30，每天那几次照发", async () => {
-    const { 每日赠送 } = await import("@/lib/tenant/credits");
+  it("不带机器字段（老版本桌面端 / 硬件 UUID 读不出来）→ 一次都不送，要用 AI 就填自己的 Key", async () => {
+    /*
+      10-03 前这里是「没有 30，每天那几次照发」。可每日赠送按账号发，又不看机器，
+      这条路一个邮箱一份、无限个邮箱无限份——用户：「一定要限制总体次数，不能无限赠送」。
+      不知道是哪台机器 = 领不到名额 = 两样都没有。BYOK 那条路不受影响
+    */
     const { control } = await import("@/lib/tenant/control");
     const 甲 = await 建账号();
     const r = await 登录(甲.phone!, null);
-    expect(r.credits.还剩, "每日赠送要照发，不然这个人根本用不了 AI").toBe(每日赠送);
+    expect(r.credits.还剩).toBe(0);
     expect(await 赠送条数(甲.id, "signup")).toBe(0);
     expect(await control.machineSignup.count(), "不知道是哪台机器，就不该往机器表里写").toBe(0);
   });
 
   it("反复登录也刷不出来——「不知道是哪台机器」必须是不发，不能是照发", async () => {
-    const { 每日赠送 } = await import("@/lib/tenant/credits");
     const 甲 = await 建账号();
     for (let i = 0; i < 20; i++) await 登录(甲.phone!, null);
-    expect((await 余额(甲.id)).上限).toBe(每日赠送);
+    expect((await 余额(甲.id)).上限).toBe(0);
   });
 
   it("乱填的机器标识当没带：占不住名额，也挡不住别人", async () => {
-    const { 注册赠送, 每日赠送 } = await import("@/lib/tenant/credits");
+    const { 注册赠送 } = await import("@/lib/tenant/credits");
     const { control } = await import("@/lib/tenant/control");
     const 甲 = await 建账号();
     const 乙 = await 建账号();
     for (const 乱 of ["", "   ", "abc", "机器", "0".repeat(63), "0".repeat(65), "x".repeat(64), 电脑("少一位").slice(1)]) {
       const r = await 登录(甲.phone!, 乱);
-      expect(r.credits.还剩, `「${乱.slice(0, 12)}」不该被当成一台机器`).toBe(每日赠送);
+      expect(r.credits.还剩, `「${乱.slice(0, 12)}」不该被当成一台机器`).toBe(0);
     }
     expect(await control.machineSignup.count()).toBe(0);
     // 甲一条注册赠送都没拿到，也没有挡住任何人
@@ -325,7 +332,6 @@ describe("拿不到机器的那两个调用点不是后门", () => {
       而它原来是会顺手补注册赠送的：要是留着那一下，登录时被拦下的第二个账号
       只要打开应用看一眼额度就补上了，登录那道闸门等于没有。
     */
-    const { 每日赠送 } = await import("@/lib/tenant/credits");
     const { 签发 } = await import("@/lib/tenant/device-token");
     const { GET } = await import("@/app/api/gateway/v1/credits/route");
     process.env.GATEWAY_API_KEY = "upstream-key";
@@ -341,7 +347,7 @@ describe("拿不到机器的那两个调用点不是后门", () => {
         }));
         最后 = (await res.json()).还剩;
       }
-      expect(最后).toBe(每日赠送);
+      expect(最后, "连每日赠送也刷不出来：没领到名额的账号两样都没有").toBe(0);
       expect(await 赠送条数(甲.id, "signup")).toBe(0);
     } finally {
       delete process.env.GATEWAY_API_KEY;
@@ -350,8 +356,8 @@ describe("拿不到机器的那两个调用点不是后门", () => {
     }
   });
 
-  it("扣费那条路也刷不出来：没领过注册赠送的账号，上限就是每日那几次", async () => {
-    const { 每日赠送, 扣一次 } = await import("@/lib/tenant/credits");
+  it("扣费那条路也刷不出来：没领过注册赠送的账号，一次都放不过去", async () => {
+    const { 扣一次 } = await import("@/lib/tenant/credits");
     const 甲 = await 建账号();
     let 放行 = 0;
     for (let i = 0; i < 50; i++) {
@@ -359,7 +365,7 @@ describe("拿不到机器的那两个调用点不是后门", () => {
       if (!r.ok) break;
       放行++;
     }
-    expect(放行).toBe(每日赠送);
+    expect(放行).toBe(0);
   });
 });
 

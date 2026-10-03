@@ -1,9 +1,10 @@
 import { closeTestDatabases } from "./close-databases";
 /**
- * 每日赠送只发注册后的前 30 天（2026-09-28 用户拍板）。规则在 lib/tenant/credits.ts。
+ * 不再有每日赠送（2026-10-03 用户：「只送注册账号的 30 次。目前已有的账户也不再赠送了」）。规则在 lib/tenant/credits.ts。
+ * 前身是 daily-window.test.ts（09-28「只发注册后 30 天」那一版），搭库和造账号的办法照旧。
  *
- * 钉的是四件事：边界（第 30 天发、第 31 天不发）；只加不减；注册赠送和网页版工作区不受波及；
- * 以及对外说的话跟着变——过了期还说「每天登录再送 3 次」「明天再送」就是许诺一个不再发的东西。
+ * 钉的是：新号、老号、期内、过期、用完了，一律不再补；以前发出去的一条都不收回；开户赠送照常一台电脑一份；
+ * 对外说的话跟着变——还说「每天登录再送 3 次」「明天再送」就是许诺一个不再发的东西。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import fs from "node:fs";
@@ -13,7 +14,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
 
-const 临时根 = path.join(os.tmpdir(), `crm-daily-window-${process.pid}`);
+const 临时根 = path.join(os.tmpdir(), `crm-no-daily-${process.pid}`);
 
 beforeAll(() => {
   fs.mkdirSync(临时根, { recursive: true });
@@ -72,6 +73,16 @@ async function 注册于(n天前: number) {
 
 const 账号 = (id: string) => ({ kind: "account" as const, id });
 
+/**
+ * 10-03 起每日赠送只发给领到了开户赠送的账号（一台电脑一份）。验「窗口」这件事的用例
+ * 先让账号在自己那台电脑上领到那 30 次、再全用掉——余额低于门槛，每日赠送才轮得到它
+ */
+async function 领过开户并用完(a: { id: string; phone: string | null }, 机器名: string) {
+  const { control } = await import("@/lib/tenant/control");
+  await 登录(a.phone!, 电脑(机器名));
+  await control.accountAiUsage.upsert({ where: { accountId: a.id }, create: { accountId: a.id, calls: 30 }, update: { calls: 30 } });
+}
+
 const 每日条数 = async (accountId: string) => {
   const { control } = await import("@/lib/tenant/control");
   return control.accountAiGrant.count({ where: { accountId, reason: "daily" } });
@@ -99,23 +110,19 @@ function 关网关() {
   delete process.env.GATEWAY_MODELS;
 }
 
-describe("每日赠送只发注册后的前 30 天（2026-09-28 拍板）", () => {
-  it("注册后第 30 天那天照发", async () => {
-    const { 结算赠送 } = await import("@/lib/tenant/credits");
-    const a = await 注册于(29);
-    await 结算赠送(账号(a.id));
-    expect(await 每日条数(a.id)).toBe(1);
+describe("不再有每日赠送", () => {
+  it("刚注册、注册二十天、注册六十天：用完了一律不补", async () => {
+    const { 结算赠送, 余额, 注册赠送 } = await import("@/lib/tenant/credits");
+    for (const [n, 名] of [[0, "新号"], [20, "二十天"], [60, "六十天"]] as const) {
+      const a = await 注册于(n);
+      await 领过开户并用完(a, 名);
+      await 结算赠送(账号(a.id));
+      expect(await 每日条数(a.id), `${名}：不该再有每日赠送`).toBe(0);
+      expect((await 余额(账号(a.id))).上限).toBe(注册赠送);
+    }
   });
 
-  it("第 31 天起不再发", async () => {
-    const { 结算赠送, 余额 } = await import("@/lib/tenant/credits");
-    const a = await 注册于(30);
-    await 结算赠送(账号(a.id));
-    expect(await 每日条数(a.id)).toBe(0);
-    expect((await 余额(账号(a.id))).上限).toBe(0);
-  });
-
-  it("只加不减：期内领到的每日赠送，过了期一条都不收回", async () => {
+  it("以前发出去的每日赠送一条都不收回：只加不减", async () => {
     const { 赠送, 结算赠送, 余额 } = await import("@/lib/tenant/credits");
     const a = await 注册于(45);
     await 赠送(账号(a.id), { amount: 3, reason: "daily", key: `${a.id}:daily:2026-08-20` });
@@ -123,7 +130,7 @@ describe("每日赠送只发注册后的前 30 天（2026-09-28 拍板）", () =
     expect((await 余额(账号(a.id))).上限).toBe(3);
   });
 
-  it("注册赠送不受这个窗口影响：第 40 天第一次在新电脑上登录，那 30 次照样到账", async () => {
+  it("开户赠送照常：第 40 天第一次在新电脑上登录，那 30 次照样到账", async () => {
     const { 余额, 注册赠送 } = await import("@/lib/tenant/credits");
     const a = await 注册于(40);
     await 登录(a.phone!, 电脑("第四十天才装"));
@@ -131,7 +138,7 @@ describe("每日赠送只发注册后的前 30 天（2026-09-28 拍板）", () =
     expect(await 每日条数(a.id)).toBe(0);
   });
 
-  it("网页版工作区不设窗口：共享工作区整个靠每日赠送续命，建了 100 天照发", async () => {
+  it("网页版工作区（含共享试用工作区）也不再每天送：建了 100 天、用光了也不补", async () => {
     const { control } = await import("@/lib/tenant/control");
     const { 结算赠送 } = await import("@/lib/tenant/credits");
     const id = `ws-old-${序号++}`;
@@ -140,12 +147,11 @@ describe("每日赠送只发注册后的前 30 天（2026-09-28 拍板）", () =
     });
     await control.aiUsage.create({ data: { workspaceId: id, calls: 30 } });
     await 结算赠送({ kind: "workspace", id });
-    expect(await control.aiGrant.count({ where: { workspaceId: id, reason: "daily" } })).toBe(1);
+    expect(await control.aiGrant.count({ where: { workspaceId: id, reason: "daily" } })).toBe(0);
   });
 
-  it("余额接口：期内报 3 次和截至日；过了期报 0——老版本桌面端只认这个数，是 0 就不许诺", async () => {
+  it("余额接口：每日赠送恒报 0、截至恒报 null——老版本桌面端只认这个数，是 0 就不许诺", async () => {
     const { GET } = await import("@/app/api/gateway/v1/credits/route");
-    const { 每日赠送, 今天 } = await import("@/lib/tenant/credits");
     开网关();
     try {
       const 查 = async (token: string) =>
@@ -153,23 +159,18 @@ describe("每日赠送只发注册后的前 30 天（2026-09-28 拍板）", () =
           每日赠送?: number;
           每日赠送截至?: string | null;
         };
-      const 新 = await 注册于(0);
-      const 新的 = await 查((await 登录(新.phone!)).token);
-      expect(新的.每日赠送).toBe(每日赠送);
-      // 注册当天是第 1 天，第 30 天是往后数 29 天
-      const 应截至 = new Date(Date.parse(`${今天()}T00:00:00Z`) + 29 * 天).toISOString().slice(0, 10);
-      expect(新的.每日赠送截至).toBe(应截至);
-
-      const 老 = await 注册于(31);
-      const 老的 = await 查((await 登录(老.phone!)).token);
-      expect(老的.每日赠送, "过了期还报 3，老客户端就会继续说「每天登录再送 3 次」").toBe(0);
-      expect(Boolean(老的.每日赠送截至 && 老的.每日赠送截至 < 今天())).toBe(true);
+      for (const [n, 名] of [[0, "新来的"], [31, "老用户"]] as const) {
+        const a = await 注册于(n);
+        const r = await 查((await 登录(a.phone!, 电脑(名))).token);
+        expect(r.每日赠送, 名).toBe(0);
+        expect(r.每日赠送截至, 名).toBeNull();
+      }
     } finally {
       关网关();
     }
   });
 
-  it("次数用完时那句话：期内说明天再送，过了期不开空头支票", async () => {
+  it("次数用完时那句话：不说「明天再送」，要给出填 Key 的出路；没领到开户赠送的要说清楚为什么", async () => {
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
     const { control } = await import("@/lib/tenant/control");
     开网关();
@@ -184,17 +185,17 @@ describe("每日赠送只发注册后的前 30 天（2026-09-28 拍板）", () =
         return JSON.stringify(await res.json());
       };
 
-      const 期内 = await 注册于(3);
-      const t1 = (await 登录(期内.phone!)).token;
-      await control.accountAiUsage.upsert({ where: { accountId: 期内.id }, create: { accountId: 期内.id, calls: 99 }, update: { calls: 99 } });
-      expect(await 问(t1)).toContain("明天登录再送");
-
-      const 过期 = await 注册于(60);
-      const t2 = (await 登录(过期.phone!)).token;
-      const 话 = await 问(t2);
-      expect(话).not.toContain("明天登录再送");
-      expect(话).toContain("每日赠送也已经结束");
+      const 甲 = await 注册于(3);
+      const t1 = (await 登录(甲.phone!, 电脑("甲那台"))).token;
+      await control.accountAiUsage.upsert({ where: { accountId: 甲.id }, create: { accountId: 甲.id, calls: 99 }, update: { calls: 99 } });
+      const 话 = await 问(t1);
+      expect(话).not.toContain("明天");
       expect(话, "BYOK 那条出路要一直说").toContain("API Key");
+
+      const 乙 = await 注册于(3);
+      const 话2 = await 问((await 登录(乙.phone!, 电脑("甲那台"))).token);
+      expect(话2).not.toContain("明天");
+      expect(话2).toContain("一台电脑只送一份");
     } finally {
       关网关();
     }

@@ -4,10 +4,10 @@ import { closeTestDatabases } from "./close-databases";
  *
  * 和 lib/ai-quota.ts 是两回事，混了就都不对：
  *   ai-quota   五分钟 30 次、内存态、重启清零 —— 防脚本刷爆，人正常用碰不到
- *   这里       注册送 30、余额不足 30 时每天送 3、落库 —— 这是定价的一部分
+ *   这里       注册送 30（10-03 起不再每天补）、落库 —— 这是定价的一部分
  *
  * 最要紧的两条：并发不会多放行（每多放行一次就是一次真金白银的上游调用），
- * 每日赠送在并发下不会送两遍（唯一键替我们判）。
+ * 用完就是用完，不再有每日赠送。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import fs from "node:fs";
@@ -76,8 +76,8 @@ describe("试用工作区", () => {
     expect(q.受限).toBe(true);
   });
 
-  it("第一天能用的 = 注册赠送 + 当天那份每日赠送，多一次都不行", async () => {
-    const { 扣一次额度, 注册赠送, 每日赠送 } = await import("@/lib/tenant/ai-allowance");
+  it("能用的就是开户那 30 次，多一次都不行（10-03 起没有每日赠送）", async () => {
+    const { 扣一次额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const ws = await 建工作区();
     let 放行 = 0;
     for (let i = 0; i < 100; i++) {
@@ -88,35 +88,35 @@ describe("试用工作区", () => {
       }
       放行++;
     }
-    expect(放行).toBe(注册赠送 + 每日赠送);
+    expect(放行).toBe(注册赠送);
   });
 
-  it("并发提问不会多放行——先读再写会让 33 次被用掉 34 次", async () => {
-    const { 扣一次额度, 注册赠送, 每日赠送 } = await import("@/lib/tenant/ai-allowance");
+  it("并发提问不会多放行——先读再写会让 30 次被用掉 31 次", async () => {
+    const { 扣一次额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const ws = await 建工作区();
-    // 先串行用两次，让当天的每日赠送落定，剩下的一起冲
+    // 先串行用两次（开户赠送在第一次结账时落定），剩下的一起冲
     await 扣一次额度(ws);
     await 扣一次额度(ws);
     const 结果 = await Promise.all(Array.from({ length: 注册赠送 + 20 }, () => 扣一次额度(ws)));
-    expect(结果.filter((r) => r.ok).length).toBe(注册赠送 + 每日赠送 - 2);
+    expect(结果.filter((r) => r.ok).length).toBe(注册赠送 - 2);
   });
 
   it("拦下的那次会减回去：计数停在上限，不会把之后补的次数吃掉", async () => {
-    const { 扣一次额度, 查额度, 注册赠送, 每日赠送 } = await import("@/lib/tenant/ai-allowance");
+    const { 扣一次额度, 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { control } = await import("@/lib/tenant/control");
     const ws = await 建工作区();
     for (let i = 0; i < 注册赠送 + 20; i++) await 扣一次额度(ws);
     const q = await 查额度(ws);
-    expect(q.用掉).toBe(注册赠送 + 每日赠送);
+    expect(q.用掉).toBe(注册赠送);
     expect(q.还剩).toBe(0);
-    expect((await control.aiUsage.findUnique({ where: { workspaceId: ws } }))!.calls).toBe(注册赠送 + 每日赠送);
+    expect((await control.aiUsage.findUnique({ where: { workspaceId: ws } }))!.calls).toBe(注册赠送);
   });
 
   it("额度按工作区算，不按人头——否则拉五个同事进来就有五份", async () => {
-    const { 扣一次额度, 注册赠送, 每日赠送 } = await import("@/lib/tenant/ai-allowance");
+    const { 扣一次额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const ws = await 建工作区();
     // 同一个工作区里不管谁问，扣的都是同一个池子（函数签名里根本没有 userId）
-    for (let i = 0; i < 注册赠送 + 每日赠送; i++) await 扣一次额度(ws);
+    for (let i = 0; i < 注册赠送; i++) await 扣一次额度(ws);
     expect((await 扣一次额度(ws)).ok).toBe(false);
   });
 
@@ -134,52 +134,26 @@ describe("试用工作区", () => {
   });
 });
 
-describe("每日赠送", () => {
-  it("余额够 30 不送；用掉一些之后当天再看就送 3", async () => {
-    const { 扣一次额度, 查额度, 注册赠送, 每日赠送, 每日赠送门槛 } = await import("@/lib/tenant/ai-allowance");
+describe("不再有每日赠送（2026-10-03 用户：只送注册那 30 次，已有的也不再送）", () => {
+  it("用掉一些、甚至用完，都不会再补；用完那句话不许诺「明天再送」", async () => {
+    const { 扣一次额度, 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { control } = await import("@/lib/tenant/control");
     const ws = await 建工作区();
-    // 刚注册：30 送出、余额 30 = 门槛，今天不送
-    await 查额度(ws);
-    expect(await control.aiGrant.count({ where: { workspaceId: ws, reason: "daily" } })).toBe(0);
-
-    // 用掉 1 次，余额 29 < 门槛：今天送 3
     await 扣一次额度(ws);
-    const q = await 查额度(ws);
-    expect(q.上限).toBe(注册赠送 + 每日赠送);
-    expect(q.还剩).toBe(注册赠送 + 每日赠送 - 1);
-    expect(每日赠送门槛).toBe(30);
+    expect((await 查额度(ws)).上限).toBe(注册赠送);
+    for (let i = 0; i < 注册赠送; i++) await 扣一次额度(ws);
+    const r = await 扣一次额度(ws);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).not.toContain("明天");
+    expect(await control.aiGrant.count({ where: { workspaceId: ws, reason: "daily" } })).toBe(0);
   });
 
-  it("同一天只送一次，并发也不会送两遍——唯一键替我们判", async () => {
-    const { 扣一次额度, 查额度 } = await import("@/lib/tenant/ai-allowance");
+  it("以前发出去的每日赠送一条都不收回：只加不减", async () => {
+    const { 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { control } = await import("@/lib/tenant/control");
     const ws = await 建工作区();
-    for (let i = 0; i < 10; i++) await 扣一次额度(ws);
-    await Promise.all(Array.from({ length: 8 }, () => 查额度(ws)));
-    const 今日 = await control.aiGrant.findMany({ where: { workspaceId: ws, reason: "daily" } });
-    expect(今日).toHaveLength(1);
-    expect(今日[0].amount).toBe(3);
-  });
-
-  it("换一天再来又有 3 次——用完的人第二天登录能接着用", async () => {
-    const { 扣一次额度, 查额度, 注册赠送, 每日赠送, 今天 } = await import("@/lib/tenant/ai-allowance");
-    const { control } = await import("@/lib/tenant/control");
-    const ws = await 建工作区();
-    for (let i = 0; i < 注册赠送 + 每日赠送; i++) await 扣一次额度(ws);
-    expect((await 扣一次额度(ws)).ok).toBe(false);
-    // 把今天的那条改成昨天的键，等于「过了一天」
-    await control.aiGrant.updateMany({ where: { workspaceId: ws, reason: "daily" }, data: { key: `${ws}:daily:1999-01-01` } });
-    const q = await 查额度(ws);
-    expect(q.还剩).toBe(每日赠送);
-    expect(await control.aiGrant.findFirst({ where: { key: `${ws}:daily:${今天()}` } })).not.toBeNull();
-  });
-
-  it("「天」按北京时间算", async () => {
-    const { 今天 } = await import("@/lib/tenant/ai-allowance");
-    // UTC 2026-09-14 20:00 = 北京 2026-09-15 04:00
-    expect(今天(new Date("2026-09-14T20:00:00Z"))).toBe("2026-09-15");
-    expect(今天(new Date("2026-09-14T10:00:00Z"))).toBe("2026-09-14");
+    await control.aiGrant.create({ data: { workspaceId: ws, amount: 3, reason: "daily", key: `${ws}:daily:2026-09-30` } });
+    expect((await 查额度(ws)).上限).toBe(注册赠送 + 3);
   });
 
   it("过期或付费的工作区不结算赠送——送了也用不上，账本别乱", async () => {
@@ -204,10 +178,10 @@ describe("付费工作区", () => {
   });
 
   it("试用期间用完了，开通订阅之后立刻恢复", async () => {
-    const { 扣一次额度, 注册赠送, 每日赠送 } = await import("@/lib/tenant/ai-allowance");
+    const { 扣一次额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const { control } = await import("@/lib/tenant/control");
     const ws = await 建工作区();
-    for (let i = 0; i < 注册赠送 + 每日赠送 + 2; i++) await 扣一次额度(ws);
+    for (let i = 0; i < 注册赠送 + 2; i++) await 扣一次额度(ws);
     expect((await 扣一次额度(ws)).ok).toBe(false);
 
     await control.workspace.update({ where: { id: ws }, data: { status: "ACTIVE", paidUntil: new Date(Date.now() + 300 * 天) } });
@@ -218,13 +192,13 @@ describe("付费工作区", () => {
 
 describe("赠送账本", () => {
   it("运营台加次数：用完之后加 10 就又有 10", async () => {
-    const { 扣一次额度, 加次数, 查额度, 注册赠送, 每日赠送 } = await import("@/lib/tenant/ai-allowance");
+    const { 扣一次额度, 加次数, 查额度, 注册赠送 } = await import("@/lib/tenant/ai-allowance");
     const ws = await 建工作区();
-    for (let i = 0; i < 注册赠送 + 每日赠送 + 5; i++) await 扣一次额度(ws);
+    for (let i = 0; i < 注册赠送 + 5; i++) await 扣一次额度(ws);
     expect((await 扣一次额度(ws)).ok).toBe(false);
 
     await 加次数(ws, 10, "谈单");
-    // 被拦的 5 次没吃掉补的次数；今天的每日赠送已经领过，不会再送
+    // 被拦的 5 次没吃掉补的次数
     expect((await 查额度(ws)).还剩).toBe(10);
     expect((await 扣一次额度(ws)).ok).toBe(true);
   });

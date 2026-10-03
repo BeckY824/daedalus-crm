@@ -302,9 +302,9 @@ describe("额度", () => {
 
     expect(res.status).toBe(402);
     expect((await res.json()).error.message).toContain("用完");
-    // 注册送的加上当天那份每日赠送。每日赠送是懒发的：余额掉到门槛以下才发
-    const { 注册赠送, 每日赠送 } = await import("@/lib/tenant/credits");
-    expect(放行).toBe(注册赠送 + 每日赠送);
+    // 就是注册送的那 30 次：10-03 起没有每日赠送了，用完不补
+    const { 注册赠送 } = await import("@/lib/tenant/credits");
+    expect(放行).toBe(注册赠送);
     expect(打了几次上游, "拦下的那次不该打上游").toBe(放行);
 
     // 拦下的那次要还回去，否则运营后来补的次数会被这些空计数吃掉
@@ -432,9 +432,8 @@ describe("模型列表与余额查询", () => {
     const { token, acc } = await 建账号带令牌({ 没登录过: true });
     const { GET } = await import("@/app/api/gateway/v1/credits/route");
     const res = await GET(请求(token, {}, "https://app.example.com/api/gateway/v1/credits"));
-    const { 每日赠送 } = await import("@/lib/tenant/credits");
-    // 每日赠送照发：不知道是哪台机器不等于不让人用 AI
-    expect((await res.json()).还剩).toBe(每日赠送);
+    // 10-03 起不知道是哪台机器 = 领不到名额 = 每日赠送也没有（一台电脑一辈子最多 120 次，见 credits.ts）
+    expect((await res.json()).还剩).toBe(0);
     const { control } = await import("@/lib/tenant/control");
     expect(await control.accountAiGrant.count({ where: { accountId: acc.id, reason: "signup" } })).toBe(0);
   });

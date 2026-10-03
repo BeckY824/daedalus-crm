@@ -97,7 +97,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
     「这个月谁签得最多」在单人库里答案永远是「就你自己」——点一下，
     烧掉当天三次免费提问里的一次，换回一句他早就知道的话
-    （注册赠送 30 次一台电脑只发一次，之后每天只补 3 次，见 lib/tenant/credits.ts）。
+    （只有开户那 30 次、一台电脑一份，用完不补，见 lib/tenant/credits.ts）。
     这和 0.40 之前注册页写着「送 30 次」是同一类毛病：**界面上说着一句在你这儿不成立的话**。
 
     判据用现成的 `唯一负责人()`——建档、导入、商机、渠道四处早就在用它决定

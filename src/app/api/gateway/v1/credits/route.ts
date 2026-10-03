@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
 import { 网关认证 } from "@/lib/tenant/gateway-auth";
 import { 读客户端, 记设备 } from "@/lib/tenant/device-info";
-import { 余额, 结算赠送, 每日赠送, 每日赠送期, 注册赠送, 注册赠送发过吗 } from "@/lib/tenant/credits";
+import { 余额, 结算赠送, 注册赠送, 注册赠送发过吗 } from "@/lib/tenant/credits";
 
 export const dynamic = "force-dynamic";
 
 /**
  * 还剩几次。不是 OpenAI 的接口，是桌面端用来显示额度的。
- * 顺带把当天的赠送结掉——用户打开应用看一眼额度，就算"今天用了"。
+ * 顺带结一次账（补开户赠送——这里拿不到机器，实际什么都不补，见下面那段）。
  *
  * **这一处只结每日赠送，不发注册赠送**（2026-09-19）。
  *
@@ -46,15 +46,13 @@ export async function GET(req: Request) {
     设置页显示还剩 3，中间那句话谁都没说。这个字段就是那句话的依据。
   */
   /*
-    `每日赠送截至` 是 0.46.6 加的：每日赠送只发注册后 30 天（见 lib/tenant/credits.ts）。
-    过了期 `每日赠送` 报 0 而不是 3——**老版本桌面端只认这个数**，是 0 它就不说
-    「每天登录再送 3 次」，不会对着一个已经不发的赠送许诺。新版本再拿截至日期说清楚到哪天。
+    `每日赠送` / `每日赠送截至` 是 0.39–0.46.6 陆续加的；10-03 起每日赠送整个停了，两个字段留着、恒为 0 和 null：
+    **老版本桌面端只认 每日赠送 这个数**，是 0 它就不说「每天登录再送 3 次」，不会对着一个已经不发的赠送许诺。
   */
-  const 期 = await 每日赠送期(owner);
   return NextResponse.json({
     ...(await 余额(owner)),
-    每日赠送: 期.期内 ? 每日赠送 : 0,
-    每日赠送截至: 期.截至,
+    每日赠送: 0,
+    每日赠送截至: null,
     注册赠送,
     注册赠送已发: await 注册赠送发过吗(owner),
     accountId: auth.accountId,

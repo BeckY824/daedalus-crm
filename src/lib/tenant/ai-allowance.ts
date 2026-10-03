@@ -20,7 +20,7 @@ import type { AiFeature } from "../ai-usage";
  *   这里          落库的赠送账本 —— 这是产品定价的一部分
  */
 
-export const { 注册赠送, 每日赠送, 每日赠送门槛, 今天 } = 账本;
+export const { 注册赠送 } = 账本;
 
 /** 这个工作区的账本归属 */
 const 归属 = (workspaceId: string): 账本.Owner => ({ kind: "workspace", id: workspaceId });
@@ -67,7 +67,7 @@ export async function 扣一次额度(workspaceId: string): Promise<额度判定
   if (!r.ok) {
     return {
       ok: false,
-      error: `免费的 AI 对话次数已经用完，明天登录再送 ${账本.每日赠送} 次。开通订阅后不限次数——其余功能不受影响，照常可用。`,
+      error: "免费的 AI 对话次数已经用完。开通订阅后不限次数——其余功能不受影响，照常可用。",
       用掉: r.上限,
     };
   }
