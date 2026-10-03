@@ -66,7 +66,7 @@ async function 点侧栏(page: Page, 名字: string | RegExp, 落地: RegExp) {
 /**
  * 从客户列表点第一行进记录页，也是客户端导航。
  *
- * **先把窗口放到 1960。** 记录页的窄名单在 1440 以下会收成抽屉（那时 `aside.pane` 不存在，
+ * **先把窗口放到 1960。** 记录页的窄名单在 1214 以下（lib/roster 的 名单门槛）会收成抽屉（那时 `aside.pane` 不存在，
  * 见 workbench 里「窄屏下名单收成抽屉」那条），而 playwright 的默认视口是 1280——
  * 不设宽度的话这一组验的其实是抽屉状态，全是假红。
  * 右边的 AI 面板开着时它还要再让出 380（见 lib/roster.ts 的 DockOpenContext），

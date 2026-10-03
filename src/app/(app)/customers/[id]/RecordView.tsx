@@ -358,6 +358,8 @@ export default function RecordView({
         <StatusPicker customerId={customer.id} field="decisionStatus" value={customer.decisionStatus} options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))}>
           <DecisionStatusTag status={customer.decisionStatus} />
         </StatusPicker>
+        {/* 来源（照毛玻璃原型的那枚「来源：WhatsApp」）：渠道或推荐人。自然流量不摆——没有来源就不占位 */}
+        {customer.referrerName && <span className="rec-tags-n">来源：{customer.referrerName}</span>}
         {/* 一个数都没有就不出现：「预计签约 —」占着一行却什么也没说 */}
         {(customer.signedAmount > 0 || customer.expectedSignAt) && (
           <span className="rec-tags-n">
