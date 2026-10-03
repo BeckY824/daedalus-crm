@@ -18,6 +18,9 @@ const 列表页 = [
   "src/app/(app)/contacts/ContactsView.tsx",
   "src/app/(app)/opportunities/OpportunitiesView.tsx",
   "src/app/(app)/follow-ups/FollowUpsView.tsx",
+  // 外贸（2026-10-03）
+  "src/app/(app)/orders/OrdersView.tsx",
+  "src/app/(app)/suppliers/SuppliersView.tsx",
 ];
 
 /**
@@ -40,6 +43,10 @@ const 不算列表页 = [
   // 导入抽屉：一张列文件的列，一张列读不懂的格子。都还没进库
   "src/app/(app)/customers/ImportDrawer.tsx",
   "src/app/(app)/customers/import-steps.tsx",
+  // 外贸（2026-10-03）：一个询盘的几行比价、一家供应商自己的历次比价和采过的订单。
+  // 都是挂在一条记录下面的小表，几行到几十行，没有筛选、分页、批量——同复盘里的排行
+  "src/app/(app)/opportunities/CompareDrawer.tsx",
+  "src/app/(app)/suppliers/[id]/SupplierView.tsx",
 ];
 
 async function 全部源码(dir: string): Promise<string[]> {
