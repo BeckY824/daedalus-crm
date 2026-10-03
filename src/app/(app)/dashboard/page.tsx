@@ -13,6 +13,7 @@ import HomeChat, { type Suggestion } from "./HomeChat";
 import StartCard from "./StartCard";
 import { 读对话 } from "./threads";
 import { 数逾期跟进 } from "@/lib/overdue";
+import { 带币种, 签约合计 } from "@/lib/money-db";
 import { 取提醒项 } from "@/lib/reminders-db";
 import { 算提醒 } from "@/lib/reminders";
 
@@ -65,7 +66,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     // 计划 + 待办都算，和点进去的计划页「我的 · 逾期」、数据页那张卡同一个函数（lib/overdue.ts）
     数逾期跟进(prisma, { ownerId: user.id }),
     prisma.customer.count({ where: { followStatus: "意向较高" } }),
-    prisma.contract.aggregate({ _sum: { amount: true }, where: { signedAt: { gte: now.startOf("month").toDate(), lt: now.endOf("month").toDate() } } }),
+    // 取行按币种合计（不换汇）：币种在 ContractMoney 上，aggregate 分不了
+    prisma.contract.findMany({ select: { amount: true, ...带币种.签约 }, where: { signedAt: { gte: now.startOf("month").toDate(), lt: now.endOf("month").toDate() } } }),
     prisma.customer.count(),
   ]);
 
@@ -138,7 +140,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       信号={{
         逾期,
         高意向,
-        本月签约: 本月签约._sum.amount ?? 0,
+        本月签约: 签约合计(本月签约),
         高意向标签: statusLabel(b, "意向较高"),
       }}
     />

@@ -122,6 +122,31 @@ export function 按币种合计<T>(行: T[], 取金额: (r: T) => number | null 
   return [...m.entries()].map(([币种, 合计]) => ({ 币种, 合计 })).sort((a, b) => b.合计 - a.合计);
 }
 
+export type 币种合计 = { 币种: string; 合计: number };
+
+/** 一份按币种的合计里，某个币种是多少（没有就是 0）。画图、排序这种只能用一个数的地方，取本位币那一份 */
+export function 取币种(合计: 币种合计[], 币种: string): number {
+  return 合计.find((x) => x.币种 === 规整币种(币种))?.合计 ?? 0;
+}
+
+/** 几份按币种的合计再加在一起（漏斗各档 → 合计那一行） */
+export function 合并合计(...份: 币种合计[][]): 币种合计[] {
+  return 按币种合计(份.flat(), (x) => x.合计, (x) => x.币种);
+}
+
+/**
+ * 两份合计之间的环比（%）。**只在两边都是同一个币种时算**：
+ * 上月全是人民币、本月来了一单美元，拿两个数一比就是假涨幅。上月是 0、币种不一样都返回 undefined（不显示）。
+ */
+export function 同币环比(本: 币种合计[], 上: 币种合计[]): number | undefined {
+  if (本.length > 1 || 上.length !== 1) return undefined;
+  const 上值 = 上[0].合计;
+  if (!上值) return undefined;
+  if (本.length === 1 && 本[0].币种 !== 上[0].币种) return undefined;
+  const 本值 = 本[0]?.合计 ?? 0;
+  return Number((((本值 - 上值) / 上值) * 100).toFixed(1));
+}
+
 /** 「US$ 32,100 · € 21,500」。空的时候按本位币写 0 */
 export function 合计文字(合计: { 币种: string; 合计: number }[], 本位币: string = 默认币种): string {
   if (合计.length === 0) return 金额(0, 本位币);

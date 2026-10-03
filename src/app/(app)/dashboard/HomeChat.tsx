@@ -49,7 +49,8 @@ function 命令表(几个模型: number) {
  *   打断：Esc、Ctrl+C，或点右侧的停止键；中断后留一行「已中断」，已流出的字不丢
  * 背后是一个 agent 循环：模型自己决定读谁、查什么，工具全部只读。
  */
-export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: number; 高意向标签: string };
+/** 本月签约按币种分开（2026-10-03，不换汇）；空数组 = 这个月还没签 */
+export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: { 币种: string; 合计: number }[]; 高意向标签: string };
 
 export default function HomeChat({ 会话, userName, suggestions, context, models, 空库, 信号, 模式 = "宽", 上下文提示, 上下文范围, scope = 首页屏, 标题前缀 }: {
   /** 地址上 ?c= 指的那条对话，服务端读好传进来。null = 一屏新对话 */

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import CountUp from "@/components/CountUp";
-import { money } from "@/lib/utils";
+import { 金额, 合计文字 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
 import type { 首页信号 } from "./HomeChat";
 
@@ -22,7 +22,13 @@ import type { 首页信号 } from "./HomeChat";
  */
 export default function Signals({ 信号 }: { 信号: 首页信号 }) {
   const b = useBusiness();
-  const 项 = [
+  /*
+    本月签约：只有一种币时照旧滚数字；几种币并排（US$ 3,200 · € 1,500）就直接写，
+    滚动只能滚一个数。没签过按本位币写 0
+  */
+  const 签 = 信号.本月签约;
+  const 签币 = 签[0]?.币种 ?? b.currency;
+  const 项: { key: string; href: string; 口径: string; 数: number; 文字?: string; 格式?: (n: number) => string; 去处: string; 急: boolean; title: string }[] = [
     {
       key: "逾期",
       href: "/follow-ups/plans",
@@ -46,9 +52,10 @@ export default function Signals({ 信号 }: { 信号: 首页信号 }) {
       href: "/overview?view=本月",
       口径: "本月签约",
       // 0 就写 ¥0：「—」读起来是「不知道」，而这个月签了多少我们是知道的
-      数: 信号.本月签约,
-      格式: money,
-      去处: 信号.本月签约 > 0 ? "看拆解" : "本月还没有",
+      数: 签.length === 1 ? 签[0].合计 : 0,
+      文字: 签.length > 1 ? 合计文字(签, b.currency) : undefined,
+      格式: (n: number) => 金额(n, 签币),
+      去处: 签.some((x) => x.合计 > 0) ? "看拆解" : "本月还没有",
       急: false,
       title: "本月已登记的签约金额合计，按签约日期算，全团队",
     },
@@ -62,7 +69,7 @@ export default function Signals({ 信号 }: { 信号: 首页信号 }) {
           <span className="signal-v">
             {/* 数字滚一下，只滚这次会话的第一次——说的是「刚数出来的」，不是一张贴在那儿的图 */}
             <b>
-              <CountUp 值={x.数} 记号={`signal:${x.key}`} 格式={x.格式} />
+              {x.文字 ?? <CountUp 值={x.数} 记号={`signal:${x.key}`} 格式={x.格式} />}
             </b>
             <em>{x.去处}</em>
           </span>

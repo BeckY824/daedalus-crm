@@ -20,7 +20,8 @@ import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
-import { money, smartTime, 成员选项 } from "@/lib/utils";
+import { smartTime, 成员选项 } from "@/lib/utils";
+import { 合计文字, 合并合计, 取币种, type 币种合计 } from "@/lib/currency";
 import { OPP_STAGE_COLOR } from "@/lib/constants";
 
 type Props = {
@@ -35,16 +36,18 @@ type Props = {
     newCustomersThisMonth: number;
     /** 上月是 0 时是 null：没有可比的口径 */
     newCustomersDelta: number | null;
-    oppTotalAmount: number;
+    /** 金额一律按币种分开（2026-10-03，不换汇） */
+    oppTotalAmount: 币种合计[];
     winRate: number;
     /** 设计稿 08/DATA·NOW 那四张卡：这一刻真查出来的，每个都点得进明细 */
-    签约本月: number;
+    签约本月: 币种合计[];
     /** 上月一分钱都没有时是 undefined——分母为 0 的环比不显示，不编一个 */
     签约环比?: number;
     进行中商机: number;
     逾期跟进: number;
     /** 卡片下方小曲线的真实数据，按最近 8 周 */
     newCustomerSeries: number[];
+    /** 只画本位币那一份：一条线画不了两种钱 */
     oppAmountSeries: number[];
     winRateSeries: number[];
   };
@@ -53,8 +56,8 @@ type Props = {
    * 漏斗按时间窗给两份：前四档（进行中）两份相同，只有末档「赢单成交」不同。
    * 两份都在服务端算好一起送下来，切换窗口不用再跑一趟服务器。
    */
-  funnel: Record<"本月" | "本季", { stage: string; count: number; amount: number }[]>;
-  ranking: { id: string; name: string; email: string; amount: number }[];
+  funnel: Record<"本月" | "本季", { stage: string; count: number; amount: 币种合计[] }[]>;
+  ranking: { id: string; name: string; email: string; amount: 币种合计[] }[];
   /** 待办 = 任务 + 跟进计划，和 `/follow-ups/plans` 同一个口径。`kind` 区分是哪一种 */
   tasks: { id: string; title: string; customerId: string; customerName: string; dueAt: string | null; kind: "任务" | "计划" }[];
   watchlist: WatchItem[];
@@ -143,13 +146,15 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
     [sliced],
   );
 
-  const maxRank = Math.max(1, ...ranking.map((r) => r.amount));
+  // 条的长短只能按一个币种比：本位币那一份（排序也是按它，见 Board）
+  const 钱 = (x: 币种合计[]) => 合计文字(x, b.currency);
+  const maxRank = Math.max(1, ...ranking.map((r) => 取币种(r.amount, b.currency)));
   /** 榜单上两个同名的人必须能分辨，否则不知道这条业绩算谁的。口径与负责人下拉一致 */
   const 标签 = new Map(成员选项(ranking).map((o) => [o.value, o.label]));
   const 榜单 = ranking.map((r) => ({ ...r, 显示名: 标签.get(r.id) ?? r.name }));
   const 当前漏斗 = funnel[窗口];
   const funnelTotal = 当前漏斗.reduce((s, f) => s + f.count, 0);
-  const funnelAmount = 当前漏斗.reduce((s, f) => s + f.amount, 0);
+  const funnelAmount = 合并合计(...当前漏斗.map((f) => f.amount));
   const maxFunnel = Math.max(1, ...当前漏斗.map((f) => f.count));
   /**
    * 判「已经过了没有」的那一刻。**今天零点，不是此时此刻**——
@@ -207,7 +212,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             label="本月签约"
             /* 0 就写 ¥0。「—」读起来是「不知道」，而这个月签了多少我们是知道的——
                知道它是 0 和不知道它是多少，是两件完全不同的事 */
-            value={money(stats.签约本月)}
+            value={钱(stats.签约本月)}
             delta={stats.签约环比}
             note={stats.签约环比 === undefined ? (多人 ? "按签约日期算，全团队" : "按签约日期算") : undefined}
             href="/overview?view=本月"
@@ -229,7 +234,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             color={categorical.amber}
             label="进行中商机"
             value={stats.进行中商机.toLocaleString()}
-            note={`在谈 ${money(stats.oppTotalAmount)}`}
+            note={`在谈 ${钱(stats.oppTotalAmount)}`}
             href="/opportunities?status=OPEN"
           />
         </Col>
@@ -322,14 +327,14 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                           height: 9,
                           borderRadius: 5,
                           background: "var(--brand)",
-                          width: `${Math.max(6, (r.amount / maxRank) * 100)}%`,
+                          width: `${Math.max(6, (取币种(r.amount, b.currency) / maxRank) * 100)}%`,
                         }}
                       />
                     </div>
                     {/* 同一页别处的金额都走 money()，这里原来是裸数字——
                         「120000」和「¥120,000」摆在同一屏上，前者会被当成人数或单量 */}
                     <span style={{ fontSize: 14, color: "var(--text-muted)", width: 92, textAlign: "right", flex: "none" }}>
-                      {money(r.amount)}
+                      {钱(r.amount)}
                     </span>
                   </div>
                 ))}
@@ -353,7 +358,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                         商机总金额（进行中）
                       </Typography.Text>
                     </Space>
-                    <div className="stat-value" style={{ marginTop: 8 }}>{money(stats.oppTotalAmount)}</div>
+                    <div className="stat-value" style={{ marginTop: 8 }}>{钱(stats.oppTotalAmount)}</div>
                   </div>
                   <div style={{ width: 130 }}>
                     <Sparkline data={stats.oppAmountSeries} color={palette.brand} height={52} />
@@ -430,7 +435,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   />
                 </div>
                 <span style={{ fontSize: 14, color: "var(--text-muted)", width: 104, textAlign: "right", flex: "none" }}>
-                  {money(f.amount)}
+                  {钱(f.amount)}
                 </span>
               </div>
             ))}
@@ -438,7 +443,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
               <span className="muted">合计</span>
               <Space size={20}>
                 <span style={{ fontWeight: 500 }}>{funnelTotal}</span>
-                <span style={{ fontWeight: 600 }}>{money(funnelAmount)}</span>
+                <span style={{ fontWeight: 600 }}>{钱(funnelAmount)}</span>
               </Space>
             </div>
             {/* 口径不写清楚的话，前四档和末档不是一个东西这件事没人看得出来 */}
