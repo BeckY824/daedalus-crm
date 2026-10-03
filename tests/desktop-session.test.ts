@@ -99,15 +99,17 @@ describe("本地模式下 /login 是云端账号的门", () => {
     expect(跳了).toEqual(["/api/desktop/session?t=desktop-token-for-tests"]);
   });
 
-  it("没有令牌：画的是云端账号那张表单", async () => {
+  it("没有令牌：画的是桌面端那张新登录页（云端不支持应用内注册时带着去网页注册的地址）", async () => {
     vi.doMock("next/navigation", () => ({
       redirect: () => {
         throw new Error("没令牌不该跳");
       },
     }));
     const { default: LoginPage } = await import("@/app/login/page");
-    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
-    expect(el.props.桌面端).toBe(true);
+    const { default: DesktopAuth } = await import("@/app/login/DesktopAuth");
+    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { type: unknown; props: Record<string, unknown> };
+    expect(el.type).toBe(DesktopAuth);
+    expect(typeof el.props.应用内注册).toBe("boolean");
     expect(el.props.注册地址).toContain("/signup?from=desktop");
   });
 
