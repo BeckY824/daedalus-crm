@@ -23,8 +23,9 @@ import TypeBrand from "./TypeBrand";
  * 原来注册要开浏览器去网页办，回来再登录：新用户在门口就要切两次窗口，
  * 而且是在还没见过产品长什么样的时候。现在整条路都在这扇窗里。
  *
- * 只在云端有 /api/account/signup/* 时用这张（policy 回 inApp）。云端还没部署新接口时
- * page.tsx 画原来那张 LoginForm，注册照旧开浏览器——两边谁先升级都不会摆出一个点了报错的入口。
+ * 桌面端一律用这张（2026-10-03 起，原来那张 LoginForm 不再给桌面端用）。
+ * 云端还没有 /api/account/signup/*（policy 不回 inApp）时：「继续」直接去输密码，那一步给「注册新账号 ↗」开浏览器——
+ * 两边谁先升级都不会摆出一个点了报错的入口。
  */
 
 type 步 = "邮箱" | "密码" | "验证码" | "设密码";
@@ -40,7 +41,20 @@ function 限时<T>(p: Promise<T>): Promise<T> {
 const 网络错 = (e: unknown) =>
   e instanceof Error && e.message === "timeout" ? "服务器无响应，请检查网络连接后重试" : "请求失败，请检查网络连接后重试";
 
-export default function DesktopAuth({ 可找回密码, 可注册, 提示 }: { 可找回密码: boolean; 可注册: boolean; 提示?: string }) {
+export default function DesktopAuth({
+  可找回密码,
+  可注册,
+  应用内注册,
+  注册地址,
+  提示,
+}: {
+  可找回密码: boolean;
+  可注册: boolean;
+  /** 云端有没有应用内注册的接口（policy 的 inApp）。没有就开浏览器去注册 */
+  应用内注册: boolean;
+  注册地址: string;
+  提示?: string;
+}) {
   const { 曲线, 时长 } = useMotionTheme();
   const 少动 = useReducedMotion();
   const 秒 = (t: number) => (少动 ? 0 : t);
@@ -78,8 +92,8 @@ export default function DesktopAuth({ 可找回密码, 可注册, 提示 }: { �
   async function 继续() {
     const t = 邮箱.trim();
     if (!t) return setError("请填邮箱");
-    // 云端不收新注册时不问它，直接当老账号输密码——问了也只会回一句「没开放」
-    if (!可注册) return 去("密码");
+    // 云端不收新注册、或者还没有应用内注册的接口时不问它，直接当老账号输密码——问了也只会回一句「没开放」/ 404
+    if (!可注册 || !应用内注册) return 去("密码");
     setLoading(true);
     setError(null);
     try {
@@ -188,7 +202,9 @@ export default function DesktopAuth({ 可找回密码, 可注册, 提示 }: { �
               {步骤 === "邮箱" && (
                 <>
                   <h1>{可注册 ? "登录或注册" : "登录"}</h1>
-                  <p className="auth-hint">{可注册 ? "新邮箱会直接开一个账号，不用去网页。" : "用你的云端账号登录。"}</p>
+                  <p className="auth-hint">
+                    {!可注册 ? "用你的云端账号登录。" : 应用内注册 ? "新邮箱会直接开一个账号，不用去网页。" : "填你的邮箱继续。还没有账号的，下一步可以注册。"}
+                  </p>
                   <label className="auth-label" htmlFor="auth-email">
                     邮箱
                   </label>
@@ -255,9 +271,19 @@ export default function DesktopAuth({ 可找回密码, 可注册, 提示 }: { �
                   <Button type="primary" htmlType="submit" size="large" block loading={loading}>
                     登录
                   </Button>
-                  {可找回密码 && (
+                  {(可找回密码 || (可注册 && !应用内注册)) && (
                     <p className="auth-alt">
-                      <Link href="/forgot">忘记密码？</Link>
+                      {可找回密码 && <Link href="/forgot">忘记密码？</Link>}
+                      {/* 云端还没有应用内注册：新用户在这一步去网页开号，回来接着在这里登录 */}
+                      {可注册 && !应用内注册 && (
+                        <>
+                          {可找回密码 && " · "}
+                          还没有账号？
+                          <a href={注册地址} target="_blank" rel="noopener noreferrer">
+                            注册新账号 ↗
+                          </a>
+                        </>
+                      )}
                     </p>
                   )}
                 </>

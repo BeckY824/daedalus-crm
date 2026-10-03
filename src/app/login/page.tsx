@@ -35,14 +35,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       redirect(`/api/desktop/session?t=${encodeURIComponent(process.env.DESKTOP_TOKEN)}`);
     }
     const p = await 策略();
-    // 云端有应用内注册的接口就用新的门（一个邮箱框走到底）；没有就照旧，注册开浏览器
-    if (p.inApp) return <DesktopAuth 可找回密码={p.reset} 可注册={p.register} 提示={sp.reason ? 原因文案[sp.reason] : undefined} />;
+    /*
+      桌面端一律是新的门（毛玻璃原型的登录页，2026-10-03 用户：照原型做，不留原来那张）。
+      云端还没有应用内注册的接口时（托管版没部署到这一版），新邮箱那一步改成开浏览器去注册，不退回老页面
+    */
     return (
-      <LoginForm
-        桌面端
-        用邮箱
+      <DesktopAuth
         可找回密码={p.reset}
         可注册={p.register}
+        应用内注册={p.inApp}
         注册地址={`${云端地址()}/signup?from=desktop`}
         提示={sp.reason ? 原因文案[sp.reason] : undefined}
       />
