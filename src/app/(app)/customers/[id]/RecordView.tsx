@@ -1,5 +1,6 @@
 "use client";
 
+import OrderForm from "../../orders/OrderForm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -79,6 +80,7 @@ export default function RecordView({
   contracts,
   opportunities,
   报价记录 = [],
+  订单 = [],
   tasks,
   plan,
   followUps,
@@ -95,6 +97,7 @@ export default function RecordView({
   const { 问怎么拿掉 } = useContactRemoval();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
   const [报价全开, set报价全开] = useState(false);
+  const [建订单, set建订单] = useState(false);
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
   const 已签约文字 = 合计文字(customer.signedTotals ?? [{ 币种: "CNY", 合计: customer.signedAmount }]);
@@ -490,6 +493,26 @@ export default function RecordView({
             ))}
           </div>
 
+          {/* 订单（2026-10-03，外贸模版才有）：每单一行，当前走到哪一步、有没有超期 */}
+          {b.template === "trade" && (
+            <div className="rec-sec">
+              <div className="rec-sec-t">
+                <span>订单 {订单.length > 0 && 订单.length}</span>
+                <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => set建订单(true)}>新建订单</Button>
+              </div>
+              {订单.length === 0 && <div className="rec-empty">还没有订单。商机赢单时可以一起生成</div>}
+              {订单.map((o) => (
+                <Link key={o.id} href={`/orders/${o.id}`} className="rec-mini rec-mini-2">
+                  <span className="rec-mini-n">{o.no} · {金额(o.amount, o.currency)}</span>
+                  <span className="rec-mini-sub">
+                    <span className="rec-mini-m">{o.当前 ? `${o.当前.idx}. ${o.当前.name}` : "已走完"}</span>
+                    {o.超期 > 0 ? <span className="ord-late">超期 {o.超期}</span> : <span className="rec-mini-m">{o.进度}%</span>}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+
           {/*
             报价记录（2026-10-03）：这个客户历次报过的产品和单价，新的在前。没报过就不出现这一节（少即是多）。
             先摆 5 行，多了点开——左栏是档案，不是报价单
@@ -721,6 +744,7 @@ export default function RecordView({
         opportunities={opportunities}
         aiEnabled={aiEnabled}
       />
+      {b.template === "trade" && <OrderForm open={建订单} customerId={customer.id} onClose={() => set建订单(false)} />}
       <TaskForm open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={() => { setTaskOpen(false); router.refresh(); }} customerId={customer.id} />
       <PlanForm
         open={planOpen}

@@ -47,6 +47,10 @@ const 可写: Record<string, string[]> = {
   ContractMoney: ["currency", "amountExact"],
   // 报价明细（2026-10-03）：saveOpportunity 收 报价，一行五个字段
   QuoteLine: ["product", "spec", "qty", "unit", "unitPrice"],
+  // 外贸订单（2026-10-03）：表头 saveOrder，节点 saveOrderNode，单据 saveOrderDoc / addOrderDoc
+  TradeOrder: ["no", "amount", "currency", "incoterm", "payment", "depositDue", "depositPaid", "depositAt", "balancePaid", "balanceAt", "remark"],
+  TradeOrderNode: ["name", "dueAt", "status"],
+  TradeOrderDoc: ["name", "state"],
   FollowUp: ["type", "title", "content", "status", "duration", "occurredAt", "dueAt", "participants", "customerId", "contactId", "opportunityId"],
   Task: ["title", "dueAt", "done", "customerId"],
   FollowPlan: ["subject", "plannedAt", "method", "done", "customerId"],
@@ -78,6 +82,14 @@ const 派生: Record<string, Record<string, string>> = {
     currency: "报价那一刻商机的币种，跟着商机走",
   },
   QuoteLine: { quoteId: "属于哪一版报价", sort: "这一版里的第几行，按界面上的顺序打上" },
+  TradeOrder: {
+    customerId: "建单时定：订单是哪位客户的，不改（改了等于另一张单）",
+    opportunityId: "从哪个商机生成的，建单时打上；商机删了置空",
+    ownerId: "业务员，下单那一刻固化（同 ContractOwner），业绩按它算",
+  },
+  TradeOrderNode: { orderId: "属于哪张订单", idx: "第几步（1–12），建单时排好", doneAt: "改成已完成的那一刻，系统打上；改回别的就清掉" },
+  TradeOrderDoc: { orderId: "属于哪张订单", sort: "清单里的顺序，加一样时排在最后" },
+  FollowUpOrder: { followUpId: "哪条跟进，在节点上记一笔时一起建", orderId: "挂在哪张订单上", nodeIdx: "挂在第几步上" },
   ContractOwner: {
     contractId: "哪一笔签约，saveContract 新登记时一起建",
     salesOwnerId: "签约那一刻客户的销售负责人，新登记时打上；业绩按它算，之后不跟着换人",

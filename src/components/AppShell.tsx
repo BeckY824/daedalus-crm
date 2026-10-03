@@ -16,6 +16,7 @@ import {
   TeamOutlined,
   ContactsOutlined,
   DollarOutlined,
+  ContainerOutlined,
   InteractionOutlined,
   SettingOutlined,
   HistoryOutlined,
@@ -195,19 +196,21 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
       { key: "/dashboard", icon: <HomeOutlined />, label: "首页", 组: "主" },
       { key: "/customers", icon: <TeamOutlined />, label: b.customer, 组: "主" },
       { key: "/opportunities", icon: <DollarOutlined />, label: "商机", 组: "主" },
+      // 外贸模版才有订单（2026-10-03）：通用销售没有「定金 → 生产 → 订舱 → 装柜」这条线，摆着只是添乱
+      ...(b.template === "trade" ? [{ key: "/orders", icon: <ContainerOutlined />, label: "订单", 组: "主" as const }] : []),
       { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进", 组: "主" },
       { key: "/overview", icon: <DashboardOutlined />, label: "数据", 组: "主" },
       { key: "/leads", icon: <ShareAltOutlined />, label: "线索", 组: "更多" },
       { key: "/contacts", icon: <ContactsOutlined />, label: "联系人", 组: "更多" },
       { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道", 组: "更多" },
     ],
-    [b.customer],
+    [b.customer, b.template],
   );
 
   // 选中项取最长匹配前缀，/customers/xxx 也算在客户管理下
   const 少动 = useReducedMotion();
   const selectedKey = useMemo(() => {
-    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/follow-ups", "/settings"];
+    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/follow-ups", "/settings"];
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
 

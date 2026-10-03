@@ -119,6 +119,7 @@ const 一级: Record<string, 页> = {
     提醒: "联系人在自己的一张表里，search_customers 查不到他们。问某一位学员有哪些联系人时另说——那走 search_customers 再 get_customer。",
   },
   "/opportunities": { 名: "商机", 提示: "用户正在看商机列表", 工具: "list_opportunities", 查一个: { 工具: "list_opportunities", 参数: "customerName" } },
+  "/orders": { 名: "订单", 提示: "用户正在看外贸订单一览（每行一单，12 个节点红黄绿）", 工具: "list_orders", 查一个: { 工具: "list_orders", 参数: "customerName" } },
   "/opportunities/pipeline": { 名: "商机 · 管道", 提示: "用户正在看商机管道看板", 工具: "list_opportunities" },
   "/follow-ups": {
     名: "跟进记录",

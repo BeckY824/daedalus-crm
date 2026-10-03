@@ -1979,6 +1979,70 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 
 /* 登记签约弹窗底下「顺手收个尾」那一块（ContractForm）：商机标赢单、计划和待办一并完成。
    和上面的表单用一道细线隔开——它不是签约的字段，是签约带出来的几件事 */
+/* 订单一览（2026-10-03）：12 个节点一格一格，颜色说话。红 = 超期 / 卡住，黄 = 3 天内到期，绿 = 完成，灰 = 不适用 */
+.ord-cells { display: inline-flex; gap: 4px; vertical-align: middle; }
+.ord-cell { display: block; width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); transition: transform var(--t-press) var(--ease); }
+.ord-cell:hover { transform: scale(1.15); }
+.ord-cell:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.ord-红 { background: var(--danger); border-color: var(--danger); }
+.ord-黄 { background: var(--warning-bg); border-color: var(--warning); }
+.ord-绿 { background: var(--success); border-color: var(--success); opacity: 0.75; }
+.ord-灰 { background: var(--hover); border-color: var(--line-soft); }
+.ord-now { box-shadow: 0 0 0 2px var(--brand-line); }
+.ord-late { color: var(--danger-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.ord-stuck { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: var(--fs-note); color: var(--text-muted); }
+.ord-stuck b { color: var(--ink); font-variant-numeric: tabular-nums; margin-left: 2px; }
+.ord-stuck em { font-style: normal; color: var(--danger-text); }
+@media (prefers-reduced-motion: reduce) { .ord-cell:hover { transform: none; } }
+
+/* 订单详情（2026-10-03）：一行概况、12 步、选中那一步、钱、单据、报价 */
+.ord-sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 20px; margin: calc(-1 * var(--s2)) 0 var(--s4); font-size: var(--fs-note); color: var(--text-muted); }
+.ord-sum b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.ord-steps { list-style: none; margin: 0 0 var(--s4); padding: 0; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 1200px) { .ord-steps { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
+.ord-step { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 8px 9px; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: var(--r-ctl);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), transform var(--t-press) var(--ease); }
+.ord-step:hover { box-shadow: var(--shadow-pop); }
+.ord-step:active { transform: scale(0.98); }
+.ord-step:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.ord-step.on { border-color: var(--brand); border-top-color: var(--brand); }
+.ord-step-红 { border-top-color: var(--danger); }
+.ord-step-黄 { border-top-color: var(--warning); }
+.ord-step-绿 { border-top-color: var(--success); }
+.ord-step-灰 { opacity: 0.6; }
+.ord-step-i { font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.ord-step.now .ord-step-i::after { content: " · 当前"; color: var(--brand); }
+.ord-step-n { font-size: var(--fs-note); font-weight: 500; color: var(--ink); line-height: 1.35; }
+.ord-step-s { font-size: var(--fs-min); color: var(--text-muted); }
+.ord-step-红 .ord-step-s { color: var(--danger-text); }
+.ord-step-黄 .ord-step-s { color: var(--warning-text); }
+@media (prefers-reduced-motion: reduce) { .ord-step:active { transform: none; } }
+.ord-node-b { display: flex; flex-direction: column; gap: var(--s3); }
+.ord-node-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.ord-k { font-size: var(--fs-note); color: var(--text-muted); }
+.ord-done { font-size: var(--fs-note); }
+.ord-note-new { display: flex; gap: var(--s2); align-items: flex-end; }
+.ord-notes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s2); }
+.ord-notes li { display: flex; flex-direction: column; gap: 2px; padding: var(--s2) 0; border-top: 1px solid var(--line-soft); }
+.ord-notes-t { font-size: var(--fs-min); color: var(--text-muted); }
+.ord-notes-c { white-space: pre-wrap; }
+.ord-money { display: flex; flex-direction: column; gap: var(--s3); }
+.ord-money-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); }
+.ord-money-row .ord-k { width: 2.5em; }
+.ord-money-due { min-width: 150px; font-size: var(--fs-note); color: var(--text-muted); }
+.ord-money-due b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.ord-money-foot { display: flex; justify-content: space-between; align-items: center; font-size: var(--fs-min); }
+.ord-docs { display: flex; flex-direction: column; gap: 6px; }
+.ord-doc { display: flex; align-items: center; gap: var(--s2); }
+.ord-doc-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ord-doc.ok .ord-doc-n { color: var(--text-muted); }
+.ord-quote { width: 100%; border-collapse: collapse; font-size: var(--fs-note); }
+.ord-quote th { text-align: left; font-weight: 400; color: var(--text-muted); padding: 4px 8px 6px 0; }
+.ord-quote td { padding: 6px 8px 6px 0; border-top: 1px solid var(--line-soft); }
+.ord-quote .r { text-align: right; font-variant-numeric: tabular-nums; }
+.ord-quote tfoot td { color: var(--text-muted); }
+
 /* 商机框里的报价明细（2026-10-03）：产品、规格、数量、单位、单价、小计、删。760 宽的框里一行放得下 */
 .qt { display: flex; flex-direction: column; gap: 6px; }
 .qt-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.6fr) 84px 76px 96px 96px 28px; gap: 6px; align-items: center; }
@@ -2017,6 +2081,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .won-ask-t { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
 .won-ask-s { font-size: var(--fs-note); color: var(--text-muted); }
 .won-ask-b { margin-top: var(--s1); }
+.won-ask-o { margin-top: var(--s2); font-size: var(--fs-note); }
 
 /* 业务配置顶上那排预设。它是填表的快捷方式，所以做得比一个功能区轻：
    一行小字 + 两颗小键，不画卡片、不占标题 */

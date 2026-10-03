@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Space, Select, Tag, InputNumber, DatePicker, App, Dropdown, Popover } from "antd";
+import { Button, Space, Select, Tag, InputNumber, DatePicker, App, Dropdown, Popover, Checkbox } from "antd";
 import {
   PlusOutlined,
   MoreOutlined,
@@ -19,6 +19,7 @@ import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { fmtDate, dayjs, 成员选项, 可选成员 } from "@/lib/utils";
 import { deleteOpportunities, restoreOpportunities, 删商机前清点, moveStage, setOppStatus } from "./actions";
 import { saveContract } from "../customers/actions";
+import { createOrder } from "../orders/actions";
 import InlineConfirm from "@/components/InlineConfirm";
 import OpportunityForm from "./OpportunityForm";
 import { 金额格式 } from "@/lib/money-input";
@@ -126,7 +127,17 @@ export default function OpportunitiesView({
    * 原来这两条线互不相通：赢了单，本月签约金额和客户状态都不动。
    * 选登记就走 saveContract——查重、留痕、把客户推到「已签约」都在那里面，这里不另写一遍。
    */
-  async function 标赢单(r: OppRow, 签约: { amount: number; signedAt: Date } | null) {
+  /** 外贸模版下赢单顺手生成订单（2026-10-03）：客户、金额、币种、报价跟过去，前四个节点记成已完成 */
+  async function 生成订单(r: OppRow): Promise<string | null> {
+    const o = await createOrder({ customerId: r.customerId, opportunityId: r.id });
+    if (!o.ok) {
+      message.error(o.error);
+      return null;
+    }
+    return o.id;
+  }
+
+  async function 标赢单(r: OppRow, 签约: { amount: number; signedAt: Date } | null, 要订单 = false) {
     const res = await setOppStatus(r.id, "WON");
     if (!res.ok) return void message.error(res.error);
     set问赢单(null);
@@ -138,7 +149,18 @@ export default function OpportunitiesView({
         message.warning(`${r.customerName} 在 ${fmtDate(c.duplicate.signedAt)} 已有一笔 ${金额(c.duplicate.amount, c.duplicate.currency)} 的签约，没有重复登记`);
       } else message.error(c.error);
     }
-    message.success(`恭喜赢单${另}`);
+    const 订单id = 要订单 ? await 生成订单(r) : null;
+    if (订单id) {
+      message.success({
+        content: (
+          <span>
+            恭喜赢单{另}，订单已建好
+            <Button type="link" size="small" onClick={() => router.push(`/orders/${订单id}`)}>去看订单 ›</Button>
+          </span>
+        ),
+        duration: 6,
+      });
+    } else message.success(`恭喜赢单${另}`);
     router.refresh();
     亮一下(r.id);
   }
@@ -303,7 +325,17 @@ export default function OpportunitiesView({
               它们是结果不是日常动作，一天点不了几次。
               两样都不再一点就生效：丢单就地问一句，赢单就地问要不要顺手登记签约 */}
           {r.status !== "OPEN" && (
-            <Dropdown menu={{ items: [{ key: "reopen", label: "重新打开", onClick: () => void 重开(r) }] }}>
+            <Dropdown
+              menu={{
+                items: [
+                  // 以前赢的单补一张订单（已经有了就直接打开那一张，createOrder 不会建第二张）
+                  ...(r.status === "WON" && b.template === "trade"
+                    ? [{ key: "order", label: "生成订单", onClick: () => void 生成订单(r).then((id) => id && router.push(`/orders/${id}`)) }]
+                    : []),
+                  { key: "reopen", label: "重新打开", onClick: () => void 重开(r) },
+                ],
+              }}
+            >
               <Button aria-label={`${r.name} 的更多操作`} title="更多" type="text" size="small" icon={<MoreOutlined />} />
             </Dropdown>
           )}
@@ -313,7 +345,7 @@ export default function OpportunitiesView({
               trigger={[]}
               placement="bottomRight"
               destroyOnHidden
-              content={<WonAsk r={r} 做={(签约) => 标赢单(r, 签约)} 取消={() => set问赢单(null)} />}
+              content={<WonAsk r={r} 可生成订单={b.template === "trade"} 做={(签约, 订单) => 标赢单(r, 签约, 订单)} 取消={() => set问赢单(null)} />}
             >
               <Dropdown
                 menu={{
@@ -473,14 +505,16 @@ export default function OpportunitiesView({
  * 「标记赢单」的就地确认：顺手登记签约吗。金额带商机金额、日期今天，都能改；也可以只标赢单。
  * 放在 Popover 里而不是弹框：它就是一句问话加两个可改的数，盖半屏不值得。
  */
-function WonAsk({ r, 做, 取消 }: { r: OppRow; 做: (签约: { amount: number; signedAt: Date } | null) => Promise<void>; 取消: () => void }) {
+function WonAsk({ r, 可生成订单, 做, 取消 }: { r: OppRow; 可生成订单: boolean; 做: (签约: { amount: number; signedAt: Date } | null, 订单: boolean) => Promise<void>; 取消: () => void }) {
   const [amount, setAmount] = useState<number | null>(r.amount > 0 ? r.amount : null);
+  /** 外贸模版默认勾上：赢单之后就是定金、下单给工厂……订单是接下来天天要看的东西 */
+  const [要订单, set要订单] = useState(可生成订单);
   const [day, setDay] = useState(dayjs());
   const [忙, set忙] = useState<"签" | "只" | null>(null);
   const 跑 = async (哪个: "签" | "只") => {
     set忙(哪个);
     try {
-      await 做(哪个 === "签" && amount ? { amount, signedAt: day.toDate() } : null);
+      await 做(哪个 === "签" && amount ? { amount, signedAt: day.toDate() } : null, 可生成订单 && 要订单);
     } finally {
       set忙(null);
     }
@@ -503,6 +537,11 @@ function WonAsk({ r, 做, 取消 }: { r: OppRow; 做: (签约: { amount: number;
         />
         <DatePicker aria-label="签约日期" allowClear={false} value={day} onChange={(d) => d && setDay(d)} style={{ width: 140 }} />
       </Space>
+      {可生成订单 && (
+        <Checkbox checked={要订单} onChange={(e) => set要订单(e.target.checked)} className="won-ask-o">
+          同时生成订单（按 12 个节点跟进交付）
+        </Checkbox>
+      )}
       <Space size={8} className="won-ask-b">
         <Button type="primary" size="small" loading={忙 === "签"} disabled={!amount || (忙 !== null && 忙 !== "签")} onClick={() => void 跑("签")}>
           赢单并登记签约

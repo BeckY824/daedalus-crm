@@ -53,6 +53,8 @@ export type RecordProps = {
   contracts: ContractRow[];
   /** 报价记录（2026-10-03）：这个客户历次报过的每一行，新的在前。没报过是空数组，左栏那一节就不出现 */
   报价记录?: import("@/lib/quote-db").报价记录行[];
+  /** 这位客户的外贸订单（2026-10-03）。只在外贸模版下摆出来 */
+  订单?: import("@/lib/order-db").订单行[];
   tasks: { id: string; title: string; dueAt: string | null; done: boolean }[];
   plan: { id: string; subject: string; plannedAt: string; method: string } | null;
   followUps: FollowUpRow[];

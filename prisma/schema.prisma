@@ -143,6 +143,8 @@ model Customer {
   plans         FollowPlan[]
   opportunities Opportunity[]
   contracts     Contract[]
+  /// 外贸订单（2026-10-03）。见 TradeOrder
+  tradeOrders   TradeOrder[]
   lead          Lead?
 
   @@index([phone])
@@ -257,6 +259,8 @@ model Opportunity {
   money     OpportunityMoney?
   /// 报价明细，一次报价一行（2026-10-03）。见 Quote
   quotes    Quote[]
+  /// 赢单后生成的订单（2026-10-03）。见 TradeOrder
+  tradeOrders TradeOrder[]
 
   @@index([customerId])
   @@index([stage])
@@ -307,6 +311,80 @@ model QuoteLine {
   @@index([quoteId])
 }
 
+/// 外贸订单（2026-10-03 外贸第 3a 块，迁移 016）。商机管成交前（询盘 → 报价 → 客户确认），订单管成交后：
+/// 12 个节点（TradeOrderNode）各有截止日 + 状态，单据清单（TradeOrderDoc），定金 / 尾款的应收实收。
+/// 只在外贸模版下出现入口。业务员下单那一刻固化（ownerId，不建外键，同 ContractOwner）。
+/// 表名不叫 Order：SQL 关键字。尾款应收 = amount - depositDue，不另存。
+model TradeOrder {
+  id            String       @id @default(cuid())
+  /// 订单号 / PI 号，人能改；新建默认「年月日-序号」
+  no            String
+  customerId    String
+  customer      Customer     @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  opportunityId String?
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  ownerId       String
+  amount        Float        @default(0)
+  currency      String       @default("USD")
+  /// 贸易条款：EXW / FOB / CFR / CIF / FCA / DAP / DDP
+  incoterm      String?
+  /// 付款方式：T/T 30/70、L/C at sight……自由文本
+  payment       String?
+  depositDue    Float        @default(0)
+  depositPaid   Float        @default(0)
+  depositAt     DateTime?
+  balancePaid   Float        @default(0)
+  balanceAt     DateTime?
+  remark        String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @default(now()) @updatedAt
+
+  nodes     TradeOrderNode[]
+  docs      TradeOrderDoc[]
+  followUps FollowUpOrder[]
+
+  @@index([customerId])
+  @@index([opportunityId])
+}
+
+/// 订单的一个节点：截止日 + 状态（未开始 / 进行中 / 已完成 / 卡住 / 不适用）。名字可改。
+/// 「当前节点」= 第一个既没完成也不是不适用的，算出来、不存（lib/order.ts）
+model TradeOrderNode {
+  id      String     @id @default(cuid())
+  orderId String
+  order   TradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  idx     Int
+  name    String
+  dueAt   DateTime?
+  status  String     @default("未开始")
+  doneAt  DateTime?
+
+  @@unique([orderId, idx])
+}
+
+/// 订单要收 / 要出的单据，三态：未收 / 已收 / 已发客户，外加「不需要」。新建时按贸易条款给默认的一组
+model TradeOrderDoc {
+  id      String     @id @default(cuid())
+  orderId String
+  order   TradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sort    Int        @default(0)
+  name    String
+  state   String     @default("未收")
+
+  @@index([orderId])
+}
+
+/// 跟进记录挂在订单的哪个节点上。不给 FollowUp 加列（schema 建的表，迁移只能加表），理由同 OpportunityMoney
+model FollowUpOrder {
+  followUpId String     @id
+  followUp   FollowUp   @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  orderId    String
+  order      TradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  nodeIdx    Int
+
+  @@index([orderId])
+}
+
 model FollowUp {
   id           String    @id @default(cuid())
   type         String // PHONE|MEETING|VISIT|EMAIL|SMS|TASK|REMIND|OTHER
@@ -332,6 +410,8 @@ model FollowUp {
 
   /// 速记解析时粘贴的原始聊天记录 / 口述原文，只有 AI 起草过的记录才有
   source FollowUpSource?
+  /// 挂在订单某个节点上（2026-10-03）。见 FollowUpOrder
+  orderNode FollowUpOrder?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

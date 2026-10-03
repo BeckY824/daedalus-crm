@@ -12,6 +12,8 @@ import { 渠道汇总 } from "../attribution";
 import { 带币种, 商机币种, 签约币种, 签约金额, 签约合计 } from "../money-db";
 import { 金额 as 显示金额, 合计文字, 按币种合计 } from "../currency";
 import { 一行说法 } from "../quote";
+import { 订单列表 } from "../order-db";
+import { 节点灯 } from "../order";
 import { 现值选取, 现值表 } from "./current-values";
 import { prisma } from "../prisma";
 import { dayjs } from "../utils";
@@ -661,6 +663,43 @@ export const TOOLS: Tool[] = [
             备注: c.remark || null,
           })),
         },
+      };
+    },
+  },
+  {
+    /*
+      外贸订单（2026-10-03）。订单是赢单之后的事：12 个节点各有截止日和状态。
+      问「哪几单超期了」「这单走到哪一步」「还有多少钱没收回来」用它。
+    */
+    name: "list_orders",
+    description:
+      "列外贸订单（赢单之后跟进交付的那张单：12 个节点——收定金、下单给工厂、生产、验货、订舱、装柜、开船、单据尾款）。" +
+      "每单给出当前节点、超期了哪几步、进度、未收金额。可按客户、业务员筛，onlyLate=true 只看有超期的。" +
+      "问「哪几单超期了」「某某那单走到哪了」「还有多少尾款没收」用它。",
+    args: '{"customerName": "客户姓名，可空", "ownerName": "业务员姓名，可空", "onlyLate": "true/false，可空"}',
+    async run(args) {
+      const name = str(args.customerName, 30);
+      const owner = str(args.ownerName, 20);
+      const 叫这个名字的 = owner ? (await prisma.user.findMany({ where: { name: { contains: owner } }, select: { id: true } })).map((u) => u.id) : [];
+      const rows = await 订单列表({
+        ...(name ? { customer: { name: { contains: name } } } : {}),
+        ...(owner ? { ownerId: { in: 叫这个名字的 } } : {}),
+      });
+      const 现在 = new Date();
+      const 选 = args.onlyLate === true || args.onlyLate === "true" ? rows.filter((r) => r.超期 > 0) : rows;
+      return {
+        summary: `${选.length} 张订单${选.some((r) => r.超期) ? `，其中 ${选.filter((r) => r.超期).length} 张有超期` : ""}`,
+        data: 选.slice(0, 30).map((r) => ({
+          orderId: r.id,
+          订单号: r.no,
+          客户: r.customerName,
+          金额: 显示金额(r.amount, r.currency),
+          当前节点: r.当前 ? `${r.当前.idx}. ${r.当前.name}` : "12 步都走完了",
+          超期的节点: r.nodes.filter((n) => 节点灯(n, 现在) === "红").map((n) => `${n.idx}. ${n.name}（${n.status}${n.dueAt ? `，截止 ${dayjs(n.dueAt).format("YYYY-MM-DD")}` : ""}）`),
+          进度: `${r.进度}%`,
+          未收: r.未收 > 0 ? 显示金额(r.未收, r.currency) : "收齐了",
+          业务员: r.ownerName,
+        })),
       };
     },
   },

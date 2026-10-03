@@ -82,7 +82,13 @@ describe("菜单照 Claude 桌面端那套：只有标准项", () => {
 
   it("「前往」覆盖左栏的每一项，路径和 AppShell 里的一致", () => {
     const shell = fs.readFileSync(path.resolve(__dirname, "../src/components/AppShell.tsx"), "utf8");
-    const 路径 = 去重([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1]));
+    /*
+      只在某个模版下才出现的入口（2026-10-03 起：外贸模版的「订单」）不进菜单：壳不知道这个库用的哪个模版，
+      放进去的话通用销售的人也会看到一个用不上的「订单」。它们写成 `b.template === "…" ? [{ key: … }]`，按这个认出来排掉。
+    */
+    const 按模版 = new Set([...shell.matchAll(/b\.template === "\w+" \? \[\{ key: "(\/[a-z-]+)"/g)].map((m) => m[1]));
+    expect(按模版.has("/orders")).toBe(true);
+    const 路径 = 去重([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1])).filter((p) => !按模版.has(p));
     expect(路径.length).toBeGreaterThanOrEqual(8);
     for (const p of 路径) expect(菜单, `「前往」里少了 ${p}`).toContain(`"${p}"`);
   });
