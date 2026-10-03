@@ -16,6 +16,9 @@ const 页面 = [
   ["联系人", "/contacts"],
   ["商机列表", "/opportunities"],
   ["商机看板", "/opportunities/pipeline"],
+  // 外贸模版的两页（2026-10-03）：通用模版下左栏没有入口，但地址照样能开，空着也不许报警
+  ["订单", "/orders"],
+  ["供应商", "/suppliers"],
   ["跟进记录", "/follow-ups"],
   ["跟进计划", "/follow-ups/plans"],
   ["数据复盘", "/reports"],

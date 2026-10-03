@@ -72,7 +72,7 @@ export default function CompareDrawer({ open, opp, onClose }: { open: boolean; o
   }
 
   return (
-    <Drawer open={open} onClose={onClose} width={1000} title={opp ? `供应商比价 · ${opp.name}` : "供应商比价"} destroyOnHidden>
+    <Drawer open={open} onClose={onClose} styles={{ wrapper: { width: 1000, maxWidth: "100vw" } }} title={opp ? `供应商比价 · ${opp.name}` : "供应商比价"} destroyOnHidden>
       <div className="cmp-top">
         {行们.length > 0 && 家数 < 至少问几家 && (
           <span className="cmp-warn"><WarningOutlined /> 只问了 {家数} 家，至少问 {至少问几家} 家再定</span>
@@ -97,7 +97,7 @@ export default function CompareDrawer({ open, opp, onClose }: { open: boolean; o
         locale={{ emptyText: "还没有比价。点「加一家报价」，把问到的价一家一行记下来" }}
         columns={[
           {
-            title: "供应商", key: "s", width: 150,
+            title: "供应商", key: "s", width: 140,
             render: (_, r) => (
               <Space size={4}>
                 <span>{r.supplier.name}</span>
@@ -106,7 +106,7 @@ export default function CompareDrawer({ open, opp, onClose }: { open: boolean; o
               </Space>
             ),
           },
-          { title: "产品", dataIndex: "product", key: "product", width: 140 },
+          { title: "产品", dataIndex: "product", key: "product", width: 120 },
           {
             title: "出厂价", key: "p", width: 140,
             render: (_, r) => (
@@ -116,11 +116,11 @@ export default function CompareDrawer({ open, opp, onClose }: { open: boolean; o
               </span>
             ),
           },
-          { title: "MOQ", dataIndex: "moq", key: "moq", width: 70, render: (v: number | null) => v ?? "—" },
-          { title: "交期", dataIndex: "leadDays", key: "lead", width: 64, render: (v: number | null) => (v != null ? `${v} 天` : "—") },
+          { title: "MOQ", dataIndex: "moq", key: "moq", width: 60, render: (v: number | null) => v ?? "—" },
+          { title: "交期", dataIndex: "leadDays", key: "lead", width: 60, render: (v: number | null) => (v != null ? `${v} 天` : "—") },
           { title: "有效期", dataIndex: "validUntil", key: "valid", width: 96, render: (v: string | null) => (v ? <span title={过期了(v) ? "过期了，这个价不一定还作数" : undefined}>{fmtDate(v)}{过期了(v) ? " 过期" : ""}</span> : "—") },
           {
-            title: "建议报价", key: "sug", width: 100,
+            title: "建议报价", key: "sug", width: 90,
             render: (_, r) => {
               const v = 建议报价(r.unitPrice, 算.汇率, 算.毛利率);
               return v === null ? <span className="muted">填汇率</span> : 金额(v, opp?.currency ?? "USD");
@@ -178,7 +178,9 @@ function QuoteRowForm({
   const 币 = (Form.useWatch("currency", form) as string | undefined) ?? "CNY";
 
   async function onOk() {
-    const v = await form.validateFields();
+    // 校验没过：框里各格已经标红了，安静返回；不接住的话是一个没人处理的 Promise 拒绝
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     const 认得 = 供应商.find((s) => s.name === String(v.supplier ?? "").trim());
     const r = await saveSupplierQuote({
       id: editing?.id,

@@ -16,7 +16,9 @@ export default function SupplierForm({ open, editing, onClose }: { open: boolean
   const [form] = Form.useForm();
 
   async function onOk() {
-    const v = await form.validateFields();
+    // 校验没过：框里各格已经标红了，安静返回；不接住的话是一个没人处理的 Promise 拒绝
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     const r = await saveSupplier({ ...v, id: editing?.id, rating: v.rating || null });
     if (!r.ok) return message.error(r.error);
     message.success(editing ? "已保存" : "供应商已建好");

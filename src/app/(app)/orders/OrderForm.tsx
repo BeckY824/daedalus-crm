@@ -51,7 +51,9 @@ export default function OrderForm({
   }
 
   async function onOk() {
-    const v = await form.validateFields();
+    // 校验没过：框里各格已经标红了，安静返回；不接住的话是一个没人处理的 Promise 拒绝
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     const 表 = {
       no: editing ? v.no : v.no || undefined,
       amount: v.amount ?? 0,

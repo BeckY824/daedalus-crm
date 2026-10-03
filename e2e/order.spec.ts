@@ -65,6 +65,10 @@ test.afterAll(async ({ browser }) => {
 });
 
 test("外贸订单：赢单一起生成 → 走节点、记一笔、勾单据、填尾款 → 一览里看得到", async ({ page }) => {
+  // 全程控制台不许有 error / warning（订单页、比价抽屉、供应商页这些组件 console-audit 走不到）
+  const 问题: string[] = [];
+  page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") 问题.push(`[${m.type()}] ${m.text().slice(0, 200)}`); });
+  page.on("pageerror", (e) => 问题.push(`[pageerror] ${e.message.slice(0, 200)}`));
   await 登录(page);
   await 套预设(page, "外贸出口");
 
@@ -104,7 +108,7 @@ test("外贸订单：赢单一起生成 → 走节点、记一笔、勾单据、
 
   // 6. 尾款实收填满 → 未收「收齐了」
   await page.getByLabel("尾款实收").fill("7100");
-  await page.locator(".ord-money").getByRole("button", { name: /保\s*存/ }).click();
+  await page.locator(".ord-money").first().getByRole("button", { name: /保\s*存/ }).click();
   await expect(page.locator(".ord-sum")).toContainText("收齐了");
 
   // 7. 一览：这一单在，当前节点第 6 步
@@ -112,4 +116,5 @@ test("外贸订单：赢单一起生成 → 走节点、记一笔、勾单据、
   const 行 = page.locator(".ant-table-row", { hasText: 客户名 });
   await expect(行).toContainText("6. 下单给工厂");
   await expect(行).toContainText("US$ 7,100");
+  expect(问题, 问题.join("\n")).toEqual([]);
 });

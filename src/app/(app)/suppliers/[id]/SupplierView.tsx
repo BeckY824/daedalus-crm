@@ -86,7 +86,7 @@ export default function SupplierView({ s }: { s: 供应商详情数据 }) {
               locale={{ emptyText: "还没比过价。在商机的「供应商比价」里加一行就会出现在这儿" }}
               rowClassName={(r) => (过期了(r.validUntil) ? "cmp-old" : "")}
               columns={[
-                { title: "日期", dataIndex: "quotedAt", key: "d", width: 96, render: (v: string) => fmtDate(v) },
+                { title: "日期", dataIndex: "quotedAt", key: "d", width: 112, render: (v: string) => fmtDate(v) },
                 { title: "产品", dataIndex: "product", key: "p" },
                 { title: "出厂价", key: "price", width: 150, render: (_, r) => <span className="cmp-price">{金额(r.unitPrice, r.currency)} <span className="muted">{r.withInvoice ? "含票" : "不含票"}</span></span> },
                 { title: "询盘", key: "o", render: (_, r) => <Link href={`/opportunities?keyword=${encodeURIComponent(r.商机)}`}>{r.客户} · {r.商机}</Link> },
