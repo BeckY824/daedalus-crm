@@ -35,9 +35,41 @@ export function 关名单() {
 let 换一位处理: (() => void) | null = null;
 export function 登记换一位(fn: () => void): () => void {
   换一位处理 = fn;
+  const 放 = 登记页内占用();
   return () => {
     if (换一位处理 === fn) 换一位处理 = null;
+    放();
   };
+}
+
+/**
+ * 这一页有没有把 ⌘K 占走（2026-10-03 走查）。左栏顶上的搜索框写着「⌘K」，
+ * 可首页的 ⌘K 是「光标回问答框」、记录页的 ⌘K 是「换一位」——标签说的和按下去的不是一回事。
+ * 行为是定过的（见 CommandBar 文件头、审查 M8），所以改的是标签：有页面占着 ⌘K 时左栏不写它。
+ * 占用的是名单（登记换一位）和页内的问答框（AskBox，右边面板里那个不算）。按次数记，挂几个卸几个
+ */
+let 页内占用 = 0;
+const 占用听 = new Set<() => void>();
+export function 登记页内占用(): () => void {
+  页内占用++;
+  占用听.forEach((l) => l());
+  let 放过 = false;
+  return () => {
+    if (放过) return;
+    放过 = true;
+    页内占用--;
+    占用听.forEach((l) => l());
+  };
+}
+export function usePageOwnsCmdK(): boolean {
+  return useSyncExternalStore(
+    (l) => {
+      占用听.add(l);
+      return () => 占用听.delete(l);
+    },
+    () => 页内占用 > 0,
+    () => false,
+  );
 }
 /** 这一页有人接「换一位」就交给它，返回 true；没有返回 false，照常开跳转单 */
 export function 换一位(): boolean {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
+import { 登记页内占用 } from "@/lib/roster";
 import { ArrowUpOutlined } from "@ant-design/icons";
 
 /**
@@ -75,6 +76,12 @@ export default function AskBox({
     // 等它显出来那一下就是个压扁的框，而那时候 value 没变、这个 effect 不会再跑
     if (el.scrollHeight > 0) el.style.height = `${el.scrollHeight}px`;
   }, [value, ta]);
+
+  /* 页内的问答框占着 ⌘K（CommandBar 先把光标给它），左栏的搜索框就不写「⌘K」。右边面板里那个不算，见 lib/roster.ts */
+  useEffect(() => {
+    if (ta.current?.closest(".dock")) return;
+    return 登记页内占用();
+  }, [ta]);
 
   return (
     <>

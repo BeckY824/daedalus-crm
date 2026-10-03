@@ -40,7 +40,7 @@ import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
 import Shortcut from "./Shortcut";
 import { useBusiness } from "@/lib/business-client";
-import { DockOpenContext, useNarrow } from "@/lib/roster";
+import { DockOpenContext, useNarrow, usePageOwnsCmdK } from "@/lib/roster";
 import { useMotionTheme } from "@/components/MotionTheme";
 
 const { Header, Content } = Layout;
@@ -107,6 +107,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
   const b = useBusiness();
   const router = useRouter();
   const pathname = usePathname();
+  const 页内占着CmdK = usePageOwnsCmdK();
   /** 设置浮层开着时，底下那页（不是地址栏的 /settings）。见 lib/page-under-overlay.ts */
   const 底下那页 = usePageUnderOverlay();
   /**
@@ -364,10 +365,11 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
             网页版没有红黄绿钮那一截，顶上还是标志，不然整个页面上就找不到自己在哪个产品里。
           */}
           {desktop ? (
-            <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label="搜索（⌘K）">
+            <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label={页内占着CmdK ? "搜索" : "搜索（⌘K）"}>
               <SearchOutlined />
               <span>搜索</span>
-              <kbd><Shortcut>⌘K</Shortcut></kbd>
+              {/* 首页的 ⌘K 是「回问答框」、记录页是「换一位」：那两处不写，免得标签和按下去的对不上（lib/roster.ts） */}
+              {!页内占着CmdK && <kbd><Shortcut>⌘K</Shortcut></kbd>}
             </button>
           ) : (
             <Link href="/dashboard" className="rail-mark" aria-label="Daedalus CRM">
