@@ -186,6 +186,8 @@ const 服务目录 = app.isPackaged ? path.join(process.resourcesPath, "server")
 const 默认服务器 = process.env.CRM_URL || "https://app.ai-daedalus.com";
 
 let win = null;
+/** before-quit 里置上：之后的加载失败都是退出本身造成的，不当故障 */
+let 正在退出 = false;
 /** 本地服务起来之后的地址与一次性令牌 */
 let 本地 = null;
 /** 启动那次校验发现令牌被吊销了。只用一次：第一次进门时把原因带上 */
@@ -650,6 +652,8 @@ function 建窗口() {
 
   win.webContents.on("did-fail-load", (_e, code, desc, _url, isMainFrame) => {
     if (!isMainFrame) return;
+    // 退出途中服务先停了，加载被打断是意料之中的事
+    if (正在退出) return;
     // -3 是主动取消（自己发起的跳转打断了上一次加载），不是错误
     if (code === -3) return;
     const cfg = 读配置();
@@ -1533,6 +1537,8 @@ if (!app.requestSingleInstanceLock()) {
       });
       return;
     }
+    // 先立标记再停服务：停服务会把正在加载的页面打断（-355），别让 did-fail-load 当成「本地服务没起来」记一笔、弹个框（第五轮 r5-pkg C1）
+    正在退出 = true;
     提醒器?.停();
     本地服务.stop();
     MCP桥.stop();

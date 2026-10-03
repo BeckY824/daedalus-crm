@@ -269,3 +269,28 @@ test.describe("中栏跟着路由走", () => {
     await expect(page.getByRole("tablist", { name: "设置分类" })).toBeVisible();
   });
 });
+
+/*
+  桌面端（UA 带 Electron/）的「客户」：照毛玻璃原型直接进「名单 + 详情」，打开最近看过的那位（2026-10-03）。
+  网页版照旧进表格——上面那组钉着。
+*/
+test.describe("桌面端：左栏「客户」直接进名单 + 详情", () => {
+  test.use({ userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) DaedalusCRM/0.46.15 Chrome/138.0.0.0 Electron/38.8.6 Safari/537.36" });
+
+  test("点「客户」进某位的详情、中栏名单在；换一位再回首页，点「客户」回到刚才那位", async ({ page }) => {
+    await 登录(page);
+    await page.setViewportSize({ width: 1960, height: 900 });
+    await 点侧栏(page, "客户", /\/customers\/[^/]+$/);
+    await expect(中栏(page)).toBeVisible();
+    // 在名单里换第二位
+    const 第二位 = 中栏(page).locator(".roster-row").nth(1);
+    const 去处 = await 第二位.getAttribute("href");
+    await 第二位.click();
+    await expect(page).toHaveURL(new RegExp(`${去处}$`));
+    await 点侧栏(page, "首页", /\/dashboard$/);
+    await 点侧栏(page, "客户", new RegExp(`${去处}$`));
+    // 表格还在名单右上角
+    await 中栏(page).getByRole("link", { name: /表格/ }).first().click();
+    await expect(page).toHaveURL(/\/customers$/);
+  });
+});

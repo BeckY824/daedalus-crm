@@ -209,9 +209,9 @@ describe("守卫：三处口径必须一致", () => {
 
   it("网关在上游出错的几条路上都退了（同一问题后续步骤失败也退，2026-10-02 起）", () => {
     const 网关 = fs.readFileSync(path.resolve(__dirname, "../src/app/api/gateway/v1/chat/completions/route.ts"), "utf8");
-    // 连不上 / 超时、上游回了非 2xx、上游 200 但不是 JSON、桌面端已断开（第四轮起都走「只听最新一份」的 退()）
+    // 连不上 / 超时、上游回了非 2xx、上游 200 但不是 JSON、桌面端已断开（非流式、流式两支）——第四轮起都走「只听最新一份」的 退()
     expect((网关.match(/退这一次\(owner, 问题id, 扣\.扣了 \|\| Boolean\(问题id\)\)/g) ?? []).length).toBe(1);
-    expect((网关.match(/await 退\(\)/g) ?? []).length).toBe(4);
+    expect((网关.match(/await 退\(\)/g) ?? []).length).toBe(5);
   });
 
   it("agent 一个问题只生成一个编号，四处调用都带着它", () => {

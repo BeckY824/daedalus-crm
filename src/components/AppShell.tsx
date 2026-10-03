@@ -214,8 +214,21 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
   const 一项 = (n: (typeof nav)[number]) => (
     <Link
       key={n.key}
-      /* 客户：直接进「名单 + 详情」，打开最近看过的那位（照毛玻璃原型）；表格在名单右上角。手机菜单照旧进表格 */
-      href={n.key === "/customers" ? "/customers/recent" : n.key}
+      /* 桌面端的「客户」直接进「名单 + 详情」，打开最近看过的那位（照毛玻璃原型）；表格在名单右上角。
+         网页团队版照旧进表格：那边要按人分配、批量改，表格是主场。手机菜单也照旧进表格 */
+      href={desktop && n.key === "/customers" ? "/customers/recent" : n.key}
+      prefetch={desktop && n.key === "/customers" ? false : undefined}
+      /* 跳转页的结果会被客户端路由缓存住（staleTimes 60 秒）：第二次点会回到上一次跳去的那位，
+         不是刚看过的那位。每次带一个新参数，确保回到服务端读 cookie */
+      onClick={
+        desktop && n.key === "/customers"
+          ? (e) => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey) return;
+              e.preventDefault();
+              router.push(`/customers/recent?t=${Date.now()}`);
+            }
+          : undefined
+      }
       aria-label={n.key === "/follow-ups" && 要跟说法 ? `${n.label}，${要跟说法}` : n.label}
       className={`rail-item${selectedKey === n.key ? " on" : ""}`}
     >

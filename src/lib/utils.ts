@@ -80,20 +80,61 @@ export function maskPhone(p?: string | null): string {
 }
 
 /**
- * 一段文字里出现的电话号码都打码（共享试用区的操作日志用，2026-10-01 排查 A5）。
+ * 留痕里出现的电话号码都打码（共享试用区的操作日志用，2026-10-01 排查 A5；第五轮 B3 重写）。
  * 留痕的一句话和明细（JSON 字符串）里记的是原号；共享区里谁都翻得到，号码得在出库时就打掉。
  *
- * 只认长得像电话的：大陆手机号（可带 +86、空格横杠分组）、0 开头的座机、+ 开头的海外号。
- * 不按「一长串数字」认——日期（2026-10-02）、金额（12000000）、id 会被误伤，明细的 JSON 也可能被打坏。
- * 只把数字换成 *，JSON 照样合法。
+ * 两层：
+ *   - 明细能解成 JSON：「电话 / 手机」那一格（{字段: "电话", 原值, 新值}，或者键名就是 phone）整串打码，
+ *     不看长什么样——库里存的是规整后的号，本地 8 位座机、香港号、400 都是合法电话，光看形状认不全。
+ *     数字类型的值（金额）不碰，JSON 打完照样解得开
+ *   - 其余文字（摘要、跟进内容、备注）：全角数字先转半角；带分隔符、连起来 7 位以上的数字就打码（日期除外）；
+ *     不带分隔符的只认手机号、0 开头的座机、400/800、+ 开头的号——纯数字的金额和编号不误伤
  */
-const 像电话 = /(?<![\d+])(?:\+?86[\s-]?)?1[3-9]\d[\s-]?\d{4}[\s-]?\d{4}(?!\d)|(?<![\d+])0\d{2,3}[\s-]?\d{7,8}(?!\d)|\+\d{1,3}(?:[\s-]?\d){6,14}(?!\d)/g;
-export function 文字里号码打码(s: string): string {
-  return s.replace(像电话, (m) => {
-    // +86 的大陆手机号去掉国家码再打，和列表里的 138****1111 一个样子
-    const 数字 = m.replace(/\D/g, "").replace(/^86(?=1[3-9]\d{9}$)/, "");
-    return `${数字.slice(0, 3)}****${数字.slice(-4)}`;
+const 全角数字 = (s: string) => s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
+const 号码样 = /^(?:\+?86)?1[3-9]\d{9}$|^0\d{9,11}$|^[48]00\d{7}$/;
+const 日期样 = /^\d{4}[-./]\d{1,2}[-./]\d{1,2}$/;
+const 电话格名 = /电话|手机|号码|phone|mobile|tel/i;
+
+function 打这一串(串: string): string {
+  const 数字 = 串.replace(/\D/g, "").replace(/^86(?=1[3-9]\d{9}$)/, "");
+  if (数字.length < 6) return 串;
+  return `${数字.slice(0, 3)}****${数字.slice(-4)}`;
+}
+
+function 文本里打码(s: string): string {
+  return 全角数字(s).replace(/\+?\(?\d[\d\s\-.()（）]*\d/g, (m) => {
+    const 数字 = m.replace(/\D/g, "");
+    const 有分隔 = /[\s\-.()（）]/.test(m.replace(/^\+/, ""));
+    if (日期样.test(m)) return m;
+    if (有分隔 ? 数字.length >= 7 : m.startsWith("+") ? 数字.length >= 8 : 号码样.test(数字)) return 打这一串(m);
+    return m;
   });
+}
+
+function 走一遍(v: unknown, 是电话: boolean): unknown {
+  if (typeof v === "string") return 是电话 ? (/\d/.test(v) ? 打这一串(全角数字(v)) : v) : 文本里打码(v);
+  if (Array.isArray(v)) return v.map((x) => 走一遍(x, 是电话));
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    // describeCustomerChanges 的样子：{字段: "电话", 原值, 新值}
+    const 这格是电话 = typeof o["字段"] === "string" && 电话格名.test(o["字段"] as string);
+    return Object.fromEntries(
+      Object.entries(o).map(([k, x]) => [k, 走一遍(x, 是电话 || 电话格名.test(k) || (这格是电话 && (k === "原值" || k === "新值")))]),
+    );
+  }
+  return v;
+}
+
+export function 文字里号码打码(s: string): string {
+  const t = s.trim();
+  if (t.startsWith("{") || t.startsWith("[")) {
+    try {
+      return JSON.stringify(走一遍(JSON.parse(s), false));
+    } catch {
+      // 不是 JSON，按文字打
+    }
+  }
+  return 文本里打码(s);
 }
 
 /** 人名头像：中文取末字（姓名去掉姓），英文取首字母 */

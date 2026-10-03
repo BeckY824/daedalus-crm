@@ -166,7 +166,8 @@ export default function ImportDrawer({
         // 不用 f.text()：它固定按 UTF-8 解，中文 Windows 存出来的 GBK 会是乱码
         rows = 解析CSV(解码CSV(new Uint8Array(await f.arrayBuffer())));
       }
-      const t = 成表(rows);
+      // 表头认法用当前业务的字段叫法（院校 / 公司、年级 / 职位……随业务配置变）
+      const t = 成表(rows, (h) => 猜列([h], 表)[0] !== null);
       if (t.表头.length === 0 || t.数据.length === 0) {
         message.error("这份表里没有数据。第一行要是表头，第二行起是内容");
         return;

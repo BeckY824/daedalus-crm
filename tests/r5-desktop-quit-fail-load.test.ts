@@ -31,7 +31,7 @@ describe("退出时页面加载被打断，不算本地服务故障", () => {
     expect(main).toContain('app.on("before-quit"');
   });
 
-  it.skip("【下一版】【C】before-quit 立的「正在退出」标记，did-fail-load 在报故障前先看它", () => {
+  it("before-quit 立的「正在退出」标记，did-fail-load 在报故障前先看它", () => {
     const 退出段 = 取一段('app.on("before-quit"', 4000);
     // before-quit 里置 true 的那些变量（比如 正在退出 = true）
     const 标记 = [...退出段.matchAll(/([\p{L}_$][\p{L}\p{N}_$]*)\s*=\s*true\b/gu)].map((m) => m[1]);

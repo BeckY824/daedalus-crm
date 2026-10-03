@@ -11,6 +11,9 @@
  */
 
 /** 一份表最多收多少行、多少列。再多就不是「把手上的名单导进来」了 */
+import { 字段表, 规整表头 } from "./fields";
+import { DEFAULT_BUSINESS } from "../business-config";
+
 export const 行数上限 = 10000;
 export const 列数上限 = 50;
 
@@ -101,7 +104,17 @@ export function 解析CSV(text: string): string[][] {
  * **列数不齐是常态**（Excel 里后面几列是空的，存出来的 csv 行长短不一），
  * 所以一律按表头的列数补齐或截断，后面的代码可以假定每行长度一样。
  */
-export function 成表(原始: string[][]): { 表头: string[]; 数据: string[][]; 截断了?: { 行?: number; 列?: number } } {
+/** 默认的列名表：默认业务配置下导入认得的那些叫法（姓名、手机号、公司……）。导入抽屉会传当前业务的那份 */
+let 默认列名: Set<string> | null = null;
+function 默认认列名(h: string): boolean {
+  if (!默认列名) 默认列名 = new Set(字段表(DEFAULT_BUSINESS).flatMap((f) => f.别名.map(规整表头)).filter(Boolean));
+  return 默认列名.has(规整表头(h));
+}
+
+export function 成表(
+  原始: string[][],
+  认列名: (h: string) => boolean = 默认认列名,
+): { 表头: string[]; 数据: string[][]; 截断了?: { 行?: number; 列?: number } } {
   if (原始.length === 0) return { 表头: [], 数据: [] };
   /*
     表头不一定在第一行：很多名单第一行是合并的大标题（「2026 客户名单」），表头在第二、三行。
@@ -125,7 +138,14 @@ export function 成表(原始: string[][]): { 表头: string[]; 数据: string[]
   };
   const 像表头 = (r: string[]) => !r.some(号码格);
   const 前几行 = 原始.slice(0, 5);
-  let 表头行 = 前几行.findIndex((r) => 填了几格(r) >= Math.max(2, Math.ceil(最宽 / 2)) && 像表头(r));
+  /*
+    先找「认得出列名」的那一行（第五轮 A2）：有一格是姓名、手机号、公司这类我们本来就认的叫法，它就是表头。
+    大标题、数据行都认不出任何列名；号码写成什么样（带分机、带字、.0 尾巴）、第一位有没有留号码都不影响。
+    前两次都是拿「格子像不像号码」去猜，堵上一头漏另一头。
+    一个都认不出（英文表头、自己起的叫法）才退回老办法：够宽、不带号码格的那一行
+  */
+  let 表头行 = 前几行.findIndex((r) => 填了几格(r) >= 2 && r.some((x) => x.trim() !== "" && 认列名(x)));
+  if (表头行 < 0) 表头行 = 前几行.findIndex((r) => 填了几格(r) >= Math.max(2, Math.ceil(最宽 / 2)) && 像表头(r));
   if (表头行 < 0) 表头行 = 前几行.findIndex((r) => 填了几格(r) >= 2 && 像表头(r));
   const rows = 表头行 > 0 ? 原始.slice(表头行) : 原始;
   // 列数取表头和数据里最宽的那一行：表头后面几格空着、数据却有值的，不该被截掉

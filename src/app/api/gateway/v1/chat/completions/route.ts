@@ -26,7 +26,7 @@ export const runtime = "nodejs";
  *      （agent 一个问题要跑好几步，见 lib/tenant/credits.ts 的 按问题扣一次）。
  *      仍然是「在转发之前」：限的是发起而不是成功，否则反复重试等于无限免费。
  *      **但上游自己出的错要退**（超时 / 5xx / 429 / 连不上）——那不是用户的问题，
- *      他什么都没拿到。用户自己中断的不退：那一次上游已经在跑了。
+ *      他什么都没拿到。桌面端中途走了（超时、点了停）的：这个问题最新的那一份没人收到就退，见 问过的 那段。
  */
 /**
  * 这次调用是哪个功能发起的。**只进成本账**，不影响任何判断，所以认不出就当没有。
@@ -71,7 +71,10 @@ function 记下问过(k: string) {
 function 合成编号(accountId: string, raw: unknown): string | null {
   const m = (raw as { messages?: unknown } | null)?.messages;
   if (!Array.isArray(m) || m.length === 0) return null;
-  return "h-" + createHash("sha256").update(`${accountId}\n${JSON.stringify(m.slice(0, 2))}`).digest("hex").slice(0, 40);
+  // 带一个 15 分钟的时间段：扣费按编号记在库里、不看时间，不带的话同一句话隔天再问也不扣（第五轮 B2）。
+  // 正好跨过段边界的那个问题会多扣一次，宁可这样也不要永远不扣
+  const 段 = Math.floor(Date.now() / (15 * 60_000));
+  return "h-" + createHash("sha256").update(`${accountId}\n${段}\n${JSON.stringify(m.slice(0, 2))}`).digest("hex").slice(0, 40);
 }
 
 /**
@@ -227,6 +230,12 @@ export async function POST(req: Request) {
     每一步（chatTools / chatMessagesJSON）都是非流式的，下面那条记得到。
   */
   if (整理.stream) {
+    // 和下面非流式那支一样：上游回响应头时桌面端已经走了（首字等不到、重发也超时），这份没人收到，是最新的就退（第五轮 A1）
+    if (req.signal.aborted && 键) {
+      await upstream.body?.cancel().catch(() => {});
+      await 退();
+      return 网关错误(499, "客户端已经断开", 剩余头);
+    }
     return new NextResponse(upstream.body, {
       status: 200,
       headers: {
@@ -257,7 +266,7 @@ export async function POST(req: Request) {
   /*
     桌面端已经走了（首轮超时、整体超时、人点了停）：这份答案没人收到。是这个编号最新的一份就退，
     不是最新的（后面还有重发）就不管——见 问过的 那段（第三轮 A1 / 第四轮 A1、兼容 A0）。
-    没带编号的老客户端照旧不退：认不出它后面还有没有重发
+    老客户端（0.46.2 及以前）不带编号，用的是 合成编号，同样按这条退
   */
   if (req.signal.aborted && 键) await 退();
 
