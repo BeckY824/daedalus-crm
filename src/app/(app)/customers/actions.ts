@@ -18,6 +18,8 @@ import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
+import { 写签约金额, 带币种, 签约币种, 签约金额 } from "@/lib/money-db";
+import { 金额 as 显示金额, 是币种 } from "@/lib/currency";
 import { statusLabel } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
@@ -653,6 +655,8 @@ export async function saveContract(input: {
   amount: number;
   signedAt: Date;
   remark: string | null;
+  /** 币种（2026-10-03）。不给：新登记用本位币，编辑保持原来的 */
+  currency?: string | null;
   /** 用户已在弹窗里确认「确实是另一笔」 */
   force?: boolean;
   /** 一起收尾的商机 / 计划 / 待办（弹窗里勾上的）。只在新登记时生效，编辑一笔旧签约不牵动别的 */
@@ -663,9 +667,12 @@ export async function saveContract(input: {
     if (!Number.isFinite(input.amount) || input.amount <= 0) {
       return { ok: false, error: "签约金额必须为正数" };
     }
-    const amount = Math.round(input.amount);
-    // 四舍五入后是 0（0.4 元）、或者超过库里整数的上限（约 21 亿）：说一句，不让数据库抛（第二轮 r2-data）
-    if (amount <= 0) return { ok: false as const, error: "签约金额至少 1 元" };
+    if (input.currency != null && !是币种(String(input.currency).toUpperCase())) return { ok: false, error: "不认识这个币种" };
+    // 精确到分（外币常带小数）；Contract.amount 那一列是整数，照旧写四舍五入的值给老统计和导出用，精确值进 ContractMoney
+    const 精确 = Math.round(input.amount * 100) / 100;
+    if (精确 <= 0) return { ok: false as const, error: "签约金额必须大于 0" };
+    const amount = Math.max(1, Math.round(精确));
+    // 超过库里整数的上限（约 21 亿）：说一句，不让数据库抛（第二轮 r2-data）
     if (amount > 2_147_483_647) return { ok: false as const, error: "签约金额太大了，单笔最多 21 亿" };
   
     if (!input.force) {
@@ -706,19 +713,27 @@ export async function saveContract(input: {
       where: { id: input.customerId },
       select: { name: true, salesOwnerId: true, channelOwnerId: true },
     });
-    if (input.id) await prisma.contract.update({ where: { id: input.id }, data });
-    else {
+    let 签约id = input.id ?? null;
+    let 币: string;
+    if (input.id) {
+      await prisma.contract.update({ where: { id: input.id }, data });
+      币 = input.currency ?? (await prisma.contractMoney.findUnique({ where: { contractId: input.id } }))?.currency ?? "CNY";
+    } else {
       // 记下签约这一刻是谁的单（排查 B2）。编辑旧签约不改它：那笔业绩当时是谁的就一直是谁的
-      await prisma.contract.create({
+      const c = await prisma.contract.create({
         data: { ...data, owner: { create: { salesOwnerId: 学员?.salesOwnerId ?? null, channelOwnerId: 学员?.channelOwnerId ?? null } } },
       });
+      签约id = c.id;
+      币 = input.currency ?? (await getBusiness()).currency;
     }
+    // 编辑一笔老签约（没有 ContractMoney）也补上这一行：金额刚被重写过，精确值以这次为准
+    if (签约id) await 写签约金额(prisma, 签约id, 币, 精确);
   
     await recordAudit({
-      user: me, action: input.id ? "update" : "create", entity: "Contract", entityId: input.id ?? null,
-      summary: `${input.id ? "修改" : "登记"}「${学员?.name ?? input.customerId}」的签约 ¥${amount.toLocaleString("zh-CN")}` +
+      user: me, action: input.id ? "update" : "create", entity: "Contract", entityId: 签约id,
+      summary: `${input.id ? "修改" : "登记"}「${学员?.name ?? input.customerId}」的签约 ${显示金额(精确, 币)}` +
         (input.force ? "（已确认不是重复录入）" : ""),
-      detail: { customerId: input.customerId, amount, signedAt: input.signedAt, force: !!input.force },
+      detail: { customerId: input.customerId, amount: 精确, currency: 币, signedAt: input.signedAt, force: !!input.force },
     });
   
     /*
@@ -785,7 +800,7 @@ export async function deleteContract(
     }
   
     // 删完就查不到金额了，先留一份
-    const 待删 = await prisma.contract.findUnique({ where: { id }, select: { amount: true, signedAt: true } });
+    const 待删 = await prisma.contract.findUnique({ where: { id }, select: { amount: true, signedAt: true, ...带币种.签约 } });
     const gone = await prisma.contract.deleteMany({ where: { id, customerId } });
     if (gone.count === 0) {
       return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
@@ -802,7 +817,7 @@ export async function deleteContract(
   
     await recordAudit({
       user: me, action: "delete", entity: "Contract", entityId: id,
-      summary: `删除签约 ¥${(待删?.amount ?? 0).toLocaleString("zh-CN")}` +
+      summary: `删除签约 ${待删 ? 显示金额(签约金额(待删), 签约币种(待删)) : 显示金额(0)}` +
         (revertTo && remaining === 0 ? `，跟进状态退回「${statusLabel(b, revertTo.followStatus)}」` : "") +
         (remaining ? `，该${b.customer}还剩 ${remaining} 笔` : ""),
       detail: { customerId, amount: 待删?.amount, signedAt: 待删?.signedAt, revertTo, remaining },

@@ -42,6 +42,7 @@ import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 import { useMotionTheme } from "@/components/MotionTheme";
 import { 截止说法, 已过期 } from "@/lib/deadline";
 import { 记下最近客户 } from "@/lib/last-customer";
+import { 金额, 合计文字 } from "@/lib/currency";
 
 /**
  * 记录页（v0.4）：三栏。
@@ -93,6 +94,8 @@ export default function RecordView({
   const { 问怎么拿掉 } = useContactRemoval();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
+  /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
+  const 已签约文字 = 合计文字(customer.signedTotals ?? [{ 币种: "CNY", 合计: customer.signedAmount }]);
   const 计划过期天 = plan ? Math.max(0, dayjs().startOf("day").diff(dayjs(plan.plannedAt).startOf("day"), "day")) : 0;
   // 右边的全局 AI 面板据此知道「他」「这位」是谁（lib/ai-context-page.ts 的客户详情那支）
   useEffect(() => {
@@ -365,7 +368,7 @@ export default function RecordView({
         {/* 一个数都没有就不出现：「预计签约 —」占着一行却什么也没说 */}
         {(customer.signedAmount > 0 || customer.expectedSignAt) && (
           <span className="rec-tags-n">
-            {customer.signedAmount > 0 ? `已签约 ${money(customer.signedAmount)}` : "预计签约"}
+            {customer.signedAmount > 0 ? `已签约 ${已签约文字}` : "预计签约"}
             {/* 已签约后面跟的是实际签约日（最近一笔；contracts 按签约日倒序）。原来跟的是预计签约日，
                 9 月 28 日签的约读起来像 10 月 5 日签的（2026-09-28 审查 M2） */}
             {customer.signedAmount > 0
@@ -411,7 +414,7 @@ export default function RecordView({
             <InlineField customerId={customer.id} field="expectedSignAt" label="预计签约" value={customer.expectedSignAt} kind="date" placeholder="未定" />
             <div className="rec-field" style={{ cursor: "default" }}>
               <div className="rec-field-k">签约金额</div>
-              <div className="rec-field-v">{customer.signedAmount > 0 ? money(customer.signedAmount) : <span className="rec-field-empty">未签约</span>}</div>
+              <div className="rec-field-v">{customer.signedAmount > 0 ? 已签约文字 : <span className="rec-field-empty">未签约</span>}</div>
             </div>
             <InlineField customerId={customer.id} field="remark" label="备注" value={customer.remark} kind="textarea" placeholder="点击写备注" />
           </div>
@@ -479,7 +482,7 @@ export default function RecordView({
                 <span className="rec-mini-n" title={o.name}>{o.name}</span>
                 <span className="rec-mini-sub">
                   <StageTag stage={o.stage} />
-                  <span className="rec-mini-m">{money(o.amount)}</span>
+                  <span className="rec-mini-m">{金额(o.amount, o.currency)}</span>
                 </span>
               </Link>
             ))}
@@ -494,7 +497,7 @@ export default function RecordView({
             {contracts.map((c) => (
               <div key={c.id} className="rec-mini">
                 <DollarOutlined style={{ color: "var(--success)" }} />
-                <span className="rec-mini-n rec-mini-amt">{money(c.amount)}</span>
+                <span className="rec-mini-n rec-mini-amt">{金额(c.amount, c.currency)}</span>
                 <span className="rec-mini-m">{fmtDate(c.signedAt)}</span>
                 <span className="rec-mini-acts">
                   <Button type="text" size="small" icon={<EditOutlined />} aria-label="编辑这笔签约" onClick={() => { setEditingContract(c); setContractOpen(true); }} />
@@ -579,7 +582,7 @@ export default function RecordView({
                     <div className="rec-tl-body">
                       <div className="rec-tl-contract">
                         <div className="rec-tl-head">
-                          <span className="rec-tl-type">签约 {money(e.c.amount)}</span>
+                          <span className="rec-tl-type">签约 {金额(e.c.amount, e.c.currency)}</span>
                           {e.c.remark && <span className="rec-tl-title" title={e.c.remark}>· {e.c.remark}</span>}
                           <span className="rec-tl-time">{fmtDate(e.c.signedAt)}</span>
                         </div>
@@ -759,11 +762,11 @@ export default function RecordView({
     modal.confirm({
       title: "删除这条签约记录？",
       content: !是最后一笔 ? (
-        `金额 ${money(r.amount)}，删除后统计数据会同步变化。`
+        `金额 ${金额(r.amount, r.currency)}，删除后统计数据会同步变化。`
       ) : (
         <>
           <div>
-            金额 {money(r.amount)}。这是该{b.customer}唯一一笔签约，删除后签约金额归零，跟进状态需要跟着退回，否则看板上会一直挂着「已签约、金额 0」。
+            金额 {金额(r.amount, r.currency)}。这是该{b.customer}唯一一笔签约，删除后签约金额归零，跟进状态需要跟着退回，否则看板上会一直挂着「已签约、金额 0」。
           </div>
           <div style={{ marginTop: 12 }}>
             <div style={{ marginBottom: 6, fontSize: 13 }}>跟进状态退回到：</div>

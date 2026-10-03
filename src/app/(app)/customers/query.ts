@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
+import { 带币种, 签约金额, 签约合计 } from "@/lib/money-db";
 
 /**
  * 客户列表的查询条件、取哪些字段、怎么变成一行——列表页和「导出」共用这一份（2026-10-02 排查）。
@@ -86,7 +87,7 @@ export const 客户行字段 = {
   referrerCustomer: { select: { name: true } },
   attributionChannel: { select: { name: true } },
   attributionCustomer: { select: { name: true } },
-  contracts: { select: { amount: true } },
+  contracts: { select: { amount: true, ...带币种.签约 } },
 } satisfies Prisma.CustomerSelect;
 
 type 取到的行 = Prisma.CustomerGetPayload<{ select: typeof 客户行字段 }>;
@@ -115,7 +116,8 @@ export function 成客户行(r: 取到的行, 号: (p: string) => string) {
     channelOwnerName: r.channelOwner?.name ?? null,
     salesOwnerId: r.salesOwnerId,
     salesOwnerName: r.salesOwner.name,
-    signedAmount: r.contracts.reduce((s, c) => s + c.amount, 0),
+    signedAmount: r.contracts.reduce((s, c) => s + 签约金额(c), 0),
+    signedTotals: 签约合计(r.contracts),
     // 并发闸门：编辑框拿它作为「我看到的是哪一版」
     updatedAt: r.updatedAt.toISOString(),
   };

@@ -25,6 +25,8 @@ function 联动说法(r?: 签约联动结果): string {
 export type ContractRow = {
   id: string;
   amount: number;
+  /** 币种（2026-10-03）。老行没有就当人民币 */
+  currency?: string;
   signedAt: string;
   remark: string | null;
 };

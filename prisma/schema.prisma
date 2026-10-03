@@ -5,7 +5,7 @@
 generator client {
   provider      = "prisma-client-js"
   binaryTargets = ["native", "debian-openssl-3.0.x"]
-  output   = "../src/generated/prisma"
+  output        = "../src/generated/prisma"
 }
 
 datasource db {
@@ -25,17 +25,17 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  leads         Lead[]
+  leads            Lead[]
   /// 作为销售负责人跟进的学员
-  salesCustomers   Customer[] @relation("SalesOwner")
+  salesCustomers   Customer[]    @relation("SalesOwner")
   /// 作为渠道负责人吸纳的学员
-  channelCustomers Customer[] @relation("CustomerChannelOwner")
+  channelCustomers Customer[]    @relation("CustomerChannelOwner")
   /// 负责的外部渠道
-  channels         Channel[]  @relation("ChannelOwner")
-  opportunities Opportunity[]
-  followUps     FollowUp[]
-  tasks         Task[]
-  plans         FollowPlan[]
+  channels         Channel[]     @relation("ChannelOwner")
+  opportunities    Opportunity[]
+  followUps        FollowUp[]
+  tasks            Task[]
+  plans            FollowPlan[]
 }
 
 /// 托管版：控制面账号 ↔ 本工作区用户。自部署版为空表。
@@ -48,22 +48,22 @@ model WorkspaceAccount {
 }
 
 model Lead {
-  id        String    @id @default(cuid())
-  name      String // 线索名称 / 公司名
-  contact   String? // 联系人姓名
-  phone     String?
-  email     String?
-  industry  String?
-  source    String    @default("其他") // 能选也能填；候选见 lib/constants.ts 的 CUSTOMER_SOURCES（微信 / 小红书 / 抖音 / 转介绍 / 官网注册 …）
-  status    String    @default("待跟进") // 待跟进 | 跟进中 | 已转化 | 已放弃
-  remark    String?
-  ownerId   String?
-  owner     User?     @relation(fields: [ownerId], references: [id])
+  id          String    @id @default(cuid())
+  name        String // 线索名称 / 公司名
+  contact     String? // 联系人姓名
+  phone       String?
+  email       String?
+  industry    String?
+  source      String    @default("其他") // 能选也能填；候选见 lib/constants.ts 的 CUSTOMER_SOURCES（微信 / 小红书 / 抖音 / 转介绍 / 官网注册 …）
+  status      String    @default("待跟进") // 待跟进 | 跟进中 | 已转化 | 已放弃
+  remark      String?
+  ownerId     String?
+  owner       User?     @relation(fields: [ownerId], references: [id])
   convertedAt DateTime?
-  customerId  String?  @unique
+  customerId  String?   @unique
   customer    Customer? @relation(fields: [customerId], references: [id])
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([status])
   @@index([ownerId])
@@ -112,8 +112,8 @@ model Customer {
 
   /// ---------- 渠道归属：推荐链往上第二代，不足两代取链条顶端 ----------
   /// 命中外部渠道时用这个
-  attributionChannelId String?
-  attributionChannel   Channel? @relation("CustomerAttributionChannel", fields: [attributionChannelId], references: [id])
+  attributionChannelId  String?
+  attributionChannel    Channel?   @relation("CustomerAttributionChannel", fields: [attributionChannelId], references: [id])
   /// 命中已有学员时用这个
   attributionCustomerId String?
   attributionCustomer   Customer?  @relation("Attribution", fields: [attributionCustomerId], references: [id])
@@ -121,8 +121,8 @@ model Customer {
 
   /// ---------- 负责人 ----------
   /// 销售负责人：负责谈单签约
-  salesOwnerId String
-  salesOwner   User   @relation("SalesOwner", fields: [salesOwnerId], references: [id])
+  salesOwnerId   String
+  salesOwner     User    @relation("SalesOwner", fields: [salesOwnerId], references: [id])
   /// 渠道负责人：继承自 channel.channelOwner，冗余存储便于筛选统计
   channelOwnerId String?
   channelOwner   User?   @relation("CustomerChannelOwner", fields: [channelOwnerId], references: [id])
@@ -156,20 +156,33 @@ model Customer {
 
 /// 签约记录。同一学员可多次签约（续费、补课），便于按月/季/年复盘
 model Contract {
-  id         String   @id @default(cuid())
+  id         String         @id @default(cuid())
   customerId String
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
   amount     Int /// 签约金额，单位：元
   signedAt   DateTime /// 签约时间
   remark     String?
   /// 签约那一刻是谁的单（排查 B2）。见 ContractOwner
   owner      ContractOwner?
+  /// 币种和精确金额（2026-10-03）。见 ContractMoney
+  money      ContractMoney?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([customerId])
   @@index([signedAt])
+}
+
+/// 签约的币种与精确金额（2026-10-03 全站币种，迁移 014）。
+/// 单独一张表、不给 Contract 加列：同 ContractOwner——Contract 只由 schema 建，迁移在空库上从头跑，加列会报表不存在。
+/// Contract.amount 是 Int（元），美元的美分存不下：amountExact 存精确值，读的时候有它用它、没有退回 amount（见 lib/money-db.ts）。
+/// 老签约没有这一行：人民币、按 amount。
+model ContractMoney {
+  contractId  String   @id
+  contract    Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  currency    String   @default("CNY")
+  amountExact Float?
 }
 
 /// 签约那一刻的销售负责人 / 渠道负责人（2026-10-02 排查 B2，迁移 011）。
@@ -222,24 +235,26 @@ model UnassignedContact {
 }
 
 model Opportunity {
-  id            String    @id @default(cuid())
-  name          String
-  amount        Float     @default(0)
-  stage         String    @default("初步沟通") // 初步沟通|需求确认|方案报价|谈判审核|赢单成交
-  status        String    @default("OPEN") // OPEN | WON | LOST
-  probability   Int       @default(10)
+  id             String    @id @default(cuid())
+  name           String
+  amount         Float     @default(0)
+  stage          String    @default("初步沟通") // 初步沟通|需求确认|方案报价|谈判审核|赢单成交
+  status         String    @default("OPEN") // OPEN | WON | LOST
+  probability    Int       @default(10)
   expectedDealAt DateTime?
-  remark        String?
-  customerId    String
-  customer      Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  ownerId       String
-  owner         User      @relation(fields: [ownerId], references: [id])
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  remark         String?
+  customerId     String
+  customer       Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  ownerId        String
+  owner          User      @relation(fields: [ownerId], references: [id])
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   followUps FollowUp[]
   /// 赢单 / 丢单的那一刻（排查 C6）。见 OpportunityClose
   closed    OpportunityClose?
+  /// 币种（2026-10-03）。见 OpportunityMoney
+  money     OpportunityMoney?
 
   @@index([customerId])
   @@index([stage])
@@ -255,15 +270,22 @@ model OpportunityClose {
   closedAt      DateTime    @default(now())
 }
 
+/// 商机的币种（2026-10-03 全站币种，迁移 013）。单独一张表，理由同 OpportunityClose。没有这一行 = 人民币。
+model OpportunityMoney {
+  opportunityId String      @id
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  currency      String      @default("CNY")
+}
+
 model FollowUp {
-  id         String    @id @default(cuid())
-  type       String // PHONE|MEETING|VISIT|EMAIL|SMS|TASK|REMIND|OTHER
-  title      String
-  content    String
-  status     String    @default("已完成") // 已完成 | 待处理 | 已发送
-  duration   Int? // 通话/会议时长（秒）
-  occurredAt DateTime  @default(now())
-  dueAt      DateTime? // 任务截止 / 提醒时间
+  id           String    @id @default(cuid())
+  type         String // PHONE|MEETING|VISIT|EMAIL|SMS|TASK|REMIND|OTHER
+  title        String
+  content      String
+  status       String    @default("已完成") // 已完成 | 待处理 | 已发送
+  duration     Int? // 通话/会议时长（秒）
+  occurredAt   DateTime  @default(now())
+  dueAt        DateTime? // 任务截止 / 提醒时间
   participants String? // 与会人，逗号分隔
 
   customerId String
@@ -300,17 +322,17 @@ model FollowUpSource {
 }
 
 model Task {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   title      String
   dueAt      DateTime?
-  done       Boolean  @default(false)
+  done       Boolean   @default(false)
   doneAt     DateTime?
   customerId String
-  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer   Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   ownerId    String
-  owner      User     @relation(fields: [ownerId], references: [id])
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  owner      User      @relation(fields: [ownerId], references: [id])
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([ownerId, done])
   @@index([customerId])
@@ -342,20 +364,20 @@ model FollowPlan {
 /// 日志只增不改不删，不该因为某个成员被删掉就丢失或被置空。
 /// 也因此这张表永远不需要 ALTER，是最安全的第一张迁移表。
 model AuditLog {
-  id     String   @id @default(cuid())
-  at     DateTime @default(now())
+  id       String   @id @default(cuid())
+  at       DateTime @default(now())
   /// 操作人，冗余存储，不建外键
   userId   String
   userName String
   /// 动作：create | update | delete | assign | convert | deactivate ...
-  action String
+  action   String
   /// 对象类型与主键，如 Customer / cmxxx
   entity   String
   entityId String?
   /// 一句话说明，直接给人看
-  summary String
+  summary  String
   /// 结构化明细（改了哪些字段、前后值），JSON 字符串，可为空
-  detail String?
+  detail   String?
 
   @@index([at])
   @@index([entity, entityId])
@@ -379,7 +401,7 @@ model Setting {
 /// 不与 User 建外键：成员被删不该带走他问过的东西，也不该让删人卡在这儿。
 /// 列一次留全（projectId / pinnedAt / archivedAt），因为 migrations/ 只能加表不能加列。
 model AiConversation {
-  id          String    @id @default(cuid())
+  id          String      @id @default(cuid())
   /// 第一问的前 18 个字，可改
   title       String
   ownerId     String
@@ -388,13 +410,13 @@ model AiConversation {
   scope       String?
   /// 项目那一层先只有列，没有界面
   projectId   String?
-  project     AiProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  project     AiProject?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
   pinnedAt    DateTime?
   archivedAt  DateTime?
   /// 排序按它，不按 updatedAt：重命名不该让一条老对话跳到最前面
-  lastAskedAt DateTime  @default(now())
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  lastAskedAt DateTime    @default(now())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
   messages    AiMessage[]
 
   @@index([ownerId, lastAskedAt])
@@ -436,8 +458,8 @@ model AiProject {
 
 /// 一次导入 = 一个批次，整批可回滚。见 migrations/007 和 lib/import/。
 model ImportBatch {
-  id         String   @id @default(cuid())
-  at         DateTime @default(now())
+  id         String      @id @default(cuid())
+  at         DateTime    @default(now())
   /// 谁导的。冗余存储，不建外键——成员被删不该带走导入历史
   userId     String
   userName   String
@@ -445,10 +467,10 @@ model ImportBatch {
   fileName   String
   /// 多工作表要支持时才用得上，眼下不填
   sheetName  String?
-  created    Int      @default(0)
-  updated    Int      @default(0)
-  skipped    Int      @default(0)
-  failed     Int      @default(0)
+  created    Int         @default(0)
+  updated    Int         @default(0)
+  skipped    Int         @default(0)
+  failed     Int         @default(0)
   /// 撤销过就有值；撤销过的批次不能再撤一次
   revertedAt DateTime?
   rows       ImportRow[]

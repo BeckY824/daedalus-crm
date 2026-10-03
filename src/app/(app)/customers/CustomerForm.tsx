@@ -37,7 +37,10 @@ export type CustomerRow = {
   channelOwnerName: string | null;
   salesOwnerId: string;
   salesOwnerName: string;
+  /** 各笔签约金额直接相加——**只拿来排序和判断签没签过**，显示用 signedTotals（不同币种不能加在一起） */
   signedAmount: number;
+  /** 已签约按币种合计（2026-10-03）。老调用方没给就当没有 */
+  signedTotals?: { 币种: string; 合计: number }[];
   /** 这条记录的版本号，保存时回传做并发校验 */
   updatedAt: string;
 };

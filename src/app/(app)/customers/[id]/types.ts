@@ -43,6 +43,8 @@ export type RecordProps = {
     id: string;
     name: string;
     amount: number;
+    /** 币种（2026-10-03）。老行没有就当人民币 */
+    currency?: string;
     stage: string;
     status: string;
     probability: number;

@@ -9,6 +9,9 @@ import { STAGE_PROBABILITY, OPP_STAGES, OPP_STATUSES } from "@/lib/constants";
 import { 对齐阶段与状态 } from "@/lib/opp-stage";
 import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
+import { 写商机币种 } from "@/lib/money-db";
+import { 金额 as 显示金额, 是币种, 规整币种 } from "@/lib/currency";
+import { getBusiness } from "@/lib/business";
 
 /** 状态在界面上叫什么。日志是给人看的，不能写 WON / LOST */
 const 状态名: Record<string, string> = { OPEN: "进行中", WON: "赢单", LOST: "丢单" };
@@ -46,6 +49,8 @@ export async function saveOpportunity(input: {
   probability: number;
   expectedDealAt?: string | null;
   remark?: string | null;
+  /** 币种（2026-10-03）。不给：新建用本位币，编辑保持原来的 */
+  currency?: string | null;
   /** 一个人的工作区里界面上不问这一项，留空由服务端填成那唯一的人 */
   ownerId?: string | null;
   /** 打开编辑框那一刻的 updatedAt。给了就当闸门：期间有人改过不盖掉（排查 D3） */
@@ -83,10 +88,12 @@ export async function saveOpportunity(input: {
     input = { ...input, probability: STAGE_PROBABILITY[input.stage] ?? 20 };
   }
 
+  if (input.currency != null && !是币种(String(input.currency).toUpperCase())) return { ok: false as const, error: "不认识这个币种" };
   const data = {
     name: input.name.trim(),
     customerId: input.customerId,
-    amount: Math.round(input.amount),
+    // 外币常有小数（US$ 3,250.50），留到分；原来取整是因为只有人民币
+    amount: Math.round(input.amount * 100) / 100,
     stage: input.stage,
     status: input.status,
     probability: input.probability ?? STAGE_PROBABILITY[input.stage] ?? 20,
@@ -101,18 +108,22 @@ export async function saveOpportunity(input: {
       return { ok: false as const, error: 原状态 === null ? "这个商机已经不在了（可能已删除）" : 版本冲突 };
     }
     await 记结单(input.id, 原状态, data.status);
+    if (input.currency != null) await 写商机币种(prisma, input.id, input.currency);
+    const 币 = (await prisma.opportunityMoney.findUnique({ where: { opportunityId: input.id } }))?.currency ?? "CNY";
     await recordAudit({
       user: me, action: "update", entity: "Opportunity", entityId: input.id,
-      summary: `修改商机「${data.name}」：${data.stage} · ${状态名[data.status] ?? data.status} · ¥${data.amount}`,
-      detail: { 名称: data.name, 金额: data.amount, 阶段: data.stage, 状态: 状态名[data.status] ?? data.status, 概率: data.probability },
+      summary: `修改商机「${data.name}」：${data.stage} · ${状态名[data.status] ?? data.status} · ${显示金额(data.amount, 币)}`,
+      detail: { 名称: data.name, 金额: data.amount, 币种: 币, 阶段: data.stage, 状态: 状态名[data.status] ?? data.status, 概率: data.probability },
     });
   } else {
     const o = await prisma.opportunity.create({ data });
     await 记结单(o.id, null, data.status);
+    const 币 = input.currency ?? (await getBusiness()).currency;
+    await 写商机币种(prisma, o.id, 币);
     await recordAudit({
       user: me, action: "create", entity: "Opportunity", entityId: o.id,
-      summary: `新建商机「${data.name}」：${data.stage} · ¥${data.amount}`,
-      detail: { 名称: data.name, 金额: data.amount, 阶段: data.stage, 状态: 状态名[data.status] ?? data.status },
+      summary: `新建商机「${data.name}」：${data.stage} · ${显示金额(data.amount, 币)}`,
+      detail: { 名称: data.name, 金额: data.amount, 币种: 币, 阶段: data.stage, 状态: 状态名[data.status] ?? data.status },
     });
   }
 
@@ -223,7 +234,7 @@ export async function deleteOpportunities(ids: string[]) {
     */
     const 待删 = await prisma.opportunity.findMany({
       where: { id: { in: ids } },
-      include: { customer: { select: { name: true } }, closed: true, followUps: { select: { id: true } } },
+      include: { customer: { select: { name: true } }, closed: true, followUps: { select: { id: true } }, money: true },
     });
     const res = await prisma.opportunity.deleteMany({ where: { id: { in: ids } } });
     if (res.count) {
@@ -235,8 +246,9 @@ export async function deleteOpportunities(ids: string[]) {
     }
     刷新商机();
     // 撤销要用的原样快照（排查 D2）：一并记下原来指着它的跟进记录、结单时刻
-    const 快照: 删掉的商机[] = 待删.map(({ customer: _客户, closed, followUps, ...o }) => ({
+    const 快照: 删掉的商机[] = 待删.map(({ customer: _客户, closed, followUps, money, ...o }) => ({
       ...o,
+      currency: money?.currency ?? null,
       expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
       createdAt: o.createdAt.toISOString(),
       closedAt: closed?.closedAt.toISOString() ?? null,
@@ -252,6 +264,8 @@ export type 删掉的商机 = {
   id: string; name: string; amount: number; stage: string; status: string; probability: number;
   expectedDealAt: string | null; remark: string | null; customerId: string; ownerId: string;
   createdAt: string; closedAt: string | null; 跟进: string[];
+  /** 币种（2026-10-03）。null = 0.46.15 之前没记币种的老商机，撤销回来也不补那一行 */
+  currency?: string | null;
 };
 
 /** 删之前数一数：关联着几条跟进（删了它们就不再写是哪个商机）、有几个已经赢单（排查 D2） */
@@ -283,6 +297,7 @@ export async function restoreOpportunities(快照: 删掉的商机[]) {
             expectedDealAt: o.expectedDealAt ? new Date(o.expectedDealAt) : null, remark: o.remark,
             customerId: o.customerId, ownerId: o.ownerId, createdAt: new Date(o.createdAt),
             ...(o.closedAt ? { closed: { create: { closedAt: new Date(o.closedAt) } } } : {}),
+            ...(o.currency ? { money: { create: { currency: 规整币种(o.currency) } } } : {}),
           },
         });
         if (o.跟进.length) {

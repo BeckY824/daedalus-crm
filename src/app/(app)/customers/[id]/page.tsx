@@ -7,6 +7,7 @@ import { 负责人候选 } from "@/lib/owners";
 import { 可选渠道, 可选客户 } from "@/lib/options";
 import { llmEnabled } from "@/lib/llm";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
+import { 带币种, 签约金额, 签约币种, 签约合计, 商机币种 } from "@/lib/money-db";
 
 export const dynamic = "force-dynamic";
 
@@ -36,9 +37,9 @@ export default async function CustomerDetailPage({
       attributionCustomer: { select: { id: true, name: true } },
       // 该学员自己推荐来的人，用于展示推荐链下游
       referrals: { select: { id: true, name: true, followStatus: true }, orderBy: { createdAt: "desc" } },
-      contracts: { orderBy: { signedAt: "desc" } },
+      contracts: { orderBy: { signedAt: "desc" }, include: 带币种.签约 },
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
-      opportunities: { orderBy: { createdAt: "desc" } },
+      opportunities: { orderBy: { createdAt: "desc" }, include: 带币种.商机 },
       tasks: { orderBy: [{ done: "asc" }, { dueAt: "asc" }] },
       plans: { where: { done: false, ...(要看的计划 ? { id: 要看的计划 } : {}) }, orderBy: { plannedAt: "asc" }, take: 1 },
       followUps: {
@@ -107,7 +108,8 @@ export default async function CustomerDetailPage({
         channelOwnerName: customer.channelOwner?.name ?? null,
         salesOwnerId: customer.salesOwnerId,
         salesOwnerName: customer.salesOwner.name,
-        signedAmount: customer.contracts.reduce((a, c) => a + c.amount, 0),
+        signedAmount: customer.contracts.reduce((a, c) => a + 签约金额(c), 0),
+        signedTotals: 签约合计(customer.contracts),
         updatedAt: customer.updatedAt.toISOString(),
       }}
       contacts={customer.contacts.map((c) => ({
@@ -123,7 +125,8 @@ export default async function CustomerDetailPage({
       }))}
       contracts={customer.contracts.map((c) => ({
         id: c.id,
-        amount: c.amount,
+        amount: 签约金额(c),
+        currency: 签约币种(c),
         signedAt: c.signedAt.toISOString(),
         remark: c.remark,
       }))}
@@ -131,6 +134,7 @@ export default async function CustomerDetailPage({
         id: o.id,
         name: o.name,
         amount: o.amount,
+        currency: 商机币种(o),
         stage: o.stage,
         status: o.status,
         probability: o.probability,
