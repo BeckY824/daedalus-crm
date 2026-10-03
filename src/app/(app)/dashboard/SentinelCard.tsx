@@ -13,6 +13,7 @@ import AiCost from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
+  order_late: "error",
   overdue_plan: "error",
   sleeping: "warning",
   stalled_opp: "processing",
@@ -109,7 +110,10 @@ function SentinelRow({
             <Link href={`/customers/${it.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
               {it.customerName}
             </Link>
-            <span style={{ flex: 1, minWidth: 200, color: "var(--text-muted)", fontSize: 14 }}>{it.reason}</span>
+            <span style={{ flex: 1, minWidth: 200, color: "var(--text-muted)", fontSize: 14 }}>
+              {/* 订单超期：理由本身就是去处，点了直接到那张订单那一步 */}
+              {it.href ? <Link href={it.href}>{it.reason}</Link> : it.reason}
+            </span>
             <span style={{ color: "var(--text-muted)", fontSize: 13, flex: "none" }}>{it.ownerName}</span>
             {aiEnabled && !draftText && (
               <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>

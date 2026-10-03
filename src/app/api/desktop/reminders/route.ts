@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { 算提醒 } from "@/lib/reminders";
-import { 取提醒项 } from "@/lib/reminders-db";
+import { 取提醒项, 取订单提醒项 } from "@/lib/reminders-db";
 import { 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 
 export const dynamic = "force-dynamic";
@@ -31,11 +31,11 @@ export async function GET(req: Request) {
     没登录云端账号、或者这个目录还是上一个账号的：什么都不报。
     Dock 上挂着一个上一个人的数、或者登录页后面弹一条「今天有 3 个要跟进」，都是在替别人说话。
   */
-  if (归属对不上() || !读云端凭据()) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null });
+  if (归属对不上() || !读云端凭据()) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
 
   const 我 = await prisma.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
-  if (!我) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null });
+  if (!我) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
 
-  const 项 = await 取提醒项(我.id);
-  return NextResponse.json(算提醒(项));
+  const [项, 订单项] = await Promise.all([取提醒项(我.id), 取订单提醒项(我.id)]);
+  return NextResponse.json(算提醒(项, new Date(), 订单项));
 }

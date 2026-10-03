@@ -11,15 +11,18 @@
 import { dayjs } from "@/lib/utils";
 
 export type WatchItem = {
-  kind: "overdue_plan" | "sleeping" | "stalled_opp";
+  kind: "overdue_plan" | "sleeping" | "stalled_opp" | "order_late";
   customerId: string;
   customerName: string;
   ownerName: string;
   reason: string;
   score: number;
+  /** 这件事本身在哪（订单超期 → 那张订单那一步）。不给就只有客户那一个链接 */
+  href?: string;
 };
 
 export const KIND_LABEL: Record<WatchItem["kind"], string> = {
+  order_late: "订单超期",
   overdue_plan: "计划逾期",
   sleeping: "沉睡学员",
   stalled_opp: "商机停滞",
@@ -47,6 +50,8 @@ export type SentinelInput = {
   customers: { id: string; name: string; followStatus: string; lastFollowAt: Date | null; createdAt: Date; ownerName: string }[];
   /** 进行中的商机 */
   opportunities: { customerId: string; customerName: string; ownerName: string; name: string; stage: string; updatedAt: Date }[];
+  /** 外贸订单里超期或卡住的节点（2026-10-03）。没有订单就不给 */
+  lateOrderNodes?: { orderId: string; orderNo: string; idx: number; nodeName: string; dueAt: Date | null; 卡住: boolean; customerId: string; customerName: string; ownerName: string }[];
 };
 
 export function buildWatchlist(
@@ -72,6 +77,24 @@ export function buildWatchlist(
       // 不满一天（今天约好的、时间已过）说「今天该做」——「已逾期 0 天」读着像没逾期
       reason: days < 1 ? `跟进计划「${p.subject}」今天该做，还没做` : `跟进计划「${p.subject}」已逾期 ${days} 天`,
       score: 100 + Math.min(days, 30),
+    });
+  }
+
+  /*
+    订单节点超期（2026-10-03）：钱和船期。排在逾期计划前面——计划拖一天是少打一个电话，
+    订舱拖一天可能就赶不上这条船、尾款跟着晚一个月。卡住的不论有没有截止日都算
+  */
+  for (const x of input.lateOrderNodes ?? []) {
+    const days = x.dueAt ? n.startOf("day").diff(dayjs(x.dueAt).startOf("day"), "day") : 0;
+    if (!x.卡住 && days < 1) continue;
+    items.push({
+      kind: "order_late",
+      customerId: x.customerId,
+      customerName: x.customerName,
+      ownerName: x.ownerName,
+      reason: x.卡住 ? `订单 ${x.orderNo} 卡在第 ${x.idx} 步「${x.nodeName}」` : `订单 ${x.orderNo} 第 ${x.idx} 步「${x.nodeName}」已超期 ${days} 天`,
+      score: 110 + Math.min(days, 30),
+      href: `/orders/${x.orderId}?node=${x.idx}`,
     });
   }
 

@@ -64,6 +64,11 @@ type Props = {
    * 和桌面端 Dock 上的数是同一个——左栏「跟进」、手机顶栏铃铛都挂它，人在 Dock 上看见 1，打开应用能顺着找到那个 1
    */
   要跟: { 逾期: number; 今天: number };
+  /**
+   * 订单里要看的节点（外贸模版，2026-10-03）：超期 + 今天到期。挂在左栏「订单」上，
+   * Dock 上的数 = 「跟进」这个数 + 它（lib/reminders.ts）。没有订单就是 0，什么都不显示
+   */
+  订单要看?: { 超期: number; 今天: number };
   /** 跑在桌面端（Electron）里：红黄绿钮嵌在图标栏顶上，系统标题栏不再画 */
   desktop: boolean;
   /**
@@ -103,7 +108,7 @@ type Props = {
 /** 面板常驻要的最小窗口宽度，见 AppShell 里 窄窗 那段 */
 const 面板放不下 = "(max-width: 1599px)";
 
-export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, desktop, 反馈去向, pane, ai, children }: Props) {
+export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订单要看 = { 超期: 0, 今天: 0 }, desktop, 反馈去向, pane, ai, children }: Props) {
   const { 曲线, 时长 } = useMotionTheme();
   const b = useBusiness();
   const router = useRouter();
@@ -180,11 +185,13 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
     就叫桌面端的壳马上再问一次，Dock 上的数跟着变。原来只有计划页会叫，别处处理完 Dock 要等下一分钟。
     首次挂载不叫：壳自己启动后就在问
   */
+  const 订单数 = 订单要看.超期 + 订单要看.今天;
+  const 订单说法 = 订单数 > 0 ? `${订单数} 个节点要看${订单要看.超期 > 0 ? `（超期 ${订单要看.超期}）` : ""}` : "";
   const 上次要跟 = useRef<number | null>(null);
   useEffect(() => {
-    if (上次要跟.current !== null && 上次要跟.current !== 要跟数) void window.desktopReminders?.刷新();
-    上次要跟.current = 要跟数;
-  }, [要跟数]);
+    if (上次要跟.current !== null && 上次要跟.current !== 要跟数 + 订单数) void window.desktopReminders?.刷新();
+    上次要跟.current = 要跟数 + 订单数;
+  }, [要跟数, 订单数]);
 
   const nav = useMemo(
     () => [
@@ -233,7 +240,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
             }
           : undefined
       }
-      aria-label={n.key === "/follow-ups" && 要跟说法 ? `${n.label}，${要跟说法}` : n.label}
+      aria-label={n.key === "/follow-ups" && 要跟说法 ? `${n.label}，${要跟说法}` : n.key === "/orders" && 订单说法 ? `${n.label}，${订单说法}` : n.label}
       className={`rail-item${selectedKey === n.key ? " on" : ""}`}
     >
       {/* 选中那块底色是**同一块**在两项之间滑过去的（layoutId），不是这边灭那边亮。
@@ -248,6 +255,9 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
           点进去是记录页，页头「计划」按钮上还挂着同一个数，再点就是逾期和今天那两组 */}
       {n.key === "/follow-ups" && 要跟数 > 0 && (
         <span className="rail-count" title={`${要跟说法}，和 Dock 上的数一样`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
+      )}
+      {n.key === "/orders" && 订单数 > 0 && (
+        <span className="rail-count" title={`${订单说法}，算在 Dock 上的数里`}>{订单数 > 99 ? "99+" : 订单数}</span>
       )}
       {/* 灰的数只是「有多少」，不是「要处理」：和上面那个红的分开，红的才催人 */}
       {(计数[n.key] ?? 0) > 0 && <span className="rail-num">{计数[n.key]}</span>}

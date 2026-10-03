@@ -30,6 +30,7 @@ describe("要跟的数：一个口径、处处一样", () => {
   });
 
   it("这个数一变就叫桌面端的壳马上再问，Dock 不用等下一分钟", () => {
-    expect(读("src/components/AppShell.tsx")).toMatch(/上次要跟\.current !== 要跟数\) void window\.desktopReminders\?\.刷新\(\)/);
+    // 2026-10-03 起 Dock 上的数还加上订单节点：两个数的和一变就问
+    expect(读("src/components/AppShell.tsx")).toMatch(/上次要跟\.current !== 要跟数 \+ 订单数\) void window\.desktopReminders\?\.刷新\(\)/);
   });
 });

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { 提醒项 } from "@/lib/reminders";
+import type { 提醒项, 订单提醒项 } from "@/lib/reminders";
 
 /**
  * 某人名下还没做的跟进计划和待办，摊成 算提醒() 要的样子。
@@ -23,4 +23,20 @@ export async function 取提醒项(ownerId: string): Promise<提醒项[]> {
     ...plans.map((p) => ({ id: p.id, kind: "plan" as const, 标题: p.subject, 时间: p.plannedAt, customerId: p.customer.id, 客户: p.customer.name, 方式: p.method })),
     ...tasks.map((t) => ({ id: t.id, kind: "task" as const, 标题: t.title, 时间: t.dueAt, customerId: t.customer.id, 客户: t.customer.name })),
   ];
+}
+
+/**
+ * 某人（业务员）名下订单里要看的节点：没完成、不是不适用，排了截止日或者卡住了。
+ * 没有订单（通用模版）就是空的，什么都不多算。
+ */
+export async function 取订单提醒项(ownerId: string): Promise<订单提醒项[]> {
+  const nodes = await prisma.tradeOrderNode.findMany({
+    where: {
+      status: { notIn: ["已完成", "不适用"] },
+      OR: [{ dueAt: { not: null } }, { status: "卡住" }],
+      order: { ownerId },
+    },
+    select: { name: true, dueAt: true, status: true, order: { select: { id: true, no: true } } },
+  });
+  return nodes.map((n) => ({ orderId: n.order.id, no: n.order.no, 节点: n.name, 时间: n.dueAt, 卡住: n.status === "卡住" }));
 }
