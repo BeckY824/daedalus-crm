@@ -150,7 +150,8 @@ export default function TeamTab() {
         </span>
         <Button icon={<SyncOutlined spin={忙 === "同步"} />} disabled={忙 !== null || s.active !== true} onClick={() => void 同步()}>立即同步</Button>
       </div>
-      {s.lastError && <Alert type="error" showIcon message={s.lastError} style={{ marginBottom: 16 }} />}
+      {/* 没开通时上面那条黄的已经说了，红的不再重复一遍 */}
+      {s.lastError && !(s.active === false && /没开通/.test(s.lastError)) && <Alert type="error" showIcon message={s.lastError} style={{ marginBottom: 16 }} />}
 
       <section className="team-card">
         <h3>成员 {s.成员.length}</h3>

@@ -5,6 +5,7 @@ import { palette } from "@/lib/palette";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "motion/react";
 import { 要跟Context } from "./FollowDue";
+import { 我Provider } from "@/lib/me-client";
 import Link from "next/link";
 import { Layout, Avatar, Dropdown, Button, Badge } from "antd";
 import {
@@ -361,7 +362,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
           </Badge>
         </Header>
         <Content className="app-content" style={{ padding: "22px 26px" }}>
-          <要跟Context.Provider value={要跟}>{children}</要跟Context.Provider>
+          <我Provider value={{ id: user.id, name: user.name }}><要跟Context.Provider value={要跟}>{children}</要跟Context.Provider></我Provider>
         </Content>
       </Layout>
     );
@@ -494,7 +495,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
           transition={{ duration: 少动 ? 0 : 时长.base, ease: 曲线.ease }}
           style={{ maxWidth: 1720, margin: "0 auto" }}
         >
-          <要跟Context.Provider value={要跟}>{children}</要跟Context.Provider>
+          <我Provider value={{ id: user.id, name: user.name }}><要跟Context.Provider value={要跟}>{children}</要跟Context.Provider></我Provider>
         </motion.div>
       </main>
       {/*

@@ -1,5 +1,6 @@
 "use client";
 
+import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -50,6 +51,7 @@ export default function ChannelsView({
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const 我 = useMe();
   const b = useBusiness();
   /* 三个筛选条件都在本地：行已经全在手上了 */
   const [kw, setKw] = useState("");
@@ -290,7 +292,8 @@ export default function ChannelsView({
             form={form}
             layout="vertical"
             style={{ marginTop: 8 }}
-            initialValues={editing ?? {}}
+            // 新建时渠道负责人默认是我（团队同步之后候选里有同事）
+            initialValues={editing ?? { channelOwnerId: 默认负责人(我, users) }}
           >
             <Form.Item label="渠道姓名" name="name" rules={[{ required: true, message: "请输入渠道姓名" }]}>
               <Input placeholder="如：小红" />

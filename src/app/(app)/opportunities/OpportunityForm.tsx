@@ -11,6 +11,7 @@ import type { 一次报价 } from "@/lib/quote-db";
 import type { OppRow } from "./OpportunitiesView";
 import { 聚焦首项 } from "@/lib/modal-focus";
 import CurrencySelect from "@/components/CurrencySelect";
+import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useBusiness } from "@/lib/business-client";
 import { stageLabel } from "@/lib/business-config";
 
@@ -38,6 +39,7 @@ export default function OpportunityForm({
 }) {
   const { message } = App.useApp();
   const b = useBusiness();
+  const 我 = useMe();
   const [form] = Form.useForm();
   /** 换阶段前是哪一档：概率还等于那一档的默认值，才算「人没动过」、跟着换（排查 D6） */
   const 上一个阶段 = useRef("初步沟通");
@@ -98,12 +100,13 @@ export default function OpportunityForm({
         stage: "初步沟通",
         status: "OPEN",
         probability: STAGE_PROBABILITY["初步沟通"] ?? 20,
-        ownerId: users[0]?.id,
+        // 默认是我（团队同步之后候选里有同事，排第一的不一定是我）
+        ownerId: 默认负责人(我, users) ?? users[0]?.id,
         // 新建默认本位币（设置 → 业务里定的；外贸模版是美元）
         currency: b.currency,
       });
     }
-  }, [open, editing, form, users, b.currency]);
+  }, [open, editing, form, users, b.currency, 我]);
 
 
   async function onOk() {

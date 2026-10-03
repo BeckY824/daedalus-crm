@@ -6,6 +6,7 @@ import { Alert, App, AutoComplete, Button, Col, DatePicker, Divider, Form, Input
 import { PlusOutlined } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
+import { useMe, 默认负责人 } from "@/lib/me-client";
 import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } from "./actions";
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
@@ -78,6 +79,7 @@ function CustomerFormInner({
   const b = useBusiness();
   const { message } = App.useApp();
   const [form] = Form.useForm();
+  const 我 = useMe();
   const [saving, setSaving] = useState(false);
   const [dup, setDup] = useState<DuplicateHit | null>(null);
   /** 保存时发现别人已经改过这条记录 */
@@ -196,7 +198,7 @@ function CustomerFormInner({
         initialValues={
           editing
             ? { ...editing, expectedSignAt: editing.expectedSignAt ? dayjs(editing.expectedSignAt) : null }
-            : { followStatus: "待跟进", decisionStatus: "了解中" }
+            : { followStatus: "待跟进", decisionStatus: "了解中", salesOwnerId: 默认负责人(我, users) }
         }
       >
         {conflict && (

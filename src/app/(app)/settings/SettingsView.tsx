@@ -120,7 +120,7 @@ export default function SettingsView({
   const 分组表: [string, string[]][] = [
     ["个人", ["profile", "password", "keymap", "appearance"]],
     ["工作区", ["members", "business", "ai", "imports", "audit"]],
-    ["应用", ["desktop"]],
+    ["应用", ["desktop", "team"]],
   ];
 
   /**
