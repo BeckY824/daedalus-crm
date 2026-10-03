@@ -2,14 +2,16 @@
 
 import { useMemo, useState } from "react";
 import { palette, categorical } from "@/lib/palette";
-import { Card, Row, Col, Table, Typography, Drawer } from "antd";
+import { Card, Row, Col, Table, Typography, Drawer, Segmented } from "antd";
+import { useRouter, useSearchParams } from "next/navigation";
 import { BarChartOutlined, PayCircleOutlined, FileDoneOutlined, RiseOutlined } from "@ant-design/icons";
 import Link from "next/link";
 import type { EChartsCoreOption } from "echarts/core";
 import Chart from "@/components/Chart";
 import { StatCard } from "@/components/ui";
 import EmptyState, { 表格空态 } from "@/components/EmptyState";
-import { money, fmtDate } from "@/lib/utils";
+import { fmtDate } from "@/lib/utils";
+import { 金额, 币种名, 合计文字, type 币种合计 } from "@/lib/currency";
 import type { Agg, Bucket, 明细行 } from "../overview/data";
 import { useBusiness } from "@/lib/business-client";
 
@@ -21,7 +23,7 @@ import { useBusiness } from "@/lib/business-client";
  * 自己的年份下拉和月/季/年切换（三处看数、两个问答框的来路就是它）。
  */
 export default function ReportsView({
-  trend, 明细, bySales, byChannelOwner, byChannel, byAttribution, total, 口径, 单人 = false,
+  trend, 明细, bySales, byChannelOwner, byChannel, byAttribution, total, 口径, 单人 = false, 币种, 币种们,
 }: {
   trend: Bucket[];
   明细: Record<string, 明细行[]>;
@@ -30,6 +32,9 @@ export default function ReportsView({
   byChannel: Agg[];
   byAttribution: Agg[];
   total: { amount: number; count: number };
+  /** 这一页的数只算这一种币（2026-10-03，不换汇）；币种们 = 这一段每种币各签了多少 */
+  币种: string;
+  币种们: 币种合计[];
   /** 这一页的数是按什么口径算的。数字必须说得清自己是怎么来的 */
   口径: string;
   /**
@@ -39,6 +44,15 @@ export default function ReportsView({
   单人?: boolean;
 }) {
   const b = useBusiness();
+  const router = useRouter();
+  const sp = useSearchParams();
+  const money = (n: number) => 金额(n, 币种);
+  /** 换一种币看：只改网址上的 currency，别的（本月 / 本年）不动 */
+  const 换币 = (码: string) => {
+    const q = new URLSearchParams(sp.toString());
+    q.set("currency", 码);
+    router.push(`/overview?${q.toString()}`);
+  };
   /**
    * 点开的是哪一根柱子。设计稿 09/DATA·YEAR 的页面规则「图表提供查看明细」——
    * 一张只能看不能问的趋势图，看出「三月特别高」之后就断了：
@@ -57,7 +71,7 @@ export default function ReportsView({
         borderColor: palette.lineSoft,
         textStyle: { color: palette.inkSoft, fontSize: 12 },
         extraCssText: "box-shadow:0 6px 20px rgba(16,43,77,.12);border-radius:8px;",
-        valueFormatter: (v: number) => "¥ " + v.toLocaleString(),
+        valueFormatter: (v: number) => 金额(v, 币种),
       },
       grid: { left: 8, right: 12, top: 30, bottom: 4, containLabel: true },
       xAxis: {
@@ -84,7 +98,7 @@ export default function ReportsView({
         },
       ],
     }),
-    [trend],
+    [trend, 币种],
   );
 
   /**
@@ -149,6 +163,22 @@ export default function ReportsView({
 
   return (
     <>
+      {/*
+        这一段签过两种以上的币：给一个切换，下面的卡、图、表都只算选中的那一种。
+        不换汇——把美元和欧元折成一个数，汇率按哪天算都说不清，图上的走势就是假的。
+      */}
+      {币种们.length > 1 && (
+        <div className="reports-cur">
+          <span className="muted">按币种看</span>
+          <Segmented
+            size="small"
+            value={币种}
+            onChange={(v) => 换币(String(v))}
+            options={币种们.map((x) => ({ value: x.币种, label: <span title={币种名(x.币种)}>{x.币种}</span> }))}
+          />
+          <span className="muted">这一段共签 {合计文字(币种们)}</span>
+        </div>
+      )}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
           <StatCard icon={<PayCircleOutlined />} color={palette.brand} label="签约总额" value={money(total.amount)} note={口径} />

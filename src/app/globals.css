@@ -698,6 +698,9 @@ html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, tra
   font-variant-numeric: tabular-nums;
 }
 
+/* 数据页回看：这一段签过几种币时的「按币种看」切换（2026-10-03） */
+.reports-cur { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; font-size: var(--fs-note); }
+
 .stat-delta {
   font-size: var(--fs-note);
   color: var(--text-muted);

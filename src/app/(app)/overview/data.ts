@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { 签约归属人 } from "@/lib/contract-owner";
 import { 成员选项 } from "@/lib/utils";
+import { 带币种, 签约币种, 签约金额, 签约合计 } from "@/lib/money-db";
+import type { 币种合计 } from "@/lib/currency";
 
 /**
  * 「数据」页那两个回看视图（本月 / 本年）的数据。
@@ -24,6 +26,12 @@ export type 复盘 = {
   byChannel: Agg[];
   byAttribution: Agg[];
   total: { amount: number; count: number };
+  /**
+   * 币种（2026-10-03）。上面所有的数只算 `币种` 这一种——图和排行只能用一种钱，不换汇。
+   * `币种们` 是这一段里每种币各签了多少，界面上有两种以上才给「按币种看」的切换。
+   */
+  币种: string;
+  币种们: 币种合计[];
 };
 
 /** 趋势那张图的横轴按什么切：本月按天，本年按月 */
@@ -64,8 +72,11 @@ function 刻度们(from: Date, to: Date, 粒: 粒度): string[] {
   return out;
 }
 
-export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<复盘> {
-  const contracts = await prisma.contract.findMany({
+/**
+ * `想看` 是界面上选的币种；没选或这一段里没有那种币，就看本位币，本位币也没有就看签得最多的那种。
+ */
+export async function 加载复盘(from: Date, to: Date, 粒: 粒度, 币: { 想看?: string; 本位币: string } = { 本位币: "CNY" }): Promise<复盘> {
+  const 全部 = await prisma.contract.findMany({
     where: { signedAt: { gte: from, lt: to } },
     orderBy: { signedAt: "asc" },
     select: {
@@ -73,6 +84,7 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
       amount: true,
       signedAt: true,
       owner: { select: { salesOwnerId: true, channelOwnerId: true } },
+      ...带币种.签约,
       customer: {
         select: {
           id: true,
@@ -86,6 +98,11 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
       },
     },
   });
+  const 币种们 = 签约合计(全部);
+  const 有 = (码?: string) => !!码 && 币种们.some((x) => x.币种 === 码);
+  const 币种 = 有(币.想看) ? 币.想看! : 有(币.本位币) ? 币.本位币 : (币种们[0]?.币种 ?? 币.本位币);
+  // 以下全按这一种币算；金额用精确值（外币有分），老签约退回 Contract.amount
+  const contracts = 全部.filter((c) => 签约币种(c) === 币种).map((c) => ({ ...c, amount: 签约金额(c) }));
 
   // 业绩算在签约那一刻的负责人头上（排查 B2，lib/contract-owner.ts）
   const 归属 = await 签约归属人(contracts);
@@ -162,5 +179,7 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度): Promise<�
     byChannel: agg((c) => c.customer.channel, "自然流量"),
     byAttribution: agg((c) => c.customer.attributionChannel ?? c.customer.attributionCustomer, "无归属"),
     total: { amount: contracts.reduce((s, c) => s + c.amount, 0), count: contracts.length },
+    币种,
+    币种们,
   };
 }
