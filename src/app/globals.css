@@ -350,6 +350,9 @@ html.glass .rail-search { background: color-mix(in srgb, var(--panel) 62%, trans
 .rail-fav-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 毛玻璃下：当前项是一块白玻璃（原型第 4 版），字压深一档；悬停也是薄薄一层白 */
 html.glass .rail-item { color: var(--ink-soft); }
+html.glass .rail-num, html.glass .rail-upd-v, html.glass .roster-cnt { color: var(--text-muted); }
+/* 左栏的小标题（更多 / 收藏的客户）压在最透的那层玻璃上：深一档，不然壁纸一花就看不见 */
+html.glass .rail-fav-h { color: var(--ink-soft); }
 html.glass .rail-on-bg { background: color-mix(in srgb, var(--panel) 72%, transparent); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent); }
 html.glass .rail-item.on { color: var(--ink); }
 html.glass .rail-item:hover, html.glass .rail-fav-i:hover { background: color-mix(in srgb, var(--panel) 45%, transparent); }
