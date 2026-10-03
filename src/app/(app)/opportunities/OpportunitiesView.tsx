@@ -26,6 +26,7 @@ import CompareDrawer from "./CompareDrawer";
 import { 金额格式 } from "@/lib/money-input";
 import { 金额, 合计文字, 币种符号 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
+import { stageLabel } from "@/lib/business-config";
 import { useUrlFilters } from "@/lib/url-filters";
 
 type 币种合计 = { 币种: string; 合计: number };
@@ -195,13 +196,13 @@ export default function OpportunitiesView({
     router.refresh();
     亮一下(r.id);
     const key = `stage-${r.id}`;
-    if (是撤销) return void message.success({ key, content: `「${r.name}」已退回 ${到}` });
+    if (是撤销) return void message.success({ key, content: `「${r.name}」已退回 ${stageLabel(b, 到)}` });
     message.success({
       key,
       duration: 6,
       content: (
         <span>
-          「{r.name}」已推进到 {到}
+          「{r.name}」已推进到 {stageLabel(b, 到)}
           <Button type="link" size="small" onClick={() => { message.destroy(key); void 改阶段({ ...r, stage: 到 }, r.stage, true); }}>
             撤销
           </Button>
@@ -295,7 +296,7 @@ export default function OpportunitiesView({
             value={v}
             variant="borderless"
             style={{ width: 128 }}
-            options={OPP_STAGES.map((s2) => ({ value: s2, label: s2 }))}
+            options={OPP_STAGES.map((s2) => ({ value: s2, label: stageLabel(b, s2) }))}
             onChange={(s2) => void 改阶段(r, s2)}
           />
         ),
@@ -463,7 +464,7 @@ export default function OpportunitiesView({
               allowClear
               value={f.stage || undefined}
               onChange={(v) => apply({ stage: v ?? "" })}
-              options={OPP_STAGES.map((s2) => ({ value: s2, label: s2 }))}
+              options={OPP_STAGES.map((s2) => ({ value: s2, label: stageLabel(b, s2) }))}
             />
             <Select
               style={{ width: 120 }}

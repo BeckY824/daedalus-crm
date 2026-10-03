@@ -148,6 +148,29 @@ export function statusLabel(b: Pick<BusinessConfig, "statusLabels"> | null | und
   return l && l.trim() ? l.trim() : value;
 }
 
+/**
+ * 商机阶段的显示名（2026-10-03）。外贸模版下换成外贸的叫法，**存的值不动**（报表、漏斗、AI 的筛选都按值算）。
+ * 不进设置、不让改：阶段是商机这一段流程本身，换一套叫法就够了，再开一组输入框只是让人多犹豫。
+ * 依据：外贸CRM模版.md 6.4 第 1 项（询盘 → 比价 → 报价 → 寄样 → 客户确认，确认之后转订单）。
+ */
+export const 外贸阶段名: Record<string, string> = {
+  初步沟通: "询盘",
+  需求确认: "比价中",
+  方案报价: "已报价",
+  谈判审核: "寄样",
+  赢单成交: "客户确认",
+};
+
+export function stageLabel(b: Pick<BusinessConfig, "template"> | null | undefined, value: string): string {
+  return b?.template === "trade" ? (外贸阶段名[value] ?? value) : value;
+}
+
+/** 反过来：人（或 AI）说「询盘」时认出是哪个存储值。认不出原样返回 */
+export function 阶段值(b: Pick<BusinessConfig, "template"> | null | undefined, 说法: string): string {
+  if (b?.template !== "trade") return 说法;
+  return Object.entries(外贸阶段名).find(([, l]) => l === 说法)?.[0] ?? 说法;
+}
+
 export const BUSINESS_KEY = "business";
 
 /**

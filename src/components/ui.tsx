@@ -18,7 +18,7 @@ import Link from "next/link";
 import { avatarColor, companyInitial, initial, AVATAR_TEXT } from "@/lib/utils";
 import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR, FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { useBusiness } from "@/lib/business-client";
-import { statusLabel } from "@/lib/business-config";
+import { statusLabel, stageLabel } from "@/lib/business-config";
 
 /**
  * 页头：标题 + 一句副标题，**右侧放这一页的主动作**。
@@ -168,11 +168,12 @@ export function DecisionStatusTag({ status }: { status: string }) {
 }
 
 export function StageTag({ stage }: { stage: string }) {
+  const b = useBusiness();
   // 这个值要拼 "18" / "35" 当透明度，只能是真 hex，不能写 var()
   const c = OPP_STAGE_COLOR[stage] ?? palette.textMuted;
   return (
     <Tag style={{ margin: 0, borderRadius: 6, fontSize: 13, color: c, background: c + "18", borderColor: c + "35" }}>
-      {stage}
+      {stageLabel(b, stage)}
     </Tag>
   );
 }

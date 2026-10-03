@@ -13,7 +13,7 @@ import { describeProposal, missingFields, 只留选中的改动, 可改字段表
 import { useBusiness } from "@/lib/business-client";
 import { 币种符号 } from "@/lib/currency";
 import { 建议结果, 记下建议结果, 清掉建议结果, 记下回执, 读回执 } from "@/lib/ai-jobs";
-import { statusLabel, type BusinessConfig } from "@/lib/business-config";
+import { statusLabel, stageLabel, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
 import { useMotionTheme } from "@/components/MotionTheme";
@@ -245,7 +245,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
               <Input size="small" style={{ width: 120 }} prefix={币种符号(draft.currency || b.currency)} value={draft.amount || ""} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
             </Field>
             <Field label="阶段">
-              <Select size="small" style={{ width: 140 }} value={draft.stage} options={OPP_STAGES.map((v) => ({ value: v, label: v }))} onChange={(v) => setDraft({ ...draft, stage: v })} />
+              <Select size="small" style={{ width: 140 }} value={draft.stage} options={OPP_STAGES.map((v) => ({ value: v, label: stageLabel(b, v) }))} onChange={(v) => setDraft({ ...draft, stage: v })} />
             </Field>
             <Field label="成交概率">
               <Input size="small" style={{ width: 90 }} suffix="%" value={draft.probability} onChange={(e) => setDraft({ ...draft, probability: Math.min(100, Number(e.target.value.replace(/[^\d]/g, "")) || 0) })} />

@@ -12,6 +12,7 @@ import type { OppRow } from "./OpportunitiesView";
 import { 聚焦首项 } from "@/lib/modal-focus";
 import CurrencySelect from "@/components/CurrencySelect";
 import { useBusiness } from "@/lib/business-client";
+import { stageLabel } from "@/lib/business-config";
 
 /**
  * 新建 / 编辑商机的框。列表页和管道页共用（2026-09-29）：管道页原来没有表单，
@@ -175,7 +176,7 @@ export default function OpportunityForm({
           <Col span={8}>
             <Form.Item name="stage" label="阶段">
               <Select
-                options={OPP_STAGES.map((s) => ({ value: s, label: s }))}
+                options={OPP_STAGES.map((s) => ({ value: s, label: stageLabel(b, s) }))}
                 /*
                   和拖拽同一个规矩（moveStage）：概率只在人没动过时跟着阶段变，手填的 75% 不冲掉；
                   原来一换阶段就覆盖（排查 D6）。赢单成交一律 100

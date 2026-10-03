@@ -9,6 +9,7 @@ import EmptyState from "@/components/EmptyState";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
 import { 金额, 按币种合计, 合计文字 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
+import { stageLabel } from "@/lib/business-config";
 import { moveStage } from "../actions";
 import OpportunityForm from "../OpportunityForm";
 import type { 可选成员 } from "@/lib/utils";
@@ -118,12 +119,12 @@ export default function PipelineView({
       return;
     }
     router.refresh();
-    if (是撤销) return void message.success(`「${r.name}」已退回 ${到}`);
+    if (是撤销) return void message.success(`「${r.name}」已退回 ${stageLabel(b, 到)}`);
     // 手滑是拖拽最常见的结果，而这一下真写库了。给一条退路，并写清退到哪儿
     message.success({
       content: (
         <span>
-          「{r.name}」已推进到 {到}
+          「{r.name}」已推进到 {stageLabel(b, 到)}
           <Button type="link" size="small" onClick={() => 推进({ ...r, stage: 到 }, r.stage, true)}>
             撤销
           </Button>
@@ -196,7 +197,7 @@ export default function PipelineView({
             >
               <div className="pipe-h">
                 <span className="pipe-dot" style={{ background: color }} />
-                <b>{stage}</b>
+                <b>{stageLabel(b, stage)}</b>
                 <span className="pipe-n">{items.length}</span>
                 <span className="pipe-sum" title={sum}>{sum}</span>
               </div>
@@ -210,7 +211,7 @@ export default function PipelineView({
                   trigger={["contextMenu"]}
                   menu={{
                     items: [
-                      ...OPP_STAGES.filter((s) => s !== r.stage).map((s) => ({ key: s, label: `推进到 ${s}`, onClick: () => void 推进(r, s) })),
+                      ...OPP_STAGES.filter((s) => s !== r.stage).map((s) => ({ key: s, label: `推进到 ${stageLabel(b, s)}`, onClick: () => void 推进(r, s) })),
                       { type: "divider" as const },
                       { key: "open", label: `打开 ${r.customerName} 的记录`, onClick: () => router.push(`/customers/${r.customerId}`) },
                     ],
@@ -223,7 +224,7 @@ export default function PipelineView({
                     tabIndex={0}
                     role="button"
                     title={`${r.customerName} · ${r.probability}% · 右键或按 Enter 换一个阶段`}
-                    aria-label={`${r.name}，${金额(r.amount, r.currency)}，${r.stage}`}
+                    aria-label={`${r.name}，${金额(r.amount, r.currency)}，${stageLabel(b, r.stage)}`}
                     onDragStart={() => setDragId(r.id)}
                     onDragEnd={() => setDragId(null)}
                     onClick={() => router.push(`/customers/${r.customerId}`)}

@@ -22,7 +22,7 @@ import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
 import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec } from "../report-query";
 import { loadWatchlist } from "../sentinel-data";
-import { statusLabel } from "../business-config";
+import { statusLabel, stageLabel, 阶段值 } from "../business-config";
 import { 名字在别处, 别处说法, 别处附件, 找人 } from "./find-name";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
@@ -529,8 +529,9 @@ export const TOOLS: Tool[] = [
     description: `列商机（在谈的单子）。可按阶段、状态、客户过滤，按金额从大到小。阶段只能是 ${OPP_STAGES.join(" / ")}；status: OPEN 进行中 / WON 赢单 / LOST 丢单。问「手上有哪些单子」「哪些单子快成了」用它；\
 问「超过 10 万的单子」用 minAmount，问「这个月要关的单子」用 dealFrom/dealTo。`,
     args: '{"stage": "阶段，可空", "status": "OPEN/WON/LOST，可空，默认 OPEN", "customerName": "客户姓名，可空", "minAmount": 最小金额（按商机自己的币种比），可空, "dealFrom": "预计成交起始 YYYY-MM-DD，可空", "dealTo": "预计成交截止，可空"}',
-    async run(args) {
-      const stage = str(args.stage, 10);
+    async run(args, ctx) {
+      // 外贸模版下人说「询盘」「已报价」：认回存储值（显示名见 business-config 的 外贸阶段名）
+      const stage = 阶段值(ctx.b, str(args.stage, 10));
       const status = str(args.status, 6).toUpperCase();
       const name = str(args.customerName, 20);
       const 金额下限 = typeof args.minAmount === "number" && args.minAmount > 0 ? args.minAmount : null;
@@ -570,7 +571,7 @@ export const TOOLS: Tool[] = [
             金额: o.amount,
             币种: 商机币种(o),
             ...(o.quotes[0]?.lines.length ? { 报价明细: o.quotes[0].lines.map(一行说法) } : {}),
-            阶段: o.stage,
+            阶段: stageLabel(ctx.b, o.stage),
             状态: o.status === "OPEN" ? "进行中" : o.status === "WON" ? "赢单" : "丢单",
             成交概率: o.probability,
             预计成交: o.expectedDealAt ? dayjs(o.expectedDealAt).format("YYYY-MM-DD") : null,

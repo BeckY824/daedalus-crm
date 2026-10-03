@@ -7,7 +7,7 @@ import { prisma } from "./prisma";
 import { dayjs } from "./utils";
 import { buildWatchlist, type WatchItem } from "./sentinel";
 import { getBusiness } from "./business";
-import { statusLabel } from "./business-config";
+import { statusLabel, stageLabel } from "./business-config";
 
 /**
  * `范围.ownerId` 给了就只看这个人名下的，**先筛再排前 8**（排查 C7）：
@@ -47,7 +47,7 @@ export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } 
     {
       overduePlans: overduePlans.map((p) => ({ customerId: p.customer.id, customerName: p.customer.name, ownerName: p.owner.name, subject: p.subject, plannedAt: p.plannedAt })),
       customers: customers.map((c) => ({ id: c.id, name: c.name, followStatus: c.followStatus, lastFollowAt: c.lastFollowAt, createdAt: c.createdAt, ownerName: c.salesOwner.name })),
-      opportunities: opps.map((o) => ({ customerId: o.customer.id, customerName: o.customer.name, ownerName: o.owner.name, name: o.name, stage: o.stage, updatedAt: o.updatedAt })),
+      opportunities: opps.map((o) => ({ customerId: o.customer.id, customerName: o.customer.name, ownerName: o.owner.name, name: o.name, stage: stageLabel(business, o.stage), updatedAt: o.updatedAt })),
       lateOrderNodes: lateNodes.map((x) => ({
         orderId: x.order.id, orderNo: x.order.no, idx: x.idx, nodeName: x.name, dueAt: x.dueAt, 卡住: x.status === "卡住",
         customerId: x.order.customer.id, customerName: x.order.customer.name, ownerName: 业务员.get(x.order.ownerId) ?? "",

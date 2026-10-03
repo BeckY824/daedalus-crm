@@ -22,6 +22,7 @@ import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
 import { smartTime, 成员选项 } from "@/lib/utils";
 import { 合计文字, 合并合计, 取币种, type 币种合计 } from "@/lib/currency";
+import { stageLabel } from "@/lib/business-config";
 import { OPP_STAGE_COLOR } from "@/lib/constants";
 
 type Props = {
@@ -421,7 +422,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             {当前漏斗.map((f) => (
               <div key={f.stage} className="funnel-row">
                 <span className="funnel-dot" style={{ background: OPP_STAGE_COLOR[f.stage] }} />
-                <span style={{ width: 82, flex: "none" }}>{f.stage}</span>
+                <span style={{ width: 82, flex: "none" }}>{stageLabel(b, f.stage)}</span>
                 <span style={{ width: 48, flex: "none", color: "var(--text-muted)" }}>{f.count}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
@@ -448,7 +449,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             </div>
             {/* 口径不写清楚的话，前四档和末档不是一个东西这件事没人看得出来 */}
             <div className="stat-delta" style={{ marginTop: 8 }}>
-              前四档为当前进行中的商机；「赢单成交」为{窗口}已赢单的数量与金额
+              前四档为当前进行中的商机；「{stageLabel(b, "赢单成交")}」为{窗口}已赢单的数量与金额
             </div>
           </Card>
         </Col>

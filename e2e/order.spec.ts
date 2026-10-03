@@ -76,6 +76,9 @@ test("外贸订单：赢单一起生成 → 走节点、记一笔、勾单据、
   await page.goto("/opportunities");
   await expect(page.locator("nav, aside").getByRole("link", { name: "订单" }).first()).toBeVisible();
 
+  // 外贸模版下阶段换外贸叫法：谈判审核 → 寄样（存的值不变）
+  await expect(page.locator(".ant-table-row", { hasText: 商机名 })).toContainText("寄样");
+
   // 1. 标赢单，小框里「同时生成订单」默认勾着
   await page.getByRole("button", { name: `${商机名} 的更多操作` }).click();
   await page.getByRole("menuitem", { name: "标记赢单" }).click();
