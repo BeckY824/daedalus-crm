@@ -1493,6 +1493,24 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 空库首页的「开始」卡（设计稿 05/HOME·EMPTY）：
    一句欢迎在卡外，卡里是「第 1 步」→ 标题 → 三步一行 → 说明 → 按钮 → 脚注。
    三步是横着的路标，不是三张说明卡，所以不给边框，用一条细线把它们连起来。 */
+/* 新用户选模版（2026-10-03）：两张卡二选一，整张卡是按钮 */
+.tpl { max-width: 760px; }
+.tpl-s { margin: calc(-1 * var(--s2)) 0 var(--s5); color: var(--text-muted); font-size: var(--fs-note); }
+.tpl-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s4); }
+.tpl-card { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); text-align: left; font: inherit; color: inherit; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-pop); padding: var(--s5);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), transform var(--t-press) var(--ease); }
+.tpl-card:hover:not(:disabled) { border-color: var(--brand-line); box-shadow: var(--shadow-pop); }
+.tpl-card:active:not(:disabled) { transform: scale(0.99); }
+.tpl-card:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.tpl-card:disabled { cursor: default; }
+.tpl-card:disabled:not(.on) { opacity: 0.55; }
+.tpl-card.on { border-color: var(--brand); }
+.tpl-n { font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
+.tpl-1 { font-size: var(--fs-body); color: var(--text); }
+.tpl-has { margin: var(--s2) 0 0; padding-left: 18px; font-size: var(--fs-note); line-height: 1.8; color: var(--text-muted); }
+.tpl-go { margin-top: auto; padding-top: var(--s3); font-size: var(--fs-note); font-weight: 500; color: var(--brand); }
+@media (prefers-reduced-motion: reduce) { .tpl-card:active:not(:disabled) { transform: none; } }
 .start-h { font-size: var(--fs-title); font-weight: 600; color: var(--ink); margin: 0 0 var(--s4); letter-spacing: -0.2px; }
 /* 三句介绍：三格并排，窄了就竖着排；不加框，和下面那张「开始」卡分出主次 */
 .start-intro { list-style: none; margin: 0 0 var(--s5); padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s4); max-width: 640px; }

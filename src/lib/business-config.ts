@@ -17,6 +17,15 @@ import {
   TRADE_TITLES, TRADE_SOURCES, TRADE_INDUSTRIES,
   FOLLOW_STATUSES, DECISION_STATUSES,
 } from "./constants";
+import { 规整币种 } from "./currency";
+
+/**
+ * 模版（2026-10-03）：新用户注册后选「通用」还是「外贸」。和预设是两回事——预设只是一组措辞，
+ * 模版还决定**有哪些功能**：订单节点、供应商比价只在外贸模版下出现；本位币默认值也跟着它。
+ * 教培招生那套措辞还在，但它算「通用」模版（用户：「我们应该只有通用模版，以及外贸模版」）。
+ */
+export type BusinessTemplate = "general" | "trade";
+export const 模版名: Record<BusinessTemplate, string> = { general: "通用", trade: "外贸" };
 
 export type BusinessConfig = {
   /** 一段话：卖什么、客户是谁、怎么成交。注入全部 AI 提示词 */
@@ -34,6 +43,10 @@ export type BusinessConfig = {
    * 存储值本身不能改——盯盘权重、雷达、首页统计、终态判断都按值引用。
    */
   statusLabels: Record<string, string>;
+  /** 用的是哪个模版。见上面 BusinessTemplate */
+  template: BusinessTemplate;
+  /** 本位币：新建商机 / 签约时默认选它。通用 CNY、外贸 USD；见 lib/currency.ts */
+  currency: string;
 };
 
 export const DEFAULT_BUSINESS: BusinessConfig = {
@@ -50,6 +63,8 @@ export const DEFAULT_BUSINESS: BusinessConfig = {
    * 默认给它们一个通用的显示名。存过业务配置的库以自己存的为准，见 mergeBusiness。
    */
   statusLabels: { 已试听: "已演示", 与家人商议: "内部讨论", 已决定报名: "已决定采购" },
+  template: "general",
+  currency: "CNY",
 };
 
 /**
@@ -69,6 +84,8 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     industries: [...INDUSTRIES],
     // 教培场景下这三个值本来就说得通，不另起显示名
     statusLabels: {},
+    template: "general",
+    currency: "CNY",
   },
   外贸出口: {
     brief:
@@ -86,8 +103,25 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
       多半不是微信，改成中性的「已建联」。值本身不动，只改显示名。
     */
     statusLabels: { 已加微信: "已建联", 已试听: "已寄样", 与家人商议: "内部讨论", 已决定报名: "已决定下单" },
+    template: "trade",
+    currency: "USD",
   },
 };
+
+/**
+ * 新用户选模版时给的两个（教培不给新用户看，老用户在设置里还能看到——见 BusinessSettingsTab）。
+ * 选了哪个就整组套哪个预设
+ */
+export const 模版预设: Record<BusinessTemplate, string> = { general: "通用销售", trade: "外贸出口" };
+
+/**
+ * 老库没存 template 时推断：来源选项里有外贸那组独有的（阿里国际站、展会…）就是外贸，其余都算通用。
+ * 只看来源一项——外贸预设和通用的档案字段一模一样，分不出来
+ */
+export function 推断模版(p: Partial<BusinessConfig>): BusinessTemplate {
+  const 外贸独有 = TRADE_SOURCES.filter((x) => !CUSTOMER_SOURCES.includes(x as never));
+  return Array.isArray(p.sources) && p.sources.some((x) => 外贸独有.includes(x as never)) ? "trade" : "general";
+}
 
 /**
  * 「与客户关系」的候选（审查 M14）。原来写死成教培那组「母亲 / 父亲 / 学生本人 / 其他亲属」，
@@ -152,5 +186,7 @@ export function mergeBusiness(partial: Partial<BusinessConfig> | null | undefine
     sources: list(p.sources, DEFAULT_BUSINESS.sources),
     industries: list(p.industries, DEFAULT_BUSINESS.industries),
     statusLabels: 存过 ? labels(p.statusLabels) : { ...DEFAULT_BUSINESS.statusLabels },
+    template: p.template === "general" || p.template === "trade" ? p.template : 推断模版(p),
+    currency: 规整币种(p.currency, (p.template === "trade" || (p.template == null && 推断模版(p) === "trade")) ? "USD" : "CNY"),
   };
 }

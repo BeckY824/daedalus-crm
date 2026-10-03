@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Col, Form, Input, Row, Select, Typography, App } from "antd";
+import { Button, Col, Form, Input, Radio, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig } from "@/lib/business-config";
 import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
+import { 币种选项 } from "@/lib/currency";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
 import { DemoDataSection } from "@/components/EmptyState";
@@ -57,7 +58,8 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
     <div className="set-col" style={{ paddingTop: 8 }}>
       <div className="biz-preset">
         <span>套用预设</span>
-        {Object.keys(BUSINESS_PRESETS).map((名) => (
+        {/* 教培那套不再给新用户（10-03：只有通用和外贸两个模版）；正在用它的老用户还看得到，免得「恢复」不回去 */}
+        {Object.keys(BUSINESS_PRESETS).filter((名) => 名 !== "教培招生" || value.fields.school === "院校").map((名) => (
           <Button key={名} size="small" type={套了 === 名 ? "primary" : "default"} ghost={套了 === 名} onClick={() => 套用(名)}>
             {名}
           </Button>
@@ -73,6 +75,22 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
         )}
       </div>
       <Form form={form} layout="vertical" initialValues={value}>
+        <Row gutter={16}>
+          <Col xs={24} sm={12}>
+            <Form.Item
+              name="template"
+              label="模版"
+              extra="外贸模版多了订单节点跟进和供应商比价；叫法上的差别在下面一项项改。"
+            >
+              <Radio.Group optionType="button" options={[{ value: "general", label: "通用" }, { value: "trade", label: "外贸" }]} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} sm={12}>
+            <Form.Item name="currency" label="本位币" extra="新建商机、签约时默认选它；已经填好的金额不跟着变。" rules={[{ required: true, message: "选一个" }]}>
+              <Select showSearch optionFilterProp="label" options={币种选项()} style={{ maxWidth: 260 }} />
+            </Form.Item>
+          </Col>
+        </Row>
         <Form.Item
           name="brief"
           label="业务简介"
@@ -134,7 +152,7 @@ export default function BusinessSettingsTab({ value }: { value: BusinessConfig }
         <Button type="primary" onClick={onSave} loading={saving}>保存</Button>
         <Button type="text" style={{ marginLeft: 8 }} onClick={() => 套用("通用销售")}>恢复默认</Button>
         <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 13 }}>
-          不做的：自定义字段、自定义状态流转、多套模板切换——那是另一个量级的功能。
+          不做的：自定义字段、自定义状态流转——那是另一个量级的功能。
         </Typography.Paragraph>
       </Form>
 

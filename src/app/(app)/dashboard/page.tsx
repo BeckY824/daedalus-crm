@@ -1,4 +1,6 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
+import { 要选模版 } from "@/lib/onboarding";
 import { requireUser } from "@/lib/auth";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { 唯一负责人 } from "@/lib/owners";
@@ -21,6 +23,8 @@ export const dynamic = "force-dynamic";
  */
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ q?: string; c?: string }> }) {
   const user = await requireUser();
+  // 桌面端新库第一次进来先选模版（lib/onboarding.ts）。登录后、新建账号后都落在首页，在这一处拦就够
+  if (await 要选模版()) redirect("/start");
   /*
     地址上的 ?c= 指哪条对话。在服务端读，不在浏览器里再取一次：
     翻一条老对话时不该先看见一屏空白再看见内容。
