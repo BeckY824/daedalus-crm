@@ -147,6 +147,8 @@ model Customer {
   tradeOrders   TradeOrder[]
   /// 在公海里（2026-10-03 第 6 块）。见 CustomerPool
   pool          CustomerPool?
+  /// 最近一次从公海领走（第 6 块复查）。见 CustomerClaim
+  claim         CustomerClaim?
   lead          Lead?
 
   @@index([phone])
@@ -363,6 +365,16 @@ model CustomerPool {
   userId     String?
   /// 手动 / 自动（N 天没跟进）
   reason     String   @default("手动")
+  at         DateTime @default(now())
+}
+
+/// 最近一次从公海领走（2026-10-04，第 6 块复查，迁移 019）。自动掉公海从「最近跟进 / 建档 / 领取」里最晚的那个算起：
+/// 不记的话，领走当天没来得及跟进，第二天又被扫回公海。一位客户一行，再领覆盖
+model CustomerClaim {
+  customerId String   @id
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 谁领的。不建外键，同 CustomerPool
+  userId     String?
   at         DateTime @default(now())
 }
 

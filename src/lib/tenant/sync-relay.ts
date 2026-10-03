@@ -90,6 +90,10 @@ export async function 收推送(accountId: string, teamId: string, device: strin
   if (typeof device !== "string" || !/^[\w-]{4,64}$/.test(device)) return 错(400, "设备编号不对");
   const 目录 = 安全名(t.id) && path.join(同步目录(), t.id);
   if (!目录) return 错(400, "团队编号不对");
+  // 设备编号认账号：同一个设备编号已经是别人推过的，就不收——不然冒用的那台推的，被冒用的那台会当成自己推的、一声不响地跳过（复查）
+  if (await control.syncBatch.findFirst({ where: { teamId: t.id, device, accountId: { not: accountId } }, select: { id: true } })) {
+    return 错(409, "这个设备编号已经被团队里别人用了：退出团队再重新加入，会换一个新的");
+  }
   fs.mkdirSync(目录, { recursive: true });
   const b = await control.syncBatch.create({ data: { teamId: t.id, accountId, device, size: data.length } });
   // 先写临时文件再改名：拉的人不会读到写了一半的批次
@@ -110,7 +114,12 @@ export async function 给拉取(accountId: string, teamId: string, after: number
     try {
       batches.push({ seq: r.id, device: r.device, data: fs.readFileSync(path.join(同步目录(), t.id, `${r.id}.bin`), "utf8") });
     } catch {
-      // 文件没了（盘坏了、手动清过）：跳过这一批、继续往后，别让整个团队卡死在这一个序号上
+      /*
+        刚建的批次：记录先有、文件后写（收推送里那两步之间），这时拉到就停在它前面、下一轮再来——
+        原来一律跳过，同一次又给了更后面的，拉的人位置越过了它，这一批就永远丢了（复查）。
+        建了一分钟还没文件的才是真没了（盘坏了、手动清过）：跳过、继续往后，别让整个团队卡死在这一个序号上
+      */
+      if (Date.now() - r.createdAt.getTime() < 60_000) return { ok: true, batches, more: false };
     }
   }
   return { ok: true, batches, more: rows.length > 一次拉 };

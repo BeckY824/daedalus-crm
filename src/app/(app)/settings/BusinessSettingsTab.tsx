@@ -32,8 +32,8 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
     setSaving(true);
-    // 公海那一项只在多人时摆：没摆的时候表单里没有它，照原值存回去，别悄悄关掉
-    const res = await saveBusinessSettings({ ...v, poolDays: v.poolDays ?? value.poolDays });
+    // 摆着这一项时清空 = 不开（存 0）；没摆时表单里没有它，照原值存回去，别悄悄关掉
+    const res = await saveBusinessSettings({ ...v, poolDays: 多人 ? (v.poolDays ?? 0) : value.poolDays });
     setSaving(false);
     if (res.ok) {
       set套了(null);

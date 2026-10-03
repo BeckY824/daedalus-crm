@@ -90,12 +90,13 @@ function 能用(): 结果<{ accountId: string; contact: string; name: string }> 
  * 本机开同步：改身份（必须在装触发器之前）→ 建表 → 装触发器 → 本机已有的整份记成新建。
  * 已经装过（重新加入另一个团队）：只换团队，不再改身份、不再记全量——日志里已经有了
  */
-async function 本机开同步(我: { accountId: string; contact: string; name: string }) {
+async function 本机开同步(我: { accountId: string; contact: string; name: string }, 加入别人的: boolean) {
   if (await 装了吗(prisma)) return;
   await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 我.name || 我.contact.split("@")[0] });
   await 建同步表(prisma);
   await 装触发器(prisma);
-  await 记全量(prisma);
+  // 加入别人团队的不推业务配置：团队的模版、币种以建团队的人为准（见 记全量）
+  await 记全量(prisma, { 不含设置: 加入别人的 });
 }
 
 export async function 建团队(名字: string): Promise<结果<{ 邀请码: string }>> {
@@ -104,7 +105,7 @@ export async function 建团队(名字: string): Promise<结果<{ 邀请码: str
   if (读团队()) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
   const r = await 云("POST", "/api/sync/team", { name: 名字 });
   if (r.状态 !== 200 || !r.json.teamId) return { ok: false, error: String(r.json.error ?? "建不了团队") };
-  await 本机开同步(我);
+  await 本机开同步(我, false);
   const c: 团队配置 = { teamId: String(r.json.teamId), teamName: 名字.trim(), joinSecret: String(r.json.joinSecret), key: 新钥匙(), device: `d${randomBytes(6).toString("hex")}`, pulled: 0, lastError: null };
   写团队(c);
   return { ok: true, 邀请码: 邀请码(c) };
@@ -118,18 +119,21 @@ export async function 加入团队(码: string): Promise<结果<{ teamName: stri
   if (!解) return { ok: false, error: "邀请码不对：要整段复制，从 DT1. 开头" };
   const r = await 云("POST", "/api/sync/join", { teamId: 解.teamId, joinSecret: 解.joinSecret });
   if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "加入不了") };
-  await 本机开同步(我);
+  await 本机开同步(我, true);
   写团队({ ...解, teamName: String(r.json.teamName ?? ""), device: `d${randomBytes(6).toString("hex")}`, pulled: 0, lastError: null });
   return { ok: true, teamName: String(r.json.teamName ?? ""), active: !!r.json.active };
 }
 
 /** 退出团队：本机数据全留着，只是不再推拉；触发器卸掉（日志表留着，以后再进团队不用重记全量） */
 export async function 退出团队(): Promise<结果> {
+  // 正在跑的那一轮先跑完：不然它跑到最后把 .team.json 写回来，界面上还「在团队里」、触发器却已经卸了（复查）
+  if (在跑) await 在跑.catch(() => undefined);
   const c = 读团队();
   if (!c) return { ok: true };
   await 云("POST", "/api/sync/leave", { teamId: c.teamId });
   await 卸触发器(prisma);
   fs.rmSync(配置文件(), { force: true });
+  触发器对过 = false;
   return { ok: true };
 }
 
@@ -148,7 +152,11 @@ export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: 
 async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
   const c = 读团队();
   if (!c) return { ok: false, error: "没有加入团队" };
-  const 记 = (x: Partial<团队配置>) => 写团队({ ...c, ...x });
+  // 写之前重读：这一轮跑着的时候人退出了（文件没了）或换了团队，就别把旧配置写回去
+  const 记 = (x: Partial<团队配置>) => {
+    const 现 = 读团队();
+    if (现?.teamId === c.teamId) 写团队({ ...现, ...x });
+  };
   try {
     // 每个进程第一轮重装一次触发器：迁移加了列之后老触发器里的列名不全（探针结论）
     if (!触发器对过) {

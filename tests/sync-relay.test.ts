@@ -76,8 +76,15 @@ describe("中转", () => {
     // 库里只有元数据，密文在文件里
     expect((await control.syncBatch.findFirstOrThrow({ where: { teamId: t.teamId } })).size).toBe(3);
     expect(fs.readdirSync(path.join(临时根, "sync", t.teamId)).sort()).toEqual([`${p1.ok && p1.seq}.bin`, `${p2.ok && p2.seq}.bin`].sort());
-    // 文件没了：跳过那一批，不卡住
+    // 设备编号认账号：乙冒用甲的设备号不收
+    expect(await r.收推送(乙, t.teamId, "dev-A", "冒用")).toMatchObject({ ok: false, 状态: 409 });
+    // 刚建的批次缺文件（记录先有、文件后写的那一刻）：停在它前面，下一轮再来，不越过它
     fs.rmSync(path.join(临时根, "sync", t.teamId, `${p1.ok && p1.seq}.bin`));
+    const 刚建 = await r.给拉取(乙, t.teamId, 0);
+    expect(刚建.ok && 刚建.batches).toEqual([]);
+    expect(刚建.ok && 刚建.more).toBe(false);
+    // 建了一分钟以上还没文件：真没了，跳过那一批，不卡住
+    await control.syncBatch.update({ where: { id: p1.ok ? p1.seq : 0 }, data: { createdAt: new Date(Date.now() - 120_000) } });
     const 缺 = await r.给拉取(乙, t.teamId, 0);
     expect(缺.ok && 缺.batches.map((b) => b.data)).toEqual(["密文2"]);
     // 退队

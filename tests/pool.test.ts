@@ -55,6 +55,13 @@ describe("规则", () => {
     expect(该掉公海(c({ lastFollowAt: 天前(300) }), 0, 今)).toBe(false);
   });
 
+  it("领走过的从领走那天算起", () => {
+    const c = { followStatus: "跟进中", lastFollowAt: 天前(60), createdAt: 天前(100) };
+    expect(该掉公海({ ...c, claimedAt: 天前(1) }, 30, 今)).toBe(false);
+    expect(该掉公海({ ...c, claimedAt: 天前(30) }, 30, 今)).toBe(true);
+    expect(该掉公海({ ...c, claimedAt: null }, 30, 今)).toBe(true);
+  });
+
   it("截止线和逐条判断同一个口径（按自然日，不按 24 小时）", () => {
     const 截止 = 公海截止(30, 今);
     for (const 小时 of [0, 1, 9, 23]) {
@@ -131,7 +138,7 @@ describe("放进公海 / 领取 / 撤销", () => {
     if (!r.ok) throw new Error(r.error);
     // d 期间被转给了别人
     await prisma.customer.update({ where: { id: d.id }, data: { salesOwnerId: 同事 } });
-    const u = await 撤销公海("领取", r.原负责人!);
+    const u = await 撤销公海("领取", r.原负责人!, r.带过来);
     expect(u).toMatchObject({ ok: true, updated: 1, unchanged: 1 });
     expect((await prisma.customer.findUnique({ where: { id: c.id } }))!.salesOwnerId).toBe(同事);
     expect((await prisma.customerPool.findMany({ select: { customerId: true } })).map((x) => x.customerId)).toEqual([c.id]);
@@ -151,6 +158,41 @@ describe("放进公海 / 领取 / 撤销", () => {
     await 放进公海([c.id]);
     await prisma.customer.delete({ where: { id: c.id } });
     expect(await prisma.customerPool.count()).toBe(0);
+  });
+});
+
+describe("复查补的几条", () => {
+  it("同时点两次领取：只有一次算领到，另一次是「已被领走」", async () => {
+    const c = await 造客户(同事);
+    await prisma.task.create({ data: { title: "回电话", customerId: c.id, ownerId: 同事 } });
+    await prisma.customerPool.create({ data: { customerId: c.id } });
+    const [甲, 乙] = await Promise.all([领取([c.id]), 领取([c.id])]);
+    const 领到 = [甲, 乙].map((r) => (r.ok ? r.updated : -1)).sort();
+    expect(领到).toEqual([0, 1]);
+    expect((await prisma.task.findFirstOrThrow({ where: { title: "回电话" } })).ownerId).toBe(我);
+  });
+
+  it("撤销领取只还领取时带过来的活，领取前就归我的不动", async () => {
+    const c = await 造客户(同事);
+    await prisma.task.create({ data: { title: "他的", customerId: c.id, ownerId: 同事 } });
+    await prisma.task.create({ data: { title: "我早就有的", customerId: c.id, ownerId: 我 } });
+    await prisma.customerPool.create({ data: { customerId: c.id } });
+    const r = await 领取([c.id]);
+    if (!r.ok) throw new Error(r.error);
+    expect(await 撤销公海("领取", r.原负责人!, r.带过来)).toMatchObject({ ok: true, updated: 1 });
+    const 活 = Object.fromEntries((await prisma.task.findMany()).map((t) => [t.title, t.ownerId]));
+    expect(活).toEqual({ 他的: 同事, 我早就有的: 我 });
+    expect(await prisma.customerClaim.count()).toBe(0);
+  });
+
+  it("原负责人已经停用：撤销领取不还给他，留在我这儿", async () => {
+    const c = await 造客户(同事);
+    await prisma.customerPool.create({ data: { customerId: c.id } });
+    const r = await 领取([c.id]);
+    if (!r.ok) throw new Error(r.error);
+    await prisma.user.update({ where: { id: 同事 }, data: { active: false } });
+    expect(await 撤销公海("领取", r.原负责人!, r.带过来)).toMatchObject({ ok: true, updated: 0, unchanged: 1 });
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: c.id } })).salesOwnerId).toBe(我);
   });
 });
 
@@ -183,6 +225,17 @@ describe("自动掉公海", () => {
     await 造客户(同事, { lastFollowAt: 天前(60), createdAt: 天前(100) });
     expect(await 自动掉公海(mocks.user, 今)).toBe(0);
     // 第二天：扫到新冷下来的那位
+    expect(await 自动掉公海(mocks.user, new Date(今.getTime() + 86400_000))).toBe(1);
+  });
+
+  it("领走当天没跟进：之后的扫描不把它扫回去，满 N 天才掉", async () => {
+    await 开(30);
+    const c = await 造客户(同事, { lastFollowAt: 天前(40), createdAt: 天前(100) });
+    await prisma.customerPool.create({ data: { customerId: c.id } });
+    await 领取([c.id]);
+    await prisma.customerClaim.update({ where: { customerId: c.id }, data: { at: 天前(1) } });
+    expect(await 自动掉公海(mocks.user, 今)).toBe(0);
+    await prisma.customerClaim.update({ where: { customerId: c.id }, data: { at: 天前(31) } });
     expect(await 自动掉公海(mocks.user, new Date(今.getTime() + 86400_000))).toBe(1);
   });
 

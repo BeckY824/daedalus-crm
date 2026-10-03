@@ -299,7 +299,7 @@ export default function RecordView({
           {动作 === "放进" ? "已放进公海，谁都能领" : `已领取，负责人改成你${带走说法(res.带走)}`}
           <Button type="link" size="small" onClick={async () => {
             message.destroy(key);
-            const r = await 撤销公海(动作, 原);
+            const r = await 撤销公海(动作, 原, res.ok ? res.带过来 : undefined);
             router.refresh();
             if (!r.ok) return void message.error(`没能撤销：${r.error}`);
             message.success("已撤销");

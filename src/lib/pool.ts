@@ -10,16 +10,17 @@ import { dayjs } from "@/lib/utils";
 export const 不掉公海的状态: readonly string[] = ["已签约", "已流失"];
 
 /**
- * N 天没跟进了吗：没跟进过的按建档时间算。按自然日比，和盯盘「N 天没联系」一个口径（lib/sentinel.ts）。
- * 天数 0 = 没开自动掉公海，一律不掉。
+ * N 天没跟进了吗：没跟进过的按建档时间算；从公海领走过的，领走那天之前的不算。
+ * 按自然日比，和盯盘「N 天没联系」一个口径（lib/sentinel.ts）。天数 0 = 没开自动掉公海，一律不掉。
  */
 export function 该掉公海(
-  c: { followStatus: string; lastFollowAt: Date | string | null; createdAt: Date | string },
+  c: { followStatus: string; lastFollowAt: Date | string | null; createdAt: Date | string; claimedAt?: Date | string | null },
   天数: number,
   今: Date = new Date(),
 ): boolean {
   if (!(天数 > 0) || 不掉公海的状态.includes(c.followStatus)) return false;
-  return dayjs(今).startOf("day").diff(dayjs(c.lastFollowAt ?? c.createdAt).startOf("day"), "day") >= 天数;
+  const 起 = [c.lastFollowAt ?? c.createdAt, c.claimedAt].filter(Boolean).map((t) => dayjs(t!)).reduce((a, b) => (b.isAfter(a) ? b : a));
+  return dayjs(今).startOf("day").diff(起.startOf("day"), "day") >= 天数;
 }
 
 /** 自动掉进去的截止线：最近跟进（没有就建档）早于这一刻的才掉。给查库用，和 该掉公海 同一个口径 */

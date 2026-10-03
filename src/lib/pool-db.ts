@@ -32,6 +32,8 @@ export async function 自动掉公海(me: { id: string; name: string }, 今: Dat
       followStatus: { notIn: [...不掉公海的状态] },
       ...(读团队() ? { salesOwnerId: me.id } : {}),
       OR: [{ lastFollowAt: { lt: 截止 } }, { lastFollowAt: null, createdAt: { lt: 截止 } }],
+      // 领走以后也从领的那天重新算：领走当天没跟进，第二天不会又被扫回去（复查）
+      AND: [{ OR: [{ claim: null }, { claim: { at: { lt: 截止 } } }] }],
     },
     select: { id: true },
   });

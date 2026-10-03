@@ -36,6 +36,10 @@ export async function 建同步表(db: Db) {
     "CREATE TABLE IF NOT EXISTS _sync_tomb (tbl TEXT NOT NULL, pk TEXT NOT NULL, hlc TEXT NOT NULL, PRIMARY KEY (tbl, pk))",
     "CREATE TABLE IF NOT EXISTS _sync_cursor (k TEXT PRIMARY KEY, v BIGINT NOT NULL)",
     "CREATE TABLE IF NOT EXISTS _sync_alias (tbl TEXT NOT NULL, fromId TEXT NOT NULL, toId TEXT NOT NULL, PRIMARY KEY (tbl, fromId))",
+    // 回放时放不进来的那几条（父行已经被删的孤儿、撞唯一约束的）：记下来、跳过，不让一条坏的卡死整个队列（复查）
+    "CREATE TABLE IF NOT EXISTS _sync_skip (tbl TEXT NOT NULL, pk TEXT NOT NULL, hlc TEXT NOT NULL, why TEXT NOT NULL, at BIGINT NOT NULL)",
+    // 「回放中」只在回放事务里置 1，事务回滚就回到 0；这里再兜一次底：万一哪次停在 1，触发器会从此不记任何改动
+    "UPDATE _sync_state SET applying = 0 WHERE id = 1",
   ]) {
     await db.$executeRawUnsafe(sql);
   }
@@ -92,8 +96,13 @@ export async function 卸触发器(db: Db) {
 }
 
 /** 本机已有的数据整份记成「新建」：第一次进团队时推上去，和别人的合并 */
-export async function 记全量(db: Db) {
+export async function 记全量(db: Db, 选项: { 不含设置?: boolean } = {}) {
   for (const t of 同步表) {
+    /*
+      加入别人团队的那台不推业务配置：两边的全量时钟都是 1，谁的 business 赢只看设备编号大小，
+      加入的人新号上的默认模版、币种有一半可能盖掉建团队的人那份（复查）。团队的配置以建团队的人为准
+    */
+    if (t === "Setting" && 选项.不含设置) continue;
     const cs = await 记的列(db, t);
     const pk = await 主键(db, t);
     const 过滤 = t === "Setting" ? ` WHERE ${引(pk)} IN (${同步的设置.map((k) => `'${k}'`).join(", ")})` : "";
@@ -180,49 +189,70 @@ async function 记本机字段钟(db: Db, 设备: string) {
 
 /**
  * 回放别人的改动（已解密、可能来自好几台）。按时钟顺序；本机自己发出去又被拉回来的跳过。
- * 返回：动过的客户（重算派生字段用）、撞了几次同名、复活 / 删除了几行，给「上次同步」那一行说话用。
+ * 返回：应用了几条、撞了几次同名、跳过了几条（孤儿 / 撞唯一约束，记在 _sync_skip）。
+ *
+ * **一条坏的不许卡死整个队列**（复查）：原来一条出错整批回滚，拉取位置不前进，这台电脑从此每一轮都卡在这一批。
+ *   - 每条一个保存点：撞了唯一约束只退这一条、记下跳过
+ *   - 外键是延后检查的（同一批里先子后父也放得进），提交前用 foreign_key_check 找出孤儿：
+ *     父行在本机已经删了（甲删客户、乙同时给他记了跟进）——能空的那一列置空，不能空的整行删掉、记下跳过
  */
-export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: string): Promise<{ 应用: number; 撞: number }> {
+export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: string): Promise<{ 应用: number; 撞: number; 跳: number }> {
   const 排好 = [...批].filter((e) => !e.h.endsWith(`-${本机设备}`)).sort((a, b) => a.h.localeCompare(b.h));
-  if (!排好.length) return { 应用: 0, 撞: 0 };
+  if (!排好.length) return { 应用: 0, 撞: 0, 跳: 0 };
   let 撞 = 0;
+  let 跳 = 0;
   const 动过的客户 = new Set<string>();
   // 先把本机还没编字段钟的改动编上：不然别人更早的改动会盖掉我刚改、还没推的
   await 记本机字段钟(db, 本机设备);
   await db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 1 WHERE id = 1");
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
+    const 记跳过 = async (t: string, k: string, h: string, why: string) => {
+      跳++;
+      await tx.$executeRawUnsafe(`INSERT INTO _sync_skip (tbl, pk, hlc, why, at) VALUES (?, ?, ?, ?, ${墙钟})`, t, k, h, why.slice(0, 300));
+    };
     const 主键们 = new Map<string, string>();
     const 主 = async (t: string) => 主键们.get(t) ?? (主键们.set(t, await 主键(tx, t)), 主键们.get(t)!);
-    for (const e of 排好) {
-      if (!(同步表 as readonly string[]).includes(e.t)) continue; // 对方版本新、多了一张我这还没有的表：跳过
+    const 列表们 = new Map<string, Set<string>>();
+    const 本机列们 = async (t: string) => 列表们.get(t) ?? (列表们.set(t, new Set((await 列们(tx, t)).map((c) => c.name))), 列表们.get(t)!);
+    const 别名到 = async (表: string, id: unknown) =>
+      typeof id === "string" ? ((await tx.$queryRawUnsafe<{ toId: string }[]>("SELECT toId FROM _sync_alias WHERE tbl = ? AND fromId = ?", 表, id))[0]?.toId ?? id) : id;
+
+    async function 放一条(e: 改动) {
       await tx.$executeRawUnsafe("UPDATE _sync_clock SET l = MAX(l, ?) WHERE id = 1", Number(e.h.split("-")[0]));
       const pk = await 主(e.t);
-      const 别名到 = async (表: string, id: unknown) =>
-        typeof id === "string" ? ((await tx.$queryRawUnsafe<{ toId: string }[]>("SELECT toId FROM _sync_alias WHERE tbl = ? AND fromId = ?", 表, id))[0]?.toId ?? id) : id;
       const k = (await 别名到(e.t, e.k)) as string;
       if (e.o === "D") {
+        // 删跟进 / 签约：「最近跟进」要重算，得在删之前记下是哪位客户（远端的删除不带整行）
+        if (e.t === "FollowUp" || e.t === "Contract") {
+          const 谁 = (await tx.$queryRawUnsafe<{ customerId: string }[]>(`SELECT customerId FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k))[0]?.customerId;
+          if (谁) 动过的客户.add(谁);
+        }
         const 更晚 = await tx.$queryRawUnsafe<unknown[]>("SELECT 1 FROM _sync_field WHERE tbl = ? AND pk = ? AND hlc > ? LIMIT 1", e.t, k, e.h);
         if (!更晚.length) await tx.$executeRawUnsafe(`DELETE FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k);
         await tx.$executeRawUnsafe("INSERT INTO _sync_tomb (tbl, pk, hlc) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET hlc = MAX(hlc, excluded.hlc)", e.t, k, e.h);
-        continue;
+        return;
       }
       const 墓 = (await tx.$queryRawUnsafe<{ hlc: string }[]>("SELECT hlc FROM _sync_tomb WHERE tbl = ? AND pk = ?", e.t, k))[0]?.hlc;
-      if (墓 && 墓 > e.h) continue;
+      if (墓 && 墓 > e.h) return;
       const row = { ...(e.r ?? {}) };
       // 引用了被合并掉的那一方（同名渠道）：换成留下的那个
       for (const [表, 定义] of Object.entries(同名合并)) for (const [t, c] of 定义.被指) if (t === e.t && row[c] != null) row[c] = await 别名到(表, row[c]);
       // 本机的表比对方的少了某一列（版本不同）：只写本机有的列
-      const 本机列 = new Set((await 列们(tx, e.t)).map((c) => c.name));
+      const 本机列 = await 本机列们(e.t);
       const cols = Object.keys(row).filter((c) => 本机列.has(c) && !(不同步列[e.t] ?? []).includes(c));
       const 在 = (await tx.$queryRawUnsafe<unknown[]>(`SELECT 1 FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k)).length > 0;
       if (!在) {
         // 同事的账号同步进来：密码不同步，又是 NOT NULL——放一个永远对不上的占位（谁也不能在这台电脑上用它登录）
         const 插列 = e.t === "User" && 本机列.has("password") ? [...cols, "password"] : cols;
         if (e.t === "User") row.password = "!team-sync";
+        await tx.$executeRawUnsafe("SAVEPOINT s_ins");
         try {
           await tx.$executeRawUnsafe(`INSERT INTO ${引(e.t)} (${插列.map(引).join(", ")}) VALUES (${插列.map(() => "?").join(", ")})`, ...插列.map((c) => 值(row[c])));
+          await tx.$executeRawUnsafe("RELEASE s_ins");
         } catch (err) {
+          await tx.$executeRawUnsafe("ROLLBACK TO s_ins");
+          await tx.$executeRawUnsafe("RELEASE s_ins");
           const 规 = 同名合并[e.t];
           if (!规 || !/UNIQUE/i.test(String((err as Error).message))) throw err;
           撞++;
@@ -241,10 +271,50 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
       if (e.t === "Customer") 动过的客户.add(k);
       if ((e.t === "FollowUp" || e.t === "Contract") && typeof row.customerId === "string") 动过的客户.add(row.customerId);
     }
+
+    for (const e of 排好) {
+      if (!(同步表 as readonly string[]).includes(e.t)) continue; // 对方版本新、多了一张我这还没有的表：跳过
+      await tx.$executeRawUnsafe("SAVEPOINT s1");
+      try {
+        await 放一条(e);
+        await tx.$executeRawUnsafe("RELEASE s1");
+      } catch (err) {
+        await tx.$executeRawUnsafe("ROLLBACK TO s1");
+        await tx.$executeRawUnsafe("RELEASE s1");
+        await 记跳过(e.t, e.k, e.h, String((err as Error)?.message ?? err));
+      }
+    }
+    await 清孤儿(tx, 记跳过);
     await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 0 WHERE id = 1");
-  });
+  }, { timeout: 180_000, maxWait: 20_000 }); // 新人第一次拉一个大团队，一批 2000 条要好几秒，默认 5 秒会超时、每轮重试都失败（复查）
   await 重算派生(db, [...动过的客户]);
-  return { 应用: 排好.length, 撞 };
+  return { 应用: 排好.length - 跳, 撞, 跳 };
+}
+
+/**
+ * 提交前找孤儿（外键延后检查，提交那一刻才会报，报了就整批回滚）。父行在本机已经不在：
+ * 那一列能空就置空（客户的来源渠道被删了，客户照留），不能空就整行删掉（跟进挂的客户被删了）。
+ * 删一行可能带出新的孤儿，循环到干净为止。
+ */
+async function 清孤儿(tx: Prisma.TransactionClient, 记跳过: (t: string, k: string, h: string, why: string) => Promise<void>) {
+  for (let 轮 = 0; 轮 < 10; 轮++) {
+    const 坏 = await tx.$queryRawUnsafe<{ table: string; rowid: bigint | number | null; parent: string; fkid: bigint | number }[]>("PRAGMA foreign_key_check");
+    if (!坏.length) return;
+    for (const b of 坏) {
+      if (b.rowid == null) continue;
+      const fk = (await tx.$queryRawUnsafe<{ id: bigint | number; from: string }[]>(`PRAGMA foreign_key_list(${引(b.table)})`)).find((f) => 数(f.id) === 数(b.fkid));
+      const 列信息 = (await tx.$queryRawUnsafe<{ name: string; notnull: bigint | number; pk: bigint | number }[]>(`PRAGMA table_info(${引(b.table)})`));
+      const pk = 列信息.find((c) => 数(c.pk) === 1)?.name ?? "rowid";
+      const k = String((await tx.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT ${引(pk)} AS k FROM ${引(b.table)} WHERE rowid = ?`, 数(b.rowid)))[0]?.k ?? "");
+      const 能空 = fk && 列信息.find((c) => c.name === fk.from)?.notnull != null && 数(列信息.find((c) => c.name === fk.from)!.notnull) === 0;
+      if (fk && 能空) {
+        await tx.$executeRawUnsafe(`UPDATE ${引(b.table)} SET ${引(fk.from)} = NULL WHERE rowid = ?`, 数(b.rowid));
+      } else {
+        await tx.$executeRawUnsafe(`DELETE FROM ${引(b.table)} WHERE rowid = ?`, 数(b.rowid));
+        await 记跳过(b.table, k, "", `孤儿：${b.parent} 在本机已经删了`);
+      }
+    }
+  }
 }
 
 const 值 = (v: unknown) => (v === undefined ? null : typeof v === "boolean" ? (v ? 1 : 0) : v);
@@ -269,16 +339,14 @@ async function 合并同名(tx: Prisma.TransactionClient, t: string, 规: { 列:
   }
 }
 
-/** 派生字段本机重算：最近跟进 = 跟进记录里最晚那条（和 saveFollowUp 里同一个算法）。重算本身不进日志 */
+/**
+ * 派生字段本机重算：最近跟进 = 跟进记录里最晚那条（和 saveFollowUp 里同一个算法）。重算本身不进日志——
+ * 不用「回放中」开关：lastFollowAt 不在触发器记的列里，裸 UPDATE 也不动 updatedAt，触发器本来就不响。
+ * 原来在事务外把开关置 1：重算那一会儿用户另一个请求里的保存不进日志，中途退出应用开关还停在 1（复查）
+ */
 async function 重算派生(db: PrismaClient, 客户们: string[]) {
-  if (!客户们.length) return;
-  await db.$executeRawUnsafe("UPDATE _sync_state SET applying = 1 WHERE id = 1");
-  try {
-    for (const id of 客户们) {
-      await db.$executeRawUnsafe('UPDATE "Customer" SET lastFollowAt = (SELECT MAX(occurredAt) FROM "FollowUp" WHERE customerId = ?) WHERE id = ?', id, id);
-    }
-  } finally {
-    await db.$executeRawUnsafe("UPDATE _sync_state SET applying = 0 WHERE id = 1");
+  for (const id of 客户们) {
+    await db.$executeRawUnsafe('UPDATE "Customer" SET lastFollowAt = (SELECT MAX(occurredAt) FROM "FollowUp" WHERE customerId = ?) WHERE id = ?', id, id);
   }
 }
 

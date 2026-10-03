@@ -244,6 +244,77 @@ describe("推拉合并", () => {
     for (const db of [甲, 乙]) expect((await db.customerPool.findMany()).map((x) => x.userId)).toEqual(["acct_yi"]);
   });
 
+  it("甲删了客户、乙同时给他记了跟进：两边都没有这位和这条跟进，队列不卡（复查）", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c8", name: "Gone", phone: "13800000008", salesOwnerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    await 甲.customer.delete({ where: { id: "c8" } });
+    await 乙.followUp.create({ data: { id: "f8", type: "PHONE", title: "", content: "还在跟", status: "已完成", occurredAt: new Date(), customerId: "c8", ownerId: "acct_yi" } });
+    await 同步(甲, 乙);
+    for (const db of [甲, 乙]) {
+      expect(await db.customer.count({ where: { id: "c8" } })).toBe(0);
+      expect(await db.followUp.count({ where: { id: "f8" } })).toBe(0);
+    }
+    expect(await 甲.$queryRawUnsafe<unknown[]>("SELECT 1 FROM _sync_skip WHERE pk = 'f8'")).toHaveLength(1);
+    // 之后的改动照常过去
+    await 乙.customer.create({ data: { id: "c9", name: "Next", phone: "13800000009", salesOwnerId: "acct_yi" } });
+    await 同步(甲, 乙);
+    expect(await 甲.customer.count({ where: { id: "c9" } })).toBe(1);
+  });
+
+  it("乙把渠道改名成甲刚建的同名渠道：撞唯一约束只跳过那一条，不卡后面的（复查）", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 乙.channel.create({ data: { id: "ch2", name: "老名字", channelOwnerId: "acct_yi" } });
+    await 同步(甲, 乙);
+    await 甲.channel.create({ data: { id: "ch3", name: "展会", channelOwnerId: "acct_jia" } });
+    await 乙.channel.update({ where: { id: "ch2" }, data: { name: "展会" } });
+    await 乙.customer.create({ data: { id: "c10", name: "后面的", phone: "13800000010", salesOwnerId: "acct_yi" } });
+    await 同步(甲, 乙);
+    expect(await 甲.customer.count({ where: { id: "c10" } })).toBe(1);
+    expect((await 甲.$queryRawUnsafe<{ tbl: string }[]>("SELECT tbl FROM _sync_skip")).map((x) => x.tbl)).toContain("Channel");
+  });
+
+  it("回放、重算之后「回放中」开关是 0：之后本机的改动照常进日志（复查）", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c11", name: "钱总", phone: "13800000011", salesOwnerId: "acct_jia" } });
+    await 甲.followUp.create({ data: { type: "PHONE", title: "", content: "x", status: "已完成", occurredAt: new Date(), customerId: "c11", ownerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    expect(Number((await 乙.$queryRawUnsafe<{ applying: bigint | number }[]>("SELECT applying FROM _sync_state"))[0].applying)).toBe(0);
+    await 乙.customer.update({ where: { id: "c11" }, data: { remark: "乙改的" } });
+    expect(await 同步(甲, 乙)).toMatchObject({ b: 1 });
+  });
+
+  it("远端删了跟进：本机「最近跟进」跟着重算（复查）", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c12", name: "孙总", phone: "13800000012", salesOwnerId: "acct_jia" } });
+    const 早 = new Date("2026-10-01T09:00:00Z"), 晚 = new Date("2026-10-02T09:00:00Z");
+    await 甲.followUp.create({ data: { id: "f12a", type: "PHONE", title: "", content: "早", status: "已完成", occurredAt: 早, customerId: "c12", ownerId: "acct_jia" } });
+    await 甲.followUp.create({ data: { id: "f12b", type: "PHONE", title: "", content: "晚", status: "已完成", occurredAt: 晚, customerId: "c12", ownerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    expect((await 乙.customer.findUniqueOrThrow({ where: { id: "c12" } })).lastFollowAt?.toISOString()).toBe(晚.toISOString());
+    await 甲.followUp.delete({ where: { id: "f12b" } });
+    await 同步(甲, 乙);
+    expect((await 乙.customer.findUniqueOrThrow({ where: { id: "c12" } })).lastFollowAt?.toISOString()).toBe(早.toISOString());
+  });
+
+  it("加入的那台不推业务配置：团队的模版以建团队的人为准（复查）", async () => {
+    const 甲 = await 一台("A");
+    const 乙 = await 一台("B");
+    await 甲.setting.create({ data: { key: "business", value: JSON.stringify({ template: "trade" }) } });
+    await 乙.setting.create({ data: { key: "business", value: JSON.stringify({ template: "general" }) } });
+    await 进团队(甲, "jia", "jia@example.com", "甲");
+    await 改身份(乙, "acct_yi", { email: "yi@example.com", name: "乙" });
+    await 建同步表(乙);
+    await 装触发器(乙);
+    await 记全量(乙, { 不含设置: true });
+    // 设备号故意让乙更大：原来同为时钟 1 时按设备号比，乙会赢
+    const a = await 推(甲, "A");
+    const b = await 推(乙, "Z");
+    if (a) await 回放(乙, 拆(a, 钥匙), "Z");
+    if (b) await 回放(甲, 拆(b, 钥匙), "A");
+    for (const db of [甲, 乙]) expect(JSON.parse((await db.setting.findUniqueOrThrow({ where: { key: "business" } })).value).template).toBe("trade");
+  });
+
   it("钥匙不对拆不开；密文里看不到客户名", async () => {
     const { 甲 } = await 一对();
     await 甲.customer.create({ data: { name: "看不见的王总", phone: "13800000009", salesOwnerId: "acct_jia" } });

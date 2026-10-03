@@ -75,4 +75,10 @@ describe("MCP 桥", () => {
     const p = await 桥.start({ 取端口: () => null });
     expect((await 问(p!, "/api/customers")).状态).toBe(404);
   });
+
+  it("启动时就连着服务器也开桥（本地服务不起时原来桥也没开，agent 只得到连接被拒绝）", () => {
+    const 主 = fs.readFileSync(path.resolve(__dirname, "../desktop/main.js"), "utf8");
+    expect(主).toMatch(/if \(读配置\(\)\.mode !== "local"\) 开MCP桥\(\)/);
+    expect(主).toMatch(/async function 真启动本地[\s\S]*?await 开MCP桥\(\)/);
+  });
 });

@@ -102,6 +102,11 @@ const 派生: Record<string, Record<string, string>> = {
     reason: "手动 / N 天没跟进自动放进，系统打上",
     at: "放进去的那一刻，系统打上",
   },
+  CustomerClaim: {
+    customerId: "哪位客户，领取时建 / 覆盖",
+    userId: "谁领的，领取时打上",
+    at: "领走的那一刻，自动掉公海从它算起",
+  },
   FollowUpOrder: { followUpId: "哪条跟进，在节点上记一笔时一起建", orderId: "挂在哪张订单上", nodeIdx: "挂在第几步上" },
   ContractOwner: {
     contractId: "哪一笔签约，saveContract 新登记时一起建",
