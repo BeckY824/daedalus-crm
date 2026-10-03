@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Typography } from "antd";
 import Logo from "@/components/Logo";
 import ForgotForm from "./ForgotForm";
+import DesktopForgot from "./DesktopForgot";
 import { 能找回密码 } from "@/lib/tenant/password-reset";
 import { 本地模式, 策略 } from "@/lib/desktop/cloud";
 
@@ -14,9 +15,9 @@ export const dynamic = "force-dynamic";
 
 export default async function ForgotPage() {
   // 桌面端本地模式：账号在云端，能不能找回由云端说了算（动作那边也转调云端，见 actions.ts）
-  if (本地模式()) {
-    if ((await 策略()).reset) return <ForgotForm />;
-  } else if (能找回密码()) {
+  // 桌面端：和登录页同一扇门（左栏一样，右边一步一屏），能不能找回由云端说了算
+  if (本地模式()) return <DesktopForgot 可用={(await 策略()).reset} />;
+  if (能找回密码()) {
     return <ForgotForm />;
   }
 

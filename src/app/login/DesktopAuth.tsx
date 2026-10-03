@@ -4,12 +4,11 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Input, Button, Checkbox, Alert } from "antd";
-import { PixelLogo } from "@/components/Logo";
 import OtpInput from "@/components/OtpInput";
 import { useMotionTheme } from "@/components/MotionTheme";
 import { 桌面端登录, 桌面端下一步, 桌面端注册, type LoginResult } from "./actions";
 import { 登录之后 } from "./after-login";
-import TypeBrand from "./TypeBrand";
+import AuthSide from "./AuthSide";
 
 /**
  * 桌面端的门：**一个邮箱框走到底**（2026-10-02 起，原型见 ~/CRM/新功能三线-规划-2026-10-02.md）。
@@ -159,21 +158,7 @@ export default function DesktopAuth({
 
   return (
     <div className="auth">
-      <aside className="auth-side">
-        <div className="auth-mark">
-          <PixelLogo size={96} />
-          <TypeBrand />
-        </div>
-        <p className="auth-claim">客户、跟进、开发信，都在你自己的电脑上。</p>
-        {/*
-          **把拦得住和拦不住的都说出来**（原来在登录卡片底下，搬到这儿）。
-          数据按云端账号分开存（desktop/accounts.js），换个账号登录看到的是他自己那一份；
-          但同一个电脑账户下，拿 SQLite 工具直接打开对方的库文件，应用层分目录是拦不住的。
-        */}
-        <p className="auth-fine">
-          数据只存在这台电脑上，账号只用来记 AI 次数。每个账号各存一份；同一个电脑账户下的人仍能翻到彼此的数据文件，要彻底分开请各用各的电脑账户。
-        </p>
-      </aside>
+      <AuthSide />
 
       <main className="auth-main">
         <form
