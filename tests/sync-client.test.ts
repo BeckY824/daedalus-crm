@@ -15,6 +15,8 @@ const 临时 = vi.hoisted(() => {
   const path = process.getBuiltinModule("node:path") as typeof import("node:path");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-sync-client-"));
   fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db"), path.join(dir, "A.db"));
+  // test.db 的 -wal 里可能还有没落盘的：一起拷，库才是一份自洽的
+  if (fs.existsSync(path.resolve(__dirname, "../prisma/test.db-wal"))) fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db-wal"), path.join(dir, "A.db-wal"));
   return { dir };
 });
 vi.mock("@/lib/prisma", async () => {
@@ -89,8 +91,11 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(临时.dir, ".cloud.json"), JSON.stringify({ baseUrl: "http://fake", token: "dk_test", accountId: "jia", name: "甲", contact: "jia@x.com", models: [], loggedAt: new Date().toISOString() }));
   设传输(假传输);
   await 清空种模板(甲);
-  fs.copyFileSync(path.join(临时.dir, "A.db"), path.join(临时.dir, "B.db"));
+  // 乙另拷一份再自己清：从甲的库文件拷会拷到还没落盘（还在 -wal 里）的旧数据，全量跑时偶发多出别的用例留下的行
+  fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db"), path.join(临时.dir, "B.db"));
+  if (fs.existsSync(path.resolve(__dirname, "../prisma/test.db-wal"))) fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db-wal"), path.join(临时.dir, "B.db-wal"));
   乙 = new PrismaClient({ datasourceUrl: `file:${path.join(临时.dir, "B.db")}` });
+  await 清空种模板(乙);
 });
 
 afterAll(async () => {
@@ -145,7 +150,8 @@ describe("桌面端同步客户端", () => {
     const 二 = await 同步一轮();
     expect(二.ok && 二.拉).toBeGreaterThan(0);
     expect((await 甲.customer.findMany({ orderBy: { id: "asc" } })).map((c) => c.name)).toEqual(["王总", "李总"]);
-    expect((await 甲.user.findMany({ orderBy: { id: "asc" } })).map((u) => u.id)).toEqual(["acct_jia", "acct_yi"]);
+    const 人 = await 甲.user.findMany({ orderBy: { id: "asc" } });
+    expect(人.map((u) => u.id), JSON.stringify(人.map((u) => [u.id, u.email, u.name, u.role]))).toEqual(["acct_jia", "acct_yi"]);
 
     // 甲改、乙收
     await 甲.customer.update({ where: { id: "c2" }, data: { remark: "甲补了一句" } });

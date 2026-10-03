@@ -24,6 +24,7 @@ const 开着: PrismaClient[] = [];
 async function 一台(名: string): Promise<PrismaClient> {
   const f = path.join(目录, `${名}.db`);
   fs.copyFileSync(测试库, f);
+  if (fs.existsSync(`${测试库}-wal`)) fs.copyFileSync(`${测试库}-wal`, `${f}-wal`); // 没落盘的那部分一起拷
   const db = new PrismaClient({ datasourceUrl: `file:${f}` });
   开着.push(db);
   // 拷来的测试库里可能有别的用例留下的数据：清空业务表，种上模板账号
