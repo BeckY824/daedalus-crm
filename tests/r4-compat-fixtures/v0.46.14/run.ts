@@ -1,0 +1,778 @@
+import { randomUUID } from "node:crypto";
+/**
+ * agent 循环（ReAct）。
+ *
+ * 每一步让模型挑一个工具，执行完把结果喂回去，直到它说够了，再进最终回答。挑工具有两条路：
+ *   - 默认走原生 function calling（请求带 `tools`）；中转站有时把调用写成 DSML 文本吐回来，
+ *     由 lib/llm-dsml.ts 认回来（见下面「决策这一步怎么问模型」）
+ *   - 对面不吃 `tools` 时退回 JSON 协议，每一步只输出
+ *     {"thought": "一句话打算", "action": {"tool": "get_customer", "args": {...}}} 或 {"final": true}
+ * 意图直连（intents.ts）命中的问题跳过挑工具这一步。
+ * 最终回答用流式文本（Markdown），逐 token 推给浏览器；句末 [n] 引用工具读到的记录。
+ *
+ * 边界：工具只读，要写的只拟建议卡（proposals.ts），人点确认才落库；最多 6 步；
+ * 每步与最终回答都有超时；用户按 Esc 时 signal 中断。
+ * 过程通过 emit 推出去：每次工具调用一条 step（running → done + summary）。
+ */
+import { chatMessagesJSON, chatTextStream, buildSystemPrompt, chatTools, type ToolMessage } from "./llm";
+import { TOOLS, TOOL_MAP, proposalVocab, type ToolContext } from "@/lib/agent/tools";
+import { SCHEMAS } from "@/lib/agent/schemas";
+import { 有DSML, 解析DSML } from "@/lib/llm-dsml";
+import { 认意图, type 页面范围 } from "@/lib/agent/intents";
+import type { Proposal } from "@/lib/agent/proposals";
+import type { Emit } from "@/lib/ai-steps";
+import type { BriefRecord } from "@/lib/ai-draft";
+import type { BusinessConfig } from "@/lib/business-config";
+import { dayjs, 现在带周几 } from "@/lib/utils";
+import { 号码脱敏器 } from "@/lib/shared-ws/current";
+
+export type AgentEvents = {
+  emit?: Emit;
+  /** 用哪个模型。上游已按白名单校验过 */
+  model?: string;
+  onToken?: (text: string) => void;
+  /** 把已经推出去的正文抹掉（重答之前叫一次）。见 lib/ai-stream.ts 里的 reset */
+  onReset?: () => void;
+  signal?: AbortSignal;
+};
+
+/** 回答里提到的客户，前端据此给「打开记录页 / 起草话术」动作 */
+export type 提到的客户 = { id: string; name: string; followStatus: string };
+
+export type AgentResult = {
+  text: string;
+  records: BriefRecord[];
+  customers: 提到的客户[];
+  /** 写入提议：渲染成卡片，人点确认才落库 */
+  proposals: Proposal[];
+  steps: number;
+};
+
+const MAX_STEPS = 6;
+
+/**
+ * 「关于数据有没有」的论断。只在**一次工具都没调**时用来拦回答——
+ * 那时模型手上一条数据都没有，说这种话必然是编的。
+ * 查过工具的回答不走这里：那时「没有匹配的」是如实回答，正是我们要它说的。
+ */
+export function 凭空断言(text: string): boolean {
+  return /(还?没有(任何|登记|录入|建立|添加)|一个都没有|一条都没有|一位都没有|都还没有|尚未(登记|录入|建立|添加)|(系统|库|里面)里?(还)?(没有|是空的)|暂无[^，。]{0,6}(数据|记录|渠道|客户|线索|商机)|目前(还)?没有)/.test(text);
+}
+
+/**
+ * 这段「回答」根本不是给人看的答案。
+ *
+ * 三种形态，都是 bakeoff 2.0 真跑出来的，**都流到了用户屏幕上**：
+ *   `<｜｜DSML｜｜ calls><｜｜DSML｜｜ invoke name="get_watchlist">…`
+ *        —— deepseek-v4.1-flash 把工具调用的协议标记当正文吐了出来
+ *   `get_my_plans`
+ *        —— glm-5.3-flash 光秃秃回了一个工具名
+ *   `我来查一下各跟进状态的学员数量。`
+ *        —— 说了要查，然后什么都没查，话说完就结束了
+ *
+ * **和「凭空断言」是两回事，不能共用那道闸。** 那道闸问的是「它有没有编造数据」，
+ * 而且只在零工具时才开；这三条里有一条调了两个工具，闸根本不会开。
+ * 这里问的是另一个问题：**它到底答没答**。所以判据独立、不看工具调了几个。
+ *
+ * `开头清洗器` 也兜不住：它只认开头的 `{"final":true}` 那种 JSON 信令。
+ */
+/**
+ * 回答里说有卡片，可这一轮一张卡片都没生成。
+ *
+ * 2026-09-28 桌面端：它回「这条就挂在李文龙名下……你在卡片上确认一下」，屏幕上什么都没有——
+ * 那一轮的工具调用被中转站当正文吐了回来，一个 propose_ 都没跑成（见 lib/llm-dsml.ts）。
+ * 用户照着去找卡片，找不到。说「卡片上确认」而没有卡片，和编数据是一类错：说了一件没发生的事。
+ * 只看「卡片 / 建议卡」这两个词：这一轮没有卡片时，回答里就不该出现它们。
+ */
+export const 声称有卡片 = (text: string) => /卡片|建议卡/.test(text);
+
+/** 重答之后还是不行时给人看的话：宁可说没做成，也不把协议标记或一句假话留在屏幕上 */
+export const 没答成 = "这一步没有顺利完成——模型把要查的东西当成回答吐了出来，没能整理成人话。请再发一次，或者换个说法。";
+export const 没出卡片 = "这一轮没有生成卡片，刚才那句「卡片上确认」不对。请把要记的内容再说一次（哪位客户、什么事、什么时间），我重新生成一张让你确认。";
+
+export function 不是答案(text: string, 工具名: string[]): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  // 工具调用协议的残片。DSML 是 deepseek 的，后面几个是别家的常见写法
+  if (/DSML|<\s*\/?\s*(tool_call|function_call|invoke|antml|tool▁)/i.test(t)) return true;
+  // 整段就是一个工具名（可能带个句号）
+  if (工具名.includes(t.replace(/[。.\s]+$/, ""))) return true;
+  /*
+    只承诺不执行。收得很紧：必须够短、且一个数字都没有——
+    「我来算一下：本月 12 笔」这种是正常开场白，不能误伤。
+  */
+  if (t.length <= 40 && /^(我)?(这就|来|将|先|现在)?(帮你)?(查|看|检索|搜索|统计|算)一?下/.test(t) && !/\d/.test(t)) return true;
+  return false;
+}
+
+/**
+ * 「这周三」「下周五」照这张表算，不让模型自己推。
+ * 2026-09-28 核对教程时看到：周一说「下周三」，它算成了两天后的本周三，还写进了建议卡。
+ * 周一算一周的第一天（国内的习惯）。
+ */
+export function 日期对照(今天 = dayjs()): string {
+  const 周一 = 今天.subtract((今天.day() + 6) % 7, "day");
+  const 一周 = (起: typeof 周一) => Array.from({ length: 7 }, (_, i) => `周${"一二三四五六日"[i]} ${起.add(i, "day").format("MM-DD")}`).join("、");
+  return `日期对照（「这周几」「下周几」一律照这张表，不要自己推算）：本周 ${一周(周一)}；下周 ${一周(周一.add(7, "day"))}。`;
+}
+
+/**
+ * 这一轮提了建议卡时，回答要守的两条。按调用时的卡片数算：回炉那一步可能刚提了卡。
+ * 2026-09-28 核对教程时真出过：卡还没确认，它开口就说「这笔已经给你记上了」；
+ * 又叫人「在卡片上补电话」，可跟进记录那张卡上根本没有电话这一栏。
+ */
+export function 有卡时的要求(卡片数: number): string {
+  if (!卡片数) return "";
+  return (
+    `\n- 这一轮提了 ${卡片数} 张建议卡，**还没写进去**：要说「拟好了，你确认后才写入」，不许说「已经记上」「已保存」「已写入」` +
+    `\n- 要人补的信息只提卡片上本来就有的栏位；卡片上没有的（比如跟进记录卡上没有电话），请人直接在对话里告诉你`
+  );
+}
+
+/** 之前几轮的问答，用来理解「他」「那个」「再约一下」这类指代 */
+export type HistoryTurn = { q: string; a: string };
+
+/**
+ * 把历史折进**当前这条 user 消息**，而不是插成一串独立的 user/assistant。
+ *
+ * 因为退回 JSON 协议时，每一轮模型只能输出
+ * {"thought":..,"action":..} 或 {"final":true}。要是往消息里塞几条自然语言的
+ * assistant 回答，等于给它看了一堆"不按协议输出也行"的先例，它会开始直接
+ * 回自然语言，整个循环就散了。折进一条消息里，协议不受影响。
+ */
+/**
+ * 页面上下文放在**问题的正上方**，不只放在系统提示词末尾。
+ *
+ * 系统提示词有二十来条规矩，页面那句排在最后、语气最弱；而「问到某个人先 search_customers」
+ * 那条排在前面、说得斩钉截铁。小模型两头都读到了，挑了后者——2026-09-19 渠道页那一问就是这样。
+ * 挨着问题放，它是模型作决定前最后看到的一段；系统提示词里那份照旧留着，两处说的是同一句话。
+ */
+function 拼上下文(history: HistoryTurn[] | undefined, question: string, 页面上下文?: string): string {
+  const 页 = 页面上下文 ? `当前所在页面：${页面上下文}\n\n` : "";
+  if (!history?.length) return `${页}问题：${question}`;
+  const 之前 = history.map((h, i) => `[${i + 1}] 我问：${h.q}\n    你答：${h.a}`).join("\n");
+  return `这是我们之前的对话，只用来理解我这次说的「他」「那个」「再约一下」指的是谁、是什么。不要重复回答里面的内容：
+${之前}
+
+${页}问题：${question}`;
+}
+
+/**
+ * 最终回答的开头清洗器。
+ *
+ * 决策步和回答步共用一段对话，而那段对话里每一条 assistant 消息都是 JSON。
+ * 模型被这个格式带着走，有一定概率在正文前先吐一行控制信令
+ * （实测线上出现过 `{"final":true}` 原样流到用户屏幕上），
+ * 提示词里写「不要再输出 JSON」并不能根除。
+ *
+ * 所以在流式出口再兜一道：开头的内容先攒着，确认不是 JSON 再放行。
+ *   - 开头不是 `{` → 立刻放行，之后一路直通，正文里的花括号不受影响
+ *   - 开头是 `{` → 等它闭合，整段丢掉，只放行后面的正文
+ *   - 万一那段 JSON 把答案包在字段里 → 取出最长的那个字符串字段当正文
+ *   - 攒满 400 字还没闭合 → 判定为误判，原样放行，宁可漏一次也不吞正文
+ */
+/**
+ * 试着从「已经收到的开头」里剥掉控制信令。
+ * 每次收到新 token 都整段重跑一遍——开头只有几十个字符，重解析的代价可以忽略，
+ * 换来的是不必维护「围栏读到一半」「JSON 读到一半」这些跨 token 的中间状态。
+ */
+function 尝试剥离(raw: string): { 完成: false } | { 完成: true; 正文: string; 剥掉的: string } {
+  let s = raw.replace(/^\s+/, "");
+  if (!s) return { 完成: false }; // 还全是空白
+  let 有围栏 = false;
+
+  // 开头的代码围栏：等这一行收完，别把 ```jso 这种半截当正文放走
+  if (s.startsWith("`")) {
+    const nl = s.indexOf("\n");
+    if (nl === -1) return { 完成: false };
+    if (!/^`{3,}\s*(json)?$/i.test(s.slice(0, nl).trim())) return { 完成: true, 正文: raw, 剥掉的: "" };
+    有围栏 = true;
+    s = s.slice(nl + 1).replace(/^\s+/, "");
+    if (!s) return { 完成: false };
+  }
+
+  if (s[0] !== "{") return { 完成: true, 正文: raw, 剥掉的: "" }; // 不是 JSON，原样放行
+  const end = s.indexOf("}");
+  if (end === -1) return { 完成: false };
+  const 信令 = s.slice(0, end + 1);
+  s = s.slice(end + 1).replace(/^\s+/, "");
+
+  // 闭合围栏同样可能只到一半；开头有围栏就必须等到它，否则 ``` 会漏到正文里
+  if (s.startsWith("`")) {
+    const nl = s.indexOf("\n");
+    if (nl === -1) return { 完成: false };
+    s = s.slice(nl + 1).replace(/^\s+/, "");
+  } else if (有围栏 && !s) {
+    return { 完成: false };
+  }
+  return { 完成: true, 正文: s, 剥掉的: 信令 };
+}
+
+/**
+ * 最终回答的开头清洗器。
+ *
+ * 决策步和回答步共用一段对话，而那段对话里每一条 assistant 消息都是 JSON。
+ * 模型被这个格式带着走，有一定概率在正文前先吐一行控制信令
+ * （线上真实出现过 `{"final":true}` 原样流到用户屏幕上），
+ * 提示词里写「不要再输出 JSON」并不能根除，所以在流式出口再兜一道。
+ *
+ * 判断只做一次：开头不是 JSON 就立刻直通，正文里的花括号、代码块都不受影响。
+ * 攒够 400 字还没闭合就判定为误判，原样放行——宁可漏剥一次，也不能吞正文。
+ */
+export function 开头清洗器(emit: (s: string) => void) {
+  let buf = "";
+  let 已放行 = false;
+  let 待去前导空白 = false;
+  let out = "";
+
+  function 放行(s: string) {
+    已放行 = true;
+    buf = "";
+    if (!s) return;
+    out += s;
+    emit(s);
+  }
+
+  return {
+    推入(tok: string) {
+      if (已放行) {
+        // 信令与正文之间的空行可能跨 token 才到，放行后还要再吃掉一次
+        let s = tok;
+        if (待去前导空白) {
+          s = s.replace(/^\s+/, "");
+          if (!s) return;
+          待去前导空白 = false;
+        }
+        out += s;
+        emit(s);
+        return;
+      }
+
+      buf += tok;
+      const r = 尝试剥离(buf);
+      if (!r.完成) {
+        if (buf.length > 400) 放行(buf); // 判定为误判，原样吐出去
+        return;
+      }
+      let 正文 = r.正文;
+      if (r.剥掉的 && !正文) {
+        // 整段就是一个信令：答案可能被包在某个字段里，取最长的字符串值
+        try {
+          const o = JSON.parse(r.剥掉的) as Record<string, unknown>;
+          正文 = Object.values(o).filter((v): v is string => typeof v === "string").sort((a, b) => b.length - a.length)[0] ?? "";
+        } catch { /* 不是合法 JSON 就当它没说话 */ }
+        待去前导空白 = !正文; // 正文还在后面的 token 里，接住时再去一次空白
+      }
+      放行(正文);
+    },
+    /** 流结束时叫一次：把还攒在手里、始终没等到结论的开头吐出去，一个字都不能留在缓冲里 */
+    收尾() {
+      if (已放行 || !buf) return;
+      const r = 尝试剥离(buf);
+      放行(r.完成 ? r.正文 : buf);
+    },
+    文本: () => out,
+  };
+}
+
+export async function runAgent(
+  input: { question: string; user: { id: string; name: string }; b: BusinessConfig; history?: HistoryTurn[]; 页面上下文?: string; 页面范围?: 页面范围 },
+  ev: AgentEvents = {},
+): Promise<AgentResult> {
+  const { question, user, b, history, 页面上下文, 页面范围 } = input;
+  /**
+   * **这一个问题的编号。** 下面每一次模型调用（每步决策、工具那一轮、最终回答、
+   * 以及「吐的不是答案」的重答）都带着它，网关据此**一个问题只扣一次**——
+   * 价格页写的就是「一次提问算一次」，而在这之前是每步扣一次：
+   * 2026-09-21 实测 6 个提问吃掉 39 次额度。见 lib/tenant/credits.ts 的 按问题扣一次。
+   *
+   * 生成在这里而不是调用方：它要覆盖这一次回答的全部调用，而「一次回答」的边界
+   * 正好就是这个函数。调用方给不给都不影响——这个函数每跑一次就是一个问题。
+   */
+  const 问题id = randomUUID();
+  const toolDoc = TOOLS.map((t) => `- ${t.name}：${t.description}\n  参数：${t.args}`).join("\n");
+
+  /**
+   * **两条路的提示词不一样，而且这件事比看上去要命。**
+   *
+   * 第一版的原生 function calling 8 道题错 7 道，原因不是模型不会调工具——
+   * 是系统提示词里还留着「工作方式：每一轮只输出严格 JSON」。模型老老实实照办了：
+   * 它输出了一段 JSON 文本，而不是发起一次工具调用。**两套说明书同时给，它只会听一套。**
+   * 所以原生这条路上，工具表和「怎么输出」这两段必须整个拿掉——工具在 API 的
+   * `tools` 字段里，怎么调是模型自己训练过的事，我们不该再教一遍。
+   */
+  const 原生模式 = process.env.AGENT_TOOLCALLS !== "0";
+  const 工作方式 = 原生模式
+    ? `工作方式：需要数据就直接调用工具（可以连着调几次）；够了就不要再调，直接开口回答。`
+    : `工作方式：每一轮只输出严格 JSON，二选一：
+  {"thought": "一句话：打算干什么、为什么", "action": {"tool": "工具名", "args": {...}}}
+  {"final": true}`;
+  const system =
+    buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
+    `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${现在带周几()}。
+${日期对照()}
+${原生模式 ? "" : `你能调用的工具：\n${toolDoc}\n`}
+取值表（propose_* 的参数只能用这里的词）：
+${proposalVocab(b)}
+
+${工作方式}
+规则：
+- 你不能修改任何数据。propose_* 工具只是生成一张建议卡，人在界面上点确认才真的写进去；提完在回答里说一句"已经给出建议，你确认一下"，不要说"我已经改好了"
+- 只在人明确要求做某件事时才提议（"帮我记一笔""把他改成已签约""约下周三""新建一条线索"）；人只是问情况时不要提议
+- **信息不全也要提**：建议卡本身就是表单，你不知道的字段留空，人会在卡片上补。绝对不要在回答里列一张"姓名：__ 电话：__"让人照格式打字，也不要因为"信息不够"就拒绝——那是把本该一次点完的事变成打一屏字
+- 提了建议卡之后，回答里只说一句要点和还差什么，不要把卡片里已有的字段再抄一遍
+- 记一笔（propose_followup）的时间是**这次沟通已经发生的时间**，不给就算刚刚；人说了下次什么时候再谈（"下周三再约"），另提一张 propose_plan 把那个时间写进去，不要把下次的时间塞进记一笔里，也不要在回答里让人"去卡片上补时间"
+- **问到某个人（他是谁、他的电话、他的联系方式）：用 find_person，名字原样传。** 它把客户、渠道、联系人、线索、同事五张表一起找——人不知道也不该关心这个人在系统里被登记成了哪一种。**不要自己截短名字**（「李老师」就传「李老师」）。他的名字出现在「当前所在页面」名单里时，用那一页指定的工具更快，但 find_person 永远是安全的那条路
+- 确定是客户、还要看他的跟进时间线时，用 find_person 给的 id 调 get_customer；同名多位时不要猜，直接 final 并在回答里说清楚有哪几位
+- 按条件筛一批客户（某个学校 / 状态 / 我负责的）才用 search_customers——那是「找一批」，不是「找一个人」
+- 问某一类人（某个学校 / 专业 / 跟进状态 / 我负责的，"有多少、分别是谁"）：search_customers 用那个关键词或过滤条件，它返回总数和名单，直接据此回答，不用逐个 get_customer
+- **工具回话里带了「这个名字在别的表里」时，那就是答案**：照着它给的记录直接回答（渠道、联系人、线索、团队成员都是这个库里的人），不要再说"没找到"，更不要反过来让用户给更完整的姓名
+- 工具没找到、也没告诉你别处有时，才如实说"没有匹配的"，不要把关键词当成人名
+- 问数字用 query_metric；问"该联系谁"用 get_watchlist / get_my_plans
+- 已经拿到足够信息就停下来回答，不要重复调用同一个工具
+- 最多 ${MAX_STEPS} 步
+- 问题前面可能附着我们之前的对话。它只用来解开指代（"他""这位""那个学校""再约一下"）；
+  真正要回答的永远是最后那个"问题："。别把之前答过的内容再抄一遍，也别拿旧数字当现在的数字——
+  该查还得查${
+    页面上下文
+      ? `
+- **当前所在页面：${页面上下文}** 这是用户此刻正在看的东西，用来解开"这些人""这一批""他"指的是谁、范围有多大。
+  它不代替查库：该调工具还得调，只是把范围用上。用户明确问了别的范围时以他说的为准`
+      : ""
+  }`;
+
+  const messages: ToolMessage[] = [
+    { role: "system", content: system },
+    { role: "user", content: 拼上下文(history, question, 页面上下文) },
+  ];
+
+  /**
+   * 决策这一步怎么问模型。
+   *
+   * **默认走原生 function calling**：把工具表按 `tools` 字段发过去，模型走它自己
+   * 训练过的那条路。2026-09-18 实测，同一个 flash 模型在「我目前有哪些渠道」这种
+   * 问题上，JSON 协议那条路想了 70 多秒还选错工具，原生这条 226 个 prompt token
+   * 就选对了——小模型要同时记住「输出格式」和「选哪个工具」，前者是白白占用的。
+   *
+   * 网关或模型不吃 `tools` 时（老的自部署、某些兼容层）第一次就会 4xx，
+   * 那之后这一整轮退回原来的 JSON 协议。两条路都留着，因为用户填的是**他自己的**
+   * 接口地址，我们没法假设对面支持什么。`AGENT_TOOLCALLS=0` 可以直接关掉原生。
+   */
+  const 工具表 = TOOLS.filter((t) => SCHEMAS[t.name]).map((t) => ({
+    type: "function" as const,
+    function: { name: t.name, description: t.description, parameters: SCHEMAS[t.name] },
+  }));
+  let 用原生 = 原生模式 && 工具表.length > 0;
+
+  /**
+   * **意图直连**：固定的问题不问模型。
+   *
+   * 「有哪些渠道」「这个月谁签得最多」「今天该跟谁」的答案是一条确定的查询——
+   * 业务逻辑和字段是固定的，不该每次让模型重新推理一遍。命中就直接跑工具，
+   * 省掉一次决策往返（十几秒），也不留抖动的余地：同一句话永远走同一条路。
+   * 模型只负责最后把数据说成人话，那一步它很稳。
+   *
+   * 没命中的照常走下面的循环——那条路要处理的是真正开放的问题。
+   * 没命中的问句记一行日志，加规则时照着真实问句加，不拍脑袋。
+   * `AGENT_INTENTS=0` 关掉（对照实验用）。
+   */
+  const 直连 = process.env.AGENT_INTENTS === "0" ? null : 认意图(question, Boolean(history?.length), 页面范围);
+  if (直连) console.info(`[intent] 命中「${直连.名}」：${直连.调用.map((c) => c.name).join(" → ")}`);
+  else console.info(`[intent] 没命中：${question.slice(0, 60)}`);
+  /*
+    号码脱敏器一并交给工具（2026-09-19 补的洞）。共享工作区里表格显示 `139****1111`，
+    而 AI 工具原来是**没人接上的第四个出口**——问一句就能拿到完整号码，
+    还会原样写进回答和对话存档。见 lib/shared-ws/current.ts。
+  */
+  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [], 号: await 号码脱敏器() };
+  const records: BriefRecord[] = [];
+  const customers = new Map<string, 提到的客户>();
+  const mentioned = new Map<string, 提到的客户>();
+  let steps = 0;
+
+  /** 直连命中时先跑掉的那几个工具；循环里按下标认，跑完就轮到模型组织回答 */
+  const 待跑 = 直连 ? [...直连.调用] : [];
+  /** 已经真正跑过几个工具。为 0 时模型要作答，说明它手上一条数据都没有 */
+  let 查过的工具 = 0;
+  /** 空手作答只顶一次，免得来回拉锯 */
+  let 顶过 = false;
+  /** 这一轮调过哪些「工具 + 参数」，值是当时的结果摘要。用来拦原地打转 */
+  const 调过的 = new Map<string, string>();
+
+  /** 真正跑一个工具：记步数、画过程条、收集记录和提到的人。循环里和「回答里吐了调用」那条路共用 */
+  const 执行 = async (tool: NonNullable<ReturnType<typeof TOOL_MAP.get>>, args: Record<string, unknown>, thought: string, stepId: string) => {
+    steps += 1;
+    const argText = Object.values(args).filter((v) => typeof v === "string" && v).join(", ");
+    ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "running", thought: thought || undefined });
+    let result;
+    try {
+      result = await tool.run(args, ctx);
+      查过的工具 += 1;
+    } catch (e) {
+      result = { summary: "工具出错", data: { error: e instanceof Error ? e.message : "工具执行失败" } };
+    }
+    if (result.records?.length) {
+      records.push(...result.records);
+      ctx.recordOffset += result.records.length;
+    }
+    if (tool.name === "get_customer" && result.data && typeof result.data === "object" && "id" in result.data) {
+      const d = result.data as { id: string; name: string; profile: string };
+      const m = d.profile.match(/跟进状态「([^」]+)」/);
+      customers.set(d.id, { id: d.id, name: d.name, followStatus: m?.[1] ?? "" });
+    } else {
+      // 搜索 / 盯盘 / 计划里出现过的人先记着，回答里提到了才给动作
+      for (const r of listCustomers(result.data)) mentioned.set(r.id, r);
+    }
+    ev.emit?.({ id: stepId, label: `${tool.name}(${argText.slice(0, 40)})`, status: "done", detail: result.summary, thought: thought || undefined });
+    return result;
+  };
+
+  for (let i = 0; i < MAX_STEPS; i++) {
+    if (ev.signal?.aborted) throw new Error("已取消");
+    // 决策步：关思维链、温度 0——只是选工具填参数，要快、要稳
+    const t0 = Date.now();
+    /** 这一步选了哪个工具、参数是什么、心里怎么想的；四条路（直连 / 原生 / JSON / 出错）都归到这个形 */
+    let 选择: { tool: string; args: Record<string, unknown>; thought: string; 回执: ToolMessage[] } | null = null;
+
+    /* 直连的工具还没跑完：直接取下一个，这一步完全不问模型 */
+    if (待跑.length) {
+      const c = 待跑.shift()!;
+      if (TOOL_MAP.get(c.name)) {
+        选择 = {
+          tool: c.name,
+          args: c.args,
+          thought: 直连 ? `按「${直连.名}」直接查` : "同一步里一起要的",
+          // 直连没有模型的那轮对话，用一问一答两条消息把结果塞回上下文，供最后组织回答用
+          回执: [
+            { role: "assistant", content: `调用 ${c.name}` },
+            { role: "user", content: "" },
+          ],
+        };
+      }
+    }
+
+    if (!选择 && 用原生) {
+      try {
+        const r = await chatTools(messages, 工具表, { maxTokens: 1500, timeoutMs: 60_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" });
+        console.info(`[agent] 第 ${i + 1} 步决策（原生）${Date.now() - t0}ms：${r.toolCalls.map((c) => c.function.name).join(",") || "没调工具"}`);
+        /*
+          没调工具 = 它认为够了，可以去组织回答。
+
+          **但第一步就没调是另一回事**：那时上下文里一条数据都没有，
+          而最终提示词写着「只基于工具结果」——手上没有工具结果，它就自己编。
+          2026-09-18 线上真出过：问「我现在有什么渠道」，一个工具没调，
+          直接答「还没有登记任何渠道」，而库里有一个。凭空断言用户的数据
+          比答不上来严重得多——用户没法分辨哪句是查过的、哪句是编的。
+
+          所以第一步空手时顶回去一次。再空手就放它走：确实有不用查库的问题
+          （「你能做什么」「刚才那条帮我改改措辞」），顶两次纯属浪费时间。
+        */
+        if (!r.toolCalls.length) {
+          if (查过的工具 === 0 && !顶过) {
+            顶过 = true;
+            messages.push(
+              { role: "assistant", content: r.text || "（直接作答）" },
+              {
+                role: "user",
+                content:
+                  "你还没有查任何数据就要作答。凡是涉及这个 CRM 里的人、数字、记录的问题，" +
+                  "都必须先调工具查过再回答——不许凭印象断言「没有」「一个都没登记」这类结论。" +
+                  "如果这句话确实不需要查库（闲聊、改措辞、问你会什么），就直接回答。",
+              },
+            );
+            continue;
+          }
+          break;
+        }
+        const c = r.toolCalls[0];
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(c.function.arguments || "{}") as Record<string, unknown>;
+        } catch {
+          // 参数不是合法 JSON：交回去让它重来，比我们猜一个强
+          messages.push(
+            { role: "assistant", content: null, tool_calls: [c] },
+            { role: "tool", tool_call_id: c.id, content: `参数不是合法 JSON：${c.function.arguments.slice(0, 200)}` },
+          );
+          continue;
+        }
+        /*
+          一步里要了好几个（「记一条跟进 + 排一次计划」常常一起要）：原来只认第一个，后面的悄悄丢了——
+          2026-09-28 真模型复现：propose_followup,propose_plan 一起来，只出了跟进那张卡，
+          它以为两张都提了，下一步就「没调工具」去作答。剩下的排进 待跑，接下来几步不问模型、按顺序跑掉。
+        */
+        for (const 余 of r.toolCalls.slice(1)) {
+          try {
+            待跑.push({ name: 余.function.name, args: JSON.parse(余.function.arguments || "{}") as Record<string, unknown> });
+          } catch {
+            /* 参数不是合法 JSON 的那个丢掉：它要的话下一步会再要 */
+          }
+        }
+        选择 = {
+          tool: c.function.name,
+          args,
+          thought: r.text.slice(0, 80),
+          回执: [{ role: "assistant", content: r.text || null, tool_calls: [c] }],
+        };
+        if (!TOOL_MAP.get(c.function.name)) {
+          messages.push(...选择.回执, { role: "tool", tool_call_id: c.id, content: `没有叫「${c.function.name}」的工具。可用：${工具表.map((t) => t.function.name).join(", ")}` });
+          continue;
+        }
+        // 结果要按 tool_call_id 回去，记下来给下面用
+        选择.回执.push({ role: "tool", tool_call_id: c.id, content: "" });
+      } catch (e) {
+        // 对面不吃 tools：这一整轮退回 JSON 协议，不再试
+        用原生 = false;
+        console.warn(`[agent] 原生 function calling 不可用，退回 JSON 协议：${e instanceof Error ? e.message.slice(0, 160) : e}`);
+      }
+    }
+
+    if (!选择) {
+      const raw = (await chatMessagesJSON(messages, { maxTokens: 1500, timeoutMs: 90_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" })) as Record<string, unknown>;
+      console.info(`[agent] 第 ${i + 1} 步决策 ${Date.now() - t0}ms：${JSON.stringify(raw).slice(0, 120)}`);
+      // 模型常把 final 塞进 action 里（{"action":{"final":true}}），或把 tool 直接放顶层：都认
+      const action = ((raw?.action && typeof raw.action === "object" ? raw.action : raw) ?? {}) as { tool?: unknown; args?: unknown; final?: unknown };
+      if (raw?.final || action.final || typeof action.tool !== "string") break;
+      if (!TOOL_MAP.get(action.tool)) {
+        messages.push({ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: `没有叫「${String(action.tool)}」的工具。可用：${TOOLS.map((t) => t.name).join(", ")}` });
+        continue;
+      }
+      选择 = {
+        tool: action.tool,
+        args: (action.args && typeof action.args === "object" ? action.args : {}) as Record<string, unknown>,
+        thought: typeof raw.thought === "string" ? raw.thought.slice(0, 80) : "",
+        回执: [{ role: "assistant", content: JSON.stringify(raw) }, { role: "user", content: "" }],
+      };
+    }
+
+    const tool = TOOL_MAP.get(选择.tool)!;
+    const thought = 选择.thought;
+    const args = 选择.args;
+
+    /*
+      **同一个工具、同一套参数，第二次就别再跑了。**
+
+      2026-09-19 报上来的：在线索页问「Steven 是哪家公司的？」，过程条上
+      `search_customers() → 没给条件` 连着四行，一条数据都没查着。
+      Steven 是那条线索的联系人，在 Lead 表里——search_customers 翻的是 Customer 表，
+      给什么参数都查不到他。而工具原样把同一句「没给条件」退回去，
+      模型读到的等于「再试一次」，于是原地打转到步数用完。
+
+      这里不重复执行，直接把「换个工具」这件事说给它听，并且**把候选列出来**：
+      提示词里那句「不要重复调用同一个工具」它已经看过了，没用——
+      空泛的禁止改不了它的选择，给出下一步该做什么才行。
+    */
+    const 签名 = `${tool.name}:${JSON.stringify(args)}`;
+    if (调过的.has(签名)) {
+      const 劝 =
+        `你刚才已经用完全相同的参数调过 ${tool.name} 了，结果还是那一个：${调过的.get(签名)}。` +
+        `再调一次不会有不同的结果。要么换一套参数，要么换一个工具——可用的：` +
+        `${TOOLS.filter((t) => SCHEMAS[t.name] && t.name !== tool.name).map((t) => t.name).join("、")}。` +
+        `线索（list_leads）、商机（list_opportunities）、渠道（list_channels）和客户（search_customers）是**不同的表**，` +
+        `在一张表里查不到的东西要换一张表查。都查不到就直接作答，如实说没找到。`;
+      // 回执的最后一条是留给结果的占位：原生那条按 tool_call_id 对上，JSON 协议那条是 user
+      const 回执 = 选择.回执;
+      (回执[回执.length - 1] as { content: string }).content = 劝;
+      messages.push(...回执);
+      console.warn(`[agent] 原地打转，拦下第二次 ${签名.slice(0, 80)}`);
+      continue;
+    }
+
+    const result = await 执行(tool, args, thought, `tool-${i}`);
+    调过的.set(签名, result.summary);
+    // 结果交回去：原生那条按 tool_call_id 对上，JSON 协议那条还是一条 user 消息
+    const 结果文本 = `工具 ${tool.name} 的结果：\n${JSON.stringify(result.data).slice(0, 6000)}`;
+    const 回执 = 选择.回执;
+    const 末 = 回执[回执.length - 1] as { role: string; content: string };
+    末.content = 末.role === "tool" ? JSON.stringify(result.data).slice(0, 6000) : 结果文本;
+    messages.push(...回执);
+
+    /*
+      直连的工具跑完就直接去组织回答。**不 break 的话它会白问一次模型**
+      （下一轮 待跑 空了，就落进决策分支，模型答「不用再调工具了」）——
+      那正是直连想省掉的那次往返，第一版就漏在这儿：对照里 C 反而比 A 慢，
+      量了才发现决策步中位 7.4 秒一分没省。
+    */
+    if (直连 && !待跑.length) break;
+  }
+
+  // 最终回答：流式 Markdown
+  ev.emit?.({ id: "answer", label: "组织回答", status: "running" });
+  /*
+    格式那几条是照着 DeepSeek 的毛病写的（2026-09-19 换成唯一模型之后）：
+    问「明杰哥的电话」，它先画一张六列的表（只有一行），再来一段「几点说明」，
+    最后兜售一句「想让我帮你建新渠道说一声就行」——电话号码埋在第二条要点里。
+    人要的是那个号码。所以：先答问的那个东西；一条记录不画表；不起小标题；不兜售。
+  */
+  const finalPrompt = `现在直接回答用户的问题。要求：
+- **第一句就是答案**：问电话给电话，问是谁给名字，问多少给数。铺垫、背景放后面或者不放
+- 用给销售看的口语化中文，短句短段，不要空话；能用列表就用列表，但一两句话说得清的不要列
+- **表格只在三条以上同构记录时用**，最多五列。一条记录不画表，直接说
+- 不起「几点说明」「总结」「建议」这类小标题，不用分隔线，不用 emoji
+- 只基于工具结果，禁止编造；引用某条跟进记录时在句末标它的 [编号]
+- 数字类问题：先一句结论，再给关键数字；不要把整张表抄一遍
+- 如果是"该怎么推进"这类问题，给 3~5 条具体可执行的建议，并指出风险
+- 人没问的不要主动揽活（不要以「想让我帮你……说一声就行」这类话收尾）
+- 不要再输出 JSON，不要提到"工具"这个词`;
+  /** 跑一次最终回答。静默时只把文本拿回来，不往界面推 token */
+  const 组织回答 = async (提示: string, 静默: boolean) => {
+    const 清洗 = 开头清洗器((t) => { if (!静默) ev.onToken?.(t); });
+    await chatTextStream([...messages, { role: "user", content: 提示 + 有卡时的要求(ctx.proposals.length) }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" }, (t) => 清洗.推入(t));
+    清洗.收尾();
+    return 清洗.文本();
+  };
+
+  /*
+    **一次工具都没调，还敢下「没有」这种结论的，拦下来重答。**
+
+    循环里那道闸（第一步空手就顶回去）只顶一次——顶完它还是不查，就放它来组织回答了。
+    到这儿手上依然一条数据都没有，而它会照样写出「查了一下，系统里还没有登记任何渠道」。
+    2026-09-18 线上就是这么发生的，库里明明有一个。
+
+    用户分辨不出哪句是查过的、哪句是编的，所以这类断言一个都不能放过去。
+    这里只拦**最伤的那一种**：零工具 + 关于数据有没有的论断。别的照放——
+    「你能做什么」「帮我改改措辞」本来就不需要查库。
+
+    代价是零工具那次要先攒完再推（多等一个回答的时间），不流式。
+    但零工具本来就该是极少数，而让用户眼睁睁看着一句编的话逐字蹦出来更糟。
+
+    重答时不再试图逼它查——上面已经逼过一次了。这一轮只要求它**说实话**：
+    拿不到数据就说拿不到。答不上来是可以接受的，编是不可以的。
+  */
+  const 零工具 = 查过的工具 === 0;
+  const 工具名单 = TOOLS.map((t) => t.name);
+  /*
+    **两种坏情况，两种处理，理由不一样。**
+
+    零工具那次仍然**先攒完再推**（`静默 = 零工具`）：那时要防的是「凭空断言用户的数据」，
+    而仓库当初就为这件事定过调子——「让用户眼睁睁看着一句编的话逐字蹦出来更糟」。
+    编的那句话一个字都不该出现在屏幕上。零工具本来就极少，代价只在那一次。
+
+    「吐的不是答案」**照常流式，坏了抹掉重来**：它可能发生在调过工具之后
+    （`<｜｜DSML｜｜ calls>` 那次调了两个），要靠攒的话等于所有回答都不流式了。
+    而它是一串没人看得懂的标记，不是一句像模像样的假话——一闪而过再被替换，
+    比全体回答失去流式划算。抹掉靠流协议的 `reset`（lib/ai-stream.ts）。
+  */
+  let text = await 组织回答(finalPrompt, 零工具);
+  /*
+    **回答里吐的是一个认得出来的工具调用**：它还想查（或者想提一张卡），只是这一步手上没有工具，
+    只好写成 DSML 标记。2026-09-28 桌面端：决策几步都「没调工具」，到回答这步才想起要 find_person 李文龙，
+    结果标记上了屏，卡片也从没出过。真模型复现：同一句话三次里两次这样。
+
+    这时叫它「别调了直接说」只会逼它编、或者再吐一遍。也不能拿标记里的参数直接跑——回答这步没有工具定义，
+    参数名是它猜的（复现里一次漏了 reason、一次 id 给错了键，两次都没出卡）。
+    所以**回一次炉**：带着工具定义再问一步决策，告诉它刚才想调什么、现在正式调；它还是不调，才退回标记里认出来的那几个。
+    跑完拿结果再答一次。只回这一次，最多跑三个。
+  */
+  const 回答里的调用 = 有DSML(text) ? 解析DSML(text, 工具名单).调用 : [];
+  if (回答里的调用.length) {
+    console.warn(`[agent] 回答里吐了工具调用，回炉正式调一次：${回答里的调用.map((c) => c.function.name).join(",")}`);
+    if (!零工具) ev.onReset?.();
+    let 调用们 = 回答里的调用;
+    let 说明: string | null = null;
+    if (用原生) {
+      messages.push({
+        role: "user",
+        content:
+          `你刚才在回答里想调 ${回答里的调用.map((c) => c.function.name).join("、")}，但回答那一步不能调工具，写出来的标记人看不懂。` +
+          `现在用工具调用正式调一次：参数按工具定义填全（propose_ 系列的 reason 必填，id 用查到的客户 id）。`,
+      });
+      try {
+        const r = await chatTools(messages, 工具表, { maxTokens: 1500, timeoutMs: 60_000, temperature: 0, thinking: false, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" });
+        if (r.toolCalls.length) 调用们 = r.toolCalls;
+        说明 = r.text || null;
+      } catch (e) {
+        console.warn(`[agent] 回炉那一步失败，退回标记里认出来的：${e instanceof Error ? e.message.slice(0, 120) : e}`);
+      }
+    }
+    调用们 = 调用们.filter((c) => TOOL_MAP.get(c.function.name)).slice(0, 3);
+    const 回执: ToolMessage[] = [{ role: "assistant", content: 说明, tool_calls: 调用们 }];
+    let n = 0;
+    for (const c of 调用们) {
+      const tool = TOOL_MAP.get(c.function.name)!;
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(c.function.arguments || "{}") as Record<string, unknown>;
+      } catch {
+        回执.push({ role: "tool", tool_call_id: c.id, content: `参数不是合法 JSON：${c.function.arguments.slice(0, 200)}` });
+        continue;
+      }
+      const 签名 = `${tool.name}:${JSON.stringify(args)}`;
+      const 结果 = 调过的.has(签名) ? { summary: 调过的.get(签名)!, data: "（这个刚才已经查过，结果见上文）" } : await 执行(tool, args, "", `tool-late-${n++}`);
+      调过的.set(签名, 结果.summary);
+      回执.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify(结果.data).slice(0, 6000) });
+    }
+    if (调用们.length) messages.push(...回执);
+    text = await 组织回答(
+      finalPrompt + `\n\n你刚才想调的已经调过了，结果在上面。直接用中文作答，不要再输出任何工具调用、标记或 JSON。`,
+      零工具,
+    );
+  }
+  if (不是答案(text, 工具名单)) {
+    console.warn(`[agent] 吐的不是答案，重答一次：${text.slice(0, 80)}`);
+    // 零工具那次是攒着的、没推出去，不用抹
+    if (!零工具) ev.onReset?.();
+    /*
+      重答**攒着、验过再推**。原来重答是直接流出去的、也不再验——2026-09-28 桌面端连着四次
+      重答还是吐标记，那串 DSML 就这么留在了屏幕上。重答本来就少，多等一个回答的时间换不上屏乱码，划算
+    */
+    text = await 组织回答(
+      finalPrompt +
+        `\n\n**重要**：你刚才那一轮输出的不是给人看的答案（是工具调用的标记、一个工具名，` +
+        `或者只说了「我来查一下」就结束了）。现在**直接用中文把结论说出来**：` +
+        `不要再输出任何工具调用、标记或 JSON，也不要说你打算去查什么——` +
+        `手上有什么就答什么，确实没有就如实说没查到。`,
+      true,
+    );
+    if (不是答案(text, 工具名单)) {
+      console.warn(`[agent] 重答还是不是答案，不上屏：${text.slice(0, 80)}`);
+      text = 没答成;
+    }
+    ev.onToken?.(text);
+  } else if (零工具 && 凭空断言(text)) {
+    // 攒着的那份从没推出去过，所以这儿不用 reset——编的那句话一个字都没上过屏
+    console.warn(`[agent] 零工具却断言了数据，重答一次：${text.slice(0, 80)}`);
+    text = await 组织回答(
+      finalPrompt +
+        `\n\n**重要**：你这一轮一次数据都没查过，所以你不知道库里有什么。` +
+        `绝对不许出现「没有」「还没有登记」「一个都没有」「系统里是空的」这类关于数据的结论——那是编的。` +
+        `如实说你需要先查一下，或者只回答不依赖库里数据的那部分。`,
+      false,
+    );
+  } else if (零工具) {
+    ev.onToken?.(text); // 攒着的那份验过了，原样推出去
+  }
+  /*
+    **说有卡片、其实没有**：抹掉重答一次（这次攒着验过再推），还说有就换成一句实话。
+    放在最后：前面几道闸换过的答案同样可能提卡片；已经是 没答成 的就不用再看了
+  */
+  if (text !== 没答成 && ctx.proposals.length === 0 && 声称有卡片(text)) {
+    console.warn(`[agent] 说有卡片但这一轮没生成卡片，重答一次：${text.slice(0, 80)}`);
+    ev.onReset?.();
+    text = await 组织回答(
+      finalPrompt +
+        `\n\n**重要**：这一轮你**没有生成任何卡片**（建议卡只有真的提了才会出现），屏幕上什么卡片都没有。` +
+        `回答里不许出现「卡片」「建议卡」「在卡片上确认」这类话。` +
+        `如果人是要记一条跟进或排一次计划，就说清楚还差哪些信息，请他补上或者再说一遍。`,
+      true,
+    );
+    if (不是答案(text, 工具名单) || 声称有卡片(text)) text = 没出卡片;
+    ev.onToken?.(text);
+  }
+  ev.emit?.({ id: "answer", label: "组织回答", status: "done" });
+  for (const r of mentioned.values()) if (!customers.has(r.id) && customers.size < 5 && text.includes(r.name)) customers.set(r.id, r);
+  return { text, records, customers: [...customers.values()], proposals: ctx.proposals, steps };
+}
+
+/** 从工具结果里捞出「id + 姓名」的行（搜索名单、盯盘、计划的形状各不同，只认字段名） */
+function listCustomers(data: unknown): 提到的客户[] {
+  const rows: unknown[] = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray((data as { customers?: unknown }).customers) ? (data as { customers: unknown[] }).customers : [];
+  const out: 提到的客户[] = [];
+  for (const r of rows) {
+    if (!r || typeof r !== "object") continue;
+    const o = r as { id?: unknown; customerId?: unknown; name?: unknown; followStatus?: unknown };
+    const id = typeof o.id === "string" ? o.id : typeof o.customerId === "string" ? o.customerId : "";
+    if (id && typeof o.name === "string") out.push({ id, name: o.name, followStatus: typeof o.followStatus === "string" ? o.followStatus : "" });
+  }
+  return out;
+}

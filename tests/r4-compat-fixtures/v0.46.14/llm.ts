@@ -1,0 +1,401 @@
+/**
+ * LLM 调用层 —— 任何 OpenAI 兼容接口（DeepSeek 官方、OpenAI、中转站、本地 Ollama…）。
+ * 配置（Key、接口地址、模型名从哪来）在 llm-config.ts，这里原样转出，调用方只认这一个入口。
+ *
+ * 几条用真实回归换来的规矩：
+ *   1. 显式传 max_tokens 与超时——不传时实际上限取决于网关自己的默认值，
+ *      不透明也不一致，"输出被截断"和"模型没遵循格式"两种失败会混在一起
+ *   2. response_format=json_object 失败时降级为普通调用（部分网关不支持该参数）
+ *   3. 返回内容先剥代码围栏再解析；仍不是合法 JSON 时带着原始输出重试一次
+ *
+ * 只在 Server Action / 服务端调用，key 不会下发到浏览器。
+ */
+import { getBusiness } from "@/lib/business";
+import { 记托管版一次 } from "@/lib/tenant/ai-cost";
+import { 有DSML, 解析DSML } from "@/lib/llm-dsml";
+import { 抹掉密钥 } from "@/lib/secret";
+import type { AI功能 } from "@/lib/ai-features";
+import { getLlmConfig, type LlmConfig } from "@/lib/llm-config";
+
+export * from "@/lib/llm-config";
+
+export function stripCodeFence(text: string): string {
+  let t = text.trim();
+  if (t.startsWith("```")) {
+    const lines = t.split("\n").slice(1);
+    if (lines.length && lines[lines.length - 1].trim().startsWith("```")) lines.pop();
+    t = lines.join("\n");
+  }
+  return t.trim();
+}
+
+/** 系统提示词：业务简介来自设置页，改一段话所有 AI 功能一起换语境 */
+export function buildSystemPrompt(brief: string): string {
+  return (
+    "你是 CRM 系统的录入与分析助手，服务一个销售团队。他们的业务：" + brief + "\n" +
+    "严格依据用户提供的信息作答，禁止编造事实。" +
+    "必须只输出用户要求的 JSON，不要输出任何 JSON 之外的文字、解释或 Markdown 代码块标记。"
+  );
+}
+
+type ChatOpts = {
+  /**
+   * 推理模型（如 deepseek-v4-flash）的 max_tokens 会先被思维链（reasoning_content）
+   * 消耗，给小了正文直接为空（finish_reason=length）——真实踩坑：给 200 时
+   * 371 字符的思维链就把预算吃光了。默认给足，别按"预期输出长度"来省。
+   */
+  maxTokens?: number;
+  temperature?: number;
+  /** 默认 60 秒。CRM 的 prompt 都不大，卡住时要快速失败而不是让销售干等 */
+  timeoutMs?: number;
+  /** 上游取消（用户按 Esc）时中断请求 */
+  signal?: AbortSignal;
+  /** 这次调用改用哪个模型。必须是 resolveModel 校验过的名字 */
+  model?: string;
+  /**
+   * 这次调用是哪个功能发起的（ask / brief / parse…），只进成本账，不影响请求。
+   * 不填也能用——只是回头算「哪块烧得最凶」时这一行归不了类。
+   */
+  feature?: AI功能;
+  /**
+   * **这一次属于哪个问题。** 同一个问题的每一步（agent 决策、工具、最终回答）都带同一个，
+   * 网关据此只扣一次——价格页那句「一次提问算一次」的实现就在这一对头上
+   * （见 lib/tenant/credits.ts 的 按问题扣一次）。
+   *
+   * 不填也能用：网关认不出就退回「一次调用扣一次」的老口径。自己填 Key 的人
+   * （BYOK、自部署）根本不走我们的网关，这个头对上游是个无害的多余字段。
+   */
+  requestId?: string;
+  /**
+   * false = 关掉推理模型的思维链（DeepSeek 的 thinking 参数）。
+   * agent 的每步决策只是选工具、填参数，让它"想"一分钟是浪费：真实测过同一段
+   * 上下文开着思维链 24~73 秒、关掉 3 秒。最终回答仍开着，质量要紧。
+   * 网关不认这个参数时会 4xx，调用方降级重试时去掉它。
+   */
+  thinking?: false;
+};
+
+const DEFAULT_MAX_TOKENS = 4000;
+
+/**
+ * 下面两张表记的都是「试探出来的模型行为」。
+ *
+ * **键是「接口地址 + 模型名」，不是光模型名。**
+ * 这两张表是进程级的，而托管版一个进程伺候所有工作区。只按模型名记的话，
+ * A 工作区对着自己的中转站试出来的结论，会套到 B 工作区头上——而同一个
+ * 「deepseek-chat」在两家中转站上的行为完全可能不一样（一家能关思维链、
+ * 一家不能）。那样 B 要么白发一个会被 400 的参数，要么被多扣 2500 的预算。
+ *
+ * 反过来，**同一个接口地址 + 同一个模型就该共享**：那本来就是同一个上游，
+ * 试探一次的结论对谁都成立，这正是这层缓存存在的理由。所以不按工作区分，
+ * 按上游分——这才是这件事真正的归属。
+ */
+function 上游键(cfg: LlmConfig, model: string): string {
+  return `${cfg.baseUrl}|${model}`;
+}
+
+/**
+ * 记住哪些模型不认 thinking 参数。
+ *
+ * 中转站上的推理模型分两类：一类可以 {"type":"disabled"} 关掉思维链，另一类
+ * 「始终思考」，带上这个参数直接 400。光靠调用方 catch 后重试是不够的——
+ *   1. agent 循环最多 6 步，每步都要先失败一次再重试，一个问题白跑 6 个往返
+ *   2. 更糟的是 chatMessagesJSON 里「模型没输出合法 JSON」那条恢复路径，
+ *      它用的还是原始 opts，等于把刚刚失败的参数又加回去，于是 400 冒到界面上
+ * 所以把结论记在这里：某个上游的某个模型拒绝过一次，之后就不再给它带这个参数。
+ * 进程内缓存，重启后重新试探一次，代价是一个请求。
+ */
+const 不认thinking = new Set<string>();
+
+/**
+ * 见过思维链的模型。
+ *
+ * max_tokens 是「思考 + 正文」共用的预算，不是正文的预算。实测一个只要求输出
+ * {"ok":true} 的请求就烧掉 92 个 reasoning token——给 100 的额度时
+ * finish_reason 直接是 length，正文被截断，JSON.parse 失败，
+ * 界面上显示「AI 返回内容不是合法 JSON：」后面空空如也，查不出原因。
+ *
+ * 所以对这类模型额外加一笔思考预算。调用方给的 maxTokens 是它对**正文**的预期，
+ * 这个语义不该因为换了个会思考的模型就变味。
+ */
+const 思考模型 = new Set<string>();
+const 思考预算 = 2500;
+
+/** 测试用：把试探出来的结论清掉，让下一次重新试 */
+export function 重置模型探测() {
+  不认thinking.clear();
+  思考模型.clear();
+}
+
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+/**
+ * 原生 function calling 用的消息。比 ChatMessage 多两种形状：
+ *   assistant 带 tool_calls —— 模型说「我要调这几个工具」
+ *   role: "tool"           —— 我们把那次调用的结果交回去（靠 tool_call_id 对上）
+ */
+export type ToolMessage =
+  | ChatMessage
+  | { role: "assistant"; content: string | null; tool_calls: 工具调用[] }
+  | { role: "tool"; content: string; tool_call_id: string };
+
+export type 工具调用 = { id: string; type: "function"; function: { name: string; arguments: string } };
+export type 工具声明 = { type: "function"; function: { name: string; description: string; parameters: unknown } };
+
+async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean, tools?: 工具声明[]): Promise<Response> {
+  const 模型 = opts.model ?? cfg.model;
+  const 键 = 上游键(cfg, 模型);
+  const body: Record<string, unknown> = {
+    model: 模型,
+    messages,
+    temperature: opts.temperature ?? 0.3,
+    max_tokens: (opts.maxTokens ?? DEFAULT_MAX_TOKENS) + (思考模型.has(键) ? 思考预算 : 0),
+  };
+  if (tools?.length) {
+    body.tools = tools;
+    body.tool_choice = "auto";
+  }
+  // 带着 tools 时不能再要 json_object：两个一起发，多数网关会二选一地忽略掉其中一个
+  if (useJsonFormat && !tools?.length) body.response_format = { type: "json_object" };
+  if (opts.thinking === false && !不认thinking.has(键)) body.thinking = { type: "disabled" };
+  if (stream) body.stream = true;
+  /*
+    两个只有我们自己的网关会看的头。对别家上游（DeepSeek 直连、第三方中转）是多余字段，
+    HTTP 的规矩是不认识的头忽略掉，所以无条件带上比「判断是不是我们的网关」更稳——
+    后者要拿 baseUrl 做字符串匹配，而那个地址是用户在设置里填的。
+      X-Question-Id —— 这一次属于哪个问题（不用 X-Request-Id：那个名字网关和 CDN 自己会注入），网关据此一个问题只扣一次
+      X-Feature    —— 哪个功能发起的，只进成本账。名字要和网关那份白名单对得上
+  */
+  const 额外头: Record<string, string> = {};
+  if (opts.requestId) 额外头["X-Question-Id"] = opts.requestId;
+  if (opts.feature) 额外头["X-Feature"] = opts.feature;
+  const res = await fetch(`${cfg.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}`, ...额外头 },
+    body: JSON.stringify(body),
+    signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(opts.timeoutMs ?? 60_000)]) : AbortSignal.timeout(opts.timeoutMs ?? 60_000),
+  });
+  if (!res.ok) {
+    const errText = 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey);
+    // 带了 thinking 又被 4xx 拒：记下这个模型，后面所有调用都不再带，
+    // 包括本次调用方马上要做的那次重试
+    if (body.thinking && (res.status === 400 || res.status === 422)) {
+      不认thinking.add(键);
+      console.warn(`[llm] 模型 ${模型} 在 ${cfg.baseUrl} 上不支持关闭思考，后续不再发送该参数`);
+    }
+    throw new Error(`接口返回 ${res.status}：${errText}`);
+  }
+  return res;
+}
+
+async function chatOnce(cfg: LlmConfig, system: string, prompt: string, opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
+  return chatMessagesOnce(cfg, [{ role: "system", content: system }, { role: "user", content: prompt }], opts, useJsonFormat);
+}
+
+async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean): Promise<string> {
+  const res = await chatRaw(cfg, messages, opts, useJsonFormat, false);
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string }; finish_reason?: string }[];
+    usage?: { completion_tokens_details?: { reasoning_tokens?: number } };
+  };
+  const model = opts.model ?? cfg.model;
+  const 键 = 上游键(cfg, model);
+
+  // 这个上游的这个模型会思考：记下来，之后给它的预算都加上思考那一笔
+  if ((data.usage?.completion_tokens_details?.reasoning_tokens ?? 0) > 0 && !思考模型.has(键)) {
+    思考模型.add(键);
+    console.warn(`[llm] 模型 ${model} 在 ${cfg.baseUrl} 上会输出思维链，后续 max_tokens 额外加 ${思考预算}`);
+  }
+
+  // 成本账。fire-and-forget，不 await、不判断成败——记不上不该影响这次回答
+  await 记托管版一次(data, model, opts.feature);
+
+  const choice = data.choices?.[0];
+  const content = (choice?.message?.content ?? "").trim();
+
+  /**
+   * 被 max_tokens 截断。必须在这里就炸出来，不能把半截内容交给 JSON.parse：
+   * 那样报的是「返回内容不是合法 JSON」，把「额度不够」说成「模型不听话」，
+   * 方向完全错，线上排查会绕很久。调用方接住之后重试，那时预算已经加上去了。
+   */
+  if (choice?.finish_reason === "length") {
+    throw new Error(`AI 回答被长度限制截断（模型 ${model}），已提高预算，请重试`);
+  }
+  return content;
+}
+
+/**
+ * 多轮对话版的 JSON 调用：给 agent 循环用（system + 历史 + 工具结果）。
+ * 同样带「不支持 json_object 就降级」和「坏 JSON 重试一次」两道保险。
+ */
+export async function chatMessagesJSON(messages: ToolMessage[], opts: ChatOpts = {}): Promise<unknown> {
+  const cfg = await getLlmConfig();
+  if (!cfg) throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
+  let content: string;
+  try {
+    content = await chatMessagesOnce(cfg, messages, opts, true);
+  } catch (e) {
+    if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e.name === "AbortError" ? e : new Error("AI 响应超时，请稍后重试");
+    // 网关不认 response_format / thinking 时是 4xx：两个都去掉再试一次
+    console.warn(`[llm] JSON 调用失败，降级重试：${e instanceof Error ? e.message.slice(0, 160) : e}`);
+    content = await chatMessagesOnce(cfg, messages, { ...opts, thinking: undefined }, false);
+  }
+  try {
+    return JSON.parse(stripCodeFence(content));
+  } catch {
+    const retry = await chatMessagesOnce(cfg, [...messages, { role: "assistant", content }, { role: "user", content: "你上一次的输出不是合法 JSON，请只输出严格合法的 JSON。" }], opts, true).catch(() =>
+      chatMessagesOnce(cfg, messages, opts, false),
+    );
+    try {
+      return JSON.parse(stripCodeFence(retry));
+    } catch {
+      throw new Error(`AI 返回内容不是合法 JSON：${retry.slice(0, 200)}`);
+    }
+  }
+}
+
+/**
+ * 一轮**原生 function calling**。
+ *
+ * 和 chatMessagesJSON 的区别：那边是我们规定一套 JSON 格式、求模型照着填；
+ * 这边把工具表按 OpenAI 的 `tools` 字段发过去，模型走的是它自己训练过的那条路。
+ * 小模型在这件事上的差距很大——JSON 协议下它要同时记住「格式」和「选哪个工具」，
+ * 原生这条只剩后者。
+ *
+ * 网关或模型不支持时抛错，由调用方退回 JSON 协议那条路（run.ts 里做的）。
+ */
+export async function chatTools(
+  messages: ToolMessage[],
+  tools: 工具声明[],
+  opts: ChatOpts = {},
+): Promise<{ toolCalls: 工具调用[]; text: string }> {
+  const cfg = await getLlmConfig();
+  if (!cfg) throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
+  const res = await chatRaw(cfg, messages, opts, false, false, tools);
+  const data = (await res.json()) as {
+    choices?: { message?: { content?: string | null; tool_calls?: 工具调用[] }; finish_reason?: string }[];
+  };
+  await 记托管版一次(data, opts.model ?? cfg.model, opts.feature);
+  const m = data.choices?.[0]?.message;
+  const toolCalls = m?.tool_calls ?? [];
+  const text = (m?.content ?? "").trim();
+  /*
+    中转站没把 DeepSeek 的原生标记转成 tool_calls、原样塞在正文里交回来（2026-09-28 桌面端真碰到的）。
+    不认回来的话，这一步就被当成「没调工具」：工具没跑、建议卡没出，回答时它还以为出了。见 llm-dsml.ts
+  */
+  if (!toolCalls.length && 有DSML(text)) {
+    const 认 = 解析DSML(text, tools.map((t) => t.function.name));
+    if (认.调用.length) {
+      console.warn(`[llm] 工具调用被当正文吐回（DSML），已认回：${认.调用.map((c) => c.function.name).join(",")}`);
+      return { toolCalls: 认.调用, text: 认.余下 };
+    }
+  }
+  return { toolCalls, text };
+}
+
+/**
+ * 流式文本：逐 token 回调，给最终回答用——人看到字一个个出来，而不是等十几秒砸出一整块。
+ * 网关不支持 stream 时（响应不是事件流）退化为一次性返回。
+ */
+export async function chatTextStream(messages: ToolMessage[], opts: ChatOpts, onToken: (text: string) => void): Promise<string> {
+  const cfg = await getLlmConfig();
+  if (!cfg) throw new Error("AI 功能未启用");
+  const res = await chatRaw(cfg, messages, opts, false, true);
+  const ctype = res.headers.get("content-type") ?? "";
+  if (!ctype.includes("text/event-stream") || !res.body) {
+    const data = (await res.json().catch(() => null)) as { choices?: { message?: { content?: string } }[] } | null;
+    const text = (data?.choices?.[0]?.message?.content ?? "").trim();
+    if (text) onToken(text);
+    return text;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let full = "";
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n")) !== -1) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        const j = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
+        const t = j.choices?.[0]?.delta?.content;
+        if (t) {
+          full += t;
+          onToken(t);
+        }
+      } catch {
+        /* 半截 JSON，等下一段 */
+      }
+    }
+  }
+  return full.trim();
+}
+
+/**
+ * 测试连接：发一次最小请求，回显耗时与模型原话。填错地址、key、模型名当场就知道。
+ */
+export async function testLlm(cfg: LlmConfig): Promise<{ ok: true; ms: number; reply: string } | { ok: false; error: string }> {
+  const t0 = Date.now();
+  try {
+    const reply = await chatOnce(
+      cfg,
+      "你是连通性测试的应答方。",
+      "请只回复两个字：连接正常",
+      { maxTokens: 200, timeoutMs: 20_000 },
+      false,
+    );
+    return { ok: true, ms: Date.now() - t0, reply: reply.slice(0, 100) || "（空回复）" };
+  } catch (e) {
+    if (e instanceof Error && e.name === "TimeoutError") return { ok: false, error: "20 秒内没有响应：检查接口地址是否可达" };
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+/**
+ * 调用模型并要求返回 JSON，返回已 parse 的对象。
+ * 抛出的 Error 带中文信息，可直接展示给使用者。
+ */
+export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unknown> {
+  const cfg = await getLlmConfig();
+  if (!cfg) {
+    throw new Error("AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key");
+  }
+  const system = buildSystemPrompt((await getBusiness()).brief);
+
+  let content: string;
+  try {
+    content = await chatOnce(cfg, system, prompt, opts, true);
+  } catch (e) {
+    // 网关不支持 response_format 时表现为 4xx，降级为普通调用再试一次；
+    // 网络/超时类错误也顺带走这条兜底（多花一次调用，换少一类需要人排查的失败）
+    if (e instanceof Error && e.name === "TimeoutError") {
+      throw new Error("AI 响应超时，请稍后重试");
+    }
+    content = await chatOnce(cfg, system, prompt, opts, false);
+  }
+
+  const cleaned = stripCodeFence(content);
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    // 带着上次的坏输出重试一次，让模型自己修
+    const repairPrompt =
+      `${prompt}\n\n【注意】你上一次的输出不是合法 JSON：\n${content.slice(0, 500)}\n` +
+      "请只输出严格合法的 JSON，不要输出任何其他文字。";
+    const retried = stripCodeFence(
+      await chatOnce(cfg, system, repairPrompt, opts, true).catch(() => chatOnce(cfg, system, repairPrompt, opts, false)),
+    );
+    try {
+      return JSON.parse(retried);
+    } catch {
+      throw new Error(`AI 返回内容不是合法 JSON：${retried.slice(0, 200)}`);
+    }
+  }
+}
