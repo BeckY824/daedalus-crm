@@ -210,7 +210,7 @@ function Inner({
         <Form.Item label="签约时间" name="signedAt" rules={[{ required: true, message: "请选择签约时间" }]}>
           <DatePicker style={{ width: "100%" }} />
         </Form.Item>
-        <Form.Item label="备注" name="remark" extra="课程内容、付款方式、分期安排等">
+        <Form.Item label="备注" name="remark" extra={b.template === "trade" ? "贸易条款、付款方式（如 T/T 30/70）、交期等" : "课程内容、付款方式、分期安排等"}>
           <Input.TextArea rows={3} placeholder="选填" />
         </Form.Item>
         {有可收 && (
