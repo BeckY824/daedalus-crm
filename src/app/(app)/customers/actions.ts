@@ -18,8 +18,8 @@ import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
-import { 写签约金额, 带币种, 签约币种, 签约金额 } from "@/lib/money-db";
-import { 金额 as 显示金额, 是币种 } from "@/lib/currency";
+import { 写签约金额, 带币种, 商机币种, 签约币种, 签约金额 } from "@/lib/money-db";
+import { 金额 as 显示金额, 是币种, 规整币种 } from "@/lib/currency";
 import { statusLabel } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
@@ -603,6 +603,8 @@ export async function bulkFollowStatus(ids: string[], followStatus: string): Pro
 /** 命中查重时回传，供界面弹窗让人确认是不是真要再录一笔 */
 export type ContractDuplicate = {
   amount: number;
+  /** 币种（2026-10-03）：弹窗里按它显示金额 */
+  currency: string;
   signedAt: string;
   remark: string | null;
 };
@@ -625,18 +627,18 @@ export type 签约联动结果 = { 赢单: number; 完成计划: number; 完成�
 
 /** 登记签约弹窗要列的东西：这位客户进行中的商机、没完成的计划和待办 */
 export async function listContractLinks(customerId: string): Promise<{
-  商机: { id: string; name: string; amount: number; stage: string }[];
+  商机: { id: string; name: string; amount: number; stage: string; currency: string }[];
   计划: { id: string; subject: string; plannedAt: string }[];
   待办: { id: string; title: string; dueAt: string | null }[];
 }> {
   await requireUser();
   const [商机, 计划, 待办] = await Promise.all([
-    prisma.opportunity.findMany({ where: { customerId, status: "OPEN" }, orderBy: { createdAt: "desc" }, select: { id: true, name: true, amount: true, stage: true } }),
+    prisma.opportunity.findMany({ where: { customerId, status: "OPEN" }, orderBy: { createdAt: "desc" }, select: { id: true, name: true, amount: true, stage: true, ...带币种.商机 } }),
     prisma.followPlan.findMany({ where: { customerId, done: false }, orderBy: { plannedAt: "asc" }, select: { id: true, subject: true, plannedAt: true } }),
     prisma.task.findMany({ where: { customerId, done: false }, orderBy: { dueAt: { sort: "asc", nulls: "last" } }, select: { id: true, title: true, dueAt: true } }),
   ]);
   return {
-    商机,
+    商机: 商机.map(({ money: _m, ...o }) => ({ ...o, currency: 商机币种({ money: _m }) })),
     计划: 计划.map((x) => ({ ...x, plannedAt: x.plannedAt.toISOString() })),
     待办: 待办.map((x) => ({ ...x, dueAt: x.dueAt?.toISOString() ?? null })),
   };
@@ -682,20 +684,25 @@ export async function saveContract(input: {
       const dayEnd = new Date(dayStart);
       dayEnd.setDate(dayEnd.getDate() + 1);
   
-      const hit = await prisma.contract.findFirst({
+      // 同额要连币种一起比：同一天 US$ 100 和 ¥ 100 不是同一笔
+      const 原币 = input.id && input.currency == null ? await prisma.contractMoney.findUnique({ where: { contractId: input.id }, select: { currency: true } }) : null;
+      const 这笔币 = input.currency != null ? 规整币种(input.currency) : input.id ? 签约币种({ money: 原币 }) : (await getBusiness()).currency;
+      const 同日同额 = await prisma.contract.findMany({
         where: {
           customerId: input.customerId,
           amount,
           signedAt: { gte: dayStart, lt: dayEnd },
           ...(input.id ? { id: { not: input.id } } : {}),
         },
-        select: { amount: true, signedAt: true, remark: true },
+        select: { amount: true, signedAt: true, remark: true, ...带币种.签约 },
       });
+      const hit = 同日同额.find((c) => 签约币种(c) === 这笔币);
       if (hit) {
         return {
           ok: false,
           duplicate: {
-            amount: hit.amount,
+            amount: 签约金额(hit),
+            currency: 签约币种(hit),
             signedAt: hit.signedAt.toISOString(),
             remark: hit.remark,
           },

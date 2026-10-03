@@ -7,7 +7,8 @@ import { UnorderedListOutlined, PlusOutlined } from "@ant-design/icons";
 import { PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
-import { money } from "@/lib/utils";
+import { 金额, 按币种合计, 合计文字 } from "@/lib/currency";
+import { useBusiness } from "@/lib/business-client";
 import { moveStage } from "../actions";
 import OpportunityForm from "../OpportunityForm";
 import type { 可选成员 } from "@/lib/utils";
@@ -16,6 +17,7 @@ type Row = {
   id: string;
   name: string;
   amount: number;
+  currency: string;
   stage: string;
   probability: number;
   expectedDealAt: string | null;
@@ -50,6 +52,7 @@ export default function PipelineView({
 }) {
   const router = useRouter();
   const { message } = App.useApp();
+  const b = useBusiness();
   /*
     「新建商机」就地弹框（2026-09-29）：原来这一页没有表单，点了跳回列表页再打开——按钮写着新建，人却被带走了。
     保存后留在管道里，新的那张卡亮两秒（和列表里新建的行同一种亮法），人一眼看见它落在哪一列
@@ -175,7 +178,8 @@ export default function PipelineView({
       <div className="pipe" ref={滚框}>
         {OPP_STAGES.map((stage) => {
           const items = rows.filter((r) => r.stage === stage);
-          const sum = items.reduce((s, r) => s + r.amount, 0);
+          // 按币种分开加，不换汇（lib/currency.ts）：一列里有美元有欧元就写两段
+          const sum = 合计文字(按币种合计(items, (r) => r.amount, (r) => r.currency), b.currency);
           const color = OPP_STAGE_COLOR[stage];
           const active = overStage === stage;
 
@@ -194,7 +198,7 @@ export default function PipelineView({
                 <span className="pipe-dot" style={{ background: color }} />
                 <b>{stage}</b>
                 <span className="pipe-n">{items.length}</span>
-                <span className="pipe-sum">{money(sum)}</span>
+                <span className="pipe-sum" title={sum}>{sum}</span>
               </div>
               <div className="pipe-bar" style={{ background: color }} />
 
@@ -219,7 +223,7 @@ export default function PipelineView({
                     tabIndex={0}
                     role="button"
                     title={`${r.customerName} · ${r.probability}% · 右键或按 Enter 换一个阶段`}
-                    aria-label={`${r.name}，${money(r.amount)}，${r.stage}`}
+                    aria-label={`${r.name}，${金额(r.amount, r.currency)}，${r.stage}`}
                     onDragStart={() => setDragId(r.id)}
                     onDragEnd={() => setDragId(null)}
                     onClick={() => router.push(`/customers/${r.customerId}`)}
@@ -233,7 +237,7 @@ export default function PipelineView({
                   >
                     <div className="pipe-card-t">{r.name}</div>
                     <div className="pipe-card-m">
-                      <span className="pipe-card-a">{money(r.amount)}</span>
+                      <span className="pipe-card-a">{金额(r.amount, r.currency)}</span>
                       <span className="pipe-card-o">{r.ownerName}</span>
                     </div>
                   </div>

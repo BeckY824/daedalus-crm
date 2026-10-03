@@ -10,6 +10,8 @@
 export function 金额格式(v: number | string | undefined, info: { userTyping: boolean; input: string }): string {
   if (info.userTyping) return info.input;
   if (v === undefined || v === null || v === "") return "";
-  return `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  // 只给整数部分加千分位：外币带小数（2026-10-03），整串套正则会把 1234.5678 写成「1,234.5,678」
+  const [整, 小] = `${v}`.split(".");
+  return 整.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (小 !== undefined ? `.${小}` : "");
 }
 

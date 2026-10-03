@@ -4,6 +4,8 @@ import { 可选客户 } from "@/lib/options";
 import OpportunitiesView from "./OpportunitiesView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
+import { 带币种, 商机币种 } from "@/lib/money-db";
+import { 按币种合计 } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +35,7 @@ export default async function OpportunitiesPage({
     */
     prisma.opportunity.findMany({
       where: { ...where, ...(sp.status ? {} : { status: "OPEN" }) },
-      select: { amount: true, probability: true, status: true },
+      select: { amount: true, probability: true, status: true, ...带币种.商机 },
     }),
     prisma.opportunity.findMany({
       where,
@@ -42,6 +44,7 @@ export default async function OpportunitiesPage({
       include: {
         customer: { select: { id: true, name: true } },
         owner: { select: { id: true, name: true } },
+        ...带币种.商机,
       },
     }),
     负责人候选(),
@@ -53,8 +56,9 @@ export default async function OpportunitiesPage({
       总数={总数}
       汇总={{
         单数: 汇总行.length,
-        合计: 汇总行.reduce((s, o) => s + o.amount, 0),
-        预测: 汇总行.filter((o) => o.status === "OPEN").reduce((s, o) => s + o.amount * (o.probability / 100), 0),
+        // 按币种分开（不换汇）：美元单和人民币单加在一起是假数字
+        合计: 按币种合计(汇总行, (o) => o.amount, 商机币种),
+        预测: 按币种合计(汇总行.filter((o) => o.status === "OPEN"), (o) => o.amount * (o.probability / 100), 商机币种),
       }}
       users={users}
       customers={customers}
@@ -68,6 +72,7 @@ export default async function OpportunitiesPage({
         id: o.id,
         name: o.name,
         amount: o.amount,
+        currency: 商机币种(o),
         stage: o.stage,
         status: o.status,
         probability: o.probability,

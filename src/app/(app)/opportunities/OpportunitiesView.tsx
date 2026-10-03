@@ -16,19 +16,24 @@ import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
-import { money, fmtDate, dayjs, 成员选项, 可选成员 } from "@/lib/utils";
+import { fmtDate, dayjs, 成员选项, 可选成员 } from "@/lib/utils";
 import { deleteOpportunities, restoreOpportunities, 删商机前清点, moveStage, setOppStatus } from "./actions";
 import { saveContract } from "../customers/actions";
 import InlineConfirm from "@/components/InlineConfirm";
 import OpportunityForm from "./OpportunityForm";
 import { 金额格式 } from "@/lib/money-input";
+import { 金额, 合计文字, 币种符号 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
 import { useUrlFilters } from "@/lib/url-filters";
+
+type 币种合计 = { 币种: string; 合计: number };
 
 export type OppRow = {
   id: string;
   name: string;
   amount: number;
+  /** 币种（2026-10-03） */
+  currency: string;
   stage: string;
   status: string;
   probability: number;
@@ -54,7 +59,7 @@ export default function OpportunitiesView({
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
   总数: number;
   /** 汇总药丸的两个数，服务端按全量算好（行只取了前 300，拿行去加会少） */
-  汇总: { 单数: number; 合计: number; 预测: number };
+  汇总: { 单数: number; 合计: 币种合计[]; 预测: 币种合计[] };
   users: 可选成员[];
   customers: { id: string; name: string }[];
   filters: { keyword: string; stage: string; status: string; ownerId: string };
@@ -127,10 +132,10 @@ export default function OpportunitiesView({
     set问赢单(null);
     let 另 = "";
     if (签约) {
-      const c = await saveContract({ customerId: r.customerId, amount: 签约.amount, signedAt: 签约.signedAt, remark: `商机「${r.name}」赢单时登记` });
-      if (c.ok) 另 = `，签约 ${money(签约.amount)} 已登记`;
+      const c = await saveContract({ customerId: r.customerId, amount: 签约.amount, currency: r.currency, signedAt: 签约.signedAt, remark: `商机「${r.name}」赢单时登记` });
+      if (c.ok) 另 = `，签约 ${金额(签约.amount, r.currency)} 已登记`;
       else if ("duplicate" in c) {
-        message.warning(`${r.customerName} 在 ${fmtDate(c.duplicate.signedAt)} 已有一笔 ${money(c.duplicate.amount)} 的签约，没有重复登记`);
+        message.warning(`${r.customerName} 在 ${fmtDate(c.duplicate.signedAt)} 已有一笔 ${金额(c.duplicate.amount, c.duplicate.currency)} 的签约，没有重复登记`);
       } else message.error(c.error);
     }
     message.success(`恭喜赢单${另}`);
@@ -248,7 +253,7 @@ export default function OpportunitiesView({
     {
       title: "金额", key: "amount", dataIndex: "amount", width: 110,
       sorter: (a, b2) => a.amount - b2.amount,
-      render: (v) => <span style={{ fontWeight: 600 }}>{money(v)}</span>,
+      render: (v, r) => <span style={{ fontWeight: 600 }}>{金额(v, r.currency)}</span>,
     },
     {
       title: "阶段", key: "stage", dataIndex: "stage", width: 140,
@@ -400,8 +405,8 @@ export default function OpportunitiesView({
              **一条商机都没有时不出现**：0 / 0 不是信息，是噪音 */
           rows.length > 0 ? (
             <div className="list-sum" title="加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的">
-              {合计叫} {汇总.单数} 单 · {money(合计)}
-              {合计叫 === "进行中" && <> · 加权预测 {money(forecast)}</>}
+              {合计叫} {汇总.单数} 单 · {合计文字(合计, b.currency)}
+              {合计叫 === "进行中" && <> · 加权预测 {合计文字(forecast.map((x) => ({ ...x, 合计: Math.round(x.合计) })), b.currency)}</>}
             </div>
           ) : null
         }
@@ -487,7 +492,7 @@ function WonAsk({ r, 做, 取消 }: { r: OppRow; 做: (签约: { amount: number;
       <Space size={8}>
         <InputNumber<number>
           aria-label="签约金额"
-          prefix="¥"
+          prefix={币种符号(r.currency)}
           min={0}
           step={1000}
           style={{ width: 150 }}

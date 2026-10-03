@@ -103,6 +103,12 @@ export function 金额(n: number | null | undefined, 币种: string = 默认币�
   return `${负}${号} ${数}`;
 }
 
+/** 金额框前面那个符号：CNY「¥」、USD「US$」、EUR「€」。和 金额() 显示的同一个 */
+export function 币种符号(币种: string = 默认币种): string {
+  const 码 = 规整币种(币种);
+  return new Intl.NumberFormat("zh-CN", { style: "currency", currency: 码 }).formatToParts(0).filter((p) => p.type === "currency").map((p) => p.value).join("") || 码;
+}
+
 /**
  * 按币种合计：[{ 币种: "USD", 合计: 32100 }, { 币种: "EUR", 合计: 21500 }]，金额大的币种排前。
  * **不换汇**——这是这个文件最要紧的一条规矩。只有一种币时就一项，界面上和原来长得一样。

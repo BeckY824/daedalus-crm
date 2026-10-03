@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Modal, Form, InputNumber, DatePicker, Input, App, Checkbox } from "antd";
-import { dayjs, money, fmtDate } from "@/lib/utils";
+import { Modal, Form, InputNumber, DatePicker, Input, App, Checkbox, Space } from "antd";
+import { dayjs, fmtDate } from "@/lib/utils";
+import { 金额 } from "@/lib/currency";
+import CurrencySelect from "@/components/CurrencySelect";
 import { saveContract, listContractLinks, type 签约联动, type 签约联动结果 } from "../actions";
 import { useBusiness } from "@/lib/business-client";
 import { StageTag } from "@/components/ui";
@@ -80,14 +82,21 @@ function Inner({
   }, [customerId, editing]);
   /*
     勾着的商机金额之和先填进「签约金额」——多数时候签的就是那一单，不必再抄一遍。
-    人自己动过金额就不再跟着勾选变（同 lib/fill-untouched 的规矩：不覆盖手填）。
+    人自己动过金额或币种就不再跟着勾选变（同 lib/fill-untouched 的规矩：不覆盖手填）。
+    币种跟着商机走；勾着的商机币种不一样（一单美元一单欧元）就不带——加起来是假数字，让人自己填。
   */
   // 不用 form.isFieldTouched：setFieldsValue 也会把格子记成「动过」，第一次带出之后就再也不跟了
   const 手填金额 = useRef(false);
   function 带金额(赢单: string[], r: 可收尾 | null = 可收) {
     if (!r || 手填金额.current) return;
-    const 和 = r.商机.filter((o) => 赢单.includes(o.id)).reduce((a, o) => a + o.amount, 0);
-    form.setFieldsValue({ amount: 和 > 0 ? 和 : null });
+    const 选中 = r.商机.filter((o) => 赢单.includes(o.id));
+    const 币种 = [...new Set(选中.map((o) => o.currency))];
+    if (币种.length > 1) {
+      form.setFieldsValue({ amount: null });
+      return;
+    }
+    const 和 = Math.round(选中.reduce((a, o) => a + o.amount, 0) * 100) / 100;
+    form.setFieldsValue({ amount: 和 > 0 ? 和 : null, ...(币种[0] ? { currency: 币种[0] } : {}) });
   }
   const 有可收 = 可收 && 可收.商机.length + 可收.计划.length + 可收.待办.length > 0;
 
@@ -97,6 +106,7 @@ function Inner({
       id: editing?.id,
       customerId,
       amount: v.amount,
+      currency: v.currency,
       signedAt: v.signedAt.toDate(),
       remark: v.remark ?? null,
       force,
@@ -129,7 +139,7 @@ function Inner({
           <>
             <div>
               该{b.customer}在 {dayjs(dup.signedAt).format("YYYY-MM-DD")} 已有一笔{" "}
-              <b>{money(dup.amount)}</b> 的签约记录
+              <b>{金额(dup.amount, dup.currency)}</b> 的签约记录
               {dup.remark ? `（备注：${dup.remark}）` : ""}。
             </div>
             <div style={{ marginTop: 8 }}>
@@ -173,21 +183,29 @@ function Inner({
         style={{ marginTop: 8 }}
         initialValues={
           editing
-            ? { amount: editing.amount, signedAt: dayjs(editing.signedAt), remark: editing.remark }
-            : { signedAt: dayjs() }
+            ? { amount: editing.amount, currency: editing.currency ?? "CNY", signedAt: dayjs(editing.signedAt), remark: editing.remark }
+            : { signedAt: dayjs(), currency: b.currency }
         }
       >
-        <Form.Item label="签约金额（元）" name="amount" rules={[{ required: true, message: "请输入签约金额" }]}>
-          {/* 和商机金额同一个坑：parser 把空串读成 0，清空后再敲会多出一个 0（见 lib/money-input.ts） */}
-          <InputNumber<number>
-            style={{ width: "100%" }}
-            min={0}
-            step={1000}
-            prefix="¥"
-            placeholder="如 19,800"
-            formatter={金额格式}
-            onChange={() => { 手填金额.current = true; }}
-          />
+        {/* 币种 + 金额一格（2026-10-03）。label 不再写「（元）」：币种在左边那个框里 */}
+        <Form.Item label="签约金额" required>
+          <Space.Compact style={{ width: "100%" }}>
+            <Form.Item name="currency" noStyle>
+              <CurrencySelect onChange={() => { 手填金额.current = true; }} />
+            </Form.Item>
+            <Form.Item name="amount" noStyle rules={[{ required: true, message: "请输入签约金额" }]}>
+              {/* 和商机金额同一个坑：parser 把空串读成 0，清空后再敲会多出一个 0（见 lib/money-input.ts） */}
+              <InputNumber<number>
+                style={{ width: "100%" }}
+                min={0}
+                step={1000}
+                placeholder="如 19,800"
+                formatter={金额格式}
+                aria-label="签约金额"
+                onChange={() => { 手填金额.current = true; }}
+              />
+            </Form.Item>
+          </Space.Compact>
         </Form.Item>
         <Form.Item label="签约时间" name="signedAt" rules={[{ required: true, message: "请选择签约时间" }]}>
           <DatePicker style={{ width: "100%" }} />
@@ -209,7 +227,7 @@ function Inner({
                       <span className="contract-links-i">
                         <span>{o.name}</span>
                         <StageTag stage={o.stage} />
-                        <span className="contract-links-m">{money(o.amount)}</span>
+                        <span className="contract-links-m">{金额(o.amount, o.currency)}</span>
                       </span>
                     ),
                   }))}

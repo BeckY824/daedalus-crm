@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { Input, Modal, Form, Row, Col, InputNumber, Select, DatePicker, Slider, App } from "antd";
+import { Input, Modal, Form, Row, Col, InputNumber, Select, DatePicker, Slider, App, Space } from "antd";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, type 可选成员 } from "@/lib/utils";
 import { 金额格式 } from "@/lib/money-input";
 import { saveOpportunity } from "./actions";
 import type { OppRow } from "./OpportunitiesView";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import CurrencySelect from "@/components/CurrencySelect";
+import { useBusiness } from "@/lib/business-client";
 
 /**
  * 新建 / 编辑商机的框。列表页和管道页共用（2026-09-29）：管道页原来没有表单，
@@ -32,6 +34,7 @@ export default function OpportunityForm({
   onSaved: () => void;
 }) {
   const { message } = App.useApp();
+  const b = useBusiness();
   const [form] = Form.useForm();
   /** 换阶段前是哪一档：概率还等于那一档的默认值，才算「人没动过」、跟着换（排查 D6） */
   const 上一个阶段 = useRef("初步沟通");
@@ -52,9 +55,11 @@ export default function OpportunityForm({
         status: "OPEN",
         probability: STAGE_PROBABILITY["初步沟通"] ?? 20,
         ownerId: users[0]?.id,
+        // 新建默认本位币（设置 → 业务里定的；外贸模版是美元）
+        currency: b.currency,
       });
     }
-  }, [open, editing, form, users]);
+  }, [open, editing, form, users, b.currency]);
 
 
   async function onOk() {
@@ -103,15 +108,23 @@ export default function OpportunityForm({
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item name="amount" label="商机金额（元）" rules={[{ required: true, message: "请填写商机金额" }]}>
-              <InputNumber<number>
-                min={0}
-                step={10000}
-                style={{ width: "100%" }}
-                prefix="¥"
-                placeholder="如 50,000"
-                formatter={金额格式}
-              />
+            {/* 币种 + 金额一格（2026-10-03），和签约框同一个样子 */}
+            <Form.Item label="商机金额" required>
+              <Space.Compact style={{ width: "100%" }}>
+                <Form.Item name="currency" noStyle>
+                  <CurrencySelect />
+                </Form.Item>
+                <Form.Item name="amount" noStyle rules={[{ required: true, message: "请填写商机金额" }]}>
+                  <InputNumber<number>
+                    min={0}
+                    step={10000}
+                    style={{ width: "100%" }}
+                    placeholder="如 50,000"
+                    formatter={金额格式}
+                    aria-label="商机金额"
+                  />
+                </Form.Item>
+              </Space.Compact>
             </Form.Item>
           </Col>
           <Col span={8}>

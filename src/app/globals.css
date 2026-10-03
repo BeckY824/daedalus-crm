@@ -1598,7 +1598,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .pipe-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; flex: none; }
 .pipe-n { font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* 这一列压着多少钱。管道是拿来看钱怎么分布的，只数张数看不出这个 */
-.pipe-sum { margin-left: auto; font-size: var(--fs-note); font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.pipe-sum { margin-left: auto; font-size: var(--fs-note); font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } /* 几种币种并排时可能放不下，悬停看全 */
 .pipe-bar { height: 3px; border-radius: 2px; opacity: 0.5; margin: var(--s2) 0 var(--s3); }
 .pipe-empty { padding: var(--s4) 0; text-align: center; color: var(--text-muted); font-size: var(--fs-note); }
 .pipe-card { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line-strong); border-radius: var(--r-ctl);

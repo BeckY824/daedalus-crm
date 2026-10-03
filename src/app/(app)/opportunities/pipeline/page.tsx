@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth";
 import PipelineView from "./PipelineView";
 import { 可选客户 } from "@/lib/options";
 import { 负责人候选 } from "@/lib/owners";
+import { 带币种, 商机币种 } from "@/lib/money-db";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ export default async function PipelinePage() {
       include: {
         customer: { select: { id: true, name: true } },
         owner: { select: { name: true } },
+        ...带币种.商机,
       },
     }),
     // 新建框要的候选：和列表页同一个框（../OpportunityForm.tsx）
@@ -31,6 +33,7 @@ export default async function PipelinePage() {
         id: o.id,
         name: o.name,
         amount: o.amount,
+        currency: 商机币种(o),
         stage: o.stage,
         probability: o.probability,
         expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
