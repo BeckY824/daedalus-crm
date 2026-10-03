@@ -115,7 +115,15 @@ export function 成表(原始: string[][]): { 表头: string[]; 数据: string[]
     否则表头只起了两列名、数据每行五格时，第一位客户因为「更宽」被认成表头（第三轮 A2）。
     够宽的表头没有，就退一步：第一个至少 2 格、不带长串数字的行
   */
-  const 像表头 = (r: string[]) => !r.some((x) => (x.match(/\d/g)?.length ?? 0) >= 6);
+  /*
+    只看「整格就是一个号码」的格子（第四轮 B6）：表头里写「手机号（例：13800001111）」、拿日期「20260901」当列名的都放过
+  */
+  const 号码格 = (x: string) => {
+    const t = x.trim();
+    if (!/^[+\d\s\-()（）]+$/.test(t) || (t.match(/\d/g)?.length ?? 0) < 7) return false;
+    return !/^(19|20)\d{2}[-/.]?(0?[1-9]|1[0-2])[-/.]?(0?[1-9]|[12]\d|3[01])$/.test(t);
+  };
+  const 像表头 = (r: string[]) => !r.some(号码格);
   const 前几行 = 原始.slice(0, 5);
   let 表头行 = 前几行.findIndex((r) => 填了几格(r) >= Math.max(2, Math.ceil(最宽 / 2)) && 像表头(r));
   if (表头行 < 0) 表头行 = 前几行.findIndex((r) => 填了几格(r) >= 2 && 像表头(r));

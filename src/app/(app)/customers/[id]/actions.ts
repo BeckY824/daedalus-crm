@@ -256,8 +256,19 @@ export async function restoreFollowUp(快照: 删掉的跟进) {
     // 删的时候顺带的待办一起删了：撤销时一起回来
     const 回来的 = { ...快照, dueAt: 快照.dueAt ? new Date(快照.dueAt) : null };
     if (会带待办(回来的) && 快照.status !== "已完成") {
-      const 在 = await prisma.task.count({ where: { customerId: 快照.customerId, title: 待办标题(回来的), dueAt: 回来的.dueAt!, done: false } });
-      if (!在) await prisma.task.create({ data: { title: 待办标题(回来的), dueAt: 回来的.dueAt!, customerId: 快照.customerId, ownerId: 快照.ownerId } });
+      /*
+        按条数补齐（第四轮 C1）：同标题同时间的提醒有两条、删一条再撤销时，另一条的待办还在，
+        原来看到「有一条」就不补了，结果两条提醒一条待办。现在数一下这类跟进有几条，待办少几条补几条
+      */
+      const 标题 = 待办标题(回来的);
+      const 同样的跟进 = (
+        await prisma.followUp.findMany({
+          where: { customerId: 快照.customerId, dueAt: 回来的.dueAt!, type: { in: ["TASK", "REMIND"] }, NOT: { status: "已完成" } },
+          select: { type: true, title: true, content: true, status: true, dueAt: true },
+        })
+      ).filter((f) => 待办标题(f) === 标题).length;
+      const 在 = await prisma.task.count({ where: { customerId: 快照.customerId, title: 标题, dueAt: 回来的.dueAt!, done: false } });
+      if (在 < 同样的跟进) await prisma.task.create({ data: { title: 标题, dueAt: 回来的.dueAt!, customerId: 快照.customerId, ownerId: 快照.ownerId } });
       刷新待办(快照.customerId);
     }
     const latest = await prisma.followUp.findFirst({ where: { customerId: 快照.customerId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });

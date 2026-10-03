@@ -19,6 +19,8 @@ import { version as 仓库版本 } from "../../../package.json";
  * 当成「刚从上一版升上来」，只给看现在这一版那一段。
  */
 const 看过的键 = "desktop.whatsNewSeen";
+/** 「更新内容」是 0.46.15 加的：之前的版本都不会留「看过」的记录 */
+const 没有这功能的最后一版 = "0.46.14";
 
 function 现在的版本(): string {
   // 壳启动时写进环境变量（desktop/main.js），本地服务继承下来；开发时没有，用仓库里的
@@ -46,7 +48,8 @@ export async function 有没有新内容(): Promise<{ 版本: string; 段: 一�
   if (!看过) {
     // 有没有记录分不清「新装」和「从 0.46.15 之前升上来」，看库里有没有东西
     const 老库 = (await prisma.customer.count()) + (await prisma.lead.count()) > 0;
-    const 这一版 = 老库 ? (await 读全部()).filter((s) => s.版本 === 现在) : [];
+    // 没有记录的老库一定是从 0.46.15 之前升上来的：当成看过 0.46.14，中间跳过的几版一起给（第四轮 C3）
+    const 这一版 = 老库 ? 这次新的(await 读全部(), 没有这功能的最后一版, 现在) : [];
     if (!这一版.length) {
       await setSetting(看过的键, 现在);
       return null;

@@ -67,11 +67,16 @@ export function 只留桌面端(正文: string): string {
  * 弹框里就成了半句一段。连续的普通文字行并成一行；列表、标题、表格、空行照旧分开。
  */
 export function 并成段(正文: string): string {
-  const 普通 = (行: string) => 行.trim() !== "" && !/^\s*([-*+]\s|\d+[.)]\s|#|\||>)/.test(行);
+  const 列表项 = (行: string) => /^\s*([-*+]\s|\d+[.)]\s)/.test(行);
+  const 普通 = (行: string) => 行.trim() !== "" && !列表项(行) && !/^\s*(#|\||>)/.test(行);
+  const 加粗标题 = (行: string) => /^\*\*.*\*\*$/.test(行.trim());
   const 出: string[] = [];
   for (const 行 of 正文.split("\n")) {
     const 上 = 出.length ? 出[出.length - 1] : null;
-    if (上 !== null && 普通(上) && 普通(行) && !/^\*\*.*\*\*$/.test(上.trim()) && !/^\*\*.*\*\*$/.test(行.trim())) {
+    // 列表项折了一行：下一行缩进着接着写，并回这一条（第四轮 C2）。缩进的另一个列表项是子列表，不并
+    if (上 !== null && 列表项(上) && /^\s{2,}\S/.test(行) && !列表项(行)) {
+      出[出.length - 1] = 上 + 行.trim();
+    } else if (上 !== null && 普通(上) && 普通(行) && !加粗标题(上) && !加粗标题(行)) {
       出[出.length - 1] = 上 + 行.trim();
     } else 出.push(行);
   }

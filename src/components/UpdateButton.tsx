@@ -66,8 +66,13 @@ export default function UpdateButton() {
   useEffect(() => {
     const api = window.desktopUpdate;
     if (!api) return;
-    const off = api.onState(setS);
-    api.state().then(setS).catch(() => {});
+    // 阶段一离开「有新版」（开始下载、出错了）就把「问一句」复位：不然回到「有新版」时那个框会自己冒出来
+    const 收到 = (x: 更新状态) => {
+      setS(x);
+      if (x.阶段 !== "available") set问一句(false);
+    };
+    const off = api.onState(收到);
+    api.state().then(收到).catch(() => {});
     return off;
   }, []);
 
