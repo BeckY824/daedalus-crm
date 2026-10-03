@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Button, Input, Alert, Typography, Tooltip } from "antd";
-import { ThunderboltOutlined, ReloadOutlined, CopyOutlined, ArrowRightOutlined } from "@ant-design/icons";
+import { Button, Input, Alert, Typography, Tooltip, Dropdown } from "antd";
+import { ThunderboltOutlined, ReloadOutlined, CopyOutlined, ArrowUpOutlined, DownOutlined, EditOutlined } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
 import type { CustomerBrief, BriefRecord } from "@/lib/ai-draft";
 import { useBusiness } from "@/lib/business-client";
@@ -13,6 +13,8 @@ import AiWait from "@/components/AiWait";
 import BriefBody from "./BriefBody";
 import AiCost, { useAiMeter } from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
+import { 起草语言们, 起草语气们, type 起草语言, type 起草语气 } from "@/lib/draft-style";
+import { useLocalPref } from "@/lib/local-pref";
 
 type BriefAnswer = { brief: CustomerBrief; records: BriefRecord[] };
 
@@ -92,7 +94,13 @@ export default function AiPanel({
     }
   }, [briefKey, hasRecords]);
 
-  const doDraft = (kind: 草稿类) => 起草(kind, customerId, "从记录页发起");
+  /*
+    起草的语言和语气（输入框底下那两枚芯片，2026-10-02 照毛玻璃原型）：外贸客户多半不说中文，
+    原来起草出来一律是中文微信。选过的记在这台电脑上，下一位客户接着用
+  */
+  const [语言, set语言] = useLocalPref<起草语言>("draft.lang", "自动");
+  const [语气, set语气] = useLocalPref<起草语气>("draft.tone", "随和");
+  const doDraft = (kind: 草稿类) => 起草(kind, customerId, "从记录页发起", { 语言, 语气 });
   const 复制 = useCopyDraft();
 
   // 有追问就显示追问的结果，否则显示简报本身
@@ -152,13 +160,19 @@ export default function AiPanel({
         )}
       </AnimatePresence>
 
-      <div className="rec-ai-ask">
+      {/*
+        一个框：上面问一句，下面一排芯片——起草什么、用什么语言、什么语气，最右边是发送。
+        芯片是「起草」的参数，不影响「问一句」（问答按你提问的语言答）。
+      */}
+      <div className={`rec-composer${!hasRecords ? " off" : ""}`}>
         <Input
+          variant="borderless"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder={`问一句，比如"下次该怎么谈报价"`}
           maxLength={200}
           disabled={!hasRecords}
+          aria-label={`问 AI 关于 ${customerName} 的事`}
           onPressEnter={() => {
             if (q.trim()) {
               ask(q.trim());
@@ -166,10 +180,11 @@ export default function AiPanel({
             }
           }}
           suffix={
-            <Button
-              type="text"
+          <Button
+              type="primary"
               size="small"
-              icon={<ArrowRightOutlined />}
+              className="rec-send"
+              icon={<ArrowUpOutlined />}
               disabled={!q.trim() || loading}
               onClick={() => {
                 ask(q.trim());
@@ -179,20 +194,41 @@ export default function AiPanel({
             />
           }
         />
-      </div>
-
-      <div className="rec-ai-actions">
-        {/* 跑着时不转圈：在做什么、过了几秒，下面那一行说 */}
-        <Button size="small" disabled={wakeupJob?.status === "loading"} onClick={() => doDraft("wakeup")}>
-          起草跟进话术
-          <AiCost />
-        </Button>
-        {signed && (
-          <Button size="small" disabled={inviteJob?.status === "loading"} onClick={() => doDraft("invite")}>
-            起草转介绍邀请
-            <AiCost />
-          </Button>
-        )}
+        <div className="rec-chips">
+          <Dropdown
+            trigger={["click"]}
+            menu={{
+              items: [
+                { key: "wakeup", label: <>起草跟进话术 <AiCost /></>, disabled: wakeupJob?.status === "loading" },
+                ...(signed ? [{ key: "invite", label: <>起草转介绍邀请 <AiCost /></>, disabled: inviteJob?.status === "loading" }] : []),
+              ],
+              onClick: ({ key }) => doDraft(key as 草稿类),
+            }}
+          >
+            <button type="button" className="rec-chip rec-chip-main">
+              <EditOutlined /> 起草
+              <DownOutlined className="rec-chip-caret" />
+            </button>
+          </Dropdown>
+          <Dropdown
+            trigger={["click"]}
+            menu={{ items: 起草语言们.map((x) => ({ key: x, label: x === "自动" ? "自动（跟着记录里对方的语言）" : x })), selectable: true, selectedKeys: [语言], onClick: ({ key }) => set语言(key as 起草语言) }}
+          >
+            <button type="button" className="rec-chip" aria-label={`起草用的语言：${语言}`}>
+              {语言 === "自动" ? "语言：自动" : 语言}
+              <DownOutlined className="rec-chip-caret" />
+            </button>
+          </Dropdown>
+          <Dropdown
+            trigger={["click"]}
+            menu={{ items: 起草语气们.map((x) => ({ key: x, label: x })), selectable: true, selectedKeys: [语气], onClick: ({ key }) => set语气(key as 起草语气) }}
+          >
+            <button type="button" className="rec-chip" aria-label={`起草用的语气：${语气}`}>
+              语气：{语气}
+              <DownOutlined className="rec-chip-caret" />
+            </button>
+          </Dropdown>
+        </div>
       </div>
 
       {[

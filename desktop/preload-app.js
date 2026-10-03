@@ -25,11 +25,32 @@ if (process.platform === "win32") {
   });
 }
 
+/*
+  毛玻璃：开着就给 <html> 挂 glass 类，样式表据此把底色调成半透明（globals.css「毛玻璃」那一节）。
+  同步问——异步的话第一帧先画实底再变透明，闪一下。中途在设置里拨了开关，主进程推一声过来。
+*/
+{
+  const 挂 = (开) => document.documentElement.classList.toggle("glass", 开 === true);
+  let 开 = false;
+  try {
+    开 = ipcRenderer.sendSync("shell:glass-now") === true;
+  } catch {
+    /* 老壳没有这个口子：当没开 */
+  }
+  if (document.documentElement) 挂(开);
+  window.addEventListener("DOMContentLoaded", () => 挂(开));
+  ipcRenderer.on("shell:glass", (_e, v) => {
+    开 = v === true;
+    挂(开);
+  });
+}
+
 contextBridge.exposeInMainWorld("desktopUpdate", {
   state: () => ipcRenderer.invoke("update:state"),
   download: () => ipcRenderer.invoke("update:download"),
   install: () => ipcRenderer.invoke("update:install"),
-  check: () => ipcRenderer.invoke("update:check"),
+  // 静默=true：左栏那一行自己显示结果，壳不弹对话框
+  check: (静默) => ipcRenderer.invoke("update:check", 静默 === true),
   openDownload: () => ipcRenderer.invoke("update:open"),
   onState: (cb) => {
     const h = (_e, s) => cb(s);
@@ -50,6 +71,9 @@ contextBridge.exposeInMainWorld("desktopShell", {
    * 换成谁由主进程自己去读 .cloud.json，页面说了不算。
    */
   switchAccount: () => ipcRenderer.invoke("shell:switch-account"),
+  /** 毛玻璃：{ 可用, 开 }。可用=false（Windows 10、Linux）时设置页不摆这个开关 */
+  glass: () => ipcRenderer.invoke("shell:glass"),
+  setGlass: (开) => ipcRenderer.invoke("shell:set-glass", 开 === true),
 });
 
 contextBridge.exposeInMainWorld("desktopNotify", {

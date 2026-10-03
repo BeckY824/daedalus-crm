@@ -8,6 +8,7 @@ import { 要跟Context } from "./FollowDue";
 import Link from "next/link";
 import { Layout, Avatar, Dropdown, Button, Badge } from "antd";
 import {
+  SearchOutlined,
   HomeOutlined,
   DashboardOutlined,
   MessageOutlined,
@@ -27,13 +28,14 @@ import {
 import type { SessionUser } from "@/lib/auth";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
 import Logo from "./Logo";
-import UpdateButton from "./UpdateButton";
+import UpdateRow from "./UpdateRow";
 import WhatsNew from "./WhatsNew";
 import AiTasks from "./AiTasks";
 import AiDock from "./AiDock";
 import { usePageUnderOverlay } from "@/lib/page-under-overlay";
 import type { ModelOption } from "@/lib/llm";
 import FeedbackButton from "./FeedbackButton";
+import { AiMeterBar } from "./AiCost";
 import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
 import Shortcut from "./Shortcut";
@@ -52,6 +54,10 @@ declare global {
 
 type Props = {
   user: SessionUser;
+  /** 左栏「收藏的客户」（lib/favorites.ts）。没收藏过就整栏不出现 */
+  收藏?: { id: string; name: string }[];
+  /** 导航项右边的数（2026-10-02 照毛玻璃原型）：客户总数、在谈的商机。只给有意义的那几项 */
+  计数?: Partial<Record<string, number>>;
   /**
    * 要跟的：我名下逾期 + 今天到期、还没做的计划和待办（lib/reminders-db.ts）。
    * 和桌面端 Dock 上的数是同一个——左栏「跟进」、手机顶栏铃铛都挂它，人在 Dock 上看见 1，打开应用能顺着找到那个 1
@@ -96,7 +102,7 @@ type Props = {
 /** 面板常驻要的最小窗口宽度，见 AppShell 里 窄窗 那段 */
 const 面板放不下 = "(max-width: 1599px)";
 
-export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai, children }: Props) {
+export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, desktop, 反馈去向, pane, ai, children }: Props) {
   const { 曲线, 时长 } = useMotionTheme();
   const b = useBusiness();
   const router = useRouter();
@@ -180,14 +186,19 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
 
   const nav = useMemo(
     () => [
-      { key: "/dashboard", icon: <HomeOutlined />, label: "首页" },
-      { key: "/overview", icon: <DashboardOutlined />, label: "数据" },
-      { key: "/leads", icon: <ShareAltOutlined />, label: "线索" },
-      { key: "/customers", icon: <TeamOutlined />, label: b.customer },
-      { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道" },
-      { key: "/contacts", icon: <ContactsOutlined />, label: "联系人" },
-      { key: "/opportunities", icon: <DollarOutlined />, label: "商机" },
-      { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进" },
+      /*
+        2026-10-02 照毛玻璃原型分成两组：上面是每天都点的（首页、客户、商机、跟进、数据，原型的顺序），
+        下面「更多」是偶尔去一趟的（线索、联系人、渠道）。一个入口都没少，只是不再八项平铺、一样重。
+        沟通、找客做好以后插在商机后面。
+      */
+      { key: "/dashboard", icon: <HomeOutlined />, label: "首页", 组: "主" },
+      { key: "/customers", icon: <TeamOutlined />, label: b.customer, 组: "主" },
+      { key: "/opportunities", icon: <DollarOutlined />, label: "商机", 组: "主" },
+      { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进", 组: "主" },
+      { key: "/overview", icon: <DashboardOutlined />, label: "数据", 组: "主" },
+      { key: "/leads", icon: <ShareAltOutlined />, label: "线索", 组: "更多" },
+      { key: "/contacts", icon: <ContactsOutlined />, label: "联系人", 组: "更多" },
+      { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道", 组: "更多" },
     ],
     [b.customer],
   );
@@ -198,6 +209,32 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
     const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/follow-ups", "/settings"];
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
+
+  /** 左栏的一项（主导航和「更多」共用）。选中那块底色仍是同一块在各项之间滑（layoutId） */
+  const 一项 = (n: (typeof nav)[number]) => (
+    <Link
+      key={n.key}
+      href={n.key}
+      aria-label={n.key === "/follow-ups" && 要跟说法 ? `${n.label}，${要跟说法}` : n.label}
+      className={`rail-item${selectedKey === n.key ? " on" : ""}`}
+    >
+      {/* 选中那块底色是**同一块**在两项之间滑过去的（layoutId），不是这边灭那边亮。
+          切页时眼睛跟着它走，不用重新找自己在哪一项上。
+          系统开了「减弱动态效果」就按 0 秒，等于原来的瞬切。 */}
+      {selectedKey === n.key && (
+        <motion.span layoutId="rail-on" className="rail-on-bg" transition={{ duration: 少动 ? 0 : 时长.base, ease: 曲线.ease }} />
+      )}
+      {n.icon}
+      <b>{n.label}</b>
+      {/* 和 Dock 上那个红数字同一个数、同一种红：人从 Dock 看见 1，打开应用第一眼就能对上它在哪。
+          点进去是记录页，页头「计划」按钮上还挂着同一个数，再点就是逾期和今天那两组 */}
+      {n.key === "/follow-ups" && 要跟数 > 0 && (
+        <span className="rail-count" title={`${要跟说法}，和 Dock 上的数一样`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
+      )}
+      {/* 灰的数只是「有多少」，不是「要处理」：和上面那个红的分开，红的才催人 */}
+      {(计数[n.key] ?? 0) > 0 && <span className="rail-num">{计数[n.key]}</span>}
+    </Link>
+  );
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -307,37 +344,46 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
       <nav className="rail" aria-label="主导航">
         {/* 桌面端：这块是红黄绿钮的位置，也是拖动窗口的把手 */}
         <div className="rail-top">
-          <Link href="/dashboard" className="rail-mark" aria-label="Daedalus CRM">
-            <Logo size={20} />
-            <b>Daedalus CRM</b>
-          </Link>
+          {/*
+            桌面端顶上是一个搜索框（2026-10-02 照毛玻璃原型，学 MonoCode）：名字已经在登录页和红黄绿钮旁的窗口里了，
+            这一格留给最常用的「去哪儿 / 找谁」。点它和按 ⌘K 是同一张跳转单（CommandBar 听 cmdbar:open）。
+            网页版没有红黄绿钮那一截，顶上还是标志，不然整个页面上就找不到自己在哪个产品里。
+          */}
+          {desktop ? (
+            <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label="搜索（⌘K）">
+              <SearchOutlined />
+              <span>搜索</span>
+              <kbd><Shortcut>⌘K</Shortcut></kbd>
+            </button>
+          ) : (
+            <Link href="/dashboard" className="rail-mark" aria-label="Daedalus CRM">
+              <Logo size={20} />
+              <b>Daedalus CRM</b>
+            </Link>
+          )}
         </div>
         {/* 名字直接写出来，不再靠 tooltip：第一次打开的人不会去悬停，
             他只看到一列认不出的方块。aria-label 保留原样，e2e 和读屏都认它。 */}
         <div className="rail-nav">
-          {nav.map((n) => (
-            <Link
-              key={n.key}
-              href={n.key}
-              aria-label={n.key === "/follow-ups" && 要跟说法 ? `${n.label}，${要跟说法}` : n.label}
-              className={`rail-item${selectedKey === n.key ? " on" : ""}`}
-            >
-              {/* 选中那块底色是**同一块**在两项之间滑过去的（layoutId），不是这边灭那边亮。
-                  切页时眼睛跟着它走，不用重新找自己在哪一项上。
-                  系统开了「减弱动态效果」就按 0 秒，等于原来的瞬切。 */}
-              {selectedKey === n.key && (
-                <motion.span layoutId="rail-on" className="rail-on-bg" transition={{ duration: 少动 ? 0 : 时长.base, ease: 曲线.ease }} />
-              )}
-              {n.icon}
-              <b>{n.label}</b>
-              {/* 和 Dock 上那个红数字同一个数、同一种红：人从 Dock 看见 1，打开应用第一眼就能对上它在哪。
-                  点进去是记录页，页头「计划」按钮上还挂着同一个数，再点就是逾期和今天那两组 */}
-              {n.key === "/follow-ups" && 要跟数 > 0 && (
-                <span className="rail-count" title={`${要跟说法}，和 Dock 上的数一样`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
-              )}
-            </Link>
-          ))}
+          {nav.filter((n) => n.组 === "主").map((n) => 一项(n))}
         </div>
+        <div className="rail-more" aria-label="更多">
+          <div className="rail-fav-h">更多</div>
+          {nav.filter((n) => n.组 === "更多").map((n) => 一项(n))}
+        </div>
+        {收藏.length > 0 && (
+          <div className="rail-fav" aria-label="收藏的客户">
+            <div className="rail-fav-h">收藏的{b.customer}</div>
+            {收藏.map((c) => (
+              <Link key={c.id} href={`/customers/${c.id}`} className={`rail-fav-i${pathname === `/customers/${c.id}` ? " on" : ""}`}>
+                <span className="rail-fav-av" style={{ background: avatarColor(c.name), color: AVATAR_TEXT }}>
+                  {initial(c.name)}
+                </span>
+                <span className="rail-fav-n">{c.name}</span>
+              </Link>
+            ))}
+          </div>
+        )}
         {/* 侧栏底部按设计稿只留三样：AI 任务、设置、账号。
             原来还挂着一条「⌘K 跳转 / 提问」的说明和一个「待办」铃铛——
             快捷键的说明挪到了首页输入框下面（那儿才是用它的地方），
@@ -356,6 +402,9 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
             </button>
           )}
           <AiTasks />
+          <AiMeterBar />
+          {/* 检查更新那一行（学 MonoCode 左下角）：常驻，写着当前版本；有新版变蓝、下载有进度、下好了点它重启 */}
+          {desktop && <UpdateRow />}
           {/* 「设置」不在左栏里了（2026-09-17）：它在账号菜单里，和 Claude / Codex 一样。
               左栏那一列是**你工作的地方**——学员、商机、跟进；设置是偶尔去一趟的抽屉，
               把它摆成和「学员」同级的一项，等于每天提醒你它存在。 */}
@@ -376,8 +425,8 @@ export default function AppShell({ user, 要跟, desktop, 反馈去向, pane, ai
                 <DownOutlined className="rail-user-caret" aria-hidden />
               </button>
             </Dropdown>
+            {/* 更新之后的「新」：原型里就在账号这一行右端（检查更新那一行在上面，管的是「有没有更新的版本」） */}
             {desktop && <WhatsNew 全部开着={更新记录开着} 关全部={() => set更新记录开着(false)} />}
-            {desktop && <UpdateButton />}
             {/* 反馈在更新键的右边，两枚都是这一行的「出口」：一个往外拿新版本，一个往外送一句话。
                 网页版没有更新键，那儿就只有它一枚 */}
             <FeedbackButton 去向={反馈去向} />

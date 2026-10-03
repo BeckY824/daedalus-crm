@@ -549,7 +549,43 @@ function 当前地址() {
   return cfg.mode === "local" ? 本地入口() : `${cfg.serverUrl}${cfg.lastRoute ?? ""}`;
 }
 
+/*
+  毛玻璃（2026-10-02，学的是 MonoCode）：窗口背后透出用户自己的桌面，左栏最透、正文稍实。
+  Mac 用系统的 vibrancy（sidebar 那种材质，和访达侧栏同一套），Windows 11 用 acrylic；
+  Windows 10 没有这两样，就不开——实底照旧，设置里那个开关也不摆。
+  开没开存在 config.json 的 glass（默认开）。页面靠 <html class="glass"> 知道，
+  这个类由 preload 在每次载入时同步问一次主进程加上（不读启动参数：中途改了开关，参数是旧的）。
+*/
+function 玻璃可用() {
+  if (process.platform === "darwin") return true;
+  if (process.platform === "win32") return Number(os.release().split(".")[2] ?? 0) >= 22000;
+  return false;
+}
+function 玻璃开着() {
+  return 玻璃可用() && 读配置().glass !== false;
+}
+const 实底 = "#fafafa";
+/*
+  Mac 上优先用「透明窗口 + 小模糊半径」（desktop/glass-blur.js，看得见壁纸），拿不到私有接口才退回 vibrancy。
+  用哪条在建窗口时定下来（transparent 只能建窗口时给），记在 透明窗 里，开关拨来拨去都按它走。
+*/
+const 模糊 = require("./glass-blur");
+const 模糊半径 = 60;
+let 透明窗 = false;
+function 上玻璃(w, 开) {
+  if (!w || w.isDestroyed()) return;
+  if (透明窗) {
+    模糊.设模糊(w, 开 ? 模糊半径 : 0);
+    w.setBackgroundColor(开 ? "#00000000" : 实底);
+    return;
+  }
+  if (process.platform === "darwin") w.setVibrancy(开 ? "sidebar" : null);
+  if (process.platform === "win32" && typeof w.setBackgroundMaterial === "function") w.setBackgroundMaterial(开 ? "acrylic" : "none");
+  w.setBackgroundColor(开 ? "#00000000" : 实底);
+}
+
 function 建窗口() {
+  透明窗 = process.platform === "darwin" && 模糊.可用();
   win = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -566,14 +602,25 @@ function 建窗口() {
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 20, y: 16 },
     } : {}),
-    backgroundColor: "#fafafa",
+    ...(透明窗
+      ? { transparent: true, backgroundColor: 玻璃开着() ? "#00000000" : 实底 }
+      : 玻璃开着()
+      ? process.platform === "darwin"
+        ? { vibrancy: "sidebar", visualEffectState: "active", backgroundColor: "#00000000" }
+        : { backgroundMaterial: "acrylic", backgroundColor: "#00000000" }
+      : { backgroundColor: 实底 }),
     show: false,
     icon: path.join(__dirname, "assets/icon.png"),
     webPreferences: { contextIsolation: true, nodeIntegration: false, preload: path.join(__dirname, "preload-app.js") },
   });
 
   // 主窗口露面了再关「正在完成更新」那个小窗，中间不留一个窗口都没有的空档（Windows 上那会让应用直接退出）
-  win.once("ready-to-show", () => { win.show(); 关过渡小窗(); });
+  win.once("ready-to-show", () => {
+    win.show();
+    关过渡小窗();
+    // 窗口号要等窗口真的建出来才有；露面那一刻设上模糊，之后 WindowServer 一直记着
+    if (透明窗 && 玻璃开着()) 模糊.设模糊(win, 模糊半径);
+  });
   win.loadURL(当前地址());
 
   // 记住停在哪一页：重启（包括更新后的那次）回到原地，不再每次都从首页开始
@@ -810,7 +857,9 @@ async function 先主后备(主, 备, 做) {
 }
 
 /** 只查、只估算，**不下**。手动点菜单时 手动=true：已是最新要给句回话，其余情况都静默 */
-async function 检查更新({ 手动 = false } = {}) {
+async function 检查更新({ 手动 = false, 静默 = false } = {}) {
+  /* 静默：左栏「检查更新」那一行点的——结果它自己会显示，不再弹系统对话框（菜单里的「检查更新」照旧弹） */
+  if (静默) 手动 = false;
   if (正在查) return;
   /*
     差量包**自动下**。0.24.0 那次「先问再下」的理由是 160 MB 整包：自动下会把人的网占满，
@@ -1053,7 +1102,7 @@ async function 安装更新() {
 ipcMain.handle("update:state", () => 更新状态);
 ipcMain.handle("update:download", () => 下载更新());
 ipcMain.handle("update:install", () => 安装更新());
-ipcMain.handle("update:check", () => 检查更新({ 手动: true }));
+ipcMain.handle("update:check", (_e, 静默) => 检查更新({ 手动: true, 静默: 静默 === true }));
 // 只开主进程自己状态里的地址，页面传不进任何 URL
 ipcMain.handle("update:open", () => {
   if (更新状态.地址) shell.openExternal(更新状态.地址);
@@ -1126,6 +1175,18 @@ function 站内路径(v) {
 }
 
 ipcMain.handle("shell:version", () => app.getVersion());
+// 毛玻璃：preload 每次载入同步问一次（不能异步：等回话那一下页面会先画出实底再变透明，闪一下）
+ipcMain.on("shell:glass-now", (e) => {
+  e.returnValue = 玻璃开着();
+});
+ipcMain.handle("shell:glass", () => ({ 可用: 玻璃可用(), 开: 玻璃开着() }));
+ipcMain.handle("shell:set-glass", (_e, 开) => {
+  if (!玻璃可用()) return { 可用: false, 开: false };
+  写配置({ ...读配置(), glass: 开 === true });
+  上玻璃(win, 开 === true);
+  win?.webContents.send("shell:glass", 开 === true);
+  return { 可用: true, 开: 开 === true };
+});
 /*
   提醒的设置和「现在就再问一次」。设置存在壳这边（数据根下的 reminders.json）：
   窗口关着时是壳在发提醒，它得自己知道开关，不能等页面来告诉它。

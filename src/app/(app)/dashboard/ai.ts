@@ -1,5 +1,6 @@
 "use server";
 
+import { 风格要求, 话术上限, type 起草风格 } from "@/lib/draft-style";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { consumeAiQuota } from "@/lib/ai-quota";
@@ -15,13 +16,14 @@ import { 带额度 } from "@/lib/tenant/ai-allowance";
  * AI 只起草——消息由销售自己复制到微信发出，系统不做任何触达。
  * 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）。
  */
-export async function draftWakeup(input: { customerId: string; reason: string }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+export async function draftWakeup(input: { customerId: string; reason: string; 风格?: 起草风格 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   return 带额度("wakeup", () => 起草唤醒话术(input));
 }
 
 async function 起草唤醒话术(input: {
   customerId: string;
   reason: string;
+  风格?: 起草风格;
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
@@ -50,7 +52,7 @@ async function 起草唤醒话术(input: {
     ? formatTimeline(customer.followUps, { eachMax: 600, budget: 2000 })
     : "（从未跟进过）";
 
-  const prompt = `你替销售「${user.name}」起草一条发给${b.customer}的微信消息，用来重新接上中断的沟通。落款或自称一律用「${user.name}」，不要编别的名字或机构名。
+  const prompt = `你替销售「${user.name}」起草一条发给${b.customer}的消息（会从微信、WhatsApp 或邮件发出），用来重新接上中断的沟通。落款或自称一律用「${user.name}」，不要编别的名字或机构名。
 
 ${b.customer}：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，跟进状态「${statusLabel(b, customer.followStatus)}」，决策状态「${statusLabel(b, customer.decisionStatus)}」
 唤醒原因：${input.reason.slice(0, 100)}
@@ -58,12 +60,12 @@ ${b.customer}：${customer.name}${customer.grade ? `（${customer.grade}）` : "
 最近的跟进记录（新→旧；带「原文」的是当时的聊天记录原话）：
 ${timeline}
 
-要求：120 字以内；自然、像人写的，不像群发；从上次聊到的具体话题切入（有记录就必须用）；给一个轻量的由头（发资料、问近况、约个时间），不硬推销、不催单；禁止编造没聊过的内容。
+要求：${风格要求(input.风格)}；自然、像人写的，不像群发；从上次聊到的具体话题切入（有记录就必须用）；给一个轻量的由头（发资料、问近况、约个时间），不硬推销、不催单；禁止编造没聊过的内容。
 输出严格 JSON：{"message": "..."}`;
 
   try {
     const raw = (await chatJSON(prompt)) as { message?: unknown };
-    const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 300) : "";
+    const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 话术上限) : "";
     if (!message) return { ok: false, error: "AI 未能生成话术，请重试" };
     await recordAiUse(user, "wakeup", `AI 起草唤醒话术（${b.customer}「${customer.name}」：${input.reason.slice(0, 50)}）`, input.customerId);
     return { ok: true, message };

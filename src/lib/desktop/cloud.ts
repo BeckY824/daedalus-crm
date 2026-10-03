@@ -218,11 +218,12 @@ function 拒绝非本地(): 结果<never> | null {
  * 登录页据此决定画哪几个入口——别摆一个点进去说「没开放」的链接。
  * 问不到（断网、老版本服务端）就按「都不开」算，只留登录，那是永远走得通的那条。
  */
-export async function 策略(): Promise<{ register: boolean; reset: boolean }> {
+export async function 策略(): Promise<{ register: boolean; reset: boolean; inApp: boolean }> {
   // 短超时：这一问挡在登录页渲染前面，断网时不能让人对着空白页等 20 秒
-  const r = await 请求<{ register?: boolean; reset?: boolean }>(`${云端地址()}/api/account/policy`, {}, 5_000);
-  if (!r.ok) return { register: false, reset: false };
-  return { register: Boolean(r.data?.register), reset: Boolean(r.data?.reset) };
+  const r = await 请求<{ register?: boolean; reset?: boolean; inApp?: boolean }>(`${云端地址()}/api/account/policy`, {}, 5_000);
+  if (!r.ok) return { register: false, reset: false, inApp: false };
+  /* inApp：云端有没有 /api/account/signup/*（2026-10-02 加）。没有就照旧开浏览器去网页注册 */
+  return { register: Boolean(r.data?.register), reset: Boolean(r.data?.reset), inApp: Boolean(r.data?.inApp) };
 }
 
 type 登录响应 = { token?: string; account?: { id?: string; name?: string; contact?: string }; credits?: { 还剩?: number } };
@@ -314,6 +315,34 @@ export async function 发码(target: string): Promise<结果<{ hint?: string }>>
  * 用验证码改密码。改完**所有地方都要重新登录**：网页会话全部作废，
  * 该账号名下的设备令牌也一起吊掉，包括这台机器手上这枚——调用方要接着把本地那份清掉。
  */
+/**
+ * 应用里注册的第一步：填了邮箱点「继续」。云端回答往哪走——
+ * 已注册（去输密码）、码已发出（去输验证码）、不用验证码（直接设密码）。规则见 api/account/signup/start。
+ */
+export type 注册去向 = { 去: "密码" } | { 去: "验证码"; hint?: string } | { 去: "设密码" };
+export async function 注册开始(target: string): Promise<结果<注册去向>> {
+  const 拒 = 拒绝非本地();
+  if (拒) return 拒;
+  const r = await 请求<{ verify?: boolean; hint?: string; registered?: boolean }>(`${云端地址()}/api/account/signup/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target }),
+  });
+  if (!r.ok) return r.状态 === 409 ? { ok: true, data: { 去: "密码" } } : r;
+  return { ok: true, data: r.data?.verify ? { 去: "验证码", hint: r.data.hint } : { 去: "设密码" } };
+}
+
+/** 开账号。只开不登：调用方紧接着拿同一套邮箱密码走 登录()，注册赠送在那一下按机器结算 */
+export async function 注册(input: { target: string; code?: string; password: string; agreed: boolean }): Promise<结果> {
+  const 拒 = 拒绝非本地();
+  if (拒) return 拒;
+  return 请求(`${云端地址()}/api/account/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+}
+
 export async function 重置密码(input: { target: string; code: string; password: string }): Promise<结果> {
   const 拒 = 拒绝非本地();
   if (拒) return 拒;

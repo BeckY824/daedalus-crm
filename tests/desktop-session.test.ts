@@ -273,7 +273,11 @@ describe("换了账号但目录还没换：哪儿都不给进", () => {
   });
 
   it("登录页换账号那条路上不许有硬跳转——那正是 2026-09-20 那个 bug 的正身", () => {
-    const form = fs.readFileSync(path.resolve(__dirname, "../src/app/login/LoginForm.tsx"), "utf8");
+    // 2026-10-02 起这段从 LoginForm 抽到 after-login.ts，登录表单和桌面端新的门（DesktopAuth）共用
+    const form = fs.readFileSync(path.resolve(__dirname, "../src/app/login/after-login.ts"), "utf8");
+    for (const f of ["LoginForm.tsx", "DesktopAuth.tsx"]) {
+      expect(fs.readFileSync(path.resolve(__dirname, `../src/app/login/${f}`), "utf8"), f).toContain("await 登录之后(res,");
+    }
     const 那段 = form.slice(form.indexOf("if (res.换账号)"), form.indexOf("window.location.assign"));
     expect(那段.length).toBeGreaterThan(0);
     expect(那段).not.toContain("location.assign");

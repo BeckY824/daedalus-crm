@@ -157,6 +157,98 @@
 .appr-mini-skin .appr-mini-card { display: flex; flex-direction: column; justify-content: space-between; padding: 6px 8px; border: var(--bw) solid var(--line); border-radius: var(--r-card); box-shadow: var(--shadow-card); }
 .appr-mini-skin em { font-style: normal; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-section); line-height: 1.2; color: var(--ink); white-space: nowrap; overflow: hidden; }
 .appr-mini-bar { display: block; width: 44%; height: 6px; border-radius: min(var(--r-ctl), 3px); background: var(--brand); }
+/* 窗口那一行的小样：毛玻璃那张底下垫一块淡色「壁纸」，左栏透出来；实底那张就是原底 */
+.appr-mini-glass { background: linear-gradient(135deg, color-mix(in srgb, var(--cat-blue) 28%, var(--panel)), color-mix(in srgb, var(--cat-amber) 26%, var(--panel))); }
+.appr-mini-glass .appr-mini-rail { background: color-mix(in srgb, var(--panel) 45%, transparent); }
+.appr-mini-solid { background: var(--workbench); }
+
+/* ---------- 毛玻璃（2026-10-02，desktop/main.js 的 玻璃开着；学 MonoCode） ----------
+   <html class="glass"> 只在桌面端、系统支持、设置里没关时由 preload 挂上。窗口本身已经是系统材质
+   （Mac 的 vibrancy、Win11 的 acrylic），这里做的只是把各层的底色调成半透明，让材质透出来：
+     地面（body）全透 → 左栏只压一层薄色，最透 → 正文压得厚，读字不受影响 → 卡片、表格、浮层照旧实底。
+   字永远压在带底色的那一层上，壁纸再花也看得清。 */
+html.glass, html.glass body { background: transparent; background-image: none; }
+/* 三栏的浓淡照原型第 4 版：左栏最透（40%，掺一点品牌蓝——原型是模糊 + 加饱和，真窗口的系统模糊加不了饱和，拿这一点蓝补）、中栏一半（55%）、正文七成（72%），都是纯白叠；正文里的卡片仍是实白，浮在玻璃上一层。
+   栏和栏之间不用灰线，用一道半透明的白——玻璃的边是亮的，不是脏的 */
+html.glass .rail { background: color-mix(in srgb, color-mix(in srgb, var(--panel) 82%, var(--brand)) 40%, transparent); border-right-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .pane { background: color-mix(in srgb, color-mix(in srgb, var(--panel) 94%, var(--brand)) 55%, transparent); border-right-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .pane-search { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+html.glass .pane-h { border-bottom-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .main { background: color-mix(in srgb, var(--panel) 72%, transparent); }
+html.glass .rail-meter { border-top-color: color-mix(in srgb, var(--panel) 55%, transparent); }
+html.glass .login-shell { background: color-mix(in srgb, var(--page-bg) 55%, transparent); }
+/* 正文里的东西在玻璃上（照原型第 4 版）：卡片、表格是实白的一层，浮在 72% 的正文玻璃上——
+   边换成半透明白线、垫一道很浅的影子；筛选框、分段切换这些小控件是更薄的一层白，看得出底下的玻璃 */
+html.glass .card-soft, html.glass .ant-card, html.glass .set-body {
+  border-color: color-mix(in srgb, var(--panel) 70%, transparent);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent), 0 6px 18px -10px color-mix(in srgb, var(--ink) 14%, transparent); }
+html.glass .ant-table-wrapper .ant-table { border: 1px solid color-mix(in srgb, var(--panel) 70%, transparent); border-radius: var(--r-card);
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent), 0 6px 18px -10px color-mix(in srgb, var(--ink) 14%, transparent); overflow: hidden; }
+html.glass .ant-table-wrapper .ant-table-thead > tr > th { background: color-mix(in srgb, var(--workbench) 70%, var(--panel)); }
+html.glass .ant-input-affix-wrapper, html.glass .ant-input-outlined, html.glass .ant-select-outlined .ant-select-selector, html.glass .ant-picker-outlined {
+  background: color-mix(in srgb, var(--panel) 78%, transparent); }
+html.glass .ant-segmented { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+html.glass .ant-pagination .ant-pagination-item, html.glass .ant-pagination .ant-select-selector { background: color-mix(in srgb, var(--panel) 70%, transparent); }
+
+/* ---------- 桌面端的门（login/DesktopAuth.tsx）：左边一句话，右边一个表单 ---------- */
+.auth { position: relative; min-height: 100vh; display: grid; grid-template-columns: minmax(280px, 1fr) minmax(360px, 1.15fr); background: var(--page-bg); }
+/* 顶上一条拖窗口的把手（Mac 的红黄绿钮嵌在左上，没有系统标题栏） */
+.auth::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: var(--drag-h); -webkit-app-region: drag; }
+.auth-side { display: flex; flex-direction: column; gap: var(--s4); padding: calc(var(--drag-h) + var(--s5)) var(--s6) var(--s6); background: var(--page-bg); border-right: 1px solid var(--line-soft); }
+.auth-mark { margin-top: auto; display: flex; align-items: center; gap: var(--s4); }
+/* 名字打字机（login/TypeBrand.tsx）：没打到的字占位不显示，方块光标贴在刚打出的字后面 */
+.auth-brand { display: inline-flex; align-items: baseline; font-family: var(--font-num); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; color: var(--ink); white-space: nowrap; }
+.auth-brand > span { position: relative; }
+.auth-brand > span[data-ai] { color: var(--brand); }
+.auth-brand-todo { visibility: hidden; }
+.auth-brand-caret { position: absolute; left: calc(100% + 2px); bottom: 0.12em; width: 0.5em; height: 0.85em; background: var(--brand); animation: auth-blink 1s steps(1) infinite; }
+.auth-brand-caret.at-start { left: 0; }
+.auth-brand-todo .auth-brand-caret { visibility: visible; }
+@keyframes auth-blink { 50% { opacity: 0; } }
+.auth-claim { margin: 0; max-width: 16em; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-title); line-height: 1.4; color: var(--ink); text-wrap: balance; }
+.auth-fine { margin: 0; max-width: 30em; font-size: var(--fs-min); line-height: 1.7; color: var(--text-muted); }
+.auth-main { display: grid; place-items: center; padding: var(--s6) var(--s5); background: var(--panel); }
+.auth-form { width: min(340px, 100%); display: flex; flex-direction: column; gap: var(--s3); }
+.auth-step { display: flex; flex-direction: column; gap: var(--s3); }
+.auth-step h1 { margin: 0; font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-title); color: var(--ink); }
+.auth-hint { margin: 0 0 var(--s1); font-size: var(--fs-note); line-height: 1.7; color: var(--text-muted); }
+.auth-hint .auth-link { margin-left: var(--s2); }
+.auth-hint b { color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+.auth-label { margin-top: var(--s1); margin-bottom: calc(-1 * var(--s2)); font-size: var(--fs-note); color: var(--ink-soft); }
+.auth-alt { margin: 0; font-size: var(--fs-note); color: var(--text-muted); }
+.auth-link { padding: 0; border: 0; background: none; font: inherit; color: var(--brand); cursor: pointer; }
+.auth-link:hover { text-decoration: underline; }
+.auth-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 2px; }
+.auth-link:disabled { color: var(--text-faint); cursor: default; text-decoration: none; }
+.auth-num { font-variant-numeric: tabular-nums; }
+.auth-agree { font-size: var(--fs-note); color: var(--ink-soft); }
+.auth-alert { margin-top: var(--s1); }
+html.glass .auth { background: transparent; }
+html.glass .auth-side { background: color-mix(in srgb, color-mix(in srgb, var(--panel) 82%, var(--brand)) 40%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
+html.glass .auth-main { background: color-mix(in srgb, var(--panel) 97%, transparent); }
+/* 左边压在壁纸上的字：深一档，再垫一圈很淡的白光，壁纸再花也读得出 */
+html.glass .auth-claim, html.glass .auth-fine, html.glass .auth-brand { text-shadow: 0 0 12px color-mix(in srgb, var(--panel) 85%, transparent), 0 0 2px color-mix(in srgb, var(--panel) 70%, transparent); }
+html.glass .auth-fine { color: var(--ink-soft); }
+/* 窄窗口（Windows 上有人把窗口拉到很小）：只留表单那一半 */
+@media (max-width: 760px) { .auth { grid-template-columns: 1fr; } .auth-side { display: none; } }
+
+/* 验证码（components/OtpInput.tsx）：真正接键盘的是那个透明 input，格子只是画出来的样子 */
+.otp { --otp-gap: var(--s2); position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: var(--otp-gap); cursor: text; }
+.otp-cell { height: 52px; display: grid; place-items: center; overflow: hidden; border: 1px solid var(--line-strong); border-radius: var(--r-card); background: var(--panel);
+  font-family: var(--font-num); font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
+.otp-cell.on { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+/* 数字从格子下沿滚上来 */
+.otp-cell span { display: block; animation: otp-roll var(--t) var(--ease); }
+@keyframes otp-roll { from { transform: translateY(70%); opacity: 0; } to { transform: none; opacity: 1; } }
+/* 一根光标按 --i 算位置，换格时滑过去 */
+.otp-caret { position: absolute; top: 12px; width: 2px; height: 28px; border-radius: 1px; background: var(--brand); pointer-events: none;
+  left: calc((100% + var(--otp-gap)) / var(--n) * var(--i) + (100% + var(--otp-gap)) / var(--n) / 2 - var(--otp-gap) / 2 - 1px);
+  transition: left var(--t) var(--ease); animation: otp-blink 1s steps(1) infinite; }
+@keyframes otp-blink { 50% { opacity: 0; } }
+.otp-err .otp-cell { border-color: var(--danger); animation: otp-nudge var(--t-morph) var(--ease); }
+@keyframes otp-nudge { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.otp-real { position: absolute; inset: 0; opacity: 0; border: 0; padding: 0; color: transparent; background: transparent; caret-color: transparent; font-size: 16px; }
 
 * {
   box-sizing: border-box;
@@ -234,8 +326,66 @@ a {
 .rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: var(--r-card); color: var(--ink); }
 .rail-mark:hover { background: var(--hover); }
 .rail-mark b { font-family: var(--font-display); font-size: var(--fs-body); font-weight: 600; letter-spacing: -0.3px; line-height: 1; white-space: nowrap; }
+/* 桌面端左栏顶上的搜索框（AppShell，点开就是 ⌘K 那张跳转单）。样子是个输入框，其实是个按钮 */
+.rail-search { display: flex; align-items: center; gap: var(--s2); width: 100%; height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel); color: var(--text-faint); font: inherit; font-size: var(--fs-note); cursor: pointer; -webkit-app-region: no-drag;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
+.rail-search:hover { border-color: var(--line-strong); color: var(--text-muted); }
+.rail-search:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.rail-search kbd { margin-left: auto; font-family: var(--font-ui); font-size: var(--fs-min); color: var(--text-faint); }
+html.glass .rail-search { background: color-mix(in srgb, var(--panel) 62%, transparent); border-color: color-mix(in srgb, var(--panel) 70%, transparent); }
+/* 导航项右边的灰数：有多少，不催人（红的那个 .rail-count 才是要处理的） */
+.rail-num { margin-left: auto; font-size: var(--fs-note); font-weight: 500; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.rail-count + .rail-num { margin-left: var(--s2); }
+/* 收藏的客户：导航下面一小栏，名字前一个首字圆片 */
+.rail-fav { display: flex; flex-direction: column; gap: 2px; margin-top: var(--s4); }
+/* 「更多」那一组：线索 / 联系人 / 渠道，比主导航轻一档（字小、行矮） */
+.rail-more { display: flex; flex-direction: column; gap: 2px; margin-top: var(--s4); }
+.rail-more .rail-item { padding: 8px 12px; }
+.rail-more .rail-item b { font-size: var(--fs-body); }
+.rail-fav-h { padding: 0 12px var(--s1); font-size: var(--fs-note); color: var(--text-muted); }
+.rail-fav-i { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: var(--r-card); color: var(--ink-soft); font-size: var(--fs-body); transition: background var(--t-fast) var(--ease); }
+.rail-fav-i:hover { background: var(--hover); color: var(--ink); }
+.rail-fav-i.on { background: var(--nav-on-bg); color: var(--nav-on-fg); }
+.rail-fav-av { width: 20px; height: 20px; flex: none; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 600; }
+.rail-fav-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 毛玻璃下：当前项是一块白玻璃（原型第 4 版），字压深一档；悬停也是薄薄一层白 */
+html.glass .rail-item { color: var(--ink-soft); }
+html.glass .rail-num, html.glass .rail-upd-v, html.glass .roster-cnt { color: var(--text-muted); }
+/* 左栏的小标题（更多 / 收藏的客户）压在最透的那层玻璃上：深一档，不然壁纸一花就看不见 */
+html.glass .rail-fav-h { color: var(--ink-soft); }
+html.glass .rail-on-bg { background: color-mix(in srgb, var(--panel) 72%, transparent); box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent); }
+html.glass .rail-item.on { color: var(--ink); }
+html.glass .rail-item:hover, html.glass .rail-fav-i:hover { background: color-mix(in srgb, var(--panel) 45%, transparent); }
+html.glass .rail-fav-i.on { background: color-mix(in srgb, var(--panel) 72%, transparent); color: var(--ink); }
 .rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 2px; }
 .rail-foot { margin-top: auto; }
+/* 左栏底部「检查更新 · v0.46.14」（UpdateRow.tsx）：平时淡、有新版蓝底、失败黄底 */
+.rail-upd { position: relative; display: flex; align-items: center; gap: var(--s2); width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-card); background: none; font: inherit; font-size: var(--fs-note); color: var(--text-muted); text-align: left; cursor: pointer; overflow: hidden;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+div.rail-upd { cursor: default; }
+button.rail-upd:hover { background: var(--hover); color: var(--ink); }
+button.rail-upd:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.rail-upd-ico { display: grid; place-items: center; width: 16px; flex: none; }
+.rail-upd-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-upd-v { flex: none; font-size: var(--fs-min); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.rail-upd.hot { background: var(--brand-bg); color: var(--brand-deep); font-weight: 500; }
+button.rail-upd.hot:hover { background: color-mix(in srgb, var(--brand) 16%, var(--brand-bg)); color: var(--brand-deep); }
+.rail-upd.warn { background: var(--warning-bg); color: var(--warning-text); }
+.rail-upd-bar { position: absolute; left: 10px; right: 10px; bottom: 3px; height: 2px; border-radius: 1px; background: color-mix(in srgb, var(--brand) 18%, transparent); overflow: hidden; }
+.rail-upd-bar i { display: block; height: 100%; background: var(--brand); transition: width var(--t) var(--ease); }
+.rail-upd-bar.idle i { width: 30%; animation: rail-upd-scan 1.2s var(--ease) infinite; }
+@keyframes rail-upd-scan { from { transform: translateX(-100%); } to { transform: translateX(330%); } }
+html.glass button.rail-upd:hover { background: color-mix(in srgb, var(--panel) 45%, transparent); }
+html.glass .rail-upd.hot { background: color-mix(in srgb, var(--brand-bg) 85%, transparent); }
+/* 左栏底部的 AI 用量（AiCost.tsx 的 AiMeterBar）：一行字一条细槽，快用完变黄、用完变红 */
+.rail-meter { display: flex; flex-direction: column; gap: 5px; margin: var(--s1) 0 var(--s2); padding: var(--s2) 10px; border-top: 1px solid var(--line-soft); }
+.rail-meter-row { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-min); color: var(--text-muted); }
+.rail-meter-row b { font-weight: 500; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.rail-meter-bar { height: 4px; border-radius: 2px; background: color-mix(in srgb, var(--line) 80%, transparent); overflow: hidden; }
+.rail-meter-bar span { display: block; height: 100%; border-radius: 2px; background: var(--brand); transition: width var(--t) var(--ease); }
+.rail-meter.low .rail-meter-bar span { background: var(--warning); }
+.rail-meter.out .rail-meter-bar span { background: var(--danger); }
+.rail-meter.out .rail-meter-row b { color: var(--danger-text); }
 /* 侧栏底部的 AI 任务。问一句要十几秒，人会切走——切走之后总得有个地方
    看得见它跑完没有。跑着的排在前面，答完的点一下就消掉 */
 /* ---------- 侧栏底部的 AI 任务：一条完成通知，不是一张单子（2026-09-19 改） ----------
@@ -392,7 +542,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .pane-n { color: var(--text-muted); font-weight: 400; font-size: var(--fs-note); margin-left: 6px; }
 .pane-ib { width: 28px; height: 28px; border-radius: var(--r-ctl); display: flex; align-items: center; justify-content: center; color: var(--text-muted); }
 .pane-ib:hover { background: var(--hover); color: var(--ink); }
-.pane-rows { flex: 1; overflow: auto; padding-bottom: 12px; }
+.pane-rows { scrollbar-width: thin;  flex: 1; overflow: auto; padding-bottom: 12px; }
 .pane-empty { padding: 4px 16px 6px; font-size: var(--fs-note); color: var(--text-muted); }
 .pane-more { display: flex; align-items: center; gap: 4px; margin: 10px 16px 0; font-size: var(--fs-note); color: var(--text-muted); }
 .pane-more:hover { color: var(--ink); }
@@ -457,16 +607,39 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .chat-row-m:focus-visible { opacity: 1; }
 /* 名单的一行。220 宽里「头像 + 名字 + 状态标签 + 时间」挤在一行会把名字压成竖排，
    所以拆两行：上面是名字和时间，下面是状态和最近那一句。 */
-.roster-row { display: flex; gap: var(--s2); padding: 7px 12px; border-bottom: 1px solid var(--line-soft); color: var(--ink); }
+.roster-row { display: flex; gap: var(--s2); margin: 1px var(--s2); padding: 8px 10px; border-radius: var(--r-card); color: var(--ink); }
 .roster-row:hover { background: var(--row-hover); }
-.roster-row.on { background: var(--brand-bg); box-shadow: inset 2px 0 0 var(--brand); }
+.roster-row.on { background: var(--brand-bg); }
+/* 组头：点一下收起 / 摊开，右边是这一组几位 */
+.roster-group + .roster-group { margin-top: var(--s1); }
+.roster-sec { display: flex; align-items: center; gap: 6px; width: calc(100% - 2 * var(--s2)); margin: 0 var(--s2); padding: var(--s2) 10px var(--s1); border: 0; background: none; font: inherit; font-size: var(--fs-note); font-weight: 500; color: var(--ink-soft); text-align: left; cursor: pointer; border-radius: var(--r-ctl); }
+.roster-sec:hover { color: var(--ink); }
+.roster-sec:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.roster-car { display: inline-block; color: var(--text-faint); transition: transform var(--t-fast) var(--ease); }
+.roster-sec[aria-expanded="false"] .roster-car { transform: rotate(-90deg); }
+.roster-cnt { margin-left: auto; font-size: var(--fs-min); color: var(--text-faint); font-variant-numeric: tabular-nums; }
 .roster-av { width: 24px; height: 24px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; font-size: var(--fs-min); font-weight: 600; margin-top: 1px; }
 .roster-m { flex: 1; min-width: 0; }
-.roster-l1 { display: flex; align-items: baseline; gap: var(--s2); }
-.roster-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.roster-l0 { display: flex; align-items: baseline; gap: var(--s2); }
+.roster-src { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-min); color: var(--text-muted); }
+.roster-m > .roster-n { display: block; margin-top: 1px; }
+.roster-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .roster-t { flex: none; font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .roster-l2 { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
 .roster-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-note); color: var(--text-muted); }
+/* 右下角的圆点：橙 = 计划到期、灰 = 一个月没动静、绿 = 正常（CustomerRoster 的 点()） */
+.roster-dot { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--success); }
+.roster-dot.due { background: var(--warning); }
+.roster-dot.cold { background: var(--text-faint); }
+/* 名单顶上的页签：全部 / 我的 / 本周要跟 */
+.roster-tabs { display: flex; gap: 4px; padding: 0 var(--s3) var(--s2); }
+.roster-tab { padding: 4px 10px; border: 0; border-radius: var(--r-ctl); background: none; font: inherit; font-size: var(--fs-note); color: var(--text-muted); cursor: pointer; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+.roster-tab:hover { color: var(--ink); }
+.roster-tab.on { background: var(--panel); color: var(--ink); font-weight: 500; box-shadow: 0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent); }
+.roster-tab:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+html.glass .roster-tab.on { background: color-mix(in srgb, var(--panel) 80%, transparent); }
+html.glass .roster-row:hover { background: color-mix(in srgb, var(--panel) 50%, transparent); }
+html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, transparent); box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 6%, transparent); }
 .pane-kbd { flex: none; font-size: var(--fs-min); color: var(--text-faint); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 0 4px; line-height: 16px; }
 /* 收成抽屉时，里面那套样式原样复用 */
 .pane-drawer .pane-h { border-bottom: 1px solid var(--line-soft); }
@@ -697,6 +870,10 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; row-gap: 8px; }
 /* 记录页页头左边那一块：名字 + 一行「年级 · 专业 · 负责人」。至少留八个字宽，再长的名字省略 */
 .rec-head-id { min-width: 8em; flex: 0 1 auto; }
+.rec-head-av { width: 44px; height: 44px; flex: none; border-radius: 12px; display: grid; place-items: center; font-size: 18px; font-weight: 600; }
+.rec-head-line { display: flex; align-items: center; gap: 4px; }
+.rec-star.ant-btn { color: var(--text-faint); }
+.rec-star.on.ant-btn, .rec-star.on.ant-btn:hover { color: var(--warning); }
 .rec-head-sub { margin-top: 2px; color: var(--text-muted); font-size: var(--fs-note); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-head-name { font-family: var(--font-display); font-size: var(--fs-title); font-weight: var(--fw-display); color: var(--ink); letter-spacing: -0.4px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -781,7 +958,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-tl-type { flex: none; font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
 .rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rec-tl-head > .ant-tag { flex: none; }
-.rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
+.rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rec-tl-when { position: relative; margin-left: auto; display: inline-flex; align-items: center; }
 /* 编辑 / 删除平时不占位：原来它透明但占着宽度，中栏一窄就被挤到第二行，每条记录标题下空出一行。
    现在悬停（或键盘焦点进来）时盖在时间上出现，左缘渐隐；触屏没有悬停，就一直显示在时间下面那行 */
@@ -808,6 +985,20 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rec-ai-list li { margin-bottom: 4px; }
 .rec-ai-risk { font-size: var(--fs-body); color: var(--warning-text); background: var(--warning-bg); border: 1px solid var(--warning-line); border-radius: var(--r-card); padding: 6px 10px; margin-bottom: 6px; }
 .rec-ai-ask { margin-top: 12px; }
+/* AI 栏的输入框（AiPanel）：一个框，上面问一句，下面一排芯片（起草 / 语言 / 语气）+ 发送 */
+.rec-composer { margin-top: 12px; display: flex; flex-direction: column; gap: var(--s2); padding: var(--s2) var(--s2) var(--s2); border: 1px solid var(--line); border-radius: var(--r-pop); background: var(--panel);
+  transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease); }
+.rec-composer:focus-within { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); }
+.rec-composer.off { opacity: 0.6; }
+.rec-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.rec-chip { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 9px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--workbench); font: inherit; font-size: var(--fs-min); color: var(--ink-soft); cursor: pointer;
+  transition: border-color var(--t-fast) var(--ease), background var(--t-fast) var(--ease); }
+.rec-chip:hover { border-color: var(--line-strong); color: var(--ink); }
+.rec-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.rec-chip-main { color: var(--brand-deep); border-color: var(--brand-line); background: var(--brand-bg); }
+.rec-chip-caret { font-size: 9px; color: var(--text-faint); }
+.rec-send.ant-btn { border-radius: var(--r-ctl); }
+.rec-composer .ant-input-affix-wrapper { padding-inline: 4px 0; }
 .rec-ai-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 .rec-ai-draft { margin-top: 12px; background: var(--workbench); border: 1px solid var(--line); border-radius: var(--r-card); padding: 10px 12px; font-size: var(--fs-body); line-height: 1.7; color: var(--ink); white-space: pre-wrap; }
 .rec-ai-draft-t { font-size: var(--fs-min); color: var(--text-muted); margin-bottom: 4px; }
@@ -1280,9 +1471,14 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
    一句欢迎在卡外，卡里是「第 1 步」→ 标题 → 三步一行 → 说明 → 按钮 → 脚注。
    三步是横着的路标，不是三张说明卡，所以不给边框，用一条细线把它们连起来。 */
 .start-h { font-size: var(--fs-title); font-weight: 600; color: var(--ink); margin: 0 0 var(--s4); letter-spacing: -0.2px; }
+/* 三句介绍：三格并排，窄了就竖着排；不加框，和下面那张「开始」卡分出主次 */
+.start-intro { list-style: none; margin: 0 0 var(--s5); padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s4); max-width: 640px; }
+.start-intro li { display: flex; flex-direction: column; gap: 4px; padding-left: var(--s3); border-left: 2px solid var(--brand-line); }
+.start-intro b { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.start-intro span { font-size: var(--fs-note); line-height: 1.6; color: var(--text-muted); }
 .start { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-pop); padding: var(--s5); max-width: 640px; }
 /* 首页（对话面）上它和输入框上下摞着，两个框不一样宽会显得歪——那一栏多宽它就多宽 */
-.cli .start, .cli .start-h { max-width: none; }
+.cli .start, .cli .start-h, .cli .start-intro { max-width: none; }
 .start-badge { display: inline-block; padding: 2px 10px; border-radius: 999px; background: var(--brand-bg); color: var(--brand-deep); font-size: var(--fs-min); font-weight: 500; }
 .start-t { margin-top: var(--s3); font-size: var(--fs-title); font-weight: 600; color: var(--ink); }
 .start-s { margin: var(--s4) 0 0; color: var(--text-muted); font-size: var(--fs-note); }
@@ -1786,6 +1982,12 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
   }
   /* 落印不放大落下，直接就是盖好的样子 */
   .prop-seal.is-new { animation: none !important; }
+  /* 验证码：数字直接出现，填错不抖，光标原地闪 */
+  .otp-cell span, .otp-err .otp-cell { animation: none !important; }
+  .otp-caret { transition: none !important; }
+  .rail-upd-bar.idle i { animation: none !important; }
+  /* 登录页的名字：直接是打好的样子，光标不闪 */
+  .auth-brand-caret { display: none !important; }
 }
 
 

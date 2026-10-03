@@ -97,7 +97,17 @@ export default function CommandBar() {
       setIdx(0);
     };
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // 左栏顶上那个搜索框点了：直接开跳转单（不走 ⌘K 那套「先给页内输入框」的分流——点的就是它）
+    const onOpen = () => {
+      setOpen(true);
+      setQ("");
+      setIdx(0);
+    };
+    window.addEventListener("cmdbar:open", onOpen);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("cmdbar:open", onOpen);
+    };
   }, [open]);
 
   function 走(i = idx) {

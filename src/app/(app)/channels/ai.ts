@@ -1,5 +1,6 @@
 "use server";
 
+import { 风格要求, 话术上限, type 起草风格 } from "@/lib/draft-style";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { consumeAiQuota } from "@/lib/ai-quota";
@@ -15,12 +16,13 @@ import { 带额度 } from "@/lib/tenant/ai-allowance";
  * AI 只起草——由销售自己复制发出，系统不做任何触达。
  * 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）。
  */
-export async function draftInvite(input: { customerId: string }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+export async function draftInvite(input: { customerId: string; 风格?: 起草风格 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   return 带额度("invite", () => 起草邀请(input));
 }
 
 async function 起草邀请(input: {
   customerId: string;
+  风格?: 起草风格;
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
@@ -52,7 +54,7 @@ async function 起草邀请(input: {
         .join("\n")
     : "（无跟进记录）";
 
-  const prompt = `你替销售「${user.name}」起草一条发给已签约${b.customer}的微信消息，礼貌地请对方帮忙介绍身边有同样需要的人。落款或自称一律用「${user.name}」，不要编别的名字或机构名。
+  const prompt = `你替销售「${user.name}」起草一条发给已签约${b.customer}的消息（会从微信、WhatsApp 或邮件发出），礼貌地请对方帮忙介绍身边有同样需要的人。落款或自称一律用「${user.name}」，不要编别的名字或机构名。
 
 ${b.customer}：${customer.name}${customer.grade ? `（${customer.grade}）` : ""}，已签约
 ${origin ? `TA 自己当初也是「${origin}」介绍来的，可以自然地借这一点开口` : "TA 是自己找来的，没有推荐人"}
@@ -60,12 +62,12 @@ ${origin ? `TA 自己当初也是「${origin}」介绍来的，可以自然地�
 最近的跟进记录（新→旧）：
 ${timeline}
 
-要求：120 字以内；先真诚关心近况（有记录就从具体话题切入），再顺势提一句"身边如果有人需要，欢迎介绍"；语气自然不市侩，不承诺任何返利或好处；禁止编造没聊过的内容。
+要求：${风格要求(input.风格)}；先真诚关心近况（有记录就从具体话题切入），再顺势提一句"身边如果有人需要，欢迎介绍"；语气自然不市侩，不承诺任何返利或好处；禁止编造没聊过的内容。
 输出严格 JSON：{"message": "..."}`;
 
   try {
     const raw = (await chatJSON(prompt)) as { message?: unknown };
-    const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 300) : "";
+    const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 话术上限) : "";
     if (!message) return { ok: false, error: "AI 未能生成话术，请重试" };
     await recordAiUse(user, "invite", `AI 起草转介绍邀请（${b.customer}「${customer.name}」）`, input.customerId);
     return { ok: true, message };

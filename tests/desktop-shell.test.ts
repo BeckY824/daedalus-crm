@@ -252,7 +252,9 @@ describe("换账号：壳自己发现，不等页面", () => {
     expect(main).toContain('ipcMain.handle("shell:switch-account", () => 切账号())');
     expect(main).toContain("let 切换中 = null");
     // 页面那一声不能再是 void 出去就不管了——换不成得把人挡住
-    const form = fs.readFileSync(path.resolve(__dirname, "../src/app/login/LoginForm.tsx"), "utf8");
-    expect(form).not.toContain("void window.desktopShell.switchAccount()");
+    for (const f of ["LoginForm.tsx", "after-login.ts", "DesktopAuth.tsx"]) {
+      const form = fs.readFileSync(path.resolve(__dirname, `../src/app/login/${f}`), "utf8");
+      expect(form, f).not.toContain("void window.desktopShell.switchAccount()");
+    }
   });
 });

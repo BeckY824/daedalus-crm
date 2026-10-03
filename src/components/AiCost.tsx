@@ -84,3 +84,28 @@ export function AiRemaining() {
     </span>
   );
 }
+
+/**
+ * 左栏底部那条用量（2026-10-02，学 MonoCode 左下角那条）：本月 AI 次数还剩多少，一眼看见，
+ * 不用等到输入框下面那行字变红才知道快用完了。不计次的人（自己的 Key、付费、自部署）不显示；
+ * 数还没问到时也不显示——画一条空槽比不画更容易被读成「用完了」。
+ */
+export function AiMeterBar() {
+  const { 计次, 还剩, 上限 } = useAiMeter();
+  if (!计次 || 还剩 === null || !上限) return null;
+  const 比 = Math.max(0, Math.min(1, 还剩 / 上限));
+  const 档 = 还剩 === 0 ? " out" : 还剩 <= 2 ? " low" : "";
+  return (
+    <div className={`rail-meter${档}`} title={`AI 免费次数还剩 ${还剩} 次（共 ${上限} 次）`}>
+      <div className="rail-meter-row">
+        <span>AI 次数</span>
+        <b>
+          还剩 {还剩} / {上限}
+        </b>
+      </div>
+      <div className="rail-meter-bar" role="meter" aria-label="AI 免费次数" aria-valuemin={0} aria-valuemax={上限} aria-valuenow={还剩}>
+        <span style={{ width: `${比 * 100}%` }} />
+      </div>
+    </div>
+  );
+}

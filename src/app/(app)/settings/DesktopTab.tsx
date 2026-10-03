@@ -40,6 +40,9 @@ declare global {
        * 壳那边不等页面这一声也会自己换（desktop/main.js 的 看凭据换没换），这一声只是提速。
        */
       switchAccount(): Promise<{ ok: boolean; error?: string }>;
+      /** 毛玻璃（设置 → 外观「窗口」那一行）。老壳没有这两个口子 */
+      glass?(): Promise<{ 可用: boolean; 开: boolean }>;
+      setGlass?(开: boolean): Promise<{ 可用: boolean; 开: boolean }>;
     };
     /** 提醒（desktop/reminders.js）：Dock 数字、早上汇总、到点提醒的开关。老版本的壳没有这个口子 */
     desktopReminders?: {

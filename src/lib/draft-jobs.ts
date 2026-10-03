@@ -1,5 +1,6 @@
 "use client";
 
+import type { 起草风格 } from "@/lib/draft-style";
 import { App } from "antd";
 import { runJob } from "@/lib/ai-jobs";
 import { useBusiness } from "@/lib/business-client";
@@ -17,9 +18,9 @@ export type 草稿类 = "wakeup" | "invite";
 export const 草稿键 = (kind: 草稿类, customerId: string) => `draft:${kind}:${customerId}`;
 
 /** reason 只对唤醒话术有用：说清为什么这时候去联系（盯盘给的是具体原因，别处写从哪儿发起的） */
-export function 起草(kind: 草稿类, customerId: string, reason = "") {
+export function 起草(kind: 草稿类, customerId: string, reason = "", 风格?: 起草风格) {
   runJob(草稿键(kind, customerId), async () => {
-    const res = kind === "wakeup" ? await draftWakeup({ customerId, reason }) : await draftInvite({ customerId });
+    const res = kind === "wakeup" ? await draftWakeup({ customerId, reason, 风格 }) : await draftInvite({ customerId, 风格 });
     return res.ok ? { ok: true, value: res.message } : res;
   });
 }

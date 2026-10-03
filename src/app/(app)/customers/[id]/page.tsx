@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { 收藏了吗 } from "@/lib/favorites";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
@@ -16,7 +17,7 @@ export default async function CustomerDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ focus?: string }>;
 }) {
-  await requireUser();
+  const me = await requireUser();
   const { id } = await params;
   /*
     从到点提醒点进来（?focus=plan:…）：记录页只摆一条计划（最早那条），叫你的那条若不是最早的，
@@ -85,6 +86,7 @@ export default async function CustomerDetailPage({
       channels={channels}
       referrableCustomers={referrableCustomers}
       aiEnabled={await llmEnabled()}
+      已收藏={await 收藏了吗(me.id, id)}
       customer={{
         id: customer.id,
         name: customer.name,
