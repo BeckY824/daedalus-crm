@@ -32,6 +32,8 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
   const [码, set码] = useState("");
   const [密码, set密码] = useState("");
   const [码错, set码错] = useState(0);
+  /** 这一次进输码页是不是因为码错被退回来的：是的话格子一出来就红一下、抖一下（见 OtpInput 的 进来先抖） */
+  const [码错退回, set码错退回] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [说明, set说明] = useState<string | null>(null);
@@ -50,6 +52,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
 
   const 去 = (s: 步) => {
     setError(null);
+    set码错退回(false);
     set步骤(s);
   };
 
@@ -87,6 +90,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
         // 码不对 / 过期：退回输码那一步，格子抖一下清空——别让人在设密码这页对着一句「验证码不对」
         if (/验证码/.test(r.error)) {
           set码错((n) => n + 1);
+          set码错退回(true);
           set步骤("验证码");
         }
         return setError(r.error);
@@ -163,6 +167,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
                   <p className="auth-hint">{说明}</p>
                   <OtpInput
                     错={码错}
+                    进来先抖={码错退回}
                     禁用={loading}
                     onDone={(c) => {
                       set码(c);

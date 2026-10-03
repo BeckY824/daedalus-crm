@@ -19,6 +19,7 @@ export default function OtpInput({
   错 = 0,
   禁用 = false,
   自动聚焦 = true,
+  进来先抖 = false,
 }: {
   长度?: number;
   onDone: (code: string) => void;
@@ -26,11 +27,16 @@ export default function OtpInput({
   错?: number;
   禁用?: boolean;
   自动聚焦?: boolean;
+  /**
+   * 一挂上就红一下、抖一下。码对不对是在「设密码」那一步提交时才知道的，退回输码时这个组件是**重新挂上**的，
+   * 挂上那一刻 错 已经加过了，「错 变了才抖」永远看不到变化（第七轮 C2）。调用方在因为码错退回时传 true
+   */
+  进来先抖?: boolean;
 }) {
   const [值, set值] = useState("");
   const [聚焦, set聚焦] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
-  const 上次错 = useRef(错);
+  const 上次错 = useRef(进来先抖 ? Number.NaN : 错);
   /** 刚错了的那一下：抖一下、红一下就收（原来 错 只加不清，错过一次格子就一直是红的，第六轮 C4） */
   const [刚错, set刚错] = useState(false);
 
