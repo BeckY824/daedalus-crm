@@ -94,7 +94,7 @@ export default function OpportunityForm({
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item name="name" label="商机名称" rules={[{ required: true, message: "请填写商机名称" }]}>
-              <Input placeholder="如：CRM 系统企业版年度采购" />
+              <Input placeholder={b.template === "trade" ? "如：LED 面板灯 2000 pcs 询盘" : "如：CRM 系统企业版年度采购"} />
             </Form.Item>
           </Col>
           <Col span={12}>
