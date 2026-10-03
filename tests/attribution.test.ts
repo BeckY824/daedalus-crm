@@ -282,11 +282,13 @@ describe("渠道汇总：直接推荐 vs 整条推荐链", () => {
       学员("小红", "小明", 20000, 5000),
     ]);
     expect(r["小红"].chainAmount).toBe(35000);
+    // 显示用的按币种合计（2026-10-03）：老签约没有币种行 = 人民币
+    expect(r["小红"].chainMoney).toEqual([{ 币种: "CNY", 合计: 35000 }]);
   });
 
   it("自然流量（没有渠道）谁的桶都不进", () => {
     const r = 渠道汇总(["小红"], [学员(null, null, 99999)]);
-    expect(r["小红"]).toEqual({ id: "小红", directCustomers: 0, chainCustomers: 0, chainAmount: 0 });
+    expect(r["小红"]).toEqual({ id: "小红", directCustomers: 0, chainCustomers: 0, chainAmount: 0, chainMoney: [] });
   });
 
   it("没有学员的渠道也要出现在结果里，不能缺行", () => {

@@ -105,7 +105,7 @@ describe("C4 AI 报的数和页面一个口径", () => {
   it("商机合计按全量算，不是前 30 个", async () => {
     for (let i = 0; i < 32; i++) await saveOpportunity(商机({ name: `单${i}`, amount: 100 }));
     const r = await 跑("list_opportunities");
-    expect(r.summary).toContain("32 个商机，合计 ¥3200");
+    expect(r.summary).toContain("32 个商机，合计 ¥ 3,200");
   });
 
   it("我的回顾：笔数数全量，不是前 50 笔", async () => {

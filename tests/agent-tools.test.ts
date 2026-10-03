@@ -49,7 +49,8 @@ describe("list_channels", () => {
     const [行] = (await 用("list_channels").run({}, ctx())).data as { 渠道负责人: string; 直接带来: number; 这条链的签约额: number }[];
     expect(行.渠道负责人).toBe("甲");
     expect(行.直接带来).toBe(1);
-    expect(行.这条链的签约额).toBe(19800);
+    // 2026-10-03 起按币种写成一句（不换汇）
+    expect(行.这条链的签约额).toBe("¥ 19,800");
   });
 
   it("默认不列停用的，要看得显式要", async () => {
@@ -105,7 +106,7 @@ describe("list_opportunities", () => {
     const r = await 用("list_opportunities").run({}, ctx());
     const d = r.data as { 总数: number; 商机: { 名称: string; 金额: number }[] };
     expect(d.商机.map((o) => o.名称)).toEqual(["大单", "小单"]);
-    expect(r.summary).toContain("205000");
+    expect(r.summary).toContain("¥ 205,000");
   });
 
   it("要丢单的得显式要——不然「手上有哪些单子」会把丢掉的也算进去", async () => {
@@ -321,9 +322,9 @@ describe("list_contracts", () => {
     await 签("李四", 29800, "2026-09-20");
     await 签("旧的", 10000, "2026-08-15");
     const r = await 用("list_contracts").run({ from: "2026-09-01", to: "2026-09-30" }, ctx());
-    const d = r.data as { 总数: number; 总额: number; 签约: { 客户: string; 金额: number; 签约日: string }[] };
+    const d = r.data as { 总数: number; 总额: string; 签约: { 客户: string; 金额: number; 签约日: string }[] };
     expect(d.总数).toBe(2);
-    expect(d.总额).toBe(49600);
+    expect(d.总额).toBe("¥ 49,600");
     expect(d.签约.map((c) => c.客户)).toEqual(["李四", "张三"]); // 按签约日从近到远
     expect(d.签约[0].签约日).toBe("2026-09-20");
   });
@@ -360,10 +361,10 @@ describe("list_contracts", () => {
 
   it("超过 30 笔时，总额算的是全量，不是列出来那几行的和", async () => {
     for (let i = 0; i < 32; i++) await 签(`客户${i}`, 1000, "2026-09-10");
-    const d = (await 用("list_contracts").run({}, ctx())).data as { 总数: number; 已列出: number; 总额: number };
+    const d = (await 用("list_contracts").run({}, ctx())).data as { 总数: number; 已列出: number; 总额: string };
     expect(d.总数).toBe(32);
     expect(d.已列出).toBe(30);
-    expect(d.总额).toBe(32000); // 不是 30000
+    expect(d.总额).toBe("¥ 32,000"); // 不是 30000
   });
 
   it("from/to 写反了自动换过来，不是回一个空名单让人以为真没签", async () => {
