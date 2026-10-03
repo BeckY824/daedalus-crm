@@ -6,13 +6,13 @@
  */
 import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
 const 临时 = vi.hoisted(() => {
-  const fs = require("node:fs") as typeof import("node:fs");
-  const os = require("node:os") as typeof import("node:os");
-  const path = require("node:path") as typeof import("node:path");
+  // vi.hoisted 比 import 先跑，拿不到上面导入的模块：用 Node 自带的取法
+  const fs = process.getBuiltinModule("node:fs") as typeof import("node:fs");
+  const os = process.getBuiltinModule("node:os") as typeof import("node:os");
+  const path = process.getBuiltinModule("node:path") as typeof import("node:path");
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-sync-client-"));
   fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db"), path.join(dir, "A.db"));
   return { dir };
@@ -31,7 +31,7 @@ import { 疑似重复 } from "@/lib/sync/dupes";
 
 /* ---------------- 假中转 ---------------- */
 const 云 = { 团队: new Map<string, { name: string; secret: string; active: boolean; 人: Set<string> }>(), 批: [] as { seq: number; team: string; device: string; data: string }[] };
-let 当前账号 = "jia";
+const 当前账号 = "jia";
 const 假传输: 传输 = async (方法, 路径, body) => {
   const b = (body ?? {}) as Record<string, string>;
   if (方法 === "POST" && 路径 === "/api/sync/team") {
