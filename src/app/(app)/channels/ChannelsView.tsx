@@ -14,6 +14,7 @@ import { saveChannel, toggleChannel, deleteChannel } from "./actions";
 import ReferralRadar from "./ReferralRadar";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
 import { useBusiness } from "@/lib/business-client";
+import { 聚焦首项 } from "@/lib/modal-focus";
 
 type Row = {
   id: string;
@@ -272,6 +273,7 @@ export default function ChannelsView({
 
       {open && (
         <Modal
+          afterOpenChange={聚焦首项}
           open
           title={editing ? "编辑渠道" : "新建渠道"}
           onCancel={() => { setOpen(false); setEditing(null); }}

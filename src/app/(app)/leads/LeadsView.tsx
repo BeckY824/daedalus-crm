@@ -21,6 +21,7 @@ import { 成员选项, 独自一人, 可选成员, smartTime } from "@/lib/utils
 import { saveLead, deleteLeads, convertLead } from "./actions";
 import { useBusiness } from "@/lib/business-client";
 import { useUrlFilters } from "@/lib/url-filters";
+import { 聚焦首项 } from "@/lib/modal-focus";
 
 type Row = {
   id: string;
@@ -229,6 +230,7 @@ export default function LeadsView({
       />
 
       <Modal
+        afterOpenChange={聚焦首项}
         open={open}
         title={editing ? "编辑线索" : "新建线索"}
         onCancel={() => setOpen(false)}

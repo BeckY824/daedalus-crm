@@ -6,6 +6,7 @@ import { saveContact, saveUnassignedContact } from "./actions";
 import type { ContactRow } from "./types";
 import { useBusiness } from "@/lib/business-client";
 import { 关系候选 } from "@/lib/business-config";
+import { 聚焦首项 } from "@/lib/modal-focus";
 
 /*
   与客户的关系。取值有限却不封闭（教培里有姑姑、哥哥，公司里有「副总」），
@@ -100,6 +101,7 @@ export default function ContactForm({
 
   return (
     <Modal
+      afterOpenChange={聚焦首项}
       open={open}
       title={record ? `编辑联系人 · ${record.name}` : "添加联系人"}
       onCancel={onClose}

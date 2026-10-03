@@ -13,6 +13,7 @@ import { statusLabel } from "@/lib/business-config";
 import { 查电话 } from "@/lib/phone";
 import { 推荐方式 } from "@/lib/referrer-kind";
 import { 带走说法 } from "@/lib/carry-over";
+import { 聚焦首项 } from "@/lib/modal-focus";
 
 export type CustomerRow = {
   id: string;
@@ -174,6 +175,7 @@ function CustomerFormInner({
   return (
     <>
     <Modal
+      afterOpenChange={聚焦首项}
       open={open}
       title={editing ? `编辑${b.customer}` : `新建${b.customer}`}
       onCancel={() => onClose(false)}
@@ -473,6 +475,7 @@ function QuickChannelModal({
 
   return (
     <Modal
+      afterOpenChange={聚焦首项}
       open={open}
       title="新建外部渠道"
       onCancel={() => onClose(null)}

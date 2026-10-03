@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Modal, Form, Input, DatePicker, App } from "antd";
 import { dayjs } from "@/lib/utils";
 import { saveTask } from "./actions";
+import { 聚焦首项 } from "@/lib/modal-focus";
 
 export default function TaskForm({
   open,
@@ -55,6 +56,7 @@ export default function TaskForm({
 
   return (
     <Modal
+      afterOpenChange={聚焦首项}
       open={open}
       title={record ? "改待办" : "新建待办任务"}
       onCancel={onClose}

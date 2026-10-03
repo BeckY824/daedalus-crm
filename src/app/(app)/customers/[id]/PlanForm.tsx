@@ -8,6 +8,7 @@ import { FOLLOW_METHODS } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
 import { savePlan } from "./actions";
 import CustomerPick, { type 客户近况 } from "./CustomerPick";
+import { 聚焦首项 } from "@/lib/modal-focus";
 
 /**
  * 跟进计划表单。两处用：记录页（给了 customerId，已经知道是谁）和计划页页头的「新建计划」
@@ -109,6 +110,7 @@ export default function PlanForm({
 
   return (
     <Modal
+      afterOpenChange={聚焦首项}
       open={open}
       title={record ? "编辑跟进计划" : 挑人 ? "新建跟进计划" : "制定跟进计划"}
       onCancel={关}

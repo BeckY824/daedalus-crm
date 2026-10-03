@@ -7,6 +7,7 @@ import { dayjs, 成员选项, 独自一人, type 可选成员 } from "@/lib/util
 import { 金额格式 } from "@/lib/money-input";
 import { saveOpportunity } from "./actions";
 import type { OppRow } from "./OpportunitiesView";
+import { 聚焦首项 } from "@/lib/modal-focus";
 
 /**
  * 新建 / 编辑商机的框。列表页和管道页共用（2026-09-29）：管道页原来没有表单，
@@ -74,6 +75,7 @@ export default function OpportunityForm({
 
   return (
     <Modal
+      afterOpenChange={聚焦首项}
       open={open}
       title={editing ? "编辑商机" : "新建商机"}
       onCancel={onClose}

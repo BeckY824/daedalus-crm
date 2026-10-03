@@ -7,6 +7,7 @@ import { saveContract, listContractLinks, type 签约联动, type 签约联动�
 import { useBusiness } from "@/lib/business-client";
 import { StageTag } from "@/components/ui";
 import { 金额格式 } from "@/lib/money-input";
+import { 聚焦首项 } from "@/lib/modal-focus";
 
 type 可收尾 = Awaited<ReturnType<typeof listContractLinks>>;
 
@@ -154,6 +155,7 @@ function Inner({
 
   return (
     <Modal
+      afterOpenChange={聚焦首项}
       open
       title={editing ? "编辑签约记录" : "登记签约"}
       onCancel={() => onClose(false)}
