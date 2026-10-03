@@ -52,24 +52,45 @@ function 转发(req, res, 目标端口) {
 }
 
 /**
- * 开一个固定端口的转发。`取端口()` 每次现问——本地服务重启会换端口，
- * 而这个桥要一直活着，不能把旧端口记死在闭包里。
+ * 连着服务器（团队主机 / 托管版）时的那句话。桥只答本机数据：照常转的话，Claude Code 问「团队里几个客户」，
+ * 答的是这台电脑上的个人库（本机服务在跑时），或者一句看不懂的「本地服务没在跑」（0.46.15 第 7 块）。
  */
-async function start({ 取端口, dataDir }) {
+function 连着服务器说法(地址) {
+  return (
+    `桌面端现在连着服务器（${地址}），这个端口只答本机数据，先不答——免得把这台电脑上的个人数据当成团队的。` +
+    `要查团队那份：在服务器网页的「设置 → AI 接入」里开 MCP，照那里给的地址和令牌接；要查本机：应用菜单「改用本机数据」。`
+  );
+}
+
+/**
+ * 开一个固定端口的转发。`取端口()` 每次现问——本地服务重启会换端口，
+ * 而这个桥要一直活着，不能把旧端口记死在闭包里。`连着服务器()` 也现问：切模式不重启这座桥。
+ */
+async function start({ 取端口, dataDir, 连着服务器 = () => null }) {
   await stop();
   for (let i = 0; i < 最多试; i++) {
     const p = 起始端口 + i;
     const ok = await new Promise((resolve) => {
       const s = http.createServer((req, res) => {
         const u = (req.url ?? "").split("?")[0];
+        // 不转的那几种也要把请求体读完再回话：没读完就关，对面看到的是 ECONNRESET，而不是我们那句说明
+        const 不转 = (状态, 头, 体) => {
+          req.resume();
+          req.on("end", () => {
+            res.writeHead(状态, 头);
+            res.end(体);
+          });
+        };
         if (u !== 路径) {
-          res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-          return res.end("这个端口只转 /api/mcp");
+          return 不转(404, { "content-type": "text/plain; charset=utf-8" }, "这个端口只转 /api/mcp");
+        }
+        const 服务器 = 连着服务器();
+        if (服务器) {
+          return 不转(409, { "content-type": "application/json; charset=utf-8" }, JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32003, message: 连着服务器说法(服务器) } }));
         }
         const 端口 = 取端口();
         if (!端口) {
-          res.writeHead(503, { "content-type": "application/json" });
-          return res.end(JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32002, message: "本地服务还没起来" } }));
+          return 不转(503, { "content-type": "application/json; charset=utf-8" }, JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32002, message: "本地服务还没起来" } }));
         }
         转发(req, res, 端口);
       });

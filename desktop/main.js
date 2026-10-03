@@ -340,7 +340,15 @@ async function 真启动本地() {
     取端口现问不缓存：重启本地服务会换端口，这座桥要跨过那次重启。
     开不起来（端口全被占）就不开，其余功能照常——MCP 是附加能力，不该挡着人用 CRM。
   */
-  const p = await MCP桥.start({ 取端口: () => 本地?.port ?? null, dataDir: 数据目录 });
+  const p = await MCP桥.start({
+    取端口: () => 本地?.port ?? null,
+    dataDir: 数据目录,
+    // 连着服务器时桥不转、明说（0.46.15 第 7 块）：照转的话答的是本机个人库，不是窗口里那份团队数据
+    连着服务器: () => {
+      const cfg = 读配置();
+      return cfg.mode === "server" ? cfg.serverUrl : null;
+    },
+  });
   if (!p) console.warn("[mcp] 固定端口没开起来，MCP 只能按本次的随机端口连");
 }
 

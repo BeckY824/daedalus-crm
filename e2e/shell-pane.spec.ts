@@ -177,7 +177,12 @@ test.describe("中栏跟着路由走", () => {
     // 左栏 2026-09-17 起没有「设置」了：那一列是每天干活的地方，设置是偶尔去一趟的抽屉
     await expect(page.getByRole("navigation", { name: "主导航" }).getByRole("link", { name: "设置" })).toHaveCount(0);
 
-    await page.getByRole("button", { name: /账号菜单/ }).click();
+    /* 冷启动编译时页面可能还没水合，第一下点了没反应（整套连跑时偶发，单跑都过）：
+       没弹出来就再点，直到菜单真的出现 */
+    await expect(async () => {
+      if (!(await page.getByRole("menuitem").filter({ hasText: "设置" }).isVisible())) await page.getByRole("button", { name: /账号菜单/ }).click();
+      await expect(page.getByRole("menuitem").filter({ hasText: "设置" })).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
     // 「个人资料」不在这个菜单里：它是设置里的第一栏，同一个地方不开两个门（2026-09-18）
     await expect(page.getByRole("menuitem").filter({ hasText: "个人资料" })).toHaveCount(0);
     /**
@@ -254,7 +259,11 @@ test.describe("中栏跟着路由走", () => {
     page.on("request", (r) => {
       if (r.url().includes("/api/feedback")) 发了请求 = true;
     });
-    await 键.click();
+    // 同上：还没水合时第一下点了没反应，点到真的开了为止（开过一次就不再点）
+    await expect(async () => {
+      if (!(await page.evaluate(() => (window as unknown as { 开过: string[] }).开过.length))) await 键.click();
+      expect(await page.evaluate(() => (window as unknown as { 开过: string[] }).开过.length)).toBeGreaterThan(0);
+    }).toPass({ timeout: 30_000 });
 
     await expect(page.getByRole("dialog")).toHaveCount(0);
     const 开过 = await page.evaluate(() => (window as unknown as { 开过: string[] }).开过);

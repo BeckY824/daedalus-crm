@@ -15,14 +15,14 @@ export const runtime = "nodejs";
  * 对一人公司那个人群意义最大——他多半已经在付 Claude 或 ChatGPT 的钱，
  * 而数据一步都不出他的机器。
  *
- * 接法（桌面端在「设置 → 桌面端」里能直接复制这一条）：
+ * 接法（在「设置 → AI 接入」里能直接复制这一条）：
  *
  *     claude mcp add --transport http daedalus http://127.0.0.1:<端口>/api/mcp \
  *       --header "Authorization: Bearer <令牌>"
  *
  * 三条边界：
  *   - **只读**：开出去的是九个查询工具，写入一律没有（见 lib/mcp/tools.ts 的说明）
- *   - **要令牌**：`Authorization: Bearer`，在设置里生成，重新生成即作废旧的。
+ *   - **要令牌**：`Authorization: Bearer`，在「设置 → AI 接入」里生成，重新生成即作废旧的。
  *     令牌不放地址栏——地址会进历史、进日志、进别人的截图
  *   - **托管版不开**：那边是多租户，一个 URL 背后有好几个工作区，
  *     而这条协议里没有工作区这个概念。它是给桌面端和自部署的
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
 
   const 头 = req.headers.get("authorization") ?? "";
   const who = await 认令牌(头.toLowerCase().startsWith("bearer ") ? 头.slice(7).trim() : null);
-  if (!who) return 拒绝(401, "要一个有效的 MCP 令牌：在「设置 → 桌面端」里生成，用 Authorization: Bearer 带上");
+  if (!who) return 拒绝(401, "要一个有效的 MCP 令牌：在「设置 → AI 接入」里生成，用 Authorization: Bearer 带上");
 
   let body: unknown;
   try {
