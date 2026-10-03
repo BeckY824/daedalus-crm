@@ -18,7 +18,7 @@
  * 菜单照 Claude 桌面端那套：应用 / 文件 / 编辑 / 显示 / 前往 / 窗口 / 帮助，全是标准项。
  * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
-const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session } = require("electron");
+const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session, nativeTheme } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
@@ -561,8 +561,15 @@ function 玻璃可用() {
   if (process.platform === "win32") return Number(os.release().split(".")[2] ?? 0) >= 22000;
   return false;
 }
+/**
+ * 系统设置里开了「减少透明度」（Mac：辅助功能 → 显示；Windows：透明效果关掉）：毛玻璃一律当关着。
+ * 开这个的人多半是嫌晃眼、看不清字——这时还透着壁纸就是在跟他的设置对着干（2026-10-03）
+ */
+function 系统要少透明() {
+  return nativeTheme.prefersReducedTransparency === true;
+}
 function 玻璃开着() {
-  return 玻璃可用() && 读配置().glass !== false;
+  return 玻璃可用() && 读配置().glass !== false && !系统要少透明();
 }
 const 实底 = "#fafafa";
 /*
@@ -1179,13 +1186,25 @@ ipcMain.handle("shell:version", () => app.getVersion());
 ipcMain.on("shell:glass-now", (e) => {
   e.returnValue = 玻璃开着();
 });
-ipcMain.handle("shell:glass", () => ({ 可用: 玻璃可用(), 开: 玻璃开着() }));
+ipcMain.handle("shell:glass", () => ({ 可用: 玻璃可用(), 开: 玻璃开着(), 系统关了: 系统要少透明() }));
 ipcMain.handle("shell:set-glass", (_e, 开) => {
-  if (!玻璃可用()) return { 可用: false, 开: false };
+  if (!玻璃可用()) return { 可用: false, 开: false, 系统关了: false };
+  // 人选的照存；系统要少透明时先不生效，等他把系统那项关了自己回来
   写配置({ ...读配置(), glass: 开 === true });
-  上玻璃(win, 开 === true);
-  win?.webContents.send("shell:glass", 开 === true);
-  return { 可用: true, 开: 开 === true };
+  const 生效 = 玻璃开着();
+  上玻璃(win, 生效);
+  win?.webContents.send("shell:glass", 生效);
+  return { 可用: true, 开: 生效, 系统关了: 系统要少透明() };
+});
+// 系统那项中途改了：当场跟着变，不用重启。updated 在切深色模式时也会来，没变就不动
+let 上次玻璃 = null;
+nativeTheme.on("updated", () => {
+  if (!win || win.isDestroyed()) return;
+  const 生效 = 玻璃开着();
+  if (上次玻璃 === 生效) return;
+  上次玻璃 = 生效;
+  上玻璃(win, 生效);
+  win.webContents.send("shell:glass", 生效);
 });
 /*
   提醒的设置和「现在就再问一次」。设置存在壳这边（数据根下的 reminders.json）：

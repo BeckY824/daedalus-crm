@@ -214,7 +214,8 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, deskt
   const 一项 = (n: (typeof nav)[number]) => (
     <Link
       key={n.key}
-      href={n.key}
+      /* 客户：直接进「名单 + 详情」，打开最近看过的那位（照毛玻璃原型）；表格在名单右上角。手机菜单照旧进表格 */
+      href={n.key === "/customers" ? "/customers/recent" : n.key}
       aria-label={n.key === "/follow-ups" && 要跟说法 ? `${n.label}，${要跟说法}` : n.label}
       className={`rail-item${selectedKey === n.key ? " on" : ""}`}
     >

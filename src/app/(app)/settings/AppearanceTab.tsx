@@ -85,7 +85,7 @@ const 无订阅 = () => () => {};
  */
 function GlassRow() {
   const 桥 = useSyncExternalStore(无订阅, () => window.desktopShell, () => undefined);
-  const [态, set态] = useState<{ 可用: boolean; 开: boolean } | null>(null);
+  const [态, set态] = useState<{ 可用: boolean; 开: boolean; 系统关了?: boolean } | null>(null);
   useEffect(() => {
     桥?.glass?.().then(set态).catch(() => {});
   }, [桥]);
@@ -110,6 +110,7 @@ function GlassRow() {
             aria-checked={态.开 === x.开}
             className={`appr-opt${态.开 === x.开 ? " on" : ""}`}
             onClick={() => 选(x.开)}
+            disabled={态.系统关了}
           >
             <span className={`appr-mini appr-mini-${x.开 ? "glass" : "solid"}`} aria-hidden="true">
               <i className="appr-mini-rail" />
@@ -120,6 +121,8 @@ function GlassRow() {
           </button>
         ))}
       </div>
+      {/* 系统开了「减少透明度」：这里先用实底，说清是为什么，免得以为开关坏了 */}
+      {态.系统关了 && <p className="appr-note">系统设置里开了「减少透明度」，这里先用实底；在系统里关掉那一项，毛玻璃会自己回来。</p>}
     </section>
   );
 }

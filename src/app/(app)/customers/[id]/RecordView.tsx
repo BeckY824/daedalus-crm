@@ -41,6 +41,7 @@ import { deleteContract } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 import { useMotionTheme } from "@/components/MotionTheme";
 import { 截止说法, 已过期 } from "@/lib/deadline";
+import { 记下最近客户 } from "@/lib/last-customer";
 
 /**
  * 记录页（v0.4）：三栏。
@@ -98,6 +99,8 @@ export default function RecordView({
     登记详情名(customer.name);
     return () => 登记详情名(null);
   }, [customer.name]);
+  // 左栏点「客户」时回到这一位（customers/recent）
+  useEffect(() => 记下最近客户(customer.id), [customer.id]);
 
   const [filter, setFilter] = useState<string>("全部");
   const [memo, setMemo] = useState("");
