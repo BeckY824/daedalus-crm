@@ -142,13 +142,15 @@ export default function RecordView({
   const 名单在抽屉里 = useRosterInDrawer();
   /**
    * AI 栏收不收看正文实际多宽，不看视口：右边的全局面板开着时视口断点会误判（见 lib/roster.ts）。
-   * 908 = 视口 1180 减左栏 220、正文留白 52——没开面板时和原来的视口断点一模一样；630 以下单栏（对应视口 900）。
-   * 量到之前先按视口猜，和改之前一样。
+   * 1090 = 资料 240 + AI 栏 340 + 两道间距 + 时间线至少 480。原来是 908（视口 1180 减左栏和留白，那时还没有名单），
+   * 时间线只剩不到 300：1512 宽的 15 寸、1920 开着面板，「直接记」都折到第二行，最要紧的一栏最窄（2026-10-03 五档窗口走查）。
+   * 收起来的 AI 栏在头部「AI」按钮里，一点就开。630 以下单栏（对应视口 900）。
+   * 量到之前先按视口猜。
    */
   const recRef = useRef<HTMLDivElement>(null);
   const 正文宽 = useWidth(recRef);
-  const 视口窄 = useNarrow("(max-width: 1179px)");
-  const AI在抽屉里 = 正文宽 === null ? 视口窄 : 正文宽 < 908;
+  const 视口窄 = useNarrow("(max-width: 1673px)");
+  const AI在抽屉里 = 正文宽 === null ? 视口窄 : 正文宽 < 1090;
   const 单栏 = 正文宽 !== null && 正文宽 < 630;
   const [AI抽屉开着, setAI抽屉开着] = useState(false);
 

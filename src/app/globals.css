@@ -1034,9 +1034,16 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 }
 /* 上面两条看视口，只管第一帧（还没量到正文多宽的时候）。量到之后由 RecordView 按正文实际宽度
    挂这两个类——右边的全局面板开着时视口断点会误判，见 lib/roster.ts 的 DockOpenContext */
-.rec.rec-2col { grid-template-columns: 240px minmax(0, 1fr); }
-.rec.rec-2col .rec-right { grid-column: 1 / -1; }
+.rec.rec-2col { grid-template-columns: 240px minmax(0, 1fr); grid-template-rows: auto 1fr; }
 .rec.rec-2col .rec-rail { position: static; }
+/* 两栏时「待办」「下次跟进」放到时间线**上面**、两张并排，资料栏占左边两行。
+   原来是整行排在最底下：资料栏六百多高，13 / 15 寸上要滚一屏才看得到今天该做什么（2026-10-03 窗口走查；
+   AI 栏的门槛提到 1090 以后，15 寸 1512 也走这一套） */
+.rec.rec-2col > .rec-rail:first-child { grid-column: 1; grid-row: 1 / span 2; }
+.rec.rec-2col > .rec-right { grid-column: 2; grid-row: 1; }
+.rec.rec-2col > .rec-col { grid-column: 2; grid-row: 2; }
+.rec.rec-2col > .rec-right > .ant-space { flex-direction: row; flex-wrap: wrap; column-gap: var(--s4); }
+.rec.rec-2col > .rec-right > .ant-space > .ant-space-item { flex: 1 1 200px; min-width: 0; }
 .rec.rec-1col { grid-template-columns: 1fr; }
 
 /* ---------- 首页：对话面 ---------- */
@@ -1437,6 +1444,18 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .ftype-i { display: inline-flex; font-size: var(--ic); }
 .list-bar { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
 .list-bar-gap { flex: 1; }
+/* 桌面端：筛选组放不下时在组里折，不再整组掉下去把「列」一个人留在第二行（2026-10-03，1024 宽窗口）。
+   窄于 1200 再把搜索框和下拉收一点：最小窗口 1024 的正文只有 740，原尺寸（搜 240–300 + 三个 120–156 + 一直占位的「重置」）
+   摆不进一行，「重置」看不见却折到第二行，筛选行下面空出一截 */
+@media (min-width: 768px) {
+  .list-bar { flex-wrap: nowrap; align-items: flex-start; }
+  .list-bar > .ant-space { flex: 0 1 auto; min-width: 0; }
+  .list-bar > .ant-btn, .list-bar > .ant-dropdown-trigger { flex: none; }
+}
+@media (min-width: 768px) and (max-width: 1199px) {
+  .list-bar > .ant-space > .ant-space-item > .ant-input-affix-wrapper { width: 160px !important; }
+  .list-bar > .ant-space > .ant-space-item > .ant-select { width: auto !important; min-width: 96px; max-width: 132px; }
+}
 /* 渠道表里停用的那几行整行压淡，名字旁边写「已停用」（审查 D12）。操作列不压：恢复键要看得清 */
 .row-off > td:not(.ant-table-cell-fix-end) { color: var(--text-muted); }
 .row-off .link-strong { color: var(--text-muted); }
@@ -1599,7 +1618,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* ---------- 设置：左目录 ----------
    五项里有两项只有管理员看得到，横着排页签时两种人看到的宽度都不一样；
    竖着排还能给每项留一句说明——只有名字的话，「业务配置」是个谜。 */
-.set { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--s5); align-items: start; }
+/* max-width：直接打开 /settings 是整页，外接屏上表单 380 宽、白卡片却拉满一千多；和浮层（.setm-box 1040）一样宽 */
+.set { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: var(--s5); align-items: start; max-width: 1040px; }
 .set-nav { display: flex; flex-direction: column; gap: 2px; position: sticky; top: var(--s4); }
 /* ── 设置浮层 ──────────────────────────────────────────
    设置不是一页，是一层：盖在你正看的东西上面，关掉回到原处。
@@ -1881,9 +1901,30 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
    改成从 0.97 长到 1：还是同一个动作，但幅度小到只剩"它是长出来的"这一个意思。 */
 /* 选择器要比 antd 的多一层：它的样式是运行时注进 <head> 的，排在这张表后面，
    同样特异度的话是它赢——`top: 100px` 就是这么活下来的（第一版写 `.ant-modal` 没生效） */
+/* **随窗口大小**（2026-10-03）。桌面端窗口最小 1024×700，13 寸常用八百多高，外接屏可到 1440 高：
+   - 高：上下各留 --modal-gap（矮窗口 16、高窗口 48，中间按 5vh 走），最高 880——再高的屏也不把一张表单拉成一面墙；
+   - 宽：各处的 width 档位不跟着窗口放大（表单越宽越难读），只保证不超出窗口；
+   - 标题和底栏钉住，只滚中间：AI 解析填好的「新建跟进」比 13 寸窗口还高，原来「保存」在窗口外，要先往下滚才找得到。
+   antd 6 的外壳叫 .ant-modal-container（5 里叫 .ant-modal-content）——9-18 那版按 5 的名字写，这条限高一直没生效过。
+   全站弹框都用 antd 自带的底栏（onOk / footer），一条规则管全部 */
+:root { --modal-gap: clamp(16px, 5vh, 48px); }
 .ant-modal-wrap { display: flex; align-items: center; justify-content: center; }
-.ant-modal-wrap .ant-modal { top: 0; margin: 0; padding-bottom: 0; max-height: calc(100vh - 80px); }
-.ant-modal-wrap .ant-modal .ant-modal-content { max-height: calc(100vh - 80px); overflow: auto; }
+.ant-modal-wrap .ant-modal { top: 0; margin: 0; padding-bottom: 0; max-width: calc(100vw - 2 * var(--modal-gap)); }
+.ant-modal-wrap .ant-modal .ant-modal-container {
+  max-height: min(calc(100vh - 2 * var(--modal-gap)), 880px);
+  display: flex; flex-direction: column; overflow: hidden; }
+.ant-modal-wrap .ant-modal .ant-modal-header,
+.ant-modal-wrap .ant-modal .ant-modal-footer { flex: none; }
+/* 只竖着滚：表单栅格（Row gutter）两边各有 -8px 的负边距，overflow: auto 会因此多出一条横滚动条（1024×700 实地看到）。
+   被裁掉的只是 Col 的内边距，输入框和焦点环都在里面 */
+.ant-modal-wrap .ant-modal .ant-modal-body { flex: 1 1 auto; min-height: 0; overflow: hidden auto; overscroll-behavior: contain; }
+/* 中间能滚以后，最后一个表单项的下边距不再和底栏的上边距叠在一起，按钮上方会多出 12px 空白；
+   表单自己那 24 已经够隔开，底栏就不再加 */
+.ant-modal-wrap .ant-modal .ant-modal-body:has(.ant-form-item) + .ant-modal-footer { margin-top: 0; }
+/* 矮窗口（13 寸不全屏、或者拖矮了）：表单项间距从 24 收到 14，少滚几下 */
+@media (max-height: 820px) {
+  .ant-modal-wrap .ant-modal .ant-form-item { margin-bottom: 14px; }
+}
 @keyframes crm-modal-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
 @keyframes crm-modal-out { from { opacity: 1; transform: scale(1); } to { opacity: 0; transform: scale(0.985); } }
 .ant-modal.ant-zoom-enter, .ant-modal.ant-zoom-appear {
@@ -2070,11 +2111,15 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
    于是两栏照摆——实地看到的是「推荐人」三个字竖着排成三行。
    840 落在 antd 的 md(768) 和 lg(992) 之间，所以把 xl 的跨度按那个宽度重新映射。
    全站只用了五种 xl 跨度（6 / 9 / 12 / 15 / 24），一一对应，不写通配。 */
-.shell-dock-open :is(.ant-col-xl-12, .ant-col-xl-9, .ant-col-xl-15) {
-  flex: 0 0 100%; max-width: 100%;
+/* 只在正文真窄的时候改：面板 1600 起才常驻，正文 = 窗口 - 220 - 380，窗口到 1800 正文就有 1200（xl 本来的意思），
+   两栏、四张一排都摆得开。2026-10-03 前这条不分窗口，2560 的外接屏上四张指标卡也两两一排、每张八百多宽只放一个数 */
+@media (max-width: 1799px) {
+  .shell-dock-open :is(.ant-col-xl-12, .ant-col-xl-9, .ant-col-xl-15) {
+    flex: 0 0 100%; max-width: 100%;
+  }
+  /* 四张一排的指标卡：840 里摆四张每张 200，太挤；改成两张一排 */
+  .shell-dock-open .ant-col-xl-6 { flex: 0 0 50%; max-width: 50%; }
 }
-/* 四张一排的指标卡：840 里摆四张每张 200，太挤；改成两张一排 */
-.shell-dock-open .ant-col-xl-6 { flex: 0 0 50%; max-width: 50%; }
 
 /* 列表筛出 0 条时那一句（DataList）。不是空库引导，安安静静一行 */
 .list-none { padding: 40px 0; text-align: center; color: var(--text-muted); font-size: var(--fs-note); }
