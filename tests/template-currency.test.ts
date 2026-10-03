@@ -18,7 +18,7 @@ import { 金额, 是币种, 规整币种, 币种选项, 按币种合计, 合计�
 import { mergeBusiness, BUSINESS_PRESETS, DEFAULT_BUSINESS, 推断模版 } from "@/lib/business-config";
 import { invalidateSettingsCache, setSetting, getSetting } from "@/lib/settings";
 import { 要选模版, 选过模版键 } from "@/lib/onboarding";
-import { 选模版 } from "@/app/(app)/start/actions";
+import { 选模版 } from "@/app/start/actions";
 import { getBusiness } from "@/lib/business";
 
 const 原值 = process.env.DESKTOP_LOCAL;

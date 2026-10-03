@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { App } from "antd";
 import type { BusinessTemplate } from "@/lib/business-config";
 import { 选模版 } from "./actions";
@@ -26,7 +25,6 @@ const 卡: { t: BusinessTemplate; 名: string; 一句: string; 有: string[] }[]
 ];
 
 export default function TemplatePicker() {
-  const router = useRouter();
   const { message } = App.useApp();
   const [忙, set忙] = useState<BusinessTemplate | null>(null);
 
@@ -39,13 +37,13 @@ export default function TemplatePicker() {
       message.error(r.error);
       return;
     }
-    router.replace("/dashboard");
-    router.refresh();
+    // 整页进主界面：从门口这一页进 (app) 的外壳，和登录成功那一跳同一个做法（login/after-login.ts）
+    window.location.assign("/dashboard");
   }
 
   return (
     <div className="tpl">
-      <h1 className="start-h">你主要做哪一类生意？</h1>
+      <h1 className="tpl-h">你主要做哪一类生意？</h1>
       <p className="tpl-s">选一个，界面和功能按它来。以后在「设置 → 业务配置」里随时能改。</p>
       <div className="tpl-cards">
         {卡.map((c) => (

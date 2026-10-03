@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { 选落点 } from "@/lib/desktop/landing";
+import { 要选模版 } from "@/lib/onboarding";
 import { createSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
@@ -78,5 +79,7 @@ export async function GET(req: Request) {
    * （实测 127.0.0.1 的请求会被规范成 localhost）——会话 cookie 是按访问时的
    * 主机名下发的，跳到另一个主机名上就等于没登录，表现是自动登录完又被弹回登录页。
    */
-  return new NextResponse(null, { status: 307, headers: { Location: 选落点(new URL(req.url).searchParams.get("next")) } });
+  // 新库先去选模版（在主界面外面，见 app/start/page.tsx），选完才进来
+  const 落点 = (await 要选模版()) ? "/start" : 选落点(new URL(req.url).searchParams.get("next"));
+  return new NextResponse(null, { status: 307, headers: { Location: 落点 } });
 }

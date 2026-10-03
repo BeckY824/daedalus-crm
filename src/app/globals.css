@@ -1497,9 +1497,11 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
    一句欢迎在卡外，卡里是「第 1 步」→ 标题 → 三步一行 → 说明 → 按钮 → 脚注。
    三步是横着的路标，不是三张说明卡，所以不给边框，用一条细线把它们连起来。 */
 /* 新用户选模版（2026-10-03）：两张卡二选一，整张卡是按钮 */
-.tpl { max-width: 760px; }
+/* 选模版：在登录页右半边（app/start），两张卡并排，窗口窄了上下排 */
+.tpl { width: min(640px, 100%); display: flex; flex-direction: column; }
+.tpl-h { margin: 0 0 var(--s3); font-family: var(--font-display); font-weight: var(--fw-display); font-size: var(--fs-title); color: var(--ink); }
 .tpl-s { margin: calc(-1 * var(--s2)) 0 var(--s5); color: var(--text-muted); font-size: var(--fs-note); }
-.tpl-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s4); }
+.tpl-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: var(--s4); }
 .tpl-card { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s2); text-align: left; font: inherit; color: inherit; cursor: pointer;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-pop); padding: var(--s5);
   transition: border-color var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease), transform var(--t-press) var(--ease); }
