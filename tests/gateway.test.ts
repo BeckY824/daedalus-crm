@@ -97,6 +97,8 @@ function 请求(token: string | null, body: unknown, url = "https://app.example.
 }
 
 const 一次问话 = { model: "deepseek-chat", messages: [{ role: "user", content: "你好" }] };
+/** 不带编号时网关按前两条消息认问题（第四轮兼容 B1）：要算成几个问题，就得问几句不同的话 */
+const 第几句 = (i: number) => ({ model: "deepseek-chat", messages: [{ role: "user", content: `你好 ${i}` }] });
 
 describe("没配网关时这些路由不存在", () => {
   it("缺 GATEWAY_API_KEY → 404，而不是 401", async () => {
@@ -292,7 +294,7 @@ describe("额度", () => {
     let res: Response;
     for (;;) {
       resetAiQuota();
-      res = await POST(请求(token, 一次问话));
+      res = await POST(请求(token, 第几句(放行)));
       if (res.status !== 200) break;
       放行++;
       if (放行 > 100) throw new Error("怎么问都不拦，闸门没起作用");
@@ -371,13 +373,18 @@ describe("额度", () => {
     expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(1);
   });
 
-  it("不带 X-Question-Id 的老客户端照旧每次扣", async () => {
+  it("不带 X-Question-Id 的老客户端：不同的话各扣一次；同一句话的几步（前两条消息一样）只扣一次", async () => {
     const { token, acc } = await 建账号带令牌();
     vi.stubGlobal("fetch", async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
-    for (let i = 0; i < 3; i++) await POST(请求(token, 一次问话));
+    for (let i = 0; i < 3; i++) await POST(请求(token, 第几句(i)));
     const { 余额 } = await import("@/lib/tenant/credits");
     expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(3);
+    // 同一个问题的后续几步：前两条一样、后面多了工具结果
+    const 一步 = { model: "deepseek-chat", messages: [{ role: "system", content: "s" }, { role: "user", content: "王同学怎么样" }] };
+    await POST(请求(token, 一步));
+    await POST(请求(token, { ...一步, messages: [...一步.messages, { role: "assistant", content: "查一下" }, { role: "user", content: "工具结果" }] }));
+    expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(4);
   });
 
   it("两个账号各算各的", async () => {
@@ -385,7 +392,7 @@ describe("额度", () => {
     const 乙 = await 建账号带令牌();
     vi.stubGlobal("fetch", async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
-    for (let i = 0; i < 3; i++) await POST(请求(甲.token, 一次问话));
+    for (let i = 0; i < 3; i++) await POST(请求(甲.token, 第几句(i)));
     const { 余额 } = await import("@/lib/tenant/credits");
     expect((await 余额({ kind: "account", id: 甲.acc.id })).用掉).toBe(3);
     expect((await 余额({ kind: "account", id: 乙.acc.id })).用掉).toBe(0);

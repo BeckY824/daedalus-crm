@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 收拾请求体 } from "@/lib/gateway";
@@ -46,16 +47,54 @@ function 认功能(v: string | null): string | null {
  * 否则客户端拿同一个编号死循环，频率闸一次都不拦，上游一直 5xx 时还全退。
  * 不直接拒：退回 JSON 协议时一个正常的问题就要十几次，超了照 credits.ts 的规矩是多扣、不是关门。
  */
-const 问过的 = new Map<string, { t: number; n: number }>();
+/**
+ * 「最后」：这个编号最近发出的那一份请求的序号。**退不退次数只听最新那一份的**（第四轮）：
+ *   - 首轮卡住、重发答出来了，卡住那份后来 504 / 回来时桌面端已走——它不是最新的，不退（否则答到了却 0 次）
+ *   - 原请求和重发都慢、桌面端两份都放弃了——重发是最新的，它回来时桌面端已走，退（什么都没拿到）
+ *   - 故意「发 → 断 → 同编号再发」：前一份不是最新的，不退；它要是在重发之前就回来退掉了，重发会重新扣
+ *   - 0.46.14 首轮超时退回 JSON 协议、那份也超时——JSON 那份是最新的，退
+ */
+const 问过的 = new Map<string, { t: number; n: number; 最后: number }>();
 const 问过留多久 = 15 * 60_000;
-function 问过(k: string): { t: number; n: number } | null {
+let 请求序 = 0;
+function 问过(k: string): { t: number; n: number; 最后: number } | null {
   const r = 问过的.get(k);
   return r && Date.now() - r.t < 问过留多久 ? r : null;
 }
 function 记下问过(k: string) {
   const now = Date.now();
   if (问过的.size > 5000) for (const [key, r] of 问过的) if (now - r.t > 问过留多久) 问过的.delete(key);
-  问过的.set(k, { t: now, n: 1 });
+  问过的.set(k, { t: now, n: 1, 最后: 0 });
+}
+
+/** 没带编号的请求按前两条消息合一个编号。连消息都没有的（不是聊天请求）就算了，照老口径一次一扣 */
+function 合成编号(accountId: string, raw: unknown): string | null {
+  const m = (raw as { messages?: unknown } | null)?.messages;
+  if (!Array.isArray(m) || m.length === 0) return null;
+  return "h-" + createHash("sha256").update(`${accountId}\n${JSON.stringify(m.slice(0, 2))}`).digest("hex").slice(0, 40);
+}
+
+/**
+ * 上游给没有参数的工具回 `arguments: "null"`（或空串）时规整成 "{}"（第四轮兼容 S1）：
+ * 0.46.14 及更早的 agent 拿它 Object.keys 会崩成一句英文。网关这儿改一下，所有旧客户端都护住
+ */
+function 规整工具参数(data: string): string {
+  try {
+    const j = JSON.parse(data) as { choices?: { message?: { tool_calls?: { function?: { arguments?: unknown } }[] } }[] };
+    let 改了 = false;
+    for (const c of j.choices ?? []) {
+      for (const t of c.message?.tool_calls ?? []) {
+        const a = t.function?.arguments;
+        if (t.function && (a == null || a === "" || a === "null" || typeof a !== "string")) {
+          t.function.arguments = typeof a === "object" && a !== null ? JSON.stringify(a) : "{}";
+          改了 = true;
+        }
+      }
+    }
+    return 改了 ? JSON.stringify(j) : data;
+  } catch {
+    return data;
+  }
 }
 
 export async function POST(req: Request) {
@@ -68,20 +107,31 @@ export async function POST(req: Request) {
     按请求算的话连问七八个就在半路被 429 拦下，而第一步那次已经扣了。同一个问题编号的后续几步不再计数；
     同一编号前 每问最多步 次不计数、再往后照常计（见 问过的 那段）。没带编号的（老客户端）照旧按请求算
   */
-  const 早问题id = 规整请求id(req.headers.get("x-question-id"));
-  const 见过 = 早问题id ? 问过(`${accountId}:${早问题id}`) : null;
-  if (!见过 || ++见过.n > 每问最多步) {
-    const 等 = consumeAiQuota(`gw:${accountId}`);
-    if (等 !== null) return 网关错误(429, `请求太频繁，请 ${等} 秒后再试`);
-    if (早问题id && !见过) 记下问过(`${accountId}:${早问题id}`);
-  }
-
   let raw: unknown;
   try {
     raw = await req.json();
   } catch {
     return 网关错误(400, "请求体不是合法 JSON");
   }
+  /*
+    没带问题编号的老桌面端（0.46.2 及以前）：拿「账号 + 前两条消息」合一个编号（第四轮兼容 B1）。
+    网关转了工具表以后，它们一个问题的请求数变多，按请求扣会从 3 次涨到 4–8 次、也更早被 429。
+    一个问题的几步前两条（系统提示 + 用户那句话）是一样的；15 分钟内同一句话再问一遍算同一个问题，少扣不多扣
+  */
+  const 早问题id = 规整请求id(req.headers.get("x-question-id")) ?? 合成编号(accountId, raw);
+  const 见过 = 早问题id ? 问过(`${accountId}:${早问题id}`) : null;
+  if (!见过 || ++见过.n > 每问最多步) {
+    const 等 = consumeAiQuota(`gw:${accountId}`);
+    if (等 !== null) return 网关错误(429, `请求太频繁，请 ${等} 秒后再试`);
+    if (早问题id && !见过) 记下问过(`${accountId}:${早问题id}`);
+  }
+  const 键 = 早问题id ? `${accountId}:${早问题id}` : null;
+  const 这一份 = ++请求序;
+  if (键) {
+    const r = 问过的.get(键);
+    if (r) r.最后 = 这一份;
+  }
+
   const 整理 = 收拾请求体((raw ?? {}) as Record<string, unknown>, cfg);
   if (!整理.ok) return 网关错误(400, 整理.error);
 
@@ -92,7 +142,7 @@ export async function POST(req: Request) {
       没有 feature   → 成本账里这一行归不了类，仅此而已
     feature 只进成本账、不影响任何判断，所以白名单卡一下就够，不值得为它拒绝请求。
   */
-  const 问题id = 规整请求id(req.headers.get("x-question-id"));
+  const 问题id = 早问题id;
   const 功能 = 认功能(req.headers.get("x-feature"));
   const 扣 = await 按问题扣一次(owner, 问题id);
   if (!扣.ok) {
@@ -107,6 +157,11 @@ export async function POST(req: Request) {
   }
 
   const 剩余头 = { "X-Credits-Remaining": String(扣.还剩) };
+  /** 这一份失败 / 没人收到时退。同一编号后面又发了一份的，交给那一份决定（见 问过的 那段） */
+  const 退 = async () => {
+    if (键 && 问过的.get(键)?.最后 !== 这一份) return;
+    await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
+  };
 
   let upstream: Response;
   try {
@@ -118,7 +173,7 @@ export async function POST(req: Request) {
     });
   } catch (e) {
     // 上游没给出任何东西：这一次不该由用户买单。不是扣的那一步也退——这个问题整个答不出来了（第二轮 AI A4）
-    await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
+    await 退();
     const 超时 = e instanceof Error && e.name === "TimeoutError";
     return 网关错误(504, 超时 ? "上游模型接口超时" : "连不上上游模型接口", 剩余头);
   }
@@ -149,7 +204,7 @@ export async function POST(req: Request) {
     */
     const 我们的锅 = [401, 402, 403, 404].includes(upstream.status);
     if (upstream.status >= 500 || upstream.status === 429 || upstream.status === 408 || 我们的锅) {
-      await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
+      await 退();
     }
     const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
     // 上游在限我们（429）：退了次数，话也别带上游的英文原文（第二轮 AI）
@@ -183,7 +238,7 @@ export async function POST(req: Request) {
     });
   }
 
-  const data = await upstream.text();
+  const data = 规整工具参数(await upstream.text());
 
   /*
     上游 200 但正文不是 JSON（中转站出错时偶尔回一段 HTML）：用户什么都没拿到，退掉，说人话（第二轮 AI）
@@ -195,16 +250,16 @@ export async function POST(req: Request) {
     解得出 = false;
   }
   if (!解得出) {
-    await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
+    await 退();
     console.warn(`[gateway] 上游 200 但不是 JSON：${data.slice(0, 200)}`);
     return 网关错误(502, "AI 服务这次回来的东西不完整，没扣次数，再试一次", 剩余头);
   }
   /*
-    桌面端已经走了（它那边首轮超时、或者人点了停）时**不退**（第三轮 A1）：
-    快速重发时第一次那条走到这里，重发那份带着同一个编号、不扣，已经把答案给了用户——
-    这里再退，这个问题就成了 0 次；故意「发 → 立刻断 → 同编号再发」更是每个问题都白拿。
-    重发那份要是也失败了，它自己的出错路径会把这个问题退掉。
+    桌面端已经走了（首轮超时、整体超时、人点了停）：这份答案没人收到。是这个编号最新的一份就退，
+    不是最新的（后面还有重发）就不管——见 问过的 那段（第三轮 A1 / 第四轮 A1、兼容 A0）。
+    没带编号的老客户端照旧不退：认不出它后面还有没有重发
   */
+  if (req.signal.aborted && 键) await 退();
 
   /*
     成本账。桌面端的请求只有经过这里才看得见 token——它那边的 llm.ts 跑在

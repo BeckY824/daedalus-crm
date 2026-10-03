@@ -197,6 +197,9 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       signal: opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(等)]) : AbortSignal.timeout(等),
     });
   let res: Response;
+  const 起 = Date.now();
+  /** 重发给多久：总共还剩多少就给多少，至少 15 秒（原来写成 总超时 − 首轮，502 秒回时长输出的重发只剩 15 秒，第四轮 B1） */
+  const 还剩 = () => Math.max(15_000, 总超时 - (Date.now() - 起));
   /** 超时重发和 5xx 重发共用这一个名额：同一次调用最多打两次（第三轮 B5，原来叠起来是 3 次） */
   let 重发过 = false;
   try {
@@ -207,7 +210,7 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       if (!(e instanceof Error && e.name === "TimeoutError") || 人停的 || 首轮 >= 总超时) throw e;
       console.warn(`[llm] ${Math.round(首轮 / 1000)} 秒没等到回音，重发一次`);
       重发过 = true;
-      res = await 发(Math.max(15_000, 总超时 - 首轮));
+      res = await 发(还剩());
     }
   } catch (e) {
     // 超时、人点了停：原样抛，调用方按 name 认（TimeoutError / AbortError）
@@ -223,7 +226,7 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
     console.warn(`[llm] 上游 ${res.status}，重发一次`);
     await res.body?.cancel().catch(() => {});
     try {
-      res = await 发(Math.max(15_000, 总超时 - 首轮));
+      res = await 发(还剩());
     } catch (e) {
       if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e;
       throw new Error("连不上 AI 服务，检查一下网络再试");
@@ -308,6 +311,10 @@ function 换协议也没用(e: unknown): boolean {
   const st = (e as { status?: number }).status ?? 0;
   return st >= 500 || st === 429 || st === 401 || st === 402 || st === 403;
 }
+/** 修 JSON 那一步的降级：再加上超时和人点了停 */
+function 不该降级(e: unknown): boolean {
+  return 换协议也没用(e) || (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError"));
+}
 
 export async function chatMessagesJSON(messages: ToolMessage[], opts: ChatOpts = {}): Promise<unknown> {
   const cfg = await getLlmConfig();
@@ -326,9 +333,11 @@ export async function chatMessagesJSON(messages: ToolMessage[], opts: ChatOpts =
   try {
     return JSON.parse(stripCodeFence(content));
   } catch {
-    const retry = await chatMessagesOnce(cfg, [...messages, { role: "assistant", content }, { role: "user", content: "你上一次的输出不是合法 JSON，请只输出严格合法的 JSON。" }], opts, true).catch(() =>
-      chatMessagesOnce(cfg, messages, opts, false),
-    );
+    const retry = await chatMessagesOnce(cfg, [...messages, { role: "assistant", content }, { role: "user", content: "你上一次的输出不是合法 JSON，请只输出严格合法的 JSON。" }], opts, true).catch((e) => {
+      // 降级只救「请求体不被认」；超时、人点停、5xx / 429 / 令牌这些换协议也没用，直接抛（第四轮 B2）
+      if (不该降级(e)) throw e;
+      return chatMessagesOnce(cfg, messages, opts, false);
+    });
     try {
       return JSON.parse(stripCodeFence(retry));
     } catch {
@@ -489,7 +498,10 @@ export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unk
       `${prompt}\n\n【注意】你上一次的输出不是合法 JSON：\n${content.slice(0, 500)}\n` +
       "请只输出严格合法的 JSON，不要输出任何其他文字。";
     const retried = stripCodeFence(
-      await chatOnce(cfg, system, repairPrompt, opts, true).catch(() => chatOnce(cfg, system, repairPrompt, opts, false)),
+      await chatOnce(cfg, system, repairPrompt, opts, true).catch((e) => {
+        if (不该降级(e)) throw e;
+        return chatOnce(cfg, system, repairPrompt, opts, false);
+      }),
     );
     try {
       return JSON.parse(retried);

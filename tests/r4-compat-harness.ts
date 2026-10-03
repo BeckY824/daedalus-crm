@@ -67,7 +67,8 @@ export function 接线到(
     }
     if (url.startsWith(云)) {
       const headers = new Headers(init.headers);
-      const req = new Request(url, { method: init.method ?? "GET", headers, body: init.body as BodyInit | undefined });
+      // 桌面端那头的断开要传到网关的 req.signal（真实环境里 Next 在客户端断开时会 abort 它）
+      const req = new Request(url, { method: init.method ?? "GET", headers, body: init.body as BodyInit | undefined, signal: init.signal ?? undefined });
       const 记: 网关记录 | null = url.includes("/chat/completions")
         ? 线.网关[线.网关.push({ url, questionId: headers.get("x-question-id"), feature: headers.get("x-feature") }) - 1]
         : null;
