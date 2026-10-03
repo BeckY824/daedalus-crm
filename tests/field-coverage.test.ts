@@ -42,6 +42,9 @@ const 可写: Record<string, string[]> = {
   // 未归属联系人：联系人页上点开改资料（saveUnassignedContact）
   UnassignedContact: ["name", "position", "phone", "email", "wechat", "remark"],
   Opportunity: ["name", "amount", "stage", "status", "probability", "expectedDealAt", "remark", "customerId", "ownerId"],
+  // 币种（2026-10-03）：saveOpportunity / saveContract 收 currency，签约的精确金额跟着 amount 一起写
+  OpportunityMoney: ["currency"],
+  ContractMoney: ["currency", "amountExact"],
   FollowUp: ["type", "title", "content", "status", "duration", "occurredAt", "dueAt", "participants", "customerId", "contactId", "opportunityId"],
   Task: ["title", "dueAt", "done", "customerId"],
   FollowPlan: ["subject", "plannedAt", "method", "done", "customerId"],
@@ -65,6 +68,8 @@ const 派生: Record<string, Record<string, string>> = {
     opportunityId: "哪个商机，变成赢单或丢单时一起写",
     closedAt: "赢单 / 丢单的那一刻，系统打上；回到进行中就删掉这一行",
   },
+  OpportunityMoney: { opportunityId: "哪个商机，saveOpportunity 新建 / 改币种时一起写" },
+  ContractMoney: { contractId: "哪一笔签约，saveContract 保存时一起写" },
   ContractOwner: {
     contractId: "哪一笔签约，saveContract 新登记时一起建",
     salesOwnerId: "签约那一刻客户的销售负责人，新登记时打上；业绩按它算，之后不跟着换人",

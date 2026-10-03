@@ -178,7 +178,8 @@ describe("商机、跟进、待办、计划、联系人的写操作也要记", (
     expect(log.action).toBe("create");
     expect(log.entity).toBe("Opportunity");
     expect(log.summary).toContain("年度采购");
-    expect(log.summary).toContain("50000");
+    // 2026-10-03 起金额按币种显示：「¥ 50,000」
+    expect(log.summary).toContain("50,000");
   });
 
   it("换阶段记下从哪到哪", async () => {

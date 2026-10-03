@@ -175,15 +175,16 @@ describe("金额", () => {
     if (!r.抛了) expect(r.值._sum.amount).toBe(3_000_000_000);
   });
 
-  it("商机：0 收、负数拦、超大收、小数四舍五入", async () => {
+  it("商机：0 收、负数拦、超大收、小数留到分（外币有分）", async () => {
     const c = await 造客户(我);
     const 存 = (amount: number) => saveOpportunity({ name: "x", customerId: c.id, amount, stage: "初步沟通", status: "OPEN", probability: 20, ownerId: 我 });
     expect((await 存(0)).ok).toBe(true);
     expect((await 存(-5)).ok).toBe(false);
     expect((await 存(1e12)).ok).toBe(true);
     expect((await 存(12.5)).ok).toBe(true);
+    expect((await 存(3.456)).ok).toBe(true);
     const 金额 = (await prisma.opportunity.findMany({ orderBy: { createdAt: "asc" } })).map((o) => o.amount);
-    expect(金额).toEqual([0, 1e12, 13]);
+    expect(金额).toEqual([0, 1e12, 12.5, 3.46]);
   });
 
   it("商机：成交概率填了小数（33.3）不抛，存成整数", async () => {
