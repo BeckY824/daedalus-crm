@@ -51,6 +51,16 @@ export async function activate(input: { token: string; workspaceId: string; plan
   return { ok: true };
 }
 
+/** 团队同步：开通 / 停用一个团队（2026-10-03）。停用后成员推拉都回「还没开通」，本机数据不受影响 */
+export async function setSyncTeam(input: { token: string; teamId: string; on: boolean }): Promise<AdminResult> {
+  const g = await guard(input.token);
+  if (!g.ok) return g;
+  const { 设开通 } = await import("@/lib/tenant/sync-relay");
+  await 设开通(input.teamId, input.on);
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}
+
 /** 延长试用：谈单过程中常用，比直接开通更轻 */
 export async function extendTrial(input: { token: string; workspaceId: string; days: number }): Promise<AdminResult> {
   const g = await guard(input.token);

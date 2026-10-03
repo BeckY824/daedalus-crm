@@ -383,3 +383,45 @@ model FeedbackReply {
 
   @@index([feedbackId])
 }
+
+/// 团队同步（2026-10-03，0.46.15 第 5 块，control-migrations/016）。几个人各用桌面端，数据在各自电脑上，
+/// 改动加密后经我们这里中转。**我们只见得到密文**：钥匙只在成员电脑上（邀请码里），不经过这里。
+/// 新团队「待开通」（active = false），运营台开通后才收推送——收费等备案（10-03 拍板）。
+model SyncTeam {
+  id             String    @id @default(cuid())
+  name           String
+  ownerAccountId String
+  /// 入队口令的 sha256。邀请码 = 团队编号 + 入队口令 + 钥匙；这里只核口令，钥匙我们见不到
+  joinSecretHash String
+  active         Boolean   @default(false)
+  activatedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([ownerAccountId])
+}
+
+model SyncMember {
+  teamId    String
+  accountId String
+  /// owner / member
+  role      String   @default("member")
+  joinedAt  DateTime @default(now())
+  /// 退出的不删：他推过的批次还在、序号不能断；只是不再收他的推送、不再给他拉
+  leftAt    DateTime?
+
+  @@id([teamId, accountId])
+  @@index([accountId])
+}
+
+/// 一批密文的元数据。密文本身在文件 $SYNC_DIR/<团队>/<id>.bin（不塞进控制面库：一年几十到上百 MB）
+model SyncBatch {
+  id        Int      @id @default(autoincrement())
+  teamId    String
+  accountId String
+  /// 本机设备编号（推的那一台），拉的人据此跳过自己推的
+  device    String
+  size      Int
+  createdAt DateTime @default(now())
+
+  @@index([teamId, id])
+}

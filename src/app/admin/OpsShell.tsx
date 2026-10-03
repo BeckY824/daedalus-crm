@@ -9,11 +9,12 @@ import {
   MessageOutlined,
   ReloadOutlined,
   TeamOutlined,
+  SyncOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { dayjs } from "@/lib/utils";
 
-export type 页 = "总览" | "用户" | "工作区" | "模型用量" | "反馈";
+export type 页 = "总览" | "用户" | "工作区" | "团队同步" | "模型用量" | "反馈";
 
 const 导航: { 组: string; 项: { 名: 页; 去: string; icon: React.ReactNode }[] }[] = [
   {
@@ -28,6 +29,8 @@ const 导航: { 组: string; 项: { 名: 页; 去: string; icon: React.ReactNode
     组: "运营",
     项: [
       { 名: "工作区", 去: "/workspaces", icon: <AppstoreOutlined /> },
+      // 桌面端的团队同步（2026-10-03）：新团队待开通，这里开（收费等备案）
+      { 名: "团队同步", 去: "/sync", icon: <SyncOutlined /> },
       { 名: "反馈", 去: "/feedback", icon: <MessageOutlined /> },
     ],
   },
