@@ -7,7 +7,7 @@ import { Input, Button, Alert } from "antd";
 import OtpInput from "@/components/OtpInput";
 import { useMotionTheme } from "@/components/MotionTheme";
 import AuthSide from "@/app/login/AuthSide";
-import { 发送重置码, 重置密码 } from "./actions";
+import { 发送重置码, 重置密码, 核对重置码 } from "./actions";
 
 /**
  * 桌面端的找回密码（2026-10-03）：和登录页同一扇门——左栏一样，右边一步一屏。
@@ -35,6 +35,8 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
   /** 这一次进输码页是不是因为码错被退回来的：是的话格子一出来就红一下、抖一下（见 OtpInput 的 进来先抖） */
   const [码错退回, set码错退回] = useState(false);
   const [loading, setLoading] = useState(false);
+  /** 输码那一步填满 6 位、正在问云端码对不对（只核对不用掉，见 actions 的 核对码） */
+  const [核对中, set核对中] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [说明, set说明] = useState<string | null>(null);
   const [冷却, set冷却] = useState(0);
@@ -168,9 +170,19 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
                   <OtpInput
                     错={码错}
                     进来先抖={码错退回}
-                    禁用={loading}
-                    onDone={(c) => {
+                    禁用={loading || 核对中}
+                    onDone={async (c) => {
                       set码(c);
+                      // 填满就先核对：错了当场抖、当场说，不用等设完密码再被退回来（2026-10-03 走查）。
+                      // 核对不了（断网、老云端）就照旧往下走，最后一步还会再验
+                      set核对中(true);
+                      const r = await 核对重置码(邮箱, c);
+                      set核对中(false);
+                      if (!r.对) {
+                        set码错((n) => n + 1);
+                        setError(r.error ?? "验证码不对");
+                        return;
+                      }
                       去("设密码");
                     }}
                   />

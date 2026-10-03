@@ -29,6 +29,9 @@ const 桩插件: Plugin = {
       export const 桌面端注册 = (...a) => 叫("注册", ...a);
       export const 发送重置码 = (...a) => 叫("发码", ...a);
       export const 重置密码 = (...a) => 叫("重置", ...a);
+      // 10-03 起输码填满先核对：没给桩就当对，流程照旧往下走（和云端没有这个接口时一样）
+      export const 桌面端核对码 = (...a) => (window.__桩.核对 ? 叫("核对", ...a) : Promise.resolve({ 对: true }));
+      export const 核对重置码 = (...a) => (window.__桩.核对 ? 叫("核对", ...a) : Promise.resolve({ 对: true }));
     `);
     桩(/^\.\/after-login$/, `export async function 登录之后(res) { window.__进去了 = res; }`);
     桩(/AuthSide$/, `export default function AuthSide() { return null; }`);
@@ -128,6 +131,46 @@ async function 走到注册(page: Page, 密码 = "Secret12345", 最后过场 = t
   await page.click("button[type=submit]");
   if (最后过场) await 过场(page);
 }
+
+describe("输码填满先核对（2026-10-03 走查：错码要设完密码才说）", () => {
+  it("注册：码不对当场在输码这一步抖、说，不进「设个密码」", async () => {
+    const page = await 开("登录", `{
+      下一步: async () => ({ ok: true, data: { 去: "验证码" } }),
+      核对: async () => ({ 对: false, error: "验证码不对" }),
+    }`);
+    await page.fill("#auth-email", "new@example.com");
+    await page.click("button[type=submit]");
+    await 过场(page);
+    await page.waitForSelector("input.otp-real");
+    await page.focus("input.otp-real");
+    await page.keyboard.insertText("000000");
+    expect(await 红过(page)).toBe(true);
+    expect(await 标题(page)).toBe("看一下邮箱");
+    expect(await page.locator("#auth-newpw").count(), "码不对不该进设密码").toBe(0);
+    expect(await page.evaluate(() => (window as unknown as { __调用: Record<string, unknown[]> }).__调用.核对?.length)).toBe(1);
+    await page.close();
+  });
+
+  it("找回密码：同样当场说；码对了才进设新密码", async () => {
+    const page = await 开("找回", `{
+      发码: async () => ({ ok: true }),
+      核对: async (t, c) => (c === "123456" ? { 对: true } : { 对: false, error: "验证码不对" }),
+    }`);
+    await page.fill("input", "a@example.com");
+    await page.click("button[type=submit]");
+    await 过场(page);
+    await page.waitForSelector("input.otp-real");
+    await page.focus("input.otp-real");
+    await page.keyboard.insertText("000000");
+    expect(await 红过(page)).toBe(true);
+    expect(await page.locator("#forgot-newpw").count()).toBe(0);
+    await page.focus("input.otp-real");
+    await page.keyboard.insertText("123456");
+    await 过场(page);
+    await page.waitForSelector("#forgot-newpw");
+    await page.close();
+  });
+});
 
 describe("R7-4 注册后登录失败带去输密码（dcb680f 修 C6）", () => {
   it("已开号：带到「输入密码」，刚设的密码还在框里；密码不进 localStorage / sessionStorage / 网址 / cookie", async () => {

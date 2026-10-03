@@ -332,6 +332,23 @@ export async function 注册开始(target: string): Promise<结果<注册去向>
   return { ok: true, data: r.data?.verify ? { 去: "验证码", hint: r.data.hint } : { 去: "设密码" } };
 }
 
+/**
+ * 输码那一步填满 6 位先核对（2026-10-03，云端 /api/account/code/check）。错了当场抖，不用等到最后一步。
+ * **核对不了不拦人**：老版本云端没有这个接口（404）、断网、超时，一律当「先往下走」——
+ * 最后那一步云端还会再验一次，这里只是把「码不对」提前说，不是第二道闸
+ */
+export async function 核对验证码(target: string, code: string, purpose: "signup" | "reset"): Promise<{ 对: boolean; error?: string }> {
+  const 拒 = 拒绝非本地();
+  if (拒) return { 对: true };
+  const r = await 请求(`${云端地址()}/api/account/code/check`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ target, code, purpose }),
+  }, 8_000);
+  if (r.ok) return { 对: true };
+  return r.状态 === 400 ? { 对: false, error: r.error } : { 对: true };
+}
+
 /** 开账号。只开不登：调用方紧接着拿同一套邮箱密码走 登录()，注册赠送在那一下按机器结算 */
 export async function 注册(input: { target: string; code?: string; password: string; agreed: boolean }): Promise<结果> {
   const 拒 = 拒绝非本地();

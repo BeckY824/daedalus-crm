@@ -6,7 +6,7 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Input, Button, Checkbox, Alert } from "antd";
 import OtpInput from "@/components/OtpInput";
 import { useMotionTheme } from "@/components/MotionTheme";
-import { 桌面端登录, 桌面端下一步, 桌面端注册, type LoginResult } from "./actions";
+import { 桌面端登录, 桌面端下一步, 桌面端注册, 桌面端核对码, type LoginResult } from "./actions";
 import { 登录之后 } from "./after-login";
 import AuthSide from "./AuthSide";
 
@@ -70,6 +70,8 @@ export default function DesktopAuth({
   /** 这一次进输码页是不是因为码错被退回来的：是的话格子一出来就红一下、抖一下（见 OtpInput 的 进来先抖） */
   const [码错退回, set码错退回] = useState(false);
   const [loading, setLoading] = useState(false);
+  /** 输码那一步填满 6 位、正在问云端码对不对（只核对不用掉，见 actions 的 核对码） */
+  const [核对中, set核对中] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [说明, set说明] = useState<string | null>(null);
   const [冷却, set冷却] = useState(0);
@@ -299,9 +301,19 @@ export default function DesktopAuth({
                   <OtpInput
                     错={码错}
                     进来先抖={码错退回}
-                    禁用={loading}
-                    onDone={(c) => {
+                    禁用={loading || 核对中}
+                    onDone={async (c) => {
                       set码(c);
+                      // 填满就先核对：错了当场抖、当场说，不用等设完密码再被退回来（2026-10-03 走查）。
+                      // 核对不了（断网、老云端）就照旧往下走，最后一步还会再验
+                      set核对中(true);
+                      const r = await 桌面端核对码(邮箱, c);
+                      set核对中(false);
+                      if (!r.对) {
+                        set码错((n) => n + 1);
+                        setError(r.error ?? "验证码不对");
+                        return;
+                      }
                       去("设密码");
                     }}
                   />

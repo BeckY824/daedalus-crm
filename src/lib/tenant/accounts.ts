@@ -118,6 +118,32 @@ export async function consumeCode(target: string, code: string, purpose = "signu
   return { ok: true };
 }
 
+/**
+ * 只核对、不用掉（2026-10-03）：输码那一步填满 6 位就先问一句对不对，错了当场抖，
+ * 不用等设完密码、勾完同意、点了「注册并进入」才被退回来（走查记下的那条）。
+ *
+ * 和 consumeCode 共用「先占一次名额再比对」：**错的那次照样算一次**，5 次用完照样锁——
+ * 这个口子不能变成一个不计次的猜码器（第六轮 A1 就是这么来的）。
+ * 对了就把这次的名额还回去、码也不作废：真正用掉它的是后面那次 consumeCode。
+ * 还名额时手里已经有对的码了，并发多还几次也帮不了一个本来就不知道码的人。
+ */
+export async function checkCode(target: string, code: string, purpose = "signup"): Promise<{ ok: true } | { ok: false; error: string }> {
+  const row = await control.verifyCode.findFirst({
+    where: { target, purpose, usedAt: null },
+    orderBy: { createdAt: "desc" },
+  });
+  if (!row) return { ok: false, error: "请先获取验证码" };
+  if (row.expiresAt < new Date()) return { ok: false, error: "验证码已过期，请重新获取" };
+  const 占 = await control.verifyCode.updateMany({
+    where: { id: row.id, usedAt: null, attempts: { lt: MAX_ATTEMPTS } },
+    data: { attempts: { increment: 1 } },
+  });
+  if (占.count === 0) return { ok: false, error: "尝试次数过多，请重新获取验证码" };
+  if (row.code !== code.trim()) return { ok: false, error: "验证码不对" };
+  await control.verifyCode.updateMany({ where: { id: row.id, attempts: { gt: 0 } }, data: { attempts: { decrement: 1 } } });
+  return { ok: true };
+}
+
 export async function findAccountByTarget(target: string) {
   const t = parseTarget(target);
   if (!t) return null;

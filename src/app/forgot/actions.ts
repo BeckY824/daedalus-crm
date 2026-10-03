@@ -3,7 +3,10 @@
 import { headers } from "next/headers";
 import { 发送重置码 as 发, 重置密码 as 重置, type 发码结果, type 重置结果 } from "@/lib/tenant/password-reset";
 import { 解析来源IP } from "@/lib/rate-limit";
-import { 本地模式, 发码 as 云端发码, 重置密码 as 云端重置密码, 清 as 清云端凭据 } from "@/lib/desktop/cloud";
+import { 本地模式, 发码 as 云端发码, 重置密码 as 云端重置密码, 清 as 清云端凭据, 核对验证码 as 云端核对验证码 } from "@/lib/desktop/cloud";
+import { checkCode, parseTarget } from "@/lib/tenant/accounts";
+import { multiTenant } from "@/lib/tenant/context";
+import { 检查限流, 记一次失败, IP阈值 } from "@/lib/rate-limit";
 
 /**
  * 找回密码的网页入口。规则整套在 lib/tenant/password-reset.ts——
@@ -37,4 +40,25 @@ export async function 重置密码(input: { target: string; code: string; passwo
     return { ok: true };
   }
   return 重置(input, await 来源IP());
+}
+
+/**
+ * 输码那一步填满 6 位时先问一句码对不对（只核对、不用掉，错的照样算一次——lib/tenant/accounts.ts 的 checkCode）。
+ * 桌面端转调云端；网页版就在这儿核对，同样按来源 IP 限一档。核对不了就当对，改密码那一步还会再验
+ */
+export async function 核对重置码(target: string, code: string): Promise<{ 对: boolean; error?: string }> {
+  if (本地模式()) return 云端核对验证码(target.trim(), code, "reset");
+  // 没有账号体系的部署（自部署单租户）没有控制面，也走不到找回密码；保险起见不去碰它
+  if (!multiTenant()) return { 对: true };
+  const t = parseTarget(target.trim());
+  if (!t) return { 对: true };
+  const from = await 来源IP();
+  if (from) {
+    const 还要等 = 检查限流(`codecheck:${from}`);
+    if (还要等 != null) return { 对: false, error: `操作太频繁，请 ${还要等} 秒后再试` };
+  }
+  const r = await checkCode(t.value, code, "reset");
+  if (r.ok) return { 对: true };
+  if (from) 记一次失败(`codecheck:${from}`, Date.now(), IP阈值);
+  return { 对: false, error: r.error };
 }

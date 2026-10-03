@@ -10,7 +10,7 @@ import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP
 import { multiTenant } from "@/lib/tenant/context";
 import { verifyAccount } from "@/lib/tenant/accounts";
 import { listWorkspacesFor } from "@/lib/tenant/workspaces";
-import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, type 注册去向 } from "@/lib/desktop/cloud";
+import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, 核对验证码 as 云端核对验证码, type 注册去向 } from "@/lib/desktop/cloud";
 
 export type LoginResult =
   | { ok: true; 换账号?: boolean }
@@ -190,6 +190,12 @@ export async function 桌面端下一步(target: string): Promise<{ ok: true; da
   if (!t.includes("@")) return { ok: true, data: { 去: "密码" } };
   const r = await 云端注册开始(t);
   return r.ok ? { ok: true, data: r.data! } : { ok: false, error: r.error };
+}
+
+/** 输码那一步填满 6 位时先问一句码对不对（只核对、不用掉）。核对不了就当对，最后一步云端还会再验 */
+export async function 桌面端核对码(target: string, code: string): Promise<{ 对: boolean; error?: string }> {
+  if (!本地模式()) return { 对: true };
+  return 云端核对验证码(target.trim(), code, "signup");
 }
 
 /**
