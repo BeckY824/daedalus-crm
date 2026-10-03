@@ -19,7 +19,12 @@ export async function 切换收藏(customerId: string): Promise<{ ok: true; 收�
   const user = await requireUser();
   const 有 = await prisma.customer.findUnique({ where: { id: customerId }, select: { id: true } });
   if (!有) return { ok: false, error: "这位客户已经不在了" };
-  const 旧 = ((await getSetting<string[]>(键(user.id))) ?? []).filter((x) => typeof x === "string");
+  const 记着的 = ((await getSetting<string[]>(键(user.id))) ?? []).filter((x) => typeof x === "string");
+  // 已经删掉的客户先剔掉：不然它们继续占着 8 个名额，左栏只显示 5 位、还挤掉了还在的那位（第六轮 B2）
+  const 还在 = new Set(
+    (await prisma.customer.findMany({ where: { id: { in: 记着的 } }, select: { id: true } })).map((c) => c.id),
+  );
+  const 旧 = 记着的.filter((x) => 还在.has(x));
   const 收藏了 = !旧.includes(customerId);
   const 新 = 收藏了 ? [customerId, ...旧].slice(0, 上限) : 旧.filter((x) => x !== customerId);
   await setSetting(键(user.id), 新);

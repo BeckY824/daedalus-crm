@@ -23,7 +23,7 @@ function 玻璃可用(platform: string, release: string): boolean {
 
 describe("R6-7 Windows 11 21H2 被当成支持 acrylic", () => {
   it("抠得到函数（防止改名后这条用例假绿）", () => {
-    expect(源).toContain("22000");
+    expect(源).toContain("os.release()");
   });
 
   it("对照：22H2（22621）和 Mac 可用，Windows 10 不可用", () => {

@@ -16,14 +16,25 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   if (!multiTenant()) return NextResponse.json({ error: "这个部署没有账号体系" }, { status: 404 });
 
-  let body: { target?: string; code?: string; password?: string; agreed?: boolean };
+  let raw: unknown;
   try {
-    body = (await req.json()) as typeof body;
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
+  // 公网接口：字段类型不对回 400，别抛成 500（第六轮 C2）
+  const body = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const 串 = (v: unknown) => v == null || typeof v === "string";
+  if (!串(body.target) || !串(body.code) || !串(body.password)) {
+    return NextResponse.json({ error: "请求格式不对" }, { status: 400 });
+  }
   const r = await 注册账号(
-    { target: body.target ?? "", code: body.code, password: body.password ?? "", agreed: body.agreed === true },
+    {
+      target: (body.target as string | undefined) ?? "",
+      code: body.code as string | undefined,
+      password: (body.password as string | undefined) ?? "",
+      agreed: body.agreed === true,
+    },
     解析来源IP(req.headers.get("x-forwarded-for")),
   );
   if (!r.ok) return NextResponse.json({ error: r.error }, { status: 400 });

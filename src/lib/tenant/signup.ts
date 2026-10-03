@@ -40,15 +40,26 @@ export async function 发注册码(targetRaw: string, from: string | null): Prom
   if (isDisposableEmail(t.value)) return { ok: false, error: "请用常用邮箱注册，临时邮箱收不到后续通知" };
   if (!能收到码()) return { ok: false, error: 收不到码的提示() };
 
-  // 按 IP 限流：发码是唯一一个未登录就能触发外部计费动作的接口，不限会被薅
+  /*
+    查号和发码分两个限流（第六轮 B1）。原来先过发码的限流和「这个网络今天注册够 3 个」再查号——
+    同一出口 IP（公司、咖啡馆）今天有 3 个人注册过，老用户在桌面端点「继续」看到的是「今天注册够多了」，进不去。
+    现在：查号自己一个桶（额度宽一些，挡的是批量探某个邮箱注册过没有）；老账号查到就去输密码，
+    不碰发码的桶和每日上限；只有真要发码时才记发码那一次、查每日上限
+  */
+  if (from) {
+    const 还要等 = 检查限流(`lookup:${from}`);
+    if (还要等 != null) return { ok: false, error: `操作太频繁，请 ${还要等} 秒后再试` };
+    记一次失败(`lookup:${from}`, Date.now(), IP阈值 * 3);
+  }
+  if (await findAccountByTarget(t.value)) return { ok: false, error: "这个号已经注册过了，直接登录吧", 已注册: true };
+
+  // 发码按 IP 限流：发码是唯一一个未登录就能触发外部计费动作的接口，不限会被薅
   if (from) {
     const 还要等 = 检查限流(`code:${from}`);
     if (还要等 != null) return { ok: false, error: `操作太频繁，请 ${还要等} 秒后再试` };
     记一次失败(`code:${from}`, Date.now(), IP阈值);
     if (今日注册数(from) >= 每IP每日注册上限) return { ok: false, error: "今天从这个网络注册的账号已经够多了，明天再来" };
   }
-
-  if (await findAccountByTarget(t.value)) return { ok: false, error: "这个号已经注册过了，直接登录吧", 已注册: true };
 
   const r = await issueCode(t.value, "signup");
   if (!r.ok) return r;

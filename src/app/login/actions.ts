@@ -12,7 +12,10 @@ import { verifyAccount } from "@/lib/tenant/accounts";
 import { listWorkspacesFor } from "@/lib/tenant/workspaces";
 import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, type 注册去向 } from "@/lib/desktop/cloud";
 
-export type LoginResult = { ok: true; 换账号?: boolean } | { ok: false; error: string };
+export type LoginResult =
+  | { ok: true; 换账号?: boolean }
+  /** 已开号：注册成了、紧接着的登录没成（第六轮 C6）。门口据此带人去输密码，而不是让他再注册一遍 */
+  | { ok: false; error: string; 已开号?: boolean };
 
 /**
  * 限流的 key 同时按「账号」和「来源 IP」记。
@@ -197,5 +200,8 @@ export async function 桌面端注册(input: { target: string; code?: string; pa
   if (!本地模式()) return { ok: false, error: "这个入口只有桌面端有" };
   const r = await 云端注册({ ...input, target: input.target.trim() });
   if (!r.ok) return { ok: false, error: r.error };
-  return 桌面端登录(input.target, input.password);
+  const 登 = await 桌面端登录(input.target, input.password);
+  // 号开好了、这一下没登进去（网络抖了、云端慢）：再点「注册」只会被说「请先获取验证码」，得让人去输密码
+  if (!登.ok) return { ok: false, error: `账号已经开好了，这一下没登进去（${登.error}）。用刚设的密码再登录一次就行。`, 已开号: true };
+  return 登;
 }

@@ -31,12 +31,17 @@ export default function OtpInput({
   const [聚焦, set聚焦] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
   const 上次错 = useRef(错);
+  /** 刚错了的那一下：抖一下、红一下就收（原来 错 只加不清，错过一次格子就一直是红的，第六轮 C4） */
+  const [刚错, set刚错] = useState(false);
 
   useEffect(() => {
     if (错 === 上次错.current) return;
     上次错.current = 错;
     set值("");
+    set刚错(true);
     ref.current?.focus();
+    const t = setTimeout(() => set刚错(false), 900);
+    return () => clearTimeout(t);
   }, [错]);
 
   useEffect(() => {
@@ -46,7 +51,7 @@ export default function OtpInput({
   const 当前 = Math.min(值.length, 长度 - 1);
   return (
     <div
-      className={`otp${错 ? " otp-err" : ""}`}
+      className={`otp${刚错 ? " otp-err" : ""}`}
       key={错}
       onClick={() => ref.current?.focus()}
       role="group"
@@ -68,7 +73,8 @@ export default function OtpInput({
         inputMode="numeric"
         autoComplete="one-time-code"
         aria-label="验证码"
-        maxLength={长度}
+        /* 不设 maxLength：浏览器会先把粘贴的「 123456」「验证码：123456」截成前 6 个字符，数字就少了（第六轮 C1）。
+           下面 onChange 只取数字、取前 6 位，长度在那儿管 */
         onFocus={() => set聚焦(true)}
         onBlur={() => set聚焦(false)}
         onChange={(e) => {

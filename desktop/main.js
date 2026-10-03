@@ -560,7 +560,8 @@ function 当前地址() {
 */
 function 玻璃可用() {
   if (process.platform === "darwin") return true;
-  if (process.platform === "win32") return Number(os.release().split(".")[2] ?? 0) >= 22000;
+  // acrylic（setBackgroundMaterial）要 Windows 11 22H2（build 22621）起才有；21H2 上底色全透明却没有材质，会是一片黑或灰（第六轮 B3）
+  if (process.platform === "win32") return Number(os.release().split(".")[2] ?? 0) >= 22621;
   return false;
 }
 /**
@@ -956,7 +957,8 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
  */
 async function 下载更新() {
   if (更新状态.阶段 !== "available" && 更新状态.阶段 !== "error") return;
-  if (!计划) return 检查更新({ 手动: true });
+  // 查都没查成（出错了点「重试」）：重查一次，**不弹对话框**——左栏「检查更新」那一行自己会显示结果（第六轮 C5）
+  if (!计划) return 检查更新({ 手动: true, 静默: true });
   if (正在查) return;
   正在查 = true;
   const { 版本, 新版 } = 计划;

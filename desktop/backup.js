@@ -41,7 +41,12 @@ async function 备份数据库(源, 目标) {
   if (path.resolve(源) === path.resolve(目标)) throw new Error("备份不能存到原文件上");
   const src = new DatabaseSync(源, { readOnly: true });
   try {
-    await backup(src, 目标);
+    /*
+      一步拷完（第二轮 C-6，当时只记了、没改上）：默认每批 100 页，批与批之间库一有写入就从头再来——
+      边导入边备份时永远拷不完，按钮一直转到导入结束。WAL 下读不挡写，一步拷完本机实测几十毫秒。
+      用 int32 上限而不是 -1：Electron 自带的 Node 可能只收正数
+    */
+    await backup(src, 目标, { rate: 2147483647 });
   } finally {
     src.close();
   }

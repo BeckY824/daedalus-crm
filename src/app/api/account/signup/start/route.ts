@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { multiTenant } from "@/lib/tenant/context";
 import { 需要验证码, 自助注册已关闭 } from "@/lib/tenant/signup-policy";
 import { 发注册码 } from "@/lib/tenant/signup";
-import { parseTarget, findAccountByTarget } from "@/lib/tenant/accounts";
+import { parseTarget, findAccountByTarget, isDisposableEmail } from "@/lib/tenant/accounts";
 import { 解析来源IP, 检查限流, 记一次失败, IP阈值 } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +23,16 @@ export const runtime = "nodejs";
 export async function POST(req: Request) {
   if (!multiTenant()) return NextResponse.json({ error: "这个部署没有账号体系" }, { status: 404 });
 
-  let body: { target?: string };
+  let body: unknown;
   try {
-    body = (await req.json()) as typeof body;
+    body = await req.json();
   } catch {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
-  const target = (body.target ?? "").trim();
+  // 公网接口：字段类型不对（null、数字、数组）回 400，别让它在 .trim() 上抛成 500（第六轮 C2）
+  const 原 = (body as { target?: unknown } | null)?.target;
+  if (原 != null && typeof 原 !== "string") return NextResponse.json({ error: "请填邮箱" }, { status: 400 });
+  const target = (原 ?? "").trim();
   if (!target) return NextResponse.json({ error: "请填邮箱" }, { status: 400 });
 
   const ip = 解析来源IP(req.headers.get("x-forwarded-for"));
@@ -44,6 +47,8 @@ export async function POST(req: Request) {
     const t = parseTarget(target);
     if (t && (await findAccountByTarget(t.value))) return NextResponse.json({ registered: true }, { status: 409 });
     if (!t || t.kind !== "email") return NextResponse.json({ error: "请填写正确的邮箱" }, { status: 400 });
+    // 临时邮箱在第一步就拦，别等人设完密码、勾完条款才说（第六轮 C3；发码那条路本来就在第一步拦）
+    if (isDisposableEmail(t.value)) return NextResponse.json({ error: "请用常用邮箱注册，临时邮箱收不到后续通知" }, { status: 400 });
     return NextResponse.json({ verify: false });
   }
 

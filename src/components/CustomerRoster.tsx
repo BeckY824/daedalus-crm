@@ -55,8 +55,9 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
   const activeId = pathname.startsWith("/customers/") ? pathname.split("/")[2] : "";
 
   const rows = useMemo(() => {
-    const k = q.trim();
-    return data.rows.filter((r) => !k || r.name.includes(k) || (r.lastNote ?? "").includes(k));
+    // 不分大小写：英文名搜「john」也得找到「John」（第六轮疑似）
+    const k = q.trim().toLowerCase();
+    return data.rows.filter((r) => !k || r.name.toLowerCase().includes(k) || (r.lastNote ?? "").toLowerCase().includes(k));
   }, [data.rows, q]);
 
   /*
@@ -85,7 +86,15 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
   );
   const 分组 = !q.trim();
   const 组们 = useMemo(
-    () => FOLLOW_STATUSES.map((s) => ({ s, rows: 页签里.filter((r) => r.followStatus === s) })).filter((g) => g.rows.length > 0),
+    () => {
+      /*
+        预设状态之外的（老库里的、导入时自己填的）也得有个组——原来只按预设那几个分，
+        这些客户在分组视图里直接不见了（第六轮疑似）。按出现的先后接在后面，组名就是它自己
+      */
+      const 预设 = new Set<string>(FOLLOW_STATUSES);
+      const 其余 = [...new Set(页签里.map((r) => r.followStatus).filter((s) => !预设.has(s)))];
+      return [...FOLLOW_STATUSES, ...其余].map((s) => ({ s, rows: 页签里.filter((r) => r.followStatus === s) })).filter((g) => g.rows.length > 0);
+    },
     [页签里],
   );
   const 切组 = (s: string) => set收起的(收起的.includes(s) ? 收起的.filter((x) => x !== s) : [...收起的, s]);

@@ -101,12 +101,20 @@ export async function consumeCode(target: string, code: string, purpose = "signu
   });
   if (!row) return { ok: false, error: "请先获取验证码" };
   if (row.expiresAt < new Date()) return { ok: false, error: "验证码已过期，请重新获取" };
-  if (row.attempts >= MAX_ATTEMPTS) return { ok: false, error: "尝试次数过多，请重新获取验证码" };
-  if (row.code !== code.trim()) {
-    await control.verifyCode.update({ where: { id: row.id }, data: { attempts: { increment: 1 } } });
-    return { ok: false, error: "验证码不对" };
-  }
-  await control.verifyCode.update({ where: { id: row.id }, data: { usedAt: new Date() } });
+  /*
+    **先占一次名额，再比对**（第六轮 A1）。原来是「读次数 → 比对 → 错了再加一」，读和写之间没锁：
+    同一个码并发打 200 次，几乎每一次都读到「还没满 5 次」，真比对了一百多次——6 位码就这么被试出来，
+    找回密码那条路能改掉别人的密码。现在用一条带条件的更新加一：次数没满、码没用过才加得上，加不上直接拒
+  */
+  const 占 = await control.verifyCode.updateMany({
+    where: { id: row.id, usedAt: null, attempts: { lt: MAX_ATTEMPTS } },
+    data: { attempts: { increment: 1 } },
+  });
+  if (占.count === 0) return { ok: false, error: "尝试次数过多，请重新获取验证码" };
+  if (row.code !== code.trim()) return { ok: false, error: "验证码不对" };
+  // 作废也带条件：同一个码并发提交两次，只有一次算数
+  const 用 = await control.verifyCode.updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: new Date() } });
+  if (用.count === 0) return { ok: false, error: "这个验证码已经用过了，请重新获取" };
   return { ok: true };
 }
 
