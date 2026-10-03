@@ -22,6 +22,7 @@ import { saveContract } from "../customers/actions";
 import { createOrder } from "../orders/actions";
 import InlineConfirm from "@/components/InlineConfirm";
 import OpportunityForm from "./OpportunityForm";
+import CompareDrawer from "./CompareDrawer";
 import { 金额格式 } from "@/lib/money-input";
 import { 金额, 合计文字, 币种符号 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
@@ -67,6 +68,9 @@ export default function OpportunitiesView({
 }) {
   const router = useRouter();
   const b = useBusiness();
+  /** 正在看哪个商机的供应商比价（外贸模版，3c） */
+  const [比价, set比价] = useState<OppRow | null>(null);
+  const 比价项 = (r: OppRow) => (b.template === "trade" ? [{ key: "compare", label: "供应商比价", onClick: () => set比价(r) }] : []);
   const { message, modal } = App.useApp();
   const { f, setF, apply, reset, pending } = useUrlFilters("/opportunities", filters);
   const [open, setOpen] = useState(false);
@@ -332,6 +336,7 @@ export default function OpportunitiesView({
                   ...(r.status === "WON" && b.template === "trade"
                     ? [{ key: "order", label: "生成订单", onClick: () => void 生成订单(r).then((id) => id && router.push(`/orders/${id}`)) }]
                     : []),
+                  ...比价项(r),
                   { key: "reopen", label: "重新打开", onClick: () => void 重开(r) },
                 ],
               }}
@@ -350,6 +355,7 @@ export default function OpportunitiesView({
               <Dropdown
                 menu={{
                   items: [
+                    ...比价项(r),
                     { key: "won", label: "标记赢单", onClick: () => { set问丢单(null); set问赢单(r.id); } },
                     { key: "lost", label: "标记丢单", danger: true, onClick: () => { set问赢单(null); set问丢单(r.id); } },
                   ],
@@ -486,6 +492,7 @@ export default function OpportunitiesView({
         }
       />
 
+      <CompareDrawer open={比价 !== null} opp={比价} onClose={() => set比价(null)} />
       <OpportunityForm
         open={open}
         editing={editing}

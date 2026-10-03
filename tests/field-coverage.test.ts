@@ -51,6 +51,10 @@ const 可写: Record<string, string[]> = {
   TradeOrder: ["no", "amount", "currency", "incoterm", "payment", "depositDue", "depositPaid", "depositAt", "balancePaid", "balanceAt", "remark"],
   TradeOrderNode: ["name", "dueAt", "status"],
   TradeOrderDoc: ["name", "state"],
+  // 供应商和比价（3c）：saveSupplier / saveSupplierQuote / saveOrderPurchase
+  Supplier: ["name", "category", "region", "contact", "phone", "wechat", "invoice", "payment", "rating", "issues", "remark"],
+  SupplierQuote: ["supplierId", "product", "unitPrice", "currency", "withInvoice", "moq", "leadDays", "sampleFee", "validUntil", "verdict", "reason"],
+  TradeOrderPurchase: ["supplierId", "cost", "currency", "fxRate"],
   FollowUp: ["type", "title", "content", "status", "duration", "occurredAt", "dueAt", "participants", "customerId", "contactId", "opportunityId"],
   Task: ["title", "dueAt", "done", "customerId"],
   FollowPlan: ["subject", "plannedAt", "method", "done", "customerId"],
@@ -89,6 +93,8 @@ const 派生: Record<string, Record<string, string>> = {
   },
   TradeOrderNode: { orderId: "属于哪张订单", idx: "第几步（1–12），建单时排好", doneAt: "改成已完成的那一刻，系统打上；改回别的就清掉" },
   TradeOrderDoc: { orderId: "属于哪张订单", sort: "清单里的顺序，加一样时排在最后" },
+  SupplierQuote: { opportunityId: "哪个商机（询盘）的比价，建行时定", quotedAt: "记下这一行的那一刻，系统打上" },
+  TradeOrderPurchase: { orderId: "哪张订单，一张一行" },
   FollowUpOrder: { followUpId: "哪条跟进，在节点上记一笔时一起建", orderId: "挂在哪张订单上", nodeIdx: "挂在第几步上" },
   ContractOwner: {
     contractId: "哪一笔签约，saveContract 新登记时一起建",

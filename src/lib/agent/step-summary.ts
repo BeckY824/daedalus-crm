@@ -20,6 +20,7 @@ export const 工具口语: Record<string, (次: number, 客户: string) => strin
   list_opportunities: () => "查了商机",
   list_contracts: () => "查了签约记录",
   list_orders: () => "查了订单",
+  list_suppliers: () => "查了供应商",
   list_users: () => "查了团队名单",
   search_followups: (n) => `搜了 ${n} 次跟进记录`,
   /*

@@ -98,6 +98,11 @@ export const 只读SCHEMAS: Record<string, Schema> = {
     properties: { keyword: 串("姓名里的关键词"), includeInactive: 真假("连已停用的一起列") },
     additionalProperties: false,
   },
+  list_suppliers: {
+    type: "object",
+    properties: { keyword: 串("供应商名称 / 品类 / 地区里的词"), product: 串("产品名里的词") },
+    additionalProperties: false,
+  },
   list_orders: {
     type: "object",
     properties: { customerName: 串("客户姓名"), ownerName: 串("业务员姓名"), onlyLate: 真假("只看有超期节点的") },

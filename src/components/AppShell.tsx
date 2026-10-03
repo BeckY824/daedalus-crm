@@ -17,6 +17,7 @@ import {
   ContactsOutlined,
   DollarOutlined,
   ContainerOutlined,
+  ShopOutlined,
   InteractionOutlined,
   SettingOutlined,
   HistoryOutlined,
@@ -210,6 +211,8 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
       { key: "/leads", icon: <ShareAltOutlined />, label: "线索", 组: "更多" },
       { key: "/contacts", icon: <ContactsOutlined />, label: "联系人", 组: "更多" },
       { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道", 组: "更多" },
+      // 供应商（3c）同样外贸才有：通用销售没有「找工厂比价」这一步
+      ...(b.template === "trade" ? [{ key: "/suppliers", icon: <ShopOutlined />, label: "供应商", 组: "更多" as const }] : []),
     ],
     [b.customer, b.template],
   );
@@ -217,7 +220,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
   // 选中项取最长匹配前缀，/customers/xxx 也算在客户管理下
   const 少动 = useReducedMotion();
   const selectedKey = useMemo(() => {
-    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/follow-ups", "/settings"];
+    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/suppliers", "/follow-ups", "/settings"];
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
 

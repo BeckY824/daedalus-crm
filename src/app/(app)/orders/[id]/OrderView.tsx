@@ -3,8 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Col, DatePicker, Input, InputNumber, Row, Segmented, Space } from "antd";
+import { App, Button, Card, Col, DatePicker, Input, InputNumber, Row, Segmented, Select, Space } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
+import CurrencySelect from "@/components/CurrencySelect";
+import { 毛利 } from "@/lib/supplier";
 import { PageHead } from "@/components/ui";
 import { dayjs, fmtDate } from "@/lib/utils";
 import { 金额 } from "@/lib/currency";
@@ -12,7 +14,7 @@ import { 金额格式 } from "@/lib/money-input";
 import { 节点状态们, 单据状态们, 当前节点, 节点灯, 进度, 超期数, 订单的钱 } from "@/lib/order";
 import { 小计, 报价合计 } from "@/lib/quote";
 import type { 订单详情数据 } from "@/lib/order-db";
-import { saveOrder, saveOrderNode, saveOrderDoc, addOrderDoc, deleteOrderDoc, addOrderNodeNote, deleteOrder } from "../actions";
+import { saveOrderPurchase, saveOrder, saveOrderNode, saveOrderDoc, addOrderDoc, deleteOrderDoc, addOrderNodeNote, deleteOrder } from "../actions";
 import OrderForm from "../OrderForm";
 
 /**
@@ -22,7 +24,9 @@ import OrderForm from "../OrderForm";
  * 点一步在下面展开：改截止日、改状态、在这一步记一笔（问工厂的结果、货代回的船期……都是一条跟进）。
  * 再往下是钱（定金 / 尾款的应收实收）和单据清单。默认打开「当前节点」——人进来就是想看卡在哪。
  */
-export default function OrderView({ o, 先看 }: { o: 订单详情数据; 先看?: number }) {
+type 供应商选项 = { id: string; name: string; rating: string | null }[];
+
+export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详情数据; 供应商?: 供应商选项; 先看?: number }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
   const 当前 = 当前节点(o.nodes);
@@ -116,6 +120,11 @@ export default function OrderView({ o, 先看 }: { o: 订单详情数据; 先看
         <Col xs={24} xl={12}>
           <Card title={<span className="section-title">单据</span>} extra={<span className="muted">{o.docs.filter((d) => d.state === "已收" || d.state === "已发客户" || d.state === "不需要").length} / {o.docs.length} 齐</span>}>
             <DocsPanel o={o} 跑={跑} />
+          </Card>
+        </Col>
+        <Col span={24}>
+          <Card title={<span className="section-title">采购与毛利</span>}>
+            <PurchasePanel key={JSON.stringify(o.采购)} o={o} 供应商={供应商} 跑={跑} />
           </Card>
         </Col>
         {o.报价 && (
@@ -252,6 +261,61 @@ function DocsPanel({ o, 跑 }: { o: 订单详情数据; 跑: 跑法 }) {
         <Input value={新} onChange={(e) => set新(e.target.value)} placeholder="加一样：如 产地证 CO" maxLength={60} onPressEnter={() => 新.trim() && void 跑(addOrderDoc(o.id, 新)).then((ok) => ok && set新(""))} aria-label="加一样单据" />
         <Button icon={<PlusOutlined />} disabled={!新.trim()} onClick={() => void 跑(addOrderDoc(o.id, 新)).then((ok) => ok && set新(""))}>加</Button>
       </Space.Compact>
+    </div>
+  );
+}
+
+/**
+ * 采购与毛利（3c）：从哪家采、采购额、汇率 → 这一单赚多少。
+ * 汇率只用在这一单上（全站合计照样不换汇）；订单和采购同一种币时不用填汇率。
+ */
+function PurchasePanel({ o, 供应商, 跑 }: { o: 订单详情数据; 供应商: 供应商选项; 跑: 跑法 }) {
+  const 原 = o.采购 ?? { supplierId: null, supplierName: null, cost: 0, currency: "CNY", fxRate: null };
+  const [v, setV] = useState({ supplierId: 原.supplierId, cost: 原.cost, currency: 原.currency, fxRate: 原.fxRate });
+  const 改了 = v.supplierId !== 原.supplierId || v.cost !== 原.cost || v.currency !== 原.currency || v.fxRate !== 原.fxRate;
+  const 利 = 毛利(o, v);
+  const 同币 = v.currency === o.currency;
+  return (
+    <div className="ord-money">
+      <div className="ord-money-row">
+        <span className="ord-k">供应商</span>
+        <Select
+          style={{ width: 240 }}
+          allowClear
+          showSearch
+          optionFilterProp="label"
+          placeholder="从哪家采"
+          value={v.supplierId ?? undefined}
+          onChange={(x) => setV({ ...v, supplierId: x ?? null })}
+          options={供应商.map((s) => ({ value: s.id, label: `${s.name}${s.rating ? ` · ${s.rating}` : ""}` }))}
+          aria-label="供应商"
+        />
+        {v.supplierId && <Link href={`/suppliers/${v.supplierId}`}>看这家 ›</Link>}
+      </div>
+      <div className="ord-money-row">
+        <span className="ord-k">采购额</span>
+        <Space.Compact>
+          <CurrencySelect value={v.currency} onChange={(c) => setV({ ...v, currency: c })} />
+          <InputNumber<number> min={0} value={v.cost} onChange={(n) => setV({ ...v, cost: n ?? 0 })} formatter={金额格式} style={{ width: 160 }} aria-label="采购额" />
+        </Space.Compact>
+        {!同币 && (
+          <>
+            <span className="ord-k">汇率 1 {o.currency} =</span>
+            <InputNumber<number> min={0} step={0.01} value={v.fxRate} onChange={(n) => setV({ ...v, fxRate: n })} style={{ width: 100 }} aria-label="汇率" />
+            <span className="ord-k">{v.currency}</span>
+          </>
+        )}
+      </div>
+      <div className="ord-money-foot">
+        <span className="ord-profit">
+          {利 ? (
+            <>毛利 <b className={利.毛利 < 0 ? "ord-late" : undefined}>{金额(利.毛利, 利.币种)}</b>（{利.毛利率}%）</>
+          ) : (
+            <span className="muted">{v.cost > 0 && !同币 ? "填上汇率就算得出毛利" : "填上采购额就算得出毛利"}</span>
+          )}
+        </span>
+        <Button type="primary" disabled={!改了} onClick={() => void 跑(saveOrderPurchase(o.id, v), "已保存")}>保存</Button>
+      </div>
     </div>
   );
 }

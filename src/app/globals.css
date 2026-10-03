@@ -1979,6 +1979,22 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 
 /* 登记签约弹窗底下「顺手收个尾」那一块（ContractForm）：商机标赢单、计划和待办一并完成。
    和上面的表单用一道细线隔开——它不是签约的字段，是签约带出来的几件事 */
+/* 供应商页顶上「出过的问题」：比评级显眼 */
+.sup-issues { display: flex; gap: var(--s3); align-items: baseline; margin: calc(-1 * var(--s2)) 0 var(--s4); padding: var(--s2) var(--s3); border-radius: var(--r-ctl); background: var(--warning-bg); border: 1px solid var(--warning-line); color: var(--warning-text); font-size: var(--fs-note); }
+.sup-issues b { flex: none; font-weight: 600; }
+.sup-issues span { white-space: pre-wrap; }
+
+/* 供应商比价抽屉（2026-10-03）：最低价那行淡绿，过期的压灰 */
+.cmp-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s4); margin-bottom: var(--s3); }
+.cmp-top > .ant-btn { margin-left: auto; }
+.cmp-warn { color: var(--warning-text); font-size: var(--fs-note); }
+.cmp-calc { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--fs-note); color: var(--text-muted); }
+.cmp-low > td { background: var(--success-bg) !important; }
+.cmp-old > td { color: var(--text-faint); }
+.cmp-price { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cmp-reason { font-size: var(--fs-note); color: var(--ink-soft); }
+.cmp-issue { color: var(--warning); }
+
 /* 订单一览（2026-10-03）：12 个节点一格一格，颜色说话。红 = 超期 / 卡住，黄 = 3 天内到期，绿 = 完成，灰 = 不适用 */
 .ord-cells { display: inline-flex; gap: 4px; vertical-align: middle; }
 .ord-cell { display: block; width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--line); background: var(--panel); transition: transform var(--t-press) var(--ease); }
@@ -2033,6 +2049,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .ord-money-due { min-width: 150px; font-size: var(--fs-note); color: var(--text-muted); }
 .ord-money-due b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .ord-money-foot { display: flex; justify-content: space-between; align-items: center; font-size: var(--fs-min); }
+.ord-profit { font-size: var(--fs-note); color: var(--text-muted); }
+.ord-profit b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .ord-docs { display: flex; flex-direction: column; gap: 6px; }
 .ord-doc { display: flex; align-items: center; gap: var(--s2); }
 .ord-doc-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -78,6 +78,7 @@ export async function 订单详情(id: string) {
       nodes: 节点查询,
       docs: { orderBy: { sort: "asc" }, select: { id: true, name: true, state: true } },
       followUps: { include: { followUp: { select: { id: true, content: true, occurredAt: true, owner: { select: { name: true } } } } } },
+      purchase: { include: { supplier: { select: { id: true, name: true } } } },
     },
   });
   if (!o) return null;
@@ -101,6 +102,9 @@ export async function 订单详情(id: string) {
     balanceAt: o.balanceAt?.toISOString() ?? null,
     remark: o.remark,
     createdAt: o.createdAt.toISOString(),
+    采购: o.purchase
+      ? { supplierId: o.purchase.supplierId, supplierName: o.purchase.supplier?.name ?? null, cost: o.purchase.cost, currency: 规整币种(o.purchase.currency), fxRate: o.purchase.fxRate }
+      : null,
     nodes: o.nodes.map(节点出),
     docs: o.docs,
     notes: o.followUps

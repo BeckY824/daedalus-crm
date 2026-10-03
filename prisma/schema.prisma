@@ -261,6 +261,8 @@ model Opportunity {
   quotes    Quote[]
   /// 赢单后生成的订单（2026-10-03）。见 TradeOrder
   tradeOrders TradeOrder[]
+  /// 供应商比价（2026-10-03）。见 SupplierQuote
+  supplierQuotes SupplierQuote[]
 
   @@index([customerId])
   @@index([stage])
@@ -342,9 +344,80 @@ model TradeOrder {
   nodes     TradeOrderNode[]
   docs      TradeOrderDoc[]
   followUps FollowUpOrder[]
+  /// 采购：供应商、采购额、汇率（3c）。见 TradeOrderPurchase
+  purchase  TradeOrderPurchase?
 
   @@index([customerId])
   @@index([opportunityId])
+}
+
+/// 订单的采购（2026-10-03 外贸第 3c 块，迁移 017）：从哪家采、采购额多少、按什么汇率折，毛利就出来了。
+/// 旁表不加列：理由见迁移 017 开头。汇率只用在这一单的毛利上——全站合计照样不换汇。
+model TradeOrderPurchase {
+  orderId    String     @id
+  order      TradeOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  supplierId String?
+  supplier   Supplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  cost       Float      @default(0)
+  currency   String     @default("CNY")
+  /// 1 单位订单币种 = 多少采购币种（1 USD = 7.1 CNY 就写 7.1）
+  fxRate     Float?
+
+  @@index([supplierId])
+}
+
+/// 供应商档案（2026-10-03 外贸第 3c 块，迁移 017）。贸易公司的毛利在「找对工厂」：
+/// 「出过的问题」比评级有用——下次选厂前扫一眼（外贸CRM模版.md 3.2）。只在外贸模版下有入口
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  /// 主营品类
+  category  String?
+  region    String?
+  contact   String?
+  phone     String?
+  wechat    String?
+  /// 能不能开票：「能开 13% 专票」「不开票」……自由文本，比价时看口径
+  invoice   String?
+  /// 常用付款方式：工厂常见「30% 定金 / 货好付清」
+  payment   String?
+  /// A 稳定 / B 可用 / C 慎用
+  rating    String?
+  /// 出过的问题：延期、质量、包装错……
+  issues    String?
+  remark    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  quotes    SupplierQuote[]
+  purchases TradeOrderPurchase[]
+}
+
+/// 比价的一行：一个商机（询盘）问一家供应商一个产品的价。同一商机同一产品、同币种同含票口径里最低价标绿（lib/supplier.ts）。
+/// 结论选用 / 淘汰时理由必填——比价表上唯一给老板看的那一格
+model SupplierQuote {
+  id            String      @id @default(cuid())
+  opportunityId String
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  supplierId    String
+  supplier      Supplier    @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  product       String
+  /// 出厂单价
+  unitPrice     Float       @default(0)
+  currency      String      @default("CNY")
+  withInvoice   Boolean     @default(false)
+  moq           Float?
+  /// 交期（天）
+  leadDays      Int?
+  sampleFee     Float?
+  validUntil    DateTime?
+  quotedAt      DateTime    @default(now())
+  /// 待定 / 选用 / 备选 / 淘汰
+  verdict       String      @default("待定")
+  reason        String?
+
+  @@index([opportunityId])
+  @@index([supplierId])
 }
 
 /// 订单的一个节点：截止日 + 状态（未开始 / 进行中 / 已完成 / 卡住 / 不适用）。名字可改。

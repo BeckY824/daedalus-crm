@@ -124,6 +124,11 @@ export async function createOrder(input: 订单输入 & { customerId: string; op
           }),
         },
         docs: { create: 默认单据(incoterm).map((name, i) => ({ name, sort: i })) },
+        /*
+          比价里「选用」的那家带过去当这一单的供应商（3c）。只带供应商不带采购额：
+          比价是单价，采购额要乘数量、可能还有几个产品，算错一个数比空着更糟——留给人填
+        */
+        ...(商机 ? await 选用的供应商(商机.id) : {}),
       },
     });
     await recordAudit({
@@ -133,6 +138,40 @@ export async function createOrder(input: 订单输入 & { customerId: string; op
     });
     刷新(o.id, 客户.id);
     return { ok: true as const, id: o.id };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+async function 选用的供应商(商机id: string) {
+  const 选 = await prisma.supplierQuote.findFirst({ where: { opportunityId: 商机id, verdict: "选用" }, orderBy: { quotedAt: "desc" }, select: { supplierId: true, currency: true } });
+  return 选 ? { purchase: { create: { supplierId: 选.supplierId, currency: 选.currency } } } : {};
+}
+
+/**
+ * 订单的采购（3c）：从哪家采、采购额、汇率。毛利由 lib/supplier.ts 的 毛利() 现算，不存。
+ * 汇率只用在这一单的毛利上——全站合计照样不换汇。
+ */
+export async function saveOrderPurchase(orderId: string, input: { supplierId?: string | null; cost?: number; currency?: string; fxRate?: number | null }) {
+  try {
+    const me = await requireUser();
+    const o = await prisma.tradeOrder.findUnique({ where: { id: String(orderId ?? "") }, select: { id: true, no: true, customerId: true } });
+    if (!o) return { ok: false as const, error: "这张订单已经不在了" };
+    const cost = 钱(input.cost ?? 0);
+    if (cost === null) return { ok: false as const, error: "采购额要是一个不小于 0 的数" };
+    if (input.currency && !是币种(String(input.currency).toUpperCase())) return { ok: false as const, error: "不认识这个币种" };
+    let fxRate: number | null = null;
+    if (input.fxRate !== null && input.fxRate !== undefined && String(input.fxRate) !== "") {
+      fxRate = Number(input.fxRate);
+      if (!Number.isFinite(fxRate) || fxRate <= 0 || fxRate > 1e6) return { ok: false as const, error: "汇率要是一个大于 0 的数" };
+    }
+    const supplierId = input.supplierId || null;
+    if (supplierId && !(await prisma.supplier.findUnique({ where: { id: supplierId }, select: { id: true } }))) return { ok: false as const, error: "这家供应商已经不在了" };
+    const data = { supplierId, cost, currency: 规整币种(input.currency ?? "CNY"), fxRate };
+    await prisma.tradeOrderPurchase.upsert({ where: { orderId: o.id }, create: { orderId: o.id, ...data }, update: data });
+    await recordAudit({ user: me, action: "update", entity: "TradeOrder", entityId: o.id, summary: `订单 ${o.no} 的采购：${显示金额(cost, data.currency)}${fxRate ? `，汇率 ${fxRate}` : ""}`, detail: data });
+    刷新(o.id, o.customerId);
+    return { ok: true as const };
   } catch (e) {
     return 不在了(e);
   }

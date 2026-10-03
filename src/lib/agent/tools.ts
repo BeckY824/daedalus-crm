@@ -704,6 +704,48 @@ export const TOOLS: Tool[] = [
     },
   },
   {
+    /* 供应商（3c）：档案 + 历次比价。问「上次 LED 面板灯哪家最便宜」「XX 厂出过什么问题」用它 */
+    name: "list_suppliers",
+    description:
+      "列供应商（工厂）：品类、地区、评级、出过的问题、合作过几单，以及最近的比价（产品、出厂价、含不含票、结论和理由）。" +
+      "可按名称 / 品类 / 地区关键词筛，product 只看比过这个产品的价。问「上次 XX 哪家最便宜」「某某厂出过什么问题」「这个产品问过哪几家」用它。",
+    args: '{"keyword": "供应商名称 / 品类 / 地区里的词，可空", "product": "产品名里的词，可空"}',
+    async run(args) {
+      const k = str(args.keyword, 30);
+      const 产品 = str(args.product, 60);
+      const rows = await prisma.supplier.findMany({
+        where: {
+          ...(k ? { OR: [{ name: { contains: k } }, { category: { contains: k } }, { region: { contains: k } }] } : {}),
+          ...(产品 ? { quotes: { some: { product: { contains: 产品 } } } } : {}),
+        },
+        take: 30,
+        include: {
+          _count: { select: { purchases: true } },
+          quotes: {
+            where: 产品 ? { product: { contains: 产品 } } : {},
+            orderBy: { quotedAt: "desc" },
+            take: 5,
+            select: { product: true, unitPrice: true, currency: true, withInvoice: true, quotedAt: true, verdict: true, reason: true, opportunity: { select: { name: true } } },
+          },
+        },
+      });
+      return {
+        summary: `${rows.length} 家供应商`,
+        data: rows.map((s) => ({
+          supplierId: s.id,
+          名称: s.name,
+          品类: s.category,
+          地区: s.region,
+          评级: s.rating,
+          出过的问题: s.issues,
+          开票: s.invoice,
+          合作单数: s._count.purchases,
+          最近比价: s.quotes.map((q) => `${dayjs(q.quotedAt).format("YYYY-MM-DD")} ${q.product} ${显示金额(q.unitPrice, q.currency)}${q.withInvoice ? "（含票）" : "（不含票）"} · ${q.verdict}${q.reason ? `（${q.reason}）` : ""} · 询盘「${q.opportunity.name}」`),
+        })),
+      };
+    },
+  },
+  {
     /*
       团队名单。原来「我们有几个销售」「谁是渠道负责人」够不着——
       query_metric 按 sales 分组只能列出**有数据的**那几个人，

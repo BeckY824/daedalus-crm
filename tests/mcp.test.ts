@@ -63,7 +63,7 @@ describe("令牌", () => {
 });
 
 describe("开出去的工具", () => {
-  it("只有只读那十五个，propose_* 一个都没有", () => {
+  it("只有只读那十六个，propose_* 一个都没有", () => {
     const 名字 = 列工具().map((t) => t.name);
     expect(名字.sort()).toEqual([...MCP_TOOL_NAMES].sort());
     expect(名字.some((n) => n.startsWith("propose_"))).toBe(false);
@@ -87,7 +87,9 @@ describe("开出去的工具", () => {
     expect(名字).toContain("my_recap");
     // 2026-10-03 外贸订单：只读，问「哪几单超期了」在别的客户端里一样常见
     expect(名字).toContain("list_orders");
-    expect(名字.length).toBe(15);
+    // 供应商和比价（3c）：只读
+    expect(名字).toContain("list_suppliers");
+    expect(名字.length).toBe(16);
   });
 
   it("每个工具都带说明和 JSON Schema——客户端拿它做补全和校验", () => {

@@ -120,6 +120,7 @@ const 一级: Record<string, 页> = {
   },
   "/opportunities": { 名: "商机", 提示: "用户正在看商机列表", 工具: "list_opportunities", 查一个: { 工具: "list_opportunities", 参数: "customerName" } },
   "/orders": { 名: "订单", 提示: "用户正在看外贸订单一览（每行一单，12 个节点红黄绿）", 工具: "list_orders", 查一个: { 工具: "list_orders", 参数: "customerName" } },
+  "/suppliers": { 名: "供应商", 提示: "用户正在看供应商一览（工厂档案、出过的问题、历次比价）", 工具: "list_suppliers", 查一个: { 工具: "list_suppliers", 参数: "keyword" } },
   "/opportunities/pipeline": { 名: "商机 · 管道", 提示: "用户正在看商机管道看板", 工具: "list_opportunities" },
   "/follow-ups": {
     名: "跟进记录",
