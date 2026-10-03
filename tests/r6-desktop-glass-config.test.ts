@@ -43,7 +43,7 @@ describe("毛玻璃开关存得住", () => {
     expect(读()).toMatchObject({ mode: "local", lastRoute: "/customers" });
   });
 
-  it.skip("config.json 里 glass:false，读配置() 要读回来——否则「实底」永远不生效，下一次写配置还把它抹掉", () => {
+  it("config.json 里 glass:false，读配置() 要读回来——否则「实底」永远不生效，下一次写配置还把它抹掉", () => {
     const 读 = 造读配置({ mode: "local", glass: false });
     expect(读().glass, "读配置() 没把 glass 读回来：玻璃开着() 恒为 true，写配置({...读配置()}) 会把 glass 抹掉").toBe(false);
   });

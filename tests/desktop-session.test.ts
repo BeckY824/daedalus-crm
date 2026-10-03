@@ -143,7 +143,8 @@ describe("本地模式下 /login 是云端账号的门", () => {
     const layout = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/layout.tsx"), "utf8");
     expect(layout).toContain('if (本地模式() && !读云端凭据()) redirect("/api/auth/logout?reason=revoked");');
     const logout = fs.readFileSync(path.resolve(__dirname, "../src/app/api/auth/logout/route.ts"), "utf8");
-    expect(logout).toContain('url.searchParams.set("reason", reason)');
+    // 原因原样带到登录页（相对地址，见第六轮 r6-pkg B2）
+    expect(logout).toContain("/login?reason=${encodeURIComponent(reason)}");
   });
 
   it("没开本地模式的部署照常画登录页，一步都不跳", async () => {

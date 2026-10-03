@@ -255,6 +255,7 @@ export default function DesktopAuth({
                     密码
                   </label>
                   <Input.Password
+                    autoFocus
                     id="auth-pw"
                     ref={(el) => {
                       密码框.current = el?.input ?? null;
@@ -327,6 +328,7 @@ export default function DesktopAuth({
                     密码
                   </label>
                   <Input.Password
+                    autoFocus
                     id="auth-newpw"
                     ref={(el) => {
                       密码框.current = el?.input ?? null;

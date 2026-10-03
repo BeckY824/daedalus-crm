@@ -213,6 +213,9 @@ function 读配置() {
       lastUpdateCheck: c.lastUpdateCheck,
       // 上次停在哪一页，见 route-memory.js
       lastRoute: c.lastRoute,
+      // 毛玻璃开没开（设置 → 外观 → 窗口）。不读回来的话 玻璃开着() 永远是开着，
+      // 「实底」拨了不生效；而且每次 写配置({...读配置()}) 都会把它抹掉（第六轮 r6-pkg B1）
+      glass: c.glass,
     };
   } catch {
     return { mode: "local", serverUrl: 默认服务器 };
@@ -281,7 +284,22 @@ function 报告崩溃(标题, e) {
 process.on("uncaughtException", (e) => 报告崩溃("未捕获的异常", e));
 process.on("unhandledRejection", (e) => 报告崩溃("未处理的 Promise 拒绝", e));
 // 渲染进程 / GPU 等子进程没了：不弹框（Electron 自己会重建或用户会看到白屏），只记一笔
-app.on("render-process-gone", (_e, _wc, d) => 崩溃.写崩溃日志(应用日志, "渲染进程退出", `${d.reason}（${d.exitCode}）`));
+/*
+  渲染进程没了（被系统或别的程序杀掉、崩了）：原来只记一笔，窗口就一直白着，人得自己 ⌘R 或重开。
+  主窗口的、不是正常退出的就重载一次；一分钟内最多重载三次，免得一载就崩时来回打转（第六轮 r6-pkg C4）
+*/
+let 重载记录 = [];
+app.on("render-process-gone", (_e, wc, d) => {
+  崩溃.写崩溃日志(应用日志, "渲染进程退出", `${d.reason}（${d.exitCode}）`);
+  if (d.reason === "clean-exit" || !win || win.isDestroyed() || wc !== win.webContents) return;
+  const 现在 = Date.now();
+  重载记录 = 重载记录.filter((t) => 现在 - t < 60_000);
+  if (重载记录.length >= 3) return;
+  重载记录.push(现在);
+  setTimeout(() => {
+    if (win && !win.isDestroyed()) win.webContents.reload();
+  }, 500);
+});
 app.on("child-process-gone", (_e, d) => 崩溃.写崩溃日志(应用日志, "子进程退出", `${d.type} ${d.name || ""}：${d.reason}（${d.exitCode}）`));
 
 /* ---------- 启动 ---------- */

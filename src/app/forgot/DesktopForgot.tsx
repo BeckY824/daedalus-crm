@@ -196,6 +196,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
                     新密码
                   </label>
                   <Input.Password
+                    autoFocus
                     id="forgot-newpw"
                     ref={(el) => {
                       密码框.current = el?.input ?? null;

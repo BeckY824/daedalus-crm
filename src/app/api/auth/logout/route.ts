@@ -29,9 +29,15 @@ export async function POST() {
  */
 export async function GET(request: NextRequest) {
   await destroySession();
-  const url = new URL("/login", request.url);
   // 壳把人送回门口时会说明原因（令牌被吊销了），原样带到登录页那句话上
   const reason = request.nextUrl.searchParams.get("reason");
-  if (reason) url.searchParams.set("reason", reason);
-  return NextResponse.redirect(url);
+  /*
+    回**相对地址**，不拼 request.url（第六轮 r6-pkg B2）：standalone 服务把主机名规范成了 localhost，
+    拼出来的绝对地址把桌面端从 127.0.0.1 带到 localhost——之后的外观、列表列、停留页都存在另一个源上，
+    下次启动就「丢了」。/api/desktop/session 早因为同样的原因改成相对地址，这里漏了
+  */
+  return new NextResponse(null, {
+    status: 307,
+    headers: { Location: reason ? `/login?reason=${encodeURIComponent(reason)}` : "/login" },
+  });
 }

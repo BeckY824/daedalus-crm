@@ -802,6 +802,10 @@ html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, tra
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+/* 毛玻璃：整页那条滚动条的轨道铺上和正文一样的底色，不然右边露出一条没罩过的、偏深的壁纸（第六轮 r6-pkg C1） */
+html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
+}
 
 /* ---------- 窄屏降级 ---------- */
 .header-user-meta {

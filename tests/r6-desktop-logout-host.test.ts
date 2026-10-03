@@ -33,7 +33,7 @@ describe("logout 跳回登录页不能换主机名", () => {
     expect(loc).toContain("reason=revoked");
   });
 
-  it.skip("Location 是相对地址——不把 request.url 里（被规范成 localhost）的主机名拼进去", async () => {
+  it("Location 是相对地址——不把 request.url 里（被规范成 localhost）的主机名拼进去", async () => {
     const res = await GET(new NextRequest("http://localhost:56245/api/auth/logout"));
     const loc = res.headers.get("location") ?? "";
     expect(loc, `logout 跳去了 ${loc}：浏览器原来在 127.0.0.1 上，跳过去就换了源`).toMatch(/^\/login/);
