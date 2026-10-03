@@ -44,40 +44,42 @@ export default function OpportunityForm({
     报价明细（2026-10-03）。编辑时打开框再去取（列表一次 300 个商机，不在那时候带）；
     没取回来之前不往服务端交报价——交一个空表会被当成「清空了明细」另记一版。
   */
-  const [行, set行] = useState<草稿行[]>([]);
-  const [历次, set历次] = useState<一次报价[]>([]);
-  const [报价到了, set报价到了] = useState(true);
+  /*
+    这一次打开框的报价状态。「这一次」用 会话 认：开 / 关、换了一个商机，就换一份新的。
+    在渲染时比对重置（React 的「随 props 变的状态」写法），不在 effect 里同步 setState——那会多渲染一轮。
+  */
+  const 会话 = open ? (editing?.id ?? "new") : "";
+  const [报价态, set报价态] = useState(() => ({ 会话, 行: [] as 草稿行[], 历次: [] as 一次报价[], 到了: !editing }));
+  if (报价态.会话 !== 会话) set报价态({ 会话, 行: [], 历次: [], 到了: !editing });
+  const { 行, 历次, 到了: 报价到了 } = 报价态;
   /** 金额跟着明细合计走，人自己改过金额就不再跟（含税、折扣、运费另算都可能）。同 lib/fill-untouched 的规矩 */
   const 手填金额 = useRef(false);
   const 币种 = (Form.useWatch("currency", form) as string | undefined) ?? b.currency;
   const 客户 = Form.useWatch("customerId", form) as string | undefined;
 
   function 改明细(新: 草稿行[]) {
-    set行(新);
+    set报价态((x) => ({ ...x, 行: 新 }));
     const 合 = 草稿合计(新);
     if (!手填金额.current && 合 > 0) form.setFieldValue("amount", 合);
   }
 
   useEffect(() => {
-    if (!open) return;
-    set行([]);
-    set历次([]);
     手填金额.current = false;
-    if (editing) {
-      set报价到了(false);
-      let 还在 = true;
-      void 读报价(editing.id).then((qs) => {
-        if (!还在) return;
-        set历次(qs);
-        const 当前 = qs[0]?.行 ?? [];
-        set行(当前.map((r) => 新行({ product: r.product, spec: r.spec ?? "", qty: r.qty, unit: r.unit ?? "", unitPrice: r.unitPrice })));
-        // 金额和明细合计对不上：说明人手改过（或者先有金额后补的明细），以后不替他改
-        手填金额.current = 当前.length > 0 && Math.abs((qs[0]?.合计 ?? 0) - editing.amount) > 0.005;
-        set报价到了(true);
+    if (!open || !editing) return;
+    let 还在 = true;
+    void 读报价(editing.id).then((qs) => {
+      if (!还在) return;
+      const 当前 = qs[0]?.行 ?? [];
+      // 金额和明细合计对不上：说明人手改过（或者先有金额后补的明细），以后不替他改
+      手填金额.current = 当前.length > 0 && Math.abs((qs[0]?.合计 ?? 0) - editing.amount) > 0.005;
+      set报价态({
+        会话: editing.id,
+        历次: qs,
+        行: 当前.map((r) => 新行({ product: r.product, spec: r.spec ?? "", qty: r.qty, unit: r.unit ?? "", unitPrice: r.unitPrice })),
+        到了: true,
       });
-      return () => { 还在 = false; };
-    }
-    set报价到了(true);
+    });
+    return () => { 还在 = false; };
   }, [open, editing]);
 
   useEffect(() => {
