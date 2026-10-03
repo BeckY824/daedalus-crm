@@ -139,7 +139,15 @@ export async function 桌面端登录(target: string, password: string): Promise
   const 云端名字 = r.data.name || 联系.split("@")[0];
   const 名字 = await 该用的名字(admin.name, 云端名字);
   try {
-    await prisma.user.update({ where: { id: admin.id }, data: { email: 联系, name: 名字, title: "管理员" } });
+    /*
+      职位也是「你改过就不动」：原来每次登录都写回「管理员」，个人资料里改的职位活不过一次登录（排查 B4）。
+      空的和模板库带的「系统管理员」（prisma/seed.ts）算没改过，照旧写成「管理员」
+    */
+    const 职位 = admin.title?.trim();
+    await prisma.user.update({
+      where: { id: admin.id },
+      data: { email: 联系, name: 名字, title: 职位 && 职位 !== "系统管理员" ? 职位 : "管理员" },
+    });
   } catch {
     // 邮箱撞上了本地另一个账号（老库里手工建过同名同事）：名字照改，登录名不动
     await prisma.user.update({ where: { id: admin.id }, data: { name: 名字 } }).catch(() => {});

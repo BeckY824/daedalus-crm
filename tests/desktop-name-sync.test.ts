@@ -10,6 +10,7 @@
  * 编译器看不见，改坏了不会报错，只会又一次把用户的名字吃掉）。
  */
 import { describe, it, expect } from "vitest";
+import { DatabaseSync } from "node:sqlite";
 import fs from "node:fs";
 import path from "node:path";
 import { 同步名字键 } from "@/lib/desktop/synced-name";
@@ -41,5 +42,25 @@ describe("名字只在你没改过的时候才跟着云端走", () => {
 
   it("登录邮箱不在保护之列——那是账号的身份，一直对着云端", () => {
     expect(entry).toMatch(/admin\.email !== 联系/);
+  });
+});
+
+describe("职位同样：你改过就不动（排查 B4）", () => {
+  it("登录和启动都不再无条件写回「管理员」", () => {
+    expect(登录).not.toMatch(/title: "管理员" \}/);
+    expect(entry).not.toMatch(/title = '管理员',/);
+  });
+
+  it("启动那句 SQL：空的和模板带的「系统管理员」写成「管理员」，改过的留着", () => {
+    const m = entry.match(/title = (CASE[^\n]*?END)/);
+    expect(m).toBeTruthy();
+    const db = new DatabaseSync(":memory:");
+    db.exec("CREATE TABLE User (id TEXT, title TEXT)");
+    const 原 = [null, "", "  ", "系统管理员", "销售总监", "管理员"];
+    原.forEach((t, i) => db.prepare("INSERT INTO User VALUES (?, ?)").run(String(i), t));
+    db.exec(`UPDATE User SET title = ${m![1]}`);
+    const 后 = (db.prepare("SELECT title FROM User ORDER BY id").all() as { title: string }[]).map((r) => r.title);
+    expect(后).toEqual(["管理员", "管理员", "管理员", "管理员", "销售总监", "管理员"]);
+    db.close();
   });
 });

@@ -146,7 +146,7 @@ if (fs.existsSync(迁移目录)) {
         }
         if (admin && (admin.email !== 联系 || admin.name !== 要写的名字)) {
           try {
-            db.prepare("UPDATE User SET email = ?, name = ?, title = '管理员', updatedAt = strftime('%s','now') * 1000 WHERE id = ?").run(联系, 要写的名字, admin.id);
+            db.prepare("UPDATE User SET email = ?, name = ?, title = CASE WHEN TRIM(COALESCE(title, '')) IN ('', '系统管理员') THEN '管理员' ELSE title END, updatedAt = strftime('%s','now') * 1000 WHERE id = ?").run(联系, 要写的名字, admin.id);
             console.log(`[entry] 管理员已对上云端账号：${要写的名字} <${联系}>${人改过 ? "（名字是你自己改的，没动）" : ""}`);
           } catch (e) {
             // 邮箱撞上了别的本地账号（老库里手工建过同名同事）：名字照改，登录名不动
