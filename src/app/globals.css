@@ -176,7 +176,6 @@ html.glass .pane-search { background: color-mix(in srgb, var(--panel) 70%, trans
 html.glass .pane-h { border-bottom-color: color-mix(in srgb, var(--panel) 55%, transparent); }
 html.glass .main { background: color-mix(in srgb, var(--panel) 72%, transparent); }
 html.glass .rail-meter { border-top-color: color-mix(in srgb, var(--panel) 55%, transparent); }
-html.glass .login-shell { background: color-mix(in srgb, var(--page-bg) 55%, transparent); }
 /* 正文里的东西在玻璃上（照原型第 4 版）：卡片、表格是实白的一层，浮在 72% 的正文玻璃上——
    边换成半透明白线、垫一道很浅的影子；筛选框、分段切换这些小控件是更薄的一层白，看得出底下的玻璃 */
 html.glass .card-soft, html.glass .ant-card, html.glass .set-body {
@@ -223,6 +222,8 @@ html.glass .ant-pagination .ant-pagination-item, html.glass .ant-pagination .ant
 .auth-num { font-variant-numeric: tabular-nums; }
 .auth-agree { font-size: var(--fs-note); color: var(--ink-soft); }
 .auth-alert { margin-top: var(--s1); }
+/* 网页版注册 / 找回还是 antd Form：表单项自带 24px 下边距，叠上 .auth-form 的间距就空成两截 */
+.auth-form .ant-form-item { margin-bottom: var(--s3); }
 html.glass .auth { background: transparent; }
 html.glass .auth-side { background: color-mix(in srgb, color-mix(in srgb, var(--panel) 82%, var(--brand)) 40%, transparent); border-right-color: color-mix(in srgb, var(--line) 55%, transparent); }
 html.glass .auth-main { background: color-mix(in srgb, var(--panel) 97%, transparent); }
@@ -230,7 +231,9 @@ html.glass .auth-main { background: color-mix(in srgb, var(--panel) 97%, transpa
 html.glass .auth-claim, html.glass .auth-fine, html.glass .auth-brand { text-shadow: 0 0 12px color-mix(in srgb, var(--panel) 85%, transparent), 0 0 2px color-mix(in srgb, var(--panel) 70%, transparent); }
 html.glass .auth-fine { color: var(--ink-soft); }
 /* 窄窗口（Windows 上有人把窗口拉到很小）：只留表单那一半 */
-@media (max-width: 760px) { .auth { grid-template-columns: 1fr; } .auth-side { display: none; } }
+/* 窄屏左栏收起，表单上方补一枚小标（网页版会在手机上打开；桌面端窗口不会这么窄） */
+.auth-mobile-mark { display: none; }
+@media (max-width: 760px) { .auth { grid-template-columns: 1fr; } .auth-side { display: none; } .auth-mobile-mark { display: block; margin-bottom: var(--s2); } }
 
 /* 验证码（components/OtpInput.tsx）：真正接键盘的是那个透明 input，格子只是画出来的样子 */
 .otp { --otp-gap: var(--s2); position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: var(--otp-gap); cursor: text; }
@@ -273,28 +276,7 @@ a {
   text-decoration: none;
 }
 
-/* ---------- 登录页 ---------- */
-.login-shell {
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  background: var(--page-bg);
-  padding: 24px;
-}
-
-.login-card {
-  width: 100%;
-  max-width: 400px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--r-pop);
-  padding: 36px 36px 30px;
-}
-.login-mark {
-  display: grid;
-  place-items: center;
-  margin: 0 auto 12px;
-}
+/* ---------- 登录页：网页版和桌面端同一扇门，样式见上面 .auth（2026-10-04 起旧的 .login-card 删了） ---------- */
 
 /* ---------- 三栏壳（2026-09-15）：图标栏 76 / 中栏 352 / 右栏 ---------- */
 .shell { display: flex; min-height: 100vh; }

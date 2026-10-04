@@ -2,10 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Form, Input, Button, Alert, Typography, Checkbox } from "antd";
-import { LockOutlined, MailOutlined, SafetyOutlined } from "@ant-design/icons";
-import Logo from "@/components/Logo";
-import Rise from "@/components/Rise";
+import { Form, Input, Button, Alert, Checkbox } from "antd";
+import AuthShell from "../login/AuthShell";
 import { requestCode, signup } from "./actions";
 import { useCountdown } from "@/lib/use-countdown";
 
@@ -97,53 +95,42 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
     else setError(r.error);
   }
 
+  /*
+    注册开的是**桌面端用的云端账号**，所以左栏说桌面端那套话（数据在你自己的电脑上）。
+    2026-10-04 起和桌面端同一扇门的样子
+  */
   if (注册完成) {
     return (
-      <div className="login-shell">
-        <Rise className="login-card" style={{ textAlign: "center" }}>
-          <div className="login-mark" style={{ margin: "0 auto 16px" }}>
-            <Logo size={30} />
-          </div>
-          <Typography.Title level={4} style={{ margin: "0 0 8px", letterSpacing: -0.4 }}>
-            注册成功
-          </Typography.Title>
-          {/* 成功这一刻只说下一步（审查 D11）。「网页版是另一套账号」原来也摆在这儿，
-              人刚注册完就读到一句「但是」——那句话在登录页被挡下时才有用，那边已经说了 */}
-          <Typography.Paragraph type="secondary" style={{ fontSize: 14, marginBottom: 0 }}>
-            回到 <strong>Daedalus CRM 桌面端</strong>，用 <strong>{邮箱}</strong> 和刚才设的密码登录。
-            <br />
-            这个页面可以关掉了。
-          </Typography.Paragraph>
-        </Rise>
-      </div>
+      <AuthShell
+        门="桌面端"
+        标题="注册成功"
+        /* 成功这一刻只说下一步（审查 D11）。「网页版是另一套账号」原来也摆在这儿，
+           人刚注册完就读到一句「但是」——那句话在登录页被挡下时才有用，那边已经说了 */
+        说明={
+          <>
+            回到 <b>Daedalus CRM 桌面端</b>，用 <b>{邮箱}</b> 和刚才设的密码登录。这个页面可以关掉了。
+          </>
+        }
+      >
+        {null}
+      </AuthShell>
     );
   }
 
   return (
-    <div className="login-shell">
-      <Rise className="login-card">
-        <Rise 第几个={1} style={{ textAlign: "center", marginBottom: 24 }}>
-          <div className="login-mark">
-            <Logo size={30} />
-          </div>
-          <Typography.Title level={4} style={{ margin: 0, letterSpacing: -0.4 }}>
-            开通云端账号
-          </Typography.Title>
-          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-            {/*
-              「一台电脑只送一份」这半句是 0.40.0 补的，不是营销话术上的谨慎。
-              注册赠送在**桌面端第一次登录**那一刻才发，而且认机器
-              （lib/tenant/credits.ts）。原来这里只写「送 30 次」，
-              于是同一台电脑上开第二个账号的人看到的是 3 次，界面上找不到任何解释。
-            */}
-            桌面端用它登录，第一次登录送 {注册赠送} 次 AI 对话（一台电脑只送一份）。数据仍然只在你自己的机器上
-          </Typography.Text>
-        </Rise>
+    <AuthShell
+      门="桌面端"
+      标题="开通云端账号"
+      /*
+        「一台电脑只送一份」这半句是 0.40.0 补的，不是营销话术上的谨慎。
+        注册赠送在**桌面端第一次登录**那一刻才发，而且认机器（lib/tenant/credits.ts）。
+        原来这里只写「送 30 次」，于是同一台电脑上开第二个账号的人看到的是 3 次，界面上找不到任何解释。
+      */
+      说明={`桌面端用它登录，第一次登录送 ${注册赠送} 次 AI 对话（一台电脑只送一份）。数据仍然只在你自己的机器上。`}
+    >
+        {error && <Alert type="error" showIcon title={error} />}
+        {hint && 步骤 === 2 && <Alert type="info" showIcon title={hint} />}
 
-        {error && <Alert type="error" showIcon style={{ marginBottom: 14 }} title={error} />}
-        {hint && 步骤 === 2 && <Alert type="info" showIcon style={{ marginBottom: 14 }} title={hint} />}
-
-        <Rise 第几个={2}>
         <Form form={form} layout="vertical" onFinish={onFinish} requiredMark={false} disabled={loading}>
           {/* ---------- 第一步：只有邮箱 ---------- */}
           <div style={{ display: 步骤 === 1 ? "block" : "none" }}>
@@ -156,7 +143,6 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
             >
               <Input
                 size="large"
-                prefix={<MailOutlined />}
                 placeholder="邮箱"
                 autoComplete="email"
                 onPressEnter={(e) => {
@@ -172,10 +158,11 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
 
           {/* ---------- 第二步：验证码 + 密码 + 团队名 ---------- */}
           <div style={{ display: 步骤 === 2 ? "block" : "none" }}>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
-              {邮箱}
-              <a
-                style={{ marginLeft: 8 }}
+            <p className="auth-hint" style={{ marginBottom: 14 }}>
+              <b>{邮箱}</b>
+              <button
+                type="button"
+                className="auth-link"
                 onClick={() => {
                   set步骤(1);
                   setError(null);
@@ -183,14 +170,13 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
                 }}
               >
                 换一个
-              </a>
-            </div>
+              </button>
+            </p>
 
             {要验证码 && (
               <Form.Item name="code" rules={[{ required: true, message: "请填写验证码" }]}>
                 <Input
                   size="large"
-                  prefix={<SafetyOutlined />}
                   placeholder="邮件里的 6 位验证码"
                   maxLength={6}
                   inputMode="numeric"
@@ -203,7 +189,7 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
               </Form.Item>
             )}
             <Form.Item name="password" rules={[{ required: true, message: "请设置密码" }]} extra="至少 8 位，含字母和数字">
-              <Input.Password size="large" prefix={<LockOutlined />} placeholder="设置密码" autoComplete="new-password" />
+              <Input.Password size="large" placeholder="设置密码" autoComplete="new-password" />
             </Form.Item>
             <Form.Item
               name="agreed"
@@ -212,7 +198,7 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
               style={{ marginBottom: 16 }}
             >
               <Checkbox>
-                <span style={{ fontSize: 13 }}>
+                <span className="auth-agree">
                   我已阅读并同意
                   <Link href="/terms" target="_blank">
                     用户协议
@@ -230,17 +216,10 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
             </Button>
           </div>
         </Form>
-        </Rise>
 
-        <Rise 第几个={3}>
-          <div style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
-            已经有账号了？<Link href="/login">去登录</Link>
-          </div>
-          <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 14, marginBottom: 0, textAlign: "center" }}>
-            数据存在你自己的工作区里，我们不会拿它训练任何模型。
-          </Typography.Paragraph>
-        </Rise>
-      </Rise>
-    </div>
+        <p className="auth-alt">
+          已经有账号了？<Link href="/login">去登录</Link>
+        </p>
+    </AuthShell>
   );
 }

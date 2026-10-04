@@ -2,10 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Form, Input, Button, Alert, Typography } from "antd";
-import { LockOutlined, MailOutlined, SafetyOutlined } from "@ant-design/icons";
-import Logo from "@/components/Logo";
-import Rise from "@/components/Rise";
+import { Form, Input, Button, Alert } from "antd";
+import AuthShell from "../login/AuthShell";
 import { 发送重置码, 重置密码 } from "./actions";
 import { useCountdown } from "@/lib/use-countdown";
 
@@ -78,51 +76,26 @@ export default function ForgotForm() {
 
   if (完成) {
     return (
-      <div className="login-shell">
-        <Rise className="login-card">
-          <div style={{ textAlign: "center", marginBottom: 20 }}>
-            <div className="login-mark">
-              <Logo size={30} />
-            </div>
-            <Typography.Title level={4} style={{ margin: 0, letterSpacing: -0.4 }}>
-              密码已经改好了
-            </Typography.Title>
-          </div>
-          <Alert
-            type="success"
-            showIcon
-            style={{ marginBottom: 16 }}
-            title="所有地方都要用新密码重新登录：网页端其他设备上的登录状态已经作废，桌面端已登录的机器也一起退出了。本机数据不受影响，重新登录即可恢复。"
-          />
-          <Link href="/login">
-            <Button type="primary" size="large" block>
-              去登录
-            </Button>
-          </Link>
-        </Rise>
-      </div>
+      <AuthShell 门="托管版" 标题="密码已经改好了">
+        <Alert
+          type="success"
+          showIcon
+          title="所有地方都要用新密码重新登录：网页端其他设备上的登录状态已经作废，桌面端已登录的机器也一起退出了。本机数据不受影响，重新登录即可恢复。"
+        />
+        <Link href="/login">
+          <Button type="primary" size="large" block>
+            去登录
+          </Button>
+        </Link>
+      </AuthShell>
     );
   }
 
   return (
-    <div className="login-shell">
-      <Rise className="login-card">
-        <Rise 第几个={1} style={{ textAlign: "center", marginBottom: 24 }}>
-          <div className="login-mark">
-            <Logo size={30} />
-          </div>
-          <Typography.Title level={4} style={{ margin: 0, letterSpacing: -0.4 }}>
-            找回密码
-          </Typography.Title>
-          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
-            用注册时的邮箱收一个验证码，就能设新密码
-          </Typography.Text>
-        </Rise>
+    <AuthShell 门="托管版" 标题="找回密码" 说明="用注册时的邮箱收一个验证码，就能设新密码。">
+        {error && <Alert type="error" showIcon title={error} />}
+        {hint && 步骤 === 2 && <Alert type="info" showIcon title={hint} />}
 
-        {error && <Alert type="error" showIcon style={{ marginBottom: 14 }} title={error} />}
-        {hint && 步骤 === 2 && <Alert type="info" showIcon style={{ marginBottom: 14 }} title={hint} />}
-
-        <Rise 第几个={2}>
         <Form form={form} layout="vertical" onFinish={onFinish} requiredMark={false} disabled={loading}>
           {/* ---------- 第一步：只有邮箱 ---------- */}
           <div style={{ display: 步骤 === 1 ? "block" : "none" }}>
@@ -135,7 +108,6 @@ export default function ForgotForm() {
             >
               <Input
                 size="large"
-                prefix={<MailOutlined />}
                 placeholder="注册时用的邮箱"
                 autoComplete="email"
                 onPressEnter={(e) => {
@@ -151,10 +123,11 @@ export default function ForgotForm() {
 
           {/* ---------- 第二步：验证码 + 新密码 ---------- */}
           <div style={{ display: 步骤 === 2 ? "block" : "none" }}>
-            <div style={{ fontSize: 13, color: "var(--text-muted)", marginBottom: 14 }}>
-              {邮箱}
-              <a
-                style={{ marginLeft: 8 }}
+            <p className="auth-hint" style={{ marginBottom: 14 }}>
+              <b>{邮箱}</b>
+              <button
+                type="button"
+                className="auth-link"
                 onClick={() => {
                   set步骤(1);
                   setError(null);
@@ -162,13 +135,12 @@ export default function ForgotForm() {
                 }}
               >
                 换一个
-              </a>
-            </div>
+              </button>
+            </p>
 
             <Form.Item name="code" rules={[{ required: true, message: "请填写验证码" }]}>
               <Input
                 size="large"
-                prefix={<SafetyOutlined />}
                 placeholder="邮件里的 6 位验证码"
                 maxLength={6}
                 inputMode="numeric"
@@ -180,7 +152,7 @@ export default function ForgotForm() {
               />
             </Form.Item>
             <Form.Item name="password" rules={[{ required: true, message: "请设置新密码" }]} extra="至少 8 位，含字母和数字">
-              <Input.Password size="large" prefix={<LockOutlined />} placeholder="设置新密码" autoComplete="new-password" />
+              <Input.Password size="large" placeholder="设置新密码" autoComplete="new-password" />
             </Form.Item>
 
             <Button type="primary" size="large" htmlType="submit" block loading={loading}>
@@ -188,12 +160,10 @@ export default function ForgotForm() {
             </Button>
           </div>
         </Form>
-        </Rise>
 
-        <Rise 第几个={3} style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
+        <p className="auth-alt">
           想起来了？<Link href="/login">去登录</Link>
-        </Rise>
-      </Rise>
-    </div>
+        </p>
+    </AuthShell>
   );
 }

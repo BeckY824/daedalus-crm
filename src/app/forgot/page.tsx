@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Typography } from "antd";
-import Logo from "@/components/Logo";
+import AuthShell from "../login/AuthShell";
+import { multiTenant } from "@/lib/tenant/context";
 import ForgotForm from "./ForgotForm";
 import DesktopForgot from "./DesktopForgot";
 import { 能找回密码 } from "@/lib/tenant/password-reset";
@@ -26,28 +26,19 @@ export default async function ForgotPage() {
    * 画一个填了没反应的表单，比直说「这条路现在走不通」更糟：
    * 人会一直等一封永远不会来的信。
    */
+  /*
+    原来这里写「设置管理 → 用户管理」，那个地方早就不叫这个名字了（排查 J-182）：现在是「设置 → 团队成员」
+  */
   return (
-    <div className="login-shell">
-      <div className="login-card">
-        <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <div className="login-mark">
-            <Logo size={30} />
-          </div>
-          <Typography.Title level={4} style={{ margin: 0, letterSpacing: -0.4 }}>
-            找回密码
-          </Typography.Title>
-        </div>
-        <Typography.Paragraph type="secondary" style={{ fontSize: 13, textAlign: "center", marginBottom: 0 }}>
-          这个部署还没开通自助找回。
-          <br />
-          自部署版请找你的管理员在「设置管理 → 用户管理」里重置；
-          <br />
-          用我们托管版的请联系我们，我们人工帮你重置。
-        </Typography.Paragraph>
-        <div style={{ textAlign: "center", marginTop: 18, fontSize: 13 }}>
-          <Link href="/login">返回登录</Link>
-        </div>
-      </div>
-    </div>
+    <AuthShell 门={multiTenant() ? "托管版" : "自部署"} 标题="找回密码" 说明="这个部署还没开通自助找回。">
+      <p className="auth-alt">
+        {multiTenant()
+          ? "用我们托管版的，请从网页右上角「反馈」或官网联系我们，我们人工帮你重置。"
+          : "请找你们的管理员，在「设置 → 团队成员」里帮你重置密码。"}
+      </p>
+      <p className="auth-alt">
+        <Link href="/login">返回登录</Link>
+      </p>
+    </AuthShell>
   );
 }
