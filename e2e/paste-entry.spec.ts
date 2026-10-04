@@ -185,11 +185,10 @@ test("/customers?import=paste：抽屉直接停在「粘一段文本」那一栏
 });
 
 /*
-  【下一版】同样是补 D-031 时看到的：直接打开 /customers?new=1（首页「开始」卡、联系人页空态的「去建第一位」都这么跳），
-  dev 服务器里报 Hydration failed——服务端就把新建框画成开着的，和客户端那一版对不上，React 整棵重画。
-  框照样弹、功能不坏（PlansView 那边是「等水合完再开」的写法），排下一版。修了去掉 skip
+  同样是补 D-031 时看到的：直接打开 /customers?new=1（首页「开始」卡、联系人页空态的「去建第一位」都这么跳）
+  报 Hydration failed——服务端就把新建框画成开着的。改成和跟进页一样「等水合完再开」。
 */
-test.skip("【下一版】直接打开 /customers?new=1：不报水合错误", async ({ page }) => {
+test("直接打开 /customers?new=1：不报水合错误", async ({ page }) => {
   const 错: string[] = [];
   page.on("console", (m) => { if (m.type() === "error" && /Hydration/i.test(m.text())) 错.push(m.text().slice(0, 200)); });
   page.on("pageerror", (e) => { if (/Hydration/i.test(e.message)) 错.push(e.message.slice(0, 200)); });

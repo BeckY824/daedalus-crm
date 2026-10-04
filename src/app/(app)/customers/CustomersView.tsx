@@ -1,7 +1,7 @@
 "use client";
 
 import Heat from "@/components/Heat";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Select, Space, Dropdown, App, Tag, Popover } from "antd";
@@ -121,6 +121,9 @@ type Props = {
  * 其余的收进「列」里，勾了记在这台机器上。
  */
 
+/** 只用来认「水合完了没有」（见 已水合） */
+const 无订阅 = () => () => {};
+
 export default function CustomersView({
   rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [],
 }: Props) {
@@ -229,6 +232,8 @@ export default function CustomersView({
   const [导出中, set导出中] = useState(false);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
   const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
+  /** ?new=1 / ?import=paste 进来就开：等水合完再开。服务端先画一个开着的弹窗，会和客户端那一版对不上（跟进页同一写法） */
+  const 已水合 = useSyncExternalStore(无订阅, () => true, () => false);
   /*
     ?new=1 / ?import=paste 是「一次性」的：读完就从地址上抹掉（2026-10-02 排查桌面端 D5）。
     桌面端的壳会记住最后停在哪一页（带着 query），不抹的话第一天点过「手动录一位」，
@@ -541,7 +546,7 @@ export default function CustomersView({
       />
 
       <CustomerForm
-        open={formOpen}
+        open={formOpen && 已水合}
         editing={editing}
         users={users}
         channels={channels}
@@ -554,7 +559,7 @@ export default function CustomersView({
       />
 
       <ImportDrawer
-        open={导入开着}
+        open={导入开着 && 已水合}
         b={b}
         aiEnabled={Boolean(aiEnabled)}
         初始来路={直接粘贴 ? "文本" : undefined}
