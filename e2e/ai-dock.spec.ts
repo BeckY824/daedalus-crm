@@ -212,6 +212,42 @@ test.describe("全局 AI 面板", () => {
     }
   });
 
+  /*
+    2026-10-04（回归核对 J-135）：「AI 不自动跑」是拍过板的（开户只送 30 次、不再补），
+    记录页原来打开就生成一份简报、白花一次。修了但没钉：配好 AI、打开记录页停几秒，生成接口一次都不许被叫
+  */
+  test("打开客户记录页、打开 AI 抽屉都不自动跑：/api/ai/stream 一次都没被叫，点了才叫", async ({ page }) => {
+    const p = 连库();
+    const 销售 = await p.user.findFirstOrThrow({ where: { role: { not: "ADMIN" } } });
+    const c = await p.customer.create({ data: { name: "不自动跑", phone: "13900008888", salesOwnerId: 销售.id } });
+    // 有跟进记录才有简报区（没有记录时那一块根本不画，就测不出它跑没跑）
+    await p.followUp.create({ data: { customerId: c.id, ownerId: 销售.id, type: "CALL", title: "电话", content: "聊了预算", status: "已完成", occurredAt: new Date() } });
+    const 叫了: string[] = [];
+    page.on("request", (r) => {
+      if (r.url().includes("/api/ai/stream")) 叫了.push(r.url());
+    });
+    try {
+      await 登录(page);
+      await page.goto(`/customers/${c.id}`);
+      await expect(page.locator(".dock-ctx")).toContainText("不自动跑");
+      await page.waitForTimeout(4000);
+      expect(叫了).toEqual([]);
+      // 窄一点的窗口简报区收在页头「AI」按钮打开的抽屉里：打开抽屉也不许自己跑
+      const 抽屉键 = page.getByRole("button", { name: /^thunderbolt AI$/ });
+      if (await 抽屉键.isVisible()) await 抽屉键.click();
+      await expect(page.getByRole("button", { name: /生成简报/ })).toBeVisible();
+      await page.waitForTimeout(3000);
+      expect(叫了).toEqual([]);
+      // 反过来证明这只耳朵是好的：人点了才叫
+      await page.getByRole("button", { name: /生成简报/ }).click();
+      await expect.poll(() => 叫了.length).toBeGreaterThan(0);
+    } finally {
+      await p.followUp.deleteMany({ where: { customerId: c.id } });
+      await p.customer.delete({ where: { id: c.id } });
+      await p.$disconnect();
+    }
+  });
+
   test("面板开着时正文跟着收窄，不出横向滚动条", async ({ page }) => {
     await 登录(page);
     await page.goto("/channels");
