@@ -22,7 +22,10 @@ import { resetDb } from "./reset";
 import { 造本人, 造客户 } from "./r2-data-helpers";
 import { invalidateSettingsCache } from "@/lib/settings";
 import { saveBusiness } from "@/lib/business";
-import { DEFAULT_BUSINESS, mergeBusiness, 公海天数, BUSINESS_PRESETS } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, mergeBusiness, 公海天数, BUSINESS_PRESETS, 表单公海天数 } from "@/lib/business-config";
+import { getBusiness } from "@/lib/business";
+import fs from "node:fs";
+import path from "node:path";
 import { 该掉公海, 公海截止, 公海标签 } from "@/lib/pool";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { 放进公海, 领取, 撤销公海 } from "@/app/(app)/customers/pool-actions";
@@ -85,6 +88,28 @@ describe("规则", () => {
     expect(公海天数("x")).toBe(0);
     expect(公海天数(9999)).toBe(365);
     for (const p of Object.values(BUSINESS_PRESETS)) expect(p.poolDays).toBe(0);
+  });
+
+  /*
+    T-044（2026-10-04 上线前回归核对）：设置页清空「自动放进公海」天数要存成 0 = 关。
+    InputNumber 清空交上来是 null；要是退回原值，清空等于没关，自动扫公海照扫
+  */
+  it("业务配置里清空「自动放进公海」天数：存成 0 = 关；一个人用（不摆这一项）照原值存回去（T-044）", async () => {
+    expect(表单公海天数(null, true, 30)).toBe(0);
+    expect(表单公海天数(undefined, true, 30)).toBe(0);
+    expect(表单公海天数(45, true, 30)).toBe(45);
+    expect(表单公海天数(undefined, false, 30)).toBe(30);
+    // 存进库再读回来：原来开着 30 天，清空保存后是 0
+    await saveBusiness({ ...DEFAULT_BUSINESS, poolDays: 30 });
+    invalidateSettingsCache();
+    const 原 = await getBusiness();
+    expect(原.poolDays).toBe(30);
+    await saveBusiness({ ...原, poolDays: 表单公海天数(null, true, 原.poolDays) });
+    invalidateSettingsCache();
+    expect((await getBusiness()).poolDays).toBe(0);
+    // 设置页真用的是它（别又内联回一个会退回原值的写法）
+    const 源 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/BusinessSettingsTab.tsx"), "utf8");
+    expect(源).toContain("poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays)");
   });
 });
 
