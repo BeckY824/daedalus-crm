@@ -238,9 +238,11 @@ describe("升级：老的那一份 data/", () => {
     fs.writeFileSync(path.join(甲目录, "crm.db"), "新家里已经有的数据");
     造旧数据("acc_甲");
 
-    expect(账号.迁移旧数据(根, 取账号id)).toBeNull();
+    // 不搬、不盖，只报「留在原地」；启动时 老数据提示() 认得出、壳弹框告诉人在哪（R-066）
+    expect(账号.迁移旧数据(根, 取账号id)).toMatchObject({ 留在原地: path.join(根, "data") });
     expect(fs.existsSync(path.join(根, "data", "crm.db"))).toBe(true);
     expect(fs.readFileSync(path.join(甲目录, "crm.db"), "utf8")).toBe("新家里已经有的数据");
+    expect(账号.老数据提示(根)).toMatchObject({ 目录: path.join(根, "data") });
   });
 
   it("没有老数据就什么都不做——全新安装走的是这条", () => {

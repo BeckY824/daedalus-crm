@@ -232,6 +232,22 @@ export default function TeamTab() {
       </div>
       {/* 没开通时上面那条黄的已经说了，红的不再重复一遍 */}
       {s.lastError && !(s.active === false && /没开通/.test(s.lastError)) && <Alert type="error" showIcon message={s.lastError} style={{ marginBottom: 16 }} />}
+      {/* 回放时撞了合不了的（两条线索挂同一位客户、同事账号登录名撞了）：这几条两台对不上，说出来（T-003），不静默 */}
+      {s.没同步上.条数 > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`有 ${s.没同步上.条数} 条没同步上`}
+          description={
+            <>
+              同事那边的这几条和这台电脑上已有的撞在一起、合不了，两台各留着自己的那条
+              {s.没同步上.例子.length > 0 && `（${s.没同步上.例子.map((x) => `${x.表}：${x.原因}`).join("；")}）`}
+              。请和同事对一下，在一台上删掉或改掉多出来的那条；之后的改动照常同步。
+            </>
+          }
+        />
+      )}
 
       <section className="team-card">
         <h3>成员 {s.成员.length}</h3>

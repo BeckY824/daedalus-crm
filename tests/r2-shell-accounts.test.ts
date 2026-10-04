@@ -527,6 +527,8 @@ describe("升级：0.39.2 之前那份 data/", () => {
     写管理员邮箱(d, 甲.target);
   };
   const 认老令牌 = (s: 场景) => s.云.令牌.set("t-old-jia", 甲.id);
+  /** 再跑一次 迁移旧数据（幂等）看它的结论 */
+  const 迁移结果 = (r: string) => 账号.迁移旧数据(r, 壳云端.读账号id);
 
   it(".cloud.json 带 accountId：开机就认领给甲，之后乙登录看不到", async () => {
     造旧数据(true)(根);
@@ -711,19 +713,57 @@ describe("升级：0.39.2 之前那份 data/", () => {
     expect(src).toContain(`const 归属校验文件名 = "${账号.归属校验文件}";`);
   });
 
-  it("迁移目标已存在（降级用过老版本又升回来）：data/ 原地不动、一个字节不丢——但界面上看不到它", async () => {
+  /*
+    R-066（2026-10-04 修）：升级后装回老版本用了一阵（老版本只认 data/，在那儿新建了一份库），再升回来。
+    两份都是真数据、合不了：data/ 原地不动、一个字节不丢；原来界面上看不到也没有任何提示，像是丢了。
+    现在启动时 老数据提示() 认出来，壳弹框给「打开文件夹」；能安全并入的（目标里还没有库）直接并入
+  */
+  it("R-066 迁移目标已存在（降级用过老版本又升回来）：data/ 原地不动、一个字节不丢，启动时提示在哪", async () => {
     // 先正常升级一次，甲有了自己的目录
     造旧数据(true)(根);
     const s = new 场景(根);
     认老令牌(s);
     await s.开机();
+    expect(账号.老数据提示(根)).toBeNull(); // 正常升级：没什么可提示的
     // 又装回老版本用了一阵：老版本只认 data/
     造旧数据(true)(根);
     fs.writeFileSync(path.join(根, "data", "crm.db"), JSON.stringify([{ 谁: 甲.id, 第几: 99 }]));
     await s.走("重启");
     expect(fs.existsSync(path.join(根, "data", "crm.db"))).toBe(true); // 没丢
     const 我 = await s.机.看到();
-    expect(读库(我!.目录).some((x) => x.第几 === 99)).toBe(false); // 但看不到（C：没有任何提示）
+    expect(读库(我!.目录).some((x) => x.第几 === 99)).toBe(false); // 合不了，不自动并
+    // 但不再是悄无声息：启动时认得出，告诉人在哪
+    const 提示 = 账号.老数据提示(根);
+    expect(提示).toMatchObject({ 目录: path.join(根, "data") });
+    expect(迁移结果(根)).toMatchObject({ 留在原地: path.join(根, "data") });
+    // 「以后不再提示」：同一份不再弹；老版本又写了一笔（文件变了）再弹
+    账号.记下不再提示老数据(根, 提示!.签名);
+    expect(账号.老数据提示(根)).toBeNull();
+    fs.writeFileSync(path.join(根, "data", "crm.db"), JSON.stringify([{ 谁: 甲.id, 第几: 99 }, { 谁: 甲.id, 第几: 100 }]));
+    expect(账号.老数据提示(根)).not.toBeNull();
+  });
+
+  it("R-066 目标目录在、但里面还没有库（建了目录、本地服务没起来过）：data/ 安全并入，不弹提示", () => {
+    造旧数据(true)(根);
+    const 目标 = 账号.账号目录(根, 账号.key(甲.id));
+    fs.mkdirSync(目标, { recursive: true });
+    fs.writeFileSync(path.join(目标, ".owner"), 甲.id);
+    const r = 账号.迁移旧数据(根, 壳云端.读账号id);
+    expect(r).toMatchObject({ 并入了: true, 目录: 目标 });
+    expect(读库(目标).map((x) => x.第几)).toEqual([0]);
+    expect(fs.readFileSync(path.join(目标, ".owner"), "utf8")).toBe(甲.id); // 已有的一个不盖
+    expect(账号.老数据提示(根)).toBeNull();
+    expect(账号.读指针(根)).toBe(账号.key(甲.id));
+  });
+
+  it("R-066 壳启动时调 老数据提示()，弹框里有「打开文件夹」，点了打开的是那个目录", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../desktop/main.js"), "utf8");
+    const 段 = src.slice(src.indexOf("function 提示老数据"), src.indexOf("function 提示老数据") + 2000);
+    expect(段).toContain("账号.老数据提示(数据根)");
+    expect(段).toContain("打开文件夹");
+    expect(段).toMatch(/shell\.openPath\(有\.目录\)/);
+    expect(段).toContain("账号.记下不再提示老数据(数据根, 有.签名)");
+    expect(src).toMatch(/建窗口\(\);\s*\n\s*if \(读配置\(\)\.mode === "local"\) 提示老数据\(\);/);
   });
 });
 

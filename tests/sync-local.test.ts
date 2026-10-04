@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PrismaClient } from "@/generated/prisma";
-import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, type 改动 } from "@/lib/sync/local";
+import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, 没同步上, type 改动 } from "@/lib/sync/local";
 import { 封, 拆, 新钥匙 } from "@/lib/sync/crypto";
 
 const 测试库 = path.resolve(__dirname, "../prisma/test.db");
@@ -296,16 +296,81 @@ describe("推拉合并", () => {
     expect(await 甲.customer.count({ where: { id: "c9" } })).toBe(1);
   });
 
-  it("乙把渠道改名成甲刚建的同名渠道：撞唯一约束只跳过那一条，不卡后面的（复查）", async () => {
+  /*
+    T-003（2026-10-04 修）：原来改名撞了同名渠道只记 _sync_skip 跳过——乙那台叫「展会」、甲那台还是「老名字」，
+    客户挂的渠道也各是各的，两台从此对不上。现在改名撞名也走同名合并：两边都留 id 小的那个，引用改过去
+  */
+  async function 两台一样(甲: PrismaClient, 乙: PrismaClient) {
+    const 看 = async (db: PrismaClient) => ({
+      渠道: (await db.channel.findMany({ orderBy: { id: "asc" }, select: { id: true, name: true } })),
+      客户: (await db.customer.findMany({ orderBy: { id: "asc" }, select: { id: true, channelId: true } })),
+    });
+    const [a, b] = [await 看(甲), await 看(乙)];
+    expect(a).toEqual(b);
+    return a;
+  }
+
+  it("T-003 乙把渠道改名成甲刚建的同名渠道（改名那个 id 小）：合并成一个，两台一致，不跳过", async () => {
     const { 甲, 乙 } = await 一对();
     await 乙.channel.create({ data: { id: "ch2", name: "老名字", channelOwnerId: "acct_yi" } });
+    await 乙.customer.create({ data: { id: "c11", name: "挂老名字的", phone: "13800000011", salesOwnerId: "acct_yi", channelId: "ch2" } });
     await 同步(甲, 乙);
     await 甲.channel.create({ data: { id: "ch3", name: "展会", channelOwnerId: "acct_jia" } });
+    await 甲.customer.create({ data: { id: "c12", name: "挂展会的", phone: "13800000012", salesOwnerId: "acct_jia", channelId: "ch3" } });
     await 乙.channel.update({ where: { id: "ch2" }, data: { name: "展会" } });
     await 乙.customer.create({ data: { id: "c10", name: "后面的", phone: "13800000010", salesOwnerId: "acct_yi" } });
     await 同步(甲, 乙);
+    await 同步(甲, 乙);
+    const 现在 = await 两台一样(甲, 乙);
+    expect(现在.渠道).toEqual([{ id: "ch2", name: "展会" }]);
+    expect(现在.客户.filter((c) => c.id !== "c10").map((c) => c.channelId)).toEqual(["ch2", "ch2"]);
     expect(await 甲.customer.count({ where: { id: "c10" } })).toBe(1);
-    expect((await 甲.$queryRawUnsafe<{ tbl: string }[]>("SELECT tbl FROM _sync_skip")).map((x) => x.tbl)).toContain("Channel");
+    for (const db of [甲, 乙]) expect(await db.$queryRawUnsafe<unknown[]>("SELECT 1 FROM _sync_skip")).toHaveLength(0);
+    // 之后谁再改这个渠道（不管用哪个 id），两边都落在留下的那个上
+    await 甲.channel.update({ where: { id: "ch2" }, data: { phone: "02088886666" } });
+    await 同步(甲, 乙);
+    expect((await 乙.channel.findUniqueOrThrow({ where: { id: "ch2" } })).phone).toBe("02088886666");
+  });
+
+  it("T-003 同上，改名那个 id 大：两边都留本机那个 id 小的，改名那位的客户跟过去", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 乙.channel.create({ data: { id: "ch9", name: "老名字", channelOwnerId: "acct_yi" } });
+    await 乙.customer.create({ data: { id: "c21", name: "挂老名字的", phone: "13800000021", salesOwnerId: "acct_yi", channelId: "ch9" } });
+    await 同步(甲, 乙);
+    await 甲.channel.create({ data: { id: "ch1", name: "展会", channelOwnerId: "acct_jia" } });
+    await 乙.channel.update({ where: { id: "ch9" }, data: { name: "展会" } });
+    await 乙.customer.create({ data: { id: "c22", name: "改名后挂的", phone: "13800000022", salesOwnerId: "acct_yi", channelId: "ch9" } });
+    await 同步(甲, 乙);
+    await 同步(甲, 乙);
+    const 现在 = await 两台一样(甲, 乙);
+    expect(现在.渠道).toEqual([{ id: "ch1", name: "展会" }]);
+    expect(现在.客户.map((c) => c.channelId)).toEqual(["ch1", "ch1"]);
+    for (const db of [甲, 乙]) expect(await db.$queryRawUnsafe<unknown[]>("SELECT 1 FROM _sync_skip")).toHaveLength(0);
+    // 第三台晚到的、还带着 ch9 的改动：两台都落在 ch1 上
+    const 晚到: 改动 = { t: "Channel", k: "ch9", o: "U", r: { id: "ch9", remark: "晚到的" }, c: ["remark"], h: `${String(Date.now() + 60_000).padStart(15, "0")}-C` };
+    for (const db of [甲, 乙]) await 回放(db, [晚到], "X");
+    for (const db of [甲, 乙]) expect((await db.channel.findUniqueOrThrow({ where: { id: "ch1" } })).remark).toBe("晚到的");
+  });
+
+  it("T-003 合不了的（两条线索挂了同一位客户）：记下来，没同步上() 数得出，不静默", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c30", name: "一位", phone: "13800000030", salesOwnerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    await 甲.lead.create({ data: { id: "l1", name: "甲的线索", customerId: "c30", ownerId: "acct_jia" } });
+    await 乙.lead.create({ data: { id: "l2", name: "乙的线索", customerId: "c30", ownerId: "acct_yi" } });
+    await 同步(甲, 乙);
+    for (const db of [甲, 乙]) {
+      const n = await 没同步上(db);
+      expect(n.条数, JSON.stringify(n)).toBe(1);
+      expect(n.例子[0]).toMatchObject({ 表: "线索" });
+    }
+    // 孤儿（父行被删了的跟进）两边本来就一致，不算「没同步上」
+    await 甲.customer.create({ data: { id: "c31", name: "Gone", phone: "13800000031", salesOwnerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    await 甲.customer.delete({ where: { id: "c31" } });
+    await 乙.followUp.create({ data: { id: "f31", type: "PHONE", title: "", content: "x", status: "已完成", occurredAt: new Date(), customerId: "c31", ownerId: "acct_yi" } });
+    await 同步(甲, 乙);
+    expect((await 没同步上(甲)).条数).toBe(1);
   });
 
   it("回放、重算之后「回放中」开关是 0：之后本机的改动照常进日志（复查）", async () => {

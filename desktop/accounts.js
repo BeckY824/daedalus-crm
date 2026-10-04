@@ -199,15 +199,66 @@ function 写指针(数据根, k) {
 function 迁移旧数据(数据根, 取账号id) {
   const 旧 = path.join(数据根, "data");
   if (!fs.existsSync(旧)) return null;
-  // 已经有同名目标了（上一次迁到一半？手工动过？）：不覆盖，把旧的留在原地让人来看
   const id = 取账号id(path.join(旧, ".cloud.json"));
   const k = key(id) ?? 未认领;
   const 目标 = 账号目录(数据根, k);
-  if (fs.existsSync(目标)) return null;
+  if (fs.existsSync(目标)) {
+    /*
+      已经有同名目标了。最常见的是：升级后又装回老版本用了一阵（老版本只认 data/，在那儿新建了一份库），
+      再升回来（R-066）；也可能是上一次迁到一半、手工动过。两份都是真数据，合不了——不覆盖、不搬，
+      原地留着，由 老数据提示() 在启动时告诉人在哪（原来什么都不说，对人来说就是「丢了」）。
+      只有一种能安全并入：目标里还没有库（建了目录、本地服务没起来过）——data/ 里的东西挪进去，目标里已有的一个都不盖
+    */
+    if (fs.existsSync(path.join(旧, 库文件)) && !fs.existsSync(path.join(目标, 库文件))) {
+      for (const f of fs.readdirSync(旧)) if (!fs.existsSync(path.join(目标, f))) fs.renameSync(path.join(旧, f), path.join(目标, f));
+      try {
+        fs.rmdirSync(旧);
+      } catch {
+        /* 还剩目标里同名的那几样：留着，不删任何东西 */
+      }
+      if (k !== 未认领) 写指针(数据根, k);
+      return { key: k, 目录: 目标, 认领了: k !== 未认领, 并入了: true };
+    }
+    return { key: k, 目录: 目标, 留在原地: 旧 };
+  }
   fs.mkdirSync(账号根(数据根), { recursive: true });
   fs.renameSync(旧, 目标);
   if (k !== 未认领) 写指针(数据根, k);
   return { key: k, 目录: 目标, 认领了: k !== 未认领 };
+}
+
+const 库文件 = "crm.db";
+const 老数据不再提示文件 = (数据根) => path.join(数据根, "legacy-data-notice.json");
+
+/**
+ * 启动时：data/ 里还躺着一份没并进来的库吗（R-066）。在 迁移旧数据() 之后调。
+ * 有就返回 { 目录, 签名, 改于 }，壳据此弹框给「打开文件夹」；没有、或者人点过「以后不再提示」且那份库没再变过，返回 null。
+ * 签名 = 库文件的修改时间 + 大小：人又装回老版本、再写了一笔，签名变了，照样再提示
+ */
+function 老数据提示(数据根) {
+  const 目录 = path.join(数据根, "data");
+  let st;
+  try {
+    st = fs.statSync(path.join(目录, 库文件));
+  } catch {
+    return null;
+  }
+  const 签名 = `${Math.round(st.mtimeMs)}:${st.size}`;
+  try {
+    if (JSON.parse(fs.readFileSync(老数据不再提示文件(数据根), "utf8"))?.签名 === 签名) return null;
+  } catch {
+    /* 没点过「以后不再提示」 */
+  }
+  return { 目录, 签名, 改于: st.mtime };
+}
+
+/** 人点了「以后不再提示」：记下这一份的签名 */
+function 记下不再提示老数据(数据根, 签名) {
+  try {
+    fs.writeFileSync(老数据不再提示文件(数据根), JSON.stringify({ 签名 }), { mode: 0o600 });
+  } catch (e) {
+    日志("记「不再提示老数据」失败", e);
+  }
 }
 
 /**
@@ -306,4 +357,4 @@ function 退出(数据根) {
   }
 }
 
-module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 是他的, 设日志, 账号目录, 未认领, 归属文件, 归属校验文件, 认不出的主, 待认文件, 邮箱记号 };
+module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 老数据提示, 记下不再提示老数据, 读指针, 写指针, 归谁, 是他的, 设日志, 账号目录, 未认领, 归属文件, 归属校验文件, 认不出的主, 待认文件, 邮箱记号 };
