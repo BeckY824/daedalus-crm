@@ -32,7 +32,8 @@ export default function PlanForm({
   customerId?: string;
   /** 不给 customerId 时预填的那一位（从某位客户带过来的） */
   预选客户?: { id: string; name: string } | null;
-  record: { id: string; subject: string; plannedAt: string; method: string } | null;
+  /** updatedAt：编辑时的版本号（J-105），保存时交回去当闸门 */
+  record: { id: string; subject: string; plannedAt: string; method: string; updatedAt?: string } | null;
   /** 新建时计划时间默认几天后的 9 点。完成一次之后「排下一次」默认一周后（审查 M10） */
   默认天数?: number;
 }) {
@@ -46,7 +47,7 @@ export default function PlanForm({
   useEffect(() => {
     if (!open) return;
     if (record) {
-      form.setFieldsValue({ ...record, plannedAt: dayjs(record.plannedAt) });
+      form.setFieldsValue({ subject: record.subject, method: record.method, plannedAt: dayjs(record.plannedAt) });
     } else {
       form.resetFields();
       form.setFieldsValue({
@@ -81,13 +82,18 @@ export default function PlanForm({
     const 谁 = customerId ?? (v.customerId as string);
     const res = await savePlan({
       id: record?.id,
+      版本: record?.updatedAt,
       customerId: 谁,
       subject: v.subject,
       plannedAt: v.plannedAt.toISOString(),
       method: v.method,
     });
-    // 这位客户在别处被删了之类：说一句，框留着
-    if (!res.ok) return void message.error(res.error);
+    // 这位客户在别处被删了、打开之后这条又变过了（J-105）之类：说一句，框留着；页面数据刷成最新，关框重开就是新的那一版
+    if (!res.ok) {
+      message.error(res.error);
+      if (record) router.refresh();
+      return;
+    }
     set近况(null);
     onSaved(res.id);
     if (!挑人 || !近况) return void message.success("跟进计划已保存");

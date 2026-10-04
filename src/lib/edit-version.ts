@@ -18,3 +18,13 @@ export function 版本条件(版本: string | null | undefined): { updatedAt: Da
   const d = new Date(版本);
   return Number.isNaN(d.getTime()) ? {} : { updatedAt: d };
 }
+
+/**
+ * 过了闸门之后写进去的新版本号：max(现在, 旧版本 + 1 毫秒)。
+ * updatedAt 只到毫秒，同一毫秒里连存两次版本号不变，旧版本会再次对上、闸门形同虚设——
+ * 和 saveCustomer 的 bump 同一个道理（2026-10-04 J-105，跟进 / 计划 / 待办先用上）。没给版本就不碰，交给 @updatedAt
+ */
+export function 推进版本(版本: string | null | undefined): { updatedAt: Date } | Record<string, never> {
+  const 条件 = 版本条件(版本);
+  return "updatedAt" in 条件 ? { updatedAt: new Date(Math.max(Date.now(), 条件.updatedAt.getTime() + 1)) } : {};
+}

@@ -19,6 +19,8 @@ export type FollowUpRow = {
   contactPosition: string | null;
   contactId: string | null;
   opportunityId: string | null;
+  /** 编辑框的版本号（2026-10-04 J-105） */
+  updatedAt: string;
 };
 
 export type ContactRow = {
@@ -58,7 +60,8 @@ export type RecordProps = {
   /** 这位客户的外贸订单（2026-10-03）。只在外贸模版下摆出来 */
   订单?: import("@/lib/order-db").订单行[];
   tasks: { id: string; title: string; dueAt: string | null; done: boolean }[];
-  plan: { id: string; subject: string; plannedAt: string; method: string } | null;
+  /** updatedAt：编辑框的版本号（J-105） */
+  plan: { id: string; subject: string; plannedAt: string; method: string; updatedAt: string } | null;
   followUps: FollowUpRow[];
   users: 可选成员[];
   channels: { id: string; name: string }[];

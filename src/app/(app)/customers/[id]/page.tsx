@@ -161,6 +161,7 @@ export default async function CustomerDetailPage({
               subject: customer.plans[0].subject,
               plannedAt: customer.plans[0].plannedAt.toISOString(),
               method: customer.plans[0].method,
+              updatedAt: customer.plans[0].updatedAt.toISOString(),
             }
           : null
       }
@@ -180,6 +181,7 @@ export default async function CustomerDetailPage({
         contactPosition: f.contact?.position ?? null,
         contactId: f.contactId,
         opportunityId: f.opportunityId,
+        updatedAt: f.updatedAt.toISOString(),
       }))}
     />
   );

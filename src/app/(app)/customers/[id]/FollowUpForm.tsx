@@ -40,6 +40,8 @@ type Rec = {
   contactId?: string | null;
   opportunityId?: string | null;
   participants?: string | null;
+  /** 编辑时的版本号（J-105）：保存时交回去当闸门 */
+  updatedAt?: string;
 };
 
 /** AI 速记解析出的"顺带创建"项，勾选后随跟进一起保存 */
@@ -269,6 +271,7 @@ export default function FollowUpForm({
     const 名 = 近况?.name;
     const res = await saveFollowUp({
       id: record?.id,
+      版本: record?.id ? record.updatedAt : null,
       customerId: 谁,
       type: v.type,
       title: v.title,
@@ -286,6 +289,8 @@ export default function FollowUpForm({
     // 校验不通过时必须如实报错，否则界面照样提示成功、人以为已经存下了
     if (!res.ok) {
       message.error(res.error);
+      // 撞了版本（J-105）：页面上的数据先刷成最新的，人关框重开就是新的那一版，不然拿着旧版本再存还是被拦
+      if (record?.id) router.refresh();
       return;
     }
 

@@ -377,29 +377,70 @@ describe("两个窗口几乎同时提交同一件事（服务端没有闸门时�
   });
 });
 
-describe("没有版本闸门的几样：两个窗口改同一条，后存的整条盖掉先存的（B）", () => {
-  it.skip("【下一版】同一条跟进：窗口 1 改内容、窗口 2 改状态，窗口 1 的内容被悄悄盖回去", async () => {
+describe("跟进 / 计划 / 待办的版本闸门：两个窗口改同一条，后存的不许整条盖掉先存的（J-105）", () => {
+  /*
+    2026-10-04 J-105：原来这三样没有版本闸门，这两条是【下一版】skip。现在编辑框打开时带上 updatedAt 当版本（和商机、联系人一样），
+    两个窗口都拿着打开那一刻的版本去存——先存的进，后存的被拦下说一句，不静默盖掉
+  */
+  it("同一条跟进：窗口 1 改内容、窗口 2 改状态，窗口 2 被拦下、窗口 1 的内容还在", async () => {
     const c = await 造客户(我);
     const f = await 跟进(c.id, { status: "待处理", type: "TASK" });
     if (!f.ok) throw new Error("x");
     const 原 = await prisma.followUp.findUniqueOrThrow({ where: { id: f.id } });
-    const 基 = { customerId: c.id, type: 原.type, title: 原.title, content: 原.content, status: 原.status, occurredAt: 原.occurredAt.toISOString() };
-    await saveFollowUp({ ...基, id: f.id, content: "窗口1：客户要分三期" });
+    const 基 = { customerId: c.id, type: 原.type, title: 原.title, content: 原.content, status: 原.status, occurredAt: 原.occurredAt.toISOString(), 版本: 原.updatedAt.toISOString() };
+    expect((await saveFollowUp({ ...基, id: f.id, content: "窗口1：客户要分三期" })).ok).toBe(true);
     const r2 = await saveFollowUp({ ...基, id: f.id, status: "已完成" });
     const 现 = await prisma.followUp.findUniqueOrThrow({ where: { id: f.id } });
-    // 要么两边合并，要么第二次被拦下说一句；不能静默丢掉窗口 1 的内容
-    expect(现.content === "窗口1：客户要分三期" || r2.ok === false, "窗口 1 改的内容被整条覆盖、没有任何提示").toBe(true);
+    expect(r2.ok, "窗口 2 拿着旧版本也存进去了").toBe(false);
+    if (!r2.ok) expect(r2.error).toContain("又变过了");
+    expect([现.content, 现.status]).toEqual(["窗口1：客户要分三期", "待处理"]);
   });
 
-  it.skip("【下一版】同一条计划：窗口 1 改时间、窗口 2 改主题，窗口 1 的时间被盖回去", async () => {
+  it("同一条计划：窗口 1 改时间、窗口 2 改主题，窗口 2 被拦下、窗口 1 的时间还在", async () => {
     const c = await 造客户(我);
     const t0 = new Date(Date.now() + 86400000).toISOString();
     const p = 有id(await savePlan({ customerId: c.id, subject: "回访", plannedAt: t0, method: "电话沟通" }));
+    const 版本 = (await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).updatedAt.toISOString();
     const 新时间 = new Date(Date.now() + 3 * 86400000).toISOString();
-    await savePlan({ id: p.id, customerId: c.id, subject: "回访", plannedAt: 新时间, method: "电话沟通" });
-    const r2 = 有id(await savePlan({ id: p.id, customerId: c.id, subject: "回访：带报价单", plannedAt: t0, method: "电话沟通" }));
+    expect((await savePlan({ id: p.id, 版本, customerId: c.id, subject: "回访", plannedAt: 新时间, method: "电话沟通" })).ok).toBe(true);
+    const r2 = await savePlan({ id: p.id, 版本, customerId: c.id, subject: "回访：带报价单", plannedAt: t0, method: "电话沟通" });
     const 现 = await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } });
-    expect(现.plannedAt.toISOString() === 新时间 || (r2 as { ok: boolean }).ok === false, "窗口 1 改的时间被静默覆盖").toBe(true);
+    expect(r2.ok, "窗口 2 拿着旧版本也存进去了").toBe(false);
+    expect([现.plannedAt.toISOString(), 现.subject]).toEqual([新时间, "回访"]);
+  });
+
+  it("同一条待办：窗口 1 改截止时间、窗口 2 改内容，窗口 2 被拦下", async () => {
+    const c = await 造客户(我);
+    await saveTask({ customerId: c.id, title: "发报价" });
+    const t = await prisma.task.findFirstOrThrow();
+    const 版本 = t.updatedAt.toISOString();
+    const 新截止 = new Date(Date.now() + 2 * 86400000).toISOString();
+    expect((await saveTask({ id: t.id, 版本, customerId: c.id, title: "发报价", dueAt: 新截止 })).ok).toBe(true);
+    const r2 = await saveTask({ id: t.id, 版本, customerId: c.id, title: "发报价（含运费）", dueAt: null });
+    const 现 = await prisma.task.findUniqueOrThrow({ where: { id: t.id } });
+    expect(r2.ok, "窗口 2 拿着旧版本也存进去了").toBe(false);
+    expect([现.title, 现.dueAt?.toISOString()]).toEqual(["发报价", 新截止]);
+  });
+
+  it("同一毫秒里连存两次：旧版本号照样对不上（版本号往前推一格）", async () => {
+    for (let i = 0; i < 20; i++) {
+      const c = await 造客户(我);
+      const p = 有id(await savePlan({ customerId: c.id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" }));
+      const 版本 = (await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).updatedAt.toISOString();
+      expect((await savePlan({ id: p.id, 版本, customerId: c.id, subject: "甲", plannedAt: new Date().toISOString(), method: "电话沟通" })).ok).toBe(true);
+      expect((await savePlan({ id: p.id, 版本, customerId: c.id, subject: "乙", plannedAt: new Date().toISOString(), method: "电话沟通" })).ok, `第 ${i} 轮`).toBe(false);
+    }
+  });
+
+  it("拿着最新版本再存：存得进去；不带版本（AI 卡片、老页面）照旧直接写", async () => {
+    const c = await 造客户(我);
+    const p = 有id(await savePlan({ customerId: c.id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" }));
+    const 版本1 = (await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).updatedAt.toISOString();
+    expect((await savePlan({ id: p.id, 版本: 版本1, customerId: c.id, subject: "甲", plannedAt: new Date().toISOString(), method: "电话沟通" })).ok).toBe(true);
+    const 版本2 = (await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).updatedAt.toISOString();
+    expect((await savePlan({ id: p.id, 版本: 版本2, customerId: c.id, subject: "乙", plannedAt: new Date().toISOString(), method: "电话沟通" })).ok).toBe(true);
+    expect((await savePlan({ id: p.id, customerId: c.id, subject: "丙", plannedAt: new Date().toISOString(), method: "电话沟通" })).ok).toBe(true);
+    expect((await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).subject).toBe("丙");
   });
 });
 
