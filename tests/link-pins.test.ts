@@ -156,3 +156,18 @@ describe("L-111 订单 / 供应商关着时，AI 面板不给那两页指路", (
     expect(认页面("/opportunities", null)?.提示).toContain("list_opportunities");
   });
 });
+
+/*
+  L-051：在客户列表上确认 AI 建议卡「改成已签约」，背后的列表原来不刷新。真出一张卡要接上模型，默认 e2e 不调模型，
+  这里用源码钉住：确认成功那一支、撤销成功之后，都 router.refresh()（真机出卡点一遍在手点单里）
+*/
+describe("L-051 建议卡确认 / 撤销之后刷新这一页", () => {
+  it("ProposalCard：applyProposal 成功那一支和 undo 成功之后都调 router.refresh()", () => {
+    const s = readFileSync(path.join(ROOT, "src/components/ProposalCard.tsx"), "utf8");
+    const 确认 = s.slice(s.indexOf("const r = await applyProposal("), s.indexOf("} else {", s.indexOf("const r = await applyProposal(")));
+    expect(确认).toMatch(/if \(r\.ok\)/);
+    expect(确认).toMatch(/router\.refresh\(\)/);
+    const 撤销 = s.slice(s.indexOf("async function undo()"), s.indexOf("if (state === \"denied\")"));
+    expect(撤销).toMatch(/router\.refresh\(\)/);
+  });
+});

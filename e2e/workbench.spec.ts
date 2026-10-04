@@ -695,7 +695,8 @@ test("数据「现在」那四张卡，每一张都点得进一个能把这个�
     本月签约: /\/overview\?view=/,
     新增客户: /\/customers\?createdWithin=/,
     进行中商机: /\/opportunities\?status=OPEN/,
-    逾期跟进: /\/follow-ups\/plans/,
+    // 数据页的逾期是全团队口径，点进去要落在「全部成员」（L-040），不是计划页默认的「我的」
+    逾期跟进: /\/follow-ups\/plans\?scope=all/,
   };
   for (const 名 of 卡) {
     await page.goto("/overview");
