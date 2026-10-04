@@ -20,6 +20,7 @@
  * 人正站在哪一页是我们**确定知道**的信息，把它兑换成一句指名道姓的话，
  * 比让模型每次重新推理一遍稳得多（和 agent/intents.ts 是同一个思路）。
  */
+import { 订单与供应商 } from "./features";
 export type 页面上下文 = {
   /** 这一页叫什么，不带筛选。落库时当对话标题的前缀用 */
   名: string;
@@ -75,6 +76,9 @@ type 页 = {
    */
   查一个?: { 工具: string; 参数: string };
 };
+
+/** 跟着功能开关关掉的页：不给上下文说法 */
+const 关着的页 = new Set(订单与供应商 ? [] : ["/orders", "/suppliers"]);
 
 const 一级: Record<string, 页> = {
   "/dashboard": { 名: "首页", 提示: "" },
@@ -176,7 +180,11 @@ function 指路(p: 页): string {
  * @param 详情名   详情页上这条记录叫什么（客户姓名等）。列表页传 null
  */
 export function 认页面(pathname: string, params: URLSearchParams | null, 详情名?: string | null, 可见行?: readonly string[]): 页面上下文 | null {
-  const 命中 = 一级[pathname];
+  /*
+    订单 / 供应商这一版关着（lib/features.ts）：那两页没有入口，工具也不交给模型——这里也不再指路去 list_orders / list_suppliers，
+    不然万一停在那两个地址上，模型会被叫去调一个它手里没有的工具（L-111）
+  */
+  const 命中 = 关着的页.has(pathname) ? undefined : 一级[pathname];
   if (命中) {
     const 条件: string[] = [];
     for (const [k, 说法] of Object.entries(筛选说法)) {
