@@ -315,6 +315,34 @@ describe("推拉合并", () => {
     for (const db of [甲, 乙]) expect(JSON.parse((await db.setting.findUniqueOrThrow({ where: { key: "business" } })).value).template).toBe("trade");
   });
 
+  /*
+    2026-10-04 补（回归核对 D-040）：迁移给同步表加了列，老触发器里写死的是旧列名——不重装，新列的改动不进日志，
+    团队数据悄悄分叉、也不报错。lib/sync/client.ts 每个进程第一轮都 装触发器() 一次（触发器对过），修了但没钉
+  */
+  it("迁移加列之后：不重装触发器，只改新列的改动根本不进日志；重装之后带上新列、对面收得到", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c1", name: "王总", phone: "13800000001", salesOwnerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    // 两台都升级了：同一条迁移给 Customer 加了一列
+    for (const db of [甲, 乙]) await db.$executeRawUnsafe('ALTER TABLE "Customer" ADD COLUMN "试验列" TEXT');
+
+    await 甲.$executeRawUnsafe(`UPDATE "Customer" SET "试验列" = '旧触发器' WHERE id = 'c1'`);
+    expect((await 待推(甲, "A")).改动).toEqual([]); // 这就是要钉的坑：老触发器看不见这一列
+
+    for (const db of [甲, 乙]) await 装触发器(db);
+    await 甲.$executeRawUnsafe(`UPDATE "Customer" SET "试验列" = '新触发器' WHERE id = 'c1'`);
+    await 同步(甲, 乙);
+    const 乙那边 = (await 乙.$queryRawUnsafe(`SELECT "试验列" AS v FROM "Customer" WHERE id = 'c1'`)) as { v: string | null }[];
+    expect(乙那边[0].v).toBe("新触发器");
+  });
+
+  it("客户端每个进程第一轮都重装一次触发器（迁移加列靠它跟上）", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/lib/sync/client.ts"), "utf8");
+    const 段 = src.slice(src.indexOf("if (!触发器对过)"), src.indexOf("触发器对过 = true"));
+    expect(段).toContain("await 装触发器(prisma)");
+    expect(src).toMatch(/let 触发器对过 = false;/);
+  });
+
   it("钥匙不对拆不开；密文里看不到客户名", async () => {
     const { 甲 } = await 一对();
     await 甲.customer.create({ data: { name: "看不见的王总", phone: "13800000009", salesOwnerId: "acct_jia" } });
