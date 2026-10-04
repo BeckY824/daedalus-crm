@@ -77,3 +77,34 @@ describe("停用的人", () => {
     expect(await 负责人候选()).toEqual([]);
   });
 });
+
+/*
+  2026-10-04 补（回归核对 D-038）：桌面端老库里还留着样例同事张三 / 李四时，
+  按「有别人就排除管理员」负责人下拉只有他俩、业绩榜没有用户本人（10-02 排查 B5，修在 负责人口径 的 本地模式() 分支）。
+  修了但没有用例钉着
+*/
+describe("桌面端老库里残留样例同事张三李四", () => {
+  const 原来 = process.env.DESKTOP_LOCAL;
+  beforeEach(async () => {
+    process.env.DESKTOP_LOCAL = "1";
+    await 建人("用户本人", "ADMIN");
+    await 建人("张三", "SALES");
+    await 建人("李四", "SALES");
+  });
+  afterAll(() => {
+    if (原来 === undefined) delete process.env.DESKTOP_LOCAL;
+    else process.env.DESKTOP_LOCAL = 原来;
+  });
+
+  it("负责人候选里有用户本人", async () => {
+    expect((await 负责人候选()).map((u) => u.name)).toContain("用户本人");
+  });
+
+  it("排行榜口径也含本人：不然他自己的业绩永远看不见", async () => {
+    expect(await 负责人口径()).toEqual({ active: true });
+  });
+
+  it("AI 按名字找得到本人", async () => {
+    expect((await 按名字找负责人("用户本人")).length).toBe(1);
+  });
+});
