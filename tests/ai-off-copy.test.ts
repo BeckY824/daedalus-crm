@@ -47,7 +47,7 @@ describe("没有可用的 AI 配置时说什么", () => {
   });
 
   // 自部署版那句还写着「设置管理 → AI 接入」：那一栏现在叫「设置 → AI 接入」（左栏、账号菜单里都没有「设置管理」了）
-  it.skip("【下一版】自部署：指的路是「设置 → AI 接入」，不再说「设置管理」", async () => {
+  it("自部署：指的路是「设置 → AI 接入」，不再说「设置管理」", async () => {
     delete process.env.DESKTOP_LOCAL;
     const { chatJSON } = await import("@/lib/llm");
     const e = await chatJSON("随便").catch((x: Error) => x);

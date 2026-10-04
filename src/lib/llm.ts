@@ -543,5 +543,5 @@ export function AI报错人话(status: number, 正文: string): string {
 function AI未启用说法(): string {
   return 本地模式()
     ? "AI 要先登录云端账号：在设置里退出登录，再登录一次"
-    : "AI 功能未启用：请管理员到「设置管理 → AI 接入」填写接口地址与 API Key";
+    : "AI 功能未启用：请管理员到「设置 → AI 接入」填写接口地址与 API Key";
 }
