@@ -58,3 +58,26 @@ test("在记录页记一笔跟进：时间线上看得见，首页开场说「�
   await page.goto("/dashboard");
   await expect(page.locator(".cli-welcome-s")).toContainText(`上次跟的是${客户名}`);
 });
+
+/*
+  2026-10-04 回归核对 J-208：左栏顶上的搜索框原来一律写着「⌘K」，可首页的 ⌘K 是「回问答框」、记录页是「换一位」——
+  标签说的和按下去的不是一回事。改成页内占着 ⌘K 时不写它；点搜索框本身永远是跳转单
+*/
+test("左栏搜索框：首页、记录页不写 ⌘K（那儿的 ⌘K 另有用处），列表页写；点它都是跳转单", async ({ page }) => {
+  const 搜索 = page.getByRole("navigation", { name: "主导航" }).locator(".rail-search");
+
+  await 进门(page, "/customers");
+  await expect(搜索).toBeVisible();
+  await expect(搜索.locator("kbd")).toHaveCount(1);
+
+  await page.locator("main").getByRole("link", { name: 客户名 }).click();
+  await expect(page.getByRole("heading", { name: 客户名 })).toBeVisible();
+  await expect(搜索.locator("kbd")).toHaveCount(0);
+
+  await page.goto("/dashboard");
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await expect(page.locator(".cli-input textarea").first()).toBeVisible();
+  await expect(搜索.locator("kbd")).toHaveCount(0);
+  await 搜索.click();
+  await expect(page.locator(".cmdk")).toBeVisible();
+});

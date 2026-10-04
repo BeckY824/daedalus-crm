@@ -19,6 +19,9 @@ test("新库带令牌进门：先选模版，选「通用销售」后进首页�
   // 新库（没选过模版、没业务数据）落在主界面外面的选模版页（app/start）
   await expect(page).toHaveURL(/\/start$/);
   await expect(page.getByRole("heading", { name: "你主要做哪一类生意？" })).toBeVisible();
+  // J-226：选模版是独立的一屏，不套在主界面外壳里（原来左栏导航也画出来了）
+  await expect(page.locator("nav.rail")).toHaveCount(0);
+  await expect(page.locator("aside.dock")).toHaveCount(0);
   await page.waitForLoadState("networkidle").catch(() => {});
   await page.getByRole("button", { name: /用通用销售开始/ }).click();
   await expect(page).toHaveURL(/\/dashboard/);
