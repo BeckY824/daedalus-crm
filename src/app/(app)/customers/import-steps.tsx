@@ -22,7 +22,7 @@ export function 第几行(行号: number, 粘贴: boolean): string {
 /** 导入抽屉（ImportDrawer.tsx）的各一步：粘贴、对列、复核、确认，外加页脚那排按钮。流程和状态在抽屉里 */
 
 export function 页脚({
-  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批,
+  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法,
 }: {
   步: number; 忙: boolean; 认人列: number; 看: 预览 | null;
   set步: (n: number) => void; 去预览: () => void; 落库: () => void; 撤: () => void; 重来: () => void;
@@ -30,6 +30,8 @@ export function 页脚({
   完成: () => void;
   /** 刚导进来的这一批：新建几条、补空几条。撤销的确认里要写清会动哪些 */
   这一批: { 新建: number; 补空: number } | null;
+  /** 撤销确认里用工作区自己的叫法（第 2 期 2a）：原来写「条新建的记录」 */
+  客户叫法: string;
 }) {
   if (步 === 0) return null;
   if (步 === 4)
@@ -38,7 +40,7 @@ export function 页脚({
         {/* 整批撤销一次动很多条，和「设置 → 导入记录」里同一个确认（审查 M15）。原来一点就删 */}
         <Popconfirm
           title="撤销这一批导入？"
-          description={`会删掉 ${这一批?.新建 ?? 0} 条新建的记录${这一批?.补空 ? `、还原 ${这一批.补空} 条补过的` : ""}。导入之后你改过的那几位会留着。`}
+          description={`会删掉这一批新建的 ${这一批?.新建 ?? 0} 位${客户叫法}${这一批?.补空 ? `、还原 ${这一批.补空} 位补过空的` : ""}。导入之后改过档案、记过跟进的那几位会留着。`}
           okText="撤销"
           okButtonProps={{ danger: true }}
           cancelText="不了"

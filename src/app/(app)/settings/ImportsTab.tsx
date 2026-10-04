@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { App, Alert, Button, Popconfirm, Table, Tag, Typography } from "antd";
 import { smartTime } from "@/lib/utils";
+import { useBusiness } from "@/lib/business-client";
 import { 最近批次, 撤销批次, type 批次 } from "@/app/(app)/customers/import-actions";
 
 /**
@@ -18,6 +19,7 @@ import { 最近批次, 撤销批次, type 批次 } from "@/app/(app)/customers/i
  */
 export default function ImportsTab() {
   const { message, modal } = App.useApp();
+  const 叫法 = useBusiness();
   const [行, set行] = useState<批次[] | null>(null);
   const [忙, set忙] = useState<string | null>(null);
   /** 读失败了。原来失败也当成空列表，显示「还没有导入过」——人会以为导入记录丢了（排查 D8） */
@@ -102,7 +104,7 @@ export default function ImportsTab() {
               ) : (
                 <Popconfirm
                   title="撤销这一批导入？"
-                  description={`会删掉 ${r.created} 条新建的记录。导入之后你改过的那几位会留着。`}
+                  description={`会删掉这一批新建的 ${r.created} 位${叫法.customer}${r.updated ? `、还原 ${r.updated} 位补过空的` : ""}。导入之后改过档案、记过跟进的那几位会留着。`}
                   okText="撤销"
                   okButtonProps={{ danger: true }}
                   cancelText="不了"

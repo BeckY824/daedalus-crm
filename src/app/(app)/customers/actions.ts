@@ -890,6 +890,19 @@ async function 签约收尾(customerId: string, 签约id: string, 勾: 签约联
 }
 
 /**
+ * 删签约之前数一数：当初登记这笔时顺手标成赢单、现在还是赢单的商机有几个——删了会退回进行中（L-007）。
+ * 确认框照着它说（第 2 期 2a：确认框说清会一起动什么）
+ */
+export async function 删签约前清点(id: string): Promise<{ 退回商机: string[] }> {
+  await requireUser();
+  const 赢下的 = await prisma.contractWin.findMany({
+    where: { contractId: id, opportunity: { is: { status: "WON" } } },
+    select: { opportunity: { select: { name: true } } },
+  });
+  return { 退回商机: 赢下的.map((w) => w.opportunity.name) };
+}
+
+/**
  * 删除签约记录。
  *
  * 删掉最后一笔后，学员的跟进状态会停在「已签约」但金额已归零，

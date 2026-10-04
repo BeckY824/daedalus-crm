@@ -317,6 +317,7 @@ export default function ImportDrawer({
         <页脚
           {...{ 步, 忙, 认人列, set步, 去预览, 落库, 撤, 重来 }}
           看={现看}
+          客户叫法={b.customer}
           这一批={结果}
           完成={() => {
             const id = 结果?.batchId;
