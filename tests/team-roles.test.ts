@@ -25,7 +25,13 @@ vi.mock("@/lib/prisma", async () => {
   return { prisma: 加上限定(raw), defaultClient: raw };
 });
 
+// 领公海（T-040）走真的 server action：登录的人换成「当前是谁」，revalidatePath 在测试里没有请求上下文
+const 登录的 = vi.hoisted(() => ({ user: { id: "acct_wang", name: "小王", email: "acct_wang@x.com", role: "SALES", title: "销售", avatar: null } }));
+vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+vi.mock("@/lib/auth", async (原) => ({ ...(await 原<object>()), requireUser: async () => 登录的.user }));
+
 import { prisma as db, defaultClient as raw } from "@/lib/prisma";
+import { 领取 } from "@/app/(app)/customers/pool-actions";
 import { 看全部, 忘掉限定, 限定的我 } from "@/lib/team-scope";
 import { 设传输, 对齐角色, 退出团队, 同步一轮, type 传输 } from "@/lib/sync/client";
 import { 建同步表, 装触发器, 卸触发器, 回放, 只留自己的 } from "@/lib/sync/local";
@@ -234,6 +240,36 @@ describe("业务员离开团队：这台只留他自己的", () => {
     expect(await raw.opportunity.count()).toBe(2);
     expect((await raw.auditLog.findMany({ select: { summary: true } })).map((a) => a.summary)).toEqual(["小王的日志"]);
     expect(Number((await raw.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_log"))[0].n)).toBe(0);
+  });
+});
+
+/*
+  T-040（2026-10-04 上线前回归核对）：业务员领公海。领取的事务里先删公海那一行、再改负责人——删完那一刻客户在业务员眼里
+  「不见了」，限定着读会读回 null：客户出了公海、却没归任何人（五人实测栽过）。全靠 pool-actions 里那层 看全部() 兜着，
+  原来没有一条用例走限定层领取
+*/
+describe("业务员在限定视图下领公海（T-040）", () => {
+  beforeEach(async () => {
+    Object.assign(云端, { 被移出: false, 连不上: false, 退队: 0 });
+    await 种数据();
+  });
+
+  it("小王领「公海客户」：负责人变小王、公海行没了、小李在他身上没做完的活过来、领完看得到", async () => {
+    当("wang");
+    进团队();
+    await 对齐角色();
+    expect(await 限定的我(raw)).toBe(小王);
+    const id = ids["公海客户"];
+    const r = await 领取([id]);
+    expect(r).toMatchObject({ ok: true, updated: 1, 带走: { 计划和待办: 1, 商机: 1 } });
+    expect((await raw.customer.findUnique({ where: { id } }))?.salesOwnerId).toBe(小王);
+    expect(await raw.customerPool.count({ where: { customerId: id } })).toBe(0);
+    expect((await raw.task.findFirst({ where: { customerId: id } }))?.ownerId).toBe(小王);
+    expect((await raw.opportunity.findFirst({ where: { customerId: id } }))?.ownerId).toBe(小王);
+    // 领完在小王的限定视图里还看得到（现在是他负责的了）
+    忘掉限定();
+    expect(await db.customer.findUnique({ where: { id } })).not.toBeNull();
+    expect((await db.task.findMany({ select: { title: true } })).map((t) => t.title)).toContain("公海客户 的待办");
   });
 });
 
