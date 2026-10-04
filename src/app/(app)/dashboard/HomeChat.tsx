@@ -1,6 +1,7 @@
 "use client";
 
 import type { 页面范围 } from "@/lib/ai-context-page";
+import { 是刚交过来的 } from "@/lib/home-ask";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Dropdown, Tooltip } from "antd";
@@ -254,6 +255,9 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
    * ⌘K 里直接问的那一句会带在地址上（/dashboard?q=…）。
    * 到了这儿就发出去，然后把 q 从地址里抹掉——留着的话刷新一次会再问一遍。
    *
+   * **只有本应用 ⌘K 刚交过来的才自动发**（2026-10-04，J-158）：别人发来的链接、收藏夹里的地址点开，
+   * 只把问题填进输入框、光标放进去，等人自己按回车——不然点一下链接就白扣一次次数。见 lib/home-ask.ts
+   *
    * 那个 ref 不是多余的：开发模式下 StrictMode 会把 effect 跑两遍（挂载 → 清理 → 再挂载），
    * 而 router.replace 生效没那么快，结果就是同一句话问了两遍、扣两次额度。
    */
@@ -263,7 +267,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     if (!q0 || 已消化地址问句.current) return;
     已消化地址问句.current = true;
     router.replace("/dashboard");
-    submit(q0);
+    if (是刚交过来的(q0)) submit(q0);
+    else setQ(q0);
     // 只认挂载时地址上的那一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

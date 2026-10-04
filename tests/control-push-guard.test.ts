@@ -2,7 +2,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-// @ts-expect-error 纯 JS 脚本，没有类型
 import { 是本机开发库 } from "../scripts/control-push.mjs";
 
 const ROOT = "/repo";

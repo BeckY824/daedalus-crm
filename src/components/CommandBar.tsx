@@ -1,5 +1,6 @@
 "use client";
 import Shortcut from "./Shortcut";
+import { 交给首页问 } from "@/lib/home-ask";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -113,6 +114,8 @@ export default function CommandBar() {
   function 走(i = idx) {
     if (当问题) {
       // 带着问题去首页问：答案、过程、建议卡都在那儿，不在一个浮层里
+      // 先说一声「这句是我交过去的」：首页只自动发本应用交过去的，外面来的链接只填进框里（J-158）
+      交给首页问(q);
       router.push(`/dashboard?q=${encodeURIComponent(q.trim())}`);
     } else {
       const p = 命中[i];

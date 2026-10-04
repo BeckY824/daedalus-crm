@@ -578,6 +578,19 @@ test("⌘K：一个页面都没匹配上时，第一条变成「问一句」", a
   await expect(page.locator(".cli-bubble")).toContainText("这个月谁签得最多");
 });
 
+/*
+  2026-10-04（J-158）：别人发来的 /dashboard?q=… 一打开就发问、扣一次次数。
+  现在只有本应用 ⌘K 交过来的才自动发（上一条钉着）；外面来的链接只填进输入框，等人自己按回车
+*/
+test("直接打开 /dashboard?q=…：不自动发问，问题填在输入框里等回车", async ({ page }) => {
+  await 登录(page);
+  await page.goto(`/dashboard?q=${encodeURIComponent("别人链接里的问题")}`);
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.locator(".cli-input textarea, .cli-input input").first()).toHaveValue("别人链接里的问题");
+  await page.waitForTimeout(800);
+  await expect(page.locator(".cli-bubble")).toHaveCount(0);
+});
+
 test("设置：左目录分两组、带搜索，一页上只有一列目录", async ({ page }) => {
   await 登录(page, 管理员);
   await page.goto("/settings");
