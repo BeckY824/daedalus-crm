@@ -14,6 +14,9 @@ import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { 可担任负责人 } from "@/lib/constants";
 import { 负责人候选, 负责人口径, 按名字找负责人 } from "@/lib/owners";
+import { 默认负责人 } from "@/lib/me-client";
+import fs from "node:fs";
+import path from "node:path";
 
 beforeEach(resetDb);
 afterAll(async () => { await prisma.$disconnect(); });
@@ -106,5 +109,40 @@ describe("桌面端老库里残留样例同事张三李四", () => {
 
   it("AI 按名字找得到本人", async () => {
     expect((await 按名字找负责人("用户本人")).length).toBe(1);
+  });
+});
+
+/*
+  T-015 / T-025（2026-10-04 上线前回归核对）：新建客户 / 商机 / 渠道时负责人默认是「我」。
+  团队版里同事账号也同步进来了，默认落到名单第一人 = 业务员建的客户挂到同事名下，建完自己就看不到了（等于丢客户）
+*/
+describe("新建时负责人默认是我（T-015 / T-025）", () => {
+  const 我 = { id: "me" };
+  const 候选 = [{ id: "colleague" }, { id: "me" }, { id: "other" }];
+
+  it("我在候选里：是我，不是排第一的同事", () => {
+    expect(默认负责人(我, 候选)).toBe("me");
+  });
+
+  it("我不在候选里（网页多人版管理员不做销售）、没登录：留空让人选", () => {
+    expect(默认负责人(我, [{ id: "colleague" }, { id: "other" }])).toBeUndefined();
+    expect(默认负责人(null, 候选)).toBeUndefined();
+    expect(默认负责人(我, [])).toBeUndefined();
+  });
+
+  it("三张新建表单都只用 默认负责人()，不兜底到名单第一人", () => {
+    // 新建商机原来写成 默认负责人(我, users) ?? users[0]?.id：网页多人管理员不在候选里，默认就是名单第一个销售
+    const 表单 = {
+      "src/app/(app)/customers/CustomerForm.tsx": "salesOwnerId",
+      "src/app/(app)/opportunities/OpportunityForm.tsx": "ownerId",
+      "src/app/(app)/channels/ChannelsView.tsx": "channelOwnerId",
+    };
+    for (const [文件, 字段] of Object.entries(表单)) {
+      const 源 = fs.readFileSync(path.resolve(__dirname, "..", 文件), "utf8");
+      const 行 = 源.split("\n").filter((l) => l.includes("默认负责人(我, users)"));
+      expect(行.length, 文件).toBe(1);
+      expect(行[0], 文件).toContain(`${字段}: 默认负责人(我, users)`);
+      expect(行[0], 文件).not.toMatch(/默认负责人\(我, users\)\s*(\?\?|\|\|)/);
+    }
   });
 });

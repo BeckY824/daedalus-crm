@@ -101,8 +101,12 @@ export default function OpportunityForm({
         stage: "初步沟通",
         status: "OPEN",
         probability: STAGE_PROBABILITY["初步沟通"] ?? 20,
-        // 默认是我（团队同步之后候选里有同事，排第一的不一定是我）
-        ownerId: 默认负责人(我, users) ?? users[0]?.id,
+        /*
+          默认是我（团队同步之后候选里有同事，排第一的不一定是我）。我不在候选里（网页多人版管理员不做销售）就留空让人选，
+          不兜底到名单第一人：原来 ?? users[0]，管理员建的商机默认全记到排第一的销售名下（2026-10-04 T-025）。
+          只有一个人时这一格不显示，服务端用 唯一负责人() 填
+        */
+        ownerId: 默认负责人(我, users),
         // 新建默认本位币（设置 → 业务里定的；外贸模版是美元）
         currency: b.currency,
       });
