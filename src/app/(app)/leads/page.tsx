@@ -1,7 +1,8 @@
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { 搜索词 } from "@/lib/search-keyword";
+import { 搜索词, 号码片段 } from "@/lib/search-keyword";
+import { getBusiness } from "@/lib/business";
 import LeadsView from "./LeadsView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
@@ -11,21 +12,28 @@ export const dynamic = "force-dynamic";
 export default async function LeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ keyword?: string; status?: string }>;
+  searchParams: Promise<{ keyword?: string; status?: string; ownerId?: string; source?: string }>;
 }) {
   const me = await requireUser();
   const sp = await searchParams;
   // 关键词去掉前后空格再搜（2026-10-04 J-008）：复制来的「张三 」原来一个都搜不到
   const 词 = 搜索词(sp.keyword);
 
+  /*
+    电话也搜、负责人和来源能筛（T-029，工作室会撞：拿着来电号码找不到是哪条线索）。
+    号码按数字搜（「139 6666」也算），和客户列表一个规矩（lib/search-keyword.ts）
+  */
+  const 号段 = 号码片段(词);
   const where: Prisma.LeadWhereInput = {
     ...(词
-      ? { OR: [{ name: { contains: 词 } }, { contact: { contains: 词 } }] }
+      ? { OR: [{ name: { contains: 词 } }, { contact: { contains: 词 } }, { phone: { contains: 号段 ?? 词 } }] }
       : {}),
     ...(sp.status ? { status: sp.status } : {}),
+    ...(sp.ownerId ? { ownerId: sp.ownerId } : {}),
+    ...(sp.source ? { source: sp.source } : {}),
   };
 
-  const [总数, rows, users] = await Promise.all([
+  const [总数, rows, users, 用着的来源, b] = await Promise.all([
     /*
       **总数要单独数一次。** 下面那条 `take: 300` 取回来的行数不是总数，
       而 DataList 的分页条会照着行数写「共 N 条」——库里 500 条线索的人
@@ -40,7 +48,11 @@ export default async function LeadsPage({
       include: { owner: { select: { name: true } } },
     }),
     负责人候选(),
+    // 来源能选也能填：筛选下拉要把库里用着、设置里没有的也给出来（和客户列表的「旧职位」一个做法）
+    prisma.lead.findMany({ distinct: ["source"], select: { source: true } }),
+    getBusiness(),
   ]);
+  const 来源们 = [...new Set([...b.sources, ...用着的来源.map((l) => l.source).filter(Boolean)])];
   /**
    * 新建线索默认归「我」（LeadsView 里 ownerId: me）。我不在候选名单里时——桌面端单人用，
    * 你就是管理员，灌了演示数据之后名单里只剩那四个销售——下拉会显示成一串 id
@@ -56,7 +68,8 @@ export default async function LeadsPage({
       总数={总数}
       me={me.id}
       users={候选}
-      filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "" }}
+      filters={{ keyword: sp.keyword ?? "", status: sp.status ?? "", ownerId: sp.ownerId ?? "", source: sp.source ?? "" }}
+      来源们={来源们}
       rows={rows.map((l) => ({
         id: l.id,
         name: l.name,

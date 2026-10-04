@@ -189,6 +189,68 @@ test("J-026 新建线索不选来源：存成「其他」，不是「官网注�
   }
 });
 
+test("J-024 线索的电话已经是某位客户的：转客户时说清是谁，点「并到」→ 线索已转化、关联到那位，进了他的记录页", async ({ page }) => {
+  const p = 连库();
+  const 老客 = await p.customer.create({ data: { name: "撞号老客", phone: "13955550024", salesOwnerId: 张三 } });
+  const 线索 = await p.lead.create({ data: { name: "又来一次的人", phone: "139 5555 0024", ownerId: 张三 } });
+  await p.$disconnect();
+  await 登录(page);
+  await page.goto(`/leads?keyword=${encodeURIComponent("又来一次的人")}`);
+  const 问 = page.getByRole("dialog").filter({ hasText: "转为" });
+  await expect(async () => {
+    if (!(await 问.isVisible())) await page.locator(".ant-table-row", { hasText: "又来一次的人" }).getByRole("button", { name: /转/ }).click();
+    await expect(问).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  await 问.getByRole("button", { name: /^转为/ }).click();
+  const 并 = page.getByRole("dialog").filter({ hasText: "撞号老客" });
+  await expect(并).toContainText("负责人");
+  await 并.getByRole("button", { name: "并到「撞号老客」" }).click();
+  await page.waitForURL(new RegExp(`/customers/${老客.id}`));
+  const q = 连库();
+  try {
+    const l = await q.lead.findUniqueOrThrow({ where: { id: 线索.id } });
+    expect(l.status).toBe("已转化");
+    expect(l.customerId).toBe(老客.id);
+    expect(await q.customer.count({ where: { phone: "13955550024" } })).toBe(1);
+  } finally {
+    await q.$disconnect();
+  }
+});
+
+test("T-029 线索列表：按电话搜得到；按负责人、来源筛得出来，地址留着条件", async ({ page }) => {
+  const p = 连库();
+  await p.lead.createMany({
+    data: [
+      { name: "电话搜的线索", phone: "13966660029", source: "小红书", ownerId: 张三 },
+      { name: "李四的线索", phone: "13966660030", source: "抖音", ownerId: 李四 },
+      { name: "张三抖音线索", phone: "13966660031", source: "抖音", ownerId: 张三 },
+    ],
+  });
+  await p.$disconnect();
+  await 登录(page);
+  const 行名 = async () => {
+    await expect(page.locator(".ant-table-row").first()).toBeVisible();
+    return page.locator(".ant-table-row td:first-child").allInnerTexts();
+  };
+  // 电话：搜中间一段数字、带空格的写法都算
+  await page.goto(`/leads?keyword=${encodeURIComponent("6666 0029")}`);
+  expect(await 行名()).toEqual(["电话搜的线索"]);
+  // 负责人
+  await page.goto("/leads");
+  const 负责人 = page.locator(".ant-select", { hasText: "全部负责人" });
+  await expect(async () => {
+    await 负责人.click();
+    await expect(page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "李四" })).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "李四" }).click();
+  await page.waitForURL(new RegExp(`ownerId=${李四}`));
+  expect(await 行名()).toEqual(["李四的线索"]);
+  // 来源（换掉负责人条件再筛）
+  await page.goto(`/leads?ownerId=${张三}&source=${encodeURIComponent("抖音")}`);
+  expect(await 行名()).toEqual(["张三抖音线索"]);
+  await expect(page.locator(".ant-select", { hasText: "抖音" })).toBeVisible();
+});
+
 test("没配 AI 的首页：页头「首页」不和「数据」重名；本月签约 0 写 ¥0；排行金额带 ¥ 写清口径；上月没新增不写「持平」（J-124 / J-125 / J-121 / J-111）", async ({ page }) => {
   // 两位销售各赢一单（排行 > 1 人才画榜）；这个月没有签约
   const p = 连库();
