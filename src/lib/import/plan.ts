@@ -35,6 +35,12 @@ export type 一行 = {
   问题: 格问题[];
   /** 有值 = 这一行整条进不了，这句话就是原因 */
   进不了?: string;
+  /**
+   * 「表头：值」并进备注的那几行（没对上的列、封闭枚举落默认的原文）。值.remark 里已经含着它们；
+   * 单独留一份是给「库里已有、只补空」那条路：库里备注有值时，对上「备注」的那列照旧不动，
+   * 这几行我们没有地方放的原话添在库里备注后面，不然整列丢（2026-10-04 L-004）
+   */
+  并进备注?: string[];
 };
 
 /**
@@ -104,13 +110,21 @@ export function 认日期(v: string): Date | null {
  * 而跟进状态是拿来筛人、排工作的。对不上就用默认值 + 标出来，让人在复核那一步
  * 自己指一下——那一步里同一个写法改一次，整列一起生效，不比猜慢。
  */
-export function 认枚举(v: string, values: readonly string[]): string | null {
+export function 认枚举(v: string, values: readonly string[], 显示名?: Readonly<Record<string, string>>): string | null {
   const s = v.trim();
   if (!s) return null;
   const hit = values.find((x) => x === s);
   if (hit) return hit;
   const 紧 = s.replace(/[\s　]/g, "");
-  return values.find((x) => x.replace(/[\s　]/g, "") === 紧) ?? null;
+  const 宽松 = values.find((x) => x.replace(/[\s　]/g, "") === 紧);
+  if (宽松) return 宽松;
+  /*
+    再认业务的显示名（「已演示」→ 已试听）。导出写的是显示名，导入原来只认存储值，
+    导出改完再导回来，改过显示名的状态全落成默认值，静悄悄的（2026-10-04 L-073）。
+    这不是近似匹配：显示名和存储值是一一对应的同一个状态，存储值优先（先比上面两条）
+  */
+  if (显示名) return values.find((x) => 显示名[x] && 显示名[x].replace(/[\s　]/g, "") === 紧) ?? null;
+  return null;
 }
 
 export type 排布 = {
@@ -189,7 +203,7 @@ export function 摊开(p: 排布): 一行[] {
         return;
       }
       if (f.kind === "enum") {
-        const hit = 认枚举(v, f.values ?? []);
+        const hit = 认枚举(v, f.values ?? [], f.显示名);
         if (!hit) {
           /*
             开放的枚举（职位 / 年级）：对不上就**原样收下**，不丢。
@@ -256,10 +270,14 @@ export function 摊开(p: 排布): 一行[] {
     const 捡回来: string[] = [];
     p.映射.forEach((字段, 列) => {
       if (字段 ? !落默认的列.has(列) : !并备注) return;
-      // 对上了字段的那列表头是空的也有出处：用字段名当表头
-      const 头 = (p.表头[列] ?? "").trim() || (字段 ? 规格.get(字段)?.label ?? "" : "");
+      /*
+        对上了字段的那列表头是空的也有出处：用字段名当表头。
+        没对上、又没有表头的列（表头只写了前两列、后面几格空着）用「第 N 列」当出处：
+        原来直接丢——「一串没出处的值比丢掉还糟」，可丢掉的是人表里的原话，他事后回原表才知道少了什么；
+        写成「第 3 列：北京」，人照着列号回 Excel 里一眼对得上（2026-10-04 J-056）
+      */
+      const 头 = (p.表头[列] ?? "").trim() || (字段 ? 规格.get(字段)?.label ?? "" : `第 ${列 + 1} 列`);
       const v = (r[列] ?? "").trim();
-      // 没有表头的列并进去只会是一串没有出处的值，那比丢掉还糟
       if (!头 || !v) return;
       /*
         表头看着是日期、格子是 Excel 序列号（46284）的：写成日期再并进去。原来备注里是「最近联系：46284」，
@@ -282,8 +300,25 @@ export function 摊开(p: 排布): 一行[] {
     } else if (!值.name) {
       进不了 = "这一行没有姓名";
     }
-    return { 行号, 值, 问题, ...(进不了 ? { 进不了 } : {}) };
+    return { 行号, 值, 问题, ...(进不了 ? { 进不了 } : {}), ...(捡回来.length ? { 并进备注: 捡回来 } : {}) };
   });
+}
+
+/**
+ * 备注末尾添几行：已经在备注里的那一行不再添（同一份表导两遍、同号两行写了同一句，都不该出现两遍）。
+ * 原来的字一个不动，只往后加（2026-10-04 J-051）。
+ */
+export function 添行(原: string | null | undefined, 新行: readonly string[]): string {
+  const 有 = new Set((原 ?? "").split("\n").map((l) => l.trim()).filter(Boolean));
+  const 要添: string[] = [];
+  for (const l of 新行) {
+    const t = l.trim();
+    if (!t || 有.has(t)) continue;
+    有.add(t);
+    要添.push(l);
+  }
+  if (要添.length === 0) return 原 ?? "";
+  return 原 ? `${原}\n${要添.join("\n")}` : 要添.join("\n");
 }
 
 /**
@@ -312,8 +347,18 @@ export function 并重复行(rows: 一行[]): { 行: 一行[]; 合掉几行: num
       continue;
     }
     for (const [k, v] of Object.entries(r.值)) {
+      /*
+        备注例外：它是越记越多的那一格，后一行的备注（连同并进来的「微信号：…」）添在后面，不是「前面有了就整段丢」。
+        原来第一行有备注，第二行的整段备注、没对上的列一个字都不进，预览也不说（2026-10-04 J-051）。
+        其余字段照旧先来的赢
+      */
+      if (k === "remark") {
+        if (v) 已有.值.remark = 添行(已有.值.remark, v.split("\n"));
+        continue;
+      }
       if (v && !已有.值[k as 字段名]) 已有.值[k as 字段名] = v;
     }
+    if (r.并进备注?.length) 已有.并进备注 = [...(已有.并进备注 ?? []), ...r.并进备注];
     已有.问题.push(...r.问题);
     合掉几行++;
   }

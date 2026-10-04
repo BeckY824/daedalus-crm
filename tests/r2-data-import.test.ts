@@ -252,7 +252,8 @@ describe("日期列的各种写法", () => {
 });
 
 describe("重复与库里已有", () => {
-  it.skip("【下一版】表里同号两行：后一行的「没对上的列」不该悄悄丢掉（B：现状第一行有备注就整段丢）", async () => {
+  // 2026-10-04 J-051 修好，去掉 skip
+  it("表里同号两行：后一行的「没对上的列」不该悄悄丢掉（B：原来第一行有备注就整段丢）", async () => {
     const w = await 执行导入(csv方案("姓名,手机号,微信号\n张三,13800000001,zs_wx\n张三,13800000001,zs_wx2"), "a.csv");
     if (!w.ok) throw new Error(w.error);
     const c = await prisma.customer.findFirstOrThrow();
@@ -276,15 +277,33 @@ describe("重复与库里已有", () => {
     expect({ 补空: r.预览.补空, 跳过: r.预览.跳过 }).toEqual({ 补空: w.补空, 跳过: w.跳过 });
   });
 
-  it.skip("【下一版】【B】库里已有、备注有值：表里没对上的列（微信号）整列没进来，预览也不说", async () => {
+  /*
+    2026-10-04 L-004 / J-051 修好，去掉 skip。口径：库里的备注一字不动，表里我们没有的列（「微信号：…」）添在它后面——
+    添不是覆盖；对上了「备注」字段的那一列照旧只补空（上面那条钉着）
+  */
+  it("【B】库里已有、备注有值，选「只补空」再导一次：表里没对上的列（微信号）添在库里备注后面，预览算补空 1", async () => {
     await prisma.customer.create({ data: { name: "张三", phone: "13800000001", remark: "人手录的", salesOwnerId: 我 } });
     const p = csv方案("姓名,手机号,微信号\n张三,13800000001,zs_wx", "补空");
     const r = await 预览导入(p);
     if (!r.ok) throw new Error(r.error);
-    await 执行导入(p, "a.csv");
+    const w = await 执行导入(p, "a.csv");
+    if (!w.ok) throw new Error(w.error);
     const c = await prisma.customer.findFirstOrThrow();
-    // 不覆盖是对的；但「没对上的列并进备注」在这条路上一个字都没留下，预览里补空 0、跳过 1，人以为表里没新东西
-    expect((c.remark ?? "").includes("zs_wx") || r.预览.待复核.length > 0, `备注=${c.remark}；预览=${JSON.stringify(r.预览)}`).toBe(true);
+    // 原来：「没对上的列并进备注」在这条路上一个字都没留下，人以为表里没新东西
+    expect(c.remark, `预览=${JSON.stringify(r.预览)}`).toBe("人手录的\n微信号：zs_wx");
+    expect([r.预览.补空, w.补空]).toEqual([1, 1]);
+  });
+
+  it("同一份带微信号的表「只补空」导两遍 → 那一行只添一次（第二遍算跳过）；撤第一批，备注回到原样", async () => {
+    await prisma.customer.create({ data: { name: "张三", phone: "13800000001", remark: "人手录的", salesOwnerId: 我 } });
+    const p = csv方案("姓名,手机号,微信号\n张三,13800000001,zs_wx", "补空");
+    const w1 = await 执行导入(p, "a.csv");
+    const w2 = await 执行导入(p, "a.csv");
+    if (!w1.ok || !w2.ok) throw new Error("导入失败");
+    expect([w1.补空, w2.补空, w2.跳过]).toEqual([1, 0, 1]);
+    expect((await prisma.customer.findFirstOrThrow()).remark).toBe("人手录的\n微信号：zs_wx");
+    expect(await 撤销批次(w1.batchId)).toMatchObject({ ok: true, 还原: 1 });
+    expect((await prisma.customer.findFirstOrThrow()).remark).toBe("人手录的");
   });
 });
 
@@ -314,7 +333,8 @@ describe("撤销", () => {
     expect(await prisma.customer.count()).toBe(2);
   });
 
-  it.skip("【下一版】【B】先导 A（新建）、再导 B（补空同一批人），倒着撤 B 再撤 A：A 建的人应能撤掉", async () => {
+  // 2026-10-04 J-052 修好，去掉 skip
+  it("【B】先导 A（新建）、再导 B（补空同一批人），倒着撤 B 再撤 A：A 建的人应能撤掉", async () => {
     const wA = await 执行导入(csv方案("姓名,手机号\n甲,13800000001"), "A.csv");
     if (!wA.ok) throw new Error(wA.error);
     await new Promise((r) => setTimeout(r, 5));
@@ -326,6 +346,35 @@ describe("撤销", () => {
     const rA = await 撤销批次(wA.batchId);
     // 撤 B 时把公司还原成空，这一写改了 updatedAt；撤 A 时就当「导入之后又改过他的档案」留着了
     expect(await prisma.customer.count(), `撤 A 的结果：${JSON.stringify(rA)}`).toBe(0);
+  });
+
+  it("先导 A、再导 B 补空，B 之后人手改过他 → 撤 B 不动；撤 A 也留着他（J-052 修完人手改的仍算改过）", async () => {
+    const wA = await 执行导入(csv方案("姓名,手机号\n甲,13800000001"), "A.csv");
+    if (!wA.ok) throw new Error(wA.error);
+    await new Promise((r) => setTimeout(r, 5));
+    const wB = await 执行导入(csv方案("姓名,手机号,公司\n甲,13800000001,远山", "补空"), "B.csv");
+    if (!wB.ok) throw new Error(wB.error);
+    await new Promise((r) => setTimeout(r, 5));
+    const 甲 = await prisma.customer.findFirstOrThrow();
+    await patchCustomer(甲.id, "remark", "导完马上改了");
+    expect(await 撤销批次(wB.batchId)).toMatchObject({ ok: true, 还原: 0 });
+    const rA = await 撤销批次(wA.batchId);
+    expect(rA).toMatchObject({ ok: true, 删掉: 0 });
+    expect(await prisma.customer.count()).toBe(1);
+  });
+
+  it("A 和 B 之间人手改过他，再倒着撤 B、撤 A → A 那位留着（撤 B 只认得回到 B 之前那一刻，不替人手的改动作保）", async () => {
+    const wA = await 执行导入(csv方案("姓名,手机号\n甲,13800000001"), "A.csv");
+    if (!wA.ok) throw new Error(wA.error);
+    await new Promise((r) => setTimeout(r, 5));
+    const 甲 = await prisma.customer.findFirstOrThrow();
+    await patchCustomer(甲.id, "major", "金融");
+    await new Promise((r) => setTimeout(r, 5));
+    const wB = await 执行导入(csv方案("姓名,手机号,公司\n甲,13800000001,远山", "补空"), "B.csv");
+    if (!wB.ok) throw new Error(wB.error);
+    expect(await 撤销批次(wB.batchId)).toMatchObject({ ok: true, 还原: 1 });
+    expect(await 撤销批次(wA.batchId)).toMatchObject({ ok: true, 删掉: 0 });
+    expect((await prisma.customer.findFirstOrThrow()).major).toBe("金融");
   });
 });
 

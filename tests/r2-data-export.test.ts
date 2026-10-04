@@ -17,9 +17,12 @@ import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { 造本人 } from "./r2-data-helpers";
 import { 导出客户 } from "@/app/(app)/customers/export-action";
+import { 客户导出表 } from "@/app/(app)/customers/export-table";
+import { 执行导入 } from "@/app/(app)/customers/import-actions";
 import { toCsv, csvCell, BOM } from "@/lib/csv";
 import { 解析CSV, 成表 } from "@/lib/import/parse";
-import { 认枚举 } from "@/lib/import/plan";
+import { 认枚举, 摊开 } from "@/lib/import/plan";
+import { 字段表, 猜列 } from "@/lib/import/fields";
 import { 规整手机号 } from "@/lib/phone";
 import { DEFAULT_BUSINESS, statusLabel } from "@/lib/business-config";
 import { FOLLOW_STATUSES } from "@/lib/constants";
@@ -119,9 +122,59 @@ describe("CSV 本身：公式注入、中文、逗号、换行、引号", () => 
     expect(规整手机号(回来)).toBe("+14155550123");
   });
 
-  it.skip("【下一版】【已知 6-X8】导出的跟进状态写显示名（已演示），导回来认不出、落成默认值", () => {
+  /*
+    2026-10-04 L-073 修好，去掉 skip。显示名是按业务配置的（statusLabels），认枚举 本身不知道是哪套业务——
+    显示名表由调用方给（字段表 从业务配置里带出来），这里照导入那条路传 DEFAULT_BUSINESS 的
+  */
+  it("【已知 6-X8】导出的跟进状态写显示名（已演示），导回来要认得出、落回存储值（已试听）", () => {
     const 显示名 = statusLabel(DEFAULT_BUSINESS, "已试听");
     expect(显示名).toBe("已演示");
-    expect(认枚举(显示名, FOLLOW_STATUSES), "导出→导入一圈，状态丢了").toBe("已试听");
+    expect(认枚举(显示名, FOLLOW_STATUSES, DEFAULT_BUSINESS.statusLabels), "导出→导入一圈，状态丢了").toBe("已试听");
+    // 不给显示名表时照旧只认存储值，不猜
+    expect(认枚举(显示名, FOLLOW_STATUSES)).toBeNull();
+  });
+
+  it("导入走的字段表带着业务的显示名：表里写「已演示」「内部讨论」→ 落成「已试听」「与家人商议」，不进待复核", () => {
+    const 表 = 字段表(DEFAULT_BUSINESS);
+    const t = 成表(解析CSV("姓名,手机号,跟进状态,决策状态\n张三,13800000001,已演示,内部讨论"));
+    const [行] = 摊开({ 表头: t.表头, 数据: t.数据, 映射: 猜列(t.表头, 表), 字段表: 表 });
+    expect([行.值.followStatus, 行.值.decisionStatus, 行.问题]).toEqual(["已试听", "与家人商议", []]);
+  });
+});
+
+/*
+  2026-10-04 J-073：客户导出原来是 13 列、没有备注——人手录的备注导出全没了，拿导出当备份 / 换机时才发现。
+  连着 L-073 的整表往返：导出 → 按导入那条管线读回来 → 落库，备注一字不丢、改过显示名的状态落回原值
+*/
+describe("导出 → 再导入一圈", () => {
+  it("客户导出带「备注」一列：多行、逗号、引号的备注原样写出去", async () => {
+    const 备注 = '第一行，他说"再看看"\n第二行, 下周回电';
+    await prisma.customer.create({ data: { name: "张三", phone: "13800000001", remark: 备注, salesOwnerId: 我 } });
+    const r = await 导出客户({});
+    if (!r.ok) throw new Error(r.error);
+    const { head, body } = 客户导出表(r.rows, DEFAULT_BUSINESS);
+    expect(head).toContain("备注");
+    expect(body[0][head.indexOf("备注")]).toBe(备注);
+  });
+
+  it("导出 → 清库 → 把导出的文件原样导回来：备注一字不丢，跟进 / 决策状态落回「已试听」「与家人商议」", async () => {
+    const 备注 = '第一行，他说"再看看"\n第二行, 下周回电';
+    await prisma.customer.create({
+      data: { name: "张三", phone: "13800000001", remark: 备注, followStatus: "已试听", decisionStatus: "与家人商议", school: "远山", salesOwnerId: 我 },
+    });
+    const r = await 导出客户({});
+    if (!r.ok) throw new Error(r.error);
+    const { head, body } = 客户导出表(r.rows, DEFAULT_BUSINESS);
+    const csv = toCsv(head, body);
+    await prisma.customer.deleteMany();
+
+    const t = 成表(解析CSV(csv));
+    const w = await 执行导入({ 表头: t.表头, 数据: t.数据, 映射: 猜列(t.表头, 字段表(DEFAULT_BUSINESS)), 重复行: "跳过" }, "导出的.csv");
+    if (!w.ok) throw new Error(w.error);
+    expect(w.新建).toBe(1);
+    const c = await prisma.customer.findFirstOrThrow();
+    // 导出里我们导不回去的列（销售负责人等）照规矩并进备注、排在原备注后面；原备注本身一字不差
+    expect(c.remark?.startsWith(备注), `备注=${c.remark}`).toBe(true);
+    expect([c.followStatus, c.decisionStatus, c.school]).toEqual(["已试听", "与家人商议", "远山"]);
   });
 });
