@@ -299,6 +299,25 @@ describe("移除成员 + 换钥匙", () => {
     expect(读团队()!.key).toBe(前.key);
   });
 
+  it("T-052 有人的设备公钥是坏的（直接塞进库，绕过中转的校验）：换邀请码照样成、跳过那一台，好的几台都拿到新钥匙", async () => {
+    const { control } = await import("@/lib/tenant/control");
+    await control.syncDevice.create({ data: { teamId, device: "dYiBad1", accountId: 账号们.乙, pubKey: "a".repeat(60) } });
+    try {
+      const x = await 换邀请码();
+      if (!x.ok) throw new Error(x.error);
+      expect(x.跳过).toBe(1);
+      const c = 读团队()!;
+      const 有信的 = (await control.syncKeyEnvelope.findMany({ where: { teamId, epoch: c.epoch } })).map((e) => e.device);
+      expect(有信的).toContain("dYi0001");
+      expect(有信的).toContain(c.device);
+      expect(有信的).not.toContain("dYiBad1");
+      const 乙钥 = await r.取钥匙(账号们.乙, teamId, "dYi0001");
+      expect(乙钥.ok && 拆信(乙钥.envelope!, 乙对.私钥, c.epoch!, "dYi0001")).toBe(c.key);
+    } finally {
+      await control.syncDevice.delete({ where: { teamId_device: { teamId, device: "dYiBad1" } } });
+    }
+  });
+
   it("云端答得上来、但我已经不在这个团队里：团队状态说「被移出」，不说「连不上云端」", async () => {
     expect(await 团队状态()).toMatchObject({ 在团队: true, 被移出: false });
     // 老板（建团队的人）还有同事在队里：不让走（换钥匙复查低 7）

@@ -284,7 +284,7 @@ export async function 移除成员(accountId: string): Promise<结果> {
 }
 
 /** 换邀请码（只有建团队的人）：旧码作废、钥匙一起换（码里带着钥匙）。已经在团队里的人自动拿到新钥匙 */
-export async function 换邀请码(): Promise<结果<{ 邀请码: string }>> {
+export async function 换邀请码(): Promise<结果<{ 邀请码: string; 跳过: number }>> {
   const c = 读团队();
   if (!c) return { ok: false, error: "没有加入团队" };
   if (在跑) await 在跑.catch(() => undefined);
@@ -293,7 +293,8 @@ export async function 换邀请码(): Promise<结果<{ 邀请码: string }>> {
   写团队({ ...(读团队() ?? c), joinSecret: String(r.json.joinSecret) });
   const k = await 换钥匙并换码(读团队() ?? c, String(r.json.joinSecret));
   if (!k.ok) return k;
-  return { ok: true, 邀请码: 邀请码(读团队()!) };
+  // 带上跳过了几台（公钥坏的那几台没拿到新钥匙，下次同步会提示要新邀请码；2026-10-04 T-052 用例据此钉住逐台跳过）
+  return { ok: true, 邀请码: 邀请码(读团队()!), 跳过: k.跳过 };
 }
 
 /**
