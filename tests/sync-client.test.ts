@@ -27,14 +27,18 @@ vi.mock("@/lib/prisma", async () => {
 import { PrismaClient } from "@/generated/prisma";
 import { prisma as 甲 } from "@/lib/prisma";
 import { 建团队, 同步一轮, 退出团队, 读团队, 设传输, 解邀请码, 团队状态, type 传输 } from "@/lib/sync/client";
-import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗 } from "@/lib/sync/local";
+import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, type 改动 } from "@/lib/sync/local";
 import { 封, 拆 } from "@/lib/sync/crypto";
 import { 疑似重复 } from "@/lib/sync/dupes";
+import { getBusiness } from "@/lib/business";
 
 /* ---------------- 假中转 ---------------- */
 const 云 = { 团队: new Map<string, { name: string; secret: string; active: boolean; 人: Set<string> }>(), 批: [] as { seq: number; team: string; device: string; data: string }[] };
 const 当前账号 = "jia";
+/** 在某个请求上卡一下（慢网络 / 云端回话慢）：用来造「同步一轮」和「退出团队」撞在一起（2026-10-04 T-009） */
+let 钩子: ((方法: string, 路径: string) => Promise<void>) | null = null;
 const 假传输: 传输 = async (方法, 路径, body) => {
+  if (钩子) await 钩子(方法, 路径);
   const b = (body ?? {}) as Record<string, string>;
   if (方法 === "POST" && 路径 === "/api/sync/team") {
     const id = `team${云.团队.size + 1}xxxxxxx`;
@@ -179,5 +183,136 @@ describe("桌面端同步客户端", () => {
     expect(读团队()).toBeNull();
     expect(await 装了吗(甲)).toBe(false);
     expect(await 甲.customer.count()).toBe(3);
+  });
+
+  /* ---------- 下面三条各自建一个新团队（上面那条最后退出了），用完退出 ---------- */
+  const 睡 = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const 钟 = (毫秒: number) => `${String(毫秒).padStart(15, "0")}-${乙设备}`;
+  /** 乙那台推一批（直接塞进假中转），钟拨到一分钟后：比甲记全量时的字段钟都新 */
+  const 乙推 = (teamId: string, 钥匙: string, 批: 改动[]) => 云.批.push({ seq: 云.批.length + 1, team: teamId, device: 乙设备, data: 封(批, 钥匙, 0, { teamId, device: 乙设备 }) });
+  const 乙的新客户 = (id: string): 改动 => {
+    const 时 = new Date().toISOString();
+    return { t: "Customer", k: id, o: "I", r: { id, name: `乙的客户${id}`, phone: `139${String(Date.now()).slice(-8)}`, salesOwnerId: "acct_yi", followStatus: "待跟进", decisionStatus: "了解中", createdAt: 时, updatedAt: 时 }, c: ["id", "name", "phone", "salesOwnerId", "followStatus", "decisionStatus", "createdAt", "updatedAt"], h: 钟(Date.now() + 60_000) };
+  };
+  async function 新团队(名: string) {
+    if (读团队()) await 退出团队(); // 上一条中途红了没退：先退，别连累后面几条
+    云.批.length = 0; // 假中转的拉取不分团队：清掉上一个团队的批次
+    const t = await 建团队(名);
+    if (!t.ok) throw new Error(t.error);
+    const 码 = 解邀请码(t.邀请码)!;
+    云.团队.get(码.teamId)!.active = true;
+    expect(await 同步一轮()).toMatchObject({ ok: true });
+    return 码;
+  }
+  /** 甲当业务员：退出时走「只留自己的」，别人的客户留在这台上就看得出来 */
+  const 当业务员 = () => 甲.$executeRawUnsafe(`UPDATE "User" SET role = 'SALES' WHERE id = 'acct_jia'`);
+
+  it("T-042 乙推了业务配置改动：甲同步一轮之后 getBusiness() 就是新的（收到改动清了设置缓存）", async () => {
+    const 码 = await 新团队("四队");
+    const 前 = await getBusiness(); // 进程里缓存上一份
+    expect(前.customer).not.toBe("学员");
+    const 时 = new Date().toISOString();
+    乙推(码.teamId, 码.key, [{ t: "Setting", k: "business", o: "U", r: { key: "business", value: JSON.stringify({ ...前, customer: "学员" }), updatedAt: 时 }, c: ["key", "value", "updatedAt"], h: 钟(Date.now() + 60_000) }]);
+    const r = await 同步一轮();
+    expect(r.ok && r.拉).toBeGreaterThan(0);
+    expect((await getBusiness()).customer).toBe("学员");
+    expect((await 退出团队()).ok).toBe(true);
+  });
+
+  it("T-009 同步一轮跑到一半点退出：等这一轮跑完再退；退完没有 .team.json、触发器已卸、业务员只留自己的", async () => {
+    const 码 = await 新团队("二队");
+    await 当业务员();
+    乙推(码.teamId, 码.key, [乙的新客户("cY1")]);
+    let 放行!: () => void;
+    const 闸 = new Promise<void>((r) => (放行 = r));
+    let 到了!: () => void;
+    const 拉到了 = new Promise<void>((r) => (到了 = r));
+    钩子 = async (_方法, 路径) => {
+      if (路径.startsWith("/api/sync/pull")) {
+        到了();
+        await 闸;
+      }
+    };
+    try {
+      const 轮 = 同步一轮();
+      await 拉到了;
+      const 退 = 退出团队();
+      // 这一轮还卡在拉取上：退出要等它，不能先把触发器卸了、配置删了
+      expect(await Promise.race([退.then(() => "退完了"), 睡(300).then(() => "还在等")])).toBe("还在等");
+      放行();
+      expect(await 轮).toMatchObject({ ok: true });
+      expect((await 退).ok).toBe(true);
+    } finally {
+      钩子 = null;
+      放行();
+    }
+    expect(读团队()).toBeNull();
+    expect(await 装了吗(甲)).toBe(false);
+    // 那一轮回放进来的乙的客户，退出时「只留自己的」删掉了（先退后回放的话会留下）
+    expect(await 甲.customer.count({ where: { id: "cY1" } })).toBe(0);
+  });
+
+  it("T-009 退出团队正等云端回话，壳又戳了一轮：不开新的一轮，退完之后不会再回放别人的客户、写回 .team.json", async () => {
+    const 码 = await 新团队("三队");
+    await 当业务员();
+    乙推(码.teamId, 码.key, [乙的新客户("cY2")]);
+    let 放行!: () => void;
+    const 闸 = new Promise<void>((r) => (放行 = r));
+    let 退: Promise<unknown> = Promise.resolve();
+    钩子 = async (_方法, 路径) => {
+      if (路径 === "/api/sync/leave") await 闸;
+      // 真开了新的一轮的话：让它拉到的这一批等退完再回放（最坏的那种先后）；最多等 2 秒，免得修法不同时卡死
+      if (路径.startsWith("/api/sync/pull")) await Promise.race([退, 睡(2000)]);
+    };
+    try {
+      退 = 退出团队();
+      await 睡(10);
+      const 轮 = 同步一轮();
+      放行();
+      const 这轮 = await 轮;
+      await 退;
+      expect(这轮.ok).toBe(false);
+    } finally {
+      钩子 = null;
+      放行();
+    }
+    expect(读团队()).toBeNull();
+    expect(await 装了吗(甲)).toBe(false);
+    expect(await 甲.customer.count({ where: { id: "cY2" } })).toBe(0);
+  });
+
+  it("T-009 一轮跑着的时候本机换了团队（.team.json 的 teamId 变了）：这一轮跑完不把旧团队的位置、出错写回去", async () => {
+    const 码 = await 新团队("五队");
+    乙推(码.teamId, 码.key, [乙的新客户("cY3")]);
+    let 放行!: () => void;
+    const 闸 = new Promise<void>((r) => (放行 = r));
+    let 到了!: () => void;
+    const 拉到了 = new Promise<void>((r) => (到了 = r));
+    钩子 = async (_方法, 路径) => {
+      if (路径.startsWith("/api/sync/pull")) {
+        到了();
+        await 闸;
+      }
+    };
+    const 文件 = path.join(临时.dir, ".team.json");
+    const 原 = 读团队()!;
+    try {
+      const 轮 = 同步一轮();
+      await 拉到了;
+      // 模拟这期间退出又进了另一个团队：配置换成别的团队的
+      fs.writeFileSync(文件, JSON.stringify({ ...原, teamId: "teamOTHERxxxx", pulled: 0, lastSyncAt: undefined, last: undefined }), { mode: 0o600 });
+      放行();
+      await 轮;
+    } finally {
+      钩子 = null;
+      放行();
+    }
+    const 现 = 读团队()!;
+    expect(现.teamId).toBe("teamOTHERxxxx");
+    expect(现.pulled).toBe(0);
+    expect(现.last).toBeUndefined();
+    // 收拾：换回本队再退出
+    fs.writeFileSync(文件, JSON.stringify(原), { mode: 0o600 });
+    expect((await 退出团队()).ok).toBe(true);
   });
 });

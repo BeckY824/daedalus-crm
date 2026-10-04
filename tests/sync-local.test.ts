@@ -183,6 +183,23 @@ describe("推拉合并", () => {
     }
   });
 
+  it("T-005 归属三件套（归属渠道 / 归属客户 / 渠道负责人）跟着同步：甲改了推荐渠道，乙那边三格和甲一致", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.channel.create({ data: { id: "chX", name: "老王", channelOwnerId: "acct_jia" } });
+    await 甲.channel.create({ data: { id: "chY", name: "老李", channelOwnerId: "acct_yi" } });
+    await 甲.customer.create({ data: { id: "r1", name: "推荐人", phone: "13800000011", salesOwnerId: "acct_jia", channelId: "chX", attributionChannelId: "chX", channelOwnerId: "acct_jia" } });
+    await 甲.customer.create({ data: { id: "c7", name: "被推荐的", phone: "13800000012", salesOwnerId: "acct_jia", referrerCustomerId: "r1", attributionChannelId: "chX", attributionCustomerId: "r1", channelOwnerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    // 甲把推荐渠道改成老李：保存那一刻按推荐链重新固化三件套（lib/attribution.ts），和推荐人一起写
+    await 甲.customer.update({ where: { id: "c7" }, data: { referrerCustomerId: null, channelId: "chY", attributionChannelId: "chY", attributionCustomerId: null, channelOwnerId: "acct_yi" } });
+    await 同步(甲, 乙);
+    const 三件套 = { attributionChannelId: true, attributionCustomerId: true, channelOwnerId: true } as const;
+    for (const id of ["r1", "c7"]) {
+      expect(await 乙.customer.findUniqueOrThrow({ where: { id }, select: 三件套 }), id).toEqual(await 甲.customer.findUniqueOrThrow({ where: { id }, select: 三件套 }));
+    }
+    expect(await 乙.customer.findUniqueOrThrow({ where: { id: "c7" }, select: 三件套 })).toEqual({ attributionChannelId: "chY", attributionCustomerId: null, channelOwnerId: "acct_yi" });
+  });
+
   it("最近跟进不同步、本机重算：取跟进记录里最晚那条，不是后补记的那条", async () => {
     const { 甲, 乙 } = await 一对();
     await 甲.customer.create({ data: { id: "c5", name: "赵总", phone: "13800000005", salesOwnerId: "acct_jia" } });
