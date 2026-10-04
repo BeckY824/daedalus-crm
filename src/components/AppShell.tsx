@@ -22,7 +22,6 @@ import {
   ShopOutlined,
   InteractionOutlined,
   SettingOutlined,
-  HistoryOutlined,
   DeploymentUnitOutlined,
   BellOutlined,
   MenuOutlined,
@@ -161,8 +160,6 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
   const 窄窗 = useNarrow(面板放不下, true);
   /** 这一次会话里手动开合过。null = 还没动过，听存档的 */
   const [手动, set手动] = useState<boolean | null>(null);
-  /** 账号菜单「更新记录」开着没有（桌面端才有这一条） */
-  const [更新记录开着, set更新记录开着] = useState(false);
   const 面板开着 = 手动 ?? (窄窗 ? false : 存的面板);
   /** 名单和记录页的断点要知道右边这条面板占了地方（见 lib/roster.ts 的 DockOpenContext） */
   const 面板占着地方 = Boolean(ai) && !小屏 && 面板开着 && 底下那页 !== "/dashboard";
@@ -303,7 +300,6 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
     onClick: ({ key }: { key: string }) => {
       // 软导航才会命中拦截路由（@modal/(.)settings），设置才是盖在当前页上的一层
       if (key === "settings") router.push("/settings");
-      if (key === "whats-new") set更新记录开着(true);
       if (key === "logout") void logout();
     },
     items: [
@@ -332,8 +328,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
           </span>
         ),
       },
-      // 更新记录只有桌面端有：网页版一直是最新的，没有「从哪一版升上来」这回事
-      ...(desktop ? [{ key: "whats-new", icon: <HistoryOutlined />, label: "更新记录" }] : []),
+      // 「更新记录」挪到左栏「检查更新」上面了（2026-10-04 用户：账号菜单只留设置和退出登录）
       { type: "divider" as const },
       { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true },
     ],
@@ -441,6 +436,9 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
           <AiTasks />
           <AiMeterBar />
           {/* 检查更新那一行（学 MonoCode 左下角）：常驻，写着当前版本；有新版变蓝、下载有进度、下好了点它重启 */}
+          {/* 更新记录在「检查更新」上面（2026-10-04 用户）：一个看「改了什么」，一个管「有没有更新的」。
+              只有桌面端有：网页版一直是最新的，没有「从哪一版升上来」这回事 */}
+          {desktop && <WhatsNew />}
           {desktop && <UpdateRow />}
           {/* 「设置」不在左栏里了（2026-09-17）：它在账号菜单里，和 Claude / Codex 一样。
               左栏那一列是**你工作的地方**——学员、商机、跟进；设置是偶尔去一趟的抽屉，
@@ -462,8 +460,6 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
                 <DownOutlined className="rail-user-caret" aria-hidden />
               </button>
             </Dropdown>
-            {/* 更新之后的「新」：原型里就在账号这一行右端（检查更新那一行在上面，管的是「有没有更新的版本」） */}
-            {desktop && <WhatsNew 全部开着={更新记录开着} 关全部={() => set更新记录开着(false)} />}
             {/* 反馈在更新键的右边，两枚都是这一行的「出口」：一个往外拿新版本，一个往外送一句话。
                 网页版没有更新键，那儿就只有它一枚 */}
             <FeedbackButton 去向={反馈去向} />

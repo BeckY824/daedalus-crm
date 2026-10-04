@@ -23,11 +23,11 @@ const ISSUES = "https://github.com/BeckY824/daedalus-crm/issues/new";
  * 一只空的对话气泡。**不用小虫子**——那说的是「这里有 bug」，
  * 而这个口子收的多半不是 bug，是「这一步为什么要点两下」。空着不填三个点：
  * 里面该装的是你要说的话，图标先别替你说。
- * 自己画而不是拿现成图标：1.3 的线比 antd 那套细一档，它在账号那行是最轻的一个东西。
+ * 自己画而不是拿现成图标。线原来是 1.3（账号那行最轻的一个东西），10-04 用户嫌不显眼，加到 1.6。
  */
 function 气泡() {
   return (
-    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" aria-hidden>
+    <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" aria-hidden>
       <path d="M2.6 2.5H13.4A1.6 1.6 0 0 1 15 4.1V9.9A1.6 1.6 0 0 1 13.4 11.5H6.9L4 13.8V11.5H2.6A1.6 1.6 0 0 1 1 9.9V4.1A1.6 1.6 0 0 1 2.6 2.5Z" />
     </svg>
   );

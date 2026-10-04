@@ -13,6 +13,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { Button, Modal } from "antd";
+import { HistoryOutlined } from "@ant-design/icons";
 import Markdown from "@/components/Markdown";
 import { 有没有新内容, 看过了, 全部更新记录 } from "@/app/(app)/whats-new-actions";
 import { 分节, type 一版 } from "@/lib/changelog";
@@ -85,9 +86,17 @@ function 这一版({ 段 }: { 段: 一版[] }) {
   );
 }
 
-export default function WhatsNew({ 全部开着, 关全部 }: { 全部开着: boolean; 关全部: () => void }) {
+/**
+ * 左栏「更新记录」那一行（2026-10-04 用户：从账号菜单挪到左栏、放在「检查更新」上面；
+ * 账号菜单只留设置和退出登录）。原来账号那一行右端还单挂着一枚「新」，现在并进这一行：
+ * 有没看过的新版时右边挂「新」、点开是「这一版更新了这些」；平时点开是全部更新记录。
+ * 一件事一个入口——不再「菜单里一条、账号行一枚」两个门。
+ */
+export default function WhatsNew() {
   const [新, set新] = useState<{ 版本: string; 段: 一版[] } | null>(null);
   const [开, set开] = useState(false);
+  const [全部开着, set全部开着] = useState(false);
+  const 关全部 = () => set全部开着(false);
   const [全部, set全部] = useState<{ 现在: string; 段: 一版[] } | null>(null);
   const [全部出错, set全部出错] = useState(false);
   const 知道了键 = useRef<HTMLButtonElement>(null);
@@ -115,24 +124,28 @@ export default function WhatsNew({ 全部开着, 关全部 }: { 全部开着: bo
     void 看过了().catch(() => {});
   }
 
-  /** 那枚「新」随着看过一起消失了，焦点不能落回 body：交给旁边的账号键 */
+  /** 关掉后焦点回到这一行（它一直在，不像原来那枚「新」看过就没了） */
+  const 这一行 = useRef<HTMLButtonElement>(null);
   function 焦点回账号() {
-    document.querySelector<HTMLButtonElement>(".rail-user")?.focus();
+    这一行.current?.focus({ preventScroll: true });
   }
 
   return (
     <>
-      {新 && (
-        <button
-          type="button"
-          className="rail-new"
-          onClick={() => set开(true)}
-          aria-label={`已更新到 ${新.版本}，看看这一版改了什么`}
-          title={`已更新到 ${新.版本}，看看这一版改了什么`}
-        >
-          新
-        </button>
-      )}
+      <button
+        ref={这一行}
+        type="button"
+        className="rail-upd rail-wn"
+        onClick={() => (新 ? set开(true) : set全部开着(true))}
+        aria-label={新 ? `更新记录：已更新到 ${新.版本}，看看这一版改了什么` : "更新记录"}
+        title={新 ? `已更新到 ${新.版本}，看看这一版改了什么` : "每一版更新了什么"}
+      >
+        <span className="rail-upd-ico" aria-hidden>
+          <HistoryOutlined />
+        </span>
+        <span className="rail-upd-t">更新记录</span>
+        {新 && <span className="rail-wn-new">新</span>}
+      </button>
 
       <Modal
         open={开 && !!新}
@@ -169,6 +182,7 @@ export default function WhatsNew({ 全部开着, 关全部 }: { 全部开着: bo
       <Modal
         open={全部开着}
         onCancel={关全部}
+        afterClose={焦点回账号}
         // 第一次打开才去读；读过就留着，关了再开不再转一圈
         afterOpenChange={(开了) => {
           if (开了 && !全部) 读全部();
