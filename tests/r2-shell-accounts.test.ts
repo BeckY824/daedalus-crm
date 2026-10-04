@@ -85,6 +85,21 @@ class 假云端 {
 /* ------------------------------------------------------------------ */
 
 type 记账 = { 谁: string; 第几: number }[];
+
+/**
+ * 库里那个管理员 User 行的 email（2026-10-04 加，剩余风险 1）。真库里它由 desktop/server-entry.js 每次启动
+ * 对成 .cloud.json 的 contact、登录动作（login/actions.ts，没换账号时）也会对一遍；新库是种子里的 "admin"。
+ * 这里拿目录里一个小文件扮演它，服务端那份经 设库里我的邮箱读法() 读这个文件。
+ */
+const 管理员邮箱文件 = "admin-email.txt";
+const 写管理员邮箱 = (dir: string, 邮箱: string) => fs.writeFileSync(path.join(dir, 管理员邮箱文件), 邮箱.trim().toLowerCase());
+const 读管理员邮箱 = (dir: string) => {
+  try {
+    return fs.readFileSync(path.join(dir, 管理员邮箱文件), "utf8");
+  } catch {
+    return "admin";
+  }
+};
 const 读库 = (dir: string): 记账 => {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, "crm.db"), "utf8"));
@@ -128,6 +143,9 @@ class 一台电脑 {
 
   private 起服务() {
     this.本地 = { dir: this.数据目录 };
+    // desktop/server-entry.js：启动时把管理员的邮箱对成 .cloud.json 的 contact
+    const c = 壳云端.读();
+    if (c?.contact) 写管理员邮箱(this.数据目录, c.contact);
   }
   private 停服务() {
     this.本地 = null;
@@ -154,7 +172,7 @@ class 一台电脑 {
       被吊销 = r.原因 === "已吊销";
       if (r.accountId) {
         try {
-          const 目标 = 账号.认领(this.根, r.accountId);
+          const 目标 = 账号.认领(this.根, r.accountId, 壳云端.读()?.contact);
           if (目标.换了目录) this.搬令牌(this.数据目录, 目标.目录);
           this.换数据目录(目标.目录);
         } catch (e) {
@@ -176,8 +194,7 @@ class 一台电脑 {
     if (!this.本地) return;
     const c = 壳云端.读();
     if (!c?.accountId) return;
-    const 归谁 = 账号.归谁(this.数据目录);
-    if (!归谁 || 归谁 === c.accountId) return;
+    if (账号.是他的(this.数据目录, c.accountId) !== false) return;
     await this.切一次();
   }
 
@@ -189,7 +206,7 @@ class 一台电脑 {
     if (先停) this.停服务();
     let 目标;
     try {
-      目标 = 账号.认领(this.根, c.accountId);
+      目标 = 账号.认领(this.根, c.accountId, c.contact);
     } catch (e) {
       if (先停) this.起服务();
       this.事件.push(`换账号失败 ${String(e)}`);
@@ -234,6 +251,8 @@ class 一台电脑 {
       await this.看凭据换没换();
       if (!this.有桥) await this.打开窗口(); // 页面落回自动登录那条路
     } else {
+      // login/actions.ts 桌面端登录：没换账号才往本机库里写——管理员邮箱对成这个账号的
+      写管理员邮箱(this.本地!.dir, r.data.contact || a.target);
       await this.看凭据换没换();
       await this.打开窗口();
     }
@@ -256,13 +275,18 @@ class 一台电脑 {
     if (!r.有效) this.页面 = "登录页";
   }
 
-  /** 进门的话：是谁、看到的是哪个目录 */
+  /**
+   * 进门的话：是谁、看到的是哪个目录。
+   * 老 .cloud.json（0.39.2 之前）里没有 accountId：断网开机照常进门，那时人是谁按令牌在云端归谁算
+   * （2026-10-04 加：原来记成「?」，升级上来的甲断网进门看自己那份会被误报成串数据）
+   */
+  认令牌: (token: string) => string | undefined = () => undefined;
   async 看到() {
     if (this.页面 !== "进门" || !this.本地) return null;
     const { 读 } = await import("@/lib/desktop/cloud");
     this.服务端环境();
     const c = 读();
-    return c ? { 谁: c.accountId ?? "?", 目录: this.本地.dir } : null;
+    return c ? { 谁: c.accountId ?? this.认令牌(c.token) ?? "?", 目录: this.本地.dir } : null;
   }
 }
 
@@ -272,7 +296,9 @@ class 一台电脑 {
 
 type 步 =
   | "甲登录" | "乙登录" | "丙登录" | "甲登录(桥断)" | "乙登录(桥断)"
-  | "退出登录" | "重启" | "重启(断网)" | "重启(网慢)" | "写一笔" | "吊销甲" | "吊销乙" | "切回前台";
+  | "退出登录" | "重启" | "重启(断网)" | "重启(网慢)" | "写一笔" | "吊销甲" | "吊销乙" | "切回前台"
+  /* 2026-10-04 加（A-2 / B-2 / C-7）：断网时点退出；当前目录的 .owner 被清空（磁盘满、杀毒软件） */
+  | "退出登录(断网)" | "清空.owner";
 
 class 场景 {
   机: 一台电脑;
@@ -284,6 +310,7 @@ class 场景 {
 
   constructor(public 根: string) {
     this.机 = new 一台电脑(根);
+    this.机.认令牌 = (t) => this.云.令牌.get(t);
     vi.stubGlobal("fetch", this.云.fetch);
   }
 
@@ -310,6 +337,15 @@ class 场景 {
       case "退出登录":
         if (m.页面 !== "进门") return;
         await m.退出登录();
+        break;
+      case "退出登录(断网)":
+        if (m.页面 !== "进门") return;
+        this.云.在线 = false;
+        await m.退出登录();
+        this.云.在线 = true;
+        break;
+      case "清空.owner":
+        if (m.数据目录 && fs.existsSync(path.join(m.数据目录, ".owner"))) fs.writeFileSync(path.join(m.数据目录, ".owner"), "");
         break;
       case "重启":
       case "重启(断网)":
@@ -363,8 +399,11 @@ class 场景 {
 }
 
 let 根: string;
-beforeEach(() => {
+beforeEach(async () => {
   根 = fs.mkdtempSync(path.join(os.tmpdir(), "r2-accounts-"));
+  // 服务端那份读「库里管理员的邮箱」默认走 prisma；这里的库是 JSON 记账，换成读那个小文件
+  const 服务端 = await import("@/lib/desktop/cloud");
+  服务端.设库里我的邮箱读法(async () => (process.env.CRM_DATA_DIR ? 读管理员邮箱(process.env.CRM_DATA_DIR) : null));
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -464,8 +503,9 @@ describe("断网 / 网慢 / 令牌被吊销", () => {
     下次**断网**启动：校验() 断网时不回 accountId（desktop/cloud.js:102），于是不认领，
     服务起在甲的目录上 → 闸挡住（不串，好），但乙断网时永远进不去自己那份——
     令牌里明明就写着 accountId。
+    2026-10-04 修：校验() 问不到时带回本地 .cloud.json 记着的 accountId，开机照样认领到乙自己的目录。
   */
-  it.skip("【下一版】【B-1】乙登录后没切成就关了应用，断网再开：乙应该落到自己的目录", async () => {
+  it("【B-1 · 2026-10-04 修】乙登录后没切成就关了应用，断网再开：乙应该落到自己的目录", async () => {
     const s = await 跑(["甲登录", "写一笔", "重启", "退出登录"]);
     // 乙登录：服务端那份把乙的令牌写进甲的目录，返回 换了账号；这里模拟壳没来得及切
     const { 登录 } = await import("@/lib/desktop/cloud");
@@ -484,6 +524,7 @@ describe("升级：0.39.2 之前那份 data/", () => {
     fs.mkdirSync(d, { recursive: true });
     fs.writeFileSync(path.join(d, "crm.db"), JSON.stringify([{ 谁: 甲.id, 第几: 0 }]));
     fs.writeFileSync(path.join(d, ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t-old-jia", ...(带账号 ? { accountId: 甲.id } : {}), name: "甲", contact: 甲.target, models: [] }));
+    写管理员邮箱(d, 甲.target);
   };
   const 认老令牌 = (s: 场景) => s.云.令牌.set("t-old-jia", 甲.id);
 
@@ -514,7 +555,7 @@ describe("升级：0.39.2 之前那份 data/", () => {
     这期间甲退出、乙登录 → 服务端 登录() 看到「没主」就把 .owner 记成乙（lib/desktop/cloud.ts:271），换了账号=false，
     乙直接进了甲的库，甲的客户归了乙。和本轮修的 A2 是同一个坑，只是入口换成了「升级上来的那份」。
   */
-  it.skip("【下一版】【A-2 真坏】升级后断网开机、甲退出、乙登录：乙不许进甲的库", async () => {
+  it("【A-2 · 2026-10-04 修】升级后断网开机、甲退出、乙登录：乙不许进甲的库", async () => {
     造旧数据(false)(根);
     const s = new 场景(根);
     认老令牌(s);
@@ -527,7 +568,7 @@ describe("升级：0.39.2 之前那份 data/", () => {
     expect(s.违规).toEqual([]);
   });
 
-  it.skip("【下一版】【A-2 真坏】同上，只是网慢（>5 秒）而不是断网", async () => {
+  it("【A-2 · 2026-10-04 修】同上，只是网慢（>5 秒）而不是断网", async () => {
     造旧数据(false)(根);
     const s = new 场景(根);
     认老令牌(s);
@@ -537,6 +578,137 @@ describe("升级：0.39.2 之前那份 data/", () => {
     s.云.慢 = false;
     for (const x of ["退出登录", "乙登录", "写一笔"] as 步[]) await s.走(x);
     expect(s.违规).toEqual([]);
+  });
+
+  /*
+    A-2 修法（2026-10-04）的两条岔路：退出那一下也没问到（断网开机、断网退出）→ 令牌挪去待认，
+    下一次有人登录时（那时一定连得上）再问。问出是甲 → 乙去新目录、甲回来还拿得到自己那份。
+  */
+  it("【A-2 · 2026-10-04 修】断网开机又断网退出：乙登录进新目录，甲回来拿回升级上来的那份", async () => {
+    造旧数据(false)(根);
+    const s = new 场景(根);
+    认老令牌(s);
+    s.写过[甲.id] = [0];
+    s.云.在线 = false;
+    await s.开机();
+    await s.走("退出登录");
+    // 问不到是谁：令牌没吊销，挪去待认留作凭据；这份算「有主、认不出」
+    expect(fs.existsSync(path.join(账号.账号目录(根, 账号.未认领), 账号.待认文件))).toBe(true);
+    expect(账号.归谁(账号.账号目录(根, 账号.未认领))).toBe(账号.认不出的主);
+    s.云.在线 = true;
+    for (const x of ["乙登录", "写一笔", "退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
+    // 待认那枚认出主之后补吊销、文件清掉
+    expect(s.云.吊销了.has("t-old-jia")).toBe(true);
+  });
+
+  /*
+    待认那枚老令牌在下次登录前就作废了（甲在网页上改了密码），令牌问不出是谁。
+    原先（A-2 修法第一版）只能记成认不出、甲回来也拿不到；剩余风险 1 修了之后改看库里管理员的邮箱：
+    乙登录记成「主人是甲的邮箱」、进新目录；甲回来 contact 对得上，拿得回。断言跟着改（2026-10-04）
+  */
+  it("【A-2 · 2026-10-04 修】待认的老令牌已作废：乙进新目录，甲凭库里的邮箱拿回那份", async () => {
+    造旧数据(false)(根);
+    const s = new 场景(根);
+    认老令牌(s);
+    s.写过[甲.id] = [0];
+    s.云.在线 = false;
+    await s.开机();
+    await s.走("退出登录");
+    s.云.在线 = true;
+    s.云.吊销全部(甲.id);
+    for (const x of ["乙登录", "写一笔"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    const 未认领 = 账号.账号目录(根, 账号.未认领);
+    expect(读库(未认领)).toEqual([{ 谁: 甲.id, 第几: 0 }]);
+    expect(账号.归谁(未认领)).toBe(账号.邮箱记号(甲.target));
+    expect(fs.existsSync(path.join(未认领, 账号.待认文件))).toBe(false);
+    for (const x of ["退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
+  });
+
+  /*
+    取舍（2026-10-04，A-2）：同上，而库里也没有可比的邮箱（老令牌里没有 contact、管理员邮箱还是种子里的 admin）——这份是谁的彻底认不出。
+    选「绝不串」：记成认不出，谁都领不走，数据原地留在 _未认领 里一个字节不动——代价是甲回来也看不到它（要人工搬）。
+  */
+  it("【A-2 · 2026-10-04 修】待认的老令牌已作废、库里也没邮箱：谁登录都进新目录，那份原地留着不动", async () => {
+    造旧数据(false)(根);
+    // 库里没有可比的邮箱：老令牌里也没有 contact（server-entry 无从对起），管理员还是种子里的 admin
+    fs.rmSync(path.join(根, "data", 管理员邮箱文件));
+    fs.writeFileSync(path.join(根, "data", ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t-old-jia", name: "甲", models: [] }));
+    const s = new 场景(根);
+    认老令牌(s);
+    s.云.在线 = false;
+    await s.开机();
+    await s.走("退出登录");
+    s.云.在线 = true;
+    s.云.吊销全部(甲.id);
+    for (const x of ["乙登录", "写一笔"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    const 未认领 = 账号.账号目录(根, 账号.未认领);
+    expect(读库(未认领)).toEqual([{ 谁: 甲.id, 第几: 0 }]);
+    expect(账号.归谁(未认领)).toBe(账号.认不出的主);
+    expect(fs.existsSync(path.join(未认领, 账号.待认文件))).toBe(false);
+  });
+
+  /*
+    剩余风险 1（2026-10-04 修）：老令牌在开机校验时就已被吊销（甲在网页上改了密码）→ 壳按 401 清掉令牌 →
+    这份没主、也没有老令牌可问。原来第一个登录的人就领走它，是乙就串库。
+    现在看库里管理员的邮箱（server-entry 每次启动对成云端账号 contact 的，老库也是）：
+    登录者的 contact 对得上才许认领，对不上算换了账号进新空目录；甲改了密码回来 contact 没变，照样拿得回。
+  */
+  it("【风险1 · 2026-10-04 修】升级上来的老令牌开机时已被吊销：乙先登录不许领走甲的库，甲回来拿得回", async () => {
+    造旧数据(false)(根);
+    const s = new 场景(根);
+    认老令牌(s);
+    s.云.吊销全部(甲.id);
+    s.写过[甲.id] = [0];
+    await s.开机();
+    expect(s.机.页面).toBe("登录页");
+    expect(壳云端.读()).toBeNull(); // 401：壳把老令牌清掉了
+    for (const x of ["乙登录", "写一笔", "退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
+  });
+
+  it("【风险1 · 2026-10-04 修】同上，甲自己先回来（改了密码重新登录）：当场就是他的，不换目录", async () => {
+    造旧数据(false)(根);
+    const s = new 场景(根);
+    认老令牌(s);
+    s.云.吊销全部(甲.id);
+    s.写过[甲.id] = [0];
+    await s.开机();
+    for (const x of ["甲登录", "写一笔", "重启", "退出登录", "乙登录", "写一笔"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect(账号.读指针(根)).toBe(账号.key(乙.id));
+  });
+
+  it("【风险1 · 2026-10-04 修】从没登录过的老库（管理员邮箱还是种子里的 admin）：照旧第一个登录的人领走", async () => {
+    const d = path.join(根, "data");
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, "crm.db"), JSON.stringify([]));
+    const s = new 场景(根);
+    await s.开机();
+    await s.走("乙登录");
+    await s.走("写一笔");
+    expect(s.违规).toEqual([]);
+    expect(读库(账号.账号目录(根, 账号.未认领)).map((x) => x.谁)).toEqual([乙.id]);
+  });
+
+  it("邮箱记号：壳和服务端算的是同一个值，大小写 / 空格不影响，不带邮箱原文", async () => {
+    const { 邮箱记号 } = await import("@/lib/desktop/cloud");
+    expect(邮箱记号(" Jia@X.com ")).toBe(账号.邮箱记号("jia@x.com"));
+    expect(邮箱记号("jia@x.com")).not.toContain("jia");
+    expect(邮箱记号("jia@x.com").startsWith("?")).toBe(true);
+  });
+
+  it("「认不出」的记号、待认文件名、归属校验副本的文件名：壳和服务端两份必须是同一个值", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/lib/desktop/cloud.ts"), "utf8");
+    expect(src).toContain(`export const 认不出的主 = "${账号.认不出的主}";`);
+    expect(src).toContain(`const 待认文件名 = "${账号.待认文件}";`);
+    expect(src).toContain(`const 归属校验文件名 = "${账号.归属校验文件}";`);
   });
 
   it("迁移目标已存在（降级用过老版本又升回来）：data/ 原地不动、一个字节不丢——但界面上看不到它", async () => {
@@ -561,7 +733,7 @@ describe(".owner 损坏 / 为空", () => {
     杀毒软件清空……；记归属 失败是吞掉的，accounts.js:77-84）。甲退出、乙登录：服务端看「没主」→ 记成乙、
     换了账号=false → 乙进了甲的库。目录名本身就是 key(甲)，拿它兜底就不会认错。
   */
-  it.skip("【下一版】【B-2】accounts/<甲>/.owner 被清空：乙登录不许进甲的库", async () => {
+  it("【B-2 · 2026-10-04 修】accounts/<甲>/.owner 被清空：乙登录不许进甲的库", async () => {
     const s = await 跑(["甲登录", "写一笔", "重启", "退出登录"]);
     fs.writeFileSync(path.join(账号.账号目录(根, 账号.key(甲.id)), ".owner"), "");
     await s.走("乙登录");
@@ -569,21 +741,83 @@ describe(".owner 损坏 / 为空", () => {
     expect(s.违规).toEqual([]);
   });
 
-  it(".owner 是乱码：谁登录都算换人，甲那份不会被别人拿走（甲自己也进不去，见 C-7）", async () => {
+  it("【B-2 · 2026-10-04 修】accounts/<甲>/.owner 写成乱码、甲自己回来：照常进门，.owner 顺手补回", async () => {
+    const s = await 跑(["甲登录", "写一笔", "重启", "退出登录"]);
+    const 甲目录 = 账号.账号目录(根, 账号.key(甲.id));
+    fs.writeFileSync(path.join(甲目录, ".owner"), "\u0000garbage");
+    for (const x of ["乙登录", "写一笔", "退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
+    expect(账号.归谁(甲目录)).toBe(甲.id);
+  });
+
+  it("【B-2 · 2026-10-04 修】目录名兜底：壳的 是他的() 和服务端的 归属对不上() 认的是同一个 key", async () => {
+    const 甲目录 = 账号.账号目录(根, 账号.key(甲.id));
+    fs.mkdirSync(甲目录, { recursive: true });
+    fs.writeFileSync(path.join(甲目录, ".owner"), "");
+    expect(账号.是他的(甲目录, 甲.id)).toBe(true);
+    expect(账号.是他的(甲目录, 乙.id)).toBe(false);
+    expect(账号.是他的(账号.账号目录(根, 账号.未认领), 乙.id)).toBeNull(); // _未认领 没主：谁都行
+    const { 归属对不上 } = await import("@/lib/desktop/cloud");
+    process.env.DESKTOP_LOCAL = "1";
+    process.env.CRM_DATA_DIR = 甲目录;
+    const 写令牌 = (id: string) => fs.writeFileSync(path.join(甲目录, ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t", accountId: id, models: [] }));
+    写令牌(甲.id);
+    expect(归属对不上()).toBe(false);
+    写令牌(乙.id);
+    expect(归属对不上()).toBe(true);
+  });
+
+  it("【B-2 · 2026-10-04 修】记归属失败不再吞掉：走 设日志() 接进来的日志", () => {
+    const 记 = vi.fn();
+    账号.设日志(记);
+    try {
+      // 乙的目标目录是个文件：认领() 的 mkdir 会抛（调用方 切一次 接着报「换账号失败」），记归属 那一下要留案
+      const 乙目录 = 账号.账号目录(根, 账号.key(乙.id));
+      fs.mkdirSync(path.dirname(乙目录), { recursive: true });
+      fs.mkdirSync(乙目录);
+      fs.mkdirSync(path.join(乙目录, ".owner")); // .owner 是个目录：写不进去
+      账号.认领(根, 乙.id);
+      expect(记).toHaveBeenCalledTimes(1);
+      expect(String(记.mock.calls[0][0])).toContain("记归属失败");
+    } finally {
+      账号.设日志((标题: string, e: unknown) => console.error(标题, e));
+    }
+  });
+
+  /*
+    原来这条的标题是「甲自己也进不去，见 C-7」。2026-10-04 修 C-7 后有了自带校验的副本（.owner.check），
+    .owner 写成乱码时仍认得出是甲的：乙照样被换走（不串），甲回来也拿得回（不丢）。断言跟着收紧成全不违规
+  */
+  it(".owner 是乱码：乙登录被换去自己的目录，甲那份不会被别人拿走、甲回来还拿得到（C-7）", async () => {
     const s = await 跑(["甲登录", "写一笔"]);
     fs.writeFileSync(path.join(账号.账号目录(根, 账号.未认领), ".owner"), "\u0000\u0000garbage");
     await s.走("退出登录");
     await s.走("乙登录");
     await s.走("写一笔");
-    expect(s.违规.filter((v) => v.startsWith("【串数据】"))).toEqual([]);
+    for (const x of ["退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
   });
 
-  it.skip("【下一版】【C-7】_未认领 的 .owner 被写坏，甲再登录：应该还能拿回自己那份", async () => {
+  it("【C-7 · 2026-10-04 修】_未认领 的 .owner 被写坏，甲再登录：应该还能拿回自己那份", async () => {
     const s = await 跑(["甲登录", "写一笔"]);
     fs.writeFileSync(path.join(账号.账号目录(根, 账号.未认领), ".owner"), "garbage");
     await s.走("退出登录");
     await s.走("甲登录");
     expect(s.违规).toEqual([]);
+  });
+
+  it("【C-7 · 2026-10-04 修】.owner 和校验副本一起坏了：拿不回也绝不串——乙进新目录，那份原地不动", async () => {
+    const s = await 跑(["甲登录", "写一笔"]);
+    const 未认领 = 账号.账号目录(根, 账号.未认领);
+    fs.writeFileSync(path.join(未认领, ".owner"), "garbage");
+    fs.writeFileSync(path.join(未认领, 账号.归属校验文件), "acc_yi\nffffffffffffffffffffffff\n"); // 校验对不上：不认
+    await s.走("退出登录");
+    await s.走("乙登录");
+    await s.走("写一笔");
+    expect(s.违规).toEqual([]);
+    expect(读库(未认领).map((x) => x.谁)).toEqual([甲.id]);
   });
 });
 
@@ -616,7 +850,8 @@ describe("两个目录同名 / 已存在", () => {
 });
 
 describe("随机顺序（固定种子）：任何时刻不串、不丢", () => {
-  const 字母表: 步[] = ["甲登录", "乙登录", "丙登录", "乙登录(桥断)", "退出登录", "重启", "重启(断网)", "写一笔", "写一笔", "吊销乙", "切回前台"];
+  // 2026-10-04 起加回「吊销甲」（剩余风险 1）：改了密码、令牌被吊销的那个人也要拿得回、别人也领不走
+  const 字母表: 步[] = ["甲登录", "乙登录", "丙登录", "乙登录(桥断)", "退出登录", "重启", "重启(断网)", "写一笔", "写一笔", "吊销甲", "吊销乙", "切回前台"];
   function 随机(seed: number) {
     let x = seed >>> 0;
     return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 2 ** 32);
@@ -645,5 +880,42 @@ describe("随机顺序（固定种子）：任何时刻不串、不丢", () => {
   it("【A-1 真坏】同一批序列：丢数据（给出最短反例）", async () => {
     const { 丢 } = await 全跑();
     expect(丢.slice(0, 1)).toEqual([]);
+  }, 120_000);
+
+  /*
+    2026-10-04 加（A-2 / B-1 / B-2 / C-7）：从「0.39.2 之前升级上来、老 .cloud.json 没有 accountId」起步，
+    字母表里加上网慢开机、断网退出、.owner 被清空。头一步轮流是断网 / 网慢 / 联网但老令牌已被吊销开机——
+    前两种是 A-2 的入口，第三种是剩余风险 1（壳按 401 清掉老令牌，只剩库里管理员的邮箱能认人）。
+    「吊销甲」也在字母表里：待认的老令牌、甲后来的令牌随时可能作废。
+  */
+  it("300 条长 12 的随机序列（升级上来、断网 / 网慢开机）：不串、不丢", async () => {
+    const 升级字母表: 步[] = ["甲登录", "乙登录", "丙登录", "乙登录(桥断)", "退出登录", "退出登录(断网)", "重启", "重启(断网)", "重启(网慢)", "写一笔", "写一笔", "吊销甲", "吊销乙", "切回前台", "清空.owner"];
+    const 串: string[] = [];
+    const 丢: string[] = [];
+    for (let k = 0; k < 300; k++) {
+      const r = 随机(10_000 + k);
+      const 步们 = Array.from({ length: 12 }, () => 升级字母表[Math.floor(r() * 升级字母表.length)]);
+      fs.rmSync(根, { recursive: true, force: true });
+      const d = path.join(根, "data");
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, "crm.db"), JSON.stringify([{ 谁: 甲.id, 第几: 0 }]));
+      fs.writeFileSync(path.join(d, ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t-old-jia", name: "甲", contact: 甲.target, models: [] }));
+      写管理员邮箱(d, 甲.target);
+      const s = new 场景(根);
+      s.云.令牌.set("t-old-jia", 甲.id);
+      s.写过[甲.id] = [0];
+      if (k % 3 === 0) s.云.在线 = false;
+      else if (k % 3 === 1) s.云.慢 = true;
+      else s.云.吊销全部(甲.id);
+      await s.开机();
+      s.云.在线 = true;
+      s.云.慢 = false;
+      for (const x of 步们) await s.走(x);
+      串.push(...s.违规.filter((v) => v.startsWith("【串数据】")));
+      丢.push(...s.违规.filter((v) => v.startsWith("【丢数据】")));
+      vi.unstubAllGlobals();
+    }
+    expect(串).toEqual([]);
+    expect(丢.sort((a, b) => a.length - b.length).slice(0, 1)).toEqual([]);
   }, 120_000);
 });

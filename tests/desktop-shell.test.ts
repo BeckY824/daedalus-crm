@@ -242,7 +242,8 @@ describe("换账号：壳自己发现，不等页面", () => {
 
   it("归属和令牌对不上才换，且没登录时目录一个字节都不动", () => {
     const 看 = main.slice(main.indexOf("async function 看凭据换没换()"), main.indexOf("/** 随包发布的本地服务"));
-    expect(看).toContain("账号.归谁(数据目录)");
+    // 2026-10-04 修 B-2：改用 是他的()——accounts/<key> 的 .owner 被清空时认目录名，不再当「没主」放过去
+    expect(看).toContain("账号.是他的(数据目录, c.accountId)");
     expect(看).toContain("c?.accountId");
   });
 

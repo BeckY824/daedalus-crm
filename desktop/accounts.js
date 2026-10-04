@@ -64,22 +64,117 @@ function 读指针(数据根) {
   }
 }
 
-/** 这个目录归谁。没有标记（未认领、升级上来的）就是 null */
-function 归谁(目录) {
+/**
+ * 「有主、只是还认不出是谁」（2026-10-04 修 A-2 / D-021）。永远对不上任何真账号：云端账号 id 不以「?」开头。
+ * 和服务端 src/lib/desktop/cloud.ts 的 认不出的主 是同一个值（tests/r2-shell-accounts.test.ts 钉着）。
+ */
+const 认不出的主 = "?认不出";
+/**
+ * 「主人是邮箱为 X 的那个人」（2026-10-04 修 剩余风险 1）：服务端登录时认不出账号、只能拿本机库里管理员的邮箱认人，
+ * 就把这个记号写进 .owner（src/lib/desktop/cloud.ts 的 定下本目录归属）。以「?」开头，对不上任何账号 id；
+ * 认领() 时拿登录者的 contact 算出同一个记号才算他的。邮箱取哈希，原文不落进 .owner。
+ */
+function 邮箱记号(contact) {
+  return `?邮箱:${key(String(contact ?? "").trim().toLowerCase())}`;
+}
+
+/**
+ * 待认的老令牌：升级上来、还没问到是谁的那份（_未认领），在断网时退出登录，服务端把令牌挪到这儿留作凭据
+ * （src/lib/desktop/cloud.ts 的 退出）。有它就说明这份**有主**，绝不能当没主改名给下一个登录的人。
+ */
+const 待认文件 = ".owner-pending.json";
+
+/**
+ * 归属的**自带校验的副本**（2026-10-04 修 C-7）：内容是「账号 id + 换行 + key(id)」，读的时候对一下 key，
+ * 对得上才算数。.owner 只是一行原文，被写坏成乱码时谁都认不出它——_未认领 又没有目录名可以兜底（B-2 那条路），
+ * 甲那份就谁也领不走、甲自己也拿不回。有了这份副本，单个文件坏了还认得出主人；
+ * 两份都坏了才落到「谁都领不走」，那也只是拿不回，不会串。
+ * 和服务端 src/lib/desktop/cloud.ts 的 归属校验文件名 同名、同格式（tests/r2-shell-accounts.test.ts 钉着）。
+ */
+const 归属校验文件 = "\u002eowner.check";
+
+function 读校验过的归属(目录) {
   try {
-    const v = fs.readFileSync(path.join(目录, 归属文件), "utf8").trim();
-    return v || null;
+    const [id, k] = fs.readFileSync(path.join(目录, 归属校验文件), "utf8").split("\n");
+    return id && key(id) && k?.trim() === key(id) ? id.trim() : null;
   } catch {
     return null;
   }
 }
 
+/** 先写临时文件再改名：磁盘满时写一半留下的是没用的临时文件，不是半截 .owner */
+function 原子写(文件, 内容) {
+  const 临时 = `${文件}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(临时, 内容, { mode: 0o600 });
+    fs.renameSync(临时, 文件);
+  } catch (e) {
+    fs.rmSync(临时, { force: true });
+    throw e;
+  }
+}
+
+/**
+ * 这个目录归谁。没有标记（第一次装的未认领）就是 null；有主但认不出（A-2）是 认不出的主。
+ * 自带校验的副本对得上就以它为准（C-7）：.owner 被写成乱码时认的还是原来的主人。
+ */
+function 归谁(目录) {
+  const 校验过的 = 读校验过的归属(目录);
+  if (校验过的) return 校验过的;
+  try {
+    const v = fs.readFileSync(path.join(目录, 归属文件), "utf8").trim();
+    if (v) return v;
+  } catch {
+    /* 没有标记 */
+  }
+  return fs.existsSync(path.join(目录, 待认文件)) ? 认不出的主 : null;
+}
+
+/**
+ * accounts/<key> 这种按账号命名的目录：**目录名本身就是归属**（2026-10-04 修 B-2 / D-023）。
+ * 它只会由 认领() 建出来、名字就是 key(主人)，所以 .owner 被清空（磁盘满时写了一半、杀毒软件动过）
+ * 或写坏时，拿目录名兜底就不会认错人。_未认领 不是这种目录，只能看 .owner。
+ */
+function 目录名里的key(目录) {
+  const 名 = path.basename(目录);
+  return path.basename(path.dirname(目录)) === "accounts" && /^[0-9a-f]{24}$/.test(名) ? 名 : null;
+}
+
+/**
+ * 这个目录是不是这个账号的：true / false / null（没主，谁登录都行）。
+ * 判「换没换人」一律用它，别拿 归谁() 的原文去比——按账号命名的目录认目录名，.owner 坏了也认得出（B-2）。
+ */
+function 是他的(目录, accountId) {
+  const k = 目录名里的key(目录);
+  if (k) return key(accountId) === k;
+  const 主 = 归谁(目录);
+  return 主 ? 主 === String(accountId) : null;
+}
+
+/**
+ * 记不上归属**不再悄悄吞掉**（2026-10-04 修 B-2 / D-024）：.owner 是认出「换人了」的依据，
+ * 它没记上而没人知道，下次串库时就无从查起。壳启动时 设日志() 接到崩溃日志里；没接就打到控制台。
+ */
+let 日志 = (标题, e) => console.error(`[accounts] ${标题}：`, e?.message ?? e);
+function 设日志(fn) {
+  if (typeof fn === "function") 日志 = fn;
+}
+
 function 记归属(目录, accountId) {
   try {
     fs.mkdirSync(目录, { recursive: true });
-    fs.writeFileSync(path.join(目录, 归属文件), String(accountId), { mode: 0o600 });
-  } catch {
-    /* 记不上不致命：下一次认领还会再记一遍 */
+    const id = String(accountId);
+    原子写(path.join(目录, 归属校验文件), `${id}\n${key(id)}\n`);
+    原子写(path.join(目录, 归属文件), id);
+    return true;
+  } catch (e) {
+    /* 记不上不致命：按账号命名的目录认目录名，下一次认领还会再记一遍。但要留案 */
+    try {
+      日志(`记归属失败 ${path.basename(目录)}`, e);
+    } catch {
+      /* 写日志也失败就算了，不能因此把认领搞砸 */
+    }
+    return false;
   }
 }
 
@@ -155,7 +250,7 @@ function 当前目录(数据根) {
  * 所以改名和换目录一样危险，路径一变就得重起本地服务。要不要重启由调用方判断——
  * 启动时服务还没起来，那是唯一不用重启的时机，也正是升级认领该发生的地方。
  */
-function 认领(数据根, accountId) {
+function 认领(数据根, accountId, contact) {
   const k = key(accountId);
   if (!k) return { key: null, 换了目录: false };
   const 之前 = 账号目录(数据根, 读指针(数据根) ?? 未认领);
@@ -180,7 +275,10 @@ function 认领(数据根, accountId) {
       - **这份记着就是他的**，不管指针现在指着谁：甲登录（没重启）→ 乙登录切走（指针 = 乙）→ 甲再回来，
         甲的数据还在 _未认领 里；只认「指针为空」的话甲拿到的是一个空目录，自己的数据永远找不回来（2026-10-02 复查 R1）
   */
-  const 是他的 = 未认领归谁 === String(accountId);
+  /*
+    记着的是邮箱记号（剩余风险 1）：登录者的 contact 算出同一个记号才算他的——甲改了密码、令牌换了，邮箱没变，照样拿得回
+  */
+  const 是他的 = 未认领归谁 === String(accountId) || Boolean(contact && String(contact).includes("@") && 未认领归谁 === 邮箱记号(contact));
   if (fs.existsSync(未认领目录) && !fs.existsSync(他的) && (是他的 || (现在 === null && !未认领归谁))) {
     fs.renameSync(未认领目录, 他的);
     记归属(他的, accountId);
@@ -208,4 +306,4 @@ function 退出(数据根) {
   }
 }
 
-module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 账号目录, 未认领, 归属文件 };
+module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 是他的, 设日志, 账号目录, 未认领, 归属文件, 归属校验文件, 认不出的主, 待认文件, 邮箱记号 };
