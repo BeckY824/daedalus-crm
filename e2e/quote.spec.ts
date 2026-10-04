@@ -6,6 +6,9 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 连库 } from "./mock-data";
+import { 报价明细 } from "../src/lib/features";
+
+test.skip(!报价明细, "报价明细这一版不上");
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
 const 客户名 = "报价测试客户";

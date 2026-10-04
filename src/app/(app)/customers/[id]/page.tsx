@@ -9,6 +9,7 @@ import { llmEnabled } from "@/lib/llm";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { 带币种, 签约金额, 签约币种, 签约合计, 商机币种 } from "@/lib/money-db";
 import { 客户报价记录 } from "@/lib/quote-db";
+import { 报价明细 } from "@/lib/features";
 import { 订单列表 } from "@/lib/order-db";
 
 export const dynamic = "force-dynamic";
@@ -128,7 +129,7 @@ export default async function CustomerDetailPage({
         remark: c.remark,
         updatedAt: c.updatedAt.toISOString(),
       }))}
-      报价记录={await 客户报价记录(customer.id)}
+      报价记录={报价明细 ? await 客户报价记录(customer.id) : []}
       订单={await 订单列表({ customerId: customer.id })}
       contracts={customer.contracts.map((c) => ({
         id: c.id,

@@ -8,6 +8,7 @@ import { 金额格式 } from "@/lib/money-input";
 import { saveOpportunity, 读报价 } from "./actions";
 import QuoteLines, { 新行, 交出去, 草稿合计, type 草稿行 } from "./QuoteLines";
 import type { 一次报价 } from "@/lib/quote-db";
+import { 报价明细 } from "@/lib/features";
 import type { OppRow } from "./OpportunitiesView";
 import { 聚焦首项 } from "@/lib/modal-focus";
 import CurrencySelect from "@/components/CurrencySelect";
@@ -68,7 +69,7 @@ export default function OpportunityForm({
 
   useEffect(() => {
     手填金额.current = false;
-    if (!open || !editing) return;
+    if (!报价明细 || !open || !editing) return;
     let 还在 = true;
     void 读报价(editing.id).then((qs) => {
       if (!还在) return;
@@ -116,7 +117,8 @@ export default function OpportunityForm({
       版本: editing?.updatedAt,
       ...v,
       expectedDealAt: v.expectedDealAt ? v.expectedDealAt.toISOString() : null,
-      ...(报价到了 ? { 报价: 交出去(行) } : {}),
+      // 报价明细关着（lib/features.ts）：不交 = 不碰报价
+      ...(报价明细 && 报价到了 ? { 报价: 交出去(行) } : {}),
     });
     if (!res.ok) {
       message.error(res.error);
@@ -248,11 +250,13 @@ export default function OpportunityForm({
               <Slider marks={{ 0: "0", 50: "50", 100: "100" }} />
             </Form.Item>
           </Col>
-          <Col span={24}>
-            <Form.Item label="报价明细" style={{ marginBottom: 16 }}>
-              <QuoteLines 行={行} onChange={改明细} currency={币种} customerId={客户} opportunityId={editing?.id} 历次={历次} />
-            </Form.Item>
-          </Col>
+          {报价明细 && (
+            <Col span={24}>
+              <Form.Item label="报价明细" style={{ marginBottom: 16 }}>
+                <QuoteLines 行={行} onChange={改明细} currency={币种} customerId={客户} opportunityId={editing?.id} 历次={历次} />
+              </Form.Item>
+            </Col>
+          )}
           <Col span={24}>
             <Form.Item name="remark" label="备注">
               <Input.TextArea rows={2} placeholder="竞争对手、决策周期、风险点…" />
