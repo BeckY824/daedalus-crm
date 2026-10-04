@@ -159,7 +159,8 @@ export default function ContactsView({
       />
 
       <DataList<Row>
-        截断={{ 总数 }}
+        // 关系、负责人、归属是在本地筛的：拿取回来的行数比，筛完行变少不算截断（J-015）
+        截断={{ 总数, 取回: 全部行.length }}
         页="contacts"
         空库={全部行.length === 0 && !keyword}
         列={列表}

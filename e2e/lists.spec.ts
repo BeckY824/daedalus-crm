@@ -251,6 +251,27 @@ test("T-029 线索列表：按电话搜得到；按负责人、来源筛得出�
   await expect(page.locator(".ant-select", { hasText: "抖音" })).toBeVisible();
 });
 
+test("J-015 联系人页按关系本地筛完：不冒「只有最近 N 条，库里一共 M 条」（行全取回来了，没截断）", async ({ page }) => {
+  const p = 连库();
+  const c = await p.customer.create({ data: { name: "有几位联系人", phone: "13977770015", salesOwnerId: 张三 } });
+  for (const [名, 关系] of [["采购甲", "采购"], ["采购乙", "采购"], ["财务甲", "财务"], ["财务乙", "财务"], ["财务丙", "财务"]]) {
+    await p.contact.create({ data: { customerId: c.id, name: 名, position: 关系 } });
+  }
+  await p.$disconnect();
+  await 登录(page);
+  await page.goto("/contacts");
+  await expect(page.locator(".ant-table-row", { hasText: "财务丙" })).toBeVisible();
+  const 关系 = page.locator(".ant-select", { hasText: "全部关系" });
+  await expect(async () => {
+    await 关系.click();
+    await expect(page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "采购" })).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "采购" }).click();
+  await expect(page.locator(".ant-table-row")).toHaveCount(2);
+  await expect(page.getByText(/只有最近/)).toHaveCount(0);
+  await expect(page.locator(".ant-pagination-total-text")).toHaveText("共 2 条");
+});
+
 test("没配 AI 的首页：页头「首页」不和「数据」重名；本月签约 0 写 ¥0；排行金额带 ¥ 写清口径；上月没新增不写「持平」（J-124 / J-125 / J-121 / J-111）", async ({ page }) => {
   // 两位销售各赢一单（排行 > 1 人才画榜）；这个月没有签约
   const p = 连库();
