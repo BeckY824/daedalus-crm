@@ -287,6 +287,53 @@ describe("全新安装（没有 crm.db）", () => {
   }, 30_000);
 });
 
+/*
+  D-037：桌面端只靠目录名 DaedalusCRM 避开空格，可 Windows 的用户名带空格（C:\\Users\\John Smith\\…）、
+  Mac 用户名是中文时，数据路径照样有空格 / 非 ASCII。local-server.js 直接拼 `file:${路径}` 不转义，
+  CI 冒烟机的用户名没空格，测不到。这里把老库放进这样的目录：入口迁移得过、Prisma 按 local-server.js 那样拼的 URL 查得动
+*/
+describe("数据目录路径带空格、带中文（D-037）", () => {
+  const 拼URL = (dataDir: string) => {
+    // 和 desktop/local-server.js 的 DATABASE_URL 同一个拼法；那一行变了这里先红，免得测的不是同一件事
+    const 源 = fs.readFileSync(path.join(ROOT, "desktop/local-server.js"), "utf8");
+    expect(源).toContain('DATABASE_URL: `file:${path.join(dataDir, "crm.db").replaceAll("\\\\", "/")}`');
+    return `file:${path.join(dataDir, "crm.db").replaceAll("\\", "/")}`;
+  };
+
+  it("老库在「John Smith / 张 三」这样的目录里：迁移跑得通，Prisma 查得动", async () => {
+    const 目录 = 造老库(老版本们[老版本们.length - 1], path.join("Users", "John Smith", "AppData", "Daedalus CRM", "accounts", "张 三"));
+    expect(目录).toContain(" ");
+    const r = await 跑入口(目录);
+    expect(r.out).toContain("[stub] Next 起来了");
+    expect(r.code).toBe(0);
+    const { PrismaClient } = await import("@/generated/prisma");
+    const c = new PrismaClient({ datasourceUrl: 拼URL(目录) });
+    try {
+      expect(await c.customer.count()).toBe(3);
+      // 写一笔再读回：只读能开、写不进去也是一种「路径有问题」
+      await c.setting.upsert({ where: { key: "d037.probe" }, create: { key: "d037.probe", value: "ok" }, update: { value: "ok" } });
+      expect((await c.setting.findUnique({ where: { key: "d037.probe" } }))?.value).toBe("ok");
+    } finally {
+      await c.$disconnect();
+    }
+  }, 60_000);
+
+  it("全新安装也一样：带空格的目录里复制模板、建出本机库", async () => {
+    const d = path.join(工作区, "Program Data", "Daedalus CRM", "新 装");
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, ".cloud.json"), JSON.stringify({ token: "t", accountId: "acc_sp", name: "", contact: "space@x.com", models: [] }));
+    const r = await 跑入口(d);
+    expect(r.code).toBe(0);
+    const { PrismaClient } = await import("@/generated/prisma");
+    const c = new PrismaClient({ datasourceUrl: 拼URL(d) });
+    try {
+      expect((await c.user.findMany({ select: { email: true } })).map((u) => u.email)).toEqual(["space@x.com"]);
+    } finally {
+      await c.$disconnect();
+    }
+  }, 60_000);
+});
+
 describe("迁移中途出事", () => {
   const 老 = 老版本们.find((t) => t === "v0.39.2") ?? 老版本们[0];
 
