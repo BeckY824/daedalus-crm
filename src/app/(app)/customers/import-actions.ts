@@ -28,8 +28,7 @@ import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { 字段表, type 字段名 } from "@/lib/import/fields";
 import { 摊开, 并重复行, 添行, type 排布 } from "@/lib/import/plan";
-import { 同号写法 } from "@/lib/phone";
-import { 认人表, 分机留存起 } from "@/lib/phone-dedupe";
+import { 认人表, 分机留存起, 同号条件, 这一批同号的 } from "@/lib/phone-dedupe";
 import { 查完再写 } from "@/lib/check-then-write";
 
 /** 一次导入最多落多少条。和 parse.ts 的行数上限一致，服务端再收一道 */
@@ -96,7 +95,7 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
   const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
   const 表 = 认人表(
     // 团队版业务员：同事的客户也要认出来（不然悄悄建出第二份），看全部
-    await 看全部(() => prisma.customer.findMany({ where: { phone: { in: 这一批.flatMap(同号写法) } }, select: { phone: true, createdAt: true } })),
+    await 看全部(async () => prisma.customer.findMany({ where: await 这一批同号的(prisma, 这一批), select: { phone: true, createdAt: true } })),
     这一批,
     await 分机留存起(),
   );
@@ -188,14 +187,14 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     (await prisma.channel.findMany({ where: { name: { in: 渠道名单 } }, select: { id: true, name: true } })).map((c) => [c.name, c.id]),
   );
 
-  // 带分机的号也认老库里只存了主号的那位（第三轮 B4，见 lib/phone 的 同号写法）
+  // 带分机的号也认老库里只存了主号的那位（第三轮 B4）；库里老写法「138 0000 1111」按号键认（R-067 / R-069，见 lib/phone-dedupe）
   const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
   /*
     团队版业务员（lib/team-scope.ts）：同号的人要看全部才认得出——同事的客户也算「已经有了」，不另建一份；
     但同事的客户不替他补空（业务员改不了别人的客户），算跳过
   */
-  const 命中 = await 看全部(() => prisma.customer.findMany({
-    where: { phone: { in: 这一批.flatMap(同号写法) } },
+  const 命中 = await 看全部(async () => prisma.customer.findMany({
+    where: await 这一批同号的(prisma, 这一批),
     select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
   }));
   const 限定我 = await 限定的我(defaultClient);
@@ -284,11 +283,11 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     try {
       /*
         建这一位和「号码还没人用」在同一个事务里再认一次（2026-10-04 J-104）：同一份表在两个窗口同时导，
-        两边开头那次认人都查不到对方，原来各建一位。只比整串——对方刚建的就是这个号码；带分机认老主号那套
+        两边开头那次认人都查不到对方，原来各建一位。只比号键（不认老主号）——对方刚建的就是这个号码；带分机认老主号那套
         在开头的认人表里已经算过了。一行一个小事务，不攥着写锁不放（文件头「不放在一个大事务里」那条照旧）
       */
       const c = await 查完再写(async (tx) => {
-        if (await 看全部(() => tx.customer.findFirst({ where: { phone }, select: { id: true } }))) return null;
+        if (await 看全部(async () => tx.customer.findFirst({ where: await 同号条件(tx, phone, null), select: { id: true } }))) return null;
         const c = await tx.customer.create({
           data: {
             name: r.值.name!,

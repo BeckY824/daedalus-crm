@@ -97,8 +97,8 @@ export async function checkDuplicate(phone: string, excludeId?: string): Promise
   if (!号) return null;
   const 起 = await 分机留存起();
   // 看全部：团队版业务员录到同事已有的号码，也要提醒「这是谁的客户」（只给名字和负责人，打不开详情）
-  const hit = await 看全部(() => prisma.customer.findFirst({
-    where: { ...同号条件(号, 起), ...(excludeId ? { id: { not: excludeId } } : {}) },
+  const hit = await 看全部(async () => prisma.customer.findFirst({
+    where: { AND: [await 同号条件(prisma, 号, 起), ...(excludeId ? [{ id: { not: excludeId } }] : [])] },
     select: {
       id: true,
       name: true,
@@ -159,9 +159,13 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
   // 服务端再查一次重：表单上的提示只是给人看的，不能作为约束。
   // 空电话不查：两个都没留电话的人不是同一个人（原来这里会拿 "" 去比，没电话的人一个都存不了）
-  if (phone) {
+  /*
+    编辑时号码原样没动的不查（R-067，2026-10-04）：查重改成按号键比之后，老库里本来就重了的两份
+    （「138 0000 1111」和「13800001111」）会互相挡着，谁都改不了备注。号码没动就没有新添重复
+  */
+  if (phone && !(改前 && phone === 改前.phone)) {
     const dup = await prisma.customer.findFirst({
-      where: { ...同号条件(phone, await 分机留存起()), ...(input.id ? { id: { not: input.id } } : {}) },
+      where: { AND: [await 同号条件(prisma, phone, await 分机留存起()), ...(input.id ? [{ id: { not: input.id } }] : [])] },
       select: { name: true },
     });
     if (dup) return { ok: false, error: `手机号 ${phone} 已存在（${dup.name}），请勿重复录入` };
@@ -247,7 +251,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     const 起 = await 分机留存起();
     const 建了 = await 查完再写(async (tx) => {
       if (phone) {
-        const dup = await 看全部(() => tx.customer.findFirst({ where: 同号条件(phone, 起), select: { name: true } }));
+        const dup = await 看全部(async () => tx.customer.findFirst({ where: await 同号条件(tx, phone, 起), select: { name: true } }));
         if (dup) return { 撞号: dup.name } as const;
       }
       return { created: await tx.customer.create({ data }) } as const;
