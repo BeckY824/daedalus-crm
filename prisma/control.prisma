@@ -400,6 +400,41 @@ model SyncTeam {
   @@index([ownerAccountId])
 }
 
+/// 团队里的一台设备和它的公钥（2026-10-04，control-migrations/017）。建团队、加入时登记。
+/// 换钥匙时建团队的人用这些公钥给每台各封一份新钥匙；私钥只在那台电脑上，我们解不开。
+/// 设备编号认账号：一个编号只属于登记它的那个账号（冒用的推送不收）
+model SyncDevice {
+  teamId    String
+  device    String
+  accountId String
+  pubKey    String
+  createdAt DateTime @default(now())
+
+  @@id([teamId, device])
+  @@index([teamId, accountId])
+}
+
+/// 团队的第几把钥匙（编号从 1 起；没换过 = 0 号，就是邀请码里那把）。
+/// ring = 之前所有钥匙用这一把封起来：凭新邀请码进来的人解开它就读得到历史，被移出的人没有这一把、解不开
+model SyncKey {
+  teamId    String
+  epoch     Int
+  ring      String
+  createdAt DateTime @default(now())
+
+  @@id([teamId, epoch])
+}
+
+/// 第几把钥匙封给哪台设备的那一份（用那台的公钥封，只有它解得开）
+model SyncKeyEnvelope {
+  teamId String
+  epoch  Int
+  device String
+  data   String
+
+  @@id([teamId, epoch, device])
+}
+
 model SyncMember {
   teamId    String
   accountId String

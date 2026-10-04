@@ -15,6 +15,6 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const a = await 认同步(req);
   if (!a.ok) return a.res;
-  const body = (await req.json().catch(() => ({}))) as { name?: string };
-  return 回(await 建团队(a.accountId, String(body.name ?? "")));
+  const body = (await req.json().catch(() => ({}))) as { name?: string; device?: string; pubKey?: string };
+  return 回(await 建团队(a.accountId, String(body.name ?? ""), body.device ? { device: String(body.device), pubKey: String(body.pubKey ?? "") } : undefined));
 }

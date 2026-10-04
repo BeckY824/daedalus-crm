@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { closeTestDatabases } from "./close-databases";
+import { 封 } from "@/lib/sync/crypto";
 
 const 临时根 = path.join(os.tmpdir(), `crm-sync-relay-${process.pid}`);
 
@@ -32,6 +33,10 @@ afterAll(async () => {
   fs.rmSync(临时根, { recursive: true, force: true });
 });
 
+/** 推送要读包头的钥匙编号：用真格式的包（内容随便，中转解不开也不解） */
+const 钥 = "A".repeat(43);
+const 包1 = 封(["一"], 钥, 0), 包2 = 封(["二"], 钥, 0);
+
 let n = 0;
 async function 账号(名: string) {
   const { control } = await import("@/lib/tenant/control");
@@ -44,9 +49,9 @@ describe("中转", () => {
     const 甲 = await 账号("甲"), 乙 = await 账号("乙"), 丙 = await 账号("丙");
     const t = await r.建团队(甲, "明亮贸易");
     if (!t.ok) throw new Error(t.error);
-    expect(await r.入队(乙, t.teamId, "错的")).toEqual({ ok: false, 状态: 403, error: "邀请码不对，或者这个团队已经不在了" });
-    expect(await r.入队(乙, "不存在的团队", t.joinSecret)).toEqual({ ok: false, 状态: 403, error: "邀请码不对，或者这个团队已经不在了" });
-    expect(await r.入队(乙, t.teamId, t.joinSecret)).toEqual({ ok: true, teamName: "明亮贸易", active: false });
+    expect(await r.入队(乙, t.teamId, "错的")).toEqual({ ok: false, 状态: 403, error: "邀请码不对或已经作废了，找建团队的人要一个新的" });
+    expect(await r.入队(乙, "不存在的团队", t.joinSecret)).toEqual({ ok: false, 状态: 403, error: "邀请码不对或已经作废了，找建团队的人要一个新的" });
+    expect(await r.入队(乙, t.teamId, t.joinSecret)).toEqual({ ok: true, teamName: "明亮贸易", active: false, epoch: 0 });
     expect((await r.入队(乙, t.teamId, t.joinSecret)).ok).toBe(true);
     const [团] = await r.我的团队(乙);
     expect(团).toMatchObject({ name: "明亮贸易", active: false, 我是建的人: false });
@@ -62,22 +67,24 @@ describe("中转", () => {
     const t = await r.建团队(甲, "团");
     if (!t.ok) throw new Error(t.error);
     await r.入队(乙, t.teamId, t.joinSecret);
-    expect(await r.收推送(甲, t.teamId, "dev-A", "密文1")).toEqual({ ok: false, 状态: 402, error: "团队同步还没开通" });
+    expect(await r.收推送(甲, t.teamId, "dev-A", 包1)).toEqual({ ok: false, 状态: 402, error: "团队同步还没开通" });
     await r.设开通(t.teamId, true);
-    const p1 = await r.收推送(甲, t.teamId, "dev-A", "密文1");
-    const p2 = await r.收推送(乙, t.teamId, "dev-B", "密文2");
+    const p1 = await r.收推送(甲, t.teamId, "dev-A", 包1);
+    const p2 = await r.收推送(乙, t.teamId, "dev-B", 包2);
     expect(p1.ok && p2.ok).toBe(true);
-    expect((await r.收推送(外人, t.teamId, "dev-X", "x")).ok).toBe(false);
-    expect((await r.收推送(甲, t.teamId, "坏 设备", "x")).ok).toBe(false);
+    expect((await r.收推送(外人, t.teamId, "dev-X", 包1)).ok).toBe(false);
+    expect((await r.收推送(甲, t.teamId, "坏 设备", 包1)).ok).toBe(false);
     const 拉 = await r.给拉取(乙, t.teamId, 0);
-    expect(拉.ok && 拉.batches.map((b) => [b.device, b.data])).toEqual([["dev-A", "密文1"], ["dev-B", "密文2"]]);
+    expect(拉.ok && 拉.batches.map((b) => [b.device, b.data])).toEqual([["dev-A", 包1], ["dev-B", 包2]]);
     const 后 = await r.给拉取(乙, t.teamId, p1.ok ? p1.seq : 0);
-    expect(后.ok && 后.batches.map((b) => b.data)).toEqual(["密文2"]);
+    expect(后.ok && 后.batches.map((b) => b.data)).toEqual([包2]);
+    // 格式不对的（不是桌面端封的包）不收
+    expect(await r.收推送(甲, t.teamId, "dev-A", "密文")).toMatchObject({ ok: false, 状态: 400 });
     // 库里只有元数据，密文在文件里
-    expect((await control.syncBatch.findFirstOrThrow({ where: { teamId: t.teamId } })).size).toBe(3);
+    expect((await control.syncBatch.findFirstOrThrow({ where: { teamId: t.teamId } })).size).toBe(包1.length);
     expect(fs.readdirSync(path.join(临时根, "sync", t.teamId)).sort()).toEqual([`${p1.ok && p1.seq}.bin`, `${p2.ok && p2.seq}.bin`].sort());
     // 设备编号认账号：乙冒用甲的设备号不收
-    expect(await r.收推送(乙, t.teamId, "dev-A", "冒用")).toMatchObject({ ok: false, 状态: 409 });
+    expect(await r.收推送(乙, t.teamId, "dev-A", 包2)).toMatchObject({ ok: false, 状态: 409 });
     // 刚建的批次缺文件（记录先有、文件后写的那一刻）：停在它前面，下一轮再来，不越过它
     fs.rmSync(path.join(临时根, "sync", t.teamId, `${p1.ok && p1.seq}.bin`));
     const 刚建 = await r.给拉取(乙, t.teamId, 0);
@@ -86,7 +93,7 @@ describe("中转", () => {
     // 建了一分钟以上还没文件：真没了，跳过那一批，不卡住
     await control.syncBatch.update({ where: { id: p1.ok ? p1.seq : 0 }, data: { createdAt: new Date(Date.now() - 120_000) } });
     const 缺 = await r.给拉取(乙, t.teamId, 0);
-    expect(缺.ok && 缺.batches.map((b) => b.data)).toEqual(["密文2"]);
+    expect(缺.ok && 缺.batches.map((b) => b.data)).toEqual([包2]);
     // 退队
     await r.退队(乙, t.teamId);
     expect((await r.给拉取(乙, t.teamId, 0)).ok).toBe(false);
@@ -100,9 +107,9 @@ describe("中转", () => {
     const t = await r.建团队(甲, "列表测试团");
     if (!t.ok) throw new Error(t.error);
     await r.设开通(t.teamId, true);
-    await r.收推送(甲, t.teamId, "dev-A", "12345");
+    await r.收推送(甲, t.teamId, "dev-A", 包1);
     const 行 = (await r.全部团队()).find((x) => x.id === t.teamId)!;
-    expect(行).toMatchObject({ name: "列表测试团", active: true, 人数: 1, 批次: 1, 字节: 5 });
+    expect(行).toMatchObject({ name: "列表测试团", active: true, 人数: 1, 批次: 1, 字节: 包1.length });
     expect(行.建的人?.name).toBe("老板");
   });
 

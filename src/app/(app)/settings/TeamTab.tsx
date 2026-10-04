@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { App, Alert, Button, Input, Space, Tag, Typography } from "antd";
 import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
-import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作 } from "./team-actions";
+import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
 
@@ -85,6 +85,54 @@ export default function TeamTab() {
     router.refresh();
   }
 
+  function 移除(m: { accountId: string; name: string }) {
+    modal.confirm({
+      title: `把「${m.name}」移出团队？`,
+      content: (
+        <div>
+          <p>之后的改动他收不到、也解不开；他也不能再往团队里推。</p>
+          <p>邀请码和钥匙会一起换掉：其他同事下次同步时自动拿到新钥匙，不用做什么。<b>还没加入的人要用新邀请码</b>。</p>
+          <p className="muted">他电脑上已经有的客户和记录收不回——那些本来就在他的电脑上。</p>
+        </div>
+      ),
+      okText: "移出团队",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      async onOk() {
+        const r = await 移除成员动作(m.accountId, m.name);
+        if (!r.ok) return void message.error(r.error);
+        message.success(`已把「${m.name}」移出团队，邀请码和钥匙都换了`);
+        await 刷();
+      },
+    });
+  }
+
+  function 换码() {
+    modal.confirm({
+      title: "换一个邀请码？",
+      content: "旧邀请码立刻作废（发出去还没用的也不能用了），团队钥匙一起换。已经在团队里的同事不受影响，下次同步自动拿到新钥匙。邀请码发错人了就点这个。",
+      okText: "换邀请码",
+      cancelText: "取消",
+      async onOk() {
+        const r = await 换邀请码动作();
+        if (!r.ok) return void message.error(r.error);
+        message.success("邀请码换好了，旧的已作废");
+        await 刷();
+      },
+    });
+  }
+
+  async function 用新码() {
+    set忙("入");
+    const r = await 加入团队动作(码);
+    set忙(null);
+    if (!r.ok) return void message.error(r.error);
+    set码("");
+    message.success("新钥匙收下了");
+    await 刷();
+    void 同步();
+  }
+
   function 退() {
     modal.confirm({
       title: "退出团队？",
@@ -161,6 +209,10 @@ export default function TeamTab() {
               <b>{m.name}</b>
               <span className="muted">{m.contact}</span>
               {m.role === "owner" && <Tag>建的人</Tag>}
+              {/* 只有建团队的人能移除别人；自己不在这里移除（走「退出团队」） */}
+              {s.我是建的人 && m.role !== "owner" && m.accountId !== s.我 && (
+                <Button size="small" type="text" danger onClick={() => 移除(m)} aria-label={`移除 ${m.name}`}>移除</Button>
+              )}
             </li>
           ))}
         </ul>
@@ -194,7 +246,24 @@ export default function TeamTab() {
           <Input value={s.邀请码} readOnly aria-label="邀请码" />
           <Button icon={<CopyOutlined />} onClick={() => void 复制(s.邀请码)}>复制</Button>
         </Space.Compact>
+        {s.我是建的人 && (
+          <div style={{ marginTop: 8 }}>
+            <Button size="small" onClick={换码}>换邀请码</Button>
+            <span className="muted" style={{ marginLeft: 8 }}>发错人了就换：旧码作废，钥匙一起换</span>
+          </div>
+        )}
       </section>
+
+      {/* 这台没拿到自动转交的新钥匙（换钥匙之前没登记过设备）：粘建团队的人发来的新邀请码 */}
+      {!s.我是建的人 && s.lastError && /新的邀请码/.test(s.lastError) && (
+        <section className="team-card">
+          <h3>粘贴新邀请码</h3>
+          <Input.TextArea value={码} onChange={(e) => set码(e.target.value)} rows={2} placeholder="DT1.…" aria-label="新邀请码" style={{ maxWidth: 560 }} />
+          <div style={{ marginTop: 8 }}>
+            <Button type="primary" loading={忙 === "入"} disabled={!码.trim() || 忙 !== null} onClick={() => void 用新码()}>收下新钥匙</Button>
+          </div>
+        </section>
+      )}
 
       <section className="team-card">
         <Button danger onClick={退}>退出团队</Button>

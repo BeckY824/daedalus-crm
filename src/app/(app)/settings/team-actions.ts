@@ -5,7 +5,7 @@ import { requireUser, createSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { 本机我 } from "@/lib/desktop/me";
 import { recordAudit } from "@/lib/audit";
-import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队 } from "@/lib/sync/client";
+import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 
 /**
@@ -60,5 +60,21 @@ export async function 退出团队动作() {
   const me = await requireUser();
   const r = await 退出团队();
   if (r.ok) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: "退出了团队，这台电脑不再同步（本机数据都还在）" });
+  return r;
+}
+
+/** 移除成员（只有建团队的人）：移出、换邀请码、换钥匙一起做。他电脑上已有的数据收不回 */
+export async function 移除成员动作(accountId: string, 名字: string) {
+  const me = await requireUser();
+  const r = await 移除成员(String(accountId ?? ""));
+  if (r.ok) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: `把「${名字}」移出了团队，邀请码和钥匙都换了` });
+  return r;
+}
+
+/** 换邀请码（只有建团队的人）：旧码作废，钥匙一起换 */
+export async function 换邀请码动作() {
+  const me = await requireUser();
+  const r = await 换邀请码();
+  if (r.ok) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: "换了团队邀请码和钥匙，旧邀请码作废" });
   return r;
 }
