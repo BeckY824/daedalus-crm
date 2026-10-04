@@ -48,7 +48,13 @@ export default function WidthHandle({ 规格 }: { 规格: 把手规格 }) {
     [变量],
   );
 
+  /*
+    挂上拖拽之后打一个 data-ready。缝是服务端先画出来的，看得见的时候 React 可能还没接上事件，
+    那一刻拖它什么都不会发生（e2e「左栏能拖宽」整套连跑时偶发就是这个，2026-10-04）。用例拖之前等它
+  */
+  const 缝 = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    缝.current?.setAttribute("data-ready", "");
     try {
       const 存的 = Number(localStorage.getItem(存档键));
       if (存的) 应用(夹住(存的));
@@ -106,6 +112,7 @@ export default function WidthHandle({ 规格 }: { 规格: 把手规格 }) {
 
   return (
     <div
+      ref={缝}
       className={`rail-resizer${边 === "左" ? " rail-resizer-left" : ""}`}
       role="separator"
       aria-orientation="vertical"

@@ -219,6 +219,8 @@ test.describe("中栏跟着路由走", () => {
       左栏默认两百来宽，半个窗口是个足够松的上限。
     */
     await expect(缝).toBeVisible();
+    // 看得见不等于拖得动：缝是服务端画的，要等 React 接上事件（WidthHandle 挂载后打 data-ready）
+    await expect(缝).toHaveAttribute("data-ready", "");
     await expect.poll(async () => (await 左栏.boundingBox())?.width ?? Infinity).toBeLessThan(600);
     const 原宽 = (await 左栏.boundingBox())!.width;
 
@@ -232,6 +234,7 @@ test.describe("中栏跟着路由走", () => {
 
     // 记得住：这是它和「拖一下就弹回去」的区别，也是唯一值得测的一条
     await page.reload();
+    await expect(缝).toHaveAttribute("data-ready", "");
     await expect(左栏).toHaveJSProperty("offsetWidth", Math.round(拖后));
 
     // 双击回默认——拖窄了之后总得有条退路，不用去设置里找
