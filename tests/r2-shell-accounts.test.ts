@@ -255,13 +255,18 @@ class 一台电脑 {
     if (!r.有效) this.页面 = "登录页";
   }
 
-  /** 进门的话：是谁、看到的是哪个目录 */
+  /**
+   * 进门的话：是谁、看到的是哪个目录。
+   * 老 .cloud.json（0.39.2 之前）里没有 accountId：断网开机照常进门，那时人是谁按令牌在云端归谁算
+   * （2026-10-04 加：原来记成「?」，升级上来的甲断网进门看自己那份会被误报成串数据）
+   */
+  认令牌: (token: string) => string | undefined = () => undefined;
   async 看到() {
     if (this.页面 !== "进门" || !this.本地) return null;
     const { 读 } = await import("@/lib/desktop/cloud");
     this.服务端环境();
     const c = 读();
-    return c ? { 谁: c.accountId ?? "?", 目录: this.本地.dir } : null;
+    return c ? { 谁: c.accountId ?? this.认令牌(c.token) ?? "?", 目录: this.本地.dir } : null;
   }
 }
 
@@ -271,7 +276,9 @@ class 一台电脑 {
 
 type 步 =
   | "甲登录" | "乙登录" | "丙登录" | "甲登录(桥断)" | "乙登录(桥断)"
-  | "退出登录" | "重启" | "重启(断网)" | "重启(网慢)" | "写一笔" | "吊销甲" | "吊销乙" | "切回前台";
+  | "退出登录" | "重启" | "重启(断网)" | "重启(网慢)" | "写一笔" | "吊销甲" | "吊销乙" | "切回前台"
+  /* 2026-10-04 加（A-2 / B-2 / C-7）：断网时点退出；当前目录的 .owner 被清空（磁盘满、杀毒软件） */
+  | "退出登录(断网)" | "清空.owner";
 
 class 场景 {
   机: 一台电脑;
@@ -283,6 +290,7 @@ class 场景 {
 
   constructor(public 根: string) {
     this.机 = new 一台电脑(根);
+    this.机.认令牌 = (t) => this.云.令牌.get(t);
     vi.stubGlobal("fetch", this.云.fetch);
   }
 
@@ -309,6 +317,15 @@ class 场景 {
       case "退出登录":
         if (m.页面 !== "进门") return;
         await m.退出登录();
+        break;
+      case "退出登录(断网)":
+        if (m.页面 !== "进门") return;
+        this.云.在线 = false;
+        await m.退出登录();
+        this.云.在线 = true;
+        break;
+      case "清空.owner":
+        if (m.数据目录 && fs.existsSync(path.join(m.数据目录, ".owner"))) fs.writeFileSync(path.join(m.数据目录, ".owner"), "");
         break;
       case "重启":
       case "重启(断网)":
@@ -758,5 +775,40 @@ describe("随机顺序（固定种子）：任何时刻不串、不丢", () => {
   it("【A-1 真坏】同一批序列：丢数据（给出最短反例）", async () => {
     const { 丢 } = await 全跑();
     expect(丢.slice(0, 1)).toEqual([]);
+  }, 120_000);
+
+  /*
+    2026-10-04 加（A-2 / B-1 / B-2 / C-7）：从「0.39.2 之前升级上来、老 .cloud.json 没有 accountId」起步，
+    字母表里加上网慢开机、断网退出、.owner 被清空。头一步固定是断网 / 网慢开机——那正是 A-2 的入口。
+    不放「吊销甲」：老令牌在开机校验时就被吊销的话，壳按 401 把它清掉、这份是谁的再也问不出来，
+    那是另一条（见汇报里的剩余风险），不在这一组里。
+  */
+  it("300 条长 12 的随机序列（升级上来、断网 / 网慢开机）：不串、不丢", async () => {
+    const 升级字母表: 步[] = ["甲登录", "乙登录", "丙登录", "乙登录(桥断)", "退出登录", "退出登录(断网)", "重启", "重启(断网)", "重启(网慢)", "写一笔", "写一笔", "吊销乙", "切回前台", "清空.owner"];
+    const 串: string[] = [];
+    const 丢: string[] = [];
+    for (let k = 0; k < 300; k++) {
+      const r = 随机(10_000 + k);
+      const 步们 = Array.from({ length: 12 }, () => 升级字母表[Math.floor(r() * 升级字母表.length)]);
+      fs.rmSync(根, { recursive: true, force: true });
+      const d = path.join(根, "data");
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, "crm.db"), JSON.stringify([{ 谁: 甲.id, 第几: 0 }]));
+      fs.writeFileSync(path.join(d, ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t-old-jia", name: "甲", contact: 甲.target, models: [] }));
+      const s = new 场景(根);
+      s.云.令牌.set("t-old-jia", 甲.id);
+      s.写过[甲.id] = [0];
+      if (k % 2) s.云.慢 = true;
+      else s.云.在线 = false;
+      await s.开机();
+      s.云.在线 = true;
+      s.云.慢 = false;
+      for (const x of 步们) await s.走(x);
+      串.push(...s.违规.filter((v) => v.startsWith("【串数据】")));
+      丢.push(...s.违规.filter((v) => v.startsWith("【丢数据】")));
+      vi.unstubAllGlobals();
+    }
+    expect(串).toEqual([]);
+    expect(丢.sort((a, b) => a.length - b.length).slice(0, 1)).toEqual([]);
   }, 120_000);
 });
