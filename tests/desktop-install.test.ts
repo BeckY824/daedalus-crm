@@ -288,6 +288,56 @@ describe("删目录：fs 删不掉就交给 /bin/rm", () => {
     expect(调用[0]).toEqual(["/bin/rm", "-rf", d]);
   });
 
+  /*
+    回归核对 R-015 / D-084：第二次应用内更新报 ENOTEMPTY app.asar——Electron 的 fs 把 .asar 当目录，
+    fs.rm 递归删 X.app.old 时钻进 app.asar 里去删「子文件」，删不掉。修法是删的时候打开 process.noAsar。
+    纯 Node 里复现不了 Electron 那层补丁，这里钉住开关：fs.rm 执行时 noAsar 是开着的、完了恢复
+  */
+  it("R-015 fs.rm 执行时 process.noAsar 开着，删完恢复原值", async () => {
+    const fsp = require_("node:fs/promises") as typeof import("node:fs/promises");
+    const 原rm = fsp.rm;
+    const 看到: unknown[] = [];
+    const 原值 = (process as { noAsar?: boolean }).noAsar;
+    fsp.rm = (async (...a: Parameters<typeof 原rm>) => {
+      看到.push((process as { noAsar?: boolean }).noAsar);
+      return 原rm(...a);
+    }) as typeof 原rm;
+    try {
+      const d = path.join(沙盒, "Daedalus CRM.app.old");
+      fs.mkdirSync(path.join(d, "Contents", "Resources"), { recursive: true });
+      fs.writeFileSync(path.join(d, "Contents", "Resources", "app.asar"), "x");
+      await 安装.删目录(d, async () => {});
+      expect(fs.existsSync(d)).toBe(false);
+    } finally {
+      fsp.rm = 原rm;
+    }
+    expect(看到).toEqual([true]);
+    expect((process as { noAsar?: boolean }).noAsar).toBe(原值);
+  });
+
+  it("R-015 fs.rm 抛了（Electron 里就是 ENOTEMPTY app.asar）：开关照样恢复，交给系统的 rm 兜底", async () => {
+    const fsp = require_("node:fs/promises") as typeof import("node:fs/promises");
+    const 原rm = fsp.rm;
+    const 原值 = (process as { noAsar?: boolean }).noAsar;
+    fsp.rm = (async () => {
+      throw Object.assign(new Error("ENOTEMPTY: directory not empty, rmdir 'app.asar'"), { code: "ENOTEMPTY" });
+    }) as typeof 原rm;
+    const d = path.join(沙盒, "stuck.app.old");
+    fs.mkdirSync(d);
+    const 调用: string[][] = [];
+    try {
+      await 安装.删目录(d, async (c: string, a: string[]) => {
+        调用.push([c, ...a]);
+        fs.rmSync(d, { recursive: true, force: true });
+      });
+    } finally {
+      fsp.rm = 原rm;
+    }
+    expect(fs.existsSync(d)).toBe(false);
+    expect(调用[0]).toEqual(process.platform === "win32" ? ["cmd.exe", "/d", "/c", "rmdir", "/s", "/q", d] : ["/bin/rm", "-rf", d]);
+    expect((process as { noAsar?: boolean }).noAsar).toBe(原值);
+  });
+
   it("上次留下的 .old-<时间戳> 也会被启动清理扫掉", async () => {
     const 目标 = path.join(沙盒, "Daedalus CRM.app");
     造包(目标, "0.23.3");
@@ -373,6 +423,29 @@ describe("下载文件：镜像不行就换备用地址", () => {
     ).rejects.toThrow(/500/);
     expect(new Set(试过)).toEqual(new Set(["镜像", "备用"]));
     expect(fs.existsSync(目标)).toBe(false);
+  });
+
+  /*
+    回归核对 R-051：国内镜像没备案被阿里云按 SNI 断——那不是 404，是连接层直接断（ECONNRESET / fetch failed）。
+    这种要按网络错误重试几次，还不行就换备用，最后从备用下全
+  */
+  it("R-051 镜像连接被掐断（ECONNRESET，不是 4xx）：重试用完就换备用，从备用下全", async () => {
+    const 目标 = path.join(沙盒, "q.dmg");
+    const 次数 = { 镜像: 0, 备用: 0 };
+    const 等了: number[] = [];
+    const f = async (u: string) => {
+      if (u === "镜像") {
+        次数.镜像++;
+        throw Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) });
+      }
+      次数.备用++;
+      return 假应答("0123456789", 10);
+    };
+    await 安装.下载文件({ url: "镜像", 备用: "备用", 目标, fetch: f, 重试: 2, 等待: async (ms: number) => void 等了.push(ms) });
+    expect(fs.readFileSync(目标, "utf8")).toBe("0123456789");
+    // 网络错误照常重试（1 + 2 次），不像 404 那样一次就放弃；然后换备用
+    expect(次数).toEqual({ 镜像: 3, 备用: 1 });
+    expect(等了.length).toBe(2);
   });
 
   it("没有备用（老 feed / 这一版没开镜像）：行为和以前一模一样", async () => {
