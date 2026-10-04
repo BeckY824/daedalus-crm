@@ -6,6 +6,7 @@ import { createSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 import { 本机我 } from "@/lib/desktop/me";
+import { 是本机地址 } from "@/lib/desktop/local-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,9 @@ export async function GET(req: Request) {
   if (process.env.DESKTOP_LOCAL !== "1" || !expected) {
     return new NextResponse("Not Found", { status: 404 });
   }
+
+  // Host 不是本机地址：DNS 重绑定过来的网页，一律当没有这个路由（D-1，2026-10-04）
+  if (!是本机地址(req.headers.get("host") ?? new URL(req.url).host)) return new NextResponse("Not Found", { status: 404 });
 
   const given = new URL(req.url).searchParams.get("t") ?? "";
   const a = Buffer.from(given);

@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
+import { 是本机地址, 来自壳 } from "@/lib/desktop/local-guard";
 import LoginForm from "./LoginForm";
 import DesktopAuth from "./DesktopAuth";
 import { 能找回密码 } from "@/lib/tenant/password-reset";
@@ -31,7 +33,12 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
    * 画哪几个入口由云端说了算：注册收不收、能不能自助找回，问一次 /api/account/policy。
    */
   if (本地模式()) {
-    if (读云端凭据() && process.env.DESKTOP_TOKEN && !sp.reason) {
+    /*
+      只有壳自己的窗口才自动登录（2026-10-04，D-1）：原来对任何没登录的请求都把令牌写进跳转地址，
+      同机别的系统账户、DNS 重绑定过来的网页都能拿到会话。壳给自己的请求带 x-desktop-token（desktop/main.js），见 lib/desktop/local-guard.ts
+    */
+    const 头 = await headers();
+    if (读云端凭据() && process.env.DESKTOP_TOKEN && !sp.reason && 是本机地址(头.get("host")) && 来自壳(头.get("x-desktop-token"))) {
       redirect(`/api/desktop/session?t=${encodeURIComponent(process.env.DESKTOP_TOKEN)}`);
     }
     const p = await 策略();

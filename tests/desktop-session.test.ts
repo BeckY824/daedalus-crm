@@ -15,8 +15,11 @@ import os from "node:os";
 import path from "node:path";
 
 // 路由引了 auth.ts，它在模块顶层就 import next/headers，vitest 里直接 import 会炸
+/** 登录页读的请求头（D-1，2026-10-04）：默认装成「壳自己的窗口」——本机地址 + 带着对的 x-desktop-token */
+const 请求头 = vi.hoisted(() => ({ 当前: {} as Record<string, string> }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => undefined, set: () => {}, delete: () => {} }),
+  headers: async () => new Headers(请求头.当前),
 }));
 
 const URL_ = "http://127.0.0.1:1234/api/desktop/session";
@@ -71,6 +74,7 @@ describe("本地模式下 /login 是云端账号的门", () => {
   const 令牌文件 = path.join(数据目录, ".cloud.json");
   afterAll(() => fs.rmSync(数据目录, { recursive: true, force: true }));
   beforeEach(() => {
+    请求头.当前 = { host: "127.0.0.1:1234", "x-desktop-token": "desktop-token-for-tests" };
     process.env.DESKTOP_LOCAL = "1";
     process.env.DESKTOP_TOKEN = "desktop-token-for-tests";
     process.env.CRM_DATA_DIR = 数据目录;
@@ -97,6 +101,36 @@ describe("本地模式下 /login 是云端账号的门", () => {
     const { default: LoginPage } = await import("@/app/login/page");
     await expect(LoginPage({ searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_REDIRECT");
     expect(跳了).toEqual(["/api/desktop/session?t=desktop-token-for-tests"]);
+  });
+
+  /*
+    D-1（2026-10-04）：原来对谁都把令牌写进跳转地址。同机别的系统账户连 127.0.0.1、DNS 重绑定过来的网页，
+    都能拿到会话。现在只有壳自己的窗口（带对的 x-desktop-token、本机地址）才跳
+  */
+  for (const [谁, 头] of [
+    ["同机别的程序 / 别的系统账户（没带壳的令牌头）", { host: "127.0.0.1:1234" }],
+    ["带错的令牌头", { host: "127.0.0.1:1234", "x-desktop-token": "guess" }],
+    ["DNS 重绑定过来的网页（Host 是别人的域名）", { host: "attacker.example.com:1234", "x-desktop-token": "desktop-token-for-tests" }],
+  ] as const) {
+    it(`手上有令牌文件，但来的是${谁}：不跳、不把令牌写进地址，只画登录门`, async () => {
+      fs.writeFileSync(令牌文件, JSON.stringify({ baseUrl: "http://127.0.0.1:9", token: "dk_x", name: "某人", contact: "a@b.c", models: [] }));
+      请求头.当前 = { ...头 };
+      vi.doMock("next/navigation", () => ({
+        redirect: (u: string) => {
+          throw new Error(`不该跳：${u}`);
+        },
+      }));
+      const { default: LoginPage } = await import("@/app/login/page");
+      const { default: DesktopAuth } = await import("@/app/login/DesktopAuth");
+      const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { type: unknown };
+      expect(el.type).toBe(DesktopAuth);
+    });
+  }
+
+  it("自动登录路由：Host 是别人的域名（DNS 重绑定）→ 404，令牌对也不签", async () => {
+    const { GET } = await import("@/app/api/desktop/session/route");
+    const res = await GET(new Request(`${URL_}?t=desktop-token-for-tests`, { headers: { host: "attacker.example.com:1234" } }));
+    expect(res.status).toBe(404);
   });
 
   it("没有令牌：画的是桌面端那张新登录页（云端不支持应用内注册时带着去网页注册的地址）", async () => {
@@ -211,6 +245,7 @@ describe("换了账号但目录还没换：哪儿都不给进", () => {
     fs.writeFileSync(令牌文件, JSON.stringify({ baseUrl: "http://127.0.0.1:9", token: "dk_x", accountId, name: "", contact: "b@b.c", models: [] }));
 
   beforeEach(() => {
+    请求头.当前 = { host: "127.0.0.1:1234", "x-desktop-token": "desktop-token-for-tests" };
     process.env.DESKTOP_LOCAL = "1";
     process.env.DESKTOP_TOKEN = "desktop-token-for-tests";
     process.env.CRM_DATA_DIR = 目录;

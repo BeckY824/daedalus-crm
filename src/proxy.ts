@@ -34,8 +34,22 @@ async function hasValidSession(request: NextRequest): Promise<boolean> {
   }
 }
 
+/** 和 lib/desktop/local-guard.ts 的 是本机地址 同一条（proxy 跑在 Edge，那边用了 node:crypto，不直接引） */
+function 本机地址(host: string | null): boolean {
+  if (!host) return false;
+  const 名 = host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.split(":")[0];
+  return 名 === "127.0.0.1" || 名 === "localhost" || 名 === "[::1]";
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  /*
+    桌面端本地模式只认本机地址（2026-10-04，D-1）：恶意网页把自己的域名重绑定到 127.0.0.1，
+    浏览器会带着那个域名的 Host 来访问本地服务。不是 127.0.0.1 / localhost / [::1] 的一律拒
+  */
+  if (process.env.DESKTOP_LOCAL === "1" && !本机地址(request.headers.get("host"))) {
+    return new NextResponse("Misdirected Request", { status: 421 });
+  }
   const valid = await hasValidSession(request);
 
   // 未登录也能看的页面。注册页只在托管版有内容，自部署版进去会被服务端动作拒绝；

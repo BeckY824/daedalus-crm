@@ -7,7 +7,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { ROOT, 云端账号, 进门地址 } from "./env";
+import { ROOT, 云端账号, 进门地址, DESKTOP_TOKEN } from "./env";
 import { 没登录云端时, 进门 } from "./helpers";
 
 const 版本 = (JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { version: string }).version;
@@ -68,6 +68,23 @@ test("令牌不对、没带令牌都进不来：403，不签会话", async ({ pa
   }
   // 浏览器这边也确实没拿到 cookie
   expect((await page.context().cookies()).map((c) => c.name)).not.toContain("crm_session");
+});
+
+/*
+  D-1（2026-10-04，搭这套 e2e 时发现）：原来 /login 对任何没登录的请求都 307 到 /api/desktop/session?t=<令牌>，
+  令牌就写在跳转地址里——同机别的系统账户、DNS 重绑定过来的网页都能拿到会话。
+  现在只有壳自己的窗口（带 x-desktop-token）才自动登录；Host 不是本机地址的一律拒
+*/
+test("不是壳的请求拿不到令牌：/login 不再把令牌写进跳转；冒充别的域名直接被拒", async ({ request }) => {
+  const 门 = await request.get("/login", { maxRedirects: 0 });
+  expect(门.headers()["location"] ?? "").not.toContain("t=");
+  expect(await 门.text()).not.toContain(DESKTOP_TOKEN);
+  const 带对头 = await request.get("/login", { maxRedirects: 0, headers: { "x-desktop-token": DESKTOP_TOKEN } });
+  expect(带对头.status(), "壳自己的窗口照旧自动登录").toBe(307);
+  const 重绑定 = await request.get("/login", { maxRedirects: 0, headers: { host: "attacker.example.com", "x-desktop-token": DESKTOP_TOKEN } });
+  expect(重绑定.status()).toBe(421);
+  const 会话 = await request.get(`/api/desktop/session?t=${DESKTOP_TOKEN}`, { maxRedirects: 0, headers: { host: "attacker.example.com" } });
+  expect(会话.status()).toBe(404);
 });
 
 test("没登录云端账号：带着令牌也被挡在登录门（DesktopAuth），登录后放行", async ({ page }) => {

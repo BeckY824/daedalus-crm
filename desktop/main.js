@@ -1555,6 +1555,15 @@ if (!app.requestSingleInstanceLock()) {
       if (装着 && !(await 等安装装完(装着))) return;
     }
     建菜单();
+    /*
+      窗口发往本地服务的请求都带上 x-desktop-token（2026-10-04，D-1）。本地 /login 只有看到它对得上才自动登录——
+      原来对谁都把令牌写进跳转地址，同机别的系统账户、DNS 重绑定过来的网页都能拿到会话。
+      只给「当前本地服务那个端口」加：别的站、别的端口一律不带（端口每次启动都换，所以每个请求现比）
+    */
+    session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ["http://127.0.0.1/*", "http://127.0.0.1:*/*"] }, (细, 回) => {
+      if (本地?.port && 本地?.token && 细.url.startsWith(`http://127.0.0.1:${本地.port}/`)) 细.requestHeaders["x-desktop-token"] = 本地.token;
+      回({ requestHeaders: 细.requestHeaders });
+    });
     安装.清理旧包(应用包).catch(() => {});
     // 换目录成了的话，现在跑的就是新版本：失败计数清掉（windows-install.js 的 换目录屡败）
     if (process.platform === "win32") 窗装.换目录已生效(更新目录, app.getVersion());
