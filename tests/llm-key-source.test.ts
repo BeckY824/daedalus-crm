@@ -225,3 +225,67 @@ describe("等不到就重发一次（2026-10-02 实测中转站偶尔卡 30–20
     }
   });
 });
+
+/*
+  回归核对 D-064：① 快速重发曾把正常偏慢的解析（默认 4000 输出、正常 9–14 秒）在 25 秒处切断重来——
+  现在默认长度走「中输出」那一档（45 秒），只有 ≤2000 的短输出才走 25 秒；② 两次都等不到时说「AI 响应超时」，
+  不说「重发过」之类让人摸不着头脑的话
+*/
+describe("快速重发不切正常偏慢的解析、超时说人话（D-064）", () => {
+  const 接上 = () => {
+    process.env.LLM_API_KEY = "k";
+    process.env.LLM_BASE_URL = "https://relay.example/v1";
+    process.env.LLM_MODEL = "m";
+  };
+  const 收拾 = () => {
+    delete process.env.LLM_API_KEY;
+    delete process.env.LLM_BASE_URL;
+    delete process.env.LLM_MODEL;
+  };
+
+  it("① 默认长度（解析 / 简报）用中输出那一档：短输出那档到点了也不重发，等它自己回来", async () => {
+    const { chatJSON, 首字等待毫秒 } = await import("@/lib/llm");
+    const 原 = { ...首字等待毫秒 };
+    // 短输出那档掐得很短、中输出那档放得很长：默认长度要是误走了短输出，就会在 30ms 处被掐断重发
+    首字等待毫秒.短输出 = 30;
+    首字等待毫秒.中输出 = 60_000;
+    接上();
+    let 次 = 0;
+    vi.stubGlobal("fetch", async (_u: string, init: RequestInit) => {
+      次++;
+      await new Promise((ok, rej) => {
+        const t = setTimeout(ok, 300); // 偏慢但正常
+        init.signal?.addEventListener("abort", () => (clearTimeout(t), rej(Object.assign(new Error("timeout"), { name: "TimeoutError" }))));
+      });
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":1}' }, finish_reason: "stop" }] }), { status: 200 });
+    });
+    try {
+      expect(await chatJSON("解析这段", { timeoutMs: 120_000, feature: "parse" })).toEqual({ ok: 1 });
+      expect(次, "正常偏慢的解析不该被切断重发").toBe(1);
+      // 对照：真是短输出的（agent 决策那种）照旧快速重发
+      次 = 0;
+      expect(await chatJSON("短的", { maxTokens: 500, timeoutMs: 120_000 })).toEqual({ ok: 1 });
+      expect(次).toBe(2);
+    } finally {
+      Object.assign(首字等待毫秒, 原);
+      收拾();
+    }
+  });
+
+  it("② 重发那次也等不到：说「AI 响应超时，请稍后重试」，不提重发、不摆英文", async () => {
+    const { chatJSON } = await import("@/lib/llm");
+    接上();
+    let 次 = 0;
+    vi.stubGlobal("fetch", async () => {
+      次++;
+      throw Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    });
+    try {
+      const e = await chatJSON("x", { maxTokens: 500, timeoutMs: 60_000 }).catch((x: Error) => x);
+      expect(次).toBe(2);
+      expect((e as Error).message).toBe("AI 响应超时，请稍后重试");
+    } finally {
+      收拾();
+    }
+  });
+});

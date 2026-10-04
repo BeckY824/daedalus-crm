@@ -195,4 +195,13 @@ describe("恢复（设置页说明，DesktopTab.tsx:136）", () => {
     expect(说明).toMatch(/crm\.db-wal/);
     expect(说明).toMatch(/crm\.db-shm/);
   });
+
+  // 【下一版】回归核对 D-077 后半：Windows 默认藏扩展名，人看到的备份叫「DaedalusCRM-备份」，照说明改名成 crm.db
+  // 实际得到 crm.db.db——程序找不到 crm.db 就当新装起一个空库，人以为恢复把数据弄没了（数据其实还在）。
+  // 有了设置里的「自动备份 → 恢复」，手动恢复已经不是主路；补一句文案排下一版，补了去掉 skip
+  it.skip("【下一版】D-077 恢复说明提醒 Windows 藏扩展名：改名时别改成 crm.db.db", () => {
+    const 文 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/DesktopTab.tsx"), "utf8");
+    const 说明 = 文.split("\n").find((l) => /从.*备份恢复/.test(l)) ?? "";
+    expect(说明).toMatch(/扩展名|crm\.db\.db/);
+  });
 });

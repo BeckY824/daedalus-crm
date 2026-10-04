@@ -174,3 +174,16 @@ describe("分节：弹窗里一节一张卡", () => {
     expect(节们.map((x) => x.标题)).toContain("几个人一起用：团队同步");
   });
 });
+
+/*
+  【下一版】回归核对 R-076：应用内「更新内容」读 CHANGELOG，只去掉「网页团队版」小节，不按平台过滤——
+  Windows 用户也看到 ⌘K、Dock、访达这些 Mac 才有的说法，像装错了版本。官网 feed 那份 win32 notes 在官网仓库（不归这里）。
+  修法待定（CHANGELOG 约定「（仅 Mac）」行、只留桌面端 按平台去掉），修了去掉 skip
+*/
+describe("更新内容按平台说话（R-076）", () => {
+  it.skip("【下一版】Windows 上看到的这一版说明里没有 Mac 专属的说法", () => {
+    const 全部 = 切更新记录(fs.readFileSync(path.resolve(__dirname, "../CHANGELOG.md"), "utf8"));
+    const 给Windows = (只留桌面端 as unknown as (正文: string, 平台: string) => string)(全部[0].正文, "win32");
+    expect(给Windows).not.toMatch(/Dock|访达|⌘/);
+  });
+});

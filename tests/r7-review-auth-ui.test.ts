@@ -250,3 +250,92 @@ describe("R7-5 验证码格子出错只红一下（dcb680f 修 C4）——修过
     await page.close();
   });
 });
+
+const 焦点在 = (page: Page) => page.evaluate(() => document.activeElement?.id ?? document.activeElement?.tagName ?? null);
+const 报错 = (page: Page) => page.locator(".auth-alert").first().textContent();
+
+describe("登录门断网 / 过场焦点 / 格子只红一下（回归核对 D-011 / D-012 / D-014）", () => {
+  it("D-011 点「继续」时连不上服务器：说一句中文、按钮不再转圈、改好了还能再点", async () => {
+    const page = await 开("登录", `{
+      下一步: async () => { if ((window.__第几次 = (window.__第几次 || 0) + 1) === 1) throw new TypeError("Failed to fetch"); return { ok: true, data: { 去: "密码" } }; },
+    }`);
+    await page.fill("#auth-email", "old@example.com");
+    await page.click("button[type=submit]");
+    await 过场(page);
+    expect(await 报错(page)).toContain("请求失败，请检查网络连接后重试");
+    // 不转圈（antd 的 loading 样式没了）、还能点：再点一次真的又问了一次
+    expect(await page.locator("button[type=submit].ant-btn-loading").count()).toBe(0);
+    await page.click("button[type=submit]");
+    await 过场(page);
+    expect(await page.evaluate(() => (window as unknown as { __调用: Record<string, unknown[]> }).__调用.下一步.length)).toBe(2);
+    expect(await 标题(page)).toBe("输入密码");
+    await page.close();
+  });
+
+  it("D-011 云端一直不回话：65 秒后说「服务器无响应」，按钮恢复", async () => {
+    const page = await 开("登录", `{}`); // 下一步永远不回
+    await page.fill("#auth-email", "old@example.com");
+    await page.click("button[type=submit]");
+    await page.clock.runFor(66_000);
+    await 过场(page);
+    expect(await 报错(page)).toContain("服务器无响应");
+    expect(await page.locator("button[type=submit].ant-btn-loading").count()).toBe(0);
+    await page.close();
+  });
+
+  it("D-012 登录「继续」进输密码：焦点在密码框，不丢在 body", async () => {
+    const page = await 开("登录", `{ 下一步: async () => ({ ok: true, data: { 去: "密码" } }) }`);
+    await page.fill("#auth-email", "old@example.com");
+    await page.click("button[type=submit]");
+    await 过场(page);
+    expect(await 标题(page)).toBe("输入密码");
+    expect(await 焦点在(page)).toBe("auth-pw");
+    await page.close();
+  });
+
+  it("D-012 找回密码输完码进设新密码：焦点在新密码框", async () => {
+    const page = await 开("找回", `{ 发码: async () => ({ ok: true }) }`);
+    await page.fill("input", "a@example.com");
+    await page.click("button[type=submit]");
+    await 过场(page);
+    await page.waitForSelector("input.otp-real");
+    await page.focus("input.otp-real");
+    await page.keyboard.insertText("123456");
+    await 过场(page);
+    await page.waitForSelector("#forgot-newpw");
+    expect(await 焦点在(page)).toBe("forgot-newpw");
+    await page.close();
+  });
+
+  it("D-014 码错红过一下：900ms 后收回；接着输新码、点重发都不再红", async () => {
+    const page = await 开("登录", `{
+      下一步: async () => ({ ok: true, data: { 去: "验证码" } }),
+      核对: async () => ({ 对: false, error: "验证码不对" }),
+    }`);
+    await page.fill("#auth-email", "new@example.com");
+    await page.click("button[type=submit]");
+    await 过场(page);
+    await page.waitForSelector("input.otp-real");
+    await page.focus("input.otp-real");
+    await page.keyboard.insertText("000000");
+    expect(await 红过(page)).toBe(true);
+    await page.clock.runFor(1000);
+    await page.waitForTimeout(30);
+    expect(await page.locator(".otp-err").count(), "红一下就该收回").toBe(0);
+    // 新码输一半：不红
+    await page.focus("input.otp-real");
+    await page.keyboard.insertText("12");
+    await page.clock.runFor(100);
+    expect(await page.locator(".otp-err").count(), "输新码时不该还红着").toBe(0);
+    // 等冷却走完点「重发验证码」：不红
+    for (let i = 0; i < 62; i++) {
+      await page.clock.runFor(1000);
+      await page.waitForTimeout(5);
+    }
+    await page.getByText("重发验证码").click();
+    await 过场(page);
+    expect(await page.locator(".otp-err").count(), "重发之后不该红").toBe(0);
+    expect(await page.evaluate(() => (window as unknown as { __调用: Record<string, unknown[]> }).__调用.下一步.length)).toBe(2);
+    await page.close();
+  }, 60_000);
+});

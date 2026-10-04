@@ -142,3 +142,61 @@ test("短的、一行的粘贴不打扰人", async ({ page }) => {
   await 粘进去(page, "这个月签了多少？");
   await expect(page.locator(".cli-paste")).toHaveCount(0);
 });
+
+/*
+  回归核对 D-031：?new=1 / ?import=paste 是一次性的。桌面端的壳记住最后停在哪一页（带着 query），
+  不抹的话第一天点过「手动录一位」，之后每次打开应用都自己弹框
+*/
+test("D-031 /customers?new=1：新建框开一次，地址上的 new=1 当场抹掉，刷新不再弹", async ({ page }) => {
+  await page.goto("/customers?new=1");
+  const 框 = page.getByRole("dialog", { name: /^新建/ });
+  await expect(框).toBeVisible();
+  await expect(page).toHaveURL(/\/customers$/);
+  await page.keyboard.press("Escape");
+  await expect(框).toBeHidden();
+  await page.reload();
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(800);
+  await expect(page.getByRole("dialog", { name: /^新建/ })).toHaveCount(0);
+});
+
+test("D-031 /customers?import=paste：导入抽屉开着，地址上的 import 当场抹掉、别的筛选参数留着，刷新不再弹", async ({ page }) => {
+  await page.goto("/customers?import=paste&q=%E7%B2%98%E8%B4%B4%E7%BB%84");
+  await expect(page.locator(".ant-drawer-open")).toBeVisible();
+  await expect(page).toHaveURL(/\/customers\?q=/);
+  expect(page.url()).not.toContain("import=");
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".ant-drawer-open")).toHaveCount(0);
+  await page.reload();
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForTimeout(800);
+  await expect(page.locator(".ant-drawer-open")).toHaveCount(0);
+});
+
+/*
+  【下一版】10-04 补 D-031 时发现：?import=paste 进来，抽屉开着却停在「文件」那一栏，不是「粘一段文本」。
+  ImportDrawer 只在 open 从假变真那一下按 初始来路 换栏，而 ?import=paste 进来时 open 第一次渲染就是真，
+  那一下永远等不到。空库「开始」卡上的主按钮「粘一段聊天」走的就是这条路（首页输入框里那颗走的是另一条、没坏）。
+  不伤数据，人多点一下「粘一段文本」就行，排下一版；修法是 来路 的初值取 初始来路。修了去掉 skip
+*/
+test.skip("【下一版】/customers?import=paste：抽屉直接停在「粘一段文本」那一栏", async ({ page }) => {
+  await page.goto("/customers?import=paste");
+  const 抽屉 = page.locator(".ant-drawer");
+  await expect(抽屉).toBeVisible();
+  await expect(抽屉.locator(".ant-segmented-item-selected")).toContainText("粘一段文本");
+});
+
+/*
+  【下一版】同样是补 D-031 时看到的：直接打开 /customers?new=1（首页「开始」卡、联系人页空态的「去建第一位」都这么跳），
+  dev 服务器里报 Hydration failed——服务端就把新建框画成开着的，和客户端那一版对不上，React 整棵重画。
+  框照样弹、功能不坏（PlansView 那边是「等水合完再开」的写法），排下一版。修了去掉 skip
+*/
+test.skip("【下一版】直接打开 /customers?new=1：不报水合错误", async ({ page }) => {
+  const 错: string[] = [];
+  page.on("console", (m) => { if (m.type() === "error" && /Hydration/i.test(m.text())) 错.push(m.text().slice(0, 200)); });
+  page.on("pageerror", (e) => { if (/Hydration/i.test(e.message)) 错.push(e.message.slice(0, 200)); });
+  await page.goto("/customers?new=1");
+  await expect(page.getByRole("dialog", { name: /^新建/ })).toBeVisible();
+  await page.waitForTimeout(1000);
+  expect(错).toEqual([]);
+});

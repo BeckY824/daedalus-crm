@@ -75,6 +75,26 @@ describe("业务配置", () => {
     expect(m.fields).toEqual({ school: "公司", grade: "职位", major: "行业" });
     expect(m.grades).toEqual(DEFAULT_BUSINESS.grades);
   });
+  /*
+    回归核对 R-070：预设来源换过一套（加了小红书、阿里国际站这些），设置里自己改过来源的人要留着自己那份——
+    读的时候不许把新预设并进来、不许替他排序，也不许因此把模版猜成外贸
+  */
+  it("R-070 存过一份自定义来源（老一套，没有小红书）：读回原样，新预设一项都不并进来", async () => {
+    const 老一套 = ["展会获取", "老客户转介绍", "官网咨询", "自己加的：地推"];
+    expect(DEFAULT_BUSINESS.sources).toContain("小红书");
+    await saveBusiness({ ...DEFAULT_BUSINESS, sources: 老一套 });
+    invalidateSettingsCache();
+    const b = await getBusiness();
+    expect(b.sources).toEqual(老一套);
+    expect(b.template).toBe("general");
+    // 另外几组同理：自己改过的照原样
+    await saveBusiness({ ...DEFAULT_BUSINESS, industries: ["教育"], grades: ["老板"] });
+    invalidateSettingsCache();
+    const c = await getBusiness();
+    expect(c.industries).toEqual(["教育"]);
+    expect(c.grades).toEqual(["老板"]);
+  });
+
   it("保存后读回，选项列表去掉空白项", async () => {
     await saveBusiness({ ...DEFAULT_BUSINESS, customer: "客户", grades: ["A", " ", "B "] });
     const b = await getBusiness();

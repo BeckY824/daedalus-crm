@@ -41,6 +41,16 @@ const 去注释 = (f: string) => readFileSync(path.join(DIR, f), "utf8").replace
 const 容错 = /duplicate column name\|already exists/;
 const 可跳过 = (e: unknown) => /duplicate column name|already exists/i.test(String((e as Error)?.message ?? e));
 
+/**
+ * 不许出现的语句。按「语句」认，不按子串：外键的 ON UPDATE / ON DELETE CASCADE 是建表的一部分，不是改数据（R-064）
+ */
+const 禁止的语句: [string, RegExp][] = [
+  ["DROP", /\bDROP\s+(TABLE|INDEX|VIEW|TRIGGER|COLUMN)\b/i],
+  ["DELETE", /\bDELETE\s+FROM\b/i],
+  ["UPDATE", /(?<!\bON\s+)\bUPDATE\s+["`\w]/i],
+  ["INSERT", /\bINSERT\s+(OR\s+\w+\s+)?INTO\b/i],
+];
+
 describe("迁移文件", () => {
   it("目录里要有按序号命名的 .sql", () => {
     expect(文件.length).toBeGreaterThan(0);
@@ -49,11 +59,26 @@ describe("迁移文件", () => {
 
   it("只能加东西：不允许 DROP / DELETE / UPDATE / INSERT", () => {
     for (const f of 文件) {
-      const sql = 去注释(f).toUpperCase();
-      for (const 禁 of ["DROP ", "DELETE FROM", "UPDATE ", "INSERT INTO"]) {
-        expect(sql.includes(禁), `${f} 含有不允许的语句：${禁}`).toBe(false);
+      const sql = 去注释(f);
+      for (const [禁, re] of 禁止的语句) {
+        expect(re.test(sql), `${f} 含有不允许的语句：${禁}`).toBe(false);
       }
     }
+  });
+
+  /*
+    回归核对 R-064：原来按子串「UPDATE 」拦，外键写 ON UPDATE CASCADE 也被当成 UPDATE 语句误拦，
+    只好不写这个子句绕开。现在只认真正的 UPDATE 语句
+  */
+  it("R-064 外键的 ON UPDATE / ON DELETE 子句不算语句；真的 UPDATE / DELETE 照样拦", () => {
+    const 拦 = (sql: string) => 禁止的语句.filter(([, re]) => re.test(sql)).map(([禁]) => 禁);
+    expect(拦(`CREATE TABLE IF NOT EXISTS "A" ("b" TEXT, FOREIGN KEY ("b") REFERENCES "B" ("id") ON DELETE CASCADE ON UPDATE CASCADE);`)).toEqual([]);
+    expect(拦(`CREATE TABLE IF NOT EXISTS "A" ("b" TEXT REFERENCES "B"("id") on update set null);`)).toEqual([]);
+    expect(拦(`UPDATE "Customer" SET "x" = 1;`)).toEqual(["UPDATE"]);
+    expect(拦(`CREATE INDEX IF NOT EXISTS i ON A(b);\nupdate Customer set x = 1;`)).toEqual(["UPDATE"]);
+    expect(拦(`DELETE FROM "A";`)).toEqual(["DELETE"]);
+    expect(拦(`DROP TABLE "A";`)).toEqual(["DROP"]);
+    expect(拦(`INSERT INTO "A" VALUES (1);`)).toEqual(["INSERT"]);
   });
 
   it("ALTER TABLE 只许 ADD COLUMN——改列、改约束、改名都得走 REBUILD_DB=1", () => {

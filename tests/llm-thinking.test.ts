@@ -115,3 +115,44 @@ describe("思考占掉 max_tokens", () => {
     await expect(chatMessagesJSON([{ role: "user", content: "x" }], { maxTokens: 100 })).rejects.toThrow(/截断/);
   });
 });
+
+/*
+  回归核对 D-063：曾把解析 / 简报 / 话术的输出上限从默认 4000 压到 2000（想让快速重发更早触发），
+  实测思考吃掉 990、正文几乎为空，解析失败，当天撤回（8f835be）。这里钉住「别再压回去」
+*/
+describe("出 JSON 的那几处不许把输出上限压到默认以下（D-063）", () => {
+  it("默认上限不低于 4000；src/app 下每个 chatJSON 要么不传 maxTokens，要么 ≥ 默认，要么明说 thinking:false", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const 根 = path.resolve(__dirname, "../src");
+    const llm = fs.readFileSync(path.join(根, "lib/llm.ts"), "utf8");
+    const 默认 = Number(llm.match(/const DEFAULT_MAX_TOKENS = (\d[\d_]*);/)?.[1].replace(/_/g, ""));
+    expect(默认).toBeGreaterThanOrEqual(4000);
+
+    const 文件们: string[] = [];
+    const 走 = (d: string) => {
+      for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+        const p = path.join(d, e.name);
+        if (e.isDirectory()) 走(p);
+        else if (/\.tsx?$/.test(e.name)) 文件们.push(p);
+      }
+    };
+    走(path.join(根, "app"));
+    let 调用数 = 0;
+    const 坏的: string[] = [];
+    for (const f of 文件们) {
+      const src = fs.readFileSync(f, "utf8");
+      for (const m of src.matchAll(/chatJSON\(([^;]*?)\)\s*(?:\)|;|as)/g)) {
+        调用数++;
+        const 参 = m[1];
+        const 上限 = 参.match(/maxTokens:\s*([\d_]+)/)?.[1];
+        if (上限 && Number(上限.replace(/_/g, "")) < 默认 && !/thinking:\s*false/.test(参)) {
+          坏的.push(`${path.relative(根, f)}: chatJSON(${参.slice(0, 80)}…)`);
+        }
+      }
+    }
+    // 扫得到东西：正则或目录改了以后整条变空就是假绿（现在是解析、简报、两处首页、渠道、粘贴整理 6 处）
+    expect(调用数).toBeGreaterThanOrEqual(6);
+    expect(坏的).toEqual([]);
+  });
+});
