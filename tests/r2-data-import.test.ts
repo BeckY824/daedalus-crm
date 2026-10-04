@@ -333,7 +333,8 @@ describe("撤销", () => {
     expect(await prisma.customer.count()).toBe(2);
   });
 
-  it.skip("【下一版】【B】先导 A（新建）、再导 B（补空同一批人），倒着撤 B 再撤 A：A 建的人应能撤掉", async () => {
+  // 2026-10-04 J-052 修好，去掉 skip
+  it("【B】先导 A（新建）、再导 B（补空同一批人），倒着撤 B 再撤 A：A 建的人应能撤掉", async () => {
     const wA = await 执行导入(csv方案("姓名,手机号\n甲,13800000001"), "A.csv");
     if (!wA.ok) throw new Error(wA.error);
     await new Promise((r) => setTimeout(r, 5));
@@ -345,6 +346,35 @@ describe("撤销", () => {
     const rA = await 撤销批次(wA.batchId);
     // 撤 B 时把公司还原成空，这一写改了 updatedAt；撤 A 时就当「导入之后又改过他的档案」留着了
     expect(await prisma.customer.count(), `撤 A 的结果：${JSON.stringify(rA)}`).toBe(0);
+  });
+
+  it("先导 A、再导 B 补空，B 之后人手改过他 → 撤 B 不动；撤 A 也留着他（J-052 修完人手改的仍算改过）", async () => {
+    const wA = await 执行导入(csv方案("姓名,手机号\n甲,13800000001"), "A.csv");
+    if (!wA.ok) throw new Error(wA.error);
+    await new Promise((r) => setTimeout(r, 5));
+    const wB = await 执行导入(csv方案("姓名,手机号,公司\n甲,13800000001,远山", "补空"), "B.csv");
+    if (!wB.ok) throw new Error(wB.error);
+    await new Promise((r) => setTimeout(r, 5));
+    const 甲 = await prisma.customer.findFirstOrThrow();
+    await patchCustomer(甲.id, "remark", "导完马上改了");
+    expect(await 撤销批次(wB.batchId)).toMatchObject({ ok: true, 还原: 0 });
+    const rA = await 撤销批次(wA.batchId);
+    expect(rA).toMatchObject({ ok: true, 删掉: 0 });
+    expect(await prisma.customer.count()).toBe(1);
+  });
+
+  it("A 和 B 之间人手改过他，再倒着撤 B、撤 A → A 那位留着（撤 B 只认得回到 B 之前那一刻，不替人手的改动作保）", async () => {
+    const wA = await 执行导入(csv方案("姓名,手机号\n甲,13800000001"), "A.csv");
+    if (!wA.ok) throw new Error(wA.error);
+    await new Promise((r) => setTimeout(r, 5));
+    const 甲 = await prisma.customer.findFirstOrThrow();
+    await patchCustomer(甲.id, "major", "金融");
+    await new Promise((r) => setTimeout(r, 5));
+    const wB = await 执行导入(csv方案("姓名,手机号,公司\n甲,13800000001,远山", "补空"), "B.csv");
+    if (!wB.ok) throw new Error(wB.error);
+    expect(await 撤销批次(wB.batchId)).toMatchObject({ ok: true, 还原: 1 });
+    expect(await 撤销批次(wA.batchId)).toMatchObject({ ok: true, 删掉: 0 });
+    expect((await prisma.customer.findFirstOrThrow()).major).toBe("金融");
   });
 });
 

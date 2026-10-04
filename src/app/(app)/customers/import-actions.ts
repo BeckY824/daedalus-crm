@@ -60,6 +60,9 @@ export type 导入方案 = Omit<排布, "字段表"> & {
   重复行: "跳过" | "补空";
 };
 
+/** ImportRow.before 里记「补之前的 updatedAt」用的键。带 @ 的不是字段，撤销时不写回去（2026-10-04 J-052） */
+const 写前键 = "@写前";
+
 /** 「只补空字段」能碰的那几格。**故意不含推荐链和状态**，理由见文件头第 3 条。备注另有一条「添在后面」，见 执行导入 */
 const 补空字段名单 = ["school", "grade", "major", "expectedSignAt", "remark"] as const;
 
@@ -192,7 +195,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
   */
   const 命中 = await 看全部(() => prisma.customer.findMany({
     where: { phone: { in: 这一批.flatMap(同号写法) } },
-    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
+    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
   }));
   const 限定我 = await 限定的我(defaultClient);
   const 表 = 认人表(命中, 这一批, await 分机留存起());
@@ -263,8 +266,13 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         continue;
       }
       const 写后 = await prisma.customer.update({ where: { id: 旧.id }, data: 补, select: { updatedAt: true } });
+      /*
+        「写前」= 补之前这位的 updatedAt。撤销这一批时拿它认出「补之前是谁写的最后一笔」——
+        是另一批导入（先 A 建、再 B 补），撤完 B 就把 A 那条的指纹挪到新的 updatedAt 上，A 还撤得掉（2026-10-04 J-052）。
+        塞在 before 里而不是加一列：不用为一个时刻动迁移；撤销只认 补空字段名单 里的键，不会把它当字段写回去
+      */
       await prisma.importRow.create({
-        data: { batchId: batch.id, customerId: 旧.id, kind: "update", before: JSON.stringify(before), writtenAt: 写后.updatedAt },
+        data: { batchId: batch.id, customerId: 旧.id, kind: "update", before: JSON.stringify({ ...before, [写前键]: 旧.updatedAt.toISOString() }), writtenAt: 写后.updatedAt },
       });
       补空++;
       continue;
@@ -292,7 +300,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       await prisma.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
       新建++;
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
-      表.记下({ id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null });
+      表.记下({ id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null });
     } catch {
       // 唯一约束、非法枚举之类：这一条不进，别把整批带下水
       进不了++;
@@ -426,9 +434,26 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
     }
     const data: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(before)) {
+      // 只写回补空能碰的那几格：before 里还记着 写前键 这类不是字段的东西
+      if (!(补空字段名单 as readonly string[]).includes(k)) continue;
       data[k] = k === "expectedSignAt" && v ? new Date(v as string) : (v ?? null);
     }
-    if (Object.keys(data).length > 0) await prisma.customer.update({ where: { id: c.id }, data });
+    if (Object.keys(data).length > 0) {
+      const 撤后 = await prisma.customer.update({ where: { id: c.id }, data, select: { updatedAt: true } });
+      /*
+        倒着撤（先 A 建、再 B 补，撤 B 再撤 A）：撤 B 这一写改了 updatedAt，A 那条的 writtenAt 就对不上了，
+        撤 A 时甲被当成「导入后改过」留下（2026-10-04 J-052）。
+        B 补之前的那一刻若正是另一批（还没撤的）写完的那一刻，说明 A 和 B 之间没人动过他——撤完 B 他回到了 A 写完的样子，
+        把那条的指纹挪到现在。A、B 之间有人手改过的，写前对不上任何一批，什么都不挪，照旧算改过
+      */
+      const 写前 = typeof before[写前键] === "string" ? new Date(before[写前键] as string) : null;
+      if (写前 && !isNaN(写前.getTime())) {
+        await prisma.importRow.updateMany({
+          where: { customerId: c.id, writtenAt: 写前, batchId: { not: batchId }, batch: { is: { revertedAt: null } } },
+          data: { writtenAt: 撤后.updatedAt },
+        });
+      }
+    }
     还原++;
   }
 
