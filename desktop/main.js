@@ -231,9 +231,14 @@ function 写配置(cfg) {
 /* ---------- 崩溃与诊断 ---------- */
 
 const 文档地址 = "https://github.com/BeckY824/daedalus-crm/blob/main/docs/桌面端安装.md";
-const 反馈地址 = "https://github.com/BeckY824/daedalus-crm/issues/new";
 
-/** 贴进 issue 里的那段。字段少而准：报 bug 时问来问去的就是这几样 */
+/** /Users/张三/Library/… → ~/Library/…（Windows 的 C:\\Users\\张三 同理） */
+function 藏家目录(p) {
+  const 家 = os.homedir();
+  return 家 && String(p).startsWith(家) ? `~${String(p).slice(家.length)}` : String(p);
+}
+
+/** 「复制诊断信息」复制的那段。字段少而准：报 bug 时问来问去的就是这几样 */
 function 诊断文本() {
   let cfg = {};
   try {
@@ -247,8 +252,9 @@ function 诊断文本() {
     Electron: process.versions.electron,
     模式: cfg.mode === "server" ? `服务器 ${cfg.serverUrl}` : "本机数据",
     云端账号: 云端.读() ? "已登录" : "未登录",
-    数据目录: 数据根,
-    应用包: 应用包 || "（开发态）",
+    // 家目录换成 ~：路径里带着系统用户名，用户复制去哪儿贴都不该顺带交出去（2026-10-04，D-106）
+    数据目录: 藏家目录(数据根),
+    应用包: 应用包 ? 藏家目录(应用包) : "（开发态）",
   });
 }
 
@@ -1432,7 +1438,19 @@ function 建菜单() {
           { label: "使用文档", click: () => shell.openExternal(文档地址) },
           {
             label: "反馈问题…",
-            click: () => shell.openExternal(`${反馈地址}?body=${encodeURIComponent(`（描述一下遇到的问题，最好带上操作步骤）\n\n---\n${诊断文本()}`)}`),
+            /*
+              叫开应用内的反馈框（发到我们的运营台、不公开）。原来开的是公开的 GitHub issue，
+              还预填了诊断文本——里面的数据目录带着系统用户名，用户一点「提交」就公开了（2026-10-04，D-106）。
+              事件名和 src/components/FeedbackButton.tsx 的 反馈事件 一致；窗口不在就先开出来
+            */
+            click: () => {
+              // Mac 上窗口关了应用还在：先把窗口开出来（页面要走一遍自动登录，这一下就不叫框了，再点一次即可）
+              if (!win || win.isDestroyed()) return 建窗口();
+              if (win.isMinimized()) win.restore();
+              win.show();
+              win.focus();
+              win.webContents.executeJavaScript('window.dispatchEvent(new Event("feedback:open"))').catch(() => {});
+            },
           },
         ],
       },

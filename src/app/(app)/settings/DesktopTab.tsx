@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { 反馈事件 } from "@/components/FeedbackButton";
 
 /** 壳的桥不会变，订阅什么都不用做 */
 const 无订阅 = () => () => {};
@@ -191,9 +192,8 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
             <Button onClick={复制诊断} disabled={!shell}>
               复制诊断信息
             </Button>
-            <a href="https://github.com/BeckY824/daedalus-crm/issues/new" target="_blank" rel="noreferrer">
-              反馈问题 ↗
-            </a>
+            {/* 原来链去公开的 GitHub issue（D-106）：改成叫开应用内的反馈框，发到我们这儿、不公开 */}
+            <Button onClick={() => window.dispatchEvent(new Event(反馈事件))}>反馈问题</Button>
           </Space>
         </Card>
       </Space>

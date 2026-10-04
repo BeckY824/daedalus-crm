@@ -12,7 +12,7 @@
  * 自部署的开源版（去向 = github）不发请求：他的实例不该认识我们的云，
  * 点了直接开 GitHub issues，那也是 README 里写的那条路。
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Modal, Input, Button, App } from "antd";
 import { useBusiness } from "@/lib/business-client";
@@ -33,6 +33,9 @@ function 气泡() {
   );
 }
 
+/** 叫开反馈框的事件名。桌面端主进程用 executeJavaScript 派发它（desktop/main.js 的「反馈问题…」） */
+export const 反馈事件 = "feedback:open";
+
 export default function FeedbackButton({ 去向 }: { 去向: "cloud" | "github" }) {
   const [open, setOpen] = useState(false);
   const [文字, set文字] = useState("");
@@ -48,6 +51,17 @@ export default function FeedbackButton({ 去向 }: { 去向: "cloud" | "github" 
     }
     setOpen(true);
   }
+
+  /*
+    别处也能叫开这个框：桌面端菜单「帮助 → 反馈问题…」、设置 → 桌面端「反馈问题」（2026-10-04，D-106）。
+    原来那两处开的是公开的 GitHub issue，菜单那条还预填了带系统用户名的本机数据路径——用户一点就公开了。
+    现在都走这一个框，发到我们的运营台，不公开
+  */
+  useEffect(() => {
+    const 开 = () => (去向 === "github" ? window.open(ISSUES, "_blank", "noopener,noreferrer") : setOpen(true));
+    window.addEventListener(反馈事件, 开);
+    return () => window.removeEventListener(反馈事件, 开);
+  }, [去向]);
 
   async function 发送() {
     const body = 文字.trim();
