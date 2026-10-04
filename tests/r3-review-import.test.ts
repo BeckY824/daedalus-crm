@@ -13,6 +13,7 @@ import path from "node:path";
 import { 解析CSV, 成表 } from "@/lib/import/parse";
 import { 读xlsx } from "@/lib/import/xlsx";
 import { 字段表, 猜列 } from "@/lib/import/fields";
+import { 摊开 } from "@/lib/import/plan";
 import { DEFAULT_BUSINESS } from "@/lib/business-config";
 
 const 夹具 = (名: string) => new Uint8Array(readFileSync(path.join(__dirname, "fixtures", 名)));
@@ -32,5 +33,31 @@ describe("成表认表头：表头比数据窄", () => {
     const t = 成表(解析CSV("姓名,手机号,,,\n张三,13800000001,北京,男,老客户\n李四,13800000002,上海,女,新客户"));
     expect(t.表头.slice(0, 2)).toEqual(["姓名", "手机号"]);
     expect(t.数据.map((r) => r[0])).toEqual(["张三", "李四"]);
+  });
+});
+
+/*
+  2026-10-04 回归核对 J-056：两处解析上的丢字。
+  ① 列数取最宽的数据行，但表头没补齐——表头只写 2 列、数据 5 格时，后 3 列连映射都没有，原文一个字不进备注
+  ② 「张三, "北京, 海淀"」逗号后带一个空格再开引号（手写、别的系统导出的常见样子），引号被当普通字符，一格拆成两格
+*/
+describe("J-056 表头比数据窄 / 逗号后带空格的引号字段", () => {
+  it("表头 2 列、数据每行 5 格 → 表头补齐到 5 列，后 3 列的原文并进备注（写成「第 N 列：值」）", () => {
+    const 表 = 字段表(DEFAULT_BUSINESS);
+    const t = 成表(解析CSV("姓名,手机号\n张三,13800000001,北京,男,老客户"));
+    expect(t.表头).toHaveLength(5);
+    const [行] = 摊开({ 表头: t.表头, 数据: t.数据, 映射: 猜列(t.表头, 表), 字段表: 表 });
+    expect(行.值.remark).toBe("第 3 列：北京\n第 4 列：男\n第 5 列：老客户");
+  });
+
+  it("表头那几格写成空的（「姓名,手机号,,,」）也一样：有值的格子并进备注，不悄悄丢", () => {
+    const 表 = 字段表(DEFAULT_BUSINESS);
+    const t = 成表(解析CSV("姓名,手机号,,,\n张三,13800000001,北京,,老客户"));
+    const [行] = 摊开({ 表头: t.表头, 数据: t.数据, 映射: 猜列(t.表头, 表), 字段表: 表 });
+    expect(行.值.remark).toBe("第 3 列：北京\n第 5 列：老客户");
+  });
+
+  it("解析CSV('张三, \"北京, 海淀\"') → 两格：「张三」「北京, 海淀」", () => {
+    expect(解析CSV('张三, "北京, 海淀"')).toEqual([["张三", "北京, 海淀"]]);
   });
 });
