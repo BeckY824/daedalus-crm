@@ -359,8 +359,8 @@ html.glass .rail-item:hover, html.glass .rail-fav-i:hover { background: color-mi
 html.glass .rail-fav-i.on { background: color-mix(in srgb, var(--panel) 72%, transparent); color: var(--ink); }
 .rail-nav, .rail-foot { display: flex; flex-direction: column; gap: 2px; }
 .rail-foot { margin-top: auto; }
-/* 左栏底部「检查更新 · v0.46.14」（UpdateRow.tsx）：平时淡、有新版蓝底、失败黄底 */
-.rail-upd { position: relative; display: flex; align-items: center; gap: var(--s2); width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-card); background: none; font: inherit; font-size: var(--fs-note); color: var(--text-muted); text-align: left; cursor: pointer; overflow: hidden;
+/* 左栏底部「更新记录」「检查更新 · v0.46.15」（WhatsNew.tsx / UpdateRow.tsx）：平时深灰字、有新版蓝底、失败黄底 */
+.rail-upd { position: relative; display: flex; align-items: center; gap: var(--s2); width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-card); background: none; font: inherit; font-size: var(--fs-note); color: var(--ink-soft); text-align: left; cursor: pointer; overflow: hidden; /* 字色原来是 --text-muted，毛玻璃上看不清（2026-10-04 用户：「显示太浅了」），和毛玻璃下的导航项同一档 */
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
 div.rail-upd { cursor: default; }
 button.rail-upd:hover { background: var(--hover); color: var(--ink); }
