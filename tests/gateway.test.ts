@@ -348,6 +348,27 @@ describe("额度", () => {
     expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(1);
   });
 
+  /*
+    2026-10-04 补（回归核对 H-066）：上游报错正文里常把请求头原样回显（「Invalid API key: upstream-key」），
+    网关把这段原文接进给桌面端的错误和服务端日志里。抹掉密钥() 管着这一步，原来没有用例
+  */
+  it("上游报错原文里回显了我们的 Key：给桌面端的响应和服务端日志里都不含它", async () => {
+    const { token } = await 建账号带令牌();
+    vi.stubGlobal("fetch", async () => new Response("Invalid API key provided: upstream-key", { status: 400 }));
+    const 日志: string[] = [];
+    const 收 = (...a: unknown[]) => 日志.push(a.map(String).join(" "));
+    const e = vi.spyOn(console, "error").mockImplementation(收);
+    const w = vi.spyOn(console, "warn").mockImplementation(收);
+    const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
+    const res = await POST(请求(token, 一次问话));
+    const 正文 = await res.text();
+    e.mockRestore();
+    w.mockRestore();
+    expect(正文).toContain("Invalid API key provided"); // 确实走到了「把上游原文接出去」那一支
+    expect(正文).not.toContain("upstream-key");
+    expect(日志.join("\n")).not.toContain("upstream-key");
+  });
+
   it("连不上上游：退——和 5xx 同一个道理", async () => {
     const { token, acc } = await 建账号带令牌();
     vi.stubGlobal("fetch", async () => { throw new Error("connect ECONNREFUSED"); });

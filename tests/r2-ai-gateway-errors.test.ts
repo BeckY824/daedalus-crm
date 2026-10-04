@@ -210,6 +210,20 @@ describe("chatJSON 那条路（起草话术）", () => {
     expect(await 用掉(账号.acc.id), "上游拒的是我们的 Key / 我们的余额，不是用户的请求").toBe(0);
   });
 
+  /*
+    2026-10-04 补（回归核对 H-005）：上游 403（没权限用这个模型）、404（模型下线 / 改名）也是我们这边的事，
+    不该扣用户；原来只有一条源码计数守卫（credits-per-question），没有行为用例
+  */
+  for (const status of [403, 404]) {
+    it(`上游 ${status}（模型没权限 / 下线）：次数退回，给人看的是中文`, async () => {
+      接线({ 上游: () => new Response(JSON.stringify({ error: { message: status === 404 ? "Model Not Exist" : "Forbidden" } }), { status }) });
+      const r = await 起草();
+      expect(r.ok).toBe(false);
+      expect(是人话(错误(r)), `界面上会显示：${错误(r)}`).toBe(true);
+      expect(await 用掉(账号.acc.id)).toBe(0);
+    });
+  }
+
   it("【坏】上游 401（我们的上游 Key 失效）：桌面端用户会被告知去「重新登录」", async () => {
     接线({ 上游: () => new Response(JSON.stringify({ error: { message: "Authentication Fails (no such user)" } }), { status: 401 }) });
     const r = await 起草();
