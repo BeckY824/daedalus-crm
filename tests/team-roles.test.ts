@@ -36,6 +36,8 @@ import { 看全部, 忘掉限定, 限定的我 } from "@/lib/team-scope";
 import { 设传输, 对齐角色, 退出团队, 同步一轮, type 传输 } from "@/lib/sync/client";
 import { 建同步表, 装触发器, 卸触发器, 回放, 只留自己的 } from "@/lib/sync/local";
 import { 带走没做完的 } from "@/lib/carry-over-db";
+import { TOOL_MAP, type ToolContext } from "@/lib/agent/tools";
+import { getBusiness } from "@/lib/business";
 
 const 老板 = "acct_boss";
 const 小王 = "acct_wang";
@@ -178,6 +180,42 @@ describe("业务员只看自己的 + 公海", () => {
     expect((await db.task.findMany({ select: { title: true } })).map((t) => t.title)).not.toContain("老板的客户 的待办");
     const 组 = await db.followUp.groupBy({ by: ["ownerId"], _count: { _all: true } });
     expect(组.map((g) => g.ownerId).sort()).toEqual([小李, 小王].sort());
+  });
+
+  /*
+    上线前测试 4.2「AI 回答只有自己的 + 公海」：AI 的工具读库走的是同一个 prisma（限定层在 Prisma 上），
+    这里把问 AI 时最常用的几把工具挨个跑一遍——找客户、按名字读客户、搜跟进、列商机、盯盘——答出来的只有看得到的
+  */
+  it("AI 的工具也只答看得到的：找客户、读别人的客户、搜跟进、列商机、盯盘都没有同事的", async () => {
+    当("wang");
+    进团队();
+    const ctx: ToolContext = { userId: 小王, userName: "小王", b: await getBusiness(), recordOffset: 0, proposals: [] };
+    const 跑 = async (名: string, args: Record<string, unknown>) => JSON.stringify((await TOOL_MAP.get(名)!.run(args, ctx)).data);
+    const 同事的 = ["小李的客户", "老板的客户"];
+
+    const 找 = await 跑("search_customers", { query: "客户" });
+    for (const n of ["小王的客户", "公海客户", "小王带来的客户"]) expect(找, `找客户里该有「${n}」`).toContain(n);
+    for (const n of 同事的) expect(找, `找客户里不该有「${n}」`).not.toContain(n);
+
+    // 按名字点名要别人的客户：当作没有这个人，不把记录读出来
+    for (const n of 同事的) {
+      const 读 = await 跑("get_customer", { name: n });
+      expect(读, `get_customer「${n}」`).not.toContain(`${n} 的跟进`);
+      expect(读).not.toContain("13800000");
+    }
+    const 读按id = await 跑("get_customer", { id: ids["老板的客户"] });
+    expect(读按id).not.toContain("老板的客户 的跟进");
+
+    const 跟进 = await 跑("search_followups", { keyword: "跟进" });
+    expect(跟进).toContain("小王的客户 的跟进");
+    for (const n of 同事的) expect(跟进, "搜跟进").not.toContain(`${n} 的跟进`);
+
+    const 商机 = await 跑("list_opportunities", {});
+    expect(商机).toContain("小王的客户 的商机");
+    for (const n of 同事的) expect(商机, "列商机").not.toContain(`${n} 的商机`);
+
+    const 盯 = await 跑("get_watchlist", {});
+    for (const n of 同事的) expect(盯, "盯盘").not.toContain(n);
   });
 
   it("业务员把自己的客户交给同事：客户一换人他就看不到了，商机、待办照样跟着过去（五人实测）", async () => {
