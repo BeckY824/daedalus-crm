@@ -10,6 +10,7 @@
  */
 import { describe, it, expect } from "vitest";
 import { 认页面 } from "@/lib/ai-context-page";
+import { 订单与供应商 } from "@/lib/features";
 
 const 参数 = (s: string) => new URLSearchParams(s);
 
@@ -144,7 +145,9 @@ describe("认页面", () => {
     const shell = (await import("node:fs")).readFileSync(new URL("../src/components/AppShell.tsx", import.meta.url), "utf8");
     const 路径 = [...new Set([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1]))];
     expect(路径.length).toBeGreaterThanOrEqual(8);
-    const 漏了 = 路径.filter((p) => !认页面(p, 参数("followStatus=x")) && !认页面(p, null));
+    // 跟着功能开关关掉的页（订单 / 供应商，lib/features.ts）左栏不出，也不给说法（L-111）
+    const 关着 = 订单与供应商 ? [] : ["/orders", "/suppliers"];
+    const 漏了 = 路径.filter((p) => !关着.includes(p) && !认页面(p, 参数("followStatus=x")) && !认页面(p, null));
     expect(漏了, `这些页面没有上下文说法：${漏了.join("、")}`).toEqual([]);
   });
 });

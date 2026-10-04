@@ -34,7 +34,7 @@ afterAll(async () => {
   await prisma.$disconnect();
 });
 
-async function 本机管理员(title: string | null, name = "管理员") {
+async function 本机管理员(title: string, name = "管理员") {
   return prisma.user.create({ data: { email: "admin", name, title, role: "ADMIN", password: "x" } });
 }
 
