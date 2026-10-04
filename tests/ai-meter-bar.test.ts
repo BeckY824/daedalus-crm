@@ -10,7 +10,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AiMeterBar, AiMeterProvider } from "@/components/AiCost";
 import type { AI计次 } from "@/lib/ai-meter";
 
-const 渲 = (初值: AI计次) => renderToStaticMarkup(createElement(AiMeterProvider, { 初值 }, createElement(AiMeterBar)));
+const 渲 = (初值: AI计次) => renderToStaticMarkup(createElement(AiMeterProvider, { 初值, children: createElement(AiMeterBar) }));
 const 宽 = (html: string) => Number(/style="width:([\d.]+)%"/.exec(html)?.[1]);
 
 describe("左栏 AI 用量条（H-028）", () => {
