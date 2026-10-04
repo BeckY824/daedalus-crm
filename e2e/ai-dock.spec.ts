@@ -480,7 +480,7 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
         };
         const 字 = rgb(getComputedStyle(el.querySelector("span:not(.anticon)") ?? el).color);
         let 底 = rgb(getComputedStyle(el).backgroundColor);
-        for (let p: HTMLElement | null = el; 底.length === 4 && 底[3] === 0 && p; p = p.parentElement) 底 = rgb(getComputedStyle(p).backgroundColor);
+        for (let p: Element | null = el; 底.length === 4 && 底[3] === 0 && p; p = p.parentElement) 底 = rgb(getComputedStyle(p).backgroundColor);
         const [a, b] = [亮(字), 亮(底)].sort((x, y) => y - x);
         return { 比: (a + 0.05) / (b + 0.05), 字: 字.join(","), 底: 底.join(",") };
       });
