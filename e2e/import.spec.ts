@@ -200,7 +200,7 @@ test("完成页「撤销这一批」：先问、写清会删几条；点「不�
   const 问 = page.locator(".ant-popconfirm", { hasText: "撤销这一批导入？" });
   await 撤.click();
   await expect(问).toBeVisible();
-  await expect(问).toContainText("会删掉 1 条新建的记录");
+  await expect(问).toContainText("会删掉这一批新建的 1 位");
   // 问的时候人还在库里
   await 问.getByRole("button", { name: /不\s*了/ }).click();
   await expect(问).toBeHidden();
