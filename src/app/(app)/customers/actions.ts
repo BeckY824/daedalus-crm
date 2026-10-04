@@ -326,7 +326,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
     // 没有 base 就退回保守行为：只要库里现值和提交值对不上就拦
     if (!input.base) {
-      const fields = conflictingFields(currentRow, data);
+      const fields = conflictingFields(currentRow, data, b);
       return {
         ok: false,
         error: `这条${b.customer}在你打开编辑框之后又变过了，本次保存已取消`,
@@ -354,8 +354,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
         error: `这条${b.customer}在你打开编辑框之后又变过了，本次保存已取消`,
         conflict: {
           currentUpdatedAt: current.updatedAt.toISOString(),
-          fields: labelsOf(overlap),
-          theirFields: labelsOf(theirs),
+          fields: labelsOf(overlap, b),
+          theirFields: labelsOf(theirs, b),
         },
       };
     }
@@ -438,12 +438,47 @@ export async function deleteCustomers(
     where: { id: { in: ids } },
     select: { id: true, name: true, phone: true },
   });
-  const 清点 = await 删除前清点(ids);
   /*
-    联系人不跟着删，搬进「未归属」（2026-10-02 排查 B1，和 0.46.14「只移出」同一个道理：
-    人还是那个人，客户这条档案没了不等于这个人没了）。外键是级联删的，所以先搬再删、在同一个事务里。
-    跟进记录随客户一起删，所以不记 followUpIds。
+    两个窗口几乎同时删同一位（或两批选中的有重叠）：两边都先读到了同一批联系人，后提交的那边在
+    「搬进未归属」时撞上同一个 id（P2002），或删的时候那位已经没了——原来直接抛，界面上点了没反应（2026-10-04 第 2 期 2a）。
+    整个事务回滚，什么都没写；按还在的那几位重来一次。一位都不在了就说一句
   */
+  if (!待删.length) return { ok: false, error: `${ids.length > 1 ? "这几" : "这"}位${b.customer}已经在别处删掉了，刷新看看` };
+  const 清点 = await 删除前清点(待删.map((c) => c.id));
+  let 联系人: Awaited<ReturnType<typeof 搬走并删>>["联系人"] = [];
+  let res: { count: number } = { count: 0 };
+  for (let 第几次 = 0; ; 第几次++) {
+    const 还在 = 第几次 === 0 ? 待删.map((c) => c.id) : (await prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((c) => c.id);
+    if (!还在.length) return { ok: false, error: `${ids.length > 1 ? "这几" : "这"}位${b.customer}已经在别处删掉了，刷新看看` };
+    try {
+      ({ 联系人, res } = await 搬走并删(还在));
+      break;
+    } catch (e) {
+      const code = (e as { code?: string } | null)?.code;
+      if (第几次 >= 2 || (code !== "P2002" && code !== "P2025")) throw e;
+    }
+  }
+  if (res.count) {
+    await recordAudit({
+      user: me, action: "delete", entity: "Customer",
+      entityId: 待删.length === 1 ? 待删[0].id : null,
+      summary: `删除 ${res.count} 名${b.customer}：${待删.map((c) => c.name).join("、")}` +
+        (联系人.length ? `（${联系人.length} 位联系人留在联系人页，未归属）` : ""),
+      detail: { 客户: 待删, 一起删掉的: 清点 },
+    });
+  }
+  revalidateCustomer();
+  revalidatePath("/contacts");
+  return { ok: true, deleted: res.count, 留下联系人: 联系人.length };
+}
+
+/**
+ * 联系人搬进未归属、线索退回、删客户——一个事务。
+ * 联系人不跟着删，搬进「未归属」（2026-10-02 排查 B1，和 0.46.14「只移出」同一个道理：
+ * 人还是那个人，客户这条档案没了不等于这个人没了）。外键是级联删的，所以先搬再删、在同一个事务里。
+ * 跟进记录随客户一起删，所以不记 followUpIds。
+ */
+async function 搬走并删(ids: string[]) {
   const 联系人 = await prisma.contact.findMany({
     where: { customerId: { in: ids } },
     include: { customer: { select: { name: true } } },
@@ -468,18 +503,7 @@ export async function deleteCustomers(
     });
     return tx.customer.deleteMany({ where: { id: { in: ids } } });
   });
-  if (res.count) {
-    await recordAudit({
-      user: me, action: "delete", entity: "Customer",
-      entityId: 待删.length === 1 ? 待删[0].id : null,
-      summary: `删除 ${res.count} 名${b.customer}：${待删.map((c) => c.name).join("、")}` +
-        (联系人.length ? `（${联系人.length} 位联系人留在联系人页，未归属）` : ""),
-      detail: { 客户: 待删, 一起删掉的: 清点 },
-    });
-  }
-  revalidateCustomer();
-  revalidatePath("/contacts");
-  return { ok: true, deleted: res.count, 留下联系人: 联系人.length };
+  return { 联系人, res };
 }
 
 /** 删客户之前数一数：会一起删掉什么、什么会留下来。确认框照着它说，不再只写「跟进、待办与签约」 */
@@ -863,6 +887,19 @@ async function 签约收尾(customerId: string, 签约id: string, 勾: 签约联
   for (const p of 计划) await completePlan(p.id);
   for (const t of 待办) await toggleTask(t.id, true);
   return { 赢单: 商机.length, 完成计划: 计划.length, 完成待办: 待办.length };
+}
+
+/**
+ * 删签约之前数一数：当初登记这笔时顺手标成赢单、现在还是赢单的商机有几个——删了会退回进行中（L-007）。
+ * 确认框照着它说（第 2 期 2a：确认框说清会一起动什么）
+ */
+export async function 删签约前清点(id: string): Promise<{ 退回商机: string[] }> {
+  await requireUser();
+  const 赢下的 = await prisma.contractWin.findMany({
+    where: { contractId: id, opportunity: { is: { status: "WON" } } },
+    select: { opportunity: { select: { name: true } } },
+  });
+  return { 退回商机: 赢下的.map((w) => w.opportunity.name) };
 }
 
 /**

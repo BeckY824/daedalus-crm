@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFile } from "node:fs/promises";
-import { 只留当前行, 删除确认标题, 露出这一列 } from "@/lib/list-select";
+import { 只留当前行, 删除确认标题, 露出这一列, 算可见列, 切换后存 } from "@/lib/list-select";
 
 /**
  * 列表页多选和横滚的几条规矩（交互审查 2026-09-28 的 S4、S5）。
@@ -77,5 +77,40 @@ describe("DataList 真的用上了这些规矩", () => {
     expect(src).toMatch(/fixed: true/);
     expect(src).toMatch(/fixed: "left"/);
     expect(src).toMatch(/露出这一列\(/);
+  });
+});
+
+/**
+ * 列设置（2026-10-04 上线前第 2 期 2b，e2e/column-hide 抓到）：默认显示的列勾掉之后，原来读的时候被当成
+ * 「存完之后新加的列」补回来，怎么也藏不住。藏起来的默认列记成「-键」。
+ */
+describe("列设置：存的 → 显示哪几列", () => {
+  const 列 = [
+    { 键: "name", 默认显示: true },
+    { 键: "followStatus", 默认显示: true },
+    { 键: "grade", 默认显示: false },
+  ];
+
+  it("没存过：按默认", () => {
+    expect(算可见列(列, null)).toEqual(["name", "followStatus"]);
+  });
+
+  it("勾掉一列默认显示的：存下来再读，它不再出来", () => {
+    const 存 = 切换后存(算可见列(列, null), null, "followStatus", false);
+    expect(算可见列(列, 存)).toEqual(["name"]);
+  });
+
+  it("勾掉再勾回来：又显示；勾上默认藏着的也显示", () => {
+    let 存 = 切换后存(["name", "followStatus"], null, "followStatus", false);
+    存 = 切换后存(算可见列(列, 存), 存, "followStatus", true);
+    expect(算可见列(列, 存)).toEqual(["name", "followStatus"]);
+    存 = 切换后存(算可见列(列, 存), 存, "grade", true);
+    expect(算可见列(列, 存)).toEqual(["name", "followStatus", "grade"]);
+  });
+
+  it("存完之后新加的、默认显示的列照样补上（老格式也一样）；藏过的不补", () => {
+    const 新列 = [...列, { 键: "phone", 默认显示: true }];
+    expect(算可见列(新列, ["name", "followStatus"])).toEqual(["name", "followStatus", "phone"]);
+    expect(算可见列(新列, ["name", "-followStatus"])).toEqual(["name", "phone"]);
   });
 });

@@ -41,7 +41,7 @@ import { useContactRemoval } from "./useContactRemoval";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
 import { 登记详情名 } from "@/lib/page-rows";
 import Heat, { 冷热说法, 要看冷热 } from "@/components/Heat";
-import { deleteContract } from "../actions";
+import { deleteContract, 删签约前清点 } from "../actions";
 import type { RecordProps, FollowUpRow, ContactRow } from "./types";
 import { useMotionTheme } from "@/components/MotionTheme";
 import { 截止说法, 已过期 } from "@/lib/deadline";
@@ -601,7 +601,7 @@ export default function RecordView({
                 <span className="rec-mini-m">{fmtDate(c.signedAt)}</span>
                 <span className="rec-mini-acts">
                   <Button type="text" size="small" icon={<EditOutlined />} aria-label="编辑这笔签约" onClick={() => { setEditingContract(c); setContractOpen(true); }} />
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除这笔签约" onClick={() => confirmDeleteContract(c)} />
+                  <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除这笔签约" onClick={() => void confirmDeleteContract(c)} />
                 </span>
               </div>
             ))}
@@ -858,12 +858,20 @@ export default function RecordView({
     });
   }
 
-  function confirmDeleteContract(r: ContractRow) {
+  async function confirmDeleteContract(r: ContractRow) {
     const 是最后一笔 = contracts.length === 1;
+    const 退回 = (await 删签约前清点(r.id).catch(() => null))?.退回商机 ?? [];
+    // 登记时顺手标成赢单的商机会退回进行中（L-007）：删之前说清（第 2 期 2a）
+    const 商机那句 = 退回.length ? (
+      <div style={{ marginTop: 8 }}>登记这笔时一起标成赢单的商机{退回.map((n) => `「${n}」`).join("")}会退回进行中。</div>
+    ) : null;
     modal.confirm({
       title: "删除这条签约记录？",
       content: !是最后一笔 ? (
-        `金额 ${金额(r.amount, r.currency)}，删除后统计数据会同步变化。`
+        <>
+          <div>金额 {金额(r.amount, r.currency)}，删除后统计数据会同步变化。</div>
+          {商机那句}
+        </>
       ) : (
         <>
           <div>
@@ -884,6 +892,7 @@ export default function RecordView({
               ]}
             />
           </div>
+          {商机那句}
         </>
       ),
       okText: "删除",
@@ -899,7 +908,8 @@ export default function RecordView({
         }
         // 当初登记时顺手标成赢单的商机跟着退回进行中（L-007）：说一句，不然人以为商机还是赢单
         const 退 = res.退回商机 ? `，${res.退回商机} 个商机退回进行中` : "";
-        message.success(是最后一笔 && picked ? `已删除，跟进状态已退回「${picked.value}」${退}` : `已删除${退}`);
+        // 退回的状态写显示名（L-058）：改过叫法的库里原来提示「已退回「已试听」」，和下拉里看到的对不上
+        message.success(是最后一笔 && picked ? `已删除，跟进状态已退回「${statusLabel(b, picked.value)}」${退}` : `已删除${退}`);
       },
     });
   }
@@ -974,7 +984,8 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
               <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} aria-label="编辑跟进" />
               {/* 就地确认，不弹框：一条跟进记录，删了还能再写一条——
                   后果一句话说得完的事，不值得一个盖住半屏的框（见 components/InlineConfirm.tsx） */}
-              <InlineConfirm 问="删除这条？" 做={onDelete}>
+              {/* 带提醒时间、还没做的「提醒 / 任务」顺带建了一条待办，删它待办也一起走（第 2 期 2a：说清会一起删什么） */}
+              <InlineConfirm 问={(f.type === "TASK" || f.type === "REMIND") && f.dueAt && f.status !== "已完成" ? "连同它的待办一起删？" : "删除这条？"} 做={onDelete}>
                 <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除跟进" />
               </InlineConfirm>
             </span>

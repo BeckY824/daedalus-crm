@@ -163,3 +163,32 @@ describe("AI 建议卡也能单独改", () => {
     expect((await 读(老学员)).channelOwnerId).toBe(张沁);
   });
 });
+
+/*
+  L-022（2026-10-04 补测）：「清空渠道负责人」行内、编辑框、AI 卡三条路原来算出来不一样。X3 之后都取链顶渠道的现任，
+  只钉了行内那一条；这里三条路对同一位转介绍来的客户各清一次，结果必须一样
+*/
+describe("清空渠道负责人：行内 / 编辑框 / AI 卡三条路结果一样（L-022）", () => {
+  it("转介绍来的人（链顶渠道已换人接手）：三条路清空都落到链顶渠道的现任", async () => {
+    await saveChannel({ id: 渠道, name: "林老师", phone: null, remark: null, channelOwnerId: 李蔚然 });
+    const 新人 = (await prisma.customer.create({
+      data: { name: "转介绍来的", phone: "13800000009", salesOwnerId: 陈牧, referrerCustomerId: 老学员, attributionChannelId: 渠道, channelOwnerId: 张沁 },
+    })).id;
+    const 结果: Record<string, string | null> = {};
+    const 钉回陈牧 = () => patchCustomer(新人, "channelOwnerId", 陈牧);
+
+    await 钉回陈牧();
+    expect((await patchCustomer(新人, "channelOwnerId", null)).ok).toBe(true);
+    结果.行内 = (await 读(新人)).channelOwnerId;
+
+    await 钉回陈牧();
+    expect((await 整表保存(新人, { channelOwnerId: null })).ok).toBe(true);
+    结果.编辑框 = (await 读(新人)).channelOwnerId;
+
+    await 钉回陈牧();
+    expect((await applyProposal({ id: "p3", kind: "update_customer", customerId: 新人, customerName: "转介绍来的", reason: "x", changes: [{ field: "channelOwnerName", value: "" }] })).ok).toBe(true);
+    结果.AI卡 = (await 读(新人)).channelOwnerId;
+
+    expect(结果).toEqual({ 行内: 李蔚然, 编辑框: 李蔚然, AI卡: 李蔚然 });
+  });
+});

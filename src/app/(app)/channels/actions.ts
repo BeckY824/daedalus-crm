@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
+import { 不在了 } from "@/lib/not-there";
 
 /**
  * 成功时回传渠道 id（新建是新 id，编辑是原 id）。
@@ -86,14 +87,24 @@ export async function saveChannel(input: {
   return { ok: true, id: 新建id ?? input.id! };
 }
 
-export async function toggleChannel(id: string, active: boolean) {
+export async function toggleChannel(id: string, active: boolean): Promise<{ ok: true } | { ok: false; error: string }> {
   const me = await requireUser();
-  const c = await prisma.channel.update({ where: { id }, data: { active } });
+  /*
+    另一个窗口已经删了这个渠道：原来 update 直接抛 P2025，界面上点了没反应（2026-10-04 第 2 期 2a，r2-data 那条【下一版】）。
+    说一句「已经不在了」
+  */
+  let c: { name: string };
+  try {
+    c = await prisma.channel.update({ where: { id }, data: { active } });
+  } catch (e) {
+    return 不在了(e);
+  }
   await recordAudit({
     user: me, action: "update", entity: "Channel", entityId: id,
     summary: `${active ? "启用" : "停用"}渠道「${c.name}」`,
   });
   revalidatePath("/channels");
+  return { ok: true };
 }
 
 export async function deleteChannel(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -108,10 +119,16 @@ export async function deleteChannel(id: string): Promise<{ ok: true } | { ok: fa
     return { ok: false, error: `该渠道名下已有 ${used} 名${b.customer}，不能删除。如需停用请点「停用」` };
   }
   const 待删 = await prisma.channel.findUnique({ where: { id }, select: { name: true } });
-  await prisma.channel.delete({ where: { id } });
+  // 另一个窗口已经删了：说一句，不抛（2026-10-04 第 2 期 2a）。查完到删之间又被删的那一下也接住
+  if (!待删) return { ok: false, error: "这个渠道已经不在了（可能在别处删了），刷新看看" };
+  try {
+    await prisma.channel.delete({ where: { id } });
+  } catch (e) {
+    return 不在了(e);
+  }
   await recordAudit({
     user: me, action: "delete", entity: "Channel", entityId: id,
-    summary: `删除渠道「${待删?.name ?? id}」`,
+    summary: `删除渠道「${待删.name}」`,
   });
   revalidatePath("/channels");
   return { ok: true };

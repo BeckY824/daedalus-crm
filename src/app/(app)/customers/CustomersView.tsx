@@ -85,6 +85,11 @@ type Props = {
   本批?: { 几位: number } | null;
   /** 接上模型了没有。没接上时导入抽屉里「粘一段文本」那条路只说明原因，不给按钮 */
   aiEnabled?: boolean;
+  /**
+   * 库里还有人在用、但业务配置里已经删掉的职位（第 2 期 2b）。筛选下拉原来只列现在的选项，
+   * 删掉一项后那些老客户还在、显示也对，就是筛不出来
+   */
+  旧职位?: string[];
   filters: {
     keyword: string;
     grade: string;
@@ -117,7 +122,7 @@ type Props = {
  */
 
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled,
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [],
 }: Props) {
   const router = useRouter();
   const { message } = App.useApp();
@@ -443,7 +448,7 @@ export default function CustomersView({
                 <Space orientation="vertical" size={10} style={{ width: 220 }}>
                   <Select style={{ width: "100%" }} placeholder={`全部${b.fields.grade}`} allowClear
                     value={f.grade || undefined} onChange={(v) => apply({ grade: v ?? "" })}
-                    options={b.grades.map((g) => ({ value: g, label: g }))} />
+                    options={[...b.grades.map((g) => ({ value: g, label: g })), ...旧职位.map((g) => ({ value: g, label: `${g}（已不在选项里）` }))]} />
                   <Select style={{ width: "100%" }} placeholder="全部决策状态" allowClear
                     value={f.decisionStatus || undefined} onChange={(v) => apply({ decisionStatus: v ?? "" })}
                     options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />

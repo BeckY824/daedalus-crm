@@ -301,13 +301,26 @@ describe("连点：同一个动作并发调两次（B：第二下应是无事发
     expect(await prisma.unassignedContact.count()).toBe(1);
   });
 
-  it.skip("【下一版】删一位带联系人的客户，两个窗口几乎同时点了删除", async () => {
+  // 2026-10-04 第 2 期 2a 修：原来后提交的那边搬联系人时撞同一个 id，直接抛（界面上点了没反应）
+  it("删一位带联系人的客户，两个窗口几乎同时点了删除：一边删掉、另一边说一句；联系人只留一份", async () => {
     const c = await 造客户(我);
     await saveContact({ customerId: c.id, name: "王总", isPrimary: true });
     const rs = await Promise.all([结局(deleteCustomers([c.id])), 结局(deleteCustomers([c.id]))]);
     expect(rs.filter((r) => r.抛了).length, rs.map((r) => (r.抛了 ? r.错 : "")).join(" | ")).toBe(0);
+    const 值 = rs.map((r) => (r.抛了 ? null : r.值));
+    expect(值.filter((v) => v?.ok).length, "只有一边真删了").toBe(1);
+    expect(值.find((v) => v && !v.ok)).toMatchObject({ ok: false, error: expect.stringContaining("已经在别处删掉了") });
     expect(await prisma.customer.count()).toBe(0);
     expect(await prisma.unassignedContact.count(), "联系人留在未归属，而且只留一份").toBe(1);
+  });
+
+  it("两个窗口批量删、选中的有重叠（甲乙 / 乙丙）：三位都删掉、联系人各留一份，不抛", async () => {
+    const [甲, 乙, 丙] = [await 造客户(我), await 造客户(我), await 造客户(我)];
+    for (const c of [甲, 乙, 丙]) await saveContact({ customerId: c.id, name: `${c.name}的联系人`, isPrimary: true });
+    const rs = await Promise.all([结局(deleteCustomers([甲.id, 乙.id])), 结局(deleteCustomers([乙.id, 丙.id]))]);
+    expect(rs.filter((r) => r.抛了).length, rs.map((r) => (r.抛了 ? r.错 : "")).join(" | ")).toBe(0);
+    expect(await prisma.customer.count()).toBe(0);
+    expect((await prisma.unassignedContact.findMany()).map((u) => u.fromCustomerName).sort()).toEqual([甲.name, 乙.name, 丙.name].sort());
   });
 
   it("撤销删跟进连点两下", async () => {
@@ -341,7 +354,8 @@ describe("连点：同一个动作并发调两次（B：第二下应是无事发
     expect(await prisma.contact.count()).toBe(1);
   });
 
-  it.skip("【下一版】撤销导入批次连点两下：不抛、只撤一次", async () => {
+  // 2026-10-04 第 2 期 2a 修：原来两下都过了「撤过没有」那句检查，后一下删同一位时抛，还留两条撤销痕
+  it("撤销导入批次连点两下：不抛、只撤一次，另一下说「已经撤销过了」", async () => {
     const 方案 = 造方案("姓名,手机号\n张三,13800000001\n李四,13800000002");
     const w = await 执行导入(方案, "a.csv");
     if (!w.ok) throw new Error(w.error);
@@ -349,6 +363,7 @@ describe("连点：同一个动作并发调两次（B：第二下应是无事发
     expect(rs.filter((r) => r.抛了).length).toBe(0);
     expect(await prisma.customer.count()).toBe(0);
     expect(await prisma.auditLog.count({ where: { action: "import-revert" } }), "撤销留痕只该有一条").toBe(1);
+    expect(rs.map((r) => (r.抛了 ? null : r.值))).toContainEqual({ ok: false, error: "这一批已经撤销过了" });
   });
 });
 

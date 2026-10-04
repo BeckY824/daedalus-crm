@@ -7,6 +7,7 @@ import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { llmEnabled } from "@/lib/llm";
 import { 客户筛选条件, 客户行字段, 成客户行 } from "./query";
 import { 自动掉公海 } from "@/lib/pool-db";
+import { getBusiness } from "@/lib/business";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
 
   const where = await 客户筛选条件(sp);
 
-  const [rows, total, users, channels, allCustomers] = await Promise.all([
+  const [rows, total, users, channels, allCustomers, 用着的职位, b] = await Promise.all([
     prisma.customer.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -67,7 +68,11 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     负责人候选(),
     可选渠道(),
     可选客户(),
+    prisma.customer.findMany({ where: { grade: { not: null } }, distinct: ["grade"], select: { grade: true } }),
+    getBusiness(),
   ]);
+  // 业务配置里删掉了、库里还有人在用的职位：筛选下拉照样给（第 2 期 2b「删选项后老记录照样能筛」）
+  const 旧职位 = 用着的职位.map((c) => c.grade!.trim()).filter((g) => g && !b.grades.includes(g)).sort();
   const 号 = await 号码脱敏器();
   const aiEnabled = await llmEnabled();
 
@@ -99,6 +104,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={sp.batch ? { 几位: total } : null}
       aiEnabled={aiEnabled}
+      旧职位={[...new Set(旧职位)]}
     />
   );
 }

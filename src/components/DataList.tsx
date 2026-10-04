@@ -8,7 +8,7 @@ import { SettingOutlined } from "@ant-design/icons";
 import type { ColumnType } from "antd/es/table";
 import EmptyState from "@/components/EmptyState";
 import { useLocalPref } from "@/lib/local-pref";
-import { 只留当前行, 露出这一列 } from "@/lib/list-select";
+import { 只留当前行, 露出这一列, 算可见列, 切换后存 } from "@/lib/list-select";
 
 /**
  * 列表页的那张表。**全站只有这一个表格实现**（批 2 抽出来，批 3 六页照用）。
@@ -161,16 +161,17 @@ export default function DataList<T extends { id: string }>({
   /** 列设置存在这台机器上，一页一份。丢了就回到默认那套，不影响用 */
   const [存的, 存列] = useLocalPref<string[] | null>(`list-cols:${页}`, null);
 
-  const 可见 = useMemo(() => {
-    if (!存的) return 默认可见;
-    // 存完之后新加的列：存的时候还不存在，按它自己的默认值补上，
-    // 不然加了列的人永远看不到新列
-    const 存过的 = new Set(存的);
-    return [...存的, ...可选的.filter((c) => !存过的.has(列键(c)) && c.默认 !== false).map(列键)];
-  }, [存的, 默认可见, 可选的]);
+  /*
+    存完之后新加的列：存的时候还不存在，按它自己的默认值补上，不然加了列的人永远看不到新列。
+    藏起来的默认列记成「-键」，不然它也被当成新加的列补回来、永远藏不住（见 lib/list-select 的 算可见列）
+  */
+  const 可见 = useMemo(
+    () => (存的 ? 算可见列(可选的.map((c) => ({ 键: 列键(c), 默认显示: c.默认 !== false })), 存的) : 默认可见),
+    [存的, 默认可见, 可选的],
+  );
 
   function 切列(k: string, 显示: boolean) {
-    存列(显示 ? [...可见, k] : 可见.filter((x) => x !== k));
+    存列(切换后存(可见, 存的, k, 显示));
     if (显示) 待露.current = k;
   }
 

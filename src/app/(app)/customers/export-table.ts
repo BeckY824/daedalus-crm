@@ -36,7 +36,8 @@ export function 客户导出表(rows: 导出行[], b: BusinessConfig): { head: s
     「备注」放最后一列，表头就叫「备注」：导入那边的别名认得它，导出的文件原样导回来备注落回备注栏，
     不会变成「某某：…」并进别处（2026-10-04 J-073）
   */
-  const head = ["客户姓名", "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", "销售负责人", "渠道负责人", "备注"];
+  // 姓名那一列跟叫法走（L-057：叫「学员」的库导出来还写「客户姓名」）；导入的别名认 `${b.customer}姓名`，导回来照样认得
+  const head = [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", "销售负责人", "渠道负责人", "备注"];
   const body = rows.map((r) => [
     r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
     r.referrerName ?? "", r.attributionName ?? "", statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus),

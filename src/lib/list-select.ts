@@ -57,3 +57,24 @@ export function 露出这一列(x: { 滚到: number; 框宽: number; 列左: num
   if (x.列左 < 看得见左) return Math.max(0, x.列左 - x.左固定);
   return null;
 }
+
+/**
+ * 列设置：这台机器上存的那份 → 现在显示哪几列（2026-10-04 上线前第 2 期 2b）。
+ *
+ * 存的是显示的列键；藏起来的**默认列**记成 `-键`。原来只存显示的那些，读的时候把「存的里没有、默认显示」的列
+ * 当成「存完之后新加的列」补回来——于是默认显示的列一勾掉就被补回来，怎么也藏不住（e2e/column-hide 抓到）。
+ * 老格式（没有 `-键`）照旧读：存完之后新加的、默认显示的列照样补上。
+ */
+export function 算可见列(可选: { 键: string; 默认显示: boolean }[], 存的: readonly string[] | null): string[] {
+  if (!存的) return 可选.filter((c) => c.默认显示).map((c) => c.键);
+  const 藏了 = new Set(存的.filter((k) => k.startsWith("-")).map((k) => k.slice(1)));
+  const 显示 = 存的.filter((k) => !k.startsWith("-"));
+  const 提过 = new Set([...显示, ...藏了]);
+  return [...显示, ...可选.filter((c) => !提过.has(c.键) && c.默认显示).map((c) => c.键)];
+}
+
+/** 勾 / 取消一列之后要存的那份：显示的列键 + 藏起来的 `-键` */
+export function 切换后存(可见: readonly string[], 存的: readonly string[] | null, k: string, 显示: boolean): string[] {
+  const 藏了 = (存的 ?? []).filter((x) => x.startsWith("-") && x !== `-${k}`);
+  return 显示 ? [...可见.filter((x) => x !== k), k, ...藏了] : [...可见.filter((x) => x !== k), ...藏了, `-${k}`];
+}

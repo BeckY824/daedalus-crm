@@ -178,7 +178,8 @@ export default function ChannelsView({
               size="small"
               icon={r.active ? <StopOutlined /> : <CheckCircleOutlined />}
               onClick={async () => {
-                await toggleChannel(r.id, !r.active);
+                const res = await toggleChannel(r.id, !r.active);
+                if (!res.ok) return void message.error(res.error);
                 message.success(r.active ? `「${r.name}」已停用` : `「${r.name}」已恢复`);
                 router.refresh();
                 亮一下(r.id);

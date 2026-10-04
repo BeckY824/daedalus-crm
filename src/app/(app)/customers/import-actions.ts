@@ -365,6 +365,10 @@ export type 撤销结果 =
   | { ok: true; 删掉: number; 还原: number; 没动: { name: string; 原因: string }[] }
   | { ok: false; error: string };
 
+function 读批次(batchId: string) {
+  return prisma.importBatch.findUnique({ where: { id: batchId }, include: { rows: true } });
+}
+
 /**
  * 撤销一整批。
  *
@@ -380,10 +384,30 @@ export type 撤销结果 =
 export async function 撤销批次(batchId: string): Promise<撤销结果> {
   const me = await requireUser();
   const b = await getBusiness();
-  const batch = await prisma.importBatch.findUnique({ where: { id: batchId }, include: { rows: true } });
+  const batch = await 读批次(batchId);
   if (!batch) return { ok: false, error: "这一批导入记录已经不在了" };
   if (batch.revertedAt) return { ok: false, error: "这一批已经撤销过了" };
+  /*
+    先占住这一批再动手（2026-10-04 第 2 期 2a）：原来「撤销」连点两下，两边都过了上面那句检查、
+    各撤一遍，后一下删同一位时抛 P2025（界面上没反应），还会留两条撤销痕。
+    条件更新只有一边拿得到；中途出错把占位放回去，免得这一批卡在「撤过了」却没撤完
+  */
+  const 占到 = await prisma.importBatch.updateMany({ where: { id: batchId, revertedAt: null }, data: { revertedAt: new Date() } });
+  if (占到.count === 0) return { ok: false, error: "这一批已经撤销过了" };
+  try {
+    return await 撤这一批(batch, me, b.customer);
+  } catch (e) {
+    await prisma.importBatch.updateMany({ where: { id: batchId }, data: { revertedAt: null } });
+    throw e;
+  }
+}
 
+async function 撤这一批(
+  batch: NonNullable<Awaited<ReturnType<typeof 读批次>>>,
+  me: Awaited<ReturnType<typeof requireUser>>,
+  客户叫法: string,
+): Promise<撤销结果> {
+  const batchId = batch.id;
   let 删掉 = 0;
   let 还原 = 0;
   const 没动: { name: string; 原因: string }[] = [];
@@ -430,7 +454,8 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
         没动.push({ name: c.name, 原因: "导入之后又改过他的档案" });
         continue;
       }
-      await prisma.customer.delete({ where: { id: c.id } });
+      // 查完到删之间被手工删了也算撤到了（deleteMany 不抛）
+      await prisma.customer.deleteMany({ where: { id: c.id } });
       删掉++;
       continue;
     }
@@ -472,13 +497,12 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
     还原++;
   }
 
-  await prisma.importBatch.update({ where: { id: batchId }, data: { revertedAt: new Date() } });
   await recordAudit({
     user: me,
     action: "import-revert",
     entity: "Customer",
     entityId: batchId,
-    summary: `撤销「${batch.fileName}」那一批导入：删掉 ${删掉} 位${b.customer}，还原 ${还原} 条${没动.length ? `，${没动.length} 条因为导入后被动过而保留` : ""}`,
+    summary: `撤销「${batch.fileName}」那一批导入：删掉 ${删掉} 位${客户叫法}，还原 ${还原} 条${没动.length ? `，${没动.length} 条因为导入后被动过而保留` : ""}`,
     detail: { batchId, 删掉, 还原, 没动 },
   });
   revalidatePath("/customers");
