@@ -301,6 +301,49 @@ describe("推拉合并", () => {
     expect(await 同步(甲, 乙)).toMatchObject({ b: 1 });
   });
 
+  /*
+    T-008：「回放中」开关只在回放事务里置 1，事务回滚就回到 0；但进程在事务提交后、归零前被杀（或老版本留下的 1）
+    就会停在 1——触发器从此一条改动都不记，悄悄不同步。建同步表()（每轮开头都调）兜底归零
+  */
+  it("T-008 「回放中」开关停在 1：那期间改动一条不记；建同步表() 兜底归零，之后改动照常进日志", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 乙.customer.create({ data: { id: "c13", name: "周总", phone: "13800000013", salesOwnerId: "acct_yi" } });
+    await 同步(甲, 乙);
+    const 日志数 = async () => Number((await 乙.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_log"))[0].n);
+    await 乙.$executeRawUnsafe("UPDATE _sync_state SET applying = 1 WHERE id = 1");
+    const 前 = await 日志数();
+    await 乙.customer.update({ where: { id: "c13" }, data: { remark: "卡在 1 时改的" } });
+    expect(await 日志数(), "开关在 1 时触发器不记（证明这个开关真管用）").toBe(前);
+    await 建同步表(乙);
+    expect(Number((await 乙.$queryRawUnsafe<{ applying: bigint }[]>("SELECT applying FROM _sync_state"))[0].applying)).toBe(0);
+    await 乙.customer.update({ where: { id: "c13" }, data: { remark: "归零之后改的" } });
+    expect(await 日志数()).toBe(前 + 1);
+    await 同步(甲, 乙);
+    expect((await 甲.customer.findUniqueOrThrow({ where: { id: "c13" } })).remark).toBe("归零之后改的");
+  });
+
+  /*
+    T-008 后半：新人第一次拉一个大团队，一批 2000 条（待推一次最多给这么多）在一个回放事务里，
+    默认 5 秒的交互事务会超时、每轮重试都失败、永远卡住。回放事务给了 180 秒。
+    真造 2000 条在负载高的机器上要几十秒、超不超 5 秒全看机器，靠它判红是碰运气——
+    这里看回放开事务时给的时限（不少于 60 秒），外加一批几百条照常回放完
+  */
+  it("T-008 回放事务的时限够一整批（≥ 60 秒，不是默认 5 秒）；几百条一批回放完、一条不少", async () => {
+    const { 甲, 乙 } = await 一对();
+    const 数 = 300;
+    await 甲.customer.createMany({ data: Array.from({ length: 数 }, (_, i) => ({ id: `big${i}`, name: `大客户${i}`, phone: `139${String(i).padStart(8, "0")}`, salesOwnerId: "acct_jia" })) });
+    const 时限: (number | undefined)[] = [];
+    const 原 = 乙.$transaction.bind(乙) as (...a: unknown[]) => Promise<unknown>;
+    (乙 as unknown as { $transaction: unknown }).$transaction = (fn: unknown, opts?: { timeout?: number }) => {
+      if (typeof fn === "function") 时限.push(opts?.timeout);
+      return 原(fn, opts);
+    };
+    await 同步(甲, 乙);
+    expect(时限.length, "回放该开一个交互事务").toBeGreaterThan(0);
+    for (const t of 时限) expect(t ?? 5000, "回放事务的时限").toBeGreaterThanOrEqual(60_000);
+    expect(await 乙.customer.count({ where: { id: { startsWith: "big" } } })).toBe(数);
+  });
+
   it("远端删了跟进：本机「最近跟进」跟着重算（复查）", async () => {
     const { 甲, 乙 } = await 一对();
     await 甲.customer.create({ data: { id: "c12", name: "孙总", phone: "13800000012", salesOwnerId: "acct_jia" } });

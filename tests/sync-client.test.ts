@@ -171,6 +171,13 @@ describe("桌面端同步客户端", () => {
     expect((await 乙.customer.findUniqueOrThrow({ where: { id: "c2" } })).remark).toBe("甲补了一句");
     expect(读团队()).toMatchObject({ lastError: null, last: { 推: 1 } });
 
+    // T-056：.team.json 里有团队钥匙。被谁改成 0644（备份软件还原、手动拷来拷去）之后，下一次写回要收紧回 0600；
+    // 先写临时文件再改名，目录里不许留下 .tmp
+    fs.chmodSync(path.join(临时.dir, ".team.json"), 0o644);
+    await 同步一轮();
+    expect(fs.statSync(path.join(临时.dir, ".team.json")).mode & 0o777, ".team.json 写回后要回到 0600").toBe(0o600);
+    expect(fs.readdirSync(临时.dir).filter((f) => f.startsWith(".team.json") && f !== ".team.json"), "不许留下写到一半的临时文件").toEqual([]);
+
     // 有人推了一包钥匙不对的：说清楚是钥匙的事
     云.批.push({ seq: 云.批.length + 1, team: 码.teamId, device: "dZZZZZZ", data: 封([], "A".repeat(43)) });
     const 坏 = await 同步一轮();
