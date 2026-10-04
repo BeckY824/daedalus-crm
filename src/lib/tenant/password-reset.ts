@@ -138,6 +138,14 @@ export async function 重置密码(
   // 改密码 = 到处都要重新登录：网页会话作废，桌面端那几枚设备令牌也一起吊掉
   await 记一次改密(account.id);
   await 吊销全部(account.id);
-  清除限流(`u:${t.value}`);
+  /*
+    按账号的登录限流有两道：网页登录 `u:`、桌面端登录 `token:`（api/account/token）。
+    桌面端那道漏清的话，桌面端试错到冷却的人改完密码还要等 5 分钟（D-010）。
+    这个号的邮箱和手机号都清：桌面端登录框两种都能填，键是人填的那串
+  */
+  for (const 号 of new Set([t.value, account.email?.toLowerCase(), account.phone].filter(Boolean))) {
+    清除限流(`u:${号}`);
+    清除限流(`token:${号}`);
+  }
   return { ok: true };
 }
