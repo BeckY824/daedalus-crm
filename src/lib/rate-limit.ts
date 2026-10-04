@@ -14,12 +14,23 @@
  * 重启不是攻击者能触发的动作，而为它引一张表、一个 Redis 都不划算。
  */
 
-type 记录 = { 失败次数: number; 冷却到: number };
+type 记录 = { 失败次数: number; 冷却到: number; 最后失败: number };
 
 const 桶 = new Map<string, 记录>();
 
-/** 多久没再失败就把计数忘掉 */
+/**
+ * 多久没再失败就把计数忘掉。
+ *
+ * 按「最后一次失败」往后数，每错一次往后推一次。原来只在冷却过后才忘（H-047），
+ * 从没冷却过的键一直往上加到重启：一个人几周里零星打错 5 次就被锁 5 分钟，
+ * 3–5 人共用一个出口 IP 的办公室攒满 IP 档也会一起被挡。
+ */
 const 记忆毫秒 = 15 * 60 * 1000;
+
+/** 这条记录已经可以忘掉：不在冷却里，且最后一次失败已经过去 15 分钟以上 */
+function 过期了(r: 记录, now: number) {
+  return r.冷却到 <= now && now - r.最后失败 > 记忆毫秒;
+}
 
 /**
  * Map 的条数上限。
@@ -35,7 +46,7 @@ export const 最多条数 = 10_000;
 function 控制体积(now: number) {
   if (桶.size <= 最多条数) return;
   for (const [k, r] of 桶) {
-    if (r.冷却到 && r.冷却到 + 记忆毫秒 < now) 桶.delete(k);
+    if (过期了(r, now)) 桶.delete(k);
   }
   while (桶.size > 最多条数) {
     const 最早 = 桶.keys().next();
@@ -96,20 +107,21 @@ export function 检查限流(key: string, now = Date.now()): number | null {
   const r = 桶.get(key);
   if (!r) return null;
   if (r.冷却到 > now) return Math.ceil((r.冷却到 - now) / 1000);
-  // 冷却已过，且很久没再失败，就当没发生过
-  if (r.冷却到 && r.冷却到 + 记忆毫秒 < now) 桶.delete(key);
+  // 冷却已过（或从没冷却过），且很久没再失败，就当没发生过
+  if (过期了(r, now)) 桶.delete(key);
   return null;
 }
 
 /** 记一次失败，达到阈值就进入冷却 */
 export function 记一次失败(key: string, now = Date.now(), 本档阈值 = 阈值) {
-  const r = 桶.get(key) ?? { 失败次数: 0, 冷却到: 0 };
-  // 上一轮冷却早就过去了，从头算
-  if (r.冷却到 && r.冷却到 + 记忆毫秒 < now) {
+  const r = 桶.get(key) ?? { 失败次数: 0, 冷却到: 0, 最后失败: now };
+  // 距上一次失败已经 15 分钟以上（上一轮冷却也早过了），从头算
+  if (过期了(r, now)) {
     r.失败次数 = 0;
     r.冷却到 = 0;
   }
   r.失败次数 += 1;
+  r.最后失败 = now;
   if (r.失败次数 >= 本档阈值) {
     r.冷却到 = now + 冷却毫秒;
     r.失败次数 = 0; // 冷却结束后重新计数，而不是一直卡着

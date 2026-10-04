@@ -261,6 +261,27 @@ describe("走通一遍", () => {
     expect((await 重置密码({ target: 邮箱, code, password: "new12345" })).ok).toBe(true);
     expect(检查限流(`u:${邮箱}`)).toBeNull();
   });
+
+  it("桌面端那道限流也一起清：桌面端连错 5 次去找回，新密码马上能登，不再「5 分钟后再试」（D-010）", async () => {
+    const { POST } = await import("@/app/api/account/token/route");
+    const { 阈值 } = await import("@/lib/rate-limit");
+    const { 重置密码 } = await import("@/app/forgot/actions");
+    const 邮箱 = 新邮箱();
+    await 建号(邮箱, "old12345");
+    // 桌面端登录走的是 /api/account/token，键和网页登录不是同一个；邮箱大小写照人手填的来
+    const 登 = (password: string) =>
+      POST(new Request("http://x/api/account/token", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.10" },
+        body: JSON.stringify({ target: 邮箱.toUpperCase(), password }),
+      }));
+    for (let i = 0; i < 阈值; i++) expect((await 登("wrong1234")).status).toBe(401);
+    expect((await 登("old12345")).status, "前提：桌面端这道已经冷却").toBe(429);
+
+    const code = await 拿重置码(邮箱);
+    expect((await 重置密码({ target: 邮箱, code, password: "new12345" })).ok).toBe(true);
+    expect((await 登("new12345")).status, "找回成功了，桌面端拿新密码还被挡 5 分钟").toBe(200);
+  });
 });
 
 describe("改完密码，旧会话不认了", () => {

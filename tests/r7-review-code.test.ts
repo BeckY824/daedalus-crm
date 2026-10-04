@@ -4,7 +4,10 @@ import { closeTestDatabases } from "./close-databases";
  *
  * harness 照抄 tests/r6-review-signup.test.ts。绿的是「查过、修法成立」。
  * 红的是确认的问题：原来只在没合并的 r7-review 分支（87d0028），2026-10-04 上线前回归核对拿进主线，
- * 改成 it.skip【下一版】留痕（H-046 查号额度 90、H-047 计数不淡掉、H-049 其余账号接口类型不对 500）——修的时候把 skip 去掉。
+ * 改成 it.skip【下一版】留痕（H-046 查号额度 90、H-049 其余账号接口类型不对 500）——修的时候把 skip 去掉。
+ * H-047 计数不淡掉 10-04 已修（rate-limit.ts 记最后一次失败时间），那条 skip 已解开。
+ * H-046 仍 skip：查号额度 90 是第六轮 B1 为办公室共用出口定的取舍（另一条用例钉着 90），收窄要拍板，不是一两行；
+ *   H-047 修完后这 90 次只在「15 分钟内连着查」时累计，口子已比修之前窄。H-049 散在 password / code / token 三个接口，另开一条修。
  */
 import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import fs from "node:fs";
@@ -236,7 +239,7 @@ describe("R7-2 查号和发码分开限流（dcb680f 修 B1）", () => {
     expect(能分辨).toBeLessThanOrEqual(30);
   });
 
-  it.skip("【下一版】限流计数不会随时间淡掉：一个出口 IP 隔了两天的第 90 次「继续」照样触发 5 分钟冷却（rate-limit.ts 注释说 15 分钟没再失败就忘掉，实现只在冷却过后才忘）", async () => {
+  it("限流计数随时间淡掉（H-047）：一个出口 IP 前天攒了 89 次「继续」，今天再点两次不会被冷却——15 分钟没再失败就从 0 数", async () => {
     process.env.SIGNUP_VERIFY = "1";
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-01T09:00:00+08:00"));
