@@ -278,6 +278,17 @@ a {
 
 /* ---------- 登录页：网页版和桌面端同一扇门，样式见上面 .auth（2026-10-04 起旧的 .login-card 删了） ---------- */
 
+/* 设置 → 桌面端 → 本机数据 → 自动备份（AutoBackups.tsx） */
+.auto-backups { margin-top: var(--s4); padding-top: var(--s3); border-top: 1px solid var(--line-soft); }
+.auto-backups-h { font-size: var(--fs-note); font-weight: 500; color: var(--ink-soft); margin-bottom: var(--s2); }
+.auto-backups-empty { margin: 0; font-size: var(--fs-note); color: var(--text-muted); }
+.auto-backups-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.auto-backups-list li { display: flex; align-items: center; gap: var(--s3); padding: 6px 0; font-size: var(--fs-note); color: var(--ink-soft); }
+.auto-backups-list li + li { border-top: 1px solid var(--line-soft); }
+.auto-backups-kind { flex: none; width: 3.5em; color: var(--text-muted); }
+.auto-backups-when { flex: 1; min-width: 0; font-variant-numeric: tabular-nums; }
+.auto-backups-size { flex: none; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
 /* ---------- 三栏壳（2026-09-15）：图标栏 76 / 中栏 352 / 右栏 ---------- */
 .shell { display: flex; min-height: 100vh; }
 /* 侧栏：图标和文字排在同一行，像正常的应用侧栏。

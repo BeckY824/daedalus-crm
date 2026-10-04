@@ -38,6 +38,7 @@
       "windows-install.js",
       "delta.js",
       "backup.js",
+      "auto-backup.js",
       "crashlog.js",
       "reminders.js",
       "sync.js",

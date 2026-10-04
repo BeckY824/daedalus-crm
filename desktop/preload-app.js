@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld("desktopUpdate", {
 contextBridge.exposeInMainWorld("desktopShell", {
   version: () => ipcRenderer.invoke("shell:version"),
   backup: () => ipcRenderer.invoke("shell:backup"),
+  autoBackups: () => ipcRenderer.invoke("shell:auto-backups"),
+  restoreAutoBackup: (文件名) => ipcRenderer.invoke("shell:restore-auto-backup", String(文件名 ?? "")),
   openDataDir: () => ipcRenderer.invoke("shell:open-data"),
   openLogs: () => ipcRenderer.invoke("shell:open-logs"),
   diagnostics: () => ipcRenderer.invoke("shell:diagnostics"),

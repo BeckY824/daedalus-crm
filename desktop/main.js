@@ -32,6 +32,7 @@ const 路径记忆 = require("./route-memory");
 const 差量 = require("./delta");
 const 窗装 = require("./windows-install");
 const 备份 = require("./backup");
+const 自动备份 = require("./auto-backup");
 const 崩溃 = require("./crashlog");
 const 提醒 = require("./reminders");
 const 团队同步 = require("./sync");
@@ -334,6 +335,16 @@ async function 真启动本地() {
     取不到就传空串，服务端据此当「不知道是哪台机器」（不发注册赠送，不是照发）。
     值在同一台机器上不变，所以随环境变量传一次就够，不用做成接口。
   */
+  /*
+    起服务之前自动备份一份（2026-10-04，D-078）：每天第一次一份、升级前一份。这时服务还没开、没人在写库，
+    而且在跑迁移之前——迁移坏了库，这一份就是退路。备份失败只记日志，绝不挡启动。见 auto-backup.js
+  */
+  自动备份.自动备份({
+    库: path.join(数据目录, "crm.db"),
+    数据目录,
+    版本: app.getVersion(),
+    日志: (行) => 崩溃.写崩溃日志(应用日志, "自动备份", 行),
+  });
   本地 = await 本地服务.start({
     bundleDir: 服务目录,
     dataDir: 数据目录,
@@ -1287,6 +1298,36 @@ ipcMain.handle("reminders:test", () => {
   return { ok: true };
 });
 ipcMain.handle("shell:backup", () => 备份数据库());
+
+/**
+ * 自动备份（auto-backup.js）的列表和恢复，给设置页「本机数据」用（2026-10-04，D-078）。
+ * 恢复要先停服务（库正开着），换进去之后再起、整页回到入口——和换账号那条路同一套停 / 起。
+ * 当前库先另存成 before-restore-…，恢复错了还能再恢复回来
+ */
+ipcMain.handle("shell:auto-backups", () => (数据目录 ? 自动备份.列出(数据目录) : []));
+ipcMain.handle("shell:restore-auto-backup", async (_e, 文件名) => {
+  if (!数据目录) return { ok: false, error: "还没有本机数据" };
+  const 库 = path.join(数据目录, "crm.db");
+  凭据监视?.close();
+  await 本地服务.stop();
+  let 结果;
+  try {
+    结果 = 自动备份.恢复({ 库, 数据目录, 文件名: String(文件名 ?? ""), 校验: 备份.校验数据库 });
+  } catch (e) {
+    崩溃.写崩溃日志(应用日志, "从自动备份恢复失败", e);
+    结果 = { error: String(e?.message ?? e) };
+  }
+  盯住凭据(数据目录);
+  try {
+    await 启动本地();
+  } catch (e) {
+    报告本地故障(e);
+    return { ok: false, error: "恢复之后本地服务没起来，日志里有原因" };
+  }
+  if (结果.error) return { ok: false, error: `没恢复：${结果.error}（数据没动）` };
+  win?.loadURL(本地入口());
+  return { ok: true, 另存: 结果.另存 };
+});
 ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
 /**
  * 换了个云端账号登录：把数据目录切过去，重起本地服务，窗口重载。
