@@ -1,12 +1,34 @@
 /**
  * 控制台巡检：遍历所有页面，任何 error / warning 都算失败。
  *
+ * 2026-10-04 之前这一条**一个 expect 都没有**，只把问题 console.log 出来，永远不会红（排查 J2 顺带发现）；
+ * 客户详情也因为默认库是空的一直跳过。现在：攒下全部问题最后断言为空；自己建一位带跟进 / 商机 / 联系人的客户，用完清掉。
+ *
  * 拦的是"页面看着正常、控制台在报警"这类问题——它们不会让用例挂掉，
  * 却会在开发模式下堆成 Next 左下角那个红色 issue 数，也预示着真实的
  * 渲染或用法缺陷（本项目就出现过 antd v6 的 Alert/Space 弃用属性）。
  */
-import { test } from "@playwright/test";
+import { test, expect } from "@playwright/test";
 import { 订单与供应商 } from "../src/lib/features";
+import { 连库, 清空业务数据 } from "./mock-data";
+
+let 巡检客户 = "";
+test.beforeAll(async () => {
+  const p = 连库();
+  await 清空业务数据(p);
+  const 我 = await p.user.findFirstOrThrow({ where: { email: "admin" } });
+  const c = await p.customer.create({ data: { name: "巡检客户", phone: "13833330001", salesOwnerId: 我.id } });
+  巡检客户 = c.id;
+  await p.contact.create({ data: { customerId: c.id, name: "巡检联系人", phone: "13933330001", isPrimary: true } });
+  await p.followUp.create({ data: { customerId: c.id, ownerId: 我.id, type: "CALL", title: "电话", content: "聊了", status: "已完成", occurredAt: new Date() } });
+  await p.opportunity.create({ data: { customerId: c.id, ownerId: 我.id, name: "巡检商机", amount: 1000, stage: "初步接洽" } });
+  await p.$disconnect();
+});
+test.afterAll(async () => {
+  const p = 连库();
+  await 清空业务数据(p);
+  await p.$disconnect();
+});
 
 const 页面 = [
   ["首页", "/dashboard"],
@@ -27,6 +49,8 @@ const 页面 = [
 
 test("控制台巡检", async ({ page }) => {
   const 问题: string[] = [];
+  /** 每页的问题，最后一起断言：一页挂了也要把后面几页巡完，一次看全 */
+  const 全部: string[] = [];
   page.on("console", (m) => {
     if (m.type() === "error" || m.type() === "warning") 问题.push(`[${m.type()}] ${m.text().slice(0, 200)}`);
   });
@@ -44,18 +68,13 @@ test("控制台巡检", async ({ page }) => {
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(800);
     console.log(问题.length === 0 ? `✓ ${名}` : `✗ ${名}\n    ${问题.join("\n    ")}`);
+    全部.push(...问题.map((q) => `${名}：${q}`));
   }
 
   // 客户详情页单独走一遍：组件最多的一页
   问题.length = 0;
-  await page.goto("/customers");
-  // 默认 e2e 库是空的（本用例按文件名排在最前），有客户才进详情页
-  const 首个客户 = page.locator('a[href^="/customers/"]').first();
-  if ((await 首个客户.count()) === 0) {
-    console.log("- 客户详情：库里没有客户，跳过");
-    return;
-  }
-  await 首个客户.click();
+  await page.goto(`/customers/${巡检客户}`);
+  await page.waitForLoadState("networkidle").catch(() => {});
   await page.waitForTimeout(1200);
   // 记录页没有页签；点一下状态标签把下拉也渲染一遍。
   // 标签行 2026-09-17 起在页头名字底下（.rec-tags），不在左边那张档案卡里
@@ -63,4 +82,7 @@ test("控制台巡检", async ({ page }) => {
   await page.waitForTimeout(800);
   await page.keyboard.press("Escape");
   console.log(问题.length === 0 ? "✓ 客户详情（含状态下拉）" : `✗ 客户详情\n    ${问题.join("\n    ")}`);
+  全部.push(...问题.map((q) => `客户详情：${q}`));
+
+  expect(全部, "控制台有报错或警告").toEqual([]);
 });
