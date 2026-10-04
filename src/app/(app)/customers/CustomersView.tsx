@@ -566,6 +566,7 @@ export default function CustomersView({
         onClose={() => set导入开着(false)}
         onDone={() => router.refresh()}
         看这一批={(id) => router.push(`/customers?batch=${id}`)}
+        有别的成员={users.length > 1}
       />
     </>
   );

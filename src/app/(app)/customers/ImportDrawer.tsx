@@ -54,6 +54,7 @@ export default function ImportDrawer({
   aiEnabled,
   onDone,
   看这一批,
+  有别的成员 = false,
   初始来路,
   初始文本,
 }: {
@@ -68,6 +69,11 @@ export default function ImportDrawer({
    * （一次冒出两条以上不点亮）也没筛出来，人得自己在一整张表里找
    */
   看这一批?: (batchId: string) => void;
+  /**
+   * 团队里不止你一个人（T-024）：导进来的都记在导入的人名下（规则，见 import-actions 的 唯一负责人() ?? me.id），
+   * 业务员一个都看不到、以为导入失败。完成页指一句「去客户列表勾选后批量分配」
+   */
+  有别的成员?: boolean;
   /**
    * 开门停在哪一栏。**「粘」是主线入口**（2026-09-21）：首页认出你粘的是一段聊天时，
    * 直接把人送到这一栏，而不是先落到「文件」上再让人自己找。
@@ -400,6 +406,11 @@ export default function ImportDrawer({
             <b>导入之后你已经动过的那几位会留着</b>，撤销时会告诉你是哪几位。
             这一批也能之后在「设置 → 导入记录」里找到、撤销。
           </Typography.Paragraph>
+          {有别的成员 && 结果.新建 > 0 && (
+            <Typography.Paragraph style={{ fontSize: 13 }}>
+              新建的 {结果.新建} 位都记在你名下。要分给业务员？点「完成」会只列出这一批，勾选后用「批量分配」转给他们。
+            </Typography.Paragraph>
+          )}
         </div>
       )}
     </Drawer>

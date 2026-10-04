@@ -123,6 +123,32 @@ test("CSV：猜列 → 复核 → 预览 → 落库 → 撤销，走完整条", 
 });
 
 /*
+  T-024（2026-10-04 工作室试用前）：老板导入的客户全记在老板名下（规则，不改），业务员一个都看不到，以为导入失败。
+  完成页说一句「都记在你名下，要分给业务员就去客户列表勾选后批量分配」；点「完成」落到这一批，勾选、批量分配那条路是通的
+*/
+test("T-024 导完：完成页指路「批量分配给业务员」；点完成落到这一批，全选后「批量分配」就在那儿", async ({ page }) => {
+  await 登录(page);
+  const 抽屉 = await 打开抽屉并选文件(page, "分给业务员.csv", ["姓名,手机号", `待分配${戳},139${戳}24`].join("\n"), "text/csv");
+  await 过对列和复核(抽屉);
+  await 抽屉.getByRole("button", { name: "开始导入" }).click();
+  await expect(抽屉.getByText("导完了")).toBeVisible({ timeout: 30_000 });
+  await expect(抽屉).toContainText("都记在你名下");
+  await expect(抽屉).toContainText("批量分配");
+  await 抽屉.getByRole("button", { name: /完\s*成/ }).click();
+  await page.waitForURL(/batch=/);
+  await expect(page.getByRole("link", { name: `待分配${戳}` })).toBeVisible();
+  await page.locator(".ant-table-thead .ant-checkbox-input").check();
+  await expect(page.getByRole("button", { name: /批量分配/ })).toBeVisible();
+  // 收拾：这一位删掉，别留给别的用例
+  const p = 连库();
+  try {
+    await p.customer.deleteMany({ where: { name: `待分配${戳}` } });
+  } finally {
+    await p.$disconnect();
+  }
+});
+
+/*
   2026-10-04 J-049：第 4 步改选「只补空」原来不重算预览——「补空 0」、表里的人全在库里时「开始导入」一直是灰的，
   导入整条路走不通。重算函数有单测（import-disposition），这里钉界面：切过去数字跟着变、按钮能点、真的补上了
 */
