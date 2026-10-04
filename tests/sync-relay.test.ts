@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { closeTestDatabases } from "./close-databases";
-import { 封 } from "@/lib/sync/crypto";
+import { 封, 设备钥匙对 } from "@/lib/sync/crypto";
 
 const 临时根 = path.join(os.tmpdir(), `crm-sync-relay-${process.pid}`);
 
@@ -111,6 +111,29 @@ describe("中转", () => {
     const 行 = (await r.全部团队()).find((x) => x.id === t.teamId)!;
     expect(行).toMatchObject({ name: "列表测试团", active: true, 人数: 1, 批次: 1, 字节: 包1.length });
     expect(行.建的人?.name).toBe("老板");
+  });
+
+  it("T-054 同一个编号并发换两次钥匙：一次成、另一次 409（不是 500），库里只有一把、信封不混", async () => {
+    const r = await import("@/lib/tenant/sync-relay");
+    const { control } = await import("@/lib/tenant/control");
+    const 甲 = await 账号("甲"), 乙 = await 账号("乙");
+    const t = await r.建团队(甲, "并发换钥匙", { device: "dJia0001", pubKey: 设备钥匙对().公钥 });
+    if (!t.ok) throw new Error(t.error);
+    await r.入队(乙, t.teamId, t.joinSecret, { device: "dYi00001", pubKey: 设备钥匙对().公钥 });
+    const 两次 = await Promise.allSettled([
+      r.换钥匙(甲, t.teamId, 1, "环-一", [{ device: "dJia0001", data: "信-一" }, { device: "dYi00001", data: "信-一" }]),
+      r.换钥匙(甲, t.teamId, 1, "环-二", [{ device: "dJia0001", data: "信-二" }, { device: "dYi00001", data: "信-二" }]),
+    ]);
+    // 两次都要「回话」：抛出来的话接口就是 500
+    expect(两次.map((x) => x.status)).toEqual(["fulfilled", "fulfilled"]);
+    const 结果 = 两次.map((x) => (x.status === "fulfilled" ? x.value : null));
+    expect(结果.filter((x) => x?.ok)).toHaveLength(1);
+    expect(结果.find((x) => !x?.ok)).toMatchObject({ ok: false, 状态: 409 });
+    const 环 = await control.syncKey.findMany({ where: { teamId: t.teamId } });
+    expect(环).toHaveLength(1);
+    // 成的那次的环和信封是一套：没有一半「环-一」一半「信-二」
+    const 信 = await control.syncKeyEnvelope.findMany({ where: { teamId: t.teamId, epoch: 1 } });
+    expect(信.map((x) => x.data)).toEqual(环[0].ring === "环-一" ? ["信-一", "信-一"] : ["信-二", "信-二"]);
   });
 
   it("接口：没令牌 401；不是托管版 404", async () => {

@@ -245,6 +245,60 @@ describe("移除成员 + 换钥匙", () => {
     expect((await r.收推送(账号们.丁, teamId, "dYi0001", 封([], 读团队()!.key, 2))).ok).toBe(false);
   });
 
+  it("T-054 换钥匙云端成了、回包丢了：本机还是旧编号；再点换邀请码先追上，丢了回包的那把进了钥匙环", async () => {
+    const 前 = 读团队()!;
+    const 前号 = 前.epoch!;
+    设传输(async (方法, 路径, body) => {
+      const x = await 甲的传输(方法, 路径, body);
+      return 路径 === "/api/sync/rotate" && x.状态 === 200 ? { 状态: 500, json: { error: "网关超时" } } : x;
+    });
+    try {
+      expect((await 换邀请码()).ok).toBe(false);
+    } finally {
+      设传输(甲的传输);
+    }
+    expect(读团队()!.epoch).toBe(前号);
+    expect(await r.当前编号(teamId)).toBe(前号 + 1);
+    // 乙那台已经按云端拿到了丢了回包的那一把，可能用它推过东西
+    const 乙丢的 = await r.取钥匙(账号们.乙, teamId, "dYi0001");
+    if (!乙丢的.ok) throw new Error(乙丢的.error);
+    const 丢的钥匙 = 拆信(乙丢的.envelope!, 乙对.私钥, 前号 + 1, "dYi0001");
+
+    const 再 = await 换邀请码();
+    if (!再.ok) throw new Error(再.error);
+    const 后 = 读团队()!;
+    expect(后.epoch).toBe(前号 + 2);
+    expect(后.keys?.[String(前号 + 1)]).toBe(丢的钥匙);
+    const 乙新 = await r.取钥匙(账号们.乙, teamId, "dYi0001");
+    if (!乙新.ok) throw new Error(乙新.error);
+    expect(拆信(乙新.envelope!, 乙对.私钥, 前号 + 2, "dYi0001")).toBe(后.key);
+    expect(拆环(乙新.ring!, 后.key, 前号 + 2)[String(前号 + 1)]).toBe(丢的钥匙);
+  });
+
+  it("T-054 换钥匙时追上那一步（更新钥匙）出错：取钥匙失败、传输直接抛，换邀请码都回 {ok:false}，不抛", async () => {
+    const 前 = 读团队()!;
+    const 坏法: 传输[] = [async () => ({ 状态: 500, json: { error: "取不到团队钥匙" } }), async () => { throw new Error("socket hang up"); }];
+    for (const 坏 of 坏法) {
+      设传输(async (方法, 路径, body) => {
+        // 云端说编号比本机新：换钥匙之前先走 更新钥匙 追上
+        if (路径.startsWith("/api/sync/devices")) {
+          const x = await 甲的传输(方法, 路径, body);
+          return { ...x, json: { ...x.json, epoch: Number(x.json.epoch) + 1 } };
+        }
+        if (路径.startsWith("/api/sync/key")) return 坏(方法, 路径, body);
+        return 甲的传输(方法, 路径, body);
+      });
+      try {
+        const x = await 换邀请码();
+        expect(x.ok).toBe(false);
+      } finally {
+        设传输(甲的传输);
+      }
+    }
+    expect(读团队()!.epoch).toBe(前.epoch);
+    expect(读团队()!.key).toBe(前.key);
+  });
+
   it("云端答得上来、但我已经不在这个团队里：团队状态说「被移出」，不说「连不上云端」", async () => {
     expect(await 团队状态()).toMatchObject({ 在团队: true, 被移出: false });
     // 老板（建团队的人）还有同事在队里：不让走（换钥匙复查低 7）
