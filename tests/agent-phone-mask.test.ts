@@ -75,6 +75,22 @@ describe("共享工作区：工具结果里不许出现完整号码", () => {
   }
 });
 
+/*
+  2026-10-04 补（回归核对 H-029）：建议卡上摆「现值」，原来共享区里那一格是真号（AI 读到的打了码，卡片却从库里重新取了原值）。
+  源码守卫钉着「写了 phone 的地方都经过 号()」，但没有行为用例：卡片本身（ctx.proposals）和工具结果里都不许有真号
+*/
+describe("共享工作区：建议卡的「现值」也打码", () => {
+  it("propose_customer_update：卡片和工具结果里只有打码号", async () => {
+    const 客户 = await prisma.customer.findFirstOrThrow({ where: { name: "钱同学" } });
+    const c = ctx(true);
+    const r = await TOOL_MAP.get("propose_customer_update")!.run({ id: 客户.id, changes: { school: "华中科技大学" }, reason: "他说转学了" }, c);
+    const 卡片 = JSON.stringify(c.proposals);
+    expect(c.proposals.length, "没出卡片——用例就测不到现值了").toBeGreaterThan(0);
+    expect(`${全文(r)}\n${卡片}`).not.toContain(真号);
+    expect(卡片, "卡片里该有打码后的现值电话——没有说明这一格根本没摆，用例就空过了").toContain(maskPhone(真号));
+  });
+});
+
 describe("自部署实例：原样给真号", () => {
   for (const { 名, args } of 会吐电话的) {
     const 标 = `${名}${args.表 ? `（${args.表}）` : ""}`;
