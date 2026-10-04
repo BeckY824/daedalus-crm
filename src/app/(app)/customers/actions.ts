@@ -26,7 +26,7 @@ import { statusLabel } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import type { 带走数 } from "@/lib/carry-over";
-import { 带走没做完的 } from "@/lib/carry-over-db";
+import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
 import { completePlan, toggleTask } from "./[id]/actions";
 
@@ -530,6 +530,8 @@ export type BulkResult =
       updated: number;
       /** 改负责人时跟着走的没做完的活（排查 B3） */
       带走?: 带走数;
+      /** 跟着走的是哪几条：撤销只还这几条（T-018，见 撤销改负责人） */
+      带过来?: 带走的;
       /**
        * 真被改动的那几条原来是什么值，给「撤销」用（排查 D1）。原来批量改完不能撤，
        * 留痕里也只记了新值，事后连手工恢复都做不到
@@ -562,7 +564,7 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
     where: { id: { in: ids }, salesOwnerId: { not: salesOwnerId } },
     data: { salesOwnerId },
   });
-  const 带走 = await 带走没做完的(换人的.map((c) => ({ customerId: c.id, 旧: c.salesOwnerId })), salesOwnerId);
+  const { 数: 带走, 记下: 带过来 } = await 带走并记下(换人的.map((c) => ({ customerId: c.id, 旧: c.salesOwnerId })), salesOwnerId);
 
   if (res.count) {
     await recordAudit({
@@ -574,9 +576,55 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
   }
   revalidateCustomer();
   return {
-    ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already, 带走,
+    ok: true, updated: res.count, unchanged: already, missing: ids.length - res.count - already, 带走, 带过来,
     原值: 换人的.map((c) => ({ id: c.id, 值: c.salesOwnerId })),
   };
+}
+
+/**
+ * 撤销批量改负责人（2026-10-04 T-018）：负责人还给原来的人，**只还这次带过来的那几条活**（带过来）。
+ * 原来撤销 = 反向再转一次，带走没做完的() 分不出「这次带过来的」和「新负责人本来就有的」，
+ * 乙原本挂在这位客户上的待办、在谈商机也一起转给了甲——活悄悄换了人。和公海撤销领取（pool-actions 撤销公海）一个做法：
+ *   - 只撤「现在还归新负责人」的：撤销之前又被人改给了别人的不动
+ *   - 原负责人已经停用的不还（还给停用的人等于丢进黑洞），留在新负责人那儿
+ *   - 带过来的活也只还「还挂在新负责人名下、还没做完」的
+ * 看全部（团队版，lib/team-scope.ts）：业务员把自己的客户转给同事，客户一换人他就看不到了，限定着查撤不回来。
+ * 所以要撤哪几位不靠限定定：要么是还给我自己（我刚转出去的），要么是我现在看得到的（公海里的）
+ */
+export async function 撤销改负责人(原值: { id: string; 值: string }[], 新负责人: string, 带过来?: 带走的): Promise<BulkResult> {
+  const me = await requireUser();
+  const b = await getBusiness();
+  const ids = [...new Set(原值.map((x) => x.id))];
+  if (!ids.length) return { ok: true, updated: 0, unchanged: 0, missing: 0 };
+  const 看得到 = new Set((await prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((c) => c.id));
+  const 还归他 = new Set((await 看全部(() => prisma.customer.findMany({ where: { id: { in: ids }, salesOwnerId: 新负责人 }, select: { id: true } }))).map((c) => c.id));
+  const 在职的 = new Set((await prisma.user.findMany({ where: { id: { in: 原值.map((x) => x.值) }, active: true }, select: { id: true } })).map((u) => u.id));
+  const 退 = 原值.filter((x) => 还归他.has(x.id) && 在职的.has(x.值) && (x.值 === me.id || 看得到.has(x.id)));
+  await 钉住老签约();
+  const 退了: { id: string; salesOwnerId: string }[] = [];
+  for (const x of 退) {
+    const 成 = await 看全部(() => prisma.$transaction(async (tx) => {
+      // 条件里再带一次新负责人：查完到这里之间被人改走了就不动
+      const r = await tx.customer.updateMany({ where: { id: x.id, salesOwnerId: 新负责人 }, data: { salesOwnerId: x.值 } });
+      if (!r.count) return false;
+      if (带过来) {
+        await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
+        await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
+        await tx.opportunity.updateMany({ where: { id: { in: 带过来.商机 }, customerId: x.id, ownerId: 新负责人, status: "OPEN" }, data: { ownerId: x.值 } });
+      }
+      return true;
+    }));
+    if (成) 退了.push({ id: x.id, salesOwnerId: x.值 });
+  }
+  if (退了.length) {
+    await recordAudit({
+      user: me, action: "assign", entity: "Customer",
+      summary: `撤销了刚才的批量分配：${退了.length} 名${b.customer}的销售负责人改回原来的人`,
+      detail: { ids: 退了.map((x) => x.id), 从: 新负责人, 改回: 退了 },
+    });
+  }
+  revalidateCustomer();
+  return { ok: true, updated: 退了.length, unchanged: ids.length - 退了.length, missing: 0 };
 }
 
 export async function bulkFollowStatus(ids: string[], followStatus: string): Promise<BulkResult> {

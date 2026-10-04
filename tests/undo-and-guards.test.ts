@@ -17,7 +17,7 @@ import { deleteFollowUp, restoreFollowUp, saveContact } from "@/app/(app)/custom
 import { saveChannel } from "@/app/(app)/channels/actions";
 import { saveLead } from "@/app/(app)/leads/actions";
 import { applyProposal } from "@/app/(app)/dashboard/apply";
-import { assignSalesOwner, bulkFollowStatus } from "@/app/(app)/customers/actions";
+import { assignSalesOwner, bulkFollowStatus, 撤销改负责人 } from "@/app/(app)/customers/actions";
 
 let 客户: { id: string };
 
@@ -99,9 +99,42 @@ describe("D1 批量改负责人、批量改状态：回原值，撤销能改回�
     if (!r.ok) throw new Error(r.error);
     expect(r.原值).toEqual([{ id: 客户.id, 值: mocks.user.id }]);
     expect((await prisma.task.findUniqueOrThrow({ where: { id: 待办.id } })).ownerId).toBe(乙.id);
-    await assignSalesOwner([客户.id], mocks.user.id);
+    expect(await 撤销改负责人(r.原值!, 乙.id, r.带过来)).toMatchObject({ ok: true, updated: 1 });
     expect((await prisma.customer.findUniqueOrThrow({ where: { id: 客户.id } })).salesOwnerId).toBe(mocks.user.id);
     expect((await prisma.task.findUniqueOrThrow({ where: { id: 待办.id } })).ownerId).toBe(mocks.user.id);
+  });
+
+  /*
+    T-018（2026-10-04 上线前回归核对）：撤销原来是「反向再转一次」，带走没做完的() 不分这次带过来的还是乙本来就有的，
+    乙原本挂在这位客户上的待办、在谈商机也一起转给了甲。照公海撤销的做法：只还这次带过来的那几条
+  */
+  it("撤销只还这次带过来的：乙原本就有的待办、商机不动（T-018）", async () => {
+    const 乙 = await prisma.user.create({ data: { email: "b@x", name: "乙", title: "销售", role: "SALES", password: "x" } });
+    const 甲的待办 = await prisma.task.create({ data: { customerId: 客户.id, ownerId: mocks.user.id, title: "寄资料" } });
+    const 乙的待办 = await prisma.task.create({ data: { customerId: 客户.id, ownerId: 乙.id, title: "乙自己约的回访" } });
+    const 乙的商机 = await prisma.opportunity.create({ data: { customerId: 客户.id, ownerId: 乙.id, name: "乙在谈的", amount: 100 } });
+    const r = await assignSalesOwner([客户.id], 乙.id);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.带过来).toEqual({ 计划: [], 待办: [甲的待办.id], 商机: [] });
+    expect(await 撤销改负责人(r.原值!, 乙.id, r.带过来)).toMatchObject({ ok: true, updated: 1 });
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: 客户.id } })).salesOwnerId).toBe(mocks.user.id);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: 甲的待办.id } })).ownerId).toBe(mocks.user.id);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: 乙的待办.id } })).ownerId).toBe(乙.id);
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: 乙的商机.id } })).ownerId).toBe(乙.id);
+  });
+
+  it("撤销之前又被人改给了丙：这位不动；原负责人已停用：不还给他（T-018）", async () => {
+    const 乙 = await prisma.user.create({ data: { email: "b@x", name: "乙", title: "销售", role: "SALES", password: "x" } });
+    const 丙 = await prisma.user.create({ data: { email: "c@x", name: "丙", title: "销售", role: "SALES", password: "x" } });
+    const 丁 = await prisma.user.create({ data: { email: "d@x", name: "丁", title: "销售", role: "SALES", password: "x" } });
+    const 丁的客户 = await prisma.customer.create({ data: { name: "丁的", phone: "13800000009", salesOwnerId: 丁.id } });
+    const r = await assignSalesOwner([客户.id, 丁的客户.id], 乙.id);
+    if (!r.ok) throw new Error(r.error);
+    await prisma.customer.update({ where: { id: 客户.id }, data: { salesOwnerId: 丙.id } });
+    await prisma.user.update({ where: { id: 丁.id }, data: { active: false } });
+    expect(await 撤销改负责人(r.原值!, 乙.id, r.带过来)).toMatchObject({ ok: true, updated: 0, unchanged: 2 });
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: 客户.id } })).salesOwnerId).toBe(丙.id);
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: 丁的客户.id } })).salesOwnerId).toBe(乙.id);
   });
 });
 
