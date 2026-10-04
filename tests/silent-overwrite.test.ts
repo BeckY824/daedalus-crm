@@ -18,7 +18,7 @@ import { saveCustomer, saveContract } from "@/app/(app)/customers/actions";
 import { resolveAttribution } from "@/lib/attribution";
 import { 推荐方式 } from "@/lib/referrer-kind";
 import { applyProposal } from "@/app/(app)/dashboard/apply";
-import { convertLead } from "@/app/(app)/leads/actions";
+import { convertLead, saveLead } from "@/app/(app)/leads/actions";
 import { 查电话, 认回打码号 } from "@/lib/phone";
 import { saveContact, detachContact, saveUnassignedContact } from "@/app/(app)/customers/[id]/actions";
 
@@ -205,3 +205,24 @@ describe("A8 线索转客户：手机号先规整再查重", () => {
   });
 });
 
+/*
+  2026-10-04 补（回归核对 H-035）：AI 读到的是共享区打过码的号码，propose_lead 照抄就把 138****1111 写进线索电话，
+  真号再也找不回。saveLead 早加了「电话里不能有 *」和「交回的是原号打码样子就认回原号」，没有用例钉着
+*/
+describe("线索电话不收星号", () => {
+  it("新建线索带打码号：拒，库里没有这一条", async () => {
+    const r = await saveLead({ name: "AI 抄来的", phone: "138****1111", source: "其他", status: "待跟进" });
+    expect(r).toMatchObject({ ok: false, error: "电话里不能有 *" });
+    expect(await prisma.lead.count()).toBe(0);
+  });
+
+  it("编辑时交回原号的打码样子：认回原号，不把星号存进去；交回别的打码号：拒", async () => {
+    const l = await prisma.lead.create({ data: { name: "老王", phone: "13800001111", ownerId: 甲.id } });
+    const 改备注 = await saveLead({ id: l.id, name: "老王", phone: "138****1111", source: "其他", status: "待跟进", remark: "只改了备注" });
+    expect(改备注.ok).toBe(true);
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: l.id } })).phone).toBe("13800001111");
+    const 乱 = await saveLead({ id: l.id, name: "老王", phone: "139****2222", source: "其他", status: "待跟进" });
+    expect(乱).toMatchObject({ ok: false, error: "电话里不能有 *" });
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id: l.id } })).phone).toBe("13800001111");
+  });
+});
