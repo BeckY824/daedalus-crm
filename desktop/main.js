@@ -297,16 +297,41 @@ process.on("unhandledRejection", (e) => 报告崩溃("未处理的 Promise 拒�
   主窗口的、不是正常退出的就重载一次；一分钟内最多重载三次，免得一载就崩时来回打转（第六轮 r6-pkg C4）
 */
 let 重载记录 = [];
+let 正在问重载 = false;
 app.on("render-process-gone", (_e, wc, d) => {
   崩溃.写崩溃日志(应用日志, "渲染进程退出", `${d.reason}（${d.exitCode}）`);
-  if (d.reason === "clean-exit" || !win || win.isDestroyed() || wc !== win.webContents) return;
-  const 现在 = Date.now();
-  重载记录 = 重载记录.filter((t) => 现在 - t < 60_000);
-  if (重载记录.length >= 3) return;
-  重载记录.push(现在);
-  setTimeout(() => {
-    if (win && !win.isDestroyed()) win.webContents.reload();
-  }, 500);
+  if (!win || win.isDestroyed() || wc !== win.webContents) return;
+  const r = 崩溃.渲染退出怎么办({ 原因: d.reason, 记录: 重载记录, 现在: Date.now(), 正在问: 正在问重载 });
+  重载记录 = r.记录;
+  if (r.动作 === "重载") {
+    setTimeout(() => {
+      if (win && !win.isDestroyed()) win.webContents.reload();
+    }, 500);
+  } else if (r.动作 === "问人") {
+    // 3 次用完还在崩：给出口（D-033）。原来直接 return，窗口一直白着、只能强退
+    正在问重载 = true;
+    dialog
+      .showMessageBox(win, {
+        type: "error",
+        title: "页面一打开就崩",
+        message: "页面接连崩了几次，没再自动重开。",
+        detail: "本机数据不受影响。可以再试一次；还是不行的话，把日志发给我们（帮助 → 反馈问题，或设置 → 桌面端 → 复制诊断信息）。",
+        buttons: ["再试一次", "打开日志", "退出"],
+        defaultId: 0,
+        cancelId: 2,
+      })
+      .then(({ response }) => {
+        正在问重载 = false;
+        if (response === 0) {
+          重载记录 = [];
+          if (win && !win.isDestroyed()) win.webContents.reload();
+        } else if (response === 1) shell.showItemInFolder(日志文件);
+        else app.quit();
+      })
+      .catch(() => {
+        正在问重载 = false;
+      });
+  }
 });
 app.on("child-process-gone", (_e, d) => 崩溃.写崩溃日志(应用日志, "子进程退出", `${d.type} ${d.name || ""}：${d.reason}（${d.exitCode}）`));
 
