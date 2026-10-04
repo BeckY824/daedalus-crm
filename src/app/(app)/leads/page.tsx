@@ -1,6 +1,7 @@
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { 搜索词 } from "@/lib/search-keyword";
 import LeadsView from "./LeadsView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
@@ -14,10 +15,12 @@ export default async function LeadsPage({
 }) {
   const me = await requireUser();
   const sp = await searchParams;
+  // 关键词去掉前后空格再搜（2026-10-04 J-008）：复制来的「张三 」原来一个都搜不到
+  const 词 = 搜索词(sp.keyword);
 
   const where: Prisma.LeadWhereInput = {
-    ...(sp.keyword
-      ? { OR: [{ name: { contains: sp.keyword } }, { contact: { contains: sp.keyword } }] }
+    ...(词
+      ? { OR: [{ name: { contains: 词 } }, { contact: { contains: 词 } }] }
       : {}),
     ...(sp.status ? { status: sp.status } : {}),
   };
