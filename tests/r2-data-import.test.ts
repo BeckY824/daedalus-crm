@@ -197,10 +197,16 @@ describe("号码列的各种写法", () => {
     expect(人[0].remark).toContain("13900002222");
   });
 
-  it("【B】两个号码只用空格隔开：整行被挡、原因写「不像一个电话号码」（应取第一个或说清是两个号）", async () => {
+  it("两个号码只用空格隔开：不挡整行，取第一个、第二个进备注（J-034）", async () => {
     const r = await 预览导入(csv方案("姓名,手机号\n王强,13800001111 13900002222"));
     if (!r.ok) throw new Error(r.error);
     expect(r.预览.新建, `挡下原因：${JSON.stringify(r.预览.挡下)}`).toBe(1);
+    // 执行这一步：取第一个号，第二个号进备注，不悄悄丢掉（2026-10-04 J-034）
+    const w = await 执行导入(csv方案("姓名,手机号\n王强,13800001111 13900002222"), "a.csv");
+    if (!w.ok) throw new Error(w.error);
+    const c = await prisma.customer.findFirstOrThrow();
+    expect(c.phone).toBe("13800001111");
+    expect(c.remark ?? "", "第二个号没进备注").toContain("13900002222");
   });
 
   it("海外、座机、分机：照收；打码号码：挡", () => {

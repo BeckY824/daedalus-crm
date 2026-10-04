@@ -106,6 +106,8 @@ describe("落库", () => {
     expect(r.新建).toBe(1);
     const c = await prisma.customer.findFirstOrThrow({ where: { phone: "13800000001" } });
     expect(c.channelId).toBeNull();
+    // 原文不能悄悄丢：写进备注，人回头看得到表里写的是哪个渠道（2026-10-04 J-048）
+    expect(c.remark ?? "", "渠道原文没进备注").toContain("查无此渠道");
   });
 
   it("一格日期读不懂，其余字段照进——逐格留空，不整行拒绝", async () => {
