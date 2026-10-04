@@ -34,6 +34,11 @@ export type 团队配置 = {
   signPub?: string;
   /** 老板那台才有：签信封和钥匙环用 */
   signPriv?: string;
+  /**
+   * 上一次中转名单说的老板（建团队的人）是哪个云端账号。被移出之后名单里就没有这个团了、也可能连不上云端，
+   * 退出时判「我是不是业务员」靠它，不靠本机 User.role（2026-10-04 T-041）
+   */
+  ownerAccountId?: string;
   /** 解不开的批次：序号 → 试了几次。连着 3 次解不开就跳过、记下（复查低 4：一批坏包不许卡死这台） */
   bad?: Record<string, number>;
   skipped?: number[];
@@ -154,7 +159,7 @@ async function 建团队里(名字: string): Promise<结果<{ 邀请码: string 
   const r = await 云("POST", "/api/sync/team", { name: 名字, device: 设备, pubKey: 对.公钥 });
   if (r.状态 !== 200 || !r.json.teamId) return { ok: false, error: String(r.json.error ?? "建不了团队") };
   await 本机开同步(我, false);
-  const c: 团队配置 = { teamId: String(r.json.teamId), teamName: 名字.trim(), joinSecret: String(r.json.joinSecret), key: 新钥匙(), epoch: 0, keys: {}, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, signPub: 签.公钥, signPriv: 签.私钥, pulled: 0, lastError: null };
+  const c: 团队配置 = { teamId: String(r.json.teamId), teamName: 名字.trim(), joinSecret: String(r.json.joinSecret), key: 新钥匙(), epoch: 0, keys: {}, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, signPub: 签.公钥, signPriv: 签.私钥, ownerAccountId: 我.accountId, pulled: 0, lastError: null };
   写团队(c);
   return { ok: true, 邀请码: 邀请码(c) };
 }
@@ -296,18 +301,55 @@ export async function 换邀请码(): Promise<结果<{ 邀请码: string }>> {
   return { ok: true, 邀请码: 邀请码(读团队()!) };
 }
 
+type 名单团 = { id: string; 我是建的人?: boolean; ownerAccountId?: string; 成员?: { accountId: string; role: string }[] };
+
+/** 中转名单里这个团的老板是哪个账号（owner 那一行；老版本中转只给「我是建的人」时退回它） */
+function 名单里的老板(团: 名单团, 我账号: string | undefined): string | null {
+  return 团.成员?.find((m) => m.role === "owner")?.accountId ?? 团.ownerAccountId ?? (团.我是建的人 && 我账号 ? 我账号 : null);
+}
+
+/** 名单说的老板记进 .team.json：被移出 / 连不上云端时退出团队还能照它判（T-041） */
+function 记下老板(teamId: string, 老板: string | null) {
+  const 现 = 读团队();
+  if (老板 && 现?.teamId === teamId && 现.ownerAccountId !== 老板) 写团队({ ...现, ownerAccountId: 老板 });
+}
+
+/**
+ * 离开团队时要不要「只留自己的」：只有确定我是业务员才删（2026-10-04 T-041）。
+ * 原来看本机 User.role：那只是按名单对出来的副本，刚加入还没对、库被人改过都会错——
+ * 错成业务员，老板电脑上全队的客户就没了。所以：
+ *   - 建团队的那台（手上有签名私钥）永远不删
+ *   - 云端答得上来：按名单里的老板是不是我判
+ *   - 答不上来（被移出后名单里没这个团了、连不上）：按上次名单记下的老板判；从没记过 = 不知道 = 不删
+ * 宁可业务员电脑上多留一份，也不能删错老板的。
+ */
+function 走时只留自己的(c: 团队配置, 团: 名单团 | undefined, 我账号: string | undefined): boolean {
+  if (!我账号 || c.signPriv) return false;
+  const 老板 = (团 && 名单里的老板(团, 我账号)) || c.ownerAccountId || null;
+  return !!老板 && 老板 !== 我账号;
+}
+
+/** 问一次中转名单里这个团（问不到、名单里没有都是 undefined） */
+async function 名单里的团(teamId: string): Promise<名单团 | undefined> {
+  const r = await 云("GET", "/api/sync/team");
+  if (r.状态 !== 200) return undefined;
+  return ((r.json.teams as 名单团[]) ?? []).find((t) => t.id === teamId);
+}
+
 /** 退出团队：本机数据全留着，只是不再推拉；触发器卸掉（日志表留着，以后再进团队不用重记全量） */
 export async function 退出团队(): Promise<结果> {
   // 正在跑的那一轮先跑完：不然它跑到最后把 .team.json 写回来，界面上还「在团队里」、触发器却已经卸了（复查）
   if (在跑) await 在跑.catch(() => undefined);
   const c = 读团队();
   if (!c) return { ok: true };
+  // 先问名单、再退队：退了之后名单里就没有这个团了，问不出谁是老板（T-041）
+  const 团 = await 名单里的团(c.teamId).catch(() => undefined);
   const r = await 云("POST", "/api/sync/leave", { teamId: c.teamId });
   // 老板还有同事在队里：云端不让走（见 sync-relay 退队）。连不上云端、已经被移出（403）照旧在本机退
   if (r.状态 === 409) return { ok: false, error: String(r.json.error ?? "退不了") };
   const 账号 = 读云端凭据()?.accountId;
   const 我id = 账号 ? 团队身份id(账号) : null;
-  const 是业务员 = !!我id && (await 看全部(() => prisma.user.findUnique({ where: { id: 我id }, select: { role: true } })))?.role === "SALES";
+  const 是业务员 = !!我id && 走时只留自己的(c, 团, 账号);
   await 卸触发器(prisma);
   fs.rmSync(配置文件(), { force: true });
   触发器对过 = false;
@@ -440,7 +482,7 @@ export async function 团队状态() {
   if (!c) return { 在团队: false as const, 能用: 能用().ok };
   const r = await 云("GET", "/api/sync/team");
   const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
-  if (团) await 看全部(() => 按名单对角色(团.成员)).catch(() => undefined);
+  if (团) await 看全部(() => 按名单对角色(团.成员, 团.id)).catch(() => undefined);
   return {
     在团队: true as const,
     /**
@@ -468,7 +510,8 @@ let 上次对角色 = 0;
  * 按中转的成员名单对本机的角色：建团队的人（owner）是老板 = ADMIN，其余是业务员 = SALES。
  * User.role 不同步（tables.ts 不同步列），每台各自对，结果一样。用裸 SQL：不碰 updatedAt，也就不进同步日志
  */
-async function 按名单对角色(成员: { accountId: string; role: string }[]) {
+async function 按名单对角色(成员: { accountId: string; role: string }[], teamId?: string) {
+  if (teamId) 记下老板(teamId, 成员.find((m) => m.role === "owner")?.accountId ?? null);
   for (const m of 成员) {
     const 应 = m.role === "owner" ? "ADMIN" : "SALES";
     await prisma.$executeRawUnsafe(`UPDATE "User" SET role = ? WHERE id = ? AND role <> ?`, 应, 团队身份id(m.accountId), 应);
@@ -483,22 +526,27 @@ export async function 对齐角色() {
   const r = await 云("GET", "/api/sync/team");
   if (r.状态 !== 200) return;
   const 团 = ((r.json.teams as { id: string; 成员: { accountId: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
-  if (团) await 看全部(() => 按名单对角色(团.成员));
+  if (团) await 看全部(() => 按名单对角色(团.成员, 团.id));
 }
 
 /**
  * 业务员被老板移出：自动退出团队，这台只留他自己的客户（退出团队 → 只留自己的）。
  * 不等他自己去点——人被移出了多半也不会再打开「设置 → 团队」，同事的客户就一直留在他电脑上。
- * 先问一次云端确认真不在团队里（一次 403 不够：令牌刚换、网关抽风都可能），老板那台不自动退
+ * 先问一次云端确认真不在团队里（一次 403 不够：令牌刚换、网关抽风都可能），老板那台不自动退。
+ * 是不是业务员和 退出团队() 同一个判法：按上次名单记下的老板、建团队的那台永远不算（T-041，原来看本机 User.role）
  */
-let 收拾过 = false;
+let 收拾中 = false;
 async function 被移出后收拾() {
-  if (收拾过) return;
-  const s = await 团队状态().catch(() => null);
-  if (!s || !s.在团队 || !s.被移出) return;
-  const 账号 = 读云端凭据()?.accountId;
-  const 我 = 账号 ? await 看全部(() => prisma.user.findUnique({ where: { id: 团队身份id(账号) }, select: { role: true } })) : null;
-  if (我?.role !== "SALES") return;
-  收拾过 = true;
-  await 退出团队().catch(() => { 收拾过 = false; });
+  if (收拾中) return;
+  收拾中 = true;
+  try {
+    const s = await 团队状态().catch(() => null);
+    if (!s || !s.在团队 || !s.被移出) return;
+    const c = 读团队();
+    if (!c || !走时只留自己的(c, undefined, 读云端凭据()?.accountId)) return;
+    await 退出团队().catch(() => undefined);
+  } finally {
+    // 收拾完放开：以后进了别的团队又被移出，还要再收拾一次（原来置上就再也不放）
+    收拾中 = false;
+  }
 }
