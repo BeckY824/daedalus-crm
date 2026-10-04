@@ -158,6 +158,23 @@ describe("推拉合并", () => {
     expect((await 乙.customer.findUniqueOrThrow({ where: { id: "c1" } })).remark).toBe("甲晚写的");
   });
 
+  /* 上线前第 2 期 2b「清空一个字段的值：存得住空、同步不回填」 */
+  it("清空一格也同步过去：甲清空公司，乙那边变空；乙更早写的旧值后拉过来不回填", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c1", name: "王总", phone: "13800000001", school: "远山资本", grade: "高管", salesOwnerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    // 乙先改了一次公司（还没推），甲后来把公司清空了
+    await 乙.customer.update({ where: { id: "c1" }, data: { school: "平川科技" } });
+    await 睡(5);
+    await 甲.customer.update({ where: { id: "c1" }, data: { school: null } });
+    // 甲先推：乙收到「清空」；乙后推：自己那条更早的旧值到了甲那边也不该把空格填回来
+    const a = await 推(甲, "A");
+    await 回放(乙, 拆(a!, 钥匙), "B");
+    const b = await 推(乙, "B");
+    if (b) await 回放(甲, 拆(b, 钥匙), "A");
+    for (const db of [甲, 乙]) expect(await db.customer.findUniqueOrThrow({ where: { id: "c1" }, select: { school: true, grade: true } })).toEqual({ school: null, grade: "高管" });
+  });
+
   it("删除 vs 别人更晚的修改：带整行复活，两边一致；级联删的子表也同步", async () => {
     const { 甲, 乙 } = await 一对();
     await 甲.customer.create({ data: { id: "c2", name: "李总", phone: "13800000002", salesOwnerId: "acct_jia" } });

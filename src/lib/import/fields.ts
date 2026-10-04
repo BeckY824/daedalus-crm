@@ -68,7 +68,7 @@ export type 字段规格 = {
  */
 export function 字段表(b: { fields: { school: string; grade: string; major: string }; grades: string[]; customer: string; statusLabels?: Record<string, string> }): 字段规格[] {
   return [
-    { 名: "name", label: "姓名", kind: "text", 必填: true, 别名: ["姓名", "名字", "客户姓名", "客户名称", "客户", b.customer, "学员", "学员姓名", "name", "fullname", "联系人", "联系人姓名"] },
+    { 名: "name", label: "姓名", kind: "text", 必填: true, 别名: ["姓名", "名字", "客户姓名", "客户名称", "客户", b.customer, `${b.customer}姓名`, "学员", "学员姓名", "name", "fullname", "联系人", "联系人姓名"] },
     { 名: "phone", label: "手机号", kind: "text", 必填: true, 别名: ["手机号", "手机", "电话", "联系电话", "联系方式", "手机号码", "电话号码", "mobile", "phone", "tel", "telephone"] },
     { 名: "school", label: b.fields.school, kind: "text", 别名: [b.fields.school, "院校", "学校", "公司", "单位", "公司名称", "school", "company", "org"] },
     // 开放：values 只当建议，导入时对不上也原样收下（库里这一列就是自由文本）

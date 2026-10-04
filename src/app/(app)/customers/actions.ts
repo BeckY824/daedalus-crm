@@ -326,7 +326,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
     // 没有 base 就退回保守行为：只要库里现值和提交值对不上就拦
     if (!input.base) {
-      const fields = conflictingFields(currentRow, data);
+      const fields = conflictingFields(currentRow, data, b);
       return {
         ok: false,
         error: `这条${b.customer}在你打开编辑框之后又变过了，本次保存已取消`,
@@ -354,8 +354,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
         error: `这条${b.customer}在你打开编辑框之后又变过了，本次保存已取消`,
         conflict: {
           currentUpdatedAt: current.updatedAt.toISOString(),
-          fields: labelsOf(overlap),
-          theirFields: labelsOf(theirs),
+          fields: labelsOf(overlap, b),
+          theirFields: labelsOf(theirs, b),
         },
       };
     }

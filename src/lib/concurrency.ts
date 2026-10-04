@@ -34,10 +34,14 @@ export const CUSTOMER_FIELD_LABELS: Record<string, string> = {
   channelOwnerId: "渠道负责人",
 };
 
-/** 术语化版本：三个档案字段与「推荐客户」按业务配置显示 */
-export function customerFieldLabels(b: { customer: string; fields: { school: string; grade: string; major: string } }): Record<string, string> {
+type 叫法 = { customer: string; fields: { school: string; grade: string; major: string } };
+
+/** 术语化版本：姓名、决策状态、三个档案字段与「推荐客户」按业务配置显示 */
+export function customerFieldLabels(b: 叫法): Record<string, string> {
   return {
     ...CUSTOMER_FIELD_LABELS,
+    name: `${b.customer}姓名`,
+    decisionStatus: `${b.customer}决策状态`,
     school: b.fields.school,
     grade: b.fields.grade,
     major: b.fields.major,
@@ -75,9 +79,13 @@ export function diffKeys(
   );
 }
 
-/** 把字段名换成界面上的叫法，用于提示文案 */
-export function labelsOf(keys: readonly string[]): string[] {
-  return keys.map((k) => CUSTOMER_FIELD_LABELS[k] ?? k);
+/**
+ * 把字段名换成界面上的叫法，用于提示文案。给了业务配置就按这家的叫法说（L-056：原来冲突提示写死
+ * 「公司 / 职位 / 行业 / 推荐客户」，教培配置下人看到的是「院校 / 年级」，对不上）
+ */
+export function labelsOf(keys: readonly string[], b?: 叫法): string[] {
+  const 名 = b ? customerFieldLabels(b) : CUSTOMER_FIELD_LABELS;
+  return keys.map((k) => 名[k] ?? k);
 }
 
 /**
@@ -87,6 +95,7 @@ export function labelsOf(keys: readonly string[]): string[] {
 export function conflictingFields(
   current: Record<string, unknown>,
   incoming: Record<string, unknown>,
+  b?: 叫法,
 ): string[] {
-  return labelsOf(diffKeys(current, incoming));
+  return labelsOf(diffKeys(current, incoming), b);
 }
