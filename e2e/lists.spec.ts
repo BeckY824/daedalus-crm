@@ -272,6 +272,40 @@ test("J-015 联系人页按关系本地筛完：不冒「只有最近 N 条，�
   await expect(page.locator(".ant-pagination-total-text")).toHaveText("共 2 条");
 });
 
+test("T-030 数据页按销售负责人点名字：就地打开他这一段签的那几笔（签约时的负责人、限这个月），页头写清口径", async ({ page }) => {
+  const p = 连库();
+  // 张三这个月签下、后来转给李四的一位；张三去年签的一笔（不在这个月里）
+  const c = await p.customer.create({ data: { name: "转走了的签约客", phone: "13988880030", salesOwnerId: 李四 } });
+  const 这月 = await p.contract.create({ data: { customerId: c.id, amount: 30000, signedAt: new Date() } });
+  await p.contractOwner.create({ data: { contractId: 这月.id, salesOwnerId: 张三 } });
+  const 去年 = await p.contract.create({ data: { customerId: c.id, amount: 9000, signedAt: 一年前 } });
+  await p.contractOwner.create({ data: { contractId: 去年.id, salesOwnerId: 张三 } });
+  await p.$disconnect();
+  try {
+    await 登录(page);
+    await page.goto("/overview?view=本月");
+    const 表 = page.locator(".ant-card", { hasText: "按销售负责人" });
+    const 那一行 = 表.locator(".ant-table-row", { hasText: "张三" });
+    await expect(那一行).toContainText("1");
+    const 抽屉 = page.getByRole("dialog").filter({ hasText: "签约明细" });
+    await expect(async () => {
+      if (!(await 抽屉.isVisible())) await 那一行.getByRole("button", { name: /张三/ }).click();
+      await expect(抽屉).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 20_000 });
+    // 没跳走：还在数据页
+    expect(page.url()).toContain("/overview");
+    await expect(抽屉).toContainText("按签约那一刻的销售负责人算");
+    await expect(抽屉).toContainText("共 1 笔");
+    await expect(抽屉.locator(".ant-table-row")).toHaveCount(1);
+    await expect(抽屉.locator(".ant-table-row")).toContainText("转走了的签约客");
+    await expect(抽屉.getByRole("link", { name: /看他现在负责的全部/ })).toHaveAttribute("href", `/customers?salesOwnerId=${张三}`);
+  } finally {
+    const q = 连库();
+    await q.contract.deleteMany({ where: { customerId: c.id } });
+    await q.$disconnect();
+  }
+});
+
 test("没配 AI 的首页：页头「首页」不和「数据」重名；本月签约 0 写 ¥0；排行金额带 ¥ 写清口径；上月没新增不写「持平」（J-124 / J-125 / J-121 / J-111）", async ({ page }) => {
   // 两位销售各赢一单（排行 > 1 人才画榜）；这个月没有签约
   const p = 连库();

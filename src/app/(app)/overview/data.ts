@@ -14,8 +14,9 @@ import type { 币种合计 } from "@/lib/currency";
 
 export type Bucket = { label: string; amount: number; count: number };
 export type Agg = { id: string; name: string; amount: number; count: number };
-/** 趋势图上点开一根柱子时看到的那几行：这一段是哪几笔签约凑出来的 */
-export type 明细行 = { id: string; 学员: string; 学员id: string; 金额: number; 日期: string; 销售: string };
+// 明细行和「按人点进去」放在不引库的那份里：数据页的正文（ReportsView）是客户端组件，要用它挑明细（T-030）
+import type { 明细行 } from "./drill";
+export { 按人明细, type 明细行 } from "./drill";
 
 export type 复盘 = {
   trend: Bucket[];
@@ -131,6 +132,8 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度, 币: { 想
       金额: c.amount,
       日期: c.signedAt.toISOString(),
       销售: 签约销售(c)?.name ?? "—",
+      销售id: 签约销售(c)?.id ?? null,
+      渠道负责人id: 签约渠道负责人(c)?.id ?? null,
     });
     明细.set(k, 行);
   }

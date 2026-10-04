@@ -17,7 +17,7 @@ import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { saveContract, assignSalesOwner, patchCustomer } from "@/app/(app)/customers/actions";
 import { deactivateUser } from "@/app/(app)/settings/actions";
-import { 加载复盘 } from "@/app/(app)/overview/data";
+import { 加载复盘, 按人明细 } from "@/app/(app)/overview/data";
 import { runQuery } from "@/lib/report-run";
 import { DEFAULT_BUSINESS } from "@/lib/business-config";
 
@@ -135,3 +135,29 @@ describe("B3 换客户负责人，原负责人没做完的活跟着走", () => {
   });
 });
 
+
+/*
+  T-030（2026-10-04 工作室试用前）：数据页「按人」的数点进去，原来跳 /customers?salesOwnerId=——
+  上面按签约那一刻的负责人、限了时间段，点进去按现在的负责人、不限时间，人数对不上。
+  现在点名字就地打开这个人这一段的签约明细，和那一行同一个口径。
+*/
+describe("T-030 按人点进去的明细和那一行同一个口径", () => {
+  it("客户转给李四之后：张三那一行 1 笔 50 万，点进去也是这 1 笔；李四一笔都没有", async () => {
+    await assignSalesOwner([客户.id], 李四.id);
+    const r = await 加载复盘(今年.from, 今年.to, "month");
+    const 张三行 = r.bySales.find((x) => x.id === 张三.id)!;
+    const 张三的 = 按人明细(r.明细, "销售", 张三.id);
+    expect(张三的.length).toBe(张三行.count);
+    expect(张三的.reduce((s, x) => s + x.金额, 0)).toBe(张三行.amount);
+    expect(按人明细(r.明细, "销售", 李四.id)).toEqual([]);
+    // 渠道负责人那张表也一样
+    const 渠道行 = r.byChannelOwner.find((x) => x.id === 张三.id)!;
+    expect(按人明细(r.明细, "渠道负责人", 张三.id).length).toBe(渠道行.count);
+  });
+
+  it("时间段外的签约不算进去（明细只有这一段的）", async () => {
+    await saveContract({ customerId: 客户.id, amount: 1000, signedAt: new Date("2025-06-01"), remark: null });
+    const r = await 加载复盘(今年.from, 今年.to, "month");
+    expect(按人明细(r.明细, "销售", 张三.id).map((x) => x.金额)).toEqual([500000]);
+  });
+});
