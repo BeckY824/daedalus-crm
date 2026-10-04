@@ -211,7 +211,14 @@ export default function TeamTab() {
         {s.active === null && <Tag>连不上云端</Tag>}
       </div>
       {s.active === false && (
-        <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="团队还没开通，暂不同步" description="开通后自动开始，改动都记着，不会丢。开通请联系我们（设置 → 桌面端 → 反馈）。" />
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="团队还没开通，暂不同步"
+          description={
+            <>
+              开通后自动开始，改动都记着，不会丢。<b>开通后先免费用 14 天</b>，之后按人计：每人每月 39 元，年付每人 399 元（建团队的人也算一人）。
+              开通请点左下角的「反馈」告诉我们团队名字。
+            </>
+          }
+        />
       )}
       <div className="team-sync">
         <span className="muted">
