@@ -136,6 +136,27 @@ describe("中转", () => {
     expect(信.map((x) => x.data)).toEqual(环[0].ring === "环-一" ? ["信-一", "信-一"] : ["信-二", "信-二"]);
   });
 
+  it("T-051 移除成员时被移的人拿旧口令狂调入队：结束后他不在册、没有登记的设备", async () => {
+    const r = await import("@/lib/tenant/sync-relay");
+    const { control } = await import("@/lib/tenant/control");
+    const 甲 = await 账号("甲"), 丙 = await 账号("丙");
+    const t = await r.建团队(甲, "移除并发", { device: "dJia0002", pubKey: 设备钥匙对().公钥 });
+    if (!t.ok) throw new Error(t.error);
+    expect((await r.入队(丙, t.teamId, t.joinSecret, { device: "dBing001", pubKey: 设备钥匙对().公钥 })).ok).toBe(true);
+    const 旧口令 = t.joinSecret;
+    const 结果 = await Promise.allSettled([
+      r.移除成员(甲, t.teamId, 丙),
+      ...Array.from({ length: 8 }, (_, i) => r.入队(丙, t.teamId, 旧口令, { device: `dBingX0${i}`, pubKey: 设备钥匙对().公钥 })),
+    ]);
+    expect(结果[0]).toMatchObject({ status: "fulfilled", value: { ok: true } });
+    const [团] = await r.我的团队(甲);
+    expect(团.成员.map((m) => m.accountId)).toEqual([甲]);
+    expect(await r.我的团队(丙)).toEqual([]);
+    expect(await control.syncDevice.count({ where: { teamId: t.teamId, accountId: 丙 } })).toBe(0);
+    // 之后拿旧口令也回不来
+    expect((await r.入队(丙, t.teamId, 旧口令, { device: "dBingY01", pubKey: 设备钥匙对().公钥 })).ok).toBe(false);
+  });
+
   it("接口：没令牌 401；不是托管版 404", async () => {
     const { GET } = await import("@/app/api/sync/team/route");
     expect((await GET(new Request("http://x/api/sync/team"))).status).toBe(401);
