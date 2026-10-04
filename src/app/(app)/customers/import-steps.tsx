@@ -6,6 +6,7 @@ import { 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 像表头, type 字段名 } from "@/lib/import/fields";
 import { 改动键 } from "@/lib/import/plan";
 import { 粘贴字数上限, type 编造格 } from "@/lib/import/paste";
+import { 样例行数 } from "@/lib/jev/columns";
 import type { 预览, 导入方案 } from "./import-actions";
 import type { BusinessConfig } from "@/lib/business-config";
 import AiWait from "@/components/AiWait";
@@ -170,12 +171,17 @@ export function 粘贴面板({
 
 /** 第二步：每一列对到哪个字段。**认人那一列没指出来就不让走**，见下面那条提示 */
 export function 对列({
-  表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉,
+  表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉, AI认列,
 }: {
   表头: string[]; 数据: string[][]; 映射: (字段名 | null)[]; set映射: (m: (字段名 | null)[]) => void;
   表: ReturnType<typeof 字段表>; 认人列: number; 文件名: string; 截断了?: { 行?: number; 列?: number }; b: BusinessConfig;
   没对上的列: 导入方案["没对上的列"]; set没对上的列: (v: 导入方案["没对上的列"]) => void;
   编造: 编造格[]; 漏掉: string[];
+  /**
+   * 「让 AI 认一下」（L-076）。不给 = 这个部署没接判断模型、或管理员没打开「导入时让 AI 认列」，就不摆按钮。
+   * 点了才发，按钮旁边一句话说清发什么
+   */
+  AI认列?: { 跑: () => void; 忙: boolean };
 }) {
   const 选项 = [{ value: "", label: "没有对应字段" }, ...表.map((f) => ({ value: f.名, label: f.label + (f.必填 ? "（必填）" : "") }))];
   /*
@@ -287,6 +293,16 @@ export function 对列({
                 />
                 <span>{没对上的列 !== "丢掉" ? "并进备注" : "不导，直接丢掉"}</span>
               </Space>
+              {AI认列 && (
+                <div style={{ marginTop: 10 }}>
+                  <Button size="small" icon={<ThunderboltOutlined />} loading={AI认列.忙} onClick={AI认列.跑}>
+                    让 AI 认一下这 {没对上.length} 列
+                  </Button>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>
+                    会把这几列的表头和前 {样例行数} 行发给 AI，其余行不发；认出来的只是下面的默认选项，你还要自己看一眼
+                  </Typography.Text>
+                </div>
+              )}
             </div>
           }
         />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Alert, Drawer, Segmented, Steps, Typography, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import { 解析CSV带行号, 解码CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
@@ -8,7 +8,7 @@ import { 字段表, 猜列, type 字段名 } from "@/lib/import/fields";
 import { type 编造格 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
 import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
-import { 粘成表格, 猜列建议 } from "./ai";
+import { 粘成表格, 猜列建议, 导入认列状态 } from "./ai";
 import type { BusinessConfig } from "@/lib/business-config";
 import { 页脚, 粘贴面板, 对列, 复核, 确认, 按处置 } from "./import-steps";
 import { clearJob, runJob } from "@/lib/ai-jobs";
@@ -37,10 +37,13 @@ const 整理任务键 = "import:paste";
  * 切完的表和从 Excel 读出来的那个数组长得一模一样，日期怎么认、状态怎么对、
  * 重复怎么并，全都还是下游那几个纯函数说了算。
  *
- * ## 粘贴那条路上 AI 不自动跑
+ * ## AI 不自动跑
  *
  * 粘进去不会有任何事发生，要人自己按「整理成表格」。这一次调用花钱、占次数，
  * 而人往输入框里粘东西太便宜了——边想边粘、粘错了重粘都是常事。
+ *
+ * 文件那条路也一样：规则认不出来的列，要人在第 1 步点「让 AI 认一下」才问判断模型，
+ * 按钮旁边写着会发什么（表头和前 3 行）。原来读完表就自动问（2026-10-04 L-076）。
  *
  * ## 这一版明确不做的
  *
@@ -129,12 +132,35 @@ export default function ImportDrawer({
   const [整理, set整理] = useState<{ 起: number; 出错?: string } | null>(null);
   /** 抽屉在整理途中被关掉 / 重来：回来的表没人接，不许再往一个已经重来的抽屉里填 */
   const 这一次 = useRef(0);
+  /**
+   * 「让 AI 认一下」那一趟的轮次。换了表、重来、**去算预览**都会让它作废：
+   * 结果回来时人已经在看预览了，再改映射，落库的就和预览的不一样（2026-10-04 J-057）
+   */
+  const 认列轮 = useRef(0);
+  /** 上一趟是因为去算预览才作废的：只有这种要跟人说一声（换表、关抽屉不用说） */
+  const 因预览作废 = useRef(false);
+  const [认列中, set认列中] = useState(false);
+  /** 开门时问一次：有没有认列按钮、内容落在哪儿（null = 还没问到，抽屉上就先不说） */
+  const [认列状态, set认列状态] = useState<{ 能认列: boolean; 本机: boolean } | null>(null);
+  useEffect(() => {
+    if (!open || 认列状态) return;
+    let 算数 = true;
+    导入认列状态()
+      .then((r) => 算数 && set认列状态(r))
+      .catch(() => {});
+    return () => {
+      算数 = false;
+    };
+  }, [open, 认列状态]);
   const [结果, set结果] = useState<{ batchId: string; 新建: number; 补空: number; 跳过: number; 进不了: number } | null>(null);
 
   const 方案 = (): 导入方案 => ({ 表头, 数据, 映射, 改过, 重复行, 没对上的列, ...(行号 ? { 行号 } : {}) });
 
   function 重来() {
     这一次.current++;
+    认列轮.current++;
+    因预览作废.current = false;
+    set认列中(false);
     clearJob(整理任务键);
     set整理(null);
     set步(0);
@@ -198,26 +224,44 @@ export default function ImportDrawer({
     set映射(规则);
     set改过({});
     set步(1);
-    void 补猜(h, d, 规则);
+    // 换了一份表：上一份还在路上的认列结果不许落到这一份上
+    认列轮.current++;
+    因预览作废.current = false;
+    set认列中(false);
   }
 
   /**
-   * 规则认不出来的那几列，再问一次判断模型。
+   * 「让 AI 认一下」：规则认不出来、人也还没选的那几列，问一次判断模型。**人点了才跑**（L-076）。
    *
-   * **不 await、不转圈、不拦路。** 规则的结果已经摆在界面上了，人可以立刻开始复核；
-   * 这一趟回来只往还空着的格子里填。回不来（没配 key、关了开关、断网、超时）就什么都不发生，
-   * 界面停在规则给出的样子——那正是 2026-09-20 之前的样子，不是坏掉。
+   * 发的是表头和前 {@link 样例行数} 行；问哪几列由服务端按传过去的映射挑（还空着的才问）。
+   * 回不来（没配 key、关了开关、断网、超时）就说一句，界面停在规则给出的样子。
    *
-   * 合并用 `并进来` 而不是直接 set：这一秒多里人可能已经手动选了某一列，
-   * 那一列必须赢。同一个字段被两列同时命中也在那儿去重——模型是一列一问、
-   * 彼此看不见的，「联系方式」和「TEL」它会都判成 phone。
+   * 合并用 `并进来` 而不是直接 set：这一趟里人可能已经手动选了某一列，那一列必须赢。
+   * 回来时人已经去算预览了（轮次变了）就整个丢掉——预览是照当时的映射算的（J-057）。
    */
-  async function 补猜(h: string[], d: string[][], 规则: (字段名 | null)[]) {
+  async function AI认列() {
+    const 轮 = ++认列轮.current;
+    因预览作废.current = false;
+    const 当时 = 映射;
+    set认列中(true);
     try {
-      const 答案 = await 猜列建议(h, d.slice(0, 样例行数), 规则);
-      if (答案) set映射((prev) => 并进来(prev, 答案, 表));
+      const 答案 = await 猜列建议(表头, 数据.slice(0, 样例行数), 当时);
+      if (轮 !== 认列轮.current) {
+        if (因预览作废.current) message.info("AI 认列的结果回来晚了，你已经往下走了，没有拿它改列的对应。要用的话回到「对列」再点一次");
+        return;
+      }
+      const 合 = 并进来(当时, 答案, 表);
+      const 认出 = 合.filter((x, i) => x !== 当时[i]).length;
+      if (!答案) message.warning("AI 这会儿没回话，剩下的列请自己选");
+      else if (认出 === 0) message.info("AI 也没认出来，剩下的列请自己选，或者让它们并进备注");
+      else {
+        set映射((prev) => 并进来(prev, 答案, 表));
+        message.success(`AI 认出了 ${认出} 列，已经填在下面，请看一眼对不对`);
+      }
     } catch {
-      // 兜底的兜底：这一层坏了也只是少猜几列，不该让导入报错
+      if (轮 === 认列轮.current) message.warning("AI 这会儿没回话，剩下的列请自己选");
+    } finally {
+      if (轮 === 认列轮.current) set认列中(false);
     }
   }
 
@@ -258,6 +302,10 @@ export default function ImportDrawer({
   const 现看 = 看 ? 按处置(看, 重复行) : null;
 
   async function 去预览() {
+    // 预览照这一刻的映射算；还在路上的认列结果回来就作废（J-057）
+    if (认列中) 因预览作废.current = true;
+    认列轮.current++;
+    set认列中(false);
     set忙(true);
     try {
       const r = await 预览导入(方案());
@@ -366,8 +414,13 @@ export default function ImportDrawer({
             <p className="ant-upload-drag-icon"><InboxOutlined /></p>
             <p className="ant-upload-text">把 Excel 或 CSV 拖到这里</p>
             <p className="ant-upload-hint">
-              收 .xlsx 和 .csv，最多 {行数上限.toLocaleString()} 行、{列数上限} 列。
-              第一行是表头。文件不上传——在这台机器的浏览器里读完就直接落到你自己的库里
+              收 .xlsx 和 .csv，最多 {行数上限.toLocaleString()} 行、{列数上限} 列。第一行是表头。
+              {/*
+                说实情（L-076 / H-096）：原来不分网页、桌面都写「文件不上传——读完直接落到你自己的库里」，
+                网页端的表格内容其实要传到服务器；AI 认列那一步另有按钮、另说发什么
+              */}
+              {认列状态?.本机 === true && "文件在这台电脑上读，读出来的内容写进这台电脑上的库。"}
+              {认列状态?.本机 === false && "文件在浏览器里读成表格，表格内容会传到服务器，点「开始导入」后写进你们工作区的库。"}
             </p>
           </Upload.Dragger>
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14 }}>
@@ -382,6 +435,7 @@ export default function ImportDrawer({
       {步 === 1 && (
         <对列
           {...{ 表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉 }}
+          AI认列={认列状态?.能认列 ? { 跑: AI认列, 忙: 认列中 } : undefined}
         />
       )}
 

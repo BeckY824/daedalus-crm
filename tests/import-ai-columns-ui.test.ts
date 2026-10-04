@@ -1,0 +1,181 @@
+/**
+ * 导入抽屉里「让 AI 认列」那一下（回归核对 L-076、J-057，2026-10-04）。
+ *
+ *   L-076 读完表就自动拿认不出的列的前 3 行原文去问 AI，抽屉上还写着「文件不上传」。
+ *         违反「AI 不自动跑」：现在要人点一下才发，按钮旁边说清发的是什么。
+ *   J-057 AI 的结果回来晚了，会把人已经看过预览的列对应悄悄换掉，落库和预览不一致。
+ *         现在：结果回来时人已经去算预览 / 往下走了，就丢掉，并说一句。
+ *
+ * 做法同 tests/ai-settings-ui.test.ts：esbuild 打包真组件，在 Playwright 的 Chromium 里点；
+ * server action（./ai、./import-actions）换成桩，桩把每次调用记在 window.__调用 里。
+ */
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import path from "node:path";
+import { build, type Plugin } from "esbuild";
+import { chromium, type Browser, type Page } from "playwright";
+
+let browser: Browser;
+let 包 = "";
+
+const 预览 = { 新建: 4, 补空: 0, 跳过: 0, 已在库里: 0, 说不清: 0, 进不了: 0, 合掉几行: 0, 待复核: [], 挡下: [], 没对上的列名: [] };
+
+const 桩插件: Plugin = {
+  name: "import-drawer-stubs",
+  setup(b) {
+    const 桩 = (filter: RegExp, contents: string) => {
+      b.onResolve({ filter }, (a) => ({ path: a.path + "#" + a.importer, namespace: "stub", pluginData: contents }));
+    };
+    桩(/^\.\/ai$/, `
+      const 记 = (名, 参) => (window.__调用[名] ||= []).push(参);
+      export const 粘成表格 = (...参) => { 记("粘", 参); return new Promise(() => {}); };
+      // 认列的回答由用例自己决定什么时候回：把 resolve 存起来
+      export const 猜列建议 = (...参) => { 记("猜列", 参); return new Promise((r) => window.__认列回.push(r)); };
+      export const 导入认列状态 = () => Promise.resolve({ 能认列: window.__能认列, 本机: window.__本机 });
+    `);
+    桩(/^\.\/import-actions$/, `
+      const 记 = (名, 参) => (window.__调用[名] ||= []).push(JSON.parse(JSON.stringify(参)));
+      export const 预览导入 = (...参) => { 记("预览", 参); return Promise.resolve({ ok: true, 预览: ${JSON.stringify(预览)} }); };
+      export const 执行导入 = (...参) => { 记("执行", 参); return Promise.resolve({ ok: true, batchId: "b1", 新建: 4, 补空: 0, 跳过: 0, 进不了: 0 }); };
+      export const 撤销批次 = () => Promise.resolve({ ok: true, 删掉: 0, 还原: 0, 没动: [] });
+    `);
+    b.onLoad({ filter: /.*/, namespace: "stub" }, (a) => ({ contents: a.pluginData as string, loader: "jsx", resolveDir: process.cwd() }));
+  },
+};
+
+beforeAll(async () => {
+  const r = await build({
+    stdin: {
+      contents: `
+        import React from "react";
+        import { createRoot } from "react-dom/client";
+        import { App } from "antd";
+        import { DEFAULT_BUSINESS } from "@/lib/business-config";
+        import C from "@/app/(app)/customers/ImportDrawer";
+        window.__调用 = {};
+        window.__认列回 = [];
+        createRoot(document.getElementById("root")).render(
+          React.createElement(App, null, React.createElement(C, { open: true, onClose() {}, b: DEFAULT_BUSINESS, aiEnabled: true, onDone() {} }))
+        );
+      `,
+      resolveDir: process.cwd(),
+      loader: "tsx",
+    },
+    bundle: true,
+    write: false,
+    format: "iife",
+    jsx: "automatic",
+    alias: { "@": path.resolve("src") },
+    define: { "process.env.NODE_ENV": '"production"' },
+    plugins: [桩插件],
+    logLevel: "silent",
+  });
+  包 = r.outputFiles[0].text;
+  browser = await chromium.launch();
+}, 120_000);
+
+afterAll(async () => {
+  await browser?.close();
+});
+
+/** 第三列「备用栏」规则认不出来；四行数据，看发给 AI 的是不是只有前 3 行 */
+const 表 = ["姓名,手机号,备用栏", "张三,13800000001,展会", "李四,13800000002,朋友介绍", "王五,13800000003,官网", "赵六,13800000004,展会"].join("\n");
+
+async function 开(选项: { 能认列?: boolean; 本机?: boolean } = {}): Promise<Page> {
+  const page = await browser.newPage();
+  await page.route("http://import-drawer.test/**", (r) =>
+    r.fulfill({ contentType: "text/html", body: `<!doctype html><meta charset="utf-8"><div id="root"></div>` }),
+  );
+  await page.goto("http://import-drawer.test/");
+  await page.evaluate(({ 能认列, 本机 }) => {
+    Object.assign(window, { __能认列: 能认列, __本机: 本机 });
+  }, { 能认列: 选项.能认列 ?? true, 本机: 选项.本机 ?? false });
+  await page.addScriptTag({ content: 包 });
+  await page.getByText("把 Excel 或 CSV 拖到这里").waitFor();
+  return page;
+}
+
+async function 选文件(page: Page) {
+  await page.locator('input[type="file"]').setInputFiles({ name: "名单.csv", mimeType: "text/csv", buffer: Buffer.from(表) });
+  await page.getByText(/读到了/).waitFor();
+}
+
+const 调用 = (page: Page, 名: string) =>
+  page.evaluate((n) => ((window as unknown as { __调用: Record<string, unknown[]> }).__调用[n] ?? []) as unknown[][], 名);
+
+describe("让 AI 认列：点了才发（L-076）", () => {
+  it("读完表、停几秒：一次都不问 AI；点「让 AI 认一下」才问，只带认不出的那几列和前 3 行", async () => {
+    const page = await 开();
+    await 选文件(page);
+    await page.waitForTimeout(2500);
+    expect((await 调用(page, "猜列")).length, "读完表就自己去问 AI 了").toBe(0);
+
+    const 按钮 = page.getByRole("button", { name: /让 AI 认一下/ });
+    await 按钮.waitFor();
+    // 按钮旁边一句实话：会发什么
+    expect(await page.locator("body").innerText()).toMatch(/表头和前 3 行发给 AI/);
+    await 按钮.click();
+    await expect.poll(async () => (await 调用(page, "猜列")).length).toBe(1);
+    const [表头, 样例, 规则] = (await 调用(page, "猜列"))[0] as [string[], string[][], (string | null)[]];
+    expect(表头).toEqual(["姓名", "手机号", "备用栏"]);
+    expect(样例).toHaveLength(3);
+    // 规则认出来的列不问：只有第三列是空的
+    expect(规则[0]).not.toBeNull();
+    expect(规则[1]).toBe("phone");
+    expect(规则[2]).toBeNull();
+
+    // 回来了：填进那一列的下拉
+    await page.evaluate(() => (window as unknown as { __认列回: ((v: unknown) => void)[] }).__认列回[0]({ c2: { 选: "school", 置信: 0.9 } }));
+    await expect.poll(() => page.getByRole("row", { name: /^备用栏 / }).innerText()).toContain("公司");
+    await page.close();
+  });
+
+  it("「导入时让 AI 认列」没开（默认）：没有按钮，也不问", async () => {
+    const page = await 开({ 能认列: false });
+    await 选文件(page);
+    await page.waitForTimeout(1000);
+    expect(await page.getByRole("button", { name: /让 AI 认一下/ }).count()).toBe(0);
+    expect((await 调用(page, "猜列")).length).toBe(0);
+    await page.close();
+  });
+});
+
+describe("AI 认列回来晚了：不许改人已经看过预览的对应（J-057）", () => {
+  it("点了认列、没等回来就去算预览：回来的结果丢掉，落库的映射和预览的一模一样", async () => {
+    const page = await 开();
+    await 选文件(page);
+    await page.getByRole("button", { name: /让 AI 认一下/ }).click();
+    await expect.poll(async () => (await 调用(page, "猜列")).length).toBe(1);
+
+    await page.getByRole("button", { name: "下一步" }).click();
+    await expect.poll(async () => (await 调用(page, "预览")).length).toBe(1);
+    // 预览算完了才回来
+    await page.evaluate(() => (window as unknown as { __认列回: ((v: unknown) => void)[] }).__认列回[0]({ c2: { 选: "school", 置信: 0.9 } }));
+    await expect.poll(() => page.locator("body").innerText()).toMatch(/AI 认列的结果回来晚了/);
+
+    await page.getByRole("button", { name: "下一步" }).click();
+    await page.getByRole("button", { name: "开始导入" }).click();
+    await expect.poll(async () => (await 调用(page, "执行")).length).toBe(1);
+    const 预览映射 = ((await 调用(page, "预览"))[0][0] as { 映射: unknown[] }).映射;
+    const 落库映射 = ((await 调用(page, "执行"))[0][0] as { 映射: unknown[] }).映射;
+    expect(落库映射).toEqual(预览映射);
+    expect(落库映射[2], "AI 后到的猜法人从没在预览里看过，不能进库").toBeNull();
+    await page.close();
+  });
+});
+
+describe("抽屉上说的是实情（L-076 / H-096）", () => {
+  it("网页端不说「文件不上传」，说清内容会传到服务器", async () => {
+    const page = await 开({ 本机: false });
+    await expect.poll(() => page.locator("body").innerText()).toMatch(/传到服务器/);
+    const 全文 = await page.locator("body").innerText();
+    expect(全文).not.toMatch(/不上传/);
+    await page.close();
+  });
+
+  it("桌面端本机：说写进这台电脑上的库", async () => {
+    const page = await 开({ 本机: true });
+    await expect.poll(() => page.locator("body").innerText()).toMatch(/这台电脑上的库/);
+    expect(await page.locator("body").innerText()).not.toMatch(/不上传/);
+    await page.close();
+  });
+});
