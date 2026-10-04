@@ -91,6 +91,14 @@ test.describe.serial("业务配置", () => {
     await expect(page.getByRole("heading", { name: "学员", exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: /新建学员/ })).toBeVisible();
 
+    // 新建框里的字段名也跟着叫法走（2026-10-04）：原来「客户姓名」「客户决策状态」写死了「客户」
+    await page.getByRole("button", { name: /新建学员/ }).click();
+    const 新建框 = page.getByRole("dialog");
+    await expect(新建框.getByLabel("学员姓名")).toBeVisible();
+    await expect(新建框.getByLabel("学员决策状态")).toBeVisible();
+    await expect(新建框.locator(".ant-form-item-label", { hasText: /^客户/ })).toHaveCount(0);
+    await 新建框.getByRole("button", { name: /^取\s*消$/ }).click();
+
     // 复原成默认的「客户」，后面的用例靠它定位
     await 改客户名词(page, "客户");
     await page.goto("/customers");

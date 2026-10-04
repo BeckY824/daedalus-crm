@@ -15,6 +15,7 @@ import { 查电话 } from "@/lib/phone";
 import { 推荐方式 } from "@/lib/referrer-kind";
 import { 带走说法 } from "@/lib/carry-over";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { 字段是公司, 字段是行业 } from "@/lib/lead-convert";
 
 export type CustomerRow = {
   id: string;
@@ -248,7 +249,8 @@ function CustomerFormInner({
 
         <Row gutter={16}>
           <Col span={8}>
-            <Form.Item label="客户姓名" name="name" rules={[{ required: true, message: "请输入姓名" }]}>
+            {/* 跟业务配置的叫法走（2026-10-04 L-003）：改成「学员」后这里原来还写着「客户姓名」 */}
+            <Form.Item label={`${b.customer}姓名`} name="name" rules={[{ required: true, message: "请输入姓名" }]}>
               <Input placeholder="如：张三" />
             </Form.Item>
           </Col>
@@ -275,7 +277,7 @@ function CustomerFormInner({
           </Col>
           <Col span={8}>
             <Form.Item label={b.fields.school} name="school">
-              <Input placeholder={b.fields.school === "公司" ? "如：星辰科技" : undefined} />
+              <Input placeholder={字段是公司(b.fields.school) ? "如：星辰科技" : undefined} />
             </Form.Item>
           </Col>
         </Row>
@@ -283,8 +285,8 @@ function CustomerFormInner({
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item label={b.fields.major} name="major">
-              {/* 叫「行业」时给候选（业务配置里那份），也能直接填；教培的「专业」千变万化，照旧手填 */}
-              {b.fields.major === "行业" ? <OptionInput options={b.industries} placeholder="选一个，或直接填" /> : <Input />}
+              {/* 叫「行业」（或「所属行业」这类，2026-10-04 L-016 同一个认法）时给候选，也能直接填；教培的「专业」千变万化，照旧手填 */}
+              {字段是行业(b.fields.major) ? <OptionInput options={b.industries} placeholder="选一个，或直接填" /> : <Input />}
             </Form.Item>
           </Col>
           <Col span={8}>
@@ -405,7 +407,7 @@ function CustomerFormInner({
             </Form.Item>
           </Col>
           <Col span={8}>
-            <Form.Item label="客户决策状态" name="decisionStatus" rules={[{ required: true }]}>
+            <Form.Item label={`${b.customer}决策状态`} name="decisionStatus" rules={[{ required: true }]}>
               <Select options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
             </Form.Item>
           </Col>
