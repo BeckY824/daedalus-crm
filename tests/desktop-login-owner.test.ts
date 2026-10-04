@@ -11,6 +11,12 @@ import path from "node:path";
 
 import { resetDb } from "./reset";
 
+// 桌面端登录 成功那一支要建会话（auth.ts 顶层 import next/headers），vitest 里没有请求上下文
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: () => undefined, set: () => {}, delete: () => {} }),
+  headers: async () => new Headers(),
+}));
+
 let 目录: string;
 beforeEach(async () => {
   /*
@@ -53,5 +59,28 @@ describe("登录当场记归属", () => {
     expect(乙.ok && 乙.data.换了账号).toBe(true);
     // 归属不被乙改掉：这份还是甲的
     expect(fs.readFileSync(path.join(目录, ".owner"), "utf8")).toBe("acc_甲");
+  });
+});
+
+describe("换了人登录：一个字都不往上一个人的库里写（回归核对 D-019）", () => {
+  it("甲登录过、退出；乙在甲的目录上点登录：桌面端登录 回「换账号」，库里管理员还是甲的名字邮箱", async () => {
+    const { prisma } = await import("@/lib/prisma");
+    const { 桌面端登录 } = await import("@/app/login/actions");
+    // 模板库带的那个管理员（种子邮箱 admin）
+    await prisma.user.create({ data: { email: "admin", name: "管理员", password: "x", role: "ADMIN", title: "系统管理员" } });
+
+    云端是("acc_甲");
+    const 甲 = await 桌面端登录("acc_甲@x.com", "pw");
+    expect(甲).toEqual({ ok: true });
+    const 甲之后 = await prisma.user.findFirstOrThrow({ where: { role: "ADMIN" } });
+    expect({ email: 甲之后.email, name: 甲之后.name }).toEqual({ email: "acc_甲@x.com", name: "acc_甲" });
+
+    fs.rmSync(path.join(目录, ".cloud.json")); // 甲退出登录
+    云端是("acc_乙");
+    const 乙 = await 桌面端登录("acc_乙@x.com", "pw");
+    expect(乙).toEqual({ ok: true, 换账号: true });
+    // 这会儿连着的还是甲的库：乙的名字、邮箱一个都不许写进来，也不许多出一个人
+    const 人们 = await prisma.user.findMany({ select: { email: true, name: true, title: true } });
+    expect(人们).toEqual([{ email: "acc_甲@x.com", name: "acc_甲", title: "管理员" }]);
   });
 });
