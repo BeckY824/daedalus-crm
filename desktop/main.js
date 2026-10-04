@@ -1330,7 +1330,7 @@ async function 切一次() {
   }
   let 目标;
   try {
-    目标 = 账号.认领(数据根, c.accountId);
+    目标 = 账号.认领(数据根, c.accountId, c.contact);
   } catch (e) {
     if (先停) {
       盯住凭据(数据目录);
@@ -1516,7 +1516,8 @@ if (!app.requestSingleInstanceLock()) {
         */
         if (r.accountId) {
           try {
-            const 目标 = 账号.认领(数据根, r.accountId);
+            // 带上 contact：_未认领 记着「主人是某个邮箱」时（剩余风险 1），靠它认出是不是他
+            const 目标 = 账号.认领(数据根, r.accountId, 云端.读()?.contact);
             /*
               上一回运行时在别人的目录上换过账号（页面那一声没人接、壳是老版本），
               令牌就还躺在上一个人的目录里。这一步把它带到它自己的目录去——

@@ -85,6 +85,21 @@ class 假云端 {
 /* ------------------------------------------------------------------ */
 
 type 记账 = { 谁: string; 第几: number }[];
+
+/**
+ * 库里那个管理员 User 行的 email（2026-10-04 加，剩余风险 1）。真库里它由 desktop/server-entry.js 每次启动
+ * 对成 .cloud.json 的 contact、登录动作（login/actions.ts，没换账号时）也会对一遍；新库是种子里的 "admin"。
+ * 这里拿目录里一个小文件扮演它，服务端那份经 设库里我的邮箱读法() 读这个文件。
+ */
+const 管理员邮箱文件 = "admin-email.txt";
+const 写管理员邮箱 = (dir: string, 邮箱: string) => fs.writeFileSync(path.join(dir, 管理员邮箱文件), 邮箱.trim().toLowerCase());
+const 读管理员邮箱 = (dir: string) => {
+  try {
+    return fs.readFileSync(path.join(dir, 管理员邮箱文件), "utf8");
+  } catch {
+    return "admin";
+  }
+};
 const 读库 = (dir: string): 记账 => {
   try {
     return JSON.parse(fs.readFileSync(path.join(dir, "crm.db"), "utf8"));
@@ -128,6 +143,9 @@ class 一台电脑 {
 
   private 起服务() {
     this.本地 = { dir: this.数据目录 };
+    // desktop/server-entry.js：启动时把管理员的邮箱对成 .cloud.json 的 contact
+    const c = 壳云端.读();
+    if (c?.contact) 写管理员邮箱(this.数据目录, c.contact);
   }
   private 停服务() {
     this.本地 = null;
@@ -154,7 +172,7 @@ class 一台电脑 {
       被吊销 = r.原因 === "已吊销";
       if (r.accountId) {
         try {
-          const 目标 = 账号.认领(this.根, r.accountId);
+          const 目标 = 账号.认领(this.根, r.accountId, 壳云端.读()?.contact);
           if (目标.换了目录) this.搬令牌(this.数据目录, 目标.目录);
           this.换数据目录(目标.目录);
         } catch (e) {
@@ -188,7 +206,7 @@ class 一台电脑 {
     if (先停) this.停服务();
     let 目标;
     try {
-      目标 = 账号.认领(this.根, c.accountId);
+      目标 = 账号.认领(this.根, c.accountId, c.contact);
     } catch (e) {
       if (先停) this.起服务();
       this.事件.push(`换账号失败 ${String(e)}`);
@@ -233,6 +251,8 @@ class 一台电脑 {
       await this.看凭据换没换();
       if (!this.有桥) await this.打开窗口(); // 页面落回自动登录那条路
     } else {
+      // login/actions.ts 桌面端登录：没换账号才往本机库里写——管理员邮箱对成这个账号的
+      写管理员邮箱(this.本地!.dir, r.data.contact || a.target);
       await this.看凭据换没换();
       await this.打开窗口();
     }
@@ -379,8 +399,11 @@ class 场景 {
 }
 
 let 根: string;
-beforeEach(() => {
+beforeEach(async () => {
   根 = fs.mkdtempSync(path.join(os.tmpdir(), "r2-accounts-"));
+  // 服务端那份读「库里管理员的邮箱」默认走 prisma；这里的库是 JSON 记账，换成读那个小文件
+  const 服务端 = await import("@/lib/desktop/cloud");
+  服务端.设库里我的邮箱读法(async () => (process.env.CRM_DATA_DIR ? 读管理员邮箱(process.env.CRM_DATA_DIR) : null));
 });
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -501,6 +524,7 @@ describe("升级：0.39.2 之前那份 data/", () => {
     fs.mkdirSync(d, { recursive: true });
     fs.writeFileSync(path.join(d, "crm.db"), JSON.stringify([{ 谁: 甲.id, 第几: 0 }]));
     fs.writeFileSync(path.join(d, ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t-old-jia", ...(带账号 ? { accountId: 甲.id } : {}), name: "甲", contact: 甲.target, models: [] }));
+    写管理员邮箱(d, 甲.target);
   };
   const 认老令牌 = (s: 场景) => s.云.令牌.set("t-old-jia", 甲.id);
 
@@ -580,11 +604,40 @@ describe("升级：0.39.2 之前那份 data/", () => {
   });
 
   /*
-    取舍（2026-10-04，A-2）：待认那枚老令牌在下次登录前就作废了（甲在网页上改了密码），这份是谁的再也问不出来。
+    待认那枚老令牌在下次登录前就作废了（甲在网页上改了密码），令牌问不出是谁。
+    原先（A-2 修法第一版）只能记成认不出、甲回来也拿不到；剩余风险 1 修了之后改看库里管理员的邮箱：
+    乙登录记成「主人是甲的邮箱」、进新目录；甲回来 contact 对得上，拿得回。断言跟着改（2026-10-04）
+  */
+  it("【A-2 · 2026-10-04 修】待认的老令牌已作废：乙进新目录，甲凭库里的邮箱拿回那份", async () => {
+    造旧数据(false)(根);
+    const s = new 场景(根);
+    认老令牌(s);
+    s.写过[甲.id] = [0];
+    s.云.在线 = false;
+    await s.开机();
+    await s.走("退出登录");
+    s.云.在线 = true;
+    s.云.吊销全部(甲.id);
+    for (const x of ["乙登录", "写一笔"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    const 未认领 = 账号.账号目录(根, 账号.未认领);
+    expect(读库(未认领)).toEqual([{ 谁: 甲.id, 第几: 0 }]);
+    expect(账号.归谁(未认领)).toBe(账号.邮箱记号(甲.target));
+    expect(fs.existsSync(path.join(未认领, 账号.待认文件))).toBe(false);
+    for (const x of ["退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
+  });
+
+  /*
+    取舍（2026-10-04，A-2）：同上，而库里也没有可比的邮箱（老令牌里没有 contact、管理员邮箱还是种子里的 admin）——这份是谁的彻底认不出。
     选「绝不串」：记成认不出，谁都领不走，数据原地留在 _未认领 里一个字节不动——代价是甲回来也看不到它（要人工搬）。
   */
-  it("【A-2 · 2026-10-04 修】待认的老令牌已作废：谁登录都进新目录，那份原地留着不动", async () => {
+  it("【A-2 · 2026-10-04 修】待认的老令牌已作废、库里也没邮箱：谁登录都进新目录，那份原地留着不动", async () => {
     造旧数据(false)(根);
+    // 库里没有可比的邮箱：老令牌里也没有 contact（server-entry 无从对起），管理员还是种子里的 admin
+    fs.rmSync(path.join(根, "data", 管理员邮箱文件));
+    fs.writeFileSync(path.join(根, "data", ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t-old-jia", name: "甲", models: [] }));
     const s = new 场景(根);
     认老令牌(s);
     s.云.在线 = false;
@@ -598,6 +651,57 @@ describe("升级：0.39.2 之前那份 data/", () => {
     expect(读库(未认领)).toEqual([{ 谁: 甲.id, 第几: 0 }]);
     expect(账号.归谁(未认领)).toBe(账号.认不出的主);
     expect(fs.existsSync(path.join(未认领, 账号.待认文件))).toBe(false);
+  });
+
+  /*
+    剩余风险 1（2026-10-04 修）：老令牌在开机校验时就已被吊销（甲在网页上改了密码）→ 壳按 401 清掉令牌 →
+    这份没主、也没有老令牌可问。原来第一个登录的人就领走它，是乙就串库。
+    现在看库里管理员的邮箱（server-entry 每次启动对成云端账号 contact 的，老库也是）：
+    登录者的 contact 对得上才许认领，对不上算换了账号进新空目录；甲改了密码回来 contact 没变，照样拿得回。
+  */
+  it("【风险1 · 2026-10-04 修】升级上来的老令牌开机时已被吊销：乙先登录不许领走甲的库，甲回来拿得回", async () => {
+    造旧数据(false)(根);
+    const s = new 场景(根);
+    认老令牌(s);
+    s.云.吊销全部(甲.id);
+    s.写过[甲.id] = [0];
+    await s.开机();
+    expect(s.机.页面).toBe("登录页");
+    expect(壳云端.读()).toBeNull(); // 401：壳把老令牌清掉了
+    for (const x of ["乙登录", "写一笔", "退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
+  });
+
+  it("【风险1 · 2026-10-04 修】同上，甲自己先回来（改了密码重新登录）：当场就是他的，不换目录", async () => {
+    造旧数据(false)(根);
+    const s = new 场景(根);
+    认老令牌(s);
+    s.云.吊销全部(甲.id);
+    s.写过[甲.id] = [0];
+    await s.开机();
+    for (const x of ["甲登录", "写一笔", "重启", "退出登录", "乙登录", "写一笔"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect(账号.读指针(根)).toBe(账号.key(乙.id));
+  });
+
+  it("【风险1 · 2026-10-04 修】从没登录过的老库（管理员邮箱还是种子里的 admin）：照旧第一个登录的人领走", async () => {
+    const d = path.join(根, "data");
+    fs.mkdirSync(d, { recursive: true });
+    fs.writeFileSync(path.join(d, "crm.db"), JSON.stringify([]));
+    const s = new 场景(根);
+    await s.开机();
+    await s.走("乙登录");
+    await s.走("写一笔");
+    expect(s.违规).toEqual([]);
+    expect(读库(账号.账号目录(根, 账号.未认领)).map((x) => x.谁)).toEqual([乙.id]);
+  });
+
+  it("邮箱记号：壳和服务端算的是同一个值，大小写 / 空格不影响，不带邮箱原文", async () => {
+    const { 邮箱记号 } = await import("@/lib/desktop/cloud");
+    expect(邮箱记号(" Jia@X.com ")).toBe(账号.邮箱记号("jia@x.com"));
+    expect(邮箱记号("jia@x.com")).not.toContain("jia");
+    expect(邮箱记号("jia@x.com").startsWith("?")).toBe(true);
   });
 
   it("「认不出」的记号、待认文件名、归属校验副本的文件名：壳和服务端两份必须是同一个值", () => {
@@ -746,7 +850,8 @@ describe("两个目录同名 / 已存在", () => {
 });
 
 describe("随机顺序（固定种子）：任何时刻不串、不丢", () => {
-  const 字母表: 步[] = ["甲登录", "乙登录", "丙登录", "乙登录(桥断)", "退出登录", "重启", "重启(断网)", "写一笔", "写一笔", "吊销乙", "切回前台"];
+  // 2026-10-04 起加回「吊销甲」（剩余风险 1）：改了密码、令牌被吊销的那个人也要拿得回、别人也领不走
+  const 字母表: 步[] = ["甲登录", "乙登录", "丙登录", "乙登录(桥断)", "退出登录", "重启", "重启(断网)", "写一笔", "写一笔", "吊销甲", "吊销乙", "切回前台"];
   function 随机(seed: number) {
     let x = seed >>> 0;
     return () => ((x = (x * 1664525 + 1013904223) >>> 0) / 2 ** 32);
@@ -779,12 +884,12 @@ describe("随机顺序（固定种子）：任何时刻不串、不丢", () => {
 
   /*
     2026-10-04 加（A-2 / B-1 / B-2 / C-7）：从「0.39.2 之前升级上来、老 .cloud.json 没有 accountId」起步，
-    字母表里加上网慢开机、断网退出、.owner 被清空。头一步固定是断网 / 网慢开机——那正是 A-2 的入口。
-    不放「吊销甲」：老令牌在开机校验时就被吊销的话，壳按 401 把它清掉、这份是谁的再也问不出来，
-    那是另一条（见汇报里的剩余风险），不在这一组里。
+    字母表里加上网慢开机、断网退出、.owner 被清空。头一步轮流是断网 / 网慢 / 联网但老令牌已被吊销开机——
+    前两种是 A-2 的入口，第三种是剩余风险 1（壳按 401 清掉老令牌，只剩库里管理员的邮箱能认人）。
+    「吊销甲」也在字母表里：待认的老令牌、甲后来的令牌随时可能作废。
   */
   it("300 条长 12 的随机序列（升级上来、断网 / 网慢开机）：不串、不丢", async () => {
-    const 升级字母表: 步[] = ["甲登录", "乙登录", "丙登录", "乙登录(桥断)", "退出登录", "退出登录(断网)", "重启", "重启(断网)", "重启(网慢)", "写一笔", "写一笔", "吊销乙", "切回前台", "清空.owner"];
+    const 升级字母表: 步[] = ["甲登录", "乙登录", "丙登录", "乙登录(桥断)", "退出登录", "退出登录(断网)", "重启", "重启(断网)", "重启(网慢)", "写一笔", "写一笔", "吊销甲", "吊销乙", "切回前台", "清空.owner"];
     const 串: string[] = [];
     const 丢: string[] = [];
     for (let k = 0; k < 300; k++) {
@@ -795,11 +900,13 @@ describe("随机顺序（固定种子）：任何时刻不串、不丢", () => {
       fs.mkdirSync(d, { recursive: true });
       fs.writeFileSync(path.join(d, "crm.db"), JSON.stringify([{ 谁: 甲.id, 第几: 0 }]));
       fs.writeFileSync(path.join(d, ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t-old-jia", name: "甲", contact: 甲.target, models: [] }));
+      写管理员邮箱(d, 甲.target);
       const s = new 场景(根);
       s.云.令牌.set("t-old-jia", 甲.id);
       s.写过[甲.id] = [0];
-      if (k % 2) s.云.慢 = true;
-      else s.云.在线 = false;
+      if (k % 3 === 0) s.云.在线 = false;
+      else if (k % 3 === 1) s.云.慢 = true;
+      else s.云.吊销全部(甲.id);
       await s.开机();
       s.云.在线 = true;
       s.云.慢 = false;
