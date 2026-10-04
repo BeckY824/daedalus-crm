@@ -70,6 +70,33 @@ describe("文本：空格、超长、表情、特殊字符", () => {
     expect(收了的, `这几样存进了空名字：${收了的.join("、")}`).toEqual([]);
   });
 
+  /*
+    J-099 剩下的一样：跟进内容。saveFollowUp 只 trim 不拦，表单 required 也不管空白——只填空格存成一条空内容。
+    不伤别的数据，排下一版（回归核对 J1 记「已知未修」）
+  */
+  it.skip("【下一版】跟进内容只有空格：应拦下，不存一条空跟进", async () => {
+    const c = await 造客户(我);
+    const r = await 结局(saveFollowUp({ customerId: c.id, type: "PHONE", content: "   ", status: "已完成", occurredAt: new Date().toISOString() }));
+    expect(!r.抛了 && (r.值 as { ok: boolean }).ok, "只填空格的跟进存进去了").toBe(false);
+    expect(await prisma.followUp.count()).toBe(0);
+  });
+
+  it("待办改标题、改截止：saveTask 带 id 改原来那条，不另建（J-079）", async () => {
+    const c = await 造客户(我);
+    const r = await saveTask({ customerId: c.id, title: "发报价", dueAt: "2030-01-10T09:00:00.000Z" });
+    if (!r.ok) throw new Error(r.error);
+    const t = await prisma.task.findFirstOrThrow();
+    const w = await saveTask({ id: t.id, customerId: c.id, title: "  发二版报价 ", dueAt: "2030-01-12T09:00:00.000Z", 版本: t.updatedAt.toISOString() });
+    if (!w.ok) throw new Error(w.error);
+    const 全部 = await prisma.task.findMany();
+    expect(全部).toHaveLength(1);
+    expect([全部[0].title, 全部[0].dueAt?.toISOString()]).toEqual(["发二版报价", "2030-01-12T09:00:00.000Z"]);
+    // 清掉截止时间也存得住
+    const 再 = await saveTask({ id: t.id, customerId: c.id, title: "发二版报价", dueAt: null, 版本: 全部[0].updatedAt.toISOString() });
+    if (!再.ok) throw new Error(再.error);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).dueAt).toBeNull();
+  });
+
   it("超长：10 万字备注、500 字姓名原样存下（库里不截）", async () => {
     const 长 = "长".repeat(100_000);
     const r = await 新客户({ name: "名".repeat(500), remark: 长 });
