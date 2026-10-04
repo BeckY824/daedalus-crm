@@ -298,3 +298,11 @@ test("10. 打错的地址是中文那张 404；旧书签 /reports 是服务端�
   expect(跳.status()).toBe(307);
   expect(跳.headers()["location"]).toMatch(/\/overview\?view=/);
 });
+
+/* J-182：找回密码页原来叫人去「设置管理 → 用户管理」，那地方早就叫「设置 → 团队成员」了——忘了密码的人照着找不到 */
+test("11. 找回密码页（自部署）指的路是「设置 → 团队成员」", async ({ page }) => {
+  await page.goto("/forgot");
+  await expect(page.locator(".auth-alt").first()).toContainText("设置 → 团队成员");
+  await expect(page.locator("body")).not.toContainText("用户管理");
+  await expect(page.locator("body")).not.toContainText("设置管理");
+});
