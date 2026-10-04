@@ -105,6 +105,14 @@ function 日期样式表(styles: string | null): boolean[] {
  * 映射、复核、预览、执行、撤销全都只有一套。
  */
 export function 读xlsx(bytes: Uint8Array): string[][] {
+  return 读xlsx带行号(bytes).rows;
+}
+
+/**
+ * 同上，外加每一行在表里的行号（从 1 数，就是 Excel 左边那一列的数）。
+ * 空行丢掉了、标题行之后也会被 成表 丢掉，报错时得说得出 Excel 里的哪一行（2026-10-04 J-058）
+ */
+export function 读xlsx带行号(bytes: Uint8Array): { rows: string[][]; 行号: number[] } {
   let 包: Record<string, Uint8Array>;
   try {
     包 = unzipSync(bytes);
@@ -227,5 +235,6 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
     }
   }
   // 全空的行丢掉，和 CSV 那条路一致
-  return rows.filter((r) => r.some((x) => x.trim() !== ""));
+  const 留 = rows.flatMap((r, i) => (r.some((x) => x.trim() !== "") ? [i] : []));
+  return { rows: 留.map((i) => rows[i]), 行号: 留.map((i) => 行号们[i] + 1) };
 }

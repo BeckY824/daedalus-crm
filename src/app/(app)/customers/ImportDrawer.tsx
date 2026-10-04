@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { App, Alert, Drawer, Segmented, Steps, Typography, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
-import { 解析CSV, 解码CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
+import { 解析CSV带行号, 解码CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 猜列, type 字段名 } from "@/lib/import/fields";
 import { type 编造格 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
@@ -112,6 +112,8 @@ export default function ImportDrawer({
   }
   const [表头, set表头] = useState<string[]>([]);
   const [数据, set数据] = useState<string[][]>([]);
+  /** 每条数据在原表里的行号（Excel 左边那列的数）。报错「第 N 行」照它说；粘贴那条路没有（J-058） */
+  const [行号, set行号] = useState<number[] | undefined>();
   const [截断了, set截断了] = useState<{ 行?: number; 列?: number } | undefined>();
   const [映射, set映射] = useState<(字段名 | null)[]>([]);
   const [改过, set改过] = useState<Record<string, string>>({});
@@ -129,7 +131,7 @@ export default function ImportDrawer({
   const 这一次 = useRef(0);
   const [结果, set结果] = useState<{ batchId: string; 新建: number; 补空: number; 跳过: number; 进不了: number } | null>(null);
 
-  const 方案 = (): 导入方案 => ({ 表头, 数据, 映射, 改过, 重复行, 没对上的列 });
+  const 方案 = (): 导入方案 => ({ 表头, 数据, 映射, 改过, 重复行, 没对上的列, ...(行号 ? { 行号 } : {}) });
 
   function 重来() {
     这一次.current++;
@@ -143,6 +145,7 @@ export default function ImportDrawer({
     set文件名("");
     set表头([]);
     set数据([]);
+    set行号(undefined);
     set截断了(undefined);
     set映射([]);
     set改过({});
@@ -155,25 +158,25 @@ export default function ImportDrawer({
   async function 收文件(f: File) {
     set忙(true);
     try {
-      let rows: string[][];
+      let 读到: { rows: string[][]; 行号: number[] };
       if (/\.xlsx$/i.test(f.name)) {
         // 按需加载：只导 csv 的人不该为此多下一份解析器
-        const { 读xlsx } = await import("@/lib/import/xlsx");
-        rows = 读xlsx(new Uint8Array(await f.arrayBuffer()));
+        const { 读xlsx带行号 } = await import("@/lib/import/xlsx");
+        读到 = 读xlsx带行号(new Uint8Array(await f.arrayBuffer()));
       } else if (/\.xls$/i.test(f.name)) {
         message.error("这是 2003 年那种老格式，请在 Excel 里另存为 .xlsx 或 .csv 再来");
         return;
       } else {
         // 不用 f.text()：它固定按 UTF-8 解，中文 Windows 存出来的 GBK 会是乱码
-        rows = 解析CSV(解码CSV(new Uint8Array(await f.arrayBuffer())));
+        读到 = 解析CSV带行号(解码CSV(new Uint8Array(await f.arrayBuffer())));
       }
       // 表头认法用当前业务的字段叫法（院校 / 公司、年级 / 职位……随业务配置变）
-      const t = 成表(rows, (h) => 猜列([h], 表)[0] !== null);
+      const t = 成表(读到.rows, (h) => 猜列([h], 表)[0] !== null, 读到.行号);
       if (t.表头.length === 0 || t.数据.length === 0) {
         message.error("这份表里没有数据。第一行要是表头，第二行起是内容");
         return;
       }
-      收表(f.name, t.表头, t.数据, t.截断了);
+      收表(f.name, t.表头, t.数据, t.截断了, t.行号);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "这个文件读不出来");
     } finally {
@@ -185,10 +188,11 @@ export default function ImportDrawer({
    * 三条来路在这里汇合。**从这一行往后不再区分文件还是文本**——
    * 猜列、复核、预览、落库、撤销看到的都是同一个二维数组。
    */
-  function 收表(名: string, h: string[], d: string[][], 切了?: { 行?: number; 列?: number }) {
+  function 收表(名: string, h: string[], d: string[][], 切了?: { 行?: number; 列?: number }, 号?: number[]) {
     set文件名(名);
     set表头(h);
     set数据(d);
+    set行号(号);
     set截断了(切了);
     const 规则 = 猜列(h, 表);
     set映射(规则);

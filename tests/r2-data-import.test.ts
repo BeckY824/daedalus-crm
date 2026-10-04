@@ -23,8 +23,8 @@ import { 造本人, 本地 } from "./r2-data-helpers";
 import { 预览导入, 执行导入, 撤销批次, type 导入方案 } from "@/app/(app)/customers/import-actions";
 import { patchCustomer } from "@/app/(app)/customers/actions";
 import { saveFollowUp } from "@/app/(app)/customers/[id]/actions";
-import { 解析CSV, 解码CSV, 成表, 行数上限 } from "@/lib/import/parse";
-import { 读xlsx } from "@/lib/import/xlsx";
+import { 解析CSV, 解析CSV带行号, 解码CSV, 成表, 行数上限 } from "@/lib/import/parse";
+import { 读xlsx带行号 } from "@/lib/import/xlsx";
 import { 字段表, 猜列, 像表头 } from "@/lib/import/fields";
 import { 认日期 } from "@/lib/import/plan";
 import { 规整手机号, 查电话 } from "@/lib/phone";
@@ -41,14 +41,14 @@ afterAll(async () => { await prisma.$disconnect(); });
 const 夹具 = (名: string) => new Uint8Array(readFileSync(path.join(__dirname, "fixtures", 名)));
 const 表 = 字段表(DEFAULT_BUSINESS);
 
-/** 和 ImportDrawer.收文件 一样的管线 */
+/** 和 ImportDrawer.收文件 一样的管线：带着每一行在原表里的行号走（J-058） */
 function 收文件(名: string) {
   const bytes = 夹具(名);
-  const rows = /\.xlsx$/i.test(名) ? 读xlsx(bytes) : 解析CSV(解码CSV(bytes));
-  return 成表(rows);
+  const { rows, 行号 } = /\.xlsx$/i.test(名) ? 读xlsx带行号(bytes) : 解析CSV带行号(解码CSV(bytes));
+  return 成表(rows, undefined, 行号);
 }
-function 方案(t: { 表头: string[]; 数据: string[][] }, 重复行: 导入方案["重复行"] = "跳过"): 导入方案 {
-  return { 表头: t.表头, 数据: t.数据, 映射: 猜列(t.表头, 表), 重复行 };
+function 方案(t: { 表头: string[]; 数据: string[][]; 行号?: number[] }, 重复行: 导入方案["重复行"] = "跳过"): 导入方案 {
+  return { 表头: t.表头, 数据: t.数据, 映射: 猜列(t.表头, 表), 重复行, ...(t.行号 ? { 行号: t.行号 } : {}) };
 }
 const csv方案 = (csv: string, 重复行: 导入方案["重复行"] = "跳过") => 方案(成表(解析CSV(csv)), 重复行);
 
@@ -79,6 +79,36 @@ describe("空的 / 只有表头 / 表头不在第一行", () => {
   it("表头在第二行 + 制表符分隔：第一行没有制表符，分隔符被认成逗号，整张表塌成一列", () => {
     const t = 成表(解析CSV("客户名单\n姓名\t手机号\t公司\n张三\t13800000001\t远山资本"));
     expect(t.数据.some((r) => r.length >= 3 && r.includes("13800000001"))).toBe(true);
+  });
+});
+
+describe("报错的「第 N 行」= Excel 里看到的行号（J-058）", () => {
+  it("xlsx：第 1 行大标题、第 2 行表头、第 4 行空着——没手机号的李四报第 5 行、号码不对的王五报第 6 行", async () => {
+    const t = 收文件("r2-data-行号.xlsx");
+    const r = await 预览导入(方案(t));
+    if (!r.ok) throw new Error(r.error);
+    // 原来按「1 是表头、紧挨着往下」数，报的是第 3、4 行——人去 Excel 里找，第 3 行是张三
+    expect(r.预览.挡下.map((x) => x.行号)).toEqual([5, 6]);
+  });
+
+  it("csv：同样的标题行、空行，行号照 Excel 打开这个 csv 时看到的数", async () => {
+    const { rows, 行号 } = 解析CSV带行号("2026 年 9 月客户名单\n姓名,手机号\n张三,13800000001\n\n李四,\n王五,123\n");
+    const r = await 预览导入(方案(成表(rows, undefined, 行号)));
+    if (!r.ok) throw new Error(r.error);
+    expect(r.预览.挡下.map((x) => x.行号)).toEqual([5, 6]);
+  });
+
+  it("csv：一格里带换行（引号括起来）不多算行——Excel 里它还是一行", async () => {
+    const { rows, 行号 } = 解析CSV带行号('姓名,手机号,备注\n张三,13800000001,"第一行\n第二行"\n李四,,\n');
+    const r = await 预览导入(方案(成表(rows, undefined, 行号)));
+    if (!r.ok) throw new Error(r.error);
+    expect(r.预览.挡下.map((x) => x.行号)).toEqual([3]);
+  });
+
+  it("不带行号的老调用（粘贴那条路）照旧按「1 是表头」数", async () => {
+    const r = await 预览导入(csv方案("姓名,手机号\n张三,13800000001\n李四,"));
+    if (!r.ok) throw new Error(r.error);
+    expect(r.预览.挡下.map((x) => x.行号)).toEqual([3]);
   });
 });
 

@@ -134,6 +134,20 @@ async function 过对列和复核(抽屉: ReturnType<Page["locator"]>) {
   await 抽屉.getByRole("button", { name: "下一步" }).click();
 }
 
+test("J-058 表头上面有标题行、中间有空行：复核里报的「第 N 行」就是 Excel 里那一行", async ({ page }) => {
+  await 登录(page);
+  const csv = [
+    "2026 年 9 月客户名单", // 第 1 行
+    "姓名,手机号,公司", // 第 2 行
+    `行号甲${戳},139${戳}01,远山资本`, // 第 3 行
+    "", // 第 4 行空着
+    `,139${戳}02,无名氏`, // 第 5 行
+  ].join("\n");
+  const 抽屉 = await 打开抽屉并选文件(page, "带标题.csv", csv, "text/csv");
+  await 抽屉.getByRole("button", { name: "下一步" }).click();
+  await expect(抽屉.getByText(/第 5 行：这一行没有姓名/)).toBeVisible();
+});
+
 test("库里已有的号再导一次：第 4 步改选「只补空」→「补空字段」变成 1、开始导入能点，导完补空 1 条", async ({ page }) => {
   await 登录(page);
   const 号 = `139${戳}11`;
