@@ -5,6 +5,7 @@
  *   - 盯盘：订单超期一类，排在逾期计划前面，点理由直达那张订单那一步
  *   - 取数：只取业务员名下的、没完成没不适用、排了日子或卡住的
  */
+import { 订单与供应商 } from "@/lib/features";
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -116,6 +117,8 @@ describe("从库里取", () => {
     expect(await 取订单提醒项("别人")).toEqual([]);
     expect(算提醒([], new Date(), 项).订单.超期).toBe(2);
     const 盯 = await loadWatchlist();
-    expect(盯[0]).toMatchObject({ kind: "order_late", customerName: "Acme" });
+    // 订单这一版不上（lib/features.ts）：盯盘里不出订单
+    if (订单与供应商) expect(盯[0]).toMatchObject({ kind: "order_late", customerName: "Acme" });
+    else expect(盯.some((x) => x.kind === "order_late")).toBe(false);
   });
 });

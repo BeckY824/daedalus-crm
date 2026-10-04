@@ -15,7 +15,12 @@ import { randomUUID } from "node:crypto";
  * 过程通过 emit 推出去：每次工具调用一条 step（running → done + summary）。
  */
 import { chatMessagesJSON, chatTextStream, buildSystemPrompt, chatTools, type ToolMessage } from "../llm";
-import { TOOLS, TOOL_MAP, proposalVocab, type ToolContext } from "./tools";
+import { TOOLS as 全部工具, TOOL_MAP as 全部工具表, proposalVocab, type ToolContext } from "./tools";
+import { 不开放的工具 } from "@/lib/features";
+
+/** 这一版交给模型的工具：关掉的功能（订单、供应商）不给，模型叫了也当没有（lib/features.ts） */
+const TOOLS = 全部工具.filter((t) => !不开放的工具.includes(t.name));
+const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t])) as typeof 全部工具表;
 import { SCHEMAS } from "./schemas";
 import { 有DSML, 解析DSML } from "@/lib/llm-dsml";
 import { 认意图, type 页面范围 } from "./intents";

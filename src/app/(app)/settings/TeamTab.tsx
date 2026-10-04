@@ -155,7 +155,7 @@ export default function TeamTab() {
     return (
       <div className="set-col team" style={{ paddingTop: 8 }}>
         <p className="team-intro">
-          几个人各用各的桌面端，客户、跟进、商机、订单自动同步。数据在你们每个人的电脑上；
+          几个人各用各的桌面端，客户、跟进、商机自动同步。数据在你们每个人的电脑上；
           改动加密后经我们的服务器转交，<b>钥匙只在你们的邀请码里，我们看不到内容</b>。
         </p>
         {!s.能用 && <Alert type="info" showIcon message="先在「桌面端」那一栏登录云端账号" style={{ marginBottom: 16 }} />}

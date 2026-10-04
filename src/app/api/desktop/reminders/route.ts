@@ -1,3 +1,4 @@
+import { 订单与供应商 } from "@/lib/features";
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
@@ -37,6 +38,7 @@ export async function GET(req: Request) {
   const 我 = await 本机我(prisma);
   if (!我) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
 
-  const [项, 订单项] = await Promise.all([取提醒项(我.id), 取订单提醒项(我.id)]);
+  // 订单这一版不上（lib/features.ts）：早报、Dock 数字里不算订单
+  const [项, 订单项] = await Promise.all([取提醒项(我.id), 订单与供应商 ? 取订单提醒项(我.id) : Promise.resolve([])]);
   return NextResponse.json(算提醒(项, new Date(), 订单项));
 }

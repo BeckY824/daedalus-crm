@@ -27,7 +27,7 @@ const 说明表: Record<string, string> = {
   members: "谁能进、谁是管理员",
   password: "改密码、看哪几台机器登录着",
   desktop: "账号、备份、更新",
-  team: "和同事同步客户、跟进、订单",
+  team: "和同事同步客户、跟进、商机",
   ai: "走哪把 Key、还剩几次",
   business: "客户 / 学员 这些叫法",
   imports: "导进来的那几批，可撤销",

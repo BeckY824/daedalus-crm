@@ -1,5 +1,6 @@
 "use client";
 
+import { 订单与供应商 } from "@/lib/features";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Space, Select, Tag, InputNumber, DatePicker, App, Dropdown, Popover, Checkbox } from "antd";
@@ -71,7 +72,7 @@ export default function OpportunitiesView({
   const b = useBusiness();
   /** 正在看哪个商机的供应商比价（外贸模版，3c） */
   const [比价, set比价] = useState<OppRow | null>(null);
-  const 比价项 = (r: OppRow) => (b.template === "trade" ? [{ key: "compare", label: "供应商比价", onClick: () => set比价(r) }] : []);
+  const 比价项 = (r: OppRow) => (b.template === "trade" && 订单与供应商 ? [{ key: "compare", label: "供应商比价", onClick: () => set比价(r) }] : []);
   const { message, modal } = App.useApp();
   const { f, setF, apply, reset, pending } = useUrlFilters("/opportunities", filters);
   const [open, setOpen] = useState(false);
@@ -334,7 +335,7 @@ export default function OpportunitiesView({
               menu={{
                 items: [
                   // 以前赢的单补一张订单（已经有了就直接打开那一张，createOrder 不会建第二张）
-                  ...(r.status === "WON" && b.template === "trade"
+                  ...(r.status === "WON" && b.template === "trade" && 订单与供应商
                     ? [{ key: "order", label: "生成订单", onClick: () => void 生成订单(r).then((id) => id && router.push(`/orders/${id}`)) }]
                     : []),
                   ...比价项(r),
@@ -351,7 +352,7 @@ export default function OpportunitiesView({
               trigger={[]}
               placement="bottomRight"
               destroyOnHidden
-              content={<WonAsk r={r} 可生成订单={b.template === "trade"} 做={(签约, 订单) => 标赢单(r, 签约, 订单)} 取消={() => set问赢单(null)} />}
+              content={<WonAsk r={r} 可生成订单={b.template === "trade" && 订单与供应商} 做={(签约, 订单) => 标赢单(r, 签约, 订单)} 取消={() => set问赢单(null)} />}
             >
               <Dropdown
                 menu={{
@@ -493,7 +494,7 @@ export default function OpportunitiesView({
         }
       />
 
-      <CompareDrawer open={比价 !== null} opp={比价} onClose={() => set比价(null)} />
+      {订单与供应商 && <CompareDrawer open={比价 !== null} opp={比价} onClose={() => set比价(null)} />}
       <OpportunityForm
         open={open}
         editing={editing}

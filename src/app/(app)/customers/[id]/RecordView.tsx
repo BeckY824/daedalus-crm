@@ -1,5 +1,6 @@
 "use client";
 
+import { 订单与供应商 } from "@/lib/features";
 import OrderForm from "../../orders/OrderForm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -536,8 +537,8 @@ export default function RecordView({
             ))}
           </div>
 
-          {/* 订单（2026-10-03，外贸模版才有）：每单一行，当前走到哪一步、有没有超期 */}
-          {b.template === "trade" && (
+          {/* 订单（2026-10-03，外贸模版才有；0.46.15 这一版不上，见 lib/features.ts）：每单一行，当前走到哪一步、有没有超期 */}
+          {b.template === "trade" && 订单与供应商 && (
             <div className="rec-sec">
               <div className="rec-sec-t">
                 <span>订单 {订单.length > 0 && 订单.length}</span>
@@ -787,7 +788,7 @@ export default function RecordView({
         opportunities={opportunities}
         aiEnabled={aiEnabled}
       />
-      {b.template === "trade" && <OrderForm open={建订单} customerId={customer.id} onClose={() => set建订单(false)} />}
+      {b.template === "trade" && 订单与供应商 && <OrderForm open={建订单} customerId={customer.id} onClose={() => set建订单(false)} />}
       <TaskForm open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={() => { setTaskOpen(false); router.refresh(); }} customerId={customer.id} />
       <PlanForm
         open={planOpen}

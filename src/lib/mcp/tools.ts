@@ -1,5 +1,6 @@
 import { TOOLS, TOOL_MAP, type ToolContext } from "@/lib/agent/tools";
 import { 只读SCHEMAS, type Schema } from "@/lib/agent/schemas";
+import { 不开放的工具 } from "@/lib/features";
 import { getBusiness } from "@/lib/business";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 
@@ -23,10 +24,10 @@ export type McpTool = {
 };
 
 /** 开出去的工具名单。propose_* 一个都不在里面，理由见文件头 */
-export const MCP_TOOL_NAMES = Object.keys(只读SCHEMAS);
+export const MCP_TOOL_NAMES = Object.keys(只读SCHEMAS).filter((n) => !不开放的工具.includes(n));
 
 export function 列工具(): McpTool[] {
-  return TOOLS.filter((t) => 只读SCHEMAS[t.name]).map((t) => ({
+  return TOOLS.filter((t) => MCP_TOOL_NAMES.includes(t.name)).map((t) => ({
     name: t.name,
     description: t.description,
     inputSchema: 只读SCHEMAS[t.name],
@@ -41,7 +42,7 @@ export function 列工具(): McpTool[] {
  * 对面把它直接转述给用户也不会错。
  */
 export async function 跑工具(name: string, args: Record<string, unknown>, who: { id: string; name: string }) {
-  if (!只读SCHEMAS[name]) throw new Error(`没有这个工具：${name}`);
+  if (!MCP_TOOL_NAMES.includes(name)) throw new Error(`没有这个工具：${name}`);
   const tool = TOOL_MAP.get(name);
   if (!tool) throw new Error(`没有这个工具：${name}`);
   // 脱敏器同样要给（见 agent/run.ts 那段）：MCP 是第五个出口，别再漏一个

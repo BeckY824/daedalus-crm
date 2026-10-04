@@ -380,7 +380,7 @@ function AssistBlock() {
  * 这条是 Claude Code / Codex / Claude 桌面端拿我们当工具箱，用**他们自己的**订阅来查。
  * 对一个人用的场景意义最大：他多半已经在付那份订阅，而数据一步不出这台机器。
  *
- * 开出去的只有九个只读查询，写不了任何东西（见 lib/mcp/tools.ts）。
+ * 开出去的只有只读查询，写不了任何东西（见 lib/mcp/tools.ts）。
  */
 function McpBlock() {
   const { message, modal } = App.useApp();
@@ -426,7 +426,7 @@ function McpBlock() {
       <h4>让别的 agent 连进来</h4>
       <p>
         把这个 CRM 接到 Claude Code、Codex 或 Claude 桌面端：在那边直接问「张三最近跟进到哪了」「这个月谁签得最多」，
-        它会来查这台机器上的库，用的是<b>你自己</b>的订阅额度。开出去的是九个<b>只读</b>查询，
+        它会来查这台机器上的库，用的是<b>你自己</b>的订阅额度。开出去的全是<b>只读</b>查询，
         写不了任何东西——记一笔、改状态、排计划仍然只能在这里点。
       </p>
 

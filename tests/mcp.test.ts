@@ -16,6 +16,7 @@ import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { 处理 } from "@/lib/mcp/rpc";
 import { 列工具, MCP_TOOL_NAMES } from "@/lib/mcp/tools";
+import { 订单与供应商 } from "@/lib/features";
 import { 生成令牌, 认令牌, 撤销令牌, 读令牌 } from "@/lib/mcp/token";
 
 let 我: { id: string; name: string };
@@ -85,11 +86,16 @@ describe("开出去的工具", () => {
     expect(名字).toContain("find_person");
     // 「我这周做了什么」也开出去：只读，而且在 Claude Code 那边问这句比切回应用更顺手
     expect(名字).toContain("my_recap");
-    // 2026-10-03 外贸订单：只读，问「哪几单超期了」在别的客户端里一样常见
-    expect(名字).toContain("list_orders");
-    // 供应商和比价（3c）：只读
-    expect(名字).toContain("list_suppliers");
-    expect(名字.length).toBe(16);
+    // 2026-10-03 外贸订单、供应商比价：只读。0.46.15 这一版不上（lib/features.ts），关着时不开出去
+    if (订单与供应商) {
+      expect(名字).toContain("list_orders");
+      expect(名字).toContain("list_suppliers");
+      expect(名字.length).toBe(16);
+    } else {
+      expect(名字).not.toContain("list_orders");
+      expect(名字).not.toContain("list_suppliers");
+      expect(名字.length).toBe(14);
+    }
   });
 
   it("每个工具都带说明和 JSON Schema——客户端拿它做补全和校验", () => {

@@ -1,5 +1,6 @@
 "use client";
 
+import { 订单与供应商 } from "@/lib/features";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { palette } from "@/lib/palette";
 import { useRouter, usePathname } from "next/navigation";
@@ -206,14 +207,14 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
       { key: "/customers", icon: <TeamOutlined />, label: b.customer, 组: "主" },
       { key: "/opportunities", icon: <DollarOutlined />, label: "商机", 组: "主" },
       // 外贸模版才有订单（2026-10-03）：通用销售没有「定金 → 生产 → 订舱 → 装柜」这条线，摆着只是添乱
-      ...(b.template === "trade" ? [{ key: "/orders", icon: <ContainerOutlined />, label: "订单", 组: "主" as const }] : []),
+      ...(b.template === "trade" && 订单与供应商 ? [{ key: "/orders", icon: <ContainerOutlined />, label: "订单", 组: "主" as const }] : []),
       { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进", 组: "主" },
       { key: "/overview", icon: <DashboardOutlined />, label: "数据", 组: "主" },
       { key: "/leads", icon: <ShareAltOutlined />, label: "线索", 组: "更多" },
       { key: "/contacts", icon: <ContactsOutlined />, label: "联系人", 组: "更多" },
       { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道", 组: "更多" },
       // 供应商（3c）同样外贸才有：通用销售没有「找工厂比价」这一步
-      ...(b.template === "trade" ? [{ key: "/suppliers", icon: <ShopOutlined />, label: "供应商", 组: "更多" as const }] : []),
+      ...(b.template === "trade" && 订单与供应商 ? [{ key: "/suppliers", icon: <ShopOutlined />, label: "供应商", 组: "更多" as const }] : []),
     ],
     [b.customer, b.template],
   );

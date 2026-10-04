@@ -1,3 +1,4 @@
+import { 订单与供应商 } from "@/lib/features";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { 订单详情 } from "@/lib/order-db";
@@ -7,6 +8,8 @@ import OrderView from "./OrderView";
 export const dynamic = "force-dynamic";
 
 export default async function OrderPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ node?: string }> }) {
+  // 订单 / 供应商这一版不上（lib/features.ts）：直接输网址也打不开
+  if (!订单与供应商) notFound();
   await requireUser();
   const { id } = await params;
   const sp = await searchParams;

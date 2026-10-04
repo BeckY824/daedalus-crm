@@ -83,7 +83,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
             <Form.Item
               name="template"
               label="模版"
-              extra="外贸模版多了订单节点跟进和供应商比价；叫法上的差别在下面一项项改。"
+              extra="外贸模版换成询盘、报价、寄样这套叫法，默认美元；每一项都能在下面再改。"
             >
               <Radio.Group optionType="button" options={[{ value: "general", label: "通用" }, { value: "trade", label: "外贸" }]} />
             </Form.Item>
