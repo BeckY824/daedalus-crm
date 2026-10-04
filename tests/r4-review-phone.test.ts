@@ -78,6 +78,16 @@ describe("英文分机的几种写法", () => {
     // 中文写法「13800001111转8」是进备注的（号码带着字 = true）；英文写法丢得无声无息
     expect(号码带着字("13800001111 ext 8")).toBe(true);
   });
+  it("「13800001111 / 13900002222 x 3」：规整成第一个号，号码带着字 = true，导完原文（第二个号）进备注（J-037）", async () => {
+    const 原文 = "13800001111 / 13900002222 x 3";
+    expect(规整手机号(原文)).toBe("13800001111");
+    expect(号码带着字(原文)).toBe(true);
+    const w = await 执行导入(方案(`姓名,手机号\n王强,${原文}`), "a.csv");
+    if (!w.ok) throw new Error(w.error);
+    const c = await prisma.customer.findFirstOrThrow({ where: { name: "王强" } });
+    expect(c.phone).toBe("13800001111");
+    expect(c.remark ?? "", "第二个号丢了").toContain("13900002222");
+  });
   it("分机后面再带一点字「+1 415 555 0132 x12 (office)」：整格被拒（ext 正则锚在行尾）", () => {
     const 规 = 规整手机号("+1 415 555 0132 x12 (office)");
     expect(像手机号(规), `规整成 ${规}`).toBe(true);

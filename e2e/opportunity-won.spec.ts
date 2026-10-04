@@ -139,3 +139,67 @@ test("列表：阶段下拉选赢单成交 → 「赢单并登记签约」→ �
   expect(签约.map((x) => x.amount)).toEqual([30000]);
   expect(await 赢单关联(商机id)).toMatchObject({ contractId: 签约[0].id, prevStage: "方案报价" });
 });
+
+/*
+  编辑框里的两格联动（2026-10-04 回归核对 J-087 / J-095）。规则本身有单测（opp-stage、saveOpportunity 落库），
+  这里钉的是表单：人在框里改了以后，存进去的就是框里看见的那个。
+*/
+async function 打开编辑(page: Page, 商机名: string) {
+  await page.goto(`/opportunities?keyword=${encodeURIComponent(商机名)}`);
+  const 框 = page.getByRole("dialog", { name: "编辑商机" });
+  await expect(async () => {
+    if (!(await 框.isVisible())) await page.getByRole("button", { name: `编辑 ${商机名}` }).click();
+    await expect(框).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  return 框;
+}
+async function 下拉选(page: Page, 格: ReturnType<Page["getByLabel"]>, 项: string) {
+  await 格.click();
+  await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option", { hasText: 项 }).first().click();
+}
+const 概率 = (框: ReturnType<Page["getByRole"]>) => 框.locator(".ant-slider-handle");
+
+test("J-087 编辑框：已赢单的商机改成「已丢单」→ 阶段退一档、存进去就是丢单，刷新还是丢单", async ({ page }) => {
+  const { 客户id, 商机id } = await 造一单("黄了的单", "黄了的年框", 40000);
+  const p = 连库();
+  await p.opportunity.update({ where: { id: 商机id }, data: { stage: "赢单成交", status: "WON", probability: 100 } });
+  await p.$disconnect();
+  await 登录(page);
+  const 框 = await 打开编辑(page, "黄了的年框");
+  await 下拉选(page, 框.getByLabel("状态"), "已丢单");
+  // 当场看得见会存成什么：阶段不能还挂在赢单成交
+  await expect(框.getByLabel("阶段").locator("..").locator("..")).toContainText("谈判审核");
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(框).toBeHidden();
+  await expect.poll(async () => (await 查(商机id, 客户id)).o.status).toBe("LOST");
+  expect((await 查(商机id, 客户id)).o.stage).toBe("谈判审核");
+  // 重新打开还是丢单，不是「已保存」了却没改
+  const 再 = await 打开编辑(page, "黄了的年框");
+  await expect(再.getByLabel("状态").locator("..").locator("..")).toContainText("已丢单");
+});
+
+test("J-095 编辑框换阶段：手填的 75% 不被阶段默认值冲掉；没动过的跟着新阶段走", async ({ page }) => {
+  const 手填 = await 造一单("手填概率", "手填七五", 20000);
+  const 默认 = await 造一单("默认概率", "默认六十", 20000);
+  const p = 连库();
+  await p.opportunity.update({ where: { id: 手填.商机id }, data: { probability: 75 } });
+  await p.$disconnect();
+  await 登录(page);
+
+  let 框 = await 打开编辑(page, "手填七五");
+  await expect(概率(框)).toHaveAttribute("aria-valuenow", "75");
+  await 下拉选(page, 框.getByLabel("阶段"), "谈判审核");
+  await expect(概率(框)).toHaveAttribute("aria-valuenow", "75");
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(框).toBeHidden();
+  await expect.poll(async () => (await 查(手填.商机id, 手填.客户id)).o.stage).toBe("谈判审核");
+  expect((await 查(手填.商机id, 手填.客户id)).o.probability).toBe(75);
+
+  // 60 是「方案报价」的默认值 = 人没动过：换到「需求确认」跟着变 40
+  框 = await 打开编辑(page, "默认六十");
+  await 下拉选(page, 框.getByLabel("阶段"), "需求确认");
+  await expect(概率(框)).toHaveAttribute("aria-valuenow", "40");
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(框).toBeHidden();
+  await expect.poll(async () => (await 查(默认.商机id, 默认.客户id)).o.probability).toBe(40);
+});
