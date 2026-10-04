@@ -265,7 +265,27 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
           const h = (await tx.$queryRawUnsafe<{ hlc: string }[]>("SELECT hlc FROM _sync_field WHERE tbl = ? AND pk = ? AND col = ?", e.t, k, c))[0]?.hlc;
           if (!h || h < e.h) 要改.push(c);
         }
-        if (要改.length) await tx.$executeRawUnsafe(`UPDATE ${引(e.t)} SET ${要改.map((c) => `${引(c)} = ?`).join(", ")} WHERE ${引(pk)} = ?`, ...要改.map((c) => 值(row[c])), k);
+        if (要改.length) {
+          /*
+            改名撞了同名（乙把渠道改成甲刚建的「展会」）：原来只记跳过，两台从此对不上（T-003）。
+            现在和新插入撞名一样合并：留 id 小的，引用改过去。别的表（同事登录名、线索挂的客户）合不了，照旧抛出去记跳过，
+            设置 → 团队里数得出来（没同步上）
+          */
+          const 规 = 同名合并[e.t];
+          await tx.$executeRawUnsafe("SAVEPOINT s_upd");
+          try {
+            await tx.$executeRawUnsafe(`UPDATE ${引(e.t)} SET ${要改.map((c) => `${引(c)} = ?`).join(", ")} WHERE ${引(pk)} = ?`, ...要改.map((c) => 值(row[c])), k);
+            await tx.$executeRawUnsafe("RELEASE s_upd");
+          } catch (err) {
+            await tx.$executeRawUnsafe("ROLLBACK TO s_upd");
+            await tx.$executeRawUnsafe("RELEASE s_upd");
+            if (!规 || !要改.includes(规.列) || !/UNIQUE/i.test(String((err as Error).message))) throw err;
+            撞++;
+            // 留下的是 k 才写进了这条改动的值、才记字段钟；留下本机那个的话，这条改动的值没用上，不能拿它的钟压住本机那行
+            if ((await 改名撞名合并(tx, e.t, 规, k, 要改, row)) === k) for (const c of 要改) await 记字段钟(tx, e.t, k, c, e.h);
+            return;
+          }
+        }
         for (const c of 要改) await 记字段钟(tx, e.t, k, c, e.h);
       }
       if (e.t === "Customer") 动过的客户.add(k);
@@ -323,6 +343,33 @@ async function 记字段钟(tx: Db, t: string, k: string, c: string, h: string) 
   await tx.$executeRawUnsafe("INSERT INTO _sync_field (tbl, pk, col, hlc) VALUES (?, ?, ?, ?) ON CONFLICT DO UPDATE SET hlc = MAX(hlc, excluded.hlc)", t, k, c, h);
 }
 
+/**
+ * 改名撞了同名（T-003）：本机已有的 k 被改成了另一行 本 正用着的名字。两行是同一个，留 id 小的——
+ * 和新插入撞名（合并同名）同一条规矩，另一台收到那一行的插入时也走那边留下同一个，两台对得上。
+ *   - k 小：本 先让开名字，k 照改，本 的引用改到 k、删掉 本、记别名 本 → k
+ *   - 本 小：k 的引用改到 本、删掉 k、记别名 k → 本；k 这条改动的其余字段不再要（和插入撞名时对方那行一样）
+ * 返回留下的那个 id
+ */
+async function 改名撞名合并(tx: Prisma.TransactionClient, t: string, 规: { 列: string; 被指: [string, string][] }, k: string, 要改: string[], row: Record<string, unknown>): Promise<string> {
+  const 本 = (await tx.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM ${引(t)} WHERE ${引(规.列)} = ? AND id <> ?`, row[规.列], k))[0];
+  if (!本) throw new Error(`${t} 改名撞了唯一约束，但找不到本机同名的那一行`);
+  const [留, 去] = k < 本.id ? [k, 本.id] : [本.id, k];
+  if (留 === k) {
+    await tx.$executeRawUnsafe(`UPDATE ${引(t)} SET ${引(规.列)} = ${引(规.列)} || '#合并中' WHERE id = ?`, 本.id);
+    await tx.$executeRawUnsafe(`UPDATE ${引(t)} SET ${要改.map((c) => `${引(c)} = ?`).join(", ")} WHERE id = ?`, ...要改.map((c) => 值(row[c])), k);
+  }
+  for (const [pt, pc] of 规.被指) await tx.$executeRawUnsafe(`UPDATE ${引(pt)} SET ${引(pc)} = ? WHERE ${引(pc)} = ?`, 留, 去);
+  await tx.$executeRawUnsafe(`DELETE FROM ${引(t)} WHERE id = ?`, 去);
+  await 记别名(tx, t, 去, 留);
+  return 留;
+}
+
+/** 记别名 去 → 留；原来指向 去 的别名一起改到 留（合并过不止一次时，晚到的改动不会落空） */
+async function 记别名(tx: Prisma.TransactionClient, t: string, 去: string, 留: string) {
+  await tx.$executeRawUnsafe("UPDATE _sync_alias SET toId = ? WHERE tbl = ? AND toId = ?", 留, t, 去);
+  await tx.$executeRawUnsafe("INSERT OR REPLACE INTO _sync_alias (tbl, fromId, toId) VALUES (?, ?, ?)", t, 去, 留);
+}
+
 /** 同名合并：留 id 小的。对方的小 → 本机那个让位（引用改过去、删掉）；本机的小 → 记个别名，对方那个的引用进来时换掉 */
 async function 合并同名(tx: Prisma.TransactionClient, t: string, 规: { 列: string; 被指: [string, string][] }, row: Record<string, unknown>, cols: string[]) {
   const 本 = (await tx.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM ${引(t)} WHERE ${引(规.列)} = ?`, row[规.列]))[0];
@@ -333,10 +380,23 @@ async function 合并同名(tx: Prisma.TransactionClient, t: string, 规: { 列:
     await tx.$executeRawUnsafe(`INSERT INTO ${引(t)} (${cols.map(引).join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`, ...cols.map((c) => 值(row[c])));
     for (const [pt, pc] of 规.被指) await tx.$executeRawUnsafe(`UPDATE ${引(pt)} SET ${引(pc)} = ? WHERE ${引(pc)} = ?`, 远, 本.id);
     await tx.$executeRawUnsafe(`DELETE FROM ${引(t)} WHERE id = ?`, 本.id);
-    await tx.$executeRawUnsafe("INSERT OR REPLACE INTO _sync_alias (tbl, fromId, toId) VALUES (?, ?, ?)", t, 本.id, 远);
+    await 记别名(tx, t, 本.id, 远);
   } else {
-    await tx.$executeRawUnsafe("INSERT OR REPLACE INTO _sync_alias (tbl, fromId, toId) VALUES (?, ?, ?)", t, 远, 本.id);
+    await 记别名(tx, t, 远, 本.id);
   }
+}
+
+const 表的叫法: Record<string, string> = { User: "同事账号", Lead: "线索", Channel: "渠道", Customer: "客户", FollowUp: "跟进", TradeOrderNode: "订单节点" };
+
+/**
+ * 回放时没放进来、两台因此对不上的改动（T-003）：撞了合不了的唯一约束（同事登录名、两条线索挂同一位客户……）。
+ * 设置 → 团队里写「有 N 条没同步上」，不静默。孤儿不算——父行在两台都删了，跳过它两边本来就一致
+ */
+export async function 没同步上(db: Db): Promise<{ 条数: number; 例子: { 表: string; 原因: string }[] }> {
+  const 不算 = "why NOT LIKE '孤儿：%'";
+  const 条数 = 数((await db.$queryRawUnsafe<{ n: bigint | number }[]>(`SELECT COUNT(*) AS n FROM _sync_skip WHERE ${不算}`))[0]?.n);
+  const 行 = await db.$queryRawUnsafe<{ tbl: string; why: string }[]>(`SELECT tbl, why FROM _sync_skip WHERE ${不算} ORDER BY at DESC LIMIT 3`);
+  return { 条数, 例子: 行.map((r) => ({ 表: 表的叫法[r.tbl] ?? r.tbl, 原因: /UNIQUE/i.test(r.why) ? "和这台上已有的一条撞了（不能有两条一样的）" : r.why.slice(0, 80) })) };
 }
 
 /**

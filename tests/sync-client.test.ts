@@ -192,6 +192,15 @@ describe("桌面端同步客户端", () => {
     const 重 = await 疑似重复();
     expect(重).toEqual([{ 种类: "客户", 依据: "号码 13800000001", 记录: [expect.objectContaining({ id: "c1", 谁的: "甲" }), expect.objectContaining({ id: "c3", 谁的: "乙" })] }]);
 
+    // T-003 合不了的撞车（两人各把一条线索挂到同一位客户上）：不静默，设置 → 团队里数得出「没同步上」
+    expect(await 团队状态()).toMatchObject({ 没同步上: { 条数: 0 } });
+    await 甲.lead.create({ data: { id: "lj", name: "甲的线索", customerId: "c1", ownerId: "acct_jia" } });
+    await 乙.lead.create({ data: { id: "ly", name: "乙的线索", customerId: "c1", ownerId: "acct_yi" } });
+    await 同步一轮();
+    await 乙同步(码.key, 码.teamId);
+    await 同步一轮();
+    expect(await 团队状态()).toMatchObject({ 没同步上: { 条数: 1, 例子: [expect.objectContaining({ 表: "线索" })] } });
+
     // 退出：触发器卸了、配置删了、数据还在
     expect((await 退出团队()).ok).toBe(true);
     expect(读团队()).toBeNull();

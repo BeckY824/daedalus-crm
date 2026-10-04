@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "../prisma";
 import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/cloud";
 import { 团队身份id } from "../desktop/me";
-import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, type 改动 } from "./local";
+import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, type 改动 } from "./local";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
 import { 看全部, 忘掉限定, 在同步里 } from "../team-scope";
 import { invalidateSettingsCache } from "../settings";
@@ -574,6 +574,8 @@ export async function 团队状态() {
     lastSyncAt: c.lastSyncAt ?? null,
     lastError: c.lastError ?? (r.状态 === 200 ? null : String(r.json.error ?? "")),
     last: c.last ?? null,
+    /** 回放时撞了合不了的唯一约束、两台因此对不上的几条（T-003）：界面上写「有 N 条没同步上」，不静默 */
+    没同步上: await 没同步上(prisma).catch(() => ({ 条数: 0, 例子: [] as { 表: string; 原因: string }[] })),
   };
 }
 

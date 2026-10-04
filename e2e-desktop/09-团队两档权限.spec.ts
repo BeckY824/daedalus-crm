@@ -96,6 +96,23 @@ test("进了团队：「我」是按云端账号改过身份的那一行；设�
   await expect(page.getByRole("button", { name: "林小雨（团队），账号菜单" })).toBeVisible();
 });
 
+test("T-003 回放时撞了合不了的（两条线索挂同一位客户）：设置 → 团队写「有 N 条没同步上」，孤儿不算", async ({ page }) => {
+  const p = 连库();
+  // 形状照 lib/sync/local.ts 建同步表 的 _sync_skip；这台没真跑过回放，直接放两条：一条撞唯一约束、一条孤儿
+  const 建 = "CREATE TABLE IF NOT EXISTS _sync_skip (tbl TEXT NOT NULL, pk TEXT NOT NULL, hlc TEXT NOT NULL, why TEXT NOT NULL, at BIGINT NOT NULL)";
+  try {
+    await p.$executeRawUnsafe(建);
+    await p.$executeRawUnsafe("INSERT INTO _sync_skip (tbl, pk, hlc, why, at) VALUES ('Lead', 'e2e-l', '1-B', 'UNIQUE constraint failed: Lead.customerId', 1), ('FollowUp', 'e2e-f', '', '孤儿：Customer 在本机已经删了', 2)");
+    await 进门(page, "/settings?tab=team");
+    const 栏 = page.getByRole("tabpanel", { name: /^团队/ });
+    await expect(栏.getByText("有 1 条没同步上")).toBeVisible();
+    await expect(栏).toContainText("线索：和这台上已有的一条撞了");
+  } finally {
+    await p.$executeRawUnsafe("DELETE FROM _sync_skip WHERE pk IN ('e2e-l', 'e2e-f')").catch(() => undefined);
+    await p.$disconnect();
+  }
+});
+
 test("业务员的客户列表：只有自己负责的、渠道是自己的、公海里的；老板的和原来管理员的都看不到", async ({ page }) => {
   // 限定有 3 秒缓存（team-scope.ts 的 限定的我），角色刚对过，等它过期
   await page.waitForTimeout(3500);
