@@ -7,7 +7,8 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Tag, Drawer } from "antd";
 import { SearchOutlined, TableOutlined } from "@ant-design/icons";
-import { FOLLOW_STATUSES, FOLLOW_STATUS_COLOR } from "@/lib/constants";
+import { FOLLOW_STATUS_COLOR } from "@/lib/constants";
+import { 名单分组, 未填写组 } from "@/lib/roster-groups";
 import { avatarColor, initial, smartTime, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
@@ -85,18 +86,8 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
     [rows, 当前页签],
   );
   const 分组 = !q.trim();
-  const 组们 = useMemo(
-    () => {
-      /*
-        预设状态之外的（老库里的、导入时自己填的）也得有个组——原来只按预设那几个分，
-        这些客户在分组视图里直接不见了（第六轮疑似）。按出现的先后接在后面，组名就是它自己
-      */
-      const 预设 = new Set<string>(FOLLOW_STATUSES);
-      const 其余 = [...new Set(页签里.map((r) => r.followStatus).filter((s) => !预设.has(s)))];
-      return [...FOLLOW_STATUSES, ...其余].map((s) => ({ s, rows: 页签里.filter((r) => r.followStatus === s) })).filter((g) => g.rows.length > 0);
-    },
-    [页签里],
-  );
+  // 分组规则在 lib/roster-groups.ts：预设外的单独成组、空串归「未填写」，一个人都不能消失（2026-10-04 L-072）
+  const 组们 = useMemo(() => 名单分组(页签里), [页签里]);
   const 切组 = (s: string) => set收起的(收起的.includes(s) ? 收起的.filter((x) => x !== s) : [...收起的, s]);
 
 
@@ -148,7 +139,7 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
             <span className="roster-src">
               {带状态 && (
                 <Tag color={FOLLOW_STATUS_COLOR[r.followStatus] ?? "default"} style={{ margin: "0 6px 0 0", borderRadius: 5, fontSize: 12, lineHeight: "18px", padding: "0 5px" }}>
-                  {statusLabel(b, r.followStatus)}
+                  {statusLabel(b, r.followStatus?.trim() || 未填写组)}
                 </Tag>
               )}
               {r.source ?? ""}
