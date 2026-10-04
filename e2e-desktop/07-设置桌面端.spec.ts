@@ -44,3 +44,17 @@ test("设置 → 团队：没进团队时画出「建团队」「加入团队」
   await page.waitForTimeout(1000);
   expect(问题).toEqual([]);
 });
+
+/*
+  J-201 后半（2026-09-28 用户截图）：不带 ?tab= 打开设置，默认是「团队成员」，可桌面端不摆这一栏——
+  正文落到第一栏（个人资料），左边目录还在找 members，哪一项都不亮，看上去像选中了鼠标停着的那项
+*/
+test("设置不带 ?tab= 打开：左边亮着的那一项就是右边摆着的那一栏", async ({ page }) => {
+  await 进门(page, "/settings");
+  const 分类 = page.getByRole("tablist", { name: "设置分类" });
+  await expect(分类).toBeVisible();
+  const 亮的 = 分类.locator('[role="tab"][aria-selected="true"]');
+  await expect(亮的).toHaveCount(1);
+  await expect(page.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", (await 亮的.getAttribute("id"))!);
+  await expect(亮的).toHaveClass(/\bon\b/);
+});

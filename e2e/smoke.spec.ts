@@ -281,3 +281,28 @@ test("9. 筛选后导出 CSV：行数对得上、中文不乱码、公式不会�
 
   expect(下载.suggestedFilename()).toMatch(/客户列表-\d{4}-\d{2}-\d{2}\.csv/);
 });
+
+/*
+  2026-10-04 回归核对 J-193 / J-218：
+    打错的地址原来落到 Next 自带的英文「404 | This page could not be found」（托管版那条只看了状态码）
+    旧书签 /reports 原来在页面里 redirect()，碰上流式输出的布局退成客户端跳——先闪一页空壳再跳
+*/
+test("10. 打错的地址是中文那张 404；旧书签 /reports 是服务端干净的 307", async ({ page }) => {
+  await 登录(page);
+  const r = await page.goto("/students-not-a-page");
+  expect(r?.status()).toBe(404);
+  await expect(page.getByText("没有找到这个页面")).toBeVisible();
+  await expect(page.locator("body")).not.toContainText("This page could not be found");
+
+  const 跳 = await page.request.get("/reports", { maxRedirects: 0 });
+  expect(跳.status()).toBe(307);
+  expect(跳.headers()["location"]).toMatch(/\/overview\?view=/);
+});
+
+/* J-182：找回密码页原来叫人去「设置管理 → 用户管理」，那地方早就叫「设置 → 团队成员」了——忘了密码的人照着找不到 */
+test("11. 找回密码页（自部署）指的路是「设置 → 团队成员」", async ({ page }) => {
+  await page.goto("/forgot");
+  await expect(page.locator(".auth-alt").first()).toContainText("设置 → 团队成员");
+  await expect(page.locator("body")).not.toContainText("用户管理");
+  await expect(page.locator("body")).not.toContainText("设置管理");
+});

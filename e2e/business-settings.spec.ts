@@ -173,6 +173,21 @@ test.describe.serial("业务配置", () => {
    * 还是用你自己的 Key。接口地址不再挡在所有人前面——只有选了「其它」才出现。
    * 这条钉住新形状，以及那句必须一直在的话：Key 存在你自己机器上。
    */
+  /* J-223 前半：业务简介底下那段说明原来被右下角的「x/500」压住，两行字叠在一起像乱码（.field-count 让出一行） */
+  test("业务简介：右下角的字数和底下那段说明不叠在一起", async ({ page }) => {
+    await 登录(page);
+    const 面板 = await 打开业务配置(page);
+    const 项 = 面板.locator(".field-count").first();
+    const 字数 = 项.locator(".ant-input-data-count");
+    const 说明 = 项.locator(".ant-form-item-extra");
+    await expect(字数).toBeVisible();
+    await expect(说明).toBeVisible();
+    const a = (await 字数.boundingBox())!;
+    const c = (await 说明.boundingBox())!;
+    const 叠 = a.x < c.x + c.width && c.x < a.x + a.width && a.y < c.y + c.height && c.y < a.y + a.height;
+    expect(叠, `字数 ${JSON.stringify(a)}，说明 ${JSON.stringify(c)}`).toBe(false);
+  });
+
   test("AI 接入：只有两个选择，接口地址收进「其它」里", async ({ page }) => {
     await 登录(page);
     await page.goto("/settings");

@@ -152,6 +152,15 @@ describe("协议", () => {
     expect(r.result.isError).toBe(true);
   });
 
+  // 上线前第 3 期 3.6：这一版关掉的订单 / 供应商，列表里不给之外，别人的客户端照名字直接叫也不行
+  it.runIf(!订单与供应商)("关着的订单、供应商：tools/call 照名字直接叫也进不来", async () => {
+    for (const name of ["list_orders", "list_suppliers"]) {
+      const r = (await 问("tools/call", { name, arguments: {} })) as { result: { isError: boolean; content: { text: string }[] } };
+      expect(r.result.isError, name).toBe(true);
+      expect(r.result.content[0].text).toContain("没有这个工具");
+    }
+  });
+
   it("不认识的方法回 -32601", async () => {
     const r = (await 问("resources/list")) as { error: { code: number } };
     expect(r.error.code).toBe(-32601);

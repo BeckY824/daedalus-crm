@@ -151,6 +151,17 @@ describe("chatJSON 那条路（起草话术）", () => {
     expect(await 用掉(账号.acc.id)).toBe(0);
   });
 
+  it("桌面端这边先超时（上游慢）：提示是「AI 响应超时，请稍后重试」，不说「已经重发过」（J-138）", async () => {
+    // 扣不扣次是下面那条【下一版】的事；这里只钉给人看的那句话（aabd111 删掉的半句别再长回来）
+    接线({ 上游: async () => { await 等一下(600); return 回文本('{"message":"迟到的话术"}'); } });
+    const { chatJSON } = await import("@/lib/llm");
+    const e = await chatJSON("起草一句", { timeoutMs: 200 }).catch((x: Error) => x);
+    expect(e).toBeInstanceOf(Error);
+    expect((e as Error).message).toBe("AI 响应超时，请稍后重试");
+    expect((e as Error).message).not.toContain("重发");
+    await 等一下(900); // 让网关那边把上游等完，别把这次请求漏到下一条用例里
+  });
+
   it.skip("【下一版】【坏】桌面端这边先超时（上游慢）：人看到「超时」，但这一次照样被扣了", async () => {
     // 上游 0.6 秒才回；桌面端 0.2 秒就放弃。真实世界里是：话术 60 秒、网关等上游 120 秒
     接线({ 上游: async () => { await 等一下(600); return 回文本('{"message":"迟到的话术"}'); } });
@@ -324,6 +335,8 @@ describe("agent 那条路（首页对话框）", () => {
     const msg = result && !result.ok ? result.error : "";
     expect(msg).toContain("超时");
     expect(是人话(msg)).toBe(true);
+    // J-138：超时提示原来一律说「已经重发过一次」，可不是每条路都重发过（aabd111 删了那半句）——别再说回去
+    expect(msg, `对话框里会显示：${msg}`).not.toContain("重发");
     // 超时之后按「对面不认 tools」退去 JSON 协议，再等一整轮（90 秒）才报超时
     // 2026-10-02 起：同一请求快速重发一次（中转站偶发卡住，重发通常就回来了），不再换协议等第二轮
     expect(云端请求, "最多重发一次，不该再退到 JSON 协议等一整轮").toBeLessThanOrEqual(2);

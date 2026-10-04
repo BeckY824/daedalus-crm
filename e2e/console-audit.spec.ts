@@ -38,6 +38,8 @@ const 页面 = [
   ["渠道", "/channels"],
   ["联系人", "/contacts"],
   ["商机列表", "/opportunities"],
+  // J-219：带 ?new=1 一进来就开新建框，首次加载出过水合报错
+  ["商机列表（直接开新建框）", "/opportunities?new=1"],
   ["商机看板", "/opportunities/pipeline"],
   // 外贸模版的两页（2026-10-03）：空着也不许报警。0.46.15 这一版不上（lib/features.ts），关着时页面是 404，不巡
   ...(订单与供应商 ? [["订单", "/orders"], ["供应商", "/suppliers"]] : []),
@@ -67,6 +69,9 @@ test("控制台巡检", async ({ page }) => {
     await page.goto(路径);
     await page.waitForLoadState("networkidle").catch(() => {});
     await page.waitForTimeout(800);
+    // J-194：一页只许一个 <main>（新壳和页面各包一层时读屏认不出正文）
+    const 正文数 = await page.locator("main").count();
+    if (正文数 !== 1) 问题.push(`[结构] 这一页有 ${正文数} 个 <main>`);
     console.log(问题.length === 0 ? `✓ ${名}` : `✗ ${名}\n    ${问题.join("\n    ")}`);
     全部.push(...问题.map((q) => `${名}：${q}`));
   }
@@ -81,6 +86,8 @@ test("控制台巡检", async ({ page }) => {
   await page.locator(".rec-tags .ant-tag").first().click();
   await page.waitForTimeout(800);
   await page.keyboard.press("Escape");
+  const 详情正文数 = await page.locator("main").count();
+  if (详情正文数 !== 1) 问题.push(`[结构] 这一页有 ${详情正文数} 个 <main>`);
   console.log(问题.length === 0 ? "✓ 客户详情（含状态下拉）" : `✗ 客户详情\n    ${问题.join("\n    ")}`);
   全部.push(...问题.map((q) => `客户详情：${q}`));
 

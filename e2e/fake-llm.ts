@@ -106,3 +106,25 @@ export async function 拆掉假模型(browser: Browser) {
     await db.$disconnect();
   }
 }
+
+/**
+ * 让下一次（以及之后每一次）提问拿到一份写好的回答——拦的是浏览器到 /api/ai/stream 那一跳，
+ * 服务端和模型都不碰。用来钉**面板和建议卡的界面**：长回答把谁滚了、卡上摆了哪几格、确认后剩下什么。
+ * 建议卡确认走的是真的 applyProposal（服务端不认卡片 id，只按内容重新校验一遍），所以确认 / 撤销是真落库的。
+ */
+export async function 假回答(page: Page, 回答: { text: string; proposals?: unknown[] }) {
+  const 段 = 回答.text.match(/[\s\S]{1,40}/g) ?? [];
+  const 事件 = [
+    { type: "step", id: "answer", label: "组织回答", status: "running" },
+    ...段.map((t) => ({ type: "token", text: t })),
+    { type: "step", id: "answer", label: "组织回答", status: "done" },
+    { type: "result", ok: true, answer: { text: 回答.text, records: [], customers: [], proposals: 回答.proposals ?? [] } },
+  ];
+  await page.route("**/api/ai/stream", (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache" },
+      body: 事件.map((e) => `data: ${JSON.stringify(e)}\n\n`).join(""),
+    }),
+  );
+}

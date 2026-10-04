@@ -67,3 +67,26 @@ test("客户记录页：新建任务的弹框开好光标就在第一格", async
   await page.getByRole("button", { name: /新建任务/ }).first().click();
   await 光标在第一格(page, "新建任务");
 });
+
+/* J-206 补：文档点名的联系人弹框没覆盖；以及「首项聚焦」撞上就地建渠道——动画那 200ms 里人已经点开的下拉被拽回第一格、当场收起 */
+test("联系人页「添加联系人」：开好光标在第一个打字格（第一格是挑客户的下拉，不算）", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/contacts");
+  await page.getByRole("button", { name: /添加联系人/ }).click();
+  await 光标在第一格(page, "添加联系人");
+});
+
+test("弹框还在开场动画时就点开一个下拉：动画走完不把焦点拽回第一格，下拉还开着", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/customers");
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 框 = page.getByRole("dialog", { name: "新建客户" });
+  // 不等动画：一出来就点「销售负责人」
+  await 框.getByLabel("销售负责人").click();
+  const 下拉 = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").filter({ has: page.locator("#salesOwnerId_list") });
+  await expect(下拉).toBeVisible();
+  await page.waitForTimeout(800); // 开场动画走完、afterOpenChange 已经跑过
+  await expect(下拉).toBeVisible();
+  expect(await page.evaluate(() => (document.activeElement as HTMLElement | null)?.id)).toBe("salesOwnerId");
+});

@@ -21,6 +21,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 连库, 清空业务数据, 造模拟数据 } from "./mock-data";
+import { 装个假模型, 拆掉假模型 } from "./fake-llm";
 
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 
@@ -304,5 +305,68 @@ test.describe("桌面端：左栏「客户」直接进名单 + 详情", () => {
     // 表格还在名单右上角
     await 中栏(page).getByRole("link", { name: /表格/ }).first().click();
     await expect(page).toHaveURL(/\/customers$/);
+  });
+});
+
+/*
+  2026-10-04 回归核对 J-201 / J-186：设置浮层的两处修了没钉。
+    J-201 从首页开设置，背后冒出 AI 面板（首页本来不出现它）；不带 ?tab= 时左边哪一项都不亮、正文却是个人资料
+    J-186 切设置页签整页向服务端重要一遍（200 条日志、成员、云端余额），切一下卡半秒
+  面板只在配了 AI 时才有，所以这一组自己装个假模型、跑完拆掉
+*/
+test.describe("设置浮层：背后不冒面板、高亮和正文对得上、切页签不重拉", () => {
+  test.use({ viewport: { width: 1680, height: 1000 } });
+  test.beforeAll(async ({ browser }) => 装个假模型(browser));
+  test.afterAll(async ({ browser }) => 拆掉假模型(browser));
+
+  async function 从账号菜单开设置(page: Page) {
+    await expect(async () => {
+      if (!(await page.getByRole("menuitem").filter({ hasText: "设置" }).isVisible())) await page.getByRole("button", { name: /账号菜单/ }).click();
+      await expect(page.getByRole("menuitem").filter({ hasText: "设置" })).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 30_000 });
+    await page.getByRole("menuitem").filter({ hasText: "设置" }).click({ position: { x: 120, y: 12 } });
+    await expect(page.locator(".setm-box")).toBeVisible();
+  }
+
+  test("J-201：从首页开设置，背后不冒出 AI 面板；左边亮的那一项就是右边摆的那一栏", async ({ page }) => {
+    await 登录(page);
+    await expect(page).toHaveURL(/\/dashboard/);
+    // 窗口够宽、配了 AI：首页本身就不画面板（它就是宽模式的同一块）
+    await expect(page.locator("aside.dock")).toHaveCount(0);
+    await 从账号菜单开设置(page);
+    await expect(page).toHaveURL(/\/settings$/);
+    await page.waitForTimeout(500);
+    await expect(page.locator("aside.dock")).toHaveCount(0);
+
+    // 左边亮且只亮一项，正文就是它那一栏（默认栏不摆出来的情形——桌面端没有「团队成员」——在 e2e-desktop/07 里钉）
+    const 亮的 = page.locator('.setm-box [role="tab"][aria-selected="true"]');
+    await expect(亮的).toHaveCount(1);
+    const 亮的id = await 亮的.getAttribute("id");
+    await expect(page.locator(".setm-box [role=\"tabpanel\"]")).toHaveAttribute("aria-labelledby", 亮的id!);
+
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".setm-box")).toHaveCount(0);
+    await expect(page.locator("aside.dock")).toHaveCount(0);
+  });
+
+  test("J-186：设置里切页签只改地址栏，不再向服务端把整页重要一遍", async ({ page }) => {
+    await 登录(page);
+    await page.goto("/settings");
+    const 页签 = page.getByRole("tablist", { name: "设置分类" }).getByRole("tab");
+    await expect(页签.first()).toBeVisible();
+    await page.waitForLoadState("networkidle").catch(() => {});
+    const 重拉: string[] = [];
+    page.on("request", (r) => {
+      const u = r.url();
+      if (r.resourceType() === "document" || /[?&]_rsc=/.test(u) || r.headers()["rsc"] === "1") 重拉.push(`${r.method()} ${u}`);
+    });
+    const n = Math.min(await 页签.count(), 3);
+    for (let i = 0; i < n; i++) {
+      await 页签.nth(i).click();
+      await expect(页签.nth(i)).toHaveAttribute("aria-selected", "true");
+      await expect(page).toHaveURL(/\?tab=/);
+    }
+    await page.waitForTimeout(800);
+    expect(重拉, "切页签时向服务端重要了整页").toEqual([]);
   });
 });
