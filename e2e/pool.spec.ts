@@ -110,3 +110,39 @@ test("放进公海 → 别人在公海里领走 → 撤销回到公海；记录�
     await 李.ctx.close();
   }
 });
+
+/*
+  T-046：负责人格写「公海（原 X）」，同事名字很长时整枚标签压到右边「最近跟进」那一列上。
+  修法是表格里的标签不超出格子（max-width: 100% + 省略号，title 里留全名）
+*/
+test("同事名字很长：「公海（原 …）」标签不超出负责人那一格，压不到「最近跟进」上", async ({ browser }) => {
+  const db = 连库();
+  const 长名 = "欧阳长长长长长长长长长长名字的同事";
+  const 名 = "公海长名客户";
+  await db.customer.deleteMany({ where: { name: 名 } });
+  await db.user.deleteMany({ where: { email: "pool-long-name" } });
+  const 同事 = await db.user.create({ data: { email: "pool-long-name", name: 长名, password: "x", role: "SALES", title: "销售", active: false } });
+  const c = await db.customer.create({ data: { name: 名, phone: "13755550062", salesOwnerId: 同事.id } });
+  await db.customerPool.create({ data: { customerId: c.id, reason: "手动" } });
+  const 张 = await 一个人(browser, 张三);
+  try {
+    await 张.page.setViewportSize({ width: 1280, height: 800 });
+    await 张.page.goto(`/customers?pool=1&keyword=${encodeURIComponent(名)}`);
+    const 行 = 张.page.getByRole("row", { name: new RegExp(名) });
+    const 标签 = 行.locator(".pool-tag");
+    await expect(标签).toBeVisible();
+    // 全名留在 title 里，悬停看得到
+    await expect(标签).toHaveAttribute("title", new RegExp(长名));
+    const 格 = 标签.locator("xpath=ancestor::td[1]");
+    const 下一格 = 格.locator("xpath=following-sibling::td[1]");
+    const [t, g, n] = await Promise.all([标签.boundingBox(), 格.boundingBox(), 下一格.boundingBox()]);
+    expect(t && g && n, "拿不到位置").toBeTruthy();
+    expect(t!.x + t!.width, `标签右边 ${t!.x + t!.width} 超出了负责人那一格（右边 ${g!.x + g!.width}）`).toBeLessThanOrEqual(g!.x + g!.width + 0.5);
+    expect(t!.x + t!.width, "标签压到了下一列").toBeLessThanOrEqual(n!.x + 0.5);
+  } finally {
+    await 张.ctx.close();
+    await db.customer.deleteMany({ where: { name: 名 } });
+    await db.user.deleteMany({ where: { email: "pool-long-name" } });
+    await db.$disconnect();
+  }
+});
