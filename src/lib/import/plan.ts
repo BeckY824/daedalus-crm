@@ -110,13 +110,21 @@ export function 认日期(v: string): Date | null {
  * 而跟进状态是拿来筛人、排工作的。对不上就用默认值 + 标出来，让人在复核那一步
  * 自己指一下——那一步里同一个写法改一次，整列一起生效，不比猜慢。
  */
-export function 认枚举(v: string, values: readonly string[]): string | null {
+export function 认枚举(v: string, values: readonly string[], 显示名?: Readonly<Record<string, string>>): string | null {
   const s = v.trim();
   if (!s) return null;
   const hit = values.find((x) => x === s);
   if (hit) return hit;
   const 紧 = s.replace(/[\s　]/g, "");
-  return values.find((x) => x.replace(/[\s　]/g, "") === 紧) ?? null;
+  const 宽松 = values.find((x) => x.replace(/[\s　]/g, "") === 紧);
+  if (宽松) return 宽松;
+  /*
+    再认业务的显示名（「已演示」→ 已试听）。导出写的是显示名，导入原来只认存储值，
+    导出改完再导回来，改过显示名的状态全落成默认值，静悄悄的（2026-10-04 L-073）。
+    这不是近似匹配：显示名和存储值是一一对应的同一个状态，存储值优先（先比上面两条）
+  */
+  if (显示名) return values.find((x) => 显示名[x] && 显示名[x].replace(/[\s　]/g, "") === 紧) ?? null;
+  return null;
 }
 
 export type 排布 = {
@@ -195,7 +203,7 @@ export function 摊开(p: 排布): 一行[] {
         return;
       }
       if (f.kind === "enum") {
-        const hit = 认枚举(v, f.values ?? []);
+        const hit = 认枚举(v, f.values ?? [], f.显示名);
         if (!hit) {
           /*
             开放的枚举（职位 / 年级）：对不上就**原样收下**，不丢。

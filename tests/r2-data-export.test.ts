@@ -19,7 +19,8 @@ import { 造本人 } from "./r2-data-helpers";
 import { 导出客户 } from "@/app/(app)/customers/export-action";
 import { toCsv, csvCell, BOM } from "@/lib/csv";
 import { 解析CSV, 成表 } from "@/lib/import/parse";
-import { 认枚举 } from "@/lib/import/plan";
+import { 认枚举, 摊开 } from "@/lib/import/plan";
+import { 字段表, 猜列 } from "@/lib/import/fields";
 import { 规整手机号 } from "@/lib/phone";
 import { DEFAULT_BUSINESS, statusLabel } from "@/lib/business-config";
 import { FOLLOW_STATUSES } from "@/lib/constants";
@@ -119,9 +120,22 @@ describe("CSV 本身：公式注入、中文、逗号、换行、引号", () => 
     expect(规整手机号(回来)).toBe("+14155550123");
   });
 
-  it.skip("【下一版】【已知 6-X8】导出的跟进状态写显示名（已演示），导回来认不出、落成默认值", () => {
+  /*
+    2026-10-04 L-073 修好，去掉 skip。显示名是按业务配置的（statusLabels），认枚举 本身不知道是哪套业务——
+    显示名表由调用方给（字段表 从业务配置里带出来），这里照导入那条路传 DEFAULT_BUSINESS 的
+  */
+  it("【已知 6-X8】导出的跟进状态写显示名（已演示），导回来要认得出、落回存储值（已试听）", () => {
     const 显示名 = statusLabel(DEFAULT_BUSINESS, "已试听");
     expect(显示名).toBe("已演示");
-    expect(认枚举(显示名, FOLLOW_STATUSES), "导出→导入一圈，状态丢了").toBe("已试听");
+    expect(认枚举(显示名, FOLLOW_STATUSES, DEFAULT_BUSINESS.statusLabels), "导出→导入一圈，状态丢了").toBe("已试听");
+    // 不给显示名表时照旧只认存储值，不猜
+    expect(认枚举(显示名, FOLLOW_STATUSES)).toBeNull();
+  });
+
+  it("导入走的字段表带着业务的显示名：表里写「已演示」「内部讨论」→ 落成「已试听」「与家人商议」，不进待复核", () => {
+    const 表 = 字段表(DEFAULT_BUSINESS);
+    const t = 成表(解析CSV("姓名,手机号,跟进状态,决策状态\n张三,13800000001,已演示,内部讨论"));
+    const [行] = 摊开({ 表头: t.表头, 数据: t.数据, 映射: 猜列(t.表头, 表), 字段表: 表 });
+    expect([行.值.followStatus, 行.值.decisionStatus, 行.问题]).toEqual(["已试听", "与家人商议", []]);
   });
 });
