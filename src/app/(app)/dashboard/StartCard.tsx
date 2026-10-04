@@ -58,7 +58,7 @@ export default function StartCard() {
         </li>
         <li>
           <b>数据只在你的电脑上</b>
-          <span>账号只用来记 AI 次数，{b.customer}资料不上传。</span>
+          <span>账号只用来记 AI 次数。{b.customer}资料存在这台电脑上，用 AI 时只发你让它看的那一段；开了团队同步才加密经过云端。</span>
         </li>
       </ul>
       <div className="start">
