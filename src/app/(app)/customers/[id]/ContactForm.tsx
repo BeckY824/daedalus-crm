@@ -40,7 +40,7 @@ export default function ContactForm({
   /** 记录页上给定；列表页上不给，改由表单里选 */
   customerId?: string;
   /** 只有不给 customerId 时才用得上：可选的学员 */
-  学员们?: { id: string; name: string }[];
+  学员们?: { id: string; name: string; label?: string }[];
   record: ContactRow | null;
   /**
    * 改的是一位从客户上移出的联系人（联系人页里写「未归属」那种）。
@@ -140,7 +140,8 @@ export default function ContactForm({
                   allowClear={未归属}
                   optionFilterProp="label"
                   placeholder={未归属 ? `未归属（挑一位${b.customer}挂过去）` : `搜索并选择一位${b.customer}`}
-                  options={(学员们 ?? []).map((c) => ({ value: c.id, label: c.name }))}
+                  // 重名的显示成「王强（星辰科技 · 尾号 1111）」，不然两行一样的「王强」挑错了也看不出（2026-10-04 J-016）
+                  options={(学员们 ?? []).map((c) => ({ value: c.id, label: c.label ?? c.name }))}
                 />
               </Form.Item>
             </Col>

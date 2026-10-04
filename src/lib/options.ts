@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { 客户候选 } from "./customer-pick";
 
 /**
  * 表单下拉里「选一个渠道 / 选一个客户」的候选。几张页面都要，口径放在一处：
@@ -16,6 +17,15 @@ export function 可选客户(除了?: string) {
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
+}
+
+/**
+ * 挑「所属客户」用的候选，重名的带上公司和手机尾号（2026-10-04 J-016，规则见 lib/customer-pick.ts）。
+ * 联系人页的「添加联系人」「挂到哪位客户」用它：挂错人是看不出来的那种错
+ */
+export async function 可选客户带区分() {
+  const rows = await prisma.customer.findMany({ select: { id: true, name: true, school: true, phone: true }, orderBy: { name: "asc" } });
+  return 客户候选(rows);
 }
 
 /**

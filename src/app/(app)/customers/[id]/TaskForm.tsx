@@ -37,8 +37,15 @@ export default function TaskForm({
   }, [open, form, record]);
 
   async function onOk() {
-    const v = await form.validateFields();
+    /*
+      和另外三个弹框一样先拦再校验（2026-10-04 J-107）：原来 set存着 在 validateFields 之后，
+      校验那一下的空当里第二下点击还能进来，只靠按钮转圈挡着
+    */
+    if (存着) return;
     set存着(true);
+    // 校验没过：红字在框里，不另报「没存上」
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return void set存着(false);
     try {
       const r = await saveTask({
         id: record?.id,

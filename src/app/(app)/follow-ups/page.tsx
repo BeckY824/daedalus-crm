@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { 搜索词 } from "@/lib/search-keyword";
 import FollowUpsView from "./FollowUpsView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
@@ -16,14 +17,16 @@ export default async function FollowUpsPage({
 }) {
   await requireUser();
   const sp = await searchParams;
+  // 关键词去掉前后空格再搜（2026-10-04 J-008）：复制来的「张三 」原来一个都搜不到
+  const 词 = 搜索词(sp.keyword);
 
   const where: Prisma.FollowUpWhereInput = {
-    ...(sp.keyword
+    ...(词
       ? {
           OR: [
-            { title: { contains: sp.keyword } },
-            { content: { contains: sp.keyword } },
-            { customer: { name: { contains: sp.keyword } } },
+            { title: { contains: 词 } },
+            { content: { contains: 词 } },
+            { customer: { name: { contains: 词 } } },
           ],
         }
       : {}),

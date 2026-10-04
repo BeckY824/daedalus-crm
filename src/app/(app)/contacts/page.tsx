@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { 可选客户 } from "@/lib/options";
+import { 搜索词, 号码片段 } from "@/lib/search-keyword";
+import { 可选客户带区分 } from "@/lib/options";
 import ContactsView from "./ContactsView";
 import type { Prisma } from "@/generated/prisma";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
@@ -15,22 +16,24 @@ export default async function ContactsPage({
 }) {
   await requireUser();
   const sp = await searchParams;
+  // 关键词去掉前后空格再搜（2026-10-04 J-008）：复制来的「张三 」原来一个都搜不到
+  const 词 = 搜索词(sp.keyword);
 
-  const where: Prisma.ContactWhereInput = sp.keyword
+  const where: Prisma.ContactWhereInput = 词
     ? {
         OR: [
-          { name: { contains: sp.keyword } },
-          { phone: { contains: sp.keyword } },
+          { name: { contains: 词 } },
+          { phone: { contains: 号码片段(词) ?? 词 } },
           // 搜索框写着能搜微信（2026-10-02 排查 H6）
-          { wechat: { contains: sp.keyword } },
-          { customer: { name: { contains: sp.keyword } } },
+          { wechat: { contains: 词 } },
+          { customer: { name: { contains: 词 } } },
         ],
       }
     : {};
 
   // 从客户上移出、人留着的（UnassignedContact，2026-10-01）。没有客户可搜，只按姓名、电话
-  const 散的where: Prisma.UnassignedContactWhereInput = sp.keyword
-    ? { OR: [{ name: { contains: sp.keyword } }, { phone: { contains: sp.keyword } }, { wechat: { contains: sp.keyword } }] }
+  const 散的where: Prisma.UnassignedContactWhereInput = 词
+    ? { OR: [{ name: { contains: 词 } }, { phone: { contains: 号码片段(词) ?? 词 } }, { wechat: { contains: 词 } }] }
     : {};
 
   const [总数, rows, 散的总数, 散的, 学员们, users] = await Promise.all([
@@ -47,7 +50,7 @@ export default async function ContactsPage({
     prisma.unassignedContact.count({ where: 散的where }),
     prisma.unassignedContact.findMany({ where: 散的where, orderBy: { detachedAt: "desc" }, take: 300 }),
     // 「添加联系人」要先选归属，所以把学员的名字一起带下来
-    可选客户(),
+    可选客户带区分(),
     // 只拿来判断「是不是只有一个人」（负责人那一列摆不摆，见 lib/solo.ts）
     负责人候选(),
   ]);

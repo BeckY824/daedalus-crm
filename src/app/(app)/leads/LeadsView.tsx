@@ -22,6 +22,7 @@ import { saveLead, deleteLeads, convertLead } from "./actions";
 import { useBusiness } from "@/lib/business-client";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { 转化会带上 } from "@/lib/lead-convert";
 
 type Row = {
   id: string;
@@ -123,7 +124,11 @@ export default function LeadsView({
               onClick={() =>
                 modal.confirm({
                   title: `将「${r.name}」转为${b.customer}？`,
-                  content: `会建一位${b.customer}，联系人、公司、行业、来源一起带过去，线索标记为已转化。`,
+                  // 按实际会填的格子、用当前叫法说（2026-10-04 L-016），见 lib/lead-convert.ts 转化会带上
+                  content: (() => {
+                    const 带 = 转化会带上(r, b.fields);
+                    return `会建一位${b.customer}${带 ? `，${带}一起带过去` : ""}，线索标记为已转化。`;
+                  })(),
                   okText: `转为${b.customer}`,
                   cancelText: "取消",
                   async onOk() {

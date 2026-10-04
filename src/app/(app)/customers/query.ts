@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
 import { 带币种, 签约金额, 签约合计 } from "@/lib/money-db";
+import { 搜索词, 号码片段, 有通配符, 字面包含的id } from "@/lib/search-keyword";
 
 /**
  * 客户列表的查询条件、取哪些字段、怎么变成一行——列表页和「导出」共用这一份（2026-10-02 排查）。
@@ -22,6 +23,9 @@ export type 客户条件 = {
   pool?: string;
 };
 
+/** 关键词搜的列，和下面 OR 里的一致（字面包含那条路也照这个搜） */
+const 搜索列 = ["name", "phone", "school", "major", "grade", "remark"] as const;
+
 export async function 客户筛选条件(
   sp: 客户条件,
 ): Promise<Prisma.CustomerWhereInput> {
@@ -33,18 +37,27 @@ export async function 客户筛选条件(
       })
     : null;
 
+  /*
+    关键词先 trim、号码按数字搜、% _ 当普通字符（2026-10-04 J-008），规则见 lib/search-keyword.ts。
+    带 % _ 的走原生 SQL 先找出 id，放进 AND 里——和上面「这一批」的 id 条件并存，不能互相盖掉
+  */
+  const 词 = 搜索词(sp.keyword);
+  const 号段 = 号码片段(词);
+  const 字面 = 词 && 有通配符(词) ? await 字面包含的id("Customer", 搜索列, 词) : null;
+
   return {
     ...(本批 ? { id: { in: 本批.map((r) => r.customerId) } } : {}),
-    ...(sp.keyword
+    ...(字面 ? { AND: [{ id: { in: 字面 } }] } : {}),
+    ...(词 && !字面
       ? {
           OR: [
-            { name: { contains: sp.keyword } },
-            { phone: { contains: sp.keyword } },
-            { school: { contains: sp.keyword } },
-            { major: { contains: sp.keyword } },
+            { name: { contains: 词 } },
+            { phone: { contains: 号段 ?? 词 } },
+            { school: { contains: 词 } },
+            { major: { contains: 词 } },
             // 年级、备注也搜，和 AI 的 search_customers 一个范围（排查 C7）：AI 说「大三的有 12 位」，点「去库里搜」不能是 0 条
-            { grade: { contains: sp.keyword } },
-            { remark: { contains: sp.keyword } },
+            { grade: { contains: 词 } },
+            { remark: { contains: 词 } },
           ],
         }
       : {}),

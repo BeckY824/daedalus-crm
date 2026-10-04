@@ -47,7 +47,8 @@ export default function ContactsView({
   总数: number;
   keyword: string;
   /** 「添加联系人」时挑归属用的。联系人挂在某一位学员下面，没有归属的联系人没有意义 */
-  学员们: { id: string; name: string }[];
+  /** label：重名的带公司和手机尾号（2026-10-04 J-016） */
+  学员们: { id: string; name: string; label?: string }[];
   /** 负责人候选。只用来判断是不是只有一个人 */
   users: { name: string }[];
 }) {

@@ -161,10 +161,11 @@ export async function convertLead(id: string) {
         decisionStatus: "了解中",
         remark: 档案.remark,
         salesOwnerId: lead.ownerId ?? user.id,
-        contacts: lead.contact
+        // 只有空格的联系人当没有（2026-10-04 L-016）：和 线索转档案 一个判法，邮箱那时已进了备注
+        contacts: lead.contact?.trim()
           ? {
               create: {
-                name: lead.contact,
+                name: lead.contact.trim(),
                 // 联系人就是客户本人时写明「本人」，联系人表里一眼看得出这条是谁
                 position: 档案.name === lead.contact.trim() && 档案.school ? "本人" : null,
                 phone,

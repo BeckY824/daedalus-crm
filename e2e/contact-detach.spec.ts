@@ -107,3 +107,26 @@ test("彻底删除也能撤销", async ({ page }) => {
   await page.locator(".ant-message").getByRole("button", { name: "撤销" }).click();
   await expect(联系人块).toContainText("王经理");
 });
+
+test("添加联系人挑所属客户：两位同名客户，下拉里看得出公司和手机尾号，挂到挑的那位（2026-10-04 J-016）", async ({ page }) => {
+  const p = 连库();
+  const 张三 = await p.user.findFirstOrThrow({ where: { email: 账号.用户名 } });
+  await p.customer.create({ data: { name: "重名王强", phone: "13822220011", school: "星辰科技", salesOwnerId: 张三.id } });
+  const 海川 = await p.customer.create({ data: { name: "重名王强", phone: "13922220022", school: "海川外贸", salesOwnerId: 张三.id } });
+
+  await 登录(page);
+  await page.goto("/contacts");
+  await page.getByRole("button", { name: "添加联系人" }).click();
+  const 框 = page.getByRole("dialog");
+  await 框.getByRole("combobox").first().click();
+  const 下拉 = page.locator(".ant-select-dropdown");
+  await expect(下拉.getByText("重名王强（星辰科技 · 尾号 0011）", { exact: true })).toBeVisible();
+  await 下拉.getByText("重名王强（海川外贸 · 尾号 0022）", { exact: true }).click();
+  await 框.getByPlaceholder("张经理").fill("采购刘");
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(框).toBeHidden();
+
+  const 建的 = await p.contact.findFirstOrThrow({ where: { name: "采购刘" } });
+  expect(建的.customerId).toBe(海川.id);
+  await p.$disconnect();
+});
