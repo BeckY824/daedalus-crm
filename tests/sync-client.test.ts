@@ -271,6 +271,24 @@ describe("桌面端同步客户端", () => {
     expect((await 退出团队()).ok).toBe(true);
   });
 
+  /*
+    2026-10-04 多台实测脚本：User.role 不同步，远端插进来的同事那一行带着对方库里的角色（或默认值），
+    原来要等每 5 分钟那次对名单——业务员那台上老板一直显示成业务员。现在这一轮拉进新同事的账号行就马上对
+  */
+  it("这一轮拉进来一位新同事：这一轮结束他的角色就按名单对上，不等 5 分钟", async () => {
+    const 码 = await 新团队("六队");
+    乙推(码.teamId, 码.key, [乙的新客户("cR1")]);
+    expect(await 同步一轮()).toMatchObject({ ok: true }); // 这一轮对过一次角色，5 分钟内不会再按时间对
+    const 时 = new Date().toISOString();
+    云.团队.get(码.teamId)!.人.add("bing");
+    名单老板 = "bing"; // 名单里丙是老板：他那一行进来时是默认的 SALES（角色不同步），要马上对成 ADMIN
+    乙推(码.teamId, 码.key, [{ t: "User", k: "acct_bing", o: "I", r: { id: "acct_bing", email: "bing@x.com", name: "丙", title: "", role: "SALES", active: true, password: "x", createdAt: 时, updatedAt: 时 }, c: ["id", "email", "name", "title", "role", "active", "password", "createdAt", "updatedAt"], h: 钟(Date.now() + 60_000) }]);
+    expect(await 同步一轮()).toMatchObject({ ok: true });
+    const 丙 = await 甲.user.findUnique({ where: { id: "acct_bing" }, select: { role: true } });
+    expect(丙?.role, "名单里丙是老板，这一轮结束就该是 ADMIN，不等 5 分钟").toBe("ADMIN");
+    expect((await 退出团队()).ok).toBe(true);
+  });
+
   it("T-009 同步一轮跑到一半点退出：等这一轮跑完再退；退完没有 .team.json、触发器已卸、业务员只留自己的", async () => {
     const 码 = await 新团队("二队");
     await 当业务员();

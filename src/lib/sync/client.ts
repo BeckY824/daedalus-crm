@@ -448,6 +448,8 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       推 += 改动.length;
     }
     let 拉 = 0, 撞 = 0, 拉到 = c.pulled;
+    const 成员行数 = async () => Number((await prisma.$queryRawUnsafe<{ n: number | bigint }[]>(`SELECT count(*) AS n FROM "User" WHERE id LIKE 'acct_%'`))[0]?.n ?? 0);
+    const 拉前成员 = await 成员行数();
     for (;;) {
       const r = await 云("GET", `/api/sync/pull?teamId=${encodeURIComponent(c.teamId)}&after=${拉到}`);
       if (r.状态 !== 200) {
@@ -499,8 +501,12 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       进程里还缓存着旧的那份的话，业务员加入之后界面一直是自己原来的叫法，要重启才对（2026-10-04 五人实测）
     */
     if (拉 > 0) invalidateSettingsCache();
-    // 老板 / 业务员：每 5 分钟按名单对一次（同事的账号可能这一轮才同步进来）
-    if (Date.now() - 上次对角色 > 5 * 60_000 || 拉 > 0 && 上次对角色 === 0) await 对齐角色().catch(() => undefined);
+    /*
+      老板 / 业务员：每 5 分钟按名单对一次；**这一轮拉进来新同事的账号行就马上对**（2026-10-04 多台实测）——
+      User.role 不同步，远端插进来的那一行默认是 SALES，原来要等 5 分钟，业务员那台上老板一直显示成业务员
+    */
+    const 来了新同事 = 拉 > 0 && (await 成员行数()) !== 拉前成员;
+    if (Date.now() - 上次对角色 > 5 * 60_000 || (拉 > 0 && 上次对角色 === 0) || 来了新同事) await 对齐角色().catch(() => undefined);
     return { ok: true, 推, 拉, 撞 };
   } catch (e) {
     const 话 = e instanceof 同步问题 ? e.message : e instanceof Error && /authenticate|版本|钥匙/.test(e.message) ? "解不开别人推来的改动：邀请码里的钥匙不对，请找老板重新要一份" : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
