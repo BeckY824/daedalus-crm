@@ -226,3 +226,16 @@ test("商机列表的汇总药丸：没筛状态时只算进行中的，赢单�
   await expect(药丸).toContainText("已赢单 1 单");
   await expect(药丸).toContainText("50,000");
 });
+
+test("J-093 列表点商机名称 → 打开这一单的编辑框（和客户列表点名字进记录页一个意思），不是点了没反应", async ({ page }) => {
+  await 造一单("点名字", "点名字的单", 12000);
+  await 登录(page);
+  await page.goto(`/opportunities?keyword=${encodeURIComponent("点名字的单")}`);
+  const 框 = page.getByRole("dialog", { name: "编辑商机" });
+  const 名字 = page.locator(".ant-table-row").getByRole("button", { name: "点名字的单", exact: true });
+  await expect(async () => {
+    if (!(await 框.isVisible())) await 名字.click();
+    await expect(框).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 20_000 });
+  await expect(框.getByLabel("商机名称")).toHaveValue("点名字的单");
+});

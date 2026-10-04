@@ -218,7 +218,7 @@ test("签约金额：自动带上勾着的商机金额之和；取消勾一个�
   expect(签约.map((c) => c.amount)).toEqual([12000]);
 });
 
-test("J-088 记录页左栏的商机写状态：赢单、丢单各挂一个标，进行中的不挂（和商机列表名称列一样）", async ({ page }) => {
+test("J-088 记录页左栏的商机写状态：赢单、丢单各挂一个标，进行中的不挂（和商机列表的标一样）", async ({ page }) => {
   const id = await 造客户("商机状态");
   await 查((p) =>
     p.opportunity.createMany({
