@@ -121,6 +121,42 @@ test("CSV：猜列 → 复核 → 预览 → 落库 → 撤销，走完整条", 
   await expect(page.getByRole("link", { name: `导入乙${戳}` })).toHaveCount(0);
 });
 
+/*
+  2026-10-04 J-049：第 4 步改选「只补空」原来不重算预览——「补空 0」、表里的人全在库里时「开始导入」一直是灰的，
+  导入整条路走不通。重算函数有单测（import-disposition），这里钉界面：切过去数字跟着变、按钮能点、真的补上了
+*/
+/** 第 2 步「下一步」要等预览算完（按钮在转圈时点不动），等复核那一屏出来再点第 3 步的「下一步」 */
+async function 过对列和复核(抽屉: ReturnType<Page["locator"]>) {
+  await expect(抽屉.getByText(/读到了/)).toBeVisible();
+  await 抽屉.getByRole("button", { name: "下一步" }).click();
+  await expect(抽屉.getByText("每一格都读得懂，没有要你确认的")).toBeVisible({ timeout: 30_000 });
+  await 抽屉.getByRole("button", { name: "下一步" }).click();
+}
+
+test("库里已有的号再导一次：第 4 步改选「只补空」→「补空字段」变成 1、开始导入能点，导完补空 1 条", async ({ page }) => {
+  await 登录(page);
+  const 号 = `139${戳}11`;
+  // 先导一位进库
+  let 抽屉 = await 打开抽屉并选文件(page, "先有一位.csv", `姓名,手机号\n补空甲${戳},${号}`, "text/csv");
+  await 过对列和复核(抽屉);
+  await 抽屉.getByRole("button", { name: "开始导入" }).click();
+  await expect(抽屉.getByText(/新建 1 条/)).toBeVisible({ timeout: 30_000 });
+
+  // 同一个号带着公司再导一次
+  抽屉 = await 打开抽屉并选文件(page, "再导一次.csv", `姓名,手机号,公司\n补空甲${戳},${号},远山资本`, "text/csv");
+  await 过对列和复核(抽屉);
+  const 开始 = 抽屉.getByRole("button", { name: "开始导入" });
+  // 默认「跳过」：新建 0、跳过 1，没东西可导，按钮是灰的（这本身是对的）
+  await expect(抽屉.getByText("跳过（已有）", { exact: true }).locator("..")).toHaveText("1跳过（已有）");
+  await expect(开始).toBeDisabled();
+
+  await 抽屉.getByText("只补空着的字段").click();
+  await expect(抽屉.getByText("补空字段", { exact: true }).locator("..")).toHaveText("1补空字段");
+  await expect(开始).toBeEnabled();
+  await 开始.click();
+  await expect(抽屉.getByText(/新建 0 条，补空 1 条/)).toBeVisible({ timeout: 30_000 });
+});
+
 test("手机号那一列不指出来就不让往下走", async ({ page }) => {
   await 登录(page);
   // 表头里没有任何像手机号的列，猜不到
