@@ -174,12 +174,10 @@ test("D-031 /customers?import=paste：导入抽屉开着，地址上的 import �
 });
 
 /*
-  【下一版】10-04 补 D-031 时发现：?import=paste 进来，抽屉开着却停在「文件」那一栏，不是「粘一段文本」。
-  ImportDrawer 只在 open 从假变真那一下按 初始来路 换栏，而 ?import=paste 进来时 open 第一次渲染就是真，
-  那一下永远等不到。空库「开始」卡上的主按钮「粘一段聊天」走的就是这条路（首页输入框里那颗走的是另一条、没坏）。
-  不伤数据，人多点一下「粘一段文本」就行，排下一版；修法是 来路 的初值取 初始来路。修了去掉 skip
+  10-04 补 D-031 时发现：?import=paste 进来抽屉开着却停在「文件」栏——open 第一次渲染就是真，
+  「从假变真」那一下等不到。空库「开始」卡上的主按钮「粘一段聊天」走的就是这条路。修法：来路 的初值取 初始来路。
 */
-test.skip("【下一版】/customers?import=paste：抽屉直接停在「粘一段文本」那一栏", async ({ page }) => {
+test("/customers?import=paste：抽屉直接停在「粘一段文本」那一栏", async ({ page }) => {
   await page.goto("/customers?import=paste");
   const 抽屉 = page.locator(".ant-drawer");
   await expect(抽屉).toBeVisible();

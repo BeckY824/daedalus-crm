@@ -83,8 +83,9 @@ export default function ImportDrawer({
   const 表 = useMemo(() => 字段表(b), [b]);
 
   const [步, set步] = useState(0);
-  const [来路, set来路] = useState<"文件" | "文本">("文件");
-  const [原文, set原文] = useState("");
+  // 第一次渲染就开着（?import=paste 进来）时，下面那段「open 从假变真」碰不到，初值就得按调用方说的
+  const [来路, set来路] = useState<"文件" | "文本">(open && 初始来路 ? 初始来路 : "文件");
+  const [原文, set原文] = useState(open && 初始文本 ? 初始文本 : "");
   /** 模型编出来、已经被清空的格子。只在粘贴那条路上会有 */
   const [编造, set编造] = useState<编造格[]>([]);
   /** 原文里有、整理出来的表里却没有的手机号 */
