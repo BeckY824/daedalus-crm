@@ -18,6 +18,7 @@ npm run dev
 npm test           # 单元 + Server Action，约 5 秒
 npm run test:e2e   # Playwright，自起 dev server，约 5 分钟
 npm run test:ai    # AI 验收，真的调模型（要 key、花钱），需先 npm run dev -- --port 3100
+npm run test:team  # 团队版五台真实对齐（本机云端 + 5 台桌面端），约 1 分钟；产物旧了先自动 build:server。见 scripts/team-sim/README.md
 ```
 
 提交前的自动关卡（每台机器一次）：
