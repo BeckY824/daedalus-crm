@@ -423,7 +423,7 @@ export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: 
   if (退出中 && !在跑) return Promise.resolve({ ok: false, error: "正在退出团队" });
   if (!在跑) {
     // 在同步里：这一轮里回放写库不触发「改完推一下」（lib/team-scope.ts）；用户这时候写的照样排推送
-    在跑 = 看全部(() => 在同步里(跑一轮)).finally(() => {
+    在跑 = 看全部(() => 在同步里(跑一轮并重试)).finally(() => {
       在跑 = null;
       // 这一轮跑着的时候用户又改了东西（推一下 记的）：这一轮的推送早过去了，马上补一轮
       if (欠一轮 && !退出中) {
@@ -435,6 +435,16 @@ export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: 
     void 在跑.then((r) => { if (!r.ok && /不在这个团队/.test(r.error)) void 被移出后收拾(); });
   }
   return 在跑;
+}
+
+/**
+ * 碰上 SQLite 的「database schema has changed」（错误码 17）就当场再跑一次（2026-10-04 多台实测见过一次，
+ * 在建团队后的第一轮：每个进程第一轮要重装触发器，正好撞上别的连接在写）。它是「表结构刚变过、预编译语句作废了」，
+ * 重来一遍就好；原来要等壳下一次戳（8 秒）才自己好，界面上还挂着一条看不懂的英文报错
+ */
+async function 跑一轮并重试(): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
+  const r = await 跑一轮();
+  return !r.ok && /schema has changed/i.test(r.error) ? 跑一轮() : r;
 }
 
 async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
