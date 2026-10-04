@@ -6,6 +6,7 @@
  *   J-013 筛出 0 条画成空库引导（「新建第一位」），筛选栏和重置都没了
  *   J-020 批量改状态的提示条「撤销」：两位各回各的原状态
  *   J-026 新建线索默认来源「官网注册」——忘了改就悄悄进了「按来源」统计
+ *   J-126 配了 AI 的首页问完一句：欢迎区收起后问答贴着输入框往上长，中间不空一大片
  *   J-124 / J-125 / J-121 / J-111 没配 AI 的首页：页头写「首页」不和「数据」重名；本月签约 0 写 ¥0；
  *         业绩排行金额带 ¥ 且写清口径；上月没有新增时不写「持平」
  *
@@ -15,6 +16,7 @@
 import { readFileSync } from "node:fs";
 import { test, expect, type Page } from "@playwright/test";
 import { 连库, 清空业务数据 } from "./mock-data";
+import { 装个假模型, 拆掉假模型 } from "./fake-llm";
 
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 
@@ -223,4 +225,31 @@ test("没配 AI 的首页：页头「首页」不和「数据」重名；本月�
   await page.goto("/overview");
   await expect(page.locator(".page-head h1")).toHaveText("数据");
   await expect(page.locator(".stat-card", { hasText: "本月签约" })).toContainText(/¥\s?0(?![\d,])/);
+});
+
+/*
+  J-126：首页问完一句，欢迎区收起、答案在流，原来答案顶在页面上沿、输入框沉在最下面，中间空一大片（0.36.5 / 0.37.0 修：
+  .cli-log 贴着输入框往上长）。装一个打不通的假模型——答案是一句出错的话，排版和真答案是同一个壳。
+  量盒子：最后一轮的下沿到输入框上沿之间不该有大块空白
+*/
+test.describe("配了 AI 的首页", () => {
+  test.beforeAll(async ({ browser }) => 装个假模型(browser));
+  test.afterAll(async ({ browser }) => 拆掉假模型(browser));
+
+  test("J-126 问完一句：问答贴着输入框，中间不空一大片", async ({ page }) => {
+    await 登录(page);
+    await page.goto("/dashboard");
+    const 框 = page.locator(".cli-composer textarea").first();
+    await expect(框).toBeVisible();
+    await 框.fill("这个月签了多少");
+    await 框.press("Enter");
+    const 一轮 = page.locator(".cli-turn").last();
+    await expect(一轮).toBeVisible({ timeout: 20_000 });
+    await expect(page.locator(".cli-welcome")).toHaveCount(0);
+    // 等这一轮落定（打不通的模型会很快回一句出错）
+    await page.waitForTimeout(1500);
+    const 轮 = (await 一轮.boundingBox())!;
+    const 输入 = (await page.locator(".cli-composer").boundingBox())!;
+    expect(输入.y - (轮.y + 轮.height), "最后一轮和输入框之间空了一大片").toBeLessThan(80);
+  });
 });
