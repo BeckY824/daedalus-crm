@@ -398,6 +398,97 @@ test.describe("面板里的回答和建议卡", () => {
   });
 });
 
+/*
+  2026-10-04 回归核对 J-212 / J-213 / J-222 / J-211（签约金额那半）：记录页的几处样子修过、都没钉。
+  1440 是桌面端默认窗口，J-212 当时就是在 1440 下看到的
+*/
+test.describe("记录页的几处样子（1440、配了 AI）", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  async function 备一位(名: string) {
+    const p = 连库();
+    const 销售 = await p.user.findFirstOrThrow({ where: { email: 账号.用户名 } });
+    const c = await p.customer.create({ data: { name: 名, phone: `1390000${String(Date.now()).slice(-4)}`, salesOwnerId: 销售.id } });
+    await p.followUp.createMany({
+      data: Array.from({ length: 6 }, (_, i) => ({ customerId: c.id, ownerId: 销售.id, type: "PHONE", title: `第 ${i + 1} 通`, content: "聊了预算和交付周期", status: "已完成", occurredAt: new Date(Date.now() - (i + 1) * 3600_000) })),
+    });
+    await p.contract.create({ data: { customerId: c.id, amount: 1234567, signedAt: new Date() } });
+    return { p, id: c.id };
+  }
+  async function 收拾(p: ReturnType<typeof 连库>, id: string) {
+    await p.customer.delete({ where: { id } });
+    await p.$disconnect();
+  }
+
+  test("J-213：打开记录页时时间线逐条进场（原来 initial={false}，进场动画从没生效）", async ({ page }) => {
+    const { p, id } = await 备一位("进场动画");
+    try {
+      await 登录(page);
+      await page.goto(`/customers/${id}`);
+      await page.locator(".rec-tl-item").first().waitFor({ state: "attached" });
+      // 进场的那一小段里，至少有一条还没完全显出来 / 正挂着动画
+      const 在动 = await page.evaluate(
+        () =>
+          new Promise<boolean>((resolve) => {
+            const 到 = performance.now() + 1500;
+            const 看 = () => {
+              const 条 = [...document.querySelectorAll<HTMLElement>(".rec-tl-item")];
+              if (条.some((el) => el.getAnimations().length > 0 || parseFloat(getComputedStyle(el).opacity) < 0.99)) return resolve(true);
+              if (performance.now() > 到) return resolve(false);
+              requestAnimationFrame(看);
+            };
+            看();
+          }),
+      );
+      expect(在动, "时间线是「啪」一下出来的，没有进场").toBe(true);
+    } finally {
+      await 收拾(p, id);
+    }
+  });
+
+  test("J-212 / J-222 / J-211：速记说明不被「1 次」角标挤成好几行；「生成简报」字看得清；左栏签约金额不截成「¥…」", async ({ page }) => {
+    const { p, id } = await 备一位("记录页样子");
+    try {
+      await 登录(page);
+      await page.goto(`/customers/${id}`);
+      await expect(page.getByRole("heading", { name: "记录页样子" })).toBeVisible();
+
+      // J-212：「AI 解析」挂上「1 次」角标后变宽，旁边那句说明原来被挤成 5 行
+      const 说明 = page.locator(".rec-composer-hint").first();
+      await expect(说明).toBeVisible();
+      const 说明量 = await 说明.evaluate((el) => ({ 高: el.getBoundingClientRect().height, 行高: parseFloat(getComputedStyle(el).lineHeight) || 20 }));
+      expect(说明量.高, `速记说明高 ${说明量.高}，一行 ${说明量.行高}`).toBeLessThanOrEqual(说明量.行高 * 2 + 1);
+
+      // J-211：签约那行金额是要看的东西，不许被日期和两颗图标挤成「¥…」
+      const 金额 = page.locator(".rec-mini-amt").first();
+      await expect(金额).toContainText("1,234,567");
+      expect(await 金额.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "签约金额被省略了").toBe(true);
+
+      // J-222：「生成简报」原来是灰字压蓝底，看不见。窗口不够宽时 AI 栏收在页头「AI」按钮的抽屉里
+      const 抽屉键 = page.getByRole("button", { name: /^thunderbolt AI$/ });
+      if (await 抽屉键.isVisible()) await 抽屉键.click();
+      const 键 = page.getByRole("button", { name: /生成简报/ });
+      await expect(键).toBeVisible();
+      const 对比 = await 键.evaluate((el) => {
+        const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
+        const 亮 = ([r, g, b]: number[]) => {
+          const f = (c: number) => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+          return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+        };
+        const 字 = rgb(getComputedStyle(el.querySelector("span:not(.anticon)") ?? el).color);
+        let 底 = rgb(getComputedStyle(el).backgroundColor);
+        for (let p: HTMLElement | null = el; 底.length === 4 && 底[3] === 0 && p; p = p.parentElement) 底 = rgb(getComputedStyle(p).backgroundColor);
+        const [a, b] = [亮(字), 亮(底)].sort((x, y) => y - x);
+        return { 比: (a + 0.05) / (b + 0.05), 字: 字.join(","), 底: 底.join(",") };
+      });
+      // 当时是灰字压蓝底，对比度一点几；白字压品牌蓝是 4.5 上下（全站主按钮都是这一对，由 design-tokens 那套单测管）
+      expect(对比.比, `「生成简报」字 rgb(${对比.字}) 底 rgb(${对比.底})`).toBeGreaterThanOrEqual(4);
+    } finally {
+      await 收拾(p, id);
+    }
+  });
+});
+
 test.describe("窗口不到 1600 宽", () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
