@@ -29,6 +29,9 @@ function 刷新商机(客户id?: string) {
  * 本来就是这个状态（改个备注）不碰——「本月赢单」按它数，不能因为改备注就挪到本月。
  */
 async function 记结单(id: string, 原状态: string | null, 新状态: string) {
+  // 离开赢单（改成丢单、拖回别的阶段）：「是哪笔签约赢下的」那一行跟着删（2026-10-04 L-007）——
+  // 之后再删那笔签约，不该把人后来改过的状态又退一遍
+  if (新状态 !== "WON") await prisma.contractWin.deleteMany({ where: { opportunityId: id } });
   if (新状态 === "OPEN") {
     await prisma.opportunityClose.deleteMany({ where: { opportunityId: id } });
     return;

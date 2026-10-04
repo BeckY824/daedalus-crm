@@ -80,6 +80,13 @@ const 派生: Record<string, Record<string, string>> = {
   },
   OpportunityMoney: { opportunityId: "哪个商机，saveOpportunity 新建 / 改币种时一起写" },
   ContractMoney: { contractId: "哪一笔签约，saveContract 保存时一起写" },
+  // 2026-10-04 L-007：整行是登记签约勾了赢单时系统记下的，删签约时据此退回，没有单改某一格的入口
+  ContractWin: {
+    opportunityId: "哪个商机，saveContract 勾了赢单时一起记；商机之后离开赢单就删掉这一行",
+    contractId: "哪一笔签约赢下的，删这笔签约时据此退回商机",
+    prevStage: "赢单之前的阶段，系统记下，退回时用",
+    prevProbability: "赢单之前的概率，同上",
+  },
   Quote: {
     opportunityId: "哪个商机，saveOpportunity 带报价时一起写",
     quotedAt: "这一版报价记下的那一刻，系统打上；改价另记一版，不改旧的",

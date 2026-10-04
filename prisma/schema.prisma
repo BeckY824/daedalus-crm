@@ -172,6 +172,8 @@ model Contract {
   owner      ContractOwner?
   /// 币种和精确金额（2026-10-03）。见 ContractMoney
   money      ContractMoney?
+  /// 登记时顺手标成赢单的商机（2026-10-04 L-007）。见 ContractWin
+  wins       ContractWin[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -267,6 +269,8 @@ model Opportunity {
   tradeOrders TradeOrder[]
   /// 供应商比价（2026-10-03）。见 SupplierQuote
   supplierQuotes SupplierQuote[]
+  /// 是哪笔签约顺手赢下来的（2026-10-04 L-007）。见 ContractWin
+  contractWin    ContractWin?
 
   @@index([customerId])
   @@index([stage])
@@ -280,6 +284,22 @@ model OpportunityClose {
   opportunityId String      @id
   opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   closedAt      DateTime    @default(now())
+}
+
+/// 登记签约时顺手标成赢单的商机，和它赢单之前的阶段 / 概率（2026-10-04 L-007，迁移 020）。
+/// 原来签约和赢单之间什么都不留：删了签约，商机一直挂着赢单，本月赢单 / 漏斗 / 业绩一起虚高。
+/// 删这笔签约时据此退回去；商机之后离开过赢单（人改成丢单、拖回别的阶段）就删掉这一行——人动过的不再替人退。
+/// 一个商机只会被一笔签约赢下（登记时只列得出进行中的商机），所以按商机做主键：团队同步要求单列主键。
+/// 单独一张表，理由同 OpportunityClose。
+model ContractWin {
+  opportunityId   String      @id
+  opportunity     Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  contractId      String
+  contract        Contract    @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  prevStage       String
+  prevProbability Int
+
+  @@index([contractId])
 }
 
 /// 商机的币种（2026-10-03 全站币种，迁移 013）。单独一张表，理由同 OpportunityClose。没有这一行 = 人民币。

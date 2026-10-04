@@ -27,6 +27,7 @@ export const 同步表 = [
   "Contract",
   "ContractOwner",
   "ContractMoney",
+  "ContractWin",
   "FollowUp",
   "FollowUpSource",
   "Task",
