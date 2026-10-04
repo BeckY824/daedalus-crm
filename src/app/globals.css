@@ -446,6 +446,21 @@ html.glass .rail-upd.hot { background: color-mix(in srgb, var(--brand-bg) 85%, t
 .wn-ver h3 span { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }
 .wn-ver + .wn-ver { padding-top: 16px; border-top: 1px solid var(--line-soft); }
 .wn-empty { margin: 8px 0; color: var(--text-muted); }
+/* 刚更新完弹出来的那一页（2026-10-04）：一节一张卡，顶上一排节标题当目录；中间滚，标题和「知道了」钉住 */
+.wn-modal .ant-modal-body { max-height: min(64vh, 640px); overflow-y: auto; }
+.wn-title { display: flex; align-items: baseline; gap: 10px; }
+.wn-title small { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }
+.wn-page { display: flex; flex-direction: column; gap: 20px; }
+.wn-pver-h { display: flex; align-items: baseline; gap: 8px; margin: 0; font-size: var(--fs-body, 14px); font-weight: 600; color: var(--ink); }
+.wn-pver-h span { font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); }
+.wn-toc { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 14px; }
+.wn-toc button { border: 1px solid var(--line-soft); background: transparent; border-radius: 999px; padding: 3px 10px; font-size: var(--fs-note); color: var(--ink-soft); cursor: pointer; }
+.wn-toc button:hover { color: var(--ink); border-color: var(--line, var(--line-soft)); }
+.wn-toc button:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+.wn-cards { display: flex; flex-direction: column; gap: 10px; }
+.wn-card { border: 1px solid var(--line-soft); border-radius: 10px; padding: 12px 14px; scroll-margin-top: 8px; }
+.wn-card h4 { margin: 0 0 6px; font-size: var(--fs-body, 14px); font-weight: 600; color: var(--ink); }
+.wn-card > :last-child { margin-bottom: 0; }
 .ant-layout-header .rail-fb { width: 34px; height: 34px; border-radius: var(--r-ctl); }
 /* 反馈弹窗里那两行 */
 .fb-note { margin: 10px 0 0; font-size: var(--fs-note); color: var(--text-muted); line-height: 1.6; }

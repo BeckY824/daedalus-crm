@@ -135,5 +135,42 @@ describe("有没有新内容", () => {
     await setSetting("desktop.whatsNewSeen", "0.46.13");
     expect(await 有没有新内容()).toBeNull();
     expect((await 全部更新记录()).段).toEqual([]);
+    // 读不到不等于「没写这一版」：不能记成看过，文件回来了下次照样弹（2026-10-04 实机）
+    expect(await getSetting("desktop.whatsNewSeen")).toBe("0.46.13");
+    fs.writeFileSync(path.join(目录, "CHANGELOG.md"), MD);
+    expect((await 有没有新内容())?.段.map((s) => s.版本)).toEqual(["0.46.15", "0.46.14"]);
+  });
+
+  it("老库升上来时读不到 CHANGELOG：也不记，下次再说", async () => {
+    await 建一位老客户();
+    fs.rmSync(path.join(目录, "CHANGELOG.md"));
+    expect(await 有没有新内容()).toBeNull();
+    expect(await getSetting("desktop.whatsNewSeen")).toBeNull();
+  });
+});
+
+describe("分节：弹窗里一节一张卡", () => {
+  it("按单独成行的「**标题**」切；标题前的开场白算一节没标题的；行内加粗不切", async () => {
+    const { 分节 } = await import("@/lib/changelog");
+    expect(分节("开场一句\n\n**换了新样子**\n\n- 毛玻璃\n- 左栏\n\n**团队同步**\n\n几个人 **加密** 同步")).toEqual([
+      { 标题: "", 正文: "开场一句" },
+      { 标题: "换了新样子", 正文: "- 毛玻璃\n- 左栏" },
+      { 标题: "团队同步", 正文: "几个人 **加密** 同步" },
+    ]);
+    expect(分节("只有一段话")).toEqual([{ 标题: "", 正文: "只有一段话" }]);
+    expect(分节("")).toEqual([]);
+  });
+
+  it("真实 CHANGELOG 的 0.46.15：每节都有标题、有内容", async () => {
+    const fs = await import("node:fs");
+    const { 切更新记录, 分节, 只留桌面端, 并成段 } = await import("@/lib/changelog");
+    const 这版 = 切更新记录(fs.readFileSync("CHANGELOG.md", "utf8")).find((s) => s.版本 === "0.46.15")!;
+    const 节们 = 分节(并成段(只留桌面端(这版.正文)));
+    expect(节们.length).toBeGreaterThan(10);
+    for (const 节 of 节们) {
+      expect(节.标题, JSON.stringify(节).slice(0, 80)).not.toBe("");
+      expect(节.正文.length).toBeGreaterThan(0);
+    }
+    expect(节们.map((x) => x.标题)).toContain("几个人一起用：团队同步");
   });
 });

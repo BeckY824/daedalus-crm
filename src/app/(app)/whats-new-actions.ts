@@ -27,7 +27,8 @@ function 现在的版本(): string {
   return process.env.CRM_APP_VERSION || 仓库版本;
 }
 
-async function 读全部(): Promise<一版[]> {
+/** 读不出 CHANGELOG 时回 null（和「读到了、但里面没有」分开：读失败不能当成「没写这一版」记成看过） */
+async function 读全部(): Promise<一版[] | null> {
   // 桌面端本地服务的 cwd 就是服务包目录，build-server.mjs 把 CHANGELOG.md 拷在那儿；开发时是仓库根
   try {
     return 切更新记录(await fs.readFile(path.join(process.cwd(), "CHANGELOG.md"), "utf8")).map((s) => ({
@@ -35,7 +36,7 @@ async function 读全部(): Promise<一版[]> {
       正文: 并成段(只留桌面端(s.正文)),
     }));
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -49,7 +50,9 @@ export async function 有没有新内容(): Promise<{ 版本: string; 段: 一�
     // 有没有记录分不清「新装」和「从 0.46.15 之前升上来」，看库里有没有东西
     const 老库 = (await prisma.customer.count()) + (await prisma.lead.count()) > 0;
     // 没有记录的老库一定是从 0.46.15 之前升上来的：当成看过 0.46.14，中间跳过的几版一起给（第四轮 C3）
-    const 这一版 = 老库 ? 这次新的(await 读全部(), 没有这功能的最后一版, 现在) : [];
+    const 读到 = 老库 ? await 读全部() : [];
+    if (!读到) return null; // 读不出：下次再说，不记
+    const 这一版 = 老库 ? 这次新的(读到, 没有这功能的最后一版, 现在) : [];
     if (!这一版.length) {
       await setSetting(看过的键, 现在);
       return null;
@@ -58,7 +61,10 @@ export async function 有没有新内容(): Promise<{ 版本: string; 段: 一�
     return { 版本: 现在, 段: 这一版 };
   }
   if (看过 === 现在) return null;
-  const 段 = 这次新的(await 读全部(), 看过, 现在);
+  const 全部 = await 读全部();
+  // 这一次读不出更新记录（文件正被替换之类）：先不弹、也不记，下次打开再试（2026-10-04 实机撞到：读失败被当成没写，直接记成看过）
+  if (!全部) return null;
+  const 段 = 这次新的(全部, 看过, 现在);
   if (!段.length) {
     // 更新记录里没写这几版（不该发生）：别挂一个点开是空的图标，直接记成看过
     await setSetting(看过的键, 现在);
@@ -77,5 +83,5 @@ export async function 看过了(): Promise<void> {
 /** 账号菜单「更新记录」：最近 30 版，新的在前 */
 export async function 全部更新记录(): Promise<{ 现在: string; 段: 一版[] }> {
   await requireUser();
-  return { 现在: 现在的版本(), 段: (await 读全部()).slice(0, 30) };
+  return { 现在: 现在的版本(), 段: ((await 读全部()) ?? []).slice(0, 30) };
 }
