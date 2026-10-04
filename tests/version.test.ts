@@ -28,6 +28,17 @@ describe("版本号", () => {
   });
 
   /**
+   * CHANGELOG 第一段的版本 = package.json（2026-10-04，回归核对 R-031）。
+   * 桌面端「这一版更新了这些」和左栏「更新记录」都按当前版本号去 CHANGELOG 里找那一段：
+   * 改了版本号忘了写 CHANGELOG（或反过来），那枚「新」就不出、更新记录标题也是错的，而且不报错
+   */
+  it("CHANGELOG 第一段写的就是当前版本", () => {
+    const 根 = 读JSON("package.json").version as string;
+    const 第一段 = fs.readFileSync(path.resolve(__dirname, "..", "CHANGELOG.md"), "utf8").match(/^## (\d+\.\d+\.\d+)/m)?.[1];
+    expect(第一段, "CHANGELOG.md 第一个「## x.y.z」要和 package.json 的版本一致").toBe(根);
+  });
+
+  /**
    * 锁文件里**不能有第三方包的版本号等于应用版本号**。
    *
    * 这条钉的是 2026-09-17 那次 CI 全红：`chore: 0.28.0` / `chore: 0.29.0` 两次
