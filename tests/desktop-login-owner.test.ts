@@ -9,8 +9,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resetDb } from "./reset";
+
 let 目录: string;
-beforeEach(() => {
+beforeEach(async () => {
+  /*
+    先清库（2026-10-04）：A-2 的修法让「没主的目录」登录时比对库里管理员的邮箱。测试库是全套共用的，
+    前面的文件留下一个带邮箱的管理员，甲登录就会被（正确地）判成「换了人」——这里要的是一个从没登录过的新库
+  */
+  await resetDb();
   目录 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-login-owner-"));
   process.env.DESKTOP_LOCAL = "1";
   process.env.CRM_DATA_DIR = 目录;
