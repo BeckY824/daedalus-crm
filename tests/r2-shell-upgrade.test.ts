@@ -26,13 +26,20 @@ const PRISMA = path.join(ROOT, "node_modules/prisma/build/index.js");
 const 工作区 = fs.mkdtempSync(path.join(os.tmpdir(), "r2-upgrade-"));
 afterAll(() => fs.rmSync(工作区, { recursive: true, force: true }));
 
-const 老版本们 = ["v0.14.0", "v0.30.0", "v0.37.0", "v0.39.2", "v0.40.0", "v0.46.0", "v0.46.14"].filter((t) => {
+const 要测的老版本 = ["v0.14.0", "v0.30.0", "v0.37.0", "v0.39.2", "v0.40.0", "v0.46.0", "v0.46.14"];
+const 老版本们 = 要测的老版本.filter((t) => {
   try {
     execFileSync("git", ["rev-parse", "--verify", "--quiet", `${t}^{commit}`], { cwd: ROOT, stdio: "ignore" });
     return true;
   } catch {
     return false;
   }
+});
+
+// 2026-10-04：上面那道过滤原来会把缺的 tag 悄悄扔掉——CI 的 actions/checkout 默认浅检出、不拉 tag，
+// 这一整组在 CI 上很可能一个老版本都没测，却一直是绿的。缺了就报红，让人去补 fetch-depth: 0 / git fetch --tags
+it("要测的老版本 tag 一个都不能少（缺了说明检出没拉 tag，升级测试会悄悄变空）", () => {
+  expect(要测的老版本.filter((t) => !老版本们.includes(t))).toEqual([]);
 });
 
 function 建表SQL(schema文件: string) {

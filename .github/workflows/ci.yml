@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        # 要 tag：tests/r2-shell-upgrade 拿老版本的 tag 建老库来测升级，浅检出没有 tag 会直接报红
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22

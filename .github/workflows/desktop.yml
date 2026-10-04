@@ -39,6 +39,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        # 要 tag：这里也跑 vitest，tests/r2-shell-upgrade 缺老版本 tag 会报红
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
