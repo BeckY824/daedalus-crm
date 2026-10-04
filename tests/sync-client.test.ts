@@ -30,6 +30,7 @@ import { 建团队, 同步一轮, 退出团队, 读团队, 设传输, 解邀请�
 import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, type 改动 } from "@/lib/sync/local";
 import { 封, 拆 } from "@/lib/sync/crypto";
 import { 疑似重复 } from "@/lib/sync/dupes";
+import { getBusiness } from "@/lib/business";
 
 /* ---------------- 假中转 ---------------- */
 const 云 = { 团队: new Map<string, { name: string; secret: string; active: boolean; 人: Set<string> }>(), 批: [] as { seq: number; team: string; device: string; data: string }[] };
@@ -205,6 +206,18 @@ describe("桌面端同步客户端", () => {
   }
   /** 甲当业务员：退出时走「只留自己的」，别人的客户留在这台上就看得出来 */
   const 当业务员 = () => 甲.$executeRawUnsafe(`UPDATE "User" SET role = 'SALES' WHERE id = 'acct_jia'`);
+
+  it("T-042 乙推了业务配置改动：甲同步一轮之后 getBusiness() 就是新的（收到改动清了设置缓存）", async () => {
+    const 码 = await 新团队("四队");
+    const 前 = await getBusiness(); // 进程里缓存上一份
+    expect(前.customer).not.toBe("学员");
+    const 时 = new Date().toISOString();
+    乙推(码.teamId, 码.key, [{ t: "Setting", k: "business", o: "U", r: { key: "business", value: JSON.stringify({ ...前, customer: "学员" }), updatedAt: 时 }, c: ["key", "value", "updatedAt"], h: 钟(Date.now() + 60_000) }]);
+    const r = await 同步一轮();
+    expect(r.ok && r.拉).toBeGreaterThan(0);
+    expect((await getBusiness()).customer).toBe("学员");
+    expect((await 退出团队()).ok).toBe(true);
+  });
 
   it("T-009 同步一轮跑到一半点退出：等这一轮跑完再退；退完没有 .team.json、触发器已卸、业务员只留自己的", async () => {
     const 码 = await 新团队("二队");
