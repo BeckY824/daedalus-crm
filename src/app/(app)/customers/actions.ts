@@ -462,15 +462,15 @@ export async function deleteCustomers(
       if (第几次 >= 2 || (code !== "P2002" && code !== "P2025")) throw e;
     }
   }
-  if (res.count) {
-    await recordAudit({
-      user: me, action: "delete", entity: "Customer",
-      entityId: 待删.length === 1 ? 待删[0].id : null,
-      summary: `删除 ${res.count} 名${b.customer}：${待删.map((c) => c.name).join("、")}` +
-        (联系人.length ? `（${联系人.length} 位联系人留在联系人页，未归属）` : ""),
-      detail: { 客户: 待删, 一起删掉的: 清点 },
-    });
-  }
+  // 另一边的事务先提交了：这边进事务时那几位已经没了，什么都没删——照实说，不报「删了 0 位」
+  if (!res.count) return { ok: false, error: `${ids.length > 1 ? "这几" : "这"}位${b.customer}已经在别处删掉了，刷新看看` };
+  await recordAudit({
+    user: me, action: "delete", entity: "Customer",
+    entityId: 待删.length === 1 ? 待删[0].id : null,
+    summary: `删除 ${res.count} 名${b.customer}：${待删.map((c) => c.name).join("、")}` +
+      (联系人.length ? `（${联系人.length} 位联系人留在联系人页，未归属）` : ""),
+    detail: { 客户: 待删, 一起删掉的: 清点 },
+  });
   revalidateCustomer();
   revalidatePath("/contacts");
   return { ok: true, deleted: res.count, 留下联系人: 联系人.length };
