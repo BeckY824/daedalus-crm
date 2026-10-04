@@ -25,6 +25,18 @@ if (!DATA) {
 }
 
 const DB = path.join(DATA, "crm.db");
+
+/**
+ * 入口里开库一律走这里：等锁最多 10 秒（2026-10-04，D-039）。
+ * 原来没设 busy_timeout，库被别的连接拿着写锁（Windows 换包时旧进程晚走一步、开着数据库工具）
+ * 迁移就当场 database is locked → exit(1) →「本地服务没能启动」。锁一般一两秒就放，等一等就能过。
+ * Prisma 那边早就设了（lib/prisma.ts 的 busy_timeout=5000），这里漏了
+ */
+function 开库() {
+  const db = new DatabaseSync(DB);
+  db.exec("PRAGMA busy_timeout = 10000");
+  return db;
+}
 const 密码文件 = path.join(DATA, ".init-password");
 
 fs.mkdirSync(DATA, { recursive: true });
@@ -56,7 +68,7 @@ if (新建) {
     const bcrypt = require("./node_modules/bcryptjs");
     const 密码 = crypto.randomBytes(9).toString("base64url");
     const hash = bcrypt.hashSync(密码, 10);
-    const db = new DatabaseSync(DB);
+    const db = 开库();
     db.prepare("UPDATE User SET password = ?").run(hash);
     db.close();
     fs.writeFileSync(密码文件, 密码, { mode: 0o600 });
@@ -75,7 +87,7 @@ if (新建) {
  */
 const 迁移目录 = path.join(ROOT, "migrations");
 if (fs.existsSync(迁移目录)) {
-  const db = new DatabaseSync(DB);
+  const db = 开库();
   for (const f of fs.readdirSync(迁移目录).filter((f) => f.endsWith(".sql")).sort()) {
     try {
       db.exec(fs.readFileSync(path.join(迁移目录, f), "utf8"));
@@ -110,7 +122,7 @@ if (fs.existsSync(迁移目录)) {
   const 联系 = String(云?.contact || "").trim().toLowerCase();
   const 名字 = String(云?.name || "").trim() || 联系.split("@")[0];
   if (新建 || 联系) {
-    const db = new DatabaseSync(DB);
+    const db = 开库();
     try {
       if (新建) {
         const r = db.prepare("DELETE FROM User WHERE email IN ('zhangsan', 'lisi')").run();

@@ -296,7 +296,8 @@ describe("迁移中途出事", () => {
     entry 直接 exit(1) → 「本地服务没能启动」。锁一秒后就放了，等一等本来就能过。
     Prisma 那边设了 busy_timeout=5000（lib/prisma.ts:36），这里漏了。
   */
-  it.skip("【下一版】【B-4】库被别的连接锁住 1 秒：迁移应当等一等，而不是直接起不来", async () => {
+  // 2026-10-04 修（D-039）：入口开库一律 busy_timeout=10000（server-entry.js 的 开库）
+  it("【B-4】库被别的连接锁住 1 秒：迁移等一等就过，不是直接起不来", async () => {
     const d = 造老库(老, `${老}-lock`);
     // 把 v0.39.2 的那张表删掉，逼迁移真的要写（不然 IF NOT EXISTS 全是空转，碰不到锁）
     const 先 = new DatabaseSync(path.join(d, "crm.db"));
@@ -326,7 +327,7 @@ describe("迁移中途出事", () => {
     const r = await 跑入口(d);
     锁.exec("ROLLBACK");
     锁.close();
-    // 现在的表现：立刻失败（见 B-4）
+    // 锁一直不放：等满 10 秒（B-4 修了之后）还是失败，exit 1——但不坏库
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/database is locked/);
     const 再 = await 跑入口(d);
