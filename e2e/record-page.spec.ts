@@ -203,17 +203,21 @@ test("签约金额：自动带上勾着的商机金额之和；取消勾一个�
   await 点到出现(page.getByRole("button", { name: /登记签约/ }).first(), 签);
   const 金额 = 签.getByRole("spinbutton", { name: "签约金额" });
   await expect(金额).toHaveValue("15,000.5");
-  // 框还在开场动画里时点勾选会落空（Playwright 报「点了状态没变」、不重试）：没变就再点一次
-  await expect(async () => {
-    await 签.getByRole("checkbox", { name: /加购/ }).uncheck({ timeout: 2_000 });
-  }).toPass({ timeout: 10_000 });
+  // 不用 Playwright 的勾选 / 取消勾选：负载高时 React 还没把状态写回 input，它点完立刻读、报「点了状态没变」
+  //（截图上勾正在变过去）。点一下、再等它变过去
+  const 加购 = 签.getByRole("checkbox", { name: /加购/ });
+  const 切到 = async (勾上: boolean) => {
+    await 加购.click();
+    await expect(加购).toBeChecked({ checked: 勾上 });
+  };
+  await 切到(false);
   await expect(金额).toHaveValue("10,000");
-  await 签.getByRole("checkbox", { name: /加购/ }).check();
+  await 切到(true);
   await expect(金额).toHaveValue("15,000.5");
 
   // 人自己改过金额：再动勾选，金额不再被冲掉
   await 金额.fill("12000");
-  await 签.getByRole("checkbox", { name: /加购/ }).uncheck();
+  await 切到(false);
   await expect(金额).toHaveValue("12,000");
   await 签.getByRole("button", { name: /保\s*存/ }).click();
   await expect(page.locator(".ant-message")).toContainText("签约已记录");

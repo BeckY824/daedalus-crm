@@ -57,15 +57,16 @@ test.beforeEach(async ({ page }) => {
 
 test("D-044 到点提醒点进来（?focus=plan:第二条）：记录页摆的是叫你的那条、闪一下，地址上的 focus 随即抹掉", async ({ page }) => {
   await page.goto(`/customers/${客户id}?focus=plan:${计划.晚}`);
-  const 那条 = page.locator(`.rec-plan[data-focus="plan:${计划.晚}"]`);
+  // 只认 main 里那份：整页加载时 React 流式渲染会先把内容放在 <div hidden id="S:1"> 里、随后才换进来，那一瞬页面上有两份（看不见的那份不算）
+  const 那条 = page.locator(`main .rec-plan[data-focus="plan:${计划.晚}"]`);
   await expect(那条).toBeVisible();
   await expect(那条).toContainText("叫我的那条计划");
   await expect(那条).toHaveClass(/rec-tl-item-flash/);
   await expect(page).toHaveURL(new RegExp(`/customers/${客户id}$`));
   // 抹掉 focus 之后不能被重画成最早那条（原来 router.replace 会让服务端按没有 focus 再画一遍，叫你的那条一闪就没了）
   await page.waitForTimeout(2000);
-  await expect(page.locator(".rec-plan")).toHaveCount(1);
-  await expect(page.locator(".rec-plan")).toContainText("叫我的那条计划");
+  await expect(page.locator("main .rec-plan")).toHaveCount(1);
+  await expect(page.locator("main .rec-plan")).toContainText("叫我的那条计划");
   // 对照：不带 focus 进来，摆的是最早那条
   await page.goto(`/customers/${客户id}`);
   await expect(page.locator(".rec-plan")).toContainText("早的那条计划");
