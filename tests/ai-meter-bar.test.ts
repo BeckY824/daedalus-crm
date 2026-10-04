@@ -10,6 +10,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { AiMeterBar, AiMeterProvider } from "@/components/AiCost";
 import type { AI计次 } from "@/lib/ai-meter";
 
+// Provider 的 props 类型把 children 写成必填，createElement 第三个参数过不了类型检查，只能放在 props 里
+// eslint-disable-next-line react/no-children-prop
 const 渲 = (初值: AI计次) => renderToStaticMarkup(createElement(AiMeterProvider, { 初值, children: createElement(AiMeterBar) }));
 const 宽 = (html: string) => Number(/style="width:([\d.]+)%"/.exec(html)?.[1]);
 

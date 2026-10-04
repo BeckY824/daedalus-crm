@@ -44,7 +44,8 @@ test.beforeAll(async () => {
   李四 = (await p.user.findFirstOrThrow({ where: { email: "lisi" } })).id;
   // 本月新增 22 位 + 一年前的老客 22 位：本月那个子集第 2 页正好 2 位
   for (let i = 0; i < 22; i++) {
-    await p.customer.create({ data: { name: `本月新${String(i).padStart(2, "0")}`, phone: `1371000${String(i).padStart(4, "0")}`, salesOwnerId: 张三 } });
+    // 建档时间错开 1 秒：同一毫秒建出来的并列排序不固定，第 2 页是哪两位会变（整套跑时撞过）
+    await p.customer.create({ data: { name: `本月新${String(i).padStart(2, "0")}`, phone: `1371000${String(i).padStart(4, "0")}`, salesOwnerId: 张三, createdAt: new Date(Date.now() - (22 - i) * 1000) } });
     await p.customer.create({ data: { name: `老客${String(i).padStart(2, "0")}`, phone: `1372000${String(i).padStart(4, "0")}`, salesOwnerId: 张三, createdAt: 一年前 } });
   }
   // 渠道直接带来的 21 位（老客里挑，也是一年前建的）
