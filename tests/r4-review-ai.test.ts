@@ -151,3 +151,40 @@ describe("客户端：模型先回了坏 JSON、之后上游一直 502", () => {
 });
 
 void 回JSON;
+
+/* ---------------- 回归核对 J-139 / J-140：AI 解析、简报这两个按钮 ---------------- */
+
+describe("AI 解析 / 简报：中转站慢时最多两趟，输出预算不被调小", () => {
+  it("J-139：AI 解析两趟都等不到（桌面端首轮到点、重发也到点）→ 一共打 2 趟就报超时，不再降级打第三趟", async () => {
+    let 云端请求 = 0;
+    接线({
+      上游: () => 回文本("{}"),
+      云端回: (url) => {
+        if (!url.includes("/chat/completions")) return null;
+        云端请求++;
+        // 代替真等 45 秒：桌面端这边每一趟都到点
+        throw 超时();
+      },
+    });
+    const { parseFollowUpDraft } = await import("@/app/(app)/customers/[id]/ai");
+    const r = await parseFollowUpDraft({ customerId: 客户, text: "今天下午打电话聊了预算，他说下周三再约" });
+    expect(r.ok).toBe(false);
+    expect(r.ok ? "" : r.error).toContain("超时");
+    // 2026-10 实测那次是 3 趟、共 87 秒：超时重发之后又按「网关不认 response_format」降级再来一轮
+    expect(云端请求, `打到云端 ${云端请求} 次`).toBeLessThanOrEqual(2);
+  });
+
+  it("J-140：AI 解析、简报发给上游的 max_tokens 不低于 4000（调到 2000 时思考把正文挤空过）", async () => {
+    const { prisma } = await import("@/lib/prisma");
+    await prisma.followUp.create({ data: { customerId: 客户, ownerId: "tester-id", type: "CALL", title: "电话", content: "聊了预算", status: "已完成", occurredAt: new Date() } });
+    const 线 = 接线({ 上游: () => 回文本('{"type":"CALL","title":"电话","content":"聊了预算"}') });
+    const { parseFollowUpDraft, generateBrief } = await import("@/app/(app)/customers/[id]/ai");
+    await parseFollowUpDraft({ customerId: 客户, text: "今天下午打电话聊了预算，他说下周三再约" });
+    await generateBrief({ customerId: 客户 });
+    expect(线.网关.map((g) => g.feature)).toEqual(expect.arrayContaining(["parse", "brief"]));
+    expect(线.上游.length).toBeGreaterThanOrEqual(2);
+    for (const r of 线.上游) {
+      expect(Number(r.body.max_tokens), `第 ${r.第几次} 趟的 max_tokens`).toBeGreaterThanOrEqual(4000);
+    }
+  });
+});
