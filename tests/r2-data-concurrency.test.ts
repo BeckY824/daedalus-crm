@@ -353,14 +353,14 @@ describe("连点：同一个动作并发调两次（B：第二下应是无事发
 });
 
 describe("两个窗口几乎同时提交同一件事（服务端没有闸门时会写出重复）", () => {
-  it.skip("【下一版】同一位客户、同一笔金额、同一天的签约，两边都没勾「确认不是重复」：只该进一笔", async () => {
+  it("同一位客户、同一笔金额、同一天的签约，两边都没勾「确认不是重复」：只该进一笔", async () => {
     const c = await 造客户(我);
     const 录 = () => saveContract({ customerId: c.id, amount: 86000, signedAt: new Date(), remark: null });
     await Promise.all([录(), 录()]);
     expect(await prisma.contract.count(), "同额同日的第二笔应被查重拦下，业绩翻倍是最难发现的那类错").toBe(1);
   });
 
-  it.skip("【下一版】同一个号码同时新建两次：库里只该有一位", async () => {
+  it("同一个号码同时新建两次：库里只该有一位", async () => {
     const 建 = () => saveCustomer({
       name: "王强", phone: "13800001111", school: null, grade: null, major: null, followStatus: "待跟进",
       decisionStatus: "了解中", expectedSignAt: null, remark: null, salesOwnerId: 我, channelId: null, referrerCustomerId: null,
@@ -369,7 +369,7 @@ describe("两个窗口几乎同时提交同一件事（服务端没有闸门时�
     expect(await prisma.customer.count({ where: { phone: "13800001111" } })).toBe(1);
   });
 
-  it.skip("【下一版】同一份表在两个窗口同时导入：同一个号码不该建出两位", async () => {
+  it("同一份表在两个窗口同时导入：同一个号码不该建出两位", async () => {
     const csv = "姓名,手机号\n张三,13800000001\n李四,13800000002\n王五,13800000003";
     await Promise.all([执行导入(造方案(csv), "a.csv"), 执行导入(造方案(csv), "a.csv")]);
     const 每号 = await prisma.customer.groupBy({ by: ["phone"], _count: { _all: true } });
