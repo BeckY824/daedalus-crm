@@ -279,13 +279,15 @@ describe("删渠道 / 线索", () => {
     expect(await 各页取数()).toEqual([]);
   });
 
-  it.skip("【下一版】【B】渠道已在另一个窗口删了，这边点「删除」/「停用」：应说一句，不该抛", async () => {
+  // 2026-10-04 第 2 期 2a 修：原来两下都直接抛 P2025，界面上点了没反应
+  it("渠道已在另一个窗口删了，这边点「删除」/「停用」：说一句「已经不在了」，不抛", async () => {
     const ch = await saveChannel({ name: "小红", phone: null, remark: null, channelOwnerId: 我 });
     if (!ch.ok) throw new Error(ch.error);
     await deleteChannel(ch.id);
-    const 删 = await deleteChannel(ch.id).then(() => "ok", (e) => `抛了：${String(e).slice(0, 80)}`);
-    const 停 = await toggleChannel(ch.id, false).then(() => "ok", (e) => `抛了：${String(e).slice(0, 80)}`);
-    expect({ 删: 删.startsWith("抛了"), 停: 停.startsWith("抛了") }).toEqual({ 删: false, 停: false });
+    const 删 = await deleteChannel(ch.id).then((r) => r, (e) => `抛了：${String(e).slice(0, 80)}`);
+    const 停 = await toggleChannel(ch.id, false).then((r) => r, (e) => `抛了：${String(e).slice(0, 80)}`);
+    expect(删).toMatchObject({ ok: false, error: expect.stringContaining("不在了") });
+    expect(停).toMatchObject({ ok: false, error: expect.stringContaining("不在了") });
   });
 
   it("删一条已转化的线索：客户留着，客户页、各页取数正常", async () => {
