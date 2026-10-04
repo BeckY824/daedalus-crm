@@ -410,8 +410,8 @@ function 本地入口() {
   // 启动时发现令牌被吊销了：把原因带上，登录页那句话据此说清（见 api/desktop/session）
   const reason = 启动时被吊销 ? "&reason=revoked" : "";
   启动时被吊销 = false;
-  // 回到上次停的那一页（route-memory.js 记的）；session 路由那边还会再验一遍
-  const 上次 = 读配置().lastRoute;
+  // 回到这个账号上次停的那一页（记在他自己的数据目录里，见 route-memory.js；D-025）；session 路由那边还会再验一遍
+  const 上次 = 路径记忆.读上次(数据目录);
   const next = 上次 ? `&next=${encodeURIComponent(上次)}` : "";
   // 调用方应当先 await 启动本地()；走到这里还没有，说明服务停了或者没起来——说清楚，别让它变成读 null 的报错
   if (!本地) throw new Error("本机的 CRM 服务还没起来（没启动，或者刚停掉）");
@@ -465,7 +465,8 @@ function 打开到(路径) {
     去(路径);
     return;
   }
-  写配置({ ...读配置(), lastRoute: 路径 });
+  if (读配置().mode === "local") 路径记忆.记上次(数据目录, 路径);
+  else 写配置({ ...读配置(), lastRoute: 路径 });
   建窗口();
 }
 
@@ -718,7 +719,11 @@ function 建窗口() {
   // 记住停在哪一页：重启（包括更新后的那次）回到原地，不再每次都从首页开始
   const 记路径 = (_e, url) => {
     const p = 路径记忆.可恢复的路径(url, 当前根());
-    if (p && p !== 读配置().lastRoute) 写配置({ ...读配置(), lastRoute: p });
+    if (!p) return;
+    // 本地模式记进当前账号的数据目录（D-025：换账号不落到上一个人那页）；服务器模式仍记 config.json
+    if (读配置().mode === "local") {
+      if (p !== 路径记忆.读上次(数据目录)) 路径记忆.记上次(数据目录, p);
+    } else if (p !== 读配置().lastRoute) 写配置({ ...读配置(), lastRoute: p });
   };
   win.webContents.on("did-navigate", 记路径);
   win.webContents.on("did-navigate-in-page", 记路径);
@@ -807,8 +812,8 @@ async function 重开本地服务() {
 /* ---------- 模式切换 ---------- */
 
 async function 切到本地() {
-  // 远端的路径可能在本机不存在，不能把远端最后一页带进本地服务。
-  写配置({ ...读配置(), mode: "local", lastRoute: "/dashboard" });
+  // 远端的路径可能在本机不存在：本地模式的落点只读各账号数据目录里那份（route-memory.js），config.json 的 lastRoute 是服务器模式自己的
+  写配置({ ...读配置(), mode: "local" });
   // 没登录云端账号也照开：本地服务的 /login 就是云端账号的门，壳不用再拦一道
   try {
     // 「运行中」不等于「已就绪」：起到一半时子进程已经在，本地 还没登记。这两种都交给 启动本地()，它会等那一次
