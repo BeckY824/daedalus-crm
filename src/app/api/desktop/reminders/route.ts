@@ -33,10 +33,10 @@ export async function GET(req: Request) {
     没登录云端账号、或者这个目录还是上一个账号的：什么都不报。
     Dock 上挂着一个上一个人的数、或者登录页后面弹一条「今天有 3 个要跟进」，都是在替别人说话。
   */
-  if (归属对不上() || !读云端凭据()) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
+  if (归属对不上() || !读云端凭据()) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 错过: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
 
   const 我 = await 本机我(prisma);
-  if (!我) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
+  if (!我) return NextResponse.json({ 逾期: 0, 今天: 0, 定时: [], 错过: [], 最久: null, 订单: { 超期: 0, 今天: 0, 最久: null } });
 
   // 订单这一版不上（lib/features.ts）：早报、Dock 数字里不算订单
   const [项, 订单项] = await Promise.all([取提醒项(我.id), 订单与供应商 ? 取订单提醒项(我.id) : Promise.resolve([])]);
