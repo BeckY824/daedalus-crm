@@ -16,6 +16,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 装个假模型, 拆掉假模型 } from "./fake-llm";
+import { 连库 } from "./mock-data";
 
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 
@@ -24,8 +25,24 @@ const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
  * 见 dashboard/page.tsx）。默认 e2e 的 key 是空的，所以这一组自己装一个指向
  * 死端口的假模型——入口在不在是壳的事，不需要真的模型答话。
  */
-test.beforeAll(async ({ browser }) => 装个假模型(browser));
-test.afterAll(async ({ browser }) => 拆掉假模型(browser));
+/*
+  库里要有一位客户：空库时「开始」卡上已经有一颗「粘一段聊天」，输入框里就不摆第二颗（审查 D11）。
+  这组原来靠排在前面的用例留下的数据，2026-10-04 新加的 opportunity-won 按字母排到它前面、收尾清了库，就挂了——自己备上
+*/
+const 备的客户 = "粘贴组备的客户";
+test.beforeAll(async ({ browser }) => {
+  const p = 连库();
+  const 我 = await p.user.findFirstOrThrow({ where: { email: 账号.用户名 } });
+  await p.customer.create({ data: { name: 备的客户, phone: "13866660001", salesOwnerId: 我.id } });
+  await p.$disconnect();
+  await 装个假模型(browser);
+});
+test.afterAll(async ({ browser }) => {
+  const p = 连库();
+  await p.customer.deleteMany({ where: { name: 备的客户 } });
+  await p.$disconnect();
+  await 拆掉假模型(browser);
+});
 
 /** 输入框那一条里的入口。**要和「开始」卡上那个分开**：两处都有，同名 */
 const 框内入口 = (page: Page) => page.locator(".cli-bar2-l").getByRole("button", { name: "粘一段聊天" });
