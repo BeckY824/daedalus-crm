@@ -189,7 +189,8 @@ describe("恢复（设置页说明，DesktopTab.tsx:136）", () => {
 
   it("设置页的恢复说明写着：先退出、删 -wal 和 -shm", () => {
     const 文 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/DesktopTab.tsx"), "utf8");
-    const 说明 = 文.split("\n").find((l) => l.includes("要从备份恢复")) ?? "";
+    // 2026-10-04 有了自动备份后这句改成「从自己另存的备份恢复」；要钉的三件事不变
+    const 说明 = 文.split("\n").find((l) => /从.*备份恢复/.test(l)) ?? "";
     expect(说明).toMatch(/先退出应用/);
     expect(说明).toMatch(/crm\.db-wal/);
     expect(说明).toMatch(/crm\.db-shm/);
