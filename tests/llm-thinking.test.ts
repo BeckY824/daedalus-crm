@@ -83,6 +83,28 @@ describe("模型不认 thinking 参数", () => {
     // 只有最开始那次探测带了参数；恢复路径里一次都不许再带
     expect(带thinking的请求).toEqual([1]);
   });
+  /*
+    H-015（疑似，文档写「部署后看网关日志」）：中转站对「tools + thinking」一起来回 400，其实是 tools 惹的——
+    现在只要带了 thinking 被 4xx 就记「这个模型不认 thinking」，之后不带 tools 的调用也不再关思考，决策步变慢。
+    修法：拿掉 thinking 重试一次仍 400，说明不是它的锅，别记。这一版不修（只影响快慢、不伤数据）
+  */
+  it.skip("【下一版】带 tools 的请求 400、拿掉 thinking 重试仍 400：不是 thinking 的锅，不记「不认 thinking」（H-015）", async () => {
+    const 请求: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_u: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+      请求.push(body);
+      if (body.tools) return 回应({ error: { message: "tools 格式不认" } }, 400);
+      return 回应(正常回答);
+    }) as typeof fetch;
+
+    const { chatTools, chatMessagesJSON } = await import("@/lib/llm");
+    const 工具 = [{ type: "function" as const, function: { name: "search_customers", description: "找客户", parameters: { type: "object", properties: {} } } }];
+    await expect(chatTools([{ role: "user", content: "x" }], 工具, { thinking: false })).rejects.toThrow();
+    请求.length = 0;
+    await chatMessagesJSON([{ role: "user", content: "y" }], { thinking: false });
+    // 这个模型其实认 thinking：不带 tools 的调用照旧关思考
+    expect(请求[0]?.thinking).toBeTruthy();
+  });
 });
 
 describe("思考占掉 max_tokens", () => {
