@@ -144,17 +144,30 @@ export default function OpportunitiesView({
   }
 
   async function 标赢单(r: OppRow, 签约: { amount: number; signedAt: Date } | null, 要订单 = false) {
-    const res = await setOppStatus(r.id, "WON");
-    if (!res.ok) return void message.error(res.error);
-    set问赢单(null);
+    /*
+      登记签约时让 saveContract 的联动去赢这一单（2026-10-04 L-007）：签约和赢单连着记，之后删掉这笔签约，商机能退回去。
+      原来先 setOppStatus 再单独登记，两者之间什么都不留，删了签约商机还挂赢单、业绩虚高。
+      没登记上（查重拦下、出错）或者没要签约：照旧直接标赢单——人点的就是「赢单」
+    */
+    let 已赢 = false;
     let 另 = "";
     if (签约) {
-      const c = await saveContract({ customerId: r.customerId, amount: 签约.amount, currency: r.currency, signedAt: 签约.signedAt, remark: `商机「${r.name}」赢单时登记` });
-      if (c.ok) 另 = `，签约 ${金额(签约.amount, r.currency)} 已登记`;
-      else if ("duplicate" in c) {
+      const c = await saveContract({
+        customerId: r.customerId, amount: 签约.amount, currency: r.currency, signedAt: 签约.signedAt, remark: `商机「${r.name}」赢单时登记`,
+        联动: { 赢单: [r.id], 完成计划: [], 完成待办: [] },
+      });
+      if (c.ok) {
+        另 = `，签约 ${金额(签约.amount, r.currency)} 已登记`;
+        已赢 = (c.联动?.赢单 ?? 0) > 0;
+      } else if ("duplicate" in c) {
         message.warning(`${r.customerName} 在 ${fmtDate(c.duplicate.signedAt)} 已有一笔 ${金额(c.duplicate.amount, c.duplicate.currency)} 的签约，没有重复登记`);
       } else message.error(c.error);
     }
+    if (!已赢) {
+      const res = await setOppStatus(r.id, "WON");
+      if (!res.ok) return void message.error(res.error);
+    }
+    set问赢单(null);
     const 订单id = 要订单 ? await 生成订单(r) : null;
     if (订单id) {
       message.success({
@@ -298,7 +311,8 @@ export default function OpportunitiesView({
             variant="borderless"
             style={{ width: 128 }}
             options={OPP_STAGES.map((s2) => ({ value: s2, label: stageLabel(b, s2) }))}
-            onChange={(s2) => void 改阶段(r, s2)}
+            // 选「赢单成交」先问要不要顺手登记签约（2026-10-04 J-090），和「更多 → 标记赢单」同一个问话；不问就改，签约会漏记
+            onChange={(s2) => (s2 === "赢单成交" ? (set问丢单(null), set问赢单(r.id)) : void 改阶段(r, s2))}
           />
         ),
     },

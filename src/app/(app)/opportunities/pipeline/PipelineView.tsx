@@ -12,6 +12,7 @@ import { useBusiness } from "@/lib/business-client";
 import { stageLabel } from "@/lib/business-config";
 import { moveStage } from "../actions";
 import OpportunityForm from "../OpportunityForm";
+import ContractForm from "../../customers/[id]/ContractForm";
 import type { 可选成员 } from "@/lib/utils";
 
 type Row = {
@@ -20,6 +21,8 @@ type Row = {
   amount: number;
   currency: string;
   stage: string;
+  /** OPEN，或近几天赢下的 WON（赢单列，2026-10-04 J-090） */
+  status: string;
   probability: number;
   expectedDealAt: string | null;
   customerId: string;
@@ -43,10 +46,13 @@ type Row = {
  */
 export default function PipelineView({
   rows,
+  赢单天数,
   users,
   customers,
 }: {
   rows: Row[];
+  /** 赢单列摆近几天赢下的（page.tsx 定） */
+  赢单天数: number;
   /** 新建框要的两份候选（和列表页同一个框，见 ../OpportunityForm.tsx） */
   users: 可选成员[];
   customers: { id: string; name: string }[];
@@ -109,11 +115,40 @@ export default function PipelineView({
     };
   }, [rows.length]);
 
+  /*
+    拖进「赢单成交」先问登记签约（2026-10-04 J-090）。原来直接 moveStage：卡片消失（管道只取进行中的）、签约漏记，
+    数据页业绩少算。现在弹「登记签约」（客户页同一个框，金额带商机金额）：
+      保存 → 走 saveContract 的联动赢下这一单（签约和赢单连着记，删签约时能退回去，L-007）
+      取消 → 照样赢单（人已经把它拖进去了），给一次撤销
+    框开着的时候卡片先摆进赢单列（挪），不让人以为拖丢了；写完、新的 rows 回来之前也一直摆着，不闪回原列
+  */
+  const [签约框, set签约框] = useState<Row | null>(null);
+  const [挪, set挪] = useState<{ id: string; stage: string; 前: Row[] } | null>(null);
+  const 显示阶段 = (r: Row) => (挪 && 挪.id === r.id && (签约框?.id === r.id || 挪.前 === rows) ? 挪.stage : r.stage);
+
   async function 推进(r: Row, 到: string, 是撤销 = false) {
     if (r.stage === 到) return;
+    if (到 === "赢单成交" && !是撤销) {
+      set挪({ id: r.id, stage: 到, 前: rows });
+      set签约框(r);
+      return;
+    }
+    await 写阶段(r, 到, 是撤销);
+  }
+
+  async function 签约框关了(saved: boolean) {
+    const r = 签约框;
+    set签约框(null);
+    if (!r) return;
+    if (saved) return void router.refresh();
+    await 写阶段(r, "赢单成交");
+  }
+
+  async function 写阶段(r: Row, 到: string, 是撤销 = false) {
     // 撤销时带回原来的概率（排查 D6）：r 是拖之前那一行，手填的 75% 不能变成阶段默认值
     const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined);
     if (!res.ok) {
+      set挪(null);
       message.error(res.error);
       router.refresh();
       return;
@@ -178,7 +213,7 @@ export default function PipelineView({
       <div className="pipe-wrap" data-more={还有 ? "" : undefined}>
       <div className="pipe" ref={滚框}>
         {OPP_STAGES.map((stage) => {
-          const items = rows.filter((r) => r.stage === stage);
+          const items = rows.filter((r) => 显示阶段(r) === stage);
           // 按币种分开加，不换汇（lib/currency.ts）：一列里有美元有欧元就写两段
           const sum = 合计文字(按币种合计(items, (r) => r.amount, (r) => r.currency), b.currency);
           const color = OPP_STAGE_COLOR[stage];
@@ -195,7 +230,7 @@ export default function PipelineView({
               onDragLeave={() => setOverStage((s) => (s === stage ? null : s))}
               onDrop={() => drop(stage)}
             >
-              <div className="pipe-h">
+              <div className="pipe-h" title={stage === "赢单成交" ? `近 ${赢单天数} 天赢下的` : undefined}>
                 <span className="pipe-dot" style={{ background: color }} />
                 <b>{stageLabel(b, stage)}</b>
                 <span className="pipe-n">{items.length}</span>
@@ -203,7 +238,7 @@ export default function PipelineView({
               </div>
               <div className="pipe-bar" style={{ background: color }} />
 
-              {items.length === 0 && <div className="pipe-empty">这一阶段没有在谈的</div>}
+              {items.length === 0 && <div className="pipe-empty">{stage === "赢单成交" ? `近 ${赢单天数} 天还没有赢单` : "这一阶段没有在谈的"}</div>}
 
               {items.map((r) => (
                 <Dropdown
@@ -224,7 +259,7 @@ export default function PipelineView({
                     tabIndex={0}
                     role="button"
                     title={`${r.customerName} · ${r.probability}% · 右键或按 Enter 换一个阶段`}
-                    aria-label={`${r.name}，${金额(r.amount, r.currency)}，${stageLabel(b, r.stage)}`}
+                    aria-label={`${r.name}，${金额(r.amount, r.currency)}，${stageLabel(b, 显示阶段(r))}`}
                     onDragStart={() => setDragId(r.id)}
                     onDragEnd={() => setDragId(null)}
                     onClick={() => router.push(`/customers/${r.customerId}`)}
@@ -250,6 +285,13 @@ export default function PipelineView({
       </div>
       </div>
       {新建框}
+      <ContractForm
+        open={!!签约框}
+        customerId={签约框?.customerId ?? ""}
+        editing={null}
+        赢这一单={签约框 ? { id: 签约框.id, name: 签约框.name, amount: 签约框.amount, currency: 签约框.currency } : null}
+        onClose={(saved) => void 签约框关了(saved)}
+      />
     </>
   );
 }
