@@ -196,6 +196,54 @@ test("6 共享工作区里手机号要打码", async ({ page }) => {
   await expect(page.locator("main").getByText("13900001111")).toHaveCount(0);
 });
 
+/** 往共享工作区的业务库里直接塞一行（线索、渠道的电话打码要有数据才看得出来） */
+function 共享区写(sql: string, ...args: string[]) {
+  execFileSync("node", ["--experimental-sqlite", "-e", `
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(process.argv[1]);
+    const 人 = db.prepare('SELECT id FROM "User" ORDER BY createdAt LIMIT 1').get();
+    db.prepare(process.argv[2]).run(...process.argv.slice(3).map((a) => (a === "$人" ? 人.id : a === "$现在" ? Date.now() : a)));
+    db.close();
+  `, path.join(ROOT, "prisma/e2e-hosted/ws", `${共享工作区.slug}.db`), sql, ...args], { stdio: "pipe" });
+}
+
+/*
+  2026-10-04 补（回归核对 H-030 / H-031）：打码在函数和 AI 工具那一层钉着，但线索页、渠道页、
+  操作日志明细这几处「接线」没有任何用例——任何一处回归，就是别的试用团队的真号外泄
+*/
+test("6b 共享工作区：线索页、渠道页、操作日志明细里的手机号也打码", async ({ page }) => {
+  共享区写('INSERT INTO "Lead" (id, name, phone, source, status, ownerId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    "e2e-lead-mask", "打码线索", "13700002222", "其他", "待跟进", "$人", "$现在", "$现在");
+  共享区写('INSERT INTO "Channel" (id, name, phone, channelOwnerId, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?)',
+    "e2e-ch-mask", "打码渠道", "13600003333", "$人", "$现在", "$现在");
+  // 一条带电话明细的留痕（改电话那种：{字段, 原值, 新值}），一句话里也带着号——展开明细时两处都得是打过码的
+  共享区写('INSERT INTO "AuditLog" (id, at, userId, userName, action, entity, entityId, summary, detail) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    "e2e-audit-mask", "$现在", "$人", "试用工作区", "update", "Customer", "x",
+    "修改客户「打码留痕」的电话 13500005555", JSON.stringify([{ 字段: "电话", 原值: "13500005555", 新值: "13500006666" }]));
+  await 进共享区(page);
+
+  await page.goto("/leads");
+  await expect(page.locator("main").getByText("打码线索").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("main")).not.toContainText("13700002222");
+
+  await page.goto("/channels");
+  await expect(page.locator("main").getByText("打码渠道").first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator("main")).not.toContainText("13600003333");
+
+  // 操作日志：第 3 条用例建「共享区的客户甲」（13900001111）时留过痕；明细全部展开也不许出现真号
+  await page.goto("/settings?tab=audit");
+  const 表 = page.locator(".ant-table").first();
+  await expect(表).toBeVisible({ timeout: 15_000 });
+  // 没有明细的行左边那格是占位（-spaced），点不动，只展开真有明细的
+  const 展开键 = 表.locator(".ant-table-row-expand-icon:not(.ant-table-row-expand-icon-spaced)");
+  const n = Math.min(await 展开键.count(), 20);
+  for (let i = 0; i < n; i++) await 展开键.nth(i).click();
+  expect(n, "至少那条造出来的留痕有明细可展开").toBeGreaterThan(0);
+  await expect(表).toContainText("共享区的客户甲");
+  await expect(表).toContainText("打码留痕");
+  for (const 真号 of ["13900001111", "13500005555", "13500006666"]) await expect(page.locator("body")).not.toContainText(真号);
+});
+
 test("7 运营台要 token：不带、带错都是 404", async ({ page }) => {
   expect((await page.goto("/admin"))?.status()).toBe(404);
   expect((await page.goto("/admin?token=乱填的"))?.status()).toBe(404);
