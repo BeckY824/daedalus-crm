@@ -28,7 +28,8 @@ vi.mock("@/lib/prisma", async () => {
 import { prisma as db, defaultClient as raw } from "@/lib/prisma";
 import { 看全部, 忘掉限定, 限定的我 } from "@/lib/team-scope";
 import { 设传输, 对齐角色, type 传输 } from "@/lib/sync/client";
-import { 建同步表, 装触发器, 卸触发器, 回放 } from "@/lib/sync/local";
+import { 建同步表, 装触发器, 卸触发器, 回放, 只留自己的 } from "@/lib/sync/local";
+import { 带走没做完的 } from "@/lib/carry-over-db";
 
 const 老板 = "acct_boss";
 const 小王 = "acct_wang";
@@ -160,24 +161,38 @@ describe("业务员只看自己的 + 公海", () => {
     expect(组.map((g) => g.ownerId).sort()).toEqual([小李, 小王].sort());
   });
 
+  it("业务员把自己的客户交给同事：客户一换人他就看不到了，商机、待办照样跟着过去（五人实测）", async () => {
+    当("wang");
+    进团队();
+    const c = await raw.customer.create({ data: { name: "要交出去的", phone: "13900009999", salesOwnerId: 小王 } });
+    await raw.opportunity.create({ data: { customerId: c.id, ownerId: 小王, name: "交出去的商机", amount: 5 } });
+    await raw.task.create({ data: { customerId: c.id, ownerId: 小王, title: "交出去的待办" } });
+    await db.customer.update({ where: { id: c.id }, data: { salesOwnerId: 小李 } });
+    expect(await db.customer.findUnique({ where: { id: c.id } })).toBeNull();
+    const 数 = await 带走没做完的([{ customerId: c.id, 旧: 小王 }], 小李);
+    expect(数).toEqual({ 计划和待办: 1, 商机: 1 });
+    expect((await raw.opportunity.findFirst({ where: { customerId: c.id } }))?.ownerId).toBe(小李);
+    expect((await raw.task.findFirst({ where: { customerId: c.id } }))?.ownerId).toBe(小李);
+  });
+
   it("看全部() 里不限（同步、查重用）", async () => {
     当("wang");
     进团队();
-    expect(await 看全部(() => db.customer.count())).toBe(5);
+    expect(await 看全部(() => db.customer.count())).toBe(6);
   });
 
   it("老板看全部", async () => {
     当("boss");
     进团队();
     expect(await 限定的我(raw)).toBeNull();
-    expect(await db.customer.count()).toBe(5);
+    expect(await db.customer.count()).toBe(6);
     expect(await db.followUp.count()).toBe(5);
   });
 
   it("没进团队（一个人用）：不限", async () => {
     当("wang");
     出团队();
-    expect(await db.customer.count()).toBe(5);
+    expect(await db.customer.count()).toBe(6);
   });
 
   it("网页版 / 托管版：不限（只管桌面端本地模式）", async () => {
@@ -186,9 +201,25 @@ describe("业务员只看自己的 + 公海", () => {
     delete process.env.DESKTOP_LOCAL;
     忘掉限定();
     try {
-      expect(await db.customer.count()).toBe(5);
+      expect(await db.customer.count()).toBe(6);
     } finally {
       process.env.DESKTOP_LOCAL = "1";
     }
+  });
+});
+
+describe("业务员离开团队：这台只留他自己的", () => {
+  it("别人的客户（连同跟进、商机、待办）、公海里的、别人的操作日志都删掉；自己是销售或渠道负责人的留着；同步日志清空", async () => {
+    await 建同步表(raw);
+    await raw.$executeRawUnsafe("INSERT INTO _sync_log (tbl, pk, op, row, changed, at) VALUES ('Customer', 'x', 'I', '{\"name\":\"别人的整行副本\"}', '*', 1)");
+    await raw.auditLog.create({ data: { userId: 小李, userName: "小李", action: "create", entity: "Customer", summary: "小李的日志" } });
+    await raw.auditLog.create({ data: { userId: 小王, userName: "小王", action: "create", entity: "Customer", summary: "小王的日志" } });
+    await 看全部(() => 只留自己的(raw, 小王));
+    const 名 = (await raw.customer.findMany({ select: { name: true } })).map((c) => c.name).sort();
+    expect(名).toEqual(["小王带来的客户", "小王的客户"].sort());
+    expect(await raw.followUp.count({ where: { content: { contains: "小李的客户" } } })).toBe(0);
+    expect(await raw.opportunity.count()).toBe(2);
+    expect((await raw.auditLog.findMany({ select: { summary: true } })).map((a) => a.summary)).toEqual(["小王的日志"]);
+    expect(Number((await raw.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_log"))[0].n)).toBe(0);
   });
 });

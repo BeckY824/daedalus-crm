@@ -12,9 +12,10 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "../prisma";
 import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/cloud";
 import { 团队身份id } from "../desktop/me";
-import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, type 改动 } from "./local";
+import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, type 改动 } from "./local";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
-import { 看全部, 忘掉限定 } from "../team-scope";
+import { 看全部, 忘掉限定, 标同步中 } from "../team-scope";
+import { invalidateSettingsCache } from "../settings";
 
 export type 团队配置 = {
   teamId: string;
@@ -304,12 +305,16 @@ export async function 退出团队(): Promise<结果> {
   const r = await 云("POST", "/api/sync/leave", { teamId: c.teamId });
   // 老板还有同事在队里：云端不让走（见 sync-relay 退队）。连不上云端、已经被移出（403）照旧在本机退
   if (r.状态 === 409) return { ok: false, error: String(r.json.error ?? "退不了") };
+  const 账号 = 读云端凭据()?.accountId;
+  const 我id = 账号 ? 团队身份id(账号) : null;
+  const 是业务员 = !!我id && (await 看全部(() => prisma.user.findUnique({ where: { id: 我id }, select: { role: true } })))?.role === "SALES";
   await 卸触发器(prisma);
   fs.rmSync(配置文件(), { force: true });
   触发器对过 = false;
+  // 业务员走了：只留自己的客户（一个人用就是看全部，同事的客户不能跟着他走）。触发器已经卸了，这些删除不推出去
+  if (是业务员 && 我id) await 看全部(() => 只留自己的(prisma, 我id));
   // 一个人用了：本机我回到管理员（看全部）。触发器已经卸了，这一改不进日志
-  const 账号 = 读云端凭据()?.accountId;
-  if (账号) await prisma.$executeRawUnsafe(`UPDATE "User" SET role = 'ADMIN' WHERE id = ?`, 团队身份id(账号));
+  if (我id) await prisma.$executeRawUnsafe(`UPDATE "User" SET role = 'ADMIN' WHERE id = ?`, 我id);
   忘掉限定();
   return { ok: true };
 }
@@ -322,7 +327,12 @@ let 触发器对过 = false;
  * 同一时间只跑一轮：壳 30 秒一戳、人点「立即同步」，撞上了就等前一轮的结果。
  */
 export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
-  if (!在跑) 在跑 = 看全部(跑一轮).finally(() => { 在跑 = null; });
+  if (!在跑) {
+    标同步中(true);
+    在跑 = 看全部(跑一轮).finally(() => { 在跑 = null; 标同步中(false); });
+    // 云端说我不在这个团队里了：这一轮结束之后（退出团队要等这一轮跑完）看看是不是被移出
+    void 在跑.then((r) => { if (!r.ok && /不在这个团队/.test(r.error)) void 被移出后收拾(); });
+  }
   return 在跑;
 }
 
@@ -409,6 +419,11 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       if (!r.json.more) break;
     }
     记({ pulled: 拉到, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推, 拉, 撞 } });
+    /*
+      收到了别人的改动：设置缓存作废。业务配置（模版、币种、阶段叫法）是全团队一份、会同步过来，
+      进程里还缓存着旧的那份的话，业务员加入之后界面一直是自己原来的叫法，要重启才对（2026-10-04 五人实测）
+    */
+    if (拉 > 0) invalidateSettingsCache();
     // 老板 / 业务员：每 5 分钟按名单对一次（同事的账号可能这一轮才同步进来）
     if (Date.now() - 上次对角色 > 5 * 60_000 || 拉 > 0 && 上次对角色 === 0) await 对齐角色().catch(() => undefined);
     return { ok: true, 推, 拉, 撞 };
@@ -469,4 +484,21 @@ export async function 对齐角色() {
   if (r.状态 !== 200) return;
   const 团 = ((r.json.teams as { id: string; 成员: { accountId: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
   if (团) await 看全部(() => 按名单对角色(团.成员));
+}
+
+/**
+ * 业务员被老板移出：自动退出团队，这台只留他自己的客户（退出团队 → 只留自己的）。
+ * 不等他自己去点——人被移出了多半也不会再打开「设置 → 团队」，同事的客户就一直留在他电脑上。
+ * 先问一次云端确认真不在团队里（一次 403 不够：令牌刚换、网关抽风都可能），老板那台不自动退
+ */
+let 收拾过 = false;
+async function 被移出后收拾() {
+  if (收拾过) return;
+  const s = await 团队状态().catch(() => null);
+  if (!s || !s.在团队 || !s.被移出) return;
+  const 账号 = 读云端凭据()?.accountId;
+  const 我 = 账号 ? await 看全部(() => prisma.user.findUnique({ where: { id: 团队身份id(账号) }, select: { role: true } })) : null;
+  if (我?.role !== "SALES") return;
+  收拾过 = true;
+  await 退出团队().catch(() => { 收拾过 = false; });
 }

@@ -92,7 +92,7 @@ export default function TeamTab() {
         <div>
           <p>之后的改动他收不到、也解不开；他也不能再往团队里推。</p>
           <p>邀请码和钥匙会一起换掉：其他同事下次同步时自动拿到新钥匙，不用做什么。<b>还没加入的人要用新邀请码</b>。</p>
-          <p className="muted">他电脑上已经有的客户和记录收不回——那些本来就在他的电脑上。</p>
+          <p className="muted">他点「退出团队」时，他电脑上同事的客户会删掉、只留他自己负责的；不点的话那些数据还在他电脑上（只是界面上看不到），收不回。</p>
         </div>
       ),
       okText: "移出团队",
@@ -138,7 +138,7 @@ export default function TeamTab() {
       title: "退出团队？",
       content: s?.在团队 && s.我是建的人
         ? "这台电脑上的数据全都留着，只是不再和同事同步。你是老板：团队里还有同事时要先把他们移除。"
-        : "这台电脑上的数据全都留着，只是不再和同事同步：之后你改的他们看不到，他们改的你也收不到。要回来，找老板再要一次邀请码。",
+        : "退出后这台电脑上只留你自己负责的客户（连同跟进、商机），同事的客户会从这台电脑上删掉；之后也不再和同事同步。要回来，找老板再要一次邀请码。",
       okText: "退出团队",
       okButtonProps: { danger: true },
       cancelText: "取消",
@@ -198,7 +198,7 @@ export default function TeamTab() {
         />
         <section className="team-card">
           <Button onClick={退}>退出团队</Button>
-          <span className="muted" style={{ marginLeft: 12 }}>清掉这台电脑上的团队设置，之后可以建新团队或加入别的团队</span>
+          <span className="muted" style={{ marginLeft: 12 }}>清掉这台电脑上的团队设置，只留你自己负责的客户；之后可以建新团队或加入别的团队</span>
         </section>
       </div>
     );

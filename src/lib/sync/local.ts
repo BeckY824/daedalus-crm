@@ -355,3 +355,22 @@ export async function 装了吗(db: Db): Promise<boolean> {
   const r = await db.$queryRawUnsafe<unknown[]>("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = '_s_Customer_i'");
   return r.length > 0;
 }
+
+/**
+ * 业务员离开团队：这台电脑只留他自己的（2026-10-04 两档权限）。
+ * 同步要求每台都有全队的数据，业务员只是界面上看不到同事的；人一走，界面上的限定也就没了（一个人用 = 看全部）。
+ * 所以走的时候把不归他的客户（连同跟进、商机、签约、联系人，级联删）、别人的线索和操作日志从这台删掉，
+ * 同步日志里存着的整行副本也清掉。**必须在卸了触发器之后做**：这些删除不能当成改动推出去。
+ */
+export async function 只留自己的(db: PrismaClient, 我: string) {
+  const 我的客户 = (await db.customer.findMany({ where: { OR: [{ salesOwnerId: 我 }, { channelOwnerId: 我 }] }, select: { id: true } })).map((c) => c.id);
+  await db.$transaction(async (tx) => {
+    await tx.customer.deleteMany({ where: { id: { notIn: 我的客户 } } });
+    await tx.lead.deleteMany({ where: { OR: [{ ownerId: null }, { ownerId: { not: 我 } }], customerId: null } });
+    await tx.auditLog.deleteMany({ where: { userId: { not: 我 } } });
+    await tx.unassignedContact.deleteMany({ where: { OR: [{ fromCustomerId: null }, { fromCustomerId: { notIn: 我的客户 } }] } });
+  });
+  for (const t of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip", "_sync_cursor", "_sync_alias"]) {
+    await db.$executeRawUnsafe(`DELETE FROM ${t}`).catch(() => undefined);
+  }
+}

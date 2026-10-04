@@ -103,12 +103,35 @@ export const 限定的操作 = new Set([
   "update", "updateMany", "updateManyAndReturn", "delete", "deleteMany",
 ]);
 
+const 写操作 = new Set(["create", "createMany", "createManyAndReturn", "update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
+const 推 = globalThis as unknown as { __同步中?: boolean; __推送计时?: ReturnType<typeof setTimeout> };
+
+/**
+ * 一改完就推（2026-10-04 五人实测：写的那台要等自己的下一轮才推，看的那台再等它的下一轮才拉，平均十几秒）。
+ * 本机在团队里、有人写了库：1.5 秒后（连着改只算一次）同步一轮，同事那边下一次拉就看得到。
+ * 同步自己回放时写的不算（__同步中，lib/sync/client.ts 跑一轮里置上），不然收一轮又推一轮
+ */
+function 改完推一下() {
+  if (process.env.DESKTOP_LOCAL !== "1" || 推.__同步中 || !在团队()) return;
+  clearTimeout(推.__推送计时);
+  推.__推送计时 = setTimeout(() => {
+    void import("./sync/client").then((m) => m.同步一轮()).catch(() => undefined);
+  }, 1500);
+  推.__推送计时.unref?.();
+}
+
+/** 同步一轮开始 / 结束时置上 / 放下（lib/sync/client.ts） */
+export function 标同步中(是: boolean) {
+  推.__同步中 = 是;
+}
+
 /** 给一个客户端套上业务员限定（lib/prisma.ts 用；测试拿拷出来的库套同一层） */
 export function 加上限定(db: PrismaClient): PrismaClient {
   return db.$extends({
     query: {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
+          if (写操作.has(operation)) 改完推一下();
           if (!限定的操作.has(operation)) return query(args);
           const 我 = await 限定的我(db);
           const 条件 = 我 ? 限定条件(model, 我) : null;

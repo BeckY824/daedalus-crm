@@ -6,6 +6,7 @@
  */
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { 看全部 } from "@/lib/team-scope";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
@@ -76,14 +77,23 @@ export async function 领取(ids: string[]): Promise<公海结果> {
   await 钉住老签约();
   const 领到: { id: string; 值: string }[] = [];
   for (const id of [...new Set(ids)]) {
-    const 原 = await prisma.$transaction(async (tx) => {
+    /*
+      看全部（团队版业务员，lib/team-scope.ts）：业务员能领，是因为这位在公海里；删掉公海那一行之后、负责人改成我之前，
+      他在业务员眼里「不见了」——限定着读会读不到、返回 null，公海那一行却已经删了：客户出了公海、没归任何领的人（2026-10-04 五人实测）。
+      能不能领只看「删到了公海那一行」，事务里不用再限定
+    */
+    const 原 = await 看全部(() => prisma.$transaction(async (tx) => {
       const 删 = await tx.customerPool.deleteMany({ where: { customerId: id } });
       if (!删.count) return null;
       const c = await tx.customer.findUnique({ where: { id }, select: { salesOwnerId: true } });
-      if (!c) return null;
+      // 客户没了：抛出去让删公海那一下也回滚
+      if (!c) throw new Error("客户不在了");
       if (c.salesOwnerId !== me.id) await tx.customer.update({ where: { id }, data: { salesOwnerId: me.id } });
       await tx.customerClaim.upsert({ where: { customerId: id }, update: { userId: me.id, at: new Date() }, create: { customerId: id, userId: me.id } });
       return c.salesOwnerId;
+    })).catch((e) => {
+      if (e instanceof Error && e.message === "客户不在了") return null;
+      throw e;
     });
     if (原 !== null) 领到.push({ id, 值: 原 });
   }

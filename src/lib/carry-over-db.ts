@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { 看全部 } from "@/lib/team-scope";
 import type { 带走数 } from "@/lib/carry-over";
 
 /**
@@ -24,7 +25,11 @@ export async function 带走并记下(换: { customerId: string; 旧: string }[]
       数组式 $transaction 收到它会直接抛错（而那几条已经写进去了）。函数式拿到的 tx 是真客户端，两边都对（2026-10-02 排查 A3）
       先取 id 再按 id 改：同一个事务里，取到的就是改掉的
     */
-    const [计划, 待办, 商机] = await prisma.$transaction(async (tx) => {
+    /*
+      看全部（团队版业务员，lib/team-scope.ts）：业务员把自己的客户交给同事，客户一换负责人他就看不到了，
+      限定着查会漏掉这位客户上的商机（商机跟着客户可见），活带不过去（2026-10-04 五人实测）。要转哪几条由上面的条件定，不靠限定
+    */
+    const [计划, 待办, 商机] = await 看全部(() => prisma.$transaction(async (tx) => {
       const 计划 = (await tx.followPlan.findMany({ where: { customerId, ownerId: 旧, done: false }, select: { id: true } })).map((x) => x.id);
       const 待办 = (await tx.task.findMany({ where: { customerId, ownerId: 旧, done: false }, select: { id: true } })).map((x) => x.id);
       const 商机 = (await tx.opportunity.findMany({ where: { customerId, ownerId: 旧, status: "OPEN" }, select: { id: true } })).map((x) => x.id);
@@ -32,7 +37,7 @@ export async function 带走并记下(换: { customerId: string; 旧: string }[]
       if (待办.length) await tx.task.updateMany({ where: { id: { in: 待办 } }, data: { ownerId: 新 } });
       if (商机.length) await tx.opportunity.updateMany({ where: { id: { in: 商机 } }, data: { ownerId: 新 } });
       return [计划, 待办, 商机];
-    });
+    }));
     数.计划和待办 += 计划.length + 待办.length;
     数.商机 += 商机.length;
     记下.计划.push(...计划);
