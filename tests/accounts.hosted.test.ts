@@ -131,6 +131,21 @@ describe("验证码防刷", () => {
     expect(r.ok).toBe(false);
     expect(!r.ok && r.error).toMatch(/先获取/);
   });
+
+  /*
+    H-053：验证码表是未登录的人唯一能往里写的地方（找回密码对任何格式合法的邮箱都存一行），只增不减就会被灌满。
+    发码时顺手删一天前就过期的；刚过期不到一天的留着（「验证码已过期」那句提示要靠它）
+  */
+  it("发新码时顺手删掉一天前就过期的码，刚过期的留着（H-053）", async () => {
+    const { issueCode } = await import("@/lib/tenant/accounts");
+    const { control } = await import("@/lib/tenant/control");
+    const 天 = 24 * 60 * 60 * 1000;
+    const 老 = await control.verifyCode.create({ data: { target: "old@example.com", code: "111111", purpose: "reset", expiresAt: new Date(Date.now() - 2 * 天), createdAt: new Date(Date.now() - 2 * 天 - 600_000) } });
+    const 刚过期 = await control.verifyCode.create({ data: { target: "fresh@example.com", code: "222222", purpose: "reset", expiresAt: new Date(Date.now() - 60_000), createdAt: new Date(Date.now() - 660_000) } });
+    expect((await issueCode("13800000010")).ok).toBe(true);
+    expect(await control.verifyCode.findUnique({ where: { id: 老.id } })).toBeNull();
+    expect(await control.verifyCode.findUnique({ where: { id: 刚过期.id } })).not.toBeNull();
+  });
 });
 
 describe("账号", () => {

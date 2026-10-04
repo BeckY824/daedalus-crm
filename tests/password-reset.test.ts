@@ -18,6 +18,24 @@ vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => undefined, set: () => {}, delete: () => {} }),
 }));
 
+/*
+  发信可以被调慢（H-052「不等发信」那条）：默认照原样走，打开 慢发信.开 后 sendCode 要 2 秒才回，
+  并记下真被叫了几次——证明「真账号确实走到了发信那一步」，快只是因为没等它
+*/
+const 慢发信 = vi.hoisted(() => ({ 开: false, 叫了: 0 }));
+vi.mock("@/lib/tenant/notify", async (原) => {
+  const m = await 原<typeof import("@/lib/tenant/notify")>();
+  return {
+    ...m,
+    sendCode: async (target: string, code: string) => {
+      if (!慢发信.开) return m.sendCode(target, code);
+      慢发信.叫了++;
+      await new Promise((r) => setTimeout(r, 2000));
+      return { ok: true as const, channel: "log" as const };
+    },
+  };
+});
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -144,6 +162,24 @@ describe("不能拿它查号", () => {
     const b = await 重置密码({ target: 新邮箱(), code: "000000", password: "new12345" });
     expect(a.ok).toBe(false);
     expect(b.ok).toBe(false);
+  });
+
+  it("不等发信：注册过的号要跑一趟 SMTP，也和没注册过的一样立刻返回——按耗时探不出号（H-052）", async () => {
+    const { 发送重置码 } = await import("@/app/forgot/actions");
+    const 有号 = 新邮箱();
+    await 建号(有号);
+    慢发信.开 = true;
+    慢发信.叫了 = 0;
+    try {
+      const 起 = Date.now();
+      const r = await 发送重置码(有号);
+      const 用时 = Date.now() - 起;
+      expect(r.ok).toBe(true);
+      expect(慢发信.叫了, "真账号应该走到发信那一步").toBe(1);
+      expect(用时, `等了发信才返回（${用时}ms）：按耗时就能把号查出来`).toBeLessThan(1000);
+    } finally {
+      慢发信.开 = false;
+    }
   });
 
   it("手机号是例外：直说只能用邮箱，不然他会等一条永远不来的短信", async () => {
