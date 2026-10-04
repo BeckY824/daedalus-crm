@@ -26,6 +26,7 @@ import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/compon
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import { 导出客户 } from "./export-action";
+import { 客户导出表, 签约各币 } from "./export-table";
 import ImportDrawer from "./ImportDrawer";
 import { assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
 import { useDeleteCustomers } from "./useDeleteCustomers";
@@ -114,10 +115,6 @@ type Props = {
  * 原来十四列全摆出来，1440 屏上要横着拖两屏才看得完，而每天真正要扫的就这六样；
  * 其余的收进「列」里，勾了记在这台机器上。
  */
-/** 行上的签约按币种；老的调用方没给 signedTotals 时把 signedAmount 当人民币 */
-function 签约各币(r: { signedAmount: number; signedTotals?: { 币种: string; 合计: number }[] }) {
-  return r.signedTotals ?? (r.signedAmount ? [{ 币种: "CNY", 合计: r.signedAmount }] : []);
-}
 
 export default function CustomersView({
   rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled,
@@ -556,14 +553,8 @@ export default function CustomersView({
 }
 
 function exportCsv(rows: CustomerRow[], b: BusinessConfig) {
-  const head = ["客户姓名", "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", "销售负责人", "渠道负责人"];
-  const body = rows.map((r) => [
-    r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
-    r.referrerName ?? "", r.attributionName ?? "", statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus),
-    // 导出写「USD 3,200 · CNY 19,800」：只写数字的话，美元单在表里就成了人民币
-    r.expectedSignAt ? fmtDate(r.expectedSignAt) : "", 签约各币(r).filter((x) => x.合计 > 0).map((x) => `${x.币种} ${x.合计}`).join(" · "),
-    r.salesOwnerName, r.channelOwnerName ?? "",
-  ]);
+  // 写哪几列在 export-table.ts（带备注，2026-10-04 J-073），拆出去是为了能单测「导出 → 再导入一圈」
+  const { head, body } = 客户导出表(rows, b);
 
   // 转义、BOM、公式注入防护都在 toCsv 里，见 src/lib/csv.ts
   const blob = new Blob([toCsv(head, body)], { type: "text/csv;charset=utf-8" });
