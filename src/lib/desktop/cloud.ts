@@ -73,14 +73,115 @@ function 记本目录归属(accountId: string) {
   }
 }
 
+/**
+ * 「有主、只是还认不出是谁」的记号（2026-10-04 修 A-2 / D-021）。写进 .owner 时必须永远对不上任何真账号：
+ * 云端账号 id 不会以「?」开头。和 desktop/accounts.js 的 认不出的主 是同一个值（tests/r2-shell-accounts.test.ts 钉着）。
+ */
+export const 认不出的主 = "?认不出";
+/**
+ * 待认的老令牌（A-2）：没主的目录上退出登录，那一刻又问不到云端这枚令牌是谁（断网、网慢），
+ * 就把它挪到这儿留作「这份有主」的凭据，下一次有人登录（那时一定连得上）再拿它去问。
+ * 和 desktop/accounts.js 的 待认文件 同名。
+ */
+const 待认文件名 = ".owner-pending.json";
+
 export function 本目录归谁(): string | null {
   const dir = process.env.CRM_DATA_DIR;
   if (!dir) return null;
   try {
-    return fs.readFileSync(path.join(dir, ".owner"), "utf8").trim() || null;
+    const v = fs.readFileSync(path.join(dir, ".owner"), "utf8").trim();
+    if (v) return v;
+  } catch {
+    /* 没有标记 */
+  }
+  // A-2：没记主、但留着一枚还没问到是谁的老令牌——有主，只是认不出。绝不能当「没主」让下一个登录的人领走
+  if (fs.existsSync(path.join(dir, 待认文件名))) return 认不出的主;
+  return null;
+}
+
+type 老令牌 = { baseUrl: string; token: string; accountId?: string };
+
+function 读待认(): 老令牌 | null {
+  const dir = process.env.CRM_DATA_DIR;
+  if (!dir) return null;
+  try {
+    const c = JSON.parse(fs.readFileSync(path.join(dir, 待认文件名), "utf8")) as Partial<老令牌>;
+    return typeof c.token === "string" && c.token && typeof c.baseUrl === "string" && c.baseUrl ? (c as 老令牌) : null;
   } catch {
     return null;
   }
+}
+
+/** 存不下（磁盘满）返回 false：调用方退一步记成「认不出」，宁可这份谁也领不走，也不能让凭据就这么没了 */
+function 存待认(c: 老令牌): boolean {
+  const dir = process.env.CRM_DATA_DIR;
+  if (!dir) return false;
+  try {
+    fs.writeFileSync(path.join(dir, 待认文件名), JSON.stringify({ baseUrl: c.baseUrl, token: c.token }), { mode: 0o600 });
+    return true;
+  } catch (e) {
+    console.error("[desktop] 存待认的老令牌失败：", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
+function 清待认() {
+  const dir = process.env.CRM_DATA_DIR;
+  if (!dir) return;
+  try {
+    fs.rmSync(path.join(dir, 待认文件名), { force: true });
+  } catch {
+    /* 本来就没有 */
+  }
+}
+
+/**
+ * 拿一枚令牌问云端它是谁（网关 credits 接口顺带回 accountId，壳的 校验() 也靠这个）。
+ * 三种回答要分清：是谁 / 已作废（401，谁的再也问不出来）/ 问不到（断网、超时、5xx）。
+ */
+async function 问令牌是谁(c: 老令牌): Promise<{ id: string } | { 作废: true } | { 问不到: true }> {
+  const r = await 请求<{ accountId?: unknown }>(`${c.baseUrl}/api/gateway/v1/credits`, { headers: { Authorization: `Bearer ${c.token}` } }, 5_000);
+  if (r.ok) return typeof r.data?.accountId === "string" && r.data.accountId ? { id: r.data.accountId } : { 问不到: true };
+  return r.状态 === 401 ? { 作废: true } : { 问不到: true };
+}
+
+/**
+ * 登录前定下这个目录到底归谁（2026-10-04 修 A-2 / D-021）。
+ *
+ * 「没有 .owner」原来一律当没主、谁登录就归谁。但 0.39.2 之前升级上来的那份（_未认领），
+ * 老 .cloud.json 里没有 accountId，要等开机那次校验在 5 秒内问到云端才认领——断网 / 网慢开机就没问到，
+ * 它就一直没主。这期间甲退出、乙登录，乙就被记成了主人、直接进了甲的库。
+ *
+ * 所以没主时先看手上有没有**老令牌**（还在 .cloud.json 里的、或者退出时挪去待认的那枚）：
+ * 有就说明这份有主、只是还没问到——当场拿它问云端是谁；问不出来（作废了 / 问不到）一律当「有主、认不出」，
+ * 于是谁登录都算换了账号、壳把他换去自己的新目录。**宁可乙进一个新的空目录，也不许进别人的库。**
+ * 只有真没有任何老令牌（第一次装好、从没登录过）才算没主。
+ */
+async function 定下本目录归属(): Promise<string | null> {
+  const 已记 = 本目录归谁();
+  const 待认 = 读待认();
+  if (已记 && !(已记 === 认不出的主 && 待认)) return 已记;
+  const 老 = 待认 ?? 读();
+  if (!老) return 已记;
+  const 答 = 老.accountId ? { id: 老.accountId } : await 问令牌是谁(老);
+  if ("id" in 答) {
+    记本目录归属(答.id);
+    if (待认) {
+      // 退出时没吊成的那枚，这会儿认出主了，补上那一下吊销
+      await 请求(`${待认.baseUrl}/api/account/token`, { method: "DELETE", headers: { Authorization: `Bearer ${待认.token}` } }).catch(() => null);
+      清待认();
+    }
+    return 答.id;
+  }
+  if ("作废" in 答) {
+    // 令牌作废了，它是谁的再也问不出来：记成「认不出」，这份数据原地留着，谁也领不走
+    记本目录归属(认不出的主);
+    清待认();
+    return 认不出的主;
+  }
+  // 问不到：老令牌留作凭据（它马上要被新令牌盖掉），下次再问
+  if (!待认 && !存待认(老)) 记本目录归属(认不出的主);
+  return 认不出的主;
 }
 
 /**
@@ -97,6 +198,7 @@ export function 本目录归谁(): string | null {
  *
  * 两头少一样就不算对不上：
  *   没有 .owner        —— 未认领的那份（第一次装、0.39.2 之前升级上来的），谁登录就归谁
+ *                         （升级上来的那份留着老令牌时不算没主，见 定下本目录归属，A-2）
  *   令牌里没有 accountId —— 0.39.2 之前写下的那份，壳启动校验那一下会从云端补回来
  */
 export function 归属对不上(): boolean {
@@ -238,7 +340,6 @@ export async function 登录(target: string, password: string): Promise<结果<{
     换了人就得让壳去换目录、重起本地服务，**在那之前一个字都不能往本机库里写**——
     这会儿连着的还是上一个人的库。
   */
-  const 旧归谁 = 本目录归谁();
   const 云 = 云端地址();
   /*
     `machine` 是这台电脑的标识（加盐 sha256 的硬件 UUID）。云端拿它做一件事：
@@ -260,6 +361,12 @@ export async function 登录(target: string, password: string): Promise<结果<{
     headers: { Authorization: `Bearer ${token}` },
   });
   const models = m.ok ? (m.data?.data ?? []).map((x) => (x.note ? `${x.id}|${x.note}` : x.id)).filter(Boolean) : [];
+
+  /*
+    必须赶在 写(c) 之前：没主的目录里那枚老令牌（A-2）一会儿就被新令牌盖掉，盖掉就再也问不出这份是谁的了。
+    放在账号密码验过之后：密码错的那一下不该有任何动静（目录、归属、指针都不动）
+  */
+  const 旧归谁 = await 定下本目录归属();
 
   const c: 云端凭据 = {
     baseUrl: 云,
@@ -292,6 +399,21 @@ export async function 登录(target: string, password: string): Promise<结果<{
 export async function 退出(): Promise<void> {
   const c = 读();
   if (c) {
+    /*
+      没主的目录上退出（2026-10-04 修 A-2 / D-021）：令牌一删，「这份有主」的唯一凭据就没了，下一个登录的人会被记成主人。
+      所以删之前先把主定下来——令牌里有 accountId 就用它，没有（0.39.2 之前写的）就问云端；
+      问不到（断网 / 网慢）就**先不吊销**，把令牌挪去待认、留作凭据，等下一次登录（那时一定连得上）再问再吊。
+      多留一阵的这枚令牌和原来 .cloud.json 一样 0600、躺在同一个目录里，不比退出前更外露。
+    */
+    if (!本目录归谁()) {
+      const 答 = c.accountId ? { id: c.accountId } : await 问令牌是谁(c);
+      if ("id" in 答) 记本目录归属(答.id);
+      else if ("作废" in 答) 记本目录归属(认不出的主);
+      else if (存待认(c)) {
+        清();
+        return;
+      } else 记本目录归属(认不出的主);
+    }
     await 请求(`${c.baseUrl}/api/account/token`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${c.token}` },

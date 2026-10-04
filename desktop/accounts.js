@@ -64,14 +64,26 @@ function 读指针(数据根) {
   }
 }
 
-/** 这个目录归谁。没有标记（未认领、升级上来的）就是 null */
+/**
+ * 「有主、只是还认不出是谁」（2026-10-04 修 A-2 / D-021）。永远对不上任何真账号：云端账号 id 不以「?」开头。
+ * 和服务端 src/lib/desktop/cloud.ts 的 认不出的主 是同一个值（tests/r2-shell-accounts.test.ts 钉着）。
+ */
+const 认不出的主 = "?认不出";
+/**
+ * 待认的老令牌：升级上来、还没问到是谁的那份（_未认领），在断网时退出登录，服务端把令牌挪到这儿留作凭据
+ * （src/lib/desktop/cloud.ts 的 退出）。有它就说明这份**有主**，绝不能当没主改名给下一个登录的人。
+ */
+const 待认文件 = ".owner-pending.json";
+
+/** 这个目录归谁。没有标记（第一次装的未认领）就是 null；有主但认不出（A-2）是 认不出的主 */
 function 归谁(目录) {
   try {
     const v = fs.readFileSync(path.join(目录, 归属文件), "utf8").trim();
-    return v || null;
+    if (v) return v;
   } catch {
-    return null;
+    /* 没有标记 */
   }
+  return fs.existsSync(path.join(目录, 待认文件)) ? 认不出的主 : null;
 }
 
 function 记归属(目录, accountId) {
@@ -208,4 +220,4 @@ function 退出(数据根) {
   }
 }
 
-module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 账号目录, 未认领, 归属文件 };
+module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 账号目录, 未认领, 归属文件, 认不出的主, 待认文件 };
