@@ -102,7 +102,7 @@ describe("xlsx 的怪样子", () => {
     expect(r.预览.挡下).toEqual([{ 行号: 3, 原因: "这一行没有手机号" }]);
   });
 
-  it.skip("【下一版】【C】1904 日期系统的簿子：预计签约不该差出四年", async () => {
+  it("1904 日期系统的簿子：预计签约不该差出四年（J-054）", async () => {
     const t = 收文件("r2-data-1904.xlsx");
     const w = await 执行导入(方案(t), "mac.xlsx");
     if (!w.ok) throw new Error(w.error);

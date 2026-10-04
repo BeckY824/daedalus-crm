@@ -105,4 +105,21 @@ text = "姓名,手机号,公司\n张三,13800000001,远山资本\n"
 open(P("r2-data-gbk.csv"), "wb").write(text.encode("gbk"))
 open(P("r2-data-utf16.txt"), "wb").write(b"\xff\xfe" + text.replace(",", "\t").replace("\n", "\r\n").encode("utf-16-le"))
 open(P("r2-data-utf8bom.csv"), "wb").write(b"\xef\xbb\xbf" + text.encode("utf-8"))
+# 11. 1904 日期系统里，数字存的号码、金额不能跟着日期一起挪（J-054）：只有日期格式的格子加 1462 天
+wb = openpyxl.Workbook(); wb.epoch = CALENDAR_MAC_1904; ws = wb.active
+ws.append(["姓名", "手机号", "预计签约", "加微信日期", "预算"])
+ws.append(["张三", 13800000001, datetime.datetime(2026, 9, 19), datetime.datetime(2026, 9, 1), 50000])
+ws["C2"].number_format = "yyyy-mm-dd"
+ws["D2"].number_format = "mm-dd-yy"  # 内置格式 14
+save(wb, "r2-data-1904-号码.xlsx")
+
+# 12. 报错行号要和 Excel 里看到的一样（J-058）：第 1 行大标题、第 2 行表头、第 4 行空着
+wb = openpyxl.Workbook(); ws = wb.active
+ws["A1"] = "2026 年 9 月客户名单"; ws.merge_cells("A1:B1")
+ws["A2"] = "姓名"; ws["B2"] = "手机号"
+ws["A3"] = "张三"; ws["B3"] = "13800000001"
+ws["A5"] = "李四"
+ws["A6"] = "王五"; ws["B6"] = "123"
+save(wb, "r2-data-行号.xlsx")
+
 print("ok")
