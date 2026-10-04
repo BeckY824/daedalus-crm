@@ -26,7 +26,7 @@ vi.mock("@/lib/prisma", async () => {
 
 import { PrismaClient } from "@/generated/prisma";
 import { prisma as 甲 } from "@/lib/prisma";
-import { 建团队, 同步一轮, 退出团队, 读团队, 设传输, 解邀请码, 团队状态, type 传输 } from "@/lib/sync/client";
+import { 建团队, 同步一轮, 推一下, 退出团队, 读团队, 设传输, 解邀请码, 团队状态, type 传输 } from "@/lib/sync/client";
 import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, type 改动 } from "@/lib/sync/local";
 import { 封, 拆 } from "@/lib/sync/crypto";
 import { 疑似重复 } from "@/lib/sync/dupes";
@@ -234,6 +234,40 @@ describe("桌面端同步客户端", () => {
     const r = await 同步一轮();
     expect(r.ok && r.拉).toBeGreaterThan(0);
     expect((await getBusiness()).customer).toBe("学员");
+    expect((await 退出团队()).ok).toBe(true);
+  });
+
+  /*
+    2026-10-04 多台实测脚本抓到：「改完 1.5 秒就推」到点时上一轮还没跑完，原来直接复用那一轮——它的推送早过去了，
+    这次的改动要等壳下一次戳（8 秒）甚至更久。现在 推一下() 记「欠一轮」，那一轮一结束就补一轮
+  */
+  it("一轮正跑着时到点推一下：那一轮结束马上补一轮，新写的这条推得出去", async () => {
+    const 码 = await 新团队("五队");
+    let 放行!: () => void;
+    const 闸 = new Promise<void>((r) => (放行 = r));
+    let 拉了几次 = 0;
+    钩子 = async (_方法, 路径) => {
+      if (路径.startsWith("/api/sync/pull")) {
+        拉了几次 += 1;
+        if (拉了几次 === 1) await 闸;
+      }
+    };
+    try {
+      const 轮 = 同步一轮();
+      while (拉了几次 === 0) await 睡(10); // 第一轮推完、卡在拉上
+      await 甲.customer.create({ data: { id: "c补推", name: "补推的客户", phone: "13800009998", salesOwnerId: "acct_jia" } });
+      void 推一下();
+      放行();
+      await 轮;
+      for (let i = 0; i < 100 && 拉了几次 < 2; i++) await 睡(20);
+      expect(拉了几次, "那一轮结束后没有补一轮").toBe(2);
+      const 推上去的 = 云.批.filter((b) => b.team === 码.teamId).map((b) => b.data).join("");
+      expect(推上去的.length).toBeGreaterThan(0);
+    } finally {
+      钩子 = null;
+      放行();
+    }
+    while (await 同步一轮().then((r) => r.ok && r.推 > 0)) { /* 补完的那一轮也跑干净 */ }
     expect((await 退出团队()).ok).toBe(true);
   });
 

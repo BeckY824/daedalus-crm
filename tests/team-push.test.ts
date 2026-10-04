@@ -11,10 +11,11 @@ import os from "node:os";
 import path from "node:path";
 
 const 假 = vi.hoisted(() => ({ 同步一轮: vi.fn(async () => ({ ok: true as const, 推: 0, 拉: 0, 撞: 0 })) }));
-vi.mock("@/lib/sync/client", () => ({ 同步一轮: 假.同步一轮 }));
+// 到点调的是 推一下（正在跑就记欠一轮，见 sync/client.ts）；这里只数被叫了几次
+vi.mock("@/lib/sync/client", () => ({ 同步一轮: 假.同步一轮, 推一下: 假.同步一轮 }));
 
 import { PrismaClient } from "@/generated/prisma";
-import { 加上限定, 标同步中, 忘掉限定 } from "@/lib/team-scope";
+import { 加上限定, 在同步里, 忘掉限定 } from "@/lib/team-scope";
 
 const 目录 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-team-push-"));
 const 原 = { dir: process.env.CRM_DATA_DIR, local: process.env.DESKTOP_LOCAL };
@@ -45,7 +46,6 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
 });
 afterEach(() => {
-  标同步中(false);
   vi.useRealTimers();
 });
 
@@ -72,12 +72,26 @@ describe("写库 1.5 秒后自动同步一轮（T-042）", () => {
     expect(假.同步一轮).toHaveBeenCalledTimes(1);
   });
 
-  it("同步中（回放别人的改动）写的不触发", async () => {
-    标同步中(true);
-    await 写一下();
+  it("同步那一轮自己回放写的不触发", async () => {
+    await 在同步里(() => 写一下());
     vi.advanceTimersByTime(5000);
     await 等一等();
     expect(假.同步一轮).not.toHaveBeenCalled();
+  });
+
+  /*
+    2026-10-04 多台实测脚本抓到：原来是全进程一个「同步中」标记，同步那一轮跑着时**用户自己**写的也被吞了，
+    同事最长十几秒才看到。现在只认「在同步里」那一段的写
+  */
+  it("同步那一轮正跑着、用户在别处写了一条：照样排上推送", async () => {
+    let 放行!: () => void;
+    const 那一轮 = 在同步里(() => new Promise<void>((r) => (放行 = r)));
+    await 写一下(); // 用户这一写不在那一轮的上下文里
+    vi.advanceTimersByTime(1500);
+    await 等一等();
+    expect(假.同步一轮).toHaveBeenCalledTimes(1);
+    放行();
+    await 那一轮;
   });
 
   it("只读不触发；不在团队里写也不触发", async () => {

@@ -14,7 +14,7 @@ import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/c
 import { 团队身份id } from "../desktop/me";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, type 改动 } from "./local";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
-import { 看全部, 忘掉限定, 标同步中 } from "../team-scope";
+import { 看全部, 忘掉限定, 在同步里 } from "../team-scope";
 import { invalidateSettingsCache } from "../settings";
 
 export type 团队配置 = {
@@ -373,6 +373,19 @@ async function 退出团队里(): Promise<结果> {
 }
 
 let 在跑: Promise<结果<{ 推: number; 拉: number; 撞: number }>> | null = null;
+let 欠一轮 = false;
+
+/**
+ * 「改完 1.5 秒就推」到点时调这个（lib/team-scope.ts 的 改完推一下，2026-10-04 多台实测抓到）。
+ * 没在跑：开一轮。正在跑：那一轮的推送多半已经过去了，复用它等于把这次的改动吞了——记「欠一轮」，它一结束就补
+ */
+export function 推一下(): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
+  if (在跑) {
+    欠一轮 = true;
+    return 在跑;
+  }
+  return 同步一轮();
+}
 let 触发器对过 = false;
 
 /**
@@ -383,8 +396,15 @@ export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: 
   // 正在退出团队：不开新的一轮（见 退出团队，2026-10-04 T-009）
   if (退出中 && !在跑) return Promise.resolve({ ok: false, error: "正在退出团队" });
   if (!在跑) {
-    标同步中(true);
-    在跑 = 看全部(跑一轮).finally(() => { 在跑 = null; 标同步中(false); });
+    // 在同步里：这一轮里回放写库不触发「改完推一下」（lib/team-scope.ts）；用户这时候写的照样排推送
+    在跑 = 看全部(() => 在同步里(跑一轮)).finally(() => {
+      在跑 = null;
+      // 这一轮跑着的时候用户又改了东西（推一下 记的）：这一轮的推送早过去了，马上补一轮
+      if (欠一轮 && !退出中) {
+        欠一轮 = false;
+        void 同步一轮();
+      }
+    });
     // 云端说我不在这个团队里了：这一轮结束之后（退出团队要等这一轮跑完）看看是不是被移出
     void 在跑.then((r) => { if (!r.ok && /不在这个团队/.test(r.error)) void 被移出后收拾(); });
   }
