@@ -96,6 +96,19 @@ describe("chatJSON 那条路（起草话术）", () => {
     expect(await 用掉(账号.acc.id)).toBe(前);
   });
 
+  // 【下一版】回归核对 D-058 后半：次数已经是 0 时按钮照样能点、照样往网关发一趟（网关回 402、不扣、说人话，上面那条钉着）。
+  // 输入框下那行和左栏用量条会变红，但按钮不置灰。不伤数据、不扣次，排下一版；做了「0 次本地就拦」后去掉 skip
+  it.skip("【下一版】D-058 次数已知是 0：本地就拦下说「用完」，不往网关发", async () => {
+    const { 扣一次 } = await import("@/lib/tenant/credits");
+    for (let i = 0; i < 200; i++) if (!(await 扣一次(账号.owner)).ok) break;
+    const 线 = 接线({ 上游: () => 回文本("{}") });
+    await 起草(); // 第一次：从网关知道了是 0
+    const 之前 = 线.网关.length;
+    const r = await 起草();
+    expect(错误(r)).toContain("用完");
+    expect(线.网关.length, "已经知道是 0 了，第二次不该再去网关").toBe(之前);
+  });
+
   it("网关自己的频率闸（429）：说「太频繁、等几秒」，不扣", async () => {
     const { consumeAiQuota } = await import("@/lib/ai-quota");
     for (let i = 0; i < 30; i++) consumeAiQuota(`gw:${账号.acc.id}`);
@@ -343,10 +356,26 @@ describe("agent 那条路（首页对话框）", () => {
         return 回流(["王同学", "目前在", "跟进中，上次"], 2);
       },
     });
-    const { result } = await 问AI("王同学现在怎么样了");
+    const { result, 屏幕 } = await 问AI("王同学现在怎么样了");
     const msg = result && !result.ok ? result.error : "";
     expect(result?.ok).toBe(false);
     expect(是人话(msg), `对话框里会显示：${msg}`).toBe(true);
+    // 回归核对 D-061：已经流出来的字留在屏幕上，不被一句报错冲掉
+    expect(屏幕).toBe("王同学目前在");
+  });
+
+  // 【下一版】D-061 后半：回答流到一半断了，这一次照样算了 1 次（网关在上游回 200 时就记账，流断了不退）。
+  // 不伤数据，排下一版；网关能认出「流没走完」后去掉 skip
+  it.skip("【下一版】最终回答流到一半断了：人只拿到半句，这一次不该算", async () => {
+    接线({
+      上游: (r) => {
+        const k = 种类(r);
+        if (k === "决策") return (r.body.messages as { role: string }[]).some((m) => m.role === "tool") ? 回工具([]) : 回工具([{ name: "search_customers", args: { query: "王" } }]);
+        return 回流(["王同学", "目前在", "跟进中，上次"], 2);
+      },
+    });
+    await 问AI("王同学现在怎么样了");
+    expect(await 用掉(账号.acc.id)).toBe(0);
   });
 
   it("决策步 finish_reason=length（工具参数被截断）：不卡死，有回答", async () => {
