@@ -20,7 +20,7 @@ import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import {
   saveCustomer, deleteCustomers, assignSalesOwner, bulkFollowStatus,
-  saveContract, deleteContract,
+  saveContract, deleteContract, patchCustomer,
 } from "@/app/(app)/customers/actions";
 import { saveFollowUp, saveContact } from "@/app/(app)/customers/[id]/actions";
 import { convertLead } from "@/app/(app)/leads/actions";
@@ -201,6 +201,24 @@ describe("两人同时编辑同一条客户", () => {
     expect(after.channelId).toBe(渠道.id);
     expect(after.attributionChannelId).toBe(渠道.id); // 上游不足两代，归属取链条顶端
     expect(after.channelOwnerId).toBe(jia.id);        // 渠道负责人整条线继承
+  });
+
+  it("乙在详情页改了渠道负责人，甲编辑框只改备注：合并成功、两样都在（L-048）", async () => {
+    const c = await newCustomer("被改渠道负责人的", "13800000001");
+    // 真实编辑框的 base 带着渠道负责人（CustomerForm 打开时就有这一格），提交时没碰它就不发 channelOwnerId
+    const 甲 = await openForm(c.id);
+    const 甲的base = { ...甲.base!, channelOwnerId: (await prisma.customer.findUniqueOrThrow({ where: { id: c.id } })).channelOwnerId };
+
+    // 乙在详情页行内把渠道负责人改成自己
+    expect((await patchCustomer(c.id, "channelOwnerId", yi.id)).ok).toBe(true);
+
+    // 甲没碰渠道负责人，只改备注
+    const r = await saveCustomer({
+      ...(甲.base as Parameters<typeof saveCustomer>[0]), id: 甲.id, updatedAt: 甲.updatedAt, base: 甲的base, remark: "下周三回电",
+    });
+    expect(r.ok, r.ok ? "" : `被判冲突：${r.conflict?.fields.join("、")}`).toBe(true);
+    const after = await prisma.customer.findUniqueOrThrow({ where: { id: c.id } });
+    expect([after.remark, after.channelOwnerId]).toEqual(["下周三回电", yi.id]);
   });
 
   it("拿到最新版本重新提交就能存下", async () => {

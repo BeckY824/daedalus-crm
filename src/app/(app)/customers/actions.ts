@@ -322,7 +322,15 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     // 共享区打开表单时看到的号码是打了码的：快照里的也认回原号，不然一碰上并发就误报「你们都改了手机号」（排查 A2）
     const baseRow = { ...input.base, phone: 认回打码号(input.base.phone, 改前?.phone) } as unknown as Record<string, unknown>;
     const theirs = diffKeys(baseRow, currentRow);
-    const mine = diffKeys(baseRow, data);
+    const 改了推荐链 = diffKeys(baseRow, data).some((k) => (REFERRER_KEYS as readonly string[]).includes(k));
+    /*
+      渠道负责人是派生值：没动推荐链、也没单独订正时，data 里那一格是从库里现值抄来的（上面「原样保留」那支），
+      拿它和 base 比会把同事刚改的值算成「我改的」，于是我只改备注也被判「两边都动了：渠道负责人」。
+      只有我真动了它（显式订正 / 改推荐链连带重算）才算我的（2026-10-04 L-048）
+    */
+    const mine = diffKeys(baseRow, data).filter(
+      (k) => k !== "channelOwnerId" || input.channelOwnerId !== undefined || 改了推荐链,
+    );
     const overlap = mine.filter((k) => theirs.includes(k));
 
     if (overlap.length) {
