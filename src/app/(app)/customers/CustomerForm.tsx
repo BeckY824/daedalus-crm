@@ -240,11 +240,18 @@ function CustomerFormInner({
             // 原来写「系统中已有这条线索」，团队里撞号常见，人会去线索页找（2026-10-04 J-038）
             title={`已有${b.customer}用这个号码`}
             description={
-              <span>
-                {dup.name}
-                {dup.school ? ` · ${dup.school}` : ""} · 销售负责人 {dup.salesOwnerName} · 录入于{" "}
-                {dayjs(dup.createdAt).format("YYYY-MM-DD")}
-              </span>
+              dup.name ? (
+                <span>
+                  {dup.name}
+                  {dup.school ? ` · ${dup.school}` : ""} · 销售负责人 {dup.salesOwnerName} · 录入于{" "}
+                  {dayjs(dup.createdAt).format("YYYY-MM-DD")}
+                </span>
+              ) : (
+                // 业务员撞到同事名下、自己看不到的：只说是谁在跟，不露是哪位（10-04 拍板）
+                <span>
+                  同事 {dup.salesOwnerName} 名下已经有这个号码，请勿重复录入；要接手请找 {dup.salesOwnerName} 或老板
+                </span>
+              )
             }
           />
         )}

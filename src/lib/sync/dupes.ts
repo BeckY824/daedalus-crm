@@ -34,5 +34,9 @@ export async function 疑似重复(): Promise<疑似组[]> {
       依据: `名称「${g.name}」`,
       记录: 供应商.filter((s) => s.name === g.name).map((s) => ({ id: s.id, name: s.name, href: `/suppliers/${s.id}`, 谁的: null })),
     })),
-  ];
+    /*
+      号码那一句是裸 SQL 查的、不过团队版限定；记录是限定过的。业务员看来两条都是同事的那组，记录是空的、号码却摆出来了——
+      等于把同事客户的号码给了他（10-04 撞号不露同事客户那次查出来的）。自己看得到不到两条的组不算「疑似重复」
+    */
+  ].filter((g) => g.记录.length >= 2);
 }

@@ -98,7 +98,7 @@ export default function LeadsView({
    */
   function 撞号了(r: Row, 撞: 线索撞号, 说法: string) {
     if (!撞.能并 || !撞.customerId) {
-      modal.info({ title: `电话已经是「${撞.客户名}」的号码`, content: 说法, okText: "知道了" });
+      modal.info({ title: 撞.客户名 ? `电话已经是「${撞.客户名}」的号码` : `电话已经在同事 ${撞.负责人} 名下`, content: 说法, okText: "知道了" });
       return;
     }
     const 到 = 撞.customerId;

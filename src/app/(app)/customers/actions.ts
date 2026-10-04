@@ -4,8 +4,8 @@ import { 不在了 } from "@/lib/not-there";
 import { 查完再写 } from "@/lib/check-then-write";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
-import { 看全部 } from "@/lib/team-scope";
+import { prisma, defaultClient } from "@/lib/prisma";
+import { 看全部, 看得到, 限定的我 } from "@/lib/team-scope";
 import { requireUser } from "@/lib/auth";
 import { resolveAttribution, wouldCreateCycle } from "@/lib/attribution";
 import {
@@ -82,13 +82,27 @@ export type CustomerSnapshot = Pick<
   | "salesOwnerId" | "channelId" | "referrerCustomerId"
 > & { channelOwnerId?: string | null };
 
+/**
+ * 撞号时给界面的那位。业务员撞到同事名下、自己看不到的（团队版两档权限）：**只给负责人**，
+ * id / 名字 / 学校都是 null——不露同事客户是谁（10-04 用户拍板，原来给名字），只够他知道「这号有人在跟、找谁」
+ */
 export type DuplicateHit = {
-  id: string;
-  name: string;
+  id: string | null;
+  name: string | null;
   school: string | null;
   salesOwnerName: string;
   createdAt: string;
 } | null;
+
+type 撞到的 = { name: string; salesOwnerId: string | null; channelOwnerId: string | null; pool: unknown; salesOwner: { name: string } | null };
+const 撞到的字段 = { name: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } }, salesOwner: { select: { name: true } } } as const;
+
+/** 保存时撞号那句话：看得到的说是谁；业务员撞同事的只说负责人（同 DuplicateHit） */
+function 撞号说法(phone: string, dup: 撞到的, 我: string | null, 客户: string): string {
+  if (看得到(dup, 我)) return `手机号 ${phone} 已存在（${dup.name}），请勿重复录入`;
+  const 负责人 = dup.salesOwner?.name ?? "同事";
+  return `手机号 ${phone} 已是同事 ${负责人} 名下的${客户}，请勿重复录入；要接手请找 ${负责人} 或老板`;
+}
 
 /** 按手机号查重。手机号唯一性最可靠，姓名可能重名。和保存那一步一样先规整：「138 0000 1111」就是 13800001111 */
 export async function checkDuplicate(phone: string, excludeId?: string): Promise<DuplicateHit> {
@@ -96,23 +110,18 @@ export async function checkDuplicate(phone: string, excludeId?: string): Promise
   const 号 = 规整手机号(phone);
   if (!号) return null;
   const 起 = await 分机留存起();
-  // 看全部：团队版业务员录到同事已有的号码，也要提醒「这是谁的客户」（只给名字和负责人，打不开详情）
+  // 看全部：团队版业务员录到同事已有的号码，也要提醒「这号有人在跟」——但只给负责人，不露是哪位（见 DuplicateHit）
   const hit = await 看全部(async () => prisma.customer.findFirst({
     where: { AND: [await 同号条件(prisma, 号, 起), ...(excludeId ? [{ id: { not: excludeId } }] : [])] },
-    select: {
-      id: true,
-      name: true,
-      school: true,
-      createdAt: true,
-      salesOwner: { select: { name: true } },
-    },
+    select: { id: true, school: true, createdAt: true, ...撞到的字段 },
   }));
   if (!hit) return null;
+  const 看得见 = 看得到(hit, await 限定的我(defaultClient));
   return {
-    id: hit.id,
-    name: hit.name,
-    school: hit.school,
-    salesOwnerName: hit.salesOwner.name,
+    id: 看得见 ? hit.id : null,
+    name: 看得见 ? hit.name : null,
+    school: 看得见 ? hit.school : null,
+    salesOwnerName: hit.salesOwner?.name ?? "同事",
     createdAt: hit.createdAt.toISOString(),
   };
 }
@@ -164,11 +173,12 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     （「138 0000 1111」和「13800001111」）会互相挡着，谁都改不了备注。号码没动就没有新添重复
   */
   if (phone && !(改前 && phone === 改前.phone)) {
-    const dup = await prisma.customer.findFirst({
+    // 看全部：业务员把自己客户的号改成同事客户的号，原来这里只看得到自己的、查不出来，悄悄存成两份同号档案
+    const dup = await 看全部(async () => prisma.customer.findFirst({
       where: { AND: [await 同号条件(prisma, phone, await 分机留存起()), ...(input.id ? [{ id: { not: input.id } }] : [])] },
-      select: { name: true },
-    });
-    if (dup) return { ok: false, error: `手机号 ${phone} 已存在（${dup.name}），请勿重复录入` };
+      select: 撞到的字段,
+    }));
+    if (dup) return { ok: false, error: 撞号说法(phone, dup, await 限定的我(defaultClient), b.customer) };
   }
 
   // 推荐链不能成环。只挡「推荐人是自己」不够：A→B→A 两步就能绕过去
@@ -251,12 +261,12 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     const 起 = await 分机留存起();
     const 建了 = await 查完再写(async (tx) => {
       if (phone) {
-        const dup = await 看全部(async () => tx.customer.findFirst({ where: await 同号条件(tx, phone, 起), select: { name: true } }));
-        if (dup) return { 撞号: dup.name } as const;
+        const dup = await 看全部(async () => tx.customer.findFirst({ where: await 同号条件(tx, phone, 起), select: 撞到的字段 }));
+        if (dup) return { 撞号: dup } as const;
       }
       return { created: await tx.customer.create({ data }) } as const;
     });
-    if ("撞号" in 建了) return { ok: false, error: `手机号 ${phone} 已存在（${建了.撞号}），请勿重复录入` };
+    if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone, 建了.撞号, await 限定的我(defaultClient), b.customer) };
     const { created } = 建了;
     await recordAudit({
       user: me, action: "create", entity: "Customer", entityId: created.id,

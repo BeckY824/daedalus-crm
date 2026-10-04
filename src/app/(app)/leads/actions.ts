@@ -113,10 +113,10 @@ export async function deleteLeads(ids: string[]) {
  * 另一次影响 0 行、直接退出。SQLite 的写锁保证两句 updateMany 不会同时生效。
  */
 /**
- * 转客户时撞了号，撞的是谁（J-024）。业务员撞到同事的客户：只给名字和负责人（两档权限，和客户表单查重一个口径），
- * 不给 id、不能并；看得到那位客户的人（老板、负责人自己、公海里的）可以「并到这位客户」。
+ * 转客户时撞了号，撞的是谁（J-024）。业务员撞到同事的客户：**只给负责人**，不给名字、不给 id、不能并
+ * （10-04 用户拍板，和客户表单查重一个口径）；看得到那位客户的人（老板、负责人自己、公海里的）可以「并到这位客户」。
  */
-export type 线索撞号 = { 客户名: string; 负责人: string; customerId: string | null; 能并: boolean };
+export type 线索撞号 = { 客户名: string | null; 负责人: string; customerId: string | null; 能并: boolean };
 
 export async function convertLead(id: string): Promise<
   { ok: true; customerId: string } | { ok: false; error: string; 撞号?: 线索撞号 }
@@ -160,8 +160,8 @@ export async function convertLead(id: string): Promise<
         ok: false as const,
         error: 能并
           ? `电话已经是${b.customer}「${dup.name}」（负责人：${负责人}）的号码，可以把这条线索并到这位${b.customer}，不用另建档案`
-          : `电话已经是同事 ${负责人} 的${b.customer}「${dup.name}」的号码。你看不到这位${b.customer}，并不过去：可以把线索负责人改成 ${负责人} 由他来并，或者请老板并`,
-        撞号: { 客户名: dup.name, 负责人, customerId: 能并 ? dup.id : null, 能并 } satisfies 线索撞号,
+          : `电话已经是同事 ${负责人} 名下一位${b.customer}的号码。你看不到这位${b.customer}，并不过去：可以把线索负责人改成 ${负责人} 由他来并，或者请老板并`,
+        撞号: { 客户名: 能并 ? dup.name : null, 负责人, customerId: 能并 ? dup.id : null, 能并 } satisfies 线索撞号,
       };
     }
 
