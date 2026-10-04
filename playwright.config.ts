@@ -3,7 +3,8 @@ import path from "node:path";
 
 /** E2E 用自己的库，绝不碰开发库与线上库 */
 const E2E_DB = path.resolve(__dirname, "prisma/e2e.db");
-const PORT = 3100;
+// 并行跑几份工作树时各用各的端口（E2E_PORT），库本来就按目录分开
+const PORT = Number(process.env.E2E_PORT) || 3100;
 
 /**
  * E2E_PROD=1 时改用生产构建跑（next build + next start），
