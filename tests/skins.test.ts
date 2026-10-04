@@ -100,6 +100,18 @@ describe("antd 跟着主题走（skins/shared.css）", () => {
     }
     expect(错, `antd 没有这些变量：${错.join("、")}`).toEqual([]);
   });
+
+  /*
+    J-216：深色 / 科技主题下顶部提示条（message）原来是白底浅字——antd 把它的底色算成组件变量写死 #fff，
+    全局的 --ant-color-bg-elevated 管不到。上面那条只能证明变量名拼对了，**这条规则被整条删掉不会红**，所以单独钉
+  */
+  it("顶部提示条（message）的底色跟着主题走：换皮时 --ant-message-content-bg 指向主题的面板色", () => {
+    const 块 = 拆块(shared).find((b) => /\.ant-message\b/.test(b.选择器));
+    expect(块, "shared.css 里没有给 .ant-message 的那一块了——深色主题的保存/撤销提示会变回白底浅字").toBeTruthy();
+    const v = 变量(块!.体).get("--ant-message-content-bg");
+    expect(v, "那一块里没有覆盖 --ant-message-content-bg").toBeTruthy();
+    expect(v).toMatch(/var\(--(panel|card|surface|bg)[\w-]*\)/);
+  });
 });
 
 /* ---------- 对比度：换了色板，字还得读得清 ---------- */

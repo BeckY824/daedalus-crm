@@ -42,6 +42,13 @@ describe("网页版（自部署）", () => {
     expect((await 灌一套演示数据()).ok).toBe(true);
     expect(await prisma.customer.count()).toBeGreaterThan(0);
   });
+
+  it("灌进去的客户没有同名的（J-243：演示数据里出过两个同名学员，AI 问「X 怎么样」只能答「有两位」）", async () => {
+    expect((await 灌一套演示数据()).ok).toBe(true);
+    const 名字 = (await prisma.customer.findMany({ select: { name: true } })).map((c) => c.name);
+    const 重名 = 名字.filter((n, i) => 名字.indexOf(n) !== i);
+    expect(重名, `重名的：${[...new Set(重名)].join("、")}`).toEqual([]);
+  });
 });
 
 describe("桌面端", () => {
