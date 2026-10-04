@@ -252,7 +252,8 @@ describe("日期列的各种写法", () => {
 });
 
 describe("重复与库里已有", () => {
-  it.skip("【下一版】表里同号两行：后一行的「没对上的列」不该悄悄丢掉（B：现状第一行有备注就整段丢）", async () => {
+  // 2026-10-04 J-051 修好，去掉 skip
+  it("表里同号两行：后一行的「没对上的列」不该悄悄丢掉（B：原来第一行有备注就整段丢）", async () => {
     const w = await 执行导入(csv方案("姓名,手机号,微信号\n张三,13800000001,zs_wx\n张三,13800000001,zs_wx2"), "a.csv");
     if (!w.ok) throw new Error(w.error);
     const c = await prisma.customer.findFirstOrThrow();

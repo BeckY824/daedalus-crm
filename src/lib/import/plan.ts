@@ -291,6 +291,23 @@ export function 摊开(p: 排布): 一行[] {
 }
 
 /**
+ * 备注末尾添几行：已经在备注里的那一行不再添（同一份表导两遍、同号两行写了同一句，都不该出现两遍）。
+ * 原来的字一个不动，只往后加（2026-10-04 J-051）。
+ */
+export function 添行(原: string | null | undefined, 新行: readonly string[]): string {
+  const 有 = new Set((原 ?? "").split("\n").map((l) => l.trim()).filter(Boolean));
+  const 要添: string[] = [];
+  for (const l of 新行) {
+    const t = l.trim();
+    if (!t || 有.has(t)) continue;
+    有.add(t);
+    要添.push(l);
+  }
+  if (要添.length === 0) return 原 ?? "";
+  return 原 ? `${原}\n${要添.join("\n")}` : 要添.join("\n");
+}
+
+/**
  * 同一份表里手机号重复的行：后面的补前面的空，合成一条。
  *
  * Attio 那边把这件事写在预览里叫「最多创建 X 条」——真正执行时同一唯一值的多行会合并。
@@ -316,6 +333,15 @@ export function 并重复行(rows: 一行[]): { 行: 一行[]; 合掉几行: num
       continue;
     }
     for (const [k, v] of Object.entries(r.值)) {
+      /*
+        备注例外：它是越记越多的那一格，后一行的备注（连同并进来的「微信号：…」）添在后面，不是「前面有了就整段丢」。
+        原来第一行有备注，第二行的整段备注、没对上的列一个字都不进，预览也不说（2026-10-04 J-051）。
+        其余字段照旧先来的赢
+      */
+      if (k === "remark") {
+        if (v) 已有.值.remark = 添行(已有.值.remark, v.split("\n"));
+        continue;
+      }
       if (v && !已有.值[k as 字段名]) 已有.值[k as 字段名] = v;
     }
     已有.问题.push(...r.问题);
