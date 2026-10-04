@@ -123,7 +123,11 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     set提示粘贴(null);
     set粘贴开着(true);
   }
-  const [q, setQ] = useState("");
+  /*
+    初值就是地址上的 q（2026-10-04，J-158）：外面来的 /dashboard?q=… 只把问题填进来等回车；
+    是本应用 ⌘K 交过来的，下面那个 effect 会直接发出去（submit 会把框清空）
+  */
+  const [q, setQ] = useState(() => 地址栏.get("q") ?? "");
   const [cmdIdx, setCmdIdx] = useState(0);
   /** 输入框空着时，↑↓ 在下面那排建议问题里选，回车就发。-1 = 没选 */
   const [suggIdx, setSuggIdx] = useState(-1);
@@ -268,7 +272,6 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     已消化地址问句.current = true;
     router.replace("/dashboard");
     if (是刚交过来的(q0)) submit(q0);
-    else setQ(q0);
     // 只认挂载时地址上的那一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
