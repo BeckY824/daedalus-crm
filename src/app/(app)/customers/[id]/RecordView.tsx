@@ -133,14 +133,15 @@ export default function RecordView({
     const 要 = new URLSearchParams(window.location.search).get("focus");
     if (!要) return;
     const el = document.querySelector<HTMLElement>(`[data-focus="${CSS.escape(要)}"]`);
-    router.replace(window.location.pathname, { scroll: false });
+    // 只改地址、不重新取页面：router.replace 会让服务端按「没有 focus」重画，计划条随即换回最早那条，
+    // 人刚看到叫他的那条闪一下就被换走了（整套 e2e 抓到过新旧两份同在页面上）。原生 replaceState 接进 Next 路由，不重画
+    window.history.replaceState(null, "", window.location.pathname);
     if (!el) return;
     el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
     el.classList.add("rec-tl-item-flash");
     const t = setTimeout(() => el.classList.remove("rec-tl-item-flash"), 1600);
     return () => clearTimeout(t);
     // 只在进来那一下看
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   /** 这次打开计划表单是「排下一次」（新建，默认一周后），不是改眼前这条（审查 M10） */
   const [排新计划, set排新计划] = useState(false);

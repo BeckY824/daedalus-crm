@@ -203,7 +203,10 @@ test("签约金额：自动带上勾着的商机金额之和；取消勾一个�
   await 点到出现(page.getByRole("button", { name: /登记签约/ }).first(), 签);
   const 金额 = 签.getByRole("spinbutton", { name: "签约金额" });
   await expect(金额).toHaveValue("15,000.5");
-  await 签.getByRole("checkbox", { name: /加购/ }).uncheck();
+  // 框还在开场动画里时点勾选会落空（Playwright 报「点了状态没变」、不重试）：没变就再点一次
+  await expect(async () => {
+    await 签.getByRole("checkbox", { name: /加购/ }).uncheck({ timeout: 2_000 });
+  }).toPass({ timeout: 10_000 });
   await expect(金额).toHaveValue("10,000");
   await 签.getByRole("checkbox", { name: /加购/ }).check();
   await expect(金额).toHaveValue("15,000.5");
