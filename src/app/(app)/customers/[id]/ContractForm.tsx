@@ -33,28 +33,39 @@ export type ContractRow = {
   remark: string | null;
 };
 
+/**
+ * 从一个商机赢单时打开（2026-10-04 J-090，管道把卡片拖进「赢单成交」）：
+ * 金额、币种带这个商机的，「同时标为赢单」只认它、不列这位客户别的商机——拖的是这一张卡，不能顺手把另外几单也标成赢单。
+ * 它走 saveContract 的联动赢下来，所以签约和赢单是连着记的（删签约时能退回去，L-007）
+ */
+export type 赢的商机 = { id: string; name: string; amount: number; currency: string };
+
 export default function ContractForm({
   open,
   customerId,
   editing,
+  赢这一单,
   onClose,
 }: {
   open: boolean;
   customerId: string;
   editing: ContractRow | null;
+  赢这一单?: 赢的商机 | null;
   onClose: (saved: boolean) => void;
 }) {
   if (!open) return null;
-  return <Inner key={editing?.id ?? "new"} customerId={customerId} editing={editing} onClose={onClose} />;
+  return <Inner key={editing?.id ?? 赢这一单?.id ?? "new"} customerId={customerId} editing={editing} 赢这一单={editing ? null : 赢这一单 ?? null} onClose={onClose} />;
 }
 
 function Inner({
   customerId,
   editing,
+  赢这一单,
   onClose,
 }: {
   customerId: string;
   editing: ContractRow | null;
+  赢这一单: 赢的商机 | null;
   onClose: (saved: boolean) => void;
 }) {
   const { message, modal } = App.useApp();
@@ -73,13 +84,19 @@ function Inner({
     let 还在 = true;
     void listContractLinks(customerId).then((r) => {
       if (!还在) return;
+      // 从一个商机来的：只赢它，别的商机不列（见 赢的商机）；金额已经带好了，不再按勾选去加
+      if (赢这一单) {
+        set可收({ ...r, 商机: [] });
+        set勾({ 赢单: [赢这一单.id], 完成计划: r.计划.map((x) => x.id), 完成待办: r.待办.map((x) => x.id) });
+        return;
+      }
       set可收(r);
       set勾({ 赢单: r.商机.map((x) => x.id), 完成计划: r.计划.map((x) => x.id), 完成待办: r.待办.map((x) => x.id) });
       带金额(r.商机.map((x) => x.id), r);
     });
     return () => { 还在 = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId, editing]);
+  }, [customerId, editing, 赢这一单]);
   /*
     勾着的商机金额之和先填进「签约金额」——多数时候签的就是那一单，不必再抄一遍。
     人自己动过金额或币种就不再跟着勾选变（同 lib/fill-untouched 的规矩：不覆盖手填）。
@@ -184,9 +201,16 @@ function Inner({
         initialValues={
           editing
             ? { amount: editing.amount, currency: editing.currency ?? "CNY", signedAt: dayjs(editing.signedAt), remark: editing.remark }
-            : { signedAt: dayjs(), currency: b.currency }
+            : 赢这一单
+              ? { signedAt: dayjs(), currency: 赢这一单.currency, amount: 赢这一单.amount > 0 ? 赢这一单.amount : undefined, remark: `商机「${赢这一单.name}」赢单时登记` }
+              : { signedAt: dayjs(), currency: b.currency }
         }
       >
+        {赢这一单 && (
+          <div className="muted" style={{ marginBottom: 12, lineHeight: 1.7 }}>
+            「{赢这一单.name}」标为赢单。登记一笔签约，业绩才算得进去；不登记就点取消，商机照样是赢单。
+          </div>
+        )}
         {/* 币种 + 金额一格（2026-10-03）。label 不再写「（元）」：币种在左边那个框里 */}
         <Form.Item label="签约金额" required>
           <Space.Compact style={{ width: "100%" }}>

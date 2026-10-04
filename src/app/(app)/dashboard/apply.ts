@@ -23,7 +23,11 @@ import { 按名字找负责人 } from "@/lib/owners";
  */
 export type 撤销凭据 =
   | { kind: "add_followup"; customerId: string; id: string }
-  | { kind: "set_status"; customerId: string; field: "followStatus" | "decisionStatus"; to: string };
+  /**
+   * to = 改回去的原值；改成 = 卡片当时改成的值（2026-10-04 J-172）。
+   * 撤销前拿它和库里现在的值比：不一样就是确认之后有人（同事或自己）又改过，撤销不能盖掉那次改动
+   */
+  | { kind: "set_status"; customerId: string; field: "followStatus" | "decisionStatus"; to: string; 改成: string };
 
 export type ApplyResult = { ok: true; message: string; 撤销?: 撤销凭据 } | { ok: false; error: string };
 
@@ -310,7 +314,7 @@ async function 做这张卡(input: Proposal, me: Awaited<ReturnType<typeof requi
     // 改之前记下原值：撤销就是把它改回去
     const 原 = await prisma.customer.findUnique({ where: { id: p.customerId }, select: { followStatus: true, decisionStatus: true } });
     done = await patchCustomer(p.customerId, p.field, p.to);
-    if (done.ok && 原) 撤销 = { kind: "set_status", customerId: p.customerId, field: p.field, to: 原[p.field] };
+    if (done.ok && 原) 撤销 = { kind: "set_status", customerId: p.customerId, field: p.field, to: 原[p.field], 改成: p.to };
   } else if (p.kind === "add_followup") {
     const r = await saveFollowUp({
       customerId: p.customerId,
@@ -351,6 +355,14 @@ export async function undoProposal(u: 撤销凭据): Promise<{ ok: true } | { ok
     if (!f) return { ok: false, error: "那条跟进已经不在了，可能已被删掉" };
     await deleteFollowUp(f.id, u.customerId);
   } else if (u.kind === "set_status" && (u.field === "followStatus" || u.field === "decisionStatus")) {
+    /*
+      2026-10-04 J-172：先核对现在还是不是卡片改成的那个值。原来直接写回原值——确认之后同事改成了「已签约」，
+      点撤销会悄悄盖回去。凭据里没有「改成」（老凭据 / 被人改过）也一样不动：核对不了就不撤。
+    */
+    const 现在 = await prisma.customer.findUnique({ where: { id: u.customerId }, select: { followStatus: true, decisionStatus: true } });
+    if (typeof u.改成 !== "string" || 现在?.[u.field] !== u.改成) {
+      return { ok: false, error: "确认之后又改过，没撤（撤回去会盖掉后来那次改动）" };
+    }
     const r = await patchCustomer(u.customerId, u.field, String(u.to ?? ""));
     if (!r.ok) return r;
   } else {

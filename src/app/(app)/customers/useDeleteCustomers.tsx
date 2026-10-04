@@ -48,7 +48,7 @@ export function useDeleteCustomers() {
             </div>
           )}
           {数.联系人 > 0 && <div>{数.联系人} 位联系人不删，留在联系人页，写「未归属」。</div>}
-          {数.线索 > 0 && <div>{数.线索} 条线索还在，只是不再连着这位{b.customer}。</div>}
+          {数.线索 > 0 && <div>{数.线索} 条线索还在，退回「跟进中」，之后可以再转。</div>}
           <div style={{ color: "var(--danger-text)" }}>删除后不能恢复。</div>
           {有签约 && (
             <Checkbox

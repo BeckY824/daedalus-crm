@@ -201,13 +201,36 @@ describe("撤销刚确认的建议卡", () => {
     expect(await prisma.auditLog.count({ where: { action: "ai_undo" } })).toBe(1);
   });
 
-  it("改状态：撤销后回到原值", async () => {
+  it("改状态：确认后没人再动过 → 撤销回到原值", async () => {
     await prisma.customer.update({ where: { id: 客户 }, data: { followStatus: "跟进中" } });
     const r = await applyProposal({ id: "u2", kind: "set_status", customerId: 客户, customerName: "陈同学", reason: "测试", field: "followStatus", to: "意向较高" });
     expect(r.ok).toBe(true);
     expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.followStatus).toBe("意向较高");
     expect(await undoProposal(r.ok ? r.撤销! : (null as never))).toEqual({ ok: true });
     expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.followStatus).toBe("跟进中");
+  });
+
+  /*
+    2026-10-04 J-172：原来撤销直接把原值写回去，不看确认之后有没有人再改过——
+    确认「意向较高」之后同事已经改成「已签约」，点撤销会悄悄盖回「跟进中」，伤的是真实数据而且没人察觉。
+  */
+  it("改状态：确认后别处又改成已签约，再点撤销 → 不改回去，说明「之后又改过，没撤」", async () => {
+    await prisma.customer.update({ where: { id: 客户 }, data: { followStatus: "跟进中" } });
+    const r = await applyProposal({ id: "u2b", kind: "set_status", customerId: 客户, customerName: "陈同学", reason: "测试", field: "followStatus", to: "意向较高" });
+    expect(r.ok).toBe(true);
+    await prisma.customer.update({ where: { id: 客户 }, data: { followStatus: "已签约" } });
+    const u = await undoProposal(r.ok ? r.撤销! : (null as never));
+    expect(u.ok).toBe(false);
+    expect(!u.ok && u.error).toContain("之后又改过，没撤");
+    expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.followStatus).toBe("已签约");
+    expect(await prisma.auditLog.count({ where: { action: "ai_undo" } })).toBe(0);
+  });
+
+  it("改状态：凭据里没写卡片改成了什么（老凭据 / 被改过）→ 不动", async () => {
+    await prisma.customer.update({ where: { id: 客户 }, data: { followStatus: "意向较高" } });
+    const u = await undoProposal({ kind: "set_status", customerId: 客户, field: "followStatus", to: "跟进中" } as never);
+    expect(u.ok).toBe(false);
+    expect((await prisma.customer.findUnique({ where: { id: 客户 } }))!.followStatus).toBe("意向较高");
   });
 
   it("凭据被改成别的客户的跟进：一条都不删", async () => {

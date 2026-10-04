@@ -16,8 +16,8 @@ vi.mock("@/lib/auth", () => ({ requireUser: async () => mocks.user }));
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { saveContract, listContractLinks } from "@/app/(app)/customers/actions";
-import { setOppStatus } from "@/app/(app)/opportunities/actions";
+import { saveContract, listContractLinks, deleteContract } from "@/app/(app)/customers/actions";
+import { setOppStatus, saveOpportunity, moveStage } from "@/app/(app)/opportunities/actions";
 
 let jia: { id: string };
 
@@ -160,5 +160,65 @@ describe("丢单的撤销：原样撤回去", () => {
     expect((await setOppStatus(o.id, "OPEN", { stage: "瞎写的", probability: 60 })).ok).toBe(false);
     expect((await setOppStatus(o.id, "OPEN", { stage: "方案报价", probability: 180 })).ok).toBe(false);
     expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("LOST");
+  });
+});
+
+/*
+  2026-10-04 L-007：删掉签约后，当初登记签约时顺手标成赢单的商机原来不退回——
+  本月赢单、漏斗、业绩一起虚高。现在：是这笔签约赢下来的、赢了之后没人再动过的，删签约时退回签约前的阶段和概率。
+*/
+describe("删签约：顺手标成赢单的商机退回去", () => {
+  async function 签约并赢单() {
+    const { c, o } = await 在谈的();
+    const r = await saveContract({ customerId: c.id, amount: 86000, signedAt: 今天(), remark: null, 联动: { 赢单: [o.id], 完成计划: [], 完成待办: [] } });
+    if (!r.ok) throw new Error("签约没登记上");
+    const ct = await prisma.contract.findFirstOrThrow({ where: { customerId: c.id } });
+    return { c, o, ct };
+  }
+
+  it("登记签约勾了赢单 → 删掉这笔签约：商机回到进行中、阶段和概率回到签约前、结单时刻没了，并告诉界面退回了几个", async () => {
+    const { c, o, ct } = await 签约并赢单();
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("WON");
+    const r = await deleteContract(ct.id, c.id, null);
+    expect(r).toMatchObject({ ok: true, remaining: 0, 退回商机: 1 });
+    const 后 = await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id }, include: { closed: true } });
+    expect(后).toMatchObject({ status: "OPEN", stage: "方案报价", probability: 60 });
+    expect(后.closed).toBeNull();
+    // 走的是 setOppStatus：日志里有「撤销改状态」那一条，事后查得到为什么回到了进行中
+    expect((await prisma.auditLog.findMany({ where: { entity: "Opportunity" } })).some((x) => x.summary.includes("回到进行中"))).toBe(true);
+  });
+
+  it("赢单之后人又手动改过（改成丢单）→ 删签约不动商机：人改过的不许被盖掉", async () => {
+    const { c, o, ct } = await 签约并赢单();
+    await saveOpportunity({ id: o.id, name: o.name, customerId: c.id, amount: 86000, stage: "赢单成交", status: "LOST", probability: 0, ownerId: jia.id });
+    const r = await deleteContract(ct.id, c.id, null);
+    expect(r).toMatchObject({ ok: true, 退回商机: 0 });
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("LOST");
+  });
+
+  it("赢单后人拖回方案报价、又拖进赢单成交 → 删签约不动：这次赢单是人自己定的", async () => {
+    const { c, o, ct } = await 签约并赢单();
+    await moveStage(o.id, "方案报价");
+    await moveStage(o.id, "赢单成交");
+    expect(await prisma.contractWin.count()).toBe(0);
+    expect(await deleteContract(ct.id, c.id, null)).toMatchObject({ ok: true, 退回商机: 0 });
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("WON");
+  });
+
+  it("商机是自己标的赢单、签约时没勾 → 删签约不动它", async () => {
+    const { c, o } = await 在谈的();
+    await setOppStatus(o.id, "WON");
+    await saveContract({ customerId: c.id, amount: 86000, signedAt: 今天(), remark: null });
+    const ct = await prisma.contract.findFirstOrThrow({ where: { customerId: c.id } });
+    expect(await deleteContract(ct.id, c.id, null)).toMatchObject({ ok: true, 退回商机: 0 });
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("WON");
+  });
+
+  it("同一位客户两笔签约，删的是没勾赢单的那一笔 → 商机还是赢单", async () => {
+    const { c, o, ct } = await 签约并赢单();
+    await saveContract({ customerId: c.id, amount: 1200, signedAt: 今天(), remark: "尾款" });
+    const 尾款 = await prisma.contract.findFirstOrThrow({ where: { customerId: c.id, id: { not: ct.id } } });
+    expect(await deleteContract(尾款.id, c.id, null)).toMatchObject({ ok: true, 退回商机: 0 });
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("WON");
   });
 });

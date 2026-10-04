@@ -897,7 +897,9 @@ export default function RecordView({
           message.error(res.error);
           return;
         }
-        message.success(是最后一笔 && picked ? `已删除，跟进状态已退回「${picked.value}」` : "已删除");
+        // 当初登记时顺手标成赢单的商机跟着退回进行中（L-007）：说一句，不然人以为商机还是赢单
+        const 退 = res.退回商机 ? `，${res.退回商机} 个商机退回进行中` : "";
+        message.success(是最后一笔 && picked ? `已删除，跟进状态已退回「${picked.value}」${退}` : `已删除${退}`);
       },
     });
   }

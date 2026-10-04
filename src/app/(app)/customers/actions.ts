@@ -16,7 +16,7 @@ import {
   REFERRER_KEYS,
   ATTRIBUTION_KEYS,
 } from "@/lib/concurrency";
-import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
+import { FOLLOW_STATUSES, DECISION_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { recordAudit, describeCustomerChanges } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
@@ -457,6 +457,15 @@ export async function deleteCustomers(
         },
       });
     }
+    /*
+      从线索转来的客户删了，线索退回「跟进中」、转化时间清掉（2026-10-04 L-014）。
+      外键会把 customerId 置空，但状态原来还挂「已转化」：列表上又出现「转客户」按钮，两样说法打架，
+      编辑框的状态下拉也对不上；再转一次还会覆盖转化时间。退到「跟进中」：转过一次说明是跟过的，不是待跟进。
+    */
+    await tx.lead.updateMany({
+      where: { customerId: { in: ids } },
+      data: { customerId: null, status: "跟进中", convertedAt: null },
+    });
     return tx.customer.deleteMany({ where: { id: { in: ids } } });
   });
   if (res.count) {
@@ -483,7 +492,7 @@ export type 删除清点 = {
   签约金额: { 币种: string; 合计: number }[];
   /** 联系人不删，搬进未归属 */
   联系人: number;
-  /** 从线索转来的：线索还在，只是不再连着这位客户 */
+  /** 从线索转来的：线索还在，退回「跟进中」（L-014） */
   线索: number;
 };
 
@@ -771,7 +780,7 @@ export async function saveContract(input: {
       });
     }
   
-    const 联动 = !input.id && input.联动 ? await 签约收尾(input.customerId, input.联动) : undefined;
+    const 联动 = !input.id && input.联动 && 签约id ? await 签约收尾(input.customerId, 签约id, input.联动) : undefined;
   
     revalidateCustomer(input.customerId);
     return { ok: true, ...(联动 ? { 联动 } : {}) };
@@ -789,13 +798,20 @@ export async function saveContract(input: {
  * 只动属于这位客户、而且还没收尾的：id 是从浏览器来的，别人家的商机、已丢单的商机
  * 不该因为一次签约被改掉。
  */
-async function 签约收尾(customerId: string, 勾: 签约联动): Promise<签约联动结果> {
+async function 签约收尾(customerId: string, 签约id: string, 勾: 签约联动): Promise<签约联动结果> {
   const [商机, 计划, 待办] = await Promise.all([
-    prisma.opportunity.findMany({ where: { id: { in: 勾.赢单 ?? [] }, customerId, status: "OPEN" }, select: { id: true } }),
+    prisma.opportunity.findMany({ where: { id: { in: 勾.赢单 ?? [] }, customerId, status: "OPEN" }, select: { id: true, stage: true, probability: true } }),
     prisma.followPlan.findMany({ where: { id: { in: 勾.完成计划 ?? [] }, customerId, done: false }, select: { id: true } }),
     prisma.task.findMany({ where: { id: { in: 勾.完成待办 ?? [] }, customerId, done: false }, select: { id: true } }),
   ]);
-  for (const o of 商机) await setOppStatus(o.id, "WON");
+  for (const o of 商机) {
+    const r = await setOppStatus(o.id, "WON");
+    // 记下是这笔签约赢下的、赢之前什么样（2026-10-04 L-007）：删这笔签约时据此退回，不然商机一直挂赢单、业绩虚高
+    if (r.ok) {
+      const 记 = { contractId: 签约id, prevStage: o.stage, prevProbability: o.probability };
+      await prisma.contractWin.upsert({ where: { opportunityId: o.id }, create: { opportunityId: o.id, ...记 }, update: 记 });
+    }
+  }
   for (const p of 计划) await completePlan(p.id);
   for (const t of 待办) await toggleTask(t.id, true);
   return { 赢单: 商机.length, 完成计划: 计划.length, 完成待办: 待办.length };
@@ -812,7 +828,7 @@ export async function deleteContract(
   id: string,
   customerId: string,
   revertTo?: { followStatus: string; decisionStatus: string } | null,
-): Promise<{ ok: true; remaining: number } | { ok: false; error: string }> {
+): Promise<{ ok: true; remaining: number; 退回商机: number } | { ok: false; error: string }> {
   try {
     const me = await requireUser();
     const b = await getBusiness();
@@ -824,9 +840,24 @@ export async function deleteContract(
   
     // 删完就查不到金额了，先留一份
     const 待删 = await prisma.contract.findUnique({ where: { id }, select: { amount: true, signedAt: true, ...带币种.签约 } });
+    // 这笔签约顺手赢下的商机（2026-10-04 L-007）。签约一删这几行跟着级联没了，先取出来
+    const 赢下的 = await prisma.contractWin.findMany({ where: { contractId: id }, include: { opportunity: { select: { status: true } } } });
     const gone = await prisma.contract.deleteMany({ where: { id, customerId } });
     if (gone.count === 0) {
       return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
+    }
+    /*
+      退回签约前的阶段和概率（2026-10-04 L-007）。原来删签约不碰商机：签约没了、商机还挂赢单，本月赢单 / 漏斗 / 业绩一起虚高。
+      只退「还是赢单」的：赢了之后离开过赢单的，ContractWin 那一行已经删了（opportunities/actions.ts 记结单）；
+      这里再看一眼状态兜底——人改过的不许被盖掉。走 setOppStatus 的「还原」，留痕、结单时刻、刷新都在那里面。
+      赢单前的阶段若是赢单成交（对齐之前的老数据），退到前一档，不能退出一张「进行中 + 赢单成交」的卡。
+    */
+    let 退回商机 = 0;
+    for (const w of 赢下的) {
+      if (w.opportunity.status !== "WON") continue;
+      const 阶段 = w.prevStage === "赢单成交" || !OPP_STAGES.includes(w.prevStage as (typeof OPP_STAGES)[number]) ? "谈判审核" : w.prevStage;
+      const r = await setOppStatus(w.opportunityId, "OPEN", { stage: 阶段, probability: w.prevProbability });
+      if (r.ok) 退回商机++;
     }
   
     const remaining = await prisma.contract.count({ where: { customerId } });
@@ -842,12 +873,13 @@ export async function deleteContract(
       user: me, action: "delete", entity: "Contract", entityId: id,
       summary: `删除签约 ${待删 ? 显示金额(签约金额(待删), 签约币种(待删)) : 显示金额(0)}` +
         (revertTo && remaining === 0 ? `，跟进状态退回「${statusLabel(b, revertTo.followStatus)}」` : "") +
-        (remaining ? `，该${b.customer}还剩 ${remaining} 笔` : ""),
-      detail: { customerId, amount: 待删?.amount, signedAt: 待删?.signedAt, revertTo, remaining },
+        (remaining ? `，该${b.customer}还剩 ${remaining} 笔` : "") +
+        (退回商机 ? `，${退回商机} 个当初顺手标成赢单的商机退回进行中` : ""),
+      detail: { customerId, amount: 待删?.amount, signedAt: 待删?.signedAt, revertTo, remaining, 退回商机 },
     });
   
     revalidateCustomer(customerId);
-    return { ok: true, remaining };
+    return { ok: true, remaining, 退回商机 };
   } catch (e) {
     return 不在了(e);
   }
