@@ -434,6 +434,15 @@ export async function deleteCustomers(
         },
       });
     }
+    /*
+      从线索转来的客户删了，线索退回「跟进中」、转化时间清掉（2026-10-04 L-014）。
+      外键会把 customerId 置空，但状态原来还挂「已转化」：列表上又出现「转客户」按钮，两样说法打架，
+      编辑框的状态下拉也对不上；再转一次还会覆盖转化时间。退到「跟进中」：转过一次说明是跟过的，不是待跟进。
+    */
+    await tx.lead.updateMany({
+      where: { customerId: { in: ids } },
+      data: { customerId: null, status: "跟进中", convertedAt: null },
+    });
     return tx.customer.deleteMany({ where: { id: { in: ids } } });
   });
   if (res.count) {
@@ -460,7 +469,7 @@ export type 删除清点 = {
   签约金额: { 币种: string; 合计: number }[];
   /** 联系人不删，搬进未归属 */
   联系人: number;
-  /** 从线索转来的：线索还在，只是不再连着这位客户 */
+  /** 从线索转来的：线索还在，退回「跟进中」（L-014） */
   线索: number;
 };
 

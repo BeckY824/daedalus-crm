@@ -147,7 +147,8 @@ describe("删客户", () => {
     expect((await 加载复盘(dayjs().startOf("month").toDate(), dayjs().endOf("month").toDate(), "day")).total.amount).toBe(3000);
   });
 
-  it.skip("【下一版】删的是从线索转来的客户：线索上的「已转化」和「查看客户」不该悬着（C）", async () => {
+  // 2026-10-04 L-014 解开：原来线索还挂「已转化」、列表上却又出现「转客户」按钮，两样说法打架；再转一次还会覆盖转化时间
+  it("删的是从线索转来的客户 → 线索退回「跟进中」、转化时间清掉，不再悬着「已转化」（C）", async () => {
     await saveLead({ name: "海川外贸", contact: "赵总", phone: "13700000001", source: "微信", status: "待跟进" });
     const l = await prisma.lead.findFirstOrThrow();
     const 转 = await convertLead(l.id);
@@ -155,8 +156,22 @@ describe("删客户", () => {
     await deleteCustomers([转.customerId]);
     const 现 = await prisma.lead.findUniqueOrThrow({ where: { id: l.id } });
     expect(现.customerId).toBeNull();
-    // 现状：状态还写「已转化」，列表上却又出现「转客户」按钮——两样说法打架
-    expect(现.status, "客户删了，线索仍标「已转化」").not.toBe("已转化");
+    expect(现.status, "客户删了，线索仍标「已转化」").toBe("跟进中");
+    expect(现.convertedAt).toBeNull();
+  });
+
+  it("删客户时，别的线索（没转化过的、转成别位客户的）一条不动", async () => {
+    await saveLead({ name: "海川外贸", contact: "赵总", phone: "13700000001", source: "微信", status: "待跟进" });
+    await saveLead({ name: "平川科技", contact: "钱总", phone: "13700000002", source: "微信", status: "待跟进" });
+    await saveLead({ name: "没转的", contact: "孙总", phone: "13700000003", source: "微信", status: "已放弃" });
+    const [甲, 乙] = await prisma.lead.findMany({ where: { name: { in: ["海川外贸", "平川科技"] } }, orderBy: { name: "asc" } });
+    const 转甲 = await convertLead(甲.id);
+    const 转乙 = await convertLead(乙.id);
+    if (!转甲.ok || !转乙.ok) throw new Error("转化没成");
+    await deleteCustomers([转甲.customerId]);
+    const 乙现 = await prisma.lead.findUniqueOrThrow({ where: { id: 乙.id } });
+    expect([乙现.status, 乙现.customerId, !!乙现.convertedAt]).toEqual(["已转化", 转乙.customerId, true]);
+    expect((await prisma.lead.findFirstOrThrow({ where: { name: "没转的" } })).status).toBe("已放弃");
   });
 
   it("删了转化来的客户，线索可以再转一次（不报「已转化」）", async () => {
