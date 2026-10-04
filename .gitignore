@@ -85,6 +85,9 @@ desktop/server-bundle/
 desktop/.smoke-data/
 desktop/*.log
 prisma/e2e-hosted/
+# 桌面端本地模式 e2e 的库与数据目录（playwright.desktop.config.ts，每轮重建）
+/prisma/e2e-desktop.db*
+/prisma/e2e-desktop-data/
 
 # 图标生成的临时目录（scripts/make-icon.mjs 每次开头就 rmSync 它，产物在 desktop/assets/）
 /.icon-build/
