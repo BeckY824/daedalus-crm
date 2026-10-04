@@ -61,10 +61,12 @@ const Win = { platform: "win32", arch: "x64" };
 /** 照抄 main.js:839-842（能不能原地装）+ :852-858（走不走差量）。窗可差量 假设 NSIS 装在可写处 */
 function 会怎么装(新版: Record<string, unknown> | null, platform: string, { 已打包 = true, 窗可差量 = true, Mac能原地 = true } = {}) {
   if (!新版) return "不提示";
+  // 和 main.js 检查更新() 里那段一致：没有能核对的 sha256，两个平台都不原地装（B-7，2026-10-04 修）
+  const 哈希可核 = /^[a-f0-9]{64}$/i.test(String(新版.sha256 || ""));
   const 可原地 =
     platform === "win32"
-      ? { ok: 已打包 && !!新版.exe && /^[a-f0-9]{64}$/i.test(String(新版.sha256 || "")) }
-      : 新版.dmg
+      ? { ok: 已打包 && !!新版.exe && 哈希可核 }
+      : 新版.dmg && 哈希可核
         ? { ok: Mac能原地 }
         : { ok: false };
   if (!可原地.ok) return "手动（打开下载页）";
@@ -122,11 +124,18 @@ describe("feed 字段缺失 / 损坏", () => {
   });
 
   /*
-    【B · 缺口】Mac 这边 feed 漏了 sha256（手写 latest.json 时漏一行）：照样原地下载、安装，
-    下载完 `if (新版.sha256)` 才校验（main.js:939），没有就**不校验**直接换包。Windows 同样情况会拒绝（:841）。
-    两个平台应当一样：没有能核对的哈希就不原地装。
+    【B-7，2026-10-04 修】Mac 这边 feed 漏了 sha256（手写 latest.json 时漏一行）：原来照样原地下载、安装，
+    下载完 `if (新版.sha256)` 才校验，没有就**不校验**直接换包。Windows 同样情况会拒绝。
+    现在两个平台一样：没有能核对的哈希就不原地装（main.js 检查更新() 的 哈希可核）。
   */
-  it.skip("【下一版】【B-7 真坏】feed 的 Mac 那份漏了 sha256（且这一版没给差量 / 差量退回整包）：不该不校验就原地换包", async () => {
+  it("【B-7】main.js 里 Mac 那一支也看 哈希可核（上面的 会怎么装 是照抄的，这条防两边又对不上）", () => {
+    const src = require("node:fs").readFileSync(require("node:path").resolve(__dirname, "../desktop/main.js"), "utf8") as string;
+    const 段 = src.slice(src.indexOf("const 哈希可核"), src.indexOf("if (!可原地.ok)"));
+    expect(段).toMatch(/!哈希可核\s*\?\s*\{ ok: false/);
+    expect(src).not.toMatch(/if \(新版\.sha256\) await 安装\.校验sha256/);
+  });
+
+  it("【B-7】feed 的 Mac 那份漏了 sha256（且这一版没给差量 / 差量退回整包）：不该不校验就原地换包", async () => {
     假网络(官网feed("0.46.15", { sha256: undefined, zip: undefined, manifest: undefined }), null);
     const r = await 检查({ 当前版本: "0.46.14", ...Mac });
     expect(r?.sha256).toBeNull();
