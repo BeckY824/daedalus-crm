@@ -284,6 +284,9 @@ test.describe("面板里的回答和建议卡", () => {
     // 输入框也在面板里看得见，不被顶到窗外
     const 框 = (await page.locator("aside.dock textarea").first().boundingBox())!;
     expect(框.y + 框.height).toBeLessThanOrEqual(1000);
+    // J-165 后半：还没问过时输入框不贴底（原来上面空一大片，框压在最底下）——空着的面板里它在中间那一段
+    const 中 = 框.y + 框.height / 2;
+    expect(中, `输入框中线 ${中}，面板 ${板.y}～${板.y + 板.height}`).toBeLessThan(板.y + 板.height * 0.75);
   });
 
   test("J-165：面板开着时在列表页按 ⌘K，弹的是跳转单——不是把光标塞进面板输入框", async ({ page }) => {
