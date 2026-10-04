@@ -1,6 +1,7 @@
 import { control } from "@/lib/tenant/control";
 import { fmtDate } from "@/lib/utils";
 import { 系统名, 数设备, type 设备分布 } from "@/lib/tenant/device-info";
+import { 测试账号们, 测试留痕, type 测试来由 } from "@/lib/tenant/test-accounts";
 
 /**
  * 运营台要的数，全在服务端算好，页面只负责画。
@@ -9,6 +10,10 @@ import { 系统名, 数设备, type 设备分布 } from "@/lib/tenant/device-inf
  * 按北京时间分天要绕 strftime，而这里一眼能读懂比快几毫秒要紧。哪天量上来了再换。
  *
  * **按天的序列一律补零**：缺了的日子不能从横轴上消失，那样走势是假的（2026-09-19 趋势图那次）。
+ *
+ * **测试账号一律不进统计**（2026-10-04，lib/tenant/test-accounts.ts）：注册数、新注册、活跃、设备、版本、
+ * 调用、token、功能分布、注册趋势、「次数用完」都只数真实用户；测试账号单独一个数「测试账号 N 个」。
+ * 用户列表照样列出它们（带「测试」标签），点进详情也照样看得到它自己的用量。
  */
 
 const 天毫秒 = 86_400_000;
@@ -74,6 +79,8 @@ export type 账号行 = {
   /** 在用的设备里最新的那个版本；一个都没报过就是 null */
   版本: string | null;
   近30天调用: number;
+  /** 测试账号：「标的」= 运营台标的，「运营」= OPS_ACCOUNTS 里的运营账号（默认就算）；不是测试账号是 null */
+  测试: 测试来由 | null;
 };
 
 /** 版本号比大小。三段数字，别按字符串比（0.46.10 < 0.46.9 那种） */
@@ -90,12 +97,13 @@ const 更晚 = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b 
 /** 所有账号，一个账号一行，带上设备、AI 余额和近 30 天调用 */
 export async function 读账号们(now = new Date()): Promise<账号行[]> {
   const 起 = new Date(now.getTime() - 30 * 天毫秒);
-  const [账号们, 赠送, 用量, 令牌们, 调用] = await Promise.all([
+  const [账号们, 赠送, 用量, 令牌们, 调用, 测试们] = await Promise.all([
     control.account.findMany({ orderBy: { createdAt: "desc" }, take: 500, include: { memberships: { select: { workspaceId: true } } } }),
     control.accountAiGrant.groupBy({ by: ["accountId"], _sum: { amount: true } }),
     control.accountAiUsage.findMany(),
     control.deviceToken.findMany({ select: { id: true, accountId: true, name: true, createdAt: true, lastUsedAt: true, revokedAt: true } }),
     control.aiCall.groupBy({ by: ["ownerId"], where: { ownerKind: "account", at: { gte: 起 } }, _count: { _all: true } }),
+    测试账号们(),
   ]);
   const 信息 = new Map(
     (await control.deviceInfo.findMany({ where: { deviceTokenId: { in: 令牌们.map((t) => t.id) } } })).map((d) => [d.deviceTokenId, d]),
@@ -142,15 +150,22 @@ export async function 读账号们(now = new Date()): Promise<账号行[]> {
       分布: 数设备(在用.map((d) => ({ platform: d.系统 === "Mac" ? "darwin" : d.系统 === "Windows" ? "win32" : d.系统 === "Linux" ? "linux" : null }))),
       版本: 版本们.sort(比版本).at(-1) ?? null,
       近30天调用: 调用表.get(a.id) ?? 0,
+      测试: 测试们.get(a.id) ?? null,
     };
   });
 }
 
-/** 送过、而且用光了。没送过的不算——那是「没有过」，不是「用完了」 */
-export const 用完了 = (a: { ai: { 送: number; 剩: number } }) => a.ai.送 > 0 && a.ai.剩 === 0;
+/** 真实用户：不是测试账号的。运营台所有「有多少人」的数都从这里数 */
+export const 真实用户 = <T extends { 测试: 测试来由 | null }>(账号: T[]): T[] => 账号.filter((a) => !a.测试);
+
+/** 送过、而且用光了。没送过的不算——那是「没有过」，不是「用完了」。测试账号不限次数，永远不算 */
+export const 用完了 = (a: { ai: { 送: number; 剩: number }; 测试?: 测试来由 | null }) => !a.测试 && a.ai.送 > 0 && a.ai.剩 === 0;
 
 export type 总览数 = {
+  /** 只有真实用户（测试账号不在里面） */
   账号: 账号行[];
+  /** 测试账号几个（不算在 账号 里） */
+  测试账号数: number;
   新注册7天: number;
   活跃7天: number;
   设备: 设备分布;
@@ -166,14 +181,18 @@ export type 总览数 = {
 
 export async function 读总览(now = new Date()): Promise<总览数> {
   const 起 = new Date(now.getTime() - 30 * 天毫秒);
-  const [账号, 调用, 工作区们, 没处理, 最新反馈] = await Promise.all([
+  const [全部账号, 全部调用, 工作区们, 没处理, 最新反馈] = await Promise.all([
     读账号们(now),
-    control.aiCall.findMany({ where: { at: { gte: 起 } }, select: { at: true, feature: true, inputTokens: true, outputTokens: true }, take: 100_000 }),
+    control.aiCall.findMany({ where: { at: { gte: 起 } }, select: { at: true, feature: true, inputTokens: true, outputTokens: true, ownerKind: true, ownerId: true }, take: 100_000 }),
     control.workspace.findMany({ select: { status: true, trialEndsAt: true, paidUntil: true } }),
     control.feedback.count({ where: { handled: false } }),
     control.feedback.findMany({ where: { handled: false }, orderBy: { at: "desc" }, take: 4, select: { id: true, at: true, body: true, who: true } }),
   ]);
   const 七天前 = new Date(now.getTime() - 7 * 天毫秒).toISOString();
+  // 测试账号整个拿掉：人不算，它们的设备、版本、调用也不算
+  const 账号 = 真实用户(全部账号);
+  const 测试ids = new Set(全部账号.filter((a) => a.测试).map((a) => a.id));
+  const 调用 = 全部调用.filter((c) => !(c.ownerKind === "account" && 测试ids.has(c.ownerId)));
 
   // 调用按天：次数和 token 一起算，悬停时两样都给
   const 天们 = 近几天(30, now);
@@ -198,6 +217,7 @@ export async function 读总览(now = new Date()): Promise<总览数> {
 
   return {
     账号,
+    测试账号数: 测试ids.size,
     新注册7天: 账号.filter((a) => a.createdAt >= 七天前).length,
     活跃7天: 账号.filter((a) => a.最近活跃 && a.最近活跃 >= 七天前).length,
     设备: 数设备(在用设备.map((d) => ({ platform: d.系统 === "Mac" ? "darwin" : d.系统 === "Windows" ? "win32" : d.系统 === "Linux" ? "linux" : null }))),
@@ -228,17 +248,20 @@ export type 用户详情 = {
   token30天: number;
   反馈: { id: string; at: string; body: string; path: string | null; version: string | null; handled: boolean }[];
   机器数: number;
+  /** 标 / 取消测试账号的留痕，新的在前 */
+  测试留痕: string[];
 };
 
 export async function 读用户(id: string, now = new Date()): Promise<用户详情 | null> {
   const 账号 = (await 读账号们(now)).find((a) => a.id === id);
   if (!账号) return null;
   const 起 = new Date(now.getTime() - 30 * 天毫秒);
-  const [流水, 调用, 反馈, 机器数] = await Promise.all([
+  const [流水, 调用, 反馈, 机器数, 留痕] = await Promise.all([
     control.accountAiGrant.findMany({ where: { accountId: id }, orderBy: { createdAt: "desc" }, take: 200 }),
     control.aiCall.findMany({ where: { ownerKind: "account", ownerId: id, at: { gte: 起 } }, select: { at: true, feature: true, model: true, inputTokens: true, outputTokens: true } }),
     control.feedback.findMany({ where: { accountId: id }, orderBy: { at: "desc" }, take: 50 }),
     control.machineSignup.count({ where: { accountId: id } }),
+    测试留痕(id),
   ]);
   const 天们 = 近几天(30, now);
   const 桶 = new Map(天们.map((d) => [d, { 数: 0, token: 0 }]));
@@ -270,6 +293,7 @@ export async function 读用户(id: string, now = new Date()): Promise<用户详
     token30天,
     反馈: 反馈.map((f) => ({ id: f.id, at: f.at.toISOString(), body: f.body, path: f.path, version: f.version, handled: f.handled })),
     机器数,
+    测试留痕: 留痕,
   };
 }
 
@@ -367,12 +391,21 @@ export async function 读工作区们(): Promise<工作区行[]> {
   });
 }
 
-/** 模型用量页：按功能分（成本概览 里没有这一维） */
-export async function 读功能分布(天数: number, now = new Date()): Promise<{ 功能: string; 次数: number; token: number }[]> {
+/** 模型用量页：按功能分（成本概览 里没有这一维）。测试账号的调用不算（和 成本概览 同一个口径） */
+export async function 读功能分布(
+  天数: number,
+  now = new Date(),
+  测试账号: ReadonlySet<string> = new Set(),
+): Promise<{ 功能: string; 次数: number; token: number }[]> {
   const 起 = new Date(now.getTime() - 天数 * 天毫秒);
-  const 行 = await control.aiCall.findMany({ where: { at: { gte: 起 } }, select: { feature: true, inputTokens: true, outputTokens: true }, take: 100_000 });
+  const 行 = await control.aiCall.findMany({
+    where: { at: { gte: 起 } },
+    select: { feature: true, inputTokens: true, outputTokens: true, ownerKind: true, ownerId: true },
+    take: 100_000,
+  });
   const 桶 = new Map<string, { 次数: number; token: number }>();
   for (const c of 行) {
+    if (c.ownerKind === "account" && 测试账号.has(c.ownerId)) continue;
     const k = 功能名之(c.feature);
     const b = 桶.get(k) ?? { 次数: 0, token: 0 };
     b.次数++;

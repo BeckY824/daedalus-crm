@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { control } from "./control";
+import { 是测试账号 } from "./test-accounts";
 
 /**
  * AI 免费次数的赠送账本。
@@ -203,8 +204,18 @@ export async function 注册赠送发过吗(owner: Owner): Promise<boolean> {
   return !!row;
 }
 
-/** 只看不扣 */
-export async function 余额(owner: Owner): Promise<{ 上限: number; 用掉: number; 还剩: number }> {
+/**
+ * 测试账号（lib/tenant/test-accounts.ts，2026-10-04）对外报的余额。它不扣、不挡，这个数只是给
+ * **老版本桌面端**看的——它们不认 不限 这个字段，报真实余额的话测试的人会看到「还剩 0 次」、却照样问得出来。
+ * 新版本认 不限，整个不显示次数
+ */
+export const 测试账号显示余量 = 999;
+
+/** 只看不扣。测试账号带 不限: true（见 测试账号显示余量） */
+export async function 余额(owner: Owner): Promise<{ 上限: number; 用掉: number; 还剩: number; 不限?: true }> {
+  if (owner.kind === "account" && (await 是测试账号(owner.id))) {
+    return { 上限: 测试账号显示余量, 用掉: 0, 还剩: 测试账号显示余量, 不限: true };
+  }
   const [送, 用] = await Promise.all([赠送总和(owner), 用掉次数(owner)]);
   // 拦下的那次会还回去，但并发的瞬间计数可能短暂超过上限，对外夹一下
   return { 上限: 送, 用掉: Math.min(用, 送), 还剩: Math.max(0, 送 - 用) };
@@ -270,6 +281,12 @@ export type 扣的结果 = { ok: true; 还剩: number; 扣了: boolean } | { ok:
  * 最坏的情况是这个问题退回老口径，而不是问不出来。
  */
 export async function 按问题扣一次(owner: Owner, requestId: string | null): Promise<扣的结果> {
+  /*
+    测试账号（2026-10-04）：不扣、不挡，次数是 0 也照样放行。账本一个字都不写（AccountAiUsage 不加、AiCharge 不记），
+    所以 扣了 = false，上游失败时也没什么可退。调用本身照样记进 AiCall（网关那边的 记一次），方便我们看。
+    只管账号这一路：工作区（托管版网页端）不看测试标记——共享试用工作区是发给外面的人用的
+  */
+  if (owner.kind === "account" && (await 是测试账号(owner.id))) return { ok: true, 还剩: 测试账号显示余量, 扣了: false };
   if (!requestId) {
     const r = await 扣一次(owner);
     return r.ok ? { ok: true, 还剩: r.还剩, 扣了: true } : r;
@@ -332,6 +349,8 @@ export async function 退这一次(owner: Owner, requestId: string | null, 扣�
 }
 
 export async function 扣一次(owner: Owner): Promise<{ ok: true; 还剩: number } | { ok: false; 上限: number }> {
+  // 测试账号不扣（见 按问题扣一次 开头那段）。这里再拦一道，免得哪天有人绕过 按问题扣一次 直接调它
+  if (owner.kind === "account" && (await 是测试账号(owner.id))) return { ok: true, 还剩: 测试账号显示余量 };
   await 结算赠送(owner);
   const 上限 = await 赠送总和(owner);
   const after = await 自增用量(owner);

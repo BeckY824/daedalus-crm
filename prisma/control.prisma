@@ -460,3 +460,20 @@ model SyncBatch {
 
   @@index([teamId, id])
 }
+
+/// 测试账号（2026-10-04，control-migrations/018）。我们自己人测着玩的号：
+///   - AI 不限次数：网关不扣、次数用完也不挡（lib/tenant/credits.ts 的 按问题扣一次）。调用照样记进 AiCall，方便我们看
+///   - 不算真实用户：运营台的注册数、活跃、设备、版本、用量、趋势一律排除，只单独显示「测试账号 N 个」
+///   - 不触发运营通知：新注册、用量异常都不为它弹（lib/ops-notices.ts）
+/// 运营账号（OPS_ACCOUNTS 里的）不用在这里登记，默认就当测试账号，见 lib/tenant/test-accounts.ts。
+///
+/// 单独一张表而不是给 Account 加一列：控制面的迁移只能加表不能改表（同上）。
+/// 取消不删行，只把 on 置成 false：log 那一串留痕要留着——谁、什么时候标的、什么时候取消的
+model TestAccount {
+  accountId String   @id
+  /// 现在算不算测试账号
+  on        Boolean  @default(true)
+  /// 一次一行：「2026-10-04 15:30 标为测试账号 · ops@example.com」，新的在后
+  log       String   @default("")
+  updatedAt DateTime @default(now())
+}

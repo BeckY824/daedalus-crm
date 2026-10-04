@@ -2,6 +2,7 @@ import OpsShell from "../OpsShell";
 import UsageView from "./UsageView";
 import { 成本概览 } from "@/lib/tenant/ai-cost";
 import { control } from "@/lib/tenant/control";
+import { 测试账号们 } from "@/lib/tenant/test-accounts";
 import { 反馈没处理数, 读功能分布, 近几天 } from "../data";
 import { 环境, 验口令 } from "../guard";
 
@@ -13,9 +14,11 @@ export const dynamic = "force-dynamic";
  */
 export default async function UsagePage({ searchParams }: { searchParams: Promise<{ token?: string }> }) {
   const token = await 验口令(searchParams);
+  // 测试账号的调用照样记着，但不进这一页的任何数，只在顶上单独说一句（lib/tenant/test-accounts.ts）
+  const 测试 = new Set((await 测试账号们()).keys());
   const [成本, 功能, 没处理, 账号们, 工作区们] = await Promise.all([
-    成本概览(30),
-    读功能分布(30),
+    成本概览(30, 测试),
+    读功能分布(30, new Date(), 测试),
     反馈没处理数(),
     control.account.findMany({ select: { id: true, name: true, phone: true, email: true } }),
     control.workspace.findMany({ select: { id: true, name: true } }),
@@ -34,7 +37,16 @@ export default async function UsagePage({ searchParams }: { searchParams: Promis
   }));
   return (
     <OpsShell 当前="模型用量" token={token} 环境={环境()} 渲染于={new Date().toISOString()} 反馈没处理={没处理}>
-      <UsageView token={token} 合计={成本.合计} 单价={成本.单价} 按天={按天} 按模型={成本.按模型} 功能={功能} 榜={榜} />
+      <UsageView
+        token={token}
+        合计={成本.合计}
+        单价={成本.单价}
+        按天={按天}
+        按模型={成本.按模型}
+        功能={功能}
+        榜={榜}
+        测试={{ 账号数: 测试.size, 次数: 成本.测试.次数, token: 成本.测试.入 + 成本.测试.出 }}
+      />
     </OpsShell>
   );
 }

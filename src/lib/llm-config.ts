@@ -154,6 +154,8 @@ export type 云端余额 = {
    * 老版本服务端不返回这个字段，此时是 undefined：不知道就什么都不说，别猜。
    */
   注册赠送已发?: boolean;
+  /** 测试账号（2026-10-04）：AI 不限次数，界面上不显示次数。老服务端不返回 */
+  不限?: boolean;
 };
 
 async function 问云端余额(env: { apiKey: string; baseUrl: string }): Promise<云端余额 | null> {
@@ -176,6 +178,7 @@ async function 问云端余额(env: { apiKey: string; baseUrl: string }): Promis
       每日赠送截至: typeof d.每日赠送截至 === "string" ? d.每日赠送截至 : undefined,
       注册赠送: typeof d.注册赠送 === "number" ? d.注册赠送 : undefined,
       注册赠送已发: typeof d.注册赠送已发 === "boolean" ? d.注册赠送已发 : undefined,
+      不限: d.不限 === true ? true : undefined,
     };
   } catch {
     // 断网、服务端没开网关、老版本服务端——都按「查不到」处理

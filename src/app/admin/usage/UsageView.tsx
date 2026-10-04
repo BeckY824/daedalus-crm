@@ -21,6 +21,7 @@ export default function UsageView({
   按模型,
   功能,
   榜,
+  测试,
 }: {
   token: string;
   合计: { 次数: number; 入: number; 出: number };
@@ -29,13 +30,21 @@ export default function UsageView({
   按模型: { model: string; 次数: number; 入: number; 出: number }[];
   功能: { 功能: string; 次数: number; token: number }[];
   榜: 榜条[];
+  /** 测试账号（不在上面任何一个数里） */
+  测试: { 账号数: number; 次数: number; token: number };
 }) {
   const 平均 = 合计.次数 ? Math.round((合计.入 + 合计.出) / 合计.次数) : 0;
   const 钱 = 单价 ? (合计.入 * 单价.入 + 合计.出 * 单价.出) / 1e6 : null;
 
   return (
     <>
-      <页头 标题="模型用量" 说明="近 30 天。这份数据只能随时间攒、补不回来——从 0.44.0 起才开始记" />
+      <页头
+        标题="模型用量"
+        说明={
+          "近 30 天。这份数据只能随时间攒、补不回来——从 0.44.0 起才开始记" +
+          (测试.账号数 ? `。测试账号 ${测试.账号数} 个不算在内（近 30 天 ${千分位(测试.次数)} 次、${千分位(测试.token)} token）` : "")
+        }
+      />
 
       <div className="opx-kpis">
         <Kpi 名="调用" icon={<ThunderboltOutlined />} 数={合计.次数} 尾="次" 注={合计.次数 ? `平均一次 ${千分位(平均)} token` : "还没有记录"} />

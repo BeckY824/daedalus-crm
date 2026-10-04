@@ -37,6 +37,8 @@ export async function 读AI计次({ 问余额 }: { 问余额: boolean }): Promis
   if (来源 !== "cloud") return 不计次;
   if (!问余额) return { 计次: true, 还剩: null, 上限: null };
   const d = await describeLlmConfig();
+  // 测试账号（云端说 不限）：一次都不扣，「1 次」角标和「还剩 N 次」都不该挂
+  if (d.credits?.不限) return 不计次;
   // 问不到（断网、云端没开网关）：照样计次，只是不报数——角标照挂，那行字换成不带数的说法
   return { 计次: true, 还剩: d.credits?.还剩 ?? null, 上限: d.credits?.上限 ?? null };
 }

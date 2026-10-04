@@ -1,4 +1,5 @@
 import { control } from "./tenant/control";
+import { 测试账号们 } from "./tenant/test-accounts";
 
 /**
  * 运营通知（2026-10-02）：运营台里有事，**只推给运营名单里那一个账号的桌面端**。
@@ -11,6 +12,8 @@ import { control } from "./tenant/control";
  *   - 一次来了一堆同类的（睡了一晚上醒来），并成一条「新增 N 个用户」，不刷屏
  *   - 往回最多补 24 小时：放了三天假回来，没必要把三天的事一条条弹出来，运营台里都有
  *   - 用量异常按「谁 + 哪个钟头」成键，同一个钟头只叫一次（去重在壳里，键由这里给）
+ *   - 测试账号（含运营账号自己，见 lib/tenant/test-accounts.ts）的注册、用量一律不报（2026-10-04）。
+ *     注册那一刻还没来得及标的号照样会报一次——标是事后的事，这条挡不住，也不必挡
  */
 
 export type 运营事件 = {
@@ -88,7 +91,8 @@ export async function 读运营通知(since: string | null | undefined, now = ne
   // 「今天」按北京时间零点
   const 今天零点 = new Date(Date.parse(`${北京(now).slice(0, 10)}T00:00:00+08:00`));
 
-  const [新账号, 新反馈, 近一小时, 今天] = await Promise.all([
+  const [测试们, 新账号, 新反馈, 近一小时, 今天] = await Promise.all([
+    测试账号们(env),
     control.account.findMany({
       where: { createdAt: { gt: 起, lte: now } },
       orderBy: { createdAt: "asc" },
@@ -100,7 +104,9 @@ export async function 读运营通知(since: string | null | undefined, now = ne
   ]);
 
   const 事件: 运营事件[] = [];
+  const 是测试 = (kind: string, id: string) => kind === "account" && 测试们.has(id);
   for (const a of 新账号) {
+    if (是测试("account", a.id)) continue;
     事件.push({
       key: `注册:${a.id}`,
       kind: "注册",
@@ -123,10 +129,12 @@ export async function 读运营通知(since: string | null | undefined, now = ne
   const 超的: { kind: string; id: string; 说: string; key: string }[] = [];
   const 钟头 = 北京(now).slice(0, 13);
   for (const g of 近一小时) {
+    if (是测试(g.ownerKind, g.ownerId)) continue;
     if (g._count._all >= 线.每小时提问) 超的.push({ kind: g.ownerKind, id: g.ownerId, 说: `近一小时问了 AI ${g._count._all} 次`, key: `用量:时:${g.ownerKind}:${g.ownerId}@${钟头}` });
   }
   const 日 = 北京(now).slice(0, 10);
   for (const g of 今天) {
+    if (是测试(g.ownerKind, g.ownerId)) continue;
     const t = (g._sum.inputTokens ?? 0) + (g._sum.outputTokens ?? 0);
     if (t >= 线.每天token) 超的.push({ kind: g.ownerKind, id: g.ownerId, 说: `今天已用 ${(t / 10_000).toFixed(0)} 万 token`, key: `用量:日:${g.ownerKind}:${g.ownerId}@${日}` });
   }

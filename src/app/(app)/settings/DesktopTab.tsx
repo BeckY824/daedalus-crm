@@ -115,7 +115,9 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
             已登录：<b>{账号 || "（未知）"}</b>
           </Typography.Paragraph>
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-            {余额
+            {余额?.不限
+              ? "这是测试账号，AI 不限次数。"
+              : 余额
               ? `AI 免费次数还剩 ${余额.还剩} 次（一共送过 ${余额.上限} 次，用掉 ${余额.用掉} 次${赠送说明(余额) ? `；${赠送说明(余额)}` : ""}）。`
               : "AI 免费次数暂时查不到（可能没联网）。"}
             也可以在「AI 接入」里填自己的 Key，那样不走这个额度。数据始终只在这台机器上。

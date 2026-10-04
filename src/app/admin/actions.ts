@@ -168,6 +168,24 @@ export async function grantAccountAi(input: { token: string; accountId: string; 
 }
 
 /**
+ * 标成 / 取消测试账号（2026-10-04，lib/tenant/test-accounts.ts）。测试账号 AI 不限次数、不算进运营台的统计、不触发运营通知。
+ * 留痕：谁（运营账号的邮箱；用网址口令进来的记「口令」）、什么时候，追加在 TestAccount.log 里，取消也不删。
+ * 运营账号（OPS_ACCOUNTS）本来就算测试账号，在这里取消只是去掉「标的」那一份，它仍然因为是运营账号而算。
+ */
+export async function 设测试账号(input: { token: string; accountId: string; on: boolean }): Promise<AdminResult> {
+  const g = await guard(input.token);
+  if (!g.ok) return g;
+  const a = await control.account.findUnique({ where: { id: input.accountId }, select: { id: true } });
+  if (!a) return { ok: false, error: "账号不存在" };
+  const 运营 = await 当前运营账号();
+  const 运营名 = 运营 ? ((await control.account.findUnique({ where: { id: 运营 }, select: { email: true, phone: true } })) ?? null) : null;
+  const { 设测试账号: 设 } = await import("@/lib/tenant/test-accounts");
+  await 设(a.id, Boolean(input.on), 运营名?.email ?? 运营名?.phone ?? "口令");
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}
+
+/**
  * 反馈标记处理过了（可以来回切）。
  * 不提供删除：一条反馈是有人花时间写的，读过就收起来，但不该被一个误点抹掉。
  */

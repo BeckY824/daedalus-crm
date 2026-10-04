@@ -175,7 +175,9 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
           <b>用我们的</b>
           <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 2 }}>
             {llm.source === "cloud" && llm.account ? (
-              llm.credits ? (
+              llm.credits?.不限 ? (
+                <>走你登录的云端账号 <b>{llm.account}</b>（测试账号，AI 不限次数）</>
+              ) : llm.credits ? (
                 <>
                   走你登录的云端账号 <b>{llm.account}</b>，免费次数还剩 <b>{llm.credits.还剩}</b> 次（共送过 {llm.credits.上限}、已用 {llm.credits.用掉}）
                   {赠送说明(llm.credits) && <div style={{ marginTop: 2 }}>{赠送说明(llm.credits)}</div>}

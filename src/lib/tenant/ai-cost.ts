@@ -115,6 +115,8 @@ export type 成本概览 = {
   /** 名：运营台把 id 换成人。ai-cost 本身不认识账号表，由调用方填 */
   按归属: { kind: string; id: string; 名?: string; 次数: number; 入: number; 出: number }[];
   单价: { 入: number; 出: number } | null;
+  /** 排除在外的测试账号这段时间用了多少（不在上面任何一个数里），运营台单独显示一行 */
+  测试: { 次数: number; 入: number; 出: number };
 };
 
 /**
@@ -123,8 +125,11 @@ export type 成本概览 = {
  * 在内存里聚合而不是写 SQL 分组：SQLite 按本地日历天分组要绕 strftime + 时区，
  * 而这张表眼下一天最多几百行，取回来 reduce 一遍更直白也更好测。
  * 哪天行数上来了再换成 SQL——那时它也该有自己的归档策略了。
+ *
+ * `测试账号`：这些账号（桌面端那一路，ownerKind = account）的调用不进合计、按天、按模型、按归属，
+ * 只合成一个 测试 的数（lib/tenant/test-accounts.ts，2026-10-04「不算真实用户」）。
  */
-export async function 成本概览(天数 = 14): Promise<成本概览> {
+export async function 成本概览(天数 = 14, 测试账号: ReadonlySet<string> = new Set()): Promise<成本概览> {
   const 起 = new Date();
   起.setDate(起.getDate() - (天数 - 1));
   起.setHours(0, 0, 0, 0);
@@ -136,12 +141,20 @@ export async function 成本概览(天数 = 14): Promise<成本概览> {
     select: { at: true, model: true, inputTokens: true, outputTokens: true, ownerKind: true, ownerId: true },
   });
 
-  const 合计 = { 次数: rows.length, 入: 0, 出: 0 };
+  const 测试 = { 次数: 0, 入: 0, 出: 0 };
+  const 合计 = { 次数: 0, 入: 0, 出: 0 };
   const 天 = new Map<string, { 次数: number; 入: number; 出: number }>();
   const 模 = new Map<string, { 次数: number; 入: number; 出: number }>();
   const 主 = new Map<string, { kind: string; id: string; 次数: number; 入: number; 出: number }>();
 
   for (const r of rows) {
+    if (r.ownerKind === "account" && 测试账号.has(r.ownerId)) {
+      测试.次数++;
+      测试.入 += r.inputTokens;
+      测试.出 += r.outputTokens;
+      continue;
+    }
+    合计.次数++;
     合计.入 += r.inputTokens;
     合计.出 += r.outputTokens;
     // 按本地日历天分（生产 TZ=Asia/Shanghai），和运营看报表的口径一致
@@ -166,5 +179,6 @@ export async function 成本概览(天数 = 14): Promise<成本概览> {
     按模型: [...模.entries()].map(([model, v]) => ({ model, ...v })).sort((a, b) => b.入 + b.出 - (a.入 + a.出)),
     按归属: [...主.values()].sort((a, b) => b.入 + b.出 - (a.入 + a.出)).slice(0, 10),
     单价: 单价(),
+    测试,
   };
 }

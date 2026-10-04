@@ -11,6 +11,7 @@ import { grantAccountAi } from "../../actions";
 import { 站内, LinkPending } from "../../OpsShell";
 import { Kpi, 卡片, 按天柱图, 横条图, 头像, 何时, 千分位, 次数条, 系统 } from "../../ui";
 import type { 用户详情, 设备行 } from "../../data";
+import { TestAccountToggle as 测试开关, TestAccountTag as 测试标签 } from "../TestAccountToggle";
 
 /**
  * 一个人的详情。回答四个问题，从上往下：
@@ -18,7 +19,8 @@ import type { 用户详情, 设备行 } from "../../data";
  *   AI 还剩多少、这个月用了多少、用在哪（数 + 图）
  *   他在几台什么电脑上、停在哪一版（设备表）
  *   次数是怎么来的、他跟我们说过什么（赠送流水、反馈）
- * 唯一的动作是「AI 次数 +10」：内测阶段最常见的求助就是「用完了」。
+ * 动作两个：「AI 次数 +10」（内测阶段最常见的求助就是「用完了」），和标 / 取消测试账号（2026-10-04）。
+ * 测试账号不限次数，+10 对它没意义，按钮就不摆了。
  */
 export default function UserDetailView({ token, 详情 }: { token: string; 详情: 用户详情 }) {
   const { message } = App.useApp();
@@ -48,6 +50,7 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
               <h1>{a.name}</h1>
               <span className={`opx-tag${a.来路 === "桌面端" ? " opx-tag-blue" : ""}`}>{a.来路}</span>
               {a.active ? <span className="opx-tag opx-tag-ok">正常</span> : <span className="opx-tag opx-tag-dead">已停用</span>}
+              <测试标签 测试={a.测试} />
             </div>
             <div className="opx-profile-meta">
               <span>
@@ -63,13 +66,22 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
                 领过注册赠送的电脑 <b className="opx-num">{详情.机器数}</b> 台
               </span>
             </div>
+            {详情.测试留痕.length > 0 && (
+              <div style={{ marginTop: 6, fontSize: 12, color: "var(--x-faint)" }} title={详情.测试留痕.join("\n")}>
+                测试账号留痕：{详情.测试留痕[0]}
+                {详情.测试留痕.length > 1 && `（共 ${详情.测试留痕.length} 次，悬停看全部）`}
+              </div>
+            )}
           </div>
-          <div style={{ marginLeft: "auto" }}>
-            <Popconfirm title={`给 ${a.name} 加 10 次 AI？`} description="记成「运营台加的」，只加不减，加了撤不回。" onConfirm={加十次}>
-              <Button type="primary" icon={<GiftOutlined />} loading={忙}>
-                AI 次数 +10
-              </Button>
-            </Popconfirm>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+            <测试开关 token={token} accountId={a.id} name={a.name} 测试={a.测试} />
+            {!a.测试 && (
+              <Popconfirm title={`给 ${a.name} 加 10 次 AI？`} description="记成「运营台加的」，只加不减，加了撤不回。" onConfirm={加十次}>
+                <Button type="primary" icon={<GiftOutlined />} loading={忙}>
+                  AI 次数 +10
+                </Button>
+              </Popconfirm>
+            )}
           </div>
         </div>
       </section>
@@ -79,13 +91,22 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
           <div className="opx-kpi-k">
             <GiftOutlined /> AI 余额
           </div>
-          <div className="opx-kpi-v">
-            {a.ai.剩}
-            <i>次</i>
-          </div>
-          <div className="opx-kpi-n" style={{ marginTop: 8 }}>
-            <次数条 剩={a.ai.剩} 送={a.ai.送} />
-          </div>
+          {a.测试 ? (
+            <>
+              <div className="opx-kpi-v">不限</div>
+              <div className="opx-kpi-n">测试账号不扣次数；调用照样记在下面</div>
+            </>
+          ) : (
+            <>
+              <div className="opx-kpi-v">
+                {a.ai.剩}
+                <i>次</i>
+              </div>
+              <div className="opx-kpi-n" style={{ marginTop: 8 }}>
+                <次数条 剩={a.ai.剩} 送={a.ai.送} />
+              </div>
+            </>
+          )}
         </div>
         <Kpi 名="近 30 天模型调用" icon={<ThunderboltOutlined />} 数={详情.调用30天} 尾="次" 注={`按问题扣的：开户以来 ${千分位(a.ai.用)} 次（一问可能调好几次）`} />
         <Kpi 名="近 30 天 token" icon={<FireOutlined />} 数={详情.token30天} 注={详情.调用30天 ? `平均一次 ${千分位(Math.round(详情.token30天 / 详情.调用30天))}` : "这 30 天没用过"} />
