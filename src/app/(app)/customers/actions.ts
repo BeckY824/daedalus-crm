@@ -4,6 +4,7 @@ import { 不在了 } from "@/lib/not-there";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { 看全部 } from "@/lib/team-scope";
 import { requireUser } from "@/lib/auth";
 import { resolveAttribution, wouldCreateCycle } from "@/lib/attribution";
 import {
@@ -93,8 +94,10 @@ export async function checkDuplicate(phone: string, excludeId?: string): Promise
   await requireUser();
   const 号 = 规整手机号(phone);
   if (!号) return null;
-  const hit = await prisma.customer.findFirst({
-    where: { ...同号条件(号, await 分机留存起()), ...(excludeId ? { id: { not: excludeId } } : {}) },
+  const 起 = await 分机留存起();
+  // 看全部：团队版业务员录到同事已有的号码，也要提醒「这是谁的客户」（只给名字和负责人，打不开详情）
+  const hit = await 看全部(() => prisma.customer.findFirst({
+    where: { ...同号条件(号, 起), ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: {
       id: true,
       name: true,
@@ -102,7 +105,7 @@ export async function checkDuplicate(phone: string, excludeId?: string): Promise
       createdAt: true,
       salesOwner: { select: { name: true } },
     },
-  });
+  }));
   if (!hit) return null;
   return {
     id: hit.id,

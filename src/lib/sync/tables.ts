@@ -52,10 +52,12 @@ export const 不同步表 = ["AiConversation", "AiMessage", "AiProject", "Import
  *   **归属三件套（attributionChannelId / attributionCustomerId / channelOwnerId）不算派生**：它们是保存那一刻
  *   按推荐链固化的（lib/attribution.ts：「后续改动上游不会追溯性地改变已有学员的归属」），和推荐人一起写、一起同步；
  *   User.password——每台各登各的云端账号，本机密码只是占位。
+ *   User.role——老板 / 业务员按中转的成员名单每台自己对（lib/sync/client.ts 对齐角色、lib/team-scope.ts）：
+ *   同步的话谁都能在自己电脑上把自己改成老板，再同步给全队（2026-10-04 两档权限）。别人的账号同步进来默认业务员
  */
 export const 不同步列: Record<string, string[]> = {
   Customer: ["lastFollowAt"],
-  User: ["password"],
+  User: ["password", "role"],
 };
 
 /** Setting 只同步这几个 key：业务配置是全团队一份；AI Key、本机偏好不同步 */

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireUser, createSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { 本机我 } from "@/lib/desktop/me";
+import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { recordAudit } from "@/lib/audit";
 import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
@@ -24,7 +24,28 @@ async function 换票() {
 export async function 读团队状态() {
   await requireUser();
   const s = await 团队状态();
-  return s.在团队 ? { ...s, 重复: await 疑似重复() } : s;
+  if (!s.在团队) return s;
+  // 老板看每个人的客户数和跟进（2026-10-04：老板要看得到业务员的跟进过程）；疑似重复也只给老板看——业务员只看得到自己那一半
+  if (!s.我是建的人) return { ...s, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人> };
+  return { ...s, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)) };
+}
+
+type 一人 = { 客户: number; 近7天跟进: number; 最近跟进: string | null; userId: string };
+
+/** 老板那台：每个成员手上几位客户、近 7 天跟进几次、最近一次是什么时候。成员的业务库 id = acct_<云端账号 id> */
+async function 每人概况(账号们: string[]): Promise<Record<string, 一人>> {
+  const 七天前 = new Date(Date.now() - 7 * 86400_000);
+  const 出: Record<string, 一人> = {};
+  for (const a of 账号们) {
+    const id = 团队身份id(a);
+    const [客户, 近7天跟进, 最近] = await Promise.all([
+      prisma.customer.count({ where: { salesOwnerId: id } }),
+      prisma.followUp.count({ where: { ownerId: id, occurredAt: { gte: 七天前 } } }),
+      prisma.followUp.findFirst({ where: { ownerId: id }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } }),
+    ]);
+    出[a] = { 客户, 近7天跟进, 最近跟进: 最近?.occurredAt.toISOString() ?? null, userId: id };
+  }
+  return 出;
 }
 
 export async function 建团队动作(名字: string) {

@@ -19,7 +19,8 @@
  *      而补一格备注不该让一个人静默换主。
  */
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma, defaultClient } from "@/lib/prisma";
+import { 看全部, 限定的我, 看得到 } from "@/lib/team-scope";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { resolveAttribution } from "@/lib/attribution";
@@ -90,7 +91,8 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
   // 带分机的号也认老库里只存了主号的那位，规矩见 lib/phone-dedupe 的 认人表（预览和执行同一张表，数才对得上）
   const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
   const 表 = 认人表(
-    await prisma.customer.findMany({ where: { phone: { in: 这一批.flatMap(同号写法) } }, select: { phone: true, createdAt: true } }),
+    // 团队版业务员：同事的客户也要认出来（不然悄悄建出第二份），看全部
+    await 看全部(() => prisma.customer.findMany({ where: { phone: { in: 这一批.flatMap(同号写法) } }, select: { phone: true, createdAt: true } })),
     这一批,
     await 分机留存起(),
   );
@@ -181,10 +183,15 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
 
   // 带分机的号也认老库里只存了主号的那位（第三轮 B4，见 lib/phone 的 同号写法）
   const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
-  const 命中 = await prisma.customer.findMany({
+  /*
+    团队版业务员（lib/team-scope.ts）：同号的人要看全部才认得出——同事的客户也算「已经有了」，不另建一份；
+    但同事的客户不替他补空（业务员改不了别人的客户），算跳过
+  */
+  const 命中 = await 看全部(() => prisma.customer.findMany({
     where: { phone: { in: 这一批.flatMap(同号写法) } },
-    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true },
-  });
+    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
+  }));
+  const 限定我 = await 限定的我(defaultClient);
   const 表 = 认人表(命中, 这一批, await 分机留存起());
 
   const batch = await prisma.importBatch.create({
@@ -217,6 +224,10 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     }
     const 旧 = 认.旧;
 
+    if (旧 && !看得到(旧 as { salesOwnerId: string | null }, 限定我)) {
+      跳过++;
+      continue;
+    }
     if (旧) {
       if (方案.重复行 !== "补空") {
         跳过++;
@@ -266,7 +277,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       await prisma.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
       新建++;
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
-      表.记下({ id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt });
+      表.记下({ id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null });
     } catch {
       // 唯一约束、非法枚举之类：这一条不进，别把整批带下水
       进不了++;

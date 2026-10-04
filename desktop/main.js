@@ -1522,10 +1522,15 @@ if (!app.requestSingleInstanceLock()) {
     });
     // 切回应用时立刻再问一次：人刚在别处把事做完，Dock 上的数不该还是一分钟前的
     app.on("browser-window-focus", () => void 提醒器?.刷新());
-    // 团队同步：30 秒一轮、切回应用时立刻一轮（同事刚改的，切回来就该看得到）
+    // 团队同步：窗口在前台 8 秒一轮、后台 30 秒、切回应用时立刻一轮（同事刚改的，切回来就该看得到）；
+    // 收到同事的改动就告诉窗口刷新页面（preload-app.js 的 desktopTeam）
     同步器 = 团队同步.开始({
       取端口: () => (读配置().mode === "local" ? 本地?.port ?? null : null),
       取令牌: () => (读配置().mode === "local" ? 本地?.token ?? null : null),
+      前台: () => BrowserWindow.getFocusedWindow() != null,
+      有新改动: () => {
+        for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send("team:changed");
+      },
     });
     app.on("browser-window-focus", () => void 同步器?.刷新());
     // 这个账号能不能开运营台：启动时问一次，之后切回应用时最多 5 分钟问一次（换了账号、被移出名单都跟得上）

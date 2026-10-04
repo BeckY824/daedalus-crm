@@ -1522,6 +1522,9 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .team-sync { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s3); font-size: var(--fs-note); }
 .team-members { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s2); }
 .team-members li { display: flex; align-items: baseline; gap: var(--s2); }
+.team-members li { flex-wrap: wrap; }
+/* 老板那台每人一行概况：客户数 · 近 7 天跟进，靠右，点进去是这个人的客户 / 跟进 */
+.team-member-stat { margin-left: auto; display: inline-flex; gap: var(--s3); font-size: 13px; }
 .team-dupes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-note); }
 
 /* 选模版：在登录页右半边（app/start），两张卡并排，窗口窄了上下排 */

@@ -523,11 +523,22 @@ export async function 退出这台机器(id: string) {
 const 是网址 = (s: string) => /^https?:\/\//.test(s.trim());
 
 /**
+ * 本机的设置（AI 接入、MCP、自动判断）：桌面端本地模式下是这台电脑主人自己的，不同步给团队，
+ * 团队版的业务员（SALES）在自己电脑上也能改（2026-10-04 两档权限）。网页版 / 托管版照旧只有管理员
+ */
+async function 能改本机设置() {
+  const me = await requireUser();
+  if (process.env.DESKTOP_LOCAL === "1") return me;
+  return requireAdmin();
+}
+const 本机说了算 = (role: string) => role === "ADMIN" || process.env.DESKTOP_LOCAL === "1";
+
+/**
  * 保存 AI 接入配置。只有管理员能改；日志只记"改了"，不记任何值——
  * 地址与模型名无所谓，但同一条日志里不能出现 key，哪怕是尾号。
  */
 export async function saveLlmSettings(input: { baseUrl: string; model: string; apiKey?: string | null; options?: ModelOption[] }) {
-  const me = await requireAdmin();
+  const me = await 能改本机设置();
   if (!是网址(input.baseUrl)) return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
   if (!input.model.trim()) return { ok: false as const, error: "请填写模型名" };
   await saveLlmConfig(input);
@@ -537,7 +548,7 @@ export async function saveLlmSettings(input: { baseUrl: string; model: string; a
 }
 
 export async function clearLlmSettings() {
-  const me = await requireAdmin();
+  const me = await 能改本机设置();
   await clearLlmConfig();
   await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "llm", summary: "清除了界面里的 AI 接入配置" });
   revalidatePath("/", "layout");
@@ -546,7 +557,7 @@ export async function clearLlmSettings() {
 
 /** 用表单里当前填的值发一次最小请求；key 留空则用已保存的 */
 export async function testLlmSettings(input: { baseUrl: string; model: string; apiKey?: string | null }) {
-  await requireAdmin();
+  await 能改本机设置();
   if (!是网址(input.baseUrl)) return { ok: false as const, error: "接口地址要以 http:// 或 https:// 开头" };
   const cfg = await resolveLlmConfigForTest(input);
   if (!cfg) return { ok: false as const, error: "还没有 API Key：请先填写" };
@@ -629,7 +640,7 @@ export async function 查MCP接入(): Promise<{
 }> {
   const me = await requireUser();
   const 可用 = !multiTenant();
-  if (!可用 || me.role !== "ADMIN") return { 可用: false, 已开: false, 地址: "", 令牌: null };
+  if (!可用 || !本机说了算(me.role)) return { 可用: false, 已开: false, 地址: "", 令牌: null };
   const t = await 读令牌();
   return { 可用: true, 已开: Boolean(t), 地址: MCP地址(), 令牌: t?.token ?? null };
 }
@@ -637,7 +648,7 @@ export async function 查MCP接入(): Promise<{
 export async function 开启MCP(): Promise<{ ok: true; 令牌: string; 地址: string } | { ok: false; error: string }> {
   const me = await requireUser();
   if (multiTenant()) return { ok: false, error: "托管版不提供 MCP 接口" };
-  if (me.role !== "ADMIN") return { ok: false, error: "只有管理员能开这个口子" };
+  if (!本机说了算(me.role)) return { ok: false, error: "只有管理员能开这个口子" };
   const t = await 生成令牌(me.id);
   await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "mcpToken", summary: "生成了 MCP 接入令牌（旧的同时作废）" });
   return { ok: true, 令牌: t.token, 地址: MCP地址() };
@@ -645,7 +656,7 @@ export async function 开启MCP(): Promise<{ ok: true; 令牌: string; 地址: s
 
 export async function 关闭MCP(): Promise<{ ok: boolean }> {
   const me = await requireUser();
-  if (multiTenant() || me.role !== "ADMIN") return { ok: false };
+  if (multiTenant() || !本机说了算(me.role)) return { ok: false };
   await 撤销令牌();
   await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "mcpToken", summary: "关掉了 MCP 接入（令牌已撤销）" });
   return { ok: true };
@@ -663,13 +674,13 @@ export async function 关闭MCP(): Promise<{ ok: boolean }> {
  */
 export async function 查自动判断(): Promise<{ 可用: boolean; 已开: boolean }> {
   const me = await requireUser();
-  if (!判断可用() || me.role !== "ADMIN") return { 可用: false, 已开: false };
+  if (!判断可用() || !本机说了算(me.role)) return { 可用: false, 已开: false };
   return { 可用: true, 已开: await 自动判断开着() };
 }
 
 export async function 设自动判断开关(开: boolean): Promise<void> {
   const me = await requireUser();
-  if (me.role !== "ADMIN") throw new Error("只有管理员能改");
+  if (!本机说了算(me.role)) throw new Error("只有管理员能改");
   await 设自动判断(开);
   await recordAudit({
     user: me, action: "update", entity: "Setting", entityId: "assist",

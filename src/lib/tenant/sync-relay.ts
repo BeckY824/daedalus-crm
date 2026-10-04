@@ -162,6 +162,14 @@ function 等长相等(a: string, b: string) {
 export async function 退队(accountId: string, teamId: string): Promise<结果<object>> {
   const m = await 在队里(String(teamId ?? ""), accountId);
   if (!m) return { ok: true };
+  /*
+    老板（建团队的人）不能撇下同事自己走：走了以后没人能移除成员、换钥匙，他却还是「建的人」（换钥匙复查低 7）。
+    先移除其他人，最后一个走的就是他
+  */
+  const t = await control.syncTeam.findUnique({ where: { id: m.teamId }, select: { ownerAccountId: true } });
+  if (t?.ownerAccountId === accountId && (await control.syncMember.count({ where: { teamId: m.teamId, leftAt: null, accountId: { not: accountId } } })) > 0) {
+    return 错(409, "你是老板（建团队的人）：团队里还有同事，先在下面把他们移除，再退出");
+  }
   await control.syncMember.update({ where: { teamId_accountId: { teamId: m.teamId, accountId } }, data: { leftAt: new Date() } });
   // 走了的人的设备不再收新钥匙
   await control.syncDevice.deleteMany({ where: { teamId: m.teamId, accountId } });

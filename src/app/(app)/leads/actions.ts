@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
+import { 看全部 } from "@/lib/team-scope";
 import { 认回打码号 } from "@/lib/phone";
 import { 查电话 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
@@ -132,7 +133,8 @@ export async function convertLead(id: string) {
 
   const 起 = await 分机留存起();
   const outcome = await prisma.$transaction(async (tx) => {
-    const dup = await tx.customer.findFirst({ where: 同号条件(phone, 起), select: { name: true } });
+    // 看全部：同事的客户也算已经有了（团队版业务员，lib/team-scope.ts）
+    const dup = await 看全部(() => tx.customer.findFirst({ where: 同号条件(phone, 起), select: { name: true } }));
     if (dup) {
       return { ok: false as const, error: `手机号已存在于${b.customer}「${dup.name}」，请勿重复建档` };
     }

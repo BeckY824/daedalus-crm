@@ -105,3 +105,15 @@ contextBridge.exposeInMainWorld("desktopNav", {
     return () => ipcRenderer.removeListener("nav:go", h);
   },
 });
+
+/*
+  团队同步收到了同事的改动（desktop/sync.js → main.js 发 team:changed）：页面刷新一下，
+  老板盯着的跟进列表不用自己去点。只有通知，不带数据
+*/
+contextBridge.exposeInMainWorld("desktopTeam", {
+  onChanged: (cb) => {
+    const h = () => cb();
+    ipcRenderer.on("team:changed", h);
+    return () => ipcRenderer.removeListener("team:changed", h);
+  },
+});

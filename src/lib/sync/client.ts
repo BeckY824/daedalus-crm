@@ -14,6 +14,7 @@ import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/c
 import { 团队身份id } from "../desktop/me";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗 } from "./local";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, type 钥匙环 } from "./crypto";
+import { 看全部, 忘掉限定 } from "../team-scope";
 
 export type 团队配置 = {
   teamId: string;
@@ -109,7 +110,10 @@ async function 本机开同步(我: { accountId: string; contact: string; name: 
   await 记全量(prisma, { 不含设置: 加入别人的 });
 }
 
-export async function 建团队(名字: string): Promise<结果<{ 邀请码: string }>> {
+export function 建团队(名字: string): Promise<结果<{ 邀请码: string }>> {
+  return 看全部(() => 建团队里(名字));
+}
+async function 建团队里(名字: string): Promise<结果<{ 邀请码: string }>> {
   const 我 = 能用();
   if (!我.ok) return 我;
   if (读团队()) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
@@ -123,7 +127,10 @@ export async function 建团队(名字: string): Promise<结果<{ 邀请码: str
   return { ok: true, 邀请码: 邀请码(c) };
 }
 
-export async function 加入团队(码: string): Promise<结果<{ teamName: string; active: boolean }>> {
+export function 加入团队(码: string): Promise<结果<{ teamName: string; active: boolean }>> {
+  return 看全部(() => 加入团队里(码));
+}
+async function 加入团队里(码: string): Promise<结果<{ teamName: string; active: boolean }>> {
   const 我 = 能用();
   if (!我.ok) return 我;
   const 解 = 解邀请码(码);
@@ -145,6 +152,8 @@ export async function 加入团队(码: string): Promise<结果<{ teamName: stri
   if (!k.ok) return k;
   await 本机开同步(我, true);
   写团队({ ...解, teamName: String(r.json.teamName ?? ""), epoch: k.epoch, keys: k.keys, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, pulled: 0, lastError: null });
+  // 加入别人的团队 = 业务员（老板是建团队的人）。先按名单对一次：不等第一轮同步，界面马上就是业务员的样子
+  await 对齐角色().catch(() => undefined);
   return { ok: true, teamName: String(r.json.teamName ?? ""), active: !!r.json.active };
 }
 
@@ -237,10 +246,16 @@ export async function 退出团队(): Promise<结果> {
   if (在跑) await 在跑.catch(() => undefined);
   const c = 读团队();
   if (!c) return { ok: true };
-  await 云("POST", "/api/sync/leave", { teamId: c.teamId });
+  const r = await 云("POST", "/api/sync/leave", { teamId: c.teamId });
+  // 老板还有同事在队里：云端不让走（见 sync-relay 退队）。连不上云端、已经被移出（403）照旧在本机退
+  if (r.状态 === 409) return { ok: false, error: String(r.json.error ?? "退不了") };
   await 卸触发器(prisma);
   fs.rmSync(配置文件(), { force: true });
   触发器对过 = false;
+  // 一个人用了：本机我回到管理员（看全部）。触发器已经卸了，这一改不进日志
+  const 账号 = 读云端凭据()?.accountId;
+  if (账号) await prisma.$executeRawUnsafe(`UPDATE "User" SET role = 'ADMIN' WHERE id = ?`, 团队身份id(账号));
+  忘掉限定();
   return { ok: true };
 }
 
@@ -252,7 +267,7 @@ let 触发器对过 = false;
  * 同一时间只跑一轮：壳 30 秒一戳、人点「立即同步」，撞上了就等前一轮的结果。
  */
 export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
-  if (!在跑) 在跑 = 跑一轮().finally(() => { 在跑 = null; });
+  if (!在跑) 在跑 = 看全部(跑一轮).finally(() => { 在跑 = null; });
   return 在跑;
 }
 
@@ -314,6 +329,8 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       if (!r.json.more) break;
     }
     记({ pulled: 拉到, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推, 拉, 撞 } });
+    // 老板 / 业务员：每 5 分钟按名单对一次（同事的账号可能这一轮才同步进来）
+    if (Date.now() - 上次对角色 > 5 * 60_000 || 拉 > 0 && 上次对角色 === 0) await 对齐角色().catch(() => undefined);
     return { ok: true, 推, 拉, 撞 };
   } catch (e) {
     const 话 = e instanceof 同步问题 ? e.message : e instanceof Error && /authenticate|版本|钥匙/.test(e.message) ? "解不开别人推来的改动：邀请码里的钥匙不对，请找建团队的人重新要一份" : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
@@ -328,6 +345,7 @@ export async function 团队状态() {
   if (!c) return { 在团队: false as const, 能用: 能用().ok };
   const r = await 云("GET", "/api/sync/team");
   const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
+  if (团) await 看全部(() => 按名单对角色(团.成员)).catch(() => undefined);
   return {
     在团队: true as const,
     /**
@@ -345,4 +363,30 @@ export async function 团队状态() {
     lastError: c.lastError ?? (r.状态 === 200 ? null : String(r.json.error ?? "")),
     last: c.last ?? null,
   };
+}
+
+/* ---------------- 老板 / 业务员（2026-10-04 两档权限，lib/team-scope.ts） ---------------- */
+
+let 上次对角色 = 0;
+
+/**
+ * 按中转的成员名单对本机的角色：建团队的人（owner）是老板 = ADMIN，其余是业务员 = SALES。
+ * User.role 不同步（tables.ts 不同步列），每台各自对，结果一样。用裸 SQL：不碰 updatedAt，也就不进同步日志
+ */
+async function 按名单对角色(成员: { accountId: string; role: string }[]) {
+  for (const m of 成员) {
+    const 应 = m.role === "owner" ? "ADMIN" : "SALES";
+    await prisma.$executeRawUnsafe(`UPDATE "User" SET role = ? WHERE id = ? AND role <> ?`, 应, 团队身份id(m.accountId), 应);
+  }
+  上次对角色 = Date.now();
+  忘掉限定();
+}
+
+export async function 对齐角色() {
+  const c = 读团队();
+  if (!c) return;
+  const r = await 云("GET", "/api/sync/team");
+  if (r.状态 !== 200) return;
+  const 团 = ((r.json.teams as { id: string; 成员: { accountId: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
+  if (团) await 看全部(() => 按名单对角色(团.成员));
 }

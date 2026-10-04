@@ -35,7 +35,7 @@ export default function TeamTab() {
   const 复制 = async (t: string) => {
     try {
       await navigator.clipboard.writeText(t);
-      message.success("邀请码已复制。只发给同事：拿到它的人就能进团队、看到全部数据");
+      message.success("邀请码已复制。只发给同事：拿到它的人就能进团队");
     } catch {
       message.error("复制不了，请手动选中复制");
     }
@@ -136,7 +136,9 @@ export default function TeamTab() {
   function 退() {
     modal.confirm({
       title: "退出团队？",
-      content: "这台电脑上的数据全都留着，只是不再和同事同步：之后你改的他们看不到，他们改的你也收不到。要回来，找同事再要一次邀请码。",
+      content: s?.在团队 && s.我是建的人
+        ? "这台电脑上的数据全都留着，只是不再和同事同步。你是老板：团队里还有同事时要先把他们移除。"
+        : "这台电脑上的数据全都留着，只是不再和同事同步：之后你改的他们看不到，他们改的你也收不到。要回来，找老板再要一次邀请码。",
       okText: "退出团队",
       okButtonProps: { danger: true },
       cancelText: "取消",
@@ -161,7 +163,7 @@ export default function TeamTab() {
         {!s.能用 && <Alert type="info" showIcon message="先在「桌面端」那一栏登录云端账号" style={{ marginBottom: 16 }} />}
         <section className="team-card">
           <h3>建一个团队</h3>
-          <p className="muted">你是第一个用的人：建好之后把邀请码发给同事。这台电脑上已有的客户会一起带进团队。</p>
+          <p className="muted">建团队的人就是老板：看得到所有人的客户和跟进。建好之后把邀请码发给同事，他们进来是业务员。这台电脑上已有的客户会一起带进团队。</p>
           <Space.Compact style={{ width: "100%", maxWidth: 420 }}>
             <Input value={名字} onChange={(e) => set名字(e.target.value)} placeholder="团队名字，如：明亮贸易" maxLength={40} aria-label="团队名字" disabled={!s.能用} onPressEnter={() => 名字.trim() && void 建()} />
             <Button type="primary" icon={<TeamOutlined />} loading={忙 === "建"} disabled={!s.能用 || !名字.trim() || 忙 !== null} onClick={() => void 建()}>建团队</Button>
@@ -169,7 +171,7 @@ export default function TeamTab() {
         </section>
         <section className="team-card">
           <h3>加入同事的团队</h3>
-          <p className="muted">把同事发来的邀请码整段粘贴进来（DT1. 开头）。你这台电脑上已有的客户也会同步给他们。</p>
+          <p className="muted">把老板发来的邀请码整段粘贴进来（DT1. 开头）。进来之后你是业务员：看得到自己负责的客户和公海；你这台电脑上已有的客户归你，老板也看得到。</p>
           <Input.TextArea value={码} onChange={(e) => set码(e.target.value)} rows={2} placeholder="DT1.…" aria-label="邀请码" disabled={!s.能用} style={{ maxWidth: 560 }} />
           <div style={{ marginTop: 8 }}>
             <Button loading={忙 === "入"} disabled={!s.能用 || !码.trim() || 忙 !== null} onClick={() => void 入()}>加入团队</Button>
@@ -192,7 +194,7 @@ export default function TeamTab() {
           showIcon
           style={{ marginBottom: 16 }}
           message={`你已经不在「${s.teamName}」里了`}
-          description="可能被建团队的人移出了，或者你在别的电脑上退出了。这台电脑上的数据都还在，只是不再和同事同步。要回来，找建团队的人要一个新的邀请码。"
+          description="可能被老板移出了，或者你在别的电脑上退出了。这台电脑上的数据都还在，只是不再和同事同步。要回来，找老板要一个新的邀请码。"
         />
         <section className="team-card">
           <Button onClick={退}>退出团队</Button>
@@ -233,18 +235,35 @@ export default function TeamTab() {
 
       <section className="team-card">
         <h3>成员 {s.成员.length}</h3>
+        <p className="muted">
+          {s.我是建的人
+            ? "你是老板：看得到所有人的客户和跟进。业务员只看得到自己负责的客户和公海。"
+            : "你是业务员：看得到自己负责的客户和公海里的客户。老板（建团队的人）看得到全部。"}
+        </p>
         <ul className="team-members">
-          {s.成员.map((m) => (
+          {s.成员.map((m) => {
+            const 概况 = "每人" in s ? s.每人[m.accountId] : undefined;
+            return (
             <li key={m.accountId}>
               <b>{m.name}</b>
               <span className="muted">{m.contact}</span>
-              {m.role === "owner" && <Tag>建的人</Tag>}
+              <Tag color={m.role === "owner" ? "gold" : undefined}>{m.role === "owner" ? "老板" : "业务员"}</Tag>
+              {/* 老板看每个人的跟进过程：近 7 天几次、最近一次，点进去是这个人的跟进 / 客户 */}
+              {概况 && (
+                <span className="team-member-stat">
+                  <Link href={`/customers?salesOwnerId=${encodeURIComponent(概况.userId)}`}>客户 {概况.客户}</Link>
+                  <Link href={`/follow-ups?ownerId=${encodeURIComponent(概况.userId)}`}>
+                    近 7 天跟进 {概况.近7天跟进} 次{概况.最近跟进 ? ` · 最近 ${smartTime(概况.最近跟进)}` : ""}
+                  </Link>
+                </span>
+              )}
               {/* 只有建团队的人能移除别人；自己不在这里移除（走「退出团队」） */}
               {s.我是建的人 && m.role !== "owner" && m.accountId !== s.我 && (
                 <Button size="small" type="text" danger onClick={() => 移除(m)} aria-label={`移除 ${m.name}`}>移除</Button>
               )}
             </li>
-          ))}
+            );
+          })}
         </ul>
       </section>
 
@@ -269,20 +288,27 @@ export default function TeamTab() {
         </section>
       )}
 
+      {!s.我是建的人 && (
+        <section className="team-card">
+          <h3>邀请同事</h3>
+          <p className="muted">要加人找老板（建团队的人）要邀请码。</p>
+        </section>
+      )}
+
+      {s.我是建的人 && (
       <section className="team-card">
         <h3>邀请同事</h3>
-        <p className="muted">把邀请码发给同事。<b>只发给同事</b>：拿到它的人就能进团队、看到全部数据。</p>
+        <p className="muted">把邀请码发给同事，他们进来就是业务员。<b>只发给同事</b>：拿到它的人就能进团队。</p>
         <Space.Compact style={{ width: "100%", maxWidth: 560 }}>
           <Input value={s.邀请码} readOnly aria-label="邀请码" />
           <Button icon={<CopyOutlined />} onClick={() => void 复制(s.邀请码)}>复制</Button>
         </Space.Compact>
-        {s.我是建的人 && (
-          <div style={{ marginTop: 8 }}>
-            <Button size="small" onClick={换码}>换邀请码</Button>
-            <span className="muted" style={{ marginLeft: 8 }}>发错人了就换：旧码作废，钥匙一起换</span>
-          </div>
-        )}
+        <div style={{ marginTop: 8 }}>
+          <Button size="small" onClick={换码}>换邀请码</Button>
+          <span className="muted" style={{ marginLeft: 8 }}>发错人了就换：旧码作废，钥匙一起换</span>
+        </div>
       </section>
+      )}
 
       {/* 这台没拿到自动转交的新钥匙（换钥匙之前没登记过设备）：粘建团队的人发来的新邀请码 */}
       {!s.我是建的人 && s.lastError && /新的邀请码/.test(s.lastError) && (

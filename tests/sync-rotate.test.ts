@@ -195,7 +195,14 @@ describe("移除成员 + 换钥匙", () => {
 
   it("云端答得上来、但我已经不在这个团队里：团队状态说「被移出」，不说「连不上云端」", async () => {
     expect(await 团队状态()).toMatchObject({ 在团队: true, 被移出: false });
-    await r.退队(账号们.甲, teamId);
+    // 老板（建团队的人）还有同事在队里：不让走（换钥匙复查低 7）
+    const 不让 = await r.退队(账号们.甲, teamId);
+    expect(不让.ok).toBe(false);
+    expect(!不让.ok && 不让.error).toMatch(/先.*移除/);
+    for (const m of (await r.我的团队(账号们.甲)).find((t) => t.id === teamId)!.成员) {
+      if (m.accountId !== 账号们.甲) expect((await r.移除成员(账号们.甲, teamId, m.accountId)).ok).toBe(true);
+    }
+    expect((await r.退队(账号们.甲, teamId)).ok).toBe(true);
     expect(await 团队状态()).toMatchObject({ 在团队: true, 被移出: true });
   });
 });

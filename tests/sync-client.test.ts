@@ -42,7 +42,7 @@ const 假传输: 传输 = async (方法, 路径, body) => {
     return { 状态: 200, json: { ok: true, teamId: id, joinSecret: "s3cret" } };
   }
   if (方法 === "GET" && 路径 === "/api/sync/team") {
-    return { 状态: 200, json: { ok: true, teams: [...云.团队].filter(([, t]) => t.人.has(当前账号)).map(([id, t]) => ({ id, name: t.name, active: t.active, 我是建的人: true, 成员: [...t.人].map((a) => ({ accountId: a, name: a, contact: `${a}@x.com`, role: "member" })) })) } };
+    return { 状态: 200, json: { ok: true, teams: [...云.团队].filter(([, t]) => t.人.has(当前账号)).map(([id, t]) => ({ id, name: t.name, active: t.active, 我是建的人: true, 成员: [...t.人].map((a) => ({ accountId: a, name: a, contact: `${a}@x.com`, role: a === 当前账号 ? "owner" : "member" })) })) } };
   }
   if (方法 === "POST" && 路径 === "/api/sync/leave") return { 状态: 200, json: { ok: true } };
   const t = 云.团队.get(b.teamId ?? new URL(`http://x${路径}`).searchParams.get("teamId") ?? "");

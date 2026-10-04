@@ -90,12 +90,9 @@ export default function SettingsView({
     ...(桌面端 ? [{ key: "desktop", label: "桌面端", children: <DesktopTab 信息={桌面端} /> }] : []),
     // 团队同步（2026-10-03）：几个人各用桌面端时互相同步。只在桌面端本地模式有——网页版本来就是一份库
     ...(桌面端 ? [{ key: "team", label: "团队", children: <TeamTab /> }] : []),
-    ...(isAdmin
-      ? [
-          { key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> },
-          { key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} /> },
-        ]
-      : []),
+    // AI 接入是本机的（桌面端团队版的业务员在自己电脑上也能配）；业务配置全团队一份，只有管理员 / 老板改
+    ...(isAdmin || 桌面端 ? [{ key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> }] : []),
+    ...(isAdmin ? [{ key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} /> }] : []),
     { key: "imports", label: "导入记录", children: <ImportsTab /> },
     { key: "audit", label: "操作日志", children: <AuditTab logs={logs} /> },
   ]
