@@ -11,7 +11,7 @@
  *   5. 放得下才常驻：窗口不到 1600 宽默认收着（13、14 寸笔记本上看板和表格才摆得开）
  */
 import { test, expect, type Page } from "@playwright/test";
-import { 装个假模型, 拆掉假模型 } from "./fake-llm";
+import { 装个假模型, 拆掉假模型, 假回答 } from "./fake-llm";
 import { 连库 } from "./mock-data";
 
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
@@ -256,6 +256,145 @@ test.describe("全局 AI 面板", () => {
     expect(溢出).toBeLessThanOrEqual(1);
     // antd 的 xl 断点看视口不看这一栏，所以壳要标出「面板开着」让样式表重映射
     await expect(page.locator(".shell.shell-dock-open")).toHaveCount(1);
+  });
+});
+
+/*
+  2026-10-04 回归核对 J-162 / J-164 / J-165 / J-171 / J-175 / J-187：面板和建议卡的样子都修过、都没钉。
+  回答是拦下 /api/ai/stream 喂的（见 fake-llm.ts 的 假回答），建议卡的确认 / 撤销走真的服务端
+*/
+test.describe("面板里的回答和建议卡", () => {
+  test.use({ viewport: { width: 1680, height: 1000 } });
+
+  async function 在面板里问(page: Page, 问题: string) {
+    const 框 = page.locator("aside.dock textarea").first();
+    await 框.fill(问题);
+    await 框.press("Enter");
+  }
+
+  test("J-187：面板里的对话区不撑出面板（.cli 的 100vh 最小高度在面板里归零）", async ({ page }) => {
+    await 登录(page);
+    await page.goto("/channels");
+    await expect(面板(page)).toBeVisible();
+    // 修法就是这一条：面板里 .cli 的最小高度归零，不再按整窗 100vh 算
+    expect(await page.locator("aside.dock .cli").first().evaluate((el) => getComputedStyle(el).minHeight)).toBe("0px");
+    const 板 = (await 面板(page).boundingBox())!;
+    const 区 = (await page.locator("aside.dock .cli").first().boundingBox())!;
+    expect(区.y + 区.height, "对话区底边不许超出面板底边").toBeLessThanOrEqual(板.y + 板.height + 1);
+    // 输入框也在面板里看得见，不被顶到窗外
+    const 框 = (await page.locator("aside.dock textarea").first().boundingBox())!;
+    expect(框.y + 框.height).toBeLessThanOrEqual(1000);
+  });
+
+  test("J-165：面板开着时在列表页按 ⌘K，弹的是跳转单——不是把光标塞进面板输入框", async ({ page }) => {
+    await 登录(page);
+    await page.goto("/channels");
+    await expect(面板(page)).toBeVisible();
+    await page.locator("main").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("ControlOrMeta+k");
+    await expect(page.locator(".cmdk")).toBeVisible();
+    await expect(page.locator("aside.dock textarea").first()).not.toBeFocused();
+  });
+
+  test("J-162：面板里答一段很长的话，左边正文一像素都不跟着滚", async ({ page }) => {
+    const 长 = Array.from({ length: 60 }, (_, i) => `第 ${i + 1} 条：这是一段很长的回答，用来把面板撑到要滚动。`).join("\n\n");
+    await 假回答(page, { text: 长 });
+    // 正文得自己能滚，才看得出被带着滚了没有：备一页满的客户
+    const p = 连库();
+    const 销售 = await p.user.findFirstOrThrow({ where: { email: 账号.用户名 } });
+    await p.customer.createMany({ data: Array.from({ length: 30 }, (_, i) => ({ name: `长回答垫底${i}`, phone: `1390001${String(1000 + i)}`, salesOwnerId: 销售.id })) });
+    try {
+      await 登录(page);
+      await page.goto("/customers");
+      await expect(面板(page)).toBeVisible();
+      expect(await page.evaluate(() => document.scrollingElement!.scrollHeight > document.scrollingElement!.clientHeight), "正文得比窗口长").toBe(true);
+      const 滚了多少 = () =>
+        page.evaluate(() => ({
+          文档: document.scrollingElement?.scrollTop ?? 0,
+          正文: document.querySelector("main")?.scrollTop ?? 0,
+          // 面板外面每一个能滚的祖先
+          外层: [...document.querySelectorAll<HTMLElement>("body *")]
+            .filter((el) => !el.closest("aside.dock") && el.scrollTop > 0)
+            .map((el) => `${el.tagName.toLowerCase()}.${String(el.className).slice(0, 40)}=${el.scrollTop}`),
+        }));
+      const 前 = await 滚了多少();
+      await 在面板里问(page, "说一段长的");
+      await expect(page.locator("aside.dock")).toContainText("第 60 条");
+      await page.waitForTimeout(800); // 平滑滚动走完
+      const 后 = await 滚了多少();
+      expect(后.文档).toBe(前.文档);
+      expect(后.正文).toBe(前.正文);
+      expect(后.外层, "面板外面有东西被滚了").toEqual(前.外层);
+      // 面板自己是滚了的——不然就是没撑长，这条测了个寂寞
+      expect(await page.locator("aside.dock .dock-body").evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+    } finally {
+      await p.customer.deleteMany({ where: { name: { startsWith: "长回答垫底" } } });
+      await p.$disconnect();
+    }
+  });
+
+  test("J-164 / J-175：380 宽面板里记跟进卡的「确认」一行摆得下；确认后写着几点写入、能撤销，撤了跟进就没了", async ({ page }) => {
+    const p = 连库();
+    const 销售 = await p.user.findFirstOrThrow({ where: { email: 账号.用户名 } });
+    const c = await p.customer.create({ data: { name: "卡片撤销", phone: "13900007777", salesOwnerId: 销售.id } });
+    try {
+      await 假回答(page, {
+        text: "已经给出建议，你确认一下。",
+        proposals: [{ id: "p-fu", kind: "add_followup", customerId: c.id, customerName: c.name, reason: "你刚说打过电话", type: "PHONE", title: "电话", content: "聊了预算，下周再约", occurredAt: new Date().toISOString() }],
+      });
+      await 登录(page);
+      await page.goto("/channels");
+      await expect(面板(page)).toBeVisible();
+      await 在面板里问(page, "给卡片撤销记一笔电话");
+      const 卡 = page.locator("aside.dock .prop").first();
+      await expect(卡).toBeVisible();
+      const 键 = 卡.locator(".prop-ok");
+      await expect(键).toBeEnabled();
+      // 挤成两行竖排时高度翻倍；一行的按钮不会比一行字加内边距高多少
+      const 高 = (await 键.boundingBox())!.height;
+      const 行高 = await 键.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) || 20);
+      expect(高, `确认按钮高 ${高}，一行字 ${行高}`).toBeLessThan(行高 * 2);
+      expect(await 键.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "按钮里的字被挤出去了").toBe(true);
+
+      await 键.click();
+      const 回执 = page.locator("aside.dock .prop-done").first();
+      await expect(回执).toContainText(/已写入 \d{2}:\d{2}/);
+      await expect.poll(() => p.followUp.count({ where: { customerId: c.id } })).toBe(1);
+
+      await 回执.getByRole("button", { name: "撤销" }).click();
+      await expect(page.locator(".ant-message")).toContainText("已撤销");
+      await expect.poll(() => p.followUp.count({ where: { customerId: c.id } })).toBe(0);
+      // 撤销完卡片回到「等你确认」，还能再确认或忽略
+      await expect(page.locator("aside.dock .prop .prop-ok").first()).toBeVisible();
+    } finally {
+      await p.followUp.deleteMany({ where: { customerId: c.id } });
+      await p.customer.delete({ where: { id: c.id } });
+      await p.$disconnect();
+    }
+  });
+
+  test("J-171：改渠道卡上看得见电话那一格和它现在的号，备注一格写明「填了会整段换掉」", async ({ page }) => {
+    await 假回答(page, {
+      text: "已经给出建议，你确认一下。",
+      proposals: [{
+        id: "p-ch", kind: "update_channel", customerId: "", customerName: "", reason: "你说他换号了",
+        channelName: "卡片渠道", ownerName: "", phone: "13911112222", remark: "",
+        现值: { phone: "13800001111", remark: "原来的备注" },
+      }],
+    });
+    await 登录(page);
+    await page.goto("/channels");
+    await expect(面板(page)).toBeVisible();
+    await 在面板里问(page, "卡片渠道换号了");
+    const 卡 = page.locator("aside.dock .prop").first();
+    await expect(卡).toBeVisible();
+    const 电话 = 卡.locator(".prop-f").filter({ has: page.locator(".prop-f-l", { hasText: /^电话$/ }) });
+    await expect(电话).toBeVisible();
+    await expect(电话.locator(".prop-f-was")).toContainText("13800001111");
+    await expect(电话.locator("input")).toHaveValue("13911112222");
+    const 备注 = 卡.locator(".prop-f").filter({ has: page.locator(".prop-f-l", { hasText: /^备注$/ }) });
+    await expect(备注.locator(".prop-f-was")).toContainText("原来的备注");
+    await expect(备注.locator("textarea")).toHaveAttribute("placeholder", /整段换掉/);
   });
 });
 
