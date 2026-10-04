@@ -25,9 +25,15 @@ vi.mock("@/lib/prisma", async () => {
   return { prisma: 加上限定(raw), defaultClient: raw };
 });
 
+// 领公海（T-040）走真的 server action：登录的人换成「当前是谁」，revalidatePath 在测试里没有请求上下文
+const 登录的 = vi.hoisted(() => ({ user: { id: "acct_wang", name: "小王", email: "acct_wang@x.com", role: "SALES", title: "销售", avatar: null } }));
+vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+vi.mock("@/lib/auth", async (原) => ({ ...(await 原<object>()), requireUser: async () => 登录的.user }));
+
 import { prisma as db, defaultClient as raw } from "@/lib/prisma";
+import { 领取 } from "@/app/(app)/customers/pool-actions";
 import { 看全部, 忘掉限定, 限定的我 } from "@/lib/team-scope";
-import { 设传输, 对齐角色, type 传输 } from "@/lib/sync/client";
+import { 设传输, 对齐角色, 退出团队, 同步一轮, type 传输 } from "@/lib/sync/client";
 import { 建同步表, 装触发器, 卸触发器, 回放, 只留自己的 } from "@/lib/sync/local";
 import { 带走没做完的 } from "@/lib/carry-over-db";
 
@@ -41,7 +47,9 @@ function 当(账号: string) {
   fs.writeFileSync(path.join(临时.dir, ".cloud.json"), JSON.stringify({ baseUrl: "http://fake", token: "dk_test", accountId: 账号, name: 账号, contact: `${账号}@x.com`, models: [], loggedAt: new Date().toISOString() }));
   忘掉限定();
 }
-const 进团队 = () => { fs.writeFileSync(path.join(临时.dir, ".team.json"), JSON.stringify({ teamId: "t1xxxxxxxxxx", teamName: "队", joinSecret: "s", key: "k".repeat(43), device: "dWANG01", pulled: 0 })); 忘掉限定(); };
+const 团队文件 = () => path.join(临时.dir, ".team.json");
+/** 多给的字段（signPriv = 建团队的那台、ownerAccountId = 上次云端说的老板）原样写进 .team.json */
+const 进团队 = (多: Record<string, unknown> = {}) => { fs.writeFileSync(团队文件(), JSON.stringify({ teamId: "t1xxxxxxxxxx", teamName: "队", joinSecret: "s", key: "k".repeat(43), device: "dWANG01", pulled: 0, ...多 })); 忘掉限定(); };
 const 出团队 = () => { fs.rmSync(path.join(临时.dir, ".team.json"), { force: true }); 忘掉限定(); };
 
 const 名单 = [
@@ -49,17 +57,21 @@ const 名单 = [
   { accountId: "wang", role: "member" },
   { accountId: "li", role: "member" },
 ];
+/** 云端的样子：被移出 = 我的团队列表里没有这个团了、推拉都回 403；连不上 = 什么都回 0 */
+const 云端 = { 被移出: false, 连不上: false, 退队: 0 };
 const 假传输: 传输 = async (方法, 路径) => {
-  if (方法 === "GET" && 路径 === "/api/sync/team") return { 状态: 200, json: { ok: true, teams: [{ id: "t1xxxxxxxxxx", name: "队", active: true, 我是建的人: 我是 === "boss", 成员: 名单.map((m) => ({ ...m, name: m.accountId, contact: "" })) }] } };
+  if (云端.连不上) return { 状态: 0, json: { error: "连不上云端，检查一下网络" } };
+  if (方法 === "GET" && 路径 === "/api/sync/team") return { 状态: 200, json: { ok: true, teams: 云端.被移出 ? [] : [{ id: "t1xxxxxxxxxx", name: "队", active: true, 我是建的人: 我是 === "boss", 成员: 名单.map((m) => ({ ...m, name: m.accountId, contact: "" })) }] } };
+  if (方法 === "POST" && 路径 === "/api/sync/leave") { 云端.退队++; return { 状态: 200, json: { ok: true } }; }
+  if (云端.被移出) return { 状态: 403, json: { error: "你不在这个团队里" } };
   return { 状态: 404, json: { error: "没有" } };
 };
 
 const ids: Record<string, string> = {};
 
-beforeAll(async () => {
-  process.env.DESKTOP_LOCAL = "1";
-  process.env.CRM_DATA_DIR = 临时.dir;
-  设传输(假传输);
+/** 清空、种三个人和五位客户（每位带一条跟进、商机、待办）。退出团队的用例会删数据，每条前重种一遍 */
+async function 种数据() {
+  for (const k of Object.keys(ids)) delete ids[k];
   for (const t of ["AiConversation", "AiProject", "Setting", "AuditLog", "ImportBatch", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "ContractOwner", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead", "CustomerPool", "CustomerClaim"]) await raw.$executeRawUnsafe(`DELETE FROM "${t}"`);
   await raw.$executeRawUnsafe('UPDATE "Customer" SET referrerCustomerId = NULL, attributionCustomerId = NULL');
   for (const t of ["Customer", "Channel", "Supplier", "User"]) await raw.$executeRawUnsafe(`DELETE FROM "${t}"`);
@@ -82,6 +94,13 @@ beforeAll(async () => {
   await raw.customerPool.create({ data: { customerId: 公海.id, reason: "手动" } });
   // 小李负责、渠道负责人是小王：小王也看得到（归属里有他）
   await 建("小王带来的客户", 小李, { channelOwnerId: 小王 });
+}
+
+beforeAll(async () => {
+  process.env.DESKTOP_LOCAL = "1";
+  process.env.CRM_DATA_DIR = 临时.dir;
+  设传输(假传输);
+  await 种数据();
 });
 
 afterAll(async () => {
@@ -221,5 +240,128 @@ describe("业务员离开团队：这台只留他自己的", () => {
     expect(await raw.opportunity.count()).toBe(2);
     expect((await raw.auditLog.findMany({ select: { summary: true } })).map((a) => a.summary)).toEqual(["小王的日志"]);
     expect(Number((await raw.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_log"))[0].n)).toBe(0);
+  });
+});
+
+/*
+  T-040（2026-10-04 上线前回归核对）：业务员领公海。领取的事务里先删公海那一行、再改负责人——删完那一刻客户在业务员眼里
+  「不见了」，限定着读会读回 null：客户出了公海、却没归任何人（五人实测栽过）。全靠 pool-actions 里那层 看全部() 兜着，
+  原来没有一条用例走限定层领取
+*/
+describe("业务员在限定视图下领公海（T-040）", () => {
+  beforeEach(async () => {
+    Object.assign(云端, { 被移出: false, 连不上: false, 退队: 0 });
+    await 种数据();
+  });
+
+  it("小王领「公海客户」：负责人变小王、公海行没了、小李在他身上没做完的活过来、领完看得到", async () => {
+    当("wang");
+    进团队();
+    await 对齐角色();
+    expect(await 限定的我(raw)).toBe(小王);
+    const id = ids["公海客户"];
+    const r = await 领取([id]);
+    expect(r).toMatchObject({ ok: true, updated: 1, 带走: { 计划和待办: 1, 商机: 1 } });
+    expect((await raw.customer.findUnique({ where: { id } }))?.salesOwnerId).toBe(小王);
+    expect(await raw.customerPool.count({ where: { customerId: id } })).toBe(0);
+    expect((await raw.task.findFirst({ where: { customerId: id } }))?.ownerId).toBe(小王);
+    expect((await raw.opportunity.findFirst({ where: { customerId: id } }))?.ownerId).toBe(小王);
+    // 领完在小王的限定视图里还看得到（现在是他负责的了）
+    忘掉限定();
+    expect(await db.customer.findUnique({ where: { id } })).not.toBeNull();
+    expect((await db.task.findMany({ select: { title: true } })).map((t) => t.title)).toContain("公海客户 的待办");
+  });
+});
+
+/*
+  T-041（2026-10-04 上线前回归核对）：退出团队() 原来按本机 User.role 判是不是业务员——本机角色只是按名单对出来的副本，
+  对之前（刚加入、名单没拉到）、或者被人在库里改了，都会判错：判成业务员就把老板电脑上全队的客户删了。
+  现在按中转名单（云端说谁是老板）判，建团队的那台（有签名私钥）永远不删；被移出后自动退也一样。
+*/
+describe("退出团队：按中转名单判业务员，老板那台永远不删（T-041）", () => {
+  const 客户名 = async () => (await raw.customer.findMany({ select: { name: true } })).map((c) => c.name).sort();
+  const 全部五位 = ["公海客户", "小李的客户", "小王带来的客户", "小王的客户", "老板的客户"].sort();
+
+  beforeEach(async () => {
+    Object.assign(云端, { 被移出: false, 连不上: false, 退队: 0 });
+    await 种数据();
+  });
+
+  it("业务员退出：只留自己的（本机角色还没对过、还是 ADMIN 也照样只留自己的）", async () => {
+    当("wang");
+    进团队();
+    expect(await 退出团队()).toEqual({ ok: true });
+    expect(云端.退队).toBe(1);
+    expect(await 客户名()).toEqual(["小王带来的客户", "小王的客户"].sort());
+    expect(fs.existsSync(团队文件())).toBe(false);
+  });
+
+  it("老板退出（建团队的那台）：一条不删", async () => {
+    当("boss");
+    进团队({ signPriv: "老板的签名私钥", ownerAccountId: "boss" });
+    expect(await 退出团队()).toEqual({ ok: true });
+    expect(await 客户名()).toEqual(全部五位);
+    expect(await raw.followUp.count()).toBe(5);
+  });
+
+  it("本机 role 被改成 SALES 的老板：云端说他是老板，一条不删", async () => {
+    当("boss");
+    进团队();
+    await raw.user.update({ where: { id: 老板 }, data: { role: "SALES" } });
+    expect(await 退出团队()).toEqual({ ok: true });
+    expect(await 客户名()).toEqual(全部五位);
+    // 一个人用了：本机我回到管理员
+    expect((await raw.user.findUnique({ where: { id: 老板 } }))?.role).toBe("ADMIN");
+  });
+
+  it("建团队的那台：本机角色是 SALES、云端也连不上，照样一条不删", async () => {
+    当("boss");
+    进团队({ signPriv: "老板的签名私钥" });
+    await raw.user.update({ where: { id: 老板 }, data: { role: "SALES" } });
+    云端.连不上 = true;
+    expect(await 退出团队()).toEqual({ ok: true });
+    expect(await 客户名()).toEqual(全部五位);
+  });
+
+  it("连不上云端、本机也没记过老板是谁：不知道就不删（本机角色是 SALES 也不算数）", async () => {
+    当("wang");
+    进团队();
+    await raw.user.update({ where: { id: 小王 }, data: { role: "SALES" } });
+    云端.连不上 = true;
+    expect(await 退出团队()).toEqual({ ok: true });
+    expect(await 客户名()).toEqual(全部五位);
+  });
+
+  it("连不上云端、上次名单记过老板是别人：照记下的只留自己的", async () => {
+    当("wang");
+    进团队();
+    await 对齐角色();
+    expect(JSON.parse(fs.readFileSync(团队文件(), "utf8")).ownerAccountId).toBe("boss");
+    云端.连不上 = true;
+    expect(await 退出团队()).toEqual({ ok: true });
+    expect(await 客户名()).toEqual(["小王带来的客户", "小王的客户"].sort());
+  });
+
+  it("业务员被移出：下一轮同步自动退出、只留自己的（本机角色被改回 ADMIN 也一样）", async () => {
+    当("wang");
+    进团队();
+    await 对齐角色();
+    await raw.user.update({ where: { id: 小王 }, data: { role: "ADMIN" } });
+    云端.被移出 = true;
+    const r = await 同步一轮();
+    expect(r).toMatchObject({ ok: false });
+    await vi.waitFor(() => expect(fs.existsSync(团队文件())).toBe(false), { timeout: 3000 });
+    expect(await 客户名()).toEqual(["小王带来的客户", "小王的客户"].sort());
+  });
+
+  it("建团队的那台收到「不在这个团队」：不自动退、一条不删", async () => {
+    当("boss");
+    进团队({ signPriv: "老板的签名私钥", ownerAccountId: "boss" });
+    云端.被移出 = true;
+    await 同步一轮();
+    await new Promise((r) => setTimeout(r, 200));
+    expect(fs.existsSync(团队文件())).toBe(true);
+    expect(云端.退队).toBe(0);
+    expect(await 客户名()).toEqual(全部五位);
   });
 });

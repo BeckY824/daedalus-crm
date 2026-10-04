@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig } from "@/lib/business-config";
-import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS, 表单公海天数 } from "@/lib/business-config";
 import { 币种选项 } from "@/lib/currency";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
@@ -32,8 +32,8 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
     setSaving(true);
-    // 摆着这一项时清空 = 不开（存 0）；没摆时表单里没有它，照原值存回去，别悄悄关掉
-    const res = await saveBusinessSettings({ ...v, poolDays: 多人 ? (v.poolDays ?? 0) : value.poolDays });
+    // 摆着这一项时清空 = 不开（存 0）；没摆时表单里没有它，照原值存回去，别悄悄关掉（表单公海天数，T-044 有用例）
+    const res = await saveBusinessSettings({ ...v, poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays) });
     setSaving(false);
     if (res.ok) {
       set套了(null);

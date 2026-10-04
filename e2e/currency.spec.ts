@@ -67,6 +67,10 @@ test("美元商机 → 登记签约带上币种 → 列表、记录页、数据�
   const 框 = page.getByRole("dialog", { name: "新建商机" });
   await 框.getByLabel("商机名称").fill("美元询盘");
   await 选(page, 框.getByLabel("所属客户"), 客户名);
+  // 管理员不在负责人候选里：负责人留空、自己选，不再默认名单第一人（2026-10-04 T-025）
+  await 框.getByLabel("负责人", { exact: true }).click();
+  // 上一个下拉（所属客户）可能还没收起：按选项文字点，别按「第一个展开的下拉」找
+  await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option", { hasText: "张三" }).first().click();
   await 选(page, 框.getByLabel("币种"), "USD");
   await 框.getByLabel("商机金额").fill("3250.5");
   await 框.getByRole("button", { name: /保\s*存/ }).click();

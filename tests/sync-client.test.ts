@@ -4,7 +4,7 @@
  * 云端：一个内存里的假中转（规矩和 lib/tenant/sync-relay.ts 一样：未开通不收、按序号推拉）。
  * 甲用的库是拷出来的一份（vi.mock 换掉 @/lib/prisma），触发器碰不到共用的测试库。
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -36,6 +36,11 @@ import { getBusiness } from "@/lib/business";
 const 云 = { 团队: new Map<string, { name: string; secret: string; active: boolean; 人: Set<string> }>(), 批: [] as { seq: number; team: string; device: string; data: string }[] };
 const 当前账号 = "jia";
 /** 在某个请求上卡一下（慢网络 / 云端回话慢）：用来造「同步一轮」和「退出团队」撞在一起（2026-10-04 T-009） */
+/** 假中转名单里的老板账号；null = 就是当前账号 */
+let 名单老板: string | null = null;
+afterEach(() => {
+  名单老板 = null;
+});
 let 钩子: ((方法: string, 路径: string) => Promise<void>) | null = null;
 const 假传输: 传输 = async (方法, 路径, body) => {
   if (钩子) await 钩子(方法, 路径);
@@ -46,7 +51,9 @@ const 假传输: 传输 = async (方法, 路径, body) => {
     return { 状态: 200, json: { ok: true, teamId: id, joinSecret: "s3cret" } };
   }
   if (方法 === "GET" && 路径 === "/api/sync/team") {
-    return { 状态: 200, json: { ok: true, teams: [...云.团队].filter(([, t]) => t.人.has(当前账号)).map(([id, t]) => ({ id, name: t.name, active: t.active, 我是建的人: true, 成员: [...t.人].map((a) => ({ accountId: a, name: a, contact: `${a}@x.com`, role: a === 当前账号 ? "owner" : "member" })) })) } };
+    // 名单里的老板：默认就是我（建团队的人）；当业务员() 把它换成乙（T-041 之后退出时按名单判谁是老板）
+    const 老板 = 名单老板 ?? 当前账号;
+    return { 状态: 200, json: { ok: true, teams: [...云.团队].filter(([, t]) => t.人.has(当前账号)).map(([id, t]) => ({ id, name: t.name, active: t.active, 我是建的人: 老板 === 当前账号, 成员: [...new Set([...t.人, 老板])].map((a) => ({ accountId: a, name: a, contact: `${a}@x.com`, role: a === 老板 ? "owner" : "member" })) })) } };
   }
   if (方法 === "POST" && 路径 === "/api/sync/leave") return { 状态: 200, json: { ok: true } };
   const t = 云.团队.get(b.teamId ?? new URL(`http://x${路径}`).searchParams.get("teamId") ?? "");
@@ -205,7 +212,18 @@ describe("桌面端同步客户端", () => {
     return 码;
   }
   /** 甲当业务员：退出时走「只留自己的」，别人的客户留在这台上就看得出来 */
-  const 当业务员 = () => 甲.$executeRawUnsafe(`UPDATE "User" SET role = 'SALES' WHERE id = 'acct_jia'`);
+  /*
+    把这台当成业务员（T-041 之后要三件事都对上才算：本机角色 SALES、手上没有建团队的签名私钥、云端名单里老板是别人）。
+    只改本机 role 已经不够——那正是 T-041 要堵的「判错就删老板的数据」
+  */
+  const 当业务员 = async () => {
+    await 甲.$executeRawUnsafe(`UPDATE "User" SET role = 'SALES' WHERE id = 'acct_jia'`);
+    const f = path.join(process.env.CRM_DATA_DIR!, ".team.json");
+    const c = JSON.parse(fs.readFileSync(f, "utf8"));
+    delete c.signPriv;
+    fs.writeFileSync(f, JSON.stringify(c));
+    名单老板 = "yi";
+  };
 
   it("T-042 乙推了业务配置改动：甲同步一轮之后 getBusiness() 就是新的（收到改动清了设置缓存）", async () => {
     const 码 = await 新团队("四队");

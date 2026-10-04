@@ -28,7 +28,7 @@ import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import { 导出客户 } from "./export-action";
 import { 客户导出表, 签约各币 } from "./export-table";
 import ImportDrawer from "./ImportDrawer";
-import { assignSalesOwner, bulkFollowStatus, type BulkResult } from "./actions";
+import { assignSalesOwner, bulkFollowStatus, 撤销改负责人, type BulkResult } from "./actions";
 import { useDeleteCustomers } from "./useDeleteCustomers";
 import { 带走说法 } from "@/lib/carry-over";
 import { useBusiness } from "@/lib/business-client";
@@ -125,9 +125,10 @@ export default function CustomersView({
 
   /**
    * 批量改完给一次撤销（排查 D1）。原来点一下就写库、没有退路，选错一页就是一批数据改错。
-   * 撤销 = 按原值分组再调一次同一个批量动作：改负责人那边，没做完的活也会跟着回到原来的人手上（B3 是对称的）
+   * 撤销 = 按原值分组再调一次同一个批量动作（改状态）；改负责人不能这样撤——反向再转一次会把新负责人本来就有的活
+   * 一起带走，传 整批退回 走 撤销改负责人，只还这次带过来的（2026-10-04 T-018）
    */
-  function 可撤销提示(res: Extract<BulkResult, { ok: true }>, 文案: string, 退回: (ids: string[], 值: string) => Promise<BulkResult>) {
+  function 可撤销提示(res: Extract<BulkResult, { ok: true }>, 文案: string, 退回: (ids: string[], 值: string) => Promise<BulkResult>, 整批退回?: () => Promise<BulkResult>) {
     const 原值 = res.原值 ?? [];
     if (!原值.length) return void message.success(文案);
     const key = `bulk-${原值[0].id}-${原值.length}`;
@@ -142,6 +143,14 @@ export default function CustomersView({
             size="small"
             onClick={async () => {
               message.destroy(key);
+              if (整批退回) {
+                const r = await 整批退回();
+                router.refresh();
+                if (!r.ok) return void message.error(`没能全部改回去：${r.error}`);
+                return void (r.unchanged
+                  ? message.warning(`已撤销 ${r.updated} 条；${r.unchanged} 条没改回（刚被人改过，或原负责人已停用）`)
+                  : message.success(`已撤销，${r.updated} 条改回原样`));
+              }
               const 组 = new Map<string, string[]>();
               for (const x of 原值) 组.set(x.值, [...(组.get(x.值) ?? []), x.id]);
               for (const [值, ids] of 组) {
@@ -467,7 +476,7 @@ export default function CustomersView({
                     清空();
                     router.refresh();
                     if (!res.ok) return void message.error(res.error);
-                    可撤销提示(res, bulkSummary(res, `已转给 ${o.label}`), assignSalesOwner);
+                    可撤销提示(res, bulkSummary(res, `已转给 ${o.label}`), assignSalesOwner, () => 撤销改负责人(res.原值 ?? [], o.value, res.带过来));
                   },
                 })),
               }}
