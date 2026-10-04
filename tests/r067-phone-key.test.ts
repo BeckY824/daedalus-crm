@@ -9,6 +9,8 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { spawnSync } from "node:child_process";
 
 const mocks = vi.hoisted(() => ({
   user: { id: "u-key", name: "我", email: "me@local", role: "ADMIN", title: "管理员", avatar: null },
@@ -84,6 +86,25 @@ describe("索引：1 万客户的库不全表扫", () => {
   it("迁移里建的表达式索引和查询用的是同一个式子", () => {
     const sql = fs.readFileSync(path.resolve(__dirname, "../migrations/021-customer-phone-key.sql"), "utf8");
     expect(sql).toContain(`CREATE INDEX IF NOT EXISTS "${号键索引名}" ON "Customer"(${号键SQL('"phone"')});`);
+  });
+  /*
+    10-04 第一版的替换表有 31 项 → 索引是 31 层 replace()。应用自己（Prisma 3.46、Electron/Node 3.50）开得了，
+    但 SQLite 3.46 以前的解析栈只吃 29 层：系统自带的 sqlite3（Mac 是 3.45）、常见的库查看工具、降级回去的老版本
+    打开整个库都报「malformed database schema … parser stack overflow」。
+  */
+  it("索引式子最多 20 层 replace()：老 SQLite（3.46 以前只吃 29 层）也打得开这个库", () => {
+    expect(号键SQL('"phone"').split("replace(").length - 1).toBeLessThanOrEqual(20);
+  });
+  it("机器上有 3.46 以前的 sqlite3 命令时：真用它建这个索引、再开库查一次", () => {
+    const 版本 = spawnSync("sqlite3", ["--version"], { encoding: "utf8" });
+    const m = /^(\d+)\.(\d+)/.exec(版本.stdout ?? "");
+    if (版本.status !== 0 || !m || Number(m[1]) * 1000 + Number(m[2]) >= 3046) return; // 没有老 sqlite3 就只靠上面那条层数守卫
+    const 库 = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "phonekey-")), "x.db");
+    const 建 = spawnSync("sqlite3", [库, `CREATE TABLE "Customer"("phone" TEXT); ${fs.readFileSync(path.resolve(__dirname, "../migrations/021-customer-phone-key.sql"), "utf8")}`], { encoding: "utf8" });
+    expect(建.stderr).toBe("");
+    const 读 = spawnSync("sqlite3", [库, "SELECT count(*) FROM sqlite_master WHERE type = 'index'"], { encoding: "utf8" });
+    expect(读.stderr).toBe("");
+    expect(读.stdout.trim()).toBe("1");
   });
   it("查重那句的查询计划走这个索引", async () => {
     const 计划 = await prisma.$queryRawUnsafe<{ detail: string }[]>(`EXPLAIN QUERY PLAN ${按号键找SQL(2)}`, "13800001111", "13900002222");
