@@ -337,6 +337,39 @@ app.on("render-process-gone", (_e, wc, d) => {
 });
 app.on("child-process-gone", (_e, d) => 崩溃.写崩溃日志(应用日志, "子进程退出", `${d.type} ${d.name || ""}：${d.reason}（${d.exitCode}）`));
 
+/**
+ * data/ 里还躺着一份没并进来的库（R-066）：升级后又装回老版本用了一阵、再升回来，老版本期间录的都在那儿，
+ * 界面上看不到。合不了（两份都是真数据，见 accounts.js 的 迁移旧数据），至少说出来、给打开文件夹的入口。
+ * 「以后不再提示」只管这一份：那份库再变（又用老版本写了一笔），照样再提示
+ */
+function 提示老数据() {
+  let 有 = null;
+  try {
+    有 = 账号.老数据提示(数据根);
+  } catch (e) {
+    console.error("[accounts] 查老数据失败：", e?.message ?? e);
+  }
+  if (!有) return;
+  dialog
+    .showMessageBox(win && !win.isDestroyed() ? win : null, {
+      type: "warning",
+      title: "有一份数据没并进来",
+      message: "装回老版本期间录的数据，在另一个文件夹里",
+      detail:
+        `位置：${有.目录}\n最后改动：${有.改于.toLocaleString("zh-CN")}\n\n` +
+        "升级之后又装回过老版本用了一阵，那段时间录的客户、跟进存在这里，现在的界面看不到。" +
+        "两份都是真数据，为了不盖掉谁，没有自动合并，文件一个字节都没动。可以打开文件夹看看；需要并进来的话，点左下角「反馈」告诉我们。",
+      buttons: ["打开文件夹", "以后不再提示", "知道了"],
+      defaultId: 0,
+      cancelId: 2,
+    })
+    .then(({ response }) => {
+      if (response === 0) shell.openPath(有.目录);
+      else if (response === 1) 账号.记下不再提示老数据(数据根, 有.签名);
+    })
+    .catch(() => {});
+}
+
 /* ---------- 启动 ---------- */
 
 /**
@@ -1614,6 +1647,7 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
     建窗口();
+    if (读配置().mode === "local") 提示老数据();
     /*
       提醒：Dock 上的数、早上那条汇总、到点提醒（desktop/reminders.js）。
       连服务器的模式下也照样起：「能不能问」每一轮现判断，本地服务在才问，
