@@ -11,8 +11,9 @@
  *   3. 预览上那几个数就是真正会发生的数（同号多行已经合过）
  *   4. 撤销真的把这一批删干净
  */
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page, type Route } from "@playwright/test";
 import { 装个假模型, 拆掉假模型 } from "./fake-llm";
+import { 连库 } from "./mock-data";
 import { 粘贴字数上限 } from "../src/lib/import/paste";
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
@@ -155,6 +156,130 @@ test("库里已有的号再导一次：第 4 步改选「只补空」→「补�
   await expect(开始).toBeEnabled();
   await 开始.click();
   await expect(抽屉.getByText(/新建 0 条，补空 1 条/)).toBeVisible({ timeout: 30_000 });
+});
+
+/*
+  2026-10-04 上线前第 1 期：导入完成页「撤销这一批」一次删好几位，原来一点就删（审查 M15）。
+  现在先问，问话里写清会删几条；点「不了」库里一位不少
+*/
+test("完成页「撤销这一批」：先问、写清会删几条；点「不了」不删，确认才删", async ({ page }) => {
+  await 登录(page);
+  const 名 = `撤批甲${戳}`;
+  const 抽屉 = await 打开抽屉并选文件(page, "撤这一批.csv", `姓名,手机号\n${名},137${戳}21`, "text/csv");
+  await 过对列和复核(抽屉);
+  await 抽屉.getByRole("button", { name: "开始导入" }).click();
+  await expect(抽屉.getByText(/新建 1 条/)).toBeVisible({ timeout: 30_000 });
+
+  const 撤 = 抽屉.getByRole("button", { name: "撤销这一批" });
+  const 问 = page.locator(".ant-popconfirm", { hasText: "撤销这一批导入？" });
+  await 撤.click();
+  await expect(问).toBeVisible();
+  await expect(问).toContainText("会删掉 1 条新建的记录");
+  // 问的时候人还在库里
+  await 问.getByRole("button", { name: /不\s*了/ }).click();
+  await expect(问).toBeHidden();
+  await page.waitForTimeout(500);
+  const 库 = 连库();
+  try {
+    expect(await 库.customer.count({ where: { name: 名 } }), "点了「不了」却删了").toBe(1);
+    await 撤.click();
+    await 问.getByRole("button", { name: /撤\s*销/ }).click();
+    await expect(page.getByRole("dialog", { name: "已撤销这一批" })).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => 库.customer.count({ where: { name: 名 } })).toBe(0);
+  } finally {
+    await 库.$disconnect();
+  }
+});
+
+/*
+  J-062：「已在库里的行怎么办」两个单选，原来给 Radio 设 display:block，圆点和字拆成两行、说明冲出抽屉（7699783）。
+  量盒子：圆点在字的左边、和字落在同一段高度里（不是自己单独一行），整个选项不超出抽屉
+*/
+async function 到第4步有重复(page: Page, 标: string) {
+  const 号 = `139${戳}${标}`;
+  let 抽屉 = await 打开抽屉并选文件(page, `对齐${标}甲.csv`, `姓名,手机号\n对齐${标}${戳},${号}`, "text/csv");
+  await 过对列和复核(抽屉);
+  await 抽屉.getByRole("button", { name: "开始导入" }).click();
+  await expect(抽屉.getByText(/新建 1 条/)).toBeVisible({ timeout: 30_000 });
+  抽屉 = await 打开抽屉并选文件(page, `对齐${标}乙.csv`, `姓名,手机号\n对齐${标}${戳},${号}`, "text/csv");
+  await 过对列和复核(抽屉);
+  const 选项 = 抽屉.locator(".ant-radio-wrapper");
+  await expect(选项).toHaveCount(2);
+  return { 抽屉, 选项 };
+}
+
+test("J-062 第 4 步两个单选：圆点和字在同一段里、圆点在左，不冲出抽屉", async ({ page }) => {
+  await 登录(page);
+  const { 抽屉, 选项 } = await 到第4步有重复(page, "31");
+  const 抽屉盒 = (await 抽屉.locator(".ant-drawer-body").boundingBox({ timeout: 5_000 }))!;
+  for (let i = 0; i < 2; i++) {
+    const 圆 = (await 选项.nth(i).locator(".ant-radio").boundingBox())!;
+    const 字 = (await 选项.nth(i).locator("> span").last().boundingBox())!;
+    const 整个 = (await 选项.nth(i).boundingBox())!;
+    expect(圆.y + 圆.height > 字.y && 圆.y < 字.y + 字.height, `第 ${i + 1} 个选项圆点和字拆成了两行`).toBe(true);
+    expect(圆.x + 圆.width, `第 ${i + 1} 个选项圆点不在字左边`).toBeLessThanOrEqual(字.x + 1);
+    expect(整个.x + 整个.width, `第 ${i + 1} 个选项冲出抽屉`).toBeLessThanOrEqual(抽屉盒.x + 抽屉盒.width + 1);
+  }
+});
+
+/*
+  还剩一点：圆点按整段（标题 + 说明）垂直居中，说明折成两行的「只补空」那一项，圆点落在说明那一行旁边、不在粗体标题旁边。
+  不伤数据，排下一版
+*/
+test.skip("【下一版】J-062 第 4 步两个单选：圆点对齐粗体标题那一行，不落到说明旁边", async ({ page }) => {
+  await 登录(page);
+  const { 选项 } = await 到第4步有重复(page, "32");
+  for (let i = 0; i < 2; i++) {
+    const 圆 = (await 选项.nth(i).locator(".ant-radio").boundingBox())!;
+    const 标题 = (await 选项.nth(i).locator("b").boundingBox())!;
+    expect(Math.abs(圆.y + 圆.height / 2 - (标题.y + 标题.height / 2)), `第 ${i + 1} 个选项圆点没对着标题`).toBeLessThan(4);
+  }
+});
+
+/*
+  J-061：导入抽屉的三个 server action 抛出来的失败原来没接住——按钮转一下又恢复，一声不吭。
+  拦住「算预览」那一次请求回 500：要说一句、按钮恢复能点；放开之后再点就往下走
+*/
+test("J-061 算预览那一步服务端出错：说一句话、按钮恢复，放开后再点能往下走", async ({ page }) => {
+  await 登录(page);
+  const 抽屉 = await 打开抽屉并选文件(page, "出错.csv", `姓名,手机号\n出错甲${戳},137${戳}41`, "text/csv");
+  await expect(抽屉.getByText(/读到了/)).toBeVisible();
+  const 拦 = async (route: Route) => {
+    const r = route.request();
+    if (r.method() === "POST" && r.headers()["next-action"]) return route.fulfill({ status: 500, body: "boom" });
+    return route.continue();
+  };
+  await page.route("**/customers**", 拦);
+  const 下一步 = 抽屉.getByRole("button", { name: "下一步" });
+  await 下一步.click();
+  await expect(page.locator(".ant-message-error")).toBeVisible();
+  await expect(下一步).toBeEnabled();
+  await expect(抽屉.getByText("每一格都读得懂，没有要你确认的")).toBeHidden();
+  await page.unroute("**/customers**", 拦);
+  await 下一步.click();
+  await expect(抽屉.getByText("每一格都读得懂，没有要你确认的")).toBeVisible({ timeout: 30_000 });
+});
+
+/*
+  J-065：设置 → 导入记录读失败，原来显示成「还没有导入过」——人会以为导入记录丢了。
+  拦住那次读取回 500：要写「没读出来」并给「再读一次」，不写「还没有导入过」
+*/
+test("J-065 导入记录读不出来：说没读出来、给「再读一次」，不说「还没有导入过」", async ({ page }) => {
+  await 登录(page);
+  let 拦着 = true;
+  await page.route("**/settings**", (route) => {
+    const r = route.request();
+    if (拦着 && r.method() === "POST" && r.headers()["next-action"]) return route.fulfill({ status: 500, body: "boom" });
+    return route.continue();
+  });
+  await page.goto("/settings?tab=imports");
+  await expect(page.getByText("导入记录没读出来")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByText("还没有导入过")).toHaveCount(0);
+  拦着 = false;
+  await page.getByRole("button", { name: "再读一次" }).click();
+  await expect(page.getByText("导入记录没读出来")).toBeHidden();
+  // 前面几条用例导过：读回来是表里的批次
+  await expect(page.locator(".ant-table-row").first()).toBeVisible();
 });
 
 test("手机号那一列不指出来就不让往下走", async ({ page }) => {
