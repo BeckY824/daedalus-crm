@@ -63,6 +63,15 @@ describe("共享工作区的管理员动作", () => {
     expect(段).toContain("当前是共享区");
     expect(段).toContain("FORBIDDEN");
   });
+
+  it("「导入的自动判断」开关不走 requireAdmin，自己也拦共享区（H-037，2026-10-04）", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const src = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/actions.ts"), "utf8");
+    const 起 = src.indexOf("export async function 设自动判断开关(");
+    const 段 = src.slice(起, src.indexOf("await 设自动判断(开)", 起));
+    expect(段).toMatch(/if \(await 是共享区\(\)\) throw new Error\("FORBIDDEN"\)/);
+  });
 });
 
 describe("两条容易被下一个人改坏的约定", () => {

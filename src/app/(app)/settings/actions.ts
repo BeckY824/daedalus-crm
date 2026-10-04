@@ -681,6 +681,11 @@ export async function 查自动判断(): Promise<{ 可用: boolean; 已开: bool
 export async function 设自动判断开关(开: boolean): Promise<void> {
   const me = await requireUser();
   if (!本机说了算(me.role)) throw new Error("只有管理员能改");
+  /*
+    共享试用区一律不许改（2026-10-04，回归核对 H-037）：那儿的「管理员」是好几个团队共用的一套账号，
+    开了它导入时会自动把文本发给 AI——隐私政策承诺的那个关闭开关，不能让别的团队替你打开
+  */
+  if (await 是共享区()) throw new Error("FORBIDDEN");
   await 设自动判断(开);
   await recordAudit({
     user: me, action: "update", entity: "Setting", entityId: "assist",
