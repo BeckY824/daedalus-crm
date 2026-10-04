@@ -64,11 +64,39 @@ function 文件(): string {
  * 没有标记 = 未认领（第一次装应用，或者 0.39.2 之前升级上来还没认领过的那份），
  * 那种目录谁登录就归谁，不算换人。
  */
+/**
+ * 归属的自带校验的副本（2026-10-04 修 C-7）：「账号 id + 换行 + key(id)」，读时对得上 key 才算数。
+ * .owner 被写成乱码时靠它认出原来的主人。和 desktop/accounts.js 的 归属校验文件 同名、同格式。
+ */
+const 归属校验文件名 = ".owner.check";
+
+function 读校验过的归属(dir: string): string | null {
+  try {
+    const [id, k] = fs.readFileSync(path.join(dir, 归属校验文件名), "utf8").split("\n");
+    return id && id.trim() && k?.trim() === 账号key(id) ? id.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 先写临时文件再改名：磁盘满时写一半留下的是没用的临时文件，不是半截 .owner */
+function 原子写(文件: string, 内容: string) {
+  const 临时 = `${文件}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(临时, 内容, { mode: 0o600 });
+    fs.renameSync(临时, 文件);
+  } catch (e) {
+    fs.rmSync(临时, { force: true });
+    throw e;
+  }
+}
+
 function 记本目录归属(accountId: string) {
   const dir = process.env.CRM_DATA_DIR;
   if (!dir) return;
   try {
-    fs.writeFileSync(path.join(dir, ".owner"), accountId, { mode: 0o600 });
+    原子写(path.join(dir, 归属校验文件名), `${accountId}\n${账号key(accountId)}\n`);
+    原子写(path.join(dir, ".owner"), accountId);
   } catch (e) {
     /* 记不上：启动认领时还会再记一遍。但不再悄悄吞掉（2026-10-04 B-2 / D-024）——本地服务的输出进 server.log */
     console.error("[desktop] 记归属失败：", e instanceof Error ? e.message : e);
@@ -90,6 +118,9 @@ const 待认文件名 = ".owner-pending.json";
 export function 本目录归谁(): string | null {
   const dir = process.env.CRM_DATA_DIR;
   if (!dir) return null;
+  // 自带校验的副本对得上就以它为准（C-7）：.owner 被写成乱码时认的还是原来的主人
+  const 校验过的 = 读校验过的归属(dir);
+  if (校验过的) return 校验过的;
   try {
     const v = fs.readFileSync(path.join(dir, ".owner"), "utf8").trim();
     if (v) return v;

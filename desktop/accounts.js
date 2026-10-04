@@ -75,8 +75,43 @@ const 认不出的主 = "?认不出";
  */
 const 待认文件 = ".owner-pending.json";
 
-/** 这个目录归谁。没有标记（第一次装的未认领）就是 null；有主但认不出（A-2）是 认不出的主 */
+/**
+ * 归属的**自带校验的副本**（2026-10-04 修 C-7）：内容是「账号 id + 换行 + key(id)」，读的时候对一下 key，
+ * 对得上才算数。.owner 只是一行原文，被写坏成乱码时谁都认不出它——_未认领 又没有目录名可以兜底（B-2 那条路），
+ * 甲那份就谁也领不走、甲自己也拿不回。有了这份副本，单个文件坏了还认得出主人；
+ * 两份都坏了才落到「谁都领不走」，那也只是拿不回，不会串。
+ * 和服务端 src/lib/desktop/cloud.ts 的 归属校验文件名 同名、同格式（tests/r2-shell-accounts.test.ts 钉着）。
+ */
+const 归属校验文件 = "\u002eowner.check";
+
+function 读校验过的归属(目录) {
+  try {
+    const [id, k] = fs.readFileSync(path.join(目录, 归属校验文件), "utf8").split("\n");
+    return id && key(id) && k?.trim() === key(id) ? id.trim() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 先写临时文件再改名：磁盘满时写一半留下的是没用的临时文件，不是半截 .owner */
+function 原子写(文件, 内容) {
+  const 临时 = `${文件}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(临时, 内容, { mode: 0o600 });
+    fs.renameSync(临时, 文件);
+  } catch (e) {
+    fs.rmSync(临时, { force: true });
+    throw e;
+  }
+}
+
+/**
+ * 这个目录归谁。没有标记（第一次装的未认领）就是 null；有主但认不出（A-2）是 认不出的主。
+ * 自带校验的副本对得上就以它为准（C-7）：.owner 被写成乱码时认的还是原来的主人。
+ */
 function 归谁(目录) {
+  const 校验过的 = 读校验过的归属(目录);
+  if (校验过的) return 校验过的;
   try {
     const v = fs.readFileSync(path.join(目录, 归属文件), "utf8").trim();
     if (v) return v;
@@ -119,7 +154,9 @@ function 设日志(fn) {
 function 记归属(目录, accountId) {
   try {
     fs.mkdirSync(目录, { recursive: true });
-    fs.writeFileSync(path.join(目录, 归属文件), String(accountId), { mode: 0o600 });
+    const id = String(accountId);
+    原子写(path.join(目录, 归属校验文件), `${id}\n${key(id)}\n`);
+    原子写(path.join(目录, 归属文件), id);
     return true;
   } catch (e) {
     /* 记不上不致命：按账号命名的目录认目录名，下一次认领还会再记一遍。但要留案 */
@@ -257,4 +294,4 @@ function 退出(数据根) {
   }
 }
 
-module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 是他的, 设日志, 账号目录, 未认领, 归属文件, 认不出的主, 待认文件 };
+module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 是他的, 设日志, 账号目录, 未认领, 归属文件, 归属校验文件, 认不出的主, 待认文件 };

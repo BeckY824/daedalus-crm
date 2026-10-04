@@ -583,10 +583,11 @@ describe("升级：0.39.2 之前那份 data/", () => {
     expect(fs.existsSync(path.join(未认领, 账号.待认文件))).toBe(false);
   });
 
-  it("「认不出」的记号和待认文件名：壳和服务端两份必须是同一个值", () => {
+  it("「认不出」的记号、待认文件名、归属校验副本的文件名：壳和服务端两份必须是同一个值", () => {
     const src = fs.readFileSync(path.resolve(__dirname, "../src/lib/desktop/cloud.ts"), "utf8");
     expect(src).toContain(`export const 认不出的主 = "${账号.认不出的主}";`);
     expect(src).toContain(`const 待认文件名 = "${账号.待认文件}";`);
+    expect(src).toContain(`const 归属校验文件名 = "${账号.归属校验文件}";`);
   });
 
   it("迁移目标已存在（降级用过老版本又升回来）：data/ 原地不动、一个字节不丢——但界面上看不到它", async () => {
@@ -663,21 +664,39 @@ describe(".owner 损坏 / 为空", () => {
     }
   });
 
-  it(".owner 是乱码：谁登录都算换人，甲那份不会被别人拿走（甲自己也进不去，见 C-7）", async () => {
+  /*
+    原来这条的标题是「甲自己也进不去，见 C-7」。2026-10-04 修 C-7 后有了自带校验的副本（.owner.check），
+    .owner 写成乱码时仍认得出是甲的：乙照样被换走（不串），甲回来也拿得回（不丢）。断言跟着收紧成全不违规
+  */
+  it(".owner 是乱码：乙登录被换去自己的目录，甲那份不会被别人拿走、甲回来还拿得到（C-7）", async () => {
     const s = await 跑(["甲登录", "写一笔"]);
     fs.writeFileSync(path.join(账号.账号目录(根, 账号.未认领), ".owner"), "\u0000\u0000garbage");
     await s.走("退出登录");
     await s.走("乙登录");
     await s.走("写一笔");
-    expect(s.违规.filter((v) => v.startsWith("【串数据】"))).toEqual([]);
+    for (const x of ["退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
   });
 
-  it.skip("【下一版】【C-7】_未认领 的 .owner 被写坏，甲再登录：应该还能拿回自己那份", async () => {
+  it("【C-7 · 2026-10-04 修】_未认领 的 .owner 被写坏，甲再登录：应该还能拿回自己那份", async () => {
     const s = await 跑(["甲登录", "写一笔"]);
     fs.writeFileSync(path.join(账号.账号目录(根, 账号.未认领), ".owner"), "garbage");
     await s.走("退出登录");
     await s.走("甲登录");
     expect(s.违规).toEqual([]);
+  });
+
+  it("【C-7 · 2026-10-04 修】.owner 和校验副本一起坏了：拿不回也绝不串——乙进新目录，那份原地不动", async () => {
+    const s = await 跑(["甲登录", "写一笔"]);
+    const 未认领 = 账号.账号目录(根, 账号.未认领);
+    fs.writeFileSync(path.join(未认领, ".owner"), "garbage");
+    fs.writeFileSync(path.join(未认领, 账号.归属校验文件), "acc_yi\nffffffffffffffffffffffff\n"); // 校验对不上：不认
+    await s.走("退出登录");
+    await s.走("乙登录");
+    await s.走("写一笔");
+    expect(s.违规).toEqual([]);
+    expect(读库(未认领).map((x) => x.谁)).toEqual([甲.id]);
   });
 });
 
