@@ -20,6 +20,10 @@ let 决策轮次: 消息[][] = [];
 let 回答轮次: 消息[][] = [];
 /** JSON 协议那条路（不该走到）收到的消息 */
 let JSON轮次: 消息[][] = [];
+/** 每一次决策轮交给模型的工具名 */
+let 给的工具: string[][] = [];
+/** 决策轮依次要调什么（空了就空手） */
+let 剧本: { name: string; args: string }[] = [];
 
 const 抄 = (ms: { role: string; content: unknown }[]) => ms.map((m) => ({ role: m.role, content: String(m.content ?? "") }));
 
@@ -35,9 +39,11 @@ vi.mock("@/lib/llm", () => ({
     return "好的";
   },
   // 决策步：一律空手（它认为够了）
-  chatTools: async (ms: { role: string; content: unknown }[]) => {
+  chatTools: async (ms: { role: string; content: unknown }[], tools: { function: { name: string } }[]) => {
     决策轮次.push(抄(ms));
-    return { text: "", toolCalls: [] };
+    给的工具.push(tools.map((t) => t.function.name));
+    const 这轮 = 剧本.shift();
+    return { text: "", toolCalls: 这轮 ? [{ id: `c${决策轮次.length}`, function: 这轮 }] : [] };
   },
 }));
 
@@ -56,6 +62,8 @@ beforeEach(async () => {
   决策轮次 = [];
   回答轮次 = [];
   JSON轮次 = [];
+  给的工具 = [];
+  剧本 = [];
   delete process.env.AGENT_TOOLCALLS;
 });
 
@@ -128,5 +136,21 @@ describe("意图直连（J-148 / J-149）", () => {
     // 上下文照样带给了模型——在系统提示词里，不在问题里
     expect(决策轮次[0][0].content).toContain("有什么渠道");
     expect(决策轮次[0][1].content.trimEnd().endsWith("张三怎么样了")).toBe(true);
+  });
+});
+
+/* 上线前第 3 期 3.6：这一版关掉的订单 / 供应商（lib/features.ts），AI 那边也不开 */
+describe("关掉的功能不交给模型", async () => {
+  const { 订单与供应商 } = await import("@/lib/features");
+  it.runIf(!订单与供应商)("工具表里没有 list_orders / list_suppliers；模型照名字叫了也不执行", async () => {
+    剧本 = [{ name: "list_orders", args: "{}" }, { name: "list_suppliers", args: "{}" }];
+    const r = await 问("我有哪些订单超期了");
+    expect(给的工具.length).toBeGreaterThanOrEqual(1);
+    for (const 名单 of 给的工具) {
+      expect(名单).not.toContain("list_orders");
+      expect(名单).not.toContain("list_suppliers");
+      expect(名单).toContain("list_channels"); // 别的照给，不是一个工具都没有
+    }
+    expect(r.steps).toBe(0);
   });
 });
