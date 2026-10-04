@@ -31,6 +31,10 @@ describe("团队同步清单", () => {
     expect([...有].filter((x) => !应有.includes(x)), "清单里有 schema 里不存在的列").toEqual([]);
   });
 
+  it("T-005 归属三件套不在不同步列里：保存那一刻固化的、不是派生字段，不同步的话各台业绩归属分叉、数据页对不上", () => {
+    for (const c of ["attributionChannelId", "attributionCustomerId", "channelOwnerId"]) expect(不同步列.Customer ?? [], c).not.toContain(c);
+  });
+
   it("不同步的列、同名合并的列在 schema 里都真有", () => {
     for (const [t, cs] of Object.entries(不同步列)) {
       const m = 模型们.find((x) => x.名 === t)!;
