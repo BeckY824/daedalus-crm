@@ -27,14 +27,14 @@ vi.mock("@/lib/prisma", async () => {
 });
 
 import { prisma as 甲 } from "@/lib/prisma";
-import { 建团队, 同步一轮, 读团队, 设传输, 解邀请码, 邀请码, 移除成员, 换邀请码, type 传输 } from "@/lib/sync/client";
+import { 建团队, 同步一轮, 读团队, 设传输, 解邀请码, 邀请码, 移除成员, 换邀请码, 团队状态, type 传输 } from "@/lib/sync/client";
 import { 封, 拆, 包的编号, 设备钥匙对, 封给, 拆自, 新钥匙, type 钥匙环 } from "@/lib/sync/crypto";
 import type { 改动 } from "@/lib/sync/local";
 import { closeTestDatabases } from "./close-databases";
 
 type 中转 = typeof import("@/lib/tenant/sync-relay");
 let r: 中转;
-let 账号们: Record<string, string> = {};
+const 账号们: Record<string, string> = {};
 
 /** 甲那台的云端：路径 → 真实的中转函数，身份固定是甲 */
 const 甲的传输: 传输 = async (方法, 路径, body) => {
@@ -191,5 +191,11 @@ describe("移除成员 + 换钥匙", () => {
     const 新码 = 解邀请码(邀请码(读团队()!))!;
     expect((await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: "dYi0001", pubKey: 设备钥匙对().公钥 })).ok).toBe(false);
     expect((await r.收推送(账号们.丁, teamId, "dYi0001", 封([], 读团队()!.key, 2))).ok).toBe(false);
+  });
+
+  it("云端答得上来、但我已经不在这个团队里：团队状态说「被移出」，不说「连不上云端」", async () => {
+    expect(await 团队状态()).toMatchObject({ 在团队: true, 被移出: false });
+    await r.退队(账号们.甲, teamId);
+    expect(await 团队状态()).toMatchObject({ 在团队: true, 被移出: true });
   });
 });

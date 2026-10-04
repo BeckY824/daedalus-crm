@@ -330,6 +330,11 @@ export async function 团队状态() {
   const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
   return {
     在团队: true as const,
+    /**
+     * 云端答得上来、但我的团队列表里没有这个团队：被建团队的人移出了（或者在别的电脑上退出了）。
+     * 原来界面上写「连不上云端」、还摆着已经作废的邀请码（2026-10-04 实机）
+     */
+    被移出: r.状态 === 200 && !团,
     teamName: 团?.name ?? c.teamName,
     active: 团?.active ?? null,
     我是建的人: 团?.我是建的人 ?? false,

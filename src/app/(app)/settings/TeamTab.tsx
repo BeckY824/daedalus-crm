@@ -179,6 +179,29 @@ export default function TeamTab() {
     );
   }
 
+  // 被移出了：只说清楚怎么回事、数据在哪、怎么回来，只留「退出团队」这一个动作（清掉这台电脑上的团队设置）
+  if (s.被移出) {
+    return (
+      <div className="set-col team" style={{ paddingTop: 8 }}>
+        <div className="team-head">
+          <h3>{s.teamName}</h3>
+          <Tag>已不在团队里</Tag>
+        </div>
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          message={`你已经不在「${s.teamName}」里了`}
+          description="可能被建团队的人移出了，或者你在别的电脑上退出了。这台电脑上的数据都还在，只是不再和同事同步。要回来，找建团队的人要一个新的邀请码。"
+        />
+        <section className="team-card">
+          <Button onClick={退}>退出团队</Button>
+          <span className="muted" style={{ marginLeft: 12 }}>清掉这台电脑上的团队设置，之后可以建新团队或加入别的团队</span>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="set-col team" style={{ paddingTop: 8 }}>
       <div className="team-head">
