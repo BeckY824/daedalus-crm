@@ -77,3 +77,23 @@ describe("导入认人表", () => {
     expect(await 分机留存起()).toBeNull();
   });
 });
+
+/*
+  2026-10-04（回归核对 H-017）：这一步在 (app)/layout 里每次进页面都调。库锁着 / 磁盘满时 setSetting 一抛，
+  原来整个应用一页都打不开。现在吞掉、下次再试
+*/
+describe("记分机留存起点写不进去", () => {
+  it("setSetting 抛错：不往外抛（layout 照常渲染），下次能写进去时再记", async () => {
+    await prisma.setting.deleteMany({ where: { key: { contains: "extKeptSince" } } });
+    invalidateSettingsCache();
+    const 设置 = await import("@/lib/settings");
+    const 坏 = vi.spyOn(设置, "setSetting").mockRejectedValueOnce(new Error("database is locked"));
+    const 静音 = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(记下分机留存起()).resolves.toBeUndefined();
+    坏.mockRestore();
+    静音.mockRestore();
+    invalidateSettingsCache();
+    await 记下分机留存起();
+    expect(await 分机留存起()).not.toBeNull();
+  });
+});

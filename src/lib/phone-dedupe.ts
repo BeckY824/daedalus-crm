@@ -22,7 +22,16 @@ export async function 分机留存起(): Promise<Date | null> {
 
 /** 没记过就记成现在。只写一次，之后再调什么都不做 */
 export async function 记下分机留存起(): Promise<void> {
-  if ((await getSetting<number>(键)) == null) await setSetting(键, Date.now());
+  /*
+    吞错（2026-10-04，回归核对 H-017）：它在 (app)/layout 里每次进页面都调，原来是裸 await——
+    库锁着、磁盘满时 setSetting 一抛，整个应用一页都打不开，为的只是记一个时间戳。
+    没记上下一次进页面会再试；没记上之前查重照旧按整串比，只是少认一种老号码，不伤数据
+  */
+  try {
+    if ((await getSetting<number>(键)) == null) await setSetting(键, Date.now());
+  } catch (e) {
+    console.error("[phone-dedupe] 记分机留存起点没成，下次再试：", e instanceof Error ? e.message : e);
+  }
 }
 
 /** 表单查重、保存、线索转客户用：整串一样的，或者（带分机时）老库里只存了主号的那位 */
