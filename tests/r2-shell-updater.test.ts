@@ -9,6 +9,8 @@
  *   - 2026-10-02 起 Windows 一律整包（feed 的 win32 不给 zip / manifest）
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { createRequire } from "node:module";
 
 const require_ = createRequire(import.meta.url);
@@ -129,7 +131,7 @@ describe("feed 字段缺失 / 损坏", () => {
     现在两个平台一样：没有能核对的哈希就不原地装（main.js 检查更新() 的 哈希可核）。
   */
   it("【B-7】main.js 里 Mac 那一支也看 哈希可核（上面的 会怎么装 是照抄的，这条防两边又对不上）", () => {
-    const src = require("node:fs").readFileSync(require("node:path").resolve(__dirname, "../desktop/main.js"), "utf8") as string;
+    const src = readFileSync(resolve(__dirname, "../desktop/main.js"), "utf8");
     const 段 = src.slice(src.indexOf("const 哈希可核"), src.indexOf("if (!可原地.ok)"));
     expect(段).toMatch(/!哈希可核\s*\?\s*\{ ok: false/);
     expect(src).not.toMatch(/if \(新版\.sha256\) await 安装\.校验sha256/);
