@@ -343,7 +343,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
             trigger={["click"]}
             menu={{
               /* 整行可点：label 里塞 <Link> 的话，点在图标或右边空白上只会把菜单关掉 */
-              items: [...nav, { key: "/settings", icon: <SettingOutlined />, label: "设置管理" }],
+              items: [...nav, { key: "/settings", icon: <SettingOutlined />, label: "设置" }],
               selectedKeys: [selectedKey],
               onClick: ({ key }) => router.push(key),
             }}
