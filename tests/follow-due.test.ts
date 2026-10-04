@@ -33,4 +33,16 @@ describe("要跟的数：一个口径、处处一样", () => {
     // 2026-10-03 起 Dock 上的数还加上订单节点：两个数的和一变就问
     expect(读("src/components/AppShell.tsx")).toMatch(/上次要跟\.current !== 要跟数 \+ 订单数\) void window\.desktopReminders\?\.刷新\(\)/);
   });
+
+  /*
+    【下一版】回归核对 D-046：上面那条只在「要跟的数」变了才叫壳。记录页建一条明天上午的计划、或者今天稍后定了钟点的那种，
+    要跟数不变 → 壳不知道，Dock 和到点提醒要等下一分钟那一问才跟上。跟进框、待办框、计划页已经各自叫了刷新；
+    记录页的 PlanForm 保存、完成计划还没叫。最多晚一分钟、不丢提醒，排下一版；补上调用点后去掉 skip
+  */
+  it.skip("【下一版】D-046 记录页建计划 / 完成计划之后也马上叫壳再问", () => {
+    expect(读("src/app/(app)/customers/[id]/PlanForm.tsx")).toContain("window.desktopReminders?.刷新()");
+    const 记录页 = 读("src/app/(app)/customers/[id]/RecordView.tsx");
+    const 段 = 记录页.slice(记录页.indexOf("async function 完成计划"), 记录页.indexOf("const fingerprint"));
+    expect(段).toContain("window.desktopReminders?.刷新()");
+  });
 });
