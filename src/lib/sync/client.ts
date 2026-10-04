@@ -296,10 +296,20 @@ export async function 换邀请码(): Promise<结果<{ 邀请码: string }>> {
   return { ok: true, 邀请码: 邀请码(读团队()!) };
 }
 
-/** 退出团队：本机数据全留着，只是不再推拉；触发器卸掉（日志表留着，以后再进团队不用重记全量） */
-export async function 退出团队(): Promise<结果> {
+/**
+ * 退出团队：本机数据全留着，只是不再推拉；触发器卸掉（日志表留着，以后再进团队不用重记全量）。
+ * 退出中不开新的一轮（2026-10-04 T-009）：原来只等了点退出那一刻在跑的那一轮，退出自己还要等云端回话，
+ * 这期间壳 8 秒一戳又开一轮，那一轮的拉取在退完之后才回放——业务员「只留自己的」删掉的同事客户又被放回来，
+ * 第一轮还会把刚卸的触发器重新装上。退出是一个整体，同一时间也只跑一个
+ */
+let 退出中: Promise<结果> | null = null;
+export function 退出团队(): Promise<结果> {
+  if (!退出中) 退出中 = 退出团队里().finally(() => { 退出中 = null; });
+  return 退出中;
+}
+async function 退出团队里(): Promise<结果> {
   // 正在跑的那一轮先跑完：不然它跑到最后把 .team.json 写回来，界面上还「在团队里」、触发器却已经卸了（复查）
-  if (在跑) await 在跑.catch(() => undefined);
+  while (在跑) await 在跑.catch(() => undefined);
   const c = 读团队();
   if (!c) return { ok: true };
   const r = await 云("POST", "/api/sync/leave", { teamId: c.teamId });
@@ -327,6 +337,8 @@ let 触发器对过 = false;
  * 同一时间只跑一轮：壳 30 秒一戳、人点「立即同步」，撞上了就等前一轮的结果。
  */
 export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
+  // 正在退出团队：不开新的一轮（见 退出团队，2026-10-04 T-009）
+  if (退出中 && !在跑) return Promise.resolve({ ok: false, error: "正在退出团队" });
   if (!在跑) {
     标同步中(true);
     在跑 = 看全部(跑一轮).finally(() => { 在跑 = null; 标同步中(false); });
