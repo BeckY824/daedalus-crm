@@ -11,7 +11,8 @@ import path from "node:path";
  * 和那边预置好账号的前提正相反。
  */
 const ROOT = __dirname;
-const PORT = 3400;
+// 并行跑几份工作树时错开端口（HOSTED_E2E_PORT），库在各自目录里
+const PORT = Number(process.env.HOSTED_E2E_PORT) || 3400;
 const HOSTED_DIR = path.resolve(ROOT, "prisma/e2e-hosted");
 
 export default defineConfig({
