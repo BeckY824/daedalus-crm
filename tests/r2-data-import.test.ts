@@ -277,15 +277,33 @@ describe("重复与库里已有", () => {
     expect({ 补空: r.预览.补空, 跳过: r.预览.跳过 }).toEqual({ 补空: w.补空, 跳过: w.跳过 });
   });
 
-  it.skip("【下一版】【B】库里已有、备注有值：表里没对上的列（微信号）整列没进来，预览也不说", async () => {
+  /*
+    2026-10-04 L-004 / J-051 修好，去掉 skip。口径：库里的备注一字不动，表里我们没有的列（「微信号：…」）添在它后面——
+    添不是覆盖；对上了「备注」字段的那一列照旧只补空（上面那条钉着）
+  */
+  it("【B】库里已有、备注有值，选「只补空」再导一次：表里没对上的列（微信号）添在库里备注后面，预览算补空 1", async () => {
     await prisma.customer.create({ data: { name: "张三", phone: "13800000001", remark: "人手录的", salesOwnerId: 我 } });
     const p = csv方案("姓名,手机号,微信号\n张三,13800000001,zs_wx", "补空");
     const r = await 预览导入(p);
     if (!r.ok) throw new Error(r.error);
-    await 执行导入(p, "a.csv");
+    const w = await 执行导入(p, "a.csv");
+    if (!w.ok) throw new Error(w.error);
     const c = await prisma.customer.findFirstOrThrow();
-    // 不覆盖是对的；但「没对上的列并进备注」在这条路上一个字都没留下，预览里补空 0、跳过 1，人以为表里没新东西
-    expect((c.remark ?? "").includes("zs_wx") || r.预览.待复核.length > 0, `备注=${c.remark}；预览=${JSON.stringify(r.预览)}`).toBe(true);
+    // 原来：「没对上的列并进备注」在这条路上一个字都没留下，人以为表里没新东西
+    expect(c.remark, `预览=${JSON.stringify(r.预览)}`).toBe("人手录的\n微信号：zs_wx");
+    expect([r.预览.补空, w.补空]).toEqual([1, 1]);
+  });
+
+  it("同一份带微信号的表「只补空」导两遍 → 那一行只添一次（第二遍算跳过）；撤第一批，备注回到原样", async () => {
+    await prisma.customer.create({ data: { name: "张三", phone: "13800000001", remark: "人手录的", salesOwnerId: 我 } });
+    const p = csv方案("姓名,手机号,微信号\n张三,13800000001,zs_wx", "补空");
+    const w1 = await 执行导入(p, "a.csv");
+    const w2 = await 执行导入(p, "a.csv");
+    if (!w1.ok || !w2.ok) throw new Error("导入失败");
+    expect([w1.补空, w2.补空, w2.跳过]).toEqual([1, 0, 1]);
+    expect((await prisma.customer.findFirstOrThrow()).remark).toBe("人手录的\n微信号：zs_wx");
+    expect(await 撤销批次(w1.batchId)).toMatchObject({ ok: true, 还原: 1 });
+    expect((await prisma.customer.findFirstOrThrow()).remark).toBe("人手录的");
   });
 });
 

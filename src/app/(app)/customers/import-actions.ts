@@ -27,7 +27,7 @@ import { resolveAttribution } from "@/lib/attribution";
 import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
 import { 字段表, type 字段名 } from "@/lib/import/fields";
-import { 摊开, 并重复行, type 排布 } from "@/lib/import/plan";
+import { 摊开, 并重复行, 添行, type 排布 } from "@/lib/import/plan";
 import { 同号写法 } from "@/lib/phone";
 import { 认人表, 分机留存起 } from "@/lib/phone-dedupe";
 
@@ -60,7 +60,7 @@ export type 导入方案 = Omit<排布, "字段表"> & {
   重复行: "跳过" | "补空";
 };
 
-/** 「只补空字段」能碰的那几格。**故意不含推荐链和状态**，理由见文件头第 3 条 */
+/** 「只补空字段」能碰的那几格。**故意不含推荐链和状态**，理由见文件头第 3 条。备注另有一条「添在后面」，见 执行导入 */
 const 补空字段名单 = ["school", "grade", "major", "expectedSignAt", "remark"] as const;
 
 
@@ -245,6 +245,18 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         if ((旧 as Record<string, unknown>)[k] != null && (旧 as Record<string, unknown>)[k] !== "") continue;
         补[k] = k === "expectedSignAt" ? new Date(新值) : 新值;
         before[k] = (旧 as Record<string, unknown>)[k] ?? null;
+      }
+      /*
+        库里备注有值：对上「备注」的那一列照旧不动，但表里我们没有的列（「微信号：…」）只有备注这一个去处——
+        添在库里备注后面，原来的字一个不动、已经在里面的那行不重复添。原来这条路上整列丢，预览还说补空 0
+        （2026-10-04 L-004 / J-051）。撤销照 before 把备注还原成原样
+      */
+      if (!("remark" in 补) && r.并进备注?.length && 旧.remark) {
+        const 添后 = 添行(旧.remark, r.并进备注);
+        if (添后 !== 旧.remark) {
+          补.remark = 添后;
+          before.remark = 旧.remark;
+        }
       }
       if (Object.keys(补).length === 0) {
         跳过++;
