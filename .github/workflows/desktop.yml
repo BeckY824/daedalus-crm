@@ -172,7 +172,7 @@ jobs:
           else
             # 小版本：只往滚动 Release 里丢包，不新建 Release（不刷别人的 feed）。
             # 它标成 prerelease，这样 /releases/latest 永远指向最近一个大版本
-            echo "小版本 $VER → 传到 $ROLLING，不新建 Release"
+            echo "小版本 $VER → 传到 ${ROLLING}，不新建 Release"
             gh release view "$ROLLING" >/dev/null 2>&1 || gh release create "$ROLLING"               --title "桌面端更新包（滚动）"               --prerelease               --notes "小版本的安装包都挂在这儿——它们不单独建 Release，免得每个补丁都去刷一遍关注者的动态。每个版本对应的改动见 CHANGELOG.md；正式版本在 Releases 列表里。"
             DEST="$ROLLING"
           fi
