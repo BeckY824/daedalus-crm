@@ -139,3 +139,26 @@ test("列表：阶段下拉选赢单成交 → 「赢单并登记签约」→ �
   expect(签约.map((x) => x.amount)).toEqual([30000]);
   expect(await 赢单关联(商机id)).toMatchObject({ contractId: 签约[0].id, prevStage: "方案报价" });
 });
+
+/* J-211：商机页的总额原来把已赢单、已丢单的也加进去，「进行中」的数是虚的 */
+test("商机列表的汇总药丸：没筛状态时只算进行中的，赢单和丢单不进总额", async ({ page }) => {
+  const 戳 = String(Date.now()).slice(-6);
+  const p = 连库();
+  const 张三 = await p.user.findFirstOrThrow({ where: { email: 账号.用户名 } });
+  const c = await p.customer.create({ data: { name: `汇总${戳}`, phone: `137${戳}11`, salesOwnerId: 张三.id } });
+  for (const [名, 金额, 状态] of [["进行中单", 1000, "OPEN"], ["赢下单", 50000, "WON"], ["丢掉单", 90000, "LOST"]] as const)
+    await p.opportunity.create({ data: { name: `汇总${戳}${名}`, customerId: c.id, ownerId: 张三.id, amount: 金额, stage: 状态 === "OPEN" ? "方案报价" : 状态 === "WON" ? "赢单成交" : "谈判审核", status: 状态, probability: 50 } });
+  await p.$disconnect();
+
+  await 登录(page);
+  await page.goto(`/opportunities?keyword=${encodeURIComponent(`汇总${戳}`)}`);
+  const 药丸 = page.locator(".list-sum");
+  await expect(药丸).toContainText("进行中 1 单");
+  await expect(药丸).toContainText("1,000");
+  await expect(药丸).not.toContainText("51,000");
+  await expect(药丸).not.toContainText("141,000");
+  // 筛了「已赢单」就是那一类的合计
+  await page.goto(`/opportunities?keyword=${encodeURIComponent(`汇总${戳}`)}&status=WON`);
+  await expect(药丸).toContainText("已赢单 1 单");
+  await expect(药丸).toContainText("50,000");
+});
