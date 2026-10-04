@@ -78,6 +78,8 @@ let 数据目录 = null;
 const 日志文件 = path.join(数据根, "logs", "server.log");
 /** 应用本身（主进程）没接住的错误。本地服务的输出在 日志文件，两个分开，各看各的 */
 const 应用日志 = path.join(数据根, "logs", "app.log");
+// 记不上 .owner 要留案（2026-10-04 修 B-2 / D-024）：它是认出「换人了」的依据，悄悄失败的话串库时无从查起
+账号.设日志((标题, e) => 崩溃.写崩溃日志(应用日志, `[accounts] ${标题}`, e));
 /**
  * 把数据目录切到 dir：cloud.js 记的 .cloud.json 路径必须跟着一起走，
  * 否则壳会对着上一个账号的令牌判断「登没登录」。
@@ -156,9 +158,9 @@ async function 看凭据换没换() {
   const c = 云端.读();
   // 没登录、或者刚退出登录：目录一个字节都不动（见 accounts.js 的 退出()）
   if (!c?.accountId) return;
-  // 未认领的那份（第一次装、升级上来的）没有归属标记，谁登录就归谁，不算换人
-  const 归谁 = 账号.归谁(数据目录);
-  if (!归谁 || 归谁 === c.accountId) return;
+  // 未认领的那份（第一次装）没有归属标记，谁登录就归谁，不算换人。
+  // 用 是他的() 而不是比 .owner 原文：accounts/<key> 的 .owner 被清空时认目录名（2026-10-04 修 B-2）
+  if (账号.是他的(数据目录, c.accountId) !== false) return;
   try {
     await 切账号();
   } catch (e) {

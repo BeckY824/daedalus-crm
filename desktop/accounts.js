@@ -86,12 +86,49 @@ function 归谁(目录) {
   return fs.existsSync(path.join(目录, 待认文件)) ? 认不出的主 : null;
 }
 
+/**
+ * accounts/<key> 这种按账号命名的目录：**目录名本身就是归属**（2026-10-04 修 B-2 / D-023）。
+ * 它只会由 认领() 建出来、名字就是 key(主人)，所以 .owner 被清空（磁盘满时写了一半、杀毒软件动过）
+ * 或写坏时，拿目录名兜底就不会认错人。_未认领 不是这种目录，只能看 .owner。
+ */
+function 目录名里的key(目录) {
+  const 名 = path.basename(目录);
+  return path.basename(path.dirname(目录)) === "accounts" && /^[0-9a-f]{24}$/.test(名) ? 名 : null;
+}
+
+/**
+ * 这个目录是不是这个账号的：true / false / null（没主，谁登录都行）。
+ * 判「换没换人」一律用它，别拿 归谁() 的原文去比——按账号命名的目录认目录名，.owner 坏了也认得出（B-2）。
+ */
+function 是他的(目录, accountId) {
+  const k = 目录名里的key(目录);
+  if (k) return key(accountId) === k;
+  const 主 = 归谁(目录);
+  return 主 ? 主 === String(accountId) : null;
+}
+
+/**
+ * 记不上归属**不再悄悄吞掉**（2026-10-04 修 B-2 / D-024）：.owner 是认出「换人了」的依据，
+ * 它没记上而没人知道，下次串库时就无从查起。壳启动时 设日志() 接到崩溃日志里；没接就打到控制台。
+ */
+let 日志 = (标题, e) => console.error(`[accounts] ${标题}：`, e?.message ?? e);
+function 设日志(fn) {
+  if (typeof fn === "function") 日志 = fn;
+}
+
 function 记归属(目录, accountId) {
   try {
     fs.mkdirSync(目录, { recursive: true });
     fs.writeFileSync(path.join(目录, 归属文件), String(accountId), { mode: 0o600 });
-  } catch {
-    /* 记不上不致命：下一次认领还会再记一遍 */
+    return true;
+  } catch (e) {
+    /* 记不上不致命：按账号命名的目录认目录名，下一次认领还会再记一遍。但要留案 */
+    try {
+      日志(`记归属失败 ${path.basename(目录)}`, e);
+    } catch {
+      /* 写日志也失败就算了，不能因此把认领搞砸 */
+    }
+    return false;
   }
 }
 
@@ -220,4 +257,4 @@ function 退出(数据根) {
   }
 }
 
-module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 账号目录, 未认领, 归属文件, 认不出的主, 待认文件 };
+module.exports = { key, 当前目录, 认领, 退出, 迁移旧数据, 读指针, 写指针, 归谁, 是他的, 设日志, 账号目录, 未认领, 归属文件, 认不出的主, 待认文件 };

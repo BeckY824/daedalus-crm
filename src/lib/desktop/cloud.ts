@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -68,8 +69,9 @@ function 记本目录归属(accountId: string) {
   if (!dir) return;
   try {
     fs.writeFileSync(path.join(dir, ".owner"), accountId, { mode: 0o600 });
-  } catch {
-    /* 记不上：启动认领时还会再记一遍 */
+  } catch (e) {
+    /* 记不上：启动认领时还会再记一遍。但不再悄悄吞掉（2026-10-04 B-2 / D-024）——本地服务的输出进 server.log */
+    console.error("[desktop] 记归属失败：", e instanceof Error ? e.message : e);
   }
 }
 
@@ -97,6 +99,31 @@ export function 本目录归谁(): string | null {
   // A-2：没记主、但留着一枚还没问到是谁的老令牌——有主，只是认不出。绝不能当「没主」让下一个登录的人领走
   if (fs.existsSync(path.join(dir, 待认文件名))) return 认不出的主;
   return null;
+}
+
+/** 账号 id → 目录名。和 desktop/accounts.js 的 key() 是同一个算法（tests/r2-shell-accounts.test.ts 钉着） */
+function 账号key(accountId: string): string {
+  return crypto.createHash("sha256").update(String(accountId).trim()).digest("hex").slice(0, 24);
+}
+
+/**
+ * accounts/<key> 这种按账号命名的目录：目录名本身就是归属（2026-10-04 修 B-2 / D-023）。
+ * 它只会由壳的 认领() 建出来、名字就是 key(主人)；.owner 被清空（磁盘满、杀毒软件）时原来当「没主」，
+ * 甲退出、乙登录就被记成乙、乙进了甲的库。拿目录名兜底就不会认错。_未认领 不是这种目录。
+ */
+function 目录名key(): string | null {
+  const dir = process.env.CRM_DATA_DIR;
+  if (!dir) return null;
+  const 名 = path.basename(path.resolve(dir));
+  return path.basename(path.dirname(path.resolve(dir))) === "accounts" && /^[0-9a-f]{24}$/.test(名) ? 名 : null;
+}
+
+/** 这个目录的主人（按 key 算，判「换没换人」只拿它比）。null = 没主 */
+function 本目录主key(): string | null {
+  const 名 = 目录名key();
+  if (名) return 名;
+  const v = 本目录归谁();
+  return v ? 账号key(v) : null;
 }
 
 type 老令牌 = { baseUrl: string; token: string; accountId?: string };
@@ -203,9 +230,9 @@ async function 定下本目录归属(): Promise<string | null> {
  */
 export function 归属对不上(): boolean {
   if (!本地模式()) return false;
-  const 归谁 = 本目录归谁();
+  const 主 = 本目录主key();
   const id = 读()?.accountId;
-  return Boolean(归谁 && id && 归谁 !== id);
+  return Boolean(主 && id && 主 !== 账号key(id));
 }
 
 export function 读(): 云端凭据 | null {
@@ -366,7 +393,10 @@ export async function 登录(target: string, password: string): Promise<结果<{
     必须赶在 写(c) 之前：没主的目录里那枚老令牌（A-2）一会儿就被新令牌盖掉，盖掉就再也问不出这份是谁的了。
     放在账号密码验过之后：密码错的那一下不该有任何动静（目录、归属、指针都不动）
   */
-  const 旧归谁 = await 定下本目录归属();
+  const 名key = 目录名key();
+  // 按账号命名的目录认目录名，不用去问（B-2）；只有 _未认领 这种才要定归属（A-2）
+  const 旧归谁 = 名key ? null : await 定下本目录归属();
+  const 旧主key = 名key ?? (旧归谁 ? 账号key(旧归谁) : null);
 
   const c: 云端凭据 = {
     baseUrl: 云,
@@ -387,8 +417,10 @@ export async function 登录(target: string, password: string): Promise<结果<{
     下次启动还把这份整个认领走。现在甲一登录这份就归甲；乙登录时对不上，壳把他换到自己的目录。
     只写记号不改目录名：改名要重起本地服务，那是壳在启动时做的事（desktop/accounts.js 认领）。
   */
-  if (!旧归谁 && c.accountId) 记本目录归属(c.accountId);
-  const 换了账号 = !!(旧归谁 && c.accountId && 旧归谁 !== c.accountId);
+  if (!旧主key && c.accountId) 记本目录归属(c.accountId);
+  const 换了账号 = !!(旧主key && c.accountId && 旧主key !== 账号key(c.accountId));
+  // 同一个人回来、而 .owner 坏了 / 空了（B-2）：顺手补回去
+  if (旧主key && c.accountId && !换了账号 && 本目录归谁() !== c.accountId) 记本目录归属(c.accountId);
   return { ok: true, data: { name: c.name, contact: c.contact, 还剩: r.data?.credits?.还剩, 换了账号 } };
 }
 
@@ -405,7 +437,7 @@ export async function 退出(): Promise<void> {
       问不到（断网 / 网慢）就**先不吊销**，把令牌挪去待认、留作凭据，等下一次登录（那时一定连得上）再问再吊。
       多留一阵的这枚令牌和原来 .cloud.json 一样 0600、躺在同一个目录里，不比退出前更外露。
     */
-    if (!本目录归谁()) {
+    if (!本目录主key()) {
       const 答 = c.accountId ? { id: c.accountId } : await 问令牌是谁(c);
       if ("id" in 答) 记本目录归属(答.id);
       else if ("作废" in 答) 记本目录归属(认不出的主);

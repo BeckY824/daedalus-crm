@@ -176,8 +176,7 @@ class 一台电脑 {
     if (!this.本地) return;
     const c = 壳云端.读();
     if (!c?.accountId) return;
-    const 归谁 = 账号.归谁(this.数据目录);
-    if (!归谁 || 归谁 === c.accountId) return;
+    if (账号.是他的(this.数据目录, c.accountId) !== false) return;
     await this.切一次();
   }
 
@@ -612,12 +611,56 @@ describe(".owner 损坏 / 为空", () => {
     杀毒软件清空……；记归属 失败是吞掉的，accounts.js:77-84）。甲退出、乙登录：服务端看「没主」→ 记成乙、
     换了账号=false → 乙进了甲的库。目录名本身就是 key(甲)，拿它兜底就不会认错。
   */
-  it.skip("【下一版】【B-2】accounts/<甲>/.owner 被清空：乙登录不许进甲的库", async () => {
+  it("【B-2 · 2026-10-04 修】accounts/<甲>/.owner 被清空：乙登录不许进甲的库", async () => {
     const s = await 跑(["甲登录", "写一笔", "重启", "退出登录"]);
     fs.writeFileSync(path.join(账号.账号目录(根, 账号.key(甲.id)), ".owner"), "");
     await s.走("乙登录");
     await s.走("写一笔");
     expect(s.违规).toEqual([]);
+  });
+
+  it("【B-2 · 2026-10-04 修】accounts/<甲>/.owner 写成乱码、甲自己回来：照常进门，.owner 顺手补回", async () => {
+    const s = await 跑(["甲登录", "写一笔", "重启", "退出登录"]);
+    const 甲目录 = 账号.账号目录(根, 账号.key(甲.id));
+    fs.writeFileSync(path.join(甲目录, ".owner"), "\u0000garbage");
+    for (const x of ["乙登录", "写一笔", "退出登录", "甲登录", "写一笔", "重启"] as 步[]) await s.走(x);
+    expect(s.违规).toEqual([]);
+    expect((await s.机.看到())?.谁).toBe(甲.id);
+    expect(账号.归谁(甲目录)).toBe(甲.id);
+  });
+
+  it("【B-2 · 2026-10-04 修】目录名兜底：壳的 是他的() 和服务端的 归属对不上() 认的是同一个 key", async () => {
+    const 甲目录 = 账号.账号目录(根, 账号.key(甲.id));
+    fs.mkdirSync(甲目录, { recursive: true });
+    fs.writeFileSync(path.join(甲目录, ".owner"), "");
+    expect(账号.是他的(甲目录, 甲.id)).toBe(true);
+    expect(账号.是他的(甲目录, 乙.id)).toBe(false);
+    expect(账号.是他的(账号.账号目录(根, 账号.未认领), 乙.id)).toBeNull(); // _未认领 没主：谁都行
+    const { 归属对不上 } = await import("@/lib/desktop/cloud");
+    process.env.DESKTOP_LOCAL = "1";
+    process.env.CRM_DATA_DIR = 甲目录;
+    const 写令牌 = (id: string) => fs.writeFileSync(path.join(甲目录, ".cloud.json"), JSON.stringify({ baseUrl: "http://cloud.test", token: "t", accountId: id, models: [] }));
+    写令牌(甲.id);
+    expect(归属对不上()).toBe(false);
+    写令牌(乙.id);
+    expect(归属对不上()).toBe(true);
+  });
+
+  it("【B-2 · 2026-10-04 修】记归属失败不再吞掉：走 设日志() 接进来的日志", () => {
+    const 记 = vi.fn();
+    账号.设日志(记);
+    try {
+      // 乙的目标目录是个文件：认领() 的 mkdir 会抛（调用方 切一次 接着报「换账号失败」），记归属 那一下要留案
+      const 乙目录 = 账号.账号目录(根, 账号.key(乙.id));
+      fs.mkdirSync(path.dirname(乙目录), { recursive: true });
+      fs.mkdirSync(乙目录);
+      fs.mkdirSync(path.join(乙目录, ".owner")); // .owner 是个目录：写不进去
+      账号.认领(根, 乙.id);
+      expect(记).toHaveBeenCalledTimes(1);
+      expect(String(记.mock.calls[0][0])).toContain("记归属失败");
+    } finally {
+      账号.设日志((标题: string, e: unknown) => console.error(标题, e));
+    }
   });
 
   it(".owner 是乱码：谁登录都算换人，甲那份不会被别人拿走（甲自己也进不去，见 C-7）", async () => {
