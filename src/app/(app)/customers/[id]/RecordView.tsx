@@ -531,6 +531,12 @@ export default function RecordView({
                 <span className="rec-mini-n" title={o.name}>{o.name}</span>
                 <span className="rec-mini-sub">
                   <StageTag stage={o.stage} />
+                  {/* 赢单 / 丢单挂个标（J-088），和商机列表名称列一样；不挂的话丢掉的单看着也像还在谈 */}
+                  {o.status !== "OPEN" && (
+                    <Tag color={o.status === "WON" ? "success" : "error"} style={{ margin: 0, borderRadius: 6 }}>
+                      {o.status === "WON" ? "已赢单" : "已丢单"}
+                    </Tag>
+                  )}
                   <span className="rec-mini-m">{金额(o.amount, o.currency)}</span>
                 </span>
               </Link>

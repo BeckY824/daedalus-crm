@@ -217,3 +217,22 @@ test("签约金额：自动带上勾着的商机金额之和；取消勾一个�
   const 签约 = await 查((p) => p.contract.findMany({ where: { customerId: id } }));
   expect(签约.map((c) => c.amount)).toEqual([12000]);
 });
+
+test("J-088 记录页左栏的商机写状态：赢单、丢单各挂一个标，进行中的不挂（和商机列表名称列一样）", async ({ page }) => {
+  const id = await 造客户("商机状态");
+  await 查((p) =>
+    p.opportunity.createMany({
+      data: [
+        { name: "在谈的那单", customerId: id, ownerId: 我id, amount: 1000, stage: "方案报价", status: "OPEN" },
+        { name: "赢下的那单", customerId: id, ownerId: 我id, amount: 2000, stage: "赢单成交", status: "WON" },
+        { name: "丢掉的那单", customerId: id, ownerId: 我id, amount: 3000, stage: "谈判审核", status: "LOST" },
+      ],
+    }),
+  );
+  await 登录(page);
+  await page.goto(`/customers/${id}`);
+  const 行 = (名: string) => page.locator(".rec-mini", { hasText: 名 });
+  await expect(行("赢下的那单")).toContainText("已赢单");
+  await expect(行("丢掉的那单")).toContainText("已丢单");
+  await expect(行("在谈的那单")).not.toContainText(/已赢单|已丢单/);
+});
