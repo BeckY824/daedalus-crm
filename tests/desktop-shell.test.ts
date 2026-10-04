@@ -10,6 +10,7 @@
 import { describe, it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
 
 const 桌面 = path.resolve(__dirname, "../desktop");
 const main = fs.readFileSync(path.join(桌面, "main.js"), "utf8");
@@ -264,5 +265,167 @@ describe("换账号：壳自己发现，不等页面", () => {
       const form = fs.readFileSync(path.resolve(__dirname, `../src/app/login/${f}`), "utf8");
       expect(form, f).not.toContain("void window.desktopShell.switchAccount()");
     }
+  });
+});
+
+/**
+ * 从 main.js 里按名字取出一个函数的整段源码（数大括号，跳过字符串和模板串里的括号）。
+ * 壳是裸 JS、顶层一 require 就要 Electron，单测起不来它；取出那一段在沙箱里跑，
+ * 测的就是 main.js 里**真在用的那几行**，不是照抄的一份（照抄的改了原处不会红）。
+ */
+function 取函数(src: string, 名: string): string {
+  const 头 = src.search(new RegExp(`(?:async )?function ${名}\\(`));
+  if (头 < 0) throw new Error(`main.js 里找不到 function ${名}`);
+  let i = src.indexOf("{", src.indexOf(")", 头));
+  let 深 = 0;
+  let 引号: string | null = null;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (引号) {
+      if (c === "\\") i++;
+      else if (c === 引号) 引号 = null;
+      continue;
+    }
+    if (c === '"' || c === "'" || c === "`") 引号 = c;
+    else if (c === "{") 深++;
+    else if (c === "}" && --深 === 0) return src.slice(头, i + 1);
+  }
+  throw new Error(`function ${名} 的括号没配平`);
+}
+
+describe("本机服务起不来、起两次（回归核对 D-035 / D-036 / R-016）", () => {
+  it("D-035 故障框只给「重试 / 查看完整日志 / 退出」，没有「改用服务器」（那会把人带进托管版的共享试用账号）", () => {
+    const 段 = 取函数(main, "报告本地故障");
+    expect(段).toMatch(/buttons: \["重试", "查看完整日志", "退出"\]/);
+    expect(段).not.toContain("改用服务器");
+    expect(段).not.toContain("连服务器(");
+  });
+
+  it("D-036 启动本地 同一时间只起一次：连点两下只起一个服务，两处拿到的是同一次；起完了下次还能再起", async () => {
+    const 源 = main.slice(main.indexOf("let 启动中 = null;"), main.indexOf("async function 真启动本地"));
+    expect(源).toContain("function 启动本地()");
+    let 起了几次 = 0;
+    let 放行!: () => void;
+    const 真启动本地 = () => {
+      起了几次++;
+      return new Promise<void>((r) => (放行 = r));
+    };
+    const 启动本地 = new Function("真启动本地", `${源}; return 启动本地;`)(真启动本地) as () => Promise<void>;
+    const 甲 = 启动本地();
+    const 乙 = 启动本地();
+    expect(起了几次, "第二下不该另起一个服务").toBe(1);
+    expect(乙).toBe(甲);
+    放行();
+    await Promise.all([甲, 乙]);
+    // 上一次结束了（成功或失败），「重试」要真的再起
+    void 启动本地();
+    expect(起了几次).toBe(2);
+  });
+
+  it("D-036 起失败了：两处都拿到失败，单飞的位子也让出来——「重试」不会一直等一个已经死掉的那次", async () => {
+    const 源 = main.slice(main.indexOf("let 启动中 = null;"), main.indexOf("async function 真启动本地"));
+    let 起了几次 = 0;
+    const 真启动本地 = () => (++起了几次 === 1 ? Promise.reject(new Error("端口被占")) : Promise.resolve());
+    const 启动本地 = new Function("真启动本地", `${源}; return 启动本地;`)(真启动本地) as () => Promise<void>;
+    const [a, b] = await Promise.allSettled([启动本地(), 启动本地()]);
+    expect(a.status).toBe("rejected");
+    expect(b.status).toBe("rejected");
+    await 启动本地();
+    expect(起了几次).toBe(2);
+  });
+});
+
+describe("config.json：写进去的每一项读配置都要读回来（回归核对 D-034）", () => {
+  it("扫 main.js 里所有 写配置({ ...读配置(), X })：X 的每个键，读配置() 都原样还回来", () => {
+    // 读配置() 是白名单返回：新写进 config 的键要是没加进白名单，下一次任何一处 写配置({...读配置()}) 就把它抹掉（glass、skipVersion 都栽过）
+    const 键们 = new Set<string>();
+    for (const m of main.matchAll(/写配置\(\{ \.\.\.读配置\(\), ([^}]*)\}\)/g)) {
+      for (const 段 of m[1].split(",")) {
+        const 键 = 段.split(":")[0].trim();
+        if (键) 键们.add(键);
+      }
+    }
+    // 只有展开写的那几种：整个换掉的写法（写配置({ mode, serverUrl })）就是当初抹掉配置的那个坑
+    expect(main.match(/写配置\(\{(?!\s*\.\.\.读配置\(\))/g), "写配置 只许 {...读配置(), 改的那几项} 这一种写法").toBeNull();
+    expect([...键们].sort()).toEqual(["glass", "lastRoute", "lastUpdateCheck", "mode", "serverUrl"]);
+
+    const 目录 = fs.mkdtempSync(path.join(os.tmpdir(), "cfg-"));
+    try {
+      const CONFIG_FILE = path.join(目录, "config.json");
+      const 值: Record<string, unknown> = { glass: false, lastRoute: "/customers/abc", lastUpdateCheck: "2026-10-04T00:00:00.000Z", mode: "local", serverUrl: "https://crm.example.com" };
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(值));
+      const 读配置 = new Function("fs", "path", "CONFIG_FILE", "旧数据目录", "数据根", "默认服务器", `${取函数(main, "读配置")}; return 读配置;`)(
+        fs, path, CONFIG_FILE, 目录, 目录, "https://default.example.com",
+      ) as () => Record<string, unknown>;
+      const 读回 = 读配置();
+      for (const 键 of 键们) expect(读回[键], `读配置() 没把 ${键} 读回来，下一次写配置就会把它抹掉`).toEqual(值[键]);
+    } finally {
+      fs.rmSync(目录, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("检查更新：整包不自动下、重试不弹框（回归核对 D-083 / R-010 / R-007 / D-088）", () => {
+  const 查 = 取函数(main, "检查更新");
+
+  it("D-083 / R-010 只有差量才自动下；整包先出按钮，点了才下（自动下 160 MB 会占满网、断了还从头来）", () => {
+    expect(查).toMatch(/自动下 = 计划\.方式 === "差量";/);
+    // 检查更新 里叫 下载更新 的只有「自动下」那一处
+    expect(查.match(/下载更新\(\)/g)).toHaveLength(1);
+    expect(查).toMatch(/if \(自动下\) (?:await |void )?下载更新\(\);/);
+    // 整个壳里叫 下载更新 的只有：检查更新 那一处、点「更新到 x」的 IPC。定时器、切回前台都只是查
+    const 叫的地方 = [...main.matchAll(/下载更新\(\)/g)].map((m) => main.slice(Math.max(0, m.index! - 80), m.index! + 12));
+    expect(叫的地方.filter((x) => !/function 下载更新\(\)/.test(x))).toHaveLength(2);
+    expect(main).toMatch(/ipcMain\.handle\("update:download", \(\) => 下载更新\(\)\)/);
+    expect(main).toMatch(/setTimeout\(\(\) => 检查更新\(\)\.catch/);
+  });
+
+  it("R-007 查都没查成时点左栏「更新失败，点击重试」：重查是静默的，不弹系统框「已经是最新版本」", () => {
+    const 下 = 取函数(main, "下载更新");
+    expect(下).toMatch(/if \(!计划\) return 检查更新\(\{ 手动: true, 静默: true \}\);/);
+    // 静默压过手动：三个弹框都只在 手动 时弹
+    expect(查).toMatch(/if \(静默\) 手动 = false;/);
+    for (const m of 查.matchAll(/dialog\.showMessageBox/g)) {
+      expect(查.slice(Math.max(0, m.index! - 20), m.index!), "检查更新 里的系统框都得挂在 if (手动) 后面").toMatch(/if \(手动\) $/);
+    }
+  });
+
+  // 【下一版】D-088 未修：update:check 等到差量下完才返回（main.js 末尾 await 下载更新()），左栏「检查更新」会一直转到下完。
+  // 不伤数据、不挡人用，排下一版；修法是 void 下载更新()，修完去掉 skip
+  it.skip("【下一版】D-088 「检查更新」查完就返回，差量在后台下，不等它下完", () => {
+    expect(查).toMatch(/if \(自动下\) void 下载更新\(\);/);
+  });
+});
+
+describe("启动与第二个实例（回归核对 D-030）", () => {
+  it("D-030 启动时那次校验只等 5 秒（原来 20 秒、窗口都没建，人以为应用坏了）", () => {
+    const 启动段 = main.slice(main.indexOf('app.on("second-instance"'), main.indexOf("app.on(\"before-quit\""));
+    expect(启动段).toMatch(/if \(云端\.读\(\)\) \{[\s\S]{0,800}?const r = await 云端\.校验\(5_000\);/);
+    // 切回前台那次（窗口已经在了）照旧用默认超时，不在这里改
+    expect(cloud).toMatch(/function 校验\(/);
+  });
+
+  // 【下一版】D-030 后半未修：Windows 启动那几秒（还没建窗口）再点图标，second-instance 里 if (!win) return，什么反馈都没有。
+  // 不伤数据，排下一版；修完（比如记一笔「建好窗口就聚焦」或先出过渡小窗）去掉 skip
+  it.skip("【下一版】D-030 窗口还没建好时再点图标：要给反馈，不是什么都不做", () => {
+    const 段 = main.slice(main.indexOf('app.on("second-instance"'), main.indexOf("app.whenReady()"));
+    expect(段).not.toMatch(/if \(!win\) return;/);
+  });
+});
+
+describe("毛玻璃关着时的透明窗（回归核对 D-118）", () => {
+  it("transparent 只能建窗口时给，所以 Mac 一律建透明窗；关着时底色是实底、模糊半径 0——看上去就是不透明的窗口", () => {
+    // 建窗口：透明窗的底色跟着 玻璃开着() 走
+    expect(取函数(main, "建窗口")).toMatch(/transparent: true, backgroundColor: 玻璃开着\(\) \? "#00000000" : 实底/);
+    const 记 = { 模糊: [] as number[], 底色: [] as string[] };
+    const 假窗 = { isDestroyed: () => false, setBackgroundColor: (c: string) => 记.底色.push(c), setVibrancy: () => {} };
+    const 模糊 = { 设模糊: (_w: unknown, r: number) => 记.模糊.push(r) };
+    const 上玻璃 = new Function("透明窗", "模糊", "模糊半径", "实底", "process", `${取函数(main, "上玻璃")}; return 上玻璃;`)(
+      true, 模糊, 60, "#fafafa", { platform: "darwin" },
+    ) as (w: unknown, 开: boolean) => void;
+    上玻璃(假窗, false);
+    expect(记).toEqual({ 模糊: [0], 底色: ["#fafafa"] });
+    上玻璃(假窗, true);
+    expect(记).toEqual({ 模糊: [0, 60], 底色: ["#fafafa", "#00000000"] });
   });
 });
