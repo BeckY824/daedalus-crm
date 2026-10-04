@@ -25,8 +25,10 @@ export default defineConfig({
    * 两套都不进默认 e2e：
    *   ai-acceptance 真调中转站（慢、花钱），跑法见它顶部说明
    *   hosted 要 MULTI_TENANT=1 和另一套库，有自己的 config（npm run test:hosted）
+   *   e2e-desktop/ 是桌面端本地模式那套（DESKTOP_LOCAL=1，另一个库和数据目录），npm run test:desktop。
+   *     testDir 已经只指 e2e/，这里再排一遍：谁把 testDir 放宽到仓库根，也不会把它拉进网页模式里跑
    */
-  testIgnore: ["**/ai-acceptance.spec.ts", "**/hosted.spec.ts"],
+  testIgnore: ["**/ai-acceptance.spec.ts", "**/hosted.spec.ts", "**/e2e-desktop/**"],
   globalSetup: "./e2e/global-setup.ts",
   // 冒烟用例共用一个库、按业务链条前后依赖，必须串行
   fullyParallel: false,

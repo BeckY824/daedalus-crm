@@ -23,6 +23,7 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:hosted": "playwright test --config playwright.hosted.config.ts",
+    "test:desktop": "playwright test --config playwright.desktop.config.ts",
     "test:e2e:ui": "playwright test --ui",
     "test:ai": "playwright test --config playwright.acceptance.config.ts",
     "test:all": "vitest run && playwright test",
