@@ -580,7 +580,8 @@ export async function 注册开始(target: string): Promise<结果<注册去向>
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ target }),
   });
-  if (!r.ok) return r.状态 === 409 ? { ok: true, data: { 去: "密码" } } : r;
+  // 409 已注册 → 输密码；404 是还没这个接口的老云端（H-055）→ 退回旧版，也去输密码（登录接口老云端一直有）
+  if (!r.ok) return r.状态 === 409 || r.状态 === 404 ? { ok: true, data: { 去: "密码" } } : r;
   return { ok: true, data: r.data?.verify ? { 去: "验证码", hint: r.data.hint } : { 去: "设密码" } };
 }
 
