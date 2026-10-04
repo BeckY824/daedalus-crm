@@ -171,8 +171,8 @@ export default function TeamTab() {
         </section>
         <section className="team-card">
           <h3>加入同事的团队</h3>
-          <p className="muted">把老板发来的邀请码整段粘贴进来（DT1. 开头）。进来之后你是业务员：看得到自己负责的客户和公海；你这台电脑上已有的客户归你，老板也看得到。</p>
-          <Input.TextArea value={码} onChange={(e) => set码(e.target.value)} rows={2} placeholder="DT1.…" aria-label="邀请码" disabled={!s.能用} style={{ maxWidth: 560 }} />
+          <p className="muted">把老板发来的邀请码整段粘贴进来（DT2. 开头）。进来之后你是业务员：看得到自己负责的客户和公海；你这台电脑上已有的客户归你，老板也看得到。</p>
+          <Input.TextArea value={码} onChange={(e) => set码(e.target.value)} rows={2} placeholder="DT2.…" aria-label="邀请码" disabled={!s.能用} style={{ maxWidth: 560 }} />
           <div style={{ marginTop: 8 }}>
             <Button loading={忙 === "入"} disabled={!s.能用 || !码.trim() || 忙 !== null} onClick={() => void 入()}>加入团队</Button>
           </div>
@@ -314,7 +314,7 @@ export default function TeamTab() {
       {!s.我是建的人 && s.lastError && /新的邀请码/.test(s.lastError) && (
         <section className="team-card">
           <h3>粘贴新邀请码</h3>
-          <Input.TextArea value={码} onChange={(e) => set码(e.target.value)} rows={2} placeholder="DT1.…" aria-label="新邀请码" style={{ maxWidth: 560 }} />
+          <Input.TextArea value={码} onChange={(e) => set码(e.target.value)} rows={2} placeholder="DT2.…" aria-label="新邀请码" style={{ maxWidth: 560 }} />
           <div style={{ marginTop: 8 }}>
             <Button type="primary" loading={忙 === "入"} disabled={!码.trim() || 忙 !== null} onClick={() => void 用新码()}>收下新钥匙</Button>
           </div>

@@ -28,7 +28,7 @@ vi.mock("@/lib/prisma", async () => {
 
 import { prisma as 甲 } from "@/lib/prisma";
 import { 建团队, 同步一轮, 读团队, 设传输, 解邀请码, 邀请码, 移除成员, 换邀请码, 团队状态, type 传输 } from "@/lib/sync/client";
-import { 封, 拆, 包的编号, 设备钥匙对, 封给, 拆自, 新钥匙, type 钥匙环 } from "@/lib/sync/crypto";
+import { 封, 拆, 包的编号, 设备钥匙对, 封给, 拆自, 新钥匙, 验, type 钥匙环 } from "@/lib/sync/crypto";
 import type { 改动 } from "@/lib/sync/local";
 import { closeTestDatabases } from "./close-databases";
 
@@ -107,6 +107,11 @@ describe("加密", () => {
 describe("移除成员 + 换钥匙", () => {
   const 乙对 = 设备钥匙对(), 丙对 = 设备钥匙对();
   let teamId = "", 码0 = "", 甲第一批 = 0;
+  /* 模拟别的成员怎么拆（和 lib/sync/client.ts 一样）：批次绑团队 + 设备，钥匙环和信封先验老板的签名 */
+  const 老板公钥 = () => 解邀请码(码0)!.signPub!;
+  const 拆批 = (b: { data: string; device: string }, k: string | 钥匙环) => 拆<改动[]>(b.data, k, { teamId, device: b.device });
+  const 拆环 = (环: string, k: string, epoch: number) => 拆<{ keys: 钥匙环 }>(验(环, `ring|${teamId}|${epoch}`, 老板公钥())!, k, { teamId, device: "ring" }).keys;
+  const 拆信 = (信: string, 私: string, epoch: number, device: string) => 拆自(私, 验(信, `env|${teamId}|${epoch}|${device}`, 老板公钥())!);
 
   it("甲建团队、乙丙入队、甲推全量，乙用码里的钥匙解得开", async () => {
     await 甲.customer.create({ data: { id: "c1", name: "王总", phone: "13800000001", salesOwnerId: "cmusc55660000dulko96ek8kr" } });
@@ -123,11 +128,14 @@ describe("移除成员 + 换钥匙", () => {
     if (!拉.ok) throw new Error(拉.error);
     expect(拉.epoch).toBe(0);
     甲第一批 = 拉.batches[0].seq;
-    expect(拆<改动[]>(拉.batches[0].data, 解.key).some((e) => e.t === "Customer" && e.k === "c1")).toBe(true);
+    expect(解.signPub).toMatch(/^[\w-]{43}$/); // DT2：带老板的签名公钥
+    expect(拆批(拉.batches[0], 解.key).some((e) => e.t === "Customer" && e.k === "c1")).toBe(true);
+    // 批次绑了团队和设备：中转改了设备编号就解不开
+    expect(() => 拆<改动[]>(拉.batches[0].data, 解.key, { teamId, device: "dFake01" })).toThrow();
   });
 
   it("移除丙：钥匙换成 1 号，乙拿到封给自己的；丙推拉、取钥匙都不行；旧邀请码作废", async () => {
-    expect(await 移除成员(账号们.丙)).toEqual({ ok: true });
+    expect(await 移除成员(账号们.丙)).toMatchObject({ ok: true });
     const c = 读团队()!;
     expect(c.epoch).toBe(1);
     expect(c.joinSecret).not.toBe(解邀请码(码0)!.joinSecret);
@@ -135,9 +143,12 @@ describe("移除成员 + 换钥匙", () => {
     const 乙钥 = await r.取钥匙(账号们.乙, teamId, "dYi0001");
     if (!乙钥.ok) throw new Error(乙钥.error);
     expect(乙钥.epoch).toBe(1);
-    const k1 = 拆自(乙对.私钥, 乙钥.envelope!);
+    const k1 = 拆信(乙钥.envelope!, 乙对.私钥, 1, "dYi0001");
     expect(k1).toBe(c.key);
-    expect(拆<{ keys: 钥匙环 }>(乙钥.ring!, k1).keys).toEqual({ "0": 解邀请码(码0)!.key });
+    expect(拆环(乙钥.ring!, k1, 1)).toEqual({ "0": 解邀请码(码0)!.key });
+    // 信封挪给别的设备 / 别的编号：签名对不上
+    expect(验(乙钥.envelope!, `env|${teamId}|1|dBing01`, 老板公钥())).toBeNull();
+    expect(验(乙钥.envelope!, `env|${teamId}|2|dYi0001`, 老板公钥())).toBeNull();
 
     expect((await r.取钥匙(账号们.丙, teamId, "dBing01")).ok).toBe(false);
     expect((await r.给拉取(账号们.丙, teamId, 0)).ok).toBe(false);
@@ -151,8 +162,10 @@ describe("移除成员 + 换钥匙", () => {
     // 建团队时甲的管理员 id 已经改成按云端账号算的（改身份）
     const 甲id = (await 甲.user.findFirstOrThrow({ where: { role: "ADMIN" } })).id;
     const 一条: 改动[] = [{ t: "Customer", k: "c2", o: "I", r: { id: "c2", name: "李总", phone: "13800000002", salesOwnerId: 甲id, followStatus: "待跟进", decisionStatus: "了解中", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, c: ["id", "name", "phone", "salesOwnerId", "followStatus", "decisionStatus", "createdAt", "updatedAt"], h: `${String(Date.now()).padStart(15, "0")}-dYi0001` }];
-    expect(await r.收推送(账号们.乙, teamId, "dYi0001", 封(一条, k0, 0))).toMatchObject({ ok: false, 状态: 409 });
-    expect((await r.收推送(账号们.乙, teamId, "dYi0001", 封(一条, k1, 1))).ok).toBe(true);
+    expect(await r.收推送(账号们.乙, teamId, "dYi0001", 封(一条, k0, 0, { teamId, device: "dYi0001" }))).toMatchObject({ ok: false, 状态: 409 });
+    // 比现在还新的编号也不收（复查低 4：没人有那把钥匙，收下全队都卡住）
+    expect(await r.收推送(账号们.乙, teamId, "dYi0001", 封(一条, 新钥匙(), 5, { teamId, device: "dYi0001" }))).toMatchObject({ ok: false, 状态: 409 });
+    expect((await r.收推送(账号们.乙, teamId, "dYi0001", 封(一条, k1, 1, { teamId, device: "dYi0001" }))).ok).toBe(true);
     expect(await 同步一轮()).toMatchObject({ ok: true });
     expect(await 甲.$queryRawUnsafe("SELECT tbl, pk, why FROM _sync_skip")).toEqual([]);
     expect(await 甲.customer.count({ where: { id: "c2" } })).toBe(1);
@@ -164,12 +177,12 @@ describe("移除成员 + 换钥匙", () => {
     expect((await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: "dDing01", pubKey: 丁对.公钥 })).ok).toBe(true);
     const k = await r.取钥匙(账号们.丁, teamId, "dDing01");
     if (!k.ok) throw new Error(k.error);
-    const 环 = { ...拆<{ keys: 钥匙环 }>(k.ring!, 新码.key).keys, [String(k.epoch)]: 新码.key };
+    const 环 = { ...拆环(k.ring!, 新码.key, k.epoch), [String(k.epoch)]: 新码.key };
     const 拉 = await r.给拉取(账号们.丁, teamId, 0);
     if (!拉.ok) throw new Error(拉.error);
     const 第一批 = 拉.batches.find((b) => b.seq === 甲第一批)!;
     expect(包的编号(第一批.data)).toBe(0);
-    expect(拆<改动[]>(第一批.data, 环).some((e) => e.k === "c1")).toBe(true);
+    expect(拆批(第一批, 环).some((e) => e.k === "c1")).toBe(true);
   });
 
   it("换邀请码：钥匙换成 2 号，乙、丁照样拿到；只有建团队的人能换、能移除", async () => {
@@ -179,12 +192,51 @@ describe("移除成员 + 换钥匙", () => {
     expect(读团队()!.epoch).toBe(2);
     expect(解邀请码(x.邀请码)!.joinSecret).not.toBe(旧.joinSecret);
     const 乙钥 = await r.取钥匙(账号们.乙, teamId, "dYi0001");
-    expect(乙钥.ok && 拆自(乙对.私钥, 乙钥.envelope!)).toBe(读团队()!.key);
+    expect(乙钥.ok && 拆信(乙钥.envelope!, 乙对.私钥, 2, "dYi0001")).toBe(读团队()!.key);
     expect((await r.换口令(账号们.乙, teamId)).ok).toBe(false);
     expect((await r.移除成员(账号们.乙, teamId, 账号们.丁)).ok).toBe(false);
     expect((await r.换钥匙(账号们.乙, teamId, 3, "x", [])).ok).toBe(false);
     // 编号只能 +1：重放一次 2 号不收
     expect((await r.换钥匙(账号们.甲, teamId, 2, "x", [])).ok).toBe(false);
+  });
+
+  it("中转被攻破、塞进一把自己的钥匙：没有老板的签名，甲不收，还用原来那把（复查中 1）", async () => {
+    const { control } = await import("@/lib/tenant/control");
+    const 前 = 读团队()!;
+    const 坏钥匙 = 新钥匙();
+    await control.syncKey.create({ data: { teamId, epoch: 3, ring: 封({ keys: {} }, 坏钥匙, 3, { teamId, device: "ring" }) } });
+    await control.syncKeyEnvelope.create({ data: { teamId, epoch: 3, device: 前.device, data: 封给(前.devPub!, 坏钥匙) } });
+    const x = await 同步一轮();
+    expect(x.ok).toBe(false);
+    expect(!x.ok && x.error).toMatch(/签名/);
+    expect(读团队()!.key).toBe(前.key);
+    expect(读团队()!.epoch).toBe(2);
+    // 收拾：中转恢复正常
+    await control.syncKeyEnvelope.deleteMany({ where: { teamId, epoch: 3 } });
+    await control.syncKey.deleteMany({ where: { teamId, epoch: 3 } });
+    expect(await 同步一轮()).toMatchObject({ ok: true });
+  });
+
+  it("一批解不开的坏包：连着 3 次就跳过、记下，后面的照常收（复查低 4）", async () => {
+    const k2 = 读团队()!.key;
+    const 坏 = 封([{ t: "Customer" }], 新钥匙(), 2, { teamId, device: "dYi0001" }); // 编号对、钥匙不对
+    expect((await r.收推送(账号们.乙, teamId, "dYi0001", 坏)).ok).toBe(true);
+    const 好: 改动[] = [{ t: "Customer", k: "c9", o: "I", r: { id: "c9", name: "赵总", phone: "13800000009", salesOwnerId: (await 甲.user.findFirstOrThrow({ where: { role: "ADMIN" } })).id, followStatus: "待跟进", decisionStatus: "了解中", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, c: ["id", "name", "phone", "salesOwnerId", "followStatus", "decisionStatus", "createdAt", "updatedAt"], h: `${String(Date.now()).padStart(15, "0")}-dYi0001` }];
+    expect((await r.收推送(账号们.乙, teamId, "dYi0001", 封(好, k2, 2, { teamId, device: "dYi0001" }))).ok).toBe(true);
+    expect((await 同步一轮()).ok).toBe(false);
+    expect((await 同步一轮()).ok).toBe(false);
+    expect(await 同步一轮()).toMatchObject({ ok: true });
+    expect(读团队()!.skipped?.length).toBe(1);
+    expect(await 甲.customer.count({ where: { id: "c9" } })).toBe(1);
+  });
+
+  it("乱写的设备公钥、一个人登记太多台：中转不收（复查低-中 3）", async () => {
+    const 新码 = 解邀请码(邀请码(读团队()!))!;
+    expect((await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: "dDingXX", pubKey: "a".repeat(60) })).ok).toBe(false);
+    for (let i = 2; i <= 5; i++) expect((await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: `dDing0${i}`, pubKey: 设备钥匙对().公钥 })).ok).toBe(true);
+    const 第六台 = await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: "dDing06", pubKey: 设备钥匙对().公钥 });
+    expect(第六台.ok).toBe(false);
+    expect(!第六台.ok && 第六台.error).toMatch(/最多 5 台/);
   });
 
   it("设备编号认账号：丁拿乙的编号登记、推送都不收", async () => {

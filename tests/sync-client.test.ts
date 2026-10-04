@@ -69,7 +69,7 @@ async function 乙同步(钥匙: string, teamId: string) {
     await 记已推(乙, 到);
   }
   for (const b of 云.批.filter((x) => x.seq > 乙拉到)) {
-    if (b.device !== 乙设备) await 回放(乙, 拆(b.data, 钥匙), 乙设备);
+    if (b.device !== 乙设备) await 回放(乙, 拆(b.data, 钥匙, { teamId, device: b.device }), 乙设备);
     乙拉到 = b.seq;
   }
 }

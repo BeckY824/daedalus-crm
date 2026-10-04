@@ -49,8 +49,8 @@ describe("中转", () => {
     const 甲 = await 账号("甲"), 乙 = await 账号("乙"), 丙 = await 账号("丙");
     const t = await r.建团队(甲, "明亮贸易");
     if (!t.ok) throw new Error(t.error);
-    expect(await r.入队(乙, t.teamId, "错的")).toEqual({ ok: false, 状态: 403, error: "邀请码不对或已经作废了，找建团队的人要一个新的" });
-    expect(await r.入队(乙, "不存在的团队", t.joinSecret)).toEqual({ ok: false, 状态: 403, error: "邀请码不对或已经作废了，找建团队的人要一个新的" });
+    expect(await r.入队(乙, t.teamId, "错的")).toEqual({ ok: false, 状态: 403, error: "邀请码不对或已经作废了，找老板要一个新的" });
+    expect(await r.入队(乙, "不存在的团队", t.joinSecret)).toEqual({ ok: false, 状态: 403, error: "邀请码不对或已经作废了，找老板要一个新的" });
     expect(await r.入队(乙, t.teamId, t.joinSecret)).toEqual({ ok: true, teamName: "明亮贸易", active: false, epoch: 0 });
     expect((await r.入队(乙, t.teamId, t.joinSecret)).ok).toBe(true);
     const [团] = await r.我的团队(乙);

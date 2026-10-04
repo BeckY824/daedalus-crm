@@ -12,8 +12,8 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "../prisma";
 import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/cloud";
 import { 团队身份id } from "../desktop/me";
-import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗 } from "./local";
-import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, type 钥匙环 } from "./crypto";
+import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, type 改动 } from "./local";
+import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
 import { 看全部, 忘掉限定 } from "../team-scope";
 
 export type 团队配置 = {
@@ -29,6 +29,13 @@ export type 团队配置 = {
   /** 这台设备的钥匙对：换钥匙时建团队的人用公钥给我封新钥匙，私钥只在这里 */
   devPub?: string;
   devPriv?: string;
+  /** 老板的签名公钥（邀请码 DT2 里带来的）：新钥匙只认带这个签名的（复查中 1）。DT1 时代进来的没有，不验 */
+  signPub?: string;
+  /** 老板那台才有：签信封和钥匙环用 */
+  signPriv?: string;
+  /** 解不开的批次：序号 → 试了几次。连着 3 次解不开就跳过、记下（复查低 4：一批坏包不许卡死这台） */
+  bad?: Record<string, number>;
+  skipped?: number[];
   /** 拉到第几批了 */
   pulled: number;
   lastSyncAt?: string;
@@ -52,8 +59,13 @@ export function 读团队(): 团队配置 | null {
     return null;
   }
 }
+/** 先写临时文件再改名（写到一半断电不会留下半个 .team.json），权限每次都收紧到 0600（复查低 8） */
 function 写团队(c: 团队配置) {
-  fs.writeFileSync(配置文件(), JSON.stringify(c, null, 2), { mode: 0o600 });
+  const f = 配置文件();
+  const 临 = `${f}.${process.pid}.tmp`;
+  fs.writeFileSync(临, JSON.stringify(c, null, 2), { mode: 0o600 });
+  fs.chmodSync(临, 0o600);
+  fs.renameSync(临, f);
 }
 
 /* ---------------- 和云端说话：默认走 HTTP，测试里换成直接调中转 ---------------- */
@@ -83,11 +95,29 @@ export function 设传输(t: 传输 | null) {
 /** 本机手上的全部钥匙（之前的 + 现在这把） */
 const 全部钥匙 = (c: 团队配置): 钥匙环 => ({ ...(c.keys ?? {}), [String(c.epoch ?? 0)]: c.key });
 
-/* ---------------- 邀请码：团队编号 + 入队口令 + 钥匙 ---------------- */
-export const 邀请码 = (c: Pick<团队配置, "teamId" | "joinSecret" | "key">) => `DT1.${c.teamId}.${c.joinSecret}.${c.key}`;
-export function 解邀请码(s: string): { teamId: string; joinSecret: string; key: string } | null {
-  const m = /^DT1\.([a-z0-9]+)\.([\w-]+)\.([\w-]{43})$/i.exec(String(s ?? "").trim());
+/* ---------------- 邀请码：团队编号 + 入队口令 + 钥匙（+ 老板的签名公钥） ---------------- */
+/** DT2 = DT1 + 老板的签名公钥。有签名公钥就出 DT2 */
+export const 邀请码 = (c: Pick<团队配置, "teamId" | "joinSecret" | "key" | "signPub">) =>
+  c.signPub ? `DT2.${c.teamId}.${c.joinSecret}.${c.key}.${c.signPub}` : `DT1.${c.teamId}.${c.joinSecret}.${c.key}`;
+export function 解邀请码(s: string): { teamId: string; joinSecret: string; key: string; signPub?: string } | null {
+  const t = String(s ?? "").trim();
+  const m2 = /^DT2\.([a-z0-9]+)\.([\w-]+)\.([\w-]{43})\.([\w-]{43})$/i.exec(t);
+  if (m2) return { teamId: m2[1], joinSecret: m2[2], key: m2[3], signPub: m2[4] };
+  const m = /^DT1\.([a-z0-9]+)\.([\w-]+)\.([\w-]{43})$/i.exec(t);
   return m ? { teamId: m[1], joinSecret: m[2], key: m[3] } : null;
+}
+
+/** 钥匙环、信封签名时的「用途」：绑上团队、编号（信封还有设备），挪不到别的团队 / 别的编号上用 */
+const 环用途 = (teamId: string, epoch: number) => `ring|${teamId}|${epoch}`;
+const 信用途 = (teamId: string, epoch: number, device: string) => `env|${teamId}|${epoch}|${device}`;
+const 环绑定 = (teamId: string) => ({ teamId, device: "ring" });
+
+/** 有签名公钥就必须验得过；没有（DT1 时代进来的）原样用 */
+function 验过(签好: string, 用途: string, signPub: string | undefined): string {
+  if (!signPub) return 签好;
+  const 原 = 验(签好, 用途, signPub);
+  if (原 == null) throw new 同步问题("收到的团队钥匙没有老板的签名，可能有人冒充：这次没收下。请联系我们，先别在这台电脑上同步");
+  return 原;
 }
 
 function 能用(): 结果<{ accountId: string; contact: string; name: string }> {
@@ -119,10 +149,11 @@ async function 建团队里(名字: string): Promise<结果<{ 邀请码: string 
   if (读团队()) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
   const 设备 = `d${randomBytes(6).toString("hex")}`;
   const 对 = 设备钥匙对();
+  const 签 = 签名钥匙对();
   const r = await 云("POST", "/api/sync/team", { name: 名字, device: 设备, pubKey: 对.公钥 });
   if (r.状态 !== 200 || !r.json.teamId) return { ok: false, error: String(r.json.error ?? "建不了团队") };
   await 本机开同步(我, false);
-  const c: 团队配置 = { teamId: String(r.json.teamId), teamName: 名字.trim(), joinSecret: String(r.json.joinSecret), key: 新钥匙(), epoch: 0, keys: {}, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, pulled: 0, lastError: null };
+  const c: 团队配置 = { teamId: String(r.json.teamId), teamName: 名字.trim(), joinSecret: String(r.json.joinSecret), key: 新钥匙(), epoch: 0, keys: {}, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, signPub: 签.公钥, signPriv: 签.私钥, pulled: 0, lastError: null };
   写团队(c);
   return { ok: true, 邀请码: 邀请码(c) };
 }
@@ -134,13 +165,15 @@ async function 加入团队里(码: string): Promise<结果<{ teamName: string; 
   const 我 = 能用();
   if (!我.ok) return 我;
   const 解 = 解邀请码(码);
-  if (!解) return { ok: false, error: "邀请码不对：要整段复制，从 DT1. 开头" };
+  if (!解) return { ok: false, error: "邀请码不对：要整段复制，从 DT2.（或 DT1.）开头" };
   const 现 = 读团队();
   // 已经在这个团队里、粘的是建团队的人换过的新邀请码：只换钥匙（这台没拿到自动转交的新钥匙时走这条）
   if (现 && 现.teamId === 解.teamId) {
-    const k = await 收下码里的钥匙(现.teamId, 现.device, 解.key);
+    // 同一个团队的签名公钥不会变：码里的和本机记着的对不上，不收（换了签名公钥 = 有人冒充）
+    if (现.signPub && 解.signPub !== 现.signPub) return { ok: false, error: "这个邀请码和团队对不上（老板的签名不一样），找老板重新要一个" };
+    const k = await 收下码里的钥匙(现.teamId, 现.device, 解.key, 现.signPub ?? 解.signPub);
     if (!k.ok) return k;
-    写团队({ ...现, joinSecret: 解.joinSecret, key: 解.key, epoch: k.epoch, keys: k.keys, lastError: null });
+    写团队({ ...现, joinSecret: 解.joinSecret, key: 解.key, epoch: k.epoch, keys: k.keys, signPub: 现.signPub ?? 解.signPub, lastError: null });
     return { ok: true, teamName: 现.teamName, active: true };
   }
   if (现) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
@@ -148,7 +181,7 @@ async function 加入团队里(码: string): Promise<结果<{ teamName: string; 
   const 对 = 设备钥匙对();
   const r = await 云("POST", "/api/sync/join", { teamId: 解.teamId, joinSecret: 解.joinSecret, device: 设备, pubKey: 对.公钥 });
   if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "加入不了") };
-  const k = await 收下码里的钥匙(解.teamId, 设备, 解.key);
+  const k = await 收下码里的钥匙(解.teamId, 设备, 解.key, 解.signPub);
   if (!k.ok) return k;
   await 本机开同步(我, true);
   写团队({ ...解, teamName: String(r.json.teamName ?? ""), epoch: k.epoch, keys: k.keys, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, pulled: 0, lastError: null });
@@ -161,21 +194,27 @@ async function 加入团队里(码: string): Promise<结果<{ teamName: string; 
  * 邀请码里的钥匙是团队现在那把：问云端现在第几把、取钥匙环，用码里的钥匙解开 → 之前的钥匙都有了，历史读得到。
  * 解不开 = 码里那把已经换掉了（这个码是换钥匙之前发的）
  */
-async function 收下码里的钥匙(teamId: string, 设备: string, 码钥匙: string): Promise<结果<{ epoch: number; keys: 钥匙环 }>> {
+async function 收下码里的钥匙(teamId: string, 设备: string, 码钥匙: string, signPub?: string): Promise<结果<{ epoch: number; keys: 钥匙环 }>> {
   const r = await 云("GET", `/api/sync/key?teamId=${encodeURIComponent(teamId)}&device=${encodeURIComponent(设备)}`);
   if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "取不到团队钥匙") };
   const epoch = Number(r.json.epoch ?? 0);
   if (!epoch) return { ok: true, epoch: 0, keys: {} };
+  let 环: string;
   try {
-    return { ok: true, epoch, keys: 拆<{ keys: 钥匙环 }>(String(r.json.ring ?? ""), 码钥匙).keys };
+    环 = 验过(String(r.json.ring ?? ""), 环用途(teamId, epoch), signPub);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  try {
+    return { ok: true, epoch, keys: 拆<{ keys: 钥匙环 }>(环, 码钥匙, 环绑定(teamId)).keys };
   } catch {
-    return { ok: false, error: "这个邀请码已经作废了（团队换过钥匙），找建团队的人要一个新的" };
+    return { ok: false, error: "这个邀请码已经作废了（团队换过钥匙），找老板要一个新的" };
   }
 }
 
 /**
  * 团队换过钥匙了：取封给这台设备的那一份，用本机私钥解开，再解开钥匙环拿到之前的钥匙。
- * 没有封给这台的（这台是换钥匙之后才登记的老版本、或者被移出了）：说清楚找建团队的人要新邀请码。
+ * 没有封给这台的（这台是换钥匙之后才登记的老版本、或者被移出了）：说清楚找老板要新邀请码。
  */
 async function 更新钥匙(c: 团队配置): Promise<团队配置> {
   const r = await 云("GET", `/api/sync/key?teamId=${encodeURIComponent(c.teamId)}&device=${encodeURIComponent(c.device)}`);
@@ -183,9 +222,9 @@ async function 更新钥匙(c: 团队配置): Promise<团队配置> {
   const epoch = Number(r.json.epoch ?? 0);
   if (epoch <= (c.epoch ?? 0)) return c;
   const 信 = r.json.envelope ? String(r.json.envelope) : null;
-  if (!信 || !c.devPriv) throw new 同步问题("团队换过钥匙了，这台电脑没拿到新钥匙：找建团队的人要新的邀请码，在「设置 → 团队」里粘贴");
-  const key = 拆自(c.devPriv, 信);
-  const keys = 拆<{ keys: 钥匙环 }>(String(r.json.ring ?? ""), key).keys;
+  if (!信 || !c.devPriv) throw new 同步问题("团队换过钥匙了，这台电脑没拿到新钥匙：找老板要新的邀请码，在「设置 → 团队」里粘贴");
+  const key = 拆自(c.devPriv, 验过(信, 信用途(c.teamId, epoch, c.device), c.signPub));
+  const keys = 拆<{ keys: 钥匙环 }>(验过(String(r.json.ring ?? ""), 环用途(c.teamId, epoch), c.signPub), key, 环绑定(c.teamId)).keys;
   const 新 = { ...c, key, epoch, keys };
   const 现 = 读团队();
   if (现?.teamId === c.teamId) 写团队({ ...现, key, epoch, keys });
@@ -199,20 +238,36 @@ class 同步问题 extends Error {}
  * 换钥匙（只有建团队的人）：新钥匙给在册的每台设备各封一份、之前的钥匙封成钥匙环，交给云端转交。
  * 移除成员、换邀请码之后都走这里：被移除的那台没有信封，之后的改动解不开；旧邀请码里的钥匙也就作废了。
  */
-async function 换钥匙并换码(c: 团队配置, joinSecret: string): Promise<结果> {
-  const d = await 云("GET", `/api/sync/devices?teamId=${encodeURIComponent(c.teamId)}`);
-  if (d.状态 !== 200) return { ok: false, error: String(d.json.error ?? "取不到团队的设备") };
-  // 本机落后于云端（理论上只有建团队的人换钥匙，不该发生）：先追上
-  const 追上 = Number(d.json.epoch ?? 0) > (c.epoch ?? 0) ? await 更新钥匙(c) : c;
-  const epoch = Number(d.json.epoch ?? 0) + 1;
-  const key = 新钥匙();
-  const 之前 = 全部钥匙(追上);
-  const envelopes = ((d.json.devices as { device: string; pubKey: string }[]) ?? []).map((x) => ({ device: x.device, data: 封给(x.pubKey, key) }));
-  const r = await 云("POST", "/api/sync/rotate", { teamId: c.teamId, epoch, ring: 封({ keys: 之前 }, key, epoch), envelopes });
-  if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "钥匙没换成") };
-  const 现 = 读团队();
-  写团队({ ...(现 ?? 追上), joinSecret, key, epoch, keys: 之前 });
-  return { ok: true };
+async function 换钥匙并换码(c: 团队配置, joinSecret: string): Promise<结果<{ 跳过: number }>> {
+  // 里面的 更新钥匙 会抛「说给人听」的错：接住，别让设置页的动作变成一个白屏 500（复查低 6）
+  try {
+    const d = await 云("GET", `/api/sync/devices?teamId=${encodeURIComponent(c.teamId)}`);
+    if (d.状态 !== 200) return { ok: false, error: String(d.json.error ?? "取不到团队的设备") };
+    // 本机落后于云端（上一次换钥匙云端成了、回包丢了）：先用自己那台的信封追上
+    const 追上 = Number(d.json.epoch ?? 0) > (c.epoch ?? 0) ? await 更新钥匙(c) : c;
+    const epoch = Number(d.json.epoch ?? 0) + 1;
+    const key = 新钥匙();
+    const 之前 = 全部钥匙(追上);
+    const 签 = (原: string, 用途: string) => (追上.signPriv && 追上.signPub ? 签上(原, 用途, 追上.signPriv, 追上.signPub) : 原);
+    // 一台公钥坏了（乱写的、老版本的）跳过它，别让整次换钥匙失败（复查低-中 3）；它下次同步会提示要新邀请码
+    let 跳过 = 0;
+    const envelopes: { device: string; data: string }[] = [];
+    for (const x of (d.json.devices as { device: string; pubKey: string }[]) ?? []) {
+      try {
+        envelopes.push({ device: x.device, data: 签(封给(x.pubKey, key), 信用途(c.teamId, epoch, x.device)) });
+      } catch {
+        跳过++;
+      }
+    }
+    const ring = 签(封({ keys: 之前 }, key, epoch, 环绑定(c.teamId)), 环用途(c.teamId, epoch));
+    const r = await 云("POST", "/api/sync/rotate", { teamId: c.teamId, epoch, ring, envelopes });
+    if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "钥匙没换成") };
+    const 现 = 读团队();
+    写团队({ ...(现 ?? 追上), joinSecret, key, epoch, keys: 之前 });
+    return { ok: true, 跳过 };
+  } catch (e) {
+    return { ok: false, error: e instanceof 同步问题 ? e.message : `钥匙没换成：${e instanceof Error ? e.message.slice(0, 200) : String(e)}` };
+  }
 }
 
 /** 移除成员（只有建团队的人）：云端移出 + 换入队口令，本机接着换钥匙 */
@@ -292,11 +347,12 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
     for (;;) {
       const { 改动, 到 } = await 待推(prisma, c.device);
       if (!改动.length) break;
-      let r = await 云("POST", "/api/sync/push", { teamId: c.teamId, device: c.device, data: 封(改动, c.key, c.epoch ?? 0) });
+      const 封这批 = () => 封(改动, c.key, c.epoch ?? 0, { teamId: c.teamId, device: c.device });
+      let r = await 云("POST", "/api/sync/push", { teamId: c.teamId, device: c.device, data: 封这批() });
       // 团队换过钥匙（移除了人）：取到新钥匙用新的再推一次
       if (r.状态 === 409 && /换过钥匙/.test(String(r.json.error ?? ""))) {
         c = await 更新钥匙(c);
-        r = await 云("POST", "/api/sync/push", { teamId: c.teamId, device: c.device, data: 封(改动, c.key, c.epoch ?? 0) });
+        r = await 云("POST", "/api/sync/push", { teamId: c.teamId, device: c.device, data: 封这批() });
       }
       if (r.状态 !== 200) {
         const 话 = String(r.json.error ?? `推送失败（${r.状态}）`);
@@ -319,7 +375,31 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       if (Number(r.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
       for (const b of 批们) {
         if (b.device !== c.device) {
-          const 结果 = await 回放(prisma, 拆(b.data, 全部钥匙(c)), c.device);
+          let 这批: 改动[];
+          try {
+            这批 = 拆(b.data, 全部钥匙(c), { teamId: c.teamId, device: b.device });
+          } catch (e) {
+            /*
+              解不开：可能是钥匙还没到（下一轮再试），也可能是一批坏包（被移出的人用旧钥匙推的、中转出了错）。
+              同一批连着 3 次解不开就跳过、记下，不让它卡死这台电脑后面所有的同步（复查低 4）
+            */
+            // 缺钥匙（这台还没拿到那一把）不算坏包：等拿到钥匙再解，不能跳
+            if (e instanceof Error && /^没有 \d+ 号钥匙/.test(e.message)) throw e;
+            const 次 = (读团队()?.bad?.[String(b.seq)] ?? 0) + 1;
+            if (次 < 3) {
+              const 现 = 读团队();
+              记({ bad: { ...(现?.bad ?? {}), [String(b.seq)]: 次 } });
+              throw e;
+            }
+            const 现 = 读团队();
+            const { [String(b.seq)]: _丢, ...剩 } = 现?.bad ?? {};
+            void _丢;
+            记({ bad: 剩, skipped: [...(现?.skipped ?? []), b.seq].slice(-50) });
+            拉到 = b.seq;
+            记({ pulled: 拉到 });
+            continue;
+          }
+          const 结果 = await 回放(prisma, 这批, c.device);
           拉 += 结果.应用;
           撞 += 结果.撞;
         }
@@ -333,7 +413,7 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
     if (Date.now() - 上次对角色 > 5 * 60_000 || 拉 > 0 && 上次对角色 === 0) await 对齐角色().catch(() => undefined);
     return { ok: true, 推, 拉, 撞 };
   } catch (e) {
-    const 话 = e instanceof 同步问题 ? e.message : e instanceof Error && /authenticate|版本|钥匙/.test(e.message) ? "解不开别人推来的改动：邀请码里的钥匙不对，请找建团队的人重新要一份" : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
+    const 话 = e instanceof 同步问题 ? e.message : e instanceof Error && /authenticate|版本|钥匙/.test(e.message) ? "解不开别人推来的改动：邀请码里的钥匙不对，请找老板重新要一份" : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
     记({ lastError: 话, lastSyncAt: new Date().toISOString() });
     return { ok: false, error: 话 };
   }

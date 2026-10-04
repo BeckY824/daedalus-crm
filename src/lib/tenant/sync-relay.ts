@@ -12,7 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { control } from "./control";
 import { workspaceDir } from "./clients";
-import { 包的编号 } from "@/lib/sync/crypto";
+import { 包的编号, 是设备公钥 } from "@/lib/sync/crypto";
 
 /** 一批最大多少（base64 之后）。一次推送 2000 条改动压缩加密后也就几百 KB；大了多半是出了问题 */
 export const 一批上限 = 8 * 1024 * 1024;
@@ -34,15 +34,21 @@ async function 在队里(teamId: string, accountId: string) {
 /** 设备：编号 + 公钥（建团队、加入时一起登记；换钥匙时据此给每台封一份） */
 export type 设备 = { device: string; pubKey: string };
 const 设备号对 = (d: unknown) => typeof d === "string" && /^[\w-]{4,64}$/.test(d);
-const 公钥对 = (k: unknown) => typeof k === "string" && /^[\w-]{40,200}$/.test(k);
+/** 真是一把 X25519 公钥才收：只看长相的话，成员能登记一把乱写的，让老板每次换钥匙都失败（复查低-中 3） */
+const 公钥对 = (k: unknown) => typeof k === "string" && /^[\w-]{40,200}$/.test(k) && 是设备公钥(k);
+/** 一个人在一个团队里最多几台电脑：挡住一口气登记 200 台、让换钥匙的信封撑爆上限 */
+export const 每人设备上限 = 5;
+
+type 库 = Pick<typeof control, "syncDevice">;
 
 /** 登记一台设备。编号已经是别的账号的：不收（冒用的话，被冒用的那台会把这些批次当成自己推的跳过） */
-async function 登记设备(teamId: string, accountId: string, d: 设备 | undefined): Promise<string | null> {
+async function 登记设备(teamId: string, accountId: string, d: 设备 | undefined, db: 库 = control): Promise<string | null> {
   if (!d) return null;
   if (!设备号对(d.device) || !公钥对(d.pubKey)) return "设备信息不对";
-  const 已 = await control.syncDevice.findUnique({ where: { teamId_device: { teamId, device: d.device } } });
+  const 已 = await db.syncDevice.findUnique({ where: { teamId_device: { teamId, device: d.device } } });
   if (已 && 已.accountId !== accountId) return "这个设备编号已经被团队里别人用了";
-  await control.syncDevice.upsert({ where: { teamId_device: { teamId, device: d.device } }, update: { pubKey: d.pubKey }, create: { teamId, device: d.device, accountId, pubKey: d.pubKey } });
+  if (!已 && (await db.syncDevice.count({ where: { teamId, accountId } })) >= 每人设备上限) return `一个人在团队里最多 ${每人设备上限} 台电脑：先在不用的那台上退出团队`;
+  await db.syncDevice.upsert({ where: { teamId_device: { teamId, device: d.device } }, update: { pubKey: d.pubKey }, create: { teamId, device: d.device, accountId, pubKey: d.pubKey } });
   return null;
 }
 
@@ -66,20 +72,27 @@ export async function 建团队(accountId: string, name: string, 设备?: 设备
 }
 
 export async function 入队(accountId: string, teamId: string, joinSecret: string, 设备?: 设备): Promise<结果<{ teamName: string; active: boolean; epoch: number }>> {
-  const t = await control.syncTeam.findUnique({ where: { id: String(teamId ?? "") } });
-  const 对 = t && typeof joinSecret === "string" && 等长相等(指纹(joinSecret), t.joinSecretHash);
-  // 团队不存在和口令不对说同一句：不让人拿这个接口试出哪些团队编号是真的。邀请码换过了，旧的也走这一句
-  if (!t || !对) return 错(403, "邀请码不对或已经作废了，找建团队的人要一个新的");
-  const 已 = await control.syncMember.findUnique({ where: { teamId_accountId: { teamId: t.id, accountId } } });
-  if (!(已 && !已.leftAt) && (await control.syncMember.count({ where: { teamId: t.id, leftAt: null } })) >= 20) return 错(409, "这个团队已经有 20 个人了");
-  const 设备错 = await 登记设备(t.id, accountId, 设备);
-  if (设备错) return 错(409, 设备错);
-  if (已 && 已.leftAt) await control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date() } });
-  else if (!已) await control.syncMember.create({ data: { teamId: t.id, accountId } });
-  return { ok: true, teamName: t.name, active: t.active, epoch: await 当前编号(t.id) };
+  /*
+    整个在一个事务里、口令在事务里核（复查中 2）：移除成员是「换口令 → 标离队 → 删设备」一个事务，
+    被移出的人拿旧码狂调这里，要么在换口令之前进来（随后被那个事务一起标离队），要么口令已经对不上
+  */
+  return control.$transaction(async (tx) => {
+    const t = await tx.syncTeam.findUnique({ where: { id: String(teamId ?? "") } });
+    const 对 = t && typeof joinSecret === "string" && 等长相等(指纹(joinSecret), t.joinSecretHash);
+    // 团队不存在和口令不对说同一句：不让人拿这个接口试出哪些团队编号是真的。邀请码换过了，旧的也走这一句
+    if (!t || !对) return 错(403, "邀请码不对或已经作废了，找老板要一个新的");
+    const 已 = await tx.syncMember.findUnique({ where: { teamId_accountId: { teamId: t.id, accountId } } });
+    if (!(已 && !已.leftAt) && (await tx.syncMember.count({ where: { teamId: t.id, leftAt: null } })) >= 20) return 错(409, "这个团队已经有 20 个人了");
+    const 设备错 = await 登记设备(t.id, accountId, 设备, tx);
+    if (设备错) return 错(409, 设备错);
+    if (已 && 已.leftAt) await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date() } });
+    else if (!已) await tx.syncMember.create({ data: { teamId: t.id, accountId } });
+    const k = await tx.syncKey.findFirst({ where: { teamId: t.id }, orderBy: { epoch: "desc" }, select: { epoch: true } });
+    return { ok: true as const, teamName: t.name, active: t.active, epoch: k?.epoch ?? 0 };
+  });
 }
 
-/** 只有建团队的人能做的那几件（移除成员、换邀请码、换钥匙） */
+/** 只有老板（建团队的人）能做的那几件（移除成员、换邀请码、换钥匙） */
 async function 是建的人(teamId: string, accountId: string) {
   const t = await control.syncTeam.findUnique({ where: { id: String(teamId ?? "") } });
   return t && t.ownerAccountId === accountId ? t : null;
@@ -97,26 +110,31 @@ async function 新口令(teamId: string) {
  */
 export async function 移除成员(accountId: string, teamId: string, 谁: string): Promise<结果<{ joinSecret: string }>> {
   const t = await 是建的人(teamId, accountId);
-  if (!t) return 错(403, "只有建团队的人能移除成员");
+  if (!t) return 错(403, "只有老板（建团队的人）能移除成员");
   if (谁 === accountId) return 错(400, "不能移除自己；要离开请点「退出团队」");
   const m = await 在队里(t.id, String(谁 ?? ""));
   if (!m) return 错(404, "这个人已经不在团队里了");
-  await control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } }, data: { leftAt: new Date() } });
-  await control.syncDevice.deleteMany({ where: { teamId: t.id, accountId: m.accountId } });
-  return { ok: true, joinSecret: await 新口令(t.id) };
+  // 先换口令、再标离队、删设备，一个事务（复查中 2）：中间没有「人已标离队、旧口令还能用」的窗口
+  const joinSecret = randomBytes(16).toString("base64url");
+  await control.$transaction([
+    control.syncTeam.update({ where: { id: t.id }, data: { joinSecretHash: 指纹(joinSecret) } }),
+    control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } }, data: { leftAt: new Date() } }),
+    control.syncDevice.deleteMany({ where: { teamId: t.id, accountId: m.accountId } }),
+  ]);
+  return { ok: true, joinSecret };
 }
 
 /** 换邀请码：旧码作废（已经在团队里的人不受影响）。桌面端接着换钥匙——码里带着钥匙，码漏了钥匙也就漏了 */
 export async function 换口令(accountId: string, teamId: string): Promise<结果<{ joinSecret: string }>> {
   const t = await 是建的人(teamId, accountId);
-  if (!t) return 错(403, "只有建团队的人能换邀请码");
+  if (!t) return 错(403, "只有老板（建团队的人）能换邀请码");
   return { ok: true, joinSecret: await 新口令(t.id) };
 }
 
 /** 换钥匙要封给哪几台：在册成员登记过的设备 */
 export async function 团队设备(accountId: string, teamId: string): Promise<结果<{ epoch: number; devices: { device: string; accountId: string; pubKey: string }[] }>> {
   const t = await 是建的人(teamId, accountId);
-  if (!t) return 错(403, "只有建团队的人能换钥匙");
+  if (!t) return 错(403, "只有老板（建团队的人）能换钥匙");
   const 在册 = (await control.syncMember.findMany({ where: { teamId: t.id, leftAt: null }, select: { accountId: true } })).map((m) => m.accountId);
   const devices = await control.syncDevice.findMany({ where: { teamId: t.id, accountId: { in: 在册 } }, select: { device: true, accountId: true, pubKey: true } });
   return { ok: true, epoch: await 当前编号(t.id), devices };
@@ -129,16 +147,26 @@ export async function 团队设备(accountId: string, teamId: string): Promise<�
  */
 export async function 换钥匙(accountId: string, teamId: string, epoch: number, ring: string, envelopes: { device: string; data: string }[]): Promise<结果<{ epoch: number }>> {
   const t = await 是建的人(teamId, accountId);
-  if (!t) return 错(403, "只有建团队的人能换钥匙");
+  if (!t) return 错(403, "只有老板（建团队的人）能换钥匙");
   const 现在 = await 当前编号(t.id);
   if (epoch !== 现在 + 1) return 错(409, "钥匙刚被换过了，刷新一下再试");
   if (typeof ring !== "string" || !ring || ring.length > 64 * 1024) return 错(400, "钥匙环不对");
   if (!Array.isArray(envelopes) || envelopes.length > 200) return 错(400, "信封不对");
   const 在册 = (await control.syncMember.findMany({ where: { teamId: t.id, leftAt: null }, select: { accountId: true } })).map((m) => m.accountId);
   const 可封 = new Set((await control.syncDevice.findMany({ where: { teamId: t.id, accountId: { in: 在册 } }, select: { device: true } })).map((d) => d.device));
-  const 收 = envelopes.filter((e) => e && 可封.has(String(e.device)) && typeof e.data === "string" && e.data.length < 4096);
-  await control.syncKey.create({ data: { teamId: t.id, epoch, ring } });
-  if (收.length) await control.syncKeyEnvelope.createMany({ data: 收.map((e) => ({ teamId: t.id, epoch, device: String(e.device), data: e.data })) });
+  // 同一台只收一封（复查低 5：重复的 device 撞唯一约束是 500）
+  const 收 = new Map<string, string>();
+  for (const e of envelopes) if (e && 可封.has(String(e.device)) && typeof e.data === "string" && e.data.length < 4096 && !收.has(String(e.device))) 收.set(String(e.device), e.data);
+  // 钥匙环和信封一起写（复查低 5）：同编号并发的第二个撞唯一约束，整个回滚、回 409，不留半截
+  try {
+    await control.$transaction([
+      control.syncKey.create({ data: { teamId: t.id, epoch, ring } }),
+      control.syncKeyEnvelope.createMany({ data: [...收].map(([device, data]) => ({ teamId: t.id, epoch, device, data })) }),
+    ]);
+  } catch (e) {
+    if (/Unique constraint/i.test(String((e as Error).message))) return 错(409, "钥匙刚被换过了，刷新一下再试");
+    throw e;
+  }
   return { ok: true, epoch };
 }
 
@@ -215,6 +243,8 @@ export async function 收推送(accountId: string, teamId: string, device: strin
   }
   const 现在 = await 当前编号(t.id);
   if (编号 < 现在) return 错(409, "团队换过钥匙了，取到新钥匙再推");
+  // 比现在还新的编号：没有人有这把钥匙，收下了全队都解不开（复查低 4）
+  if (编号 > 现在) return 错(409, "钥匙编号不对，刷新一下再试");
   fs.mkdirSync(目录, { recursive: true });
   const b = await control.syncBatch.create({ data: { teamId: t.id, accountId, device, size: data.length } });
   // 先写临时文件再改名：拉的人不会读到写了一半的批次
