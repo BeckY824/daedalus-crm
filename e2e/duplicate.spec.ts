@@ -87,7 +87,9 @@ test("手机号失焦就预警，且要说清楚撞的是谁——只报「重�
 
   const 黄条 = 弹窗.locator(".ant-alert-warning");
   await expect(黄条).toBeVisible();
-  await expect(黄条).toContainText("系统中已有这条线索");
+  // 撞的是客户表（checkDuplicate 只查 customer），标题照实说、用工作区的叫法；原来写「系统中已有这条线索」，人会去线索页找（J-038）
+  await expect(黄条).toContainText("已有客户用这个号码");
+  await expect(黄条).not.toContainText("线索");
   // 光说撞了没用，得让人认出是哪一条：姓名和负责人都要在
   await expect(黄条).toContainText(甲姓名);
   await expect(黄条).toContainText("张三");
