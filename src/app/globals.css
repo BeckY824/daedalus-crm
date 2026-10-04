@@ -790,6 +790,16 @@ html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, tra
   color: var(--brand);
 }
 
+/* 长得像链接、其实是个按钮（点开编辑框之类）：去掉按钮的底框，键盘能聚焦 */
+.link-plain {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
 .company-logo {
   width: 32px;
   height: 32px;

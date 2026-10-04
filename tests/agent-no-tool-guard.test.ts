@@ -12,7 +12,7 @@
  * 所以第一步空手时顶回去一次；再空手就放行，免得「你能做什么」这种问题被卡住。
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { 不是答案, 日期对照, 有卡时的要求 } from "@/lib/agent/run";
+import { 不是答案, 日期对照, 有卡时的要求, 声称已写入, 摘掉已写入 } from "@/lib/agent/run";
 import { dayjs } from "@/lib/utils";
 
 let 决策轮次: { messages: { role: string; content: string }[] }[] = [];
@@ -391,7 +391,37 @@ describe("有卡时的回答要求", () => {
     expect(有卡时的要求(0)).toBe("");
     const t = 有卡时的要求(2);
     expect(t).toContain("2 张建议卡");
-    expect(t).toContain("不许说「已经记上」");
+    expect(t).toContain("点确认才会改");
+    expect(t).toContain("不许说「已经改好」");
     expect(t).toContain("只提卡片上本来就有的栏位");
+  });
+});
+
+describe("有卡没确认却说已经改好（J-173）", () => {
+  it("认得出各种「已改好」的说法", () => {
+    for (const t of [
+      "已经把所有客户的状态都改成已流失了。",
+      "好的，我已经帮你记上了这次跟进。",
+      "已更新李文龙的状态。",
+      "三位客户都改好了。",
+      "已为你新建商机「年度续约」。",
+      "已保存。",
+    ]) expect(声称已写入(t), t).toBe(true);
+  });
+  it("讲以后的、状态名、历史事实不算", () => {
+    for (const t of [
+      "拟好了，你确认后才写入。",
+      "已经给出建议，你确认一下。",
+      "李文龙现在是已签约，王五已流失。",
+      "拟好了 2 张建议卡，点确认才会改。",
+      "他上周已经跟进过两次，回复都很积极。",
+      "确认后就会改成已流失。",
+    ]) expect(声称已写入(t), t).toBe(false);
+  });
+  it("摘掉说漏的那几句，别的留着，开头写死一句实话", () => {
+    const t = 摘掉已写入("已经把李文龙改成已流失了。他三个月没回消息，续约希望不大。", 1);
+    expect(t.startsWith("拟好了 1 张建议卡，在下面逐张点确认才会改")).toBe(true);
+    expect(t).toContain("他三个月没回消息，续约希望不大。");
+    expect(声称已写入(t)).toBe(false);
   });
 });

@@ -18,7 +18,7 @@ import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, 独自一人, 可选成员, smartTime } from "@/lib/utils";
-import { saveLead, deleteLeads, convertLead } from "./actions";
+import { saveLead, deleteLeads, convertLead, mergeLeadInto, type 线索撞号 } from "./actions";
 import { useBusiness } from "@/lib/business-client";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 聚焦首项 } from "@/lib/modal-focus";
@@ -47,13 +47,16 @@ export default function LeadsView({
   总数,
   users,
   filters,
+  来源们,
   me,
 }: {
   rows: Row[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
   总数: number;
   users: 可选成员[];
-  filters: { keyword: string; status: string };
+  filters: { keyword: string; status: string; ownerId: string; source: string };
+  /** 来源筛选的候选：设置里的 + 库里用着的 */
+  来源们: string[];
   me: string;
 }) {
   const router = useRouter();
@@ -89,8 +92,33 @@ export default function LeadsView({
     router.refresh();
   }
 
+  /**
+   * 转客户撞了号（J-024）：原来只报「请勿重复建档」，线索永远转不了。
+   * 看得到那位客户 → 问要不要并过去；看不到（业务员撞同事的）→ 说清是谁的、找谁并
+   */
+  function 撞号了(r: Row, 撞: 线索撞号, 说法: string) {
+    if (!撞.能并 || !撞.customerId) {
+      modal.info({ title: `电话已经是「${撞.客户名}」的号码`, content: 说法, okText: "知道了" });
+      return;
+    }
+    const 到 = 撞.customerId;
+    modal.confirm({
+      title: `电话已经是${b.customer}「${撞.客户名}」的号码`,
+      content: `负责人：${撞.负责人}。把「${r.name}」并到这位${b.customer}？线索标成已转化、关联到「${撞.客户名}」，不另建档案，也不改「${撞.客户名}」的资料。`,
+      okText: `并到「${撞.客户名}」`,
+      cancelText: "取消",
+      async onOk() {
+        const res = await mergeLeadInto(r.id, 到);
+        if (res.ok) {
+          message.success(`已并到「${撞.客户名}」`);
+          router.push(`/customers/${res.customerId}`);
+        } else message.error(res.error);
+      },
+    });
+  }
+
   /** 只有一个人：负责人列不摆（审查 D2），见 lib/solo.ts */
-  const 不问归属 = 列表不问归属(users, rows.map((r) => r.ownerName));
+  const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
 
   const 列表: 列<Row>[] = [
     { title: "线索", key: "name", dataIndex: "name", width: 220, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
@@ -115,6 +143,9 @@ export default function LeadsView({
       render: (_, r) =>
         r.customerId ? (
           <Link href={`/customers/${r.customerId}`}>查看{b.customer} ›</Link>
+        ) : r.status === "已转化" ? (
+          // 并到了一位已经关联着别的线索的客户（J-024，Lead.customerId 唯一）：没有直接的关联，按电话去客户列表找
+          <Link href={`/customers?keyword=${encodeURIComponent(r.phone && !r.phone.includes("*") ? r.phone : r.name)}`}>查看{b.customer} ›</Link>
         ) : (
           <Space size={2}>
             <Button
@@ -136,7 +167,8 @@ export default function LeadsView({
                     if (res.ok) {
                       message.success(`已转为${b.customer}`);
                       router.push(`/customers/${res.customerId}`);
-                    } else message.error(res.error);
+                    } else if (res.撞号) 撞号了(r, res.撞号, res.error);
+                    else message.error(res.error);
                   },
                 })
               }
@@ -216,7 +248,7 @@ export default function LeadsView({
           <Space wrap size={[10, 10]}>
             <ListSearch
               width={280}
-              placeholder="线索名称 / 联系人"
+              placeholder="线索名称 / 联系人 / 电话"
               value={f.keyword}
               onChange={(v) => setF({ ...f, keyword: v })}
               onSearch={(v) => apply({ keyword: v })}
@@ -229,7 +261,16 @@ export default function LeadsView({
               onChange={(v) => apply({ status: v ?? "" })}
               options={LEAD_STATUSES.map((s2) => ({ value: s2, label: s2 }))}
             />
-            <ResetFilters 显示={Boolean(f.keyword || f.status)} onClick={reset} />
+            {/* 负责人、来源（T-029）：照客户列表的写法，只有一个人时负责人不摆 */}
+            {!不问归属 && (
+              <Select style={{ width: 150 }} placeholder="全部负责人" allowClear
+                value={f.ownerId || undefined} onChange={(v) => apply({ ownerId: v ?? "" })}
+                options={成员选项(users)} />
+            )}
+            <Select style={{ width: 140 }} placeholder="全部来源" allowClear
+              value={f.source || undefined} onChange={(v) => apply({ source: v ?? "" })}
+              options={来源们.map((s2) => ({ value: s2, label: s2 }))} />
+            <ResetFilters 显示={Boolean(f.keyword || f.status || f.ownerId || f.source)} onClick={reset} />
           </Space>
         }
       />

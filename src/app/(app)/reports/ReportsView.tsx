@@ -12,7 +12,8 @@ import { StatCard } from "@/components/ui";
 import EmptyState, { 表格空态 } from "@/components/EmptyState";
 import { fmtDate } from "@/lib/utils";
 import { 金额, 币种名, 合计文字, type 币种合计 } from "@/lib/currency";
-import type { Agg, Bucket, 明细行 } from "../overview/data";
+import type { Agg, Bucket } from "../overview/data";
+import { 按人明细, type 明细行 } from "../overview/drill";
 import { useBusiness } from "@/lib/business-client";
 
 /**
@@ -60,8 +61,17 @@ export default function ReportsView({
    * 明细跟着数据一起送下来了（见 overview/data.ts），所以点开是即时的，不再跑一趟服务器。
    */
   const [开着的, set开着的] = useState<string | null>(null);
-  const 这一段 = 开着的 ? (明细[开着的] ?? []) : [];
+  /**
+   * 「按销售 / 渠道负责人」点开的那个人（T-030）。原来跳客户列表按现在的负责人、不限时间，
+   * 和这一行（签约那一刻的负责人、这一段、这一种币）对不上；现在就地看这个人这一段签的那几笔
+   */
+  const [开着的人, set开着的人] = useState<{ 维度: "销售" | "渠道负责人"; id: string; name: string } | null>(null);
+  const 这一段 = 开着的人 ? 按人明细(明细, 开着的人.维度, 开着的人.id) : 开着的 ? (明细[开着的] ?? []) : [];
   const 这一段金额 = 这一段.reduce((s2, r) => s2 + r.金额, 0);
+  const 关抽屉 = () => {
+    set开着的(null);
+    set开着的人(null);
+  };
 
   const trendOption: EChartsCoreOption = useMemo(
     () => ({
@@ -102,19 +112,19 @@ export default function ReportsView({
   );
 
   /**
-   * 明细的去处：按销售 / 渠道负责人拆出来的那两张表，点名字能落到
-   * 学员列表对应的筛选上——「这 12 万是哪几位签的」得有地方看。
-   * 来源渠道和归属两张表没有对应的筛选条件，就不假装能点。
+   * 明细的去处：按销售 / 渠道负责人拆出来的那两张表，点名字就地打开这个人这一段签的那几笔
+   * （T-030，原来跳客户列表、口径对不上）——「这 12 万是哪几位签的」得有地方看。
+   * 来源渠道和归属两张表没有记签约那一刻的值，就不假装能点。
    */
-  const cols = (label: string, 明细?: (r: Agg) => string) => [
+  const cols = (label: string, 维度?: "销售" | "渠道负责人") => [
     {
       title: label,
       dataIndex: "name",
       render: (v: string, r: Agg) =>
-        明细 && r.id !== "__none__" ? (
-          <Link href={明细(r)} className="link-strong">
+        维度 && r.id !== "__none__" ? (
+          <button type="button" className="link-strong link-plain" onClick={() => { set开着的(null); set开着的人({ 维度, id: r.id, name: v }); }}>
             {v}
-          </Link>
+          </button>
         ) : (
           v
         ),
@@ -213,7 +223,7 @@ export default function ReportsView({
         extra={有签约 ? <Typography.Text type="secondary" style={{ fontSize: 13 }}>点柱子或下面的日期，看这一段签了哪几笔</Typography.Text> : null}
       >
         {有签约 ? (
-          <Chart option={trendOption} height={320} 点一段={(i) => set开着的(trend[i]?.label ?? null)} />
+          <Chart option={trendOption} height={320} 点一段={(i) => { set开着的人(null); set开着的(trend[i]?.label ?? null); }} />
         ) : (
           <EmptyState
             title="这一段还没有签约记录"
@@ -228,12 +238,12 @@ export default function ReportsView({
           <>
             <Col xs={24} xl={12}>
               <Card title={<span className="section-title">按销售负责人</span>} styles={{ body: { paddingTop: 8 } }}>
-                <Table size="small" rowKey="id" dataSource={bySales} columns={cols("销售负责人", (r) => `/customers?salesOwnerId=${r.id}`)} pagination={false} locale={empty} />
+                <Table size="small" rowKey="id" dataSource={bySales} columns={cols("销售负责人", "销售")} pagination={false} locale={empty} />
               </Card>
             </Col>
             <Col xs={24} xl={12}>
               <Card title={<span className="section-title">按渠道负责人</span>} styles={{ body: { paddingTop: 8 } }}>
-                <Table size="small" rowKey="id" dataSource={byChannelOwner} columns={cols("渠道负责人", (r) => `/customers?channelOwnerId=${r.id}`)} pagination={false} locale={empty} />
+                <Table size="small" rowKey="id" dataSource={byChannelOwner} columns={cols("渠道负责人", "渠道负责人")} pagination={false} locale={empty} />
               </Card>
             </Col>
           </>
@@ -259,21 +269,32 @@ export default function ReportsView({
       </Row>
 
       <Drawer
-        open={开着的 !== null}
-        onClose={() => set开着的(null)}
+        open={开着的 !== null || 开着的人 !== null}
+        onClose={关抽屉}
         /* antd 6 里 Drawer 的 width 废了，宽度改在 wrapper 上给（和记录页那两个抽屉一致） */
         styles={{ wrapper: { width: 520 } }}
-        title={开着的 ? `${开着的} · 签约明细` : ""}
+        title={开着的人 ? `${开着的人.name} · 签约明细` : 开着的 ? `${开着的} · 签约明细` : ""}
       >
+        {开着的人 && (
+          // 页头写清口径（T-030）：和上面那一行同一个算法；要看他现在手上的客户，给一条去客户列表的路
+          <div style={{ marginBottom: 8, fontSize: "var(--fs-note)" }}>
+            按签约那一刻的{开着的人.维度 === "销售" ? "销售负责人" : "渠道负责人"}算，{口径}{币种们.length > 1 ? `，只算 ${币种}` : ""}——和上面那一行同一个口径。
+            {" "}
+            <Link href={`/customers?${开着的人.维度 === "销售" ? "salesOwnerId" : "channelOwnerId"}=${开着的人.id}`}>
+              看他现在负责的全部{b.customer} ›
+            </Link>
+          </div>
+        )}
         <div style={{ marginBottom: 12, color: "var(--text-muted)", fontSize: "var(--fs-note)" }}>
           共 {这一段.length} 笔 · {money(这一段金额)}
+          {开着的人 && ` · ${new Set(这一段.map((r) => r.学员id)).size} 位${b.customer}`}
         </div>
         <Table<明细行>
           rowKey="id"
           size="small"
           dataSource={这一段}
           pagination={false}
-          locale={表格空态({ title: "这一段没有签约", hint: "换一根柱子看看。", demo: false })}
+          locale={表格空态({ title: "这一段没有签约", hint: 开着的人 ? "换一个时间段看看。" : "换一根柱子看看。", demo: false })}
           columns={[
             {
               title: b.customer,

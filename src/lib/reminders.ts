@@ -37,6 +37,11 @@ export type 提醒摘要 = {
   今天: number;
   /** 从 10 分钟前到往后 24 小时之内、定了时刻的。壳每分钟拿一次，到点的发通知 */
   定时: 定时项[];
+  /**
+   * 10 分钟前到 24 小时前、定了时刻、还没做的（D-049）。壳睡前看见过、却因为合盖没叫成的，
+   * 醒来合成一条「你有 N 条提醒在合盖时到点了」。按时间先后排。老的本地服务不回这一项，壳当空的
+   */
+  错过: 定时项[];
   /** 逾期里最久的那一个，早上那条汇总要点名 */
   最久: { 客户: string; 天: number } | null;
   /**
@@ -64,6 +69,7 @@ export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单�
   let 今天 = 0;
   let 最早逾期: 提醒项 | null = null;
   const 定时: 定时项[] = [];
+  const 错过: 定时项[] = [];
 
   for (const x of 项) {
     if (!x.时间) continue;
@@ -75,16 +81,21 @@ export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单�
       今天++;
     }
     // 10 分钟的回看：壳一分钟问一次，偶尔错过一轮（电脑刚醒）也还接得住
+    const 一项 = () => ({ key: `${x.kind}:${x.id}`, at: t.toISOString(), 标题: x.标题, 客户: x.客户, customerId: x.customerId, 方式: x.方式 ?? null });
     if (定了时刻(t) && t.getTime() >= now.getTime() - 10 * 60_000 && t.getTime() < now.getTime() + 天) {
-      定时.push({ key: `${x.kind}:${x.id}`, at: t.toISOString(), 标题: x.标题, 客户: x.客户, customerId: x.customerId, 方式: x.方式 ?? null });
+      定时.push(一项());
+    } else if (定了时刻(t) && t.getTime() < now.getTime() - 10 * 60_000 && t.getTime() >= now.getTime() - 天) {
+      // 过了回看窗口的（D-049）：壳睡前见过的才会拿去说「合盖时到点了」
+      错过.push(一项());
     }
   }
   定时.sort((a, b) => a.at.localeCompare(b.at));
+  错过.sort((a, b) => a.at.localeCompare(b.at));
 
   const 最久 = 最早逾期
     ? { 客户: 最早逾期.客户, 天: Math.round((今天开始.getTime() - 零点(最早逾期.时间!).getTime()) / 天) }
     : null;
-  return { 逾期, 今天, 定时, 最久, 订单: 算订单(订单项, 今天开始, 明天开始) };
+  return { 逾期, 今天, 定时, 错过, 最久, 订单: 算订单(订单项, 今天开始, 明天开始) };
 }
 
 function 算订单(项: 订单提醒项[], 今天开始: Date, 明天开始: Date): 提醒摘要["订单"] {

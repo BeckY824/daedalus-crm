@@ -286,7 +286,16 @@ export default function OpportunitiesView({
   }
 
   const 列表: 列<OppRow>[] = [
-    { title: "商机", key: "name", dataIndex: "name", width: 200, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
+    {
+      // 名字悬停变链接色，点了却没反应（J-093）。商机没有自己的详情页，点名字就打开这一单的编辑框——
+      // 和客户列表点名字进记录页一个意思：点名字 = 看这一条
+      title: "商机", key: "name", dataIndex: "name", width: 200, 常驻: true,
+      render: (v, r) => (
+        <button type="button" className="link-strong link-plain" onClick={() => { setEditing(r); setOpen(true); }}>
+          {v}
+        </button>
+      ),
+    },
     {
       title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 170,
       render: (v, r) => <CustomerLink id={r.customerId} name={v} />,

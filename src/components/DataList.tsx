@@ -78,7 +78,15 @@ type Props<T> = {
    * 说法照 CustomerRoster 那条来：「这里只有最近 N 条，全部 M 条…」。
    * 不给 = 行已经是全部（走服务端分页的 `/customers`，或者本来就取全了）。
    */
-  截断?: { 总数: number; 说明?: string };
+  截断?: {
+    总数: number;
+    说明?: string;
+    /**
+     * 从库里取回来几行（本地筛选之前）。页面在浏览器里再筛一道时要给（联系人页按关系、负责人筛）：
+     * 不给就拿眼前的行数比，本地筛完行变少了，冒出一句「只有最近 2 条，库里一共 5 条」，像没取全（J-015）
+     */
+    取回?: number;
+  };
   /**
    * 原地变了的行也亮一下（和新建的行同一个 row-fresh）：标赢单 / 丢单 / 撤销之后，
    * 那一行的阶段、概率换了，光一句 message 人还要自己去找是哪行变了。
@@ -105,6 +113,9 @@ export default function DataList<T extends { id: string }>({
   页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 行点击, 横向, 分页, 截断, 亮, 行类,
 }: Props<T>) {
   const router = useRouter();
+  /** 真的只取了一部分：库里的总数比取回来的多（本地筛掉的不算，见 截断.取回） */
+  const 取回 = 截断?.取回 ?? 行.length;
+  const 真截断 = !!截断 && 截断.总数 > 取回;
   const [选中, set选中] = useState<string[]>([]);
   /*
     行一换就把看不见的勾选清掉。在渲染里比上一次的行来改（React 文档「props 变了调整 state」的写法），
@@ -330,14 +341,14 @@ export default function DataList<T extends { id: string }>({
               : {
                   pageSize: 20,
                   // 截断时 `t` 是取回来的行数，不是库里的总数——别让它冒充总数
-                  showTotal: (t) => (截断 && 截断.总数 > 行.length ? `这里 ${t} 条` : `共 ${t} 条`),
+                  showTotal: (t) => (真截断 ? `这里 ${t} 条` : `共 ${t} 条`),
                   showSizeChanger: true,
                 }
         }
       />
-      {截断 && 截断.总数 > 行.length && (
+      {真截断 && (
         <div className="muted" style={{ fontSize: 13, marginTop: 8, textAlign: "right" }}>
-          这里只有最近 {行.length} 条，库里一共 {截断.总数} 条{截断.说明 ? `。${截断.说明}` : "——用上面的筛选缩小范围"}
+          这里只有最近 {取回} 条，库里一共 {截断.总数} 条{截断.说明 ? `。${截断.说明}` : "——用上面的筛选缩小范围"}
         </div>
       )}
     </div>

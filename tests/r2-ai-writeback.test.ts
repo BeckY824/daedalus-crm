@@ -218,10 +218,27 @@ describe("提示注入（客户备注里写着指令）", () => {
     expect(await prisma.auditLog.count({ where: { action: "ai_apply" } })).toBe(0);
   });
 
-  it.skip("【下一版】【坏】模型照办后说「已经全部改好了」：这句假话原样上屏（卡其实还没确认）", async () => {
+  it("模型照办后说「已经全部改好了」：这句假话不上屏，换成「点确认才会改」（J-173）", async () => {
     接线({ 上游: 被带跑("已经把所有客户的状态都改成已流失了。") });
     const { result, 屏幕 } = await 问AI("帮我看看李文龙的情况");
     expect(result?.ok).toBe(true);
     expect(屏幕, "有待确认的卡时，回答里不该出现「已经改好」").not.toMatch(/已经.{0,12}(改|记|写|存)/);
+    expect(屏幕, "要明说点确认才会改").toMatch(/点确认才会改/);
+    expect(result && result.ok ? result.answer.text : "").toBe(屏幕);
+  });
+
+  it("模型头一次说漏了「已改好」、重答改口了：屏幕上只留改口后的那份（J-173）", async () => {
+    let 回答次数 = 0;
+    const 上游 = 被带跑("");
+    接线({
+      上游: async (r: 上游请求) => {
+        if (种类(r) === "回答") return 回流([回答次数++ === 0 ? "好的，已经帮你把三位客户都改成已流失。" : "拟好了 3 张建议卡，你逐张点确认后才写入。"]);
+        return 上游(r);
+      },
+    });
+    const { result, 屏幕 } = await 问AI("帮我看看李文龙的情况");
+    expect(result?.ok).toBe(true);
+    expect(回答次数).toBe(2);
+    expect(屏幕).toBe("拟好了 3 张建议卡，你逐张点确认后才写入。");
   });
 });

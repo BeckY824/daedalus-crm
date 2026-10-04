@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
-import { 看全部 } from "@/lib/team-scope";
+import { prisma, defaultClient } from "@/lib/prisma";
+import { 看全部, 看得到, 限定的我 } from "@/lib/team-scope";
 import { 认回打码号 } from "@/lib/phone";
 import { 查电话 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
@@ -112,7 +112,15 @@ export async function deleteLeads(ids: string[]) {
  * 闸门是那句 updateMany：只有把线索从「未关联」翻过来的那一次会影响到行，
  * 另一次影响 0 行、直接退出。SQLite 的写锁保证两句 updateMany 不会同时生效。
  */
-export async function convertLead(id: string) {
+/**
+ * 转客户时撞了号，撞的是谁（J-024）。业务员撞到同事的客户：只给名字和负责人（两档权限，和客户表单查重一个口径），
+ * 不给 id、不能并；看得到那位客户的人（老板、负责人自己、公海里的）可以「并到这位客户」。
+ */
+export type 线索撞号 = { 客户名: string; 负责人: string; customerId: string | null; 能并: boolean };
+
+export async function convertLead(id: string): Promise<
+  { ok: true; customerId: string } | { ok: false; error: string; 撞号?: 线索撞号 }
+> {
   const user = await requireUser();
   const b = await getBusiness();
   const lead = await prisma.lead.findUnique({ where: { id } });
@@ -132,11 +140,29 @@ export async function convertLead(id: string) {
   const phone = 电话.phone;
 
   const 起 = await 分机留存起();
+  const 我 = await 限定的我(defaultClient);
   const outcome = await prisma.$transaction(async (tx) => {
     // 看全部：同事的客户也算已经有了（团队版业务员，lib/team-scope.ts）
-    const dup = await 看全部(async () => tx.customer.findFirst({ where: await 同号条件(tx, phone, 起), select: { name: true } }));
+    const dup = await 看全部(async () =>
+      tx.customer.findFirst({
+        where: await 同号条件(tx, phone, 起),
+        select: { id: true, name: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } }, salesOwner: { select: { name: true } } },
+      }),
+    );
     if (dup) {
-      return { ok: false as const, error: `手机号已存在于${b.customer}「${dup.name}」，请勿重复建档` };
+      /*
+        原来只报「请勿重复建档」，这条线索就永远转不了（J-024）。现在说清撞的是谁、给一条路：
+        看得到那位就能并过去；看不到（业务员撞同事的）指路——线索负责人改成那位同事由他来并，或者请老板并
+      */
+      const 能并 = 看得到(dup, 我);
+      const 负责人 = dup.salesOwner.name;
+      return {
+        ok: false as const,
+        error: 能并
+          ? `电话已经是${b.customer}「${dup.name}」（负责人：${负责人}）的号码，可以把这条线索并到这位${b.customer}，不用另建档案`
+          : `电话已经是同事 ${负责人} 的${b.customer}「${dup.name}」的号码。你看不到这位${b.customer}，并不过去：可以把线索负责人改成 ${负责人} 由他来并，或者请老板并`,
+        撞号: { 客户名: dup.name, 负责人, customerId: 能并 ? dup.id : null, 能并 } satisfies 线索撞号,
+      };
     }
 
     const gate = await tx.lead.updateMany({
@@ -193,4 +219,49 @@ export async function convertLead(id: string) {
   revalidatePath("/customers");
   revalidatePath("/dashboard");
   return outcome;
+}
+
+/**
+ * 把线索并到已有的那位客户（J-024）：线索标成已转化、关联过去，**不另建档案、不改那位客户的资料**。
+ *
+ * 只能并到电话对得上的那位（就是转客户时撞上的那位），只有看得到那位客户的人能并——
+ * 限定层（lib/team-scope.ts）下业务员按 id 找同事的客户本来就是 null，这里就照「看不到」答。
+ *
+ * Lead.customerId 是唯一的：那位客户已经关联着另一条线索（同一个人从两个渠道来过）时，
+ * 原来那条的关联不动，这一条只标已转化、备注里写明并到了谁。
+ */
+export async function mergeLeadInto(leadId: string, customerId: string): Promise<{ ok: true; customerId: string } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const b = await getBusiness();
+  const lead = await prisma.lead.findUnique({ where: { id: leadId } });
+  if (!lead) return { ok: false, error: "线索不存在" };
+  if (lead.customerId || lead.status === "已转化") return { ok: false, error: "该线索已转化" };
+  const customer = await prisma.customer.findUnique({ where: { id: customerId }, select: { id: true, name: true } });
+  if (!customer) return { ok: false, error: `你看不到这位${b.customer}，并不过去：请找负责人或老板` };
+  const 电话 = 查电话(lead.phone, { 必填: true });
+  const 对得上 = 电话.ok && (await prisma.customer.count({ where: { AND: [{ id: customerId }, await 同号条件(prisma, 电话.phone, await 分机留存起())] } })) > 0;
+  if (!对得上) return { ok: false, error: `线索电话和${b.customer}「${customer.name}」对不上，不能并` };
+
+  const 结果 = await prisma.$transaction(async (tx) => {
+    // 唯一约束不分人：要看全部（关联着那位的线索可能是同事的）
+    const 已关联 = await 看全部(() => tx.lead.findFirst({ where: { customerId }, select: { id: true } }));
+    const 备注 = 已关联 ? [lead.remark?.trim(), `已并入${b.customer}「${customer.name}」`].filter(Boolean).join("\n") : undefined;
+    // 闸门：只有把线索从「没转化」翻过来的那一次算数（两个人同时点，和 convertLead 一个道理）
+    const gate = await tx.lead.updateMany({
+      where: { id: leadId, customerId: null, status: { not: "已转化" } },
+      data: { status: "已转化", convertedAt: new Date(), ...(已关联 ? { remark: 备注 } : { customerId }) },
+    });
+    return gate.count;
+  });
+  if (!结果) return { ok: false, error: "这条线索刚刚已经转化过了，刷新看看" };
+
+  await recordAudit({
+    user, action: "convert", entity: "Lead", entityId: leadId,
+    summary: `线索「${lead.name}」并入${b.customer}「${customer.name}」`,
+    detail: { leadId, customerId, 并入: true },
+  });
+  revalidatePath("/leads");
+  revalidatePath("/customers");
+  revalidatePath(`/customers/${customerId}`);
+  return { ok: true, customerId };
 }

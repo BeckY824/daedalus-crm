@@ -32,6 +32,7 @@ vi.mock("@/lib/auth", async (原) => ({ ...(await 原<object>()), requireUser: a
 
 import { prisma as db, defaultClient as raw } from "@/lib/prisma";
 import { 领取 } from "@/app/(app)/customers/pool-actions";
+import { convertLead, mergeLeadInto } from "@/app/(app)/leads/actions";
 import { 看全部, 忘掉限定, 限定的我 } from "@/lib/team-scope";
 import { 设传输, 对齐角色, 退出团队, 同步一轮, type 传输 } from "@/lib/sync/client";
 import { 建同步表, 装触发器, 卸触发器, 回放, 只留自己的 } from "@/lib/sync/local";
@@ -401,5 +402,90 @@ describe("退出团队：按中转名单判业务员，老板那台永远不删�
     expect(fs.existsSync(团队文件())).toBe(true);
     expect(云端.退队).toBe(0);
     expect(await 客户名()).toEqual(全部五位);
+  });
+});
+
+/*
+  J-024（2026-10-04 工作室试用前）：线索的电话已经是某位客户的（同事的也算），转客户只报「请勿重复建档」，
+  没有路走，这条线索永远转不了。现在：说清撞的是谁（业务员撞到同事的只给名字和负责人），
+  看得到那位客户的人可以「并到这位客户」——线索标成已转化、关联过去，不另建档案；看不到的并不了，指路找负责人或老板。
+*/
+describe("线索撞了已有客户的号：说清是谁、能并过去（J-024）", () => {
+  const 号 = async (客户: string) => (await raw.customer.findUniqueOrThrow({ where: { id: ids[客户] } })).phone;
+  const 建线索 = async (名: string, phone: string, ownerId = 小王) => (await raw.lead.create({ data: { name: 名, phone, ownerId } })).id;
+  const 小王登录 = { ...登录的.user };
+
+  beforeEach(async () => {
+    Object.assign(云端, { 被移出: false, 连不上: false, 退队: 0 });
+    await 种数据();
+    当("wang");
+    进团队();
+    await 对齐角色();
+    登录的.user = { ...小王登录 };
+  });
+
+  it("撞自己的客户：说出是谁、给出能并；并过去 → 线索已转化、关联到那位，不多建一份档案", async () => {
+    const lead = await 建线索("又来了一次", await 号("小王的客户"));
+    const r = await convertLead(lead);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.error).toContain("小王的客户");
+    expect(r.撞号).toMatchObject({ 客户名: "小王的客户", 负责人: "小王", customerId: ids["小王的客户"], 能并: true });
+    const m = await mergeLeadInto(lead, ids["小王的客户"]);
+    expect(m).toMatchObject({ ok: true, customerId: ids["小王的客户"] });
+    const 线索 = await raw.lead.findUniqueOrThrow({ where: { id: lead } });
+    expect(线索.status).toBe("已转化");
+    expect(线索.customerId).toBe(ids["小王的客户"]);
+    expect(线索.convertedAt).not.toBeNull();
+    expect(await raw.customer.count()).toBe(5);
+    // 再并一次：已经转化过了
+    expect((await mergeLeadInto(lead, ids["小王的客户"])).ok).toBe(false);
+  });
+
+  it("业务员撞到同事的客户：只给名字和负责人，不给 id、不能并，指路找负责人或老板；硬并也不成", async () => {
+    const lead = await 建线索("同事的人", await 号("小李的客户"));
+    const r = await convertLead(lead);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.撞号).toEqual({ 客户名: "小李的客户", 负责人: "小李", customerId: null, 能并: false });
+    expect(r.error).toContain("小李");
+    expect(r.error).toContain("老板");
+    const m = await mergeLeadInto(lead, ids["小李的客户"]);
+    expect(m.ok).toBe(false);
+    const 线索 = await raw.lead.findUniqueOrThrow({ where: { id: lead } });
+    expect(线索.status).toBe("待跟进");
+    expect(线索.customerId).toBeNull();
+  });
+
+  it("老板撞到业务员的客户：能并", async () => {
+    当("boss");
+    进团队();
+    登录的.user = { id: 老板, name: "老板", email: `${老板}@x.com`, role: "ADMIN", title: "老板", avatar: null };
+    const lead = await 建线索("业务员的人", await 号("小李的客户"), 小王);
+    const r = await convertLead(lead);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.撞号).toMatchObject({ customerId: ids["小李的客户"], 能并: true });
+    expect((await mergeLeadInto(lead, ids["小李的客户"])).ok).toBe(true);
+    expect((await raw.lead.findUniqueOrThrow({ where: { id: lead } })).customerId).toBe(ids["小李的客户"]);
+  });
+
+  it("电话对不上的客户不让并（只能并到撞号的那位）", async () => {
+    const lead = await 建线索("对不上", await 号("小王的客户"));
+    const m = await mergeLeadInto(lead, ids["小王带来的客户"]);
+    expect(m.ok).toBe(false);
+    expect((await raw.lead.findUniqueOrThrow({ where: { id: lead } })).status).toBe("待跟进");
+  });
+
+  it("那位客户已经关联着另一条线索（同一个人从两个渠道来）：照样能并，线索标已转化、备注写明并到了谁", async () => {
+    const 先 = await 建线索("先来的", await 号("小王的客户"));
+    await raw.lead.update({ where: { id: 先 }, data: { customerId: ids["小王的客户"], status: "已转化" } });
+    const lead = await 建线索("后来的", await 号("小王的客户"));
+    expect(await mergeLeadInto(lead, ids["小王的客户"])).toMatchObject({ ok: true, customerId: ids["小王的客户"] });
+    const 线索 = await raw.lead.findUniqueOrThrow({ where: { id: lead } });
+    expect(线索.status).toBe("已转化");
+    expect(线索.remark).toContain("小王的客户");
+    // 原来那条的关联不动
+    expect((await raw.lead.findUniqueOrThrow({ where: { id: 先 } })).customerId).toBe(ids["小王的客户"]);
   });
 });
