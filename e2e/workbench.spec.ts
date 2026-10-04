@@ -134,6 +134,11 @@ test("空库首页：一张「开始」卡，整页只有一个主按钮，没�
   // 空库不画任何指标：四个 0 比没有更糟
   await expect(page.locator("main .stat-card")).toHaveCount(0);
   await expect(page.locator("main .signals")).toHaveCount(0);
+  // J-223 后半：「开始」卡和下面的输入框一样宽（原来一宽一窄，像两块拼起来的）
+  const 卡 = (await page.locator(".start").first().boundingBox())!;
+  const 框 = (await page.locator("main .cli-input").first().boundingBox())!;
+  expect(Math.abs(卡.width - 框.width), `开始卡 ${卡.width}，输入框 ${框.width}`).toBeLessThanOrEqual(2);
+  expect(Math.abs(卡.x - 框.x)).toBeLessThanOrEqual(2);
 });
 
 test("有数据的首页：一行三个信号，不是三张卡", async ({ page }) => {
@@ -613,6 +618,25 @@ test("⌘K：一个页面都没匹配上时，第一条变成「问一句」", a
   2026-10-04（J-158）：别人发来的 /dashboard?q=… 一打开就发问、扣一次次数。
   现在只有本应用 ⌘K 交过来的才自动发（上一条钉着）；外面来的链接只填进输入框，等人自己按回车
 */
+/* J-156：斜杠命令打错，原来回车就把整行清空——打了一大段话的人什么都没了 */
+test("首页斜杠命令打错：回车后原文还在，下面说「没有这个命令」，也不发问", async ({ page }) => {
+  await 登录(page);
+  await page.goto("/dashboard");
+  const 框 = page.locator(".cli-input textarea").first();
+  await 框.fill("/xyz");
+  await expect(page.getByText("没有这个命令")).toBeVisible();
+  await 框.press("Enter");
+  await page.waitForTimeout(500);
+  await expect(框).toHaveValue("/xyz");
+  await expect(page.getByText("没有这个命令")).toBeVisible();
+  // 命令后面接着打了一大段：回车也不许把它清掉
+  await 框.fill("/xyz 帮我看看这个月的数");
+  await 框.press("Enter");
+  await page.waitForTimeout(500);
+  await expect(框).toHaveValue("/xyz 帮我看看这个月的数");
+  await expect(page.locator(".cli-bubble")).toHaveCount(0);
+});
+
 test("直接打开 /dashboard?q=…：不自动发问，问题填在输入框里等回车", async ({ page }) => {
   await 登录(page);
   await page.goto(`/dashboard?q=${encodeURIComponent("别人链接里的问题")}`);
@@ -765,4 +789,36 @@ test("联系人页能直接加一位，但第一格必须先选归属", async ({
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
   await expect(弹窗.getByText(/请选择所属/)).toBeVisible();
   await expect(弹窗).toBeVisible();
+});
+
+/*
+  J-180 / J-220：来源、行业这几格「能选也能填」（2026-10-02 用户定）。服务端收列表外的来源有单测；
+  界面这一层没有——而那个输入框第一版没接表单 id，标签和输入框的关联断了（getByLabel 找不到、读屏念不出来）
+*/
+test("新建线索：来源一格能直接填列表里没有的说法，按标签找得到输入框，存完列表里看得见", async ({ page }) => {
+  const 名 = `朋友圈线索${Date.now().toString().slice(-5)}`;
+  await 登录(page);
+  await page.goto("/leads");
+  await page.getByRole("button", { name: /新建线索/ }).click();
+  const 框 = page.getByRole("dialog", { name: "新建线索" });
+  await expect(框).toBeVisible();
+  await 框.getByLabel("线索名称").fill(名);
+  // 按标签找得到 = 输入框接上了表单 id
+  await expect(框.getByLabel("所属行业")).toBeVisible();
+  const 来源 = 框.getByLabel("线索来源");
+  await 来源.fill("老板朋友圈");
+  // 收起候选单（别按 Esc：那会把整个弹框关掉）
+  await 框.getByLabel("线索名称").click();
+  await expect(来源).toHaveValue("老板朋友圈");
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(框).toBeHidden();
+  const 行 = page.locator("main .ant-table-row", { hasText: 名 });
+  await expect(行).toContainText("老板朋友圈");
+  const p = 连库();
+  try {
+    expect((await p.lead.findFirstOrThrow({ where: { name: 名 } })).source).toBe("老板朋友圈");
+  } finally {
+    await p.lead.deleteMany({ where: { name: 名 } });
+    await p.$disconnect();
+  }
 });
