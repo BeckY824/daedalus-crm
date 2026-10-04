@@ -1,6 +1,7 @@
 "use server";
 
 import { 不在了 } from "@/lib/not-there";
+import { 查完再写 } from "@/lib/check-then-write";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -238,7 +239,21 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   };
 
   if (!input.id) {
-    const created = await prisma.customer.create({ data });
+    /*
+      上面那次查重和建档之间有缝：两个窗口同时点「保存」，两边都查不到对方、都建进去，同号两份档案。
+      建档这一步在事务里再查一次（2026-10-04 J-104，lib/check-then-write.ts）。
+      看全部：团队版业务员录到同事已有的号码也要挡，和线索转客户同一条（上面那次查重只看得到自己的）
+    */
+    const 起 = await 分机留存起();
+    const 建了 = await 查完再写(async (tx) => {
+      if (phone) {
+        const dup = await 看全部(() => tx.customer.findFirst({ where: 同号条件(phone, 起), select: { name: true } }));
+        if (dup) return { 撞号: dup.name } as const;
+      }
+      return { created: await tx.customer.create({ data }) } as const;
+    });
+    if ("撞号" in 建了) return { ok: false, error: `手机号 ${phone} 已存在（${建了.撞号}），请勿重复录入` };
+    const { created } = 建了;
     await recordAudit({
       user: me, action: "create", entity: "Customer", entityId: created.id,
       summary: `新建${b.customer}「${created.name}」`,
@@ -322,7 +337,15 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     // 共享区打开表单时看到的号码是打了码的：快照里的也认回原号，不然一碰上并发就误报「你们都改了手机号」（排查 A2）
     const baseRow = { ...input.base, phone: 认回打码号(input.base.phone, 改前?.phone) } as unknown as Record<string, unknown>;
     const theirs = diffKeys(baseRow, currentRow);
-    const mine = diffKeys(baseRow, data);
+    const 改了推荐链 = diffKeys(baseRow, data).some((k) => (REFERRER_KEYS as readonly string[]).includes(k));
+    /*
+      渠道负责人是派生值：没动推荐链、也没单独订正时，data 里那一格是从库里现值抄来的（上面「原样保留」那支），
+      拿它和 base 比会把同事刚改的值算成「我改的」，于是我只改备注也被判「两边都动了：渠道负责人」。
+      只有我真动了它（显式订正 / 改推荐链连带重算）才算我的（2026-10-04 L-048）
+    */
+    const mine = diffKeys(baseRow, data).filter(
+      (k) => k !== "channelOwnerId" || input.channelOwnerId !== undefined || 改了推荐链,
+    );
     const overlap = mine.filter((k) => theirs.includes(k));
 
     if (overlap.length) {
@@ -658,39 +681,14 @@ export async function saveContract(input: {
     // 超过库里整数的上限（约 21 亿）：说一句，不让数据库抛（第二轮 r2-data）
     if (amount > 2_147_483_647) return { ok: false as const, error: "签约金额太大了，单笔最多 21 亿" };
   
-    if (!input.force) {
-      // 「同一天」按自然日算，不是 24 小时
-      const dayStart = new Date(input.signedAt);
-      dayStart.setHours(0, 0, 0, 0);
-      const dayEnd = new Date(dayStart);
-      dayEnd.setDate(dayEnd.getDate() + 1);
-  
-      // 同额要连币种一起比：同一天 US$ 100 和 ¥ 100 不是同一笔
-      const 原币 = input.id && input.currency == null ? await prisma.contractMoney.findUnique({ where: { contractId: input.id }, select: { currency: true } }) : null;
-      const 这笔币 = input.currency != null ? 规整币种(input.currency) : input.id ? 签约币种({ money: 原币 }) : (await getBusiness()).currency;
-      const 同日同额 = await prisma.contract.findMany({
-        where: {
-          customerId: input.customerId,
-          amount,
-          signedAt: { gte: dayStart, lt: dayEnd },
-          ...(input.id ? { id: { not: input.id } } : {}),
-        },
-        select: { amount: true, signedAt: true, remark: true, ...带币种.签约 },
-      });
-      const hit = 同日同额.find((c) => 签约币种(c) === 这笔币);
-      if (hit) {
-        return {
-          ok: false,
-          duplicate: {
-            amount: 签约金额(hit),
-            currency: 签约币种(hit),
-            signedAt: hit.signedAt.toISOString(),
-            remark: hit.remark,
-          },
-        };
-      }
-    }
-  
+    // 「同一天」按自然日算，不是 24 小时
+    const dayStart = new Date(input.signedAt);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    // 事务里只用 tx（lib/check-then-write.ts），本位币先在外面读好
+    const 本位币 = (await getBusiness()).currency;
+
     const data = {
       customerId: input.customerId,
       amount,
@@ -701,21 +699,58 @@ export async function saveContract(input: {
       where: { id: input.customerId },
       select: { name: true, salesOwnerId: true, channelOwnerId: true },
     });
-    let 签约id = input.id ?? null;
-    let 币: string;
-    if (input.id) {
-      await prisma.contract.update({ where: { id: input.id }, data });
-      币 = input.currency ?? (await prisma.contractMoney.findUnique({ where: { contractId: input.id } }))?.currency ?? "CNY";
-    } else {
-      // 记下签约这一刻是谁的单（排查 B2）。编辑旧签约不改它：那笔业绩当时是谁的就一直是谁的
-      const c = await prisma.contract.create({
-        data: { ...data, owner: { create: { salesOwnerId: 学员?.salesOwnerId ?? null, channelOwnerId: 学员?.channelOwnerId ?? null } } },
-      });
-      签约id = c.id;
-      币 = input.currency ?? (await getBusiness()).currency;
-    }
-    // 编辑一笔老签约（没有 ContractMoney）也补上这一行：金额刚被重写过，精确值以这次为准
-    if (签约id) await 写签约金额(prisma, 签约id, 币, 精确);
+
+    /*
+      查重和落库在同一个事务里（2026-10-04 J-104）：原来两步分开，两个窗口同时点「登记」，
+      两边都查不到对方、都写进去，业绩翻倍。现在后进来的那次查的时候前一笔已经在库里了，照样弹「可能重复」
+    */
+    const 落库 = await 查完再写(async (tx): Promise<{ duplicate: ContractDuplicate } | { 签约id: string; 币: string }> => {
+      if (!input.force) {
+        // 同额要连币种一起比：同一天 US$ 100 和 ¥ 100 不是同一笔
+        const 原币 = input.id && input.currency == null ? await tx.contractMoney.findUnique({ where: { contractId: input.id }, select: { currency: true } }) : null;
+        const 这笔币 = input.currency != null ? 规整币种(input.currency) : input.id ? 签约币种({ money: 原币 }) : 本位币;
+        const 同日同额 = await tx.contract.findMany({
+          where: {
+            customerId: input.customerId,
+            amount,
+            signedAt: { gte: dayStart, lt: dayEnd },
+            ...(input.id ? { id: { not: input.id } } : {}),
+          },
+          select: { amount: true, signedAt: true, remark: true, ...带币种.签约 },
+        });
+        const hit = 同日同额.find((c) => 签约币种(c) === 这笔币);
+        if (hit) {
+          return {
+            duplicate: {
+              amount: 签约金额(hit),
+              currency: 签约币种(hit),
+              signedAt: hit.signedAt.toISOString(),
+              remark: hit.remark,
+            },
+          };
+        }
+      }
+
+      let 签约id: string;
+      let 币: string;
+      if (input.id) {
+        await tx.contract.update({ where: { id: input.id }, data });
+        签约id = input.id;
+        币 = input.currency ?? (await tx.contractMoney.findUnique({ where: { contractId: input.id } }))?.currency ?? "CNY";
+      } else {
+        // 记下签约这一刻是谁的单（排查 B2）。编辑旧签约不改它：那笔业绩当时是谁的就一直是谁的
+        const c = await tx.contract.create({
+          data: { ...data, owner: { create: { salesOwnerId: 学员?.salesOwnerId ?? null, channelOwnerId: 学员?.channelOwnerId ?? null } } },
+        });
+        签约id = c.id;
+        币 = input.currency ?? 本位币;
+      }
+      // 编辑一笔老签约（没有 ContractMoney）也补上这一行：金额刚被重写过，精确值以这次为准
+      await 写签约金额(tx, 签约id, 币, 精确);
+      return { 签约id, 币 };
+    });
+    if ("duplicate" in 落库) return { ok: false, duplicate: 落库.duplicate };
+    const { 签约id, 币 } = 落库;
   
     await recordAudit({
       user: me, action: input.id ? "update" : "create", entity: "Contract", entityId: 签约id,

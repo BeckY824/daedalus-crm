@@ -252,7 +252,7 @@ export default function RecordView({
    * 完成眼前这条计划（审查 M10）。提示里带「撤销」和「排下一次」：
    * 原来点完「下次跟进」那块直接变成「尚未安排」，点错了改不回来，做完了也没人问下一次什么时候
    */
-  async function 完成计划(p: NonNullable<typeof plan>, 顺带?: string) {
+  async function 完成计划(p: Pick<NonNullable<typeof plan>, "id" | "subject">, 顺带?: string) {
     await completePlan(p.id);
     router.refresh();
     const key = `plan-${p.id}`;

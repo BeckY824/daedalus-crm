@@ -30,6 +30,7 @@ import { 字段表, type 字段名 } from "@/lib/import/fields";
 import { 摊开, 并重复行, 添行, type 排布 } from "@/lib/import/plan";
 import { 同号写法 } from "@/lib/phone";
 import { 认人表, 分机留存起 } from "@/lib/phone-dedupe";
+import { 查完再写 } from "@/lib/check-then-write";
 
 /** 一次导入最多落多少条。和 parse.ts 的行数上限一致，服务端再收一道 */
 const 落库上限 = 10000;
@@ -281,23 +282,37 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     const channelId = r.值.channelName ? (渠道.get(r.值.channelName) ?? null) : null;
     const attribution = await resolveAttribution({ channelId, referrerCustomerId: null });
     try {
-      const c = await prisma.customer.create({
-        data: {
-          name: r.值.name!,
-          phone,
-          school: r.值.school ?? null,
-          grade: r.值.grade ?? null,
-          major: r.值.major ?? null,
-          ...(r.值.followStatus ? { followStatus: r.值.followStatus } : {}),
-          ...(r.值.decisionStatus ? { decisionStatus: r.值.decisionStatus } : {}),
-          expectedSignAt: r.值.expectedSignAt ? new Date(r.值.expectedSignAt) : null,
-          remark: r.值.remark ?? null,
-          salesOwnerId,
-          referrerCustomerId: null,
-          ...attribution,
-        },
+      /*
+        建这一位和「号码还没人用」在同一个事务里再认一次（2026-10-04 J-104）：同一份表在两个窗口同时导，
+        两边开头那次认人都查不到对方，原来各建一位。只比整串——对方刚建的就是这个号码；带分机认老主号那套
+        在开头的认人表里已经算过了。一行一个小事务，不攥着写锁不放（文件头「不放在一个大事务里」那条照旧）
+      */
+      const c = await 查完再写(async (tx) => {
+        if (await 看全部(() => tx.customer.findFirst({ where: { phone }, select: { id: true } }))) return null;
+        const c = await tx.customer.create({
+          data: {
+            name: r.值.name!,
+            phone,
+            school: r.值.school ?? null,
+            grade: r.值.grade ?? null,
+            major: r.值.major ?? null,
+            ...(r.值.followStatus ? { followStatus: r.值.followStatus } : {}),
+            ...(r.值.decisionStatus ? { decisionStatus: r.值.decisionStatus } : {}),
+            expectedSignAt: r.值.expectedSignAt ? new Date(r.值.expectedSignAt) : null,
+            remark: r.值.remark ?? null,
+            salesOwnerId,
+            referrerCustomerId: null,
+            ...attribution,
+          },
+        });
+        await tx.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
+        return c;
       });
-      await prisma.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
+      // 另一个窗口刚建了这个号码：算已在库里、跳过，不另建一份
+      if (!c) {
+        跳过++;
+        continue;
+      }
       新建++;
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
       表.记下({ id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null });

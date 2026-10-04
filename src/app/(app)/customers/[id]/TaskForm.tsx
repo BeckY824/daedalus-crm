@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Modal, Form, Input, DatePicker, App } from "antd";
 import { dayjs } from "@/lib/utils";
 import { saveTask } from "./actions";
@@ -18,10 +19,12 @@ export default function TaskForm({
   onSaved: () => void;
   customerId: string;
   /** 给了就是编辑这一条（计划页「改」，2026-10-02 排查 3-4：原来待办建了就改不了） */
-  record?: { id: string; title: string; dueAt: string | null } | null;
+  /** updatedAt：编辑时的版本号（J-105），保存时交回去当闸门 */
+  record?: { id: string; title: string; dueAt: string | null; updatedAt?: string } | null;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
+  const router = useRouter();
   // 保存中：网慢时连点两下会建出两条一样的待办（2026-10-02 排查）
   const [存着, set存着] = useState(false);
 
@@ -39,11 +42,17 @@ export default function TaskForm({
     try {
       const r = await saveTask({
         id: record?.id,
+        版本: record?.updatedAt,
         customerId,
         title: v.title,
         dueAt: v.dueAt ? v.dueAt.toISOString() : null,
       });
-      if (!r.ok) return void message.error("没存上，请重试");
+      if (!r.ok) {
+        // 服务端那句话照说（打开之后这条又变过了 / 已经删了，J-105），原来一律「没存上，请重试」，人只会再点一次、再被拦
+        message.error("error" in r && r.error ? r.error : "没存上，请重试");
+        if (record) router.refresh();
+        return;
+      }
       message.success(record ? "已保存" : "任务已创建");
       void window.desktopReminders?.刷新();
       onSaved();

@@ -8,7 +8,7 @@ import { requireUser } from "@/lib/auth";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
 import { 认回打码号 } from "@/lib/phone";
-import { 版本冲突, 版本条件 } from "@/lib/edit-version";
+import { 版本冲突, 版本条件, 推进版本 } from "@/lib/edit-version";
 import { dayjs } from "@/lib/utils";
 
 /**
@@ -54,6 +54,11 @@ export type FollowUpInput = {
    * 存进 FollowUpSource 供简报、唤醒话术引用原话；编辑时忽略，原文不可改写
    */
   sourceText?: string | null;
+  /**
+   * 编辑框打开那一刻这条的 updatedAt（2026-10-04 J-105）。给了就当版本闸门：期间这条被改过（另一个窗口、同事），
+   * 一格都不写、说一句；不给（AI 卡片、订单节点这些程序里调的）照旧直接写
+   */
+  版本?: string | null;
 };
 
 /** 原文最多存这么多字，与速记解析的输入上限一致 */
@@ -130,8 +135,11 @@ export async function saveFollowUp(input: FollowUpInput) {
        * 而且没有任何痕迹。归属只在创建时确定。
        */
       const 改前 = await prisma.followUp.findUnique({ where: { id: input.id }, select: { type: true, title: true, content: true, status: true, dueAt: true } });
-      await prisma.followUp.update({ where: { id: input.id }, data });
-      if (改前) await 跟着改待办(input.customerId, 改前, data);
+      if (!改前) return { ok: false as const, error: "这条跟进已经不在了（可能在别处删了），刷新看看" };
+      // 版本闸门（J-105）：原来整条 update，两个窗口改同一条，后存的把先存的改动整条盖回去、谁都不知道
+      const 写了 = await prisma.followUp.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data: { ...data, ...推进版本(input.版本) } });
+      if (写了.count === 0) return { ok: false as const, error: 版本冲突 };
+      await 跟着改待办(input.customerId, 改前, data);
       await recordAudit({
         user, action: "update", entity: "FollowUp", entityId: input.id,
         summary: `修改${姓名}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
@@ -292,6 +300,8 @@ export async function saveTask(input: {
   customerId: string;
   title: string;
   dueAt?: string | null;
+  /** 编辑框打开那一刻的 updatedAt，版本闸门（同 FollowUpInput.版本，J-105） */
+  版本?: string | null;
 }) {
   try {
     const user = await requireUser();
@@ -305,7 +315,12 @@ export async function saveTask(input: {
     // 同跟进记录：编辑别人的待办不该把负责人改成自己
     const 姓名 = await 客户名(input.customerId);
     if (input.id) {
-      await prisma.task.update({ where: { id: input.id }, data });
+      // 版本闸门（J-105）。0 行：要么这条删了，要么打开之后又变过了——分开说
+      const 写了 = await prisma.task.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data: { ...data, ...推进版本(input.版本) } });
+      if (写了.count === 0) {
+        const 还在 = await prisma.task.findUnique({ where: { id: input.id }, select: { id: true } });
+        return { ok: false as const, error: 还在 ? 版本冲突 : "这条待办已经不在了（可能在别处删了），刷新看看" };
+      }
       await recordAudit({ user, action: "update", entity: "Task", entityId: input.id, summary: `修改${姓名}的待办「${data.title}」`, detail: data });
     } else {
       const t = await prisma.task.create({ data: { ...data, ownerId: user.id } });
@@ -361,6 +376,8 @@ export async function savePlan(input: {
   subject: string;
   plannedAt: string;
   method: string;
+  /** 编辑框打开那一刻的 updatedAt，版本闸门（同 FollowUpInput.版本，J-105） */
+  版本?: string | null;
 }) {
   try {
     const user = await requireUser();
@@ -380,7 +397,12 @@ export async function savePlan(input: {
     */
     let id = input.id ?? "";
     if (input.id) {
-      await prisma.followPlan.update({ where: { id: input.id }, data });
+      // 版本闸门（J-105）。0 行：要么这条删了，要么打开之后又变过了（包括在别处点了「完成」）——分开说
+      const 写了 = await prisma.followPlan.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data: { ...data, ...推进版本(input.版本) } });
+      if (写了.count === 0) {
+        const 还在 = await prisma.followPlan.findUnique({ where: { id: input.id }, select: { id: true } });
+        return { ok: false as const, error: 还在 ? 版本冲突 : "这条计划已经不在了（可能在别处删了），刷新看看" };
+      }
       await recordAudit({ user, action: "update", entity: "FollowPlan", entityId: input.id, summary: `修改${姓名}的跟进计划（${说}）`, detail: data });
     } else {
       const pl = await prisma.followPlan.create({ data: { ...data, ownerId: user.id } });

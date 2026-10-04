@@ -434,6 +434,37 @@ test("跟进页「记录跟进」就地弹框：挑人后到期计划默认一�
   expect(那条.done).toBe(true);
 });
 
+test("计划页「改」：框开着时这条在另一个窗口被改了，保存被拦下说清楚；关框重开是新的那一版、再存就进（J-105）", async ({ page }) => {
+  const 客 = await 造一位要跟的();
+  await 登录(page);
+  await page.goto("/follow-ups/plans");
+  // 前面几条用例也造过「发二版报价」：按客户名认准自己这一行
+  const 这一行 = page.locator(".plan-row").filter({ hasText: 客.名 });
+  await 这一行.getByRole("button", { name: "改 发二版报价", exact: true }).click();
+  const 弹窗 = page.getByRole("dialog");
+  await expect(弹窗.getByLabel("跟进主题")).toHaveValue("发二版报价");
+
+  // 另一个窗口把这条的主题改了（走库，等于别处先存了一次）
+  const p = 连库();
+  await p.followPlan.update({ where: { id: 客.旧计划id }, data: { subject: "发二版报价（含运费）" } });
+
+  await 弹窗.getByLabel("跟进主题").fill("发三版报价");
+  await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.locator(".ant-message")).toContainText("又变过了");
+  await expect(弹窗).toBeVisible();
+  expect((await p.followPlan.findUniqueOrThrow({ where: { id: 客.旧计划id } })).subject).toBe("发二版报价（含运费）");
+
+  await 弹窗.getByRole("button", { name: /取\s*消/ }).click();
+  await expect(弹窗).toBeHidden();
+  await 这一行.getByRole("button", { name: "改 发二版报价（含运费）", exact: true }).click();
+  await expect(page.getByRole("dialog").getByLabel("跟进主题")).toHaveValue("发二版报价（含运费）");
+  await page.getByRole("dialog").getByLabel("跟进主题").fill("发三版报价");
+  await page.getByRole("dialog").getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
+  expect((await p.followPlan.findUniqueOrThrow({ where: { id: 客.旧计划id } })).subject).toBe("发三版报价");
+  await p.$disconnect();
+});
+
 test("商机管道：列头写着这一阶段压着多少钱", async ({ page }) => {
   await 登录(page);
   await page.goto("/opportunities/pipeline");
