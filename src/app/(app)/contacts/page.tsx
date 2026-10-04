@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { 搜索词, 号码片段 } from "@/lib/search-keyword";
-import { 可选客户 } from "@/lib/options";
+import { 可选客户带区分 } from "@/lib/options";
 import ContactsView from "./ContactsView";
 import type { Prisma } from "@/generated/prisma";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
@@ -50,7 +50,7 @@ export default async function ContactsPage({
     prisma.unassignedContact.count({ where: 散的where }),
     prisma.unassignedContact.findMany({ where: 散的where, orderBy: { detachedAt: "desc" }, take: 300 }),
     // 「添加联系人」要先选归属，所以把学员的名字一起带下来
-    可选客户(),
+    可选客户带区分(),
     // 只拿来判断「是不是只有一个人」（负责人那一列摆不摆，见 lib/solo.ts）
     负责人候选(),
   ]);
