@@ -76,7 +76,14 @@ export function duration(sec: number | null | undefined): string {
 /** 手机号脱敏：138****2211 */
 export function maskPhone(p?: string | null): string {
   if (!p) return "—";
-  return p.length >= 11 ? `${p.slice(0, 3)}****${p.slice(-4)}` : p;
+  if (p.length >= 11) return `${p.slice(0, 3)}****${p.slice(-4)}`;
+  /*
+    短号也要打（2026-10-04，回归核对 H-033）：原来不足 11 位原样返回——8 位座机、香港 8 位号、短的海外号
+    在共享试用区里谁都看得见，截图录屏就外泄。7–10 位留头两位尾两位，再短的只给星号。
+    表单把打码样子交回来时靠 maskPhone(原) === 交回 认回原号（lib/phone.ts），格式变了那边照样对得上
+  */
+  if (p.length >= 7) return `${p.slice(0, 2)}****${p.slice(-2)}`;
+  return "****";
 }
 
 /**

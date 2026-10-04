@@ -30,7 +30,7 @@ function 造库(客户数 = 2) {
   return db;
 }
 const 数客户 = (f: string) => {
-  const db = new DatabaseSync(f, { readOnly: true });
+  const db = new DatabaseSync(f);
   try {
     return Number((db.prepare('SELECT count(*) AS n FROM "Customer"').get() as { n: number }).n);
   } finally {
