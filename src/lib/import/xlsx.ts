@@ -19,7 +19,11 @@
  * - 公式：读的是 Excel 自己缓存的计算结果（`<v>`），够用
  * - 图片、批注、格式：不读，这里只要值
  * - **日期不在这里认**：Excel 存的是序列号，原样当字符串交出去，
- *   由 plan.ts 的 `认日期` 统一处理——两处各认一遍就会有两种结果
+ *   由 plan.ts 的 `认日期` 统一处理——两处各认一遍就会有两种结果。
+ *   唯一的例外是 **1904 日期系统**（老版 Mac Excel / Numbers 存的簿子，workbook.xml 里
+ *   `<workbookPr date1904="1"/>`）：序列号从 1904-01-01 数起，比 1900 系统少 1462 天。
+ *   这里把**日期格式**的格子换回 1900 系统的序列号，下游只认一种（2026-10-04 J-054）。
+ *   号码、金额也是数字，所以只动单元格样式是日期格式的那几格
  */
 import { unzipSync, strFromU8 } from "fflate";
 import { 列数上限, 行数上限 } from "./parse";
@@ -57,6 +61,43 @@ function 解转义(s: string): string {
 
 export class 读不出来 extends Error {}
 
+/** 1904 系统比 1900 系统的序列号少这么多天（1900-01-01 到 1904-01-01，含 Excel 那个不存在的 1900-02-29） */
+const 差1904 = 1462;
+
+/**
+ * Excel 内置的日期 / 时间格式编号。14–22 是通用的，27–36、50–58 是中日韩区域的日期格式，45–47 是分秒
+ * （ECMA-376 第 18.8.30 节；SheetJS 的 SSF 也是这张表）
+ */
+function 内置日期格式(id: number): boolean {
+  return (id >= 14 && id <= 22) || (id >= 27 && id <= 36) || (id >= 45 && id <= 47) || (id >= 50 && id <= 58);
+}
+
+/** 自定义格式串像不像日期：去掉引号里的字、方括号（颜色 / 区域 / 经过时间）、转义字符后，还有 y m d h s */
+function 像日期格式(code: string): boolean {
+  const 净 = code.replace(/"[^"]*"/g, "").replace(/\[[^\]]*\]/g, "").replace(/\\./g, "");
+  return /[ymdhs]/i.test(净);
+}
+
+/**
+ * 每个样式下标（单元格的 s 属性）是不是日期格式。只有 1904 的簿子才用得着，别的簿子不读 styles.xml
+ */
+function 日期样式表(styles: string | null): boolean[] {
+  if (!styles) return [];
+  const 自定义 = new Map<number, string>();
+  const fre = /<numFmt\b[^>]*?numFmtId="(\d+)"[^>]*?formatCode="([^"]*)"/g;
+  let m: RegExpExecArray | null;
+  while ((m = fre.exec(styles))) 自定义.set(Number(m[1]), 解转义(m[2]));
+  const xfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(styles)?.[1] ?? "";
+  const out: boolean[] = [];
+  const xre = /<xf\b([^>]*?)\/?>/g;
+  while ((m = xre.exec(xfs))) {
+    const id = Number(/numFmtId="(\d+)"/.exec(m[1])?.[1] ?? 0);
+    const 码 = 自定义.get(id);
+    out.push(码 !== undefined ? 像日期格式(码) : 内置日期格式(id));
+  }
+  return out;
+}
+
 /**
  * xlsx 的字节 → 字符串二维数组。
  *
@@ -64,6 +105,14 @@ export class 读不出来 extends Error {}
  * 映射、复核、预览、执行、撤销全都只有一套。
  */
 export function 读xlsx(bytes: Uint8Array): string[][] {
+  return 读xlsx带行号(bytes).rows;
+}
+
+/**
+ * 同上，外加每一行在表里的行号（从 1 数，就是 Excel 左边那一列的数）。
+ * 空行丢掉了、标题行之后也会被 成表 丢掉，报错时得说得出 Excel 里的哪一行（2026-10-04 J-058）
+ */
+export function 读xlsx带行号(bytes: Uint8Array): { rows: string[][]; 行号: number[] } {
   let 包: Record<string, Uint8Array>;
   try {
     包 = unzipSync(bytes);
@@ -110,6 +159,9 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
   const sheet = 拿(表文件) ?? 拿("xl/worksheets/sheet1.xml");
   if (!sheet) throw new 读不出来("这个 xlsx 里找不到工作表");
 
+  const 是1904 = /<workbookPr\b[^>]*\bdate1904="(1|true)"/i.test(wb ?? "");
+  const 日期样式 = 是1904 ? 日期样式表(拿("xl/styles.xml")) : [];
+
   const rows: string[][] = [];
   /** 每一行在表里的真实行号（从 0 起）。合并单元格按行号对位；没有 r 属性的按顺序数 */
   const 行号们: number[] = [];
@@ -143,6 +195,11 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
       } else {
         // 数字、布尔、日期序列号、公式的缓存值都在 <v> 里，原样当字符串交出去
         v = 解转义(/<v>([\s\S]*?)<\/v>/.exec(body)?.[1] ?? "");
+        // 1904 的簿子：日期格式的数字换回 1900 系统的序列号（见文件头）
+        if (是1904 && (!t || t === "n") && v.trim() !== "" && Number.isFinite(Number(v))) {
+          const 样式 = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? 0);
+          if (日期样式[样式]) v = String(Number(v) + 差1904);
+        }
       }
       // 空格子在 XML 里是直接不出现的，按 r 属性补位，否则整行会往左错位
       const at = ref ? 列号(ref) : cells.length;
@@ -178,5 +235,6 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
     }
   }
   // 全空的行丢掉，和 CSV 那条路一致
-  return rows.filter((r) => r.some((x) => x.trim() !== ""));
+  const 留 = rows.flatMap((r, i) => (r.some((x) => x.trim() !== "") ? [i] : []));
+  return { rows: 留.map((i) => rows[i]), 行号: 留.map((i) => 行号们[i] + 1) };
 }

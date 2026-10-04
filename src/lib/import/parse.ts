@@ -51,8 +51,17 @@ export function 认分隔符(第一行: string): string {
  * 那里出了错人能看见是哪一格，在这里猜错则无声无息。
  */
 export function 解析CSV(text: string): string[][] {
+  return 解析CSV带行号(text).rows;
+}
+
+/**
+ * 同上，外加每一行在原文里是第几行（从 1 数）——用 Excel 打开这个 csv 时人看到的那个行号。
+ * 空行丢掉了、表头上面的标题行丢掉了，报错时还得说得出「第 N 行」是 Excel 里的哪一行（2026-10-04 J-058）。
+ * 引号里的换行不算新的一行：Excel 里它还在同一格。
+ */
+export function 解析CSV带行号(text: string): { rows: string[][]; 行号: number[] } {
   const s = text.replace(/^﻿/, "");
-  if (!s.trim()) return [];
+  if (!s.trim()) return { rows: [], 行号: [] };
   /*
     分隔符看前几行里最「像表」的那一行，不只看第一行：第一行常是一个大标题（「2026 客户名单」），
     里面一个制表符都没有，原来就被认成逗号、整张表塌成一列（第二轮 r2-data）
@@ -103,7 +112,8 @@ export function 解析CSV(text: string): string[][] {
     row.push(cell);
     rows.push(row);
   }
-  return rows.filter((r) => r.some((x) => x.trim() !== ""));
+  const 留 = rows.flatMap((r, i) => (r.some((x) => x.trim() !== "") ? [i] : []));
+  return { rows: 留.map((i) => rows[i]), 行号: 留.map((i) => i + 1) };
 }
 
 /**
@@ -122,8 +132,10 @@ function 默认认列名(h: string): boolean {
 export function 成表(
   原始: string[][],
   认列名: (h: string) => boolean = 默认认列名,
-): { 表头: string[]; 数据: string[][]; 截断了?: { 行?: number; 列?: number } } {
-  if (原始.length === 0) return { 表头: [], 数据: [] };
+  /** 每一行在原表里的行号（解析CSV带行号 / 读xlsx带行号 给的）。给了就跟着切，出来是每条数据的行号 */
+  原行号?: number[],
+): { 表头: string[]; 数据: string[][]; 截断了?: { 行?: number; 列?: number }; 行号?: number[] } {
+  if (原始.length === 0) return { 表头: [], 数据: [], ...(原行号 ? { 行号: [] } : {}) };
   /*
     表头不一定在第一行：很多名单第一行是合并的大标题（「2026 客户名单」），表头在第二、三行。
     原来按第一行定列数，标题只有一格，整张表只剩一列（第一轮 2-6、第二轮又见）。
@@ -174,7 +186,8 @@ export function 成表(
   const 截断了: { 行?: number; 列?: number } = {};
   if (全部数据.length > 行数上限) 截断了.行 = 全部数据.length;
   if (原列数 > 列数上限) 截断了.列 = 原列数;
-  return { 表头, 数据, ...(截断了.行 || 截断了.列 ? { 截断了 } : {}) };
+  const 行号 = 原行号 ? 原行号.slice(Math.max(表头行, 0) + 1, Math.max(表头行, 0) + 1 + 数据.length) : undefined;
+  return { 表头, 数据, ...(截断了.行 || 截断了.列 ? { 截断了 } : {}), ...(行号 ? { 行号 } : {}) };
 }
 
 /**

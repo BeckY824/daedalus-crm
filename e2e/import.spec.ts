@@ -134,6 +134,35 @@ async function 过对列和复核(抽屉: ReturnType<Page["locator"]>) {
   await 抽屉.getByRole("button", { name: "下一步" }).click();
 }
 
+test("L-076 网页端的抽屉说实情：不写「文件不上传」；没接判断模型时第 1 步没有「让 AI 认一下」", async ({ page }) => {
+  await 登录(page);
+  const 抽屉 = await 打开抽屉(page);
+  await expect(抽屉.getByText(/表格内容会传到服务器/)).toBeVisible();
+  await expect(抽屉.getByText(/不上传/)).toHaveCount(0);
+  await 抽屉.locator('input[type="file"]').setInputFiles({
+    name: "怪列.csv",
+    mimeType: "text/csv",
+    buffer: Buffer.from(`姓名,手机号,备用栏\n怪列甲${戳},137${戳}01,展会`),
+  });
+  await expect(抽屉.getByText(/读到了/)).toBeVisible();
+  await expect(抽屉.getByText(/有 1 列没有对应的字段/)).toBeVisible();
+  await expect(抽屉.getByRole("button", { name: /让 AI 认一下/ })).toHaveCount(0);
+});
+
+test("J-058 表头上面有标题行、中间有空行：复核里报的「第 N 行」就是 Excel 里那一行", async ({ page }) => {
+  await 登录(page);
+  const csv = [
+    "2026 年 9 月客户名单", // 第 1 行
+    "姓名,手机号,公司", // 第 2 行
+    `行号甲${戳},139${戳}01,远山资本`, // 第 3 行
+    "", // 第 4 行空着
+    `,139${戳}02,无名氏`, // 第 5 行
+  ].join("\n");
+  const 抽屉 = await 打开抽屉并选文件(page, "带标题.csv", csv, "text/csv");
+  await 抽屉.getByRole("button", { name: "下一步" }).click();
+  await expect(抽屉.getByText(/第 5 行：这一行没有姓名/)).toBeVisible();
+});
+
 test("库里已有的号再导一次：第 4 步改选「只补空」→「补空字段」变成 1、开始导入能点，导完补空 1 条", async ({ page }) => {
   await 登录(page);
   const 号 = `139${戳}11`;
@@ -174,7 +203,7 @@ test("完成页「撤销这一批」：先问、写清会删几条；点「不�
   const 问 = page.locator(".ant-popconfirm", { hasText: "撤销这一批导入？" });
   await 撤.click();
   await expect(问).toBeVisible();
-  // 用工作区叫法写清删的是什么（L-013 / 删除确认那组改的）
+  // e528bf0（第 2 期 2a）起用工作区叫法：「新建的 1 位客户」，原来是「1 条新建的记录」
   await expect(问).toContainText("会删掉这一批新建的 1 位客户");
   // 问的时候人还在库里
   await 问.getByRole("button", { name: /不\s*了/ }).click();

@@ -111,7 +111,7 @@ function CustomerFormInner({
   /** 渠道下拉的开合。受控是因为点「新建」时必须先收起它——它的层级在子弹窗之上，不收会挡住表单 */
   const [channelOpen, setChannelOpen] = useState(false);
 
-  /** 手机号失焦时查重，避免同一条线索被重复录入 */
+  /** 手机号失焦时查重，避免同一个人被重复录入 */
   async function onPhoneBlur(e: React.FocusEvent<HTMLInputElement>) {
     const phone = e.target.value.trim();
     if (!phone) return setDup(null);
@@ -236,7 +236,9 @@ function CustomerFormInner({
             type="warning"
             showIcon
             style={{ marginBottom: 16 }}
-            title="系统中已有这条线索"
+            // 撞的是客户表（checkDuplicate 只查 customer），照实说、用工作区的叫法。
+            // 原来写「系统中已有这条线索」，团队里撞号常见，人会去线索页找（2026-10-04 J-038）
+            title={`已有${b.customer}用这个号码`}
             description={
               <span>
                 {dup.name}

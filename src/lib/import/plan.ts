@@ -131,6 +131,12 @@ export type 排布 = {
   表头: string[];
   数据: string[][];
   /**
+   * 每一条数据在原表里的行号（Excel 左边那一列的数）。文件那条路有：表头上面的标题行、
+   * 中间的空行都被丢掉了，不带着它报的「第 N 行」和 Excel 对不上（2026-10-04 J-058）。
+   * 没有（粘贴那条路、老调用）就按「1 是表头、紧挨着往下」数
+   */
+  行号?: number[];
+  /**
    * 库里有的渠道名。给了就当场对：对不上的那一格留空、原文并进备注、预览里标出来。
    * 不给（纯函数测试、老调用）就照旧原样收下，留给落库那一步。
    */
@@ -173,7 +179,9 @@ export function 改动键(列: number, 原值: string): string {
 export function 摊开(p: 排布): 一行[] {
   const 规格 = new Map(p.字段表.map((f) => [f.名, f]));
   return p.数据.map((r, i) => {
-    const 行号 = i + 2;
+    const 原 = p.行号?.[i];
+    // 从客户端来的，只认正整数；不像就退回老数法，最多是行号不准，不该让导入出错
+    const 行号 = Number.isInteger(原) && (原 as number) > 0 ? (原 as number) : i + 2;
     const 值: Partial<Record<字段名, string>> = {};
     const 问题: 格问题[] = [];
     /** 封闭枚举对不上、落成默认值的那几列。原文要并进备注，见下面 */
