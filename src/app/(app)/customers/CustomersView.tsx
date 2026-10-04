@@ -280,7 +280,7 @@ export default function CustomersView({
       title: "负责人", 列名: "负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140,
       // 在公海里：写「公海（原 X）」——原负责人还挂着，但谁都能领
       render: (v: string, r: CustomerRow) => r.pool
-        ? <Tag className="pool-tag" title={r.pool.reason === "手动" ? "手动放进公海" : r.pool.reason}>{公海标签(v)}</Tag>
+        ? <Tag className="pool-tag" title={`${公海标签(v)} · ${r.pool.reason === "手动" ? "手动放进公海" : r.pool.reason}`}>{公海标签(v)}</Tag>
         : <UserCell name={v} size={24} />,
     }]),
     {

@@ -2264,4 +2264,6 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 
 /* 公海（2026-10-03 第 6 块）：虚线框的「公海（原 X）」——人还挂着原负责人，但这一格是空出来的 */
 .pool-tag { margin: 0; border-radius: 6px; border-style: dashed; color: var(--ink-soft); background: transparent; }
+/* 列表那一格：原负责人名字长时在列宽里省略，别压到右边「最近跟进」上（2026-10-04 实机）；全文在悬停提示里 */
+.ant-table-cell .pool-tag { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .rec-pool { display: inline-flex; align-items: center; gap: 2px; }
