@@ -99,6 +99,29 @@ function 活着(pid) {
   }
 }
 
+/**
+ * 按进程号关掉一个（模拟这台电脑关机 / 中转断了）：先 TERM 整组，5 秒没走再 KILL，等它真的退了再返回。
+ * 只认起的时候记下的进程号，不按名字找
+ */
+export async function 关掉(项) {
+  if (!项 || 项.退了 || !活着(项.pid)) return;
+  try {
+    process.kill(-项.pid, "SIGTERM");
+  } catch {
+    /* 已经走了 */
+  }
+  const 限 = Date.now() + 5000;
+  while (Date.now() < 限 && 活着(项.pid)) await 停(100);
+  if (活着(项.pid)) {
+    try {
+      process.kill(-项.pid, "SIGKILL");
+    } catch {
+      /* 已经走了 */
+    }
+    while (活着(项.pid)) await 停(100);
+  }
+}
+
 /** 按进程号关掉起过的全部进程：先 TERM 整组，5 秒没走再 KILL。返回没关掉的（应当为空） */
 export async function 全关() {
   for (const p of 起过的) {

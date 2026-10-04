@@ -7,6 +7,7 @@
  * 真机浏览器差异（尤其微信内置浏览器）和「界面好不好用」这种人的判断。
  */
 import { test, expect, type Browser, type Page } from "@playwright/test";
+import { 连库 } from "./mock-data";
 
 const 甲账号 = { 用户名: "zhangsan", 密码: "admin123" };
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
@@ -191,6 +192,55 @@ test.describe("D 组：批量操作交叉", () => {
 
     await 甲.ctx.close();
     await 乙.ctx.close();
+  });
+});
+
+test.describe("D2 组：批量改负责人的撤销（T-019）", () => {
+  /*
+    服务端那半（返回原值、只还这次带过来的活）在 tests/undo-and-guards 钉着；这里钉界面上那一下：
+    列表勾两位、批量分配给李四、提示条上点「撤销」——负责人回张三，跟着过去的计划也回张三，李四原本就有的不动
+  */
+  test("列表批量分配后点提示条上的「撤销」：负责人回原样，带过去的计划回原负责人", async ({ browser }) => {
+    const p = 连库();
+    const 张三 = await p.user.findFirstOrThrow({ where: { email: "zhangsan" } });
+    const 李四 = await p.user.findFirstOrThrow({ where: { email: "lisi" } });
+    const 前缀 = `撤分配${戳}`;
+    const 客户们 = [];
+    for (const i of [1, 2]) {
+      const c = await p.customer.create({ data: { name: `${前缀}-${i}`, phone: `1374${戳}${i}`.slice(0, 11).padEnd(11, "6"), salesOwnerId: 张三.id } });
+      await p.followPlan.create({ data: { customerId: c.id, ownerId: 张三.id, subject: `${前缀}-${i} 回访`, plannedAt: new Date(Date.now() + 86_400_000) } });
+      客户们.push(c);
+    }
+    // 李四原本就在第一位身上挂着一条：撤销不许把它也转给张三（T-018）
+    const 李四原有 = await p.followPlan.create({ data: { customerId: 客户们[0].id, ownerId: 李四.id, subject: `${前缀} 李四自己的`, plannedAt: new Date(Date.now() + 86_400_000) } });
+    const 管 = await 另一个人(browser, 管理员);
+    try {
+      await 管.page.goto(`/customers?keyword=${encodeURIComponent(前缀)}`);
+      await expect(管.page.locator("tr.ant-table-row")).toHaveCount(2);
+      for (const c of 客户们) await 管.page.getByRole("row", { name: new RegExp(c.name) }).getByRole("checkbox").check();
+      await 管.page.getByRole("button", { name: /批量分配/ }).click();
+      const 下拉 = 管.page.locator(".ant-dropdown:not(.ant-dropdown-hidden)");
+      await 下拉.waitFor({ state: "visible" });
+      await 下拉.getByRole("menuitem", { name: "李四" }).click();
+      const 提示 = 管.page.locator(".ant-message-notice", { hasText: "已转给 李四" });
+      await expect(提示).toBeVisible();
+      await expect.poll(async () => (await p.customer.findMany({ where: { name: { startsWith: 前缀 } } })).every((c) => c.salesOwnerId === 李四.id)).toBe(true);
+
+      await 提示.getByRole("button", { name: /撤\s*销/ }).click();
+      await expect(管.page.locator(".ant-message")).toContainText("已撤销，2 条改回原样");
+      await expect.poll(async () => (await p.customer.findMany({ where: { name: { startsWith: 前缀 } } })).map((c) => c.salesOwnerId)).toEqual([张三.id, 张三.id]);
+      for (const c of 客户们) {
+        expect((await p.followPlan.findFirstOrThrow({ where: { customerId: c.id, subject: `${c.name} 回访` } })).ownerId, "带过去的计划回原负责人").toBe(张三.id);
+      }
+      expect((await p.followPlan.findUniqueOrThrow({ where: { id: 李四原有.id } })).ownerId, "李四原本就有的不动").toBe(李四.id);
+      // 列表上也回来了
+      await 管.page.reload();
+      await expect(管.page.getByRole("row", { name: new RegExp(`${前缀}-1`) })).toContainText("张三");
+    } finally {
+      await 管.ctx.close();
+      await p.customer.deleteMany({ where: { name: { startsWith: 前缀 } } });
+      await p.$disconnect();
+    }
   });
 });
 

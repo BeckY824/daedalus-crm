@@ -262,6 +262,60 @@ test("7 运营台要 token：不带、带错都是 404", async ({ page }) => {
   await expect(page.locator(".ant-table").first().getByText(共享工作区.名称, { exact: true })).toBeVisible({ timeout: 15_000 });
 });
 
+/*
+  H-070（2026-09-28 用户说运营台点起来好卡）：慢的是到香港那一趟，点下去页面纹丝不动、像没点上。
+  修法（ba3a101）：导航整页预取 + 没取好时哪里在等就挂 .opx-pending（导航那一项先亮、正文变暗、指针转圈）。
+  这里把服务端回包人为拖慢 1.5 秒，模拟线上那一趟：点了以后 600ms 内要看得出「在等」，到了以后记号消失；
+  每一页都点得开、口令跟着走
+*/
+test("7b 运营台：导航每一页都点得开、口令跟着走；回包慢时点了当场看得出在等（H-070）", async ({ page }) => {
+  // 拖慢：所有 RSC 回包（点导航、刷新走的都是它）晚 1.5 秒到。先拖慢再点：点过的页进了路由缓存，再点就不等了
+  let 拖慢 = true;
+  await page.route(
+    (u) => u.searchParams.has("_rsc"),
+    async (route) => {
+      if (拖慢) await new Promise((r) => setTimeout(r, 1500));
+      await route.continue().catch(() => {});
+    },
+  );
+  await page.goto("/admin?token=e2e-admin-token");
+  await expect(page.locator(".opx-kpi").first()).toContainText("注册用户", { timeout: 15_000 });
+  await page.waitForLoadState("networkidle").catch(() => {});
+  const 导航 = page.getByRole("navigation", { name: "运营台导航" });
+  const 反馈 = 导航.getByRole("link", { name: "反馈" });
+
+  await 反馈.click();
+  // 当场有反馈：导航那一项里挂上记号，ops.css 用 :has() 认它——那一项先亮、正文变暗。两件事同一刻都在
+  await expect(反馈.locator(".opx-pending")).toHaveCount(1, { timeout: 600 });
+  await expect
+    .poll(() => page.locator(".opx-main").evaluate((el) => Number(getComputedStyle(el).opacity)), { timeout: 1000, message: "等的时候正文要变暗" })
+    .toBeLessThan(0.9);
+  await expect(page).toHaveURL(/\/admin\?token=/); // 还没到
+  // 到了：记号消失、正文复原、标成当前页
+  await expect(page).toHaveURL(/\/admin\/feedback\?token=e2e-admin-token/, { timeout: 15_000 });
+  await expect(反馈).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+  await expect(page.locator(".opx-pending")).toHaveCount(0, { timeout: 15_000 });
+  await expect(page.locator(".opx-main")).toHaveCSS("opacity", "1");
+
+  // 刷新按钮同一套：点了就转圈、写「刷新中…」、按钮先灰掉，回来复原
+  const 刷新 = page.locator(".opx-side-foot button");
+  await 刷新.click();
+  await expect(刷新).toContainText("刷新中", { timeout: 600 });
+  await expect(刷新).toBeDisabled();
+  await expect(刷新).not.toContainText("刷新中", { timeout: 15_000 });
+  await expect(刷新).toBeEnabled();
+
+  // 不拖慢：其余每一页点过去，限时出内容（标成当前页、正文有标题），口令跟着走
+  拖慢 = false;
+  for (const [名, 址] of [["用户", /\/admin\/users\?token=e2e-admin-token/], ["模型用量", /\/admin\/usage\?token=/], ["工作区", /\/admin\/workspaces\?token=/], ["团队同步", /\/admin\/sync\?token=/], ["总览", /\/admin\?token=/]] as const) {
+    await 导航.getByRole("link", { name: 名 }).click();
+    await expect(page, `点「${名}」`).toHaveURL(址, { timeout: 15_000 });
+    await expect(导航.getByRole("link", { name: 名 })).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
+    await expect(page.locator(".opx-head h1, .opx-kpi").first()).toBeVisible();
+    await expect(page.locator(".opx-pending")).toHaveCount(0, { timeout: 15_000 });
+  }
+});
+
 test("8 没登录时能打开的就是那几页；演示区已经不存在", async ({ page }) => {
   for (const 页 of ["/login", "/signup", "/forgot", "/terms", "/privacy"]) {
     await page.goto(页);

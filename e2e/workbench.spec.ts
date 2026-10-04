@@ -695,13 +695,33 @@ test("数据「现在」那四张卡，每一张都点得进一个能把这个�
     本月签约: /\/overview\?view=/,
     新增客户: /\/customers\?createdWithin=/,
     进行中商机: /\/opportunities\?status=OPEN/,
-    // 数据页的逾期是全团队口径，点进去要落在「全部成员」（L-040），不是计划页默认的「我的」
+    // 数据页的逾期是全团队口径，点进去要落在「全部成员」，不是计划页默认的「我的」（L-040 / T-023 后半）
     逾期跟进: /\/follow-ups\/plans\?scope=all/,
   };
   for (const 名 of 卡) {
     await page.goto("/overview");
     await page.locator(".stat-card-go", { hasText: 名 }).click();
     await expect(page, `${名} 这张卡点了没去处`).toHaveURL(去处[名]);
+  }
+});
+
+test("「逾期跟进」点进计划页：先看全部成员，同事那条逾期的也在（T-023）", async ({ page }) => {
+  // 自己备一条李四名下的逾期计划：只有我自己的计划时「我的 / 全部成员」那一层不摆，测不出来
+  const p = 连库();
+  const 李四 = await p.user.findFirstOrThrow({ where: { email: "lisi" } });
+  const 客户 = await p.customer.create({ data: { name: "T023 逾期客户", phone: "13700002301", salesOwnerId: 李四.id } });
+  const 计划 = await p.followPlan.create({ data: { customerId: 客户.id, ownerId: 李四.id, subject: "T023 李四逾期回访", plannedAt: new Date(Date.now() - 3 * 86_400_000) } });
+  try {
+    await 登录(page);
+    await page.goto("/overview");
+    await page.locator(".stat-card-go", { hasText: "逾期跟进" }).click();
+    await expect(page).toHaveURL(/\/follow-ups\/plans\?scope=all/);
+    await expect(page.locator(".ant-segmented-item-selected", { hasText: /^(我的|全部成员)$/ })).toHaveText("全部成员");
+    await expect(page.getByText("T023 李四逾期回访")).toBeVisible();
+  } finally {
+    await p.followPlan.delete({ where: { id: 计划.id } }).catch(() => {});
+    await p.customer.delete({ where: { id: 客户.id } }).catch(() => {});
+    await p.$disconnect();
   }
 });
 

@@ -42,3 +42,15 @@ describe("隐私说法", () => {
     expect(readFileSync(path.resolve(__dirname, "../src/components/FeedbackButton.tsx"), "utf8")).toContain('export const 反馈事件 = "feedback:open"');
   });
 });
+
+/*
+  H-094：托管版服务器在阿里云香港，隐私政策原来写「数据存放在境内」。法律文本说错比界面说错更伤——
+  改成「阿里云的云服务器上」之后钉住，别哪次改文案又顺手写回「境内」
+*/
+describe("隐私政策：数据存放地说实情（H-094）", () => {
+  it("隐私政策页不说「境内」，说的是阿里云的云服务器", () => {
+    const s = readFileSync(path.resolve(__dirname, "../src/app/privacy/page.tsx"), "utf8");
+    expect(s).not.toMatch(/境内/);
+    expect(s).toContain("数据存放在阿里云的云服务器上");
+  });
+});

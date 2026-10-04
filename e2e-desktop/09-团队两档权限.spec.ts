@@ -12,9 +12,9 @@
  * 收尾把 .team.json 挪掉、两个账号停用，「我」回到原来那位管理员。
  */
 import { test, expect } from "@playwright/test";
-import { rmSync, writeFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { DATA_DIR, 云端账号 } from "./env";
+import { CLOUD_URL, DATA_DIR, 云端账号 } from "./env";
 import { 设云端团队, 连库, 进门 } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
@@ -47,6 +47,14 @@ test.beforeAll(async ({ request }) => {
     id.老板的 = (await p.customer.create({ data: { name: 名.老板的, phone: "13600000004", salesOwnerId: 老板id } })).id;
     // 老板的客户上挂一笔跟进：业务员的跟进记录页里也不该看到
     await p.followUp.create({ data: { customerId: id.老板的, ownerId: 老板id, type: "CALL", title: "电话", content: "老板亲自谈的价", status: "已完成", occurredAt: new Date() } });
+    // 4.2 其余几处要看的：联系人、计划、商机、签约——老板客户上的一份、我的客户上一份
+    await p.contact.create({ data: { customerId: id.老板的, name: "老板客户的联系人", phone: "13600000014" } });
+    await p.contact.create({ data: { customerId: id.我的, name: "我客户的联系人", phone: "13600000011" } });
+    await p.followPlan.create({ data: { customerId: id.老板的, ownerId: 老板id, subject: "老板的回访计划", plannedAt: new Date(Date.now() + 86_400_000) } });
+    await p.followPlan.create({ data: { customerId: id.我的, ownerId: 我id, subject: "我的回访计划", plannedAt: new Date(Date.now() + 86_400_000) } });
+    await p.opportunity.create({ data: { customerId: id.老板的, ownerId: 老板id, name: "老板的大单", amount: 990_000 } });
+    await p.opportunity.create({ data: { customerId: id.我的, ownerId: 我id, name: "我的小单", amount: 1_200 } });
+    await p.contract.create({ data: { customerId: id.老板的, amount: 770_000, signedAt: new Date() } });
   } finally {
     await p.$disconnect();
   }
@@ -120,4 +128,88 @@ test("业务员按网址直接打开老板的客户：找不到；自己的、�
   await expect(page.getByRole("heading", { name: 名.我的 })).toBeVisible();
   await page.goto(`/customers/${id.公海}`);
   await expect(page.getByRole("heading", { name: 名.公海 })).toBeVisible();
+});
+
+/* ---------------- 上线前测试 4.2：其余几处入口也只有自己的 + 公海 ---------------- */
+
+test("业务员搜索：搜老板客户的名字搜不到；联系人页、计划页、商机页也没有老板客户上的", async ({ page }) => {
+  await 进门(page, `/customers?keyword=${encodeURIComponent("权限-老板")}`);
+  await expect(page.locator("main")).not.toContainText(名.老板的);
+  await expect(page.locator("tr.ant-table-row")).toHaveCount(0);
+  await page.goto(`/customers?keyword=${encodeURIComponent("权限-")}`);
+  await expect(page.locator("tr.ant-table-row")).toHaveCount(3);
+  // 按号码搜也一样（号码搜不走名字那条路）
+  await page.goto("/customers?keyword=13600000004");
+  await expect(page.locator("tr.ant-table-row")).toHaveCount(0);
+
+  await page.goto("/contacts");
+  await expect(page.locator("main")).toContainText("我客户的联系人");
+  await expect(page.locator("main")).not.toContainText("老板客户的联系人");
+
+  await page.goto("/follow-ups/plans");
+  await expect(page.locator("main")).toContainText("我的回访计划");
+  await expect(page.locator("main")).not.toContainText("老板的回访计划");
+
+  await page.goto("/opportunities");
+  await expect(page.locator("main")).toContainText("我的小单");
+  await expect(page.locator("main")).not.toContainText("老板的大单");
+});
+
+test("业务员导出客户：文件里只有自己的、渠道是自己的、公海的", async ({ page }) => {
+  await 进门(page, "/customers");
+  const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
+  const 内容 = readFileSync((await 下载.path())!, "utf8");
+  for (const n of [名.我的, 名.渠道是我, 名.公海]) expect(内容, `导出里该有「${n}」`).toContain(n);
+  expect(内容, "导出里不该有老板的客户").not.toContain(名.老板的);
+  expect(内容).not.toContain("不自动跑");
+  const 行 = 内容.replace(/^\ufeff/, "").split("\r\n").filter((l) => l.trim());
+  expect(行, `表头 1 行 + 看得到的 3 位：\n${内容}`).toHaveLength(4);
+});
+
+test("业务员的数据页：新增客户只数看得到的 3 位，进行中商机不含老板的大单，本月签约不含老板签的", async ({ page }) => {
+  await 进门(page, "/overview");
+  const 卡 = (名字: string) => page.locator(".stat-card", { has: page.locator(".stat-label", { hasText: 名字 }) });
+  await expect(卡("新增客户").locator(".stat-value")).toHaveText("3");
+  await expect(卡("进行中商机").locator(".stat-value")).toHaveText("1");
+  await expect(卡("进行中商机")).not.toContainText("99");
+  await expect(卡("本月签约").locator(".stat-value")).not.toContainText("77");
+  await expect(page.locator("main")).not.toContainText(名.老板的);
+});
+
+test("业务员新建客户：负责人默认是我，建完自己的列表里就有（T-015 / 4.4）", async ({ page }) => {
+  await 进门(page, "/customers");
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 框 = page.getByRole("dialog");
+  await expect(框.getByLabel("销售负责人").locator("xpath=ancestor::div[contains(@class,'ant-select')][1]")).toContainText("林小雨（团队）");
+  await 框.getByLabel("客户姓名").fill("权限-我刚建的");
+  await 框.getByLabel("联系电话").fill("13600000005");
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(框).toBeHidden();
+  const p = 连库();
+  try {
+    expect((await p.customer.findFirstOrThrow({ where: { name: "权限-我刚建的" } })).salesOwnerId).toBe(我id);
+  } finally {
+    await p.$disconnect();
+  }
+  await page.goto(`/customers?keyword=${encodeURIComponent("权限-我刚建的")}`);
+  await expect(page.locator("tr.ant-table-row")).toHaveCount(1);
+});
+
+test("被老板移出（中转名单里没这个团了）：设置 → 团队只摆「退出团队」，不摆作废的邀请码（T-050）", async ({ page, request }) => {
+  // 中转的名单里没有这个团（被移出 / 在别的电脑上退了）；推拉照旧回空（假云端不回「不在这个团队」，免得触发自动退出删数据）
+  expect((await request.delete(`${CLOUD_URL}/__stub/team`)).ok()).toBe(true);
+  try {
+    await 进门(page, "/settings?tab=team");
+    const 栏 = page.getByRole("tabpanel", { name: /^团队/ });
+    await expect(栏).toContainText("已不在团队里");
+    await expect(栏).toContainText(`你已经不在「${团队.name}」里了`);
+    await expect(栏.getByRole("button", { name: "退出团队" })).toBeVisible();
+    // 作废的邀请码不摆（那句说明里「找老板要一个新的邀请码」不算）：没有码、没有复制 / 换码按钮，只有「退出团队」这一个动作
+    await expect(栏).not.toContainText("DT2.");
+    await expect(栏).not.toContainText("连不上云端");
+    await expect(栏.getByRole("button")).toHaveCount(1);
+    await expect(栏.getByRole("textbox")).toHaveCount(0);
+  } finally {
+    await 设云端团队(request, 团队);
+  }
 });

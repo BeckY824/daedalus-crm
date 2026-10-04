@@ -168,3 +168,25 @@ describe("签约金额", () => {
     expect(valid(NaN)).toBe(false);
   });
 });
+
+/*
+  托管版容器的两道部署守卫（H-073 / H-090）：都是「改了不报错、上线才出事」的那类。
+*/
+describe("容器部署守卫", () => {
+  it("运行阶段钉死 TZ=Asia/Shanghai：容器默认 UTC，服务端渲染的日期和浏览器对不上，水合失配（H-073）", async () => {
+    const fs = await import("node:fs/promises");
+    const dockerfile = await fs.readFile("Dockerfile", "utf8");
+    const 运行段 = dockerfile.slice(dockerfile.indexOf("AS runner"));
+    expect(运行段).toMatch(/^ENV TZ=Asia\/Shanghai$/m);
+  });
+
+  it("容器入口不在启动时改写 server.js / assetPrefix：构建期烤进去的，启动时改只改了服务端那半，登录页纯白（H-090）", async () => {
+    const fs = await import("node:fs/promises");
+    const 入口 = await fs.readFile("docker-entrypoint.sh", "utf8");
+    // 只看真正执行的行：注释里那段「这条路走不通」的说明要留着
+    const 命令 = 入口.split("\n").filter((l) => !/^\s*#/.test(l)).join("\n");
+    expect(命令).not.toMatch(/server\.js/);
+    expect(命令).not.toMatch(/assetPrefix|ASSET_PREFIX/);
+    expect(命令).not.toMatch(/\bsed\s+-i/);
+  });
+});
