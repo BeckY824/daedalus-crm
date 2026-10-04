@@ -37,6 +37,8 @@ let r: 中转;
 const 账号们: Record<string, string> = {};
 
 /** 甲那台的云端：路径 → 真实的中转函数，身份固定是甲 */
+/** 甲去云端换了几次口令（连点换邀请码那条用） */
+let 换口令次数 = 0;
 const 甲的传输: 传输 = async (方法, 路径, body) => {
   const u = new URL(`http://x${路径}`);
   const b = (body ?? {}) as Record<string, unknown>;
@@ -51,7 +53,10 @@ const 甲的传输: 传输 = async (方法, 路径, body) => {
   if (方法 === "GET" && u.pathname === "/api/sync/devices") return 包(await r.团队设备(甲号, q("teamId")));
   if (方法 === "POST" && u.pathname === "/api/sync/rotate") return 包(await r.换钥匙(甲号, String(b.teamId), Number(b.epoch), String(b.ring), b.envelopes as { device: string; data: string }[]));
   if (方法 === "POST" && u.pathname === "/api/sync/remove") return 包(await r.移除成员(甲号, String(b.teamId), String(b.accountId)));
-  if (方法 === "POST" && u.pathname === "/api/sync/secret") return 包(await r.换口令(甲号, String(b.teamId)));
+  if (方法 === "POST" && u.pathname === "/api/sync/secret") {
+    换口令次数 += 1;
+    return 包(await r.换口令(甲号, String(b.teamId)));
+  }
   return { 状态: 404, json: { error: `假传输没有 ${方法} ${路径}` } };
 };
 
@@ -316,6 +321,19 @@ describe("移除成员 + 换钥匙", () => {
     } finally {
       await control.syncDevice.delete({ where: { teamId_device: { teamId, device: "dYiBad1" } } });
     }
+  });
+
+  /*
+    2026-10-04 团队端复查：老板连点两次「换邀请码」，原来两次都去云端换口令、各自写回 .team.json，
+    最后显示的码可能是被后一次作废的那个，新人拿着进不来。现在本机一次只跑一个，连点第二下拿第一下的结果
+  */
+  it("连点两次换邀请码：只去云端换一次口令，两下拿到同一个码，码和本机记的口令对得上", async () => {
+    const 前 = 换口令次数;
+    const [一, 二] = await Promise.all([换邀请码(), 换邀请码()]);
+    if (!一.ok || !二.ok) throw new Error("换邀请码失败");
+    expect(换口令次数 - 前).toBe(1);
+    expect(二.邀请码).toBe(一.邀请码);
+    expect(解邀请码(一.邀请码)!.joinSecret).toBe(读团队()!.joinSecret);
   });
 
   it("云端答得上来、但我已经不在这个团队里：团队状态说「被移出」，不说「连不上云端」", async () => {

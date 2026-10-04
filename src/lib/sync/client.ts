@@ -276,8 +276,29 @@ async function 换钥匙并换码(c: 团队配置, joinSecret: string): Promise<
   }
 }
 
+/**
+ * 换口令 / 换钥匙这类老板动作，本机一次只跑一个（2026-10-04，团队端复查）：
+ * 连点两次「换邀请码」，两次都去云端换口令、各自写回 .team.json，最后显示的码可能是被后一次作废的那个，新人拿着进不来。
+ * 正在跑就等它跑完再开下一个；同一个动作连点，第二下直接拿第一下的结果
+ */
+let 老板动作: Promise<unknown> | null = null;
+let 正在换码: Promise<结果<{ 邀请码: string; 跳过: number }>> | null = null;
+async function 一个一个来<T>(fn: () => Promise<T>): Promise<T> {
+  while (老板动作) await 老板动作.catch(() => undefined);
+  const p = fn();
+  老板动作 = p;
+  try {
+    return await p;
+  } finally {
+    if (老板动作 === p) 老板动作 = null;
+  }
+}
+
 /** 移除成员（只有建团队的人）：云端移出 + 换入队口令，本机接着换钥匙 */
-export async function 移除成员(accountId: string): Promise<结果> {
+export function 移除成员(accountId: string): Promise<结果> {
+  return 一个一个来(() => 移除成员里(accountId));
+}
+async function 移除成员里(accountId: string): Promise<结果> {
   const c = 读团队();
   if (!c) return { ok: false, error: "没有加入团队" };
   if (在跑) await 在跑.catch(() => undefined);
@@ -289,7 +310,12 @@ export async function 移除成员(accountId: string): Promise<结果> {
 }
 
 /** 换邀请码（只有建团队的人）：旧码作废、钥匙一起换（码里带着钥匙）。已经在团队里的人自动拿到新钥匙 */
-export async function 换邀请码(): Promise<结果<{ 邀请码: string; 跳过: number }>> {
+export function 换邀请码(): Promise<结果<{ 邀请码: string; 跳过: number }>> {
+  // 连点：第二下直接拿第一下的结果，不再去云端换第二次
+  if (!正在换码) 正在换码 = 一个一个来(换邀请码里).finally(() => { 正在换码 = null; });
+  return 正在换码;
+}
+async function 换邀请码里(): Promise<结果<{ 邀请码: string; 跳过: number }>> {
   const c = 读团队();
   if (!c) return { ok: false, error: "没有加入团队" };
   if (在跑) await 在跑.catch(() => undefined);
