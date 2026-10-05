@@ -23,7 +23,8 @@ let 沙盒: string;
 beforeEach(() => {
   沙盒 = fs.mkdtempSync(path.join(os.tmpdir(), "r2-backup-"));
 });
-afterEach(() => fs.rmSync(沙盒, { recursive: true, force: true }));
+// Windows 上写库的连接刚关、文件锁还没放，删会报 EBUSY：多试几次
+afterEach(() => fs.rmSync(沙盒, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }));
 
 function 造库(f: string, 行数: number) {
   const db = new DatabaseSync(f);

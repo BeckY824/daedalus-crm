@@ -176,7 +176,7 @@ describe("桌面端同步客户端", () => {
     // 先写临时文件再改名，目录里不许留下 .tmp
     fs.chmodSync(path.join(临时.dir, ".team.json"), 0o644);
     await 同步一轮();
-    expect(fs.statSync(path.join(临时.dir, ".team.json")).mode & 0o777, ".team.json 写回后要回到 0600").toBe(0o600);
+    if (process.platform !== "win32") expect(fs.statSync(path.join(临时.dir, ".team.json")).mode & 0o777, ".team.json 写回后要回到 0600").toBe(0o600);
     expect(fs.readdirSync(临时.dir).filter((f) => f.startsWith(".team.json") && f !== ".team.json"), "不许留下写到一半的临时文件").toEqual([]);
 
     // 有人推了一包钥匙不对的：说清楚是钥匙的事

@@ -134,12 +134,13 @@ describe.skipIf(process.platform !== "win32" || !electronPath)("真实 Electron 
       child.once("error", reject); child.once("exit", resolve);
     }).finally(() => clearTimeout(killTimer));
     expect(code).toBe(0);
-    const deadline = Date.now() + 10_000;
+    // CI 的 Windows 机器慢，换目录有时 10 秒还没做完（0.46.15 出包时撞过一次）
+    const deadline = Date.now() + 30_000;
     while (Date.now() < deadline && fs.existsSync(`${目录}.new`)) await 等(100);
     expect(fs.readFileSync(path.join(目录, "version.txt"), "utf8")).toBe("new");
     expect(fs.readFileSync(path.join(`${目录}.old`, "version.txt"), "utf8")).toBe("old");
     expect(fs.readdirSync(更新目录).filter(n => n.startsWith("swap-") && n !== "swap-attempts.json")).toHaveLength(1);
     // 等脚本释放文件句柄，再回收临时目录。
     await 等(500);
-  }, 45_000);
+  }, 75_000);
 });
