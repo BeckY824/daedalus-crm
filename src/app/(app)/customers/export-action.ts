@@ -8,8 +8,11 @@ import type { 跟进导出行 } from "./export-table";
 
 /** 一次最多导这么多行。再多就该分批筛了，也免得一次查询把桌面端的库攥住太久 */
 const 导出上限 = 20_000;
-/** 跟进记录最多带这么多条（一张 Excel 表一百万行以内都打得开，这里按导出要快一点定） */
-const 跟进上限 = 100_000;
+/**
+ * 跟进记录最多带这么多条。xlsx 在浏览器里拼、压（主线程），十万条几十 MB 会把页面卡住好几秒（复查）；
+ * 五万条是一个 3–5 人团队几年的量，再多该先筛一下
+ */
+const 跟进上限 = 50_000;
 
 /**
  * 「导出」：按列表眼下的筛选条件取**全部**，不是当前这一页（2026-10-02 排查）。
@@ -30,10 +33,14 @@ export async function 导出客户(条件: 客户条件): Promise<
     按客户在列表里的顺序、每位里按时间先后排：在 Excel 里往下读就是一位一位的往来经过
   */
   const 顺序 = new Map(rows.map((r, i) => [r.id, i]));
+  /*
+    按客户的筛选条件查，不拼「customerId in 两万个 id」（SQLite 一条语句的参数有上限，复查）。
+    新的在前取、超了截掉的是最老的那些；取回来再按客户、时间先后排
+  */
   const 跟进行 = rows.length
     ? await prisma.followUp.findMany({
-        where: { customerId: { in: rows.map((r) => r.id) } },
-        orderBy: { occurredAt: "asc" },
+        where: { customer: where },
+        orderBy: { occurredAt: "desc" },
         take: 跟进上限 + 1,
         select: {
           customerId: true, occurredAt: true, type: true, title: true, content: true, status: true,
@@ -46,6 +53,8 @@ export async function 导出客户(条件: 客户条件): Promise<
   const 人 = new Map(rows.map((r) => [r.id, r]));
   const 跟进 = 跟进行
     .slice(0, 跟进上限)
+    // 客户超了导出上限、没进第一张表的那几位，跟进也不带
+    .filter((f) => 人.has(f.customerId))
     .sort((a, b) => (顺序.get(a.customerId) ?? 0) - (顺序.get(b.customerId) ?? 0) || a.occurredAt.getTime() - b.occurredAt.getTime())
     .map((f) => ({
       customerName: 人.get(f.customerId)?.name ?? "",

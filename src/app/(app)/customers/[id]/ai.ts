@@ -9,7 +9,7 @@ import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type Customer
 import { dayjs, 现在带周几 } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
-import { statusLabel, type BusinessConfig } from "@/lib/business-config";
+import { statusLabel, 外贸精简, type BusinessConfig } from "@/lib/business-config";
 
 /**
  * 状态取值写给模型时带上显示名：`已演示（值：已试听）`。
@@ -166,6 +166,8 @@ async function 生成简报(input: {
       referrerCustomer: { select: { name: true } },
       channel: { select: { name: true } },
       contracts: { select: { amount: true, signedAt: true, ...带币种.签约 } },
+      // 外贸档案（2026-10-05）：简报里写国家和来源
+      extra: { select: { country: true, source: true } },
       opportunities: {
         select: { name: true, amount: true, stage: true, status: true, expectedDealAt: true, ...带币种.商机 },
         orderBy: { createdAt: "desc" },
@@ -235,8 +237,12 @@ async function 生成简报(input: {
 姓名：${customer.name}
 ${b.fields.school}/${b.fields.grade}/${b.fields.major}：${[customer.school, customer.grade, customer.major].filter(Boolean).join(" / ") || "未填"}
 跟进状态：${statusLabel(b, customer.followStatus)}；决策状态：${statusLabel(b, customer.decisionStatus)}
-推荐来源：${customer.referrerCustomer?.name ?? customer.channel?.name ?? "无记录"}
-预计签约：${customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约金额：${已签.length ? 合计文字(已签) : "未签约"}
+${外贸精简(b)
+  // 外贸模版不摆推荐人、预计签约（2026-10-05）：给模型的也不写，免得简报里出现「预计签约未定」这种界面上没有的东西
+  ? `国家：${customer.extra?.country ?? "未填"}；来源：${customer.extra?.source ?? "未填"}
+已下单金额：${已签.length ? 合计文字(已签) : "还没有订单"}`
+  : `推荐来源：${customer.referrerCustomer?.name ?? customer.channel?.name ?? "无记录"}
+预计签约：${customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约金额：${已签.length ? 合计文字(已签) : "未签约"}`}
 备注：${customer.remark || "（无）"}
 
 【商机】

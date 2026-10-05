@@ -11,6 +11,14 @@
  */
 import type { Prisma } from "@/generated/prisma";
 import { 节点名们, 成交前节点数, 默认单据, 默认订单号 } from "./order";
+import { 看全部 } from "./team-scope";
+
+/** 订单号撞了别的单（2026-10-05 复查）：事务里抛出、saveContract 接住说人话，整笔不落库 */
+export class 订单号重复 extends Error {
+  constructor(public 号: string) {
+    super(`订单号「${号}」已经有一张了，换一个号，或者不填让系统按日期编`);
+  }
+}
 
 /** 订单比签约多的那几格。不给（undefined）= 不碰 */
 export type 订单附加 = {
@@ -48,14 +56,28 @@ export async function 写签约的订单(
     /** 团队里订单号的前缀（lib/order.ts 团队订单前缀） */
     前缀?: string;
     现在?: Date;
+    /**
+     * 编辑一笔签约时：只改它已有的那张订单，没有就不建（2026-10-05 复查）。老签约、AI 建议卡登记的、
+     * 通用模版时期登记的签约，在外贸下改一下备注就冒出一张号按今天编、节点全空的订单，不对
+     */
+    只改不建?: boolean;
   },
-): Promise<{ id: string; no: string }> {
+): Promise<{ id: string; no: string } | null> {
   const 现在 = a.现在 ?? new Date();
   const 填的号 = a.附加.no !== undefined ? 文本(a.附加.no, 40) : undefined;
   const payment = a.附加.payment !== undefined ? 文本(a.附加.payment, 60) || null : undefined;
   const 供应商 = a.附加.supplier !== undefined ? await 供应商id(tx, 文本(a.附加.supplier, 80)) : undefined;
 
   const 已有 = await tx.tradeOrder.findUnique({ where: { contractId: a.签约id }, select: { id: true, no: true } });
+  if (!已有 && a.只改不建) return null;
+  /*
+    手填的号不许和别的单重：跟进下拉、导出、订单一览里都按号认单。看全部——业务员看不到的同事那张也算
+    （订单号没有唯一索引：老库、同步回放里可能已经有重的，不为它建索引让迁移失败）
+  */
+  if (填的号 && 填的号 !== 已有?.no) {
+    const 撞 = await 看全部(async () => tx.tradeOrder.findFirst({ where: { no: 填的号, ...(已有 ? { id: { not: 已有.id } } : {}) }, select: { id: true } }));
+    if (撞) throw new 订单号重复(填的号);
+  }
   let o: { id: string; no: string };
   if (已有) {
     o = await tx.tradeOrder.update({
@@ -70,7 +92,8 @@ export async function 写签约的订单(
     });
   } else {
     const 日 = `${a.前缀 ?? ""}${现在.getFullYear()}${String(现在.getMonth() + 1).padStart(2, "0")}${String(现在.getDate()).padStart(2, "0")}`;
-    const 今天的号 = 填的号 ? [] : (await tx.tradeOrder.findMany({ where: { no: { startsWith: 日 } }, select: { no: true } })).map((x) => x.no);
+    // 看全部：业务员看不到的那几张（进了公海、转给了同事的客户）也占着号，不看全部会编出重号
+    const 今天的号 = 填的号 ? [] : (await 看全部(async () => tx.tradeOrder.findMany({ where: { no: { startsWith: 日 } }, select: { no: true } }))).map((x) => x.no);
     const 从商机 = !!a.opportunityId;
     o = await tx.tradeOrder.create({
       data: {

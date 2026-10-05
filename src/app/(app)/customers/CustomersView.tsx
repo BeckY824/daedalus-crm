@@ -439,7 +439,9 @@ export default function CustomersView({
         行链接={(r) => `/customers/${r.id}`}
         空态={{
           title: `还没有${b.customer}`,
-          hint: `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。`,
+          hint: 外贸
+            ? `${b.customer}是这套系统的中心：跟进记录、商机、订单都挂在他身上。`
+            : `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。`,
           primary: { label: `新建第一位${b.customer}`, onClick: () => { setEditing(null); setFormOpen(true); } },
           secondary: [{ label: "从 Excel 导入", onClick: () => set导入开着(true) }],
         }}

@@ -8,7 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { PrismaClient } from "@/generated/prisma";
-import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, 没同步上, type 改动 } from "@/lib/sync/local";
+import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, 没同步上, 本机结构签名, type 改动 } from "@/lib/sync/local";
 import { 封, 拆, 新钥匙 } from "@/lib/sync/crypto";
 
 const 测试库 = path.resolve(__dirname, "../prisma/test.db");
@@ -142,6 +142,52 @@ describe("推拉合并", () => {
     const a = await 推(甲, "A");
     if (a) await 回放(乙, 拆(a, 钥匙), "B");
     for (const db of [甲, 乙]) expect((await db.customer.findUniqueOrThrow({ where: { id: "c1" } })).followStatus).toBe("意向较高");
+  });
+
+  it("外贸档案：两台各自给同一位客户新建那一行（甲填国家、乙填 WhatsApp），同步后两格都在（2026-10-05 复查）", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c1", name: "Timur", phone: "998901234567", salesOwnerId: "acct_jia" } });
+    await 同步(甲, 乙);
+    await 甲.customerExtra.create({ data: { customerId: "c1", country: "乌兹别克斯坦" } });
+    await 睡(5);
+    await 乙.customerExtra.create({ data: { customerId: "c1", whatsapp: "+998 90 123 4567" } });
+    await 同步(甲, 乙);
+    for (const db of [甲, 乙]) expect(await db.customerExtra.findUniqueOrThrow({ where: { customerId: "c1" }, select: { country: true, whatsapp: true } })).toEqual({ country: "乌兹别克斯坦", whatsapp: "+998 90 123 4567" });
+  });
+
+  it("外贸档案：第三台先收到后插入的那条、再收到更早那条，两格也都在", async () => {
+    const { 甲 } = await 一对();
+    const 丙 = await 一台("C");
+    await 进团队(丙, "bing", "bing@example.com", "丙");
+    await 同步(甲, 丙); // 甲收到丙这个人：客户挂在丙名下，丙那边不缺负责人（甲自己的账号早推过了，不会再推给丙）
+    await 甲.customer.create({ data: { id: "c1", name: "Timur", phone: "998901234567", salesOwnerId: "acct_bing" } });
+    await 甲.customerExtra.create({ data: { customerId: "c1", country: "乌兹别克斯坦" } });
+    const 客 = await 推(甲, "A");
+    // 乙那台更晚的一条插入（只填了 WhatsApp），比甲那条先到丙
+    const 晚插入: 改动 = { t: "CustomerExtra", k: "c1", o: "I", r: { customerId: "c1", country: null, whatsapp: "+998 90 123 4567", wechat: null, email: null, source: null }, c: ["customerId", "whatsapp"], h: "999999999999999-dB" };
+    await 回放(丙, 拆(客!, 钥匙).filter((e) => e.t !== "CustomerExtra"), "C");
+    await 回放(丙, [晚插入], "C");
+    await 回放(丙, 拆(客!, 钥匙).filter((e) => e.t === "CustomerExtra"), "C");
+    expect(await 丙.customerExtra.findUniqueOrThrow({ where: { customerId: "c1" }, select: { country: true, whatsapp: true } })).toEqual({ country: "乌兹别克斯坦", whatsapp: "+998 90 123 4567" });
+  });
+
+  it("订单跟着签约删：甲删了订单和签约、乙同时改了这张订单，同步后两台都没有这张单（不留没有签约的空壳）", async () => {
+    const { 甲, 乙 } = await 一对();
+    await 甲.customer.create({ data: { id: "c1", name: "Acme", phone: "13800000001", salesOwnerId: "acct_jia" } });
+    await 甲.contract.create({ data: { id: "k1", customerId: "c1", amount: 100, signedAt: new Date() } });
+    await 甲.tradeOrder.create({ data: { id: "o1", no: "PI-1", customerId: "c1", ownerId: "acct_jia", contractId: "k1" } });
+    await 同步(甲, 乙);
+    expect(await 乙.tradeOrder.count()).toBe(1);
+    await 甲.tradeOrder.delete({ where: { id: "o1" } });
+    await 甲.contract.delete({ where: { id: "k1" } });
+    await 睡(5);
+    await 乙.tradeOrder.update({ where: { id: "o1" }, data: { payment: "T/T" } });
+    await 同步(甲, 乙);
+    await 同步(甲, 乙);
+    for (const db of [甲, 乙]) {
+      expect(await db.contract.count()).toBe(0);
+      expect(await db.tradeOrder.count()).toBe(0);
+    }
   });
 
   it("我刚改、还没推，别人更早的改动拉过来不盖掉我的", async () => {
@@ -498,5 +544,15 @@ describe("类型（编译期）", () => {
   it("改动的形状", () => {
     const x: 改动 = { t: "Customer", k: "c", o: "U", r: {}, c: ["name"], h: "000000000000001-A" };
     expect(x.o).toBe("U");
+  });
+});
+
+describe("跨版本：本机表结构签名（2026-10-05 复查）", () => {
+  it("同一份库签名不变；多了一列就变——客户端据此从头重拉，补上旧版本时收不下、跳过了的改动", async () => {
+    const 甲 = await 一台("A");
+    const 前 = await 本机结构签名(甲);
+    expect(await 本机结构签名(甲)).toBe(前);
+    await 甲.$executeRawUnsafe('ALTER TABLE "CustomerExtra" ADD COLUMN "多一列" TEXT');
+    expect(await 本机结构签名(甲)).not.toBe(前);
   });
 });

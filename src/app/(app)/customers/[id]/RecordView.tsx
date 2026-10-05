@@ -907,7 +907,7 @@ export default function RecordView({
       ) : (
         <>
           <div>
-            金额 {金额(r.amount, r.currency)}。这是该{b.customer}唯一一笔{叫}，删除后{叫}金额归零，跟进状态需要跟着退回，否则看板上会一直挂着「已签约、金额 0」。
+            金额 {金额(r.amount, r.currency)}。这是该{b.customer}唯一一笔{叫}，删除后{叫}金额归零，跟进状态需要跟着退回，否则看板上会一直挂着「{statusLabel(b, "已签约")}、金额 0」。
           </div>
           <div style={{ marginTop: 12 }}>
             <div style={{ marginBottom: 6, fontSize: 13 }}>跟进状态退回到：</div>

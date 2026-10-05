@@ -12,7 +12,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "../prisma";
 import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/cloud";
 import { 团队身份id } from "../desktop/me";
-import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, type 改动 } from "./local";
+import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, 本机结构签名, type 改动 } from "./local";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
 import { 看全部, 忘掉限定, 在同步里 } from "../team-scope";
 import { invalidateSettingsCache } from "../settings";
@@ -44,6 +44,8 @@ export type 团队配置 = {
   skipped?: number[];
   /** 拉到第几批了 */
   pulled: number;
+  /** 上一次拉完时本机的表结构签名（local.ts 本机结构签名）。变了 = 升级过、多了能收的表 / 列，从头重拉 */
+  结构?: string;
   lastSyncAt?: string;
   lastError?: string | null;
   /** 上一轮做了什么，给界面那一行说话 */
@@ -496,7 +498,12 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       await 记已推(prisma, 到);
       推 += 改动.length;
     }
-    let 拉 = 0, 撞 = 0, 拉到 = c.pulled;
+    /*
+      升级之后本机多了表或列（2026-10-05 复查）：旧版本时收不下、跳过了的那些改动，游标已经走过去了——从头再拉一遍补上。
+      没记过签名的（这一版之前入的团队）也重拉一次：那时候可能已经跳过了东西
+    */
+    const 签名 = await 本机结构签名(prisma);
+    let 拉 = 0, 撞 = 0, 拉到 = c.结构 === 签名 ? c.pulled : 0;
     const 成员行数 = async () => Number((await prisma.$queryRawUnsafe<{ n: number | bigint }[]>(`SELECT count(*) AS n FROM "User" WHERE id LIKE 'acct_%'`))[0]?.n ?? 0);
     const 拉前成员 = await 成员行数();
     for (;;) {
@@ -544,7 +551,7 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       }
       if (!r.json.more) break;
     }
-    记({ pulled: 拉到, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推, 拉, 撞 } });
+    记({ pulled: 拉到, 结构: 签名, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推, 拉, 撞 } });
     /*
       收到了别人的改动：设置缓存作废。业务配置（模版、币种、阶段叫法）是全团队一份、会同步过来，
       进程里还缓存着旧的那份的话，业务员加入之后界面一直是自己原来的叫法，要重启才对（2026-10-04 五人实测）

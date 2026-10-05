@@ -14,6 +14,7 @@ import { 金额 as 显示金额, 合计文字, 按币种合计 } from "../curren
 import { 一行说法 } from "../quote";
 import { 订单列表 } from "../order-db";
 import { 节点灯 } from "../order";
+import { 订单节点 } from "../features";
 import { 现值选取, 现值表 } from "./current-values";
 import { prisma } from "../prisma";
 import { dayjs } from "../utils";
@@ -22,7 +23,7 @@ import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
 import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec } from "../report-query";
 import { loadWatchlist } from "../sentinel-data";
-import { statusLabel, stageLabel, 阶段值 } from "../business-config";
+import { statusLabel, stageLabel, 阶段值, 外贸精简 } from "../business-config";
 import { 名字在别处, 别处说法, 别处附件, 找人 } from "./find-name";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
@@ -117,7 +118,10 @@ export const TOOLS: Tool[] = [
       if (!q && !channel && !owner && !status && !decision && !mine && !建档条件 && !预签条件)
         return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine / createdFrom-To / expectedSignFrom-To 至少给一个" } };
       const where = {
-        ...(q ? { OR: [{ name: { contains: q } }, { school: { contains: q } }, { grade: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } }] } : {}),
+        // 和客户列表搜的是同一个范围（C7）：外贸档案、联系人也搜（2026-10-05）
+        ...(q ? { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { school: { contains: q } }, { grade: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } },
+          { extra: { is: { OR: [{ whatsapp: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }, { country: { contains: q } }] } } },
+          { contacts: { some: { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }] } } }] } : {}),
         // 用 channelId（推荐链**最顶端**的渠道，所有后代继承），不是 attributionChannelId
         // （那个是「往上第二代」的归属口径，算提成用的）。「小红这个渠道里有谁」问的是
         // 整条链上的人，包括转介绍来的后代——所以是前者。两个口径的数字会不一样。
@@ -268,7 +272,12 @@ export const TOOLS: Tool[] = [
         // 电话一定要给：不给的话模型会如实说「系统里没存电话」，
         // 然后建议人去补一条**本来就存在**的数据——比缺功能更伤，
         // 它是在向用户断言 CRM 丢了东西
-        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${号(c.phone) || "未填"}；${外贸说法(c.extra && { ...c.extra, whatsapp: c.extra.whatsapp && 号(c.extra.whatsapp) })}跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.length ? 合计文字(签约合计(c.contracts)) : "无"}；备注：${c.remark || "无"}`,
+        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${号(c.phone) || "未填"}；${外贸说法(c.extra && { ...c.extra, whatsapp: c.extra.whatsapp && 号(c.extra.whatsapp) })}跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；${
+          外贸精简(b)
+            ? // 外贸模版（2026-10-05）：不说推荐来源、预计签约（界面上没有）；签约就是订单，带上订单号
+              `订单 ${c.contracts.length ? `${合计文字(签约合计(c.contracts))}（${c.contracts.map((k) => k.order?.no).filter(Boolean).join("、") || "老签约，没有订单号"}）` : "无"}`
+            : `推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.length ? 合计文字(签约合计(c.contracts)) : "无"}`
+        }；备注：${c.remark || "无"}`,
         contacts: c.contacts.map((p) => `${p.name}${p.position ? `（${p.position}）` : ""}${p.isPrimary ? " 主要联系人" : ""}：${[p.phone && `电话 ${号(p.phone)}`, p.wechat && `微信 ${p.wechat}`, p.email && `邮箱 ${p.email}`].filter(Boolean).join("、") || "没留联系方式"}`),
         opportunities: c.opportunities.map((o) => {
           const q = o.quotes[0];
@@ -675,10 +684,13 @@ export const TOOLS: Tool[] = [
       问「哪几单超期了」「这单走到哪一步」「还有多少钱没收回来」用它。
     */
     name: "list_orders",
-    description:
-      "列外贸订单（赢单之后跟进交付的那张单：12 个节点——收定金、下单给工厂、生产、验货、订舱、装柜、开船、单据尾款）。" +
-      "每单给出当前节点、超期了哪几步、进度、未收金额。可按客户、业务员筛，onlyLate=true 只看有超期的。" +
-      "问「哪几单超期了」「某某那单走到哪了」「还有多少尾款没收」用它。",
+    description: 订单节点
+      ? "列外贸订单（赢单之后跟进交付的那张单：12 个节点——收定金、下单给工厂、生产、验货、订舱、装柜、开船、单据尾款）。" +
+        "每单给出当前节点、超期了哪几步、进度、未收金额。可按客户、业务员筛，onlyLate=true 只看有超期的。" +
+        "问「哪几单超期了」「某某那单走到哪了」「还有多少尾款没收」用它。"
+      : // 节点关着（2026-10-05 外贸客户建议的轻量订单）：只有订单上那几项，执行进展在挂着的跟进里——别让模型去说节点、未收
+        "列外贸订单（客户确认、下了单的那一笔）：订单号、客户、金额、付款方式、供应商、订单确认时间、业务员。" +
+        "可按客户、业务员筛。问「某某下过几单」「这个月确认了哪些订单」「那单的付款方式是什么」用它；订单执行到哪了看那位客户的跟进记录。",
     args: '{"customerName": "客户姓名，可空", "ownerName": "业务员姓名，可空", "onlyLate": "true/false，可空"}',
     async run(args) {
       const name = str(args.customerName, 30);
@@ -689,6 +701,21 @@ export const TOOLS: Tool[] = [
         ...(owner ? { ownerId: { in: 叫这个名字的 } } : {}),
       });
       const 现在 = new Date();
+      if (!订单节点) {
+        return {
+          summary: `${rows.length} 张订单`,
+          data: rows.slice(0, 30).map((r) => ({
+            orderId: r.id,
+            订单号: r.no,
+            客户: r.customerName,
+            金额: 显示金额(r.amount, r.currency),
+            付款方式: r.payment ?? "未填",
+            供应商: r.supplier ?? "未填",
+            订单确认时间: dayjs(r.confirmedAt).format("YYYY-MM-DD"),
+            业务员: r.ownerName,
+          })),
+        };
+      }
       const 选 = args.onlyLate === true || args.onlyLate === "true" ? rows.filter((r) => r.超期 > 0) : rows;
       return {
         summary: `${选.length} 张订单${选.some((r) => r.超期) ? `，其中 ${选.filter((r) => r.超期).length} 张有超期` : ""}`,

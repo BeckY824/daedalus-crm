@@ -43,7 +43,7 @@ export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现�
     include: {
       customer: { select: { name: true } },
       nodes: 节点查询,
-      contract: { select: { signedAt: true } },
+      contract: { select: { signedAt: true, amount: true, money: true } },
       purchase: { select: { supplier: { select: { name: true } } } },
     },
   });
@@ -59,8 +59,9 @@ export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现�
         customerName: o.customer.name,
         ownerId: o.ownerId,
         ownerName: 人.get(o.ownerId) ?? "（已删除的成员）",
-        amount: o.amount,
-        currency: 规整币种(o.currency),
+        // 有签约的以签约为准（2026-10-05 复查）：订单上那两格只是抄的，切过模版再改签约金额时会对不上
+        amount: o.contract ? 签约金额(o.contract) : o.amount,
+        currency: o.contract ? 签约币种(o.contract) : 规整币种(o.currency),
         incoterm: o.incoterm,
         payment: o.payment,
         supplier: o.purchase?.supplier?.name ?? null,

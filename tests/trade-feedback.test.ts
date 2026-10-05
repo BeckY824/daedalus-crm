@@ -20,6 +20,9 @@ import { resetDb } from "./reset";
 import { invalidateSettingsCache, setSetting } from "@/lib/settings";
 import { BUSINESS_PRESETS, DEFAULT_BUSINESS, 外贸订单, 签约叫, 外贸精简 } from "@/lib/business-config";
 import { saveContract, deleteContract, patchCustomer, saveCustomer } from "@/app/(app)/customers/actions";
+import { createOrder, saveOrder, deleteOrder } from "@/app/(app)/orders/actions";
+import { TOOLS } from "@/lib/agent/tools";
+import { 文字里号码打码 } from "@/lib/utils";
 import { saveFollowUp, deleteFollowUp, restoreFollowUp } from "@/app/(app)/customers/[id]/actions";
 import { saveOpportunity } from "@/app/(app)/opportunities/actions";
 import { addOrderNote, 供应商名单 } from "@/app/(app)/orders/actions";
@@ -212,9 +215,10 @@ describe("客户的外贸档案", () => {
     expect(规整外贸格("whatsapp", "abc")).toMatchObject({ ok: false });
     expect(WhatsApp网址("+971 (50) 123-4567")).toBe("https://wa.me/971501234567");
     expect(WhatsApp网址("12")).toBeNull();
+    expect(WhatsApp网址("+86****1111")).toBeNull();
   });
 
-  it("新建客户带档案；编辑只改动了的那几格、留一条痕；全清空就删掉那一行", async () => {
+  it("新建客户带档案；编辑只改动了的那几格、留一条痕；全清空留一行空的（不删，免得同步时插入冲掉同事的）", async () => {
     await 外贸();
     const base = { name: "Beka", phone: "995555123456", school: "Daily Retail LLC", grade: null, major: null, followStatus: "待跟进", decisionStatus: "了解中", expectedSignAt: null, remark: null, channelId: null, referrerCustomerId: null };
     const r = await saveCustomer({ ...base, extra: { country: "Georgia", whatsapp: "+995 555 123 456", email: "beka@retail.ge", wechat: null, source: "展会" } });
@@ -234,7 +238,7 @@ describe("客户的外贸档案", () => {
     const 坏 = await saveCustomer({ ...base, id: r.id, updatedAt: c2.updatedAt.toISOString(), extra: { email: "nope" } });
     expect(坏).toMatchObject({ ok: false, error: "邮箱格式不对" });
     for (const k of ["country", "whatsapp", "email", "source"] as const) expect((await patchCustomer(r.id, k, null)).ok).toBe(true);
-    expect(await prisma.customerExtra.count()).toBe(0);
+    expect(await prisma.customerExtra.findUniqueOrThrow({ where: { customerId: r.id } })).toMatchObject({ country: null, whatsapp: null, email: null, source: null });
   });
 
   it("记录页单格改：国家写成统一叫法；邮箱不合格式拦下", async () => {
@@ -379,5 +383,89 @@ describe("团队版：业务员只看自己的订单", () => {
   it("TradeOrder / CustomerExtra / FollowUpOrder / TradeOrderPurchase 都按客户限定", () => {
     for (const m of ["TradeOrder", "CustomerExtra"]) expect(限定条件(m, "u1")).toMatchObject({ customer: { OR: expect.any(Array) } });
     for (const m of ["FollowUpOrder", "TradeOrderPurchase"]) expect(限定条件(m, "u1")).toMatchObject({ order: { customer: { OR: expect.any(Array) } } });
+  });
+});
+
+describe("复查一轮（10-06）", () => {
+  it("外贸下登记签约不带订单那几格（AI 建议卡、老调用方）：照样建一张订单", async () => {
+    await 外贸();
+    const c = await 客户();
+    const r = await saveContract({ customerId: c.id, amount: 500, currency: "USD", signedAt: new Date(), remark: "AI 建议卡登记" });
+    expect(r.ok).toBe(true);
+    expect(await prisma.tradeOrder.count({ where: { customerId: c.id } })).toBe(1);
+  });
+
+  it("编辑一笔没有订单的老签约：不顺手补建订单", async () => {
+    const c = await 客户();
+    await saveContract({ customerId: c.id, amount: 500, signedAt: new Date(2026, 5, 1), remark: null }); // 通用模版时期登记的
+    await 外贸();
+    const k = await prisma.contract.findFirstOrThrow();
+    const r = await saveContract({ id: k.id, customerId: c.id, amount: 500, currency: "USD", signedAt: k.signedAt, remark: "改个备注", 订单: { no: "" } });
+    expect(r.ok).toBe(true);
+    expect(await prisma.tradeOrder.count()).toBe(0);
+  });
+
+  it("手填的订单号撞了别的单：整笔不落库、说清楚", async () => {
+    await 外贸();
+    const c = await 客户();
+    await saveContract({ customerId: c.id, amount: 1, currency: "USD", signedAt: new Date(), remark: null, 订单: { no: "PI-1" } });
+    const r = await saveContract({ customerId: c.id, amount: 2, currency: "USD", signedAt: new Date(), remark: null, 订单: { no: "PI-1" } });
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining("订单号「PI-1」已经有一张了") });
+    expect(await prisma.contract.count()).toBe(1);
+  });
+
+  it("旧的订单入口：外贸下 createOrder 拒；有签约的订单不许单改金额币种、不许在订单这边删", async () => {
+    await 外贸();
+    const c = await 客户();
+    expect(await createOrder({ customerId: c.id, amount: 1 })).toMatchObject({ ok: false });
+    const r = await saveContract({ customerId: c.id, amount: 100, currency: "USD", signedAt: new Date(), remark: null, 订单: { no: "PI-2" } });
+    if (!r.ok || !r.订单) throw new Error("没建出来");
+    expect(await saveOrder(r.订单.id, { amount: 999 })).toMatchObject({ ok: false });
+    expect((await saveOrder(r.订单.id, { remark: "唛头另发" })).ok).toBe(true);
+    expect(await deleteOrder(r.订单.id)).toMatchObject({ ok: false });
+    expect(await prisma.tradeOrder.count()).toBe(1);
+  });
+
+  it("订单一览的金额以签约为准；节点关着时 list_orders 只给订单上那几项", async () => {
+    await 外贸();
+    const c = await 客户();
+    const r = await saveContract({ customerId: c.id, amount: 100, currency: "USD", signedAt: new Date(), remark: null, 订单: { no: "PI-3", payment: "T/T" } });
+    if (!r.ok || !r.订单) throw new Error("没建出来");
+    await prisma.tradeOrder.update({ where: { id: r.订单.id }, data: { amount: 1, currency: "CNY" } }); // 抄的那份对不上了
+    const [行] = await 订单列表();
+    expect(行).toMatchObject({ amount: 100, currency: "USD" });
+    const ctx = { userId: jia.id, userName: "甲", b: BUSINESS_PRESETS["外贸出口"], recordOffset: 0, proposals: [] };
+    const 出 = await TOOLS.find((t) => t.name === "list_orders")!.run({}, ctx as never);
+    const 一单 = (出.data as Record<string, unknown>[])[0];
+    expect(一单).toMatchObject({ 订单号: "PI-3", 付款方式: "T/T" });
+    expect(一单).not.toHaveProperty("当前节点");
+    expect(一单).not.toHaveProperty("未收");
+  });
+
+  it("撤销导入：人后来手改过档案的那位不动", async () => {
+    await 外贸();
+    const 表头 = ["客户名称", "联系电话", "国家"];
+    const w = await 执行导入({ 表头, 数据: [["Tim", "+998 90 000 1111", "UAE"]], 映射: 猜列(表头, 字段表(BUSINESS_PRESETS["外贸出口"])), 重复行: "跳过" }, "a.xlsx");
+    if (!w.ok) throw new Error(w.error);
+    const c = await prisma.customer.findFirstOrThrow();
+    await new Promise((r) => setTimeout(r, 5));
+    await patchCustomer(c.id, "whatsapp", "+998 90 000 1111");
+    const u = await 撤销批次(w.batchId);
+    if (!u.ok) throw new Error(u.error);
+    expect(u.删掉).toBe(0);
+    expect(await prisma.customerExtra.findUniqueOrThrow({ where: { customerId: c.id } })).toMatchObject({ country: "阿联酋", whatsapp: "+998 90 000 1111" });
+  });
+
+  it("操作日志里「WhatsApp」那一格照电话打码", () => {
+    const 打 = 文字里号码打码(JSON.stringify([{ 字段: "WhatsApp", 原值: "（空）", 新值: "971501234567" }]));
+    expect(打).not.toContain("971501234567");
+  });
+
+  it("xlsx 表名：不分大小写去重、去掉首尾单引号", () => {
+    const 包 = unzipSync(写xlsx([{ 名: "Sheet", 表头: ["a"], 行: [] }, { 名: "sheet", 表头: ["a"], 行: [] }, { 名: "'引号'", 表头: ["a"], 行: [] }]));
+    const wb = strFromU8(包["xl/workbook.xml"]);
+    expect(wb).toContain('name="Sheet"');
+    expect(wb).toContain('name="sheet 2"');
+    expect(wb).toContain('name="引号"');
   });
 });

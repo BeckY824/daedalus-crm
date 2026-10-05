@@ -108,9 +108,10 @@ export async function saveOpportunity(input: {
   if (input.询盘时间) {
     询盘 = new Date(input.询盘时间);
     if (Number.isNaN(询盘.getTime())) return { ok: false as const, error: "询盘时间不是一个日期" };
-    const 今晚 = new Date();
-    今晚.setHours(23, 59, 59, 999);
-    if (询盘 > 今晚) return { ok: false as const, error: "询盘时间不能晚于今天" };
+    /*
+      不许晚于今天。放宽一天：托管版服务器按 UTC 算「今晚」，东八区凌晨选的「今天」在服务器看来是明天（2026-10-05 复查）
+    */
+    if (询盘.getTime() > Date.now() + 24 * 3600_000) return { ok: false as const, error: "询盘时间不能晚于今天" };
   }
   const 报价 = input.报价 === undefined ? null : 整理报价行(input.报价);
   if (报价 && !报价.ok) return { ok: false as const, error: 报价.error };
@@ -140,7 +141,7 @@ export async function saveOpportunity(input: {
     await recordAudit({
       user: me, action: "update", entity: "Opportunity", entityId: input.id,
       summary: `修改商机「${data.name}」：${data.stage} · ${状态名[data.status] ?? data.status} · ${显示金额(data.amount, 币)}`,
-      detail: { 名称: data.name, 金额: data.amount, 币种: 币, 阶段: data.stage, 状态: 状态名[data.status] ?? data.status, 概率: data.probability },
+      detail: { 名称: data.name, 金额: data.amount, 币种: 币, 阶段: data.stage, 状态: 状态名[data.status] ?? data.status, 概率: data.probability, ...(询盘 ? { 询盘时间: 询盘.toISOString().slice(0, 10) } : {}) },
     });
   } else {
     const o = await prisma.opportunity.create({ data });

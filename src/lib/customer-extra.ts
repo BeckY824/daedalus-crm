@@ -52,6 +52,8 @@ export function 规整外贸档案(x: Partial<Record<外贸键, unknown>> | null
 
 /** WhatsApp 点开对话的网址（wa.me 只认纯数字的国际号，不带 +） */
 export function WhatsApp网址(号: string | null | undefined): string | null {
+  // 共享试用区打了码的号（+86****1111）：剩下的几位拼出来是个陌生号码，不给链接
+  if (String(号 ?? "").includes("*")) return null;
   const d = String(号 ?? "").replace(/\D/g, "");
   return d.length >= 6 ? `https://wa.me/${d}` : null;
 }

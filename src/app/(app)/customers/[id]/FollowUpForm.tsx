@@ -66,9 +66,10 @@ const 订单前缀 = "订单:";
  * 那一格的值拆成 opportunityId / orderId。不挂订单的模版不交 orderId（= 不碰，老记录挂着的订单原样留着）；
  * 挂订单的模版里选了商机就把订单摘掉、选了订单就不挂商机——一条跟进说的是一件事
  */
-function 拆关联(v: string | undefined | null, 挂订单: boolean): { opportunityId: string | null; orderId?: string | null } {
+function 拆关联(v: string | undefined | null, 挂订单: boolean, 原商机: string | null = null): { opportunityId: string | null; orderId?: string | null } {
   if (!挂订单) return { opportunityId: v ?? null };
-  if (v && v.startsWith(订单前缀)) return { opportunityId: null, orderId: v.slice(订单前缀.length) };
+  // 选的是订单：原来挂着的商机留着（订单页上记的那几条两样都挂着，编辑一下别把商机悄悄摘掉，2026-10-05 复查）
+  if (v && v.startsWith(订单前缀)) return { opportunityId: 原商机, orderId: v.slice(订单前缀.length) };
   return { opportunityId: v ?? null, orderId: null };
 }
 
@@ -307,7 +308,7 @@ export default function FollowUpForm({
       occurredAt: v.occurredAt.toISOString(),
       dueAt: v.dueAt ? v.dueAt.toISOString() : null,
       contactId: v.contactId ?? null,
-      ...拆关联(v.opportunityId, 挂订单),
+      ...拆关联(v.opportunityId, 挂订单, record?.id ? record.opportunityId ?? null : null),
       participants: v.participants ?? null,
       // 经 AI 解析过才带原文：手工写的跟进没有"原文"这个概念
       sourceText: !record?.id && extras ? aiText : null,

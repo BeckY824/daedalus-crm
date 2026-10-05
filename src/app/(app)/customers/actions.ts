@@ -22,13 +22,13 @@ import { 唯一负责人 } from "@/lib/owners";
 import { getBusiness } from "@/lib/business";
 import { 写签约金额, 带币种, 商机币种, 签约币种, 签约金额, 签约合计 } from "@/lib/money-db";
 import { 金额 as 显示金额, 是币种, 规整币种 } from "@/lib/currency";
-import { statusLabel } from "@/lib/business-config";
+import { statusLabel, 外贸订单 } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import type { 带走数 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
-import { 写签约的订单, type 订单附加 } from "@/lib/order-contract";
+import { 写签约的订单, 订单号重复, type 订单附加 } from "@/lib/order-contract";
 import { 外贸键, 外贸字段名, 规整外贸格, 规整外贸档案, 认国家, type 外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
 import { 团队订单前缀 } from "@/lib/order";
@@ -278,7 +278,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
         if (dup) return { 撞号: dup } as const;
       }
       const created = await tx.customer.create({ data });
-      await 写外贸档案(tx, created.id, 档案.data);
+      await 写外贸档案(tx, created.id, 档案.data, false);
       return { created } as const;
     });
     if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone, 建了.撞号, await 限定的我(defaultClient), b.customer) };
@@ -822,9 +822,16 @@ export async function saveContract(input: {
     const dayEnd = new Date(dayStart);
     dayEnd.setDate(dayEnd.getDate() + 1);
     // 事务里只用 tx（lib/check-then-write.ts），本位币先在外面读好
-    const 本位币 = (await getBusiness()).currency;
+    const 业务 = await getBusiness();
+    const 本位币 = 业务.currency;
+    /*
+      外贸模版下一笔签约就是一张订单：**按模版定，不按调用方给没给**（2026-10-05 复查）。
+      AI 建议卡登记签约、旧调用方不带「订单」那几格，原来就只有签约、订单一览里没有这一单。
+      新登记一律建订单；编辑只改它已有的那张、不顺手补建。其它模版不碰订单
+    */
+    const 订单附加 = 外贸订单(业务) ? input.订单 ?? {} : undefined;
     // 团队里订单号带上下单人的第一个字（几台电脑各编各的不撞号）。事务外先读好
-    const 订单前缀 = input.订单 && 读团队() ? 团队订单前缀(me.name) : "";
+    const 订单前缀 = 订单附加 && 读团队() ? 团队订单前缀(me.name) : "";
 
     const data = {
       customerId: input.customerId,
@@ -884,15 +891,16 @@ export async function saveContract(input: {
       }
       // 编辑一笔老签约（没有 ContractMoney）也补上这一行：金额刚被重写过，精确值以这次为准
       await 写签约金额(tx, 签约id, 币, 精确);
-      if (input.订单) {
+      if (订单附加) {
+        // 只挂还在谈的那一单：已经转过订单、又被「重新打开」的商机另说（status 不是 OPEN 的不挂）
         const 赢的 = !input.id && input.联动?.赢单?.length === 1
-          ? await tx.opportunity.findFirst({ where: { id: input.联动.赢单[0], customerId: input.customerId }, select: { id: true } })
+          ? await tx.opportunity.findFirst({ where: { id: input.联动.赢单[0], customerId: input.customerId, status: "OPEN" }, select: { id: true } })
           : null;
         const 单 = await 写签约的订单(tx, {
           签约id, customerId: input.customerId, ownerId: 学员?.salesOwnerId ?? me.id, amount: 精确, currency: 规整币种(币),
-          附加: input.订单, opportunityId: 赢的?.id ?? null, 前缀: 订单前缀,
+          附加: 订单附加, opportunityId: 赢的?.id ?? null, 前缀: 订单前缀, 只改不建: !!input.id,
         });
-        return { 签约id, 币, 订单: 单 };
+        return { 签约id, 币, ...(单 ? { 订单: 单 } : {}) };
       }
       return { 签约id, 币 };
     });
@@ -924,6 +932,7 @@ export async function saveContract(input: {
     if (单) revalidatePath("/orders");
     return { ok: true, ...(联动 ? { 联动 } : {}), ...(单 ? { 订单: 单 } : {}) };
   } catch (e) {
+    if (e instanceof 订单号重复) return { ok: false, error: e.message };
     return 不在了(e);
   }
 }
@@ -999,8 +1008,11 @@ export async function deleteContract(
       操作日志要写清删的是哪张单，同步回放也是先订单后签约，不依赖对方库里外键开没开
     */
     const 订单 = await prisma.tradeOrder.findFirst({ where: { contractId: id, customerId }, select: { id: true, no: true } });
-    if (订单) await prisma.tradeOrder.delete({ where: { id: 订单.id } });
-    const gone = await prisma.contract.deleteMany({ where: { id, customerId } });
+    // 同一个事务：删签约那步失败（已经被删、权限不够）时订单不能已经没了
+    const [, gone] = await prisma.$transaction([
+      prisma.tradeOrder.deleteMany({ where: { id: 订单?.id ?? "__没有订单__" } }),
+      prisma.contract.deleteMany({ where: { id, customerId } }),
+    ]);
     if (gone.count === 0) {
       return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
     }

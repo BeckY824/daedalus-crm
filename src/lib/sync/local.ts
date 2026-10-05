@@ -12,6 +12,7 @@
  *
  * 只给 Prisma 用裸 SQL：这些表不在 schema.prisma 里（不想让它们出现在托管版、自部署的库上）。
  */
+import { createHash } from "node:crypto";
 import type { PrismaClient, Prisma } from "@/generated/prisma";
 import { 同步表, 不同步列, 同步的设置, 指向人的列, 同名合并, 模板占位账号 } from "./tables";
 
@@ -43,6 +44,20 @@ export async function 建同步表(db: Db) {
   ]) {
     await db.$executeRawUnsafe(sql);
   }
+}
+
+/**
+ * 本机能收哪些表、哪些列（2026-10-05 复查：跨版本同步）。回放时本机没有的表整条跳过、没有的列只写有的——
+ * 旧包收不下的那些（新加的外贸档案表、订单的 contractId），升级之后游标早就走过去了，再也补不回来。
+ * 所以记下这个签名，升级后它一变就从头重拉一遍（中转留着全部历史；回放按字段钟比，重放一遍不会重复写）。
+ */
+export async function 本机结构签名(db: Db): Promise<string> {
+  const 段: string[] = [];
+  for (const t of 同步表) {
+    const 列 = (await 列们(db, t)).map((c) => c.name).sort();
+    段.push(`${t}:${列.join(",")}`);
+  }
+  return createHash("sha256").update(段.join("|")).digest("hex").slice(0, 16);
 }
 
 async function 列们(db: Db, t: string): Promise<{ name: string; pk: number }[]> {
@@ -165,7 +180,7 @@ export async function 待推(db: Db, 设备: string, 最多 = 2000): Promise<{ �
   return {
     改动: rows.map((r) => {
       const row = r.row ? (JSON.parse(r.row) as Record<string, unknown>) : null;
-      return { t: r.tbl, k: r.pk, o: r.op as 改动["o"], r: row, c: r.changed === "*" ? Object.keys(row ?? {}) : r.changed.split(",").filter(Boolean), h: 钟串(数(r.at), 设备) };
+      return { t: r.tbl, k: r.pk, o: r.op as 改动["o"], r: row, c: 改了哪些列(r.tbl, r.op, row, r.changed), h: 钟串(数(r.at), 设备) };
     }),
     到: rows.length ? 数(rows[rows.length - 1].seq) : 已推,
   };
@@ -175,12 +190,23 @@ export async function 记已推(db: Db, 到: number) {
   await db.$executeRawUnsafe("INSERT INTO _sync_cursor (k, v) VALUES ('pushed', ?) ON CONFLICT(k) DO UPDATE SET v = MAX(v, excluded.v)", 到);
 }
 
+/**
+ * 一条本机改动算「改了哪几列」。插入是整行（"*"）。
+ * 外贸档案一位一行、主键是客户 id，两台会各自给同一位客户新建这一行（2026-10-05 复查）：插入时空着的列不算改动——
+ * 不然本机那条插入给空着的「国家」也记了钟，同事更早填的国家传过来反而被挡住；回放那边同样不让空值覆盖（见 回放）
+ */
+function 改了哪些列(tbl: string, op: string, row: Record<string, unknown> | null, changed: string): string[] {
+  if (changed !== "*") return changed.split(",").filter(Boolean);
+  const 全部 = Object.keys(row ?? {});
+  return op === "I" && tbl === "CustomerExtra" ? 全部.filter((c) => row?.[c] != null) : 全部;
+}
+
 async function 记本机字段钟(db: Db, 设备: string) {
   const 已 = 数((await db.$queryRawUnsafe<{ v: bigint }[]>("SELECT v FROM _sync_cursor WHERE k = 'clocked'"))[0]?.v);
   const rows = await db.$queryRawUnsafe<{ seq: bigint; tbl: string; pk: string; op: string; row: string | null; changed: string; at: bigint }[]>("SELECT * FROM _sync_log WHERE seq > ? ORDER BY seq", 已);
   for (const r of rows) {
     const h = 钟串(数(r.at), 设备);
-    const cols = r.changed === "*" ? Object.keys(r.row ? JSON.parse(r.row) : {}) : r.changed.split(",").filter(Boolean);
+    const cols = 改了哪些列(r.tbl, r.op, r.row ? JSON.parse(r.row) : null, r.changed);
     for (const c of cols) await db.$executeRawUnsafe("INSERT INTO _sync_field (tbl, pk, col, hlc) VALUES (?, ?, ?, ?) ON CONFLICT DO UPDATE SET hlc = MAX(hlc, excluded.hlc)", r.tbl, r.pk, c, h);
     if (r.op === "D") await db.$executeRawUnsafe("INSERT INTO _sync_tomb (tbl, pk, hlc) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET hlc = MAX(hlc, excluded.hlc)", r.tbl, r.pk, h);
   }
@@ -258,10 +284,17 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
           撞++;
           await 合并同名(tx, e.t, 规, row, cols);
         }
-        for (const c of cols) await 记字段钟(tx, e.t, k, c, e.h);
+        // 只给这条改动真带了的列记钟（外贸档案的插入不带空列，见 改了哪些列）：第三台先收到后插入的那条，
+        // 空着的格子不该挡住更早那条插入填的值
+        for (const c of cols.filter((c) => e.c.includes(c) || e.t !== "CustomerExtra")) await 记字段钟(tx, e.t, k, c, e.h);
       } else {
         const 要改: string[] = [];
-        for (const c of e.c.filter((c) => cols.includes(c))) {
+        /*
+          外贸档案一位一行、主键就是客户 id（2026-10-05 复查）：两台各自给同一位客户新建了这一行（老板填国家、业务员填 WhatsApp），
+          后到的那条「插入」带着全部列，空着的列会把对方填的冲掉。插入撞上已有行时，空值不算改动
+        */
+        const 插入只带有值的 = e.o === "I" && e.t === "CustomerExtra";
+        for (const c of e.c.filter((c) => cols.includes(c) && !(插入只带有值的 && row[c] == null))) {
           const h = (await tx.$queryRawUnsafe<{ hlc: string }[]>("SELECT hlc FROM _sync_field WHERE tbl = ? AND pk = ? AND col = ?", e.t, k, c))[0]?.hlc;
           if (!h || h < e.h) 要改.push(c);
         }
@@ -314,6 +347,7 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
 /**
  * 提交前找孤儿（外键延后检查，提交那一刻才会报，报了就整批回滚）。父行在本机已经不在：
  * 那一列能空就置空（客户的来源渠道被删了，客户照留），不能空就整行删掉（跟进挂的客户被删了）。
+ * 外键写着 ON DELETE CASCADE 的也整行删（2026-10-05 复查：订单跟着签约走，签约没了订单不能变成「没有签约的老订单」留着）。
  * 删一行可能带出新的孤儿，循环到干净为止。
  */
 async function 清孤儿(tx: Prisma.TransactionClient, 记跳过: (t: string, k: string, h: string, why: string) => Promise<void>) {
@@ -322,12 +356,12 @@ async function 清孤儿(tx: Prisma.TransactionClient, 记跳过: (t: string, k:
     if (!坏.length) return;
     for (const b of 坏) {
       if (b.rowid == null) continue;
-      const fk = (await tx.$queryRawUnsafe<{ id: bigint | number; from: string }[]>(`PRAGMA foreign_key_list(${引(b.table)})`)).find((f) => 数(f.id) === 数(b.fkid));
+      const fk = (await tx.$queryRawUnsafe<{ id: bigint | number; from: string; on_delete: string }[]>(`PRAGMA foreign_key_list(${引(b.table)})`)).find((f) => 数(f.id) === 数(b.fkid));
       const 列信息 = (await tx.$queryRawUnsafe<{ name: string; notnull: bigint | number; pk: bigint | number }[]>(`PRAGMA table_info(${引(b.table)})`));
       const pk = 列信息.find((c) => 数(c.pk) === 1)?.name ?? "rowid";
       const k = String((await tx.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT ${引(pk)} AS k FROM ${引(b.table)} WHERE rowid = ?`, 数(b.rowid)))[0]?.k ?? "");
       const 能空 = fk && 列信息.find((c) => c.name === fk.from)?.notnull != null && 数(列信息.find((c) => c.name === fk.from)!.notnull) === 0;
-      if (fk && 能空) {
+      if (fk && 能空 && String(fk.on_delete).toUpperCase() !== "CASCADE") {
         await tx.$executeRawUnsafe(`UPDATE ${引(b.table)} SET ${引(fk.from)} = NULL WHERE rowid = ?`, 数(b.rowid));
       } else {
         await tx.$executeRawUnsafe(`DELETE FROM ${引(b.table)} WHERE rowid = ?`, 数(b.rowid));
@@ -386,7 +420,7 @@ async function 合并同名(tx: Prisma.TransactionClient, t: string, 规: { 列:
   }
 }
 
-const 表的叫法: Record<string, string> = { User: "同事账号", Lead: "线索", Channel: "渠道", Customer: "客户", FollowUp: "跟进", TradeOrderNode: "订单节点" };
+const 表的叫法: Record<string, string> = { User: "同事账号", Lead: "线索", Channel: "渠道", Customer: "客户", FollowUp: "跟进", TradeOrder: "订单", TradeOrderNode: "订单节点", CustomerExtra: "客户档案（国家、WhatsApp…）" };
 
 /**
  * 回放时没放进来、两台因此对不上的改动（T-003）：撞了合不了的唯一约束（同事登录名、两条线索挂同一位客户……）。

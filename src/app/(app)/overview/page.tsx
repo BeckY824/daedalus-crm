@@ -1,3 +1,4 @@
+import { 签约叫 } from "@/lib/business-config";
 import { requireUser } from "@/lib/auth";
 import { dayjs } from "@/lib/utils";
 import Board from "../dashboard/Board";
@@ -39,9 +40,11 @@ export default async function DataPage({ searchParams }: { searchParams: SP }) {
   const 本月 = view === "本月";
   const from = (本月 ? now.startOf("month") : now.startOf("year")).toDate();
   const to = (本月 ? now.endOf("month") : now.endOf("year")).toDate();
-  const 口径 = 本月 ? `${now.format("YYYY 年 M 月")}，按签约日期算` : `${now.year()} 年，按签约日期算`;
+  const 业务 = await getBusiness();
+  const 按 = 签约叫(业务) === "订单" ? "按订单确认日期算" : "按签约日期算";
+  const 口径 = 本月 ? `${now.format("YYYY 年 M 月")}，${按}` : `${now.year()} 年，${按}`;
 
-  const 本位币 = (await getBusiness()).currency;
+  const 本位币 = 业务.currency;
   const [数, 只有一个人] = await Promise.all([
     加载复盘(from, to, 本月 ? "day" : "month", { 想看: sp.currency?.toUpperCase(), 本位币 }),
     唯一负责人().then((id) => id !== null),

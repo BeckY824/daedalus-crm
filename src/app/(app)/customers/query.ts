@@ -66,8 +66,9 @@ export async function 客户筛选条件(
               外贸档案和联系人也搜（2026-10-05 外贸客户：「联系人可以直接合并到客户里面」）。外贸模版左栏不摆联系人页，
               按联系人的名字、电话、邮箱、微信找到的就是他所在的那位客户
             */
-            { extra: { is: { OR: [{ whatsapp: { contains: 号段 ?? 词 } }, { email: { contains: 词 } }, { wechat: { contains: 词 } }, { country: { contains: 词 } }] } } },
-            { contacts: { some: { OR: [{ name: { contains: 词 } }, { phone: { contains: 号段 ?? 词 } }, { email: { contains: 词 } }, { wechat: { contains: 词 } }] } } },
+            // 号码按原词也搜一遍（复查）：WhatsApp、联系人电话是原样存的（「+86 138 0000 1111」），只按纯数字号段搜会漏
+            { extra: { is: { OR: [{ whatsapp: { contains: 词 } }, ...(号段 ? [{ whatsapp: { contains: 号段 } }] : []), { email: { contains: 词 } }, { wechat: { contains: 词 } }, { country: { contains: 词 } }] } } },
+            { contacts: { some: { OR: [{ name: { contains: 词 } }, { phone: { contains: 词 } }, ...(号段 ? [{ phone: { contains: 号段 } }] : []), { email: { contains: 词 } }, { wechat: { contains: 词 } }] } } },
           ],
         }
       : {}),

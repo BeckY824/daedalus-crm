@@ -20,7 +20,7 @@
  * 人正站在哪一页是我们**确定知道**的信息，把它兑换成一句指名道姓的话，
  * 比让模型每次重新推理一遍稳得多（和 agent/intents.ts 是同一个思路）。
  */
-import { 订单, 供应商页 } from "./features";
+import { 订单, 订单节点, 供应商页 } from "./features";
 export type 页面上下文 = {
   /** 这一页叫什么，不带筛选。落库时当对话标题的前缀用 */
   名: string;
@@ -123,7 +123,12 @@ const 一级: Record<string, 页> = {
     提醒: "联系人在自己的一张表里，search_customers 查不到他们。问某一位学员有哪些联系人时另说——那走 search_customers 再 get_customer。",
   },
   "/opportunities": { 名: "商机", 提示: "用户正在看商机列表", 工具: "list_opportunities", 查一个: { 工具: "list_opportunities", 参数: "customerName" } },
-  "/orders": { 名: "订单", 提示: "用户正在看外贸订单一览（每行一单，12 个节点红黄绿）", 工具: "list_orders", 查一个: { 工具: "list_orders", 参数: "customerName" } },
+  "/orders": {
+    名: "订单",
+    提示: 订单节点 ? "用户正在看外贸订单一览（每行一单，12 个节点红黄绿）" : "用户正在看外贸订单一览（每行一单：订单号、客户、金额、付款方式、供应商、订单确认时间）",
+    工具: "list_orders",
+    查一个: { 工具: "list_orders", 参数: "customerName" },
+  },
   "/suppliers": { 名: "供应商", 提示: "用户正在看供应商一览（工厂档案、出过的问题、历次比价）", 工具: "list_suppliers", 查一个: { 工具: "list_suppliers", 参数: "keyword" } },
   "/opportunities/pipeline": { 名: "商机 · 管道", 提示: "用户正在看商机管道看板", 工具: "list_opportunities" },
   "/follow-ups": {

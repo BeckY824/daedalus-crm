@@ -100,7 +100,8 @@ export function maskPhone(p?: string | null): string {
 const 全角数字 = (s: string) => s.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0));
 const 号码样 = /^(?:\+?86)?1[3-9]\d{9}$|^0\d{9,11}$|^[48]00\d{7}$/;
 const 日期样 = /^\d{4}[-./]\d{1,2}[-./]\d{1,2}$/;
-const 电话格名 = /电话|手机|号码|phone|mobile|tel/i;
+// WhatsApp 也是号码（2026-10-05 外贸档案）：日志里「字段：WhatsApp」那一格照电话打码
+const 电话格名 = /电话|手机|号码|phone|mobile|tel|whatsapp/i;
 
 function 打这一串(串: string): string {
   const 数字 = 串.replace(/\D/g, "").replace(/^86(?=1[3-9]\d{9}$)/, "");

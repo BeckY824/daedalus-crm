@@ -9,6 +9,8 @@ import { 是币种, 规整币种, 金额 as 显示金额 } from "@/lib/currency"
 import { 商机币种, 带币种 } from "@/lib/money-db";
 import { 节点名们, 节点状态们, 单据状态们, 默认单据, 默认订单号, 成交前节点数, 团队订单前缀 } from "@/lib/order";
 import { 读团队 } from "@/lib/sync/client";
+import { getBusiness } from "@/lib/business";
+import { 外贸订单 } from "@/lib/business-config";
 import { saveFollowUp } from "../customers/[id]/actions";
 
 /**
@@ -88,6 +90,11 @@ function 整理(input: 订单输入): { ok: true; data: Record<string, unknown> 
 export async function createOrder(input: 订单输入 & { customerId: string; opportunityId?: string | null }) {
   try {
     const me = await requireUser();
+    /*
+      外贸模版下订单就是一笔签约（2026-10-05，lib/order-contract.ts）：只从「新建订单」/「转为订单」那个框建，
+      这里直接建出来的单没有签约、不算业绩（复查）。别的模版不摆订单，留着给节点那一套（开关打开时）和老调用
+    */
+    if (外贸订单(await getBusiness())) return { ok: false as const, error: "订单请在客户页「新建订单」或商机「转为订单」里建" };
     const 客户 = await prisma.customer.findUnique({ where: { id: String(input.customerId ?? "") }, select: { id: true, name: true, salesOwnerId: true } });
     if (!客户) return { ok: false as const, error: "这位客户已经不在了" };
     const 商机 = input.opportunityId
@@ -184,8 +191,12 @@ export async function saveOrderPurchase(orderId: string, input: { supplierId?: s
 export async function saveOrder(id: string, input: 订单输入) {
   try {
     const me = await requireUser();
-    const 原 = await prisma.tradeOrder.findUnique({ where: { id: String(id ?? "") }, select: { id: true, no: true, customerId: true, amount: true, depositDue: true } });
+    const 原 = await prisma.tradeOrder.findUnique({ where: { id: String(id ?? "") }, select: { id: true, no: true, customerId: true, amount: true, depositDue: true, contractId: true } });
     if (!原) return { ok: false as const, error: "这张订单已经不在了" };
+    // 有签约的订单：金额、币种跟着签约走（2026-10-05 复查），在订单框里改——这里改了两边就对不上
+    if (原.contractId && (input.amount !== undefined || input.currency !== undefined)) {
+      return { ok: false as const, error: "金额和币种在「编辑订单」里改，和这笔签约一起改" };
+    }
     const r = 整理(input);
     if (!r.ok) return r;
     const 金额 = (r.data.amount as number | undefined) ?? 原.amount;
@@ -369,6 +380,8 @@ export async function deleteOrder(id: string) {
     const me = await requireUser();
     const o = await prisma.tradeOrder.findUnique({ where: { id: String(id ?? "") }, include: { customer: { select: { name: true } } } });
     if (!o) return { ok: true as const };
+    // 有签约的订单在客户页删：删的是那笔签约，跟进状态要不要退回在那里问（2026-10-05 复查）
+    if (o.contractId) return { ok: false as const, error: "这张订单在客户页的「订单」里删，会一起删掉这笔签约" };
     await prisma.tradeOrder.delete({ where: { id: o.id } });
     await recordAudit({
       user: me, action: "delete", entity: "TradeOrder", entityId: o.id,

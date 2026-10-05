@@ -22,7 +22,7 @@ import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
 import { smartTime, 成员选项 } from "@/lib/utils";
 import { 合计文字, 合并合计, 取币种, type 币种合计 } from "@/lib/currency";
-import { stageLabel } from "@/lib/business-config";
+import { stageLabel, 签约叫 } from "@/lib/business-config";
 import { OPP_STAGE_COLOR } from "@/lib/constants";
 
 type Props = {
@@ -210,12 +210,12 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
           <StatCard
             icon={<PayCircleOutlined />}
             color={palette.brand}
-            label="本月签约"
+            label={`本月${签约叫(b)}`}
             /* 0 就写 ¥0。「—」读起来是「不知道」，而这个月签了多少我们是知道的——
                知道它是 0 和不知道它是多少，是两件完全不同的事 */
             value={钱(stats.签约本月)}
             delta={stats.签约环比}
-            note={stats.签约环比 === undefined ? (多人 ? "按签约日期算，全团队" : "按签约日期算") : undefined}
+            note={stats.签约环比 === undefined ? `按${签约叫(b) === "订单" ? "订单确认" : "签约"}日期算${多人 ? "，全团队" : ""}` : undefined}
             href="/overview?view=本月"
           />
         </Col>

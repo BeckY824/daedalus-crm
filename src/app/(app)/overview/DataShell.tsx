@@ -1,5 +1,7 @@
 "use client";
 
+import { useBusiness } from "@/lib/business-client";
+import { 签约叫 } from "@/lib/business-config";
 import { useRouter } from "next/navigation";
 import { Segmented } from "antd";
 import { PageHead } from "@/components/ui";
@@ -26,9 +28,10 @@ export default function DataShell({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const b = useBusiness();
   return (
     <>
-      <PageHead title="数据" subtitle="业务现状与签约复盘" />
+      <PageHead title="数据" subtitle={`业务现状与${签约叫(b)}复盘`} />
       {/* 三视图切换在页头下面、内容上面，靠左（设计稿 08/DATA·NOW）。
           它不是页头上的一个动作，它是「下面这一屏说的是哪一段时间」——
           放在右上角时，人看完标题往下走，会先撞上数字再回头找它 */}

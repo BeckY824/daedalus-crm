@@ -26,16 +26,20 @@ export function 列字母(n: number): string {
   return s;
 }
 
-/** 工作表名：Excel 限 31 个字，不许 \ / ? * [ ] : */
+/** 工作表名：Excel 限 31 个字，不许 \ / ? * [ ] :，不许以单引号开头或结尾（不然打开时提示「修复」） */
 function 表名(s: string): string {
-  return s.replace(/[\\/?*[\]:]/g, " ").slice(0, 31) || "Sheet";
+  return [...s.replace(/[\\/?*[\]:]/g, " ").replace(/^'+|'+$/g, "").trim()].slice(0, 31).join("") || "Sheet";
 }
 
 /** 一格最多 32767 个字（Excel 的上限，超了打不开），超了截掉、尾巴写明 */
 const 格上限 = 32767;
 function 格(v: unknown): string {
   const s = v == null ? "" : String(v);
-  return s.length > 格上限 ? `${s.slice(0, 格上限 - 20)}…（太长，后面截掉了）` : s;
+  if (s.length <= 格上限) return s;
+  // 按 UTF-16 截可能切在 emoji 的半个代理对上，留下一个坏字符：退一位
+  let 到 = 格上限 - 20;
+  if (/[\uD800-\uDBFF]/.test(s[到 - 1] ?? "")) 到--;
+  return `${s.slice(0, 到)}…（太长，后面截掉了）`;
 }
 
 function 表xml(t: 工作表): string {
@@ -69,7 +73,9 @@ export function 写xlsx(表们: readonly 工作表[]): Uint8Array {
   const 名们: string[] = [];
   for (const t of 表们) {
     let n = 表名(t.名);
-    for (let k = 2; 名们.includes(n); k++) n = `${表名(t.名).slice(0, 28)} ${k}`;
+    // Excel 认表名不分大小写：「Sheet」和「sheet」算重名
+    const 撞 = (x: string) => 名们.some((y) => y.toLowerCase() === x.toLowerCase());
+    for (let k = 2; 撞(n); k++) n = `${[...表名(t.名)].slice(0, 28).join("")} ${k}`;
     名们.push(n);
   }
   const files: Record<string, Uint8Array> = {

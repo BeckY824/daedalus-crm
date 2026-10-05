@@ -3,8 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
-import type { BusinessConfig } from "@/lib/business-config";
-import { DEFAULT_BUSINESS, BUSINESS_PRESETS, 表单公海天数 } from "@/lib/business-config";
+import type { BusinessConfig, BusinessTemplate } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS, 表单公海天数, 模版预设 } from "@/lib/business-config";
 import { 币种选项 } from "@/lib/currency";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
@@ -85,7 +85,15 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
               label="模版"
               extra="外贸模版换成询盘、报价、寄样这套叫法，默认美元；每一项都能在下面再改。"
             >
-              <Radio.Group optionType="button" options={[{ value: "general", label: "通用" }, { value: "trade", label: "外贸" }]} />
+              {/*
+                换模版 = 套用那个模版的预设（2026-10-05）：原来只改这一格，订单、国家这些出来了，职位、来源、阶段叫法却还是原来那套，
+                「已签约」也不改叫「已下单」——要人再去点「套用预设」才齐。现在一点就整组填好，和点预设一样还要「保存」才生效
+              */}
+              <Radio.Group
+                optionType="button"
+                options={[{ value: "general", label: "通用" }, { value: "trade", label: "外贸" }]}
+                onChange={(e) => 套用(模版预设[e.target.value as BusinessTemplate])}
+              />
             </Form.Item>
           </Col>
           <Col xs={24} sm={12}>

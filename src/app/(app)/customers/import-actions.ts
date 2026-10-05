@@ -283,7 +283,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         跳过++;
         continue;
       }
-      if (Object.keys(补档案).length) await 写外贸档案(prisma, 旧.id, 补档案);
+      if (Object.keys(补档案).length) await 写外贸档案(prisma, 旧.id, 补档案, false);
       const 写后 = Object.keys(补).length
         ? await prisma.customer.update({ where: { id: 旧.id }, data: 补, select: { updatedAt: true } })
         : { updatedAt: 旧.updatedAt };
@@ -325,7 +325,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
             ...attribution,
           },
         });
-        await 写外贸档案(tx, c.id, Object.fromEntries(外贸导入字段.filter((k) => r.值[k]).map((k) => [k, r.值[k]!])));
+        await 写外贸档案(tx, c.id, Object.fromEntries(外贸导入字段.filter((k) => r.值[k]).map((k) => [k, r.值[k]!])), false);
         await tx.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
         return c;
       });
@@ -505,7 +505,7 @@ async function 撤这一批(
       if (!(补空字段名单 as readonly string[]).includes(k)) continue;
       data[k] = k === "expectedSignAt" && v ? new Date(v as string) : (v ?? null);
     }
-    if (Object.keys(档案还原).length) await 写外贸档案(prisma, c.id, 档案还原);
+    if (Object.keys(档案还原).length) await 写外贸档案(prisma, c.id, 档案还原, false);
     if (Object.keys(data).length > 0) {
       const 撤后 = await prisma.customer.update({ where: { id: c.id }, data, select: { updatedAt: true } });
       /*

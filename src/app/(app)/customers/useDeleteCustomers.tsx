@@ -4,6 +4,7 @@ import { 合计文字 } from "@/lib/currency";
 import { App, Checkbox } from "antd";
 import { useRouter } from "next/navigation";
 import { useBusiness } from "@/lib/business-client";
+import { 签约叫 } from "@/lib/business-config";
 import { 删除确认标题 } from "@/lib/list-select";
 import { deleteCustomers, 删除前清点, type 删除清点 } from "./actions";
 
@@ -44,7 +45,7 @@ export function useDeleteCustomers() {
           {一起删.length > 0 && <div>会一起删掉：{一起删.join("、")}。</div>}
           {有签约 && (
             <div>
-              还有 <b>{数.签约} 笔签约（{合计文字(数.签约金额)}）</b>，数据页的业绩会跟着少。
+              还有 <b>{数.签约} 笔{签约叫(b)}（{合计文字(数.签约金额)}）</b>，数据页的业绩会跟着少{签约叫(b) === "订单" ? "，订单和挂在上面的记录也一起删" : ""}。
             </div>
           )}
           {数.联系人 > 0 && <div>{数.联系人} 位联系人不删，留在联系人页，写「未归属」。</div>}
@@ -55,7 +56,7 @@ export function useDeleteCustomers() {
               style={{ marginTop: 8 }}
               onChange={(e) => 框.update({ okButtonProps: { danger: true, disabled: !e.target.checked } })}
             >
-              我知道签约也会删掉
+              我知道{签约叫(b)}也会删掉
             </Checkbox>
           )}
         </div>

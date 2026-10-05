@@ -4,6 +4,7 @@ import Link from "next/link";
 import CountUp from "@/components/CountUp";
 import { 金额, 合计文字 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
+import { 签约叫 } from "@/lib/business-config";
 import type { 首页信号 } from "./HomeChat";
 
 /**
@@ -50,14 +51,14 @@ export default function Signals({ 信号 }: { 信号: 首页信号 }) {
     {
       key: "本月签约",
       href: "/overview?view=本月",
-      口径: "本月签约",
+      口径: `本月${签约叫(b)}`,
       // 0 就写 ¥0：「—」读起来是「不知道」，而这个月签了多少我们是知道的
       数: 签.length === 1 ? 签[0].合计 : 0,
       文字: 签.length > 1 ? 合计文字(签, b.currency) : undefined,
       格式: (n: number) => 金额(n, 签币),
       去处: 签.some((x) => x.合计 > 0) ? "看拆解" : "本月还没有",
       急: false,
-      title: "本月已登记的签约金额合计，按签约日期算，全团队",
+      title: 签约叫(b) === "订单" ? "本月订单金额合计，按订单确认日期算，全团队" : "本月已登记的签约金额合计，按签约日期算，全团队",
     },
   ];
 

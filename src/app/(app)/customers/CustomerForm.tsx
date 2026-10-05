@@ -69,6 +69,16 @@ type FormProps = {
  * 外层只负责挂载时机：用 key 让每次打开都重新挂载内层，
  * 表单初值与推荐人类型随之自然重置，不必在 effect 里同步 state。
  */
+/** 表单里的档案五格和打开时比，只留变了的（空串当空）。新建时 editing 没有，交所有填了的 */
+function 改过的档案(填: Partial<Record<keyof 外贸档案, string | null | undefined>> | undefined, 原: 外贸档案 | null | undefined): Partial<外贸档案> {
+  const 出: Partial<外贸档案> = {};
+  for (const k of ["country", "whatsapp", "wechat", "email", "source"] as const) {
+    const 新 = (填?.[k] ?? "").trim() || null;
+    if (新 !== ((原?.[k] ?? "").trim() || null)) 出[k] = 新;
+  }
+  return 出;
+}
+
 export default function CustomerForm(props: FormProps) {
   if (!props.open) return null;
   return <CustomerFormInner key={props.editing?.id ?? "new"} {...props} />;
@@ -165,7 +175,11 @@ function CustomerFormInner({
         salesOwnerId: v.salesOwnerId,
         channelId: 外贸 ? (editing?.channelId ?? null) : referrerType === "channel" ? (v.channelId ?? null) : null,
         referrerCustomerId: 外贸 ? (editing?.referrerCustomerId ?? null) : referrerType === "customer" ? (v.referrerCustomerId ?? null) : null,
-        ...(外贸 ? { extra: { country: v.extra?.country ?? null, whatsapp: v.extra?.whatsapp ?? null, wechat: v.extra?.wechat ?? null, email: v.extra?.email ?? null, source: v.extra?.source ?? null } } : {}),
+        /*
+          外贸档案只交改过的那几格（2026-10-05 复查）：开着框的这会儿同事在记录页改了国家，我只改名字就保存，
+          原来五格全交、把他改的国家冲回旧值
+        */
+        ...(外贸 ? { extra: 改过的档案(v.extra, editing?.extra) } : {}),
         /*
           新建不传（按推荐链算）。编辑时**只有人动过这一格才传**：选了就钉死，清空就 null（恢复按推荐链）。
           原来每次都传——这一格的初值就是现在的渠道负责人，于是换了推荐渠道，负责人还被当成「手工指定」钉在旧的人身上（排查 A4）
@@ -331,7 +345,7 @@ function CustomerFormInner({
                 label="销售负责人"
                 name="salesOwnerId"
                 rules={[{ required: true, message: "请选择销售负责人" }]}
-                extra="负责谈单签约"
+                extra={外贸 ? "负责谈单、下单" : "负责谈单签约"}
               >
                 <Select placeholder="请选择" options={负责人选项} />
               </Form.Item>
@@ -361,7 +375,14 @@ function CustomerFormInner({
                   label={
                     <Space size={8}>
                       WhatsApp
-                      <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => form.setFieldValue(["extra", "whatsapp"], form.getFieldValue("phone") ?? "")}>
+                      <Button
+                        type="link"
+                        size="small"
+                        style={{ padding: 0, height: "auto" }}
+                        // 共享试用区电话是打了码给人看的：抄过来存不进去，干脆不让抄
+                        disabled={String(editing?.phone ?? "").includes("*")}
+                        onClick={() => form.setFieldValue(["extra", "whatsapp"], form.getFieldValue("phone") ?? "")}
+                      >
                         同电话
                       </Button>
                     </Space>
