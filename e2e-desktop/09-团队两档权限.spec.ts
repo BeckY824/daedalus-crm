@@ -14,6 +14,8 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { unzipSync, strFromU8 } from "fflate";
+import { 读xlsx } from "../src/lib/import/xlsx";
 import { CLOUD_URL, DATA_DIR, 云端账号 } from "./env";
 import { 设云端团队, 连库, 进门 } from "./helpers";
 
@@ -175,12 +177,17 @@ test("业务员搜索：搜老板客户的名字搜不到；联系人页、计�
 test("业务员导出客户：文件里只有自己的、渠道是自己的、公海的", async ({ page }) => {
   await 进门(page, "/customers");
   const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
-  const 内容 = readFileSync((await 下载.path())!, "utf8");
+  // 导出是 xlsx（2026-10-05）：第一张表是客户，第二张是这些客户的跟进记录——两张都只能有看得到的
+  const 包 = unzipSync(readFileSync((await 下载.path())!));
+  const 内容 = strFromU8(包["xl/worksheets/sheet1.xml"]);
+  const 跟进表 = strFromU8(包["xl/worksheets/sheet2.xml"]);
   for (const n of [名.我的, 名.渠道是我, 名.公海]) expect(内容, `导出里该有「${n}」`).toContain(n);
   expect(内容, "导出里不该有老板的客户").not.toContain(名.老板的);
   expect(内容).not.toContain("不自动跑");
-  const 行 = 内容.replace(/^\ufeff/, "").split("\r\n").filter((l) => l.trim());
-  expect(行, `表头 1 行 + 看得到的 3 位：\n${内容}`).toHaveLength(4);
+  expect(跟进表, "跟进记录那张表里不该有老板客户的跟进").not.toContain("老板亲自谈的价");
+  expect(跟进表).not.toContain(名.老板的);
+  const 行 = 读xlsx(readFileSync((await 下载.path())!));
+  expect(行, `表头 1 行 + 看得到的 3 位：\n${JSON.stringify(行)}`).toHaveLength(4);
 });
 
 test("业务员的数据页：新增客户只数看得到的 3 位，进行中商机不含老板的大单，本月签约不含老板签的", async ({ page }) => {

@@ -14,6 +14,7 @@
  * 默认 e2e 库里没配 AI（配过的 spec 自己会拆掉），首页走的就是数据看板那一支。
  */
 import { readFileSync } from "node:fs";
+import { 读xlsx } from "../src/lib/import/xlsx";
 import { test, expect, type Page } from "@playwright/test";
 import { 连库, 清空业务数据 } from "./mock-data";
 import { 装个假模型, 拆掉假模型 } from "./fake-llm";
@@ -119,11 +120,11 @@ test("导出按当前的子集和筛选：本月新增里导出的是这 22 位�
   await page.goto("/customers?createdWithin=本月");
   await expect(page.getByText("只看本月新增")).toBeVisible();
   const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
-  const 文本 = readFileSync(await 下载.path(), "utf8").replace(/^﻿/, "");
-  const 行 = 文本.trim().split(/\r?\n/).slice(1);
+  // 导出是 xlsx（2026-10-05，第二张表是跟进记录）：读第一张表
+  const 行 = 读xlsx(readFileSync(await 下载.path())).slice(1);
   expect(行.length).toBe(22);
-  expect(行.filter((l) => !l.startsWith("\"本月新")), "导出里混进了子集以外的人").toEqual([]);
-  await expect(page.locator(".ant-message")).toContainText("导出了 22 条");
+  expect(行.filter((r) => !r[0].startsWith("本月新")), "导出里混进了子集以外的人").toEqual([]);
+  await expect(page.locator(".ant-message")).toContainText("导出了 22 位");
 });
 
 test("J-013 有数据的库里搜一个不存在的词：写「没有符合条件的」，不画「新建第一位」，筛选栏还在", async ({ page }) => {

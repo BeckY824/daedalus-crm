@@ -6,6 +6,8 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import { unzipSync, strFromU8 } from "fflate";
+import { 读xlsx } from "../src/lib/import/xlsx";
 
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
@@ -221,11 +223,12 @@ test("8. 两个人同时改同一条客户：改不同字段自动合并，改�
   await 乙上下文.close();
 });
 
-test("9. 筛选后导出 CSV：行数对得上、中文不乱码、公式不会被带出去", async ({ page }) => {
+test("9. 筛选后导出：行数对得上、中文原样、公式不会被带出去、跟进记录在第二张表", async ({ page }) => {
   /**
    * 导出的去向是财务对账，所以这条验的是「导出来的文件能直接用」：
-   * Excel 认的 BOM 在不在、筛选条件有没有被忽略、
-   * 用户在备注里写的 =1+1 会不会变成公式。
+   * 筛选条件有没有被忽略、用户在备注里写的 =1+1 会不会变成公式。
+   * 2026-10-05 起导出是 xlsx（外贸客户要带上跟进记录）：中文不再靠 BOM，格子都是文本格（inlineStr），
+   * 「=1+1」原样是文字、表里一个公式（<f>）都没有。
    */
   await 登录(page);
 
@@ -263,23 +266,25 @@ test("9. 筛选后导出 CSV：行数对得上、中文不乱码、公式不会�
   ]);
   const 文件 = await 下载.path();
   expect(文件, "没拿到导出的文件").toBeTruthy();
-  const 内容 = readFileSync(文件!, "utf8");
+  const 字节 = readFileSync(文件!);
+  const 行 = 读xlsx(字节);
 
-  // 1. Excel 认的 BOM 必须在，否则中文一片乱码
-  expect(内容.codePointAt(0), "缺少 BOM，Excel 打开会乱码").toBe(0xfeff);
+  // 1. 中文表头与数据都要能原样读出来
+  expect(行[0]).toContain("客户姓名");
+  expect(行.flat()).toContain(客户名);
 
-  // 2. 中文表头与数据都要能原样读出来
-  expect(内容).toContain("客户姓名");
-  expect(内容).toContain(客户名);
+  // 2. 行数 = 表头 1 行 + 筛选出的 1 行
+  expect(行, `导出行数与筛选结果对不上：\n${JSON.stringify(行)}`).toHaveLength(2);
 
-  // 3. 行数 = 表头 1 行 + 筛选出的 1 行
-  const 行 = 内容.replace(/^\ufeff/, "").split("\r\n").filter((l) => l.trim());
-  expect(行, `导出行数与筛选结果对不上：\n${内容}`).toHaveLength(2);
+  // 3. 用户填的公式原样是文字，表里没有一个公式
+  expect(行[1]).toContain("=1+1");
+  const 包 = unzipSync(字节);
+  for (const [名, 内] of Object.entries(包)) if (名.startsWith("xl/worksheets/")) expect(strFromU8(内), 名).not.toContain("<f>");
 
-  // 4. 用户填的公式被前缀成纯文本，不会在 Excel 里执行
-  expect(内容).toContain("'=1+1");
+  // 4. 第二张表是跟进记录
+  expect(strFromU8(包["xl/workbook.xml"])).toContain('name="跟进记录"');
 
-  expect(下载.suggestedFilename()).toMatch(/客户列表-\d{4}-\d{2}-\d{2}\.csv/);
+  expect(下载.suggestedFilename()).toMatch(/客户列表-\d{4}-\d{2}-\d{2}\.xlsx/);
 });
 
 /*

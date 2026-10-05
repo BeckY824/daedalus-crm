@@ -5,7 +5,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { 连库, 清空业务数据 } from "./mock-data";
-import { 解析CSV, 成表 } from "../src/lib/import/parse";
+import { 成表 } from "../src/lib/import/parse";
+import { 读xlsx } from "../src/lib/import/xlsx";
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
 const 戳 = String(Date.now()).slice(-5);
@@ -68,7 +69,8 @@ test("隐藏「跟进状态」列（「职位」默认就藏着）：按跟进�
 
   // 导出：按当前筛选导，藏起来的两列照样在文件里
   const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
-  const { 表头: 头, 数据 } = 成表(解析CSV(readFileSync((await 下载.path())!, "utf8")));
+  // 导出是 xlsx（2026-10-05）：读第一张表，和导入读法一样
+  const { 表头: 头, 数据 } = 成表(读xlsx(readFileSync((await 下载.path())!)));
   expect(头).toContain("跟进状态");
   expect(头).toContain("职位");
   expect(数据).toHaveLength(1);
