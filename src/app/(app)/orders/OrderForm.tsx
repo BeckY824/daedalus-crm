@@ -30,11 +30,17 @@ export default function OrderForm({
   open,
   editing,
   customerId,
+  跟签约 = false,
   onClose,
 }: {
   open: boolean;
   editing?: 订单表头 | null;
   customerId?: string;
+  /**
+   * 这张订单挂着一笔签约（外贸「订单 = 签约」，2026-10-05）：订单号、金额币种、付款方式、备注在订单框里和签约一起改，
+   * 这里只改贸易条款和定金应收——两处都能改金额，改完就对不上了
+   */
+  跟签约?: boolean;
   onClose: (saved: boolean) => void;
 }) {
   const router = useRouter();
@@ -54,15 +60,17 @@ export default function OrderForm({
     // 校验没过：框里各格已经标红了，安静返回；不接住的话是一个没人处理的 Promise 拒绝
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
-    const 表 = {
-      no: editing ? v.no : v.no || undefined,
-      amount: v.amount ?? 0,
-      currency: v.currency,
-      incoterm: v.incoterm ?? null,
-      payment: v.payment ?? null,
-      depositDue: v.depositDue ?? 0,
-      remark: v.remark ?? null,
-    };
+    const 表 = 跟签约
+      ? { incoterm: v.incoterm ?? null, depositDue: v.depositDue ?? 0 }
+      : {
+          no: editing ? v.no : v.no || undefined,
+          amount: v.amount ?? 0,
+          currency: v.currency,
+          incoterm: v.incoterm ?? null,
+          payment: v.payment ?? null,
+          depositDue: v.depositDue ?? 0,
+          remark: v.remark ?? null,
+        };
     if (editing) {
       const r = await saveOrder(editing.id, 表);
       if (!r.ok) return message.error(r.error);
@@ -83,7 +91,7 @@ export default function OrderForm({
     <Modal
       afterOpenChange={聚焦首项}
       open={open}
-      title={editing ? "编辑订单" : "新建订单"}
+      title={跟签约 ? "贸易条款 · 定金" : editing ? "编辑订单" : "新建订单"}
       onCancel={() => onClose(false)}
       onOk={onOk}
       okText="保存"
@@ -106,6 +114,7 @@ export default function OrderForm({
         }
       >
         <Row gutter={16}>
+          {!跟签约 && (<>
           <Col span={12}>
             <Form.Item
               name="no"
@@ -128,17 +137,20 @@ export default function OrderForm({
               </Space.Compact>
             </Form.Item>
           </Col>
+          </>)}
           <Col span={12}>
             {/* 改条款不会重排单据清单：清单可能已经勾过了，换一遍会把人的勾冲掉。新建时按条款给一组默认的 */}
             <Form.Item name="incoterm" label="贸易条款" extra={editing ? undefined : "按它列默认要收的单据（EXW 不订舱、不报关）"}>
               <Select allowClear options={贸易条款们.map((x) => ({ value: x, label: x }))} placeholder="FOB / CIF / EXW…" />
             </Form.Item>
           </Col>
+          {!跟签约 && (
           <Col span={12}>
             <Form.Item name="payment" label="付款方式">
               <AutoComplete options={常用付款方式.map((x) => ({ value: x }))} placeholder="如 T/T 30/70" filterOption={(i, o) => String(o?.value ?? "").toLowerCase().includes(i.toLowerCase())} />
             </Form.Item>
           </Col>
+          )}
           <Col span={12}>
             <Form.Item
               name="depositDue"
@@ -154,11 +166,13 @@ export default function OrderForm({
               <InputNumber<number> min={0} style={{ width: "100%" }} formatter={金额格式} prefix={币种} />
             </Form.Item>
           </Col>
+          {!跟签约 && (
           <Col span={24}>
             <Form.Item name="remark" label="备注">
               <Input.TextArea rows={2} placeholder="包装、唛头、目的港…" maxLength={2000} />
             </Form.Item>
           </Col>
+          )}
         </Row>
       </Form>
     </Modal>

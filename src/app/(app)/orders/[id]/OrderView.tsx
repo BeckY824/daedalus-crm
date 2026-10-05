@@ -16,6 +16,7 @@ import { 小计, 报价合计 } from "@/lib/quote";
 import type { 订单详情数据 } from "@/lib/order-db";
 import { saveOrderPurchase, saveOrder, saveOrderNode, saveOrderDoc, addOrderDoc, deleteOrderDoc, addOrderNodeNote, deleteOrder } from "../actions";
 import OrderForm from "../OrderForm";
+import ContractForm from "../../customers/[id]/ContractForm";
 
 /**
  * 一张订单（2026-10-03 外贸第 3a 块）。
@@ -32,6 +33,9 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
   const 当前 = 当前节点(o.nodes);
   const [选, set选] = useState<number>(先看 ?? 当前?.idx ?? 1);
   const [编辑, set编辑] = useState(false);
+  const [改签约, set改签约] = useState(false);
+  /** 挂在整单上、不挂某一步的记录（nodeIdx 0：跟进表单「关联商机 / 订单」选的、轻量订单页记的） */
+  const 整单记录 = o.notes.filter((x) => x.nodeIdx === 0);
   const 节 = o.nodes.find((n) => n.idx === 选) ?? o.nodes[0];
 
   async function 跑<T extends { ok: boolean }>(p: Promise<T>, 成?: string) {
@@ -71,8 +75,13 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
         subtitle={[o.customer.name, 金额(o.amount, o.currency), o.incoterm, o.payment, `业务员 ${o.ownerName}`].filter(Boolean).join(" · ")}
         extra={
           <Space>
-            <Button icon={<EditOutlined />} onClick={() => set编辑(true)}>编辑</Button>
-            <Button danger icon={<DeleteOutlined />} onClick={删除} aria-label="删除订单" />
+            {/*
+              有签约的订单（外贸「订单 = 签约」，2026-10-05）：订单号、金额币种、确认时间、付款方式、供应商在订单框里和签约一起改；
+              这边的「条款 · 定金」只改贸易条款和定金应收。删在客户页（删的是那笔签约，跟进状态要不要退回在那里问）
+            */}
+            {o.contract && <Button icon={<EditOutlined />} onClick={() => set改签约(true)}>编辑</Button>}
+            <Button icon={o.contract ? undefined : <EditOutlined />} onClick={() => set编辑(true)}>{o.contract ? "条款 · 定金" : "编辑"}</Button>
+            {!o.contract && <Button danger icon={<DeleteOutlined />} onClick={删除} aria-label="删除订单" />}
           </Space>
         }
       />
@@ -110,6 +119,19 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
       <Card className="ord-node" title={<span className="section-title">第 {节.idx} 步 · {节.name}</span>}>
         <NodePanel key={节.idx} o={o} 节={节} 跑={跑} />
       </Card>
+
+      {整单记录.length > 0 && (
+        <Card style={{ marginTop: 16 }} title={<span className="section-title">整单的记录 {整单记录.length}</span>}>
+          <ul className="ord-notes">
+            {整单记录.map((x) => (
+              <li key={x.id}>
+                <span className="ord-notes-t">{fmtDate(x.occurredAt)} · {x.who}</span>
+                <span className="ord-notes-c">{x.content}</span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} xl={12}>
@@ -152,8 +174,20 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
       <OrderForm
         open={编辑}
         editing={{ id: o.id, no: o.no, amount: o.amount, currency: o.currency, incoterm: o.incoterm, payment: o.payment, depositDue: o.depositDue, remark: o.remark }}
+        跟签约={!!o.contract}
         onClose={() => set编辑(false)}
       />
+      {o.contract && (
+        <ContractForm
+          open={改签约}
+          customerId={o.customer.id}
+          editing={{ ...o.contract, order: { id: o.id, no: o.no, payment: o.payment, supplier: o.采购?.supplierName ?? null } }}
+          onClose={(saved) => {
+            set改签约(false);
+            if (saved) router.refresh();
+          }}
+        />
+      )}
     </>
   );
 }

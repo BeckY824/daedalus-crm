@@ -184,6 +184,30 @@ describe("业务员只看自己的 + 公海", () => {
     }
   });
 
+  it("供应商（2026-10-06 复查）：业务员打开一家供应商，只看到自己客户的比价和订单，看不到同事客户的名字", async () => {
+    const 厂 = await raw.supplier.create({ data: { name: "共用的厂" } });
+    for (const [k, owner] of [["小王的客户", 小王], ["小李的客户", 小李]] as const) {
+      const o = await raw.tradeOrder.create({ data: { no: `S-${k}`, customerId: ids[k], ownerId: owner } });
+      await raw.tradeOrderPurchase.create({ data: { orderId: o.id, supplierId: 厂.id } });
+      const 商机 = await raw.opportunity.findFirstOrThrow({ where: { customerId: ids[k] } });
+      await raw.supplierQuote.create({ data: { opportunityId: 商机.id, supplierId: 厂.id, product: `${k} 的货` } });
+    }
+    try {
+      const { 供应商详情, 供应商列表 } = await import("@/lib/supplier-db");
+      当("wang");
+      进团队();
+      const 详 = await 供应商详情(厂.id);
+      expect(详?.purchases.map((p) => p.客户)).toEqual(["小王的客户"]);
+      expect(详?.quotes.map((q) => q.客户)).toEqual(["小王的客户"]);
+      expect((await 供应商列表()).find((x) => x.id === 厂.id)).toMatchObject({ 比价: 1, 合作单数: 1 });
+      出团队();
+      expect((await 供应商详情(厂.id))?.purchases).toHaveLength(2);
+    } finally {
+      await raw.tradeOrder.deleteMany();
+      await raw.supplier.deleteMany();
+    }
+  });
+
   it("按 id 打开别人的客户：找不到（详情页 404）；改、删别人的客户：不成", async () => {
     当("wang");
     进团队();

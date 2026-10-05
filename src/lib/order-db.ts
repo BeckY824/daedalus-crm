@@ -106,8 +106,9 @@ export async function 订单详情(id: string) {
     opportunity: o.opportunity ? { id: o.opportunity.id, name: o.opportunity.name } : null,
     报价: q && q.lines.length ? { quotedAt: q.quotedAt.toISOString(), currency: 规整币种(q.currency), 行: q.lines } : null,
     ownerName: 业务员?.name ?? "（已删除的成员）",
-    amount: o.amount,
-    currency: 规整币种(o.currency),
+    // 有签约的以签约为准（同订单列表，2026-10-05 复查）：未收、页头都按它算
+    amount: o.contract ? 签约金额(o.contract) : o.amount,
+    currency: o.contract ? 签约币种(o.contract) : 规整币种(o.currency),
     incoterm: o.incoterm,
     payment: o.payment,
     depositDue: o.depositDue,
