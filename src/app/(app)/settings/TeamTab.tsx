@@ -274,7 +274,7 @@ export default function TeamTab() {
                 </span>
               )}
               {/* 只有建团队的人能移除别人；自己不在这里移除（走「退出团队」） */}
-              {s.我是建的人 && m.role !== "owner" && m.accountId !== s.我 && (
+              {s.我是建的人 && s.能管理 && m.role !== "owner" && m.accountId !== s.我 && (
                 <Button size="small" type="text" danger onClick={() => 移除(m)} aria-label={`移除 ${m.name}`}>移除</Button>
               )}
             </li>
@@ -319,10 +319,15 @@ export default function TeamTab() {
           <Input value={s.邀请码} readOnly aria-label="邀请码" />
           <Button icon={<CopyOutlined />} onClick={() => void 复制(s.邀请码)}>复制</Button>
         </Space.Compact>
-        <div style={{ marginTop: 8 }}>
-          <Button size="small" onClick={换码}>换邀请码</Button>
-          <span className="muted" style={{ marginLeft: 8 }}>发错人了就换：旧码作废，钥匙一起换</span>
-        </div>
+        {s.能管理 ? (
+          <div style={{ marginTop: 8 }}>
+            <Button size="small" onClick={换码}>换邀请码</Button>
+            <span className="muted" style={{ marginLeft: 8 }}>发错人了就换：旧码作废，钥匙一起换</span>
+          </div>
+        ) : (
+          // 老板在另一台电脑上进来的：签名钥匙不在这台，换出去的钥匙同事会拒收（lib/sync/client 的 能管理团队）
+          <p className="muted" style={{ marginTop: 8 }}>移除同事、换邀请码要在<b>建团队的那台电脑</b>上做：老板的签名钥匙只在那台上。</p>
+        )}
       </section>
       )}
 

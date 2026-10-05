@@ -336,6 +336,37 @@ describe("移除成员 + 换钥匙", () => {
     expect(解邀请码(一.邀请码)!.joinSecret).toBe(读团队()!.joinSecret);
   });
 
+  /*
+    10-05 写小团队上手说明时查出来的：老板在另一台电脑上登录、用邀请码进团队，手上只有签名公钥、没有私钥。
+    原来那台照样摆着「移除」「换邀请码」，换出去的新钥匙没签名，同事全部拒收（「可能有人冒充」），整个团队卡住；
+    「移除」还会先在云端把人移出去、再发现钥匙换不了。现在去云端之前就挡下，团队页只给一句说明
+  */
+  it("老板在另一台电脑上（有签名公钥、没有私钥）：换邀请码、移除都在去云端之前挡下，团队状态说这台不能管理", async () => {
+    const 文件 = path.join(根, ".team.json");
+    const 原 = fs.readFileSync(文件, "utf8");
+    const 配置 = JSON.parse(原) as Record<string, unknown>;
+    expect(配置.signPub).toBeTruthy();
+    delete 配置.signPriv;
+    fs.writeFileSync(文件, JSON.stringify(配置));
+    const 换前 = 换口令次数;
+    const { control } = await import("@/lib/tenant/control");
+    try {
+      const 换 = await 换邀请码();
+      expect(换.ok).toBe(false);
+      if (!换.ok) expect(换.error).toContain("建团队的那台电脑");
+      expect(换口令次数).toBe(换前);
+      const 移 = await 移除成员(账号们.乙);
+      expect(移.ok).toBe(false);
+      expect((await control.syncMember.findUnique({ where: { teamId_accountId: { teamId, accountId: 账号们.乙 } } }))?.leftAt).toBeNull();
+      const 状态 = await 团队状态();
+      expect(状态.在团队 && 状态.能管理).toBe(false);
+    } finally {
+      fs.writeFileSync(文件, 原);
+    }
+    const 回来 = await 团队状态();
+    expect(回来.在团队 && 回来.能管理).toBe(true);
+  });
+
   it("云端答得上来、但我已经不在这个团队里：团队状态说「被移出」，不说「连不上云端」", async () => {
     expect(await 团队状态()).toMatchObject({ 在团队: true, 被移出: false });
     // 老板（建团队的人）还有同事在队里：不让走（换钥匙复查低 7）

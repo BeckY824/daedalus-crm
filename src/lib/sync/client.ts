@@ -294,6 +294,16 @@ async function 一个一个来<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * 这台能不能做老板的动作（移除成员、换邀请码）：新钥匙要用老板的签名私钥签，私钥只在建团队的那台 .team.json 里。
+ * 老板在另一台电脑上用邀请码进来的，手上只有公钥——在那台换出去的钥匙没签名，同事全部拒收（「可能有人冒充」），
+ * 整个团队卡住（10-05 写上手说明时查出来的）。DT1 时代的团队没有签名公钥，不受这条限制
+ */
+export function 能管理团队(c: 团队配置): boolean {
+  return !!c.signPriv || !c.signPub;
+}
+const 不在建团队那台 = "移除同事、换邀请码只能在建团队的那台电脑上做：老板的签名钥匙只在那台上，这台换出去的新钥匙同事会拒收";
+
 /** 移除成员（只有建团队的人）：云端移出 + 换入队口令，本机接着换钥匙 */
 export function 移除成员(accountId: string): Promise<结果> {
   return 一个一个来(() => 移除成员里(accountId));
@@ -301,6 +311,8 @@ export function 移除成员(accountId: string): Promise<结果> {
 async function 移除成员里(accountId: string): Promise<结果> {
   const c = 读团队();
   if (!c) return { ok: false, error: "没有加入团队" };
+  // 去云端之前就挡：先移出再发现钥匙换不了，人出去了钥匙却没换，团队卡在半截
+  if (!能管理团队(c)) return { ok: false, error: 不在建团队那台 };
   if (在跑) await 在跑.catch(() => undefined);
   const r = await 云("POST", "/api/sync/remove", { teamId: c.teamId, accountId });
   if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "移除不了") };
@@ -318,6 +330,7 @@ export function 换邀请码(): Promise<结果<{ 邀请码: string; 跳过: numb
 async function 换邀请码里(): Promise<结果<{ 邀请码: string; 跳过: number }>> {
   const c = 读团队();
   if (!c) return { ok: false, error: "没有加入团队" };
+  if (!能管理团队(c)) return { ok: false, error: 不在建团队那台 };
   if (在跑) await 在跑.catch(() => undefined);
   const r = await 云("POST", "/api/sync/secret", { teamId: c.teamId });
   if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "换不了") };
@@ -568,6 +581,8 @@ export async function 团队状态() {
     teamName: 团?.name ?? c.teamName,
     active: 团?.active ?? null,
     我是建的人: 团?.我是建的人 ?? false,
+    /** 这台能不能移除同事、换邀请码（见 能管理团队）：老板在别的电脑上进来的，这两样只给一句说明 */
+    能管理: 能管理团队(c),
     我: 读云端凭据()?.accountId ?? null,
     成员: 团?.成员 ?? [],
     邀请码: 邀请码(c),
