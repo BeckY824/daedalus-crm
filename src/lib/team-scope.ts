@@ -89,6 +89,9 @@ export function 限定条件(model: string, 我: string): Record<string, unknown
       return { customer: 客户 };
     case "FollowUpOrder":
     case "TradeOrderPurchase":
+    // 节点、单据（二审：节点开关打开后盯盘、按 id 改节点都会碰到同事的单）
+    case "TradeOrderNode":
+    case "TradeOrderDoc":
       return { order: { customer: 客户 } };
     case "Task":
     case "FollowPlan":

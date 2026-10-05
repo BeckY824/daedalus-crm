@@ -235,7 +235,11 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
     const 记跳过 = async (t: string, k: string, h: string, why: string) => {
       跳++;
-      await tx.$executeRawUnsafe(`INSERT INTO _sync_skip (tbl, pk, hlc, why, at) VALUES (?, ?, ?, ?, ${墙钟})`, t, k, h, why.slice(0, 300));
+      // 同一条不记两遍（二审：升级后从头重拉，以前跳过的那几条又跳一次，「没同步上」的数字翻倍）
+      await tx.$executeRawUnsafe(
+        `INSERT INTO _sync_skip (tbl, pk, hlc, why, at) SELECT ?, ?, ?, ?, ${墙钟} WHERE NOT EXISTS (SELECT 1 FROM _sync_skip WHERE tbl = ? AND pk = ? AND hlc = ?)`,
+        t, k, h, why.slice(0, 300), t, k, h,
+      );
     };
     const 主键们 = new Map<string, string>();
     const 主 = async (t: string) => 主键们.get(t) ?? (主键们.set(t, await 主键(tx, t)), 主键们.get(t)!);
@@ -286,7 +290,8 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
         }
         // 只给这条改动真带了的列记钟（外贸档案的插入不带空列，见 改了哪些列）：第三台先收到后插入的那条，
         // 空着的格子不该挡住更早那条插入填的值
-        for (const c of cols.filter((c) => e.c.includes(c) || e.t !== "CustomerExtra")) await 记字段钟(tx, e.t, k, c, e.h);
+        // 按值判，不按 e.c：旧版本客户端推来的插入 e.c 是全部列（二审）
+        for (const c of cols.filter((c) => e.t !== "CustomerExtra" || row[c] != null)) await 记字段钟(tx, e.t, k, c, e.h);
       } else {
         const 要改: string[] = [];
         /*

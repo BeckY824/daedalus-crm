@@ -22,7 +22,11 @@ export async function 写外贸档案(db: 库, customerId: string, 改: Partial<
   for (const k of 有改) 新[k] = 改[k] ?? null;
   if (!原 && 外贸键.every((k) => !新[k])) return;
   await db.customerExtra.upsert({ where: { customerId }, create: { customerId, ...新 }, update: 新 });
-  if (碰版本) await db.customer.update({ where: { id: customerId }, data: { updatedAt: new Date() } });
+  if (碰版本) {
+    // 版本号严格递增（同 saveCustomer 的 bump）：取 max(现在, 现值 + 1)——紧跟在一次保存后面、或本机钟慢时不往回退（二审）
+    const 现 = await db.customer.findUnique({ where: { id: customerId }, select: { updatedAt: true } });
+    if (现) await db.customer.updateMany({ where: { id: customerId }, data: { updatedAt: new Date(Math.max(Date.now(), 现.updatedAt.getTime() + 1)) } });
+  }
 }
 
 /** 库里那一行 → 五格（多余的列不带出去） */
@@ -31,4 +35,26 @@ export function 取档案(r: Partial<外贸档案> | null | undefined): 外贸�
   if (!r) return o;
   for (const k of 外贸键) o[k] = r[k] ?? null;
   return o;
+}
+
+/**
+ * 切到外贸模版时给老客户补一次「来源」（2026-10-06 二审）：通用模版下来源记在渠道（推荐人）里，或者线索转过来时写在
+ * 线索上；外贸模版不摆渠道，新的来源格又是空的，人一看像是数据丢了、按来源也筛不出来。
+ * 只补来源空着的：线索上的来源（不是「其他」）优先，没有就用渠道名。不推 updatedAt（不算人改的），返回补了几位
+ */
+export async function 补来源(): Promise<number> {
+  const 人们 = await prisma.customer.findMany({
+    where: { OR: [{ extra: { is: null } }, { extra: { is: { source: null } } }], AND: [{ OR: [{ lead: { isNot: null } }, { channelId: { not: null } }] }] },
+    select: { id: true, lead: { select: { source: true } }, channel: { select: { name: true } } },
+    take: 20_000,
+  });
+  let 补了 = 0;
+  for (const c of 人们) {
+    const 线索来源 = c.lead?.source && c.lead.source !== "其他" ? c.lead.source.trim() : "";
+    const 来源 = (线索来源 || c.channel?.name || "").trim().slice(0, 40);
+    if (!来源) continue;
+    await 写外贸档案(prisma, c.id, { source: 来源 }, false);
+    补了++;
+  }
+  return 补了;
 }

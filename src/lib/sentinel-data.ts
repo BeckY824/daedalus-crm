@@ -36,7 +36,8 @@ export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } 
       where: {
         status: { notIn: ["已完成", "不适用"] },
         OR: [{ status: "卡住" }, { dueAt: { lt: 今天零点(now.toDate()) } }],
-        ...(谁的 ? { order: { ownerId: 谁的 } } : {}),
+        // 同 取订单提醒项：按客户现在的负责人，不按下单时固化的业绩归属
+        ...(谁的 ? { order: { customer: { salesOwnerId: 谁的 } } } : {}),
       },
       select: { idx: true, name: true, dueAt: true, status: true, order: { select: { id: true, no: true, ownerId: true, customer: { select: { id: true, name: true } } } } },
     }),

@@ -16,7 +16,8 @@ import { 订单列表 } from "../order-db";
 import { 节点灯 } from "../order";
 import { 订单节点 } from "../features";
 import { 现值选取, 现值表 } from "./current-values";
-import { prisma } from "../prisma";
+import { prisma, defaultClient } from "../prisma";
+import { 限定的我, 可见客户 } from "../team-scope";
 import { dayjs } from "../utils";
 import { FOLLOW_TYPE_MAP, OPP_STAGES } from "../constants";
 import { formatTimeline } from "../ai-context";
@@ -743,16 +744,19 @@ export const TOOLS: Tool[] = [
     async run(args) {
       const k = str(args.keyword, 30);
       const 产品 = str(args.product, 60);
+      // 业务员只看得到自己客户的比价（二审，同 lib/supplier-db.ts）：供应商不挂在客户下面，嵌套带出的比价得自己筛
+      const 我 = await 限定的我(defaultClient);
+      const 比价限 = 我 ? { opportunity: { customer: 可见客户(我) } } : {};
       const rows = await prisma.supplier.findMany({
         where: {
           ...(k ? { OR: [{ name: { contains: k } }, { category: { contains: k } }, { region: { contains: k } }] } : {}),
-          ...(产品 ? { quotes: { some: { product: { contains: 产品 } } } } : {}),
+          ...(产品 ? { quotes: { some: { product: { contains: 产品 }, ...比价限 } } } : {}),
         },
         take: 30,
         include: {
-          _count: { select: { purchases: true } },
+          _count: { select: { purchases: 我 ? { where: { order: { customer: 可见客户(我) } } } : true } },
           quotes: {
-            where: 产品 ? { product: { contains: 产品 } } : {},
+            where: { ...(产品 ? { product: { contains: 产品 } } : {}), ...比价限 },
             orderBy: { quotedAt: "desc" },
             take: 5,
             select: { product: true, unitPrice: true, currency: true, withInvoice: true, quotedAt: true, verdict: true, reason: true, opportunity: { select: { name: true } } },

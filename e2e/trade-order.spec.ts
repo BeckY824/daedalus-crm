@@ -11,7 +11,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 连库 } from "./mock-data";
-import { 订单 } from "../src/lib/features";
+import { 订单, 订单节点 } from "../src/lib/features";
 
 test.skip(!订单, "订单这一版不上");
 
@@ -133,18 +133,21 @@ test("外贸：转为订单 → 客户页订单区 → 跟进挂订单 → 订�
   // 订单页：信息 + 挂着的跟进；再记一笔
   await page.locator(".rec-tl-order", { hasText: "PI-E2E-01" }).click();
   await page.waitForURL(/\/orders\/[^/?]+$/);
-  await expect(page.locator(".ord-notes")).toContainText("工厂说 10 月 25 日货好");
-  await page.getByLabel("在这张订单上记一笔").fill("订舱了，船期 11/2");
-  await page.getByRole("button", { name: /记\s*下/ }).click();
-  await expect(page.locator(".ord-notes")).toContainText("订舱了，船期 11/2");
+  await expect(page.locator(".ord-notes").first()).toContainText("工厂说 10 月 25 日货好");
+  // 节点开着时订单页是节点那一套（e2e/order-nodes.spec.ts 走它），挂在整单上的跟进在「整单的记录」里——上面那句已经验过
+  if (!订单节点) {
+    await page.getByLabel("在这张订单上记一笔").fill("订舱了，船期 11/2");
+    await page.getByRole("button", { name: /记\s*下/ }).click();
+    await expect(page.locator(".ord-notes")).toContainText("订舱了，船期 11/2");
+  }
 
-  // 订单一览：客户要的几列
+  // 订单一览：客户要的几列（节点版一览里这三列收在「列」里）
   await page.goto("/orders");
   const 头 = page.locator(".ant-table-thead");
-  for (const 列 of ["订单号", "客户", "付款方式", "供应商", "订单确认时间"]) await expect(头).toContainText(列);
+  for (const 列 of 订单节点 ? ["订单号", "客户"] : ["订单号", "客户", "付款方式", "供应商", "订单确认时间"]) await expect(头).toContainText(列);
   const 行 = page.locator(".ant-table-row", { hasText: "PI-E2E-01" });
   await expect(行).toContainText(客户名);
   await expect(行).toContainText("US$ 28,000");
-  await expect(行).toContainText("临沂测试食品厂");
+  if (!订单节点) await expect(行).toContainText("临沂测试食品厂");
   expect(问题, 问题.join("\n")).toEqual([]);
 });

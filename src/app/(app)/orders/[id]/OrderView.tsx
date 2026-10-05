@@ -16,6 +16,7 @@ import { 小计, 报价合计 } from "@/lib/quote";
 import type { 订单详情数据 } from "@/lib/order-db";
 import { saveOrderPurchase, saveOrder, saveOrderNode, saveOrderDoc, addOrderDoc, deleteOrderDoc, addOrderNodeNote, deleteOrder } from "../actions";
 import OrderForm from "../OrderForm";
+import { 供应商页 } from "@/lib/features";
 import ContractForm from "../../customers/[id]/ContractForm";
 
 /**
@@ -324,7 +325,8 @@ function PurchasePanel({ o, 供应商, 跑 }: { o: 订单详情数据; 供应商
           options={供应商.map((s) => ({ value: s.id, label: `${s.name}${s.rating ? ` · ${s.rating}` : ""}` }))}
           aria-label="供应商"
         />
-        {v.supplierId && <Link href={`/suppliers/${v.supplierId}`}>看这家 ›</Link>}
+        {/* 供应商页关着时（lib/features.ts）点进去是 404：不摆 */}
+        {v.supplierId && 供应商页 && <Link href={`/suppliers/${v.supplierId}`}>看这家 ›</Link>}
       </div>
       <div className="ord-money-row">
         <span className="ord-k">采购额</span>

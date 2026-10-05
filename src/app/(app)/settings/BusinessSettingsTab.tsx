@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig, BusinessTemplate } from "@/lib/business-config";
-import { DEFAULT_BUSINESS, BUSINESS_PRESETS, 表单公海天数, 模版预设 } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS, 表单公海天数, 模版预设, statusLabel } from "@/lib/business-config";
 import { 币种选项 } from "@/lib/currency";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
@@ -37,7 +37,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
     setSaving(false);
     if (res.ok) {
       set套了(null);
-      message.success("已保存，全站措辞已更新");
+      message.success(res.补了来源 ? `已保存，全站措辞已更新；${res.补了来源} 位${v.customer ?? "客户"}的来源从渠道 / 线索补了过来` : "已保存，全站措辞已更新");
       router.refresh();
     } else message.error(res.error);
   }
@@ -106,7 +106,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
           <Form.Item
             name="poolDays"
             label="自动放进公海"
-            extra="多少天没跟进就自动放进公海，谁都能领；已签约、已流失的不放。填 0 不开。团队同步时全团队一份。"
+            extra={`多少天没跟进就自动放进公海，谁都能领；${statusLabel(value, "已签约")}、${statusLabel(value, "已流失")}的不放。填 0 不开。团队同步时全团队一份。`}
           >
             <InputNumber min={0} max={365} precision={0} suffix="天" style={{ width: 140 }} />
           </Form.Item>

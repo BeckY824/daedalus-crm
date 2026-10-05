@@ -24,7 +24,8 @@ import { createOrder, saveOrder, deleteOrder } from "@/app/(app)/orders/actions"
 import { TOOLS } from "@/lib/agent/tools";
 import { 文字里号码打码 } from "@/lib/utils";
 import { saveFollowUp, deleteFollowUp, restoreFollowUp } from "@/app/(app)/customers/[id]/actions";
-import { saveOpportunity } from "@/app/(app)/opportunities/actions";
+import { saveOpportunity, setOppStatus } from "@/app/(app)/opportunities/actions";
+import { 补来源 } from "@/lib/customer-extra-db";
 import { addOrderNote, 供应商名单 } from "@/app/(app)/orders/actions";
 import { convertLead } from "@/app/(app)/leads/actions";
 import { 执行导入, 撤销批次 } from "@/app/(app)/customers/import-actions";
@@ -62,7 +63,6 @@ async function 客户(name = "Timur") {
 describe("开关和叫法", () => {
   it("订单打开、节点关着；外贸模版下签约叫订单，通用照旧", () => {
     expect(订单).toBe(true);
-    expect(订单节点).toBe(false);
     expect(外贸订单(BUSINESS_PRESETS["外贸出口"])).toBe(true);
     expect(签约叫(BUSINESS_PRESETS["外贸出口"])).toBe("订单");
     expect(签约叫(DEFAULT_BUSINESS)).toBe("签约");
@@ -426,7 +426,7 @@ describe("复查一轮（10-06）", () => {
     expect(await prisma.tradeOrder.count()).toBe(1);
   });
 
-  it("订单一览的金额以签约为准；节点关着时 list_orders 只给订单上那几项", async () => {
+  it.runIf(!订单节点)("订单一览的金额以签约为准；节点关着时 list_orders 只给订单上那几项", async () => {
     await 外贸();
     const c = await 客户();
     const r = await saveContract({ customerId: c.id, amount: 100, currency: "USD", signedAt: new Date(), remark: null, 订单: { no: "PI-3", payment: "T/T" } });
@@ -467,5 +467,81 @@ describe("复查一轮（10-06）", () => {
     expect(wb).toContain('name="Sheet"');
     expect(wb).toContain('name="sheet 2"');
     expect(wb).toContain('name="引号"');
+  });
+});
+
+describe("二审（10-06）", () => {
+  it("编辑切外贸之前的老签约：填了订单号就补成一张订单（号按签约日），什么都不填不建", async () => {
+    const c = await 客户();
+    await saveContract({ customerId: c.id, amount: 500, signedAt: new Date(2026, 5, 1), remark: null });
+    await 外贸();
+    const k = await prisma.contract.findFirstOrThrow();
+    await saveContract({ id: k.id, customerId: c.id, amount: 500, currency: "USD", signedAt: k.signedAt, remark: null, 订单: { no: "", payment: null } });
+    expect(await prisma.tradeOrder.count()).toBe(0);
+    expect(await prisma.supplier.count()).toBe(0);
+    const r = await saveContract({ id: k.id, customerId: c.id, amount: 500, currency: "USD", signedAt: k.signedAt, remark: null, 订单: { no: "", payment: "T/T" } });
+    expect(r.ok).toBe(true);
+    const o = await prisma.tradeOrder.findFirstOrThrow({ include: { nodes: { orderBy: { idx: "asc" } } } });
+    expect(o.no).toBe("20260601-1");
+    expect(o.contractId).toBe(k.id);
+    // 订单就是客户确认：前 4 步记完成
+    expect(o.nodes.slice(0, 4).every((n) => n.status === "已完成")).toBe(true);
+  });
+
+  it("签约金额改得比定金应收还少：拦下、说清楚", async () => {
+    await 外贸();
+    const c = await 客户();
+    const r = await saveContract({ customerId: c.id, amount: 1000, currency: "USD", signedAt: new Date(), remark: null, 订单: {} });
+    if (!r.ok || !r.订单) throw new Error("没建出来");
+    await prisma.tradeOrder.update({ where: { id: r.订单.id }, data: { depositDue: 300 } });
+    const k = await prisma.contract.findFirstOrThrow();
+    const r2 = await saveContract({ id: k.id, customerId: c.id, amount: 200, currency: "USD", signedAt: k.signedAt, remark: null, 订单: {} });
+    expect(r2).toMatchObject({ ok: false, error: expect.stringContaining("定金应收") });
+    expect((await prisma.contract.findFirstOrThrow()).amount).toBe(1000);
+  });
+
+  it("转过订单的商机不许直接改回进行中 / 丢单；删了订单就退回进行中", async () => {
+    await 外贸();
+    const c = await 客户();
+    const o = await prisma.opportunity.create({ data: { name: "鸡胸", customerId: c.id, amount: 10, ownerId: jia.id } });
+    await saveContract({ customerId: c.id, amount: 10, currency: "USD", signedAt: new Date(), remark: null, 联动: { 赢单: [o.id], 完成计划: [], 完成待办: [] }, 订单: { no: "PI-R" } });
+    expect(await setOppStatus(o.id, "OPEN")).toMatchObject({ ok: false, error: expect.stringContaining("PI-R") });
+    expect(await saveOpportunity({ id: o.id, name: "鸡胸", customerId: c.id, amount: 10, stage: "谈判审核", status: "LOST", probability: 0 })).toMatchObject({ ok: false });
+    const k = await prisma.contract.findFirstOrThrow();
+    expect((await deleteContract(k.id, c.id, null)).ok).toBe(true);
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("OPEN");
+  });
+
+  it("切到外贸：给来源空着的老客户从线索 / 渠道补一次来源，已有的不动", async () => {
+    const ch = await prisma.channel.create({ data: { name: "广交会", channelOwnerId: jia.id } });
+    const a = await prisma.customer.create({ data: { name: "渠道来的", phone: "1", salesOwnerId: jia.id, channelId: ch.id } });
+    const b2 = await prisma.customer.create({ data: { name: "线索来的", phone: "2", salesOwnerId: jia.id } });
+    await prisma.lead.create({ data: { name: "x", source: "阿里国际站", customerId: b2.id, ownerId: jia.id, status: "已转化" } });
+    const c = await prisma.customer.create({ data: { name: "已有来源", phone: "3", salesOwnerId: jia.id, channelId: ch.id, extra: { create: { source: "展会" } } } });
+    expect(await 补来源()).toBe(2);
+    const 来 = async (id: string) => (await prisma.customerExtra.findUnique({ where: { customerId: id } }))?.source;
+    expect([await 来(a.id), await 来(b2.id), await 来(c.id)]).toEqual(["广交会", "阿里国际站", "展会"]);
+  });
+
+  it("外贸：电话空着、只有 WhatsApp——表单和导入都拿 WhatsApp 认人", async () => {
+    await 外贸();
+    const base = { name: "Ali", phone: "", school: null, grade: null, major: null, followStatus: "待跟进", decisionStatus: "了解中", expectedSignAt: null, remark: null, channelId: null, referrerCustomerId: null };
+    const r = await saveCustomer({ ...base, extra: { whatsapp: "+971 50 123 4567" } });
+    if (!r.ok) throw new Error(r.error);
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: r.id } })).phone).toMatch(/971501234567/);
+    const 表头 = ["客户名称", "WhatsApp", "国家"];
+    const w = await 执行导入({ 表头, 数据: [["Omar", "+966 55 765 4321", "KSA"]], 映射: 猜列(表头, 字段表(BUSINESS_PRESETS["外贸出口"])), 重复行: "跳过" }, "x.xlsx");
+    if (!w.ok) throw new Error(w.error);
+    expect(w.新建).toBe(1);
+    expect((await prisma.customer.findFirstOrThrow({ where: { name: "Omar" } })).phone).toMatch(/966557654321/);
+  });
+
+  it("客户搜索认订单号", async () => {
+    await 外贸();
+    const c = await 客户("Acme");
+    await saveContract({ customerId: c.id, amount: 1, currency: "USD", signedAt: new Date(), remark: null, 订单: { no: "PI-SEARCH-9" } });
+    await 客户("别人");
+    const 名 = (await prisma.customer.findMany({ where: await 客户筛选条件({ keyword: "SEARCH-9" }), select: { name: true } })).map((x) => x.name);
+    expect(名).toEqual(["Acme"]);
   });
 });

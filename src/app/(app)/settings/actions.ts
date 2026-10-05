@@ -1,5 +1,7 @@
 "use server";
 
+import { 补来源 } from "@/lib/customer-extra-db";
+
 import { 钉住老签约 } from "@/lib/contract-owner";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
@@ -581,8 +583,13 @@ export async function saveBusinessSettings(cfg: BusinessConfig) {
     summary: `修改了业务配置：${changed.length ? changed.map((k) => BUSINESS_FIELD_LABELS[k]).join("、") : "无实际变化"}`,
     detail: Object.fromEntries(changed.map((k) => [BUSINESS_FIELD_LABELS[k], { 改前: before[k], 改后: merged[k] }])),
   });
+  // 切到外贸：给老客户补一次来源（渠道 / 线索上的），外贸模版不摆渠道（lib/customer-extra-db.ts 补来源）
+  const 补了来源 = before.template !== "trade" && merged.template === "trade" ? await 补来源() : 0;
+  if (补了来源) {
+    await recordAudit({ user: me, action: "update", entity: "Customer", entityId: "business", summary: `切到外贸模版：${补了来源} 位${merged.customer}的来源从渠道 / 线索补进了外贸档案` });
+  }
   revalidatePath("/", "layout");
-  return { ok: true as const };
+  return { ok: true as const, 补了来源 };
 }
 
 const BUSINESS_FIELD_LABELS: Record<keyof BusinessConfig, string> = {

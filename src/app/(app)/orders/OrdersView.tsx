@@ -6,7 +6,7 @@ import { PageHead } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 成员选项, fmtDate, type 可选成员 } from "@/lib/utils";
-import { 金额 } from "@/lib/currency";
+import { 金额, 合计文字, 按币种合计 } from "@/lib/currency";
 import { 节点名们, 节点灯 } from "@/lib/order";
 import type { 订单行 } from "@/lib/order-db";
 import { 订单节点 } from "@/lib/features";
@@ -83,6 +83,10 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
       render: (v: number) => (v > 0 ? <span className="ord-late">{v}</span> : <span className="muted">—</span>),
     },
     { title: "未收", key: "未收", dataIndex: "未收", width: 120, render: (v: number, r) => (v > 0 ? 金额(v, r.currency) : <span className="muted">收齐了</span>) },
+    // 外贸客户要的那三列（二审：节点版一览原来没有），收在「列」里
+    { title: "付款方式", key: "payment", dataIndex: "payment", width: 120, 默认: false, render: (v: string | null) => v ?? <span className="muted">—</span> },
+    { title: "供应商", key: "supplier", dataIndex: "supplier", width: 140, 默认: false, render: (v: string | null) => v ?? <span className="muted">—</span> },
+    { title: "订单确认时间", key: "confirmedAt", dataIndex: "confirmedAt", width: 120, 默认: false, render: (v: string) => <span className="nowrap">{fmtDate(v)}</span> },
     { title: "业务员", key: "ownerName", dataIndex: "ownerName", width: 100, 默认: users.length > 1 },
   ];
 
@@ -118,7 +122,10 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
           ) : undefined
         }
         汇总={
-          订单节点 && rows.length > 0 ? (
+          !订单节点 && rows.length > 0 ? (
+            // 轻量一览一行合计（二审）：按币种分开，不换汇——和商机列表那颗药丸同一个说法
+            <div className="list-sum">共 {rows.length} 单 · {合计文字(按币种合计(rows, (r) => r.amount, (r) => r.currency))}</div>
+          ) : 订单节点 && rows.length > 0 ? (
             <div className="ord-stuck">
               {停.map((x) => (
                 <span key={x.idx} className={x.超期 ? "ord-stuck-late" : undefined}>

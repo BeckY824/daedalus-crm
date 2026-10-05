@@ -71,7 +71,8 @@ export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现�
         当前: 当 ? { idx: 当.idx, name: 当.name } : null,
         超期: 超期数(nodes, 现在),
         进度: 进度(nodes),
-        未收: 订单的钱(o).未收,
+        // 未收也按签约金额算（二审：和这一行展示的金额同一个口径）
+        未收: 订单的钱({ ...o, amount: o.contract ? 签约金额(o.contract) : o.amount }).未收,
       };
     })
     .sort((a, b) => b.超期 - a.超期 || b.createdAt.localeCompare(a.createdAt));

@@ -44,6 +44,15 @@ async function 记结单(id: string, 原状态: string | null, 新状态: string
   });
 }
 
+/**
+ * 这个商机已经转成订单了（外贸「订单 = 签约」）：不许直接改回进行中 / 丢单（二审）——订单和签约还在，
+ * 再转一次就是两张单。要改先到客户页删掉那张订单（删订单时商机会自己退回进行中）。返回拦下的那句话，没订单返回 null
+ */
+async function 转过订单的话(商机id: string): Promise<string | null> {
+  const 单 = await prisma.tradeOrder.findFirst({ where: { opportunityId: 商机id }, select: { no: true } });
+  return 单 ? `这个商机已经转成订单 ${单.no} 了：要改回去，先到客户页的「订单」里删掉那张订单` : null;
+}
+
 export async function saveOpportunity(input: {
   id?: string;
   name: string;
@@ -97,6 +106,10 @@ export async function saveOpportunity(input: {
   */
   const 原 = input.id ? await prisma.opportunity.findUnique({ where: { id: input.id }, select: { status: true, stage: true } }) : null;
   const 原状态 = 原?.status ?? null;
+  if (input.id && 原状态 === "WON" && input.status !== "WON") {
+    const 挡 = await 转过订单的话(input.id);
+    if (挡) return { ok: false as const, error: 挡 };
+  }
   input = { ...input, ...对齐阶段与状态(input, 原) };
   // 从赢单成交退回来、概率还挂着 100 的：跟着新阶段走（100% 的进行中商机会把预测金额整笔算进去）
   if (原?.stage === "赢单成交" && input.stage !== "赢单成交" && input.probability === 100) {
@@ -255,6 +268,10 @@ export async function setOppStatus(
     }
     const 原 = await prisma.opportunity.findUnique({ where: { id }, select: { status: true } });
     if (!原) return { ok: false as const, error: "商机不存在（可能已删除）" };
+    if (原.status === "WON" && status !== "WON") {
+      const 挡 = await 转过订单的话(id);
+      if (挡) return { ok: false as const, error: 挡 };
+    }
     const o = await prisma.opportunity.update({
       where: { id },
       data: {

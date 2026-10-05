@@ -13,8 +13,11 @@ import type { Prisma } from "@/generated/prisma";
 import { 节点名们, 成交前节点数, 默认单据, 默认订单号 } from "./order";
 import { 看全部 } from "./team-scope";
 
-/** 订单号撞了别的单（2026-10-05 复查）：事务里抛出、saveContract 接住说人话，整笔不落库 */
-export class 订单号重复 extends Error {
+/** 订单那边说不通的（号撞了、定金比金额多）：事务里抛出、saveContract 接住说人话，整笔不落库 */
+export class 订单说不通 extends Error {}
+
+/** 订单号撞了别的单（2026-10-05 复查） */
+export class 订单号重复 extends 订单说不通 {
   constructor(public 号: string) {
     super(`订单号「${号}」已经有一张了，换一个号，或者不填让系统按日期编`);
   }
@@ -57,8 +60,9 @@ export async function 写签约的订单(
     前缀?: string;
     现在?: Date;
     /**
-     * 编辑一笔签约时：只改它已有的那张订单，没有就不建（2026-10-05 复查）。老签约、AI 建议卡登记的、
-     * 通用模版时期登记的签约，在外贸下改一下备注就冒出一张号按今天编、节点全空的订单，不对
+     * 编辑一笔签约时：它还没有订单（切外贸之前登记的老签约），**订单那几格一格都没填就不建**（2026-10-05 复查：
+     * 改一下备注就冒出一张订单不对）；填了订单号 / 付款方式 / 供应商任意一格 = 人要给它补一张订单，就建（二审：
+     * 原来填了也一声不响丢掉，还提示「已保存」）。补建的单号按签约那天编
      */
     只改不建?: boolean;
   },
@@ -66,10 +70,15 @@ export async function 写签约的订单(
   const 现在 = a.现在 ?? new Date();
   const 填的号 = a.附加.no !== undefined ? 文本(a.附加.no, 40) : undefined;
   const payment = a.附加.payment !== undefined ? 文本(a.附加.payment, 60) || null : undefined;
-  const 供应商 = a.附加.supplier !== undefined ? await 供应商id(tx, 文本(a.附加.supplier, 80)) : undefined;
+  // 和供应商档案页同一个规矩：去首尾空格、最长 60 字、名字一字不差算同一家（suppliers/actions.ts saveSupplier）
+  const 供应商名 = a.附加.supplier !== undefined ? 文本(a.附加.supplier, 60) : undefined;
 
-  const 已有 = await tx.tradeOrder.findUnique({ where: { contractId: a.签约id }, select: { id: true, no: true } });
-  if (!已有 && a.只改不建) return null;
+  const 已有 = await tx.tradeOrder.findUnique({ where: { contractId: a.签约id }, select: { id: true, no: true, depositDue: true } });
+  // 金额改得比定金应收还少（二审）：存下去之后定金尾款那块怎么填都报「定金比订单金额还多」，卡死
+  if (已有 && 已有.depositDue > a.amount) throw new 订单说不通(`这张订单的定金应收是 ${已有.depositDue}，比新的金额还多：先在订单页「条款 · 定金」里把定金改小`);
+  if (!已有 && a.只改不建 && !填的号 && !payment && !供应商名) return null;
+  // 供应商在决定建不建之后才建：不建订单时不留一家没人用的供应商（二审）
+  const 供应商 = 供应商名 !== undefined ? await 供应商id(tx, 供应商名) : undefined;
   /*
     手填的号不许和别的单重：跟进下拉、导出、订单一览里都按号认单。看全部——业务员看不到的同事那张也算
     （订单号没有唯一索引：老库、同步回放里可能已经有重的，不为它建索引让迁移失败）
@@ -94,8 +103,7 @@ export async function 写签约的订单(
     const 日 = `${a.前缀 ?? ""}${现在.getFullYear()}${String(现在.getMonth() + 1).padStart(2, "0")}${String(现在.getDate()).padStart(2, "0")}`;
     // 看全部：业务员看不到的那几张（进了公海、转给了同事的客户）也占着号，不看全部会编出重号
     const 今天的号 = 填的号 ? [] : (await 看全部(async () => tx.tradeOrder.findMany({ where: { no: { startsWith: 日 } }, select: { no: true } }))).map((x) => x.no);
-    const 从商机 = !!a.opportunityId;
-    o = await tx.tradeOrder.create({
+        o = await tx.tradeOrder.create({
       data: {
         no: 填的号 || 默认订单号(今天的号, 现在, a.前缀 ?? ""),
         customerId: a.customerId,
@@ -107,8 +115,9 @@ export async function 写签约的订单(
         contractId: a.签约id,
         // 节点、单据这一版不摆（lib/features.ts 订单节点），照旧建上：哪天打开时老订单不至于一步都没有
         nodes: {
+          // 订单就是客户确认了（一笔签约）：询盘 → 客户确认这前 4 步一律算走完，不论挂没挂上商机（二审）
           create: 节点名们.map((name, i) => {
-            const 走完 = 从商机 && i < 成交前节点数;
+            const 走完 = i < 成交前节点数;
             return { idx: i + 1, name, status: 走完 ? "已完成" : "未开始", doneAt: 走完 ? 现在 : null };
           }),
         },
@@ -116,6 +125,14 @@ export async function 写签约的订单(
       },
       select: { id: true, no: true },
     });
+  }
+  /*
+    比价里「选用」的那家（供应商页开着时有比价）：新建、从商机转来、人又没填供应商——带它过去（二审：原来 createOrder 里有，
+    订单改走签约之后断了）。人填了就以人填的为准
+  */
+  if (!已有 && !供应商 && a.opportunityId) {
+    const 选 = await tx.supplierQuote.findFirst({ where: { opportunityId: a.opportunityId, verdict: "选用" }, orderBy: { quotedAt: "desc" }, select: { supplierId: true } });
+    if (选) await tx.tradeOrderPurchase.upsert({ where: { orderId: o.id }, create: { orderId: o.id, supplierId: 选.supplierId }, update: { supplierId: 选.supplierId } });
   }
   if (供应商 !== undefined) {
     if (供应商) await tx.tradeOrderPurchase.upsert({ where: { orderId: o.id }, create: { orderId: o.id, supplierId: 供应商 }, update: { supplierId: 供应商 } });

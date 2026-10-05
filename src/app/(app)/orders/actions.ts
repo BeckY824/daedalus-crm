@@ -199,9 +199,10 @@ export async function saveOrder(id: string, input: 订单输入) {
     }
     const r = 整理(input);
     if (!r.ok) return r;
+    // 只在这次改了金额或定金时才比（二审：只存实收也被老的定金卡住）
     const 金额 = (r.data.amount as number | undefined) ?? 原.amount;
     const 定金 = (r.data.depositDue as number | undefined) ?? 原.depositDue;
-    if (定金 > 金额) return { ok: false as const, error: "定金比订单金额还多" };
+    if (("amount" in r.data || "depositDue" in r.data) && 定金 > 金额) return { ok: false as const, error: "定金比订单金额还多" };
     const o = await prisma.tradeOrder.update({ where: { id: 原.id }, data: r.data });
     await recordAudit({
       user: me, action: "update", entity: "TradeOrder", entityId: o.id,

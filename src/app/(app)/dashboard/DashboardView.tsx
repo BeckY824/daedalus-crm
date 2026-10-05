@@ -341,7 +341,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                 ))}
                 {ranking.length > 0 && (
                   <div className="stat-delta" style={{ marginTop: 8 }}>
-                    按赢单商机金额算，不限时间；「本月签约」那张卡数的是签约记录，两者口径不同
+                    按{签约叫(b) === "订单" ? "已转订单的" : "赢单"}商机金额算，不限时间；「本月{签约叫(b)}」那张卡数的是{签约叫(b) === "订单" ? "订单" : "签约记录"}，两者口径不同
                   </div>
                 )}
               </Card>
@@ -449,7 +449,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             </div>
             {/* 口径不写清楚的话，前四档和末档不是一个东西这件事没人看得出来 */}
             <div className="stat-delta" style={{ marginTop: 8 }}>
-              前四档为当前进行中的商机；「{stageLabel(b, "赢单成交")}」为{窗口}已赢单的数量与金额
+              前四档为当前进行中的商机；「{stageLabel(b, "赢单成交")}」为{窗口}{签约叫(b) === "订单" ? "已转订单" : "已赢单"}的数量与金额
             </div>
           </Card>
         </Col>
@@ -491,7 +491,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: alpha(categorical.violet, 0.12), color: categorical.violet }}>
                     <SafetyCertificateOutlined />
                   </span>
-                  <Typography.Text type="secondary" style={{ fontSize: 15 }}>商机赢单率</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 15 }}>{签约叫(b) === "订单" ? "商机转订单率" : "商机赢单率"}</Typography.Text>
                 </Space>
                 <div className="stat-value" style={{ marginTop: 8 }}>{stats.winRate}%</div>
                 <div className="stat-delta">

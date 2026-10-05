@@ -146,7 +146,19 @@ function Inner({
       remark: v.remark ?? null,
       force,
       ...(editing ? {} : { 联动: 勾 }),
-      ...(订单 ? { 订单: { no: v.no ?? "", payment: v.payment ?? null, supplier: v.supplier ?? null } } : {}),
+      /*
+        供应商只在名字变了时才交（二审）：按名字认供应商、同名取最早那家；同步后出现两家同名时，
+        原样交回去会把订单页里选的那家悄悄换掉
+      */
+      ...(订单
+        ? {
+            订单: {
+              no: v.no ?? "",
+              payment: v.payment ?? null,
+              ...((v.supplier ?? "").trim() !== (editing?.order?.supplier ?? "").trim() || !editing?.order ? { supplier: v.supplier ?? null } : {}),
+            },
+          }
+        : {}),
     });
   }
 
@@ -237,7 +249,7 @@ function Inner({
             label="订单号 / PI 号"
             name="no"
             rules={editing?.order ? [{ required: true, whitespace: true, message: "订单号不能空着" }] : []}
-            extra={editing?.order ? undefined : "不填就按日期编一个，比如 20261005-1"}
+            extra={editing?.order ? undefined : editing ? "这笔是切外贸之前登记的：填上订单号、付款方式或供应商，就补成一张订单" : "不填就按日期编一个"}
           >
             <Input maxLength={40} placeholder={editing?.order ? undefined : "选填"} />
           </Form.Item>

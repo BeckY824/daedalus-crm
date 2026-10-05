@@ -28,7 +28,7 @@ import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import type { 带走数 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
-import { 写签约的订单, 订单号重复, type 订单附加 } from "@/lib/order-contract";
+import { 写签约的订单, 订单说不通, type 订单附加 } from "@/lib/order-contract";
 import { 外贸键, 外贸字段名, 规整外贸格, 规整外贸档案, 认国家, type 外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
 import { 团队订单前缀 } from "@/lib/order";
@@ -168,7 +168,13 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     不该因为人改了一下备注就被悄悄换掉，留痕里平白多一条「手机号」。
   */
   // 共享区表单交回的是打码的样子：认回原号，当没改（排查 A2）
-  const 原号 = String(认回打码号(input.phone, 改前?.phone) ?? "").trim();
+  /*
+    外贸：电话空着、填了 WhatsApp 的，WhatsApp 号就当电话认人（二审：海外客户常常只有 WhatsApp，和导入同一条规矩）
+  */
+  const 填的电话 = !String(input.phone ?? "").trim() && b.template === "trade" && typeof input.extra?.whatsapp === "string" && !input.extra.whatsapp.includes("*")
+    ? input.extra.whatsapp
+    : input.phone;
+  const 原号 = String(认回打码号(填的电话, 改前?.phone) ?? "").trim();
   const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: !改前 || Boolean(改前.phone) });
   if (!电话.ok) return { ok: false, error: 电话.error };
   const phone = 电话.phone;
@@ -433,10 +439,15 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
  */
 async function 改外贸档案(me: { id: string; name: string }, id: string, 名: string, 改: Partial<外贸档案>, 叫: string) {
   if (!Object.keys(改).length) return;
-  const 原 = await prisma.customerExtra.findUnique({ where: { customerId: id } });
+  /*
+    看全部（二审）：这一步在客户主表存完之后——业务员同一次把负责人改成了同事，这时他已经看不到这位客户，
+    限定层下读档案拿到空、再按空补齐写回去，其余几格就被清掉了；推 updatedAt 也会因为看不到而报错。
+    能走到这里说明保存前他看得到这位、这次改动是他做的
+  */
+  const 原 = await 看全部(() => prisma.customerExtra.findUnique({ where: { customerId: id } }));
   const 变了 = (Object.keys(改) as (keyof 外贸档案)[]).filter((k) => (原?.[k] ?? null) !== (改[k] ?? null));
   if (!变了.length) return;
-  await 写外贸档案(prisma, id, Object.fromEntries(变了.map((k) => [k, 改[k] ?? null])));
+  await 看全部(() => 写外贸档案(prisma, id, Object.fromEntries(变了.map((k) => [k, 改[k] ?? null]))));
   await recordAudit({
     user: me, action: "update", entity: "Customer", entityId: id,
     summary: `修改${叫}「${名}」：${变了.map((k) => 外贸字段名[k]).join("、")}`,
@@ -899,9 +910,13 @@ export async function saveContract(input: {
         const 单 = await 写签约的订单(tx, {
           签约id, customerId: input.customerId, ownerId: 学员?.salesOwnerId ?? me.id, amount: 精确, currency: 规整币种(币),
           附加: 订单附加, opportunityId: 赢的?.id ?? null, 前缀: 订单前缀, 只改不建: !!input.id,
+          // 给老签约补建的订单：号按签约那天编（不是今天）
+          ...(input.id ? { 现在: input.signedAt } : {}),
         });
         return { 签约id, 币, ...(单 ? { 订单: 单 } : {}) };
       }
+      // 不是外贸模版（切回了通用）也改金额：这笔签约有订单的话，订单上抄的那份跟着改，切回外贸时不会对不上（二审）
+      if (input.id) await tx.tradeOrder.updateMany({ where: { contractId: 签约id }, data: { amount: 精确, currency: 规整币种(币) } });
       return { 签约id, 币 };
     });
     if ("duplicate" in 落库) return { ok: false, duplicate: 落库.duplicate };
@@ -932,7 +947,7 @@ export async function saveContract(input: {
     if (单) revalidatePath("/orders");
     return { ok: true, ...(联动 ? { 联动 } : {}), ...(单 ? { 订单: 单 } : {}) };
   } catch (e) {
-    if (e instanceof 订单号重复) return { ok: false, error: e.message };
+    if (e instanceof 订单说不通) return { ok: false, error: e.message };
     return 不在了(e);
   }
 }
@@ -1009,10 +1024,18 @@ export async function deleteContract(
     */
     const 订单 = await prisma.tradeOrder.findFirst({ where: { contractId: id, customerId }, select: { id: true, no: true } });
     // 同一个事务：删签约那步失败（已经被删、权限不够）时订单不能已经没了。函数式事务（托管版不认数组式，见 tests/no-array-transaction）
-    const gone = await prisma.$transaction(async (tx) => {
-      if (订单) await tx.tradeOrder.deleteMany({ where: { id: 订单.id } });
-      return tx.contract.deleteMany({ where: { id, customerId } });
-    });
+    const gone = await prisma
+      .$transaction(async (tx) => {
+        if (订单) await tx.tradeOrder.deleteMany({ where: { id: 订单.id } });
+        const r = await tx.contract.deleteMany({ where: { id, customerId } });
+        // 签约没删着（已经不在、看不到）：整个事务退回，订单也不删（二审：deleteMany 删 0 条不会自己抛）
+        if (r.count === 0) throw new 签约没删着();
+        return r;
+      })
+      .catch((e) => {
+        if (e instanceof 签约没删着) return { count: 0 };
+        throw e;
+      });
     if (gone.count === 0) {
       return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
     }
@@ -1055,6 +1078,9 @@ export async function deleteContract(
     return 不在了(e);
   }
 }
+
+/** deleteContract 事务里「签约没删着」：抛它让订单那一删也退回 */
+class 签约没删着 extends Error {}
 
 /* ---------- 记录页的行内编辑 ---------- */
 

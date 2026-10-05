@@ -11,6 +11,8 @@ import { 金额 } from "@/lib/currency";
 import type { 订单详情数据 } from "@/lib/order-db";
 import ContractForm from "../../customers/[id]/ContractForm";
 import { addOrderNote } from "../actions";
+import { 供应商页, 报价明细 } from "@/lib/features";
+import { 小计, 报价合计 } from "@/lib/quote";
 
 /**
  * 一张订单，轻量版（2026-10-05 外贸客户建议；节点关着时用它，见 lib/features.ts 订单节点）。
@@ -62,7 +64,11 @@ export default function OrderLite({ o }: { o: 订单详情数据 }) {
           <Descriptions.Item label="订单号">{o.no}</Descriptions.Item>
           <Descriptions.Item label="金额"><b>{钱}</b></Descriptions.Item>
           <Descriptions.Item label="付款方式">{o.payment ?? <span className="muted">—</span>}</Descriptions.Item>
-          <Descriptions.Item label="供应商">{o.采购?.supplierName ?? <span className="muted">—</span>}</Descriptions.Item>
+          <Descriptions.Item label="供应商">
+            {o.采购?.supplierName
+              ? 供应商页 && o.采购.supplierId ? <Link href={`/suppliers/${o.采购.supplierId}`}>{o.采购.supplierName}</Link> : o.采购.supplierName
+              : <span className="muted">—</span>}
+          </Descriptions.Item>
           <Descriptions.Item label="订单确认时间">{fmtDate(确认)}</Descriptions.Item>
           <Descriptions.Item label="业务员">{o.ownerName}</Descriptions.Item>
           {o.opportunity && (
@@ -73,6 +79,21 @@ export default function OrderLite({ o }: { o: 订单详情数据 }) {
           {(c?.remark ?? o.remark) && <Descriptions.Item label="备注" span="filled">{c?.remark ?? o.remark}</Descriptions.Item>}
         </Descriptions>
       </Card>
+
+      {/* 报价明细开着时（lib/features.ts）：来源商机当前那一版报价，和节点版订单页同一块（二审） */}
+      {报价明细 && o.报价 && (
+        <Card style={{ marginTop: 16 }} title={<span className="section-title">报价明细</span>} extra={<span className="muted">{fmtDate(o.报价.quotedAt)} 报的价，来自商机</span>}>
+          <table className="ord-quote">
+            <thead><tr><th>产品</th><th>规格</th><th className="r">数量</th><th className="r">单价</th><th className="r">小计</th></tr></thead>
+            <tbody>
+              {o.报价.行.map((r, i) => (
+                <tr key={i}><td>{r.product}</td><td>{r.spec ?? ""}</td><td className="r">{r.qty}{r.unit ? ` ${r.unit}` : ""}</td><td className="r">{金额(r.unitPrice, o.报价!.currency)}</td><td className="r">{金额(小计(r), o.报价!.currency)}</td></tr>
+              ))}
+            </tbody>
+            <tfoot><tr><td colSpan={4}>合计</td><td className="r"><b>{金额(报价合计(o.报价.行), o.报价.currency)}</b></td></tr></tfoot>
+          </table>
+        </Card>
+      )}
 
       <Card style={{ marginTop: 16 }} title={<span className="section-title">订单跟进 {o.notes.length > 0 && o.notes.length}</span>}>
         <div className="ord-note-box">

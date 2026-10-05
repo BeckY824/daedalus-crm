@@ -1,5 +1,6 @@
 "use client";
 
+import { 签约叫 } from "@/lib/business-config";
 import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -241,7 +242,7 @@ export default function LeadsView({
         加载中={pending}
         空态={{
           title: "还没有线索",
-          hint: `线索是还没确认要不要跟的人。确认要跟了就转成${b.customer}，之后的跟进、商机、签约都在${b.customer}那边走。`,
+          hint: `线索是还没确认要不要跟的人。确认要跟了就转成${b.customer}，之后的跟进、商机、${签约叫(b)}都在${b.customer}那边走。`,
           primary: { label: "新建第一条线索", onClick: () => { setEditing(null); setOpen(true); } },
         }}
         筛选={

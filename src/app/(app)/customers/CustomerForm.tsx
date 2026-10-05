@@ -293,10 +293,14 @@ function CustomerFormInner({
             <Form.Item
               label="联系电话"
               name="phone"
-              required={电话必填}
+              required={电话必填 && !外贸}
+              dependencies={外贸 ? [["extra", "whatsapp"]] : undefined}
+              extra={外贸 && 电话必填 ? "没有电话可以只填 WhatsApp，就用它认人" : undefined}
               rules={[
                 {
                   validator: (_, v: string | undefined) => {
+                    // 外贸：电话空着、填了 WhatsApp 就行（服务端拿 WhatsApp 当电话，二审）
+                    if (外贸 && !v?.trim() && String(form.getFieldValue(["extra", "whatsapp"]) ?? "").trim()) return Promise.resolve();
                     // 共享试用区里号码是打了码给人看的：没动它就放行，服务端会认回原号（排查 A2）
                     if (editing && v && v.includes("*") && v === editing.phone) return Promise.resolve();
                     const r = 查电话(v, { 必填: 电话必填 });

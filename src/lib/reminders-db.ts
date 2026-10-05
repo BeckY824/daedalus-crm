@@ -34,7 +34,8 @@ export async function 取订单提醒项(ownerId: string): Promise<订单提醒�
     where: {
       status: { notIn: ["已完成", "不适用"] },
       OR: [{ dueAt: { not: null } }, { status: "卡住" }],
-      order: { ownerId },
+      // 跟客户现在的负责人走（二审）：order.ownerId 是下单那一刻固化的业绩归属，客户转给同事之后原业务员还在收提醒、点进去看不到
+      order: { customer: { salesOwnerId: ownerId } },
     },
     select: { name: true, dueAt: true, status: true, order: { select: { id: true, no: true } } },
   });

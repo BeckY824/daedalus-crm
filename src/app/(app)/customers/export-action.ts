@@ -68,5 +68,5 @@ export async function 导出客户(条件: 客户条件): Promise<
       orderNo: f.orderNode?.order.no ?? null,
       ownerName: f.owner.name,
     }));
-  return { ok: true, rows: rows.map((r) => 成客户行(r, 号)), 跟进, 截断了: 全部.length > 导出上限, 跟进截断了: 跟进行.length > 跟进上限 };
+  return { ok: true, rows: rows.map((r) => 成客户行(r, 号)), 跟进, 截断了: 全部.length > 导出上限, 跟进截断了: 跟进行.length > 跟进上限 && 跟进行.slice(0, 跟进上限).some((f) => 人.has(f.customerId)) };
 }

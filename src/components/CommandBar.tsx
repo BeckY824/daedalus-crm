@@ -8,6 +8,7 @@ import { Modal } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸订单 } from "@/lib/business-config";
+import { 供应商页 } from "@/lib/features";
 import { 换一位 } from "@/lib/roster";
 
 /**
@@ -48,6 +49,8 @@ export default function CommandBar() {
       { 名: "商机管道", 去: "/opportunities/pipeline", 说明: "按阶段拖着看" },
       // 外贸模版的订单（2026-10-05）：左栏有，这里也要有
       ...(外贸订单(b) ? [{ 名: "订单", 去: "/orders", 说明: "客户确认的每一单" }] : []),
+      // 供应商页开着时（lib/features.ts）左栏有，这里也要有（二审）
+      ...(b.template === "trade" && 供应商页 ? [{ 名: "供应商", 去: "/suppliers", 说明: "工厂档案和比价" }] : []),
       { 名: "跟进记录", 去: "/follow-ups", 说明: "已经发生的沟通" },
       { 名: "跟进计划", 去: "/follow-ups/plans", 说明: "排好还没做的" },
       { 名: "设置", 去: "/settings", 说明: "成员、密码、AI 接入、业务配置" },

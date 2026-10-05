@@ -325,11 +325,19 @@ export function 摊开(p: 排布): 一行[] {
       值.remark = 值.remark ? `${值.remark}\n${捡回来.join("\n")}` : 捡回来.join("\n");
     }
 
+    /*
+      外贸：电话空着、有 WhatsApp 的，拿 WhatsApp 号当电话认人（二审：小满导出来的客户很多只有 WhatsApp，原来整行进不了）。
+      WhatsApp 本来就是一个手机号，同一位客户再导一次也按它认得出来
+    */
+    if (!值.phone && 值.whatsapp && !问题.some((q) => q.字段 === "phone")) {
+      const n = 规整手机号(值.whatsapp);
+      if (像手机号(n)) 值.phone = n;
+    }
     // 认人那两格。顺序要紧：先说没有手机号，再说姓名——手机号是认人的那一列
     let 进不了: string | undefined;
     if (!值.phone) {
       const 有格问题 = 问题.some((q) => q.字段 === "phone");
-      进不了 = 有格问题 ? "手机号看不出是个号码" : "这一行没有手机号";
+      进不了 = 有格问题 ? "手机号看不出是个号码" : p.字段表.some((f) => f.名 === "whatsapp") ? "这一行没有电话，也没有 WhatsApp" : "这一行没有手机号";
     } else if (!值.name) {
       进不了 = "这一行没有姓名";
     }

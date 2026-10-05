@@ -110,6 +110,8 @@ export default function RecordView({
   const 是订单 = 外贸订单(b);
   const 叫 = 签约叫(b);
   const 档 = customer.extra;
+  /** 切回通用模版后，填过的外贸档案照样摆出来（二审：搜得到却看不出为什么，像数据丢了） */
+  const 摆档案 = 外贸 || (!!档 && Object.values(档).some(Boolean));
   const wa = WhatsApp网址(档?.whatsapp);
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
@@ -467,7 +469,7 @@ export default function RecordView({
             <InlineField customerId={customer.id} field="school" label={b.fields.school} value={customer.school} />
             <InlineField customerId={customer.id} field="major" label={b.fields.major} value={customer.major} />
             <InlineField customerId={customer.id} field="grade" label={b.fields.grade} value={customer.grade} kind="combo" options={b.grades.map((g) => ({ value: g, label: g }))} />
-            {外贸 && (
+            {摆档案 && (
               <>
                 <InlineField customerId={customer.id} field="country" label="国家" value={档?.country ?? null} kind="combo" options={国家候选.flatMap((g) => g.国家).map((x) => ({ value: x, label: x }))} />
                 <InlineField customerId={customer.id} field="whatsapp" label="WhatsApp" value={档?.whatsapp ?? null} />
@@ -614,7 +616,7 @@ export default function RecordView({
                 // 外贸：一笔签约就是一张订单。两行：订单号 + 金额；确认日 · 付款方式 · 供应商。点进订单页看挂在它上面的跟进
                 <div key={c.id} className="rec-mini rec-mini-2">
                   <span className="rec-mini-n">
-                    {c.order ? <Link href={`/orders/${c.order.id}`}>{c.order.no}</Link> : <span className="muted">（没有订单号）</span>}
+                    {c.order ? <Link href={`/orders/${c.order.id}`}>{c.order.no}</Link> : <span className="muted" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
                     <span className="rec-mini-amt"> · {金额(c.amount, c.currency)}</span>
                   </span>
                   <span className="rec-mini-sub">

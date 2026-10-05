@@ -208,6 +208,30 @@ describe("业务员只看自己的 + 公海", () => {
     }
   });
 
+  it("二审：业务员在编辑框里把客户交给同事、同时改了 WhatsApp——保存成功，其余档案格不被清掉", async () => {
+    const id = ids["小王的客户"];
+    await raw.customerExtra.upsert({ where: { customerId: id }, create: { customerId: id, country: "美国", email: "a@b.com" }, update: { country: "美国", email: "a@b.com" } });
+    const 现 = await raw.customer.findUniqueOrThrow({ where: { id } });
+    const 起 = new Date();
+    try {
+      当("wang");
+      进团队();
+      登录的.user = { ...登录的.user, id: 小王 };
+      const r = await saveCustomer({
+        id, updatedAt: 现.updatedAt.toISOString(), name: 现.name, phone: 现.phone, school: null, grade: null, major: null,
+        followStatus: 现.followStatus, decisionStatus: 现.decisionStatus, expectedSignAt: null, remark: null,
+        salesOwnerId: 小李, channelId: null, referrerCustomerId: null, extra: { whatsapp: "+1 415 555 0101" },
+      });
+      expect(r.ok, JSON.stringify(r)).toBe(true);
+      expect(await raw.customerExtra.findUniqueOrThrow({ where: { customerId: id } })).toMatchObject({ country: "美国", email: "a@b.com", whatsapp: "+1 415 555 0101" });
+    } finally {
+      await raw.customer.update({ where: { id }, data: { salesOwnerId: 小王 } });
+      await raw.customerExtra.deleteMany();
+      await raw.auditLog.deleteMany({ where: { at: { gte: 起 } } }); // 后面的用例数日志条数
+      登录的.user = { ...登录的.user, id: "acct_wang" };
+    }
+  });
+
   it("按 id 打开别人的客户：找不到（详情页 404）；改、删别人的客户：不成", async () => {
     当("wang");
     进团队();

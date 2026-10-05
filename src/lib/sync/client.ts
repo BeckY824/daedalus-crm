@@ -503,7 +503,14 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       没记过签名的（这一版之前入的团队）也重拉一次：那时候可能已经跳过了东西
     */
     const 签名 = await 本机结构签名(prisma);
-    let 拉 = 0, 撞 = 0, 拉到 = c.结构 === 签名 ? c.pulled : 0;
+    /*
+      开始重拉时先把签名和 pulled=0 一起记下（二审）：进度只靠 pulled 记，中途退出、断网、坏包都从断点接着拉，
+      不会每一轮都从 0 重来；重拉时跳过以前已经认定是坏包的那几批（skipped），不再各试三遍
+    */
+    const 重拉 = c.结构 !== 签名;
+    if (重拉) 记({ pulled: 0, 结构: 签名 });
+    const 坏包 = new Set(c.skipped ?? []); // 平常游标早就越过它们了，只有重拉会再碰到
+    let 拉 = 0, 撞 = 0, 拉到 = 重拉 ? 0 : c.pulled;
     const 成员行数 = async () => Number((await prisma.$queryRawUnsafe<{ n: number | bigint }[]>(`SELECT count(*) AS n FROM "User" WHERE id LIKE 'acct_%'`))[0]?.n ?? 0);
     const 拉前成员 = await 成员行数();
     for (;;) {
@@ -517,7 +524,7 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       // 云端的钥匙比本机新：先取新钥匙，这几批里可能有用新钥匙封的
       if (Number(r.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
       for (const b of 批们) {
-        if (b.device !== c.device) {
+        if (b.device !== c.device && !坏包.has(b.seq)) {
           let 这批: 改动[];
           try {
             这批 = 拆(b.data, 全部钥匙(c), { teamId: c.teamId, device: b.device });

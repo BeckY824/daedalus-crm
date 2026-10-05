@@ -1,5 +1,5 @@
 /**
- * 外贸订单（2026-10-03 外贸第 3a 块）：切到外贸模版 → 商机标赢单时一起生成订单 → 订单页走节点、记一笔、勾单据、填尾款 →
+ * 外贸订单（2026-10-03 外贸第 3a 块）：切到外贸模版 → 商机「转为订单」（订单 = 一笔签约，2026-10-05）→ 订单页走节点、记一笔、勾单据、填尾款 →
  * 订单一览里看得到当前节点。
  *
  * 模版要从「设置 → 业务配置」界面切：设置有进程内缓存，直接改库服务端看不到。
@@ -9,7 +9,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { 连库 } from "./mock-data";
 import { 订单节点 } from "../src/lib/features";
 
-// 订单 / 供应商 0.46.15 这一版不上（lib/features.ts，用户 10-04 极简收窄）：开关打开时这份用例照常跑
+// 订单的 12 个节点这一版不上（lib/features.ts 订单节点）：开关打开时这份用例照常跑（2026-10-06 临时打开实跑过一遍）
 test.skip(!订单节点, "订单的 12 个节点这一版不上（轻量订单见 e2e/trade-order.spec.ts）");
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
@@ -68,7 +68,7 @@ test.afterAll(async ({ browser }) => {
   }
 });
 
-test("外贸订单：赢单一起生成 → 走节点、记一笔、勾单据、填尾款 → 一览里看得到", async ({ page }) => {
+test("外贸订单：转为订单 → 走节点、记一笔、勾单据、填尾款 → 一览里看得到", async ({ page }) => {
   // 全程控制台不许有 error / warning（订单页、比价抽屉、供应商页这些组件 console-audit 走不到）
   const 问题: string[] = [];
   page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") 问题.push(`[${m.type()}] ${m.text().slice(0, 200)}`); });
@@ -83,14 +83,15 @@ test("外贸订单：赢单一起生成 → 走节点、记一笔、勾单据、
   // 外贸模版下阶段换外贸叫法：谈判审核 → 寄样（存的值不变）
   await expect(page.locator(".ant-table-row", { hasText: 商机名 })).toContainText("寄样");
 
-  // 1. 标赢单，小框里「同时生成订单」默认勾着
+  // 1. 外贸下「转为订单」：订单框（金额带商机的），填订单号保存；订单 = 一笔签约（2026-10-05）
   await page.getByRole("button", { name: `${商机名} 的更多操作` }).click();
-  await page.getByRole("menuitem", { name: "标记赢单" }).click();
-  const 问 = page.locator(".won-ask");
-  await expect(问.getByRole("checkbox", { name: /同时生成订单/ })).toBeChecked();
-  await 问.getByRole("button", { name: "只标赢单" }).click();
-  await expect(page.getByText("订单已建好")).toBeVisible();
-  await page.getByRole("button", { name: /去看订单/ }).click();
+  await page.getByRole("menuitem", { name: "转为订单" }).click();
+  const 框 = page.getByRole("dialog", { name: "转为订单" });
+  await 框.getByLabel("订单号 / PI 号").fill("PI-NODES-1");
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.getByText(/订单 PI-NODES-1 已建好/)).toBeVisible();
+  await page.goto("/orders");
+  await page.getByRole("link", { name: "PI-NODES-1" }).click();
   await page.waitForURL(/\/orders\/[^/?]+$/);
 
   // 2. 订单页：前四步已完成，当前是第 5 步「收定金」

@@ -276,7 +276,7 @@ export default function OpportunitiesView({
     const 阶段 = r.stage === "赢单成交" ? "谈判审核" : r.stage;
     const res = await setOppStatus(r.id, "OPEN", { stage: 阶段, probability: STAGE_PROBABILITY[阶段] ?? 20 });
     if (!res.ok) return void message.error(res.error);
-    message.success(`「${r.name}」已重新打开，回到 ${阶段}`);
+    message.success(`「${r.name}」已重新打开，回到 ${stageLabel(b, 阶段)}`);
     router.refresh();
     亮一下(r.id);
   }

@@ -69,6 +69,8 @@ export async function 客户筛选条件(
             // 号码按原词也搜一遍（复查）：WhatsApp、联系人电话是原样存的（「+86 138 0000 1111」），只按纯数字号段搜会漏
             { extra: { is: { OR: [{ whatsapp: { contains: 词 } }, ...(号段 ? [{ whatsapp: { contains: 号段 } }] : []), { email: { contains: 词 } }, { wechat: { contains: 词 } }, { country: { contains: 词 } }] } } },
             { contacts: { some: { OR: [{ name: { contains: 词 } }, { phone: { contains: 词 } }, ...(号段 ? [{ phone: { contains: 号段 } }] : []), { email: { contains: 词 } }, { wechat: { contains: 词 } }] } } },
+            // 订单号（二审）：外贸里客户常常报 PI 号来问，一搜就是那位客户
+            { tradeOrders: { some: { no: { contains: 词 } } } },
           ],
         }
       : {}),

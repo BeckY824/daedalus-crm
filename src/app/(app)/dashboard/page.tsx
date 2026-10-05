@@ -7,7 +7,7 @@ import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { 唯一负责人 } from "@/lib/owners";
 import { dayjs } from "@/lib/utils";
 import { getBusiness } from "@/lib/business";
-import { statusLabel } from "@/lib/business-config";
+import { statusLabel, 外贸订单 } from "@/lib/business-config";
 import { loadWatchlist } from "@/lib/sentinel-data";
 import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
@@ -123,7 +123,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       ]
     : [
         { label: `今天谁最需要跟进？`, question: `今天最该跟进的${b.customer}是谁，为什么` },
-        { label: "这个月谁签得最多？", question: "这个月哪个销售的签约金额最多" },
+        外贸订单(b)
+          ? { label: "这个月谁的订单最多？", question: "这个月哪个业务员的订单金额最多" }
+          : { label: "这个月谁签得最多？", question: "这个月哪个销售的签约金额最多" },
         { label: "哪些商机可能延期？", question: "哪些进行中的商机已经很久没动了，可能延期" },
         { label: `各跟进状态各有多少${b.customer}？`, question: `各跟进状态各有多少${b.customer}` },
         { label: "帮我记一次电话", question: "帮我记一次电话沟通" },
