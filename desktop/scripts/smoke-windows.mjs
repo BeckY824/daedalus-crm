@@ -35,10 +35,14 @@ async function 登录(p, 邮箱) {
   await p.locator('input[type="password"]').fill("smoke-password");
   await p.locator('button[type="submit"]').click();
 }
-/** 新库第一次进门先选模版（通用 / 外贸），进了主界面可能再弹一次「这一版更新了这些」 */
+/**
+ * 新库第一次进门先选模版（通用 / 外贸），进了主界面可能再弹一次「这一版更新了这些」。
+ * 不看网址：老账号回来落在他上次停的那一页（D-025，比如数据页），不一定是 /dashboard
+ */
 async function 进主界面(p) {
-  await p.waitForURL(/\/(start|dashboard)/, { timeout: 60000 });
-  if (/\/start/.test(p.url())) await p.getByRole("button", { name: /用通用销售开始/ }).click();
+  const 模版 = p.getByRole("button", { name: /用通用销售开始/ });
+  await expect(模版.or(p.locator(".rail")).first()).toBeVisible({ timeout: 60000 });
+  if (await 模版.isVisible()) await 模版.click();
   await expect(p.locator(".rail")).toBeVisible({ timeout: 60000 });
   const 知道了 = p.getByRole("button", { name: /知\s*道\s*了/ });
   await 知道了.waitFor({ timeout: 5000 }).then(() => 知道了.click(), () => undefined);
