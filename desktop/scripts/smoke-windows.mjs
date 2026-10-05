@@ -25,18 +25,33 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const cloud = `http://127.0.0.1:${server.address().port}`;
 const env = { ...process.env, CRM_DATA_ROOT: root, CRM_CLOUD_URL: cloud, CRM_UPDATE_URL: `${cloud}/updates`, CRM_UPDATE_FALLBACK_URL: `${cloud}/updates` };
 delete env.ELECTRON_RUN_AS_NODE;
+/**
+ * 0.46.15 的新登录门：先填邮箱点「继续」，云端说是老号才出密码框。
+ * 这个替身没有「注册开始」接口、回 404——桌面端当成老云端，直接去输密码（H-055），正好走登录这条
+ */
+async function 登录(p, 邮箱) {
+  await p.locator("#auth-email").fill(邮箱);
+  await p.getByRole("button", { name: /继\s*续/ }).click();
+  await p.locator('input[type="password"]').fill("smoke-password");
+  await p.locator('button[type="submit"]').click();
+}
+/** 新库第一次进门先选模版（通用 / 外贸），进了主界面可能再弹一次「这一版更新了这些」 */
+async function 进主界面(p) {
+  await p.waitForURL(/\/(start|dashboard)/, { timeout: 60000 });
+  if (/\/start/.test(p.url())) await p.getByRole("button", { name: /用通用销售开始/ }).click();
+  await expect(p.locator(".rail")).toBeVisible({ timeout: 60000 });
+  const 知道了 = p.getByRole("button", { name: /知\s*道\s*了/ });
+  await 知道了.waitFor({ timeout: 5000 }).then(() => 知道了.click(), () => undefined);
+}
 let app;
 try {
   app = await electron.launch({ executablePath, env, timeout: 60000 });
   const page = await app.firstWindow();
   page.setDefaultTimeout(30000);
-  await expect(page.locator('input[type="password"]')).toBeVisible();
+  await expect(page.locator("#auth-email")).toBeVisible();
   console.log("PASS: packaged app starts at cloud login");
-  await page.locator('input:not([type="password"]):not([type="hidden"])').first().fill("smoke@example.test");
-  await page.locator('input[type="password"]').fill("smoke-password");
-  await page.locator('button[type="submit"]').click();
-  await page.waitForURL("**/dashboard", { timeout: 60000 });
-  await expect(page.locator(".rail")).toBeVisible();
+  await 登录(page, "smoke@example.test");
+  await 进主界面(page);
   console.log("PASS: cloud login and local session");
   await expect(page.getByRole("heading", { name: "欢迎使用 Daedalus CRM" })).toBeVisible();
   await page.waitForFunction(() => {
@@ -93,10 +108,8 @@ try {
     await restarted.evaluate(() => fetch("/api/auth/logout", { method: "POST" }));
     identity = id;
     await restarted.goto(`${new URL(restarted.url()).origin}/login`);
-    await restarted.locator('input:not([type="password"]):not([type="hidden"])').first().fill(`${id}@example.test`);
-    await restarted.locator('input[type="password"]').fill("smoke-password");
-    await restarted.locator('button[type="submit"]').click();
-    await expect(restarted.locator(".rail")).toBeVisible({ timeout: 60000 });
+    await 登录(restarted, `${id}@example.test`);
+    await 进主界面(restarted);
   }
   await switchTo("windows-smoke-b");
   const secondDb = accountFile();
