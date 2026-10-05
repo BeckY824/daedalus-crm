@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { useBusiness } from "@/lib/business-client";
+import { 外贸订单 } from "@/lib/business-config";
 import { 换一位 } from "@/lib/roster";
 
 /**
@@ -42,14 +43,16 @@ export default function CommandBar() {
       { 名: "线索", 去: "/leads", 说明: "还没建档的人" },
       { 名: b.customer, 去: "/customers", 说明: "全部档案与跟进" },
       { 名: "渠道", 去: "/channels", 说明: "外部推荐来源" },
-      { 名: "联系人", 去: "/contacts", 说明: "家长、老师、经办人" },
+      { 名: "联系人", 去: "/contacts", 说明: b.fields.school === "院校" ? "家长、老师、经办人" : "客户那边对接的人" },
       { 名: "商机", 去: "/opportunities", 说明: "在谈的单子" },
       { 名: "商机管道", 去: "/opportunities/pipeline", 说明: "按阶段拖着看" },
+      // 外贸模版的订单（2026-10-05）：左栏有，这里也要有
+      ...(外贸订单(b) ? [{ 名: "订单", 去: "/orders", 说明: "客户确认的每一单" }] : []),
       { 名: "跟进记录", 去: "/follow-ups", 说明: "已经发生的沟通" },
       { 名: "跟进计划", 去: "/follow-ups/plans", 说明: "排好还没做的" },
       { 名: "设置", 去: "/settings", 说明: "成员、密码、AI 接入、业务配置" },
     ],
-    [b.customer],
+    [b],
   );
 
   const 命中 = useMemo(() => {

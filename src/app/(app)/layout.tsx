@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { 订单与供应商 } from "@/lib/features";
+import { 订单节点 } from "@/lib/features";
 import { 读收藏 } from "@/lib/favorites";
 import { prisma } from "@/lib/prisma";
 import { headers } from "next/headers";
@@ -54,8 +54,8 @@ export default async function AppLayout({
   */
   const [提醒项, 订单提醒项, business, ua, 有AI, models, 收藏, 客户数, 在谈商机数] = await Promise.all([
     取提醒项(user.id),
-    // 订单这一版不上（lib/features.ts）：不取，左栏和 Dock 上也就没有订单的数
-    订单与供应商 ? 取订单提醒项(user.id) : Promise.resolve([]),
+    // 订单节点这一版不上（lib/features.ts）：不取，左栏和 Dock 上也就没有订单的数
+    订单节点 ? 取订单提醒项(user.id) : Promise.resolve([]),
     // 业务术语（学员/客户、院校/年级/专业…）：全站客户端组件从这里拿
     getBusiness(),
     headers().then((h) => h.get("user-agent") ?? ""),

@@ -1,4 +1,4 @@
-import { 订单与供应商 } from "@/lib/features";
+import { 订单 } from "@/lib/features";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { 订单列表 } from "@/lib/order-db";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function OrdersPage({ searchParams }: { searchParams: Promise<{ ownerId?: string; 看?: string }> }) {
   // 订单 / 供应商这一版不上（lib/features.ts）：直接输网址也打不开
-  if (!订单与供应商) notFound();
+  if (!订单) notFound();
   await requireUser();
   const sp = await searchParams;
   const [rows, users] = await Promise.all([订单列表(sp.ownerId ? { ownerId: sp.ownerId } : {}), 负责人候选()]);

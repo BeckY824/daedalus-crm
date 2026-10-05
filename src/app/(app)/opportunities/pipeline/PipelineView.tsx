@@ -9,7 +9,7 @@ import EmptyState from "@/components/EmptyState";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
 import { 金额, 按币种合计, 合计文字 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
-import { stageLabel } from "@/lib/business-config";
+import { stageLabel, 外贸订单, 外贸精简 } from "@/lib/business-config";
 import { moveStage } from "../actions";
 import OpportunityForm from "../OpportunityForm";
 import ContractForm from "../../customers/[id]/ContractForm";
@@ -141,6 +141,8 @@ export default function PipelineView({
     set签约框(null);
     if (!r) return;
     if (saved) return void router.refresh();
+    // 外贸：拖进「客户确认」就是转为订单，订单框点了取消 = 没转，卡片回原列（不然商机挂着「已转订单」却没有订单）
+    if (外贸订单(b)) return void set挪(null);
     await 写阶段(r, "赢单成交");
   }
 
@@ -238,7 +240,7 @@ export default function PipelineView({
               </div>
               <div className="pipe-bar" style={{ background: color }} />
 
-              {items.length === 0 && <div className="pipe-empty">{stage === "赢单成交" ? `近 ${赢单天数} 天还没有赢单` : "这一阶段没有在谈的"}</div>}
+              {items.length === 0 && <div className="pipe-empty">{stage === "赢单成交" ? `近 ${赢单天数} 天还没有${外贸订单(b) ? "转订单的" : "赢单"}` : "这一阶段没有在谈的"}</div>}
 
               {items.map((r) => (
                 <Dropdown
@@ -258,7 +260,7 @@ export default function PipelineView({
                     draggable
                     tabIndex={0}
                     role="button"
-                    title={`${r.customerName} · ${r.probability}% · 右键或按 Enter 换一个阶段`}
+                    title={`${r.customerName}${外贸精简(b) ? "" : ` · ${r.probability}%`} · 右键或按 Enter 换一个阶段`}
                     aria-label={`${r.name}，${金额(r.amount, r.currency)}，${stageLabel(b, 显示阶段(r))}`}
                     onDragStart={() => setDragId(r.id)}
                     onDragEnd={() => setDragId(null)}

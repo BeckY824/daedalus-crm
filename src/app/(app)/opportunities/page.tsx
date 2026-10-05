@@ -81,6 +81,7 @@ export default async function OpportunitiesPage({
         probability: o.probability,
         updatedAt: o.updatedAt.toISOString(),
         expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
+        createdAt: o.createdAt.toISOString(),
         remark: o.remark,
         customerId: o.customer.id,
         customerName: o.customer.name,

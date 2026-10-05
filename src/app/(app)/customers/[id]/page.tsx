@@ -10,7 +10,7 @@ import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { 带币种, 签约金额, 签约币种, 签约合计, 商机币种 } from "@/lib/money-db";
 import { 客户报价记录 } from "@/lib/quote-db";
 import { 报价明细 } from "@/lib/features";
-import { 订单列表 } from "@/lib/order-db";
+import { 取档案 } from "@/lib/customer-extra-db";
 
 export const dynamic = "force-dynamic";
 
@@ -39,9 +39,14 @@ export default async function CustomerDetailPage({
       attributionChannel: { select: { name: true } },
       attributionCustomer: { select: { id: true, name: true } },
       pool: { select: { reason: true } },
+      extra: true,
       // 该学员自己推荐来的人，用于展示推荐链下游
       referrals: { select: { id: true, name: true, followStatus: true }, orderBy: { createdAt: "desc" } },
-      contracts: { orderBy: { signedAt: "desc" }, include: 带币种.签约 },
+      // 签约带上它是哪张订单（外贸，2026-10-05）：订单号、付款方式、供应商
+      contracts: {
+        orderBy: { signedAt: "desc" },
+        include: { ...带币种.签约, order: { select: { id: true, no: true, payment: true, purchase: { select: { supplier: { select: { name: true } } } } } } },
+      },
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
       opportunities: { orderBy: { createdAt: "desc" }, include: 带币种.商机 },
       tasks: { orderBy: [{ done: "asc" }, { dueAt: "asc" }] },
@@ -53,6 +58,7 @@ export default async function CustomerDetailPage({
           owner: { select: { name: true } },
           contact: { select: { name: true, position: true } },
           source: { select: { text: true } },
+          orderNode: { select: { order: { select: { id: true, no: true } } } },
         },
       },
     },
@@ -116,6 +122,8 @@ export default async function CustomerDetailPage({
         signedAmount: customer.contracts.reduce((a, c) => a + 签约金额(c), 0),
         signedTotals: 签约合计(customer.contracts),
         pool: customer.pool ? { reason: customer.pool.reason } : null,
+        // WhatsApp 也是号码：共享试用区和电话一样打码
+        extra: (() => { const x = 取档案(customer.extra); return { ...x, whatsapp: x.whatsapp && 号(x.whatsapp) }; })(),
         updatedAt: customer.updatedAt.toISOString(),
       }}
       contacts={customer.contacts.map((c) => ({
@@ -130,13 +138,13 @@ export default async function CustomerDetailPage({
         updatedAt: c.updatedAt.toISOString(),
       }))}
       报价记录={报价明细 ? await 客户报价记录(customer.id) : []}
-      订单={await 订单列表({ customerId: customer.id })}
       contracts={customer.contracts.map((c) => ({
         id: c.id,
         amount: 签约金额(c),
         currency: 签约币种(c),
         signedAt: c.signedAt.toISOString(),
         remark: c.remark,
+        order: c.order ? { id: c.order.id, no: c.order.no, payment: c.order.payment, supplier: c.order.purchase?.supplier?.name ?? null } : null,
       }))}
       opportunities={customer.opportunities.map((o) => ({
         id: o.id,
@@ -147,6 +155,7 @@ export default async function CustomerDetailPage({
         status: o.status,
         probability: o.probability,
         expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
+        createdAt: o.createdAt.toISOString(),
       }))}
       tasks={customer.tasks.map((t) => ({
         id: t.id,
@@ -181,6 +190,8 @@ export default async function CustomerDetailPage({
         contactPosition: f.contact?.position ?? null,
         contactId: f.contactId,
         opportunityId: f.opportunityId,
+        orderId: f.orderNode?.order.id ?? null,
+        order: f.orderNode?.order ?? null,
         updatedAt: f.updatedAt.toISOString(),
       }))}
     />

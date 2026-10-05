@@ -1,9 +1,9 @@
 "use client";
 
-import { 订单与供应商 } from "@/lib/features";
+import { 供应商页 } from "@/lib/features";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Space, Select, Tag, InputNumber, DatePicker, App, Dropdown, Popover, Checkbox } from "antd";
+import { Button, Space, Select, Tag, InputNumber, DatePicker, App, Dropdown, Popover } from "antd";
 import {
   PlusOutlined,
   MoreOutlined,
@@ -20,14 +20,14 @@ import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { fmtDate, dayjs, 成员选项, 可选成员 } from "@/lib/utils";
 import { deleteOpportunities, restoreOpportunities, 删商机前清点, moveStage, setOppStatus } from "./actions";
 import { saveContract } from "../customers/actions";
-import { createOrder } from "../orders/actions";
+import ContractForm from "../customers/[id]/ContractForm";
 import InlineConfirm from "@/components/InlineConfirm";
 import OpportunityForm from "./OpportunityForm";
 import CompareDrawer from "./CompareDrawer";
 import { 金额格式 } from "@/lib/money-input";
 import { 金额, 合计文字, 币种符号 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
-import { stageLabel } from "@/lib/business-config";
+import { stageLabel, 外贸订单, 外贸精简 } from "@/lib/business-config";
 import { useUrlFilters } from "@/lib/url-filters";
 
 type 币种合计 = { 币种: string; 合计: number };
@@ -42,6 +42,8 @@ export type OppRow = {
   status: string;
   probability: number;
   expectedDealAt: string | null;
+  /** 外贸模版下叫「询盘时间」（2026-10-05）：商机是哪天来的，人能改 */
+  createdAt: string;
   remark: string | null;
   customerId: string;
   customerName: string;
@@ -72,7 +74,22 @@ export default function OpportunitiesView({
   const b = useBusiness();
   /** 正在看哪个商机的供应商比价（外贸模版，3c） */
   const [比价, set比价] = useState<OppRow | null>(null);
-  const 比价项 = (r: OppRow) => (b.template === "trade" && 订单与供应商 ? [{ key: "compare", label: "供应商比价", onClick: () => set比价(r) }] : []);
+  const 比价项 = (r: OppRow) => (b.template === "trade" && 供应商页 ? [{ key: "compare", label: "供应商比价", onClick: () => set比价(r) }] : []);
+  /*
+    外贸模版（2026-10-05 外贸客户建议）：赢单叫「转为订单」——和线索转客户一个意思，点了就是订单框（金额币种从商机带），
+    存下来是一张订单 + 一笔签约、这个商机标为已转订单（lib/order-contract.ts）。不摆成交概率、预计成交，改摆询盘时间
+  */
+  const 是订单 = 外贸订单(b);
+  const 外贸 = 外贸精简(b);
+  const 赢了叫 = 是订单 ? "已转订单" : "已赢单";
+  /** 正在把哪个商机转为订单 */
+  const [转订单, set转订单] = useState<OppRow | null>(null);
+  /** 「赢单」那一下：外贸直接开订单框，其它模版就地问要不要顺手登记签约 */
+  const 去赢 = (r: OppRow) => {
+    set问丢单(null);
+    if (是订单) set转订单(r);
+    else set问赢单(r.id);
+  };
   const { message, modal } = App.useApp();
   const { f, setF, apply, reset, pending } = useUrlFilters("/opportunities", filters);
   const [open, setOpen] = useState(false);
@@ -133,17 +150,7 @@ export default function OpportunitiesView({
    * 原来这两条线互不相通：赢了单，本月签约金额和客户状态都不动。
    * 选登记就走 saveContract——查重、留痕、把客户推到「已签约」都在那里面，这里不另写一遍。
    */
-  /** 外贸模版下赢单顺手生成订单（2026-10-03）：客户、金额、币种、报价跟过去，前四个节点记成已完成 */
-  async function 生成订单(r: OppRow): Promise<string | null> {
-    const o = await createOrder({ customerId: r.customerId, opportunityId: r.id });
-    if (!o.ok) {
-      message.error(o.error);
-      return null;
-    }
-    return o.id;
-  }
-
-  async function 标赢单(r: OppRow, 签约: { amount: number; signedAt: Date } | null, 要订单 = false) {
+  async function 标赢单(r: OppRow, 签约: { amount: number; signedAt: Date } | null) {
     /*
       登记签约时让 saveContract 的联动去赢这一单（2026-10-04 L-007）：签约和赢单连着记，之后删掉这笔签约，商机能退回去。
       原来先 setOppStatus 再单独登记，两者之间什么都不留，删了签约商机还挂赢单、业绩虚高。
@@ -168,18 +175,7 @@ export default function OpportunitiesView({
       if (!res.ok) return void message.error(res.error);
     }
     set问赢单(null);
-    const 订单id = 要订单 ? await 生成订单(r) : null;
-    if (订单id) {
-      message.success({
-        content: (
-          <span>
-            恭喜赢单{另}，订单已建好
-            <Button type="link" size="small" onClick={() => router.push(`/orders/${订单id}`)}>去看订单 ›</Button>
-          </span>
-        ),
-        duration: 6,
-      });
-    } else message.success(`恭喜赢单${另}`);
+    message.success(`恭喜赢单${另}`);
     router.refresh();
     亮一下(r.id);
   }
@@ -311,7 +307,7 @@ export default function OpportunitiesView({
         // 已关闭的不再摆一个灰掉的下拉（看着像空占位符，审查 D13），直接写结果
         r.status !== "OPEN" ? (
           <Tag color={r.status === "WON" ? "success" : "error"} style={{ margin: "0 0 0 11px", borderRadius: 6 }}>
-            {r.status === "WON" ? "已赢单" : "已丢单"}
+            {r.status === "WON" ? 赢了叫 : "已丢单"}
           </Tag>
         ) : (
           <Select
@@ -321,19 +317,26 @@ export default function OpportunitiesView({
             style={{ width: 128 }}
             options={OPP_STAGES.map((s2) => ({ value: s2, label: stageLabel(b, s2) }))}
             // 选「赢单成交」先问要不要顺手登记签约（2026-10-04 J-090），和「更多 → 标记赢单」同一个问话；不问就改，签约会漏记
-            onChange={(s2) => (s2 === "赢单成交" ? (set问丢单(null), set问赢单(r.id)) : void 改阶段(r, s2))}
+            onChange={(s2) => (s2 === "赢单成交" ? 去赢(r) : void 改阶段(r, s2))}
           />
         ),
     },
-    { title: "概率", key: "probability", dataIndex: "probability", width: 76, render: (v) => `${v}%` },
+    // 外贸不摆概率（客户：「没有意义」）——小团队不估这个数，阶段已经说明谈到哪了
+    ...(外贸 ? [] : [{ title: "概率", key: "probability", dataIndex: "probability", width: 76, render: (v: number) => `${v}%` }]),
     ...(不问归属 ? [] : [{ title: "负责人", key: "ownerName", dataIndex: "ownerName", width: 120, render: (v: string) => <UserCell name={v} size={24} /> }]),
 
-    { title: "预计成交", key: "expectedDealAt", dataIndex: "expectedDealAt", width: 116, 默认: false, render: (v) => <span className="muted nowrap">{fmtDate(v)}</span> },
+    /*
+      外贸：「预计成交」换成「询盘时间」（客户：同一个需求 3 月问了一次没成、5 月又问一次，这样知道客户计划采购的时间点）。
+      询盘时间是发生过的事，预计成交是猜的
+    */
+    外贸
+      ? { title: "询盘时间", key: "createdAt", dataIndex: "createdAt", width: 116, sorter: (a, b2) => a.createdAt.localeCompare(b2.createdAt), render: (v) => <span className="muted nowrap">{fmtDate(v)}</span> }
+      : { title: "预计成交", key: "expectedDealAt", dataIndex: "expectedDealAt", width: 116, 默认: false, render: (v) => <span className="muted nowrap">{fmtDate(v)}</span> },
     {
       title: "状态", key: "status", dataIndex: "status", width: 106, 默认: false,
       render: (v) => (
         <Tag color={v === "WON" ? "success" : v === "LOST" ? "error" : "processing"} style={{ margin: 0, borderRadius: 6 }}>
-          {v === "WON" ? "已赢单" : v === "LOST" ? "已丢单" : "进行中"}
+          {v === "WON" ? 赢了叫 : v === "LOST" ? "已丢单" : "进行中"}
         </Tag>
       ),
     },
@@ -357,10 +360,6 @@ export default function OpportunitiesView({
             <Dropdown
               menu={{
                 items: [
-                  // 以前赢的单补一张订单（已经有了就直接打开那一张，createOrder 不会建第二张）
-                  ...(r.status === "WON" && b.template === "trade" && 订单与供应商
-                    ? [{ key: "order", label: "生成订单", onClick: () => void 生成订单(r).then((id) => id && router.push(`/orders/${id}`)) }]
-                    : []),
                   ...比价项(r),
                   { key: "reopen", label: "重新打开", onClick: () => void 重开(r) },
                 ],
@@ -375,13 +374,13 @@ export default function OpportunitiesView({
               trigger={[]}
               placement="bottomRight"
               destroyOnHidden
-              content={<WonAsk r={r} 可生成订单={b.template === "trade" && 订单与供应商} 做={(签约, 订单) => 标赢单(r, 签约, 订单)} 取消={() => set问赢单(null)} />}
+              content={<WonAsk r={r} 做={(签约) => 标赢单(r, 签约)} 取消={() => set问赢单(null)} />}
             >
               <Dropdown
                 menu={{
                   items: [
                     ...比价项(r),
-                    { key: "won", label: "标记赢单", onClick: () => { set问丢单(null); set问赢单(r.id); } },
+                    { key: "won", label: 是订单 ? "转为订单" : "标记赢单", onClick: () => 去赢(r) },
                     { key: "lost", label: "标记丢单", danger: true, onClick: () => { set问赢单(null); set问丢单(r.id); } },
                   ],
                 }}
@@ -459,7 +458,9 @@ export default function OpportunitiesView({
         加载中={pending}
         空态={{
           title: "还没有商机",
-          hint: `商机是「在谈的那一单」：金额多少、谈到哪一步、大概什么时候成。它挂在${b.customer}下面，签约之后再登记成签约记录。`,
+          hint: 是订单
+            ? `商机是一次询盘：问的什么、报了多少、谈到哪一步。它挂在${b.customer}下面，客户确认后点「转为订单」。`
+            : `商机是「在谈的那一单」：金额多少、谈到哪一步、大概什么时候成。它挂在${b.customer}下面，签约之后再登记成签约记录。`,
           primary: { label: "新建第一条商机", onClick: () => { setEditing(null); setOpen(true); } },
         }}
         汇总={
@@ -467,9 +468,9 @@ export default function OpportunitiesView({
              筛完看到的就是这一筛的总额和预测，紧接着往下看是哪几单撑起来的。
              **一条商机都没有时不出现**：0 / 0 不是信息，是噪音 */
           rows.length > 0 ? (
-            <div className="list-sum" title="加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的">
-              {合计叫} {汇总.单数} 单 · {合计文字(合计, b.currency)}
-              {合计叫 === "进行中" && <> · 加权预测 {合计文字(forecast.map((x) => ({ ...x, 合计: Math.round(x.合计) })), b.currency)}</>}
+            <div className="list-sum" title={外贸 ? undefined : "加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的"}>
+              {合计叫 === "已赢单" ? 赢了叫 : 合计叫} {汇总.单数} 单 · {合计文字(合计, b.currency)}
+              {合计叫 === "进行中" && !外贸 && <> · 加权预测 {合计文字(forecast.map((x) => ({ ...x, 合计: Math.round(x.合计) })), b.currency)}</>}
             </div>
           ) : null
         }
@@ -498,7 +499,7 @@ export default function OpportunitiesView({
               onChange={(v) => apply({ status: v ?? "" })}
               options={[
                 { value: "OPEN", label: "进行中" },
-                { value: "WON", label: "已赢单" },
+                { value: "WON", label: 赢了叫 },
                 { value: "LOST", label: "已丢单" },
               ]}
             />
@@ -517,7 +518,24 @@ export default function OpportunitiesView({
         }
       />
 
-      {订单与供应商 && <CompareDrawer open={比价 !== null} opp={比价} onClose={() => set比价(null)} />}
+      {供应商页 && <CompareDrawer open={比价 !== null} opp={比价} onClose={() => set比价(null)} />}
+      {/* 外贸：转为订单 = 从这一单开订单框（和管道里拖进「客户确认」同一个框） */}
+      {转订单 && (
+        <ContractForm
+          open
+          customerId={转订单.customerId}
+          editing={null}
+          赢这一单={{ id: 转订单.id, name: 转订单.name, amount: 转订单.amount, currency: 转订单.currency }}
+          onClose={(saved) => {
+            const r = 转订单;
+            set转订单(null);
+            if (saved) {
+              router.refresh();
+              亮一下(r.id);
+            }
+          }}
+        />
+      )}
       <OpportunityForm
         open={open}
         editing={editing}
@@ -537,16 +555,14 @@ export default function OpportunitiesView({
  * 「标记赢单」的就地确认：顺手登记签约吗。金额带商机金额、日期今天，都能改；也可以只标赢单。
  * 放在 Popover 里而不是弹框：它就是一句问话加两个可改的数，盖半屏不值得。
  */
-function WonAsk({ r, 可生成订单, 做, 取消 }: { r: OppRow; 可生成订单: boolean; 做: (签约: { amount: number; signedAt: Date } | null, 订单: boolean) => Promise<void>; 取消: () => void }) {
+function WonAsk({ r, 做, 取消 }: { r: OppRow; 做: (签约: { amount: number; signedAt: Date } | null) => Promise<void>; 取消: () => void }) {
   const [amount, setAmount] = useState<number | null>(r.amount > 0 ? r.amount : null);
-  /** 外贸模版默认勾上：赢单之后就是定金、下单给工厂……订单是接下来天天要看的东西 */
-  const [要订单, set要订单] = useState(可生成订单);
   const [day, setDay] = useState(dayjs());
   const [忙, set忙] = useState<"签" | "只" | null>(null);
   const 跑 = async (哪个: "签" | "只") => {
     set忙(哪个);
     try {
-      await 做(哪个 === "签" && amount ? { amount, signedAt: day.toDate() } : null, 可生成订单 && 要订单);
+      await 做(哪个 === "签" && amount ? { amount, signedAt: day.toDate() } : null);
     } finally {
       set忙(null);
     }
@@ -569,11 +585,6 @@ function WonAsk({ r, 可生成订单, 做, 取消 }: { r: OppRow; 可生成订�
         />
         <DatePicker aria-label="签约日期" allowClear={false} value={day} onChange={(d) => d && setDay(d)} style={{ width: 140 }} />
       </Space>
-      {可生成订单 && (
-        <Checkbox checked={要订单} onChange={(e) => set要订单(e.target.checked)} className="won-ask-o">
-          同时生成订单（按 12 个节点跟进交付）
-        </Checkbox>
-      )}
       <Space size={8} className="won-ask-b">
         <Button type="primary" size="small" loading={忙 === "签"} disabled={!amount || (忙 !== null && 忙 !== "签")} onClick={() => void 跑("签")}>
           赢单并登记签约

@@ -5,6 +5,7 @@ import type { Prisma } from "@/generated/prisma";
 import { prisma } from "./prisma";
 import { 当前节点, 超期数, 进度, 订单的钱 } from "./order";
 import { 规整币种 } from "./currency";
+import { 签约币种, 签约金额 } from "./money-db";
 
 const 节点查询 = { orderBy: { idx: "asc" as const }, select: { idx: true, name: true, dueAt: true, status: true, doneAt: true } };
 
@@ -21,6 +22,10 @@ export type 订单行 = {
   amount: number;
   currency: string;
   incoterm: string | null;
+  /** 付款方式、供应商、订单确认时间（2026-10-05 外贸客户要的列）。确认时间 = 那笔签约的时间，老订单没有签约就用建单时间 */
+  payment: string | null;
+  supplier: string | null;
+  confirmedAt: string;
   createdAt: string;
   nodes: ReturnType<typeof 节点出>[];
   当前: { idx: number; name: string } | null;
@@ -35,7 +40,12 @@ export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现�
     where,
     orderBy: { createdAt: "desc" },
     take: 500,
-    include: { customer: { select: { name: true } }, nodes: 节点查询 },
+    include: {
+      customer: { select: { name: true } },
+      nodes: 节点查询,
+      contract: { select: { signedAt: true } },
+      purchase: { select: { supplier: { select: { name: true } } } },
+    },
   });
   const 人 = new Map((await prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.ownerId))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
   return rows
@@ -52,6 +62,9 @@ export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现�
         amount: o.amount,
         currency: 规整币种(o.currency),
         incoterm: o.incoterm,
+        payment: o.payment,
+        supplier: o.purchase?.supplier?.name ?? null,
+        confirmedAt: (o.contract?.signedAt ?? o.createdAt).toISOString(),
         createdAt: o.createdAt.toISOString(),
         nodes,
         当前: 当 ? { idx: 当.idx, name: 当.name } : null,
@@ -79,6 +92,7 @@ export async function 订单详情(id: string) {
       docs: { orderBy: { sort: "asc" }, select: { id: true, name: true, state: true } },
       followUps: { include: { followUp: { select: { id: true, content: true, occurredAt: true, owner: { select: { name: true } } } } } },
       purchase: { include: { supplier: { select: { id: true, name: true } } } },
+      contract: { select: { id: true, amount: true, signedAt: true, remark: true, money: true } },
     },
   });
   if (!o) return null;
@@ -102,6 +116,10 @@ export async function 订单详情(id: string) {
     balanceAt: o.balanceAt?.toISOString() ?? null,
     remark: o.remark,
     createdAt: o.createdAt.toISOString(),
+    /** 这张订单对应的签约（外贸，2026-10-05）。金额、币种、确认时间、备注以它为准；老订单没有 */
+    contract: o.contract
+      ? { id: o.contract.id, amount: 签约金额(o.contract), currency: 签约币种(o.contract), signedAt: o.contract.signedAt.toISOString(), remark: o.contract.remark }
+      : null,
     采购: o.purchase
       ? { supplierId: o.purchase.supplierId, supplierName: o.purchase.supplier?.name ?? null, cost: o.purchase.cost, currency: 规整币种(o.purchase.currency), fxRate: o.purchase.fxRate }
       : null,

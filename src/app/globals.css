@@ -983,6 +983,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec-tl-head { display: flex; align-items: center; gap: 8px; }
 .rec-tl-type { flex: none; font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
 .rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 跟进挂着的订单号（2026-10-05）：小一号的链接，不和标题抢 */
+.rec-tl-order { font-size: var(--fs-note); white-space: nowrap; flex: none; }
 .rec-tl-head > .ant-tag { flex: none; }
 .rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .rec-tl-when { position: relative; margin-left: auto; display: inline-flex; align-items: center; }
@@ -2289,3 +2291,11 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 列表那一格：原负责人名字长时在列宽里省略，别压到右边「最近跟进」上（2026-10-04 实机）；全文在悬停提示里 */
 .ant-table-cell .pool-tag { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 .rec-pool { display: inline-flex; align-items: center; gap: 2px; }
+
+/* 轻量订单页（2026-10-05）：顶上记一笔的框，下面挂在这张订单上的跟进 */
+.ord-note-box { display: flex; gap: 12px; align-items: flex-end; }
+.ord-note-box .ant-input { flex: 1; }
+.ord-notes { list-style: none; margin: 16px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.ord-notes li { border-top: 1px solid var(--line); padding-top: 12px; }
+.ord-note-h { display: flex; justify-content: space-between; gap: 12px; font-size: var(--fs-note); }
+.ord-note-c { margin-top: 4px; white-space: pre-wrap; line-height: 1.7; }

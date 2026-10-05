@@ -10,7 +10,8 @@ import { useMe, 默认负责人 } from "@/lib/me-client";
 import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } from "./actions";
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
-import { statusLabel } from "@/lib/business-config";
+import { statusLabel, 外贸精简 } from "@/lib/business-config";
+import { 国家候选, type 外贸档案 } from "@/lib/customer-extra";
 import { 查电话 } from "@/lib/phone";
 import { 推荐方式 } from "@/lib/referrer-kind";
 import { 带走说法 } from "@/lib/carry-over";
@@ -45,6 +46,8 @@ export type CustomerRow = {
   signedTotals?: { 币种: string; 合计: number }[];
   /** 在公海里（2026-10-03 第 6 块）。老调用方没给就当不在 */
   pool?: { reason: string } | null;
+  /** 外贸档案：国家、WhatsApp、微信、邮箱、来源（2026-10-05）。老调用方没给就当都没填 */
+  extra?: 外贸档案 | null;
   /** 这条记录的版本号，保存时回传做并发校验 */
   updatedAt: string;
 };
@@ -80,6 +83,8 @@ function CustomerFormInner({
   onClose,
 }: FormProps) {
   const b = useBusiness();
+  /** 外贸模版：多问国家 / WhatsApp / 微信 / 邮箱 / 来源，不问推荐人、渠道负责人、预计签约（2026-10-05 外贸客户建议） */
+  const 外贸 = 外贸精简(b);
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const 我 = useMe();
@@ -151,11 +156,16 @@ function CustomerFormInner({
         major: v.major ?? null,
         followStatus: v.followStatus,
         decisionStatus: v.decisionStatus,
-        expectedSignAt: v.expectedSignAt ? v.expectedSignAt.toDate() : null,
+        /*
+          外贸模版不摆这三格：照原样交回去，别因为表单里没有就清掉（切回通用模版时它们还在）。
+          没摆的格子 validateFields 不给值，所以从 editing 取
+        */
+        expectedSignAt: 外贸 ? (editing?.expectedSignAt ? new Date(editing.expectedSignAt) : null) : v.expectedSignAt ? v.expectedSignAt.toDate() : null,
         remark: v.remark ?? null,
         salesOwnerId: v.salesOwnerId,
-        channelId: referrerType === "channel" ? (v.channelId ?? null) : null,
-        referrerCustomerId: referrerType === "customer" ? (v.referrerCustomerId ?? null) : null,
+        channelId: 外贸 ? (editing?.channelId ?? null) : referrerType === "channel" ? (v.channelId ?? null) : null,
+        referrerCustomerId: 外贸 ? (editing?.referrerCustomerId ?? null) : referrerType === "customer" ? (v.referrerCustomerId ?? null) : null,
+        ...(外贸 ? { extra: { country: v.extra?.country ?? null, whatsapp: v.extra?.whatsapp ?? null, wechat: v.extra?.wechat ?? null, email: v.extra?.email ?? null, source: v.extra?.source ?? null } } : {}),
         /*
           新建不传（按推荐链算）。编辑时**只有人动过这一格才传**：选了就钉死，清空就 null（恢复按推荐链）。
           原来每次都传——这一格的初值就是现在的渠道负责人，于是换了推荐渠道，负责人还被当成「手工指定」钉在旧的人身上（排查 A4）
@@ -329,7 +339,63 @@ function CustomerFormInner({
           )}
         </Row>
 
-        {/* 推荐人：决定渠道归属与渠道负责人，两者由系统按规则自动计算 */}
+        {/*
+          外贸档案（2026-10-05 外贸客户建议：「增加列：国家，Whatsapp，Wechat，邮箱」，来源是补的——外贸不摆渠道）。
+          国家、来源能选也能填；WhatsApp 和电话常常是同一个号，旁边一键抄过来
+        */}
+        {外贸 && (
+          <>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item label="国家" name={["extra", "country"]}>
+                  <AutoComplete
+                    allowClear
+                    placeholder="选一个，或直接填"
+                    options={国家候选.map((g) => ({ label: g.组, options: g.国家.map((x) => ({ value: x })) }))}
+                    filterOption={(输入, o) => String((o as { value?: string } | undefined)?.value ?? "").toLowerCase().includes(输入.toLowerCase())}
+                  />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item
+                  label={
+                    <Space size={8}>
+                      WhatsApp
+                      <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => form.setFieldValue(["extra", "whatsapp"], form.getFieldValue("phone") ?? "")}>
+                        同电话
+                      </Button>
+                    </Space>
+                  }
+                  name={["extra", "whatsapp"]}
+                  // 共享试用区里打了码的原样放行（服务端认得出没动过）
+                  rules={[{ validator: (_, v?: string) => (!v || (editing?.extra?.whatsapp && v === editing.extra.whatsapp) || /^[+\d\s\-()（）]*$/.test(v) ? Promise.resolve() : Promise.reject(new Error("只能是数字，可以带 + 和空格"))) }]}
+                >
+                  <Input placeholder="如 +971 50 123 4567" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item label="邮箱" name={["extra", "email"]} rules={[{ type: "email", message: "邮箱格式不对" }]}>
+                  <Input placeholder="如 buyer@company.com" />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={8}>
+                <Form.Item label="微信" name={["extra", "wechat"]}>
+                  <Input placeholder="选填" />
+                </Form.Item>
+              </Col>
+              <Col span={8}>
+                <Form.Item label="来源" name={["extra", "source"]}>
+                  <OptionInput options={b.sources} placeholder="选一个，或直接填" />
+                </Form.Item>
+              </Col>
+            </Row>
+          </>
+        )}
+
+        {/* 推荐人：决定渠道归属与渠道负责人，两者由系统按规则自动计算。外贸模版不摆（推荐分佣链是教培那一套） */}
+        {!外贸 && (<>
         <Form.Item label="推荐人" style={{ marginBottom: 12 }}>
           <Radio.Group
             value={referrerType}
@@ -408,6 +474,7 @@ function CustomerFormInner({
             渠道归属由系统按推荐链自动计算，保存后可在详情页查看
           </Typography.Text>
         )}
+        </>)}
 
         <Row gutter={16}>
           <Col span={8}>
@@ -420,11 +487,13 @@ function CustomerFormInner({
               <Select options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
             </Form.Item>
           </Col>
-          <Col span={8}>
-            <Form.Item label="预计签约时间" name="expectedSignAt">
-              <DatePicker style={{ width: "100%" }} placeholder="选择日期" />
-            </Form.Item>
-          </Col>
+          {!外贸 && (
+            <Col span={8}>
+              <Form.Item label="预计签约时间" name="expectedSignAt">
+                <DatePicker style={{ width: "100%" }} placeholder="选择日期" />
+              </Form.Item>
+            </Col>
+          )}
         </Row>
 
         <Form.Item label="备注" name="remark">

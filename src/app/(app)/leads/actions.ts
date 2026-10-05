@@ -1,5 +1,8 @@
 "use server";
 
+import { 规整外贸档案 } from "@/lib/customer-extra";
+import { 写外贸档案 } from "@/lib/customer-extra-db";
+
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
 import { 看全部, 看得到, 限定的我 } from "@/lib/team-scope";
@@ -175,7 +178,7 @@ export async function convertLead(id: string): Promise<
     }
 
     // 线索名 → 公司、联系人 → 姓名、行业和来源一起带过去（审查 M13），规则在 lib/lead-convert.ts
-    const 档案 = 线索转档案(lead, b.fields);
+    const 档案 = 线索转档案(lead, b.fields, b.template === "trade");
     const customer = await tx.customer.create({
       data: {
         name: 档案.name,
@@ -203,6 +206,11 @@ export async function convertLead(id: string): Promise<
       },
     });
 
+    // 外贸模版：来源、邮箱进客户的外贸档案（2026-10-05）。规整不过（邮箱格式怪）就不带那一格，原文还在线索上
+    if (b.template === "trade") {
+      const 规 = 规整外贸档案(档案.档案);
+      await 写外贸档案(tx, customer.id, 规.ok ? 规.data : { source: 规整外贸档案({ source: 档案.档案.source }).ok ? 档案.档案.source : null });
+    }
     await tx.lead.update({ where: { id }, data: { customerId: customer.id } });
     return { ok: true as const, customerId: customer.id };
   });

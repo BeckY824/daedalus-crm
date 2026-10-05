@@ -328,6 +328,41 @@ export async function addOrderNodeNote(orderId: string, idx: number, content: st
   }
 }
 
+/**
+ * 在订单上记一笔（2026-10-05，节点关着时的订单页）：走记跟进那条原路，再挂到这张订单上（nodeIdx 0 = 整单，不挂某一步）。
+ * 外贸客户：「这样就可以对订单执行做跟进的记录了」
+ */
+export async function addOrderNote(orderId: string, content: string) {
+  try {
+    await requireUser();
+    const 话 = 文本(content, 5000);
+    if (!话) return { ok: false as const, error: "写点什么再记" };
+    const o = await prisma.tradeOrder.findUnique({ where: { id: String(orderId ?? "") }, select: { id: true, no: true, customerId: true, opportunityId: true } });
+    if (!o) return { ok: false as const, error: "这张订单已经不在了" };
+    const r = await saveFollowUp({
+      customerId: o.customerId,
+      type: "OTHER",
+      title: `订单 ${o.no}`,
+      content: 话,
+      status: "已完成",
+      occurredAt: new Date().toISOString(),
+      orderId: o.id,
+    });
+    if (!r.ok) return r;
+    刷新(o.id, o.customerId);
+    return { ok: true as const, id: r.id };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/** 订单框里「供应商」的候选：库里已有的供应商名字（去重，按名字排） */
+export async function 供应商名单(): Promise<string[]> {
+  await requireUser();
+  const rows = await prisma.supplier.findMany({ orderBy: { name: "asc" }, take: 500, select: { name: true } });
+  return [...new Set(rows.map((r) => r.name))];
+}
+
 /** 删订单。节点、单据跟着删；挂在节点上的跟进记录留着（那是和客户的往来，不是订单的附属品），只是不再挂在节点上 */
 export async function deleteOrder(id: string) {
   try {

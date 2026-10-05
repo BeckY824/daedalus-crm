@@ -6,10 +6,10 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 连库 } from "./mock-data";
-import { 订单与供应商 } from "../src/lib/features";
+import { 供应商页 } from "../src/lib/features";
 
 // 订单 / 供应商 0.46.15 这一版不上（lib/features.ts，用户 10-04 极简收窄）：开关打开时这份用例照常跑
-test.skip(!订单与供应商, "订单和供应商这一版不上");
+test.skip(!供应商页, "供应商页这一版不上");
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
 const 客户名 = "比价测试客户";

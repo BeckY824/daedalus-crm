@@ -83,7 +83,13 @@ export function 限定条件(model: string, 我: string): Record<string, unknown
     case "Opportunity":
     case "Contract":
     case "Contact":
+    case "CustomerExtra":
+    // 订单（2026-10-05 打开）：0.46.15 时订单整个关着，这里没列，业务员能在订单页看到全队的单
+    case "TradeOrder":
       return { customer: 客户 };
+    case "FollowUpOrder":
+    case "TradeOrderPurchase":
+      return { order: { customer: 客户 } };
     case "Task":
     case "FollowPlan":
       return { OR: [{ ownerId: 我 }, { customer: 客户 }] };

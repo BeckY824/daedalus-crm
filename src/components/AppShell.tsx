@@ -1,6 +1,6 @@
 "use client";
 
-import { 订单与供应商 } from "@/lib/features";
+import { 订单, 供应商页 } from "@/lib/features";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { palette } from "@/lib/palette";
 import { useRouter, usePathname } from "next/navigation";
@@ -206,15 +206,23 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
       { key: "/dashboard", icon: <HomeOutlined />, label: "首页", 组: "主" },
       { key: "/customers", icon: <TeamOutlined />, label: b.customer, 组: "主" },
       { key: "/opportunities", icon: <DollarOutlined />, label: "商机", 组: "主" },
-      // 外贸模版才有订单（2026-10-03）：通用销售没有「定金 → 生产 → 订舱 → 装柜」这条线，摆着只是添乱
-      ...(b.template === "trade" && 订单与供应商 ? [{ key: "/orders", icon: <ContainerOutlined />, label: "订单", 组: "主" as const }] : []),
+      // 外贸模版才有订单（2026-10-03），在商机和跟进中间（2026-10-05 外贸客户：「商机和跟进中间，增加类目订单」）
+      ...(b.template === "trade" && 订单 ? [{ key: "/orders", icon: <ContainerOutlined />, label: "订单", 组: "主" as const }] : []),
       { key: "/follow-ups", icon: <InteractionOutlined />, label: "跟进", 组: "主" },
       { key: "/overview", icon: <DashboardOutlined />, label: "数据", 组: "主" },
       { key: "/leads", icon: <ShareAltOutlined />, label: "线索", 组: "更多" },
-      { key: "/contacts", icon: <ContactsOutlined />, label: "联系人", 组: "更多" },
-      { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道", 组: "更多" },
+      /*
+        外贸模版不摆联系人、渠道（2026-10-05 外贸客户建议）：联系人本来就挂在客户下面（客户页那一节），
+        客户搜索也搜得到联系人的名字、电话、邮箱；渠道是推荐人 / 分佣那一套，外贸用来源。页面还在，⌘K 能到
+      */
+      ...(b.template === "trade"
+        ? []
+        : [
+            { key: "/contacts", icon: <ContactsOutlined />, label: "联系人", 组: "更多" as const },
+            { key: "/channels", icon: <DeploymentUnitOutlined />, label: "渠道", 组: "更多" as const },
+          ]),
       // 供应商（3c）同样外贸才有：通用销售没有「找工厂比价」这一步
-      ...(b.template === "trade" && 订单与供应商 ? [{ key: "/suppliers", icon: <ShopOutlined />, label: "供应商", 组: "更多" as const }] : []),
+      ...(b.template === "trade" && 供应商页 ? [{ key: "/suppliers", icon: <ShopOutlined />, label: "供应商", 组: "更多" as const }] : []),
     ],
     [b.customer, b.template],
   );

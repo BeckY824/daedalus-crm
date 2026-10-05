@@ -20,7 +20,7 @@
  * 人正站在哪一页是我们**确定知道**的信息，把它兑换成一句指名道姓的话，
  * 比让模型每次重新推理一遍稳得多（和 agent/intents.ts 是同一个思路）。
  */
-import { 订单与供应商 } from "./features";
+import { 订单, 供应商页 } from "./features";
 export type 页面上下文 = {
   /** 这一页叫什么，不带筛选。落库时当对话标题的前缀用 */
   名: string;
@@ -78,7 +78,7 @@ type 页 = {
 };
 
 /** 跟着功能开关关掉的页：不给上下文说法 */
-const 关着的页 = new Set(订单与供应商 ? [] : ["/orders", "/suppliers"]);
+const 关着的页 = new Set([...(订单 ? [] : ["/orders"]), ...(供应商页 ? [] : ["/suppliers"])]);
 
 const 一级: Record<string, 页> = {
   "/dashboard": { 名: "首页", 提示: "" },

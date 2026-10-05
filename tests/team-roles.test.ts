@@ -163,6 +163,27 @@ describe("业务员只看自己的 + 公海", () => {
     expect(await db.customer.count()).toBe(3);
   });
 
+  it("订单（2026-10-05 打开）：订单一览、外贸档案、订单上的跟进，业务员只看得到自己客户的", async () => {
+    for (const [k, owner] of [["小王的客户", 小王], ["小李的客户", 小李]] as const) {
+      const o = await raw.tradeOrder.create({ data: { no: `PI-${k}`, customerId: ids[k], ownerId: owner, amount: 1, currency: "USD" } });
+      await raw.customerExtra.create({ data: { customerId: ids[k], country: "美国" } });
+      const f = await raw.followUp.findFirstOrThrow({ where: { customerId: ids[k] } });
+      await raw.followUpOrder.create({ data: { followUpId: f.id, orderId: o.id, nodeIdx: 0 } });
+    }
+    try {
+      当("wang");
+      进团队();
+      expect((await db.tradeOrder.findMany({ select: { no: true } })).map((x) => x.no)).toEqual(["PI-小王的客户"]);
+      expect(await db.customerExtra.count()).toBe(1);
+      expect(await db.followUpOrder.count()).toBe(1);
+      出团队();
+      expect(await db.tradeOrder.count()).toBe(2);
+    } finally {
+      await raw.tradeOrder.deleteMany();
+      await raw.customerExtra.deleteMany();
+    }
+  });
+
   it("按 id 打开别人的客户：找不到（详情页 404）；改、删别人的客户：不成", async () => {
     当("wang");
     进团队();

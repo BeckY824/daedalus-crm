@@ -139,16 +139,16 @@ describe("意图直连（J-148 / J-149）", () => {
   });
 });
 
-/* 上线前第 3 期 3.6：这一版关掉的订单 / 供应商（lib/features.ts），AI 那边也不开 */
+/* 上线前第 3 期 3.6：关掉的功能（lib/features.ts），AI 那边也不开。2026-10-05 订单打开了、供应商页仍关着 */
 describe("关掉的功能不交给模型", async () => {
-  const { 订单与供应商 } = await import("@/lib/features");
-  it.runIf(!订单与供应商)("工具表里没有 list_orders / list_suppliers；模型照名字叫了也不执行", async () => {
-    剧本 = [{ name: "list_orders", args: "{}" }, { name: "list_suppliers", args: "{}" }];
-    const r = await 问("我有哪些订单超期了");
+  const { 订单, 供应商页 } = await import("@/lib/features");
+  it.runIf(!供应商页)("工具表里没有 list_suppliers；模型照名字叫了也不执行", async () => {
+    剧本 = [{ name: "list_suppliers", args: "{}" }];
+    const r = await 问("我有哪些供应商");
     expect(给的工具.length).toBeGreaterThanOrEqual(1);
     for (const 名单 of 给的工具) {
-      expect(名单).not.toContain("list_orders");
       expect(名单).not.toContain("list_suppliers");
+      if (订单) expect(名单).toContain("list_orders");
       expect(名单).toContain("list_channels"); // 别的照给，不是一个工具都没有
     }
     expect(r.steps).toBe(0);

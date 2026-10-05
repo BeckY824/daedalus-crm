@@ -1,12 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Modal, Form, InputNumber, DatePicker, Input, App, Checkbox, Space } from "antd";
+import { Modal, Form, InputNumber, DatePicker, Input, App, Checkbox, Space, AutoComplete, Row, Col } from "antd";
 import { dayjs, fmtDate } from "@/lib/utils";
 import { 金额 } from "@/lib/currency";
 import CurrencySelect from "@/components/CurrencySelect";
 import { saveContract, listContractLinks, type 签约联动, type 签约联动结果 } from "../actions";
 import { useBusiness } from "@/lib/business-client";
+import { 外贸订单 } from "@/lib/business-config";
+import { 常用付款方式 } from "@/lib/order";
+import { 供应商名单 } from "../../orders/actions";
 import { StageTag } from "@/components/ui";
 import { 金额格式 } from "@/lib/money-input";
 import { 聚焦首项 } from "@/lib/modal-focus";
@@ -14,10 +17,10 @@ import { 聚焦首项 } from "@/lib/modal-focus";
 type 可收尾 = Awaited<ReturnType<typeof listContractLinks>>;
 
 /** 「签约已记录，同时：1 个商机标为赢单、完成 2 条计划」——做了什么就说什么，一样没做就不提 */
-function 联动说法(r?: 签约联动结果): string {
+function 联动说法(r?: 签约联动结果, 订单 = false): string {
   if (!r) return "";
   const 句 = [
-    r.赢单 ? `${r.赢单} 个商机标为赢单` : "",
+    r.赢单 ? `${r.赢单} 个商机${订单 ? "转为订单" : "标为赢单"}` : "",
     r.完成计划 ? `完成 ${r.完成计划} 条计划` : "",
     r.完成待办 ? `完成 ${r.完成待办} 条待办` : "",
   ].filter(Boolean);
@@ -31,6 +34,8 @@ export type ContractRow = {
   currency?: string;
   signedAt: string;
   remark: string | null;
+  /** 外贸模版下这笔签约就是一张订单（2026-10-05）。没有 = 普通签约，或外贸之前登记的老签约 */
+  order?: { id: string; no: string; payment: string | null; supplier: string | null } | null;
 };
 
 /**
@@ -70,8 +75,21 @@ function Inner({
 }) {
   const { message, modal } = App.useApp();
   const b = useBusiness();
+  /**
+   * 外贸模版：这一笔就是一张订单（2026-10-05 外贸客户建议，lib/order-contract.ts）。
+   * 同一个框，叫法换成订单，多三格：订单号、付款方式、供应商；签约时间叫「订单确认时间」
+   */
+  const 订单 = 外贸订单(b);
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  /** 供应商下拉的候选：库里已有的名字（能选也能填，填个新的就新建一家） */
+  const [供应商们, set供应商们] = useState<string[]>([]);
+  useEffect(() => {
+    if (!订单) return;
+    let 还在 = true;
+    void 供应商名单().then((r) => { if (还在) set供应商们(r); }).catch(() => undefined);
+    return () => { 还在 = false; };
+  }, [订单]);
   /*
     登记新签约时顺手收尾（2026-09-28 审查 S3）：这位客户进行中的商机默认勾「同时标为赢单」，
     没完成的计划和待办默认勾「一并完成」。人可以取消勾选，服务端只照勾选的做。
@@ -128,6 +146,7 @@ function Inner({
       remark: v.remark ?? null,
       force,
       ...(editing ? {} : { 联动: 勾 }),
+      ...(订单 ? { 订单: { no: v.no ?? "", payment: v.payment ?? null, supplier: v.supplier ?? null } } : {}),
     });
   }
 
@@ -136,7 +155,7 @@ function Inner({
     try {
       const res = await submit(false);
       if (res.ok) {
-        message.success(editing ? "已保存" : `签约已记录${联动说法(res.联动)}`);
+        message.success(editing ? "已保存" : 订单 ? `订单${res.订单 ? ` ${res.订单.no}` : ""} 已建好${联动说法(res.联动, true)}` : `签约已记录${联动说法(res.联动)}`);
         onClose(true);
         return;
       }
@@ -151,12 +170,12 @@ function Inner({
        */
       const dup = res.duplicate;
       modal.confirm({
-        title: "这笔签约可能已经录过了",
+        title: 订单 ? "这张订单可能已经录过了" : "这笔签约可能已经录过了",
         content: (
           <>
             <div>
               该{b.customer}在 {dayjs(dup.signedAt).format("YYYY-MM-DD")} 已有一笔{" "}
-              <b>{金额(dup.amount, dup.currency)}</b> 的签约记录
+              <b>{金额(dup.amount, dup.currency)}</b> 的{订单 ? "订单" : "签约记录"}
               {dup.remark ? `（备注：${dup.remark}）` : ""}。
             </div>
             <div style={{ marginTop: 8 }}>
@@ -170,7 +189,7 @@ function Inner({
         async onOk() {
           const again = await submit(true);
           if (again.ok) {
-            message.success(editing ? "已保存" : `签约已记录${联动说法(again.联动)}`);
+            message.success(editing ? "已保存" : 订单 ? `订单${again.订单 ? ` ${again.订单.no}` : ""} 已建好${联动说法(again.联动, true)}` : `签约已记录${联动说法(again.联动)}`);
             onClose(true);
           } else if ("error" in again) {
             message.error(again.error);
@@ -186,7 +205,7 @@ function Inner({
     <Modal
       afterOpenChange={聚焦首项}
       open
-      title={editing ? "编辑签约记录" : "登记签约"}
+      title={订单 ? (editing ? `编辑订单${editing.order ? ` ${editing.order.no}` : ""}` : 赢这一单 ? "转为订单" : "新建订单") : editing ? "编辑签约记录" : "登记签约"}
       onCancel={() => onClose(false)}
       onOk={onOk}
       confirmLoading={saving}
@@ -200,24 +219,36 @@ function Inner({
         style={{ marginTop: 8 }}
         initialValues={
           editing
-            ? { amount: editing.amount, currency: editing.currency ?? "CNY", signedAt: dayjs(editing.signedAt), remark: editing.remark }
+            ? { amount: editing.amount, currency: editing.currency ?? "CNY", signedAt: dayjs(editing.signedAt), remark: editing.remark, no: editing.order?.no, payment: editing.order?.payment ?? undefined, supplier: editing.order?.supplier ?? undefined }
             : 赢这一单
-              ? { signedAt: dayjs(), currency: 赢这一单.currency, amount: 赢这一单.amount > 0 ? 赢这一单.amount : undefined, remark: `商机「${赢这一单.name}」赢单时登记` }
+              ? { signedAt: dayjs(), currency: 赢这一单.currency, amount: 赢这一单.amount > 0 ? 赢这一单.amount : undefined, remark: 订单 ? `商机「${赢这一单.name}」转为订单` : `商机「${赢这一单.name}」赢单时登记` }
               : { signedAt: dayjs(), currency: b.currency }
         }
       >
         {赢这一单 && (
           <div className="muted" style={{ marginBottom: 12, lineHeight: 1.7 }}>
-            「{赢这一单.name}」标为赢单。登记一笔签约，业绩才算得进去；不登记就点取消，商机照样是赢单。
+            {订单
+              ? <>「{赢这一单.name}」转为订单。金额和币种从商机带过来了，填上订单号、付款方式就行。</>
+              : <>「{赢这一单.name}」标为赢单。登记一笔签约，业绩才算得进去；不登记就点取消，商机照样是赢单。</>}
           </div>
         )}
+        {订单 && (
+          <Form.Item
+            label="订单号 / PI 号"
+            name="no"
+            rules={editing?.order ? [{ required: true, whitespace: true, message: "订单号不能空着" }] : []}
+            extra={editing?.order ? undefined : "不填就按日期编一个，比如 20261005-1"}
+          >
+            <Input maxLength={40} placeholder={editing?.order ? undefined : "选填"} />
+          </Form.Item>
+        )}
         {/* 币种 + 金额一格（2026-10-03）。label 不再写「（元）」：币种在左边那个框里 */}
-        <Form.Item label="签约金额" required>
+        <Form.Item label={订单 ? "订单金额" : "签约金额"} required>
           <Space.Compact style={{ width: "100%" }}>
             <Form.Item name="currency" noStyle>
               <CurrencySelect onChange={() => { 手填金额.current = true; }} />
             </Form.Item>
-            <Form.Item name="amount" noStyle rules={[{ required: true, message: "请输入签约金额" }]}>
+            <Form.Item name="amount" noStyle rules={[{ required: true, message: 订单 ? "请输入订单金额" : "请输入签约金额" }]}>
               {/* 和商机金额同一个坑：parser 把空串读成 0，清空后再敲会多出一个 0（见 lib/money-input.ts） */}
               <InputNumber<number>
                 style={{ width: "100%" }}
@@ -225,23 +256,39 @@ function Inner({
                 step={1000}
                 placeholder="如 19,800"
                 formatter={金额格式}
-                aria-label="签约金额"
+                aria-label={订单 ? "订单金额" : "签约金额"}
                 onChange={() => { 手填金额.current = true; }}
               />
             </Form.Item>
           </Space.Compact>
         </Form.Item>
-        <Form.Item label="签约时间" name="signedAt" rules={[{ required: true, message: "请选择签约时间" }]}>
+        <Form.Item label={订单 ? "订单确认时间" : "签约时间"} name="signedAt" rules={[{ required: true, message: 订单 ? "请选择订单确认时间" : "请选择签约时间" }]}>
           <DatePicker style={{ width: "100%" }} />
         </Form.Item>
-        <Form.Item label="备注" name="remark" extra={b.template === "trade" ? "贸易条款、付款方式（如 T/T 30/70）、交期等" : "课程内容、付款方式、分期安排等"}>
+        {订单 && (
+          <Row gutter={16}>
+            <Col span={12}>
+              <Form.Item label="付款方式" name="payment">
+                <AutoComplete allowClear options={常用付款方式.map((x) => ({ value: x }))} placeholder="如 T/T 30/70" filterOption={(i, o) => String(o?.value ?? "").toLowerCase().includes(i.toLowerCase())} />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              {/* 能选也能填：填一个新名字就新建一家供应商（lib/order-contract.ts） */}
+              <Form.Item label="供应商" name="supplier">
+                <AutoComplete allowClear options={供应商们.map((x) => ({ value: x }))} placeholder="工厂 / 供应商名称" filterOption={(i, o) => String(o?.value ?? "").toLowerCase().includes(i.toLowerCase())} />
+              </Form.Item>
+            </Col>
+          </Row>
+        )}
+        {/* 备注的提示按这一套是做什么的说（2026-10-05：通用模版原来还写着教培的「课程内容」） */}
+        <Form.Item label="备注" name="remark" extra={b.template === "trade" ? "贸易条款、交期、包装唛头等" : b.fields.school === "院校" ? "课程内容、付款方式、分期安排等" : "产品 / 服务内容、付款方式、分期安排等"}>
           <Input.TextArea rows={3} placeholder="选填" />
         </Form.Item>
         {有可收 && (
           <div className="contract-links">
             {可收.商机.length > 0 && (
               <div className="contract-links-g">
-                <div className="contract-links-t">同时标为赢单</div>
+                <div className="contract-links-t">{订单 ? "同时标为已转订单" : "同时标为赢单"}</div>
                 <Checkbox.Group
                   value={勾.赢单}
                   onChange={(v) => { set勾({ ...勾, 赢单: v as string[] }); 带金额(v as string[]); }}

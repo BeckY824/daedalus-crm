@@ -44,6 +44,8 @@ export type 客户近况 = {
   未完成计划数: number;
   contacts: { id: string; name: string; position: string | null }[];
   opportunities: { id: string; name: string }[];
+  /** 这位客户的订单（2026-10-05，跟进能挂订单）。新的在前 */
+  orders: { id: string; no: string }[];
 };
 
 /** 挑中一位之后取回来的东西：框里那行淡字，和跟进表单要的联系人、商机 */
@@ -59,6 +61,7 @@ export async function 取客户近况(id: string): Promise<客户近况 | null> 
       _count: { select: { plans: { where: { done: false } } } },
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }], select: { id: true, name: true, position: true } },
       opportunities: { orderBy: { createdAt: "desc" }, select: { id: true, name: true } },
+      tradeOrders: { orderBy: { createdAt: "desc" }, select: { id: true, no: true } },
     },
   });
   if (!c) return null;
@@ -72,5 +75,6 @@ export async function 取客户近况(id: string): Promise<客户近况 | null> 
     未完成计划数: c._count.plans,
     contacts: c.contacts,
     opportunities: c.opportunities,
+    orders: c.tradeOrders,
   };
 }

@@ -53,6 +53,11 @@ export async function saveOpportunity(input: {
   status: string;
   probability: number;
   expectedDealAt?: string | null;
+  /**
+   * 询盘时间（2026-10-05 外贸客户建议：「预计成交改成商机发生时间」）。就是商机的 createdAt——商机哪天来的，
+   * 补录 3 月那次询盘时人能改成 3 月。不给 = 不碰（新建就是现在）
+   */
+  询盘时间?: string | null;
   remark?: string | null;
   /** 币种（2026-10-03）。不给：新建用本位币，编辑保持原来的 */
   currency?: string | null;
@@ -99,6 +104,14 @@ export async function saveOpportunity(input: {
   }
 
   if (input.currency != null && !是币种(String(input.currency).toUpperCase())) return { ok: false as const, error: "不认识这个币种" };
+  let 询盘: Date | null = null;
+  if (input.询盘时间) {
+    询盘 = new Date(input.询盘时间);
+    if (Number.isNaN(询盘.getTime())) return { ok: false as const, error: "询盘时间不是一个日期" };
+    const 今晚 = new Date();
+    今晚.setHours(23, 59, 59, 999);
+    if (询盘 > 今晚) return { ok: false as const, error: "询盘时间不能晚于今天" };
+  }
   const 报价 = input.报价 === undefined ? null : 整理报价行(input.报价);
   if (报价 && !报价.ok) return { ok: false as const, error: 报价.error };
   const data = {
@@ -112,6 +125,7 @@ export async function saveOpportunity(input: {
     expectedDealAt: input.expectedDealAt ? new Date(input.expectedDealAt) : null,
     remark: input.remark || null,
     ownerId,
+    ...(询盘 ? { createdAt: 询盘 } : {}),
   };
 
   if (input.id) {

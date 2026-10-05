@@ -1,7 +1,5 @@
 "use client";
 
-import { 订单与供应商 } from "@/lib/features";
-import OrderForm from "../../orders/OrderForm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -25,7 +23,8 @@ import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLL
 import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, AVATAR_TEXT, 独自一人 } from "@/lib/utils";
 import { FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
-import { statusLabel } from "@/lib/business-config";
+import { statusLabel, 外贸订单, 外贸精简, 签约叫 } from "@/lib/business-config";
+import { 国家候选, WhatsApp网址 } from "@/lib/customer-extra";
 import FollowUpForm from "./FollowUpForm";
 import TaskForm from "./TaskForm";
 import PlanForm from "./PlanForm";
@@ -86,7 +85,6 @@ export default function RecordView({
   contracts,
   opportunities,
   报价记录 = [],
-  订单 = [],
   tasks,
   plan,
   followUps,
@@ -104,7 +102,15 @@ export default function RecordView({
   const { 问怎么拿掉 } = useContactRemoval();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
   const [报价全开, set报价全开] = useState(false);
-  const [建订单, set建订单] = useState(false);
+  /*
+    外贸模版（2026-10-05 外贸客户建议）：签约就是订单——左栏「签约」那一节叫「订单」、多出订单号；
+    不摆预计签约、推荐关系、渠道负责人；档案里多国家 / WhatsApp / 微信 / 邮箱 / 来源
+  */
+  const 外贸 = 外贸精简(b);
+  const 是订单 = 外贸订单(b);
+  const 叫 = 签约叫(b);
+  const 档 = customer.extra;
+  const wa = WhatsApp网址(档?.whatsapp);
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
   const 已签约文字 = 合计文字(customer.signedTotals ?? [{ 币种: "CNY", 合计: customer.signedAmount }]);
@@ -407,7 +413,16 @@ export default function RecordView({
           <DecisionStatusTag status={customer.decisionStatus} />
         </StatusPicker>
         {/* 来源（照毛玻璃原型的那枚「来源：WhatsApp」）：渠道或推荐人。自然流量不摆——没有来源就不占位 */}
-        {customer.referrerName && <span className="rec-tags-n">来源：{customer.referrerName}</span>}
+        {外贸
+          ? 档?.source && <span className="rec-tags-n">来源：{档.source}</span>
+          : customer.referrerName && <span className="rec-tags-n">来源：{customer.referrerName}</span>}
+        {外贸 && 档?.country && <span className="rec-tags-n">{档.country}</span>}
+        {/* WhatsApp 点一下打开对话（wa.me）：外贸客户的主沟通渠道，抄号码再去手机上搜太绕 */}
+        {wa && (
+          <a className="rec-tags-n" href={wa} target="_blank" rel="noreferrer" title={`在 WhatsApp 里打开和 ${档?.whatsapp} 的对话`}>
+            WhatsApp ↗
+          </a>
+        )}
         {/* 在公海里（第 6 块）：标签写原负责人，旁边就是「领取」——看到就能接手 */}
         {customer.pool && (
           <span className="rec-tags-n rec-pool">
@@ -416,9 +431,9 @@ export default function RecordView({
           </span>
         )}
         {/* 一个数都没有就不出现：「预计签约 —」占着一行却什么也没说 */}
-        {(customer.signedAmount > 0 || customer.expectedSignAt) && (
+        {(customer.signedAmount > 0 || (customer.expectedSignAt && !外贸)) && (
           <span className="rec-tags-n">
-            {customer.signedAmount > 0 ? `已签约 ${已签约文字}` : "预计签约"}
+            {customer.signedAmount > 0 ? `${是订单 ? "已下单" : "已签约"} ${已签约文字}` : "预计签约"}
             {/* 已签约后面跟的是实际签约日（最近一笔；contracts 按签约日倒序）。原来跟的是预计签约日，
                 9 月 28 日签的约读起来像 10 月 5 日签的（2026-09-28 审查 M2） */}
             {customer.signedAmount > 0
@@ -452,23 +467,33 @@ export default function RecordView({
             <InlineField customerId={customer.id} field="school" label={b.fields.school} value={customer.school} />
             <InlineField customerId={customer.id} field="major" label={b.fields.major} value={customer.major} />
             <InlineField customerId={customer.id} field="grade" label={b.fields.grade} value={customer.grade} kind="combo" options={b.grades.map((g) => ({ value: g, label: g }))} />
+            {外贸 && (
+              <>
+                <InlineField customerId={customer.id} field="country" label="国家" value={档?.country ?? null} kind="combo" options={国家候选.flatMap((g) => g.国家).map((x) => ({ value: x, label: x }))} />
+                <InlineField customerId={customer.id} field="whatsapp" label="WhatsApp" value={档?.whatsapp ?? null} />
+                <InlineField customerId={customer.id} field="email" label="邮箱" value={档?.email ?? null} />
+                <InlineField customerId={customer.id} field="wechat" label="微信" value={档?.wechat ?? null} />
+                <InlineField customerId={customer.id} field="source" label="来源" value={档?.source ?? null} kind="combo" options={b.sources.map((x) => ({ value: x, label: x }))} />
+              </>
+            )}
             {/* 选项里带上现任：负责人是管理员或已停用时不在候选里，原来下拉直接显示一串 id（排查 D8）。
                 一个人用（桌面端）时这两格不摆：下拉里只有自己，摆着只是让人多想一下（和客户表单同一个 独自一人 规则） */}
             {!独自一人(users, customer.salesOwnerId) && (
               <InlineField customerId={customer.id} field="salesOwnerId" label="销售负责人" value={customer.salesOwnerId} kind="select" options={带上现任(users, customer.salesOwnerId, customer.salesOwnerName)} />
             )}
             {/* 渠道负责人默认跟着推荐链；这里改的是这一位的单独订正，清空即恢复按推荐链 */}
-            {!独自一人(users, customer.channelOwnerId) && (
+            {!外贸 && !独自一人(users, customer.channelOwnerId) && (
               <InlineField customerId={customer.id} field="channelOwnerId" label="渠道负责人" value={customer.channelOwnerId} kind="select" options={带上现任(users, customer.channelOwnerId, customer.channelOwnerName)} placeholder="按推荐链自动确定" 可清空 />
             )}
-            <InlineField customerId={customer.id} field="expectedSignAt" label="预计签约" value={customer.expectedSignAt} kind="date" placeholder="未定" />
+            {!外贸 && <InlineField customerId={customer.id} field="expectedSignAt" label="预计签约" value={customer.expectedSignAt} kind="date" placeholder="未定" />}
             <div className="rec-field" style={{ cursor: "default" }}>
-              <div className="rec-field-k">签约金额</div>
-              <div className="rec-field-v">{customer.signedAmount > 0 ? 已签约文字 : <span className="rec-field-empty">未签约</span>}</div>
+              <div className="rec-field-k">{叫}金额</div>
+              <div className="rec-field-v">{customer.signedAmount > 0 ? 已签约文字 : <span className="rec-field-empty">{是订单 ? "还没有订单" : "未签约"}</span>}</div>
             </div>
             <InlineField customerId={customer.id} field="remark" label="备注" value={customer.remark} kind="textarea" placeholder="点击写备注" />
           </div>
 
+          {!外贸 && (
           <div className="rec-sec">
             <div className="rec-sec-t">
               <span>推荐关系</span>
@@ -485,6 +510,7 @@ export default function RecordView({
             </Tooltip>
 
           </div>
+          )}
 
           <div className="rec-sec">
             <div className="rec-sec-t">
@@ -535,34 +561,16 @@ export default function RecordView({
                   {/* 赢单 / 丢单挂个标（J-088），和商机列表名称列一样；不挂的话丢掉的单看着也像还在谈 */}
                   {o.status !== "OPEN" && (
                     <Tag color={o.status === "WON" ? "success" : "error"} style={{ margin: 0, borderRadius: 6 }}>
-                      {o.status === "WON" ? "已赢单" : "已丢单"}
+                      {o.status === "WON" ? (是订单 ? "已转订单" : "已赢单") : "已丢单"}
                     </Tag>
                   )}
                   <span className="rec-mini-m">{金额(o.amount, o.currency)}</span>
+                  {/* 外贸：哪天询的盘（客户：「3 月问了一次没成，5 月又问，这样知道客户计划采购的时间点」） */}
+                  {外贸 && o.createdAt && <span className="rec-mini-m" title="询盘时间">{fmtDate(o.createdAt)} 询盘</span>}
                 </span>
               </Link>
             ))}
           </div>
-
-          {/* 订单（2026-10-03，外贸模版才有；0.46.15 这一版不上，见 lib/features.ts）：每单一行，当前走到哪一步、有没有超期 */}
-          {b.template === "trade" && 订单与供应商 && (
-            <div className="rec-sec">
-              <div className="rec-sec-t">
-                <span>订单 {订单.length > 0 && 订单.length}</span>
-                <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => set建订单(true)}>新建订单</Button>
-              </div>
-              {订单.length === 0 && <div className="rec-empty">还没有订单。商机赢单时可以一起生成</div>}
-              {订单.map((o) => (
-                <Link key={o.id} href={`/orders/${o.id}`} className="rec-mini rec-mini-2">
-                  <span className="rec-mini-n">{o.no} · {金额(o.amount, o.currency)}</span>
-                  <span className="rec-mini-sub">
-                    <span className="rec-mini-m">{o.当前 ? `${o.当前.idx}. ${o.当前.name}` : "已走完"}</span>
-                    {o.超期 > 0 ? <span className="ord-late">超期 {o.超期}</span> : <span className="rec-mini-m">{o.进度}%</span>}
-                  </span>
-                </Link>
-              ))}
-            </div>
-          )}
 
           {/*
             报价记录（2026-10-03）：这个客户历次报过的产品和单价，新的在前。没报过就不出现这一节（少即是多）。
@@ -597,11 +605,27 @@ export default function RecordView({
 
           <div className="rec-sec">
             <div className="rec-sec-t">
-              <span>签约 {contracts.length > 0 && contracts.length}</span>
-              <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => { setEditingContract(null); setContractOpen(true); }}>登记签约</Button>
+              <span>{叫} {contracts.length > 0 && contracts.length}</span>
+              <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => { setEditingContract(null); setContractOpen(true); }}>{是订单 ? "新建订单" : "登记签约"}</Button>
             </div>
-            {contracts.length === 0 && <div className="rec-empty">还没有签约</div>}
-            {contracts.map((c) => (
+            {contracts.length === 0 && <div className="rec-empty">{是订单 ? "还没有订单。商机点「转为订单」，或在这里新建" : "还没有签约"}</div>}
+            {contracts.map((c) =>
+              是订单 ? (
+                // 外贸：一笔签约就是一张订单。两行：订单号 + 金额；确认日 · 付款方式 · 供应商。点进订单页看挂在它上面的跟进
+                <div key={c.id} className="rec-mini rec-mini-2">
+                  <span className="rec-mini-n">
+                    {c.order ? <Link href={`/orders/${c.order.id}`}>{c.order.no}</Link> : <span className="muted">（没有订单号）</span>}
+                    <span className="rec-mini-amt"> · {金额(c.amount, c.currency)}</span>
+                  </span>
+                  <span className="rec-mini-sub">
+                    <span className="rec-mini-m">{[fmtDate(c.signedAt), c.order?.payment, c.order?.supplier].filter(Boolean).join(" · ")}</span>
+                  </span>
+                  <span className="rec-mini-acts">
+                    <Button type="text" size="small" icon={<EditOutlined />} aria-label={`编辑订单 ${c.order?.no ?? ""}`} onClick={() => { setEditingContract(c); setContractOpen(true); }} />
+                    <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`删除订单 ${c.order?.no ?? ""}`} onClick={() => void confirmDeleteContract(c)} />
+                  </span>
+                </div>
+              ) : (
               <div key={c.id} className="rec-mini">
                 <DollarOutlined style={{ color: "var(--success)" }} />
                 <span className="rec-mini-n rec-mini-amt">{金额(c.amount, c.currency)}</span>
@@ -611,7 +635,8 @@ export default function RecordView({
                   <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除这笔签约" onClick={() => void confirmDeleteContract(c)} />
                 </span>
               </div>
-            ))}
+              ),
+            )}
           </div>
         </aside>
 
@@ -662,7 +687,7 @@ export default function RecordView({
 
           <div className="rec-filters">
             {["全部", ...FOLLOW_TYPES.map((t) => t.value), "CONTRACT"].map((k) => {
-              const label = k === "全部" ? "全部" : k === "CONTRACT" ? "签约" : FOLLOW_TYPE_MAP[k]?.label ?? k;
+              const label = k === "全部" ? "全部" : k === "CONTRACT" ? 叫 : FOLLOW_TYPE_MAP[k]?.label ?? k;
               return (
                 <span key={k} className={`rec-chip${filter === k ? " rec-chip-on" : ""}`} onClick={() => setFilter(k)}>
                   {label}
@@ -689,7 +714,7 @@ export default function RecordView({
                     <div className="rec-tl-body">
                       <div className="rec-tl-contract">
                         <div className="rec-tl-head">
-                          <span className="rec-tl-type">签约 {金额(e.c.amount, e.c.currency)}</span>
+                          <span className="rec-tl-type">{是订单 && e.c.order ? `订单 ${e.c.order.no}` : 叫} {金额(e.c.amount, e.c.currency)}</span>
                           {e.c.remark && <span className="rec-tl-title" title={e.c.remark}>· {e.c.remark}</span>}
                           <span className="rec-tl-time">{fmtDate(e.c.signedAt)}</span>
                         </div>
@@ -793,9 +818,9 @@ export default function RecordView({
         完成了计划={(p) => void 完成计划(p, `跟进已记录，计划「${p.subject}」一并完成`)}
         contacts={contacts}
         opportunities={opportunities}
+        orders={contracts.flatMap((c) => (c.order ? [{ id: c.order.id, no: c.order.no }] : []))}
         aiEnabled={aiEnabled}
       />
-      {b.template === "trade" && 订单与供应商 && <OrderForm open={建订单} customerId={customer.id} onClose={() => set建订单(false)} />}
       <TaskForm open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={() => { setTaskOpen(false); router.refresh(); }} customerId={customer.id} />
       <PlanForm
         open={planOpen}
@@ -873,16 +898,16 @@ export default function RecordView({
       <div style={{ marginTop: 8 }}>登记这笔时一起标成赢单的商机{退回.map((n) => `「${n}」`).join("")}会退回进行中。</div>
     ) : null;
     modal.confirm({
-      title: "删除这条签约记录？",
+      title: 是订单 ? `删除订单${r.order ? ` ${r.order.no}` : ""}？` : "删除这条签约记录？",
       content: !是最后一笔 ? (
         <>
-          <div>金额 {金额(r.amount, r.currency)}，删除后统计数据会同步变化。</div>
+          <div>金额 {金额(r.amount, r.currency)}，删除后统计数据会同步变化。{是订单 && "挂在这张订单上的跟进记录留在时间线里，不会删。"}</div>
           {商机那句}
         </>
       ) : (
         <>
           <div>
-            金额 {金额(r.amount, r.currency)}。这是该{b.customer}唯一一笔签约，删除后签约金额归零，跟进状态需要跟着退回，否则看板上会一直挂着「已签约、金额 0」。
+            金额 {金额(r.amount, r.currency)}。这是该{b.customer}唯一一笔{叫}，删除后{叫}金额归零，跟进状态需要跟着退回，否则看板上会一直挂着「已签约、金额 0」。
           </div>
           <div style={{ marginTop: 12 }}>
             <div style={{ marginBottom: 6, fontSize: 13 }}>跟进状态退回到：</div>
@@ -976,6 +1001,10 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
         <div className="rec-tl-head">
           <span className="rec-tl-type">{meta.label}</span>
           {f.title?.trim() && <span className="rec-tl-title" title={f.title}>· {f.title}</span>}
+          {/* 挂在订单上的（2026-10-05）：标出订单号，点过去看这张订单的全部跟进。标题已经写着这个订单号就不重复 */}
+          {f.order && !f.title?.includes(f.order.no) && (
+            <Link href={`/orders/${f.order.id}`} className="rec-tl-order">订单 {f.order.no}</Link>
+          )}
           {f.status !== "已完成" && (
             <Tag color={FOLLOW_RECORD_STATUS_COLOR[f.status] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
               {f.status}

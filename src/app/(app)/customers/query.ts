@@ -3,6 +3,7 @@ import type { Prisma } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
 import { 带币种, 签约金额, 签约合计 } from "@/lib/money-db";
 import { 搜索词, 号码片段, 有通配符, 字面包含的id } from "@/lib/search-keyword";
+import { 取档案 } from "@/lib/customer-extra-db";
 
 /**
  * 客户列表的查询条件、取哪些字段、怎么变成一行——列表页和「导出」共用这一份（2026-10-02 排查）。
@@ -21,6 +22,9 @@ export type 客户条件 = {
   batch?: string;
   /** 「1」= 只看公海里的（第 6 块） */
   pool?: string;
+  /** 外贸档案的国家 / 来源（2026-10-05） */
+  country?: string;
+  source?: string;
 };
 
 /** 关键词搜的列，和下面 OR 里的一致（字面包含那条路也照这个搜） */
@@ -58,6 +62,12 @@ export async function 客户筛选条件(
             // 年级、备注也搜，和 AI 的 search_customers 一个范围（排查 C7）：AI 说「大三的有 12 位」，点「去库里搜」不能是 0 条
             { grade: { contains: 词 } },
             { remark: { contains: 词 } },
+            /*
+              外贸档案和联系人也搜（2026-10-05 外贸客户：「联系人可以直接合并到客户里面」）。外贸模版左栏不摆联系人页，
+              按联系人的名字、电话、邮箱、微信找到的就是他所在的那位客户
+            */
+            { extra: { is: { OR: [{ whatsapp: { contains: 号段 ?? 词 } }, { email: { contains: 词 } }, { wechat: { contains: 词 } }, { country: { contains: 词 } }] } } },
+            { contacts: { some: { OR: [{ name: { contains: 词 } }, { phone: { contains: 号段 ?? 词 } }, { email: { contains: 词 } }, { wechat: { contains: 词 } }] } } },
           ],
         }
       : {}),
@@ -77,6 +87,9 @@ export async function 客户筛选条件(
       ? { channelId: sp.directOf, referrerCustomerId: null }
       : {}),
     ...(sp.pool === "1" ? { pool: { isNot: null } } : {}),
+    ...(sp.country || sp.source
+      ? { extra: { is: { ...(sp.country ? { country: sp.country } : {}), ...(sp.source ? { source: sp.source } : {}) } } }
+      : {}),
   };
 }
 
@@ -105,6 +118,7 @@ export const 客户行字段 = {
   attributionCustomer: { select: { name: true } },
   contracts: { select: { amount: true, ...带币种.签约 } },
   pool: { select: { reason: true } },
+  extra: true,
 } satisfies Prisma.CustomerSelect;
 
 type 取到的行 = Prisma.CustomerGetPayload<{ select: typeof 客户行字段 }>;
@@ -137,6 +151,9 @@ export function 成客户行(r: 取到的行, 号: (p: string) => string) {
     signedTotals: 签约合计(r.contracts),
     /** 在公海里：负责人那一格写「公海（原 X）」，行上能领取。null = 不在 */
     pool: r.pool ? { reason: r.pool.reason } : null,
+    /** 外贸档案：国家、WhatsApp、微信、邮箱、来源（2026-10-05） */
+    // WhatsApp 也是号码：共享试用区和电话一样打码
+    extra: (() => { const x = 取档案(r.extra); return { ...x, whatsapp: x.whatsapp && 号(x.whatsapp) }; })(),
     // 并发闸门：编辑框拿它作为「我看到的是哪一版」
     updatedAt: r.updatedAt.toISOString(),
   };

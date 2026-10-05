@@ -20,20 +20,21 @@ import {
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { 合计文字 } from "@/lib/currency";
 import { maskPhone, smartTime, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
-import { toCsv } from "@/lib/csv";
+import { 写xlsx } from "@/lib/xlsx-write";
 import ListSearch from "@/components/ListSearch";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import { 导出客户 } from "./export-action";
-import { 客户导出表, 签约各币 } from "./export-table";
+import { 客户导出表, 跟进导出表, 签约各币, type 跟进导出行 } from "./export-table";
 import ImportDrawer from "./ImportDrawer";
 import { assignSalesOwner, bulkFollowStatus, 撤销改负责人, type BulkResult } from "./actions";
 import { useDeleteCustomers } from "./useDeleteCustomers";
 import { 带走说法 } from "@/lib/carry-over";
 import { useBusiness } from "@/lib/business-client";
 import type { BusinessConfig } from "@/lib/business-config";
-import { statusLabel } from "@/lib/business-config";
+import { statusLabel, 外贸精简, 签约叫 } from "@/lib/business-config";
+import { WhatsApp网址 } from "@/lib/customer-extra";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 列表不问归属 } from "@/lib/solo";
 import { 公海标签 } from "@/lib/pool";
@@ -90,6 +91,8 @@ type Props = {
    * 删掉一项后那些老客户还在、显示也对，就是筛不出来
    */
   旧职位?: string[];
+  /** 库里用着的国家（外贸模版的国家筛选，2026-10-05） */
+  国家们?: string[];
   filters: {
     keyword: string;
     grade: string;
@@ -106,6 +109,9 @@ type Props = {
     batch: string;
     /** 「1」= 只看公海 */
     pool: string;
+    /** 外贸档案的国家 / 来源（2026-10-05） */
+    country: string;
+    source: string;
   };
 };
 
@@ -125,7 +131,7 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [],
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [], 国家们 = [],
 }: Props) {
   const router = useRouter();
   const { message } = App.useApp();
@@ -250,7 +256,7 @@ export default function CustomersView({
   }, []);
 
   /** 收起来的那三个里还筛着几个。收起来不等于可以不告诉人 */
-  const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId].filter(Boolean).length;
+  const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId, f.source].filter(Boolean).length;
   /** 一共筛着几个。0 的时候「重置」看不见——没筛过的页面上它是个哑按钮（位置留着，见 ResetFilters） */
   const 筛了 = Object.values(f).filter(Boolean).length;
   /**
@@ -261,6 +267,27 @@ export default function CustomersView({
   const 不问归属 =
     !f.salesOwnerId && !f.channelOwnerId && !f.pool &&
     列表不问归属(users, rows.flatMap((r) => [r.salesOwnerName, r.channelOwnerName]));
+
+  /** 外贸模版（2026-10-05 外贸客户建议），见 lib/business-config.ts 外贸精简 */
+  const 外贸 = 外贸精简(b);
+  const 空 = <span className="muted">—</span>;
+  const 外贸列: 列<CustomerRow>[] = [
+    { title: "国家", key: "country", width: 100, render: (_: unknown, r) => r.extra?.country ?? 空 },
+    {
+      title: "WhatsApp", key: "whatsapp", width: 150,
+      // 点号码直接打开对话（wa.me）。停在链接上不跳进这位的记录页（行点击会进记录页）
+      render: (_: unknown, r) => {
+        const 网址 = WhatsApp网址(r.extra?.whatsapp);
+        return 网址 ? <a href={网址} target="_blank" rel="noreferrer" className="nowrap" onClick={(e) => e.stopPropagation()} title="在 WhatsApp 里打开对话">{r.extra?.whatsapp}</a> : 空;
+      },
+    },
+    {
+      title: "邮箱", key: "email", width: 190,
+      render: (_: unknown, r) => (r.extra?.email ? <a href={`mailto:${r.extra.email}`} onClick={(e) => e.stopPropagation()} style={{ display: "inline-block", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={r.extra.email}>{r.extra.email}</a> : 空),
+    },
+    { title: "微信", key: "wechat", width: 120, 默认: false, render: (_: unknown, r) => r.extra?.wechat ?? 空 },
+    { title: "来源", key: "source", width: 110, 默认: false, render: (_: unknown, r) => r.extra?.source ?? 空 },
+  ];
 
   const 列表: 列<CustomerRow>[] = [
     {
@@ -288,10 +315,16 @@ export default function CustomersView({
         ),
     },
     { title: "跟进状态", key: "followStatus", dataIndex: "followStatus", width: 118, render: (v) => <FollowStatusTag status={v} /> },
-    {
+    // 外贸不摆预计签约（2026-10-05 外贸客户：「没有意义」——采购时间点看商机的询盘时间）
+    ...(外贸 ? [] : [{
       title: "预计签约", key: "expectedSignAt", dataIndex: "expectedSignAt", width: 116,
-      render: (v) => <span className="muted nowrap">{v ? fmtDate(v) : "—"}</span>,
-    },
+      render: (v: string | null) => <span className="muted nowrap">{v ? fmtDate(v) : "—"}</span>,
+    }]),
+    /*
+      外贸档案的列（2026-10-05 外贸客户：「增加列：国家，Whatsapp，Wechat，邮箱」）。
+      国家、WhatsApp、邮箱默认摆；微信、来源收在「列」里
+    */
+    ...(外贸 ? 外贸列 : []),
     ...(不问归属 ? [] : [{
       title: "负责人", 列名: "负责人", key: "salesOwnerName", dataIndex: "salesOwnerName", width: 140,
       // 在公海里：写「公海（原 X）」——原负责人还挂着，但谁都能领
@@ -314,16 +347,19 @@ export default function CustomersView({
     { title: b.fields.grade, key: "grade", dataIndex: "grade", width: 90, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
     { title: "决策状态", key: "decisionStatus", dataIndex: "decisionStatus", width: 128, 默认: false, render: (v) => <DecisionStatusTag status={v} /> },
     {
-      title: "签约金额", key: "signedAmount", dataIndex: "signedAmount", width: 120, 默认: false,
+      title: `${签约叫(b)}金额`, key: "signedAmount", dataIndex: "signedAmount", width: 120, 默认: false,
       sorter: (a, b2) => a.signedAmount - b2.signedAmount,
       render: (v: number, r) => (v > 0 ? <span style={{ fontWeight: 500 }}>{合计文字(签约各币(r))}</span> : <span className="muted">—</span>),
     },
-    { title: "推荐人", key: "referrerName", dataIndex: "referrerName", width: 120, 默认: false, render: (v) => v ?? <span className="muted">自然流量</span> },
-    {
-      title: "渠道归属", key: "attributionName", dataIndex: "attributionName", width: 120, 默认: false,
-      render: (v) => (v ? <Tag style={{ margin: 0, borderRadius: 6 }}>{v}</Tag> : <span className="muted">—</span>),
-    },
-    ...(不问归属 ? [] : [{
+    // 推荐人、渠道归属、渠道负责人：外贸不摆（推荐分佣链是教培那一套，外贸看来源）
+    ...(外贸 ? [] : [
+      { title: "推荐人", key: "referrerName", dataIndex: "referrerName", width: 120, 默认: false, render: (v: string | null) => v ?? <span className="muted">自然流量</span> },
+      {
+        title: "渠道归属", key: "attributionName", dataIndex: "attributionName", width: 120, 默认: false,
+        render: (v: string | null) => (v ? <Tag style={{ margin: 0, borderRadius: 6 }}>{v}</Tag> : <span className="muted">—</span>),
+      },
+    ]),
+    ...(不问归属 || 外贸 ? [] : [{
       title: "渠道负责人", key: "channelOwnerName", dataIndex: "channelOwnerName", width: 130, 默认: false,
       render: (v: string | null) => (v ? <UserCell name={v} size={24} /> : <span className="muted">—</span>),
     }]),
@@ -374,8 +410,9 @@ export default function CustomersView({
                   try {
                     const r = await 导出客户(filters);
                     if (!r.ok) return void message.error(r.error);
-                    exportCsv(r.rows, b);
-                    message.success(r.截断了 ? `导出了前 ${r.rows.length} 条（一次最多这么多，先筛一下再导剩下的）` : `导出了 ${r.rows.length} 条`);
+                    exportXlsx(r.rows, r.跟进, b);
+                    const 跟进说 = r.跟进.length ? `，连同 ${r.跟进.length} 条跟进记录（第二张表）${r.跟进截断了 ? "，跟进太多只带了一部分" : ""}` : "";
+                    message.success(r.截断了 ? `导出了前 ${r.rows.length} 位${跟进说}（一次最多这么多，先筛一下再导剩下的）` : `导出了 ${r.rows.length} 位${跟进说}`);
                   } catch {
                     message.error("导出失败，请重试");
                   } finally {
@@ -430,7 +467,7 @@ export default function CustomersView({
               </Tag>
             )}
             <ListSearch
-              placeholder={`姓名 / 电话 / ${b.fields.school} / ${b.fields.major} / 备注`}
+              placeholder={外贸 ? `姓名 / 电话 / ${b.fields.school} / 邮箱 / WhatsApp / 联系人` : `姓名 / 电话 / ${b.fields.school} / ${b.fields.major} / 备注`}
               value={f.keyword}
               onChange={(v) => setF({ ...f, keyword: v })}
               onSearch={(v) => apply({ keyword: v })}
@@ -438,6 +475,12 @@ export default function CustomersView({
             <Select style={{ width: 140 }} placeholder="全部跟进状态" allowClear
               value={f.followStatus || undefined} onChange={(v) => apply({ followStatus: v ?? "" })}
               options={FOLLOW_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
+            {/* 外贸：国家是第一眼要分的（时差、市场、报价口径），摆在外面；只给库里真有的国家 */}
+            {外贸 && (国家们.length > 0 || f.country) && (
+              <Select style={{ width: 130 }} placeholder="全部国家" allowClear showSearch
+                value={f.country || undefined} onChange={(v) => apply({ country: v ?? "" })}
+                options={[...new Set([...国家们, ...(f.country ? [f.country] : [])])].map((x) => ({ value: x, label: x }))} />
+            )}
             {!不问归属 && (
               /* 公海是负责人下拉的第一项（第 6 块）：它就是「没人负责的那一池」。
                  原来单摆一个开关，1024 宽时把「更多筛选」挤到了第二行 */
@@ -457,7 +500,12 @@ export default function CustomersView({
                   <Select style={{ width: "100%" }} placeholder="全部决策状态" allowClear
                     value={f.decisionStatus || undefined} onChange={(v) => apply({ decisionStatus: v ?? "" })}
                     options={DECISION_STATUSES.map((s) => ({ value: s, label: statusLabel(b, s) }))} />
-                  {!不问归属 && (
+                  {外贸 && (
+                    <Select style={{ width: "100%" }} placeholder="全部来源" allowClear showSearch
+                      value={f.source || undefined} onChange={(v) => apply({ source: v ?? "" })}
+                      options={[...new Set([...b.sources, ...(f.source ? [f.source] : [])])].map((x) => ({ value: x, label: x }))} />
+                  )}
+                  {!不问归属 && !外贸 && (
                     <Select style={{ width: "100%" }} placeholder="全部渠道负责人" allowClear
                       value={f.channelOwnerId || undefined} onChange={(v) => apply({ channelOwnerId: v ?? "" })}
                       options={成员选项(users)} />
@@ -572,15 +620,22 @@ export default function CustomersView({
   );
 }
 
-function exportCsv(rows: CustomerRow[], b: BusinessConfig) {
-  // 写哪几列在 export-table.ts（带备注，2026-10-04 J-073），拆出去是为了能单测「导出 → 再导入一圈」
-  const { head, body } = 客户导出表(rows, b);
-
-  // 转义、BOM、公式注入防护都在 toCsv 里，见 src/lib/csv.ts
-  const blob = new Blob([toCsv(head, body)], { type: "text/csv;charset=utf-8" });
+/**
+ * 导出成一个 Excel（2026-10-05 外贸客户：「导出客户的时候，是否也能把跟进的记录也一并导出」）。
+ * 第一张表「客户」和原来的 CSV 同样几列（能原样导回来，导入只读第一张表）；第二张表「跟进记录」一条跟进一行。
+ * 写哪几列在 export-table.ts（带备注，2026-10-04 J-073），拆出去是为了能单测「导出 → 再导入一圈」
+ */
+function exportXlsx(rows: CustomerRow[], 跟进: 跟进导出行[], b: BusinessConfig) {
+  const 客户 = 客户导出表(rows, b);
+  const 记录 = 跟进导出表(跟进, b);
+  const 字节 = 写xlsx([
+    { 名: `${b.customer}`, 表头: 客户.head, 行: 客户.body },
+    { 名: "跟进记录", 表头: 记录.head, 行: 记录.body, 列宽: [16, 16, 18, 10, 24, 60, 10, 22, 10] },
+  ]);
+  const blob = new Blob([字节 as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${b.customer}列表-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = `${b.customer}列表-${new Date().toISOString().slice(0, 10)}.xlsx`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

@@ -14,7 +14,7 @@ import { 聚焦首项 } from "@/lib/modal-focus";
 import CurrencySelect from "@/components/CurrencySelect";
 import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useBusiness } from "@/lib/business-client";
-import { stageLabel } from "@/lib/business-config";
+import { stageLabel, 外贸订单, 外贸精简 } from "@/lib/business-config";
 
 /**
  * 新建 / 编辑商机的框。列表页和管道页共用（2026-09-29）：管道页原来没有表单，
@@ -40,6 +40,8 @@ export default function OpportunityForm({
 }) {
   const { message } = App.useApp();
   const b = useBusiness();
+  /** 外贸模版：摆询盘时间，不摆预计成交和成交概率（2026-10-05 外贸客户建议） */
+  const 外贸 = 外贸精简(b);
   const 我 = useMe();
   const [form] = Form.useForm();
   /** 换阶段前是哪一档：概率还等于那一档的默认值，才算「人没动过」、跟着换（排查 D6） */
@@ -93,6 +95,7 @@ export default function OpportunityForm({
       form.setFieldsValue({
         ...editing,
         expectedDealAt: editing.expectedDealAt ? dayjs(editing.expectedDealAt) : null,
+        询盘时间: dayjs(editing.createdAt),
       });
     } else {
       form.resetFields();
@@ -109,6 +112,7 @@ export default function OpportunityForm({
         ownerId: 默认负责人(我, users),
         // 新建默认本位币（设置 → 业务里定的；外贸模版是美元）
         currency: b.currency,
+        询盘时间: dayjs(),
       });
     }
   }, [open, editing, form, users, b.currency, 我]);
@@ -120,7 +124,9 @@ export default function OpportunityForm({
       id: editing?.id,
       版本: editing?.updatedAt,
       ...v,
-      expectedDealAt: v.expectedDealAt ? v.expectedDealAt.toISOString() : null,
+      // 外贸摆询盘时间、不摆预计成交（没摆的格子 validateFields 不给值：预计成交照原样交回去）
+      expectedDealAt: 外贸 ? editing?.expectedDealAt ?? null : v.expectedDealAt ? v.expectedDealAt.toISOString() : null,
+      询盘时间: 外贸 && v.询盘时间 ? v.询盘时间.toISOString() : undefined,
       // 报价明细关着（lib/features.ts）：不交 = 不碰报价
       ...(报价明细 && 报价到了 ? { 报价: 交出去(行) } : {}),
     });
@@ -222,7 +228,7 @@ export default function OpportunityForm({
                 }}
                 options={[
                   { value: "OPEN", label: "进行中" },
-                  { value: "WON", label: "已赢单" },
+                  { value: "WON", label: 外贸订单(b) ? "已转订单" : "已赢单" },
                   { value: "LOST", label: "已丢单" },
                 ]}
               />
@@ -244,16 +250,29 @@ export default function OpportunityForm({
               </Form.Item>
             </Col>
           )}
-          <Col span={8}>
-            <Form.Item name="expectedDealAt" label="预计成交">
-              <DatePicker style={{ width: "100%" }} />
-            </Form.Item>
-          </Col>
-          <Col span={16}>
-            <Form.Item name="probability" label="成交概率 (%)">
-              <Slider marks={{ 0: "0", 50: "50", 100: "100" }} />
-            </Form.Item>
-          </Col>
+          {外贸 ? (
+            <Col span={8}>
+              {/* 外贸客户：「同一个需求 3 月问了一次没成，5 月又问一次，这样可以知道客户计划采购的时间点」 */}
+              <Form.Item name="询盘时间" label="询盘时间" extra="这次询盘是哪天来的，补录以前的询盘时改成当天">
+                <DatePicker style={{ width: "100%" }} allowClear={false} disabledDate={(d) => d.isAfter(dayjs(), "day")} />
+              </Form.Item>
+              {/* 概率不摆（外贸客户：没有意义），值照样跟着阶段走：漏斗、数据页还按它算 */}
+              <Form.Item name="probability" hidden><Slider /></Form.Item>
+            </Col>
+          ) : (
+            <>
+              <Col span={8}>
+                <Form.Item name="expectedDealAt" label="预计成交">
+                  <DatePicker style={{ width: "100%" }} />
+                </Form.Item>
+              </Col>
+              <Col span={16}>
+                <Form.Item name="probability" label="成交概率 (%)">
+                  <Slider marks={{ 0: "0", 50: "50", 100: "100" }} />
+                </Form.Item>
+              </Col>
+            </>
+          )}
           {报价明细 && (
             <Col span={24}>
               <Form.Item label="报价明细" style={{ marginBottom: 16 }}>

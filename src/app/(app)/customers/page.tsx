@@ -18,6 +18,9 @@ type SP = Promise<{
   decisionStatus?: string;
   salesOwnerId?: string;
   channelOwnerId?: string;
+  /** 外贸档案的国家 / 来源（2026-10-05） */
+  country?: string;
+  source?: string;
   page?: string;
   pageSize?: string;
   /**
@@ -56,7 +59,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
 
   const where = await 客户筛选条件(sp);
 
-  const [rows, total, users, channels, allCustomers, 用着的职位, b] = await Promise.all([
+  const [rows, total, users, channels, allCustomers, 用着的职位, b, 用着的国家] = await Promise.all([
     prisma.customer.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -70,6 +73,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     可选客户(),
     prisma.customer.findMany({ where: { grade: { not: null } }, distinct: ["grade"], select: { grade: true } }),
     getBusiness(),
+    // 国家筛选只给库里真有的（外贸，2026-10-05）：一百多个国家摆一长串，挑到的多半是 0 条
+    prisma.customerExtra.findMany({ where: { country: { not: null } }, distinct: ["country"], select: { country: true }, orderBy: { country: "asc" } }),
   ]);
   // 业务配置里删掉了、库里还有人在用的职位：筛选下拉照样给（第 2 期 2b「删选项后老记录照样能筛」）
   const 旧职位 = 用着的职位.map((c) => c.grade!.trim()).filter((g) => g && !b.grades.includes(g)).sort();
@@ -99,12 +104,15 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         directOf: sp.directOf ?? "",
         batch: sp.batch ?? "",
         pool: sp.pool === "1" ? "1" : "",
+        country: sp.country ?? "",
+        source: sp.source ?? "",
       }}
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={sp.batch ? { 几位: total } : null}
       aiEnabled={aiEnabled}
       旧职位={[...new Set(旧职位)]}
+      国家们={用着的国家.map((x) => x.country!).filter(Boolean)}
     />
   );
 }

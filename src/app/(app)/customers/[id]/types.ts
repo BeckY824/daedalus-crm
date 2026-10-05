@@ -19,6 +19,9 @@ export type FollowUpRow = {
   contactPosition: string | null;
   contactId: string | null;
   opportunityId: string | null;
+  /** 挂在哪张订单上（2026-10-05）。没挂是 null，老调用方没给当没挂 */
+  orderId?: string | null;
+  order?: { id: string; no: string } | null;
   /** 编辑框的版本号（2026-10-04 J-105） */
   updatedAt: string;
 };
@@ -53,12 +56,12 @@ export type RecordProps = {
     status: string;
     probability: number;
     expectedDealAt: string | null;
+    /** 外贸模版下叫「询盘时间」（2026-10-05）：商机是哪天来的，人能改 */
+    createdAt?: string;
   }[];
   contracts: ContractRow[];
   /** 报价记录（2026-10-03）：这个客户历次报过的每一行，新的在前。没报过是空数组，左栏那一节就不出现 */
   报价记录?: import("@/lib/quote-db").报价记录行[];
-  /** 这位客户的外贸订单（2026-10-03）。只在外贸模版下摆出来 */
-  订单?: import("@/lib/order-db").订单行[];
   tasks: { id: string; title: string; dueAt: string | null; done: boolean }[];
   /** updatedAt：编辑框的版本号（J-105） */
   plan: { id: string; subject: string; plannedAt: string; method: string; updatedAt: string } | null;

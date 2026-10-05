@@ -236,7 +236,9 @@ export const TOOLS: Tool[] = [
           salesOwner: { select: { name: true } },
           referrerCustomer: { select: { name: true } },
           channel: { select: { name: true } },
-          contracts: { select: { amount: true, signedAt: true, ...带币种.签约 } },
+          contracts: { select: { amount: true, signedAt: true, ...带币种.签约, order: { select: { no: true, payment: true } } } },
+          // 外贸档案（2026-10-05）：国家、WhatsApp、微信、邮箱、来源。问「他 WhatsApp 多少」「哪国的」时要看得到
+          extra: true,
           // 联系人是另一张表。不给的话，问「张三家长的微信是多少」时模型只能说没有——
           // 而数据就在库里，等于向用户断言 CRM 丢了东西（同下面电话那条的道理）
           contacts: { select: { name: true, position: true, phone: true, wechat: true, email: true, isPrimary: true }, orderBy: { isPrimary: "desc" } },
@@ -266,7 +268,7 @@ export const TOOLS: Tool[] = [
         // 电话一定要给：不给的话模型会如实说「系统里没存电话」，
         // 然后建议人去补一条**本来就存在**的数据——比缺功能更伤，
         // 它是在向用户断言 CRM 丢了东西
-        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${号(c.phone) || "未填"}；跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.length ? 合计文字(签约合计(c.contracts)) : "无"}；备注：${c.remark || "无"}`,
+        profile: `${[c.school, c.grade, c.major].filter(Boolean).join(" / ") || "档案未填"}；电话 ${号(c.phone) || "未填"}；${外贸说法(c.extra && { ...c.extra, whatsapp: c.extra.whatsapp && 号(c.extra.whatsapp) })}跟进状态「${statusLabel(b, c.followStatus)}」，决策状态「${statusLabel(b, c.decisionStatus)}」；负责人 ${c.salesOwner.name}；推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.length ? 合计文字(签约合计(c.contracts)) : "无"}；备注：${c.remark || "无"}`,
         contacts: c.contacts.map((p) => `${p.name}${p.position ? `（${p.position}）` : ""}${p.isPrimary ? " 主要联系人" : ""}：${[p.phone && `电话 ${号(p.phone)}`, p.wechat && `微信 ${p.wechat}`, p.email && `邮箱 ${p.email}`].filter(Boolean).join("、") || "没留联系方式"}`),
         opportunities: c.opportunities.map((o) => {
           const q = o.quotes[0];
@@ -1064,6 +1066,19 @@ export function proposalVocab(b: BusinessConfig): string {
   改**渠道本身**的负责人（换人接手）→ propose_channel_update，只影响之后新增的${b.customer ?? "客户"}，已有的不动
 channelName 收的是渠道名、referrerName 收的是${b.customer ?? "客户"}名，绝不要把销售的名字塞进去。
 ${字段表.grade.label}：${(字段表.grade.values ?? []).join(" / ")}`;
+}
+
+/** 客户画像里外贸档案那一段（2026-10-05）：有什么说什么，一格都没填就不说 */
+function 外贸说法(x: { country: string | null; whatsapp: string | null; wechat: string | null; email: string | null; source: string | null } | null): string {
+  if (!x) return "";
+  const 段 = [
+    x.country && `国家 ${x.country}`,
+    x.whatsapp && `WhatsApp ${x.whatsapp}`,
+    x.wechat && `微信 ${x.wechat}`,
+    x.email && `邮箱 ${x.email}`,
+    x.source && `来源 ${x.source}`,
+  ].filter(Boolean);
+  return 段.length ? `${段.join("；")}；` : "";
 }
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));

@@ -1,6 +1,6 @@
 "use client";
 
-import { 订单与供应商, 报价明细 } from "@/lib/features";
+import { 订单, 订单节点, 供应商页, 报价明细 } from "@/lib/features";
 import { useState } from "react";
 import { App } from "antd";
 import type { BusinessTemplate } from "@/lib/business-config";
@@ -27,7 +27,9 @@ const 卡: { t: BusinessTemplate; 名: string; 一句: string; 有: string[] }[]
       ...(报价明细 ? ["报价填单价和数量，看得到每次报的价"] : []),
       "阶段叫法换成询盘、比价中、已报价、寄样、客户确认",
       "客户来源换成阿里国际站、独立站询盘、展会这一套",
-      ...(订单与供应商 ? ["订单按节点跟进：定金、生产、订舱、装柜、单据尾款", "一个询盘问几家供应商，比价留痕"] : []),
+      ...(订单 ? ["商机一点「转为订单」，订单号、付款方式、供应商都记在订单上"] : []),
+      ...(订单节点 ? ["订单按节点跟进：定金、生产、订舱、装柜、单据尾款"] : []),
+      ...(供应商页 ? ["一个询盘问几家供应商，比价留痕"] : []),
     ],
   },
 ];

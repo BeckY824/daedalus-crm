@@ -25,7 +25,16 @@ export type 字段名 =
   | "decisionStatus"
   | "expectedSignAt"
   | "remark"
-  | "channelName";
+  | "channelName"
+  // 外贸档案（2026-10-05，只在外贸模版下开）：落到 CustomerExtra，见 lib/customer-extra.ts
+  | "country"
+  | "whatsapp"
+  | "wechat"
+  | "email"
+  | "source";
+
+/** 落在外贸档案（旁表 CustomerExtra）里的那几个导入字段 */
+export const 外贸导入字段 = ["country", "whatsapp", "wechat", "email", "source"] as const satisfies readonly 字段名[];
 
 export type 字段规格 = {
   名: 字段名;
@@ -66,7 +75,25 @@ export type 字段规格 = {
  * 猜错的那一列人多半直接点了下一步，于是电话进了备注栏。所以这张表只收
  * 「几乎不可能是别的意思」的说法，不做模糊匹配、不做编辑距离。
  */
-export function 字段表(b: { fields: { school: string; grade: string; major: string }; grades: string[]; customer: string; statusLabels?: Record<string, string> }): 字段规格[] {
+export function 字段表(b: { fields: { school: string; grade: string; major: string }; grades: string[]; customer: string; statusLabels?: Record<string, string>; template?: string }): 字段规格[] {
+  /*
+    外贸模版（2026-10-05）：多认国家 / WhatsApp / 微信 / 邮箱 / 来源五列（小满之类导出来的表都有），
+    「来源」落到客户自己的来源格，不再去对渠道（外贸不摆渠道）——所以来源渠道那一项整个不给
+  */
+  if (b.template === "trade") {
+    return [
+      ...通用字段(b).filter((f) => f.名 !== "channelName" && f.名 !== "expectedSignAt"),
+      { 名: "country", label: "国家", kind: "text", 别名: ["国家", "国家地区", "国家/地区", "所在国家", "地区", "country", "region", "nation", "countryregion"] },
+      { 名: "whatsapp", label: "WhatsApp", kind: "text", 别名: ["whatsapp", "whatsapp号", "whatsapp号码", "wa", "whatsappnumber"] },
+      { 名: "wechat", label: "微信", kind: "text", 别名: ["微信", "微信号", "wechat", "weixin", "wx", "wechatid"] },
+      { 名: "email", label: "邮箱", kind: "text", 别名: ["邮箱", "电子邮箱", "邮件", "邮箱地址", "email", "e-mail", "mail", "emailaddress"] },
+      { 名: "source", label: "来源", kind: "text", 别名: ["来源", "客户来源", "询盘来源", "获客渠道", "来源渠道", "渠道", "source", "leadsource"] },
+    ];
+  }
+  return 通用字段(b);
+}
+
+function 通用字段(b: { fields: { school: string; grade: string; major: string }; grades: string[]; customer: string; statusLabels?: Record<string, string> }): 字段规格[] {
   return [
     { 名: "name", label: "姓名", kind: "text", 必填: true, 别名: ["姓名", "名字", "客户姓名", "客户名称", "客户", b.customer, `${b.customer}姓名`, "学员", "学员姓名", "name", "fullname", "联系人", "联系人姓名"] },
     { 名: "phone", label: "手机号", kind: "text", 必填: true, 别名: ["手机号", "手机", "电话", "联系电话", "联系方式", "手机号码", "电话号码", "mobile", "phone", "tel", "telephone"] },

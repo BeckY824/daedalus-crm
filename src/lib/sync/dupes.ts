@@ -3,7 +3,7 @@
  * 同步不替人合并：号码一样不一定是同一个人（一个号码几个联系人的公司常见），名字一样的供应商可能是两家分厂。
  * 列出来、给链接，让人自己判断（合并客户的功能还没有，先删掉多的那一条）。
  */
-import { 订单与供应商 } from "@/lib/features";
+import { 供应商页 } from "@/lib/features";
 import { prisma } from "../prisma";
 import { 号键 } from "../phone";
 import { 号键SQL, 按号键找 } from "../phone-dedupe";
@@ -20,8 +20,8 @@ export async function 疑似重复(): Promise<疑似组[]> {
     select: { id: true, name: true, phone: true, salesOwner: { select: { name: true } } },
     orderBy: { createdAt: "asc" },
   });
-  // 供应商这一版不上（lib/features.ts）：不列，点进去也是 404
-  const 名字们 = 订单与供应商 ? await prisma.$queryRawUnsafe<{ name: string }[]>(`SELECT name FROM "Supplier" GROUP BY name HAVING COUNT(*) > 1 LIMIT 50`) : [];
+  // 供应商页这一版不上（lib/features.ts）：不列，点进去也是 404
+  const 名字们 = 供应商页 ? await prisma.$queryRawUnsafe<{ name: string }[]>(`SELECT name FROM "Supplier" GROUP BY name HAVING COUNT(*) > 1 LIMIT 50`) : [];
   const 供应商 = await prisma.supplier.findMany({ where: { name: { in: 名字们.map((x) => x.name) } }, select: { id: true, name: true }, orderBy: { createdAt: "asc" } });
   return [
     ...号码们.map((g) => ({

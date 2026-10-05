@@ -50,6 +50,8 @@ const 可写: Record<string, string[]> = {
   // 外贸订单（2026-10-03）：表头 saveOrder，节点 saveOrderNode，单据 saveOrderDoc / addOrderDoc
   TradeOrder: ["no", "amount", "currency", "incoterm", "payment", "depositDue", "depositPaid", "depositAt", "balancePaid", "balanceAt", "remark"],
   TradeOrderNode: ["name", "dueAt", "status"],
+  // 客户的外贸档案（2026-10-05）：客户表单 saveCustomer 的 extra、记录页 patchCustomer 单格改、导入、线索转客户
+  CustomerExtra: ["country", "whatsapp", "wechat", "email", "source"],
   TradeOrderDoc: ["name", "state"],
   // 供应商和比价（3c）：saveSupplier / saveSupplierQuote / saveOrderPurchase
   Supplier: ["name", "category", "region", "contact", "phone", "wechat", "invoice", "payment", "rating", "issues", "remark"],
@@ -97,7 +99,9 @@ const 派生: Record<string, Record<string, string>> = {
     customerId: "建单时定：订单是哪位客户的，不改（改了等于另一张单）",
     opportunityId: "从哪个商机生成的，建单时打上；商机删了置空",
     ownerId: "业务员，下单那一刻固化（同 ContractOwner），业绩按它算",
+    contractId: "这张订单是哪一笔签约（2026-10-05 订单 = 签约），建单时和签约一起写，不改",
   },
+  CustomerExtra: { customerId: "哪位客户的档案，一位一行" },
   TradeOrderNode: { orderId: "属于哪张订单", idx: "第几步（1–12），建单时排好", doneAt: "改成已完成的那一刻，系统打上；改回别的就清掉" },
   TradeOrderDoc: { orderId: "属于哪张订单", sort: "清单里的顺序，加一样时排在最后" },
   SupplierQuote: { opportunityId: "哪个商机（询盘）的比价，建行时定", quotedAt: "记下这一行的那一刻，系统打上" },

@@ -18,6 +18,7 @@ export const 同步表 = [
   "Customer",
   "CustomerPool",
   "CustomerClaim",
+  "CustomerExtra",
   "Contact",
   "UnassignedContact",
   "Lead",

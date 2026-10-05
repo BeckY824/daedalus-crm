@@ -28,6 +28,11 @@ import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import type { 带走数 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
+import { 写签约的订单, type 订单附加 } from "@/lib/order-contract";
+import { 外贸键, 外贸字段名, 规整外贸格, 规整外贸档案, 认国家, type 外贸档案 } from "@/lib/customer-extra";
+import { 写外贸档案 } from "@/lib/customer-extra-db";
+import { 团队订单前缀 } from "@/lib/order";
+import { 读团队 } from "@/lib/sync/client";
 import { completePlan, toggleTask } from "./[id]/actions";
 
 
@@ -72,6 +77,8 @@ export type CustomerInput = {
    * 字符串 = 手工钉死为这个人。用于登记错误的单个订正，不影响任何其他学员。
    */
   channelOwnerId?: string | null;
+  /** 外贸档案（2026-10-05，外贸模版的表单才交）：国家、WhatsApp、微信、邮箱、来源。不给 = 不碰 */
+  extra?: Partial<Record<keyof 外贸档案, string | null>>;
 };
 
 /** 编辑框里可改的那部分字段，用作并发比对的基准快照 */
@@ -196,6 +203,12 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
   const 状态错 = 跟进不对(input.followStatus) ?? 决策不对(input.decisionStatus);
   if (状态错) return { ok: false, error: 状态错 };
+  /*
+    共享试用区里 WhatsApp 和电话一样是打了码给人看的：交回来还带着 * 就是没动它，不碰这一格（同电话的 认回打码号）
+  */
+  const 交的档案 = input.extra && typeof input.extra.whatsapp === "string" && input.extra.whatsapp.includes("*") ? { ...input.extra, whatsapp: undefined } : input.extra;
+  const 档案 = 规整外贸档案(交的档案 ? { ...交的档案, ...(交的档案.country !== undefined ? { country: 认国家(交的档案.country) } : {}) } : null);
+  if (!档案.ok) return { ok: false, error: 档案.error };
 
   /**
    * 归属字段什么时候重算。
@@ -264,7 +277,9 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
         const dup = await 看全部(async () => tx.customer.findFirst({ where: await 同号条件(tx, phone, 起), select: 撞到的字段 }));
         if (dup) return { 撞号: dup } as const;
       }
-      return { created: await tx.customer.create({ data }) } as const;
+      const created = await tx.customer.create({ data });
+      await 写外贸档案(tx, created.id, 档案.data);
+      return { created } as const;
     });
     if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone, 建了.撞号, await 限定的我(defaultClient), b.customer) };
     const { created } = 建了;
@@ -316,6 +331,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   if (first.count === 1) {
     const 改前行 = 改前 as unknown as Record<string, unknown>;
     await 记一笔(diffKeys(改前行, data as Record<string, unknown>), 改前行);
+    await 改外贸档案(me, input.id, data.name, 档案.data, b.customer);
     const 带走 = 改前 && 改前.salesOwnerId !== data.salesOwnerId
       ? await 带走没做完的([{ customerId: input.id, 旧: 改前.salesOwnerId }], data.salesOwnerId)
       : undefined;
@@ -374,8 +390,9 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       };
     }
 
-    // 我什么都没改，写下去也是原样，直接当成功
+    // 我什么都没改，写下去也是原样，直接当成功（外贸档案在旁表，不过这道闸，照改）
     if (!mine.length) {
+      await 改外贸档案(me, input.id, data.name, 档案.data, b.customer);
       return { ok: true, id: input.id };
     }
 
@@ -395,6 +412,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     });
     if (merged.count === 1) {
       await 记一笔(mine, currentRow, true);
+      await 改外贸档案(me, input.id, data.name, 档案.data, b.customer);
       const 带走 = mine.includes("salesOwnerId")
         ? await 带走没做完的([{ customerId: input.id, 旧: current.salesOwnerId }], data.salesOwnerId)
         : undefined;
@@ -407,6 +425,23 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     ok: false,
     error: `这条${b.customer}正在被频繁修改，本次保存已取消，请刷新后重试`,
   };
+}
+
+/**
+ * 编辑客户时外贸档案那几格：和库里现值比，只写变了的、留一条痕。
+ * 在旁表里，不进客户那道版本号闸门——五格各自独立，两个人同时改不同的格互不影响；改同一格后写的为准
+ */
+async function 改外贸档案(me: { id: string; name: string }, id: string, 名: string, 改: Partial<外贸档案>, 叫: string) {
+  if (!Object.keys(改).length) return;
+  const 原 = await prisma.customerExtra.findUnique({ where: { customerId: id } });
+  const 变了 = (Object.keys(改) as (keyof 外贸档案)[]).filter((k) => (原?.[k] ?? null) !== (改[k] ?? null));
+  if (!变了.length) return;
+  await 写外贸档案(prisma, id, Object.fromEntries(变了.map((k) => [k, 改[k] ?? null])));
+  await recordAudit({
+    user: me, action: "update", entity: "Customer", entityId: id,
+    summary: `修改${叫}「${名}」：${变了.map((k) => 外贸字段名[k]).join("、")}`,
+    detail: 变了.map((k) => ({ 字段: 外贸字段名[k], 原值: 原?.[k] ?? "（空）", 新值: 改[k] ?? "（空）" })),
+  });
 }
 
 function revalidateCustomer(id?: string) {
@@ -709,7 +744,7 @@ export type ContractDuplicate = {
 };
 
 export type SaveContractResult =
-  | { ok: true; 联动?: 签约联动结果 }
+  | { ok: true; 联动?: 签约联动结果; 订单?: { id: string; no: string } }
   | { ok: false; error: string }
   | { ok: false; duplicate: ContractDuplicate };
 
@@ -762,6 +797,11 @@ export async function saveContract(input: {
   force?: boolean;
   /** 一起收尾的商机 / 计划 / 待办（弹窗里勾上的）。只在新登记时生效，编辑一笔旧签约不牵动别的 */
   联动?: 签约联动;
+  /**
+   * 外贸模版：这笔签约同时是一张订单（2026-10-05，lib/order-contract.ts）。给了就在同一个事务里建 / 改那张订单；
+   * 从商机转来（联动里只勾了一个商机）的订单挂上那个商机
+   */
+  订单?: 订单附加;
 }): Promise<SaveContractResult> {
   try {
     const me = await requireUser();
@@ -783,6 +823,8 @@ export async function saveContract(input: {
     dayEnd.setDate(dayEnd.getDate() + 1);
     // 事务里只用 tx（lib/check-then-write.ts），本位币先在外面读好
     const 本位币 = (await getBusiness()).currency;
+    // 团队里订单号带上下单人的第一个字（几台电脑各编各的不撞号）。事务外先读好
+    const 订单前缀 = input.订单 && 读团队() ? 团队订单前缀(me.name) : "";
 
     const data = {
       customerId: input.customerId,
@@ -799,7 +841,7 @@ export async function saveContract(input: {
       查重和落库在同一个事务里（2026-10-04 J-104）：原来两步分开，两个窗口同时点「登记」，
       两边都查不到对方、都写进去，业绩翻倍。现在后进来的那次查的时候前一笔已经在库里了，照样弹「可能重复」
     */
-    const 落库 = await 查完再写(async (tx): Promise<{ duplicate: ContractDuplicate } | { 签约id: string; 币: string }> => {
+    const 落库 = await 查完再写(async (tx): Promise<{ duplicate: ContractDuplicate } | { 签约id: string; 币: string; 订单?: { id: string; no: string } }> => {
       if (!input.force) {
         // 同额要连币种一起比：同一天 US$ 100 和 ¥ 100 不是同一笔
         const 原币 = input.id && input.currency == null ? await tx.contractMoney.findUnique({ where: { contractId: input.id }, select: { currency: true } }) : null;
@@ -842,14 +884,24 @@ export async function saveContract(input: {
       }
       // 编辑一笔老签约（没有 ContractMoney）也补上这一行：金额刚被重写过，精确值以这次为准
       await 写签约金额(tx, 签约id, 币, 精确);
+      if (input.订单) {
+        const 赢的 = !input.id && input.联动?.赢单?.length === 1
+          ? await tx.opportunity.findFirst({ where: { id: input.联动.赢单[0], customerId: input.customerId }, select: { id: true } })
+          : null;
+        const 单 = await 写签约的订单(tx, {
+          签约id, customerId: input.customerId, ownerId: 学员?.salesOwnerId ?? me.id, amount: 精确, currency: 规整币种(币),
+          附加: input.订单, opportunityId: 赢的?.id ?? null, 前缀: 订单前缀,
+        });
+        return { 签约id, 币, 订单: 单 };
+      }
       return { 签约id, 币 };
     });
     if ("duplicate" in 落库) return { ok: false, duplicate: 落库.duplicate };
-    const { 签约id, 币 } = 落库;
+    const { 签约id, 币, 订单: 单 } = 落库;
   
     await recordAudit({
       user: me, action: input.id ? "update" : "create", entity: "Contract", entityId: 签约id,
-      summary: `${input.id ? "修改" : "登记"}「${学员?.name ?? input.customerId}」的签约 ${显示金额(精确, 币)}` +
+      summary: (单 ? `${input.id ? "修改" : "新建"}「${学员?.name ?? input.customerId}」的订单 ${单.no} ${显示金额(精确, 币)}` : `${input.id ? "修改" : "登记"}「${学员?.name ?? input.customerId}」的签约 ${显示金额(精确, 币)}`) +
         (input.force ? "（已确认不是重复录入）" : ""),
       detail: { customerId: input.customerId, amount: 精确, currency: 币, signedAt: input.signedAt, force: !!input.force },
     });
@@ -869,7 +921,8 @@ export async function saveContract(input: {
     const 联动 = !input.id && input.联动 && 签约id ? await 签约收尾(input.customerId, 签约id, input.联动) : undefined;
   
     revalidateCustomer(input.customerId);
-    return { ok: true, ...(联动 ? { 联动 } : {}) };
+    if (单) revalidatePath("/orders");
+    return { ok: true, ...(联动 ? { 联动 } : {}), ...(单 ? { 订单: 单 } : {}) };
   } catch (e) {
     return 不在了(e);
   }
@@ -941,6 +994,12 @@ export async function deleteContract(
     const 待删 = await prisma.contract.findUnique({ where: { id }, select: { amount: true, signedAt: true, ...带币种.签约 } });
     // 这笔签约顺手赢下的商机（2026-10-04 L-007）。签约一删这几行跟着级联没了，先取出来
     const 赢下的 = await prisma.contractWin.findMany({ where: { contractId: id }, include: { opportunity: { select: { status: true } } } });
+    /*
+      这笔签约是一张订单（外贸，2026-10-05）：先明着删订单再删签约，不只靠外键级联——
+      操作日志要写清删的是哪张单，同步回放也是先订单后签约，不依赖对方库里外键开没开
+    */
+    const 订单 = await prisma.tradeOrder.findFirst({ where: { contractId: id, customerId }, select: { id: true, no: true } });
+    if (订单) await prisma.tradeOrder.delete({ where: { id: 订单.id } });
     const gone = await prisma.contract.deleteMany({ where: { id, customerId } });
     if (gone.count === 0) {
       return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
@@ -970,7 +1029,7 @@ export async function deleteContract(
   
     await recordAudit({
       user: me, action: "delete", entity: "Contract", entityId: id,
-      summary: `删除签约 ${待删 ? 显示金额(签约金额(待删), 签约币种(待删)) : 显示金额(0)}` +
+      summary: `删除${订单 ? `订单 ${订单.no}` : "签约"} ${待删 ? 显示金额(签约金额(待删), 签约币种(待删)) : 显示金额(0)}` +
         (revertTo && remaining === 0 ? `，跟进状态退回「${statusLabel(b, revertTo.followStatus)}」` : "") +
         (remaining ? `，该${b.customer}还剩 ${remaining} 笔` : "") +
         (退回商机 ? `，${退回商机} 个当初顺手标成赢单的商机退回进行中` : ""),
@@ -978,6 +1037,7 @@ export async function deleteContract(
     });
   
     revalidateCustomer(customerId);
+    if (订单) revalidatePath("/orders");
     return { ok: true, remaining, 退回商机 };
   } catch (e) {
     return 不在了(e);
@@ -987,7 +1047,7 @@ export async function deleteContract(
 /* ---------- 记录页的行内编辑 ---------- */
 
 /** 记录页里能直接点着改的字段。姓名、手机（要查重）、推荐关系（要重算归属）仍走完整表单 */
-const PATCHABLE = ["school", "major", "grade", "remark", "expectedSignAt", "followStatus", "decisionStatus", "salesOwnerId", "channelOwnerId"] as const;
+const PATCHABLE = ["school", "major", "grade", "remark", "expectedSignAt", "followStatus", "decisionStatus", "salesOwnerId", "channelOwnerId", ...外贸键] as const;
 export type PatchableKey = (typeof PATCHABLE)[number];
 
 /**
@@ -1002,6 +1062,27 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   if (["salesOwnerId", "channelOwnerId", "channelId", "referrerCustomerId"].includes(key)) await 钉住老签约();
 
   const v = typeof value === "string" ? value.trim() : value;
+  /*
+    外贸档案那五格（2026-10-05）在旁表 CustomerExtra 里，单独写、单独留痕
+  */
+  if ((外贸键 as readonly string[]).includes(key)) {
+    const k = key as keyof 外贸档案;
+    const r = 规整外贸格(k, k === "country" ? 认国家(v) : v);
+    if (!r.ok) return r;
+    const 人 = await prisma.customer.findUnique({ where: { id }, select: { name: true, extra: true } });
+    if (!人) return { ok: false, error: `这条${b.customer}已被删除` };
+    const 原 = 人.extra?.[k] ?? null;
+    if (原 === r.v) return { ok: true };
+    await 写外贸档案(prisma, id, { [k]: r.v });
+    await recordAudit({
+      user: me, action: "update", entity: "Customer", entityId: id,
+      summary: `修改${b.customer}「${人.name}」：${外贸字段名[k]}`,
+      detail: [{ 字段: 外贸字段名[k], 原值: 原 ?? "（空）", 新值: r.v ?? "（空）" }],
+    });
+    revalidatePath(`/customers/${id}`);
+    revalidatePath("/customers");
+    return { ok: true };
+  }
   const data: Record<string, unknown> = {};
   if (key === "followStatus") {
     const 错 = 跟进不对(v);

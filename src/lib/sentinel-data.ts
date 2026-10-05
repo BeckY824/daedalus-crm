@@ -2,7 +2,7 @@
  * 盯盘清单的取数：从库里捞出三类原料，交给 sentinel.ts 的纯规则打分。
  * 首页（AI 对话的建议 chip）和数据看板（盯盘卡片）共用，避免两处各写一遍查询。
  */
-import { 订单与供应商 } from "@/lib/features";
+import { 订单节点 } from "@/lib/features";
 import { 今天零点 } from "./overdue";
 import { prisma } from "./prisma";
 import { dayjs } from "./utils";
@@ -31,8 +31,8 @@ export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } 
       select: { name: true, stage: true, updatedAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
     // 订单里超期 / 卡住的节点：截止日早于今天零点（和订单一览的红格同一个口径，lib/order.ts 节点灯）。
-    // 订单这一版不上（lib/features.ts）就不取：盯盘里不出订单
-    !订单与供应商 ? Promise.resolve([]) : prisma.tradeOrderNode.findMany({
+    // 订单节点这一版不上（lib/features.ts）就不取：盯盘里不出订单
+    !订单节点 ? Promise.resolve([]) : prisma.tradeOrderNode.findMany({
       where: {
         status: { notIn: ["已完成", "不适用"] },
         OR: [{ status: "卡住" }, { dueAt: { lt: 今天零点(now.toDate()) } }],

@@ -149,6 +149,8 @@ model Customer {
   pool          CustomerPool?
   /// 最近一次从公海领走（第 6 块复查）。见 CustomerClaim
   claim         CustomerClaim?
+  /// 外贸档案：国家、WhatsApp、微信、邮箱、来源（2026-10-05）。见 CustomerExtra
+  extra         CustomerExtra?
   lead          Lead?
 
   @@index([phone])
@@ -174,6 +176,8 @@ model Contract {
   money      ContractMoney?
   /// 登记时顺手标成赢单的商机（2026-10-04 L-007）。见 ContractWin
   wins       ContractWin[]
+  /// 外贸模版下这笔签约就是一张订单（2026-10-05）。见 TradeOrder.contractId
+  order      TradeOrder?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -258,15 +262,15 @@ model Opportunity {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  followUps FollowUp[]
+  followUps      FollowUp[]
   /// 赢单 / 丢单的那一刻（排查 C6）。见 OpportunityClose
-  closed    OpportunityClose?
+  closed         OpportunityClose?
   /// 币种（2026-10-03）。见 OpportunityMoney
-  money     OpportunityMoney?
+  money          OpportunityMoney?
   /// 报价明细，一次报价一行（2026-10-03）。见 Quote
-  quotes    Quote[]
+  quotes         Quote[]
   /// 赢单后生成的订单（2026-10-03）。见 TradeOrder
-  tradeOrders TradeOrder[]
+  tradeOrders    TradeOrder[]
   /// 供应商比价（2026-10-03）。见 SupplierQuote
   supplierQuotes SupplierQuote[]
   /// 是哪笔签约顺手赢下来的（2026-10-04 L-007）。见 ContractWin
@@ -362,6 +366,11 @@ model TradeOrder {
   balancePaid   Float        @default(0)
   balanceAt     DateTime?
   remark        String?
+  /// 这张订单就是哪一笔签约（2026-10-05，迁移 023）：外贸模版下「新建订单」同时登记一笔签约，
+  /// 金额、币种、确认时间（= 签约时间）以签约为准，业绩、首页、数据页都照签约算。签约删了订单跟着没。
+  /// 空 = 0.46.15 时从商机直接生成的老订单，没有对应的签约
+  contractId    String?      @unique
+  contract      Contract?    @relation(fields: [contractId], references: [id], onDelete: Cascade)
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @default(now()) @updatedAt
 
@@ -390,6 +399,24 @@ model CustomerPool {
 
 /// 最近一次从公海领走（2026-10-04，第 6 块复查，迁移 019）。自动掉公海从「最近跟进 / 建档 / 领取」里最晚的那个算起：
 /// 不记的话，领走当天没来得及跟进，第二天又被扫回公海。一位客户一行，再领覆盖
+/// 客户的外贸档案（2026-10-05，0.46.16，迁移 022）：外贸客户提的「客户加国家、WhatsApp、微信、邮箱」，
+/// 再加一个「来源」——外贸模版不摆「渠道」（推荐人 / 分佣链那一套），来源就得记在客户自己身上，
+/// 线索转客户时从线索带过来，直接建、Excel 导入的也有地方填。
+/// 旁表不加列：Customer 是 schema 建的老表，空库从头跑迁移时它还不存在。没有这一行 = 都没填。
+model CustomerExtra {
+  customerId String   @id
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 国家 / 地区，存中文名（「美国」「阿联酋」），能选也能填
+  country    String?
+  whatsapp   String?
+  wechat     String?
+  email      String?
+  /// 来源：候选是业务配置里的来源那一组（外贸：阿里国际站、展会……），能选也能填
+  source     String?
+
+  @@index([country])
+}
+
 model CustomerClaim {
   customerId String   @id
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -529,7 +556,7 @@ model FollowUp {
   owner   User   @relation(fields: [ownerId], references: [id])
 
   /// 速记解析时粘贴的原始聊天记录 / 口述原文，只有 AI 起草过的记录才有
-  source FollowUpSource?
+  source    FollowUpSource?
   /// 挂在订单某个节点上（2026-10-03）。见 FollowUpOrder
   orderNode FollowUpOrder?
 

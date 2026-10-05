@@ -1,5 +1,8 @@
 "use server";
 
+import { 外贸导入字段 } from "@/lib/import/fields";
+import { 写外贸档案 } from "@/lib/customer-extra-db";
+
 /**
  * 导入与撤销。
  *
@@ -62,6 +65,9 @@ export type 导入方案 = Omit<排布, "字段表"> & {
 
 /** ImportRow.before 里记「补之前的 updatedAt」用的键。带 @ 的不是字段，撤销时不写回去（2026-10-04 J-052） */
 const 写前键 = "@写前";
+
+/** 补空时外贸档案那几格在 before 里的键前缀（撤销认它） */
+const 档案前缀 = "extra.";
 
 /** 「只补空字段」能碰的那几格。**故意不含推荐链和状态**，理由见文件头第 3 条。备注另有一条「添在后面」，见 执行导入 */
 const 补空字段名单 = ["school", "grade", "major", "expectedSignAt", "remark"] as const;
@@ -197,6 +203,10 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     where: await 这一批同号的(prisma, 这一批),
     select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
   }));
+  // 外贸档案（2026-10-05）在旁表里：补空也是「那一格空着才补」，先取一份现值
+  const 档案们 = new Map(
+    (await 看全部(async () => prisma.customerExtra.findMany({ where: { customerId: { in: 命中.map((c) => c.id) } } }))).map((x) => [x.customerId, x]),
+  );
   const 限定我 = await 限定的我(defaultClient);
   const 表 = 认人表(命中, 这一批, await 分机留存起());
 
@@ -254,6 +264,14 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         添在库里备注后面，原来的字一个不动、已经在里面的那行不重复添。原来这条路上整列丢，预览还说补空 0
         （2026-10-04 L-004 / J-051）。撤销照 before 把备注还原成原样
       */
+      // 外贸档案：同一个规矩，库里那格空着才补。before 里记成「extra.国家键」，撤销时照它还原
+      const 补档案: Partial<Record<(typeof 外贸导入字段)[number], string>> = {};
+      for (const k of 外贸导入字段) {
+        const 新值 = r.值[k];
+        if (!新值 || 档案们.get(旧.id)?.[k]) continue;
+        补档案[k] = 新值;
+        before[`${档案前缀}${k}`] = null;
+      }
       if (!("remark" in 补) && r.并进备注?.length && 旧.remark) {
         const 添后 = 添行(旧.remark, r.并进备注);
         if (添后 !== 旧.remark) {
@@ -261,11 +279,14 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
           before.remark = 旧.remark;
         }
       }
-      if (Object.keys(补).length === 0) {
+      if (Object.keys(补).length === 0 && Object.keys(补档案).length === 0) {
         跳过++;
         continue;
       }
-      const 写后 = await prisma.customer.update({ where: { id: 旧.id }, data: 补, select: { updatedAt: true } });
+      if (Object.keys(补档案).length) await 写外贸档案(prisma, 旧.id, 补档案);
+      const 写后 = Object.keys(补).length
+        ? await prisma.customer.update({ where: { id: 旧.id }, data: 补, select: { updatedAt: true } })
+        : { updatedAt: 旧.updatedAt };
       /*
         「写前」= 补之前这位的 updatedAt。撤销这一批时拿它认出「补之前是谁写的最后一笔」——
         是另一批导入（先 A 建、再 B 补），撤完 B 就把 A 那条的指纹挪到新的 updatedAt 上，A 还撤得掉（2026-10-04 J-052）。
@@ -304,6 +325,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
             ...attribution,
           },
         });
+        await 写外贸档案(tx, c.id, Object.fromEntries(外贸导入字段.filter((k) => r.值[k]).map((k) => [k, r.值[k]!])));
         await tx.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
         return c;
       });
@@ -472,11 +494,18 @@ async function 撤这一批(
       continue;
     }
     const data: Record<string, unknown> = {};
+    const 档案还原: Record<string, null> = {};
     for (const [k, v] of Object.entries(before)) {
+      // 外贸档案补过的格子（2026-10-05）：补之前按定义是空的，还原成空
+      if (k.startsWith(档案前缀) && (外贸导入字段 as readonly string[]).includes(k.slice(档案前缀.length))) {
+        档案还原[k.slice(档案前缀.length)] = null;
+        continue;
+      }
       // 只写回补空能碰的那几格：before 里还记着 写前键 这类不是字段的东西
       if (!(补空字段名单 as readonly string[]).includes(k)) continue;
       data[k] = k === "expectedSignAt" && v ? new Date(v as string) : (v ?? null);
     }
+    if (Object.keys(档案还原).length) await 写外贸档案(prisma, c.id, 档案还原);
     if (Object.keys(data).length > 0) {
       const 撤后 = await prisma.customer.update({ where: { id: c.id }, data, select: { updatedAt: true } });
       /*

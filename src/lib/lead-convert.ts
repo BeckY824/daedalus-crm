@@ -10,6 +10,7 @@
  * 没有联系人时只能用线索名当姓名。
  *
  * 客户表没有「来源」这一列（加列要动迁移），来源写进备注第一行，和导入「对不上的列并进备注」一个做法。
+ * 外贸模版（2026-10-05）有了外贸档案（CustomerExtra）：来源、邮箱进那两格，备注里不再重复写
  */
 export type 线索字段 = {
   name: string;
@@ -39,19 +40,22 @@ export function 字段是行业(名: string): boolean {
 export function 线索转档案(
   lead: 线索字段,
   fields: { school: string; major: string },
-): { name: string; school: string | null; major: string | null; remark: string | null } {
+  外贸 = false,
+): { name: string; school: string | null; major: string | null; remark: string | null; 档案: { source: string | null; email: string | null } } {
   const 名 = lead.name.trim();
   const 联系人 = lead.contact?.trim() || "";
   const 按公司 = 字段是公司(fields.school);
-  const 来源行 = lead.source && lead.source !== "其他" ? `线索来源：${lead.source}` : "";
-  // 有联系人时邮箱跟着联系人建（leads/actions.ts），没有就进备注，不能悄悄丢（L-016）
-  const 邮箱行 = !联系人 && lead.email?.trim() ? `邮箱：${lead.email.trim()}` : "";
+  const 来源 = lead.source && lead.source !== "其他" ? lead.source.trim() : "";
+  const 来源行 = 来源 && !外贸 ? `线索来源：${来源}` : "";
+  // 有联系人时邮箱跟着联系人建（leads/actions.ts），没有就进备注，不能悄悄丢（L-016）；外贸进档案的邮箱格
+  const 邮箱行 = !外贸 && !联系人 && lead.email?.trim() ? `邮箱：${lead.email.trim()}` : "";
   const remark = [来源行, 邮箱行, lead.remark?.trim() ?? ""].filter(Boolean).join("\n") || null;
   return {
     name: 按公司 && 联系人 ? 联系人 : 名,
     school: 按公司 && 联系人 ? 名 : null,
     major: 字段是行业(fields.major) ? lead.industry?.trim() || null : null,
     remark,
+    档案: { source: 来源 || null, email: lead.email?.trim() || null },
   };
 }
 

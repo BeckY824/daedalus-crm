@@ -9,6 +9,7 @@ import { dayjs, fmtDateTime } from "@/lib/utils";
 import { saveFollowUp, saveTask, savePlan, completePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
 import { useBusiness } from "@/lib/business-client";
+import { 外贸订单 } from "@/lib/business-config";
 import AiWait from "@/components/AiWait";
 import AiCost from "@/components/AiCost";
 import { clearJob, runJob } from "@/lib/ai-jobs";
@@ -39,6 +40,8 @@ type Rec = {
   dueAt?: string | null;
   contactId?: string | null;
   opportunityId?: string | null;
+  /** 挂在哪张订单上（2026-10-05） */
+  orderId?: string | null;
   participants?: string | null;
   /** 编辑时的版本号（J-105）：保存时交回去当闸门 */
   updatedAt?: string;
@@ -56,6 +59,19 @@ type Extras = {
  * 跟进表单。两处用：记录页（给了 customerId 和他的联系人、商机）和跟进页页头的「记录跟进」
  * （都不给，第一格挑人，挑中后联系人、商机、到期计划从 CustomerPick 取回来）。只有一份。
  */
+/** 「关联商机 / 订单」那一格里订单的值带这个前缀，商机的是光 id */
+const 订单前缀 = "订单:";
+
+/**
+ * 那一格的值拆成 opportunityId / orderId。不挂订单的模版不交 orderId（= 不碰，老记录挂着的订单原样留着）；
+ * 挂订单的模版里选了商机就把订单摘掉、选了订单就不挂商机——一条跟进说的是一件事
+ */
+function 拆关联(v: string | undefined | null, 挂订单: boolean): { opportunityId: string | null; orderId?: string | null } {
+  if (!挂订单) return { opportunityId: v ?? null };
+  if (v && v.startsWith(订单前缀)) return { opportunityId: null, orderId: v.slice(订单前缀.length) };
+  return { opportunityId: v ?? null, orderId: null };
+}
+
 export default function FollowUpForm({
   open,
   onClose,
@@ -65,6 +81,7 @@ export default function FollowUpForm({
   record,
   contacts: 给定联系人,
   opportunities: 给定商机,
+  orders: 给定订单,
   aiEnabled,
   initialAiText,
   待收口计划 = null,
@@ -81,6 +98,8 @@ export default function FollowUpForm({
   /** 记录页上给；挑人时用挑中那位的 */
   contacts?: { id: string; name: string; position: string | null }[];
   opportunities?: { id: string; name: string }[];
+  /** 这位客户的订单（外贸模版，2026-10-05）：「关联商机 / 订单」那一格的第二组 */
+  orders?: { id: string; no: string }[];
   aiEnabled: boolean;
   /** 记录页顶部的速记框直接带过来的原文：打开即解析，少点一次 */
   initialAiText?: string;
@@ -108,6 +127,12 @@ export default function FollowUpForm({
   const customerId = 给定客户 ?? 近况?.id;
   const contacts = 给定联系人 ?? 近况?.contacts ?? [];
   const opportunities = 给定商机 ?? 近况?.opportunities ?? [];
+  /*
+    外贸模版：「关联商机」改成「关联商机 / 订单」（2026-10-05 外贸客户：「里面的选项可以关联到订单号，
+    这样就可以对订单执行做跟进的记录了」）。同一格、两组；选订单存的是「订单:<id>」，保存时拆开
+  */
+  const 挂订单 = 外贸订单(b);
+  const orders = 挂订单 ? 给定订单 ?? 近况?.orders ?? [] : [];
   /** 挑人时的「到期计划」和记录页同一个口径：最早那条没做完的，今天或更早到期 */
   const 收口计划 = 挑人
     ? 近况?.未完成计划 && !dayjs(近况.未完成计划.plannedAt).isAfter(dayjs().endOf("day")) ? 近况.未完成计划 : null
@@ -236,6 +261,7 @@ export default function FollowUpForm({
     if (record?.id) {
       form.setFieldsValue({
         ...record,
+        opportunityId: record.orderId && 挂订单 ? `${订单前缀}${record.orderId}` : record.opportunityId,
         occurredAt: dayjs(record.occurredAt),
         dueAt: record.dueAt ? dayjs(record.dueAt) : null,
         durationMinutes: record.duration ? Math.round(record.duration / 60) : null,
@@ -281,7 +307,7 @@ export default function FollowUpForm({
       occurredAt: v.occurredAt.toISOString(),
       dueAt: v.dueAt ? v.dueAt.toISOString() : null,
       contactId: v.contactId ?? null,
-      opportunityId: v.opportunityId ?? null,
+      ...拆关联(v.opportunityId, 挂订单),
       participants: v.participants ?? null,
       // 经 AI 解析过才带原文：手工写的跟进没有"原文"这个概念
       sourceText: !record?.id && extras ? aiText : null,
@@ -478,8 +504,19 @@ export default function FollowUpForm({
             </Form.Item>
           </Col>
           <Col span={12}>
-            <Form.Item name="opportunityId" label="关联商机">
-              <Select allowClear placeholder="选择商机" options={opportunities.map((o) => ({ value: o.id, label: o.name }))} />
+            <Form.Item name="opportunityId" label={挂订单 ? "关联商机 / 订单" : "关联商机"}>
+              <Select
+                allowClear
+                placeholder={挂订单 ? "选择商机或订单号" : "选择商机"}
+                options={
+                  (挂订单 && orders.length
+                    ? [
+                        { label: "订单", options: orders.map((o) => ({ value: `${订单前缀}${o.id}`, label: `订单 ${o.no}` })) },
+                        { label: "商机", options: opportunities.map((o) => ({ value: o.id, label: o.name })) },
+                      ]
+                    : opportunities.map((o) => ({ value: o.id, label: o.name }))) as { value?: string; label: string; options?: { value: string; label: string }[] }[]
+                }
+              />
             </Form.Item>
           </Col>
 

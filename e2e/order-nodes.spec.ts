@@ -7,10 +7,10 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 连库 } from "./mock-data";
-import { 订单与供应商 } from "../src/lib/features";
+import { 订单节点 } from "../src/lib/features";
 
 // 订单 / 供应商 0.46.15 这一版不上（lib/features.ts，用户 10-04 极简收窄）：开关打开时这份用例照常跑
-test.skip(!订单与供应商, "订单和供应商这一版不上");
+test.skip(!订单节点, "订单的 12 个节点这一版不上（轻量订单见 e2e/trade-order.spec.ts）");
 
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
 const 客户名 = "订单测试客户";

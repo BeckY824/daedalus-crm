@@ -18,6 +18,7 @@ import {
   FOLLOW_STATUSES, DECISION_STATUSES,
 } from "./constants";
 import { 规整币种 } from "./currency";
+import { 订单 } from "./features";
 
 /**
  * 模版（2026-10-03）：新用户注册后选「通用」还是「外贸」。和预设是两回事——预设只是一组措辞，
@@ -109,7 +110,8 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
       与家人商议 → 客户内部讨论，决定报名 → 决定下单。「已加微信」对海外客户
       多半不是微信，改成中性的「已建联」。值本身不动，只改显示名。
     */
-    statusLabels: { 已加微信: "已建联", 已试听: "已寄样", 与家人商议: "内部讨论", 已决定报名: "已决定下单" },
+    // 已签约 → 已下单（2026-10-05）：外贸模版下签约就是订单，见 lib/order-contract.ts
+    statusLabels: { 已加微信: "已建联", 已试听: "已寄样", 与家人商议: "内部讨论", 已决定报名: "已决定下单", 已签约: "已下单" },
     template: "trade",
     currency: "USD",
     poolDays: 0,
@@ -177,6 +179,30 @@ export function stageLabel(b: Pick<BusinessConfig, "template"> | null | undefine
 export function 阶段值(b: Pick<BusinessConfig, "template"> | null | undefined, 说法: string): string {
   if (b?.template !== "trade") return 说法;
   return Object.entries(外贸阶段名).find(([, l]) => l === 说法)?.[0] ?? 说法;
+}
+
+/**
+ * 外贸模版下「签约」就是「订单」（2026-10-05 外贸客户建议：「把客户详情里面的签约名称改成订单」）。
+ * 一笔签约同时是一张订单（lib/order-contract.ts），界面上叫订单、多出订单号 / 付款方式 / 供应商；
+ * 存的还是签约，业绩、首页、数据页照签约算。订单开关关着（lib/features.ts）时一律照旧叫签约
+ */
+export function 外贸订单(b: Pick<BusinessConfig, "template"> | null | undefined): boolean {
+  return b?.template === "trade" && 订单;
+}
+
+/** 「签约」这个词在这一套里叫什么 */
+export function 签约叫(b: Pick<BusinessConfig, "template"> | null | undefined): "订单" | "签约" {
+  return 外贸订单(b) ? "订单" : "签约";
+}
+
+/**
+ * 外贸模版下不摆的东西（2026-10-05 外贸客户建议）：
+ *   预计签约（「没有意义」——外贸的采购时间跟着每一次询盘走，见商机的询盘时间）、
+ *   推荐人 / 渠道归属 / 渠道负责人 / 左栏渠道（推荐分佣链是教培那一套）、商机的成交概率。
+ * 数据都留着，只是不摆；切回通用模版全都回来
+ */
+export function 外贸精简(b: Pick<BusinessConfig, "template"> | null | undefined): boolean {
+  return b?.template === "trade";
 }
 
 export const BUSINESS_KEY = "business";
