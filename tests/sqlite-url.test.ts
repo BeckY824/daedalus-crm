@@ -30,7 +30,7 @@ describe("单连接", () => {
         return /\.tsx?$/.test(e.name) ? [p] : [];
       });
     const 建客户端的 = 源码(path.resolve(__dirname, "../src")).filter((f) => /new PrismaClient\(/.test(fs.readFileSync(f, "utf8")));
-    expect(建客户端的.map((f) => path.relative(path.resolve(__dirname, ".."), f)).sort()).toEqual(
+    expect(建客户端的.map((f) => path.relative(path.resolve(__dirname, ".."), f).replaceAll("\\", "/")).sort()).toEqual(
       ["src/lib/prisma.ts", "src/lib/tenant/clients.ts", "src/lib/tenant/control.ts"],
     );
   });

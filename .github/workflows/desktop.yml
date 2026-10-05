@@ -78,7 +78,10 @@ jobs:
         run: node scripts/smoke-windows.mjs
       - name: Windows 桌面回归测试
         if: runner.os == 'Windows'
-        run: npx vitest run
+        # 有几份单测在真 Chromium 里点组件，没装浏览器整份起不来（0.46.15 第一次在 Windows 上跑到它们）
+        run: |
+          npx playwright install chromium
+          npx vitest run
       # Windows 的差量产物：win-unpacked 用 7za 打成 zip（逐条 deflate）+ 清单。
       # 客户端拿清单和安装目录比，只对 zip 发 Range 取变了的文件；exe 照旧：首次安装、给所有用户装的、差量失败都靠它
       - name: 差量产物（Windows：zip + 清单）

@@ -282,7 +282,8 @@ describe("全新安装（没有 crm.db）", () => {
     const db = 只读库(path.join(d, "crm.db"));
     expect(db.prepare("SELECT email, name FROM User").all()).toEqual([{ email: "new@x.com", name: "new" }]);
     db.close();
-    expect(fs.statSync(path.join(d, ".init-password")).mode & 0o777).toBe(0o600);
+    // Windows 没有 Unix 权限位（读出来恒为 0o666），那边靠用户目录的 ACL
+    if (process.platform !== "win32") expect(fs.statSync(path.join(d, ".init-password")).mode & 0o777).toBe(0o600);
     expect(fs.statSync(path.join(d, "crm.db")).mode & 0o222).not.toBe(0); // 模板只读不能带过来
   }, 30_000);
 });

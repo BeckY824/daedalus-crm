@@ -88,7 +88,8 @@ describe("换账号不落到上一个人停的那一页（D-025）", () => {
 });
 
 describe("main.js 接线（源码核对）", () => {
-  const 源 = fs.readFileSync(path.resolve(__dirname, "../desktop/main.js"), "utf8");
+  // Windows 上签出的是 CRLF，切函数体按 "\n}\n" 找：先统一成 LF
+  const 源 = fs.readFileSync(path.resolve(__dirname, "../desktop/main.js"), "utf8").replaceAll("\r\n", "\n");
   const 函数体 = (名: string) => {
     const i = 源.indexOf(`function ${名}(`);
     expect(i, `main.js 里找不到 ${名}()`).toBeGreaterThan(-1);

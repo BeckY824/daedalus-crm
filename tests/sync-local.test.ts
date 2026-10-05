@@ -424,7 +424,7 @@ describe("推拉合并", () => {
     expect(时限.length, "回放该开一个交互事务").toBeGreaterThan(0);
     for (const t of 时限) expect(t ?? 5000, "回放事务的时限").toBeGreaterThanOrEqual(60_000);
     expect(await 乙.customer.count({ where: { id: { startsWith: "big" } } })).toBe(数);
-  });
+  }, 120_000); // Windows CI 上几百条一批要 20 秒以上（机器慢），用例本身测的是事务给 60 秒
 
   it("远端删了跟进：本机「最近跟进」跟着重算（复查）", async () => {
     const { 甲, 乙 } = await 一对();

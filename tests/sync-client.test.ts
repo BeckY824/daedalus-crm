@@ -136,7 +136,8 @@ describe("桌面端同步客户端", () => {
     expect((await 甲.user.findMany()).map((u) => u.id)).toEqual(["acct_jia"]); // 改了身份；没用过的张三删了
     expect((await 甲.customer.findUniqueOrThrow({ where: { id: "c1" } })).salesOwnerId).toBe("acct_jia");
     expect(await 装了吗(甲)).toBe(true);
-    expect(fs.statSync(path.join(临时.dir, ".team.json")).mode & 0o777).toBe(0o600);
+    // Windows 没有 Unix 权限位（读出来恒为 0o666），那边靠用户目录的 ACL
+    if (process.platform !== "win32") expect(fs.statSync(path.join(临时.dir, ".team.json")).mode & 0o777).toBe(0o600);
     // 再建一个：拦
     expect((await 建团队("另一个")).ok).toBe(false);
 
