@@ -15,3 +15,8 @@ daf6c72520937fad2ed04cf8b993d82e78f554fa:tests/desktop-session.test.ts:generic-a
 # 后续提交已把它换成 FAKE-TEST-KEY-0000 这种带 FAKE/TEST 字样的形式；历史里这两行去不掉。
 f471a1b4b31e877a7e5b3d578f87449cbbb89918:tests/llm-key-source.test.ts:generic-api-key:127
 f471a1b4b31e877a7e5b3d578f87449cbbb89918:tests/llm-key-source.test.ts:generic-api-key:129
+
+# 团队同步客户端的单元测试「邀请码：整段才认」，拿一段假邀请码测解析：
+# 钥匙那一节写成了 0123456789…abc（凑够 43 位的顺序数字加字母），被 generic-api-key 判成真 Key。
+# 它只是解析函数的输入样例，从没当过任何团队的钥匙。
+60cbda09c40d712228115a4915f16d66ae794581:tests/sync-client.test.ts:generic-api-key:107

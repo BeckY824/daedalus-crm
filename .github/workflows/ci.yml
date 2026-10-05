@@ -28,6 +28,9 @@ jobs:
           CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       - run: npx tsc --noEmit
       - run: npx eslint .
+        # 有几份单测在真 Chromium 里点组件（ai-settings-ui、import-ai-columns-ui、r6-review-otp、r7-review-auth-ui），
+        # 没装浏览器整份起不来（2026-10-05 main 上第一次撞到）
+      - run: npx playwright install --with-deps chromium
         # 与生产（Dockerfile 的 ENV TZ=Asia/Shanghai）一致。
         # vitest.config.ts 里也钉了一道，这里再写一次是为了让人看 workflow 就知道
       - run: npx vitest run

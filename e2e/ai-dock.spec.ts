@@ -468,10 +468,13 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
       expect(await 金额.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "签约金额被省略了").toBe(true);
 
       // J-222：「生成简报」原来是灰字压蓝底，看不见。窗口不够宽时 AI 栏收在页头「AI」按钮的抽屉里
+      // CI 上字体不同，1440 也会收进抽屉；机器慢时页头那颗「AI」点早了（还没接上事件）抽屉不开——没出来就再点
       const 抽屉键 = page.getByRole("button", { name: /^thunderbolt AI$/ });
-      if (await 抽屉键.isVisible()) await 抽屉键.click();
       const 键 = page.getByRole("button", { name: /生成简报/ });
-      await expect(键).toBeVisible();
+      await expect(async () => {
+        if (!(await 键.isVisible()) && (await 抽屉键.isVisible())) await 抽屉键.click();
+        await expect(键).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 20_000 });
       const 对比 = await 键.evaluate((el) => {
         const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
         const 亮 = ([r, g, b]: number[]) => {
