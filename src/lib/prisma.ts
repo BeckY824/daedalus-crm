@@ -4,6 +4,7 @@ import { currentTenant, multiTenant } from "./tenant/context";
 import { resolveCurrentTenant } from "./tenant/resolve";
 import { TrialExpiredError } from "./tenant/guard";
 import { 加上限定 } from "./team-scope";
+import { 单连接 } from "./sqlite-url";
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
@@ -16,6 +17,8 @@ const globalForPrisma = globalThis as unknown as {
 const defaultClient =
   globalForPrisma.prisma ??
   new PrismaClient({
+    // 只开 1 个连接：多个连接在 Linux 上会让交互式事务和别的写库互相卡死（见 lib/sqlite-url）
+    datasourceUrl: 单连接(process.env.DATABASE_URL),
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
 

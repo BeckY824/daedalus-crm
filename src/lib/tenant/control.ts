@@ -1,4 +1,5 @@
 import { PrismaClient } from "@/generated/control";
+import { 单连接 } from "../sqlite-url";
 
 /**
  * 控制面库的客户端：账号、工作区、成员、验证码、邀请。
@@ -21,6 +22,7 @@ function create(): PrismaClient {
   const client =
     globalForControl.control ??
     new PrismaClient({
+      datasourceUrl: 单连接(process.env.CONTROL_DATABASE_URL),
       log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
     });
 

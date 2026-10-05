@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
+import { 单连接 } from "../sqlite-url";
 import { PrismaClient } from "@/generated/prisma";
 import { currentTenant } from "./context";
 
@@ -64,7 +65,7 @@ export function workspaceClient(dbFile: string): PrismaClient {
   const file = workspaceDbPath(key);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const client = new PrismaClient({
-    datasources: { db: { url: `file:${file}` } },
+    datasources: { db: { url: 单连接(`file:${file}`)! } },
     log: process.env.NODE_ENV === "development" ? ["error", "warn"] : ["error"],
   });
   void applyPragmas(client).catch((e) => console.error(`工作区 ${key} 设置 pragma 失败：`, e));
