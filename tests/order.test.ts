@@ -24,6 +24,7 @@ import { 当前节点, 节点灯, 进度, 超期数, 订单的钱, 默认订单�
 import { 订单列表, 订单详情 } from "@/lib/order-db";
 import { TOOLS } from "@/lib/agent/tools";
 import { DEFAULT_BUSINESS } from "@/lib/business-config";
+import { 订单节点 } from "@/lib/features";
 
 let 我: string;
 beforeEach(async () => {
@@ -210,7 +211,8 @@ describe("节点、单据、钱", () => {
 });
 
 describe("一览和 AI", () => {
-  it("超期多的排上面；list_orders 给当前节点、超期的节点、未收，onlyLate 只看超期的", async () => {
+  // 节点开着时 list_orders 才说节点；关着时只给订单上那几项（2026-10-05，tests/trade-feedback.test.ts 钉着）
+  it.runIf(订单节点)("超期多的排上面；list_orders 给当前节点、超期的节点、未收，onlyLate 只看超期的", async () => {
     const 甲 = await 造客户(我, { name: "Acme" });
     const 乙 = await 造客户(我, { name: "Bolt" });
     const 准时 = await createOrder({ customerId: 甲.id, amount: 100, currency: "USD", no: "A-1" });

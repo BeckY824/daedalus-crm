@@ -1008,11 +1008,11 @@ export async function deleteContract(
       操作日志要写清删的是哪张单，同步回放也是先订单后签约，不依赖对方库里外键开没开
     */
     const 订单 = await prisma.tradeOrder.findFirst({ where: { contractId: id, customerId }, select: { id: true, no: true } });
-    // 同一个事务：删签约那步失败（已经被删、权限不够）时订单不能已经没了
-    const [, gone] = await prisma.$transaction([
-      prisma.tradeOrder.deleteMany({ where: { id: 订单?.id ?? "__没有订单__" } }),
-      prisma.contract.deleteMany({ where: { id, customerId } }),
-    ]);
+    // 同一个事务：删签约那步失败（已经被删、权限不够）时订单不能已经没了。函数式事务（托管版不认数组式，见 tests/no-array-transaction）
+    const gone = await prisma.$transaction(async (tx) => {
+      if (订单) await tx.tradeOrder.deleteMany({ where: { id: 订单.id } });
+      return tx.contract.deleteMany({ where: { id, customerId } });
+    });
     if (gone.count === 0) {
       return { ok: false, error: "这条签约记录已经不在了（可能已删除）" };
     }
