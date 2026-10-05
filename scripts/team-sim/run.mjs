@@ -640,6 +640,43 @@ async function 主线() {
     return { 说: `重连 ${((Date.now() - 连上) / 1000).toFixed(1)}s 补齐` };
   });
 
+  /*
+    10-05：同一台电脑上，后台同步正把一大批同事的改动写进库，这时用户点保存。原来多个数据库连接时，
+    同步的事务和保存的事务在 SQLite 层面撞锁、互相等死，Linux 上整批「Socket timeout」（Mac 碰巧不发作）。
+    现在一个库只开 1 个连接（lib/sqlite-url），两边只排队：保存最多多等一两秒，不报错，同步那批也一条不少
+  */
+  await 步("同步正在写一大批时，同一台马上建 5 位客户：保存只排队、不报错，那一批也一条不少", async () => {
+    const l = 台.li;
+    const 大批 = [];
+    for (let i = 1; i <= 40; i++) 大批.push(await 录一位(老, 名(老板, `大批${i}`), 2));
+    await 停(前台间隔 + 1_000); // 老板那台的壳把这一批推上去
+    const 起 = Date.now();
+    const [同步, ...存] = await Promise.all([
+      fetch(`${l.会.base}/api/desktop/sync`, { method: "POST", headers: { "x-desktop-token": l.令牌 }, signal: AbortSignal.timeout(120_000) })
+        .then((r) => r.json())
+        .catch((e) => ({ ok: false, error: String(e?.message ?? e) })),
+      ...Array.from({ length: 5 }, (_, i) => 调(l, 动作.录客户, [新客户(名("li", `同步时录${i}`), 下一个号(), l.我)])),
+    ]);
+    const 用时 = Date.now() - 起;
+    for (const r of 存) 判(r?.ok && r.id, { 步骤: "同步写库时同一台建客户", 哪台: "li", 期望: "saveCustomer 返回 ok（只排队、不超时）", 实际: r });
+    判(用时 < 30_000, { 步骤: "同步写库时同一台建客户", 哪台: "li", 期望: "30 秒内都回来", 实际: `${用时}ms` });
+    await 等到({
+      步骤: "这一大批到齐", 哪台: "li ← boss", 期望: `${大批.length} 位都在库里`,
+      取: () => 大批.filter((x) => 客户(l, x.id)).length,
+      满足: (n) => n === 大批.length, 超时: 前台间隔 * 2 + 4_000, 迟到也报: 20_000,
+    });
+    // li 这 5 位也要传到其余各台才算完：不然下一步开头数的客户数里漏了它们、中途又到，数对不上
+    const 新五位 = 存.map((r) => r.id);
+    for (const n of 名单.filter((x) => x !== "li" && x !== "zhao")) {
+      await 等到({
+        步骤: "同步时录的 5 位传遍", 哪台: `${n} ← li`, 期望: "5 位都在库里",
+        取: () => 新五位.filter((id) => 客户(台[n], id)).length,
+        满足: (k) => k === 新五位.length, 超时: 前台间隔 * 2 + 4_000, 迟到也报: 20_000,
+      });
+    }
+    return { 说: `同步 ${同步?.ok ? "成" : `没成（${String(同步?.error ?? "").slice(0, 40)}，下一轮补）`}、5 位 ${(用时 / 1000).toFixed(1)}s 存完` };
+  });
+
   await 步("老板移除一位 → 其余自动换钥匙继续同步；被移出那台收不到新数据、只留自己的", async () => {
     const 走的 = 台.sun;
     // zhao 前面自己退出了团队，不在「留下」里
