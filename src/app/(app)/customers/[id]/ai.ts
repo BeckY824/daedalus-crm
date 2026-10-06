@@ -9,7 +9,7 @@ import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type Customer
 import { dayjs, 现在带周几 } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
-import { statusLabel, 外贸精简, type BusinessConfig } from "@/lib/business-config";
+import { statusLabel, stageLabel, 外贸精简, 外贸订单, type BusinessConfig } from "@/lib/business-config";
 
 /**
  * 状态取值写给模型时带上显示名：`已演示（值：已试听）`。
@@ -219,7 +219,8 @@ async function 生成简报(input: {
     ? customer.opportunities
         .map(
           (o) =>
-            `- ${o.name}：${显示金额(o.amount, 商机币种(o))}，${o.status === "WON" ? "已赢单" : o.status === "LOST" ? "已丢单" : `进行中（${o.stage}）`}`,
+            // 外贸：赢单叫已转订单、阶段按这家的叫法（询盘 / 比价中…），简报里才不会冒出界面上没有的词（G.3）
+            `- ${o.name}：${显示金额(o.amount, 商机币种(o))}，${o.status === "WON" ? (外贸订单(b) ? "已转订单" : "已赢单") : o.status === "LOST" ? "已丢单" : `进行中（${stageLabel(b, o.stage)}）`}`,
         )
         .join("\n")
     : "（无）";
