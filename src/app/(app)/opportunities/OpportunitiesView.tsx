@@ -229,7 +229,8 @@ export default function OpportunitiesView({
     const 数 = await 删商机前清点([r.id]).catch(() => null);
     const 话 = [
       数?.跟进 ? `有 ${数.跟进} 条跟进记录关联着它，删了之后那几条不再写是哪个商机` : "",
-      数?.赢单 ? "这是一个已经赢单的商机，数据页的赢单数会跟着少" : "",
+      // 外贸：赢单就是转了订单。订单不跟着删（TradeOrder.opportunityId 置空），说清楚（F.3）
+      数?.赢单 ? (是订单 ? "这个商机已经转为订单：删了它订单还在，数据页的转订单数会跟着少" : "这是一个已经赢单的商机，数据页的赢单数会跟着少") : "",
     ].filter(Boolean);
     modal.confirm({
       title: `删除商机「${r.name}」？`,

@@ -8,6 +8,7 @@ import { PlusOutlined, EditOutlined, StopOutlined, UndoOutlined } from "@ant-des
 import { UserCell } from "@/components/ui";
 import { ROLES } from "@/lib/constants";
 import { useBusiness } from "@/lib/business-client";
+import { 外贸订单 } from "@/lib/business-config";
 import type { SessionUser } from "@/lib/auth";
 import { saveUser, deactivateUser, reactivateUser } from "./actions";
 
@@ -125,7 +126,7 @@ export default function MembersTab({
             options={others.map((u) => ({ value: u.id, label: `${u.name}（${u.title}）` }))}
           />
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 8, marginBottom: 0 }}>
-            已经签下的业绩、赢单和丢单的商机，还算在「{r.name}」头上。
+            {外贸订单(b) ? "已经下的订单、转了订单和丢单的商机" : "已经签下的业绩、赢单和丢单的商机"}，还算在「{r.name}」头上。
           </Typography.Paragraph>
         </div>
       ),

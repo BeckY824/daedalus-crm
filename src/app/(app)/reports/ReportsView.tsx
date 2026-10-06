@@ -15,6 +15,7 @@ import { 金额, 币种名, 合计文字, type 币种合计 } from "@/lib/curren
 import type { Agg, Bucket } from "../overview/data";
 import { 按人明细, type 明细行 } from "../overview/drill";
 import { useBusiness } from "@/lib/business-client";
+import { 签约叫, 外贸精简, 外贸订单 } from "@/lib/business-config";
 
 /**
  * 回看视图（本月 / 本年）的正文：总额、趋势、四个维度的拆解。
@@ -45,6 +46,13 @@ export default function ReportsView({
   单人?: boolean;
 }) {
   const b = useBusiness();
+  /*
+    外贸（2026-10-06 F.3）：签约就是订单——卡片、表头、空态、明细都说「订单」；渠道和推荐链外贸不摆，
+    「按渠道负责人 / 来源渠道 / 渠道归属」三张表整块不出（外贸的来源记在客户自己的来源格里）
+  */
+  const 叫 = 签约叫(b);
+  const 外贸 = 外贸精简(b);
+  const 去标 = 外贸订单(b) ? "先去商机里把客户确认的转为订单" : "先去商机里把赢单的标出来";
   const router = useRouter();
   const sp = useSearchParams();
   const money = (n: number) => 金额(n, 币种);
@@ -100,7 +108,7 @@ export default function ReportsView({
       },
       series: [
         {
-          name: "签约金额",
+          name: `${叫}金额`,
           type: "bar",
           data: trend.map((t) => t.amount),
           itemStyle: { color: palette.brand, borderRadius: [6, 6, 0, 0] },
@@ -130,13 +138,13 @@ export default function ReportsView({
         ),
     },
     {
-      title: "签约笔数",
+      title: `${叫}笔数`,
       dataIndex: "count",
       width: 110,
       sorter: (a: Agg, b: Agg) => a.count - b.count,
     },
     {
-      title: "签约金额",
+      title: `${叫}金额`,
       dataIndex: "amount",
       width: 160,
       defaultSortOrder: "descend" as const,
@@ -166,8 +174,8 @@ export default function ReportsView({
 
   // 复盘的两张表：这一档没人时说清是「这个口径下没有」，不是「系统里没有」
   const empty = 表格空态({
-    title: "这一档还没有签约",
-    hint: "按签约记录算。换一个时间段，或者先去商机里把赢单的标出来。",
+    title: `这一档还没有${叫}`,
+    hint: `按${叫}记录算。换一个时间段，或者${去标}。`,
     demo: false,
   });
 
@@ -191,10 +199,10 @@ export default function ReportsView({
       )}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<PayCircleOutlined />} color={palette.brand} label="签约总额" value={money(total.amount)} note={口径} />
+          <StatCard icon={<PayCircleOutlined />} color={palette.brand} label={`${叫}总额`} value={money(total.amount)} note={口径} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
-          <StatCard icon={<FileDoneOutlined />} color={categorical.green} label="签约笔数" value={total.count} note={口径} />
+          <StatCard icon={<FileDoneOutlined />} color={categorical.green} label={`${叫}笔数`} value={total.count} note={口径} />
         </Col>
         <Col xs={24} sm={12} xl={6}>
           <StatCard
@@ -202,7 +210,7 @@ export default function ReportsView({
             color={categorical.amber}
             label="客单价"
             value={avg > 0 ? money(avg) : "—"}
-            note={签约人数 > 0 ? `${签约人数} 位${b.customer}签了 ${total.count} 笔` : undefined}
+            note={签约人数 > 0 ? (外贸 ? `${签约人数} 位${b.customer}下了 ${total.count} 单` : `${签约人数} 位${b.customer}签了 ${total.count} 笔`) : undefined}
           />
         </Col>
         <Col xs={24} sm={12} xl={6}>
@@ -219,15 +227,15 @@ export default function ReportsView({
       {/* 没有数据时不画那条一路为 0 的线——假的走势比没有走势更糟 */}
       <Card
         style={{ marginTop: 16 }}
-        title={<span className="section-title">签约金额趋势</span>}
-        extra={有签约 ? <Typography.Text type="secondary" style={{ fontSize: 13 }}>点柱子或下面的日期，看这一段签了哪几笔</Typography.Text> : null}
+        title={<span className="section-title">{叫}金额趋势</span>}
+        extra={有签约 ? <Typography.Text type="secondary" style={{ fontSize: 13 }}>点柱子或下面的日期，看这一段{外贸 ? "下了哪几单" : "签了哪几笔"}</Typography.Text> : null}
       >
         {有签约 ? (
           <Chart option={trendOption} height={320} 点一段={(i) => { set开着的人(null); set开着的(trend[i]?.label ?? null); }} />
         ) : (
           <EmptyState
-            title="这一段还没有签约记录"
-            hint="签约之后这里会按时间画出金额趋势。换一个时间段看看，或者先去商机里把赢单的标出来。"
+            title={`这一段还没有${叫}记录`}
+            hint={`有了${叫}之后这里会按时间画出金额趋势。换一个时间段看看，或者${去标}。`}
             demo={false}
           />
         )}
@@ -241,14 +249,14 @@ export default function ReportsView({
                 <Table size="small" rowKey="id" dataSource={bySales} columns={cols("销售负责人", "销售")} pagination={false} locale={empty} />
               </Card>
             </Col>
-            <Col xs={24} xl={12}>
+            {!外贸 && <Col xs={24} xl={12}>
               <Card title={<span className="section-title">按渠道负责人</span>} styles={{ body: { paddingTop: 8 } }}>
                 <Table size="small" rowKey="id" dataSource={byChannelOwner} columns={cols("渠道负责人", "渠道负责人")} pagination={false} locale={empty} />
               </Card>
-            </Col>
+            </Col>}
           </>
         )}
-        <Col xs={24} xl={12}>
+        {!外贸 && <><Col xs={24} xl={12}>
           <Card
             title={<span className="section-title">按来源渠道</span>}
             extra={<Typography.Text type="secondary" style={{ fontSize: 13 }}>推荐链最顶端的渠道</Typography.Text>}
@@ -265,7 +273,7 @@ export default function ReportsView({
           >
             <Table size="small" rowKey="id" dataSource={byAttribution} columns={cols("归属对象")} pagination={false} locale={empty} />
           </Card>
-        </Col>
+        </Col></>}
       </Row>
 
       <Drawer
@@ -273,12 +281,12 @@ export default function ReportsView({
         onClose={关抽屉}
         /* antd 6 里 Drawer 的 width 废了，宽度改在 wrapper 上给（和记录页那两个抽屉一致） */
         styles={{ wrapper: { width: 520 } }}
-        title={开着的人 ? `${开着的人.name} · 签约明细` : 开着的 ? `${开着的} · 签约明细` : ""}
+        title={开着的人 ? `${开着的人.name} · ${叫}明细` : 开着的 ? `${开着的} · ${叫}明细` : ""}
       >
         {开着的人 && (
           // 页头写清口径（T-030）：和上面那一行同一个算法；要看他现在手上的客户，给一条去客户列表的路
           <div style={{ marginBottom: 8, fontSize: "var(--fs-note)" }}>
-            按签约那一刻的{开着的人.维度 === "销售" ? "销售负责人" : "渠道负责人"}算，{口径}{币种们.length > 1 ? `，只算 ${币种}` : ""}——和上面那一行同一个口径。
+            按{外贸 ? "下单" : "签约"}那一刻的{开着的人.维度 === "销售" ? "销售负责人" : "渠道负责人"}算，{口径}{币种们.length > 1 ? `，只算 ${币种}` : ""}——和上面那一行同一个口径。
             {" "}
             <Link href={`/customers?${开着的人.维度 === "销售" ? "salesOwnerId" : "channelOwnerId"}=${开着的人.id}`}>
               看他现在负责的全部{b.customer} ›
@@ -294,7 +302,7 @@ export default function ReportsView({
           size="small"
           dataSource={这一段}
           pagination={false}
-          locale={表格空态({ title: "这一段没有签约", hint: 开着的人 ? "换一个时间段看看。" : "换一根柱子看看。", demo: false })}
+          locale={表格空态({ title: `这一段没有${叫}`, hint: 开着的人 ? "换一个时间段看看。" : "换一根柱子看看。", demo: false })}
           columns={[
             {
               title: b.customer,
@@ -306,7 +314,7 @@ export default function ReportsView({
               ),
             },
             { title: "销售", dataIndex: "销售", width: 110 },
-            { title: "签约日", dataIndex: "日期", width: 110, render: (v: string) => <span className="muted nowrap">{fmtDate(v)}</span> },
+            { title: 外贸 ? "确认日" : "签约日", dataIndex: "日期", width: 110, render: (v: string) => <span className="muted nowrap">{fmtDate(v)}</span> },
             {
               title: "金额",
               dataIndex: "金额",

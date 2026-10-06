@@ -6,6 +6,7 @@ import { App, Button } from "antd";
 import { ExperimentOutlined, PlusOutlined, SnippetsOutlined } from "@ant-design/icons";
 import { 查演示数据状态, 灌一套演示数据, type 演示数据状态 } from "@/app/(app)/demo-data";
 import { useBusiness } from "@/lib/business-client";
+import { 外贸精简 } from "@/lib/business-config";
 
 /**
  * 空库时的首页：一句欢迎 + 一张「开始」卡，不摆指标也不摆信号（设计稿 05/HOME·EMPTY）。
@@ -50,7 +51,7 @@ export default function StartCard() {
       <ul className="start-intro">
         <li>
           <b>{b.customer}本自己长出来</b>
-          <span>粘一段微信或 WhatsApp 聊天、拖进一张 Excel，AI 切成一位位{b.customer}。</span>
+          <span>粘一段{外贸精简(b) ? "WhatsApp 或微信" : "微信"}聊天、拖进一张 Excel，AI 切成一位位{b.customer}。</span>
         </li>
         <li>
           <b>AI 帮你盯跟进</b>

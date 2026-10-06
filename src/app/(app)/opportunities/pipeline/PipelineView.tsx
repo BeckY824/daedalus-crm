@@ -185,7 +185,7 @@ export default function PipelineView({
         <div className="card-soft">
           <EmptyState
             title="还没有商机"
-            hint="管道是把在谈的单子按阶段摆开看：哪些卡在方案报价、哪一阶段压着最多钱。"
+            hint={`管道是把在谈的单子按阶段摆开看：哪些卡在${stageLabel(b, "方案报价")}、哪一阶段压着最多钱。`}
             primary={{ label: "新建第一条商机", onClick: () => set新建开着(true) }}
             demo={false}
           />
@@ -232,7 +232,7 @@ export default function PipelineView({
               onDragLeave={() => setOverStage((s) => (s === stage ? null : s))}
               onDrop={() => drop(stage)}
             >
-              <div className="pipe-h" title={stage === "赢单成交" ? `近 ${赢单天数} 天赢下的` : undefined}>
+              <div className="pipe-h" title={stage === "赢单成交" ? `近 ${赢单天数} 天${外贸订单(b) ? "转订单的" : "赢下的"}` : undefined}>
                 <span className="pipe-dot" style={{ background: color }} />
                 <b>{stageLabel(b, stage)}</b>
                 <span className="pipe-n">{items.length}</span>

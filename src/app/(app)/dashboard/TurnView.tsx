@@ -9,6 +9,7 @@ import AiWait from "@/components/AiWait";
 import StreamMarkdown from "@/components/StreamMarkdown";
 import type { BriefRecord } from "@/lib/ai-draft";
 import { useBusiness } from "@/lib/business-client";
+import { statusLabel, 外贸精简 } from "@/lib/business-config";
 import { clearJob, useJob } from "@/lib/ai-jobs";
 import type { StreamJob } from "@/lib/ai-stream";
 import type { Turn } from "@/lib/home-thread";
@@ -373,17 +374,23 @@ function CustomerRow({ customer }: { customer: 提到的客户 }) {
   const wakeup = useJob<string>(草稿键("wakeup", customer.id));
   const invite = useJob<string>(草稿键("invite", customer.id));
   const run = (kind: 草稿类) => 起草(kind, customer.id, "从首页发起");
+  const b = useBusiness();
+  /*
+    状态可能是存储值（「已签约」，有的工具这么给），也可能已经是显示名：都按这家的叫法摆。
+    外贸不摆转介绍（推荐那一套外贸藏了，F.3）
+  */
+  const 已签 = customer.followStatus === "已签约" || customer.followStatus === statusLabel(b, "已签约");
   return (
     <div className="cli-card-row">
       <div className="cli-card-main">
         <span className="cli-card-name">{customer.name}</span>
-        {customer.followStatus && <span className="cli-card-st">{customer.followStatus}</span>}
+        {customer.followStatus && <span className="cli-card-st">{statusLabel(b, customer.followStatus)}</span>}
         <span style={{ flex: 1 }} />
         <button type="button" className="cli-link" onClick={() => run("wakeup")} disabled={wakeup?.status === "loading"}>
           {wakeup?.status === "loading" ? "起草中…" : "起草跟进话术"}
           {wakeup?.status !== "loading" && <AiCost />}
         </button>
-        {customer.followStatus === "已签约" && (
+        {已签 && !外贸精简(b) && (
           <button type="button" className="cli-link" onClick={() => run("invite")} disabled={invite?.status === "loading"}>
             {invite?.status === "loading" ? "起草中…" : "起草转介绍邀请"}
             {invite?.status !== "loading" && <AiCost />}

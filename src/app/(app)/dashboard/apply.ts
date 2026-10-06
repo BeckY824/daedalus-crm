@@ -240,7 +240,7 @@ async function 做这张卡(input: Proposal, me: Awaited<ReturnType<typeof requi
   const p = checked.proposal;
 
   // 前端禁用按钮不算防线：必填项没填齐就不写
-  const miss = missingFields(p);
+  const miss = missingFields(p, b);
   if (miss.length) return { ok: false, error: `还差${miss.join("、")}，填好再确认` };
 
   /*
@@ -335,7 +335,7 @@ async function 做这张卡(input: Proposal, me: Awaited<ReturnType<typeof requi
   }
   if (!done.ok) return done;
 
-  const summary = summarizeApplied(p, b.customer);
+  const summary = summarizeApplied(p, b.customer, b);
   await recordAudit({ user: me, action: "ai_apply", entity: "Ai", entityId: p.kind, summary, detail: { 对象: c.name || p.customerName, 理由: p.reason } });
   return { ok: true, message: summary.replace("确认 AI 建议：", "已"), 撤销 };
 }

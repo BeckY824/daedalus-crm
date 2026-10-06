@@ -736,7 +736,7 @@ export default function RecordView({
           <Space orientation="vertical" size={14} style={{ width: "100%" }}>
             {aiEnabled && !AI在抽屉里 && (
               <div className="rec-card">
-                <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约"} hasRecords={followUps.length > 0} />
+                <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} />
               </div>
             )}
 
@@ -799,7 +799,7 @@ export default function RecordView({
           进程内任务表上（lib/ai-jobs），不在组件 state 里，关掉再开还在那儿 */}
       {aiEnabled && AI在抽屉里 && (
         <Drawer placement="right" styles={{ wrapper: { width: 380 } }} open={AI抽屉开着} onClose={() => setAI抽屉开着(false)} title={`AI · ${customer.name}`}>
-          <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约"} hasRecords={followUps.length > 0} />
+          <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} />
         </Drawer>
       )}
 
@@ -897,7 +897,7 @@ export default function RecordView({
     const 退回 = (await 删签约前清点(r.id).catch(() => null))?.退回商机 ?? [];
     // 登记时顺手标成赢单的商机会退回进行中（L-007）：删之前说清（第 2 期 2a）
     const 商机那句 = 退回.length ? (
-      <div style={{ marginTop: 8 }}>登记这笔时一起标成赢单的商机{退回.map((n) => `「${n}」`).join("")}会退回进行中。</div>
+      <div style={{ marginTop: 8 }}>{是订单 ? "转成这张订单的商机" : "登记这笔时一起标成赢单的商机"}{退回.map((n) => `「${n}」`).join("")}会退回进行中。</div>
     ) : null;
     modal.confirm({
       title: 是订单 ? `删除订单${r.order ? ` ${r.order.no}` : ""}？` : "删除这条签约记录？",

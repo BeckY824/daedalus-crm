@@ -1064,9 +1064,9 @@ function proposeTool(name: string, description: string, args: string, kind: Prop
       const r = buildProposal(`${kind}-${ctx.proposals.length}-${c.id || c.name}`, kind, c, a, ctx.b);
       if (!r.ok) return { summary: `建议不合法：${r.error}`, data: { error: r.error } };
       ctx.proposals.push(现值 ? { ...r.proposal, 现值 } : r.proposal);
-      const miss = missingFields(r.proposal);
+      const miss = missingFields(r.proposal, ctx.b);
       return {
-        summary: `建议：${describeProposal(r.proposal, ctx.b.customer)}${miss.length ? `（还差 ${miss.join("、")}）` : ""}`,
+        summary: `建议：${describeProposal(r.proposal, ctx.b.customer, undefined, ctx.b)}${miss.length ? `（还差 ${miss.join("、")}）` : ""}`,
         data: { ok: true, missing: miss, note: miss.length ? "建议卡已给出，留空的字段人会在卡片上补。不要再调同一个工具，也不要在回答里让人照格式打字" : "建议卡已给出，等人确认。不要再调同一个工具" },
       };
     },

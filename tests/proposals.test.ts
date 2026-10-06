@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { buildProposal, describeProposal, missingFields, summarizeApplied } from "@/lib/agent/proposals";
 import { dayjs } from "@/lib/utils";
+import { BUSINESS_PRESETS, DEFAULT_BUSINESS } from "@/lib/business-config";
 
 const 客户 = { id: "c1", name: "陈立" };
 /* 默认那套通用措辞：公司 / 职位 / 行业。校验「职位」那一格时用的就是这里的 grades */
@@ -243,5 +244,21 @@ describe("改渠道的提议", () => {
     expect(t).toContain("渠道");
     expect(t).toContain("林老师（附中）");
     expect(t).not.toContain("学员「");
+  });
+});
+
+describe("外贸模版下卡片的说法（2026-10-06 F.3）", () => {
+  const 外贸 = BUSINESS_PRESETS["外贸出口"];
+  const 底 = { id: "p1", customerId: "c1", customerName: "Ahmed", reason: "客户确认了" };
+  it("改状态说「已下单」不说「已签约」；通用照旧", () => {
+    const p = { ...底, kind: "set_status" as const, field: "followStatus" as const, to: "已签约" };
+    expect(describeProposal(p, "客户", undefined, 外贸)).toBe("把客户「Ahmed」的跟进状态改成「已下单」");
+    expect(describeProposal(p, "客户", undefined, DEFAULT_BUSINESS)).toContain("「已签约」");
+  });
+  it("登记签约说「记一笔订单」，缺项说订单金额 / 订单确认时间", () => {
+    const p = { ...底, kind: "add_contract" as const, amount: 0, currency: "USD", signedAt: "", remark: "" };
+    expect(describeProposal(p, "客户", undefined, 外贸)).toBe("给「Ahmed」记一笔订单");
+    expect(missingFields(p, 外贸)).toEqual(["订单金额", "订单确认时间"]);
+    expect(missingFields(p)).toEqual(["签约金额", "签约日期"]);
   });
 });

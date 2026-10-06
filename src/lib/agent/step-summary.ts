@@ -18,7 +18,8 @@ export const 工具口语: Record<string, (次: number, 客户: string) => strin
   list_channels: () => "查了渠道清单",
   list_leads: () => "查了线索",
   list_opportunities: () => "查了商机",
-  list_contracts: () => "查了签约记录",
+  // 外贸里签约就是订单：说「成交记录」两个模版都对（F.3）
+  list_contracts: () => "查了成交记录",
   list_orders: () => "查了订单",
   list_suppliers: () => "查了供应商",
   list_users: () => "查了团队名单",

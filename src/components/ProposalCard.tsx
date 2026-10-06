@@ -13,7 +13,7 @@ import { describeProposal, missingFields, 只留选中的改动, 可改字段表
 import { useBusiness } from "@/lib/business-client";
 import { 币种符号 } from "@/lib/currency";
 import { 建议结果, 记下建议结果, 清掉建议结果, 记下回执, 读回执 } from "@/lib/ai-jobs";
-import { statusLabel, stageLabel, type BusinessConfig } from "@/lib/business-config";
+import { statusLabel, stageLabel, 签约叫, 外贸精简, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
 import { useMotionTheme } from "@/components/MotionTheme";
@@ -67,7 +67,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
   /** 真正要提交的那张卡：逐项时只带勾上的那几项 */
   const 要提交的 = useMemo<Proposal>(() => 只留选中的改动(draft, 勾了), [draft, 勾了]);
   // 模型不知道的字段留空，人在卡片上补齐才能确认
-  const missing = missingFields(要提交的);
+  const missing = missingFields(要提交的, b);
   const 能确认 = state !== "saving" && missing.length === 0 && 勾了.length > 0;
 
   async function confirm() {
@@ -137,7 +137,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
         <span className={`prop-seal${刚 === "落印" ? " is-new" : ""}`}>
           <CheckOutlined /> 已写入{落印 ? ` ${落印.at}` : ""}
         </span>
-        <span className="prop-done-t">{describeProposal(draft, b.customer, 字段表)}</span>
+        <span className="prop-done-t">{describeProposal(draft, b.customer, 字段表, b)}</span>
         <span className="prop-done-acts">
           {落印?.撤销 && (
             <button type="button" className="cli-link" onClick={undo} disabled={撤销中}>
@@ -172,7 +172,7 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
     >
       <div className="prop-h">
         <span className="prop-tag">AI 草稿</span>
-        <span className="prop-t">{describeProposal(draft, b.customer, 字段表)}</span>
+        <span className="prop-t">{describeProposal(draft, b.customer, 字段表, b)}</span>
       </div>
       <div className="prop-why">{draft.reason}</div>
 
@@ -247,21 +247,26 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
             <Field label="阶段">
               <Select size="small" style={{ width: 140 }} value={draft.stage} options={OPP_STAGES.map((v) => ({ value: v, label: stageLabel(b, v) }))} onChange={(v) => setDraft({ ...draft, stage: v })} />
             </Field>
-            <Field label="成交概率">
-              <Input size="small" style={{ width: 90 }} suffix="%" value={draft.probability} onChange={(e) => setDraft({ ...draft, probability: Math.min(100, Number(e.target.value.replace(/[^\d]/g, "")) || 0) })} />
-            </Field>
-            <Field label="预计成交">
-              <DatePicker size="small" format="YYYY-MM-DD" placeholder="可不填" value={draft.expectedDealAt ? dayjs(draft.expectedDealAt) : null} onChange={(d) => setDraft({ ...draft, expectedDealAt: d ? d.toISOString() : "" })} />
-            </Field>
+            {/* 外贸不摆概率、预计成交（和商机表单一样，2026-10-05 外贸客户建议；F.3 卡片上漏了） */}
+            {!外贸精简(b) && (
+              <>
+                <Field label="成交概率">
+                  <Input size="small" style={{ width: 90 }} suffix="%" value={draft.probability} onChange={(e) => setDraft({ ...draft, probability: Math.min(100, Number(e.target.value.replace(/[^\d]/g, "")) || 0) })} />
+                </Field>
+                <Field label="预计成交">
+                  <DatePicker size="small" format="YYYY-MM-DD" placeholder="可不填" value={draft.expectedDealAt ? dayjs(draft.expectedDealAt) : null} onChange={(d) => setDraft({ ...draft, expectedDealAt: d ? d.toISOString() : "" })} />
+                </Field>
+              </>
+            )}
           </>
         )}
 
         {draft.kind === "add_contract" && (
           <>
-            <Field label="签约金额">
+            <Field label={签约叫(b) === "订单" ? "订单金额" : "签约金额"}>
               <Input size="small" style={{ width: 140 }} prefix={币种符号(draft.currency || b.currency)} value={draft.amount || ""} onChange={(e) => setDraft({ ...draft, amount: Number(e.target.value.replace(/[^\d.]/g, "")) || 0 })} />
             </Field>
-            <Field label="签约日期">
+            <Field label={签约叫(b) === "订单" ? "订单确认时间" : "签约日期"}>
               <DatePicker size="small" format="YYYY-MM-DD" allowClear={false} value={draft.signedAt ? dayjs(draft.signedAt) : null} onChange={(d) => d && setDraft({ ...draft, signedAt: d.toISOString() })} />
             </Field>
             <Field label="备注" block>

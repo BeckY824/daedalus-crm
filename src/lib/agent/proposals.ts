@@ -11,7 +11,7 @@
  * 校验放在纯函数里，生成时和落库时各跑一遍——卡片上的值人能改，改完的同样不可信。
  */
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, GRADES, OPP_STAGES, STAGE_PROBABILITY } from "../constants";
-import { DEFAULT_BUSINESS, type BusinessConfig } from "../business-config";
+import { DEFAULT_BUSINESS, statusLabel, 签约叫, type BusinessConfig } from "../business-config";
 import { dayjs } from "../utils";
 import { 是币种, 金额 } from "../currency";
 
@@ -296,7 +296,10 @@ export function buildProposal(
  * 还差哪些必填项。空数组 = 可以确认。
  * 卡片用它决定「确认」按钮能不能点，服务端用它兜底——前端禁用按钮不算防线。
  */
-export function missingFields(p: Proposal): string[] {
+/** 卡片上说话要跟模版走的那几样（外贸：签约叫订单、「已签约」显示成「已下单」，2026-10-06 F.3） */
+type 叫法 = Pick<BusinessConfig, "statusLabels" | "template"> | null | undefined;
+
+export function missingFields(p: Proposal, b?: 叫法): string[] {
   const miss: string[] = [];
   if (p.kind === "set_status" && !p.to) miss.push("新状态");
   if (p.kind === "add_followup" && p.content.trim().length < 4) miss.push("沟通内容");
@@ -319,18 +322,19 @@ export function missingFields(p: Proposal): string[] {
     if (!p.amount) miss.push("金额");
   }
   if (p.kind === "add_contract") {
-    if (!p.amount) miss.push("签约金额");
-    if (!p.signedAt) miss.push("签约日期");
+    if (!p.amount) miss.push(签约叫(b) === "订单" ? "订单金额" : "签约金额");
+    if (!p.signedAt) miss.push(签约叫(b) === "订单" ? "订单确认时间" : "签约日期");
   }
   if (p.kind === "update_channel" && !p.ownerName.trim() && !p.phone.trim() && !p.remark.trim()) miss.push("要改什么");
   return miss;
 }
 
 /** 卡片抬头：一句话说清这张卡会改什么 */
-export function describeProposal(p: Proposal, customerNoun: string, 字段表: Record<可改字段名, 字段规格> = 可改字段 as Record<可改字段名, 字段规格>): string {
+export function describeProposal(p: Proposal, customerNoun: string, 字段表: Record<可改字段名, 字段规格> = 可改字段 as Record<可改字段名, 字段规格>, b?: 叫法): string {
   if (p.kind === "set_status") {
     const f = p.field === "followStatus" ? "跟进状态" : "决策状态";
-    return `把${customerNoun}「${p.customerName}」的${f}改成「${p.to || "…"}」`;
+    // p.to 是存储值（「已签约」），说给人听要用这家的叫法（外贸「已下单」、通用「已试听」照业务配置）
+    return `把${customerNoun}「${p.customerName}」的${f}改成「${p.to ? statusLabel(b, p.to) : "…"}」`;
   }
   if (p.kind === "add_followup") return `给「${p.customerName}」记一条${FOLLOW_TYPE_MAP[p.type]?.label ?? p.type}`;
   if (p.kind === "add_plan") return `给「${p.customerName}」排一次${p.method || "跟进"}`;
@@ -339,7 +343,7 @@ export function describeProposal(p: Proposal, customerNoun: string, 字段表: R
     return `改${customerNoun}「${p.customerName}」的${项.join("、")}`;
   }
   if (p.kind === "add_opportunity") return `给「${p.customerName}」新建商机${p.name ? `「${p.name}」` : ""}`;
-  if (p.kind === "add_contract") return `给「${p.customerName}」记一笔签约${p.amount ? ` ${金额(p.amount, p.currency)}` : ""}`;
+  if (p.kind === "add_contract") return `给「${p.customerName}」记一笔${签约叫(b)}${p.amount ? ` ${金额(p.amount, p.currency)}` : ""}`;
   if (p.kind === "update_channel") {
     const 项 = [p.ownerName && "负责人", p.phone && "电话", p.remark && "备注"].filter(Boolean);
     return `改渠道「${p.channelName}」的${项.join("、") || "信息"}`;
@@ -348,8 +352,8 @@ export function describeProposal(p: Proposal, customerNoun: string, 字段表: R
 }
 
 /** 落库后写进操作日志的那句话 */
-export function summarizeApplied(p: Proposal, customerNoun: string): string {
-  return `确认 AI 建议：${describeProposal(p, customerNoun)}`;
+export function summarizeApplied(p: Proposal, customerNoun: string, b?: 叫法): string {
+  return `确认 AI 建议：${describeProposal(p, customerNoun, undefined, b)}`;
 }
 
 /**
