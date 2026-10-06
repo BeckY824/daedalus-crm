@@ -56,11 +56,12 @@ async function 进主界面(p, 模版 = "外贸出口") {
   await expect(选.or(p.locator(".rail")).first()).toBeVisible({ timeout: 60000 });
   if (await 选.isVisible()) await 选.click();
   await expect(p.locator(".rail")).toBeVisible({ timeout: 60000 });
-  await 关更新说明(p);
+  return 关更新说明(p);
 }
+/** 「这一版更新了这些」弹了就关掉，返回弹没弹 */
 async function 关更新说明(p) {
   const 知道了 = p.getByRole("button", { name: /知\s*道\s*了/ });
-  await 知道了.waitFor({ timeout: 5000 }).then(() => 知道了.click(), () => undefined);
+  return 知道了.waitFor({ timeout: 5000 }).then(async () => { await 知道了.click(); return true; }, () => false);
 }
 const 截图 = (p, 名) => p.screenshot({ path: path.join(root, `${名}.png`) }).catch(() => undefined);
 
@@ -75,15 +76,38 @@ try {
     过("打包的应用起在云端登录门");
     await 登录(page, `${identity}@example.test`);
   }
-  await 进主界面(page);
-  过(老数据根 ? "老数据根：升级后进了主界面" : "登录 + 新库选外贸模版进主界面");
+  const 弹了更新说明 = await 进主界面(page);
+  if (老数据根 && !弹了更新说明) throw new Error("老用户升级上来没弹「这一版更新了这些」");
+  过(老数据根 ? "老数据根：升级后进了主界面，弹了一次「这一版更新了这些」" : "登录 + 新库选外贸模版进主界面");
   const origin = new URL(page.url()).origin;
   await 截图(page, "01-主界面");
 
   // D.3 老数据根：先数一下升级前就在的客户，后面核对一个不少
-  const 当前库 = () => path.join(root, "accounts", JSON.parse(fs.readFileSync(path.join(root, "current.json"), "utf8")).key, "crm.db");
+  // 第一次装、第一次登录：库建在 _未认领 里，下次启动才认领到账号目录（main.js「认领这份数据」那段），那时才有 current.json
+  const 当前库 = () => {
+    const 指针 = path.join(root, "current.json");
+    return path.join(root, "accounts", fs.existsSync(指针) ? JSON.parse(fs.readFileSync(指针, "utf8")).key : "_未认领", "crm.db");
+  };
   const 数 = (sql) => { const d = new DatabaseSync(当前库(), { readOnly: true }); try { return d.prepare(sql).get().n; } finally { d.close(); } };
   const 进来时客户数 = 数("SELECT count(*) n FROM Customer");
+
+  if (老数据根) {
+    // 老用户（make-old-root.mjs 用 0.46.14 造的）：老客户和老跟进都在，模版还是通用；在设置里切外贸——老用户真会走的就是这条
+    await page.goto(`${origin}/customers`);
+    for (const 名 of ["老用户客户甲", "老用户客户乙", "老用户客户丙"]) await expect(page.locator("main").getByRole("link", { name: 名 })).toBeVisible();
+    await expect(page.locator(".rail").getByRole("link", { name: "订单", exact: true })).toHaveCount(0);
+    await page.locator("main").getByRole("link", { name: "老用户客户甲" }).click();
+    await expect(page.locator("main")).toContainText("老版本记的跟进：下周寄样");
+    过("老用户：升级后老客户、老跟进都在，模版还是通用");
+    await page.goto(`${origin}/settings?tab=business`);
+    const 面板 = page.getByRole("tabpanel", { name: /^业务配置/ });
+    await expect(面板).toBeVisible();
+    await page.waitForLoadState("networkidle").catch(() => {});
+    await 面板.getByRole("button", { name: "外贸出口", exact: true }).click();
+    await 面板.locator(".biz-preset-todo").getByRole("button", { name: /保\s*存/ }).click();
+    await expect(page.getByText("已保存，全站措辞已更新")).toBeVisible({ timeout: 15000 });
+    过("老用户：设置里切到外贸");
+  }
 
   // 外贸建客户：电话空着只填 WhatsApp
   await page.goto(`${origin}/customers`);
@@ -146,14 +170,14 @@ try {
   page = await app.firstWindow();
   page.setDefaultTimeout(30000);
   await expect(page.locator(".rail")).toBeVisible({ timeout: 60000 });
-  await 关更新说明(page);
+  if (await 关更新说明(page)) throw new Error("重开又弹了一次「这一版更新了这些」（看过就该收）");
   await expect(page).toHaveURL(/\/orders/);
   await expect(page.locator(".ant-table-row", { hasText: 单号 })).toContainText(客户名);
   过("关掉重开：不用再登录、停在订单一览、数据都在");
 
   if (老数据根) {
     const 现在 = 数("SELECT count(*) n FROM Customer");
-    if (现在 !== 进来时客户数) throw new Error(`客户数对不上：进来 ${进来时客户数}，现在 ${现在}`);
+    if (现在 !== 进来时客户数 + 1) throw new Error(`客户数对不上：进来 ${进来时客户数}，又建了 1 位，现在 ${现在}`);
     const 完整 = (() => { const d = new DatabaseSync(当前库(), { readOnly: true }); try { return d.prepare("PRAGMA integrity_check").get().integrity_check; } finally { d.close(); } })();
     if (完整 !== "ok") throw new Error(`integrity_check：${完整}`);
     过(`老数据根：客户 ${现在} 位一位不少（含刚建的 1 位），integrity ok`);
