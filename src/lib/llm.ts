@@ -148,7 +148,11 @@ export type 工具声明 = { type: "function"; function: { name: string; descrip
  * 实测（2026-10-02）：「AI 解析」同一份请求跑 6 次，正常 9–14 秒，3 次卡了 140–235 秒；agent 决策正常 2–3 秒。
  * 非流式要等整段写完才回：短的（≤2000，agent 决策）25 秒，中等（≤4000，解析 / 简报）45 秒；流式收到响应头就算回音，20 秒
  */
-export const 首字等待毫秒 = { 流式: 20_000, 短输出: 25_000, 中输出: 45_000 };
+/*
+  短输出 25 → 15 秒（2026-10-06 G.3 实测）：同一份 agent 决策请求直打中转站 5 次，4 次 2–4 秒回、1 次 60 秒没回音——
+  卡住的约五分之一，正常的 3 秒左右。等 25 秒才重发，每问第一步常常白等 25 秒
+*/
+export const 首字等待毫秒 = { 流式: 20_000, 短输出: 15_000, 中输出: 45_000 };
 
 async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean, tools?: 工具声明[]): Promise<Response> {
   const 模型 = opts.model ?? cfg.model;
@@ -200,17 +204,23 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
   const 起 = Date.now();
   /** 重发给多久：总共还剩多少就给多少，至少 15 秒（原来写成 总超时 − 首轮，502 秒回时长输出的重发只剩 15 秒，第四轮 B1） */
   const 还剩 = () => Math.max(15_000, 总超时 - (Date.now() - 起));
-  /** 超时重发和 5xx 重发共用这一个名额：同一次调用最多打两次（第三轮 B5，原来叠起来是 3 次） */
+  /*
+    5xx 重发只在一次都没重发过时做（第三轮 B5：原来超时重发和 5xx 重发叠起来）。
+    超时重发最多两次（2026-10-06 G.3）：中转站约五分之一的请求会卡住，只重发一次的话连卡两次（约 4%）就是「超时没回音」，
+    还白扣了次数。第二次照首轮的快等，第三次给剩下的全部时间；三次带同一个问题编号，网关只扣一次
+  */
   let 重发过 = false;
   try {
-    try {
-      res = await 发(首轮);
-    } catch (e) {
-      const 人停的 = opts.signal?.aborted;
-      if (!(e instanceof Error && e.name === "TimeoutError") || 人停的 || 首轮 >= 总超时) throw e;
-      console.warn(`[llm] ${Math.round(首轮 / 1000)} 秒没等到回音，重发一次`);
-      重发过 = true;
-      res = await 发(还剩());
+    for (let 第 = 1; ; 第++) {
+      try {
+        res = await 发(第 === 3 ? 还剩() : 首轮);
+        break;
+      } catch (e) {
+        const 人停的 = opts.signal?.aborted;
+        if (!(e instanceof Error && e.name === "TimeoutError") || 人停的 || 首轮 >= 总超时 || 第 === 3 || Date.now() - 起 >= 总超时) throw e;
+        console.warn(`[llm] ${Math.round(首轮 / 1000)} 秒没等到回音，重发一次（第 ${第 + 1} 次）`);
+        重发过 = true;
+      }
     }
   } catch (e) {
     // 超时、人点了停：原样抛，调用方按 name 认（TimeoutError / AbortError）

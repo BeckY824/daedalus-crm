@@ -224,6 +224,33 @@ describe("等不到就重发一次（2026-10-02 实测中转站偶尔卡 30–20
       delete process.env.LLM_MODEL;
     }
   });
+
+  it("G.3 连着卡两次（中转站约五分之一的请求会卡住）：第三次回来就用它，三次同一个问题编号", async () => {
+    const { chatJSON, 首字等待毫秒 } = await import("@/lib/llm");
+    const 原 = { ...首字等待毫秒 };
+    首字等待毫秒.短输出 = 50;
+    process.env.LLM_API_KEY = "k";
+    process.env.LLM_BASE_URL = "https://relay.example/v1";
+    process.env.LLM_MODEL = "m";
+    const 编号们: (string | null)[] = [];
+    let 次 = 0;
+    vi.stubGlobal("fetch", async (_u: string, init: RequestInit) => {
+      次++;
+      编号们.push(new Headers(init.headers).get("X-Question-Id"));
+      if (次 <= 2) await new Promise((_, rej) => init.signal?.addEventListener("abort", () => rej(Object.assign(new Error("timeout"), { name: "TimeoutError" }))));
+      return new Response(JSON.stringify({ choices: [{ message: { content: '{"ok":1}' }, finish_reason: "stop" }] }), { status: 200 });
+    });
+    try {
+      expect(await chatJSON("x", { maxTokens: 500, timeoutMs: 30_000 })).toEqual({ ok: 1 });
+      expect(次).toBe(3);
+      expect(new Set(编号们).size).toBe(1);
+    } finally {
+      Object.assign(首字等待毫秒, 原);
+      delete process.env.LLM_API_KEY;
+      delete process.env.LLM_BASE_URL;
+      delete process.env.LLM_MODEL;
+    }
+  });
 });
 
 /*
@@ -265,7 +292,8 @@ describe("快速重发不切正常偏慢的解析、超时说人话（D-064）",
       // 对照：真是短输出的（agent 决策那种）照旧快速重发
       次 = 0;
       expect(await chatJSON("短的", { maxTokens: 500, timeoutMs: 120_000 })).toEqual({ ok: 1 });
-      expect(次).toBe(2);
+      // 前两次照短输出那档快等（30ms）都被掐，第三次给剩下的全部时间，等到了（2026-10-06 起超时最多重发两次）
+      expect(次).toBe(3);
     } finally {
       Object.assign(首字等待毫秒, 原);
       收拾();
@@ -282,7 +310,7 @@ describe("快速重发不切正常偏慢的解析、超时说人话（D-064）",
     });
     try {
       const e = await chatJSON("x", { maxTokens: 500, timeoutMs: 60_000 }).catch((x: Error) => x);
-      expect(次).toBe(2);
+      expect(次).toBe(3);
       expect((e as Error).message).toBe("AI 响应超时，请稍后重试");
     } finally {
       收拾();
