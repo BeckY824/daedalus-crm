@@ -447,6 +447,17 @@ describe("复查一轮（10-06）", () => {
     expect(一单).not.toHaveProperty("未收");
   });
 
+  it("AI 按订单号找客户：「PI-xxx 是哪位客户」——search_customers 和客户列表搜的是同一个范围（C.2）", async () => {
+    await 外贸();
+    const c = await 客户();
+    await saveContract({ customerId: c.id, amount: 100, currency: "USD", signedAt: new Date(), remark: null, 订单: { no: "PI-7788" } });
+    const ctx = { userId: jia.id, userName: "甲", b: BUSINESS_PRESETS["外贸出口"], recordOffset: 0, proposals: [] };
+    const 出 = await TOOLS.find((t) => t.name === "search_customers")!.run({ query: "PI-7788" }, ctx as never);
+    expect(JSON.stringify(出.data)).toContain("Timur");
+    // 客户列表那边本来就搜得到
+    expect(await prisma.customer.count({ where: await 客户筛选条件({ keyword: "PI-7788" }) })).toBe(1);
+  });
+
   it("撤销导入：人后来手改过档案的那位不动", async () => {
     await 外贸();
     const 表头 = ["客户名称", "联系电话", "国家"];

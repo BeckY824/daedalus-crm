@@ -86,7 +86,7 @@ export function 字段表(b: { fields: { school: string; grade: string; major: s
       { 名: "country", label: "国家", kind: "text", 别名: ["国家", "国家地区", "国家/地区", "所在国家", "地区", "country", "region", "nation", "countryregion"] },
       { 名: "whatsapp", label: "WhatsApp", kind: "text", 别名: ["whatsapp", "whatsapp号", "whatsapp号码", "wa", "whatsappnumber"] },
       { 名: "wechat", label: "微信", kind: "text", 别名: ["微信", "微信号", "wechat", "weixin", "wx", "wechatid"] },
-      { 名: "email", label: "邮箱", kind: "text", 别名: ["邮箱", "电子邮箱", "邮件", "邮箱地址", "email", "e-mail", "mail", "emailaddress"] },
+      { 名: "email", label: "邮箱", kind: "text", 别名: ["邮箱", "电子邮箱", "邮件", "邮箱地址", "email", "e-mail", "mail", "emailaddress", "联系人邮箱"] },
       { 名: "source", label: "来源", kind: "text", 别名: ["来源", "客户来源", "询盘来源", "获客渠道", "来源渠道", "渠道", "source", "leadsource"] },
     ];
   }
@@ -95,8 +95,9 @@ export function 字段表(b: { fields: { school: string; grade: string; major: s
 
 function 通用字段(b: { fields: { school: string; grade: string; major: string }; grades: string[]; customer: string; statusLabels?: Record<string, string> }): 字段规格[] {
   return [
-    { 名: "name", label: "姓名", kind: "text", 必填: true, 别名: ["姓名", "名字", "客户姓名", "客户名称", "客户", b.customer, `${b.customer}姓名`, "学员", "学员姓名", "name", "fullname", "联系人", "联系人姓名"] },
-    { 名: "phone", label: "手机号", kind: "text", 必填: true, 别名: ["手机号", "手机", "电话", "联系电话", "联系方式", "手机号码", "电话号码", "mobile", "phone", "tel", "telephone"] },
+    // 「联系人昵称 / 联系人电话 / 联系人邮箱」是小满表的叫法（2026-10-06 B.7）：原来一列都认不出，整张表每行都说「没有电话」
+    { 名: "name", label: "姓名", kind: "text", 必填: true, 别名: ["姓名", "名字", "客户姓名", "客户名称", "客户", b.customer, `${b.customer}姓名`, "学员", "学员姓名", "name", "fullname", "联系人", "联系人姓名", "联系人昵称", "联系人名称"] },
+    { 名: "phone", label: "手机号", kind: "text", 必填: true, 别名: ["手机号", "手机", "电话", "联系电话", "联系方式", "手机号码", "电话号码", "mobile", "phone", "tel", "telephone", "联系人电话", "联系人手机", "联系人手机号"] },
     { 名: "school", label: b.fields.school, kind: "text", 别名: [b.fields.school, "院校", "学校", "公司", "单位", "公司名称", "school", "company", "org"] },
     // 开放：values 只当建议，导入时对不上也原样收下（库里这一列就是自由文本）
     { 名: "grade", label: b.fields.grade, kind: "enum", values: b.grades, 开放: true, 别名: [b.fields.grade, "年级", "职位", "职务", "岗位", "grade", "title", "position"] },

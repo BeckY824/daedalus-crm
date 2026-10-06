@@ -41,6 +41,8 @@ import { 建同步表, 装触发器, 卸触发器, 回放, 只留自己的 } fro
 import { 带走没做完的 } from "@/lib/carry-over-db";
 import { TOOL_MAP, type ToolContext } from "@/lib/agent/tools";
 import { getBusiness } from "@/lib/business";
+import { 订单详情 } from "@/lib/order-db";
+import { MCP_TOOL_NAMES, 跑工具 } from "@/lib/mcp/tools";
 
 const 老板 = "acct_boss";
 const 小王 = "acct_wang";
@@ -291,6 +293,33 @@ describe("业务员只看自己的 + 公海", () => {
     上线前测试 4.2「AI 回答只有自己的 + 公海」：AI 的工具读库走的是同一个 prisma（限定层在 Prisma 上），
     这里把问 AI 时最常用的几把工具挨个跑一遍——找客户、按名字读客户、搜跟进、列商机、盯盘——答出来的只有看得到的
   */
+  it("订单的其余出口（测试分期 E.4）：AI 列订单、按订单号找客户、按 id 开同事的订单详情、MCP，业务员都只拿到自己客户的", async () => {
+    for (const [k, owner] of [["小王的客户", 小王], ["小李的客户", 小李]] as const) {
+      await raw.tradeOrder.create({ data: { no: `PI-${k}`, customerId: ids[k], ownerId: owner, amount: 1, currency: "USD" } });
+    }
+    const 李单 = await raw.tradeOrder.findFirstOrThrow({ where: { no: "PI-小李的客户" } });
+    try {
+      当("wang");
+      进团队();
+      const ctx: ToolContext = { userId: 小王, userName: "小王", b: await getBusiness(), recordOffset: 0, proposals: [] };
+      const 跑 = async (名: string, args: Record<string, unknown>) => JSON.stringify((await TOOL_MAP.get(名)!.run(args, ctx)).data);
+      const 列 = await 跑("list_orders", {});
+      expect(列).toContain("PI-小王的客户");
+      expect(列, "AI 列订单").not.toContain("小李的客户");
+      // 订单号这条路是 C.2 新加的：报同事的 PI 号也不能把那位客户带出来
+      expect(await 跑("search_customers", { query: "PI-小李" }), "按订单号找客户").not.toContain("小李的客户");
+      expect(await 跑("search_customers", { query: "PI-小王" })).toContain("小王的客户");
+      expect(await 订单详情(李单.id), "按 id 直接开同事的订单").toBeNull();
+      expect(MCP_TOOL_NAMES).toContain("list_orders");
+      const mcp = JSON.stringify(await 跑工具("list_orders", {}, { id: 小王, name: "小王" }));
+      expect(mcp).toContain("PI-小王的客户");
+      expect(mcp, "MCP 列订单").not.toContain("小李的客户");
+    } finally {
+      出团队();
+      await raw.tradeOrder.deleteMany();
+    }
+  });
+
   it("AI 的工具也只答看得到的：找客户、读别人的客户、搜跟进、列商机、盯盘都没有同事的", async () => {
     当("wang");
     进团队();

@@ -29,7 +29,7 @@ export const 只读SCHEMAS: Record<string, Schema> = {
   search_customers: {
     type: "object",
     properties: {
-      query: 串("姓名 / 学校 / 年级 / 专业 / 备注里的关键词"),
+      query: 串("姓名 / 学校 / 年级 / 专业 / 备注 / WhatsApp / 邮箱 / 订单号里的关键词"),
       channelName: 串("只看某个渠道带来的（「小红这个渠道里有谁」）"),
       ownerName: 串("只看某位销售负责的（「李四手上有哪些客户」）"),
       followStatus: 串("只看某个跟进状态"),

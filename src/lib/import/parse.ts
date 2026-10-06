@@ -175,11 +175,15 @@ export function 成表(
     表头也补齐到列数：表头只写 2 列、数据 5 格时，原来表头就是 2 格，映射跟着只有 2 格，
     后 3 列连「没对上的列」都算不上，原文一个字不进备注（2026-10-04 J-056）。补的是空名，出处在 plan.ts 里按「第 N 列」写
   */
-  const 表头 = rows[0].slice(0, 列数).map((h) => h.trim());
+  /*
+    零宽字符（\u200b 一类）去掉：小满的模板地址里就夹着一串，看不见、搜不到，进了备注还会让「同一句不再添」认不出是同一句（B.7）
+  */
+  const 清 = (c: string) => c.replace(/[\u200b-\u200d\u2060\ufeff]/g, "").trim();
+  const 表头 = rows[0].slice(0, 列数).map(清);
   while (表头.length < 列数) 表头.push("");
   const 全部数据 = rows.slice(1);
   const 数据 = 全部数据.slice(0, 行数上限).map((r) => {
-    const out = r.slice(0, 列数).map((c) => c.trim());
+    const out = r.slice(0, 列数).map(清);
     while (out.length < 列数) out.push("");
     return out;
   });

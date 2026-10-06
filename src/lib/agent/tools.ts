@@ -93,12 +93,12 @@ export const TOOLS: Tool[] = [
   {
     name: "search_customers",
     description:
-      "按关键词找客户，返回总数和名单。关键词同时匹配姓名、学校、年级、专业、备注（问「武汉大学的有几位、分别是谁」就用 query=\"武汉大学\"，问「大三的有哪些」就用 query=\"大三\"）；" +
+      "按关键词找客户，返回总数和名单。关键词同时匹配姓名、学校、年级、专业、备注，外贸的 WhatsApp / 邮箱 / 微信 / 国家、联系人和订单号也搜（问「PI-2026 是哪位客户」就用 query=\"PI-2026\"；问「武汉大学的有几位、分别是谁」就用 query=\"武汉大学\"，问「大三的有哪些」就用 query=\"大三\"）；" +
       "还能按渠道（channelName，问「小红这个渠道里有谁」用它，先用 list_channels 看渠道叫什么）、按负责人（ownerName，问「李四手上有哪些客户」用它）、" +
       "按跟进状态、按决策状态、只看我负责的过滤。" +
       "还能按建档时间（createdFrom/createdTo，问「这周新增了哪些客户」用它）、按预计签约时间（expectedSignFrom/expectedSignTo，问「这个月预计能签哪几个」用它，结果按预计签约日从近到远排）。" +
       "找到具体某一位后再用 get_customer 读记录。",
-    args: '{"query": "姓名 / 学校 / 年级 / 专业 / 备注里的关键词，可为空", "channelName": "渠道名称，可选", "ownerName": "销售负责人姓名，可选", "followStatus": "跟进状态，可选", "decisionStatus": "决策状态，可选", "createdFrom": "建档起始 YYYY-MM-DD，可选", "createdTo": "建档截止，可选", "expectedSignFrom": "预计签约起始，可选", "expectedSignTo": "预计签约截止，可选", "mine": true|false 可选}',
+    args: '{"query": "姓名 / 学校 / 年级 / 专业 / 备注 / WhatsApp / 邮箱 / 订单号里的关键词，可为空", "channelName": "渠道名称，可选", "ownerName": "销售负责人姓名，可选", "followStatus": "跟进状态，可选", "decisionStatus": "决策状态，可选", "createdFrom": "建档起始 YYYY-MM-DD，可选", "createdTo": "建档截止，可选", "expectedSignFrom": "预计签约起始，可选", "expectedSignTo": "预计签约截止，可选", "mine": true|false 可选}',
     async run(args, ctx) {
       const q = str(args.query, 20);
       const channel = str(args.channelName, 20);
@@ -122,7 +122,9 @@ export const TOOLS: Tool[] = [
         // 和客户列表搜的是同一个范围（C7）：外贸档案、联系人也搜（2026-10-05）
         ...(q ? { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { school: { contains: q } }, { grade: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } },
           { extra: { is: { OR: [{ whatsapp: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }, { country: { contains: q } }] } } },
-          { contacts: { some: { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }] } } }] } : {}),
+          { contacts: { some: { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }] } } },
+          // 订单号（C.2）：客户列表二审就搜了，这里漏了——问「PI-xxx 是哪位客户」AI 说没有，点「去库里搜」却有
+          { tradeOrders: { some: { no: { contains: q } } } }] } : {}),
         // 用 channelId（推荐链**最顶端**的渠道，所有后代继承），不是 attributionChannelId
         // （那个是「往上第二代」的归属口径，算提成用的）。「小红这个渠道里有谁」问的是
         // 整条链上的人，包括转介绍来的后代——所以是前者。两个口径的数字会不一样。

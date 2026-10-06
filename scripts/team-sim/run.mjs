@@ -574,6 +574,83 @@ async function 主线() {
     await 等到({ 步骤: "原负责人看不到了", 哪台: "li ← boss", 期望: `列表、客户页都没有「${c.名字}」`, 取: async () => ({ 列表: await 看得到(l, c), 详情: await 详情看得到(l, c) }), 满足: (v) => !v.列表 && !v.详情, 超时: 10_000, 迟到也报: 20_000 });
   });
 
+  /* ================= 外贸（2026-10-06 测试分期 E.1）：模版、档案、订单在几台之间 ================= */
+  const 预设 = JSON.parse(同步跑(path.join(根, "node_modules/.bin/tsx"), ["-e", "import('./src/lib/business-config.ts').then((m) => console.log(JSON.stringify(m.BUSINESS_PRESETS)))"]));
+  const 模版 = (t) => JSON.parse(查库(t.库, "SELECT value FROM Setting WHERE key = 'business'")[0]?.value ?? "{}").template ?? "general";
+  const 左栏有订单 = async (t) => (await 页面(t, "/customers?pageSize=1")).includes('href="/orders"');
+  const 档案 = (t, id) => 查库(t.库, "SELECT country, whatsapp FROM CustomerExtra WHERE customerId = ?", id);
+  const 订单 = (t, no) => 查库(t.库, "SELECT id, contractId, customerId FROM TradeOrder WHERE no = ?", no);
+  const 外贸单号 = `PI-SIM-${批}`;
+  // 王另录一位来走外贸这一段：最后会交给 li，不能用 业务员的.wang（后面「中转断了」那步还要王改他）
+  let 外贸客;
+
+  await 步("老板切外贸 → 其余几台 30 秒内跟上：库里的业务配置是外贸、左栏出现订单", async () => {
+    const r = await 调(老, 动作.存业务配置, [预设["外贸出口"]]);
+    判(r?.ok, { 步骤: "老板存外贸业务配置", 哪台: 老板, 期望: "{ok:true}", 实际: r });
+    判(await 左栏有订单(老), { 步骤: "老板自己那台左栏有订单", 哪台: 老板, 期望: "有 /orders 链接", 实际: "没有" });
+    const 存完 = Date.now();
+    for (const n of 名单.filter((x) => x !== 老板)) {
+      await 等到({ 步骤: "切外贸传到这台", 哪台: `${n} ← ${老板}`, 期望: "模版 trade、左栏有订单", 取: async () => ({ 模版: 模版(台[n]), 左栏: await 左栏有订单(台[n]) }), 满足: (v) => v.模版 === "trade" && v.左栏, 超时: Math.max(500, 30_000 - (Date.now() - 存完)), 迟到也报: 45_000 });
+    }
+    return { 说: `${((Date.now() - 存完) / 1000).toFixed(1)}s 传遍` };
+  });
+
+  await 步("两台同时填同一位客户的外贸档案（业务员填国家、老板填 WhatsApp）：两格都留，档案还是一行", async () => {
+    const w = 台.wang;
+    外贸客 = await 录一位(w, 名("wang", "外贸"), 0);
+    const c = 外贸客;
+    // 先等这位传到老板那台，不然老板改的是一位他库里还没有的客户
+    await 等到({ 步骤: "新客户传到老板那台", 哪台: `${老板} ← wang`, 期望: "库里有", 取: () => Boolean(客户(老, c.id)), 满足: Boolean, 超时: 15_000, 迟到也报: 30_000 });
+    const [a, b] = await Promise.all([调(w, 动作.改一格, [c.id, "country", "阿联酋"]), 调(老, 动作.改一格, [c.id, "whatsapp", "+971 50 111 2233"])]);
+    判(a?.ok && b?.ok, { 步骤: "两台同时填档案", 哪台: "wang / boss", 期望: "两边都 ok", 实际: { wang: a, boss: b } });
+    for (const n of 名单) {
+      await 等到({ 步骤: "档案各台一致", 哪台: `${n} ← wang / boss`, 期望: "一行：阿联酋、+971 50 111 2233", 取: () => 档案(台[n], c.id), 满足: (v) => v.length === 1 && v[0].country === "阿联酋" && v[0].whatsapp === "+971 50 111 2233", 超时: 20_000, 迟到也报: 30_000 });
+    }
+  });
+
+  await 步("业务员转订单 → 老板订单一览看到；别的业务员看不到", async () => {
+    const w = 台.wang;
+    const c = 外贸客;
+    const k = await 调(w, 动作.登记签约, [{ customerId: c.id, amount: 12000, currency: "USD", signedAt: `$D${new Date().toISOString()}`, remark: null, 订单: { no: 外贸单号, payment: "T/T 30/70" } }]);
+    判(k?.ok, { 步骤: "业务员登记订单", 哪台: "wang", 期望: "{ok:true}", 实际: k });
+    判((await 页面(w, "/orders")).includes(外贸单号), { 步骤: "业务员自己的订单一览", 哪台: "wang", 期望: `有 ${外贸单号}`, 实际: "没有" });
+    const 存完 = Date.now();
+    await 等到({ 步骤: "老板订单一览看到", 哪台: `${老板} ← wang`, 期望: `有 ${外贸单号}`, 取: async () => ((await 页面(老, "/orders")).includes(外贸单号) ? "有" : "没有"), 满足: (v) => v === "有", 超时: Math.max(500, 15_000 - (Date.now() - 存完)), 迟到也报: 30_000 });
+    // 同事那台库里有了（同步到了）、页面上看不到
+    await 等到({ 步骤: "订单同步到同事那台库里", 哪台: "li ← wang", 期望: "库里有那张单", 取: () => 订单(台.li, 外贸单号).length, 满足: (v) => v === 1, 超时: 15_000, 迟到也报: 30_000 });
+    for (const n of ["li", "zhao"]) 判(!(await 页面(台[n], "/orders")).includes(外贸单号), { 步骤: "业务员看不到同事的订单", 哪台: n, 期望: `订单一览里没有 ${外贸单号}`, 实际: "看到了" });
+  });
+
+  await 步("业务员把带订单的客户交给同事：订单跟着到他那边，交出去的人订单一览里没了", async () => {
+    const w = 台.wang, l = 台.li;
+    const c = 外贸客;
+    const r = await 调(w, 动作.改一格, [c.id, "salesOwnerId", l.我]);
+    判(r?.ok, { 步骤: "交接", 哪台: "wang", 期望: "{ok:true}", 实际: r });
+    const 交完 = Date.now();
+    await 等到({ 步骤: "接手的人订单一览里有", 哪台: "li ← wang", 期望: `有 ${外贸单号}`, 取: async () => ((await 页面(l, "/orders")).includes(外贸单号) ? "有" : "没有"), 满足: (v) => v === "有", 超时: Math.max(500, 15_000 - (Date.now() - 交完)), 迟到也报: 30_000 });
+    判(!(await 页面(w, "/orders")).includes(外贸单号), { 步骤: "交出去的人订单一览里没了", 哪台: "wang", 期望: `没有 ${外贸单号}`, 实际: "还在" });
+  });
+
+  await 步("接手的人删掉这笔订单 → 各台订单和签约都没了", async () => {
+    const l = 台.li;
+    const [o] = 订单(l, 外贸单号);
+    判(o?.contractId, { 步骤: "订单挂着签约", 哪台: "li", 期望: "有 contractId", 实际: o });
+    const r = await 调(l, 动作.删签约, [o.contractId, o.customerId, null]);
+    判(r?.ok, { 步骤: "删订单", 哪台: "li", 期望: "{ok:true}", 实际: r });
+    for (const n of 名单) {
+      await 等到({ 步骤: "删订单传到这台", 哪台: `${n} ← li`, 期望: "订单、签约都没了", 取: () => ({ 单: 订单(台[n], 外贸单号).length, 签约: 数(台[n], "SELECT COUNT(*) AS n FROM Contract WHERE id = ?", o.contractId) }), 满足: (v) => v.单 === 0 && v.签约 === 0, 超时: 20_000, 迟到也报: 30_000 });
+    }
+  });
+
+  await 步("老板切回通用 → 各台跟上、左栏没有订单", async () => {
+    const r = await 调(老, 动作.存业务配置, [预设["通用销售"]]);
+    判(r?.ok, { 步骤: "老板存通用业务配置", 哪台: 老板, 期望: "{ok:true}", 实际: r });
+    const 存完 = Date.now();
+    for (const n of 名单.filter((x) => x !== 老板)) {
+      await 等到({ 步骤: "切回通用传到这台", 哪台: `${n} ← ${老板}`, 期望: "模版 general、左栏没有订单", 取: async () => ({ 模版: 模版(台[n]), 左栏: await 左栏有订单(台[n]) }), 满足: (v) => v.模版 === "general" && !v.左栏, 超时: Math.max(500, 30_000 - (Date.now() - 存完)), 迟到也报: 45_000 });
+    }
+  });
+
   await 步("业务员自己退出团队：他那台只留自己的（含老库带进来的），别人那边一条不少、收不到他之后写的", async () => {
     const z = 台.zhao;
     const 前 = Object.fromEntries(名单.filter((n) => n !== "zhao").map((n) => [n, 客户数(台[n])]));
