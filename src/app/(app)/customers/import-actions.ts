@@ -2,6 +2,7 @@
 
 import { 外贸导入字段 } from "@/lib/import/fields";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
+import { 按邮箱找, 同邮箱条件, 邮箱认人表 } from "@/lib/email-dedupe";
 
 /**
  * 导入与撤销。
@@ -13,7 +14,7 @@ import { 写外贸档案 } from "@/lib/customer-extra-db";
  *
  *   1. **认人只认手机号。** schema 里 `Customer.phone` 的注释就是「查重主键」，
  *      建档那条路本来就拒绝重复手机号。按姓名认人不做——重名就是把客户挂到别人名下，
- *      和归属规则里「绝不猜」是同一条。
+ *      和归属规则里「绝不猜」是同一条。外贸例外：没有电话 / WhatsApp 的行按邮箱认（2026-10-07，lib/email-dedupe.ts）。
  *   2. **重复的不覆盖，只补空。** 库里那格有值就一个字都不动。
  *      理由和「个人资料里改的名字不许被同步覆盖」是同一条：
  *      凡是人录过的东西，都不该被一份表刷掉。
@@ -73,6 +74,11 @@ const 档案前缀 = "extra.";
 const 补空字段名单 = ["school", "grade", "major", "expectedSignAt", "remark"] as const;
 
 
+/** 外贸按邮箱认的那些行（进得来、没有电话）的邮箱 */
+function 邮箱那一批(行: { 进不了?: string; 值: { phone?: string; email?: string } }[]): string[] {
+  return 行.filter((r) => !r.进不了 && !r.值.phone && r.值.email).map((r) => r.值.email!);
+}
+
 async function 排好(方案: 导入方案) {
   const b = await getBusiness();
   const 表 = 字段表(b);
@@ -105,6 +111,8 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
     这一批,
     await 分机留存起(),
   );
+  // 外贸按邮箱认的行（没有电话）：裸 SQL 本来就看全部
+  const 邮表 = 邮箱认人表((await 按邮箱找(prisma, 邮箱那一批(行))).map((x) => ({ 客户: { id: x.id }, 键: x.键 })));
 
   let 新建 = 0;
   let 撞上 = 0;
@@ -117,7 +125,7 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: r.进不了 });
       continue;
     }
-    const { n, 说法 } = 表.认(r.值.phone!);
+    const { n, 说法 } = r.值.phone ? 表.认(r.值.phone) : 邮表.认(r.值.email!);
     if (n > 1) {
       说不清++;
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: 说法 ?? `库里有 ${n} 位都是这个号码，不知道该算谁的` });
@@ -195,12 +203,13 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
 
   // 带分机的号也认老库里只存了主号的那位（第三轮 B4）；库里老写法「138 0000 1111」按号键认（R-067 / R-069，见 lib/phone-dedupe）
   const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
+  const 邮命中 = await 按邮箱找(prisma, 邮箱那一批(行));
   /*
     团队版业务员（lib/team-scope.ts）：同号的人要看全部才认得出——同事的客户也算「已经有了」，不另建一份；
     但同事的客户不替他补空（业务员改不了别人的客户），算跳过
   */
   const 命中 = await 看全部(async () => prisma.customer.findMany({
-    where: await 这一批同号的(prisma, 这一批),
+    where: { OR: [await 这一批同号的(prisma, 这一批), { id: { in: 邮命中.map((x) => x.id) } }] },
     select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
   }));
   // 外贸档案（2026-10-05）在旁表里：补空也是「那一格空着才补」，先取一份现值
@@ -209,6 +218,8 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
   );
   const 限定我 = await 限定的我(defaultClient);
   const 表 = 认人表(命中, 这一批, await 分机留存起());
+  const 按id = new Map(命中.map((c) => [c.id, c]));
+  const 邮表 = 邮箱认人表(邮命中.flatMap((x) => (按id.has(x.id) ? [{ 客户: 按id.get(x.id)!, 键: x.键 }] : [])));
 
   const batch = await prisma.importBatch.create({
     data: { userId: me.id, userName: me.name, fileName: fileName.slice(0, 200), created: 0, updated: 0, skipped: 0, failed: 0 },
@@ -224,7 +235,9 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       进不了++;
       continue;
     }
-    const phone = r.值.phone!;
+    // 外贸按邮箱认的行 phone 是空串（lib/import/plan.ts 只放进来有邮箱的）
+    const phone = r.值.phone ?? "";
+    const email = r.值.email ?? "";
     /*
       库里同一个号码有两条：**谁也不动**。
 
@@ -233,7 +246,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       而随手挑一条去补，就是把一份表里的信息写到了另一个人的档案上。
       和归属那条规则同一个道理：重名不猜，同号也不猜。
     */
-    const 认 = 表.认(phone);
+    const 认 = phone ? 表.认(phone) : 邮表.认(email);
     if (认.n > 1) {
       跳过++;
       continue;
@@ -308,7 +321,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         在开头的认人表里已经算过了。一行一个小事务，不攥着写锁不放（文件头「不放在一个大事务里」那条照旧）
       */
       const c = await 查完再写(async (tx) => {
-        if (await 看全部(async () => tx.customer.findFirst({ where: await 同号条件(tx, phone, null), select: { id: true } }))) return null;
+        if (await 看全部(async () => tx.customer.findFirst({ where: phone ? await 同号条件(tx, phone, null) : await 同邮箱条件(tx, email), select: { id: true } }))) return null;
         const c = await tx.customer.create({
           data: {
             name: r.值.name!,
@@ -336,7 +349,9 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       }
       新建++;
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
-      表.记下({ id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null });
+      const 记 = { id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null };
+      if (phone) 表.记下(记);
+      else 邮表.记下(email, 记);
     } catch {
       // 唯一约束、非法枚举之类：这一条不进，别把整批带下水
       进不了++;

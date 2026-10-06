@@ -61,11 +61,23 @@ describe("小满式导出（外贸模版）", () => {
     expect(合后.filter((r) => !r.进不了 && r.值.school === "Apple, Inc")).toHaveLength(2);
   });
 
-  it("进不来的每一行都说得出原因：模板说明行、只有邮箱的、只有座机的", () => {
-    for (const n of [3, 6, 7]) expect(第(n).进不了, `第 ${n} 行`).toBeTruthy();
-    expect(第(6).进不了).toMatch(/电话/);
-    // 只有座机的那行：说法要提到座机，不能说「没有电话」——表里明明写着一个号码
-    expect(第(7).进不了).toMatch(/座机/);
+  it("只有邮箱的、只有座机但有邮箱的也进得来：外贸没有电话 / WhatsApp 按邮箱认人（2026-10-07），座机照旧并进备注", () => {
+    expect(第(6).进不了).toBeUndefined();
+    expect(第(6).值).toMatchObject({ name: "Anna Becker", email: "anna@brightsigns.de", country: "德国" });
+    expect(第(6).值.phone).toBeFalsy();
+    expect(第(7).进不了).toBeUndefined();
+    expect(第(7).值.email).toBe("carlos@andes.pe");
+    expect(第(7).值.remark).toContain("座机：+51 1 234 5678");
+  });
+
+  it("进不来的每一行都说得出原因：模板说明行（什么号码邮箱都没有）；只有座机、没有邮箱的说座机", () => {
+    expect(第(3).进不了).toBe("这一行没有电话、WhatsApp，也没有邮箱");
+    for (const n of [2, 4, 5, 6, 7, 8]) expect(第(n).进不了, `第 ${n} 行`).toBeUndefined();
+    // 只有座机的那行（没有邮箱）：说法要提到座机，不能说「没有电话」——表里明明写着一个号码
+    const 去掉邮箱 = 成.数据.map((r) => r.map((v, i) => (成.表头[i] === "联系人邮箱" ? "" : v)));
+    const 座机行 = 摊开({ 表头: 成.表头, 数据: 去掉邮箱, 行号: 成.行号, 映射, 字段表: 表 }).find((r) => r.行号 === 7)!;
+    expect(座机行.进不了).toMatch(/座机/);
+    expect(座机行.进不了).toMatch(/邮箱/);
   });
 
   it("没对上的列一个字不丢：客户编号、阶段、跟进人、网址、领英、日期都并进备注；日期写成日期不是序列号", () => {

@@ -63,7 +63,7 @@ test("切外贸：左栏有订单；新建客户只填 WhatsApp 也能存，国�
   const 框 = page.getByRole("dialog", { name: "新建客户" });
   await 框.getByLabel("客户姓名").fill(客户名);
   // 电话空着：外贸下没有电话可以只填 WhatsApp，就用它认人
-  await expect(框.getByText("没有电话可以只填 WhatsApp，就用它认人")).toBeVisible();
+  await expect(框.getByText("没有电话可以只填 WhatsApp 或邮箱，就用它认人")).toBeVisible();
   await 框.getByLabel("WhatsApp").fill(WhatsApp);
   await 框.getByLabel("国家").fill("阿联酋");
   await 框.getByLabel("邮箱").fill(`ahmed${戳}@gulfled.ae`);
@@ -75,6 +75,36 @@ test("切外贸：左栏有订单；新建客户只填 WhatsApp 也能存，国�
   await 框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(框).toBeHidden();
   await expect(page.locator("main").getByRole("link", { name: 客户名 })).toBeVisible();
+  expect(问题, 问题.join("\n")).toEqual([]);
+});
+
+test("只有邮箱的客户也能建（按邮箱认人）；同邮箱换大小写再建被挡；三样都空说至少填一个", async ({ page }) => {
+  const 问题 = 盯控制台(page);
+  await 进门(page);
+  await page.goto("/customers");
+  const 名 = `Anna邮箱${戳}`;
+  const 邮箱 = `anna${戳}@brightsigns.de`;
+
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  let 框 = page.getByRole("dialog", { name: "新建客户" });
+  await 框.getByLabel("客户姓名").fill(`空的${戳}`);
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(框.getByText("电话、WhatsApp、邮箱至少填一个")).toBeVisible();
+  await 框.getByLabel("客户姓名").fill(名);
+  await 框.getByLabel("邮箱").fill(邮箱);
+  await 框.getByLabel("国家").fill("德国");
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(框).toBeHidden();
+  await expect(page.locator("main").getByRole("link", { name: 名 })).toBeVisible();
+
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  框 = page.getByRole("dialog", { name: "新建客户" });
+  await 框.getByLabel("客户姓名").fill(`Anna 再一次${戳}`);
+  await 框.getByLabel("邮箱").fill(邮箱.toUpperCase());
+  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.getByText(new RegExp(`已存在（${名}）`))).toBeVisible();
+  await expect(框).toBeVisible();
+  await 框.getByRole("button", { name: /取\s*消/ }).click();
   expect(问题, 问题.join("\n")).toEqual([]);
 });
 

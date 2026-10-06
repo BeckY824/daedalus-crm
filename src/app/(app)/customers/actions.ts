@@ -25,6 +25,7 @@ import { 金额 as 显示金额, 是币种, 规整币种 } from "@/lib/currency"
 import { statusLabel, 外贸订单 } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
+import { 同邮箱条件, 邮箱键 } from "@/lib/email-dedupe";
 import type { 带走数 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
@@ -104,11 +105,11 @@ export type DuplicateHit = {
 type 撞到的 = { name: string; salesOwnerId: string | null; channelOwnerId: string | null; pool: unknown; salesOwner: { name: string } | null };
 const 撞到的字段 = { name: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } }, salesOwner: { select: { name: true } } } as const;
 
-/** 保存时撞号那句话：看得到的说是谁；业务员撞同事的只说负责人（同 DuplicateHit） */
-function 撞号说法(phone: string, dup: 撞到的, 我: string | null, 客户: string): string {
-  if (看得到(dup, 我)) return `手机号 ${phone} 已存在（${dup.name}），请勿重复录入`;
+/** 保存时撞号那句话：看得到的说是谁；业务员撞同事的只说负责人（同 DuplicateHit）。依据 =「手机号 138…」或「邮箱 a@b.com」 */
+function 撞号说法(依据: string, dup: 撞到的, 我: string | null, 客户: string): string {
+  if (看得到(dup, 我)) return `${依据} 已存在（${dup.name}），请勿重复录入`;
   const 负责人 = dup.salesOwner?.name ?? "同事";
-  return `手机号 ${phone} 已是同事 ${负责人} 名下的${客户}，请勿重复录入；要接手请找 ${负责人} 或老板`;
+  return `${依据} 已是同事 ${负责人} 名下的${客户}，请勿重复录入；要接手请找 ${负责人} 或老板`;
 }
 
 /** 按手机号查重。手机号唯一性最可靠，姓名可能重名。和保存那一步一样先规整：「138 0000 1111」就是 13800001111 */
@@ -175,9 +176,18 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     ? input.extra.whatsapp
     : input.phone;
   const 原号 = String(认回打码号(填的电话, 改前?.phone) ?? "").trim();
-  const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: !改前 || Boolean(改前.phone) });
-  if (!电话.ok) return { ok: false, error: 电话.error };
+  /*
+    外贸：电话、WhatsApp 都没有的，按邮箱认人（2026-10-07 拍板，lib/email-dedupe.ts）。没交 extra 的（别的入口）当邮箱没动，用库里那格
+  */
+  const 外贸 = b.template === "trade";
+  const 改前邮箱 = 改前 && 外贸 ? (await prisma.customerExtra.findUnique({ where: { customerId: 改前.id }, select: { email: true } }))?.email ?? "" : "";
+  const 交的邮箱 = !外贸 ? "" : input.extra && "email" in input.extra && input.extra.email !== undefined ? String(input.extra.email ?? "").trim() : 改前邮箱;
+  const 按邮箱认 = 外贸 && !原号 && Boolean(交的邮箱);
+  const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: 改前 ? Boolean(改前.phone) : !按邮箱认 });
+  if (!电话.ok) return { ok: false, error: 外贸 && !改前 && !原号 ? "电话、WhatsApp、邮箱至少填一个（没有电话就用它认人）" : 电话.error };
   const phone = 电话.phone;
+  // 按邮箱认的那位（没有电话）把邮箱也清空，就再也认不出是谁了：不许，和「原来有号码的不许清空」同一条
+  if (外贸 && 改前 && !phone && 改前邮箱 && !交的邮箱) return { ok: false, error: "这位没有电话，是按邮箱认的：邮箱不能清空（或者先补上电话 / WhatsApp）" };
 
   // 服务端再查一次重：表单上的提示只是给人看的，不能作为约束。
   // 空电话不查：两个都没留电话的人不是同一个人（原来这里会拿 "" 去比，没电话的人一个都存不了）
@@ -191,7 +201,16 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       where: { AND: [await 同号条件(prisma, phone, await 分机留存起()), ...(input.id ? [{ id: { not: input.id } }] : [])] },
       select: 撞到的字段,
     }));
-    if (dup) return { ok: false, error: 撞号说法(phone, dup, await 限定的我(defaultClient), b.customer) };
+    if (dup) return { ok: false, error: 撞号说法(`手机号 ${phone}`, dup, await 限定的我(defaultClient), b.customer) };
+  }
+  // 按邮箱认的：邮箱没动的不查（同上面号码没动不查）。有电话的不拿邮箱挡——同一公司几位联系人共用 info@ 常见
+  const 查邮箱 = 按邮箱认 && !phone && !(改前 && 邮箱键(交的邮箱) === 邮箱键(改前邮箱));
+  if (查邮箱) {
+    const dup = await 看全部(async () => prisma.customer.findFirst({
+      where: { AND: [await 同邮箱条件(prisma, 交的邮箱), ...(input.id ? [{ id: { not: input.id } }] : [])] },
+      select: 撞到的字段,
+    }));
+    if (dup) return { ok: false, error: 撞号说法(`邮箱 ${交的邮箱}`, dup, await 限定的我(defaultClient), b.customer) };
   }
 
   // 推荐链不能成环。只挡「推荐人是自己」不够：A→B→A 两步就能绕过去
@@ -282,12 +301,15 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       if (phone) {
         const dup = await 看全部(async () => tx.customer.findFirst({ where: await 同号条件(tx, phone, 起), select: 撞到的字段 }));
         if (dup) return { 撞号: dup } as const;
+      } else if (查邮箱) {
+        const dup = await 看全部(async () => tx.customer.findFirst({ where: await 同邮箱条件(tx, 交的邮箱), select: 撞到的字段 }));
+        if (dup) return { 撞号: dup } as const;
       }
       const created = await tx.customer.create({ data });
       await 写外贸档案(tx, created.id, 档案.data, false);
       return { created } as const;
     });
-    if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone, 建了.撞号, await 限定的我(defaultClient), b.customer) };
+    if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone ? `手机号 ${phone}` : `邮箱 ${交的邮箱}`, 建了.撞号, await 限定的我(defaultClient), b.customer) };
     const { created } = 建了;
     await recordAudit({
       user: me, action: "create", entity: "Customer", entityId: created.id,

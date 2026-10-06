@@ -9,7 +9,7 @@ import { type 编造格 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
 import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
 import { 粘成表格, 猜列建议, 导入认列状态 } from "./ai";
-import type { BusinessConfig } from "@/lib/business-config";
+import { 外贸精简, type BusinessConfig } from "@/lib/business-config";
 import { 页脚, 粘贴面板, 对列, 复核, 确认, 按处置 } from "./import-steps";
 import { clearJob, runJob } from "@/lib/ai-jobs";
 
@@ -303,7 +303,8 @@ export default function ImportDrawer({
     }
   }
 
-  const 认人列 = 映射.indexOf("phone");
+  // 外贸：电话、WhatsApp、邮箱哪一列都能认人（没电话拿 WhatsApp，再没有拿邮箱，2026-10-07），指出一列就能往下走
+  const 认人列 = 外贸精简(b) ? (["phone", "whatsapp", "email"] as const).map((f) => 映射.indexOf(f)).find((i) => i >= 0) ?? -1 : 映射.indexOf("phone");
   // 第 4 步改「重复行」处置时当场重算的那几个数（预览只在第 2 步算一次）
   const 现看 = 看 ? 按处置(看, 重复行) : null;
 
@@ -375,6 +376,7 @@ export default function ImportDrawer({
       footer={
         <页脚
           {...{ 步, 忙, 认人列, set步, 去预览, 落库, 撤, 重来 }}
+          认人叫法={外贸精简(b) ? "电话、WhatsApp 或邮箱" : "手机号"}
           看={现看}
           客户叫法={b.customer}
           这一批={结果}
@@ -430,8 +432,13 @@ export default function ImportDrawer({
             </p>
           </Upload.Dragger>
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14 }}>
-            只导{b.customer}这一张表。<b>手机号是认人的那一列</b>：同一个手机号算同一个人，
-            所以没有手机号的行进不来。导完可以整批撤销。
+            {外贸精简(b) ? (
+              <>只导{b.customer}这一张表。<b>电话是认人的那一列</b>：没有电话拿 WhatsApp 认，再没有拿邮箱认，
+              三样都没有的行进不来。导完可以整批撤销。</>
+            ) : (
+              <>只导{b.customer}这一张表。<b>手机号是认人的那一列</b>：同一个手机号算同一个人，
+              所以没有手机号的行进不来。导完可以整批撤销。</>
+            )}
           </Typography.Paragraph>
         </>
           )}

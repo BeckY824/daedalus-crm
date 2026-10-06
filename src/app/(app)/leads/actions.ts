@@ -9,6 +9,14 @@ import { 看全部, 看得到, 限定的我 } from "@/lib/team-scope";
 import { 认回打码号 } from "@/lib/phone";
 import { 查电话 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
+import { 同邮箱条件 } from "@/lib/email-dedupe";
+
+/** 外贸线索没有电话时拿来认人的邮箱（格式对才算）；有电话、或不是外贸，返回 null */
+function 线索认人邮箱(lead: { phone: string | null; email: string | null }, 外贸: boolean): string | null {
+  if (!外贸 || lead.phone?.trim()) return null;
+  const r = 规整外贸档案({ email: lead.email });
+  return r.ok && r.data.email ? r.data.email : null;
+}
 import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { requireUser } from "@/lib/auth";
 import { LEAD_STATUSES } from "@/lib/constants";
@@ -129,18 +137,21 @@ export async function convertLead(id: string): Promise<
   const lead = await prisma.lead.findUnique({ where: { id } });
   if (!lead) return { ok: false as const, error: "线索不存在" };
   if (lead.customerId) return { ok: false as const, error: "该线索已转化" };
+  // 外贸：没有电话、有邮箱的线索按邮箱认人建档（2026-10-07，同客户表单和导入，lib/email-dedupe.ts）
+  const 邮箱 = 线索认人邮箱(lead, b.template === "trade");
   // 手机号是学员的查重主键，没有就无法建档
-  if (!lead.phone?.trim()) {
-    return { ok: false as const, error: "该线索没有联系电话，请先补充后再转化" };
+  if (!lead.phone?.trim() && !邮箱) {
+    return { ok: false as const, error: b.template === "trade" ? "该线索没有电话也没有邮箱，请先补充一样再转化" : "该线索没有联系电话，请先补充后再转化" };
   }
   /*
     先规整再查重，和客户表单、导入同一条规矩（lib/phone.ts）。原来只 trim 就拿去精确比：
     线索上写「138 0000 1111」，库里已有「13800001111」，认不出来，同一个人建出第二份档案，
     号码格式还和其他客户都不一样（2026-10-01 排查 A8）
   */
-  const 电话 = 查电话(lead.phone, { 必填: true });
+  const 电话 = 邮箱 ? { ok: true as const, phone: "" } : 查电话(lead.phone, { 必填: true });
   if (!电话.ok) return { ok: false as const, error: `线索上的电话「${lead.phone}」${电话.error.replace(/^电话/, "")}，先改一下再转化` };
   const phone = 电话.phone;
+  const 依据 = phone ? "号码" : "邮箱";
 
   const 起 = await 分机留存起();
   const 我 = await 限定的我(defaultClient);
@@ -148,7 +159,7 @@ export async function convertLead(id: string): Promise<
     // 看全部：同事的客户也算已经有了（团队版业务员，lib/team-scope.ts）
     const dup = await 看全部(async () =>
       tx.customer.findFirst({
-        where: await 同号条件(tx, phone, 起),
+        where: phone ? await 同号条件(tx, phone, 起) : await 同邮箱条件(tx, 邮箱!),
         select: { id: true, name: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } }, salesOwner: { select: { name: true } } },
       }),
     );
@@ -162,8 +173,8 @@ export async function convertLead(id: string): Promise<
       return {
         ok: false as const,
         error: 能并
-          ? `电话已经是${b.customer}「${dup.name}」（负责人：${负责人}）的号码，可以把这条线索并到这位${b.customer}，不用另建档案`
-          : `电话已经是同事 ${负责人} 名下一位${b.customer}的号码。你看不到这位${b.customer}，并不过去：可以把线索负责人改成 ${负责人} 由他来并，或者请老板并`,
+          ? `${phone ? "电话" : "邮箱"}已经是${b.customer}「${dup.name}」（负责人：${负责人}）的${依据}，可以把这条线索并到这位${b.customer}，不用另建档案`
+          : `${phone ? "电话" : "邮箱"}已经是同事 ${负责人} 名下一位${b.customer}的${依据}。你看不到这位${b.customer}，并不过去：可以把线索负责人改成 ${负责人} 由他来并，或者请老板并`,
         撞号: { 客户名: 能并 ? dup.name : null, 负责人, customerId: 能并 ? dup.id : null, 能并 } satisfies 线索撞号,
       };
     }
@@ -197,7 +208,7 @@ export async function convertLead(id: string): Promise<
                 name: lead.contact.trim(),
                 // 联系人就是客户本人时写明「本人」，联系人表里一眼看得出这条是谁
                 position: 档案.name === lead.contact.trim() && 档案.school ? "本人" : null,
-                phone,
+                phone: phone || null,
                 email: lead.email,
                 isPrimary: true,
               },
@@ -246,9 +257,11 @@ export async function mergeLeadInto(leadId: string, customerId: string): Promise
   if (lead.customerId || lead.status === "已转化") return { ok: false, error: "该线索已转化" };
   const customer = await prisma.customer.findUnique({ where: { id: customerId }, select: { id: true, name: true } });
   if (!customer) return { ok: false, error: `你看不到这位${b.customer}，并不过去：请找负责人或老板` };
+  const 邮箱 = 线索认人邮箱(lead, b.template === "trade");
   const 电话 = 查电话(lead.phone, { 必填: true });
-  const 对得上 = 电话.ok && (await prisma.customer.count({ where: { AND: [{ id: customerId }, await 同号条件(prisma, 电话.phone, await 分机留存起())] } })) > 0;
-  if (!对得上) return { ok: false, error: `线索电话和${b.customer}「${customer.name}」对不上，不能并` };
+  const 条件 = 邮箱 ? await 同邮箱条件(prisma, 邮箱) : 电话.ok ? await 同号条件(prisma, 电话.phone, await 分机留存起()) : null;
+  const 对得上 = 条件 !== null && (await prisma.customer.count({ where: { AND: [{ id: customerId }, 条件] } })) > 0;
+  if (!对得上) return { ok: false, error: `线索${邮箱 ? "邮箱" : "电话"}和${b.customer}「${customer.name}」对不上，不能并` };
 
   const 结果 = await prisma.$transaction(async (tx) => {
     // 唯一约束不分人：要看全部（关联着那位的线索可能是同事的）

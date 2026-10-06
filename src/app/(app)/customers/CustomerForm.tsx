@@ -124,7 +124,9 @@ function CustomerFormInner({
   }
 
   async function onOk() {
-    const v = await form.validateFields();
+    // 校验没过 antd 自己把错标在格子下面；Modal 不接 onOk 的拒绝，不吞掉就是一条未处理的报错（10-07 外贸 e2e 盯控制台抓到）
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     setSaving(true);
     try {
       const res = await saveCustomer({
@@ -284,13 +286,17 @@ function CustomerFormInner({
               label="联系电话"
               name="phone"
               required={电话必填 && !外贸}
-              dependencies={外贸 ? [["extra", "whatsapp"]] : undefined}
-              extra={外贸 && 电话必填 ? "没有电话可以只填 WhatsApp，就用它认人" : undefined}
+              dependencies={外贸 ? [["extra", "whatsapp"], ["extra", "email"]] : undefined}
+              extra={外贸 && 电话必填 ? "没有电话可以只填 WhatsApp 或邮箱，就用它认人" : undefined}
               rules={[
                 {
                   validator: (_, v: string | undefined) => {
                     // 外贸：电话空着、填了 WhatsApp 就行（服务端拿 WhatsApp 当电话，二审）
                     if (外贸 && !v?.trim() && String(form.getFieldValue(["extra", "whatsapp"]) ?? "").trim()) return Promise.resolve();
+                    // 外贸：电话、WhatsApp 都没有，有邮箱也行——按邮箱认人（2026-10-07，lib/email-dedupe.ts）
+                    // 原来有号码的照旧不许清空（服务端同一条），所以只管新建和原来就没电话的
+                    if (外贸 && !v?.trim() && !editing?.phone && String(form.getFieldValue(["extra", "email"]) ?? "").trim()) return Promise.resolve();
+                    if (外贸 && !v?.trim() && 电话必填) return Promise.reject(new Error("电话、WhatsApp、邮箱至少填一个"));
                     // 共享试用区里号码是打了码给人看的：没动它就放行，服务端会认回原号（排查 A2）
                     if (editing && v && v.includes("*") && v === editing.phone) return Promise.resolve();
                     const r = 查电话(v, { 必填: 电话必填 });
@@ -389,7 +395,21 @@ function CustomerFormInner({
                 </Form.Item>
               </Col>
               <Col span={8}>
-                <Form.Item label="邮箱" name={["extra", "email"]} rules={[{ type: "email", message: "邮箱格式不对" }]}>
+                <Form.Item
+                  label="邮箱"
+                  name={["extra", "email"]}
+                  dependencies={[["phone"], ["extra", "whatsapp"]]}
+                  rules={[
+                    { type: "email", message: "邮箱格式不对" },
+                    {
+                      // 没有电话、按邮箱认的那位：邮箱清空就认不出是谁了（服务端同一条）
+                      validator: (_, v?: string) =>
+                        editing && !editing.phone && editing.extra?.email && !v?.trim() && !String(form.getFieldValue("phone") ?? "").trim() && !String(form.getFieldValue(["extra", "whatsapp"]) ?? "").trim()
+                          ? Promise.reject(new Error("这位没有电话，是按邮箱认的，邮箱不能清空"))
+                          : Promise.resolve(),
+                    },
+                  ]}
+                >
                   <Input placeholder="如 buyer@company.com" />
                 </Form.Item>
               </Col>
@@ -554,7 +574,9 @@ function QuickChannelModal({
   const [saving, setSaving] = useState(false);
 
   async function onOk() {
-    const v = await form.validateFields();
+    // 校验没过 antd 自己把错标在格子下面；Modal 不接 onOk 的拒绝，不吞掉就是一条未处理的报错（10-07 外贸 e2e 盯控制台抓到）
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     setSaving(true);
     try {
       const res = await saveChannel({

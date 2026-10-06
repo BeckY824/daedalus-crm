@@ -9,8 +9,9 @@
  * 而他多半根本不知道是哪一格的事。
  *
  * 只有两种情况整行进不了，都和「认人」有关：没有手机号、手机号不像个号码。
- * 手机号是这套库里认人的唯一依据（schema 里 Customer.phone 的注释就是「查重主键」），
+ * 手机号是这套库里认人的依据（schema 里 Customer.phone 的注释就是「查重主键」），
  * 没有它这一行既不知道是谁、也没法判断是不是已经有了。
+ * 外贸模版例外：没有电话拿 WhatsApp 认，WhatsApp 也没有拿邮箱认（2026-10-07，lib/email-dedupe.ts）。
  */
 import type { 字段名, 字段规格 } from "./fields";
 import { 规整外贸格, 认国家 } from "../customer-extra";
@@ -22,6 +23,7 @@ import { 规整表头 } from "./fields";
  */
 const 自家导出只读列 = new Set(["签约金额", "订单金额", "渠道归属"].map(规整表头));
 import { 规整手机号, 像手机号, 号码带着字 } from "../phone";
+import { 邮箱键 } from "../email-dedupe";
 
 /** 照收：值不在选项里，但这个字段是开放的，原样写进去（不是问题，是提示） */
 export type 严重程度 = "拦行" | "留空" | "用默认" | "照收";
@@ -335,8 +337,11 @@ export function 摊开(p: 排布): 一行[] {
     }
     // 认人那两格。顺序要紧：先说没有手机号，再说姓名——手机号是认人的那一列
     let 进不了: string | undefined;
-    if (!值.phone) {
-      const 有格问题 = 问题.some((q) => q.字段 === "phone");
+    const 外贸表 = p.字段表.some((f) => f.名 === "whatsapp");
+    const 有格问题 = 问题.some((q) => q.字段 === "phone");
+    // 外贸：电话、WhatsApp 都没有、邮箱有（格式对才会在 值 里）的，按邮箱认人。电话那格写了却看不懂的不算——那是该改的号码
+    const 按邮箱认 = !值.phone && 外贸表 && !有格问题 && Boolean(值.email);
+    if (!值.phone && !按邮箱认) {
       /*
         只有座机的（小满表里「座机」是公司总机，同一公司几位联系人共用）：不拿它认人，但不能说「没有电话」——表里明明写着一个号码（B.7）
       */
@@ -344,8 +349,8 @@ export function 摊开(p: 排布): 一行[] {
       进不了 = 有格问题
         ? "手机号看不出是个号码"
         : 有座机
-          ? "这一行只有座机（公司总机），不拿它认人；在表里补上联系人电话或 WhatsApp 再导"
-          : p.字段表.some((f) => f.名 === "whatsapp") ? "这一行没有电话，也没有 WhatsApp" : "这一行没有手机号";
+          ? `这一行只有座机（公司总机），不拿它认人；在表里补上联系人电话${外贸表 ? "、WhatsApp 或邮箱" : ""}再导`
+          : 外贸表 ? "这一行没有电话、WhatsApp，也没有邮箱" : "这一行没有手机号";
     } else if (!值.name) {
       进不了 = "这一行没有姓名";
     }
@@ -384,14 +389,21 @@ export function 并重复行(rows: 一行[]): { 行: 一行[]; 合掉几行: num
   const 按号: Map<string, 一行> = new Map();
   const 出: 一行[] = [];
   let 合掉几行 = 0;
+  /*
+    外贸按邮箱认的行（没有电话）：表里另有一行同邮箱、有电话的，就是那一位，合进去；
+    没有的话同邮箱的几行按邮箱合（键前面加 @，和号码分开）
+  */
+  const 有号的邮箱 = new Map<string, string>();
+  for (const r of rows) if (!r.进不了 && r.值.phone && r.值.email && !有号的邮箱.has(邮箱键(r.值.email))) 有号的邮箱.set(邮箱键(r.值.email), r.值.phone);
+  const 键 = (r: 一行) => r.值.phone || (r.值.email ? 有号的邮箱.get(邮箱键(r.值.email)) ?? `@${邮箱键(r.值.email)}` : "");
   for (const r of rows) {
-    if (r.进不了 || !r.值.phone) {
+    if (r.进不了 || !键(r)) {
       出.push(r);
       continue;
     }
-    const 已有 = 按号.get(r.值.phone);
+    const 已有 = 按号.get(键(r));
     if (!已有) {
-      按号.set(r.值.phone, r);
+      按号.set(键(r), r);
       出.push(r);
       continue;
     }
@@ -411,5 +423,5 @@ export function 并重复行(rows: 一行[]): { 行: 一行[]; 合掉几行: num
     已有.问题.push(...r.问题);
     合掉几行++;
   }
-  return { 行: 出.filter((r) => r.进不了 || 按号.get(r.值.phone ?? "") === r), 合掉几行 };
+  return { 行: 出.filter((r) => r.进不了 || !键(r) || 按号.get(键(r)) === r), 合掉几行 };
 }

@@ -8,7 +8,7 @@ import { 改动键 } from "@/lib/import/plan";
 import { 粘贴字数上限, type 编造格 } from "@/lib/import/paste";
 import { 样例行数 } from "@/lib/jev/columns";
 import type { 预览, 导入方案 } from "./import-actions";
-import type { BusinessConfig } from "@/lib/business-config";
+import { 外贸精简, type BusinessConfig } from "@/lib/business-config";
 import AiWait from "@/components/AiWait";
 
 /**
@@ -23,9 +23,11 @@ export function 第几行(行号: number, 粘贴: boolean): string {
 /** 导入抽屉（ImportDrawer.tsx）的各一步：粘贴、对列、复核、确认，外加页脚那排按钮。流程和状态在抽屉里 */
 
 export function 页脚({
-  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法,
+  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法, 认人叫法 = "手机号",
 }: {
   步: number; 忙: boolean; 认人列: number; 看: 预览 | null;
+  /** 第 1 步那个灰按钮上的「先指出 X 那一列」：外贸是「电话、WhatsApp 或邮箱」 */
+  认人叫法?: string;
   set步: (n: number) => void; 去预览: () => void; 落库: () => void; 撤: () => void; 重来: () => void;
   /** 点「完成」：收起抽屉，列表只显示这一批（审查 D10） */
   完成: () => void;
@@ -60,7 +62,7 @@ export function 页脚({
       <Button onClick={() => set步(步 - 1)} disabled={忙}>上一步</Button>
       {步 === 1 && (
         <Button type="primary" onClick={去预览} loading={忙} disabled={认人列 < 0}>
-          {认人列 < 0 ? "先指出手机号那一列" : "下一步"}
+          {认人列 < 0 ? `先指出${认人叫法}那一列` : "下一步"}
         </Button>
       )}
       {步 === 2 && <Button type="primary" onClick={() => set步(3)} disabled={忙}>下一步</Button>}
@@ -213,11 +215,13 @@ export function 对列({
         type={认人列 < 0 ? "warning" : "info"}
         showIcon
         style={{ marginBottom: 14 }}
-        title={认人列 < 0 ? "手机号那一列必须指出来" : "手机号是认人的那一列"}
+        title={认人列 < 0 ? (外贸精简(b) ? "电话、WhatsApp、邮箱至少指出一列" : "手机号那一列必须指出来") : 外贸精简(b) ? "电话是认人的那一列，没有电话拿 WhatsApp、再没有拿邮箱" : "手机号是认人的那一列"}
         description={
           认人列 < 0
             ? `没有它就没法判断表里这些人是不是已经在库里了，导第二次同一份表就是一整份重复数据。`
-            : `同一个手机号算同一个${b.customer}。按姓名认人我们不做——重名就是把客户挂到别人名下。`
+            : 外贸精简(b)
+              ? `同一个号码（或没有号码时同一个邮箱）算同一个${b.customer}。按姓名认人我们不做——重名就是把客户挂到别人名下。`
+              : `同一个手机号算同一个${b.customer}。按姓名认人我们不做——重名就是把客户挂到别人名下。`
         }
       />
       {没表头 && (
@@ -483,14 +487,14 @@ export function 确认({
           type="info"
           showIcon
           style={{ marginBottom: 14 }}
-          title={`表里有 ${看.合掉几行} 行和前面的行是同一个手机号，已经合成一条`}
+          title={`表里有 ${看.合掉几行} 行和前面的行是同一个${外贸精简(b) ? "人（号码或邮箱一样）" : "手机号"}，已经合成一条`}
           description="后面那几行只补前面没填的格子，不覆盖；备注不丢，添在后面。上面这几个数已经是合并之后的，不是估计。"
         />
       )}
 
       {已有 > 0 && (<>
       <Typography.Title level={5} style={{ fontSize: 14, marginBottom: 8 }}>
-        手机号已经在库里的那些行怎么办
+        {外贸精简(b) ? "已经在库里的那些行怎么办" : "手机号已经在库里的那些行怎么办"}
       </Typography.Title>
       {/* 竖排靠 Group 的 flex，不给 Radio 设 display:block——那会把圆点和字拆成两行、说明文字冲出抽屉（核对教程时看到的） */}
       <Radio.Group value={重复行} onChange={(e) => set重复行(e.target.value)} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
