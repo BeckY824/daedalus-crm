@@ -100,7 +100,18 @@ export default function InlineField({
     return (
       <div className="rec-field" onClick={开始} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && 开始()} aria-label={`编辑${label}`}>
         <div className="rec-field-k">{label}</div>
-        <div className={`rec-field-v${display ? "" : " rec-field-empty"}${saving ? " rec-field-saving" : ""}`}>{display || placeholder}</div>
+        <div className={`rec-field-v${display ? "" : " rec-field-empty"}${saving ? " rec-field-saving" : ""}`}>
+          {/* 邮箱放不下时在 @ 前换行，不从字母中间断开（F.1 走查：「ahmed@gulfled.a / e」） */}
+          {field === "email" && typeof display === "string" && display.includes("@") ? (
+            <>
+              {display.slice(0, display.indexOf("@"))}
+              <wbr />
+              {display.slice(display.indexOf("@"))}
+            </>
+          ) : (
+            display || placeholder
+          )}
+        </div>
       </div>
     );
   }

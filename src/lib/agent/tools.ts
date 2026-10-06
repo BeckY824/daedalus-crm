@@ -24,7 +24,7 @@ import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
 import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec } from "../report-query";
 import { loadWatchlist } from "../sentinel-data";
-import { statusLabel, stageLabel, 阶段值, 外贸精简 } from "../business-config";
+import { statusLabel, stageLabel, 阶段值, 外贸精简, 外贸订单 } from "../business-config";
 import { 名字在别处, 别处说法, 别处附件, 找人 } from "./find-name";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
@@ -187,7 +187,7 @@ export const TOOLS: Tool[] = [
     async run(args, ctx) {
       const name = str(args.name, 20);
       if (!name) return { summary: "没给名字", data: { error: "name 必填" } };
-      const 命中 = await 找人(name, 脱敏(ctx));
+      const 命中 = await 找人(name, 脱敏(ctx), (v) => statusLabel(ctx.b, v));
       if (!命中.length) return { summary: `库里没有叫「${name}」的人`, data: { error: `客户、渠道、联系人、线索、团队成员五张表里都没有「${name}」` } };
       const 条 = 命中.reduce((n, h) => n + h.条数, 0);
       return {
@@ -586,9 +586,9 @@ export const TOOLS: Tool[] = [
             币种: 商机币种(o),
             ...(o.quotes[0]?.lines.length ? { 报价明细: o.quotes[0].lines.map(一行说法) } : {}),
             阶段: stageLabel(ctx.b, o.stage),
-            状态: o.status === "OPEN" ? "进行中" : o.status === "WON" ? "赢单" : "丢单",
-            成交概率: o.probability,
-            预计成交: o.expectedDealAt ? dayjs(o.expectedDealAt).format("YYYY-MM-DD") : null,
+            // 外贸：赢单就是转了订单；不说概率、预计成交（界面上没有，G.3）
+            状态: o.status === "OPEN" ? "进行中" : o.status === "WON" ? (外贸订单(ctx.b) ? "已转订单" : "赢单") : "丢单",
+            ...(外贸精简(ctx.b) ? {} : { 成交概率: o.probability, 预计成交: o.expectedDealAt ? dayjs(o.expectedDealAt).format("YYYY-MM-DD") : null }),
             多久没动: `${dayjs().diff(dayjs(o.updatedAt), "day")} 天`,
             负责人: o.owner?.name ?? null,
           })),

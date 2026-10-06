@@ -913,8 +913,10 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   padding: 8px 8px 4px; font-size: var(--fs-note); font-weight: 600; color: var(--text-muted); letter-spacing: 0.02em;
 }
 .rec-sec-t a { font-weight: 400; color: var(--brand); }
+/* 标签列 66：最宽的标签「渠道负责人」量下来 65。原来 76，1440 窗口下档案栏只剩 114 给值，
+   外贸的 WhatsApp「+971 50 123 4567」（118）、邮箱都被折成两行（2026-10-06 F.1 走查） */
 .rec-field {
-  display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; align-items: start;
+  display: grid; grid-template-columns: 66px minmax(0, 1fr); gap: 8px; align-items: start;
   padding: 6px 8px; border-radius: var(--r-card); cursor: text; transition: background var(--t-fast) var(--ease);
 }
 .rec-field:hover { background: var(--row-hover); }

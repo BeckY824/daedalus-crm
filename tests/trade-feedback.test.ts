@@ -458,6 +458,21 @@ describe("复查一轮（10-06）", () => {
     expect(await prisma.customer.count({ where: await 客户筛选条件({ keyword: "PI-7788" }) })).toBe(1);
   });
 
+  it("G.3 外贸下 AI 拿到的状态是这家的叫法：find_person 说「已下单」不说「已签约」；list_opportunities 说「已转订单」、不给概率", async () => {
+    await 外贸();
+    const c = await 客户("Ahmed");
+    await prisma.customer.update({ where: { id: c.id }, data: { followStatus: "已签约" } });
+    await prisma.opportunity.create({ data: { name: "P4 屏", customerId: c.id, amount: 100, stage: "赢单成交", status: "WON", probability: 100, ownerId: jia.id } });
+    const ctx = { userId: jia.id, userName: "甲", b: BUSINESS_PRESETS["外贸出口"], recordOffset: 0, proposals: [] };
+    const 找 = JSON.stringify((await TOOLS.find((t) => t.name === "find_person")!.run({ name: "Ahmed" }, ctx as never)).data);
+    expect(找).toContain("已下单");
+    expect(找).not.toContain("已签约");
+    const 商机 = JSON.stringify((await TOOLS.find((t) => t.name === "list_opportunities")!.run({ status: "WON" }, ctx as never)).data);
+    expect(商机).toContain("已转订单");
+    expect(商机).not.toContain("赢单\"");
+    expect(商机).not.toContain("成交概率");
+  });
+
   it("撤销导入：人后来手改过档案的那位不动", async () => {
     await 外贸();
     const 表头 = ["客户名称", "联系电话", "国家"];
