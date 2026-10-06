@@ -21,11 +21,13 @@ function 秒(d: Date): number {
 /**
  * 记一次改密。之前签出去的会话从此不认。
  *
- * 存的是「这一刻」，比较时严格小于——同一秒内签出来的新会话要活下来
- * （改完密码立刻登录、甚至就地续一张票，都落在同一秒里）。
+ * 存的是「这一刻」（到毫秒）。新票据带毫秒的签发时刻（ims，lib/auth.ts createSession），按毫秒比：
+ * 改密之前签的一律不认，之后签的（改完立刻登录）照样认。
+ * 原来只按秒比、严格小于——改密那一秒之内签过的旧票（登录、续票恰好落在同一秒）被放过去了
+ * （2026-10-06 长测：托管版「忘记密码后旧会话当场作废」4 轮挂 1 轮）。老票据没有 ims，照旧按秒比
  */
 export async function 记一次改密(accountId: string, now = new Date()): Promise<void> {
-  const since = new Date(秒(now) * 1000);
+  const since = new Date(now.getTime());
   await control.sessionCutoff.upsert({
     where: { accountId },
     create: { accountId, since },
@@ -40,10 +42,11 @@ export async function 记一次改密(accountId: string, now = new Date()): Prom
  * 改过而票据没有 iat 的，当作旧票拒掉——jose 签的票一定带 iat，
  * 没有只可能是别处伪造或格式变了，此时宁可让人重登一次。
  */
-export async function 会话已作废(accountId: string, iat: number | undefined, now = new Date()): Promise<boolean> {
+export async function 会话已作废(accountId: string, iat: number | undefined, now = new Date(), ims?: number): Promise<boolean> {
   const row = await control.sessionCutoff.findUnique({ where: { accountId } });
   if (!row) return false;
-  // 线在未来（时钟回拨、手工改库）时不拿它杀人：那会把所有人挡在门外
+  // 新票据：按毫秒比。线在未来（时钟回拨、手工改库）时不拿它杀人：那会把所有人挡在门外
+  if (typeof ims === "number" && Number.isFinite(ims)) return ims < Math.min(row.since.getTime(), now.getTime());
   const 线 = Math.min(秒(row.since), 秒(now));
   if (iat == null) return true;
   return iat < 线;

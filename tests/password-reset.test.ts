@@ -400,3 +400,17 @@ describe("改密码把设备令牌也一起吊掉", () => {
     expect(await 认领(乙令牌), "改甲的密码把乙的机器也踢了").not.toBeNull();
   });
 });
+
+describe("改密作废按毫秒比（2026-10-06 长测抓到：同一秒里签的旧票被放过）", () => {
+  it("新票据带 ims：改密之前同一秒里签的不认，之后签的认", async () => {
+    const { 记一次改密, 会话已作废 } = await import("@/lib/tenant/session-cutoff");
+    const a = await 建号(新邮箱());
+    const 改密 = new Date(Math.floor(Date.now() / 1000) * 1000 + 500); // 某一秒的中间
+    await 记一次改密(a.id, 改密);
+    const 那一秒 = Math.floor(改密.getTime() / 1000);
+    const 现在 = new Date(改密.getTime() + 1000);
+    expect(await 会话已作废(a.id, 那一秒, 现在, 改密.getTime() - 200)).toBe(true); // 同一秒、改密之前
+    expect(await 会话已作废(a.id, 那一秒, 现在, 改密.getTime() + 100)).toBe(false); // 改完立刻登录
+    expect(await 会话已作废(a.id, 那一秒, 现在)).toBe(false); // 老票据没有 ims：照旧按秒比（同一秒放过）
+  });
+});

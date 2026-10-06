@@ -56,6 +56,17 @@ async function 开新建框(page: Page, 名称: string) {
   await 框.getByLabel("所属客户").click();
   await 框.getByLabel("所属客户").fill(客户名);
   await page.keyboard.press("Enter");
+  /*
+    库里不止一个人时「负责人」那一格要选（2026-10-04 T-025 起管理员建商机不再默认记到名单第一人）。
+    这份用例跟着报价明细开关一直跳过，没跟上——10-06 开关矩阵抓到
+  */
+  const 负责人 = 框.getByLabel("负责人");
+  if (await 负责人.count()) {
+    // 打开下拉、回车选第一个（下拉刚开时第一项是激活的）
+    await 负责人.click();
+    await page.keyboard.press("Enter");
+    await expect(框.locator(".ant-form-item-explain-error", { hasText: "负责人" })).toHaveCount(0);
+  }
   return 框;
 }
 
