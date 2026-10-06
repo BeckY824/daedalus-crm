@@ -164,7 +164,8 @@ describe("推拉合并", () => {
     await 甲.customerExtra.create({ data: { customerId: "c1", country: "乌兹别克斯坦" } });
     const 客 = await 推(甲, "A");
     // 乙那台更晚的一条插入（只填了 WhatsApp），比甲那条先到丙
-    const 晚插入: 改动 = { t: "CustomerExtra", k: "c1", o: "I", r: { customerId: "c1", country: null, whatsapp: "+998 90 123 4567", wechat: null, email: null, source: null }, c: ["customerId", "whatsapp"], h: "999999999999999-dB" };
+    // c 写全部列：旧版本客户端推来的插入就是这样（回归核对 W-055：记钟要按值判，不按 c）
+    const 晚插入: 改动 = { t: "CustomerExtra", k: "c1", o: "I", r: { customerId: "c1", country: null, whatsapp: "+998 90 123 4567", wechat: null, email: null, source: null }, c: ["customerId", "country", "whatsapp", "wechat", "email", "source"], h: "999999999999999-dB" };
     await 回放(丙, 拆(客!, 钥匙).filter((e) => e.t !== "CustomerExtra"), "C");
     await 回放(丙, [晚插入], "C");
     await 回放(丙, 拆(客!, 钥匙).filter((e) => e.t === "CustomerExtra"), "C");
@@ -188,6 +189,17 @@ describe("推拉合并", () => {
       expect(await db.contract.count()).toBe(0);
       expect(await db.tradeOrder.count()).toBe(0);
     }
+  });
+
+  it("回归核对 W-053：同一条放不进来的改动回放两遍（升级后从头重拉），「没同步上」只记一条", async () => {
+    const { 甲 } = await 一对();
+    await 甲.customer.create({ data: { id: "c9", name: "撞号", phone: "13800000009", salesOwnerId: "acct_jia" } });
+    // 一条指向不存在客户的跟进：放不进来（孤儿）——换成撞唯一约束的那种：同一个邮箱的另一个同事账号
+    const 坏: 改动 = { t: "User", k: "acct_dup", o: "I", r: { id: "acct_dup", email: "jia@example.com", name: "撞邮箱", title: "x", active: 1, createdAt: Date.now(), updatedAt: Date.now() }, c: ["id", "email", "name", "title", "active", "createdAt", "updatedAt"], h: "000000000000500-dZZ" };
+    await 回放(甲, [坏], "A");
+    await 回放(甲, [坏], "A");
+    const 数 = await 甲.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_skip WHERE tbl = 'User' AND pk = 'acct_dup'");
+    expect(Number(数[0].n)).toBe(1);
   });
 
   it("我刚改、还没推，别人更早的改动拉过来不盖掉我的", async () => {

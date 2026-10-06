@@ -11,7 +11,7 @@ import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } fr
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸精简 } from "@/lib/business-config";
-import { 国家候选, type 外贸档案 } from "@/lib/customer-extra";
+import { 国家候选, 改过的档案, type 外贸档案 } from "@/lib/customer-extra";
 import { 查电话 } from "@/lib/phone";
 import { 推荐方式 } from "@/lib/referrer-kind";
 import { 带走说法 } from "@/lib/carry-over";
@@ -69,16 +69,6 @@ type FormProps = {
  * 外层只负责挂载时机：用 key 让每次打开都重新挂载内层，
  * 表单初值与推荐人类型随之自然重置，不必在 effect 里同步 state。
  */
-/** 表单里的档案五格和打开时比，只留变了的（空串当空）。新建时 editing 没有，交所有填了的 */
-function 改过的档案(填: Partial<Record<keyof 外贸档案, string | null | undefined>> | undefined, 原: 外贸档案 | null | undefined): Partial<外贸档案> {
-  const 出: Partial<外贸档案> = {};
-  for (const k of ["country", "whatsapp", "wechat", "email", "source"] as const) {
-    const 新 = (填?.[k] ?? "").trim() || null;
-    if (新 !== ((原?.[k] ?? "").trim() || null)) 出[k] = 新;
-  }
-  return 出;
-}
-
 export default function CustomerForm(props: FormProps) {
   if (!props.open) return null;
   return <CustomerFormInner key={props.editing?.id ?? "new"} {...props} />;

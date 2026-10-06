@@ -92,3 +92,14 @@ export function 认国家(s: string | null | undefined): string | null {
   if (!t) return null;
   return 别名[t.toLowerCase()] ?? t;
 }
+
+/** 表单里的档案五格和打开时比，只留变了的（空串当空）。新建时 editing 没有，交所有填了的 */
+export function 改过的档案(填: Partial<Record<keyof 外贸档案, string | null | undefined>> | undefined, 原: 外贸档案 | null | undefined): Partial<外贸档案> {
+  const 出: Partial<外贸档案> = {};
+  for (const k of 外贸键) {
+    const 新 = (填?.[k] ?? "").trim() || null;
+    if (新 !== ((原?.[k] ?? "").trim() || null)) 出[k] = 新;
+  }
+  return 出;
+}
+

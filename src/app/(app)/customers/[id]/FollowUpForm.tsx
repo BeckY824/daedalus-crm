@@ -10,6 +10,7 @@ import { saveFollowUp, saveTask, savePlan, completePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸订单 } from "@/lib/business-config";
+import { 拆关联, 订单前缀 } from "@/lib/follow-link";
 import AiWait from "@/components/AiWait";
 import AiCost from "@/components/AiCost";
 import { clearJob, runJob } from "@/lib/ai-jobs";
@@ -59,20 +60,6 @@ type Extras = {
  * 跟进表单。两处用：记录页（给了 customerId 和他的联系人、商机）和跟进页页头的「记录跟进」
  * （都不给，第一格挑人，挑中后联系人、商机、到期计划从 CustomerPick 取回来）。只有一份。
  */
-/** 「关联商机 / 订单」那一格里订单的值带这个前缀，商机的是光 id */
-const 订单前缀 = "订单:";
-
-/**
- * 那一格的值拆成 opportunityId / orderId。不挂订单的模版不交 orderId（= 不碰，老记录挂着的订单原样留着）；
- * 挂订单的模版里选了商机就把订单摘掉、选了订单就不挂商机——一条跟进说的是一件事
- */
-function 拆关联(v: string | undefined | null, 挂订单: boolean, 原商机: string | null = null): { opportunityId: string | null; orderId?: string | null } {
-  if (!挂订单) return { opportunityId: v ?? null };
-  // 选的是订单：原来挂着的商机留着（订单页上记的那几条两样都挂着，编辑一下别把商机悄悄摘掉，2026-10-05 复查）
-  if (v && v.startsWith(订单前缀)) return { opportunityId: 原商机, orderId: v.slice(订单前缀.length) };
-  return { opportunityId: v ?? null, orderId: null };
-}
-
 export default function FollowUpForm({
   open,
   onClose,
