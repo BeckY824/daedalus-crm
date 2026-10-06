@@ -10,7 +10,9 @@
  * 「业务员看不到别人的客户」看的是他那台的页面。只有「每台都有全队数据」这类界面上本来就看不到的事才只读打开库核对。
  *
  * 环境变量：TEAM_SIM_PORT（起始端口，默认 3520，云端用它、5 台用后面 5 个）、TEAM_SIM_SEED（老板先录几位客户，默认 30）、
- * TEAM_SIM_BUILD（1 = 强制重新 build:server，0 = 不管新旧直接用）、TEAM_SIM_KEEP=1（跑完留着临时目录看日志）。
+ * TEAM_SIM_BUILD（1 = 强制重新 build:server，0 = 不管新旧直接用）、TEAM_SIM_KEEP=1（跑完留着临时目录看日志）、
+ * TEAM_SIM_OLD_BUNDLE（混版本，2026-10-06 测试分期 E.2：给一份旧版本的 server-bundle 目录，sun 那台就用它跑——
+ * 前面照常参加，外贸段「转订单」之后换成这一版重启，核对它从头重拉、补齐旧版本收不下的档案和订单）。
  * 不改业务代码迁就它：哪一步不对就红，打印哪一步、哪台、期望和实际。
  */
 import fs from "node:fs";
@@ -44,6 +46,9 @@ const 业务员 = 名单.filter((n) => n !== 老板);
  */
 const 老库台 = "zhao";
 const 老库版本 = "v0.46.14";
+/** 混版本：这一台先跑旧版本的 server-bundle，中途升级（见文件头 TEAM_SIM_OLD_BUNDLE） */
+const 旧包 = process.env.TEAM_SIM_OLD_BUNDLE ? path.resolve(process.env.TEAM_SIM_OLD_BUNDLE) : null;
+const 旧台 = 旧包 ? "sun" : null;
 
 const 临时 = fs.mkdtempSync(path.join(os.tmpdir(), "team-sim-"));
 
@@ -117,13 +122,13 @@ const 台 = Object.fromEntries(
   名单.map((n, i) => {
     const 端口 = 起始端口 + 1 + i;
     const 目录 = path.join(临时, `desk-${n}`);
-    return [n, { 名: n, 端口, 目录, 库: path.join(目录, "crm.db"), 令牌: `sim-${n}-${crypto.randomBytes(12).toString("hex")}`, 密钥: crypto.randomBytes(32).toString("hex"), 会: new 会话(n, `http://127.0.0.1:${端口}`), 壳: { 轮: 0, 最近: [], 停: false } }];
+    return [n, { 名: n, 包: n === 旧台 ? 旧包 : 包, 端口, 目录, 库: path.join(目录, "crm.db"), 令牌: `sim-${n}-${crypto.randomBytes(12).toString("hex")}`, 密钥: crypto.randomBytes(32).toString("hex"), 会: new 会话(n, `http://127.0.0.1:${端口}`), 壳: { 轮: 0, 最近: [], 停: false } }];
   }),
 );
 
 function 起桌面端(t) {
   return 起进程(t.名, process.execPath, ["entry.js"], {
-    cwd: 包,
+    cwd: t.包,
     日志: path.join(临时, `${t.名}.log`),
     env: {
       ...process.env,
@@ -257,7 +262,10 @@ const 页面 = async (t, 路径) => {
 const 客户列表 = (t, 额外 = "") => 页面(t, `/customers?pageSize=100${额外}`);
 
 let 表;
-const 调 = (t, 键, 参数, opt) => 调动作(t.会, 表, 键, 参数, opt);
+// 旧版本那台用它自己那份动作表（Server Action 的 id 跟着构建变）
+const 调 = (t, 键, 参数, opt) => 调动作(t.会, t.表 ?? 表, 键, 参数, opt);
+/** 这一台跑的是不是这一版（混版本时旧版本那台升级前不是） */
+const 新版 = (n) => n !== 旧台 || Boolean(台[n].已升级);
 
 /** 和新建客户表单交的一样。负责人：表单默认填「我」（进团队之后人多了，不填会被拒）；一个人用时不填，服务端取唯一那位 */
 function 新客户(名字, 号, 负责人) {
@@ -294,6 +302,10 @@ async function 主线() {
   }
   表 = 读动作表(path.join(包, ".next/server/server-reference-manifest.json"));
   for (const k of Object.values(动作)) if (!表.has(k)) throw new 断言失败({ 步骤: "读动作表", 期望: `构建产物里有 ${k}`, 实际: "没有（改过名字？）" });
+  if (旧台) {
+    台[旧台].表 = 读动作表(path.join(旧包, ".next/server/server-reference-manifest.json"));
+    console.log(`混版本：${旧台} 那台先跑 ${旧包}`);
+  }
   console.log(`临时目录 ${临时}；端口 ${云端口}–${云端口 + 名单.length}；批次 ${批}`);
 
   await 步(`起本机云端（托管模式 + 中转，:${云端口}）`, async () => {
@@ -589,7 +601,7 @@ async function 主线() {
     判(r?.ok, { 步骤: "老板存外贸业务配置", 哪台: 老板, 期望: "{ok:true}", 实际: r });
     判(await 左栏有订单(老), { 步骤: "老板自己那台左栏有订单", 哪台: 老板, 期望: "有 /orders 链接", 实际: "没有" });
     const 存完 = Date.now();
-    for (const n of 名单.filter((x) => x !== 老板)) {
+    for (const n of 名单.filter((x) => x !== 老板 && 新版(x))) {
       await 等到({ 步骤: "切外贸传到这台", 哪台: `${n} ← ${老板}`, 期望: "模版 trade、左栏有订单", 取: async () => ({ 模版: 模版(台[n]), 左栏: await 左栏有订单(台[n]) }), 满足: (v) => v.模版 === "trade" && v.左栏, 超时: Math.max(500, 30_000 - (Date.now() - 存完)), 迟到也报: 45_000 });
     }
     return { 说: `${((Date.now() - 存完) / 1000).toFixed(1)}s 传遍` };
@@ -603,7 +615,7 @@ async function 主线() {
     await 等到({ 步骤: "新客户传到老板那台", 哪台: `${老板} ← wang`, 期望: "库里有", 取: () => Boolean(客户(老, c.id)), 满足: Boolean, 超时: 15_000, 迟到也报: 30_000 });
     const [a, b] = await Promise.all([调(w, 动作.改一格, [c.id, "country", "阿联酋"]), 调(老, 动作.改一格, [c.id, "whatsapp", "+971 50 111 2233"])]);
     判(a?.ok && b?.ok, { 步骤: "两台同时填档案", 哪台: "wang / boss", 期望: "两边都 ok", 实际: { wang: a, boss: b } });
-    for (const n of 名单) {
+    for (const n of 名单.filter(新版)) {
       await 等到({ 步骤: "档案各台一致", 哪台: `${n} ← wang / boss`, 期望: "一行：阿联酋、+971 50 111 2233", 取: () => 档案(台[n], c.id), 满足: (v) => v.length === 1 && v[0].country === "阿联酋" && v[0].whatsapp === "+971 50 111 2233", 超时: 20_000, 迟到也报: 30_000 });
     }
   });
@@ -619,6 +631,35 @@ async function 主线() {
     // 同事那台库里有了（同步到了）、页面上看不到
     await 等到({ 步骤: "订单同步到同事那台库里", 哪台: "li ← wang", 期望: "库里有那张单", 取: () => 订单(台.li, 外贸单号).length, 满足: (v) => v === 1, 超时: 15_000, 迟到也报: 30_000 });
     for (const n of ["li", "zhao"]) 判(!(await 页面(台[n], "/orders")).includes(外贸单号), { 步骤: "业务员看不到同事的订单", 哪台: n, 期望: `订单一览里没有 ${外贸单号}`, 实际: "看到了" });
+  });
+
+  if (旧台) await 步(`${旧台} 那台一直跑旧版本：照常写、别人收得到；升级到这一版后从头重拉，补齐旧版本收不下的外贸档案和订单，客户不多不少`, async () => {
+    const t = 台[旧台];
+    const 旧写 = await 录一位(t, 名(旧台, "旧版本写的"), 1);
+    await 等到({ 步骤: "旧版本那台写的传到老板那台", 哪台: `${老板} ← ${旧台}（旧版本）`, 期望: `库里有「${旧写.名字}」`, 取: () => Boolean(客户(老, 旧写.id)), 满足: Boolean, 超时: 前台间隔 * 2 + 4_000, 迟到也报: 30_000 });
+    const 升级前 = 读团队文件(t);
+    观察.push(`混版本：${旧台} 升级前 .team.json —— lastError：${升级前?.lastError ?? "无"}；skipped ${(升级前?.skipped ?? []).length} 批；结构签名 ${升级前?.结构 ? "有" : "没有"}`);
+    await 关机(t);
+    t.包 = 包;
+    t.表 = null;
+    t.已升级 = true;
+    const 开 = Date.now();
+    await 开机(t);
+    await 等到({
+      步骤: "升级后补齐", 哪台: `${旧台}（刚升级）`, 期望: `外贸档案（阿联酋 / +971…）和 ${外贸单号} 都在、模版是外贸、客户数和老板一样`,
+      取: () => ({ 档案: 档案(t, 外贸客.id)[0] ?? null, 单: 订单(t, 外贸单号).length, 模版: 模版(t), 客户: 客户数(t), 老板: 客户数(老) }),
+      满足: (v) => v.档案?.country === "阿联酋" && v.档案?.whatsapp === "+971 50 111 2233" && v.单 === 1 && v.模版 === "trade" && v.客户 === v.老板,
+      超时: 首轮 + 前台间隔 * 2 + 4_000, 迟到也报: 45_000,
+    });
+    const 后 = 读团队文件(t);
+    判(!后?.lastError, { 步骤: "升级后同步没出错", 哪台: 旧台, 期望: "没有 lastError", 实际: 后?.lastError });
+    // 重拉不翻倍：自己旧版本时写的那位在各台都只有一份；各台客户数一致
+    for (const n of 名单) {
+      判(数(台[n], "SELECT COUNT(*) AS n FROM Customer WHERE name = ?", 旧写.名字) === 1, { 步骤: "重拉之后不出重复", 哪台: n, 期望: `「${旧写.名字}」只有 1 位`, 实际: 数(台[n], "SELECT COUNT(*) AS n FROM Customer WHERE name = ?", 旧写.名字) });
+    }
+    await 等到({ 步骤: "升级后各台客户数一致", 哪台: 名单.join(" / "), 期望: "一样多", 取: () => 名单.map((n) => 客户数(台[n])), 满足: (v) => new Set(v).size === 1, 超时: 前台间隔 * 2 + 2_000 });
+    判(await 左栏有订单(t), { 步骤: "升级后左栏有订单", 哪台: 旧台, 期望: "有 /orders 链接", 实际: "没有" });
+    return { 说: `升级后 ${((Date.now() - 开) / 1000).toFixed(1)}s 补齐；升级前 lastError：${升级前?.lastError ? String(升级前.lastError).slice(0, 60) : "无"}` };
   });
 
   await 步("业务员把带订单的客户交给同事：订单跟着到他那边，交出去的人订单一览里没了", async () => {

@@ -38,8 +38,11 @@ const 当前账号 = "jia";
 /** 在某个请求上卡一下（慢网络 / 云端回话慢）：用来造「同步一轮」和「退出团队」撞在一起（2026-10-04 T-009） */
 /** 假中转名单里的老板账号；null = 就是当前账号 */
 let 名单老板: string | null = null;
+/** 假中转一页给几批（E.3 造「重拉到一半断了」用）；默认一次全给 */
+let 每页 = Infinity;
 afterEach(() => {
   名单老板 = null;
+  每页 = Infinity;
 });
 let 钩子: ((方法: string, 路径: string) => Promise<void>) | null = null;
 const 假传输: 传输 = async (方法, 路径, body) => {
@@ -65,7 +68,8 @@ const 假传输: 传输 = async (方法, 路径, body) => {
     return { 状态: 200, json: { ok: true, seq } };
   }
   const after = Number(new URL(`http://x${路径}`).searchParams.get("after"));
-  return { 状态: 200, json: { ok: true, batches: 云.批.filter((x) => x.seq > after), more: false } };
+  const 剩下 = 云.批.filter((x) => x.seq > after);
+  return { 状态: 200, json: { ok: true, batches: 剩下.slice(0, 每页), more: 剩下.length > 每页 } };
 };
 
 /* ---------------- 乙：另一台电脑 ---------------- */
@@ -303,6 +307,46 @@ describe("桌面端同步客户端", () => {
     expect(await 同步一轮()).toMatchObject({ ok: true });
     const 丙 = await 甲.user.findUnique({ where: { id: "acct_bing" }, select: { role: true } });
     expect(丙?.role, "名单里丙是老板，这一轮结束就该是 ADMIN，不等 5 分钟").toBe("ADMIN");
+    expect((await 退出团队()).ok).toBe(true);
+  });
+
+  it("E.3 升级后从头重拉，拉到一半断网：下一轮从断点接着拉，不从 0 重来，也不多出重复的客户", async () => {
+    const 码 = await 新团队("断点队");
+    for (const id of ["cP1", "cP2", "cP3"]) 乙推(码.teamId, 码.key, [乙的新客户(id)]);
+    expect((await 同步一轮()).ok).toBe(true);
+    const 客户数 = await 甲.customer.count();
+    // 假装刚升级过：签名对不上 → 这一轮从头重拉。一页 2 批，拉第 2 页时断网
+    fs.writeFileSync(path.join(临时.dir, ".team.json"), JSON.stringify({ ...读团队(), 结构: "旧版本的签名" }), { mode: 0o600 });
+    每页 = 2;
+    const 从哪拉: number[] = [];
+    钩子 = async (_方法, 路径) => {
+      if (!路径.startsWith("/api/sync/pull")) return;
+      从哪拉.push(Number(new URL(`http://x${路径}`).searchParams.get("after")));
+      if (从哪拉.length === 2) throw new Error("fetch failed");
+    };
+    try {
+      expect((await 同步一轮()).ok).toBe(false);
+    } finally {
+      钩子 = null;
+    }
+    expect(从哪拉[0], "签名变了就从头拉").toBe(0);
+    const 断点 = 读团队()!.pulled;
+    expect(断点, "第一页拉完要记下进度").toBe(从哪拉[1]);
+    expect(断点).toBeGreaterThan(0);
+    // 下一轮：签名已经记成新的，从断点接着拉
+    从哪拉.length = 0;
+    钩子 = async (_方法, 路径) => {
+      if (路径.startsWith("/api/sync/pull")) 从哪拉.push(Number(new URL(`http://x${路径}`).searchParams.get("after")));
+    };
+    try {
+      expect((await 同步一轮()).ok).toBe(true);
+    } finally {
+      钩子 = null;
+    }
+    expect(从哪拉[0], "接着断点拉，不是从 0").toBe(断点);
+    expect(await 甲.customer.count()).toBe(客户数);
+    expect(读团队()!.pulled).toBe(云.批.at(-1)!.seq);
+    expect(await 甲.customer.count({ where: { id: { in: ["cP1", "cP2", "cP3"] } } })).toBe(3);
     expect((await 退出团队()).ok).toBe(true);
   });
 
