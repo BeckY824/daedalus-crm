@@ -158,6 +158,8 @@ model Customer {
   @@index([channelOwnerId])
   @@index([channelId])
   @@index([referrerCustomerId])
+  /// 删客户时按外键找「归属指向他」的客户要用（迁移 024，2026-10-06 大库实测：没有它撤销 1 万行导入要 2 分钟）
+  @@index([attributionCustomerId])
   @@index([followStatus])
   @@index([decisionStatus])
 }

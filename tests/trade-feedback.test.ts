@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   user: { id: "", name: "甲", email: "a@x", role: "ADMIN", title: "管理员", avatar: null },
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
-vi.mock("@/lib/auth", () => ({ requireUser: async () => mocks.user }));
+vi.mock("@/lib/auth", async (原) => ({ ...(await 原<object>()), requireUser: async () => mocks.user, requireAdmin: async () => mocks.user }));
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
@@ -26,6 +26,8 @@ import { 文字里号码打码 } from "@/lib/utils";
 import { saveFollowUp, deleteFollowUp, restoreFollowUp } from "@/app/(app)/customers/[id]/actions";
 import { saveOpportunity, setOppStatus } from "@/app/(app)/opportunities/actions";
 import { 补来源 } from "@/lib/customer-extra-db";
+import { saveBusinessSettings } from "@/app/(app)/settings/actions";
+import { getBusiness } from "@/lib/business";
 import { 拆关联 } from "@/lib/follow-link";
 import { 改过的档案 } from "@/lib/customer-extra";
 import { 取订单提醒项 } from "@/lib/reminders-db";
@@ -641,4 +643,70 @@ describe("回归核对补钉（10-06，W-外贸并进）", () => {
     await patchCustomer(c.id, "country", "美国");
     expect((await prisma.customer.findUniqueOrThrow({ where: { id: c.id } })).updatedAt.getTime()).toBeGreaterThan(未来.getTime());
   });
+});
+
+describe("B.3 老数据上切外贸再切回（2026-10-06 测试分期）", () => {
+  it("通用模版的老数据：设置里切外贸 → 来源补上、老签约不凭空变订单、赢单商机照旧；再切回通用照样能用", async () => {
+    // 通用模版下的老数据
+    const ch = await prisma.channel.create({ data: { name: "老带新渠道", channelOwnerId: jia.id } });
+    const 甲 = await prisma.customer.create({ data: { name: "老客户甲", phone: "13900000001", salesOwnerId: jia.id, channelId: ch.id } });
+    const 乙 = await prisma.customer.create({ data: { name: "老客户乙", phone: "13900000002", salesOwnerId: jia.id } });
+    await prisma.lead.create({ data: { name: "乙公司", source: "展会", customerId: 乙.id, ownerId: jia.id, status: "已转化" } });
+    const o = await prisma.opportunity.create({ data: { name: "老商机", customerId: 甲.id, amount: 100, ownerId: jia.id } });
+    await saveContract({ customerId: 甲.id, amount: 100, signedAt: new Date(2026, 4, 1), remark: null, 联动: { 赢单: [o.id], 完成计划: [], 完成待办: [] } });
+    expect(await prisma.tradeOrder.count()).toBe(0);
+
+    // 设置里切外贸（走真的保存动作）
+    const 外 = BUSINESS_PRESETS["外贸出口"];
+    const r = await saveBusinessSettings({ ...外, poolDays: 0 });
+    expect(r).toMatchObject({ ok: true, 补了来源: 2 });
+    invalidateSettingsCache();
+    expect((await getBusiness()).template).toBe("trade");
+    const 来 = async (id: string) => (await prisma.customerExtra.findUnique({ where: { customerId: id } }))?.source;
+    expect([await 来(甲.id), await 来(乙.id)]).toEqual(["老带新渠道", "展会"]);
+    expect(await prisma.tradeOrder.count()).toBe(0); // 老签约不凭空变成订单
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("WON");
+
+    // 外贸下给老签约补订单号 → 补成一张订单；再切回通用，改金额，订单跟着改
+    const k = await prisma.contract.findFirstOrThrow();
+    await saveContract({ id: k.id, customerId: 甲.id, amount: 100, currency: "CNY", signedAt: k.signedAt, remark: null, 订单: { no: "OLD-1" } });
+    expect((await prisma.tradeOrder.findFirstOrThrow()).no).toBe("OLD-1");
+    await saveBusinessSettings({ ...BUSINESS_PRESETS["通用销售"], poolDays: 0 });
+    invalidateSettingsCache();
+    await saveContract({ id: k.id, customerId: 甲.id, amount: 250, currency: "CNY", signedAt: k.signedAt, remark: null });
+    expect((await prisma.tradeOrder.findFirstOrThrow()).amount).toBe(250);
+    // 再切回外贸：不重复补来源（已经有了）
+    expect(await saveBusinessSettings({ ...外, poolDays: 0 })).toMatchObject({ ok: true, 补了来源: 0 });
+  });
+});
+
+describe("B.5 导出 → xlsx → 读回 → 导入，逐格一致（2026-10-06 测试分期）", () => {
+  for (const 模 of ["通用销售", "外贸出口"] as const) {
+    it(`${模}：所有人填的字段导回来一格不差`, async () => {
+      await setSetting("business", BUSINESS_PRESETS[模]);
+      invalidateSettingsCache();
+      const b = BUSINESS_PRESETS[模];
+      const 外 = 模 === "外贸出口";
+      const c = await prisma.customer.create({
+        data: { name: "往返客户", phone: "13912345678", school: "Round Trip LLC", grade: b.grades[0], major: "食品", followStatus: "意向较高", decisionStatus: "与家人商议", remark: "第一行\n第二行：=1+1", salesOwnerId: jia.id, expectedSignAt: 外 ? null : new Date(2026, 10, 3) },
+      });
+      if (外) await prisma.customerExtra.create({ data: { customerId: c.id, country: "德国", whatsapp: "+49 151 1234 5678", wechat: "rt_wx", email: "rt@example.de", source: "展会" } });
+      const 出 = await 导出客户({});
+      if (!出.ok) throw new Error(出.error);
+      const 表 = 客户导出表(出.rows, b);
+      const 读回 = 读xlsx(写xlsx([{ 名: "客户", 表头: 表.head, 行: 表.body }]));
+      expect(读回[0]).toEqual(表.head);
+      const 原 = await prisma.customer.findUniqueOrThrow({ where: { id: c.id }, include: { extra: true } });
+      await prisma.customer.deleteMany();
+      const w = await 执行导入({ 表头: 读回[0], 数据: 读回.slice(1), 映射: 猜列(读回[0], 字段表(b)), 重复行: "跳过" }, "往返.xlsx");
+      if (!w.ok) throw new Error(w.error);
+      expect(w.新建).toBe(1);
+      const 回 = await prisma.customer.findFirstOrThrow({ include: { extra: true } });
+      for (const k of ["name", "phone", "school", "grade", "major", "followStatus", "decisionStatus"] as const) expect(回[k], k).toEqual(原[k]);
+      // 备注原样回来；「销售负责人」那一列导入不收（归属是导入的人），按规矩并进备注、字不丢（W-028）
+      expect(回.remark).toBe(`${原.remark}\n销售负责人：甲`);
+      if (!外) expect(回.expectedSignAt?.toDateString()).toBe(原.expectedSignAt?.toDateString());
+      if (外) for (const k of ["country", "whatsapp", "wechat", "email", "source"] as const) expect(回.extra?.[k], k).toEqual(原.extra?.[k]);
+    });
+  }
 });

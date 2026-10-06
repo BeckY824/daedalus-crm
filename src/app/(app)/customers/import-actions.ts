@@ -433,96 +433,103 @@ async function 撤这一批(
   let 还原 = 0;
   const 没动: { name: string; 原因: string }[] = [];
 
-  for (const row of batch.rows) {
-    const c = await prisma.customer.findUnique({
-      where: { id: row.customerId },
-      select: {
-        id: true,
-        name: true,
-        updatedAt: true,
-        _count: { select: { followUps: true, opportunities: true, contracts: true, contacts: true, tasks: true, plans: true } },
-        /*
-          被别人当推荐人、或是别人的业绩归属对象：删掉他，下游那几位的推荐人和归属会被外键悄悄置空。
-          手工删客户（deleteCustomers）早就拦了这种，撤销导入原来漏了（2026-10-01 排查 A7）
-        */
-        referrals: { select: { name: true }, take: 3 },
-        attributedCustomers: { select: { name: true }, take: 3 },
-      },
-    });
-    // 已经被删了：撤销的目的达到了，不算「没动」
-    if (!c) continue;
-
-    const 有挂件 = Object.values(c._count).some((n) => n > 0);
-    const 下游 = [...new Set([...c.referrals, ...c.attributedCustomers].map((x) => x.name))];
+  /*
+    一批 500 行地查、能删的一批一起删（2026-10-06 大库实测：2 万位客户的库里一行一行查、一行一行删，
+    撤销 1 万行导入要 1～2 分钟，人以为卡死了）。判断规则一条没变，只是不再每一行单独跑一串查询
+  */
+  const 选 = {
+    id: true,
+    name: true,
+    updatedAt: true,
+    _count: { select: { followUps: true, opportunities: true, contracts: true, contacts: true, tasks: true, plans: true } },
     /*
-      有 writtenAt 就精确比：写完那一刻的 updatedAt 和现在的不一样，就是之后有人改过。
-      老批次没有，照旧按批次时刻 + 2 秒（毫秒级的相等不能当「改过」：建完马上写 ImportRow，只差几毫秒）
+      被别人当推荐人、或是别人的业绩归属对象：删掉他，下游那几位的推荐人和归属会被外键悄悄置空。
+      手工删客户（deleteCustomers）早就拦了这种，撤销导入原来漏了（2026-10-01 排查 A7）
     */
-    const 被改过 = row.writtenAt
-      ? c.updatedAt.getTime() !== row.writtenAt.getTime()
-      : c.updatedAt.getTime() - batch.at.getTime() > 2000;
+    referrals: { select: { name: true }, take: 3 },
+    attributedCustomers: { select: { name: true }, take: 3 },
+  } as const;
+  for (let 起 = 0; 起 < batch.rows.length; 起 += 500) {
+    const 这批 = batch.rows.slice(起, 起 + 500);
+    const 客户们 = new Map((await prisma.customer.findMany({ where: { id: { in: 这批.map((r) => r.customerId) } }, select: 选 })).map((c) => [c.id, c]));
+    const 要删: string[] = [];
+    for (const row of 这批) {
+      const c = 客户们.get(row.customerId) ?? null;
+      // 已经被删了：撤销的目的达到了，不算「没动」
+      if (!c) continue;
 
-    if (row.kind === "create") {
-      if (下游.length) {
-        没动.push({ name: c.name, 原因: `他是${下游.join("、")}的推荐人或业绩归属，删了他们的归属会断` });
+      const 有挂件 = Object.values(c._count).some((n) => n > 0);
+      const 下游 = [...new Set([...c.referrals, ...c.attributedCustomers].map((x) => x.name))];
+      /*
+        有 writtenAt 就精确比：写完那一刻的 updatedAt 和现在的不一样，就是之后有人改过。
+        老批次没有，照旧按批次时刻 + 2 秒（毫秒级的相等不能当「改过」：建完马上写 ImportRow，只差几毫秒）
+      */
+      const 被改过 = row.writtenAt
+        ? c.updatedAt.getTime() !== row.writtenAt.getTime()
+        : c.updatedAt.getTime() - batch.at.getTime() > 2000;
+
+      if (row.kind === "create") {
+        if (下游.length) {
+          没动.push({ name: c.name, 原因: `他是${下游.join("、")}的推荐人或业绩归属，删了他们的归属会断` });
+          continue;
+        }
+        if (有挂件) {
+          没动.push({ name: c.name, 原因: "名下已经有跟进记录或商机了" });
+          continue;
+        }
+        if (被改过) {
+          没动.push({ name: c.name, 原因: "导入之后又改过他的档案" });
+          continue;
+        }
+        // 这一批末尾一起删；查完到删之间被手工删了也算撤到了（deleteMany 不抛）
+        要删.push(c.id);
         continue;
       }
-      if (有挂件) {
-        没动.push({ name: c.name, 原因: "名下已经有跟进记录或商机了" });
-        continue;
-      }
+
+      // update：把当时补进去的那几格还原成原来的样子（按定义全是空）
       if (被改过) {
         没动.push({ name: c.name, 原因: "导入之后又改过他的档案" });
         continue;
       }
-      // 查完到删之间被手工删了也算撤到了（deleteMany 不抛）
-      await prisma.customer.deleteMany({ where: { id: c.id } });
-      删掉++;
-      continue;
-    }
-
-    // update：把当时补进去的那几格还原成原来的样子（按定义全是空）
-    if (被改过) {
-      没动.push({ name: c.name, 原因: "导入之后又改过他的档案" });
-      continue;
-    }
-    let before: Record<string, unknown> = {};
-    try {
-      before = JSON.parse(row.before ?? "{}") as Record<string, unknown>;
-    } catch {
-      没动.push({ name: c.name, 原因: "这条的原值读不出来了" });
-      continue;
-    }
-    const data: Record<string, unknown> = {};
-    const 档案还原: Record<string, null> = {};
-    for (const [k, v] of Object.entries(before)) {
-      // 外贸档案补过的格子（2026-10-05）：补之前按定义是空的，还原成空
-      if (k.startsWith(档案前缀) && (外贸导入字段 as readonly string[]).includes(k.slice(档案前缀.length))) {
-        档案还原[k.slice(档案前缀.length)] = null;
+      let before: Record<string, unknown> = {};
+      try {
+        before = JSON.parse(row.before ?? "{}") as Record<string, unknown>;
+      } catch {
+        没动.push({ name: c.name, 原因: "这条的原值读不出来了" });
         continue;
       }
-      // 只写回补空能碰的那几格：before 里还记着 写前键 这类不是字段的东西
-      if (!(补空字段名单 as readonly string[]).includes(k)) continue;
-      data[k] = k === "expectedSignAt" && v ? new Date(v as string) : (v ?? null);
-    }
-    if (Object.keys(档案还原).length) await 写外贸档案(prisma, c.id, 档案还原, false);
-    if (Object.keys(data).length > 0) {
-      const 撤后 = await prisma.customer.update({ where: { id: c.id }, data, select: { updatedAt: true } });
-      /*
-        倒着撤（先 A 建、再 B 补，撤 B 再撤 A）：撤 B 这一写改了 updatedAt，A 那条的 writtenAt 就对不上了，
-        撤 A 时甲被当成「导入后改过」留下（2026-10-04 J-052）。
-        B 补之前的那一刻若正是另一批（还没撤的）写完的那一刻，说明 A 和 B 之间没人动过他——撤完 B 他回到了 A 写完的样子，
-        把那条的指纹挪到现在。A、B 之间有人手改过的，写前对不上任何一批，什么都不挪，照旧算改过
-      */
-      const 写前 = typeof before[写前键] === "string" ? new Date(before[写前键] as string) : null;
-      if (写前 && !isNaN(写前.getTime())) {
-        await prisma.importRow.updateMany({
-          where: { customerId: c.id, writtenAt: 写前, batchId: { not: batchId }, batch: { is: { revertedAt: null } } },
-          data: { writtenAt: 撤后.updatedAt },
-        });
+      const data: Record<string, unknown> = {};
+      const 档案还原: Record<string, null> = {};
+      for (const [k, v] of Object.entries(before)) {
+        // 外贸档案补过的格子（2026-10-05）：补之前按定义是空的，还原成空
+        if (k.startsWith(档案前缀) && (外贸导入字段 as readonly string[]).includes(k.slice(档案前缀.length))) {
+          档案还原[k.slice(档案前缀.length)] = null;
+          continue;
+        }
+        // 只写回补空能碰的那几格：before 里还记着 写前键 这类不是字段的东西
+        if (!(补空字段名单 as readonly string[]).includes(k)) continue;
+        data[k] = k === "expectedSignAt" && v ? new Date(v as string) : (v ?? null);
       }
+      if (Object.keys(档案还原).length) await 写外贸档案(prisma, c.id, 档案还原, false);
+      if (Object.keys(data).length > 0) {
+        const 撤后 = await prisma.customer.update({ where: { id: c.id }, data, select: { updatedAt: true } });
+        /*
+          倒着撤（先 A 建、再 B 补，撤 B 再撤 A）：撤 B 这一写改了 updatedAt，A 那条的 writtenAt 就对不上了，
+          撤 A 时甲被当成「导入后改过」留下（2026-10-04 J-052）。
+          B 补之前的那一刻若正是另一批（还没撤的）写完的那一刻，说明 A 和 B 之间没人动过他——撤完 B 他回到了 A 写完的样子，
+          把那条的指纹挪到现在。A、B 之间有人手改过的，写前对不上任何一批，什么都不挪，照旧算改过
+        */
+        const 写前 = typeof before[写前键] === "string" ? new Date(before[写前键] as string) : null;
+        if (写前 && !isNaN(写前.getTime())) {
+          await prisma.importRow.updateMany({
+            where: { customerId: c.id, writtenAt: 写前, batchId: { not: batchId }, batch: { is: { revertedAt: null } } },
+            data: { writtenAt: 撤后.updatedAt },
+          });
+        }
+      }
+      还原++;
     }
-    还原++;
+    if (要删.length) 删掉 += (await prisma.customer.deleteMany({ where: { id: { in: 要删 } } })).count;
   }
 
   await recordAudit({
