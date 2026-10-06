@@ -24,7 +24,7 @@ import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
 import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec } from "../report-query";
 import { loadWatchlist } from "../sentinel-data";
-import { statusLabel, stageLabel, 阶段值, 外贸精简, 外贸订单 } from "../business-config";
+import { statusLabel, stageLabel, 阶段值, 外贸精简, 外贸订单, 签约叫 } from "../business-config";
 import { 名字在别处, 别处说法, 别处附件, 找人 } from "./find-name";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
@@ -285,7 +285,9 @@ export const TOOLS: Tool[] = [
         opportunities: c.opportunities.map((o) => {
           const q = o.quotes[0];
           const 报 = q?.lines.length ? `；${dayjs(q.quotedAt).format("YYYY-MM-DD")} 报价（${商机币种(o)}）：${q.lines.map(一行说法).join("、")}` : "";
-          return `${o.name} ${显示金额(o.amount, 商机币种(o))} ${o.status === "OPEN" ? o.stage : o.status}${报}`;
+          // 阶段按这家的叫法（外贸「初步沟通」叫「询盘」），关了的说中文——原来直接给 WON / LOST（G.3）
+          const 状态 = o.status === "OPEN" ? stageLabel(ctx.b, o.stage) : o.status === "WON" ? (外贸订单(ctx.b) ? "已转订单" : "赢单") : "丢单";
+          return `${o.name} ${显示金额(o.amount, 商机币种(o))} ${状态}${报}`;
         }),
         openTasks: c.tasks.map((t) => `${t.title}${t.dueAt ? `（${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`),
         nextPlan: c.plans[0] ? `${dayjs(c.plans[0].plannedAt).format("MM-DD HH:mm")} ${c.plans[0].method}：${c.plans[0].subject}` : null,
@@ -307,9 +309,11 @@ export const TOOLS: Tool[] = [
       }
       const rows = await runQuery(spec, ctx.b);
       const meta = METRICS[spec.metric];
+      // 指标名跟这家的叫法：外贸「签约金额」说「订单金额」（G.3 实测模型照抄成「这个月签了 2 单」）
+      const 指标名 = meta.label.replace(/学员/g, ctx.b.customer).replace(/签约/g, 签约叫(ctx.b));
       return {
-        summary: `${meta.label.replace(/学员/g, ctx.b.customer)}${spec.groupBy ? ` · ${GROUP_BYS[spec.groupBy]}` : ""}：${rows.length} 行`,
-        data: { metric: meta.label, unit: meta.unit, groupBy: spec.groupBy ? GROUP_BYS[spec.groupBy] : null, range: spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间", rows: rows.slice(0, 30) },
+        summary: `${指标名}${spec.groupBy ? ` · ${GROUP_BYS[spec.groupBy]}` : ""}：${rows.length} 行`,
+        data: { metric: 指标名, unit: meta.unit, groupBy: spec.groupBy ? GROUP_BYS[spec.groupBy] : null, range: spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间", rows: rows.slice(0, 30) },
       };
     },
   },

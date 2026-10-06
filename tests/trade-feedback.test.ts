@@ -471,6 +471,15 @@ describe("复查一轮（10-06）", () => {
     expect(商机).toContain("已转订单");
     expect(商机).not.toContain("赢单\"");
     expect(商机).not.toContain("成交概率");
+    await prisma.opportunity.create({ data: { name: "租赁屏", customerId: c.id, amount: 50, stage: "初步沟通", status: "OPEN", probability: 10, ownerId: jia.id } });
+    const 读 = JSON.stringify((await TOOLS.find((t) => t.name === "get_customer")!.run({ id: c.id }, ctx as never)).data);
+    expect(读).toContain("租赁屏");
+    expect(读, "外贸的阶段叫询盘").toContain("询盘");
+    expect(读).not.toContain("初步沟通");
+    expect(读).not.toMatch(/\bWON\b/);
+    const 数 = await TOOLS.find((t) => t.name === "query_metric")!.run({ metric: "contract_count", groupBy: null, from: null, to: null }, ctx as never);
+    expect(数.summary).toContain("订单单数");
+    expect(JSON.stringify(数.data)).not.toContain("签约");
   });
 
   it("撤销导入：人后来手改过档案的那位不动", async () => {
