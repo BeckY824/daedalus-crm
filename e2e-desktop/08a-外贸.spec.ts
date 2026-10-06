@@ -170,6 +170,9 @@ test("切回通用：没有订单入口，客户和跟进都在；再切外贸�
   await page.locator("main").getByRole("link", { name: 客户名 }).click();
   await page.waitForURL(/\/customers\/[^/?]+/);
   await expect(page.locator("main")).toContainText(跟进);
+  // 状态叫法跟着换回来：外贸的「已下单」不能留在通用里（F.2 走查抓到：套预设是合并，预设里没有的那几条留着外贸的）
+  await expect(page.locator(".rec-tags")).toContainText("已签约");
+  await expect(page.locator(".rec-tags")).not.toContainText("已下单");
 
   await 套预设(page, "外贸出口");
   await page.goto("/orders");

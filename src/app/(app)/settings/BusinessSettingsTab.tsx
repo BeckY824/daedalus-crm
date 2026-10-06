@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig, BusinessTemplate } from "@/lib/business-config";
-import { DEFAULT_BUSINESS, BUSINESS_PRESETS, 表单公海天数, 模版预设, statusLabel } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS, RELABELABLE_STATUSES, 表单公海天数, 模版预设, statusLabel } from "@/lib/business-config";
 import { 币种选项 } from "@/lib/currency";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
@@ -49,7 +49,13 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
   /** 套用预设：只填表，不保存——人得自己看一眼再点保存，免得一次误点改掉全站措辞 */
   function 套用(名: string) {
     // 预设只管措辞：公海天数不是措辞，不跟着变
-    form.setFieldsValue({ ...BUSINESS_PRESETS[名], poolDays: form.getFieldValue("poolDays") ?? value.poolDays });
+    const 预设 = BUSINESS_PRESETS[名];
+    /*
+      状态叫法每一条都显式填（预设里没有的填空 = 用原名）：setFieldsValue 对嵌套对象是**合并**，
+      从外贸切回通用时，通用预设里没有的「已签约 → 已下单」「已加微信 → 已建联」留在表单里一起存了（2026-10-06 F.2 走查）
+    */
+    const 叫法 = Object.fromEntries(RELABELABLE_STATUSES.map((k) => [k, 预设.statusLabels?.[k] ?? ""]));
+    form.setFieldsValue({ ...预设, statusLabels: 叫法, poolDays: form.getFieldValue("poolDays") ?? value.poolDays });
     set套了(名);
   }
   function 放弃() {
