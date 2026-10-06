@@ -206,18 +206,21 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
   const 还剩 = () => Math.max(15_000, 总超时 - (Date.now() - 起));
   /*
     5xx 重发只在一次都没重发过时做（第三轮 B5：原来超时重发和 5xx 重发叠起来）。
-    超时重发最多两次（2026-10-06 G.3）：中转站约五分之一的请求会卡住，只重发一次的话连卡两次（约 4%）就是「超时没回音」，
-    还白扣了次数。第二次照首轮的快等，第三次给剩下的全部时间；三次带同一个问题编号，网关只扣一次
+    超时重发（2026-10-06 G.3）：中转站约五分之一的请求会卡住，只重发一次的话连卡两次（约 4%）就是「超时没回音」，
+    还白扣了次数。**短请求**（agent 每一步决策、流式回答，正常几秒回）最多重发两次：第二次照首轮的快等，第三次给剩下的全部时间。
+    中等长度的（AI 解析、简报，正常 9–14 秒、首等 45 秒）照旧最多两趟——再多一趟人要等两分钟（J-139）。
+    几次都带同一个问题编号，网关只扣一次
   */
+  const 最多 = stream || 要多长 <= 2_000 ? 3 : 2;
   let 重发过 = false;
   try {
     for (let 第 = 1; ; 第++) {
       try {
-        res = await 发(第 === 3 ? 还剩() : 首轮);
+        res = await 发(第 === 最多 ? 还剩() : 首轮);
         break;
       } catch (e) {
         const 人停的 = opts.signal?.aborted;
-        if (!(e instanceof Error && e.name === "TimeoutError") || 人停的 || 首轮 >= 总超时 || 第 === 3 || Date.now() - 起 >= 总超时) throw e;
+        if (!(e instanceof Error && e.name === "TimeoutError") || 人停的 || 首轮 >= 总超时 || 第 === 最多 || Date.now() - 起 >= 总超时) throw e;
         console.warn(`[llm] ${Math.round(首轮 / 1000)} 秒没等到回音，重发一次（第 ${第 + 1} 次）`);
         重发过 = true;
       }

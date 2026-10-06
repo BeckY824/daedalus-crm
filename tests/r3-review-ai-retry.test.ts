@@ -152,6 +152,28 @@ describe("网关：快速重发时原请求其实没死（只是慢）", () => {
     expect(await 用掉(账号.acc.id), "用户拿到了答案，应该净扣 1 次").toBe(1);
   });
 
+  it("G.3 桌面端断开：网关转给中转站的那份跟着掐掉，不再挂到 120 秒；这一份是最新的就退次数", async () => {
+    let 上游被掐 = false;
+    vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (!url.startsWith(上游)) throw new TypeError(`没接这个地址：${url}`);
+      // 中转站卡住：一直不回，直到请求被掐
+      return new Promise<Response>((_, rej) =>
+        init?.signal?.addEventListener("abort", () => {
+          上游被掐 = true;
+          rej(init.signal!.reason ?? new DOMException("aborted", "AbortError"));
+        }),
+      );
+    });
+    const 桌面端 = new AbortController();
+    const 这一份 = 打网关(`q-cut-${Date.now()}`, 桌面端.signal);
+    await 等一下(20);
+    桌面端.abort(超时());
+    await 这一份;
+    expect(上游被掐, "桌面端走了，上游那份还挂着").toBe(true);
+    expect(await 用掉(账号.acc.id), "没人收到答案，不扣").toBe(0);
+  });
+
   it("故意的：同一编号并发两份、断掉第一份——连问 5 个问题，账上 0 次", async () => {
     const 挂 = new Map<number, () => void>();
     const 上 = 假上游(async (n) => {

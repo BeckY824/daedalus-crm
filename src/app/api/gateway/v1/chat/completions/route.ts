@@ -178,7 +178,11 @@ export async function POST(req: Request) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
       body: JSON.stringify(整理.body),
-      signal: AbortSignal.timeout(120_000),
+      /*
+        桌面端断开就把上游也掐掉（2026-10-06 G.3）：桌面端 15 秒等不到就重发，原来这一份还挂在中转站上直到 120 秒，
+        一个问题最多同时挂三份。掐掉走下面 catch 那支：是最新一份才退次数，和原来「没人收到就退」一个口径
+      */
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(120_000)]),
     });
   } catch (e) {
     // 上游没给出任何东西：这一次不该由用户买单。不是扣的那一步也退——这个问题整个答不出来了（第二轮 AI A4）
