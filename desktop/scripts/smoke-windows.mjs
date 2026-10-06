@@ -83,6 +83,48 @@ try {
   await page.waitForURL("**/overview**");
   await expect(page.locator(".rail")).toBeVisible();
   console.log("PASS: CRM routes render with native Windows Prisma engine");
+
+  /*
+    外贸一圈（2026-10-06 测试分期 D：Mac 上 scripts/smoke-mac.mjs 跑通的同一段）：设置里切外贸 → 只填 WhatsApp 建客户
+    → 新建商机 → 转为订单 → 订单一览里有。这一份只在 Windows CI 上跑，Sam 手上的包从此也验过外贸
+  */
+  await page.goto(`${origin}/settings?tab=business`);
+  const 业务面板 = page.getByRole("tabpanel", { name: /^业务配置/ });
+  await expect(业务面板).toBeVisible();
+  await page.waitForLoadState("networkidle").catch(() => {});
+  await 业务面板.getByRole("button", { name: "外贸出口", exact: true }).click();
+  await 业务面板.locator(".biz-preset-todo").getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.getByText("已保存，全站措辞已更新")).toBeVisible({ timeout: 15000 });
+  await page.goto(`${origin}/customers`);
+  await expect(page.locator(".rail").getByRole("link", { name: "订单", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: /新建客户/ }).click();
+  const 外贸框 = page.getByRole("dialog", { name: "新建客户" });
+  await 外贸框.getByLabel("客户姓名").fill("Windows 外贸客户");
+  await 外贸框.getByLabel("WhatsApp").fill("+971 50 765 0001");
+  await 外贸框.getByLabel("国家").fill("阿联酋");
+  await 外贸框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(外贸框).toBeHidden();
+  await page.goto(`${origin}/opportunities`);
+  await page.getByRole("button", { name: /新建商机/ }).first().click();
+  const 商框 = page.getByRole("dialog", { name: "新建商机" });
+  await 商框.getByLabel("商机名称").fill("Windows LED 询盘");
+  await 商框.getByLabel("所属客户").click();
+  await 商框.getByLabel("所属客户").fill("Windows 外贸客户");
+  await page.locator(".ant-select-item-option", { hasText: "Windows 外贸客户" }).click();
+  await 商框.getByLabel("商机金额").fill("18000");
+  const 负责人 = 商框.getByLabel("负责人");
+  if (await 负责人.count()) { await 负责人.click(); await page.keyboard.press("Enter"); }
+  await 商框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(商框).toBeHidden();
+  await page.getByRole("button", { name: "Windows LED 询盘 的更多操作" }).click();
+  await page.getByRole("menuitem", { name: "转为订单" }).click();
+  const 单框 = page.getByRole("dialog", { name: "转为订单" });
+  await 单框.getByLabel("订单号 / PI 号").fill("PI-WIN-01");
+  await 单框.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(page.getByText(/订单 PI-WIN-01 已建好/)).toBeVisible();
+  await page.goto(`${origin}/orders`);
+  await expect(page.locator(".ant-table-row", { hasText: "PI-WIN-01" })).toContainText("Windows 外贸客户");
+  console.log("PASS: trade template — WhatsApp-only customer, opportunity → order, order list");
   const backup = path.join(root, "备份 空格.db");
   await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, backup);
   const result = await page.evaluate(() => window.desktopShell.backup());
