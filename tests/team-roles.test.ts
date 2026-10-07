@@ -523,7 +523,8 @@ describe("退出团队：按中转名单判业务员，老板那台永远不删�
     const r = await 同步一轮();
     expect(r).toMatchObject({ ok: false });
     await vi.waitFor(() => expect(fs.existsSync(团队文件())).toBe(false), { timeout: 3000 });
-    expect(await 客户名()).toEqual(["小王带来的客户", "小王的客户"].sort());
+    // 退出团队先删 .team.json、再「只留自己的」：文件没了不等于删完了（10-07 Windows 打包机慢，在这两步中间查到了五位）
+    await vi.waitFor(async () => expect(await 客户名()).toEqual(["小王带来的客户", "小王的客户"].sort()), { timeout: 3000 });
   });
 
   it("建团队的那台收到「不在这个团队」：不自动退、一条不删", async () => {
