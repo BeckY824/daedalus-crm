@@ -97,7 +97,10 @@ test("J-082 记录页勾完成的待办：原地划线留着、能撤销；之�
   await 登录(page);
   await page.goto(`/customers/${id}`);
   const 行 = page.locator(".rec-task", { hasText: "寄样品" });
-  await 行.getByRole("checkbox", { name: "完成 寄样品" }).check();
+  // CI 机器慢：页面还没接上事件就点了，勾不上（10-07 main CI）——勾上为止
+  await expect(async () => {
+    await 行.getByRole("checkbox", { name: "完成 寄样品" }).check({ timeout: 2_000 });
+  }).toPass({ timeout: 15_000 });
   // 勾完不立刻消失：原地划线，提示里给撤销
   await expect(行).toHaveClass(/is-done/);
   await expect.poll(() => 查((p) => p.task.findUniqueOrThrow({ where: { id: 待办.id } }).then((t) => t.done))).toBe(true);
