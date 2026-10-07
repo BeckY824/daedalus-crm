@@ -24,7 +24,8 @@ describe("弹框保存防连点", () => {
   it("每个 onOk 弹框都挂了 confirmLoading（或 okButtonProps 的 loading）", () => {
     const 根 = path.resolve(__dirname, "..");
     const 没防 = 列文件(path.join(根, "src"))
-      .map((f) => path.relative(根, f))
+      // Windows 上是反斜杠：统一成正斜杠，名单才对得上（10-07 Windows 打包机上红过）
+      .map((f) => path.relative(根, f).split(path.sep).join("/"))
       .filter((f) => {
         const s = fs.readFileSync(path.join(根, f), "utf8");
         return /<Modal\b/.test(s) && /\bonOk=\{/.test(s) && !/confirmLoading|okButtonProps=\{\{[^}]*loading/.test(s) && !(f in 不用防);

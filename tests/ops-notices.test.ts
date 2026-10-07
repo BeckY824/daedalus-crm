@@ -91,8 +91,15 @@ describe("隔离：只有运营账号拿得到", () => {
     const 首 = await (await 问(t)).json();
     expect(首.事件).toEqual([]);
     expect(typeof 首.now).toBe("string");
-    const 起 = new Date(Date.now() - 1).toISOString();
+    /*
+      createdAt 是 Prisma 引擎按它自己的钟盖的，Windows 上和 JS 的钟能差十几毫秒：since 只往前留 1 毫秒时，新号会落到 since 之前或 now 之后（10-07 Windows 打包机红过）。
+      所以按 JS 的钟把它的 createdAt 写死在 since 和 now 之间；前面几条用例建的号挪到很早，免得超过 3 条被并成「新增 N 个用户」
+    */
+    const { control } = await import("@/lib/tenant/control");
     const 新 = await 建账号(`fresh${Date.now()}@example.com`, "新来的");
+    await control.account.updateMany({ where: { id: { not: 新.id } }, data: { createdAt: new Date(0) } });
+    await control.account.update({ where: { id: 新.id }, data: { createdAt: new Date(Date.now() - 500) } });
+    const 起 = new Date(Date.now() - 1000).toISOString();
     const 次 = await (await 问(t, 起)).json();
     expect(次.事件).toContainEqual(expect.objectContaining({ key: `注册:${新.id}`, kind: "注册", 标题: "新用户：新来的", path: `/admin/users/${新.id}` }));
   });
