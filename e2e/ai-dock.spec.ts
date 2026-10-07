@@ -471,8 +471,10 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
       // CI 上字体不同，1440 也会收进抽屉；机器慢时页头那颗「AI」点早了（还没接上事件）抽屉不开——没出来就再点
       const 抽屉键 = page.getByRole("button", { name: /^thunderbolt AI$/ });
       const 键 = page.getByRole("button", { name: /生成简报/ });
+      // 抽屉已经开着（还在滑开）就别再点：再点一下是关上，下一行就一直等一颗已经不在的按钮（10-07 main CI 撞到，两趟都卡满 60 秒）
+      const 抽屉开着 = page.locator(".ant-drawer-open");
       await expect(async () => {
-        if (!(await 键.isVisible()) && (await 抽屉键.isVisible())) await 抽屉键.click();
+        if (!(await 键.isVisible()) && (await 抽屉键.isVisible()) && (await 抽屉开着.count()) === 0) await 抽屉键.click();
         await expect(键).toBeVisible({ timeout: 2_000 });
       }).toPass({ timeout: 20_000 });
       const 对比 = await 键.evaluate((el) => {
