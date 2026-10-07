@@ -4,7 +4,7 @@ import { 测试账号们 } from "./tenant/test-accounts";
 /**
  * 运营通知（2026-10-02）：运营台里有事，**只推给运营名单里那一个账号的桌面端**。
  *
- * 三类：新注册、新反馈、用量异常。壳每两分钟拿设备令牌问一次 /api/ops/notices?since=…，
+ * 四类：新注册、新反馈、用量异常、新团队待开通（2026-10-07：桌面端有人建了团队，要运营台点「开通」才开始同步，原来没人告诉运营）。壳每两分钟拿设备令牌问一次 /api/ops/notices?since=…，
  * 自己发系统通知；点一下打开运营台对应那一页。门和「运营台…」菜单是同一道（是运营账号），
  * 别的账号问只会拿到 403，壳里也根本不起这个轮询。
  *
@@ -19,7 +19,7 @@ import { 测试账号们 } from "./tenant/test-accounts";
 export type 运营事件 = {
   /** 去重用：同一个键壳只发一次 */
   key: string;
-  kind: "注册" | "反馈" | "用量";
+  kind: "注册" | "反馈" | "用量" | "团队";
   标题: string;
   正文: string;
   /** 点了打开运营台的哪一页，一律 /admin 开头 */
@@ -75,6 +75,8 @@ export function 并条(事件: 运营事件[]): 运营事件[] {
     出.push({ key: `${反馈[0].key}…${反馈.length}`, kind: "反馈", 标题: `${反馈.length} 条新反馈`, 正文: 反馈[0].正文, path: "/admin/feedback" });
   } else 出.push(...反馈);
   出.push(...用量.slice(0, 5));
+  // 新团队：每一个都要去点开通，不并条
+  出.push(...事件.filter((e) => e.kind === "团队"));
   return 出;
 }
 
@@ -91,7 +93,7 @@ export async function 读运营通知(since: string | null | undefined, now = ne
   // 「今天」按北京时间零点
   const 今天零点 = new Date(Date.parse(`${北京(now).slice(0, 10)}T00:00:00+08:00`));
 
-  const [测试们, 新账号, 新反馈, 近一小时, 今天] = await Promise.all([
+  const [测试们, 新账号, 新反馈, 近一小时, 今天, 新团队] = await Promise.all([
     测试账号们(env),
     control.account.findMany({
       where: { createdAt: { gt: 起, lte: now } },
@@ -101,6 +103,8 @@ export async function 读运营通知(since: string | null | undefined, now = ne
     control.feedback.findMany({ where: { at: { gt: 起, lte: now } }, orderBy: { at: "asc" }, select: { id: true, at: true, body: true, who: true, source: true } }),
     control.aiCharge.groupBy({ by: ["ownerKind", "ownerId"], where: { at: { gt: 一小时前, lte: now }, refunded: false }, _count: { _all: true } }),
     control.aiCall.groupBy({ by: ["ownerKind", "ownerId"], where: { at: { gte: 今天零点, lte: now } }, _sum: { inputTokens: true, outputTokens: true } }),
+    // 已经开通了的（运营抢在通知前点了）就不报
+    control.syncTeam.findMany({ where: { createdAt: { gt: 起, lte: now }, active: false }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, ownerAccountId: true } }),
   ]);
 
   const 事件: 运营事件[] = [];
@@ -123,6 +127,25 @@ export async function 读运营通知(since: string | null | undefined, now = ne
       正文: 截(一行(f.body), 120),
       path: "/admin/feedback",
     });
+  }
+
+  /*
+    新团队待开通：桌面端建了团队、把同事拉进来，不开通就一直「团队还没开通，暂不同步」。测试账号建的也报——开通照样要人去点
+  */
+  if (新团队.length) {
+    const 老板们 = new Map(
+      (await control.account.findMany({ where: { id: { in: 新团队.map((t) => t.ownerAccountId) } }, select: { id: true, name: true, email: true, phone: true } }))
+        .map((a) => [a.id, a.email ?? a.phone ?? a.name] as [string, string]),
+    );
+    for (const t of 新团队) {
+      事件.push({
+        key: `团队:${t.id}`,
+        kind: "团队",
+        标题: `新团队待开通：${截(一行(t.name), 30)}`,
+        正文: `${老板们.get(t.ownerAccountId) ?? "有人"} 建的 · 点开去运营台「团队同步」开通`,
+        path: "/admin/sync",
+      });
+    }
   }
 
   // 用量：超线的才报。键带钟头 / 日期，同一段时间壳只发一次

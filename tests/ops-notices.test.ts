@@ -114,6 +114,27 @@ describe("内容", () => {
     expect(r.事件.filter((e) => e.kind === "反馈")).toEqual([expect.objectContaining({ 标题: "5 条新反馈" })]);
   });
 
+  it("新团队待开通（10-07）：一个团队一条、写团队名和老板、点开去团队同步页；已开通的、since 之前建的不报；不并条", async () => {
+    const { control } = await import("@/lib/tenant/control");
+    const { 读运营通知 } = await import("@/lib/ops-notices");
+    const { 去处 } = await import("../desktop/ops-notices.js");
+    const 老板 = await 建账号("team-owner@example.com", "老板甲");
+    const now = new Date();
+    const 起 = new Date(now.getTime() - 60_000).toISOString();
+    const 建 = (name: string, at: Date, active = false) =>
+      control.syncTeam.create({ data: { name, ownerAccountId: 老板.id, joinSecretHash: "x", active, createdAt: at } });
+    await 建("早就建了的", new Date(now.getTime() - 3600_000));
+    await 建("已经开通的", new Date(now.getTime() - 1000), true);
+    for (const n of ["Win测试队", "二队", "三队", "四队"]) await 建(n, new Date(now.getTime() - 1000));
+    const r = await 读运营通知(起, now);
+    const 团队 = r.事件.filter((e) => e.kind === "团队");
+    expect(团队.map((e) => e.标题)).toEqual(["新团队待开通：Win测试队", "新团队待开通：二队", "新团队待开通：三队", "新团队待开通：四队"]);
+    expect(团队[0]).toMatchObject({ 正文: "team-owner@example.com 建的 · 点开去运营台「团队同步」开通", path: "/admin/sync" });
+    // 壳那头点通知认得这个去处
+    expect(去处(团队[0].path)).toBe("/admin/sync");
+    await control.syncTeam.deleteMany({});
+  });
+
   it("用量：一小时提问数超线才报，按 AiCharge 数；同一个钟头键相同", async () => {
     const { control } = await import("@/lib/tenant/control");
     const { 读运营通知 } = await import("@/lib/ops-notices");
