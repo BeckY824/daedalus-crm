@@ -7,7 +7,7 @@ import { 金额格式 } from "@/lib/money-input";
 import { 聚焦首项 } from "@/lib/modal-focus";
 import { useBusiness } from "@/lib/business-client";
 import { 贸易条款们, 常用付款方式, 定金比例 } from "@/lib/order";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { createOrder, saveOrder } from "./actions";
 
 export type 订单表头 = {
@@ -56,7 +56,18 @@ export default function OrderForm({
     if (比 !== null && all.amount) form.setFieldValue("depositDue", Math.round(all.amount * 比 * 100) / 100);
   }
 
+  // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
+  const [存着, set存着] = useState(false);
   async function onOk() {
+    if (存着) return;
+    set存着(true);
+    try {
+      await 存();
+    } finally {
+      set存着(false);
+    }
+  }
+  async function 存() {
     // 校验没过：框里各格已经标红了，安静返回；不接住的话是一个没人处理的 Promise 拒绝
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
@@ -93,7 +104,7 @@ export default function OrderForm({
       open={open}
       title={跟签约 ? "贸易条款 · 定金" : editing ? "编辑订单" : "新建订单"}
       onCancel={() => onClose(false)}
-      onOk={onOk}
+      onOk={onOk} confirmLoading={存着}
       okText="保存"
       cancelText="取消"
       width={600}

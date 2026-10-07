@@ -81,8 +81,20 @@ export default function LeadsView({
     }
   }, [open, editing, form, me]);
 
+  // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
+  const [存着, set存着] = useState(false);
   async function onOk() {
-    const v = await form.validateFields();
+    if (存着) return;
+    set存着(true);
+    try {
+      await 存();
+    } finally {
+      set存着(false);
+    }
+  }
+  async function 存() {
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     const res = await saveLead({ id: editing?.id, 版本: editing?.updatedAt, ...v });
     if (!res.ok) {
       message.error(res.error);
@@ -281,7 +293,7 @@ export default function LeadsView({
         open={open}
         title={editing ? "编辑线索" : "新建线索"}
         onCancel={() => setOpen(false)}
-        onOk={onOk}
+        onOk={onOk} confirmLoading={存着}
         okText="保存"
         cancelText="取消"
         width={600}

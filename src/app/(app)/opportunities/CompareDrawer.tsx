@@ -177,7 +177,18 @@ function QuoteRowForm({
   const 结论 = Form.useWatch("verdict", form) as string | undefined;
   const 币 = (Form.useWatch("currency", form) as string | undefined) ?? "CNY";
 
+  // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
+  const [存着, set存着] = useState(false);
   async function onOk() {
+    if (存着) return;
+    set存着(true);
+    try {
+      await 存();
+    } finally {
+      set存着(false);
+    }
+  }
+  async function 存() {
     // 校验没过：框里各格已经标红了，安静返回；不接住的话是一个没人处理的 Promise 拒绝
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
@@ -204,7 +215,7 @@ function QuoteRowForm({
   }
 
   return (
-    <Modal open title={editing ? "改这家的报价" : "加一家报价"} onCancel={() => onClose(false)} onOk={onOk} okText="保存" cancelText="取消" width={620} afterOpenChange={聚焦首项} destroyOnHidden>
+    <Modal open title={editing ? "改这家的报价" : "加一家报价"} onCancel={() => onClose(false)} onOk={onOk} confirmLoading={存着} okText="保存" cancelText="取消" width={620} afterOpenChange={聚焦首项} destroyOnHidden>
       <Form
         form={form}
         layout="vertical"

@@ -121,7 +121,8 @@ test("新建商机摆询盘时间、不摆概率；转为订单 → 商机标「
   await expect(框.getByLabel("询盘时间")).toBeVisible();
   await expect(框.getByText("成交概率")).toHaveCount(0);
   await 框.getByLabel("商机金额").fill("42000");
-  await 框.getByRole("button", { name: /保\s*存/ }).click();
+  // 双击保存：只建出一条（10-07 Sam 实测网慢时连点建出三条重复商机）。下面 行 是单条定位，多出一条就会报错
+  await 框.getByRole("button", { name: /保\s*存/ }).dblclick();
   await expect(框).toBeHidden();
   const 行 = page.locator(".ant-table-row", { hasText: 商机名 });
   await expect(行).toContainText("42,000");

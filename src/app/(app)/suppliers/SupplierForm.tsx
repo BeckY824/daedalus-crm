@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, Col, Form, Input, Modal, Row, Segmented } from "antd";
 import { 聚焦首项 } from "@/lib/modal-focus";
@@ -15,7 +16,18 @@ export default function SupplierForm({ open, editing, onClose }: { open: boolean
   const { message } = App.useApp();
   const [form] = Form.useForm();
 
+  // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
+  const [存着, set存着] = useState(false);
   async function onOk() {
+    if (存着) return;
+    set存着(true);
+    try {
+      await 存();
+    } finally {
+      set存着(false);
+    }
+  }
+  async function 存() {
     // 校验没过：框里各格已经标红了，安静返回；不接住的话是一个没人处理的 Promise 拒绝
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
@@ -27,7 +39,7 @@ export default function SupplierForm({ open, editing, onClose }: { open: boolean
   }
 
   return (
-    <Modal open={open} title={editing ? "编辑供应商" : "新建供应商"} onCancel={() => onClose(false)} onOk={onOk} okText="保存" cancelText="取消" width={640} afterOpenChange={聚焦首项} destroyOnHidden>
+    <Modal open={open} title={editing ? "编辑供应商" : "新建供应商"} onCancel={() => onClose(false)} onOk={onOk} confirmLoading={存着} okText="保存" cancelText="取消" width={640} afterOpenChange={聚焦首项} destroyOnHidden>
       <Form form={form} layout="vertical" style={{ marginTop: 8 }} initialValues={editing ?? {}}>
         <Row gutter={12}>
           <Col span={12}>
