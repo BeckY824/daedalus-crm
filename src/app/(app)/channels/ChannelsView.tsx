@@ -159,7 +159,7 @@ export default function ChannelsView({
       render: (v: boolean) =>
         v ? (
           <Tag color="success" style={{ margin: 0, borderRadius: 6 }}>
-            <CheckCircleOutlined /> 启用
+            <CheckCircleOutlined /> 已启用
           </Tag>
         ) : (
           <Tag style={{ margin: 0, borderRadius: 6 }}>
@@ -176,16 +176,16 @@ export default function ChannelsView({
       render: (_, r) => (
         <Space size={2}>
           <Button aria-label={`编辑 ${r.name}`} title="编辑" type="text" size="small" icon={<EditOutlined />} onClick={() => openForm(r)} />
-          <Tooltip title={r.active ? "停用" : "恢复"}>
+          <Tooltip title={r.active ? "停用" : "启用"}>
             <Button
-              aria-label={`${r.active ? "停用" : "恢复"} ${r.name}`}
+              aria-label={`${r.active ? "停用" : "启用"} ${r.name}`}
               type="text"
               size="small"
               icon={r.active ? <StopOutlined /> : <CheckCircleOutlined />}
               onClick={async () => {
                 const res = await toggleChannel(r.id, !r.active);
                 if (!res.ok) return void message.error(res.error);
-                message.success(r.active ? `「${r.name}」已停用` : `「${r.name}」已恢复`);
+                message.success(r.active ? `「${r.name}」已停用` : `「${r.name}」已启用`);
                 router.refresh();
                 亮一下(r.id);
               }}
@@ -239,7 +239,7 @@ export default function ChannelsView({
         行类={(r) => (r.active ? undefined : "row-off")}
         空态={{
           title: "还没有渠道",
-          hint: `渠道是${b.customer}从哪来的：合作老师、中介、家长社群。渠道负责人定了之后，这条线上进来的${b.customer}业绩自动归他；转介绍带来的下游也算在这条链上。`,
+          hint: `渠道是${b.customer}从哪来的：${b.template === "trade" ? "展会、线上平台、代理商" : b.fields.school === "院校" ? "合作老师、中介、家长社群" : "合作伙伴、代理商、推荐社群"}。渠道负责人定了之后，这条线上进来的${b.customer}业绩自动归他；转介绍带来的下游也算在这条链上。`,
           primary: { label: "新建第一个渠道", onClick: () => openForm(null) },
         }}
         筛选={
@@ -270,7 +270,7 @@ export default function ChannelsView({
               allowClear
               value={active || undefined}
               onChange={(v) => setActive(v ?? "")}
-              options={[{ value: "on", label: "合作中" }, { value: "off", label: "已停用" }]}
+              options={[{ value: "on", label: "已启用" }, { value: "off", label: "已停用" }]}
             />
             <ResetFilters 显示={Boolean(kw || ownerId || active)} onClick={() => { setKw(""); setOwnerId(""); setActive(""); }} />
           </Space>

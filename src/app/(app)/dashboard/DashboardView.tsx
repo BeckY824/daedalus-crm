@@ -96,7 +96,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         extraCssText: "box-shadow:0 6px 20px rgba(16,43,77,.12);border-radius:8px;",
       },
       legend: {
-        data: ["累计客户", "活跃客户"],
+        data: [`累计${b.customer}`, `活跃${b.customer}`],
         left: 0,
         top: 0,
         icon: "circle",
@@ -120,7 +120,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
       },
       series: [
         {
-          name: "累计客户",
+          name: `累计${b.customer}`,
           type: "line",
           smooth: true,
           symbolSize: 5,
@@ -129,7 +129,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
           lineStyle: { width: 2 },
         },
         {
-          name: "活跃客户",
+          name: `活跃${b.customer}`,
           type: "line",
           smooth: true,
           symbolSize: 5,
@@ -149,7 +149,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         },
       ],
     }),
-    [sliced],
+    [sliced, b.customer],
   );
 
   // 条的长短只能按一个币种比：本位币那一份（排序也是按它，见 Board）
@@ -265,7 +265,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         <Col xs={24} xl={15}>
           <Card
             styles={{ body: { paddingTop: 14 } }}
-            title={<span className="section-title">客户趋势分析</span>}
+            title={<span className="section-title">{b.customer}趋势分析</span>}
             extra={
               <Segmented
                 size="small"
@@ -283,7 +283,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
               「活跃」更是没人猜得到，所以一并写明。这一页的规矩：数字必须说得清自己是怎么来的。
             */}
             <div className="stat-delta" style={{ marginTop: 8 }}>
-              累计客户 = 截至当天库里一共有多少位；活跃客户 = 其中最近 30 天有过跟进记录的
+              累计{b.customer} = 截至当天库里一共有多少位；活跃{b.customer} = 其中最近 30 天有过跟进记录的
             </div>
           </Card>
         </Col>
@@ -467,7 +467,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: alpha(categorical.green, 0.12), color: categorical.green }}>
                     <UserAddOutlined />
                   </span>
-                  <Typography.Text type="secondary" style={{ fontSize: 15 }}>新增客户（本月）</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 15 }}>新增{b.customer}（本月）</Typography.Text>
                 </Space>
                 <div className="stat-value" style={{ marginTop: 8 }}>{stats.newCustomersThisMonth}</div>
                 {/* 原本写死 ↑ 和绿色，还用 Math.abs 把负数也显示成上升——

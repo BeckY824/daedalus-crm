@@ -22,6 +22,9 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
   const { message } = App.useApp();
   const [form] = Form.useForm<BusinessConfig>();
   const [saving, setSaving] = useState(false);
+  const template = Form.useWatch("template", form) ?? value.template;
+  const school = Form.useWatch(["fields", "school"], form) ?? value.fields.school;
+  const examples = BUSINESS_PRESETS[template === "general" && school === "院校" ? "教培招生" : 模版预设[template as BusinessTemplate]];
   const 旧状态有冲突 = Object.keys(状态名问题(value)).length > 0;
   /**
    * 刚套上、还没保存的那一套（审查 D7）。原来点预设只飘过一句提示，保存键在长表单最底下，
@@ -164,13 +167,13 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
         </Row>
 
         <Form.Item name="grades" label="档案字段 2 的选项" extra="回车或逗号分隔。删掉某项不会影响已存了该值的记录，只是新录入时选不到。" rules={[{ required: true, message: "至少一项" }]}>
-          {tags("大一、大二…")}
+          {tags(`${examples.grades.slice(0, 3).join("、")}…`)}
         </Form.Item>
         <Form.Item name="sources" label="线索来源选项" extra="录入时的候选；不在这里的也能直接填。" rules={[{ required: true, message: "至少一项" }]}>
-          {tags("微信、小红书、抖音、转介绍…")}
+          {tags(`${examples.sources.slice(0, 3).join("、")}…`)}
         </Form.Item>
         <Form.Item name="industries" label="行业选项" extra="线索和客户的「行业」都用这份当候选，也能直接填。" rules={[{ required: true, message: "至少一项" }]}>
-          {tags("教育培训、设计服务…")}
+          {tags(`${examples.industries.slice(0, 3).join("、")}…`)}
         </Form.Item>
 
         <Typography.Title level={5} style={{ marginTop: 8 }}>状态显示名</Typography.Title>

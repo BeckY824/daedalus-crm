@@ -78,7 +78,7 @@ describe("J-109 趋势图：第一条线是累计客户，不是当日新增", (
     expect(trend[trend.length - 5].created).toBe(4);
     // 图例名和口径一致：DashboardView 里那条线叫「累计客户」，不叫「新增客户」
     const 视图 = readFileSync("src/app/(app)/dashboard/DashboardView.tsx", "utf8");
-    expect(视图).toMatch(/data:\s*\["累计客户",\s*"活跃客户"\]/);
+    expect(视图).toMatch(/data:\s*\[`累计\$\{b\.customer\}`,\s*`活跃\$\{b\.customer\}`\]/);
     expect(视图).not.toMatch(/name:\s*"新增客户"/);
   });
 });

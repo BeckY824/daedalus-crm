@@ -170,7 +170,7 @@ export default function MembersTab({
         </Tag>
       ),
     },
-    { title: "负责客户", dataIndex: "customerCount", width: 90 },
+    { title: `负责${b.customer}`, dataIndex: "customerCount", width: 90 },
     { title: "商机数", dataIndex: "oppCount", width: 80 },
     { title: "跟进数", dataIndex: "followCount", width: 80 },
     {
@@ -336,7 +336,7 @@ export default function MembersTab({
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="role" label="角色">
+              <Form.Item name="role" label="角色" extra="销售主管与销售目前使用相同业务权限；职位仅用于展示，管理权限由角色决定。">
                 <Select options={ROLES.map((r) => ({ value: r.value, label: r.label }))} />
               </Form.Item>
             </Col>

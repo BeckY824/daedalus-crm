@@ -211,6 +211,7 @@ export default function LeadsView({
               onClick={() =>
                 modal.confirm({
                   title: `删除线索「${r.name}」？`,
+                  content: "删除后不可恢复。确认前请核对线索名称；取消不会修改资料。",
                   okText: "删除",
                   okButtonProps: { danger: true },
                   cancelText: "取消",
