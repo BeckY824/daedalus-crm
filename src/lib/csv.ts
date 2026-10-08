@@ -21,12 +21,12 @@
 export const BOM = "﻿";
 
 /** 这几个开头会被表格软件当成公式 */
-const 危险开头 = ["=", "+", "-", "@", "\t", "\r"];
+const 危险开头 = /^[\s\uFEFF]*[=+@-]|^[\t\r\n]/;
 
 /** 单个字段：先挡公式注入，再按 RFC 4180 转义 */
 export function csvCell(v: unknown): string {
   const s = v == null ? "" : String(v);
-  const 安全 = 危险开头.some((c) => s.startsWith(c)) ? `'${s}` : s;
+  const 安全 = 危险开头.test(s) ? `'${s}` : s;
   return `"${安全.replace(/"/g, '""')}"`;
 }
 

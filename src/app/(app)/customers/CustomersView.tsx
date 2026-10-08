@@ -637,7 +637,7 @@ function exportXlsx(rows: CustomerRow[], 跟进: 跟进导出行[], b: BusinessC
   const blob = new Blob([字节 as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${b.customer}列表-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  a.download = `${b.customer}列表-${fmtDate(new Date())}.xlsx`;
   a.click();
   URL.revokeObjectURL(a.href);
 }

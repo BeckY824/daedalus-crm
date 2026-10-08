@@ -28,7 +28,7 @@ export function 列字母(n: number): string {
 
 /** 工作表名：Excel 限 31 个字，不许 \ / ? * [ ] :，不许以单引号开头或结尾（不然打开时提示「修复」） */
 function 表名(s: string): string {
-  return [...s.replace(/[\\/?*[\]:]/g, " ").replace(/^'+|'+$/g, "").trim()].slice(0, 31).join("") || "Sheet";
+  return [...s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g, "").replace(/[\\/?*[\]:]/g, " ").replace(/^[\s']+|[\s']+$/g, "")].slice(0, 31).join("").replace(/[\s']+$/g, "") || "Sheet";
 }
 
 /** 一格最多 32767 个字（Excel 的上限，超了打不开），超了截掉、尾巴写明 */
@@ -75,7 +75,10 @@ export function 写xlsx(表们: readonly 工作表[]): Uint8Array {
     let n = 表名(t.名);
     // Excel 认表名不分大小写：「Sheet」和「sheet」算重名
     const 撞 = (x: string) => 名们.some((y) => y.toLowerCase() === x.toLowerCase());
-    for (let k = 2; 撞(n); k++) n = `${[...表名(t.名)].slice(0, 28).join("")} ${k}`;
+    for (let k = 2; 撞(n); k++) {
+      const suffix = ` ${k}`;
+      n = `${[...表名(t.名)].slice(0, 31 - suffix.length).join("")}${suffix}`;
+    }
     名们.push(n);
   }
   const files: Record<string, Uint8Array> = {
