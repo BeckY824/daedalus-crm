@@ -34,7 +34,7 @@ import CustomerForm from "../CustomerForm";
 import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
 import StarButton from "./StarButton";
-import AiCost from "@/components/AiCost";
+import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { toggleTask, deleteTask, deleteFollowUp, restoreFollowUp, completePlan, saveFollowUp } from "./actions";
 import { useContactRemoval } from "./useContactRemoval";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
@@ -98,6 +98,7 @@ export default function RecordView({
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const AI已用完 = useAiOutOfCredits();
   const b = useBusiness();
   const { 问怎么拿掉 } = useContactRemoval();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
@@ -660,7 +661,7 @@ export default function RecordView({
                 {aiEnabled ? "「AI 解析」会把它整理成跟进记录并留存原文；「直接记」原样存为一条记录" : "Enter 换行，写完点「直接记」"}
               </span>
               {aiEnabled && (
-                <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={memo.trim().length < 5} onClick={() => openFollow(null, memo)}>
+                <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={memo.trim().length < 5 || AI已用完} onClick={() => openFollow(null, memo)}>
                   AI 解析
                   <AiCost />
                 </Button>

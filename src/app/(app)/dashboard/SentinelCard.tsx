@@ -9,7 +9,7 @@ import { explainWatchlist } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
-import AiCost from "@/components/AiCost";
+import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
@@ -28,6 +28,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
   const kindLabel = (k: WatchItem["kind"]) => KIND_LABEL[k].replace("学员", b.customer);
   // 解读与话术都挂在进程内任务表上（ai-jobs），离开首页再回来，转圈和结果都还在。
   // 话术的 key 与记录页共用：两边起草的是同一条，互相能看到
+  const AI已用完 = useAiOutOfCredits();
   const explainJob = useJob<Record<string, string>>("sentinel:explain");
   const notes = explainJob?.status === "done" ? explainJob.value : null;
   const explaining = explainJob?.status === "loading";
@@ -59,7 +60,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
       extra={
         aiEnabled && !notes ? (
           /* 跑着时不转圈：在做什么、过了几秒，卡片里那一行说 */
-          <Button size="small" icon={<BulbOutlined />} disabled={explaining} onClick={explain}>
+          <Button size="small" icon={<BulbOutlined />} disabled={explaining || AI已用完} onClick={explain}>
             AI 解读
             <AiCost />
           </Button>
@@ -99,6 +100,7 @@ function SentinelRow({
   onDraft: () => void;
   onCopy: (t: string) => void;
 }) {
+  const AI已用完 = useAiOutOfCredits();
   const job = useJob<string>(草稿键("wakeup", it.customerId));
   const draftText = job?.status === "done" ? job.value : undefined;
   return (
@@ -116,7 +118,7 @@ function SentinelRow({
             </span>
             <span style={{ color: "var(--text-muted)", fontSize: 13, flex: "none" }}>{it.ownerName}</span>
             {aiEnabled && !draftText && (
-              <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>
+              <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading" || AI已用完} onClick={onDraft}>
                 起草跟进
                 <AiCost />
               </Button>

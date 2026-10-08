@@ -1,4 +1,5 @@
 import { CompletionStream } from "./llm-stream";
+import { 已知AI用完, 记AI余额 } from "./ai-credit-cache";
 /**
  * LLM 调用层 —— 任何 OpenAI 兼容接口（DeepSeek 官方、OpenAI、中转站、本地 Ollama…）。
  * 配置（Key、接口地址、模型名从哪来）在 llm-config.ts，这里原样转出，调用方只认这一个入口。
@@ -156,6 +157,8 @@ export type 工具声明 = { type: "function"; function: { name: string; descrip
 export const 首字等待毫秒 = { 流式: 20_000, 短输出: 15_000, 中输出: 45_000 };
 
 async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean, tools?: 工具声明[]): Promise<Response> {
+  const 云端网关 = /\/api\/gateway\/v1\/?$/.test(cfg.baseUrl);
+  if (云端网关 && 已知AI用完(cfg, opts.requestId)) throw Object.assign(new Error("AI 次数用完了，可在设置刷新余额或填自己的模型 API Key"), { status: 402 });
   const 模型 = opts.model ?? cfg.model;
   const 键 = 上游键(cfg, 模型);
   const body: Record<string, unknown> = {
@@ -245,6 +248,11 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       if (e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError")) throw e;
       throw new Error("连不上 AI 服务，检查一下网络再试");
     }
+  }
+  if (云端网关) {
+    const remaining = res.headers.get("X-Credits-Remaining");
+    if (remaining !== null) 记AI余额(cfg, Number(remaining), res.ok ? opts.requestId : undefined);
+    if (res.status === 402) 记AI余额(cfg, 0);
   }
   if (!res.ok) {
     const errText = 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey);

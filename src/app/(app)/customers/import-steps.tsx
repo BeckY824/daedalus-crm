@@ -10,6 +10,7 @@ import { 样例行数 } from "@/lib/jev/columns";
 import type { 预览, 导入方案 } from "./import-actions";
 import { 外贸精简, type BusinessConfig } from "@/lib/business-config";
 import AiWait from "@/components/AiWait";
+import { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
 
 /**
  * 报第几行时怎么说（审查 D15）。行号按文件那条路算（1 是表头，第一条数据是 2，人照着去 Excel 里找）；
@@ -83,13 +84,14 @@ export function 页脚({
  * （见文件头「AI 不自动跑」）。按钮在没接模型、没粘东西、粘超了三种情况下都是灰的，
  * 每一种旁边都写着为什么，而不是灰在那儿让人猜。
  */
-export function 粘贴面板({
+export function PastePanel({
   原文, set原文, 忙, aiEnabled, 整理, 进度, b,
 }: {
   原文: string; set原文: (v: string) => void; 忙: boolean; aiEnabled: boolean; 整理: () => void;
   进度: { 起: number; 出错?: string } | null; b: BusinessConfig;
 }) {
   const 称呼 = b.customer;
+  const AI已用完 = useAiOutOfCredits();
   const 超了 = 原文.length > 粘贴字数上限;
   /**
    * 一段能直接点来用的例子。**空白页是第一次用的人最容易退出去的地方**——
@@ -136,14 +138,15 @@ export function 粘贴面板({
           <Button
             type="primary"
             icon={<ThunderboltOutlined />}
-            disabled={忙 || !aiEnabled || !原文.trim() || 超了}
+            disabled={忙 || !aiEnabled || !原文.trim() || 超了 || AI已用完}
             onClick={整理}
           >
-            整理成表格
+            {AI已用完 ? "AI 次数已用完" : "整理成表格"}
           </Button>
         </div>
       </div>
 
+      {AI已用完 && <div style={{ marginTop: 12 }}><AiRemaining /></div>}
       {!aiEnabled ? (
         <Alert
           type="info"
@@ -172,6 +175,7 @@ export function 粘贴面板({
     </>
   );
 }
+export { PastePanel as 粘贴面板 };
 
 /** 第二步：每一列对到哪个字段。**认人那一列没指出来就不让走**，见下面那条提示 */
 export function 对列({

@@ -51,10 +51,12 @@ beforeAll(async () => {
         import { App } from "antd";
         import { DEFAULT_BUSINESS } from "@/lib/business-config";
         import C from "@/app/(app)/customers/ImportDrawer";
+        import { AiMeterProvider, AiMeterBar } from "@/components/AiCost";
         window.__调用 = {};
         window.__认列回 = [];
         createRoot(document.getElementById("root")).render(
-          React.createElement(App, null, React.createElement(C, { open: true, onClose() {}, b: DEFAULT_BUSINESS, aiEnabled: true, onDone() {} }))
+          React.createElement(App, null, React.createElement(AiMeterProvider, { 初值: window.__计次,
+            children: React.createElement(React.Fragment, null, React.createElement(AiMeterBar), React.createElement(C, { open: true, onClose() {}, b: DEFAULT_BUSINESS, aiEnabled: true, onDone() {} })) }))
         );
       `,
       resolveDir: process.cwd(),
@@ -80,15 +82,18 @@ afterAll(async () => {
 /** 第三列「备用栏」规则认不出来；四行数据，看发给 AI 的是不是只有前 3 行 */
 const 表 = ["姓名,手机号,备用栏", "张三,13800000001,展会", "李四,13800000002,朋友介绍", "王五,13800000003,官网", "赵六,13800000004,展会"].join("\n");
 
-async function 开(选项: { 能认列?: boolean; 本机?: boolean } = {}): Promise<Page> {
+async function 开(选项: { 能认列?: boolean; 本机?: boolean; 零额度?: boolean } = {}): Promise<Page> {
   const page = await browser.newPage();
   await page.route("http://import-drawer.test/**", (r) =>
     r.fulfill({ contentType: "text/html", body: `<!doctype html><meta charset="utf-8"><div id="root"></div>` }),
   );
   await page.goto("http://import-drawer.test/");
-  await page.evaluate(({ 能认列, 本机 }) => {
-    Object.assign(window, { __能认列: 能认列, __本机: 本机 });
-  }, { 能认列: 选项.能认列 ?? true, 本机: 选项.本机 ?? false });
+  await page.evaluate(({ 能认列, 本机, 零额度 }) => {
+    const state = 零额度 ? { 计次: true, 还剩: 0, 上限: 30 } : { 计次: false, 还剩: null, 上限: null };
+    Object.assign(window, { __能认列: 能认列, __本机: 本机, __计次: state, __余额: state });
+    const original = window.fetch;
+    window.fetch = async (...args) => String(args[0]).includes("/api/ai/meter") ? new Response(JSON.stringify((window as unknown as { __余额: unknown }).__余额)) : original(...args);
+  }, { 能认列: 选项.能认列 ?? true, 本机: 选项.本机 ?? false, 零额度: 选项.零额度 ?? false });
   await page.addScriptTag({ content: 包 });
   await page.getByText("把 Excel 或 CSV 拖到这里").waitFor();
   return page;
@@ -101,6 +106,25 @@ async function 选文件(page: Page) {
 
 const 调用 = (page: Page, 名: string) =>
   page.evaluate((n) => ((window as unknown as { __调用: Record<string, unknown[]> }).__调用[n] ?? []) as unknown[][], 名);
+
+it("零额度禁用真实整理按钮且不调用动作；余额刷新或自带Key恢复", async () => {
+  const page = await 开({ 零额度: true });
+  page.setDefaultTimeout(5000);
+  await page.getByText("粘一段文本", { exact: true }).click();
+  await page.getByRole("textbox").fill("赵一 13800000001");
+  expect(await page.getByRole("button", { name: "AI 次数已用完" }).isDisabled()).toBe(true);
+  expect(await 调用(page, "粘")).toHaveLength(0);
+  await page.evaluate(() => Object.assign(window, { __余额: { 计次: true, 还剩: 2, 上限: 32 } }));
+  await page.locator(".ant-drawer-body").getByRole("button", { name: "刷新余额", exact: true }).click();
+  await expect.poll(() => page.getByRole("button", { name: "整理成表格" }).isEnabled()).toBe(true);
+  await page.evaluate(() => { Object.assign(window, { __余额: { 计次: true, 还剩: 0, 上限: 32 } }); window.dispatchEvent(new Event("focus")); });
+  await page.getByRole("button", { name: "AI 次数已用完" }).waitFor();
+  await page.evaluate(() => Object.assign(window, { __余额: { 计次: false, 还剩: null, 上限: null } }));
+  await page.locator(".ant-drawer-body").getByRole("button", { name: "刷新余额", exact: true }).click();
+  await expect.poll(() => page.getByRole("button", { name: "整理成表格" }).isEnabled()).toBe(true);
+  expect(await 调用(page, "粘")).toHaveLength(0);
+  await page.close();
+});
 
 it("分批失败后再次整理把已完成批次传给续作，原文保留", async () => {
   const page = await 开();

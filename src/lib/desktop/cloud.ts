@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { 记AI余额 } from "../ai-credit-cache";
 
 /**
  * 桌面端本地模式的云端账号——**服务端这一份**。
@@ -630,6 +631,7 @@ export async function 余额(): Promise<余额信息 | null> {
   const c = 读();
   if (!c) return null;
   const r = await 请求<余额信息>(`${c.baseUrl}/api/gateway/v1/credits`, { headers: { Authorization: `Bearer ${c.token}` } });
+  if (r.ok && typeof r.data?.还剩 === "number") 记AI余额({ baseUrl: `${c.baseUrl}/api/gateway/v1`, apiKey: c.token }, r.data.还剩);
   return r.ok ? r.data : null;
 }
 

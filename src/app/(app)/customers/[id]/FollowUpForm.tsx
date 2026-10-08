@@ -12,7 +12,7 @@ import { useBusiness } from "@/lib/business-client";
 import { 外贸订单 } from "@/lib/business-config";
 import { 拆关联, 订单前缀 } from "@/lib/follow-link";
 import AiWait from "@/components/AiWait";
-import AiCost from "@/components/AiCost";
+import AiCost, { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
 import { clearJob, runJob } from "@/lib/ai-jobs";
 import { statusLabel } from "@/lib/business-config";
 import { 只填没动过的, 跳过说明 } from "@/lib/fill-untouched";
@@ -105,6 +105,7 @@ export default function FollowUpForm({
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
+  const AI已用完 = useAiOutOfCredits();
   const router = useRouter();
   const b = useBusiness();
   const type = Form.useWatch("type", form);
@@ -166,6 +167,7 @@ export default function FollowUpForm({
   }
 
   async function runParse(text: string) {
+    if (AI已用完) return;
     if (!customerId) {
       message.warning(`先挑一位${b.customer}`);
       return;
@@ -420,11 +422,12 @@ export default function FollowUpForm({
                 </Typography.Text>
               )}
               {/* 跑着时不转圈：在做什么、过了几秒，左边那一行已经说了。按钮只负责「现在不能再点」 */}
-              <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={aiLoading || 还没挑} onClick={onAiParse}>
+              <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={aiLoading || 还没挑 || AI已用完} onClick={onAiParse}>
                 {解析?.结果 ? "重新解析" : "AI 解析填表"}
                 <AiCost />
               </Button>
             </div>
+            {AI已用完 && <AiRemaining />}
           </div>
         )}
         <Row gutter={16}>

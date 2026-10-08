@@ -11,7 +11,7 @@ import { runStream, type StreamJob } from "@/lib/ai-stream";
 import AiTrace from "@/components/AiTrace";
 import AiWait from "@/components/AiWait";
 import BriefBody from "./BriefBody";
-import AiCost, { useAiMeter } from "@/components/AiCost";
+import AiCost, { useAiMeter, useAiOutOfCredits } from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
 import { 起草语言们, 起草语气们, type 起草语言, type 起草语气 } from "@/lib/draft-style";
 import { useLocalPref } from "@/lib/local-pref";
@@ -42,6 +42,7 @@ export default function AiPanel({
   const b = useBusiness();
   // 自己 Key、付费、自部署的人不花次数，那句「会用掉 1 次」对他们不成立（lib/ai-meter.ts）
   const { 计次 } = useAiMeter();
+  const AI已用完 = useAiOutOfCredits();
   const briefKey = `brief:${customerId}:${fingerprint}`;
   const askKey = `brief-q:${customerId}`;
 
@@ -55,11 +56,13 @@ export default function AiPanel({
   const 标签 = useMemo(() => ({ 名: `${customerName} 的简报`, 去: `/customers/${customerId}` }), [customerName, customerId]);
 
   function regenerate() {
+    if (AI已用完) return;
     clearJob(askKey);
     clearJob(briefKey);
     runStream<BriefAnswer>(briefKey, { mode: "brief", customerId }, undefined, 标签);
   }
   function ask(question: string) {
+    if (AI已用完) return;
     runStream<BriefAnswer>(askKey, { mode: "brief", customerId, question }, question, { 名: `问 ${customerName}：${question.slice(0, 12)}`, 去: `/customers/${customerId}` });
   }
 
@@ -119,7 +122,7 @@ export default function AiPanel({
         </span>
         {(result || loading) && (
           <Tooltip title="重新生成简报">
-            <Button size="small" type="text" icon={<ReloadOutlined spin={loading} />} onClick={regenerate} disabled={loading || !hasRecords} aria-label="简报">
+            <Button size="small" type="text" icon={<ReloadOutlined spin={loading} />} onClick={regenerate} disabled={loading || !hasRecords || AI已用完} aria-label="简报">
               简报
               <AiCost />
             </Button>
@@ -132,7 +135,7 @@ export default function AiPanel({
       {/* 还没生成过：摆一颗按钮，不替人做决定。点了才花那一次额度 */}
       {hasRecords && !loading && !result && !error && (
         <div className="rec-ai-idle">
-          <Button type="primary" size="small" icon={<ThunderboltOutlined />} onClick={regenerate}>
+          <Button type="primary" size="small" icon={<ThunderboltOutlined />} onClick={regenerate} disabled={AI已用完}>
             生成简报
           </Button>
           <span>读完这位{b.customer}的全部跟进，给一段故事线和下一步建议。{计次 && "会用掉 1 次 AI 额度。"}</span>
@@ -174,7 +177,7 @@ export default function AiPanel({
           disabled={!hasRecords}
           aria-label={`问 AI 关于 ${customerName} 的事`}
           onPressEnter={() => {
-            if (q.trim()) {
+            if (q.trim() && !AI已用完) {
               ask(q.trim());
               setQ("");
             }
@@ -185,7 +188,7 @@ export default function AiPanel({
               size="small"
               className="rec-send"
               icon={<ArrowUpOutlined />}
-              disabled={!q.trim() || loading}
+              disabled={!q.trim() || loading || AI已用完}
               onClick={() => {
                 ask(q.trim());
                 setQ("");
@@ -199,8 +202,8 @@ export default function AiPanel({
             trigger={["click"]}
             menu={{
               items: [
-                { key: "wakeup", label: <>起草跟进话术 <AiCost /></>, disabled: wakeupJob?.status === "loading" },
-                ...(signed ? [{ key: "invite", label: <>起草转介绍邀请 <AiCost /></>, disabled: inviteJob?.status === "loading" }] : []),
+                { key: "wakeup", label: <>起草跟进话术 <AiCost /></>, disabled: wakeupJob?.status === "loading" || AI已用完 },
+                ...(signed ? [{ key: "invite", label: <>起草转介绍邀请 <AiCost /></>, disabled: inviteJob?.status === "loading" || AI已用完 }] : []),
               ],
               onClick: ({ key }) => doDraft(key as 草稿类),
             }}

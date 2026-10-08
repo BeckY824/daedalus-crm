@@ -9,7 +9,7 @@ import { useBusiness } from "@/lib/business-client";
 import { useJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
-import AiCost from "@/components/AiCost";
+import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 
 /**
  * 转介绍雷达：左边是谁在帮我们带人，右边是下一个该请谁开口。
@@ -83,6 +83,7 @@ export default function ReferralRadar({
 
 /** 单行拆成组件，各自订阅自己的邀请话术任务 */
 function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEnabled: boolean; onDraft: () => void; onCopy: (t: string) => void }) {
+  const AI已用完 = useAiOutOfCredits();
   const job = useJob<string>(草稿键("invite", c.customerId));
   const text = job?.status === "done" ? job.value : undefined;
   return (
@@ -93,7 +94,7 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
         </Link>
         <span style={{ flex: 1, minWidth: 160, color: "var(--text-muted)", fontSize: 14 }}>{c.reason}</span>
         {aiEnabled && !text && (
-          <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>
+          <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading" || AI已用完} onClick={onDraft}>
             起草邀请
             <AiCost />
           </Button>

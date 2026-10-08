@@ -99,7 +99,7 @@ describe("chatJSON 那条路（起草话术）", () => {
 
   // 【下一版】回归核对 D-058 后半：次数已经是 0 时按钮照样能点、照样往网关发一趟（网关回 402、不扣、说人话，上面那条钉着）。
   // 输入框下那行和左栏用量条会变红，但按钮不置灰。不伤数据、不扣次，排下一版；做了「0 次本地就拦」后去掉 skip
-  it.skip("【下一版】D-058 次数已知是 0：本地就拦下说「用完」，不往网关发", async () => {
+  it("D-058 次数已知是0本地拦，刷新到补赠后可恢复", async () => {
     const { 扣一次 } = await import("@/lib/tenant/credits");
     for (let i = 0; i < 200; i++) if (!(await 扣一次(账号.owner)).ok) break;
     const 线 = 接线({ 上游: () => 回文本("{}") });
@@ -108,6 +108,12 @@ describe("chatJSON 那条路（起草话术）", () => {
     const r = await 起草();
     expect(错误(r)).toContain("用完");
     expect(线.网关.length, "已经知道是 0 了，第二次不该再去网关").toBe(之前);
+    const { 赠送 } = await import("@/lib/tenant/credits");
+    await 赠送(账号.owner, { amount: 2, reason: "QA补赠", key: "qa-refresh" });
+    await (await import("@/lib/desktop/cloud")).余额();
+    const recover = 接线({ 上游: () => 回文本('{"message":"恢复成功"}') });
+    expect((await 起草()).ok).toBe(true);
+    expect(recover.网关.length).toBe(1);
   });
 
   it("网关自己的频率闸（429）：说「太频繁、等几秒」，不扣", async () => {
@@ -163,7 +169,7 @@ describe("chatJSON 那条路（起草话术）", () => {
     await 等一下(900); // 让网关那边把上游等完，别把这次请求漏到下一条用例里
   });
 
-  it.skip("【下一版】【坏】桌面端这边先超时（上游慢）：人看到「超时」，但这一次照样被扣了", async () => {
+  it("桌面先超时，上游迟返后退还未交付的答案", async () => {
     // 上游 0.6 秒才回；桌面端 0.2 秒就放弃。真实世界里是：话术 60 秒、网关等上游 120 秒
     接线({ 上游: async () => { await 等一下(600); return 回文本('{"message":"迟到的话术"}'); } });
     const { chatJSON } = await import("@/lib/llm");

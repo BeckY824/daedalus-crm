@@ -180,7 +180,7 @@ export function 接线(opts: { 上游: 上游剧本; 云断网?: () => boolean; 
       const 特 = opts.云端回?.(url);
       if (特) return 特;
       const headers = new Headers(init.headers);
-      const req = new Request(url, { method: init.method ?? "GET", headers, body: init.body as BodyInit | undefined });
+      const req = new Request(url, { method: init.method ?? "GET", headers, body: init.body as BodyInit | undefined, signal: init.signal });
       const 记 = url.includes("/chat/completions")
         ? 线.网关[线.网关.push({ url, questionId: headers.get("x-question-id"), feature: headers.get("x-feature") }) - 1]
         : null;
