@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { TOOLS } from "@/lib/agent/tools";
-import { DEFAULT_BUSINESS } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
 
 let 我: { id: string };
 
@@ -494,5 +494,39 @@ describe("list_users：团队名单", () => {
     expect(默认.length).toBe(1);
     expect(全部.length).toBe(2);
     expect(全部.find((u) => u.状态 === "已停用")).toBeTruthy();
+  });
+});
+
+
+describe("查询随业务配置", () => {
+  it("通用和外贸可按职位查询及分组，保留旧年级字段别名", async () => {
+    await prisma.customer.createMany({ data: [
+      { name: "高管甲", phone: "13800000001", grade: "高管", school: "甲公司", salesOwnerId: 我.id },
+      { name: "采购乙", phone: "13800000002", grade: "采购", school: "乙公司", salesOwnerId: 我.id },
+    ] });
+    for (const b of [DEFAULT_BUSINESS, BUSINESS_PRESETS.外贸出口]) {
+      for (const field of ["职位", "年级"]) {
+        const result = await 用("query_records").run({ 表: "客户", 条件: [{ 字段: field, 运算: "等于", 值: "高管" }], 分组: "职位" }, { ...ctx(), b });
+        expect(result.data).toMatchObject({ 总数: 1, 分组: [{ 职位: "高管", 条数: 1 }] });
+        expect(result.summary).toContain("职位 是 高管");
+      }
+    }
+  });
+  it("自定义档案显示名和历史自由文本仍可查；拒绝未开放字段", async () => {
+    await prisma.customer.create({ data: { name: "旧资料", phone: "13800000001", grade: "旧岗位", school: "甲公司", salesOwnerId: 我.id } });
+    const b = { ...DEFAULT_BUSINESS, fields: { ...DEFAULT_BUSINESS.fields, grade: "岗位" } };
+    const result = await 用("query_records").run({ 表: "客户", 条件: [{ 字段: "岗位", 运算: "等于", 值: "旧岗位" }] }, { ...ctx(), b });
+    expect(result.data).toMatchObject({ 总数: 1, 结果: [{ 岗位: "旧岗位" }] });
+    expect((await 用("query_records").run({ 表: "客户", 条件: [{ 字段: "password", 运算: "等于", 值: "x" }] }, { ...ctx(), b })).data).toHaveProperty("error");
+  });
+  it("教培使用配置的年级选项，指标与分组名称跟随当前业务", async () => {
+    await prisma.customer.create({ data: { name: "甲", phone: "13800000001", grade: "高一", salesOwnerId: 我.id } });
+    const edu = BUSINESS_PRESETS.教培招生;
+    expect((await 用("query_records").run({ 表: "客户", 条件: [{ 字段: "年级", 运算: "等于", 值: "高一" }] }, { ...ctx(), b: edu })).data).toMatchObject({ 总数: 1 });
+    for (const b of [DEFAULT_BUSINESS, edu, BUSINESS_PRESETS.外贸出口]) {
+      const result = await 用("query_metric").run({ metric: "customers_count", groupBy: "grade" }, { ...ctx(), b });
+      expect(result.data).toMatchObject({ metric: `新增${b.customer}数`, groupBy: `按${b.fields.grade}` });
+      expect(result.summary).toContain(`按${b.fields.grade}`);
+    }
   });
 });

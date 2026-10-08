@@ -22,14 +22,14 @@ import { dayjs } from "../utils";
 import { FOLLOW_TYPE_MAP, OPP_STAGES } from "../constants";
 import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
-import { METRICS, GROUP_BYS, VALID_GROUPS, sanitizeQuerySpec } from "../report-query";
+import { METRICS, VALID_GROUPS, sanitizeQuerySpec, 指标显示, 维度显示 } from "../report-query";
 import { loadWatchlist } from "../sentinel-data";
 import { statusLabel, stageLabel, 阶段值, 外贸精简, 外贸订单, 签约叫 } from "../business-config";
 import { 名字在别处, 别处说法, 别处附件, 找人 } from "./find-name";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
 import { 扩同义词 } from "./synonyms";
-import { 校验规格, 说人话, 编译, 表们, 分组上限 } from "./query";
+import { 校验规格, 说人话, 编译, 表们, 查询表, 分组上限 } from "./query";
 import { buildProposal, describeProposal, missingFields, 可改字段表, 可改字段名单, type Proposal, type ProposalKind } from "./proposals";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES } from "../constants";
 
@@ -303,17 +303,17 @@ export const TOOLS: Tool[] = [
     async run(args, ctx) {
       let spec;
       try {
-        spec = sanitizeQuerySpec(args);
+        spec = sanitizeQuerySpec(args, ctx.b);
       } catch (e) {
         return { summary: "查询规格不合法", data: { error: e instanceof Error ? e.message : "规格不合法" } };
       }
       const rows = await runQuery(spec, ctx.b);
       const meta = METRICS[spec.metric];
       // 指标名跟这家的叫法：外贸「签约金额」说「订单金额」（G.3 实测模型照抄成「这个月签了 2 单」）
-      const 指标名 = meta.label.replace(/学员/g, ctx.b.customer).replace(/签约/g, 签约叫(ctx.b));
+      const 指标名 = 指标显示(spec.metric, ctx.b);
       return {
-        summary: `${指标名}${spec.groupBy ? ` · ${GROUP_BYS[spec.groupBy]}` : ""}：${rows.length} 行`,
-        data: { metric: 指标名, unit: meta.unit, groupBy: spec.groupBy ? GROUP_BYS[spec.groupBy] : null, range: spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间", rows: rows.slice(0, 30) },
+        summary: `${指标名}${spec.groupBy ? ` · ${维度显示(spec.groupBy, ctx.b)}` : ""}：${rows.length} 行`,
+        data: { metric: 指标名, unit: meta.unit, groupBy: spec.groupBy ? 维度显示(spec.groupBy, ctx.b) : null, range: spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间", rows: rows.slice(0, 30) },
       };
     },
   },
@@ -931,14 +931,14 @@ export const TOOLS: Tool[] = [
       */
       let 规格;
       try {
-        规格 = 校验规格(args);
+        规格 = 校验规格(args, ctx.b);
       } catch (e) {
         return { summary: "查询写得不对", data: { error: e instanceof Error ? e.message : "查询规格不合法" } };
       }
 
-      const 话 = 说人话(规格);
-      const { where, orderBy, take } = 编译(规格);
-      const 表定义 = 表们[规格.表];
+      const 话 = 说人话(规格, ctx.b);
+      const { where, orderBy, take } = 编译(规格, ctx.b);
+      const 表定义 = 查询表(规格.表, ctx.b);
       // 白名单已经把表名收死了，这里的动态取用是安全的
       const 表 = (prisma as unknown as Record<string, {
         count: (a: unknown) => Promise<number>;

@@ -22,6 +22,7 @@ import { 不开放的工具 } from "@/lib/features";
 const TOOLS = 全部工具.filter((t) => !不开放的工具.includes(t.name));
 const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t])) as typeof 全部工具表;
 import { SCHEMAS } from "./schemas";
+import { 查询表 } from "./query";
 import { 有DSML, 解析DSML } from "@/lib/llm-dsml";
 import { 认意图, type 页面范围 } from "./intents";
 import type { Proposal } from "./proposals";
@@ -336,6 +337,7 @@ export async function runAgent(
     buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
     `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${现在带周几()}。
 ${日期对照()}
+query_records 的客户字段使用当前业务叫法：${Object.values(查询表("客户", b).字段).map(f => f.名).join("、")}。旧字段名学校/年级/专业也兼容；职位等档案字段可以查询已有自由文本。
 ${原生模式 ? "" : `你能调用的工具：\n${toolDoc}\n`}
 取值表（propose_* 的参数只能用这里的词）：
 ${proposalVocab(b)}

@@ -8,6 +8,7 @@
  * 纯函数，不碰网络与数据库；取数在 lib/report-run.ts 里用 Prisma 完成（调用方是 agent 的 query_metric）。
  */
 import { dayjs } from "@/lib/utils";
+import { 签约叫, type BusinessConfig } from "./business-config";
 
 export const METRICS = {
   leads_count: { label: "新增线索数", unit: "条" },
@@ -31,6 +32,14 @@ export const GROUP_BYS = {
   type: "按跟进类型",
 } as const;
 export type GroupBy = keyof typeof GROUP_BYS;
+
+/** 指标/维度的显示词随请求配置；协议键和允许组合保持稳定。 */
+export function 指标显示(metric: Metric, b: BusinessConfig): string {
+  return METRICS[metric].label.replace(/学员/g, b.customer).replace(/签约/g, 签约叫(b));
+}
+export function 维度显示(group: GroupBy, b: BusinessConfig): string {
+  return group === "grade" ? `按${b.fields.grade}` : GROUP_BYS[group];
+}
 
 /** 每个指标允许的拆分维度。不在表里的组合直接拒绝，宁可答不了也不答错 */
 export const VALID_GROUPS: Record<Metric, GroupBy[]> = {
@@ -57,18 +66,18 @@ function asDate(v: unknown): string | null {
 }
 
 /** @throws 指标未知或组合不支持时抛中文错误，直接给提问的人看 */
-export function sanitizeQuerySpec(raw: unknown): QuerySpec {
+export function sanitizeQuerySpec(raw: unknown, b?: BusinessConfig): QuerySpec {
   const r = (raw ?? {}) as Record<string, unknown>;
   const metric = r.metric as Metric;
   if (!(metric in METRICS)) {
-    throw new Error("这个问题超出了可查的指标范围（线索/学员/转化率/签约/跟进），请换个问法");
+    throw new Error("这个问题超出了可查的指标范围（线索/客户/转化率/成交/跟进），请换个问法");
   }
   let groupBy: GroupBy | null = null;
   if (r.groupBy != null && r.groupBy !== "") {
     const g = r.groupBy as GroupBy;
     if (!(g in GROUP_BYS)) throw new Error("不认识的拆分维度，请换个问法");
     if (!VALID_GROUPS[metric].includes(g)) {
-      throw new Error(`「${METRICS[metric].label}」不支持${GROUP_BYS[g]}拆分`);
+      throw new Error(`「${b ? 指标显示(metric, b) : METRICS[metric].label}」不支持${b ? 维度显示(g, b) : GROUP_BYS[g]}拆分`);
     }
     groupBy = g;
   }

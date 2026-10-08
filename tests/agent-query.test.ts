@@ -303,3 +303,16 @@ describe("白名单的列名和 Prisma schema 对得上", () => {
     expect(漏了, `这些关系字段在 schema 上不存在：\n${漏了.join("\n")}`).toEqual([]);
   });
 });
+
+
+it("请求间业务字段互不污染，显示状态回到存储值且过程条保留显示名", async () => {
+  const { DEFAULT_BUSINESS, BUSINESS_PRESETS } = await import("@/lib/business-config");
+  const trade = BUSINESS_PRESETS.外贸出口;
+  const spec = 校验规格({ 表: "客户", 条件: [{ 字段: "跟进状态", 运算: "属于", 值: ["已寄样", "已下单"] }] }, trade);
+  expect(编译(spec, trade).where).toEqual({ AND: [{ followStatus: { in: ["已试听", "已签约"] } }] });
+  expect(说人话(spec, trade)).toContain("已寄样 或 已下单");
+  const general = 校验规格({ 表: "客户", 条件: [{ 字段: "职位", 运算: "包含", 值: "高管" }] }, DEFAULT_BUSINESS);
+  expect(编译(general, DEFAULT_BUSINESS).where).toEqual({ AND: [{ grade: { contains: "高管" } }] });
+  expect(() => 校验规格({ 表: "客户", 条件: [{ 字段: "职位", 运算: "等于", 值: "高管" }] })).toThrow();
+  expect(表们.客户.字段.年级.取值).toContain("大一");
+});

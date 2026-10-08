@@ -19,6 +19,7 @@
  * 过程条上必须把它到底查了什么原样写出来，让人能核对。
  */
 import { dayjs } from "../utils";
+import { DEFAULT_BUSINESS, statusLabel, type BusinessConfig } from "../business-config";
 import {
   FOLLOW_STATUSES,
   DECISION_STATUSES,
@@ -173,6 +174,20 @@ export const 表们 = {
 
 export type 表名 = keyof typeof 表们;
 
+/** 每个请求独立生成显示字段，不修改跨租户共享的静态白名单。只读查询允许历史自由文本职位。 */
+export function 查询表(表: 表名, b?: BusinessConfig): { 模型: string; 名: string; 字段: Record<string, 字段> } {
+  const original = 表们[表];
+  if (!b || 表 !== "客户") return original;
+  const fields = b.fields ?? DEFAULT_BUSINESS.fields;
+  return { ...original, 名: b.customer, 字段: {
+    ...original.字段,
+    学校: { ...表们.客户.字段.学校, 名: fields.school },
+    年级: { 列: "grade", 名: fields.grade, 型: "文本" },
+    专业: { ...表们.客户.字段.专业, 名: fields.major },
+  } };
+}
+
+
 /**
  * 跨表：**只走这张表上的一跳**。
  *
@@ -235,16 +250,16 @@ const 错 = (s: string) => new 查询错(s);
 
 function 认表(v: unknown): 表名 {
   const s = typeof v === "string" ? v.trim() : "";
-  if (s in 表们) return s as 表名;
+  if (Object.hasOwn(表们, s)) return s as 表名;
   throw 错(`没有「${s || "(空)"}」这张表。能查的：${Object.keys(表们).join("、")}`);
 }
 
-function 认字段(表: 表名, v: unknown): 字段 {
+function 认字段(表: 表名, v: unknown, b?: BusinessConfig): 字段 {
   const s = typeof v === "string" ? v.trim() : "";
-  const 表定义 = 表们[表];
-  const f = (表定义.字段 as Record<string, 字段>)[s];
+  const 表定义 = 查询表(表, b);
+  const f = Object.hasOwn(表定义.字段, s) ? 表定义.字段[s] : Object.values(表定义.字段).find(f => f.名 === s);
   if (!f) {
-    throw 错(`「${表定义.名}」上没有「${s || "(空)"}」这个字段。能用的：${Object.keys(表定义.字段).join("、")}`);
+    throw 错(`「${表定义.名}」上没有「${s || "(空)"}」这个字段。能用的：${Object.values(表定义.字段).map(f => f.名).join("、")}`);
   }
   return f;
 }
@@ -255,11 +270,12 @@ function 认日期(v: unknown, 字段名: string): Date {
   return d.toDate();
 }
 
-function 认条件(表: 表名, raw: unknown): 条件 {
+function 认条件(表: 表名, raw: unknown, b?: BusinessConfig): 条件 {
   const r = (raw ?? {}) as Record<string, unknown>;
-  const f = 认字段(表, r.字段);
+  const f = 认字段(表, r.字段, b);
+  const 字段键 = Object.entries(查询表(表, b).字段).find(([, v]) => v.列 === f.列)![0];
   const op = typeof r.运算 === "string" ? (r.运算.trim() as 运算) : ("" as 运算);
-  if (!(op in 运算符)) {
+  if (!Object.hasOwn(运算符, op)) {
     throw 错(`不认识的运算「${String(r.运算)}」。能用的：${Object.keys(运算符).join("、")}`);
   }
   const 适用 = 运算符[op].适用 as readonly 字段型[];
@@ -268,36 +284,39 @@ function 认条件(表: 表名, raw: unknown): 条件 {
   }
 
   // 为空 / 非空不带值；其余必须带
-  if (op === "为空" || op === "非空") return { 字段: String(r.字段), 运算: op };
+  if (op === "为空" || op === "非空") return { 字段: 字段键, 运算: op };
   if (r.值 == null || r.值 === "") throw 错(`「${f.名} ${运算符[op].名}」少了一个值`);
 
+  const 原值 = (value: string) => b && (f.列 === "followStatus" || f.列 === "decisionStatus")
+    ? f.取值?.find(v => statusLabel(b, v) === value) ?? value : value;
   if (op === "属于") {
-    const xs = Array.isArray(r.值) ? r.值.map((x) => String(x).trim()).filter(Boolean) : [String(r.值).trim()];
+    const xs = (Array.isArray(r.值) ? r.值.map((x) => String(x).trim()).filter(Boolean) : [String(r.值).trim()]).map(原值);
     if (!xs.length) throw 错(`「${f.名} 属于」要至少一个值`);
     if (f.取值) for (const x of xs) 校枚举(f, x);
-    return { 字段: String(r.字段), 运算: op, 值: xs };
+    return { 字段: 字段键, 运算: op, 值: xs };
   }
   if (op === "最近天数") {
     const n = Number(r.值);
     if (!Number.isFinite(n) || n <= 0 || n > 3650) throw 错(`「最近多少天」要 1~3650 之间的数，给的是「${String(r.值)}」`);
-    return { 字段: String(r.字段), 运算: op, 值: Math.round(n) };
+    return { 字段: 字段键, 运算: op, 值: Math.round(n) };
   }
   if (f.型 === "数字") {
     const n = Number(r.值);
     if (!Number.isFinite(n)) throw 错(`「${f.名}」要一个数，给的是「${String(r.值)}」`);
-    return { 字段: String(r.字段), 运算: op, 值: n };
+    return { 字段: 字段键, 运算: op, 值: n };
   }
   if (f.型 === "真假") {
     const b = r.值 === true || r.值 === "true" || r.值 === "是" || r.值 === 1;
-    return { 字段: String(r.字段), 运算: op, 值: b };
+    return { 字段: 字段键, 运算: op, 值: b };
   }
   if (f.型 === "日期") {
     认日期(r.值, f.名); // 只校验，存原样字符串，编译时再转
-    return { 字段: String(r.字段), 运算: op, 值: String(r.值) };
+    return { 字段: 字段键, 运算: op, 值: String(r.值) };
   }
-  const s = String(r.值).trim().slice(0, 100);
+  const 显示值 = String(r.值).trim().slice(0, 100);
+  const s = 原值(显示值);
   if (f.取值 && op !== "包含") 校枚举(f, s);
-  return { 字段: String(r.字段), 运算: op, 值: s };
+  return { 字段: 字段键, 运算: op, 值: s };
 }
 
 /**
@@ -311,11 +330,11 @@ function 校枚举(f: 字段, v: string) {
   }
 }
 
-export function 校验规格(raw: unknown): 查询规格 {
+export function 校验规格(raw: unknown, b?: BusinessConfig): 查询规格 {
   const r = (raw ?? {}) as Record<string, unknown>;
   const 表 = 认表(r.表);
 
-  const 条件 = (Array.isArray(r.条件) ? r.条件 : []).slice(0, 8).map((c) => 认条件(表, c));
+  const 条件 = (Array.isArray(r.条件) ? r.条件 : []).slice(0, 8).map((c) => 认条件(表, c, b));
 
   let 关联: 查询规格["关联"];
   if (r.关联 && typeof r.关联 === "object") {
@@ -331,7 +350,7 @@ export function 校验规格(raw: unknown): 查询规格 {
       );
     }
     if (定义.从 !== 表) throw 错(`「${路径}」是从「${定义.从}」出发的，不是「${表}」`);
-    const 子条件 = (Array.isArray(a.条件) ? a.条件 : []).slice(0, 4).map((c) => 认条件(定义.到, c));
+    const 子条件 = (Array.isArray(a.条件) ? a.条件 : []).slice(0, 4).map((c) => 认条件(定义.到, c, b));
     if (!子条件.length) throw 错(`走了「${路径}」却没给任何条件——那跟不跨表是一回事`);
     关联 = { 路径, 条件: 子条件 };
   }
@@ -339,15 +358,15 @@ export function 校验规格(raw: unknown): 查询规格 {
   let 排序: 查询规格["排序"];
   if (r.排序 && typeof r.排序 === "object") {
     const s = r.排序 as Record<string, unknown>;
-    认字段(表, s.字段); // 不在白名单里的字段不能当排序键
-    排序 = { 字段: String(s.字段), 降序: s.降序 !== false };
+    const f = 认字段(表, s.字段, b);
+    排序 = { 字段: Object.entries(查询表(表, b).字段).find(([, v]) => v.列 === f.列)![0], 降序: s.降序 !== false };
   }
 
   let 分组: string | undefined;
   if (r.分组 != null && r.分组 !== "") {
-    const f = 认字段(表, r.分组);
+    const f = 认字段(表, r.分组, b);
     if (f.型 === "日期") throw 错(`「${f.名}」是日期，按它分组会分出成百上千组。按月看走势用 query_metric`);
-    分组 = String(r.分组);
+    分组 = Object.entries(查询表(表, b).字段).find(([, v]) => v.列 === f.列)![0];
   }
 
   const n = Number(r.取);
@@ -358,18 +377,19 @@ export function 校验规格(raw: unknown): 查询规格 {
 
 /* ---------- 翻回人话（过程条要用） ---------- */
 
-const 值成话 = (c: 条件, f: 字段): string => {
-  if (c.运算 === "属于") return (c.值 as string[]).join(" 或 ");
+const 值成话 = (c: 条件, f: 字段, b?: BusinessConfig): string => {
+  const show = (v: string) => b && (f.列 === "followStatus" || f.列 === "decisionStatus") ? statusLabel(b, v) : v;
+  if (c.运算 === "属于") return (c.值 as string[]).map(show).join(" 或 ");
   if (c.运算 === "最近天数") return `${c.值} 天`;
   if (f.型 === "真假") return c.值 ? "是" : "否";
-  return String(c.值);
+  return show(String(c.值));
 };
 
-function 条件成话(表: 表名, c: 条件): string {
-  const f = 认字段(表, c.字段);
+function 条件成话(表: 表名, c: 条件, b?: BusinessConfig): string {
+  const f = 认字段(表, c.字段, b);
   if (c.运算 === "为空" || c.运算 === "非空") return `${f.名}${运算符[c.运算].名}`;
   if (c.运算 === "最近天数") return `${f.名}在最近 ${c.值} 天内`;
-  return `${f.名} ${运算符[c.运算].名} ${值成话(c, f)}`;
+  return `${f.名} ${运算符[c.运算].名} ${值成话(c, f, b)}`;
 }
 
 /**
@@ -379,19 +399,19 @@ function 条件成话(表: 表名, c: 条件): string {
  * 比「答不出来」隐蔽得多。人得能一眼核对「它到底查的是不是我问的那个东西」，
  * 否则一个算错口径的数会被当成事实用下去。
  */
-export function 说人话(s: 查询规格): string {
-  const 表定义 = 表们[s.表];
+export function 说人话(s: 查询规格, b?: BusinessConfig): string {
+  const 表定义 = 查询表(s.表, b);
   const 段: string[] = [`在${表定义.名}里`];
-  if (s.条件.length) 段.push(`找 ${s.条件.map((c) => 条件成话(s.表, c)).join("、且 ")}`);
+  if (s.条件.length) 段.push(`找 ${s.条件.map((c) => 条件成话(s.表, c, b)).join("、且 ")}`);
   else 段.push("找全部");
   if (s.关联) {
     const 定义 = 关联们[s.关联.路径];
-    段.push(`并且${定义.名} ${s.关联.条件.map((c) => 条件成话(定义.到, c)).join("、且 ")}`);
+    段.push(`并且${定义.名} ${s.关联.条件.map((c) => 条件成话(定义.到, c, b)).join("、且 ")}`);
   }
-  if (s.分组) 段.push(`按${认字段(s.表, s.分组).名}分组数个数`);
+  if (s.分组) 段.push(`按${认字段(s.表, s.分组, b).名}分组数个数`);
   else if (s.只计数) 段.push("只数个数");
   else {
-    if (s.排序) 段.push(`按${认字段(s.表, s.排序.字段).名}${s.排序.降序 ? "从大到小" : "从小到大"}排`);
+    if (s.排序) 段.push(`按${认字段(s.表, s.排序.字段, b).名}${s.排序.降序 ? "从大到小" : "从小到大"}排`);
     段.push(`取 ${s.取} 条`);
   }
   return 段.join("，");
@@ -399,8 +419,8 @@ export function 说人话(s: 查询规格): string {
 
 /* ---------- 编译成 Prisma ---------- */
 
-function 条件成where(表: 表名, c: 条件): Record<string, unknown> {
-  const f = 认字段(表, c.字段);
+function 条件成where(表: 表名, c: 条件, b?: BusinessConfig): Record<string, unknown> {
+  const f = 认字段(表, c.字段, b);
   const 列 = f.列;
   switch (c.运算) {
     case "包含":
@@ -429,15 +449,15 @@ function 条件成where(表: 表名, c: 条件): Record<string, unknown> {
   }
 }
 
-export function 编译(s: 查询规格): { where: Record<string, unknown>; orderBy?: Record<string, "asc" | "desc">; take: number } {
-  const and = s.条件.map((c) => 条件成where(s.表, c));
+export function 编译(s: 查询规格, b?: BusinessConfig): { where: Record<string, unknown>; orderBy?: Record<string, "asc" | "desc">; take: number } {
+  const and = s.条件.map((c) => 条件成where(s.表, c, b));
   if (s.关联) {
     const 定义 = 关联们[s.关联.路径];
-    and.push({ [定义.列]: { is: { AND: s.关联.条件.map((c) => 条件成where(定义.到, c)) } } });
+    and.push({ [定义.列]: { is: { AND: s.关联.条件.map((c) => 条件成where(定义.到, c, b)) } } });
   }
   return {
     where: and.length ? { AND: and } : {},
-    orderBy: s.排序 ? { [认字段(s.表, s.排序.字段).列]: s.排序.降序 ? ("desc" as const) : ("asc" as const) } : undefined,
+    orderBy: s.排序 ? { [认字段(s.表, s.排序.字段, b).列]: s.排序.降序 ? ("desc" as const) : ("asc" as const) } : undefined,
     take: s.取,
   };
 }
