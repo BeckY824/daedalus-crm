@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { 搜索词 } from "@/lib/search-keyword";
 import FollowUpsView from "./FollowUpsView";
 import type { Prisma } from "@/generated/prisma";
-import { 负责人候选 } from "@/lib/owners";
+import { 跟进筛选成员 } from "@/lib/owners";
 import { 带过来的客户 } from "@/lib/options";
 import { llmEnabled } from "@/lib/llm";
 
@@ -47,8 +47,8 @@ export default async function FollowUpsPage({
         contact: { select: { name: true } },
       },
     }),
-    // 这是「按成员筛选」那个下拉。单人工作区里记录全在管理员名下，用严格口径会筛不出自己
-    负责人候选(),
+    // 历史筛选包括管理员及留有记录的停用成员；与新指派候选分开。
+    跟进筛选成员(),
     带过来的客户(sp.customer),
     // 「记录跟进」框里的 AI 速记和记录页同一个开关
     llmEnabled(),
@@ -74,6 +74,7 @@ export default async function FollowUpsPage({
         customerName: f.customer.name,
         contactName: f.contact?.name ?? null,
         ownerName: f.owner.name,
+        ownerId: f.ownerId,
       }))}
     />
   );

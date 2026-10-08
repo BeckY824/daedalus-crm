@@ -12,7 +12,7 @@ import {
   PartitionOutlined,
 } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
-import { 列表不问归属 } from "@/lib/solo";
+import { 列表不问归属ID } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -192,7 +192,7 @@ export default function OpportunitiesView({
   const { 合计, 预测: forecast } = 汇总;
   const 合计叫 = 筛的状态 === "WON" ? "已赢单" : 筛的状态 === "LOST" ? "已丢单" : "进行中";
   /** 只有一个人：负责人列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
-  const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
+  const 不问归属 = !f.ownerId && 列表不问归属ID(users, rows.map((r) => r.ownerId));
 
   /**
    * 列表里改阶段，和看板拖卡片一样给一次撤销（审查 M11）。

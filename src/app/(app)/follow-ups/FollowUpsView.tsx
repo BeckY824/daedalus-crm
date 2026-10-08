@@ -6,7 +6,7 @@ import { Badge, Button, Space, Select, Tag } from "antd";
 import { useFollowDue } from "@/components/FollowDue";
 import { CalendarOutlined, PlusOutlined } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
-import { 列表不问归属 } from "@/lib/solo";
+import { 列表不问归属ID } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell, FollowTypeCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -31,6 +31,7 @@ type Row = {
   customerName: string;
   contactName: string | null;
   ownerName: string;
+  ownerId: string;
 };
 
 export default function FollowUpsView({
@@ -59,7 +60,7 @@ export default function FollowUpsView({
   const b = useBusiness();
   const { f, setF, apply, reset, pending } = useUrlFilters("/follow-ups", filters);
   /** 只有一个人：跟进人那一列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
-  const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
+  const 不问归属 = !f.ownerId && 列表不问归属ID(users, rows.map((r) => r.ownerId));
   /**
    * 「记录跟进」就地弹框（2026-09-29）。原来它跳去客户列表让人自己挑一位——按钮写着「记录」
    * 却把人带走了，被当成 bug 报上来。现在框里第一格挑人（CustomerPick），保存后留在这一页：

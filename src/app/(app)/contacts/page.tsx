@@ -44,7 +44,7 @@ export default async function ContactsPage({
       orderBy: [{ isPrimary: "desc" }, { createdAt: "desc" }],
       take: 300,
       include: {
-        customer: { select: { id: true, name: true, school: true, salesOwner: { select: { name: true } } } },
+        customer: { select: { id: true, name: true, school: true, salesOwner: { select: { id: true, name: true, email: true } } } },
       },
     }),
     prisma.unassignedContact.count({ where: 散的where }),
@@ -78,6 +78,8 @@ export default async function ContactsPage({
         customerName: c.customer.name,
         school: c.customer.school,
         ownerName: c.customer.salesOwner.name,
+        ownerId: c.customer.salesOwner.id,
+        ownerEmail: c.customer.salesOwner.email,
       })).concat(
         散的.map((u) => ({
           id: u.id,
@@ -95,6 +97,8 @@ export default async function ContactsPage({
           customerName: "",
           school: null,
           ownerName: "",
+          ownerId: "",
+          ownerEmail: "",
         })),
       )}
     />

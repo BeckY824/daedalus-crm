@@ -45,10 +45,11 @@ export default async function DataPage({ searchParams }: { searchParams: SP }) {
   const 口径 = 本月 ? `${now.format("YYYY 年 M 月")}，${按}` : `${now.year()} 年，${按}`;
 
   const 本位币 = 业务.currency;
-  const [数, 只有一个人] = await Promise.all([
+  const [数, 唯一] = await Promise.all([
     加载复盘(from, to, 本月 ? "day" : "month", { 想看: sp.currency?.toUpperCase(), 本位币 }),
-    唯一负责人().then((id) => id !== null),
+    唯一负责人(),
   ]);
+  const 只有一个人 = 唯一 !== null && [...数.bySales, ...数.byChannelOwner].every((r) => r.id === 唯一 || r.id === "__none__");
   return (
     <DataShell view={view}>
       <ReportsView {...数} 口径={口径} 单人={只有一个人} />
