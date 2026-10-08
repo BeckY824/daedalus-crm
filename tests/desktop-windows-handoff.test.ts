@@ -134,13 +134,18 @@ describe.skipIf(process.platform !== "win32" || !electronPath)("真实 Electron 
       child.once("error", reject); child.once("exit", resolve);
     }).finally(() => clearTimeout(killTimer));
     expect(code).toBe(0);
-    // CI 的 Windows 机器慢，换目录有时 10 秒还没做完（0.46.15 出包时撞过一次）
-    const deadline = Date.now() + 30_000;
+    // 与真实脚本的预算一致：Wait-Process 最多60秒，文件锁重试再30秒。
+    // 不能30秒就清掉沙盒，把仍在合法等待的更新误判为失败。
+    const deadline = Date.now() + 100_000;
     while (Date.now() < deadline && fs.existsSync(`${目录}.new`)) await 等(100);
-    expect(fs.readFileSync(path.join(目录, "version.txt"), "utf8")).toBe("new");
+    const 日志 = () => ["update-swap.log", "update-swap.out.log"].map(n => {
+      const f = path.join(更新目录, n);
+      return `${n}: ${fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "（不存在）"}`;
+    }).join("\n");
+    expect(fs.readFileSync(path.join(目录, "version.txt"), "utf8"), 日志()).toBe("new");
     expect(fs.readFileSync(path.join(`${目录}.old`, "version.txt"), "utf8")).toBe("old");
     expect(fs.readdirSync(更新目录).filter(n => n.startsWith("swap-") && n !== "swap-attempts.json")).toHaveLength(1);
     // 等脚本释放文件句柄，再回收临时目录。
     await 等(500);
-  }, 75_000);
+  }, 150_000);
 });
