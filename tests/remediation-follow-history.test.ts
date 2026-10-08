@@ -15,6 +15,7 @@ import { loadFollowHistory, readFollowHistoryRow, type FollowHistoryCursor } fro
 import { saveFollowUp, deleteFollowUp, restoreFollowUp } from "@/app/(app)/customers/[id]/actions";
 import DetailPage from "@/app/(app)/customers/[id]/page";
 import OpportunitiesPage from "@/app/(app)/opportunities/page";
+import { 搜客户, 取客户选项 } from "@/app/(app)/customers/[id]/pick";
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-history-"));
 let customerId: string;
 const at = new Date("2026-01-01T02:00Z");
@@ -83,6 +84,7 @@ it("业务员分页/单条重读受真实限定层保护，不能通过客户ID�
   expect(await prisma.customer.count()).toBe(1);
   const opp = await OpportunitiesPage({ searchParams: Promise.resolve({ opportunity: "hidden-opp" }) });
   expect(opp.props.focusedOpportunity).toBeNull(); expect(opp.props.focusMissing).toBe(true);
+  expect(await 取客户选项(hidden.id)).toBeNull(); expect((await 搜客户("同事客户"))).toEqual([]);
 });
 it("未认证先拒绝；坏游标/不存在客户不返回历史", async () => {
   state.denied = true; await expect(loadFollowHistory(customerId)).rejects.toThrow("Unauthorized"); state.denied = false;

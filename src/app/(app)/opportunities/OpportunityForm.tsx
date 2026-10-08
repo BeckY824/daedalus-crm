@@ -1,10 +1,11 @@
 "use client";
 
 import DatePicker from "@/components/BusinessDatePicker";
+import CustomerSearchSelect from "@/components/CustomerSearchSelect";
 
 import { requiredText } from "@/lib/form-validation";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Input, Modal, Form, Row, Col, InputNumber, Select, Slider, App, Space } from "antd";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, type 可选成员 } from "@/lib/utils";
@@ -20,6 +21,10 @@ import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useBusiness } from "@/lib/business-client";
 import { stageLabel, 外贸订单, 外贸精简 } from "@/lib/business-config";
 
+const subscribeHydration = () => () => {};
+const clientHydrated = () => true;
+const serverHydrated = () => false;
+
 /**
  * 新建 / 编辑商机的框。列表页和管道页共用（2026-09-29）：管道页原来没有表单，
  * 点「新建商机」要跳回列表页再打开——按钮写着新建，人却被带走了。
@@ -32,6 +37,7 @@ export default function OpportunityForm({
   editing,
   users,
   customers,
+  initialCustomer = null,
   onClose,
   onSaved,
 }: {
@@ -39,9 +45,12 @@ export default function OpportunityForm({
   editing: OppRow | null;
   users: 可选成员[];
   customers: { id: string; name: string }[];
+  initialCustomer?: { id: string; name: string } | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  // URL可直接打开弹窗；Antd Portal要在水合后挂载，服务端与首轮客户端保持关闭。
+  const hydrated = useSyncExternalStore(subscribeHydration, clientHydrated, serverHydrated);
   const { message } = App.useApp();
   const b = useBusiness();
   /** 外贸模版：摆询盘时间，不摆预计成交和成交概率（2026-10-05 外贸客户建议） */
@@ -116,10 +125,11 @@ export default function OpportunityForm({
         ownerId: 默认负责人(我, users),
         // 新建默认本位币（设置 → 业务里定的；外贸模版是美元）
         currency: b.currency,
+        customerId: initialCustomer?.id,
         询盘时间: dayjs(),
       });
     }
-  }, [open, editing, form, users, b.currency, 我]);
+  }, [open, editing, form, users, b.currency, 我, initialCustomer?.id]);
 
 
   // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
@@ -157,7 +167,7 @@ export default function OpportunityForm({
   return (
     <Modal
       afterOpenChange={聚焦首项}
-      open={open}
+      open={open && hydrated}
       title={editing ? "编辑商机" : "新建商机"}
       onCancel={onClose}
       onOk={onOk} confirmLoading={存着}
@@ -175,12 +185,7 @@ export default function OpportunityForm({
           </Col>
           <Col span={12}>
             <Form.Item name="customerId" label="所属客户" rules={[{ required: true, message: "请选择客户" }]}>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                placeholder="选择客户"
-                options={customers.map((c) => ({ value: c.id, label: c.name }))}
-              />
+              <CustomerSearchSelect placeholder={`搜名字 / ${b.fields.school} / 电话`} initialOptions={editing ? [{ id: editing.customerId, name: editing.customerName }] : initialCustomer ? [initialCustomer] : customers} />
             </Form.Item>
           </Col>
           <Col span={12}>

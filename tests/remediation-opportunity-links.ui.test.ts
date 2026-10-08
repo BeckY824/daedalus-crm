@@ -7,6 +7,7 @@ const plugin: Plugin = { name: "opportunity-link-boundaries", setup(b) {
   const stub = (filter: RegExp, code: string) => b.onResolve({ filter }, a => ({ path: a.path, namespace: "fixture", pluginData: code }));
   stub(/^next\/navigation$/, "export const useRouter=()=>({refresh(){window.__refresh++},push(p){window.__route=p}});");
   stub(/^next\/link$/, "export default function L(p){return <a {...p}/>}");
+  stub(/^@\/app\/\(app\)\/customers\/\[id\]\/pick$/, "export const 搜客户=async()=>[{id:'c1',name:'QA客户',附注:null}],取客户选项=async()=>({id:'c1',name:'QA客户',附注:null});");
   stub(/(^|\/)(ContractForm|CompareDrawer)$/, "export default function Empty(){return null}");
   stub(/^\.\.\/customers\/actions$/, "export const saveContract=async()=>({ok:false});");
   stub(/^@\/app\/\(app\)\/demo-data$/, "export const 查演示数据状态=async()=>({可灌:false,可清:false}),灌一套演示数据=async()=>({ok:true}),清除演示数据=灌一套演示数据;");

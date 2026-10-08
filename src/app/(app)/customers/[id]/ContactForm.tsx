@@ -1,9 +1,10 @@
 "use client";
 
 import { requiredText, isFormValidationError } from "@/lib/form-validation";
+import CustomerSearchSelect from "@/components/CustomerSearchSelect";
 
 import { useEffect, useState } from "react";
-import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Select, Button } from "antd";
+import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Button } from "antd";
 import { saveContact, saveUnassignedContact } from "./actions";
 import type { ContactRow } from "./types";
 import { useBusiness } from "@/lib/business-client";
@@ -139,16 +140,14 @@ export default function ContactForm({
                 rules={未归属 ? [] : [{ required: true, message: `请选择所属${b.customer}` }]}
                 extra={未归属 && !挑的 ? `现在不在任何${b.customer}下面。挑一位就挂过去，不挑就还留在未归属` : undefined}
               >
-                <Select
-                  showSearch
+                <CustomerSearchSelect
                   allowClear={未归属}
                   onChange={(id) => {
                     if (未归属) form.setFieldValue("isPrimary", id === record?.fromCustomerId && record?.wasPrimary === true);
                   }}
-                  optionFilterProp="label"
                   placeholder={未归属 ? `未归属（挑一位${b.customer}挂过去）` : `搜索并选择一位${b.customer}`}
                   // 重名的显示成「王强（星辰科技 · 尾号 1111）」，不然两行一样的「王强」挑错了也看不出（2026-10-04 J-016）
-                  options={(学员们 ?? []).map((c) => ({ value: c.id, label: c.label ?? c.name }))}
+                  initialOptions={学员们}
                 />
               </Form.Item>
             </Col>

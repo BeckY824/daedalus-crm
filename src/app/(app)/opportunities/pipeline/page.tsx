@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import PipelineView from "./PipelineView";
-import { 可选客户 } from "@/lib/options";
 import { 负责人候选 } from "@/lib/owners";
 import { 带币种, 商机币种 } from "@/lib/money-db";
 import { dayjs } from "@/lib/utils";
@@ -20,7 +19,7 @@ export default async function PipelinePage() {
   */
   const 起 = dayjs().subtract(赢单列天数, "day").toDate();
 
-  const [opps, users, customers] = await Promise.all([
+  const [opps, users] = await Promise.all([
     prisma.opportunity.findMany({
       where: {
         OR: [
@@ -37,14 +36,13 @@ export default async function PipelinePage() {
     }),
     // 新建框要的候选：和列表页同一个框（../OpportunityForm.tsx）
     负责人候选(),
-    可选客户(),
   ]);
 
   return (
     <PipelineView
       赢单天数={赢单列天数}
       users={users}
-      customers={customers}
+      customers={[]}
       rows={opps.map((o) => ({
         id: o.id,
         name: o.name,

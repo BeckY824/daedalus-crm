@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { 搜索词 } from "@/lib/search-keyword";
-import { 可选客户 } from "@/lib/options";
+import { 带过来的客户 } from "@/lib/options";
 import OpportunitiesView, { type OppRow } from "./OpportunitiesView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
@@ -24,7 +24,7 @@ function opportunityRow(o: Prisma.OpportunityGetPayload<{ include: typeof opport
 export default async function OpportunitiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ keyword?: string; stage?: string; status?: string; ownerId?: string; opportunity?: string }>;
+  searchParams: Promise<{ keyword?: string; stage?: string; status?: string; ownerId?: string; opportunity?: string; new?: string; customer?: string }>;
 }) {
   await requireUser();
   const sp = await searchParams;
@@ -40,7 +40,7 @@ export default async function OpportunitiesPage({
     ...(sp.ownerId ? { ownerId: sp.ownerId } : {}),
   };
 
-  const [总数, 汇总行, rows, users, customers, focused] = await Promise.all([
+  const [总数, 汇总行, rows, users, preselected, focused] = await Promise.all([
     // take: 300 取回来的行数不是总数，分页条会拿它冒充总数。见 leads/page.tsx 的说明
     prisma.opportunity.count({ where }),
     /*
@@ -58,15 +58,17 @@ export default async function OpportunitiesPage({
       include: opportunityInclude,
     }),
     负责人候选(),
-    可选客户(),
+    typeof sp.customer === "string" ? 带过来的客户(sp.customer) : null,
     typeof sp.opportunity === "string" && sp.opportunity.length > 0 && sp.opportunity.length <= 256
       ? prisma.opportunity.findUnique({ where: { id: sp.opportunity }, include: opportunityInclude }) : null,
   ]);
 
   return (
     <OpportunitiesView
-      key={typeof sp.opportunity === "string" ? sp.opportunity : "list"}
+      key={typeof sp.opportunity === "string" ? sp.opportunity : sp.new === "1" ? `new-${preselected?.id ?? "none"}` : "list"}
       focusedOpportunity={focused ? opportunityRow(focused) : null}
+      directNew={sp.new === "1" && !sp.opportunity}
+      initialCustomer={preselected}
       focusMissing={Boolean(sp.opportunity) && !focused}
       总数={总数}
       汇总={{
@@ -76,7 +78,7 @@ export default async function OpportunitiesPage({
         预测: 按币种合计(汇总行.filter((o) => o.status === "OPEN"), (o) => o.amount * (o.probability / 100), 商机币种),
       }}
       users={users}
-      customers={customers}
+      customers={[]}
       filters={{
         keyword: sp.keyword ?? "",
         stage: sp.stage ?? "",

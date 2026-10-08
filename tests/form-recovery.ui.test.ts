@@ -11,6 +11,7 @@ const plugin: Plugin = { name: "form-actions", setup(b) {
   stub(/^next\/navigation$/, "export const useRouter=()=>({refresh(){},push(){}});");
   stub(/^next\/link$/, "export default function L(p){return <a {...p}/>}");
   stub(/^\.\/CustomerPick$/, "export default function C(){return null}");
+  stub(/^@\/app\/\(app\)\/customers\/\[id\]\/pick$/, "const rows=[{id:'original',name:'原客户',附注:null},{id:'new',name:'新客户',附注:null}];export const 搜客户=async()=>rows,取客户选项=async id=>rows.find(r=>r.id===id)??null;");
   stub(/^\.\/ReferralRadar$/, "export default function C(){return null}");
   stub(/^@\/components\/DataList$/, "export default function C(){return null}");
   stub(/orders\/actions$/, "export const 供应商候选=async()=>[];");

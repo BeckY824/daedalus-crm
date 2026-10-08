@@ -64,9 +64,13 @@ export default function OpportunitiesView({
   filters,
   focusedOpportunity = null,
   focusMissing = false,
+  directNew = false,
+  initialCustomer = null,
 }: {
   focusedOpportunity?: OppRow | null;
   focusMissing?: boolean;
+  directNew?: boolean;
+  initialCustomer?: { id: string; name: string } | null;
   rows: OppRow[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
   总数: number;
@@ -98,12 +102,13 @@ export default function OpportunitiesView({
   };
   const { message, modal } = App.useApp();
   const { f, setF, apply, reset, pending } = useUrlFilters("/opportunities", filters);
-  const [open, setOpen] = useState(Boolean(focusedOpportunity));
+  const [open, setOpen] = useState(Boolean(focusedOpportunity) || directNew);
   const [editing, setEditing] = useState<OppRow | null>(focusedOpportunity);
   function closeEditor() {
     setOpen(false);
-    if (focusedOpportunity) {
+    if (focusedOpportunity || directNew) {
       const url = new URL(window.location.href); url.searchParams.delete("opportunity");
+      if (directNew) { url.searchParams.delete("new"); url.searchParams.delete("customer"); }
       window.history.replaceState(null, "", url.pathname + url.search);
     }
   }
@@ -563,6 +568,7 @@ export default function OpportunitiesView({
       <OpportunityForm
         open={open}
         editing={editing}
+        initialCustomer={initialCustomer}
         users={users}
         customers={customers}
         onClose={closeEditor}

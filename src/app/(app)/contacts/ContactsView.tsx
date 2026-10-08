@@ -42,6 +42,7 @@ export default function ContactsView({
   总数,
   keyword,
   学员们,
+  有客户 = 学员们.length > 0,
   users,
 }: {
   rows: Row[];
@@ -51,6 +52,7 @@ export default function ContactsView({
   /** 「添加联系人」时挑归属用的。联系人挂在某一位学员下面，没有归属的联系人没有意义 */
   /** label：重名的带公司和手机尾号（2026-10-04 J-016） */
   学员们: { id: string; name: string; label?: string }[];
+  有客户?: boolean;
   /** 负责人候选。只用来判断是不是只有一个人 */
   users: { id: string; name: string }[];
 }) {
@@ -154,7 +156,7 @@ export default function ContactsView({
         title="联系人"
         subtitle="档案里的联系人"
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => set表单开着(true)} disabled={学员们.length === 0}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => set表单开着(true)} disabled={!有客户}>
             添加联系人
           </Button>
         }
@@ -175,7 +177,7 @@ export default function ContactsView({
           title: "还没有联系人",
           hint: `联系人是${b.customer}那边真正在对话的人：${关系候选(b).slice(0, 3).join("、")}。他挂在某一位${b.customer}下面，所以要先有${b.customer}。`,
           primary:
-            学员们.length > 0
+            有客户
               ? { label: "添加第一位联系人", onClick: () => set表单开着(true) }
               : { label: `去建第一位${b.customer}`, onClick: () => router.push("/customers?new=1") },
         }}

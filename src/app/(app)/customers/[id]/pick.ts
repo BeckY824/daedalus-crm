@@ -21,18 +21,29 @@ export type 可挑客户 = { id: string; name: string; 附注: string | null };
  */
 export async function 搜客户(关键词: string): Promise<可挑客户[]> {
   await requireUser();
+  if (typeof 关键词 !== "string") return [];
   const 词 = 关键词.trim().slice(0, 50);
   const 号 = await 号码脱敏器();
   const rows = await prisma.customer.findMany({
     where: 词
       ? { OR: [{ name: { contains: 词 } }, { school: { contains: 词 } }, { phone: { contains: 词 } }] }
       : undefined,
-    orderBy: [{ lastFollowAt: "desc" }, { createdAt: "desc" }],
+    orderBy: [{ lastFollowAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     take: 词 ? 20 : 8,
     select: { id: true, name: true, school: true, phone: true },
   });
   // 同名的人靠公司和号码分；共享工作区里号码照样打码（lib/shared-ws/current.ts）
   return rows.map((c) => ({ id: c.id, name: c.name, 附注: [c.school, 号(c.phone)].filter(Boolean).join(" · ") || null }));
+}
+
+/** 编辑已选客户时补回单个显示标签，仍经过租户/业务员限定及共享号码打码。 */
+export async function 取客户选项(id: string): Promise<可挑客户 | null> {
+  await requireUser();
+  if (typeof id !== "string" || !id || id.length > 256) return null;
+  const c = await prisma.customer.findUnique({ where: { id }, select: { id: true, name: true, school: true, phone: true } });
+  if (!c) return null;
+  const 号 = await 号码脱敏器();
+  return { id: c.id, name: c.name, 附注: [c.school, 号(c.phone)].filter(Boolean).join(" · ") || null };
 }
 
 export type 客户近况 = {

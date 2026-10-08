@@ -31,6 +31,7 @@ import { statusLabel, 外贸订单, 外贸精简, 签约叫 } from "@/lib/busine
 import { 国家候选, WhatsApp网址 } from "@/lib/customer-extra";
 import FollowUpForm from "./FollowUpForm";
 import TaskForm from "./TaskForm";
+import OpportunityForm from "../../opportunities/OpportunityForm";
 import PlanForm from "./PlanForm";
 import ContactForm from "./ContactForm";
 import ContractForm, { type ContractRow } from "./ContractForm";
@@ -139,6 +140,7 @@ export default function RecordView({
   const [followOpen, setFollowOpen] = useState(false);
   const [followInit, setFollowInit] = useState<{ record: FollowUpRow | null; aiText?: string }>({ record: null });
   const [taskOpen, setTaskOpen] = useState(false);
+  const [opportunityOpen, setOpportunityOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   /*
     从到点提醒点进来（desktop/reminders.js 带 ?focus=plan:… / task:…）：把那一条滚到眼前、闪一下，
@@ -564,7 +566,7 @@ export default function RecordView({
           <div className="rec-sec">
             <div className="rec-sec-t">
               <span>商机 {opportunities.length > 0 && opportunities.length}</span>
-              <Link href="/opportunities">全部 ›</Link>
+              <Space size={4}><Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setOpportunityOpen(true)} aria-label="新建关联商机" /> <Link href="/opportunities">全部 ›</Link></Space>
             </div>
             {opportunities.length === 0 && <div className="rec-empty">还没有商机</div>}
             {opportunities.map((o) => (
@@ -845,6 +847,7 @@ export default function RecordView({
         orders={contracts.flatMap((c) => (c.order ? [{ id: c.order.id, no: c.order.no }] : []))}
         aiEnabled={aiEnabled}
       />
+      <OpportunityForm open={opportunityOpen} editing={null} initialCustomer={{ id: customer.id, name: customer.name }} users={users} customers={[]} onClose={() => setOpportunityOpen(false)} onSaved={() => { setOpportunityOpen(false); router.refresh(); }} />
       <TaskForm open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={() => { setTaskOpen(false); router.refresh(); }} customerId={customer.id} />
       <PlanForm
         open={planOpen}
