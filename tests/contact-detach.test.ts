@@ -12,10 +12,12 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/auth", () => ({ requireUser: async () => mocks.user }));
+vi.mock("@/app/(app)/contacts/ContactsView", () => ({ default: () => null }));
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { deleteCustomers } from "@/app/(app)/customers/actions";
+import { deleteCustomers, saveCustomer } from "@/app/(app)/customers/actions";
+import ContactsPage from "@/app/(app)/contacts/page";
 import {
   detachContact, undoDetachContact, saveUnassignedContact,
   deleteContact, deleteUnassignedContact, restoreContact,
@@ -52,6 +54,55 @@ async function 造人() {
 }
 
 describe("只移出", () => {
+  it("J-022 撤销条消失后仍保留关键身份；编辑未归属资料、挂回原客户均不丢", async () => {
+    const { 王, f } = await 造人(); await detachContact(王.id);
+    expect((await prisma.unassignedContact.findUniqueOrThrow({ where: { id: 王.id } })).wasPrimary).toBe(true);
+    expect((await saveUnassignedContact({ id: 王.id, name: "王经理改名", remark: "补充" })).ok).toBe(true);
+    expect((await saveUnassignedContact({ id: 王.id, name: "王经理改名", customerId: A.id })).ok).toBe(true);
+    expect(await prisma.contact.findUniqueOrThrow({ where: { id: 王.id } })).toMatchObject({ isPrimary: true, customerId: A.id });
+    expect((await prisma.followUp.findUniqueOrThrow({ where: { id: f.id } })).contactId).toBe(王.id);
+  });
+  it("J-022 挂到其他客户不擅自替换他的关键联系人，显式取消原关键也生效", async () => {
+    const { 王 } = await 造人(); const other = await prisma.contact.create({ data: { name: "乙客户关键", customerId: B.id, isPrimary: true } });
+    await detachContact(王.id); await saveUnassignedContact({ id: 王.id, name: "王经理", customerId: B.id });
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: 王.id } })).isPrimary).toBe(false);
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: other.id } })).isPrimary).toBe(true);
+    await detachContact(other.id); await saveUnassignedContact({ id: other.id, name: "乙客户关键", customerId: B.id, isPrimary: false });
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: other.id } })).isPrimary).toBe(false);
+  });
+  it("J-022 未归属彻底删除再撤销，持久关键身份仍在；未知旧数据保持未知", async () => {
+    const { 王 } = await 造人(); await detachContact(王.id); const snapshot = 快照(await deleteUnassignedContact(王.id));
+    expect((await restoreContact(snapshot)).ok).toBe(true);
+    expect((await prisma.unassignedContact.findUniqueOrThrow({ where: { id: 王.id } })).wasPrimary).toBe(true);
+    await saveUnassignedContact({ id: 王.id, name: "王经理", customerId: A.id });
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: 王.id } })).isPrimary).toBe(true);
+    await prisma.unassignedContact.create({ data: { id: "legacy", name: "旧联系人", fromCustomerId: A.id, ownerId: mocks.user.id } });
+    expect((await prisma.unassignedContact.findUniqueOrThrow({ where: { id: "legacy" } })).wasPrimary).toBeNull();
+    await saveUnassignedContact({ id: "legacy", name: "旧联系人", customerId: A.id });
+    expect((await prisma.contact.findUniqueOrThrow({ where: { id: "legacy" } })).isPrimary).toBe(false);
+  });
+  it("J-022 删除客户保留联系人时也记录原身份；挂回失败不损坏原人或身份", async () => {
+    const { 王 } = await 造人(); await deleteCustomers([A.id]);
+    const u = await prisma.unassignedContact.findUniqueOrThrow({ where: { id: 王.id } }); expect(u.wasPrimary).toBe(true);
+    await prisma.$executeRawUnsafe("CREATE TRIGGER qa_attach_fail BEFORE INSERT ON Contact BEGIN SELECT RAISE(ABORT, 'QA attach unavailable'); END");
+    try { expect(await saveUnassignedContact({ id: 王.id, name: "王经理", customerId: B.id, isPrimary: true })).toMatchObject({ ok: false, error: expect.any(String) }); }
+    finally { await prisma.$executeRawUnsafe("DROP TRIGGER qa_attach_fail"); }
+    expect(await prisma.unassignedContact.findUniqueOrThrow({ where: { id: 王.id } })).toEqual(u);
+    expect(await prisma.contact.count({ where: { id: 王.id } })).toBe(0);
+  });
+  it("J-017 原客户名带空白可搜出移出的人，客户删除后仍可查", async () => {
+    const { 王 } = await 造人(); await detachContact(王.id);
+    for (const deleted of [false, true]) {
+      if (deleted) await deleteCustomers([A.id]);
+      const page = await ContactsPage({ searchParams: Promise.resolve({ keyword: " 甲公司 " }) });
+      expect(page.props.总数).toBeGreaterThan(0); expect(page.props.rows).toEqual(expect.arrayContaining([expect.objectContaining({ id: 王.id, 原来: "甲公司", wasPrimary: true, fromCustomerId: A.id })]));
+    }
+  });
+  it("J-006 直接调用仍拒绝把自己当推荐人", async () => {
+    const c = await prisma.customer.findUniqueOrThrow({ where: { id: A.id } });
+    expect(await saveCustomer({ ...c, updatedAt: c.updatedAt.toISOString(), expectedSignAt: null, referrerCustomerId: A.id })).toMatchObject({ ok: false, error: expect.stringContaining("本人") });
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: A.id } })).referrerCustomerId).toBeNull();
+  });
   it("客户名下没了，未归属里有他；跟进记录留着、只是不再写跟谁谈的", async () => {
     const { 王, f } = await 造人();
     const r = await detachContact(王.id);

@@ -37,6 +37,9 @@ export type ContactRow = {
   remark: string | null;
   /** 编辑框的版本号（排查 D3） */
   updatedAt: string;
+  /** 未归属联系人的原归属和移出时身份。空值表示旧记录未保留该信息。 */
+  fromCustomerId?: string | null;
+  wasPrimary?: boolean | null;
 };
 
 export type RecordProps = {

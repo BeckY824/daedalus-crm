@@ -243,6 +243,7 @@ model UnassignedContact {
   ownerId          String? // 移出/保留联系人时的操作者；不连外键，原客户删除后仍保留归属
   fromCustomerId   String? // 原来是谁的。不连外键：那位之后可能被删了
   fromCustomerName String? // 原来那位的名字，给人看
+  wasPrimary       Boolean? // 移出时是否关键；老数据未记录则为空，不推测
   followUpIds      String? // 原来指着他的跟进记录 id（JSON 数组）。挂回原来那位时接回去
   detachedAt       DateTime @default(now())
   createdAt        DateTime @default(now())

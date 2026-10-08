@@ -32,6 +32,7 @@ it("H-100 手机账号菜单可退出并POST注销、刷新会话，工作区和
   const page = await open("/billing", 390); const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
   await page.getByRole("button", { name: "QA，账号菜单" }).click();
   expect(await page.getByRole("menu").innerText()).toContain("当前工作区：QA工作区");
+  await page.getByRole("menuitem", { name: "切换工作区" }).hover();
   await page.screenshot({ path: path.resolve("../测试证据-2026-10-08/整改-手机账号菜单.png"), animations: "disabled" });
   expect(await page.locator(".ant-table-content").evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
   await page.getByRole("menuitem", { name: "切换工作区" }).click();

@@ -3,7 +3,7 @@ import { build, type Plugin } from "esbuild";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 
-declare global { interface Window { __kind: string; __calls: unknown[]; __fail: boolean; __saved: number; __reminderRefreshes: number } }
+declare global { interface Window { __kind: string; __calls: unknown[]; __fail: boolean; __saved: number; __reminderRefreshes: number; __wasPrimary: boolean | null } }
 
 let browser: Browser; let bundle: string;
 const plugin: Plugin = { name: "form-actions", setup(b) {
@@ -14,9 +14,11 @@ const plugin: Plugin = { name: "form-actions", setup(b) {
   stub(/^\.\/ReferralRadar$/, "export default function C(){return null}");
   stub(/^@\/components\/DataList$/, "export default function C(){return null}");
   stub(/orders\/actions$/, "export const 供应商候选=async()=>[];");
+  stub(/^\.\.\/channels\/actions$/, "export const saveChannel=async()=>({ok:true});");
   stub(/^(\.\/|\.\.\/)actions$/, `
     const save=async x=>{window.__calls.push(x);if(window.__fail)throw Error('network');return {ok:true,id:'saved'}};
     export const savePlan=save,saveContact=save,saveUnassignedContact=save,saveChannel=save,改我的资料=save;
+    export const saveCustomer=save,checkDuplicate=async()=>null;
     export const saveContract=async x=>window.__duplicate&&!x.force?{duplicate:{amount:123,currency:'CNY',signedAt:new Date().toISOString()}}:save(x);
     export const listContractLinks=async()=>({商机:[],计划:[],待办:[]});
     export const toggleChannel=save,deleteChannel=save;
@@ -28,12 +30,15 @@ beforeAll(async () => {
     import React from 'react';import {createRoot} from 'react-dom/client';import {App} from 'antd';
     import Plan from '@/app/(app)/customers/[id]/PlanForm';
     import Contact from '@/app/(app)/customers/[id]/ContactForm';
+    import Customer from '@/app/(app)/customers/CustomerForm';
     import Contract from '@/app/(app)/customers/[id]/ContractForm';
     import Profile from '@/app/(app)/settings/ProfileTab';
     import Channels from '@/app/(app)/channels/ChannelsView';
     const done=()=>window.__saved++;
     const forms={plan:<Plan open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
       contact:<Contact open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
+      detached:<Contact open 未归属 record={{id:'detached',name:'QA联系人',isPrimary:false,wasPrimary:window.__wasPrimary,fromCustomerId:'original',updatedAt:'2026-10-08T08:00:00Z'}} 学员们={[{id:'original',name:'原客户'},{id:'new',name:'新客户'}]} onSaved={done} onClose={()=>{}}/>,
+      customer:<Customer open editing={{id:'self',name:'我自己',phone:'',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',referrerCustomerId:'other',updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',email:'qa',role:'ADMIN',active:true}]} channels={[]} customers={[{id:'self',name:'我自己'},{id:'other',name:'推荐人甲'}]} onClose={()=>{}}/>,
       contract:<Contract open customerId="c1" editing={null} onClose={done}/>,
       profile:<Profile me={{name:'原名',title:'',email:'qa@example.invalid'}}/>,
       channel:<Channels rows={[]} users={[{id:'u1',name:'我',role:'ADMIN',active:true}]} radar={{topReferrers:[],inviteCandidates:[]}} aiEnabled={false}/>};
@@ -41,6 +46,31 @@ beforeAll(async () => {
   bundle = r.outputFiles[0].text; browser = await chromium.launch();
 }, 120_000);
 afterAll(async () => { await browser?.close(); });
+
+it.each([true, null])("J-022 挂回原客户预选关键身份=%s，换客户不预选，明确取消可保存", async wasPrimary => {
+  const page = await browser.newPage(); page.setDefaultTimeout(5000);
+  await page.route("http://forms.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
+  await page.goto("http://forms.test"); await page.evaluate(wasPrimary => Object.assign(window, { __kind: "detached", __calls: [], __fail: false, __saved: 0, __wasPrimary: wasPrimary }), wasPrimary);
+  await page.addScriptTag({ content: bundle });
+  await page.locator("#customerId").click(); await page.locator(".ant-select-item-option-content").getByText("原客户", { exact: true }).click();
+  const toggle = page.getByRole("switch"); await toggle.waitFor(); expect(await toggle.getAttribute("aria-checked")).toBe(String(wasPrimary === true));
+  if (wasPrimary === null) expect(await page.getByText("移出前是否关键未记录，请核对后选择").count()).toBe(1);
+  await page.locator("#customerId").click(); await page.locator(".ant-select-item-option-content").getByText("新客户", { exact: true }).click();
+  expect(await toggle.getAttribute("aria-checked")).toBe("false");
+  await page.locator("#customerId").click(); await page.locator(".ant-select-item-option-content").getByText("原客户", { exact: true }).click();
+  if (wasPrimary === true) await toggle.click();
+  await page.getByRole("button", { name: /保\s*存/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__calls.length)).toBe(1);
+  expect(await page.evaluate(() => window.__calls[0])).toMatchObject({ customerId: "original", isPrimary: false }); await page.close();
+});
+it("J-006 客户编辑的推荐人下拉排除自己，其他已有客户仍可选", async () => {
+  const page = await browser.newPage(); page.setDefaultTimeout(5000);
+  await page.route("http://forms.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
+  await page.goto("http://forms.test"); await page.evaluate(() => Object.assign(window, { __kind: "customer", __calls: [], __fail: false, __saved: 0 }));
+  await page.addScriptTag({ content: bundle }); await page.locator("#referrerCustomerId").click();
+  const options = page.locator(".ant-select-dropdown:visible .ant-select-item-option-content");
+  expect(await options.allTextContents()).toEqual(["推荐人甲"]); await page.close();
+});
 
 it.each([
   ["plan", "subject", "请填写跟进主题"], ["contact", "name", "请填写姓名"],

@@ -488,7 +488,7 @@ function CustomerFormInner({
               showSearch
               placeholder={`选择已有${b.customer}`}
               optionFilterProp="label"
-              options={customers.map((c) => ({ value: c.id, label: c.name }))}
+              options={customers.filter((c) => c.id !== editing?.id).map((c) => ({ value: c.id, label: c.name }))}
             />
           </Form.Item>
         )}

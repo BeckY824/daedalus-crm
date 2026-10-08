@@ -142,6 +142,9 @@ export default function ContactForm({
                 <Select
                   showSearch
                   allowClear={未归属}
+                  onChange={(id) => {
+                    if (未归属) form.setFieldValue("isPrimary", id === record?.fromCustomerId && record?.wasPrimary === true);
+                  }}
                   optionFilterProp="label"
                   placeholder={未归属 ? `未归属（挑一位${b.customer}挂过去）` : `搜索并选择一位${b.customer}`}
                   // 重名的显示成「王强（星辰科技 · 尾号 1111）」，不然两行一样的「王强」挑错了也看不出（2026-10-04 J-016）
@@ -177,7 +180,7 @@ export default function ContactForm({
           </Col>
           {!还没归属 && (
             <Col span={12}>
-              <Form.Item name="isPrimary" label="关键联系人" valuePropName="checked">
+              <Form.Item name="isPrimary" label="关键联系人" valuePropName="checked" extra={未归属 && 挑的 === record?.fromCustomerId && record?.wasPrimary == null ? "移出前是否关键未记录，请核对后选择" : undefined}>
                 <Switch checkedChildren="是" unCheckedChildren="否" />
               </Form.Item>
             </Col>

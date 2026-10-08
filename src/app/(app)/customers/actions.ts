@@ -576,6 +576,7 @@ async function 搬走并删(ids: string[], ownerId: string) {
         data: {
           id: c.id, name: c.name, position: c.position, phone: c.phone, email: c.email, wechat: c.wechat, remark: c.remark,
           fromCustomerId: c.customerId, fromCustomerName: c.customer.name, createdAt: c.createdAt,
+          wasPrimary: c.isPrimary,
           ownerId,
         },
       });

@@ -11,7 +11,7 @@ it("真实桌面入口连续迁移旧库：确认来源归属、保留未知与�
     const file = path.join(dir, "crm.db");
     fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db"), file);
     const db = new DatabaseSync(file);
-    db.exec('DROP INDEX IF EXISTS "UnassignedContact_ownerId_idx"; ALTER TABLE "UnassignedContact" DROP COLUMN "ownerId"');
+    db.exec('DROP INDEX IF EXISTS "UnassignedContact_ownerId_idx"; ALTER TABLE "UnassignedContact" DROP COLUMN "ownerId"; ALTER TABLE "UnassignedContact" DROP COLUMN "wasPrimary"');
     for (const id of ["legacy-sales", "legacy-channel"]) db.prepare('INSERT INTO "User" (id, email, name, password, updatedAt) VALUES (?, ?, ?, ?, ?)').run(id, `${id}@example.invalid`, id, "unused", Date.now());
     db.prepare('INSERT INTO "Customer" (id, name, phone, salesOwnerId, channelOwnerId, updatedAt) VALUES (?, ?, ?, ?, ?, ?)').run("legacy-source", "旧来源", "", "legacy-sales", "legacy-channel", Date.now());
     db.prepare('INSERT INTO "UnassignedContact" (id, name, fromCustomerId, updatedAt) VALUES (?, ?, ?, ?)').run("known", "有来源", "legacy-source", Date.now());
@@ -25,11 +25,14 @@ it("真实桌面入口连续迁移旧库：确认来源归属、保留未知与�
     const first = new DatabaseSync(file);
     expect(first.prepare('SELECT ownerId FROM "UnassignedContact" WHERE id = ?').get("known")).toEqual({ ownerId: "legacy-sales" });
     expect(first.prepare('SELECT ownerId FROM "UnassignedContact" WHERE id = ?').get("unknown")).toEqual({ ownerId: null });
+    expect(first.prepare('SELECT wasPrimary FROM "UnassignedContact" ORDER BY id').all()).toEqual([{ wasPrimary: null }, { wasPrimary: null }]);
     first.prepare('UPDATE "UnassignedContact" SET ownerId = ? WHERE id = ?').run("explicit-owner", "known");
+    first.prepare('UPDATE "UnassignedContact" SET wasPrimary = 1 WHERE id = ?').run("known");
     first.close();
     expect(run()).toContain("数据库就绪");
     const second = new DatabaseSync(file);
     expect(second.prepare('SELECT ownerId FROM "UnassignedContact" WHERE id = ?').get("known")).toEqual({ ownerId: "explicit-owner" });
+    expect(second.prepare('SELECT wasPrimary FROM "UnassignedContact" ORDER BY id').all()).toEqual([{ wasPrimary: 1 }, { wasPrimary: null }]);
     expect(second.prepare("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
     second.close();
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

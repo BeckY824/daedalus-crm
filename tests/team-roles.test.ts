@@ -43,10 +43,23 @@ import { TOOL_MAP, type ToolContext } from "@/lib/agent/tools";
 import { getBusiness } from "@/lib/business";
 import { 订单详情 } from "@/lib/order-db";
 import { MCP_TOOL_NAMES, 跑工具 } from "@/lib/mcp/tools";
+import ContactsPage from "@/app/(app)/contacts/page";
 
 const 老板 = "acct_boss";
 const 小王 = "acct_wang";
 const 小李 = "acct_li";
+
+it("J-017 按原客户名搜索未归属联系人仍受业务员权限限定", async () => {
+  await raw.unassignedContact.createMany({ data: [
+    { id: "search-own", name: "我的原联系人", fromCustomerName: "共同原公司", ownerId: 小王, wasPrimary: true },
+    { id: "search-hidden", name: "同事原联系人", fromCustomerName: "共同原公司", ownerId: 小李, wasPrimary: true },
+  ] });
+  try {
+    当("wang"); 进团队(); await 对齐角色();
+    const page = await ContactsPage({ searchParams: Promise.resolve({ keyword: "共同原公司" }) });
+    expect(page.props.总数).toBe(1); expect(page.props.rows.map((r: { id: string }) => r.id)).toEqual(["search-own"]);
+  } finally { await raw.unassignedContact.deleteMany({ where: { id: { in: ["search-own", "search-hidden"] } } }); }
+});
 
 let 我是 = "wang";
 function 当(账号: string) {

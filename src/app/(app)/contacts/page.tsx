@@ -31,9 +31,9 @@ export default async function ContactsPage({
       }
     : {};
 
-  // 从客户上移出、人留着的（UnassignedContact，2026-10-01）。没有客户可搜，只按姓名、电话
+  // 未归属保留原客户名，搜索它不会重新关联已删除的客户，也不会扩大账号可见范围。
   const 散的where: Prisma.UnassignedContactWhereInput = 词
-    ? { OR: [{ name: { contains: 词 } }, { phone: { contains: 号码片段(词) ?? 词 } }, { wechat: { contains: 词 } }] }
+    ? { OR: [{ name: { contains: 词 } }, { phone: { contains: 号码片段(词) ?? 词 } }, { wechat: { contains: 词 } }, { fromCustomerName: { contains: 词 } }] }
     : {};
 
   const [总数, rows, 散的总数, 散的, 学员们, users] = await Promise.all([
@@ -70,6 +70,8 @@ export default async function ContactsPage({
         email: c.email,
         wechat: c.wechat,
         isPrimary: c.isPrimary,
+        fromCustomerId: null as string | null,
+        wasPrimary: null as boolean | null,
         remark: c.remark,
         updatedAt: c.updatedAt.toISOString(),
         未归属: false,
@@ -89,6 +91,8 @@ export default async function ContactsPage({
           email: u.email,
           wechat: u.wechat,
           isPrimary: false,
+          fromCustomerId: u.fromCustomerId,
+          wasPrimary: u.wasPrimary,
           remark: u.remark,
           updatedAt: u.updatedAt.toISOString(),
           未归属: true,
