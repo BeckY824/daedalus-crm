@@ -5,6 +5,7 @@ import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { control } from "@/lib/tenant/control";
 import { daysLeft } from "@/lib/tenant/workspaces";
 import BillingView from "./BillingView";
+import { 是共享工作区 } from "@/lib/shared-ws/config";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,7 @@ export default async function BillingPage() {
 
   const t = await resolveCurrentTenant();
   if (!t) redirect("/dashboard");
+  if (是共享工作区(t.slug)) redirect("/dashboard");
 
   const ws = await control.workspace.findUnique({ where: { id: t.workspaceId } });
   if (!ws) redirect("/dashboard");

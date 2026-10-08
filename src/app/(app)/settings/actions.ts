@@ -98,6 +98,12 @@ export async function saveUser(input: {
 > {
   const me = await requireAdmin();
 
+  if (!input || typeof input !== "object" || typeof input.name !== "string" || !input.name.trim() ||
+      typeof input.email !== "string" || typeof input.title !== "string" || typeof input.role !== "string" ||
+      typeof input.active !== "boolean" || (input.id !== undefined && (typeof input.id !== "string" || !input.id)) ||
+      (input.password != null && typeof input.password !== "string")) {
+    return { ok: false, error: "成员信息不完整或格式不正确" };
+  }
   if (!ROLES.some((r) => r.value === input.role)) {
     return { ok: false as const, error: `角色「${input.role}」不是合法取值` };
   }
@@ -164,6 +170,8 @@ export async function saveUser(input: {
   };
 
   if (input.id) {
+    const 之前 = await prisma.user.findUnique({ where: { id: input.id }, select: { active: true } });
+    if (!之前) return { ok: false, error: "这个成员已不存在，请刷新重试" };
     if (托管版()) {
       /**
        * 托管版的密码在控制面，业务库那一列存的是不可用的占位符。
@@ -172,29 +180,42 @@ export async function saveUser(input: {
        * 改一边不改另一边就对不上了；界面上那一栏在编辑时是锁住的。
        */
       const link = await prisma.workspaceAccount.findFirst({ where: { userId: input.id } });
+      const 恢复 = !之前.active && input.active;
+      const t = 恢复 ? await resolveCurrentTenant() : null;
+      if (恢复 && (!link || !t)) return { ok: false, error: "无法恢复成员的登录资格，请刷新重试或联系管理员" };
+      // 密码在控制面、在职状态在业务库，避免恢复失败却已改掉密码的部分结果。
+      if (恢复 && input.password) return { ok: false, error: "请先恢复成员，再单独重置密码" };
       if (input.password) {
         if (!link) return { ok: false as const, error: "这个成员还没有可登录的账号（老数据），请删掉重建" };
         const r = await 改控制面密码(link.accountId, input.password);
         if (!r.ok) return r;
       }
       const { email: _忽略登录名, ...可改 } = base;
-      const 之前 = await prisma.user.findUnique({ where: { id: input.id }, select: { active: true } });
-      await prisma.user.update({ where: { id: input.id }, data: 可改 });
       /*
         在编辑框里把停用的人拨回在职：和「恢复」按钮一样，把停用时撤掉的成员资格补回来。
         原来只改了业务库的 active，提示「已保存」，那个人照样登不进来（2026-10-02 排查 A4）
       */
-      if (之前 && !之前.active && input.active && link) {
-        const t = await resolveCurrentTenant();
-        if (t) await 复成员(link.accountId, t.workspaceId, input.role);
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.user.update({ where: { id: input.id }, data: 可改 });
+          if (恢复 && link && t) await 复成员(link.accountId, t.workspaceId, input.role);
+        });
+      } catch (error) {
+        console.error("保存托管成员失败：", error);
+        return { ok: false, error: 恢复 ? "成员保存失败，登录资格未恢复，请稍后重试" : "成员保存失败，请稍后重试" };
       }
     } else {
-      await prisma.user.update({
-        where: { id: input.id },
-        data: input.password
-          ? { ...base, password: await bcrypt.hash(input.password, 10) }
-          : base,
-      });
+      const occupied = await prisma.user.findUnique({ where: { email: base.email }, select: { id: true } });
+      if (occupied && occupied.id !== input.id) return { ok: false, error: "该登录用户名已被占用" };
+      try {
+        await prisma.user.update({
+          where: { id: input.id },
+          data: input.password ? { ...base, password: await bcrypt.hash(input.password, 10) } : base,
+        });
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "P2002") return { ok: false, error: "该登录用户名已被占用" };
+        throw error;
+      }
     }
   } else {
     if (!input.password) return { ok: false as const, error: "新成员必须设置初始密码" };
@@ -354,12 +375,25 @@ export async function deactivateUser(id: string, transferToId: string) {
 
 export async function reactivateUser(id: string) {
   const me = await requireAdmin();
-  const u = await prisma.user.update({ where: { id }, data: { active: true } });
+  const u = typeof id === "string" && id ? await prisma.user.findUnique({ where: { id } }) : null;
+  if (!u) return { ok: false as const, error: "这个成员已不存在，请刷新重试" };
+  if (u.active) return { ok: true as const };
   // 托管版：停用时撤掉的成员资格要加回来，否则他登录会被告知「没有工作区」
   if (托管版()) {
     const t = await resolveCurrentTenant();
     const link = await prisma.workspaceAccount.findFirst({ where: { userId: id } });
-    if (t && link) await 复成员(link.accountId, t.workspaceId, u.role);
+    if (!t || !link) return { ok: false as const, error: "无法恢复成员的登录资格，请刷新重试或联系管理员" };
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id }, data: { active: true } });
+        await 复成员(link.accountId, t.workspaceId, u.role);
+      });
+    } catch (error) {
+      console.error("恢复托管成员失败：", error);
+      return { ok: false as const, error: "成员恢复失败，仍保持停用，请稍后重试" };
+    }
+  } else {
+    await prisma.user.update({ where: { id }, data: { active: true } });
   }
   await recordAudit({
     user: me, action: "reactivate", entity: "User", entityId: id,

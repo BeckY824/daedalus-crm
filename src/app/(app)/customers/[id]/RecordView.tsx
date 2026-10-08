@@ -261,8 +261,11 @@ export default function RecordView({
    * 完成眼前这条计划（审查 M10）。提示里带「撤销」和「排下一次」：
    * 原来点完「下次跟进」那块直接变成「尚未安排」，点错了改不回来，做完了也没人问下一次什么时候
    */
-  async function 完成计划(p: Pick<NonNullable<typeof plan>, "id" | "subject">, 顺带?: string) {
-    await completePlan(p.id);
+  async function 完成计划(p: Pick<NonNullable<typeof plan>, "id" | "subject">, 顺带?: string, 已完成 = false) {
+    if (!已完成) {
+      const result = await completePlan(p.id).catch(() => ({ ok: false as const, error: "计划完成失败，请稍后重试" }));
+      if (!result.ok) return void message.error(result.error);
+    }
     router.refresh();
     const key = `plan-${p.id}`;
     message.success({
@@ -817,7 +820,7 @@ export default function RecordView({
         initialAiText={followInit.aiText}
         /* 到期了（今天或更早）的那条计划：记完这一笔默认顺手完成它（审查 M9） */
         待收口计划={plan && !dayjs(plan.plannedAt).isAfter(dayjs().endOf("day")) ? plan : null}
-        完成了计划={(p) => void 完成计划(p, `跟进已记录，计划「${p.subject}」一并完成`)}
+        完成了计划={(p, 已完成) => void 完成计划(p, `跟进已记录，计划「${p.subject}」一并完成`, 已完成)}
         contacts={contacts}
         opportunities={opportunities}
         orders={contracts.flatMap((c) => (c.order ? [{ id: c.order.id, no: c.order.no }] : []))}

@@ -10,6 +10,7 @@ import { 商机币种, 带币种 } from "@/lib/money-db";
 import { 节点名们, 节点状态们, 单据状态们, 默认单据, 默认订单号, 成交前节点数, 团队订单前缀 } from "@/lib/order";
 import { 读团队 } from "@/lib/sync/client";
 import { getBusiness } from "@/lib/business";
+import { 订单, 订单节点, 供应商页 } from "@/lib/features";
 import { 外贸订单 } from "@/lib/business-config";
 import { saveFollowUp } from "../customers/[id]/actions";
 
@@ -90,6 +91,7 @@ function 整理(input: 订单输入): { ok: true; data: Record<string, unknown> 
 export async function createOrder(input: 订单输入 & { customerId: string; opportunityId?: string | null }) {
   try {
     const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
     /*
       外贸模版下订单就是一笔签约（2026-10-05，lib/order-contract.ts）：只从「新建订单」/「转为订单」那个框建，
       这里直接建出来的单没有签约、不算业绩（复查）。别的模版不摆订单，留着给节点那一套（开关打开时）和老调用
@@ -165,6 +167,7 @@ async function 选用的供应商(商机id: string) {
 export async function saveOrderPurchase(orderId: string, input: { supplierId?: string | null; cost?: number; currency?: string; fxRate?: number | null }) {
   try {
     const me = await requireUser();
+    if (!订单 || !供应商页) return { ok: false as const, error: "此版本未开放供应商采购管理" };
     const o = await prisma.tradeOrder.findUnique({ where: { id: String(orderId ?? "") }, select: { id: true, no: true, customerId: true } });
     if (!o) return { ok: false as const, error: "这张订单已经不在了" };
     const cost = 钱(input.cost ?? 0);
@@ -191,6 +194,8 @@ export async function saveOrderPurchase(orderId: string, input: { supplierId?: s
 export async function saveOrder(id: string, input: 订单输入) {
   try {
     const me = await requireUser();
+    if (!订单节点 && ["incoterm", "depositDue", "depositPaid", "depositAt", "balancePaid", "balanceAt"].some((k) => k in input)) return { ok: false as const, error: "此版本未开放订单条款与定金尾款管理" };
+    if (!订单) return { ok: false as const, error: "此版本未开放订单功能" };
     const 原 = await prisma.tradeOrder.findUnique({ where: { id: String(id ?? "") }, select: { id: true, no: true, customerId: true, amount: true, depositDue: true, contractId: true } });
     if (!原) return { ok: false as const, error: "这张订单已经不在了" };
     // 有签约的订单：金额、币种跟着签约走（2026-10-05 复查），在订单框里改——这里改了两边就对不上
@@ -225,6 +230,7 @@ const 字段名: Record<string, string> = {
 export async function saveOrderNode(orderId: string, idx: number, patch: { name?: string; dueAt?: string | null; status?: string }) {
   try {
     const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
     const n = await prisma.tradeOrderNode.findUnique({ where: { orderId_idx: { orderId: String(orderId ?? ""), idx: Number(idx) } }, include: { order: { select: { no: true, customerId: true } } } });
     if (!n) return { ok: false as const, error: "这个节点已经不在了" };
     const data: { name?: string; dueAt?: Date | null; status?: string; doneAt?: Date | null } = {};
@@ -267,6 +273,7 @@ export async function saveOrderNode(orderId: string, idx: number, patch: { name?
 export async function saveOrderDoc(docId: string, state: string) {
   try {
     const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
     if (!(单据状态们 as readonly string[]).includes(state)) return { ok: false as const, error: `单据状态只能是：${单据状态们.join(" / ")}` };
     const d = await prisma.tradeOrderDoc.findUnique({ where: { id: String(docId ?? "") }, include: { order: { select: { id: true, no: true, customerId: true } } } });
     if (!d) return { ok: false as const, error: "这样单据已经不在了" };
@@ -283,6 +290,7 @@ export async function saveOrderDoc(docId: string, state: string) {
 export async function addOrderDoc(orderId: string, name: string) {
   try {
     const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
     const 名 = 文本(name, 60);
     if (!名) return { ok: false as const, error: "单据名不能空着" };
     const o = await prisma.tradeOrder.findUnique({ where: { id: String(orderId ?? "") }, select: { id: true, no: true, customerId: true, docs: { select: { sort: true, name: true } } } });
@@ -300,6 +308,7 @@ export async function addOrderDoc(orderId: string, name: string) {
 export async function deleteOrderDoc(docId: string) {
   try {
     const me = await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
     const d = await prisma.tradeOrderDoc.findUnique({ where: { id: String(docId ?? "") }, include: { order: { select: { id: true, no: true, customerId: true } } } });
     if (!d) return { ok: true as const };
     await prisma.tradeOrderDoc.delete({ where: { id: d.id } });
@@ -318,6 +327,7 @@ export async function deleteOrderDoc(docId: string) {
 export async function addOrderNodeNote(orderId: string, idx: number, content: string) {
   try {
     await requireUser();
+    if (!订单 || !订单节点) return { ok: false as const, error: "此版本未开放订单节点与单据功能" };
     const 话 = 文本(content, 5000);
     if (!话) return { ok: false as const, error: "写点什么再记" };
     const n = await prisma.tradeOrderNode.findUnique({ where: { orderId_idx: { orderId: String(orderId ?? ""), idx: Number(idx) } }, include: { order: { select: { id: true, no: true, customerId: true, opportunityId: true } } } });
@@ -347,6 +357,7 @@ export async function addOrderNodeNote(orderId: string, idx: number, content: st
 export async function addOrderNote(orderId: string, content: string) {
   try {
     await requireUser();
+    if (!订单) return { ok: false as const, error: "此版本未开放订单功能" };
     const 话 = 文本(content, 5000);
     if (!话) return { ok: false as const, error: "写点什么再记" };
     const o = await prisma.tradeOrder.findUnique({ where: { id: String(orderId ?? "") }, select: { id: true, no: true, customerId: true, opportunityId: true } });
@@ -375,10 +386,18 @@ export async function 供应商名单(): Promise<string[]> {
   return [...new Set(rows.map((r) => r.name))];
 }
 
+/** 轻订单的候选包含稳定ID；同名档案仍分别可选，不需要开放供应商管理页。 */
+export async function 供应商候选(): Promise<{ id: string; name: string }[]> {
+  await requireUser();
+  if (!订单) return [];
+  return prisma.supplier.findMany({ orderBy: [{ name: "asc" }, { id: "asc" }], take: 500, select: { id: true, name: true } });
+}
+
 /** 删订单。节点、单据跟着删；挂在节点上的跟进记录留着（那是和客户的往来，不是订单的附属品），只是不再挂在节点上 */
 export async function deleteOrder(id: string) {
   try {
     const me = await requireUser();
+    if (!订单) return { ok: false as const, error: "此版本未开放订单功能" };
     const o = await prisma.tradeOrder.findUnique({ where: { id: String(id ?? "") }, include: { customer: { select: { name: true } } } });
     if (!o) return { ok: true as const };
     // 有签约的订单在客户页删：删的是那笔签约，跟进状态要不要退回在那里问（2026-10-05 复查）

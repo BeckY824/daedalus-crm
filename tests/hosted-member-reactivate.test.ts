@@ -118,3 +118,77 @@ describe("编辑框把停用的人拨回在职：成员资格一起补回来（T
     });
   });
 });
+
+it.each(["恢复按钮", "编辑框"])("T-039 %s：控制面恢复失败时业务库保持停用，重试成功后才恢复", async (entry) => {
+  const { createAccount } = await import("@/lib/tenant/accounts");
+  const { createWorkspace, listWorkspacesFor } = await import("@/lib/tenant/workspaces");
+  const { runWithTenant } = await import("@/lib/tenant/context");
+  const { prisma } = await import("@/lib/prisma");
+  const { control } = await import("@/lib/tenant/control");
+  const { saveUser, deactivateUser, reactivateUser } = await import("@/app/(app)/settings/actions");
+  const tag = entry === "恢复按钮" ? "button" : "edit";
+  const account = await createAccount({ target: { kind: "email", value: `owner-fail-${tag}@example.com` }, password: "abcd1234", name: "QA老板" });
+  const ws = await createWorkspace({ name: `QA恢复失败-${tag}`, account });
+  await runWithTenant({ workspaceId: ws.id, slug: ws.slug, dbFile: ws.dbFile, role: "OWNER", writable: true }, async () => {
+    const boss = await prisma.user.findFirstOrThrow({ where: { role: "ADMIN" } });
+    登录的.user = { ...boss, title: boss.title ?? "", avatar: null };
+    const email = `member-fail-${tag}@example.com`;
+    expect((await saveUser({ name: "QA成员", email, title: "销售", role: "SALES", active: true, password: "abcd1234" })).ok).toBe(true);
+    const member = await prisma.user.findUniqueOrThrow({ where: { email } });
+    const link = await prisma.workspaceAccount.findFirstOrThrow({ where: { userId: member.id } });
+    expect((await deactivateUser(member.id, boss.id)).ok).toBe(true);
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: member.id } });
+    const auditCount = await prisma.auditLog.count();
+    const restore = () => entry === "恢复按钮" ? reactivateUser(member.id) : saveUser({ id: member.id, name: "QA新名字", email, title: "经理", role: "SALES", active: true });
+    await control.$executeRawUnsafe("CREATE TRIGGER qa_restore_failure BEFORE INSERT ON Membership BEGIN SELECT RAISE(ABORT, 'QA control unavailable'); END");
+    try {
+      await expect(restore()).resolves.toMatchObject({ ok: false, error: expect.stringContaining("失败") });
+      expect(await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).toEqual(before);
+      expect(await listWorkspacesFor(link.accountId)).toEqual([]);
+      expect(await prisma.auditLog.count()).toBe(auditCount);
+    } finally {
+      await control.$executeRawUnsafe("DROP TRIGGER qa_restore_failure");
+    }
+    expect((await restore()).ok).toBe(true);
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).active).toBe(true);
+    expect((await listWorkspacesFor(link.accountId)).map((w) => w.id)).toEqual([ws.id]);
+  });
+});
+
+it("T-039 缺失控制面账号映射时不虚假恢复成员", async () => {
+  const { createAccount } = await import("@/lib/tenant/accounts");
+  const { createWorkspace } = await import("@/lib/tenant/workspaces");
+  const { runWithTenant } = await import("@/lib/tenant/context");
+  const { prisma } = await import("@/lib/prisma");
+  const { reactivateUser } = await import("@/app/(app)/settings/actions");
+  const account = await createAccount({ target: { kind: "email", value: "owner-no-link@example.com" }, password: "abcd1234", name: "QA老板" });
+  const ws = await createWorkspace({ name: "QA缺少映射", account });
+  await runWithTenant({ workspaceId: ws.id, slug: ws.slug, dbFile: ws.dbFile, role: "OWNER", writable: true }, async () => {
+    const boss = await prisma.user.findFirstOrThrow({ where: { role: "ADMIN" } });
+    登录的.user = { ...boss, title: boss.title ?? "", avatar: null };
+    const member = await prisma.user.create({ data: { name: "QA旧成员", email: "legacy@example.com", role: "SALES", password: "!managed", active: false } });
+    await expect(reactivateUser(member.id)).resolves.toMatchObject({ ok: false, error: expect.stringContaining("登录资格") });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).active).toBe(false);
+  });
+});
+
+it("T-039 恢复与控制面改密不混合提交，拒绝时密码和在职状态均不变", async () => {
+  const { createAccount, verifyAccount } = await import("@/lib/tenant/accounts");
+  const { createWorkspace } = await import("@/lib/tenant/workspaces");
+  const { runWithTenant } = await import("@/lib/tenant/context");
+  const { prisma } = await import("@/lib/prisma");
+  const { saveUser, deactivateUser } = await import("@/app/(app)/settings/actions");
+  const account = await createAccount({ target: { kind: "email", value: "owner-restore-password@example.com" }, password: "abcd1234", name: "QA老板" });
+  const ws = await createWorkspace({ name: "QA恢复改密", account });
+  await runWithTenant({ workspaceId: ws.id, slug: ws.slug, dbFile: ws.dbFile, role: "OWNER", writable: true }, async () => {
+    const boss = await prisma.user.findFirstOrThrow({ where: { role: "ADMIN" } }); 登录的.user = { ...boss, title: boss.title ?? "", avatar: null };
+    const email = "member-restore-password@example.com";
+    expect((await saveUser({ name: "QA成员", email, title: "销售", role: "SALES", active: true, password: "oldpass123" })).ok).toBe(true);
+    const member = await prisma.user.findUniqueOrThrow({ where: { email } });
+    await deactivateUser(member.id, boss.id);
+    const before = await prisma.user.findUniqueOrThrow({ where: { id: member.id } });
+    expect(await saveUser({ id: member.id, name: "QA成员", email, title: "销售", role: "SALES", active: true, password: "newpass123" })).toMatchObject({ ok: false, error: "请先恢复成员，再单独重置密码" });
+    expect(await prisma.user.findUniqueOrThrow({ where: { id: member.id } })).toEqual(before);
+    expect(await verifyAccount(email, "oldpass123")).not.toBeNull(); expect(await verifyAccount(email, "newpass123")).toBeNull();
+  });
+});

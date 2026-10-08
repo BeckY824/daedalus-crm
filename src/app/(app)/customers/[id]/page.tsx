@@ -45,7 +45,7 @@ export default async function CustomerDetailPage({
       // 签约带上它是哪张订单（外贸，2026-10-05）：订单号、付款方式、供应商
       contracts: {
         orderBy: { signedAt: "desc" },
-        include: { ...带币种.签约, order: { select: { id: true, no: true, payment: true, purchase: { select: { supplier: { select: { name: true } } } } } } },
+        include: { ...带币种.签约, order: { select: { id: true, no: true, payment: true, purchase: { select: { supplierId: true, supplier: { select: { name: true } } } } } } },
       },
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
       opportunities: { orderBy: { createdAt: "desc" }, include: 带币种.商机 },
@@ -144,7 +144,7 @@ export default async function CustomerDetailPage({
         currency: 签约币种(c),
         signedAt: c.signedAt.toISOString(),
         remark: c.remark,
-        order: c.order ? { id: c.order.id, no: c.order.no, payment: c.order.payment, supplier: c.order.purchase?.supplier?.name ?? null } : null,
+        order: c.order ? { id: c.order.id, no: c.order.no, payment: c.order.payment, supplier: c.order.purchase?.supplier?.name ?? null, supplierId: c.order.purchase?.supplierId ?? null } : null,
       }))}
       opportunities={customer.opportunities.map((o) => ({
         id: o.id,

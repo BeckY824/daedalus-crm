@@ -64,6 +64,12 @@ export type FollowUpInput = {
    * 一格都不写、说一句；不给（AI 卡片、订单节点这些程序里调的）照旧直接写
    */
   版本?: string | null;
+  /** 新建跟进时的组合操作，任一项失败全部回滚（J-177）。 */
+  附带?: {
+    tasks: { title: string; dueAt?: string | null }[];
+    plan?: { subject: string; plannedAt: string; method: string } | null;
+    完成计划?: string | null;
+  };
 };
 
 /** 原文最多存这么多字，与速记解析的输入上限一致 */
@@ -76,24 +82,24 @@ const SOURCE_TEXT_MAX = 5000;
 type 带时间的跟进 = { type: string; title: string; content: string; status: string; dueAt: Date | null };
 const 会带待办 = (f: 带时间的跟进) => (f.type === "TASK" || f.type === "REMIND") && Boolean(f.dueAt);
 const 待办标题 = (f: 带时间的跟进) => (f.title || f.content).trim().slice(0, 60) || 类型名(f.type);
-async function 跟着改待办(customerId: string, 旧: 带时间的跟进, 新: 带时间的跟进 | null) {
+async function 跟着改待办(customerId: string, 旧: 带时间的跟进, 新: 带时间的跟进 | null, db: Prisma.TransactionClient | typeof prisma = prisma) {
   if (!会带待办(旧)) return;
   /*
     只动**一条**（第三轮复查）：原来 deleteMany / updateMany，两条同标题同时间的提醒删一条，两条待办都没了，
     人手建的同名同时间待办也被带走。一条跟进只顺带建过一条待办，就只认最早那一条
   */
-  const 那条 = await prisma.task.findFirst({
+  const 那条 = await db.task.findFirst({
     where: { customerId, title: 待办标题(旧), dueAt: 旧.dueAt!, done: false },
     orderBy: { createdAt: "asc" },
     select: { id: true },
   });
   if (!那条) return;
   if (!新 || !会带待办(新)) {
-    await prisma.task.delete({ where: { id: 那条.id } });
+    await db.task.delete({ where: { id: 那条.id } });
   } else if (新.status === "已完成") {
-    await prisma.task.update({ where: { id: 那条.id }, data: { done: true, doneAt: new Date() } });
+    await db.task.update({ where: { id: 那条.id }, data: { done: true, doneAt: new Date() } });
   } else {
-    await prisma.task.update({ where: { id: 那条.id }, data: { title: 待办标题(新), dueAt: 新.dueAt } });
+    await db.task.update({ where: { id: 那条.id }, data: { title: 待办标题(新), dueAt: 新.dueAt } });
   }
   刷新待办(customerId);
 }
@@ -102,118 +108,84 @@ async function 跟着改待办(customerId: string, 旧: 带时间的跟进, 新:
  * 跟进挂到订单上 / 摘下来。只认这位客户自己的订单（id 是从浏览器来的）。
  * 原来挂在某一步（节点开着时记的）的，换订单才改成整单（nodeIdx 0），没换就留着原来那一步
  */
-async function 挂订单(followUpId: string, customerId: string, orderId: string | null) {
-  const 原 = await prisma.followUpOrder.findUnique({ where: { followUpId } });
+async function 挂订单(followUpId: string, customerId: string, orderId: string | null, db: Prisma.TransactionClient | typeof prisma = prisma) {
+  const 原 = await db.followUpOrder.findUnique({ where: { followUpId } });
   if (!orderId) {
-    if (原) await prisma.followUpOrder.delete({ where: { followUpId } });
+    if (原) await db.followUpOrder.delete({ where: { followUpId } });
     return;
   }
   if (原?.orderId === orderId) return;
-  const o = await prisma.tradeOrder.findFirst({ where: { id: orderId, customerId }, select: { id: true } });
+  const o = await db.tradeOrder.findFirst({ where: { id: orderId, customerId }, select: { id: true } });
   if (!o) return;
-  await prisma.followUpOrder.upsert({ where: { followUpId }, create: { followUpId, orderId: o.id, nodeIdx: 0 }, update: { orderId: o.id, nodeIdx: 0 } });
+  await db.followUpOrder.upsert({ where: { followUpId }, create: { followUpId, orderId: o.id, nodeIdx: 0 }, update: { orderId: o.id, nodeIdx: 0 } });
   revalidatePath(`/orders/${o.id}`);
 }
 
 export async function saveFollowUp(input: FollowUpInput) {
+  const user = await requireUser();
   try {
-    const user = await requireUser();
-  
-    // 界面上选不出来，但接口直调能写进去，会污染看板按类型/状态的统计
-    if (!FOLLOW_TYPES.some((t) => t.value === input.type)) {
-      return { ok: false as const, error: `跟进类型「${input.type}」不是合法取值` };
-    }
-    if (!FOLLOW_RECORD_STATUSES.includes(input.status as (typeof FOLLOW_RECORD_STATUSES)[number])) {
-      return { ok: false as const, error: `记录状态「${input.status}」不是合法取值` };
-    }
-    // 负数时长会让「累计通话时长」越统计越少
-    if (input.durationMinutes != null && !(Number.isFinite(input.durationMinutes) && input.durationMinutes >= 0)) {
-      return { ok: false as const, error: "通话时长不能为负数" };
-    }
-  
+    if (!input || typeof input !== "object" || typeof input.content !== "string" || typeof input.customerId !== "string") return { ok: false as const, error: "跟进信息格式不正确" };
+    if (!FOLLOW_TYPES.some((t) => t.value === input.type)) return { ok: false as const, error: `跟进类型「${input.type}」不是合法取值` };
+    if (!FOLLOW_RECORD_STATUSES.includes(input.status as (typeof FOLLOW_RECORD_STATUSES)[number])) return { ok: false as const, error: `记录状态「${input.status}」不是合法取值` };
+    if (input.durationMinutes != null && !(Number.isFinite(input.durationMinutes) && input.durationMinutes >= 0)) return { ok: false as const, error: "通话时长不能为负数" };
+    const 有效日期 = (v: unknown) => typeof v === "string" && Boolean(v) && Number.isFinite(new Date(v).getTime());
+    if (!有效日期(input.occurredAt) || (input.dueAt != null && !有效日期(input.dueAt))) return { ok: false as const, error: "跟进或提醒时间格式不正确" };
+    const extra = input.附带;
+    if (extra && (input.id || !Array.isArray(extra.tasks) || extra.tasks.length > 20 || extra.tasks.some((t) => !t || typeof t.title !== "string" || !t.title.trim() || (t.dueAt != null && !有效日期(t.dueAt))) ||
+      (extra.plan && (typeof extra.plan.subject !== "string" || !extra.plan.subject.trim() || !有效日期(extra.plan.plannedAt) || typeof extra.plan.method !== "string" || !extra.plan.method.trim())) ||
+      (extra.完成计划 != null && (typeof extra.完成计划 !== "string" || !extra.完成计划)))) return { ok: false as const, error: "附带待办或计划信息不完整，请检查后重试" };
     const data = {
-      type: input.type,
-      title: input.title?.trim() ?? "",
-      content: input.content.trim(),
-      status: input.status,
+      type: input.type, title: input.title?.trim() ?? "", content: input.content.trim(), status: input.status,
       duration: input.durationMinutes ? Math.round(input.durationMinutes * 60) : null,
-      occurredAt: new Date(input.occurredAt),
-      dueAt: input.dueAt ? new Date(input.dueAt) : null,
-      contactId: input.contactId || null,
-      opportunityId: input.opportunityId || null,
-      participants: input.participants || null,
-      customerId: input.customerId,
+      occurredAt: new Date(input.occurredAt), dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      contactId: input.contactId || null, opportunityId: input.opportunityId || null,
+      participants: input.participants || null, customerId: input.customerId,
     };
-  
-    const 姓名 = await 客户名(input.customerId);
-    let id = input.id ?? "";
-    /** 「跟进提醒 / 跟进任务」顺带建的那条待办 */
-    let 待办id: string | undefined;
-    if (input.id) {
-      /**
-       * 编辑时不能重写 ownerId。
-       * 原本每次保存都盖成当前登录人，于是乙帮甲改个错字，
-       * 这条跟进记录就变成乙做的了——「谁跟进的」和按人统计的跟进量一起失真，
-       * 而且没有任何痕迹。归属只在创建时确定。
-       */
-      const 改前 = await prisma.followUp.findUnique({ where: { id: input.id }, select: { type: true, title: true, content: true, status: true, dueAt: true } });
-      if (!改前) return { ok: false as const, error: "这条跟进已经不在了（可能在别处删了），刷新看看" };
-      // 版本闸门（J-105）：原来整条 update，两个窗口改同一条，后存的把先存的改动整条盖回去、谁都不知道
-      const 写了 = await prisma.followUp.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data: { ...data, ...推进版本(input.版本) } });
-      if (写了.count === 0) return { ok: false as const, error: 版本冲突 };
-      await 跟着改待办(input.customerId, 改前, data);
-      await recordAudit({
-        user, action: "update", entity: "FollowUp", entityId: input.id,
-        summary: `修改${姓名}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
-        detail: { 客户: 姓名, 类型: 类型名(data.type), 状态: data.status, 内容: data.content.slice(0, 120) },
-      });
-    } else {
-      const sourceText = input.sourceText?.trim().slice(0, SOURCE_TEXT_MAX);
-      const f = await prisma.followUp.create({
-        data: {
-          ...data,
-          ownerId: user.id,
-          source: sourceText ? { create: { text: sourceText } } : undefined,
-        },
-      });
-      id = f.id;
-      await recordAudit({
-        user, action: "create", entity: "FollowUp", entityId: f.id,
-        summary: `记了${姓名}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
-        detail: { 客户: 姓名, 类型: 类型名(data.type), 状态: data.status, 内容: data.content.slice(0, 120) },
-      });
-      /*
-        「跟进任务 / 跟进提醒」填了时间、还没做完的：同时建一条待办（2026-10-02 排查 3-2）。
-        Dock 数字、早报、到点通知、计划页都只看计划和待办——原来这里填的「提醒时间」只是记录上的一格，到点什么都不会发生，
-        而人选「跟进提醒」就是想被提醒。只在新建时做：编辑一条老记录不该再冒出一条待办。
-      */
-      if (会带待办(data) && data.status !== "已完成") {
-        const t = await prisma.task.create({ data: { title: 待办标题(data), dueAt: data.dueAt!, customerId: input.customerId, ownerId: user.id } });
-        待办id = t.id;
-        刷新待办(input.customerId);
+    const result = await prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.findUnique({ where: { id: input.customerId }, select: { name: true } });
+      if (!customer) return { ok: false as const, error: "这个客户已经不在了，请刷新重试" };
+      const plan = extra?.完成计划 ? await tx.followPlan.findFirst({ where: { id: extra.完成计划, customerId: input.customerId } }) : null;
+      if (extra?.完成计划 && !plan) return { ok: false as const, error: "要完成的计划已不存在或不属于这位客户，请重新选择" };
+      const audits: Parameters<typeof recordAudit>[0][] = [];
+      let id = input.id ?? "";
+      let 待办id: string | undefined;
+      if (input.id) {
+        const 改前 = await tx.followUp.findUnique({ where: { id: input.id }, select: { type: true, title: true, content: true, status: true, dueAt: true } });
+        if (!改前) return { ok: false as const, error: "这条跟进已经不在了（可能在别处删了），刷新看看" };
+        const 写了 = await tx.followUp.updateMany({ where: { id: input.id, ...版本条件(input.版本) }, data: { ...data, ...推进版本(input.版本) } });
+        if (写了.count === 0) return { ok: false as const, error: 版本冲突 };
+        await 跟着改待办(input.customerId, 改前, data, tx);
+      } else {
+        const sourceText = input.sourceText?.trim().slice(0, SOURCE_TEXT_MAX);
+        id = (await tx.followUp.create({ data: { ...data, ownerId: user.id, source: sourceText ? { create: { text: sourceText } } : undefined } })).id;
+        if (会带待办(data) && data.status !== "已完成") 待办id = (await tx.task.create({ data: { title: 待办标题(data), dueAt: data.dueAt!, customerId: input.customerId, ownerId: user.id } })).id;
       }
-    }
-  
-    if (input.orderId !== undefined) await 挂订单(id, input.customerId, input.orderId);
-
-    // 同步客户的「最近跟进」时间
-    const latest = await prisma.followUp.findFirst({
-      where: { customerId: input.customerId },
-      orderBy: { occurredAt: "desc" },
-      select: { occurredAt: true },
+      audits.push({ user, action: input.id ? "update" : "create", entity: "FollowUp", entityId: id,
+        summary: `${input.id ? "修改" : "记了"}${customer.name}的一条${类型名(data.type)}跟进（${dayjs(data.occurredAt).format("YYYY-MM-DD")}）`,
+        detail: { 客户: customer.name, 类型: 类型名(data.type), 状态: data.status, 内容: data.content.slice(0, 120) } });
+      if (input.orderId !== undefined) await 挂订单(id, input.customerId, input.orderId, tx);
+      for (const item of extra?.tasks ?? []) {
+        const task = await tx.task.create({ data: { title: item.title.trim(), dueAt: item.dueAt ? new Date(item.dueAt) : null, customerId: input.customerId, ownerId: user.id } });
+        audits.push({ user, action: "create", entity: "Task", entityId: task.id, summary: `给${customer.name}加了待办「${task.title}」` });
+      }
+      if (extra?.plan) {
+        const next = await tx.followPlan.create({ data: { subject: extra.plan.subject.trim(), plannedAt: new Date(extra.plan.plannedAt), method: extra.plan.method, customerId: input.customerId, ownerId: user.id } });
+        audits.push({ user, action: "create", entity: "FollowPlan", entityId: next.id, summary: `给${customer.name}排了跟进计划（${dayjs(next.plannedAt).format("YYYY-MM-DD")} ${next.method}·${next.subject}）` });
+      }
+      if (plan && !plan.done) {
+        await tx.followPlan.update({ where: { id: plan.id }, data: { done: true, ...推进版本(plan.updatedAt.toISOString()) } });
+        audits.push({ user, action: "update", entity: "FollowPlan", entityId: plan.id, summary: `完成跟进计划「${plan.subject}」（${customer.name}）` });
+      }
+      const latest = await tx.followUp.findFirst({ where: { customerId: input.customerId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
+      await tx.customer.update({ where: { id: input.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
+      return { ok: true as const, id, 待办id, audits };
     });
-    await prisma.customer.update({
-      where: { id: input.customerId },
-      data: { lastFollowAt: latest?.occurredAt ?? null },
-    });
-  
-    revalidatePath(`/customers/${input.customerId}`);
+    if (!result.ok) return result;
+    for (const audit of result.audits) await recordAudit(audit);
+    刷新待办(input.customerId);
     revalidatePath("/follow-ups");
-    revalidatePath("/dashboard");
-    return { ok: true as const, id, ...(待办id ? { 待办id } : {}) };
-  } catch (e) {
-    return 不在了(e);
-  }
+    return { ok: true as const, id: result.id, ...(result.待办id ? { 待办id: result.待办id } : {}) };
+  } catch (e) { return 不在了(e); }
 }
 
 export async function deleteFollowUp(id: string, customerId: string) {

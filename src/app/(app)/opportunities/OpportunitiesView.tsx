@@ -120,6 +120,7 @@ export default function OpportunitiesView({
     router.refresh();
     亮一下(r.id);
     const key = `lost-${r.id}`;
+    let 已撤销 = false;
     message.success({
       key,
       content: (
@@ -129,8 +130,10 @@ export default function OpportunitiesView({
             type="link"
             size="small"
             onClick={async () => {
+              if (已撤销) return;
+              已撤销 = true;
               message.destroy(key);
-              const back = await setOppStatus(r.id, "OPEN", { stage: r.stage, probability: r.probability });
+              const back = await setOppStatus(r.id, "OPEN", { stage: r.stage, probability: r.probability, 版本: res.版本 }).catch(() => ({ ok: false as const, error: "撤销失败，请刷新查看最新内容" }));
               if (!back.ok) return void message.error(back.error);
               message.success(`「${r.name}」已改回进行中`);
               router.refresh();
@@ -195,9 +198,9 @@ export default function OpportunitiesView({
    * 列表里改阶段，和看板拖卡片一样给一次撤销（审查 M11）。
    * 撤销就是改回原阶段；概率由 moveStage 按「人没改过才跟着变」的规矩处理，手填的 75% 不会被冲掉
    */
-  async function 改阶段(r: OppRow, 到: string, 是撤销 = false) {
+  async function 改阶段(r: OppRow, 到: string, 是撤销 = false, 期望版本?: string) {
     // 撤销时把原来的概率带回去（排查 D6）：r 是推进之前那一行，r.probability 就是人原来填的
-    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined);
+    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined, 期望版本);
     if (!res.ok) {
       message.error(res.error);
       router.refresh();
@@ -207,13 +210,19 @@ export default function OpportunitiesView({
     亮一下(r.id);
     const key = `stage-${r.id}`;
     if (是撤销) return void message.success({ key, content: `「${r.name}」已退回 ${stageLabel(b, 到)}` });
+    let 已撤销 = false;
     message.success({
       key,
       duration: 6,
       content: (
         <span>
           「{r.name}」已推进到 {stageLabel(b, 到)}
-          <Button type="link" size="small" onClick={() => { message.destroy(key); void 改阶段({ ...r, stage: 到 }, r.stage, true); }}>
+          <Button type="link" size="small" onClick={() => {
+            if (已撤销) return;
+            已撤销 = true;
+            message.destroy(key);
+            void 改阶段({ ...r, stage: 到 }, r.stage, true, res.版本).catch(() => message.error("撤销失败，请刷新查看最新内容"));
+          }}>
             撤销
           </Button>
         </span>

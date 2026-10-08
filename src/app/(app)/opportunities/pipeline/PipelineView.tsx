@@ -146,9 +146,9 @@ export default function PipelineView({
     await 写阶段(r, "赢单成交");
   }
 
-  async function 写阶段(r: Row, 到: string, 是撤销 = false) {
+  async function 写阶段(r: Row, 到: string, 是撤销 = false, 期望版本?: string) {
     // 撤销时带回原来的概率（排查 D6）：r 是拖之前那一行，手填的 75% 不能变成阶段默认值
-    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined);
+    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined, 期望版本);
     if (!res.ok) {
       set挪(null);
       message.error(res.error);
@@ -157,12 +157,20 @@ export default function PipelineView({
     }
     router.refresh();
     if (是撤销) return void message.success(`「${r.name}」已退回 ${stageLabel(b, 到)}`);
+    const key = `stage-${r.id}`;
+    let 已撤销 = false;
     // 手滑是拖拽最常见的结果，而这一下真写库了。给一条退路，并写清退到哪儿
     message.success({
+      key,
       content: (
         <span>
           「{r.name}」已推进到 {stageLabel(b, 到)}
-          <Button type="link" size="small" onClick={() => 推进({ ...r, stage: 到 }, r.stage, true)}>
+          <Button type="link" size="small" onClick={() => {
+            if (已撤销) return;
+            已撤销 = true;
+            message.destroy(key);
+            void 写阶段({ ...r, stage: 到 }, r.stage, true, res.版本).catch(() => message.error("撤销失败，请刷新查看最新内容"));
+          }}>
             撤销
           </Button>
         </span>

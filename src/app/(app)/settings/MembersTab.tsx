@@ -43,6 +43,7 @@ export default function MembersTab({
   const b = useBusiness();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Row | null>(null);
+  const [恢复中, set恢复中] = useState<string | null>(null);
   const [form] = Form.useForm();
 
   useEffect(() => {
@@ -212,10 +213,22 @@ export default function MembersTab({
                 type="text"
                 size="small"
                 icon={<UndoOutlined />}
+                aria-label={`恢复成员 ${r.name}`}
+                loading={恢复中 === r.id}
+                disabled={恢复中 !== null}
                 onClick={async () => {
-                  await reactivateUser(r.id);
-                  message.success("已恢复");
-                  router.refresh();
+                  if (恢复中) return;
+                  set恢复中(r.id);
+                  try {
+                    const result = await reactivateUser(r.id);
+                    if (!result.ok) { message.error(result.error); return; }
+                    message.success("已恢复");
+                    router.refresh();
+                  } catch {
+                    message.error("恢复失败，请稍后重试");
+                  } finally {
+                    set恢复中(null);
+                  }
                 }}
               />
             )}

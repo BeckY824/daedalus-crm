@@ -9,7 +9,7 @@ import { saveContract, listContractLinks, type 签约联动, type 签约联动�
 import { useBusiness } from "@/lib/business-client";
 import { 外贸订单 } from "@/lib/business-config";
 import { 常用付款方式 } from "@/lib/order";
-import { 供应商名单 } from "../../orders/actions";
+import { 供应商候选 } from "../../orders/actions";
 import { StageTag } from "@/components/ui";
 import { 金额格式 } from "@/lib/money-input";
 import { 聚焦首项 } from "@/lib/modal-focus";
@@ -35,7 +35,7 @@ export type ContractRow = {
   signedAt: string;
   remark: string | null;
   /** 外贸模版下这笔签约就是一张订单（2026-10-05）。没有 = 普通签约，或外贸之前登记的老签约 */
-  order?: { id: string; no: string; payment: string | null; supplier: string | null } | null;
+  order?: { id: string; no: string; payment: string | null; supplier: string | null; supplierId?: string | null } | null;
 };
 
 /**
@@ -83,11 +83,12 @@ function Inner({
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   /** 供应商下拉的候选：库里已有的名字（能选也能填，填个新的就新建一家） */
-  const [供应商们, set供应商们] = useState<string[]>([]);
+  const [供应商们, set供应商们] = useState<{ id: string; name: string }[]>([]);
+  const [选中供应商, set选中供应商] = useState<string | null>(editing?.order?.supplierId ?? null);
   useEffect(() => {
     if (!订单) return;
     let 还在 = true;
-    void 供应商名单().then((r) => { if (还在) set供应商们(r); }).catch(() => undefined);
+    void 供应商候选().then((r) => { if (还在) set供应商们(r); }).catch(() => undefined);
     return () => { 还在 = false; };
   }, [订单]);
   /*
@@ -146,15 +147,13 @@ function Inner({
       remark: v.remark ?? null,
       force,
       ...(editing ? {} : { 联动: 勾 }),
-      /*
-        供应商只在名字变了时才交（二审）：按名字认供应商、同名取最早那家；同步后出现两家同名时，
-        原样交回去会把订单页里选的那家悄悄换掉
-      */
+      // 候选选中后提交ID；自由输入按名字处理，未修改的旧引用继续保留。
       ...(订单
         ? {
             订单: {
               no: v.no ?? "",
               payment: v.payment ?? null,
+              ...(选中供应商 ? { supplierId: 选中供应商 } : {}),
               ...((v.supplier ?? "").trim() !== (editing?.order?.supplier ?? "").trim() || !editing?.order ? { supplier: v.supplier ?? null } : {}),
             },
           }
@@ -287,7 +286,17 @@ function Inner({
             <Col span={12}>
               {/* 能选也能填：填一个新名字就新建一家供应商（lib/order-contract.ts） */}
               <Form.Item label="供应商" name="supplier">
-                <AutoComplete allowClear options={供应商们.map((x) => ({ value: x }))} placeholder="工厂 / 供应商名称" filterOption={(i, o) => String(o?.value ?? "").toLowerCase().includes(i.toLowerCase())} />
+                <AutoComplete
+                  allowClear
+                  options={供应商们.map((x) => ({ value: x.id, name: x.name, label: 供应商们.filter((s) => s.name === x.name).length > 1 ? `${x.name}（${x.id.slice(-6)}）` : x.name }))}
+                  onChange={() => set选中供应商(null)}
+                  onSelect={(value, option) => {
+                    set选中供应商(value);
+                    form.setFieldValue("supplier", option.name);
+                  }}
+                  placeholder="工厂 / 供应商名称"
+                  filterOption={(i, o) => String(o?.name ?? "").toLowerCase().includes(i.toLowerCase())}
+                />
               </Form.Item>
             </Col>
           </Row>

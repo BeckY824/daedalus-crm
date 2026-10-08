@@ -44,12 +44,17 @@ export default function BillingView({
       return;
     }
     setSaving(true);
-    const r = await submitPayment({ plan, reference: ref.trim() });
-    setSaving(false);
-    if (r.ok) {
-      setDone(true);
-      message.success("已收到，我们会在一个工作日内开通");
-    } else message.error(r.error);
+    try {
+      const r = await submitPayment({ plan, reference: ref.trim() });
+      if (r.ok) {
+        setDone(true);
+        message.success("已收到，我们会在一个工作日内开通");
+      } else message.error(r.error);
+    } catch {
+      message.error("提交失败，请稍后重试");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (

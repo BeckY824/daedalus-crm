@@ -29,15 +29,18 @@ export type 订单附加 = {
   payment?: string | null;
   /** 供应商名字：库里有同名的就挂上它，没有就新建一家（能选也能填）。空 = 不挂 */
   supplier?: string | null;
+  /** 已选档案的稳定ID；null明确清空，undefined兼容旧客户端只给名字。 */
+  supplierId?: string | null;
 };
 
 const 文本 = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
-/** 名字 → 供应商 id。同名（去掉首尾空格后一字不差）的用旧的，不重复建 */
+/** 旧客户端只给名字时仅复用唯一匹配，不能从同名档案中猜一家。 */
 async function 供应商id(tx: Prisma.TransactionClient, 名: string): Promise<string | null> {
   if (!名) return null;
-  const 有 = await tx.supplier.findFirst({ where: { name: 名 }, orderBy: { createdAt: "asc" }, select: { id: true } });
-  if (有) return 有.id;
+  const 有 = await tx.supplier.findMany({ where: { name: 名 }, take: 2, select: { id: true } });
+  if (有.length > 1) throw new 订单说不通("有多家同名供应商，请从候选中选择具体的档案");
+  if (有.length === 1) return 有[0].id;
   return (await tx.supplier.create({ data: { name: 名 }, select: { id: true } })).id;
 }
 
@@ -73,12 +76,26 @@ export async function 写签约的订单(
   // 和供应商档案页同一个规矩：去首尾空格、最长 60 字、名字一字不差算同一家（suppliers/actions.ts saveSupplier）
   const 供应商名 = a.附加.supplier !== undefined ? 文本(a.附加.supplier, 60) : undefined;
 
-  const 已有 = await tx.tradeOrder.findUnique({ where: { contractId: a.签约id }, select: { id: true, no: true, depositDue: true } });
+  const 已有 = await tx.tradeOrder.findUnique({ where: { contractId: a.签约id }, select: { id: true, no: true, depositDue: true, purchase: { select: { supplierId: true, supplier: { select: { name: true } } } } } });
   // 金额改得比定金应收还少（二审）：存下去之后定金尾款那块怎么填都报「定金比订单金额还多」，卡死
   if (已有 && 已有.depositDue > a.amount) throw new 订单说不通(`这张订单的定金应收是 ${已有.depositDue}，比新的金额还多：先在订单页「条款 · 定金」里把定金改小`);
-  if (!已有 && a.只改不建 && !填的号 && !payment && !供应商名) return null;
+  if (!已有 && a.只改不建 && !填的号 && !payment && !供应商名 && !a.附加.supplierId) return null;
   // 供应商在决定建不建之后才建：不建订单时不留一家没人用的供应商（二审）
-  const 供应商 = 供应商名 !== undefined ? await 供应商id(tx, 供应商名) : undefined;
+  let 供应商: string | null | undefined;
+  if (a.附加.supplierId !== undefined) {
+    if (a.附加.supplierId === null) 供应商 = null;
+    else {
+      if (typeof a.附加.supplierId !== "string" || !a.附加.supplierId) throw new 订单说不通("请重新选择供应商");
+      const 选中 = await tx.supplier.findUnique({ where: { id: a.附加.supplierId }, select: { id: true } });
+      if (!选中) throw new 订单说不通("这家供应商已经不在了，请重新选择");
+      供应商 = 选中.id;
+    }
+  } else if (供应商名 !== undefined) {
+    // 旧界面重复提交原名字时保留原引用，不能悄悄换成同名的另一家。
+    供应商 = 供应商名 && 已有?.purchase?.supplier?.name === 供应商名
+      ? 已有.purchase.supplierId
+      : await 供应商id(tx, 供应商名);
+  }
   /*
     手填的号不许和别的单重：跟进下拉、导出、订单一览里都按号认单。看全部——业务员看不到的同事那张也算
     （订单号没有唯一索引：老库、同步回放里可能已经有重的，不为它建索引让迁移失败）
