@@ -129,7 +129,7 @@ try {
   await 商框.getByLabel("所属客户").click();
   await 商框.getByLabel("所属客户").fill(客户名);
   await page.locator(".ant-select-dropdown:visible .ant-select-item-option:not(.ant-select-item-option-disabled)", { hasText: 客户名 }).click();
-  await expect(商框.locator(".ant-select-selection-item").filter({ hasText: 客户名 })).toBeVisible();
+  await expect(商框.locator(".ant-select-content-has-value").filter({ hasText: 客户名 })).toBeVisible();
   await 商框.getByLabel("商机金额").fill("18000");
   const 负责人 = 商框.getByLabel("负责人");
   if (await 负责人.count()) { await 负责人.click(); await page.keyboard.press("Enter"); }
