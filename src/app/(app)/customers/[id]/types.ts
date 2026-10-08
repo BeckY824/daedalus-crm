@@ -15,6 +15,8 @@ export type FollowUpRow = {
   participants: string | null;
   /** 速记解析时的原始聊天记录，只有 AI 起草过的记录才有 */
   sourceText: string | null;
+  /** 稳定身份用于区分同名历史成员；旧调用方未知时保留姓名展示。 */
+  ownerId?: string;
   ownerName: string;
   contactName: string | null;
   contactPosition: string | null;

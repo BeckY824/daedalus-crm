@@ -326,7 +326,7 @@ export default function PlansView({
                           {x.计划时间 && <span className="plan-row-was-p">原定 {fmtDateTime(x.计划时间)}</span>}
                         </span>
                       </span>
-                      {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
+                      {!只有我 && scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
                       <span className="plan-row-d">{x.完成时间 ? `${fmtDateTime(x.完成时间)} 完成` : "已完成 · 完成时间未记录"}</span>
                     </div>
                   ))
@@ -337,11 +337,11 @@ export default function PlansView({
           <div className="plans">
             {/* 三组的空文案各不相同：全写「这一组是空的」，人分不出
                 「今天没排」和「已经全做完了」——那是两件完全不同的事 */}
-            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
-            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
-            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
+            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
             {组.以后.length > 0 && (
-              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
+              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
             )}
           </div>
           )}
@@ -387,7 +387,7 @@ export default function PlansView({
 }
 
 function 组块({
-  名, 说明, 空话, 事项, 危险, 完成, 刚完成, 刚建, 刚建那行, scope, 改, 删,
+  名, 说明, 空话, 事项, 危险, 完成, 刚完成, 刚建, 刚建那行, scope, 只有我, 改, 删,
 }: {
   /** 改这一条：计划开计划表单，待办开待办表单（2026-10-02 排查 3-4：原来计划页上只能「完成」） */
   改: (x: 事项) => void;
@@ -404,6 +404,7 @@ function 组块({
   刚建: string | null;
   刚建那行: React.RefObject<HTMLDivElement | null>;
   scope: string | number;
+  只有我: boolean;
 }) {
   return (
     <section className={`plan-g${危险 ? " plan-g-warn" : ""}`}>
@@ -439,7 +440,7 @@ function 组块({
                   <Tag style={{ margin: 0, borderRadius: 6 }}>{x.kind === "plan" ? "跟进计划" : "待办"}</Tag>
                 </span>
               </span>
-              {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
+              {!只有我 && scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
               {/* 截止时间一种说法：逾期 N 天 / 今天 / 明天 / M 月 D 日（审查 D1，lib/deadline.ts） */}
               <span className="plan-row-d" title={x.时间 ? fmtDateTime(x.时间) : undefined}>{截止说法(x.时间)}</span>
               {!完了 && (

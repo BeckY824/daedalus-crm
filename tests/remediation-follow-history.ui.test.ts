@@ -34,7 +34,7 @@ beforeAll(async () => {
     window.__rows={};window.__refresh=0;window.__requests=[];
     for(const customer of ['a','b'])window.__rows[customer]=Array.from({length:153},(_,n)=>({id:customer+'-'+String(152-n).padStart(4,'0'),type:n%2?'PHONE':'EMAIL',title:customer+'记录'+(152-n),content:customer+'内容'+(152-n),status:'已完成',duration:null,occurredAt:'2026-01-01T02:00:00.000Z',dueAt:null,participants:null,sourceText:null,ownerName:'QA',contactName:null,contactPosition:null,contactId:null,opportunityId:null,updatedAt:'2026-01-01T02:00:00.000Z'}));
     const root=createRoot(document.getElementById('root'));
-    window.__render=(id='a')=>root.render(<ConfigProvider locale={zhCN}><App><BusinessProvider value={DEFAULT_BUSINESS}><Record customer={{id,name:'客户'+id,phone:'',school:null,grade:null,major:null,followStatus:'跟进中',decisionStatus:'了解中',expectedSignAt:null,lastFollowAt:null,remark:null,referrerCustomerId:null,channelId:null,channelOwnerId:null,salesOwnerId:'qa',salesOwnerName:'QA',signedAmount:0,updatedAt:'2026-01-01T02:00:00.000Z'}} contacts={[]} contracts={[]} opportunities={[]} tasks={[]} plan={null} users={[]} channels={[]} referrableCustomers={[]} aiEnabled={false} followUps={window.__rows[id].slice(0,50)} followUpsHasMore={window.__rows[id].length>50}/></BusinessProvider></App></ConfigProvider>);
+    window.__render=(id='a',users=[])=>root.render(<ConfigProvider locale={zhCN}><App><BusinessProvider value={DEFAULT_BUSINESS}><Record customer={{id,name:'客户'+id,phone:'',school:null,grade:null,major:null,followStatus:'跟进中',decisionStatus:'了解中',expectedSignAt:null,lastFollowAt:null,remark:null,referrerCustomerId:null,channelId:null,channelOwnerId:null,salesOwnerId:'qa',salesOwnerName:'QA',signedAmount:0,updatedAt:'2026-01-01T02:00:00.000Z'}} contacts={[]} contracts={[]} opportunities={[]} tasks={[]} plan={null} users={users} channels={[]} referrableCustomers={[]} aiEnabled={false} followUps={window.__rows[id].slice(0,50)} followUpsHasMore={window.__rows[id].length>50}/></BusinessProvider></App></ConfigProvider>);
     window.__render();
   `, loader: "tsx", resolveDir: process.cwd() }, bundle: true, write: false, format: "iife", jsx: "automatic", alias: { "@": path.resolve("src") }, define: { "process.env.NODE_ENV": '"production"' }, plugins: [plugin], logLevel: "silent" })).outputFiles[0].text;
   browser = await chromium.launch();
@@ -85,4 +85,18 @@ it("加载失败可重试且不推进游标，切换客户后旧在途响应不�
     await page.getByRole("button", { name: "加载更早的跟进" }).click(); await page.locator("#fu-b-0102").waitFor();
     await expect.poll(() => page.locator("[id^='fu-a-']").count()).toBe(0); expect(await page.locator("[id^='fu-b-']").count()).toBe(100);
   } finally { await page.close(); }
+});
+
+it("单人详情与时间线隐藏自己的归属，同名历史成员和未知ID保留", async () => {
+  const page=await open();
+  try {
+    await page.evaluate(()=>{for(const row of Reflect.get(window,"__rows").a)row.ownerId="qa";Reflect.get(window,"__render")("a",[{id:"qa",name:"QA"}])});
+    await expect.poll(()=>page.locator(".rec-tl-meta").first().innerText()).not.toContain("QA");
+    expect(await page.locator(".rec-tl-meta").filter({hasText:"QA"}).count()).toBe(0);
+    await page.evaluate(()=>{Reflect.get(window,"__rows").a[0].ownerId="inactive-same-name";Reflect.get(window,"__rows").a[1].ownerId=undefined;Reflect.get(window,"__render")("a",[{id:"qa",name:"QA"}])});
+    await expect.poll(()=>page.locator("#fu-a-0152 .rec-tl-meta").innerText()).toContain("QA");
+    expect(await page.locator("#fu-a-0151 .rec-tl-meta").innerText()).toContain("QA");
+    await page.evaluate(()=>Reflect.get(window,"__render")("a",[{id:"qa",name:"QA"},{id:"other",name:"同事"}]));
+    await expect.poll(()=>page.locator("#fu-a-0150 .rec-tl-meta").innerText()).toContain("QA");
+  } finally {await page.close()}
 });

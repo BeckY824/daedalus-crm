@@ -6,6 +6,7 @@ import { App, Button, Dropdown, Space } from "antd";
 import { UnorderedListOutlined, PlusOutlined } from "@ant-design/icons";
 import { PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
+import { 列表不问归属ID } from "@/lib/solo";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
 import { 金额, 按币种合计, 合计文字 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
@@ -27,6 +28,7 @@ type Row = {
   expectedDealAt: string | null;
   customerId: string;
   customerName: string;
+  ownerId?: string;
   ownerName: string;
 };
 
@@ -60,6 +62,7 @@ export default function PipelineView({
   const router = useRouter();
   const { message } = App.useApp();
   const b = useBusiness();
+  const 显示负责人 = !rows.every(r => r.ownerId) || !列表不问归属ID(users, rows.map(r => r.ownerId));
   /*
     「新建商机」就地弹框（2026-09-29）：原来这一页没有表单，点了跳回列表页再打开——按钮写着新建，人却被带走了。
     保存后留在管道里，新的那张卡亮两秒（和列表里新建的行同一种亮法），人一眼看见它落在哪一列
@@ -284,7 +287,7 @@ export default function PipelineView({
                     <div className="pipe-card-t">{r.name}</div>
                     <div className="pipe-card-m">
                       <span className="pipe-card-a">{金额(r.amount, r.currency)}</span>
-                      <span className="pipe-card-o">{r.ownerName}</span>
+                      {显示负责人 && <span className="pipe-card-o">{r.ownerName}</span>}
                     </div>
                   </div>
                 </Dropdown>

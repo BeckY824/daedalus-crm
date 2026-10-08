@@ -54,7 +54,7 @@ export default async function PipelinePage() {
         expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
         customerId: o.customer.id,
         customerName: o.customer.name,
-        ownerName: o.owner.name,
+        ownerId: o.ownerId, ownerName: o.owner.name,
       }))}
     />
   );

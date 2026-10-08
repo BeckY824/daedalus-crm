@@ -384,7 +384,7 @@ export default function RecordView({
           </div>
           {/* 副标题是这个人的三个定位：年级 · 专业 · 谁在跟。没填的那项不占位 */}
           <div className="rec-head-sub">
-            {[customer.grade, customer.major, customer.salesOwnerName].filter(Boolean).join(" · ")}
+            {[customer.grade, customer.major, !独自一人(users, customer.salesOwnerId) && customer.salesOwnerName].filter(Boolean).join(" · ")}
           </div>
         </div>
         {名单在抽屉里 && (
@@ -751,7 +751,7 @@ export default function RecordView({
                     </div>
                   </motion.div>
                 ) : (
-                  <FollowItem key={e.f.id} f={e.f} index={i} onEdit={() => openFollow(e.f)} onDelete={() => deleteFollow(e.f)} />
+                  <FollowItem key={e.f.id} f={e.f} showOwner={!e.f.ownerId || !独自一人(users, e.f.ownerId)} index={i} onEdit={() => openFollow(e.f)} onDelete={() => deleteFollow(e.f)} />
                 ),
               )}
             </AnimatePresence>
@@ -1028,7 +1028,7 @@ function StatusPicker({
   );
 }
 
-function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: number; onEdit: () => void; onDelete: () => void }) {
+function FollowItem({ f, showOwner, index, onEdit, onDelete }: { f: FollowUpRow; showOwner: boolean; index: number; onEdit: () => void; onDelete: () => void }) {
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const meta = FOLLOW_TYPE_MAP[f.type] ?? FOLLOW_TYPE_MAP.OTHER;
   const [srcOpen, setSrcOpen] = useState(false);
@@ -1097,7 +1097,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
           {f.contactName && <span>{f.contactName}{f.contactPosition ? `（${f.contactPosition}）` : ""}</span>}
           {f.participants && <span>参与人：{f.participants}</span>}
           {f.dueAt && <span>截止 {fmtDateTime(f.dueAt)}</span>}
-          <span style={{ marginLeft: "auto" }}>{f.ownerName}</span>
+          {showOwner && <span style={{ marginLeft: "auto" }}>{f.ownerName}</span>}
         </div>
       </div>
     </motion.div>
