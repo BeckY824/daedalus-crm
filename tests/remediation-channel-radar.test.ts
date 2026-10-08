@@ -1,0 +1,21 @@
+import {afterAll,afterEach,beforeEach,expect,it,vi} from "vitest";
+const state=vi.hoisted(()=>({user:{id:"qa_radar",name:"QA",email:"qa-radar",role:"ADMIN",title:"管理员"}}));
+vi.mock("next/cache",()=>({revalidatePath(){}}));vi.mock("@/lib/auth",()=>({requireUser:async()=>state.user}));vi.mock("@/lib/llm",()=>({llmEnabled:async()=>false}));vi.mock("@/app/(app)/channels/ChannelsView",()=>({default:()=>null}));
+import {prisma} from "@/lib/prisma";
+import {resetDb} from "./reset";
+import {invalidateSettingsCache,setSetting} from "@/lib/settings";
+import {BUSINESS_PRESETS} from "@/lib/business-config";
+import Page from "@/app/(app)/channels/page";
+beforeEach(async()=>{await resetDb();invalidateSettingsCache();await prisma.user.create({data:{...state.user,password:"qa"}})});
+afterEach(()=>vi.restoreAllMocks());afterAll(async()=>{await prisma.$disconnect()});
+it("20个渠道只读一遍客户，雷达按真实成交记录与精确币种计算而不跟随状态",async()=>{
+ await prisma.channel.createMany({data:Array.from({length:20},(_,i)=>({id:`channel-${i}`,name:`渠道${i}`,channelOwnerId:state.user.id}))});
+ await prisma.customer.createMany({data:[{id:"radar-parent",name:"推荐人",followStatus:"跟进中"},{id:"radar-status",name:"状态已成交",followStatus:"已签约",referrerCustomerId:"radar-parent"},{id:"radar-real",name:"真实记录",followStatus:"已流失",referrerCustomerId:"radar-parent"},{id:"radar-zero",name:"零额合同",followStatus:"跟进中"}].map(row=>({...row,phone:"",salesOwnerId:state.user.id,channelId:"channel-0"}))});
+ await prisma.contract.create({data:{customerId:"radar-real",amount:999,signedAt:new Date(),money:{create:{currency:"USD",amountExact:120.51}}}});await prisma.contract.create({data:{customerId:"radar-zero",amount:0,signedAt:new Date()}});
+ await setSetting("business",BUSINESS_PRESETS["外贸出口"]);
+ const reads=vi.spyOn(prisma.customer,"findMany");const props=(await Page()).props;
+ expect(reads).toHaveBeenCalledTimes(1);expect(props.rows).toHaveLength(20);
+ expect(props.radar.topReferrers).toEqual([expect.objectContaining({customerId:"radar-parent",signedCount:1,referralCount:2,downstreamAmount:120.51,downstream:[{币种:"USD",合计:120.51}]})]);
+ expect(props.radar.inviteCandidates).toEqual([expect.objectContaining({customerId:"radar-real",reason:expect.stringContaining("订单记录（US$ 120.51）")}),expect.objectContaining({customerId:"radar-zero"})]);
+ expect(JSON.stringify(props.radar)).not.toContain("还没请");expect(props.radar.inviteCandidates.map((row:{customerId:string})=>row.customerId)).not.toContain("radar-status");
+});
