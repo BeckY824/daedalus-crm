@@ -247,12 +247,12 @@ export default function ReportsView({
         {!单人 && (
           <>
             <Col xs={24} xl={12}>
-              <Card title={<span className="section-title">按销售负责人</span>} styles={{ body: { paddingTop: 8 } }}>
+              <Card title={<span className="section-title">按销售负责人</span>} extra={<Typography.Text type="secondary" style={{fontSize:13}}>{叫}时归属；老记录缺快照时按当前</Typography.Text>} styles={{ body: { paddingTop: 8 } }}>
                 <Table size="small" rowKey="id" dataSource={bySales} columns={cols("销售负责人", "销售")} pagination={false} locale={empty} />
               </Card>
             </Col>
             {!外贸 && <Col xs={24} xl={12}>
-              <Card title={<span className="section-title">按渠道负责人</span>} styles={{ body: { paddingTop: 8 } }}>
+              <Card title={<span className="section-title">按渠道负责人</span>} extra={<Typography.Text type="secondary" style={{fontSize:13}}>{叫}时归属；老记录缺快照时按当前</Typography.Text>} styles={{ body: { paddingTop: 8 } }}>
                 <Table size="small" rowKey="id" dataSource={byChannelOwner} columns={cols("渠道负责人", "渠道负责人")} pagination={false} locale={empty} />
               </Card>
             </Col>}
@@ -261,7 +261,7 @@ export default function ReportsView({
         {!外贸 && <><Col xs={24} xl={12}>
           <Card
             title={<span className="section-title">按来源渠道</span>}
-            extra={<Typography.Text type="secondary" style={{ fontSize: 13 }}>推荐链最顶端的渠道</Typography.Text>}
+            extra={<Typography.Text type="secondary" style={{ fontSize: 13 }}>客户当前归属 · 推荐链最顶端的渠道</Typography.Text>}
             styles={{ body: { paddingTop: 8 } }}
           >
             <Table size="small" rowKey="id" dataSource={byChannel} columns={cols("来源渠道")} pagination={false} locale={empty} />
@@ -270,7 +270,7 @@ export default function ReportsView({
         <Col xs={24} xl={12}>
           <Card
             title={<span className="section-title">按渠道归属</span>}
-            extra={<Typography.Text type="secondary" style={{ fontSize: 13 }}>推荐链往上两代</Typography.Text>}
+            extra={<Typography.Text type="secondary" style={{ fontSize: 13 }}>客户当前归属 · 推荐链往上两代，不足两代取链顶</Typography.Text>}
             styles={{ body: { paddingTop: 8 } }}
           >
             <Table size="small" rowKey="id" dataSource={byAttribution} columns={cols("归属对象")} pagination={false} locale={empty} />

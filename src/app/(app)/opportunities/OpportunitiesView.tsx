@@ -498,7 +498,7 @@ export default function OpportunitiesView({
              **一条商机都没有时不出现**：0 / 0 不是信息，是噪音 */
           rows.length > 0 ? (
             <div className="list-sum" title={外贸 ? undefined : "加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的"}>
-              {合计叫 === "已赢单" ? 赢了叫 : 合计叫} {汇总.单数} 单 · {合计文字(合计, b.currency)}
+              列表共 {总数} 单 · {!筛的状态 && "其中"}{合计叫 === "已赢单" ? 赢了叫 : 合计叫} {汇总.单数} 单 · {合计文字(合计, b.currency)}
               {合计叫 === "进行中" && !外贸 && <> · 加权预测 {合计文字(forecast.map((x) => ({ ...x, 合计: Math.round(x.合计) })), b.currency)}</>}
             </div>
           ) : null

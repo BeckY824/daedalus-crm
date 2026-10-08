@@ -109,3 +109,17 @@ describe("客单价按人算，不是按笔算", () => {
     expect(Math.round(数.total.amount / 人数)).toBe(40000);
   });
 });
+
+it("L031 转交后人员维度按签约时快照，渠道/推荐归属维度按客户当前关系，总额可对账",async()=>{
+ const current=await prisma.user.create({data:{email:"new-owner-overview",password:"qa",name:"现任",role:"SALES"}});
+ const oldChannel=await prisma.channel.create({data:{name:"旧渠道",channelOwnerId:sales.id}});const newChannel=await prisma.channel.create({data:{name:"新渠道",channelOwnerId:current.id}});
+ const oldRef=await prisma.customer.create({data:{name:"旧归属",phone:"",salesOwnerId:sales.id}});const newRef=await prisma.customer.create({data:{name:"新归属",phone:"",salesOwnerId:current.id}});
+ await prisma.customer.update({where:{id:学员.id},data:{channelOwnerId:sales.id,channelId:oldChannel.id,attributionCustomerId:oldRef.id}});
+ await prisma.contract.create({data:{customerId:学员.id,amount:123,signedAt:new Date("2026-01-15T10:00:00+08:00"),owner:{create:{salesOwnerId:sales.id,channelOwnerId:sales.id}}}});
+ await prisma.customer.update({where:{id:学员.id},data:{salesOwnerId:current.id,channelOwnerId:current.id,channelId:newChannel.id,attributionCustomerId:newRef.id}});
+ const result=await 加载复盘(new Date("2026-01-01T00:00:00+08:00"),new Date("2026-02-01T00:00:00+08:00"),"day");
+ expect(result.bySales).toEqual([expect.objectContaining({id:sales.id,amount:123,count:1})]);expect(result.byChannelOwner).toEqual([expect.objectContaining({id:sales.id,amount:123,count:1})]);
+ expect(result.byChannel).toEqual([expect.objectContaining({id:newChannel.id,amount:123,count:1})]);expect(result.byAttribution).toEqual([expect.objectContaining({id:newRef.id,amount:123,count:1})]);
+ for(const group of [result.bySales,result.byChannelOwner,result.byChannel,result.byAttribution])expect(group.reduce((n,row)=>n+row.amount,0)).toBe(result.total.amount);
+ expect(Object.values(result.明细).flat()[0]).toMatchObject({销售id:sales.id,渠道负责人id:sales.id});
+});

@@ -26,7 +26,7 @@ export function useUrlFilters<F extends Record<string, string>>(path: string, �
     const q = new URLSearchParams();
     if (每页) q.set("pageSize", String(每页));
     for (const [k, v] of Object.entries(条件)) if (v) q.set(k, String(v));
-    startTransition(() => router.push(q.size ? `${path}?${q}` : path));
+    startTransition(() => router.push(q.size ? `${path}?${q}` : path, { scroll: false }));
   };
 
   return {

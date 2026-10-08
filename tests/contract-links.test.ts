@@ -245,3 +245,12 @@ describe("删签约：顺手标成赢单的商机退回去", () => {
     expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("WON");
   });
 });
+
+
+it("L037 回填上月签约不伪造赢单时刻：签约保留原日期，联动赢单记录本次操作",async()=>{
+ const customer=await prisma.customer.create({data:{name:"回填客户",phone:"",salesOwnerId:jia.id}});const opp=await prisma.opportunity.create({data:{name:"回填商机",customerId:customer.id,ownerId:jia.id,amount:120,stage:"初步沟通"}});
+ const backdated=new Date();backdated.setDate(1);backdated.setMonth(backdated.getMonth()-1);const before=Date.now();
+ const result=await saveContract({customerId:customer.id,amount:120,signedAt:backdated,remark:null,联动:{赢单:[opp.id],完成计划:[],完成待办:[]}});expect(result).toMatchObject({ok:true});
+ const contract=await prisma.contract.findFirstOrThrow({where:{customerId:customer.id}});expect(contract.signedAt.getTime()).toBe(backdated.getTime());
+ const close=await prisma.opportunityClose.findUniqueOrThrow({where:{opportunityId:opp.id}});expect(close.closedAt.getTime()).toBeGreaterThanOrEqual(before);expect(close.closedAt.getTime()).toBeLessThanOrEqual(Date.now());
+});
