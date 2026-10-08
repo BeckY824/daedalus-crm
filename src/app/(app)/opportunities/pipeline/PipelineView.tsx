@@ -6,6 +6,7 @@ import { App, Button, Dropdown, Space } from "antd";
 import { UnorderedListOutlined, PlusOutlined } from "@ant-design/icons";
 import { PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
+import { 主题颜色 } from "@/lib/chart-theme";
 import { 列表不问归属ID } from "@/lib/solo";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
 import { 金额, 按币种合计, 合计文字 } from "@/lib/currency";
@@ -229,7 +230,7 @@ export default function PipelineView({
           const items = rows.filter((r) => 显示阶段(r) === stage);
           // 按币种分开加，不换汇（lib/currency.ts）：一列里有美元有欧元就写两段
           const sum = 合计文字(按币种合计(items, (r) => r.amount, (r) => r.currency), b.currency);
-          const color = OPP_STAGE_COLOR[stage];
+          const color = 主题颜色(OPP_STAGE_COLOR[stage]);
           const active = overStage === stage;
 
           return (

@@ -7,6 +7,8 @@
  * 时长和现状同四档，落印 440：落下、压实、抬起三段要看得出来。
  */
 :root[data-skin="ledger"], [data-skin-preview="ledger"] {
+  --cat-blue: var(--brand); --cat-green: var(--success); --cat-yellow: var(--warning); --cat-orange: var(--danger);
+  --cat-pink: var(--brand-deep); --cat-violet: var(--pencil); --cat-cyan: var(--text-muted); --cat-amber: var(--warning-text);
   --brand: #1f5a44; --brand-deep: #123a2b; --brand-bg: #e1ede5; --brand-line: #a9c9b6;
   --ink: #1c2420; --ink-soft: #36413b; --text-muted: #5f6b64; --text-faint: #9aa59e;
   --line: #b7d0c0; --line-soft: #d6e5da; --line-strong: #86ab95;

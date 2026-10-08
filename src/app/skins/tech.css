@@ -6,6 +6,8 @@
  * 中文走系统黑体，等宽只管拉丁字母和数字。
  */
 :root[data-skin="tech"], [data-skin-preview="tech"] {
+  --cat-blue: var(--brand); --cat-green: var(--success); --cat-yellow: var(--warning); --cat-orange: var(--danger);
+  --cat-pink: var(--brand-deep); --cat-violet: var(--pencil); --cat-cyan: var(--text-muted); --cat-amber: var(--warning-text);
   color-scheme: dark;
   --brand: #5ee0ff; --brand-deep: #b5f2ff; --brand-bg: #0c2a34; --brand-line: #1f5a6b;
   --ink: #d6e3ea; --ink-soft: #adbfc8; --text-muted: #8196a1; --text-faint: #566a74;

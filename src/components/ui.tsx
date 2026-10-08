@@ -1,6 +1,7 @@
 "use client";
 
 import { Tag, Avatar, Space } from "antd";
+import { 主题颜色 } from "@/lib/chart-theme";
 import { palette } from "@/lib/palette";
 import {
   ArrowUpOutlined,
@@ -169,10 +170,10 @@ export function DecisionStatusTag({ status }: { status: string }) {
 
 export function StageTag({ stage }: { stage: string }) {
   const b = useBusiness();
-  // 这个值要拼 "18" / "35" 当透明度，只能是真 hex，不能写 var()
-  const c = OPP_STAGE_COLOR[stage] ?? palette.textMuted;
+  // DOM使用CSS变量和color-mix，切主题时不依赖组件重渲染。
+  const c = 主题颜色(OPP_STAGE_COLOR[stage] ?? palette.textMuted);
   return (
-    <Tag style={{ margin: 0, borderRadius: 6, fontSize: 13, color: c, background: c + "18", borderColor: c + "35" }}>
+    <Tag style={{ margin: 0, borderRadius: 6, fontSize: 13, color: c, background: `color-mix(in srgb, ${c} 9.4%, transparent)`, borderColor: `color-mix(in srgb, ${c} 20.8%, transparent)` }}>
       {stageLabel(b, stage)}
     </Tag>
   );

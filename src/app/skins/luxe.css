@@ -6,6 +6,8 @@
  * 标题拉丁字母用 Instrument Serif（OFL，自托管），中文用系统宋体（"Songti SC" / STSong / SimSun），不打包中文字体。
  */
 :root[data-skin="luxe"], [data-skin-preview="luxe"] {
+  --cat-blue: var(--brand); --cat-green: var(--success); --cat-yellow: var(--warning); --cat-orange: var(--danger);
+  --cat-pink: var(--brand-deep); --cat-violet: var(--pencil); --cat-cyan: var(--text-muted); --cat-amber: var(--warning-text);
   --brand: #1f3d36; --brand-deep: #14281f; --brand-bg: #e6eeeb; --brand-line: #b9cbc4;
   --ink: #161616; --ink-soft: #3b3b39; --text-muted: #6e6e68; --text-faint: #a8a8a1;
   --line: #e2e2dc; --line-soft: #ebebe6; --line-strong: #cbcbc4;
