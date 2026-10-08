@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Table, Button, Dropdown, Checkbox } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import type { ColumnType } from "antd/es/table";
+import type { SortOrder } from "antd/es/table/interface";
 import EmptyState from "@/components/EmptyState";
 import { useLocalPref } from "@/lib/local-pref";
 import { 只留当前行, 露出这一列, 算可见列, 切换后存 } from "@/lib/list-select";
@@ -67,6 +68,7 @@ type Props<T> = {
    * 给了 = 服务端分页，由调用方去翻。false = 不分页。
    */
   分页?: { 当前页: number; 每页: number; 总数: number; 翻页: (页: number, 每页: number) => void } | false;
+  排序?: (key: string, order: SortOrder) => void;
   /**
    * 这一页只取了前 N 条时，库里到底有多少。
    *
@@ -110,7 +112,7 @@ function 行名(r: object): string | null {
 }
 
 export default function DataList<T extends { id: string }>({
-  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 行点击, 横向, 分页, 截断, 亮, 行类,
+  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 行点击, 横向, 分页, 截断, 亮, 行类, 排序,
 }: Props<T>) {
   const router = useRouter();
   /** 真的只取了一部分：库里的总数比取回来的多（本地筛掉的不算，见 截断.取回） */
@@ -301,6 +303,11 @@ export default function DataList<T extends { id: string }>({
         size="middle"
         dataSource={行}
         columns={显示的列}
+        onChange={(_, __, sorter, extra) => {
+          if (extra.action !== "sort" || !排序) return;
+          const current = Array.isArray(sorter) ? sorter[0] : sorter;
+          排序(String(current?.columnKey ?? ""), current?.order ?? null);
+        }}
         loading={加载中}
         /*
           筛出 0 条 ≠ 空库（2026-10-02 排查 H5）：原来一律画空库引导「还没有… / 新建第一位 / 从 Excel 导入 / 演示数据」，

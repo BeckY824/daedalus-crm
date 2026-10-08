@@ -5,7 +5,8 @@ import { 负责人候选 } from "@/lib/owners";
 import { 可选渠道, 可选客户 } from "@/lib/options";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { llmEnabled } from "@/lib/llm";
-import { 客户筛选条件, 客户行字段, 成客户行 } from "./query";
+import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页 } from "./query";
+import { 规整币种 } from "@/lib/currency";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { getBusiness } from "@/lib/business";
 
@@ -23,6 +24,8 @@ type SP = Promise<{
   source?: string;
   page?: string;
   pageSize?: string;
+  sort?: string;
+  sortCurrency?: string;
   /**
    * 「数据」页上那张「新增学员」卡点进来的。眼下只认「本月」一个值。
    *
@@ -59,16 +62,19 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     return Number.isSafeInteger(n) && n > 0 ? n : fallback;
   };
   const pageSize = Math.min(100, Math.max(10, 正整数(sp.pageSize, 20)));
+  const b = await getBusiness();
+  const sort = sp.sort === "amount-asc" || sp.sort === "amount-desc" ? sp.sort : "";
+  const sortCurrency = 规整币种(sp.sortCurrency, b.currency);
 
   const where = await 客户筛选条件(sp);
   // URL 参数、删空最后一页都不能使 skip 变成 NaN 或停留在空的越界页。
   const total = await prisma.customer.count({ where });
   const page = Math.min(正整数(sp.page, 1), Math.max(1, Math.ceil(total / pageSize)));
 
-  const [rows, users, channels, allCustomers, 用着的职位, b, 用着的国家] = await Promise.all([
-    prisma.customer.findMany({
+  const [rows, users, channels, allCustomers, 用着的职位, 用着的国家] = await Promise.all([
+    sort ? 客户金额分页(where, sort, sortCurrency, page, pageSize) : prisma.customer.findMany({
       where,
-      orderBy: { createdAt: "desc" },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
       select: 客户行字段,
@@ -77,7 +83,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     可选渠道(),
     可选客户(),
     prisma.customer.findMany({ where: { grade: { not: null } }, distinct: ["grade"], select: { grade: true } }),
-    getBusiness(),
     // 国家筛选只给库里真有的（外贸，2026-10-05）：一百多个国家摆一长串，挑到的多半是 0 条
     prisma.customerExtra.findMany({ where: { country: { not: null } }, distinct: ["country"], select: { country: true }, orderBy: { country: "asc" } }),
   ]);
@@ -92,6 +97,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       total={total}
       page={page}
       pageSize={pageSize}
+      金额排序={sort}
+      排序币种={sortCurrency}
       users={users}
       channels={channels}
       customers={allCustomers}

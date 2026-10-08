@@ -2,7 +2,7 @@ import { scheduleValue } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
-import { 带币种, 签约金额, 签约合计 } from "@/lib/money-db";
+import { 带币种, 签约金额, 签约合计, 签约币种 } from "@/lib/money-db";
 import { 搜索词, 号码片段, 有通配符, 字面包含的id } from "@/lib/search-keyword";
 import { 取档案 } from "@/lib/customer-extra-db";
 
@@ -127,6 +127,29 @@ export const 客户行字段 = {
 } satisfies Prisma.CustomerSelect;
 
 type 取到的行 = Prisma.CustomerGetPayload<{ select: typeof 客户行字段 }>;
+
+/** 全范围按一种币种排序，再取页。扫描不带档案正文，避免把整库完整行交给浏览器。 */
+export async function 客户金额分页(where: Prisma.CustomerWhereInput, order: "amount-asc" | "amount-desc", currency: string, page: number, pageSize: number): Promise<取到的行[]> {
+  const amounts: { id: string; amount: number; createdAt: number }[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const batch = await prisma.customer.findMany({
+      where: after ? { AND: [where, { id: { gt: after } }] } : where,
+      orderBy: { id: "asc" }, take: 1000,
+      select: { id: true, createdAt: true, contracts: { select: { amount: true, ...带币种.签约 } } },
+    });
+    for (const row of batch) amounts.push({ id: row.id, createdAt: row.createdAt.getTime(), amount: row.contracts.reduce((sum, c) => sum + (签约币种(c) === currency ? 签约金额(c) : 0), 0) });
+    if (batch.length < 1000) break;
+    after = batch[batch.length - 1].id;
+  }
+  const direction = order === "amount-asc" ? 1 : -1;
+  amounts.sort((a, b) => direction * (a.amount - b.amount) || b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+  const ids = amounts.slice((page - 1) * pageSize, page * pageSize).map(row => row.id);
+  if (!ids.length) return [];
+  const rows = await prisma.customer.findMany({ where: { AND: [where, { id: { in: ids } }] }, select: 客户行字段 });
+  const positions = new Map(ids.map((id, index) => [id, index]));
+  return rows.sort((a, b) => positions.get(a.id)! - positions.get(b.id)!);
+}
 
 export function 成客户行(r: 取到的行, 号: (p: string) => string) {
   return {

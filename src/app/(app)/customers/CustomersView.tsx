@@ -38,6 +38,7 @@ import { 列表不问归属 } from "@/lib/solo";
 import { 公海标签 } from "@/lib/pool";
 import { 放进公海, 领取, 撤销公海, type 公海结果 } from "./pool-actions";
 import ResetFilters from "@/components/ResetFilters";
+import CurrencySelect from "@/components/CurrencySelect";
 
 /**
  * 批量操作的结果文案。
@@ -62,6 +63,8 @@ type Props = {
   total: number;
   page: number;
   pageSize: number;
+  金额排序?: string;
+  排序币种?: string;
   users: 可选成员[];
   channels: Option[];
   customers: Option[];
@@ -129,7 +132,7 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [], 国家们 = [],
+  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
   const { message } = App.useApp();
@@ -225,7 +228,7 @@ export default function CustomersView({
   }
   const b = useBusiness();
 
-  const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", filters);
+  const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", { ...filters, sort: 金额排序, sortCurrency: 排序币种 ?? b.currency }, pageSize);
   /**
    * 「空库」是「一条都没有 **且** 没在筛」。筛出 0 条不算——
    * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
@@ -348,8 +351,9 @@ export default function CustomersView({
     { title: b.fields.grade, key: "grade", dataIndex: "grade", width: 90, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
     { title: "决策状态", key: "decisionStatus", dataIndex: "decisionStatus", width: 128, 默认: false, render: (v) => <DecisionStatusTag status={v} /> },
     {
-      title: `${签约叫(b)}金额`, key: "signedAmount", dataIndex: "signedAmount", width: 120, 默认: false,
-      sorter: (a, b2) => a.signedAmount - b2.signedAmount,
+      title: <span title={`按 ${f.sortCurrency || b.currency} 金额在全部筛选结果中排序，其他币种不相加`}>{签约叫(b)}金额</span>, 列名: `${签约叫(b)}金额`, key: "signedAmount", dataIndex: "signedAmount", width: 120, 默认: false,
+      sorter: true,
+      sortOrder: 金额排序 === "amount-asc" ? "ascend" : 金额排序 === "amount-desc" ? "descend" : null,
       render: (v: number, r) => (v > 0 ? <span style={{ fontWeight: 500 }}>{合计文字(签约各币(r))}</span> : <span className="muted">—</span>),
     },
     // 推荐人、渠道归属、渠道负责人：外贸不摆（推荐分佣链是教培那一套，外贸看来源）
@@ -590,6 +594,8 @@ export default function CustomersView({
             </Button>
           </>
         )}
+        排序={(key, order) => { if (key === "signedAmount") apply({ sort: order === "ascend" ? "amount-asc" : order === "descend" ? "amount-desc" : "", sortCurrency: f.sortCurrency || b.currency }); }}
+        汇总={金额排序 && <Space wrap style={{ marginBottom: 12 }}><span>金额按</span><CurrencySelect aria-label="金额排序币种" value={f.sortCurrency || b.currency} onChange={v => apply({ sortCurrency: v })}/><span>在全部筛选结果中{金额排序 === "amount-asc" ? "升序" : "降序"}排列；其他币种不相加</span></Space>}
         分页={{
           当前页: page,
           每页: pageSize,
