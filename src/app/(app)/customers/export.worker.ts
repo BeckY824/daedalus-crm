@@ -2,6 +2,7 @@ import { strToU8, zipSync } from "fflate";
 import { 写xlsx } from "@/lib/xlsx-write";
 import { 客户导出表, 跟进导出表 } from "./export-table";
 import type { 导出指令 } from "./export-protocol";
+import { configureBrowserBusinessTimeZone } from "@/lib/business-clock";
 
 // 每次导出独占一个Worker，失败/取消会销毁，不会把半份结果下载给用户。
 const files: Record<string, Uint8Array> = {};
@@ -10,6 +11,7 @@ self.onmessage = (event: MessageEvent<导出指令>) => {
   try {
     const task = event.data;
     if (task.动作 === "分批") {
+      configureBrowserBusinessTimeZone(task.timeZone);
       const { 批次, b } = task;
       const table = 批次.类别 === "客户" ? 客户导出表(批次.rows, b) : 跟进导出表(批次.rows, b);
       // 编号是核对关系的稳定键，同名/同电话不会混在一起；放最后保持导入识别习惯。

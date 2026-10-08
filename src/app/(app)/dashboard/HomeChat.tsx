@@ -1,5 +1,6 @@
 "use client";
 
+import { dayjs } from "@/lib/utils";
 import Shortcut from "@/components/Shortcut";
 
 import type { 页面范围 } from "@/lib/ai-context-page";
@@ -147,7 +148,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   const greet = useSyncExternalStore(
     () => () => {},
     () => {
-      const h = new Date().getHours();
+      const h = dayjs().hour();
       return h < 5 ? "夜深了" : h < 12 ? "早上好" : h < 18 ? "下午好" : "晚上好";
     },
     () => "你好",
@@ -156,8 +157,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   const 今天 = useSyncExternalStore(
     () => () => {},
     () => {
-      const d = new Date();
-      return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 周${"日一二三四五六"[d.getDay()]}`;
+      const d = dayjs();
+      return `${d.month() + 1} 月 ${d.date()} 日 · 周${"日一二三四五六"[d.day()]}`;
     },
     () => "",
   );

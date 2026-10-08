@@ -23,10 +23,11 @@ beforeAll(async () => {
   script = (await build({ stdin: { contents: `
     import { 完整导出 } from '@/app/(app)/customers/export-client';
     import { DEFAULT_BUSINESS } from '@/lib/business-config';
+    import { configureBrowserBusinessTimeZone } from '@/lib/business-clock';
     let controller;
     window.__ticks=0; window.__maxGap=0;
     let last=performance.now(); setInterval(()=>{const now=performance.now();window.__maxGap=Math.max(window.__maxGap,now-last);last=now;window.__ticks++},16);
-    document.getElementById('go').onclick=async()=>{controller=new AbortController();try{await 完整导出({},DEFAULT_BUSINESS,t=>document.getElementById('status').textContent=t,controller.signal);document.getElementById('status').textContent='完成';}catch(e){document.getElementById('status').textContent=e.message;}};
+    document.getElementById('go').onclick=async()=>{configureBrowserBusinessTimeZone(window.__case==='hosted'?'Asia/Shanghai':null);controller=new AbortController();try{await 完整导出({},DEFAULT_BUSINESS,t=>document.getElementById('status').textContent=t,controller.signal);document.getElementById('status').textContent='完成';}catch(e){document.getElementById('status').textContent=e.message;}};
     document.getElementById('cancel').onclick=()=>controller?.abort();
   `, resolveDir: process.cwd(), loader: "ts" }, bundle: true, write: false, format: "esm", plugins: [stub], alias: { "@": path.resolve("src") }, logLevel: "silent" })).outputFiles[0].text;
   worker = (await build({ entryPoints: ["src/app/(app)/customers/export.worker.ts"], bundle: true, write: false, format: "iife", alias: { "@": path.resolve("src") }, logLevel: "silent" })).outputFiles[0].text;
@@ -34,7 +35,7 @@ beforeAll(async () => {
 });
 afterAll(() => browser?.close());
 async function open(mode: string) {
-  const page = await browser.newPage({ acceptDownloads: true });
+  const page = await browser.newPage({ acceptDownloads: true, timezoneId: "America/New_York" });
   await page.route("http://export.test/**", r => {
     const pathname = new URL(r.request().url()).pathname;
     return r.fulfill({ contentType: pathname === "/" ? "text/html" : "application/javascript", body: pathname === "/" ? '<meta charset="utf-8"><button id="go">完整导出</button><button id="cancel">取消导出</button><div id="status" role="status"></div><script type="module" src="/client.js"></script>' : pathname === "/client.js" ? script : worker });
@@ -81,4 +82,19 @@ it.each(["hang", "change"])("导出%s时取消或校验失败，不生成部分�
   } else await page.getByText(/导出期间数据发生变化/).waitFor();
   expect(downloads).toBe(0);
   await page.close();
+});
+it.each([
+  ["hosted", "2026-01-01 08:00"],
+  ["local", "2025-12-31 19:00"],
+])("%s真实Worker继承页面业务时区，跨年导出时间不随宿主漂移", async (mode, expected) => {
+  const page = await open(mode);
+  try {
+    const download = page.waitForEvent("download", { timeout: 10000 });
+    await page.getByRole("button", { name: "完整导出", exact: true }).click();
+    const file = await download;
+    const files = unzipSync(readFileSync((await file.path())!));
+    const sheet = unzipSync(files["跟进-001.xlsx"]);
+    expect(strFromU8(sheet["xl/worksheets/sheet1.xml"])).toContain(expected);
+    expect(await page.getByRole("status").textContent()).toBe("完成");
+  } finally { await page.close(); }
 });

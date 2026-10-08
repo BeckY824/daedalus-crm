@@ -13,6 +13,7 @@
  * 没有它这一行既不知道是谁、也没法判断是不是已经有了。
  * 外贸模版例外：没有电话拿 WhatsApp 认，WhatsApp 也没有拿邮箱认（2026-10-07，lib/email-dedupe.ts）。
  */
+import { parseDateInput } from "../date-input";
 import { calendarDay } from "../schedule-date";
 import type { 字段名, 字段规格 } from "./fields";
 import { 规整外贸格, 认国家 } from "../customer-extra";
@@ -77,8 +78,8 @@ export function 认日期(v: string): Date | null {
   const 连写 = /^(19\d{2}|20\d{2}|2100)(\d{2})(\d{2})$/.exec(s);
   if (连写) {
     const [y, mo, d] = [Number(连写[1]), Number(连写[2]), Number(连写[3])];
-    const dt = new Date(y, mo - 1, d);
-    if (dt.getMonth() === mo - 1 && dt.getDate() === d) return dt;
+    const dt = parseDateInput(`${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+    if (dt) return dt;
   }
   // Excel 序列号。25569 = 1970-01-01；小于它的当不是日期（那更可能是个数量）
   if (/^\d{4,6}(\.\d+)?$/.test(s)) {
@@ -95,7 +96,7 @@ export function 认日期(v: string): Date | null {
       进来会差几个小时——在 UTC 以西的时区里就直接差一天，界面上显示成前一天，
       而两边都没有任何报错。日期只用来看「哪一天」，时分秒没有意义。
     */
-    return new Date(u.getUTCFullYear(), u.getUTCMonth(), u.getUTCDate());
+    return parseDateInput(`${u.getUTCFullYear()}-${String(u.getUTCMonth() + 1).padStart(2, "0")}-${String(u.getUTCDate()).padStart(2, "0")}`);
   }
   const 规整 = s
     .replace(/[年月]/g, "-")
@@ -106,10 +107,7 @@ export function 认日期(v: string): Date | null {
   const m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(规整);
   if (m) {
     const [, y, mo, d] = m;
-    const dt = new Date(Number(y), Number(mo) - 1, Number(d));
-    // 2026-02-31 会被 Date 滚到 3 月 3 日。滚过头就说明这个日期不存在
-    if (dt.getMonth() !== Number(mo) - 1 || dt.getDate() !== Number(d)) return null;
-    return dt;
+    return parseDateInput(`${y}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`);
   }
   return null;
 }
@@ -321,7 +319,7 @@ export function 摊开(p: 排布): 一行[] {
       */
       const 像日期列 = /日期|时间|生日|日$/.test(头) && /^\d{5}(\.\d+)?$/.test(v);
       const d = 像日期列 ? 认日期(v) : null;
-      const 写 = d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}` : v;
+      const 写 = d ? calendarDay(d) : v;
       捡回来.push(`${头}：${写}`);
     });
     if (捡回来.length > 0) {

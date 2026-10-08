@@ -6,6 +6,7 @@
  *   data：   喂回模型的结构化内容（截断过，控制上下文）
  *   records：这次读到的跟进记录（带编号），最终回答里的 [n] 引用它们
  */
+import type { Dayjs } from "dayjs";
 import type { Prisma } from "@/generated/prisma";
 import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { calendarColumns, readCalendarSorted } from "./calendar-query";
@@ -93,7 +94,7 @@ const 日期区间 = (a: unknown, b: unknown) => {
   return x && y && x.isAfter(y) ? { from: y, to: x } : { from: x, to: y };
 };
 /** 建成 Prisma 的 gte/lte，to 含当天——用户说「到 9 月 30 日」指那天也算 */
-const 区间条件 = (r: { from?: dayjs.Dayjs; to?: dayjs.Dayjs }) =>
+const 区间条件 = (r: { from?: Dayjs; to?: Dayjs }) =>
   r.from || r.to ? { ...(r.from ? { gte: r.from.startOf("day").toDate() } : {}), ...(r.to ? { lte: r.to.endOf("day").toDate() } : {}) } : null;
 
 export const TOOLS: Tool[] = [
@@ -160,7 +161,7 @@ export const TOOLS: Tool[] = [
         shown: rows.length,
         customers: rows.map((r) => ({ id: r.id, name: r.name, phone: 号(r.phone), school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, channel: r.channel?.name ?? null, expectedSignAt: r.expectedSignOn ?? (r.expectedSignAt ? dayjs(r.expectedSignAt).format("YYYY-MM-DD") : null), createdAt: dayjs(r.createdAt).format("YYYY-MM-DD"), lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
       };
-      const 区间说法 = (r: { from?: dayjs.Dayjs; to?: dayjs.Dayjs }, 名: string) =>
+      const 区间说法 = (r: { from?: Dayjs; to?: Dayjs }, 名: string) =>
         r.from || r.to ? `${名} ${r.from ? r.from.format("YYYY-MM-DD") : "最早"}~${r.to ? r.to.format("YYYY-MM-DD") : "今天"}` : "";
       const cond = [页面条件 && "当前客户页筛选", q && `「${q}」`, channel && `渠道 ${channel}`, owner && `负责人 ${owner}`, status && `状态 ${status}`, decision && `决策 ${decision}`, 区间说法(建档, "建档"), 区间说法(预签, "预计签约"), mine && "我负责的"].filter(Boolean).join("、");
       if (total) {

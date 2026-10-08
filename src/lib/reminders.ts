@@ -14,6 +14,7 @@
  * 和人坐在同一台电脑前，本机的「今天」就是他的今天。
  */
 
+import { businessDayjs } from "./business-clock";
 import { calendarDay, calendarDaysBetween } from "./schedule-date";
 
 export type 提醒项 = {
@@ -58,17 +59,18 @@ export type 提醒摘要 = {
 const 天 = 86_400_000;
 
 function 零点(d: Date): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return businessDayjs(d).startOf("day").toDate();
 }
 
 /** 明确标记优先；旧未知记录沿用非午夜的兼容规则。 */
 export function 定了时刻(t: Date, 明确钟点?: boolean | null): boolean {
-  return 明确钟点 ?? (t.getHours() !== 0 || t.getMinutes() !== 0);
+  const local = businessDayjs(t);
+  return 明确钟点 ?? (local.hour() !== 0 || local.minute() !== 0);
 }
 
 export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单提醒项[] = []): 提醒摘要 {
   const 今天开始 = 零点(now);
-  const 明天开始 = new Date(今天开始.getFullYear(), 今天开始.getMonth(), 今天开始.getDate() + 1);
+  const 明天开始 = businessDayjs(now).add(1, "day").startOf("day").toDate();
   const 今天串 = calendarDay(now);
   let 逾期 = 0;
   let 今天 = 0;
@@ -115,6 +117,6 @@ function 算订单(项: 订单提醒项[], 今天开始: Date, 明天开始: Dat
       今天++;
     }
   }
-  const 最久 = 最早 ? { no: 最早.no, 节点: 最早.节点, 天: Math.round((今天开始.getTime() - 零点(最早.时间!).getTime()) / 天) } : null;
+  const 最久 = 最早 ? { no: 最早.no, 节点: 最早.节点, 天: calendarDaysBetween(calendarDay(最早.时间!), calendarDay(今天开始)) } : null;
   return { 超期, 今天, 最久 };
 }

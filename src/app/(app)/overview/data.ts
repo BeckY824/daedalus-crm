@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { 签约归属人 } from "@/lib/contract-owner";
-import { 成员选项 } from "@/lib/utils";
+import { 成员选项, dayjs } from "@/lib/utils";
 import { 带币种, 签约币种, 签约金额, 签约合计 } from "@/lib/money-db";
 import type { 币种合计 } from "@/lib/currency";
 
@@ -40,10 +40,7 @@ export type 复盘 = {
 export type 粒度 = "day" | "month";
 
 function bucketOf(d: Date, 粒: 粒度) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  if (粒 === "day") return `${m}-${String(d.getDate()).padStart(2, "0")}`;
-  return `${y}-${m}`;
+  return dayjs(d).format(粒 === "day" ? "MM-DD" : "YYYY-MM");
 }
 
 /**
@@ -63,13 +60,12 @@ function bucketOf(d: Date, 粒: 粒度) {
 function 刻度们(from: Date, to: Date, 粒: 粒度): string[] {
   const 止 = new Date(Math.min(to.getTime(), Date.now()));
   const out: string[] = [];
-  const d = new Date(from);
+  let d = dayjs(from);
   // 按月铺时从当月 1 号起步，免得 1 月 31 日 +1 个月跳过 2 月
-  if (粒 === "month") d.setDate(1);
-  while (d < 止) {
-    out.push(bucketOf(d, 粒));
-    if (粒 === "day") d.setDate(d.getDate() + 1);
-    else d.setMonth(d.getMonth() + 1);
+  if (粒 === "month") d = d.date(1);
+  while (d.isBefore(止)) {
+    out.push(bucketOf(d.toDate(), 粒));
+    d = d.add(1, 粒);
   }
   return out;
 }

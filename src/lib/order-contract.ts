@@ -9,6 +9,7 @@
  *   - 删签约订单跟着没（TradeOrder.contractId 外键级联）
  * 这里只写订单这一半；签约那一半在 customers/actions.ts 的 saveContract。
  */
+import { businessDayjs } from "@/lib/business-clock";
 import type { Prisma } from "@/generated/prisma";
 import { 节点名们, 成交前节点数, 默认单据, 默认订单号 } from "./order";
 import { 看全部 } from "./team-scope";
@@ -117,7 +118,7 @@ export async function 写签约的订单(
       select: { id: true, no: true },
     });
   } else {
-    const 日 = `${a.前缀 ?? ""}${现在.getFullYear()}${String(现在.getMonth() + 1).padStart(2, "0")}${String(现在.getDate()).padStart(2, "0")}`;
+    const 日 = `${a.前缀 ?? ""}${businessDayjs(现在).format("YYYYMMDD")}`;
     // 看全部：业务员看不到的那几张（进了公海、转给了同事的客户）也占着号，不看全部会编出重号
     const 今天的号 = 填的号 ? [] : (await 看全部(async () => tx.tradeOrder.findMany({ where: { no: { startsWith: 日 } }, select: { no: true } }))).map((x) => x.no);
         o = await tx.tradeOrder.create({

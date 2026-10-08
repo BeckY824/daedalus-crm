@@ -1,5 +1,6 @@
 "use server";
 
+import { businessDayjs } from "@/lib/business-clock";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
@@ -110,7 +111,7 @@ export async function createOrder(input: 订单输入 & { customerId: string; op
     const 今天 = new Date();
     // 开了团队同步：编号带上下单人的第一个字，几台电脑各编各的不会撞号
     const 前缀 = 读团队() ? 团队订单前缀(me.name) : "";
-    const 日 = `${前缀}${今天.getFullYear()}${String(今天.getMonth() + 1).padStart(2, "0")}${String(今天.getDate()).padStart(2, "0")}`;
+    const 日 = `${前缀}${businessDayjs(今天).format("YYYYMMDD")}`;
     const 今天的号 = (await prisma.tradeOrder.findMany({ where: { no: { startsWith: 日 } }, select: { no: true } })).map((x) => x.no);
     const 表头 = 整理({
       no: input.no || 默认订单号(今天的号, 今天, 前缀),

@@ -1,5 +1,7 @@
 "use client";
 
+import { dayjs } from "@/lib/utils";
+
 import { 截止说法 } from "@/lib/deadline";
 import { 是逾期 } from "@/lib/overdue";
 import { useMemo, useState, useSyncExternalStore } from "react";
@@ -171,7 +173,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
    */
   const 今天零点 = useSyncExternalStore(
     () => () => {},
-    () => new Date(new Date().setHours(0, 0, 0, 0)).toISOString(),
+    () => dayjs().startOf("day").toISOString(),
     () => "",
   );
   const 逾期了 = (dueAt: string | null) => Boolean(今天零点 && 是逾期(dueAt));

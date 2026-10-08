@@ -90,7 +90,7 @@ export default async function AppLayout({
   // 机制留着是因为运营台还要用它停用工作区，不是因为网页版还在计时。
 
   return (
-    <BusinessProvider value={business}>
+    <BusinessProvider value={business} timeZone={multiTenant() ? "Asia/Shanghai" : null}>
       {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues */}
       <AiMeterProvider 初值={AI计次}>
       <AppShell

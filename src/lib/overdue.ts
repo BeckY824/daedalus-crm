@@ -18,11 +18,12 @@
  * 纯函数和一个注入库的计数函数放在一起，不 import prisma：PlansView 是客户端组件，也要用 是逾期()。
  */
 
+import { businessDayjs } from "./business-clock";
 import { calendarDay, isCalendarDate } from "./schedule-date";
 
 /** 本地时区的今天零点 */
 export function 今天零点(now: Date = new Date()): Date {
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return businessDayjs(now).startOf("day").toDate();
 }
 
 /** 这一条算不算逾期：有时间、早于今天零点。没定时间的不算逾期（计划页把它放在「以后」） */

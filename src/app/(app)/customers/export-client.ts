@@ -1,6 +1,7 @@
 "use client";
 import type { BusinessConfig } from "@/lib/business-config";
 import { fmtDate } from "@/lib/utils";
+import { businessTimeZone } from "@/lib/business-clock";
 import type { 客户条件 } from "./query";
 import { 开始完整导出, 读取完整导出批次, 校验完整导出 } from "./export-action";
 import type { 导出指令 } from "./export-protocol";
@@ -48,7 +49,7 @@ export async function 完整导出(条件: 客户条件, b: BusinessConfig, 进�
         指纹.push({ 类别, 指纹: 批次.指纹 });
         数量[类别] += 批次.rows.length;
         进度(`正在导出${类别}：${数量[类别]} / ${类别 === "客户" ? 起点.客户数 : 起点.跟进数}`);
-        if (批次.rows.length) await 发({ 动作: "分批", 批次, b });
+        if (批次.rows.length) await 发({ 动作: "分批", 批次, b, timeZone: businessTimeZone() });
         游标 = 批次.游标 ?? undefined;
       } while (游标);
     }

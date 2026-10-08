@@ -32,7 +32,7 @@ function whenLabel(at: number): string {
   const m = dayjs().diff(d, "minute");
   if (m < 1) return "刚刚";
   if (m < 60) return `${m} 分钟前`;
-  return d.isToday() ? d.format("HH:mm") : d.format("MM-DD HH:mm");
+  return d.isSame(dayjs(), "day") ? d.format("HH:mm") : d.format("MM-DD HH:mm");
 }
 
 /**

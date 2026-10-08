@@ -1,5 +1,6 @@
 "use server";
 
+import { businessDayjs } from "@/lib/business-clock";
 import { 转交商机 } from "@/lib/opportunity-activity";
 import { hasVisibleText } from "@/lib/form-validation";
 
@@ -861,10 +862,8 @@ export async function saveContract(input: {
     if (amount > 2_147_483_647) return { ok: false as const, error: "签约金额太大了，单笔最多 21 亿" };
   
     // 「同一天」按自然日算，不是 24 小时
-    const dayStart = new Date(input.signedAt);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
+    const dayStart = businessDayjs(input.signedAt).startOf("day").toDate();
+    const dayEnd = businessDayjs(input.signedAt).add(1, "day").startOf("day").toDate();
     // 事务里只用 tx（lib/check-then-write.ts），本位币先在外面读好
     const 业务 = await getBusiness();
     const 本位币 = 业务.currency;

@@ -1,14 +1,10 @@
-import dayjs from "dayjs";
+import { businessDayjs as dayjs } from "./business-clock";
 import { palette, avatarBg } from "./palette";
 import relativeTime from "dayjs/plugin/relativeTime";
-import isToday from "dayjs/plugin/isToday";
-import isTomorrow from "dayjs/plugin/isTomorrow";
 import "dayjs/locale/zh-cn";
 import { isCalendarDate } from "./schedule-date";
 
 dayjs.extend(relativeTime);
-dayjs.extend(isToday);
-dayjs.extend(isTomorrow);
 dayjs.locale("zh-cn");
 
 export { dayjs };
@@ -31,8 +27,8 @@ export function smartTime(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const t = dayjs(d);
   const now = dayjs();
-  if (t.isToday()) return `今天 ${t.format("HH:mm")}`;
-  if (t.isTomorrow()) return `明天 ${t.format("HH:mm")}`;
+  if (t.isSame(now, "day")) return `今天 ${t.format("HH:mm")}`;
+  if (t.isSame(now.add(1, "day"), "day")) return `明天 ${t.format("HH:mm")}`;
   if (t.isSame(now.subtract(1, "day"), "day")) return "昨天";
   const 过去几天 = now.startOf("day").diff(t.startOf("day"), "day");
   if (过去几天 >= 2 && 过去几天 <= 6) return `${过去几天} 天前`;

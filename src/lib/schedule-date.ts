@@ -1,3 +1,4 @@
+import { businessDayjs } from "./business-clock";
 import { parseDateInput } from "./date-input";
 
 /** 仅日期保留原日历日；hasTime为空表示旧数据未记录选择方式，不能反推。 */
@@ -21,7 +22,7 @@ export function scheduleValue(at: Date | null | undefined, on: string | null | u
 }
 
 export function calendarDay(d: Date): string {
-  return `${String(d.getFullYear()).padStart(4, "0")}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return businessDayjs(d).format("YYYY-MM-DD");
 }
 
 /** 日历日差不除本地毫秒，DST的23/25小时仍各算一天。 */

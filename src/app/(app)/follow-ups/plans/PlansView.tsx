@@ -1,5 +1,6 @@
 "use client";
 
+import { useBusinessTimeZone } from "@/lib/business-client";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Segmented, Space, Button, App, Tag } from "antd";
@@ -108,6 +109,7 @@ export default function PlansView({
    */
   全员?: boolean;
 }) {
+  const timeZone = useBusinessTimeZone();
   const router = useRouter();
   const { message } = App.useApp();
   const [scope, setScope] = useState<string | number>(全员 ? "全部成员" : "我的");
@@ -265,7 +267,7 @@ export default function PlansView({
           「新建计划」就地弹框、第一格挑人；「上次谈到哪儿」跟着挑中的人进框里 */}
       <PageHead
         title="跟进计划"
-        subtitle="逾期、今天、本周要联系的人"
+        subtitle={`逾期、今天、本周要联系的人 · ${timeZone ? "北京时间（UTC+8）" : "本机时区"}`}
         extra={
           <Space>
             <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/follow-ups")}>

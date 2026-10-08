@@ -1,3 +1,5 @@
+import { businessTimeZone, businessDayjs } from "./business-clock";
+
 /** 严格接收日历日期或ISO/本地日期时间，拒绝Date的自动顺延和含糊格式。 */
 export function parseDateInput(value: unknown): Date | null {
   if (typeof value !== "string") return null;
@@ -13,6 +15,7 @@ export function parseDateInput(value: unknown): Date | null {
     const instant = new Date(value.trim().replace(" ", "T"));
     return Number.isFinite(instant.getTime()) ? instant : null;
   }
+  if (businessTimeZone() === "Asia/Shanghai") return businessDayjs(value.trim().replace(" ", "T")).toDate();
   const local = new Date(0); local.setFullYear(y, m - 1, d); local.setHours(h, minute, second, Number((fraction ?? "").padEnd(3, "0")));
   if (local.getFullYear() !== y || local.getMonth() !== m - 1 || local.getDate() !== d) return null;
   // 只选日期保留当地日历日；明确钟点落在夏令时缺口则拒绝，不能顺延。

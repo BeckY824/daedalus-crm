@@ -3,6 +3,7 @@
  * 设置页据此汇总本月各功能用了多少次——没有单独的计数表，日志本来就只增不删，
  * 少一张表就少一处会和真实情况对不上的地方。
  */
+import { businessDayjs } from "./business-clock";
 import { prisma } from "./prisma";
 import { recordAudit, type Actor } from "./audit";
 
@@ -25,7 +26,7 @@ export type AiUsage = { feature: AiFeature; label: string; count: number }[];
 
 /** 本月（自然月）各功能的调用次数，含 0 的项，按功能固定顺序 */
 export async function aiUsageThisMonth(now = new Date()): Promise<AiUsage> {
-  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const start = businessDayjs(now).startOf("month").toDate();
   const rows = await prisma.auditLog.groupBy({
     by: ["entityId"],
     where: { action: "ai_use", at: { gte: start } },
