@@ -249,13 +249,15 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       throw new Error("连不上 AI 服务，检查一下网络再试");
     }
   }
+  const 错误正文 = !res.ok ? 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey) : "";
   if (云端网关) {
     const remaining = res.headers.get("X-Credits-Remaining");
     if (remaining !== null) 记AI余额(cfg, Number(remaining), res.ok ? opts.requestId : undefined);
-    if (res.status === 402) 记AI余额(cfg, 0);
+    // 历史网关会把上游余额不足也透传为402；那不是用户的赠送次数。
+    if (res.status === 402 && !旧网关上游状态(错误正文)) 记AI余额(cfg, 0);
   }
   if (!res.ok) {
-    const errText = 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey);
+    const errText = 错误正文;
     // 只有明确指向thinking本身的不支持才缓存，普通参数或tools组合错误不能推断模型能力。
     const thinking不支持 = /thinking|思考|推理/i.test(errText) &&
       /not.support|unsupported|unknown|unrecognized|not.allowed|不支持|不认|不允许/i.test(errText) &&
@@ -523,7 +525,13 @@ export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unk
  * 桌面端用户看不懂，也看不出该做什么。网关自己的报错正文是中文的那句 message，取出来；其余按状态码说人话。
  * 原文照旧进服务端日志（抹掉 Key 之后）。
  */
+function 旧网关上游状态(text: string): number | null {
+  const match = /上游模型接口返回\s+(\d{3})[：:]/.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
 export function AI报错人话(status: number, 正文: string): string {
+  if (旧网关上游状态(正文)) return "AI 服务配置暂时不可用，请稍后再试；持续失败可从反馈联系我们";
   let 说: string | undefined;
   try {
     const j = JSON.parse(正文) as { error?: { message?: string } | string; message?: string };
