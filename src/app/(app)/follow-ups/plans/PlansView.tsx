@@ -42,14 +42,14 @@ type Task = {
   ownerName: string;
 };
 
-/** 做完的那些。计划没有 doneAt 列，完成时间取 updatedAt，见 page.tsx 的说明 */
+/** 旧记录未留存实际完成时间时保留 null，不拿编辑时间代替。 */
 export type 已完成 = {
   key: string;
   kind: "plan" | "task";
   标题: string;
   方式?: string;
   计划时间: string | null;
-  完成时间: string;
+  完成时间: string | null;
   customerId: string;
   customerName: string;
   ownerId: string;
@@ -249,7 +249,7 @@ export default function PlansView({
   }
 
   const 我的已完成 = useMemo(
-    () => done.filter((x) => (scope === "我的" ? x.ownerId === meId : true)),
+    () => done.filter((x) => (scope === "我的" ? x.ownerId === meId : true)).slice(0, 200),
     [done, scope, meId],
   );
 
@@ -303,7 +303,7 @@ export default function PlansView({
                 <div className="plan-g-h">
                   <b>做完的</b>
                   <span className="plan-g-n">{我的已完成.length}</span>
-                  <span className="plan-g-s">按完成时间倒序，最近 200 条</span>
+                  <span className="plan-g-s">按实际完成时间倒序，最多 200 条；旧时间未知的排后</span>
                 </div>
                 {我的已完成.length === 0 ? (
                   <div className="plan-empty">{scope === "我的" ? "你还没完成过计划或待办" : "还没有完成过的"}</div>
@@ -322,7 +322,7 @@ export default function PlansView({
                         </span>
                       </span>
                       {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
-                      <span className="plan-row-d">{fmtDateTime(x.完成时间)} 完成</span>
+                      <span className="plan-row-d">{x.完成时间 ? `${fmtDateTime(x.完成时间)} 完成` : "已完成 · 完成时间未记录"}</span>
                     </div>
                   ))
                 )}
