@@ -7,7 +7,7 @@
  *
  * 不起 Electron：真正会坏的不是 DOM 行为，是「引用的东西存不存在」。
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -372,7 +372,7 @@ describe("检查更新：整包不自动下、重试不弹框（回归核对 D-0
     expect(查).toMatch(/自动下 = 计划\.方式 === "差量";/);
     // 检查更新 里叫 下载更新 的只有「自动下」那一处
     expect(查.match(/下载更新\(\)/g)).toHaveLength(1);
-    expect(查).toMatch(/if \(自动下\) (?:await |void )?下载更新\(\);/);
+    expect(查).toMatch(/if \(自动下\) (?:await |void )?下载更新\(\)(?:\.catch|;)/);
     // 整个壳里叫 下载更新 的只有：检查更新 那一处、点「更新到 x」的 IPC。定时器、切回前台都只是查
     const 叫的地方 = [...main.matchAll(/下载更新\(\)/g)].map((m) => main.slice(Math.max(0, m.index! - 80), m.index! + 12));
     expect(叫的地方.filter((x) => !/function 下载更新\(\)/.test(x))).toHaveLength(2);
@@ -390,10 +390,39 @@ describe("检查更新：整包不自动下、重试不弹框（回归核对 D-0
     }
   });
 
-  // 【下一版】D-088 未修：update:check 等到差量下完才返回（main.js 末尾 await 下载更新()），左栏「检查更新」会一直转到下完。
-  // 不伤数据、不挡人用，排下一版；修法是 void 下载更新()，修完去掉 skip
-  it.skip("【下一版】D-088 「检查更新」查完就返回，差量在后台下，不等它下完", () => {
-    expect(查).toMatch(/if \(自动下\) void 下载更新\(\);/);
+  it("D-088 实际检查函数在差量下载挂起时返回，后台失败转错误态", async () => {
+    let fail!: (e: Error) => void;
+    const download = vi.fn(() => new Promise((_r, reject) => { fail = reject; }));
+    const states: { 阶段: string }[] = [];
+    const log = vi.fn();
+    const check = new Function("下载更新", "设更新状态", "崩溃", `
+      let 正在查=false,更新状态={阶段:'idle'},计划; const app={getVersion:()=>'.15',isPackaged:true};
+      const 更新={检查:async()=>({版本:'.16',sha256:'a'.repeat(64),dmg:'https://test/a.dmg',zip:'https://test/a.zip',manifest:'https://test/a.json'})};
+      const process={platform:'darwin',arch:'arm64'},path={join:()=>''},数据根='',应用包='',应用日志='';
+      const 安装={能原地更新:()=>({ok:true})},窗装={},写配置=()=>{},读配置=()=>({}),dialog={};
+      const 差量={差量估算:async()=>({清单:{},比对结果:{},要下:100})};
+      const 先主后备=async(a,b,run)=>run(a,false);
+      ${查}; return 检查更新;
+    `)(download, (s: { 阶段: string }) => states.push(s), { 写崩溃日志: log }) as () => Promise<void>;
+    await check();
+    expect(download).toHaveBeenCalledOnce();
+    expect(states.at(-1)?.阶段).toBe("available");
+    fail(new Error("QA download failed"));
+    await Promise.resolve(); await Promise.resolve();
+    expect(states.at(-1)?.阶段).toBe("error"); expect(log).toHaveBeenCalledOnce();
+  });
+
+  it("D-088 没有新版时静默检查只推checking→idle，菜单检查才显示系统框", async () => {
+    const states: { 阶段: string }[] = []; const show = vi.fn();
+    const check = new Function("设更新状态", "dialog", `
+      let 正在查=false,更新状态={阶段:'idle'};const app={getVersion:()=>'.16'},win=null;
+      const 更新={检查:async()=>null},process={platform:'darwin',arch:'arm64'},写配置=()=>{},读配置=()=>({});
+      ${查};return 检查更新;
+    `)((s: { 阶段: string }) => states.push(s), { showMessageBox: show });
+    await check({ 手动: true, 静默: true });
+    expect(states.map(x => x.阶段)).toEqual(["checking", "idle"]); expect(show).not.toHaveBeenCalled();
+    await check({ 手动: true });
+    expect(show).toHaveBeenCalledOnce(); expect(show.mock.calls[0][1].message).toBe("已经是最新版本");
   });
 });
 
@@ -405,11 +434,27 @@ describe("启动与第二个实例（回归核对 D-030）", () => {
     expect(cloud).toMatch(/function 校验\(/);
   });
 
-  // 【下一版】D-030 后半未修：Windows 启动那几秒（还没建窗口）再点图标，second-instance 里 if (!win) return，什么反馈都没有。
-  // 不伤数据，排下一版；修完（比如记一笔「建好窗口就聚焦」或先出过渡小窗）去掉 skip
-  it.skip("【下一版】D-030 窗口还没建好时再点图标：要给反馈，不是什么都不做", () => {
-    const 段 = main.slice(main.indexOf('app.on("second-instance"'), main.indexOf("app.whenReady()"));
-    expect(段).not.toMatch(/if \(!win\) return;/);
+  it("D-030 启动中的重复打开只建一个提示窗；已有窗口则恢复、显示并聚焦", () => {
+    const windows: Array<{ show: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn> }> = [];
+    const ready: Array<() => void> = [];
+    class FakeWindow {
+      show = vi.fn(); focus = vi.fn(); isDestroyed = () => false;
+      once(_name: string, cb: () => void) { ready.push(cb); }
+      loadURL = () => Promise.resolve();
+      constructor() { windows.push(this); }
+    }
+    let isReady = false; let onReady!: () => void;
+    const app = { isReady: () => isReady, once: (_name: string, cb: () => void) => { onReady = cb; } };
+    const api = new Function("app", "BrowserWindow", `let win=null,过渡小窗=null,启动要聚焦=false;
+      ${取函数(main, "聚焦或提示启动")};return {run:聚焦或提示启动,setWin:w=>win=w,pending:()=>启动要聚焦};`)(app, FakeWindow);
+    api.run(); expect(windows).toHaveLength(0); expect(api.pending()).toBe(true);
+    isReady = true; onReady(); ready[0](); api.run();
+    expect(windows).toHaveLength(1); expect(windows[0].show).toHaveBeenCalledTimes(2);
+    const window = { isDestroyed: () => false, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn() };
+    api.setWin(window); api.run();
+    expect(window.restore).toHaveBeenCalledOnce(); expect(window.show).toHaveBeenCalledOnce(); expect(window.focus).toHaveBeenCalledOnce();
+    expect(main).toContain('app.on("second-instance", 聚焦或提示启动)');
+    expect(取函数(main, "建窗口")).toContain("if (启动要聚焦)");
   });
 });
 

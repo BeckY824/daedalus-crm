@@ -268,6 +268,7 @@ export default function RecordView({
       if (!result.ok) return void message.error(result.error);
     }
     router.refresh();
+    void window.desktopReminders?.刷新();
     const key = `plan-${p.id}`;
     message.success({
       key,
@@ -280,7 +281,9 @@ export default function RecordView({
             size="small"
             onClick={async () => {
               message.destroy(key);
-              await completePlan(p.id, false);
+              const result = await completePlan(p.id, false).catch(() => ({ ok: false as const, error: "计划恢复失败，请稍后重试" }));
+              if (!result.ok) return void message.error(result.error);
+              void window.desktopReminders?.刷新();
               message.success(`「${p.subject}」已改回未完成`);
               router.refresh();
             }}

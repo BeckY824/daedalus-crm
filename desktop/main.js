@@ -744,6 +744,10 @@ function 建窗口() {
   // 主窗口露面了再关「正在完成更新」那个小窗，中间不留一个窗口都没有的空档（Windows 上那会让应用直接退出）
   win.once("ready-to-show", () => {
     win.show();
+    if (启动要聚焦) {
+      win.focus();
+      启动要聚焦 = false;
+    }
     关过渡小窗();
     // 窗口号要等窗口真的建出来才有；露面那一刻设上模糊，之后 WindowServer 一直记着
     if (透明窗 && 玻璃开着()) 模糊.设模糊(win, 模糊半径);
@@ -1077,7 +1081,10 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
   } finally {
     正在查 = false;
   }
-  if (自动下) await 下载更新();
+  if (自动下) void 下载更新().catch((e) => {
+    崩溃.写崩溃日志(应用日志, "后台下载失败", e);
+    设更新状态({ 阶段: "error", 错误: String(e?.message ?? e) });
+  });
 }
 
 /**
@@ -1175,6 +1182,8 @@ async function 等安装装完(记录) {
 <div style="max-width:320px;padding:0 24px"><div style="font-size:16px;font-weight:600;margin-bottom:6px">${已是新版 ? "正在完成更新" : `正在安装 ${版本.replace(/[<>&]/g, "")}`}</div>
 <div style="color:#666">${已是新版 ? "马上就好。" : "装好后会自动打开，不用做别的。一般一两分钟。"}</div></div></body>`;
   const 小窗 = new BrowserWindow({ width: 420, height: 180, resizable: false, minimizable: false, maximizable: false, autoHideMenuBar: true, backgroundColor: "#fafafa", title: "正在更新", show: false });
+  关过渡小窗();
+  过渡小窗 = 小窗;
   小窗.once("ready-to-show", () => 小窗.show());
   小窗.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(页)}`);
   崩溃.写崩溃日志(应用日志, "启动时安装还没结束", `安装程序 pid=${记录.pid} 正在装 ${版本}，本进程是 ${app.getVersion()}，先等它`);
@@ -1575,17 +1584,43 @@ function 建菜单() {
   );
 }
 
+/** Repeated launches during startup keep one visible progress window, then focus the main window. */
+let 启动要聚焦 = false;
+function 聚焦或提示启动() {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    return;
+  }
+  启动要聚焦 = true;
+  if (!app.isReady()) {
+    app.once("ready", 聚焦或提示启动);
+    return;
+  }
+  if (!过渡小窗 || 过渡小窗.isDestroyed()) {
+    过渡小窗 = new BrowserWindow({
+      width: 420, height: 180, title: "正在启动 Daedalus CRM", show: false,
+      resizable: false, minimizable: false, maximizable: false, closable: false, autoHideMenuBar: true,
+      webPreferences: { contextIsolation: true, nodeIntegration: false },
+    });
+    const 小窗 = 过渡小窗;
+    小窗.once("ready-to-show", () => { if (!小窗.isDestroyed()) { 小窗.show(); 小窗.focus(); } });
+    const 页 = '<!doctype html><meta charset="utf-8"><body style="font:14px/1.7 system-ui;padding:24px;background:#fafafa">正在启动 Daedalus CRM…<p>正在准备服务，请稍候。无需再次打开。</p></body>';
+    void 小窗.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(页)}`).catch(() => {});
+  } else {
+    过渡小窗.show();
+    过渡小窗.focus();
+  }
+}
+
 /* ---------- 生命周期 ---------- */
 
 // 单实例：重复点图标时聚焦已开的窗口，而不是开第二个（第二个还会去抢端口）
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  });
+  app.on("second-instance", 聚焦或提示启动);
 
   app.whenReady().then(async () => {
     // 整包安装程序还在跑：程序文件可能写了一半，这时什么都别起（见 等安装装完）

@@ -3,7 +3,7 @@ import { build, type Plugin } from "esbuild";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
 
-declare global { interface Window { __kind: string; __calls: unknown[]; __fail: boolean; __saved: number } }
+declare global { interface Window { __kind: string; __calls: unknown[]; __fail: boolean; __saved: number; __reminderRefreshes: number } }
 
 let browser: Browser; let bundle: string;
 const plugin: Plugin = { name: "form-actions", setup(b) {
@@ -52,6 +52,7 @@ it.each([
   await page.route("http://forms.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
   await page.goto("http://forms.test");
   await page.evaluate(kind => Object.assign(window, { __kind: kind, __calls: [], __fail: true, __saved: 0 }), kind);
+  await page.evaluate(() => Object.assign(window, { __reminderRefreshes: 0, desktopReminders: { 刷新: async () => { window.__reminderRefreshes++; } } }));
   await page.addScriptTag({ content: bundle });
   if (kind === "channel") await page.getByRole("button", { name: /新建渠道/ }).click();
   const input = page.locator(`#${field}`);
@@ -65,11 +66,13 @@ it.each([
   await input.fill(value);
   await save.click();
   await page.getByText("保存失败，请刷新确认结果后重试", { exact: true }).waitFor();
+  if (kind === "plan") expect(await page.evaluate(() => window.__reminderRefreshes)).toBe(0);
   expect(await input.inputValue()).toBe(value);
   await expect.poll(() => save.isEnabled()).toBe(true);
   await page.evaluate(() => { window.__fail = false; });
   await save.click();
   await expect.poll(() => page.evaluate(() => window.__calls.length)).toBe(2);
+  if (kind === "plan") await expect.poll(() => page.evaluate(() => window.__reminderRefreshes)).toBe(1);
   expect(errors).toEqual([]);
   await page.close();
 });

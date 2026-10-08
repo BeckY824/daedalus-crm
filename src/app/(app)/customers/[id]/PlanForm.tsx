@@ -98,6 +98,7 @@ export default function PlanForm({
       if (record) router.refresh();
       return;
     }
+    void window.desktopReminders?.刷新();
     set近况(null);
     onSaved(res.id);
     if (!挑人 || !近况) return void message.success("跟进计划已保存");
