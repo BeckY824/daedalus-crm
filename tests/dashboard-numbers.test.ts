@@ -36,6 +36,16 @@ import { dayjs } from "@/lib/utils";
 
 type 元素 = { props: Record<string, unknown> };
 
+it("J114 有30条线索但零客户时，AI首页不是空库并给出线索下一步", async () => {
+  mocks.ai = true;
+  await prisma.lead.createMany({data:Array.from({length:30},(_,i)=>({name:`QA线索${i}`,ownerId:我,status:"待跟进"}))});
+  const el = await DashboardPage({searchParams:Promise.resolve({})});
+  expect(el.props.空库).toBe(false);
+  expect(el.props.suggestions).toEqual(expect.arrayContaining([expect.objectContaining({label:"跟进手上的线索"})]));
+  expect(el.props.context).toContain("30 条线索");
+  expect(await prisma.customer.count()).toBe(0);
+});
+
 let 我: string;
 beforeEach(async () => {
   await resetDb();

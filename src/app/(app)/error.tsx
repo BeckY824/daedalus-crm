@@ -41,7 +41,7 @@ export default function AppError({
       次动作={{ label: "重新加载", onClick: () => window.location.reload() }}
       附注={
         展示.类型 === "编号" && 展示.digest ? (
-          <>一直不行的话，把这个编号发给管理员：<code>{展示.digest}</code></>
+          <>保留这个编号，反馈问题时一并提供：<code>{展示.digest}</code></>
         ) : null
       }
     />

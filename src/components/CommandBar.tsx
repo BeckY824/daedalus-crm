@@ -53,7 +53,7 @@ export default function CommandBar({ 有AI }: { 有AI: boolean }) {
       ...(b.template === "trade" && 供应商页 ? [{ 名: "供应商", 去: "/suppliers", 说明: "工厂档案和比价" }] : []),
       { 名: "跟进记录", 去: "/follow-ups", 说明: "已经发生的沟通" },
       { 名: "跟进计划", 去: "/follow-ups/plans", 说明: "排好还没做的" },
-      { 名: "设置", 去: "/settings", 说明: "成员、密码、AI 接入、业务配置" },
+      { 名: "设置", 去: "/settings", 说明: "账号、密码、AI 接入、业务配置" },
     ],
     [b],
   );
@@ -167,7 +167,7 @@ export default function CommandBar({ 有AI }: { 有AI: boolean }) {
           {当问题 ? (
             <button type="button" className="cmdk-row cmdk-row-on" disabled={!有AI} onClick={() => 走()}>
               <b>{有AI ? "问一句" : "尚未接入 AI"}</b>
-              <span>{有AI ? `「${q.trim()}」——去首页问，它会读完记录再答` : "问题保留在输入框中。在设置中接入 AI，或联系工作区管理员后再提问。"}</span>
+              <span>{有AI ? `「${q.trim()}」——去首页问，它会读完记录再答` : "问题保留在输入框中。启用 AI 接入后，可以在这里继续提问。"}</span>
             </button>
           ) : (
             命中.map((p, i) => (

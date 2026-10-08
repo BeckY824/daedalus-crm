@@ -120,7 +120,7 @@ export default function AiSettingsTab({ llm, usage }: { llm: LlmView; usage: AiU
           modal.confirm({
             title: testResult ? "这次测试没通过，还要保存吗？" : "还没测试过连接，要直接保存吗？",
             content:
-              "保存之后，首页提问、临战简报、问数据、盯盘话术都会走这套配置。地址或 Key 不对的话它们会一起失灵，而且要等下一个人去用才发现。",
+              "保存之后，首页提问、临战简报、问数据、盯盘话术都会走这套配置。地址或 Key 不对的话它们会一起失灵，而且要等下次使用时才发现。",
             okText: "仍然保存",
             cancelText: "先测一下",
             onOk: () => resolve(true),

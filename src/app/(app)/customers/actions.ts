@@ -334,7 +334,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     await recordAudit({
       user: me, action: "update", entity: "Customer", entityId: input.id!,
       summary: `修改${b.customer}「${data.name}」：${keys.map((k) => labels[k] ?? k).join("、")}` +
-        (合并 ? "（与他人的改动自动合并）" : ""),
+        (合并 ? "（已自动合并较新的改动）" : ""),
       detail: describeCustomerChanges(keys, before, data as Record<string, unknown>, labels),
     });
   };
