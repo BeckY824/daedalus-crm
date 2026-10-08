@@ -30,6 +30,9 @@ delete env.ELECTRON_RUN_AS_NODE;
  * 这个替身没有「注册开始」接口、回 404——桌面端当成老云端，直接去输密码（H-055），正好走登录这条
  */
 async function 登录(p, 邮箱) {
+  // SSR 的输入框先于 React 事件处理器出现。差量重启后的热启动更快，
+  // 不能把「看见邮箱框」当成表单已就绪；与 desktop E2E 一样等首轮资源加载结束。
+  await p.waitForLoadState("networkidle");
   await p.locator("#auth-email").fill(邮箱);
   await p.getByRole("button", { name: /继\s*续/ }).click();
   await p.locator('input[type="password"]').fill("smoke-password");
@@ -207,6 +210,12 @@ try {
   console.log(`Evidence: ${root}`);
 } catch (error) {
   console.error(`Evidence: ${root}`);
+  if (app) {
+    for (const [i, p] of app.windows().entries()) {
+      await p.screenshot({ path: path.join(root, `failure-${i}.png`) }).catch(() => {});
+      console.error(`Window ${i}: ${p.url()}\n${await p.locator("body").innerText().catch(() => "（窗口不可读）")}`);
+    }
+  }
   for (const log of ["server.log", "app.log"]) {
     const p = path.join(root, "logs", log);
     if (fs.existsSync(p)) console.error(fs.readFileSync(p, "utf8").slice(-6000));

@@ -107,6 +107,14 @@ jobs:
           ditto -c -k --keepParent --norsrc "$APP" "dist/Daedalus CRM-$VER-arm64.app.zip"
           node scripts/make-manifest.mjs "dist/Daedalus CRM-$VER-arm64.app.zip" "$VER" "dist/Daedalus CRM-$VER-arm64.manifest.json.gz"
       - uses: actions/upload-artifact@v4
+        if: failure() && runner.os == 'Windows'
+        with:
+          name: windows-smoke-failure
+          path: |
+            desktop/.smoke-data/**/failure-*.png
+            desktop/.smoke-data/**/logs/*.log
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
         with:
           name: daedalus-crm-${{ matrix.artifact }}
           path: |
