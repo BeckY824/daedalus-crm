@@ -56,7 +56,7 @@ async function 切成表(原文: string): Promise<粘贴回执> {
       是按「别让销售干等」定的，但这一次人是按了按钮在等一张表，
       等到一半被判超时、次数还照扣，比多等一分钟难受。
     */
-    const raw = await chatJSON(组提示词(文, 建议, b.customer), { maxTokens: 8000, timeoutMs: 120_000 });
+    const raw = await chatJSON(组提示词(文, 建议, b.customer), { maxTokens: 8000, timeoutMs: 120_000, feature: "paste" });
     const 结果 = 核对(raw, 文);
     if (结果.数据.length === 0) {
       return { ok: false, error: "没能从这段文本里读出人来。至少要有姓名和手机号" };

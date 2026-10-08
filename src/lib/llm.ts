@@ -1,3 +1,4 @@
+import { CompletionStream } from "./llm-stream";
 /**
  * LLM 调用层 —— 任何 OpenAI 兼容接口（DeepSeek 官方、OpenAI、中转站、本地 Ollama…）。
  * 配置（Key、接口地址、模型名从哪来）在 llm-config.ts，这里原样转出，调用方只认这一个入口。
@@ -310,7 +311,7 @@ async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: C
    * 方向完全错，线上排查会绕很久。调用方接住之后重试，那时预算已经加上去了。
    */
   if (choice?.finish_reason === "length") {
-    throw new Error(`AI 回答被长度限制截断（模型 ${model}），已提高预算，请重试`);
+    throw new Error(`AI 回答被长度限制截断（模型 ${model}）。请缩短本次内容，或分成几批处理`);
   }
   return content;
 }
@@ -415,40 +416,20 @@ export async function chatTextStream(messages: ToolMessage[], opts: ChatOpts, on
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buf = "";
-  let full = "";
-  while (true) {
-    let 这段: ReadableStreamReadResult<Uint8Array>;
-    try {
-      这段 = await reader.read();
-    } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") throw e;
-      // 流到一半断了：原来对话框里是一句英文「terminated」（第二轮 AI）。已经出来的那些留着，说一声
-      throw new Error(full ? "回答写到一半断了（网络不稳），上面是已经写出来的部分，可以再问一次" : "回答还没开始就断了（网络不稳），再问一次试试");
+  const state = new CompletionStream(onToken);
+  try {
+    while (!state.done) {
+      const { value, done } = await reader.read();
+      if (done) { state.push(decoder.decode()); state.finish(); break; }
+      state.push(decoder.decode(value, { stream: true }));
     }
-    const { value, done } = 这段;
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, idx).trim();
-      buf = buf.slice(idx + 1);
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        const j = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
-        const t = j.choices?.[0]?.delta?.content;
-        if (t) {
-          full += t;
-          onToken(t);
-        }
-      } catch {
-        /* 半截 JSON，等下一段 */
-      }
-    }
-  }
-  return full.trim();
+    if (!state.complete) throw new Error("Incomplete stream");
+    return state.text.trim();
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") throw e;
+    throw new Error(state.text ? "回答写到一半断了（网络不稳），上面是已经写出来的部分，可以再问一次" : "回答还没开始就断了（网络不稳），再问一次试试");
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+
 }
 
 /**

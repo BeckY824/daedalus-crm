@@ -62,6 +62,17 @@ const 多步剧本 = (工具们: { name: string; args: Record<string, unknown> }
 };
 
 describe("一个问题多步只扣一次", () => {
+  it("盯盘话术、解读、邀请按实际功能记成本，三个动作各扣一次", async () => {
+    const line = 接线({ 上游: (r) => 回文本(JSON.stringify(r.第几次 === 2 ? { [客户]: "继续跟进" } : { message: "你好" })) });
+    const actions = await import("@/app/(app)/dashboard/ai");
+    expect((await actions.draftWakeup({ customerId: 客户, reason: "QA" })).ok).toBe(true);
+    expect((await actions.explainWatchlist({ items: [{ customerId: 客户, reason: "QA" }] })).ok).toBe(true);
+    expect((await (await import("@/app/(app)/channels/ai")).draftInvite({ customerId: 客户 })).ok).toBe(true);
+    expect(line.网关.map((r) => r.feature)).toEqual(["wakeup", "explain", "invite"]);
+    const { control } = await import("@/lib/tenant/control");
+    expect((await control.aiCall.findMany({ where: { ownerId: 账号.acc.id } })).map((r) => r.feature).sort()).toEqual(["explain", "invite", "wakeup"]);
+    expect(await 用掉(账号.acc.id)).toBe(3);
+  });
   it("查四次库再回答（5 次上游调用）：扣 1 次，全程一个编号", async () => {
     const 线 = 接线({
       上游: 多步剧本([
@@ -154,7 +165,7 @@ describe("上游失败退不退", () => {
     expect(await 用掉(账号.acc.id), "上游炸了、人什么都没拿到，网关注释自己说的「不让用户买单」").toBe(0);
   });
 
-  it("chatJSON 四道重试（不认 response_format → 降级 → 坏 JSON → 修 → 降级）共用一个编号：扣 1 次", async () => {
+  it("chatJSON 四道重试（不认 response_format → 降级 → 坏 JSON → 修 → 降级）共用一个编号：无可用结果不扣次", async () => {
     const 线 = 接线({
       上游: (r) => (r.body.response_format ? new Response('{"error":{"message":"response_format unsupported"}}', { status: 400 }) : 回文本("这不是 JSON")),
     });
@@ -162,7 +173,7 @@ describe("上游失败退不退", () => {
     expect(r.ok).toBe(false);
     expect(线.上游).toHaveLength(4);
     expect(new Set(线.网关.map((g) => g.questionId)).size).toBe(1);
-    expect(await 用掉(账号.acc.id)).toBe(1);
+    expect(await 用掉(账号.acc.id)).toBe(0);
   });
 
   it("【坏】网关自己的频率闸（30 次请求 / 5 分钟）在问题中途拦下：问题失败，第一步那次照扣", async () => {

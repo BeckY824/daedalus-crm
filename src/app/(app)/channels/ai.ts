@@ -66,7 +66,7 @@ ${timeline}
 输出严格 JSON：{"message": "..."}`;
 
   try {
-    const raw = (await chatJSON(prompt)) as { message?: unknown };
+    const raw = (await chatJSON(prompt, { feature: "invite" })) as { message?: unknown };
     const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 话术上限) : "";
     if (!message) return { ok: false, error: "AI 未能生成话术，请重试" };
     await recordAiUse(user, "invite", `AI 起草转介绍邀请（${b.customer}「${customer.name}」）`, input.customerId);

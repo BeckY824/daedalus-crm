@@ -2,11 +2,12 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 收拾请求体 } from "@/lib/gateway";
-import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 注册赠送发过吗 } from "@/lib/tenant/credits";
+import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 注册赠送发过吗, 余额 } from "@/lib/tenant/credits";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
 import { AI功能 } from "@/lib/ai-features";
+import { CompletionStream } from "@/lib/llm-stream";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,7 +30,7 @@ export const runtime = "nodejs";
  *      他什么都没拿到。桌面端中途走了（超时、点了停）的：这个问题最新的那一份没人收到就退，见 问过的 那段。
  */
 /**
- * 这次调用是哪个功能发起的。**只进成本账**，不影响任何判断，所以认不出就当没有。
+ * 这次调用是哪个功能发起的。用于成本分类及结构化空结果退款，认不出就当没有。
  * 白名单而不是原样收下：它会进库、会出现在运营台的分组里，不该让客户端往里写任意字符串。
  * 名单和发请求那边共用一份（lib/ai-features.ts）。
  */
@@ -101,6 +102,14 @@ function 规整工具参数(data: string): string {
 }
 
 export async function POST(req: Request) {
+  try { return await 处理请求(req); }
+  catch (error) {
+    console.error("[gateway] 请求处理失败：", 抹掉密钥(error instanceof Error ? error.message : String(error), process.env.GATEWAY_API_KEY));
+    return 网关错误(503, "AI 服务暂时不可用，请稍后重试；可在设置查看剩余次数");
+  }
+}
+
+async function 处理请求(req: Request) {
   const auth = await 网关认证(req);
   if (!auth.ok) return auth.res;
   const { cfg, accountId } = auth;
@@ -143,7 +152,7 @@ export async function POST(req: Request) {
     这个问题的编号，和这次调用是哪个功能发起的。两样都来自客户端的头，都可以没有：
       没有 requestId → 退回「一次调用扣一次」的老口径（老版本桌面端、第三方客户端）
       没有 feature   → 成本账里这一行归不了类，仅此而已
-    feature 只进成本账、不影响任何判断，所以白名单卡一下就够，不值得为它拒绝请求。
+    feature用于成本归类及结构化空结果退款；未知值只作普通OpenAI请求处理。
   */
   const 问题id = 早问题id;
   const 功能 = 认功能(req.headers.get("x-feature"));
@@ -170,6 +179,7 @@ export async function POST(req: Request) {
   const 退 = async () => {
     if (键 && 问过的.get(键)?.最后 !== 这一份) return;
     await 退这一次(owner, 问题id, 扣.扣了 || Boolean(问题id));
+    剩余头["X-Credits-Remaining"] = String((await 余额(owner)).还剩);
   };
 
   let upstream: Response;
@@ -233,11 +243,8 @@ export async function POST(req: Request) {
   }
 
   /*
-    流式：直接把上游的流接出去，不缓冲——缓冲了就没有"逐字出现"这回事了。
-    **代价是这一条记不到 token**：usage 在事件流的最后一块里，而我们没有拆流。
-    要记的话得给上游加 `stream_options: {include_usage: true}` 再把流接一道，
-    中转站支不支持要先试。眼下只有「最终回答」那一次是流式的，agent 循环里
-    每一步（chatTools / chatMessagesJSON）都是非流式的，下面那条记得到。
+    流式逐段转发，同时核对结束标记/finish_reason；传输中断、截断或空回答退还。
+    已显示的内容由客户端保留。上游给usage时照样记成本，退款不代表上游没花钱。
   */
   if (整理.stream) {
     // 和下面非流式那支一样：上游回响应头时桌面端已经走了（首字等不到、重发也超时），这份没人收到，是最新的就退（第五轮 A1）
@@ -246,7 +253,44 @@ export async function POST(req: Request) {
       await 退();
       return 网关错误(499, "客户端已经断开", 剩余头);
     }
-    return new NextResponse(upstream.body, {
+    const reader = upstream.body?.getReader();
+    if (!reader) { await 退(); return 网关错误(502, "AI 服务没有返回回答，这次没扣次数，请重试", 剩余头); }
+    const state = new CompletionStream(); const decoder = new TextDecoder();
+    let ended = false; let cancelled = false;
+    const finish = async (failed: boolean) => {
+      if (ended) return;
+      ended = true;
+      if (failed) await 退();
+      const usage = 读用量(state.usage);
+      if (usage) await 记一次(owner, { model: String(整理.body.model ?? ""), usage, feature: 功能 });
+    };
+    const stream = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          const { value, done } = await reader.read();
+          if (cancelled) return;
+          if (done) {
+            state.push(decoder.decode()); state.finish();
+            await finish(!state.complete || !state.hasContent);
+            if (cancelled) return;
+            if (!state.complete) controller.error(new Error("AI回答中断"));
+            else controller.close();
+            return;
+          }
+          state.push(decoder.decode(value, { stream: true }));
+          controller.enqueue(value);
+          if (state.done) {
+            await finish(!state.complete || !state.hasContent);
+            await reader.cancel().catch(() => {}); if (!cancelled) controller.close();
+          }
+        } catch (error) {
+          try { await finish(true); } catch { console.error("[gateway] 流式退款失败，账单保留未退款状态以便重试"); }
+          if (!cancelled) controller.error(error);
+        }
+      },
+      async cancel() { cancelled = true; try { await reader.cancel(); } finally { await finish(!state.complete); } },
+    });
+    return new NextResponse(stream, {
       status: 200,
       headers: {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -257,7 +301,9 @@ export async function POST(req: Request) {
     });
   }
 
-  const data = 规整工具参数(await upstream.text());
+  let data: string;
+  try { data = 规整工具参数(await upstream.text()); }
+  catch { await 退(); return 网关错误(502, "AI 回答传输中断，这次没扣次数，请重试", 剩余头); }
 
   /*
     上游 200 但正文不是 JSON（中转站出错时偶尔回一段 HTML）：用户什么都没拿到，退掉，说人话（第二轮 AI）
@@ -273,6 +319,21 @@ export async function POST(req: Request) {
     console.warn(`[gateway] 上游 200 但不是 JSON：${data.slice(0, 200)}`);
     return 网关错误(502, "AI 服务这次回来的东西不完整，没扣次数，再试一次", 剩余头);
   }
+  const result = JSON.parse(data);
+  const choice = result?.choices?.[0];
+  const message = choice?.message;
+  // 非OpenAI错误JSON、空choices和被截断输出都没形成可用结果，不保留本次扣额。
+  let noResult = !message || choice.finish_reason === "length" ||
+    (!(typeof message.content === "string" && message.content.trim()) && !message.tool_calls?.length && !message.function_call);
+  if (message && ["paste", "parse", "brief", "draft", "wakeup", "explain", "invite", "import"].includes(功能 ?? "")) {
+    try {
+      const content = typeof message.content === "string" ? message.content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "") : "";
+      const structured = JSON.parse(content);
+      if (功能 === "paste") noResult ||= !Array.isArray(structured?.数据) || !structured.数据.some((row: unknown) => Array.isArray(row) && row.some((cell: unknown) => typeof cell === "string" ? cell.trim() : typeof cell === "number"));
+      if (["draft", "wakeup", "invite"].includes(功能 ?? "")) noResult ||= typeof structured?.message !== "string" || !structured.message.trim();
+    } catch { noResult = true; }
+  }
+  if (noResult) await 退();
   /*
     桌面端已经走了（首轮超时、整体超时、人点了停）：这份答案没人收到。是这个编号最新的一份就退，
     不是最新的（后面还有重发）就不管——见 问过的 那段（第三轮 A1 / 第四轮 A1、兼容 A0）。

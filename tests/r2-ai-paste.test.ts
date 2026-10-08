@@ -126,16 +126,18 @@ describe("桌面端整条线：粘成表格 → 网关 → 假上游", () => {
   const 粘 = async (s: string) => (await import("@/app/(app)/customers/ai")).粘成表格(s);
 
   it("模型编了一个人、漏了一个人：预览里两样都报出来，只扣 1 次", async () => {
-    接线({ 上游: () => 回文本(JSON.stringify({ 表头, 数据: [["赵一", "13800000001", "平川科技", ""], ["周四", "13900000004", "", ""]] })) });
+    const line = 接线({ 上游: () => 回文本(JSON.stringify({ 表头, 数据: [["赵一", "13800000001", "平川科技", ""], ["周四", "13900000004", "", ""]] })) });
+    expect(line.网关).toHaveLength(0);
     const r = await 粘(原文);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
+    expect(line.网关[0].feature).toBe("paste");
     expect(r.编造.map((x) => x.值)).toContain("周四");
     expect(r.漏掉).toEqual(["13800000002"]);
     expect(await 用掉(账号.acc.id)).toBe(1);
   });
 
-  it.skip("【下一版】【坏】名单长、模型会思考：被截断后说「已提高预算，请重试」，可网关把预算夹在 8000，重试只会再截一次", async () => {
+  it("长名单超出网关预算：明确分批处理且不虚报提高预算，不保留扣次", async () => {
     const 线 = 接线({
       上游: () =>
         回JSON({
@@ -150,12 +152,12 @@ describe("桌面端整条线：粘成表格 → 网关 → 假上游", () => {
     expect(线.上游.length).toBe(2);
     const 第二次实际预算 = Number(线.上游[1].body.max_tokens);
     expect(第二次实际预算, "网关夹到 8000").toBeLessThanOrEqual(8000);
-    expect(await 用掉(账号.acc.id)).toBe(1);
+    expect(await 用掉(账号.acc.id)).toBe(0);
     // 说「已提高预算，请重试」时，第二次转到上游的预算其实并没有比第一次多
     expect(第二次实际预算 > Number(线.上游[0].body.max_tokens) || !/提高预算|请重试/.test(msg), `界面上会显示：${msg}`).toBe(true);
   });
 
-  it.skip("【下一版】【坏】模型一个人都没切出来：说「没能读出人来」，桌面端照扣 1 次（网页端这种情况会退）", async () => {
+  it("模型一个人都没切出来：给出提示且桌面端不扣次", async () => {
     接线({ 上游: () => 回文本(JSON.stringify({ 表头: ["姓名"], 数据: [] })) });
     const r = await 粘(原文);
     expect(r.ok).toBe(false);
