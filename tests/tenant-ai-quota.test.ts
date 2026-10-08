@@ -56,3 +56,54 @@ it("真实托管会话携带账户/工作区；两个业务库相同ID不互占�
   clearTenantCache();
   expect(await getCurrentUser()).toBeNull();
 });
+
+
+it("真实会话的测试豁免仅限本人和当前工作区，取消、过期及撤销成员后不绕过额度", async () => {
+  const { createAccount } = await import("@/lib/tenant/accounts");
+  const { createWorkspace } = await import("@/lib/tenant/workspaces");
+  const { createSession } = await import("@/lib/auth");
+  const { 设测试账号 } = await import("@/lib/tenant/test-accounts");
+  const { 带额度 } = await import("@/lib/tenant/ai-allowance");
+  const { 读AI计次 } = await import("@/lib/ai-meter");
+  const { control } = await import("@/lib/tenant/control");
+  const { clearTenantCache } = await import("@/lib/tenant/resolve");
+  const acc = await createAccount({ target: { kind: "email", value: "exempt@example.test" }, password: "test-pass-123", name: "测试" });
+  const ws = await createWorkspace({ name: "豁免", slug: "exempt", account: acc });
+  const other = await createAccount({ target: { kind: "email", value: "ordinary@example.test" }, password: "test-pass-123", name: "普通" });
+  // 真实成员映射：同一库里两位成员，仅测试者豁免。
+  const { workspaceClient } = await import("@/lib/tenant/clients");
+  const db = workspaceClient(ws.dbFile);
+  const member = await db.user.create({ data: { name: "普通", email: "ordinary", password: "x", role: "MEMBER", title: "" } });
+  await db.workspaceAccount.create({ data: { accountId: other.id, userId: member.id } });
+  await control.membership.create({ data: { accountId: other.id, workspaceId: ws.id, role: "MEMBER" } });
+  await control.aiGrant.deleteMany({ where: { workspaceId: ws.id } });
+  // 固定零额度且不触发懒注册赠送。
+  await control.aiGrant.create({ data: { workspaceId: ws.id, amount: 0, reason: "signup", key: `${ws.id}:signup` } });
+  const run = vi.fn(async () => ({ ok: true as const }));
+  await createSession(acc.id, ws.id); clearTenantCache();
+  expect((await 带额度("ask", run)).ok).toBe(false);
+  await 设测试账号(acc.id, true, "QA");
+  expect((await 带额度("ask", run)).ok).toBe(true);
+  expect(await 读AI计次({ 问余额: true })).toMatchObject({ 计次: false });
+  expect((await control.aiUsage.findUnique({ where: { workspaceId: ws.id } }))?.calls ?? 0).toBe(0);
+  await createSession(other.id, ws.id); clearTenantCache();
+  expect((await 带额度("ask", run)).ok).toBe(false);
+  expect(await 读AI计次({ 问余额: true })).toMatchObject({ 计次: true, 还剩: 0 });
+  await createSession(acc.id, ws.id); clearTenantCache();
+  await 设测试账号(acc.id, false, "QA");
+  expect((await 带额度("ask", run)).ok).toBe(false);
+  await 设测试账号(acc.id, true, "QA");
+  await control.workspace.update({ where: { id: ws.id }, data: { trialEndsAt: new Date(0), status: "EXPIRED" } });
+  clearTenantCache();
+  expect((await 带额度("ask", run)).ok).toBe(false);
+  expect(run).toHaveBeenCalledTimes(1);
+  await control.workspace.update({ where: { id: ws.id }, data: { paidUntil: new Date(Date.now() + 86400000), status: "SUSPENDED" } });
+  clearTenantCache();
+  expect((await 带额度("ask", run)).ok).toBe(false);
+  expect(run).toHaveBeenCalledTimes(1);
+  const { 当前是测试账号 } = await import("@/lib/tenant/test-accounts");
+  expect(await 当前是测试账号("another-workspace")).toBe(false);
+  await control.membership.deleteMany({ where: { accountId: acc.id, workspaceId: ws.id } });
+  clearTenantCache();
+  expect(await 当前是测试账号(ws.id)).toBe(false);
+});

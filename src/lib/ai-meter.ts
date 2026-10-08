@@ -29,7 +29,8 @@ export async function 读AI计次({ 问余额 }: { 问余额: boolean }): Promis
     const t = await resolveCurrentTenant();
     if (!t) return 不计次;
     const { 查额度, 自带Key } = await import("./tenant/ai-allowance");
-    if (await 自带Key()) return 不计次;
+    const { 当前是测试账号 } = await import("./tenant/test-accounts");
+    if (await 自带Key() || await 当前是测试账号(t.workspaceId)) return 不计次;
     const q = await 查额度(t.workspaceId);
     return q.受限 ? { 计次: true, 还剩: q.还剩, 上限: q.上限 } : 不计次;
   }

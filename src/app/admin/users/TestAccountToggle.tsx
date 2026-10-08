@@ -11,7 +11,7 @@ export function TestAccountTag({ 测试 }: { 测试: 测试来由 | null }) {
   if (!测试) return null;
   return (
     <span className="opx-tag opx-tag-warn" style={{ marginLeft: 8 }} title="测试账号：AI 不限次数，不算进注册、活跃和用量统计">
-      {测试 === "运营" ? "测试 · 运营" : "测试"}
+      {测试 === "运营" ? "测试 · 运营" : 测试 === "预设" ? "测试 · 预设" : "测试"}
     </span>
   );
 }
@@ -27,12 +27,12 @@ export function TestAccountToggle({ token, accountId, name, 测试, 小 }: { tok
   const { message } = App.useApp();
   const [忙, set忙] = useState(false);
 
-  if (测试 === "运营") {
+  if (测试 === "运营" || 测试 === "预设") {
     return (
       <span onClick={(e) => e.stopPropagation()}>
-        <Tooltip title="运营账号（OPS_ACCOUNTS 里的）默认就是测试账号，不用标，也取消不了">
+        <Tooltip title={测试 === "运营" ? "运营账号（OPS_ACCOUNTS 里的）默认就是测试账号；需从运营名单移除" : "注册前预设的测试账号；需从 TEST_ACCOUNTS 名单移除才能恢复普通账号"}>
           <Button size={小 ? "small" : "middle"} type={小 ? "link" : "default"} disabled icon={小 ? undefined : <ExperimentOutlined />}>
-            运营账号
+            {测试 === "运营" ? "运营账号" : "预设测试"}
           </Button>
         </Tooltip>
       </span>
@@ -44,7 +44,7 @@ export function TestAccountToggle({ token, accountId, name, 测试, 小 }: { tok
     set忙(true);
     const r = await 设测试账号({ token, accountId, on: 要标 });
     set忙(false);
-    if (r.ok) message.success(要标 ? `${name} 标成了测试账号` : `${name} 不再是测试账号`);
+    if (r.ok) message.success(要标 ? `${name} 标成了测试账号` : `已取消 ${name} 的手工测试标记；配置名单中的账号仍按测试账号处理`);
     else message.error(r.error);
   }
 

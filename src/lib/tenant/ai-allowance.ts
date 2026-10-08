@@ -1,5 +1,6 @@
 import { control } from "./control";
 import { computeWritable } from "./workspaces";
+import { 当前是测试账号 } from "./test-accounts";
 import * as 账本 from "./credits";
 import type { AiFeature } from "../ai-usage";
 
@@ -55,13 +56,13 @@ export async function 扣一次额度(workspaceId: string): Promise<额度判定
   const ws = await control.workspace.findUnique({ where: { id: workspaceId } });
   if (!ws) return { ok: false, error: "工作区不存在", 用掉: 0 };
 
-  // 付费工作区不计数也不拦——连计数都省掉，免得日后有人拿这个数字去做别的判断
-  if (已付费(ws)) return { ok: true, 用掉: 0, 还剩: null };
-
   // 停用或过期的工作区本来就是只读，AI 也一并停掉：那是花钱的动作
   if (!computeWritable(ws)) {
     return { ok: false, error: "试用已结束，AI 对话需要开通订阅后继续使用。数据仍可查看和导出。", 用掉: 0 };
   }
+
+  // 订阅豁免也必须通过停用/到期判断。
+  if (已付费(ws)) return { ok: true, 用掉: 0, 还剩: null };
 
   const r = await 账本.扣一次(归属(workspaceId));
   if (!r.ok) {
@@ -136,7 +137,11 @@ async function 过闸(): Promise<{ 拦: string | null; 扣了: boolean }> {
   const t = await resolveCurrentTenant();
   // 没有工作区上下文时不在这里报错：调用方自己的 requireUser 会给出更清楚的提示
   if (!t) return { 拦: null, 扣了: false };
-  if (await 自带Key()) return { 拦: null, 扣了: false };
+  const ws = await control.workspace.findUnique({ where: { id: t.workspaceId } });
+  if (!ws || !computeWritable(ws)) {
+    return { 拦: ws ? "试用已结束或工作区已停用，AI 对话暂不可用。数据仍可查看和导出。" : "工作区不存在", 扣了: false };
+  }
+  if (await 自带Key() || await 当前是测试账号(t.workspaceId)) return { 拦: null, 扣了: false };
   const r = await 扣一次额度(t.workspaceId);
   if (!r.ok) return { 拦: r.error, 扣了: false };
   // 付费工作区放行但不计数（还剩 null），那一次也就无从退起

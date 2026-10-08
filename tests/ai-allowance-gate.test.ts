@@ -399,3 +399,17 @@ describe("守卫：花模型钱的入口都套了 带额度", () => {
     }
   });
 });
+
+
+it("停用工作区不能借付费或自带Key绕过AI闸门", async () => {
+  const { 带额度, 扣一次额度 } = await import("@/lib/tenant/ai-allowance");
+  const { control } = await import("@/lib/tenant/control");
+  const ws = await 建工作区({ 付费: true });
+  await control.workspace.update({ where: { id: ws }, data: { status: "SUSPENDED" } });
+  const fn = vi.fn(async () => ({ ok: true as const }));
+  expect((await 扣一次额度(ws)).ok).toBe(false);
+  expect((await 带额度("ask", fn)).ok).toBe(false);
+  状态.自带Key = true;
+  expect((await 带额度("ask", fn)).ok).toBe(false);
+  expect(fn).not.toHaveBeenCalled();
+});
