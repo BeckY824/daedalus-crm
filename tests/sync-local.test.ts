@@ -597,3 +597,30 @@ describe("跨版本：本机表结构签名（2026-10-05 复查）", () => {
     expect(await 本机结构签名(甲)).not.toBe(前);
   });
 });
+
+
+it("旧结构跳过的新列/新表，真实加列建表后重放补齐且清除已恢复错误；旧包不复活新删除", async () => {
+  const a = await 一台("upgrade-A"), b = await 一台("upgrade-B");
+  for (const db of [a,b]) await 建同步表(db);
+  await 装触发器(a);
+  const extraDDL = (await b.$queryRawUnsafe<{sql:string}[]>('SELECT sql FROM sqlite_master WHERE type=\'table\' AND name=\'CustomerExtra\''))[0].sql;
+  await b.$executeRawUnsafe('ALTER TABLE "Customer" DROP COLUMN "expectedSignOn"');
+  await b.$executeRawUnsafe('DROP TABLE "CustomerExtra"');
+  const legacy = await 本机结构签名(b);
+  const owner = (await a.user.findFirstOrThrow()).id;
+  await a.customer.create({data:{id:"upgrade-c",name:"跨版本客户",phone:"13800001111",salesOwnerId:owner,expectedSignAt:new Date("2026-11-01T16:00:00Z"),expectedSignOn:"2026-11-02"}});
+  await a.customerExtra.create({data:{customerId:"upgrade-c",country:"德国",whatsapp:"49123456789"}});
+  const encrypted = (await 推(a,"A"))!; const events = 拆(encrypted,钥匙);
+  await 回放(b,events,"B");
+  expect(await b.customer.count({where:{id:"upgrade-c"}})).toBe(1);
+  expect((await 没同步上(b)).条数).toBe(1);
+  await b.$executeRawUnsafe('ALTER TABLE "Customer" ADD COLUMN "expectedSignOn" TEXT'); await b.$executeRawUnsafe(extraDDL);
+  expect(await 本机结构签名(b)).not.toBe(legacy);
+  await 回放(b,events,"B");
+  expect(await b.customer.findUnique({where:{id:"upgrade-c"}})).toMatchObject({expectedSignOn:"2026-11-02"});
+  expect(await b.customerExtra.findUnique({where:{customerId:"upgrade-c"}})).toMatchObject({country:"德国",whatsapp:"49123456789"});
+  expect((await 没同步上(b)).条数).toBe(0);
+  await a.customer.delete({where:{id:"upgrade-c"}}); const deletion=(await 推(a,"A"))!;
+  await 回放(b,拆(deletion,钥匙),"B"); await 回放(b,events,"B");
+  expect(await b.customer.count({where:{id:"upgrade-c"}})).toBe(0); expect(await b.customerExtra.count({where:{customerId:"upgrade-c"}})).toBe(0);
+});

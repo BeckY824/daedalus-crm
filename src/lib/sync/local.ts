@@ -336,17 +336,25 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
       if ((e.t === "FollowUp" || e.t === "Contract") && typeof row.customerId === "string") 动过的客户.add(row.customerId);
     }
 
+    const 已回放: 改动[] = [];
     for (const e of 排好) {
       if (!(同步表 as readonly string[]).includes(e.t)) continue; // 对方版本新、多了一张我这还没有的表：跳过
       await tx.$executeRawUnsafe("SAVEPOINT s1");
       try {
         await 放一条(e);
         await tx.$executeRawUnsafe("RELEASE s1");
+        已回放.push(e);
       } catch (err) {
         await tx.$executeRawUnsafe("ROLLBACK TO s1");
         await tx.$executeRawUnsafe("RELEASE s1");
         await 记跳过(e.t, e.k, e.h, String((err as Error)?.message ?? err));
       }
+    }
+    // 升级重拉后只清同一成功事件的失败标记；其他版本仍保留。
+    // 批量删除避免正常大库回放每一行多一次数据库往返。
+    for (let i = 0; i < 已回放.length; i += 200) {
+      const batch = 已回放.slice(i, i + 200);
+      await tx.$executeRawUnsafe(`DELETE FROM _sync_skip WHERE ${batch.map(() => "(tbl = ? AND pk = ? AND hlc = ?)").join(" OR ")}`, ...batch.flatMap(e => [e.t, e.k, e.h]));
     }
     await 清孤儿(tx, 记跳过);
     // 老客户端没有 ownerId：能认出来源负责人时补上，无法确认的仍只给老板看。

@@ -350,6 +350,28 @@ describe("桌面端同步客户端", () => {
     expect((await 退出团队()).ok).toBe(true);
   });
 
+  it("重拉遇已确认坏包不重试，推送断网保留本机队列，恢复后继续推拉且不重复客户", async () => {
+    const code = await 新团队("升级断网坏包队");
+    const badSeq=云.批.length+1;
+    云.批.push({seq:badSeq,team:code.teamId,device:乙设备,data:"bad encrypted payload"});
+    乙推(code.teamId,code.key,[乙的新客户("upgrade-good")]);
+    expect((await 同步一轮()).ok).toBe(false); expect((await 同步一轮()).ok).toBe(false); expect((await 同步一轮()).ok).toBe(true);
+    expect(读团队()!.skipped).toContain(badSeq); expect(await 甲.customer.count({where:{id:"upgrade-good"}})).toBe(1);
+    await 甲.customer.create({data:{id:"pending-during-upgrade",name:"断网时本机新增",phone:"13800001234",salesOwnerId:"acct_jia"}});
+    const queued = await 待推(甲,读团队()!.device); expect(queued.改动.some(e=>e.k==="pending-during-upgrade")).toBe(true);
+    fs.writeFileSync(path.join(临时.dir,".team.json"),JSON.stringify({...读团队(),结构:"旧版结构"}),{mode:0o600});
+    钩子=async (method,url)=>{if(method==="POST"&&url==="/api/sync/push")throw Error("QA推送断网")};
+    try { expect((await 同步一轮()).ok).toBe(false); } finally { 钩子=null; }
+    expect((await 待推(甲,读团队()!.device)).到).toBe(queued.到); expect((await 待推(甲,读团队()!.device)).改动).toEqual(queued.改动);
+    const pulls:number[]=[]; 钩子=async(_,url)=>{if(url.startsWith("/api/sync/pull"))pulls.push(Number(new URL('http://x'+url).searchParams.get('after')))};
+    try { expect((await 同步一轮()).ok).toBe(true); } finally { 钩子=null; }
+    expect(pulls[0]).toBe(0); expect(读团队()!.bad?.[String(badSeq)]).toBeUndefined(); expect(读团队()!.skipped?.filter(n=>n===badSeq)).toHaveLength(1);
+    expect((await 待推(甲,读团队()!.device)).改动).toEqual([]);
+    expect(await 甲.customer.count({where:{id:{in:["upgrade-good","pending-during-upgrade"]}}})).toBe(2);
+    const latest=云.批.at(-1)!.seq; expect(读团队()!.pulled).toBe(latest);
+    expect((await 同步一轮()).ok).toBe(true); expect(读团队()!.pulled).toBe(latest); expect((await 退出团队()).ok).toBe(true);
+  });
+
   it("T-009 同步一轮跑到一半点退出：等这一轮跑完再退；退完没有 .team.json、触发器已卸、业务员只留自己的", async () => {
     const 码 = await 新团队("二队");
     await 当业务员();
