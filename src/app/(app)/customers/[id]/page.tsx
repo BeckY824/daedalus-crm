@@ -1,4 +1,4 @@
-import { scheduleValue } from "@/lib/schedule-date";
+import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { notFound } from "next/navigation";
 import { 收藏了吗 } from "@/lib/favorites";
 import { prisma } from "@/lib/prisma";
@@ -51,7 +51,7 @@ export default async function CustomerDetailPage({
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
       opportunities: { orderBy: { createdAt: "desc" }, include: 带币种.商机 },
       tasks: { orderBy: [{ done: "asc" }, { dueAt: "asc" }] },
-      plans: { where: { done: false, ...(要看的计划 ? { id: 要看的计划 } : {}) }, orderBy: { plannedAt: "asc" }, take: 1 },
+      plans: { where: { done: false, ...(要看的计划 ? { id: 要看的计划 } : {}) }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }] },
       followUps: {
         orderBy: { occurredAt: "desc" },
         take: 50,
@@ -68,8 +68,10 @@ export default async function CustomerDetailPage({
   if (!customer) notFound();
   // 叫你的那条已经做完 / 删了：照旧摆最早那条没做完的
   if (要看的计划 && customer.plans.length === 0) {
-    customer.plans = await prisma.followPlan.findMany({ where: { customerId: id, done: false }, orderBy: { plannedAt: "asc" }, take: 1 });
+    customer.plans = await prisma.followPlan.findMany({ where: { customerId: id, done: false }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }] });
   }
+
+  customer.plans = earliestScheduled(customer.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1);
 
   // 演示区是公开的，同一份数据所有访客共用：号码一律打码。
   // 自己部署的实例不受影响——销售要照着这个号打电话。

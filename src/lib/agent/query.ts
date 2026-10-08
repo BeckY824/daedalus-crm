@@ -19,6 +19,7 @@
  * 过程条上必须把它到底查了什么原样写出来，让人能核对。
  */
 import { dayjs } from "../utils";
+import { calendarColumns } from "./calendar-query";
 import { DEFAULT_BUSINESS, statusLabel, type BusinessConfig } from "../business-config";
 import {
   FOLLOW_STATUSES,
@@ -422,6 +423,15 @@ export function 说人话(s: 查询规格, b?: BusinessConfig): string {
 function 条件成where(表: 表名, c: 条件, b?: BusinessConfig): Record<string, unknown> {
   const f = 认字段(表, c.字段, b);
   const 列 = f.列;
+  const 日历列 = calendarColumns[表]?.[列];
+  if (日历列 && ["不早于", "不晚于", "最近天数"].includes(c.运算)) {
+    const date = c.运算 === "最近天数" ? dayjs().subtract(Number(c.值), "day") : dayjs(String(c.值));
+    const op = c.运算 === "不晚于" ? "lte" : "gte";
+    return { OR: [
+      { [日历列]: { [op]: date.format("YYYY-MM-DD") } },
+      { [日历列]: null, [列]: { [op]: (c.运算 === "不晚于" ? date.endOf("day") : date.startOf("day")).toDate() } },
+    ] };
+  }
   switch (c.运算) {
     case "包含":
       return { [列]: { contains: String(c.值) } };

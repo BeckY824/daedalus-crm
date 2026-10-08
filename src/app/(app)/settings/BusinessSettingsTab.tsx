@@ -41,12 +41,12 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
     setSaving(true);
     // 摆着这一项时清空 = 不开（存 0）；没摆时表单里没有它，照原值存回去，别悄悄关掉（表单公海天数，T-044 有用例）
     try {
-    const res = await saveBusinessSettings({ ...v, poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays) });
-    if (res.ok) {
-      set套了(null);
-      message.success(res.补了来源 ? `已保存，全站措辞已更新；${res.补了来源} 位${v.customer ?? "客户"}的来源从渠道 / 线索补了过来` : "已保存，全站措辞已更新");
-      router.refresh();
-    } else message.error(res.error);
+      const res = await saveBusinessSettings({ ...v, poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays) });
+      if (res.ok) {
+        set套了(null);
+        message.success(res.补了来源 ? `已保存，全站措辞已更新；${res.补了来源} 位${v.customer ?? "客户"}的来源从渠道 / 线索补了过来` : "已保存，全站措辞已更新");
+        router.refresh();
+      } else message.error(res.error);
     } catch {
       message.error("保存失败，请刷新核对后重试；当前填写内容仍保留");
     } finally {

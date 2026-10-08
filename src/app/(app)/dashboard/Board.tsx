@@ -1,4 +1,4 @@
-import { scheduleValue } from "@/lib/schedule-date";
+import { scheduleValue, scheduleOrder } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { OPP_STAGES } from "@/lib/constants";
@@ -70,18 +70,16 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       **Task 和 FollowPlan 两张表合在一起**按逾期/今天/本周分组的（见 PlansView），
       于是只用「跟进计划」的人——新建客户时排的那种——首页这张卡永远是空的，
       点进去却满满一屏。两边必须同一个口径。
-      各取 5 条，在内存里按时间合并后再取前 5。
+      日期语义可能与旧瞬间索引不同序：在服务端按原日历日合并排序，只交给浏览器前5条。
     */
     prisma.task.findMany({
       where: { done: false },
       orderBy: { dueAt: { sort: "asc", nulls: "last" } },
-      take: 5,
       include: { customer: { select: { id: true, name: true } } },
     }),
     prisma.followPlan.findMany({
       where: { done: false },
       orderBy: { plannedAt: "asc" },
-      take: 5,
       include: { customer: { select: { id: true, name: true } } },
     }),
     prisma.customer.findMany({ select: { createdAt: true, lastFollowAt: true } }),
@@ -218,7 +216,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       kind: "计划" as const,
     })),
   ]
-    .sort((a, b) => (a.dueAt ?? "9999").localeCompare(b.dueAt ?? "9999"))
+    .sort((a, b) => scheduleOrder(a.dueAt) - scheduleOrder(b.dueAt) || a.id.localeCompare(b.id))
     .slice(0, 5);
 
   /**

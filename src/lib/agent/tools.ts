@@ -6,7 +6,8 @@
  *   data：   喂回模型的结构化内容（截断过，控制上下文）
  *   records：这次读到的跟进记录（带编号），最终回答里的 [n] 引用它们
  */
-import { scheduleValue } from "@/lib/schedule-date";
+import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
+import { calendarColumns, readCalendarSorted } from "./calendar-query";
 import { 客户筛选条件 } from "@/app/(app)/customers/query";
 import type { 页面客户筛选 } from "../ai-page-filters";
 import { 签约归属人 } from "../contract-owner";
@@ -265,11 +266,12 @@ export const TOOLS: Tool[] = [
             orderBy: { createdAt: "desc" },
           },
           tasks: { where: { done: false }, select: { title: true, dueAt: true, dueOn: true } },
-          plans: { where: { done: false }, select: { subject: true, plannedAt: true, plannedOn: true, method: true }, take: 1 },
+          plans: { where: { done: false }, select: { id: true, subject: true, plannedAt: true, plannedOn: true, method: true } },
           followUps: { orderBy: { occurredAt: "desc" }, take: 20, select: { id: true, type: true, title: true, content: true, occurredAt: true, duration: true, owner: { select: { name: true } }, source: { select: { text: true } } } },
         },
       });
       if (!c) return { summary: "没有这位", data: { error: "客户不存在" } };
+      c.plans = earliestScheduled(c.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1);
       const offset = ctx.recordOffset;
       const records: BriefRecord[] = c.followUps.map((f, i) => ({ n: offset + i + 1, id: f.id, date: dayjs(f.occurredAt).format("MM-DD"), label: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type, excerpt: (f.source?.text ?? f.content).slice(0, 160) }));
       // 编号接着上次的走
@@ -466,10 +468,12 @@ export const TOOLS: Tool[] = [
     description: "我（当前销售）手上没做完的活：跟进计划 + 待办，都按时间从早到晚，逾期的会标出来。问「今天该做什么」「我有哪些待办」「还有哪些计划没做」都用它。",
     args: "{}",
     async run(_args, ctx) {
-      const [plans, tasks] = await Promise.all([
-        prisma.followPlan.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: { plannedAt: "asc" }, take: 10, select: { subject: true, plannedAt: true, plannedOn: true, method: true, customer: { select: { id: true, name: true } } } }),
-        prisma.task.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: [{ dueAt: "asc" }], take: 10, select: { title: true, dueAt: true, dueOn: true, customer: { select: { id: true, name: true } } } }),
+      const [pendingPlans, pendingTasks] = await Promise.all([
+        prisma.followPlan.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }], select: { id: true, subject: true, plannedAt: true, plannedOn: true, method: true, customer: { select: { id: true, name: true } } } }),
+        prisma.task.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: [{ dueAt: "asc" }, { id: "asc" }], select: { id: true, title: true, dueAt: true, dueOn: true, customer: { select: { id: true, name: true } } } }),
       ]);
+      const plans = earliestScheduled(pendingPlans, p => scheduleOrder(p.plannedAt, p.plannedOn), 10);
+      const tasks = earliestScheduled(pendingTasks, t => scheduleOrder(t.dueAt, t.dueOn), 10);
       /*
         口径和首页、左栏角标、Dock 一个（lib/overdue.ts）：早于**今天零点**才算逾期，今天上午 9 点没做的还算今天的。
         条数用 count 数全量，不拿只取了 10 条的列表去数——手上 15 条，原来会说 10 条（2026-10-01 排查 C4）。
@@ -1021,7 +1025,13 @@ export const TOOLS: Tool[] = [
       const 选 = Object.fromEntries(
         Object.values(表定义.字段 as Record<string, { 列: string }>).map((f) => [f.列, true]),
       );
-      const rows = await 表.findMany({ where, orderBy, take, select: { id: true, ...选 } });
+      const 日历列 = calendarColumns[规格.表] ?? {};
+      const 内部日历列 = Object.values(日历列);
+      const select = { id: true, ...选, ...Object.fromEntries(内部日历列.map(k => [k, true])) };
+      const 排序列 = orderBy ? Object.keys(orderBy)[0] : undefined;
+      const rows = 排序列 && 日历列[排序列]
+        ? await readCalendarSorted(args => 表.findMany(args), where, select, take, 排序列, 日历列[排序列], orderBy![排序列])
+        : await 表.findMany({ where, orderBy, take, select });
       // 列名换成中文名再喂回模型：它看到的和过程条上写的是同一套说法
       const 中文 = Object.fromEntries(
         Object.values(表定义.字段 as Record<string, { 列: string; 名: string }>).map((f) => [f.列, f.名]),
@@ -1035,9 +1045,9 @@ export const TOOLS: Tool[] = [
       const 是电话 = (列: string) => 列 === "phone";
       const 结果 = rows.map((r) =>
         Object.fromEntries(
-          Object.entries(r).map(([k, v]) => [
+          Object.entries(r).filter(([k]) => !内部日历列.includes(k)).map(([k, v]) => [
             中文[k] ?? k,
-            是电话(k) && typeof v === "string" ? 号(v) : v instanceof Date ? dayjs(v).format("YYYY-MM-DD") : 显示(k, v),
+            是电话(k) && typeof v === "string" ? 号(v) : 日历列[k] && typeof r[日历列[k]] === "string" ? r[日历列[k]] : v instanceof Date ? dayjs(v).format("YYYY-MM-DD") : 显示(k, v),
           ]),
         ),
       );
@@ -1161,4 +1171,3 @@ function 外贸说法(x: { country: string | null; whatsapp: string | null; wech
 }
 
 export const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t]));
-

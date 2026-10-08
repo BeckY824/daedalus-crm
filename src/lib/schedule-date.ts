@@ -28,3 +28,14 @@ export function calendarDay(d: Date): string {
 export function calendarDaysBetween(from: string, to: string): number {
   return Math.round((Date.parse(to + "T00:00:00Z") - Date.parse(from + "T00:00:00Z")) / 86_400_000);
 }
+
+/** 服务端/本地按原日历日排序；空时间放最后，不用混合ISO和日期串的字典序。 */
+export function scheduleOrder(at: Date | string | null | undefined, on?: string | null): number {
+  const value = on ?? at;
+  if (!value) return Infinity;
+  return value instanceof Date ? value.getTime() : parseDateInput(value)?.getTime() ?? Infinity;
+}
+
+export function earliestScheduled<T>(rows: readonly T[], value: (row: T) => number, limit = rows.length): T[] {
+  return [...rows].sort((a, b) => value(a) - value(b)).slice(0, limit);
+}

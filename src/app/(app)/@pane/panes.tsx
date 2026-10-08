@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { scheduleValue } from "@/lib/schedule-date";
+import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { requireUser } from "@/lib/auth";
 import CustomerRoster from "@/components/CustomerRoster";
 import ConversationList from "@/app/(app)/dashboard/ConversationList";
@@ -53,7 +53,7 @@ export async function 学员名单() {
         referrerCustomerId: true,
         followUps: { orderBy: { occurredAt: "desc" }, take: 1, select: { content: true, type: true } },
         // 最近一条还没做的计划：「本周要跟」那个页签和右下角的圆点都看它
-        plans: { where: { done: false }, orderBy: { plannedAt: "asc" }, take: 1, select: { plannedAt: true, plannedOn: true } },
+        plans: { where: { done: false }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }], select: { plannedAt: true, plannedOn: true } },
       },
     }),
   ]);
@@ -61,19 +61,19 @@ export async function 学员名单() {
     <CustomerRoster
       data={{
         total,
-        rows: rows.map((c) => ({
-          id: c.id, name: c.name, followStatus: c.followStatus,
-          lastFollowAt: c.lastFollowAt ? c.lastFollowAt.toISOString() : null,
-          ownerName: c.salesOwner.name,
-          mine: c.salesOwnerId === me.id,
-          lastNote: c.followUps[0]?.content?.trim().slice(0, 60) || null,
-          /*
-            卡片第一行那个「从哪儿来」（照毛玻璃原型：WhatsApp / 邮件 / 展会…）：
-            渠道名 > 转介绍 > 最近一次跟进是怎么联系的。都没有就空着，不编一个
-          */
-          source: c.channel?.name ?? (c.referrerCustomerId ? "转介绍" : c.followUps[0] ? (FOLLOW_TYPE_MAP[c.followUps[0].type]?.label ?? null) : null),
-          nextPlanAt: c.plans[0] ? scheduleValue(c.plans[0].plannedAt, c.plans[0].plannedOn) : null,
-        })),
+        rows: rows.map((c) => {
+          const p = earliestScheduled(c.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1)[0];
+          return {
+            id: c.id, name: c.name, followStatus: c.followStatus,
+            lastFollowAt: c.lastFollowAt ? c.lastFollowAt.toISOString() : null,
+            ownerName: c.salesOwner.name,
+            mine: c.salesOwnerId === me.id,
+            lastNote: c.followUps[0]?.content?.trim().slice(0, 60) || null,
+            // 渠道名 > 转介绍 > 最近一次跟进方式，都没有就留空。
+            source: c.channel?.name ?? (c.referrerCustomerId ? "转介绍" : c.followUps[0] ? (FOLLOW_TYPE_MAP[c.followUps[0].type]?.label ?? null) : null),
+            nextPlanAt: p ? scheduleValue(p.plannedAt, p.plannedOn) : null,
+          };
+        }),
       }}
     />
   );

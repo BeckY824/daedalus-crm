@@ -1,6 +1,6 @@
 "use server";
 
-import { scheduleValue } from "@/lib/schedule-date";
+import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { consumeUserAiQuota } from "@/lib/ai-quota";
@@ -179,7 +179,7 @@ async function 生成简报(input: {
         orderBy: { createdAt: "desc" },
       },
       tasks: { where: { done: false }, select: { title: true, dueAt: true, dueOn: true }, orderBy: { dueAt: { sort: "asc", nulls: "last" } } },
-      plans: { where: { done: false }, select: { subject: true, plannedAt: true, plannedOn: true, method: true }, take: 1 },
+      plans: { where: { done: false }, select: { id: true, subject: true, plannedAt: true, plannedOn: true, method: true } },
       followUps: {
         orderBy: { occurredAt: "desc" },
         take: 30,
@@ -233,7 +233,7 @@ async function 生成简报(input: {
   const taskLines = customer.tasks.length
     ? customer.tasks.map((t) => `- ${t.title}${t.dueAt ? `（截止 ${dayjs(scheduleValue(t.dueAt, t.dueOn)).format(t.dueOn ? "MM-DD" : "MM-DD HH:mm")}）` : ""}`).join("\n")
     : "（无）";
-  const plan = customer.plans[0];
+  const plan = earliestScheduled(customer.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1)[0];
   // 按币种写（不换汇）：「US$ 3,200 · ¥ 19,800」
   const 已签 = 签约合计(customer.contracts).filter((x) => x.合计 > 0);
 
