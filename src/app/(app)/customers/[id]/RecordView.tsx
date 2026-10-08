@@ -54,6 +54,7 @@ import { 金额, 合计文字 } from "@/lib/currency";
 import { 公海标签 } from "@/lib/pool";
 import { 带走说法 } from "@/lib/carry-over";
 import { 放进公海, 领取, 撤销公海 } from "../pool-actions";
+import { useDeleteCustomers } from "../useDeleteCustomers";
 
 /**
  * 记录页（v0.4）：三栏。
@@ -104,6 +105,7 @@ export default function RecordView({
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const { 问删除 } = useDeleteCustomers();
   const AI已用完 = useAiOutOfCredits();
   const b = useBusiness();
   const history = useFollowHistory(customer.id, followUps, followUpsHasMore);
@@ -405,6 +407,7 @@ export default function RecordView({
                 ...FOLLOW_TYPES.map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
                 { type: "divider" as const },
                 { key: "edit", icon: <EditOutlined />, label: `编辑${b.customer}资料`, onClick: () => setCustOpen(true) },
+                { key: "delete", icon: <DeleteOutlined />, danger: true, label: `删除这位${b.customer}`, onClick: () => void 问删除([{ id: customer.id, name: customer.name }], () => router.push("/customers")) },
                 // 公海（第 6 块）：多人时、我是负责人或管理员、还不在公海里
                 ...(!独自一人(users) && 能放公海 && !customer.pool
                   ? [{ key: "pool", icon: <InboxOutlined />, label: "放进公海", onClick: () => void 公海动作("放进") }]
@@ -412,7 +415,7 @@ export default function RecordView({
               ],
             }}
           >
-            <Button type="primary" icon={<DownOutlined />} />
+            <Button type="primary" icon={<DownOutlined />} aria-label="客户更多操作" />
           </Dropdown>
         </Space.Compact>
       </div>

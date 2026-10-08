@@ -19,6 +19,7 @@ const plugin: Plugin = { name: "history-server-boundaries", setup(b) {
     export const readFollowHistoryRow=async(customerId,id)=>({ok:true,row:window.__rows[customerId].find(x=>x.id===id)??null});
   `);
   stub(/^\.\/actions$/, `
+    export const 客户删除预检=async()=>({ok:true}),删除前清点=async()=>({跟进:0,商机:0,计划和待办:0,签约:0,签约金额:[],联系人:0,线索:0}),deleteCustomers=async()=>({ok:false});
     export const toggleTask=async()=>({ok:true}),deleteTask=toggleTask,completePlan=toggleTask;
     export async function saveFollowUp(x){window.__saved=x;const row=window.__rows[x.customerId].find(r=>r.id===x.id);Object.assign(row,x,{updatedAt:'2026-10-08T12:00:00.000Z'});return {ok:true,id:x.id}}
     export async function deleteFollowUp(id,customerId){const rows=window.__rows[customerId],i=rows.findIndex(r=>r.id===id);return {ok:true,快照:{...rows.splice(i,1)[0],customerId}}}

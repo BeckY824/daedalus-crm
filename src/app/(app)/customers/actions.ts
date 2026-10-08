@@ -493,6 +493,29 @@ function revalidateCustomer(id?: string) {
   revalidatePath("/dashboard");
 }
 
+async function 删除依赖错误(db: Pick<Prisma.TransactionClient, "customer">, ids: string[], 客户叫法: string): Promise<string | null> {
+  const visible = await db.customer.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+  if (!visible.length) return null;
+  // 已授权的父档案可能被不可见的下游引用；检查依赖但只返回所选父档案姓名。
+  const blocked = await 看全部(() => db.customer.findMany({
+    where: { id: { in: visible.map(c => c.id) }, OR: [{ referrals: { some: {} } }, { attributedCustomers: { some: {} } }] },
+    select: { id: true },
+  }));
+  if (!blocked.length) return null;
+  const idsBlocked = new Set(blocked.map(c => c.id));
+  return `以下${客户叫法}仍是其他档案的推荐来源或业绩归属，删除会断开推荐链，整批已阻止：${visible.filter(c => idsBlocked.has(c.id)).map(c => c.name).join("、")}。请先调整下游档案的推荐人或业绩归属，再删除。`;
+}
+
+/** 先提示阻塞对象，避免让人走完不可恢复确认后才被拦。执行时仍在事务内再查。 */
+export async function 客户删除预检(ids: string[]): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireUser();
+  const b = await getBusiness();
+  const error = await 删除依赖错误(prisma, ids, b.customer);
+  return error ? { ok: false, error } : { ok: true };
+}
+
+class 客户删除阻塞 extends Error {}
+
 export async function deleteCustomers(
   ids: string[],
 ): Promise<{ ok: true; deleted: number; 留下联系人: number } | { ok: false; error: string }> {
@@ -505,25 +528,8 @@ export async function deleteCustomers(
    * Prisma 在自引用关系上默认 SetNull，直接删会把下游的推荐链和业绩归属
    * 静默置空——数据看着还在，归属已经没了，且不会有任何报错。
    */
-  const referenced = await prisma.customer.findMany({
-    where: {
-      id: { in: ids },
-      OR: [{ referrals: { some: {} } }, { attributedCustomers: { some: {} } }],
-    },
-    select: {
-      name: true,
-      _count: { select: { referrals: true, attributedCustomers: true } },
-    },
-  });
-  if (referenced.length) {
-    const detail = referenced
-      .map((c) => `${c.name}（推荐了 ${c._count.referrals} 人，${c._count.attributedCustomers} 人的业绩归属于他）`)
-      .join("、");
-    return {
-      ok: false,
-      error: `以下${b.customer}是他人的推荐来源，删除会导致下游业绩归属丢失，已阻止：${detail}。如确需删除，请先调整下游${b.customer}的推荐人。`,
-    };
-  }
+  const dependencyError = await 删除依赖错误(prisma, ids, b.customer);
+  if (dependencyError) return { ok: false, error: dependencyError };
 
   // 删之前留个名字，删完就查不到了
   const 待删 = await prisma.customer.findMany({
@@ -543,9 +549,10 @@ export async function deleteCustomers(
     const 还在 = 第几次 === 0 ? 待删.map((c) => c.id) : (await prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((c) => c.id);
     if (!还在.length) return { ok: false, error: `${ids.length > 1 ? "这几" : "这"}位${b.customer}已经在别处删掉了，刷新看看` };
     try {
-      ({ 联系人, res } = await 搬走并删(还在, me.id));
+      ({ 联系人, res } = await 搬走并删(还在, me.id, b.customer));
       break;
     } catch (e) {
+      if (e instanceof 客户删除阻塞) return { ok: false, error: e.message };
       const code = (e as { code?: string } | null)?.code;
       if (第几次 >= 2 || (code !== "P2002" && code !== "P2025")) throw e;
     }
@@ -570,12 +577,14 @@ export async function deleteCustomers(
  * 人还是那个人，客户这条档案没了不等于这个人没了）。外键是级联删的，所以先搬再删、在同一个事务里。
  * 跟进记录随客户一起删，所以不记 followUpIds。
  */
-async function 搬走并删(ids: string[], ownerId: string) {
-  const 联系人 = await prisma.contact.findMany({
-    where: { customerId: { in: ids } },
-    include: { customer: { select: { name: true } } },
-  });
-  const res = await prisma.$transaction(async (tx) => {
+async function 搬走并删(ids: string[], ownerId: string, 客户叫法: string) {
+  return prisma.$transaction(async (tx) => {
+    const dependencyError = await 删除依赖错误(tx, ids, 客户叫法);
+    if (dependencyError) throw new 客户删除阻塞(dependencyError);
+    const 联系人 = await tx.contact.findMany({
+      where: { customerId: { in: ids } },
+      include: { customer: { select: { name: true } } },
+    });
     for (const c of 联系人) {
       await tx.unassignedContact.create({
         data: {
@@ -595,9 +604,9 @@ async function 搬走并删(ids: string[], ownerId: string) {
       where: { customerId: { in: ids } },
       data: { customerId: null, status: "跟进中", convertedAt: null },
     });
-    return tx.customer.deleteMany({ where: { id: { in: ids } } });
+    const res = await tx.customer.deleteMany({ where: { id: { in: ids } } });
+    return { 联系人, res };
   });
-  return { 联系人, res };
 }
 
 /** 删客户之前数一数：会一起删掉什么、什么会留下来。确认框照着它说，不再只写「跟进、待办与签约」 */

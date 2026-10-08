@@ -15,6 +15,7 @@ import { loadFollowHistory, readFollowHistoryRow, type FollowHistoryCursor } fro
 import { saveFollowUp, deleteFollowUp, restoreFollowUp } from "@/app/(app)/customers/[id]/actions";
 import DetailPage from "@/app/(app)/customers/[id]/page";
 import OpportunitiesPage from "@/app/(app)/opportunities/page";
+import {客户删除预检,deleteCustomers} from "@/app/(app)/customers/actions";
 import { 搜客户, 取客户选项 } from "@/app/(app)/customers/[id]/pick";
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-history-"));
 let customerId: string;
@@ -85,6 +86,11 @@ it("业务员分页/单条重读受真实限定层保护，不能通过客户ID�
   const opp = await OpportunitiesPage({ searchParams: Promise.resolve({ opportunity: "hidden-opp" }) });
   expect(opp.props.focusedOpportunity).toBeNull(); expect(opp.props.focusMissing).toBe(true);
   expect(await 取客户选项(hidden.id)).toBeNull(); expect((await 搜客户("同事客户"))).toEqual([]);
+  await raw.customer.update({where:{id:hidden.id},data:{referrerCustomerId:customerId}});
+  const blocked=await 客户删除预检([customerId]);expect(blocked).toMatchObject({ok:false});
+  if(!blocked.ok){expect(blocked.error).toContain("历史客户");expect(blocked.error).not.toContain(hidden.name);expect(blocked.error).not.toContain("同事客户")}
+  expect(await deleteCustomers([customerId])).toMatchObject({ok:false});expect(await raw.customer.count()).toBe(2);
+
 });
 it("未认证先拒绝；坏游标/不存在客户不返回历史", async () => {
   state.denied = true; await expect(loadFollowHistory(customerId)).rejects.toThrow("Unauthorized"); state.denied = false;
