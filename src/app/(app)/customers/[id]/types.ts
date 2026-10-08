@@ -20,6 +20,7 @@ export type FollowUpRow = {
   contactPosition: string | null;
   contactId: string | null;
   opportunityId: string | null;
+  opportunity?: { id: string; name: string } | null;
   /** 挂在哪张订单上（2026-10-05）。没挂是 null，老调用方没给当没挂 */
   orderId?: string | null;
   order?: { id: string; no: string } | null;

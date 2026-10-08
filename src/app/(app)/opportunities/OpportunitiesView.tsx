@@ -5,7 +5,7 @@ import DatePicker from "@/components/BusinessDatePicker";
 import { 供应商页 } from "@/lib/features";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Space, Select, Tag, InputNumber, App, Dropdown, Popover } from "antd";
+import { Button, Space, Select, Tag, InputNumber, App, Dropdown, Popover, Alert } from "antd";
 import {
   PlusOutlined,
   MoreOutlined,
@@ -62,7 +62,11 @@ export default function OpportunitiesView({
   users,
   customers,
   filters,
+  focusedOpportunity = null,
+  focusMissing = false,
 }: {
+  focusedOpportunity?: OppRow | null;
+  focusMissing?: boolean;
   rows: OppRow[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
   总数: number;
@@ -94,8 +98,15 @@ export default function OpportunitiesView({
   };
   const { message, modal } = App.useApp();
   const { f, setF, apply, reset, pending } = useUrlFilters("/opportunities", filters);
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<OppRow | null>(null);
+  const [open, setOpen] = useState(Boolean(focusedOpportunity));
+  const [editing, setEditing] = useState<OppRow | null>(focusedOpportunity);
+  function closeEditor() {
+    setOpen(false);
+    if (focusedOpportunity) {
+      const url = new URL(window.location.href); url.searchParams.delete("opportunity");
+      window.history.replaceState(null, "", url.pathname + url.search);
+    }
+  }
 
   /** 哪一行正在问「标为丢单？」/「标为赢单」。从「更多」菜单里点进来，就地问，不弹框 */
   const [问丢单, set问丢单] = useState<string | null>(null);
@@ -430,6 +441,7 @@ export default function OpportunitiesView({
 
   return (
     <>
+      {focusMissing && <Alert type="warning" showIcon title="关联商机已删除或当前账号无权查看，请返回原客户核对" style={{ marginBottom: 12 }} />}
       {/* 列表和管道是同一批商机的两种视图，所以「管道」是页头上的次动作，
           不再为它常驻一列中栏（设计稿 03/LAYOUT：中栏不是默认栏位）。 */}
       <PageHead
@@ -553,9 +565,9 @@ export default function OpportunitiesView({
         editing={editing}
         users={users}
         customers={customers}
-        onClose={() => setOpen(false)}
+        onClose={closeEditor}
         onSaved={() => {
-          setOpen(false);
+          closeEditor();
           router.refresh();
         }}
       />

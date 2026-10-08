@@ -49,9 +49,14 @@ it("真实详情页加载第51条及153条，旧记录表单编辑/删除/撤销
   try {
     expect(await page.locator(".rec-tl-item[id^='fu-']").count()).toBe(50);
     await page.getByRole("button", { name: "加载更早的跟进" }).click(); await page.locator("#fu-a-0102").waitFor();
+    await page.evaluate(() => {
+      const rows = Reflect.get(window, "__rows") as unknown as Record<string, { id: string; opportunity: unknown }[]>;
+      const row = rows.a.find(r => r.id === "a-0102")!; row.opportunity = { id: "unique-closed-opp", name: "同名商机" };
+    });
     const row = page.locator("#fu-a-0102"); await row.getByRole("button", { name: "编辑跟进" }).click();
     const dialog = page.getByRole("dialog"); await dialog.locator("#content").fill("第51条已改好"); await dialog.getByRole("button", { name: /保\s*存/ }).click();
     await expect.poll(() => row.locator(".rec-tl-content").innerText()).toBe("第51条已改好");
+    expect(await row.getByRole("link", { name: "关联商机：同名商机" }).getAttribute("href")).toBe("/opportunities?opportunity=unique-closed-opp");
     expect(await page.evaluate(() => (Reflect.get(window, "__saved") as unknown as { 版本: string }).版本)).toBe("2026-01-01T02:00:00.000Z");
     await row.getByRole("button", { name: "删除跟进" }).click(); await row.locator(".inlc-yes").click();
     await expect.poll(() => row.count()).toBe(0);

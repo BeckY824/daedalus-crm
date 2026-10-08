@@ -7,12 +7,14 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/auth", () => ({ requireUser: async () => { if (state.denied) throw Error("Unauthorized"); return state.user; } }));
 vi.mock("@/lib/llm", async original => ({ ...(await original<object>()), llmEnabled: async () => false }));
 vi.mock("@/app/(app)/customers/[id]/RecordView", () => ({ default: () => null }));
+vi.mock("@/app/(app)/opportunities/OpportunitiesView", () => ({ default: () => null }));
 import { prisma, defaultClient as raw } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { 忘掉限定 } from "@/lib/team-scope";
 import { loadFollowHistory, readFollowHistoryRow, type FollowHistoryCursor } from "@/app/(app)/customers/[id]/follow-history-actions";
 import { saveFollowUp, deleteFollowUp, restoreFollowUp } from "@/app/(app)/customers/[id]/actions";
 import DetailPage from "@/app/(app)/customers/[id]/page";
+import OpportunitiesPage from "@/app/(app)/opportunities/page";
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-history-"));
 let customerId: string;
 const at = new Date("2026-01-01T02:00Z");
@@ -66,6 +68,9 @@ it("业务员分页/单条重读受真实限定层保护，不能通过客户ID�
   const other = await raw.user.create({ data: { name: "同事", email: "other-history", password: "qa" } });
   const hidden = await raw.customer.create({ data: { name: "同事客户", phone: "", salesOwnerId: other.id } });
   await raw.followUp.create({ data: { id: "hidden-follow", customerId: hidden.id, ownerId: other.id, occurredAt: at, type: "PHONE", title: "密", content: "不能读取", status: "已完成" } });
+  await raw.opportunity.create({ data: { id: "hidden-opp", name: "同事商机", customerId: hidden.id, ownerId: other.id, stage: "初步沟通" } });
+  // 旧库若存在跨客户错误关联，嵌套include也不能泄露同事商机名。
+  await raw.followUp.update({ where: { id: "history-0152" }, data: { opportunityId: "hidden-opp" } });
   await raw.user.update({ where: { id: state.user.id }, data: { role: "SALES" } }); state.user.role = "SALES";
   fs.writeFileSync(path.join(dir, ".cloud.json"), JSON.stringify({ baseUrl: "http://fake", token: "dk_qa", accountId: "history", name: "QA", contact: state.user.email, models: [], loggedAt: new Date().toISOString() }));
   fs.writeFileSync(path.join(dir, ".team.json"), JSON.stringify({ teamId: "history-team", key: "k".repeat(43), joinSecret: "qa", device: "history-device", pulled: 0 }));
@@ -74,7 +79,10 @@ it("业务员分页/单条重读受真实限定层保护，不能通过客户ID�
   expect(await readFollowHistoryRow(hidden.id, "hidden-follow")).toMatchObject({ ok: false });
   expect(await readFollowHistoryRow(customerId, "hidden-follow")).toMatchObject({ ok: true, row: null });
   expect(await loadFollowHistory(customerId)).toMatchObject({ ok: true, rows: expect.any(Array) });
+  expect(await readFollowHistoryRow(customerId, "history-0152")).toMatchObject({ ok: true, row: { opportunity: null } });
   expect(await prisma.customer.count()).toBe(1);
+  const opp = await OpportunitiesPage({ searchParams: Promise.resolve({ opportunity: "hidden-opp" }) });
+  expect(opp.props.focusedOpportunity).toBeNull(); expect(opp.props.focusMissing).toBe(true);
 });
 it("未认证先拒绝；坏游标/不存在客户不返回历史", async () => {
   state.denied = true; await expect(loadFollowHistory(customerId)).rejects.toThrow("Unauthorized"); state.denied = false;

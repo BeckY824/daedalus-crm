@@ -2,18 +2,29 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { 搜索词 } from "@/lib/search-keyword";
 import { 可选客户 } from "@/lib/options";
-import OpportunitiesView from "./OpportunitiesView";
+import OpportunitiesView, { type OppRow } from "./OpportunitiesView";
 import type { Prisma } from "@/generated/prisma";
 import { 负责人候选 } from "@/lib/owners";
 import { 带币种, 商机币种 } from "@/lib/money-db";
 import { 按币种合计 } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
+const opportunityInclude = {
+  customer: { select: { id: true, name: true } },
+  owner: { select: { id: true, name: true } },
+  ...带币种.商机,
+} satisfies Prisma.OpportunityInclude;
+function opportunityRow(o: Prisma.OpportunityGetPayload<{ include: typeof opportunityInclude }>): OppRow {
+  return { id: o.id, name: o.name, amount: o.amount, currency: 商机币种(o), stage: o.stage, status: o.status,
+    probability: o.probability, updatedAt: o.updatedAt.toISOString(), expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
+    createdAt: o.createdAt.toISOString(), remark: o.remark, customerId: o.customer.id, customerName: o.customer.name,
+    ownerId: o.owner.id, ownerName: o.owner.name };
+}
 
 export default async function OpportunitiesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ keyword?: string; stage?: string; status?: string; ownerId?: string }>;
+  searchParams: Promise<{ keyword?: string; stage?: string; status?: string; ownerId?: string; opportunity?: string }>;
 }) {
   await requireUser();
   const sp = await searchParams;
@@ -29,7 +40,7 @@ export default async function OpportunitiesPage({
     ...(sp.ownerId ? { ownerId: sp.ownerId } : {}),
   };
 
-  const [总数, 汇总行, rows, users, customers] = await Promise.all([
+  const [总数, 汇总行, rows, users, customers, focused] = await Promise.all([
     // take: 300 取回来的行数不是总数，分页条会拿它冒充总数。见 leads/page.tsx 的说明
     prisma.opportunity.count({ where }),
     /*
@@ -44,18 +55,19 @@ export default async function OpportunitiesPage({
       where,
       orderBy: { createdAt: "desc" },
       take: 300,
-      include: {
-        customer: { select: { id: true, name: true } },
-        owner: { select: { id: true, name: true } },
-        ...带币种.商机,
-      },
+      include: opportunityInclude,
     }),
     负责人候选(),
     可选客户(),
+    typeof sp.opportunity === "string" && sp.opportunity.length > 0 && sp.opportunity.length <= 256
+      ? prisma.opportunity.findUnique({ where: { id: sp.opportunity }, include: opportunityInclude }) : null,
   ]);
 
   return (
     <OpportunitiesView
+      key={typeof sp.opportunity === "string" ? sp.opportunity : "list"}
+      focusedOpportunity={focused ? opportunityRow(focused) : null}
+      focusMissing={Boolean(sp.opportunity) && !focused}
       总数={总数}
       汇总={{
         单数: 汇总行.length,
@@ -71,23 +83,7 @@ export default async function OpportunitiesPage({
         status: sp.status ?? "",
         ownerId: sp.ownerId ?? "",
       }}
-      rows={rows.map((o) => ({
-        id: o.id,
-        name: o.name,
-        amount: o.amount,
-        currency: 商机币种(o),
-        stage: o.stage,
-        status: o.status,
-        probability: o.probability,
-        updatedAt: o.updatedAt.toISOString(),
-        expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
-        createdAt: o.createdAt.toISOString(),
-        remark: o.remark,
-        customerId: o.customer.id,
-        customerName: o.customer.name,
-        ownerId: o.owner.id,
-        ownerName: o.owner.name,
-      }))}
+      rows={rows.map(opportunityRow)}
     />
   );
 }

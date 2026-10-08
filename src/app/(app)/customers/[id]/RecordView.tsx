@@ -570,7 +570,7 @@ export default function RecordView({
             {opportunities.map((o) => (
               // 两行：名字独占一行，阶段和金额在下面（审查 M4）。原来三样挤一行，
               // 264 宽的左栏里名字只剩「恒拓 · …」，截掉的恰恰是认出这一单的那半截
-              <Link key={o.id} href={`/opportunities?keyword=${encodeURIComponent(o.name)}`} className="rec-mini rec-mini-2">
+              <Link key={o.id} href={`/opportunities?opportunity=${encodeURIComponent(o.id)}`} className="rec-mini rec-mini-2">
                 <span className="rec-mini-n" title={o.name}>{o.name}</span>
                 <span className="rec-mini-sub">
                   <StageTag stage={o.stage} />
@@ -603,7 +603,7 @@ export default function RecordView({
                 )}
               </div>
               {(报价全开 ? 报价记录 : 报价记录.slice(0, 5)).map((r, i) => (
-                <Link key={`${r.quotedAt}-${i}`} href={`/opportunities?keyword=${encodeURIComponent(r.商机)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
+                <Link key={`${r.quotedAt}-${i}`} href={`/opportunities?opportunity=${encodeURIComponent(r.商机id)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
                   <span className="rec-mini-n" title={r.spec ? `${r.product}（${r.spec}）` : r.product}>
                     {r.product}
                     {r.spec && <span className="rec-mini-m"> · {r.spec}</span>}
@@ -1031,6 +1031,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
           {f.order && !f.title?.includes(f.order.no) && (
             <Link href={`/orders/${f.order.id}`} className="rec-tl-order">订单 {f.order.no}</Link>
           )}
+          {f.opportunity && <Link href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order">关联商机：{f.opportunity.name}</Link>}
           {f.status !== "已完成" && (
             <Tag color={FOLLOW_RECORD_STATUS_COLOR[f.status] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
               {f.status}
