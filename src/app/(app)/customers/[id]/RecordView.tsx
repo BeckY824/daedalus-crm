@@ -87,6 +87,7 @@ function 带上现任(users: { id: string; name: string; email: string }[], 现�
 
 export default function RecordView({
   customer,
+  sourceLead = null,
   contacts,
   contracts,
   opportunities,
@@ -485,6 +486,13 @@ export default function RecordView({
               <div className="rec-field-k">电话</div>
               <div className="rec-field-v">{customer.phone || <span className="rec-field-empty">未填</span>}</div>
             </div>
+            {sourceLead && <div className="rec-field" style={{cursor:"default"}} data-testid="customer-lead-origin">
+              <div className="rec-field-k">来源线索</div>
+              <div className="rec-field-v" style={{overflowWrap:"anywhere"}}>
+                <div>{sourceLead.name} · {sourceLead.source}</div>
+                <div style={{color:"var(--text-muted)",fontSize:12}}>编号 {sourceLead.id} · 转化时间 {sourceLead.convertedAt ? fmtDateTime(sourceLead.convertedAt) : "未记录"}</div>
+              </div>
+            </div>}
             <InlineField customerId={customer.id} field="school" label={b.fields.school} value={customer.school} />
             <InlineField customerId={customer.id} field="major" label={b.fields.major} value={customer.major} />
             <InlineField customerId={customer.id} field="grade" label={b.fields.grade} value={customer.grade} kind="combo" options={b.grades.map((g) => ({ value: g, label: g }))} />

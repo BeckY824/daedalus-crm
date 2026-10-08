@@ -45,6 +45,8 @@ export type ContactRow = {
 };
 
 export type RecordProps = {
+  /** 原始转化线索；没有关联或已删除时为空，不用推荐关系推断。 */
+  sourceLead?: import("@/lib/customer-lead-origin").CustomerLeadOrigin | null;
   /** 这位在不在我左栏的「收藏的客户」里（lib/favorites.ts） */
   已收藏?: boolean;
   /** 我能把这位放进公海吗：负责人本人或管理员（第 6 块） */

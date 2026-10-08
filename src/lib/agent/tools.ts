@@ -19,6 +19,7 @@ import { 渠道汇总 } from "../attribution";
 import { 带币种, 商机币种, 签约币种, 签约金额, 签约合计 } from "../money-db";
 import { 金额 as 显示金额, 合计文字, 按币种合计 } from "../currency";
 import { 一行说法 } from "../quote";
+import { 客户来源线索 } from "../customer-lead-origin";
 import { 订单列表 } from "../order-db";
 import { 节点灯 } from "../order";
 import { 订单节点 } from "../features";
@@ -278,6 +279,7 @@ export const TOOLS: Tool[] = [
       const data = {
         id: c.id,
         name: c.name,
+        sourceLead: await 客户来源线索(c.id),
         // 电话一定要给：不给的话模型会如实说「系统里没存电话」，
         // 然后建议人去补一条**本来就存在**的数据——比缺功能更伤，
         // 它是在向用户断言 CRM 丢了东西

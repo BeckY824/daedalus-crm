@@ -12,6 +12,7 @@ import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { 带币种, 签约金额, 签约币种, 签约合计, 商机币种 } from "@/lib/money-db";
 import { 客户报价记录 } from "@/lib/quote-db";
 import { 报价明细 } from "@/lib/features";
+import { 客户来源线索 } from "@/lib/customer-lead-origin";
 import { 取档案 } from "@/lib/customer-extra-db";
 
 export const dynamic = "force-dynamic";
@@ -79,6 +80,7 @@ export default async function CustomerDetailPage({
   return (
     <RecordView
       key={customer.id}
+      sourceLead={await 客户来源线索(customer.id)}
       users={users}
       channels={channels}
       referrableCustomers={referrableCustomers}
