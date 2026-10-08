@@ -253,6 +253,12 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
       const pk = await 主(e.t);
       const k = (await 别名到(e.t, e.k)) as string;
       if (e.o === "D") {
+        // 旧客户端先移出联系人、再删客户；必须在来源行消失前保住可确认的归属。
+        if (e.t === "Customer" && (await 本机列们("UnassignedContact")).has("ownerId")) {
+          await tx.$executeRawUnsafe(`UPDATE "UnassignedContact" SET "ownerId" = (
+            SELECT COALESCE("salesOwnerId", "channelOwnerId") FROM "Customer" WHERE "id" = ?
+          ) WHERE "ownerId" IS NULL AND "fromCustomerId" = ?`, k, k);
+        }
         // 删跟进 / 签约：「最近跟进」要重算，得在删之前记下是哪位客户（远端的删除不带整行）
         if (e.t === "FollowUp" || e.t === "Contract") {
           const 谁 = (await tx.$queryRawUnsafe<{ customerId: string }[]>(`SELECT customerId FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k))[0]?.customerId;
@@ -343,6 +349,12 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
       }
     }
     await 清孤儿(tx, 记跳过);
+    // 老客户端没有 ownerId：能认出来源负责人时补上，无法确认的仍只给老板看。
+    if (排好.some((x) => x.t === "UnassignedContact" || x.t === "Customer") && (await 列们(tx, "UnassignedContact")).some((c) => c.name === "ownerId")) {
+      await tx.$executeRawUnsafe(`UPDATE "UnassignedContact" SET "ownerId" = (
+        SELECT COALESCE("salesOwnerId", "channelOwnerId") FROM "Customer" WHERE "id" = "UnassignedContact"."fromCustomerId"
+      ) WHERE "ownerId" IS NULL AND EXISTS (SELECT 1 FROM "Customer" WHERE "id" = "UnassignedContact"."fromCustomerId")`);
+    }
     await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 0 WHERE id = 1");
   }, { timeout: 180_000, maxWait: 20_000 }); // 新人第一次拉一个大团队，一批 2000 条要好几秒，默认 5 秒会超时、每轮重试都失败（复查）
   await 重算派生(db, [...动过的客户]);
@@ -467,7 +479,7 @@ export async function 只留自己的(db: PrismaClient, 我: string) {
     await tx.customer.deleteMany({ where: { id: { notIn: 我的客户 } } });
     await tx.lead.deleteMany({ where: { OR: [{ ownerId: null }, { ownerId: { not: 我 } }], customerId: null } });
     await tx.auditLog.deleteMany({ where: { userId: { not: 我 } } });
-    await tx.unassignedContact.deleteMany({ where: { OR: [{ fromCustomerId: null }, { fromCustomerId: { notIn: 我的客户 } }] } });
+    await tx.unassignedContact.deleteMany({ where: { OR: [{ ownerId: null }, { ownerId: { not: 我 } }] } });
   });
   for (const t of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip", "_sync_cursor", "_sync_alias"]) {
     await db.$executeRawUnsafe(`DELETE FROM ${t}`).catch(() => undefined);

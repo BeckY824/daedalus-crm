@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { PrismaClient } from "@/generated/prisma";
+import { Prisma, type PrismaClient } from "@/generated/prisma";
 import { 读 as 读云端凭据 } from "./desktop/cloud";
 import { 团队身份id } from "./desktop/me";
 
@@ -57,6 +57,8 @@ function 在团队(): boolean {
 export async function 限定的我(db: PrismaClient): Promise<string | null> {
   if (不限.getStore()) return null;
   if (process.env.DESKTOP_LOCAL !== "1") return null;
+  // 文件丢失不能等缓存到期，更不能把「认不出我」解释成老板。
+  if (在团队() && !读云端凭据()?.accountId) throw new Error("团队身份缺失，请重新登录");
   const 现 = g.__限定;
   if (现 && 现.到 > Date.now()) return 现.我;
   if (现) {
@@ -76,8 +78,9 @@ function 认一次(db: PrismaClient): Promise<string | null> {
     if (在团队()) {
       const 账号 = 读云端凭据()?.accountId;
       if (账号) {
-        const u = await 不限.run(true, () => db.user.findUnique({ where: { id: 团队身份id(账号) }, select: { id: true, role: true } }));
-        if (u && u.role === "SALES") 我 = u.id;
+        const u = await 不限.run(true, () => db.user.findUnique({ where: { id: 团队身份id(账号) }, select: { id: true, role: true, active: true } }));
+        if (!u || !u.active) throw new Error("团队身份不存在或已停用，请重新登录");
+        if (u.role !== "ADMIN") 我 = u.id;
       }
     }
     // 认的过程中被忘掉过（刚进出团队 / 角色刚对过）：这次的结果可能是旧的，不写，下一句再认
@@ -87,7 +90,9 @@ function 认一次(db: PrismaClient): Promise<string | null> {
     .catch((e) => {
       console.warn("[team-scope] 认不出我：", e?.message ?? e);
       // 有旧的用旧的；一次都没认出来就让这句查询报错——不能悄悄当成「不限定」，业务员会看到全队
-      if (g.__限定) return g.__限定.我;
+      // 只有旧的业务员限定可继续使用；旧的「不限」不能作为身份失败时的退路。
+      if (g.__限定?.我 && !/身份不存在或已停用/.test(String(e?.message))) return g.__限定.我;
+      g.__限定 = undefined;
       throw e;
     })
     .finally(() => {
@@ -116,6 +121,8 @@ export function 限定条件(model: string, 我: string): Record<string, unknown
     case "Contract":
     case "Contact":
     case "CustomerExtra":
+    case "CustomerPool":
+    case "CustomerClaim":
     // 订单（2026-10-05 打开）：0.46.15 时订单整个关着，这里没列，业务员能在订单页看到全队的单
     case "TradeOrder":
       return { customer: 客户 };
@@ -132,6 +139,22 @@ export function 限定条件(model: string, 我: string): Record<string, unknown
       return { OR: [{ ownerId: 我 }, { customer: 客户 }] };
     case "AuditLog":
       return { userId: 我 };
+    case "FollowUpSource":
+      return { followUp: { customer: 客户 } };
+    case "UnassignedContact":
+      return { ownerId: 我 };
+    case "OpportunityClose":
+    case "OpportunityMoney":
+    case "Quote":
+    case "SupplierQuote":
+      return { opportunity: { customer: 客户 } };
+    case "QuoteLine":
+      return { quote: { opportunity: { customer: 客户 } } };
+    case "ContractMoney":
+    case "ContractOwner":
+      return { contract: { customer: 客户 } };
+    case "ContractWin":
+      return { opportunity: { customer: 客户 }, contract: { customer: 客户 } };
     default:
       return null;
   }
@@ -143,6 +166,50 @@ export const 限定的操作 = new Set([
   "count", "aggregate", "groupBy",
   "update", "updateMany", "updateManyAndReturn", "delete", "deleteMany",
 ]);
+
+type 查询参数 = Record<string, unknown>;
+const 关系们 = new Map(Prisma.dmmf.datamodel.models.map((m) => [m.name, m.fields.filter((f) => f.kind === "object")]));
+function 并限定(where: unknown, 条件: 查询参数): 查询参数 {
+  const w = (where ?? {}) as 查询参数;
+  const 旧 = w.AND ? (Array.isArray(w.AND) ? w.AND : [w.AND]) : [];
+  return { ...w, AND: [...旧, 条件] };
+}
+
+/** Prisma 扩展只拦顶层操作：关联列表、可空关联和关联计数也必须补同一范围。 */
+function 限定关联(model: string, args: 查询参数, 我: string): 查询参数 {
+  const 关系 = 关系们.get(model) ?? [];
+  const out = { ...args };
+  for (const 模式 of ["include", "select"] as const) {
+    const 原 = args[模式];
+    if (!原 || typeof 原 !== "object") continue;
+    const 选 = { ...原 } as 查询参数;
+    for (const f of 关系) {
+      const v = 选[f.name];
+      if (!v) continue;
+      let a = 限定关联(f.type, v === true ? {} : v as 查询参数, 我);
+      const 条件 = 限定条件(f.type, 我);
+      // Prisma 允许列表与可空单关联带 where；必填关联由父模型的限定保证。
+      if (条件 && (f.isList || !f.isRequired)) a = { ...a, where: 并限定(a.where, 条件) };
+      选[f.name] = a;
+    }
+    if (选._count) {
+      const 计数 = 选._count === true ? {} : 选._count as 查询参数;
+      const 原计数 = 计数.select as 查询参数 | undefined;
+      const 列 = 原计数 ?? Object.fromEntries(关系.filter((f) => f.isList).map((f) => [f.name, true]));
+      const 数 = { ...列 };
+      for (const f of 关系.filter((f) => f.isList)) {
+        const v = 数[f.name];
+        const 条件 = 限定条件(f.type, 我);
+        if (!v || !条件) continue;
+        const a = v === true ? {} : v as 查询参数;
+        数[f.name] = { ...a, where: 并限定(a.where, 条件) };
+      }
+      选._count = { ...计数, select: 数 };
+    }
+    out[模式] = 选;
+  }
+  return out;
+}
 
 const 写操作 = new Set(["create", "createMany", "createManyAndReturn", "update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
 const 推 = globalThis as unknown as { __推送计时?: ReturnType<typeof setTimeout> };
@@ -179,15 +246,12 @@ export function 加上限定(db: PrismaClient): PrismaClient {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
           if (写操作.has(operation)) 改完推一下();
-          if (!限定的操作.has(operation)) return query(args);
           const 我 = await 限定的我(db);
-          const 条件 = 我 ? 限定条件(model, 我) : null;
-          if (!条件) return query(args);
+          if (!我) return query(args);
+          const a = 限定关联(model, (args ?? {}) as 查询参数, 我);
+          const 条件 = 限定的操作.has(operation) ? 限定条件(model, 我) : null;
           // 原来的 where 原样摊开、条件并进 AND：findUnique / update / delete 要求唯一键留在最外层
-          const a = (args ?? {}) as { where?: Record<string, unknown> };
-          const w = a.where ?? {};
-          const 旧 = w.AND ? (Array.isArray(w.AND) ? w.AND : [w.AND]) : [];
-          return query({ ...a, where: { ...w, AND: [...旧, 条件] } } as typeof args);
+          return query((条件 ? { ...a, where: 并限定(a.where, 条件) } : a) as typeof args);
         },
       },
     },

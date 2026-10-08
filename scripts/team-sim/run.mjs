@@ -310,6 +310,7 @@ async function 主线() {
 
   await 步(`起本机云端（托管模式 + 中转，:${云端口}）`, async () => {
     fs.mkdirSync(`${云目录}/ws`, { recursive: true });
+    fs.writeFileSync(path.join(云目录, "control.db"), "");
     同步跑(process.execPath, [path.join(根, "node_modules/prisma/build/index.js"), "db", "push", "--schema=prisma/control.prisma", "--skip-generate"], { env: 云端环境() });
     // 云端用 next start 跑仓库根目录那份构建（build:server 顺手产出的 .next）：standalone 那份不带 @prisma/client，
     // server-bundle 又裁掉了控制面引擎。会打一句「next start 不配 standalone」的提示，不影响

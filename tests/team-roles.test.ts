@@ -156,6 +156,141 @@ describe("对齐角色：建团队的人是老板，其余是业务员", () => {
 });
 
 describe("业务员只看自己的 + 公海", () => {
+  it("旁表的必填关联也不能绕过客户范围读取原文与签约归属", async () => {
+    const follow = await raw.followUp.findFirstOrThrow({ where: { customerId: ids["小李的客户"] } });
+    const contract = await raw.contract.create({ data: { customerId: ids["小李的客户"], amount: 987, signedAt: new Date() } });
+    await raw.followUpSource.create({ data: { followUpId: follow.id, text: "同事私有对话" } });
+    await raw.contractOwner.create({ data: { contractId: contract.id, salesOwnerId: 小李 } });
+    try {
+      当("wang"); 进团队();
+      expect(await db.followUpSource.findMany({ include: { followUp: { include: { customer: true } } } })).toEqual([]);
+      expect(await db.contractOwner.findMany({ include: { contract: { include: { customer: true } } } })).toEqual([]);
+      当("boss");
+      expect(await db.followUpSource.count()).toBe(1);
+      expect(await db.contractOwner.count()).toBe(1);
+    } finally {
+      await raw.followUpSource.delete({ where: { followUpId: follow.id } });
+      await raw.contract.delete({ where: { id: contract.id } });
+      当("wang");
+    }
+  });
+
+  it("旧客户端移出联系人后删除来源客户，联系人仍有归属且回放不产生回声", async () => {
+    const c = await raw.customer.create({ data: { name: "旧版移出来源", phone: "13000008888", salesOwnerId: 小王 } });
+    const id = "legacy-detached-owner";
+    await 建同步表(raw);
+    await 装触发器(raw);
+    try {
+      const before = await raw.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_log");
+      const row = { id, name: "旧版联系人", fromCustomerId: c.id, createdAt: Date.now(), updatedAt: Date.now() };
+      const result = await 回放(raw, [
+        { t: "UnassignedContact", k: id, o: "I", r: row, c: Object.keys(row), h: "999999999999970-dLEGACY1" },
+        { t: "Customer", k: c.id, o: "D", r: {}, c: [], h: "999999999999971-dLEGACY1" },
+      ], "dWANG01");
+      expect(result, JSON.stringify(await raw.$queryRawUnsafe("SELECT why FROM _sync_skip"))).toMatchObject({ 跳: 0 });
+      expect(await raw.customer.findUnique({ where: { id: c.id } })).toBeNull();
+      expect(await raw.unassignedContact.findUnique({ where: { id } })).toMatchObject({ ownerId: 小王 });
+      const after = await raw.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_log");
+      expect(after[0].n).toBe(before[0].n);
+      当("wang"); 进团队();
+      expect(await db.unassignedContact.findUnique({ where: { id } })).not.toBeNull();
+      当("li");
+      expect(await db.unassignedContact.findUnique({ where: { id } })).toBeNull();
+    } finally {
+      await 卸触发器(raw);
+      await raw.unassignedContact.deleteMany({ where: { id } });
+      await raw.customer.deleteMany({ where: { id: c.id } });
+      当("wang");
+    }
+  });
+
+  it("可空关联及递归计数也过滤，保留调用方筛选；老板仍可看全部", async () => {
+    const own = ids["小王的客户"], hidden = ids["小李的客户"];
+    await raw.customer.update({ where: { id: own }, data: { referrerCustomerId: hidden } });
+    try {
+      当("wang"); 进团队();
+      expect(await db.customer.findUnique({ where: { id: own }, include: { referrerCustomer: true } })).toMatchObject({ referrerCustomer: null });
+      const li = await db.user.findUniqueOrThrow({ where: { id: 小李 }, include: { _count: true } });
+      expect(li._count.salesCustomers).toBe(2); // 公海 + 小王是渠道负责人
+      const filtered = await db.user.findUniqueOrThrow({ where: { id: 小李 }, select: { salesCustomers: { where: { name: "小李的客户" } }, _count: { select: { salesCustomers: { where: { name: "小李的客户" } } } } } });
+      expect(filtered).toEqual({ salesCustomers: [], _count: { salesCustomers: 0 } });
+      当("boss");
+      expect(await db.customer.findUnique({ where: { id: own }, include: { referrerCustomer: true } })).toMatchObject({ referrerCustomer: { id: hidden } });
+    } finally {
+      await raw.customer.update({ where: { id: own }, data: { referrerCustomerId: null } });
+      当("wang");
+    }
+  });
+
+  it("热缓存遇到凭据丢失仍拒绝；不存在或停用的团队身份不能变成老板", async () => {
+    当("wang"); 进团队();
+    expect(await db.customer.count()).toBe(3);
+    fs.rmSync(path.join(临时.dir, ".cloud.json"));
+    await expect(db.customer.count()).rejects.toThrow("团队身份缺失");
+    当("missing-account");
+    await expect(db.customer.count()).rejects.toThrow("团队身份不存在或已停用");
+    当("wang");
+    await raw.user.update({ where: { id: 小王 }, data: { active: false } });
+    try { await expect(db.customer.count()).rejects.toThrow("团队身份不存在或已停用"); }
+    finally { await raw.user.update({ where: { id: 小王 }, data: { active: true } }); 忘掉限定(); }
+  });
+
+  it("审计补测：未归属联系人不泄漏同事记录，也不能按 id 修改", async () => {
+    const 自己 = "audit-unassigned-wang";
+    const 同事 = "audit-unassigned-li";
+    await raw.unassignedContact.createMany({ data: [
+      { id: 自己, name: "自己移出的联系人", fromCustomerId: ids["小王的客户"], ownerId: 小王 },
+      { id: 同事, name: "同事私有联系人", phone: "13999990000", fromCustomerId: ids["小李的客户"], ownerId: 小李 },
+    ] });
+    try {
+      当("wang"); 进团队();
+      expect((await db.unassignedContact.findMany()).map((x) => x.id)).toEqual([自己]);
+      expect(await db.unassignedContact.findUnique({ where: { id: 同事 } })).toBeNull();
+      expect((await db.unassignedContact.updateMany({ where: { id: 同事 }, data: { remark: "越权" } })).count).toBe(0);
+    } finally {
+      await raw.unassignedContact.deleteMany({ where: { id: { in: [自己, 同事] } } });
+    }
+  });
+
+  it("审计补测：AI 渠道汇总只计算可见客户及其签约额", async () => {
+    const 渠道 = await raw.channel.create({ data: { name: "审计共享渠道", channelOwnerId: 老板 } });
+    await raw.customer.updateMany({ where: { id: { in: [ids["小王的客户"], ids["小李的客户"]] } }, data: { channelId: 渠道.id } });
+    const 签约 = await raw.contract.createMany({ data: [
+      { customerId: ids["小王的客户"], amount: 123, signedAt: new Date() },
+      { customerId: ids["小李的客户"], amount: 987654, signedAt: new Date() },
+    ] });
+    void 签约;
+    try {
+      当("wang"); 进团队();
+      const ctx: ToolContext = { userId: 小王, userName: "小王", b: await getBusiness(), recordOffset: 0, proposals: [] };
+      const r = await TOOL_MAP.get("list_channels")!.run({ keyword: "审计共享渠道" }, ctx);
+      expect(r.data).toMatchObject([{ 直接带来: 1, 连转介绍一共: 1 }]);
+      expect(JSON.stringify(r.data)).not.toContain("987,777");
+    } finally {
+      await raw.contract.deleteMany({ where: { amount: { in: [123, 987654] } } });
+      await raw.customer.updateMany({ where: { channelId: 渠道.id }, data: { channelId: null } });
+      await raw.channel.delete({ where: { id: 渠道.id } });
+    }
+  });
+
+  it("审计补测：AI 成员客户数不能透露私有客户数量", async () => {
+    当("wang"); 进团队();
+    const ctx: ToolContext = { userId: 小王, userName: "小王", b: await getBusiness(), recordOffset: 0, proposals: [] };
+    const r = await TOOL_MAP.get("list_users")!.run({ keyword: "老板" }, ctx);
+    expect(r.data).toMatchObject([{ 姓名: "老板", 负责客户: 0 }]);
+  });
+
+  it("审计补测：仍在团队但凭据丢失时，不能放宽成全队可见", async () => {
+    当("wang"); 进团队();
+    fs.rmSync(path.join(临时.dir, ".cloud.json"));
+    忘掉限定();
+    try {
+      let 可见: number;
+      try { 可见 = await db.customer.count(); } catch { return; } // 拒绝读取也是安全结果
+      expect(可见).toBeLessThanOrEqual(3);
+    } finally { 当("wang"); }
+  });
+
   it("客户：自己负责的、渠道负责人是自己的、公海里的", async () => {
     当("wang");
     进团队();

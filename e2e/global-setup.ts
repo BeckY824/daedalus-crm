@@ -3,7 +3,7 @@
  * 每轮从空库开始，用例之间的数据依赖才是可预期的。
  */
 import { execFileSync } from "node:child_process";
-import { rmSync } from "node:fs";
+import { rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -11,6 +11,7 @@ const E2E_DB = path.resolve(ROOT, "prisma/e2e.db");
 
 export default function globalSetup() {
   for (const f of [E2E_DB, `${E2E_DB}-wal`, `${E2E_DB}-shm`]) rmSync(f, { force: true });
+  writeFileSync(E2E_DB, "");
 
   const env = { ...process.env, DATABASE_URL: `file:${E2E_DB}` };
   execFileSync("npx", ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"], {

@@ -27,6 +27,10 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      [body.target, body.password, body.name, body.machine].some((v) => v != null && typeof v !== "string")) {
+    return NextResponse.json({ error: "账号、密码和设备信息必须是文字" }, { status: 400 });
+  }
   const target = (body.target ?? "").trim();
   const password = body.password ?? "";
   if (!target || !password) return NextResponse.json({ error: "请填手机号（或邮箱）和密码" }, { status: 400 });

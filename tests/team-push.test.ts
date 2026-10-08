@@ -28,9 +28,11 @@ const 等一等 = async () => {
   for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
 };
 
-beforeAll(() => {
+beforeAll(async () => {
+  await raw.user.create({ data: { id: "acct_push_test", email: "push-test@example.invalid", name: "推送测试", password: "unused", role: "ADMIN" } });
   process.env.CRM_DATA_DIR = 目录;
   process.env.DESKTOP_LOCAL = "1";
+  fs.writeFileSync(path.join(目录, ".cloud.json"), JSON.stringify({ accountId: "push_test", token: "dk_test", baseUrl: "http://fake" }));
   fs.writeFileSync(path.join(目录, ".team.json"), JSON.stringify({ teamId: "t1", key: "k", device: "d", pulled: 0 }));
 });
 afterAll(async () => {
@@ -38,6 +40,7 @@ afterAll(async () => {
   if (原.local === undefined) delete process.env.DESKTOP_LOCAL; else process.env.DESKTOP_LOCAL = 原.local;
   fs.rmSync(目录, { recursive: true, force: true });
   忘掉限定();
+  await raw.user.delete({ where: { id: "acct_push_test" } });
   await raw.$disconnect();
 });
 beforeEach(() => {

@@ -533,7 +533,7 @@ export async function deleteCustomers(
     const 还在 = 第几次 === 0 ? 待删.map((c) => c.id) : (await prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true } })).map((c) => c.id);
     if (!还在.length) return { ok: false, error: `${ids.length > 1 ? "这几" : "这"}位${b.customer}已经在别处删掉了，刷新看看` };
     try {
-      ({ 联系人, res } = await 搬走并删(还在));
+      ({ 联系人, res } = await 搬走并删(还在, me.id));
       break;
     } catch (e) {
       const code = (e as { code?: string } | null)?.code;
@@ -560,7 +560,7 @@ export async function deleteCustomers(
  * 人还是那个人，客户这条档案没了不等于这个人没了）。外键是级联删的，所以先搬再删、在同一个事务里。
  * 跟进记录随客户一起删，所以不记 followUpIds。
  */
-async function 搬走并删(ids: string[]) {
+async function 搬走并删(ids: string[], ownerId: string) {
   const 联系人 = await prisma.contact.findMany({
     where: { customerId: { in: ids } },
     include: { customer: { select: { name: true } } },
@@ -571,6 +571,7 @@ async function 搬走并删(ids: string[]) {
         data: {
           id: c.id, name: c.name, position: c.position, phone: c.phone, email: c.email, wechat: c.wechat, remark: c.remark,
           fromCustomerId: c.customerId, fromCustomerName: c.customer.name, createdAt: c.createdAt,
+          ownerId,
         },
       });
     }

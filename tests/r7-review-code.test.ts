@@ -257,15 +257,15 @@ describe("R7-2 查号和发码分开限流（dcb680f 修 B1）", () => {
 });
 
 describe("R7-3 公网账号接口字段类型（dcb680f 只修了 signup 两个）", () => {
-  it.skip("【下一版】/api/account/password：target 是数字 → 应 400，实际抛错（500）", async () => {
+  it("/api/account/password：target 是数字 → 返回 400", async () => {
     const { POST } = await import("@/app/api/account/password/route");
     expect(await 状态(POST(发({ target: 12345, code: "123456", password: "abcd1234" }, "password")))).toBe(400);
   });
-  it.skip("【下一版】/api/account/code：请求体是 JSON null → 应 400，实际抛错（500）", async () => {
+  it("/api/account/code：请求体是 JSON null → 返回 400", async () => {
     const { POST } = await import("@/app/api/account/code/route");
     expect(await 状态(POST(发(null, "code")))).toBe(400);
   });
-  it.skip("【下一版】/api/account/token：password 是数字 → 应 400/401，实际抛错（500）", async () => {
+  it("/api/account/token：password 是数字 → 返回 400/401", async () => {
     const { POST } = await import("@/app/api/account/token/route");
     const { createAccount } = await import("@/lib/tenant/accounts");
     const 邮箱 = 新邮箱();

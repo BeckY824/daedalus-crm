@@ -21,6 +21,8 @@ async function main() {
   for (const f of [DB, `${DB}-wal`, `${DB}-shm`, `${DB}-journal`]) rmSync(f, { force: true });
   rmSync(DATA_DIR, { recursive: true, force: true });
   mkdirSync(DATA_DIR, { recursive: true });
+  // Prisma 6 的部分 macOS 引擎无法直接创建不存在的 SQLite 文件；空文件仍由 db push 建表。
+  writeFileSync(DB, "");
 
   const env = { ...process.env, DATABASE_URL: `file:${DB}` };
   execFileSync("npx", ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"], { cwd: ROOT, env, stdio: "pipe" });

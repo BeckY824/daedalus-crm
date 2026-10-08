@@ -125,6 +125,7 @@ const 派生: Record<string, Record<string, string>> = {
     channelOwnerId: "签约那一刻客户的渠道负责人，同上",
   },
   UnassignedContact: {
+    ownerId: "移出或保留联系人时记录操作者，权限隔离使用；不允许表单转派",
     fromCustomerId: "detachContact 移出时记下原来是谁的，挂回原处时接回跟进记录用",
     fromCustomerName: "同上，给人看（那位之后可能被删）",
     followUpIds: "detachContact 移出时记下原来指着他的跟进记录",

@@ -59,7 +59,7 @@ describe("只移出", () => {
 
     expect(await prisma.contact.findUnique({ where: { id: 王.id } })).toBeNull();
     const u = await prisma.unassignedContact.findUniqueOrThrow({ where: { id: 王.id } });
-    expect(u).toMatchObject({ name: "王经理", phone: "13900000001", fromCustomerId: A.id, fromCustomerName: "甲公司" });
+    expect(u).toMatchObject({ name: "王经理", phone: "13900000001", fromCustomerId: A.id, fromCustomerName: "甲公司", ownerId: mocks.user.id });
     expect(JSON.parse(u.followUpIds!)).toEqual([f.id]);
     expect((await prisma.followUp.findUniqueOrThrow({ where: { id: f.id } })).contactId).toBeNull();
   });
@@ -68,7 +68,7 @@ describe("只移出", () => {
     const { 王 } = await 造人();
     await detachContact(王.id);
     expect(await deleteCustomers([A.id])).toMatchObject({ ok: true, deleted: 1 });
-    expect(await prisma.unassignedContact.findUnique({ where: { id: 王.id } })).not.toBeNull();
+    expect(await prisma.unassignedContact.findUnique({ where: { id: 王.id } })).toMatchObject({ ownerId: mocks.user.id });
   });
 
   it("撤销：同一个 id 回到原来那位，关键联系人原样回来、跟进接回去", async () => {
@@ -139,7 +139,7 @@ describe("彻底删除 + 撤销", () => {
     const r = await deleteUnassignedContact(王.id);
     expect(await prisma.unassignedContact.count()).toBe(0);
     await restoreContact(快照(r));
-    expect(await prisma.unassignedContact.findUniqueOrThrow({ where: { id: 王.id } })).toMatchObject({ fromCustomerName: "甲公司" });
+    expect(await prisma.unassignedContact.findUniqueOrThrow({ where: { id: 王.id } })).toMatchObject({ fromCustomerName: "甲公司", ownerId: mocks.user.id });
   });
 
   it("撤销点两次不会建出两条", async () => {
@@ -169,4 +169,3 @@ describe("对方已经删了", () => {
     expect(await deleteUnassignedContact(王.id)).toMatchObject({ ok: false });
   });
 });
-

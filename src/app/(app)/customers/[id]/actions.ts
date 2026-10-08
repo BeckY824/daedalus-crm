@@ -621,6 +621,7 @@ export async function detachContact(id: string) {
         data: {
           id: c.id, name: c.name, position: c.position, phone: c.phone, email: c.email, wechat: c.wechat, remark: c.remark,
           fromCustomerId: c.customerId, fromCustomerName: c.customer.name,
+          ownerId: me.id,
           followUpIds: 跟进.length ? JSON.stringify(跟进.map((f) => f.id)) : null,
           createdAt: c.createdAt,
         },
@@ -715,6 +716,7 @@ export type 删掉的联系人 =
       id: string; name: string; position: string | null; phone: string | null; email: string | null;
       wechat: string | null; remark: string | null; fromCustomerId: string | null; fromCustomerName: string | null;
       followUpIds: string | null; detachedAt: string; createdAt: string;
+      ownerId?: string | null;
     };
 
 /** 彻底删除：联系人页里也没了。他名下的跟进记录留着，只是不再写「跟谁谈的」 */
@@ -763,6 +765,7 @@ export async function deleteUnassignedContact(id: string) {
       哪种: "未归属",
       id: u.id, name: u.name, position: u.position, phone: u.phone, email: u.email, wechat: u.wechat, remark: u.remark,
       fromCustomerId: u.fromCustomerId, fromCustomerName: u.fromCustomerName, followUpIds: u.followUpIds,
+      ownerId: u.ownerId,
       detachedAt: u.detachedAt.toISOString(), createdAt: u.createdAt.toISOString(),
     };
     return { ok: true as const, 快照 };
@@ -786,6 +789,7 @@ export async function restoreContact(快照: 删掉的联系人) {
           id: 快照.id, name: 快照.name, position: 快照.position, phone: 快照.phone, email: 快照.email, wechat: 快照.wechat,
           remark: 快照.remark, fromCustomerId: 快照.fromCustomerId, fromCustomerName: 快照.fromCustomerName,
           followUpIds: 快照.followUpIds, detachedAt: new Date(快照.detachedAt), createdAt: new Date(快照.createdAt),
+          ownerId: 快照.ownerId ?? me.id,
         },
       });
     } else {
