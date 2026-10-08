@@ -102,6 +102,23 @@ async function 选文件(page: Page) {
 const 调用 = (page: Page, 名: string) =>
   page.evaluate((n) => ((window as unknown as { __调用: Record<string, unknown[]> }).__调用[n] ?? []) as unknown[][], 名);
 
+it("分批失败后再次整理把已完成批次传给续作，原文保留", async () => {
+  const page = await 开();
+  const 原文 = "赵一 13800000001";
+  const 续作 = { 原文, 已完成: [{ 表头: ["姓名", "手机号"], 数据: [["赵一", "13800000001"]] }] };
+  await page.evaluate((r) => Object.assign(window, { __粘贴结果: { ok: false, error: "第二批中断，已保留前1批", 续作: r } }), 续作);
+  await page.getByText("粘一段文本", { exact: true }).click();
+  await page.getByRole("textbox").fill(原文);
+  await page.getByRole("button", { name: "整理成表格" }).click();
+  await page.getByText("第二批中断，已保留前1批", { exact: true }).waitFor();
+  expect(await page.getByRole("textbox").inputValue()).toBe(原文);
+  await page.getByRole("button", { name: "整理成表格" }).click();
+  await expect.poll(async () => (await 调用(page, "粘")).length).toBe(2);
+  expect((await 调用(page, "粘"))[1]).toEqual([原文, 续作]);
+  expect(await 调用(page, "执行")).toHaveLength(0);
+  await page.close();
+});
+
 it("粘贴错配及微信遗漏可见，确认前不能预览或落库，重新整理要重新确认", async () => {
   const page = await 开();
   const 原文 = "赵一 13800000001 平川科技\n钱二 13800000002 长河教育\n孙三 微信 sunsan_88";

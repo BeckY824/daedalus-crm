@@ -5,7 +5,7 @@ import { App, Alert, Drawer, Segmented, Steps, Typography, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import { 解析CSV带行号, 解码CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 猜列, type 字段名 } from "@/lib/import/fields";
-import { type 编造格, type 粘贴结果 } from "@/lib/import/paste";
+import { type 编造格, type 粘贴结果, type 粘贴续作 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
 import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
 import { 粘成表格, 猜列建议, 导入认列状态 } from "./ai";
@@ -101,6 +101,7 @@ export default function ImportDrawer({
   const [漏掉, set漏掉] = useState<string[]>([]);
   const [原文核对, set原文核对] = useState<Pick<粘贴结果, "关联" | "未覆盖"> | null>(null);
   const [已核对原文, set已核对原文] = useState(false);
+  const [续作, set续作] = useState<粘贴续作 | undefined>();
   const [文件名, set文件名] = useState("");
 
   /**
@@ -178,6 +179,7 @@ export default function ImportDrawer({
     set漏掉([]);
     set原文核对(null);
     set已核对原文(false);
+    set续作(undefined);
     set文件名("");
     set表头([]);
     set数据([]);
@@ -212,6 +214,7 @@ export default function ImportDrawer({
         message.error("这份表里没有数据。第一行要是表头，第二行起是内容");
         return;
       }
+      set编造([]); set漏掉([]); set原文核对(null); set已核对原文(false); set续作(undefined);
       收表(f.name, t.表头, t.数据, t.截断了, t.行号);
     } catch (e) {
       message.error(e instanceof Error ? e.message : "这个文件读不出来");
@@ -281,7 +284,7 @@ export default function ImportDrawer({
     const 起 = Date.now();
     set整理({ 起 });
     set忙(true);
-    const 请求 = 粘成表格(原文);
+    const 请求 = 粘成表格(原文, 续作);
     // 任务表只记「跑着 / 好了 / 出错」给侧栏和系统通知用；表本身由下面这条 await 接
     runJob<null>(
       整理任务键,
@@ -293,7 +296,8 @@ export default function ImportDrawer({
       const r = await 请求;
       if (轮 !== 这一次.current) return;
       // 出错写在原地那一行，红字留着——原来是一条几秒就走的提示，人回头看时已经不知道刚才怎么了
-      if (!r.ok) return set整理({ 起, 出错: r.error });
+      if (!r.ok) { set续作(r.续作); return set整理({ 起, 出错: r.error }); }
+      set续作(undefined);
       set整理(null);
       set编造(r.编造);
       set漏掉(r.漏掉);

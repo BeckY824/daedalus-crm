@@ -35,6 +35,28 @@ export const 粘贴字数上限 = 6000;
 export const 粘贴行数上限 = 200;
 /** 单个格子最多留多少字。备注列在聊天记录上最容易长成一整段 */
 export const 单格上限 = 500;
+/** 控制单批输出，给网关8000 token上限留下思考与JSON结构空间。 */
+export const 粘贴单批字数 = 2000;
+export type 粘贴批表 = { 表头: string[]; 数据: string[][]; 编造?: 编造格[]; 截断了?: { 行?: number; 列?: number } };
+export type 粘贴续作 = { 原文: string; 已完成: 粘贴批表[] };
+
+/** 保留行边界，不把一个人的资料硬切成两份。 */
+export function 分批粘贴(文: string): string[] {
+  const out: string[] = []; let 当前 = "";
+  for (const 行 of 文.split(/\r?\n/)) {
+    if (行.length > 粘贴单批字数) throw new Error(`有一行超过 ${粘贴单批字数} 字，请先按人分行，或存成 Excel 导入`);
+    if (当前 && 当前.length + 行.length + 1 > 粘贴单批字数) { out.push(当前); 当前 = ""; }
+    当前 += (当前 ? "\n" : "") + 行;
+  }
+  if (当前.trim()) out.push(当前);
+  return out;
+}
+
+/** 各批列顺序可不同；按列名合并，完整结果再统一核对上限与遗漏。 */
+export function 合并粘贴批次(批次: 粘贴批表[]): 粘贴批表 {
+  const 表头 = [...new Set(批次.flatMap((x) => x.表头))];
+  return { 表头, 数据: 批次.flatMap((x) => x.数据.map((row) => 表头.map((h) => row[x.表头.indexOf(h)] ?? ""))) };
+}
 
 /** 全角转半角。微信和网页上复制下来的号码里全角数字是常事 */
 function 半角(s: string): string {

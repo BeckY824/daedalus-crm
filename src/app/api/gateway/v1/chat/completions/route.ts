@@ -8,6 +8,7 @@ import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
 import { AI功能 } from "@/lib/ai-features";
 import { CompletionStream } from "@/lib/llm-stream";
+import { 核对 } from "@/lib/import/paste";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -329,7 +330,16 @@ async function 处理请求(req: Request) {
     try {
       const content = typeof message.content === "string" ? message.content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "") : "";
       const structured = JSON.parse(content);
-      if (功能 === "paste") noResult ||= !Array.isArray(structured?.数据) || !structured.数据.some((row: unknown) => Array.isArray(row) && row.some((cell: unknown) => typeof cell === "string" ? cell.trim() : typeof cell === "number"));
+      if (功能 === "paste") {
+        noResult ||= !Array.isArray(structured?.数据) || !structured.数据.some((row: unknown) => Array.isArray(row) && row.some((cell: unknown) => typeof cell === "string" ? cell.trim() : typeof cell === "number"));
+        // 官方粘贴提示带原文：全是编造、核对后无可用资料，也应退还。
+        const messages = 整理.body.messages as { role?: string; content?: unknown }[];
+        const prompt = messages.filter((m) => m.role === "user" && typeof m.content === "string").at(-1)?.content;
+        if (typeof prompt === "string") {
+          const marker = '原文：\n"""\n'; const begin = prompt.indexOf(marker); const end = prompt.lastIndexOf('\n"""');
+          if (begin >= 0 && end > begin) noResult ||= !核对(structured, prompt.slice(begin + marker.length, end)).数据.length;
+        }
+      }
       if (["draft", "wakeup", "invite"].includes(功能 ?? "")) noResult ||= typeof structured?.message !== "string" || !structured.message.trim();
     } catch { noResult = true; }
   }

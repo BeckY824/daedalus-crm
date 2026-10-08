@@ -9,7 +9,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { 核对, 粘贴行数上限, 粘贴字数上限 } from "@/lib/import/paste";
+import { 核对, 粘贴行数上限, 粘贴字数上限, 分批粘贴, 合并粘贴批次, 粘贴单批字数 } from "@/lib/import/paste";
 import { closeTestDatabases } from "./close-databases";
 import { resetDb } from "./reset";
 import {
@@ -106,6 +106,16 @@ describe("超长名单", () => {
     expect(r.ok).toBe(false);
     expect(r.ok ? "" : r.error).toContain("Excel");
   });
+
+  it("按完整原文行分批，无遗漏且每批不超预算；同一行过长明确拒绝", () => {
+    const 文 = Array.from({ length: 150 }, (_, i) => `学员${i} 139${String(i).padStart(8, "0")} 某某公司第${i}分部`).join("\n");
+    const 批 = 分批粘贴(文);
+    expect(批.length).toBeGreaterThan(1);
+    expect(批.join("\n")).toBe(文);
+    expect(批.every((x) => x.length <= 粘贴单批字数)).toBe(true);
+    expect(() => 分批粘贴("长".repeat(粘贴单批字数 + 1))).toThrow(/按人分行/);
+    expect(合并粘贴批次([{ 表头: ["姓名", "手机号"], 数据: [["赵一", "13800000001"]] }, { 表头: ["手机号", "姓名", "公司"], 数据: [["13800000002", "钱二", "长河教育"]] }])).toEqual({ 表头: ["姓名", "手机号", "公司"], 数据: [["赵一", "13800000001", ""], ["钱二", "13800000002", "长河教育"]] });
+  });
 });
 
 describe("桌面端整条线：粘成表格 → 网关 → 假上游", () => {
@@ -133,6 +143,55 @@ describe("桌面端整条线：粘成表格 → 网关 → 假上游", () => {
     拆桌面端(目录);
   });
   const 粘 = async (s: string) => (await import("@/app/(app)/customers/ai")).粘成表格(s);
+  const 长名单 = Array.from({ length: 150 }, (_, i) => `学员${i} 139${String(i).padStart(8, "0")} 某某公司第${i}分部`).join("\n");
+  const 按原文回应 = (body: Record<string, unknown>, 加编造 = false) => {
+    const messages = body.messages as { content: string }[];
+    const source = messages.at(-1)!.content.match(/原文：\n"""\n([\s\S]*?)\n"""/)![1];
+    const 数据 = source.split("\n").filter(Boolean).map((l) => l.split(" "));
+    if (加编造) 数据.push(["编造的陌生人", "13999999999", "不存在的公司"]);
+    return 回文本(JSON.stringify({ 表头: ["姓名", "手机号", "公司"], 数据 }));
+  };
+
+  it("150人长名单分批完成，合并无遗漏且整次只扣1次", async () => {
+    const line = 接线({ 上游: ({ body }) => 按原文回应(body) });
+    const r = await 粘(长名单);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.数据).toHaveLength(150);
+    expect(r.漏掉).toEqual([]);
+    expect(r.编造).toEqual([]);
+    expect(r.关联.every((x) => !x.待核对)).toBe(true);
+    expect(line.上游.length).toBeGreaterThan(1);
+    expect(new Set(line.网关.map((g) => g.questionId)).size).toBe(1);
+    expect(await 用掉(账号.acc.id)).toBe(1);
+  });
+
+  it("第二批中断保留第一批且退回计次；重试只处理剩余批次并合并150人", async () => {
+    let 失败 = true;
+    const line = 接线({ 上游: ({ body }) => {
+      const first = String((body.messages as { content: string }[]).at(-1)!.content).includes("学员0 13900000000");
+      return !first && 失败 ? 回JSON({ error: { message: "upstream unavailable" } }, 503) : 按原文回应(body, first);
+    } });
+    const r = await 粘(长名单);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.续作?.已完成).toHaveLength(1);
+    expect(r.error).toContain("只继续剩余部分");
+    expect(await 用掉(账号.acc.id)).toBe(0);
+    const 前 = line.上游.length;
+    失败 = false;
+    const result = await (await import("@/app/(app)/customers/ai")).粘成表格(长名单, r.续作);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.数据).toHaveLength(150);
+    expect(result.漏掉).toEqual([]);
+    expect(result.编造.map((x) => x.值)).toContain("13999999999");
+    expect(JSON.stringify(line.上游.slice(前).map((x) => x.body.messages))).not.toContain("学员0 13900000000");
+    expect(await 用掉(账号.acc.id)).toBe(1);
+    // 改过原文绝不复用旧批次。
+    const changed = await (await import("@/app/(app)/customers/ai")).粘成表格("新人 13800009999 新公司", r.续作);
+    expect(changed.ok && changed.数据).toEqual([["新人", "13800009999", "新公司"]]);
+  });
 
   it("模型编了一个人、漏了一个人：预览里两样都报出来，只扣 1 次", async () => {
     const line = 接线({ 上游: () => 回文本(JSON.stringify({ 表头, 数据: [["赵一", "13800000001", "平川科技", ""], ["周四", "13900000004", "", ""]] })) });
@@ -171,6 +230,13 @@ describe("桌面端整条线：粘成表格 → 网关 → 假上游", () => {
     const r = await 粘(原文);
     expect(r.ok).toBe(false);
     expect(是人话(r.ok ? "" : r.error)).toBe(true);
+    expect(await 用掉(账号.acc.id)).toBe(0);
+  });
+
+  it("模型给非空表但全为原文不存在的编造：没有可用资料，不扣次", async () => {
+    接线({ 上游: () => 回文本(JSON.stringify({ 表头: ["姓名", "手机号"], 数据: [["不存在的人", "13999999999"]] })) });
+    const r = await 粘(原文);
+    expect(r.ok).toBe(false);
     expect(await 用掉(账号.acc.id)).toBe(0);
   });
 

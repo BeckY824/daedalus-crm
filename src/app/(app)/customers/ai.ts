@@ -20,17 +20,17 @@ import { 问选择, type 选择答案 } from "@/lib/jev/client";
 import { 组问题 } from "@/lib/jev/columns";
 import { 自动判断开着 } from "@/lib/jev/settings";
 import { 本地模式 } from "@/lib/desktop/cloud";
-import { 组提示词, 核对, 粘贴字数上限, type 粘贴结果 } from "@/lib/import/paste";
+import { 组提示词, 核对, 粘贴字数上限, 分批粘贴, 合并粘贴批次, type 粘贴结果, type 粘贴续作, type 粘贴批表 } from "@/lib/import/paste";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
 
-export type 粘贴回执 = ({ ok: true } & 粘贴结果) | { ok: false; error: string };
+export type 粘贴回执 = ({ ok: true } & 粘贴结果) | { ok: false; error: string; 续作?: 粘贴续作 };
 
 /** 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）；没切出人来的那次退回去 */
-export async function 粘成表格(原文: string): Promise<粘贴回执> {
-  return 带额度("paste", () => 切成表(原文));
+export async function 粘成表格(原文: string, 续作?: 粘贴续作): Promise<粘贴回执> {
+  return 带额度("paste", () => 切成表(原文, 续作));
 }
 
-async function 切成表(原文: string): Promise<粘贴回执> {
+async function 切成表(原文: string, 续作?: 粘贴续作): Promise<粘贴回执> {
   const user = await requireUser();
   const 文 = (原文 ?? "").trim();
   if (!文) return { ok: false, error: "先把名单或聊天记录粘进来" };
@@ -43,6 +43,7 @@ async function 切成表(原文: string): Promise<粘贴回执> {
 
   const b = await getBusiness();
   const 建议 = 字段表(b).map((f) => f.label);
+  const 完成: 粘贴批表[] = [];
 
   try {
     /*
@@ -56,15 +57,46 @@ async function 切成表(原文: string): Promise<粘贴回执> {
       是按「别让销售干等」定的，但这一次人是按了按钮在等一张表，
       等到一半被判超时、次数还照扣，比多等一分钟难受。
     */
-    const raw = await chatJSON(组提示词(文, 建议, b.customer), { maxTokens: 8000, timeoutMs: 120_000, feature: "paste" });
-    const 结果 = 核对(raw, 文);
+    const 批次 = 分批粘贴(文);
+    // 续作来自客户端，逐批按原文重新校验；修改原文后不沿用旧结果。
+    if (续作?.原文 === 文 && Array.isArray(续作.已完成) && 续作.已完成.length < 批次.length) {
+      for (let i = 0; i < 续作.已完成.length; i++) {
+        const checked = 核对(续作.已完成[i], 批次[i]);
+        if (!checked.数据.length) throw new Error("已保留的结果不完整，请修改原文后重新整理");
+        const old = 续作.已完成[i];
+        const 原警告 = Array.isArray(old.编造) ? old.编造.slice(0, 20_000).filter((x) =>
+          x && Number.isInteger(x.行号) && x.行号 >= 2 && typeof x.列名 === "string" && typeof x.值 === "string"
+        ).map((x) => ({ 行号: x.行号, 列名: x.列名.slice(0, 500), 值: x.值.slice(0, 500) })) : [];
+        const 截断了 = { 行: Number.isSafeInteger(old.截断了?.行) ? old.截断了?.行 : undefined, 列: Number.isSafeInteger(old.截断了?.列) ? old.截断了?.列 : undefined };
+        完成.push({ 表头: checked.表头, 数据: checked.数据, 编造: [...原警告, ...checked.编造], 截断了 });
+      }
+    }
+    const requestId = globalThis.crypto.randomUUID();
+    for (let i = 完成.length; i < 批次.length; i++) {
+      const raw = await chatJSON(组提示词(批次[i], 建议, b.customer), { maxTokens: 8000, timeoutMs: 120_000, feature: "paste", requestId, thinking: false });
+      const checked = 核对(raw, 批次[i]);
+      if (!checked.数据.length) throw new Error("没能从这段文本里读出可用资料，请检查原文后重试");
+      完成.push({ 表头: checked.表头, 数据: checked.数据, 编造: checked.编造, 截断了: checked.截断了 });
+    }
+    const 结果 = 核对(合并粘贴批次(完成), 文);
+    let 已有行 = 0;
+    for (const part of 完成) {
+      结果.编造.push(...(part.编造 ?? []).map((x) => ({ ...x, 行号: x.行号 + 已有行 })));
+      已有行 += part.数据.length;
+    }
+    const 原行数 = 完成.reduce((n, x) => n + (x.截断了?.行 ?? x.数据.length), 0);
+    const 原列数 = Math.max(...完成.map((x) => x.截断了?.列 ?? x.表头.length));
+    if (完成.some((x) => x.截断了?.行)) 结果.截断了 = { ...结果.截断了, 行: 原行数 };
+    if (完成.some((x) => x.截断了?.列)) 结果.截断了 = { ...结果.截断了, 列: 原列数 };
     if (结果.数据.length === 0) {
       return { ok: false, error: "没能从这段文本里读出人来。至少要有姓名和手机号" };
     }
     await recordAiUse(user, "paste", `AI 把粘贴的文本整理成 ${结果.数据.length} 行`);
     return { ok: true, ...结果 };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : "整理失败，请稍后重试" };
+    const error = e instanceof Error ? e.message : "整理失败，请稍后重试";
+    return { ok: false, error: error + (完成.length ? `。已保留前 ${完成.length} 批，再点整理会只继续剩余部分；修改原文则重新开始` : ""),
+      ...(完成.length ? { 续作: { 原文: 文, 已完成: 完成 } } : {}) };
   }
 }
 
