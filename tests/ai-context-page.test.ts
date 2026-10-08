@@ -215,3 +215,10 @@ it("客户页实际筛选完整携带，状态和档案字段跟随业务显示�
   for (const token of ["销售负责人", "s1", "渠道负责人", "c1", "职位 高管", "直接推荐", "ch1", "导入批次", "b1", "已寄样", "公海", "德国", "展会"]) expect(r?.提示).toContain(token);
   expect(r?.范围?.筛选).toEqual(Object.fromEntries(filters));
 });
+
+it("W-026 外贸复盘上下文使用订单，通用仍使用签约且工具保持不变",async()=>{
+ const {BUSINESS_PRESETS}=await import("@/lib/business-config");
+ const trade=认页面("/reports",null,null,[],BUSINESS_PRESETS["外贸出口"]);
+ expect(trade?.提示).toContain("用户正在看订单复盘页");expect(trade?.提示).not.toContain("看签约复盘页");expect(trade?.提示).toContain("list_contracts");
+ expect(认页面("/reports",null)?.提示).toContain("用户正在看签约复盘页");
+});

@@ -231,6 +231,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             label={`新增${b.customer}`}
             value={stats.newCustomersThisMonth.toLocaleString()}
             delta={stats.newCustomersDelta ?? undefined}
+            note={stats.newCustomersDelta === null ? "上月没有新增" : undefined}
             href="/customers?createdWithin=本月"
           />
         </Col>
@@ -467,26 +468,9 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: alpha(categorical.green, 0.12), color: categorical.green }}>
                     <UserAddOutlined />
                   </span>
-                  <Typography.Text type="secondary" style={{ fontSize: 15 }}>新增{b.customer}（本月）</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 15 }}>新增{b.customer}走势（近8周）</Typography.Text>
                 </Space>
-                <div className="stat-value" style={{ marginTop: 8 }}>{stats.newCustomersThisMonth}</div>
-                {/* 原本写死 ↑ 和绿色，还用 Math.abs 把负数也显示成上升——
-                    下降会被显示成增长，这是会误导决策的 */}
-                <div className="stat-delta">
-                  {stats.newCustomersDelta === null ? "上月没有新增" : "较上月 "}
-                  {stats.newCustomersDelta === null ? null : stats.newCustomersDelta === 0 ? (
-                    "持平"
-                  ) : (
-                    <span
-                      style={{
-                        color: stats.newCustomersDelta > 0 ? "var(--success)" : "var(--danger)",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {stats.newCustomersDelta > 0 ? "↑" : "↓"} {Math.abs(stats.newCustomersDelta)}%
-                    </span>
-                  )}
-                </div>
+                <div className="stat-delta" style={{ marginTop: 8 }}>按建档日期，每周新增数量</div>
                 <Sparkline data={stats.newCustomerSeries} color={categorical.green} height={52} />
               </Card>
             </Col>

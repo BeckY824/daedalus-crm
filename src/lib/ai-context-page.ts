@@ -21,7 +21,7 @@
  * 比让模型每次重新推理一遍稳得多（和 agent/intents.ts 是同一个思路）。
  */
 import { 订单, 订单节点, 供应商页 } from "./features";
-import { DEFAULT_BUSINESS, statusLabel, type BusinessConfig } from "./business-config";
+import { DEFAULT_BUSINESS, statusLabel, 签约叫, type BusinessConfig } from "./business-config";
 import { 客户页面筛选键, type 页面客户筛选 } from "./ai-page-filters";
 export type 页面上下文 = {
   /** 这一页叫什么，不带筛选。落库时当对话标题的前缀用 */
@@ -228,7 +228,7 @@ export function 认页面(pathname: string, params: URLSearchParams | null, 详�
     return {
       名: 命中.名,
       标签: `${命中.名}${尾}`,
-      提示: `${命中.提示 || `用户正在看${命中.名}`}${尾}。回答时必须使用这个范围；工具不能重现条件时说明限制，不能把全库结果当本页。${指路(命中)}${列着}`,
+      提示: `${pathname === "/reports" ? `用户正在看${签约叫(b)}复盘页` : 命中.提示 || `用户正在看${命中.名}`}${尾}。回答时必须使用这个范围；工具不能重现条件时说明限制，不能把全库结果当本页。${指路(命中)}${列着}`,
       ...(命中.查一个 ? { 范围: { 表: 命中.名, 工具: 命中.查一个.工具, 参数: 命中.查一个.参数, 名字, ...(pathname === "/customers" ? { 筛选: Object.fromEntries(客户页面筛选键.flatMap(k => params?.get(k) ? [[k, params.get(k)!]] : [])) } : {}) } } : {}),
     };
   }

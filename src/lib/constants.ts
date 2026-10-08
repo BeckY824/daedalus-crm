@@ -241,7 +241,7 @@ export const FOLLOW_STATUS_COLOR: Record<string, string> = {
   跟进中: "processing",
   已加微信: "cyan",
   已试听: "blue",
-  意向较高: "green",
+  意向较高: "success",
   暂缓跟进: "orange",
   已签约: "success",
   已流失: "error",

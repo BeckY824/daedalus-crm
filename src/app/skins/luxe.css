@@ -30,7 +30,7 @@
   --draft: dotted;
   --shadow-card: none;
   --shadow-pop: 0 24px 48px -24px rgba(22, 22, 22, 0.18);
-  --row-h: 52px; --th-h: 44px;
+  --row-h: 44px; --th-h: 44px;
 
   --ease: cubic-bezier(.2, .7, .1, 1);
   --ease-spring: cubic-bezier(.2, .7, .1, 1);

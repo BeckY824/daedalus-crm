@@ -10,8 +10,8 @@ const plugin: Plugin = { name: "navigation", setup(b) {
 } };
 beforeAll(async () => {
   const r = await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';
-    import C from '@/components/CommandBar';import S from '@/components/Shortcut';
-    createRoot(document.getElementById('root')).render(<><div className="page-head-a"><button className="ant-btn-primary" onClick={()=>window.__new++}>新建</button></div><kbd id="key"><S>⌘↵</S></kbd><C 有AI={true}/></>);`,loader:"tsx",resolveDir:process.cwd()},bundle:true,write:false,format:"iife",jsx:"automatic",alias:{"@":path.resolve("src")},define:{"process.env.NODE_ENV":'"production"'},plugins:[plugin],logLevel:"silent"});
+    import {BusinessProvider} from '@/lib/business-client';import {BUSINESS_PRESETS} from '@/lib/business-config';import C from '@/components/CommandBar';import S from '@/components/Shortcut';
+    createRoot(document.getElementById('root')).render(<><div className="page-head-a"><button className="ant-btn-primary" onClick={()=>window.__new++}>新建</button></div><kbd id="key"><S>⌘↵</S></kbd><BusinessProvider value={BUSINESS_PRESETS[window.__trade?'外贸出口':'通用销售']}><C 有AI={true}/></BusinessProvider></>);`,loader:"tsx",resolveDir:process.cwd()},bundle:true,write:false,format:"iife",jsx:"automatic",alias:{"@":path.resolve("src")},define:{"process.env.NODE_ENV":'"production"'},plugins:[plugin],logLevel:"silent"});
   bundle=r.outputFiles[0].text;browser=await chromium.launch();
 },120_000);
 afterAll(async()=>{await browser?.close()});
@@ -34,4 +34,10 @@ it.each([["Win32","Control","Ctrl+"],["MacIntel","Meta","⌘"]])("%s 对应快�
   await input.press("Enter");
   await expect.poll(()=>page.evaluate(()=>Reflect.get(window,"__route"))).toBe("/follow-ups/plans");
   await page.close();
+});
+
+it("W-050 外贸快捷跳转有轻订单，但没有关闭的供应商与报价入口",async()=>{
+ const page=await browser.newPage();await page.route("http://keys.test/**",r=>r.fulfill({contentType:"text/html",body:"<meta charset='utf-8'><div id='root'></div>"}));
+ await page.goto("http://keys.test");await page.evaluate(()=>Reflect.set(window,"__trade",true));await page.addScriptTag({content:bundle});await page.locator("#key").waitFor();await page.keyboard.press("Meta+k");
+ const dialog=page.getByRole("dialog");await dialog.waitFor();expect(await dialog.innerText()).toContain("订单");expect(await dialog.innerText()).not.toContain("供应商");expect(await dialog.innerText()).not.toContain("报价明细");await page.close();
 });
