@@ -42,6 +42,8 @@ export default function TeamTab() {
   };
 
   async function 建() {
+    // 回车也能触发：转圈时再按一下会在云端建出第二个团队（10-08 发版前审查）
+    if (忙 !== null) return;
     set忙("建");
     const r = await 建团队动作(名字);
     set忙(null);
@@ -64,6 +66,7 @@ export default function TeamTab() {
   }
 
   async function 入() {
+    if (忙 !== null) return;
     set忙("入");
     const r = await 加入团队动作(码);
     set忙(null);

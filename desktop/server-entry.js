@@ -131,7 +131,11 @@ if (fs.existsSync(迁移目录)) {
       if (联系) {
         // 「我」：开了团队同步的库里同事也是管理员，按云端账号改过身份的那一行优先（同 src/lib/desktop/me.ts）
         const 我id = 云?.accountId ? `acct_${云.accountId}` : "";
-        const admin = db.prepare("SELECT id, email, name FROM User WHERE active = 1 AND (id = ? OR role = 'ADMIN') ORDER BY (id = ?) DESC, createdAt ASC LIMIT 1").get(我id, 我id);
+        // 有「我」那一行就只认它；它被停用了就谁也不对（退回第一个管理员会把老板的名字改成我的、同步给全队，2026-10-08）
+        const 我行 = 我id ? db.prepare("SELECT id, email, name, active FROM User WHERE id = ?").get(我id) : null;
+        const admin = 我行
+          ? (我行.active ? 我行 : null)
+          : db.prepare("SELECT id, email, name FROM User WHERE active = 1 AND role = 'ADMIN' ORDER BY createdAt ASC LIMIT 1").get();
         /**
          * **在设置里改过名字的人，重启之后必须还是那个名字。**
          * 这一段原来无条件写云端那个名字，于是「个人资料」里改完、重启一次就被改回去了

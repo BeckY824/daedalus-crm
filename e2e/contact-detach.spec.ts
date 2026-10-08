@@ -40,7 +40,8 @@ test.afterAll(async () => {
 
 /** 联系人那一小块里王经理那行的删除钮（平时藏着，悬停才出来） */
 async function 点删除(page: Page) {
-  const 行 = page.locator(".rec-mini", { hasText: "王经理" });
+  // 只认 main 里那份：整页加载时 React 流式渲染先把内容放在 <div hidden id="S:1"> 里，那一瞬有两份（同 record-plan.spec.ts）
+  const 行 = page.getByRole("main").locator(".rec-mini", { hasText: "王经理" });
   await 行.hover();
   await 行.getByRole("button", { name: "删除联系人 王经理" }).click();
   const 框 = page.getByRole("dialog");
@@ -51,7 +52,7 @@ async function 点删除(page: Page) {
 test("客户详情：只移出、撤销、再移出", async ({ page }) => {
   await 登录(page);
   await page.goto(`/customers/${甲}`);
-  const 联系人块 = page.locator(".rec-sec", { hasText: "添加联系人" });
+  const 联系人块 = page.getByRole("main").locator(".rec-sec", { hasText: "添加联系人" });
   await expect(联系人块).toContainText("王经理");
 
   let 框 = await 点删除(page);
@@ -66,7 +67,7 @@ test("客户详情：只移出、撤销、再移出", async ({ page }) => {
   await expect(page.locator(".ant-message").getByText("「王经理」回来了")).toBeVisible();
   await expect(联系人块).toContainText("王经理");
   // 关键联系人原样回来
-  await expect(page.locator(".rec-mini", { hasText: "王经理" })).toContainText("关键");
+  await expect(page.getByRole("main").locator(".rec-mini", { hasText: "王经理" })).toContainText("关键");
 
   框 = await 点删除(page);
   await 框.getByRole("button", { name: "只移出" }).click();
@@ -101,7 +102,7 @@ test("彻底删除也能撤销", async ({ page }) => {
   const 框 = await 点删除(page);
   await 框.getByRole("button", { name: "彻底删除" }).click();
   await expect(page.locator(".ant-message").getByText("「王经理」已删除")).toBeVisible();
-  const 联系人块 = page.locator(".rec-sec", { hasText: "添加联系人" });
+  const 联系人块 = page.getByRole("main").locator(".rec-sec", { hasText: "添加联系人" });
   await expect(联系人块).toContainText("还没有联系人");
 
   await page.locator(".ant-message").getByRole("button", { name: "撤销" }).click();

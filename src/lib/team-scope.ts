@@ -32,11 +32,12 @@ export function 看全部<T>(fn: () => Promise<T>): Promise<T> {
   return 不限.run(true, async () => await fn());
 }
 
-const g = globalThis as unknown as { __限定?: { 我: string | null; 到: number } };
+const g = globalThis as unknown as { __限定?: { 我: string | null; 到: number }; __限定刷新?: Promise<string | null> };
 
 /** 角色刚对过 / 刚进出团队：别等缓存过期 */
 export function 忘掉限定() {
   g.__限定 = undefined;
+  g.__限定刷新 = undefined;
 }
 
 function 在团队(): boolean {
@@ -47,22 +48,53 @@ function 在团队(): boolean {
 /**
  * 现在要不要限定、限定成谁：业务员返回本机我的 id，其余（老板、没进团队、网页版、托管版）返回 null。
  * 缓存 3 秒：每条查询都会问一次，不能每次都读库。
+ *
+ * **到期了先用旧的、后台再认一次**（2026-10-08 发版前审查）：这一句常常落在交互式事务里，
+ * 而 SQLite 只开一个连接（lib/sqlite-url.ts）——拿 db 现查要等事务自己放连接，5 秒后事务超时、保存报错。
+ * 后台那一查排在事务后面，事务提交了它才跑。忘掉限定() 清空后的那一次仍现查（进出团队、角色刚对过要马上生效），
+ * 那是一个请求的第一句查询，在事务外面。
  */
 export async function 限定的我(db: PrismaClient): Promise<string | null> {
   if (不限.getStore()) return null;
   if (process.env.DESKTOP_LOCAL !== "1") return null;
   const 现 = g.__限定;
   if (现 && 现.到 > Date.now()) return 现.我;
-  let 我: string | null = null;
-  if (在团队()) {
-    const 账号 = 读云端凭据()?.accountId;
-    if (账号) {
-      const u = await 不限.run(true, () => db.user.findUnique({ where: { id: 团队身份id(账号) }, select: { id: true, role: true } }));
-      if (u && u.role === "SALES") 我 = u.id;
-    }
+  if (现) {
+    void 认一次(db).catch(() => {});
+    return 现.我;
   }
-  g.__限定 = { 我, 到: Date.now() + 3000 };
-  return 我;
+  return 认一次(db);
+}
+
+function 认一次(db: PrismaClient): Promise<string | null> {
+  if (g.__限定刷新) return g.__限定刷新;
+  const 票 = { p: undefined as Promise<string | null> | undefined };
+  const 是这次 = () => g.__限定刷新 === 票.p;
+  票.p = (async () => {
+    await Promise.resolve(); // 让 票.p 先挂上，下面的「是这次」才认得出
+    let 我: string | null = null;
+    if (在团队()) {
+      const 账号 = 读云端凭据()?.accountId;
+      if (账号) {
+        const u = await 不限.run(true, () => db.user.findUnique({ where: { id: 团队身份id(账号) }, select: { id: true, role: true } }));
+        if (u && u.role === "SALES") 我 = u.id;
+      }
+    }
+    // 认的过程中被忘掉过（刚进出团队 / 角色刚对过）：这次的结果可能是旧的，不写，下一句再认
+    if (是这次()) g.__限定 = { 我, 到: Date.now() + 3000 };
+    return 我;
+  })()
+    .catch((e) => {
+      console.warn("[team-scope] 认不出我：", e?.message ?? e);
+      // 有旧的用旧的；一次都没认出来就让这句查询报错——不能悄悄当成「不限定」，业务员会看到全队
+      if (g.__限定) return g.__限定.我;
+      throw e;
+    })
+    .finally(() => {
+      if (是这次()) g.__限定刷新 = undefined;
+    });
+  g.__限定刷新 = 票.p;
+  return 票.p;
 }
 
 /** 业务员看得到的客户：自己是销售负责人或渠道负责人，或者在公海里 */

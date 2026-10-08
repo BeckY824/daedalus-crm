@@ -65,7 +65,7 @@ export default function FeedbackButton({ 去向 }: { 去向: "cloud" | "github" 
 
   async function 发送() {
     const body = 文字.trim();
-    if (!body) return;
+    if (!body || 发送中) return; // ⌘Enter 不看按钮转圈，连按会发两条
     set发送中(true);
     try {
       const r = await fetch("/api/feedback", {

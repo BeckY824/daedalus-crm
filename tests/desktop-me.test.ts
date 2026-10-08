@@ -10,7 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 本机我, 团队身份id } from "@/lib/desktop/me";
+import { 本机我, 团队身份id, 团队里被停用 } from "@/lib/desktop/me";
 
 const 目录 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-desktop-me-"));
 const 凭据 = path.join(目录, ".cloud.json");
@@ -52,11 +52,27 @@ describe("本机我()（T-014）", () => {
     expect(await 本机我(prisma)).toEqual({ id: 同事 });
   });
 
-  it(".cloud.json 指向的账号在本机库里没有 / 停用了 → 退回第一个在职管理员", async () => {
+  it(".cloud.json 指向的账号在本机库里没有（还没进团队、没改身份）→ 退回第一个在职管理员", async () => {
     登录云端("nobody");
     expect(await 本机我(prisma)).toEqual({ id: 同事 });
+    expect(await 团队里被停用(prisma)).toBe(false);
+  });
+
+  it("有我这一行但被停用了（老板在团队成员里停用，同步过来）→ 没有「我」，不退回第一个管理员（那是老板 / 同事）", async () => {
+    // 2026-10-08 发版前审查：原来退回第一个在职管理员——团队里那是老板那一行：自动登录成老板、启动时把老板的名字改成我的
     登录云端("me");
     await prisma.user.update({ where: { id: 我 }, data: { active: false } });
-    expect(await 本机我(prisma)).toEqual({ id: 同事 });
+    expect(await 本机我(prisma)).toBeNull();
+    expect(await 团队里被停用(prisma)).toBe(true);
+  });
+});
+
+describe("server-entry 启动对名字：同一条规则（裸 SQL，读源码钉住）", () => {
+  const entry = fs.readFileSync(path.resolve(__dirname, "../desktop/server-entry.js"), "utf8");
+  it("有我这一行就只认它，停用了就谁也不改；没有才取第一个在职管理员", () => {
+    expect(entry).toContain("SELECT id, email, name, active FROM User WHERE id = ?");
+    expect(entry).toMatch(/我行\s*\?\s*\(我行\.active \? 我行 : null\)/);
+    // 原来那句会在我被停用时落到老板那一行
+    expect(entry).not.toContain("(id = ? OR role = 'ADMIN')");
   });
 });

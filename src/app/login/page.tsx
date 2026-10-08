@@ -7,6 +7,7 @@ import { 能找回密码 } from "@/lib/tenant/password-reset";
 import { multiTenant } from "@/lib/tenant/context";
 import { 自助注册已关闭 } from "@/lib/tenant/signup-policy";
 import { 本地模式, 读 as 读云端凭据, 策略, 云端地址 } from "@/lib/desktop/cloud";
+import { 停用了 } from "@/lib/desktop/disabled-text";
 
 /**
  * 必须动态渲染：要不要画「忘记密码」取决于运行时的 MULTI_TENANT 和 SMTP_*。
@@ -19,6 +20,7 @@ const 原因文案: Record<string, string> = {
   revoked:
     "这台机器的云端登录已经失效：要么账号改过密码（改密码会让所有机器退出），要么在网页端的「已登录的机器」里退出了这一台。本机数据不受影响，重新登录就能接着用。",
   noadmin: "本机数据库里没有管理员账号，登录进不去。请从「帮助 → 反馈问题」告诉我们。",
+  disabled: 停用了,
   switched:
     "换了账号，但这台机器上的数据目录还没跟着换——先把你挡在门口，不然你看到的会是上一个账号的数据。退出应用再打开一次就会切到你自己那份；两个账号的数据都在，一份都不会丢。",
   changed: "密码已经改好了。改密码会让所有已登录的机器退出，这一台也在内——用新密码重新登录就行，本机数据不受影响。",

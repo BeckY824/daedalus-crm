@@ -1,6 +1,7 @@
 "use server";
 
-import { 本机我 } from "@/lib/desktop/me";
+import { 本机我, 团队里被停用 } from "@/lib/desktop/me";
+import { 停用了 } from "@/lib/desktop/disabled-text";
 import bcrypt from "bcryptjs";
 import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
@@ -139,7 +140,10 @@ export async function 桌面端登录(target: string, password: string): Promise
    */
   const 我 = await 本机我(prisma);
   const admin = 我 ? await prisma.user.findUnique({ where: { id: 我.id } }) : null;
-  if (!admin) return { ok: false, error: "本机数据库里没有管理员账号。请从「帮助 → 反馈问题」告诉我们" };
+  if (!admin) {
+    if (await 团队里被停用(prisma)) return { ok: false, error: 停用了 };
+    return { ok: false, error: "本机数据库里没有管理员账号。请从「帮助 → 反馈问题」告诉我们" };
+  }
   const 联系 = (r.data.contact || t).toLowerCase();
   const 云端名字 = r.data.name || 联系.split("@")[0];
   const 名字 = await 该用的名字(admin.name, 云端名字);

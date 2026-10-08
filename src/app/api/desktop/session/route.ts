@@ -5,7 +5,7 @@ import { 要选模版 } from "@/lib/onboarding";
 import { createSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
-import { 本机我 } from "@/lib/desktop/me";
+import { 本机我, 团队里被停用 } from "@/lib/desktop/me";
 import { 是本机地址 } from "@/lib/desktop/local-guard";
 
 export const dynamic = "force-dynamic";
@@ -72,7 +72,10 @@ export async function GET(req: Request) {
    * 库里没有在职管理员（被停用过、或者搬了一个残缺的库进来）。不能回 500：
    * 500 等于把人锁在应用外面，一个字的解释都没有。回登录页，带上原因。
    */
-  if (!admin) return new NextResponse(null, { status: 307, headers: { Location: "/login?reason=noadmin" } });
+  if (!admin) {
+    const reason = (await 团队里被停用(prisma)) ? "disabled" : "noadmin";
+    return new NextResponse(null, { status: 307, headers: { Location: `/login?reason=${reason}` } });
+  }
 
   await createSession(admin.id);
   /**

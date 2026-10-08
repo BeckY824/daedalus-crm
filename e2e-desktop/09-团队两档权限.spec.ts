@@ -8,8 +8,10 @@
  *   - 中转的成员名单（假云端 /api/sync/team）说：acc_boss 是 owner，我是 member
  * 角色不同步、每台按名单自己对：我这一行先造成 ADMIN，看它被对成 SALES——那一下走的是真代码（团队状态 → 按名单对角色）。
  *
- * 必须放在最后一组：进了团队之后「我」就换成了业务员，前面那些按管理员写的用例都不成立了。
- * 收尾把 .team.json 挪掉、两个账号停用，「我」回到原来那位管理员。
+ * 放在后面几组：进了团队之后「我」就换成了业务员，前面那些按管理员写的用例都不成立了。
+ * 收尾照真实的退出团队：.team.json 挪掉，「我」那一行还是这台唯一的在职管理员（不能停用——停用了就是没有「我」，
+ * 2026-10-08 起不再退回第一个管理员，见 lib/desktop/me.ts）。真机上进团队时模板管理员已经改身份成了 acct_ 这一行，
+ * 这里是另造的，所以它和老板那一行一起停用：库里只剩「我」一个在职的，后面的「单人库」用例才成立。
  */
 import { test, expect } from "@playwright/test";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -73,7 +75,8 @@ test.afterAll(async () => {
   rmSync(path.join(DATA_DIR, ".team.json"), { force: true });
   const p = 连库();
   try {
-    await p.user.updateMany({ where: { id: { in: [我id, 老板id] } }, data: { active: false } });
+    await p.user.update({ where: { id: 我id }, data: { role: "ADMIN", active: true } });
+    await p.user.updateMany({ where: { id: { not: 我id } }, data: { active: false } });
   } finally {
     await p.$disconnect();
   }

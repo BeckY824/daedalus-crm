@@ -70,7 +70,7 @@ test("D-113 数据页、首页、商机看板、计划页：卡片都从顶部�
   // 先有点数据，数据页才画卡片
   const db = 连库();
   try {
-    const 我 = await db.user.findFirstOrThrow({ where: { role: "ADMIN" } });
+    const 我 = await db.user.findFirstOrThrow({ where: { role: "ADMIN", active: true } });
     if ((await db.customer.count()) === 0) await db.customer.create({ data: { name: "拖动区测试位", phone: "13855550113", salesOwnerId: 我.id } });
   } finally {
     await db.$disconnect();
@@ -125,7 +125,7 @@ test("D-097 单人库：新建线索不问负责人，列表不摆负责人列�
   const db = 连库();
   try {
     const 线索 = await db.lead.findFirstOrThrow({ where: { name: 名 } });
-    const 我 = await db.user.findFirstOrThrow({ where: { role: "ADMIN" } });
+    const 我 = await db.user.findFirstOrThrow({ where: { role: "ADMIN", active: true } });
     expect(线索.ownerId, "不问负责人，就该落在本人名下").toBe(我.id);
     await db.lead.delete({ where: { id: 线索.id } });
   } finally {
