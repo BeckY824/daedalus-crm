@@ -29,6 +29,9 @@ export type SessionUser = {
   role: string;
   title: string;
   avatar?: string | null;
+  /** 托管身份用于跨工作区隔离；业务User.id只在本库唯一。 */
+  accountId?: string;
+  workspaceId?: string;
 };
 
 /**
@@ -95,7 +98,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
         if (!link) return null;
         const me = await prisma.user.findFirst({ where: { id: link.userId, active: true } });
         if (!me) return null;
-        return { id: me.id, name: me.name, email: me.email, role: me.role, title: me.title, avatar: me.avatar };
+        return { id: me.id, name: me.name, email: me.email, role: me.role, title: me.title, avatar: me.avatar, accountId: id, workspaceId: tenant.workspaceId };
       });
     }
 

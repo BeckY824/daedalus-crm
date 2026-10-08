@@ -2,7 +2,7 @@
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { consumeAiQuota } from "@/lib/ai-quota";
+import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type CustomerBrief } from "@/lib/ai-draft";
@@ -49,7 +49,7 @@ async function 解析速记(input: {
 }): Promise<{ ok: true; draft: FollowUpDraft } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
   const text = input.text.trim();
@@ -155,7 +155,7 @@ async function 生成简报(input: {
 }, emit?: Emit): Promise<简报回执> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
   stepStart(emit, "load", "读取记录");
 

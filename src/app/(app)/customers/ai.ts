@@ -11,7 +11,7 @@
  * 而人粘东西进输入框的动作太便宜了——边想边粘、粘错了重粘都是常事。
  */
 import { requireUser } from "@/lib/auth";
-import { consumeAiQuota } from "@/lib/ai-quota";
+import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { getBusiness } from "@/lib/business";
@@ -38,7 +38,7 @@ async function 切成表(原文: string, 续作?: 粘贴续作): Promise<粘贴�
     return { ok: false, error: `一次最多粘 ${粘贴字数上限} 字，这段有 ${文.length} 字。再多请存成 Excel 走文件那条路` };
   }
 
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
   const b = await getBusiness();

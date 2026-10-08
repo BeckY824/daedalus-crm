@@ -248,9 +248,11 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
   }
   if (!res.ok) {
     const errText = 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey);
-    // 带了 thinking 又被 4xx 拒：记下这个模型，后面所有调用都不再带，
-    // 包括本次调用方马上要做的那次重试
-    if (body.thinking && (res.status === 400 || res.status === 422)) {
+    // 只有明确指向thinking本身的不支持才缓存，普通参数或tools组合错误不能推断模型能力。
+    const thinking不支持 = /thinking|思考|推理/i.test(errText) &&
+      /not.support|unsupported|unknown|unrecognized|not.allowed|不支持|不认|不允许/i.test(errText) &&
+      !/\btools?\b|function.call/i.test(errText);
+    if (body.thinking && (res.status === 400 || res.status === 422) && thinking不支持) {
       不认thinking.add(键);
       console.warn(`[llm] 模型 ${模型} 在 ${cfg.baseUrl} 上不支持关闭思考，后续不再发送该参数`);
     }

@@ -643,26 +643,34 @@ export async function 余额(): Promise<余额信息 | null> {
  * 网关一改白名单，选单里就只剩下线的那几个，要退出重登才好。网关那头对白名单外的已经改成换默认模型（不再 400），
  * 这里管的是选单别一直摆着用不了的名字。后台拉、不挡这一次调用；拉不到就留着旧的。
  */
-let 上次拉模型 = 0;
+const 模型刷新记录 = new Map<string, { 成功: number; 尝试: number; 在途: boolean }>();
 const 拉模型间隔 = 6 * 3600_000;
-async function 刷新模型(c: 云端凭据) {
+const 拉模型失败退避 = 30_000;
+async function 刷新模型(c: 云端凭据): Promise<boolean> {
   const m = await 请求<{ data?: { id: string; note?: string }[] }>(`${c.baseUrl}/api/gateway/v1/models`, {
     headers: { Authorization: `Bearer ${c.token}` },
   });
-  if (!m.ok) return;
-  const models = (m.data?.data ?? []).map((x) => (x.note ? `${x.id}|${x.note}` : x.id)).filter(Boolean);
+  if (!m.ok || !Array.isArray(m.data?.data)) return false;
+  const models = m.data.data.filter((x) => x && typeof x.id === "string" && x.id.trim())
+    .map((x) => (typeof x.note === "string" && x.note ? `${x.id}|${x.note}` : x.id));
   const 现在的 = 读();
   // 拉的这会儿换了账号 / 退出了：不往别人的凭据里写
-  if (!models.length || !现在的 || 现在的.token !== c.token) return;
+  if (!models.length || !现在的 || 现在的.token !== c.token || 现在的.baseUrl !== c.baseUrl) return false;
   if (JSON.stringify(现在的.models) !== JSON.stringify(models)) 写({ ...现在的, models });
+  return true;
 }
 
 export function 模型配置(): { apiKey: string; baseUrl: string; account: string; models: string[] } | null {
   const c = 读();
   if (!c) return null;
-  if (Date.now() - 上次拉模型 > 拉模型间隔) {
-    上次拉模型 = Date.now();
-    void 刷新模型(c).catch(() => {});
+  const key = crypto.createHash("sha256").update(`${c.baseUrl}|${c.token}`).digest("hex");
+  const state = 模型刷新记录.get(key) ?? { 成功: 0, 尝试: 0, 在途: false };
+  const now = Date.now();
+  if (!state.在途 && (!state.成功 || now - state.成功 >= 拉模型间隔) && (!state.尝试 || now - state.尝试 >= 拉模型失败退避)) {
+    state.尝试 = now; state.在途 = true;
+    if (模型刷新记录.size >= 128 && !模型刷新记录.has(key)) 模型刷新记录.clear();
+    模型刷新记录.set(key, state);
+    void 刷新模型(c).then((ok) => { if (ok) state.成功 = Date.now(); }).catch(() => {}).finally(() => { state.在途 = false; });
   }
   return {
     apiKey: c.token,

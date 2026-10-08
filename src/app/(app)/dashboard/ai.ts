@@ -3,7 +3,7 @@
 import { 风格要求, 话术上限, type 起草风格 } from "@/lib/draft-style";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { consumeAiQuota } from "@/lib/ai-quota";
+import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { getBusiness } from "@/lib/business";
@@ -27,7 +27,7 @@ async function 起草唤醒话术(input: {
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
   const customer = await prisma.customer.findUnique({
@@ -94,7 +94,7 @@ async function 解读盯盘(input: {
 }): Promise<{ ok: true; notes: Record<string, string> } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
   const ids = [...new Set(input.items.map((i) => i.customerId))].slice(0, 8);

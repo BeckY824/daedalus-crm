@@ -129,6 +129,30 @@ describe("模型列表刷新（每 6 小时后台拉一次）", () => {
   // 「上次拉模型」是模块级的：每条用例换一份新模块，才会真去拉
   beforeEach(() => vi.resetModules());
 
+  it("刷新失败短暂退避，30秒后重试；成功后才等6小时，切账户独立刷新", async () => {
+    let now = Date.now(); const spy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    let 次数 = 0;
+    try {
+      目录 = 装桌面端(标准凭据(账号.token, { models: ["old-model"] }));
+      接线({ 上游: 正常上游, 云端回: (url) => url.endsWith("/models") ?
+        (++次数 === 1 ? new Response("oops", { status: 500 }) : new Response(JSON.stringify({ data: [{ id: "new-model" }] }))) : null });
+      const { 模型配置 } = await import("@/lib/desktop/cloud");
+      模型配置(); 模型配置();
+      await 等一下(100);
+      expect(次数).toBe(1);
+      now += 31_000;
+      模型配置(); await 等一下(100);
+      expect(次数).toBe(2);
+      expect(读凭据().models).toEqual(["new-model"]);
+      now += 60_000;
+      模型配置(); await 等一下(100);
+      expect(次数).toBe(2);
+      fs.writeFileSync(path.join(目录, ".cloud.json"), JSON.stringify(标准凭据("dk_another-test-account")));
+      模型配置(); await 等一下(100);
+      expect(次数).toBe(3);
+    } finally { spy.mockRestore(); }
+  });
+
   it("拉到新列表：写回 .cloud.json，不挡这一次调用", async () => {
     目录 = 装桌面端(标准凭据(账号.token, { models: ["glm-5.3-flash|限时免费"] }));
     接线({ 上游: 正常上游 });

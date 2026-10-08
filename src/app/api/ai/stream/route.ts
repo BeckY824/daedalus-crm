@@ -2,7 +2,7 @@ import { generateBrief } from "@/app/(app)/customers/[id]/ai";
 import type { Emit } from "@/lib/ai-steps";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
-import { consumeAiQuota } from "@/lib/ai-quota";
+import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { type 页面范围 } from "@/lib/agent/intents";
 import { runAgent } from "@/lib/agent/run";
@@ -77,7 +77,7 @@ export async function POST(req: Request) {
               const history = 收上下文(body.history);
               // agent：模型自己决定读谁、查什么，每次工具调用推一条 step，最终回答逐 token 推
               const user = await requireUser();
-              const wait = consumeAiQuota(user.id);
+              const wait = consumeUserAiQuota(user);
               if (wait !== null) throw new Error(`AI 调用太频繁，请 ${wait} 秒后再试`);
               const b = await getBusiness();
               const abort = new AbortController();
