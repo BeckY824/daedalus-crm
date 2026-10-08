@@ -607,6 +607,7 @@ model FollowPlan {
   plannedAt  DateTime // 计划时间
   method     String   @default("电话沟通") // 跟进方式
   done       Boolean  @default(false)
+  doneAt     DateTime? // 实际完成时间；旧计划未知时为空
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   ownerId    String

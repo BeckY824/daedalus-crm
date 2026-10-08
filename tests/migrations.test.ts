@@ -134,6 +134,8 @@ describe("迁移文件", () => {
         所以先放一张最小的 Customer——真实的库里它从第一版就在。024 给归属列建索引，这一列也是第一版就有
       */
       db.exec('CREATE TABLE "Customer" ("id" TEXT NOT NULL PRIMARY KEY, "phone" TEXT NOT NULL, "attributionCustomerId" TEXT)');
+      db.exec('CREATE TABLE "FollowPlan" ("id" TEXT PRIMARY KEY, "done" BOOLEAN, "plannedAt" DATETIME)');
+      db.prepare('INSERT INTO "FollowPlan" VALUES (?, ?, ?)').run("old-plan", 1, 123456);
       // 第一遍：一个都不许抛。全新库上 ADD COLUMN 也是真的在加列
       for (const f of 文件) {
         expect(() => db.exec(readFileSync(path.join(DIR, f), "utf8")), `第 1 遍执行 ${f} 失败`).not.toThrow();
@@ -149,6 +151,7 @@ describe("迁移文件", () => {
       // 跑完确实建出了表，加的列也真的在
       const 表 = db.prepare("select name from sqlite_master where type='table'").all() as { name: string }[];
       expect(表.map((t) => t.name)).toContain("AuditLog");
+      expect(db.prepare('SELECT * FROM "FollowPlan" WHERE id = ?').get("old-plan")).toMatchObject({ id: "old-plan", done: 1, plannedAt: 123456, doneAt: null });
       db.close();
     } finally {
       rmSync(临时库, { force: true });

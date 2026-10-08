@@ -996,7 +996,7 @@ async function 签约收尾(
       summary: `商机「${o.name}」标记为赢单`, detail: { 状态: "赢单", 金额: o.amount } });
   }
   for (const p of 计划) {
-    await tx.followPlan.update({ where: { id: p.id }, data: { done: true } });
+    await tx.followPlan.update({ where: { id: p.id }, data: { done: true, doneAt: now } });
     日志.push({ user, action: "update", entity: "FollowPlan", entityId: p.id, summary: `完成跟进计划「${p.subject}」（${客户名}）` });
   }
   for (const t of 待办) {

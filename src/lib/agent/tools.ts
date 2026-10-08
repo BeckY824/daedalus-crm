@@ -24,6 +24,7 @@ import { dayjs } from "../utils";
 import { FOLLOW_TYPE_MAP, OPP_STAGES } from "../constants";
 import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
+import { recapRange } from "./recap-range";
 import { METRICS, VALID_GROUPS, sanitizeQuerySpec, 指标显示, 维度显示 } from "../report-query";
 import { loadWatchlist } from "../sentinel-data";
 import { statusLabel, stageLabel, 阶段值, 外贸精简, 外贸订单, 签约叫 } from "../business-config";
@@ -315,12 +316,15 @@ export const TOOLS: Tool[] = [
       const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选) : undefined;
       if (页面条件 && (spec.metric === "leads_count" || spec.metric === "lead_conversion")) return { summary: "当前范围是客户", data: { error: "客户页筛选不能用于线索统计。请移除页面上下文后查询线索。" } };
       const rows = await runQuery(spec, ctx.b, 页面条件);
+      const months = spec.groupBy === "month" ? [...new Set(rows.map(r => r.label.slice(0, 7)))].slice(-12) : [];
+      const shown = spec.groupBy === "month" ? rows.filter(r => months.includes(r.label.slice(0, 7))) : rows.slice(0, 12);
+      const truncation = rows.length > shown.length ? spec.groupBy === "month" ? "仅列最近12个月；更早月份请指定起止日期查询" : "仅列数值最高的12行；完整范围共" + rows.length + "行" : null;
       const meta = METRICS[spec.metric];
       // 指标名跟这家的叫法：外贸「签约金额」说「订单金额」（G.3 实测模型照抄成「这个月签了 2 单」）
       const 指标名 = 指标显示(spec.metric, ctx.b);
       return {
-        summary: `${页面条件 ? "当前客户页范围 · " : ""}${指标名}${spec.groupBy ? ` · ${维度显示(spec.groupBy, ctx.b)}` : ""}：${rows.length} 行`,
-        data: { metric: 指标名, unit: meta.unit, groupBy: spec.groupBy ? 维度显示(spec.groupBy, ctx.b) : null, range: spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间", rows: rows.slice(0, 30) },
+        summary: `${页面条件 ? "当前客户页范围 · " : ""}${指标名}${spec.groupBy ? ` · ${维度显示(spec.groupBy, ctx.b)}` : ""}：${rows.length} 行${truncation ? `（显示${shown.length}行）` : ""}`,
+        data: { metric: 指标名, unit: meta.unit, groupBy: spec.groupBy ? 维度显示(spec.groupBy, ctx.b) : null, range: spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间", rows: shown, 总行数: rows.length, ...(truncation ? { 说明: truncation } : {}) },
       };
     },
   },
@@ -331,30 +335,42 @@ export const TOOLS: Tool[] = [
       签约要 list_contracts、新客户要 search_customers，三次调用分三张表，
       而免费提问一共只有开户那 30 次（10-03 起不再每天补）。
 
-      刻意不读 AuditLog：那张表答的是「谁改了什么」，多人才有意义。
-      一个人用的时候他自己就是那个「谁」，要的是**我碰过哪些人、成了几单**。
+      跟进与签约按业务记录统计；建档人仅从创建留痕和导入批次核实，不能用转交后的负责人推断。
     */
     name: "my_recap",
     description:
       "我这一段时间做了什么：跟了哪些人、记了几笔、签了几单、新建了几位客户。" +
       "问「我这周做了什么」「这周跟了谁」「上个月我的情况」「最近怎么样」用它。" +
-      "默认最近 7 天，days 可以给 1~90。它只看**我自己**的；问全团队用 query_metric 或 list_contracts。",
-    args: '{"days": "最近多少天，默认 7，1~90"}',
+      "period=this_month/last_month/this_week/last_week表示自然月/周；recent默认最近7天，days可以给1~90。新建按可核实建档人统计，旧记录缺失不推断。它只看**我自己**的；问全团队用query_metric或list_contracts。",
+    args: '{"period": "recent/this_month/last_month/this_week/last_week", "days": "recent时最近多少天，默认7，1~90"}',
     async run(args, ctx) {
-      const n = typeof args.days === "number" && Number.isFinite(args.days) ? Math.min(90, Math.max(1, Math.round(args.days))) : 7;
-      const 起 = dayjs().subtract(n, "day").startOf("day").toDate();
+      const range = recapRange(args);
+      if (!range) return { summary: "时间范围不合法", data: { error: "请选择自然月/周或最近N天" } };
+      const n = range.days;
+      const 时间范围 = { gte: range.from, lte: range.to };
       const 号 = 脱敏(ctx);
       /*
         条数、金额一律数全量（count / aggregate / groupBy），列表只是给模型看几条样子。
         原来拿只取了 50 / 30 条的列表去数：这个月 80 笔记录，AI 说 50 笔（2026-10-01 排查 C4）。
         「我签的单」按签约那一刻是谁的单算（ContractOwner，排查 B2）；老签约没有那一行，按客户现在的负责人。
       */
-      const 我的跟进 = { ownerId: ctx.userId, occurredAt: { gte: 起 } };
+      const 我的跟进 = { ownerId: ctx.userId, occurredAt: 时间范围 };
       const 我的签约 = {
-        signedAt: { gte: 起 },
+        signedAt: 时间范围,
         OR: [{ owner: { is: { salesOwnerId: ctx.userId } } }, { owner: { is: null }, customer: { salesOwnerId: ctx.userId } }],
       };
-      const 我新建的 = { salesOwnerId: ctx.userId, createdAt: { gte: 起 } };
+      // 建档人由操作留痕/导入记录核实，不能用现在的负责人推断历史创建。
+      const [created, imported, converted] = await Promise.all([
+        prisma.auditLog.findMany({ where: { userId: ctx.userId, action: "create", entity: "Customer", at: 时间范围 }, select: { entityId: true } }),
+        prisma.importRow.findMany({ where: { kind: "create", batch: { userId: ctx.userId, revertedAt: null, at: 时间范围 } }, select: { customerId: true } }),
+        prisma.auditLog.findMany({ where: { userId: ctx.userId, action: "convert", entity: "Lead", at: 时间范围 }, select: { detail: true } }),
+      ]);
+      const convertedIds = converted.flatMap(row => {
+        try { const detail = JSON.parse(row.detail ?? "null"); return detail && !detail.并入 && typeof detail.customerId === "string" ? [detail.customerId] : []; }
+        catch { return []; }
+      });
+      const ids = [...new Set([...created.map(x => x.entityId), ...imported.map(x => x.customerId), ...convertedIds].filter((id): id is string => typeof id === "string"))];
+      const 我新建的 = { id: { in: ids }, createdAt: 时间范围 };
       const [跟进笔数, 跟过的, 全部签约, 新建数] = await Promise.all([
         prisma.followUp.count({ where: 我的跟进 }),
         prisma.followUp.groupBy({ by: ["customerId"], where: 我的跟进 }),
@@ -381,7 +397,7 @@ export const TOOLS: Tool[] = [
           take: 30,
           select: { name: true, phone: true, followStatus: true, createdAt: true },
         }),
-        prisma.followPlan.count({ where: { ownerId: ctx.userId, done: true, plannedAt: { gte: 起 } } }),
+        prisma.followPlan.count({ where: { ownerId: ctx.userId, done: true, doneAt: 时间范围 } }),
       ]);
       // 同一个人这一段里跟了几次，合成一行——一周跟同一位五次，列五行只是噪音
       const 按人 = new Map<string, { 姓名: string; 次数: number; 最近: string; 最近聊了: string; 跟进状态: string }>();
@@ -398,15 +414,19 @@ export const TOOLS: Tool[] = [
             跟进状态: statusLabel(ctx.b, f.customer.followStatus),
           });
       }
+      const 完成时间未知 = await prisma.followPlan.count({ where: { ownerId: ctx.userId, done: true, doneAt: null } });
       const 金额 = 合计文字(签约合计(全部签约));
       const 签约数 = 全部签约.length;
       return {
         summary:
-          `最近 ${n} 天：跟了 ${跟过的.length} 位${ctx.b.customer}、${跟进笔数} 笔记录` +
+          `${range.label}：跟了 ${跟过的.length} 位${ctx.b.customer}、${跟进笔数} 笔记录` +
           `${签约数 ? `，签了 ${签约数} 单共 ${金额}` : "，没有签约"}` +
-          `${新建数 ? `，新建 ${新建数} 位` : ""}`,
+          `，可核实本人建档 ${新建数} 位`,
         data: {
           天数: n,
+          范围: `${dayjs(range.from).format("YYYY-MM-DD HH:mm")} ~ ${dayjs(range.to).format("YYYY-MM-DD HH:mm")}`,
+          建档口径: "按创建/线索新建转化操作人或导入人统计；缺建档记录的旧客户不推断当前负责人为建档人",
+          ...(完成时间未知 ? { 完成时间未知的旧计划: 完成时间未知, 计划说明: "旧已完成计划没有可靠完成时间，未计入本期完成数" } : {}),
           跟了几位: 跟过的.length,
           跟进笔数,
           ...(跟进笔数 > 跟进.length || 签约数 > 签约.length || 新建数 > 新建.length ? { 说明: "下面的明细只列了最近的一部分，数字以上面为准" } : {}),

@@ -85,9 +85,9 @@ describe("计数/求和聚合", () => {
     expect(rows.map((r) => r.label)).toEqual(["2026-07", "2026-08"]);
   });
 
-  it("最多返回 12 行", () => {
+  it("聚合保留完整行，展示层再排序截断并说明", () => {
     const items = Array.from({ length: 20 }, (_, i) => ({ key: `k${i}`, label: `L${i}`, value: i }));
-    expect(sumRows(items)).toHaveLength(12);
+    expect(sumRows(items)).toHaveLength(20);
   });
 });
 

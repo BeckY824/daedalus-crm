@@ -119,7 +119,7 @@ export function sumRows(
   const rows = [...map.values()];
   // 按月看的是走势，必须按时间排；其余按数值倒序，第一行就是答案
   rows.sort(opts.byMonth ? (a, b) => a.label.localeCompare(b.label) : (a, b) => b.value - a.value);
-  return rows.slice(0, 12);
+  return rows;
 }
 
 /** 转化率聚合：value 为百分比（1 位小数），note 记「转化/新增」的原始分子分母 */
@@ -140,7 +140,7 @@ export function rateRows(
     note: `${r.converted}/${r.created}`,
   }));
   rows.sort(opts.byMonth ? (a, b) => a.label.localeCompare(b.label) : (a, b) => b.value - a.value);
-  return rows.slice(0, 12);
+  return rows;
 }
 
 export function bucketMonth(d: Date): string {

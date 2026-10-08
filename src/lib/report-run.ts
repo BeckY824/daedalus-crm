@@ -16,7 +16,8 @@ import { statusLabel } from "./business-config";
 function dateWhere(field: string, spec: QuerySpec) {
   const cond: Record<string, Date> = {};
   if (spec.from) cond.gte = dayjs(spec.from).startOf("day").toDate();
-  if (spec.to) cond.lte = dayjs(spec.to).endOf("day").toDate();
+  const now = new Date();
+  cond.lte = spec.to ? new Date(Math.min(dayjs(spec.to).endOf("day").valueOf(), now.getTime())) : now;
   return Object.keys(cond).length ? { [field]: cond } : {};
 }
 

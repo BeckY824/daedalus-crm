@@ -66,7 +66,7 @@ export const 只读SCHEMAS: Record<string, Schema> = {
   },
   my_recap: {
     type: "object",
-    properties: { days: 数("最近多少天，默认 7，1~90") },
+    properties: { days: 数("period=recent时最近多少天，默认7，1~90"), period: { type: "string", enum: ["recent", "this_month", "last_month", "this_week", "last_week"], description: "本月/上月/本周/上周按自然日历范围；recent才按最近N天" } },
     additionalProperties: false,
   },
   get_watchlist: { type: "object", properties: {}, additionalProperties: false },

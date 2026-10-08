@@ -180,7 +180,7 @@ export async function saveFollowUp(input: FollowUpInput) {
         audits.push({ user, action: "create", entity: "FollowPlan", entityId: next.id, summary: `给${customer.name}排了跟进计划（${dayjs(next.plannedAt).format("YYYY-MM-DD")} ${next.method}·${next.subject}）` });
       }
       if (plan && !plan.done) {
-        await tx.followPlan.update({ where: { id: plan.id }, data: { done: true, ...推进版本(plan.updatedAt.toISOString()) } });
+        await tx.followPlan.update({ where: { id: plan.id }, data: { done: true, doneAt: new Date(), ...推进版本(plan.updatedAt.toISOString()) } });
         audits.push({ user, action: "update", entity: "FollowPlan", entityId: plan.id, summary: `完成跟进计划「${plan.subject}」（${customer.name}）` });
       }
       const latest = await tx.followUp.findFirst({ where: { customerId: input.customerId, occurredAt: { lte: new Date() } }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
@@ -459,7 +459,9 @@ export async function deletePlan(id: string) {
 export async function completePlan(id: string, 完成 = true) {
   try {
     const me = await requireUser();
-    const p = await prisma.followPlan.update({ where: { id }, data: { done: 完成 } });
+    // 同状态重复提交不重写首次完成时间。撤销时清空，再完成才记录新时刻。
+    await prisma.followPlan.updateMany({ where: { id, done: !完成 }, data: { done: 完成, doneAt: 完成 ? new Date() : null } });
+    const p = await prisma.followPlan.findUniqueOrThrow({ where: { id } });
     await recordAudit({
       user: me, action: "update", entity: "FollowPlan", entityId: id,
       summary: 完成
