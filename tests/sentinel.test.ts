@@ -123,3 +123,10 @@ describe("逾期计划的说法", () => {
     expect(it1.reason).toBe("跟进计划「发报价」已逾期 1 天");
   });
 });
+
+
+it("旧库误录未来跟进不能让沉睡客户消失，并明确提示核对", () => {
+  const items = buildWatchlist({ ...empty, customers: [customer({ lastFollowAt: daysAgo(-10), createdAt: daysAgo(60) })] }, now);
+  expect(items).toHaveLength(1);
+  expect(items[0].reason).toContain("日期在未来");
+});

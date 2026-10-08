@@ -45,7 +45,7 @@ export function smartTime(d: Date | string | null | undefined): string {
  * 按**本地日历天**数，和 smartTime 同一个口径：昨晚跟的，今天早上还是「1 天」。
  */
 export function 冷热(最近跟进: Date | string | null | undefined, now = dayjs()): { 格: 0 | 1 | 2 | 3 | 4; 天: number | null } {
-  if (!最近跟进) return { 格: 0, 天: null };
+  if (!最近跟进 || !dayjs(最近跟进).isValid() || dayjs(最近跟进).valueOf() > now.valueOf() + 60_000) return { 格: 0, 天: null };
   const 天 = Math.max(0, now.startOf("day").diff(dayjs(最近跟进).startOf("day"), "day"));
   const 格 = 天 <= 2 ? 4 : 天 <= 6 ? 3 : 天 <= 13 ? 2 : 天 <= 29 ? 1 : 0;
   return { 格, 天 };

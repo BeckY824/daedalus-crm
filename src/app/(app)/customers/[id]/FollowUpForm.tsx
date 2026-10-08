@@ -109,6 +109,9 @@ export default function FollowUpForm({
   const router = useRouter();
   const b = useBusiness();
   const type = Form.useWatch("type", form);
+  const dueAt = Form.useWatch("dueAt", form);
+  const status = Form.useWatch("status", form);
+  const 创建过期待办 = !record?.id && (type === "TASK" || type === "REMIND") && status !== "已完成" && dueAt && dueAt.valueOf() < Date.now() - 60_000;
 
   const 挑人 = !给定客户;
   /** 挑中那位的近况：联系人、商机、到期计划都从这儿来。关框、保存时清掉 */
@@ -299,6 +302,7 @@ export default function FollowUpForm({
       durationMinutes: v.durationMinutes ?? null,
       occurredAt: v.occurredAt.toISOString(),
       dueAt: v.dueAt ? v.dueAt.toISOString() : null,
+      确认过期待办: 创建过期待办 && v.确认过期待办 === true,
       contactId: v.contactId ?? null,
       ...拆关联(v.opportunityId, 挂订单, record?.id ? record.opportunityId ?? null : null),
       participants: v.participants ?? null,
@@ -443,7 +447,7 @@ export default function FollowUpForm({
           </Col>
           <Col span={8}>
             <Form.Item name="occurredAt" label="发生时间" rules={[{ required: true }]}>
-              <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
+              <DatePicker showTime maxDate={dayjs().endOf("day")} format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
             </Form.Item>
           </Col>
 
@@ -500,12 +504,13 @@ export default function FollowUpForm({
               <Form.Item
                 name="dueAt"
                 label={type === "TASK" ? "截止时间" : "提醒时间"}
-                extra={record?.id ? undefined : "填了会同时加进待办，到点提醒"}
+                extra={record?.id ? undefined : 创建过期待办 ? "这个时间已过期，创建的待办会立即进入到期清单" : "填了会同时加进待办，到点提醒"}
               >
                 <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
               </Form.Item>
             </Col>
           )}
+          {创建过期待办 && <Col span={24}><Form.Item name="确认过期待办" preserve={false} valuePropName="checked" rules={[{ validator: (_, v) => v === true ? Promise.resolve() : Promise.reject(new Error("请确认创建过期待办，或修改提醒时间/状态")) }]}><Checkbox>我确认仍要创建过期待办</Checkbox></Form.Item></Col>}
           {type === "MEETING" && (
             <Col span={12}>
               <Form.Item name="participants" label="参与人" tooltip="多人用逗号分隔">

@@ -1,5 +1,7 @@
 "use server";
 
+import { parseDateInput } from "@/lib/date-input";
+
 import { 不在了 } from "@/lib/not-there";
 import { 查完再写 } from "@/lib/check-then-write";
 import { 钉住老签约 } from "@/lib/contract-owner";
@@ -1168,8 +1170,9 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
       data.channelOwnerId = (await resolveAttribution(cur)).channelOwnerId;
     }
   } else if (key === "expectedSignAt") {
-    if (v && Number.isNaN(Date.parse(v))) return { ok: false, error: "日期格式不对" };
-    data.expectedSignAt = v ? new Date(v) : null;
+    const parsed = v ? parseDateInput(v) : null;
+    if (v && !parsed) return { ok: false, error: "日期格式不对或日期不存在" };
+    data.expectedSignAt = parsed;
   } else {
     data[key] = v || null;
   }

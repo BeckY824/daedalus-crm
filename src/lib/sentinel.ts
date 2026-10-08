@@ -101,14 +101,15 @@ export function buildWatchlist(
   for (const c of input.customers) {
     const weight = STATUS_WEIGHT[c.followStatus];
     if (weight === undefined) continue;
-    const days = n.diff(c.lastFollowAt ?? c.createdAt, "day");
+    const 未来日期 = c.lastFollowAt && dayjs(c.lastFollowAt).isAfter(n);
+    const days = n.diff(未来日期 ? c.createdAt : c.lastFollowAt ?? c.createdAt, "day");
     if (days < STALE_DAYS) continue;
     items.push({
       kind: "sleeping",
       customerId: c.id,
       customerName: c.name,
       ownerName: c.ownerName,
-      reason: c.lastFollowAt
+      reason: 未来日期 ? `最近跟进日期在未来，请核对；按录入时间已 ${days} 天` : c.lastFollowAt
         ? `「${statusLabel(c.followStatus)}」的${customerTerm}已 ${days} 天没人跟进`
         : `录入 ${days} 天从未跟进过`,
       score: weight * 8 + Math.min(days, 40),

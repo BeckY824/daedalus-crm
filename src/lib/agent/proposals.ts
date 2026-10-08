@@ -93,14 +93,16 @@ export type Proposal =
 
 export type ProposalResult = { ok: true; proposal: Proposal } | { ok: false; error: string };
 
+import { parseDateInput } from "@/lib/date-input";
+
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 /** 模型爱写「2026-09-12 19:00」这类。给了但解析不了要报错；没给就留空让人挑 */
 function parseWhen(v: unknown): { ok: true; at: string } | { ok: false } {
   const s = str(v, 40);
   if (!s) return { ok: true, at: "" };
-  const d = dayjs(s.replace(/\//g, "-").replace(/[年月]/g, "-").replace(/日/g, ""));
-  return d.isValid() ? { ok: true, at: d.toISOString() } : { ok: false };
+  const d = parseDateInput(s.replace(/\//g, "-").replace(/[年月]/g, "-").replace(/日/g, ""));
+  return d ? { ok: true, at: d.toISOString() } : { ok: false };
 }
 
 /** 跟进类型：模型可能给「电话沟通」也可能给「PHONE」，两种都收 */

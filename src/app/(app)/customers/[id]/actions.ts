@@ -10,6 +10,7 @@ import { recordAudit } from "@/lib/audit";
 import { 认回打码号 } from "@/lib/phone";
 import { 版本冲突, 版本条件, 推进版本 } from "@/lib/edit-version";
 import { dayjs } from "@/lib/utils";
+import { parseDateInput } from "@/lib/date-input";
 
 /**
  * 这一页上的写操作也要留痕。
@@ -46,6 +47,8 @@ export type FollowUpInput = {
   durationMinutes?: number | null;
   occurredAt: string;
   dueAt?: string | null;
+  /** 新建历史提醒时，确认仍要生成已经到期的待办。 */
+  确认过期待办?: boolean;
   contactId?: string | null;
   opportunityId?: string | null;
   /**
@@ -128,8 +131,12 @@ export async function saveFollowUp(input: FollowUpInput) {
     if (!FOLLOW_TYPES.some((t) => t.value === input.type)) return { ok: false as const, error: `跟进类型「${input.type}」不是合法取值` };
     if (!FOLLOW_RECORD_STATUSES.includes(input.status as (typeof FOLLOW_RECORD_STATUSES)[number])) return { ok: false as const, error: `记录状态「${input.status}」不是合法取值` };
     if (input.durationMinutes != null && !(Number.isFinite(input.durationMinutes) && input.durationMinutes >= 0)) return { ok: false as const, error: "通话时长不能为负数" };
-    const 有效日期 = (v: unknown) => typeof v === "string" && Boolean(v) && Number.isFinite(new Date(v).getTime());
+    const 有效日期 = (v: unknown) => parseDateInput(v) !== null;
     if (!有效日期(input.occurredAt) || (input.dueAt != null && !有效日期(input.dueAt))) return { ok: false as const, error: "跟进或提醒时间格式不正确" };
+    const now = new Date();
+    if (parseDateInput(input.occurredAt)!.getTime() > now.getTime() + 60_000) return { ok: false as const, error: "发生时间不能在未来，预定事项请使用跟进计划" };
+    if (!input.id && (input.type === "REMIND" || input.type === "TASK") && input.status !== "已完成" && input.dueAt &&
+      parseDateInput(input.dueAt)!.getTime() < now.getTime() - 60_000 && input.确认过期待办 !== true) return { ok: false as const, error: "这个提醒时间已过期，请确认仍要创建过期待办，或修改时间/标记已完成" };
     const extra = input.附带;
     if (extra && (input.id || !Array.isArray(extra.tasks) || extra.tasks.length > 20 || extra.tasks.some((t) => !t || typeof t.title !== "string" || !t.title.trim() || (t.dueAt != null && !有效日期(t.dueAt))) ||
       (extra.plan && (typeof extra.plan.subject !== "string" || !extra.plan.subject.trim() || !有效日期(extra.plan.plannedAt) || typeof extra.plan.method !== "string" || !extra.plan.method.trim())) ||
@@ -137,7 +144,7 @@ export async function saveFollowUp(input: FollowUpInput) {
     const data = {
       type: input.type, title: input.title?.trim() ?? "", content: input.content.trim(), status: input.status,
       duration: input.durationMinutes ? Math.round(input.durationMinutes * 60) : null,
-      occurredAt: new Date(input.occurredAt), dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      occurredAt: parseDateInput(input.occurredAt)!, dueAt: input.dueAt ? parseDateInput(input.dueAt)! : null,
       contactId: input.contactId || null, opportunityId: input.opportunityId || null,
       participants: input.participants || null, customerId: input.customerId,
     };
@@ -165,18 +172,18 @@ export async function saveFollowUp(input: FollowUpInput) {
         detail: { 客户: customer.name, 类型: 类型名(data.type), 状态: data.status, 内容: data.content.slice(0, 120) } });
       if (input.orderId !== undefined) await 挂订单(id, input.customerId, input.orderId, tx);
       for (const item of extra?.tasks ?? []) {
-        const task = await tx.task.create({ data: { title: item.title.trim(), dueAt: item.dueAt ? new Date(item.dueAt) : null, customerId: input.customerId, ownerId: user.id } });
+        const task = await tx.task.create({ data: { title: item.title.trim(), dueAt: item.dueAt ? parseDateInput(item.dueAt)! : null, customerId: input.customerId, ownerId: user.id } });
         audits.push({ user, action: "create", entity: "Task", entityId: task.id, summary: `给${customer.name}加了待办「${task.title}」` });
       }
       if (extra?.plan) {
-        const next = await tx.followPlan.create({ data: { subject: extra.plan.subject.trim(), plannedAt: new Date(extra.plan.plannedAt), method: extra.plan.method, customerId: input.customerId, ownerId: user.id } });
+        const next = await tx.followPlan.create({ data: { subject: extra.plan.subject.trim(), plannedAt: parseDateInput(extra.plan.plannedAt)!, method: extra.plan.method, customerId: input.customerId, ownerId: user.id } });
         audits.push({ user, action: "create", entity: "FollowPlan", entityId: next.id, summary: `给${customer.name}排了跟进计划（${dayjs(next.plannedAt).format("YYYY-MM-DD")} ${next.method}·${next.subject}）` });
       }
       if (plan && !plan.done) {
         await tx.followPlan.update({ where: { id: plan.id }, data: { done: true, ...推进版本(plan.updatedAt.toISOString()) } });
         audits.push({ user, action: "update", entity: "FollowPlan", entityId: plan.id, summary: `完成跟进计划「${plan.subject}」（${customer.name}）` });
       }
-      const latest = await tx.followUp.findFirst({ where: { customerId: input.customerId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
+      const latest = await tx.followUp.findFirst({ where: { customerId: input.customerId, occurredAt: { lte: new Date() } }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
       await tx.customer.update({ where: { id: input.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
       return { ok: true as const, id, 待办id, audits };
     });
@@ -203,7 +210,7 @@ export async function deleteFollowUp(id: string, customerId: string) {
     });
   
     const latest = await prisma.followUp.findFirst({
-      where: { customerId },
+      where: { customerId, occurredAt: { lte: new Date() } },
       orderBy: { occurredAt: "desc" },
       select: { occurredAt: true },
     });
@@ -282,7 +289,7 @@ export async function restoreFollowUp(快照: 删掉的跟进) {
       if (在 < 同样的跟进) await prisma.task.create({ data: { title: 标题, dueAt: 回来的.dueAt!, customerId: 快照.customerId, ownerId: 快照.ownerId } });
       刷新待办(快照.customerId);
     }
-    const latest = await prisma.followUp.findFirst({ where: { customerId: 快照.customerId }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
+    const latest = await prisma.followUp.findFirst({ where: { customerId: 快照.customerId, occurredAt: { lte: new Date() } }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
     await prisma.customer.update({ where: { id: 快照.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
     await recordAudit({
       user: me, action: "create", entity: "FollowUp", entityId: 快照.id,
@@ -310,9 +317,10 @@ export async function saveTask(input: {
     const user = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
   if (!String(input.title ?? "").trim()) return { ok: false as const, error: "请填写待办内容" };
+    if (input.dueAt != null && !parseDateInput(input.dueAt)) return { ok: false as const, error: "截止时间格式不正确" };
     const data = {
       title: input.title.trim(),
-      dueAt: input.dueAt ? new Date(input.dueAt) : null,
+      dueAt: input.dueAt ? parseDateInput(input.dueAt)! : null,
       customerId: input.customerId,
     };
     // 同跟进记录：编辑别人的待办不该把负责人改成自己
@@ -386,9 +394,10 @@ export async function savePlan(input: {
     const user = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
   if (!String(input.subject ?? "").trim()) return { ok: false as const, error: "请填写跟进主题" };
+    if (!parseDateInput(input.plannedAt)) return { ok: false as const, error: "计划时间格式不正确" };
     const data = {
       subject: input.subject.trim(),
-      plannedAt: new Date(input.plannedAt),
+      plannedAt: parseDateInput(input.plannedAt)!,
       method: input.method,
       customerId: input.customerId,
     };
