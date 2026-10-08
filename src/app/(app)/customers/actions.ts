@@ -1,5 +1,7 @@
 "use server";
 
+import { hasVisibleText } from "@/lib/form-validation";
+
 import { parseDateInput } from "@/lib/date-input";
 
 import { 不在了 } from "@/lib/not-there";
@@ -153,7 +155,7 @@ export type SaveCustomerResult =
 export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerResult> {
   const me = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.name ?? "").trim()) return { ok: false, error: "请填写姓名" };
+  if (!hasVisibleText(input.name)) return { ok: false, error: "请填写姓名" };
   const b = await getBusiness();
   const labels = customerFieldLabels(b);
 

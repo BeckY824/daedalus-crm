@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText } from "@/lib/form-validation";
+
 import { 签约叫 } from "@/lib/business-config";
 import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
@@ -302,7 +304,7 @@ export default function LeadsView({
         <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
           <Row gutter={16}>
             <Col span={24}>
-              <Form.Item name="name" label="线索名称" rules={[{ required: true, message: "请填写线索名称" }]}>
+              <Form.Item name="name" label="线索名称" rules={[requiredText("请填写线索名称")]}>
                 <Input placeholder="公司名称或线索标题" />
               </Form.Item>
             </Col>

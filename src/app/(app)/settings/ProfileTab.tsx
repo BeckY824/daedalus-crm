@@ -1,5 +1,7 @@
 "use client";
 
+import { isFormValidationError } from "@/lib/form-validation";
+
 import { useState } from "react";
 import { Form, Input, Button, Avatar, App } from "antd";
 import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
@@ -31,15 +33,18 @@ export default function ProfileTab({ me, 云端账号 = null }: {
   const [预览, set预览] = useState(me.name);
 
   async function 保存() {
-    const v = await form.validateFields();
+    if (saving) return;
     setSaving(true);
-    const r = await 改我的资料({ name: v.name, title: v.title ?? "" });
-    setSaving(false);
-    if (!r.ok) {
-      message.error(r.error);
-      return;
+    try {
+      const v = await form.validateFields();
+      const r = await 改我的资料({ name: v.name, title: v.title ?? "" });
+      if (!r.ok) return void message.error(r.error);
+      message.success("已保存");
+    } catch (error) {
+      if (!isFormValidationError(error)) message.error("保存失败，请刷新确认结果后重试");
+    } finally {
+      setSaving(false);
     }
-    message.success("已保存");
   }
 
   return (

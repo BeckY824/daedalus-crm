@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText, isFormValidationError } from "@/lib/form-validation";
+
 import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -72,6 +74,8 @@ export default function PlanForm({
     set存着(true);
     try {
       await onOk();
+    } catch (error) {
+      if (!isFormValidationError(error)) message.error("保存失败，请刷新确认结果后重试");
     } finally {
       set存着(false);
     }
@@ -128,7 +132,7 @@ export default function PlanForm({
     >
       <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
         {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={set近况} 给计划 />}
-        <Form.Item name="subject" label="跟进主题" rules={[{ required: true, message: "请填写跟进主题" }]}>
+        <Form.Item name="subject" label="跟进主题" rules={[requiredText("请填写跟进主题")]}>
           <Input placeholder="如：跟进预算审批进度" />
         </Form.Item>
         <Form.Item name="plannedAt" label="计划时间" rules={[{ required: true }]}>

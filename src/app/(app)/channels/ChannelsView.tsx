@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText, isFormValidationError } from "@/lib/form-validation";
+
 import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -88,15 +90,18 @@ export default function ChannelsView({
   }
 
   async function onOk() {
-    const v = await form.validateFields();
+    if (saving) return;
     setSaving(true);
     try {
+      const v = await form.validateFields();
       const res = await saveChannel({ id: editing?.id, 版本: editing?.updatedAt, ...v });
       if (!res.ok) return message.error(res.error);
       message.success(editing ? "已保存" : "渠道已创建");
       setOpen(false);
       setEditing(null);
       router.refresh();
+    } catch (error) {
+      if (!isFormValidationError(error)) message.error("保存失败，请刷新确认结果后重试");
     } finally {
       setSaving(false);
     }
@@ -296,7 +301,7 @@ export default function ChannelsView({
             // 新建时渠道负责人默认是我（团队同步之后候选里有同事）
             initialValues={editing ?? { channelOwnerId: 默认负责人(我, users) }}
           >
-            <Form.Item label="渠道姓名" name="name" rules={[{ required: true, message: "请输入渠道姓名" }]}>
+            <Form.Item label="渠道姓名" name="name" rules={[requiredText("请输入渠道姓名")]}>
               <Input placeholder="如：小红" />
             </Form.Item>
             <Form.Item label="联系电话" name="phone">

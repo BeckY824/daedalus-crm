@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText } from "@/lib/form-validation";
+
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal, Form, Input, DatePicker, App } from "antd";
@@ -83,7 +85,7 @@ export default function TaskForm({
       destroyOnHidden
     >
       <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-        <Form.Item name="title" label="任务内容" rules={[{ required: true, message: "请填写任务内容" }]}>
+        <Form.Item name="title" label="任务内容" rules={[requiredText("请填写任务内容")]}>
           <Input placeholder="如：跟进预算审批进度" />
         </Form.Item>
         <Form.Item name="dueAt" label="截止时间">

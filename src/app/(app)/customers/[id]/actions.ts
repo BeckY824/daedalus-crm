@@ -1,5 +1,7 @@
 "use server";
 
+import { hasVisibleText } from "@/lib/form-validation";
+
 import { 不在了 } from "@/lib/not-there";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -128,6 +130,7 @@ export async function saveFollowUp(input: FollowUpInput) {
   const user = await requireUser();
   try {
     if (!input || typeof input !== "object" || typeof input.content !== "string" || typeof input.customerId !== "string") return { ok: false as const, error: "跟进信息格式不正确" };
+    if (!hasVisibleText(input.content)) return { ok: false as const, error: "请填写沟通内容" };
     if (!FOLLOW_TYPES.some((t) => t.value === input.type)) return { ok: false as const, error: `跟进类型「${input.type}」不是合法取值` };
     if (!FOLLOW_RECORD_STATUSES.includes(input.status as (typeof FOLLOW_RECORD_STATUSES)[number])) return { ok: false as const, error: `记录状态「${input.status}」不是合法取值` };
     if (input.durationMinutes != null && !(Number.isFinite(input.durationMinutes) && input.durationMinutes >= 0)) return { ok: false as const, error: "通话时长不能为负数" };
@@ -138,8 +141,8 @@ export async function saveFollowUp(input: FollowUpInput) {
     if (!input.id && (input.type === "REMIND" || input.type === "TASK") && input.status !== "已完成" && input.dueAt &&
       parseDateInput(input.dueAt)!.getTime() < now.getTime() - 60_000 && input.确认过期待办 !== true) return { ok: false as const, error: "这个提醒时间已过期，请确认仍要创建过期待办，或修改时间/标记已完成" };
     const extra = input.附带;
-    if (extra && (input.id || !Array.isArray(extra.tasks) || extra.tasks.length > 20 || extra.tasks.some((t) => !t || typeof t.title !== "string" || !t.title.trim() || (t.dueAt != null && !有效日期(t.dueAt))) ||
-      (extra.plan && (typeof extra.plan.subject !== "string" || !extra.plan.subject.trim() || !有效日期(extra.plan.plannedAt) || typeof extra.plan.method !== "string" || !extra.plan.method.trim())) ||
+    if (extra && (input.id || !Array.isArray(extra.tasks) || extra.tasks.length > 20 || extra.tasks.some((t) => !t || typeof t.title !== "string" || !hasVisibleText(t.title) || (t.dueAt != null && !有效日期(t.dueAt))) ||
+      (extra.plan && (typeof extra.plan.subject !== "string" || !hasVisibleText(extra.plan.subject) || !有效日期(extra.plan.plannedAt) || typeof extra.plan.method !== "string" || !hasVisibleText(extra.plan.method))) ||
       (extra.完成计划 != null && (typeof extra.完成计划 !== "string" || !extra.完成计划)))) return { ok: false as const, error: "附带待办或计划信息不完整，请检查后重试" };
     const data = {
       type: input.type, title: input.title?.trim() ?? "", content: input.content.trim(), status: input.status,
@@ -316,7 +319,7 @@ export async function saveTask(input: {
   try {
     const user = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.title ?? "").trim()) return { ok: false as const, error: "请填写待办内容" };
+  if (!hasVisibleText(input.title)) return { ok: false as const, error: "请填写待办内容" };
     if (input.dueAt != null && !parseDateInput(input.dueAt)) return { ok: false as const, error: "截止时间格式不正确" };
     const data = {
       title: input.title.trim(),
@@ -393,7 +396,7 @@ export async function savePlan(input: {
   try {
     const user = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.subject ?? "").trim()) return { ok: false as const, error: "请填写跟进主题" };
+  if (!hasVisibleText(input.subject)) return { ok: false as const, error: "请填写跟进主题" };
     if (!parseDateInput(input.plannedAt)) return { ok: false as const, error: "计划时间格式不正确" };
     const data = {
       subject: input.subject.trim(),
@@ -531,7 +534,7 @@ export async function saveContact(input: 联系人字段 & { id?: string; custom
   try {
     const me = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.name ?? "").trim()) return { ok: false as const, error: "请填写联系人姓名" };
+  if (!hasVisibleText(input.name)) return { ok: false as const, error: "请填写联系人姓名" };
     const 原 = input.id ? await prisma.contact.findUnique({ where: { id: input.id }, select: { phone: true } }) : null;
     if (input.id && !原) return { ok: false as const, error: "这位联系人已经不在这儿了，刷新看看" };
     const 电话 = 联系人电话(input.phone, 原?.phone);
@@ -652,6 +655,7 @@ export async function undoDetachContact(id: string, 原来是关键: boolean) {
 export async function saveUnassignedContact(input: 联系人字段 & { id: string; customerId?: string | null; isPrimary?: boolean; 版本?: string | null }) {
   try {
     const me = await requireUser();
+    if (!hasVisibleText(input.name)) return { ok: false as const, error: "请填写联系人姓名" };
     const u = await prisma.unassignedContact.findUnique({ where: { id: input.id } });
     if (!u) return { ok: false as const, error: "这位联系人已经不在了，刷新看看" };
     // 版本闸门（排查 D3）：打开编辑框之后有人改过（或已经被别人挂走），不盖掉

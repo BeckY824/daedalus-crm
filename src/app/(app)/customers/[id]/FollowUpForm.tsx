@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText } from "@/lib/form-validation";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal, Form, Input, Select, DatePicker, InputNumber, Row, Col, App, Button, Checkbox, Space, Typography } from "antd";
@@ -458,7 +460,7 @@ export default function FollowUpForm({
             </Form.Item>
           </Col>
           <Col span={24}>
-            <Form.Item name="content" label="沟通内容" rules={[{ required: true, message: "请填写沟通内容" }]}>
+            <Form.Item name="content" label="沟通内容" rules={[requiredText("请填写沟通内容")]}>
               <Input.TextArea rows={4} placeholder="记录沟通要点、客户反馈、下一步动作…" />
             </Form.Item>
           </Col>

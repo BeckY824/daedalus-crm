@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText } from "@/lib/form-validation";
+
 import OptionInput from "@/components/OptionInput";
 import { useState } from "react";
 import { Alert, App, AutoComplete, Button, Col, DatePicker, Divider, Form, Input, Modal, Radio, Row, Select, Space, Typography } from "antd";
@@ -275,7 +277,7 @@ function CustomerFormInner({
         <Row gutter={16}>
           <Col span={8}>
             {/* 跟业务配置的叫法走（2026-10-04 L-003）：改成「学员」后这里原来还写着「客户姓名」 */}
-            <Form.Item label={`${b.customer}姓名`} name="name" rules={[{ required: true, message: "请输入姓名" }]}>
+            <Form.Item label={`${b.customer}姓名`} name="name" rules={[requiredText("请输入姓名")]}>
               <Input placeholder="如：张三" />
             </Form.Item>
           </Col>
@@ -548,7 +550,7 @@ function CustomerFormInner({
         setChannelOptions((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "zh")));
         // 建完就替用户选上——不然还得再点开下拉找一遍，等于没省事
         form.setFieldValue("channelId", created.id);
-        form.validateFields(["channelId"]);
+        void form.validateFields(["channelId"]).catch(() => undefined);
       }}
     />
     </>
@@ -615,7 +617,7 @@ function QuickChannelModal({
       {/* name 前缀不能省：这个表单和「新建学员」同时在 DOM 里，
           字段名又都叫 name/phone/remark，不加前缀 label 会绑到学员那几个框上 */}
       <Form form={form} name="quickChannel" layout="vertical" style={{ marginTop: 8 }}>
-        <Form.Item label="渠道姓名" name="name" rules={[{ required: true, message: "请输入渠道姓名" }]}>
+        <Form.Item label="渠道姓名" name="name" rules={[requiredText("请输入渠道姓名")]}>
           <Input placeholder="如：小红" />
         </Form.Item>
         <Form.Item label="联系电话" name="phone">

@@ -1,5 +1,7 @@
 "use client";
 
+import { isFormValidationError } from "@/lib/form-validation";
+
 import { useEffect, useRef, useState } from "react";
 import { Modal, Form, InputNumber, DatePicker, Input, App, Checkbox, Space, AutoComplete, Row, Col } from "antd";
 import { dayjs, fmtDate } from "@/lib/utils";
@@ -112,7 +114,7 @@ function Inner({
       set可收(r);
       set勾({ 赢单: r.商机.map((x) => x.id), 完成计划: r.计划.map((x) => x.id), 完成待办: r.待办.map((x) => x.id) });
       带金额(r.商机.map((x) => x.id), r);
-    });
+    }).catch(() => { if (还在) message.error("联动事项读取失败，请关闭后重试"); });
     return () => { 还在 = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, editing, 赢这一单]);
@@ -162,6 +164,7 @@ function Inner({
   }
 
   async function onOk() {
+    if (saving) return;
     setSaving(true);
     try {
       const res = await submit(false);
@@ -180,7 +183,7 @@ function Inner({
        * 但续费和分期本来就可能同额同日，所以只确认、不硬拦。
        */
       const dup = res.duplicate;
-      modal.confirm({
+      const 继续 = await modal.confirm({
         title: 订单 ? "这张订单可能已经录过了" : "这笔签约可能已经录过了",
         content: (
           <>
@@ -197,16 +200,15 @@ function Inner({
         ),
         okText: "确实是另一笔，继续录入",
         cancelText: "取消",
-        async onOk() {
-          const again = await submit(true);
-          if (again.ok) {
-            message.success(editing ? "已保存" : 订单 ? `订单${again.订单 ? ` ${again.订单.no}` : ""} 已建好${联动说法(again.联动, true)}` : `签约已记录${联动说法(again.联动)}`);
-            onClose(true);
-          } else if ("error" in again) {
-            message.error(again.error);
-          }
-        },
       });
+      if (!继续) return;
+      const again = await submit(true);
+      if (again.ok) {
+        message.success(editing ? "已保存" : 订单 ? `订单${again.订单 ? ` ${again.订单.no}` : ""} 已建好${联动说法(again.联动, true)}` : `签约已记录${联动说法(again.联动)}`);
+        onClose(true);
+      } else if ("error" in again) message.error(again.error);
+    } catch (error) {
+      if (!isFormValidationError(error)) message.error("保存失败，请刷新确认结果后重试");
     } finally {
       setSaving(false);
     }

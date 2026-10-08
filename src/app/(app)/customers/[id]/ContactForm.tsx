@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText, isFormValidationError } from "@/lib/form-validation";
+
 import { useEffect, useState } from "react";
 import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Select, Button } from "antd";
 import { saveContact, saveUnassignedContact } from "./actions";
@@ -76,6 +78,8 @@ export default function ContactForm({
     set存着(true);
     try {
       await onOk();
+    } catch (error) {
+      if (!isFormValidationError(error)) message.error("保存失败，请刷新确认结果后重试");
     } finally {
       set存着(false);
     }
@@ -147,7 +151,7 @@ export default function ContactForm({
             </Col>
           )}
           <Col span={12}>
-            <Form.Item name="name" label="姓名" rules={[{ required: true, message: "请填写姓名" }]}>
+            <Form.Item name="name" label="姓名" rules={[requiredText("请填写姓名")]}>
               <Input placeholder="张经理" />
             </Form.Item>
           </Col>

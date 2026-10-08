@@ -1,5 +1,7 @@
 "use server";
 
+import { hasVisibleText } from "@/lib/form-validation";
+
 import { 不在了 } from "@/lib/not-there";
 import { 版本冲突, 版本条件, 推进版本 } from "@/lib/edit-version";
 import { revalidatePath } from "next/cache";
@@ -87,7 +89,7 @@ export async function saveOpportunity(input: {
   if (!input || typeof input !== "object" || typeof input.name !== "string") return { ok: false as const, error: "商机信息格式不正确" };
   if (!报价明细 && input.报价 !== undefined) return { ok: false as const, error: "此版本未开放报价明细功能" };
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.name ?? "").trim()) return { ok: false as const, error: "请填写商机名称" };
+  if (!hasVisibleText(input.name)) return { ok: false as const, error: "请填写商机名称" };
   // 与签约金额同一类问题：负数商机会让漏斗和加权预测的合计变小甚至为负
   if (!Number.isFinite(input.amount) || input.amount < 0) {
     return { ok: false as const, error: "商机金额不能为负数" };

@@ -1,5 +1,7 @@
 "use server";
 
+import { hasVisibleText } from "@/lib/form-validation";
+
 import { 规整外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
 
@@ -40,7 +42,7 @@ export async function saveLead(input: {
 }) {
   const user = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.name ?? "").trim()) return { ok: false as const, error: "请填写线索名称" };
+  if (!hasVisibleText(input.name)) return { ok: false as const, error: "请填写线索名称" };
   if (!LEAD_STATUSES.includes(input.status as (typeof LEAD_STATUSES)[number])) {
     return { ok: false as const, error: `线索状态「${input.status}」不是合法取值` };
   }

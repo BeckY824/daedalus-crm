@@ -1,5 +1,7 @@
 "use server";
 
+import { hasVisibleText } from "@/lib/form-validation";
+
 import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -26,7 +28,7 @@ export async function saveChannel(input: {
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const me = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.name ?? "").trim()) return { ok: false, error: "请填写渠道名称" };
+  if (!hasVisibleText(input.name)) return { ok: false, error: "请填写渠道名称" };
   const b = await getBusiness();
   const name = input.name.trim();
   const channelOwnerId = input.channelOwnerId || (await 唯一负责人());

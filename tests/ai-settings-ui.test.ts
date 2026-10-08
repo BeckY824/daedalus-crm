@@ -22,7 +22,7 @@ const 桩插件: Plugin = {
       b.onResolve({ filter }, (a) => ({ path: a.path + "#" + a.importer, namespace: "stub", pluginData: contents }));
     };
     桩(/^\.\/actions$/, `
-      const 叫 = (名, 回) => (...参) => { (window.__调用[名] ||= []).push(参); return Promise.resolve(回); };
+      const 叫 = (名, 回) => (...参) => { (window.__调用[名] ||= []).push(参); if (window.__netFail) return Promise.reject(new Error("network")); return Promise.resolve(回); };
       export const saveLlmSettings = 叫("保存", { ok: true });
       export const testLlmSettings = 叫("测试", { ok: true, ms: 1, reply: "ok" });
       export const clearLlmSettings = 叫("清除", { ok: true });
@@ -114,4 +114,28 @@ describe("桌面端登录着云端账号，改用自己的 Key（D-072）", () =
     expect(await page.evaluate(() => (window as unknown as { __调用: Record<string, unknown[]> }).__调用.保存?.length ?? 0)).toBe(0);
     await page.close();
   });
+});
+
+
+it("AI配置校验与连接/保存网络异常均可恢复，没有未处理拒绝", async () => {
+  const page = await 开();
+  const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
+  await page.getByText("用你自己的 API Key").click();
+  await page.getByRole("button", {name: /测试连接/}).click();
+  await page.getByText("请填写 API Key", {exact:true}).waitFor();
+  await page.locator("#apiKey").fill("qa-fake-not-real-key");
+  await page.evaluate(() => Object.assign(window, {__netFail:true}));
+  await page.getByRole("button", {name: /测试连接/}).click();
+  await page.getByText("连接测试失败，请稍后重试", {exact:true}).waitFor();
+  await page.getByRole("button", {name: /保\s*存/}).click();
+  await page.getByRole("button", {name:"仍然保存"}).click();
+  await page.getByText("保存失败，请刷新确认结果后重试", {exact:true}).waitFor();
+  expect(await page.locator("#apiKey").inputValue()).toBe("qa-fake-not-real-key");
+  await page.evaluate(() => Object.assign(window, {__netFail:false}));
+  await page.getByRole("button", {name: /测试连接/}).click();
+  await page.getByText(/模型回复：ok/).waitFor();
+  await page.getByRole("button", {name: /保\s*存/}).click();
+  await page.getByText("已保存，AI 功能已按新配置生效", {exact:true}).waitFor();
+  expect(errors).toEqual([]);
+  await page.close();
 });

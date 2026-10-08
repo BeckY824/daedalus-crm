@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText } from "@/lib/form-validation";
+
 import { useEffect, useRef, useState } from "react";
 import { Input, Modal, Form, Row, Col, InputNumber, Select, DatePicker, Slider, App, Space } from "antd";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
@@ -165,7 +167,7 @@ export default function OpportunityForm({
       <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
         <Row gutter={16}>
           <Col span={24}>
-            <Form.Item name="name" label="商机名称" rules={[{ required: true, message: "请填写商机名称" }]}>
+            <Form.Item name="name" label="商机名称" rules={[requiredText("请填写商机名称")]}>
               <Input placeholder={b.template === "trade" ? "如：LED 面板灯 2000 pcs 询盘" : "如：CRM 系统企业版年度采购"} />
             </Form.Item>
           </Col>
