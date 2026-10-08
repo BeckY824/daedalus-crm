@@ -90,6 +90,23 @@ describe("chatTools：content 里是 DSML、tool_calls 为空时认回来", () =
     expect(r.text).toBe("");
   });
 
+  it("混合正文和原生工具调用：保留人话和原生ID，不重复执行DSML调用", async () => {
+    回({ content: "我先找一下。\n" + 屏幕上那串 + "\n请稍等。", tool_calls: [{ id: "native1", type: "function", function: { name: "find_person", arguments: '{"name":"李文龙"}' } }] });
+    const { chatTools } = await import("@/lib/llm");
+    const r = await chatTools([{ role: "user", content: "查李文龙" }], 工具表);
+    expect(r.toolCalls.map(c => c.id)).toEqual(["native1"]);
+    expect(r.text).toContain("我先找一下。");
+    expect(r.text).toContain("请稍等。");
+    expect(r.text).not.toMatch(/DSML|李文龙/);
+  });
+  it("半截DSML的参数正文也不进入打算文本", async () => {
+    回({ content: '先查。<｜DSML｜invoke name="find_person"><｜DSML｜parameter name="name" string="true">私密参数', tool_calls: [] });
+    const { chatTools } = await import("@/lib/llm");
+    const r = await chatTools([{ role: "user", content: "查" }], 工具表);
+    expect(r.toolCalls).toEqual([]);
+    expect(r.text).toBe("先查。");
+  });
+
   it("正常的 tool_calls 不受影响", async () => {
     回({ content: "", tool_calls: [{ id: "x1", type: "function", function: { name: "propose_plan", arguments: "{}" } }] });
     const { chatTools } = await import("@/lib/llm");

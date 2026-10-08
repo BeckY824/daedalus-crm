@@ -54,6 +54,10 @@ export function 解析DSML(text: string, 允许?: Iterable<string>): { 调用: �
     for (const p of m[2].matchAll(参数块)) args[p[1].trim()] = 参数值(p[3], p[2]);
     调用.push({ id: `dsml_${Date.now().toString(36)}_${调用.length}`, type: "function", function: { name: 名, arguments: JSON.stringify(args) } });
   }
-  const 余下 = text.replace(调用块, "").replace(任意标签, "").trim();
+  // 先移除完整调用，再丢弃半截调用及其参数正文；只删标签会把参数冒充人话。
+  const 去完整 = text.replace(调用块, "");
+  const 半截 = new RegExp(`${头}(?:invoke|parameter)\\b|<\\s*[｜|]*\\s*DSML[^>]*$`);
+  const 起点 = 去完整.search(半截);
+  const 余下 = (起点 < 0 ? 去完整 : 去完整.slice(0, 起点)).replace(任意标签, "").trim();
   return { 调用, 余下 };
 }

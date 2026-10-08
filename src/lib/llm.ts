@@ -399,12 +399,13 @@ export async function chatTools(
     中转站没把 DeepSeek 的原生标记转成 tool_calls、原样塞在正文里交回来（2026-09-28 桌面端真碰到的）。
     不认回来的话，这一步就被当成「没调工具」：工具没跑、建议卡没出，回答时它还以为出了。见 llm-dsml.ts
   */
-  if (!toolCalls.length && 有DSML(text)) {
+  if (有DSML(text)) {
     const 认 = 解析DSML(text, tools.map((t) => t.function.name));
-    if (认.调用.length) {
+    // 原生调用存在时以其ID和参数为准，正文中的镜像调用只过滤展示，避免执行两遍。
+    if (!toolCalls.length && 认.调用.length) {
       console.warn(`[llm] 工具调用被当正文吐回（DSML），已认回：${认.调用.map((c) => c.function.name).join(",")}`);
-      return { toolCalls: 认.调用, text: 认.余下 };
     }
+    return { toolCalls: toolCalls.length ? toolCalls : 认.调用, text: 认.余下 };
   }
   return { toolCalls, text };
 }
