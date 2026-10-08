@@ -101,6 +101,7 @@ export default async function CustomerDetailPage({
         remark: customer.remark,
         referrerCustomerId: customer.referrerCustomerId,
         channelId: customer.channelId,
+    channelName: customer.channel?.name ?? null,
         referrerName: customer.referrerCustomer?.name ?? customer.channel?.name ?? null,
         attributionName: customer.attributionChannel?.name ?? customer.attributionCustomer?.name ?? null,
         channelOwnerId: customer.channelOwnerId,

@@ -38,6 +38,8 @@ export type CustomerRow = {
   /** 直接推荐人 */
   referrerCustomerId: string | null;
   channelId: string | null;
+  /** 保留停用渠道的可读名称，不把历史归属当作新候选 */
+  channelName?: string | null;
   referrerName: string | null;
   /** 渠道归属（往上两代）由系统计算；渠道负责人默认跟着推荐链，但可以单独订正 */
   attributionName: string | null;
@@ -114,6 +116,15 @@ function CustomerFormInner({
   const 负责人选项 = 成员选项(users);
   if (editing && !users.some((u) => u.id === editing.salesOwnerId)) {
     负责人选项.push({ value: editing.salesOwnerId, label: `${editing.salesOwnerName}（已不再担任负责人）` });
+  }
+
+  const 渠道选项 = channelOptions.map(c => ({ value: c.id, label: c.name }));
+  if (editing?.channelId && !channelOptions.some(c => c.id === editing.channelId)) {
+    渠道选项.push({ value: editing.channelId, label: `${editing.channelName ?? editing.referrerName ?? "原渠道"}（已停用）` });
+  }
+  const 渠道负责人选项 = 成员选项(users);
+  if (editing?.channelOwnerId && !渠道负责人选项.some(u => u.value === editing.channelOwnerId)) {
+    渠道负责人选项.push({ value: editing.channelOwnerId, label: `${editing.channelOwnerName ?? "原负责人"}（不在当前候选中）` });
   }
 
   /** 就地新建渠道的子弹窗 */
@@ -456,7 +467,7 @@ function CustomerFormInner({
               showSearch
               placeholder="选择外部渠道，如：小红"
               optionFilterProp="label"
-              options={channelOptions.map((c) => ({ value: c.id, label: c.name }))}
+              options={渠道选项}
               open={channelOpen}
               onOpenChange={setChannelOpen}
               /**
@@ -506,7 +517,7 @@ function CustomerFormInner({
             style={{ marginBottom: 12 }}
             extra="留空则按推荐链自动确定。只改这一位，不影响同渠道的其他人"
           >
-            <Select allowClear placeholder={editing.channelOwnerName ? `${editing.channelOwnerName}（按推荐链）` : "按推荐链自动确定"} options={成员选项(users)} />
+            <Select allowClear placeholder={editing.channelOwnerName ? `${editing.channelOwnerName}（按推荐链）` : "按推荐链自动确定"} options={渠道负责人选项} />
           </Form.Item>
         )}
         {referrerType !== "none" && (

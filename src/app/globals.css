@@ -2301,3 +2301,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .ord-notes li { border-top: 1px solid var(--line); padding-top: 12px; }
 .ord-note-h { display: flex; justify-content: space-between; gap: 12px; font-size: var(--fs-note); }
 .ord-note-c { margin-top: 4px; white-space: pre-wrap; line-height: 1.7; }
+
+/* 多行说明的单选圆点始终对齐第一行标题。 */
+.import-dup-policy .ant-radio-wrapper { align-items: flex-start; }
+.import-dup-policy .ant-radio-wrapper .ant-radio { align-self: flex-start; margin-top: 3px; }

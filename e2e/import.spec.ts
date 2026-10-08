@@ -278,17 +278,18 @@ test("J-062 第 4 步两个单选：圆点和字在同一段里、圆点在左�
   }
 });
 
-/*
-  还剩一点：圆点按整段（标题 + 说明）垂直居中，说明折成两行的「只补空」那一项，圆点落在说明那一行旁边、不在粗体标题旁边。
-  不伤数据，排下一版
-*/
-test.skip("【下一版】J-062 第 4 步两个单选：圆点对齐粗体标题那一行，不落到说明旁边", async ({ page }) => {
+test("J-062 第 4 步两个单选：圆点对齐粗体标题那一行，不落到说明旁边", async ({ page }) => {
   await 登录(page);
   const { 选项 } = await 到第4步有重复(page, "32");
-  for (let i = 0; i < 2; i++) {
-    const 圆 = (await 选项.nth(i).locator(".ant-radio").boundingBox())!;
-    const 标题 = (await 选项.nth(i).locator("b").boundingBox())!;
-    expect(Math.abs(圆.y + 圆.height / 2 - (标题.y + 标题.height / 2)), `第 ${i + 1} 个选项圆点没对着标题`).toBeLessThan(4);
+  for (const zoom of [1, 1.25]) {
+    await page.evaluate(z => { document.body.style.zoom = String(z); }, zoom);
+    for (let i = 0; i < 2; i++) {
+      const 圆 = (await 选项.nth(i).locator(".ant-radio").boundingBox())!;
+      const 标题 = (await 选项.nth(i).locator("b").boundingBox())!;
+      expect(Math.abs(圆.y + 圆.height / 2 - (标题.y + 标题.height / 2)), `缩放${zoom}第 ${i + 1} 个选项圆点没对着标题`).toBeLessThan(4 * zoom);
+      await 选项.nth(i).locator("b").click();
+      await expect(选项.nth(i).getByRole("radio")).toBeChecked();
+    }
   }
 });
 

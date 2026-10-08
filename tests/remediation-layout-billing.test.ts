@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from "vitest";
-const state = vi.hoisted(() => ({ hosted: true, workspaces: [{ id: "qa-ws", name: "QA", slug: "qa-private", role: "OWNER" }] }));
+const state = vi.hoisted(() => ({ hosted: true, queries: [] as string[], workspaces: [{ id: "qa-ws", name: "QA", slug: "qa-private", role: "OWNER" }] }));
 vi.mock("@/lib/auth", () => ({ getCurrentUser: async () => ({ id: "qa", name: "QA", role: "ADMIN", accountId: "qa-account", workspaceId: "qa-ws" }) }));
-vi.mock("@/lib/prisma", () => ({ prisma: { customer: { count: async () => 1 }, opportunity: { count: async () => 1 } } }));
+vi.mock("@/lib/prisma", () => ({ prisma: { customer: { count: async () => {state.queries.push("customer");return 1} }, opportunity: { count: async () => {state.queries.push("opportunity");return 1} } } }));
 vi.mock("next/headers", () => ({ headers: async () => new Headers() }));
-vi.mock("@/lib/favorites", () => ({ 读收藏: async () => [] }));
+vi.mock("@/lib/favorites", () => ({ 读收藏: async () => {state.queries.push("favorites");return []} }));
 vi.mock("@/lib/reminders-db", () => ({ 取提醒项: async () => [], 取订单提醒项: async () => [] }));
 vi.mock("@/lib/business", () => ({ getBusiness: async () => ({}) }));
 vi.mock("@/lib/desktop/cloud", () => ({ 本地模式: () => false, 归属对不上: () => false, 读: () => null }));
@@ -28,4 +28,11 @@ it.each([
   const layout = await AppLayout({ children: null, pane: null, modal: null });
   expect(layout.props.timeZone).toBe(hosted ? "Asia/Shanghai" : null);
   expect(layout.props.children.props.children[0].props.workspace).toMatchObject({ name: "QA", billing });
+});
+
+it.each([true,false])("L-112 hosted=%s 每次布局只加载一次实际用于侧栏的计数与收藏",async hosted=>{
+ state.hosted=hosted;state.queries=[];const layout=await AppLayout({children:null,pane:null,modal:null});
+ expect(state.queries.sort()).toEqual(["customer","favorites","opportunity"]);
+ const props=layout.props.children.props.children[0].props;
+ expect(props.计数).toMatchObject({"/customers":1,"/opportunities":1});expect(props.收藏).toEqual([]);
 });

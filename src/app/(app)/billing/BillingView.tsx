@@ -5,6 +5,7 @@ import { App, Alert, Button, Input } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { submitPayment } from "./actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
+import { 长期有效 } from "@/lib/tenant/entitlement-display";
 import { dayjs } from "@/lib/utils";
 
 /**
@@ -62,7 +63,7 @@ export default function BillingView({
       <h1 className="bill-h">开通订阅</h1>
       <div className="bill-sub">
         工作区「{workspaceName}」
-        {paidUntil ? ` · 已开通至 ${dayjs(paidUntil).format("YYYY-MM-DD")}` : writable ? ` · 试用还剩 ${daysLeft} 天` : " · 试用已结束"}
+        {paidUntil ? ` · 已开通至 ${dayjs(paidUntil).format("YYYY-MM-DD")}` : writable ? 长期有效(daysLeft) ? " · 长期有效" : ` · 试用还剩 ${daysLeft} 天` : " · 试用已结束"}
       </div>
 
       {!writable && (

@@ -134,6 +134,7 @@ export function 成客户行(r: 取到的行, 号: (p: string) => string) {
     remark: r.remark,
     referrerCustomerId: r.referrerCustomerId,
     channelId: r.channelId,
+    channelName: r.channel?.name ?? null,
     // 推荐人可能是渠道，也可能是已有学员
     referrerName: r.referrerCustomer?.name ?? r.channel?.name ?? null,
     // 渠道归属：往上两代的计算结果

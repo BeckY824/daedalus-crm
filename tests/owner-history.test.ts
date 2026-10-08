@@ -161,3 +161,12 @@ describe("T-030 按人点进去的明细和那一行同一个口径", () => {
     expect(按人明细(r.明细, "销售", 张三.id).map((x) => x.金额)).toEqual([500000]);
   });
 });
+
+it("J-030 清空渠道负责人恢复当前推荐链，不改另一客户或旧签约快照", async () => {
+  const other=await prisma.customer.create({data:{name:"另一客户",phone:"13800000002",salesOwnerId:张三.id,channelId:渠道.id,channelOwnerId:张三.id}});
+  await prisma.channel.update({where:{id:渠道.id},data:{channelOwnerId:李四.id}});
+  expect(await patchCustomer(客户.id,"channelOwnerId",null)).toMatchObject({ok:true});
+  expect((await prisma.customer.findUniqueOrThrow({where:{id:客户.id}})).channelOwnerId).toBe(李四.id);
+  expect((await prisma.customer.findUniqueOrThrow({where:{id:other.id}})).channelOwnerId).toBe(张三.id);
+  expect((await prisma.contractOwner.findFirstOrThrow()).channelOwnerId).toBe(张三.id);
+});

@@ -530,7 +530,7 @@ export function 确认({
         {外贸精简(b) ? "已经在库里的那些行怎么办" : "手机号已经在库里的那些行怎么办"}
       </Typography.Title>
       {/* 竖排靠 Group 的 flex，不给 Radio 设 display:block——那会把圆点和字拆成两行、说明文字冲出抽屉（核对教程时看到的） */}
-      <Radio.Group value={重复行} onChange={(e) => set重复行(e.target.value)} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Radio.Group className="import-dup-policy" value={重复行} onChange={(e) => set重复行(e.target.value)} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <Radio value="跳过">
           <b>跳过</b>
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>一个字都不动。不确定表里哪一份新时选它</div>
