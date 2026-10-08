@@ -1,10 +1,7 @@
 /**
  * 桌面端的「检查更新」查两个源：官网的 latest.json（自家源）和 GitHub 的最新 Release。
  *
- * 这里钉的是**取谁**。原来的写法是「先查自家源，查到就算数」，GitHub 只在自家源
- * 不通时兜底——于是 0.19.0 / 0.19.1 / 0.20.0 连着三次发版忘了改 latest.json，
- * 它就把所有人按在 0.18.1 上，而 GitHub 上明明已经有新包。
- * 一个手写文件不该有能力盖掉真实的发布记录，所以现在是谁新听谁的。
+ * 官网有效feed控制逐平台放行；取不到或错误JSON时才由GitHub兜底。
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createRequire } from "node:module";
@@ -114,11 +111,11 @@ describe("候选带不带 dmg 直链和哈希", () => {
     假网络(null, {
       tag_name: "v0.23.0",
       html_url: "https://github.com/x/y/releases/tag/v0.23.0",
-      assets: [资产("Daedalus.CRM-0.23.0-x64.dmg", "sha256:AAAA"), 资产("Daedalus.CRM-0.23.0-arm64.dmg", "sha256:BBBB"), 资产("notes.txt")],
+      assets: [资产("Daedalus.CRM-0.23.0-x64.dmg", `sha256:${"A".repeat(64)}`), 资产("Daedalus.CRM-0.23.0-arm64.dmg", `sha256:${"B".repeat(64)}`), 资产("notes.txt")],
     });
     const 结果 = await 检查({ 当前版本: "0.22.1" });
     expect(结果?.dmg).toBe("https://github.com/x/y/releases/download/v0.23.0/Daedalus.CRM-0.23.0-arm64.dmg");
-    expect(结果?.sha256).toBe("bbbb");
+    expect(结果?.sha256).toBe("b".repeat(64));
   });
 
   it("没有 arm64 就退而取第一个 dmg；没有 digest 时 sha256 为 null", async () => {
@@ -129,10 +126,10 @@ describe("候选带不带 dmg 直链和哈希", () => {
   });
 
   it("自家 feed 带 dmg 和 sha256 就用它的", async () => {
-    假网络({ version: "0.23.0", dmg: "https://ai-daedalus.com/d/a.dmg", sha256: "sha256:CCCC", notes: "" }, null);
+    假网络({ version: "0.23.0", dmg: "https://ai-daedalus.com/d/a.dmg", sha256: `sha256:${"C".repeat(64)}`, notes: "" }, null);
     const 结果 = await 检查({ 当前版本: "0.22.1" });
     expect(结果?.dmg).toBe("https://ai-daedalus.com/d/a.dmg");
-    expect(结果?.sha256).toBe("cccc");
+    expect(结果?.sha256).toBe("c".repeat(64));
   });
 
   it("老格式的 feed（只有 url）：dmg 为 null，调用方退回下载页", async () => {

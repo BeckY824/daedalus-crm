@@ -20,6 +20,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 
+// 仅本文件的回环HTTP服务器；生产更新默认仍强制HTTPS。
+beforeAll(() => vi.stubEnv("CRM_UPDATE_ALLOW_LOCAL_HTTP", "1"));
+afterAll(() => vi.unstubAllEnvs());
+
 const require_ = createRequire(import.meta.url);
 const 窗装 = require_("../desktop/windows-install.js");
 const 差量 = require_("../desktop/delta.js");

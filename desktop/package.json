@@ -33,6 +33,7 @@
       "accounts.js",
       "machine.js",
       "updater.js",
+      "update-security.js",
       "route-memory.js",
       "install.js",
       "windows-install.js",

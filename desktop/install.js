@@ -19,6 +19,7 @@
  *
  * 不引 electron：全是 node 内置模块，能直接拿 node 测。执行外部命令的函数可注入。
  */
+const { 安全地址, 安全获取, 规范哈希 } = require("./update-security");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
@@ -106,6 +107,8 @@ function 能原地更新(bundle, { platform = process.platform, 可写 = 目录�
  * 第一个地址把重试用完还不行，扔掉 .part 换下一个从头下。
  */
 async function 下载文件({ url, 备用 = null, 目标, sha256 = null, 进度 = () => {}, fetch: f = globalThis.fetch, 重试 = 4, 等待 = (ms) => new Promise((r) => setTimeout(r, ms)), 日志 = () => {} }) {
+  if (![url, ...(Array.isArray(备用) ? 备用 : 备用 ? [备用] : [])].every((address) => 安全地址(address))) throw new Error("更新地址不安全，必须使用HTTPS");
+  if (sha256 !== null && !规范哈希(sha256)) throw new Error("缺少有效的sha256校验值");
   // 上次下完没装（比如直接退出了）：文件还在、哈希对得上，就不再下一遍 160 MB
   if (sha256 && fs.existsSync(目标)) {
     try {
@@ -134,6 +137,14 @@ async function 下载文件({ url, 备用 = null, 目标, sha256 = null, 进度 
       if (第 > 0) await 等待(Math.min(1000 * 2 ** (第 - 1), 8000));
       try {
         await 下一段({ url: 这个地址, 临时, 进度, fetch: f });
+        if (sha256) {
+          try { await 校验sha256(临时, sha256); }
+          catch (error) {
+            await fsp.rm(临时, { force: true });
+            error.不重试 = true;
+            throw error;
+          }
+        }
         await fsp.rename(临时, 目标);
         return 目标;
       } catch (e) {
@@ -155,7 +166,7 @@ async function 下一段({ url, 临时, 进度, fetch: f }) {
   }
   const headers = { "User-Agent": "DaedalusCRM-Desktop" };
   if (已有 > 0) headers.Range = `bytes=${已有}-`;
-  const res = await f(url, { redirect: "follow", headers });
+  const res = await 安全获取(url, { headers }, f);
   if (res.status === 416) {
     await fsp.rm(临时, { force: true });
     throw new Error("半截文件比整个文件还长，扔掉重下");
@@ -200,7 +211,8 @@ async function 下一段({ url, 临时, 进度, fetch: f }) {
 
 /** 文件的 sha256 要和发布记录里的一致——GitHub 给每个 Release 资产都算了一份 */
 async function 校验sha256(file, 期望) {
-  const 期望值 = String(期望).replace(/^sha256:/, "").toLowerCase();
+  const 期望值 = 规范哈希(期望);
+  if (!期望值) throw new Error("缺少有效的sha256校验值");
   const h = crypto.createHash("sha256");
   for await (const c of fs.createReadStream(file)) h.update(c);
   const 实际 = h.digest("hex");

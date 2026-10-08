@@ -148,9 +148,9 @@ describe("feed 字段缺失 / 损坏", () => {
     【C】dmg / zip / manifest / exe 这几个地址不校验协议（备用 那几个是校验的，updater.js:65-73）：
     feed 里写成 http:// 也照下。有 sha256 时内容被换会被拦下，所以只是 C。
   */
-  it("【C-4 现状】feed 里 dmg 写成 http://：照单全收（备用地址才查协议）", async () => {
+  it("R-004 修后：feed的HTTP制品不能自动下载", async () => {
     假网络(官网feed("0.46.15", { dmg: "http://insecure.example/x.dmg" }), null);
-    expect((await 检查({ 当前版本: "0.46.14", ...Mac }))?.dmg).toBe("http://insecure.example/x.dmg");
+    expect((await 检查({ 当前版本: "0.46.14", ...Mac }))?.dmg).toBeNull();
   });
 });
 

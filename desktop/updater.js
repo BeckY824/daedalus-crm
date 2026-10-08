@@ -7,17 +7,14 @@
  * sha256 一起交出去：自家源的 latest.json 里带，GitHub 的 Release 资产自带 digest。
  * 两样都没有时（老的 feed）退回原来的做法：打开下载页。
  *
- * 两个来源，取版本号更高的那个：自家那份是一个我们自己发布的小 JSON，能随时改，
- * 说明文案也由它给；GitHub 那份打了 tag、传了产物就自动是最新的，不用我们维护。
- *
- * 为什么不是「先自家、查到就算数」——0.19.0 / 0.19.1 / 0.20.0 连着三次发版都忘了改自家那份，
- * 结果它把用户按在 0.18.1 上，而 GitHub 上明明已经有新包了。
- * 一个手写文件不该有能力盖掉真实的发布记录，所以改成谁新听谁的；
- * 两边一样新时用自家的，因为它的说明文案是写给人看的。
+ * 官网有效feed控制放行；仅在feed不可用或返回错误JSON时查询GitHub兜底。
+ * 有效feed撤下某平台时，该平台保持暂停，不绕过运营放行。
  *
  * 刻意不引 electron：全是纯逻辑加一次 HTTP，不引就能直接拿 node 测。
  * 当前版本由调用方传进来。
  */
+
+const { 安全地址, 规范哈希, 安全获取 } = require("./update-security");
 
 /** 自家的版本信息。发布时更新它，格式见 docs/桌面端安装.md。环境变量可覆盖，方便联调 */
 const 自家源 = process.env.CRM_UPDATE_URL || "https://ai-daedalus.com/desktop/latest.json";
@@ -51,11 +48,11 @@ const 挑dmg = (assets) => 挑资产(assets, /\.dmg$/);
 
 /** GitHub 给的是 "sha256:…"，自家 feed 里可能带也可能不带前缀，统一成裸的小写十六进制 */
 function 剥哈希前缀(v) {
-  return v ? String(v).replace(/^sha256:/i, "").toLowerCase() : null;
+  return 规范哈希(v);
 }
 
 /**
- * feed 里的「备用」。只认 http(s) 的绝对地址：这份 JSON 是从网上取的，
+ * feed 里的「备用」。只认安全HTTPS绝对地址：这份 JSON 是从网上取的，
  * 里面的字符串不该被当成可以直接交给 fetch 的东西，随手校一下不亏。
  * 一个能用的都没有就返回 null，调用方按「没有备用」处理。
  */
@@ -64,14 +61,15 @@ function 取备用(原始) {
   const 出 = {};
   for (const 键 of ["dmg", "zip", "manifest", "exe"]) {
     const v = 原始[键];
-    if (typeof v === "string" && /^https?:\/\//i.test(v)) 出[键] = v;
+    const safe = 安全地址(v);
+    if (safe) 出[键] = safe;
   }
   return Object.keys(出).length ? 出 : null;
 }
 
 async function 取JSON(url) {
   try {
-    const res = await fetch(url, {
+    const res = await 安全获取(url, {
       headers: { Accept: "application/json", "User-Agent": "DaedalusCRM-Desktop" },
       signal: AbortSignal.timeout(10_000),
     });
@@ -88,24 +86,28 @@ async function 取JSON(url) {
  */
 async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
   // 两边一起问：任一边不通都不影响另一边，总耗时也还是一次超时
-  const [feed, gh] = await Promise.all([取JSON(自家源), 取JSON(GitHub源)]);
+  const [rawFeed, gh] = await Promise.all([取JSON(自家源), 取JSON(GitHub源)]);
+  const 是对象 = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
+  const 合法版本 = (v) => typeof v === "string" && /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(v);
+  // 200错误JSON不算feed；有效platforms对象（包括空对象）仍保留人工撤平台的闸门。
+  const feed = 是对象(rawFeed) && (合法版本(rawFeed.version) || 是对象(rawFeed.platforms)) ? rawFeed : null;
   // 新 feed 按平台/架构隔离；旧的顶层字段只供 Mac 使用。
   const 自家 = feed?.platforms?.[`${platform}-${arch}`] || (platform === "darwin" ? feed : null);
 
   const 候选 = [];
-  if (自家?.version) {
+  if (合法版本(自家?.version)) {
     候选.push({
       版本: String(自家.version),
-      地址: 自家.url || 下载页,
+      地址: 安全地址(自家.url) || 下载页,
       说明: 自家.notes || "",
-      dmg: 自家.dmg || null,
-      ...(platform === "win32" ? { exe: 自家.exe || null } : {}),
+      dmg: 安全地址(自家.dmg),
+      ...(platform === "win32" ? { exe: 安全地址(自家.exe) } : {}),
       // 整包多大，按钮上要写给用户看（feed 里是「161 MB」这样的字）
       体积: 自家.size ? String(自家.size) : null,
       sha256: 剥哈希前缀(自家.sha256),
       // 差量要的两样：ditto 打的 zip 和它的清单。老的 feed 没有，那就只能整包
-      zip: 自家.zip || null,
-      manifest: 自家.manifest || null,
+      zip: 安全地址(自家.zip),
+      manifest: 安全地址(自家.manifest),
       // 清单的 sha256：差量先核它再信清单（delta.js 拉清单）。发版时从 GitHub 原件算的，不经过镜像
       清单哈希: 剥哈希前缀(自家.manifest_sha256),
       // 上面三个地址可能指向我们自己的镜像（国内下 GitHub 慢，见官网仓库 deploy/mirror.sh）。
@@ -122,9 +124,9 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
     看的是 **feed 本身取没取到**，不是「feed 里有没有这个平台那一条」（第三轮 B8）：
     运营把 Windows 那条撤下来想按住时，Windows 不该反而从 GitHub 拿到新版
   */
-  if (gh?.tag_name && !feed) {
+  if (合法版本(gh?.tag_name) && !feed) {
     const 资产 = platform === "win32"
-      ? (gh.assets || []).find((a) => new RegExp(`-${arch}-setup\\.exe$`, "i").test(a.name || ""))
+      ? (Array.isArray(gh.assets) ? gh.assets : []).find((a) => new RegExp(`-${arch}-setup\\.exe$`, "i").test(a.name || ""))
       : 挑dmg(gh.assets);
     // Mac 发布不能让 Windows 用户收到没有对应安装包的更新。
     if (platform === "win32" && !资产) return 候选.length ? 候选.reduce((a, b) => 比版本(b.版本, a.版本) > 0 ? b : a) : null;
@@ -133,17 +135,17 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       : 挑资产(gh.assets, /(?<!-win)\.manifest\.json\.gz$/);
     候选.push({
       版本: String(gh.tag_name),
-      地址: gh.html_url || 下载页,
+      地址: 安全地址(gh.html_url) || 下载页,
       说明: String(gh.body || "").slice(0, 600),
-      dmg: platform === "darwin" ? 资产?.browser_download_url || null : null,
-      ...(platform === "win32" ? { exe: 资产?.browser_download_url || null } : {}),
+      dmg: platform === "darwin" ? 安全地址(资产?.browser_download_url) : null,
+      ...(platform === "win32" ? { exe: 安全地址(资产?.browser_download_url) } : {}),
       体积: 资产?.size ? `${Math.round(资产.size / 1048576)} MB` : null,
       sha256: 剥哈希前缀(资产?.digest),
       // 差量两样按平台各取各的：Windows 的叫 …-x64-win.zip / …-x64-win.manifest.json.gz（CI 的 7z 打的），
       // Mac 的清单规则要排除它——不然两边都挂在滚动 Release 上时，Mac 可能拿到 Windows 的清单
       // Windows 一律整包（2026-10-02 起）：兜底这一支也不给 Windows 差量的两样，main.js 见不到就走整包（第三轮 B8）
-      zip: platform === "win32" ? null : 挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url || null,
-      manifest: platform === "win32" ? null : 清单资产?.browser_download_url || null,
+      zip: platform === "win32" ? null : 安全地址(挑资产(gh.assets, /\.app\.zip$/)?.browser_download_url),
+      manifest: platform === "win32" ? null : 安全地址(清单资产?.browser_download_url),
       // GitHub 自己给每个资产算的 sha256（API 的 digest 字段），直连 GitHub 拿，镜像碰不到
       清单哈希: platform === "win32" ? null : 剥哈希前缀(清单资产?.digest),
       // GitHub 这一支给的就是原址，没有再备一份的必要
