@@ -34,7 +34,7 @@ const 桩插件: Plugin = {
     `);
     桩(/^\.\/import-actions$/, `
       const 记 = (名, 参) => (window.__调用[名] ||= []).push(JSON.parse(JSON.stringify(参)));
-      export const 预览导入 = (...参) => { 记("预览", 参); return Promise.resolve({ ok: true, 预览: ${JSON.stringify(预览)} }); };
+      export const 预览导入 = (...参) => { 记("预览", 参); return Promise.resolve({ ok: true, 预览: window.__预览结果 ?? ${JSON.stringify(预览)} }); };
       export const 执行导入 = (...参) => { 记("执行", 参); return Promise.resolve({ ok: true, batchId: "b1", 新建: 4, 补空: 0, 跳过: 0, 进不了: 0 }); };
       export const 撤销批次 = () => Promise.resolve({ ok: true, 删掉: 0, 还原: 0, 没动: [] });
     `);
@@ -250,4 +250,40 @@ describe("抽屉上说的是实情（L-076 / H-096）", () => {
     expect(await page.locator("body").innerText()).not.toMatch(/不上传/);
     await page.close();
   });
+});
+
+it("J053/J055：真实文件上传如实提示截断和公式修复，不自动预览", async () => {
+  const page = await 开();
+  page.setDefaultTimeout(5000);
+  await page.locator('input[type="file"]').setInputFiles(path.resolve("tests/fixtures/r2-data-公式.xlsx"));
+  await page.getByText(/单元格 B3 的公式没有缓存结果/).waitFor();
+  expect(await 调用(page, "预览")).toHaveLength(0);
+  const headers = ["姓名", "手机号", ...Array.from({length: 49}, (_, i) => "额外" + i)];
+  const row = ["张三", "13800000001", ...Array(49).fill("值")].join(",");
+  const csv = headers.join(",") + "\n" + Array(10001).fill(row).join("\n");
+  await page.locator('input[type="file"]').setInputFiles({ name: "超大.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
+  await page.getByText(/原文件总行数未统计/).waitFor();
+  const text = await page.locator("body").innerText();
+  expect(text).toContain("原文件总列数未统计");
+  expect(text).toContain("请拆成每份不超过 10000 条");
+  expect(text).not.toMatch(/原表 \d+ [行列]/);
+  await page.screenshot({ path: path.resolve("../测试证据-2026-10-08/整改-J053-大表提示.png"), fullPage: true });
+  await page.close();
+});
+
+it("J050：确认步骤同时显示真实补空与跳过，允许切换处置", async () => {
+  const page = await 开();
+  page.setDefaultTimeout(5000);
+  await page.evaluate(() => Object.assign(window, { __预览结果: { 新建: 0, 已在库里: 3, 可补空: 1, 补空: 0, 跳过: 3, 说不清: 0, 进不了: 0, 合掉几行: 0, 待复核: [], 挡下: [], 没对上的列名: [] } }));
+  await 选文件(page);
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.getByRole("radio", { name: /只补空着的字段/ }).check();
+  await expect.poll(() => page.getByRole("radio", { name: /只补空着的字段/ }).isChecked()).toBe(true);
+  await expect.poll(() => page.getByRole("button", { name: "开始导入" }).isEnabled()).toBe(true);
+  await page.getByText("跳过（无需补空/不可修改）", { exact: true }).waitFor();
+  expect(await page.getByText("补空字段", { exact: true }).locator("..").innerText()).toMatch(/1/);
+  expect(await page.getByText("跳过（无需补空\/不可修改）", { exact: true }).locator("..").innerText()).toMatch(/2/);
+  await page.screenshot({ path: path.resolve("../测试证据-2026-10-08/整改-J050-补空预览.png"), fullPage: true });
+  await page.close();
 });

@@ -22,7 +22,8 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {}
 vi.mock("@/lib/auth", () => ({
   requireUser: async () => ({ id: mocks.userId, name: "测试员", email: "t", role: "ADMIN", title: "" }),
 }));
-const mocks = { userId: "" };
+const mocks = { userId: "", limited: null as string | null };
+vi.mock("@/lib/team-scope", async (original) => ({ ...await original<typeof import("@/lib/team-scope")>(), 限定的我: async () => mocks.limited }));
 
 import { 预览导入, 执行导入, 撤销批次, 最近批次, type 导入方案 } from "@/app/(app)/customers/import-actions";
 import { 解析CSV, 成表 } from "@/lib/import/parse";
@@ -32,6 +33,7 @@ import { DEFAULT_BUSINESS } from "@/lib/business-config";
 let 销售: string;
 
 beforeEach(async () => {
+  mocks.limited = null;
   await resetDb();
   const u = await prisma.user.create({ data: { id: "tester-id", email: "t@x", name: "测试员", title: "管理员", role: "ADMIN", password: "x" } });
   销售 = u.id;
@@ -49,6 +51,28 @@ const 建客户 = (name: string, phone: string, extra: Record<string, unknown> =
   prisma.customer.create({ data: { name, phone, salesOwnerId: 销售, ...extra } });
 
 describe("预览说的就是真正会发生的", () => {
+  it("J050：不受重复行默认值影响，仅真实修改计补空，备注追加去重", async () => {
+    await 建客户("无空位", "13800000001", { school: "已有公司" });
+    await 建客户("有空位", "13800000002");
+    await 建客户("追加", "13800000003", { remark: "原备注" });
+    const p = 方案("姓名,手机号,公司,微信号\n无空位,13800000001,新公司,\n有空位,13800000002,新公司,\n追加,13800000003,,wx_3");
+    const r = await 预览导入(p);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.预览).toMatchObject({ 已在库里: 3, 可补空: 2, 补空: 0, 跳过: 3 });
+    const w = await 执行导入({ ...p, 重复行: "补空" }, "preview.csv");
+    expect(w).toMatchObject({ ok: true, 补空: 2, 跳过: 1 });
+    const again = await 预览导入({ ...p, 重复行: "补空" });
+    expect(again).toMatchObject({ ok: true, 预览: { 可补空: 0, 补空: 0, 跳过: 3 } });
+  });
+
+  it("J050：认得出同事的客户，但没有修改权限不能计补空", async () => {
+    await 建客户("同事的", "13800000001");
+    mocks.limited = "another-sales";
+    const p = 方案("姓名,手机号,公司\n同事的,13800000001,新公司", "补空");
+    expect(await 预览导入(p)).toMatchObject({ ok: true, 预览: { 新建: 0, 可补空: 0, 补空: 0, 跳过: 1 } });
+    expect(await 执行导入(p, "restricted.csv")).toMatchObject({ ok: true, 补空: 0, 跳过: 1 });
+  });
+
   it("新建、跳过、进不了三个数各归各位", async () => {
     await 建客户("老客户", "13800000001");
     const r = await 预览导入(方案("姓名,手机号\n老客户,13800000001\n新客户,13800000002\n没号的,"));

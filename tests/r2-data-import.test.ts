@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { unzipSync, zipSync, strFromU8, strToU8 } from "fflate";
 
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "我", email: "me@local", role: "ADMIN", title: "管理员", avatar: null },
@@ -120,16 +121,16 @@ describe("xlsx 的怪样子", () => {
   });
 
   it("公式：Excel 存过的（有缓存值）读得出号码", () => {
-    const t = 收文件("r2-data-公式.xlsx");
+    // 同一旧夹具同时包含无缓存公式；只保留有缓存行，分别验证两种情况。
+    const pack = unzipSync(夹具("r2-data-公式.xlsx"));
+    const sheet = "xl/worksheets/sheet1.xml";
+    pack[sheet] = strToU8(strFromU8(pack[sheet]).replace(/<row r="3">[\s\S]*?<\/row>/, ""));
+    const t = 成表(读xlsx带行号(zipSync(pack)).rows);
     expect(t.数据[0]).toEqual(["张三", "13800000001"]);
   });
 
-  it("公式：没有缓存值（程序生成、没在 Excel 里打开过）读出来是空，挡下原因只说「没有手机号」（C，记录现状）", async () => {
-    const t = 收文件("r2-data-公式.xlsx");
-    expect(t.数据[1]).toEqual(["李四", ""]);
-    const r = await 预览导入(方案(t));
-    if (!r.ok) throw new Error(r.error);
-    expect(r.预览.挡下).toEqual([{ 行号: 3, 原因: "这一行没有手机号" }]);
+  it("J055：无缓存公式在读文件时明确单元格和修复方法，不误报缺手机号", () => {
+    expect(() => 收文件("r2-data-公式.xlsx")).toThrow(/B3.*公式.*缓存.*重新计算.*粘贴为值/);
   });
 
   it("1904 日期系统的簿子：预计签约不该差出四年（J-054）", async () => {
@@ -153,18 +154,18 @@ describe("xlsx 的怪样子", () => {
     expect(t.数据).toEqual([["张三", "13800000001"], ["李四", "13800000002"], ["王五", "13800000003"]]);
   });
 
-  it.skip("【下一版】超宽（60 列）：截到 50 列，并且如实说原表有几列", () => {
+  it("J053：超宽表保留50列，截断标记为观测下限，不伪装原表总数", () => {
     const t = 收文件("r2-data-超宽.xlsx");
     expect(t.表头).toHaveLength(50);
-    expect(t.截断了?.列, "界面写「原表 N 列」，N 应是 60").toBe(60);
+    expect(t.截断了?.列).toBeGreaterThan(50);
   });
 
-  it.skip("【下一版】上万行（10050 行）：只读前 10000 行，并且如实说原表有几行", () => {
+  it("J053：上万行保留10000条并检测超限，原文件总数未统计", () => {
     const t0 = Date.now();
     const t = 收文件("r2-data-上万行.xlsx");
     expect(Date.now() - t0).toBeLessThan(5000);
     expect(t.数据).toHaveLength(行数上限);
-    expect(t.截断了?.行, "界面写「原表 N 行」，N 应是 10050").toBe(10050);
+    expect(t.截断了?.行).toBeGreaterThan(行数上限);
   });
 });
 
@@ -303,7 +304,7 @@ describe("重复与库里已有", () => {
     expect([c.remark, c.school]).toEqual(["人手录的", "远山"]);
   });
 
-  it.skip("【下一版】【B】库里已有、该补的格子都有值：预览说「补空 1」，实际补空 0、跳过 1（预览数 ≠ 实际数）", async () => {
+  it("J050：库里已有且无空格时，预览与执行都补空0跳过1", async () => {
     await prisma.customer.create({ data: { name: "张三", phone: "13800000001", school: "远山", salesOwnerId: 我 } });
     const p = csv方案("姓名,手机号,公司\n张三,13800000001,平川", "补空");
     const r = await 预览导入(p);
