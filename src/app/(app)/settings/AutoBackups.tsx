@@ -38,11 +38,11 @@ export default function AutoBackups() {
     const 何时 = dayjs(项.时间).format("M 月 D 日 HH:mm");
     modal.confirm({
       title: `恢复到 ${何时} 的备份？`,
-      content: "这之后录的会回到那时的样子。现在的数据会先另存一份「恢复前」，恢复错了还能再恢复回来。恢复时应用会重新载入几秒。",
+      content: "这之后录的会回到那时的样子。当前好库先另存「恢复前」；如已损坏，会保留原数据库及临时文件供进一步恢复。恢复时应用会重新载入几秒。",
       okText: "恢复",
       cancelText: "取消",
       async onOk() {
-        const r = await window.desktopShell?.restoreAutoBackup?.(项.文件名);
+        const r = await window.desktopShell?.restoreAutoBackup?.(项.文件名).catch(() => ({ ok: false, error: "恢复请求失败，请检查应用日志后重试" }));
         // 成功时壳会整页重载，这一句多半来不及看见；失败才是要说清楚的
         if (r && !r.ok) message.error(r.error ?? "没恢复成");
       },

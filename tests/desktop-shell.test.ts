@@ -305,10 +305,49 @@ it.each(["win32", "darwin"])("D095 %s 实际菜单只给Mac使用zoom role，导
   expect(text).toContain('"accelerator":"CmdOrCtrl+1"');
 });
 
+it("启动故障恢复只接受当前账号的自动备份，取消不恢复，失败可见", async () => {
+  const restore = vi.fn(async () => ({ ok: true }));
+  const open = vi.fn(async () => ({ canceled: true, filePaths: [] as string[] }));
+  const message = vi.fn(async (_win: unknown, _options: object) => ({ response: 1 }));
+  const choose = new Function("dialog", "自动备份", "fs", "path", "从自动备份恢复", `const 数据目录='/qa/current',win=null;
+    ${取函数(main, "选择自动备份恢复")};return 选择自动备份恢复;`)(
+    { showOpenDialog: open, showMessageBox: message }, { 备份目录: () => "/qa/current/backups" }, { realpathSync: (p: string) => p }, path.posix, restore,
+  );
+  expect(await choose()).toBe(false); expect(restore).not.toHaveBeenCalled();
+  open.mockResolvedValue({ canceled: false, filePaths: ["/qa/other/backups/daily-2026-10-01.db"] });
+  await expect(choose()).rejects.toThrow("当前账号"); expect(restore).not.toHaveBeenCalled();
+  open.mockResolvedValue({ canceled: false, filePaths: ["/qa/current/backups/daily-2026-10-01.db"] });
+  expect(await choose()).toBe(false); expect(restore).not.toHaveBeenCalled();
+  message.mockResolvedValue({ response: 0 }); expect(await choose()).toBe(true);
+  expect(restore).toHaveBeenCalledExactlyOnceWith("daily-2026-10-01.db");
+  restore.mockResolvedValue({ ok: false }); expect(await choose()).toBe(false);
+  expect(message.mock.calls.at(-1)?.[1]).toMatchObject({ title: "未恢复" });
+});
+
+it("恢复共享入口拒绝服务器模式及并发请求，启动救援成功重新启动完整应用", async () => {
+  const restore = vi.fn(() => ({ 另存: "before-restore-QA.db", 隔离: null }));
+  let release!: () => void;
+  const stop = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+  const relaunch = vi.fn(), exit = vi.fn();
+  const make = (mode: string) => new Function("读配置", "本地服务", "自动备份", "app", "path", `
+    const 数据目录='/qa',备份={校验数据库(){}},崩溃={写崩溃日志(){}},win=null;
+    let 恢复进行中=false,启动故障保持运行=true,本地={},凭据监视=null;
+    const 盯住凭据=()=>{},启动本地=async()=>{},报告本地故障=()=>{};
+    ${取函数(main, "从自动备份恢复")};return 从自动备份恢复;`)(
+    () => ({ mode }), { stop }, { 恢复: restore }, { relaunch, exit }, path,
+  );
+  expect(await make("server")("daily-QA.db")).toMatchObject({ ok: false }); expect(stop).not.toHaveBeenCalled();
+  const run = make("local"); const first = run("daily-QA.db");
+  expect(await run("daily-QA.db")).toMatchObject({ ok: false, error: "正在恢复，请等待完成" });
+  release(); expect(await first).toMatchObject({ ok: true });
+  expect(restore).toHaveBeenCalledOnce(); expect(relaunch).toHaveBeenCalledOnce(); expect(exit).toHaveBeenCalledWith(0);
+  expect(main).toContain('process.platform !== "darwin" && !启动故障保持运行');
+});
+
 describe("本机服务起不来、起两次（回归核对 D-035 / D-036 / R-016）", () => {
   it("D-035 故障框只给「重试 / 查看完整日志 / 退出」，没有「改用服务器」（那会把人带进托管版的共享试用账号）", () => {
     const 段 = 取函数(main, "报告本地故障");
-    expect(段).toMatch(/buttons: \["重试", "查看完整日志", "退出"\]/);
+    expect(段).toMatch(/buttons: \["重试", "查看完整日志", "退出",/);
     expect(段).not.toContain("改用服务器");
     expect(段).not.toContain("连服务器(");
   });

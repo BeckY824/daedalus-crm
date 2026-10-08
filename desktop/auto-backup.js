@@ -19,6 +19,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
+const { 校验数据库 } = require("./backup");
 
 const 目录名 = "backups";
 const 版本记号 = ".last-version";
@@ -30,14 +31,29 @@ const 日期 = (d) => `${d.getFullYear()}-${两位(d.getMonth() + 1)}-${两位(d
 const 时分 = (d) => `${两位(d.getHours())}${两位(d.getMinutes())}`;
 const 安全版本 = (v) => String(v).replace(/[^0-9A-Za-z.-]/g, "_");
 
+function 文件哈希(文件) {
+  const hash = crypto.createHash("sha256"), block = Buffer.allocUnsafe(1024 * 1024);
+  const fd = fs.openSync(文件, "r");
+  try {
+    let n;
+    while ((n = fs.readSync(fd, block, 0, block.length, null)) > 0) hash.update(block.subarray(0, n));
+    return hash.digest("hex");
+  } finally { fs.closeSync(fd); }
+}
+
 /** 用 VACUUM INTO 拷一份。目标已存在就不拷（同一天第二次启动） */
 function 拷(库, 目标) {
   if (fs.existsSync(目标)) return false;
+  const 临时 = `${目标}.${crypto.randomBytes(8).toString("hex")}.tmp`;
   const db = new DatabaseSync(库, { readOnly: true });
   try {
-    db.exec(`VACUUM INTO '${目标.replace(/'/g, "''")}'`);
+    db.exec(`VACUUM INTO '${临时.replace(/'/g, "''")}'`);
+    fs.chmodSync(临时, 0o600);
+    校验数据库(临时);
+    fs.renameSync(临时, 目标);
   } finally {
     db.close();
+    for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(`${临时}${suffix}`, { force: true });
   }
   return true;
 }
@@ -127,18 +143,55 @@ function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
   const 目录 = 备份目录(数据目录);
   const 源 = path.join(目录, 文件名);
   if (!fs.existsSync(源)) throw new Error("这份备份已经不在了");
+  if (!fs.lstatSync(源).isFile() || fs.realpathSync(path.dirname(源)) !== fs.realpathSync(目录)) throw new Error("备份必须是本机备份目录中的普通文件");
   校验(源); // 坏的备份不换进去：宁可不恢复，也不把好库换成坏库
   const 临时库 = `${库}.${process.pid}.${crypto.randomBytes(8).toString("hex")}.restore.tmp`;
   let 另存 = null;
+  let 隔离 = null;
+  let 当前损坏 = false;
+  let 原件 = null;
   try {
     // 先准备独立快照并校验，再原子替换；不直接覆盖正在保护的原库。
     拷(源, 临时库);
     fs.chmodSync(临时库, 0o600);
     校验(临时库);
     if (fs.existsSync(库) && fs.statSync(库).size > 0) {
-      另存 = path.join(目录, `before-restore-${日期(现在)}-${时分(现在)}.db`);
-      拷(库, 另存); // 同一分钟恢复两次：已有那份不覆盖，保留第一次恢复前的样子
-      修剪(目录, "before-restore");
+      // Preserve bytes before opening SQLite: even read-only WAL access can rewrite SHM.
+      原件 = fs.mkdtempSync(path.join(目录, `raw-before-restore-${日期(现在)}-${时分(现在)}-`));
+      fs.chmodSync(原件, 0o700);
+      const 清单 = [];
+      for (const suffix of ["", "-wal", "-shm"]) {
+        const from = `${库}${suffix}`;
+        if (!fs.existsSync(from)) continue;
+        if (!fs.lstatSync(from).isFile()) throw new Error("当前库旁有非普通文件，已停止恢复");
+        const to = path.join(原件, `crm.db${suffix}`);
+        fs.copyFileSync(from, to, fs.constants.COPYFILE_EXCL);
+        fs.chmodSync(to, 0o600);
+        const hash = 文件哈希(to);
+        if (hash !== 文件哈希(from)) throw new Error("原件保护校验失败，已停止恢复");
+        清单.push({ file: path.basename(to), size: fs.statSync(to).size, sha256: hash });
+      }
+      fs.writeFileSync(path.join(原件, "manifest.json"), JSON.stringify({ reason: "Raw pre-restore files; not a validated backup", files: 清单 }, null, 2), { mode: 0o600 });
+      const 探针 = fs.mkdtempSync(path.join(原件, "probe-"));
+      fs.chmodSync(探针, 0o700);
+      const 探针库 = path.join(探针, "crm.db");
+      try {
+        for (const f of 清单) { const target = path.join(探针, f.file); fs.copyFileSync(path.join(原件, f.file), target); fs.chmodSync(target, 0o600); }
+        // Unique names preserve every restore point, including two restores in the same minute.
+        另存 = path.join(目录, `before-restore-${日期(现在)}-${时分(现在)}-${crypto.randomBytes(6).toString("hex")}.db`);
+        try {
+          校验数据库(探针库);
+          拷(探针库, 另存);
+          修剪(目录, "before-restore");
+        } catch (e) {
+          const code = Number(e?.errcode) & 0xff;
+          if (e?.code !== "CRM_SQLITE_CORRUPT" && code !== 11 && code !== 26) throw e;
+          当前损坏 = true;
+          另存 = null;
+          隔离 = path.join(目录, path.basename(原件).replace(/^raw-/, "corrupt-"));
+        }
+      } finally { fs.rmSync(探针, { recursive: true, force: true }); }
+      if (隔离) { fs.renameSync(原件, 隔离); 原件 = null; }
     }
     // 配置在库外。先重置检查点，再换库：即使换库中断，也只会安全地重拉当前库。
     // 先完成原子写，写不成就拒绝恢复，不能留下旧游标配旧数据库。
@@ -156,20 +209,37 @@ function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
       }
     }
     // 当前库先把真实WAL回写。换包失败时旧库仍包含全部已提交数据。
-    if (fs.existsSync(库)) {
+    if (fs.existsSync(库) && !当前损坏) {
       const old = new DatabaseSync(库);
       try {
         const result = old.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
         if (Number(result?.busy) !== 0) throw new Error("数据库仍被占用，请退出其他应用窗口后重试恢复");
       } finally { old.close(); }
     }
-    for (const 尾 of ["-wal", "-shm"]) fs.rmSync(`${库}${尾}`, { force: true });
-    fs.renameSync(临时库, 库);
+    // Move sidecars aside first; restore them if the atomic database replacement fails.
+    const 移开的 = [];
+    let 换好 = false;
+    try {
+      for (const 尾 of ["-wal", "-shm"]) {
+        const from = `${库}${尾}`, to = `${临时库}${尾}.old`;
+        if (!fs.existsSync(from)) continue;
+        fs.renameSync(from, to);
+        移开的.push([from, to]);
+      }
+      fs.renameSync(临时库, 库);
+      换好 = true;
+    } finally {
+      for (const [from, to] of 移开的.reverse()) {
+        if (!换好) fs.renameSync(to, from);
+        else { try { fs.rmSync(to, { force: true }); } catch { /* unique .old name cannot be replayed by SQLite */ } }
+      }
+    }
   } finally {
     for (const tail of ["", "-wal", "-shm"]) fs.rmSync(`${临时库}${tail}`, { force: true });
+    if (原件) { try { fs.rmSync(原件, { recursive: true, force: true }); } catch { /* protected raw copy can be cleaned up later */ } }
   }
 
-  return { 另存: 另存 && path.basename(另存) };
+  return { 另存: 另存 && path.basename(另存), 隔离: 隔离 && path.basename(隔离) };
 }
 
 module.exports = { 自动备份, 列出, 恢复, 备份目录 };

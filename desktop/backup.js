@@ -27,7 +27,11 @@ function 校验数据库(文件) {
   try {
     const 结果 = db.prepare("PRAGMA integrity_check").all();
     const 判定 = 结果.map((r) => Object.values(r)[0]).join("; ");
-    if (判定 !== "ok") throw new Error(`备份文件没通过完整性检查：${判定}`);
+    if (判定 !== "ok") {
+      const error = new Error(`备份文件没通过完整性检查：${判定}`);
+      error.code = "CRM_SQLITE_CORRUPT";
+      throw error;
+    }
     const { n } = db.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table'").get();
     return { 表数: Number(n) };
   } finally {

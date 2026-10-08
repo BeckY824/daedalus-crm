@@ -813,23 +813,27 @@ function 建窗口() {
  * 要重新登录、看到的不是自己的客户、每一页从香港加载。Sam 那台就是点了它，以为应用坏了、变卡了。
  * 连服务器是团队版的用法，留在菜单里；这里只给「重试」。
  */
+let 启动故障保持运行 = false;
 function 报告本地故障(原因或错误) {
+  启动故障保持运行 = true;
   const 原因 = typeof 原因或错误 === "string" ? 原因或错误 : (原因或错误?.message ?? String(原因或错误));
   崩溃.写崩溃日志(应用日志, "本地服务没能启动", 原因或错误);
   关过渡小窗();
+  const 可恢复 = (() => { try { return 自动备份.列出(数据目录).length > 0; } catch { return false; } })();
   dialog
     .showMessageBox(win ?? null, {
       type: "error",
       title: "本地服务没能启动",
       message: "本机的 CRM 服务没能起来",
       detail: `${原因}\n\n最后几行日志：\n${本地服务.日志尾巴() || "（没有输出）"}\n\n刚更新完的话，可能是安装还没结束：等一两分钟再点「重试」。`,
-      buttons: ["重试", "查看完整日志", "退出"],
+      buttons: ["重试", "查看完整日志", "退出", ...(可恢复 ? ["从自动备份恢复…"] : [])],
       defaultId: 0,
       cancelId: 2,
     })
     .then(({ response }) => {
       if (response === 0) 重开本地服务();
-      else if (response === 1) shell.showItemInFolder(日志文件);
+      else if (response === 1) { shell.showItemInFolder(日志文件); 报告本地故障(原因或错误); }
+      else if (response === 3) void 选择自动备份恢复().then((done) => { if (!done) 报告本地故障(原因或错误); }).catch((e) => 报告本地故障(e));
       else app.quit();
     });
 }
@@ -840,6 +844,7 @@ async function 重开本地服务() {
     await 本地服务.stop();
     本地 = null;
     await 启动本地();
+    启动故障保持运行 = false;
     if (win && !win.isDestroyed()) win.loadURL(本地入口());
     else 建窗口();
   } catch (e) {
@@ -1379,30 +1384,60 @@ ipcMain.handle("shell:backup", () => 备份数据库());
  * 恢复要先停服务（库正开着），换进去之后再起、整页回到入口——和换账号那条路同一套停 / 起。
  * 当前库先另存成 before-restore-…，恢复错了还能再恢复回来
  */
-ipcMain.handle("shell:auto-backups", () => (数据目录 ? 自动备份.列出(数据目录) : []));
-ipcMain.handle("shell:restore-auto-backup", async (_e, 文件名) => {
+ipcMain.handle("shell:auto-backups", () => (读配置().mode === "local" && 数据目录 ? 自动备份.列出(数据目录) : []));
+let 恢复进行中 = false;
+async function 从自动备份恢复(文件名) {
+  if (读配置().mode !== "local") return { ok: false, error: "请先切换到本机数据，再恢复本机备份" };
   if (!数据目录) return { ok: false, error: "还没有本机数据" };
-  const 库 = path.join(数据目录, "crm.db");
-  凭据监视?.close();
-  await 本地服务.stop();
-  let 结果;
+  if (恢复进行中) return { ok: false, error: "正在恢复，请等待完成" };
+  恢复进行中 = true;
   try {
-    结果 = 自动备份.恢复({ 库, 数据目录, 文件名: String(文件名 ?? ""), 校验: 备份.校验数据库 });
-  } catch (e) {
-    崩溃.写崩溃日志(应用日志, "从自动备份恢复失败", e);
-    结果 = { error: String(e?.message ?? e) };
-  }
-  盯住凭据(数据目录);
-  try {
-    await 启动本地();
-  } catch (e) {
-    报告本地故障(e);
-    return { ok: false, error: "恢复之后本地服务没起来，日志里有原因" };
-  }
-  if (结果.error) return { ok: false, error: `没恢复：${结果.error}（数据没动）` };
-  win?.loadURL(本地入口());
-  return { ok: true, 另存: 结果.另存 };
-});
+    const 库 = path.join(数据目录, "crm.db");
+    凭据监视?.close();
+    await 本地服务.stop();
+    本地 = null;
+    let 结果;
+    try {
+      结果 = 自动备份.恢复({ 库, 数据目录, 文件名: String(文件名 ?? ""), 校验: 备份.校验数据库 });
+    } catch (e) {
+      崩溃.写崩溃日志(应用日志, "从自动备份恢复失败", e);
+      结果 = { error: String(e?.message ?? e) };
+    }
+    盯住凭据(数据目录);
+    try {
+      await 启动本地();
+    } catch (e) {
+      if (!启动故障保持运行) 报告本地故障(e);
+      return { ok: false, error: "恢复之后本地服务没起来，日志里有原因" };
+    }
+    if (结果.error) return { ok: false, error: `没恢复：${结果.error}（数据没动）` };
+    if (结果.隔离) {
+      崩溃.写崩溃日志(应用日志, "恢复已保护损坏库原件", path.join(自动备份.备份目录(数据目录), 结果.隔离));
+      await dialog.showMessageBox(win ?? null, { type: "info", title: "已恢复备份", message: "原数据库已损坏，原件已单独保留", detail: `已保存原数据库和临时文件，供进一步恢复，未把原件当成可用备份。位置：backups/${结果.隔离}` });
+    }
+    启动故障保持运行 = false;
+    if (win && !win.isDestroyed()) void win.loadURL(本地入口());
+    else { app.relaunch(); app.exit(0); }
+    return { ok: true, 另存: 结果.另存, 隔离: 结果.隔离 };
+  } finally { 恢复进行中 = false; }
+
+}
+ipcMain.handle("shell:restore-auto-backup", (_e, 文件名) => 从自动备份恢复(文件名));
+
+/** Rescue remains available even when migrations/corruption prevent the web UI from starting. */
+async function 选择自动备份恢复() {
+  const 目录 = 自动备份.备份目录(数据目录);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win ?? null, { title: "选择本机自动备份", defaultPath: 目录, properties: ["openFile"], filters: [{ name: "数据库备份", extensions: ["db"] }] });
+  if (canceled || !filePaths?.[0]) return false;
+  const 文件 = filePaths[0];
+  if (fs.realpathSync(path.dirname(文件)) !== fs.realpathSync(目录)) throw new Error("请从当前账号的backups文件夹选择自动备份");
+  const { response } = await dialog.showMessageBox(win ?? null, { type: "warning", title: "恢复自动备份", message: `恢复 ${path.basename(文件)}？`, detail: "备份后的改动会回到当时的样子。当前好库先另存；损坏库及临时文件会原样保护。", buttons: ["恢复", "取消"], defaultId: 1, cancelId: 1 });
+  if (response !== 0) return false;
+  const result = await 从自动备份恢复(path.basename(文件));
+  if (!result.ok) await dialog.showMessageBox(win ?? null, { type: "error", title: "未恢复", message: result.error });
+  return result.ok;
+}
+
 ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
 /**
  * 换了个云端账号登录：把数据目录切过去，重起本地服务，窗口重载。
@@ -1792,6 +1827,6 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
   app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
+    if (process.platform !== "darwin" && !启动故障保持运行) app.quit();
   });
 }

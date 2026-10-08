@@ -115,7 +115,7 @@ describe("恢复", () => {
   it("换进去、删掉旧 -wal / -shm、当前库先另存成 before-restore", () => {
     备一份再改();
     const r = 自动.恢复({ 库, 数据目录: 目录, 文件名: "daily-2026-10-04.db", 现在: new Date("2026-10-05T15:30:00"), 校验: 备份.校验数据库 });
-    expect(r.另存).toBe("before-restore-2026-10-05-1530.db");
+    expect(r.另存).toMatch(/^before-restore-2026-10-05-1530-[a-f0-9]+\.db$/);
     expect(数客户(库)).toBe(2);
     expect(fs.existsSync(`${库}-wal`) || fs.existsSync(`${库}-shm`)).toBe(false);
     expect(数客户(path.join(备份目录(), r.另存))).toBe(3); // 恢复错了还能再恢复回来
