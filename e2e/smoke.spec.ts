@@ -6,8 +6,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
-import { unzipSync, strFromU8 } from "fflate";
-import { 读xlsx } from "../src/lib/import/xlsx";
+import { 读取完整导出 } from "./export-download";
 
 const 账号 = { 用户名: "zhangsan", 密码: "admin123" };
 const 管理员 = { 用户名: "admin", 密码: "admin123" };
@@ -162,8 +161,8 @@ test("7. 同一天同金额再录一笔，要弹窗确认而不是默默翻倍",
   await 查重弹窗.getByRole("button", { name: /取\s*消/ }).click();
   await page.reload();
   // 左栏签约一节的计数仍是 1，签约金额仍是那一笔
-  await expect(page.locator("aside.rec-card")).toContainText("签约 1");
-  await expect(page.locator("aside.rec-card")).toContainText("19,800");
+  await expect(page.locator("main aside.rec-card:visible")).toContainText("签约 1");
+  await expect(page.locator("main aside.rec-card:visible")).toContainText("19,800");
 });
 
 test("8. 两个人同时改同一条客户：改不同字段自动合并，改同一字段才拦", async ({ browser }) => {
@@ -267,7 +266,8 @@ test("9. 筛选后导出：行数对得上、中文原样、公式不会被带�
   const 文件 = await 下载.path();
   expect(文件, "没拿到导出的文件").toBeTruthy();
   const 字节 = readFileSync(文件!);
-  const 行 = 读xlsx(字节);
+  const 完整包 = 读取完整导出(字节);
+  const 行 = 完整包.客户;
 
   // 1. 中文表头与数据都要能原样读出来
   expect(行[0]).toContain("客户姓名");
@@ -278,13 +278,14 @@ test("9. 筛选后导出：行数对得上、中文原样、公式不会被带�
 
   // 3. 用户填的公式原样是文字，表里没有一个公式
   expect(行[1]).toContain("=1+1");
-  const 包 = unzipSync(字节);
-  for (const [名, 内] of Object.entries(包)) if (名.startsWith("xl/worksheets/")) expect(strFromU8(内), 名).not.toContain("<f>");
+  for (const { 名, 内容 } of 完整包.工作表XML) expect(内容, 名).not.toContain("<f>");
 
-  // 4. 第二张表是跟进记录
-  expect(strFromU8(包["xl/workbook.xml"])).toContain('name="跟进记录"');
+  // 4. 跟进独立分片仍包含跟进工作表及这位客户的实际记录
+  expect(完整包.工作簿XML.some(x => x.includes('name="跟进记录"'))).toBe(true);
+  expect(完整包.跟进.length).toBeGreaterThan(1);
+  expect(完整包.跟进.flat()).toContain(客户名);
 
-  expect(下载.suggestedFilename()).toMatch(/客户列表-\d{4}-\d{2}-\d{2}\.xlsx/);
+  expect(下载.suggestedFilename()).toMatch(/客户完整导出-\d{4}-\d{2}-\d{2}\.zip/);
 });
 
 /*

@@ -69,7 +69,7 @@ test("D-044 到点提醒点进来（?focus=plan:第二条）：记录页摆的�
   await expect(page.locator("main .rec-plan")).toContainText("叫我的那条计划");
   // 对照：不带 focus 进来，摆的是最早那条
   await page.goto(`/customers/${客户id}`);
-  await expect(page.locator(".rec-plan")).toContainText("早的那条计划");
+  await expect(page.locator("main .rec-plan:visible")).toContainText("早的那条计划");
 });
 
 test("D-044 叫你的那条已经做完了：照旧摆最早那条没做完的，不是空着", async ({ page }) => {
@@ -78,7 +78,7 @@ test("D-044 叫你的那条已经做完了：照旧摆最早那条没做完的�
   await p.$disconnect();
   try {
     await page.goto(`/customers/${客户id}?focus=plan:${计划.晚}`);
-    await expect(page.locator(".rec-plan")).toContainText("早的那条计划");
+    await expect(page.locator("main .rec-plan:visible")).toContainText("早的那条计划");
   } finally {
     const q = 连库();
     await q.followPlan.update({ where: { id: 计划.晚 }, data: { done: false } });
@@ -88,7 +88,7 @@ test("D-044 叫你的那条已经做完了：照旧摆最早那条没做完的�
 
 test("D-045 记录页上改计划的时间：保存后刷新，库里和页面上都是新时间", async ({ page }) => {
   await page.goto(`/customers/${客户id}`);
-  const 计划条 = page.locator(".rec-plan");
+  const 计划条 = page.locator("main .rec-plan:visible");
   await expect(计划条).toContainText("早的那条计划");
   const 框 = page.getByRole("dialog", { name: "编辑跟进计划" });
   await expect(async () => {
@@ -112,7 +112,7 @@ test("D-045 记录页上改计划的时间：保存后刷新，库里和页面�
 
   await page.reload();
   // 改晚了以后最早那条换成了「叫我的那条」；悬停说的是具体几点
-  await expect(page.locator(".rec-plan")).toContainText("叫我的那条计划");
+  await expect(page.locator("main .rec-plan:visible")).toContainText("叫我的那条计划");
 });
 
 test("D-045 记录页上删一条待办：就地确认后消失，刷新也不回来，库里没了", async ({ page }) => {

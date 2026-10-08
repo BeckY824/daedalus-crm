@@ -35,7 +35,7 @@ test("J-177 AI组合保存故障整体回滚，原表单重试后所有项一并
     try {
       await dialog.getByRole("button", { name: /保\s*存/ }).click();
       // SQLite触发器故障被Prisma归为P2003，服务端会返回关联对象不可用提示。
-      await expect(page.getByText("这一条已经不在了（可能在别处删了），刷新看看")).toBeVisible();
+      await expect(page.getByText("关联数据已变化，或仍有其他记录依赖它；这次操作未完成，请刷新核对关联记录后重试")).toBeVisible();
       await expect(dialog).toBeVisible();
       expect(await db.followUp.count({ where: { customerId } })).toBe(0);
       expect(await db.task.count({ where: { customerId } })).toBe(0);

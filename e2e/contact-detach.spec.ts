@@ -85,7 +85,7 @@ test("联系人页：写「未归属」，点开挂到别的客户下面", async
   await expect(框).toContainText("编辑联系人 · 王经理");
   await expect(框).toContainText("现在不在任何");
   await 框.getByRole("combobox").first().click();
-  await page.locator(".ant-select-dropdown").getByText("移出测试乙", { exact: true }).click();
+  await page.locator(".ant-select-dropdown").getByText("移出测试乙 · 13811110002", { exact: true }).click();
   await 框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(page.locator(".ant-message").getByText("已挂到「移出测试乙」")).toBeVisible();
   await expect(行).toContainText("移出测试乙");

@@ -40,13 +40,19 @@ export default function CustomerSearchSelect({ initialOptions = [], onChange, va
   useEffect(() => () => { generation.current++; if (timer.current) clearTimeout(timer.current); }, []);
   return <Select<string>
     {...props} value={value} onChange={onChange} loading={busy}
+    onInputKeyDown={event => {
+      props.onInputKeyDown?.(event);
+      if (busy && event.key === "Enter") { event.preventDefault(); event.stopPropagation(); }
+    }}
     showSearch={{ filterOption: false, onSearch: keyword => {
       generation.current++; if (timer.current) clearTimeout(timer.current);
+      // 防抖等待也属于搜索中；旧候选不能被快速回车或点击选中。
+      setBusy(true);
       timer.current = setTimeout(() => search(keyword), 200);
     } }}
     onOpenChange={open => { if (open) search(""); props.onOpenChange?.(open); }}
     notFoundContent={busy ? "正在找…" : "没有匹配的客户，请换名字、公司或电话搜索"}
-    options={rows.map(row => ({ value: row.id, label: [row.name, row.附注].filter(Boolean).join(" · ") }))}
+    options={rows.map(row => ({ value: row.id, label: [row.name, row.附注].filter(Boolean).join(" · "), disabled: busy }))}
     popupRender={menu => <>{menu}{error && <div role="alert" style={{ padding: 8 }}>{error}<Button type="link" size="small" onClick={() => search(word.current)}>重试</Button></div>}</>}
   />;
 }

@@ -11,8 +11,7 @@
  */
 import { test, expect, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
-import { unzipSync, strFromU8 } from "fflate";
-import { 读xlsx } from "../src/lib/import/xlsx";
+import { 读取完整导出 } from "../e2e/export-download";
 import { 成表 } from "../src/lib/import/parse";
 import { 订单, 订单节点 } from "../src/lib/features";
 import { 盯控制台, 进门 } from "./helpers";
@@ -176,19 +175,19 @@ test("客户页：订单区、WhatsApp 链接、已下单；跟进挂到订单�
   expect(问题, 问题.join("\n")).toEqual([]);
 });
 
-test("导出 xlsx：客户表带国家 / WhatsApp / 邮箱 / 来源，第二张表有挂在订单上的那条跟进", async ({ page }) => {
+test("完整导出：客户分片带国家 / WhatsApp / 邮箱 / 来源，跟进分片有订单上的那条跟进", async ({ page }) => {
   await 进门(page, "/customers");
   await page.waitForLoadState("networkidle").catch(() => {});
   const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
   const 文件 = readFileSync((await 下载.path())!);
-  const { 表头, 数据 } = 成表(读xlsx(文件));
+  const { 表头, 数据 } = 成表(读取完整导出(文件).客户);
   for (const 列 of ["国家", "WhatsApp", "邮箱", "来源"]) expect(表头, `客户表缺「${列}」列`).toContain(列);
   const 那行 = 数据.find((r) => r.includes(客户名));
   expect(那行, `导出里没有「${客户名}」`).toBeTruthy();
   expect(那行![表头.indexOf("国家")]).toBe("阿联酋");
   expect(那行![表头.indexOf("WhatsApp")]).toBe(WhatsApp);
   expect(那行![表头.indexOf("来源")]).toBe("展会");
-  const 跟进表 = strFromU8(unzipSync(new Uint8Array(文件))["xl/worksheets/sheet2.xml"]);
+  const 跟进表 = 读取完整导出(文件).跟进XML;
   expect(跟进表, "第二张表里没有那条跟进").toContain(跟进);
 });
 

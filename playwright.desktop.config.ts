@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { BASE_URL, CLOUD_PORT, CLOUD_URL, DATA_DIR, DB, DESKTOP_TOKEN, PORT } from "./e2e-desktop/env";
+const 生产模式 = process.env.E2E_PROD === "1";
 
 /**
  * 桌面端本地模式的 e2e（上线前测试第 3 期 3.1）：
@@ -58,7 +59,7 @@ export default defineConfig({
     },
     {
       // 先建库、写好数据目录再起 next dev（为什么不放 globalSetup 见 prepare.ts 开头）
-      command: `npx tsx e2e-desktop/prepare.ts && npx next dev --port ${PORT}`,
+      command: `npx tsx e2e-desktop/prepare.ts && ${生产模式 ? `npx next build && npx next start --port ${PORT}` : `npx next dev --port ${PORT}`}`,
       /*
         不能像默认套那样等 /login：本地模式下登录过云端的 /login 会 307 去自动登录，Playwright 判就绪时跟着跳，
         cookie 又不带着走，于是 /login → session → /start → /login 原地打转，等满超时。
@@ -66,9 +67,10 @@ export default defineConfig({
       */
       url: `${BASE_URL}/api/desktop/reminders`,
       reuseExistingServer: false,
-      timeout: 240_000,
+      timeout: 生产模式 ? 420_000 : 240_000,
       env: {
         DATABASE_URL: `file:${DB}`,
+        ...(生产模式 ? { NODE_ENV: "production" } : {}),
         CRM_DATA_DIR: DATA_DIR,
         DESKTOP_LOCAL: "1",
         DESKTOP_TOKEN,

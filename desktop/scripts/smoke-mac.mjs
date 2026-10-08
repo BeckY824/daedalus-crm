@@ -148,7 +148,7 @@ try {
     if ((await page.locator("body").innerText()).includes("Application error")) throw new Error(`页面挂了：${route}`);
   }
   await page.goto(`${origin}/orders`);
-  await expect(page.locator(".ant-table-row", { hasText: 单号 })).toContainText(客户名);
+  await expect(page.locator("main .ant-table-row:visible", { hasText: 单号 })).toContainText(客户名);
   await 截图(page, "02-订单一览");
   过("各页都画得出来，订单一览里有刚转的那单");
 
@@ -164,7 +164,7 @@ try {
 
   // 停在订单一览上关掉，重开要回到这里（D-025 停在上次那页）
   await page.goto(`${origin}/orders`);
-  await expect(page.locator(".ant-table-row", { hasText: 单号 })).toBeVisible();
+  await expect(page.locator("main .ant-table-row:visible", { hasText: 单号 })).toBeVisible();
   await app.close(); app = null;
   app = await electron.launch({ executablePath, env, timeout: 60000 });
   page = await app.firstWindow();
@@ -172,7 +172,7 @@ try {
   await expect(page.locator(".rail")).toBeVisible({ timeout: 60000 });
   if (await 关更新说明(page)) throw new Error("重开又弹了一次「这一版更新了这些」（看过就该收）");
   await expect(page).toHaveURL(/\/orders/);
-  await expect(page.locator(".ant-table-row", { hasText: 单号 })).toContainText(客户名);
+  await expect(page.locator("main .ant-table-row:visible", { hasText: 单号 })).toContainText(客户名);
   过("关掉重开：不用再登录、停在订单一览、数据都在");
 
   if (老数据根) {
@@ -205,7 +205,7 @@ try {
     await 换账号(identity = "mac-smoke");
     if (当前库() !== 第一个库) throw new Error("换回 A 没回到 A 的库");
     await page.goto(`${new URL(page.url()).origin}/orders`);
-    await expect(page.locator(".ant-table-row", { hasText: 单号 })).toBeVisible();
+    await expect(page.locator("main .ant-table-row:visible", { hasText: 单号 })).toBeVisible();
     过("两个账号：B 是通用、看不到 A 的客户；换回 A，订单还在");
   }
   console.log(`\n全过 ${步骤.length} 步。证据：${root}`);

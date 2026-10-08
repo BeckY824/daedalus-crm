@@ -756,7 +756,8 @@ test("从「新增客户」点进来时，列表要说清自己只是一个子�
   await expect(page.getByText("只看本月新增")).toBeVisible();
   // 而且要给一条回到全部的路
   await page.locator(".ant-tag-close-icon").first().click();
-  await expect(page).toHaveURL(/\/customers$/);
+  await expect(page).toHaveURL(url => url.pathname === "/customers" && !url.searchParams.has("createdWithin"));
+  expect(new URL(page.url()).searchParams.get("pageSize")).toBe("20");
 });
 
 test("趋势图点一根柱子，看得到这一段是哪几笔凑出来的", async ({ page }) => {

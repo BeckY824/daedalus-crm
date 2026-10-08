@@ -2,7 +2,17 @@ import {test,expect,type Page} from "@playwright/test";
 import {连库,清空业务数据} from "./mock-data";
 test.describe.configure({mode:"serial"});
 test.beforeAll(async()=>{const db=连库();try{await 清空业务数据(db);await db.setting.deleteMany({where:{key:"business"}});const owner=(await db.user.findUniqueOrThrow({where:{email:"zhangsan"}})).id;await db.lead.create({data:{id:"copy-lead",name:"QA待删线索",ownerId:owner}})}finally{await db.$disconnect()}});
-test.afterAll(async()=>{const db=连库();try{await 清空业务数据(db);await db.setting.deleteMany({where:{key:"business"}})}finally{await db.$disconnect()}});
+test.afterAll(async({browser})=>{
+ const page=await browser.newPage();
+ try{
+  // 通过真实保存失效服务端进程缓存；仅从测试进程删Setting行会污染后续整套。
+  await login(page);const panel=await settings(page);
+  await panel.getByRole("button",{name:"通用销售",exact:true}).click();
+  await panel.locator(".biz-preset-todo").getByRole("button",{name:/保\s*存/}).click();
+  await expect(page.getByText("已保存，全站措辞已更新")).toBeVisible();
+  await page.goto("/customers");await expect(page.getByRole("heading",{name:"客户",exact:true})).toBeVisible();
+ }finally{await page.close();const db=连库();try{await 清空业务数据(db);await db.setting.deleteMany({where:{key:"business"}})}finally{await db.$disconnect()}}
+});
 async function login(page:Page){await page.goto("/login");await page.getByPlaceholder("用户名").fill("admin");await page.getByPlaceholder("登录密码").fill("admin123");await page.getByRole("button",{name:/登\s*录/}).click();await page.waitForURL(/\/dashboard/)}
 async function settings(page:Page){await page.goto("/settings?tab=business");const panel=page.getByRole("tabpanel",{name:"业务配置"});await expect(panel.locator("#customer")).toBeVisible();return panel}
 test("切外贸整组待保存再生效，名词跨数据/成员/渠道一致，切设置分类零整页RSC",async({page})=>{
