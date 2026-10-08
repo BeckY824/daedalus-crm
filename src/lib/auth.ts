@@ -46,7 +46,8 @@ export type SessionUser = {
 export async function createSession(userId: string, workspaceId?: string) {
   // ims：签发时刻到毫秒（改密作废按它比，iat 只有秒，见 lib/tenant/session-cutoff.ts）
   const ims = Date.now();
-  const token = await new SignJWT(workspaceId ? { sub: userId, ws: workspaceId, ims } : { sub: userId, ims })
+  const cutoff = workspaceId ? await control.sessionCutoff.findUnique({ where: { accountId: userId }, select: { since: true } }) : null;
+  const token = await new SignJWT(workspaceId ? { sub: userId, ws: workspaceId, ims, sc: cutoff?.since.toISOString() ?? null } : { sub: userId, ims })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
@@ -88,7 +89,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
        *
        * 都不放在 proxy.ts：那里跑在 Edge 运行时，连不了控制面库。
        */
-      if (await 会话已作废(id, typeof payload.iat === "number" ? payload.iat : undefined, new Date(), typeof payload.ims === "number" ? payload.ims : undefined)) return null;
+      if (await 会话已作废(id, typeof payload.iat === "number" ? payload.iat : undefined, new Date(), typeof payload.ims === "number" ? payload.ims : undefined, payload.sc === null || typeof payload.sc === "string" ? payload.sc : undefined)) return null;
       // 成员关系被撤销 / 工作区被删 → 会话立刻失效，不给宽限
       const account = await control.account.findUnique({ where: { id }, select: { active: true } });
       if (!account?.active || typeof payload.ws !== "string") return null;

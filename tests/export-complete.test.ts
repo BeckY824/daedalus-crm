@@ -95,3 +95,9 @@ it("导出中成员范围变化不生成省略归属的旧结构文件",async()=
  await prisma.user.create({data:{name:"新销售",email:"new-sales@local",password:"x"}});
  await expect(校验完整导出({},result.start,result.fingerprints)).rejects.toThrow("负责人范围发生变化");
 });
+
+it("空导出或唯一候选换成另一个人也核对身份指纹，不能仅比较隐藏布尔值",async()=>{
+ const result=await 收全();expect(result.start.客户数).toBe(0);expect(result.start.隐藏负责人).toBe(true);
+ await prisma.user.create({data:{name:"新销售",email:"empty-new-sales@local",password:"x"}});
+ await expect(校验完整导出({},result.start,result.fingerprints)).rejects.toThrow("负责人范围发生变化");
+});

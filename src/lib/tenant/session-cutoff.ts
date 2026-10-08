@@ -27,11 +27,11 @@ function 秒(d: Date): number {
  * （2026-10-06 长测：托管版「忘记密码后旧会话当场作废」4 轮挂 1 轮）。老票据没有 ims，照旧按秒比
  */
 export async function 记一次改密(accountId: string, now = new Date()): Promise<void> {
-  const since = new Date(now.getTime());
-  await control.sessionCutoff.upsert({
-    where: { accountId },
-    create: { accountId, since },
-    update: { since },
+  // 同一毫秒连续改密也要生成不同代次；事务内串行读取/递增。
+  await control.$transaction(async tx => {
+    const old = await tx.sessionCutoff.findUnique({ where: { accountId } });
+    const since = new Date(Math.max(now.getTime(), (old?.since.getTime() ?? -Infinity) + 1));
+    await tx.sessionCutoff.upsert({ where: { accountId }, create: { accountId, since }, update: { since } });
   });
 }
 
@@ -42,11 +42,13 @@ export async function 记一次改密(accountId: string, now = new Date()): Prom
  * 改过而票据没有 iat 的，当作旧票拒掉——jose 签的票一定带 iat，
  * 没有只可能是别处伪造或格式变了，此时宁可让人重登一次。
  */
-export async function 会话已作废(accountId: string, iat: number | undefined, now = new Date(), ims?: number): Promise<boolean> {
+export async function 会话已作废(accountId: string, iat: number | undefined, now = new Date(), ims?: number, generation?: string | null): Promise<boolean> {
   const row = await control.sessionCutoff.findUnique({ where: { accountId } });
+  // 新票签入当时的改密代次，完全相同才放行，不依赖时钟精度或回拨。
+  if (generation !== undefined) return generation !== (row?.since.toISOString() ?? null);
   if (!row) return false;
   // 新票据：按毫秒比。线在未来（时钟回拨、手工改库）时不拿它杀人：那会把所有人挡在门外
-  if (typeof ims === "number" && Number.isFinite(ims)) return ims < Math.min(row.since.getTime(), now.getTime());
+  if (typeof ims === "number" && Number.isFinite(ims)) return ims <= Math.min(row.since.getTime(), now.getTime());
   const 线 = Math.min(秒(row.since), 秒(now));
   if (iat == null) return true;
   return iat < 线;

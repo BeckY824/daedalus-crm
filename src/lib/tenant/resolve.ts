@@ -71,7 +71,7 @@ export async function resolveCurrentTenant(): Promise<TenantContext | null> {
      * 代价是这里有 10 秒缓存，最坏情况下旧会话还能多活 10 秒（同试用到期那条）。
      * 想立刻生效的那一份在 getCurrentUser 里，不走缓存。
      */
-    const 作废 = accountId ? await 会话已作废(accountId, typeof payload.iat === "number" ? payload.iat : undefined, new Date(), typeof payload.ims === "number" ? payload.ims : undefined) : true;
+    const 作废 = accountId ? await 会话已作废(accountId, typeof payload.iat === "number" ? payload.iat : undefined, new Date(), typeof payload.ims === "number" ? payload.ims : undefined, payload.sc === null || typeof payload.sc === "string" ? payload.sc : undefined) : true;
     if (accountId && ws && !作废) ctx = await resolveTenant(accountId, ws);
   } catch {
     ctx = null;

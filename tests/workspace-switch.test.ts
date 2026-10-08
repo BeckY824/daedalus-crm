@@ -107,3 +107,12 @@ it("到期目标仍可只读进入；非法参数与非托管部署拒绝", asyn
   expect(await 切换工作区(one.id)).toMatchObject({ ok: false });
   process.env.MULTI_TENANT = "1";
 });
+
+it("同一毫秒改密也撤销旧票，立即重登可用，再次改密仍撤销刚签的新票",async()=>{
+ vi.useFakeTimers({toFake:["Date"]});vi.setSystemTime(new Date());
+ try{
+ const {acc,one,two}=await fixture("same-ms-cutoff");const {createSession,getCurrentUser}=await import("@/lib/auth");const {切换工作区}=await import("@/app/workspaces/actions");const {记一次改密}=await import("@/lib/tenant/session-cutoff");
+ await createSession(acc.id,one.id);expect(await getCurrentUser()).not.toBeNull();
+ for(let i=0;i<2;i++){await 记一次改密(acc.id);expect(await getCurrentUser()).toBeNull();expect(await 切换工作区(two.id)).toMatchObject({ok:false});await createSession(acc.id,one.id);expect(await getCurrentUser()).not.toBeNull()}
+ }finally{vi.useRealTimers()}
+});
