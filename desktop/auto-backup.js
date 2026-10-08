@@ -17,6 +17,7 @@
  */
 const fs = require("node:fs");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
 
 const 目录名 = "backups";
@@ -127,29 +128,47 @@ function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
   const 源 = path.join(目录, 文件名);
   if (!fs.existsSync(源)) throw new Error("这份备份已经不在了");
   校验(源); // 坏的备份不换进去：宁可不恢复，也不把好库换成坏库
+  const 临时库 = `${库}.${process.pid}.${crypto.randomBytes(8).toString("hex")}.restore.tmp`;
   let 另存 = null;
-  if (fs.existsSync(库) && fs.statSync(库).size > 0) {
-    另存 = path.join(目录, `before-restore-${日期(现在)}-${时分(现在)}.db`);
-    拷(库, 另存); // 同一分钟恢复两次：已有那份不覆盖，保留第一次恢复前的样子
-    修剪(目录, "before-restore");
-  }
-  // 配置在库外。先重置检查点，再换库：即使换库中断，也只会安全地重拉当前库。
-  // 先完成原子写，写不成就拒绝恢复，不能留下旧游标配旧数据库。
-  const 团队文件 = path.join(数据目录, ".team.json");
-  if (fs.existsSync(团队文件)) {
-    const 团队 = JSON.parse(fs.readFileSync(团队文件, "utf8"));
-    if (!团队.teamId || !团队.key || !团队.device) throw new Error("团队配置损坏，请先修复后再恢复备份");
-    const 临时文件 = `${团队文件}.${process.pid}.restore.tmp`;
-    try {
-      fs.writeFileSync(临时文件, JSON.stringify({ ...团队, pulled: 0 }), { mode: 0o600 });
-      fs.chmodSync(临时文件, 0o600);
-      fs.renameSync(临时文件, 团队文件);
-    } finally {
-      fs.rmSync(临时文件, { force: true });
+  try {
+    // 先准备独立快照并校验，再原子替换；不直接覆盖正在保护的原库。
+    拷(源, 临时库);
+    fs.chmodSync(临时库, 0o600);
+    校验(临时库);
+    if (fs.existsSync(库) && fs.statSync(库).size > 0) {
+      另存 = path.join(目录, `before-restore-${日期(现在)}-${时分(现在)}.db`);
+      拷(库, 另存); // 同一分钟恢复两次：已有那份不覆盖，保留第一次恢复前的样子
+      修剪(目录, "before-restore");
     }
+    // 配置在库外。先重置检查点，再换库：即使换库中断，也只会安全地重拉当前库。
+    // 先完成原子写，写不成就拒绝恢复，不能留下旧游标配旧数据库。
+    const 团队文件 = path.join(数据目录, ".team.json");
+    if (fs.existsSync(团队文件)) {
+      const 团队 = JSON.parse(fs.readFileSync(团队文件, "utf8"));
+      if (!团队.teamId || !团队.key || !团队.device) throw new Error("团队配置损坏，请先修复后再恢复备份");
+      const 临时文件 = `${团队文件}.${process.pid}.restore.tmp`;
+      try {
+        fs.writeFileSync(临时文件, JSON.stringify({ ...团队, pulled: 0 }), { mode: 0o600 });
+        fs.chmodSync(临时文件, 0o600);
+        fs.renameSync(临时文件, 团队文件);
+      } finally {
+        fs.rmSync(临时文件, { force: true });
+      }
+    }
+    // 当前库先把真实WAL回写。换包失败时旧库仍包含全部已提交数据。
+    if (fs.existsSync(库)) {
+      const old = new DatabaseSync(库);
+      try {
+        const result = old.prepare("PRAGMA wal_checkpoint(TRUNCATE)").get();
+        if (Number(result?.busy) !== 0) throw new Error("数据库仍被占用，请退出其他应用窗口后重试恢复");
+      } finally { old.close(); }
+    }
+    for (const 尾 of ["-wal", "-shm"]) fs.rmSync(`${库}${尾}`, { force: true });
+    fs.renameSync(临时库, 库);
+  } finally {
+    for (const tail of ["", "-wal", "-shm"]) fs.rmSync(`${临时库}${tail}`, { force: true });
   }
-  fs.copyFileSync(源, 库);
-  for (const 尾 of ["-wal", "-shm"]) fs.rmSync(`${库}${尾}`, { force: true });
+
   return { 另存: 另存 && path.basename(另存) };
 }
 

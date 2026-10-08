@@ -126,14 +126,14 @@ describe("备份时库正在写", () => {
     桌面上除了「DaedalusCRM-备份-….db」还躺着同名的 .db-shm、.db-wal（0 字节）。不影响备份本身，
     但恢复说明正好在教人「删 -wal / -shm」，人看到备份旁边也有这俩会犯嘀咕。
   */
-  it("【C-5 现状】备份旁边会多出 .db-shm / .db-wal 两个文件（.db 本身是完整的）", async () => {
+  it("D-080 修后：备份旁只留下独立完整的 .db 文件", async () => {
     const 源 = path.join(沙盒, "crm.db");
     const 开着 = 造库(源, 30);
     fs.mkdirSync(path.join(沙盒, "桌面"));
     const 目标 = path.join(沙盒, "桌面", "DaedalusCRM-备份.db");
     await 备份.备份数据库(源, 目标);
     开着.close();
-    expect(fs.readdirSync(path.join(沙盒, "桌面")).sort()).toEqual(["DaedalusCRM-备份.db", "DaedalusCRM-备份.db-shm", "DaedalusCRM-备份.db-wal"]);
+    expect(fs.readdirSync(path.join(沙盒, "桌面")).sort()).toEqual(["DaedalusCRM-备份.db"]);
     // 只拿走 .db 也是全的
     const 只拿db = path.join(沙盒, "只拿db.db");
     fs.copyFileSync(目标, 只拿db);
@@ -200,7 +200,7 @@ describe("恢复（设置页说明，DesktopTab.tsx:136）", () => {
   // 【下一版】回归核对 D-077 后半：Windows 默认藏扩展名，人看到的备份叫「DaedalusCRM-备份」，照说明改名成 crm.db
   // 实际得到 crm.db.db——程序找不到 crm.db 就当新装起一个空库，人以为恢复把数据弄没了（数据其实还在）。
   // 有了设置里的「自动备份 → 恢复」，手动恢复已经不是主路；补一句文案排下一版，补了去掉 skip
-  it.skip("【下一版】D-077 恢复说明提醒 Windows 藏扩展名：改名时别改成 crm.db.db", () => {
+  it("D-077 恢复说明提醒 Windows 藏扩展名：改名时别改成 crm.db.db", () => {
     const 文 = fs.readFileSync(path.resolve(__dirname, "../src/app/(app)/settings/DesktopTab.tsx"), "utf8");
     const 说明 = 文.split("\n").find((l) => /从.*备份恢复/.test(l)) ?? "";
     expect(说明).toMatch(/扩展名|crm\.db\.db/);

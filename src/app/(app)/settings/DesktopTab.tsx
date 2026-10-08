@@ -143,7 +143,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
               恢复步骤要写全（2026-10-02 排查桌面端 D1）：库开着 WAL，退出后旁边常留着 crm.db-wal / crm.db-shm，
               不删的话下次启动旧 WAL 会重放到换进来的备份上——要么恢复没生效，要么库直接坏掉
             */}
-            一个 SQLite 文件，就在这台机器上。每天会自动备一份（见下）；从自己另存的备份恢复：先退出应用，在数据文件夹里删掉 crm.db-wal 和 crm.db-shm（有的话），再把备份改名成 crm.db 放进去。
+            一个 SQLite 文件，就在这台机器上。每天会自动备一份（见下）；从自己另存的备份恢复：先退出应用，在数据文件夹里删掉 crm.db-wal 和 crm.db-shm（有的话），再把备份改名成 crm.db 放进去。Windows 请先显示文件扩展名，确认最终名称是 crm.db，避免改成 crm.db.db。
           </Typography.Paragraph>
           <Space wrap>
             <Button onClick={备份} disabled={!shell}>
