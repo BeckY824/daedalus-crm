@@ -345,7 +345,7 @@ test("没配 AI 的首页：页头「首页」不和「数据」重名；本月�
   await expect(榜).toContainText(/¥\s?50,000/);
   await expect(榜).toContainText("不限时间");
   // J-111：上月 0 位新增 → 「上月没有新增」，不写「持平」
-  const 新增卡 = page.locator(".ant-card", { hasText: "新增客户（本月）" });
+  const 新增卡 = page.locator(".stat-card").filter({ has: page.locator(".stat-label", { hasText: /^新增客户$/ }) });
   await expect(新增卡).toContainText("上月没有新增");
   await expect(新增卡).not.toContainText("持平");
 

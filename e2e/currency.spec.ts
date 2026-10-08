@@ -79,7 +79,7 @@ test("美元商机 → 登记签约带上币种 → 列表、记录页、数据�
   await expect(框).toBeHidden();
   const 行 = page.locator(".ant-table-row", { hasText: "美元询盘" });
   await expect(行).toContainText("US$ 3,250.50");
-  const saved = 连库(); try { expect(await saved.opportunity.findFirstOrThrow({where:{name:"美元询盘"}})).toMatchObject({customerId:客户id,currency:"USD",amount:3250.5}); } finally { await saved.$disconnect(); }
+  const saved = 连库(); try { expect(await saved.opportunity.findFirstOrThrow({where:{name:"美元询盘"},include:{money:true}})).toMatchObject({customerId:客户id,money:{currency:"USD"},amount:3250.5}); } finally { await saved.$disconnect(); }
 
   // 2. 登记签约：勾着的商机是美元，金额和币种都跟着带
   await page.goto(`/customers/${客户id}`);
@@ -96,7 +96,7 @@ test("美元商机 → 登记签约带上币种 → 列表、记录页、数据�
   await page.goto("/overview?view=本月");
   const 切换 = page.locator(".reports-cur");
   await expect(切换).toBeVisible();
-  await expect(切换).toContainText("这一段共签");
+  await expect(切换).toContainText("这一段已发生的签约合计");
   await expect(切换).toContainText("US$ 3,250.50");
   await 切换.getByText("USD", { exact: true }).click();
   await page.waitForURL(/currency=USD/);

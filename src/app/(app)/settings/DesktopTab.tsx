@@ -176,7 +176,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
 
         <Card size="small" title="连接服务器">
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-            团队共用一台自己部署的服务器时用。连上之后这个窗口显示的就是那台机器上的 CRM；本机数据留在本机，想切回来在应用菜单里。
+            团队共用一台自己部署的服务器时用。连上之后这个窗口显示的就是那台机器上的 CRM；本机数据留在本机，想切回来在应用菜单里。连接服务器期间，本机的 Dock 数字和系统提醒暂停，服务器上的计划请在网页内查看。外部 AI 工具需要使用该服务器提供的 MCP 连接；返回本机后才能使用本机 MCP 桥。
           </Typography.Paragraph>
           <Space.Compact style={{ width: "100%", maxWidth: 480 }}>
             <Input placeholder="https://crm.your-company.com" value={服务器} onChange={(e) => set服务器(e.target.value)} />

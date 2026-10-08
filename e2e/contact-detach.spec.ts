@@ -121,8 +121,8 @@ test("添加联系人挑所属客户：两位同名客户，下拉里看得出�
   const 框 = page.getByRole("dialog");
   await 框.getByRole("combobox").first().click();
   const 下拉 = page.locator(".ant-select-dropdown");
-  await expect(下拉.getByText("重名王强（星辰科技 · 尾号 0011）", { exact: true })).toBeVisible();
-  await 下拉.getByText("重名王强（海川外贸 · 尾号 0022）", { exact: true }).click();
+  await expect(下拉.getByText("重名王强 · 星辰科技 · 13822220011", { exact: true })).toBeVisible();
+  await 下拉.getByText("重名王强 · 海川外贸 · 13922220022", { exact: true }).click();
   await 框.getByPlaceholder("张经理").fill("采购刘");
   await 框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(框).toBeHidden();

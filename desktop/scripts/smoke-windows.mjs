@@ -113,12 +113,18 @@ try {
   await 商框.getByLabel("商机名称").fill("Windows LED 询盘");
   await 商框.getByLabel("所属客户").click();
   await 商框.getByLabel("所属客户").fill("Windows 外贸客户");
-  await page.locator(".ant-select-item-option", { hasText: "Windows 外贸客户" }).click();
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option:not(.ant-select-item-option-disabled)", { hasText: "Windows 外贸客户" }).click();
+  await expect(商框.locator(".ant-select-selection-item").filter({ hasText: "Windows 外贸客户" })).toBeVisible();
   await 商框.getByLabel("商机金额").fill("18000");
   const 负责人 = 商框.getByLabel("负责人");
   if (await 负责人.count()) { await 负责人.click(); await page.keyboard.press("Enter"); }
   await 商框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(商框).toBeHidden();
+  const selectedDb = new DatabaseSync(path.join(root, "accounts", JSON.parse(fs.readFileSync(path.join(root, "current.json"), "utf8")).key, "crm.db"), { readOnly: true });
+  try {
+    const link = selectedDb.prepare('SELECT c.name FROM Opportunity o JOIN Customer c ON c.id=o.customerId WHERE o.name=?').get("Windows LED 询盘");
+    if (link?.name !== "Windows 外贸客户") throw new Error("商机未保存到选择的外贸客户");
+  } finally { selectedDb.close(); }
   await page.getByRole("button", { name: "Windows LED 询盘 的更多操作" }).click();
   await page.getByRole("menuitem", { name: "转为订单" }).click();
   const 单框 = page.getByRole("dialog", { name: "转为订单" });
@@ -126,7 +132,7 @@ try {
   await 单框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(page.getByText(/订单 PI-WIN-01 已建好/)).toBeVisible();
   await page.goto(`${origin}/orders`);
-  await expect(page.locator(".ant-table-row", { hasText: "PI-WIN-01" })).toContainText("Windows 外贸客户");
+  await expect(page.locator("main .ant-table-row:visible", { hasText: "PI-WIN-01" })).toContainText("Windows 外贸客户");
   console.log("PASS: trade template — WhatsApp-only customer, opportunity → order, order list");
   const backup = path.join(root, "备份 空格.db");
   await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, backup);

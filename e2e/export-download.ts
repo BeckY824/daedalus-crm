@@ -38,8 +38,11 @@ export function 读取完整导出(bytes: Uint8Array) {
   }
   expect(Object.keys(files).sort()).toEqual([...seen, "导出清单.json", "阅读说明.txt"].sort());
   expect(ids.客户.size).toBe(清单.客户数); expect(ids.跟进.size).toBe(清单.跟进数);
-  const customerIndex = tables.跟进[0].indexOf("客户编号");
-  expect(customerIndex).toBeGreaterThanOrEqual(0);
-  for (const row of tables.跟进.slice(1)) expect(ids.客户.has(row[customerIndex])).toBe(true);
+  // 某类零条时产品不生成空工作簿；清单总数仍必须为零。
+  if (tables.跟进.length) {
+    const customerIndex = tables.跟进[0].indexOf("客户编号");
+    expect(customerIndex).toBeGreaterThanOrEqual(0);
+    for (const row of tables.跟进.slice(1)) expect(ids.客户.has(row[customerIndex])).toBe(true);
+  }
   return { 清单, 客户: tables.客户, 跟进: tables.跟进, 客户XML: xml.客户.join("\n"), 跟进XML: xml.跟进.join("\n"), 工作簿XML, 工作表XML };
 }
