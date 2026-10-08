@@ -11,10 +11,10 @@ import { getBusiness } from "./business";
 import { statusLabel, stageLabel } from "./business-config";
 
 /**
- * `范围.ownerId` 给了就只看这个人名下的，**先筛再排前 8**（排查 C7）：
+ * `范围.ownerId` 给了就只看这个人名下的，**先筛再排序**（排查 C7）：
  * 原来首页先取全团队前 8 位、再按姓名筛出「我的」，我的那几位排不进全团队前 8 就数漏了，重名的还会混在一起。
  */
-export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): Promise<WatchItem[]> {
+async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): Promise<WatchItem[]> {
   const 谁的 = 范围.ownerId;
   const [overduePlans, customers, opps, lateNodes, business] = await Promise.all([
     prisma.followPlan.findMany({
@@ -59,5 +59,20 @@ export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } 
     now.toDate(),
     business.customer,
     (v) => statusLabel(business, v),
+    Infinity,
   );
+}
+
+/** 展示窗口与总数分开；返回窗口内的记录，不把全库序列化给客户端。 */
+export async function loadWatchlistPage(now = dayjs(), 范围: { ownerId?: string } = {}, offset = 0, limit = 8) {
+  const all = await allWatchlist(now, 范围);
+  const size = Number.isSafeInteger(limit) ? Math.min(100, Math.max(1, limit)) : 8;
+  const requested = Number.isSafeInteger(offset) ? Math.max(0, offset) : 0;
+  const start = Math.min(requested, Math.max(0, Math.floor((all.length - 1) / size) * size));
+  return { items: all.slice(start, start + size), total: all.length, offset: start };
+}
+
+/** 兼容既有小卡片调用方。需要总数/更多记录时使用分页入口。 */
+export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): Promise<WatchItem[]> {
+  return (await loadWatchlistPage(now, 范围)).items;
 }

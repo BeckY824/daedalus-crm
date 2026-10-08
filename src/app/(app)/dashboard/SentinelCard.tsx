@@ -23,7 +23,7 @@ const KIND_COLOR: Record<WatchItem["kind"], string> = {
  * 盯盘提醒：正在被遗忘的学员/商机/计划，按优先级排列。
  * 「起草跟进」生成微信话术草稿，由销售自己复制发出——AI 起草、人签发。
  */
-export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[]; aiEnabled: boolean }) {
+export default function SentinelCard({ items, total = items.length, aiEnabled }: { items: WatchItem[]; total?: number; aiEnabled: boolean }) {
   const b = useBusiness();
   const kindLabel = (k: WatchItem["kind"]) => KIND_LABEL[k].replace("学员", b.customer);
   // 解读与话术都挂在进程内任务表上（ai-jobs），离开首页再回来，转圈和结果都还在。
@@ -53,7 +53,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
           <EyeOutlined style={{ color: "var(--brand)" }} />
           <span className="section-title">盯盘提醒</span>
           <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            {items.length} 项正在被遗忘
+            {total} 位需要跟进{total > items.length ? `，先显示 ${items.length} 位` : ""}
           </Typography.Text>
         </Space>
       }
@@ -77,6 +77,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
           />
         </div>
       )}
+      {total > items.length && <Link href="/follow-ups/watchlist?scope=team">查看全部 {total} 位</Link>}
       {items.map((it) => (
         <SentinelRow key={it.customerId} it={it} aiEnabled={aiEnabled} note={notes?.[it.customerId]} kindLabel={kindLabel} onDraft={() => draft(it)} onCopy={copy} />
       ))}

@@ -69,7 +69,7 @@ export const 只读SCHEMAS: Record<string, Schema> = {
     properties: { days: 数("period=recent时最近多少天，默认7，1~90"), period: { type: "string", enum: ["recent", "this_month", "last_month", "this_week", "last_week"], description: "本月/上月/本周/上周按自然日历范围；recent才按最近N天" } },
     additionalProperties: false,
   },
-  get_watchlist: { type: "object", properties: {}, additionalProperties: false },
+  get_watchlist: { type: "object", properties: { scope: { type: "string", enum: ["mine", "team"], description: "默认mine只看本人，team看当前权限内团队" } }, additionalProperties: false },
   get_my_plans: { type: "object", properties: {}, additionalProperties: false },
   list_channels: {
     type: "object",

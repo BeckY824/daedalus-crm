@@ -26,8 +26,8 @@ import { formatTimeline } from "../ai-context";
 import { runQuery } from "../report-run";
 import { recapRange } from "./recap-range";
 import { METRICS, VALID_GROUPS, sanitizeQuerySpec, 指标显示, 维度显示 } from "../report-query";
-import { loadWatchlist } from "../sentinel-data";
-import { statusLabel, stageLabel, 阶段值, 外贸精简, 外贸订单, 签约叫 } from "../business-config";
+import { loadWatchlistPage } from "../sentinel-data";
+import { statusLabel, stageLabel, 阶段值, 外贸精简, 外贸订单 } from "../business-config";
 import { 名字在别处, 别处说法, 别处附件, 找人 } from "./find-name";
 import type { BusinessConfig } from "../business-config";
 import type { BriefRecord } from "../ai-draft";
@@ -441,11 +441,17 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "get_watchlist",
-    description: "盯盘清单：正在被遗忘的客户（沉睡 / 计划逾期 / 商机停滞），按紧急程度排好。",
-    args: "{}",
-    async run() {
-      const list = (await loadWatchlist()).slice(0, 12);
-      return { summary: `${list.length} 项`, data: list.map((w) => ({ customerId: w.customerId, name: w.customerName, owner: w.ownerName, reason: w.reason })) };
+    description: "盯盘清单，默认只看我名下，scope=team查看当前权限内团队。返回完整总数和前12位；还有更多时提供完整分页入口。",
+    args: '{"scope":"mine|team，可空，默认mine"}',
+    async run(args, ctx) {
+      if (args.scope !== undefined && args.scope !== "mine" && args.scope !== "team") return { summary: "范围不正确", data: { error: "scope只能是mine或team" } };
+      const team = args.scope === "team";
+      const page = await loadWatchlistPage(dayjs(), team ? {} : { ownerId: ctx.userId }, 0, 12);
+      return { summary: `${team ? "当前可见团队" : "我名下"}共 ${page.total} 位，显示 ${page.items.length} 位`, data: {
+        范围: team ? "当前权限内团队" : "我名下", 总数: page.total, 显示: page.items.length,
+        完整清单: `/follow-ups/watchlist?scope=${team ? "team" : "mine"}`,
+        items: page.items.map((w) => ({ customerId: w.customerId, name: w.customerName, owner: w.ownerName, reason: w.reason })),
+      } };
     },
   },
   {

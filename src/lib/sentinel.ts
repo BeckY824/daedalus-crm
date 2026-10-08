@@ -59,6 +59,7 @@ export function buildWatchlist(
   now: Date,
   customerTerm = "学员",
   statusLabel: (v: string) => string = (v) => v,
+  limit = 8,
 ): WatchItem[] {
   const n = dayjs(now);
   const items: WatchItem[] = [];
@@ -137,5 +138,5 @@ export function buildWatchlist(
     if (!cur || it.score > cur.score) byCustomer.set(it.customerId, it);
   }
 
-  return [...byCustomer.values()].sort((a, b) => b.score - a.score).slice(0, 8);
+  return [...byCustomer.values()].sort((a, b) => b.score - a.score || a.customerId.localeCompare(b.customerId)).slice(0, limit);
 }

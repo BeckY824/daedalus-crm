@@ -25,7 +25,7 @@ import { 签约叫, 外贸精简, 外贸订单 } from "@/lib/business-config";
  * 自己的年份下拉和月/季/年切换（三处看数、两个问答框的来路就是它）。
  */
 export default function ReportsView({
-  trend, 明细, bySales, byChannelOwner, byChannel, byAttribution, total, 口径, 单人 = false, 币种, 币种们,
+  trend, 明细, bySales, byChannelOwner, byChannel, byAttribution, total, 未来, 口径, 单人 = false, 币种, 币种们,
 }: {
   trend: Bucket[];
   明细: Record<string, 明细行[]>;
@@ -34,6 +34,7 @@ export default function ReportsView({
   byChannel: Agg[];
   byAttribution: Agg[];
   total: { amount: number; count: number };
+  未来?: { amount: number; count: number };
   /** 这一页的数只算这一种币（2026-10-03，不换汇）；币种们 = 这一段每种币各签了多少 */
   币种: string;
   币种们: 币种合计[];
@@ -116,7 +117,7 @@ export default function ReportsView({
         },
       ],
     }),
-    [trend, 币种],
+    [trend, 币种, 叫],
   );
 
   /**
@@ -181,6 +182,7 @@ export default function ReportsView({
 
   return (
     <>
+      {未来 && 未来.count > 0 && <p className="muted">当前范围内有 {未来.count} 笔日期尚未到的{叫}（{money(未来.amount)}），未计入历史合计、趋势和最佳周期；可在对应客户记录中核对日期。</p>}
       {/*
         这一段签过两种以上的币：给一个切换，下面的卡、图、表都只算选中的那一种。
         不换汇——把美元和欧元折成一个数，汇率按哪天算都说不清，图上的走势就是假的。
@@ -194,7 +196,7 @@ export default function ReportsView({
             onChange={(v) => 换币(String(v))}
             options={币种们.map((x) => ({ value: x.币种, label: <span title={币种名(x.币种)}>{x.币种}</span> }))}
           />
-          <span className="muted">这一段共签 {合计文字(币种们)}</span>
+          <span className="muted">这一段已发生的{叫}合计 {合计文字(币种们)}</span>
         </div>
       )}
       <Row gutter={[16, 16]}>
@@ -219,7 +221,7 @@ export default function ReportsView({
             color={categorical.violet}
             label="最佳周期"
             value={best ? best.label : "—"}
-            deltaLabel={best ? money(best.amount) : ""}
+            note={best ? money(best.amount) : undefined}
           />
         </Col>
       </Row>

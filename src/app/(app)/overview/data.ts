@@ -27,6 +27,7 @@ export type 复盘 = {
   byChannel: Agg[];
   byAttribution: Agg[];
   total: { amount: number; count: number };
+  未来: { amount: number; count: number };
   /**
    * 币种（2026-10-03）。上面所有的数只算 `币种` 这一种——图和排行只能用一种钱，不换汇。
    * `币种们` 是这一段里每种币各签了多少，界面上有两种以上才给「按币种看」的切换。
@@ -99,11 +100,15 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度, 币: { 想
       },
     },
   });
-  const 币种们 = 签约合计(全部);
+  const now = new Date();
+  const 实际币种 = 签约合计(全部.filter(c => c.signedAt <= now));
+  const 币种们 = 签约合计(全部).map(x => ({ ...x, 合计: 实际币种.find(y => y.币种 === x.币种)?.合计 ?? 0 })).sort((a, b) => b.合计 - a.合计);
   const 有 = (码?: string) => !!码 && 币种们.some((x) => x.币种 === 码);
   const 币种 = 有(币.想看) ? 币.想看! : 有(币.本位币) ? 币.本位币 : (币种们[0]?.币种 ?? 币.本位币);
   // 以下全按这一种币算；金额用精确值（外币有分），老签约退回 Contract.amount
-  const contracts = 全部.filter((c) => 签约币种(c) === 币种).map((c) => ({ ...c, amount: 签约金额(c) }));
+  const 本币 = 全部.filter((c) => 签约币种(c) === 币种).map((c) => ({ ...c, amount: 签约金额(c) }));
+  const contracts = 本币.filter(c => c.signedAt <= now);
+  const 未到 = 本币.filter(c => c.signedAt > now);
 
   // 业绩算在签约那一刻的负责人头上（排查 B2，lib/contract-owner.ts）
   const 归属 = await 签约归属人(contracts);
@@ -181,6 +186,7 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度, 币: { 想
     byChannelOwner: 成员agg(签约渠道负责人, "无渠道负责人"),
     byChannel: agg((c) => c.customer.channel, "无来源渠道"),
     byAttribution: agg((c) => c.customer.attributionChannel ?? c.customer.attributionCustomer, "无归属"),
+    未来: { amount: 未到.reduce((s, c) => s + c.amount, 0), count: 未到.length },
     total: { amount: contracts.reduce((s, c) => s + c.amount, 0), count: contracts.length },
     币种,
     币种们,

@@ -62,11 +62,12 @@ type Props = {
   /** 待办 = 任务 + 跟进计划，和 `/follow-ups/plans` 同一个口径。`kind` 区分是哪一种 */
   tasks: { id: string; title: string; customerId: string; customerName: string; dueAt: string | null; kind: "任务" | "计划" }[];
   watchlist: WatchItem[];
+  watchlistTotal?: number;
   /** 服务端是否配置了 AI。没配时盯盘照常显示，只是没有「起草跟进」按钮 */
   aiEnabled: boolean;
 };
 
-export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, aiEnabled, 内嵌, 多人 = true }: Props & {
+export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, watchlistTotal, aiEnabled, 内嵌, 多人 = true }: Props & {
   内嵌?: boolean;
   /** 不止一个负责人。一个人用（桌面端）时卡片说明不写「全团队」——没有团队（2026-10-02 按桌面端复核） */
   多人?: boolean;
@@ -253,7 +254,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
       </Row>
 
       {/* 盯盘提醒：没有信号时整卡不出现，首页不该有一块常驻的空提醒 */}
-      {watchlist.length > 0 && <SentinelCard items={watchlist} aiEnabled={aiEnabled} />}
+      {watchlist.length > 0 && <SentinelCard items={watchlist} total={watchlistTotal} aiEnabled={aiEnabled} />}
 
       {/* 趋势 + 排行 */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
