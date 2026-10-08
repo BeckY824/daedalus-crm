@@ -6,6 +6,7 @@
  * 2. 号码带空格：人照名片念着敲「138 0000」，库里存的是规整过的「13800001111」（lib/phone.ts），对不上；
  * 3. SQLite 的 LIKE 里 % 和 _ 是通配符，Prisma 不转义：搜「100%」把「100分客户」也搜出来，搜「a_b」连「axb」也算。
  */
+import { 号键SQL } from "./phone-dedupe";
 import { prisma } from "./prisma";
 import type { Prisma } from "@/generated/prisma";
 
@@ -22,7 +23,9 @@ export function 号码片段(k: string): string | null {
   const 半角 = k.replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0)).replace(/＋/g, "+");
   if (!/^[\d\s\-+()（）－]+$/.test(半角)) return null;
   const 数字 = 半角.replace(/\D/g, "");
-  return 数字.length >= 3 ? 数字 : null;
+  // 完整大陆手机号去国家码，与保存规则相同；短片段和海外号不猜。
+  const 规范 = 数字.replace(/^0*86(?=1[3-9]\d{9}$)/, "");
+  return 规范.length >= 3 ? 规范 : null;
 }
 
 export function 有通配符(k: string): boolean {
@@ -76,6 +79,7 @@ export async function 客户关键词条件(raw: unknown, onlyPicker = false): P
   const parts = fields.map(c => `c."${c}" GLOB ?`);
   const values = fields.map(() => pattern);
   parts.push('c."phone" GLOB ?'); values.push(phonePattern);
+  if (phone) { parts.push(`${号键SQL('c."phone"')} GLOB ?`); values.push(phonePattern); }
   if (!onlyPicker) {
     parts.push('EXISTS (SELECT 1 FROM "CustomerExtra" e WHERE e."customerId"=c.id AND (e.whatsapp GLOB ? OR e.whatsapp GLOB ? OR e.email GLOB ? OR e.wechat GLOB ? OR e.country GLOB ?))');
     values.push(pattern,phonePattern,pattern,pattern,pattern);
@@ -86,4 +90,20 @@ export async function 客户关键词条件(raw: unknown, onlyPicker = false): P
   const rows = await prisma.$queryRawUnsafe<{id:string}[]>(`SELECT c.id FROM "Customer" c WHERE ${parts.join(" OR ")}`, ...values);
   // 避免Prisma把一个超长in拆成多条各自skip的查询，导致后页静默变空。
   return 客户id集合(rows.map(r=>r.id));
+}
+
+/** 线索与客户共用号码片段/Unicode字面规则；裸查询仅取ID，最终列表仍走权限限定。 */
+export async function 线索关键词条件(raw: unknown): Promise<Prisma.LeadWhereInput> {
+  const k = 搜索词(raw);
+  if (!k) return {};
+  const phone = 号码片段(k);
+  const pattern = 包含模式(k);
+  const parts = ["name", "contact", "email", "industry", "remark"].map(c => `l."${c}" GLOB ?`);
+  const values = parts.map(() => pattern);
+  parts.push('l."phone" GLOB ?'); values.push(包含模式(phone ?? k));
+  if (phone) { parts.push(`${号键SQL('l."phone"')} GLOB ?`); values.push(包含模式(phone)); }
+  const rows = await prisma.$queryRawUnsafe<{id:string}[]>(`SELECT l.id FROM "Lead" l WHERE ${parts.join(" OR ")}`, ...values);
+  const chunks: Prisma.LeadWhereInput[] = [];
+  for (let i=0;i<rows.length;i+=500) chunks.push({id:{in:rows.slice(i,i+500).map(r=>r.id)}});
+  return chunks.length ? {OR:chunks} : {id:{in:[]}};
 }
