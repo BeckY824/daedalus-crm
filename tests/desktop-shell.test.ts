@@ -298,7 +298,7 @@ function 取函数(src: string, 名: string): string {
 
 it.each(["win32", "darwin"])("D095 %s 实际菜单只给Mac使用zoom role，导航键两端通用", (platform) => {
   let template: unknown[] = [];
-  new Function("process", "Menu", `const 读配置=()=>({mode:'local'}),APP_NAME='QA',运营台可用=false,文档地址='https://test';
+  new Function("process", "Menu", `const 读配置=()=>({mode:'local'}),APP_NAME='QA',运营台可用=false,文档地址='https://test',菜单客户名='伙伴';
     ${取函数(main, "建菜单")};建菜单();`)(
     { platform }, { buildFromTemplate: (t: unknown[]) => { template = t; return t; }, setApplicationMenu: () => {} },
   );
@@ -306,6 +306,10 @@ it.each(["win32", "darwin"])("D095 %s 实际菜单只给Mac使用zoom role，导
   expect(text.includes('"role":"zoom"')).toBe(platform === "darwin");
   expect(text).toContain('"accelerator":"CmdOrCtrl+,"');
   expect(text).toContain('"accelerator":"CmdOrCtrl+1"');
+  expect(text).toContain('"label":"伙伴"');
+  expect(text).not.toContain('"label":"学员"');
+  expect(text).not.toContain('"label":"报表"');
+  expect(text).not.toContain('"accelerator":"CmdOrCtrl+9"');
 });
 
 it("启动故障恢复只接受当前账号的自动备份，取消不恢复，失败可见", async () => {
@@ -527,4 +531,13 @@ describe("毛玻璃关着时的透明窗（回归核对 D-118）", () => {
     上玻璃(假窗, true);
     expect(记).toEqual({ 模糊: [0, 60], 底色: ["#fafafa", "#00000000"] });
   });
+});
+
+it("业务菜单名称桥只允许主窗口顶层同源HTTP页面，改名幂等并拒绝恶意输入",()=>{
+ const frame={url:"http://127.0.0.1:3100/dashboard"};const wc={mainFrame:frame,getURL:()=>frame.url};const menu=vi.fn();
+ const fn=new Function("win","建菜单",`let 菜单客户名='客户';${取函数(main,"更新菜单客户名")};return 更新菜单客户名;`)({isDestroyed:()=>false,webContents:wc},menu);
+ const event={sender:wc,senderFrame:frame};expect(fn(event,"伙伴")).toBe(true);expect(menu).toHaveBeenCalledTimes(1);expect(fn(event,"伙伴")).toBe(true);expect(menu).toHaveBeenCalledTimes(1);
+ for(const name of [null,{},""," ","a".repeat(13),"<script>","客户\n伪菜单"]){expect(fn(event,name)).toBe(false)}
+ expect(fn({sender:{},senderFrame:frame},"客户")).toBe(false);expect(fn({sender:wc,senderFrame:{...frame}},"客户")).toBe(false);
+ frame.url="file:///tmp/fake.html";expect(fn(event,"客户")).toBe(false);expect(menu).toHaveBeenCalledTimes(1);
 });

@@ -190,6 +190,7 @@ const 服务目录 = app.isPackaged ? path.join(process.resourcesPath, "server")
 const 默认服务器 = process.env.CRM_URL || "https://app.ai-daedalus.com";
 
 let win = null;
+let 菜单客户名 = "客户";
 /** before-quit 里置上：之后的加载失败都是退出本身造成的，不当故障 */
 let 正在退出 = false;
 /** 本地服务起来之后的地址与一次性令牌 */
@@ -1512,6 +1513,20 @@ ipcMain.handle("shell:use-server", (_e, url) => {
   return { ok: true };
 });
 
+/** 只接收主应用顶层页面的业务名称，不允许子框架/其他窗口改菜单。 */
+function 更新菜单客户名(e, 名称) {
+  if (!win || win.isDestroyed() || e.sender !== win.webContents || !e.senderFrame || e.senderFrame !== win.webContents.mainFrame) return false;
+  try {
+    const url = new URL(e.senderFrame.url);
+    if (!/^https?:$/.test(url.protocol) || url.origin !== new URL(win.webContents.getURL()).origin) return false;
+  } catch { return false; }
+  if (typeof 名称 !== "string" || !名称.trim() || 名称.trim().length > 12 || /[\x00-\x1f\x7f-\x9f<>]/.test(名称)) return false;
+  const name = 名称.trim();
+  if (菜单客户名 !== name) { 菜单客户名 = name; 建菜单(); }
+  return true;
+}
+ipcMain.handle("nav:customer-label", 更新菜单客户名);
+
 function 建菜单() {
   const cfg = 读配置();
   const isMac = process.platform === "darwin";
@@ -1540,13 +1555,12 @@ function 建菜单() {
     ["首页", "/dashboard"],
     ["数据", "/overview"],
     ["线索", "/leads"],
-    ["学员", "/customers"],
+    [菜单客户名, "/customers"],
     ["渠道", "/channels"],
     ["联系人", "/contacts"],
     ["商机", "/opportunities"],
     ["跟进", "/follow-ups"],
-    ["报表", "/reports"],
-  ].map(([label, 路径], i) => ({ label, accelerator: i < 9 ? `CmdOrCtrl+${i + 1}` : undefined, click: () => 前往(路径) }));
+  ].map(([label, 路径], i) => ({ label, accelerator: i < 8 ? `CmdOrCtrl+${i + 1}` : undefined, click: () => 前往(路径) }));
 
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([

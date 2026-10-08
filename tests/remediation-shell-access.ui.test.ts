@@ -14,10 +14,10 @@ const plugin: Plugin = { name: "shell-boundaries", setup(b) {
 } };
 beforeAll(async () => {
   const r = await build({ stdin: { contents: `import React from 'react';import {createRoot} from 'react-dom/client';
-    import Shell from '@/components/AppShell';import Audit from '@/app/(app)/settings/AuditTab';import AuthSide from '@/app/login/AuthSide';
-    const root=createRoot(document.getElementById('root'));window.__route='';window.__refresh=0;
+    import {BusinessProvider} from '@/lib/business-client';import {DEFAULT_BUSINESS} from '@/lib/business-config';import Shell from '@/components/AppShell';import Audit from '@/app/(app)/settings/AuditTab';import AuthSide from '@/app/login/AuthSide';
+    const root=createRoot(document.getElementById('root'));window.__route='';window.__refresh=0;window.__labels=[];window.desktopNav={onGo:()=>()=>{},setCustomerLabel:async(name)=>{window.__labels.push(name);return true}};
     const logs=['Opportunity','Contact','FollowUp','Task','FollowPlan','TradeOrder','Supplier','Customer'].map((entity,i)=>({id:String(i),at:'2026-10-08T08:00:00Z',userName:'QA',action:i===7?'import':'create',entity,summary:'记录'+i,detail:null}));
-    window.__render=(ai=false)=>root.render(location.pathname==='/auth'?<AuthSide 门="托管版"/>:<Shell user={{id:'qa',name:'QA',email:'qa@example.test',role:'ADMIN',title:'管理员'}} workspace={{name:'QA工作区',multiple:!location.search.includes('single'),billing:!location.search.includes('no-billing')}} desktop={location.search.includes('desktop')} 反馈去向="github" pane={null} ai={ai?{models:[]}:null} 要跟={{逾期:1,今天:2}}><Audit logs={logs}/></Shell>);
+    window.__render=(ai=false)=>root.render(<BusinessProvider value={{...DEFAULT_BUSINESS,customer:window.__customer||DEFAULT_BUSINESS.customer}}>{location.pathname==='/auth'?<AuthSide 门="托管版"/>:<Shell user={{id:'qa',name:'QA',email:'qa@example.test',role:'ADMIN',title:'管理员'}} workspace={{name:'QA工作区',multiple:!location.search.includes('single'),billing:!location.search.includes('no-billing')}} desktop={location.search.includes('desktop')} 反馈去向="github" pane={null} ai={ai?{models:[]}:null} 要跟={{逾期:1,今天:2}}><Audit logs={logs}/></Shell>}</BusinessProvider>);
     window.__render();`, loader: "tsx", resolveDir: process.cwd() }, bundle: true, write: false, format: "iife", jsx: "automatic", alias: { "@": path.resolve("src") }, define: { "process.env.NODE_ENV": '"production"' }, plugins: [plugin], logLevel: "silent" });
   bundle = r.outputFiles[0].text; browser = await chromium.launch();
 }, 120_000);
@@ -85,4 +85,14 @@ it("H-095 托管登录说明按云端和权限说明，不把所有工作区说�
   const page = await browser.newPage(); await page.route("http://shell.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
   await page.goto("http://shell.test/auth"); await page.addScriptTag({ content: bundle }); await page.locator(".auth-fine").waitFor();
   const text = await page.locator(".auth-fine").innerText(); expect(text).toContain("云服务器"); expect(text).toContain("按账号权限"); expect(text).not.toContain("团队共用的试用工作区"); await page.close();
+});
+
+it("真实Shell挂载和业务称谓切换向桌面菜单传递配置名，旧壳无此桥仍可使用",async()=>{
+ const page=await open("/dashboard?desktop");try{
+ await expect.poll(()=>page.evaluate(()=>Reflect.get(window,"__labels"))).toEqual(["客户"]);
+ await page.evaluate(()=>{Reflect.set(window,"__customer","伙伴");Reflect.get(window,"__render")()});
+ await expect.poll(()=>page.evaluate(()=>Reflect.get(window,"__labels"))).toEqual(["客户","伙伴"]);
+ await page.evaluate(()=>{Reflect.set(window,"desktopNav",{onGo:()=>()=>{}});Reflect.set(window,"__customer","学员");Reflect.get(window,"__render")()});
+ await expect.poll(()=>page.locator(".rail").innerText()).toContain("学员");
+ }finally{await page.close()}
 });

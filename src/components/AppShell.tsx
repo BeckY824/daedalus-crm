@@ -51,7 +51,7 @@ const { Header, Content } = Layout;
 declare global {
   interface Window {
     /** 壳→页面的一条单向指令：菜单里点了「设置」，由页面自己 push 过去（见 desktop/preload-app.js） */
-    desktopNav?: { onGo(cb: (路径: string) => void): () => void };
+    desktopNav?: { onGo(cb: (路径: string) => void): () => void; setCustomerLabel?(name: string): Promise<boolean> };
     desktopTeam?: { onChanged(cb: () => void): () => void };
   }
 }
@@ -180,6 +180,7 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
    * 网页版没有这座桥，这个 effect 什么都不做。
    */
   useEffect(() => window.desktopNav?.onGo((路径) => router.push(路径)), [router]);
+  useEffect(() => { void window.desktopNav?.setCustomerLabel?.(b.customer).catch(() => {}); }, [b.customer]);
   // 团队同步收到同事的改动（壳 8 秒一轮）：刷新当前页。正在填的表单是客户端状态，refresh 不会冲掉
   useEffect(() => window.desktopTeam?.onChanged(() => router.refresh()), [router]);
 

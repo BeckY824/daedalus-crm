@@ -97,6 +97,7 @@ contextBridge.exposeInMainWorld("desktopReminders", {
 });
 
 contextBridge.exposeInMainWorld("desktopNav", {
+  setCustomerLabel: (name) => ipcRenderer.invoke("nav:customer-label", name),
   onGo: (cb) => {
     const h = (_e, 路径) => {
       // 先应答再执行：主进程只等 400ms，cb 里哪怕抛了也不该让它以为没人接
