@@ -381,7 +381,12 @@ describe("迁移中途出事", () => {
     const 再 = await 跑入口(d);
     expect(再.code).toBe(0);
     const 后 = 快照(path.join(d, "crm.db"));
-    for (const t of ["Customer", "FollowUp", "FollowPlan", "Task"]) expect(后[t]).toEqual(前[t]);
+    for (const t of ["Customer", "FollowUp", "FollowPlan", "Task"]) {
+      // 迁移可增加列，但原有列和行必须逐一保留，不能以整行结构相同阻止增量迁移。
+      expect(后[t]).toHaveLength(前[t].length);
+      expect(后[t].map((r, i) => Object.fromEntries(Object.keys(前[t][i]).map((key) => [key, r[key]])))).toEqual(前[t]);
+    }
+    expect(后.FollowPlan.map((r) => r.doneAt)).toEqual(前.FollowPlan.map(() => null));
   }, 30_000);
 
   it("磁盘满（整条迁移没执行）：exit 1 不坏库；有空间了再开一次补齐", async () => {

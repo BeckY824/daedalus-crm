@@ -131,7 +131,7 @@ const 派生: Record<string, Record<string, string>> = {
     followUpIds: "detachContact 移出时记下原来指着他的跟进记录",
     detachedAt: "移出的时刻，系统打上",
   },
-  FollowPlan: { ownerId: "创建者，不做转派" },
+  FollowPlan: { ownerId: "创建者，不做转派", doneAt: "实际完成时系统记录；撤销完成清空，旧记录未知则为空，不允许手工伪造" },
   FollowUp: { ownerId: "记录人，不做转派" },
   AiConversation: {
     ownerId: "问的人，落库时打上。对话只有自己看得见，转派没有意义",

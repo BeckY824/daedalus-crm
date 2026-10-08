@@ -71,7 +71,7 @@ async function 挂满(id: string, 名: string, 号尾: string, 金额: number) {
   const 年框 = await prisma.opportunity.findFirstOrThrow({ where: { name: `${名}年框` } });
   const 试单 = await prisma.opportunity.findFirstOrThrow({ where: { name: `${名}试单` } });
   const 聊 = await saveFollowUp({ customerId: id, type: "PHONE", content: `${名}聊报价`, status: "已完成", occurredAt: 昨天(), contactId: 王.id, opportunityId: 年框.id, sourceText: "原话" });
-  const 提醒 = await saveFollowUp({ customerId: id, type: "REMIND", content: `${名}提醒回电`, status: "待处理", occurredAt: new Date().toISOString(), dueAt: 昨天() });
+  const 提醒 = await saveFollowUp({ customerId: id, type: "REMIND", content: `${名}提醒回电`, status: "待处理", occurredAt: new Date().toISOString(), dueAt: 昨天(), 确认过期待办: true });
   const 计划 = await savePlan({ customerId: id, subject: `${名}回访`, plannedAt: 昨天(), method: "电话沟通" });
   await saveTask({ customerId: id, title: `${名}发合同`, dueAt: 昨天() });
   const 签 = await saveContract({ customerId: id, amount: 金额, signedAt: 本月某天(), remark: null, 联动: { 赢单: [试单.id], 完成计划: [], 完成待办: [] } });

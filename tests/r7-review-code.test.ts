@@ -205,20 +205,20 @@ describe("R7-2 查号和发码分开限流（dcb680f 修 B1）", () => {
     expect(((await r.json()) as { error: string }).error).toMatch(/够多了/);
   });
 
-  it("查号自己的限流真在：同一 IP 连查 90 次后，第 91 次被拒（操作太频繁）", async () => {
+  it("查号自己的限流真在：同一 IP 连查 30 次后，第 31 次被拒（操作太频繁）", async () => {
     process.env.SIGNUP_VERIFY = "1";
     const { POST } = await import("@/app/api/account/signup/start/route");
     const { createAccount } = await import("@/lib/tenant/accounts");
     const ip = "203.0.113.74";
     const 老号 = 新邮箱();
     await createAccount({ target: { kind: "email", value: 老号 }, password: "abcd1234", name: "老用户" });
-    for (let i = 0; i < 90; i++) expect((await POST(发({ target: 老号 }, "signup/start", ip))).status).toBe(409);
+    for (let i = 0; i < 30; i++) expect((await POST(发({ target: 老号 }, "signup/start", ip))).status).toBe(409);
     const r = await POST(发({ target: 老号 }, "signup/start", ip));
     expect(r.status).toBe(400);
     expect(((await r.json()) as { error: string }).error).toMatch(/操作太频繁/);
   });
 
-  it.skip("【下一版】查号额度从 30 次放宽到 90 次 / 5 分钟，而且发码桶冷却时「注册过 → 409、没注册 → 400」照样分得开：探测口子比修之前宽 3 倍", async () => {
+  it("H046：发码桶冷却不影响老号识别，60次混合探测不超过30次查号额度", async () => {
     process.env.SIGNUP_VERIFY = "1";
     const { POST } = await import("@/app/api/account/signup/start/route");
     const { createAccount } = await import("@/lib/tenant/accounts");
@@ -229,14 +229,17 @@ describe("R7-2 查号和发码分开限流（dcb680f 修 B1）", () => {
     const 注册过的 = 新邮箱();
     await createAccount({ target: { kind: "email", value: 注册过的 }, password: "abcd1234", name: "x" });
     // 修之前：发码桶一冷却，任何查询都是「操作太频繁」，分不出来。现在第 31～90 次照样分得出
-    let 能分辨 = 0;
     for (let i = 0; i < 60; i++) {
       const 查谁 = i % 2 ? 注册过的 : 新邮箱();
-      const s = (await POST(发({ target: 查谁 }, "signup/start", ip))).status;
-      if ((i % 2 && s === 409) || (!(i % 2) && s === 400)) 能分辨++;
+      const response = await POST(发({ target: 查谁 }, "signup/start", ip));
+      const body = await response.json() as { error: string };
+      if (i >= 30) {
+        // 不能仅按400计“能探测”：未知号和限流都返回400，必须核对限流错误正文。
+        expect(response.status).toBe(400);
+        expect(body.error).toMatch(/操作太频繁/);
+      } else if (i % 2) expect(response.status).toBe(409);
+      else expect(response.status).toBe(400);
     }
-    // 期望：查号额度不超过修之前的 30 次 / 5 分钟（发码桶冷却后的这 60 次里，最多还能再分辨 30 次）
-    expect(能分辨).toBeLessThanOrEqual(30);
   });
 
   it("限流计数随时间淡掉（H-047）：一个出口 IP 前天攒了 89 次「继续」，今天再点两次不会被冷却——15 分钟没再失败就从 0 数", async () => {
