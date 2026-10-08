@@ -24,7 +24,7 @@ afterEach(() => fs.rmSync(目录, { recursive: true, force: true }));
 /** 造一个开着 WAL、最后几行还没回写的库：备份要把 WAL 里的也带上 */
 function 造库(客户数 = 2) {
   const db = new DatabaseSync(库);
-  db.exec('PRAGMA journal_mode = WAL; CREATE TABLE "Customer" (id INTEGER PRIMARY KEY, name TEXT); CREATE TABLE "Lead" (id INTEGER PRIMARY KEY)');
+  db.exec('PRAGMA journal_mode = WAL; CREATE TABLE "Customer" (id INTEGER PRIMARY KEY, name TEXT, phone TEXT,school TEXT,grade TEXT,major TEXT,channelId TEXT,referrerCustomerId TEXT,attributionChannelId TEXT,attributionCustomerId TEXT,salesOwnerId TEXT,channelOwnerId TEXT,followStatus TEXT,decisionStatus TEXT,expectedSignAt TEXT,lastFollowAt TEXT,remark TEXT,createdAt TEXT,updatedAt TEXT); CREATE TABLE User(id TEXT PRIMARY KEY,email TEXT,password TEXT,name TEXT,title TEXT,role TEXT,avatar TEXT,active INTEGER,createdAt TEXT,updatedAt TEXT); CREATE TABLE "Lead" (id INTEGER PRIMARY KEY)');
   const ins = db.prepare('INSERT INTO "Customer" (name) VALUES (?)');
   for (let i = 0; i < 客户数; i++) ins.run(`客户${i}`);
   return db;

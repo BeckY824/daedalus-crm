@@ -12,7 +12,7 @@ beforeEach(() => { root = fs.mkdtempSync(path.join(os.tmpdir(), "crm-remediation
 afterEach(() => fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 const open = () => {
   const file = path.join(root, "crm.db"); const db = new DatabaseSync(file);
-  db.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE Customer(id INTEGER PRIMARY KEY, name TEXT); INSERT INTO Customer(name) VALUES('QA原始'),('QA-WAL');");
+  db.exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE Customer(id INTEGER PRIMARY KEY, name TEXT, phone TEXT,school TEXT,grade TEXT,major TEXT,channelId TEXT,referrerCustomerId TEXT,attributionChannelId TEXT,attributionCustomerId TEXT,salesOwnerId TEXT,channelOwnerId TEXT,followStatus TEXT,decisionStatus TEXT,expectedSignAt TEXT,lastFollowAt TEXT,remark TEXT,createdAt TEXT,updatedAt TEXT); CREATE TABLE User(id TEXT PRIMARY KEY,email TEXT,password TEXT,name TEXT,title TEXT,role TEXT,avatar TEXT,active INTEGER,createdAt TEXT,updatedAt TEXT); INSERT INTO Customer(name) VALUES('QA原始'),('QA-WAL');");
   return { db, file };
 };
 it("D-080 备份是独立单文件，不残留临时WAL/SHM，源库仍可写", async () => {
@@ -76,7 +76,7 @@ it("坏当前库也能恢复好备份，原库/WAL/SHM按字节保存并附SHA�
     if (process.platform !== "win32") expect(fs.statSync(path.join(raw, file)).mode & 0o777).toBe(0o600);
   }
   expect(auto.列出(root).some((f: { 文件名: string }) => f.文件名 === result.隔离)).toBe(false);
-  expect(backup.校验数据库(x.file).表数).toBe(1);
+  expect(backup.校验数据库(x.file).表数).toBe(2);
   const db = new DatabaseSync(x.file); try { expect(db.prepare("SELECT count(*) AS n FROM Customer").get()).toEqual({ n: 2 }); } finally { db.close(); }
 });
 it("坏库恢复换库失败，原数据库及两个sidecar全部回到原位", async () => {
@@ -112,6 +112,32 @@ it("自动备份生成失败不留下伪成品，重试可生成0600可校验单
   try { expect(auto.自动备份(args)).toEqual([]); } finally { spy.mockRestore(); }
   expect(fs.readdirSync(path.join(root, "backups")).filter(n => n.endsWith(".db") || n.endsWith(".tmp"))).toEqual([]);
   const saved = auto.自动备份(args); expect(saved).toHaveLength(1);
-  const target = path.join(root, "backups", saved[0]); expect(backup.校验数据库(target).表数).toBe(1);
+  const target = path.join(root, "backups", saved[0]); expect(backup.校验数据库(target).表数).toBe(2);
   if (process.platform !== "win32") expect(fs.statSync(target).mode & 0o777).toBe(0o600);
+});
+
+it.each(["empty", "other-app", "missing-user-name"])("完整SQLite但不完整CRM备份 %s 被拒，当前库和sidecar完全不动", async (kind) => {
+  const x = await corruptRestore(); const source = path.join(x.dir, x.name);
+  if (kind === "missing-user-name") {
+    const db = new DatabaseSync(source); try { db.exec('ALTER TABLE User DROP COLUMN name'); } finally { db.close(); }
+  } else {
+    fs.rmSync(source);
+    const db = new DatabaseSync(source); try { if (kind === "other-app") db.exec("CREATE TABLE OtherApplication(id TEXT, name TEXT)"); } finally { db.close(); }
+  }
+  expect(() => backup.校验数据库(source)).not.toThrow();
+  expect(x.run).toThrow("不是可识别的CRM备份");
+  for (const [i, tail] of ["", "-wal", "-shm"].entries()) expect(fs.readFileSync(`${x.file}${tail}`).equals(x.bytes[i])).toBe(true);
+  expect(fs.readdirSync(x.dir)).toEqual([x.name]);
+});
+
+it("同一分钟恢复两次分别保存各自恢复前数据", async () => {
+  const { db, file } = open(); db.close();
+  const dir = path.join(root,"backups"); fs.mkdirSync(dir); const name="daily-2026-10-01.db";
+  await backup.备份数据库(file,path.join(dir,name));
+  const args={库:file,数据目录:root,文件名:name,现在:new Date("2026-10-08T11:00:00Z"),校验:backup.校验数据库};
+  const first=auto.恢复(args);
+  const current=new DatabaseSync(file);current.exec("INSERT INTO Customer(name) VALUES('恢复后新录')");current.close();
+  const second=auto.恢复(args);
+  expect(first.另存).not.toBe(second.另存);
+  for(const [snapshot,n] of [[first.另存,2],[second.另存,3]] as const){const read=new DatabaseSync(path.join(dir,snapshot));try{expect(read.prepare("SELECT count(*) AS n FROM Customer").get()).toEqual({n})}finally{read.close()}}
 });

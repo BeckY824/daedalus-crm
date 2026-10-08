@@ -39,6 +39,20 @@ function 校验数据库(文件) {
   }
 }
 
+/** Integrity alone also accepts an unrelated or empty SQLite file. Keep this compatible with old CRM schemas. */
+function 校验CRM备份(文件) {
+  const db = new DatabaseSync(文件, { readOnly: true });
+  try {
+    for (const [table, required] of [
+      ["User", ["id", "email", "password", "name", "title", "role", "avatar", "active", "createdAt", "updatedAt"]],
+      ["Customer", ["id", "name", "phone", "school", "grade", "major", "channelId", "referrerCustomerId", "attributionChannelId", "attributionCustomerId", "salesOwnerId", "channelOwnerId", "followStatus", "decisionStatus", "expectedSignAt", "lastFollowAt", "remark", "createdAt", "updatedAt"]],
+    ]) {
+      const columns = new Set(db.prepare(`PRAGMA table_info("${table}")`).all().map(row => row.name));
+      if (required.some(column => !columns.has(column))) throw new Error("这不是可识别的CRM备份：缺少基础用户或客户结构，请选择本应用生成的备份");
+    }
+  } finally { db.close(); }
+}
+
 /**
  * 把 源 备份到 目标。目标已存在会被覆盖（保存框已经问过了）。
  * 返回 { 表数 }。
@@ -75,4 +89,4 @@ async function 备份数据库(源, 目标) {
   }
 }
 
-module.exports = { 建议文件名, 备份数据库, 校验数据库 };
+module.exports = { 建议文件名, 备份数据库, 校验数据库, 校验CRM备份 };

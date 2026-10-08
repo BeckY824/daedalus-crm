@@ -19,7 +19,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { DatabaseSync } = require("node:sqlite");
-const { 校验数据库 } = require("./backup");
+const { 校验数据库, 校验CRM备份 } = require("./backup");
 
 const 目录名 = "backups";
 const 版本记号 = ".last-version";
@@ -145,6 +145,7 @@ function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
   if (!fs.existsSync(源)) throw new Error("这份备份已经不在了");
   if (!fs.lstatSync(源).isFile() || fs.realpathSync(path.dirname(源)) !== fs.realpathSync(目录)) throw new Error("备份必须是本机备份目录中的普通文件");
   校验(源); // 坏的备份不换进去：宁可不恢复，也不把好库换成坏库
+  校验CRM备份(源);
   const 临时库 = `${库}.${process.pid}.${crypto.randomBytes(8).toString("hex")}.restore.tmp`;
   let 另存 = null;
   let 隔离 = null;
@@ -155,6 +156,7 @@ function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
     拷(源, 临时库);
     fs.chmodSync(临时库, 0o600);
     校验(临时库);
+    校验CRM备份(临时库);
     if (fs.existsSync(库) && fs.statSync(库).size > 0) {
       // Preserve bytes before opening SQLite: even read-only WAL access can rewrite SHM.
       原件 = fs.mkdtempSync(path.join(目录, `raw-before-restore-${日期(现在)}-${时分(现在)}-`));

@@ -14,6 +14,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import { createRequire } from "node:module";
+const backupValidation = createRequire(import.meta.url)("../desktop/backup.js");
 /** node:sqlite 运行时认 { readOnly }，这版 @types/node 的构造函数只写了一个参数 */
 const 只读库 = (f: string) =>
   new (DatabaseSync as unknown as new (f: string, o: { readOnly: boolean }) => InstanceType<typeof DatabaseSync>)(f, { readOnly: true });
@@ -205,6 +207,10 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
     目录 = 造老库(tag);
     升级前 = 快照(path.join(目录, "crm.db"));
   }, 60_000);
+
+  it("真实历史库在升级前即通过CRM备份识别，不要求新币种/扩展表", () => {
+    expect(() => backupValidation.校验CRM备份(path.join(目录, "crm.db"))).not.toThrow();
+  });
 
   it("server-entry 跑得通、跑两遍也通（幂等）", async () => {
     const 一 = await 跑入口(目录);
