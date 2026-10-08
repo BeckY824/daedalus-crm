@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
+import { Alert, Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig, BusinessTemplate } from "@/lib/business-config";
-import { DEFAULT_BUSINESS, BUSINESS_PRESETS, RELABELABLE_STATUSES, 表单公海天数, 模版预设, statusLabel } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS, RELABELABLE_STATUSES, 表单公海天数, 模版预设, statusLabel, 状态名问题 } from "@/lib/business-config";
 import { 币种选项 } from "@/lib/currency";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
@@ -22,6 +22,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
   const { message } = App.useApp();
   const [form] = Form.useForm<BusinessConfig>();
   const [saving, setSaving] = useState(false);
+  const 旧状态有冲突 = Object.keys(状态名问题(value)).length > 0;
   /**
    * 刚套上、还没保存的那一套（审查 D7）。原来点预设只飘过一句提示，保存键在长表单最底下，
    * 界面上看不出「这些改动还没生效」。现在就在预设那一行说，保存 / 放弃也在那一行
@@ -31,15 +32,26 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
   async function onSave() {
     const v = await form.validateFields().catch(() => null);
     if (!v) return;
+    const 状态错误 = 状态名问题(v);
+    if (Object.keys(状态错误).length) {
+      form.setFields(Object.entries(状态错误).map(([key, error]) => ({ name: ["statusLabels", key], errors: [error] })));
+      message.error(Object.values(状态错误)[0]);
+      return;
+    }
     setSaving(true);
     // 摆着这一项时清空 = 不开（存 0）；没摆时表单里没有它，照原值存回去，别悄悄关掉（表单公海天数，T-044 有用例）
+    try {
     const res = await saveBusinessSettings({ ...v, poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays) });
-    setSaving(false);
     if (res.ok) {
       set套了(null);
       message.success(res.补了来源 ? `已保存，全站措辞已更新；${res.补了来源} 位${v.customer ?? "客户"}的来源从渠道 / 线索补了过来` : "已保存，全站措辞已更新");
       router.refresh();
     } else message.error(res.error);
+    } catch {
+      message.error("保存失败，请刷新核对后重试；当前填写内容仍保留");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const tags = (placeholder: string) => (
@@ -162,8 +174,9 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
         </Form.Item>
 
         <Typography.Title level={5} style={{ marginTop: 8 }}>状态显示名</Typography.Title>
+        {旧状态有冲突 && <Alert type="warning" showIcon title="已有状态显示名冲突" description="页面会附上原状态以便区分。请在下面修正重复或借用其他状态的名称后保存。" style={{ marginBottom: 12 }} />}
         <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-          只改界面上叫什么，不改存储值——「已试听」「与家人商议」「已决定报名」这些值被盯盘、雷达、首页统计和终态判断直接引用。留空即用原名。
+          留空即用原名。各状态名称不能重复，也不能借用其他状态或预设的名称；改名不会改变状态对应的统计和流程。
         </Typography.Paragraph>
         <Row gutter={[12, 0]}>
           {[...FOLLOW_STATUSES, ...DECISION_STATUSES].map((v) => (
