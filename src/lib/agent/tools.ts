@@ -745,7 +745,7 @@ export const TOOLS: Tool[] = [
       const 现在 = new Date();
       if (!订单节点) {
         return {
-          summary: `${rows.length} 张订单`,
+          summary: `${rows.length} 张订单${rows.length > 30 ? "（列出前 30 张，数量为全部筛选结果）" : ""}`,
           data: rows.slice(0, 30).map((r) => ({
             orderId: r.id,
             订单号: r.no,
@@ -760,7 +760,7 @@ export const TOOLS: Tool[] = [
       }
       const 选 = args.onlyLate === true || args.onlyLate === "true" ? rows.filter((r) => r.超期 > 0) : rows;
       return {
-        summary: `${选.length} 张订单${选.some((r) => r.超期) ? `，其中 ${选.filter((r) => r.超期).length} 张有超期` : ""}`,
+        summary: `${选.length} 张订单${选.some((r) => r.超期) ? `，其中 ${选.filter((r) => r.超期).length} 张有超期` : ""}${选.length > 30 ? "（列出前 30 张，数量为全部筛选结果）" : ""}`,
         data: 选.slice(0, 30).map((r) => ({
           orderId: r.id,
           订单号: r.no,
