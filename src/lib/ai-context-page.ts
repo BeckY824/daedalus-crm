@@ -21,6 +21,8 @@
  * 比让模型每次重新推理一遍稳得多（和 agent/intents.ts 是同一个思路）。
  */
 import { 订单, 订单节点, 供应商页 } from "./features";
+import { DEFAULT_BUSINESS, statusLabel, type BusinessConfig } from "./business-config";
+import { 客户页面筛选键, type 页面客户筛选 } from "./ai-page-filters";
 export type 页面上下文 = {
   /** 这一页叫什么，不带筛选。落库时当对话标题的前缀用 */
   名: string;
@@ -44,6 +46,8 @@ export type 页面范围 = {
   参数: string;
   /** 这一页上正列着的名字 */
   名字: string[];
+  /** 客户页的完整有效条件；服务端重新收白名单，并与实际列表共用查询。 */
+  筛选?: 页面客户筛选;
 };
 
 type 页 = {
@@ -86,7 +90,7 @@ const 一级: Record<string, 页> = {
     名: "数据",
     提示: "用户正在看数据概览页",
     工具: "query_metric",
-    补: "**query_metric 只给数，不给名单**——问「是谁」「有哪些」「列出来」时改用 search_customers（学员）或 query_records（别的表）。",
+    补: "**query_metric 只给数，不给名单**——问「是谁」「有哪些」「列出来」时改用 search_customers（客户）或 query_records（别的表）。",
   },
   "/reports": {
     名: "数据 · 复盘",
@@ -120,7 +124,7 @@ const 一级: Record<string, 页> = {
       那时人问的其实是那位学员，通用查询给不出他的跟进时间线。
     */
     工具: "query_records（表=联系人）",
-    提醒: "联系人在自己的一张表里，search_customers 查不到他们。问某一位学员有哪些联系人时另说——那走 search_customers 再 get_customer。",
+    提醒: "联系人在自己的一张表里，search_customers 查不到他们。问某一位客户有哪些联系人时另说——那走 search_customers 再 get_customer。",
   },
   "/opportunities": { 名: "商机", 提示: "用户正在看商机列表", 工具: "list_opportunities", 查一个: { 工具: "list_opportunities", 参数: "customerName" } },
   "/orders": {
@@ -154,6 +158,16 @@ const 筛选说法: Record<string, string> = {
   decisionStatus: "决策状态",
   stage: "阶段",
   owner: "负责人",
+  ownerId: "负责人编号",
+  salesOwnerId: "销售负责人编号",
+  channelOwnerId: "渠道负责人编号",
+  grade: "档案分类",
+  directOf: "直接推荐渠道编号",
+  batch: "导入批次",
+  pool: "公海",
+  country: "国家",
+  type: "跟进类型",
+  customer: "客户编号",
   ownerName: "负责人",
   channel: "渠道",
   source: "来源",
@@ -184,7 +198,7 @@ function 指路(p: 页): string {
  * @param params   地址栏参数
  * @param 详情名   详情页上这条记录叫什么（客户姓名等）。列表页传 null
  */
-export function 认页面(pathname: string, params: URLSearchParams | null, 详情名?: string | null, 可见行?: readonly string[]): 页面上下文 | null {
+export function 认页面(pathname: string, params: URLSearchParams | null, 详情名?: string | null, 可见行?: readonly string[], b: BusinessConfig = DEFAULT_BUSINESS): 页面上下文 | null {
   /*
     订单 / 供应商这一版关着（lib/features.ts）：那两页没有入口，工具也不交给模型——这里也不再指路去 list_orders / list_suppliers，
     不然万一停在那两个地址上，模型会被叫去调一个它手里没有的工具（L-111）
@@ -194,7 +208,11 @@ export function 认页面(pathname: string, params: URLSearchParams | null, 详�
     const 条件: string[] = [];
     for (const [k, 说法] of Object.entries(筛选说法)) {
       const v = params?.get(k);
-      if (v) 条件.push(`${说法} ${v}`);
+      if (v) {
+        const label = k === "grade" ? b.fields.grade : 说法;
+        const value = k === "followStatus" || k === "decisionStatus" ? statusLabel(b, v) : k === "pool" && v === "1" ? "仅公海客户" : v;
+        条件.push(`${label} ${value}`);
+      }
     }
     if (!命中.提示 && 条件.length === 0) return null; // 首页、设置这些：没什么可带的
     const 尾 = 条件.length ? `，筛了${条件.join("、")}` : "";
@@ -210,8 +228,8 @@ export function 认页面(pathname: string, params: URLSearchParams | null, 详�
     return {
       名: 命中.名,
       标签: `${命中.名}${尾}`,
-      提示: `${命中.提示 || `用户正在看${命中.名}`}${尾}。回答时把这个范围考虑进去。${指路(命中)}${列着}`,
-      ...(命中.查一个 ? { 范围: { 表: 命中.名, 工具: 命中.查一个.工具, 参数: 命中.查一个.参数, 名字 } } : {}),
+      提示: `${命中.提示 || `用户正在看${命中.名}`}${尾}。回答时必须使用这个范围；工具不能重现条件时说明限制，不能把全库结果当本页。${指路(命中)}${列着}`,
+      ...(命中.查一个 ? { 范围: { 表: 命中.名, 工具: 命中.查一个.工具, 参数: 命中.查一个.参数, 名字, ...(pathname === "/customers" ? { 筛选: Object.fromEntries(客户页面筛选键.flatMap(k => params?.get(k) ? [[k, params.get(k)!]] : [])) } : {}) } } : {}),
     };
   }
   // 客户详情 /customers/xxx

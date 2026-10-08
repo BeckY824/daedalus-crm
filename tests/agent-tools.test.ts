@@ -530,3 +530,34 @@ describe("查询随业务配置", () => {
     }
   });
 });
+
+
+it("页面客户筛选与查询共用条件，不把全库计数或相似职位当当前页", async () => {
+  const second = await prisma.user.create({ data: { name: "乙", email: "second", password: "x", role: "SALES" } });
+  await prisma.customer.createMany({ data: [
+    { name: "当前", phone: "13800000001", grade: "高管", salesOwnerId: 我.id },
+    { name: "别人的", phone: "13800000002", grade: "高管", salesOwnerId: second.id },
+    { name: "相似职位", phone: "13800000003", grade: "高管助理", salesOwnerId: 我.id },
+  ] });
+  const context = { ...ctx(), 页面筛选: { salesOwnerId: 我.id, grade: "高管" } };
+  const searched = await 用("search_customers").run({}, context);
+  expect(searched.data).toMatchObject({ total: 1, customers: [{ name: "当前" }] });
+  const generic = await 用("query_records").run({ 表: "客户", 只计数: true }, context);
+  expect(generic.data).toMatchObject({ 总数: 1 });
+  const metric = await 用("query_metric").run({ metric: "customers_count" }, context);
+  expect(metric.data).toMatchObject({ rows: [{ value: 1 }] });
+  expect((await 用("search_customers").run({}, ctx())).data).toHaveProperty("error");
+});
+
+
+it("直接推荐和导入批次精确相交，撤销批次后不能回落全库", async () => {
+  const ch = await prisma.channel.create({ data: { name: "渠道", channelOwnerId: 我.id } });
+  const a = await prisma.customer.create({ data: { name: "直接", phone: "13800000001", channelId: ch.id, salesOwnerId: 我.id } });
+  const b = await prisma.customer.create({ data: { name: "转介绍", phone: "13800000002", channelId: ch.id, referrerCustomerId: a.id, salesOwnerId: 我.id } });
+  const batch = await prisma.importBatch.create({ data: { userId: 我.id, userName: "甲", fileName: "qa.xlsx", rows: { create: [a,b].map(c => ({ customerId: c.id, kind: "create" })) } } });
+  const context = { ...ctx(), 页面筛选: { directOf: ch.id, batch: batch.id } };
+  expect((await 用("search_customers").run({}, context)).data).toMatchObject({ total: 1, customers: [{ name: "直接" }] });
+  await prisma.importBatch.update({ where: { id: batch.id }, data: { revertedAt: new Date() } });
+  expect((await 用("query_records").run({ 表: "客户", 只计数: true }, context)).data).toMatchObject({ 总数: 0 });
+  expect((await 用("query_metric").run({ metric: "leads_count" }, context)).data).toHaveProperty("error");
+});

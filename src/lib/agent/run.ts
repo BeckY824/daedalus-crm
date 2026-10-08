@@ -337,6 +337,7 @@ export async function runAgent(
     buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
     `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${现在带周几()}。
 ${日期对照()}
+${页面范围?.筛选 && Object.keys(页面范围.筛选).length ? "当前客户页的筛选已在search_customers、query_records及query_metric中自动叠加。要回答这个子集，使用这三个工具；其他清单工具不代表本页范围。" : ""}
 query_records 的客户字段使用当前业务叫法：${Object.values(查询表("客户", b).字段).map(f => f.名).join("、")}。旧字段名学校/年级/专业也兼容；职位等档案字段可以查询已有自由文本。
 ${原生模式 ? "" : `你能调用的工具：\n${toolDoc}\n`}
 取值表（propose_* 的参数只能用这里的词）：
@@ -411,7 +412,7 @@ ${工作方式}
     而 AI 工具原来是**没人接上的第四个出口**——问一句就能拿到完整号码，
     还会原样写进回答和对话存档。见 lib/shared-ws/current.ts。
   */
-  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [], 号: await 号码脱敏器() };
+  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [], 号: await 号码脱敏器(), 页面筛选: 页面范围?.表 === "客户" ? 页面范围.筛选 : undefined };
   const records: BriefRecord[] = [];
   const customers = new Map<string, 提到的客户>();
   const mentioned = new Map<string, 提到的客户>();

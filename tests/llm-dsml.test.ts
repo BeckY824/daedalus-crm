@@ -114,3 +114,10 @@ describe("chatTools：content 里是 DSML、tool_calls 为空时认回来", () =
     expect(r.toolCalls.map((c) => c.id)).toEqual(["x1"]);
   });
 });
+
+
+it("通用AI系统提示不假定存在团队", async () => {
+  const { buildSystemPrompt } = await import("@/lib/llm");
+  expect(buildSystemPrompt("独立顾问")).not.toContain("服务一个销售团队");
+  expect(buildSystemPrompt("独立顾问")).toContain("独立顾问");
+});

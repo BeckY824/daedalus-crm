@@ -205,3 +205,13 @@ describe("记录页登记的名字", () => {
     expect(src).toContain("登记详情名(customer.name)");
   });
 });
+
+
+it("客户页实际筛选完整携带，状态和档案字段跟随业务显示名", async () => {
+  const { BUSINESS_PRESETS } = await import("@/lib/business-config");
+  const filters = 参数("salesOwnerId=s1&channelOwnerId=c1&grade=高管&directOf=ch1&batch=b1&followStatus=已试听&pool=1&country=德国&source=展会");
+  // 新增第五个业务配置参数，旧调用仍兼容。
+  const r = 认页面("/customers", filters, null, ["甲"], BUSINESS_PRESETS.外贸出口);
+  for (const token of ["销售负责人", "s1", "渠道负责人", "c1", "职位 高管", "直接推荐", "ch1", "导入批次", "b1", "已寄样", "公海", "德国", "展会"]) expect(r?.提示).toContain(token);
+  expect(r?.范围?.筛选).toEqual(Object.fromEntries(filters));
+});

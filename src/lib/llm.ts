@@ -35,7 +35,7 @@ export function stripCodeFence(text: string): string {
 /** 系统提示词：业务简介来自设置页，改一段话所有 AI 功能一起换语境 */
 export function buildSystemPrompt(brief: string): string {
   return (
-    "你是 CRM 系统的录入与分析助手，服务一个销售团队。他们的业务：" + brief + "\n" +
+    "你是 CRM 系统的录入与分析助手，协助你管理客户与业务。业务简介：" + brief + "\n" +
     "严格依据用户提供的信息作答，禁止编造事实。" +
     "必须只输出用户要求的 JSON，不要输出任何 JSON 之外的文字、解释或 Markdown 代码块标记。"
   );

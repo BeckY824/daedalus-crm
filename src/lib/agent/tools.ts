@@ -6,6 +6,8 @@
  *   data：   喂回模型的结构化内容（截断过，控制上下文）
  *   records：这次读到的跟进记录（带编号），最终回答里的 [n] 引用它们
  */
+import { 客户筛选条件 } from "@/app/(app)/customers/query";
+import type { 页面客户筛选 } from "../ai-page-filters";
 import { 签约归属人 } from "../contract-owner";
 import { 是逾期, 数逾期跟进 } from "../overdue";
 import { 渠道汇总 } from "../attribution";
@@ -36,6 +38,7 @@ import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_
 export type ToolContext = {
   userId: string;
   userName: string;
+  页面筛选?: 页面客户筛选;
   b: BusinessConfig;
   /** 已读过的记录编号偏移，保证多次读取时编号不重复 */
   recordOffset: number;
@@ -116,9 +119,11 @@ export const TOOLS: Tool[] = [
       const 建档条件 = 区间条件(建档);
       const 预签条件 = 区间条件(预签);
       const 号 = 脱敏(ctx);
-      if (!q && !channel && !owner && !status && !decision && !mine && !建档条件 && !预签条件)
+      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选) : null;
+      if (!页面条件 && !q && !channel && !owner && !status && !decision && !mine && !建档条件 && !预签条件)
         return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine / createdFrom-To / expectedSignFrom-To 至少给一个" } };
       const where = {
+        ...(页面条件 ? { AND: [页面条件] } : {}),
         // 和客户列表搜的是同一个范围（C7）：外贸档案、联系人也搜（2026-10-05）
         ...(q ? { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { school: { contains: q } }, { grade: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } },
           { extra: { is: { OR: [{ whatsapp: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }, { country: { contains: q } }] } } },
@@ -153,7 +158,7 @@ export const TOOLS: Tool[] = [
       };
       const 区间说法 = (r: { from?: dayjs.Dayjs; to?: dayjs.Dayjs }, 名: string) =>
         r.from || r.to ? `${名} ${r.from ? r.from.format("YYYY-MM-DD") : "最早"}~${r.to ? r.to.format("YYYY-MM-DD") : "今天"}` : "";
-      const cond = [q && `「${q}」`, channel && `渠道 ${channel}`, owner && `负责人 ${owner}`, status && `状态 ${status}`, decision && `决策 ${decision}`, 区间说法(建档, "建档"), 区间说法(预签, "预计签约"), mine && "我负责的"].filter(Boolean).join("、");
+      const cond = [页面条件 && "当前客户页筛选", q && `「${q}」`, channel && `渠道 ${channel}`, owner && `负责人 ${owner}`, status && `状态 ${status}`, decision && `决策 ${decision}`, 区间说法(建档, "建档"), 区间说法(预签, "预计签约"), mine && "我负责的"].filter(Boolean).join("、");
       if (total) {
         return { summary: `${cond}：${total} 位${total > rows.length ? `，列出前 ${rows.length}` : ""}——${rows.slice(0, 6).map((r) => r.name).join("、")}${rows.length > 6 ? "…" : ""}`, data };
       }
@@ -307,12 +312,14 @@ export const TOOLS: Tool[] = [
       } catch (e) {
         return { summary: "查询规格不合法", data: { error: e instanceof Error ? e.message : "规格不合法" } };
       }
-      const rows = await runQuery(spec, ctx.b);
+      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选) : undefined;
+      if (页面条件 && (spec.metric === "leads_count" || spec.metric === "lead_conversion")) return { summary: "当前范围是客户", data: { error: "客户页筛选不能用于线索统计。请移除页面上下文后查询线索。" } };
+      const rows = await runQuery(spec, ctx.b, 页面条件);
       const meta = METRICS[spec.metric];
       // 指标名跟这家的叫法：外贸「签约金额」说「订单金额」（G.3 实测模型照抄成「这个月签了 2 单」）
       const 指标名 = 指标显示(spec.metric, ctx.b);
       return {
-        summary: `${指标名}${spec.groupBy ? ` · ${维度显示(spec.groupBy, ctx.b)}` : ""}：${rows.length} 行`,
+        summary: `${页面条件 ? "当前客户页范围 · " : ""}${指标名}${spec.groupBy ? ` · ${维度显示(spec.groupBy, ctx.b)}` : ""}：${rows.length} 行`,
         data: { metric: 指标名, unit: meta.unit, groupBy: spec.groupBy ? 维度显示(spec.groupBy, ctx.b) : null, range: spec.from || spec.to ? `${spec.from ?? "最早"} ~ ${spec.to ?? "今天"}` : "不限时间", rows: rows.slice(0, 30) },
       };
     },
@@ -936,8 +943,16 @@ export const TOOLS: Tool[] = [
         return { summary: "查询写得不对", data: { error: e instanceof Error ? e.message : "查询规格不合法" } };
       }
 
-      const 话 = 说人话(规格, ctx.b);
-      const { where, orderBy, take } = 编译(规格, ctx.b);
+      const 话 = `${ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? "当前客户页范围；" : ""}${说人话(规格, ctx.b)}`;
+      const compiled = 编译(规格, ctx.b);
+      const { orderBy, take } = compiled;
+      let where = compiled.where;
+      const 页面条件 = ctx.页面筛选 && Object.keys(ctx.页面筛选).length ? await 客户筛选条件(ctx.页面筛选) : undefined;
+      if (页面条件) {
+        if (规格.表 === "客户") where = { AND: [where, 页面条件] };
+        else if (["商机", "签约", "联系人", "跟进记录", "跟进计划", "任务"].includes(规格.表)) where = { AND: [where, { customer: { is: 页面条件 } }] };
+        else return { summary: "当前范围是客户", data: { error: `当前客户页筛选不能用于${规格.表}，请移除页面上下文后查询。` } };
+      }
       const 表定义 = 查询表(规格.表, ctx.b);
       // 白名单已经把表名收死了，这里的动态取用是安全的
       const 表 = (prisma as unknown as Record<string, {

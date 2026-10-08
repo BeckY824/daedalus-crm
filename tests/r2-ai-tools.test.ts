@@ -303,3 +303,25 @@ describe("tool_calls 和正文同时有", () => {
     expect(打算们.some((t) => /DSML/.test(t)), `过程条里的「打算」：${打算们.filter(Boolean).join(" | ")}`).toBe(false);
   });
 });
+
+
+it("页面筛选从SSE传到真实工具，去掉上下文后恢复全库", async () => {
+  const { prisma } = await import("@/lib/prisma");
+  await prisma.customer.update({ where: { id: 客户 }, data: { grade: "高管" } });
+  await prisma.customer.create({ data: { name: "其他", phone: "13800000002", grade: "采购", salesOwnerId: "tester-id" } });
+  const counts: number[] = [];
+  接线({ 上游: r => {
+    const messages = r.body.messages as { role: string; content: string }[];
+    if (种类(r) === "决策") {
+      const receipt = messages.find(m => m.role === "tool");
+      if (receipt) { counts.push(JSON.parse(receipt.content).总数); return 回工具([]); }
+      return 回工具([{ name: "query_records", args: { 表: "客户", 只计数: true } }]);
+    }
+    if (种类(r) === "回答") return 一句回答("查询完成。");
+    return 回文本('{"final":true}');
+  } });
+  expect((await 问AI("当前页有多少客户", { pageScope: { 表: "客户", 工具: "search_customers", 参数: "query", 名字: ["李文龙"], 筛选: { grade: "高管" } } })).result?.ok).toBe(true);
+  expect(counts.at(-1)).toBe(1);
+  expect((await 问AI("所有客户一共多少")).result?.ok).toBe(true);
+  expect(counts.at(-1)).toBe(2);
+});

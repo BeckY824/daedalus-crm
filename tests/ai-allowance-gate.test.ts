@@ -245,7 +245,7 @@ describe("六个 AI 动作都接上了闸门", () => {
       expect(!r.ok && r.error).not.toMatch(/用完|额度/);
     }
     const { POST } = await import("@/app/api/ai/stream/route");
-    for (const body of [null, [], { mode: "agent", question: "   " }, { mode: "agent", question: 42 }]) {
+    for (const body of [null, [], { mode: "agent", question: "   " }, { mode: "agent", question: 42 }, { mode: "agent", question: "当前页有几位", pageScope: { 表: "客户", 工具: "search_customers", 参数: "query", 筛选: { grade: 42 } } }, { mode: "agent", question: "当前页有几位", pageScope: { 表: "客户", 工具: "search_customers", 参数: "query", 筛选: { sql: "SELECT" } } }]) {
       const r = await POST(new Request("http://qa.test/api/ai/stream", { method: "POST", body: JSON.stringify(body) }));
       expect(r.status).toBe(400);
     }

@@ -151,7 +151,7 @@ export type 命中结果 = { 名: string; 调用: { name: string; args: Record<s
  * **带了上文就不匹配**：「他呢？」「那这个月呢？」这类指代要靠模型解，
  * 而这张表只认完整问句。宁可漏。
  */
-export type 页面范围 = { 表: string; 工具: string; 参数: string; 名字: readonly string[] };
+export type 页面范围 = { 表: string; 工具: string; 参数: string; 名字: readonly string[]; 筛选?: import("../ai-page-filters").页面客户筛选 };
 
 /**
  * 「X 的电话 / 联系方式」——X 正列在当前页上时，直接用这一页的工具查 X。
