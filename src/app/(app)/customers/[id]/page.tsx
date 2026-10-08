@@ -4,6 +4,7 @@ import { 收藏了吗 } from "@/lib/favorites";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
+import { followHistoryInclude, followHistoryOrder, serializeFollowHistory } from "./follow-history-query";
 import { 负责人候选 } from "@/lib/owners";
 import { 可选渠道, 可选客户 } from "@/lib/options";
 import { llmEnabled } from "@/lib/llm";
@@ -52,16 +53,7 @@ export default async function CustomerDetailPage({
       opportunities: { orderBy: { createdAt: "desc" }, include: 带币种.商机 },
       tasks: { orderBy: [{ done: "asc" }, { dueAt: "asc" }] },
       plans: { where: { done: false, ...(要看的计划 ? { id: 要看的计划 } : {}) }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }] },
-      followUps: {
-        orderBy: { occurredAt: "desc" },
-        take: 50,
-        include: {
-          owner: { select: { name: true } },
-          contact: { select: { name: true, position: true } },
-          source: { select: { text: true } },
-          orderNode: { select: { order: { select: { id: true, no: true } } } },
-        },
-      },
+      followUps: { orderBy: followHistoryOrder, take: 51, include: followHistoryInclude },
     },
   });
 
@@ -84,18 +76,9 @@ export default async function CustomerDetailPage({
     可选客户(id),
   ]);
 
-  /*
-    这儿原来算了一组「沟通统计」（跟进次数 / 累计通话时长 / 会议数 / 邮件数）
-    并一路传到 RecordView——而 RecordView 从来没解构过它，界面上一个字都没有。
-    2026-09-19 删掉。两个理由：
-      1. 算了不显示的数据就是死代码，类型里还占着一行，下一个人会以为它在用
-      2. **它还是错的**：上面那个 followUps 带着 `take: 50`，所以这组数是从
-         最近 50 条里算的。真接上去的话，跟进超过 50 次的人「累计通话时长」
-         会停止增长——一个只在老客户身上出错的数，最不容易被发现。
-    要做这组数得单独 groupBy 聚合，不能借那 50 条现成的行。
-  */
   return (
     <RecordView
+      key={customer.id}
       users={users}
       channels={channels}
       referrableCustomers={referrableCustomers}
@@ -179,27 +162,8 @@ export default async function CustomerDetailPage({
             }
           : null
       }
-      followUps={customer.followUps.map((f) => ({
-        id: f.id,
-        type: f.type,
-        title: f.title,
-        content: f.content,
-        status: f.status,
-        duration: f.duration,
-        occurredAt: f.occurredAt.toISOString(),
-        dueAt: scheduleValue(f.dueAt, f.dueOn),
-        dueHasTime: f.dueHasTime,
-        participants: f.participants,
-        sourceText: f.source?.text ?? null,
-        ownerName: f.owner.name,
-        contactName: f.contact?.name ?? null,
-        contactPosition: f.contact?.position ?? null,
-        contactId: f.contactId,
-        opportunityId: f.opportunityId,
-        orderId: f.orderNode?.order.id ?? null,
-        order: f.orderNode?.order ?? null,
-        updatedAt: f.updatedAt.toISOString(),
-      }))}
+      followUps={customer.followUps.slice(0, 50).map(serializeFollowHistory)}
+      followUpsHasMore={customer.followUps.length > 50}
     />
   );
 }

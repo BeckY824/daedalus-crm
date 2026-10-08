@@ -1,5 +1,7 @@
 "use client";
 
+import { useFollowHistory } from "./useFollowHistory";
+
 import Shortcut from "@/components/Shortcut";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -90,6 +92,7 @@ export default function RecordView({
   tasks,
   plan,
   followUps,
+  followUpsHasMore = false,
   users,
   channels,
   referrableCustomers,
@@ -102,6 +105,7 @@ export default function RecordView({
   const { message, modal } = App.useApp();
   const AI已用完 = useAiOutOfCredits();
   const b = useBusiness();
+  const history = useFollowHistory(customer.id, followUps, followUpsHasMore);
   const { 问怎么拿掉 } = useContactRemoval();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
   const [报价全开, set报价全开] = useState(false);
@@ -183,11 +187,11 @@ export default function RecordView({
 
   const entries = useMemo<Entry[]>(() => {
     const list: Entry[] = [
-      ...followUps.filter((f) => filter === "全部" || filter === f.type).map((f) => ({ kind: "follow" as const, at: f.occurredAt, f })),
+      ...history.rows.filter((f) => filter === "全部" || filter === f.type).map((f) => ({ kind: "follow" as const, at: f.occurredAt, f })),
       ...(filter === "全部" || filter === "CONTRACT" ? contracts.map((c) => ({ kind: "contract" as const, at: c.signedAt, c })) : []),
     ];
     return list.sort((a, b2) => dayjs(b2.at).valueOf() - dayjs(a.at).valueOf());
-  }, [followUps, contracts, filter]);
+  }, [history.rows, contracts, filter]);
 
   const openTasks = tasks.filter((t) => !t.done);
 
@@ -300,7 +304,8 @@ export default function RecordView({
     });
   }
 
-  const fingerprint = `${followUps.length}:${followUps[0]?.occurredAt ?? ""}:${followUps[0]?.id ?? ""}`;
+  // 历史页编辑/删除也推进客户版本；翻页本身不使AI缓存失效。
+  const fingerprint = `${customer.updatedAt}:${followUps.length}:${followUps[0]?.occurredAt ?? ""}:${followUps[0]?.id ?? ""}`;
 
   /** 公海（第 6 块）：放进 / 领取这一位，提示条上带一次撤销（和列表上同一个做法） */
   async function 公海动作(动作: "放进" | "领取") {
@@ -710,7 +715,7 @@ export default function RecordView({
           <div className="rec-tl">
             {entries.length === 0 && (
               <div style={{ padding: "36px 0", textAlign: "center", color: "var(--text-muted)" }}>
-                {filter === "全部" ? "还没有任何记录。上面随手记一笔，或粘一段聊天记录让 AI 整理。" : "这个类型下还没有记录"}
+                {filter !== "CONTRACT" && history.hasMore ? "已加载的记录中暂无此类型，可继续加载更早的跟进。" : filter === "全部" ? "还没有任何记录。上面随手记一笔，或粘一段聊天记录让 AI 整理。" : "这个类型下还没有记录"}
               </div>
             )}
             {/* 打开一位的记录时逐条进场（间隔 70ms、八条以后一起）——原来 initial={false}，
@@ -737,6 +742,13 @@ export default function RecordView({
                 ),
               )}
             </AnimatePresence>
+            {filter !== "CONTRACT" && history.hasMore && (
+              <div style={{ padding: 16, textAlign: "center" }}>
+                <Button loading={history.loading} onClick={() => void history.loadMore().catch(error => message.error(error instanceof Error ? error.message : "历史跟进加载失败，请重试"))}>加载更早的跟进</Button>
+                <div className="muted" style={{ marginTop: 8 }}>已加载 {history.rows.length} 条跟进 · 筛选作用于已加载记录</div>
+              </div>
+            )}
+            {filter !== "CONTRACT" && history.paged && <div style={{ textAlign: "center", paddingBottom: 12 }}><Button type="link" onClick={() => { history.reset(); router.refresh(); }}>重新加载历史</Button></div>}
           </div>
         </section>
 
@@ -819,6 +831,7 @@ export default function RecordView({
         onSaved={() => {
           setFollowOpen(false);
           setMemo("");
+          if (followInit.record?.id) void history.refreshRow(followInit.record.id).catch(() => message.warning("跟进已保存，请刷新页面核对最新内容"));
           router.refresh();
         }}
         customerId={customer.id}
@@ -875,6 +888,7 @@ export default function RecordView({
     const r = await deleteFollowUp(f.id, customer.id);
     router.refresh();
     if (!r.ok) return void message.error(r.error);
+    history.remove(f.id);
     // 给一次撤销（排查 D2）：AI 速记的跟进连原文一起删，原来删了就再也找不回来
     const key = `follow-${f.id}`;
     message.success({
@@ -890,6 +904,7 @@ export default function RecordView({
               message.destroy(key);
               const u = await restoreFollowUp(r.快照);
               if (!u.ok) return void message.error(u.error);
+              await history.refreshRow(f.id).catch(() => message.warning("跟进已恢复，请刷新页面核对最新内容"));
               message.success("这条跟进回来了");
               router.refresh();
             }}

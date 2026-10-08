@@ -70,6 +70,7 @@ export type RecordProps = {
   /** updatedAt：编辑框的版本号（J-105） */
   plan: { id: string; subject: string; plannedAt: string; plannedHasTime?: boolean | null; method: string; updatedAt: string } | null;
   followUps: FollowUpRow[];
+  followUpsHasMore?: boolean;
   users: 可选成员[];
   channels: { id: string; name: string }[];
   /** 可作为推荐人的已有学员 */
