@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
 import { multiTenant } from "@/lib/tenant/context";
 import { 需要验证码, 自助注册已关闭 } from "@/lib/tenant/signup-policy";
-import { 发注册码 } from "@/lib/tenant/signup";
-import { parseTarget, findAccountByTarget, isDisposableEmail } from "@/lib/tenant/accounts";
-import { 解析来源IP, 检查限流, 记一次失败, IP阈值 } from "@/lib/rate-limit";
+import { 发注册码, 识别注册账号 } from "@/lib/tenant/signup";
+import { 解析来源IP } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,18 +36,9 @@ export async function POST(req: Request) {
 
   const ip = 解析来源IP(req.headers.get("x-forwarded-for"));
   if (!需要验证码()) {
+    const r = await 识别注册账号(target, ip);
+    if (!r.ok) return NextResponse.json(r.已注册 ? { registered: true } : { error: r.error }, { status: r.已注册 ? 409 : 400 });
     if (自助注册已关闭()) return NextResponse.json({ error: "这个部署没有开放注册" }, { status: 400 });
-    // 这条路不发信，但同样能拿来一个个试号——和发码那条用同一档 IP 限流
-    if (ip) {
-      const 还要等 = 检查限流(`code:${ip}`);
-      if (还要等 != null) return NextResponse.json({ error: `操作太频繁，请 ${还要等} 秒后再试` }, { status: 400 });
-      记一次失败(`code:${ip}`, Date.now(), IP阈值);
-    }
-    const t = parseTarget(target);
-    if (t && (await findAccountByTarget(t.value))) return NextResponse.json({ registered: true }, { status: 409 });
-    if (!t || t.kind !== "email") return NextResponse.json({ error: "请填写正确的邮箱" }, { status: 400 });
-    // 临时邮箱在第一步就拦，别等人设完密码、勾完条款才说（第六轮 C3；发码那条路本来就在第一步拦）
-    if (isDisposableEmail(t.value)) return NextResponse.json({ error: "请用常用邮箱注册，临时邮箱收不到后续通知" }, { status: 400 });
     return NextResponse.json({ verify: false });
   }
 

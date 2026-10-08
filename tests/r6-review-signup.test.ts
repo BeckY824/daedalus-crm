@@ -4,7 +4,7 @@ import { closeTestDatabases } from "./close-databases";
  *
  * 红的是确认的问题，保持红，等修。harness 照抄 tests/account-endpoints.test.ts。
  */
-import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterEach, afterAll, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -39,6 +39,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   delete process.env.SIGNUP_REDIRECT;
   delete process.env.SIGNUP_VERIFY;
 });
@@ -95,8 +96,9 @@ describe("R6-1 老用户的「继续」被注册专用的闸挡住（生产开�
     const ip = "203.0.113.63";
     const 老号 = 新邮箱();
     await createAccount({ target: { kind: "email", value: 老号 }, password: "abcd1234", name: "老用户" });
-    // 每一次「继续」（含老用户的每一次登录）都记进 code:ip 桶；30 次后整个出口 IP 冷却 5 分钟
-    for (let i = 0; i < 30; i++) await POST(发({ target: 老号 }, "signup/start", ip));
+    // 只预填发码桶；查号桶另行验证30次上限。
+    const { 记一次失败, IP阈值 } = await import("@/lib/rate-limit");
+    for (let i = 0; i < IP阈值; i++) 记一次失败(`code:${ip}`, Date.now(), IP阈值);
     const r = await POST(发({ target: 老号 }, "signup/start", ip));
     expect(r.status).toBe(409);
   });
@@ -179,5 +181,44 @@ describe("R6-4 不验证码的部署：「继续」对临时邮箱照样放去�
     const { POST } = await import("@/app/api/account/signup/start/route");
     const r = await POST(发({ target: `x${n++}@mailinator.com` }, "signup/start", "203.0.113.64"));
     expect(r.status).toBe(400);
+  });
+});
+
+
+describe("继续登录与注册策略分离（H046）", () => {
+  it("不验证码时发码桶冷却不挡老账号，关闭注册也允许老账号继续", async () => {
+    const { POST } = await import("@/app/api/account/signup/start/route");
+    const { createAccount } = await import("@/lib/tenant/accounts");
+    const { 记一次失败, IP阈值 } = await import("@/lib/rate-limit");
+    const email = 新邮箱(), ip = "203.0.113.110";
+    await createAccount({ target: { kind: "email", value: email }, password: "abcd1234", name: "旧" });
+    for (let i=0; i<IP阈值; i++) 记一次失败(`code:${ip}`, Date.now(), IP阈值);
+    expect((await POST(发({ target: email }, "signup/start", ip))).status).toBe(409);
+    process.env.SIGNUP_REDIRECT = "https://example.test/contact";
+    expect((await POST(发({ target: email }, "signup/start", ip))).status).toBe(409);
+    expect((await POST(发({ target: 新邮箱() }, "signup/start", ip))).status).toBe(400);
+  });
+  it("需验证码但SMTP未配或注册关闭，老账号不依赖发信通道", async () => {
+    const { POST } = await import("@/app/api/account/signup/start/route");
+    const { createAccount } = await import("@/lib/tenant/accounts");
+    const email = 新邮箱();
+    await createAccount({ target: { kind: "email", value: email }, password: "abcd1234", name: "旧" });
+    process.env.SIGNUP_VERIFY = "1";
+    vi.stubEnv("NODE_ENV", "production"); vi.stubEnv("SMTP_HOST", "");
+    expect((await POST(发({ target: email }, "signup/start", "203.0.113.111"))).status).toBe(409);
+    process.env.SIGNUP_REDIRECT = "https://example.test/contact";
+    expect((await POST(发({ target: email }, "signup/start", "203.0.113.111"))).status).toBe(409);
+  });
+  it("查号桶按30次封顶，两种验证码模式一致，不能因90次宽桶漏限", async () => {
+    const { POST } = await import("@/app/api/account/signup/start/route");
+    const { createAccount } = await import("@/lib/tenant/accounts");
+    const { IP阈值, 重置限流 } = await import("@/lib/rate-limit");
+    const email = 新邮箱();
+    await createAccount({ target: { kind: "email", value: email }, password: "abcd1234", name: "旧" });
+    for (const verify of ["0", "1"]) {
+      重置限流(); process.env.SIGNUP_VERIFY = verify;
+      for (let i=0; i<IP阈值; i++) expect((await POST(发({ target: email }, "signup/start", "203.0.113.112"))).status).toBe(409);
+      expect((await POST(发({ target: email }, "signup/start", "203.0.113.112"))).status).toBe(400);
+    }
   });
 });
