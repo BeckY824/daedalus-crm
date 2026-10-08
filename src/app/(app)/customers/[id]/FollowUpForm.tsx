@@ -560,7 +560,7 @@ export default function FollowUpForm({
             )}
             {suggestions.length > 0 && (
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                AI 建议：{suggestions.join("；")}（如认可，请到「编辑{b.customer}」里修改）
+                AI 建议：{suggestions.join("；")}（如认可，保存后可点{b.customer}档案页顶部的对应状态标签修改）
               </Typography.Text>
             )}
           </Space>

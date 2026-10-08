@@ -58,7 +58,7 @@ declare global {
 
 type Props = {
   user: SessionUser;
-  workspace?: { name: string; multiple: boolean };
+  workspace?: { name: string; multiple: boolean; billing?: boolean };
   /** 左栏「收藏的客户」（lib/favorites.ts）。没收藏过就整栏不出现 */
   收藏?: { id: string; name: string }[];
   /** 导航项右边的数（2026-10-02 照毛玻璃原型）：客户总数、在谈的商机。只给有意义的那几项 */
@@ -225,14 +225,15 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
           ]),
       // 供应商（3c）同样外贸才有：通用销售没有「找工厂比价」这一步
       ...(b.template === "trade" && 供应商页 ? [{ key: "/suppliers", icon: <ShopOutlined />, label: "供应商", 组: "更多" as const }] : []),
+      ...(workspace?.billing ? [{ key: "/billing", icon: <DollarOutlined />, label: "开通订阅", 组: "更多" as const }] : []),
     ],
-    [b.customer, b.template],
+    [b.customer, b.template, workspace?.billing],
   );
 
   // 选中项取最长匹配前缀，/customers/xxx 也算在客户管理下
   const 少动 = useReducedMotion();
   const selectedKey = useMemo(() => {
-    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/suppliers", "/follow-ups", "/settings"];
+    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/suppliers", "/follow-ups", "/settings", "/billing"];
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
 
@@ -269,10 +270,10 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
       {/* 和 Dock 上那个红数字同一个数、同一种红：人从 Dock 看见 1，打开应用第一眼就能对上它在哪。
           点进去是记录页，页头「计划」按钮上还挂着同一个数，再点就是逾期和今天那两组 */}
       {n.key === "/follow-ups" && 要跟数 > 0 && (
-        <span className="rail-count" title={`${要跟说法}，和应用图标提示一致`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
+        <span className="rail-count" title={`${要跟说法}${desktop ? "，和应用图标提示一致" : "，查看跟进计划中的逾期和今天"}`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
       )}
       {n.key === "/orders" && 订单数 > 0 && (
-        <span className="rail-count" title={`${订单说法}，计入应用图标提示`}>{订单数 > 99 ? "99+" : 订单数}</span>
+        <span className="rail-count" title={`${订单说法}${desktop ? "，计入应用图标提示" : ""}`}>{订单数 > 99 ? "99+" : 订单数}</span>
       )}
       {/* 灰的数只是「有多少」，不是「要处理」：和上面那个红的分开，红的才催人 */}
       {(计数[n.key] ?? 0) > 0 && <span className="rail-num">{计数[n.key]}</span>}
@@ -372,6 +373,11 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
           <Badge count={要跟数} size="small" color={要跟.逾期 > 0 ? "var(--danger)" : palette.textMuted}>
             <Button type="text" icon={<BellOutlined />} aria-label={要跟说法 ? `跟进计划，${要跟说法}` : "跟进计划"} onClick={() => router.push("/follow-ups/plans")} />
           </Badge>
+          <Dropdown trigger={["click"]} menu={userMenu}>
+            <Button type="text" aria-label={`${user.name}，账号菜单`}>
+              <Avatar size={24} style={{ background: avatarColor(user.name), color: AVATAR_TEXT }}>{initial(user.name)}</Avatar>
+            </Button>
+          </Dropdown>
         </Header>
         <Content className="app-content" style={{ padding: "22px 26px" }}>
           <我Provider value={{ id: user.id, name: user.name }}><要跟Context.Provider value={要跟}>{children}</要跟Context.Provider></我Provider>
@@ -483,7 +489,7 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
       </nav>
 
       {/* ⌘K：跳页或问一句。挂在壳上，哪一页都在 */}
-      <CommandBar />
+      <CommandBar 有AI={Boolean(ai)} />
 
 
       {/* 中栏：槽位自己带 <aside class="pane">，没有中栏的路由返回 null */}

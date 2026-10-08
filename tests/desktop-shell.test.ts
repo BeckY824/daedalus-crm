@@ -90,7 +90,10 @@ describe("菜单照 Claude 桌面端那套：只有标准项", () => {
     // 也认「模版 && 功能开关」（2026-10-04：订单 / 供应商这一版不上，lib/features.ts）
     const 按模版 = new Set([...shell.matchAll(/b\.template === "\w+"(?: && [^?]+)? \? \[\{ key: "(\/[a-z-]+)"/g)].map((m) => m[1]));
     expect(按模版.has("/orders")).toBe(true);
-    const 路径 = 去重([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1])).filter((p) => !按模版.has(p));
+    // 托管工作区创建者的订阅入口同样由页面按权限决定，原生菜单不知道当前工作区角色。
+    const 按权限 = new Set([...shell.matchAll(/workspace\?\.billing \? \[\{ key: "(\/[a-z-]+)"/g)].map((m) => m[1]));
+    expect(按权限.has("/billing")).toBe(true);
+    const 路径 = 去重([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1])).filter((p) => !按模版.has(p) && !按权限.has(p));
     expect(路径.length).toBeGreaterThanOrEqual(8);
     for (const p of 路径) expect(菜单, `「前往」里少了 ${p}`).toContain(`"${p}"`);
   });

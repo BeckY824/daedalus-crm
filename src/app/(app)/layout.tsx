@@ -16,6 +16,7 @@ import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { 读AI计次, 不计次 } from "@/lib/ai-meter";
 import { AiMeterProvider } from "@/components/AiCost";
 import { 记下分机留存起 } from "@/lib/phone-dedupe";
+import { 是共享工作区 } from "@/lib/shared-ws/config";
 
 export default async function AppLayout({
   children,
@@ -94,7 +95,7 @@ export default async function AppLayout({
       <AiMeterProvider 初值={AI计次}>
       <AppShell
         user={user}
-        workspace={workspace ? { name: workspace.name, multiple: workspaces.length > 1 } : undefined}
+        workspace={workspace ? { name: workspace.name, multiple: workspaces.length > 1, billing: multiTenant() && workspace.role === "OWNER" && !是共享工作区(workspace.slug) } : undefined}
         要跟={(({ 逾期, 今天 }) => ({ 逾期, 今天 }))(算提醒(提醒项))}
         订单要看={(({ 超期, 今天 }) => ({ 超期, 今天 }))(算提醒([], new Date(), 订单提醒项).订单)}
         desktop={desktop}

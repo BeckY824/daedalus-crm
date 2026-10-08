@@ -15,7 +15,7 @@ import { 换一位 } from "@/lib/roster";
  * ⌘K。
  *
  * 一个键管两件事：**跳到哪一页**，和**问一句**。
- *   这一页上有问答框（首页、数据）时，⌘K 就是把光标放回那个框——
+ *   首页有问答框时，⌘K 就是把光标放回那个框——
  *   在那儿 ⌘K 的意思已经是「我要打字了」，再弹一个浮层等于多一步。
  *   其余页面 ⌘K 打开这张单子：打字筛页面，回车跳过去；
  *   一个页面都没匹配上时，第一条变成「问一句」，回车带着这句话去首页问。
@@ -30,7 +30,7 @@ function 在输入框里(e: KeyboardEvent) {
   return t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName);
 }
 
-export default function CommandBar() {
+export default function CommandBar({ 有AI }: { 有AI: boolean }) {
   const router = useRouter();
   const b = useBusiness();
   const [open, setOpen] = useState(false);
@@ -119,6 +119,7 @@ export default function CommandBar() {
 
   function 走(i = idx) {
     if (当问题) {
+      if (!有AI) return;
       // 带着问题去首页问：答案、过程、建议卡都在那儿，不在一个浮层里
       // 先说一声「这句是我交过去的」：首页只自动发本应用交过去的，外面来的链接只填进框里（J-158）
       交给首页问(q);
@@ -164,9 +165,9 @@ export default function CommandBar() {
         </div>
         <div className="cmdk-list">
           {当问题 ? (
-            <button type="button" className="cmdk-row cmdk-row-on" onClick={() => 走()}>
-              <b>问一句</b>
-              <span>「{q.trim()}」——去首页问，它会读完记录再答</span>
+            <button type="button" className="cmdk-row cmdk-row-on" disabled={!有AI} onClick={() => 走()}>
+              <b>{有AI ? "问一句" : "尚未接入 AI"}</b>
+              <span>{有AI ? `「${q.trim()}」——去首页问，它会读完记录再答` : "问题保留在输入框中。在设置中接入 AI，或联系工作区管理员后再提问。"}</span>
             </button>
           ) : (
             命中.map((p, i) => (
@@ -178,7 +179,7 @@ export default function CommandBar() {
           )}
         </div>
         <div className="cmdk-foot">
-          <kbd>↑↓</kbd> 选 · <kbd>↵</kbd> 去 · <kbd>Esc</kbd> 关 · 在首页和数据页 <kbd><Shortcut>⌘K</Shortcut></kbd> 是回到输入框，在{b.customer}记录页是换一位
+          <kbd>↑↓</kbd> 选 · <kbd>↵</kbd> 去 · <kbd>Esc</kbd> 关 · 首页有问答框时 <kbd><Shortcut>⌘K</Shortcut></kbd> 回到输入框，在{b.customer}记录页换一位，其余页面打开跳转单
         </div>
       </div>
     </Modal>

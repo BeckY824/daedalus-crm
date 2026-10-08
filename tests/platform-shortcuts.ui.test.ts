@@ -11,7 +11,7 @@ const plugin: Plugin = { name: "navigation", setup(b) {
 beforeAll(async () => {
   const r = await build({stdin:{contents:`import React from 'react';import {createRoot} from 'react-dom/client';
     import C from '@/components/CommandBar';import S from '@/components/Shortcut';
-    createRoot(document.getElementById('root')).render(<><div className="page-head-a"><button className="ant-btn-primary" onClick={()=>window.__new++}>新建</button></div><kbd id="key"><S>⌘↵</S></kbd><C/></>);`,loader:"tsx",resolveDir:process.cwd()},bundle:true,write:false,format:"iife",jsx:"automatic",alias:{"@":path.resolve("src")},define:{"process.env.NODE_ENV":'"production"'},plugins:[plugin],logLevel:"silent"});
+    createRoot(document.getElementById('root')).render(<><div className="page-head-a"><button className="ant-btn-primary" onClick={()=>window.__new++}>新建</button></div><kbd id="key"><S>⌘↵</S></kbd><C 有AI={true}/></>);`,loader:"tsx",resolveDir:process.cwd()},bundle:true,write:false,format:"iife",jsx:"automatic",alias:{"@":path.resolve("src")},define:{"process.env.NODE_ENV":'"production"'},plugins:[plugin],logLevel:"silent"});
   bundle=r.outputFiles[0].text;browser=await chromium.launch();
 },120_000);
 afterAll(async()=>{await browser?.close()});
