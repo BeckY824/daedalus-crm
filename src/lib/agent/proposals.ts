@@ -214,7 +214,7 @@ export function buildProposal(
         continue;
       }
       if (spec.kind === "date") {
-        const w = parseWhen(v);
+        const w = parseWhen(v, true);
         if (!w.ok) return { ok: false, error: `${spec.label}解析不了，用 YYYY-MM-DD` };
         changes.push({ field: f, value: w.at });
         continue;

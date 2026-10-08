@@ -13,7 +13,7 @@ import { dayjs } from "../utils";
  */
 export const 现值选取 = {
   id: true, name: true, phone: true, school: true, grade: true, major: true,
-  followStatus: true, decisionStatus: true, expectedSignAt: true, remark: true,
+  followStatus: true, decisionStatus: true, expectedSignAt: true, expectedSignOn: true, remark: true,
   salesOwner: { select: { name: true } },
   channelOwner: { select: { name: true } },
   channel: { select: { name: true } },
@@ -31,7 +31,7 @@ export function 现值表(found: 现值客户): Record<string, string> {
     major: found.major ?? "",
     followStatus: found.followStatus,
     decisionStatus: found.decisionStatus,
-    expectedSignAt: found.expectedSignAt ? dayjs(found.expectedSignAt).format("YYYY-MM-DD") : "",
+    expectedSignAt: found.expectedSignOn ?? (found.expectedSignAt ? dayjs(found.expectedSignAt).format("YYYY-MM-DD") : ""),
     remark: found.remark ?? "",
     salesOwnerName: found.salesOwner?.name ?? "",
     channelOwnerName: found.channelOwner?.name ?? "",

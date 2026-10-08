@@ -76,10 +76,11 @@ afterEach(async () => {
 it("日期语义随真实同步传到第二库，不从时刻猜测原日历日", async () => {
   const a = await 一台("calendar-A"); const b = await 一台("calendar-B");
   for (const db of [a, b]) { await 建同步表(db); await 装触发器(db); }
-  const c = await a.customer.create({ data: { name: "日历客户", phone: "", salesOwnerId: 模板账号[0].id } });
+  const c = await a.customer.create({ data: { name: "日历客户", phone: "", salesOwnerId: 模板账号[0].id, expectedSignAt: new Date("2026-10-07T16:00:00Z"), expectedSignOn: "2026-10-08" } });
   const p = await a.followPlan.create({ data: { customerId: c.id, ownerId: 模板账号[0].id, subject: "跨区", plannedAt: new Date("2026-10-07T16:00:00Z"), plannedOn: "2026-10-08", plannedHasTime: false } });
   const t = await a.task.create({ data: { customerId: c.id, ownerId: 模板账号[0].id, title: "午夜定时", dueAt: new Date("2026-10-07T16:00:00Z"), dueHasTime: true } });
   await 同步(a, b);
+  expect(await b.customer.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ expectedSignAt: c.expectedSignAt, expectedSignOn: "2026-10-08" });
   expect(await b.followPlan.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ plannedOn: "2026-10-08", plannedHasTime: false, plannedAt: p.plannedAt });
   expect(await b.task.findUniqueOrThrow({ where: { id: t.id } })).toMatchObject({ dueOn: null, dueHasTime: true, dueAt: t.dueAt });
 });

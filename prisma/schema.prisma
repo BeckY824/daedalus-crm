@@ -131,6 +131,7 @@ model Customer {
   followStatus   String    @default("待跟进") /// 跟进状态
   decisionStatus String    @default("了解中") /// 客户决策状态
   expectedSignAt DateTime? /// 预计签约时间
+  expectedSignOn String? /// 原日历日；旧记录未知为空
   lastFollowAt   DateTime? /// 最近跟进
   remark         String?
 

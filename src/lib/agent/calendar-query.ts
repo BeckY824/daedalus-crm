@@ -2,6 +2,7 @@ import { scheduleOrder } from "../schedule-date";
 
 /** 只允许已有白名单字段对应的内部元数据；模型不能指定元数据列。 */
 export const calendarColumns: Record<string, Record<string, string>> = {
+  客户: { expectedSignAt: "expectedSignOn" },
   跟进计划: { plannedAt: "plannedOn" },
   任务: { dueAt: "dueOn" },
 };

@@ -111,7 +111,7 @@ export default async function CustomerDetailPage({
         major: customer.major,
         followStatus: customer.followStatus,
         decisionStatus: customer.decisionStatus,
-        expectedSignAt: customer.expectedSignAt?.toISOString() ?? null,
+        expectedSignAt: scheduleValue(customer.expectedSignAt, customer.expectedSignOn),
         lastFollowAt: customer.lastFollowAt?.toISOString() ?? null,
         remark: customer.remark,
         referrerCustomerId: customer.referrerCustomerId,

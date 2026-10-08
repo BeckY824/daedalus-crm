@@ -1,5 +1,6 @@
 "use client";
 
+import { isCalendarDate } from "@/lib/schedule-date";
 import { requiredText } from "@/lib/form-validation";
 
 import OptionInput from "@/components/OptionInput";
@@ -145,7 +146,7 @@ function CustomerFormInner({
               major: editing.major,
               followStatus: editing.followStatus,
               decisionStatus: editing.decisionStatus,
-              expectedSignAt: editing.expectedSignAt ? new Date(editing.expectedSignAt) : null,
+              expectedSignAt: editing.expectedSignAt,
               remark: editing.remark,
               salesOwnerId: editing.salesOwnerId,
               channelId: editing.channelId,
@@ -164,7 +165,7 @@ function CustomerFormInner({
           外贸模版不摆这三格：照原样交回去，别因为表单里没有就清掉（切回通用模版时它们还在）。
           没摆的格子 validateFields 不给值，所以从 editing 取
         */
-        expectedSignAt: 外贸 ? (editing?.expectedSignAt ? new Date(editing.expectedSignAt) : null) : v.expectedSignAt ? v.expectedSignAt.toDate() : null,
+        expectedSignAt: 外贸 || (editing && !form.isFieldTouched("expectedSignAt")) ? editing?.expectedSignAt ?? null : v.expectedSignAt ? v.expectedSignAt.format("YYYY-MM-DD") : null,
         remark: v.remark ?? null,
         salesOwnerId: v.salesOwnerId,
         channelId: 外贸 ? (editing?.channelId ?? null) : referrerType === "channel" ? (v.channelId ?? null) : null,
@@ -526,7 +527,7 @@ function CustomerFormInner({
           </Col>
           {!外贸 && (
             <Col span={8}>
-              <Form.Item label="预计签约时间" name="expectedSignAt">
+              <Form.Item label="预计签约时间" name="expectedSignAt" extra={editing?.expectedSignAt && !isCalendarDate(editing.expectedSignAt) ? "旧记录未保存原日历日，请核对日期；重新选日期后会保存原日历日。" : undefined}>
                 <DatePicker style={{ width: "100%" }} placeholder="选择日期" />
               </Form.Item>
             </Col>

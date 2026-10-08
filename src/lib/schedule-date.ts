@@ -39,3 +39,13 @@ export function scheduleOrder(at: Date | string | null | undefined, on?: string 
 export function earliestScheduled<T>(rows: readonly T[], value: (row: T) => number, limit = rows.length): T[] {
   return [...rows].sort((a, b) => value(a) - value(b)).slice(0, limit);
 }
+
+/** 预计签约只选日期。兼容老客户端Date/ISO，未变时保留原日历日，不从时区猜历史意图。 */
+export function parseSignDate(value: unknown, previous?: { expectedSignAt: Date | null; expectedSignOn: string | null }): { at: Date | null; on: string | null } | null {
+  if (value == null || value === "") return { at: null, on: null };
+  if (typeof value === "string") value = value.trim();
+  const at = value instanceof Date ? value : parseDateInput(value);
+  if (!at || !Number.isFinite(at.getTime())) return null;
+  if (typeof value === "string" && isCalendarDate(value)) return { at, on: value };
+  return { at, on: previous?.expectedSignAt?.getTime() === at.getTime() ? previous.expectedSignOn : null };
+}

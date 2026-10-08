@@ -68,6 +68,7 @@ const 可写: Record<string, string[]> = {
 const 派生: Record<string, Record<string, string>> = {
   Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
+    expectedSignOn: "预计签约原日历日，随保存/导入/同步保留；旧数据未知为空",
     attributionChannelId: "推荐链往上两代算出来的，改推荐人它就跟着变",
     attributionCustomerId: "同上",
     lastFollowAt: "最近一条跟进的时间，记跟进时自动维护",

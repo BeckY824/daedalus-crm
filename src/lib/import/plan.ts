@@ -13,6 +13,7 @@
  * 没有它这一行既不知道是谁、也没法判断是不是已经有了。
  * 外贸模版例外：没有电话拿 WhatsApp 认，WhatsApp 也没有拿邮箱认（2026-10-07，lib/email-dedupe.ts）。
  */
+import { calendarDay } from "../schedule-date";
 import type { 字段名, 字段规格 } from "./fields";
 import { 规整外贸格, 认国家 } from "../customer-extra";
 import { 规整表头 } from "./fields";
@@ -250,7 +251,7 @@ export function 摊开(p: 排布): 一行[] {
           问题.push({ 列, 字段, 原值: v, 说法: `「${v}」读不出是哪一天，这一格会留空`, 严重: "留空" });
           return;
         }
-        值[字段] = d.toISOString();
+        值[字段] = calendarDay(d);
         return;
       }
       /*

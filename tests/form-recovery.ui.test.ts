@@ -19,6 +19,7 @@ const plugin: Plugin = { name: "form-actions", setup(b) {
     const save=async x=>{window.__calls.push(x);if(window.__fail)throw Error('network');return {ok:true,id:'saved'}};
     export const savePlan=save,saveTask=save,saveContact=save,saveUnassignedContact=save,saveChannel=save,改我的资料=save;
     export const saveCustomer=save,checkDuplicate=async()=>null;
+    export const patchCustomer=async(id,key,value)=>save({id,key,value});
     export const saveContract=async x=>window.__duplicate&&!x.force?{duplicate:{amount:123,currency:'CNY',signedAt:new Date().toISOString()}}:save(x);
     export const listContractLinks=async()=>({商机:[],计划:[],待办:[]});
     export const toggleChannel=save,deleteChannel=save;
@@ -31,17 +32,18 @@ beforeAll(async () => {
     import Plan from '@/app/(app)/customers/[id]/PlanForm';
     import Task from '@/app/(app)/customers/[id]/TaskForm';
     import Contact from '@/app/(app)/customers/[id]/ContactForm';
+    import Inline from '@/app/(app)/customers/[id]/InlineField';
     import Customer from '@/app/(app)/customers/CustomerForm';
     import Contract from '@/app/(app)/customers/[id]/ContractForm';
     import Profile from '@/app/(app)/settings/ProfileTab';
     import Channels from '@/app/(app)/channels/ChannelsView';
     const done=()=>window.__saved++;
-    const forms={calendarPlan:<Plan open customerId="c1" record={window.__calendarRecord} onSaved={done} onClose={()=>{}}/>,
+    const forms={inlineSign:<Inline customerId="c1" field="expectedSignAt" label="预计签约" value="2026-10-08" kind="date"/>,calendarPlan:<Plan open customerId="c1" record={window.__calendarRecord} onSaved={done} onClose={()=>{}}/>,
       calendarTask:<Task open customerId="c1" record={window.__calendarRecord} onSaved={done} onClose={()=>{}}/>,
       plan:<Plan open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
       contact:<Contact open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
       detached:<Contact open 未归属 record={{id:'detached',name:'QA联系人',isPrimary:false,wasPrimary:window.__wasPrimary,fromCustomerId:'original',updatedAt:'2026-10-08T08:00:00Z'}} 学员们={[{id:'original',name:'原客户'},{id:'new',name:'新客户'}]} onSaved={done} onClose={()=>{}}/>,
-      customer:<Customer open editing={{id:'self',name:'我自己',phone:'',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',referrerCustomerId:'other',updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',email:'qa',role:'ADMIN',active:true}]} channels={[]} customers={[{id:'self',name:'我自己'},{id:'other',name:'推荐人甲'}]} onClose={()=>{}}/>,
+      customer:<Customer open editing={{id:'self',name:'我自己',phone:'',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',referrerCustomerId:'other',expectedSignAt:window.__signDate??null,updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',email:'qa',role:'ADMIN',active:true}]} channels={[]} customers={[{id:'self',name:'我自己'},{id:'other',name:'推荐人甲'}]} onClose={()=>{}}/>,
       contract:<Contract open customerId="c1" editing={null} onClose={done}/>,
       profile:<Profile me={{name:'原名',title:'',email:'qa@example.invalid'}}/>,
       channel:<Channels rows={[]} users={[{id:'u1',name:'我',role:'ADMIN',active:true}]} radar={{topReferrers:[],inviteCandidates:[]}} aiEnabled={false}/>};
@@ -159,4 +161,30 @@ it("旧记录仅改标题不把未知时间强制改为明确钟点，显式修�
   await page.getByRole("checkbox", { name: "指定钟点并到点提醒" }).click(); await page.getByRole("button", { name: /保\s*存/ }).click();
   await expect.poll(() => page.evaluate(() => window.__calls.length)).toBe(2);
   expect(await page.evaluate(() => window.__calls[1])).toMatchObject({ plannedAt: "2026-10-08", plannedHasTime: false }); await page.close();
+});
+
+it("预计签约表单在纽约保留原日历日，旧记录只改姓名继续交原ISO", async () => {
+  for (const original of ["2026-10-08", "2026-10-07T16:00:00.000Z"]) {
+    const page = await browser.newPage({ timezoneId: "America/New_York" }); page.setDefaultTimeout(5000);
+    await page.route("http://forms.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
+    await page.goto("http://forms.test"); await page.evaluate(original => Object.assign(window, { __kind: "customer", __calls: [], __fail: false, __saved: 0, __signDate: original }), original);
+    await page.addScriptTag({ content: bundle });
+    if (original === "2026-10-08") await expect.poll(() => page.locator("#expectedSignAt").inputValue()).toBe("2026-10-08");
+    else await page.getByText(/旧记录未保存原日历日/).waitFor();
+    await page.locator("#name").fill("改姓名"); await page.getByRole("button", { name: /保\s*存/ }).click();
+    await expect.poll(() => page.evaluate(() => window.__calls.length)).toBe(1);
+    expect(await page.evaluate(() => window.__calls[0])).toMatchObject({ expectedSignAt: original, base: { expectedSignAt: original } });
+    await page.close();
+  }
+});
+
+it("预计签约行内DatePicker在纽约提交原日历日", async () => {
+  const page = await browser.newPage({ timezoneId: "America/New_York" }); page.setDefaultTimeout(5000);
+  await page.route("http://forms.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
+  await page.goto("http://forms.test"); await page.evaluate(() => Object.assign(window, { __kind: "inlineSign", __calls: [], __fail: false }));
+  await page.addScriptTag({ content: bundle }); await page.getByRole("button", { name: "编辑预计签约" }).click();
+  const picker = page.locator(".ant-picker-input input"); await expect.poll(() => picker.inputValue()).toBe("2026-10-08");
+  await page.locator('.ant-picker-cell[title="2026-10-12"]').click();
+  await expect.poll(() => page.evaluate(() => window.__calls.length)).toBe(1);
+  expect(await page.evaluate(() => window.__calls[0])).toMatchObject({ id: "c1", key: "expectedSignAt", value: "2026-10-12" }); await page.close();
 });

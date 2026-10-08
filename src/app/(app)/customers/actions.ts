@@ -3,8 +3,7 @@
 import { 转交商机 } from "@/lib/opportunity-activity";
 import { hasVisibleText } from "@/lib/form-validation";
 
-import { scheduleValue } from "@/lib/schedule-date";
-import { parseDateInput } from "@/lib/date-input";
+import { scheduleValue, parseSignDate } from "@/lib/schedule-date";
 
 import { 不在了 } from "@/lib/not-there";
 import { 查完再写 } from "@/lib/check-then-write";
@@ -72,7 +71,7 @@ export type CustomerInput = {
   major: string | null;
   followStatus: string;
   decisionStatus: string;
-  expectedSignAt: Date | null;
+  expectedSignAt: Date | string | null;
   remark: string | null;
   /** 一个人的工作区里界面上不问这一项，留空由服务端填成那唯一的人 */
   salesOwnerId?: string | null;
@@ -281,6 +280,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   const salesOwnerId = input.salesOwnerId || (await 唯一负责人());
   if (!salesOwnerId) return { ok: false, error: "请选择销售负责人" };
 
+  const sign = parseSignDate(input.expectedSignAt, 改前 ?? undefined);
+  if (!sign) return { ok: false, error: "日期格式不对或日期不存在" };
   const data = {
     name: input.name.trim(),
     phone,
@@ -289,7 +290,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     major: input.major?.trim() || null,
     followStatus: input.followStatus,
     decisionStatus: input.decisionStatus,
-    expectedSignAt: input.expectedSignAt,
+    expectedSignAt: sign.at,
+    expectedSignOn: sign.on,
     remark: input.remark?.trim() || null,
     salesOwnerId,
     referrerCustomerId: input.referrerCustomerId,
@@ -433,6 +435,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     // 只写我改动的那几个字段，对方改的原样保留
     const patch: Record<string, unknown> = {};
     for (const k of mine) patch[k] = (data as Record<string, unknown>)[k];
+    if (mine.includes("expectedSignAt")) patch.expectedSignOn = data.expectedSignOn;
     // 推荐人一变，归属三件套要跟着走，不能只写推荐人本身
     if (mine.some((k) => (REFERRER_KEYS as readonly string[]).includes(k))) {
       for (const k of ATTRIBUTION_KEYS) patch[k] = (data as Record<string, unknown>)[k];
@@ -1175,14 +1178,16 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
       data.channelOwnerId = (await resolveAttribution(cur)).channelOwnerId;
     }
   } else if (key === "expectedSignAt") {
-    const parsed = v ? parseDateInput(v) : null;
-    if (v && !parsed) return { ok: false, error: "日期格式不对或日期不存在" };
-    data.expectedSignAt = parsed;
+    const previous = await prisma.customer.findUnique({ where: { id }, select: { expectedSignAt: true, expectedSignOn: true } });
+    const parsed = parseSignDate(v, previous ?? undefined);
+    if (!parsed) return { ok: false, error: "日期格式不对或日期不存在" };
+    data.expectedSignAt = parsed.at;
+    data.expectedSignOn = parsed.on;
   } else {
     data[key] = v || null;
   }
 
-  const before = await prisma.customer.findUnique({ where: { id }, select: { name: true, [key]: true } as never });
+  const before = await prisma.customer.findUnique({ where: { id }, select: { name: true, expectedSignOn: true, [key]: true } as never });
   if (!before) return { ok: false, error: `这条${b.customer}已被删除` };
   await prisma.customer.update({ where: { id }, data });
   const labels = customerFieldLabels(b);

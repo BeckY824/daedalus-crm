@@ -249,7 +249,7 @@ ${外贸精简(b)
   ? `国家：${customer.extra?.country ?? "未填"}；来源：${customer.extra?.source ?? "未填"}
 已下单金额：${已签.length ? 合计文字(已签) : "还没有订单"}`
   : `推荐来源：${customer.referrerCustomer?.name ?? customer.channel?.name ?? "无记录"}
-预计签约：${customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约金额：${已签.length ? 合计文字(已签) : "未签约"}`}
+预计签约：${customer.expectedSignOn ?? (customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定")}；已签约金额：${已签.length ? 合计文字(已签) : "未签约"}`}
 备注：${customer.remark || "（无）"}
 
 【商机】

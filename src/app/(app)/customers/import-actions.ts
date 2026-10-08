@@ -1,5 +1,7 @@
 "use server";
 
+import { parseSignDate } from "@/lib/schedule-date";
+
 import { 外贸导入字段 } from "@/lib/import/fields";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
 import { 按邮箱找, 同邮箱条件, 邮箱认人表 } from "@/lib/email-dedupe";
@@ -102,7 +104,7 @@ async function 导入匹配(行: ReturnType<typeof 摊开>) {
   */
   const 命中 = await 看全部(async () => prisma.customer.findMany({
     where: { OR: [await 这一批同号的(prisma, 这一批), { id: { in: 邮命中.map((x) => x.id) } }] },
-    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
+    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, expectedSignOn: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
   }));
   // 外贸档案（2026-10-05）在旁表里：补空也是「那一格空着才补」，先取一份现值
   const 档案们 = new Map(
@@ -116,7 +118,7 @@ async function 导入匹配(行: ReturnType<typeof 摊开>) {
   return { 表, 邮表, 档案们, 限定我 };
 }
 
-function 算补空(r: ReturnType<typeof 摊开>[number], 旧: { school: string | null; grade: string | null; major: string | null; expectedSignAt: Date | null; remark: string | null }, 档案?: Partial<Record<(typeof 外贸导入字段)[number], string | null>>) {
+function 算补空(r: ReturnType<typeof 摊开>[number], 旧: { school: string | null; grade: string | null; major: string | null; expectedSignAt: Date | null; expectedSignOn: string | null; remark: string | null }, 档案?: Partial<Record<(typeof 外贸导入字段)[number], string | null>>) {
   const 补: Record<string, unknown> = {};
   const before: Record<string, unknown> = {};
   for (const k of 补空字段名单) {
@@ -124,8 +126,12 @@ function 算补空(r: ReturnType<typeof 摊开>[number], 旧: { school: string |
     if (!新值) continue;
     // 库里那格有值就一个字都不动——文件头第 2 条
     if ((旧 as Record<string, unknown>)[k] != null && (旧 as Record<string, unknown>)[k] !== "") continue;
-    补[k] = k === "expectedSignAt" ? new Date(新值) : 新值;
+    补[k] = k === "expectedSignAt" ? parseSignDate(新值)!.at : 新值;
     before[k] = (旧 as Record<string, unknown>)[k] ?? null;
+    if (k === "expectedSignAt") {
+      补.expectedSignOn = parseSignDate(新值)!.on;
+      before.expectedSignOn = 旧.expectedSignOn;
+    }
   }
   /*
     库里备注有值：对上「备注」的那一列照旧不动，但表里我们没有的列（「微信号：…」）只有备注这一个去处——
@@ -337,7 +343,8 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
             major: r.值.major ?? null,
             ...(r.值.followStatus ? { followStatus: r.值.followStatus } : {}),
             ...(r.值.decisionStatus ? { decisionStatus: r.值.decisionStatus } : {}),
-            expectedSignAt: r.值.expectedSignAt ? new Date(r.值.expectedSignAt) : null,
+            expectedSignAt: parseSignDate(r.值.expectedSignAt)!.at,
+            expectedSignOn: parseSignDate(r.值.expectedSignAt)!.on,
             remark: r.值.remark ?? null,
             salesOwnerId,
             referrerCustomerId: null,
@@ -355,7 +362,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       }
       新建++;
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
-      const 记 = { id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null };
+      const 记 = { id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, expectedSignOn: c.expectedSignOn, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null };
       if (phone) 表.记下(记);
       else 邮表.记下(email, 记);
     } catch {
@@ -528,9 +535,10 @@ async function 撤这一批(
           continue;
         }
         // 只写回补空能碰的那几格：before 里还记着 写前键 这类不是字段的东西
-        if (!(补空字段名单 as readonly string[]).includes(k)) continue;
+        if (!(补空字段名单 as readonly string[]).includes(k) && k !== "expectedSignOn") continue;
         data[k] = k === "expectedSignAt" && v ? new Date(v as string) : (v ?? null);
       }
+      if ("expectedSignAt" in data && !("expectedSignOn" in data)) data.expectedSignOn = null;
       if (Object.keys(档案还原).length) await 写外贸档案(prisma, c.id, 档案还原, false);
       if (Object.keys(data).length > 0) {
         const 撤后 = await prisma.customer.update({ where: { id: c.id }, data, select: { updatedAt: true } });

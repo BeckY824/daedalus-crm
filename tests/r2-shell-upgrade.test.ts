@@ -225,6 +225,7 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
   it("老数据一行不少、老列一格不变（管理员那一行除外：对上了云端账号）", () => {
     const 之后 = 快照(path.join(目录, "crm.db"));
     expect(升级前.Opportunity).toHaveLength(1);
+    expect(之后.Customer.map((r) => r.expectedSignOn)).toEqual(之后.Customer.map(() => null));
     expect(之后.Opportunity.map((r) => r.activityAt)).toEqual([null]);
     for (const [table, dateKey, clockKey] of [["FollowPlan", "plannedOn", "plannedHasTime"], ["Task", "dueOn", "dueHasTime"], ["FollowUp", "dueOn", "dueHasTime"]]) {
       for (const row of 之后[table]) { expect(row[dateKey]).toBeNull(); expect(row[clockKey]).toBeNull(); }

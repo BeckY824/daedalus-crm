@@ -6,6 +6,7 @@
  *   data：   喂回模型的结构化内容（截断过，控制上下文）
  *   records：这次读到的跟进记录（带编号），最终回答里的 [n] 引用它们
  */
+import type { Prisma } from "@/generated/prisma";
 import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { calendarColumns, readCalendarSorted } from "./calendar-query";
 import { 客户筛选条件 } from "@/app/(app)/customers/query";
@@ -126,7 +127,10 @@ export const TOOLS: Tool[] = [
       if (!页面条件 && !q && !channel && !owner && !status && !decision && !mine && !建档条件 && !预签条件)
         return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine / createdFrom-To / expectedSignFrom-To 至少给一个" } };
       const where = {
-        ...(页面条件 ? { AND: [页面条件] } : {}),
+        AND: [...(页面条件 ? [页面条件] : []), ...(预签条件 ? [{ OR: [
+          { expectedSignOn: { ...(预签.from ? { gte: 预签.from.format("YYYY-MM-DD") } : {}), ...(预签.to ? { lte: 预签.to.format("YYYY-MM-DD") } : {}) } },
+          { expectedSignOn: null, expectedSignAt: 预签条件 },
+        ] }] : [])],
         // 和客户列表搜的是同一个范围（C7）：外贸档案、联系人也搜（2026-10-05）
         ...(q ? { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { school: { contains: q } }, { grade: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } },
           { extra: { is: { OR: [{ whatsapp: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }, { country: { contains: q } }] } } },
@@ -141,23 +145,20 @@ export const TOOLS: Tool[] = [
         ...(statusKey ? { followStatus: statusKey } : {}),
         ...(decisionKey ? { decisionStatus: decisionKey } : {}),
         ...(建档条件 ? { createdAt: 建档条件 } : {}),
-        ...(预签条件 ? { expectedSignAt: 预签条件 } : {}),
         ...(mine ? { salesOwnerId: ctx.userId } : {}),
       };
+      const select = { id: true, name: true, phone: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, channel: { select: { name: true } }, expectedSignAt: true, expectedSignOn: true, createdAt: true, lastFollowAt: true } as const;
+      const read = (args: unknown) => prisma.customer.findMany({ ...(args as Prisma.CustomerFindManyArgs), select });
       const [total, rows] = await Promise.all([
         prisma.customer.count({ where }),
-        prisma.customer.findMany({
-          where,
-          take: 30,
-          // 问「这个月预计能签哪几个」时按预计签约日从近到远排——那是在问顺序，不是在问最近聊过谁
-          orderBy: 预签条件 ? { expectedSignAt: "asc" } : { lastFollowAt: "desc" },
-          select: { id: true, name: true, phone: true, school: true, grade: true, major: true, followStatus: true, decisionStatus: true, salesOwner: { select: { name: true } }, channel: { select: { name: true } }, expectedSignAt: true, createdAt: true, lastFollowAt: true },
-        }),
+        预签条件
+          ? readCalendarSorted(read, where, select, 30, "expectedSignAt", "expectedSignOn", "asc") as Promise<Awaited<ReturnType<typeof read>>>
+          : read({ where, take: 30, orderBy: { lastFollowAt: "desc" } }),
       ]);
       const data = {
         total,
         shown: rows.length,
-        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: 号(r.phone), school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, channel: r.channel?.name ?? null, expectedSignAt: r.expectedSignAt ? dayjs(r.expectedSignAt).format("YYYY-MM-DD") : null, createdAt: dayjs(r.createdAt).format("YYYY-MM-DD"), lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
+        customers: rows.map((r) => ({ id: r.id, name: r.name, phone: 号(r.phone), school: r.school, grade: r.grade, major: r.major, followStatus: statusLabel(ctx.b, r.followStatus), decisionStatus: statusLabel(ctx.b, r.decisionStatus), owner: r.salesOwner.name, channel: r.channel?.name ?? null, expectedSignAt: r.expectedSignOn ?? (r.expectedSignAt ? dayjs(r.expectedSignAt).format("YYYY-MM-DD") : null), createdAt: dayjs(r.createdAt).format("YYYY-MM-DD"), lastFollowAt: r.lastFollowAt ? dayjs(r.lastFollowAt).format("MM-DD") : null })),
       };
       const 区间说法 = (r: { from?: dayjs.Dayjs; to?: dayjs.Dayjs }, 名: string) =>
         r.from || r.to ? `${名} ${r.from ? r.from.format("YYYY-MM-DD") : "最早"}~${r.to ? r.to.format("YYYY-MM-DD") : "今天"}` : "";
@@ -288,7 +289,7 @@ export const TOOLS: Tool[] = [
           外贸精简(b)
             ? // 外贸模版（2026-10-05）：不说推荐来源、预计签约（界面上没有）；签约就是订单，带上订单号
               `订单 ${c.contracts.length ? `${合计文字(签约合计(c.contracts))}（${c.contracts.map((k) => k.order?.no).filter(Boolean).join("、") || "老签约，没有订单号"}）` : "无"}`
-            : `推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约 ${c.contracts.length ? 合计文字(签约合计(c.contracts)) : "无"}`
+            : `推荐来源 ${c.referrerCustomer?.name ?? c.channel?.name ?? "无"}；预计签约 ${c.expectedSignOn ?? (c.expectedSignAt ? dayjs(c.expectedSignAt).format("YYYY-MM-DD") : "未定")}；已签约 ${c.contracts.length ? 合计文字(签约合计(c.contracts)) : "无"}`
         }；备注：${c.remark || "无"}`,
         contacts: c.contacts.map((p) => `${p.name}${p.position ? `（${p.position}）` : ""}${p.isPrimary ? " 主要联系人" : ""}：${[p.phone && `电话 ${号(p.phone)}`, p.wechat && `微信 ${p.wechat}`, p.email && `邮箱 ${p.email}`].filter(Boolean).join("、") || "没留联系方式"}`),
         opportunities: c.opportunities.map((o) => {

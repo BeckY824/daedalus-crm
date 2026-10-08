@@ -1,3 +1,4 @@
+import { scheduleValue } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
@@ -106,6 +107,7 @@ export const 客户行字段 = {
   followStatus: true,
   decisionStatus: true,
   expectedSignAt: true,
+  expectedSignOn: true,
   lastFollowAt: true,
   remark: true,
   referrerCustomerId: true,
@@ -136,7 +138,7 @@ export function 成客户行(r: 取到的行, 号: (p: string) => string) {
     major: r.major,
     followStatus: r.followStatus,
     decisionStatus: r.decisionStatus,
-    expectedSignAt: r.expectedSignAt?.toISOString() ?? null,
+    expectedSignAt: scheduleValue(r.expectedSignAt, r.expectedSignOn),
     lastFollowAt: r.lastFollowAt?.toISOString() ?? null,
     remark: r.remark,
     referrerCustomerId: r.referrerCustomerId,

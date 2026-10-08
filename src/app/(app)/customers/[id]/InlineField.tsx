@@ -174,7 +174,7 @@ export default function InlineField({
           open
           value={draft ? dayjs(draft) : null}
           onChange={(d) => {
-            const v = d ? d.toDate().toISOString() : null;
+            const v = d ? d.format("YYYY-MM-DD") : null;
             setDraft(v);
             void commit(v);
           }}
