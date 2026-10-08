@@ -226,6 +226,9 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
     const 之后 = 快照(path.join(目录, "crm.db"));
     expect(升级前.Opportunity).toHaveLength(1);
     expect(之后.Opportunity.map((r) => r.activityAt)).toEqual([null]);
+    for (const [table, dateKey, clockKey] of [["FollowPlan", "plannedOn", "plannedHasTime"], ["Task", "dueOn", "dueHasTime"], ["FollowUp", "dueOn", "dueHasTime"]]) {
+      for (const row of 之后[table]) { expect(row[dateKey]).toBeNull(); expect(row[clockKey]).toBeNull(); }
+    }
     // entry 会新记一条 desktop.syncedName（人改过名字没有的账），那一行不算老数据
     之后.Setting = (之后.Setting ?? []).filter((r) => r.key !== "desktop.syncedName");
     for (const [表, 老行] of Object.entries(升级前)) {

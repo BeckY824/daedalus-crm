@@ -3,6 +3,7 @@
 import { 转交商机 } from "@/lib/opportunity-activity";
 import { hasVisibleText } from "@/lib/form-validation";
 
+import { scheduleValue } from "@/lib/schedule-date";
 import { parseDateInput } from "@/lib/date-input";
 
 import { 不在了 } from "@/lib/not-there";
@@ -808,13 +809,13 @@ export async function listContractLinks(customerId: string): Promise<{
   await requireUser();
   const [商机, 计划, 待办] = await Promise.all([
     prisma.opportunity.findMany({ where: { customerId, status: "OPEN" }, orderBy: { createdAt: "desc" }, select: { id: true, name: true, amount: true, stage: true, ...带币种.商机 } }),
-    prisma.followPlan.findMany({ where: { customerId, done: false }, orderBy: { plannedAt: "asc" }, select: { id: true, subject: true, plannedAt: true } }),
-    prisma.task.findMany({ where: { customerId, done: false }, orderBy: { dueAt: { sort: "asc", nulls: "last" } }, select: { id: true, title: true, dueAt: true } }),
+    prisma.followPlan.findMany({ where: { customerId, done: false }, orderBy: { plannedAt: "asc" }, select: { id: true, subject: true, plannedAt: true, plannedOn: true } }),
+    prisma.task.findMany({ where: { customerId, done: false }, orderBy: { dueAt: { sort: "asc", nulls: "last" } }, select: { id: true, title: true, dueAt: true, dueOn: true } }),
   ]);
   return {
     商机: 商机.map(({ money: _m, ...o }) => ({ ...o, currency: 商机币种({ money: _m }) })),
-    计划: 计划.map((x) => ({ ...x, plannedAt: x.plannedAt.toISOString() })),
-    待办: 待办.map((x) => ({ ...x, dueAt: x.dueAt?.toISOString() ?? null })),
+    计划: 计划.map((x) => ({ ...x, plannedAt: scheduleValue(x.plannedAt, x.plannedOn)! })),
+    待办: 待办.map((x) => ({ ...x, dueAt: scheduleValue(x.dueAt, x.dueOn) })),
   };
 }
 

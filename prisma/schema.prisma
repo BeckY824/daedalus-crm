@@ -549,6 +549,8 @@ model FollowUp {
   duration     Int? // 通话/会议时长（秒）
   occurredAt   DateTime  @default(now())
   dueAt        DateTime? // 任务截止 / 提醒时间
+  dueOn        String? // 仅日期原日历日；空表示未定/明确钟点/旧未知
+  dueHasTime   Boolean? // 是否明确钟点；空表示旧未知，不从午夜反推
   participants String? // 与会人，逗号分隔
 
   customerId String
@@ -590,6 +592,8 @@ model Task {
   id         String    @id @default(cuid())
   title      String
   dueAt      DateTime?
+  dueOn      String?
+  dueHasTime Boolean?
   done       Boolean   @default(false)
   doneAt     DateTime?
   customerId String
@@ -608,6 +612,8 @@ model FollowPlan {
   id         String   @id @default(cuid())
   subject    String // 跟进主题
   plannedAt  DateTime // 计划时间
+  plannedOn  String? // 仅日期原日历日，跨时区不漂移
+  plannedHasTime Boolean? // 明确钟点可为00:00；空表示旧未知
   method     String   @default("电话沟通") // 跟进方式
   done       Boolean  @default(false)
   doneAt     DateTime? // 实际完成时间；旧计划未知时为空

@@ -4,7 +4,8 @@ import { requiredText } from "@/lib/form-validation";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Modal, Form, Input, DatePicker, App } from "antd";
+import { Modal, Form, Input, DatePicker, App, Checkbox, Typography } from "antd";
+import { isCalendarDate } from "@/lib/schedule-date";
 import { dayjs } from "@/lib/utils";
 import { saveTask } from "./actions";
 import { 聚焦首项 } from "@/lib/modal-focus";
@@ -22,19 +23,21 @@ export default function TaskForm({
   customerId: string;
   /** 给了就是编辑这一条（计划页「改」，2026-10-02 排查 3-4：原来待办建了就改不了） */
   /** updatedAt：编辑时的版本号（J-105），保存时交回去当闸门 */
-  record?: { id: string; title: string; dueAt: string | null; updatedAt?: string } | null;
+  record?: { id: string; title: string; dueAt: string | null; dueHasTime?: boolean | null; updatedAt?: string } | null;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const router = useRouter();
+  const hasTime = Form.useWatch("hasTime", form) ?? true;
   // 保存中：网慢时连点两下会建出两条一样的待办（2026-10-02 排查）
   const [存着, set存着] = useState(false);
 
   useEffect(() => {
     if (open) {
       form.resetFields();
-      if (record) form.setFieldsValue({ title: record.title, dueAt: record.dueAt ? dayjs(record.dueAt) : null });
-      else form.setFieldsValue({ dueAt: dayjs().add(1, "day").hour(9).minute(0) });
+      if (record) form.setFieldsValue({ title: record.title, dueAt: record.dueAt ? dayjs(record.dueAt) : null, hasTime: !record.dueAt || !isCalendarDate(record.dueAt) });
+      else form.setFieldsValue({ hasTime: true, dueAt: dayjs().add(1, "day").hour(9).minute(0) });
+      form.setFields([{ name: "hasTime", touched: false }, { name: "dueAt", touched: false }]);
     }
   }, [open, form, record]);
 
@@ -54,7 +57,8 @@ export default function TaskForm({
         版本: record?.updatedAt,
         customerId,
         title: v.title,
-        dueAt: v.dueAt ? v.dueAt.toISOString() : null,
+        dueAt: v.dueAt ? v.hasTime ? v.dueAt.toISOString() : v.dueAt.format("YYYY-MM-DD") : null,
+        dueHasTime: !record || record.dueHasTime != null || form.isFieldTouched("hasTime") || form.isFieldTouched("dueAt") ? Boolean(v.hasTime) : undefined,
       });
       if (!r.ok) {
         // 服务端那句话照说（打开之后这条又变过了 / 已经删了，J-105），原来一律「没存上，请重试」，人只会再点一次、再被拦
@@ -88,8 +92,10 @@ export default function TaskForm({
         <Form.Item name="title" label="任务内容" rules={[requiredText("请填写任务内容")]}>
           <Input placeholder="如：跟进预算审批进度" />
         </Form.Item>
+        <Form.Item name="hasTime" valuePropName="checked"><Checkbox>指定钟点并到点提醒</Checkbox></Form.Item>
+        {record?.dueAt && record.dueHasTime == null && !isCalendarDate(record.dueAt) && <Typography.Paragraph type="secondary">旧记录未保存是否选了钟点；只改内容会保留原提醒方式，请核对后重新选择日期或钟点。</Typography.Paragraph>}
         <Form.Item name="dueAt" label="截止时间">
-          <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
+          <DatePicker showTime={hasTime} format={hasTime ? "YYYY-MM-DD HH:mm" : "YYYY-MM-DD"} style={{ width: "100%" }} />
         </Form.Item>
       </Form>
     </Modal>

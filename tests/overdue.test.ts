@@ -36,6 +36,8 @@ const 待办们: 待办[] = [
 /** 照 prisma 的语义在内存里跑 where：只认 逾期条件() 会用到的那几种写法 */
 function 合(where: Record<string, unknown>, row: Record<string, unknown>): boolean {
   return Object.entries(where).every(([k, v]) => {
+    if (k === "OR" && Array.isArray(v)) return v.some(condition => 合(condition, row));
+    if (v === null) return row[k] == null;
     if (v && typeof v === "object" && "lt" in v) {
       const x = row[k] as Date | null;
       return x !== null && x < (v as { lt: Date }).lt;
@@ -76,8 +78,8 @@ describe("口径：计划 + 待办都算", () => {
     expect(是逾期(new Date(2026, 8, 28, 0, 0), 现在)).toBe(false);
     expect(是逾期(null, 现在)).toBe(false);
     expect(今天零点(现在)).toEqual(new Date(2026, 8, 28));
-    expect(逾期条件({}, 现在).plan.plannedAt.lt).toEqual(new Date(2026, 8, 28));
-    expect(逾期条件({ ownerId: "me" }, 现在).task).toEqual({ ownerId: "me", done: false, dueAt: { lt: new Date(2026, 8, 28) } });
+    expect(逾期条件({}, 现在).plan.OR[1].plannedAt!.lt).toEqual(new Date(2026, 8, 28));
+    expect(逾期条件({ ownerId: "me" }, 现在).task).toEqual({ ownerId: "me", done: false, OR: [{ dueOn: { lt: "2026-09-28" } }, { dueOn: null, dueAt: { lt: new Date(2026, 8, 28) } }] });
   });
 });
 

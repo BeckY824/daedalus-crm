@@ -1,3 +1,4 @@
+import { scheduleValue } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import PlansView from "./PlansView";
@@ -57,7 +58,8 @@ export default async function PlansPage({
       plans={plans.map((p) => ({
         id: p.id,
         subject: p.subject,
-        plannedAt: p.plannedAt.toISOString(),
+        plannedAt: scheduleValue(p.plannedAt, p.plannedOn)!,
+        plannedHasTime: p.plannedHasTime,
         method: p.method,
         updatedAt: p.updatedAt.toISOString(),
         customerId: p.customer.id,
@@ -68,7 +70,8 @@ export default async function PlansPage({
       tasks={tasks.map((t) => ({
         id: t.id,
         title: t.title,
-        dueAt: t.dueAt?.toISOString() ?? null,
+        dueAt: scheduleValue(t.dueAt, t.dueOn),
+        dueHasTime: t.dueHasTime,
         updatedAt: t.updatedAt.toISOString(),
         customerId: t.customer.id,
         customerName: t.customer.name,
@@ -81,7 +84,7 @@ export default async function PlansPage({
           kind: "plan" as const,
           标题: p.subject,
           方式: p.method,
-          计划时间: p.plannedAt.toISOString(),
+          计划时间: scheduleValue(p.plannedAt, p.plannedOn)!,
           完成时间: p.doneAt?.toISOString() ?? null,
           customerId: p.customer.id,
           customerName: p.customer.name,
@@ -93,7 +96,7 @@ export default async function PlansPage({
           kind: "task" as const,
           标题: t.title,
           方式: undefined,
-          计划时间: t.dueAt?.toISOString() ?? null,
+          计划时间: scheduleValue(t.dueAt, t.dueOn),
           完成时间: t.doneAt?.toISOString() ?? null,
           customerId: t.customer.id,
           customerName: t.customer.name,

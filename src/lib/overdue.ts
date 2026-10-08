@@ -18,6 +18,8 @@
  * 纯函数和一个注入库的计数函数放在一起，不 import prisma：PlansView 是客户端组件，也要用 是逾期()。
  */
 
+import { calendarDay, isCalendarDate } from "./schedule-date";
+
 /** 本地时区的今天零点 */
 export function 今天零点(now: Date = new Date()): Date {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -26,6 +28,7 @@ export function 今天零点(now: Date = new Date()): Date {
 /** 这一条算不算逾期：有时间、早于今天零点。没定时间的不算逾期（计划页把它放在「以后」） */
 export function 是逾期(时间: Date | string | null | undefined, now: Date = new Date()): boolean {
   if (!时间) return false;
+  if (typeof 时间 === "string" && isCalendarDate(时间)) return 时间 < calendarDay(now);
   const t = typeof 时间 === "string" ? new Date(时间) : 时间;
   return t.getTime() < 今天零点(now).getTime();
 }
@@ -38,8 +41,8 @@ export function 逾期条件(范围: 逾期范围 = {}, now: Date = new Date()) 
   const 截止 = 今天零点(now);
   const 谁 = 范围.ownerId ? { ownerId: 范围.ownerId } : {};
   return {
-    plan: { ...谁, done: false, plannedAt: { lt: 截止 } },
-    task: { ...谁, done: false, dueAt: { lt: 截止 } },
+    plan: { ...谁, done: false, OR: [{ plannedOn: { lt: calendarDay(now) } }, { plannedOn: null, plannedAt: { lt: 截止 } }] },
+    task: { ...谁, done: false, OR: [{ dueOn: { lt: calendarDay(now) } }, { dueOn: null, dueAt: { lt: 截止 } }] },
   };
 }
 

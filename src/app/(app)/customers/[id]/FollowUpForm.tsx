@@ -1,5 +1,7 @@
 "use client";
 
+import { isCalendarDate } from "@/lib/schedule-date";
+import { 是逾期 } from "@/lib/overdue";
 import { requiredText } from "@/lib/form-validation";
 
 import { useEffect, useRef, useState } from "react";
@@ -41,6 +43,7 @@ type Rec = {
   duration?: number | null;
   occurredAt?: string;
   dueAt?: string | null;
+  dueHasTime?: boolean | null;
   contactId?: string | null;
   opportunityId?: string | null;
   /** 挂在哪张订单上（2026-10-05） */
@@ -112,8 +115,9 @@ export default function FollowUpForm({
   const b = useBusiness();
   const type = Form.useWatch("type", form);
   const dueAt = Form.useWatch("dueAt", form);
+  const dueHasTime = Form.useWatch("dueHasTime", form) ?? true;
   const status = Form.useWatch("status", form);
-  const 创建过期待办 = !record?.id && (type === "TASK" || type === "REMIND") && status !== "已完成" && dueAt && dueAt.valueOf() < Date.now() - 60_000;
+  const 创建过期待办 = !record?.id && (type === "TASK" || type === "REMIND") && status !== "已完成" && dueAt && (dueHasTime ? dueAt.valueOf() < Date.now() - 60_000 : 是逾期(dueAt.format("YYYY-MM-DD")));
 
   const 挑人 = !给定客户;
   /** 挑中那位的近况：联系人、商机、到期计划都从这儿来。关框、保存时清掉 */
@@ -259,13 +263,15 @@ export default function FollowUpForm({
         opportunityId: record.orderId && 挂订单 ? `${订单前缀}${record.orderId}` : record.opportunityId,
         occurredAt: dayjs(record.occurredAt),
         dueAt: record.dueAt ? dayjs(record.dueAt) : null,
+        dueHasTime: !record.dueAt || !isCalendarDate(record.dueAt),
         durationMinutes: record.duration ? Math.round(record.duration / 60) : null,
       });
+      form.setFields([{ name: "dueHasTime", touched: false }, { name: "dueAt", touched: false }]);
     } else {
       form.resetFields();
       form.setFieldsValue({
         type: record?.type ?? "PHONE",
-        status: "已完成",
+        status: "已完成", dueHasTime: true,
         occurredAt: dayjs(),
       });
     }
@@ -303,7 +309,8 @@ export default function FollowUpForm({
       status: v.status,
       durationMinutes: v.durationMinutes ?? null,
       occurredAt: v.occurredAt.toISOString(),
-      dueAt: v.dueAt ? v.dueAt.toISOString() : null,
+      dueAt: v.dueAt ? v.dueHasTime ? v.dueAt.toISOString() : v.dueAt.format("YYYY-MM-DD") : null,
+      dueHasTime: !record?.id || record.dueHasTime != null || form.isFieldTouched("dueHasTime") || form.isFieldTouched("dueAt") ? Boolean(v.dueHasTime) : undefined,
       确认过期待办: 创建过期待办 && v.确认过期待办 === true,
       contactId: v.contactId ?? null,
       ...拆关联(v.opportunityId, 挂订单, record?.id ? record.opportunityId ?? null : null),
@@ -506,12 +513,13 @@ export default function FollowUpForm({
               <Form.Item
                 name="dueAt"
                 label={type === "TASK" ? "截止时间" : "提醒时间"}
-                extra={record?.id ? undefined : 创建过期待办 ? "这个时间已过期，创建的待办会立即进入到期清单" : "填了会同时加进待办，到点提醒"}
+                extra={record?.id ? undefined : 创建过期待办 ? "这个时间已过期，创建的待办会立即进入到期清单" : dueHasTime ? "填了会同时加进待办，到点提醒" : "仅日期会进入当天待办，不弹定时提醒"}
               >
-                <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
+                <DatePicker showTime={dueHasTime} format={dueHasTime ? "YYYY-MM-DD HH:mm" : "YYYY-MM-DD"} style={{ width: "100%" }} />
               </Form.Item>
             </Col>
           )}
+          {showDue && <Col span={24}><Form.Item name="dueHasTime" valuePropName="checked"><Checkbox>指定钟点并到点提醒</Checkbox></Form.Item>{record?.dueAt && record.dueHasTime == null && !isCalendarDate(record.dueAt) && <Typography.Paragraph type="secondary">旧记录未保存是否选了钟点；只改其他内容会保留原提醒方式，请核对后重新选择日期或钟点。</Typography.Paragraph>}</Col>}
           {创建过期待办 && <Col span={24}><Form.Item name="确认过期待办" preserve={false} valuePropName="checked" rules={[{ validator: (_, v) => v === true ? Promise.resolve() : Promise.reject(new Error("请确认创建过期待办，或修改提醒时间/状态")) }]}><Checkbox>我确认仍要创建过期待办</Checkbox></Form.Item></Col>}
           {type === "MEETING" && (
             <Col span={12}>

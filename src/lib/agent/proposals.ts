@@ -98,11 +98,12 @@ import { parseDateInput } from "@/lib/date-input";
 const str = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 /** 模型爱写「2026-09-12 19:00」这类。给了但解析不了要报错；没给就留空让人挑 */
-function parseWhen(v: unknown): { ok: true; at: string } | { ok: false } {
+function parseWhen(v: unknown, keepCalendar = false): { ok: true; at: string } | { ok: false } {
   const s = str(v, 40);
   if (!s) return { ok: true, at: "" };
-  const d = parseDateInput(s.replace(/\//g, "-").replace(/[年月]/g, "-").replace(/日/g, ""));
-  return d ? { ok: true, at: d.toISOString() } : { ok: false };
+  const normalized = s.replace(/\//g, "-").replace(/[年月]/g, "-").replace(/日/g, "");
+  const d = parseDateInput(normalized);
+  return d ? { ok: true, at: keepCalendar && /^\d{4}-\d{2}-\d{2}$/.test(normalized) ? normalized : d.toISOString() } : { ok: false };
 }
 
 /** 跟进类型：模型可能给「电话沟通」也可能给「PHONE」，两种都收 */
@@ -176,7 +177,7 @@ export function buildProposal(
   }
 
   if (kind === "add_plan") {
-    const when = parseWhen(args.plannedAt);
+    const when = parseWhen(args.plannedAt, true);
     if (!when.ok) return { ok: false, error: "plannedAt 解析不了，用 YYYY-MM-DD HH:mm" };
     // 方式能选也能填（2026-10-02 用户定）：认得出就用规范的写法，认不出也照收（人在卡上自己填的、模型说的「抖音私信」）
     const m = pickEnum(args.method, FOLLOW_METHODS, "");

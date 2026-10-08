@@ -16,6 +16,7 @@ import { 建议结果, 记下建议结果, 清掉建议结果, 记下回执, 读
 import { statusLabel, stageLabel, 签约叫, 外贸精简, type BusinessConfig } from "@/lib/business-config";
 import { FOLLOW_TYPES, FOLLOW_METHODS, FOLLOW_STATUSES, DECISION_STATUSES, LEAD_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { dayjs } from "@/lib/utils";
+import { isCalendarDate } from "@/lib/schedule-date";
 import { useMotionTheme } from "@/components/MotionTheme";
 
 /**
@@ -331,13 +332,14 @@ export default function ProposalCard({ proposal, 记号 }: { proposal: Proposal;
             <Field label="时间">
               <DatePicker
                 size="small"
-                showTime={{ format: "HH:mm" }}
-                format="MM-DD HH:mm"
+                showTime={!isCalendarDate(draft.plannedAt) && { format: "HH:mm" }}
+                format={isCalendarDate(draft.plannedAt) ? "MM-DD" : "MM-DD HH:mm"}
                 allowClear={false}
                 placeholder="选个时间"
                 value={draft.plannedAt ? dayjs(draft.plannedAt) : null}
-                onChange={(d) => d && setDraft({ ...draft, plannedAt: d.toISOString() })}
+                onChange={(d) => d && setDraft({ ...draft, plannedAt: isCalendarDate(draft.plannedAt) ? d.format("YYYY-MM-DD") : d.toISOString() })}
               />
+              <Checkbox checked={!isCalendarDate(draft.plannedAt)} onChange={e => setDraft({ ...draft, plannedAt: e.target.checked ? dayjs(draft.plannedAt || undefined).toISOString() : dayjs(draft.plannedAt || undefined).format("YYYY-MM-DD") })}>指定钟点并到点提醒</Checkbox>
             </Field>
             <Field label="方式">
               <OptionInput size="small" style={{ width: 140 }} placeholder="选一种或直接填" allowClear={false} value={draft.method} options={FOLLOW_METHODS} onChange={(v) => setDraft({ ...draft, method: v })} />

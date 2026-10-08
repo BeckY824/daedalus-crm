@@ -11,6 +11,7 @@ export type FollowUpRow = {
   duration: number | null;
   occurredAt: string;
   dueAt: string | null;
+  dueHasTime?: boolean | null;
   participants: string | null;
   /** 速记解析时的原始聊天记录，只有 AI 起草过的记录才有 */
   sourceText: string | null;
@@ -65,9 +66,9 @@ export type RecordProps = {
   contracts: ContractRow[];
   /** 报价记录（2026-10-03）：这个客户历次报过的每一行，新的在前。没报过是空数组，左栏那一节就不出现 */
   报价记录?: import("@/lib/quote-db").报价记录行[];
-  tasks: { id: string; title: string; dueAt: string | null; done: boolean }[];
+  tasks: { id: string; title: string; dueAt: string | null; dueHasTime?: boolean | null; done: boolean }[];
   /** updatedAt：编辑框的版本号（J-105） */
-  plan: { id: string; subject: string; plannedAt: string; method: string; updatedAt: string } | null;
+  plan: { id: string; subject: string; plannedAt: string; plannedHasTime?: boolean | null; method: string; updatedAt: string } | null;
   followUps: FollowUpRow[];
   users: 可选成员[];
   channels: { id: string; name: string }[];

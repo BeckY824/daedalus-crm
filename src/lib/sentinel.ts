@@ -45,7 +45,7 @@ const STATUS_WEIGHT: Record<string, number> = {
 
 export type SentinelInput = {
   /** 未完成且已到期的跟进计划 */
-  overduePlans: { customerId: string; customerName: string; ownerName: string; subject: string; plannedAt: Date }[];
+  overduePlans: { customerId: string; customerName: string; ownerName: string; subject: string; plannedAt: Date | string }[];
   /** 非终态、非暂缓的学员 */
   customers: { id: string; name: string; followStatus: string; lastFollowAt: Date | null; createdAt: Date; ownerName: string }[];
   /** 进行中的商机 */
@@ -103,7 +103,7 @@ export function buildWatchlist(
     const weight = STATUS_WEIGHT[c.followStatus];
     if (weight === undefined) continue;
     const 未来日期 = c.lastFollowAt && dayjs(c.lastFollowAt).isAfter(n);
-    const days = n.diff(未来日期 ? c.createdAt : c.lastFollowAt ?? c.createdAt, "day");
+    const days = n.startOf("day").diff(dayjs(未来日期 ? c.createdAt : c.lastFollowAt ?? c.createdAt).startOf("day"), "day");
     if (days < STALE_DAYS) continue;
     items.push({
       kind: "sleeping",
@@ -118,7 +118,7 @@ export function buildWatchlist(
   }
 
   for (const o of input.opportunities) {
-    const days = n.diff(o.updatedAt, "day");
+    const days = n.startOf("day").diff(dayjs(o.updatedAt).startOf("day"), "day");
     if (days < STALE_DAYS) continue;
     items.push({
       kind: "stalled_opp",

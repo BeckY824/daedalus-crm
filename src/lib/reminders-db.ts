@@ -12,16 +12,16 @@ export async function 取提醒项(ownerId: string): Promise<提醒项[]> {
   const [plans, tasks] = await Promise.all([
     prisma.followPlan.findMany({
       where: { done: false, ownerId },
-      select: { id: true, subject: true, plannedAt: true, method: true, customer: { select: { id: true, name: true } } },
+      select: { id: true, subject: true, plannedAt: true, plannedOn: true, plannedHasTime: true, method: true, customer: { select: { id: true, name: true } } },
     }),
     prisma.task.findMany({
       where: { done: false, ownerId },
-      select: { id: true, title: true, dueAt: true, customer: { select: { id: true, name: true } } },
+      select: { id: true, title: true, dueAt: true, dueOn: true, dueHasTime: true, customer: { select: { id: true, name: true } } },
     }),
   ]);
   return [
-    ...plans.map((p) => ({ id: p.id, kind: "plan" as const, 标题: p.subject, 时间: p.plannedAt, customerId: p.customer.id, 客户: p.customer.name, 方式: p.method })),
-    ...tasks.map((t) => ({ id: t.id, kind: "task" as const, 标题: t.title, 时间: t.dueAt, customerId: t.customer.id, 客户: t.customer.name })),
+    ...plans.map((p) => ({ id: p.id, kind: "plan" as const, 标题: p.subject, 时间: p.plannedAt, 日历日: p.plannedOn, 明确钟点: p.plannedHasTime, customerId: p.customer.id, 客户: p.customer.name, 方式: p.method })),
+    ...tasks.map((t) => ({ id: t.id, kind: "task" as const, 标题: t.title, 时间: t.dueAt, 日历日: t.dueOn, 明确钟点: t.dueHasTime, customerId: t.customer.id, 客户: t.customer.name })),
   ];
 }
 

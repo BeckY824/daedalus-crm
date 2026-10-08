@@ -1,5 +1,6 @@
 "use server";
 
+import { scheduleValue } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { consumeUserAiQuota } from "@/lib/ai-quota";
@@ -177,8 +178,8 @@ async function 生成简报(input: {
         select: { name: true, amount: true, stage: true, status: true, expectedDealAt: true, ...带币种.商机 },
         orderBy: { createdAt: "desc" },
       },
-      tasks: { where: { done: false }, select: { title: true, dueAt: true }, orderBy: { dueAt: { sort: "asc", nulls: "last" } } },
-      plans: { where: { done: false }, select: { subject: true, plannedAt: true, method: true }, take: 1 },
+      tasks: { where: { done: false }, select: { title: true, dueAt: true, dueOn: true }, orderBy: { dueAt: { sort: "asc", nulls: "last" } } },
+      plans: { where: { done: false }, select: { subject: true, plannedAt: true, plannedOn: true, method: true }, take: 1 },
       followUps: {
         orderBy: { occurredAt: "desc" },
         take: 30,
@@ -230,7 +231,7 @@ async function 生成简报(input: {
         .join("\n")
     : "（无）";
   const taskLines = customer.tasks.length
-    ? customer.tasks.map((t) => `- ${t.title}${t.dueAt ? `（截止 ${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`).join("\n")
+    ? customer.tasks.map((t) => `- ${t.title}${t.dueAt ? `（截止 ${dayjs(scheduleValue(t.dueAt, t.dueOn)).format(t.dueOn ? "MM-DD" : "MM-DD HH:mm")}）` : ""}`).join("\n")
     : "（无）";
   const plan = customer.plans[0];
   // 按币种写（不换汇）：「US$ 3,200 · ¥ 19,800」
@@ -258,7 +259,7 @@ ${oppLines}
 ${taskLines}
 
 【下次跟进计划】
-${plan ? `${dayjs(plan.plannedAt).format("YYYY-MM-DD HH:mm")} ${plan.method}：${plan.subject}` : "（未安排）"}
+${plan ? `${dayjs(scheduleValue(plan.plannedAt, plan.plannedOn)).format(plan.plannedOn ? "YYYY-MM-DD" : "YYYY-MM-DD HH:mm")} ${plan.method}：${plan.subject}` : "（未安排）"}
 
 【跟进时间线（新→旧，最近 ${customer.followUps.length} 条，每条前面的 [编号] 是它的引用号；带「原文」的是当时的聊天记录原话）】
 ${timeline}

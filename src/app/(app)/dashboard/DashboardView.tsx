@@ -1,5 +1,7 @@
 "use client";
 
+import { 截止说法 } from "@/lib/deadline";
+import { 是逾期 } from "@/lib/overdue";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { palette, categorical, alpha } from "@/lib/palette";
 import Link from "next/link";
@@ -20,7 +22,7 @@ import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
-import { smartTime, 成员选项 } from "@/lib/utils";
+import { 成员选项 } from "@/lib/utils";
 import { 合计文字, 合并合计, 取币种, type 币种合计 } from "@/lib/currency";
 import { stageLabel, 签约叫 } from "@/lib/business-config";
 import { OPP_STAGE_COLOR } from "@/lib/constants";
@@ -172,7 +174,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
     () => new Date(new Date().setHours(0, 0, 0, 0)).toISOString(),
     () => "",
   );
-  const 逾期了 = (dueAt: string | null) => Boolean(今天零点 && dueAt && dueAt < 今天零点);
+  const 逾期了 = (dueAt: string | null) => Boolean(今天零点 && 是逾期(dueAt));
 
   if (空库) {
     return (
@@ -392,7 +394,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                     {t.customerName}
                   </Link>
                 </div>
-                <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{smartTime(t.dueAt)}</span>
+                <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{截止说法(t.dueAt)}</span>
                 {/*
                   原来一律是一枚橙色的「待处理」。两处不对：
                   时间已经过去的那几条也写「待处理」，而它们正是上面「逾期跟进」数的那些；

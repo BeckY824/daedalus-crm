@@ -1,3 +1,4 @@
+import { scheduleValue } from "@/lib/schedule-date";
 import { notFound } from "next/navigation";
 import { 收藏了吗 } from "@/lib/favorites";
 import { prisma } from "@/lib/prisma";
@@ -160,7 +161,8 @@ export default async function CustomerDetailPage({
       tasks={customer.tasks.map((t) => ({
         id: t.id,
         title: t.title,
-        dueAt: t.dueAt?.toISOString() ?? null,
+        dueAt: scheduleValue(t.dueAt, t.dueOn),
+        dueHasTime: t.dueHasTime,
         done: t.done,
       }))}
       plan={
@@ -168,7 +170,8 @@ export default async function CustomerDetailPage({
           ? {
               id: customer.plans[0].id,
               subject: customer.plans[0].subject,
-              plannedAt: customer.plans[0].plannedAt.toISOString(),
+              plannedAt: scheduleValue(customer.plans[0].plannedAt, customer.plans[0].plannedOn)!,
+              plannedHasTime: customer.plans[0].plannedHasTime,
               method: customer.plans[0].method,
               updatedAt: customer.plans[0].updatedAt.toISOString(),
             }
@@ -182,7 +185,8 @@ export default async function CustomerDetailPage({
         status: f.status,
         duration: f.duration,
         occurredAt: f.occurredAt.toISOString(),
-        dueAt: f.dueAt?.toISOString() ?? null,
+        dueAt: scheduleValue(f.dueAt, f.dueOn),
+        dueHasTime: f.dueHasTime,
         participants: f.participants,
         sourceText: f.source?.text ?? null,
         ownerName: f.owner.name,

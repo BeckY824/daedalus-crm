@@ -7,18 +7,22 @@
  * Dock 上那个数 = 逾期 + 今天。两处说的必须是同一件事——
  * Dock 写 5、点进去只看见 3 个，人就再也不信那个数了。
  *
- * 「定了时间的」：时刻不是零点的那些。只选了日期、没选钟点的计划存下来是当天零点，
- * 那种不该在半夜十二点叫人。定了时刻的（「3 点给王总回电话」）到点提醒一次。
+ * 新记录按原日历日及明确钟点标记判断，仅日期不弹定时通知，明确00:00仍会提醒。
+ * 旧记录没有选择方式，只能沿用原有的非午夜推断，不批量猜测/关闭历史提醒；表单提示核对。
  *
  * 纯函数：不碰库、不看时区设置以外的任何东西。按本机时区算——桌面端的本地服务
  * 和人坐在同一台电脑前，本机的「今天」就是他的今天。
  */
+
+import { calendarDay, calendarDaysBetween } from "./schedule-date";
 
 export type 提醒项 = {
   id: string;
   kind: "plan" | "task";
   标题: string;
   时间: Date | null;
+  日历日?: string | null;
+  明确钟点?: boolean | null;
   customerId: string;
   客户: string;
   方式?: string | null;
@@ -57,14 +61,15 @@ function 零点(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
-/** 定了钟点的：本机时区下时分不全是 0 */
-export function 定了时刻(t: Date): boolean {
-  return t.getHours() !== 0 || t.getMinutes() !== 0;
+/** 明确标记优先；旧未知记录沿用非午夜的兼容规则。 */
+export function 定了时刻(t: Date, 明确钟点?: boolean | null): boolean {
+  return 明确钟点 ?? (t.getHours() !== 0 || t.getMinutes() !== 0);
 }
 
 export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单提醒项[] = []): 提醒摘要 {
   const 今天开始 = 零点(now);
   const 明天开始 = new Date(今天开始.getFullYear(), 今天开始.getMonth(), 今天开始.getDate() + 1);
+  const 今天串 = calendarDay(now);
   let 逾期 = 0;
   let 今天 = 0;
   let 最早逾期: 提醒项 | null = null;
@@ -74,17 +79,17 @@ export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单�
   for (const x of 项) {
     if (!x.时间) continue;
     const t = x.时间;
-    if (t < 今天开始) {
+    if (x.日历日 ? x.日历日 < 今天串 : t < 今天开始) {
       逾期++;
-      if (!最早逾期 || t < 最早逾期.时间!) 最早逾期 = x;
-    } else if (t < 明天开始) {
+      if (!最早逾期 || (x.日历日 ?? calendarDay(t)) < (最早逾期.日历日 ?? calendarDay(最早逾期.时间!))) 最早逾期 = x;
+    } else if (x.日历日 ? x.日历日 === 今天串 : t < 明天开始) {
       今天++;
     }
     // 10 分钟的回看：壳一分钟问一次，偶尔错过一轮（电脑刚醒）也还接得住
     const 一项 = () => ({ key: `${x.kind}:${x.id}`, at: t.toISOString(), 标题: x.标题, 客户: x.客户, customerId: x.customerId, 方式: x.方式 ?? null });
-    if (定了时刻(t) && t.getTime() >= now.getTime() - 10 * 60_000 && t.getTime() < now.getTime() + 天) {
+    if (!x.日历日 && 定了时刻(t, x.明确钟点) && t.getTime() >= now.getTime() - 10 * 60_000 && t.getTime() < now.getTime() + 天) {
       定时.push(一项());
-    } else if (定了时刻(t) && t.getTime() < now.getTime() - 10 * 60_000 && t.getTime() >= now.getTime() - 天) {
+    } else if (!x.日历日 && 定了时刻(t, x.明确钟点) && t.getTime() < now.getTime() - 10 * 60_000 && t.getTime() >= now.getTime() - 天) {
       // 过了回看窗口的（D-049）：壳睡前见过的才会拿去说「合盖时到点了」
       错过.push(一项());
     }
@@ -93,7 +98,7 @@ export function 算提醒(项: 提醒项[], now = new Date(), 订单项: 订单�
   错过.sort((a, b) => a.at.localeCompare(b.at));
 
   const 最久 = 最早逾期
-    ? { 客户: 最早逾期.客户, 天: Math.round((今天开始.getTime() - 零点(最早逾期.时间!).getTime()) / 天) }
+    ? { 客户: 最早逾期.客户, 天: calendarDaysBetween(最早逾期.日历日 ?? calendarDay(最早逾期.时间!), 今天串) }
     : null;
   return { 逾期, 今天, 定时, 错过, 最久, 订单: 算订单(订单项, 今天开始, 明天开始) };
 }

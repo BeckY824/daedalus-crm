@@ -21,6 +21,7 @@ type Plan = {
   id: string;
   subject: string;
   plannedAt: string;
+  plannedHasTime?: boolean | null;
   method: string;
   /** 编辑框的版本号（J-105） */
   updatedAt: string;
@@ -34,6 +35,7 @@ type Task = {
   id: string;
   title: string;
   dueAt: string | null;
+  dueHasTime?: boolean | null;
   /** 编辑框的版本号（J-105） */
   updatedAt: string;
   customerId: string;
@@ -66,6 +68,7 @@ type 事项 = {
   方式?: string;
   /** 打开「改」那一刻的 updatedAt，保存时当版本闸门（J-105） */
   版本: string;
+  明确钟点?: boolean | null;
   customerId: string;
   customerName: string;
   ownerId: string;
@@ -124,10 +127,10 @@ export default function PlansView({
   const [在改, set在改] = useState<事项 | null>(null);
   // 表单的 record 要稳定：它是 useEffect 的依赖，每次渲染新建一个对象会让表单边输入边被重置
   const 改计划 = useMemo(
-    () => (在改?.kind === "plan" ? { id: 在改.id, subject: 在改.标题, plannedAt: 在改.时间 ?? new Date().toISOString(), method: 在改.方式 ?? "电话沟通", updatedAt: 在改.版本 } : null),
+    () => (在改?.kind === "plan" ? { id: 在改.id, subject: 在改.标题, plannedAt: 在改.时间 ?? new Date().toISOString(), plannedHasTime: 在改.明确钟点, method: 在改.方式 ?? "电话沟通", updatedAt: 在改.版本 } : null),
     [在改],
   );
-  const 改待办 = useMemo(() => (在改?.kind === "task" ? { id: 在改.id, title: 在改.标题, dueAt: 在改.时间, updatedAt: 在改.版本 } : null), [在改]);
+  const 改待办 = useMemo(() => (在改?.kind === "task" ? { id: 在改.id, title: 在改.标题, dueAt: 在改.时间, dueHasTime: 在改.明确钟点, updatedAt: 在改.版本 } : null), [在改]);
 
   async function 删掉(x: 事项) {
     const r = x.kind === "plan" ? await deletePlan(x.id) : await deleteTask(x.id);
@@ -166,11 +169,11 @@ export default function PlansView({
   const 全部: 事项[] = useMemo(
     () => [
       ...plans.map((p) => ({
-        key: `plan:${p.id}`, kind: "plan" as const, id: p.id, 标题: p.subject, 时间: p.plannedAt, 方式: p.method, 版本: p.updatedAt,
+        key: `plan:${p.id}`, kind: "plan" as const, id: p.id, 标题: p.subject, 时间: p.plannedAt, 明确钟点: p.plannedHasTime, 方式: p.method, 版本: p.updatedAt,
         customerId: p.customerId, customerName: p.customerName, ownerId: p.ownerId, ownerName: p.ownerName,
       })),
       ...tasks.map((t) => ({
-        key: `task:${t.id}`, kind: "task" as const, id: t.id, 标题: t.title, 时间: t.dueAt, 版本: t.updatedAt,
+        key: `task:${t.id}`, kind: "task" as const, id: t.id, 标题: t.title, 时间: t.dueAt, 明确钟点: t.dueHasTime, 版本: t.updatedAt,
         customerId: t.customerId, customerName: t.customerName, ownerId: t.ownerId, ownerName: t.ownerName,
       })),
     ],
@@ -199,7 +202,7 @@ export default function PlansView({
       }
     }
     for (const k of Object.keys(out) as (keyof typeof out)[]) {
-      out[k].sort((a, c) => (a.时间 ?? "").localeCompare(c.时间 ?? ""));
+      out[k].sort((a, c) => (a.时间 ? dayjs(a.时间).valueOf() : Infinity) - (c.时间 ? dayjs(c.时间).valueOf() : Infinity));
     }
     return out;
   }, [我的]);

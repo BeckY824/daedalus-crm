@@ -27,6 +27,7 @@ import { 算提醒, 定了时刻 } from "@/lib/reminders";
 import { 截止说法 } from "@/lib/deadline";
 import { 加载复盘 } from "@/app/(app)/overview/data";
 import { 客户筛选条件 } from "@/app/(app)/customers/query";
+import { savePlan } from "@/app/(app)/customers/[id]/actions";
 import { saveContract } from "@/app/(app)/customers/actions";
 import { 认日期 } from "@/lib/import/plan";
 import { dayjs } from "@/lib/utils";
@@ -189,11 +190,15 @@ describe("夏令时", () => {
     expect(是逾期(本地(2026, 3, 29, 0, 0))).toBe(false);
   });
 
-  it.skip("【下一版】【C】圣地亚哥 9-6 零点不存在（夏令时从 0 点跳到 1 点）：只选了日期的计划存成 1:00，被当成「定了钟点」半夜叫人", () => {
+  it("D-047 圣地亚哥午夜不存在：新日期计划不在01:00弹，明确01:00会提醒", async () => {
     process.env.TZ = "America/Santiago";
-    // DatePicker 只选日期时，计划存的是当地那一天的 startOf("day")
-    const 只选日期 = dayjs(本地(2026, 9, 6, 15, 0)).startOf("day").toDate();
-    expect(只选日期.getHours(), "这一天的零点被系统挪到了 1:00").toBe(1);
-    expect(定了时刻(只选日期), "只选了日期的计划不该在 1:00 弹通知").toBe(false);
+    await resetDb(); const 我 = (await 造本人()).id; mocks.user.id = 我; const c = await 造客户(我);
+    进时区("America/Santiago", () => 本地(2026, 9, 6, 1, 0));
+    expect((await savePlan({ customerId: c.id, subject: "只选日期", plannedAt: "2026-09-06", method: "电话" })).ok).toBe(true);
+    expect((await savePlan({ customerId: c.id, subject: "明确一点", plannedAt: "2026-09-06T01:00:00-03:00", method: "电话" })).ok).toBe(true);
+    const 项 = await 取提醒项(我); const 日期 = 项.find(x => x.标题 === "只选日期")!;
+    expect(日期.时间!.getHours()).toBe(1);
+    expect(定了时刻(日期.时间!, 日期.明确钟点)).toBe(false);
+    expect(算提醒(项).定时.map(x => x.标题)).toEqual(["明确一点"]);
   });
 });

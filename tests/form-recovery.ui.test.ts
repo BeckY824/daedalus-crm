@@ -17,7 +17,7 @@ const plugin: Plugin = { name: "form-actions", setup(b) {
   stub(/^\.\.\/channels\/actions$/, "export const saveChannel=async()=>({ok:true});");
   stub(/^(\.\/|\.\.\/)actions$/, `
     const save=async x=>{window.__calls.push(x);if(window.__fail)throw Error('network');return {ok:true,id:'saved'}};
-    export const savePlan=save,saveContact=save,saveUnassignedContact=save,saveChannel=save,改我的资料=save;
+    export const savePlan=save,saveTask=save,saveContact=save,saveUnassignedContact=save,saveChannel=save,改我的资料=save;
     export const saveCustomer=save,checkDuplicate=async()=>null;
     export const saveContract=async x=>window.__duplicate&&!x.force?{duplicate:{amount:123,currency:'CNY',signedAt:new Date().toISOString()}}:save(x);
     export const listContractLinks=async()=>({商机:[],计划:[],待办:[]});
@@ -29,13 +29,16 @@ beforeAll(async () => {
   const r = await build({ stdin: { contents: `
     import React from 'react';import {createRoot} from 'react-dom/client';import {App} from 'antd';
     import Plan from '@/app/(app)/customers/[id]/PlanForm';
+    import Task from '@/app/(app)/customers/[id]/TaskForm';
     import Contact from '@/app/(app)/customers/[id]/ContactForm';
     import Customer from '@/app/(app)/customers/CustomerForm';
     import Contract from '@/app/(app)/customers/[id]/ContractForm';
     import Profile from '@/app/(app)/settings/ProfileTab';
     import Channels from '@/app/(app)/channels/ChannelsView';
     const done=()=>window.__saved++;
-    const forms={plan:<Plan open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
+    const forms={calendarPlan:<Plan open customerId="c1" record={window.__calendarRecord} onSaved={done} onClose={()=>{}}/>,
+      calendarTask:<Task open customerId="c1" record={window.__calendarRecord} onSaved={done} onClose={()=>{}}/>,
+      plan:<Plan open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
       contact:<Contact open customerId="c1" record={null} onSaved={done} onClose={()=>{}}/>,
       detached:<Contact open 未归属 record={{id:'detached',name:'QA联系人',isPrimary:false,wasPrimary:window.__wasPrimary,fromCustomerId:'original',updatedAt:'2026-10-08T08:00:00Z'}} 学员们={[{id:'original',name:'原客户'},{id:'new',name:'新客户'}]} onSaved={done} onClose={()=>{}}/>,
       customer:<Customer open editing={{id:'self',name:'我自己',phone:'',salesOwnerId:'u',salesOwnerName:'QA',followStatus:'待跟进',decisionStatus:'了解中',referrerCustomerId:'other',updatedAt:'2026-10-08T08:00:00Z'}} users={[{id:'u',name:'QA',email:'qa',role:'ADMIN',active:true}]} channels={[]} customers={[{id:'self',name:'我自己'},{id:'other',name:'推荐人甲'}]} onClose={()=>{}}/>,
@@ -69,7 +72,7 @@ it("J-006 客户编辑的推荐人下拉排除自己，其他已有客户仍可�
   await page.goto("http://forms.test"); await page.evaluate(() => Object.assign(window, { __kind: "customer", __calls: [], __fail: false, __saved: 0 }));
   await page.addScriptTag({ content: bundle }); await page.locator("#referrerCustomerId").click();
   const options = page.locator(".ant-select-dropdown:visible .ant-select-item-option-content");
-  expect(await options.allTextContents()).toEqual(["推荐人甲"]); await page.close();
+  await expect.poll(() => options.allTextContents()).toEqual(["推荐人甲"]); await page.close();
 });
 
 it.each([
@@ -127,4 +130,33 @@ it("重复签约确认后的网络失败不会产生未处理拒绝，原表单�
   expect(await page.evaluate(()=>window.__calls.length)).toBe(2);
   expect(errors).toEqual([]);
   await page.close();
+});
+
+it.each(["America/New_York", "America/Santiago"])("日期表单在%s保留日历日且仅日期不显示钟点", async timezoneId => {
+  for (const kind of ["calendarPlan", "calendarTask"]) {
+    const page = await browser.newPage({ timezoneId }); page.setDefaultTimeout(5000);
+    await page.route("http://forms.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
+    await page.goto("http://forms.test");
+    await page.evaluate(kind => Object.assign(window, { __kind: kind, __calls: [], __fail: false, __saved: 0, __calendarRecord: { id: "qa-date", subject: "核对日期", title: "核对日期", method: "电话沟通", plannedAt: "2026-09-06", dueAt: "2026-09-06", plannedHasTime: false, dueHasTime: false } }), kind);
+    await page.addScriptTag({ content: bundle }); const picker = page.locator(kind === "calendarPlan" ? "#plannedAt" : "#dueAt");
+    await expect.poll(() => picker.inputValue()).toBe("2026-09-06");
+    expect(await page.getByRole("checkbox", { name: "指定钟点并到点提醒" }).isChecked()).toBe(false);
+    await page.getByRole("button", { name: /保\s*存|创\s*建/ }).click();
+    await expect.poll(() => page.evaluate(() => window.__calls.length)).toBe(1);
+    expect(await page.evaluate(() => window.__calls[0])).toMatchObject(kind === "calendarPlan" ? { plannedAt: "2026-09-06", plannedHasTime: false } : { dueAt: "2026-09-06", dueHasTime: false });
+    await page.close();
+  }
+});
+it("旧记录仅改标题不把未知时间强制改为明确钟点，显式修改模式才交新语义", async () => {
+  const page = await browser.newPage({ timezoneId: "America/New_York" }); page.setDefaultTimeout(5000);
+  await page.route("http://forms.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
+  await page.goto("http://forms.test"); await page.evaluate(() => Object.assign(window, { __kind: "calendarPlan", __calls: [], __fail: false, __saved: 0, __calendarRecord: { id: "legacy", subject: "旧计划", method: "电话沟通", plannedAt: "2026-10-08T04:00:00Z", plannedHasTime: null } }));
+  await page.addScriptTag({ content: bundle }); await page.getByText(/旧记录未保存是否选了钟点/).waitFor();
+  await page.locator("#subject").fill("只改标题"); await page.getByRole("button", { name: /保\s*存/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__calls.length)).toBe(1);
+  const first = await page.evaluate(() => window.__calls[0]) as { plannedAt: string; plannedHasTime?: boolean };
+  expect(first.plannedAt).toBe("2026-10-08T04:00:00.000Z"); expect(first.plannedHasTime).toBeUndefined();
+  await page.getByRole("checkbox", { name: "指定钟点并到点提醒" }).click(); await page.getByRole("button", { name: /保\s*存/ }).click();
+  await expect.poll(() => page.evaluate(() => window.__calls.length)).toBe(2);
+  expect(await page.evaluate(() => window.__calls[1])).toMatchObject({ plannedAt: "2026-10-08", plannedHasTime: false }); await page.close();
 });

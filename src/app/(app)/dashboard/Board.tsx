@@ -1,3 +1,4 @@
+import { scheduleValue } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { OPP_STAGES } from "@/lib/constants";
@@ -205,7 +206,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       title: t.title,
       customerId: t.customer.id,
       customerName: t.customer.name,
-      dueAt: t.dueAt ? t.dueAt.toISOString() : null,
+      dueAt: scheduleValue(t.dueAt, t.dueOn),
       kind: "任务" as const,
     })),
     ...upcomingPlans.map((p) => ({
@@ -213,7 +214,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       title: p.subject,
       customerId: p.customer.id,
       customerName: p.customer.name,
-      dueAt: p.plannedAt.toISOString(),
+      dueAt: scheduleValue(p.plannedAt, p.plannedOn)!,
       kind: "计划" as const,
     })),
   ]

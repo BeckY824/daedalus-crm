@@ -5,8 +5,9 @@ import { requiredText, isFormValidationError } from "@/lib/form-validation";
 import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Modal, Form, Input, DatePicker, App, Button } from "antd";
+import { Modal, Form, Input, DatePicker, App, Button, Checkbox, Typography } from "antd";
 import { FOLLOW_METHODS } from "@/lib/constants";
+import { isCalendarDate } from "@/lib/schedule-date";
 import { dayjs } from "@/lib/utils";
 import { savePlan } from "./actions";
 import CustomerPick, { type 客户近况 } from "./CustomerPick";
@@ -35,13 +36,14 @@ export default function PlanForm({
   /** 不给 customerId 时预填的那一位（从某位客户带过来的） */
   预选客户?: { id: string; name: string } | null;
   /** updatedAt：编辑时的版本号（J-105），保存时交回去当闸门 */
-  record: { id: string; subject: string; plannedAt: string; method: string; updatedAt?: string } | null;
+  record: { id: string; subject: string; plannedAt: string; method: string; plannedHasTime?: boolean | null; updatedAt?: string } | null;
   /** 新建时计划时间默认几天后的 9 点。完成一次之后「排下一次」默认一周后（审查 M10） */
   默认天数?: number;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const router = useRouter();
+  const hasTime = Form.useWatch("hasTime", form) ?? true;
   const 挑人 = !customerId;
   /** 挑中那位的近况（上次跟进、欠着的计划）。关框时清掉，下次打开不带着上一位 */
   const [近况, set近况] = useState<客户近况 | null>(null);
@@ -49,11 +51,13 @@ export default function PlanForm({
   useEffect(() => {
     if (!open) return;
     if (record) {
-      form.setFieldsValue({ subject: record.subject, method: record.method, plannedAt: dayjs(record.plannedAt) });
+      form.resetFields();
+      form.setFieldsValue({ subject: record.subject, method: record.method, plannedAt: dayjs(record.plannedAt), hasTime: !isCalendarDate(record.plannedAt) });
+      form.setFields([{ name: "hasTime", touched: false }, { name: "plannedAt", touched: false }]);
     } else {
       form.resetFields();
       form.setFieldsValue({
-        method: "电话沟通",
+        method: "电话沟通", hasTime: true,
         plannedAt: dayjs().add(默认天数, "day").hour(9).minute(0),
       });
     }
@@ -89,7 +93,8 @@ export default function PlanForm({
       版本: record?.updatedAt,
       customerId: 谁,
       subject: v.subject,
-      plannedAt: v.plannedAt.toISOString(),
+      plannedAt: v.hasTime ? v.plannedAt.toISOString() : v.plannedAt.format("YYYY-MM-DD"),
+      plannedHasTime: !record || record.plannedHasTime != null || form.isFieldTouched("hasTime") || form.isFieldTouched("plannedAt") ? Boolean(v.hasTime) : undefined,
       method: v.method,
     });
     // 这位客户在别处被删了、打开之后这条又变过了（J-105）之类：说一句，框留着；页面数据刷成最新，关框重开就是新的那一版
@@ -136,8 +141,10 @@ export default function PlanForm({
         <Form.Item name="subject" label="跟进主题" rules={[requiredText("请填写跟进主题")]}>
           <Input placeholder="如：跟进预算审批进度" />
         </Form.Item>
+        <Form.Item name="hasTime" valuePropName="checked"><Checkbox>指定钟点并到点提醒</Checkbox></Form.Item>
+        {record && record.plannedHasTime == null && !isCalendarDate(record.plannedAt) && <Typography.Paragraph type="secondary">旧记录未保存是否选了钟点；只改其他内容会保留原提醒方式，请核对后重新选择日期或钟点。</Typography.Paragraph>}
         <Form.Item name="plannedAt" label="计划时间" rules={[{ required: true }]}>
-          <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
+          <DatePicker showTime={hasTime} format={hasTime ? "YYYY-MM-DD HH:mm" : "YYYY-MM-DD"} style={{ width: "100%" }} />
         </Form.Item>
         <Form.Item name="method" label="跟进方式">
           <OptionInput options={FOLLOW_METHODS} allowClear={false} />

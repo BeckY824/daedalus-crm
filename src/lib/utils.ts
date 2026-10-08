@@ -4,6 +4,7 @@ import relativeTime from "dayjs/plugin/relativeTime";
 import isToday from "dayjs/plugin/isToday";
 import isTomorrow from "dayjs/plugin/isTomorrow";
 import "dayjs/locale/zh-cn";
+import { isCalendarDate } from "./schedule-date";
 
 dayjs.extend(relativeTime);
 dayjs.extend(isToday);
@@ -56,7 +57,7 @@ export function fmtDate(d: Date | string | null | undefined): string {
 }
 
 export function fmtDateTime(d: Date | string | null | undefined): string {
-  return d ? dayjs(d).format("YYYY-MM-DD HH:mm") : "—";
+  return d ? dayjs(d).format(typeof d === "string" && isCalendarDate(d) ? "YYYY-MM-DD" : "YYYY-MM-DD HH:mm") : "—";
 }
 
 /** 写给 AI 的「现在」：2026-09-28 14:05（周一）。带上周几，它推「周三」「下周五」才有依据 */

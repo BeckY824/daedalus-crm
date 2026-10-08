@@ -6,6 +6,7 @@
  *   data：   喂回模型的结构化内容（截断过，控制上下文）
  *   records：这次读到的跟进记录（带编号），最终回答里的 [n] 引用它们
  */
+import { scheduleValue } from "@/lib/schedule-date";
 import { 客户筛选条件 } from "@/app/(app)/customers/query";
 import type { 页面客户筛选 } from "../ai-page-filters";
 import { 签约归属人 } from "../contract-owner";
@@ -263,8 +264,8 @@ export const TOOLS: Tool[] = [
             },
             orderBy: { createdAt: "desc" },
           },
-          tasks: { where: { done: false }, select: { title: true, dueAt: true } },
-          plans: { where: { done: false }, select: { subject: true, plannedAt: true, method: true }, take: 1 },
+          tasks: { where: { done: false }, select: { title: true, dueAt: true, dueOn: true } },
+          plans: { where: { done: false }, select: { subject: true, plannedAt: true, plannedOn: true, method: true }, take: 1 },
           followUps: { orderBy: { occurredAt: "desc" }, take: 20, select: { id: true, type: true, title: true, content: true, occurredAt: true, duration: true, owner: { select: { name: true } }, source: { select: { text: true } } } },
         },
       });
@@ -295,8 +296,8 @@ export const TOOLS: Tool[] = [
           const 状态 = o.status === "OPEN" ? stageLabel(ctx.b, o.stage) : o.status === "WON" ? (外贸订单(ctx.b) ? "已转订单" : "赢单") : "丢单";
           return `${o.name} ${显示金额(o.amount, 商机币种(o))} ${状态}${报}`;
         }),
-        openTasks: c.tasks.map((t) => `${t.title}${t.dueAt ? `（${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`),
-        nextPlan: c.plans[0] ? `${dayjs(c.plans[0].plannedAt).format("MM-DD HH:mm")} ${c.plans[0].method}：${c.plans[0].subject}` : null,
+        openTasks: c.tasks.map((t) => `${t.title}${t.dueAt ? `（${dayjs(scheduleValue(t.dueAt, t.dueOn)).format(t.dueOn ? "MM-DD" : "MM-DD HH:mm")}）` : ""}`),
+        nextPlan: c.plans[0] ? `${dayjs(scheduleValue(c.plans[0].plannedAt, c.plans[0].plannedOn)).format(c.plans[0].plannedOn ? "MM-DD" : "MM-DD HH:mm")} ${c.plans[0].method}：${c.plans[0].subject}` : null,
         timeline: timeline || "（从未跟进过）",
       };
       return { summary: `${c.name}：${c.followUps.length} 条跟进${sources ? `、${sources} 段原文` : ""}${c.opportunities.length ? `、${c.opportunities.length} 个商机` : ""}${c.plans[0] ? "、1 条计划" : ""}`, data, records };
@@ -466,8 +467,8 @@ export const TOOLS: Tool[] = [
     args: "{}",
     async run(_args, ctx) {
       const [plans, tasks] = await Promise.all([
-        prisma.followPlan.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: { plannedAt: "asc" }, take: 10, select: { subject: true, plannedAt: true, method: true, customer: { select: { id: true, name: true } } } }),
-        prisma.task.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: [{ dueAt: "asc" }], take: 10, select: { title: true, dueAt: true, customer: { select: { id: true, name: true } } } }),
+        prisma.followPlan.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: { plannedAt: "asc" }, take: 10, select: { subject: true, plannedAt: true, plannedOn: true, method: true, customer: { select: { id: true, name: true } } } }),
+        prisma.task.findMany({ where: { done: false, ownerId: ctx.userId }, orderBy: [{ dueAt: "asc" }], take: 10, select: { title: true, dueAt: true, dueOn: true, customer: { select: { id: true, name: true } } } }),
       ]);
       /*
         口径和首页、左栏角标、Dock 一个（lib/overdue.ts）：早于**今天零点**才算逾期，今天上午 9 点没做的还算今天的。
@@ -479,8 +480,8 @@ export const TOOLS: Tool[] = [
         数逾期跟进(prisma, { ownerId: ctx.userId }),
       ]);
       const data = {
-        跟进计划: plans.map((p) => ({ customerId: p.customer.id, name: p.customer.name, when: dayjs(p.plannedAt).format("MM-DD HH:mm"), method: p.method, subject: p.subject, overdue: 是逾期(p.plannedAt) })),
-        待办: tasks.map((t) => ({ customerId: t.customer.id, name: t.customer.name, when: t.dueAt ? dayjs(t.dueAt).format("MM-DD HH:mm") : null, title: t.title, overdue: 是逾期(t.dueAt) })),
+        跟进计划: plans.map((p) => ({ customerId: p.customer.id, name: p.customer.name, when: dayjs(scheduleValue(p.plannedAt, p.plannedOn)).format(p.plannedOn ? "MM-DD" : "MM-DD HH:mm"), method: p.method, subject: p.subject, overdue: 是逾期(scheduleValue(p.plannedAt, p.plannedOn)) })),
+        待办: tasks.map((t) => ({ customerId: t.customer.id, name: t.customer.name, when: t.dueAt ? dayjs(scheduleValue(t.dueAt, t.dueOn)).format(t.dueOn ? "MM-DD" : "MM-DD HH:mm") : null, title: t.title, overdue: 是逾期(scheduleValue(t.dueAt, t.dueOn)) })),
         ...(计划数 > plans.length || 待办数 > tasks.length ? { 说明: "下面只列了最早的各 10 条，条数以 summary 为准" } : {}),
       };
       const 段 = [计划数 && `${计划数} 条计划`, 待办数 && `${待办数} 条待办`].filter(Boolean).join("、");

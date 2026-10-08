@@ -3,7 +3,8 @@
  * 首页（AI 对话的建议 chip）和数据看板（盯盘卡片）共用，避免两处各写一遍查询。
  */
 import { 订单节点 } from "@/lib/features";
-import { 今天零点 } from "./overdue";
+import { scheduleValue } from "./schedule-date";
+import { 今天零点, 逾期条件 } from "./overdue";
 import { prisma } from "./prisma";
 import { dayjs } from "./utils";
 import { buildWatchlist, type WatchItem } from "./sentinel";
@@ -19,8 +20,8 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): P
   const [overduePlans, customers, opps, lateNodes, business] = await Promise.all([
     prisma.followPlan.findMany({
       // 逾期按今天零点算，和首页、左栏角标、计划页一个口径（lib/overdue.ts）：今天上午没做的还算今天的
-      where: { done: false, plannedAt: { lt: 今天零点(now.toDate()) }, ...(谁的 ? { ownerId: 谁的 } : {}) },
-      select: { subject: true, plannedAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
+      where: 逾期条件(范围, now.toDate()).plan,
+      select: { subject: true, plannedAt: true, plannedOn: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
     prisma.customer.findMany({
       where: { followStatus: { notIn: ["已签约", "已流失", "暂缓跟进"] }, ...(谁的 ? { salesOwnerId: 谁的 } : {}) },
@@ -48,7 +49,7 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): P
   );
   return buildWatchlist(
     {
-      overduePlans: overduePlans.map((p) => ({ customerId: p.customer.id, customerName: p.customer.name, ownerName: p.owner.name, subject: p.subject, plannedAt: p.plannedAt })),
+      overduePlans: overduePlans.map((p) => ({ customerId: p.customer.id, customerName: p.customer.name, ownerName: p.owner.name, subject: p.subject, plannedAt: scheduleValue(p.plannedAt, p.plannedOn)! })),
       customers: customers.map((c) => ({ id: c.id, name: c.name, followStatus: c.followStatus, lastFollowAt: c.lastFollowAt, createdAt: c.createdAt, ownerName: c.salesOwner.name })),
       opportunities: opps.map((o) => ({ customerId: o.customer.id, customerName: o.customer.name, ownerName: o.owner.name, name: o.name, stage: stageLabel(business, o.stage), updatedAt: o.activityAt ?? o.updatedAt })),
       lateOrderNodes: lateNodes.map((x) => ({
