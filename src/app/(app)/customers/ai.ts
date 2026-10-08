@@ -22,11 +22,15 @@ import { 自动判断开着 } from "@/lib/jev/settings";
 import { 本地模式 } from "@/lib/desktop/cloud";
 import { 组提示词, 核对, 粘贴字数上限, 分批粘贴, 合并粘贴批次, type 粘贴结果, type 粘贴续作, type 粘贴批表 } from "@/lib/import/paste";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
+import { AI文本输入错误 } from "@/lib/ai-input";
 
 export type 粘贴回执 = ({ ok: true } & 粘贴结果) | { ok: false; error: string; 续作?: 粘贴续作 };
 
 /** 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）；没切出人来的那次退回去 */
 export async function 粘成表格(原文: string, 续作?: 粘贴续作): Promise<粘贴回执> {
+  const error = AI文本输入错误(原文, 1, 粘贴字数上限, "先把名单或聊天记录粘进来");
+  if (error) return { ok: false, error: typeof 原文 === "string" && 原文.trim().length > 粘贴字数上限 ? `一次最多粘 ${粘贴字数上限} 字，再多请存成 Excel 走文件那条路` : error };
+  try { 分批粘贴(原文.trim()); } catch (e) { return { ok: false, error: e instanceof Error ? e.message : "请先按人分行" }; }
   return 带额度("paste", () => 切成表(原文, 续作));
 }
 

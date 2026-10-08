@@ -10,6 +10,7 @@ import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 import { formatTimeline } from "@/lib/ai-context";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
+import { AI客户输入错误, AI文本输入错误 } from "@/lib/ai-input";
 
 /**
  * 盯盘清单的「起草跟进」：给一条唤醒话术草稿。
@@ -17,6 +18,8 @@ import { 带额度 } from "@/lib/tenant/ai-allowance";
  * 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）。
  */
 export async function draftWakeup(input: { customerId: string; reason: string; 风格?: 起草风格 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const error = AI客户输入错误(input) ?? AI文本输入错误(input?.reason, 1, 1000, "请填写本次跟进原因");
+  if (error) return { ok: false, error };
   return 带额度("wakeup", () => 起草唤醒话术(input));
 }
 
@@ -86,6 +89,12 @@ ${timeline}
 export async function explainWatchlist(input: {
   items: { customerId: string; reason: string }[];
 }): Promise<{ ok: true; notes: Record<string, string> } | { ok: false; error: string }> {
+  if (!input || !Array.isArray(input.items)) return { ok: false, error: "清单格式不正确" };
+  if (!input.items.length) return { ok: false, error: "清单为空" };
+  for (const item of input.items) {
+    const error = AI客户输入错误(item) ?? AI文本输入错误(item?.reason, 1, 1000, "请填写清单原因");
+    if (error) return { ok: false, error };
+  }
   return 带额度("explain", () => 解读盯盘(input));
 }
 

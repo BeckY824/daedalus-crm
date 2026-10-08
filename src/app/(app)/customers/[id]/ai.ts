@@ -24,6 +24,7 @@ import type { BriefRecord } from "@/lib/ai-draft";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
 import { 带币种, 商机币种, 签约合计 } from "@/lib/money-db";
 import { 金额 as 显示金额, 合计文字 } from "@/lib/currency";
+import { AI客户输入错误, AI文本输入错误 } from "@/lib/ai-input";
 
 /**
  * AI 只起草、不落库：这两个 action 都不写业务表。
@@ -40,6 +41,8 @@ export async function parseFollowUpDraft(input: {
   customerId: string;
   text: string;
 }): Promise<{ ok: true; draft: FollowUpDraft } | { ok: false; error: string }> {
+  const error = AI客户输入错误(input) ?? AI文本输入错误(input?.text, 5, 5000, "内容太短，AI 没有可整理的信息");
+  if (error) return { ok: false, error };
   return 带额度("parse", () => 解析速记(input));
 }
 
@@ -146,6 +149,8 @@ export async function generateBrief(input: {
   /** 销售此刻想问的具体问题（来自首页提问）。给了就让「这次建议谈」围绕它回答 */
   question?: string;
 }, emit?: Emit): Promise<简报回执> {
+  const error = AI客户输入错误(input) ?? (input?.question === undefined ? null : AI文本输入错误(input.question, 0, 200, ""));
+  if (error) return { ok: false, error };
   return 带额度("brief", () => 生成简报(input, emit));
 }
 

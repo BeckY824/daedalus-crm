@@ -10,6 +10,7 @@ import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
+import { AI客户输入错误 } from "@/lib/ai-input";
 
 /**
  * 转介绍雷达的「起草邀请」：给已签约学员写一条请求转介绍的微信草稿。
@@ -17,6 +18,8 @@ import { 带额度 } from "@/lib/tenant/ai-allowance";
  * 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）。
  */
 export async function draftInvite(input: { customerId: string; 风格?: 起草风格 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const error = AI客户输入错误(input);
+  if (error) return { ok: false, error };
   return 带额度("invite", () => 起草邀请(input));
 }
 

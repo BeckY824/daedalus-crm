@@ -8,6 +8,7 @@ import { type 页面范围 } from "@/lib/agent/intents";
 import { runAgent } from "@/lib/agent/run";
 import { resolveModel } from "@/lib/llm";
 import { 收文件, 拼文件 } from "@/lib/ask-files";
+import { AI文本输入错误 } from "@/lib/ai-input";
 
 /** 一个问题最多多长。300 太短，一句完整的业务问题经常就写不下 */
 const 问题上限 = 1000;
@@ -53,7 +54,12 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return new Response("bad request", { status: 400 });
+    return new Response("请求格式不正确", { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return new Response("请求格式不正确", { status: 400 });
+  if (body.mode === "agent") {
+    const error = AI文本输入错误(body.question, 2, 问题上限, "请先输入要问的问题");
+    if (error) return new Response(error, { status: 400 });
   }
 
   const encoder = new TextEncoder();
