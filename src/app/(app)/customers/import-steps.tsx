@@ -1,11 +1,11 @@
 "use client";
 
-import { Alert, Button, Empty, Input, Popconfirm, Radio, Select, Space, Switch, Table, Tag, Typography } from "antd";
+import { Alert, Button, Checkbox, Empty, Input, Popconfirm, Radio, Select, Space, Switch, Table, Tag, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import { 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 像表头, type 字段名 } from "@/lib/import/fields";
 import { 改动键 } from "@/lib/import/plan";
-import { 粘贴字数上限, type 编造格 } from "@/lib/import/paste";
+import { 粘贴字数上限, type 编造格, type 粘贴结果 } from "@/lib/import/paste";
 import { 样例行数 } from "@/lib/jev/columns";
 import type { 预览, 导入方案 } from "./import-actions";
 import { 外贸精简, type BusinessConfig } from "@/lib/business-config";
@@ -23,11 +23,12 @@ export function 第几行(行号: number, 粘贴: boolean): string {
 /** 导入抽屉（ImportDrawer.tsx）的各一步：粘贴、对列、复核、确认，外加页脚那排按钮。流程和状态在抽屉里 */
 
 export function 页脚({
-  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法, 认人叫法 = "手机号",
+  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法, 认人叫法 = "手机号", 原文未确认 = false,
 }: {
   步: number; 忙: boolean; 认人列: number; 看: 预览 | null;
   /** 第 1 步那个灰按钮上的「先指出 X 那一列」：外贸是「电话、WhatsApp 或邮箱」 */
   认人叫法?: string;
+  原文未确认?: boolean;
   set步: (n: number) => void; 去预览: () => void; 落库: () => void; 撤: () => void; 重来: () => void;
   /** 点「完成」：收起抽屉，列表只显示这一批（审查 D10） */
   完成: () => void;
@@ -61,7 +62,7 @@ export function 页脚({
     <Space style={{ display: "flex", justifyContent: "flex-end" }}>
       <Button onClick={() => set步(步 - 1)} disabled={忙}>上一步</Button>
       {步 === 1 && (
-        <Button type="primary" onClick={去预览} loading={忙} disabled={认人列 < 0}>
+        <Button type="primary" onClick={去预览} loading={忙} disabled={认人列 < 0 || 原文未确认}>
           {认人列 < 0 ? `先指出${认人叫法}那一列` : "下一步"}
         </Button>
       )}
@@ -173,12 +174,13 @@ export function 粘贴面板({
 
 /** 第二步：每一列对到哪个字段。**认人那一列没指出来就不让走**，见下面那条提示 */
 export function 对列({
-  表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉, AI认列,
+  表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉, AI认列, 原文复核,
 }: {
   表头: string[]; 数据: string[][]; 映射: (字段名 | null)[]; set映射: (m: (字段名 | null)[]) => void;
   表: ReturnType<typeof 字段表>; 认人列: number; 文件名: string; 截断了?: { 行?: number; 列?: number }; b: BusinessConfig;
   没对上的列: 导入方案["没对上的列"]; set没对上的列: (v: 导入方案["没对上的列"]) => void;
   编造: 编造格[]; 漏掉: string[];
+  原文复核?: Pick<粘贴结果, "关联" | "未覆盖"> & { 原文: string; 已确认: boolean; 确认: (v: boolean) => void };
   /**
    * 「让 AI 认一下」（L-076）。不给 = 这个部署没接判断模型、或管理员没打开「导入时让 AI 认列」，就不摆按钮。
    * 点了才发，按钮旁边一句话说清发什么
@@ -276,6 +278,30 @@ export function 对列({
             </span>
           }
         />
+      )}
+      {原文复核 && (
+        <section aria-label="粘贴原文复核" style={{ marginBottom: 16 }}>
+          <Alert type="warning" showIcon title="逐条对照原文后再继续"
+            description="文字在原文里出现过，不代表姓名、号码和公司属于同一人。下面的定位只是核对线索；跨行、同段多人及单字姓名会标为待核对。发现错配或遗漏，请回上一步分人分行修改原文后重新整理。" />
+          <details style={{ margin: "12px 0" }}>
+            <summary>查看完整原文</summary>
+            <pre style={{ whiteSpace: "pre-wrap", maxHeight: 260, overflow: "auto" }}>{原文复核.原文}</pre>
+          </details>
+          {原文复核.未覆盖.length > 0 && <Alert type="warning" title={`有 ${原文复核.未覆盖.length} 段原文未完整关联到表格，请检查是否漏人`}
+            description={<details><summary>展开未覆盖的原文（也可能是标题或说明）</summary>
+              {原文复核.未覆盖.map((p) => <div key={p.行号}>原文第 {p.行号} 行：{p.文本}</div>)}
+            </details>} />}
+          <Table size="small" rowKey="行号" pagination={{ pageSize: 10, showSizeChanger: false }}
+            dataSource={原文复核.关联} style={{ margin: "12px 0" }} columns={[
+              { title: "整理结果", render: (_, r) => <div>第 {r.行号 - 1} 条：{数据[r.行号 - 2]?.filter(Boolean).join(" · ")}</div> },
+              { title: "原文定位", render: (_, r) => <div>{r.待核对 && <Tag color="warning">关联待核对</Tag>}
+                {r.原文.map((p) => <div key={p.行号}>第 {p.行号} 行：{p.文本}</div>)}
+                {!r.原文.length && "没有找到同段原文，请核对"}</div> },
+            ]} />
+          <Checkbox checked={原文复核.已确认} onChange={(e) => 原文复核.确认(e.target.checked)}>
+            我已逐条核对姓名、联系方式、公司及遗漏提示，确认继续导入这份结果
+          </Checkbox>
+        </section>
       )}
       {没对上.length > 0 && (
         <Alert

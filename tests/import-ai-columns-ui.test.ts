@@ -27,7 +27,7 @@ const 桩插件: Plugin = {
     };
     桩(/^\.\/ai$/, `
       const 记 = (名, 参) => (window.__调用[名] ||= []).push(参);
-      export const 粘成表格 = (...参) => { 记("粘", 参); return new Promise(() => {}); };
+      export const 粘成表格 = (...参) => { 记("粘", 参); return window.__粘贴结果 ? Promise.resolve(window.__粘贴结果) : new Promise(() => {}); };
       // 认列的回答由用例自己决定什么时候回：把 resolve 存起来
       export const 猜列建议 = (...参) => { 记("猜列", 参); return new Promise((r) => window.__认列回.push(r)); };
       export const 导入认列状态 = () => Promise.resolve({ 能认列: window.__能认列, 本机: window.__本机 });
@@ -101,6 +101,37 @@ async function 选文件(page: Page) {
 
 const 调用 = (page: Page, 名: string) =>
   page.evaluate((n) => ((window as unknown as { __调用: Record<string, unknown[]> }).__调用[n] ?? []) as unknown[][], 名);
+
+it("粘贴错配及微信遗漏可见，确认前不能预览或落库，重新整理要重新确认", async () => {
+  const page = await 开();
+  const 原文 = "赵一 13800000001 平川科技\n钱二 13800000002 长河教育\n孙三 微信 sunsan_88";
+  const { 核对 } = await import("@/lib/import/paste");
+  const result = 核对({ 表头: ["姓名", "手机号", "公司"], 数据: [["赵一", "13800000002", "平川科技"], ["钱二", "13800000001", "长河教育"]] }, 原文);
+  await page.evaluate((r) => Object.assign(window, { __粘贴结果: { ok: true, ...r } }), result);
+  await page.getByText("粘一段文本", { exact: true }).click();
+  await page.getByRole("textbox").fill(原文);
+  await page.getByRole("button", { name: "整理成表格" }).click();
+  const panel = page.getByRole("region", { name: "粘贴原文复核" });
+  await panel.waitFor();
+  expect(await panel.getByText("关联待核对", { exact: true }).count()).toBe(2);
+  await panel.getByText("展开未覆盖的原文（也可能是标题或说明）", { exact: true }).click();
+  expect(await panel.innerText()).toContain("孙三 微信 sunsan_88");
+  expect(await page.getByRole("button", { name: "下一步", exact: true }).isDisabled()).toBe(true);
+  expect(await 调用(page, "预览")).toHaveLength(0);
+  expect(await 调用(page, "执行")).toHaveLength(0);
+  await panel.getByRole("checkbox").check();
+  await page.getByRole("button", { name: "下一步", exact: true }).click();
+  await expect.poll(async () => (await 调用(page, "预览")).length).toBe(1);
+  expect(await 调用(page, "执行")).toHaveLength(0);
+  await page.getByRole("button", { name: "上一步", exact: true }).click();
+  await page.getByRole("button", { name: "上一步", exact: true }).click();
+  await page.getByRole("button", { name: "整理成表格" }).click();
+  await panel.waitFor();
+  expect(await panel.getByRole("checkbox").isChecked()).toBe(false);
+  expect(await page.getByRole("button", { name: "下一步", exact: true }).isDisabled()).toBe(true);
+  await page.screenshot({ path: path.resolve("../测试证据-2026-10-08/整改-J070-原文复核.png"), fullPage: true });
+  await page.close();
+});
 
 describe("让 AI 认列：点了才发（L-076）", () => {
   it("读完表、停几秒：一次都不问 AI；点「让 AI 认一下」才问，只带认不出的那几列和前 3 行", async () => {

@@ -5,7 +5,7 @@ import { App, Alert, Drawer, Segmented, Steps, Typography, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import { 解析CSV带行号, 解码CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 猜列, type 字段名 } from "@/lib/import/fields";
-import { type 编造格 } from "@/lib/import/paste";
+import { type 编造格, type 粘贴结果 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
 import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
 import { 粘成表格, 猜列建议, 导入认列状态 } from "./ai";
@@ -99,6 +99,8 @@ export default function ImportDrawer({
   const [编造, set编造] = useState<编造格[]>([]);
   /** 原文里有、整理出来的表里却没有的手机号 */
   const [漏掉, set漏掉] = useState<string[]>([]);
+  const [原文核对, set原文核对] = useState<Pick<粘贴结果, "关联" | "未覆盖"> | null>(null);
+  const [已核对原文, set已核对原文] = useState(false);
   const [文件名, set文件名] = useState("");
 
   /**
@@ -174,6 +176,8 @@ export default function ImportDrawer({
     set原文("");
     set编造([]);
     set漏掉([]);
+    set原文核对(null);
+    set已核对原文(false);
     set文件名("");
     set表头([]);
     set数据([]);
@@ -293,6 +297,8 @@ export default function ImportDrawer({
       set整理(null);
       set编造(r.编造);
       set漏掉(r.漏掉);
+      set原文核对({ 关联: r.关联, 未覆盖: r.未覆盖 });
+      set已核对原文(false);
       收表(`粘贴的文本（${r.数据.length} 条）`, r.表头, r.数据, r.截断了);
     } catch (e) {
       if (轮 !== 这一次.current) return;
@@ -309,6 +315,7 @@ export default function ImportDrawer({
   const 现看 = 看 ? 按处置(看, 重复行) : null;
 
   async function 去预览() {
+    if (原文核对 && !已核对原文) return message.warning("请先逐条核对原文及遗漏提示，再勾选确认");
     // 预览照这一刻的映射算；还在路上的认列结果回来就作废（J-057）
     if (认列中) 因预览作废.current = true;
     认列轮.current++;
@@ -329,6 +336,7 @@ export default function ImportDrawer({
   }
 
   async function 落库() {
+    if (原文核对 && !已核对原文) return message.warning("请先核对原文");
     set忙(true);
     try {
       const r = await 执行导入(方案(), 文件名);
@@ -377,6 +385,7 @@ export default function ImportDrawer({
         <页脚
           {...{ 步, 忙, 认人列, set步, 去预览, 落库, 撤, 重来 }}
           认人叫法={外贸精简(b) ? "电话、WhatsApp 或邮箱" : "手机号"}
+          原文未确认={Boolean(原文核对 && !已核对原文)}
           看={现看}
           客户叫法={b.customer}
           这一批={结果}
@@ -448,6 +457,7 @@ export default function ImportDrawer({
       {步 === 1 && (
         <对列
           {...{ 表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉 }}
+          原文复核={原文核对 ? { ...原文核对, 原文, 已确认: 已核对原文, 确认: set已核对原文 } : undefined}
           AI认列={认列状态?.能认列 ? { 跑: AI认列, 忙: 认列中 } : undefined}
         />
       )}

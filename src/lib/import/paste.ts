@@ -107,6 +107,8 @@ function 认号(片: string): string | null {
 
 /** 模型编出来的那一格：清空之后照原样报给人看 */
 export type 编造格 = { 行号: number; 列名: string; 值: string };
+export type 原文段 = { 行号: number; 文本: string };
+export type 行关联 = { 行号: number; 待核对: boolean; 原文: 原文段[] };
 
 export type 粘贴结果 = {
   表头: string[];
@@ -115,6 +117,10 @@ export type 粘贴结果 = {
   编造: 编造格[];
   /** 原文里有、整张表里却没出现的手机号 */
   漏掉: string[];
+  /** 同段出现只能辅助复核，不能证明姓名、号码确实属于同一人。 */
+  关联: 行关联[];
+  /** 没有被完整关联行覆盖的原文段，含没有手机号的资料和说明文字。 */
+  未覆盖: 原文段[];
   /** 超出上限被切掉的部分，和文件那条路共用同一个提示条 */
   截断了?: { 行?: number; 列?: number };
 };
@@ -207,5 +213,19 @@ export function 核对(raw: unknown, 原文: string): 粘贴结果 {
   if (全部行.length > 粘贴行数上限) 截断了.行 = 全部行.length;
   if (原列数 > 列数上限) 截断了.列 = 原列数;
 
-  return { 表头, 数据, 编造, 漏掉, ...(截断了.行 || 截断了.列 ? { 截断了 } : {}) };
+  const 段落 = 原文.split(/\r?\n/).map((文本, i) => ({ 行号: i + 1, 文本 })).filter((x) => x.文本.trim());
+  const 已覆盖 = new Set<number>();
+  const 姓名列 = 表头.findIndex((h) => /^(姓名|名字|联系人|客户姓名|客户名称|学员姓名)$/.test(h));
+  const 关联 = 数据.map((row, i): 行关联 => {
+    const 格子 = row.map(规整比对).filter(Boolean);
+    const 一起 = 段落.filter((p) => 格子.every((c) => 规整比对(p.文本).includes(c)));
+    const 候选 = 一起.length ? 一起 : 段落.filter((p) => 格子.some((c) => 规整比对(p.文本).includes(c)));
+    // 多号同段、跨段、同文重复及单字姓名都不能由子串匹配确认关系。
+    const 待核对 = 一起.length !== 1 || 抽手机号(一起[0]?.文本 ?? "").length > 1 ||
+      (姓名列 >= 0 && [...row[姓名列]].length < 2);
+    if (!待核对) 已覆盖.add(一起[0].行号);
+    return { 行号: i + 2, 待核对, 原文: 候选 };
+  });
+  const 未覆盖 = 段落.filter((p) => !已覆盖.has(p.行号));
+  return { 表头, 数据, 编造, 漏掉, 关联, 未覆盖, ...(截断了.行 || 截断了.列 ? { 截断了 } : {}) };
 }
