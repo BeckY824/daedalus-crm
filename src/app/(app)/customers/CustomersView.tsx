@@ -1,7 +1,7 @@
 "use client";
 
 import Heat from "@/components/Heat";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Select, Space, Dropdown, App, Tag, Popover } from "antd";
@@ -20,19 +20,17 @@ import {
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { 合计文字 } from "@/lib/currency";
 import { maskPhone, smartTime, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
-import { 写xlsx } from "@/lib/xlsx-write";
 import ListSearch from "@/components/ListSearch";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
-import { 导出客户 } from "./export-action";
-import { 客户导出表, 跟进导出表, 签约各币, type 跟进导出行 } from "./export-table";
+import { 完整导出 } from "./export-client";
+import { 签约各币 } from "./export-table";
 import ImportDrawer from "./ImportDrawer";
 import { assignSalesOwner, bulkFollowStatus, 撤销改负责人, type BulkResult } from "./actions";
 import { useDeleteCustomers } from "./useDeleteCustomers";
 import { 带走说法 } from "@/lib/carry-over";
 import { useBusiness } from "@/lib/business-client";
-import type { BusinessConfig } from "@/lib/business-config";
 import { statusLabel, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { WhatsApp网址 } from "@/lib/customer-extra";
 import { useUrlFilters } from "@/lib/url-filters";
@@ -236,6 +234,9 @@ export default function CustomersView({
   const 空库 = total === 0 && !本月新增 && !直接推荐 && !本批 && !Object.values(filters).some((v) => v);
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [导出中, set导出中] = useState(false);
+  const [导出进度, set导出进度] = useState("");
+  const 导出取消 = useRef<AbortController | null>(null);
+  useEffect(() => () => 导出取消.current?.abort(), []);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
   const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
   /** ?new=1 / ?import=paste 进来就开：等水合完再开。服务端先画一个开着的弹窗，会和客户端那一版对不上（跟进页同一写法） */
@@ -400,29 +401,31 @@ export default function CustomersView({
             {/* 导入和导出都是次动作，排在主动作左边。导入空库时也要在——
                 第一次进来的人手上那份 Excel 正是他不想一条条录的原因 */}
             <Button icon={<ImportOutlined />} onClick={() => set导入开着(true)}>导入</Button>
-            {!空库 && (
+            {!空库 && (<>
               <Button
                 icon={<ExportOutlined />}
                 loading={导出中}
                 onClick={async () => {
                   // 按服务端这次查询用的条件导全部（filters），不是当前这一页，也不是输入框里还没搜的草稿
+                  const controller = new AbortController();
+                  导出取消.current = controller;
                   set导出中(true);
                   try {
-                    const r = await 导出客户(filters);
-                    if (!r.ok) return void message.error(r.error);
-                    exportXlsx(r.rows, r.跟进, b);
-                    const 跟进说 = r.跟进.length ? `，连同 ${r.跟进.length} 条跟进记录（第二张表）${r.跟进截断了 ? "，跟进太多只带了一部分" : ""}` : "";
-                    message.success(r.截断了 ? `导出了前 ${r.rows.length} 位${跟进说}（一次最多这么多，先筛一下再导剩下的）` : `导出了 ${r.rows.length} 位${跟进说}`);
-                  } catch {
-                    message.error("导出失败，请重试");
+                    const r = await 完整导出(filters, b, set导出进度, controller.signal);
+                    message.success(`已完整导出 ${r.客户} 位${b.customer}、${r.跟进} 条跟进，ZIP内附分批Excel和核对清单`);
+                  } catch (error) {
+                    if (!controller.signal.aborted) message.error(error instanceof Error ? error.message : "导出失败，请重试");
                   } finally {
+                    导出取消.current = null;
                     set导出中(false);
+                    set导出进度("");
                   }
                 }}
               >
                 导出
               </Button>
-            )}
+              {导出中 && <Space><span role="status" style={{ fontSize: 12 }}>{导出进度}</span><Button size="small" onClick={() => 导出取消.current?.abort()}>取消导出</Button></Space>}
+            </>)}
             <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
               新建{b.customer}
             </Button>
@@ -620,24 +623,4 @@ export default function CustomersView({
       />
     </>
   );
-}
-
-/**
- * 导出成一个 Excel（2026-10-05 外贸客户：「导出客户的时候，是否也能把跟进的记录也一并导出」）。
- * 第一张表「客户」和原来的 CSV 同样几列（能原样导回来，导入只读第一张表）；第二张表「跟进记录」一条跟进一行。
- * 写哪几列在 export-table.ts（带备注，2026-10-04 J-073），拆出去是为了能单测「导出 → 再导入一圈」
- */
-function exportXlsx(rows: CustomerRow[], 跟进: 跟进导出行[], b: BusinessConfig) {
-  const 客户 = 客户导出表(rows, b);
-  const 记录 = 跟进导出表(跟进, b);
-  const 字节 = 写xlsx([
-    { 名: `${b.customer}`, 表头: 客户.head, 行: 客户.body },
-    { 名: "跟进记录", 表头: 记录.head, 行: 记录.body, 列宽: [16, 16, 18, 10, 24, 60, 10, 22, 10] },
-  ]);
-  const blob = new Blob([字节 as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${b.customer}列表-${fmtDate(new Date())}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(a.href);
 }
