@@ -1,6 +1,7 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { 客户关键词条件 } from "@/lib/search-keyword";
 import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { requireUser } from "@/lib/auth";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
@@ -25,9 +26,7 @@ export async function 搜客户(关键词: string): Promise<可挑客户[]> {
   const 词 = 关键词.trim().slice(0, 50);
   const 号 = await 号码脱敏器();
   const rows = await prisma.customer.findMany({
-    where: 词
-      ? { OR: [{ name: { contains: 词 } }, { school: { contains: 词 } }, { phone: { contains: 词 } }] }
-      : undefined,
+    where: await 客户关键词条件(词, true),
     orderBy: [{ lastFollowAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     take: 词 ? 20 : 8,
     select: { id: true, name: true, school: true, phone: true },

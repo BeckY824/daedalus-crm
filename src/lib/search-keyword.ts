@@ -7,6 +7,7 @@
  * 3. SQLite 的 LIKE 里 % 和 _ 是通配符，Prisma 不转义：搜「100%」把「100分客户」也搜出来，搜「a_b」连「axb」也算。
  */
 import { prisma } from "./prisma";
+import type { Prisma } from "@/generated/prisma";
 
 /** 去掉前后空白（含全角空格 U+3000，String.trim 本就认）。不是字符串的当没搜 */
 export function 搜索词(v: unknown): string {
@@ -28,13 +29,61 @@ export function 有通配符(k: string): boolean {
   return /[%_]/.test(k);
 }
 
-/**
- * 关键词里带 % 或 _ 时，按「字面包含」找出 id（instr 不认通配符）。Prisma 的 contains 没法加 ESCAPE，只能走原生 SQL。
- * 表名、列名只从调用方的常量来，关键词走参数绑定。lower 两边和 LIKE 一样只管 ASCII 的大小写。
- * 只拿 id 当过滤条件，权限限定（lib/team-scope.ts）仍在后面的 findMany 上生效。
- */
-export async function 字面包含的id(表: "Customer", 列们: readonly string[], k: string): Promise<string[]> {
-  const 条件 = 列们.map((c) => `instr(lower("${c}"), lower(?)) > 0`).join(" OR ");
-  const 行 = await prisma.$queryRawUnsafe<{ id: string }[]>(`SELECT id FROM "${表}" WHERE ${条件}`, ...列们.map(() => k));
-  return 行.map((r) => r.id);
+// SQLite GLOB 按Unicode码点匹配，但不折叠大小写。字符组补齐单码点大小写等价类；
+// 不把ß改成SS等多字符展开，不改变原文，也不要求旧库重新写入搜索索引。
+let 大小写组: Map<string, Set<string>> | undefined;
+function 大小写等价组() {
+  if (大小写组) return 大小写组;
+  const groups = new Map<string, Set<string>>();
+  const connect = (a: string, b: string) => {
+    if (a === b || [...b].length !== 1) return;
+    const left = groups.get(a) ?? new Set([a]);
+    const right = groups.get(b) ?? new Set([b]);
+    for (const c of right) left.add(c);
+    for (const c of left) groups.set(c, left);
+  };
+  for (let n = 0; n <= 0x10ffff; n++) {
+    const c = String.fromCodePoint(n);
+    connect(c, c.toLowerCase()); connect(c, c.toUpperCase());
+  }
+  大小写组 = groups;
+  return groups;
+}
+
+function 包含模式(k: string): string {
+  const groups = 大小写等价组();
+  return "*" + [...k].map(c => {
+    const variants = groups.get(c);
+    if (variants) return `[${[...variants].join("")}]`;
+    return c === "[" ? "[[]" : c === "]" ? "[]]" : c === "*" ? "[*]" : c === "?" ? "[?]" : c;
+  }).join("") + "*";
+}
+
+/** 小in组成一个OR，整条查询保留一次全局orderBy/skip/take。 */
+export function 客户id集合(ids: readonly string[]): Prisma.CustomerWhereInput {
+  const chunks: Prisma.CustomerWhereInput[] = [];
+  for (let i=0;i<ids.length;i+=500) chunks.push({id:{in:ids.slice(i,i+500)}});
+  return chunks.length ? {OR:chunks} : {id:{in:[]}};
+}
+
+/** 仅内置列名参与SQL；值全部参数绑定。最终模型查询继续经过租户/业务员限定。 */
+export async function 客户关键词条件(raw: unknown, onlyPicker = false): Promise<Prisma.CustomerWhereInput> {
+  const k = 搜索词(raw);
+  if (!k) return {};
+  const phone = 号码片段(k);
+  const pattern = 包含模式(k), phonePattern = 包含模式(phone ?? k);
+  const fields = onlyPicker ? ["name", "school"] : ["name", "school", "major", "grade", "remark"];
+  const parts = fields.map(c => `c."${c}" GLOB ?`);
+  const values = fields.map(() => pattern);
+  parts.push('c."phone" GLOB ?'); values.push(phonePattern);
+  if (!onlyPicker) {
+    parts.push('EXISTS (SELECT 1 FROM "CustomerExtra" e WHERE e."customerId"=c.id AND (e.whatsapp GLOB ? OR e.whatsapp GLOB ? OR e.email GLOB ? OR e.wechat GLOB ? OR e.country GLOB ?))');
+    values.push(pattern,phonePattern,pattern,pattern,pattern);
+    parts.push('EXISTS (SELECT 1 FROM "Contact" t WHERE t."customerId"=c.id AND (t.name GLOB ? OR t.phone GLOB ? OR t.phone GLOB ? OR t.email GLOB ? OR t.wechat GLOB ?))');
+    values.push(pattern,pattern,phonePattern,pattern,pattern);
+    parts.push('EXISTS (SELECT 1 FROM "TradeOrder" o WHERE o."customerId"=c.id AND o.no GLOB ?)'); values.push(pattern);
+  }
+  const rows = await prisma.$queryRawUnsafe<{id:string}[]>(`SELECT c.id FROM "Customer" c WHERE ${parts.join(" OR ")}`, ...values);
+  // 避免Prisma把一个超长in拆成多条各自skip的查询，导致后页静默变空。
+  return 客户id集合(rows.map(r=>r.id));
 }

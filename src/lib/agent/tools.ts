@@ -11,6 +11,7 @@ import type { Prisma } from "@/generated/prisma";
 import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { calendarColumns, readCalendarSorted } from "./calendar-query";
 import { 客户筛选条件 } from "@/app/(app)/customers/query";
+import { 客户关键词条件 } from "../search-keyword";
 import type { 页面客户筛选 } from "../ai-page-filters";
 import { 签约归属人 } from "../contract-owner";
 import { 是逾期, 数逾期跟进 } from "../overdue";
@@ -128,16 +129,10 @@ export const TOOLS: Tool[] = [
       if (!页面条件 && !q && !channel && !owner && !status && !decision && !mine && !建档条件 && !预签条件)
         return { summary: "没给条件", data: { error: "query / channelName / ownerName / followStatus / decisionStatus / mine / createdFrom-To / expectedSignFrom-To 至少给一个" } };
       const where = {
-        AND: [...(页面条件 ? [页面条件] : []), ...(预签条件 ? [{ OR: [
+        AND: [await 客户关键词条件(q), ...(页面条件 ? [页面条件] : []), ...(预签条件 ? [{ OR: [
           { expectedSignOn: { ...(预签.from ? { gte: 预签.from.format("YYYY-MM-DD") } : {}), ...(预签.to ? { lte: 预签.to.format("YYYY-MM-DD") } : {}) } },
           { expectedSignOn: null, expectedSignAt: 预签条件 },
         ] }] : [])],
-        // 和客户列表搜的是同一个范围（C7）：外贸档案、联系人也搜（2026-10-05）
-        ...(q ? { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { school: { contains: q } }, { grade: { contains: q } }, { major: { contains: q } }, { remark: { contains: q } },
-          { extra: { is: { OR: [{ whatsapp: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }, { country: { contains: q } }] } } },
-          { contacts: { some: { OR: [{ name: { contains: q } }, { phone: { contains: q } }, { email: { contains: q } }, { wechat: { contains: q } }] } } },
-          // 订单号（C.2）：客户列表二审就搜了，这里漏了——问「PI-xxx 是哪位客户」AI 说没有，点「去库里搜」却有
-          { tradeOrders: { some: { no: { contains: q } } } }] } : {}),
         // 用 channelId（推荐链**最顶端**的渠道，所有后代继承），不是 attributionChannelId
         // （那个是「往上第二代」的归属口径，算提成用的）。「小红这个渠道里有谁」问的是
         // 整条链上的人，包括转介绍来的后代——所以是前者。两个口径的数字会不一样。

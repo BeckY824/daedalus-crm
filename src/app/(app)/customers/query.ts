@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
 import { 带币种, 签约金额, 签约合计, 签约币种 } from "@/lib/money-db";
-import { 搜索词, 号码片段, 有通配符, 字面包含的id } from "@/lib/search-keyword";
+import { 客户关键词条件, 客户id集合 } from "@/lib/search-keyword";
 import { 取档案 } from "@/lib/customer-extra-db";
 
 /**
@@ -28,9 +28,6 @@ export type 客户条件 = {
   source?: string;
 };
 
-/** 关键词搜的列，和下面 OR 里的一致（字面包含那条路也照这个搜） */
-const 搜索列 = ["name", "phone", "school", "major", "grade", "remark"] as const;
-
 export async function 客户筛选条件(
   sp: 客户条件,
 ): Promise<Prisma.CustomerWhereInput> {
@@ -42,39 +39,10 @@ export async function 客户筛选条件(
       })
     : null;
 
-  /*
-    关键词先 trim、号码按数字搜、% _ 当普通字符（2026-10-04 J-008），规则见 lib/search-keyword.ts。
-    带 % _ 的走原生 SQL 先找出 id，放进 AND 里——和上面「这一批」的 id 条件并存，不能互相盖掉
-  */
-  const 词 = 搜索词(sp.keyword);
-  const 号段 = 号码片段(词);
-  const 字面 = 词 && 有通配符(词) ? await 字面包含的id("Customer", 搜索列, 词) : null;
+  const keyword = await 客户关键词条件(sp.keyword);
 
   return {
-    ...(本批 ? { id: { in: 本批.map((r) => r.customerId) } } : {}),
-    ...(字面 ? { AND: [{ id: { in: 字面 } }] } : {}),
-    ...(词 && !字面
-      ? {
-          OR: [
-            { name: { contains: 词 } },
-            { phone: { contains: 号段 ?? 词 } },
-            { school: { contains: 词 } },
-            { major: { contains: 词 } },
-            // 年级、备注也搜，和 AI 的 search_customers 一个范围（排查 C7）：AI 说「大三的有 12 位」，点「去库里搜」不能是 0 条
-            { grade: { contains: 词 } },
-            { remark: { contains: 词 } },
-            /*
-              外贸档案和联系人也搜（2026-10-05 外贸客户：「联系人可以直接合并到客户里面」）。外贸模版左栏不摆联系人页，
-              按联系人的名字、电话、邮箱、微信找到的就是他所在的那位客户
-            */
-            // 号码按原词也搜一遍（复查）：WhatsApp、联系人电话是原样存的（「+86 138 0000 1111」），只按纯数字号段搜会漏
-            { extra: { is: { OR: [{ whatsapp: { contains: 词 } }, ...(号段 ? [{ whatsapp: { contains: 号段 } }] : []), { email: { contains: 词 } }, { wechat: { contains: 词 } }, { country: { contains: 词 } }] } } },
-            { contacts: { some: { OR: [{ name: { contains: 词 } }, { phone: { contains: 词 } }, ...(号段 ? [{ phone: { contains: 号段 } }] : []), { email: { contains: 词 } }, { wechat: { contains: 词 } }] } } },
-            // 订单号（二审）：外贸里客户常常报 PI 号来问，一搜就是那位客户
-            { tradeOrders: { some: { no: { contains: 词 } } } },
-          ],
-        }
-      : {}),
+    AND: [keyword, ...(本批 ? [客户id集合(本批.map(r => r.customerId))] : [])],
     ...(sp.grade ? { grade: sp.grade } : {}),
     ...(sp.followStatus ? { followStatus: sp.followStatus } : {}),
     ...(sp.decisionStatus ? { decisionStatus: sp.decisionStatus } : {}),
