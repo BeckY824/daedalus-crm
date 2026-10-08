@@ -41,7 +41,7 @@ import FeedbackButton from "./FeedbackButton";
 import { AiMeterBar } from "./AiCost";
 import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
-import Shortcut from "./Shortcut";
+import Shortcut, { useModifierKey } from "./Shortcut";
 import { useBusiness } from "@/lib/business-client";
 import { DockOpenContext, useNarrow, usePageOwnsCmdK } from "@/lib/roster";
 import { useMotionTheme } from "@/components/MotionTheme";
@@ -115,6 +115,7 @@ const 面板放不下 = "(max-width: 1599px)";
 export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, 要跟, 订单要看 = { 超期: 0, 今天: 0 }, desktop, 反馈去向, pane, ai, children }: Props) {
   const { 曲线, 时长 } = useMotionTheme();
   const b = useBusiness();
+  const modifier = useModifierKey();
   const router = useRouter();
   const pathname = usePathname();
   const 页内占着CmdK = usePageOwnsCmdK();
@@ -268,10 +269,10 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
       {/* 和 Dock 上那个红数字同一个数、同一种红：人从 Dock 看见 1，打开应用第一眼就能对上它在哪。
           点进去是记录页，页头「计划」按钮上还挂着同一个数，再点就是逾期和今天那两组 */}
       {n.key === "/follow-ups" && 要跟数 > 0 && (
-        <span className="rail-count" title={`${要跟说法}，和 Dock 上的数一样`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
+        <span className="rail-count" title={`${要跟说法}，和应用图标提示一致`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
       )}
       {n.key === "/orders" && 订单数 > 0 && (
-        <span className="rail-count" title={`${订单说法}，算在 Dock 上的数里`}>{订单数 > 99 ? "99+" : 订单数}</span>
+        <span className="rail-count" title={`${订单说法}，计入应用图标提示`}>{订单数 > 99 ? "99+" : 订单数}</span>
       )}
       {/* 灰的数只是「有多少」，不是「要处理」：和上面那个红的分开，红的才催人 */}
       {(计数[n.key] ?? 0) > 0 && <span className="rail-num">{计数[n.key]}</span>}
@@ -393,7 +394,7 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
             网页版没有红黄绿钮那一截，顶上还是标志，不然整个页面上就找不到自己在哪个产品里。
           */}
           {desktop ? (
-            <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label={页内占着CmdK ? "搜索" : "搜索（⌘K）"}>
+            <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label={页内占着CmdK ? "搜索" : `搜索（${modifier}K）`}>
               <SearchOutlined />
               <span>搜索</span>
               {/* 首页的 ⌘K 是「回问答框」、记录页是「换一位」：那两处不写，免得标签和按下去的对不上（lib/roster.ts） */}
@@ -439,7 +440,7 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
           {/* AI 面板收着时的入口。原来是正文右边一条 44px 的窄边，笔记本上每张表都被它挤掉最右一列，
               挪到这里就哪边都不占（见 AiDock 收起时那段）。首页就是对话本身，不用它 */}
           {ai && !小屏 && !面板开着 && 底下那页 !== "/dashboard" && (
-            <button type="button" className="rail-item rail-ask" onClick={() => 记住面板(true)} aria-label="打开 AI 面板（Ctrl+J / ⌘J）">
+            <button type="button" className="rail-item rail-ask" onClick={() => 记住面板(true)} aria-label={`打开 AI 面板（${modifier}J）`}>
               <MessageOutlined />
               <b>问一句</b>
               <span className="rail-ask-k"><Shortcut>⌘J</Shortcut></span>

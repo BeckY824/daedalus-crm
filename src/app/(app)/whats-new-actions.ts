@@ -33,7 +33,7 @@ async function 读全部(): Promise<一版[] | null> {
   try {
     return 切更新记录(await fs.readFile(path.join(process.cwd(), "CHANGELOG.md"), "utf8")).map((s) => ({
       ...s,
-      正文: 并成段(只留桌面端(s.正文)),
+      正文: 并成段(只留桌面端(s.正文, process.platform)),
     }));
   } catch {
     return null;

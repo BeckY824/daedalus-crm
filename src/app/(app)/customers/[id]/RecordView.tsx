@@ -1,5 +1,7 @@
 "use client";
 
+import Shortcut from "@/components/Shortcut";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -377,7 +379,7 @@ export default function RecordView({
         </div>
         {名单在抽屉里 && (
           <Button size="small" icon={<UnorderedListOutlined />} onClick={开名单}>
-            换一位（⌘K）
+            换一位（<Shortcut>⌘K</Shortcut>）
           </Button>
         )}
         <span style={{ flex: 1 }} />

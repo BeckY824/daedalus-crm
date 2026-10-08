@@ -293,6 +293,18 @@ function 取函数(src: string, 名: string): string {
   throw new Error(`function ${名} 的括号没配平`);
 }
 
+it.each(["win32", "darwin"])("D095 %s 实际菜单只给Mac使用zoom role，导航键两端通用", (platform) => {
+  let template: unknown[] = [];
+  new Function("process", "Menu", `const 读配置=()=>({mode:'local'}),APP_NAME='QA',运营台可用=false,文档地址='https://test';
+    ${取函数(main, "建菜单")};建菜单();`)(
+    { platform }, { buildFromTemplate: (t: unknown[]) => { template = t; return t; }, setApplicationMenu: () => {} },
+  );
+  const text = JSON.stringify(template);
+  expect(text.includes('"role":"zoom"')).toBe(platform === "darwin");
+  expect(text).toContain('"accelerator":"CmdOrCtrl+,"');
+  expect(text).toContain('"accelerator":"CmdOrCtrl+1"');
+});
+
 describe("本机服务起不来、起两次（回归核对 D-035 / D-036 / R-016）", () => {
   it("D-035 故障框只给「重试 / 查看完整日志 / 退出」，没有「改用服务器」（那会把人带进托管版的共享试用账号）", () => {
     const 段 = 取函数(main, "报告本地故障");

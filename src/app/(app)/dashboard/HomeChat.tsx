@@ -1,5 +1,7 @@
 "use client";
 
+import Shortcut from "@/components/Shortcut";
+
 import type { 页面范围 } from "@/lib/ai-context-page";
 import { 是刚交过来的 } from "@/lib/home-ask";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -398,7 +400,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             <div className="cli-welcome-s">{context}</div>
             <div className="cli-welcome-hints">
               <div>
-                也可以直接问，或者让它记一笔、改状态、排计划——它给一张建议卡，你点确认才写入。输入 <kbd>/</kbd> 看命令，<kbd>⌘K</kbd> 回到输入框。
+                也可以直接问，或者让它记一笔、改状态、排计划——它给一张建议卡，你点确认才写入。输入 <kbd>/</kbd> 看命令，<kbd><Shortcut>⌘K</Shortcut></kbd> 回到输入框。
               </div>
             </div>
           </motion.div>
@@ -594,7 +596,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
               {running && (
                 <>
                   {" · "}
-                  <kbd>Esc</kbd> 打断 · <kbd>⌘↵</kbd> 排队
+                  <kbd>Esc</kbd> 打断 · <kbd><Shortcut>⌘↵</Shortcut></kbd> 排队
                 </>
               )}
             </span>
@@ -636,7 +638,7 @@ function MenuRow({ label, keys }: { label: string; keys: string }) {
   return (
     <span className="cli-menu-row">
       <span>{label}</span>
-      <kbd>{keys}</kbd>
+      <kbd><Shortcut>{keys}</Shortcut></kbd>
     </span>
   );
 }

@@ -1,5 +1,7 @@
 "use client";
 
+import Shortcut from "@/components/Shortcut";
+
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { App, Button, Input, Segmented, Tooltip } from "antd";
@@ -206,7 +208,7 @@ function ReplyBox({
         </div>
       )}
       <div className="opx-fb-compose-f">
-        <span className="opx-fb-compose-hint">对方回信到 {回信到} · ⌘↩ 发送 · Esc 收起（草稿留着）</span>
+        <span className="opx-fb-compose-hint">对方回信到 {回信到} · <Shortcut>⌘↩</Shortcut> 发送 · Esc 收起（草稿留着）</span>
         <Button size="small" onClick={收起}>
           取消
         </Button>

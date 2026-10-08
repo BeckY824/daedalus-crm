@@ -1553,7 +1553,7 @@ function 建菜单() {
         role: "window",
         submenu: [
           { role: "minimize", label: "最小化" },
-          { role: "zoom", label: "缩放" },
+          ...(isMac ? [{ role: "zoom", label: "缩放" }] : []),
           ...(isMac ? [{ type: "separator" }, { role: "front", label: "前置全部窗口" }] : []),
         ],
       },
