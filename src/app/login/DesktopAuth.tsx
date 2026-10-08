@@ -1,4 +1,5 @@
 "use client";
+import {记找回邮箱,useLoginEmail} from "@/lib/auth-email-prefill";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -62,7 +63,7 @@ export default function DesktopAuth({
   const 秒 = (t: number) => (少动 ? 0 : t);
 
   const [步骤, set步骤] = useState<步>("邮箱");
-  const [邮箱, set邮箱] = useState("");
+  const [邮箱, set邮箱] = useLoginEmail();
   const [密码, set密码] = useState("");
   const [码, set码] = useState("");
   const [同意, set同意] = useState(false);
@@ -290,7 +291,7 @@ export default function DesktopAuth({
                   </Button>
                   {(可找回密码 || (可注册 && !应用内注册)) && (
                     <p className="auth-alt">
-                      {可找回密码 && <Link href="/forgot">忘记密码？</Link>}
+                      {可找回密码 && <Link href="/forgot" onClick={()=>记找回邮箱(邮箱)}>忘记密码？</Link>}
                       {/* 云端还没有应用内注册：新用户在这一步去网页开号，回来接着在这里登录 */}
                       {可注册 && !应用内注册 && (
                         <>

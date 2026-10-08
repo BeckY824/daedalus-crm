@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Form, Input, Button, Alert } from "antd";
 import AuthShell from "../login/AuthShell";
 import { 发送重置码, 重置密码 } from "./actions";
 import { useCountdown } from "@/lib/use-countdown";
+import {记找回邮箱,usePrefilledEmail} from "@/lib/auth-email-prefill";
 
 /**
  * 找回密码。两步，形状照着注册页来——同一件事在两个页面上长得一样，
@@ -25,6 +26,10 @@ const 倒计时秒 = 60;
 
 export default function ForgotForm() {
   const [form] = Form.useForm();
+  const 预填邮箱=usePrefilledEmail();
+  useEffect(()=>{
+    if(预填邮箱&&!form.isFieldTouched("target"))form.setFieldValue("target",预填邮箱);
+  },[form,预填邮箱]);
   const [步骤, set步骤] = useState<1 | 2>(1);
   const [邮箱, set邮箱] = useState("");
   const [sending, setSending] = useState(false);
@@ -82,7 +87,7 @@ export default function ForgotForm() {
           showIcon
           title="所有地方都要用新密码重新登录：网页端其他设备上的登录状态已经作废，桌面端已登录的机器也一起退出了。本机数据不受影响，重新登录即可恢复。"
         />
-        <Link href="/login">
+        <Link href="/login" onClick={()=>记找回邮箱(邮箱)}>
           <Button type="primary" size="large" block>
             去登录
           </Button>
@@ -162,7 +167,7 @@ export default function ForgotForm() {
         </Form>
 
         <p className="auth-alt">
-          想起来了？<Link href="/login">去登录</Link>
+          想起来了？<Link href="/login" onClick={()=>记找回邮箱(form.getFieldValue("target"))}>去登录</Link>
         </p>
     </AuthShell>
   );

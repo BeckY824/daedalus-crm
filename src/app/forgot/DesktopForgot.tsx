@@ -1,4 +1,5 @@
 "use client";
+import {记找回邮箱,useLoginEmail} from "@/lib/auth-email-prefill";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -28,7 +29,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
   const 秒 = (t: number) => (少动 ? 0 : t);
 
   const [步骤, set步骤] = useState<步>("邮箱");
-  const [邮箱, set邮箱] = useState("");
+  const [邮箱, set邮箱] = useLoginEmail();
   const [码, set码] = useState("");
   const [密码, set密码] = useState("");
   const [码错, set码错] = useState(0);
@@ -133,7 +134,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
                   <h1>找回密码</h1>
                   <p className="auth-hint">云端这会儿还没开通自助找回。联系我们，我们人工帮你重置；本机数据不受影响。</p>
                   <p className="auth-alt">
-                    <Link href="/login">返回登录</Link>
+                    <Link href="/login" onClick={()=>记找回邮箱(邮箱)}>返回登录</Link>
                   </p>
                 </>
               )}
@@ -158,7 +159,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
                     发验证码
                   </Button>
                   <p className="auth-alt">
-                    想起来了？<Link href="/login">去登录</Link>
+                    想起来了？<Link href="/login" onClick={()=>记找回邮箱(邮箱)}>去登录</Link>
                   </p>
                 </>
               )}
@@ -241,7 +242,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
                   <p className="auth-hint" role="status">
                     所有地方都要用新密码重新登录：网页端的登录状态已经作废，桌面端已登录的机器也一起退出了。本机数据不受影响。
                   </p>
-                  <Link href="/login">
+                  <Link href="/login" onClick={()=>记找回邮箱(邮箱)}>
                     <Button type="primary" size="large" block>
                       去登录
                     </Button>
