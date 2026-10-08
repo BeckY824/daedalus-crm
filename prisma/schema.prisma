@@ -266,6 +266,8 @@ model Opportunity {
   owner          User      @relation(fields: [ownerId], references: [id])
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+  /// 最近业务推进；转交负责人不算推进。老数据为空时沿用原修改时间。
+  activityAt     DateTime?
 
   followUps      FollowUp[]
   /// 赢单 / 丢单的那一刻（排查 C6）。见 OpportunityClose

@@ -28,7 +28,7 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): P
     }),
     prisma.opportunity.findMany({
       where: { status: "OPEN", ...(谁的 ? { ownerId: 谁的 } : {}) },
-      select: { name: true, stage: true, updatedAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
+      select: { name: true, stage: true, updatedAt: true, activityAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
     // 订单里超期 / 卡住的节点：截止日早于今天零点（和订单一览的红格同一个口径，lib/order.ts 节点灯）。
     // 订单节点这一版不上（lib/features.ts）就不取：盯盘里不出订单
@@ -50,7 +50,7 @@ async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): P
     {
       overduePlans: overduePlans.map((p) => ({ customerId: p.customer.id, customerName: p.customer.name, ownerName: p.owner.name, subject: p.subject, plannedAt: p.plannedAt })),
       customers: customers.map((c) => ({ id: c.id, name: c.name, followStatus: c.followStatus, lastFollowAt: c.lastFollowAt, createdAt: c.createdAt, ownerName: c.salesOwner.name })),
-      opportunities: opps.map((o) => ({ customerId: o.customer.id, customerName: o.customer.name, ownerName: o.owner.name, name: o.name, stage: stageLabel(business, o.stage), updatedAt: o.updatedAt })),
+      opportunities: opps.map((o) => ({ customerId: o.customer.id, customerName: o.customer.name, ownerName: o.owner.name, name: o.name, stage: stageLabel(business, o.stage), updatedAt: o.activityAt ?? o.updatedAt })),
       lateOrderNodes: lateNodes.map((x) => ({
         orderId: x.order.id, orderNo: x.order.no, idx: x.idx, nodeName: x.name, dueAt: x.dueAt, 卡住: x.status === "卡住",
         customerId: x.order.customer.id, customerName: x.order.customer.name, ownerName: 业务员.get(x.order.ownerId) ?? "",

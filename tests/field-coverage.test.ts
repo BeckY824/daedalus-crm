@@ -66,6 +66,7 @@ const 可写: Record<string, string[]> = {
 
 /** 派生 / 只读：写明为什么不能直接改 */
 const 派生: Record<string, Record<string, string>> = {
+  Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
     attributionChannelId: "推荐链往上两代算出来的，改推荐人它就跟着变",
     attributionCustomerId: "同上",

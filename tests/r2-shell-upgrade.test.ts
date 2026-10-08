@@ -136,6 +136,7 @@ function 塞业务数据(db: DatabaseSync) {
   插(db, "FollowUp", { id: "f1", type: "PHONE", content: "张三打过电话", status: "已完成", occurredAt: 现在, customerId: "c_zs", ownerId: "u_zs", createdAt: 现在, updatedAt: 现在 });
   插(db, "FollowPlan", { id: "p1", subject: "回访", plannedAt: 现在 + 3_600_000, method: "电话", customerId: "c_zs", ownerId: "u_zs", done: 0, createdAt: 现在, updatedAt: 现在 });
   插(db, "Task", { id: "t1", title: "寄资料", dueAt: 现在, customerId: "c_ls", ownerId: "u_ls", done: 0, createdAt: 现在, updatedAt: 现在 });
+  插(db, "Opportunity", { id: "o1", name: "旧商机", customerId: "c_zs", ownerId: "u_zs", createdAt: 现在 - 30 * 86_400_000, updatedAt: 现在 - 20 * 86_400_000 });
   插(db, "Setting", { key: "business", value: JSON.stringify({ 预设: "教培" }), updatedAt: 现在 });
 }
 
@@ -223,6 +224,8 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
 
   it("老数据一行不少、老列一格不变（管理员那一行除外：对上了云端账号）", () => {
     const 之后 = 快照(path.join(目录, "crm.db"));
+    expect(升级前.Opportunity).toHaveLength(1);
+    expect(之后.Opportunity.map((r) => r.activityAt)).toEqual([null]);
     // entry 会新记一条 desktop.syncedName（人改过名字没有的账），那一行不算老数据
     之后.Setting = (之后.Setting ?? []).filter((r) => r.key !== "desktop.syncedName");
     for (const [表, 老行] of Object.entries(升级前)) {

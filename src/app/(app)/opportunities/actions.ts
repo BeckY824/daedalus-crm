@@ -111,7 +111,7 @@ export async function saveOpportunity(input: {
     原来可以存出「进行中 + 赢单成交」：数据页「进行中商机」算它、漏斗前四档没有它、管道的赢单列里却躺着一张进行中的卡。
     丢单不限阶段——丢在哪一步本身有用。
   */
-  const 原 = input.id ? await prisma.opportunity.findUnique({ where: { id: input.id }, select: { status: true, stage: true, probability: true, updatedAt: true } }) : null;
+  const 原 = input.id ? await prisma.opportunity.findUnique({ where: { id: input.id }, include: { money: true } }) : null;
   const 原状态 = 原?.status ?? null;
   input = { ...input, ...对齐阶段与状态(input, 原) };
   if (input.id && 原状态 === "WON" && input.status !== "WON") {
@@ -155,22 +155,29 @@ export async function saveOpportunity(input: {
     ...(询盘 ? { createdAt: 询盘 } : {}),
   };
 
+  // 归属变化和原样保存不代表推进；真正的业务字段或币种变动才重新计停滞天数。
+  const 原业务: Record<string, unknown> = 原 ?? {};
+  const 比较值 = (v: unknown) => v instanceof Date ? v.getTime() : v;
+  const 业务变了 = !原 || Object.entries(data).some(([key, value]) => key !== "ownerId" && 比较值(value) !== 比较值(原业务[key]))
+    || (input.currency != null && 规整币种(input.currency) !== (原.money?.currency ?? "CNY"));
+  const activityAt = 业务变了 ? new Date() : 原.activityAt ?? 原.updatedAt;
   const 默认币 = 规整币种(input.currency ?? (await getBusiness()).currency);
   const result = await prisma.$transaction(async (tx) => {
     let id = input.id;
     if (id) {
       const 写了 = await tx.opportunity.updateMany({
         where: { id, ...(input.版本 ? 版本条件(input.版本) : 原 ? { updatedAt: 原.updatedAt } : {}) },
-        data: { ...data, ...推进版本(原?.updatedAt.toISOString()) },
+        data: { ...data, activityAt, ...推进版本(原?.updatedAt.toISOString()) },
       });
       if (写了.count === 0) return { ok: false as const, error: 原状态 === null ? "这个商机已经不在了（可能已删除）" : 版本冲突 };
     } else {
-      id = (await tx.opportunity.create({ data })).id;
+      id = (await tx.opportunity.create({ data: { ...data, activityAt } })).id;
     }
     await 记结单(id, 原状态, data.status, tx);
     if (!input.id || input.currency != null) await 写商机币种(tx, id, input.id ? input.currency : 默认币);
     const 币 = (await tx.opportunityMoney.findUnique({ where: { opportunityId: id } }))?.currency ?? "CNY";
     const q = 报价?.ok ? await 写报价(tx, id, 币, 报价.行) : null;
+    if (q && !业务变了) await tx.opportunity.update({ where: { id }, data: { activityAt: new Date(), ...推进版本(原?.updatedAt.toISOString()) } });
     return { ok: true as const, id, 币, q };
   });
   if (!result.ok) return result;
@@ -236,7 +243,7 @@ export async function moveStage(id: string, stage: string, 还原概率?: number
         : 还原概率 !== undefined ? 还原概率
         : before.probability === (STAGE_PROBABILITY[before.stage] ?? 20) ? STAGE_PROBABILITY[stage] ?? 20 : before.probability;
       if (before.stage === stage && before.status === status && before.probability === probability) return { ok: true as const, o: before, before, changed: false };
-      const o = await tx.opportunity.update({ where: { id }, data: { stage, probability, status, ...推进版本(before.updatedAt.toISOString()) } });
+      const o = await tx.opportunity.update({ where: { id }, data: { stage, probability, status, activityAt: new Date(), ...推进版本(before.updatedAt.toISOString()) } });
       await 记结单(id, before.status, status, tx);
       return { ok: true as const, o, before, changed: true };
     });
@@ -275,7 +282,7 @@ export async function setOppStatus(
       const stage = status === "WON" ? "赢单成交" : 还原?.stage ?? (原.stage === "赢单成交" ? "谈判审核" : 原.stage);
       const probability = status === "WON" ? 100 : status === "LOST" ? 0 : 还原?.probability ?? (原.status !== "OPEN" ? STAGE_PROBABILITY[stage] ?? 20 : 原.probability);
       if (原.status === status && 原.stage === stage && 原.probability === probability) return { ok: true as const, o: 原, changed: false };
-      const o = await tx.opportunity.update({ where: { id }, data: { status, stage, probability, ...推进版本(原.updatedAt.toISOString()) } });
+      const o = await tx.opportunity.update({ where: { id }, data: { status, stage, probability, activityAt: new Date(), ...推进版本(原.updatedAt.toISOString()) } });
       await 记结单(id, 原.status, status, tx);
       return { ok: true as const, o, changed: true };
     });
@@ -326,6 +333,8 @@ export async function deleteOpportunities(ids: string[]) {
       })),
       expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
       createdAt: o.createdAt.toISOString(),
+      updatedAt: o.updatedAt.toISOString(),
+      activityAt: (o.activityAt ?? o.updatedAt).toISOString(),
       closedAt: closed?.closedAt.toISOString() ?? null,
       跟进: followUps.map((f) => f.id),
     }));
@@ -339,6 +348,8 @@ export type 删掉的商机 = {
   id: string; name: string; amount: number; stage: string; status: string; probability: number;
   expectedDealAt: string | null; remark: string | null; customerId: string; ownerId: string;
   createdAt: string; closedAt: string | null; 跟进: string[];
+  /** 新快照明确业务时间；旧快照若只有updatedAt，也沿用删除前时间。 */
+  activityAt?: string | null; updatedAt?: string;
   /** 币种（2026-10-03）。null = 0.46.15 之前没记币种的老商机，撤销回来也不补那一行 */
   currency?: string | null;
   /** 历次报价（2026-10-03）。撤销时照原来的日期建回来 */
@@ -373,6 +384,7 @@ export async function restoreOpportunities(快照: 删掉的商机[]) {
             id: o.id, name: o.name, amount: o.amount, stage: o.stage, status: o.status, probability: o.probability,
             expectedDealAt: o.expectedDealAt ? new Date(o.expectedDealAt) : null, remark: o.remark,
             customerId: o.customerId, ownerId: o.ownerId, createdAt: new Date(o.createdAt),
+            activityAt: new Date(o.activityAt ?? o.updatedAt ?? o.createdAt),
             ...(o.closedAt ? { closed: { create: { closedAt: new Date(o.closedAt) } } } : {}),
             ...(o.currency ? { money: { create: { currency: 规整币种(o.currency) } } } : {}),
           },

@@ -1,5 +1,6 @@
 "use server";
 
+import { 转交商机 } from "@/lib/opportunity-activity";
 import { hasVisibleText } from "@/lib/form-validation";
 
 import { parseDateInput } from "@/lib/date-input";
@@ -721,7 +722,7 @@ export async function 撤销改负责人(原值: { id: string; 值: string }[], 
       if (带过来) {
         await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
         await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
-        await tx.opportunity.updateMany({ where: { id: { in: 带过来.商机 }, customerId: x.id, ownerId: 新负责人, status: "OPEN" }, data: { ownerId: x.值 } });
+        await 转交商机(tx, { id: { in: 带过来.商机 }, customerId: x.id, ownerId: 新负责人, status: "OPEN" }, x.值);
       }
       return true;
     }));
@@ -990,7 +991,7 @@ async function 签约收尾(
   const 日志: Parameters<typeof recordAudit>[0][] = [];
   const now = new Date();
   for (const o of 商机) {
-    await tx.opportunity.update({ where: { id: o.id }, data: { status: "WON", stage: "赢单成交", probability: 100 } });
+    await tx.opportunity.update({ where: { id: o.id }, data: { status: "WON", stage: "赢单成交", probability: 100, activityAt: now } });
     await tx.opportunityClose.upsert({ where: { opportunityId: o.id }, create: { opportunityId: o.id, closedAt: now }, update: { closedAt: now } });
     const 记 = { contractId: 签约id, prevStage: o.stage, prevProbability: o.probability };
     await tx.contractWin.upsert({ where: { opportunityId: o.id }, create: { opportunityId: o.id, ...记 }, update: 记 });

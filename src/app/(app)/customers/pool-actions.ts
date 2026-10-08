@@ -4,6 +4,7 @@
  * 公海的三个动作（2026-10-03，0.46.15 第 6 块）：放进公海、领取、撤销（两个动作的提示条上都有）。
  * 规矩在 lib/pool.ts、自动掉公海在 lib/pool-db.ts。
  */
+import { 转交商机 } from "@/lib/opportunity-activity";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { 看全部 } from "@/lib/team-scope";
@@ -136,7 +137,7 @@ export async function 撤销公海(动作: "放进" | "领取", 原: { id: strin
       if (带过来) {
         await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: me.id, done: false }, data: { ownerId: x.值 } });
         await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: me.id, done: false }, data: { ownerId: x.值 } });
-        await tx.opportunity.updateMany({ where: { id: { in: 带过来.商机 }, customerId: x.id, ownerId: me.id, status: "OPEN" }, data: { ownerId: x.值 } });
+        await 转交商机(tx, { id: { in: 带过来.商机 }, customerId: x.id, ownerId: me.id, status: "OPEN" }, x.值);
       }
     });
   }

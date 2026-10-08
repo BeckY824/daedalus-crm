@@ -10,6 +10,7 @@ import path from "node:path";
 import { PrismaClient } from "@/generated/prisma";
 import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, 没同步上, 本机结构签名, type 改动 } from "@/lib/sync/local";
 import { 封, 拆, 新钥匙 } from "@/lib/sync/crypto";
+import { 转交商机 } from "@/lib/opportunity-activity";
 
 const 测试库 = path.resolve(__dirname, "../prisma/test.db");
 const 模板账号 = [
@@ -70,6 +71,22 @@ beforeEach(() => {
 afterEach(async () => {
   for (const db of 开着.splice(0)) await db.$disconnect();
   fs.rmSync(目录, { recursive: true, force: true });
+});
+
+it("L-029 转交商机的旧业务时间随团队同步，另一台不误认为刚推进", async () => {
+  const a = await 一台("activity-A"); const b = await 一台("activity-B");
+  for (const db of [a, b]) { await 建同步表(db); await 装触发器(db); }
+  const old = new Date("2026-09-01T08:00:00Z");
+  const c = await a.customer.create({ data: { name: "同步客户", phone: "", salesOwnerId: 模板账号[0].id } });
+  const o = await a.opportunity.create({ data: { name: "停滞商机", customerId: c.id, ownerId: 模板账号[0].id, updatedAt: old } });
+  await 同步(a, b);
+  await a.$transaction((tx) => 转交商机(tx, { id: o.id }, 模板账号[1].id));
+  const pending = await 待推(a, "A");
+  expect(pending.改动.some((x) => x.t === "Opportunity" && x.c.includes("activityAt"))).toBe(true);
+  expect(pending.改动.some((x) => x.t === "Opportunity" && x.c.includes("ownerId"))).toBe(true);
+  await 同步(a, b);
+  const after = await b.opportunity.findUniqueOrThrow({ where: { id: o.id } });
+  expect(after.ownerId).toBe(模板账号[1].id); expect(after.activityAt).toEqual(old); expect(after.updatedAt.getTime()).toBeGreaterThan(old.getTime());
 });
 
 describe("改身份（探针场景 ①）", () => {

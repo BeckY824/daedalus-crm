@@ -1,5 +1,6 @@
 "use server";
 
+import { 转交商机 } from "@/lib/opportunity-activity";
 import { 补来源 } from "@/lib/customer-extra-db";
 
 import { 钉住老签约 } from "@/lib/contract-owner";
@@ -335,7 +336,7 @@ export async function deactivateUser(id: string, transferToId: string) {
   // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）
   await prisma.$transaction(async (tx) => {
     await tx.customer.updateMany({ where: { id: { in: 转走了.客户 } }, data: { salesOwnerId: transferToId } });
-    await tx.opportunity.updateMany({ where: { id: { in: 转走了.商机 } }, data: { ownerId: transferToId } });
+    await 转交商机(tx, { id: { in: 转走了.商机 }, ownerId: id, status: "OPEN" }, transferToId);
     await tx.task.updateMany({ where: { id: { in: 转走了.待办 } }, data: { ownerId: transferToId } });
     await tx.followPlan.updateMany({ where: { id: { in: 转走了.计划 } }, data: { ownerId: transferToId } });
     /**
