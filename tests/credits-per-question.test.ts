@@ -12,7 +12,7 @@ import { closeTestDatabases } from "./close-databases";
  *   3. 上游失败**退一次**，而且**只退一次**（同一个问题重试几次也只退一次）
  *   4. 退过之后同一个编号再来，算新的一次——他上一次什么都没拿到
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -185,6 +185,52 @@ describe("问题编号的规整", () => {
     for (const 坏 of ["", "   ", "a/b", "a b", "../x", "x".repeat(65), "中文", "a;drop"]) {
       expect(规整请求id(坏), `${JSON.stringify(坏)} 不该被收下`).toBeNull();
     }
+  });
+});
+
+describe("整改：账本并发与故障原子性", () => {
+  it("生产控制面也复用同一个连接池", async () => {
+    const { control } = await import("@/lib/tenant/control");
+    const globalDb = globalThis as unknown as { control?: typeof control };
+    const previous = globalDb.control; globalDb.control = undefined;
+    vi.stubEnv("NODE_ENV", "production");
+    try { expect(control.account).toBe(control.account); }
+    finally { await (globalDb.control as typeof control | undefined)?.$disconnect(); globalDb.control = previous; vi.unstubAllEnvs(); }
+  });
+  it("同一问题并发12步仍只扣一次", async () => {
+    const book = await import("@/lib/tenant/credits"); const owner = await 建账号();
+    const results = await Promise.all(Array.from({ length: 12 }, () => book.按问题扣一次(owner, "concurrent-question")));
+    expect(results.filter((r) => r.ok && r.扣了)).toHaveLength(1);
+    expect(await 用掉(owner)).toBe(1);
+  });
+  it("退款后同编号并发重试只重新扣一次", async () => {
+    const book = await import("@/lib/tenant/credits"); const owner = await 建账号();
+    await book.按问题扣一次(owner, "retry-concurrent"); await book.退这一次(owner, "retry-concurrent", true);
+    await Promise.all(Array.from({ length: 8 }, () => book.按问题扣一次(owner, "retry-concurrent")));
+    expect(await 用掉(owner)).toBe(1);
+  });
+  it("问题账单插入故障不能保留已扣余额或退回重复计次", async () => {
+    const book = await import("@/lib/tenant/credits"); const { control } = await import("@/lib/tenant/control"); const owner = await 建账号();
+    await control.$executeRawUnsafe('CREATE TRIGGER qa_charge_failure BEFORE INSERT ON "AiCharge" BEGIN SELECT RAISE(ABORT, \'QA charge failed\'); END');
+    try { await expect(book.按问题扣一次(owner, "insert-failure")).rejects.toThrow(); expect(await 用掉(owner)).toBe(0); expect(await control.aiCharge.count()).toBe(0); }
+    finally { await control.$executeRawUnsafe('DROP TRIGGER qa_charge_failure'); }
+    await book.按问题扣一次(owner, "insert-failure"); expect(await 用掉(owner)).toBe(1);
+  });
+  it("退款余额写失败要回滚退款标记，修复后可再次退", async () => {
+    const book = await import("@/lib/tenant/credits"); const { control } = await import("@/lib/tenant/control"); const owner = await 建账号();
+    await book.按问题扣一次(owner, "refund-failure");
+    await control.$executeRawUnsafe('CREATE TRIGGER qa_refund_failure BEFORE UPDATE ON "AccountAiUsage" WHEN NEW.calls < OLD.calls BEGIN SELECT RAISE(ABORT, \'QA refund failed\'); END');
+    try {
+      await expect(book.退这一次(owner, "refund-failure", true)).rejects.toThrow();
+      expect(await 用掉(owner)).toBe(1);
+      expect((await control.aiCharge.findFirstOrThrow()).refunded).toBe(false);
+    } finally { await control.$executeRawUnsafe('DROP TRIGGER qa_refund_failure'); }
+    await book.退这一次(owner, "refund-failure", true); expect(await 用掉(owner)).toBe(0);
+  });
+  it("旧接口重复退款也不能把用量退成负数", async () => {
+    const book = await import("@/lib/tenant/credits"); const owner = await 建账号();
+    await book.扣一次(owner); await book.回退一次(owner); await book.回退一次(owner);
+    expect(await 用掉(owner)).toBe(0);
   });
 });
 

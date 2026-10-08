@@ -200,11 +200,10 @@ describe("并发", () => {
     expect((await 余额(账号.owner)).还剩).toBe(0);
   });
 
-  it("同一个问题编号的两步同时到（目前没有客户端这么发）：记录一下会扣几次", async () => {
+  it("同一个问题编号的两步同时到：只扣一次", async () => {
     const { 按问题扣一次 } = await import("@/lib/tenant/credits");
     await Promise.all([按问题扣一次(账号.owner, "q-并发"), 按问题扣一次(账号.owner, "q-并发")]);
-    // credits.ts 的注释承认这种情况「多扣一次」。桌面端的每一步都是串行的，碰不上；这条只是钉住现状
-    expect(await 用掉(账号.acc.id)).toBeLessThanOrEqual(2);
+    expect(await 用掉(账号.acc.id)).toBe(1);
   });
 });
 
