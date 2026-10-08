@@ -99,7 +99,13 @@ export async function 核对密码(accountId: string, password: string): Promise
  * 但那样他会被弹到登录页而不知道为什么。把 Membership 一起撤掉，
  * 登录那一步就会明确告诉他这个账号没有工作区。
  */
+export async function 是创建者(accountId: string, workspaceId: string): Promise<boolean> {
+  const m = await control.membership.findUnique({ where: { accountId_workspaceId: { accountId, workspaceId } } });
+  return m?.role === "OWNER";
+}
+
 export async function 撤成员(accountId: string, workspaceId: string): Promise<void> {
+  if (await 是创建者(accountId, workspaceId)) throw new Error("工作区创建者不能停用");
   await control.membership.deleteMany({ where: { accountId, workspaceId } });
 }
 

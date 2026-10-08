@@ -1343,7 +1343,7 @@ nativeTheme.on("updated", () => {
   win.webContents.send("shell:glass", 生效);
 });
 /*
-  提醒的设置和「现在就再问一次」。设置存在壳这边（数据根下的 reminders.json）：
+  提醒的设置和「现在就再问一次」。设置存在壳这边（各账号数据目录下的 reminders.json）：
   窗口关着时是壳在发提醒，它得自己知道开关，不能等页面来告诉它。
   页面传进来的设置只认那四个字段（规整设置 里收），多余的一概丢掉。
 */
@@ -1659,7 +1659,7 @@ if (!app.requestSingleInstanceLock()) {
       中途切去服务器模式，Dock 上的数就跟着清掉，不会挂着一个过期的数。
     */
     提醒器 = 提醒.开始({
-      文件: path.join(数据根, "reminders.json"),
+      文件: () => path.join(数据目录, "reminders.json"),
       取端口: () => (读配置().mode === "local" ? 本地?.port ?? null : null),
       取令牌: () => (读配置().mode === "local" ? 本地?.token ?? null : null),
       通知: 发提醒,

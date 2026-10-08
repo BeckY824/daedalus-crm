@@ -60,6 +60,29 @@ afterAll(async () => {
   fs.rmSync(临时根, { recursive: true, force: true });
 });
 
+it("T-037：尝试停用创建者，拒绝前不能转走客户或更改在职状态", async () => {
+  const { createAccount } = await import("@/lib/tenant/accounts");
+  const { createWorkspace } = await import("@/lib/tenant/workspaces");
+  const { runWithTenant } = await import("@/lib/tenant/context");
+  const { prisma } = await import("@/lib/prisma");
+  const { control } = await import("@/lib/tenant/control");
+  const { saveUser, deactivateUser } = await import("@/app/(app)/settings/actions");
+  const acc = await createAccount({ target: { kind: "email", value: "owner-t037@example.com" }, password: "abcd1234", name: "创建者" });
+  const ws = await createWorkspace({ name: "T037", account: acc });
+  await runWithTenant({ workspaceId: ws.id, slug: ws.slug, dbFile: ws.dbFile, role: "OWNER", writable: true }, async () => {
+    const boss = await prisma.user.findFirstOrThrow({ where: { role: "ADMIN" } });
+    登录的.user = { ...boss, title: boss.title ?? "", avatar: null };
+    expect((await saveUser({ name: "另一个管理员", email: "admin-t037@example.com", title: "管理员", role: "ADMIN", active: true, password: "abcd1234" })).ok).toBe(true);
+    const receiver = await prisma.user.findFirstOrThrow({ where: { email: "admin-t037@example.com" } });
+    const c = await prisma.customer.create({ data: { name: "QA-owner", phone: "", salesOwnerId: boss.id } });
+    const result = await deactivateUser(boss.id, receiver.id);
+    expect(result).toEqual({ ok: false, error: "工作区创建者不能停用" });
+    expect((await prisma.user.findUniqueOrThrow({ where: { id: boss.id } })).active).toBe(true);
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: c.id } })).salesOwnerId).toBe(boss.id);
+    expect((await control.membership.findUniqueOrThrow({ where: { accountId_workspaceId: { accountId: acc.id, workspaceId: ws.id } } })).role).toBe("OWNER");
+  });
+});
+
 describe("编辑框把停用的人拨回在职：成员资格一起补回来（T-036）", () => {
   it("新建成员 → 停用（撤成员资格）→ 编辑框勾回在职：他又属于这个工作区、登得进来", async () => {
     const { createAccount, verifyAccount } = await import("@/lib/tenant/accounts");

@@ -54,12 +54,18 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   // 开了「N 天没跟进自动放进公海」的话，一天扫一次；扫出来的这一页就能看到
   await 自动掉公海(me);
 
-  const page = Math.max(1, Number(sp.page ?? 1));
-  const pageSize = Math.min(100, Math.max(10, Number(sp.pageSize ?? 20)));
+  const 正整数 = (raw: string | undefined, fallback: number) => {
+    const n = Number(raw);
+    return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+  };
+  const pageSize = Math.min(100, Math.max(10, 正整数(sp.pageSize, 20)));
 
   const where = await 客户筛选条件(sp);
+  // URL 参数、删空最后一页都不能使 skip 变成 NaN 或停留在空的越界页。
+  const total = await prisma.customer.count({ where });
+  const page = Math.min(正整数(sp.page, 1), Math.max(1, Math.ceil(total / pageSize)));
 
-  const [rows, total, users, channels, allCustomers, 用着的职位, b, 用着的国家] = await Promise.all([
+  const [rows, users, channels, allCustomers, 用着的职位, b, 用着的国家] = await Promise.all([
     prisma.customer.findMany({
       where,
       orderBy: { createdAt: "desc" },
@@ -67,7 +73,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       take: pageSize,
       select: 客户行字段,
     }),
-    prisma.customer.count({ where }),
     负责人候选(),
     可选渠道(),
     可选客户(),

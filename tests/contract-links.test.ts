@@ -40,6 +40,29 @@ async function 在谈的(name = "周明远") {
 const 今天 = () => new Date(2026, 8, 28, 10, 0, 0);
 
 describe("登记签约时顺手收尾", () => {
+  it("J-098：最后一项收尾失败，签约、客户状态和前面的联动全部回滚", async () => {
+    const { c, o, p, t } = await 在谈的();
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER qa_fail_contract_task BEFORE UPDATE ON Task WHEN NEW.id = '${t.id}' BEGIN SELECT RAISE(ABORT, 'qa closing failed'); END`);
+    try {
+      const result = await saveContract({ customerId: c.id, amount: 86000, signedAt: 今天(), remark: null,
+        联动: { 赢单: [o.id], 完成计划: [p.id], 完成待办: [t.id] },
+      });
+      expect(result.ok).toBe(false);
+    } finally {
+      await prisma.$executeRawUnsafe("DROP TRIGGER qa_fail_contract_task");
+    }
+    expect(await prisma.contract.count({ where: { customerId: c.id } })).toBe(0);
+    expect(await prisma.contractMoney.count()).toBe(0);
+    expect(await prisma.contractOwner.count()).toBe(0);
+    expect(await prisma.contractWin.count()).toBe(0);
+    expect(await prisma.opportunityClose.count()).toBe(0);
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: c.id } })).followStatus).toBe("意向较高");
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe("OPEN");
+    expect((await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).done).toBe(false);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).done).toBe(false);
+    expect(await prisma.auditLog.count()).toBe(0);
+  });
+
   it("弹窗列的是这位客户进行中的商机、没做完的计划和待办", async () => {
     const { c, o, p, t } = await 在谈的();
     await prisma.opportunity.create({ data: { name: "早丢了的", customerId: c.id, amount: 1, status: "LOST", ownerId: jia.id } });

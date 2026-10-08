@@ -117,6 +117,18 @@ describe("给成员配一个能登录的账号", () => {
 });
 
 describe("停用与恢复", () => {
+  it("T-037：不能撤掉创建者；幂等恢复不降级 OWNER", async () => {
+    const { 撤成员, 复成员 } = await import("@/lib/tenant/members");
+    const { control } = await import("@/lib/tenant/control");
+    const { acc, ws } = await 开工作区();
+    await expect(撤成员(acc.id, ws.id)).rejects.toThrow("创建者不能停用");
+    await 复成员(acc.id, ws.id, "ADMIN");
+    const m = await control.membership.findUniqueOrThrow({
+      where: { accountId_workspaceId: { accountId: acc.id, workspaceId: ws.id } },
+    });
+    expect(m.role).toBe("OWNER");
+  });
+
   it("撤掉成员资格之后就不属于这个工作区了，恢复之后又属于", async () => {
     const { 配账号, 撤成员, 复成员 } = await import("@/lib/tenant/members");
     const { listWorkspacesFor } = await import("@/lib/tenant/workspaces");

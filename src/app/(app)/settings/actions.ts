@@ -13,7 +13,7 @@ import { 读令牌, 生成令牌, 撤销令牌 } from "@/lib/mcp/token";
 import { MCP地址 } from "@/lib/mcp/address";
 import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
-import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, 复成员 } from "@/lib/tenant/members";
+import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, 复成员, 是创建者 } from "@/lib/tenant/members";
 import { 列出 as 列出设备, 吊销 as 吊销设备 } from "@/lib/tenant/device-token";
 import { 本地模式, 读 as 读云端凭据, 发码 as 云端发码, 重置密码 as 云端重置密码, 清 as 清云端凭据 } from "@/lib/desktop/cloud";
 import { destroySession } from "@/lib/auth";
@@ -253,6 +253,14 @@ export async function saveUser(input: {
  */
 export async function deactivateUser(id: string, transferToId: string) {
   const me = await requireAdmin();
+  // 必须在业务库转交、停用之前拒绝，不能写到一半才发现永久 OWNER 身份丢失。
+  if (托管版()) {
+    const t = await resolveCurrentTenant();
+    const link = await prisma.workspaceAccount.findFirst({ where: { userId: id } });
+    if (t && link && await 是创建者(link.accountId, t.workspaceId)) {
+      return { ok: false as const, error: "工作区创建者不能停用" };
+    }
+  }
   if (id === transferToId) return { ok: false as const, error: "不能转交给自己" };
 
   const receiver = await prisma.user.findUnique({

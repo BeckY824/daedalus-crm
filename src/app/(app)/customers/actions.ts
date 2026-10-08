@@ -34,7 +34,7 @@ import { 外贸键, 外贸字段名, 规整外贸格, 规整外贸档案, 认国
 import { 写外贸档案 } from "@/lib/customer-extra-db";
 import { 团队订单前缀 } from "@/lib/order";
 import { 读团队 } from "@/lib/sync/client";
-import { completePlan, toggleTask } from "./[id]/actions";
+import type { Prisma } from "@/generated/prisma";
 
 
 /** 状态不在取值表里就给那句报错，合法给 null。建客户、批量改、撤销、行内改四处共用，报错文案一字不改 */
@@ -882,7 +882,7 @@ export async function saveContract(input: {
       查重和落库在同一个事务里（2026-10-04 J-104）：原来两步分开，两个窗口同时点「登记」，
       两边都查不到对方、都写进去，业绩翻倍。现在后进来的那次查的时候前一笔已经在库里了，照样弹「可能重复」
     */
-    const 落库 = await 查完再写(async (tx): Promise<{ duplicate: ContractDuplicate } | { 签约id: string; 币: string; 订单?: { id: string; no: string } }> => {
+    const 落库 = await 查完再写(async (tx): Promise<{ duplicate: ContractDuplicate } | { 签约id: string; 币: string; 订单?: { id: string; no: string }; 收尾?: Awaited<ReturnType<typeof 签约收尾>> }> => {
       if (!input.force) {
         // 同额要连币种一起比：同一天 US$ 100 和 ¥ 100 不是同一笔
         const 原币 = input.id && input.currency == null ? await tx.contractMoney.findUnique({ where: { contractId: input.id }, select: { currency: true } }) : null;
@@ -925,25 +925,32 @@ export async function saveContract(input: {
       }
       // 编辑一笔老签约（没有 ContractMoney）也补上这一行：金额刚被重写过，精确值以这次为准
       await 写签约金额(tx, 签约id, 币, 精确);
+      let 单: { id: string; no: string } | null = null;
       if (订单附加) {
         // 只挂还在谈的那一单：已经转过订单、又被「重新打开」的商机另说（status 不是 OPEN 的不挂）
         const 赢的 = !input.id && input.联动?.赢单?.length === 1
           ? await tx.opportunity.findFirst({ where: { id: input.联动.赢单[0], customerId: input.customerId, status: "OPEN" }, select: { id: true } })
           : null;
-        const 单 = await 写签约的订单(tx, {
+        单 = await 写签约的订单(tx, {
           签约id, customerId: input.customerId, ownerId: 学员?.salesOwnerId ?? me.id, amount: 精确, currency: 规整币种(币),
           附加: 订单附加, opportunityId: 赢的?.id ?? null, 前缀: 订单前缀, 只改不建: !!input.id,
           // 给老签约补建的订单：号按签约那天编（不是今天）
           ...(input.id ? { 现在: input.signedAt } : {}),
         });
-        return { 签约id, 币, ...(单 ? { 订单: 单 } : {}) };
       }
       // 不是外贸模版（切回了通用）也改金额：这笔签约有订单的话，订单上抄的那份跟着改，切回外贸时不会对不上（二审）
-      if (input.id) await tx.tradeOrder.updateMany({ where: { contractId: 签约id }, data: { amount: 精确, currency: 规整币种(币) } });
-      return { 签约id, 币 };
+      if (!订单附加 && input.id) await tx.tradeOrder.updateMany({ where: { contractId: 签约id }, data: { amount: 精确, currency: 规整币种(币) } });
+      // 客户状态与勾选的收尾也属于这一笔签约，中途失败必须一起回滚。
+      if (!input.id) await tx.customer.update({
+        where: { id: input.customerId }, data: { followStatus: "已签约", decisionStatus: "已决定报名" },
+      });
+      const 收尾 = !input.id && input.联动
+        ? await 签约收尾(tx, input.customerId, 签约id, input.联动, me, 学员?.name ?? input.customerId)
+        : undefined;
+      return { 签约id, 币, ...(单 ? { 订单: 单 } : {}), 收尾 };
     });
     if ("duplicate" in 落库) return { ok: false, duplicate: 落库.duplicate };
-    const { 签约id, 币, 订单: 单 } = 落库;
+    const { 签约id, 币, 订单: 单, 收尾 } = 落库;
   
     await recordAudit({
       user: me, action: input.id ? "update" : "create", entity: "Contract", entityId: 签约id,
@@ -952,20 +959,11 @@ export async function saveContract(input: {
       detail: { customerId: input.customerId, amount: 精确, currency: 币, signedAt: input.signedAt, force: !!input.force },
     });
   
-    /*
-      新登记一笔签约，把跟进状态推进到「已签约」，避免两处状态打架。
-      **编辑一笔旧签约不碰状态**：退费后人工改成「已流失」的客户，改一下那笔签约的备注，
-      原来会被硬改回「已签约 / 已决定报名」（2026-10-01 排查 A5）。
-    */
-    if (!input.id) {
-      await prisma.customer.update({
-        where: { id: input.customerId },
-        data: { followStatus: "已签约", decisionStatus: "已决定报名" },
-      });
-    }
-  
-    const 联动 = !input.id && input.联动 && 签约id ? await 签约收尾(input.customerId, 签约id, input.联动) : undefined;
-  
+    // 留痕仍为旁路：只在事务提交后写，失败的签约不会留下成功日志。
+    for (const 日志 of 收尾?.日志 ?? []) await recordAudit(日志);
+    const 联动 = 收尾?.结果;
+    if (联动) for (const path of ["/opportunities", "/opportunities/pipeline", "/follow-ups/plans", "/dashboard"]) revalidatePath(path);
+
     revalidateCustomer(input.customerId);
     if (单) revalidatePath("/orders");
     return { ok: true, ...(联动 ? { 联动 } : {}), ...(单 ? { 订单: 单 } : {}) };
@@ -975,32 +973,35 @@ export async function saveContract(input: {
   }
 }
 
-/**
- * 照勾选把商机标赢单、计划和待办标完成。
- *
- * **每一样都走它原本的 action**（setOppStatus / completePlan / toggleTask），
- * 留痕、刷新各管各的——自己在这里另写一遍 update，日志里就少了「商机标记为赢单」
- * 那一条，而那正是事后回答「这单什么时候赢的」的唯一地方。
- * 只动属于这位客户、而且还没收尾的：id 是从浏览器来的，别人家的商机、已丢单的商机
- * 不该因为一次签约被改掉。
- */
-async function 签约收尾(customerId: string, 签约id: string, 勾: 签约联动): Promise<签约联动结果> {
+/** 同一事务中收尾；保留每类操作原来的留痕，提交后再写日志和刷新页面。 */
+async function 签约收尾(
+  tx: Prisma.TransactionClient, customerId: string, 签约id: string, 勾: 签约联动,
+  user: { id: string; name: string }, 客户名: string,
+): Promise<{ 结果: 签约联动结果; 日志: Parameters<typeof recordAudit>[0][] }> {
   const [商机, 计划, 待办] = await Promise.all([
-    prisma.opportunity.findMany({ where: { id: { in: 勾.赢单 ?? [] }, customerId, status: "OPEN" }, select: { id: true, stage: true, probability: true } }),
-    prisma.followPlan.findMany({ where: { id: { in: 勾.完成计划 ?? [] }, customerId, done: false }, select: { id: true } }),
-    prisma.task.findMany({ where: { id: { in: 勾.完成待办 ?? [] }, customerId, done: false }, select: { id: true } }),
+    tx.opportunity.findMany({ where: { id: { in: 勾.赢单 ?? [] }, customerId, status: "OPEN" }, select: { id: true, name: true, amount: true, stage: true, probability: true } }),
+    tx.followPlan.findMany({ where: { id: { in: 勾.完成计划 ?? [] }, customerId, done: false }, select: { id: true, subject: true } }),
+    tx.task.findMany({ where: { id: { in: 勾.完成待办 ?? [] }, customerId, done: false }, select: { id: true, title: true } }),
   ]);
+  const 日志: Parameters<typeof recordAudit>[0][] = [];
+  const now = new Date();
   for (const o of 商机) {
-    const r = await setOppStatus(o.id, "WON");
-    // 记下是这笔签约赢下的、赢之前什么样（2026-10-04 L-007）：删这笔签约时据此退回，不然商机一直挂赢单、业绩虚高
-    if (r.ok) {
-      const 记 = { contractId: 签约id, prevStage: o.stage, prevProbability: o.probability };
-      await prisma.contractWin.upsert({ where: { opportunityId: o.id }, create: { opportunityId: o.id, ...记 }, update: 记 });
-    }
+    await tx.opportunity.update({ where: { id: o.id }, data: { status: "WON", stage: "赢单成交", probability: 100 } });
+    await tx.opportunityClose.upsert({ where: { opportunityId: o.id }, create: { opportunityId: o.id, closedAt: now }, update: { closedAt: now } });
+    const 记 = { contractId: 签约id, prevStage: o.stage, prevProbability: o.probability };
+    await tx.contractWin.upsert({ where: { opportunityId: o.id }, create: { opportunityId: o.id, ...记 }, update: 记 });
+    日志.push({ user, action: "update", entity: "Opportunity", entityId: o.id,
+      summary: `商机「${o.name}」标记为赢单`, detail: { 状态: "赢单", 金额: o.amount } });
   }
-  for (const p of 计划) await completePlan(p.id);
-  for (const t of 待办) await toggleTask(t.id, true);
-  return { 赢单: 商机.length, 完成计划: 计划.length, 完成待办: 待办.length };
+  for (const p of 计划) {
+    await tx.followPlan.update({ where: { id: p.id }, data: { done: true } });
+    日志.push({ user, action: "update", entity: "FollowPlan", entityId: p.id, summary: `完成跟进计划「${p.subject}」（${客户名}）` });
+  }
+  for (const t of 待办) {
+    await tx.task.update({ where: { id: t.id }, data: { done: true, doneAt: now } });
+    日志.push({ user, action: "update", entity: "Task", entityId: t.id, summary: `待办「${t.title}」标记为已完成` });
+  }
+  return { 结果: { 赢单: 商机.length, 完成计划: 计划.length, 完成待办: 待办.length }, 日志 };
 }
 
 /**

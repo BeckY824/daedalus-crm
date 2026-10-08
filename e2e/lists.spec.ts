@@ -80,6 +80,18 @@ async function 翻到第二页(page: Page) {
   await page.waitForURL(/page=2/);
 }
 
+test("J-011：异常分页参数和超出末页时仍能打开客户列表", async ({ page }) => {
+  await 登录(page);
+  for (const query of ["page=abc&pageSize=bad", "page=1.5&pageSize=-1", "page=999999999999999999999"]) {
+    await page.goto(`/customers?${query}`);
+    await expect(page.locator(".ant-table-row").first()).toBeVisible();
+    await expect(page.locator(".ant-pagination-item-active")).toHaveText("1");
+  }
+  await page.goto("/customers?page=999");
+  await expect(page.locator(".ant-table-row").first()).toBeVisible();
+  await expect(page.locator(".ant-pagination-item-active")).toHaveText("3");
+});
+
 test("J-002 本月新增：翻到第 2 页、再搜一下，子集都还在（地址留着条件、行全是本月的）", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers?createdWithin=本月");
