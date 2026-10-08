@@ -5,12 +5,13 @@
  * 删除连点两下、撤销连点两下——原来都直接抛 Prisma 的异常，界面上没有任何反应，人以为没点上又点。
  * 只认这三种，其余照旧抛出去（那是真出了问题，不该被一句「刷新看看」盖住）：
  *   P2025 要改 / 要删的那条不存在
- *   P2003 挂靠的那条（客户、商机、联系人）不存在了
+ *   P2003 关联已变化，或仍被其他记录依赖；不能据此断言当前记录已被删除
  *   P2002 撤销时那条已经回来了（唯一键撞了）
  */
 export function 不在了(e: unknown): { ok: false; error: string } {
   const code = (e as { code?: string } | null)?.code;
-  if (code === "P2025" || code === "P2003") return { ok: false, error: "这一条已经不在了（可能在别处删了），刷新看看" };
+  if (code === "P2025") return { ok: false, error: "这一条已经不在了（可能在别处删了），刷新看看" };
+  if (code === "P2003") return { ok: false, error: "关联数据已变化，或仍有其他记录依赖它；这次操作未完成，请刷新核对关联记录后重试" };
   if (code === "P2002") return { ok: false, error: "这一条已经在了，刷新看看" };
   throw e;
 }
