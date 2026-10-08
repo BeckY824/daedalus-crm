@@ -20,9 +20,9 @@ import { resetDb } from "./reset";
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 vi.mock("@/lib/auth", () => ({
-  requireUser: async () => ({ id: mocks.userId, name: "测试员", email: "t", role: "ADMIN", title: "" }),
+  requireUser: async () => ({ id: mocks.userId, name: mocks.userName, email: "t", role: "ADMIN", title: "" }),
 }));
-const mocks = { userId: "", limited: null as string | null };
+const mocks = { userId: "", userName: "测试员", limited: null as string | null };
 vi.mock("@/lib/team-scope", async (original) => ({ ...await original<typeof import("@/lib/team-scope")>(), 限定的我: async () => mocks.limited }));
 
 import { 预览导入, 执行导入, 撤销批次, 最近批次, type 导入方案 } from "@/app/(app)/customers/import-actions";
@@ -34,6 +34,7 @@ let 销售: string;
 
 beforeEach(async () => {
   mocks.limited = null;
+  mocks.userName = "测试员";
   await resetDb();
   const u = await prisma.user.create({ data: { id: "tester-id", email: "t@x", name: "测试员", title: "管理员", role: "ADMIN", password: "x" } });
   销售 = u.id;
@@ -298,5 +299,36 @@ describe("整批撤销", () => {
     expect(b.fileName).toBe("b.csv");
     expect(b.created).toBe(1);
     expect(b.revertedAt).not.toBeNull();
+  });
+});
+
+
+describe("导入批次操作者与零写入撤销", () => {
+  it("切换登录者后仍显示导入时的姓名，改名不重写历史", async () => {
+    mocks.userName = "原导入者";
+    const r = await 执行导入(方案("姓名,手机号\n甲,13800000001"), "actor.csv");
+    if (!r.ok) throw new Error(r.error);
+    const other = await prisma.user.create({data:{name:"现在查看者",email:"other@x",password:"x",role:"ADMIN"}});
+    await prisma.user.update({where:{id:mocks.userId},data:{name:"导入者改名了"}});
+    mocks.userId = other.id; mocks.userName = other.name;
+    expect((await 最近批次()).find(b => b.id === r.batchId)).toMatchObject({userName:"原导入者",created:1});
+  });
+  it("零写入批次拒绝假撤销，不改撤销时间、不写成功日志", async () => {
+    await 建客户("已有", "13800000001");
+    const r = await 执行导入(方案("姓名,手机号\n已有,13800000001"), "zero.csv");
+    if (!r.ok) throw new Error(r.error);
+    expect(r).toMatchObject({新建:0,补空:0,跳过:1});
+    const before = await prisma.auditLog.count();
+    expect(await 撤销批次(r.batchId)).toMatchObject({ok:false,error:expect.stringContaining("没有写入")});
+    expect(await prisma.importBatch.findUnique({where:{id:r.batchId}})).toMatchObject({revertedAt:null});
+    expect(await prisma.auditLog.count()).toBe(before);
+    expect((await 最近批次())[0]).toMatchObject({recordedRows:0});
+  });
+  it("中断后计数仍为零但已有ImportRow，允许实际撤销", async () => {
+    const c = await 建客户("中断前已写入", "13800000001");
+    const batch = await prisma.importBatch.create({data:{userId:销售,userName:"导入者",fileName:"interrupted.csv",rows:{create:{customerId:c.id,kind:"create",writtenAt:c.updatedAt}}}});
+    expect((await 最近批次())[0]).toMatchObject({created:0,updated:0,recordedRows:1});
+    expect(await 撤销批次(batch.id)).toMatchObject({ok:true,删掉:1});
+    expect(await prisma.customer.findUnique({where:{id:c.id}})).toBeNull();
   });
 });

@@ -392,13 +392,14 @@ export type 批次 = {
   fileName: string;
   created: number;
   updated: number;
+  recordedRows: number;
   revertedAt: string | null;
 };
 
 /** 最近几批。设置页「数据」栏列它们，每批一颗撤销 */
 export async function 最近批次(take = 10): Promise<批次[]> {
   await requireUser();
-  const rows = await prisma.importBatch.findMany({ orderBy: { at: "desc" }, take });
+  const rows = await prisma.importBatch.findMany({ orderBy: [{ at: "desc" }, { id: "desc" }], take, include: { _count: { select: { rows: true } } } });
   return rows.map((r) => ({
     id: r.id,
     at: r.at.toISOString(),
@@ -406,6 +407,7 @@ export async function 最近批次(take = 10): Promise<批次[]> {
     fileName: r.fileName,
     created: r.created,
     updated: r.updated,
+    recordedRows: r._count.rows,
     revertedAt: r.revertedAt?.toISOString() ?? null,
   }));
 }
@@ -436,6 +438,8 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
   const batch = await 读批次(batchId);
   if (!batch) return { ok: false, error: "这一批导入记录已经不在了" };
   if (batch.revertedAt) return { ok: false, error: "这一批已经撤销过了" };
+  // 中途失败可能还没更新created/updated；实际写入记录才是能否撤销的依据。
+  if (batch.rows.length === 0) return { ok: false, error: "这一批没有写入记录，无需撤销" };
   /*
     先占住这一批再动手（2026-10-04 第 2 期 2a）：原来「撤销」连点两下，两边都过了上面那句检查、
     各撤一遍，后一下删同一位时抛 P2025（界面上没反应），还会留两条撤销痕。

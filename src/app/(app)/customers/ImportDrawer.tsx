@@ -480,11 +480,11 @@ export default function ImportDrawer({
             title="导完了"
             description={`新建 ${结果.新建} 条，补空 ${结果.补空} 条，跳过 ${结果.跳过} 条，${结果.进不了} 条没进来。`}
           />
-          <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14 }}>
+          {结果.新建 + 结果.补空 > 0 && <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14 }}>
             导错了可以整批撤销：新建的删掉、补上的还原。
             <b>导入之后你已经动过的那几位会留着</b>，撤销时会告诉你是哪几位。
             这一批也能之后在「设置 → 导入记录」里找到、撤销。
-          </Typography.Paragraph>
+          </Typography.Paragraph>}
           {有别的成员 && 结果.新建 > 0 && (
             <Typography.Paragraph style={{ fontSize: 13 }}>
               新建的 {结果.新建} 位都记在你名下。要分给业务员？点「完成」会只列出这一批，勾选后用「批量分配」转给他们。

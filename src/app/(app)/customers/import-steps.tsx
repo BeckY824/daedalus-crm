@@ -43,7 +43,7 @@ export function 页脚({
     return (
       <Space style={{ display: "flex", justifyContent: "space-between" }}>
         {/* 整批撤销一次动很多条，和「设置 → 导入记录」里同一个确认（审查 M15）。原来一点就删 */}
-        <Popconfirm
+        {这一批 && 这一批.新建 + 这一批.补空 > 0 ? <Popconfirm
           title="撤销这一批导入？"
           description={`会删掉这一批新建的 ${这一批?.新建 ?? 0} 位${客户叫法}${这一批?.补空 ? `、还原 ${这一批.补空} 位补过空的` : ""}。导入之后改过档案、记过跟进的那几位会留着。`}
           okText="撤销"
@@ -52,7 +52,7 @@ export function 页脚({
           onConfirm={撤}
         >
           <Button danger loading={忙}>撤销这一批</Button>
-        </Popconfirm>
+        </Popconfirm> : <Typography.Text type="secondary">本批无写入，无需撤销</Typography.Text>}
         <Space>
           <Button onClick={重来}>再导一份</Button>
           <Button type="primary" onClick={完成}>完成</Button>
