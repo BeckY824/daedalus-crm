@@ -408,6 +408,7 @@ async function 真启动本地() {
   本地 = await 本地服务.start({
     bundleDir: 服务目录,
     dataDir: 数据目录,
+    portRoot: 数据根,
     logFile: 日志文件,
     额外环境: { CRM_CLOUD_URL: 云端.默认云端, CRM_MACHINE_HASH: 机器.机器哈希() ?? "" },
   });
