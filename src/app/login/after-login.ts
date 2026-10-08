@@ -49,7 +49,7 @@ export async function 登录之后(res: Extract<LoginResult, { ok: true }>, 报�
    */
   // eslint-disable-next-line @next/next/no-location-assign-relative-destination
   // 先到选模版那一页：新用户在进主界面之前选；不该选的它当场 307 去首页（app/start/page.tsx）
-  window.location.assign("/start");
+  window.location.assign(res.选工作区 ? "/workspaces" : "/start");
 
   // 跳转没能真正离开本页时的兜底提示（页面一旦卸载，这个定时器随之消失）
   setTimeout(() => 报错("登录成功但页面未能跳转，请刷新重试；若反复出现请联系管理员"), 跳转超时毫秒);

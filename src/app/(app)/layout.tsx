@@ -11,6 +11,7 @@ import { getBusiness } from "@/lib/business";
 import { BusinessProvider } from "@/lib/business-client";
 import { 本地模式, 归属对不上, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 import { multiTenant } from "@/lib/tenant/context";
+import { accessibleWorkspacesFor } from "@/lib/tenant/workspace-access";
 import { llmEnabled, listModelOptions } from "@/lib/llm";
 import { 读AI计次, 不计次 } from "@/lib/ai-meter";
 import { AiMeterProvider } from "@/components/AiCost";
@@ -81,6 +82,8 @@ export default async function AppLayout({
    * 壳据此把红黄绿钮的位置留出来。只影响布局，不影响任何权限。
    */
   const desktop = /Electron\//.test(ua);
+  const workspaces = user.accountId ? await accessibleWorkspacesFor(user.accountId) : [];
+  const workspace = workspaces.find(w => w.id === user.workspaceId);
   // 网页版不再有试用期：只有一个长期运行的共享工作区，横条整条去掉了（2026-09-16）。
   // 到期只读那套机制还在 computeWritable 里，共享工作区靠 paidUntil 设在很远来绕过它——
   // 机制留着是因为运营台还要用它停用工作区，不是因为网页版还在计时。
@@ -91,6 +94,7 @@ export default async function AppLayout({
       <AiMeterProvider 初值={AI计次}>
       <AppShell
         user={user}
+        workspace={workspace ? { name: workspace.name, multiple: workspaces.length > 1 } : undefined}
         要跟={(({ 逾期, 今天 }) => ({ 逾期, 今天 }))(算提醒(提醒项))}
         订单要看={(({ 超期, 今天 }) => ({ 超期, 今天 }))(算提醒([], new Date(), 订单提醒项).订单)}
         desktop={desktop}

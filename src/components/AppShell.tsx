@@ -58,6 +58,7 @@ declare global {
 
 type Props = {
   user: SessionUser;
+  workspace?: { name: string; multiple: boolean };
   /** 左栏「收藏的客户」（lib/favorites.ts）。没收藏过就整栏不出现 */
   收藏?: { id: string; name: string }[];
   /** 导航项右边的数（2026-10-02 照毛玻璃原型）：客户总数、在谈的商机。只给有意义的那几项 */
@@ -111,7 +112,7 @@ type Props = {
 /** 面板常驻要的最小窗口宽度，见 AppShell 里 窄窗 那段 */
 const 面板放不下 = "(max-width: 1599px)";
 
-export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订单要看 = { 超期: 0, 今天: 0 }, desktop, 反馈去向, pane, ai, children }: Props) {
+export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, 要跟, 订单要看 = { 超期: 0, 今天: 0 }, desktop, 反馈去向, pane, ai, children }: Props) {
   const { 曲线, 时长 } = useMotionTheme();
   const b = useBusiness();
   const router = useRouter();
@@ -309,6 +310,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
       // 软导航才会命中拦截路由（@modal/(.)settings），设置才是盖在当前页上的一层
       if (key === "settings") router.push("/settings");
       if (key === "logout") void logout();
+      if (key === "workspaces") router.push("/workspaces");
     },
     items: [
       {
@@ -321,10 +323,12 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
             <div style={{ minWidth: 0 }}>
               <b>{user.name}</b>
               <span>{[user.title, user.email].filter(Boolean).join(" · ")}</span>
+              {workspace && <span>当前工作区：{workspace.name}</span>}
             </div>
           </div>
         ),
       },
+      ...(workspace?.multiple ? [{ key: "workspaces", label: "切换工作区" }] : []),
       { type: "divider" as const },
       {
         key: "settings",
