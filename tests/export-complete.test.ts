@@ -71,3 +71,27 @@ it("非法参数不查询；开始后新增的记录不混进既有批次", asyn
   await expect(读取完整导出批次({}, "bad", "客户")).rejects.toThrow(/参数/);
   await expect(读取完整导出批次({}, result.start.截止, "客户", "x".repeat(129))).rejects.toThrow(/参数/);
 });
+
+it("单人导出全范围按ID隐藏负责人列，同名停用成员的末批旧归属必须保留",async()=>{
+ const at=new Date("2026-01-01");
+ await prisma.customer.createMany({data:Array.from({length:5001},(_,i)=>({id:`solo-${String(i).padStart(5,"0")}`,name:"导出客户",phone:"",salesOwnerId:"export-user",createdAt:at,updatedAt:at}))});
+ expect(await 开始完整导出({})).toMatchObject({客户数:5001,隐藏负责人:true});
+ const other=await prisma.user.create({data:{name:"导出测试",email:"inactive@local",password:"x",active:false}});
+ await prisma.customer.update({where:{id:"solo-05000"},data:{channelOwnerId:other.id}});
+ expect(await 开始完整导出({})).toMatchObject({隐藏负责人:false});
+ await prisma.customer.update({where:{id:"solo-05000"},data:{channelOwnerId:null,salesOwnerId:other.id}});
+ expect(await 开始完整导出({})).toMatchObject({隐藏负责人:false});
+ expect(await 开始完整导出({salesOwnerId:"export-user"})).toMatchObject({客户数:5000,隐藏负责人:true});
+ await prisma.user.update({where:{id:other.id},data:{active:true}});
+ expect(await 开始完整导出({salesOwnerId:"export-user"})).toMatchObject({隐藏负责人:false});
+ // Two active sales candidates must retain the dimension even if this filtered export is all one owner.
+ await prisma.user.create({data:{name:"销售二",email:"active-sales@local",password:"x"}});
+ expect(await 开始完整导出({salesOwnerId:"export-user"})).toMatchObject({隐藏负责人:false});
+});
+
+it("导出中成员范围变化不生成省略归属的旧结构文件",async()=>{
+ await prisma.customer.create({data:{name:"客户",phone:"",salesOwnerId:"export-user"}});
+ const result=await 收全();expect(result.start.隐藏负责人).toBe(true);
+ await prisma.user.create({data:{name:"新销售",email:"new-sales@local",password:"x"}});
+ await expect(校验完整导出({},result.start,result.fingerprints)).rejects.toThrow("负责人范围发生变化");
+});

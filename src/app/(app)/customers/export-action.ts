@@ -1,10 +1,12 @@
 "use server";
 
+import type { Prisma } from "@/generated/prisma";
 import { createHash } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { 客户筛选条件, 客户行字段, 成客户行, type 客户条件, type 客户行 } from "./query";
+import { 负责人候选 } from "@/lib/owners";
 import type { 跟进导出行 } from "./export-table";
 
 /** 旧调用保留有明确截断标志的有界结果；产品按钮使用下面的完整分批出口。 */
@@ -68,6 +70,17 @@ export async function 导出客户(条件: 客户条件): Promise<
 }
 
 
+async function 导出归属省略(where: Prisma.CustomerWhereInput) {
+  // 按整份授权导出范围决定一次，不让不同分片误用不同表头；稳定ID保留同名旧成员。
+  const 候选 = await 负责人候选();
+  const 唯一 = 候选.length === 1 ? 候选[0].id : null;
+  const 其他归属 = 唯一 ? await prisma.customer.findFirst({
+    where: { AND: [where, { OR: [{ salesOwnerId: { not: 唯一 } }, { channelOwnerId: { not: 唯一 } }] }] },
+    select: { id: true },
+  }) : true;
+  return !!唯一 && !其他归属;
+}
+
 /** 完整导出按固定顺序分批读取，每批请求独立检查当前权限。 */
 export async function 开始完整导出(条件: 客户条件) {
   await requireUser();
@@ -77,7 +90,7 @@ export async function 开始完整导出(条件: 客户条件) {
     prisma.customer.count({ where }),
     prisma.followUp.count({ where: { customer: where, createdAt: { lte: 截止 } } }),
   ]);
-  return { 截止: 截止.toISOString(), 客户数, 跟进数 };
+  return { 截止: 截止.toISOString(), 客户数, 跟进数, 隐藏负责人: await 导出归属省略(where) };
 }
 
 export async function 读取完整导出批次(条件: 客户条件, 截止文本: string, 类别: "客户" | "跟进", 游标?: string) {
@@ -117,6 +130,7 @@ export async function 校验完整导出(条件: 客户条件, 起点: Awaited<R
     prisma.followUp.findFirst({ where: { createdAt: { lte: 截止 }, updatedAt: { gt: 截止 } }, select: { id: true } }),
   ]);
   if (客户数 !== 起点.客户数 || 跟进数 !== 起点.跟进数 || 改过客户 || 改过跟进) throw new Error("导出期间数据发生变化，请等待修改结束后重新导出；本次不会生成不完整文件");
+  if (起点.隐藏负责人 !== await 导出归属省略(where)) throw new Error("导出期间负责人范围发生变化，请重新导出");
   let index = 0;
   for (const 类别 of ["客户", "跟进"] as const) {
     let 游标: string | undefined;

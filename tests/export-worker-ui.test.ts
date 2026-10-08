@@ -8,8 +8,8 @@ let browser: Browser, script: string, worker: string;
 const stub: Plugin = { name: "export-actions-local", setup(b) {
   b.onResolve({ filter: /^\.\/export-action$/ }, () => ({ path: "actions", namespace: "stub" }));
   b.onLoad({ filter: /.*/, namespace: "stub" }, () => ({ loader: "js", contents: `
-    const totals = () => window.__case === 'big' ? {客户数:20001,跟进数:50001} : {客户数:2,跟进数:1};
-    export async function 开始完整导出() { if(window.__case==='hang') return new Promise(()=>{}); return {...totals(),截止:'2026-01-01T00:00:00.000Z'}; }
+    const totals = () => window.__case === 'big' ? {客户数:20001,跟进数:50001} : window.__case === 'solo' ? {客户数:5001,跟进数:1} : {客户数:2,跟进数:1};
+    export async function 开始完整导出() { if(window.__case==='hang') return new Promise(()=>{}); return {...totals(),隐藏负责人:window.__case==='solo',截止:'2026-01-01T00:00:00.000Z'}; }
     export async function 读取完整导出批次(filters,at,kind,cursor) {
       const total = kind==='客户'?totals().客户数:totals().跟进数;
       const start = cursor ? Number(cursor):0, end = Math.min(total,start+(kind==='客户'?5000:10000));
@@ -97,4 +97,13 @@ it.each([
     expect(strFromU8(sheet["xl/worksheets/sheet1.xml"])).toContain(expected);
     expect(await page.getByRole("status").textContent()).toBe("完成");
   } finally { await page.close(); }
+});
+
+it("真实Worker单人完整导出各分片省略负责人，编号、备注和跟进记录人保留", async()=>{
+ const page=await open("solo");try{
+ const pending=page.waitForEvent("download");await page.getByRole("button",{name:"完整导出",exact:true}).click();const file=await pending;
+ const files=unzipSync(readFileSync((await file.path())!));const manifest=JSON.parse(strFromU8(files["导出清单.json"]));expect(manifest.隐藏负责人).toBe(true);
+ for(const name of ["客户-001.xlsx","客户-002.xlsx"]){const sheet=unzipSync(files[name]);const xml=strFromU8(sheet["xl/worksheets/sheet1.xml"]);expect(xml).not.toContain("销售负责人");expect(xml).not.toContain("渠道负责人");expect(xml).toContain("客户编号");expect(xml).toContain("备注");expect(xml).toContain("=文本")}
+ expect(strFromU8(unzipSync(files["跟进-001.xlsx"])["xl/worksheets/sheet1.xml"])).toContain("记录人");expect(strFromU8(files["阅读说明.txt"])).toContain("省略销售负责人和渠道负责人列");
+ }finally{await page.close()}
 });

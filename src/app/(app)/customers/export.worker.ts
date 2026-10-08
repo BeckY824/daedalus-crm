@@ -1,4 +1,4 @@
-import { strToU8, zipSync } from "fflate";
+import { strToU8, strFromU8, zipSync } from "fflate";
 import { 写xlsx } from "@/lib/xlsx-write";
 import { 客户导出表, 跟进导出表 } from "./export-table";
 import type { 导出指令 } from "./export-protocol";
@@ -13,7 +13,7 @@ self.onmessage = (event: MessageEvent<导出指令>) => {
     if (task.动作 === "分批") {
       configureBrowserBusinessTimeZone(task.timeZone);
       const { 批次, b } = task;
-      const table = 批次.类别 === "客户" ? 客户导出表(批次.rows, b) : 跟进导出表(批次.rows, b);
+      const table = 批次.类别 === "客户" ? 客户导出表(批次.rows, b, task.隐藏负责人) : 跟进导出表(批次.rows, b);
       // 编号是核对关系的稳定键，同名/同电话不会混在一起；放最后保持导入识别习惯。
       const ids = 批次.rows.map((r) => "customerId" in r ? [r.customerId, r.id] : [r.id]);
       const name = `${批次.类别}-${String(parts.filter((p) => p.类别 === 批次.类别).length + 1).padStart(3, "0")}.xlsx`;
@@ -24,6 +24,7 @@ self.onmessage = (event: MessageEvent<导出指令>) => {
       files["导出清单.json"] = strToU8(JSON.stringify({ ...task.清单, 分批: parts }, null, 2));
       files["阅读说明.txt"] = strToU8("客户与跟进分别分批保存；按客户编号关联，按清单逐份核对条数。客户表可再导入，再导入时将客户编号列设为不导入；跟进表供查阅。文件仅包含当前账号可见且符合筛选条件的数据。导出逐批读取并在下载前复核，不含开始导出后新增的记录。正在编辑时请暂停修改再导出。\n");
       // 内层xlsx已压缩；外层只打包，避免再次重复压缩。
+      if (task.清单.隐藏负责人) files["阅读说明.txt"] = strToU8(strFromU8(files["阅读说明.txt"]) + "本次客户表只有一位可选负责人，且全部客户归属均为此人；省略销售负责人和渠道负责人列。跟进记录保留记录人，客户编号保持完整。\n");
       const zip = zipSync(files, { level: 0 });
       self.postMessage({ ok: true, bytes: zip }, { transfer: [zip.buffer] });
     }
