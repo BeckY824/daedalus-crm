@@ -14,7 +14,8 @@ test("未筛状态的列表总数与进行中合计分别标明，阶段与状�
 test("详情金额不被日期挤成省略号，时间线无空白行，报表及回填时间提示说明真实口径",async({page})=>{
  await page.goto("/login");await page.getByPlaceholder("用户名").fill("zhangsan");await page.getByPlaceholder("登录密码").fill("admin123");await page.getByRole("button",{name:/登\s*录/}).click();await page.waitForURL(/\/dashboard/);
  for(const width of [1280,1440]){await page.setViewportSize({width,height:900});await page.goto("/customers/summary-customer");const main=page.getByRole("main");const money=main.locator(".rec-mini-amt");await expect(money).toHaveText("¥ 123,456,789");await expect(money).toBeVisible();expect(await money.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true);
-  const head=await main.locator("#fu-summary-follow .rec-tl-head").boundingBox();const body=await main.locator("#fu-summary-follow .rec-tl-content").boundingBox();expect(head!.height).toBeLessThanOrEqual(30);expect(body!.y-(head!.y+head!.height)).toBeLessThanOrEqual(10);
+  // 同一帧读取相邻元素；父级进场动画期间分两次取框会混入不同帧的位移。
+  const geometry=await main.locator("#fu-summary-follow").evaluate(el=>{const head=el.querySelector(".rec-tl-head")!.getBoundingClientRect();const body=el.querySelector(".rec-tl-content")!.getBoundingClientRect();return {headHeight:head.height,gap:body.top-head.bottom};});expect(geometry.headHeight).toBeLessThanOrEqual(30);expect(geometry.gap).toBeLessThanOrEqual(10);
  }
  await page.getByRole("main").getByRole("button",{name:"登记签约",exact:true}).click();await expect(page.getByRole("dialog")).toContainText("赢单时间记录本次操作时间");await page.getByRole("dialog").getByRole("button",{name:/取\s*消/}).click();
  await page.goto("/overview?view="+encodeURIComponent("本月"));await expect(page.getByRole("main")).toContainText("签约时归属；老记录缺快照时按当前");await expect(page.getByRole("main")).toContainText("客户当前归属");
