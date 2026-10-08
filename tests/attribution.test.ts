@@ -83,6 +83,19 @@ describe("正常分支", () => {
     });
   });
 
+  it("自然流量推荐链不足两代取顶端客户，多代取第二代且不追改旧归属", async () => {
+    const root=await add("自然来源",{});
+    const first=await add("直荐",{referrerCustomerId:root});
+    expect((await readBack(first)).attributionCustomerId).toBe(root);
+    const second=await add("再荐",{referrerCustomerId:first});
+    expect((await readBack(second)).attributionCustomerId).toBe(root);
+    const third=await add("第三代",{referrerCustomerId:second});
+    expect((await readBack(third)).attributionCustomerId).toBe(first);
+    for(const id of [root,first,second,third]){const row=await readBack(id);expect(row.channelId).toBeNull();expect(row.attributionChannelId).toBeNull();expect(row.channelOwnerId).toBeNull()}
+    await prisma.customer.update({where:{id:root},data:{channelId:channel.id,channelOwnerId:owner.id,attributionChannelId:channel.id}});
+    expect((await readBack(first)).attributionCustomerId).toBe(root);expect((await readBack(first)).channelOwnerId).toBeNull();
+  });
+
   it("渠道直推（第一代）：不足两代，归属取链条顶端渠道", async () => {
     const id = await add("小明", { channelId: channel.id });
     const c = await readBack(id);
