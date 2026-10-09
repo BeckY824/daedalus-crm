@@ -60,8 +60,8 @@ const GitHub正式版 = (tag: string) => ({
 const Mac = { platform: "darwin", arch: "arm64" };
 const Win = { platform: "win32", arch: "x64" };
 
-/** 照抄 main.js:839-842（能不能原地装）+ :852-858（走不走差量）。窗可差量 假设 NSIS 装在可写处 */
-function 会怎么装(新版: Record<string, unknown> | null, platform: string, { 已打包 = true, 窗可差量 = true, Mac能原地 = true } = {}) {
+/** 对齐main.js的平台策略：Mac差量，Windows完整安装包。 */
+function 会怎么装(新版: Record<string, unknown> | null, platform: string, { 已打包 = true, Mac能原地 = true } = {}) {
   if (!新版) return "不提示";
   // 和 main.js 检查更新() 里那段一致：没有能核对的 sha256，两个平台都不原地装（B-7，2026-10-04 修）
   const 哈希可核 = /^[a-f0-9]{64}$/i.test(String(新版.sha256 || ""));
@@ -72,7 +72,7 @@ function 会怎么装(新版: Record<string, unknown> | null, platform: string, 
         ? { ok: Mac能原地 }
         : { ok: false };
   if (!可原地.ok) return "手动（打开下载页）";
-  if ((platform === "darwin" || (platform === "win32" && 窗可差量)) && 新版.zip && 新版.manifest) return "差量";
+  if (platform === "darwin" && 新版.zip && 新版.manifest) return "差量";
   return "整包";
 }
 

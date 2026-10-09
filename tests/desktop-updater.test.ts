@@ -42,6 +42,15 @@ describe("Windows 更新按平台隔离", () => {
     假网络({ version: "9.0.0", platforms: { "win32-x64": { version: "0.47.0", exe: "https://example.com/setup.exe", sha256: "b".repeat(64) } } }, null);
     expect(await 检查(win)).toMatchObject({ 版本: "0.47.0", exe: "https://example.com/setup.exe" });
   });
+  it("官网误带差量字段时Windows仍只拿完整安装包，备用也只保留exe", async () => {
+    假网络({platforms:{"win32-x64":{
+      version:"0.47.0",exe:"https://example.com/setup.exe",sha256:"b".repeat(64),
+      dmg:"https://example.com/mac.dmg",zip:"https://example.com/win.zip",manifest:"https://example.com/win.manifest",manifest_sha256:"c".repeat(64),
+      备用:{exe:"https://backup.example.com/setup.exe",zip:"https://backup.example.com/win.zip",manifest:"https://backup.example.com/win.manifest"},
+    }}},null);
+    expect(await 检查(win)).toMatchObject({exe:"https://example.com/setup.exe",sha256:"b".repeat(64),dmg:null,zip:null,manifest:null,清单哈希:null,备用:{exe:"https://backup.example.com/setup.exe"}});
+    expect(Object.keys((await 检查(win)).备用)).toEqual(["exe"]);
+  });
 });
 
 describe("检查更新取哪个源", () => {

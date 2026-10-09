@@ -1051,12 +1051,8 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
      * 「差量 2.3 MB」；任何不划算或对不上的情况（老 Release 没有清单、变得太多、包名不对…）
      * 都退回整包，按钮上写整包的体积。见 delta.js 顶部。
      */
-    // Windows 只在 NSIS 装在自己能写的地方时差量；不能就照旧整包，原因记一笔
-    let 窗可差量 = process.platform === "win32" ? 窗装.能差量更新(应用包) : { ok: false };
-    // 这一版已经连着两次换不成目录（组策略禁了 PowerShell、杀毒拦了……）：再下一遍差量只会再失败一遍，走整包
-    if (窗可差量.ok && 窗装.换目录屡败(更新目录, 版本)) 窗可差量 = { ok: false, 原因: `${版本} 连着两次没能换上（见 updates/update-swap.log），这次走整包` };
-    if (process.platform === "win32" && 新版.zip && !窗可差量.ok) 崩溃.写崩溃日志(应用日志, "差量不可用", 窗可差量.原因);
-    if ((process.platform === "darwin" || 窗可差量.ok) && 新版.zip && 新版.manifest) {
+    // Windows统一下载NSIS完整安装包；只有Mac按已有差量机制更新。
+    if (process.platform === "darwin" && 新版.zip && 新版.manifest) {
       try {
         设更新状态({ 阶段: "checking", 文字: "正在比对已装的文件…" });
         const 备 = 新版.备用 || {};

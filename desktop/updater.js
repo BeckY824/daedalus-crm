@@ -56,10 +56,10 @@ function 剥哈希前缀(v) {
  * 里面的字符串不该被当成可以直接交给 fetch 的东西，随手校一下不亏。
  * 一个能用的都没有就返回 null，调用方按「没有备用」处理。
  */
-function 取备用(原始) {
+function 取备用(原始, platform = "darwin") {
   if (!原始 || typeof 原始 !== "object") return null;
   const 出 = {};
-  for (const 键 of ["dmg", "zip", "manifest", "exe"]) {
+  for (const 键 of (platform === "win32" ? ["exe"] : ["dmg", "zip", "manifest", "exe"])) {
     const v = 原始[键];
     const safe = 安全地址(v);
     if (safe) 出[键] = safe;
@@ -100,19 +100,19 @@ async function 查最新({ platform = "darwin", arch = "arm64" } = {}) {
       版本: String(自家.version),
       地址: 安全地址(自家.url) || 下载页,
       说明: 自家.notes || "",
-      dmg: 安全地址(自家.dmg),
+      dmg: platform === "win32" ? null : 安全地址(自家.dmg),
       ...(platform === "win32" ? { exe: 安全地址(自家.exe) } : {}),
       // 整包多大，按钮上要写给用户看（feed 里是「161 MB」这样的字）
       体积: 自家.size ? String(自家.size) : null,
       sha256: 剥哈希前缀(自家.sha256),
       // 差量要的两样：ditto 打的 zip 和它的清单。老的 feed 没有，那就只能整包
-      zip: 安全地址(自家.zip),
-      manifest: 安全地址(自家.manifest),
+      zip: platform === "win32" ? null : 安全地址(自家.zip),
+      manifest: platform === "win32" ? null : 安全地址(自家.manifest),
       // 清单的 sha256：差量先核它再信清单（delta.js 拉清单）。发版时从 GitHub 原件算的，不经过镜像
-      清单哈希: 剥哈希前缀(自家.manifest_sha256),
+      清单哈希: platform === "win32" ? null : 剥哈希前缀(自家.manifest_sha256),
       // 上面三个地址可能指向我们自己的镜像（国内下 GitHub 慢，见官网仓库 deploy/mirror.sh）。
       // 镜像下不动时换这里的原址再试一次——同一个包，sha256 照样对得上。
-      备用: 取备用(自家.备用),
+      备用: 取备用(自家.备用, platform),
     });
   }
   /*
