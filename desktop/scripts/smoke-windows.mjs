@@ -25,6 +25,12 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const cloud = `http://127.0.0.1:${server.address().port}`;
 const env = { ...process.env, CRM_DATA_ROOT: root, CRM_CLOUD_URL: cloud, CRM_UPDATE_URL: `${cloud}/updates`, CRM_UPDATE_FALLBACK_URL: `${cloud}/updates` };
 delete env.ELECTRON_RUN_AS_NODE;
+// 首次登录尚未重启时，数据库还在未认领目录；重启才写账号指针。
+const accountFile = () => {
+  const pointer = path.join(root, "current.json");
+  const key = fs.existsSync(pointer) ? JSON.parse(fs.readFileSync(pointer, "utf8")).key : "_未认领";
+  return path.join(root, "accounts", key, "crm.db");
+};
 /**
  * 0.46.15 的新登录门：先填邮箱点「继续」，云端说是老号才出密码框。
  * 这个替身没有「注册开始」接口、回 404——桌面端当成老云端，直接去输密码（H-055），正好走登录这条
@@ -120,7 +126,7 @@ try {
   if (await 负责人.count()) { await 负责人.click(); await page.keyboard.press("Enter"); }
   await 商框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(商框).toBeHidden();
-  const selectedDb = new DatabaseSync(path.join(root, "accounts", JSON.parse(fs.readFileSync(path.join(root, "current.json"), "utf8")).key, "crm.db"), { readOnly: true });
+  const selectedDb = new DatabaseSync(accountFile(), { readOnly: true });
   try {
     const link = selectedDb.prepare('SELECT c.name FROM Opportunity o JOIN Customer c ON c.id=o.customerId WHERE o.name=?').get("Windows LED 询盘");
     if (link?.name !== "Windows 外贸客户") throw new Error("商机未保存到选择的外贸客户");
@@ -154,7 +160,6 @@ try {
   const restarted = await app.firstWindow();
   await expect(restarted.locator(".rail")).toBeVisible({ timeout: 60000 });
   console.log("PASS: restart restores login and local database");
-  const accountFile = () => path.join(root, "accounts", JSON.parse(fs.readFileSync(path.join(root, "current.json"), "utf8")).key, "crm.db");
   const firstDb = accountFile();
   const db = new DatabaseSync(firstDb);
   db.prepare("INSERT OR REPLACE INTO Setting (key,value,updatedAt) VALUES ('smoke.marker','account A',0)").run();
