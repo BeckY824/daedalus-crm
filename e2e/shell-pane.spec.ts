@@ -120,7 +120,7 @@ test.describe("中栏跟着路由走", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.locator(".ant-table-tbody tr.ant-table-row").first().click();
     await expect(page).toHaveURL(/\/customers\/[^/]+$/);
-    const 时间线 = page.locator(".rec > .rec-col").first();
+    const 时间线 = page.getByRole("main").locator(".rec > .rec-col").first();
     await expect(时间线).toBeVisible();
     await expect.poll(async () => (await 时间线.boundingBox())?.width ?? 0).toBeGreaterThan(300);
   });

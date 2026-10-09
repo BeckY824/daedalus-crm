@@ -101,11 +101,11 @@ test("美元商机 → 登记签约带上币种 → 列表、记录页、数据�
   await expect(切换).toContainText("US$ 3,250.50");
   await 切换.getByText("USD", { exact: true }).click();
   await page.waitForURL(/currency=USD/);
-  await expect(page.locator(".stat-card", { hasText: "签约总额" })).toContainText("US$ 3,250.50");
+  await expect(page.getByRole("main").locator(".stat-card", { hasText: "签约总额" })).toContainText("US$ 3,250.50");
 
   // 4. 数据页「现在」：本月签约那张卡两种币并排写，不加成一个数
   await page.goto("/overview?view=现在");
-  const 卡 = page.locator(".stat-card", { hasText: "本月签约" });
+  const 卡 = page.getByRole("main").locator(".stat-card", { hasText: "本月签约" });
   await expect(卡).toContainText("US$ 3,250.50");
   await expect(卡).toContainText("¥");
 });

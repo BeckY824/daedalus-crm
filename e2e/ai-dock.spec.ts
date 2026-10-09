@@ -428,7 +428,7 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
     try {
       await 登录(page);
       await page.goto(`/customers/${id}`);
-      await page.locator(".rec-tl-item").first().waitFor({ state: "attached" });
+      await page.getByRole("main").locator(".rec-tl-item").first().waitFor({ state: "attached" });
       // 进场的那一小段里，至少有一条还没完全显出来 / 正挂着动画
       const 在动 = await page.evaluate(
         () =>
@@ -457,13 +457,13 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
       await expect(page.getByRole("heading", { name: "记录页样子" })).toBeVisible();
 
       // J-212：「AI 解析」挂上「1 次」角标后变宽，旁边那句说明原来被挤成 5 行
-      const 说明 = page.locator(".rec-composer-hint").first();
+      const 说明 = page.getByRole("main").locator(".rec-composer-hint").first();
       await expect(说明).toBeVisible();
       const 说明量 = await 说明.evaluate((el) => ({ 高: el.getBoundingClientRect().height, 行高: parseFloat(getComputedStyle(el).lineHeight) || 20 }));
       expect(说明量.高, `速记说明高 ${说明量.高}，一行 ${说明量.行高}`).toBeLessThanOrEqual(说明量.行高 * 2 + 1);
 
       // J-211：签约那行金额是要看的东西，不许被日期和两颗图标挤成「¥…」
-      const 金额 = page.locator(".rec-mini-amt").first();
+      const 金额 = page.getByRole("main").locator(".rec-mini-amt").first();
       await expect(金额).toContainText("1,234,567");
       expect(await 金额.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "签约金额被省略了").toBe(true);
 

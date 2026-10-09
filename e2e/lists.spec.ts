@@ -336,7 +336,7 @@ test("没配 AI 的首页：页头「首页」不和「数据」重名；本月�
   // J-124：页头是「首页」；侧栏「数据」那一页叫「数据」——两条入口落到两个不同名的页
   await expect(page.locator(".page-head h1")).toHaveText("首页");
   // J-125：本月签约 0 → ¥0，不是「—」
-  const 签约卡 = page.locator(".stat-card", { hasText: "本月签约" });
+  const 签约卡 = page.getByRole("main").locator(".stat-card", { hasText: "本月签约" });
   await expect(签约卡).toContainText(/¥\s?0(?![\d,])/);
   await expect(签约卡).not.toContainText("—");
   // J-121：排行每行金额带 ¥，口径写出来
@@ -345,7 +345,7 @@ test("没配 AI 的首页：页头「首页」不和「数据」重名；本月�
   await expect(榜).toContainText(/¥\s?50,000/);
   await expect(榜).toContainText("不限时间");
   // J-111：上月 0 位新增 → 「上月没有新增」，不写「持平」
-  const 新增卡 = page.locator(".stat-card").filter({ has: page.locator(".stat-label", { hasText: /^新增客户$/ }) });
+  const 新增卡 = page.getByRole("main").locator(".stat-card").filter({ has: page.locator(".stat-label", { hasText: /^新增客户$/ }) });
   await expect(新增卡).toContainText("上月没有新增");
   await expect(新增卡).not.toContainText("持平");
 
@@ -355,7 +355,7 @@ test("没配 AI 的首页：页头「首页」不和「数据」重名；本月�
   await expect(导航.getByRole("link", { name: "数据", exact: true })).toHaveAttribute("href", "/overview");
   await page.goto("/overview");
   await expect(page.locator(".page-head h1")).toHaveText("数据");
-  await expect(page.locator(".stat-card", { hasText: "本月签约" })).toContainText(/¥\s?0(?![\d,])/);
+  await expect(page.getByRole("main").locator(".stat-card", { hasText: "本月签约" })).toContainText(/¥\s?0(?![\d,])/);
 });
 
 /*

@@ -77,7 +77,7 @@ test("J-003 行内「职位」：敲两个字 → ↓ 回车选候选 → 存的
   await page.goto(`/customers/${id}`);
   // 点开那一格（dev 下刚出来可能还没水合：没变成输入框就再点）
   const 格 = page.getByRole("button", { name: "编辑职位" });
-  const 框 = page.locator(".rec-field-editing input");
+  const 框 = page.getByRole("main").locator(".rec-field-editing input");
   await expect(async () => {
     if (!(await 框.isVisible())) await 格.click();
     await expect(框).toBeVisible({ timeout: 2_000 });
@@ -96,7 +96,7 @@ test("J-082 记录页勾完成的待办：原地划线留着、能撤销；之�
   const 待办 = await 查((p) => p.task.create({ data: { title: "寄样品", customerId: id, ownerId: 我id, dueAt: new Date(Date.now() + 86400_000) } }));
   await 登录(page);
   await page.goto(`/customers/${id}`);
-  const 行 = page.locator(".rec-task", { hasText: "寄样品" });
+  const 行 = page.getByRole("main").locator(".rec-task", { hasText: "寄样品" });
   // CI 机器慢：页面还没接上事件就点了，勾不上（10-07 main CI）——勾上为止
   await expect(async () => {
     await 行.getByRole("checkbox", { name: "完成 寄样品" }).check({ timeout: 2_000 });
@@ -123,7 +123,7 @@ test("J-097 记录页删待办：先问一句；点「取消」不删，点「�
   const 待办 = await 查((p) => p.task.create({ data: { title: "回个电话", customerId: id, ownerId: 我id } }));
   await 登录(page);
   await page.goto(`/customers/${id}`);
-  const 行 = page.locator(".rec-task", { hasText: "回个电话" });
+  const 行 = page.getByRole("main").locator(".rec-task", { hasText: "回个电话" });
   await 点到出现(行.getByRole("button", { name: "删除待办" }), 行.getByText("删除这条？"));
   // 一点就删是原来的毛病：问的时候库里还在
   expect(await 查((p) => p.task.count({ where: { id: 待办.id } }))).toBe(1);
@@ -134,7 +134,7 @@ test("J-097 记录页删待办：先问一句；点「取消」不删，点「�
   await 行.getByRole("button", { name: "删除待办" }).click();
   await 行.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.locator(".ant-message")).toContainText("待办已删除");
-  await expect(page.locator(".rec-task", { hasText: "回个电话" })).toHaveCount(0);
+  await expect(page.getByRole("main").locator(".rec-task", { hasText: "回个电话" })).toHaveCount(0);
   expect(await 查((p) => p.task.count({ where: { id: 待办.id } }))).toBe(0);
 });
 
@@ -143,11 +143,11 @@ test.skip("【下一版】记录页删待办之后，提示条里能撤销、原
   await 查((p) => p.task.create({ data: { title: "删了再要回来", customerId: id, ownerId: 我id } }));
   await 登录(page);
   await page.goto(`/customers/${id}`);
-  const 行 = page.locator(".rec-task", { hasText: "删了再要回来" });
+  const 行 = page.getByRole("main").locator(".rec-task", { hasText: "删了再要回来" });
   await 点到出现(行.getByRole("button", { name: "删除待办" }), 行.getByText("删除这条？"));
   await 行.getByRole("button", { name: "删除", exact: true }).click();
   await page.locator(".ant-message").getByRole("button", { name: /撤\s*销/ }).click();
-  await expect(page.locator(".rec-task", { hasText: "删了再要回来" })).toBeVisible();
+  await expect(page.getByRole("main").locator(".rec-task", { hasText: "删了再要回来" })).toBeVisible();
 });
 
 test("J-079 计划页每一行的「删」：先问、确认后那一行和库里都没了", async ({ page }) => {

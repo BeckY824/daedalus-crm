@@ -724,7 +724,7 @@ test("数据「现在」那四张卡，每一张都点得进一个能把这个�
   };
   for (const 名 of 卡) {
     await page.goto("/overview");
-    await page.locator(".stat-card-go", { hasText: 名 }).click();
+    await page.getByRole("main").locator(".stat-card-go", { hasText: 名 }).click();
     await expect(page, `${名} 这张卡点了没去处`).toHaveURL(去处[名]);
   }
 });
@@ -738,7 +738,7 @@ test("「逾期跟进」点进计划页：先看全部成员，同事那条逾�
   try {
     await 登录(page);
     await page.goto("/overview");
-    await page.locator(".stat-card-go", { hasText: "逾期跟进" }).click();
+    await page.getByRole("main").locator(".stat-card-go", { hasText: "逾期跟进" }).click();
     await expect(page).toHaveURL(/\/follow-ups\/plans\?scope=all/);
     await expect(page.locator(".ant-segmented-item-selected", { hasText: /^(我的|全部成员)$/ })).toHaveText("全部成员");
     await expect(page.getByText("T023 李四逾期回访")).toBeVisible();
