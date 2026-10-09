@@ -195,8 +195,20 @@ try {
     90_000, "NSIS automatic relaunch uses the same default user data root");
   console.log("PASS: actual full NSIS installer replaces installed file and relaunches the app");
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
-    "$p = [IO.Path]::GetFullPath($env:CRM_SMOKE_EXE); Get-Process | Where-Object { $_.Path -eq $p -and $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow(); [void]$_.WaitForExit(30000) }"],
-    { env: { ...process.env, CRM_SMOKE_EXE: exe }, timeout: 45_000, stdio: "pipe" });
+    // The service-start log precedes BrowserWindow creation. Closing a snapshot
+    // with no window leaves the automatic instance alive; the next launch then
+    // correctly exits under the single-instance lock. Wait for its real window.
+    "$ErrorActionPreference='Stop'; $target=[IO.Path]::GetFullPath($env:CRM_SMOKE_EXE); " +
+    "$until=(Get-Date).AddSeconds(60); $windows=@(); do { " +
+    "$windows=@(Get-Process | Where-Object { $_.Path -eq $target -and $_.MainWindowHandle -ne 0 -and $_.MainWindowTitle.Length -gt 0 -and $_.MainWindowTitle -notlike '正在安装*' -and $_.MainWindowTitle -notlike '正在启动*' }); " +
+    "if (!$windows.Count) { Start-Sleep -Milliseconds 300 } " +
+    "} while (!$windows.Count -and (Get-Date) -lt $until); " +
+    "if (!$windows.Count) { throw 'Automatic relaunch has no CRM main window' }; " +
+    "$windows | ForEach-Object { if (!$_.CloseMainWindow()) { throw 'Cannot close automatic CRM window' }; if (!$_.WaitForExit(30000)) { throw 'Automatic CRM did not exit normally' } }; " +
+    "$until=(Get-Date).AddSeconds(30); do { $remaining=@(Get-Process | Where-Object { $_.Path -eq $target }); if ($remaining.Count) { Start-Sleep -Milliseconds 300 } } while ($remaining.Count -and (Get-Date) -lt $until); " +
+    "if ($remaining.Count) { throw 'Automatic CRM still holds the single-instance lock' }"],
+    { env: { ...process.env, CRM_SMOKE_EXE: exe }, timeout: 125_000, stdio: "pipe" });
+  console.log("PASS: automatically relaunched CRM has a real main window and exits normally before inspection");
   app = await electron.launch({ executablePath: exe, env, timeout: 60_000 });
   page = await app.firstWindow(); await expect(page.locator(".rail")).toBeVisible({ timeout: 60_000 });
   assert.equal(await page.evaluate(() => window.desktopShell.version()), displayVersion(version));
