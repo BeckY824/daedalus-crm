@@ -21,7 +21,8 @@ const setup = path.join(dist, setupName);
 const version = JSON.parse(fs.readFileSync(path.join(desktop, "package.json"))).version;
 const sha = p => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
 const installerHash = sha(setup);
-const installed = path.join(process.env.LOCALAPPDATA, "Programs", "daedalus-crm");
+// Assisted NSIS uses productFilename (including the space), not package name.
+const installed = path.join(process.env.LOCALAPPDATA, "Programs", "Daedalus CRM");
 const exe = path.join(installed, "Daedalus CRM.exe");
 const wait = async (fn, ms, reason) => {
   const end = Date.now() + ms;
