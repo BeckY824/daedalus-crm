@@ -282,6 +282,10 @@ test("7b 运营台：导航每一页都点得开、口令跟着走；回包慢�
   );
   await page.goto("/admin?token=e2e-admin-token");
   await expect(page.locator(".opx-kpi").first()).toContainText("注册用户", { timeout: 15_000 });
+  await page.waitForFunction(() => {
+    const link = document.querySelector(".opx-nav a");
+    return link && Object.keys(link).some((key) => key.startsWith("__reactProps"));
+  });
   const 导航 = page.getByRole("navigation", { name: "运营台导航" });
   const 反馈 = 导航.getByRole("link", { name: "反馈" });
 
