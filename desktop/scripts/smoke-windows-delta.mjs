@@ -134,7 +134,8 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${server.address().port}`;
-const env = { ...process.env, CRM_DATA_ROOT: 数据, CRM_CLOUD_URL: base, CRM_UPDATE_URL: `${base}/updates`, CRM_UPDATE_FALLBACK_URL: `${base}/gh` };
+// 只有本脚本的回环假源显式允许 HTTP；发布包仍默认只接受 HTTPS。
+const env = { ...process.env, CRM_DATA_ROOT: 数据, CRM_CLOUD_URL: base, CRM_UPDATE_URL: `${base}/updates`, CRM_UPDATE_FALLBACK_URL: `${base}/gh`, CRM_UPDATE_ALLOW_LOCAL_HTTP: "1" };
 delete env.ELECTRON_RUN_AS_NODE;
 const exe = path.join(装到, "Daedalus CRM.exe");
 const 日志尾 = () => {
