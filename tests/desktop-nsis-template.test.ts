@@ -4,7 +4,6 @@ import os from "node:os";
 import path from "node:path";
 import { createRequire } from "node:module";
 // The packaging script also runs directly under Node on Windows.
-// @ts-expect-error Plain ESM packaging helper.
 import { patchTemplate } from "../desktop/scripts/patch-nsis-template.mjs";
 
 const roots: string[] = [];

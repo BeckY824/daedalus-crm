@@ -13,6 +13,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Candidate platform to build and verify
+        type: choice
+        default: all
+        options: [all, windows, mac]
 
 # 产物要挂到 Release 上：桌面端「检查更新」的兜底源查的是最新 Release（主源是官网 feed），
 # 只传成 Actions 产物的话，装出去的应用永远查不到新版本
@@ -29,13 +35,7 @@ jobs:
       # 两个平台向同一个 Release 上传，顺序执行避免并发创建 Release。
       max-parallel: 1
       matrix:
-        include:
-          - os: macos-latest # Apple 芯片
-            script: dist:mac
-            artifact: dmg-arm64
-          - os: windows-latest
-            script: dist:win
-            artifact: exe-x64
+        include: ${{ fromJSON(inputs.platform == 'windows' && '[{"os":"windows-latest","script":"dist:win","artifact":"exe-x64"}]' || inputs.platform == 'mac' && '[{"os":"macos-latest","script":"dist:mac","artifact":"dmg-arm64"}]' || '[{"os":"macos-latest","script":"dist:mac","artifact":"dmg-arm64"},{"os":"windows-latest","script":"dist:win","artifact":"exe-x64"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
