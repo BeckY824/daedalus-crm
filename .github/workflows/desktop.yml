@@ -71,7 +71,7 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Windows 完整安装包更新前置关卡
         if: runner.os == 'Windows'
-        run: npx vitest run tests/desktop-updater.test.ts tests/desktop-windows-install.test.ts tests/r3-review-updater.test.ts tests/desktop-nsis-template.test.ts
+        run: npx vitest run tests/desktop-updater.test.ts tests/desktop-windows-install.test.ts tests/r3-review-updater.test.ts tests/desktop-nsis-template.test.ts tests/team-roles.test.ts
       - name: 打包
         working-directory: desktop
         run: npm run ${{ matrix.script }}

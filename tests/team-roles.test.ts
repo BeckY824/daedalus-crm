@@ -21,7 +21,9 @@ const 临时 = vi.hoisted(() => {
 vi.mock("@/lib/prisma", async () => {
   const { PrismaClient } = await import("@/generated/prisma");
   const { 加上限定 } = await import("@/lib/team-scope");
-  const raw = new PrismaClient({ datasourceUrl: `file:${path.join(临时.dir, "A.db")}` });
+  const { 单连接 } = await import("@/lib/sqlite-url");
+  // 与真实客户端相同：池里多连接会在 Windows 上让前一条查询与清库撞锁。
+  const raw = new PrismaClient({ datasourceUrl: 单连接(`file:${path.join(临时.dir, "A.db").replaceAll("\\", "/")}`) });
   return { prisma: 加上限定(raw), defaultClient: raw };
 });
 
@@ -120,6 +122,10 @@ beforeAll(async () => {
   process.env.DESKTOP_LOCAL = "1";
   process.env.CRM_DATA_DIR = 临时.dir;
   设传输(假传输);
+  // vi.mock 绕过了 lib/prisma 的初始化，隔离库也须使用生产的 SQLite 配置。
+  await raw.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+  await raw.$queryRawUnsafe("PRAGMA busy_timeout = 5000");
+  await raw.$queryRawUnsafe("PRAGMA synchronous = NORMAL");
   await 种数据();
 });
 
