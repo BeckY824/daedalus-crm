@@ -28,13 +28,6 @@ async function 登录(page: Page) {
   throw new Error("登录失败");
 }
 
-/** antd 下拉：点开、敲字、回车选第一个 */
-async function 选(page: Page, 框: ReturnType<Page["getByLabel"]>, 字: string) {
-  await 框.click();
-  await 框.fill(字);
-  await page.keyboard.press("Enter");
-}
-
 let 客户id = "";
 
 test.beforeAll(async () => {
@@ -74,7 +67,11 @@ test("美元商机 → 登记签约带上币种 → 列表、记录页、数据�
   await 框.getByLabel("负责人", { exact: true }).click();
   // 上一个下拉（所属客户）可能还没收起：按选项文字点，别按「第一个展开的下拉」找
   await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option", { hasText: "张三" }).first().click();
-  await 选(page, 框.getByLabel("币种"), "USD");
+  await 框.getByLabel("币种").click();
+  await 框.getByLabel("币种").fill("USD");
+  // 搜索词不是选中值；Enter可能早于过滤结果提交，实际仍保留CNY。
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option[title="USD 美元"]').click();
+  await expect(框.getByTitle("美元").first()).toHaveText("USD");
   await 框.getByLabel("商机金额").fill("3250.5");
   await 框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(框).toBeHidden();
