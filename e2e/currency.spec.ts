@@ -68,7 +68,8 @@ test("美元商机 → 登记签约带上币种 → 列表、记录页、数据�
   await 框.getByLabel("商机名称").fill("美元询盘");
   await 框.getByLabel("所属客户").click();
   await 框.getByLabel("所属客户").fill(客户名);
-  await page.locator(".ant-select-dropdown:visible .ant-select-item-option").filter({hasText: 客户名 + " · 13755550001"}).click();
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option:not(.ant-select-item-option-disabled)").filter({hasText: 客户名 + " · 13755550001"}).click();
+  await expect(框.locator(".ant-select-content-has-value").filter({ hasText: 客户名 })).toBeVisible();
   // 管理员不在负责人候选里：负责人留空、自己选，不再默认名单第一人（2026-10-04 T-025）
   await 框.getByLabel("负责人", { exact: true }).click();
   // 上一个下拉（所属客户）可能还没收起：按选项文字点，别按「第一个展开的下拉」找

@@ -241,7 +241,7 @@ test("J-088 记录页左栏的商机写状态：赢单、丢单各挂一个标�
   );
   await 登录(page);
   await page.goto(`/customers/${id}`);
-  const 行 = (名: string) => page.locator(".rec-mini", { hasText: 名 });
+  const 行 = (名: string) => page.locator("main .rec-mini:visible", { hasText: 名 });
   await expect(行("赢下的那单")).toContainText("已赢单");
   await expect(行("丢掉的那单")).toContainText("已丢单");
   await expect(行("在谈的那单")).not.toContainText(/已赢单|已丢单/);
