@@ -45,6 +45,7 @@ const 步骤 = [];
 const 过 = (s) => { 步骤.push(s); console.log(`PASS: ${s}`); };
 
 async function 登录(p, 邮箱) {
+  await p.waitForLoadState("networkidle");
   await p.locator("#auth-email").fill(邮箱);
   await p.getByRole("button", { name: /继\s*续/ }).click();
   await p.locator('input[type="password"]').fill("smoke-password");
@@ -54,6 +55,7 @@ async function 登录(p, 邮箱) {
 async function 进主界面(p, 模版 = "外贸出口") {
   const 选 = p.getByRole("button", { name: new RegExp(`用${模版}开始`) });
   await expect(选.or(p.locator(".rail")).first()).toBeVisible({ timeout: 60000 });
+  await p.waitForLoadState("networkidle");
   if (await 选.isVisible()) await 选.click();
   await expect(p.locator(".rail")).toBeVisible({ timeout: 60000 });
   return 关更新说明(p);
@@ -135,6 +137,7 @@ try {
   if (await 负责人.count()) { await 负责人.click(); await page.keyboard.press("Enter"); }
   await 商框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(商框).toBeHidden();
+  await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: `${商机名} 的更多操作` }).click();
   await page.getByRole("menuitem", { name: "转为订单" }).click();
   const 单框 = page.getByRole("dialog", { name: "转为订单" });
@@ -212,6 +215,12 @@ try {
   console.log(`\n全过 ${步骤.length} 步。证据：${root}`);
 } catch (error) {
   console.error(`证据：${root}`);
+  if (app) {
+    for (const [i, p] of app.windows().entries()) {
+      await p.screenshot({ path: path.join(root, `failure-${i}.png`) }).catch(() => {});
+      console.error(`Window ${i}: ${p.url()}\n${await p.locator("body").innerText().catch(() => "（窗口不可读）")}`);
+    }
+  }
   for (const log of ["server.log", "app.log"]) {
     const p = path.join(root, "logs", log);
     if (fs.existsSync(p)) console.error(fs.readFileSync(p, "utf8").slice(-6000));

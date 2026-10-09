@@ -56,6 +56,9 @@ async function 登录(p, 邮箱) {
 async function 进主界面(p) {
   const 模版 = p.getByRole("button", { name: /用通用销售开始/ });
   await expect(模版.or(p.locator(".rail")).first()).toBeVisible({ timeout: 60000 });
+  // 换账号会重起本地服务；新文档的 SSR 卡片先于 React 事件处理器出现。
+  // 等这份文档加载完成再选，不能把点击未水合卡片误判为产品导航失败。
+  await p.waitForLoadState("networkidle");
   if (await 模版.isVisible()) await 模版.click();
   await expect(p.locator(".rail")).toBeVisible({ timeout: 60000 });
   const 知道了 = p.getByRole("button", { name: /知\s*道\s*了/ });

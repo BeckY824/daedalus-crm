@@ -40,6 +40,19 @@ function businessSmoke(dataRoot) {
     env: { ...process.env, CRM_SMOKE_DATA_ROOT: dataRoot || "" },
   });
   process.stdout.write(r.stdout || ""); process.stderr.write(r.stderr || "");
+  if (r.status !== 0) {
+    const failedRoot = dataRoot || [...((r.stderr || "") + "\n" + (r.stdout || "")).matchAll(/^Evidence: (.+)$/gm)].at(-1)?.[1]?.trim();
+    const evidence = path.join(desktop, ".smoke-data", "full-business-failure");
+    fs.mkdirSync(evidence, { recursive: true });
+    fs.writeFileSync(path.join(evidence, "smoke.log"), (r.stdout || "") + "\n" + (r.stderr || "") + "\n" + (r.error?.message || ""));
+    if (failedRoot && fs.existsSync(failedRoot)) {
+      const logs = path.join(failedRoot, "logs");
+      if (fs.existsSync(logs)) fs.cpSync(logs, path.join(evidence, "logs"), { recursive: true });
+      for (const name of fs.readdirSync(failedRoot).filter(n => /^failure-.*\.png$/.test(n))) {
+        fs.copyFileSync(path.join(failedRoot, name), path.join(evidence, name));
+      }
+    }
+  }
   assert.equal(r.status, 0, "installed package business smoke failed");
   const root = [...r.stdout.matchAll(/^Evidence: (.+)$/gm)].at(-1)?.[1]?.trim();
   assert(root && fs.existsSync(root), "missing isolated smoke data root");
