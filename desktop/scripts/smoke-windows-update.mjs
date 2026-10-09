@@ -43,6 +43,13 @@ function businessSmoke() {
   return root;
 }
 const initial = spawnSync(setup, ["/S", "/currentuser"], { timeout: 300_000 });
+if (initial.status !== 0) {
+  const diagnostic = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+    "Get-WinEvent -FilterHashtable @{LogName='Application';Id=1000,1001;StartTime=(Get-Date).AddMinutes(-5)} -ErrorAction SilentlyContinue | Where-Object { $_.Message -like '*Daedalus*' } | Select-Object TimeCreated,Id,Message | Format-List | Out-String -Width 300"],
+  { encoding: "utf8", timeout: 15_000 });
+  console.error(diagnostic.stdout || "No installer crash event available yet");
+  console.error(JSON.stringify({ installerExit: initial.status, error: initial.error?.message }));
+}
 assert.equal(initial.status, 0, "initial NSIS install failed");
 assert(fs.existsSync(exe), "NSIS did not install at the expected current-user path");
 assert(fs.readdirSync(installed).some(n => /^Uninstall .+\.exe$/i.test(n)));

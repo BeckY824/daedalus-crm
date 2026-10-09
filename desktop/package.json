@@ -9,7 +9,7 @@
     "build:server": "node scripts/build-server.mjs",
     "build:server:fast": "node scripts/build-server.mjs --no-build",
     "dist:mac": "npm run build:server && electron-builder --mac",
-    "dist:win": "npm run build:server && electron-builder --win"
+    "dist:win": "node scripts/patch-nsis-template.mjs && npm run build:server && electron-builder --win"
   },
   "devDependencies": {
     "electron": "^38.8.6",
