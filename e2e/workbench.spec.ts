@@ -712,8 +712,7 @@ test("数据「现在」那四张卡，每一张都点得进一个能把这个�
    * 这条钉的是**每一张都真的落得了地**：一个点不进去的数只能让人干着急。
    */
   const 卡 = ["本月签约", "新增客户", "进行中商机", "逾期跟进"];
-  const 名单 = await page.getByRole("main").locator(".stat-label > span:first-child").allInnerTexts();
-  expect(名单.map((t) => t.trim())).toEqual(卡);
+  await expect(page.getByRole("main").locator(".stat-label > span:first-child")).toHaveText(卡);
 
   const 去处: Record<string, RegExp> = {
     本月签约: /\/overview\?view=/,

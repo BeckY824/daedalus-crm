@@ -43,11 +43,6 @@ function 写AI用量(calls: number) {
   `, CONTROL_DB, 共享工作区.slug, String(calls)], { stdio: "pipe" });
 }
 
-/** 从控制面库里把刚发的验证码取出来。没配通道时它只打进服务端日志，测试读库最省事 */
-function 取验证码(target: string, purpose: string): string {
-  return 查控制面('SELECT code FROM "VerifyCode" WHERE target = ? AND purpose = ? AND usedAt IS NULL ORDER BY createdAt DESC LIMIT 1', target, purpose);
-}
-
 /** 注册走两步：第一步只填邮箱，第二步填密码。默认配置不要验证码，所以第一步是「下一步」 */
 async function 注册(page: Page, 邮箱: string, 密码: string) {
   await page.goto("/signup");
@@ -412,7 +407,14 @@ test("12 忘记密码：收码、设新密码，旧会话当场作废", async ({
   await page.getByRole("button", { name: "设置新密码" }).click();
   await expect(page.getByText("验证码不对")).toBeVisible({ timeout: 15_000 });
 
-  const code = 取验证码(共享工作区.邮箱, "reset");
+  const mailboxUrl = `http://127.0.0.1:${(Number(process.env.HOSTED_E2E_PORT) || 3400) + 2}/messages`;
+  let code = "";
+  await expect.poll(async () => {
+    const response = await page.request.get(mailboxUrl);
+    const messages = await response.json() as { recipient: string; subject: string }[];
+    code = /^(\d{6}) 是你的 /.exec(messages.findLast(m => m.recipient === 共享工作区.邮箱)?.subject ?? "")?.[1] ?? "";
+    return code.length;
+  }).toBe(6);
   expect(code).toHaveLength(6);
   await page.getByPlaceholder("邮件里的 6 位验证码").fill(code);
   await page.getByRole("button", { name: "设置新密码" }).click();

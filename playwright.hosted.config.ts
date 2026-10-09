@@ -13,6 +13,8 @@ import path from "node:path";
 const ROOT = __dirname;
 // 并行跑几份工作树时错开端口（HOSTED_E2E_PORT），库在各自目录里
 const PORT = Number(process.env.HOSTED_E2E_PORT) || 3400;
+const SMTP_PORT = PORT + 1;
+const MAILBOX_PORT = PORT + 2;
 const HOSTED_DIR = path.resolve(ROOT, "prisma/e2e-hosted");
 const 生产模式 = process.env.E2E_PROD === "1";
 
@@ -35,7 +37,12 @@ export default defineConfig({
     screenshot: "only-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
+  webServer: [{
+    command: "node e2e/hosted-mail-fixture.mjs",
+    url: `http://127.0.0.1:${MAILBOX_PORT}/health`,
+    reuseExistingServer: false,
+    env: { HOSTED_SMTP_PORT: String(SMTP_PORT), HOSTED_MAILBOX_PORT: String(MAILBOX_PORT) },
+  }, {
     command: 生产模式 ? `npx next build && npx next start --port ${PORT}` : `npx next dev --port ${PORT}`,
     url: `http://localhost:${PORT}/login`,
     reuseExistingServer: false,
@@ -52,6 +59,14 @@ export default defineConfig({
       // 网页版那个唯一的共享工作区，见 e2e/hosted-setup.ts
       SHARED_WORKSPACE: "shared",
       COOKIE_SECURE: "false",
+      // Production password recovery correctly stays closed without SMTP.
+      // Exercise the real transport against a loopback-only synthetic mailbox.
+      SMTP_HOST: "127.0.0.1",
+      SMTP_PORT: String(SMTP_PORT),
+      SMTP_USER: "hosted-e2e",
+      SMTP_PASS: "local-mail-fixture-only",
+      SMTP_FROM: "qa@e2e.local",
+      SIGNUP_VERIFY: "0",
       /**
        * 给一个假 key、指向本机一个没人监听的端口：
        *   - llmEnabled() 为真，首页才渲染对话面（否则走无 AI 的 Board，连输入框都没有）
@@ -65,5 +80,5 @@ export default defineConfig({
       JEV_API_KEY: "",
       LLM_MODEL: "e2e-fake-model",
     },
-  },
+  }],
 });
