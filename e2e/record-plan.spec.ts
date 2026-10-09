@@ -58,18 +58,18 @@ test.beforeEach(async ({ page }) => {
 test("D-044 到点提醒点进来（?focus=plan:第二条）：记录页摆的是叫你的那条、闪一下，地址上的 focus 随即抹掉", async ({ page }) => {
   await page.goto(`/customers/${客户id}?focus=plan:${计划.晚}`);
   // 只认 main 里那份：整页加载时 React 流式渲染会先把内容放在 <div hidden id="S:1"> 里、随后才换进来，那一瞬页面上有两份（看不见的那份不算）
-  const 那条 = page.locator(`main .rec-plan[data-focus="plan:${计划.晚}"]`);
+  const 那条 = page.getByRole("main").locator(`.rec-plan[data-focus="plan:${计划.晚}"]`);
   await expect(那条).toBeVisible();
   await expect(那条).toContainText("叫我的那条计划");
   await expect(那条).toHaveClass(/rec-tl-item-flash/);
   await expect(page).toHaveURL(new RegExp(`/customers/${客户id}$`));
   // 抹掉 focus 之后不能被重画成最早那条（原来 router.replace 会让服务端按没有 focus 再画一遍，叫你的那条一闪就没了）
   await page.waitForTimeout(2000);
-  await expect(page.locator("main .rec-plan")).toHaveCount(1);
-  await expect(page.locator("main .rec-plan")).toContainText("叫我的那条计划");
+  await expect(page.getByRole("main").locator(".rec-plan")).toHaveCount(1);
+  await expect(page.getByRole("main").locator(".rec-plan")).toContainText("叫我的那条计划");
   // 对照：不带 focus 进来，摆的是最早那条
   await page.goto(`/customers/${客户id}`);
-  await expect(page.locator("main .rec-plan:visible")).toContainText("早的那条计划");
+  await expect(page.getByRole("main").locator(".rec-plan:visible")).toContainText("早的那条计划");
 });
 
 test("D-044 叫你的那条已经做完了：照旧摆最早那条没做完的，不是空着", async ({ page }) => {
@@ -78,7 +78,7 @@ test("D-044 叫你的那条已经做完了：照旧摆最早那条没做完的�
   await p.$disconnect();
   try {
     await page.goto(`/customers/${客户id}?focus=plan:${计划.晚}`);
-    await expect(page.locator("main .rec-plan:visible")).toContainText("早的那条计划");
+    await expect(page.getByRole("main").locator(".rec-plan:visible")).toContainText("早的那条计划");
   } finally {
     const q = 连库();
     await q.followPlan.update({ where: { id: 计划.晚 }, data: { done: false } });
@@ -88,7 +88,7 @@ test("D-044 叫你的那条已经做完了：照旧摆最早那条没做完的�
 
 test("D-045 记录页上改计划的时间：保存后刷新，库里和页面上都是新时间", async ({ page }) => {
   await page.goto(`/customers/${客户id}`);
-  const 计划条 = page.locator("main .rec-plan:visible");
+  const 计划条 = page.getByRole("main").locator(".rec-plan:visible");
   await expect(计划条).toContainText("早的那条计划");
   const 框 = page.getByRole("dialog", { name: "编辑跟进计划" });
   await expect(async () => {
@@ -112,18 +112,18 @@ test("D-045 记录页上改计划的时间：保存后刷新，库里和页面�
 
   await page.reload();
   // 改晚了以后最早那条换成了「叫我的那条」；悬停说的是具体几点
-  await expect(page.locator("main .rec-plan:visible")).toContainText("叫我的那条计划");
+  await expect(page.getByRole("main").locator(".rec-plan:visible")).toContainText("叫我的那条计划");
 });
 
 test("D-045 记录页上删一条待办：就地确认后消失，刷新也不回来，库里没了", async ({ page }) => {
   await page.goto(`/customers/${客户id}`);
-  const 行 = page.locator(`[data-focus="task:${待办id}"]`);
+  const 行 = page.getByRole("main").locator(`[data-focus="task:${待办id}"]`);
   await expect(行).toContainText("要删掉的待办");
   await 行.getByRole("button", { name: "删除待办" }).click();
   await 行.getByRole("button", { name: /^删\s*除$/ }).click();
   await expect(行).toHaveCount(0);
   await page.reload();
-  await expect(page.getByText("要删掉的待办")).toHaveCount(0);
+  await expect(page.getByRole("main").getByText("要删掉的待办")).toHaveCount(0);
   const p = 连库();
   expect(await p.task.count({ where: { id: 待办id } })).toBe(0);
   await p.$disconnect();

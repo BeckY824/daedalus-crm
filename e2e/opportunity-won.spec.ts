@@ -59,7 +59,7 @@ test.afterAll(async () => {
 });
 
 const 赢单列 = (page: Page) => page.locator(".pipe-col", { has: page.locator(".pipe-h", { hasText: "赢单成交" }) });
-const 卡 = (page: Page, 名: string) => page.locator(".pipe-card", { hasText: 名 });
+const 卡 = (page: Page, 名: string) => page.getByRole("main").locator(".pipe-card", { hasText: 名 });
 
 test("管道：拖进赢单成交 → 弹「登记签约」、金额带商机金额；点取消 → 卡片留在赢单列，库里是赢单、没登记签约", async ({ page }) => {
   const { 客户id, 商机id } = await 造一单("赢单甲", "甲的年框", 86000);

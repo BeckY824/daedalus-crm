@@ -115,7 +115,7 @@ test("J-082 记录页勾完成的待办：原地划线留着、能撤销；之�
   await expect(行).toBeHidden({ timeout: 10_000 });
   await page.goto("/follow-ups/plans");
   await page.locator(".ant-segmented").first().getByText(/^已完成/).click();
-  await expect(page.locator(".plan-row-was", { hasText: "寄样品" })).toBeVisible();
+  await expect(page.getByRole("main").locator(".plan-row-was", { hasText: "寄样品" })).toBeVisible();
 });
 
 test("J-097 记录页删待办：先问一句；点「取消」不删，点「删除」才删", async ({ page }) => {
@@ -155,12 +155,12 @@ test("J-079 计划页每一行的「删」：先问、确认后那一行和库�
   const 计划 = await 查((p) => p.followPlan.create({ data: { customerId: id, ownerId: 我id, subject: "删掉的回访", method: "电话沟通", plannedAt: new Date(Date.now() + 2 * 3600_000) } }));
   await 登录(page);
   await page.goto("/follow-ups/plans");
-  const 行 = page.locator(".plan-row", { hasText: "删掉的回访" });
+  const 行 = page.getByRole("main").locator(".plan-row", { hasText: "删掉的回访" });
   await 点到出现(行.getByRole("button", { name: "删除 删掉的回访" }), 行.getByText("删除这条？"));
   expect(await 查((p) => p.followPlan.count({ where: { id: 计划.id } }))).toBe(1);
   await 行.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.locator(".ant-message")).toContainText("计划已删除");
-  await expect(page.locator(".plan-row", { hasText: "删掉的回访" })).toHaveCount(0);
+  await expect(page.getByRole("main").locator(".plan-row", { hasText: "删掉的回访" })).toHaveCount(0);
   expect(await 查((p) => p.followPlan.count({ where: { id: 计划.id } }))).toBe(0);
 });
 
@@ -169,11 +169,11 @@ test.skip("【下一版】计划页删一条计划之后，提示条里能撤销
   await 查((p) => p.followPlan.create({ data: { customerId: id, ownerId: 我id, subject: "删了再要回来的计划", method: "电话沟通", plannedAt: new Date(Date.now() + 2 * 3600_000) } }));
   await 登录(page);
   await page.goto("/follow-ups/plans");
-  const 行 = page.locator(".plan-row", { hasText: "删了再要回来的计划" });
+  const 行 = page.getByRole("main").locator(".plan-row", { hasText: "删了再要回来的计划" });
   await 点到出现(行.getByRole("button", { name: "删除 删了再要回来的计划" }), 行.getByText("删除这条？"));
   await 行.getByRole("button", { name: "删除", exact: true }).click();
   await page.locator(".ant-message").getByRole("button", { name: /撤\s*销/ }).click();
-  await expect(page.locator(".plan-row", { hasText: "删了再要回来的计划" })).toBeVisible();
+  await expect(page.getByRole("main").locator(".plan-row", { hasText: "删了再要回来的计划" })).toBeVisible();
 });
 
 test("J-083 计划页点完成：那一行先留在原地打着勾，不立刻抽走", async ({ page }) => {
@@ -185,11 +185,11 @@ test("J-083 计划页点完成：那一行先留在原地打着勾，不立刻�
   });
   await 登录(page);
   await page.goto("/follow-ups/plans");
-  const 行 = page.locator(".plan-row", { hasText: "先做的回访" });
+  const 行 = page.getByRole("main").locator(".plan-row", { hasText: "先做的回访" });
   await 行.getByRole("button", { name: "完成 先做的回访" }).click();
   // 点完的那一刻还在原处、是「做完了」的样子；下面那条没顶上来
   await expect(行).toHaveClass(/plan-row-done/, { timeout: 300 });
-  await expect(page.locator(".plan-row").filter({ hasText: /先做的回访|后面那条/ }).first()).toContainText("先做的回访");
+  await expect(page.getByRole("main").locator(".plan-row").filter({ hasText: /先做的回访|后面那条/ }).first()).toContainText("先做的回访");
   // 留够了再走
   await expect(行).toBeHidden({ timeout: 10_000 });
 });
