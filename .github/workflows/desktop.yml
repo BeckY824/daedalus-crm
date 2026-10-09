@@ -101,6 +101,7 @@ jobs:
         if: failure() && runner.os == 'Windows'
         with:
           name: windows-smoke-failure
+          include-hidden-files: true
           path: |
             desktop/.smoke-data/**/failure-*.png
             desktop/.smoke-data/**/logs/*.log

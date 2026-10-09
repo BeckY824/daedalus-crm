@@ -37,6 +37,7 @@ const 崩溃 = require("./crashlog");
 const 提醒 = require("./reminders");
 const 团队同步 = require("./sync");
 const 运营通知 = require("./ops-notices");
+const { displayVersion } = require("./release-version");
 
 /*
   这台装的是哪个版本。写进主进程自己的环境变量：desktop/cloud.js 发云端请求时带上它，
@@ -47,6 +48,7 @@ process.env.CRM_APP_VERSION = app.getVersion();
 const os = require("node:os");
 
 const APP_NAME = "Daedalus CRM";
+app.setAboutPanelOptions({ applicationName: APP_NAME, applicationVersion: displayVersion(app.getVersion()), version: "" });
 if (process.platform === "win32") app.setAppUserModelId("com.daedalus.crm");
 
 /**
@@ -980,7 +982,7 @@ let 待装 = null;
 let 正在查 = false;
 
 function 设更新状态(s) {
-  更新状态 = s;
+  更新状态 = { ...s, 显示版本: s.版本 ? displayVersion(s.版本) : undefined };
   if (win && !win.isDestroyed()) win.webContents.send("update:state", 更新状态);
 }
 
@@ -1011,11 +1013,11 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
   */
   let 自动下 = false;
   if (更新状态.阶段 === "available") {
-    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `有新版本 ${更新状态.版本}`, detail: "这一版是整包，侧栏底部有按钮，点了才开始下载。" });
+    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `有新版本 ${displayVersion(更新状态.版本)}`, detail: "这一版是整包，侧栏底部有按钮，点了才开始下载。" });
     return;
   }
   if (更新状态.阶段 === "downloading" || 更新状态.阶段 === "ready" || 更新状态.阶段 === "installing") {
-    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `${更新状态.版本} 已在准备中`, detail: "下载完成后侧栏会出现「重启」按钮；不点的话，退出时会自动换上，下次打开就是新版。" });
+    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `${displayVersion(更新状态.版本)} 已在准备中`, detail: "下载完成后侧栏会出现「重启」按钮；不点的话，退出时会自动换上，下次打开就是新版。" });
     return;
   }
   正在查 = true;
@@ -1025,7 +1027,7 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
     const 新版 = await 更新.检查({ 当前版本: app.getVersion(), platform: process.platform, arch: process.arch });
     if (!新版) {
       设更新状态({ 阶段: "idle" });
-      if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: "已经是最新版本", detail: `当前版本 ${app.getVersion()}。` });
+      if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: "已经是最新版本", detail: `当前版本 ${displayVersion(app.getVersion())}。` });
       return;
     }
     const 版本 = String(新版.版本).replace(/^v/, "");
@@ -1158,7 +1160,7 @@ function 通知安装中(版本, 方式) {
   try {
     if (!Notification.isSupported()) return;
     new Notification({
-      title: `正在更新到 ${版本}`,
+      title: `正在更新到 ${displayVersion(版本)}`,
       body: 方式 === "差量" ? "几秒后自动重新打开。" : "正在安装，一两分钟后会自动打开，这段时间不用再点开它。",
     }).show();
   } catch { /* 通知发不出去不挡更新 */ }
@@ -1181,7 +1183,7 @@ async function 等安装装完(记录) {
   const 已是新版 = app.getVersion() === 版本;
   const 页 = `<!doctype html><meta charset="utf-8"><title>正在更新</title>
 <body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#fafafa;color:#1f1f1f;font:14px/1.6 'Microsoft YaHei UI','PingFang SC',system-ui,sans-serif">
-<div style="max-width:320px;padding:0 24px"><div style="font-size:16px;font-weight:600;margin-bottom:6px">${已是新版 ? "正在完成更新" : `正在安装 ${版本.replace(/[<>&]/g, "")}`}</div>
+<div style="max-width:320px;padding:0 24px"><div style="font-size:16px;font-weight:600;margin-bottom:6px">${已是新版 ? "正在完成更新" : `正在安装 ${displayVersion(版本).replace(/[<>&]/g, "")}`}</div>
 <div style="color:#666">${已是新版 ? "马上就好。" : "装好后会自动打开，不用做别的。一般一两分钟。"}</div></div></body>`;
   const 小窗 = new BrowserWindow({ width: 420, height: 180, resizable: false, minimizable: false, maximizable: false, autoHideMenuBar: true, backgroundColor: "#fafafa", title: "正在更新", show: false });
   关过渡小窗();
@@ -1329,7 +1331,7 @@ function 站内路径(v) {
   return /^\/(?!\/)[^\s\\]*$/.test(s) && s.length < 300 ? s : null;
 }
 
-ipcMain.handle("shell:version", () => app.getVersion());
+ipcMain.handle("shell:version", () => displayVersion(app.getVersion()));
 // 毛玻璃：preload 每次载入同步问一次（不能异步：等回话那一下页面会先画出实底再变透明，闪一下）
 ipcMain.on("shell:glass-now", (e) => {
   e.returnValue = 玻璃开着();

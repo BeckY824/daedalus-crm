@@ -8,7 +8,12 @@ import { spawn, execFileSync } from "node:child_process";
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 fs.mkdirSync(path.join(desktop, ".smoke-data"), { recursive: true });
-const root = fs.mkdtempSync(path.join(desktop, ".smoke-data", "运行 空格-"));
+const installedRoot = process.env.CRM_SMOKE_DATA_ROOT;
+if (installedRoot && (process.env.GITHUB_ACTIONS !== "true" || path.resolve(installedRoot) !== path.resolve(process.env.APPDATA, "DaedalusCRM") || fs.existsSync(installedRoot))) {
+  throw new Error("Default-root smoke is allowed only in a fresh GitHub Actions runner");
+}
+const root = installedRoot || fs.mkdtempSync(path.join(desktop, ".smoke-data", "运行 空格-"));
+fs.mkdirSync(root, { recursive: true });
 const executablePath = process.argv[2] || path.join(desktop, "dist/win-unpacked/Daedalus CRM.exe");
 let identity = "windows-smoke";
 // 隔离的云端契约替身：不注册真实账号，不调用付费模型。

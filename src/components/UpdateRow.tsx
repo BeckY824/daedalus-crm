@@ -24,6 +24,7 @@ import Markdown from "@/components/Markdown";
 type 更新状态 = {
   阶段: "idle" | "checking" | "available" | "downloading" | "ready" | "installing" | "manual" | "error";
   版本?: string;
+  显示版本?: string;
   进度?: number | null;
   错误?: string;
   地址?: string;
@@ -88,6 +89,7 @@ export default function UpdateRow() {
   if (!api || !s) return null;
 
   const 百分比 = s.进度 == null ? null : Math.max(0, Math.min(100, Math.round(s.进度)));
+  const 目标版本 = s.显示版本 ?? s.版本;
   const 下载 = () => void (api.download ? api.download() : api.check(true));
   const 查 = () => {
     set刚查完(false);
@@ -107,7 +109,7 @@ export default function UpdateRow() {
       break;
     case "available":
       图标 = <ArrowDownOutlined />;
-      话 = `更新到 ${s.版本}`;
+      话 = `更新到 ${目标版本}`;
       点 = () => set问一句(true);
       样式 = " hot";
       break;
@@ -126,13 +128,13 @@ export default function UpdateRow() {
       break;
     case "ready":
       图标 = <ReloadOutlined />;
-      话 = `重启以更新到 ${s.版本}`;
+      话 = `重启以更新到 ${目标版本}`;
       点 = () => void api.install();
       样式 = " hot";
       break;
     case "manual":
       图标 = <ArrowDownOutlined />;
-      话 = `去下载 ${s.版本}`;
+      话 = `去下载 ${目标版本}`;
       点 = () => void api.openDownload();
       样式 = " hot";
       break;
@@ -180,7 +182,7 @@ export default function UpdateRow() {
       <Modal
         open={问一句 && s.阶段 === "available"}
         onCancel={() => set问一句(false)}
-        title={`有新版本 ${s.版本 ?? ""}`}
+        title={`有新版本 ${目标版本 ?? ""}`}
         width={520}
         footer={
           <>

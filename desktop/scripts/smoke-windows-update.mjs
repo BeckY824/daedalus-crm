@@ -19,6 +19,7 @@ const setupName = fs.readdirSync(dist).find(n => /-x64-setup\.exe$/.test(n));
 assert(setupName, "missing NSIS installer");
 const setup = path.join(dist, setupName);
 const version = JSON.parse(fs.readFileSync(path.join(desktop, "package.json"))).version;
+const { displayVersion } = createRequire(import.meta.url)("../release-version.js");
 const sha = p => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
 const installerHash = sha(setup);
 // Assisted NSIS uses productFilename (including the space), not package name.
@@ -33,9 +34,10 @@ const wait = async (fn, ms, reason) => {
   }
   throw new Error("Timed out: " + reason);
 };
-function businessSmoke() {
+function businessSmoke(dataRoot) {
   const r = spawnSync(process.execPath, [path.join(desktop, "scripts", "smoke-windows.mjs"), exe], {
     cwd: desktop, encoding: "utf8", timeout: 420_000, maxBuffer: 10 * 1024 * 1024,
+    env: { ...process.env, CRM_SMOKE_DATA_ROOT: dataRoot || "" },
   });
   process.stdout.write(r.stdout || ""); process.stderr.write(r.stderr || "");
   assert.equal(r.status, 0, "installed package business smoke failed");
@@ -60,7 +62,7 @@ const peOffset = runtime.readUInt32LE(0x3c);
 assert.equal(runtime.subarray(peOffset, peOffset + 4).toString("hex"), "50450000");
 assert.equal(runtime.readUInt16LE(peOffset + 4), 0x8664, "installed runtime must be Windows x64");
 const asar = createRequire(import.meta.url)("@electron/asar");
-const embedded = ["main.js","preload.js","preload-app.js","local-server.js","mcp-bridge.js","cloud.js","glass-blur.js","accounts.js","machine.js","updater.js","update-security.js","route-memory.js","install.js","windows-install.js","delta.js","backup.js","auto-backup.js","crashlog.js","reminders.js","sync.js","ops-notices.js","sign.js"].map(name => {
+const embedded = ["main.js","release-version.js","preload.js","preload-app.js","local-server.js","mcp-bridge.js","cloud.js","glass-blur.js","accounts.js","machine.js","updater.js","update-security.js","route-memory.js","install.js","windows-install.js","delta.js","backup.js","auto-backup.js","crashlog.js","reminders.js","sync.js","ops-notices.js","sign.js"].map(name => {
   const actual = asar.extractFile(path.join(installed, "resources", "app.asar"), name);
   const normalized = actual.toString("utf8").replaceAll("\r\n", "\n");
   assert.equal(normalized, fs.readFileSync(path.join(desktop, name), "utf8").replaceAll("\r\n", "\n"), "installed source mismatch: " + name);
@@ -72,8 +74,12 @@ fs.writeFileSync(path.join(dist, `Daedalus-CRM-${version}-x64-verify.json`), JSO
   installer: { file: setupName, bytes: fs.statSync(setup).size, sha256: installerHash },
   actualNsisInstalledSourceMatches: true, lineEndingNormalizationOnly: true, files: embedded,
 }, null, 2) + "\n");
-console.log("PASS: actual NSIS-installed Windows x64 runtime and all 22 embedded source files match checkout");
-const root = businessSmoke();
+console.log("PASS: actual NSIS-installed Windows x64 runtime and all 23 embedded source files match checkout");
+// ExecShellAsUser launches through Explorer and does not inherit the caller's
+// CRM_DATA_ROOT. Use the real default user directory in the disposable runner,
+// so the actual automatic relaunch must open the same saved accounts and data.
+assert.equal(process.env.GITHUB_ACTIONS, "true", "full update smoke requires a disposable CI runner");
+const root = businessSmoke(path.join(process.env.APPDATA, "DaedalusCRM"));
 const accounts = path.join(root, "accounts");
 function snapshot() {
   return fs.readdirSync(accounts).sort().flatMap(key => {
@@ -169,15 +175,19 @@ try {
   await page.evaluate(() => window.desktopUpdate.install()).catch(() => {});
   await Promise.race([exited, new Promise((_, reject) => setTimeout(() => reject(new Error("old app did not quit for NSIS")), 30_000))]);
   app = null;
-  await wait(() => fs.existsSync(license) && sha(license) === licenseHash && starts() > initialStarts,
-    180_000, "real NSIS replaces file and force-runs installed application");
+  await wait(() => fs.existsSync(license) && sha(license) === licenseHash,
+    180_000, "real NSIS replaces installed file");
+  console.log("PASS: actual NSIS replaced the installed file");
+  await wait(() => starts() > initialStarts,
+    90_000, "NSIS automatic relaunch uses the same default user data root");
   console.log("PASS: actual full NSIS installer replaces installed file and relaunches the app");
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
     "$p = [IO.Path]::GetFullPath($env:CRM_SMOKE_EXE); Get-Process | Where-Object { $_.Path -eq $p -and $_.MainWindowHandle -ne 0 } | ForEach-Object { [void]$_.CloseMainWindow(); [void]$_.WaitForExit(30000) }"],
     { env: { ...process.env, CRM_SMOKE_EXE: exe }, timeout: 45_000, stdio: "pipe" });
   app = await electron.launch({ executablePath: exe, env, timeout: 60_000 });
   page = await app.firstWindow(); await expect(page.locator(".rail")).toBeVisible({ timeout: 60_000 });
-  assert.equal(await page.evaluate(() => window.desktopShell.version()), version);
+  assert.equal(await page.evaluate(() => window.desktopShell.version()), displayVersion(version));
+  await expect(page.locator(".rail-upd-v")).toHaveText("v" + displayVersion(version));
   assert.deepEqual(snapshot(), before);
   const current = JSON.parse(fs.readFileSync(path.join(root, "current.json"))).key;
   const customer = before.find(a => a.key === current).customers.find(c => c.name === "Windows 外贸客户");
@@ -192,8 +202,14 @@ try {
   console.log("PASS: full installed package passes the complete business smoke again");
 } catch (error) {
   console.error("Evidence: " + root);
+  const evidence = path.join(desktop, ".smoke-data", "full-update-failure");
+  fs.mkdirSync(evidence, { recursive: true });
+  if (fs.existsSync(path.join(root, "logs"))) fs.cpSync(path.join(root, "logs"), path.join(evidence, "logs"), { recursive: true });
+  console.error(JSON.stringify({ licenseRestored: fs.existsSync(license) && sha(license) === licenseHash,
+    installRecord: fs.existsSync(path.join(root, "updates", "installing.json"))
+      ? JSON.parse(fs.readFileSync(path.join(root, "updates", "installing.json"))) : null }));
   if (app) for (const [i, page] of app.windows().entries()) {
-    await page.screenshot({ path: path.join(root, `failure-full-update-${i}.png`) }).catch(() => {});
+    await page.screenshot({ path: path.join(evidence, `failure-full-update-${i}.png`) }).catch(() => {});
   }
   const log = path.join(root, "logs", "app.log");
   if (fs.existsSync(log)) console.error(fs.readFileSync(log, "utf8").slice(-6000));

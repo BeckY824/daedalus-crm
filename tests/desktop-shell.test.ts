@@ -472,11 +472,11 @@ describe("检查更新：整包不自动下、重试不弹框（回归核对 D-0
 
   it("D-088 没有新版时静默检查只推checking→idle，菜单检查才显示系统框", async () => {
     const states: { 阶段: string }[] = []; const show = vi.fn();
-    const check = new Function("设更新状态", "dialog", `
+    const check = new Function("设更新状态", "dialog", "displayVersion", `
       let 正在查=false,更新状态={阶段:'idle'};const app={getVersion:()=>'.16'},win=null;
       const 更新={检查:async()=>null},process={platform:'darwin',arch:'arm64'},写配置=()=>{},读配置=()=>({});
       ${查};return 检查更新;
-    `)((s: { 阶段: string }) => states.push(s), { showMessageBox: show });
+    `)((s: { 阶段: string }) => states.push(s), { showMessageBox: show }, (v: string) => v);
     await check({ 手动: true, 静默: true });
     expect(states.map(x => x.阶段)).toEqual(["checking", "idle"]); expect(show).not.toHaveBeenCalled();
     await check({ 手动: true });
