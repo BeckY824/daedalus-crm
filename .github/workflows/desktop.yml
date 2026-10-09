@@ -69,6 +69,9 @@ jobs:
       - name: 安装桌面端依赖
         working-directory: desktop
         run: npm ci --no-audit --no-fund
+      - name: Windows 更新退出与真实 PowerShell 前置关卡
+        if: runner.os == 'Windows'
+        run: npx vitest run tests/desktop-windows-handoff.test.ts tests/desktop-windows-delta.test.ts tests/desktop-windows-install.test.ts
       - name: 打包
         working-directory: desktop
         run: npm run ${{ matrix.script }}
