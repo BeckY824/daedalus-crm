@@ -113,6 +113,7 @@ jobs:
             desktop/dist/*.app.zip
             desktop/dist/*.manifest.json.gz
             desktop/dist/*.exe
+            desktop/dist/*-x64-verify.json
           if-no-files-found: error
 
       # 打 tag 时顺手挂到 Release 上。Release 不存在就建一个；已存在就只补附件。

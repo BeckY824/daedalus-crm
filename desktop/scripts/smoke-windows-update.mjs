@@ -9,6 +9,7 @@ import crypto from "node:crypto";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { DatabaseSync } from "node:sqlite";
 import { _electron as electron, expect } from "@playwright/test";
 
@@ -46,6 +47,24 @@ assert.equal(initial.status, 0, "initial NSIS install failed");
 assert(fs.existsSync(exe), "NSIS did not install at the expected current-user path");
 assert(fs.readdirSync(installed).some(n => /^Uninstall .+\.exe$/i.test(n)));
 console.log("PASS: real NSIS current-user install and uninstaller");
+const runtime = fs.readFileSync(exe);
+const peOffset = runtime.readUInt32LE(0x3c);
+assert.equal(runtime.subarray(peOffset, peOffset + 4).toString("hex"), "50450000");
+assert.equal(runtime.readUInt16LE(peOffset + 4), 0x8664, "installed runtime must be Windows x64");
+const asar = createRequire(import.meta.url)("@electron/asar");
+const embedded = ["main.js","preload.js","preload-app.js","local-server.js","mcp-bridge.js","cloud.js","glass-blur.js","accounts.js","machine.js","updater.js","update-security.js","route-memory.js","install.js","windows-install.js","delta.js","backup.js","auto-backup.js","crashlog.js","reminders.js","sync.js","ops-notices.js","sign.js"].map(name => {
+  const actual = asar.extractFile(path.join(installed, "resources", "app.asar"), name);
+  const normalized = actual.toString("utf8").replaceAll("\r\n", "\n");
+  assert.equal(normalized, fs.readFileSync(path.join(desktop, name), "utf8").replaceAll("\r\n", "\n"), "installed source mismatch: " + name);
+  return { file: name, sha256: crypto.createHash("sha256").update(actual).digest("hex"),
+    normalizedSha256: crypto.createHash("sha256").update(normalized).digest("hex") };
+});
+fs.writeFileSync(path.join(dist, `Daedalus-CRM-${version}-x64-verify.json`), JSON.stringify({
+  source: process.env.GITHUB_SHA, version, platform: "win32-x64", peMachine: "AMD64 0x8664",
+  installer: { file: setupName, bytes: fs.statSync(setup).size, sha256: installerHash },
+  actualNsisInstalledSourceMatches: true, lineEndingNormalizationOnly: true, files: embedded,
+}, null, 2) + "\n");
+console.log("PASS: actual NSIS-installed Windows x64 runtime and all 22 embedded source files match checkout");
 const root = businessSmoke();
 const accounts = path.join(root, "accounts");
 function snapshot() {
