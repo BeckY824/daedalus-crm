@@ -47,8 +47,18 @@ it("D-077 自动恢复换库失败时保留原库全部已提交WAL数据", asyn
   const { db, file } = open(); db.close();
   const dir = path.join(root, "backups"); fs.mkdirSync(dir); const name = "daily-2026-10-01.db";
   await backup.备份数据库(file, path.join(dir, name));
-  const child = spawnSync(process.execPath, ["-e", "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(process.argv[1]);db.exec(\"PRAGMA wal_autocheckpoint=0;PRAGMA journal_mode=WAL;INSERT INTO Customer(name) VALUES('QA备份之后');\");process.kill(process.pid,'SIGKILL');", file]);
-  expect(child.signal).toBe("SIGKILL"); expect(fs.statSync(`${file}-wal`).size).toBeGreaterThan(32);
+  const child = spawnSync(process.execPath, ["-e", "const {DatabaseSync}=require('node:sqlite');const db=new DatabaseSync(process.argv[1]);db.exec(\"PRAGMA wal_autocheckpoint=0;PRAGMA journal_mode=WAL;INSERT INTO Customer(name) VALUES('QA备份之后');\");require('node:fs').writeSync(1,'QA_WAL_COMMITTED\\n');process.kill(process.pid,'SIGKILL');", file]);
+  expect(child.error).toBeUndefined();
+  expect(child.stdout.toString()).toBe("QA_WAL_COMMITTED\n");
+  // Windows 强制终止返回非零退出码，不会返回 Unix 的 signal 名称。
+  if (process.platform === "win32") {
+    expect(child.signal).toBeNull();
+    expect(Number.isInteger(child.status)).toBe(true);
+    expect(child.status).not.toBe(0);
+  } else {
+    expect(child.signal).toBe("SIGKILL");
+  }
+  expect(fs.statSync(`${file}-wal`).size).toBeGreaterThan(32);
   const rename = fs.renameSync.bind(fs);
   const spy = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => { if (to === file) throw new Error("QA拒绝换库"); return rename(from, to); });
   try { expect(() => auto.恢复({ 库: file, 数据目录: root, 文件名: name, 校验: backup.校验数据库 })).toThrow("QA拒绝换库"); } finally { spy.mockRestore(); }
