@@ -9,6 +9,7 @@ docs
 prisma/*.db
 prisma/*.db-*
 *.md
+!CHANGELOG.md
 .env*
 tests
 vitest.config.ts
@@ -20,5 +21,7 @@ test-results
 playwright-report
 # 桌面端。它自带一份完整的服务（desktop/server-bundle），和容器镜像没有关系；
 # 不排掉的话 desktop/node_modules 里那 500M 的 Electron 会被 Next 的 standalone 一起拷进镜像
-desktop
+desktop/*
+# Web客户端和桌面本地服务共享公开版本映射；只纳入这个纯函数文件。
+!desktop/release-version.js
 **/node_modules

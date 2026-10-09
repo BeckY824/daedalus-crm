@@ -69,6 +69,7 @@ ENV TZ=Asia/Shanghai
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/CHANGELOG.md ./CHANGELOG.md
 
 # Next 的依赖追踪会漏掉 Prisma（客户端是 generate 出来的，非静态引用），
 # 不显式拷贝的话应用一查库就 MODULE_NOT_FOUND
