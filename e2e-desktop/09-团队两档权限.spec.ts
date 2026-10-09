@@ -129,7 +129,7 @@ test("业务员的客户列表：只有自己负责的、渠道是自己的、�
   // 前面几组以原来那位管理员身份建的客户（不自动跑、提醒客户……）也不是我的
   await expect(表.getByRole("link", { name: "不自动跑" })).toHaveCount(0);
   await expect(表.getByRole("link", { name: "提醒客户" })).toHaveCount(0);
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(3);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(3);
 
   // 跟进记录页同一个口径：老板那位客户上的跟进不出现
   await page.goto("/follow-ups");
@@ -141,7 +141,7 @@ test("业务员按网址直接打开老板的客户：找不到；自己的、�
   await 进门(page);
   // 限定之下这一位「不存在」：记录页走 notFound()。布局已经开始流式输出，状态码还是 200，看的是页面上那句话
   await page.goto(`/customers/${id.老板的}`);
-  await expect(page.locator("main")).toContainText("这条记录不在了");
+  await expect(page.locator("main")).toContainText("没有找到这条记录");
   await expect(page.getByRole("heading", { name: 名.老板的 })).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("老板亲自谈的价");
 
@@ -156,12 +156,12 @@ test("业务员按网址直接打开老板的客户：找不到；自己的、�
 test("业务员搜索：搜老板客户的名字搜不到；联系人页、计划页、商机页也没有老板客户上的", async ({ page }) => {
   await 进门(page, `/customers?keyword=${encodeURIComponent("权限-老板")}`);
   await expect(page.locator("main")).not.toContainText(名.老板的);
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(0);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(0);
   await page.goto(`/customers?keyword=${encodeURIComponent("权限-")}`);
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(3);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(3);
   // 按号码搜也一样（号码搜不走名字那条路）
   await page.goto("/customers?keyword=13600000004");
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(0);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(0);
 
   await page.goto("/contacts");
   await expect(page.locator("main")).toContainText("我客户的联系人");
@@ -194,7 +194,7 @@ test("业务员导出客户：文件里只有自己的、渠道是自己的、�
 
 test("业务员的数据页：新增客户只数看得到的 3 位，进行中商机不含老板的大单，本月签约不含老板签的", async ({ page }) => {
   await 进门(page, "/overview");
-  const 卡 = (名字: string) => page.locator(".stat-card", { has: page.locator(".stat-label", { hasText: 名字 }) });
+  const 卡 = (名字: string) => page.getByRole("main").locator(".stat-card", { has: page.locator(".stat-label", { hasText: 名字 }) });
   await expect(卡("新增客户").locator(".stat-value")).toHaveText("3");
   await expect(卡("进行中商机").locator(".stat-value")).toHaveText("1");
   await expect(卡("进行中商机")).not.toContainText("99");
@@ -218,7 +218,7 @@ test("业务员新建客户：负责人默认是我，建完自己的列表里�
     await p.$disconnect();
   }
   await page.goto(`/customers?keyword=${encodeURIComponent("权限-我刚建的")}`);
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(1);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(1);
 });
 
 test("被老板移出（中转名单里没这个团了）：设置 → 团队只摆「退出团队」，不摆作废的邀请码（T-050）", async ({ page, request }) => {

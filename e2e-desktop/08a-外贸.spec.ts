@@ -123,7 +123,7 @@ test("新建商机摆询盘时间、不摆概率；转为订单 → 商机标「
   // 双击保存：只建出一条（10-07 Sam 实测网慢时连点建出三条重复商机）。下面 行 是单条定位，多出一条就会报错
   await 框.getByRole("button", { name: /保\s*存/ }).dblclick();
   await expect(框).toBeHidden();
-  const 行 = page.locator(".ant-table-row", { hasText: 商机名 });
+  const 行 = page.getByRole("main").locator(".ant-table-row", { hasText: 商机名 });
   await expect(行).toContainText("42,000");
 
   await page.getByRole("button", { name: `${商机名} 的更多操作` }).click();
@@ -144,16 +144,16 @@ test("客户页：订单区、WhatsApp 链接、已下单；跟进挂到订单�
   await page.locator("main").getByRole("link", { name: 客户名 }).click();
   await page.waitForURL(/\/customers\/[^/?]+/);
   await page.waitForLoadState("networkidle").catch(() => {});
-  const 档案 = page.locator(".rec-rail.rec-card");
+  const 档案 = page.getByRole("main").locator(".rec-rail.rec-card");
   await expect(档案.locator(".rec-sec-t", { hasText: "订单" })).toBeVisible();
   await expect(档案).toContainText(单号);
   await expect(档案).toContainText("阿联酋");
   await expect(page.getByRole("link", { name: /WhatsApp/ })).toHaveAttribute("href", `https://wa.me/${wa数字}`);
-  await expect(page.locator(".rec-tags")).toContainText("已下单");
+  await expect(page.getByRole("main").locator(".rec-tags")).toContainText("已下单");
 
   await page.getByPlaceholder(/记一笔/).first().fill(跟进);
   await page.getByRole("button", { name: "直接记" }).click();
-  const 条 = page.locator(".rec-tl-item", { hasText: 跟进 });
+  const 条 = page.getByRole("main").locator(".rec-tl-item", { hasText: 跟进 });
   await expect(条).toBeVisible();
   await 条.hover();
   await 条.getByRole("button", { name: /编辑/ }).click();
@@ -163,12 +163,12 @@ test("客户页：订单区、WhatsApp 链接、已下单；跟进挂到订单�
   await 跟进框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(条.locator(".rec-tl-order")).toHaveText(`订单 ${单号}`);
 
-  await page.locator(".rec-tl-order", { hasText: 单号 }).click();
+  await page.getByRole("main").locator(".rec-tl-order", { hasText: 单号 }).click();
   await page.waitForURL(/\/orders\/[^/?]+$/);
-  await expect(page.locator(".ord-notes").first()).toContainText(跟进);
+  await expect(page.getByRole("main").locator(".ord-notes").first()).toContainText(跟进);
 
   await page.goto("/orders");
-  const 单行 = page.locator(".ant-table-row", { hasText: 单号 });
+  const 单行 = page.getByRole("main").locator(".ant-table-row", { hasText: 单号 });
   await expect(单行).toContainText(客户名);
   await expect(单行).toContainText("US$ 42,000");
   if (!订单节点) await expect(单行).toContainText("T/T 30/70");
@@ -201,11 +201,11 @@ test("切回通用：没有订单入口，客户和跟进都在；再切外贸�
   await page.waitForURL(/\/customers\/[^/?]+/);
   await expect(page.locator("main")).toContainText(跟进);
   // 状态叫法跟着换回来：外贸的「已下单」不能留在通用里（F.2 走查抓到：套预设是合并，预设里没有的那几条留着外贸的）
-  await expect(page.locator(".rec-tags")).toContainText("已签约");
-  await expect(page.locator(".rec-tags")).not.toContainText("已下单");
+  await expect(page.getByRole("main").locator(".rec-tags")).toContainText("已签约");
+  await expect(page.getByRole("main").locator(".rec-tags")).not.toContainText("已下单");
 
   await 套预设(page, "外贸出口");
   await page.goto("/orders");
-  await expect(page.locator(".ant-table-row", { hasText: 单号 })).toContainText(客户名);
+  await expect(page.getByRole("main").locator(".ant-table-row", { hasText: 单号 })).toContainText(客户名);
   expect(问题, 问题.join("\n")).toEqual([]);
 });
