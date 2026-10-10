@@ -473,13 +473,12 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
       const 键 = page.getByRole("button", { name: /生成简报/ });
       // 抽屉已经开着（还在滑开）就别再点：再点一下是关上，下一行就一直等一颗已经不在的按钮（10-07 main CI 撞到，两趟都卡满 60 秒）
       const 抽屉开着 = page.locator(".ant-drawer-open");
+      // 水合后会按正文宽度把 SSR 的内联按钮移进抽屉。每次取色前都重新确认入口，
+      // 否则「刚才可见」不能保证稍后 evaluate 仍能找到按钮，整轮只会等到超时。
+      let 对比 = { 比: NaN, 字: "", 底: "" };
       await expect(async () => {
         if (!(await 键.isVisible()) && (await 抽屉键.isVisible()) && (await 抽屉开着.count()) === 0) await 抽屉键.click();
         await expect(键).toBeVisible({ timeout: 2_000 });
-      }).toPass({ timeout: 20_000 });
-      // CI 上按钮刚出现时（抽屉还在滑）偶尔读到空颜色，算出 NaN（10-07 main CI）：读到两样都有为止
-      let 对比 = { 比: NaN, 字: "", 底: "" };
-      await expect(async () => {
         对比 = await 键.evaluate((el) => {
           const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
           const 亮 = ([r, g, b]: number[]) => {
@@ -491,9 +490,9 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
           for (let p: Element | null = el; 底.length === 4 && 底[3] === 0 && p; p = p.parentElement) 底 = rgb(getComputedStyle(p).backgroundColor);
           const [a, b] = [亮(字), 亮(底)].sort((x, y) => y - x);
           return { 比: (a + 0.05) / (b + 0.05), 字: 字.join(","), 底: 底.join(",") };
-        });
+        }, undefined, { timeout: 2_000 });
         expect(Number.isFinite(对比.比), `字 rgb(${对比.字}) 底 rgb(${对比.底})`).toBe(true);
-      }).toPass({ timeout: 10_000 });
+      }).toPass({ timeout: 20_000 });
       // 当时是灰字压蓝底，对比度一点几；白字压品牌蓝是 4.5 上下（全站主按钮都是这一对，由 design-tokens 那套单测管）
       expect(对比.比, `「生成简报」字 rgb(${对比.字}) 底 rgb(${对比.底})`).toBeGreaterThanOrEqual(4);
     } finally {

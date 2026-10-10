@@ -56,8 +56,10 @@ jobs:
       - run: npx prisma generate --schema=prisma/control.prisma
         env:
           CONTROL_DATABASE_URL: file:/tmp/control-ci.db
+      # 默认网页验生产构建，避免只验证 dev server；仍使用隔离 E2E 库。
       - run: npx playwright test
         env:
+          E2E_PROD: "1"
           HOME: /root
           # 用例的浏览器固定 Asia/Shanghai，服务端也要一致，否则日期文案水合失配
           TZ: Asia/Shanghai

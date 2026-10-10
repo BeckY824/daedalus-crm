@@ -10,10 +10,15 @@ test.beforeAll(async()=>{const db=连库();try{
 test.afterAll(async()=>{const db=连库();try{await 清空业务数据(db)}finally{await db.$disconnect()}});
 async function login(page:Page){await page.goto("/login");await page.getByPlaceholder("用户名").fill("zhangsan");await page.getByPlaceholder("登录密码").fill("admin123");await page.getByRole("button",{name:/登\s*录/}).click();await page.waitForURL(/\/dashboard/)}
 async function ask(page:Page){
- // 按 Dropdown 默认 hover 触发展开，等菜单可见后再执行删除。
- await page.getByRole("button",{name:"客户更多操作"}).hover();
+ // SSR 可见不代表事件已接上；水合/布局变化后重新移入。只重试展开，不重试删除。
  const item=page.getByRole("menuitem",{name:/删除这位客户/});
- await expect(item).toBeVisible();
+ await expect(async()=>{
+  if(!(await item.isVisible())){
+   await page.getByRole("heading").first().hover();
+   await page.getByRole("button",{name:"客户更多操作"}).hover();
+  }
+  await expect(item).toBeVisible({timeout:2_000});
+ }).toPass({timeout:20_000});
  await item.click();
 }
 test("详情删除入口先提示推荐依赖，不弹不可执行的最终确认且没有写库",async({page})=>{
