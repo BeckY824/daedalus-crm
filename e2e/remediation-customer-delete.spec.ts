@@ -9,7 +9,13 @@ test.beforeAll(async()=>{const db=连库();try{
 }finally{await db.$disconnect()}});
 test.afterAll(async()=>{const db=连库();try{await 清空业务数据(db)}finally{await db.$disconnect()}});
 async function login(page:Page){await page.goto("/login");await page.getByPlaceholder("用户名").fill("zhangsan");await page.getByPlaceholder("登录密码").fill("admin123");await page.getByRole("button",{name:/登\s*录/}).click();await page.waitForURL(/\/dashboard/)}
-async function ask(page:Page){await page.getByRole("button",{name:"客户更多操作"}).click();await page.getByRole("menuitem",{name:/删除这位客户/}).click()}
+async function ask(page:Page){
+ // 按 Dropdown 默认 hover 触发展开，等菜单可见后再执行删除。
+ await page.getByRole("button",{name:"客户更多操作"}).hover();
+ const item=page.getByRole("menuitem",{name:/删除这位客户/});
+ await expect(item).toBeVisible();
+ await item.click();
+}
 test("详情删除入口先提示推荐依赖，不弹不可执行的最终确认且没有写库",async({page})=>{
  const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);await page.goto("/customers/delete-parent");await ask(page);
  await expect(page.getByText(/整批已阻止：被依赖客户/)).toBeVisible();expect(await page.getByRole("dialog").count()).toBe(0);
