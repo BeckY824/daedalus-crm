@@ -9,7 +9,6 @@ import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页 }
 import { 规整币种 } from "@/lib/currency";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { getBusiness } from "@/lib/business";
-import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
@@ -71,13 +70,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   // URL 参数、删空最后一页都不能使 skip 变成 NaN 或停留在空的越界页。
   const total = await prisma.customer.count({ where });
   const page = Math.min(正整数(sp.page, 1), Math.max(1, Math.ceil(total / pageSize)));
-  // 列表与地址一起回到有效页：刷新、收藏和删空末页后的地址不能继续带越界页码。
-  if (sp.page !== undefined && sp.page !== String(page)) {
-    const q = new URLSearchParams();
-    for (const [key, value] of Object.entries(sp)) if (typeof value === "string") q.set(key, value);
-    q.set("page", String(page));
-    redirect(`/customers?${q}`);
-  }
 
   const [rows, users, channels, allCustomers, 用着的职位, 用着的国家] = await Promise.all([
     sort ? 客户金额分页(where, sort, sortCurrency, page, pageSize) : prisma.customer.findMany({
@@ -104,6 +96,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       rows={rows.map((r) => 成客户行(r, 号))}
       total={total}
       page={page}
+      requestedPage={sp.page}
       pageSize={pageSize}
       金额排序={sort}
       排序币种={sortCurrency}

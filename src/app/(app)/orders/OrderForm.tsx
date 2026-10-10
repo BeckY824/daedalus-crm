@@ -143,7 +143,7 @@ export default function OrderForm({
                   <CurrencySelect />
                 </Form.Item>
                 <Form.Item name="amount" noStyle rules={[{ required: true, message: "请填订单金额" }, { type: "number", min: 0, message: "订单金额不能为负数" }]}>
-                  <InputNumber<number> changeOnBlur={false} style={{ width: "100%" }} formatter={金额格式} aria-label="订单金额" />
+                  <InputNumber<number> style={{ width: "100%" }} formatter={金额格式} aria-label="订单金额" />
                 </Form.Item>
               </Space.Compact>
             </Form.Item>

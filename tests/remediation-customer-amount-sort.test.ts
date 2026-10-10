@@ -36,25 +36,24 @@ it("按单一币种精确金额排序，美元不与人民币相加，零金额�
  expect(cny.props.rows.slice(0,2).map((r:{id:string})=>r.id)).toEqual(["amount-000","amount-001"]);
  expect(usd.props.排序币种).toBe("USD");
 });
-it("B6 删除末页后实际跳转有效URL，并保留搜索、排序和页大小",async()=>{
+it("B6 删除末页后返回有效页和原页码，供客户端规范地址",async()=>{
  const sp={keyword:"客户",sort:"amount-desc",sortCurrency:"CNY",pageSize:"10",page:"3"};
  const last=await Page({searchParams:Promise.resolve(sp)});expect(last.props.rows).toHaveLength(5);
  await db.customer.deleteMany({where:{id:{in:last.props.rows.map((r:{id:string})=>r.id)}}});
- const target="/customers?"+new URLSearchParams({...sp,page:"2"});
- await expect(Page({searchParams:Promise.resolve(sp)})).rejects.toMatchObject({digest:expect.stringContaining(target)});
- const valid=await Page({searchParams:Promise.resolve({...sp,page:"2"})});expect(valid.props.page).toBe(2);expect(valid.props.rows).toHaveLength(10);
+ const valid=await Page({searchParams:Promise.resolve(sp)});
+ expect(valid.props.page).toBe(2);expect(valid.props.requestedPage).toBe("3");expect(valid.props.rows).toHaveLength(10);
+ expect(valid.props.filters.keyword).toBe("客户");expect(valid.props.金额排序).toBe("amount-desc");expect(valid.props.pageSize).toBe(10);
 });
 it("坏页码/末页删除越界回到有效页；非法排序及币种安全回退",async()=>{
- await expect(Page({searchParams:Promise.resolve({page:"abc",pageSize:"bad",sort:"raw-sql",sortCurrency:"BAD!"})})).rejects.toMatchObject({digest:expect.stringContaining("page=1")});
- const bad=await Page({searchParams:Promise.resolve({page:"1",pageSize:"bad",sort:"raw-sql",sortCurrency:"BAD!"})});
+ const bad=await Page({searchParams:Promise.resolve({page:"abc",pageSize:"bad",sort:"raw-sql",sortCurrency:"BAD!"})});
  expect(bad.props.page).toBe(1);expect(bad.props.pageSize).toBe(20);expect(bad.props.金额排序).toBe("");expect(bad.props.排序币种).toBe("CNY");
  await db.customer.deleteMany({where:{id:{gte:"amount-020"}}});
- await expect(Page({searchParams:Promise.resolve({page:"3",pageSize:"10"})})).rejects.toMatchObject({digest:expect.stringContaining("page=2")});
- const last=await Page({searchParams:Promise.resolve({page:"2",pageSize:"10"})});expect(last.props.page).toBe(2);expect(last.props.rows).toHaveLength(10);
+ const last=await Page({searchParams:Promise.resolve({page:"3",pageSize:"10"})});expect(last.props.page).toBe(2);expect(last.props.rows).toHaveLength(10);
 });
 it.each(["abc","0","-1","999","","01"])("B6 非规范页码 %s 归一化且不丢筛选",async page=>{
  const sp={keyword:"组B",pageSize:"10",page};
- await expect(Page({searchParams:Promise.resolve(sp)})).rejects.toMatchObject({digest:expect.stringContaining("/customers?"+new URLSearchParams({...sp,page:"1"}))});
+ const result=await Page({searchParams:Promise.resolve(sp)});
+ expect(result.props.page).toBe(1);expect(result.props.requestedPage).toBe(page);expect(result.props.filters.keyword).toBe("组B");
 });
 it("排序扫描与最终页均受业务员限定，不能用对方大金额挤掉自己的结果",async()=>{
  const other=await db.user.create({data:{name:"同事",email:"amount-other",password:"qa",role:"SALES"}});

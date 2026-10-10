@@ -112,6 +112,7 @@ jobs:
           name: windows-smoke-failure
           include-hidden-files: true
           path: |
+            desktop/dist/windows-permission-result.json
             desktop/.smoke-data/**/failure-*.png
             desktop/.smoke-data/**/logs/*.log
           if-no-files-found: ignore

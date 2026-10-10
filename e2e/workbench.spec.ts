@@ -752,9 +752,10 @@ test("从「新增客户」点进来时，列表要说清自己只是一个子�
   await 登录(page);
   await page.goto("/customers?createdWithin=本月");
   // 不说的话，人会把这一屏当成全部
-  await expect(page.getByText("只看本月新增")).toBeVisible();
+  // Next 流式导航会保留隐藏的预渲染副本，只核对用户当前可操作的 main。
+  await expect(page.getByRole("main").getByText("只看本月新增")).toBeVisible();
   // 而且要给一条回到全部的路
-  await page.locator(".ant-tag-close-icon").first().click();
+  await page.getByRole("main").locator(".ant-tag-close-icon").first().click();
   await expect(page).toHaveURL(url => url.pathname === "/customers" && !url.searchParams.has("createdWithin"));
   expect(new URL(page.url()).searchParams.get("pageSize")).toBe("20");
 });

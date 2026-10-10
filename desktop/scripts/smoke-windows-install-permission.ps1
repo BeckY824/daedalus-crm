@@ -30,13 +30,15 @@ try {
   Set-Acl $blocked $acl
   $copy = Join-Path $root 'setup.exe'
   Copy-Item $Installer $copy
-  $normal = Join-Path $root '普通 安装\Daedalus CRM'
+  # Keep the launcher ASCII even under Windows PowerShell 5's script decoding.
+  $unicodeFolder = ([char]0x666e).ToString() + [char]0x901a + ' ' + [char]0x5b89 + [char]0x88c5
+  $normal = Join-Path $root ($unicodeFolder + '\Daedalus CRM')
   $child = Join-Path $root 'check.ps1'
   @'
 param($Installer, $Normal, $Blocked, $ResultFile)
 $ErrorActionPreference = 'Stop'
 try {
-  $first = Start-Process $Installer -ArgumentList ("/S /currentuser /D=" + $Normal) -Wait -PassThru
+  $first = Start-Process $Installer -ArgumentList ('/S /currentuser /D="' + $Normal + '"') -Wait -PassThru
   if ($first.ExitCode -ne 0) { throw "Baseline install failed: $($first.ExitCode)" }
   $exe = Join-Path $Normal 'Daedalus CRM.exe'
   if (!(Test-Path $exe)) { throw 'Baseline exe missing' }
@@ -51,7 +53,7 @@ try {
   }
   $before = Registration
   $links = Shortcuts
-  $second = Start-Process $Installer -ArgumentList ("/S /currentuser /D=" + $Blocked) -Wait -PassThru
+  $second = Start-Process $Installer -ArgumentList ('/S /currentuser /D="' + $Blocked + '"') -Wait -PassThru
   if ($second.ExitCode -eq 0) { throw 'Unwritable installation incorrectly returned success' }
   if (!(Test-Path $exe)) { throw 'Failed installation removed the previously usable exe' }
   if ((Get-FileHash $exe -Algorithm SHA256).Hash -ne $hash) { throw 'Failed installation changed old exe' }
@@ -61,7 +63,7 @@ try {
   @{ok=$true; baselineExitCode=$first.ExitCode; deniedExitCode=$second.ExitCode; oldExeUnchanged=$true; registrationUnchanged=$true; shortcutsUnchanged=$true} | ConvertTo-Json | Set-Content $ResultFile -Encoding UTF8
   exit 0
 } catch {
-  @{ok=$false; error=$_.Exception.Message} | ConvertTo-Json | Set-Content $ResultFile -Encoding UTF8
+  @{ok=$false; error=$_.Exception.Message; normal=$Normal; blocked=$Blocked; baselineExitCode=$first.ExitCode; deniedExitCode=$second.ExitCode; registrations=@(Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like '*Daedalus*' } | Select-Object DisplayName, InstallLocation, UninstallString); files=@(Get-ChildItem (Split-Path (Split-Path $Normal)) -Recurse -Filter 'Daedalus CRM.exe' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)} | ConvertTo-Json -Depth 5 | Set-Content $ResultFile -Encoding UTF8
   exit 1
 }
 '@ | Set-Content $child -Encoding UTF8

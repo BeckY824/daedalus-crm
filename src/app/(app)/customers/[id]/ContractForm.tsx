@@ -267,7 +267,6 @@ function Inner({
               {/* 和商机金额同一个坑：parser 把空串读成 0，清空后再敲会多出一个 0（见 lib/money-input.ts） */}
               <InputNumber<number>
                 style={{ width: "100%" }}
-                changeOnBlur={false}
                 step={1000}
                 placeholder="如 19,800"
                 formatter={金额格式}
