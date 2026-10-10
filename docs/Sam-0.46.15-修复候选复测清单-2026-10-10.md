@@ -14,7 +14,7 @@
 | Windows x64 完整安装器 | bdb2804，[Windows CI](https://github.com/BeckY824/daedalus-crm/actions/runs/38023211978) 全通过；3,421 项通过、22 跳过，真实整包升级、数据保留及 G2 普通用户试验通过 |
 | 服务端 | 03ecf22，[镜像 CI](https://github.com/BeckY824/daedalus-crm/actions/runs/38023248533) 通过；一致备份后已部署，隔离及线上旧令牌停用验收通过 |
 
-三份候选的产品源码一致；0002619 之后只修改 G2 验收脚本、CI 配置与额外分页测试，未修改产品运行代码。[最终 PR CI](https://github.com/BeckY824/daedalus-crm/pull/2/checks) 单独记录 Linux 与网页版结果；Windows CI 通过不代表 Sam 的实机复验通过。
+三份候选的产品源码一致；0002619 之后只修改验收脚本、CI、补充网页回归及文档，未修改产品运行代码。[最终 PR CI](https://github.com/BeckY824/daedalus-crm/pull/2/checks) 单独记录 Linux 与网页版结果；Windows CI 通过不代表 Sam 的实机复验通过。
 
 Windows 安装器：`Daedalus-CRM-0.46.16-x64-setup.exe`，123,129,014 字节。
 
