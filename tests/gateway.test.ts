@@ -110,6 +110,30 @@ describe("没配网关时这些路由不存在", () => {
 });
 
 describe("令牌", () => {
+  it("F7 停用立即拒绝已有令牌的同步和模型请求，重新启用后原令牌恢复", async () => {
+    const { acc, token, tokenId } = await 建账号带令牌();
+    const { control } = await import("@/lib/tenant/control");
+    const { 认领 } = await import("@/lib/tenant/device-token");
+    const { 认同步 } = await import("@/lib/tenant/sync-auth");
+    const { GET, POST: 建队 } = await import("@/app/api/sync/team/route");
+    const { POST: 问 } = await import("@/app/api/gateway/v1/chat/completions/route");
+    const 上游调用 = vi.fn(); vi.stubGlobal("fetch", 上游调用);
+    expect(await 认领(token)).toMatchObject({ accountId: acc.id });
+    await control.account.update({ where: { id: acc.id }, data: { active: false } });
+    expect(await 认领(token)).toBeNull();
+    expect(await 认同步(请求(token, {}))).toMatchObject({ ok: false, res: { status: 401 } });
+    expect((await GET(请求(token, {}))).status).toBe(401);
+    const before = await control.syncTeam.count();
+    expect((await 建队(请求(token, { name: "停用期间不得建队" }))).status).toBe(401);
+    expect(await control.syncTeam.count()).toBe(before);
+    expect((await 问(请求(token, 一次问话))).status).toBe(401);
+    expect(上游调用).not.toHaveBeenCalled();
+    expect((await control.deviceToken.findUniqueOrThrow({ where: { id: tokenId } })).revokedAt).toBeNull();
+    await control.account.update({ where: { id: acc.id }, data: { active: true } });
+    expect(await 认领(token)).toMatchObject({ accountId: acc.id });
+    expect((await GET(请求(token, {}))).status).toBe(200);
+  });
+
   it("不带、乱填、格式不对都是 401", async () => {
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
     for (const t of [null, "abc", "Bearer", "dk_thisTokenDoesNotExist"]) {

@@ -62,6 +62,7 @@ type Props = {
   rows: CustomerRow[];
   total: number;
   page: number;
+  requestedPage?: string;
   pageSize: number;
   金额排序?: string;
   排序币种?: string;
@@ -132,9 +133,19 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
+  // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
+  useEffect(() => {
+    if (requestedPage === undefined || requestedPage === String(page)) return;
+    const url = new URL(window.location.href);
+    // 翻页中的旧 props 不能把新目标地址改回旧页。
+    if (url.searchParams.get("page") !== requestedPage) return;
+    url.searchParams.set("page", String(page));
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  }, [page, requestedPage]);
+
   const { message } = App.useApp();
   const { 问删除 } = useDeleteCustomers();
 

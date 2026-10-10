@@ -17,6 +17,7 @@ import { 读AI计次, 不计次 } from "@/lib/ai-meter";
 import { AiMeterProvider } from "@/components/AiCost";
 import { 记下分机留存起 } from "@/lib/phone-dedupe";
 import { 是共享工作区 } from "@/lib/shared-ws/config";
+import { ShortcutProvider } from "@/components/Shortcut";
 
 export default async function AppLayout({
   children,
@@ -90,6 +91,7 @@ export default async function AppLayout({
   // 机制留着是因为运营台还要用它停用工作区，不是因为网页版还在计时。
 
   return (
+    <ShortcutProvider mac={/Macintosh|Mac OS|iPhone|iPad/.test(ua)}>
     <BusinessProvider value={business} timeZone={multiTenant() ? "Asia/Shanghai" : null}>
       {/* 反馈：托管版和桌面端有我们这个云可发，自部署的开源版没有，按钮改去 GitHub issues */}
       <AiMeterProvider 初值={AI计次}>
@@ -110,5 +112,6 @@ export default async function AppLayout({
       {modal}
       </AiMeterProvider>
     </BusinessProvider>
+    </ShortcutProvider>
   );
 }

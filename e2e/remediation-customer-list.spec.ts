@@ -26,6 +26,26 @@ test("每页50条筛选后保留，重置与前进后退的筛选显示正确",a
  expect(new URL(page.url()).searchParams.get("pageSize")).toBe("50");await expect(page.locator(".ant-select").filter({hasText:"全部跟进状态"})).toBeVisible();
 });
 test("坏页码与超末页冷加载能看到有效页且无浏览器错误",async({page})=>{
- const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);await page.goto("/customers?page=abc&pageSize=10");await expect(page.locator("tbody tr[data-row-key]")).toHaveCount(10);
- await page.goto("/customers?page=999&pageSize=10");await expect(page.locator("tbody tr[data-row-key]")).toHaveCount(5);expect(errors).toEqual([]);
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);await page.goto("/customers?page=abc&pageSize=10");await expect.poll(()=>new URL(page.url()).searchParams.get("page")).toBe("1");await expect(page.locator("tbody tr[data-row-key]:visible")).toHaveCount(10);
+ await page.goto("/customers?page=999&pageSize=10");await expect.poll(()=>new URL(page.url()).searchParams.get("page")).toBe("3");await expect(page.locator("tbody tr[data-row-key]:visible")).toHaveCount(5);expect(errors).toEqual([]);
+});
+
+test("B6 删除末页后页码、地址与筛选一致，刷新仍正确",async({page})=>{
+ const errors:string[]=[];page.on("pageerror",e=>errors.push(e.message));await login(page);
+ await page.goto("/customers?keyword=排序客户&pageSize=10&page=3&sort=amount-desc&sortCurrency=CNY#qa-page");
+ await expect(page.locator("tbody tr[data-row-key]:visible")).toHaveCount(5);
+ const ids=await page.locator("tbody tr[data-row-key]:visible").evaluateAll(rows=>rows.map(r=>r.getAttribute("data-row-key")!));
+ const db=连库();try{await db.customer.deleteMany({where:{id:{in:ids}}})}finally{await db.$disconnect()}
+ await page.reload();await expect.poll(()=>new URL(page.url()).searchParams.get("page")).toBe("2");
+ await expect(page.locator("tbody tr[data-row-key]:visible")).toHaveCount(10);
+ const url=new URL(page.url());expect(url.searchParams.get("keyword")).toBe("排序客户");expect(url.searchParams.get("sort")).toBe("amount-desc");expect(url.searchParams.get("pageSize")).toBe("10");expect(url.hash).toBe("#qa-page");
+ await page.reload();await expect(page.locator(".ant-pagination-item-active:visible")).toHaveText("2");expect(errors).toEqual([]);
+});
+
+test("B6 超界地址归一后继续删除末页，路由刷新仍退回有效地址",async({page})=>{
+ const db=连库();try{const owner=(await db.user.findUniqueOrThrow({where:{email:'zhangsan'}})).id;await db.customer.createMany({data:Array.from({length:11},(_,i)=>({id:'b6-refresh-'+i,name:'B6连续删页'+i,phone:'139001'+String(i).padStart(5,'0'),salesOwnerId:owner}))})}finally{await db.$disconnect()}
+ const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));await login(page);await page.goto('/customers?keyword=B6连续删页&pageSize=10&page=999');
+ await expect.poll(()=>new URL(page.url()).searchParams.get('page')).toBe('2');await expect(page.getByRole('main').locator('tbody tr[data-row-key]')).toHaveCount(1);
+ await page.getByRole('main').getByRole('button',{name:/^删除 B6连续删页/}).click();await page.getByRole('dialog').getByRole('button',{name:/^删\s*除$/}).click();
+ await expect(page.getByRole('main').locator('tbody tr[data-row-key]')).toHaveCount(10);await expect.poll(()=>new URL(page.url()).searchParams.get('page')).toBe('1');expect(new URL(page.url()).searchParams.get('keyword')).toBe('B6连续删页');expect(errors).toEqual([]);
 });

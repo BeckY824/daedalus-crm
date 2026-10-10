@@ -24,6 +24,21 @@ beforeAll(async () => {
   browser = await chromium.launch();
 }, 120_000);
 afterAll(async () => { await browser?.close(); });
+it("B5 商机负数失焦后不改写为零，保存被拦且没有调用服务端", async () => {
+  const page = await browser.newPage(); page.setDefaultTimeout(5000);
+  try {
+    await page.route("http://opp-link.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
+    await page.goto("http://opp-link.test/opportunities?opportunity=closed-target"); await page.addScriptTag({ content: bundle });
+    const dialog = page.getByRole("dialog"); await dialog.waitFor();
+    const amount = dialog.getByRole("spinbutton", { name: "商机金额", exact: true });
+    await amount.fill("-5"); await dialog.locator("#remark").click();
+    expect(await amount.inputValue()).toBe("-5");
+    await dialog.getByRole("button", { name: /保\s*存/ }).click();
+    await dialog.getByText("商机金额不能为负数", { exact: true }).waitFor();
+    expect(await page.evaluate(() => Reflect.get(window, "__saved"))).toBeUndefined();
+    expect(await dialog.isVisible()).toBe(true);
+  } finally { await page.close(); }
+});
 it.each(["cancel", "save"])("%s唯一ID打开的已赢同名旧商机，关闭消费地址参数且不误重新打开", async mode => {
   const page = await browser.newPage(); page.setDefaultTimeout(5000); const errors: string[] = []; page.on("pageerror", e => errors.push(e.message));
   try {

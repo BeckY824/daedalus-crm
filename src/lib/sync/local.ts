@@ -137,9 +137,15 @@ export async function 记全量(db: Db, 选项: { 不含设置?: boolean } = {})
 export async function 改身份(db: PrismaClient, 新id: string, 资料: { email: string; name: string }) {
   await db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
-    const 管理员 = await tx.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
-    if (管理员 && 管理员.id !== 新id) await 换id(tx, 管理员.id, 新id);
-    await tx.user.update({ where: { id: 新id }, data: { email: 资料.email, name: 资料.name } }).catch(() => undefined);
+    // 退队后的旧库还留着旧老板 User；本人 acct 身份也已存在，不能再把最早管理员改成本人。
+    const 本人 = await tx.user.findUnique({ where: { id: 新id }, select: { id: true } });
+    if (!本人) {
+      const 管理员 = await tx.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
+      if (!管理员) throw new Error("找不到这台电脑的本机账号，请重新登录后再试");
+      await 换id(tx, 管理员.id, 新id);
+    }
+    // 更新失败必须回滚，不能把身份迁移只做一半。
+    await tx.user.update({ where: { id: 新id }, data: { email: 资料.email, name: 资料.name } });
     for (const email of 模板占位账号) {
       const u = await tx.user.findUnique({ where: { email }, select: { id: true } });
       if (!u) continue;

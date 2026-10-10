@@ -32,7 +32,13 @@ test("J-094 管道撤销只执行一次，旧撤销不能盖掉后续编辑", as
     await login(page); await page.goto("/opportunities/pipeline");
     const card = page.getByRole("button", { name: /^QA撤销商机，/ });
     const advance = async () => {
-      await card.click({ button: "right" }); await page.getByRole("menuitem", { name: "推进到 谈判审核", exact: true }).click();
+      const item = page.getByRole("menuitem", { name: "推进到 谈判审核", exact: true });
+      // 右键菜单本身不写库；等客户端菜单可交互后，推进动作只执行一次。
+      await expect(async () => {
+        if (!(await item.isVisible())) await card.click({ button: "right" });
+        await expect(item).toBeVisible({ timeout: 2_000 });
+      }).toPass({ timeout: 20_000 });
+      await item.click();
       await expect(page.locator(".ant-message")).toContainText("已推进到");
     };
     await advance();

@@ -71,12 +71,12 @@ test.afterAll(async () => {
 
 /** 当前这一屏表格里的客户名 */
 async function 这一屏(page: Page) {
-  await expect(page.locator(".ant-table-row").first()).toBeVisible();
-  return page.locator(".ant-table-row td a").allInnerTexts();
+  await expect(page.getByRole("main").locator(".ant-table-row").first()).toBeVisible();
+  return page.getByRole("main").locator(".ant-table-row td a").allInnerTexts();
 }
 
 async function 翻到第二页(page: Page) {
-  await page.locator(".ant-pagination-item-2").click();
+  await page.getByRole("main").locator(".ant-pagination-item-2").click();
   await page.waitForURL(/page=2/);
 }
 
@@ -84,21 +84,25 @@ test("J-011：异常分页参数和超出末页时仍能打开客户列表", asy
   await 登录(page);
   for (const query of ["page=abc&pageSize=bad", "page=1.5&pageSize=-1", "page=999999999999999999999"]) {
     await page.goto(`/customers?${query}`);
-    await expect(page.locator(".ant-table-row").first()).toBeVisible();
-    await expect(page.locator(".ant-pagination-item-active")).toHaveText("1");
+    await expect.poll(() => new URL(page.url()).searchParams.get("page")).toBe("1");
+    await expect(page.getByRole("main").locator(".ant-table-row").first()).toBeVisible();
+    await expect(page.getByRole("main").locator(".ant-pagination-item-active")).toHaveCount(1);
+    await expect(page.getByRole("main").locator(".ant-pagination-item-active")).toHaveText("1");
   }
   await page.goto("/customers?page=999");
-  await expect(page.locator(".ant-table-row").first()).toBeVisible();
-  await expect(page.locator(".ant-pagination-item-active")).toHaveText("3");
+  await expect.poll(() => new URL(page.url()).searchParams.get("page")).toBe("3");
+  await expect(page.getByRole("main").locator(".ant-table-row").first()).toBeVisible();
+  await expect(page.getByRole("main").locator(".ant-pagination-item-active")).toHaveCount(1);
+  await expect(page.getByRole("main").locator(".ant-pagination-item-active")).toHaveText("3");
 });
 
 test("J-002 本月新增：翻到第 2 页、再搜一下，子集都还在（地址留着条件、行全是本月的）", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers?createdWithin=本月");
-  await expect(page.getByText("只看本月新增")).toBeVisible();
+  await expect(page.getByRole("main").getByText("只看本月新增")).toBeVisible();
   await 翻到第二页(page);
   expect(decodeURIComponent(page.url())).toContain("createdWithin=本月");
-  await expect(page.getByText("只看本月新增")).toBeVisible();
+  await expect(page.getByRole("main").getByText("只看本月新增")).toBeVisible();
   await expect.poll(() => 这一屏(page)).toEqual(["本月新01", "本月新00"]);
 
   await page.getByPlaceholder(/姓名 \/ 电话/).fill("新1");
@@ -113,14 +117,14 @@ test("J-002 本月新增：翻到第 2 页、再搜一下，子集都还在（�
 test("J-002 渠道直接带来的、刚导入的这一批：翻页后子集都还在", async ({ page }) => {
   await 登录(page);
   await page.goto(`/customers?directOf=${渠道id}`);
-  await expect(page.getByText(/只看「协会王主任」直接带来的 · 21 位/)).toBeVisible();
+  await expect(page.getByRole("main").getByText(/只看「协会王主任」直接带来的 · 21 位/)).toBeVisible();
   await 翻到第二页(page);
   expect(page.url()).toContain(`directOf=${渠道id}`);
   await expect.poll(async () => (await 这一屏(page)).length).toBe(1);
   expect((await 这一屏(page))[0]).toMatch(/^老客/);
 
   await page.goto(`/customers?batch=${批次id}`);
-  await expect(page.getByText(/只看刚导入的这一批 · 21 位/)).toBeVisible();
+  await expect(page.getByRole("main").getByText(/只看刚导入的这一批 · 21 位/)).toBeVisible();
   await 翻到第二页(page);
   expect(page.url()).toContain(`batch=${批次id}`);
   await expect.poll(async () => (await 这一屏(page)).length).toBe(1);
@@ -130,7 +134,7 @@ test("J-002 渠道直接带来的、刚导入的这一批：翻页后子集都�
 test("导出按当前的子集和筛选：本月新增里导出的是这 22 位全部，不是当前一页、也没有老客", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers?createdWithin=本月");
-  await expect(page.getByText("只看本月新增")).toBeVisible();
+  await expect(page.getByRole("main").getByText("只看本月新增")).toBeVisible();
   const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
   // 导出整个筛选范围，核对清单和所有内层客户分片
   const 行 = 读取完整导出(readFileSync((await 下载.path())!)).客户.slice(1);
@@ -243,7 +247,7 @@ test("T-029 线索列表：按电话搜得到；按负责人、来源筛得出�
   await p.$disconnect();
   await 登录(page);
   const 行名 = async () => {
-    await expect(page.locator(".ant-table-row").first()).toBeVisible();
+    await expect(page.getByRole("main").locator(".ant-table-row").first()).toBeVisible();
     return page.locator(".ant-table-row td:first-child").allInnerTexts();
   };
   // 电话：搜中间一段数字、带空格的写法都算
@@ -281,7 +285,7 @@ test("J-015 联系人页按关系本地筛完：不冒「只有最近 N 条，�
     await expect(page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "采购" })).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
   await page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "采购" }).click();
-  await expect(page.locator(".ant-table-row")).toHaveCount(2);
+  await expect(page.getByRole("main").locator(".ant-table-row")).toHaveCount(2);
   await expect(page.getByText(/只有最近/)).toHaveCount(0);
   await expect(page.locator(".ant-pagination-total-text")).toHaveText("共 2 条");
 });

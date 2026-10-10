@@ -84,6 +84,10 @@ jobs:
         if: runner.os == 'Windows'
         working-directory: desktop
         run: node scripts/smoke-windows-update.mjs
+      - name: Windows 普通用户无权限安装保留旧程序（G2）
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/smoke-windows-install-permission.ps1
       - name: Windows 桌面回归测试
         if: runner.os == 'Windows'
         # 有几份单测在真 Chromium 里点组件，没装浏览器整份起不来（0.46.15 第一次在 Windows 上跑到它们）
@@ -108,6 +112,7 @@ jobs:
           name: windows-smoke-failure
           include-hidden-files: true
           path: |
+            desktop/dist/windows-permission-result.json
             desktop/.smoke-data/**/failure-*.png
             desktop/.smoke-data/**/logs/*.log
           if-no-files-found: ignore
@@ -120,6 +125,7 @@ jobs:
             desktop/dist/*.manifest.json.gz
             desktop/dist/*.exe
             desktop/dist/*-x64-verify.json
+            desktop/dist/windows-permission-result.json
           if-no-files-found: error
 
       # 打 tag 时顺手挂到 Release 上。Release 不存在就建一个；已存在就只补附件。

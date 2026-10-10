@@ -263,11 +263,10 @@ function Inner({
             <Form.Item name="currency" noStyle>
               <CurrencySelect onChange={() => { 手填金额.current = true; }} />
             </Form.Item>
-            <Form.Item name="amount" noStyle rules={[{ required: true, message: 订单 ? "请输入订单金额" : "请输入签约金额" }]}>
+            <Form.Item name="amount" noStyle rules={[{ required: true, message: 订单 ? "请输入订单金额" : "请输入签约金额" }, { type: "number", min: 0, message: "金额不能为负数" }]}>
               {/* 和商机金额同一个坑：parser 把空串读成 0，清空后再敲会多出一个 0（见 lib/money-input.ts） */}
               <InputNumber<number>
                 style={{ width: "100%" }}
-                min={0}
                 step={1000}
                 placeholder="如 19,800"
                 formatter={金额格式}

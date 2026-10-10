@@ -102,6 +102,24 @@ it("L-029 转交商机的旧业务时间随团队同步，另一台不误认为�
 });
 
 describe("改身份（探针场景 ①）", () => {
+  it.each(["ADMIN", "SALES"])("F1 旧库已有本人 acct 身份（%s），重新入队不覆盖旧老板或改写资料归属", async role => {
+    const db = await 一台("switch-team");
+    await db.user.update({ where: { id: 模板账号[0].id }, data: { id: "acct_old_boss", email: "old-boss@example.invalid", createdAt: new Date("2020-01-01") } });
+    await db.user.create({ data: { id: "acct_me", email: "me@example.invalid", name: "本人", password: "!team-sync", role } });
+    const mine = await db.customer.create({ data: { name: "本人的客户", phone: "13900001801", salesOwnerId: "acct_me" } });
+    const theirs = await db.customer.create({ data: { name: "旧老板的客户", phone: "13900001802", salesOwnerId: "acct_old_boss" } });
+    await db.followUp.create({ data: { type: "PHONE", title: "本人跟进", content: "留在本机", customerId: mine.id, ownerId: "acct_me" } });
+    await db.tradeOrder.create({ data: { no: "REJOIN-USD-900", customerId: mine.id, ownerId: "acct_me", amount: 900, currency: "USD" } });
+    for (let i = 0; i < 2; i++) await 改身份(db, "acct_me", { email: "me@example.invalid", name: "更新本人姓名" });
+    expect(await db.user.findUniqueOrThrow({ where: { id: "acct_me" } })).toMatchObject({ name: "更新本人姓名", role });
+    expect(await db.user.findUniqueOrThrow({ where: { id: "acct_old_boss" } })).toMatchObject({ email: "old-boss@example.invalid" });
+    expect((await db.customer.findUniqueOrThrow({ where: { id: mine.id } })).salesOwnerId).toBe("acct_me");
+    expect((await db.customer.findUniqueOrThrow({ where: { id: theirs.id } })).salesOwnerId).toBe("acct_old_boss");
+    expect(await db.followUp.findFirstOrThrow({ where: { customerId: mine.id } })).toMatchObject({ ownerId: "acct_me" });
+    expect(await db.tradeOrder.findFirstOrThrow({ where: { customerId: mine.id } })).toMatchObject({ ownerId: "acct_me", amount: 900, currency: "USD" });
+    expect(await db.$queryRawUnsafe<unknown[]>("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
   it("两台的管理员原本同一个 id；改成按云端账号算的，指向它的列（有外键、没外键的）都跟着改；没用过的占位账号删掉", async () => {
     const 甲 = await 一台("A");
     const c = await 甲.customer.create({ data: { name: "王总", phone: "13800000001", salesOwnerId: 模板账号[0].id } });

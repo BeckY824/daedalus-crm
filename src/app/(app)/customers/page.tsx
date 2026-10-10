@@ -96,6 +96,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       rows={rows.map((r) => 成客户行(r, 号))}
       total={total}
       page={page}
+      requestedPage={sp.page}
       pageSize={pageSize}
       金额排序={sort}
       排序币种={sortCurrency}

@@ -37,14 +37,14 @@ it("自己的建档按创建操作人，转交不重记成别人的新建", asyn
   const assigned = await prisma.customer.create({ data: { name: "乙创建后转给我", phone: "", salesOwnerId: state.user.id } });
   for (const [id, uid] of [[mine.id, state.user.id], [assigned.id, other.id]]) await prisma.auditLog.create({ data: { userId: uid, userName: uid, action: "create", entity: "Customer", entityId: id, summary: "创建客户" } });
   const r = await tool("my_recap").run({ period: "this_month" }, ctx());
-  expect((r.data as any).新建的客户.map((x: any) => x.姓名)).toEqual(["我创建后转给乙"]);
+  expect((r.data as { 新建的客户: { 姓名: string }[] }).新建的客户.map((x) => x.姓名)).toEqual(["我创建后转给乙"]);
 });
 it("跨14个月走势返回最近12个月并明确截断，不能把最近两月丢掉", async () => {
   for (let i = 0; i < 14; i++) await prisma.lead.create({ data: { name: `月${i}`, createdAt: new Date(2025, 8+i, 1), ownerId: state.user.id } });
   const r = await tool("query_metric").run({ metric: "leads_count", groupBy: "month" }, ctx());
-  const data = r.data as any;
-  expect(data.rows.map((x: any) => x.label)).toContain("2026-10");
-  expect(data.rows.map((x: any) => x.label)).not.toContain("2025-09");
+  const data = r.data as { rows: { label: string }[]; 总行数: number; 说明: string };
+  expect(data.rows.map((x) => x.label)).toContain("2026-10");
+  expect(data.rows.map((x) => x.label)).not.toContain("2025-09");
   expect(data.总行数).toBe(14); expect(data.说明).toContain("最近12个月");
 });
 
@@ -71,7 +71,7 @@ it("导入、线索新建转化可核实建档人；并入老客户不算新建�
   await prisma.auditLog.create({ data: { userId: state.user.id, userName: "QA", action: "create", entity: "Customer", entityId: ids[0], summary: "重复创建证据" } });
   for (const [customer, merge] of [[ids[1], false], [ids[2], true]] as const) await prisma.auditLog.create({ data: { userId: state.user.id, userName: "QA", action: "convert", entity: "Lead", summary: "转化", detail: JSON.stringify({ customerId: customer, 并入: merge }) } });
   const r = await tool("my_recap").run({ period: "this_month" }, ctx());
-  expect((r.data as any).新建的客户.map((x: any) => x.姓名).sort()).toEqual(["本人导入后转交", "本人线索新建后转交"].sort());
+  expect((r.data as { 新建的客户: { 姓名: string }[] }).新建的客户.map((x) => x.姓名).sort()).toEqual(["本人导入后转交", "本人线索新建后转交"].sort());
   expect(r.summary).toContain("可核实本人建档 2 位");
 });
 it("上月/上周用完整自然范围，本周从周一开始；未知周期拒绝", async () => {

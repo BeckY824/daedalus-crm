@@ -28,10 +28,10 @@ it("真实表单未确认历史提醒不提交，确认后明确携带允许标�
   await page.getByRole("checkbox", { name: "我确认仍要创建过期待办" }).waitFor();
   await page.getByRole("button", { name: /保\s*存/ }).click();
   await page.getByText("请确认创建过期待办，或修改提醒时间/状态", { exact: true }).waitFor();
-  expect(await page.evaluate(() => (window as any).__calls)).toEqual([]);
+  expect(await page.evaluate(() => (window as unknown as { __calls: Record<string, unknown>[] }).__calls)).toEqual([]);
   await page.getByRole("checkbox", { name: "我确认仍要创建过期待办" }).check();
   await page.getByRole("button", { name: /保\s*存/ }).click();
-  await expect.poll(async () => page.evaluate(() => (window as any).__calls.length)).toBe(1);
-  expect((await page.evaluate(() => (window as any).__calls))[0]).toMatchObject({ 确认过期待办: true, type: "REMIND", status: "待处理" });
+  await expect.poll(async () => page.evaluate(() => (window as unknown as { __calls: Record<string, unknown>[] }).__calls.length)).toBe(1);
+  expect((await page.evaluate(() => (window as unknown as { __calls: Record<string, unknown>[] }).__calls))[0]).toMatchObject({ 确认过期待办: true, type: "REMIND", status: "待处理" });
   await page.close();
 });
