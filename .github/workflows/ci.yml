@@ -20,6 +20,9 @@ jobs:
           cache: npm
       - run: npm ci
         # 上线用到的依赖有高危及以上漏洞就红（H-068，10-04 起）。修不了上游的用 package.json 的 overrides 钉住
+      # NSIS 单测读取锁定版本的真实上游模板；不运行 Electron 下载或原生构建脚本。
+      - name: 安装 NSIS 模板测试依赖
+        run: npm ci --prefix desktop --ignore-scripts --no-audit --no-fund
       - run: npm audit --omit=dev --audit-level=high
       - run: npx prisma generate
         # 托管版的控制面客户端也要生成，否则 import @/generated/control 编译不过
