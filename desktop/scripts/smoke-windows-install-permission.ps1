@@ -43,16 +43,24 @@ try {
   $exe = Join-Path $Normal 'Daedalus CRM.exe'
   if (!(Test-Path $exe)) { throw 'Baseline exe missing' }
   $hash = (Get-FileHash $exe -Algorithm SHA256).Hash
-  $keys = @(Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object { $_.InstallLocation -eq $Normal })
+  $expectedUninstall = '"' + (Join-Path $Normal 'Uninstall Daedalus CRM.exe') + '" /currentuser'
+  $keys = @(Get-ItemProperty 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*' | Where-Object { $_.UninstallString -eq $expectedUninstall })
   if ($keys.Count -ne 1) { throw 'Baseline uninstall registration missing or ambiguous' }
   $key = $keys[0].PSPath
-  function Registration { Get-ItemProperty $key | Select-Object InstallLocation, UninstallString, QuietUninstallString, DisplayVersion | ConvertTo-Json -Compress }
+  # electron-builder stores InstallLocation in Software\APP_GUID, not the uninstall key.
+  $installKey = 'HKCU:\Software\' + $keys[0].PSChildName
+  if ((Get-ItemProperty -LiteralPath $installKey).InstallLocation -ne $Normal) { throw 'Baseline installation location missing or wrong' }
+  function Registration {
+    @{ uninstall=(Get-ItemProperty -LiteralPath $key | Select-Object UninstallString, QuietUninstallString, DisplayVersion);
+       install=(Get-ItemProperty -LiteralPath $installKey | Select-Object InstallLocation, KeepShortcuts, ShortcutName, MenuDirectory) } | ConvertTo-Json -Depth 4 -Compress
+  }
   function Shortcuts {
     @(Get-ChildItem ([Environment]::GetFolderPath('Desktop')), ([Environment]::GetFolderPath('Programs')) -Recurse -Filter 'Daedalus CRM.lnk' -ErrorAction SilentlyContinue |
       Sort-Object FullName | ForEach-Object { @{ path=$_.FullName; sha256=(Get-FileHash $_.FullName -Algorithm SHA256).Hash } }) | ConvertTo-Json -Compress
   }
   $before = Registration
   $links = Shortcuts
+  if (!$links -or $links -eq '[]') { throw 'Baseline shortcuts missing' }
   $second = Start-Process $Installer -ArgumentList ('/S /currentuser /D="' + $Blocked + '"') -Wait -PassThru
   if ($second.ExitCode -eq 0) { throw 'Unwritable installation incorrectly returned success' }
   if (!(Test-Path $exe)) { throw 'Failed installation removed the previously usable exe' }
