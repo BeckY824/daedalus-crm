@@ -44,7 +44,7 @@ it("G2 preflight runs before closing/uninstalling the old app, for UI and silent
   const guard = fs.readFileSync(path.resolve("desktop", config.build.nsis.include), "utf8");
   expect(guard).toContain('GetTempFileName $0 "$INSTDIR"');
   expect(guard).toContain('FileOpen $1 "$0" w');
-  expect(guard).toContain("SetErrorLevel 5\n  Quit");
+  expect(guard).toMatch(/SetErrorLevel 5\r?\n\s+Quit/);
   expect(guard).not.toContain("WriteReg");
   expect(guard).not.toContain("!insertmacro uninstallOldVersion");
 });
