@@ -38,9 +38,21 @@ export function patchTemplate(file) {
   fs.writeFileSync(file, text.replace(oldBlock, fixedBlock));
   return true;
 }
+
+// electron-builder 没有卸载旧版前的安装目标校验钩子；customInstall 已经太晚。
+export function patchInstallSection(file) {
+  const text = fs.readFileSync(file, "utf8").replaceAll("\r\n", "\n");
+  const before = "!include installer.nsh\n";
+  const after = before + "\n# Check the final /D or UI target before closing or uninstalling the usable app.\n!insertmacro crmCheckInstallTarget\n";
+  if (text.includes(after)) return false;
+  if (text.split(before).length !== 2 || !text.includes("!insertmacro uninstallOldVersion SHELL_CONTEXT")) throw new Error("Unknown NSIS install section: review upstream before packaging");
+  fs.writeFileSync(file, text.replace(before, after));
+  return true;
+}
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const require = createRequire(import.meta.url);
   const directory = path.dirname(require.resolve("app-builder-lib/package.json"));
   const file = path.join(directory, "templates/nsis/multiUser.nsh");
   console.log(patchTemplate(file) ? "NSIS per-user known-folder fix applied" : "NSIS per-user known-folder fix already applied");
+  console.log(patchInstallSection(path.join(directory, "templates/nsis/installSection.nsh")) ? "NSIS install target preflight applied" : "NSIS install target preflight already applied");
 }

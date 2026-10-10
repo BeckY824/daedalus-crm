@@ -136,16 +136,26 @@ function 能用(): 结果<{ accountId: string; contact: string; name: string }> 
 }
 
 /**
- * 本机开同步：改身份（必须在装触发器之前）→ 建表 → 装触发器 → 本机已有的整份记成新建。
+ * 本机开同步：身份在请求云端建队/入队前预检，随后建表 → 装触发器 → 本机已有的整份记成新建。
  * 已经装过（重新加入另一个团队）：只换团队，不再改身份、不再记全量——日志里已经有了
  */
-async function 本机开同步(我: { accountId: string; contact: string; name: string }, 加入别人的: boolean) {
+async function 本机开同步(加入别人的: boolean) {
   if (await 装了吗(prisma)) return;
-  await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 我.name || 我.contact.split("@")[0] });
   await 建同步表(prisma);
   await 装触发器(prisma);
   // 加入别人团队的不推业务配置：团队的模版、币种以建团队的人为准（见 记全量）
   await 记全量(prisma, { 不含设置: 加入别人的 });
+}
+
+/** 本地身份错误须在云端写成员之前拦住，避免重试在云端留下多支未完成的队。 */
+async function 准备本机身份(我: { accountId: string; contact: string; name: string }): Promise<结果> {
+  try {
+    if (!await 装了吗(prisma)) await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 我.name || 我.contact.split("@")[0] });
+    return { ok: true };
+  } catch (error) {
+    console.error("[sync] 本机身份准备失败", error);
+    return { ok: false, error: "本机账号准备失败，尚未创建或加入团队。请先备份数据并联系我们" };
+  }
 }
 
 export function 建团队(名字: string): Promise<结果<{ 邀请码: string }>> {
@@ -155,12 +165,15 @@ async function 建团队里(名字: string): Promise<结果<{ 邀请码: string 
   const 我 = 能用();
   if (!我.ok) return 我;
   if (读团队()) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
+  if (!名字.trim()) return { ok: false, error: "请填写团队名字" };
+  const 准备 = await 准备本机身份(我);
+  if (!准备.ok) return 准备;
   const 设备 = `d${randomBytes(6).toString("hex")}`;
   const 对 = 设备钥匙对();
   const 签 = 签名钥匙对();
   const r = await 云("POST", "/api/sync/team", { name: 名字, device: 设备, pubKey: 对.公钥 });
   if (r.状态 !== 200 || !r.json.teamId) return { ok: false, error: String(r.json.error ?? "建不了团队") };
-  await 本机开同步(我, false);
+  await 本机开同步(false);
   const c: 团队配置 = { teamId: String(r.json.teamId), teamName: 名字.trim(), joinSecret: String(r.json.joinSecret), key: 新钥匙(), epoch: 0, keys: {}, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, signPub: 签.公钥, signPriv: 签.私钥, ownerAccountId: 我.accountId, pulled: 0, lastError: null };
   写团队(c);
   return { ok: true, 邀请码: 邀请码(c) };
@@ -185,13 +198,15 @@ async function 加入团队里(码: string): Promise<结果<{ teamName: string; 
     return { ok: true, teamName: 现.teamName, active: true };
   }
   if (现) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
+  const 准备 = await 准备本机身份(我);
+  if (!准备.ok) return 准备;
   const 设备 = `d${randomBytes(6).toString("hex")}`;
   const 对 = 设备钥匙对();
   const r = await 云("POST", "/api/sync/join", { teamId: 解.teamId, joinSecret: 解.joinSecret, device: 设备, pubKey: 对.公钥 });
   if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "加入不了") };
   const k = await 收下码里的钥匙(解.teamId, 设备, 解.key, 解.signPub);
   if (!k.ok) return k;
-  await 本机开同步(我, true);
+  await 本机开同步(true);
   写团队({ ...解, teamName: String(r.json.teamName ?? ""), epoch: k.epoch, keys: k.keys, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, pulled: 0, lastError: null });
   // 加入别人的团队 = 业务员（老板是建团队的人）。先按名单对一次：不等第一轮同步，界面马上就是业务员的样子
   await 对齐角色().catch(() => undefined);

@@ -34,10 +34,10 @@ it("成功整页跳转，旧AI内存销毁；等待期间双击不重复提交",
   await page.getByRole("button", { name: /乙空间/ }).click();
   expect(await page.getByRole("button", { name: /甲空间/ }).isDisabled()).toBe(true);
   await page.getByRole("button", { name: /乙空间/ }).click({ force: true });
-  expect(await page.evaluate(() => (window as any).__calls)).toEqual(["two"]);
-  await page.evaluate(() => (window as any).__finish({ok:true}));
+  expect(await page.evaluate(() => (window as unknown as { __calls: string[] }).__calls)).toEqual(["two"]);
+  await page.evaluate(() => (window as unknown as { __finish: (result: { ok: boolean }) => void }).__finish({ok:true}));
   await page.waitForURL("http://workspace.test/start");
-  expect(await page.evaluate(() => (window as any).__oldAiThread)).toBeUndefined(); await page.close();
+  expect(await page.evaluate(() => (window as unknown as { __oldAiThread?: string }).__oldAiThread)).toBeUndefined(); await page.close();
 });
 it("网络异常显示中文并恢复按钮", async () => {
   const page = await open(`async () => {throw new Error('Failed to fetch')}`);

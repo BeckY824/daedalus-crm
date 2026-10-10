@@ -38,7 +38,7 @@ import { convertLead, mergeLeadInto } from "@/app/(app)/leads/actions";
 import { checkDuplicate, saveCustomer } from "@/app/(app)/customers/actions";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 看全部, 忘掉限定, 限定的我 } from "@/lib/team-scope";
-import { 设传输, 对齐角色, 退出团队, 同步一轮, type 传输 } from "@/lib/sync/client";
+import { 设传输, 对齐角色, 退出团队, 同步一轮, 建团队, 加入团队, 读团队, type 传输 } from "@/lib/sync/client";
 import { 建同步表, 装触发器, 卸触发器, 回放, 只留自己的 } from "@/lib/sync/local";
 import { 带走没做完的 } from "@/lib/carry-over-db";
 import { TOOL_MAP, type ToolContext } from "@/lib/agent/tools";
@@ -620,6 +620,42 @@ describe("退出团队：按中转名单判业务员，老板那台永远不删�
     expect(云端.退队).toBe(1);
     expect(await 客户名()).toEqual(["小王带来的客户", "小王的客户"].sort());
     expect(fs.existsSync(团队文件())).toBe(false);
+  });
+
+  it.each(["create", "join"])("F1 旧库业务员退队后 %s 新队成功，本人资料归属不变", async mode => {
+    当("wang"); 进团队(); expect(await 退出团队()).toEqual({ ok: true });
+    const mine = await raw.customer.findUniqueOrThrow({ where: { id: ids["小王的客户"] } });
+    const posts: string[] = [];
+    设传输(async (method, url) => {
+      const p = new URL(url, "http://fake").pathname;
+      if (method === "POST") posts.push(p);
+      if (p === "/api/sync/team" && method === "POST") return { 状态: 200, json: { teamId: "newteam", joinSecret: "testsecret" } };
+      if (p === "/api/sync/join") return { 状态: 200, json: { teamName: "新队", active: true } };
+      if (p === "/api/sync/key") return { 状态: 200, json: { epoch: 0 } };
+      if (p === "/api/sync/team") return { 状态: 200, json: { teams: [{ id: "newteam", name: "新队", active: true, 成员: [{ accountId: "boss", role: "owner" }, { accountId: "wang", role: "member" }] }] } };
+      return { 状态: 404, json: {} };
+    });
+    try {
+      const r = mode === "create" ? await 建团队("新队") : await 加入团队(`DT1.newteam.testsecret.${"k".repeat(43)}`);
+      expect(r.ok).toBe(true); expect(posts).toHaveLength(1); expect(读团队()?.teamId).toBe("newteam");
+      expect((await raw.customer.findUniqueOrThrow({ where: { id: mine.id } })).salesOwnerId).toBe(小王);
+      expect(await raw.user.findUnique({ where: { id: 老板 } })).not.toBeNull();
+      expect(await raw.user.findUniqueOrThrow({ where: { id: 小王 } })).toMatchObject({ role: mode === "join" ? "SALES" : "ADMIN" });
+      expect(await raw.$queryRawUnsafe("PRAGMA foreign_key_check")).toEqual([]);
+    } finally { await 卸触发器(raw); 出团队(); 设传输(假传输); }
+  });
+
+  it.each(["create", "join"])("F1 本地身份预检失败时 %s 不写云端队伍或成员", async mode => {
+    当("wang"); 进团队(); expect(await 退出团队()).toEqual({ ok: true });
+    await raw.user.update({ where: { id: 老板 }, data: { email: "wang@x.com" } });
+    const transport = vi.fn<传输>(); 设传输(transport);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const r = mode === "create" ? await 建团队("新队") : await 加入团队(`DT1.newteam.testsecret.${"k".repeat(43)}`);
+      expect(r).toMatchObject({ ok: false, error: expect.stringContaining("尚未创建或加入团队") });
+      expect(transport).not.toHaveBeenCalled(); expect(读团队()).toBeNull();
+      expect((await raw.user.findUniqueOrThrow({ where: { id: 小王 } })).email).toBe(`${小王}@x.com`);
+    } finally { log.mockRestore(); 设传输(假传输); }
   });
 
   it("老板退出（建团队的那台）：一条不删", async () => {

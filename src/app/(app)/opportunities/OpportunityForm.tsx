@@ -195,9 +195,10 @@ export default function OpportunityForm({
                 <Form.Item name="currency" noStyle>
                   <CurrencySelect />
                 </Form.Item>
-                <Form.Item name="amount" noStyle rules={[{ required: true, message: "请填写商机金额" }]}>
+                <Form.Item name="amount" noStyle rules={[{ required: true, message: "请填写商机金额" }, { type: "number", min: 0, message: "商机金额不能为负数" }]}>
                   <InputNumber<number>
-                    min={0}
+                    // 不设 min：InputNumber 会改写负数或沿用旧值；保留原值，由表单规则明确拒绝。
+                    changeOnBlur={false}
                     step={10000}
                     style={{ width: "100%" }}
                     placeholder="如 50,000"

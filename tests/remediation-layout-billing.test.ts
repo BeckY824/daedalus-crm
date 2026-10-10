@@ -26,13 +26,13 @@ it.each([
 ])("H-098 真实layout按hosted=%s/role=%s/slug=%s决定订阅入口=%s", async (hosted, role, slug, billing) => {
   state.hosted = hosted; state.workspaces = [{ id: "qa-ws", name: "QA", slug, role }]; vi.stubEnv("SHARED_WORKSPACE", "qa-shared");
   const layout = await AppLayout({ children: null, pane: null, modal: null });
-  expect(layout.props.timeZone).toBe(hosted ? "Asia/Shanghai" : null);
-  expect(layout.props.children.props.children[0].props.workspace).toMatchObject({ name: "QA", billing });
+  expect(layout.props.children.props.timeZone).toBe(hosted ? "Asia/Shanghai" : null);
+  expect(layout.props.children.props.children.props.children[0].props.workspace).toMatchObject({ name: "QA", billing });
 });
 
 it.each([true,false])("L-112 hosted=%s 每次布局只加载一次实际用于侧栏的计数与收藏",async hosted=>{
  state.hosted=hosted;state.queries=[];const layout=await AppLayout({children:null,pane:null,modal:null});
  expect(state.queries.sort()).toEqual(["customer","favorites","opportunity"]);
- const props=layout.props.children.props.children[0].props;
+ const props=layout.props.children.props.children.props.children[0].props;
  expect(props.计数).toMatchObject({"/customers":1,"/opportunities":1});expect(props.收藏).toEqual([]);
 });
