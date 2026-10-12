@@ -16,6 +16,8 @@ const 桌面 = path.resolve(__dirname, "../desktop");
 const main = fs.readFileSync(path.join(桌面, "main.js"), "utf8");
 const preload = fs.readFileSync(path.join(桌面, "preload-app.js"), "utf8");
 const cloud = fs.readFileSync(path.join(桌面, "cloud.js"), "utf8");
+const navigation = fs.readFileSync(path.join(桌面, "navigation.js"), "utf8");
+const notifications = fs.readFileSync(path.join(桌面, "notifications.js"), "utf8");
 const 去重 = (xs: string[]) => [...new Set(xs)];
 
 describe("壳里没有账号", () => {
@@ -122,15 +124,17 @@ describe("壳给页面的口子", () => {
      * 拦截路由只认软导航，所以壳不能 loadURL，得让页面自己 push——
      * 这条路横跨主进程、preload 和 AppShell 三个文件，一个通道名写岔就是「按了没反应」。
      */
-    expect(main).toContain('win.webContents.send("nav:go"');
-    expect(main).toContain('ipcMain.once("nav:ok"');
+    expect(main).toContain('发送导航({');
+    expect(navigation).toContain('webContents.send("nav:go", 路径, id)');
+    expect(navigation).toContain('ipcMain.on("nav:ok"');
     expect(preload).toContain('ipcRenderer.on("nav:go"');
-    expect(preload).toContain('ipcRenderer.send("nav:ok")');
+    expect(preload).toContain('ipcRenderer.send("nav:ok", requestId)');
     // 设置那两个菜单项都不许再走硬跳转
     expect(main).toMatch(/设置…[^\n]*click: \(\) => 去\(/);
     expect(main).toMatch(/label: "设置", click: \(\) => 去\("\/settings"\)/);
     // 对面没人接时还得有退路：没有这一段，登录页上按 ⌘, 就真的什么都不会发生
-    expect(main).toMatch(/应答了[\s\S]{0,200}前往\(路径\)/);
+    expect(main).toContain('兜底: () => 前往(路径)');
+    expect(navigation).toContain('timer = setTimeout(回退, 等待毫秒)');
 
     const shell = fs.readFileSync(path.resolve(__dirname, "../src/components/AppShell.tsx"), "utf8");
     expect(shell).toContain("window.desktopNav?.onGo");
@@ -205,7 +209,7 @@ describe("跑完了叫人一声", () => {
   it("页面能传的只有标题、正文、去处三段字；去处只认站内相对路径，弹什么在壳里定死", () => {
     expect(preload).toMatch(/通知: \(标题, 正文, 去\) => ipcRenderer\.invoke\("notify:show", \{ 标题: String\(/);
     const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'));
-    expect(段.slice(0, 900)).toContain("new Notification({ title, body:");
+    expect(段.slice(0, 900)).toContain("通知出口.发({ title, body:");
     expect(段.slice(0, 900)).toContain("站内路径(内容?.去)");
     // 站内路径 的规则：/ 开头、不是 //、不带空白和反斜杠
     const 规则 = /function 站内路径\(v\) \{[\s\S]*?return (\/.+\/)\.test/.exec(main)?.[1];
@@ -217,7 +221,8 @@ describe("跑完了叫人一声", () => {
 
   it("点一下：有去处就去那儿，没有就把窗口叫到前面——不然人不知道该去哪看", () => {
     const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'), main.indexOf('ipcMain.handle("shell:version"'));
-    expect(段).toContain('n.on("click"');
+    expect(段).toContain('通知出口.发(');
+    expect(notifications).toContain('n.once("click"');
     expect(段).toContain("if (去处) return 打开到(去处)");
     expect(段).toContain("win.focus()");
   });

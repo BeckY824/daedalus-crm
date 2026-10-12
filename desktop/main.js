@@ -34,6 +34,8 @@ const 窗装 = require("./windows-install");
 const 备份 = require("./backup");
 const 自动备份 = require("./auto-backup");
 const 崩溃 = require("./crashlog");
+const { 创建通知出口 } = require("./notifications");
+const { 发送导航 } = require("./navigation");
 const 提醒 = require("./reminders");
 const 团队同步 = require("./sync");
 const 运营通知 = require("./ops-notices");
@@ -81,6 +83,13 @@ let 数据目录 = null;
 const 日志文件 = path.join(数据根, "logs", "server.log");
 /** 应用本身（主进程）没接住的错误。本地服务的输出在 日志文件，两个分开，各看各的 */
 const 应用日志 = path.join(数据根, "logs", "app.log");
+const 通知上下文 = () => JSON.stringify([数据目录, 读配置().mode, 读配置().serverUrl]);
+const 通知出口 = 创建通知出口({
+  Notification,
+  取上下文: 通知上下文,
+  // 不写通知正文、客户姓名、目标地址或凭据。只留生命周期，供区分系统点击与页面跳转故障。
+  记事件: e => 崩溃.写崩溃日志(应用日志, "通知事件", JSON.stringify(e)),
+});
 // 记不上 .owner 要留案（2026-10-04 修 B-2 / D-024）：它是认出「换人了」的依据，悄悄失败的话串库时无从查起
 账号.设日志((标题, e) => 崩溃.写崩溃日志(应用日志, `[accounts] ${标题}`, e));
 /**
@@ -88,6 +97,7 @@ const 应用日志 = path.join(数据根, "logs", "app.log");
  * 否则壳会对着上一个账号的令牌判断「登没登录」。
  */
 function 换数据目录(dir) {
+  if (数据目录 !== dir) 通知出口.清空();
   数据目录 = dir;
   云端.初始化(dir);
   盯住凭据(dir);
@@ -477,16 +487,13 @@ function 前往(路径) {
  */
 function 去(路径) {
   if (!win || win.isDestroyed()) return 建窗口();
-  let 应答了 = false;
-  const 收 = () => {
-    应答了 = true;
-  };
-  ipcMain.once("nav:ok", 收);
-  win.webContents.send("nav:go", 路径);
-  setTimeout(() => {
-    ipcMain.removeListener("nav:ok", 收);
-    if (!应答了) 前往(路径);
-  }, 400);
+  const w = win, context = 通知上下文();
+  发送导航({
+    ipcMain, webContents: w.webContents, 路径,
+    仍有效: () => win === w && !w.isDestroyed() && 通知上下文() === context,
+    兜底: () => 前往(路径),
+    记事件: e => 崩溃.写崩溃日志(应用日志, "导航事件", JSON.stringify(e)),
+  });
 }
 
 /**
@@ -509,10 +516,7 @@ function 打开到(路径) {
 
 /** 提醒发的通知：和「AI 答完了」那条不同，**窗口在前台也发**——到点就是到点，界面里没有别的地方会说这句话 */
 function 发提醒(标题, 正文, 路径) {
-  if (!Notification.isSupported()) return;
-  const n = new Notification({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) });
-  n.on("click", () => 打开到(路径));
-  n.show();
+  return 通知出口.发({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) }, () => 打开到(路径));
 }
 
 /**
@@ -585,10 +589,7 @@ let 上次问运营台 = 0;
 let 运营通知器 = null;
 
 function 发运营通知(标题, 正文, 去处) {
-  if (!Notification.isSupported()) return;
-  const n = new Notification({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) });
-  n.on("click", () => void 打开运营台(去处));
-  n.show();
+  return 通知出口.发({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) }, () => 打开运营台(去处), "ops");
 }
 
 async function 查运营台(force = false) {
@@ -858,6 +859,7 @@ async function 重开本地服务() {
 /* ---------- 模式切换 ---------- */
 
 async function 切到本地() {
+  通知出口.清空();
   // 远端的路径可能在本机不存在：本地模式的落点只读各账号数据目录里那份（route-memory.js），config.json 的 lastRoute 是服务器模式自己的
   写配置({ ...读配置(), mode: "local" });
   // 没登录云端账号也照开：本地服务的 /login 就是云端账号的门，壳不用再拦一道
@@ -876,6 +878,7 @@ async function 切到本地() {
  * 连一次服务器就把「上次检查更新」这些别的项一起抹了
  */
 function 连服务器(地址) {
+  通知出口.清空();
   写配置({ ...读配置(), mode: "server", serverUrl: 地址 });
   // 本地服务留着不停：切回来时不用再等一次冷启动
   win ? win.loadURL(地址) : 建窗口();
@@ -1311,18 +1314,15 @@ ipcMain.handle("notify:show", (_e, 内容) => {
   const 截 = (v, n) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
   const title = 截(内容?.标题, 60);
   if (!title) return { ok: false, 原因: "没内容" };
-  const n = new Notification({ title, body: 截(内容?.正文, 160) });
   // 点了回到那件事所在的地方（那条回答、那张表）。只认站内的相对路径：页面传来的字符串不许把窗口带去别的站
   const 去处 = 站内路径(内容?.去);
-  n.on("click", () => {
+  return 通知出口.发({ title, body: 截(内容?.正文, 160) }, () => {
     if (去处) return 打开到(去处);
     if (!win || win.isDestroyed()) return 建窗口();
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
-  });
-  n.show();
-  return { ok: true };
+  }, "ai");
 });
 
 /** "/customers/abc?x=1" 这种才算；"//evil.com"、"https://…"、带换行的都不算 */
@@ -1373,8 +1373,7 @@ ipcMain.handle("reminders:refresh", () => {
 */
 ipcMain.handle("reminders:test", () => {
   if (!Notification.isSupported()) return { ok: false, 原因: "这台电脑不支持系统通知" };
-  发提醒("试一条：提醒能收到", "点这条会打开跟进计划。Dock 上的数就是那里「逾期」和「今天」两组加起来", 计划页);
-  return { ok: true };
+  return 发提醒("试一条：提醒能收到", "点这条会打开跟进计划。Dock 上的数就是那里「逾期」和「今天」两组加起来", 计划页);
 });
 ipcMain.handle("shell:backup", () => 备份数据库());
 
@@ -1820,6 +1819,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     // 先立标记再停服务：停服务会把正在加载的页面打断（-355），别让 did-fail-load 当成「本地服务没起来」记一笔、弹个框（第五轮 r5-pkg C1）
     正在退出 = true;
+    通知出口.清空();
     提醒器?.停();
     本地服务.stop();
     MCP桥.stop();

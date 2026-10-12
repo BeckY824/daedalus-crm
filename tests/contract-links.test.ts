@@ -40,6 +40,17 @@ async function 在谈的(name = "周明远") {
 const 今天 = () => new Date(2026, 8, 28, 10, 0, 0);
 
 describe("登记签约时顺手收尾", () => {
+  it("非法日期被明确拒绝，不写签约也不推进商机或完成待办", async () => {
+    const { c, o, p, t } = await 在谈的();
+    const result = await saveContract({ customerId: c.id, amount: 86000, signedAt: new Date('invalid'), remark: null,
+      联动: { 赢单: [o.id], 完成计划: [p.id], 完成待办: [t.id] },
+    });
+    expect(result).toEqual({ ok: false, error: "日期格式不对或日期不存在" });
+    expect(await prisma.contract.count()).toBe(0);
+    expect((await prisma.opportunity.findUniqueOrThrow({ where: { id: o.id } })).status).toBe('OPEN');
+    expect((await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).done).toBe(false);
+    expect((await prisma.task.findUniqueOrThrow({ where: { id: t.id } })).done).toBe(false);
+  });
   it("J-098：最后一项收尾失败，签约、客户状态和前面的联动全部回滚", async () => {
     const { c, o, p, t } = await 在谈的();
     await prisma.$executeRawUnsafe(`CREATE TRIGGER qa_fail_contract_task BEFORE UPDATE ON Task WHEN NEW.id = '${t.id}' BEGIN SELECT RAISE(ABORT, 'qa closing failed'); END`);

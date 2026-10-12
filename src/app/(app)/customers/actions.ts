@@ -862,6 +862,9 @@ export async function saveContract(input: {
     if (!Number.isFinite(input.amount) || input.amount <= 0) {
       return { ok: false, error: "签约金额必须为正数" };
     }
+    if (!(input.signedAt instanceof Date) || !Number.isFinite(input.signedAt.getTime())) {
+      return { ok: false, error: "日期格式不对或日期不存在" };
+    }
     if (input.currency != null && !是币种(String(input.currency).toUpperCase())) return { ok: false, error: "不认识这个币种" };
     // 精确到分（外币常带小数）；Contract.amount 那一列是整数，照旧写四舍五入的值给老统计和导出用，精确值进 ContractMoney
     const 精确 = Math.round(input.amount * 100) / 100;

@@ -85,6 +85,8 @@ function Inner({
    */
   const 订单 = 外贸订单(b);
   const [form] = Form.useForm();
+  // DatePicker 不会把无效手输文本写入 Form；必须另存原文，不能把旧日期当成这次保存值。
+  const 日期原文 = useRef<string | null>(null);
   const [saving, setSaving] = useState(false);
   /** 供应商下拉的候选：库里已有的名字（能选也能填，填个新的就新建一家） */
   const [供应商们, set供应商们] = useState<{ id: string; name: string }[]>([]);
@@ -141,6 +143,9 @@ function Inner({
   const 有可收 = 可收 && 可收.商机.length + 可收.计划.length + 可收.待办.length > 0;
 
   async function submit(force: boolean) {
+    // Picker 的失焦提交可能晚于保存按钮；有效手输日期也要先明确写回 Form。
+    const text = 日期原文.current;
+    if (text !== null && dayjs.utc(text, "YYYY-MM-DD", true).isValid()) form.setFieldValue("signedAt", dayjs(text));
     const v = await form.validateFields();
     return saveContract({
       id: editing?.id,
@@ -231,6 +236,10 @@ function Inner({
       <Form
         form={form}
         layout="vertical"
+        onInputCapture={e => {
+          if (!(e.target instanceof HTMLInputElement) || e.target.id !== "signedAt") return;
+          日期原文.current = e.target.value;
+        }}
         style={{ marginTop: 8 }}
         initialValues={
           editing
@@ -276,8 +285,17 @@ function Inner({
             </Form.Item>
           </Space.Compact>
         </Form.Item>
-        <Form.Item label={订单 ? "订单确认时间" : "签约时间"} name="signedAt" extra={!editing ? (订单 ? "回填订单确认时间只影响订单金额报表；同时转为订单的商机，其转化时间记录本次操作时间。" : "回填签约日期只影响签约报表；同时标为赢单时，赢单时间记录本次操作时间。") : undefined} rules={[{ required: true, message: 订单 ? "请选择订单确认时间" : "请选择签约时间" }]}>
-          <DatePicker style={{ width: "100%" }} />
+        <Form.Item label={订单 ? "订单确认时间" : "签约时间"} name="signedAt" extra={!editing ? (订单 ? "回填订单确认时间只影响订单金额报表；同时转为订单的商机，其转化时间记录本次操作时间。" : "回填签约日期只影响签约报表；同时标为赢单时，赢单时间记录本次操作时间。") : undefined} rules={[
+          { required: true, message: 订单 ? "请选择订单确认时间" : "请选择签约时间" },
+          { validator: (_, value) => {
+            const text = 日期原文.current;
+            if (text !== null && !dayjs.utc(text, "YYYY-MM-DD", true).isValid()) return Promise.reject(new Error("请输入有效日期（YYYY-MM-DD）"));
+            return !value || value.isValid() ? Promise.resolve() : Promise.reject(new Error("请输入有效日期（YYYY-MM-DD）"));
+          } },
+        ]}>
+          <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" preserveInvalidOnBlur
+            onChange={() => { 日期原文.current = null; }}
+          />
         </Form.Item>
         {订单 && (
           <Row gutter={16}>

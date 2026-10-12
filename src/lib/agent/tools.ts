@@ -194,7 +194,7 @@ export const TOOLS: Tool[] = [
       const name = str(args.name, 20);
       if (!name) return { summary: "没给名字", data: { error: "name 必填" } };
       const 命中 = await 找人(name, 脱敏(ctx), (v) => statusLabel(ctx.b, v));
-      if (!命中.length) return { summary: `库里没有叫「${name}」的人`, data: { error: `客户、渠道、联系人、线索、团队成员五张表里都没有「${name}」` } };
+      if (!命中.length) return { summary: `当前可访问范围内未找到「${name}」`, data: { 找到: 0, error: `当前可访问范围内未找到「${name}」；无法据此判断记录不存在还是无权访问` } };
       const 条 = 命中.reduce((n, h) => n + h.条数, 0);
       return {
         summary: `「${name}」：${命中.map((h) => `${h.表} ${h.条数} 条`).join("、")}`,
@@ -231,8 +231,8 @@ export const TOOLS: Tool[] = [
           const 别处 = await 名字在别处(name, 号);
           const 附 = 别处附件(name, 别处);
           return {
-            summary: `没有叫「${name}」的${ctx.b.customer}${别处说法(name, 别处)}`,
-            data: 附 ?? { error: "查无此人" },
+            summary: `当前可访问范围内未找到叫「${name}」的${ctx.b.customer}${别处说法(name, 别处)}`,
+            data: 附 ?? { 找到: 0, error: "当前可访问范围内未找到该客户；无法据此判断记录不存在还是无权访问" },
           };
         }
         if (候选.length > 1)
@@ -268,7 +268,7 @@ export const TOOLS: Tool[] = [
           followUps: { orderBy: { occurredAt: "desc" }, take: 20, select: { id: true, type: true, title: true, content: true, occurredAt: true, duration: true, owner: { select: { name: true } }, source: { select: { text: true } } } },
         },
       });
-      if (!c) return { summary: "没有这位", data: { error: "客户不存在" } };
+      if (!c) return { summary: "当前可访问范围内未找到这位", data: { 找到: 0, error: "当前可访问范围内未找到该客户；无法据此判断记录不存在还是无权访问" } };
       c.plans = earliestScheduled(c.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1);
       const offset = ctx.recordOffset;
       const records: BriefRecord[] = c.followUps.map((f, i) => ({ n: offset + i + 1, id: f.id, date: dayjs(f.occurredAt).format("MM-DD"), label: FOLLOW_TYPE_MAP[f.type]?.label ?? f.type, excerpt: (f.source?.text ?? f.content).slice(0, 160) }));
@@ -999,6 +999,7 @@ export const TOOLS: Tool[] = [
       */
       const 未归属 = 规格.表 === "联系人" && 规格.条件.length === 0 && !规格.关联 ? await prisma.unassignedContact.count() : 0;
       const 补一句 = 未归属 ? `；另有 ${未归属} 位未归属联系人（从客户上移出的）不在这张表里，联系人页里看得到` : "";
+      const 额外可见 = 未归属 ? { 未归属联系人: 未归属 } : {};
 
       /*
         跟进状态、决策状态按设置里改过的显示名说（排查 C7）：存的还是「已试听」，
@@ -1014,11 +1015,11 @@ export const TOOLS: Tool[] = [
           .map((r) => ({ [列.名]: 显示(列.列, r[列.列]) ?? "(空)", 条数: (r._count as { _all: number })._all }))
           .sort((a, b) => (b.条数 as number) - (a.条数 as number))
           .slice(0, 分组上限);
-        return { summary: `${话} → ${行.length} 组，共 ${总数} 条${补一句}`, data: { 查询: 话, 总数, 分组: 行 } };
+        return { summary: `${话} → ${行.length} 组，共 ${总数} 条${补一句}`, data: { 查询: 话, 总数, 分组: 行, ...额外可见 } };
       }
 
       if (规格.只计数) {
-        return { summary: `${话} → ${总数} 条${补一句}`, data: { 查询: 话, 总数 } };
+        return { summary: `${话} → ${总数} 条${补一句}`, data: { 查询: 话, 总数, ...额外可见 } };
       }
 
       const 选 = Object.fromEntries(
@@ -1052,7 +1053,7 @@ export const TOOLS: Tool[] = [
       );
       return {
         summary: `${话} → ${总数} 条${总数 > rows.length ? `（给出前 ${rows.length} 条）` : ""}${补一句}`,
-        data: { 查询: 话, 总数, 列出: rows.length, 结果 },
+        data: { 查询: 话, 总数, 列出: rows.length, 结果, ...额外可见 },
       };
     },
   },

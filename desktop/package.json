@@ -42,6 +42,8 @@
       "backup.js",
       "auto-backup.js",
       "crashlog.js",
+      "notifications.js",
+      "navigation.js",
       "reminders.js",
       "sync.js",
       "ops-notices.js",
