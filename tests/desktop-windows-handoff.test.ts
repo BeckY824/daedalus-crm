@@ -114,7 +114,7 @@ describe.skipIf(process.platform !== "win32" || !electronPath)("真实 Electron 
       app.setPath('userData',${JSON.stringify(path.join(根, "userData"))});
       const 窗装=require(${JSON.stringify(模块)}), 应用包=${JSON.stringify(目录)}, 更新目录=${JSON.stringify(更新目录)};
       let 待装={方式:'差量',版本:'99.0.0'}, 更新状态={阶段:'ready'};
-      const 崩溃={写崩溃日志(){}}, 应用日志='', 提醒器=null, 本地服务={运行中:()=>false,stop(){}}, MCP桥={stop(){}};
+      const 崩溃={写崩溃日志(){}}, 应用日志='', 提醒器=null, 通知出口={清空(){}}, 本地服务={运行中:()=>false,stop(){}}, MCP桥={stop(){}};
       const 设更新状态=(s)=>{更新状态=s}, win={isDestroyed:()=>false}, 建窗口=()=>{}, 通知安装中=()=>{};
       const dialog={showMessageBox(){app.exit(2)}};
       ${wrapper}
@@ -127,10 +127,17 @@ describe.skipIf(process.platform !== "win32" || !electronPath)("真实 Electron 
     `);
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = spawn(electronPath, [harness], { env, windowsHide: true, stdio: "ignore" });
+    const logPath = path.join(根, "electron.log");
+    const output = fs.openSync(logPath, "a");
+    const child = spawn(electronPath, [harness], { env, windowsHide: true, stdio: ["ignore", output, output] });
+    fs.closeSync(output);
     let killTimer: ReturnType<typeof setTimeout>;
     const code = await new Promise((resolve, reject) => {
-      killTimer = setTimeout(() => { child.kill(); reject(new Error("Electron handoff timeout")); }, 30_000);
+      killTimer = setTimeout(() => {
+        child.kill();
+        const logs = [logPath, path.join(根, "error.txt")].filter(f => fs.existsSync(f)).map(f => `${path.basename(f)}: ${fs.readFileSync(f, "utf8").slice(-3200)}`).join("\n");
+        reject(new Error(`Electron handoff timeout\n${logs}`));
+      }, 30_000);
       child.once("error", reject); child.once("exit", resolve);
     }).finally(() => clearTimeout(killTimer));
     expect(code).toBe(0);
