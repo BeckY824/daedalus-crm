@@ -154,22 +154,33 @@ describe("网关：快速重发时原请求其实没死（只是慢）", () => {
 
   it("G.3 桌面端断开：网关转给中转站的那份跟着掐掉，不再挂到 120 秒；这一份是最新的就退次数", async () => {
     let 上游被掐 = false;
+    let 上游已开始 = false;
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input instanceof Request ? input.url : input);
       if (!url.startsWith(上游)) throw new TypeError(`没接这个地址：${url}`);
       // 中转站卡住：一直不回，直到请求被掐
-      return new Promise<Response>((_, rej) =>
-        init?.signal?.addEventListener("abort", () => {
+      return new Promise<Response>((_, rej) => {
+        const 取消 = () => {
           上游被掐 = true;
-          rej(init.signal!.reason ?? new DOMException("aborted", "AbortError"));
-        }),
-      );
+          rej(init?.signal?.reason ?? new DOMException("aborted", "AbortError"));
+        };
+        // 与真实 fetch 一致：信号已取消时也立即拒绝，不能只等未来的 abort 事件。
+        if (init?.signal?.aborted) 取消();
+        else init?.signal?.addEventListener("abort", 取消, { once: true });
+        上游已开始 = true;
+      });
     });
     const 桌面端 = new AbortController();
     const 这一份 = 打网关(`q-cut-${Date.now()}`, 桌面端.signal);
-    await 等一下(20);
-    桌面端.abort(超时());
-    await 这一份;
+    try {
+      // Windows 冷库可能超过 20ms；等待真正进入上游，才能验证在途取消。
+      await expect.poll(() => 上游已开始, { timeout: 5000 }).toBe(true);
+      桌面端.abort(超时());
+      await 这一份;
+    } finally {
+      桌面端.abort(超时());
+      await 这一份; // 无论断言是否失败，都让路由 finally 恢复 MULTI_TENANT。
+    }
     expect(上游被掐, "桌面端走了，上游那份还挂着").toBe(true);
     expect(await 用掉(账号.acc.id), "没人收到答案，不扣").toBe(0);
   });
