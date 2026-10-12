@@ -48,5 +48,5 @@ it("真实业务员权限限定：可见转化客户可追溯，自己持有的�
  fs.writeFileSync(path.join(dir,".cloud.json"),JSON.stringify({baseUrl:"http://fake",token:"dk_qa",accountId:"origin",name:"QA",contact:state.user.email,models:[],loggedAt:new Date().toISOString()}));
  fs.writeFileSync(path.join(dir,".team.json"),JSON.stringify({teamId:"origin-team",key:"k".repeat(43),joinSecret:"qa",device:"origin-device",pulled:0}));vi.stubEnv("DESKTOP_LOCAL","1");vi.stubEnv("CRM_DATA_DIR",dir);忘掉限定();
  expect((await detail(visible.id)).props.sourceLead).toMatchObject({id:"visible-origin"});expect((await ai(visible.id)).data).toMatchObject({sourceLead:{id:"visible-origin"}});
- await expect(detail(hidden.id)).rejects.toThrow("NOT_FOUND");const forbidden=await ai(hidden.id);expect(forbidden.data).toMatchObject({error:"客户不存在"});expect(JSON.stringify(forbidden)).not.toContain("秘密来源");
+ await expect(detail(hidden.id)).rejects.toThrow("NOT_FOUND");const forbidden=await ai(hidden.id);expect(forbidden.data).toEqual({找到:0,error:"当前可访问范围内未找到该客户；无法据此判断记录不存在还是无权访问"});expect(JSON.stringify(forbidden)).not.toContain("秘密来源");
 });
