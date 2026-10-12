@@ -4,7 +4,7 @@ import DatePicker from "@/components/BusinessDatePicker";
 
 import { isFormValidationError } from "@/lib/form-validation";
 
-import { useEffect, useRef, useState } from "react";
+import { cloneElement, useEffect, useRef, useState, type ReactElement, type MouseEventHandler } from "react";
 import { Modal, Form, InputNumber, Input, App, Checkbox, Space, AutoComplete, Row, Col } from "antd";
 import { dayjs, fmtDate } from "@/lib/utils";
 import { 金额 } from "@/lib/currency";
@@ -87,6 +87,7 @@ function Inner({
   const [form] = Form.useForm();
   // DatePicker 不会把无效手输文本写入 Form；必须另存原文，不能把旧日期当成这次保存值。
   const 日期原文 = useRef<string | null>(null);
+  const [日期框版本, set日期框版本] = useState(0);
   const [saving, setSaving] = useState(false);
   /** 供应商下拉的候选：库里已有的名字（能选也能填，填个新的就新建一家） */
   const [供应商们, set供应商们] = useState<{ id: string; name: string }[]>([]);
@@ -293,8 +294,21 @@ function Inner({
             return !value || value.isValid() ? Promise.resolve() : Promise.reject(new Error("请输入有效日期（YYYY-MM-DD）"));
           } },
         ]}>
-          <DatePicker style={{ width: "100%" }} format="YYYY-MM-DD" preserveInvalidOnBlur
+          <DatePicker key={日期框版本} style={{ width: "100%" }} format="YYYY-MM-DD" preserveInvalidOnBlur
             onChange={() => { 日期原文.current = null; }}
+            cellRender={(date, info) => {
+              if (info.type !== "date" || !dayjs.isDayjs(date)) return info.originNode;
+              const node = info.originNode as ReactElement<{ onClick?: MouseEventHandler<HTMLElement> }>;
+              return cloneElement(node, { onClick: event => {
+                node.props.onClick?.(event);
+                // 重选原日期不会触发 Picker.onChange；明确选择后重建输入，解除保留的无效文本。
+                if (日期原文.current !== null && !dayjs.utc(日期原文.current, "YYYY-MM-DD", true).isValid()) {
+                  日期原文.current = null;
+                  form.setFieldValue("signedAt", date.startOf("day"));
+                  set日期框版本(v => v + 1);
+                }
+              } });
+            }}
           />
         </Form.Item>
         {订单 && (

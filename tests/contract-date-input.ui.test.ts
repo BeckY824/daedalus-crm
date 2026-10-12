@@ -70,3 +70,19 @@ it("托管北京日期在纽约浏览器手输与日历选择都能保存，不�
     await expect.poll(() => signedAt(page)).toBe('2026-03-08T16:00:00.000Z');
   } finally { await page.close(); }
 });
+it.each([false, true])("输入无效日期后从日历重新选择原日期，也能解除错误并保存（北京业务日=%s）", async hosted => {
+  const page = await open({ trade: true, fresh: false, hosted });
+  try {
+    const input = page.getByLabel('订单确认时间', { exact: true });
+    const original = await input.inputValue();
+    await input.fill('2026-13-40'); await save(page);
+    await page.getByText('请输入有效日期（YYYY-MM-DD）', { exact: true }).waitFor();
+    await input.click();
+    await page.locator(`.ant-picker-cell[title="${original}"] .ant-picker-cell-inner`).last().click();
+    expect(await input.inputValue()).toBe(original);
+    await save(page);
+    await expect.poll(() => page.evaluate(() => Reflect.get(window, '__saved'))).toBeDefined();
+    const expected = await page.evaluate(({ original, hosted }) => new Date(original + (hosted ? 'T00:00:00+08:00' : 'T00:00:00')).toISOString(), { original, hosted });
+    expect(await signedAt(page)).toBe(expected);
+  } finally { await page.close(); }
+});
