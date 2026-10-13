@@ -9,6 +9,11 @@ import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页, 
 import { 规整币种 } from "@/lib/currency";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { getBusiness } from "@/lib/business";
+import { 限定的我 } from "@/lib/team-scope";
+import { defaultClient } from "@/lib/prisma";
+import { 读团队 } from "@/lib/sync/client";
+import { 本地模式 } from "@/lib/desktop/cloud";
+import { 客户页签归属 } from "@/lib/pool";
 
 export const dynamic = "force-dynamic";
 
@@ -69,10 +74,14 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   const where = await 客户筛选条件(sp);
   // URL 参数、删空最后一页都不能使 skip 变成 NaN 或停留在空的越界页。
   const 子集 = 在看子集(sp);
-  const [total, 公海总数] = await Promise.all([
+  /*
+    两个页签上的数：都不带筛选、和左栏「客户」角标在同一套限定下数（layout.tsx 的 customer.count()），
+    所以「我的 / 团队客户 N」+「公海 M」= 角标。子集里不摆页签，不数
+  */
+  const [total, 公海总数, 非公海总数] = await Promise.all([
     prisma.customer.count({ where }),
-    // 「公海」页签上的那个数。子集里不摆页签，不数
     子集 ? Promise.resolve(null) : prisma.customer.count({ where: { pool: { isNot: null } } }),
+    子集 ? Promise.resolve(null) : prisma.customer.count({ where: { pool: { is: null } } }),
   ]);
   /*
     「客户」页签搜不到、公海里却有对得上的：数出来给一条去公海页签的路（领导点「搜一下」找不到人，多半是掉进公海了）。
@@ -136,6 +145,12 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={sp.batch ? { 几位: total } : null}
       公海数={公海总数}
+      客户数={非公海总数}
+      /*
+        第一个页签叫「我的 / 团队 / 全部客户」：和数据限定同一个来源——限定的我() 有值 = 团队业务员（lib/team-scope.ts，
+        按中转名单对出来的本机角色），读团队() 有 = 进了团队（.team.json），本地模式() = 桌面端。都是缓存 / 读文件 / 环境变量，不多查库
+      */
+      客户页签={客户页签归属({ 业务员: !!(await 限定的我(defaultClient)), 在团队: !!读团队(), 桌面端: 本地模式() })}
       公海里匹配={公海里匹配}
       aiEnabled={aiEnabled}
       旧职位={[...new Set(旧职位)]}

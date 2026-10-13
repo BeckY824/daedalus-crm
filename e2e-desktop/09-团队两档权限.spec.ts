@@ -131,6 +131,11 @@ test("业务员的客户列表：只有自己负责的、渠道是自己的、�
   await expect(表.getByRole("link", { name: "不自动跑" })).toHaveCount(0);
   await expect(表.getByRole("link", { name: "提醒客户" })).toHaveCount(0);
   await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(2);
+  // 业务员的第一个页签叫「我的客户」；我的 2 + 公海 1 = 左栏「客户」角标 3（同一套限定下数的）
+  const 页签 = page.locator(".page-head .ant-segmented-item");
+  await expect(页签.first()).toHaveText("我的客户 2");
+  await expect(页签.nth(1)).toHaveText("公海 1");
+  await expect(page.locator(".rail-nav a", { has: page.locator("b", { hasText: /^客户$/ }) }).locator(".rail-num")).toHaveText("3");
   // 「公海」页签：只有公海里那一位
   await page.locator(".page-head .ant-segmented-item", { hasText: /^公海/ }).click();
   await expect(page).toHaveURL(/pool=1/);

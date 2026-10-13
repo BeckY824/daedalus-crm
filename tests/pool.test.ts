@@ -29,7 +29,7 @@ import { DEFAULT_BUSINESS, mergeBusiness, 公海天数, BUSINESS_PRESETS, 表单
 import { getBusiness } from "@/lib/business";
 import fs from "node:fs";
 import path from "node:path";
-import { 该掉公海, 公海截止, 公海标签 } from "@/lib/pool";
+import { 该掉公海, 公海截止, 公海标签, 客户页签归属 } from "@/lib/pool";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { 放进公海, 领取, 撤销公海 } from "@/app/(app)/customers/pool-actions";
 import { 客户筛选条件, 在看子集 } from "@/app/(app)/customers/query";
@@ -319,10 +319,20 @@ describe("客户 / 公海两个页签（2026-10-13）", () => {
   it("列表页：「客户」页签的总数不含公海、给出公海数；搜不到时数出公海里有几位对得上；子集里不给页签", async () => {
     const { 渠 } = await 造两位();
     const 页 = async (sp: Record<string, string>) =>
-      ((await CustomersPage({ searchParams: Promise.resolve(sp) })) as unknown as { props: { total: number; rows: { name: string }[]; 公海数: number | null; 公海里匹配: number } }).props;
+      ((await CustomersPage({ searchParams: Promise.resolve(sp) })) as unknown as { props: { total: number; rows: { name: string }[]; 公海数: number | null; 客户数: number | null; 客户页签: string; 公海里匹配: number } }).props;
     const 客户页 = await 页({});
     expect(客户页.rows.map((r) => r.name)).toEqual(["页签-自己的"]);
-    expect([客户页.total, 客户页.公海数, 客户页.公海里匹配]).toEqual([1, 1, 0]);
+    expect([客户页.total, 客户页.客户数, 客户页.公海数, 客户页.公海里匹配]).toEqual([1, 1, 1, 0]);
+    // 两个页签上的数加起来 = 左栏「客户」角标（layout.tsx 的 customer.count()）
+    expect(客户页.客户数! + 客户页.公海数!).toBe(await prisma.customer.count());
+    // 网页版 / 自部署（没开 DESKTOP_LOCAL）：大家看同一份，叫「全部」
+    expect(客户页.客户页签).toBe("全部");
+    // 筛选不影响页签上的数
+    expect((await 页({ keyword: "公海的" })).客户数).toBe(1);
+    // 进了团队、本机不是业务员（限定的我() 是 null）= 老板：「团队」
+    mocks.团队 = true;
+    expect((await 页({})).客户页签).toBe("团队");
+    mocks.团队 = false;
     const 公海页 = await 页({ pool: "1" });
     expect(公海页.rows.map((r) => r.name)).toEqual(["页签-公海的"]);
     const 没搜到 = await 页({ keyword: "公海的" });
@@ -330,7 +340,14 @@ describe("客户 / 公海两个页签（2026-10-13）", () => {
     // 按负责人筛着也数得到：点过去会换到公海页签、负责人条件清掉
     expect((await 页({ keyword: "公海的", salesOwnerId: 我 })).公海里匹配).toBe(1);
     const 子集 = await 页({ directOf: 渠.id });
-    expect([子集.total, 子集.公海数]).toEqual([2, null]);
+    expect([子集.total, 子集.公海数, 子集.客户数]).toEqual([2, null, null]);
   });
 
+
+  it("第一个页签叫什么：团队业务员、桌面端一个人用 =「我的」，团队老板 =「团队」，网页版 =「全部」", () => {
+    expect(客户页签归属({ 业务员: true, 在团队: true, 桌面端: true })).toBe("我的");
+    expect(客户页签归属({ 业务员: false, 在团队: true, 桌面端: true })).toBe("团队");
+    expect(客户页签归属({ 业务员: false, 在团队: false, 桌面端: true })).toBe("我的");
+    expect(客户页签归属({ 业务员: false, 在团队: false, 桌面端: false })).toBe("全部");
+  });
 });

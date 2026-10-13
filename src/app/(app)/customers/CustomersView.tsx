@@ -35,7 +35,7 @@ import { statusLabel, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { WhatsApp网址 } from "@/lib/customer-extra";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 列表不问归属 } from "@/lib/solo";
-import { 公海标签 } from "@/lib/pool";
+import { 公海标签, type 客户页签归属 } from "@/lib/pool";
 import { 放进公海, 领取, 撤销公海, type 公海结果 } from "./pool-actions";
 import ResetFilters from "@/components/ResetFilters";
 import CurrencySelect from "@/components/CurrencySelect";
@@ -88,6 +88,10 @@ type Props = {
    * 2026-10-13：公海和自己的客户分两个页签摆，原来混在一张表里、只靠负责人下拉第一项「公海」切
    */
   公海数?: number | null;
+  /** 不在公海里的一共几位（第一个页签上的数）。和 公海数 加起来 = 左栏「客户」角标 */
+  客户数?: number | null;
+  /** 第一个页签叫「我的 / 团队 / 全部」客户：团队业务员、桌面端一个人用 = 我的；团队老板 = 团队；网页版 / 自部署 = 全部（lib/pool.ts） */
+  客户页签?: 客户页签归属;
   /** 「客户」页签搜不到时，同样的条件在公海里有几位（0 = 没有，不提） */
   公海里匹配?: number;
   /** 接上模型了没有。没接上时导入抽屉里「粘一段文本」那条路只说明原因，不给按钮 */
@@ -137,7 +141,7 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, requestedPage, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
   // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
@@ -436,8 +440,8 @@ export default function CustomersView({
             // 换到公海清掉负责人：公海里的负责人是「原负责人」，带过去筛出来的是另一回事（和原来下拉里选「公海」一样）
             onChange={(v) => apply(v === "公海" ? { pool: "1", salesOwnerId: "" } : { pool: "" })}
             options={[
-              { value: "客户", label: b.customer },
-              { value: "公海", label: 公海数 ? `公海 ${公海数}` : "公海" },
+              { value: "客户", label: `${客户页签}${b.customer} ${客户数 ?? 0}` },
+              { value: "公海", label: `公海 ${公海数 ?? 0}` },
             ]}
           />
         ) : undefined}
