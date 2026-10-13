@@ -42,7 +42,7 @@ export async function 范围快照(db: PrismaClient) {
  * 改归属后补发的「当前状态起点」：根记录及其所有子记录（按 范围父表 向下展开）各一条整行插入 + 按字段钟分组的改动。
  * 新获权的人只收这份起点和之后的改动，拿不到这条记录不在他范围时的历史密文。
  */
-export async function 记录快照(db: PrismaClient, roots: string[]) {
+export async function 记录快照(db: Db, roots: string[]) {
   const want = new Set(roots);
   for (let grew = true; grew;) {
     grew = false;
@@ -54,6 +54,15 @@ export async function 记录快照(db: PrismaClient, roots: string[]) {
           const key = 行键(t, String(r.k)); if (!want.has(key)) { want.add(key); grew = true; }
         }
       }
+    }
+  }
+  // 操作日志按 entity / entityId 挂在记录上（不在 范围父表 里）：一并给起点，接手的人看得到这位客户的操作记录
+  if ((同步表 as readonly string[]).includes('AuditLog')) {
+    const byTable = new Map<string, string[]>();
+    for (const key of want) { const i = key.indexOf(':'); const t = key.slice(0, i); if (t !== 'AuditLog') byTable.set(t, [...(byTable.get(t) ?? []), key.slice(i + 1)]); }
+    for (const [t, ids] of byTable) for (let i = 0; i < ids.length; i += 400) {
+      const part = ids.slice(i, i + 400);
+      for (const r of await db.$queryRawUnsafe<{ k: string }[]>(`SELECT id AS k FROM "AuditLog" WHERE entity = ? AND entityId IN (${part.map(() => '?').join(',')})`, t, ...part)) want.add(行键('AuditLog', String(r.k)));
     }
   }
   const events: 改动[] = [];
