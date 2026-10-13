@@ -1,0 +1,15 @@
+2026-10-11 approx. 18:58–18:59 Asia/Shanghai
+Candidate installed at F:\CRM\Daedalus CRM, public UI version 0.46.15.
+
+After a prior native file chooser did not complete, reopening the isolated general QA data root caused the process to exit. Retrying on a fresh working copy containing the account database/configuration but no Chromium cache reproduced a native Windows dialog:
+
+Daedalus CRM.exe - 应用程序错误
+应用程序发生异常 unknown software exception (0x80000003)，位置为 0x00007FF7404F0E6C。 要终止程序，请单击“确定”。
+
+Accessibility capture identified a system dialog owned by csrss.exe. Screenshot capture with sky failed with `FrameArrived timed out: timed out waiting on channel`. No new application-log entry appeared. The original account directory and a pre-relaunch account copy are preserved in this folder. The cause remains undetermined; simultaneous hidden QA instances are still being checked.
+
+2026-10-12 23:17 Asia/Shanghai retest: the installed F:\CRM\Daedalus CRM executable and its app.asar exactly matched the working Public-copy SHA256 values. The installed binary was launched with the same working public ASCII synthetic CRM_DATA_ROOT and --disable-gpu. It failed before the main window appeared; Windows accessibility returned: “应用程序发生异常 unknown software exception (0x80000003)，位置为 0x00007FF690690E6C。 要终止程序，请单击‘确定’。” Screenshot capture timed out again. The failed process was terminated after recording the text. The synthetic root and existing data were not changed by this launch.
+
+2026-10-12 23:22 Asia/Shanghai control: the Public-copy executable, same synthetic CRM_DATA_ROOT, but without --disable-gpu, failed before opening the main window: unknown software exception (0x80000003), address 0x00007FF652BE0E6C. The native error dialog was acknowledged after reading its text; process exited. This isolates neither a final root cause nor a product fix.
+
+2026-10-13 retest: the Public-copy executable was launched again with --disable-gpu and the same isolated ASCII CRM_DATA_ROOT that worked on 2026-10-12. It now also failed before the main window appeared: unknown software exception (0x80000003), address 0x00007FF7850C0E6C. The system dialog was acknowledged. The previously successful launch is not a stable workaround.
