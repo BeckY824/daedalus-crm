@@ -225,6 +225,7 @@ export async function 收推送(accountId: string, teamId: string, device: strin
   const t = await control.syncTeam.findUnique({ where: { id: String(teamId ?? "") } });
   if (!t || !(await 在队里(t.id, accountId))) return 错(403, "你不在这个团队里");
   if (!t.active) return 错(402, "团队同步还没开通");
+  if (process.env.CRM_SCOPED_SYNC === '1' && t.ownerAccountId !== accountId) return 错(409, "团队已启用设备范围隔离，请升级桌面端；不能再下载或上传全队包");
   if (typeof data !== "string" || !data || data.length > 一批上限) return 错(413, "这一批太大了");
   if (typeof device !== "string" || !/^[\w-]{4,64}$/.test(device)) return 错(400, "设备编号不对");
   const 目录 = 安全名(t.id) && path.join(同步目录(), t.id);
@@ -246,7 +247,11 @@ export async function 收推送(accountId: string, teamId: string, device: strin
   // 比现在还新的编号：没有人有这把钥匙，收下了全队都解不开（复查低 4）
   if (编号 > 现在) return 错(409, "钥匙编号不对，刷新一下再试");
   fs.mkdirSync(目录, { recursive: true });
-  const b = await control.syncBatch.create({ data: { teamId: t.id, accountId, device, size: data.length } });
+  const b = await control.$transaction(async tx => {
+    if (await tx.syncPrivacy.findUnique({ where: { teamId: t.id } })) return null;
+    return tx.syncBatch.create({ data: { teamId: t.id, accountId, device, size: data.length } });
+  });
+  if (!b) return 错(409, "团队正在或已完成范围迁移，请升级桌面端使用范围同步");
   // 先写临时文件再改名：拉的人不会读到写了一半的批次
   const f = path.join(目录, `${b.id}.bin`);
   fs.writeFileSync(`${f}.tmp`, data);
@@ -258,6 +263,9 @@ export async function 给拉取(accountId: string, teamId: string, after: number
   const t = await control.syncTeam.findUnique({ where: { id: String(teamId ?? "") } });
   if (!t || !(await 在队里(t.id, accountId))) return 错(403, "你不在这个团队里");
   if (!t.active) return 错(402, "团队同步还没开通");
+  const privacy = await control.syncPrivacy.findUnique({ where: { teamId: t.id } });
+  if ((process.env.CRM_SCOPED_SYNC === '1' || privacy) && t.ownerAccountId !== accountId) return 错(409, "团队已启用设备范围隔离，请升级桌面端；不能再下载或上传全队包");
+  if (privacy?.stage === 'ready') return 错(409, "团队已完成范围迁移，请升级桌面端使用范围同步");
   const rows = await control.syncBatch.findMany({ where: { teamId: t.id, id: { gt: Math.max(0, Math.floor(Number(after) || 0)) } }, orderBy: { id: "asc" }, take: 一次拉 + 1 });
   const 这批 = rows.slice(0, 一次拉);
   const batches = [];

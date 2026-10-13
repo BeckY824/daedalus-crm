@@ -108,7 +108,9 @@ async function 分配端口(dataDir, root) {
   }
   if (last && !reserved.has(last)) {
     try { return await 找一个空端口(last); }
-    catch (e) { if (e.code !== "EADDRINUSE") throw e; }
+    // Windows 更新/Hyper-V 可把之前可用的端口划进保留范围，listen 会报 EACCES。
+    // 只在旧端口绑定失败时换端口；上面的目录/.port 写权限错误仍明确拒绝。
+    catch (e) { if (e.code !== "EADDRINUSE" && e.code !== "EACCES") throw e; }
   }
   let port = 0;
   for (let i = 0; i < 100; i++) { port = await 找一个空端口(); if (!reserved.has(port)) break; port = 0; }

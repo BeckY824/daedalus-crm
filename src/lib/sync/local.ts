@@ -228,8 +228,8 @@ async function 记本机字段钟(db: Db, 设备: string) {
  *   - 外键是延后检查的（同一批里先子后父也放得进），提交前用 foreign_key_check 找出孤儿：
  *     父行在本机已经删了（甲删客户、乙同时给他记了跟进）——能空的那一列置空，不能空的整行删掉、记下跳过
  */
-export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: string): Promise<{ 应用: number; 撞: number; 跳: number }> {
-  const 排好 = [...批].filter((e) => !e.h.endsWith(`-${本机设备}`)).sort((a, b) => a.h.localeCompare(b.h));
+export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: string, 选项: { 含本人?: boolean } = {}): Promise<{ 应用: number; 撞: number; 跳: number }> {
+  const 排好 = [...批].filter((e) => 选项.含本人 || !e.h.endsWith(`-${本机设备}`)).sort((a, b) => a.h.localeCompare(b.h));
   if (!排好.length) return { 应用: 0, 撞: 0, 跳: 0 };
   let 撞 = 0;
   let 跳 = 0;

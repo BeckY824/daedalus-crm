@@ -19,6 +19,12 @@
  * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
 const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session, nativeTheme } = require("electron");
+const Windows通知 = require("./windows-toast-activation");
+// 协议辅助进程不初始化默认账号库，也不争用任何 QA 实例的单实例锁。
+if (process.platform === "win32" && process.argv.some(a => a.toLowerCase().startsWith(`${Windows通知.协议}:`))) {
+  Windows通知.转交激活(process.argv).finally(() => app.exit(0));
+  return;
+}
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
@@ -84,9 +90,11 @@ const 日志文件 = path.join(数据根, "logs", "server.log");
 /** 应用本身（主进程）没接住的错误。本地服务的输出在 日志文件，两个分开，各看各的 */
 const 应用日志 = path.join(数据根, "logs", "app.log");
 const 通知上下文 = () => JSON.stringify([数据目录, 读配置().mode, 读配置().serverUrl]);
+let Windows激活入口 = null;
 const 通知出口 = 创建通知出口({
   Notification,
   取上下文: 通知上下文,
+  取激活入口: process.platform === "win32" ? () => Windows激活入口 : undefined,
   // 不写通知正文、客户姓名、目标地址或凭据。只留生命周期，供区分系统点击与页面跳转故障。
   记事件: e => 崩溃.写崩溃日志(应用日志, "通知事件", JSON.stringify(e)),
 });
@@ -1673,6 +1681,13 @@ if (!app.requestSingleInstanceLock()) {
     if (process.platform === "win32") {
       const 装着 = 窗装.安装进行中(更新目录);
       if (装着 && !(await 等安装装完(装着))) return;
+      try {
+        if (!app.isPackaged || !app.setAsDefaultProtocolClient(Windows通知.协议)) throw new Error("通知协议未注册");
+        Windows激活入口 = await Windows通知.创建激活入口({
+          记事件: e => 崩溃.写崩溃日志(应用日志, "Windows 通知激活", JSON.stringify(e)),
+        });
+        app.once("will-quit", () => { void Windows激活入口?.关闭(); });
+      } catch { 崩溃.写崩溃日志(应用日志, "Windows 通知激活入口不可用", "请使用完整安装版验证通知点击"); }
     }
     建菜单();
     /*

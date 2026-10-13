@@ -75,7 +75,7 @@ const peOffset = runtime.readUInt32LE(0x3c);
 assert.equal(runtime.subarray(peOffset, peOffset + 4).toString("hex"), "50450000");
 assert.equal(runtime.readUInt16LE(peOffset + 4), 0x8664, "installed runtime must be Windows x64");
 const asar = createRequire(import.meta.url)("@electron/asar");
-const embedded = ["main.js","release-version.js","preload.js","preload-app.js","local-server.js","mcp-bridge.js","cloud.js","glass-blur.js","accounts.js","machine.js","updater.js","update-security.js","route-memory.js","install.js","windows-install.js","delta.js","backup.js","auto-backup.js","crashlog.js","reminders.js","sync.js","ops-notices.js","sign.js"].map(name => {
+const embedded = ["main.js","release-version.js","preload.js","preload-app.js","local-server.js","mcp-bridge.js","cloud.js","glass-blur.js","accounts.js","machine.js","updater.js","update-security.js","route-memory.js","install.js","windows-install.js","delta.js","backup.js","auto-backup.js","crashlog.js","notifications.js","navigation.js","windows-toast-activation.js","reminders.js","sync.js","ops-notices.js","sign.js"].map(name => {
   const actual = asar.extractFile(path.join(installed, "resources", "app.asar"), name);
   const normalized = actual.toString("utf8").replaceAll("\r\n", "\n");
   assert.equal(normalized, fs.readFileSync(path.join(desktop, name), "utf8").replaceAll("\r\n", "\n"), "installed source mismatch: " + name);
