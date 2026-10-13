@@ -1,0 +1,63 @@
+==== 2026-10-12T01:49:36.283Z 自动备份 ====
+[备份] 自动备份：daily-2026-10-12.db
+
+==== 2026-10-13T06:17:53.560Z 自动备份 ====
+[备份] 自动备份：daily-2026-10-13.db
+
+==== 2026-10-13T06:17:53.734Z 本地服务没能启动 ====
+Error: listen EACCES: permission denied 127.0.0.1:58502
+Error: listen EACCES: permission denied 127.0.0.1:58502
+    at Server.setupListenHandle [as _listen2] (node:net:1918:21)
+    at listenInCluster (node:net:1997:12)
+    at node:net:2206:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+
+==== 2026-10-13T06:19:46.939Z 本地服务没能启动 ====
+Error: listen EACCES: permission denied 127.0.0.1:58502
+Error: listen EACCES: permission denied 127.0.0.1:58502
+    at Server.setupListenHandle [as _listen2] (node:net:1918:21)
+    at listenInCluster (node:net:1997:12)
+    at node:net:2206:7
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)
+
+==== 2026-10-13T07:12:44.046Z 导航事件 ====
+{"event":"navigation-sent","id":"8b1c268f-0330-4755-b7ce-76a1fe40d885"}
+
+==== 2026-10-13T07:12:44.062Z 导航事件 ====
+{"event":"navigation-acknowledged","id":"8b1c268f-0330-4755-b7ce-76a1fe40d885"}
+
+==== 2026-10-13T07:14:27.742Z 通知事件 ====
+{"event":"shown","id":1,"kind":"reminder"}
+
+==== 2026-10-13T07:14:27.765Z 通知事件 ====
+{"event":"banner-closed","id":1,"kind":"reminder"}
+
+==== 2026-10-13T07:18:40.794Z 通知事件 ====
+{"event":"shown","id":2,"kind":"reminder"}
+
+==== 2026-10-13T07:18:40.820Z 通知事件 ====
+{"event":"banner-closed","id":2,"kind":"reminder"}
+
+==== 2026-10-13T07:22:58.489Z 通知事件 ====
+{"event":"shown","id":3,"kind":"reminder"}
+
+==== 2026-10-13T07:22:58.521Z 通知事件 ====
+{"event":"banner-closed","id":3,"kind":"reminder"}
+
+==== 2026-10-13T07:26:11.246Z 通知事件 ====
+{"event":"shown","id":4,"kind":"reminder"}
+
+==== 2026-10-13T07:26:11.277Z 通知事件 ====
+{"event":"banner-closed","id":4,"kind":"reminder"}
+
+==== 2026-10-13T08:18:11.844Z 通知事件 ====
+{"event":"shown","id":5,"kind":"reminder"}
+
+==== 2026-10-13T08:18:11.877Z 通知事件 ====
+{"event":"banner-closed","id":5,"kind":"reminder"}
+
+==== 2026-10-13T08:36:08.983Z 通知事件 ====
+{"event":"shown","id":6,"kind":"reminder"}
+
+==== 2026-10-13T08:36:15.296Z 通知事件 ====
+{"event":"banner-closed","id":6,"kind":"reminder"}

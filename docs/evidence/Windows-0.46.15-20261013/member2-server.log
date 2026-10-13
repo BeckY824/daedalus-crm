@@ -1,0 +1,38 @@
+
+===== 2026-10-13T07:31:18.070Z 启动 =====
+[entry] 已创建本机数据库
+[entry] 已为本机账号生成独立密码
+[entry] 已去掉 2 个样例账号
+[entry] 数据库就绪：F:\CRM\QA-20261013\member2-f2-root\accounts\_未认领\crm.db
+! (node:140572) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+! (Use `Daedalus CRM --trace-warnings ...` to show where the warning was created)
+▲ Next.js 16.3.8
+- Local:         http://127.0.0.1:57671
+- Network:       http://127.0.0.1:57671
+✓ Ready in 0ms
+✓ Running next.config took 1.6ms
+
+===== 2026-10-13T07:51:21.585Z 启动 =====
+
+===== 2026-10-13T07:56:15.120Z 启动 =====
+[entry] 数据库就绪：F:\CRM\QA-20261013\member2-f2-root\accounts\db647ae3c9d8d715b2393246\crm.db
+! (node:120048) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+! (Use `Daedalus CRM --trace-warnings ...` to show where the warning was created)
+▲ Next.js 16.3.8
+- Local:         http://127.0.0.1:57671
+- Network:       http://127.0.0.1:57671
+✓ Ready in 0ms
+✓ Running next.config took 1.6ms
+[intent] 没命中：请查询客户 QA-SAM-F1-Win双向客户，电话 13900001611。
+[agent] 第 1 步决策（原生）1848ms：find_person,search_customers
+[agent] 第 3 步决策（原生）1870ms：没调工具
+[intent] 没命中：请查询客户 QA-SAM-member2-private，电话 13900008882。
+[agent] 第 1 步决策（原生）1380ms：search_customers,find_person
+[agent] 第 3 步决策（原生）1725ms：没调工具
+[intent] 没命中：请查询客户 QA-SAM-F1-Win双向客户，电话 13900001611。 发送后回复“已发送”
+[agent] 第 1 步决策（原生）1406ms：find_person
+[agent] 第 2 步决策（原生）2599ms：没调工具
+! ⨯ Error: The destination stream closed early.
+!     at ignore-listed frames {
+!   digest: '1611448761'
+! }

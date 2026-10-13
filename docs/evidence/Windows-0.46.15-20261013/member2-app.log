@@ -1,0 +1,27 @@
+==== 2026-10-13T07:36:27.603Z 导航事件 ====
+{"event":"navigation-sent","id":"b2f73f23-d9f2-4957-8e04-6566be2f1484"}
+
+==== 2026-10-13T07:36:27.619Z 导航事件 ====
+{"event":"navigation-acknowledged","id":"b2f73f23-d9f2-4957-8e04-6566be2f1484"}
+
+==== 2026-10-13T07:36:58.426Z 导航事件 ====
+{"event":"navigation-sent","id":"2b1f8c7c-e1c2-45a0-8ab6-171ca7640402"}
+
+==== 2026-10-13T07:36:58.479Z 导航事件 ====
+{"event":"navigation-acknowledged","id":"2b1f8c7c-e1c2-45a0-8ab6-171ca7640402"}
+
+==== 2026-10-13T07:37:33.697Z 导航事件 ====
+{"event":"navigation-sent","id":"48d4a249-fbe9-4fe7-877a-944a32d74c31"}
+
+==== 2026-10-13T07:37:33.716Z 导航事件 ====
+{"event":"navigation-acknowledged","id":"48d4a249-fbe9-4fe7-877a-944a32d74c31"}
+
+==== 2026-10-13T07:51:21.562Z 自动备份 ====
+[备份] 自动备份：daily-2026-10-13.db
+
+==== 2026-10-13T07:52:24.608Z 本地服务没能启动 ====
+Error: 服务启动超时
+Error: 服务启动超时
+    at Timeout.再试一次 [as _onTimeout] (F:\CRM\Daedalus CRM\resources\app.asar\local-server.js:143:42)
+    at listOnTimeout (node:internal/timers:588:17)
+    at process.processTimers (node:internal/timers:523:7)
