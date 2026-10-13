@@ -34,6 +34,10 @@ export const 范围父表: Record<string, Record<string, string>> = {
 export type 范围元数据 = Pick<改动, "t" | "k" | "o" | "h"> & { fields: Record<string, string | null> };
 export type 范围索引 = { t: string; k: string; fields: Record<string, string | null>; clocks: Record<string, string>; deleted: boolean; clock: string; routeSeq: number };
 export type 范围 = { id: string; owners: string[]; public: boolean; routeSeq: number };
+/** 只读的记录索引（Map 或叠加视图）：判权限时只查不改 */
+export type 范围行表 = { get(key: string): 范围索引 | undefined };
+/** 在 rows 上叠一行（不复制整张表：一次推送要判上百包，团队记录可能几万条） */
+const 叠加 = (rows: 范围行表, key: string, n: 范围索引): 范围行表 => ({ get: (k) => (k === key ? n : rows.get(k)) });
 export const 行键 = (t: string, k: string) => `${t}:${k}`;
 const 编号 = (s: unknown): s is string => typeof s === "string" && /^[\w-]{1,100}$/.test(s);
 export function 提取范围(e: 改动): 范围元数据 {
@@ -63,7 +67,7 @@ export function 合并范围(old: 范围索引 | undefined, meta: 范围元数�
   return n;
 }
 /** 所有必需父链须能解析，双重关联须在同一客户下。未知或循环关系一律拒绝。 */
-export function 算范围(row: 范围索引, rows: Map<string, 范围索引>, seen = new Set<string>()): 范围 | null {
+export function 算范围(row: 范围索引, rows: 范围行表, seen = new Set<string>()): 范围 | null {
   const key = 行键(row.t, row.k);
   if (seen.has(key) || seen.size > 12) return null;
   const next = new Set(seen).add(key);
@@ -94,7 +98,7 @@ export function 算范围(row: 范围索引, rows: Map<string, 范围索引>, se
 }
 export const 范围可读 = (scope: 范围 | null, accountId: string, owner: boolean) => !!scope && (owner || scope.public || scope.owners.includes(`acct_${accountId}`));
 /** 写权限先核旧范围，再核新范围。转交出去允许，但不能借伪造归属抢其他私客。 */
-export function 范围可写(old: 范围索引 | undefined, n: 范围索引, rows: Map<string, 范围索引>, accountId: string, owner: boolean): boolean {
+export function 范围可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, owner: boolean): boolean {
   if (owner) return true;
   if (n.t === "Setting") return false;
   if (n.t === "User") return n.k === `acct_${accountId}`;
@@ -105,10 +109,24 @@ export function 范围可写(old: 范围索引 | undefined, n: 范围索引, row
     const parent = rows.get(行键(table, id));
     if (!parent || !范围可读(算范围(parent, rows), accountId, false)) return false;
   }
-  const afterRows = new Map(rows).set(行键(n.t, n.k), n);
-  const after = 算范围(n, afterRows);
+  const after = 算范围(n, 叠加(rows, 行键(n.t, n.k), n));
   if (!after) return false;
   if (!old) return 范围可读(after, accountId, false);
   // 仅客户负责人及私人条目负责人可转交；关联记录不能借更改父链搬进不可读的私客。
   return ["Customer", "UnassignedContact"].includes(n.t) || 范围可读(after, accountId, false);
+}
+/**
+ * 一次推送里的一包能不能写（2026-10-14 领取 / 交接修复）。按两种状态各核一次，任一通过即可：
+ *  ① 当前：本次请求里前面已接受的包落下之后的状态（原来的逐包规则；本次刚新建 / 刚领到的记录靠它）。
+ *  ② 起点视图 start：请求开始时已有的记录取开始时的版本，本次请求里新建的记录取它刚建出来、刚核过的那一版。
+ *     这台设备在请求开始那一刻合法持有的权限，同一次请求里转交出去之后仍算数——所以同一次推送里可以
+ *     先转交 / 领取、再改那位客户下的计划和操作日志、再附上它的起点快照；换个顺序（先改子记录、后转交）逐包核本来也都能过，
+ *     不比原来多给权限。下一次请求一律按那时的状态重新核：转交出去之后就再也写不进来。
+ * 不会多给权限的理由：请求开始时不可读的已有记录，本次请求中任何一包都不能让它变可读（改它本身、挂公海、改它的父链都要先可读），
+ * 所以 ② 里每一条记录都是这台设备在本次请求某一刻合法可读的版本；伪造归属、借外键塞进别人的私客，两种状态下都不过。
+ */
+export function 推送可写(start: 范围行表, rows: 范围行表, n: 范围索引, accountId: string, owner: boolean): boolean {
+  if (owner) return true;
+  const key = 行键(n.t, n.k);
+  return 范围可写(rows.get(key), n, rows, accountId, false) || 范围可写(start.get(key), n, start, accountId, false);
 }

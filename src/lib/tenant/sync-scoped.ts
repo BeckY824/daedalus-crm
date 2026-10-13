@@ -10,10 +10,13 @@ import type { Prisma } from "@/generated/control";
 import { workspaceDir } from "./clients";
 import { 当前编号 } from "./sync-relay";
 import { 包的编号 } from "../sync/crypto";
-import { 合并范围, 算范围, 范围可读, 范围可写, 范围字段, 行键, type 范围元数据, type 范围索引 } from "../sync/scope-policy";
+import { 合并范围, 推送可写, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
 
-export class 范围错误 extends Error { constructor(public 状态: number, message: string) { super(message); } }
-function fail(status: number, message: string): never { throw new 范围错误(status, message); }
+/** denied：403 时被拒的包在本次 packets 里的下标（整批已回滚）；新客户端据此只把这几条转冲突、其余原样重推 */
+export class 范围错误 extends Error { constructor(public 状态: number, message: string, public denied?: number[]) { super(message); } }
+/** 一次推送最多几包：转交 / 领取那一批要和它的起点快照放进同一次请求（见 推送可写），起点可能有几百包 */
+export const 范围单次上限 = 1000;
+function fail(status: number, message: string, denied?: number[]): never { throw new 范围错误(status, message, denied); }
 const 根 = () => path.join(process.env.SYNC_DIR ?? path.join(workspaceDir(), "sync"), "scoped");
 const file = (digest: string) => path.join(根(), `${digest}.bin`);
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -44,7 +47,8 @@ export async function 范围开放(teamId: string) {
 export async function 范围状态(accountId: string, teamId: string) {
   const { owner } = await auth(accountId, teamId);
   const p = await control.syncPrivacy.findUnique({ where: { teamId } });
-  return { stage: p?.stage ?? "legacy", owner, enabled: 范围开关() || !!p, fence: p?.fence ?? 0, epoch: await 当前编号(teamId), device: owner ? p?.device ?? null : null };
+  // pushRule：服务端按「请求开始时的权限」核一次推送（推送可写），客户端才把转交和起点快照放进同一次请求；旧服务端没有这一项
+  return { stage: p?.stage ?? "legacy", owner, enabled: 范围开关() || !!p, fence: p?.fence ?? 0, epoch: await 当前编号(teamId), device: owner ? p?.device ?? null : null, pushRule: "request-start", maxPackets: 范围单次上限 };
 }
 export async function 开始范围迁移(accountId: string, teamId: string, device: string) {
   const { owner } = await auth(accountId, teamId, device);
@@ -76,7 +80,7 @@ function validate(packet: 范围包) {
 }
 export async function 收范围推送(accountId: string, teamId: string, device: string, packets: 范围包[]) {
   await auth(accountId, teamId, device);
-  if (!Array.isArray(packets) || !packets.length || packets.length > 100 || JSON.stringify(packets).length > 8 * 1024 * 1024) fail(413, "请分批推送范围改动");
+  if (!Array.isArray(packets) || !packets.length || packets.length > 范围单次上限 || JSON.stringify(packets).length > 8 * 1024 * 1024) fail(413, "请分批推送范围改动");
   const epoch = await 当前编号(teamId);
   const prepared = packets.map(packet => {
     validate(packet);
@@ -93,27 +97,55 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
     if (!p || (p.stage !== 'ready' && !(owner && p.device === device && p.stage === 'building'))) fail(409, "请等待老板完成团队范围迁移");
     const rows = new Map((await tx.syncScopedRecord.findMany({ where: { teamId } })).map(r => [r.key, JSON.parse(r.metadata) as 范围索引]));
+    /*
+      起点视图（推送可写 ②）：本次请求改过的记录记下开始时的样子；开始时还没有的，记它第一次被接受时的那一版。
+      没改过的记录直接读 rows（和开始时一样），不用整表复制。
+    */
+    const 原样 = new Map<string, 范围索引 | undefined>(), 新建 = new Map<string, 范围索引>();
+    const start: 范围行表 = { get: k => (原样.has(k) ? 原样.get(k) ?? 新建.get(k) : rows.get(k)) };
+    const 落 = (k: string, v: 范围索引) => {
+      if (!原样.has(k)) { 原样.set(k, rows.get(k)); if (!rows.has(k)) 新建.set(k, v); }
+      rows.set(k, v);
+    };
     let stored = 0;
-    for (const { packet, digest } of prepared) {
+    type 一包 = { i: number; packet: 范围包; key: string; batchId: number };
+    const 试 = async ({ packet, key, batchId }: 一包) => {
+      const old = rows.get(key), n = 合并范围(old, packet.meta, batchId);
+      if (p.stage === 'ready' && !推送可写(start, rows, n, accountId, owner)) return false;
+      落(key, n); stored++;
+      await tx.syncScopedRecord.upsert({ where: { teamId_key: { teamId, key } }, create: { teamId, key, metadata: JSON.stringify(n) }, update: { metadata: JSON.stringify(n) } });
+      if (packet.baseline) await tx.syncScopedBaseline.create({ data: { teamId, recordKey: key, batchId } });
+      // 进出公海也是改范围：客户的路由版本跟着变，新获权的人只从之后的起点拉
+      if (p.stage === 'ready' && !packet.baseline && packet.meta.t === 'CustomerPool' && (old ? old.deleted !== n.deleted : !n.deleted)) {
+        const ck = 行键('Customer', packet.meta.k), c = rows.get(ck);
+        if (c) { const nc = { ...c, routeSeq: Math.max(c.routeSeq, batchId) }; 落(ck, nc); await tx.syncScopedRecord.update({ where: { teamId_key: { teamId, key: ck } }, data: { metadata: JSON.stringify(nc) } }); }
+      }
+      return true;
+    };
+    const 待定: 一包[] = [];
+    for (const [i, { packet, digest }] of prepared.entries()) {
       const duplicate = await tx.syncScopedBatch.findUnique({ where: { teamId_device_eventId: { teamId, device, eventId: packet.eventId } } });
       if (duplicate) {
         // 同一事件重发必须逐字节相同；否则可借旧 eventId 换掉已授权过的密文
         if (duplicate.metadata !== JSON.stringify(packet.meta) || duplicate.digest !== digest) fail(409, "重复事件的范围信息不一致");
         continue;
       }
-      const key = 行键(packet.meta.t, packet.meta.k), old = rows.get(key);
+      const key = 行键(packet.meta.t, packet.meta.k);
       const b = await tx.syncScopedBatch.create({ data: { teamId, device, accountId, recordKey: key, eventId: packet.eventId, metadata: JSON.stringify(packet.meta), digest } });
-      const n = 合并范围(old, packet.meta, b.id);
-      if (p.stage === 'ready' && !范围可写(old, n, rows, accountId, owner)) fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留");
-      rows.set(key, n); stored++;
-      await tx.syncScopedRecord.upsert({ where: { teamId_key: { teamId, key } }, create: { teamId, key, metadata: JSON.stringify(n) }, update: { metadata: JSON.stringify(n) } });
-      if (packet.baseline) await tx.syncScopedBaseline.create({ data: { teamId, recordKey: key, batchId: b.id } });
-      // 进出公海也是改范围：客户的路由版本跟着变，新获权的人只从之后的起点拉
-      if (p.stage === 'ready' && !packet.baseline && packet.meta.t === 'CustomerPool' && (old ? old.deleted !== n.deleted : !n.deleted)) {
-        const ck = 行键('Customer', packet.meta.k), c = rows.get(ck);
-        if (c) { const nc = { ...c, routeSeq: Math.max(c.routeSeq, b.id) }; rows.set(ck, nc); await tx.syncScopedRecord.update({ where: { teamId_key: { teamId, key: ck } }, data: { metadata: JSON.stringify(nc) } }); }
-      }
+      const x = { i, packet, key, batchId: b.id };
+      // 被拒的先不落（后面的包按「没有它」核），挪到本次请求末尾再核
+      if (!(await 试(x))) 待定.push(x);
     }
+    /*
+      挪到末尾再核，直到没有进展：等于把这几包排到同一次请求的最后。例如旧版本客户端领取时先删公海、后改负责人——
+      删公海那一包要求删完客户仍归自己，排到改负责人之后就成立。每一包仍按 推送可写 核，不多给权限。
+    */
+    for (let 有进展 = true; 有进展 && 待定.length;) {
+      有进展 = false;
+      for (const x of [...待定]) if (await 试(x)) { 待定.splice(待定.indexOf(x), 1); 有进展 = true; }
+    }
+    // 仍被拒：全部报出来（下标），整批回滚——新客户端只把这几条转成冲突、其余重推
+    if (待定.length) fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i));
     // stored = 本次新落库条数（重发的不算），客户端据此累计迁移批次数，回包丢失重试也不会重复计数
     return { received: packets.length, stored };
   }, { timeout: 60_000 });
@@ -134,22 +166,44 @@ export async function 完成范围迁移(accountId: string, teamId: string, devi
   });
 }
 export async function 范围目录(accountId: string, teamId: string) {
-  return control.$transaction(tx => 目录里(accountId, teamId, tx));
+  return control.$transaction(tx => 目录里(accountId, teamId, tx, true));
 }
-async function 目录里(accountId: string, teamId: string, db: Db) {
-  const { owner } = await auth(accountId, teamId, undefined, db);
+/** 要补起点：只有 directory 动作算 needBaseline；拉取每个范围都会重算目录，不跟着多查 */
+async function 目录里(accountId: string, teamId: string, db: Db, 要补起点 = false) {
+  const { owner, team } = await auth(accountId, teamId, undefined, db);
   const p = await db.syncPrivacy.findUnique({ where: { teamId } });
   if (p?.stage !== 'ready') fail(409, "请等待老板完成团队范围迁移");
   const rows = await indices(teamId, db);
   const scopes = new Map<string, { id: string; revision: number; records: 范围索引[] }>();
+  const 老板 = `acct_${team.ownerAccountId}`;
+  const 候选 = new Map<string, number>();
   for (const r of rows.values()) {
     const scope = 算范围(r, rows);
     if (!范围可读(scope, accountId, owner) || !scope) continue;
     const s = scopes.get(scope.id) ?? { id: scope.id, revision: 0, records: [] };
     s.revision = Math.max(s.revision, scope.routeSeq); s.records.push(r); scopes.set(scope.id, s);
+    if (owner && 要补起点 && !r.deleted && scope.routeSeq > 0 && (scope.public || scope.owners.some(o => o !== 老板))) 候选.set(行键(r.t, r.k), scope.routeSeq);
   }
-  return { owner, scopes: [...scopes.values()], epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0 };
+  /*
+    老板那台补起点（2026-10-14）：改过归属、有业务员看得到、改归属之前有过批次（改归属之后才新建的不需要，见 给范围拉取）、
+    却还没有「改归属之后的起点」的记录——交出去的人推不了（旧版客户端、起点太大没跟转交放进同一次请求），接手的人就一直拉不到。
+    老板收全队、永远有权写，由它补。只查改过归属的那些记录，按块一次查，不逐条查。
+  */
+  const needBaseline: string[] = [];
+  const keys = [...候选.keys()];
+  for (let i = 0; i < keys.length && needBaseline.length < 500; i += 400) {
+    const part = keys.slice(i, i + 400);
+    const 起点 = new Map((await db.syncScopedBaseline.groupBy({ by: ['recordKey'], where: { teamId, recordKey: { in: part } }, _max: { batchId: true } })).map(x => [x.recordKey, x._max.batchId ?? 0]));
+    const 缺 = part.filter(k => (起点.get(k) ?? 0) < 候选.get(k)!);
+    if (!缺.length) continue;
+    for (const x of await db.syncScopedBatch.groupBy({ by: ['recordKey'], where: { teamId, recordKey: { in: 缺 } }, _min: { id: true } })) {
+      if ((x._min.id ?? Infinity) < 候选.get(x.recordKey)! && needBaseline.length < 500) needBaseline.push(x.recordKey);
+    }
+  }
+  return { owner, scopes: [...scopes.values()], epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
 }
+/** 这条记录在改归属（threshold）之前有没有批次：有 = 新获权的人需要一份起点，没有 = 整段历史都在改归属之后 */
+const 有更早批次 = async (db: Db, teamId: string, recordKey: string, threshold: number) => !!(await db.syncScopedBatch.findFirst({ where: { teamId, recordKey, id: { lt: threshold } }, select: { id: true } }));
 export async function 给范围拉取(accountId: string, teamId: string, scopeId: string, after: number) {
   return control.$transaction(async tx => {
   const directory = await 目录里(accountId, teamId, tx);
@@ -169,6 +223,8 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
     if (!threshold) { starts.push({ key, gt: from }); continue; }
     const base = await tx.syncScopedBaseline.findFirst({ where: { teamId, recordKey: key, batchId: { gte: threshold } }, orderBy: { batchId: 'asc' } });
     if (base) starts.push({ key, gt: Math.max(from, base.batchId - 1) });
+    // 改归属之后才新建的记录（例如领到 / 接手之后老板给这位客户记的跟进）：整段历史都在改归属之后，不需要起点，从改归属那一刻起给（2026-10-14）
+    else if (!(await 有更早批次(tx, teamId, key, threshold))) starts.push({ key, gt: Math.max(from, threshold - 1) });
   }
   const batches = [];
   // 避开 SQLite 的变量个数上限，各分块取最早 201 条，再整体截到 200。

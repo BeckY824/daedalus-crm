@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     if (action === 'pull' && typeof body.scopeId === 'string') return Response.json(await 给范围拉取(a, teamId, body.scopeId, Number(body.after) || 0));
     return Response.json({ error: '未知同步操作' }, { status: 400 });
   } catch (e) {
-    if (e instanceof 范围错误) return Response.json({ error: e.message }, { status: e.状态 });
+    if (e instanceof 范围错误) return Response.json(e.denied ? { error: e.message, denied: e.denied } : { error: e.message }, { status: e.状态 });
     console.error('[sync-scoped] 请求失败', e instanceof Error ? e.name : 'unknown');
     return Response.json({ error: '范围同步暂不可用，请稍后重试' }, { status: 503 });
   }
