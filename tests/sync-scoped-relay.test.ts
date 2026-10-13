@@ -5,7 +5,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { closeTestDatabases } from "./close-databases";
-import { 设备钥匙对, 新钥匙, 封 } from "@/lib/sync/crypto";
+import { 设备钥匙对, 新钥匙, 封, 封范围 } from "@/lib/sync/crypto";
 import { 提取范围, 行键 } from "@/lib/sync/scope-policy";
 import type { 改动 } from "@/lib/sync/local";
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-scope-relay-'));
@@ -34,7 +34,7 @@ afterAll(async () => { await closeTestDatabases(root); fs.rmSync(root, { force: 
 const event = (t: string, k: string, r: Record<string, unknown>, o: 改动['o'] = 'I', c = Object.keys(r)): 改动 => ({ t, k, r: o === 'D' ? null : r, o, c, h: `${1700000000000 + ++seq}-scope` });
 function packet(e: 改动, device: string) {
   const meta = 提取范围(e), eventId = createHmac('sha256', key).update(JSON.stringify(e)).digest('hex');
-  return { meta, eventId, data: 封({ meta, change: e }, key, 0, { teamId: team, device }) };
+  return { meta, eventId, data: 封范围({ meta, change: e }, key, 0, { teamId: team, device, eventId, meta }) };
 }
 async function push(a: string, d: string, e: 改动) { return scoped.收范围推送(a, team, d, [packet(e, d)]); }
 it('旧业务员 API 在迁移之前也安全拒绝；只有老板设备能冻结旧流', async () => {
@@ -83,4 +83,23 @@ it('幂等、密文缺失不越过游标；停用/移除账号后拒绝目录和
   await control.account.update({ where: { id: member }, data: { active: true } });
   await relay.移除成员(owner, team, member);
   await expect(scoped.给范围拉取(member, team, 'Customer:own-new', 0)).rejects.toMatchObject({ 状态: 403 });
+});
+it('v3 旧密文、同 eventId 换密文均拒收', async () => {
+  const e = event('Customer', 'own-v3', { salesOwnerId: `acct_${owner}` });
+  const p = packet(e, 'owner-device');
+  await expect(scoped.收范围推送(owner, team, 'owner-device', [{ ...p, data: 封({ meta: p.meta, change: e }, key, 0, { teamId: team, device: 'owner-device' }) }])).rejects.toMatchObject({ 状态: 400 });
+  await scoped.收范围推送(owner, team, 'owner-device', [p]);
+  const swapped = 封范围({ meta: p.meta, change: { ...e, r: { ...e.r, name: 'swap' } } }, key, 0, { teamId: team, device: 'owner-device', eventId: p.eventId, meta: p.meta });
+  await expect(scoped.收范围推送(owner, team, 'owner-device', [{ ...p, data: swapped }])).rejects.toMatchObject({ 状态: 409 });
+});
+it('灰度开关关闭且团队未迁移：不能开始迁移', async () => {
+  const t = await relay.建团队(other, 'flag-off', { device: 'flag-dev', pubKey: 设备钥匙对().公钥 });
+  if (!t.ok) throw Error(t.error);
+  await relay.设开通(t.teamId, true);
+  delete process.env.CRM_SCOPED_SYNC;
+  try {
+    await expect(scoped.开始范围迁移(other, t.teamId, 'flag-dev')).rejects.toMatchObject({ 状态: 404 });
+    expect(await scoped.范围开放(t.teamId)).toBe(false);
+    expect(await scoped.范围开放(team)).toBe(true);
+  } finally { process.env.CRM_SCOPED_SYNC = '1'; }
 });

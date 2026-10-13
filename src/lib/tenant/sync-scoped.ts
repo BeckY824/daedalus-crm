@@ -35,14 +35,20 @@ async function auth(accountId: string, teamId: string, device?: string, db: Db =
 async function indices(teamId: string, db: Db = control) {
   return new Map((await db.syncScopedRecord.findMany({ where: { teamId } })).map(r => [r.key, JSON.parse(r.metadata) as 范围索引]));
 }
+/** 灰度开关：CRM_SCOPED_SYNC=1 才能开始迁移；已开始/完成迁移的团队即使关了开关也继续走新协议（不能退回全队包） */
+export const 范围开关 = () => process.env.CRM_SCOPED_SYNC === "1";
+export async function 范围开放(teamId: string) {
+  return 范围开关() || !!(await control.syncPrivacy.findUnique({ where: { teamId } }));
+}
 export async function 范围状态(accountId: string, teamId: string) {
   const { owner } = await auth(accountId, teamId);
   const p = await control.syncPrivacy.findUnique({ where: { teamId } });
-  return { stage: p?.stage ?? "legacy", owner, fence: p?.fence ?? 0, epoch: await 当前编号(teamId) };
+  return { stage: p?.stage ?? "legacy", owner, enabled: 范围开关() || !!p, fence: p?.fence ?? 0, epoch: await 当前编号(teamId), device: owner ? p?.device ?? null : null };
 }
 export async function 开始范围迁移(accountId: string, teamId: string, device: string) {
   const { owner } = await auth(accountId, teamId, device);
   if (!owner) fail(403, "请先由老板升级并迁移团队同步");
+  if (!范围开关() && !(await control.syncPrivacy.findUnique({ where: { teamId } }))) fail(404, "范围同步尚未开放");
   // 旧推送的写事务也要核状态，确保 fence 后没有漏掉的旧包。
   return control.$transaction(async tx => {
     await auth(accountId, teamId, device, tx);
@@ -63,7 +69,8 @@ function validate(packet: 范围包) {
   for (const [k, v] of Object.entries(m.fields)) if (!范围字段[m.t].includes(k) || (v !== null && (typeof v !== 'string' || !/^[\w-]{1,100}$/.test(v)))) fail(400, "不允许的范围字段");
   if (m.o === 'D' && Object.keys(m.fields).length) fail(400, "删除事件不能改归属");
   if (!/^[a-f0-9]{64}$/.test(packet.eventId) || typeof packet.data !== 'string' || packet.data.length > 8 * 1024 * 1024) fail(400, "范围密文包格式不对");
-  if (Buffer.from(packet.data, 'base64url')[0] !== 3) fail(400, "范围密文必须绑定团队和设备");
+  // v4：AAD 绑定团队、设备、eventId 与元数据摘要；中转无钥匙不能验，接收端解密时验。旧版 v2/v3 一律拒收。
+  if (Buffer.from(packet.data.slice(0, 8), 'base64url')[0] !== 4) fail(400, "范围密文必须绑定团队、设备和授权元数据");
 }
 export async function 收范围推送(accountId: string, teamId: string, device: string, packets: 范围包[]) {
   await auth(accountId, teamId, device);
@@ -87,7 +94,8 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     for (const { packet, digest } of prepared) {
       const duplicate = await tx.syncScopedBatch.findUnique({ where: { teamId_device_eventId: { teamId, device, eventId: packet.eventId } } });
       if (duplicate) {
-        if (duplicate.metadata !== JSON.stringify(packet.meta)) fail(409, "重复事件的范围信息不一致");
+        // 同一事件重发必须逐字节相同；否则可借旧 eventId 换掉已授权过的密文
+        if (duplicate.metadata !== JSON.stringify(packet.meta) || duplicate.digest !== digest) fail(409, "重复事件的范围信息不一致");
         continue;
       }
       const key = 行键(packet.meta.t, packet.meta.k), old = rows.get(key);
@@ -145,7 +153,7 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
   return { epoch: directory.epoch, revision: scope.revision, more: batches.length > 200, batches: batches.slice(0, 200).map(b => {
     let data: string; try { data = fs.readFileSync(file(b.digest), 'utf8'); } catch { return fail(503, "范围密文暂不可读，请稍后重试；游标未跳过"); }
     if (sha(data) !== b.digest) fail(503, "范围密文校验失败；游标未跳过");
-    return { seq: b.id, device: b.device, meta: JSON.parse(b.metadata) as 范围元数据, data };
+    return { seq: b.id, device: b.device, eventId: b.eventId, meta: JSON.parse(b.metadata) as 范围元数据, data };
   }) };
   }, { timeout: 60_000 });
 }

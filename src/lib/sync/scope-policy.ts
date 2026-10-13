@@ -3,6 +3,7 @@
  */
 import { 同步表 } from "./tables";
 import type { 改动 } from "./local";
+import { 规范串 } from "./crypto";
 export const 范围字段: Record<string, readonly string[]> = {
   User: [], Setting: [], Channel: [], Supplier: [],
   Customer: ["salesOwnerId", "channelOwnerId"],
@@ -47,7 +48,7 @@ export function 提取范围(e: 改动): 范围元数据 {
   return { t: e.t, k: e.k, o: e.o, h: e.h, fields };
 }
 export function 核对范围(meta: 范围元数据, e: 改动): boolean {
-  try { return JSON.stringify(提取范围(e)) === JSON.stringify(meta); } catch { return false; }
+  try { return 规范串(提取范围(e)) === 规范串(meta); } catch { return false; }
 }
 /** 路由字段也按原来的字段钟合并；较早的离线整行不能覆盖较新的负责人。 */
 export function 合并范围(old: 范围索引 | undefined, meta: 范围元数据, seq: number): 范围索引 {
