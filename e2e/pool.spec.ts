@@ -83,7 +83,7 @@ test("放进公海 → 别人在公海里领走 → 撤销回到公海；记录�
   await expect(下拉.getByTitle("公海", { exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
   // 「公海」页签，这一位在里面
-  await page.locator(".list-bar .ant-segmented-item", { hasText: /^公海/ }).click();
+  await page.locator(".page-head .ant-segmented-item", { hasText: /^公海/ }).click();
   await expect(page).toHaveURL(/pool=1/);
   const 公海行 = page.getByRole("row", { name: new RegExp(客户名) });
   await expect(公海行.getByText("公海（原 张三）")).toBeVisible();

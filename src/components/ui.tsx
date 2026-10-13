@@ -37,6 +37,7 @@ export function PageHead({
   title,
   subtitle,
   extra,
+  titleAside,
 }: {
   icon?: React.ReactNode;
   title: string;
@@ -44,11 +45,20 @@ export function PageHead({
   tag?: string;
   tagNote?: string;
   extra?: React.ReactNode;
+  /** 紧跟在标题右边的一小块（客户页的「客户 / 公海」页签）。不给就和原来一样只有标题 */
+  titleAside?: React.ReactNode;
 }) {
   return (
     <div className="page-head">
       <div style={{ flex: 1, minWidth: 0 }}>
-        <h1>{title}</h1>
+        {titleAside ? (
+          <div className="page-head-t">
+            <h1>{title}</h1>
+            {titleAside}
+          </div>
+        ) : (
+          <h1>{title}</h1>
+        )}
         {subtitle && <p>{subtitle}</p>}
       </div>
       {extra && <div className="page-head-a">{extra}</div>}

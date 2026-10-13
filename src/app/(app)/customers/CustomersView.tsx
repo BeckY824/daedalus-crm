@@ -423,6 +423,24 @@ export default function CustomersView({
       <PageHead
         title={b.customer}
         subtitle="全部档案与跟进"
+        /*
+          「客户 / 公海」两个页签（2026-10-13：老板、业务员、一个人用的都要「公海和自己的分开看」）。
+          摆在标题旁边，不进筛选行：1024 宽时筛选行本来就刚好一行，再塞一个会把「列」挤到第二行（e2e/window-sizes.spec.ts）。
+          页签记在地址上（pool=1），翻页、搜索、筛选都留在这一页签里。
+          一个人用、公海里也没人时不摆——那时公海就是个空抽屉；空库不摆；子集（筛选行上那三种标记）里不摆：那几个数本来就含公海
+        */
+        titleAside={!空库 && !子集 && (users.length > 1 || (公海数 ?? 0) > 0 || f.pool) ? (
+          <Segmented
+            aria-label={`${b.customer} / 公海`}
+            value={f.pool ? "公海" : "客户"}
+            // 换到公海清掉负责人：公海里的负责人是「原负责人」，带过去筛出来的是另一回事（和原来下拉里选「公海」一样）
+            onChange={(v) => apply(v === "公海" ? { pool: "1", salesOwnerId: "" } : { pool: "" })}
+            options={[
+              { value: "客户", label: b.customer },
+              { value: "公海", label: 公海数 ? `公海 ${公海数}` : "公海" },
+            ]}
+          />
+        ) : undefined}
         extra={
           /* 主动作在页头右上角，全站六张列表页同一个位置（设计稿 11/PAGE）。
              导出是次动作，排在它左边，空库时没什么可导，不出现 */
@@ -496,23 +514,6 @@ export default function CustomersView({
             收起来不等于可以不告诉人，否则人会对着一张筛过的表当成全部。
           */
           <Space wrap size={[10, 10]}>
-            {/*
-              「客户 / 公海」两个页签（2026-10-13：老板、业务员、一个人用的都要「公海和自己的分开看」）。
-              页签记在地址上（pool=1），翻页、搜索、筛选都留在这一页签里。
-              一个人用、公海里也没人时不摆——那时公海就是个空抽屉。子集（下面三种标记）里不摆：那几个数本来就含公海
-            */}
-            {!子集 && (users.length > 1 || (公海数 ?? 0) > 0 || f.pool) && (
-              <Segmented
-                aria-label={`${b.customer} / 公海`}
-                value={f.pool ? "公海" : "客户"}
-                // 换到公海清掉负责人：公海里的负责人是「原负责人」，带过去筛出来的是另一回事（和原来下拉里选「公海」一样）
-                onChange={(v) => apply(v === "公海" ? { pool: "1", salesOwnerId: "" } : { pool: "" })}
-                options={[
-                  { value: "客户", label: b.customer },
-                  { value: "公海", label: 公海数 ? `公海 ${公海数}` : "公海" },
-                ]}
-              />
-            )}
             {子集 && f.pool && (
               <Tag closable onClose={() => apply({ pool: "" })} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
                 只看公海里的

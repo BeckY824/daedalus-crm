@@ -132,7 +132,7 @@ test("业务员的客户列表：只有自己负责的、渠道是自己的、�
   await expect(表.getByRole("link", { name: "提醒客户" })).toHaveCount(0);
   await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(2);
   // 「公海」页签：只有公海里那一位
-  await page.locator(".list-bar .ant-segmented-item", { hasText: /^公海/ }).click();
+  await page.locator(".page-head .ant-segmented-item", { hasText: /^公海/ }).click();
   await expect(page).toHaveURL(/pool=1/);
   await expect(表.getByRole("link", { name: 名.公海 })).toBeVisible();
   await expect(表.getByRole("link", { name: 名.老板的 })).toHaveCount(0);
