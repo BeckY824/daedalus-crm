@@ -82,9 +82,9 @@ test("放进公海 → 别人在公海里领走 → 撤销回到公海；记录�
   await 下拉.waitFor({ state: "visible" });
   await expect(下拉.getByTitle("公海", { exact: true })).toHaveCount(0);
   await page.keyboard.press("Escape");
-  // 页签上的数：网页版叫「全部客户 N」+「公海 M」，加起来 = 左栏「客户」角标
+  // 页签上的数：没进团队叫「我的客户 N」+「公海 M」，加起来 = 左栏「客户」角标
   const 页签 = page.locator(".page-head .ant-segmented-item");
-  await expect(页签.first()).toHaveText(/^全部客户 \d+$/);
+  await expect(页签.first()).toHaveText(/^我的客户 \d+$/);
   await expect(页签.nth(1)).toHaveText(/^公海 \d+$/);
   const [客户N, 公海M] = (await 页签.allInnerTexts()).map((t) => Number(t.match(/\d+/)![0]));
   expect(公海M).toBeGreaterThanOrEqual(1);

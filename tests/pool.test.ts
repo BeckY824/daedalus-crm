@@ -325,8 +325,8 @@ describe("客户 / 公海两个页签（2026-10-13）", () => {
     expect([客户页.total, 客户页.客户数, 客户页.公海数, 客户页.公海里匹配]).toEqual([1, 1, 1, 0]);
     // 两个页签上的数加起来 = 左栏「客户」角标（layout.tsx 的 customer.count()）
     expect(客户页.客户数! + 客户页.公海数!).toBe(await prisma.customer.count());
-    // 网页版 / 自部署（没开 DESKTOP_LOCAL）：大家看同一份，叫「全部」
-    expect(客户页.客户页签).toBe("全部");
+    // 没进团队：「我的」
+    expect(客户页.客户页签).toBe("我的");
     // 筛选不影响页签上的数
     expect((await 页({ keyword: "公海的" })).客户数).toBe(1);
     // 进了团队、本机不是业务员（限定的我() 是 null）= 老板：「团队」
@@ -344,10 +344,9 @@ describe("客户 / 公海两个页签（2026-10-13）", () => {
   });
 
 
-  it("第一个页签叫什么：团队业务员、桌面端一个人用 =「我的」，团队老板 =「团队」，网页版 =「全部」", () => {
-    expect(客户页签归属({ 业务员: true, 在团队: true, 桌面端: true })).toBe("我的");
-    expect(客户页签归属({ 业务员: false, 在团队: true, 桌面端: true })).toBe("团队");
-    expect(客户页签归属({ 业务员: false, 在团队: false, 桌面端: true })).toBe("我的");
-    expect(客户页签归属({ 业务员: false, 在团队: false, 桌面端: false })).toBe("全部");
+  it("第一个页签叫什么：团队业务员、一个人用 =「我的」，团队老板 =「团队」", () => {
+    expect(客户页签归属({ 业务员: true, 在团队: true })).toBe("我的");
+    expect(客户页签归属({ 业务员: false, 在团队: true })).toBe("团队");
+    expect(客户页签归属({ 业务员: false, 在团队: false })).toBe("我的");
   });
 });

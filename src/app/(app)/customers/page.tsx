@@ -12,7 +12,6 @@ import { getBusiness } from "@/lib/business";
 import { 限定的我 } from "@/lib/team-scope";
 import { defaultClient } from "@/lib/prisma";
 import { 读团队 } from "@/lib/sync/client";
-import { 本地模式 } from "@/lib/desktop/cloud";
 import { 客户页签归属 } from "@/lib/pool";
 
 export const dynamic = "force-dynamic";
@@ -147,10 +146,10 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       公海数={公海总数}
       客户数={非公海总数}
       /*
-        第一个页签叫「我的 / 团队 / 全部客户」：和数据限定同一个来源——限定的我() 有值 = 团队业务员（lib/team-scope.ts，
-        按中转名单对出来的本机角色），读团队() 有 = 进了团队（.team.json），本地模式() = 桌面端。都是缓存 / 读文件 / 环境变量，不多查库
+        第一个页签叫「我的 / 团队客户」：和数据限定同一个来源——限定的我() 有值 = 团队业务员（lib/team-scope.ts，
+        按中转名单对出来的本机角色），读团队() 有 = 进了团队（.team.json）。都是缓存 / 读文件，不多查库
       */
-      客户页签={客户页签归属({ 业务员: !!(await 限定的我(defaultClient)), 在团队: !!读团队(), 桌面端: 本地模式() })}
+      客户页签={客户页签归属({ 业务员: !!(await 限定的我(defaultClient)), 在团队: !!读团队() })}
       公海里匹配={公海里匹配}
       aiEnabled={aiEnabled}
       旧职位={[...new Set(旧职位)]}
