@@ -6,7 +6,8 @@ import path from "node:path";
 import { PrismaClient } from "@/generated/prisma";
 import { 新钥匙, 封范围 } from "@/lib/sync/crypto";
 import { 提取范围, 合并范围, 行键 } from "@/lib/sync/scope-policy";
-import { 验收范围包, 范围包错误, 清理失权副本, 范围冲突数 } from "@/lib/sync/scoped-local";
+import { 验收范围包, 范围包错误, 清理失权副本, 范围冲突数, 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
+import { 冲突导出文件名 } from "@/app/(app)/settings/scope-conflicts-file";
 import { 建同步表, 装触发器, 待推 } from "@/lib/sync/local";
 import type { 改动 } from "@/lib/sync/local";
 
@@ -97,5 +98,29 @@ describe("清理失权副本", () => {
     expect(c[0].row).not.toContain("将失权");
     const pend = await db.$queryRawUnsafe<{ pk: string }[]>("SELECT pk FROM _sync_log WHERE seq > (SELECT v FROM _sync_cursor WHERE k='pushed')");
     expect(pend.map(p => p.pk)).toEqual(["mine"]);
+  });
+  it("冲突列表：失权记录只显示本人改过的值或编号；确认只标记不删除；导出含全部", async () => {
+    const list = await 列出范围冲突(db);
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({ 表: "客户", 编号: "lost2", 名称: "lost2", 操作: "修改", 改动列: expect.arrayContaining(["remark"]), 已确认: null });
+    expect(JSON.stringify(list)).not.toContain("将失权");
+    expect(await 确认范围冲突(db, [list[0].id])).toBe(1);
+    expect(await 确认范围冲突(db, [list[0].id])).toBe(0);
+    expect(await 列出范围冲突(db)).toHaveLength(0);
+    expect(await 范围冲突数(db)).toBe(0);
+    expect(await 列出范围冲突(db, true)).toHaveLength(1);
+    const out = JSON.parse(await 导出范围冲突(db));
+    expect(out.条目).toHaveLength(1);
+    expect(out.条目[0]).toMatchObject({ 编号: "lost2", 改动内容: { remark: "我的改动" } });
+    expect(out.条目[0].已确认).not.toBeNull();
+    expect(Number((await db.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict"))[0].n)).toBe(1);
+    expect(冲突导出文件名(new Date(2026, 9, 13))).toBe("同步权限冲突-20261013.json");
+  });
+  it("旧草稿建的冲突表（无 resolvedAt）自动补列", async () => {
+    await db.$executeRawUnsafe("ALTER TABLE _sync_scope_conflict RENAME TO _old_conflict");
+    await db.$executeRawUnsafe("CREATE TABLE _sync_scope_conflict (id INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, pk TEXT NOT NULL, op TEXT NOT NULL, row TEXT, changed TEXT NOT NULL, at BIGINT NOT NULL, reason TEXT NOT NULL, createdAt BIGINT NOT NULL)");
+    await db.$executeRawUnsafe("INSERT INTO _sync_scope_conflict (tbl, pk, op, row, changed, at, reason, createdAt) VALUES ('Customer','x','U','{\"name\":\"本人改名\"}','name',0,'r',0)");
+    const l = await 列出范围冲突(db);
+    expect(l[0]).toMatchObject({ 名称: "本人改名", 已确认: null });
   });
 });

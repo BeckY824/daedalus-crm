@@ -71,7 +71,46 @@ export async function 记录快照(db: PrismaClient, roots: string[]) {
 }
 /** 失权的本机未上传改动不丢：整行副本和改动列表搬进这张表，界面显示「待老板核对」，由人决定怎么处理。 */
 export async function 建范围冲突表(db: Db) {
-  await db.$executeRawUnsafe("CREATE TABLE IF NOT EXISTS _sync_scope_conflict (id INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, pk TEXT NOT NULL, op TEXT NOT NULL, row TEXT, changed TEXT NOT NULL, at BIGINT NOT NULL, reason TEXT NOT NULL, createdAt BIGINT NOT NULL)");
+  await db.$executeRawUnsafe("CREATE TABLE IF NOT EXISTS _sync_scope_conflict (id INTEGER PRIMARY KEY AUTOINCREMENT, tbl TEXT NOT NULL, pk TEXT NOT NULL, op TEXT NOT NULL, row TEXT, changed TEXT NOT NULL, at BIGINT NOT NULL, reason TEXT NOT NULL, createdAt BIGINT NOT NULL, resolvedAt BIGINT)");
+  // 早期草稿建的表没有 resolvedAt：补一列（本机库，只加列）
+  const cols = await db.$queryRawUnsafe<{ name: string }[]>("PRAGMA table_info(_sync_scope_conflict)");
+  if (!cols.some(c => c.name === "resolvedAt")) await db.$executeRawUnsafe("ALTER TABLE _sync_scope_conflict ADD COLUMN resolvedAt BIGINT");
+}
+export type 范围冲突条目 = { id: number; 表: string; 编号: string; 名称: string; 操作: string; 改动列: string[]; 改动时间: string; 原因: string; 已确认: string | null };
+const 表名: Record<string, string> = { Customer: "客户", Contact: "联系人", FollowUp: "跟进", Opportunity: "商机", Contract: "签约", Task: "任务", FollowPlan: "跟进计划", Lead: "线索", UnassignedContact: "待归属联系人", TradeOrder: "外贸订单" };
+/**
+ * 列出失权冲突（默认只列未确认的）。名称：记录仍在本机（仍有权）就用本机的名字；
+ * 否则只用冲突里本人改过的值（name/title），都没有就只显示编号——不为显示去找失权记录的资料。
+ */
+export async function 列出范围冲突(db: Db, 含已确认 = false): Promise<范围冲突条目[]> {
+  await 建范围冲突表(db);
+  const rows = await db.$queryRawUnsafe<{ id: bigint; tbl: string; pk: string; op: string; row: string | null; changed: string; at: bigint; reason: string; resolvedAt: bigint | null }[]>(`SELECT * FROM _sync_scope_conflict ${含已确认 ? "" : "WHERE resolvedAt IS NULL"} ORDER BY id DESC LIMIT 500`);
+  const out: 范围冲突条目[] = [];
+  for (const r of rows) {
+    let 名称 = "";
+    if ((同步表 as readonly string[]).includes(r.tbl)) {
+      const cols = models.get(r.tbl)?.fields.map(f => f.name) ?? [];
+      const col = ["name", "title"].find(c => cols.includes(c));
+      if (col) 名称 = String((await db.$queryRawUnsafe<{ v: string }[]>(`SELECT ${q(col)} AS v FROM ${q(r.tbl)} WHERE ${q(主字段(r.tbl))} = ?`, r.pk))[0]?.v ?? "");
+    }
+    if (!名称 && r.row) { try { const j = JSON.parse(r.row) as Record<string, unknown>; 名称 = String(j.name ?? j.title ?? ""); } catch { /* 坏行只显示编号 */ } }
+    const 改动列 = r.changed === "*" ? ["（整条新建）"] : r.changed.split(",").filter(Boolean);
+    out.push({ id: Number(r.id), 表: 表名[r.tbl] ?? r.tbl, 编号: r.pk, 名称: 名称 || r.pk, 操作: r.op === "I" ? "新建" : r.op === "D" ? "删除" : "修改", 改动列, 改动时间: new Date(Number(r.at)).toISOString(), 原因: r.reason, 已确认: r.resolvedAt == null ? null : new Date(Number(r.resolvedAt)).toISOString() });
+  }
+  return out;
+}
+/** 确认 = 标记已处理，不删除；导出里仍能看到 */
+export async function 确认范围冲突(db: Db, ids: number[]) {
+  await 建范围冲突表(db);
+  let n = 0;
+  for (const id of ids.filter(Number.isSafeInteger)) n += Number(await db.$executeRawUnsafe("UPDATE _sync_scope_conflict SET resolvedAt = ? WHERE id = ? AND resolvedAt IS NULL", Date.now(), id));
+  return n;
+}
+/** 导出全部冲突（含已确认、含本人改动的原值），给老板核对或手工补录 */
+export async function 导出范围冲突(db: Db) {
+  await 建范围冲突表(db);
+  const rows = await db.$queryRawUnsafe<{ id: bigint; tbl: string; pk: string; op: string; row: string | null; changed: string; at: bigint; reason: string; resolvedAt: bigint | null }[]>("SELECT * FROM _sync_scope_conflict ORDER BY id");
+  return JSON.stringify({ 说明: "这些是本机在失去同步权限前没来得及上传的改动，只含本人改过的内容。请与老板核对后在 CRM 中手工处理。", 导出时间: new Date().toISOString(), 条目: rows.map(r => ({ id: Number(r.id), 表: r.tbl, 编号: r.pk, 操作: r.op, 改动列: r.changed, 改动内容: r.row ? JSON.parse(r.row) : null, 改动时间: new Date(Number(r.at)).toISOString(), 原因: r.reason, 已确认: r.resolvedAt == null ? null : new Date(Number(r.resolvedAt)).toISOString() })) }, null, 2);
 }
 /** 把指定的待推日志行转成显式冲突：复制到 _sync_scope_conflict 后才从 _sync_log 移走，同一事务内完成。 */
 export async function 转为范围冲突(db: PrismaClient, seqs: number[], reason: string) {
@@ -96,7 +135,7 @@ export async function 转为范围冲突(db: PrismaClient, seqs: number[], reaso
   });
 }
 export async function 范围冲突数(db: Db): Promise<number> {
-  try { return Number((await db.$queryRawUnsafe<{ n: bigint | number }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict"))[0]?.n ?? 0); } catch { return 0; }
+  try { await 建范围冲突表(db); return Number((await db.$queryRawUnsafe<{ n: bigint | number }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict WHERE resolvedAt IS NULL"))[0]?.n ?? 0); } catch { return 0; }
 }
 const 全队表 = ['User', 'Setting', 'Channel', 'Supplier'];
 /** 失去权限后不仅删客户，也清除同步日志、相关导入撤销快照里的旧副本。
