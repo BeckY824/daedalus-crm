@@ -5,7 +5,7 @@ import { 负责人候选 } from "@/lib/owners";
 import { 可选渠道, 可选客户 } from "@/lib/options";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { llmEnabled } from "@/lib/llm";
-import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页 } from "./query";
+import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页, 在看子集 } from "./query";
 import { 规整币种 } from "@/lib/currency";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { getBusiness } from "@/lib/business";
@@ -47,7 +47,7 @@ type SP = Promise<{
   import?: string;
   /** 导入抽屉点「完成」过来的：只看这一批导入建的 / 补过的那几位（审查 D10） */
   batch?: string;
-  /** 「1」= 只看公海 */
+  /** 「1」= 「公海」页签；不给 = 「客户」页签，不含公海里的（子集入口例外，见 query.ts 在看子集） */
   pool?: string;
 }>;
 
@@ -68,7 +68,19 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
 
   const where = await 客户筛选条件(sp);
   // URL 参数、删空最后一页都不能使 skip 变成 NaN 或停留在空的越界页。
-  const total = await prisma.customer.count({ where });
+  const 子集 = 在看子集(sp);
+  const [total, 公海总数] = await Promise.all([
+    prisma.customer.count({ where }),
+    // 「公海」页签上的那个数。子集里不摆页签，不数
+    子集 ? Promise.resolve(null) : prisma.customer.count({ where: { pool: { isNot: null } } }),
+  ]);
+  /*
+    「客户」页签搜不到、公海里却有对得上的：数出来给一条去公海页签的路（领导点「搜一下」找不到人，多半是掉进公海了）。
+    负责人条件不带：换到公海页签时它会清掉（公海里的负责人是「原负责人」），数要和点过去看到的对得上
+  */
+  const 公海里匹配 = !子集 && sp.pool !== "1" && total === 0 && 公海总数
+    ? await prisma.customer.count({ where: await 客户筛选条件({ ...sp, pool: "1", salesOwnerId: undefined }) })
+    : 0;
   const page = Math.min(正整数(sp.page, 1), Math.max(1, Math.ceil(total / pageSize)));
 
   const [rows, users, channels, allCustomers, 用着的职位, 用着的国家] = await Promise.all([
@@ -123,6 +135,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={sp.batch ? { 几位: total } : null}
+      公海数={公海总数}
+      公海里匹配={公海里匹配}
       aiEnabled={aiEnabled}
       旧职位={[...new Set(旧职位)]}
       国家们={用着的国家.map((x) => x.country!).filter(Boolean)}

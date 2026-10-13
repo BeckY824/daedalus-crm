@@ -6,6 +6,7 @@
  *   - 撤销：放进的拿回来；领取的还给原负责人、放回公海，活也跟着回去
  *   - 自动掉公海：没开不扫、一天一次、团队模式只扫自己名下的
  *   - 业务配置：poolDays 规整、套用预设不动它
+ *   - 列表两个页签（2026-10-13）：默认不含公海、pool=1 只有公海、三种子集入口不分
  */
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 
@@ -16,6 +17,8 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 vi.mock("@/lib/auth", () => ({ requireUser: async () => mocks.user }));
 vi.mock("@/lib/sync/client", () => ({ 读团队: () => (mocks.团队 ? { teamId: "t", key: "k", device: "d" } : null) }));
+vi.mock("@/lib/llm", () => ({ llmEnabled: async () => false }));
+vi.mock("@/app/(app)/customers/CustomersView", () => ({ default: () => null }));
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
@@ -29,7 +32,8 @@ import path from "node:path";
 import { 该掉公海, 公海截止, 公海标签 } from "@/lib/pool";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { 放进公海, 领取, 撤销公海 } from "@/app/(app)/customers/pool-actions";
-import { 客户筛选条件 } from "@/app/(app)/customers/query";
+import { 客户筛选条件, 在看子集 } from "@/app/(app)/customers/query";
+import CustomersPage from "@/app/(app)/customers/page";
 
 let 我: string;
 let 同事: string;
@@ -272,4 +276,61 @@ describe("自动掉公海", () => {
     expect(await 自动掉公海(mocks.user, 今)).toBe(1);
     expect((await prisma.customerPool.findMany()).map((x) => x.customerId)).toEqual([我的.id]);
   });
+});
+
+describe("客户 / 公海两个页签（2026-10-13）", () => {
+  const 名 = async (sp: Parameters<typeof 客户筛选条件>[0]) =>
+    (await prisma.customer.findMany({ where: await 客户筛选条件(sp), select: { name: true }, orderBy: { name: "asc" } })).map((c) => c.name);
+
+  async function 造两位() {
+    const 渠 = await prisma.channel.create({ data: { name: "页签渠道", channelOwnerId: 我 } });
+    const 私 = await 造客户(我, { name: "页签-自己的", channelId: 渠.id });
+    const 海 = await 造客户(同事, { name: "页签-公海的", channelId: 渠.id });
+    await prisma.customerPool.create({ data: { customerId: 海.id, reason: "手动" } });
+    return { 渠, 私, 海 };
+  }
+
+  it("默认（「客户」页签）不含公海；pool=1 只有公海；关键词在当前页签里搜", async () => {
+    await 造两位();
+    expect(await 名({})).toEqual(["页签-自己的"]);
+    expect(await 名({ pool: "" })).toEqual(["页签-自己的"]);
+    expect(await 名({ pool: "1" })).toEqual(["页签-公海的"]);
+    expect(await 名({ keyword: "页签" })).toEqual(["页签-自己的"]);
+    expect(await 名({ keyword: "页签", pool: "1" })).toEqual(["页签-公海的"]);
+    expect(await 名({ keyword: "公海的" })).toEqual([]);
+    // 不认识的 pool 值按「客户」页签算，不是「全部」
+    expect(await 名({ pool: "x" })).toEqual(["页签-自己的"]);
+  });
+
+  it("子集入口（看这一批 / 本月新增 / 直接推荐）不分页签：公海里的照样在；再带 pool=1 才只看公海", async () => {
+    const { 渠, 私, 海 } = await 造两位();
+    const 批 = await prisma.importBatch.create({ data: { userId: 我, userName: "我", fileName: "a.xlsx" } });
+    await prisma.importRow.createMany({ data: [私, 海].map((c) => ({ batchId: 批.id, customerId: c.id, kind: "create" })) });
+    const 全部 = ["页签-公海的", "页签-自己的"];
+    expect(await 名({ batch: 批.id })).toEqual(全部);
+    expect(await 名({ createdWithin: "本月" })).toEqual(全部);
+    expect(await 名({ directOf: 渠.id })).toEqual(全部);
+    expect(await 名({ directOf: 渠.id, pool: "1" })).toEqual(["页签-公海的"]);
+    expect(在看子集({ batch: 批.id })).toBe(true);
+    expect(在看子集({ createdWithin: "别的" })).toBe(false);
+    expect(在看子集({})).toBe(false);
+  });
+
+  it("列表页：「客户」页签的总数不含公海、给出公海数；搜不到时数出公海里有几位对得上；子集里不给页签", async () => {
+    const { 渠 } = await 造两位();
+    const 页 = async (sp: Record<string, string>) =>
+      ((await CustomersPage({ searchParams: Promise.resolve(sp) })) as unknown as { props: { total: number; rows: { name: string }[]; 公海数: number | null; 公海里匹配: number } }).props;
+    const 客户页 = await 页({});
+    expect(客户页.rows.map((r) => r.name)).toEqual(["页签-自己的"]);
+    expect([客户页.total, 客户页.公海数, 客户页.公海里匹配]).toEqual([1, 1, 0]);
+    const 公海页 = await 页({ pool: "1" });
+    expect(公海页.rows.map((r) => r.name)).toEqual(["页签-公海的"]);
+    const 没搜到 = await 页({ keyword: "公海的" });
+    expect([没搜到.total, 没搜到.公海里匹配]).toEqual([0, 1]);
+    // 按负责人筛着也数得到：点过去会换到公海页签、负责人条件清掉
+    expect((await 页({ keyword: "公海的", salesOwnerId: 我 })).公海里匹配).toBe(1);
+    const 子集 = await 页({ directOf: 渠.id });
+    expect([子集.total, 子集.公海数]).toEqual([2, null]);
+  });
+
 });

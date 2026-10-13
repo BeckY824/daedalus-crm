@@ -21,12 +21,31 @@ export type 客户条件 = {
   createdWithin?: string;
   directOf?: string;
   batch?: string;
-  /** 「1」= 只看公海里的（第 6 块） */
+  /**
+   * 「1」= 「公海」页签：只看公海里的（第 6 块）。
+   * 不是「1」= 「客户」页签：**不含**公海里的（2026-10-13：公海和自己的分开摆）；子集入口例外，见 在看子集
+   */
   pool?: string;
   /** 外贸档案的国家 / 来源（2026-10-05） */
   country?: string;
   source?: string;
 };
+
+/**
+ * 三种「从一个数走进来」的子集：导入「看这一批」、数据页「本月新增」、渠道页「直接推荐」。
+ * 那几个数本来就把公海里的算在内，点进来要对得上——子集里不分页签，公海里的照样列出来（带 pool=1 才只看公海）。
+ * 列表页据此不摆「客户 / 公海」页签。
+ */
+export function 在看子集(sp: Pick<客户条件, "batch" | "createdWithin" | "directOf">): boolean {
+  return Boolean(sp.batch || sp.directOf || sp.createdWithin === "本月");
+}
+
+/** 公海这一层：「公海」页签只要公海里的；子集里不分；其余（「客户」页签）不含公海里的 */
+function 公海条件(sp: 客户条件): Prisma.CustomerWhereInput {
+  if (sp.pool === "1") return { pool: { isNot: null } };
+  if (在看子集(sp)) return {};
+  return { pool: { is: null } };
+}
 
 export async function 客户筛选条件(
   sp: 客户条件,
@@ -58,7 +77,7 @@ export async function 客户筛选条件(
     ...(sp.directOf
       ? { channelId: sp.directOf, referrerCustomerId: null }
       : {}),
-    ...(sp.pool === "1" ? { pool: { isNot: null } } : {}),
+    ...公海条件(sp),
     ...(sp.country || sp.source
       ? { extra: { is: { ...(sp.country ? { country: sp.country } : {}), ...(sp.source ? { source: sp.source } : {}) } } }
       : {}),

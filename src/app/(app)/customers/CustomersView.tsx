@@ -4,7 +4,7 @@ import Heat from "@/components/Heat";
 import { useEffect, useState, useSyncExternalStore, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button, Select, Space, Dropdown, App, Tag, Popover } from "antd";
+import { Button, Select, Space, Dropdown, App, Tag, Popover, Segmented } from "antd";
 import {
   PlusOutlined,
   ExportOutlined,
@@ -55,9 +55,6 @@ function bulkSummary(res: Extract<BulkResult, { ok: true }>, action: string): st
 
 type Option = { id: string; name: string };
 
-/** 负责人下拉里「公海」那一项的值（不会和成员 id 撞：cuid 没有冒号） */
-const 公海值 = "pool:";
-
 type Props = {
   rows: CustomerRow[];
   total: number;
@@ -86,6 +83,13 @@ type Props = {
    * 和「只看本月新增」一样是一枚带叉的标记，点叉回到全部
    */
   本批?: { 几位: number } | null;
+  /**
+   * 公海里一共几位（「公海」页签上的那个数）。null = 正在看一个子集（上面三种），不摆页签。
+   * 2026-10-13：公海和自己的客户分两个页签摆，原来混在一张表里、只靠负责人下拉第一项「公海」切
+   */
+  公海数?: number | null;
+  /** 「客户」页签搜不到时，同样的条件在公海里有几位（0 = 没有，不提） */
+  公海里匹配?: number;
   /** 接上模型了没有。没接上时导入抽屉里「粘一段文本」那条路只说明原因，不给按钮 */
   aiEnabled?: boolean;
   /**
@@ -109,7 +113,7 @@ type Props = {
     createdWithin: string;
     directOf: string;
     batch: string;
-    /** 「1」= 只看公海 */
+    /** 「1」= 「公海」页签；空 = 「客户」页签（不含公海）。子集里不分页签 */
     pool: string;
     /** 外贸档案的国家 / 来源（2026-10-05） */
     country: string;
@@ -133,7 +137,7 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, requestedPage, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
   // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
@@ -245,7 +249,15 @@ export default function CustomersView({
    * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
    * 按 filters（服务端那次查询用的条件）判而不是 f（输入框里的草稿）。
    */
-  const 空库 = total === 0 && !本月新增 && !直接推荐 && !本批 && !Object.values(filters).some((v) => v);
+  /*
+    公海里还有人也不算空库：「客户」页签空了（比如一个人用、全被自动放进了公海），页签和筛选栏得留着，
+    不然人看到的是「新建第一位」，以为客户全没了
+  */
+  const 空库 = total === 0 && !公海数 && !本月新增 && !直接推荐 && !本批 && !Object.values(filters).some((v) => v);
+  /** 在看三种子集之一：公海里的和自己的一起列，不摆页签（query.ts 在看子集） */
+  const 子集 = Boolean(本月新增 || 直接推荐 || 本批);
+  /** 「公海」页签（按服务端这次查询的条件判，不按草稿） */
+  const 公海页 = filters.pool === "1";
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [导出中, set导出中] = useState(false);
   const [导出进度, set导出进度] = useState("");
@@ -272,8 +284,10 @@ export default function CustomersView({
 
   /** 收起来的那三个里还筛着几个。收起来不等于可以不告诉人 */
   const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId, f.source].filter(Boolean).length;
-  /** 一共筛着几个。0 的时候「重置」看不见——没筛过的页面上它是个哑按钮（位置留着，见 ResetFilters） */
-  const 筛了 = Object.values(f).filter(Boolean).length;
+  /** 一共筛着几个。0 的时候「重置」看不见——没筛过的页面上它是个哑按钮（位置留着，见 ResetFilters）。页签不算筛选 */
+  const 筛了 = Object.entries(f).filter(([k, v]) => k !== "pool" && v).length;
+  /** 重置留在当前页签：在「公海」里点重置，回到的是全部公海，不是跳回「客户」 */
+  const 重置 = () => (f.pool && !子集 ? apply({ ...(Object.fromEntries(Object.keys(f).map((k) => [k, ""])) as typeof f), pool: "1" }) : reset());
   /**
    * 只有一个人的库：负责人列、负责人筛选、渠道负责人、批量分配都不摆（审查 D2 / M3）。
    * 13 寸窗口下负责人那一列正好把「最近跟进」挤出视野，而它每一格都是同一个名字。
@@ -451,6 +465,18 @@ export default function CustomersView({
       <DataList<CustomerRow>
         页="customers"
         空库={空库}
+        没对上={
+          公海里匹配 > 0 ? (
+            <div className="list-none">
+              这里没有符合条件的；
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => apply({ pool: "1", salesOwnerId: "" })}>
+                公海里有 {公海里匹配} 位匹配 ›
+              </Button>
+            </div>
+          ) : 公海页 && !Object.entries(filters).some(([k, v]) => k !== "pool" && v) ? (
+            <div className="list-none">公海里现在没有{b.customer}</div>
+          ) : undefined
+        }
         列={列表}
         行={rows}
         加载中={pending}
@@ -470,6 +496,28 @@ export default function CustomersView({
             收起来不等于可以不告诉人，否则人会对着一张筛过的表当成全部。
           */
           <Space wrap size={[10, 10]}>
+            {/*
+              「客户 / 公海」两个页签（2026-10-13：老板、业务员、一个人用的都要「公海和自己的分开看」）。
+              页签记在地址上（pool=1），翻页、搜索、筛选都留在这一页签里。
+              一个人用、公海里也没人时不摆——那时公海就是个空抽屉。子集（下面三种标记）里不摆：那几个数本来就含公海
+            */}
+            {!子集 && (users.length > 1 || (公海数 ?? 0) > 0 || f.pool) && (
+              <Segmented
+                aria-label={`${b.customer} / 公海`}
+                value={f.pool ? "公海" : "客户"}
+                // 换到公海清掉负责人：公海里的负责人是「原负责人」，带过去筛出来的是另一回事（和原来下拉里选「公海」一样）
+                onChange={(v) => apply(v === "公海" ? { pool: "1", salesOwnerId: "" } : { pool: "" })}
+                options={[
+                  { value: "客户", label: b.customer },
+                  { value: "公海", label: 公海数 ? `公海 ${公海数}` : "公海" },
+                ]}
+              />
+            )}
+            {子集 && f.pool && (
+              <Tag closable onClose={() => apply({ pool: "" })} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
+                只看公海里的
+              </Tag>
+            )}
             {/* 从「数据」页那张卡走进来的：说清这是一个子集，并给一条回到全部的路 */}
             {本月新增 && (
               <Tag closable onClose={() => apply({ createdWithin: "" })} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
@@ -501,13 +549,12 @@ export default function CustomersView({
                 value={f.country || undefined} onChange={(v) => apply({ country: v ?? "" })}
                 options={[...new Set([...国家们, ...(f.country ? [f.country] : [])])].map((x) => ({ value: x, label: x }))} />
             )}
-            {!不问归属 && (
-              /* 公海是负责人下拉的第一项（第 6 块）：它就是「没人负责的那一池」。
-                 原来单摆一个开关，1024 宽时把「更多筛选」挤到了第二行 */
+            {/* 公海原来是这个下拉的第一项，2026-10-13 起由页签代替。「公海」页签上不摆（除非地址上正筛着某人，不然看不见自己筛了什么） */}
+            {!不问归属 && (!f.pool || 子集 || f.salesOwnerId) && (
               <Select style={{ width: 150 }} placeholder="全部负责人" allowClear
-                value={f.pool ? 公海值 : f.salesOwnerId || undefined}
-                onChange={(v) => apply(v === 公海值 ? { pool: "1", salesOwnerId: "" } : { salesOwnerId: v ?? "", pool: "" })}
-                options={[{ value: 公海值, label: "公海" }, ...成员选项(users)]} />
+                value={f.salesOwnerId || undefined}
+                onChange={(v) => apply({ salesOwnerId: v ?? "" })}
+                options={成员选项(users)} />
             )}
             <Popover
               trigger="click"
@@ -538,7 +585,7 @@ export default function CustomersView({
             {/* 没有「搜索」按钮：下拉改了就生效，关键词回车或清空就生效。
                 一个要再点一下才算数的筛选栏，会让人以为自己已经筛了其实没有。
                 「重置」只在真筛了东西的时候看得见；位置一直留着，筛的那一下表格不往下跳（M17） */}
-            <ResetFilters 显示={筛了 > 0} onClick={reset} />
+            <ResetFilters 显示={筛了 > 0} onClick={重置} />
           </Space>
         }
         批量={(selected, 清空, 选中行) => (
@@ -561,7 +608,8 @@ export default function CustomersView({
             >
               <Button size="small" icon={<UserSwitchOutlined />}>批量分配</Button>
             </Dropdown>}
-            {!不问归属 && (选中行.some((r) => r.pool) ? (
+            {/* 「公海」页签只有领取，「客户」页签只有放进公海；子集里两种混着，看勾的是什么 */}
+            {!不问归属 && (公海页 || (子集 && 选中行.some((r) => r.pool)) ? (
               <Button size="small" icon={<UserAddOutlined />}
                 onClick={async () => { const ids = 选中行.filter((r) => r.pool).map((r) => r.id); 公海提示(await 领取(ids), "领取", ids); 清空(); }}>
                 领取

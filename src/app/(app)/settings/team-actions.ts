@@ -40,7 +40,8 @@ async function 每人概况(账号们: string[]): Promise<Record<string, 一人>
   for (const a of 账号们) {
     const id = 团队身份id(a);
     const [客户, 近7天跟进, 最近] = await Promise.all([
-      prisma.customer.count({ where: { salesOwnerId: id } }),
+      // 手上的：公海里的（负责人还挂着原来那位）不算，和点进去的客户列表「客户」页签对得上
+      prisma.customer.count({ where: { salesOwnerId: id, pool: { is: null } } }),
       prisma.followUp.count({ where: { ownerId: id, occurredAt: { gte: 七天前 } } }),
       prisma.followUp.findFirst({ where: { ownerId: id }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } }),
     ]);

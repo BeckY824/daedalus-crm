@@ -48,6 +48,8 @@ type Props<T> = {
   /** 一条都没有**且**没在筛 */
   空库: boolean;
   空态: Parameters<typeof EmptyState>[0];
+  /** 不是空库、只是没对上时表格里那一句。不给就是通用的「换个条件或点重置」（客户页用它指一条去公海页签的路） */
+  没对上?: React.ReactNode;
   /** 筛选栏。空库时整条不渲染 */
   筛选?: React.ReactNode;
   /** 工具栏和表格之间那一条汇总（商机页的「总额 · 加权预测」）。不给就没有 */
@@ -112,7 +114,7 @@ function 行名(r: object): string | null {
 }
 
 export default function DataList<T extends { id: string }>({
-  页, 列: 全部列, 行, 空库, 空态, 筛选, 汇总, 批量, 加载中, 行链接, 行点击, 横向, 分页, 截断, 亮, 行类, 排序,
+  页, 列: 全部列, 行, 空库, 空态, 没对上, 筛选, 汇总, 批量, 加载中, 行链接, 行点击, 横向, 分页, 截断, 亮, 行类, 排序,
 }: Props<T>) {
   const router = useRouter();
   /** 真的只取了一部分：库里的总数比取回来的多（本地筛掉的不算，见 截断.取回） */
@@ -314,7 +316,7 @@ export default function DataList<T extends { id: string }>({
           人筛了一下就以为数据没了。在筛的时候只说没对上，指一条回去的路（筛选栏上的「重置」）
         */
         locale={{
-          emptyText: 空库 ? <EmptyState {...空态} /> : <div className="list-none">没有符合条件的，换个条件或点「重置」看全部</div>,
+          emptyText: 空库 ? <EmptyState {...空态} /> : (没对上 ?? <div className="list-none">没有符合条件的，换个条件或点「重置」看全部</div>),
         }}
         scroll={{ x }}
         rowSelection={批量 ? { selectedRowKeys: 选中, onChange: (k) => set选中(k as string[]), fixed: true } : undefined}
