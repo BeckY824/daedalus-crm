@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { App, Alert, Button, Space, Table, Tag } from "antd";
+import { App, Alert, Button, Checkbox, List, Space, Tag } from "antd";
 import { DownloadOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import { 读范围冲突, 导出范围冲突动作, 确认范围冲突动作 } from "./team-actions";
@@ -43,14 +43,15 @@ export default function ScopeConflicts({ onChange }: { onChange?: () => void }) 
         <Button icon={<DownloadOutlined />} onClick={() => void 导出()}>导出文件</Button>
         <Button disabled={!选.length} onClick={() => void 确认(选)}>标记所选为已处理</Button>
       </Space>
-      <Table<条目> size="small" rowKey="id" pagination={{ pageSize: 10 }} dataSource={rows}
-        rowSelection={{ selectedRowKeys: 选, onChange: (k) => set选(k.map(Number)) }}
-        columns={[
-          { title: "记录", render: (_, r) => <><Tag>{r.表}</Tag>{r.名称}</> },
-          { title: "操作", dataIndex: "操作" },
-          { title: "改动的字段", render: (_, r) => r.改动列.join("、") },
-          { title: "改动时间", render: (_, r) => smartTime(r.改动时间) },
-        ]} />
+      {/* 设置页里的小清单，不是列表页：不用表格组件（见 tests/one-table.test.ts） */}
+      <List<条目> size="small" dataSource={rows} pagination={rows.length > 10 ? { pageSize: 10 } : false}
+        renderItem={(r) => (
+          <List.Item>
+            <Checkbox aria-label={`选择 ${r.名称}`} checked={选.includes(r.id)} onChange={(e) => set选(e.target.checked ? [...选, r.id] : 选.filter((x) => x !== r.id))} style={{ marginRight: 8 }} />
+            <span style={{ flex: 1 }}><Tag>{r.表}</Tag>{r.名称} · {r.操作}：{r.改动列.join("、")}</span>
+            <span className="muted">{smartTime(r.改动时间)}</span>
+          </List.Item>
+        )} />
     </section>
   );
 }

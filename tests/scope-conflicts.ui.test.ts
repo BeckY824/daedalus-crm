@@ -26,11 +26,11 @@ it("列出冲突、导出文件、标记所选为已处理后从列表消失但�
   await page.goto("http://conflict.test");
   await page.addScriptTag({ content: bundle });
   await page.getByText("有 2 条改动因同步权限变化没能上传").waitFor();
-  expect(await page.getByText("张经理").count()).toBe(1);
-  expect(await page.getByText("remark").count()).toBe(1);
+  expect(await page.getByText(/张经理/).count()).toBe(1);
+  expect(await page.getByText(/remark/).count()).toBe(1);
   await page.getByRole("button", { name: /导出文件/ }).click();
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "__exported"))).toBe(1);
-  await page.locator("tbody .ant-checkbox-input").first().check();
+  await page.getByLabel("选择 lost2").check();
   await page.getByRole("button", { name: "标记所选为已处理" }).click();
   await page.getByText("有 1 条改动因同步权限变化没能上传").waitFor();
   expect(await page.evaluate(() => (Reflect.get(window, "__rows") as unknown[]).length)).toBe(2);
