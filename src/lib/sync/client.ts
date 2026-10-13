@@ -14,8 +14,8 @@ import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/c
 import { 团队身份id } from "../desktop/me";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, 本机结构签名, type 改动 } from "./local";
 import { createHmac } from "node:crypto";
-import { 范围快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, type 拉到的范围包 } from "./scoped-local";
-import { 提取范围, 行键, type 范围索引 } from "./scope-policy";
+import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, type 拉到的范围包 } from "./scoped-local";
+import { 提取范围, 行键, 范围字段, type 范围索引 } from "./scope-policy";
 import { 封范围, 规范串 } from "./crypto";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
 import { 看全部, 忘掉限定, 在同步里 } from "../team-scope";
@@ -64,6 +64,8 @@ export type 范围配置 = {
   /** 老板迁移：起点已推多少条、服务端新落库多少条（含迁移期间的新改动） */
   baselineSent?: number;
   stored?: number;
+  /** 改过归属、还没补发成功「当前状态起点」的记录（行键）；补发成功才移走 */
+  snapshotPending?: string[];
   /** 确定性坏包（元数据不符、父链指向不可见记录）跳过了多少 */
   skipped?: number;
   /** 上一轮清理：删了多少失权副本、转成冲突几条、AI 历史里可能还提到失权客户的条数（不删，只提示） */
@@ -783,7 +785,7 @@ async function 老板迁移(c0: 团队配置): Promise<轮结果> {
     let sent = c.scoped?.baselineSent ?? 0, stored = c.scoped?.stored ?? 0;
     while (sent < 起点.events.length) {
       const 块 = 起点.events.slice(sent, sent + 100);
-      const packets = 块.map((e, i) => 做包(c, e, 事件编号(c, `baseline|${sent + i}`, e)));
+      const packets = 块.map((e, i) => ({ ...做包(c, e, 事件编号(c, `baseline|${sent + i}`, e)), baseline: true }));
       const r = await 范围请求(c, "push", { device: c.device, packets });
       if (r.状态 === 409 && /换过钥匙/.test(String(r.json.error ?? ""))) { c = await 更新钥匙(c); continue; }
       if (r.状态 !== 200) return { ok: false, error: 错话(r, "推送迁移起点失败") };
@@ -832,6 +834,7 @@ async function 范围推(c0: 团队配置, 迁移中 = false): Promise<结果<{ 
         else if (r.状态 !== 200) return { ok: false, error: 错话(r, "推送失败") };
         else stored += Number(r.json.stored ?? 0);
       }
+      记改归属(c.teamId, 改动.filter((_, i) => !失权.includes(seqs[i])));
       冲突 += await 转为范围冲突(prisma, 失权, "推送时该记录已不在你的同步范围内（转交、领取或权限变化）；未上传改动已保留，请与老板核对");
       await 记已推(prisma, 到);
       推 += 改动.length - 失权.length;
@@ -839,10 +842,45 @@ async function 范围推(c0: 团队配置, 迁移中 = false): Promise<结果<{ 
     }
     if (r.状态 !== 200) return { ok: false, error: 错话(r, "推送失败") };
     stored += Number(r.json.stored ?? 0);
+    记改归属(c.teamId, 改动);
     await 记已推(prisma, 到);
     推 += 改动.length;
   }
-  return { ok: true, 推, 冲突, stored };
+  const s = await 补发起点(c);
+  if (!s.ok) return s;
+  return { ok: true, 推, 冲突, stored: stored + s.stored };
+}
+
+/** 这批推上去的改动里改了归属的（路由字段变了、进出公海）：记成待补发起点的根，先落盘再补发，断了下一轮接着补 */
+function 记改归属(teamId: string, 改动: 改动[]) {
+  const roots = new Set<string>();
+  for (const e of 改动) {
+    if (e.t === "CustomerPool") roots.add(行键("Customer", e.k));
+    else if (e.o === "U" && (范围字段[e.t] ?? []).some((f) => e.c.includes(f))) roots.add(行键(e.t, e.k));
+  }
+  if (!roots.size) return;
+  const 现 = 读团队();
+  if (现?.teamId !== teamId) return;
+  const sc = 现.scoped ?? { stage: "ready" as const, cursors: {} };
+  写团队({ ...现, scoped: { ...sc, snapshotPending: [...new Set([...(sc.snapshotPending ?? []), ...roots])] } });
+}
+async function 补发起点(c: 团队配置): Promise<结果<{ stored: number }>> {
+  const pending = 读团队()?.scoped?.snapshotPending ?? [];
+  if (!pending.length) return { ok: true, stored: 0 };
+  const events = await 记录快照(prisma, pending);
+  const 批次 = `snap|${Date.now()}`;
+  let stored = 0;
+  for (let i = 0; i < events.length; i += 100) {
+    const packets = events.slice(i, i + 100).map((e, j) => ({ ...做包(c, e, 事件编号(c, `${批次}|${i + j}`, e)), baseline: true }));
+    const r = await 范围请求(c, "push", { device: c.device, packets });
+    // 403：这台已经没有权限写这条（例如刚转走）；起点由仍有权的设备补，这里不卡住
+    if (r.状态 === 403) continue;
+    if (r.状态 !== 200) return { ok: false, error: 错话(r, "补发起点失败") };
+    stored += Number(r.json.stored ?? 0);
+  }
+  const 现 = 读团队();
+  if (现?.teamId === c.teamId && 现.scoped) 写团队({ ...现, scoped: { ...现.scoped, snapshotPending: (现.scoped.snapshotPending ?? []).filter((k) => !pending.includes(k)) } });
+  return { ok: true, stored };
 }
 
 /** 一轮范围同步：推 → 目录 →（业务员）清理失权副本 → 按范围拉、逐包核对后回放 */

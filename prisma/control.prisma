@@ -508,3 +508,12 @@ model SyncScopedBatch {
   @@unique([teamId, device, eventId])
   @@index([teamId, recordKey, id])
 }
+
+/// 某条记录的「当前状态起点」批次（字段钟快照）。记录改归属后，非老板只从改归属之后的第一个起点开始拉。
+model SyncScopedBaseline {
+  teamId String
+  recordKey String
+  batchId Int
+  @@id([teamId, batchId])
+  @@index([teamId, recordKey, batchId])
+}

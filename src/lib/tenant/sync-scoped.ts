@@ -17,7 +17,8 @@ function fail(status: number, message: string): never { throw new 范围错误(s
 const 根 = () => path.join(process.env.SYNC_DIR ?? path.join(workspaceDir(), "sync"), "scoped");
 const file = (digest: string) => path.join(根(), `${digest}.bin`);
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
-export type 范围包 = { meta: 范围元数据; eventId: string; data: string };
+/** baseline = 这一包是某条记录当前状态的字段钟快照（改归属 / 进出公海后由有权设备补发） */
+export type 范围包 = { meta: 范围元数据; eventId: string; data: string; baseline?: boolean };
 type Db = typeof control | Prisma.TransactionClient;
 async function auth(accountId: string, teamId: string, device?: string, db: Db = control) {
   const t = await db.syncTeam.findUnique({ where: { id: teamId } });
@@ -68,6 +69,7 @@ function validate(packet: 范围包) {
   if (!m.fields || typeof m.fields !== "object" || Array.isArray(m.fields)) fail(400, "范围字段格式不对");
   for (const [k, v] of Object.entries(m.fields)) if (!范围字段[m.t].includes(k) || (v !== null && (typeof v !== 'string' || !/^[\w-]{1,100}$/.test(v)))) fail(400, "不允许的范围字段");
   if (m.o === 'D' && Object.keys(m.fields).length) fail(400, "删除事件不能改归属");
+  if (packet.baseline !== undefined && typeof packet.baseline !== 'boolean') fail(400, "范围密文包格式不对");
   if (!/^[a-f0-9]{64}$/.test(packet.eventId) || typeof packet.data !== 'string' || packet.data.length > 8 * 1024 * 1024) fail(400, "范围密文包格式不对");
   // v4：AAD 绑定团队、设备、eventId 与元数据摘要；中转无钥匙不能验，接收端解密时验。旧版 v2/v3 一律拒收。
   if (Buffer.from(packet.data.slice(0, 8), 'base64url')[0] !== 4) fail(400, "范围密文必须绑定团队、设备和授权元数据");
@@ -105,6 +107,12 @@ export async function 收范围推送(accountId: string, teamId: string, device:
       if (p.stage === 'ready' && !范围可写(old, n, rows, accountId, owner)) fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留");
       rows.set(key, n); stored++;
       await tx.syncScopedRecord.upsert({ where: { teamId_key: { teamId, key } }, create: { teamId, key, metadata: JSON.stringify(n) }, update: { metadata: JSON.stringify(n) } });
+      if (packet.baseline) await tx.syncScopedBaseline.create({ data: { teamId, recordKey: key, batchId: b.id } });
+      // 进出公海也是改范围：客户的路由版本跟着变，新获权的人只从之后的起点拉
+      if (p.stage === 'ready' && !packet.baseline && packet.meta.t === 'CustomerPool' && (old ? old.deleted !== n.deleted : !n.deleted)) {
+        const ck = 行键('Customer', packet.meta.k), c = rows.get(ck);
+        if (c) { const nc = { ...c, routeSeq: Math.max(c.routeSeq, b.id) }; rows.set(ck, nc); await tx.syncScopedRecord.update({ where: { teamId_key: { teamId, key: ck } }, data: { metadata: JSON.stringify(nc) } }); }
+      }
     }
     // stored = 本次新落库条数（重发的不算），客户端据此累计迁移批次数，回包丢失重试也不会重复计数
     return { received: packets.length, stored };
@@ -147,10 +155,24 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
   const directory = await 目录里(accountId, teamId, tx);
   const scope = directory.scopes.find(s => s.id === scopeId);
   if (!scope) fail(403, "该范围不在你的同步权限内");
-  const keys = scope.records.map(r => 行键(r.t, r.k));
+  const from = Math.max(0, Math.floor(after) || 0);
+  /*
+    改过归属（含父链、进出公海）的记录：非老板只从「改归属之后的第一个起点快照」开始拉，
+    失权期间（不在本范围时）的历史密文不下发；起点还没补上的记录这一轮先不给，游标不受影响。
+    老板本来就看全队，照旧给全部历史。
+  */
+  const rows = directory.owner ? null : await indices(teamId, tx);
+  const starts: { key: string; gt: number }[] = [];
+  for (const r of scope.records) {
+    const key = 行键(r.t, r.k);
+    const threshold = rows ? (算范围(r, rows)?.routeSeq ?? 0) : 0;
+    if (!threshold) { starts.push({ key, gt: from }); continue; }
+    const base = await tx.syncScopedBaseline.findFirst({ where: { teamId, recordKey: key, batchId: { gte: threshold } }, orderBy: { batchId: 'asc' } });
+    if (base) starts.push({ key, gt: Math.max(from, base.batchId - 1) });
+  }
   const batches = [];
   // 避开 SQLite 的变量个数上限，各分块取最早 201 条，再整体截到 200。
-  for (let i = 0; i < keys.length; i += 400) batches.push(...await tx.syncScopedBatch.findMany({ where: { teamId, recordKey: { in: keys.slice(i, i + 400) }, id: { gt: Math.max(0, Math.floor(after) || 0) } }, orderBy: { id: 'asc' }, take: 201 }));
+  for (let i = 0; i < starts.length; i += 200) batches.push(...await tx.syncScopedBatch.findMany({ where: { teamId, OR: starts.slice(i, i + 200).map(x => ({ recordKey: x.key, id: { gt: x.gt } })) }, orderBy: { id: 'asc' }, take: 201 }));
   batches.sort((a, b) => a.id - b.id);
   return { epoch: directory.epoch, revision: scope.revision, more: batches.length > 200, batches: batches.slice(0, 200).map(b => {
     let data: string; try { data = fs.readFileSync(file(b.digest), 'utf8'); } catch { return fail(503, "范围密文暂不可读，请稍后重试；游标未跳过"); }

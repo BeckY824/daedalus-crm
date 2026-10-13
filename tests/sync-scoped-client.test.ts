@@ -29,7 +29,7 @@ vi.mock("@/lib/prisma", async () => {
 });
 
 import type { PrismaClient } from "@/generated/prisma";
-import { 设备钥匙对 } from "@/lib/sync/crypto";
+import { 设备钥匙对, 拆范围 } from "@/lib/sync/crypto";
 import type { 传输 } from "@/lib/sync/client";
 
 let client: typeof import("@/lib/sync/client");
@@ -243,11 +243,21 @@ describe("v4 范围同步：业务员只同步本人 + 公海，老板全队", (
   });
 
   it("F3 联系人改归属：老板把联系人挂到业务员客户下，业务员收到；不能借外键收到隐藏客户", async () => {
+    // 老板时期的改动（挂在老板私客下时）先同步上云
+    await db("boss").contact.update({ where: { id: "boss-contact" }, data: { name: "QA联系人现名" } });
+    expect(await 轮("boss")).toMatchObject({ ok: true });
     await db("boss").contact.update({ where: { id: "boss-contact" }, data: { customerId: "pool-1" } });
     expect(await 轮("boss")).toMatchObject({ ok: true });
     expect(await 轮("member")).toMatchObject({ ok: true });
     const c = await db("member").contact.findUnique({ where: { id: "boss-contact" } });
-    expect(c?.customerId).toBe("pool-1");
+    expect(c).toMatchObject({ customerId: "pool-1", name: "QA联系人现名" });
+    // 业务员能拉到的密文里只有改归属之后的起点：没有老板时期的旧名和挂在老板私客下的历史
+    const cfg = 读配置("member");
+    const got = await scoped.给范围拉取(账号.member, cfg.teamId, "Customer:pool-1", 0);
+    const plain = got.batches.map((b) => JSON.stringify(拆范围(b.data, { ...(cfg.keys ?? {}), [String(cfg.epoch ?? 0)]: cfg.key }, { teamId: cfg.teamId, device: b.device, eventId: b.eventId, meta: b.meta }))).join("\n");
+    expect(plain).toContain("QA联系人现名");
+    expect(plain).not.toContain("QA老板联系人");
+    expect(plain).not.toContain("boss-private");
     expect(await db("member").customer.findUnique({ where: { id: "boss-private" } })).toBeNull();
   });
 

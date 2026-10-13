@@ -8,11 +8,14 @@ const q = (s: string) => `"${s.replaceAll('"', '""')}"`;
 const models = new Map(Prisma.dmmf.datamodel.models.map(m => [m.name, m]));
 export const 主字段 = (table: string) => models.get(table)!.fields.find(f => f.isId)!.name;
 type Db = PrismaClient | Prisma.TransactionClient;
-async function row(db: Db, table: string) {
+async function row(db: Db, table: string, pk?: string) {
   const columns = models.get(table)!.fields.filter(f => f.kind !== 'object' && !(不同步列[table] ?? []).includes(f.name)).map(f => f.name);
   // SQLite 的 json_object 保留毫秒数/布尔整数，和触发器里的编码相同，避免 BigInt/Date JSON 改变语义。
-  const where = table === 'Setting' ? ` WHERE key IN (${同步的设置.map(() => '?').join(',')})` : '';
-  const rows = await db.$queryRawUnsafe<{ value: string }[]>(`SELECT json_object(${columns.map(c => `'${c}', ${q(c)}`).join(',')}) AS value FROM ${q(table)}${where}`, ...(table === 'Setting' ? 同步的设置 : []));
+  const conds: string[] = [], args: unknown[] = [];
+  if (table === 'Setting') { conds.push(`key IN (${同步的设置.map(() => '?').join(',')})`); args.push(...同步的设置); }
+  if (pk !== undefined) { conds.push(`${q(主字段(table))} = ?`); args.push(pk); }
+  const where = conds.length ? ` WHERE ${conds.join(' AND ')}` : '';
+  const rows = await db.$queryRawUnsafe<{ value: string }[]>(`SELECT json_object(${columns.map(c => `'${c}', ${q(c)}`).join(',')}) AS value FROM ${q(table)}${where}`, ...args);
   return rows.map(r => JSON.parse(r.value) as Record<string, unknown>);
 }
 export async function 范围快照(db: PrismaClient) {
@@ -34,6 +37,37 @@ export async function 范围快照(db: PrismaClient) {
     }
     return { cutoff, events };
   }, { timeout: 180_000 });
+}
+/**
+ * 改归属后补发的「当前状态起点」：根记录及其所有子记录（按 范围父表 向下展开）各一条整行插入 + 按字段钟分组的改动。
+ * 新获权的人只收这份起点和之后的改动，拿不到这条记录不在他范围时的历史密文。
+ */
+export async function 记录快照(db: PrismaClient, roots: string[]) {
+  const want = new Set(roots);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [t, parents] of Object.entries(范围父表)) for (const [field, table] of Object.entries(parents)) {
+      const ids = [...want].filter(k => k.startsWith(`${table}:`)).map(k => k.slice(table.length + 1));
+      for (let i = 0; i < ids.length; i += 400) {
+        const part = ids.slice(i, i + 400);
+        for (const r of await db.$queryRawUnsafe<{ k: string }[]>(`SELECT ${q(主字段(t))} AS k FROM ${q(t)} WHERE ${q(field)} IN (${part.map(() => '?').join(',')})`, ...part)) {
+          const key = 行键(t, String(r.k)); if (!want.has(key)) { want.add(key); grew = true; }
+        }
+      }
+    }
+  }
+  const events: 改动[] = [];
+  for (const key of want) {
+    const i = key.indexOf(':'), t = key.slice(0, i), k = key.slice(i + 1);
+    if (!(同步表 as readonly string[]).includes(t)) continue;
+    const r = (await row(db, t, k))[0];
+    if (!r) continue;
+    events.push({ t, k, r, o: 'I', c: Object.keys(r), h: '0000000000000-snapshot' });
+    const groups = new Map<string, string[]>();
+    for (const c of await db.$queryRawUnsafe<{ col: string; hlc: string }[]>('SELECT col, hlc FROM _sync_field WHERE tbl = ? AND pk = ?', t, k)) { const cols = groups.get(c.hlc) ?? []; cols.push(c.col); groups.set(c.hlc, cols); }
+    for (const [h, c] of [...groups].sort(([a], [b]) => a.localeCompare(b))) events.push({ t, k, r, o: 'U', c, h });
+  }
+  return events;
 }
 /** 失权的本机未上传改动不丢：整行副本和改动列表搬进这张表，界面显示「待老板核对」，由人决定怎么处理。 */
 export async function 建范围冲突表(db: Db) {

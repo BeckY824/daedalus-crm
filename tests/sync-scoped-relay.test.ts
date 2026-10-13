@@ -68,8 +68,13 @@ it('转交后旧业务员不能再下载历史或写入；新负责人能取得�
   await push(member, 'member-device', event('Customer', 'member-private', { salesOwnerId: `acct_${other}` }, 'U'));
   await expect(scoped.给范围拉取(member, team, 'Customer:member-private', 0)).rejects.toMatchObject({ 状态: 403 });
   await expect(push(member, 'member-device', event('Customer', 'member-private', { remark: 'stale write' }, 'U'))).rejects.toMatchObject({ 状态: 403 });
+  // 新负责人不拿失权期间的历史：起点补上之前什么都不给，补上后只给起点及之后
+  const none = await scoped.给范围拉取(other, team, 'Customer:member-private', 0);
+  expect(none.batches).toHaveLength(0); expect(none.revision).toBeGreaterThan(0);
+  const snap = { ...packet(event('Customer', 'member-private', { salesOwnerId: `acct_${other}`, name: 'QA业务员' }), 'owner-device'), baseline: true };
+  await scoped.收范围推送(owner, team, 'owner-device', [snap]);
   const received = await scoped.给范围拉取(other, team, 'Customer:member-private', 0);
-  expect(received.batches).toHaveLength(2); expect(received.revision).toBeGreaterThan(0);
+  expect(received.batches).toHaveLength(1); expect(received.batches[0].eventId).toBe(snap.eventId);
 });
 it('幂等、密文缺失不越过游标；停用/移除账号后拒绝目录和拉取', async () => {
   const e = event('Customer', 'own-new', { salesOwnerId: `acct_${member}` }); const p = packet(e, 'member-device');
