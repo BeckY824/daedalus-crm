@@ -91,6 +91,7 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
     if (!p || (p.stage !== 'ready' && !(owner && p.device === device && p.stage === 'building'))) fail(409, "请等待老板完成团队范围迁移");
     const rows = new Map((await tx.syncScopedRecord.findMany({ where: { teamId } })).map(r => [r.key, JSON.parse(r.metadata) as 范围索引]));
+    let stored = 0;
     for (const { packet, digest } of prepared) {
       const duplicate = await tx.syncScopedBatch.findUnique({ where: { teamId_device_eventId: { teamId, device, eventId: packet.eventId } } });
       if (duplicate) {
@@ -102,10 +103,11 @@ export async function 收范围推送(accountId: string, teamId: string, device:
       const b = await tx.syncScopedBatch.create({ data: { teamId, device, accountId, recordKey: key, eventId: packet.eventId, metadata: JSON.stringify(packet.meta), digest } });
       const n = 合并范围(old, packet.meta, b.id);
       if (p.stage === 'ready' && !范围可写(old, n, rows, accountId, owner)) fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留");
-      rows.set(key, n);
+      rows.set(key, n); stored++;
       await tx.syncScopedRecord.upsert({ where: { teamId_key: { teamId, key } }, create: { teamId, key, metadata: JSON.stringify(n) }, update: { metadata: JSON.stringify(n) } });
     }
-    return { received: packets.length };
+    // stored = 本次新落库条数（重发的不算），客户端据此累计迁移批次数，回包丢失重试也不会重复计数
+    return { received: packets.length, stored };
   }, { timeout: 60_000 });
 }
 export async function 完成范围迁移(accountId: string, teamId: string, device: string, count: number) {
