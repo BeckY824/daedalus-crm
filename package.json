@@ -25,6 +25,8 @@
     "test:hosted": "playwright test --config playwright.hosted.config.ts",
     "test:desktop": "playwright test --config playwright.desktop.config.ts",
     "test:team": "node scripts/team-sim/run.mjs",
+    "test:team:scoped": "node scripts/team-sim/run.mjs --scoped",
+    "test:team:migrate": "node scripts/team-sim/run.mjs --migrate",
     "test:e2e:ui": "playwright test --ui",
     "test:ai": "playwright test --config playwright.acceptance.config.ts",
     "test:all": "vitest run && playwright test",

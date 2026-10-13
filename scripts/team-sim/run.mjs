@@ -13,6 +13,9 @@
  * TEAM_SIM_BUILD（1 = 强制重新 build:server，0 = 不管新旧直接用）、TEAM_SIM_KEEP=1（跑完留着临时目录看日志）、
  * TEAM_SIM_OLD_BUNDLE（混版本，2026-10-06 测试分期 E.2：给一份旧版本的 server-bundle 目录，sun 那台就用它跑——
  * 前面照常参加，外贸段「转订单」之后换成这一版重启，核对它从头重拉、补齐旧版本收不下的档案和订单）。
+ * TEAM_SIM_SCOPED（2026-10-13 范围同步）：不设 = 旧协议（全队包，和以前一模一样）；
+ *   1 / --scoped = 云端和每台都开 CRM_SCOPED_SYNC=1，新建的团队一开始就按范围同步：业务员库里只该有本人 + 公海 + 全队共享 + 本人条目；
+ *   migrate / --migrate = 先按旧协议建团队、同步、看可见性，再带开关重启云端和 5 台 → 老板迁移 → 业务员清理失权副本，之后按范围断言。
  * 不改业务代码迁就它：哪一步不对就红，打印哪一步、哪台、期望和实际。
  */
 import fs from "node:fs";
@@ -23,10 +26,22 @@ import crypto from "node:crypto";
 import { 动作 } from "./actions.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { 根, 包, 断言失败, 等到, 判, 停, 显示, 起进程, 关掉, 全关, 日志尾巴, 同步跑, 会话, 读动作表, 调动作, 查库 } from "./lib.mjs";
+import { 查越权, 字节残留 } from "./scope-check.mjs";
 
 const 起始端口 = Number(process.env.TEAM_SIM_PORT || 3520);
 const 种子数 = Math.min(90, Math.max(1, Number(process.env.TEAM_SIM_SEED || 30)));
 const 留着 = process.env.TEAM_SIM_KEEP === "1";
+/**
+ * 范围同步模式（见文件头）。CRM_SCOPED_SYNC=1 直接跑（以前的习惯）当成 TEAM_SIM_SCOPED=1；
+ * 旧协议模式显式给子进程空值，外面 shell 里留着的 CRM_SCOPED_SYNC 不会混进来
+ */
+const 范围模式 = process.argv.includes("--migrate") ? "migrate" : process.argv.includes("--scoped") ? "1" : (process.env.TEAM_SIM_SCOPED || (process.env.CRM_SCOPED_SYNC === "1" ? "1" : "")).trim();
+if (!["", "0", "1", "migrate"].includes(范围模式)) throw new Error(`TEAM_SIM_SCOPED 只认 1 或 migrate（现在是「${范围模式}」）`);
+/** 子进程现在带不带 CRM_SCOPED_SYNC=1（migrate：迁移那一步重启时才打开） */
+let 开关 = 范围模式 === "1";
+/** 现在按哪套断言：false = 全队包（每台都有全队数据），true = 范围（业务员只有本人 + 公海） */
+let 范围 = 范围模式 === "1";
+const 模式名 = { "": "旧协议", "0": "旧协议", "1": "范围同步", migrate: "旧协议 → 范围同步迁移" }[范围模式];
 const 批 = crypto.randomBytes(2).toString("hex");
 const 密码 = `Sim-${crypto.randomBytes(6).toString("hex")}`;
 const 运营口令 = crypto.randomBytes(12).toString("hex");
@@ -49,6 +64,7 @@ const 老库版本 = "v0.46.14";
 /** 混版本：这一台先跑旧版本的 server-bundle，中途升级（见文件头 TEAM_SIM_OLD_BUNDLE） */
 const 旧包 = process.env.TEAM_SIM_OLD_BUNDLE ? path.resolve(process.env.TEAM_SIM_OLD_BUNDLE) : null;
 const 旧台 = 旧包 ? "sun" : null;
+if (旧包 && 范围模式 && 范围模式 !== "0") throw new Error("TEAM_SIM_OLD_BUNDLE 不能和 TEAM_SIM_SCOPED 一起用：开了范围同步，旧版本客户端会被中转拒掉（409 请升级），没有可比的东西");
 
 const 临时 = fs.mkdtempSync(path.join(os.tmpdir(), "team-sim-"));
 
@@ -115,6 +131,7 @@ function 云端环境() {
     LLM_MODEL: "",
     SIGNUP_VERIFY: "",
     SIGNUP_REDIRECT: "",
+    CRM_SCOPED_SYNC: 开关 ? "1" : "",
   };
 }
 
@@ -125,6 +142,9 @@ const 台 = Object.fromEntries(
     return [n, { 名: n, 包: n === 旧台 ? 旧包 : 包, 端口, 目录, 库: path.join(目录, "crm.db"), 令牌: `sim-${n}-${crypto.randomBytes(12).toString("hex")}`, 密钥: crypto.randomBytes(32).toString("hex"), 会: new 会话(n, `http://127.0.0.1:${端口}`), 壳: { 轮: 0, 最近: [], 停: false } }];
   }),
 );
+
+/** 云端：同一个数据目录、同一个密钥，重起之后会话、设备令牌、团队都还在；带不带 CRM_SCOPED_SYNC 看当时的 开关 */
+const 起云端 = () => 起进程("云端", process.execPath, [path.join(根, "node_modules/next/dist/bin/next"), "start", "-p", String(云端口), "-H", "127.0.0.1"], { cwd: 根, env: 云端环境(), 日志: path.join(临时, "cloud.log") });
 
 function 起桌面端(t) {
   return 起进程(t.名, process.execPath, ["entry.js"], {
@@ -143,6 +163,7 @@ function 起桌面端(t) {
       DESKTOP_LOCAL: "1",
       DESKTOP_TOKEN: t.令牌,
       CRM_CLOUD_URL: 云址,
+      CRM_SCOPED_SYNC: 开关 ? "1" : "",
     },
   });
 }
@@ -261,6 +282,65 @@ const 页面 = async (t, 路径) => {
 /** 客户列表一页最多 100 位：别用 keyword 查（筛选框会把关键字原样画回页面，查「看不到」会误报） */
 const 客户列表 = (t, 额外 = "") => 页面(t, `/customers?pageSize=100${额外}`);
 
+/* ---------------- 范围同步（2026-10-13）：业务员那台库里该有什么、没有什么 ---------------- */
+/** 还在团队里的业务员（退出、被移出之后拿掉）：越权检查按「本人 + 公海」核他们 */
+const 在队业务员 = new Set(业务员);
+/** scope-policy 的 范围父表 和 tables.ts 的 同步表：从源码读，免得脚本里抄一份、源码改了这边不知道 */
+let 范围表 = null;
+function 读范围表() {
+  if (!范围表) {
+    const 码 = "Promise.all([import('./src/lib/sync/scope-policy.ts'), import('./src/lib/sync/tables.ts')]).then(([a, b]) => console.log(JSON.stringify({ 父表: (a.default ?? a).范围父表, 同步表: (b.default ?? b).同步表 })))";
+    范围表 = JSON.parse(同步跑(path.join(根, "node_modules/.bin/tsx"), ["-e", 码]));
+    if (!范围表.父表?.FollowUp || !范围表.同步表?.includes("Customer")) throw new Error(`读不到 范围父表 / 同步表：${显示(范围表)}`);
+  }
+  return 范围表;
+}
+/** 这台库里越权的行（以老板那台为准）。含公海 = false：退出 / 被移出之后只该有本人的 */
+const 越权 = (n, 含公海 = true) => 查越权({ 库: 台[n].库, 老板库: 台[老板].库, 我: 台[n].我, ...读范围表(), 含公海 });
+/** 等到这几台库里没有越权的行（每台最多两轮壳） */
+async function 核越权(说明, 谁们 = [...在队业务员], 含公海 = true) {
+  const 查了 = [];
+  for (const n of 谁们) {
+    const { 值 } = await 等到({
+      步骤: `范围：${说明}后本机库里没有越权的行`, 哪台: n, 期望: `只有本人${含公海 ? " + 公海" : ""}客户及其子记录、全队共享、本人条目（含 _sync_* / ImportRow / 全文）`,
+      取: () => 越权(n, 含公海), 满足: (v) => v.越权.length === 0,
+      超时: 前台间隔 * 2 + 6_000, 迟到也报: 20_000,
+    }).catch((e) => {
+      // 把越权的行列清楚（等到 只显示 600 字）
+      if (e instanceof 断言失败) {
+        try {
+          const v = 越权(n, 含公海).越权;
+          e.message += `\n    越权 ${v.length} 条：\n      ${v.slice(0, 15).join("\n      ")}`;
+        } catch { /* 读不了库就照原样报 */ }
+      }
+      throw e;
+    });
+    查了.push(`${n} ${值.查了}`);
+  }
+  return 查了.join("、");
+}
+/** 这位客户和挂在他下面的东西在这台库里还剩几行（范围：失权之后应当一行不剩） */
+const 子表们 = [["Customer", "id"], ["CustomerPool", "customerId"], ["CustomerExtra", "customerId"], ["FollowUp", "customerId"], ["FollowPlan", "customerId"], ["Contract", "customerId"], ["TradeOrder", "customerId"], ["Opportunity", "customerId"], ["Contact", "customerId"]];
+const 残留 = (t, id) => Object.fromEntries(子表们.map(([表, 列]) => [表, 数(t, `SELECT COUNT(*) AS n FROM "${表}" WHERE "${列}" = ?`, id)]).filter(([, n]) => n > 0));
+async function 等没了(t, c, 步骤, 超时 = 前台间隔 * 2 + 4_000) {
+  await 等到({ 步骤, 哪台: t.名, 期望: `库里「${c.名字 ?? c.名 ?? c.id}」和它的跟进 / 计划 / 档案 / 订单一行不剩`, 取: () => 残留(t, c.id), 满足: (v) => Object.keys(v).length === 0, 超时, 迟到也报: 20_000 });
+}
+/**
+ * 「这台收不到」要有分量：先保证这台在写完之后完整跑过一轮同步。直接戳两次 /api/desktop/sync——
+ * 第一次可能复用正在跑的那一轮（开始得比写早），第二次一定是写完之后才开始的
+ */
+async function 跑完一轮(t) {
+  for (let i = 0; i < 2; i++) {
+    const r = await fetch(`${t.会.base}/api/desktop/sync`, { method: "POST", headers: { "x-desktop-token": t.令牌 }, signal: AbortSignal.timeout(120_000) }).then((x) => x.json()).catch((e) => ({ ok: false, error: String(e?.message ?? e) }));
+    if (!r?.ok) 观察.push(`${t.名} 手动戳的一轮同步没成：${String(r?.error ?? "").slice(0, 100)}`);
+  }
+}
+/** 收不到：先各跑完一轮，再看库里确实没有 */
+async function 都收不到(谁们, c, 步骤) {
+  await Promise.all(谁们.map((n) => 跑完一轮(台[n])));
+  for (const n of 谁们) 判(Object.keys(残留(台[n], c.id)).length === 0, { 步骤, 哪台: n, 期望: `库里没有「${c.名字 ?? c.id}」（跑完一轮之后）`, 实际: 残留(台[n], c.id) });
+}
+
 let 表;
 // 旧版本那台用它自己那份动作表（Server Action 的 id 跟着构建变）
 const 调 = (t, 键, 参数, opt) => 调动作(t.会, t.表 ?? 表, 键, 参数, opt);
@@ -275,9 +355,9 @@ let 号段 = 0;
 const 下一个号 = () => `138${String(10_000_000 + ++号段 * 7919).slice(-8)}`;
 const 名 = (谁, 说) => `模拟${批}-${谁}-${说}`;
 
-async function 录一位(t, 名字, 跟进几条 = 1) {
-  // 进过团队（哪怕又退了）：库里有同事的账号，负责人要填——表单默认填「我」（T-015）
-  const r = await 调(t, 动作.录客户, [新客户(名字, 下一个号(), 读团队文件(t) || t.进过团队 ? t.我 : null)]);
+async function 录一位(t, 名字, 跟进几条 = 1, 负责人) {
+  // 进过团队（哪怕又退了）：库里有同事的账号，负责人要填——表单默认填「我」（T-015）。老板可以直接分给业务员（范围同步用）
+  const r = await 调(t, 动作.录客户, [新客户(名字, 下一个号(), 负责人 ?? (读团队文件(t) || t.进过团队 ? t.我 : null))]);
   判(r?.ok && r.id, { 步骤: "录客户", 哪台: t.名, 期望: "saveCustomer 返回 ok 和 id", 实际: r });
   const 跟进 = [];
   for (let i = 1; i <= 跟进几条; i++) {
@@ -306,7 +386,8 @@ async function 主线() {
     台[旧台].表 = 读动作表(path.join(旧包, ".next/server/server-reference-manifest.json"));
     console.log(`混版本：${旧台} 那台先跑 ${旧包}`);
   }
-  console.log(`临时目录 ${临时}；端口 ${云端口}–${云端口 + 名单.length}；批次 ${批}`);
+  console.log(`临时目录 ${临时}；端口 ${云端口}–${云端口 + 名单.length}；批次 ${批}；${模式名}${开关 ? "（云端和各台 CRM_SCOPED_SYNC=1）" : ""}`);
+  if (范围模式 && 范围模式 !== "0") 读范围表();
 
   await 步(`起本机云端（托管模式 + 中转，:${云端口}）`, async () => {
     fs.mkdirSync(`${云目录}/ws`, { recursive: true });
@@ -314,7 +395,7 @@ async function 主线() {
     同步跑(process.execPath, [path.join(根, "node_modules/prisma/build/index.js"), "db", "push", "--schema=prisma/control.prisma", "--skip-generate"], { env: 云端环境() });
     // 云端用 next start 跑仓库根目录那份构建（build:server 顺手产出的 .next）：standalone 那份不带 @prisma/client，
     // server-bundle 又裁掉了控制面引擎。会打一句「next start 不配 standalone」的提示，不影响
-    进程.云 = 起进程("云端", process.execPath, [path.join(根, "node_modules/next/dist/bin/next"), "start", "-p", String(云端口), "-H", "127.0.0.1"], { cwd: 根, env: 云端环境(), 日志: path.join(临时, "cloud.log") });
+    进程.云 = 起云端();
     await 等起来(进程.云, 云, "云端");
   });
 
@@ -379,6 +460,20 @@ async function 主线() {
       这里开通只隔零点几秒，建团队那一下的自动推送撞上「还没开通」，老数据要等老板的壳下一轮（≤ 8 秒）才上去；
       不等这一下，下面「加入后 15 秒对齐」量的就是两跳 8 秒，而不是加入的人拉一次要多久
     */
+    if (范围) {
+      /*
+        范围同步：开关开着时新团队没有单独的「范围团队」入口——老板那台下一轮看到「开关开、我是老板、还是 legacy」就走老板迁移
+        （备份 → 冻结旧流 → 推完整起点 → commit），控制库 SyncPrivacy 变 ready 才放业务员进来。老数据随起点上云（不计在 last.推 里）
+      */
+      const 控制库 = path.join(云目录, "control.db");
+      const { 用时 } = await 等到({
+        步骤: "开通后老板那台完成范围迁移、老数据随起点上云", 哪台: 老板, 期望: "控制库 SyncPrivacy = ready、SyncScopedBatch > 0；.team.json scoped.stage = ready、没有 lastError",
+        取: () => { const c = 读团队文件(老); return { 阶段: 查库(控制库, "SELECT stage FROM SyncPrivacy WHERE teamId = ?", 团队id)[0]?.stage ?? null, 包: 数({ 库: 控制库 }, "SELECT COUNT(*) AS n FROM SyncScopedBatch WHERE teamId = ?", 团队id), 本机: c?.scoped?.stage ?? null, lastError: c?.lastError ?? null }; },
+        满足: (v) => v.阶段 === "ready" && v.包 >= 种子数 && v.本机 === "ready" && !v.lastError, 超时: 前台间隔 * 2 + 6_000, 迟到也报: 20_000,
+      });
+      判(fs.existsSync(path.join(老.目录, "backups", "before-scoped-sync-migration.db")) && !fs.existsSync(path.join(老.目录, "scoped-sync-migration-baseline.json")), { 步骤: "老板迁移留下备份、删掉起点文件", 哪台: 老板, 期望: "backups/before-scoped-sync-migration.db 在、scoped-sync-migration-baseline.json 没了", 实际: { 备份: fs.existsSync(path.join(老.目录, "backups", "before-scoped-sync-migration.db")), 起点文件: fs.existsSync(path.join(老.目录, "scoped-sync-migration-baseline.json")) } });
+      return { 说: `范围迁移 ${(用时 / 1000).toFixed(1)}s 完成，SyncScopedBatch ${数({ 库: 控制库 }, "SELECT COUNT(*) AS n FROM SyncScopedBatch WHERE teamId = ?", 团队id)} 条` };
+    }
     const { 用时 } = await 等到({
       步骤: "开通后老板那台把老数据推上云端", 哪台: 老板, 期望: "壳的下一轮推送成功（.team.json 有 lastSyncAt、没有 lastError）",
       取: () => { const c = 读团队文件(老); return { lastSyncAt: c?.lastSyncAt ?? null, lastError: c?.lastError ?? null, last: c?.last ?? null }; },
@@ -405,17 +500,19 @@ async function 主线() {
     }
   });
 
-  await 步("15 秒内 5 台客户数 / 跟进数 / 成员账号一致（含老库那台带进来的老客户）", async () => {
+  await 步(范围 ? "15 秒内 5 台按范围对齐：老板全队、老库那台只有自己的老客户、其余业务员 0 位，成员账号一致；业务员库里没有越权的行" : "15 秒内 5 台客户数 / 跟进数 / 成员账号一致（含老库那台带进来的老客户）", async () => {
     // 老板的老数据 + 老库那台带进团队的老客户（各 1 条老跟进）
-    const 应客户 = 种子数 + 老客户.length;
-    const 应跟进 = 种子数 * 2 + 老客户.length;
+    const 全队客户 = 种子数 + 老客户.length;
+    const 全队跟进 = 种子数 * 2 + 老客户.length;
+    // 范围同步：老板收全队；老库那台只有自己带进来的老客户；别的业务员此刻一位客户都不该有（公海还是空的）
+    const 应 = (n) => (!范围 || n === 老板 ? { 客户: 全队客户, 跟进: 全队跟进 } : n === 老库台 ? { 客户: 老客户.length, 跟进: 老客户.length } : { 客户: 0, 跟进: 0 });
     const 用时 = [];
     for (const n of 名单) {
       const t = 台[n];
       await 等到({
-        步骤: "5 台对齐", 哪台: n, 期望: `客户 ${应客户}、跟进 ${应跟进}、团队账号 5 个`,
-        取: () => ({ 客户: 客户数(t), 跟进: 跟进数(t), 账号: 数(t, "SELECT COUNT(*) AS n FROM User WHERE id LIKE 'acct_%'") }),
-        满足: (v) => v.客户 === 应客户 && v.跟进 === 应跟进 && v.账号 === 5,
+        步骤: 范围 ? "5 台按范围对齐" : "5 台对齐", 哪台: n, 期望: `客户 ${应(n).客户}、跟进 ${应(n).跟进}、团队账号 5 个${范围 ? "；.team.json 范围阶段 ready、同步过、没有 lastError" : ""}`,
+        取: () => { const c = 读团队文件(t); return { 客户: 客户数(t), 跟进: 跟进数(t), 账号: 数(t, "SELECT COUNT(*) AS n FROM User WHERE id LIKE 'acct_%'"), ...(范围 ? { 范围: c?.scoped?.stage ?? null, 同步过: Boolean(c?.lastSyncAt), lastError: c?.lastError ?? null } : {}) }; },
+        满足: (v) => v.客户 === 应(n).客户 && v.跟进 === 应(n).跟进 && v.账号 === 5 && (!范围 || (v.范围 === "ready" && v.同步过 && !v.lastError)),
         // 从最后一位加入算起 15 秒（前面几台用掉的时间也算在里面）
         超时: Math.max(500, 15_000 - (Date.now() - 全部进齐)), 迟到也报: 20_000,
       });
@@ -430,10 +527,15 @@ async function 主线() {
       if (别人.length) 观察.push(`${n} 那台库里同事的角色和名单不一致：${别人.map((u) => `${名单.find((m) => 台[m].我 === u.id)}=${u.role}`).join("、")}（User.role 不同步，靠每 5 分钟对一次名单）`);
     }
     // 老库那台的老客户：改身份后归他本人（acct_zhao），每台都是这样；他自己看得到，老板看得到，别的业务员看不到
+    // 范围同步：只有老板和他本人那台有，别的业务员库里根本没有
     const 老库 = 台[老库台];
     for (const n of 名单) {
       for (const c of 老客户) {
         const x = 客户(台[n], c.id);
+        if (范围 && n !== 老板 && n !== 老库台) {
+          判(!x, { 步骤: "范围：老库的老客户不到别的业务员那台", 哪台: `${n} ← ${老库台}`, 期望: `库里没有「${c.名}」`, 实际: x });
+          continue;
+        }
         判(x?.salesOwnerId === 老库.我, { 步骤: "老库带进来的老客户归老库那台的主人", 哪台: `${n} ← ${老库台}`, 期望: `「${c.名}」负责人 = ${老库.我}`, 实际: x });
       }
     }
@@ -443,6 +545,7 @@ async function 主线() {
     }
     const 老跟进页 = await 页面(老, `/customers/${老客户[0].id}`);
     判(老跟进页.includes(`${老客户[0].名}-老跟进`), { 步骤: "老库客户的老跟进跟着过来", 哪台: 老板, 期望: `客户页里有「${老客户[0].名}-老跟进」`, 实际: "没有" });
+    if (范围) return { 说: `${用时.join("、")}；越权检查 ${await 核越权("初次加入")} 行` };
     return { 说: 用时.join("、") };
   });
 
@@ -464,14 +567,21 @@ async function 主线() {
     return { 说: 用时.join("、") };
   });
 
-  await 步("业务员只看得到自己的 + 公海：A 的页面上没有 B 的客户", async () => {
+  await 步(范围 ? "范围：A 的库里根本没有 B 的客户和老板的私客，页面上也没有" : "业务员只看得到自己的 + 公海：A 的页面上没有 B 的客户", async () => {
+    // 范围同步：上一步老板已经收到了 4 位业务员的客户（中转上有），各台再跑完一轮，同事的客户也不许进库
+    if (范围) await Promise.all(业务员.map((n) => 跑完一轮(台[n])));
     for (const n of 业务员) {
       const t = 台[n];
       // 先等别人的客户真的同步到了这台库里——不然「看不到」可能只是还没到
       for (const m of 业务员) {
         if (m === n) continue;
+        if (范围) {
+          判(Object.keys(残留(t, 业务员的[m].id)).length === 0, { 步骤: "范围：同事的客户不进本机库", 哪台: `${n} ← ${m}`, 期望: `库里没有 ${m} 的「${业务员的[m].名字}」和它的跟进`, 实际: 残留(t, 业务员的[m].id) });
+          continue;
+        }
         await 等到({ 步骤: "同事的客户同步到本机库", 哪台: `${n} ← ${m}`, 期望: `库里有 ${m} 的「${业务员的[m].名字}」`, 取: () => 客户(t, 业务员的[m].id), 满足: Boolean, 超时: 15_000, 迟到也报: 20_000 });
       }
+      if (范围) 判(!客户(t, 种子[0].id), { 步骤: "范围：老板的私客不进业务员库", 哪台: n, 期望: `库里没有「${种子[0].名字}」`, 实际: 客户(t, 种子[0].id) });
       const 列表 = await 客户列表(t);
       判(列表.includes(业务员的[n].名字), { 步骤: "业务员看得到自己的", 哪台: n, 期望: `列表里有「${业务员的[n].名字}」`, 实际: "没有" });
       for (const m of 业务员) {
@@ -486,6 +596,59 @@ async function 主线() {
     }
     const 老列表 = await 客户列表(老);
     for (const m of 业务员) 判(老列表.includes(业务员的[m].名字), { 步骤: "老板看全部", 哪台: 老板, 期望: `列表里有「${业务员的[m].名字}」`, 实际: "没有" });
+    if (范围) return { 说: `越权检查 ${await 核越权("各自录客户")} 行` };
+  });
+
+  const 看得到 = async (t, c) => (await 客户列表(t)).includes(c.名字);
+  const 详情看得到 = async (t, c) => (await t.会.页面(`/customers/${c.id}`)).text.includes(c.名字);
+
+  /* ================= 范围同步迁移（TEAM_SIM_SCOPED=migrate）：上面按旧协议跑，从这里起按范围 ================= */
+  if (范围模式 === "migrate") await 步("开范围同步：云端和 5 台带 CRM_SCOPED_SYNC=1 按进程号重启（同一数据目录）→ 老板迁移 → 业务员清掉失权副本、继续同步", async () => {
+    const 控制库 = path.join(云目录, "control.db");
+    const 老板前 = { 客户: 客户数(老), 跟进: 跟进数(老) };
+    const 业务员前 = Object.fromEntries(业务员.map((n) => [n, 客户数(台[n])]));
+    判(业务员.every((n) => 业务员前[n] === 老板前.客户), { 步骤: "迁移前（旧协议）每台都有全队数据", 哪台: 业务员.join(" / "), 期望: `都是 ${老板前.客户} 位`, 实际: 业务员前 });
+    开关 = true;
+    // 手册顺序：服务端先开 → 老板那台迁移 → 业务员升级。服务端一开，业务员的旧协议就是 409（不判红，列进观察）
+    await 关掉(进程.云);
+    进程.云 = 起云端();
+    await 等起来(进程.云, 云, "云端");
+    const 起 = Date.now();
+    await 关机(老);
+    await 开机(老);
+    await 等到({
+      步骤: "老板那台迁移完成", 哪台: 老板, 期望: "控制库 SyncPrivacy = ready；.team.json scoped.stage = ready、没有 lastError；备份在、起点文件删了",
+      取: () => { const c = 读团队文件(老); return { 阶段: 查库(控制库, "SELECT stage FROM SyncPrivacy WHERE teamId = ?", 团队id)[0]?.stage ?? null, 本机: c?.scoped?.stage ?? null, lastError: c?.lastError ?? null, 备份: fs.existsSync(path.join(老.目录, "backups", "before-scoped-sync-migration.db")), 起点文件: fs.existsSync(path.join(老.目录, "scoped-sync-migration-baseline.json")) }; },
+      满足: (v) => v.阶段 === "ready" && v.本机 === "ready" && !v.lastError && v.备份 && !v.起点文件, 超时: 首轮 + 前台间隔 * 2 + 10_000, 迟到也报: 30_000,
+    });
+    const 迁完 = Date.now();
+    判(客户数(老) === 老板前.客户 && 跟进数(老) === 老板前.跟进, { 步骤: "老板那台迁移前后数据不变", 哪台: 老板, 期望: 老板前, 实际: { 客户: 客户数(老), 跟进: 跟进数(老) } });
+    // 业务员升级：同样带开关重启（手册说业务员不需要开关；带着也不该有区别）
+    for (const n of 业务员) {
+      await 关机(台[n]);
+      await 开机(台[n]);
+    }
+    // 迁移前每人只录了 1 位；老库那台另有 2 位老客户；公海是空的
+    const 应 = (n) => 1 + (n === 老库台 ? 老客户.length : 0);
+    for (const n of 业务员) {
+      const t = 台[n];
+      await 等到({
+        步骤: "业务员那台换成范围同步、清掉失权副本", 哪台: n, 期望: `.team.json scoped.stage = ready、清理删了 > 0 行、没有 lastError；客户只剩自己的 ${应(n)} 位`,
+        取: () => { const c = 读团队文件(t); return { 本机: c?.scoped?.stage ?? null, 清理: c?.scoped?.cleaned ?? null, lastError: c?.lastError ?? null, 客户: 客户数(t) }; },
+        满足: (v) => v.本机 === "ready" && (v.清理?.删 ?? 0) > 0 && !v.lastError && v.客户 === 应(n), 超时: 首轮 + 前台间隔 * 2 + 10_000, 迟到也报: 30_000,
+      });
+      for (const m of 业务员) if (m !== n) 判(!客户(t, 业务员的[m].id), { 步骤: "迁移后同事的客户从本机库里清掉了", 哪台: `${n} ← ${m}`, 期望: `没有「${业务员的[m].名字}」`, 实际: "还在" });
+      判(Boolean(客户(t, 业务员的[n].id)) && (await 看得到(t, 业务员的[n])), { 步骤: "迁移后自己的客户还在、看得到", 哪台: n, 期望: `有「${业务员的[n].名字}」`, 实际: "没了" });
+    }
+    const 越权数 = await 核越权("老板迁移、业务员清理");
+    // 文件层面的残留只做观察（SQL 查不到；迁移前旧协议时期写进页里的旧内容可能还在空闲页 / 页内空隙）
+    for (const n of 业务员) {
+      const 字节 = 字节残留({ 库: 台[n].库, 老板库: 老.库, 我: 台[n].我 }).filter((x) => x.命中.length);
+      if (字节.length) 观察.push(`范围迁移后：${n} 那台库文件原始字节里还搜得到 ${字节.map((x) => `${x.文件} ${x.命中.length} 位`).join("、")}不该有的客户的电话（SQL 查不到，只在文件字节里；不判红）`);
+    }
+    const 清理 = 业务员.map((n) => `${n} 删 ${读团队文件(台[n])?.scoped?.cleaned?.删 ?? "?"}`).join("、");
+    范围 = true;
+    return { 说: `老板迁移 ${((迁完 - 起) / 1000).toFixed(1)}s；${清理}；越权检查 ${越权数} 行` };
   });
 
   await 步("同时改同一位客户：不同字段两边都留、同字段后改的赢", async () => {
@@ -506,13 +669,15 @@ async function 主线() {
     const r4 = await 调(老, 动作.改一格, [c.id, "grade", 老后]);
     判([r1, r2, r3, r4].every((x) => x?.ok), { 步骤: "两台同时改同一字段", 哪台: "wang / boss", 期望: "四次都 ok", 实际: [r1, r2, r3, r4] });
     const 应 = { school: 学校, major: 专业, remark: 王后, grade: 老后 };
-    for (const n of 名单) {
+    // 范围同步：这位只在老板和王那台；别的业务员库里本来就没有、也不该因为改了几格就收到
+    for (const n of 范围 ? [老板, "wang"] : 名单) {
       await 等到({
         步骤: "同时改之后各台一致", 哪台: `${n} ← wang / boss`, 期望: 显示(应),
         取: () => { const x = 客户(台[n], c.id); return x && { school: x.school, major: x.major, remark: x.remark, grade: x.grade }; },
         满足: (v) => v && 显示(v) === 显示(应), 超时: 15_000, 迟到也报: 20_000,
       });
     }
+    if (范围) await 都收不到(["li", "zhao", "sun"], c, "范围：改了几格也不会把别人的客户带到同事那台");
   });
 
   await 步("老板放一位进公海 → 业务员领 → 别人那边负责人跟着变", async () => {
@@ -520,23 +685,32 @@ async function 主线() {
     const li = 台.li;
     const r = await 调(老, 动作.放进公海, [[那位.id]]);
     判(r?.ok && r.updated === 1, { 步骤: "放进公海", 哪台: 老板, 期望: "ok、updated = 1", 实际: r });
+    const 放完 = Date.now();
     const { 用时: 到 } = await 等到({ 步骤: "业务员在公海里看到", 哪台: "li ← boss", 期望: `公海页里有「${那位.名字}」`, 取: async () => ((await 客户列表(li, "&pool=1")).includes(那位.名字) ? "有" : "页面上没有"), 满足: (v) => v === "有", 超时: 10_000, 迟到也报: 20_000 });
     await 等到({ 步骤: "别的业务员也在公海里看到", 哪台: "zhao ← boss", 期望: `公海页里有「${那位.名字}」`, 取: async () => ((await 客户列表(台.zhao, "&pool=1")).includes(那位.名字) ? "有" : "页面上没有"), 满足: (v) => v === "有", 超时: 10_000, 迟到也报: 20_000 });
+    if (范围) {
+      // 范围同步：业务员加入之后老板才放进公海的私客，每位业务员都要收到（含它原来的 2 条跟进），而且在公海里
+      for (const n of 业务员) {
+        await 等到({ 步骤: "范围：放进公海之后每位业务员库里都有（带跟进）", 哪台: `${n} ← boss`, 期望: `库里有「${那位.名字}」、在公海、跟进 2 条`, 取: () => ({ 有: Boolean(客户(台[n], 那位.id)), 公海: 在公海(台[n], 那位.id), 跟进: 数(台[n], "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", 那位.id) }), 满足: (v) => v.有 && v.公海 && v.跟进 === 2, 超时: Math.max(500, 15_000 - (Date.now() - 放完)), 迟到也报: 20_000 });
+      }
+      await 核越权("老板放进公海");
+    }
     const k = await 调(li, 动作.领取, [[那位.id]]);
     判(k?.ok && k.updated === 1, { 步骤: "业务员领取", 哪台: "li", 期望: "ok、updated = 1", 实际: k });
     判((await 客户列表(li)).includes(那位.名字), { 步骤: "领完自己列表里有", 哪台: "li", 期望: `列表里有「${那位.名字}」`, 实际: "没有" });
     const 领完 = Date.now();
-    for (const n of 名单.filter((x) => x !== "li")) {
+    // 范围同步：领走之后别的业务员失权，库里连同跟进一起清掉；老板那边负责人变 li
+    if (范围) for (const n of 业务员.filter((x) => x !== "li")) await 等没了(台[n], 那位, "范围：被别人领走之后本机库里清掉了");
+    for (const n of 范围 ? [老板] : 名单.filter((x) => x !== "li")) {
       await 等到({ 步骤: "领完别人那边负责人变了、出了公海", 哪台: `${n} ← li`, 期望: `负责人 = li（${li.我}）、不在公海`, 取: () => ({ 负责人: 客户(台[n], 那位.id)?.salesOwnerId, 公海: 在公海(台[n], 那位.id) }), 满足: (v) => v.负责人 === li.我 && !v.公海, 超时: 10_000, 迟到也报: 20_000 });
     }
     await 等到({ 步骤: "老板页面上按负责人筛得到", 哪台: 老板, 期望: `?salesOwnerId=${li.我} 里有「${那位.名字}」`, 取: async () => ((await 客户列表(老, `&salesOwnerId=${li.我}`)).includes(那位.名字) ? "有" : "页面上没有"), 满足: (v) => v === "有", 超时: 5_000 });
     判(!(await 客户列表(台.zhao, "&pool=1")).includes(那位.名字), { 步骤: "领走后别的业务员公海里没了", 哪台: "zhao", 期望: `公海页里没有「${那位.名字}」`, 实际: "还在" });
-    return { 说: `公海 ${(到 / 1000).toFixed(1)}s 到；领走 ${((Date.now() - 领完) / 1000).toFixed(1)}s 传遍` };
+    const 传遍 = ((Date.now() - 领完) / 1000).toFixed(1);
+    return { 说: `公海 ${(到 / 1000).toFixed(1)}s 到；领走 ${传遍}s 传遍${范围 ? `；越权检查 ${await 核越权("业务员领取")} 行` : ""}` };
   });
 
   /* ================= 4.3 有可见性变化的流程：每一步都看「谁看得到、谁看不到」在各台上跟着变 ================= */
-  const 看得到 = async (t, c) => (await 客户列表(t)).includes(c.名字);
-  const 详情看得到 = async (t, c) => (await t.会.页面(`/customers/${c.id}`)).text.includes(c.名字);
 
   await 步("业务员把自己的客户放进公海 → 同事在公海里看到、领走 → 原来那位就看不到了", async () => {
     const w = 台.wang, z = 台.zhao;
@@ -554,6 +728,12 @@ async function 主线() {
     await 等到({ 步骤: "领走之后原来那位看不到了（列表和直接开客户页）", 哪台: "wang ← zhao", 期望: `列表、客户页都没有「${c.名字}」`, 取: async () => ({ 列表: await 看得到(w, c), 详情: await 详情看得到(w, c) }), 满足: (v) => !v.列表 && !v.详情, 超时: Math.max(500, 10_000 - (Date.now() - 领完)), 迟到也报: 20_000 });
     判(await 看得到(z, c), { 步骤: "领的人看得到", 哪台: "zhao", 期望: `列表里有「${c.名字}」`, 实际: "没有" });
     await 等到({ 步骤: "老板那边负责人变成领的人", 哪台: `${老板} ← zhao`, 期望: `负责人 = zhao、不在公海`, 取: () => ({ 负责人: 客户(老, c.id)?.salesOwnerId, 公海: 在公海(老, c.id) }), 满足: (v) => v.负责人 === z.我 && !v.公海, 超时: 10_000, 迟到也报: 20_000 });
+    if (范围) {
+      // 范围同步：在公海时 li、sun 也收到过；被 zhao 领走之后，原来那位和别的业务员库里都清掉
+      判(Boolean(客户(z, c.id)), { 步骤: "范围：领的人库里有", 哪台: "zhao", 期望: `有「${c.名字}」`, 实际: "没有" });
+      for (const n of ["wang", "li", "sun"]) await 等没了(台[n], c, "范围：同事领走之后本机库里清掉了");
+      return { 说: `越权检查 ${await 核越权("业务员放公海、同事领走")} 行` };
+    }
   });
 
   await 步("交接带活：业务员把客户交给同事，没做完的计划跟着过去；交出去的人看不到了", async () => {
@@ -575,6 +755,13 @@ async function 主线() {
     判(!(await 看得到(l, c)) && !(await 详情看得到(l, c)), { 步骤: "交出去的人看不到了", 哪台: "li", 期望: `列表、客户页都没有「${c.名字}」`, 实际: "还看得到" });
     判(!(await 页面(l, "/follow-ups/plans")).includes(主题), { 步骤: "交出去的人计划页里也没了", 哪台: "li", 期望: `没有「${主题}」`, 实际: "还在" });
     await 等到({ 步骤: "老板那边负责人和计划跟着变", 哪台: `${老板} ← li`, 期望: "客户、计划都归 zhao", 取: () => ({ 客户: 客户(老, c.id)?.salesOwnerId, 计划: 查库(老.库, "SELECT ownerId FROM FollowPlan WHERE customerId = ?", c.id)[0]?.ownerId }), 满足: (v) => v.客户 === z.我 && v.计划 === z.我, 超时: 10_000, 迟到也报: 20_000 });
+    if (范围) {
+      // 范围同步：接手的人那台带着跟进；交出去的人库里客户、跟进、计划一行不剩；别的业务员从来没有
+      判(数(z, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", c.id) === 1, { 步骤: "范围：接手的人那台跟进也过来了", 哪台: "zhao", 期望: "1 条跟进", 实际: 数(z, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", c.id) });
+      await 等没了(l, c, "范围：交出去之后本机库里清掉了（含计划、跟进）");
+      await 都收不到(["wang", "sun"], c, "范围：交接不会把客户带到别的业务员那台");
+      return { 说: `越权检查 ${await 核越权("交接")} 行` };
+    }
   });
 
   await 步("老板换负责人：业务员 A 的客户批量转给 B——A 那边没了、B 那边带着跟进出现", async () => {
@@ -585,6 +772,12 @@ async function 主线() {
     const 改完 = Date.now();
     await 等到({ 步骤: "新负责人看得到，客户页上带着原来的跟进", 哪台: "wang ← boss", 期望: `列表有「${c.名字}」、客户页有「${c.跟进[0]}」`, 取: async () => ({ 列表: await 看得到(w, c), 跟进: (await w.会.页面(`/customers/${c.id}`)).text.includes(c.跟进[0]) }), 满足: (v) => v.列表 && v.跟进, 超时: Math.max(500, 10_000 - (Date.now() - 改完)), 迟到也报: 20_000 });
     await 等到({ 步骤: "原负责人看不到了", 哪台: "li ← boss", 期望: `列表、客户页都没有「${c.名字}」`, 取: async () => ({ 列表: await 看得到(l, c), 详情: await 详情看得到(l, c) }), 满足: (v) => !v.列表 && !v.详情, 超时: 10_000, 迟到也报: 20_000 });
+    if (范围) {
+      判(数(w, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", c.id) === 1, { 步骤: "范围：新负责人库里带着原来的跟进", 哪台: "wang", 期望: "1 条跟进", 实际: 数(w, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", c.id) });
+      await 等没了(l, c, "范围：老板转走之后原负责人库里清掉了");
+      await 都收不到(["zhao", "sun"], c, "范围：批量改负责人不会把客户带到别的业务员那台");
+      return { 说: `越权检查 ${await 核越权("老板批量改负责人")} 行` };
+    }
   });
 
   /* ================= 外贸（2026-10-06 测试分期 E.1）：模版、档案、订单在几台之间 ================= */
@@ -616,9 +809,10 @@ async function 主线() {
     await 等到({ 步骤: "新客户传到老板那台", 哪台: `${老板} ← wang`, 期望: "库里有", 取: () => Boolean(客户(老, c.id)), 满足: Boolean, 超时: 15_000, 迟到也报: 30_000 });
     const [a, b] = await Promise.all([调(w, 动作.改一格, [c.id, "country", "阿联酋"]), 调(老, 动作.改一格, [c.id, "whatsapp", "+971 50 111 2233"])]);
     判(a?.ok && b?.ok, { 步骤: "两台同时填档案", 哪台: "wang / boss", 期望: "两边都 ok", 实际: { wang: a, boss: b } });
-    for (const n of 名单.filter(新版)) {
+    for (const n of 范围 ? [老板, "wang"] : 名单.filter(新版)) {
       await 等到({ 步骤: "档案各台一致", 哪台: `${n} ← wang / boss`, 期望: "一行：阿联酋、+971 50 111 2233", 取: () => 档案(台[n], c.id), 满足: (v) => v.length === 1 && v[0].country === "阿联酋" && v[0].whatsapp === "+971 50 111 2233", 超时: 20_000, 迟到也报: 30_000 });
     }
+    if (范围) await 都收不到(["li", "zhao", "sun"], c, "范围：外贸档案不到别的业务员那台");
   });
 
   await 步("业务员转订单 → 老板订单一览看到；别的业务员看不到", async () => {
@@ -629,8 +823,11 @@ async function 主线() {
     判((await 页面(w, "/orders")).includes(外贸单号), { 步骤: "业务员自己的订单一览", 哪台: "wang", 期望: `有 ${外贸单号}`, 实际: "没有" });
     const 存完 = Date.now();
     await 等到({ 步骤: "老板订单一览看到", 哪台: `${老板} ← wang`, 期望: `有 ${外贸单号}`, 取: async () => ((await 页面(老, "/orders")).includes(外贸单号) ? "有" : "没有"), 满足: (v) => v === "有", 超时: Math.max(500, 15_000 - (Date.now() - 存完)), 迟到也报: 30_000 });
-    // 同事那台库里有了（同步到了）、页面上看不到
-    await 等到({ 步骤: "订单同步到同事那台库里", 哪台: "li ← wang", 期望: "库里有那张单", 取: () => 订单(台.li, 外贸单号).length, 满足: (v) => v === 1, 超时: 15_000, 迟到也报: 30_000 });
+    // 同事那台库里有了（同步到了）、页面上看不到。范围同步：跑完一轮之后同事库里也没有这张单
+    if (范围) {
+      await 都收不到(["li", "zhao", "sun"], c, "范围：订单不到别的业务员那台");
+      for (const n of ["li", "zhao", "sun"]) 判(订单(台[n], 外贸单号).length === 0, { 步骤: "范围：订单不到别的业务员那台", 哪台: n, 期望: `库里没有 ${外贸单号}`, 实际: 订单(台[n], 外贸单号) });
+    } else await 等到({ 步骤: "订单同步到同事那台库里", 哪台: "li ← wang", 期望: "库里有那张单", 取: () => 订单(台.li, 外贸单号).length, 满足: (v) => v === 1, 超时: 15_000, 迟到也报: 30_000 });
     for (const n of ["li", "zhao"]) 判(!(await 页面(台[n], "/orders")).includes(外贸单号), { 步骤: "业务员看不到同事的订单", 哪台: n, 期望: `订单一览里没有 ${外贸单号}`, 实际: "看到了" });
   });
 
@@ -671,6 +868,12 @@ async function 主线() {
     const 交完 = Date.now();
     await 等到({ 步骤: "接手的人订单一览里有", 哪台: "li ← wang", 期望: `有 ${外贸单号}`, 取: async () => ((await 页面(l, "/orders")).includes(外贸单号) ? "有" : "没有"), 满足: (v) => v === "有", 超时: Math.max(500, 15_000 - (Date.now() - 交完)), 迟到也报: 30_000 });
     判(!(await 页面(w, "/orders")).includes(外贸单号), { 步骤: "交出去的人订单一览里没了", 哪台: "wang", 期望: `没有 ${外贸单号}`, 实际: "还在" });
+    if (范围) {
+      判(订单(l, 外贸单号).length === 1 && 档案(l, c.id).length === 1, { 步骤: "范围：接手的人库里订单、档案都过来了", 哪台: "li", 期望: "订单 1、档案 1", 实际: { 订单: 订单(l, 外贸单号).length, 档案: 档案(l, c.id).length } });
+      await 等没了(w, c, "范围：带订单交出去之后本机库里清掉了（含档案、签约、订单）");
+      判(订单(w, 外贸单号).length === 0, { 步骤: "范围：交出去的人库里订单没了", 哪台: "wang", 期望: `没有 ${外贸单号}`, 实际: 订单(w, 外贸单号) });
+      return { 说: `越权检查 ${await 核越权("带订单交接")} 行` };
+    }
   });
 
   await 步("接手的人删掉这笔订单 → 各台订单和签约都没了", async () => {
@@ -709,18 +912,30 @@ async function 主线() {
     for (const n of Object.keys(前)) {
       判(客户数(台[n]) === 前[n], { 步骤: "退出的那台的清理没有传出去", 哪台: n, 期望: `客户还是 ${前[n]} 位`, 实际: 客户数(台[n]) });
       判(!客户(台[n], 他新.id), { 步骤: "退出之后他写的不再同步过来", 哪台: `${n} ← zhao`, 期望: `没有「${他新.名字}」`, 实际: "收到了" });
-      for (const c of 老客户) 判(Boolean(客户(台[n], c.id)), { 步骤: "他带进来的老客户留在团队里", 哪台: n, 期望: `有「${c.名}」`, 实际: "没了" });
+      // 范围同步：他带进来的老客户一直只在老板那台（和他自己那台）；别的业务员从来没有，也不该因为他走了就收到
+      for (const c of 老客户) {
+        const 该有 = !范围 || n === 老板;
+        判(Boolean(客户(台[n], c.id)) === 该有, { 步骤: 该有 ? "他带进来的老客户留在团队里" : "范围：他带进来的老客户不到别的业务员那台", 哪台: n, 期望: `${该有 ? "有" : "没有"}「${c.名}」`, 实际: 该有 ? "没了" : "有" });
+      }
     }
     const 状态 = await 调(老, 动作.团队状态, []);
     判(!(状态?.成员 ?? []).some((m) => m.accountId === z.账号), { 步骤: "老板那台的成员名单里没有他了", 哪台: 老板, 期望: "没有 zhao", 实际: (状态?.成员 ?? []).map((m) => m.name) });
+    在队业务员.delete("zhao");
+    if (范围) {
+      // 走的那台只按「本人」核（公海的也不该带走）；留下的业务员照旧按本人 + 公海
+      const 走的 = await 核越权("业务员退出团队", ["zhao"], false);
+      return { 说: `越权检查 ${走的}、${await 核越权("同事退出团队")} 行` };
+    }
   });
 
   /* ================= 4.5 混合场景 ================= */
-  await 步("离线一段时间回来补拉：li 那台关机期间老板录了 3 位、改了他名下的客户，开机后一轮补齐", async () => {
+  await 步(范围 ? "离线一段时间回来补拉：li 那台关机期间老板录了 3 位私客、分给他 1 位、改了他名下的客户，开机后一轮补齐他该有的、私客一位不来" : "离线一段时间回来补拉：li 那台关机期间老板录了 3 位、改了他名下的客户，开机后一轮补齐", async () => {
     const l = 台.li;
     await 关机(l);
     const 新们 = [];
     for (let i = 1; i <= 3; i++) 新们.push(await 录一位(老, 名(老板, `li关机时${i}`), 1));
+    // 范围同步：老板的 3 位私客 li 不该收到；另分给 li 1 位，补拉要有新客户进来（不只是改一格）
+    const 分给他 = 范围 ? await 录一位(老, 名(老板, "li关机时分给他的"), 1, l.我) : null;
     const 他的 = 种子[0]; // 前面公海那步 li 领走的
     const 备注 = `li关机时老板补的-${批}`;
     const r = await 调(老, 动作.改一格, [他的.id, "remark", 备注]);
@@ -729,10 +944,14 @@ async function 主线() {
     const 开 = Date.now();
     await 开机(l);
     await 等到({
-      步骤: "开机后补齐", 哪台: "li ← boss", 期望: `库里有关机时录的 3 位、「${他的.名字}」的备注是新的；他的客户页上看得到新备注`,
-      取: async () => ({ 新: 新们.filter((x) => 客户(l, x.id)).length, 备注: 客户(l, 他的.id)?.remark === 备注, 页: (await l.会.页面(`/customers/${他的.id}`)).text.includes(备注) }),
-      满足: (v) => v.新 === 3 && v.备注 && v.页, 超时: 首轮 + 前台间隔 + 2_000, 迟到也报: 20_000,
+      步骤: "开机后补齐", 哪台: "li ← boss", 期望: 范围 ? `库里有分给他的「${分给他.名字}」（带跟进）、「${他的.名字}」的备注是新的；他的客户页上看得到新备注` : `库里有关机时录的 3 位、「${他的.名字}」的备注是新的；他的客户页上看得到新备注`,
+      取: async () => ({ 新: 新们.filter((x) => 客户(l, x.id)).length, ...(范围 ? { 分给他: Boolean(客户(l, 分给他.id)) && 数(l, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", 分给他.id) === 1 } : {}), 备注: 客户(l, 他的.id)?.remark === 备注, 页: (await l.会.页面(`/customers/${他的.id}`)).text.includes(备注) }),
+      满足: (v) => (范围 ? v.分给他 : v.新 === 3) && v.备注 && v.页, 超时: 首轮 + 前台间隔 + 2_000, 迟到也报: 20_000,
     });
+    if (范围) {
+      for (const x of 新们) 判(!客户(l, x.id), { 步骤: "范围：关机期间老板的私客补拉时也不来", 哪台: "li", 期望: `库里没有「${x.名字}」`, 实际: "收到了" });
+      判(await 看得到(l, 分给他), { 步骤: "范围：分给他的那位列表里看得到", 哪台: "li", 期望: `列表里有「${分给他.名字}」`, 实际: "没有" });
+    }
     for (const x of 新们) 判(!(await 看得到(l, x)), { 步骤: "补拉来的老板的客户业务员照样看不到", 哪台: "li", 期望: `列表里没有「${x.名字}」`, 实际: "看到了" });
     return { 说: `开机 ${((Date.now() - 开) / 1000).toFixed(1)}s 补齐` };
   });
@@ -744,17 +963,34 @@ async function 主线() {
     const 王写 = await 录一位(台.wang, 名("wang", "中转断时"), 1);
     const 王改 = `中转断时王改的-${批}`;
     判((await 调(台.wang, 动作.改一格, [业务员的.wang.id, "remark", 王改]))?.ok, { 步骤: "中转断着时改一格", 哪台: "wang", 期望: "ok（本机照写）", 实际: "失败" });
+    // 范围同步：老板的新客户是私客，业务员本来就收不到；另让老板改 sun 名下的一格，看老板 → 业务员这个方向也补得上
+    const 老板改 = `中转断时老板改的-${批}`;
+    if (范围) 判((await 调(老, 动作.改一格, [业务员的.sun.id, "major", 老板改]))?.ok, { 步骤: "中转断着时老板改业务员的客户", 哪台: 老板, 期望: "ok（本机照写）", 实际: "失败" });
     await 停(前台间隔 + 1_000); // 壳至少碰壁一轮
     for (const n of 在队) 判(!客户(台[n], n === 老板 ? 王写.id : 老板写.id), { 步骤: "中转断着时互相收不到", 哪台: n, 期望: "还没有对方写的", 实际: "收到了（中转没断？）" });
+    if (范围) 判(客户(台.sun, 业务员的.sun.id)?.major !== 老板改, { 步骤: "中转断着时互相收不到", 哪台: "sun ← boss", 期望: "还没有老板改的那一格", 实际: "收到了（中转没断？）" });
     const 连上 = Date.now();
-    进程.云 = 起进程("云端", process.execPath, [path.join(根, "node_modules/next/dist/bin/next"), "start", "-p", String(云端口), "-H", "127.0.0.1"], { cwd: 根, env: 云端环境(), 日志: path.join(临时, "cloud.log") });
+    进程.云 = 起云端();
     await 等起来(进程.云, 云, "云端");
+    // 范围同步下每台该有的：老板全有；王只有自己写的和改的；sun 只有老板改他那一格；li 什么都不该收到
+    const 该有 = (n) => (!范围 || n === 老板 ? { 老板的: true, 王的: true, 改: true, 老板改: 范围 } : { 老板的: false, 王的: n === "wang", 改: n === "wang", 老板改: n === "sun" });
     for (const n of 在队) {
+      const 应 = 该有(n);
       await 等到({
-        步骤: "中转连上后各台补齐", 哪台: `${n} ← boss / wang`, 期望: `有「${老板写.名字}」「${王写.名字}」、「${业务员的.wang.名字}」备注是王改的`,
-        取: () => ({ 老板的: Boolean(客户(台[n], 老板写.id)), 王的: Boolean(客户(台[n], 王写.id)), 改: 客户(台[n], 业务员的.wang.id)?.remark === 王改 }),
-        满足: (v) => v.老板的 && v.王的 && v.改, 超时: 前台间隔 * 2 + 4_000, 迟到也报: 20_000,
+        步骤: "中转连上后各台补齐", 哪台: `${n} ← boss / wang`, 期望: 范围 ? `按范围：${显示(应)}` : `有「${老板写.名字}」「${王写.名字}」、「${业务员的.wang.名字}」备注是王改的`,
+        取: () => ({ 老板的: Boolean(客户(台[n], 老板写.id)), 王的: Boolean(客户(台[n], 王写.id)), 改: 客户(台[n], 业务员的.wang.id)?.remark === 王改, 老板改: 客户(台[n], 业务员的.sun.id)?.major === 老板改 }),
+        // 不该有的那几项「现在没有」不等于「之后也不会有」：等到该有的都到了，再跑完一轮看不该有的
+        满足: (v) => Object.entries(应).every(([k, 要]) => !要 || v[k]), 超时: 前台间隔 * 2 + 4_000, 迟到也报: 20_000,
       });
+    }
+    if (范围) {
+      await Promise.all(在队.map((n) => 跑完一轮(台[n])));
+      for (const n of 在队) {
+        const 应 = 该有(n);
+        const 实 = { 老板的: Boolean(客户(台[n], 老板写.id)), 王的: Boolean(客户(台[n], 王写.id)), 改: Boolean(客户(台[n], 业务员的.wang.id)), 老板改: 客户(台[n], 业务员的.sun.id)?.major === 老板改 };
+        // 「改」：王名下那位只该在老板和王那台
+        判(实.老板的 === 应.老板的 && 实.王的 === 应.王的 && 实.改 === (n === 老板 || n === "wang") && 实.老板改 === 应.老板改, { 步骤: "范围：中转连上后不该有的一位也没来", 哪台: n, 期望: 显示(应), 实际: 实 });
+      }
     }
     return { 说: `重连 ${((Date.now() - 连上) / 1000).toFixed(1)}s 补齐` };
   });
@@ -767,7 +1003,8 @@ async function 主线() {
   await 步("同步正在写一大批时，同一台马上建 5 位客户：保存只排队、不报错，那一批也一条不少", async () => {
     const l = 台.li;
     const 大批 = [];
-    for (let i = 1; i <= 40; i++) 大批.push(await 录一位(老, 名(老板, `大批${i}`), 2));
+    // 范围同步：老板的私客不会到 li 那台，这一大批改成老板直接分给 li（同样是同步往 li 库里写一大批）
+    for (let i = 1; i <= 40; i++) 大批.push(await 录一位(老, 名(老板, `大批${i}`), 2, 范围 ? l.我 : undefined));
     await 停(前台间隔 + 1_000); // 老板那台的壳把这一批推上去
     const 起 = Date.now();
     const [同步, ...存] = await Promise.all([
@@ -786,7 +1023,8 @@ async function 主线() {
     });
     // li 这 5 位也要传到其余各台才算完：不然下一步开头数的客户数里漏了它们、中途又到，数对不上
     const 新五位 = 存.map((r) => r.id);
-    for (const n of 名单.filter((x) => x !== "li" && x !== "zhao")) {
+    // 范围同步：li 自己的客户只到老板那台
+    for (const n of 范围 ? [老板] : 名单.filter((x) => x !== "li" && x !== "zhao")) {
       await 等到({
         步骤: "同步时录的 5 位传遍", 哪台: `${n} ← li`, 期望: "5 位都在库里",
         取: () => 新五位.filter((id) => 客户(台[n], id)).length,
@@ -802,18 +1040,23 @@ async function 主线() {
     const 留下 = 名单.filter((n) => n !== "sun" && n !== "zhao");
     const 换前 = Object.fromEntries(留下.map((n) => [n, 读团队文件(台[n])?.epoch ?? 0]));
     const 老板客户数前 = 客户数(老);
+    const 各台前 = Object.fromEntries(留下.map((n) => [n, 客户数(台[n])]));
     走的.壳.该被移出 = true;
     const r = await 调(老, 动作.移除成员, [走的.账号, "sun"]);
     判(r?.ok, { 步骤: "移除成员", 哪台: 老板, 期望: "{ok:true}", 实际: r });
-    const 老板新 = await 录一位(老, 名(老板, "移除后"), 1);
+    // 范围同步：老板这位直接分给 li，换钥匙之后 li 那边也要有新数据进来
+    const 老板新 = await 录一位(老, 名(老板, "移除后"), 1, 范围 ? 台.li.我 : undefined);
     const 王新 = await 录一位(台.wang, 名("wang", "移除后"), 1);
     const 写完 = Date.now();
+    /** 每台该收到哪几位：旧协议都有；范围 = 老板全有、王只有自己的、li 只有分给他的 */
+    const 该收到 = (n) => (!范围 || n === 老板 ? { 老板的: true, 王的: true } : { 老板的: n === "li", 王的: n === "wang" });
     for (const n of 留下) {
       const t = 台[n];
+      const 应 = 该收到(n);
       await 等到({
-        步骤: "其余各台换了钥匙、收到移除后的新数据", 哪台: `${n} ← boss / wang`, 期望: `钥匙编号 > ${换前[n]}，库里有「${老板新.名字}」「${王新.名字}」`,
+        步骤: "其余各台换了钥匙、收到移除后的新数据", 哪台: `${n} ← boss / wang`, 期望: `钥匙编号 > ${换前[n]}，库里${应.老板的 ? "有" : "没有"}「${老板新.名字}」、${应.王的 ? "有" : "没有"}「${王新.名字}」`,
         取: () => ({ epoch: 读团队文件(t)?.epoch ?? 0, 老板的: Boolean(客户(t, 老板新.id)), 王的: Boolean(客户(t, 王新.id)) }),
-        满足: (v) => v.epoch > 换前[n] && v.老板的 && v.王的, 超时: 15_000, 迟到也报: 20_000,
+        满足: (v) => v.epoch > 换前[n] && (!应.老板的 || v.老板的) && (!应.王的 || v.王的), 超时: 15_000, 迟到也报: 20_000,
       });
     }
     await 等到({
@@ -830,11 +1073,26 @@ async function 主线() {
     判(客户(走的, 业务员的.sun.id), { 步骤: "被移出那台自己的客户还在", 哪台: "sun", 期望: `库里有「${业务员的.sun.名字}」`, 实际: "没了" });
     // 他那台删别人客户的那一下不许推出去：其余各台一位都不少
     for (const n of 留下) {
-      判(客户数(台[n]) === 老板客户数前 + 2, { 步骤: "被移出那台的清理没有传出去", 哪台: n, 期望: `客户 ${老板客户数前 + 2} 位`, 实际: 客户数(台[n]) });
-      判(Boolean(客户(台[n], 业务员的.sun.id)), { 步骤: "被移出的人录的客户留在团队里", 哪台: n, 期望: `库里还有「${业务员的.sun.名字}」`, 实际: "没了" });
+      const 应 = 范围 ? 各台前[n] + Object.values(该收到(n)).filter(Boolean).length : 老板客户数前 + 2;
+      判(客户数(台[n]) === 应, { 步骤: "被移出那台的清理没有传出去", 哪台: n, 期望: `客户 ${应} 位`, 实际: 客户数(台[n]) });
+      // 范围同步：他录的客户只在老板那台（别的业务员本来就没有）
+      const 该有 = !范围 || n === 老板;
+      判(Boolean(客户(台[n], 业务员的.sun.id)) === 该有, { 步骤: 该有 ? "被移出的人录的客户留在团队里" : "范围：被移出的人录的客户不到别的业务员那台", 哪台: n, 期望: `库里${该有 ? "还有" : "没有"}「${业务员的.sun.名字}」`, 实际: 该有 ? "没了" : "有" });
+      if (范围) for (const [k, x] of [["老板的", 老板新], ["王的", 王新]]) 判(Boolean(客户(台[n], x.id)) === 该收到(n)[k], { 步骤: "范围：移除之后的新数据只到该有的那台", 哪台: n, 期望: `${该收到(n)[k] ? "有" : "没有"}「${x.名字}」`, 实际: 客户(台[n], x.id) ? "有" : "没有" });
     }
     const 状态 = await 调(老, 动作.团队状态, []);
     判((状态?.成员 ?? []).length === 留下.length && !(状态.成员 ?? []).some((m) => m.accountId === 走的.账号), { 步骤: "老板那台的成员名单", 哪台: 老板, 期望: `${留下.length} 位、没有 sun`, 实际: (状态?.成员 ?? []).map((m) => m.name) });
+    在队业务员.delete("sun");
+    if (范围) {
+      const 走 = await 核越权("被老板移出", ["sun"], false);
+      const 留 = await 核越权("同事被移出");
+      // 文件层面的残留只做观察：删掉的行可能还在空闲页 / WAL 里
+      for (const n of 业务员) {
+        const 字节 = 字节残留({ 库: 台[n].库, 老板库: 老.库, 我: 台[n].我 }).filter((x) => x.命中.length);
+        if (字节.length) 观察.push(`范围：${n} 那台库文件原始字节里还搜得到 ${字节.map((x) => `${x.文件} ${x.命中.length} 位`).join("、")}不该有的客户的电话（SQL 查不到，只在文件字节里；不判红）`);
+      }
+      return { 说: `越权检查 ${走}、${留} 行` };
+    }
   });
 }
 
@@ -880,9 +1138,11 @@ try {
   for (const o of 观察) console.log(`观察：${o}`);
   if (没成的轮.length) console.log(`观察：模拟壳有 ${没成的轮.length} 轮同步没成（不判红，下一轮会补上）：\n  ${没成的轮.join("\n  ")}`);
   await 收尾(false);
-  console.log(`\n团队版五台实测全绿（${总}s）`);
+  console.log(`\n团队版五台实测全绿（${模式名}，${步号} 步，${总}s）`);
 } catch (e) {
   打印现场(e);
+  // 红了也把已经记下的观察打出来（例如迁移后库文件里的字节残留）
+  for (const o of 观察) console.error(`观察：${o}`);
   await 收尾(true);
   process.exit(1);
 }
