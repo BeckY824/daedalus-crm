@@ -68,8 +68,11 @@ export type 范围配置 = {
   snapshotPending?: string[];
   /** 确定性坏包（元数据不符、父链指向不可见记录）跳过了多少 */
   skipped?: number;
-  /** 上一轮清理：删了多少失权副本、转成冲突几条、AI 历史里可能还提到失权客户的条数（不删，只提示） */
-  cleaned?: { 删: number; 冲突: number; AI残留: number };
+  /**
+   * 上一轮清理：删了多少失权副本、转成冲突几条、AI 历史里可能还提到失权客户的条数（不删，只提示）；
+   * 擦净 = 删完之后整库重建、WAL 截断成功（库文件字节里不留删掉的行），false = 下一轮清理先补擦
+   */
+  cleaned?: { 删: number; 冲突: number; AI残留: number; 擦净?: boolean };
 };
 
 type 结果<T = object> = ({ ok: true } & T) | { ok: false; error: string };

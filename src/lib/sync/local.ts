@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient, Prisma } from "@/generated/prisma";
 import { 同步表, 不同步列, 同步的设置, 指向人的列, 同名合并, 模板占位账号 } from "./tables";
+import { 擦净删除残留 } from "./scoped-local";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -488,6 +489,7 @@ export async function 装了吗(db: Db): Promise<boolean> {
  * 同步日志里存着的整行副本也清掉。**必须在卸了触发器之后做**：这些删除不能当成改动推出去。
  */
 export async function 只留自己的(db: PrismaClient, 我: string) {
+  await db.$queryRawUnsafe("PRAGMA secure_delete = ON");
   const 我的客户 = (await db.customer.findMany({ where: { OR: [{ salesOwnerId: 我 }, { channelOwnerId: 我 }] }, select: { id: true } })).map((c) => c.id);
   await db.$transaction(async (tx) => {
     await tx.customer.deleteMany({ where: { id: { notIn: 我的客户 } } });
@@ -498,4 +500,6 @@ export async function 只留自己的(db: PrismaClient, 我: string) {
   for (const t of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip", "_sync_cursor", "_sync_alias"]) {
     await db.$executeRawUnsafe(`DELETE FROM ${t}`).catch(() => undefined);
   }
+  // 删掉的同事客户不在库文件字节里留副本：整库重建 + 截断 WAL（scoped-local 擦净删除残留）
+  return { 擦净: await 擦净删除残留(db) };
 }

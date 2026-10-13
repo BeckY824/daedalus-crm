@@ -125,23 +125,24 @@ export async function 导出范围冲突(db: Db) {
 export async function 转为范围冲突(db: PrismaClient, seqs: number[], reason: string) {
   if (!seqs.length) return 0;
   await 建范围冲突表(db);
-  return db.$transaction(async tx => {
-    let n = 0;
-    for (const seq of seqs) {
-      const l = (await tx.$queryRawUnsafe<{ tbl: string; pk: string; op: string; row: string | null; changed: string; at: bigint }[]>("SELECT * FROM _sync_log WHERE seq = ?", seq))[0];
-      if (!l) continue;
-      // 改动（U）只留本人改的那几列：日志里是整行，其余列是失权记录（可能是老板私客）的资料，不能借冲突表留下
-      let row = l.row;
-      if (l.op === "U" && row && l.changed !== "*") {
-        const full = JSON.parse(row) as Record<string, unknown>;
-        row = JSON.stringify(Object.fromEntries(l.changed.split(",").filter(c => c in full).map(c => [c, full[c]])));
-      }
-      await tx.$executeRawUnsafe("INSERT INTO _sync_scope_conflict (tbl, pk, op, row, changed, at, reason, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", l.tbl, l.pk, l.op, row, l.changed, l.at, reason.slice(0, 300), Date.now());
-      await tx.$executeRawUnsafe("DELETE FROM _sync_log WHERE seq = ?", seq);
-      n++;
+  return db.$transaction(tx => 转冲突(tx, seqs, reason));
+}
+async function 转冲突(tx: Db, seqs: number[], reason: string) {
+  let n = 0;
+  for (const seq of seqs) {
+    const l = (await tx.$queryRawUnsafe<{ tbl: string; pk: string; op: string; row: string | null; changed: string; at: bigint }[]>("SELECT * FROM _sync_log WHERE seq = ?", seq))[0];
+    if (!l) continue;
+    // 改动（U）只留本人改的那几列：日志里是整行，其余列是失权记录（可能是老板私客）的资料，不能借冲突表留下
+    let row = l.row;
+    if (l.op === "U" && row && l.changed !== "*") {
+      const full = JSON.parse(row) as Record<string, unknown>;
+      row = JSON.stringify(Object.fromEntries(l.changed.split(",").filter(c => c in full).map(c => [c, full[c]])));
     }
-    return n;
-  });
+    await tx.$executeRawUnsafe("INSERT INTO _sync_scope_conflict (tbl, pk, op, row, changed, at, reason, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", l.tbl, l.pk, l.op, row, l.changed, l.at, reason.slice(0, 300), Date.now());
+    await tx.$executeRawUnsafe("DELETE FROM _sync_log WHERE seq = ?", seq);
+    n++;
+  }
+  return n;
 }
 export async function 范围冲突数(db: Db): Promise<number> {
   try { await 建范围冲突表(db); return Number((await db.$queryRawUnsafe<{ n: bigint | number }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict WHERE resolvedAt IS NULL"))[0]?.n ?? 0); } catch { return 0; }
@@ -150,30 +151,51 @@ const 全队表 = ['User', 'Setting', 'Channel', 'Supplier'];
 /** 失去权限后不仅删客户，也清除同步日志、相关导入撤销快照里的旧副本。
  * 失权记录若仍有未上传改动：先转成显式冲突（_sync_scope_conflict），绝不静默丢弃，也不推给云端。
  * 边界：只处理本账号 crm.db；不删备份文件、不删 AI 对话（只统计可能涉及失权客户的条数供界面提示）。
- * 调用方须确认待推队列已推完（或已逐条转冲突），否则刚建、尚未进服务端目录的本人记录会被误判失权。
+ *
+ * 本机刚建、还没推上去的记录不算失权（2026-10-14，五台实测 migrate 模式抓到）：调用方先推完再取目录，但推完到清理之间人还在录——
+ * 刚建的客户服务端还不知道、不在刚取的目录里，原来会被当成失权删掉：有的转了冲突，读完待推之后才建的连冲突都没有、同步日志一起删了，静默丢数据。
+ * 所以：待推里有「新建」的记录这一轮不清（下一轮推上去，收下就进目录，被拒就由推送转冲突）；挂在失权记录下的新建照样算失权
+ * （推上去也会被拒，留着会违反外键）。读待推、判失权、转冲突、删除放在同一个事务里（本机只有一个连接，这期间别的写排队），中间插不进新改动。
  */
 export async function 清理失权副本(db: PrismaClient, allowed: Set<string>) {
   await 建范围冲突表(db);
-  const pending = await db.$queryRawUnsafe<{ seq: bigint | number; tbl: string; pk: string }[]>("SELECT seq, tbl, pk FROM _sync_log WHERE seq > COALESCE((SELECT v FROM _sync_cursor WHERE k = 'pushed'),0)");
-  const lost: Array<{ t: string; k: string }> = [];
-  const seen = new Set<string>();
-  const add = (t: string, k: string) => { const key = 行键(t, k); if (!seen.has(key) && !allowed.has(key)) { seen.add(key); lost.push({ t, k }); } };
-  for (const t of 同步表) {
-    if (全队表.includes(t)) continue;
-    for (const r of await db.$queryRawUnsafe<{ k: string }[]>(`SELECT ${q(主字段(t))} AS k FROM ${q(t)}`)) add(t, String(r.k));
-  }
-  // 已删除的客户可能仍藏在旧同步日志整行里，也要收走。
-  for (const aux of ['_sync_log', '_sync_field', '_sync_tomb', '_sync_skip']) for (const r of await db.$queryRawUnsafe<{ tbl: string; pk: string }[]>(`SELECT DISTINCT tbl, pk FROM ${aux}`)) {
-    if ((同步表 as readonly string[]).includes(r.tbl) && !全队表.includes(r.tbl)) add(r.tbl, r.pk);
-  }
-  const conflicts = await 转为范围冲突(db, pending.filter(p => seen.has(行键(p.tbl, p.pk))).map(p => Number(p.seq)), '该记录已不在本机同步范围内（转交、领取或权限变化）；未上传改动已保留，请与老板核对');
-  const lostCustomers = lost.filter(x => x.t === 'Customer').map(x => x.k);
-  let ai = 0;
-  for (const id of lostCustomers.slice(0, 500)) ai += Number((await db.$queryRawUnsafe<{ n: bigint | number }[]>("SELECT COUNT(*) AS n FROM AiMessage WHERE refs LIKE ? OR steps LIKE ?", `%${id}%`, `%${id}%`).catch(() => [{ n: 0 }]))[0]?.n ?? 0);
-  if (!lost.length) return { 删: 0, 冲突: conflicts, AI残留: 0 };
   // PRAGMA secure_delete 会返回一行结果，只能用 queryRaw（草稿用 executeRaw，业务员首轮清理必然失败）
   await db.$queryRawUnsafe('PRAGMA secure_delete = ON');
-  await db.$transaction(async tx => {
+  const r = await db.$transaction(async tx => {
+    const pending = await tx.$queryRawUnsafe<{ seq: bigint | number; tbl: string; pk: string; op: string }[]>("SELECT seq, tbl, pk, op FROM _sync_log WHERE seq > COALESCE((SELECT v FROM _sync_cursor WHERE k = 'pushed'),0)");
+    const 不在目录: Array<{ t: string; k: string }> = [];
+    const seen = new Set<string>();
+    const add = (t: string, k: string) => { const key = 行键(t, k); if (!seen.has(key) && !allowed.has(key)) { seen.add(key); 不在目录.push({ t, k }); } };
+    for (const t of 同步表) {
+      if (全队表.includes(t)) continue;
+      for (const r of await tx.$queryRawUnsafe<{ k: string }[]>(`SELECT ${q(主字段(t))} AS k FROM ${q(t)}`)) add(t, String(r.k));
+    }
+    // 已删除的客户可能仍藏在旧同步日志整行里，也要收走。
+    for (const aux of ['_sync_log', '_sync_field', '_sync_tomb', '_sync_skip']) for (const r of await tx.$queryRawUnsafe<{ tbl: string; pk: string }[]>(`SELECT DISTINCT tbl, pk FROM ${aux}`)) {
+      if ((同步表 as readonly string[]).includes(r.tbl) && !全队表.includes(r.tbl)) add(r.tbl, r.pk);
+    }
+    // 本机新建还没推的：先都留着，再把父记录（范围父表 / 操作日志的对象）失权的剔出去，直到不再变
+    const 留 = new Set(pending.filter(p => p.op === 'I').map(p => 行键(p.tbl, p.pk)).filter(k => seen.has(k)));
+    const 父们 = new Map<string, string[]>();
+    for (const key of 留) {
+      const i = key.indexOf(':'), t = key.slice(0, i), k = key.slice(i + 1);
+      const row = (await tx.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT * FROM ${q(t)} WHERE ${q(主字段(t))} = ?`, k))[0];
+      const ps: string[] = [];
+      if (row && t === 'AuditLog' && row.entity && row.entityId) ps.push(行键(String(row.entity), String(row.entityId)));
+      if (row) for (const [field, table] of Object.entries(范围父表[t] ?? {})) if (row[field]) ps.push(行键(table, String(row[field])));
+      父们.set(key, ps);
+    }
+    for (let 变 = true; 变;) {
+      变 = false;
+      for (const key of [...留]) if ((父们.get(key) ?? []).some(p => seen.has(p) && !留.has(p))) { 留.delete(key); 变 = true; }
+    }
+    const lost = 不在目录.filter(x => !留.has(行键(x.t, x.k)));
+    const lostKeys = new Set(lost.map(x => 行键(x.t, x.k)));
+    const conflicts = await 转冲突(tx, pending.filter(p => lostKeys.has(行键(p.tbl, p.pk))).map(p => Number(p.seq)), '该记录已不在本机同步范围内（转交、领取或权限变化）；未上传改动已保留，请与老板核对');
+    if (!lost.length) return { 删: 0, 冲突: conflicts, AI残留: 0 };
+    const lostCustomers = lost.filter(x => x.t === 'Customer').map(x => x.k);
+    let ai = 0;
+    for (const id of lostCustomers.slice(0, 500)) ai += Number((await tx.$queryRawUnsafe<{ n: bigint | number }[]>("SELECT COUNT(*) AS n FROM AiMessage WHERE refs LIKE ? OR steps LIKE ?", `%${id}%`, `%${id}%`).catch(() => [{ n: 0 }]))[0]?.n ?? 0);
     await tx.$executeRawUnsafe('UPDATE _sync_state SET applying = 1 WHERE id = 1');
     await tx.$executeRawUnsafe('PRAGMA defer_foreign_keys = ON');
     // 先断开可空的推荐关系，避免可见客户因推荐人失权触发外键错误。
@@ -185,9 +207,47 @@ export async function 清理失权副本(db: PrismaClient, allowed: Set<string>)
     // 导入撤销快照（ImportRow.before）可能存着失权客户原来的格子，一并删除；批次本身留着，计数不改。
     for (const k of lostCustomers) await tx.$executeRawUnsafe('DELETE FROM ImportRow WHERE customerId = ?', k);
     await tx.$executeRawUnsafe('UPDATE _sync_state SET applying = 0 WHERE id = 1');
+    await 记欠擦(tx);
+    return { 删: lost.length, 冲突: conflicts, AI残留: ai };
   }, { timeout: 180_000 });
-  await db.$queryRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)').catch(() => undefined);
-  return { 删: lost.length, 冲突: conflicts, AI残留: ai };
+  // 删了就整库重建；这一轮没删、但上一次没擦净（WAL 被别的读者占着）也补擦
+  if (r.删 || await 欠擦(db)) return { ...r, 擦净: await 擦净删除残留(db) };
+  return r;
+}
+/*
+  删掉的行不能在库文件里留下可恢复的字节（2026-10-14 加固）：secure_delete 只把「这一次删掉的格子」清零，
+  旧协议时期改过的行在页内空隙、空闲页里留下的旧副本、WAL 里的旧页都还在（五台实测：业务员 crm.db 原始字节里搜得到老板私客的电话）。
+  所以删完：VACUUM 整库重建（只拷活着的行，空闲页和页内空隙都不带过去），再 wal_checkpoint(TRUNCATE) 把 WAL 写回并截成 0 字节。
+  - 本机服务只有一个 Prisma 连接（lib/sqlite-url 单连接），这一句排在别的查询后面执行，不会落在事务里；
+  - 别的进程（备份、只读工具）这会儿开着读事务时 checkpoint 截不了：重试几次，还不行就记「欠擦」（_sync_cursor 里一行），下一轮清理先补擦；
+  - 备份文件不动：backups/ 里迁移前 / 每日 / 升级前的备份按设计保留（见操作手册），不在这里删。
+*/
+const 欠擦键 = 'wipe_pending';
+async function 记欠擦(db: Db) {
+  await db.$executeRawUnsafe("INSERT INTO _sync_cursor (k, v) VALUES (?, 1) ON CONFLICT(k) DO UPDATE SET v = 1", 欠擦键);
+}
+async function 欠擦(db: Db) {
+  return !!Number((await db.$queryRawUnsafe<{ v: bigint | number }[]>("SELECT v FROM _sync_cursor WHERE k = ?", 欠擦键).catch(() => []))[0]?.v ?? 0);
+}
+export async function 擦净删除残留(db: PrismaClient): Promise<boolean> {
+  try {
+    await db.$queryRawUnsafe('PRAGMA secure_delete = ON');
+    await db.$executeRawUnsafe('VACUUM');
+    for (let i = 0; i < 4; i++) {
+      // 返回 busy / log / checkpointed：busy = 0 才算 WAL 全部写回并截断
+      const r = await db.$queryRawUnsafe<{ busy: bigint | number }[]>('PRAGMA wal_checkpoint(TRUNCATE)');
+      if (!Number(r[0]?.busy ?? 0)) {
+        await db.$executeRawUnsafe("DELETE FROM _sync_cursor WHERE k = ?", 欠擦键).catch(() => undefined);
+        // 删这一行本身又写了 WAL（不含业务数据）；再截一次，WAL 里不留任何页
+        await db.$queryRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)').catch(() => undefined);
+        return true;
+      }
+      await new Promise((ok) => setTimeout(ok, 500));
+    }
+  } catch (e) {
+    console.error('[sync] 清理后整库重建失败，下一轮再试：', e instanceof Error ? e.message.slice(0, 200) : e);
+  }
+  return false;
 }
 /** 服务端当前路由覆盖历史包中的过期路由；隐藏推荐人只置空 FK，不复制隐藏客户来满足外键。 */
 export function 归一化范围行(e: 改动, current: 范围索引, authorized: Set<string>): 改动 {

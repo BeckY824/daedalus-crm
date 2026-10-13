@@ -99,6 +99,31 @@ describe("清理失权副本", () => {
     const pend = await db.$queryRawUnsafe<{ pk: string }[]>("SELECT pk FROM _sync_log WHERE seq > (SELECT v FROM _sync_cursor WHERE k='pushed')");
     expect(pend.map(p => p.pk)).toEqual(["mine"]);
   });
+  it("推完到清理之间刚建、还没推上去的本人记录不算失权（不删、不转冲突，下一轮照常推）；挂在失权客户下的新建照样转冲突（2026-10-14）", async () => {
+    await db.customer.create({ data: { id: "lost3", name: "又将失权", phone: "3", salesOwnerId: "acct_m" } });
+    await 待推(db, "dm");
+    await db.$executeRawUnsafe("INSERT OR REPLACE INTO _sync_cursor (k, v) VALUES ('pushed', (SELECT MAX(seq) FROM _sync_log))");
+    const 冲突前 = Number((await db.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict"))[0].n);
+    // 目录取完之后人又录了：一位新客户（带操作日志、跟进），以及在将失权客户下的一条跟进
+    await db.customer.create({ data: { id: "fresh", name: "刚录的", phone: "4", salesOwnerId: "acct_m" } });
+    await db.auditLog.create({ data: { id: "fresh-a", userId: "acct_m", userName: "m", action: "create", entity: "Customer", entityId: "fresh", summary: "新建 刚录的" } });
+    await db.followUp.create({ data: { id: "fresh-f", customerId: "fresh", ownerId: "acct_m", type: "PHONE", title: "电话", content: "刚录的跟进" } });
+    await db.followUp.create({ data: { id: "lost3-f", customerId: "lost3", ownerId: "acct_m", type: "PHONE", title: "电话", content: "失权客户下新记的" } });
+    const r = await 清理失权副本(db, new Set([行键("Customer", "mine")]));
+    expect(await db.customer.findUnique({ where: { id: "fresh" } })).not.toBeNull();
+    expect(await db.followUp.findUnique({ where: { id: "fresh-f" } })).not.toBeNull();
+    expect(await db.auditLog.findUnique({ where: { id: "fresh-a" } })).not.toBeNull();
+    expect(await db.customer.findUnique({ where: { id: "lost3" } })).toBeNull();
+    expect(await db.followUp.findUnique({ where: { id: "lost3-f" } })).toBeNull();
+    expect(r.冲突).toBe(1);
+    const c = await db.$queryRawUnsafe<{ pk: string }[]>("SELECT pk FROM _sync_scope_conflict ORDER BY id DESC LIMIT 1");
+    expect(c[0].pk).toBe("lost3-f");
+    expect(Number((await db.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict"))[0].n)).toBe(冲突前 + 1);
+    const pend = await db.$queryRawUnsafe<{ pk: string }[]>("SELECT DISTINCT pk FROM _sync_log WHERE seq > (SELECT v FROM _sync_cursor WHERE k='pushed')");
+    expect(pend.map(p => p.pk).sort()).toEqual(["fresh", "fresh-a", "fresh-f"]);
+    // 收尾：这几条推上去了（进了目录）之后不影响后面的用例
+    await db.$executeRawUnsafe("DELETE FROM _sync_scope_conflict WHERE pk = 'lost3-f'");
+  });
   it("冲突列表：失权记录只显示本人改过的值或编号；确认只标记不删除；导出含全部", async () => {
     const list = await 列出范围冲突(db);
     expect(list).toHaveLength(1);

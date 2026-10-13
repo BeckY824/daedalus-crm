@@ -38,9 +38,11 @@ const 主键 = 记住((库, 表) => 查库(库, `SELECT name FROM pragma_table_i
  * @param {Record<string, Record<string, string>>} o.父表 scope-policy 的 范围父表
  * @param {readonly string[]} o.同步表 tables.ts 的 同步表
  * @param {boolean} [o.含公海=true] 还在团队里 = 公海的也算他的；退出 / 被移出之后只算本人的
+ * @param {string} [o.控制库] 云端控制库：只用来找「哪台都已经删掉了」的记录当时挂在谁下面（SyncScopedRecord 里删除的记录保留归属字段）
+ * @param {string} [o.团队id]
  * @returns {{ 越权: string[], 查了: number }}
  */
-export function 查越权({ 库, 老板库, 我, 父表, 同步表, 含公海 = true }) {
+export function 查越权({ 库, 老板库, 我, 父表, 同步表, 含公海 = true, 控制库, 团队id }) {
   const 老板客户 = new Map(查库(老板库, "SELECT id, name, phone, salesOwnerId, channelOwnerId FROM Customer").map((c) => [c.id, c]));
   const 公海 = new Set(含公海 ? 查库(老板库, "SELECT customerId FROM CustomerPool").map((r) => r.customerId) : []);
   const 本机客户 = new Map(查库(库, "SELECT id, salesOwnerId, channelOwnerId FROM Customer").map((c) => [c.id, c]));
@@ -54,9 +56,19 @@ export function 查越权({ 库, 老板库, 我, 父表, 同步表, 含公海 = 
     if (!缓存.has(k)) {
       const pk = 主键(库, 表);
       const sql = `SELECT * FROM "${表}" WHERE "${pk}" = ?`;
-      缓存.set(k, 查库(库, sql, 编号)[0] ?? (有表(老板库, 表) ? 查库(老板库, sql, 编号)[0] : undefined) ?? null);
+      缓存.set(k, 查库(库, sql, 编号)[0] ?? (有表(老板库, 表) ? 查库(老板库, sql, 编号)[0] : undefined) ?? 已删的(表, 编号) ?? null);
     }
     return 缓存.get(k);
+  };
+  /**
+   * 哪台都已经删掉的记录（例如接手的人删了的订单）：服务端索引里删除的记录还留着归属字段，挂在它上面的操作日志仍归那位客户
+   * （scope-policy 算范围 同样这样算）。只认已删除的，没删的一律以两台库为准
+   */
+  const 已删的 = (表, 编号) => {
+    if (!控制库 || !团队id) return undefined;
+    const m = 查库(控制库, "SELECT metadata FROM SyncScopedRecord WHERE teamId = ? AND key = ?", 团队id, `${表}:${编号}`)[0]?.metadata;
+    const r = m ? JSON.parse(m) : null;
+    return r?.deleted ? { ...r.fields } : undefined;
   };
   /** 一行归谁：{ 客户 } / { 本人 } / { 全队 }；关系链断了（父记录哪台都没有）= null */
   const 归属 = (表, 编号, 深 = 0) => {
@@ -120,17 +132,28 @@ export function 查越权({ 库, 老板库, 我, 父表, 同步表, 含公海 = 
 }
 
 /**
- * 文件层面：crm.db、crm.db-wal 的原始字节里还搜得到多少位「不该有的客户」的电话（删掉的行可能还留在空闲页 / WAL 里）。
- * 只做观察，不判红：产品对删除的副本开了 secure_delete、清理后 checkpoint，但不保证字节层面零残留。
- * @returns {{ 文件: string, 命中: string[] }[]}
+ * 文件层面：crm.db、crm.db-wal 的原始字节里还搜得到多少位「不该有的客户」的电话 / 名字（删掉的行可能还留在空闲页、页内空隙、WAL 里）。
+ * 2026-10-14 起判红：清理失权副本 / 退出团队删完之后产品会整库重建（VACUUM）并把 WAL 截断（scoped-local 擦净删除残留），
+ * 删掉的客户在库文件里一个字节都不该剩。名字是该有的某位名字的一部分（老客户1 ⊂ 老客户10）、或是该有的名字后面接数字（老客户1 + 电话 138… 在页里拼成「老客户11」）就只搜电话。
+ * @param {{ 库: string, 老板库: string, 我: string, 含公海?: boolean }} o 含公海 = false：退出 / 被移出之后公海的也不该有
+ * @returns {{ 文件: string, 命中: string[] }[]} 命中 = 客户 id
  */
-export function 字节残留({ 库, 老板库, 我 }) {
-  const 不该有 = 查库(老板库, "SELECT c.id, c.phone FROM Customer c WHERE c.phone IS NOT NULL AND COALESCE(c.salesOwnerId, '') <> ? AND COALESCE(c.channelOwnerId, '') <> ? AND c.id NOT IN (SELECT customerId FROM CustomerPool)", 我, 我);
+export function 字节残留({ 库, 老板库, 我, 含公海 = true }) {
+  const 全部 = 查库(老板库, "SELECT c.id, c.name, c.phone, c.salesOwnerId, c.channelOwnerId, (SELECT 1 FROM CustomerPool p WHERE p.customerId = c.id) AS pool FROM Customer c");
+  const 该有 = (c) => c.salesOwnerId === 我 || c.channelOwnerId === 我 || (含公海 && c.pool);
+  const 该有名字 = 全部.filter(该有).map((c) => c.name ?? "");
+  const 词 = [];
+  for (const c of 全部) {
+    if (该有(c)) continue;
+    if (c.phone) 词.push([c.phone, c.id]);
+    // 库页里一行的各列是挨着存的：该有的「老客户1」后面紧跟电话 138…，字节里就拼出了「老客户11」——这种名字也只搜电话
+    if (c.name && !该有名字.some((n) => n.includes(c.name) || (c.name.startsWith(n) && /^\d+$/.test(c.name.slice(n.length))))) 词.push([c.name, c.id]);
+  }
   const out = [];
   for (const f of [库, `${库}-wal`]) {
     if (!fs.existsSync(f)) continue;
     const buf = fs.readFileSync(f);
-    out.push({ 文件: f.split("/").pop(), 命中: 不该有.filter((c) => buf.includes(Buffer.from(c.phone, "utf8"))).map((c) => c.id) });
+    out.push({ 文件: f.split("/").pop(), 命中: [...new Set(词.filter(([w]) => buf.includes(Buffer.from(w, "utf8"))).map(([, id]) => id))] });
   }
   return out;
 }

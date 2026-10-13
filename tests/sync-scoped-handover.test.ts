@@ -3,6 +3,7 @@
  * 三台桌面端（老板、li、zhao）都走真实 lib/sync/client.ts；云端是真实的 sync-relay + sync-scoped（临时控制库）。
  *  - Bug 1：业务员按旧顺序（先删公海、再改负责人）领取 → 原来服务端逐包核、删公海那一包 403、各台负责人对不上
  *  - Bug 2：业务员把客户交给同事 → 原来交出去的人补不了起点、接手的人永远拉不到；转交后改的计划 / 操作日志被拒成冲突
+ *  - 加固：清理失权副本之后库文件（crm.db + WAL）原始字节里搜不到删掉的客户
  */
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
@@ -97,6 +98,10 @@ const 都轮 = async (...ws: 谁[]) => { for (const w of ws) expect(await 轮(w)
 const 读配置 = (w: 谁) => { 当(w); return client.读团队()!; };
 const A = (w: 谁) => `acct_${账号[w]}`;
 const 冲突数 = async (w: 谁) => Number((await db(w).$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict"))[0].n);
+/** 库文件层面：crm.db + crm.db-wal 原始字节里有没有这个串（等同拿十六进制工具翻文件，SQL 查不到的空闲页也算） */
+function 文件里有(w: 谁, 串: string) {
+  return ["crm.db", "crm.db-wal"].filter((f) => { const p = path.join(临时.root, w, f); return fs.existsSync(p) && fs.readFileSync(p).includes(Buffer.from(串, "utf8")); });
+}
 
 beforeAll(async () => {
   process.env.MULTI_TENANT = "1";
@@ -148,7 +153,7 @@ async function 老板放公海(id: string, 电话: string) {
 }
 
 describe("范围同步：领取与交接（服务端按请求开始时的权限核一次推送）", () => {
-  it("Bug 1：li 按旧顺序领取（同一事务里先删公海、再改负责人）→ 各台一致：归 li、出了公海；zhao 库里清掉；li 没有冲突", async () => {
+  it("Bug 1：li 按旧顺序领取（同一事务里先删公海、再改负责人）→ 各台一致：归 li、出了公海；zhao 库里清掉且字节不留；li 没有冲突", async () => {
     await 老板放公海("pool-1", "13900004441");
     const l = db("li");
     await l.$transaction(async (tx) => {
@@ -162,13 +167,15 @@ describe("范围同步：领取与交接（服务端按请求开始时的权限�
     expect(await db("boss").customerPool.findUnique({ where: { customerId: "pool-1" } })).toBeNull();
     expect(await db("zhao").customer.findUnique({ where: { id: "pool-1" } })).toBeNull();
     expect(await db("zhao").followUp.findUnique({ where: { id: "pool-1-f" } })).toBeNull();
+    expect(文件里有("zhao", "13900004441")).toEqual([]);
+    expect(读配置("zhao").scoped?.cleaned).toMatchObject({ 擦净: true });
     // 领到之后老板再改这位，li 照样收得到（领取的起点跟着领取一起推上去了）
     await db("boss").customer.update({ where: { id: "pool-1" }, data: { remark: "老板领取后改的" } });
     await 都轮("boss", "li");
     expect((await l.customer.findUnique({ where: { id: "pool-1" } }))?.remark).toBe("老板领取后改的");
   });
 
-  it("Bug 2：li 把客户交给 zhao（转交后再改计划负责人、记操作日志）→ zhao 收到客户 + 计划 + 跟进 + 操作日志；li 库里清掉、没有冲突", async () => {
+  it("Bug 2：li 把客户交给 zhao（转交后再改计划负责人、记操作日志）→ zhao 收到客户 + 计划 + 跟进 + 操作日志；li 库里清掉、字节不留、没有冲突", async () => {
     const l = db("li");
     await l.customer.create({ data: { id: "hand-1", name: "QA交接客户", phone: "13900005551", salesOwnerId: A("li") } });
     await l.followUp.create({ data: { id: "hand-1-f", customerId: "hand-1", ownerId: A("li"), type: "PHONE", title: "电话", content: "QA交接前的跟进" } });
@@ -191,6 +198,8 @@ describe("范围同步：领取与交接（服务端按请求开始时的权限�
     expect(await 冲突数("li")).toBe(0);
     expect(await l.customer.findUnique({ where: { id: "hand-1" } })).toBeNull();
     expect(await l.followPlan.findUnique({ where: { id: "hand-1-p" } })).toBeNull();
+    expect(文件里有("li", "13900005551")).toEqual([]);
+    expect(文件里有("li", "QA交接前的跟进")).toEqual([]);
     expect((await db("boss").followPlan.findUnique({ where: { id: "hand-1-p" } }))?.ownerId).toBe(A("zhao"));
     // 交接之后 zhao 改、li 收不到；li 也写不进来
     await z.customer.update({ where: { id: "hand-1" }, data: { remark: "zhao 接手后改的" } });
@@ -229,6 +238,7 @@ describe("范围同步：领取与交接（服务端按请求开始时的权限�
     expect(await db("zhao").customer.findUnique({ where: { id: "pool-2" } })).toBeNull();
     expect(await 冲突数("zhao")).toBeGreaterThanOrEqual(2);
     expect(await 冲突数("li")).toBe(0);
+    expect(文件里有("zhao", "13900007771")).toEqual([]);
   });
 
   it("交出去的人连的是没升级的服务端规则（不附起点、事后补被拒）：老板那台按 needBaseline 补上，接手的人拿到", async () => {
@@ -247,5 +257,16 @@ describe("范围同步：领取与交接（服务端按请求开始时的权限�
     expect(await db("zhao").followUp.findUnique({ where: { id: "hand-3-f" } })).not.toBeNull();
     当("boss");
     expect(((await scoped.范围目录(账号.boss, 读配置("boss").teamId)) as { needBaseline?: string[] }).needBaseline).toEqual([]);
+  });
+
+  it("退出团队：只留自己的，删掉的同事 / 公海客户在库文件字节里也不留", async () => {
+    await 老板放公海("pool-3", "13900009991");
+    当("zhao");
+    expect(await client.退出团队()).toMatchObject({ ok: true });
+    const z = db("zhao");
+    expect(await z.customer.findUnique({ where: { id: "pool-3" } })).toBeNull();
+    expect(await z.customer.findUnique({ where: { id: "hand-1" } })).not.toBeNull();
+    expect(文件里有("zhao", "13900009991")).toEqual([]);
+    expect(文件里有("zhao", "QA公海跟进pool-3")).toEqual([]);
   });
 });
