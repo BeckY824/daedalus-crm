@@ -381,7 +381,8 @@ async function 主线() {
     console.log(`[构建] ${原因}：cd desktop && npm run build:server（含 next build，约 1 分钟）`);
     同步跑("npm", ["run", "build:server"], { cwd: path.join(根, "desktop"), 看得见: true });
   }
-  for (let p = 云端口; p <= 云端口 + 名单.length; p++) {
+  // 多占一个：同一账号的第二台（wang2）用 起始端口 + 名单.length + 1
+  for (let p = 云端口; p <= 云端口 + 名单.length + 1; p++) {
     if (!(await 端口空着(p))) throw new 断言失败({ 步骤: "端口", 期望: `${p} 空着`, 实际: "被占了：换一段，例如 TEAM_SIM_PORT=3620 npm run test:team" });
   }
   表 = 读动作表(path.join(包, ".next/server/server-reference-manifest.json"));
@@ -896,6 +897,83 @@ async function 主线() {
     for (const n of 名单.filter((x) => x !== 老板)) {
       await 等到({ 步骤: "切回通用传到这台", 哪台: `${n} ← ${老板}`, 期望: "模版 general、左栏没有订单", 取: async () => ({ 模版: 模版(台[n]), 左栏: await 左栏有订单(台[n]) }), 满足: (v) => v.模版 === "general" && !v.左栏, 超时: Math.max(500, 30_000 - (Date.now() - 存完)), 迟到也报: 45_000 });
     }
+  });
+
+  /* ================= 同一账号的第二台电脑（2026-10-14 候选 6 实机：Windows 上领取，Mac 上公海那一行一直不走） ================= */
+  await 步("同一账号的第二台电脑（wang2）：领取 / 撤销领取 / 第二台领取 / 交接出去 / 老板分给他 / 放公海 / 删跟进删客户，两台 wang 每一步都一致", async () => {
+    const w = 台.wang, l = 台.li;
+    // 起第二台：wang 的云端账号在另一台电脑上登录（同一个账号、另一个设备），自动登录、加入团队
+    const 端口 = 起始端口 + 名单.length + 1, 目录 = path.join(临时, "desk-wang2");
+    const w2 = { 名: "wang2", 包, 端口, 目录, 库: path.join(目录, "crm.db"), 令牌: `sim-wang2-${crypto.randomBytes(12).toString("hex")}`, 密钥: crypto.randomBytes(32).toString("hex"), 会: new 会话("wang2", `http://127.0.0.1:${端口}`), 壳: { 轮: 0, 最近: [], 停: false } };
+    台.wang2 = w2;
+    const 号 = `wang-${批}@sim.test`, ip = { "x-forwarded-for": `10.77.9.${(Number.parseInt(批, 16) % 200) + 1}` };
+    const tk = await 云.json("POST", "/api/account/token", { target: 号, password: 密码, name: "sim-wang2" }, ip);
+    判(tk.状态 === 200 && tk.json?.account?.id === w.账号, { 步骤: "第二台登录同一个云端账号", 哪台: "wang2", 期望: `200、账号 ${w.账号}`, 实际: `${tk.状态} ${tk.text}` });
+    w2.账号 = w.账号; w2.我 = w.我;
+    fs.mkdirSync(目录, { recursive: true });
+    fs.writeFileSync(path.join(目录, ".cloud.json"), JSON.stringify({ baseUrl: 云址, token: tk.json.token, accountId: w.账号, name: tk.json.account.name ?? "wang", contact: 号, models: [], loggedAt: new Date().toISOString() }), { mode: 0o600 });
+    fs.writeFileSync(path.join(目录, ".owner"), w.账号, { mode: 0o600 });
+    进程.wang2 = 起桌面端(w2);
+    await 等起来(进程.wang2, w2.会, "wang2");
+    void 壳(w2);
+    const s = await w2.会.页面(`/api/desktop/session?t=${w2.令牌}`);
+    判(s.状态 === 307, { 步骤: "第二台自动登录", 哪台: "wang2", 期望: "307", 实际: `${s.状态} → ${s.跳到}` });
+    判((await 调(w2, 动作.选模版, ["general"]))?.ok, { 步骤: "第二台选模版", 哪台: "wang2", 期望: "ok", 实际: "没成" });
+    const j = await 调(w2, 动作.加入团队, [码]);
+    判(j?.ok, { 步骤: "第二台加入团队", 哪台: "wang2", 期望: "ok", 实际: j });
+    const 客户们 = (t) => 查库(t.库, "SELECT id FROM Customer ORDER BY id").map((r) => r.id).join(",");
+    await 等到({ 步骤: "第二台拉齐：和第一台客户一样", 哪台: "wang2 ← wang", 期望: "两台 Customer 编号一致", 取: () => ({ 一: 客户们(w), 二: 客户们(w2) }), 满足: (v) => v.一 === v.二 && v.二.length > 0, 超时: 前台间隔 * 3 + 10_000, 迟到也报: 20_000 });
+    /** 这位客户在两台 wang 上一样，而且是期望的样子（负责人、在不在公海、跟进条数） */
+    const 样子 = (t, id) => ({ 有: Boolean(客户(t, id)), 负责人: 客户(t, id)?.salesOwnerId ?? null, 公海: 在公海(t, id), 跟进: 数(t, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", id) });
+    const 两台 = async (步骤, id, 期望, 超时 = 前台间隔 * 2 + 6_000) => {
+      await 等到({ 步骤, 哪台: "wang / wang2", 期望: 显示(期望), 取: () => ({ wang: 样子(w, id), wang2: 样子(w2, id) }), 满足: (v) => 显示(v.wang) === 显示(v.wang2) && Object.entries(期望).every(([k, x]) => v.wang[k] === x), 超时, 迟到也报: 20_000 });
+    };
+    const 说 = [];
+    const 起 = Date.now();
+    // 1. 老板放一位进公海 → 两台都在公海里
+    const P = await 录一位(老, 名(老板, "第二台公海"), 1);
+    判((await 调(老, 动作.放进公海, [[P.id]]))?.ok, { 步骤: "老板放进公海", 哪台: 老板, 期望: "ok", 实际: "没成" });
+    await 两台("放进公海：两台都收到、在公海", P.id, { 有: true, 负责人: 老.我, 公海: true, 跟进: 1 });
+    // 2. 第一台领取 → 第二台也出了公海、归 wang（候选 6 的 bug：第二台公海那一行一直不走）
+    const k = await 调(w, 动作.领取, [[P.id]]);
+    判(k?.ok && k.updated === 1, { 步骤: "第一台领取", 哪台: "wang", 期望: "ok、updated = 1", 实际: k });
+    await 两台("第一台领取：第二台也出了公海、归 wang", P.id, { 有: true, 负责人: w.我, 公海: false, 跟进: 1 });
+    if (范围) await 等没了(l, P, "范围：wang 领走之后 li 库里清掉了");
+    // 3. 撤销领取 → 两台都回到公海、归老板
+    const u = await 调(w, 动作.撤销公海, ["领取", k.原负责人, k.带过来]);
+    判(u?.ok && u.updated === 1, { 步骤: "撤销领取", 哪台: "wang", 期望: "ok、updated = 1", 实际: u });
+    await 两台("撤销领取：两台都回到公海、归老板", P.id, { 有: true, 负责人: 老.我, 公海: true });
+    // 4. 第二台领取 → 第一台跟着变
+    const k2 = await 调(w2, 动作.领取, [[P.id]]);
+    判(k2?.ok && k2.updated === 1, { 步骤: "第二台领取", 哪台: "wang2", 期望: "ok、updated = 1", 实际: k2 });
+    await 两台("第二台领取：第一台也出了公海、归 wang", P.id, { 有: true, 负责人: w.我, 公海: false });
+    说.push(`领取 / 撤销 / 第二台领取 ${((Date.now() - 起) / 1000).toFixed(1)}s`);
+    // 5. 第一台交给 li → 第二台也交出去了（范围：清掉）
+    const h = await 调(w, 动作.改一格, [P.id, "salesOwnerId", l.我]);
+    判(h?.ok, { 步骤: "第一台交给 li", 哪台: "wang", 期望: "ok", 实际: h });
+    await 等到({ 步骤: "交接：li 收到", 哪台: "li ← wang", 期望: "负责人 li、带跟进", 取: () => 样子(l, P.id), 满足: (v) => v.负责人 === l.我 && v.跟进 === 1, 超时: 前台间隔 * 2 + 6_000, 迟到也报: 20_000 });
+    if (范围) { await 等没了(w, P, "范围：交出去之后第一台清掉了"); await 等没了(w2, P, "范围：交出去之后第二台也清掉了"); }
+    else await 两台("交接：两台 wang 负责人都变成 li", P.id, { 有: true, 负责人: l.我 });
+    // 6. 老板把私客分给 wang → 两台都收到（带跟进）
+    const B = await 录一位(老, 名(老板, "第二台分给他"), 1);
+    判((await 调(老, 动作.批量改负责人, [[B.id], w.我]))?.updated === 1, { 步骤: "老板批量改负责人给 wang", 哪台: 老板, 期望: "updated = 1", 实际: "没成" });
+    await 两台("老板分给 wang：两台都收到、带跟进", B.id, { 有: true, 负责人: w.我, 公海: false, 跟进: 1 });
+    // 7. 第二台放进公海 → 第一台和 li 都看到在公海
+    判((await 调(w2, 动作.放进公海, [[B.id]]))?.updated === 1, { 步骤: "第二台放进公海", 哪台: "wang2", 期望: "updated = 1", 实际: "没成" });
+    await 两台("第二台放进公海：第一台也在公海", B.id, { 有: true, 公海: true });
+    await 等到({ 步骤: "第二台放进公海：li 在公海里看到", 哪台: "li ← wang2", 期望: "库里有、在公海", 取: () => 样子(l, B.id), 满足: (v) => v.有 && v.公海, 超时: 前台间隔 * 2 + 6_000, 迟到也报: 20_000 });
+    // 8. 删除：第一台删跟进 → 第二台跟着删；第二台删客户 → 第一台、老板、li 都没了
+    const fid = 查库(w.库, "SELECT id FROM FollowUp WHERE customerId = ?", B.id)[0]?.id;
+    判((await 调(w, 动作.删跟进, [fid, B.id]))?.ok, { 步骤: "第一台删跟进", 哪台: "wang", 期望: "ok", 实际: "没成" });
+    await 两台("第一台删跟进：第二台也没了", B.id, { 有: true, 跟进: 0 });
+    const d = await 调(w2, 动作.删客户, [[B.id]]);
+    判(d?.ok && d.deleted === 1, { 步骤: "第二台删客户", 哪台: "wang2", 期望: "ok、deleted = 1", 实际: d });
+    for (const t of [w, 老, l]) await 等没了(t, B, "第二台删客户：别的台也没了");
+    if (范围) 说.push(`越权检查 ${await 核越权("同一账号第二台", ["wang", "wang2", "li"])} 行`);
+    // 收尾：第二台关掉，免得后面几步（中转断开、移除成员）多一台干扰计数
+    w2.壳.停 = true;
+    await 关掉(进程.wang2);
+    return { 说: 说.join("；") };
   });
 
   await 步("业务员自己退出团队：他那台只留自己的（含老库带进来的），别人那边一条不少、收不到他之后写的", async () => {

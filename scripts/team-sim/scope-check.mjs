@@ -47,8 +47,8 @@ export function 查越权({ 库, 老板库, 我, 父表, 同步表, 含公海 = 
   const 公海 = new Set(含公海 ? 查库(老板库, "SELECT customerId FROM CustomerPool").map((r) => r.customerId) : []);
   const 本机客户 = new Map(查库(库, "SELECT id, salesOwnerId, channelOwnerId FROM Customer").map((c) => [c.id, c]));
   const 归他 = (c) => Boolean(c) && (c.salesOwnerId === 我 || c.channelOwnerId === 我);
-  /** 老板那台还没有的（他刚录、还没传到）按本机那行算 */
-  const 客户该有 = (id) => (老板客户.has(id) ? 归他(老板客户.get(id)) || 公海.has(id) : 归他(本机客户.get(id)));
+  /** 老板那台还没有的（他刚录、还没传到）按本机那行算；哪台都删掉了的（删客户之后留下的操作日志）按控制库里删除前的归属算 */
+  const 客户该有 = (id) => (老板客户.has(id) ? 归他(老板客户.get(id)) || 公海.has(id) : 本机客户.has(id) ? 归他(本机客户.get(id)) : 归他(已删的("Customer", id) ?? null));
 
   const 缓存 = new Map();
   const 取行 = (表, 编号) => {
