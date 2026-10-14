@@ -9,7 +9,7 @@ import { dayjs } from "@/lib/utils";
 import { 分布说法 } from "@/lib/device-os";
 import { grantAccountAi } from "../../actions";
 import { 站内, LinkPending } from "../../OpsShell";
-import { Kpi, 卡片, 按天柱图, 横条图, 头像, 何时, 千分位, 次数条, 系统 } from "../../ui";
+import { Kpi, 卡片, 按天柱图, 横条图, 头像, TimeAgo, 千分位, 次数条, 系统 } from "../../ui";
 import type { 用户详情, 设备行 } from "../../data";
 import { TestAccountToggle as 测试开关, TestAccountTag as 测试标签 } from "../TestAccountToggle";
 
@@ -60,7 +60,7 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
                 注册于 <b className="opx-num">{dayjs(a.createdAt).format("YYYY-MM-DD HH:mm")}</b>
               </span>
               <span>
-                最近活跃 <b>{何时(a.最近活跃)}</b>
+                最近活跃 <b><TimeAgo iso={a.最近活跃} /></b>
               </span>
               <span>
                 领过注册赠送的电脑 <b className="opx-num">{详情.机器数}</b> 台
@@ -147,7 +147,7 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
             { title: "芯片", width: 90, render: (_, d) => <span className="opx-muted">{d.arch ?? "—"}</span> },
             { title: "版本", width: 90, render: (_, d) => (d.version ? <span className="opx-num">v{d.version}</span> : <span className="opx-faint">未知</span>) },
             { title: "登录于", width: 130, className: "num", render: (_, d) => <span className="opx-muted">{dayjs(d.createdAt).format("MM-DD HH:mm")}</span> },
-            { title: "最近使用", width: 110, render: (_, d) => <span className="opx-muted">{何时(d.lastUsedAt)}</span> },
+            { title: "最近使用", width: 110, render: (_, d) => <span className="opx-muted"><TimeAgo iso={d.lastUsedAt} /></span> },
             {
               title: "状态",
               width: 90,

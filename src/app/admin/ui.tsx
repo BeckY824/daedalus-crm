@@ -1,5 +1,6 @@
 "use client";
 
+import { createContext, useContext } from "react";
 import type { EChartsCoreOption } from "echarts/core";
 import type { 设备分布 } from "@/lib/device-os";
 
@@ -23,10 +24,17 @@ export const 色 = {
 
 export const 千分位 = (n: number) => n.toLocaleString("zh-CN");
 
-/** 「三天前」比一串时间戳好认——运营台是扫一眼的地方，不是查档的地方 */
-export function 何时(iso: string | null): string {
+/**
+ * 「三天前」比一串时间戳好认——运营台是扫一眼的地方，不是查档的地方。
+ *
+ * 基准 = 拿哪一刻当「现在」。页面里别直接调它，用下面的 <TimeAgo>：默认的 Date.now()
+ * 服务器渲染一次、浏览器水合再算一次，中间跨过整分钟就一个「刚刚」一个「1 分钟前」，
+ * React 报水合不一致，开发模式的报错层还会把整页的点击挡掉（PR #7 的 CI 上 e2e H-070 就这么挂过一次）。
+ */
+export function 何时(iso: string | null, 基准: string | number = Date.now()): string {
   if (!iso) return "—";
-  const 分 = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
+  const 现在 = typeof 基准 === "number" ? 基准 : new Date(基准).getTime();
+  const 分 = Math.floor((现在 - new Date(iso).getTime()) / 60_000);
   if (分 < 1) return "刚刚";
   if (分 < 60) return `${分} 分钟前`;
   const 时 = Math.floor(分 / 60);
@@ -35,6 +43,21 @@ export function 何时(iso: string | null): string {
   if (天 === 1) return "昨天";
   if (天 < 30) return `${天} 天前`;
   return iso.slice(0, 10);
+}
+
+/**
+ * 这一页是什么时候渲染的（OpsShell 的 渲染于，服务器那一刻）。「多久前」都拿它当现在：
+ * 服务器和浏览器算出来一字不差，而且和左下角「数据截至」是同一个时刻——这几页本来就是快照。
+ */
+export const 渲染时刻 = createContext<string | null>(null);
+
+/**
+ * 页面里写「多久前」用这个；不在 OpsShell 里面（没有渲染时刻）才退回 Date.now()。
+ * 名字用英文是因为 react-hooks 规则只认大写字母开头的才是组件，中文名里调 useContext 过不了 lint
+ */
+export function TimeAgo({ iso }: { iso: string | null }) {
+  const 基准 = useContext(渲染时刻);
+  return <>{基准 ? 何时(iso, 基准) : 何时(iso)}</>;
 }
 
 /** 一格数：上面是名字，大字是数，下面一行是**口径**——没有口径的数没人敢拿它做决定 */

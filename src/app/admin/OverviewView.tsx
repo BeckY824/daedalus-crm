@@ -12,7 +12,7 @@ import {
 import Chart from "@/components/Chart";
 import { 分布说法 } from "@/lib/device-os";
 import { 站内, 页头, LinkPending } from "./OpsShell";
-import { Kpi, 卡片, 按天柱图, 横条图, 头像, 何时, 千分位, 次数条, 系统们, 系统分段 } from "./ui";
+import { Kpi, 卡片, 按天柱图, 横条图, 头像, TimeAgo, 千分位, 次数条, 系统们, 系统分段 } from "./ui";
 import type { 总览数 } from "./data";
 
 const 用完了 = (a: { ai: { 送: number; 剩: number } }) => a.ai.送 > 0 && a.ai.剩 === 0;
@@ -105,7 +105,7 @@ export default function OverviewView({ token, 数 }: { token: string; 数: 总�
                   <span className="opx-who">
                     <span style={{ minWidth: 0 }}>
                       <b>{a.name}</b>
-                      <small>最近活跃 {何时(a.最近活跃)}</small>
+                      <small>最近活跃 <TimeAgo iso={a.最近活跃} /></small>
                     </span>
                   </span>
                   <span className="opx-list-r">
@@ -133,7 +133,7 @@ export default function OverviewView({ token, 数 }: { token: string; 数: 总�
                       </small>
                     </span>
                   </span>
-                  <span className="opx-list-r">{何时(a.createdAt)}</span>
+                  <span className="opx-list-r"><TimeAgo iso={a.createdAt} /></span>
                 </Link>
               ))}
             </div>
@@ -155,7 +155,7 @@ export default function OverviewView({ token, 数 }: { token: string; 数: 总�
                       {f.body}
                     </span>
                   </span>
-                  <span className="opx-list-r">{何时(f.at)}</span>
+                  <span className="opx-list-r"><TimeAgo iso={f.at} /></span>
                 </Link>
               ))}
             </div>

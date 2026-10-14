@@ -13,6 +13,7 @@ import {
   ThunderboltOutlined,
 } from "@ant-design/icons";
 import { dayjs } from "@/lib/utils";
+import { 渲染时刻 } from "./ui";
 
 export type 页 = "总览" | "用户" | "工作区" | "团队同步" | "模型用量" | "反馈";
 
@@ -131,7 +132,9 @@ export default function OpsShell({
           </button>
         </div>
       </aside>
-      <main className="opx-main">{children}</main>
+      <main className="opx-main">
+        <渲染时刻 value={渲染于}>{children}</渲染时刻>
+      </main>
     </div>
   );
 }
