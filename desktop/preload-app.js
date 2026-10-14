@@ -15,13 +15,45 @@
  */
 const { contextBridge, ipcRenderer } = require("electron");
 
-// 原生 Windows 标题栏已经提供拖动区，不复用 Mac 顶部的透明拖动条。
+/*
+  Windows（2026-10-14）：系统标题栏不画了，右上角的最小化 / 最大化 / 关闭由系统叠在页面上（主进程 titleBarOverlay）。
+  这里做两件事：
+    1. 给 <html> 挂 os-win，样式表据此让出右上角那条、压深字色（globals.css「Windows 桌面端」那几条）；
+    2. 看右上角那块页面是什么底色，报给主进程把三个钮的底色和符号色对上——换主题、开关毛玻璃、
+       右边面板开合都会变，所以盯着 <html> 的属性，再每秒对一次（取一个点的颜色，很便宜）。
+  毛玻璃开着时底是透的，钮的底也给透明，不然右上角会顶着一块实色。
+*/
 if (process.platform === "win32") {
+  const 挂 = () => document.documentElement && document.documentElement.classList.add("os-win");
+  挂();
+  let 上次 = "";
+  const 实色 = (c) => {
+    const m = /rgba?\(([^)]+)\)/.exec(c || "");
+    if (!m) return null;
+    const [r, g, b, a = "1"] = m[1].split(",").map((x) => x.trim());
+    return Number(a) < 0.5 ? null : `rgb(${r}, ${g}, ${b})`;
+  };
+  const 报 = () => {
+    const html = document.documentElement;
+    if (!html || !document.body) return;
+    let 底 = null;
+    if (!html.classList.contains("glass")) {
+      for (let el = document.elementFromPoint(window.innerWidth - 60, 18); el && !底; el = el.parentElement) 底 = 实色(getComputedStyle(el).backgroundColor);
+      底 = 底 || 实色(getComputedStyle(document.body).backgroundColor) || "#fafafa";
+    }
+    const 符号 = getComputedStyle(html).getPropertyValue("--ink-soft").trim() || "#374151";
+    const 值 = JSON.stringify({ color: 底 || "#00000000", symbolColor: 符号 });
+    if (值 === 上次) return;
+    上次 = 值;
+    ipcRenderer.send("shell:titlebar", JSON.parse(值));
+  };
   window.addEventListener("DOMContentLoaded", () => {
-    const style = document.createElement("style");
-    style.textContent = ".shell-desktop .rail{padding-top:14px}.shell-desktop .drag-strip{display:none}";
-    document.head.appendChild(style);
+    挂();
+    报();
+    new MutationObserver(报).observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-skin", "data-paper"] });
+    window.setInterval(报, 1000);
   });
+  window.addEventListener("load", 报);
 }
 
 /*

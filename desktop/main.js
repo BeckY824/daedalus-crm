@@ -741,6 +741,16 @@ function 建窗口() {
       titleBarStyle: "hiddenInset",
       trafficLightPosition: { x: 20, y: 16 },
     } : {}),
+    /*
+     * Windows（2026-10-14）：同样不要系统标题栏——原来顶上是一条系统蓝的标题栏，下面再一整行菜单，
+     * 白占两行，也不像现在的 Windows 软件。最小化 / 最大化 / 关闭交给系统叠在右上角（Window Controls Overlay），
+     * 高度和 globals.css 的 --caption-h 一致；底色和符号色由 preload 取右上角的页面底色报过来（shell:titlebar）。
+     * 菜单栏随之不显示，快捷键照旧（菜单还挂着）。
+     */
+    ...(process.platform === "win32" ? {
+      titleBarStyle: "hidden",
+      titleBarOverlay: { color: 实底, symbolColor: "#374151", height: 36 },
+    } : {}),
     ...(透明窗
       ? { transparent: true, backgroundColor: 玻璃开着() ? "#00000000" : 实底 }
       : 玻璃开着()
@@ -1344,6 +1354,18 @@ ipcMain.handle("shell:version", () => displayVersion(app.getVersion()));
 ipcMain.on("shell:glass-now", (e) => {
   e.returnValue = 玻璃开着();
 });
+// Windows 右上角三个钮的颜色跟着页面走（preload 报来）。只收 rgb()/#hex，页面传别的一律不理
+ipcMain.on("shell:titlebar", (e, v) => {
+  if (process.platform !== "win32" || !win || win.isDestroyed() || e.sender !== win.webContents) return;
+  if (typeof win.setTitleBarOverlay !== "function") return;
+  const 颜色 = (c) => typeof c === "string" && /^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\))$/.test(c.trim());
+  if (!v || !颜色(v.color) || !颜色(v.symbolColor)) return;
+  try {
+    win.setTitleBarOverlay({ color: v.color.trim(), symbolColor: v.symbolColor.trim(), height: 36 });
+  } catch {
+    /* 老系统不支持就算了：钮还在，只是颜色是默认的 */
+  }
+});
 ipcMain.handle("shell:glass", () => ({ 可用: 玻璃可用(), 开: 玻璃开着(), 系统关了: 系统要少透明() }));
 ipcMain.handle("shell:set-glass", (_e, 开) => {
   if (!玻璃可用()) return { 可用: false, 开: false, 系统关了: false };
@@ -1567,13 +1589,19 @@ function 建菜单() {
     ["跟进", "/follow-ups"],
   ].map(([label, 路径], i) => ({ label, accelerator: i < 8 ? `CmdOrCtrl+${i + 1}` : undefined, click: () => 前往(路径) }));
 
+  /*
+    Windows 没有「以软件名命名的应用菜单」这回事（2026-10-14）：设置、运营台、退出并进「文件」，「关于」挪到「帮助」。
+    Windows 上菜单栏本来就不显示（titleBarStyle: hidden），这份菜单主要是给快捷键挂着的；按 Alt 时也是 Windows 的样子
+  */
+  const 应用项 = 应用菜单.submenu.filter((x) => x.role !== "about" && x.role !== "quit").filter((x, i, a) => !(x.type === "separator" && (i === 0 || a[i - 1].type === "separator")));
+  const 头两项 = isMac
+    ? [应用菜单, { label: "文件", submenu: [{ role: "close", label: "关闭窗口" }] }]
+    : [{ label: "文件", submenu: [...应用项, { role: "close", label: "关闭窗口" }, { type: "separator" }, { role: "quit", label: "退出" }] }];
+  const 关于项 = isMac ? [] : [{ type: "separator" }, { role: "about", label: `关于 ${APP_NAME}` }];
+
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
-      应用菜单,
-      {
-        label: "文件",
-        submenu: [{ role: "close", label: "关闭窗口" }],
-      },
+      ...头两项,
       {
         label: "编辑",
         submenu: [
@@ -1632,6 +1660,7 @@ function 建菜单() {
               win.webContents.executeJavaScript('window.dispatchEvent(new Event("feedback:open"))').catch(() => {});
             },
           },
+          ...关于项,
         ],
       },
     ]),
