@@ -9,7 +9,7 @@ import { 新钥匙, 封范围 } from "@/lib/sync/crypto";
 import { 提取范围, 合并范围, 行键 } from "@/lib/sync/scope-policy";
 import { 验收范围包, 范围包错误, 清理失权副本, 范围冲突数, 列出范围冲突, 确认范围冲突, 导出范围冲突, 擦净删除残留, 擦净等锁毫秒 } from "@/lib/sync/scoped-local";
 import { 冲突导出文件名 } from "@/app/(app)/settings/scope-conflicts-file";
-import { 建同步表, 装触发器, 待推 } from "@/lib/sync/local";
+import { 建同步表, 装触发器, 待推, 回放 } from "@/lib/sync/local";
 import type { 改动 } from "@/lib/sync/local";
 
 const key = 新钥匙(), teamId = "teamscope", device = "dpusher";
@@ -141,6 +141,35 @@ describe("清理失权副本", () => {
     expect(out.条目[0].已确认).not.toBeNull();
     expect(Number((await db.$queryRawUnsafe<{ n: bigint }[]>("SELECT COUNT(*) AS n FROM _sync_scope_conflict"))[0].n)).toBe(1);
     expect(冲突导出文件名(new Date(2026, 9, 13))).toBe("同步权限冲突-20261013.json");
+  });
+  it("回放删除（含照目录补删除）：编完本机字段钟到开事务之间人又写的那一笔，不被更早的删除删掉（2026-10-14 安全复查 low #1）", async () => {
+    await db.customerPool.deleteMany({ where: { customerId: "mine" } });
+    await 待推(db, "dm");
+    // 远端（或目录）说这一行一分钟前删了
+    const 删 = { t: "CustomerPool", k: "mine", o: "D" as const, r: null, c: [], h: `${String(Date.now() - 60_000).padStart(15, "0")}-dother` };
+    // 复现窗口：回放把本机字段钟编完之后、开事务之前，人在本机把公海那一行放回来（例如撤销领取）
+    let 写过 = false;
+    const 夹写 = new Proxy(db, {
+      get(t, p) {
+        if (p === "$transaction") return async (...a: unknown[]) => {
+          if (!写过) { 写过 = true; await t.customerPool.create({ data: { customerId: "mine", reason: "手动" } }); }
+          return (t.$transaction as (...x: unknown[]) => unknown)(...a);
+        };
+        const v = (t as unknown as Record<string | symbol, unknown>)[p];
+        return typeof v === "function" ? (v as (...x: unknown[]) => unknown).bind(t) : v;
+      },
+    }) as PrismaClient;
+    await 回放(夹写, [删], "dm", { 含本人: true });
+    expect(写过).toBe(true);
+    expect(await db.customerPool.findUnique({ where: { customerId: "mine" } })).not.toBeNull();
+    // 它的插入还在待推里，之后照常推出去
+    const pend = await db.$queryRawUnsafe<{ op: string }[]>("SELECT op FROM _sync_log WHERE tbl = 'CustomerPool' AND pk = 'mine' AND seq > (SELECT v FROM _sync_cursor WHERE k = 'pushed')");
+    expect(pend.map((x) => x.op)).toContain("I");
+    // 对照：没有夹在中间的新写入时，更早的本机行照样被更晚的删除删掉
+    await 待推(db, "dm");
+    await db.$executeRawUnsafe("INSERT OR REPLACE INTO _sync_cursor (k, v) VALUES ('pushed', (SELECT MAX(seq) FROM _sync_log))");
+    await 回放(db, [{ ...删, h: `${String(Date.now() + 60_000).padStart(15, "0")}-dother` }], "dm", { 含本人: true });
+    expect(await db.customerPool.findUnique({ where: { customerId: "mine" } })).toBeNull();
   });
   it("旧草稿建的冲突表（无 resolvedAt）自动补列", async () => {
     await db.$executeRawUnsafe("ALTER TABLE _sync_scope_conflict RENAME TO _old_conflict");

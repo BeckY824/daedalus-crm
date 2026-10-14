@@ -235,9 +235,14 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
   let 撞 = 0;
   let 跳 = 0;
   const 动过的客户 = new Set<string>();
-  // 先把本机还没编字段钟的改动编上：不然别人更早的改动会盖掉我刚改、还没推的
-  await 记本机字段钟(db, 本机设备);
   await db.$transaction(async (tx) => {
+    /*
+      先把本机还没编字段钟的改动编上：不然别人更早的改动会盖掉我刚改、还没推的。
+      放在事务里面编（2026-10-14 安全复查）：原来在事务外编，编完到开事务之间人又写了一笔（例如撤销领取把公海那一行放回来），
+      那一笔没有字段钟，紧接着回放的删除 / 照目录补删除就把它当成更早的改动删掉了，而它的插入照样推出去——两边对不上。
+      事务里本机只有这一个连接在写，编完到回放之间插不进新改动。
+    */
+    await 记本机字段钟(tx, 本机设备);
     await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 1 WHERE id = 1");
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
     const 记跳过 = async (t: string, k: string, h: string, why: string) => {
