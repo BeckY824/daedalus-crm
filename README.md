@@ -4,11 +4,11 @@
 
 # Daedalus CRM
 
-**下一代 CRM，跑在你自己的机器上。AI 起草，你来拍板。**
+**下一代 CRM，跑在你自己的电脑上。AI 起草，你来拍板。**
 
-**给一个人用的**客户管理系统：线索 → 客户 → 跟进 → 商机 → 签约，推荐归属自动算。<br/>
-一人公司、独立顾问、自己带客户的销售——数据是你机器上的一个文件，不是公司系统里的一行。<br/>
-（几个人的团队要共用一份数据，自己部署那份也支持，见下。）<br/>
+**桌面端客户管理系统（Mac / Windows）**：线索 → 客户 → 跟进 → 商机 → 签约，推荐归属自动算。<br/>
+**个人版免费**：一人公司、独立顾问、自己带客户的销售，装完就用，数据是你电脑上的一个文件。<br/>
+**团队版按席位收费**：几个人各用各的桌面端，客户、跟进、商机自动同步。<br/>
 首页是一个 agent 对话面，问一句它自己决定查什么；想改数据它只给建议卡，你点确认才写入。
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
@@ -19,33 +19,34 @@
 
 **简体中文** · [English](README_EN.md)
 
-[官网](https://ai-daedalus.com) · [下载 Mac 版](https://ai-daedalus.com/download.html) · [下载 Windows 版](https://ai-daedalus.com/download.html) · [部署文档](docs/部署.md) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues) · [☕ 请我们喝杯咖啡](#-请我们喝杯咖啡)
+[官网](https://ai-daedalus.com) · [下载 Mac 版](https://ai-daedalus.com/download.html) · [下载 Windows 版](https://ai-daedalus.com/download.html) · [路线图](ROADMAP.md) · [反馈](https://github.com/BeckY824/daedalus-crm/issues) · [☕ 请我们喝杯咖啡](#-请我们喝杯咖啡)
 
 </div>
 
 <br/>
 
-## 两个版本，各拿各的
+## 个人版和团队版
 
-**主推桌面端**——它是给一个人用的：装完就用，数据是你机器上的一个文件，不需要服务器。
+只有桌面端：Mac（Apple 芯片）和 Windows（x64），都从[下载页](https://ai-daedalus.com/download.html)下载。
 
-| | 给谁 | 怎么拿 | 版本 |
+| | 给谁 | 怎么用 | 收费 |
 |---|---|---|---|
-| 🖥 **桌面端**（主推） | **一个人**。销售自己、个体户、一人公司 | [Mac（Apple 芯片）](https://ai-daedalus.com/download.html) · [Windows x64（.exe）](https://ai-daedalus.com/download.html) | 正式版见[最新 Release](https://github.com/BeckY824/daedalus-crm/releases/latest)，补丁包见[滚动 Release](https://github.com/BeckY824/daedalus-crm/releases/tag/desktop-updates) |
-| 👥 **多人团队版** | **一个团队**。要几个人看同一份数据 | 自己部署：`docker compose up -d`（见 [docs/部署.md](docs/部署.md)）<br/>或者用我们托管的那份，[跟我们说一声](https://ai-daedalus.com/demo.html) | 镜像 `ghcr.io/becky824/daedalus-crm:<版本>` |
+| 🖥 **个人版** | **一个人**。销售自己、个体户、一人公司 | 装好后在软件里用邮箱注册一个免费账号就能用。数据在本机，断网也能用 | 免费 |
+| 👥 **团队版** | **几个人一起跑客户** | 各用各的桌面端，客户、跟进、商机自动同步。开通方法见[团队版怎么开](#团队版怎么开) | 按席位收费，开通后先免费用 14 天 |
 
-**两边是同一套代码、同一个版本号，但发布节奏可以不一样**：桌面端发了新版之后，
-我们自己托管的那份可能还停在上一版——以 [app.ai-daedalus.com/api/health](https://app.ai-daedalus.com/api/health) 为准。
+团队版的数据也在每个人自己的电脑上：改动加密后经我们的服务器转交，钥匙只在团队邀请码里，我们看不到内容。
+
+正式版见[最新 Release](https://github.com/BeckY824/daedalus-crm/releases/latest)，补丁包见[滚动 Release](https://github.com/BeckY824/daedalus-crm/releases/tag/desktop-updates)。
 
 <br/>
 
 <div align="center">
 
-**100% 开源 &nbsp;·&nbsp; 自托管，数据不出内网 &nbsp;·&nbsp; AI 只起草，写入永远由人点**
+**100% 开源 &nbsp;·&nbsp; 数据在你自己的电脑上 &nbsp;·&nbsp; AI 只起草，写入永远由人点**
 
 </div>
 
-- ✅ 一条命令起来：`docker compose up -d`，零配置，不用信用卡
+- ✅ 装完就用：下载安装、在软件里用邮箱注册，不用配服务器；数据在本机，断网也能用
 - ✅ 首页是一个 agent：问一位客户、问一个数，它自己决定搜谁、读谁、查什么，每一步看得见
 - ✅ 问过的对话留着：左边一列按今天 / 昨天 / 更早列着，点一条读回那次问答，只有自己看得见
 - ✅ 常见问题三到六秒出结果：「有哪些渠道」「这个月谁签得最多」这类固定问题直接查，不必每次让模型重想一遍
@@ -69,69 +70,31 @@
 
 ## 🚀 快速开始
 
-### 用 Docker（推荐）
+1. 到[下载页](https://ai-daedalus.com/download.html)下载桌面端：Mac（Apple 芯片）或 Windows（x64）。Intel Mac 暂无安装包
+2. 第一次打开是登录页：用邮箱注册一个免费账号（在软件里直接注册），登录就进
+3. 想用 AI，两条路任选，设置页会写清楚当前走的是哪一条、还剩几次：
+   - **用我们的模型**：第一次登录送 30 次 AI 提问（一台电脑一份，用完不补）。问一句扣一次，我们这边出错的那次退回
+   - **用自己的 Key**：在「设置 → AI 接入」填自己的模型 API Key（推荐 DeepSeek），继续用、不计次。Key 加密存在这台电脑上，只发给你自己填的那个接口地址
+4. **换个行业说法**：「设置 → 业务配置」里改名词和三个档案字段（教培招生有现成预设，点一下整套换过去），全站同步
 
-```bash
-git clone https://github.com/BeckY824/daedalus-crm.git && cd daedalus-crm
-docker compose up -d
-```
-
-### 或者本地跑（Node 22+）
-
-```bash
-git clone https://github.com/BeckY824/daedalus-crm.git && cd daedalus-crm
-npm install && npm run setup && npm run dev
-```
-
-打开 **http://localhost:3000**，用演示账号登录：
-
-| 用户名 | 密码 | 身份 |
-|---|---|---|
-| `admin` | `admin123` | 管理员 |
-| `zhangsan` | `admin123` | 销售「张三」（演示） |
-| `lisi` | `admin123` | 销售「李四」（演示） |
-
-登录后点左下角账号菜单 →「设置 →登录与密码」把密码改掉。就这些。
-
-- **想用 AI**：管理员进「设置 → AI 接入」（设置在左下角账号菜单里，或按 ⌘,），填接口地址、API Key、模型名，点「测试连接」。不填就没有 AI 入口，其余功能照常
-- **换个行业说法**：「设置 → 业务配置」里改名词和三个档案字段（教培招生有现成预设，点一下整套换过去），全站同步
-- **HTTPS、升级、备份**：见 [docs/部署.md](docs/部署.md)
-
-### 网页版（我们托管的那一份）
-
-**一个人用就装桌面端**（主推，下面一节）：装完就用，数据在你机器上，不需要服务器。
-
-一个团队要共用一份数据，两条路：自己 `docker compose up -d`，
-或者用我们托管的那份[多人团队版](https://app.ai-daedalus.com)——不用装、不用配服务器，
-一套账号密码发给你们，整个团队在同一个工作区里协作，
-[跟我们说一声](https://ai-daedalus.com/demo.html)或者邮件 qy1g18@gmail.com。功能是同一套代码。
-
-[app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) 注册的是**云端账号**，给桌面端用（记 AI 次数），
-它不会开出一个网页工作区。
-
-### 桌面客户端
-
-Mac 版（Apple 芯片）和 Windows 版（x64）都**自带一整套服务**：装完直接用，数据是你机器上的一个文件，不需要服务器。
-**第一次打开是登录页**：用邮箱注册一个免费账号（登录页上的「注册新账号 ↗」），登录就进。Mac 使用**差量更新**，Windows 使用完整安装包覆盖更新。
-
-AI 有两条路：在「设置 → 桌面端」登录云端账号，用我们的模型（第一次登录送 30 次，一台电脑一份，
-用完不再补；注册和找回密码都在应用内）；
-或者在「设置 → AI 接入」填自己的模型 API Key——不需要账号，
-完全不走我们的额度，Key 加密存在这台机器上，只发给你自己填的那个接口地址。
-次数按提问算：问一句扣一次，我们这边出错的那次退回。设置页会写清楚当前走的是哪一条、还剩几次。
-
-团队要共用一份数据时，在「设置 → 桌面端 → 连接服务器」填你们自己部署的实例地址。
-[下载 Windows x64 安装包](https://ai-daedalus.com/download.html)。此安装包未签名；构建与安装说明见 [Windows 版](docs/Windows版.md)，与 Mac 共用本地数据和云端账号架构。Intel Mac 暂无安装包。
-
+Mac 使用**差量更新**，Windows 使用完整安装包覆盖更新。Windows 安装包未签名，安装说明见 [Windows 版](docs/Windows版.md)。
 安装、放行与更新见 [docs/桌面端安装.md](docs/桌面端安装.md)；实现见 [desktop/README.md](desktop/README.md)；
 接 Claude Code / Codex 见 [docs/MCP接入.md](docs/MCP接入.md)；
 官网要提供的下载页与版本信息见 [docs/网站对接.md](docs/网站对接.md)。
+
+### 团队版怎么开
+
+1. 老板在「设置 → 团队」建团队
+2. 点左下角「反馈」申请开通
+3. 我们开通后，同事用邀请码加入
+
+**按席位收费**：团队里每人一席，建团队的人也算；开通后先免费用 14 天。问价请[联系我们](mailto:qy1g18@gmail.com)。
 
 <br/>
 
 ## ☕ 请我们喝杯咖啡
 
-桌面端免费，开源版永久免费、功能不阉割——**这一点不会因为你付不付钱而改变。**
+个人版免费、代码开源——**这一点不会因为你付不付钱而改变。**
 如果它替你省下了时间，扫下面任意一个码就好。一杯咖啡大约 ¥20，多少都是心意。
 
 <table>
@@ -187,9 +150,10 @@ Esc 关掉回到原处。桌面端再把系统标题栏去掉，红黄绿钮嵌�
 
 外部渠道 → 客户 → 客户转介绍，归属取往上两代、不足两代取链条顶端；渠道负责人整条链继承。归属在录入时固化：**改上游推荐人、换渠道负责人，都不追溯改写已有客户的业绩**——没动他的数据，他的归属就不变。个别登记错误在他档案里单独订正。
 
-### 多人团队版底座（可选）
+### 团队版：各用各的桌面端，自动同步
 
-同一份代码，`MULTI_TENANT=1` 打开多租户：一个工作区一个 SQLite 文件，物理隔离；邮箱验证码注册、自助找回密码、订阅与运营台、AI 免费次数账本（开户送 30、用完不补，一个问题扣一次）。我们线上用它跑多人团队版（发给团队用的那份工作区）和桌面端的云端账号。自部署和桌面端不开这个开关，一行相关代码都不会执行。
+几个人各装各的桌面端，客户、跟进、商机自动同步。数据在每个人自己的电脑上，改动加密后经我们的服务器转交，钥匙只在团队邀请码里，我们看不到内容。
+老板看得到所有人的客户和跟进；业务员看得到自己负责的客户和公海。客户页分「我的客户 / 公海」，公海客户谁都能领。
 
 ### 用 DeepSeek，也能自己填别的
 
@@ -209,9 +173,9 @@ Esc 关掉回到原处。桌面端再把系统标题栏去掉，红黄绿钮嵌�
 |---|---|
 | **任何小团队销售** | 默认措辞就是它：客户、公司、职位、行业；线索 → 客户 → 商机管道通用 |
 | **教培 / 留学招生** | 「设置 → 业务配置」点一下「教培招生」预设：学员、院校、年级、专业、转介绍归属，全站同步 |
-| **自托管、数据敏感** | 一个容器、一个 SQLite 文件，备份就是复制一个文件；AI 只读不写 |
-| **一个人用** | 桌面端（主推）：装完就用，数据在你机器上，不需要服务器 |
-| **不想部署** | 多人团队版：跟我们要一套账号，整个团队在同一个工作区里协作 |
+| **数据敏感** | 数据在每个人自己的电脑上，备份就是复制一个文件；团队版同步的改动加密转交，我们看不到内容；AI 只读不写 |
+| **一个人用** | 个人版：免费，装完就用，数据在你电脑上，断网也能用 |
+| **几个人一起跑客户** | 团队版：各用各的桌面端，自动同步，按席位收费 |
 
 <br/>
 
@@ -234,11 +198,11 @@ Esc 关掉回到原处。桌面端再把系统标题栏去掉，红黄绿钮嵌�
 | 层 | 选择 |
 |---|---|
 | 框架 | Next.js 16 · React 19 · TypeScript 5 |
-| 数据 | Prisma 6 · SQLite（一库一文件，多人团队版一工作区一文件） |
+| 数据 | Prisma 6 · SQLite（一库一文件） |
 | 界面 | Ant Design 6 · motion |
 | AI | OpenAI 兼容接口，ReAct 循环，工具全部只读；一键选 DeepSeek，也能自己填别的地址 |
-| 测试 | vitest（1136 单测）· Playwright（117 自部署 + 13 多人团队版 e2e）· CI 全绿才能合并 |
-| 交付 | Docker 多架构镜像（GHCR）· Electron 桌面端（macOS，Apple 芯片）· Caddy 自动 HTTPS |
+| 测试 | vitest（1136 单测）· Playwright（117 自部署 + 13 云端账号 e2e）· CI 全绿才能合并 |
+| 交付 | Electron 桌面端（macOS Apple 芯片 · Windows x64）· Docker 多架构镜像（GHCR，自部署用）· Caddy 自动 HTTPS |
 
 <br/>
 
@@ -251,7 +215,7 @@ Esc 关掉回到原处。桌面端再把系统标题栏去掉，红黄绿钮嵌�
 | 对话面与建议卡 | agent 循环、流式回答、引用回跳、多轮上下文、7 种建议卡 | ✅ 已发布 |
 | 记录页 | 档案行内编辑、时间线、速记解析、按需简报 | ✅ 已发布 |
 | 界面与手感 | 可拖宽的左栏、设置浮层、⌘K / ⌘, / ⌘1–9、全站按下即有回应 | ✅ 已发布 |
-| 多人团队版底座 | 多租户、注册与免费额度、运营台、桌面端的云端账号 | ✅ 已发布 |
+| 云端账号与团队版 | 注册与免费额度、找回密码、桌面端之间加密同步、我的客户 / 公海 | ✅ 已发布 |
 | 可保存的视图 | 一组筛选存成一个视图，下次一点就回来 | 🔜 计划中 |
 | 列表页行内编辑 | 不进详情页就能改一格 | 🔜 计划中 |
 | 在线支付 | 微信 / 支付宝（需备案与商户号） | ⏸ 视需求 |
@@ -261,6 +225,21 @@ Esc 关掉回到原处。桌面端再把系统标题栏去掉，红黄绿钮嵌�
 ## 🤝 参与贡献
 
 欢迎 issue 和 PR。开发、测试、提交规范见 [CONTRIBUTING.md](CONTRIBUTING.md)；给 AI 编码助手看的约定在 [AGENTS.md](AGENTS.md)。
+
+本地跑起来（Node 22+）：
+
+```bash
+git clone https://github.com/BeckY824/daedalus-crm.git && cd daedalus-crm
+npm install && npm run setup && npm run dev
+```
+
+打开 **http://localhost:3000**，开发库自带三个账号，密码都是 `admin123`：
+
+| 用户名 | 身份 |
+|---|---|
+| `admin` | 管理员 |
+| `zhangsan` | 销售「张三」（演示） |
+| `lisi` | 销售「李四」（演示） |
 
 <a href="https://github.com/BeckY824/daedalus-crm/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=BeckY824/daedalus-crm" alt="contributors" />
@@ -283,9 +262,15 @@ Esc 关掉回到原处。桌面端再把系统标题栏去掉，红黄绿钮嵌�
 ## 🌐 社区与联系
 
 - 官网：[ai-daedalus.com](https://ai-daedalus.com)
-- 桌面端的云端账号：[app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup)（桌面端登录用，第一次登录送 AI 次数；不开网页工作区）
+- 下载桌面端：[ai-daedalus.com/download.html](https://ai-daedalus.com/download.html)（个人版免费，在软件里注册）
 - 问题与建议：[GitHub Issues](https://github.com/BeckY824/daedalus-crm/issues)
-- 想用网页版、想聊聊：[说一声](https://ai-daedalus.com/demo.html) · qy1g18@gmail.com
+- 团队版开通、问价：桌面端左下角「反馈」，或邮件 qy1g18@gmail.com
+
+<br/>
+
+## 🐳 自行部署
+
+代码开源（AGPL-3.0），也可以用 Docker 自行部署：`docker compose up -d`，详见 [docs/部署.md](docs/部署.md)。
 
 <br/>
 

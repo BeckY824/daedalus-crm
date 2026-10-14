@@ -4,11 +4,11 @@
 
 # Daedalus CRM
 
-**The next-generation CRM that runs on your own machine. AI drafts, you decide.**
+**The next-generation CRM that runs on your own computer. AI drafts, you decide.**
 
-**A CRM for one person**: leads → customers → follow-ups → deals → contracts, with referral attribution computed for you.<br/>
-Solo founders, independent consultants, salespeople who own their book — your data is a file on your machine, not a row in someone else's system.<br/>
-(Small teams that need a shared database can self-host; see below.)<br/>
+**A desktop CRM for Mac and Windows**: leads → customers → follow-ups → deals → contracts, with referral attribution computed for you.<br/>
+**Personal edition — free**: for solo founders, independent consultants and salespeople who own their book. Install it and go; your data is a file on your computer.<br/>
+**Team edition — billed per seat**: everyone runs their own desktop app, and customers, follow-ups and deals sync automatically.<br/>
 The home page is an agent: ask a question and it decides what to look up; ask it to change data and it hands you a proposal card — nothing is written until you confirm.
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
@@ -19,32 +19,34 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 [简体中文](README.md) · **English**
 
-[Website](https://ai-daedalus.com) · [Download for Mac](https://ai-daedalus.com/download.html) · [Download for Windows](https://ai-daedalus.com/download.html) · [Deployment](docs/部署.md) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues) · [☕ Buy us a coffee](#-buy-us-a-coffee)
+[Website](https://ai-daedalus.com) · [Download for Mac](https://ai-daedalus.com/en/download.html) · [Download for Windows](https://ai-daedalus.com/en/download.html) · [Roadmap](ROADMAP.md) · [Issues](https://github.com/BeckY824/daedalus-crm/issues) · [☕ Buy us a coffee](#-buy-us-a-coffee)
 
 </div>
 
 <br/>
 
-## Two editions — take the one that fits
+## Personal and Team editions
 
-**The desktop app is the one we lead with.** It is built for one person: install it and it runs, your data is a single file on your machine, no server needed.
+Desktop only: Mac (Apple silicon) and Windows (x64), both from the [download page](https://ai-daedalus.com/en/download.html).
 
-| | Who | How to get it | Version |
+| | Who | How it works | Price |
 |---|---|---|---|
-| 🖥 **Desktop app** (primary) | **One person.** A salesperson, a freelancer, a one-person company | [Mac (Apple silicon)](https://ai-daedalus.com/download.html) · [Windows x64 (.exe)](https://ai-daedalus.com/download.html) | Stable versions: [latest Release](https://github.com/BeckY824/daedalus-crm/releases/latest). Patches: [rolling Release](https://github.com/BeckY824/daedalus-crm/releases/tag/desktop-updates) |
-| 👥 **Team edition** | **A team.** Several people on one shared database | Self-host: `docker compose up -d` (see [docs/部署.md](docs/部署.md))<br/>or use the instance we host — [tell us](https://ai-daedalus.com/demo.html) | Image `ghcr.io/becky824/daedalus-crm:<version>` |
+| 🖥 **Personal** | **One person.** A salesperson, a freelancer, a one-person company | Sign up for a free account with your email right inside the app, and you're in. Data stays on your computer and works offline | Free |
+| 👥 **Team** | **A few people working the same customers** | Everyone runs their own desktop app; customers, follow-ups and deals sync automatically. See [Setting up a team](#setting-up-a-team) | Per seat, with a 14-day free period after activation |
 
-**Same codebase and same version number, but they can ship on different days**: after a desktop release the instance we host may still be on the previous version — [app.ai-daedalus.com/api/health](https://app.ai-daedalus.com/api/health) is the source of truth.
+Team data also lives on each person's own computer: changes are encrypted and relayed through our server, the key exists only in the team invite code, and we can't read the content.
+
+Stable versions: [latest Release](https://github.com/BeckY824/daedalus-crm/releases/latest). Patches: [rolling Release](https://github.com/BeckY824/daedalus-crm/releases/tag/desktop-updates).
 
 <br/>
 
 <div align="center">
 
-**100% open source &nbsp;·&nbsp; Self-hosted, data never leaves your network &nbsp;·&nbsp; AI only drafts — every write is a human click**
+**100% open source &nbsp;·&nbsp; Your data stays on your computer &nbsp;·&nbsp; AI only drafts — every write is a human click**
 
 </div>
 
-- ✅ One command: `docker compose up -d`. Zero config, no credit card
+- ✅ Install and go: download, install, sign up with your email inside the app — no server to set up; data stays on your computer and works offline
 - ✅ The home page is an agent: ask about a customer or a number and it decides what to search, read and query — every step visible
 - ✅ Tell it "log a call", "mark as signed", "schedule next Wednesday", "create a deal" — it returns an editable proposal card; nothing lands until you confirm
 - ✅ "Paste a chat" right in the home-page input box: drop in a list someone forwarded you on WeChat, AI splits it into customers, nothing is saved until you confirm, and the whole batch can be undone
@@ -65,60 +67,29 @@ The home page is an agent: ask a question and it decides what to look up; ask it
 
 ## 🚀 Getting started
 
-### Docker (recommended)
+1. Download the desktop app from the [download page](https://ai-daedalus.com/en/download.html): Mac (Apple silicon) or Windows (x64). Intel Mac builds are not available yet
+2. The first launch opens the sign-in page: sign up for a free account with your email (right inside the app), then sign in
+3. To use AI, pick either route — the settings page tells you which one is in use and how many questions are left:
+   - **Our models**: 30 free AI questions on your first sign-in (one grant per computer, not topped up). One question costs one credit, and a question that fails on our side is refunded
+   - **Your own key**: put your own model API key in **Settings → AI** (DeepSeek recommended) and keep going with no count. The key is encrypted on your computer and only ever sent to the endpoint you typed
+4. **Different industry?** Settings → Business config renames the noun and the three profile fields site-wide (education admissions is a ready-made preset — one click swaps the whole set)
 
-```bash
-git clone https://github.com/BeckY824/daedalus-crm.git && cd daedalus-crm
-docker compose up -d
-```
-
-### Or run locally (Node 22+)
-
-```bash
-git clone https://github.com/BeckY824/daedalus-crm.git && cd daedalus-crm
-npm install && npm run setup && npm run dev
-```
-
-Open **http://localhost:3000** and sign in with a demo account:
-
-| Username | Password | Role |
-|---|---|---|
-| `admin` | `admin123` | Administrator |
-| `zhangsan` | `admin123` | Sales (demo) |
-| `lisi` | `admin123` | Sales (demo) |
-
-Change the password under the account menu (bottom-left) → Settings → Sign-in & password. That's it.
-
-- **Enable AI**: Settings → AI (the account menu at the bottom left, or press ⌘,), enter the endpoint, API key and model, hit "Test connection". Without it the AI entry points simply don't appear; everything else works
-- **Different industry?** Settings → Business config renames the noun and the three profile fields site-wide (education admissions is a ready-made preset — one click swaps the whole set)
-- **HTTPS, upgrades, backups**: see [docs/部署.md](docs/部署.md)
-
-### The team edition
-
-**One person? Install the desktop app** (primary — see the next section): it runs as soon as you install it, your data stays on your machine, no server needed.
-
-For a team sharing one database there are two routes: `docker compose up -d` on your own box, or the [team edition we host](https://app.ai-daedalus.com) — nothing to install or configure, one set of credentials for the team, everyone in the same workspace. [Tell us](https://ai-daedalus.com/demo.html) or email qy1g18@gmail.com. Same codebase either way.
-
-[app.ai-daedalus.com/signup](https://app.ai-daedalus.com/signup) creates a **cloud account** for the desktop app (it tracks AI credits); it does not create a web workspace. For your own data, install the desktop app or self-host.
-
-### Desktop apps
-
-The Mac (Apple silicon) and Windows (x64) builds **ship the whole server inside the app**: install it and it runs, your data is a single file on your machine, no server needed.
-**The first launch opens the sign-in page**: register a free account through the sign-up link, then sign in. Mac uses delta updates; Windows updates use the full installer.
-
-Two ways to get AI: sign in to a cloud account under **Settings → Desktop** and use our models (30 free questions on your first sign-in, one grant per computer; 3 more on any day you use it while under 30; sign-up happens in the browser, password reset works in the app), or put your own model API key in **Settings → AI** — no account needed, it bypasses our allowance entirely, and the key is encrypted on your machine and only ever sent to the endpoint you typed. Credits are counted per question, not per model call, and a question that fails on our side is refunded. The settings page tells you which of the two is in use and how many are left.
-
-To share one database across a team, use Settings → Desktop → Connect to a server and enter your own deployment's address.
-
-[Download Windows x64](https://ai-daedalus.com/download.html). The installer is unsigned. See the [Windows guide](docs/Windows版.md) for installation and build details. Intel Mac builds are not available yet.
-
+Mac uses delta updates; Windows updates use the full installer. The Windows installer is unsigned — see the [Windows guide](docs/Windows版.md).
 Builds are produced by [GitHub Actions](https://github.com/BeckY824/daedalus-crm/actions/workflows/desktop.yml) on every tag. Install, Gatekeeper and updates: [docs/桌面端安装.md](docs/桌面端安装.md).
+
+### Setting up a team
+
+1. The owner creates a team under **Settings → Team**
+2. Click **Feedback** at the bottom left to request activation
+3. Once we activate it, teammates join with the invite code
+
+**Billed per seat**: one seat per person on the team, including whoever created it; 14 days free after activation. For pricing, [contact us](mailto:qy1g18@gmail.com).
 
 <br/>
 
 ## ☕ Buy us a coffee
 
-The desktop app is free, and the open-source edition stays free with nothing held back — **whether or not you chip in.**
+The Personal edition stays free and the code stays open source — **whether or not you chip in.**
 If it saves you time, a coffee is about $3. For now we can only take WeChat Pay and Alipay:
 
 <table>
@@ -171,9 +142,10 @@ An "Import" button on the customer list, two ways in: **drop an Excel / CSV file
 
 Channel → customer → referred customer: attribution goes two generations up, or to the top of the chain if shorter; the channel owner is inherited along the whole chain. Attribution is frozen at entry — **changing an upstream referrer or a channel's owner never rewrites existing customers' performance**. Individual mistakes are corrected on that one record.
 
-### The team-edition backbone (optional)
+### Team edition: everyone on their own desktop app, kept in sync
 
-Same codebase; `MULTI_TENANT=1` turns on multi-tenancy: one SQLite file per workspace (physical isolation), email sign-up with a verification code, self-service password reset, subscriptions and an ops console, a free-AI-credits ledger (30 to start, 3 per active day, one credit per question). We run it for the team edition (the workspace we hand to teams) and the desktop app's cloud accounts. Self-hosted and desktop installs never execute a line of it.
+Each person installs the desktop app; customers, follow-ups and deals sync automatically. Data lives on each person's own computer — changes are encrypted and relayed through our server, the key exists only in the team invite code, and we can't read the content.
+The owner sees everyone's customers and follow-ups; a salesperson sees the customers they own plus the shared pool. The customer page is split into "My customers / Shared pool", and anyone can claim a customer from the pool.
 
 ### Runs on DeepSeek, or bring your own endpoint
 
@@ -189,9 +161,9 @@ To point somewhere else, "Other (enter your own endpoint)" in Settings takes an 
 |---|---|
 | **Any small sales team** | The default wording: customers, companies, titles, industries; the lead → customer → deal pipeline is generic |
 | **Education / study-abroad admissions** | One click on the "education admissions" preset in Settings → Business config: students, schools, grades, majors, referral attribution |
-| **One person** | The desktop app (primary): install and go, data on your machine, no server |
-| **Self-hosted, sensitive data** | One container, one SQLite file — backup is a file copy; AI is read-only |
-| **No deployment wanted** | Desktop app: install and go, data stays on your machine; or use the web version we host — ask us for credentials |
+| **One person** | The Personal edition: free, install and go, data on your computer, works offline |
+| **Sensitive data** | Data lives on each person's own computer — backup is a file copy; Team sync relays encrypted changes we can't read; AI is read-only |
+| **A few people, same customers** | The Team edition: everyone on their own desktop app, synced automatically, billed per seat |
 
 <br/>
 
@@ -214,11 +186,11 @@ More in [docs/shots](docs/shots).
 | Layer | Choice |
 |---|---|
 | Framework | Next.js 16 · React 19 · TypeScript 5 |
-| Data | Prisma 6 · SQLite (one file per install; one per workspace in the team edition) |
+| Data | Prisma 6 · SQLite (one file per install) |
 | UI | Ant Design 6 · motion |
 | AI | OpenAI-compatible API, ReAct loop, read-only tools; one-click DeepSeek, or bring your own endpoint |
-| Tests | vitest (1136 unit) · Playwright (117 self-hosted + 13 team-edition e2e) · green CI required to merge |
-| Delivery | Multi-arch Docker image (GHCR) · Electron desktop (macOS, Apple silicon) · Caddy auto-HTTPS |
+| Tests | vitest (1136 unit) · Playwright (117 self-hosted + 13 cloud-account e2e) · green CI required to merge |
+| Delivery | Electron desktop (macOS Apple silicon · Windows x64) · Multi-arch Docker image (GHCR, for self-hosting) · Caddy auto-HTTPS |
 
 <br/>
 
@@ -231,7 +203,7 @@ Ordered by "someone actually needs it". To push an item, [open an issue](https:/
 | Conversation & proposal cards | agent loop, streaming, citations, multi-turn context, 7 card types | ✅ Shipped |
 | Record page | inline profile editing, timeline, quick-note parsing, on-request briefing | ✅ Shipped |
 | Shell & feel | resizable rail, settings as an overlay, ⌘K / ⌘, / ⌘1–9, press feedback everywhere | ✅ Shipped |
-| Team-edition backbone | multi-tenant, sign-up and free credits, ops console, cloud accounts for the desktop app | ✅ Shipped |
+| Cloud accounts & Team edition | sign-up and free credits, password reset, encrypted sync between desktop apps, my customers / shared pool | ✅ Shipped |
 | List pages | inline editing without opening the record | 🔜 Planned |
 | Saved views | keep a set of filters and come back to it in one click | 🔜 Planned |
 | Online payments | WeChat / Alipay (requires ICP filing & merchant account) | ⏸ On demand |
@@ -241,6 +213,21 @@ Ordered by "someone actually needs it". To push an item, [open an issue](https:/
 ## 🤝 Contributing
 
 Issues and PRs welcome. Development, testing and commit conventions are in [CONTRIBUTING.md](CONTRIBUTING.md); conventions for AI coding assistants in [AGENTS.md](AGENTS.md).
+
+Run it locally (Node 22+):
+
+```bash
+git clone https://github.com/BeckY824/daedalus-crm.git && cd daedalus-crm
+npm install && npm run setup && npm run dev
+```
+
+Open **http://localhost:3000**. The dev database comes with three accounts, all with password `admin123`:
+
+| Username | Role |
+|---|---|
+| `admin` | Administrator |
+| `zhangsan` | Sales (demo) |
+| `lisi` | Sales (demo) |
 
 <a href="https://github.com/BeckY824/daedalus-crm/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=BeckY824/daedalus-crm" alt="contributors" />
@@ -263,9 +250,15 @@ Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.m
 ## 🌐 Community & contact
 
 - Website: [ai-daedalus.com](https://ai-daedalus.com)
-- Desktop app: [ai-daedalus.com/download.html](https://ai-daedalus.com/download.html) · the team edition: ask us
+- Desktop app: [ai-daedalus.com/en/download.html](https://ai-daedalus.com/en/download.html) (Personal edition is free; sign up inside the app)
 - Questions & ideas: [GitHub Issues](https://github.com/BeckY824/daedalus-crm/issues)
-- Want the web version, or just to talk: [tell us](https://ai-daedalus.com/demo.html) · qy1g18@gmail.com
+- Team edition activation & pricing: **Feedback** at the bottom left of the desktop app, or email qy1g18@gmail.com
+
+<br/>
+
+## 🐳 Self-hosting
+
+The code is open source (AGPL-3.0), and you can also deploy it yourself with Docker: `docker compose up -d` — see [docs/部署.md](docs/部署.md).
 
 <br/>
 
