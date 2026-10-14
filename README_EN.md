@@ -61,7 +61,7 @@ Stable versions: [latest Release](https://github.com/BeckY824/daedalus-crm/relea
 
 <br/>
 
-![Home: the agent conversation](docs/shots/02-dashboard.png)
+![Home: the agent conversation](docs/shots/02-dashboard.jpg)
 
 <br/>
 
@@ -171,11 +171,11 @@ To point somewhere else, "Other (enter your own endpoint)" in Settings takes an 
 
 | Customers | Record page |
 |---|---|
-| ![](docs/shots/04-customers.png) | ![](docs/shots/05-customer-detail.png) |
+| ![](docs/shots/04-customers.jpg) | ![](docs/shots/05-customer-detail.jpg) |
 
 | Deal pipeline | Dashboard |
 |---|---|
-| ![](docs/shots/08-pipeline.png) | ![](docs/shots/02b-overview.png) |
+| ![](docs/shots/08-pipeline.jpg) | ![](docs/shots/02b-overview.jpg) |
 
 More in [docs/shots](docs/shots).
 
