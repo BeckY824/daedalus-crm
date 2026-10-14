@@ -1,22 +1,13 @@
-// The tested maintenance builds belong to the public 0.46.15 release.
-// Keep the build version for update ordering and install completion checks:
-// testers already have 0.46.16 candidates installed, so the final build is 0.46.17
-// (a higher build number reaches them through in-app update) and still shows as 0.46.15.
-const PUBLIC_VERSION = { "0.46.16": "0.46.15", "0.46.17": "0.46.15" };
-
+// 包里的版本号就是用户看到的版本号：0.46.15 起不再有「内部构建号 → 公开版本号」的映射，
+// 更新内容也按 CHANGELOG 一版一段原样给。
+// 两个函数留着、原样返回，调用方（main.js、WhatsNew、whats-new-actions、smoke-windows-update）不用改；
+// 以后真要再分开显示，只改这一处。
 function displayVersion(buildVersion) {
-  return PUBLIC_VERSION[String(buildVersion).replace(/^v/, "")] ?? buildVersion;
+  return buildVersion;
 }
 
 function displayReleaseNotes(entries) {
-  const result = [];
-  for (const entry of entries) {
-    const version = displayVersion(entry.版本);
-    const previous = result.at(-1);
-    if (previous?.版本 === version) previous.正文 += "\n\n" + entry.正文;
-    else result.push({ ...entry, 版本: version });
-  }
-  return result;
+  return [...entries];
 }
 
 module.exports = { displayVersion, displayReleaseNotes };

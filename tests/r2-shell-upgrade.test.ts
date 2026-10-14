@@ -296,8 +296,8 @@ it.each(["通用销售","外贸出口"])("D042 真实0.46.15旧库缺template/cu
  expect(before.prepare('SELECT count(*) AS n FROM ContractMoney WHERE contractId=?').get("old15-contract")).toEqual({n:0});before.close();
  const snapshot=快照(file);const logs:string[]=[];
  automaticBackup.自动备份({库:file,数据目录:directory,版本:"0.46.15",日志:(line:string)=>logs.push(line)});
- const backups=automaticBackup.自动备份({库:file,数据目录:directory,版本:"0.46.16",日志:(line:string)=>logs.push(line)});
- const filename="before-upgrade-0.46.15-to-0.46.16.db";expect(backups).toContain(filename);
+ const backups=automaticBackup.自动备份({库:file,数据目录:directory,版本:"0.47.0",日志:(line:string)=>logs.push(line)});
+ const filename="before-upgrade-0.46.15-to-0.47.0.db";expect(backups).toContain(filename);
  const saved=path.join(automaticBackup.备份目录(directory),filename);expect(快照(saved)).toEqual(snapshot);expect(()=>backupValidation.校验CRM备份(saved)).not.toThrow();
  for(let i=0;i<2;i++){const result=await 跑入口(directory);expect(result.code,result.out).toBe(0);expect(result.out).toContain("[stub] Next 起来了")}
  const {PrismaClient}=await import("@/generated/prisma");const client=new PrismaClient({datasourceUrl:`file:${file}`});try{

@@ -8,7 +8,7 @@ import { test, expect } from "@playwright/test";
 import { 云端账号, 进门地址, DESKTOP_TOKEN } from "./env";
 import { 没登录云端时, 进门 } from "./helpers";
 
-// 用户要求公开版本固定 0.46.15；package.json 的内部构建号用于安装与更新排序。
+// 用户看到的版本就是 package.json 的版本号（desktop/release-version.js 原样返回）。
 const 版本 = "0.46.15";
 
 test.describe.configure({ mode: "serial" });
