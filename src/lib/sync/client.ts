@@ -14,8 +14,9 @@ import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/c
 import { 团队身份id } from "../desktop/me";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, 本机结构签名, type 改动 } from "./local";
 import { createHmac } from "node:crypto";
-import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, type 拉到的范围包 } from "./scoped-local";
+import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 主字段, type 拉到的范围包 } from "./scoped-local";
 import { 提取范围, 行键, 范围字段, type 范围索引 } from "./scope-policy";
+import { 同步表 } from "./tables";
 import { 封范围, 规范串 } from "./crypto";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
 import { 看全部, 忘掉限定, 在同步里 } from "../team-scope";
@@ -980,6 +981,9 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
         if (!r.json.more) break;
       }
     }
+    // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
+    const 补删 = await 照目录补删除(index.values(), c.device);
+    拉 += 补删;
     记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, cleaned }, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推: p.推, 拉, 撞 } });
     /*
       老板那台补起点：目录里的 needBaseline = 改过归属、有业务员看得到、却还没有改归属之后起点的记录
@@ -1000,6 +1004,31 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() });
     return { ok: false, error: 话 };
   }
+}
+
+/**
+ * 目录里标着已删除、本机还有这一行的记录，补一次删除（2026-10-14 候选 6 实机）。
+ * 删除只在本机落：当成回放（不进推送队列），用目录里的字段钟当删除钟——本机这一行有更晚的字段钟（别人删之后又改过）就不删；
+ * 本机还有没推上去的改动的记录不动，等推送有了结论再说。只用目录里的编号和钟，不碰任何密文。
+ * 旧服务端 / 已经把游标拉过了删除包的设备（游标在删除包之后）靠这一步收尾；新服务端拉取时也会直接给删除包。
+ */
+async function 照目录补删除(rows: Iterable<范围索引>, 设备: string): Promise<number> {
+  const 删了 = [...rows].filter((r) => r.deleted && r.clock);
+  if (!删了.length) return 0;
+  const 待推 = new Set((await prisma.$queryRawUnsafe<{ tbl: string; pk: string }[]>("SELECT DISTINCT tbl, pk FROM _sync_log WHERE seq > COALESCE((SELECT v FROM _sync_cursor WHERE k = 'pushed'), 0)")).map((r) => 行键(r.tbl, r.pk)));
+  const 按表 = new Map<string, 范围索引[]>();
+  for (const r of 删了) if ((同步表 as readonly string[]).includes(r.t) && !待推.has(行键(r.t, r.k))) 按表.set(r.t, [...(按表.get(r.t) ?? []), r]);
+  const 要删: 改动[] = [];
+  for (const [t, rs] of 按表) {
+    const pk = 主字段(t);
+    for (let i = 0; i < rs.length; i += 400) {
+      const part = rs.slice(i, i + 400);
+      const 在 = new Set((await prisma.$queryRawUnsafe<{ k: string }[]>(`SELECT "${pk}" AS k FROM "${t}" WHERE "${pk}" IN (${part.map(() => "?").join(",")})`, ...part.map((r) => r.k))).map((x) => String(x.k)));
+      for (const r of part) if (在.has(r.k)) 要删.push({ t, k: r.k, o: "D", r: null, c: [], h: r.clock });
+    }
+  }
+  if (!要删.length) return 0;
+  return (await 回放(prisma, 要删, 设备, { 含本人: true })).应用;
 }
 
 /** 设置 → 团队显示用：范围同步状态与待核对冲突数 */

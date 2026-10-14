@@ -277,6 +277,8 @@ export function 验收范围包(b: 拉到的范围包, keys: 钥匙环, teamId: 
     throw new 范围包错误('范围密文与外层元数据不符或已损坏');
   }
   if (!inner || 规范串(inner.meta) !== 规范串(b.meta) || !核对范围(b.meta, inner.change)) throw new 范围包错误('密文内容与授权元数据不一致');
+  // 删除包只是墓碑：不许夹带整行 / 改动列（服务端会把删除包下发给改归属之后才获权的人，见 给范围拉取）
+  if (inner.change.o === 'D' && (inner.change.r != null || (inner.change.c ?? []).length)) throw new 范围包错误('删除包不能带内容');
   const key = 行键(b.meta.t, b.meta.k);
   if (!current || !allowed.has(key)) throw new 范围包错误('该记录不在本机同步范围内');
   const e = 归一化范围行(inner.change, current, allowed);

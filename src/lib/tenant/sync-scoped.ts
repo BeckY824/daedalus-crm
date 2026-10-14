@@ -204,6 +204,14 @@ async function 目录里(accountId: string, teamId: string, db: Db, 要补起点
 }
 /** 这条记录在改归属（threshold）之前有没有批次：有 = 新获权的人需要一份起点，没有 = 整段历史都在改归属之后 */
 const 有更早批次 = async (db: Db, teamId: string, recordKey: string, threshold: number) => !!(await db.syncScopedBatch.findFirst({ where: { teamId, recordKey, id: { lt: threshold } }, select: { id: true } }));
+/** 把这条记录删成现在这样的那一包（删除、字段钟等于索引里的当前钟）；找不到 = 不给 */
+async function 当前删除包(db: Db, teamId: string, recordKey: string, clock: string) {
+  for (const b of await db.syncScopedBatch.findMany({ where: { teamId, recordKey }, orderBy: { id: 'desc' }, take: 50, select: { id: true, metadata: true } })) {
+    const m = JSON.parse(b.metadata) as 范围元数据;
+    if (m.o === 'D' && m.h === clock && !Object.keys(m.fields ?? {}).length) return b.id;
+  }
+  return null;
+}
 export async function 给范围拉取(accountId: string, teamId: string, scopeId: string, after: number) {
   return control.$transaction(async tx => {
   const directory = await 目录里(accountId, teamId, tx);
@@ -216,7 +224,7 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
     老板本来就看全队，照旧给全部历史。
   */
   const rows = directory.owner ? null : await indices(teamId, tx);
-  const starts: { key: string; gt: number }[] = [];
+  const starts: { key: string; gt: number; only?: number }[] = [];
   for (const r of scope.records) {
     const key = 行键(r.t, r.k);
     const threshold = rows ? (算范围(r, rows)?.routeSeq ?? 0) : 0;
@@ -225,10 +233,20 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
     if (base) starts.push({ key, gt: Math.max(from, base.batchId - 1) });
     // 改归属之后才新建的记录（例如领到 / 接手之后老板给这位客户记的跟进）：整段历史都在改归属之后，不需要起点，从改归属那一刻起给（2026-10-14）
     else if (!(await 有更早批次(tx, teamId, key, threshold))) starts.push({ key, gt: Math.max(from, threshold - 1) });
+    /*
+      已删除、又没有改归属之后起点的记录（起点快照只拍活着的行）：只给「把它删掉的那一包」（2026-10-14 候选 6 实机：
+      同一账号的另一台电脑领取后，这台的公海那一行永远收不到删除、客户一直挂在公海页签）。
+      删除包不带内容：元数据只有表名、编号、字段钟（目录里本来就给），密文里的整行接收端要求为空（验收范围包），
+      所以不会因此拿到失权期间的任何历史。
+    */
+    else if (r.deleted) {
+      const d = await 当前删除包(tx, teamId, key, r.clock);
+      if (d && d > from) starts.push({ key, gt: from, only: d });
+    }
   }
   const batches = [];
   // 避开 SQLite 的变量个数上限，各分块取最早 201 条，再整体截到 200。
-  for (let i = 0; i < starts.length; i += 200) batches.push(...await tx.syncScopedBatch.findMany({ where: { teamId, OR: starts.slice(i, i + 200).map(x => ({ recordKey: x.key, id: { gt: x.gt } })) }, orderBy: { id: 'asc' }, take: 201 }));
+  for (let i = 0; i < starts.length; i += 200) batches.push(...await tx.syncScopedBatch.findMany({ where: { teamId, OR: starts.slice(i, i + 200).map(x => (x.only ? { recordKey: x.key, id: x.only } : { recordKey: x.key, id: { gt: x.gt } })) }, orderBy: { id: 'asc' }, take: 201 }));
   batches.sort((a, b) => a.id - b.id);
   return { epoch: directory.epoch, revision: scope.revision, more: batches.length > 200, batches: batches.slice(0, 200).map(b => {
     let data: string; try { data = fs.readFileSync(file(b.digest), 'utf8'); } catch { return fail(503, "范围密文暂不可读，请稍后重试；游标未跳过"); }

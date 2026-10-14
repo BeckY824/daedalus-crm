@@ -10,7 +10,7 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { closeTestDatabases } from "./close-databases";
-import { 设备钥匙对, 新钥匙, 封范围 } from "@/lib/sync/crypto";
+import { 设备钥匙对, 新钥匙, 封范围, 拆范围 } from "@/lib/sync/crypto";
 import { 提取范围, type 范围索引 } from "@/lib/sync/scope-policy";
 import type { 改动 } from "@/lib/sync/local";
 
@@ -214,4 +214,24 @@ it("业务员把自己的客户放进公海并附起点：同事马上拉得到�
 it("一次最多 1000 包，超了 413", async () => {
   const many = Array.from({ length: 1001 }, (_, i) => pk(ev("Customer", `bulk-${i}`, { salesOwnerId: A("li") }), "li"));
   await expect(推("li", many)).rejects.toMatchObject({ 状态: 413 });
+});
+
+it("已删除、没有改归属之后起点的记录（例如领取时删掉的公海那一行）：同一账号的另一台 / 接手的人只拿到那一包删除，删除包不带内容（候选 6 实机）", async () => {
+  const 解 = (b: { device: string; eventId: string; meta: unknown; data: string }) => 拆范围(b.data, { "0": key }, { teamId: team, device: b.device, eventId: b.eventId, meta: b.meta as never }) as { change: 改动 };
+  // li 在第一台领走了 pool-a（同一次请求里删了公海那一行）：li 的第二台从头拉这个范围，要收到删公海那一包
+  const a = await 拉("li", "Customer:pool-a");
+  const del = a.batches.filter((b) => b.meta.t === "CustomerPool" && b.meta.k === "pool-a");
+  expect(del).toHaveLength(1);
+  expect(del[0].meta.o).toBe("D");
+  expect(解(del[0]).change).toMatchObject({ o: "D", r: null, c: [] });
+  // 交接：转交之前已删掉的跟进，接手的人只拿到删除（没有它被删之前的内容）
+  await 推事件("li", [ev("Customer", "hd", { salesOwnerId: A("li") }), ev("FollowUp", "hd-f", { customerId: "hd", content: "QA删掉前的跟进" } as Record<string, unknown>)]);
+  await 推事件("li", [删("FollowUp", "hd-f")]);
+  await 推事件("li", [改("Customer", "hd", { salesOwnerId: A("zhao") })], [快照("Customer", "hd", { salesOwnerId: A("zhao") })]);
+  const z = await 拉("zhao", "Customer:hd");
+  const f = z.batches.filter((b) => b.meta.k === "hd-f");
+  expect(f.map((b) => b.meta.o)).toEqual(["D"]);
+  expect(JSON.stringify(z.batches.map(解))).not.toContain("QA删掉前的跟进");
+  // 别的业务员（看不到的范围）照样 403
+  await expect(拉("wang", "Customer:hd")).rejects.toMatchObject({ 状态: 403 });
 });
