@@ -13,8 +13,13 @@
  *   6. 核对：.app 的版本变成了老版本、.app.old 是刚才那个、日志里有「退出时换包」
  *
  * 用法：node desktop/scripts/verify-quit-install.mjs <Daedalus CRM.app> <目标版本> <zipUrl> <manifestUrl>
- * 例：  node desktop/scripts/verify-quit-install.mjs ~/tmp/Daedalus\ CRM.app 0.37.3 \
- *         https://github.com/…/Daedalus.CRM-0.37.3-arm64.app.zip https://github.com/…/Daedalus.CRM-0.37.3-arm64.manifest.json.gz
+ * 例：  B=https://github.com/BeckY824/daedalus-crm/releases/download/desktop-updates
+ *       node desktop/scripts/verify-quit-install.mjs /Applications/Daedalus\ CRM.app 0.46.16 \
+ *         $B/Daedalus.CRM-0.46.16-arm64.app.zip $B/Daedalus.CRM-0.46.16-arm64.manifest.json.gz
+ *
+ * <目标版本> 只用来核换完之后 .app 的版本（feed 写的是 9.9.9，新老都能拼）。
+ * CRM_UPDATE_ALLOW_LOCAL_HTTP=1 脚本自己给子进程带上，不用在命令行写——假 feed 在 http://127.0.0.1，
+ * 没有它 update-security.js 的 安全地址 直接拒掉。
  */
 import { spawn, execFileSync } from "node:child_process";
 import http from "node:http";
@@ -42,7 +47,14 @@ console.log(`拷贝到 ${app}，装的是 ${版本(app)}`);
 // 2. 假 feed
 // 客户端要先核清单的 sha256 才肯差量（delta.js 拉清单）。这里是本机验证，直接取一次算出来
 const 清单哈希 = crypto.createHash("sha256").update(Buffer.from(await (await fetch(manifestUrl)).arrayBuffer())).digest("hex");
-const feed = { version: "9.9.9", url: "https://example.invalid", dmg: "https://example.invalid/none.dmg", zip: zipUrl, manifest: manifestUrl, manifest_sha256: 清单哈希, notes: "验证用", size: "0 MB" };
+/*
+  dmg 和 sha256 只为过 检查更新 的门槛：2026-10-04（B-7 / D-091）起没有 64 位十六进制 sha256、或者没有 dmg，
+  直接进 manual，不下差量（之前这里没写 sha256，脚本一直等到「5 分钟内没拼出 .app.new」）。
+  差量这条路只拉清单和 zip，不碰 dmg，sha256 也只在整包下载后才核——所以填个格式对的占位就够。
+  真退回整包了，会去下 example.invalid 的 dmg、失败进 error，照样拼不出 .app.new，脚本照样红，不会假绿。
+*/
+const 占位哈希 = "0".repeat(64);
+const feed = { version: "9.9.9", url: "https://example.invalid", dmg: "https://example.invalid/none.dmg", sha256: 占位哈希, zip: zipUrl, manifest: manifestUrl, manifest_sha256: 清单哈希, notes: "验证用", size: "0 MB" };
 const 服务器 = http.createServer((_req, res) => { res.setHeader("content-type", "application/json"); res.end(JSON.stringify(feed)); });
 await new Promise((r) => 服务器.listen(0, "127.0.0.1", r));
 const feedUrl = `http://127.0.0.1:${服务器.address().port}/latest.json`;
@@ -50,7 +62,8 @@ const feedUrl = `http://127.0.0.1:${服务器.address().port}/latest.json`;
 // 3. 起它
 const 端口 = 9333;
 const 进程 = spawn(path.join(app, "Contents/MacOS/Daedalus CRM"), [`--remote-debugging-port=${端口}`], {
-  env: { ...process.env, CRM_UPDATE_URL: feedUrl, CRM_DATA_ROOT: 数据根, CRM_UPDATE_FALLBACK_URL: "http://127.0.0.1:9/none" },
+  // 假 feed 是本机 http：update-security.js 的 安全地址 只在 CRM_UPDATE_ALLOW_LOCAL_HTTP=1 时放行回环 http，否则拉 feed 就报「更新地址不安全」
+  env: { ...process.env, CRM_UPDATE_URL: feedUrl, CRM_DATA_ROOT: 数据根, CRM_UPDATE_FALLBACK_URL: "http://127.0.0.1:9/none", CRM_UPDATE_ALLOW_LOCAL_HTTP: "1" },
   stdio: "ignore",
 });
 let 退出码 = null;
