@@ -1,3 +1,10 @@
+/* Windows 字重（2026-10-14）：微软雅黑只有常规和粗体两档，没有 500。CSS 选字时 500 会退到常规，
+   Mac 上苹方 Medium 撑起来的层次（标签、小标题、按钮）在 Windows 上全平了。
+   英文和数字交给前面的 Segoe UI（Windows 自带软件就是这么配的），中文落到这里：先找 YaHei UI（行距为界面调过）再找雅黑。
+   这里给雅黑起个别名，把 ≥500 都接到雅黑粗体：Mac 上苹方排在它前面、根本轮不到；没装雅黑的机器 local() 落空，照旧往后找 */
+@font-face { font-family: "Daedalus YaHei"; src: local("Microsoft YaHei UI"), local("MicrosoftYaHeiUI"), local("Microsoft YaHei"), local("MicrosoftYaHei"); font-weight: 100 450; }
+@font-face { font-family: "Daedalus YaHei"; src: local("Microsoft YaHei UI Bold"), local("MicrosoftYaHeiUI-Bold"), local("Microsoft YaHei Bold"), local("MicrosoftYaHei-Bold"); font-weight: 451 900; }
+
 /* 设置 → 外观里每张主题小样（[data-skin-preview]）先吃这一块，再叠自己那套：别的主题开着时，小样得从现状本来的值起步，
    而不是从 <html> 上继承到的当前主题 */
 :root, [data-skin-preview] {
@@ -93,6 +100,7 @@
      这几个数样式表和 lib/theme.ts 都要用，改一处不算改。 */
   --rail-w: 220px;           /* 左栏，永远在。比例照 Claude 桌面端：窗口的两成出头 */
   --pane-w: 312px;           /* 中栏 */
+  --caption-h: 36px;         /* Windows：系统画的最小化 / 最大化 / 关闭那条的高度，和 desktop/main.js 的 titleBarOverlay.height 一致 */
   --drag-h: 52px;            /* 顶部拖动区，任何页头都从它下面开始 */
   --row-h: 40px;             /* 表格行高 */
   --th-h: 36px;              /* 表头 */
@@ -115,7 +123,9 @@
   --seal: var(--ink);                  /* 你确认的那一下（建议卡落的印）。账簿换成朱红，且只许它用 */
   --nav-on-bg: var(--brand-bg);        /* 左栏当前项的底 */
   --nav-on-fg: var(--brand-deep);      /* 左栏当前项的字 */
-  --font-ui: Inter, -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  --font-ui: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "SF Pro SC", "PingFang SC", "Noto Sans SC", "Daedalus YaHei", "Microsoft YaHei", Roboto, sans-serif;
+  /* 等宽：中文要有落脚处——Mac 落苹方，Windows 落雅黑（2026-10-14 之前没写雅黑，Windows 上中文掉到宋体） */
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", "Daedalus YaHei", "Microsoft YaHei", monospace;
   --font-display: var(--font-ui);      /* 页面标题、记录页名字、首页问候 */
   --font-num: var(--font-ui);          /* 大数字 */
   --fw-display: 600;
@@ -266,6 +276,8 @@ body {
   background-image: var(--page-pattern);
   background-size: var(--page-pattern-size);
   -webkit-font-smoothing: antialiased;
+  /* antd 只给自己的容器挂字体；body 不写就落到浏览器默认（Windows 上英文可能是 Times） */
+  font-family: var(--font-ui);
   font-size: var(--fs-body);
   line-height: 1.6;
   color: var(--ink);
@@ -314,6 +326,17 @@ a {
    几何并集算的，不看层叠顺序，所以要把交互元素标成 no-drag 才能从并集里抠掉——
    这条规则改成整个壳范围生效，不再按头部逐个列，新加的页头也就不会漏。 */
 .shell-desktop .drag-strip { position: fixed; top: 0; left: 0; right: 0; height: var(--drag-h); -webkit-app-region: drag; pointer-events: none; }
+/* Windows 桌面端（2026-10-14）：不要系统那条蓝标题栏和一整行菜单，内容顶到窗口最上面；
+   右上角的最小化 / 最大化 / 关闭由系统画（titleBarOverlay，颜色由 preload 取右上角的底色报给主进程）。
+   os-win 由 preload 挂。左栏顶上不用给红黄绿钮留 44px；正文往下让一条 --caption-h，按钮才不会钻到那三个钮底下——
+   正文的内边距是 AppShell 里写在行内的，所以这里要 !important。拖动把手就是这一条 */
+html.os-win .shell-desktop .rail { padding-top: 14px; }
+html.os-win .shell-desktop .drag-strip { height: var(--caption-h); }
+html.os-win .shell-desktop .main { padding-top: calc(var(--caption-h) + 8px) !important; }
+/* Windows 的字比 Mac 细（ClearType + 雅黑），同一个灰在 Windows 上淡一截：「点击填写」「暂无待办」几乎看不见。
+   只在默认主题里各压深一档；别的主题自己定了字色（科技主题还是深底），不替它们改 */
+/* 不另拍颜色（色值只许在 :root）：拿次级正文色往面板底色里兑，约等于 #5f6774 / #838993 */
+html.os-win[data-skin="now"] { --text-muted: color-mix(in srgb, var(--ink-soft) 80%, var(--panel)); --text-faint: color-mix(in srgb, var(--ink-soft) 62%, var(--panel)); }
 .shell-desktop :is(a, button, input, select, textarea, [role="button"], [role="tab"], [role="menuitem"], .ant-select, .ant-input, .ant-input-affix-wrapper, .ant-btn, .ant-dropdown-trigger, .ant-segmented) { -webkit-app-region: no-drag; }
 .rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 14px; }
 .rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: var(--r-card); color: var(--ink); }
@@ -542,7 +565,7 @@ body.rail-resizing { cursor: col-resize; user-select: none; }
 .rail-menu-me b { display: block; font-size: var(--fs-body); font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rail-menu-me span { display: block; font-size: var(--fs-min); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
 .rail-menu-row { display: flex; align-items: center; gap: 18px; justify-content: space-between; min-width: 150px; }
-.rail-menu-row kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-min); color: var(--text-muted); }
+.rail-menu-row kbd { font-family: var(--font-mono); font-size: var(--fs-min); color: var(--text-muted); }
 .rail-user:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 
 .pane { width: var(--pane-w); flex: none; position: sticky; top: 0; height: 100vh; background: var(--panel); border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; min-height: 0; }
@@ -1098,7 +1121,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec-composer .ant-input-outlined:focus-within { box-shadow: 0 0 0 3px rgba(47, 107, 255, 0.08) !important; border-color: var(--brand-line) !important; }
 
 /* ---------- AI 过程条（命令行式的思考轨迹） ---------- */
-.trace { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace; font-size: var(--fs-note); color: var(--text-muted); padding: 2px 0; }
+.trace { font-family: var(--font-mono); font-size: var(--fs-note); color: var(--text-muted); padding: 2px 0; }
 .trace-row { display: flex; align-items: baseline; gap: 8px; line-height: 22px; }
 .trace-label { color: var(--ink-soft); }
 .trace-detail { color: var(--text-muted); }
@@ -1173,7 +1196,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .cli-empty .cli-welcome-t { font-size: 30px; letter-spacing: -0.6px; }
 .cli-empty .signals { justify-content: center; border-bottom: 0; padding-bottom: 0; }
 .cli-empty .cli-welcome-hints { border-top: 0; padding-top: 0; }
-.cli-mono, .cli-prompt, .cli-step, .cli-sum, .cli-cmd-k, .cli-hints kbd, .cli-menu-row kbd { font-family: ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", monospace; }
+.cli-mono, .cli-prompt, .cli-step, .cli-sum, .cli-cmd-k, .cli-hints kbd, .cli-menu-row kbd { font-family: var(--font-mono); }
 .cli-welcome { margin-bottom: var(--s5); }
 .cli-welcome-t { font-family: var(--font-display); font-size: var(--fs-title); font-weight: var(--fw-display); color: var(--ink); }
 /* 问候底下那行日期。设计稿里它独占一行，比信号的口径再弱一档 */
@@ -1245,12 +1268,12 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .ai-opt { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-bottom: 1px solid var(--line-soft); }
 .ai-opt:last-child { border-bottom: 0; }
 .ai-opt-i { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--hover); color: var(--text-muted); font-size: var(--fs-min); display: inline-flex; align-items: center; justify-content: center; }
-.ai-opt-id { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: var(--fs-note); color: var(--ink); }
+.ai-opt-id { flex: 1; font-family: var(--font-mono); font-size: var(--fs-note); color: var(--ink); }
 /* 模型选单：输入框下面一个不起眼的小控件 */
-.mp-btn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 2px 6px; border-radius: var(--r-ctl); font-size: var(--fs-min); color: var(--text-muted); cursor: pointer; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.mp-btn { display: inline-flex; align-items: center; gap: 5px; border: 0; background: none; padding: 2px 6px; border-radius: var(--r-ctl); font-size: var(--fs-min); color: var(--text-muted); cursor: pointer; font-family: var(--font-mono); }
 .mp-btn:hover { background: var(--hover); color: var(--ink); }
 .mp-row { display: flex; align-items: center; gap: 8px; min-width: 220px; }
-.mp-id { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: var(--fs-note); }
+.mp-id { font-family: var(--font-mono); font-size: var(--fs-note); }
 .mp-note { margin-left: auto; font-size: var(--fs-min); color: var(--success); background: var(--success-bg); border-radius: var(--r-ctl); padding: 0 5px; }
 /* AI 建议卡：唯一一条让模型输出进库的路，所以要显眼但不喧宾夺主 */
 .prop-list { margin-top: 12px; margin-left: 20px; display: flex; flex-direction: column; gap: 8px; }
@@ -1719,7 +1742,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .keymap { display: flex; flex-direction: column; gap: 8px; }
 .keymap-row { display: flex; align-items: baseline; gap: 12px; }
 .keymap-keys { flex: none; display: flex; gap: 4px; min-width: 116px; }
-.keymap-keys kbd { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: var(--fs-min); color: var(--text-muted);
+.keymap-keys kbd { font-family: var(--font-mono); font-size: var(--fs-min); color: var(--text-muted);
   background: var(--hover); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: var(--r-ctl); padding: 1px 6px; }
 .keymap-row span { font-size: var(--fs-note); color: var(--ink); }
 .set-nav-i { display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer; font: inherit;
@@ -2163,9 +2186,9 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .mcp-cmd { display: flex; align-items: center; gap: var(--s2); padding: 8px 10px; margin-bottom: 8px;
   background: var(--workbench); border: 1px solid var(--line); border-radius: var(--r-card); }
 .mcp-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: var(--fs-min);
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--ink); }
+  font-family: var(--font-mono); color: var(--ink); }
 .mcp-hint { margin-bottom: 10px; }
-.mcp-hint code { font-size: var(--fs-min); font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+.mcp-hint code { font-size: var(--fs-min); font-family: var(--font-mono); }
 
 /* 业务配置底下的演示数据那一小块。和表单隔开：它不是一个配置项，是一个动作 */
 .biz-demo { margin-top: var(--s5); padding-top: var(--s4); border-top: 1px solid var(--line-soft); }
@@ -2200,7 +2223,12 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   .rail-upd-bar.idle i { animation: none !important; }
   /* 登录页的名字：直接是打好的样子，光标不闪 */
   .auth-brand-caret { display: none !important; }
+  /* 「还在跑」的点和转圈不能停（2026-10-14）：上面那条把它们也压成了一帧，看着就像卡死——
+     Windows 关了「显示动画」的机器默认就走这里，这样的机器不少。换成原地明暗呼吸：只动透明度，不转不挪 */
+  .trace-dot-run, .aiw-dot-run, .cli-step-running .cli-dot, .ant-spin-dot, .anticon-spin {
+    animation: rd-pulse 1.4s ease-in-out infinite !important; transform: none !important; }
 }
+@keyframes rd-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 
 
 /* ---------- 全局 AI 面板（AiDock，⌘J） ----------

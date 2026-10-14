@@ -61,7 +61,7 @@ export const themeConfig: ThemeConfig = {
     boxShadow: "0 1px 2px rgba(17, 24, 39, 0.04)",
     boxShadowSecondary: "0 8px 24px rgba(17, 24, 39, 0.08)",
     fontFamily:
-      'Inter, -apple-system, BlinkMacSystemFont, "SF Pro SC", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", "Segoe UI", Roboto, sans-serif',
+      'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", "SF Pro SC", "PingFang SC", "Noto Sans SC", "Daedalus YaHei", "Microsoft YaHei", Roboto, sans-serif',
   },
   components: {
     Layout: {

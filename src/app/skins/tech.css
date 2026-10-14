@@ -22,8 +22,8 @@
   --seal: #3fe6a2;
   --nav-on-bg: #0c2a34; --nav-on-fg: #b5f2ff;
 
-  --font-ui: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", "Microsoft YaHei", monospace;
-  --font-display: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, "PingFang SC", "Microsoft YaHei", monospace;
+  --font-ui: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, "PingFang SC", "Daedalus YaHei", "Microsoft YaHei", monospace;
+  --font-display: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, "PingFang SC", "Daedalus YaHei", "Microsoft YaHei", monospace;
   --font-num: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --fw-display: 500;
   --fs-title: 20px; --fs-body: 13px; --fs-note: 12px;
