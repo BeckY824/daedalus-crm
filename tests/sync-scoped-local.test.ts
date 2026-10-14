@@ -3,10 +3,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { PrismaClient } from "@/generated/prisma";
 import { 新钥匙, 封范围 } from "@/lib/sync/crypto";
 import { 提取范围, 合并范围, 行键 } from "@/lib/sync/scope-policy";
-import { 验收范围包, 范围包错误, 清理失权副本, 范围冲突数, 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
+import { 验收范围包, 范围包错误, 清理失权副本, 范围冲突数, 列出范围冲突, 确认范围冲突, 导出范围冲突, 擦净删除残留, 擦净等锁毫秒 } from "@/lib/sync/scoped-local";
 import { 冲突导出文件名 } from "@/app/(app)/settings/scope-conflicts-file";
 import { 建同步表, 装触发器, 待推 } from "@/lib/sync/local";
 import type { 改动 } from "@/lib/sync/local";
@@ -148,4 +149,55 @@ describe("清理失权副本", () => {
     const l = await 列出范围冲突(db);
     expect(l[0]).toMatchObject({ 名称: "本人改名", 已确认: null });
   });
+});
+
+/*
+  Windows 上别的程序（杀毒、备份、索引）拿着库文件时，清理后的整库重建不能把桌面端卡住（2026-10-14，候选 7 Windows CI 复查）：
+  原来 checkpoint 撞上别的读者按连接的等锁时长（5 秒）等，四次重试最坏二十几秒，桌面端只有一个连接，这期间全软件读写排队。
+  现在等锁最多 1 秒、总预算有限，等不到就记「欠擦」下一轮补，连接原来的等锁时长恢复原样。
+*/
+describe("擦净删除残留：库文件被别人占着时有限等待、记欠擦，放开后补擦", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "crm-scoped-wipe-"));
+  const f = path.join(dir, "w.db");
+  let db: PrismaClient;
+  beforeAll(async () => {
+    fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db"), f);
+    db = new PrismaClient({ datasourceUrl: `file:${f}?connection_limit=1` });
+    await db.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+    await 建同步表(db);
+  });
+  afterAll(async () => {
+    await db.$disconnect();
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+  const 欠着 = async () => (await db.$queryRawUnsafe<unknown[]>("SELECT 1 FROM _sync_cursor WHERE k = 'wipe_pending'")).length > 0;
+
+  it("别的程序开着读事务：按预算放弃、记欠擦、不长等，等锁时长恢复；放开后下一次擦净并清掉欠擦", async () => {
+    // 别的程序（备份、只读工具）拿着一个读快照不放：WAL 下 checkpoint(TRUNCATE) 截不了。
+    // 必须是另一个进程：同一进程里 Prisma 和 node:sqlite 是两份 SQLite，Unix 上互相看不见对方的文件锁
+    const 别人 = spawn(process.execPath, ["-e", `
+      const { DatabaseSync } = require("node:sqlite");
+      const d = new DatabaseSync(process.argv[1]);
+      d.exec("BEGIN"); d.prepare("SELECT count(*) AS n FROM Customer").get();
+      process.stdout.write("ready\\n");
+      process.stdin.on("data", () => { d.exec("COMMIT"); d.close(); process.exit(0); });
+    `, f], { stdio: ["pipe", "pipe", "inherit"] });
+    const 走了 = new Promise((ok) => 别人.on("exit", ok));
+    try {
+      await new Promise<void>((ok, no) => { 别人.stdout!.once("data", () => ok()); 别人.once("error", no); });
+      await db.$executeRawUnsafe("INSERT INTO _sync_cursor (k, v) VALUES ('wipe_test', 1) ON CONFLICT(k) DO UPDATE SET v = v + 1"); // WAL 里有那个读者之后的新页
+      const 起 = Date.now();
+      expect(await 擦净删除残留(db, 2_000)).toBe(false);
+      const 用了 = Date.now() - 起;
+      expect(用了, `撞锁不长等（原来最坏 4×5.5 秒），这次 ${用了}ms`).toBeLessThan(2_000 + 擦净等锁毫秒 + 3_000);
+      expect(await 欠着(), "没擦净要记欠擦，下一轮补").toBe(true);
+      expect(Number((await db.$queryRawUnsafe<{ timeout: bigint }[]>("PRAGMA busy_timeout"))[0].timeout), "连接原来的等锁时长恢复").toBe(5000);
+    } finally {
+      别人.stdin!.write("go\n");
+      await 走了;
+    }
+    expect(await 擦净删除残留(db)).toBe(true);
+    expect(await 欠着()).toBe(false);
+    expect(fs.statSync(`${f}-wal`).size, "WAL 截成 0 字节").toBe(0);
+  }, 30_000);
 });

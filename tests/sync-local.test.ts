@@ -21,13 +21,46 @@ const 模板账号 = [
 
 let 目录: string;
 const 开着: PrismaClient[] = [];
+/*
+  Windows CI 防卡（2026-10-14，候选 7 的「公海」那条在 Windows 上 20 秒没跑完，下一条也拖到 17 秒）：
+  原来每台拷贝是 Prisma 默认的样子：连接池好几个连接、delete 日志模式（每次提交在旁边新建再删掉一个 -journal 文件）、
+  每次提交都刷盘。Windows 上杀毒软件要扫每个新建的 -journal，删的时候它还占着的话 SQLite 要退避重试（每次提交最多一秒多），
+  再加上磁盘刷盘抖动，几十次提交就能拖过 20 秒——Mac 上 0.2 秒的用例在 Windows CI 上偶发超时，多半就是这么来的（同一轮里别的文件也忽快忽慢两三倍）。改成和桌面端
+  正式库一模一样（lib/prisma.ts、lib/sqlite-url.ts）：
+  - 只开 1 个连接：多个连接写同一个 SQLite 文件，交互事务开着时别的连接撞锁等待，正是 sqlite-url.ts 记的那种卡法；
+  - WAL + synchronous = NORMAL：提交只追加 WAL、不新建删除文件、不每次刷盘；
+  - 每一步限时（步）：卡住时报出卡在哪一步，不是笼统的「Test timed out」；
+  - 超时那条的后半截还在跑时不许碰下一条的库（第几条 / 代号），也不再把下一条拖慢。
+*/
+let 第几条 = 0;
+const 代号 = new WeakMap<PrismaClient, number>();
+const 一步限时 = 12_000;
+async function 步<T>(名: string, dbs: PrismaClient[], 做: () => Promise<T>, ms = 一步限时): Promise<T> {
+  for (const db of dbs) if (代号.get(db) !== 第几条) throw new Error(`sync-local：「${名}」属于已经结束（超时）的上一条用例，停下，不碰这一条的库`);
+  let 闹钟: ReturnType<typeof setTimeout> | undefined;
+  const 卡住 = new Promise<never>((_, 不行) => {
+    闹钟 = setTimeout(() => 不行(new Error(`sync-local：「${名}」${ms / 1000} 秒没返回——多半是 SQLite 文件锁或磁盘卡住（Windows CI），不是合并逻辑慢；平常这一步不到 1 秒`)), ms);
+  });
+  try {
+    return await Promise.race([做(), 卡住]);
+  } finally {
+    clearTimeout(闹钟);
+  }
+}
 
 async function 一台(名: string): Promise<PrismaClient> {
+  const 这条 = 第几条;
   const f = path.join(目录, `${名}.db`);
   fs.copyFileSync(测试库, f);
   if (fs.existsSync(`${测试库}-wal`)) fs.copyFileSync(`${测试库}-wal`, `${f}-wal`); // 没落盘的那部分一起拷
-  const db = new PrismaClient({ datasourceUrl: `file:${f}` });
+  if (这条 !== 第几条) throw new Error(`sync-local：建库「${名}」时上一条用例已经超时结束，停下`);
+  const db = new PrismaClient({ datasourceUrl: `file:${f}?connection_limit=1` });
+  代号.set(db, 这条);
   开着.push(db);
+  await 步(`建库 ${名}：和桌面端一样的 WAL`, [db], async () => {
+    await db.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+    await db.$queryRawUnsafe("PRAGMA synchronous = NORMAL");
+  });
   // 拷来的测试库里可能有别的用例留下的数据：清空业务表，种上模板账号
   for (const t of ["AiConversation", "AiProject", "Setting", "AuditLog", "ImportBatch", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead"]) {
     await db.$executeRawUnsafe(`DELETE FROM "${t}"`);
@@ -41,36 +74,53 @@ async function 一台(名: string): Promise<PrismaClient> {
 
 /** 进团队：改身份 → 建表 → 装触发器 → 本机已有的整份记成新建 */
 async function 进团队(db: PrismaClient, 账号: string, email: string, name: string) {
-  await 改身份(db, `acct_${账号}`, { email, name });
-  await 建同步表(db);
-  await 装触发器(db);
-  await 记全量(db);
+  await 步(`${账号} 进团队`, [db], async () => {
+    await 改身份(db, `acct_${账号}`, { email, name });
+    await 建同步表(db);
+    await 装触发器(db);
+    await 记全量(db);
+  });
 }
 
 const 钥匙 = 新钥匙();
 /** 一台推：编号、加密成一包；对方拉：解密、回放。和真实循环一样经过 封 / 拆 */
 async function 推(db: PrismaClient, 设备: string): Promise<string | null> {
-  const { 改动: 批, 到 } = await 待推(db, 设备);
-  if (!批.length) return null;
-  await 记已推(db, 到);
-  return 封(批, 钥匙);
+  return 步(`${设备} 推`, [db], async () => {
+    const { 改动: 批, 到 } = await 待推(db, 设备);
+    if (!批.length) return null;
+    await 记已推(db, 到);
+    return 封(批, 钥匙);
+  });
 }
 async function 同步(甲: PrismaClient, 乙: PrismaClient) {
   const a = await 推(甲, "A");
   const b = await 推(乙, "B");
-  if (a) await 回放(乙, 拆(a, 钥匙), "B");
-  if (b) await 回放(甲, 拆(b, 钥匙), "A");
+  if (a) await 步("B 回放 A 的改动", [乙], () => 回放(乙, 拆(a, 钥匙), "B"));
+  if (b) await 步("A 回放 B 的改动", [甲], () => 回放(甲, 拆(b, 钥匙), "A"));
   // 回放不进日志；本机重算派生也不进：再推一轮应当都是空的
   return { a: a ? 拆(a, 钥匙).length : 0, b: b ? 拆(b, 钥匙).length : 0 };
 }
 const 睡 = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
+  第几条++;
   目录 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-sync-"));
 });
 afterEach(async () => {
+  第几条++; // 超时那条的后半截从这里起碰不到任何库（见 步）
   for (const db of 开着.splice(0)) await db.$disconnect();
-  fs.rmSync(目录, { recursive: true, force: true });
+  // Windows 上刚关的库文件可能还被占着一小会儿（杀毒扫描）：有限次重试，不无限等
+  fs.rmSync(目录, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+
+it("防卡：一步卡住时报出卡在哪一步；超时那条的后半截碰不到下一条的库（Windows CI 2026-10-14）", async () => {
+  await expect(步("故意卡住", [], () => new Promise<never>(() => undefined), 50)).rejects.toThrow(/「故意卡住」0\.05 秒没返回.*文件锁/);
+  const db = await 一台("guard");
+  expect(await 步("正常一步", [db], async () => (await db.user.count()) > 0)).toBe(true);
+  代号.set(db, 第几条 - 1); // 装成上一条用例留下的库
+  let 跑了 = false;
+  await expect(步("上一条的后半截", [db], async () => { 跑了 = true; })).rejects.toThrow(/上一条用例/);
+  expect(跑了).toBe(false);
 });
 
 it("日期语义随真实同步传到第二库，不从时刻猜测原日历日", async () => {

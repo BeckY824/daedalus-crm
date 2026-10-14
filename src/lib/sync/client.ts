@@ -599,7 +599,8 @@ async function 跑一轮(选项: { 旧协议?: boolean; 只拉?: boolean } = {})
         拉到 = b.seq;
         记({ pulled: 拉到 }); // 每批记一次：中途断了下一轮从这里接着拉，不重复回放
       }
-      if (!r.json.more) break;
+      // 云端说「还有」却一批也没给：游标不会前进，再要也是同一页——停下，下一轮接着拉（不空转、不把这一轮卡死）
+      if (!r.json.more || !批们.length) break;
     }
     记({ pulled: 拉到, 结构: 签名, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推, 拉, 撞 } });
     /*
@@ -786,12 +787,12 @@ async function 老板迁移(c0: 团队配置, 规则: 推送规则 = 旧推送�
       fs.writeFileSync(临, JSON.stringify(起点), { mode: 0o600 });
       fs.renameSync(临, 起点文件());
     }
-    let sent = c.scoped?.baselineSent ?? 0, stored = c.scoped?.stored ?? 0;
+    let sent = c.scoped?.baselineSent ?? 0, stored = c.scoped?.stored ?? 0, 换钥 = 0;
     while (sent < 起点.events.length) {
       const 块 = 起点.events.slice(sent, sent + 100);
       const packets = 块.map((e, i) => ({ ...做包(c, e, 事件编号(c, `baseline|${sent + i}`, e)), baseline: true }));
       const r = await 范围请求(c, "push", { device: c.device, packets });
-      if (r.状态 === 409 && /换过钥匙/.test(String(r.json.error ?? ""))) { c = await 更新钥匙(c); continue; }
+      if (r.状态 === 409 && /换过钥匙/.test(String(r.json.error ?? "")) && 换钥++ < 3) { c = await 更新钥匙(c); continue; } // 有上限，不无限重试
       if (r.状态 !== 200) return { ok: false, error: 错话(r, "推送迁移起点失败") };
       sent += 块.length; stored += Number(r.json.stored ?? 0);
       记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "migrating", cursors: {} }), baselineSent: sent, stored } });
@@ -843,7 +844,7 @@ const 失权原因 = "推送时该记录已不在你的同步范围内（转交�
 async function 范围推(c0: 团队配置, 迁移中 = false, 规则: 推送规则 = 旧推送规则): Promise<结果<{ 推: number; 冲突: number; stored: number }>> {
   let c = c0, 推 = 0, 冲突 = 0, stored = 0;
   const 新规 = 规则.按请求开始 && !迁移中;
-  let 不带起点 = false, 重来 = 0;
+  let 不带起点 = false, 重来 = 0, 换钥 = 0;
   for (;;) {
     let { 改动, 到 } = await 待推(prisma, c.device, 新规 ? 300 : 100);
     if (!改动.length) break;
@@ -863,7 +864,8 @@ async function 范围推(c0: 团队配置, 迁移中 = false, 规则: 推送规�
       if (packets.length + 快照.length <= 规则.上限 && JSON.stringify(packets).length + JSON.stringify(快照).length < 7 * 1024 * 1024) 起点包 = 快照;
     }
     let r = await 范围请求(c, "push", { device: c.device, packets: [...packets, ...起点包] });
-    if (r.状态 === 409 && /换过钥匙/.test(String(r.json.error ?? ""))) { c = await 更新钥匙(c); continue; }
+    // 换过钥匙：取新钥匙重推；有上限，云端一直回 409 时这一轮报错停下，不无限重试
+    if (r.状态 === 409 && /换过钥匙/.test(String(r.json.error ?? "")) && 换钥++ < 3) { c = await 更新钥匙(c); continue; }
     if (r.状态 === 413 && 起点包.length) { 不带起点 = true; continue; }
     if (r.状态 === 403 && 新规 && Array.isArray(r.json.denied) && 重来++ < 50) {
       const denied = (r.json.denied as unknown[]).filter((i): i is number => Number.isInteger(i));
@@ -978,7 +980,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
         if (batches.length) after = batches[batches.length - 1].seq;
         cursors[s.id] = { after, revision: s.revision };
         记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...cursors } } });
-        if (!r.json.more) break;
+        if (!r.json.more || !batches.length) break; // 同上：没前进就不再要同一页
       }
     }
     // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）

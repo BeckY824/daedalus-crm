@@ -229,8 +229,22 @@ async function 记欠擦(db: Db) {
 async function 欠擦(db: Db) {
   return !!Number((await db.$queryRawUnsafe<{ v: bigint | number }[]>("SELECT v FROM _sync_cursor WHERE k = ?", 欠擦键).catch(() => []))[0]?.v ?? 0);
 }
-export async function 擦净删除残留(db: PrismaClient): Promise<boolean> {
+/*
+  Windows 上不许卡住（2026-10-14，候选 7 Windows CI 复查）：杀毒、备份、索引服务常常拿着库文件句柄，
+  VACUUM / wal_checkpoint 撞上别人的锁时按连接的等锁时长（Prisma 默认 5 秒）一次次等，四次重试最坏要二十几秒，
+  而桌面端只有一个连接——这期间整个软件的读写都排在后面。所以：
+  - 擦净期间等锁最多 擦净等锁毫秒，撞上就报 busy，不长等；擦完把连接原来的等锁时长恢复；
+  - 重试总共不超过 擦净预算毫秒；还不行就记「欠擦」（wipe_pending 那一行留着），下一轮清理先补擦，并打一行清楚的日志。
+  Mac / Linux 上没人占锁时一次就过，行为不变。
+*/
+export const 擦净等锁毫秒 = 1_000;
+export const 擦净预算毫秒 = 5_000;
+export async function 擦净删除残留(db: PrismaClient, 预算毫秒 = 擦净预算毫秒): Promise<boolean> {
+  const 起 = Date.now();
+  let 原等锁: number | null = null;
   try {
+    原等锁 = Number((await db.$queryRawUnsafe<{ timeout: bigint | number }[]>('PRAGMA busy_timeout'))[0]?.timeout ?? NaN);
+    await db.$queryRawUnsafe(`PRAGMA busy_timeout = ${擦净等锁毫秒}`);
     await db.$queryRawUnsafe('PRAGMA secure_delete = ON');
     await db.$executeRawUnsafe('VACUUM');
     for (let i = 0; i < 4; i++) {
@@ -242,11 +256,16 @@ export async function 擦净删除残留(db: PrismaClient): Promise<boolean> {
         await db.$queryRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)').catch(() => undefined);
         return true;
       }
+      if (Date.now() - 起 + 500 > 预算毫秒) break;
       await new Promise((ok) => setTimeout(ok, 500));
     }
+    console.error(`[sync] 清理后截断 WAL 没成功（别的程序占着库文件，${Date.now() - 起}ms 内没等到）：已记下，下一轮再擦`);
   } catch (e) {
-    console.error('[sync] 清理后整库重建失败，下一轮再试：', e instanceof Error ? e.message.slice(0, 200) : e);
+    console.error('[sync] 清理后整库重建失败（多半是库文件被别的程序占着），下一轮再试：', e instanceof Error ? e.message.slice(0, 200) : e);
+  } finally {
+    if (原等锁 !== null && Number.isFinite(原等锁)) await db.$queryRawUnsafe(`PRAGMA busy_timeout = ${Math.max(0, Math.trunc(原等锁))}`).catch(() => undefined);
   }
+  await 记欠擦(db).catch(() => undefined);
   return false;
 }
 /** 服务端当前路由覆盖历史包中的过期路由；隐藏推荐人只置空 FK，不复制隐藏客户来满足外键。 */

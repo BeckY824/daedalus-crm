@@ -40,9 +40,12 @@ const 当前账号 = "jia";
 let 名单老板: string | null = null;
 /** 假中转一页给几批（E.3 造「重拉到一半断了」用）；默认一次全给 */
 let 每页 = Infinity;
+/** 假中转出毛病：拉取回「还有」却一批也不给（2026-10-14 防空转） */
+let 空页说还有 = false;
 afterEach(() => {
   名单老板 = null;
   每页 = Infinity;
+  空页说还有 = false;
 });
 let 钩子: ((方法: string, 路径: string) => Promise<void>) | null = null;
 const 假传输: 传输 = async (方法, 路径, body) => {
@@ -66,6 +69,10 @@ const 假传输: 传输 = async (方法, 路径, body) => {
     const seq = 云.批.length + 1;
     云.批.push({ seq, team: b.teamId, device: b.device, data: b.data });
     return { 状态: 200, json: { ok: true, seq } };
+  }
+  if (空页说还有) {
+    await new Promise((ok) => setImmediate(ok)); // 真网络一样让出事件循环：客户端要是空转，用例的限时闹钟才响得了（不至于把整个进程卡死）
+    return { 状态: 200, json: { ok: true, batches: [], more: true } };
   }
   const after = Number(new URL(`http://x${路径}`).searchParams.get("after"));
   const 剩下 = 云.批.filter((x) => x.seq > after);
@@ -370,6 +377,24 @@ describe("桌面端同步客户端", () => {
     expect(await 甲.customer.count({where:{id:{in:["upgrade-good","pending-during-upgrade"]}}})).toBe(2);
     const latest=云.批.at(-1)!.seq; expect(读团队()!.pulled).toBe(latest);
     expect((await 同步一轮()).ok).toBe(true); expect(读团队()!.pulled).toBe(latest); expect((await 退出团队()).ok).toBe(true);
+  });
+
+  it("云端回「还有」却一批也不给：这一轮停下、不空转（Windows CI 防卡复查 2026-10-14）", async () => {
+    await 新团队("空页队");
+    空页说还有 = true;
+    let 拉了 = 0;
+    钩子 = async (_方法, 路径) => { if (路径.startsWith("/api/sync/pull")) 拉了++; };
+    let 闹钟: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const r = await Promise.race([同步一轮(), new Promise<never>((_, no) => { 闹钟 = setTimeout(() => no(new Error("同步一轮在空页上空转，5 秒没结束")), 5_000); })]);
+      expect(r.ok).toBe(true);
+    } finally {
+      clearTimeout(闹钟);
+      钩子 = null;
+    }
+    expect(拉了, "同一页不再要第二遍").toBe(1);
+    空页说还有 = false;
+    expect((await 退出团队()).ok).toBe(true);
   });
 
   it("T-009 同步一轮跑到一半点退出：等这一轮跑完再退；退完没有 .team.json、触发器已卸、业务员只留自己的", async () => {
