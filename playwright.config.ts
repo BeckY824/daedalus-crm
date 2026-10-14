@@ -62,6 +62,9 @@ export default defineConfig({
       AUTH_SECRET: "e2e-only-secret-not-used-in-production-0123456789",
       // 用 http 访问，cookie 不能带 Secure，否则浏览器直接丢掉、表现为登录不上
       COOKIE_SECURE: "false",
+      // 服务端和浏览器同一个时区（use.timezoneId 是 Asia/Shanghai，托管版容器也是 TZ=Asia/Shanghai）：
+      // 不钉的话服务端跟着跑测试那台机器的时区，日期渲染两边不一样，客户详情等页面 hydration 报错（非北京时区的机器上红）
+      TZ: "Asia/Shanghai",
       // 默认 e2e 不调模型：记录页的 AI 面板打开即生成，本机 .env 有 key 的话每条用例都会真调一次，
       // 慢、花钱、还让结果随模型响应时间抖动。AI 验收有自己的 config（ai-acceptance）。
       LLM_API_KEY: "",

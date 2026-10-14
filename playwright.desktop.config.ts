@@ -75,6 +75,11 @@ export default defineConfig({
         DESKTOP_LOCAL: "1",
         DESKTOP_TOKEN,
         CRM_CLOUD_URL: CLOUD_URL,
+        /*
+          本地服务和浏览器同一个时区：桌面端里两者本来就在同一台电脑上。上面 use.timezoneId 把浏览器钉在 Asia/Shanghai，
+          服务端却跟着跑测试那台机器的时区（例如伦敦）——「今天」「本月」、日期渲染两边对不上，08 控制台巡检、08a 外贸在非北京时区的机器上红
+        */
+        TZ: "Asia/Shanghai",
         AUTH_SECRET: "e2e-desktop-secret-not-used-in-production-0123",
         // http://localhost 下必须关，否则会话 cookie 被浏览器丢掉，表现为自动登录完又回到登录页
         COOKIE_SECURE: "false",
