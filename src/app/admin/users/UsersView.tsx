@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Input, Segmented, Select, Table } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { 站内, 等待中, 预取, 页头 } from "../OpsShell";
-import { 卡片, 头像, 何时, 千分位, 次数条, 系统们 } from "../ui";
+import { 卡片, 头像, TimeAgo, 千分位, 次数条, 系统们 } from "../ui";
 import type { 账号行 } from "../data";
 import { TestAccountToggle as 测试开关, TestAccountTag as 测试标签 } from "./TestAccountToggle";
 
@@ -141,7 +141,7 @@ export default function UsersView({ token, 账号 }: { token: string; 账号: �
               className: "num",
               render: (_, a) => (a.近30天调用 ? 千分位(a.近30天调用) : <span className="opx-faint">0</span>),
             },
-            { title: "最近活跃", width: 110, render: (_, a) => <span className="opx-muted">{何时(a.最近活跃)}</span> },
+            { title: "最近活跃", width: 110, render: (_, a) => <span className="opx-muted"><TimeAgo iso={a.最近活跃} /></span> },
             { title: "注册于", width: 124, className: "num", render: (_, a) => <span className="opx-muted" style={{ whiteSpace: "nowrap" }}>{a.createdAt.slice(0, 10)}</span> },
             {
               title: "测试账号",
