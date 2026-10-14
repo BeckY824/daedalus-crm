@@ -64,7 +64,7 @@
 
 <br/>
 
-![首页：agent 对话面](docs/shots/02-dashboard.png)
+![首页：agent 对话面](docs/shots/02-dashboard.jpg)
 
 <br/>
 
@@ -183,11 +183,11 @@ Esc 关掉回到原处。桌面端再把系统标题栏去掉，红黄绿钮嵌�
 
 | 客户列表 | 客户详情 |
 |---|---|
-| ![](docs/shots/04-customers.png) | ![](docs/shots/05-customer-detail.png) |
+| ![](docs/shots/04-customers.jpg) | ![](docs/shots/05-customer-detail.jpg) |
 
 | 商机管道 | 数据看板 |
 |---|---|
-| ![](docs/shots/08-pipeline.png) | ![](docs/shots/02b-overview.png) |
+| ![](docs/shots/08-pipeline.jpg) | ![](docs/shots/02b-overview.jpg) |
 
 更多截图见 [docs/shots](docs/shots)。
 
