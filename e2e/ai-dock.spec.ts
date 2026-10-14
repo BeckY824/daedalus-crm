@@ -428,7 +428,7 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
     try {
       await 登录(page);
       await page.goto(`/customers/${id}`);
-      await page.locator(".rec-tl-item").first().waitFor({ state: "attached" });
+      await page.getByRole("main").locator(".rec-tl-item").first().waitFor({ state: "attached" });
       // 进场的那一小段里，至少有一条还没完全显出来 / 正挂着动画
       const 在动 = await page.evaluate(
         () =>
@@ -457,13 +457,13 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
       await expect(page.getByRole("heading", { name: "记录页样子" })).toBeVisible();
 
       // J-212：「AI 解析」挂上「1 次」角标后变宽，旁边那句说明原来被挤成 5 行
-      const 说明 = page.locator(".rec-composer-hint").first();
+      const 说明 = page.getByRole("main").locator(".rec-composer-hint").first();
       await expect(说明).toBeVisible();
       const 说明量 = await 说明.evaluate((el) => ({ 高: el.getBoundingClientRect().height, 行高: parseFloat(getComputedStyle(el).lineHeight) || 20 }));
       expect(说明量.高, `速记说明高 ${说明量.高}，一行 ${说明量.行高}`).toBeLessThanOrEqual(说明量.行高 * 2 + 1);
 
       // J-211：签约那行金额是要看的东西，不许被日期和两颗图标挤成「¥…」
-      const 金额 = page.locator(".rec-mini-amt").first();
+      const 金额 = page.getByRole("main").locator(".rec-mini-amt").first();
       await expect(金额).toContainText("1,234,567");
       expect(await 金额.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), "签约金额被省略了").toBe(true);
 
@@ -473,13 +473,12 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
       const 键 = page.getByRole("button", { name: /生成简报/ });
       // 抽屉已经开着（还在滑开）就别再点：再点一下是关上，下一行就一直等一颗已经不在的按钮（10-07 main CI 撞到，两趟都卡满 60 秒）
       const 抽屉开着 = page.locator(".ant-drawer-open");
+      // 水合后会按正文宽度把 SSR 的内联按钮移进抽屉。每次取色前都重新确认入口，
+      // 否则「刚才可见」不能保证稍后 evaluate 仍能找到按钮，整轮只会等到超时。
+      let 对比 = { 比: NaN, 字: "", 底: "" };
       await expect(async () => {
         if (!(await 键.isVisible()) && (await 抽屉键.isVisible()) && (await 抽屉开着.count()) === 0) await 抽屉键.click();
         await expect(键).toBeVisible({ timeout: 2_000 });
-      }).toPass({ timeout: 20_000 });
-      // CI 上按钮刚出现时（抽屉还在滑）偶尔读到空颜色，算出 NaN（10-07 main CI）：读到两样都有为止
-      let 对比 = { 比: NaN, 字: "", 底: "" };
-      await expect(async () => {
         对比 = await 键.evaluate((el) => {
           const rgb = (s: string) => (s.match(/[\d.]+/g) ?? []).map(Number);
           const 亮 = ([r, g, b]: number[]) => {
@@ -491,9 +490,9 @@ test.describe("记录页的几处样子（1440、配了 AI）", () => {
           for (let p: Element | null = el; 底.length === 4 && 底[3] === 0 && p; p = p.parentElement) 底 = rgb(getComputedStyle(p).backgroundColor);
           const [a, b] = [亮(字), 亮(底)].sort((x, y) => y - x);
           return { 比: (a + 0.05) / (b + 0.05), 字: 字.join(","), 底: 底.join(",") };
-        });
+        }, undefined, { timeout: 2_000 });
         expect(Number.isFinite(对比.比), `字 rgb(${对比.字}) 底 rgb(${对比.底})`).toBe(true);
-      }).toPass({ timeout: 10_000 });
+      }).toPass({ timeout: 20_000 });
       // 当时是灰字压蓝底，对比度一点几；白字压品牌蓝是 4.5 上下（全站主按钮都是这一对，由 design-tokens 那套单测管）
       expect(对比.比, `「生成简报」字 rgb(${对比.字}) 底 rgb(${对比.底})`).toBeGreaterThanOrEqual(4);
     } finally {

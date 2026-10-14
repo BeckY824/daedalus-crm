@@ -1,0 +1,1 @@
+ALTER TABLE "FollowUp" ADD COLUMN "dueOn" TEXT;

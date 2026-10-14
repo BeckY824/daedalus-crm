@@ -1,9 +1,11 @@
 "use client";
 
+import DatePicker from "@/components/BusinessDatePicker";
+
 import { 供应商页 } from "@/lib/features";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Space, Select, Tag, InputNumber, DatePicker, App, Dropdown, Popover } from "antd";
+import { Button, Space, Select, Tag, InputNumber, App, Dropdown, Popover, Alert } from "antd";
 import {
   PlusOutlined,
   MoreOutlined,
@@ -12,7 +14,7 @@ import {
   PartitionOutlined,
 } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
-import { 列表不问归属 } from "@/lib/solo";
+import { 列表不问归属ID } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -60,7 +62,15 @@ export default function OpportunitiesView({
   users,
   customers,
   filters,
+  focusedOpportunity = null,
+  focusMissing = false,
+  directNew = false,
+  initialCustomer = null,
 }: {
+  focusedOpportunity?: OppRow | null;
+  focusMissing?: boolean;
+  directNew?: boolean;
+  initialCustomer?: { id: string; name: string } | null;
   rows: OppRow[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
   总数: number;
@@ -92,8 +102,16 @@ export default function OpportunitiesView({
   };
   const { message, modal } = App.useApp();
   const { f, setF, apply, reset, pending } = useUrlFilters("/opportunities", filters);
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<OppRow | null>(null);
+  const [open, setOpen] = useState(Boolean(focusedOpportunity) || directNew);
+  const [editing, setEditing] = useState<OppRow | null>(focusedOpportunity);
+  function closeEditor() {
+    setOpen(false);
+    if (focusedOpportunity || directNew) {
+      const url = new URL(window.location.href); url.searchParams.delete("opportunity");
+      if (directNew) { url.searchParams.delete("new"); url.searchParams.delete("customer"); }
+      window.history.replaceState(null, "", url.pathname + url.search);
+    }
+  }
 
   /** 哪一行正在问「标为丢单？」/「标为赢单」。从「更多」菜单里点进来，就地问，不弹框 */
   const [问丢单, set问丢单] = useState<string | null>(null);
@@ -120,6 +138,7 @@ export default function OpportunitiesView({
     router.refresh();
     亮一下(r.id);
     const key = `lost-${r.id}`;
+    let 已撤销 = false;
     message.success({
       key,
       content: (
@@ -129,8 +148,10 @@ export default function OpportunitiesView({
             type="link"
             size="small"
             onClick={async () => {
+              if (已撤销) return;
+              已撤销 = true;
               message.destroy(key);
-              const back = await setOppStatus(r.id, "OPEN", { stage: r.stage, probability: r.probability });
+              const back = await setOppStatus(r.id, "OPEN", { stage: r.stage, probability: r.probability, 版本: res.版本 }).catch(() => ({ ok: false as const, error: "撤销失败，请刷新查看最新内容" }));
               if (!back.ok) return void message.error(back.error);
               message.success(`「${r.name}」已改回进行中`);
               router.refresh();
@@ -189,15 +210,15 @@ export default function OpportunitiesView({
   const { 合计, 预测: forecast } = 汇总;
   const 合计叫 = 筛的状态 === "WON" ? "已赢单" : 筛的状态 === "LOST" ? "已丢单" : "进行中";
   /** 只有一个人：负责人列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
-  const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
+  const 不问归属 = !f.ownerId && 列表不问归属ID(users, rows.map((r) => r.ownerId));
 
   /**
    * 列表里改阶段，和看板拖卡片一样给一次撤销（审查 M11）。
    * 撤销就是改回原阶段；概率由 moveStage 按「人没改过才跟着变」的规矩处理，手填的 75% 不会被冲掉
    */
-  async function 改阶段(r: OppRow, 到: string, 是撤销 = false) {
+  async function 改阶段(r: OppRow, 到: string, 是撤销 = false, 期望版本?: string) {
     // 撤销时把原来的概率带回去（排查 D6）：r 是推进之前那一行，r.probability 就是人原来填的
-    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined);
+    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined, 期望版本);
     if (!res.ok) {
       message.error(res.error);
       router.refresh();
@@ -207,13 +228,19 @@ export default function OpportunitiesView({
     亮一下(r.id);
     const key = `stage-${r.id}`;
     if (是撤销) return void message.success({ key, content: `「${r.name}」已退回 ${stageLabel(b, 到)}` });
+    let 已撤销 = false;
     message.success({
       key,
       duration: 6,
       content: (
         <span>
           「{r.name}」已推进到 {stageLabel(b, 到)}
-          <Button type="link" size="small" onClick={() => { message.destroy(key); void 改阶段({ ...r, stage: 到 }, r.stage, true); }}>
+          <Button type="link" size="small" onClick={() => {
+            if (已撤销) return;
+            已撤销 = true;
+            message.destroy(key);
+            void 改阶段({ ...r, stage: 到 }, r.stage, true, res.版本).catch(() => message.error("撤销失败，请刷新查看最新内容"));
+          }}>
             撤销
           </Button>
         </span>
@@ -419,6 +446,7 @@ export default function OpportunitiesView({
 
   return (
     <>
+      {focusMissing && <Alert type="warning" showIcon title="关联商机已删除或当前账号无权查看，请返回原客户核对" style={{ marginBottom: 12 }} />}
       {/* 列表和管道是同一批商机的两种视图，所以「管道」是页头上的次动作，
           不再为它常驻一列中栏（设计稿 03/LAYOUT：中栏不是默认栏位）。 */}
       <PageHead
@@ -470,7 +498,7 @@ export default function OpportunitiesView({
              **一条商机都没有时不出现**：0 / 0 不是信息，是噪音 */
           rows.length > 0 ? (
             <div className="list-sum" title={外贸 ? undefined : "加权预测：Σ(进行中商机金额 × 成交概率)，概率是每条商机上自己填的"}>
-              {合计叫 === "已赢单" ? 赢了叫 : 合计叫} {汇总.单数} 单 · {合计文字(合计, b.currency)}
+              列表共 {总数} 单 · {!筛的状态 && "其中"}{合计叫 === "已赢单" ? 赢了叫 : 合计叫} {汇总.单数} 单 · {合计文字(合计, b.currency)}
               {合计叫 === "进行中" && !外贸 && <> · 加权预测 {合计文字(forecast.map((x) => ({ ...x, 合计: Math.round(x.合计) })), b.currency)}</>}
             </div>
           ) : null
@@ -540,11 +568,12 @@ export default function OpportunitiesView({
       <OpportunityForm
         open={open}
         editing={editing}
+        initialCustomer={initialCustomer}
         users={users}
         customers={customers}
-        onClose={() => setOpen(false)}
+        onClose={closeEditor}
         onSaved={() => {
-          setOpen(false);
+          closeEditor();
           router.refresh();
         }}
       />

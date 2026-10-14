@@ -3,6 +3,7 @@
  * 报表页的「问数据」和首页的 agent 工具共用。模型永远碰不到数据库，
  * 能查什么在 report-query.ts 里白纸黑字。
  */
+import type { Prisma } from "@/generated/prisma";
 import { prisma } from "./prisma";
 import { 签约归属人 } from "./contract-owner";
 import { 带币种, 签约币种, 签约金额 } from "./money-db";
@@ -15,7 +16,8 @@ import { statusLabel } from "./business-config";
 function dateWhere(field: string, spec: QuerySpec) {
   const cond: Record<string, Date> = {};
   if (spec.from) cond.gte = dayjs(spec.from).startOf("day").toDate();
-  if (spec.to) cond.lte = dayjs(spec.to).endOf("day").toDate();
+  const now = new Date();
+  cond.lte = spec.to ? new Date(Math.min(dayjs(spec.to).endOf("day").valueOf(), now.getTime())) : now;
   return Object.keys(cond).length ? { [field]: cond } : {};
 }
 
@@ -32,7 +34,7 @@ function keyOf(groupBy: GroupBy | null, when: Date, dims: Record<string, { id: s
   return { key: "__all__", label: "全部" };
 }
 
-export async function runQuery(spec: QuerySpec, b: BusinessConfig): Promise<ResultRow[]> {
+export async function runQuery(spec: QuerySpec, b: BusinessConfig, customerWhere?: Prisma.CustomerWhereInput): Promise<ResultRow[]> {
   const byMonth = spec.groupBy === "month";
 
   if (spec.metric === "leads_count" || spec.metric === "lead_conversion") {
@@ -50,7 +52,7 @@ export async function runQuery(spec: QuerySpec, b: BusinessConfig): Promise<Resu
 
   if (spec.metric === "customers_count") {
     const customers = await prisma.customer.findMany({
-      where: dateWhere("createdAt", spec),
+      where: { AND: [dateWhere("createdAt", spec), ...(customerWhere ? [customerWhere] : [])] },
       select: { createdAt: true, grade: true, followStatus: true, decisionStatus: true, salesOwner: { select: { id: true, name: true } }, channel: { select: { id: true, name: true } } },
     });
     return sumRows(
@@ -70,7 +72,7 @@ export async function runQuery(spec: QuerySpec, b: BusinessConfig): Promise<Resu
 
   if (spec.metric === "contract_amount" || spec.metric === "contract_count") {
     const contracts = await prisma.contract.findMany({
-      where: dateWhere("signedAt", spec),
+      where: { ...dateWhere("signedAt", spec), ...(customerWhere ? { customer: { is: customerWhere } } : {}) },
       select: {
         amount: true, signedAt: true,
         ...带币种.签约,
@@ -99,7 +101,7 @@ export async function runQuery(spec: QuerySpec, b: BusinessConfig): Promise<Resu
   }
 
   const followUps = await prisma.followUp.findMany({
-    where: dateWhere("occurredAt", spec),
+    where: { ...dateWhere("occurredAt", spec), ...(customerWhere ? { customer: { is: customerWhere } } : {}) },
     select: { occurredAt: true, type: true, owner: { select: { id: true, name: true } } },
   });
   return sumRows(

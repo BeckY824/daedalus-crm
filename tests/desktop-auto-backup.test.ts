@@ -2,7 +2,7 @@
  * 桌面端自动备份（desktop/auto-backup.js，2026-10-04，回归核对 D-078 / J-242）。
  * 钉的是：每天一份、留 7 份；升级前一份；空库不备；坏了不挡启动；恢复先另存、不认识的文件名不碰、坏备份不换进去。
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createRequire } from "node:module";
 import fs from "node:fs";
 import path from "node:path";
@@ -24,7 +24,7 @@ afterEach(() => fs.rmSync(目录, { recursive: true, force: true }));
 /** 造一个开着 WAL、最后几行还没回写的库：备份要把 WAL 里的也带上 */
 function 造库(客户数 = 2) {
   const db = new DatabaseSync(库);
-  db.exec('PRAGMA journal_mode = WAL; CREATE TABLE "Customer" (id INTEGER PRIMARY KEY, name TEXT); CREATE TABLE "Lead" (id INTEGER PRIMARY KEY)');
+  db.exec('PRAGMA journal_mode = WAL; CREATE TABLE "Customer" (id INTEGER PRIMARY KEY, name TEXT, phone TEXT,school TEXT,grade TEXT,major TEXT,channelId TEXT,referrerCustomerId TEXT,attributionChannelId TEXT,attributionCustomerId TEXT,salesOwnerId TEXT,channelOwnerId TEXT,followStatus TEXT,decisionStatus TEXT,expectedSignAt TEXT,lastFollowAt TEXT,remark TEXT,createdAt TEXT,updatedAt TEXT); CREATE TABLE User(id TEXT PRIMARY KEY,email TEXT,password TEXT,name TEXT,title TEXT,role TEXT,avatar TEXT,active INTEGER,createdAt TEXT,updatedAt TEXT); CREATE TABLE "Lead" (id INTEGER PRIMARY KEY)');
   const ins = db.prepare('INSERT INTO "Customer" (name) VALUES (?)');
   for (let i = 0; i < 客户数; i++) ins.run(`客户${i}`);
   return db;
@@ -115,10 +115,47 @@ describe("恢复", () => {
   it("换进去、删掉旧 -wal / -shm、当前库先另存成 before-restore", () => {
     备一份再改();
     const r = 自动.恢复({ 库, 数据目录: 目录, 文件名: "daily-2026-10-04.db", 现在: new Date("2026-10-05T15:30:00"), 校验: 备份.校验数据库 });
-    expect(r.另存).toBe("before-restore-2026-10-05-1530.db");
+    expect(r.另存).toMatch(/^before-restore-2026-10-05-1530-[a-f0-9]+\.db$/);
     expect(数客户(库)).toBe(2);
     expect(fs.existsSync(`${库}-wal`) || fs.existsSync(`${库}-shm`)).toBe(false);
     expect(数客户(path.join(备份目录(), r.另存))).toBe(3); // 恢复错了还能再恢复回来
+  });
+
+  it("审计补测：团队恢复旧库后重置拉取游标，保留团队密钥和身份", () => {
+    备一份再改();
+    const 团队文件 = path.join(目录, ".team.json");
+    const 原团队 = { teamId: "audit-team", device: "dAUDIT01", key: "test-key", pulled: 42, 结构: "same-schema", skipped: [8], signPriv: "private-test-key", keyring: { 0: "old-test-key" }, epoch: 1 };
+    fs.writeFileSync(团队文件, JSON.stringify(原团队));
+    自动.恢复({ 库, 数据目录: 目录, 文件名: "daily-2026-10-04.db", 校验: 备份.校验数据库 });
+    const 团队 = JSON.parse(fs.readFileSync(团队文件, "utf8"));
+    expect(团队).toEqual({ ...原团队, pulled: 0 });
+  });
+
+  it("团队配置损坏时中止恢复，不替换当前数据库", () => {
+    备一份再改();
+    const before = fs.readFileSync(库);
+    fs.writeFileSync(path.join(目录, ".team.json"), "{坏掉");
+    expect(() => 自动.恢复({ 库, 数据目录: 目录, 文件名: "daily-2026-10-04.db", 校验: 备份.校验数据库 })).toThrow();
+    expect(fs.readFileSync(库)).toEqual(before);
+  });
+
+  it("同步检查点写入失败时中止恢复，当前库和配置均保持完整", () => {
+    备一份再改();
+    const file = path.join(目录, ".team.json");
+    const config = JSON.stringify({ teamId: "audit-team", device: "dAUDIT01", key: "test-key", pulled: 42 });
+    fs.writeFileSync(file, config);
+    const before = fs.readFileSync(库);
+    const rename = fs.renameSync.bind(fs);
+    const spy = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      if (to === file) throw new Error("模拟检查点写入失败");
+      return rename(from, to);
+    });
+    try {
+      expect(() => 自动.恢复({ 库, 数据目录: 目录, 文件名: "daily-2026-10-04.db", 校验: 备份.校验数据库 })).toThrow("模拟检查点写入失败");
+      expect(fs.readFileSync(库)).toEqual(before);
+      expect(fs.readFileSync(file, "utf8")).toBe(config);
+      expect(fs.readdirSync(目录).filter((x) => x.endsWith(".restore.tmp"))).toEqual([]);
+    } finally { spy.mockRestore(); }
   });
 
   it("不认识的文件名（../crm.db 之类）一律不碰", () => {

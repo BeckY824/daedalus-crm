@@ -220,6 +220,39 @@ describe("带额度：收费契约", () => {
 });
 
 describe("六个 AI 动作都接上了闸门", () => {
+  it("零额度时空/坏输入先返回输入错误，无模型请求及账本变动（H019）", async () => {
+    const ws = await 建工作区();
+    await 用光(ws); const before = await 用掉(ws);
+    const { parseFollowUpDraft, generateBrief } = await import("@/app/(app)/customers/[id]/ai");
+    const { draftWakeup, explainWatchlist } = await import("@/app/(app)/dashboard/ai");
+    const { draftInvite } = await import("@/app/(app)/channels/ai");
+    const { 粘成表格 } = await import("@/app/(app)/customers/ai");
+    const results = [
+      await parseFollowUpDraft({ customerId: "c", text: "   " }),
+      await parseFollowUpDraft(null as never),
+      await generateBrief({ customerId: "   " }),
+      await generateBrief({ customerId: "c", question: 42 as never }),
+      await draftWakeup({ customerId: "c", reason: "" }),
+      await explainWatchlist({ items: [] }),
+      await explainWatchlist({ items: [null as never] }),
+      await draftInvite({ customerId: 42 as never }),
+      await 粘成表格("   "),
+      await 粘成表格(42 as never),
+      await 粘成表格("长".repeat(6001)),
+    ];
+    for (const r of results) {
+      expect(r.ok).toBe(false);
+      expect(!r.ok && r.error).not.toMatch(/用完|额度/);
+    }
+    const { POST } = await import("@/app/api/ai/stream/route");
+    for (const body of [null, [], { mode: "agent", question: "   " }, { mode: "agent", question: 42 }, { mode: "agent", question: "当前页有几位", pageScope: { 表: "客户", 工具: "search_customers", 参数: "query", 筛选: { grade: 42 } } }, { mode: "agent", question: "当前页有几位", pageScope: { 表: "客户", 工具: "search_customers", 参数: "query", 筛选: { sql: "SELECT" } } }]) {
+      const r = await POST(new Request("http://qa.test/api/ai/stream", { method: "POST", body: JSON.stringify(body) }));
+      expect(r.status).toBe(400);
+    }
+    expect(await 用掉(ws)).toBe(before);
+    expect(状态.requireUser调用).toBe(0);
+  });
+
   it("次数用完时每个动作都回同一句话，而且一行业务代码都没跑（连 requireUser 都没到）", async () => {
     const ws = await 建工作区();
     const 那句话 = await 用光(ws);
@@ -365,4 +398,18 @@ describe("守卫：花模型钱的入口都套了 带额度", () => {
       if (名) expect(src, k).toMatch(new RegExp(`export async function ${名}\\b`));
     }
   });
+});
+
+
+it("停用工作区不能借付费或自带Key绕过AI闸门", async () => {
+  const { 带额度, 扣一次额度 } = await import("@/lib/tenant/ai-allowance");
+  const { control } = await import("@/lib/tenant/control");
+  const ws = await 建工作区({ 付费: true });
+  await control.workspace.update({ where: { id: ws }, data: { status: "SUSPENDED" } });
+  const fn = vi.fn(async () => ({ ok: true as const }));
+  expect((await 扣一次额度(ws)).ok).toBe(false);
+  expect((await 带额度("ask", fn)).ok).toBe(false);
+  状态.自带Key = true;
+  expect((await 带额度("ask", fn)).ok).toBe(false);
+  expect(fn).not.toHaveBeenCalled();
 });

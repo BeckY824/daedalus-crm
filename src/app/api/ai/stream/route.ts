@@ -2,12 +2,14 @@ import { generateBrief } from "@/app/(app)/customers/[id]/ai";
 import type { Emit } from "@/lib/ai-steps";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
-import { consumeAiQuota } from "@/lib/ai-quota";
+import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { type 页面范围 } from "@/lib/agent/intents";
 import { runAgent } from "@/lib/agent/run";
 import { resolveModel } from "@/lib/llm";
 import { 收文件, 拼文件 } from "@/lib/ask-files";
+import { 收客户页面筛选 } from "@/lib/ai-page-filters";
+import { AI文本输入错误 } from "@/lib/ai-input";
 
 /** 一个问题最多多长。300 太短，一句完整的业务问题经常就写不下 */
 const 问题上限 = 1000;
@@ -53,9 +55,17 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as Record<string, unknown>;
   } catch {
-    return new Response("bad request", { status: 400 });
+    return new Response("请求格式不正确", { status: 400 });
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) return new Response("请求格式不正确", { status: 400 });
+  if (body.mode === "agent") {
+    const error = AI文本输入错误(body.question, 2, 问题上限, "请先输入要问的问题");
+    if (error) return new Response(error, { status: 400 });
   }
 
+  let 页面范围: 页面范围 | undefined;
+  try { 页面范围 = 收页面范围(body.pageScope); }
+  catch { return new Response("页面筛选格式不正确，请刷新页面后重试", { status: 400 }); }
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -77,7 +87,7 @@ export async function POST(req: Request) {
               const history = 收上下文(body.history);
               // agent：模型自己决定读谁、查什么，每次工具调用推一条 step，最终回答逐 token 推
               const user = await requireUser();
-              const wait = consumeAiQuota(user.id);
+              const wait = consumeUserAiQuota(user);
               if (wait !== null) throw new Error(`AI 调用太频繁，请 ${wait} 秒后再试`);
               const b = await getBusiness();
               const abort = new AbortController();
@@ -89,7 +99,7 @@ export async function POST(req: Request) {
               // 当前页的上下文。浏览器来的，收一道长度；空串当没给。
               // 上限从 300 放到 1200：现在还带着这一页上列着的名字（最多 50 个）
               const 页面 = typeof body.pageContext === "string" ? body.pageContext.trim().slice(0, 1200) : "";
-              const 范围 = 收页面范围(body.pageScope);
+              const 范围 = 页面范围;
               const r = await runAgent({ question: 问, user: { id: user.id, name: user.name }, b, history, 页面上下文: 页面 || undefined, 页面范围: 范围 }, { emit, model, onToken: (t) => send({ type: "token", text: t }), onReset: () => send({ type: "reset" }), signal: abort.signal });
               // 日志只记问题和文件**名**，不记文件内容——那张表全员可读
               await recordAiUse(
@@ -146,5 +156,11 @@ function 收页面范围(v: unknown): 页面范围 | undefined {
   const 表 = 串(o.表, 20), 工具 = 串(o.工具, 40), 参数 = 串(o.参数, 40);
   if (!表 || !/^[a-z_]+$/.test(工具) || !/^[a-zA-Z_]+$/.test(参数)) return undefined;
   const 名字 = Array.isArray(o.名字) ? o.名字.map((x) => 串(x, 40)).filter(Boolean).slice(0, 50) : [];
-  return { 表, 工具, 参数, 名字 };
+  let 筛选: 页面范围["筛选"];
+  if (o.筛选 !== undefined) {
+    const result = 收客户页面筛选(o.筛选);
+    if (!result || 表 !== "客户" || 工具 !== "search_customers") throw new Error("页面筛选格式不正确");
+    筛选 = result;
+  }
+  return { 表, 工具, 参数, 名字, ...(筛选 ? { 筛选 } : {}) };
 }

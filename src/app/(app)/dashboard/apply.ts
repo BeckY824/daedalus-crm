@@ -1,5 +1,7 @@
 "use server";
 
+import { scheduleValue } from "@/lib/schedule-date";
+
 import { 读现值 } from "@/lib/agent/current-values";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { 认回打码号 } from "@/lib/phone";
@@ -119,7 +121,7 @@ async function 改档案(customerId: string, changes: 一处改动[]): Promise<{
   const 快照 = {
     name: cur.name, phone: cur.phone, school: cur.school, grade: cur.grade, major: cur.major,
     followStatus: cur.followStatus, decisionStatus: cur.decisionStatus,
-    expectedSignAt: cur.expectedSignAt, remark: cur.remark,
+    expectedSignAt: scheduleValue(cur.expectedSignAt, cur.expectedSignOn), remark: cur.remark,
     salesOwnerId: cur.salesOwnerId, channelId: cur.channelId, referrerCustomerId: cur.referrerCustomerId,
     channelOwnerId: cur.channelOwnerId,
   };
@@ -137,7 +139,7 @@ async function 改档案(customerId: string, changes: 一处改动[]): Promise<{
     major: 文本("major", cur.major),
     followStatus: 有("followStatus") ? 取值("followStatus")! : cur.followStatus,
     decisionStatus: 有("decisionStatus") ? 取值("decisionStatus")! : cur.decisionStatus,
-    expectedSignAt: 有("expectedSignAt") ? (取值("expectedSignAt") ? new Date(取值("expectedSignAt")!) : null) : cur.expectedSignAt,
+    expectedSignAt: 有("expectedSignAt") ? 取值("expectedSignAt") ?? null : scheduleValue(cur.expectedSignAt, cur.expectedSignOn),
     remark: 文本("remark", cur.remark),
     salesOwnerId,
     channelId,

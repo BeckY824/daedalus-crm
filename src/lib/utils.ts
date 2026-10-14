@@ -1,13 +1,10 @@
-import dayjs from "dayjs";
+import { businessDayjs as dayjs } from "./business-clock";
 import { palette, avatarBg } from "./palette";
 import relativeTime from "dayjs/plugin/relativeTime";
-import isToday from "dayjs/plugin/isToday";
-import isTomorrow from "dayjs/plugin/isTomorrow";
 import "dayjs/locale/zh-cn";
+import { isCalendarDate } from "./schedule-date";
 
 dayjs.extend(relativeTime);
-dayjs.extend(isToday);
-dayjs.extend(isTomorrow);
 dayjs.locale("zh-cn");
 
 export { dayjs };
@@ -30,8 +27,8 @@ export function smartTime(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const t = dayjs(d);
   const now = dayjs();
-  if (t.isToday()) return `今天 ${t.format("HH:mm")}`;
-  if (t.isTomorrow()) return `明天 ${t.format("HH:mm")}`;
+  if (t.isSame(now, "day")) return `今天 ${t.format("HH:mm")}`;
+  if (t.isSame(now.add(1, "day"), "day")) return `明天 ${t.format("HH:mm")}`;
   if (t.isSame(now.subtract(1, "day"), "day")) return "昨天";
   const 过去几天 = now.startOf("day").diff(t.startOf("day"), "day");
   if (过去几天 >= 2 && 过去几天 <= 6) return `${过去几天} 天前`;
@@ -45,7 +42,7 @@ export function smartTime(d: Date | string | null | undefined): string {
  * 按**本地日历天**数，和 smartTime 同一个口径：昨晚跟的，今天早上还是「1 天」。
  */
 export function 冷热(最近跟进: Date | string | null | undefined, now = dayjs()): { 格: 0 | 1 | 2 | 3 | 4; 天: number | null } {
-  if (!最近跟进) return { 格: 0, 天: null };
+  if (!最近跟进 || !dayjs(最近跟进).isValid() || dayjs(最近跟进).valueOf() > now.valueOf() + 60_000) return { 格: 0, 天: null };
   const 天 = Math.max(0, now.startOf("day").diff(dayjs(最近跟进).startOf("day"), "day"));
   const 格 = 天 <= 2 ? 4 : 天 <= 6 ? 3 : 天 <= 13 ? 2 : 天 <= 29 ? 1 : 0;
   return { 格, 天 };
@@ -56,7 +53,7 @@ export function fmtDate(d: Date | string | null | undefined): string {
 }
 
 export function fmtDateTime(d: Date | string | null | undefined): string {
-  return d ? dayjs(d).format("YYYY-MM-DD HH:mm") : "—";
+  return d ? dayjs(d).format(typeof d === "string" && isCalendarDate(d) ? "YYYY-MM-DD" : "YYYY-MM-DD HH:mm") : "—";
 }
 
 /** 写给 AI 的「现在」：2026-09-28 14:05（周一）。带上周几，它推「周三」「下周五」才有依据 */

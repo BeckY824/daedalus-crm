@@ -24,6 +24,7 @@ import Markdown from "@/components/Markdown";
 type 更新状态 = {
   阶段: "idle" | "checking" | "available" | "downloading" | "ready" | "installing" | "manual" | "error";
   版本?: string;
+  显示版本?: string;
   进度?: number | null;
   错误?: string;
   地址?: string;
@@ -67,10 +68,15 @@ export default function UpdateRow() {
       // 阶段一离开「有新版」（开始下载、出错了）就把「问一句」复位：不然回到「有新版」时那个框会自己冒出来
       if (x.阶段 !== "available") set问一句(false);
     };
-    const off = api.onState(收);
-    api.state().then(收).catch(() => {});
+    let live = true;
+    let events = 0;
+    const off = api.onState(x => { events++; if (live) 收(x); });
+    // 订阅之后的实时状态比首读快照新；IPC旧快照晚到不能覆盖它。
+    api.state().then(x => { if (live && events === 0) 收(x); }).catch(() => {
+      if (live && events === 0) 收({ 阶段: "error", 文字: "未能读取更新状态，请重试" });
+    });
     window.desktopShell?.version().then(set版本).catch(() => {});
-    return off;
+    return () => { live = false; off(); };
   }, []);
 
   useEffect(() => {
@@ -83,6 +89,7 @@ export default function UpdateRow() {
   if (!api || !s) return null;
 
   const 百分比 = s.进度 == null ? null : Math.max(0, Math.min(100, Math.round(s.进度)));
+  const 目标版本 = s.显示版本 ?? s.版本;
   const 下载 = () => void (api.download ? api.download() : api.check(true));
   const 查 = () => {
     set刚查完(false);
@@ -102,7 +109,7 @@ export default function UpdateRow() {
       break;
     case "available":
       图标 = <ArrowDownOutlined />;
-      话 = `更新到 ${s.版本}`;
+      话 = `更新到 ${目标版本}`;
       点 = () => set问一句(true);
       样式 = " hot";
       break;
@@ -121,13 +128,13 @@ export default function UpdateRow() {
       break;
     case "ready":
       图标 = <ReloadOutlined />;
-      话 = `重启以更新到 ${s.版本}`;
+      话 = `重启以更新到 ${目标版本}`;
       点 = () => void api.install();
       样式 = " hot";
       break;
     case "manual":
       图标 = <ArrowDownOutlined />;
-      话 = `去下载 ${s.版本}`;
+      话 = `去下载 ${目标版本}`;
       点 = () => void api.openDownload();
       样式 = " hot";
       break;
@@ -175,7 +182,7 @@ export default function UpdateRow() {
       <Modal
         open={问一句 && s.阶段 === "available"}
         onCancel={() => set问一句(false)}
-        title={`有新版本 ${s.版本 ?? ""}`}
+        title={`有新版本 ${目标版本 ?? ""}`}
         width={520}
         footer={
           <>

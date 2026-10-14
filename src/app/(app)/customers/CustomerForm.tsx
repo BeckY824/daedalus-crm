@@ -1,8 +1,13 @@
 "use client";
 
+import DatePicker from "@/components/BusinessDatePicker";
+
+import { isCalendarDate } from "@/lib/schedule-date";
+import { requiredText } from "@/lib/form-validation";
+
 import OptionInput from "@/components/OptionInput";
 import { useState } from "react";
-import { Alert, App, AutoComplete, Button, Col, DatePicker, Divider, Form, Input, Modal, Radio, Row, Select, Space, Typography } from "antd";
+import { Alert, App, AutoComplete, Button, Col, Divider, Form, Input, Modal, Radio, Row, Select, Space, Typography } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
@@ -33,6 +38,8 @@ export type CustomerRow = {
   /** 直接推荐人 */
   referrerCustomerId: string | null;
   channelId: string | null;
+  /** 保留停用渠道的可读名称，不把历史归属当作新候选 */
+  channelName?: string | null;
   referrerName: string | null;
   /** 渠道归属（往上两代）由系统计算；渠道负责人默认跟着推荐链，但可以单独订正 */
   attributionName: string | null;
@@ -111,6 +118,15 @@ function CustomerFormInner({
     负责人选项.push({ value: editing.salesOwnerId, label: `${editing.salesOwnerName}（已不再担任负责人）` });
   }
 
+  const 渠道选项 = channelOptions.map(c => ({ value: c.id, label: c.name }));
+  if (editing?.channelId && !channelOptions.some(c => c.id === editing.channelId)) {
+    渠道选项.push({ value: editing.channelId, label: `${editing.channelName ?? editing.referrerName ?? "原渠道"}（已停用）` });
+  }
+  const 渠道负责人选项 = 成员选项(users);
+  if (editing?.channelOwnerId && !渠道负责人选项.some(u => u.value === editing.channelOwnerId)) {
+    渠道负责人选项.push({ value: editing.channelOwnerId, label: `${editing.channelOwnerName ?? "原负责人"}（不在当前候选中）` });
+  }
+
   /** 就地新建渠道的子弹窗 */
   const [channelModal, setChannelModal] = useState(false);
   /** 渠道下拉的开合。受控是因为点「新建」时必须先收起它——它的层级在子弹窗之上，不收会挡住表单 */
@@ -143,7 +159,7 @@ function CustomerFormInner({
               major: editing.major,
               followStatus: editing.followStatus,
               decisionStatus: editing.decisionStatus,
-              expectedSignAt: editing.expectedSignAt ? new Date(editing.expectedSignAt) : null,
+              expectedSignAt: editing.expectedSignAt,
               remark: editing.remark,
               salesOwnerId: editing.salesOwnerId,
               channelId: editing.channelId,
@@ -162,7 +178,7 @@ function CustomerFormInner({
           外贸模版不摆这三格：照原样交回去，别因为表单里没有就清掉（切回通用模版时它们还在）。
           没摆的格子 validateFields 不给值，所以从 editing 取
         */
-        expectedSignAt: 外贸 ? (editing?.expectedSignAt ? new Date(editing.expectedSignAt) : null) : v.expectedSignAt ? v.expectedSignAt.toDate() : null,
+        expectedSignAt: 外贸 || (editing && !form.isFieldTouched("expectedSignAt")) ? editing?.expectedSignAt ?? null : v.expectedSignAt ? v.expectedSignAt.format("YYYY-MM-DD") : null,
         remark: v.remark ?? null,
         salesOwnerId: v.salesOwnerId,
         channelId: 外贸 ? (editing?.channelId ?? null) : referrerType === "channel" ? (v.channelId ?? null) : null,
@@ -275,7 +291,7 @@ function CustomerFormInner({
         <Row gutter={16}>
           <Col span={8}>
             {/* 跟业务配置的叫法走（2026-10-04 L-003）：改成「学员」后这里原来还写着「客户姓名」 */}
-            <Form.Item label={`${b.customer}姓名`} name="name" rules={[{ required: true, message: "请输入姓名" }]}>
+            <Form.Item label={`${b.customer}姓名`} name="name" rules={[requiredText("请输入姓名")]}>
               <Input placeholder="如：张三" />
             </Form.Item>
           </Col>
@@ -451,7 +467,7 @@ function CustomerFormInner({
               showSearch
               placeholder="选择外部渠道，如：小红"
               optionFilterProp="label"
-              options={channelOptions.map((c) => ({ value: c.id, label: c.name }))}
+              options={渠道选项}
               open={channelOpen}
               onOpenChange={setChannelOpen}
               /**
@@ -486,7 +502,7 @@ function CustomerFormInner({
               showSearch
               placeholder={`选择已有${b.customer}`}
               optionFilterProp="label"
-              options={customers.map((c) => ({ value: c.id, label: c.name }))}
+              options={customers.filter((c) => c.id !== editing?.id).map((c) => ({ value: c.id, label: c.name }))}
             />
           </Form.Item>
         )}
@@ -501,7 +517,7 @@ function CustomerFormInner({
             style={{ marginBottom: 12 }}
             extra="留空则按推荐链自动确定。只改这一位，不影响同渠道的其他人"
           >
-            <Select allowClear placeholder={editing.channelOwnerName ? `${editing.channelOwnerName}（按推荐链）` : "按推荐链自动确定"} options={成员选项(users)} />
+            <Select allowClear placeholder={editing.channelOwnerName ? `${editing.channelOwnerName}（按推荐链）` : "按推荐链自动确定"} options={渠道负责人选项} />
           </Form.Item>
         )}
         {referrerType !== "none" && (
@@ -524,7 +540,7 @@ function CustomerFormInner({
           </Col>
           {!外贸 && (
             <Col span={8}>
-              <Form.Item label="预计签约时间" name="expectedSignAt">
+              <Form.Item label="预计签约时间" name="expectedSignAt" extra={editing?.expectedSignAt && !isCalendarDate(editing.expectedSignAt) ? "旧记录未保存原日历日，请核对日期；重新选日期后会保存原日历日。" : undefined}>
                 <DatePicker style={{ width: "100%" }} placeholder="选择日期" />
               </Form.Item>
             </Col>
@@ -548,7 +564,7 @@ function CustomerFormInner({
         setChannelOptions((prev) => [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "zh")));
         // 建完就替用户选上——不然还得再点开下拉找一遍，等于没省事
         form.setFieldValue("channelId", created.id);
-        form.validateFields(["channelId"]);
+        void form.validateFields(["channelId"]).catch(() => undefined);
       }}
     />
     </>
@@ -615,7 +631,7 @@ function QuickChannelModal({
       {/* name 前缀不能省：这个表单和「新建学员」同时在 DOM 里，
           字段名又都叫 name/phone/remark，不加前缀 label 会绑到学员那几个框上 */}
       <Form form={form} name="quickChannel" layout="vertical" style={{ marginTop: 8 }}>
-        <Form.Item label="渠道姓名" name="name" rules={[{ required: true, message: "请输入渠道姓名" }]}>
+        <Form.Item label="渠道姓名" name="name" rules={[requiredText("请输入渠道姓名")]}>
           <Input placeholder="如：小红" />
         </Form.Item>
         <Form.Item label="联系电话" name="phone">

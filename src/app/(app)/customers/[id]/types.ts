@@ -11,14 +11,18 @@ export type FollowUpRow = {
   duration: number | null;
   occurredAt: string;
   dueAt: string | null;
+  dueHasTime?: boolean | null;
   participants: string | null;
   /** 速记解析时的原始聊天记录，只有 AI 起草过的记录才有 */
   sourceText: string | null;
+  /** 稳定身份用于区分同名历史成员；旧调用方未知时保留姓名展示。 */
+  ownerId?: string;
   ownerName: string;
   contactName: string | null;
   contactPosition: string | null;
   contactId: string | null;
   opportunityId: string | null;
+  opportunity?: { id: string; name: string } | null;
   /** 挂在哪张订单上（2026-10-05）。没挂是 null，老调用方没给当没挂 */
   orderId?: string | null;
   order?: { id: string; no: string } | null;
@@ -37,9 +41,14 @@ export type ContactRow = {
   remark: string | null;
   /** 编辑框的版本号（排查 D3） */
   updatedAt: string;
+  /** 未归属联系人的原归属和移出时身份。空值表示旧记录未保留该信息。 */
+  fromCustomerId?: string | null;
+  wasPrimary?: boolean | null;
 };
 
 export type RecordProps = {
+  /** 原始转化线索；没有关联或已删除时为空，不用推荐关系推断。 */
+  sourceLead?: import("@/lib/customer-lead-origin").CustomerLeadOrigin | null;
   /** 这位在不在我左栏的「收藏的客户」里（lib/favorites.ts） */
   已收藏?: boolean;
   /** 我能把这位放进公海吗：负责人本人或管理员（第 6 块） */
@@ -62,10 +71,11 @@ export type RecordProps = {
   contracts: ContractRow[];
   /** 报价记录（2026-10-03）：这个客户历次报过的每一行，新的在前。没报过是空数组，左栏那一节就不出现 */
   报价记录?: import("@/lib/quote-db").报价记录行[];
-  tasks: { id: string; title: string; dueAt: string | null; done: boolean }[];
+  tasks: { id: string; title: string; dueAt: string | null; dueHasTime?: boolean | null; done: boolean }[];
   /** updatedAt：编辑框的版本号（J-105） */
-  plan: { id: string; subject: string; plannedAt: string; method: string; updatedAt: string } | null;
+  plan: { id: string; subject: string; plannedAt: string; plannedHasTime?: boolean | null; method: string; updatedAt: string } | null;
   followUps: FollowUpRow[];
+  followUpsHasMore?: boolean;
   users: 可选成员[];
   channels: { id: string; name: string }[];
   /** 可作为推荐人的已有学员 */

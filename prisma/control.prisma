@@ -477,3 +477,43 @@ model TestAccount {
   log       String   @default("")
   updatedAt DateTime @default(now())
 }
+
+/// v4 按记录授权的密文同步。迁移状态单独建表，不修改旧批次或账本。
+model SyncPrivacy {
+  teamId String @id
+  stage String
+  device String
+  fence Int
+  createdAt DateTime @default(now())
+}
+
+/// 仅路由字段与字段钟，不存客户姓名、电话、备注等业务内容。
+model SyncScopedRecord {
+  teamId String
+  key String
+  metadata String
+  @@id([teamId, key])
+}
+
+model SyncScopedBatch {
+  id Int @id @default(autoincrement())
+  teamId String
+  device String
+  accountId String
+  recordKey String
+  eventId String
+  metadata String
+  digest String
+  createdAt DateTime @default(now())
+  @@unique([teamId, device, eventId])
+  @@index([teamId, recordKey, id])
+}
+
+/// 某条记录的「当前状态起点」批次（字段钟快照）。记录改归属后，非老板只从改归属之后的第一个起点开始拉。
+model SyncScopedBaseline {
+  teamId String
+  recordKey String
+  batchId Int
+  @@id([teamId, batchId])
+  @@index([teamId, recordKey, batchId])
+}

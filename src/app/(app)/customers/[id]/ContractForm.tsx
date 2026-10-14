@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Modal, Form, InputNumber, DatePicker, Input, App, Checkbox, Space, AutoComplete, Row, Col } from "antd";
+import DatePicker from "@/components/BusinessDatePicker";
+
+import { isFormValidationError } from "@/lib/form-validation";
+
+import { cloneElement, useEffect, useRef, useState, type ReactElement, type MouseEventHandler } from "react";
+import { Modal, Form, InputNumber, Input, App, Checkbox, Space, AutoComplete, Row, Col } from "antd";
 import { dayjs, fmtDate } from "@/lib/utils";
 import { 金额 } from "@/lib/currency";
 import CurrencySelect from "@/components/CurrencySelect";
@@ -9,7 +13,7 @@ import { saveContract, listContractLinks, type 签约联动, type 签约联动�
 import { useBusiness } from "@/lib/business-client";
 import { 外贸订单 } from "@/lib/business-config";
 import { 常用付款方式 } from "@/lib/order";
-import { 供应商名单 } from "../../orders/actions";
+import { 供应商候选 } from "../../orders/actions";
 import { StageTag } from "@/components/ui";
 import { 金额格式 } from "@/lib/money-input";
 import { 聚焦首项 } from "@/lib/modal-focus";
@@ -35,7 +39,7 @@ export type ContractRow = {
   signedAt: string;
   remark: string | null;
   /** 外贸模版下这笔签约就是一张订单（2026-10-05）。没有 = 普通签约，或外贸之前登记的老签约 */
-  order?: { id: string; no: string; payment: string | null; supplier: string | null } | null;
+  order?: { id: string; no: string; payment: string | null; supplier: string | null; supplierId?: string | null } | null;
 };
 
 /**
@@ -81,13 +85,17 @@ function Inner({
    */
   const 订单 = 外贸订单(b);
   const [form] = Form.useForm();
+  // DatePicker 不会把无效手输文本写入 Form；必须另存原文，不能把旧日期当成这次保存值。
+  const 日期原文 = useRef<string | null>(null);
+  const [日期框版本, set日期框版本] = useState(0);
   const [saving, setSaving] = useState(false);
   /** 供应商下拉的候选：库里已有的名字（能选也能填，填个新的就新建一家） */
-  const [供应商们, set供应商们] = useState<string[]>([]);
+  const [供应商们, set供应商们] = useState<{ id: string; name: string }[]>([]);
+  const [选中供应商, set选中供应商] = useState<string | null>(editing?.order?.supplierId ?? null);
   useEffect(() => {
     if (!订单) return;
     let 还在 = true;
-    void 供应商名单().then((r) => { if (还在) set供应商们(r); }).catch(() => undefined);
+    void 供应商候选().then((r) => { if (还在) set供应商们(r); }).catch(() => undefined);
     return () => { 还在 = false; };
   }, [订单]);
   /*
@@ -111,7 +119,7 @@ function Inner({
       set可收(r);
       set勾({ 赢单: r.商机.map((x) => x.id), 完成计划: r.计划.map((x) => x.id), 完成待办: r.待办.map((x) => x.id) });
       带金额(r.商机.map((x) => x.id), r);
-    });
+    }).catch(() => { if (还在) message.error("联动事项读取失败，请关闭后重试"); });
     return () => { 还在 = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId, editing, 赢这一单]);
@@ -136,6 +144,9 @@ function Inner({
   const 有可收 = 可收 && 可收.商机.length + 可收.计划.length + 可收.待办.length > 0;
 
   async function submit(force: boolean) {
+    // Picker 的失焦提交可能晚于保存按钮；有效手输日期也要先明确写回 Form。
+    const text = 日期原文.current;
+    if (text !== null && dayjs.utc(text, "YYYY-MM-DD", true).isValid()) form.setFieldValue("signedAt", dayjs(text));
     const v = await form.validateFields();
     return saveContract({
       id: editing?.id,
@@ -146,15 +157,13 @@ function Inner({
       remark: v.remark ?? null,
       force,
       ...(editing ? {} : { 联动: 勾 }),
-      /*
-        供应商只在名字变了时才交（二审）：按名字认供应商、同名取最早那家；同步后出现两家同名时，
-        原样交回去会把订单页里选的那家悄悄换掉
-      */
+      // 候选选中后提交ID；自由输入按名字处理，未修改的旧引用继续保留。
       ...(订单
         ? {
             订单: {
               no: v.no ?? "",
               payment: v.payment ?? null,
+              ...(选中供应商 ? { supplierId: 选中供应商 } : {}),
               ...((v.supplier ?? "").trim() !== (editing?.order?.supplier ?? "").trim() || !editing?.order ? { supplier: v.supplier ?? null } : {}),
             },
           }
@@ -163,6 +172,7 @@ function Inner({
   }
 
   async function onOk() {
+    if (saving) return;
     setSaving(true);
     try {
       const res = await submit(false);
@@ -181,7 +191,7 @@ function Inner({
        * 但续费和分期本来就可能同额同日，所以只确认、不硬拦。
        */
       const dup = res.duplicate;
-      modal.confirm({
+      const 继续 = await modal.confirm({
         title: 订单 ? "这张订单可能已经录过了" : "这笔签约可能已经录过了",
         content: (
           <>
@@ -198,16 +208,15 @@ function Inner({
         ),
         okText: "确实是另一笔，继续录入",
         cancelText: "取消",
-        async onOk() {
-          const again = await submit(true);
-          if (again.ok) {
-            message.success(editing ? "已保存" : 订单 ? `订单${again.订单 ? ` ${again.订单.no}` : ""} 已建好${联动说法(again.联动, true)}` : `签约已记录${联动说法(again.联动)}`);
-            onClose(true);
-          } else if ("error" in again) {
-            message.error(again.error);
-          }
-        },
       });
+      if (!继续) return;
+      const again = await submit(true);
+      if (again.ok) {
+        message.success(editing ? "已保存" : 订单 ? `订单${again.订单 ? ` ${again.订单.no}` : ""} 已建好${联动说法(again.联动, true)}` : `签约已记录${联动说法(again.联动)}`);
+        onClose(true);
+      } else if ("error" in again) message.error(again.error);
+    } catch (error) {
+      if (!isFormValidationError(error)) message.error("保存失败，请刷新确认结果后重试");
     } finally {
       setSaving(false);
     }
@@ -228,6 +237,10 @@ function Inner({
       <Form
         form={form}
         layout="vertical"
+        onInputCapture={e => {
+          if (!(e.target instanceof HTMLInputElement) || e.target.id !== "signedAt") return;
+          日期原文.current = e.target.value;
+        }}
         style={{ marginTop: 8 }}
         initialValues={
           editing
@@ -260,11 +273,10 @@ function Inner({
             <Form.Item name="currency" noStyle>
               <CurrencySelect onChange={() => { 手填金额.current = true; }} />
             </Form.Item>
-            <Form.Item name="amount" noStyle rules={[{ required: true, message: 订单 ? "请输入订单金额" : "请输入签约金额" }]}>
+            <Form.Item name="amount" noStyle rules={[{ required: true, message: 订单 ? "请输入订单金额" : "请输入签约金额" }, { type: "number", min: 0, message: "金额不能为负数" }]}>
               {/* 和商机金额同一个坑：parser 把空串读成 0，清空后再敲会多出一个 0（见 lib/money-input.ts） */}
               <InputNumber<number>
                 style={{ width: "100%" }}
-                min={0}
                 step={1000}
                 placeholder="如 19,800"
                 formatter={金额格式}
@@ -274,8 +286,30 @@ function Inner({
             </Form.Item>
           </Space.Compact>
         </Form.Item>
-        <Form.Item label={订单 ? "订单确认时间" : "签约时间"} name="signedAt" rules={[{ required: true, message: 订单 ? "请选择订单确认时间" : "请选择签约时间" }]}>
-          <DatePicker style={{ width: "100%" }} />
+        <Form.Item label={订单 ? "订单确认时间" : "签约时间"} name="signedAt" extra={!editing ? (订单 ? "回填订单确认时间只影响订单金额报表；同时转为订单的商机，其转化时间记录本次操作时间。" : "回填签约日期只影响签约报表；同时标为赢单时，赢单时间记录本次操作时间。") : undefined} rules={[
+          { required: true, message: 订单 ? "请选择订单确认时间" : "请选择签约时间" },
+          { validator: (_, value) => {
+            const text = 日期原文.current;
+            if (text !== null && !dayjs.utc(text, "YYYY-MM-DD", true).isValid()) return Promise.reject(new Error("请输入有效日期（YYYY-MM-DD）"));
+            return !value || value.isValid() ? Promise.resolve() : Promise.reject(new Error("请输入有效日期（YYYY-MM-DD）"));
+          } },
+        ]}>
+          <DatePicker key={日期框版本} style={{ width: "100%" }} format="YYYY-MM-DD" preserveInvalidOnBlur
+            onChange={() => { 日期原文.current = null; }}
+            cellRender={(date, info) => {
+              if (info.type !== "date" || !dayjs.isDayjs(date)) return info.originNode;
+              const node = info.originNode as ReactElement<{ onClick?: MouseEventHandler<HTMLElement> }>;
+              return cloneElement(node, { onClick: event => {
+                node.props.onClick?.(event);
+                // 重选原日期不会触发 Picker.onChange；明确选择后重建输入，解除保留的无效文本。
+                if (日期原文.current !== null && !dayjs.utc(日期原文.current, "YYYY-MM-DD", true).isValid()) {
+                  日期原文.current = null;
+                  form.setFieldValue("signedAt", date.startOf("day"));
+                  set日期框版本(v => v + 1);
+                }
+              } });
+            }}
+          />
         </Form.Item>
         {订单 && (
           <Row gutter={16}>
@@ -287,7 +321,17 @@ function Inner({
             <Col span={12}>
               {/* 能选也能填：填一个新名字就新建一家供应商（lib/order-contract.ts） */}
               <Form.Item label="供应商" name="supplier">
-                <AutoComplete allowClear options={供应商们.map((x) => ({ value: x }))} placeholder="工厂 / 供应商名称" filterOption={(i, o) => String(o?.value ?? "").toLowerCase().includes(i.toLowerCase())} />
+                <AutoComplete
+                  allowClear
+                  options={供应商们.map((x) => ({ value: x.id, name: x.name, label: 供应商们.filter((s) => s.name === x.name).length > 1 ? `${x.name}（${x.id.slice(-6)}）` : x.name }))}
+                  onChange={() => set选中供应商(null)}
+                  onSelect={(value, option) => {
+                    set选中供应商(value);
+                    form.setFieldValue("supplier", option.name);
+                  }}
+                  placeholder="工厂 / 供应商名称"
+                  filterOption={(i, o) => String(o?.name ?? "").toLowerCase().includes(i.toLowerCase())}
+                />
               </Form.Item>
             </Col>
           </Row>

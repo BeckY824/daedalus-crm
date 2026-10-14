@@ -16,6 +16,12 @@ export const AI_WINDOW_MS = 5 * 60 * 1000;
 
 const 记录 = new Map<string, number[]>();
 
+/** 业务用户ID可能来自复制的模板；托管请求按已认证的账户及工作区隔离。 */
+export function consumeUserAiQuota(user: { id: string; accountId?: string; workspaceId?: string }, now = Date.now()): number | null {
+  const key = user.workspaceId ? JSON.stringify(["tenant", user.workspaceId, user.accountId ?? user.id]) : user.id;
+  return consumeAiQuota(key, now);
+}
+
 /**
  * 消耗一次配额。放行返回 null，超限返回还需等待的秒数（不计数）。
  * 放在 requireUser 之后、任何生成之前调用——无效输入也计数，

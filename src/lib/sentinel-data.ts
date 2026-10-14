@@ -3,7 +3,8 @@
  * 首页（AI 对话的建议 chip）和数据看板（盯盘卡片）共用，避免两处各写一遍查询。
  */
 import { 订单节点 } from "@/lib/features";
-import { 今天零点 } from "./overdue";
+import { scheduleValue } from "./schedule-date";
+import { 今天零点, 逾期条件 } from "./overdue";
 import { prisma } from "./prisma";
 import { dayjs } from "./utils";
 import { buildWatchlist, type WatchItem } from "./sentinel";
@@ -11,16 +12,16 @@ import { getBusiness } from "./business";
 import { statusLabel, stageLabel } from "./business-config";
 
 /**
- * `范围.ownerId` 给了就只看这个人名下的，**先筛再排前 8**（排查 C7）：
+ * `范围.ownerId` 给了就只看这个人名下的，**先筛再排序**（排查 C7）：
  * 原来首页先取全团队前 8 位、再按姓名筛出「我的」，我的那几位排不进全团队前 8 就数漏了，重名的还会混在一起。
  */
-export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): Promise<WatchItem[]> {
+async function allWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): Promise<WatchItem[]> {
   const 谁的 = 范围.ownerId;
   const [overduePlans, customers, opps, lateNodes, business] = await Promise.all([
     prisma.followPlan.findMany({
       // 逾期按今天零点算，和首页、左栏角标、计划页一个口径（lib/overdue.ts）：今天上午没做的还算今天的
-      where: { done: false, plannedAt: { lt: 今天零点(now.toDate()) }, ...(谁的 ? { ownerId: 谁的 } : {}) },
-      select: { subject: true, plannedAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
+      where: 逾期条件(范围, now.toDate()).plan,
+      select: { subject: true, plannedAt: true, plannedOn: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
     prisma.customer.findMany({
       where: { followStatus: { notIn: ["已签约", "已流失", "暂缓跟进"] }, ...(谁的 ? { salesOwnerId: 谁的 } : {}) },
@@ -28,7 +29,7 @@ export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } 
     }),
     prisma.opportunity.findMany({
       where: { status: "OPEN", ...(谁的 ? { ownerId: 谁的 } : {}) },
-      select: { name: true, stage: true, updatedAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
+      select: { name: true, stage: true, updatedAt: true, activityAt: true, customer: { select: { id: true, name: true } }, owner: { select: { name: true } } },
     }),
     // 订单里超期 / 卡住的节点：截止日早于今天零点（和订单一览的红格同一个口径，lib/order.ts 节点灯）。
     // 订单节点这一版不上（lib/features.ts）就不取：盯盘里不出订单
@@ -48,9 +49,9 @@ export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } 
   );
   return buildWatchlist(
     {
-      overduePlans: overduePlans.map((p) => ({ customerId: p.customer.id, customerName: p.customer.name, ownerName: p.owner.name, subject: p.subject, plannedAt: p.plannedAt })),
+      overduePlans: overduePlans.map((p) => ({ customerId: p.customer.id, customerName: p.customer.name, ownerName: p.owner.name, subject: p.subject, plannedAt: scheduleValue(p.plannedAt, p.plannedOn)! })),
       customers: customers.map((c) => ({ id: c.id, name: c.name, followStatus: c.followStatus, lastFollowAt: c.lastFollowAt, createdAt: c.createdAt, ownerName: c.salesOwner.name })),
-      opportunities: opps.map((o) => ({ customerId: o.customer.id, customerName: o.customer.name, ownerName: o.owner.name, name: o.name, stage: stageLabel(business, o.stage), updatedAt: o.updatedAt })),
+      opportunities: opps.map((o) => ({ customerId: o.customer.id, customerName: o.customer.name, ownerName: o.owner.name, name: o.name, stage: stageLabel(business, o.stage), updatedAt: o.activityAt ?? o.updatedAt })),
       lateOrderNodes: lateNodes.map((x) => ({
         orderId: x.order.id, orderNo: x.order.no, idx: x.idx, nodeName: x.name, dueAt: x.dueAt, 卡住: x.status === "卡住",
         customerId: x.order.customer.id, customerName: x.order.customer.name, ownerName: 业务员.get(x.order.ownerId) ?? "",
@@ -59,5 +60,20 @@ export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } 
     now.toDate(),
     business.customer,
     (v) => statusLabel(business, v),
+    Infinity,
   );
+}
+
+/** 展示窗口与总数分开；返回窗口内的记录，不把全库序列化给客户端。 */
+export async function loadWatchlistPage(now = dayjs(), 范围: { ownerId?: string } = {}, offset = 0, limit = 8) {
+  const all = await allWatchlist(now, 范围);
+  const size = Number.isSafeInteger(limit) ? Math.min(100, Math.max(1, limit)) : 8;
+  const requested = Number.isSafeInteger(offset) ? Math.max(0, offset) : 0;
+  const start = Math.min(requested, Math.max(0, Math.floor((all.length - 1) / size) * size));
+  return { items: all.slice(start, start + size), total: all.length, offset: start };
+}
+
+/** 兼容既有小卡片调用方。需要总数/更多记录时使用分页入口。 */
+export async function loadWatchlist(now = dayjs(), 范围: { ownerId?: string } = {}): Promise<WatchItem[]> {
+  return (await loadWatchlistPage(now, 范围)).items;
 }

@@ -1,3 +1,4 @@
+import { 转交商机 } from "@/lib/opportunity-activity";
 import { prisma } from "@/lib/prisma";
 import { 看全部 } from "@/lib/team-scope";
 import type { 带走数 } from "@/lib/carry-over";
@@ -35,7 +36,7 @@ export async function 带走并记下(换: { customerId: string; 旧: string }[]
       const 商机 = (await tx.opportunity.findMany({ where: { customerId, ownerId: 旧, status: "OPEN" }, select: { id: true } })).map((x) => x.id);
       if (计划.length) await tx.followPlan.updateMany({ where: { id: { in: 计划 } }, data: { ownerId: 新 } });
       if (待办.length) await tx.task.updateMany({ where: { id: { in: 待办 } }, data: { ownerId: 新 } });
-      if (商机.length) await tx.opportunity.updateMany({ where: { id: { in: 商机 } }, data: { ownerId: 新 } });
+      if (商机.length) await 转交商机(tx, { id: { in: 商机 } }, 新);
       return [计划, 待办, 商机];
     }));
     数.计划和待办 += 计划.length + 待办.length;

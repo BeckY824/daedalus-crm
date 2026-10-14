@@ -70,12 +70,19 @@ function normalize(v: unknown): string | number | boolean | null {
  * 两份数据之间发生变化的字段名（原始 key，不是中文名）。
  * 只比较编辑框里的字段，`lastFollowAt` 这类系统字段不参与。
  */
+function signValue(row: Record<string, unknown>) {
+  if (typeof row.expectedSignOn === "string") return `calendar:${row.expectedSignOn}`;
+  const v = row.expectedSignAt;
+  if (typeof v === "string") return /^\d{4}-\d{2}-\d{2}$/.test(v) ? `calendar:${v}` : new Date(v).getTime();
+  return normalize(v);
+}
+
 export function diffKeys(
   from: Record<string, unknown>,
   to: Record<string, unknown>,
 ): string[] {
   return Object.keys(CUSTOMER_FIELD_LABELS).filter(
-    (k) => k in to && normalize(from[k]) !== normalize(to[k]),
+    (k) => k in to && (k === "expectedSignAt" ? signValue(from) !== signValue(to) : normalize(from[k]) !== normalize(to[k])),
   );
 }
 

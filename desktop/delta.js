@@ -30,6 +30,7 @@
  *   - 清单里的包名是 win-unpacked，和装在哪个目录无关（安装时能改目录），不核对
  *   - 没有 codesign；换目录在 windows-install.js（运行中的文件被锁，要等进程退出后换）
  */
+const { 安全获取 } = require("./update-security");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const path = require("node:path");
@@ -78,7 +79,7 @@ async function 文件哈希(p) {
  */
 async function 拉清单({ url, 期望哈希, fetch: f = globalThis.fetch }) {
   if (!/^[a-f0-9]{64}$/i.test(期望哈希 || "")) throw new 退回整包("这一版的清单没有可核对的 sha256，不走差量");
-  const res = await f(url, { headers: { "User-Agent": "DaedalusCRM-Desktop" } });
+  const res = await 安全获取(url, { headers: { "User-Agent": "DaedalusCRM-Desktop" } }, f);
   if (!res.ok) throw new Error(`拉清单失败：HTTP ${res.status}`);
   const 字节 = Buffer.from(await res.arrayBuffer());
   if (sha256(字节) !== 期望哈希.toLowerCase()) throw new 退回整包("清单的 sha256 和发布时的对不上，不走差量");
@@ -223,7 +224,7 @@ function 规划Range(下载, { 间隔 = 64 * 1024 } = {}) {
  * file-cdn.gitcode.com 的签名直链（2026-09-29 实测）。GitHub 两样都认。
  */
 async function 解析直链({ url, fetch: f = globalThis.fetch }) {
-  const res = await f(url, { redirect: "follow", headers: { Range: "bytes=0-0", "User-Agent": "DaedalusCRM-Desktop" } });
+  const res = await 安全获取(url, { headers: { Range: "bytes=0-0", "User-Agent": "DaedalusCRM-Desktop" } }, f);
   // 只要跳转后的地址，body 不读；不理 Range 的源回 200 会开始吐整个文件，得掐掉
   await res.body?.cancel?.().catch(() => {});
   if (!res.ok) throw new Error(`解析下载地址失败：HTTP ${res.status}`);
@@ -232,7 +233,7 @@ async function 解析直链({ url, fetch: f = globalThis.fetch }) {
 
 async function 取Range({ url, start, end, fetch: f = globalThis.fetch }) {
   // HTTP Range 的 end 是闭区间
-  const res = await f(url, { headers: { Range: `bytes=${start}-${end - 1}`, "User-Agent": "DaedalusCRM-Desktop" } });
+  const res = await 安全获取(url, { headers: { Range: `bytes=${start}-${end - 1}`, "User-Agent": "DaedalusCRM-Desktop" } }, f);
   if (res.status === 403 || res.status === 410) {
     const e = new Error("下载地址过期");
     e.过期 = true;

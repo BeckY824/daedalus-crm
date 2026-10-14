@@ -1,9 +1,11 @@
 "use client";
 
+import DatePicker from "@/components/BusinessDatePicker";
+
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { App, Button, Card, Col, DatePicker, Input, InputNumber, Row, Segmented, Select, Space } from "antd";
+import { App, Button, Card, Col, Input, InputNumber, Row, Segmented, Select, Space } from "antd";
 import { DeleteOutlined, EditOutlined, PlusOutlined } from "@ant-design/icons";
 import CurrencySelect from "@/components/CurrencySelect";
 import { 毛利 } from "@/lib/supplier";
@@ -91,7 +93,7 @@ export default function OrderView({ o, 供应商 = [], 先看 }: { o: 订单详�
         <span>{当前 ? <>当前 <b>{当前.idx}. {当前.name}</b></> : <b>12 步都走完了</b>}</span>
         <span>进度 <b>{进度(o.nodes)}%</b></span>
         {超 > 0 && <span className="ord-late">超期 {超} 步</span>}
-        <span>未收 <b>{钱.未收 > 0 ? 金额(钱.未收, o.currency) : "收齐了"}</b></span>
+        <span title="订单金额减去定金实收和尾款实收，最低为0；按订单币种计算">未收 <b>{钱.未收 > 0 ? 金额(钱.未收, o.currency) : "收齐了"}</b></span>
         <Link href={`/customers/${o.customer.id}`}>{o.customer.name} 的记录 ›</Link>
         {o.opportunity && <Link href={`/opportunities?keyword=${encodeURIComponent(o.opportunity.name)}`}>来自商机「{o.opportunity.name}」 ›</Link>}
       </div>

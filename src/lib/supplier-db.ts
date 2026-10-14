@@ -5,6 +5,7 @@ import type { Prisma } from "@/generated/prisma";
 import { prisma, defaultClient } from "./prisma";
 import { 限定的我, 可见客户 } from "./team-scope";
 import { 规整币种 } from "./currency";
+import { 签约金额, 签约币种 } from "./money-db";
 
 export type 供应商行 = {
   id: string; name: string; category: string | null; region: string | null; contact: string | null; phone: string | null;
@@ -55,7 +56,7 @@ export async function 供应商详情(id: string) {
       },
       purchases: {
         ...(限 ? { where: { order: { customer: 限 } } } : {}),
-        include: { order: { select: { id: true, no: true, amount: true, currency: true, createdAt: true, customer: { select: { name: true } } } } },
+        include: { order: { select: { id: true, no: true, amount: true, currency: true, contract:{select:{amount:true,money:true}}, createdAt: true, customer: { select: { name: true } } } } },
       },
     },
   });
@@ -70,7 +71,7 @@ export async function 供应商详情(id: string) {
       商机: q.opportunity.name, 商机id: q.opportunity.id, 客户: q.opportunity.customer.name,
     })),
     purchases: s.purchases
-      .map((p) => ({ orderId: p.order.id, no: p.order.no, 客户: p.order.customer.name, amount: p.order.amount, currency: 规整币种(p.order.currency), cost: p.cost, costCurrency: 规整币种(p.currency), createdAt: p.order.createdAt.toISOString() }))
+      .map((p) => ({ orderId: p.order.id, no: p.order.no, 客户: p.order.customer.name, amount: p.order.contract ? 签约金额(p.order.contract) : p.order.amount, currency: p.order.contract ? 签约币种(p.order.contract) : 规整币种(p.order.currency), cost: p.cost, costCurrency: 规整币种(p.currency), createdAt: p.order.createdAt.toISOString() }))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
   };
 }

@@ -1,3 +1,5 @@
+import { CompletionStream } from "./llm-stream";
+import { 已知AI用完, 记AI余额 } from "./ai-credit-cache";
 /**
  * LLM 调用层 —— 任何 OpenAI 兼容接口（DeepSeek 官方、OpenAI、中转站、本地 Ollama…）。
  * 配置（Key、接口地址、模型名从哪来）在 llm-config.ts，这里原样转出，调用方只认这一个入口。
@@ -33,7 +35,7 @@ export function stripCodeFence(text: string): string {
 /** 系统提示词：业务简介来自设置页，改一段话所有 AI 功能一起换语境 */
 export function buildSystemPrompt(brief: string): string {
   return (
-    "你是 CRM 系统的录入与分析助手，服务一个销售团队。他们的业务：" + brief + "\n" +
+    "你是 CRM 系统的录入与分析助手，协助你管理客户与业务。业务简介：" + brief + "\n" +
     "严格依据用户提供的信息作答，禁止编造事实。" +
     "必须只输出用户要求的 JSON，不要输出任何 JSON 之外的文字、解释或 Markdown 代码块标记。"
   );
@@ -155,6 +157,8 @@ export type 工具声明 = { type: "function"; function: { name: string; descrip
 export const 首字等待毫秒 = { 流式: 20_000, 短输出: 15_000, 中输出: 45_000 };
 
 async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, useJsonFormat: boolean, stream: boolean, tools?: 工具声明[]): Promise<Response> {
+  const 云端网关 = /\/api\/gateway\/v1\/?$/.test(cfg.baseUrl);
+  if (云端网关 && 已知AI用完(cfg, opts.requestId)) throw Object.assign(new Error("AI 次数用完了，可在设置刷新余额或填自己的模型 API Key"), { status: 402 });
   const 模型 = opts.model ?? cfg.model;
   const 键 = 上游键(cfg, 模型);
   const body: Record<string, unknown> = {
@@ -245,11 +249,20 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
       throw new Error("连不上 AI 服务，检查一下网络再试");
     }
   }
+  const 错误正文 = !res.ok ? 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey) : "";
+  if (云端网关) {
+    const remaining = res.headers.get("X-Credits-Remaining");
+    if (remaining !== null) 记AI余额(cfg, Number(remaining), res.ok ? opts.requestId : undefined);
+    // 历史网关会把上游余额不足也透传为402；那不是用户的赠送次数。
+    if (res.status === 402 && !旧网关上游状态(错误正文)) 记AI余额(cfg, 0);
+  }
   if (!res.ok) {
-    const errText = 抹掉密钥((await res.text()).slice(0, 300), cfg.apiKey);
-    // 带了 thinking 又被 4xx 拒：记下这个模型，后面所有调用都不再带，
-    // 包括本次调用方马上要做的那次重试
-    if (body.thinking && (res.status === 400 || res.status === 422)) {
+    const errText = 错误正文;
+    // 只有明确指向thinking本身的不支持才缓存，普通参数或tools组合错误不能推断模型能力。
+    const thinking不支持 = /thinking|思考|推理/i.test(errText) &&
+      /not.support|unsupported|unknown|unrecognized|not.allowed|不支持|不认|不允许/i.test(errText) &&
+      !/\btools?\b|function.call/i.test(errText);
+    if (body.thinking && (res.status === 400 || res.status === 422) && thinking不支持) {
       不认thinking.add(键);
       console.warn(`[llm] 模型 ${模型} 在 ${cfg.baseUrl} 上不支持关闭思考，后续不再发送该参数`);
     }
@@ -310,7 +323,7 @@ async function chatMessagesOnce(cfg: LlmConfig, messages: ToolMessage[], opts: C
    * 方向完全错，线上排查会绕很久。调用方接住之后重试，那时预算已经加上去了。
    */
   if (choice?.finish_reason === "length") {
-    throw new Error(`AI 回答被长度限制截断（模型 ${model}），已提高预算，请重试`);
+    throw new Error(`AI 回答被长度限制截断（模型 ${model}）。请缩短本次内容，或分成几批处理`);
   }
   return content;
 }
@@ -388,12 +401,13 @@ export async function chatTools(
     中转站没把 DeepSeek 的原生标记转成 tool_calls、原样塞在正文里交回来（2026-09-28 桌面端真碰到的）。
     不认回来的话，这一步就被当成「没调工具」：工具没跑、建议卡没出，回答时它还以为出了。见 llm-dsml.ts
   */
-  if (!toolCalls.length && 有DSML(text)) {
+  if (有DSML(text)) {
     const 认 = 解析DSML(text, tools.map((t) => t.function.name));
-    if (认.调用.length) {
+    // 原生调用存在时以其ID和参数为准，正文中的镜像调用只过滤展示，避免执行两遍。
+    if (!toolCalls.length && 认.调用.length) {
       console.warn(`[llm] 工具调用被当正文吐回（DSML），已认回：${认.调用.map((c) => c.function.name).join(",")}`);
-      return { toolCalls: 认.调用, text: 认.余下 };
     }
+    return { toolCalls: toolCalls.length ? toolCalls : 认.调用, text: 认.余下 };
   }
   return { toolCalls, text };
 }
@@ -415,40 +429,20 @@ export async function chatTextStream(messages: ToolMessage[], opts: ChatOpts, on
   }
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buf = "";
-  let full = "";
-  while (true) {
-    let 这段: ReadableStreamReadResult<Uint8Array>;
-    try {
-      这段 = await reader.read();
-    } catch (e) {
-      if (e instanceof Error && e.name === "AbortError") throw e;
-      // 流到一半断了：原来对话框里是一句英文「terminated」（第二轮 AI）。已经出来的那些留着，说一声
-      throw new Error(full ? "回答写到一半断了（网络不稳），上面是已经写出来的部分，可以再问一次" : "回答还没开始就断了（网络不稳），再问一次试试");
+  const state = new CompletionStream(onToken);
+  try {
+    while (!state.done) {
+      const { value, done } = await reader.read();
+      if (done) { state.push(decoder.decode()); state.finish(); break; }
+      state.push(decoder.decode(value, { stream: true }));
     }
-    const { value, done } = 这段;
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    let idx: number;
-    while ((idx = buf.indexOf("\n")) !== -1) {
-      const line = buf.slice(0, idx).trim();
-      buf = buf.slice(idx + 1);
-      if (!line.startsWith("data:")) continue;
-      const payload = line.slice(5).trim();
-      if (payload === "[DONE]") continue;
-      try {
-        const j = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] };
-        const t = j.choices?.[0]?.delta?.content;
-        if (t) {
-          full += t;
-          onToken(t);
-        }
-      } catch {
-        /* 半截 JSON，等下一段 */
-      }
-    }
-  }
-  return full.trim();
+    if (!state.complete) throw new Error("Incomplete stream");
+    return state.text.trim();
+  } catch (e) {
+    if (e instanceof Error && e.name === "AbortError") throw e;
+    throw new Error(state.text ? "回答写到一半断了（网络不稳），上面是已经写出来的部分，可以再问一次" : "回答还没开始就断了（网络不稳），再问一次试试");
+  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+
 }
 
 /**
@@ -531,7 +525,13 @@ export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unk
  * 桌面端用户看不懂，也看不出该做什么。网关自己的报错正文是中文的那句 message，取出来；其余按状态码说人话。
  * 原文照旧进服务端日志（抹掉 Key 之后）。
  */
+function 旧网关上游状态(text: string): number | null {
+  const match = /上游模型接口返回\s+(\d{3})[：:]/.exec(text);
+  return match ? Number(match[1]) : null;
+}
+
 export function AI报错人话(status: number, 正文: string): string {
+  if (旧网关上游状态(正文)) return "AI 服务配置暂时不可用，请稍后再试；持续失败可从反馈联系我们";
   let 说: string | undefined;
   try {
     const j = JSON.parse(正文) as { error?: { message?: string } | string; message?: string };

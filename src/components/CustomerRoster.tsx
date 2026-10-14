@@ -1,5 +1,5 @@
 "use client";
-import dayjs from "dayjs";
+import { dayjs } from "@/lib/utils";
 import Shortcut from "./Shortcut";
 
 import { useEffect, useMemo, useRef, useState } from "react";

@@ -70,15 +70,28 @@ describe("文本：空格、超长、表情、特殊字符", () => {
     expect(收了的, `这几样存进了空名字：${收了的.join("、")}`).toEqual([]);
   });
 
-  /*
-    J-099 剩下的一样：跟进内容。saveFollowUp 只 trim 不拦，表单 required 也不管空白——只填空格存成一条空内容。
-    不伤别的数据，排下一版（回归核对 J1 记「已知未修」）
-  */
-  it.skip("【下一版】跟进内容只有空格：应拦下，不存一条空跟进", async () => {
+  it("跟进内容只有空格：应拦下，不存一条空跟进", async () => {
     const c = await 造客户(我);
     const r = await 结局(saveFollowUp({ customerId: c.id, type: "PHONE", content: "   ", status: "已完成", occurredAt: new Date().toISOString() }));
     expect(!r.抛了 && (r.值 as { ok: boolean }).ok, "只填空格的跟进存进去了").toBe(false);
     expect(await prisma.followUp.count()).toBe(0);
+  });
+
+  it.each(["\u200b\u200c\u200d\u2060", "\u034f\u0301\ufe0f", "\u2800\u3164\uffa0"])("八类必填正文拒绝不可见字符 %j 且不写库", async (blank) => {
+    const c = await 造客户(我);
+    const results = [
+      await 新客户({ name: blank }),
+      await saveLead({ name: blank, source: "微信", status: "待跟进" }),
+      await saveOpportunity({ name: blank, customerId: c.id, amount: 1, stage: "初步沟通", status: "OPEN", probability: 20, ownerId: 我 }),
+      await saveChannel({ name: blank, phone: null, remark: null, channelOwnerId: 我 }),
+      await saveContact({ customerId: c.id, name: blank, isPrimary: false }),
+      await saveTask({ customerId: c.id, title: blank }),
+      await savePlan({ customerId: c.id, subject: blank, plannedAt: new Date().toISOString(), method: "电话沟通" }),
+      await saveFollowUp({ customerId: c.id, type: "PHONE", content: blank, status: "已完成", occurredAt: new Date().toISOString() }),
+    ];
+    expect(results.map(r => r.ok)).toEqual(Array(8).fill(false));
+    expect(await prisma.customer.count()).toBe(1);
+    for (const model of [prisma.lead, prisma.opportunity, prisma.channel, prisma.contact, prisma.task, prisma.followPlan, prisma.followUp]) expect(await (model.count as () => Promise<number>)()).toBe(0);
   });
 
   it("待办改标题、改截止：saveTask 带 id 改原来那条，不另建（J-079）", async () => {
@@ -240,11 +253,12 @@ describe("金额", () => {
 });
 
 describe("日期与时长", () => {
-  it.skip("【下一版】【C】行内改「预计签约」传了不存在的日子（2026-02-30）：应拦，现状悄悄存成 3 月 2 日", async () => {
+  it("行内预计签约拒绝不存在的日子且原记录不变", async () => {
     const c = await 造客户(我);
     const r = await patchCustomer(c.id, "expectedSignAt", "2026-02-30");
     const 现 = await prisma.customer.findUniqueOrThrow({ where: { id: c.id } });
-    expect(r.ok === false || 现.expectedSignAt?.getMonth() === 1, `存成了 ${现.expectedSignAt?.toISOString()}`).toBe(true);
+    expect(r.ok).toBe(false);
+    expect(现.expectedSignAt).toEqual(c.expectedSignAt);
   });
 
   it("跟进时长：负数拦；半分钟存 30 秒", async () => {
@@ -255,10 +269,13 @@ describe("日期与时长", () => {
     expect((await prisma.followUp.findFirstOrThrow()).duration).toBe(30);
   });
 
-  it.skip("【下一版】【C】跟进时间是坏字符串：应说一句，不该抛", async () => {
+  it("跟进时间是坏字符串：应说一句，不该抛", async () => {
     const c = await 造客户(我);
     const r = await 结局(saveFollowUp({ customerId: c.id, type: "PHONE", content: "x", status: "已完成", occurredAt: "不是日期" }));
     expect(r.抛了, r.抛了 ? r.错 : "").toBe(false);
+    if (r.抛了) throw new Error(r.错);
+    expect(r.值.ok).toBe(false);
+    expect(await prisma.followUp.count()).toBe(0);
   });
 
   it("2 月 29 日（闰年）、12 月 31 日 23:59、1 月 1 日 00:00 的计划原样存取", async () => {

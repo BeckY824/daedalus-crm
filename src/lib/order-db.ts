@@ -36,10 +36,10 @@ export type 订单行 = {
 
 /** 订单一览：每行一单，带 12 个节点。超期多的排上面，其次新的在前（和 Excel 总表同一个看法） */
 export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现在: Date = new Date()): Promise<订单行[]> {
-  const rows = await prisma.tradeOrder.findMany({
-    where,
-    orderBy: { createdAt: "desc" },
-    take: 500,
+  const readBatch = (after?: string) => prisma.tradeOrder.findMany({
+    where: after ? {AND:[where,{id:{gt:after}}]} : where,
+    orderBy: { id: "asc" },
+    take: 1000,
     include: {
       customer: { select: { name: true } },
       nodes: 节点查询,
@@ -47,6 +47,14 @@ export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现�
       purchase: { select: { supplier: { select: { name: true } } } },
     },
   });
+  const rows: Awaited<ReturnType<typeof readBatch>> = [];
+  let after: string | undefined;
+  for (;;) {
+    const batch = await readBatch(after);
+    rows.push(...batch);
+    if (batch.length < 1000) break;
+    after = batch.at(-1)!.id;
+  }
   const 人 = new Map((await prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.ownerId))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
   return rows
     .map((o) => {
@@ -75,7 +83,7 @@ export async function 订单列表(where: Prisma.TradeOrderWhereInput = {}, 现�
         未收: 订单的钱({ ...o, amount: o.contract ? 签约金额(o.contract) : o.amount }).未收,
       };
     })
-    .sort((a, b) => b.超期 - a.超期 || b.createdAt.localeCompare(a.createdAt));
+    .sort((a, b) => b.超期 - a.超期 || b.createdAt.localeCompare(a.createdAt) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
 }
 
 /** 订单详情：表头、节点、单据、挂在各节点上的跟进、来源商机和它当前那一版报价 */

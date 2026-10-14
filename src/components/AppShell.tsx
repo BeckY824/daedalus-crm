@@ -41,7 +41,7 @@ import FeedbackButton from "./FeedbackButton";
 import { AiMeterBar } from "./AiCost";
 import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
-import Shortcut from "./Shortcut";
+import Shortcut, { useModifierKey } from "./Shortcut";
 import { useBusiness } from "@/lib/business-client";
 import { DockOpenContext, useNarrow, usePageOwnsCmdK } from "@/lib/roster";
 import { useMotionTheme } from "@/components/MotionTheme";
@@ -51,13 +51,14 @@ const { Header, Content } = Layout;
 declare global {
   interface Window {
     /** 壳→页面的一条单向指令：菜单里点了「设置」，由页面自己 push 过去（见 desktop/preload-app.js） */
-    desktopNav?: { onGo(cb: (路径: string) => void): () => void };
+    desktopNav?: { onGo(cb: (路径: string) => void): () => void; setCustomerLabel?(name: string): Promise<boolean> };
     desktopTeam?: { onChanged(cb: () => void): () => void };
   }
 }
 
 type Props = {
   user: SessionUser;
+  workspace?: { name: string; multiple: boolean; billing?: boolean };
   /** 左栏「收藏的客户」（lib/favorites.ts）。没收藏过就整栏不出现 */
   收藏?: { id: string; name: string }[];
   /** 导航项右边的数（2026-10-02 照毛玻璃原型）：客户总数、在谈的商机。只给有意义的那几项 */
@@ -111,9 +112,10 @@ type Props = {
 /** 面板常驻要的最小窗口宽度，见 AppShell 里 窄窗 那段 */
 const 面板放不下 = "(max-width: 1599px)";
 
-export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订单要看 = { 超期: 0, 今天: 0 }, desktop, 反馈去向, pane, ai, children }: Props) {
+export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, 要跟, 订单要看 = { 超期: 0, 今天: 0 }, desktop, 反馈去向, pane, ai, children }: Props) {
   const { 曲线, 时长 } = useMotionTheme();
   const b = useBusiness();
+  const modifier = useModifierKey();
   const router = useRouter();
   const pathname = usePathname();
   const 页内占着CmdK = usePageOwnsCmdK();
@@ -178,6 +180,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
    * 网页版没有这座桥，这个 effect 什么都不做。
    */
   useEffect(() => window.desktopNav?.onGo((路径) => router.push(路径)), [router]);
+  useEffect(() => { void window.desktopNav?.setCustomerLabel?.(b.customer).catch(() => {}); }, [b.customer]);
   // 团队同步收到同事的改动（壳 8 秒一轮）：刷新当前页。正在填的表单是客户端状态，refresh 不会冲掉
   useEffect(() => window.desktopTeam?.onChanged(() => router.refresh()), [router]);
 
@@ -223,14 +226,15 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
           ]),
       // 供应商（3c）同样外贸才有：通用销售没有「找工厂比价」这一步
       ...(b.template === "trade" && 供应商页 ? [{ key: "/suppliers", icon: <ShopOutlined />, label: "供应商", 组: "更多" as const }] : []),
+      ...(workspace?.billing ? [{ key: "/billing", icon: <DollarOutlined />, label: "开通订阅", 组: "更多" as const }] : []),
     ],
-    [b.customer, b.template],
+    [b.customer, b.template, workspace?.billing],
   );
 
   // 选中项取最长匹配前缀，/customers/xxx 也算在客户管理下
   const 少动 = useReducedMotion();
   const selectedKey = useMemo(() => {
-    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/suppliers", "/follow-ups", "/settings"];
+    const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/suppliers", "/follow-ups", "/settings", "/billing"];
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
 
@@ -267,10 +271,10 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
       {/* 和 Dock 上那个红数字同一个数、同一种红：人从 Dock 看见 1，打开应用第一眼就能对上它在哪。
           点进去是记录页，页头「计划」按钮上还挂着同一个数，再点就是逾期和今天那两组 */}
       {n.key === "/follow-ups" && 要跟数 > 0 && (
-        <span className="rail-count" title={`${要跟说法}，和 Dock 上的数一样`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
+        <span className="rail-count" title={`${要跟说法}${desktop ? "，和应用图标提示一致" : "，查看跟进计划中的逾期和今天"}`}>{要跟数 > 99 ? "99+" : 要跟数}</span>
       )}
       {n.key === "/orders" && 订单数 > 0 && (
-        <span className="rail-count" title={`${订单说法}，算在 Dock 上的数里`}>{订单数 > 99 ? "99+" : 订单数}</span>
+        <span className="rail-count" title={`${订单说法}${desktop ? "，计入应用图标提示" : ""}`}>{订单数 > 99 ? "99+" : 订单数}</span>
       )}
       {/* 灰的数只是「有多少」，不是「要处理」：和上面那个红的分开，红的才催人 */}
       {(计数[n.key] ?? 0) > 0 && <span className="rail-num">{计数[n.key]}</span>}
@@ -309,6 +313,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
       // 软导航才会命中拦截路由（@modal/(.)settings），设置才是盖在当前页上的一层
       if (key === "settings") router.push("/settings");
       if (key === "logout") void logout();
+      if (key === "workspaces") router.push("/workspaces");
     },
     items: [
       {
@@ -321,10 +326,12 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
             <div style={{ minWidth: 0 }}>
               <b>{user.name}</b>
               <span>{[user.title, user.email].filter(Boolean).join(" · ")}</span>
+              {workspace && <span>当前工作区：{workspace.name}</span>}
             </div>
           </div>
         ),
       },
+      ...(workspace?.multiple ? [{ key: "workspaces", label: "切换工作区" }] : []),
       { type: "divider" as const },
       {
         key: "settings",
@@ -367,6 +374,11 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
           <Badge count={要跟数} size="small" color={要跟.逾期 > 0 ? "var(--danger)" : palette.textMuted}>
             <Button type="text" icon={<BellOutlined />} aria-label={要跟说法 ? `跟进计划，${要跟说法}` : "跟进计划"} onClick={() => router.push("/follow-ups/plans")} />
           </Badge>
+          <Dropdown trigger={["click"]} menu={userMenu}>
+            <Button type="text" aria-label={`${user.name}，账号菜单`}>
+              <Avatar size={24} style={{ background: avatarColor(user.name), color: AVATAR_TEXT }}>{initial(user.name)}</Avatar>
+            </Button>
+          </Dropdown>
         </Header>
         <Content className="app-content" style={{ padding: "22px 26px" }}>
           <我Provider value={{ id: user.id, name: user.name }}><要跟Context.Provider value={要跟}>{children}</要跟Context.Provider></我Provider>
@@ -389,7 +401,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
             网页版没有红黄绿钮那一截，顶上还是标志，不然整个页面上就找不到自己在哪个产品里。
           */}
           {desktop ? (
-            <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label={页内占着CmdK ? "搜索" : "搜索（⌘K）"}>
+            <button type="button" className="rail-search" onClick={() => window.dispatchEvent(new Event("cmdbar:open"))} aria-label={页内占着CmdK ? "搜索" : `搜索（${modifier}K）`}>
               <SearchOutlined />
               <span>搜索</span>
               {/* 首页的 ⌘K 是「回问答框」、记录页是「换一位」：那两处不写，免得标签和按下去的对不上（lib/roster.ts） */}
@@ -435,7 +447,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
           {/* AI 面板收着时的入口。原来是正文右边一条 44px 的窄边，笔记本上每张表都被它挤掉最右一列，
               挪到这里就哪边都不占（见 AiDock 收起时那段）。首页就是对话本身，不用它 */}
           {ai && !小屏 && !面板开着 && 底下那页 !== "/dashboard" && (
-            <button type="button" className="rail-item rail-ask" onClick={() => 记住面板(true)} aria-label="打开 AI 面板（Ctrl+J / ⌘J）">
+            <button type="button" className="rail-item rail-ask" onClick={() => 记住面板(true)} aria-label={`打开 AI 面板（${modifier}J）`}>
               <MessageOutlined />
               <b>问一句</b>
               <span className="rail-ask-k"><Shortcut>⌘J</Shortcut></span>
@@ -478,7 +490,7 @@ export default function AppShell({ user, 收藏 = [], 计数 = {}, 要跟, 订�
       </nav>
 
       {/* ⌘K：跳页或问一句。挂在壳上，哪一页都在 */}
-      <CommandBar />
+      <CommandBar 有AI={Boolean(ai)} />
 
 
       {/* 中栏：槽位自己带 <aside class="pane">，没有中栏的路由返回 null */}

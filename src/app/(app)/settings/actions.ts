@@ -1,5 +1,6 @@
 "use server";
 
+import { 转交商机 } from "@/lib/opportunity-activity";
 import { 补来源 } from "@/lib/customer-extra-db";
 
 import { 钉住老签约 } from "@/lib/contract-owner";
@@ -13,14 +14,14 @@ import { 读令牌, 生成令牌, 撤销令牌 } from "@/lib/mcp/token";
 import { MCP地址 } from "@/lib/mcp/address";
 import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
-import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, 复成员 } from "@/lib/tenant/members";
+import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, 复成员, 是创建者 } from "@/lib/tenant/members";
 import { 列出 as 列出设备, 吊销 as 吊销设备 } from "@/lib/tenant/device-token";
 import { 本地模式, 读 as 读云端凭据, 发码 as 云端发码, 重置密码 as 云端重置密码, 清 as 清云端凭据 } from "@/lib/desktop/cloud";
 import { destroySession } from "@/lib/auth";
 import { isEmail } from "@/lib/tenant/accounts";
 import { createSession } from "@/lib/auth";
 import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, type ModelOption } from "@/lib/llm";
-import { getBusiness, saveBusiness, mergeBusiness, type BusinessConfig } from "@/lib/business";
+import { getBusiness, saveBusiness, mergeBusiness, 状态名问题, type BusinessConfig } from "@/lib/business";
 import { 判断可用 } from "@/lib/jev/client";
 import { 自动判断开着, 设自动判断 } from "@/lib/jev/settings";
 
@@ -98,6 +99,12 @@ export async function saveUser(input: {
 > {
   const me = await requireAdmin();
 
+  if (!input || typeof input !== "object" || typeof input.name !== "string" || !input.name.trim() ||
+      typeof input.email !== "string" || typeof input.title !== "string" || typeof input.role !== "string" ||
+      typeof input.active !== "boolean" || (input.id !== undefined && (typeof input.id !== "string" || !input.id)) ||
+      (input.password != null && typeof input.password !== "string")) {
+    return { ok: false, error: "成员信息不完整或格式不正确" };
+  }
   if (!ROLES.some((r) => r.value === input.role)) {
     return { ok: false as const, error: `角色「${input.role}」不是合法取值` };
   }
@@ -164,6 +171,8 @@ export async function saveUser(input: {
   };
 
   if (input.id) {
+    const 之前 = await prisma.user.findUnique({ where: { id: input.id }, select: { active: true } });
+    if (!之前) return { ok: false, error: "这个成员已不存在，请刷新重试" };
     if (托管版()) {
       /**
        * 托管版的密码在控制面，业务库那一列存的是不可用的占位符。
@@ -172,29 +181,42 @@ export async function saveUser(input: {
        * 改一边不改另一边就对不上了；界面上那一栏在编辑时是锁住的。
        */
       const link = await prisma.workspaceAccount.findFirst({ where: { userId: input.id } });
+      const 恢复 = !之前.active && input.active;
+      const t = 恢复 ? await resolveCurrentTenant() : null;
+      if (恢复 && (!link || !t)) return { ok: false, error: "无法恢复成员的登录资格，请刷新重试或联系管理员" };
+      // 密码在控制面、在职状态在业务库，避免恢复失败却已改掉密码的部分结果。
+      if (恢复 && input.password) return { ok: false, error: "请先恢复成员，再单独重置密码" };
       if (input.password) {
         if (!link) return { ok: false as const, error: "这个成员还没有可登录的账号（老数据），请删掉重建" };
         const r = await 改控制面密码(link.accountId, input.password);
         if (!r.ok) return r;
       }
       const { email: _忽略登录名, ...可改 } = base;
-      const 之前 = await prisma.user.findUnique({ where: { id: input.id }, select: { active: true } });
-      await prisma.user.update({ where: { id: input.id }, data: 可改 });
       /*
         在编辑框里把停用的人拨回在职：和「恢复」按钮一样，把停用时撤掉的成员资格补回来。
         原来只改了业务库的 active，提示「已保存」，那个人照样登不进来（2026-10-02 排查 A4）
       */
-      if (之前 && !之前.active && input.active && link) {
-        const t = await resolveCurrentTenant();
-        if (t) await 复成员(link.accountId, t.workspaceId, input.role);
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.user.update({ where: { id: input.id }, data: 可改 });
+          if (恢复 && link && t) await 复成员(link.accountId, t.workspaceId, input.role);
+        });
+      } catch (error) {
+        console.error("保存托管成员失败：", error);
+        return { ok: false, error: 恢复 ? "成员保存失败，登录资格未恢复，请稍后重试" : "成员保存失败，请稍后重试" };
       }
     } else {
-      await prisma.user.update({
-        where: { id: input.id },
-        data: input.password
-          ? { ...base, password: await bcrypt.hash(input.password, 10) }
-          : base,
-      });
+      const occupied = await prisma.user.findUnique({ where: { email: base.email }, select: { id: true } });
+      if (occupied && occupied.id !== input.id) return { ok: false, error: "该登录用户名已被占用" };
+      try {
+        await prisma.user.update({
+          where: { id: input.id },
+          data: input.password ? { ...base, password: await bcrypt.hash(input.password, 10) } : base,
+        });
+      } catch (error) {
+        if (error && typeof error === "object" && "code" in error && error.code === "P2002") return { ok: false, error: "该登录用户名已被占用" };
+        throw error;
+      }
     }
   } else {
     if (!input.password) return { ok: false as const, error: "新成员必须设置初始密码" };
@@ -253,6 +275,14 @@ export async function saveUser(input: {
  */
 export async function deactivateUser(id: string, transferToId: string) {
   const me = await requireAdmin();
+  // 必须在业务库转交、停用之前拒绝，不能写到一半才发现永久 OWNER 身份丢失。
+  if (托管版()) {
+    const t = await resolveCurrentTenant();
+    const link = await prisma.workspaceAccount.findFirst({ where: { userId: id } });
+    if (t && link && await 是创建者(link.accountId, t.workspaceId)) {
+      return { ok: false as const, error: "工作区创建者不能停用" };
+    }
+  }
   if (id === transferToId) return { ok: false as const, error: "不能转交给自己" };
 
   const receiver = await prisma.user.findUnique({
@@ -306,7 +336,7 @@ export async function deactivateUser(id: string, transferToId: string) {
   // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）
   await prisma.$transaction(async (tx) => {
     await tx.customer.updateMany({ where: { id: { in: 转走了.客户 } }, data: { salesOwnerId: transferToId } });
-    await tx.opportunity.updateMany({ where: { id: { in: 转走了.商机 } }, data: { ownerId: transferToId } });
+    await 转交商机(tx, { id: { in: 转走了.商机 }, ownerId: id, status: "OPEN" }, transferToId);
     await tx.task.updateMany({ where: { id: { in: 转走了.待办 } }, data: { ownerId: transferToId } });
     await tx.followPlan.updateMany({ where: { id: { in: 转走了.计划 } }, data: { ownerId: transferToId } });
     /**
@@ -346,12 +376,25 @@ export async function deactivateUser(id: string, transferToId: string) {
 
 export async function reactivateUser(id: string) {
   const me = await requireAdmin();
-  const u = await prisma.user.update({ where: { id }, data: { active: true } });
+  const u = typeof id === "string" && id ? await prisma.user.findUnique({ where: { id } }) : null;
+  if (!u) return { ok: false as const, error: "这个成员已不存在，请刷新重试" };
+  if (u.active) return { ok: true as const };
   // 托管版：停用时撤掉的成员资格要加回来，否则他登录会被告知「没有工作区」
   if (托管版()) {
     const t = await resolveCurrentTenant();
     const link = await prisma.workspaceAccount.findFirst({ where: { userId: id } });
-    if (t && link) await 复成员(link.accountId, t.workspaceId, u.role);
+    if (!t || !link) return { ok: false as const, error: "无法恢复成员的登录资格，请刷新重试或联系管理员" };
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id }, data: { active: true } });
+        await 复成员(link.accountId, t.workspaceId, u.role);
+      });
+    } catch (error) {
+      console.error("恢复托管成员失败：", error);
+      return { ok: false as const, error: "成员恢复失败，仍保持停用，请稍后重试" };
+    }
+  } else {
+    await prisma.user.update({ where: { id }, data: { active: true } });
   }
   await recordAudit({
     user: me, action: "reactivate", entity: "User", entityId: id,
@@ -571,6 +614,8 @@ export async function testLlmSettings(input: { baseUrl: string; model: string; a
 export async function saveBusinessSettings(cfg: BusinessConfig) {
   const me = await requireAdmin();
   const merged = mergeBusiness(cfg);
+  const 状态错误 = Object.values(状态名问题(merged))[0];
+  if (状态错误) return { ok: false as const, error: 状态错误 };
   if (merged.customer.length > 6) return { ok: false as const, error: "核心名词请控制在 6 个字以内，它会出现在表头和按钮上" };
   if (merged.brief.length > 500) return { ok: false as const, error: "业务简介请控制在 500 字以内" };
   const before = await getBusiness();

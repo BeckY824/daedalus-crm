@@ -110,6 +110,30 @@ describe("没配网关时这些路由不存在", () => {
 });
 
 describe("令牌", () => {
+  it("F7 停用立即拒绝已有令牌的同步和模型请求，重新启用后原令牌恢复", async () => {
+    const { acc, token, tokenId } = await 建账号带令牌();
+    const { control } = await import("@/lib/tenant/control");
+    const { 认领 } = await import("@/lib/tenant/device-token");
+    const { 认同步 } = await import("@/lib/tenant/sync-auth");
+    const { GET, POST: 建队 } = await import("@/app/api/sync/team/route");
+    const { POST: 问 } = await import("@/app/api/gateway/v1/chat/completions/route");
+    const 上游调用 = vi.fn(); vi.stubGlobal("fetch", 上游调用);
+    expect(await 认领(token)).toMatchObject({ accountId: acc.id });
+    await control.account.update({ where: { id: acc.id }, data: { active: false } });
+    expect(await 认领(token)).toBeNull();
+    expect(await 认同步(请求(token, {}))).toMatchObject({ ok: false, res: { status: 401 } });
+    expect((await GET(请求(token, {}))).status).toBe(401);
+    const before = await control.syncTeam.count();
+    expect((await 建队(请求(token, { name: "停用期间不得建队" }))).status).toBe(401);
+    expect(await control.syncTeam.count()).toBe(before);
+    expect((await 问(请求(token, 一次问话))).status).toBe(401);
+    expect(上游调用).not.toHaveBeenCalled();
+    expect((await control.deviceToken.findUniqueOrThrow({ where: { id: tokenId } })).revokedAt).toBeNull();
+    await control.account.update({ where: { id: acc.id }, data: { active: true } });
+    expect(await 认领(token)).toMatchObject({ accountId: acc.id });
+    expect((await GET(请求(token, {}))).status).toBe(200);
+  });
+
   it("不带、乱填、格式不对都是 401", async () => {
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
     for (const t of [null, "abc", "Bearer", "dk_thisTokenDoesNotExist"]) {
@@ -285,7 +309,7 @@ describe("额度", () => {
     let 打了几次上游 = 0;
     vi.stubGlobal("fetch", async () => {
       打了几次上游++;
-      return new Response(JSON.stringify({ choices: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ choices: [{ message: { content: "QA success" } }] }), { status: 200, headers: { "Content-Type": "application/json" } });
     });
 
     // 一直问到被拦下为止。每轮清掉频率限流——那是另一码事（防失控脚本），
@@ -328,6 +352,7 @@ describe("额度", () => {
     expect(res.status).toBe(500);
     const { 余额 } = await import("@/lib/tenant/credits");
     expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(0);
+    expect(res.headers.get("X-Credits-Remaining")).toBe(String((await 余额({ kind: "account", id: acc.id })).还剩));
   });
 
   it("上游 429（它在限我们）：也退", async () => {
@@ -369,6 +394,16 @@ describe("额度", () => {
     expect(日志.join("\n")).not.toContain("upstream-key");
   });
 
+  it("普通问答空白正文且没有工具调用：不保留扣次", async () => {
+    const { token, acc } = await 建账号带令牌();
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: "   " }, finish_reason: "stop" }] })));
+    const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
+    const res = await POST(请求(token, 一次问话));
+    const { 余额 } = await import("@/lib/tenant/credits");
+    expect(res.headers.get("X-Credits-Remaining")).toBe(String((await 余额({ kind: "account", id: acc.id })).还剩));
+    expect((await 余额({ kind: "account", id: acc.id })).用掉).toBe(0);
+  });
+
   it("连不上上游：退——和 5xx 同一个道理", async () => {
     const { token, acc } = await 建账号带令牌();
     vi.stubGlobal("fetch", async () => { throw new Error("connect ECONNREFUSED"); });
@@ -381,7 +416,7 @@ describe("额度", () => {
 
   it("**同一个问题的几步只扣一次**：带同一个 X-Question-Id 打三次", async () => {
     const { token, acc } = await 建账号带令牌();
-    vi.stubGlobal("fetch", async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: "QA success" } }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
     for (let i = 0; i < 3; i++) {
       const req = 请求(token, 一次问话);
@@ -396,7 +431,7 @@ describe("额度", () => {
 
   it("不带 X-Question-Id 的老客户端：不同的话各扣一次；同一句话的几步（前两条消息一样）只扣一次", async () => {
     const { token, acc } = await 建账号带令牌();
-    vi.stubGlobal("fetch", async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: "QA success" } }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
     for (let i = 0; i < 3; i++) await POST(请求(token, 第几句(i)));
     const { 余额 } = await import("@/lib/tenant/credits");
@@ -411,7 +446,7 @@ describe("额度", () => {
   it("两个账号各算各的", async () => {
     const 甲 = await 建账号带令牌();
     const 乙 = await 建账号带令牌();
-    vi.stubGlobal("fetch", async () => new Response("{}", { status: 200, headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({ choices: [{ message: { content: "QA success" } }] }), { status: 200, headers: { "Content-Type": "application/json" } }));
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");
     for (let i = 0; i < 3; i++) await POST(请求(甲.token, 第几句(i)));
     const { 余额 } = await import("@/lib/tenant/credits");

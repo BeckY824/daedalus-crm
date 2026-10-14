@@ -52,7 +52,10 @@ export function 这次新的(全部: 一版[], 看过: string, 现在: string): 
  * 同一份 CHANGELOG 两边都用，网页团队版另外改的那几条写在这一小节里——
  * 桌面端的人看到「同事」「换负责人」只会纳闷这说的是谁。
  */
-export function 只留桌面端(正文: string): string {
+export function 只留桌面端(正文: string, 平台 = "darwin"): string {
+  // Explicit platform blocks avoid presenting Mac-only controls as Windows features.
+  正文 = 正文.replace(/<!-- desktop:(darwin|win32) -->\n?([\s\S]*?)<!-- \/desktop -->/g, (_whole, target: string, content: string) => target === 平台 ? content : "");
+  if (平台 === "win32") 正文 = 正文.replaceAll("⌘", "Ctrl+");
   const 出: string[] = [];
   let 跳 = false;
   for (const 行 of 正文.split("\n")) {

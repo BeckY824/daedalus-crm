@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { 签约归属人 } from "@/lib/contract-owner";
-import { 成员选项 } from "@/lib/utils";
+import { 成员选项, dayjs } from "@/lib/utils";
 import { 带币种, 签约币种, 签约金额, 签约合计 } from "@/lib/money-db";
 import type { 币种合计 } from "@/lib/currency";
 
@@ -27,6 +27,7 @@ export type 复盘 = {
   byChannel: Agg[];
   byAttribution: Agg[];
   total: { amount: number; count: number };
+  未来: { amount: number; count: number };
   /**
    * 币种（2026-10-03）。上面所有的数只算 `币种` 这一种——图和排行只能用一种钱，不换汇。
    * `币种们` 是这一段里每种币各签了多少，界面上有两种以上才给「按币种看」的切换。
@@ -39,10 +40,7 @@ export type 复盘 = {
 export type 粒度 = "day" | "month";
 
 function bucketOf(d: Date, 粒: 粒度) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  if (粒 === "day") return `${m}-${String(d.getDate()).padStart(2, "0")}`;
-  return `${y}-${m}`;
+  return dayjs(d).format(粒 === "day" ? "MM-DD" : "YYYY-MM");
 }
 
 /**
@@ -62,13 +60,12 @@ function bucketOf(d: Date, 粒: 粒度) {
 function 刻度们(from: Date, to: Date, 粒: 粒度): string[] {
   const 止 = new Date(Math.min(to.getTime(), Date.now()));
   const out: string[] = [];
-  const d = new Date(from);
+  let d = dayjs(from);
   // 按月铺时从当月 1 号起步，免得 1 月 31 日 +1 个月跳过 2 月
-  if (粒 === "month") d.setDate(1);
-  while (d < 止) {
-    out.push(bucketOf(d, 粒));
-    if (粒 === "day") d.setDate(d.getDate() + 1);
-    else d.setMonth(d.getMonth() + 1);
+  if (粒 === "month") d = d.date(1);
+  while (d.isBefore(止)) {
+    out.push(bucketOf(d.toDate(), 粒));
+    d = d.add(1, 粒);
   }
   return out;
 }
@@ -99,11 +96,15 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度, 币: { 想
       },
     },
   });
-  const 币种们 = 签约合计(全部);
+  const now = new Date();
+  const 实际币种 = 签约合计(全部.filter(c => c.signedAt <= now));
+  const 币种们 = 签约合计(全部).map(x => ({ ...x, 合计: 实际币种.find(y => y.币种 === x.币种)?.合计 ?? 0 })).sort((a, b) => b.合计 - a.合计);
   const 有 = (码?: string) => !!码 && 币种们.some((x) => x.币种 === 码);
   const 币种 = 有(币.想看) ? 币.想看! : 有(币.本位币) ? 币.本位币 : (币种们[0]?.币种 ?? 币.本位币);
   // 以下全按这一种币算；金额用精确值（外币有分），老签约退回 Contract.amount
-  const contracts = 全部.filter((c) => 签约币种(c) === 币种).map((c) => ({ ...c, amount: 签约金额(c) }));
+  const 本币 = 全部.filter((c) => 签约币种(c) === 币种).map((c) => ({ ...c, amount: 签约金额(c) }));
+  const contracts = 本币.filter(c => c.signedAt <= now);
+  const 未到 = 本币.filter(c => c.signedAt > now);
 
   // 业绩算在签约那一刻的负责人头上（排查 B2，lib/contract-owner.ts）
   const 归属 = await 签约归属人(contracts);
@@ -178,9 +179,10 @@ export async function 加载复盘(from: Date, to: Date, 粒: 粒度, 币: { 想
     trend: [...byBucket.entries()].map(([label, v]) => ({ label, ...v })),
     明细: Object.fromEntries(明细),
     bySales: 成员agg(签约销售, "—"),
-    byChannelOwner: 成员agg(签约渠道负责人, "无渠道"),
-    byChannel: agg((c) => c.customer.channel, "自然流量"),
+    byChannelOwner: 成员agg(签约渠道负责人, "无渠道负责人"),
+    byChannel: agg((c) => c.customer.channel, "无来源渠道"),
     byAttribution: agg((c) => c.customer.attributionChannel ?? c.customer.attributionCustomer, "无归属"),
+    未来: { amount: 未到.reduce((s, c) => s + c.amount, 0), count: 未到.length },
     total: { amount: contracts.reduce((s, c) => s + c.amount, 0), count: contracts.length },
     币种,
     币种们,

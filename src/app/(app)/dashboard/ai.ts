@@ -3,13 +3,14 @@
 import { 风格要求, 话术上限, type 起草风格 } from "@/lib/draft-style";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { consumeAiQuota } from "@/lib/ai-quota";
+import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { getBusiness } from "@/lib/business";
 import { statusLabel } from "@/lib/business-config";
 import { formatTimeline } from "@/lib/ai-context";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
+import { AI客户输入错误, AI文本输入错误 } from "@/lib/ai-input";
 
 /**
  * 盯盘清单的「起草跟进」：给一条唤醒话术草稿。
@@ -17,6 +18,8 @@ import { 带额度 } from "@/lib/tenant/ai-allowance";
  * 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）。
  */
 export async function draftWakeup(input: { customerId: string; reason: string; 风格?: 起草风格 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const error = AI客户输入错误(input) ?? AI文本输入错误(input?.reason, 1, 1000, "请填写本次跟进原因");
+  if (error) return { ok: false, error };
   return 带额度("wakeup", () => 起草唤醒话术(input));
 }
 
@@ -27,7 +30,7 @@ async function 起草唤醒话术(input: {
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
   const customer = await prisma.customer.findUnique({
@@ -64,7 +67,7 @@ ${timeline}
 输出严格 JSON：{"message": "..."}`;
 
   try {
-    const raw = (await chatJSON(prompt)) as { message?: unknown };
+    const raw = (await chatJSON(prompt, { feature: "wakeup" })) as { message?: unknown };
     const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 话术上限) : "";
     if (!message) return { ok: false, error: "AI 未能生成话术，请重试" };
     await recordAiUse(user, "wakeup", `AI 起草唤醒话术（${b.customer}「${customer.name}」：${input.reason.slice(0, 50)}）`, input.customerId);
@@ -86,6 +89,12 @@ ${timeline}
 export async function explainWatchlist(input: {
   items: { customerId: string; reason: string }[];
 }): Promise<{ ok: true; notes: Record<string, string> } | { ok: false; error: string }> {
+  if (!input || !Array.isArray(input.items)) return { ok: false, error: "清单格式不正确" };
+  if (!input.items.length) return { ok: false, error: "清单为空" };
+  for (const item of input.items) {
+    const error = AI客户输入错误(item) ?? AI文本输入错误(item?.reason, 1, 1000, "请填写清单原因");
+    if (error) return { ok: false, error };
+  }
   return 带额度("explain", () => 解读盯盘(input));
 }
 
@@ -94,7 +103,7 @@ async function 解读盯盘(input: {
 }): Promise<{ ok: true; notes: Record<string, string> } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
   const ids = [...new Set(input.items.map((i) => i.customerId))].slice(0, 8);
@@ -136,7 +145,7 @@ ${blocks}
 输出严格 JSON，key 是上面 ### 后面的 id：{"<id>": "一句话", ...}`;
 
   try {
-    const raw = (await chatJSON(prompt)) as Record<string, unknown>;
+    const raw = (await chatJSON(prompt, { feature: "explain" })) as Record<string, unknown>;
     const notes: Record<string, string> = {};
     for (const c of customers) {
       const v = raw?.[c.id];

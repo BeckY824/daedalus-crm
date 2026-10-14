@@ -5,14 +5,14 @@ import { useRouter } from "next/navigation";
 import { Button, Space, Avatar, Tag, Select } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
-import { 列表不问归属 } from "@/lib/solo";
+import { 列表不问归属ID } from "@/lib/solo";
 import { 关系候选 } from "@/lib/business-config";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import ContactForm from "../customers/[id]/ContactForm";
 import { useContactRemoval } from "../customers/[id]/useContactRemoval";
-import { avatarColor, initial, AVATAR_TEXT } from "@/lib/utils";
+import { avatarColor, initial, AVATAR_TEXT, 成员选项 } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 
 type Row = {
@@ -33,6 +33,8 @@ type Row = {
   customerName: string;
   school: string | null;
   ownerName: string;
+  ownerId: string;
+  ownerEmail: string;
 };
 
 export default function ContactsView({
@@ -40,6 +42,7 @@ export default function ContactsView({
   总数,
   keyword,
   学员们,
+  有客户 = 学员们.length > 0,
   users,
 }: {
   rows: Row[];
@@ -49,8 +52,9 @@ export default function ContactsView({
   /** 「添加联系人」时挑归属用的。联系人挂在某一位学员下面，没有归属的联系人没有意义 */
   /** label：重名的带公司和手机尾号（2026-10-04 J-016） */
   学员们: { id: string; name: string; label?: string }[];
+  有客户?: boolean;
   /** 负责人候选。只用来判断是不是只有一个人 */
-  users: { name: string }[];
+  users: { id: string; name: string }[];
 }) {
   const b = useBusiness();
   const router = useRouter();
@@ -74,17 +78,17 @@ export default function ContactsView({
     [全部行],
   );
   const 负责人选项 = useMemo(
-    () => [...new Set(全部行.filter((r) => !r.未归属).map((r) => r.ownerName))].map((v) => ({ value: v, label: v })),
+    () => 成员选项([...new Map(全部行.filter((r) => !r.未归属).map((r) => [r.ownerId, { id: r.ownerId, name: r.ownerName, email: r.ownerEmail }])).values()]),
     [全部行],
   );
   /** 只有一个人：负责人列和筛选都不摆（审查 D2），见 lib/solo.ts */
-  const 不问归属 = !负责人 && 列表不问归属(users, 全部行.filter((r) => !r.未归属).map((r) => r.ownerName));
+  const 不问归属 = !负责人 && 列表不问归属ID(users, 全部行.filter((r) => !r.未归属).map((r) => r.ownerId));
   const rows = useMemo(
     () =>
       全部行.filter(
         (r) =>
           (!关系 || r.position === 关系) &&
-          (!负责人 || (!r.未归属 && r.ownerName === 负责人)) &&
+          (!负责人 || (!r.未归属 && r.ownerId === 负责人)) &&
           (!归属 || (归属 === "无") === r.未归属),
       ),
     [全部行, 关系, 负责人, 归属],
@@ -152,7 +156,7 @@ export default function ContactsView({
         title="联系人"
         subtitle="档案里的联系人"
         extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => set表单开着(true)} disabled={学员们.length === 0}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => set表单开着(true)} disabled={!有客户}>
             添加联系人
           </Button>
         }
@@ -173,7 +177,7 @@ export default function ContactsView({
           title: "还没有联系人",
           hint: `联系人是${b.customer}那边真正在对话的人：${关系候选(b).slice(0, 3).join("、")}。他挂在某一位${b.customer}下面，所以要先有${b.customer}。`,
           primary:
-            学员们.length > 0
+            有客户
               ? { label: "添加第一位联系人", onClick: () => set表单开着(true) }
               : { label: `去建第一位${b.customer}`, onClick: () => router.push("/customers?new=1") },
         }}

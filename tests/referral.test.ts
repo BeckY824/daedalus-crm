@@ -57,3 +57,20 @@ describe("建议邀请", () => {
     expect(inviteCandidates[0].reason).toContain("20,000");
   });
 });
+
+it("成交口径取真实记录而非可改状态，零金额合同仍是记录，不编造邀请历史",()=>{
+ const result=buildReferralRadar([
+ c({id:"referrer"}),c({id:"status-only",followStatus:"已签约",contractCount:0,referrerCustomerId:"referrer"}),
+ c({id:"real-contract",followStatus:"已流失",contractCount:1,signedAmount:120,referrerCustomerId:"referrer"}),
+ c({id:"zero-contract",followStatus:"跟进中",contractCount:1}),
+ c({id:"not-real",followStatus:"已签约",contractCount:0}),
+ ]);
+ expect(result.topReferrers[0]).toMatchObject({signedCount:1,downstreamAmount:120});
+ expect(result.inviteCandidates.map(row=>row.customerId)).toContain("zero-contract");expect(result.inviteCandidates.map(row=>row.customerId)).not.toContain("not-real");
+ expect(result.inviteCandidates.every(row=>row.reason.includes("尚无直接推荐记录")&&!row.reason.includes("没请"))).toBe(true);
+});
+it("排序仅比较指定币种，美元和人民币不混加，外贸文案使用订单",()=>{
+ const rows=[c({id:"usd",contractCount:1,signedAmount:10000,signed:[{币种:"USD",合计:10000}]}),c({id:"cny",contractCount:1,signedAmount:200,signed:[{币种:"CNY",合计:200}]}),c({id:"both",contractCount:1,signedAmount:10100,signed:[{币种:"CNY",合计:100},{币种:"USD",合计:10000}]})];
+ expect(buildReferralRadar(rows,"CNY").inviteCandidates.map(row=>row.customerId)).toEqual(["cny","both","usd"]);
+ const trade=buildReferralRadar(rows,"USD","订单");expect(trade.inviteCandidates.map(row=>row.customerId)).toEqual(["both","usd","cny"]);expect(trade.inviteCandidates[0].reason).toContain("订单记录");expect(trade.inviteCandidates[0].reason).toContain("US$ 10,000");
+});

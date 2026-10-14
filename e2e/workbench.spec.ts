@@ -306,15 +306,15 @@ test("跟进计划：按逾期 / 今天 / 本周分三组，逾期那组是红�
   await page.goto("/follow-ups/plans");
   await page.waitForSelector(".plan-g");
 
-  const 组名 = await page.locator(".plan-g-h b").allInnerTexts();
+  const 组名 = await page.getByRole("main").locator(".plan-g-h b").allInnerTexts();
   expect(组名.slice(0, 3)).toEqual(["逾期", "今天", "本周"]);
 
   // 逾期不能只靠排在最前面：颜色得跟上，扫过去才看得见
-  const 红 = await page.locator(".plan-g-warn .plan-g-h b").evaluate((el) => getComputedStyle(el).color);
+  const 红 = await page.getByRole("main").locator(".plan-g-warn .plan-g-h b").evaluate((el) => getComputedStyle(el).color);
   expect(红, "逾期那一组的标题没有标红").not.toBe("rgb(17, 24, 39)");
 
   // 每一组都要说清自己是什么，空的那组也要
-  for (const 说明 of await page.locator(".plan-g-s").allInnerTexts()) {
+  for (const 说明 of await page.getByRole("main").locator(".plan-g-s").allInnerTexts()) {
     expect(说明.trim().length).toBeGreaterThan(3);
   }
 });
@@ -337,14 +337,14 @@ test("完成一条计划之后，它去了「已完成」那一屏（不是人�
 
   // 先确认「已完成」那一屏此刻是空的，等会儿的 1 条才说明得了问题
   await 视图.getByText(/^已完成/).click();
-  await expect(page.locator(".plan-row-was")).toHaveCount(0);
+  await expect(page.getByRole("main").locator(".plan-row-was")).toHaveCount(0);
 
   await 视图.getByText("待办", { exact: true }).click();
-  const 行 = page.locator(".plan-row").first();
+  const 行 = page.getByRole("main").locator(".plan-row").first();
   const 标题 = (await 行.locator(".plan-row-t").innerText()).trim();
   await 行.getByRole("button", { name: /^完成/ }).click();
   // 完成的那一行先留在原地 600ms 再消失（见 PlansView），之后这一页会重取
-  await expect(page.locator(".plan-row-done")).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.getByRole("main").locator(".plan-row-done")).toHaveCount(0, { timeout: 10_000 });
 
   /*
     这一条盯的是 2026-09-18 问到的那个缺口：原来点完成之后，那条计划
@@ -352,8 +352,8 @@ test("完成一条计划之后，它去了「已完成」那一屏（不是人�
     不去断言它从待办里消失：模拟数据里的标题会重样，那个断言验的是别的事。
   */
   await 视图.getByText(/^已完成/).click();
-  await expect(page.locator(".plan-row-was")).toHaveCount(1);
-  const 那条 = page.locator(".plan-row-was").first();
+  await expect(page.getByRole("main").locator(".plan-row-was")).toHaveCount(1);
+  const 那条 = page.getByRole("main").locator(".plan-row-was").first();
   await expect(那条).toContainText(标题);
   await expect(那条).toContainText("完成");
 });
@@ -405,10 +405,10 @@ test("计划页「新建计划」就地弹框：挑人、说清另加不替换�
   await 弹窗.getByRole("button", { name: /保\s*存/ }).click();
   await expect(弹窗).toBeHidden();
   await expect(page).toHaveURL(/\/follow-ups\/plans$/);
-  await expect(page.locator(".plan-row.row-fresh")).toContainText("约第三次沟通");
+  await expect(page.getByRole("main").locator(".plan-row.row-fresh")).toContainText("约第三次沟通");
   await expect(page.locator(".ant-message")).toContainText(`去${客.名}的记录页`);
   // 原来那条还在
-  await expect(page.locator(".plan-row").filter({ hasText: "发二版报价" }).filter({ hasText: 客.名 })).toHaveCount(1);
+  await expect(page.getByRole("main").locator(".plan-row").filter({ hasText: "发二版报价" }).filter({ hasText: 客.名 })).toHaveCount(1);
 
   // 取消 / Esc 关框不留痕：再打开是空的
   await page.getByRole("button", { name: "新建计划" }).click();
@@ -444,7 +444,7 @@ test("计划页「改」：框开着时这条在另一个窗口被改了，保�
   await 登录(page);
   await page.goto("/follow-ups/plans");
   // 前面几条用例也造过「发二版报价」：按客户名认准自己这一行
-  const 这一行 = page.locator(".plan-row").filter({ hasText: 客.名 });
+  const 这一行 = page.getByRole("main").locator(".plan-row").filter({ hasText: 客.名 });
   await 这一行.getByRole("button", { name: "改 发二版报价", exact: true }).click();
   const 弹窗 = page.getByRole("dialog");
   await expect(弹窗.getByLabel("跟进主题")).toHaveValue("发二版报价");
@@ -511,7 +511,7 @@ test("数据：三处看数并成一页，/reports 这条 URL 还在", async ({ 
     await 切换.getByText(v, { exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`view=${encodeURIComponent(v)}`));
     // 每一段的数都要写明是按什么口径算的
-    await expect(page.locator(".stat-delta").first()).toContainText("按签约日期算");
+    await expect(page.getByRole("main").locator(".stat-delta").first()).toContainText("按签约日期算");
   }
 
   // 老书签不能死
@@ -712,8 +712,7 @@ test("数据「现在」那四张卡，每一张都点得进一个能把这个�
    * 这条钉的是**每一张都真的落得了地**：一个点不进去的数只能让人干着急。
    */
   const 卡 = ["本月签约", "新增客户", "进行中商机", "逾期跟进"];
-  const 名单 = await page.locator(".stat-label > span:first-child").allInnerTexts();
-  expect(名单.map((t) => t.trim())).toEqual(卡);
+  await expect(page.getByRole("main").locator(".stat-label > span:first-child")).toHaveText(卡);
 
   const 去处: Record<string, RegExp> = {
     本月签约: /\/overview\?view=/,
@@ -724,7 +723,7 @@ test("数据「现在」那四张卡，每一张都点得进一个能把这个�
   };
   for (const 名 of 卡) {
     await page.goto("/overview");
-    await page.locator(".stat-card-go", { hasText: 名 }).click();
+    await page.getByRole("main").locator(".stat-card-go", { hasText: 名 }).click();
     await expect(page, `${名} 这张卡点了没去处`).toHaveURL(去处[名]);
   }
 });
@@ -738,7 +737,7 @@ test("「逾期跟进」点进计划页：先看全部成员，同事那条逾�
   try {
     await 登录(page);
     await page.goto("/overview");
-    await page.locator(".stat-card-go", { hasText: "逾期跟进" }).click();
+    await page.getByRole("main").locator(".stat-card-go", { hasText: "逾期跟进" }).click();
     await expect(page).toHaveURL(/\/follow-ups\/plans\?scope=all/);
     await expect(page.locator(".ant-segmented-item-selected", { hasText: /^(我的|全部成员)$/ })).toHaveText("全部成员");
     await expect(page.getByText("T023 李四逾期回访")).toBeVisible();
@@ -753,10 +752,12 @@ test("从「新增客户」点进来时，列表要说清自己只是一个子�
   await 登录(page);
   await page.goto("/customers?createdWithin=本月");
   // 不说的话，人会把这一屏当成全部
-  await expect(page.getByText("只看本月新增")).toBeVisible();
+  // Next 流式导航会保留隐藏的预渲染副本，只核对用户当前可操作的 main。
+  await expect(page.getByRole("main").getByText("只看本月新增")).toBeVisible();
   // 而且要给一条回到全部的路
-  await page.locator(".ant-tag-close-icon").first().click();
-  await expect(page).toHaveURL(/\/customers$/);
+  await page.getByRole("main").locator(".ant-tag-close-icon").first().click();
+  await expect(page).toHaveURL(url => url.pathname === "/customers" && !url.searchParams.has("createdWithin"));
+  expect(new URL(page.url()).searchParams.get("pageSize")).toBe("20");
 });
 
 test("趋势图点一根柱子，看得到这一段是哪几笔凑出来的", async ({ page }) => {

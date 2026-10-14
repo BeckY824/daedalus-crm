@@ -111,7 +111,7 @@ describe("下载文件", () => {
   it("流式落盘，进度回调收到累计字节，完了才改成正式文件名", async () => {
     const 目标 = path.join(沙盒, "u", "a.dmg");
     const 进度: number[] = [];
-    await 安装.下载文件({ url: "x", 目标, fetch: 假fetch("0123456789", 10), 进度: (已: number) => 进度.push(已) });
+    await 安装.下载文件({ url: "https://example.com/x", 目标, fetch: 假fetch("0123456789", 10), 进度: (已: number) => 进度.push(已) });
     expect(fs.readFileSync(目标, "utf8")).toBe("0123456789");
     expect(进度.at(-1)).toBe(10);
     expect(fs.existsSync(`${目标}.part`)).toBe(false);
@@ -121,7 +121,7 @@ describe("下载文件", () => {
     const 目标 = path.join(沙盒, "a.dmg");
     let 次 = 0;
     const f = async (...a: unknown[]) => (次++, 假fetch("0123", 10)());
-    await expect(安装.下载文件({ url: "x", 目标, fetch: f, 重试: 2, 等待: async () => {} })).rejects.toThrow(/不完整/);
+    await expect(安装.下载文件({ url: "https://example.com/x", 目标, fetch: f, 重试: 2, 等待: async () => {} })).rejects.toThrow(/不完整/);
     expect(次).toBe(3);
     expect(fs.existsSync(目标)).toBe(false);
     expect(fs.existsSync(`${目标}.part`)).toBe(true);
@@ -130,7 +130,7 @@ describe("下载文件", () => {
   it("HTTP 4xx 直接抛，不重试", async () => {
     let 次 = 0;
     const f = async () => (次++, 假fetch("", undefined, 404)());
-    await expect(安装.下载文件({ url: "x", 目标: path.join(沙盒, "a.dmg"), fetch: f, 重试: 3, 等待: async () => {} })).rejects.toThrow(/404/);
+    await expect(安装.下载文件({ url: "https://example.com/x", 目标: path.join(沙盒, "a.dmg"), fetch: f, 重试: 3, 等待: async () => {} })).rejects.toThrow(/404/);
     expect(次).toBe(1);
   });
 
@@ -157,7 +157,7 @@ describe("下载文件", () => {
       };
     };
     const 进度: number[] = [];
-    await 安装.下载文件({ url: "x", 目标, fetch: f as never, 等待: async () => {}, 进度: (已: number) => 进度.push(已) });
+    await 安装.下载文件({ url: "https://example.com/x", 目标, fetch: f as never, 等待: async () => {}, 进度: (已: number) => 进度.push(已) });
     expect(fs.readFileSync(目标, "utf8")).toBe(全);
     expect(收到).toEqual([null, "bytes=4-"]);
     expect(进度.at(-1)).toBe(10);
@@ -168,7 +168,7 @@ describe("下载文件", () => {
     const 目标 = path.join(沙盒, "c.dmg");
     fs.mkdirSync(沙盒, { recursive: true });
     fs.writeFileSync(`${目标}.part`, "0123");
-    await 安装.下载文件({ url: "x", 目标, fetch: 假fetch("0123456789", 10), 等待: async () => {} });
+    await 安装.下载文件({ url: "https://example.com/x", 目标, fetch: 假fetch("0123456789", 10), 等待: async () => {} });
     expect(fs.readFileSync(目标, "utf8")).toBe("0123456789");
   });
 });
@@ -244,7 +244,7 @@ describe("下载文件：已下过的不重下", () => {
     fs.writeFileSync(目标, "hello");
     const h = crypto.createHash("sha256").update("hello").digest("hex");
     const { f, 次数 } = 假fetch("hello");
-    await 安装.下载文件({ url: "x", 目标, sha256: h, fetch: f });
+    await 安装.下载文件({ url: "https://example.com/x", 目标, sha256: h, fetch: f });
     expect(次数()).toBe(0);
   });
 
@@ -253,7 +253,7 @@ describe("下载文件：已下过的不重下", () => {
     fs.writeFileSync(目标, "旧的半截");
     const h = crypto.createHash("sha256").update("hello").digest("hex");
     const { f, 次数 } = 假fetch("hello");
-    await 安装.下载文件({ url: "x", 目标, sha256: h, fetch: f });
+    await 安装.下载文件({ url: "https://example.com/x", 目标, sha256: h, fetch: f });
     expect(次数()).toBe(1);
     expect(fs.readFileSync(目标, "utf8")).toBe("hello");
   });
@@ -391,10 +391,10 @@ describe("下载文件：镜像不行就换备用地址", () => {
     const 目标 = path.join(沙盒, "m.dmg");
     const 次数 = { 镜像: 0, 备用: 0 };
     const f = async (u: string) => {
-      if (u === "镜像") return (次数.镜像++, 假应答("", undefined, 404));
+      if (u === "https://mirror.example/app") return (次数.镜像++, 假应答("", undefined, 404));
       return (次数.备用++, 假应答("0123456789", 10));
     };
-    await 安装.下载文件({ url: "镜像", 备用: "备用", 目标, fetch: f, 重试: 3, 等待: async () => {} });
+    await 安装.下载文件({ url: "https://mirror.example/app", 备用: "https://fallback.example/app", 目标, fetch: f, 重试: 3, 等待: async () => {} });
     expect(fs.readFileSync(目标, "utf8")).toBe("0123456789");
     expect(次数).toEqual({ 镜像: 1, 备用: 1 });
   });
@@ -403,11 +403,11 @@ describe("下载文件：镜像不行就换备用地址", () => {
     const 目标 = path.join(沙盒, "n.dmg");
     const 备用收到的Range: (string | null)[] = [];
     const f = async (u: string, init: { headers: Record<string, string> }) => {
-      if (u === "镜像") return 假应答("0123", 10); // 声称 10 字节只给 4，算下载不完整
+      if (u === "https://mirror.example/app") return 假应答("0123", 10); // 声称 10 字节只给 4，算下载不完整
       备用收到的Range.push(init.headers.Range ?? null);
       return 假应答("0123456789", 10);
     };
-    await 安装.下载文件({ url: "镜像", 备用: "备用", 目标, fetch: f, 重试: 1, 等待: async () => {} });
+    await 安装.下载文件({ url: "https://mirror.example/app", 备用: "https://fallback.example/app", 目标, fetch: f, 重试: 1, 等待: async () => {} });
     // 带 Range 就说明它在拿另一个源的字节接着镜像的半截拼——拼出来的包只有最后校验
     // sha256 时才会暴露，那时 100 多 MB 已经白下了
     expect(备用收到的Range).toEqual([null]);
@@ -419,9 +419,9 @@ describe("下载文件：镜像不行就换备用地址", () => {
     const 试过: string[] = [];
     const f = async (u: string) => (试过.push(u), 假应答("", undefined, 500));
     await expect(
-      安装.下载文件({ url: "镜像", 备用: "备用", 目标, fetch: f, 重试: 1, 等待: async () => {} }),
+      安装.下载文件({ url: "https://mirror.example/app", 备用: "https://fallback.example/app", 目标, fetch: f, 重试: 1, 等待: async () => {} }),
     ).rejects.toThrow(/500/);
-    expect(new Set(试过)).toEqual(new Set(["镜像", "备用"]));
+    expect(new Set(试过)).toEqual(new Set(["https://mirror.example/app", "https://fallback.example/app"]));
     expect(fs.existsSync(目标)).toBe(false);
   });
 
@@ -434,14 +434,14 @@ describe("下载文件：镜像不行就换备用地址", () => {
     const 次数 = { 镜像: 0, 备用: 0 };
     const 等了: number[] = [];
     const f = async (u: string) => {
-      if (u === "镜像") {
+      if (u === "https://mirror.example/app") {
         次数.镜像++;
         throw Object.assign(new TypeError("fetch failed"), { cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }) });
       }
       次数.备用++;
       return 假应答("0123456789", 10);
     };
-    await 安装.下载文件({ url: "镜像", 备用: "备用", 目标, fetch: f, 重试: 2, 等待: async (ms: number) => void 等了.push(ms) });
+    await 安装.下载文件({ url: "https://mirror.example/app", 备用: "https://fallback.example/app", 目标, fetch: f, 重试: 2, 等待: async (ms: number) => void 等了.push(ms) });
     expect(fs.readFileSync(目标, "utf8")).toBe("0123456789");
     // 网络错误照常重试（1 + 2 次），不像 404 那样一次就放弃；然后换备用
     expect(次数).toEqual({ 镜像: 3, 备用: 1 });
@@ -452,7 +452,7 @@ describe("下载文件：镜像不行就换备用地址", () => {
     const 目标 = path.join(沙盒, "p.dmg");
     let 次 = 0;
     const f = async () => (次++, 假应答("", undefined, 404));
-    await expect(安装.下载文件({ url: "只有这一个", 目标, fetch: f, 重试: 3, 等待: async () => {} })).rejects.toThrow(/404/);
+    await expect(安装.下载文件({ url: "https://single.example/app", 目标, fetch: f, 重试: 3, 等待: async () => {} })).rejects.toThrow(/404/);
     expect(次).toBe(1);
   });
 });

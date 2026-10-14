@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { TOOLS } from "@/lib/agent/tools";
-import { DEFAULT_BUSINESS } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS } from "@/lib/business-config";
 
 let 我: { id: string };
 
@@ -495,4 +495,69 @@ describe("list_users：团队名单", () => {
     expect(全部.length).toBe(2);
     expect(全部.find((u) => u.状态 === "已停用")).toBeTruthy();
   });
+});
+
+
+describe("查询随业务配置", () => {
+  it("通用和外贸可按职位查询及分组，保留旧年级字段别名", async () => {
+    await prisma.customer.createMany({ data: [
+      { name: "高管甲", phone: "13800000001", grade: "高管", school: "甲公司", salesOwnerId: 我.id },
+      { name: "采购乙", phone: "13800000002", grade: "采购", school: "乙公司", salesOwnerId: 我.id },
+    ] });
+    for (const b of [DEFAULT_BUSINESS, BUSINESS_PRESETS.外贸出口]) {
+      for (const field of ["职位", "年级"]) {
+        const result = await 用("query_records").run({ 表: "客户", 条件: [{ 字段: field, 运算: "等于", 值: "高管" }], 分组: "职位" }, { ...ctx(), b });
+        expect(result.data).toMatchObject({ 总数: 1, 分组: [{ 职位: "高管", 条数: 1 }] });
+        expect(result.summary).toContain("职位 是 高管");
+      }
+    }
+  });
+  it("自定义档案显示名和历史自由文本仍可查；拒绝未开放字段", async () => {
+    await prisma.customer.create({ data: { name: "旧资料", phone: "13800000001", grade: "旧岗位", school: "甲公司", salesOwnerId: 我.id } });
+    const b = { ...DEFAULT_BUSINESS, fields: { ...DEFAULT_BUSINESS.fields, grade: "岗位" } };
+    const result = await 用("query_records").run({ 表: "客户", 条件: [{ 字段: "岗位", 运算: "等于", 值: "旧岗位" }] }, { ...ctx(), b });
+    expect(result.data).toMatchObject({ 总数: 1, 结果: [{ 岗位: "旧岗位" }] });
+    expect((await 用("query_records").run({ 表: "客户", 条件: [{ 字段: "password", 运算: "等于", 值: "x" }] }, { ...ctx(), b })).data).toHaveProperty("error");
+  });
+  it("教培使用配置的年级选项，指标与分组名称跟随当前业务", async () => {
+    await prisma.customer.create({ data: { name: "甲", phone: "13800000001", grade: "高一", salesOwnerId: 我.id } });
+    const edu = BUSINESS_PRESETS.教培招生;
+    expect((await 用("query_records").run({ 表: "客户", 条件: [{ 字段: "年级", 运算: "等于", 值: "高一" }] }, { ...ctx(), b: edu })).data).toMatchObject({ 总数: 1 });
+    for (const b of [DEFAULT_BUSINESS, edu, BUSINESS_PRESETS.外贸出口]) {
+      const result = await 用("query_metric").run({ metric: "customers_count", groupBy: "grade" }, { ...ctx(), b });
+      expect(result.data).toMatchObject({ metric: `新增${b.customer}数`, groupBy: `按${b.fields.grade}` });
+      expect(result.summary).toContain(`按${b.fields.grade}`);
+    }
+  });
+});
+
+
+it("页面客户筛选与查询共用条件，不把全库计数或相似职位当当前页", async () => {
+  const second = await prisma.user.create({ data: { name: "乙", email: "second", password: "x", role: "SALES" } });
+  await prisma.customer.createMany({ data: [
+    { name: "当前", phone: "13800000001", grade: "高管", salesOwnerId: 我.id },
+    { name: "别人的", phone: "13800000002", grade: "高管", salesOwnerId: second.id },
+    { name: "相似职位", phone: "13800000003", grade: "高管助理", salesOwnerId: 我.id },
+  ] });
+  const context = { ...ctx(), 页面筛选: { salesOwnerId: 我.id, grade: "高管" } };
+  const searched = await 用("search_customers").run({}, context);
+  expect(searched.data).toMatchObject({ total: 1, customers: [{ name: "当前" }] });
+  const generic = await 用("query_records").run({ 表: "客户", 只计数: true }, context);
+  expect(generic.data).toMatchObject({ 总数: 1 });
+  const metric = await 用("query_metric").run({ metric: "customers_count" }, context);
+  expect(metric.data).toMatchObject({ rows: [{ value: 1 }] });
+  expect((await 用("search_customers").run({}, ctx())).data).toHaveProperty("error");
+});
+
+
+it("直接推荐和导入批次精确相交，撤销批次后不能回落全库", async () => {
+  const ch = await prisma.channel.create({ data: { name: "渠道", channelOwnerId: 我.id } });
+  const a = await prisma.customer.create({ data: { name: "直接", phone: "13800000001", channelId: ch.id, salesOwnerId: 我.id } });
+  const b = await prisma.customer.create({ data: { name: "转介绍", phone: "13800000002", channelId: ch.id, referrerCustomerId: a.id, salesOwnerId: 我.id } });
+  const batch = await prisma.importBatch.create({ data: { userId: 我.id, userName: "甲", fileName: "qa.xlsx", rows: { create: [a,b].map(c => ({ customerId: c.id, kind: "create" })) } } });
+  const context = { ...ctx(), 页面筛选: { directOf: ch.id, batch: batch.id } };
+  expect((await 用("search_customers").run({}, context)).data).toMatchObject({ total: 1, customers: [{ name: "直接" }] });
+  await prisma.importBatch.update({ where: { id: batch.id }, data: { revertedAt: new Date() } });
+  expect((await 用("query_records").run({ 表: "客户", 只计数: true }, context)).data).toMatchObject({ 总数: 0 });
+  expect((await 用("query_metric").run({ metric: "leads_count" }, context)).data).toHaveProperty("error");
 });

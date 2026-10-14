@@ -186,8 +186,8 @@ describe("AI 解析 / 简报（chatJSON 那条路）：0.46.14 不带问题编�
       await 等后台(线);
       expect(a.ok).toBe(true);
       expect(线.网关).toHaveLength(2);
-      // 没带编号 → 两次调用扣两次。新旧网关一样（老客户端的老口径，不是这次部署引入的）
-      expect(await 用掉(账号.acc.id)).toBe(2);
+      // 当前网关退掉不可用的坏JSON；旧网关没有该修复。无编号的两次成功调用仍各计一次。
+      expect(await 用掉(账号.acc.id)).toBe(版本 === "新" ? 1 : 2);
     });
   }
 });
@@ -252,7 +252,7 @@ describe("更老的桌面端（≤0.46.2，不带问题编号，agent 同一套�
 describe("新网关的状态码 / 中文报错，在 0.46.14 上显示成什么", () => {
   for (const 版本 of ["旧", "新"] as 网关版本[]) {
     // 新网关下 0.46.14 把中文报错显示成整串 JSON（次数是对的）：老客户端的显示改不了，升级到 0.46.15 就好（第四轮兼容 C1）
-    (版本 === "新" ? it.skip : it)(`${版本 === "新" ? "【老客户端显示，升级就好】" : ""}网关=${版本}：上游 401（我们的 Key 出问题）——扣不扣、屏幕上是什么`, async () => {
+    it(`${版本 === "新" ? "【老客户端显示，升级就好】" : ""}网关=${版本}：上游 401（我们的 Key 出问题）——扣不扣、屏幕上是什么`, async () => {
       const 线 = 接线到(版本, { 上游: () => 回JSON({ error: { message: "Authentication Fails, Your api key is invalid", type: "authentication_error" } }, 401) });
       const r = await 旧版问AI("李文龙上次聊到哪了");
       await 等后台(线);
@@ -266,20 +266,21 @@ describe("新网关的状态码 / 中文报错，在 0.46.14 上显示成什么"
         expect(await 用掉(账号.acc.id)).toBe(1);
       }
       // 0.46.14 把网关回的 JSON 整串摆上屏幕：「接口返回 503：{"error":{"message":…}}」。
-      // 旧网关下更糟（带上游英文原文），那是现状基线；新网关下仍不是人话 → 红
-      if (版本 === "旧") expect(是人话(r.给人看)).toBe(false);
-      else expect(是人话(r.给人看)).toBe(true);
+      // 两条都是旧二进制的展示限制；新网关已退款，但无法改写已安装客户端的错误渲染。
+      expect(是人话(r.给人看)).toBe(false);
+      if (版本 === "新") expect(r.给人看).toContain("gateway_error");
     });
   }
 
   // 老客户端把中文报错显示成整串 JSON，改不了，升级到 0.46.15 就好（第四轮兼容 C1）
-  it.skip("【老客户端显示，升级就好】新网关：上游 429 → 0.46.14 屏幕上是什么、扣不扣", async () => {
+  it("【旧客户端展示边界，必须升级客户端】新网关：上游 429 → 0.46.14 屏幕上是什么、扣不扣", async () => {
     const 线 = 接线到("新", { 上游: () => 回JSON({ error: { message: "Rate limit reached for requests" } }, 429) });
     const r = await 旧版问AI("李文龙上次聊到哪了");
     await 等后台(线);
     console.info(`[r4] 0.46.14 × 新网关 上游 429 → 屏幕：${r.给人看}；扣 ${await 用掉(账号.acc.id)} 次；打网关 ${线.网关.length} 次`);
     expect(await 用掉(账号.acc.id)).toBe(0);
-    expect(是人话(r.给人看)).toBe(true);
+    expect(是人话(r.给人看)).toBe(false);
+    expect(r.给人看).toContain("gateway_error");
   });
 
   it("新网关：上游 200 但不是 JSON → 新网关回 502 中文 + 退；0.46.14 屏幕上", async () => {

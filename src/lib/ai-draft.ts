@@ -1,3 +1,5 @@
+import { parseDateInput } from "./date-input";
+import { isCalendarDate } from "./schedule-date";
 /**
  * AI 产出的清洗与校验。
  *
@@ -46,13 +48,14 @@ function inEnum<T extends readonly string[]>(v: unknown, allowed: T): T[number] 
   return typeof v === "string" && (allowed as readonly string[]).includes(v) ? v : null;
 }
 
-function asIso(v: unknown): string | null {
+function asIso(v: unknown, keepCalendar = false): string | null {
   if (typeof v !== "string" || !v.trim()) return null;
-  const d = dayjs(v);
-  if (!d.isValid()) return null;
+  const parsed = parseDateInput(v);
+  if (!parsed) return null;
+  const d = dayjs(parsed);
   // 十年开外的时间基本是模型算错了相对日期，进库只会误导跟进计划
   if (Math.abs(d.diff(dayjs(), "year", true)) > 10) return null;
-  return d.toISOString();
+  return keepCalendar && isCalendarDate(v.trim()) ? v.trim() : d.toISOString();
 }
 
 /**
@@ -79,7 +82,7 @@ export function sanitizeFollowUpDraft(
   const tasks = tasksRaw
     .map((t) => {
       const o = (t ?? {}) as Record<string, unknown>;
-      return { title: asString(o.title, 200), dueAt: asIso(o.dueAt) };
+      return { title: asString(o.title, 200), dueAt: asIso(o.dueAt, true) };
     })
     .filter((t) => t.title)
     .slice(0, 5);
@@ -88,7 +91,7 @@ export function sanitizeFollowUpDraft(
   const p = r.plan as Record<string, unknown> | null | undefined;
   if (p && typeof p === "object") {
     const subject = asString(p.subject, 200);
-    const plannedAt = asIso(p.plannedAt);
+    const plannedAt = asIso(p.plannedAt, true);
     // 主题和时间缺一个都立不住——没时间的计划等于没计划
     if (subject && plannedAt) {
       plan = { subject, plannedAt, method: inEnum(p.method, FOLLOW_METHODS) ?? "电话沟通" };

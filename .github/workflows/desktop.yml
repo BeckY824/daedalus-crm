@@ -13,6 +13,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Candidate platform to build and verify
+        type: choice
+        default: all
+        options: [all, windows, mac]
 
 # 产物要挂到 Release 上：桌面端「检查更新」的兜底源查的是最新 Release（主源是官网 feed），
 # 只传成 Actions 产物的话，装出去的应用永远查不到新版本
@@ -29,13 +35,7 @@ jobs:
       # 两个平台向同一个 Release 上传，顺序执行避免并发创建 Release。
       max-parallel: 1
       matrix:
-        include:
-          - os: macos-latest # Apple 芯片
-            script: dist:mac
-            artifact: dmg-arm64
-          - os: windows-latest
-            script: dist:win
-            artifact: exe-x64
+        include: ${{ fromJSON(inputs.platform == 'windows' && '[{"os":"windows-latest","script":"dist:win","artifact":"exe-x64"}]' || inputs.platform == 'mac' && '[{"os":"macos-latest","script":"dist:mac","artifact":"dmg-arm64"}]' || '[{"os":"macos-latest","script":"dist:mac","artifact":"dmg-arm64"},{"os":"windows-latest","script":"dist:win","artifact":"exe-x64"}]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -69,31 +69,31 @@ jobs:
       - name: 安装桌面端依赖
         working-directory: desktop
         run: npm ci --no-audit --no-fund
+      - name: Windows 完整安装包更新前置关卡
+        if: runner.os == 'Windows'
+        env:
+          CONTROL_DATABASE_URL: file:./desktop-preflight-control.db
+        run: |
+          # 团队权限导入托管认证模块；冷检出须先生成控制面客户端，不能依赖后面的打包步骤。
+          npx prisma generate --schema=prisma/control.prisma
+          npx vitest run tests/desktop-updater.test.ts tests/desktop-windows-install.test.ts tests/r3-review-updater.test.ts tests/desktop-nsis-template.test.ts tests/team-roles.test.ts
       - name: 打包
         working-directory: desktop
         run: npm run ${{ matrix.script }}
-      - name: Windows 安装包启动、登录、备份与服务器切换
+      - name: Windows 完整安装包更新与业务（NSIS → 校验 → 安装 → 数据保留）
         if: runner.os == 'Windows'
         working-directory: desktop
-        run: node scripts/smoke-windows.mjs
+        run: node scripts/smoke-windows-update.mjs
+      - name: Windows 普通用户无权限安装保留旧程序（G2）
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File scripts/smoke-windows-install-permission.ps1
       - name: Windows 桌面回归测试
         if: runner.os == 'Windows'
         # 有几份单测在真 Chromium 里点组件，没装浏览器整份起不来（0.46.15 第一次在 Windows 上跑到它们）
         run: |
           npx playwright install chromium
           npx vitest run
-      # Windows 的差量产物：win-unpacked 用 7za 打成 zip（逐条 deflate）+ 清单。
-      # 客户端拿清单和安装目录比，只对 zip 发 Range 取变了的文件；exe 照旧：首次安装、给所有用户装的、差量失败都靠它
-      - name: 差量产物（Windows：zip + 清单）
-        if: runner.os == 'Windows'
-        working-directory: desktop
-        run: node scripts/make-win-delta.mjs dist/win-unpacked "$(node -p 'require("./package.json").version')" dist
-      # 真装一遍、走应用自己的检查更新做一次差量、退出后换目录，再拿换过的目录跑整套冒烟。
-      # 差量这条路只有在真的 NSIS 安装 + 真的 PowerShell + 真的文件锁下才验得出来
-      - name: Windows 差量更新冒烟（装 → 差量 → 换目录 → 再跑整套）
-        if: runner.os == 'Windows'
-        working-directory: desktop
-        run: node scripts/smoke-windows-delta.mjs
       # 差量更新要的两个产物：ditto 打的 zip（逐条 deflate，保符号链接和权限，解开后 codesign 能过）
       # 和它的清单（每个文件的哈希、权限、在 zip 里的偏移）。客户端拿清单和已装的包比对，
       # 对 zip 发 HTTP Range 只取变了的文件。dmg 照旧：首次安装和退路都靠它。
@@ -107,14 +107,25 @@ jobs:
           ditto -c -k --keepParent --norsrc "$APP" "dist/Daedalus CRM-$VER-arm64.app.zip"
           node scripts/make-manifest.mjs "dist/Daedalus CRM-$VER-arm64.app.zip" "$VER" "dist/Daedalus CRM-$VER-arm64.manifest.json.gz"
       - uses: actions/upload-artifact@v4
+        if: failure() && runner.os == 'Windows'
+        with:
+          name: windows-smoke-failure
+          include-hidden-files: true
+          path: |
+            desktop/dist/windows-permission-result.json
+            desktop/.smoke-data/**/failure-*.png
+            desktop/.smoke-data/**/logs/*.log
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
         with:
           name: daedalus-crm-${{ matrix.artifact }}
           path: |
             desktop/dist/*.dmg
             desktop/dist/*.app.zip
-            desktop/dist/*-win.zip
             desktop/dist/*.manifest.json.gz
             desktop/dist/*.exe
+            desktop/dist/*-x64-verify.json
+            desktop/dist/windows-permission-result.json
           if-no-files-found: error
 
       # 打 tag 时顺手挂到 Release 上。Release 不存在就建一个；已存在就只补附件。
@@ -151,7 +162,7 @@ jobs:
           # 桌面端到 0.42.0 时，我们自己托管的那份可能还停在 0.41.0。
           {
             echo "**桌面端**：Mac Apple 芯片下载 Assets 中的 arm64.dmg；Windows x64 下载 x64-setup.exe。"
-            echo "Mac 和 Windows 都是应用内差量更新（Windows 给所有用户装在 Program Files 的，退回下载安装程序更新）。"
+            echo "Mac 支持应用内差量更新；Windows 下载完整安装包更新并保留本地数据。"
             echo ""
             echo "**自部署 / 多人团队版**（一个团队）：\`ghcr.io/becky824/daedalus-crm:$VER\`"
             echo ""

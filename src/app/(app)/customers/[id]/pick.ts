@@ -1,6 +1,8 @@
 "use server";
 
 import { prisma } from "@/lib/prisma";
+import { 客户关键词条件 } from "@/lib/search-keyword";
+import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { requireUser } from "@/lib/auth";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 
@@ -20,18 +22,27 @@ export type 可挑客户 = { id: string; name: string; 附注: string | null };
  */
 export async function 搜客户(关键词: string): Promise<可挑客户[]> {
   await requireUser();
+  if (typeof 关键词 !== "string") return [];
   const 词 = 关键词.trim().slice(0, 50);
   const 号 = await 号码脱敏器();
   const rows = await prisma.customer.findMany({
-    where: 词
-      ? { OR: [{ name: { contains: 词 } }, { school: { contains: 词 } }, { phone: { contains: 词 } }] }
-      : undefined,
-    orderBy: [{ lastFollowAt: "desc" }, { createdAt: "desc" }],
+    where: await 客户关键词条件(词, true),
+    orderBy: [{ lastFollowAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
     take: 词 ? 20 : 8,
     select: { id: true, name: true, school: true, phone: true },
   });
   // 同名的人靠公司和号码分；共享工作区里号码照样打码（lib/shared-ws/current.ts）
   return rows.map((c) => ({ id: c.id, name: c.name, 附注: [c.school, 号(c.phone)].filter(Boolean).join(" · ") || null }));
+}
+
+/** 编辑已选客户时补回单个显示标签，仍经过租户/业务员限定及共享号码打码。 */
+export async function 取客户选项(id: string): Promise<可挑客户 | null> {
+  await requireUser();
+  if (typeof id !== "string" || !id || id.length > 256) return null;
+  const c = await prisma.customer.findUnique({ where: { id }, select: { id: true, name: true, school: true, phone: true } });
+  if (!c) return null;
+  const 号 = await 号码脱敏器();
+  return { id: c.id, name: c.name, 附注: [c.school, 号(c.phone)].filter(Boolean).join(" · ") || null };
 }
 
 export type 客户近况 = {
@@ -57,7 +68,7 @@ export async function 取客户近况(id: string): Promise<客户近况 | null> 
       id: true,
       name: true,
       followUps: { orderBy: { occurredAt: "desc" }, take: 1, select: { occurredAt: true, type: true, title: true, content: true } },
-      plans: { where: { done: false }, orderBy: { plannedAt: "asc" }, take: 1, select: { id: true, subject: true, plannedAt: true, method: true } },
+      plans: { where: { done: false }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }], select: { id: true, subject: true, plannedAt: true, plannedOn: true, method: true } },
       _count: { select: { plans: { where: { done: false } } } },
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }], select: { id: true, name: true, position: true } },
       opportunities: { orderBy: { createdAt: "desc" }, select: { id: true, name: true } },
@@ -66,12 +77,12 @@ export async function 取客户近况(id: string): Promise<客户近况 | null> 
   });
   if (!c) return null;
   const f = c.followUps[0];
-  const p = c.plans[0];
+  const p = earliestScheduled(c.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1)[0];
   return {
     id: c.id,
     name: c.name,
     上次跟进: f ? { occurredAt: f.occurredAt.toISOString(), type: f.type, title: f.title, content: f.content } : null,
-    未完成计划: p ? { id: p.id, subject: p.subject, plannedAt: p.plannedAt.toISOString(), method: p.method } : null,
+    未完成计划: p ? { id: p.id, subject: p.subject, plannedAt: scheduleValue(p.plannedAt, p.plannedOn)!, method: p.method } : null,
     未完成计划数: c._count.plans,
     contacts: c.contacts,
     opportunities: c.opportunities,

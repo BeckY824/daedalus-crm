@@ -1,8 +1,9 @@
+import { scheduleValue } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma";
 import { dayjs } from "@/lib/utils";
-import { 带币种, 签约金额, 签约合计 } from "@/lib/money-db";
-import { 搜索词, 号码片段, 有通配符, 字面包含的id } from "@/lib/search-keyword";
+import { 带币种, 签约金额, 签约合计, 签约币种 } from "@/lib/money-db";
+import { 客户关键词条件, 客户id集合 } from "@/lib/search-keyword";
 import { 取档案 } from "@/lib/customer-extra-db";
 
 /**
@@ -20,15 +21,31 @@ export type 客户条件 = {
   createdWithin?: string;
   directOf?: string;
   batch?: string;
-  /** 「1」= 只看公海里的（第 6 块） */
+  /**
+   * 「1」= 「公海」页签：只看公海里的（第 6 块）。
+   * 不是「1」= 「客户」页签：**不含**公海里的（2026-10-13：公海和自己的分开摆）；子集入口例外，见 在看子集
+   */
   pool?: string;
   /** 外贸档案的国家 / 来源（2026-10-05） */
   country?: string;
   source?: string;
 };
 
-/** 关键词搜的列，和下面 OR 里的一致（字面包含那条路也照这个搜） */
-const 搜索列 = ["name", "phone", "school", "major", "grade", "remark"] as const;
+/**
+ * 三种「从一个数走进来」的子集：导入「看这一批」、数据页「本月新增」、渠道页「直接推荐」。
+ * 那几个数本来就把公海里的算在内，点进来要对得上——子集里不分页签，公海里的照样列出来（带 pool=1 才只看公海）。
+ * 列表页据此不摆「客户 / 公海」页签。
+ */
+export function 在看子集(sp: Pick<客户条件, "batch" | "createdWithin" | "directOf">): boolean {
+  return Boolean(sp.batch || sp.directOf || sp.createdWithin === "本月");
+}
+
+/** 公海这一层：「公海」页签只要公海里的；子集里不分；其余（「客户」页签）不含公海里的 */
+function 公海条件(sp: 客户条件): Prisma.CustomerWhereInput {
+  if (sp.pool === "1") return { pool: { isNot: null } };
+  if (在看子集(sp)) return {};
+  return { pool: { is: null } };
+}
 
 export async function 客户筛选条件(
   sp: 客户条件,
@@ -41,39 +58,10 @@ export async function 客户筛选条件(
       })
     : null;
 
-  /*
-    关键词先 trim、号码按数字搜、% _ 当普通字符（2026-10-04 J-008），规则见 lib/search-keyword.ts。
-    带 % _ 的走原生 SQL 先找出 id，放进 AND 里——和上面「这一批」的 id 条件并存，不能互相盖掉
-  */
-  const 词 = 搜索词(sp.keyword);
-  const 号段 = 号码片段(词);
-  const 字面 = 词 && 有通配符(词) ? await 字面包含的id("Customer", 搜索列, 词) : null;
+  const keyword = await 客户关键词条件(sp.keyword);
 
   return {
-    ...(本批 ? { id: { in: 本批.map((r) => r.customerId) } } : {}),
-    ...(字面 ? { AND: [{ id: { in: 字面 } }] } : {}),
-    ...(词 && !字面
-      ? {
-          OR: [
-            { name: { contains: 词 } },
-            { phone: { contains: 号段 ?? 词 } },
-            { school: { contains: 词 } },
-            { major: { contains: 词 } },
-            // 年级、备注也搜，和 AI 的 search_customers 一个范围（排查 C7）：AI 说「大三的有 12 位」，点「去库里搜」不能是 0 条
-            { grade: { contains: 词 } },
-            { remark: { contains: 词 } },
-            /*
-              外贸档案和联系人也搜（2026-10-05 外贸客户：「联系人可以直接合并到客户里面」）。外贸模版左栏不摆联系人页，
-              按联系人的名字、电话、邮箱、微信找到的就是他所在的那位客户
-            */
-            // 号码按原词也搜一遍（复查）：WhatsApp、联系人电话是原样存的（「+86 138 0000 1111」），只按纯数字号段搜会漏
-            { extra: { is: { OR: [{ whatsapp: { contains: 词 } }, ...(号段 ? [{ whatsapp: { contains: 号段 } }] : []), { email: { contains: 词 } }, { wechat: { contains: 词 } }, { country: { contains: 词 } }] } } },
-            { contacts: { some: { OR: [{ name: { contains: 词 } }, { phone: { contains: 词 } }, ...(号段 ? [{ phone: { contains: 号段 } }] : []), { email: { contains: 词 } }, { wechat: { contains: 词 } }] } } },
-            // 订单号（二审）：外贸里客户常常报 PI 号来问，一搜就是那位客户
-            { tradeOrders: { some: { no: { contains: 词 } } } },
-          ],
-        }
-      : {}),
+    AND: [keyword, ...(本批 ? [客户id集合(本批.map(r => r.customerId))] : [])],
     ...(sp.grade ? { grade: sp.grade } : {}),
     ...(sp.followStatus ? { followStatus: sp.followStatus } : {}),
     ...(sp.decisionStatus ? { decisionStatus: sp.decisionStatus } : {}),
@@ -89,7 +77,7 @@ export async function 客户筛选条件(
     ...(sp.directOf
       ? { channelId: sp.directOf, referrerCustomerId: null }
       : {}),
-    ...(sp.pool === "1" ? { pool: { isNot: null } } : {}),
+    ...公海条件(sp),
     ...(sp.country || sp.source
       ? { extra: { is: { ...(sp.country ? { country: sp.country } : {}), ...(sp.source ? { source: sp.source } : {}) } } }
       : {}),
@@ -106,6 +94,7 @@ export const 客户行字段 = {
   followStatus: true,
   decisionStatus: true,
   expectedSignAt: true,
+  expectedSignOn: true,
   lastFollowAt: true,
   remark: true,
   referrerCustomerId: true,
@@ -126,6 +115,29 @@ export const 客户行字段 = {
 
 type 取到的行 = Prisma.CustomerGetPayload<{ select: typeof 客户行字段 }>;
 
+/** 全范围按一种币种排序，再取页。扫描不带档案正文，避免把整库完整行交给浏览器。 */
+export async function 客户金额分页(where: Prisma.CustomerWhereInput, order: "amount-asc" | "amount-desc", currency: string, page: number, pageSize: number): Promise<取到的行[]> {
+  const amounts: { id: string; amount: number; createdAt: number }[] = [];
+  let after: string | undefined;
+  for (;;) {
+    const batch = await prisma.customer.findMany({
+      where: after ? { AND: [where, { id: { gt: after } }] } : where,
+      orderBy: { id: "asc" }, take: 1000,
+      select: { id: true, createdAt: true, contracts: { select: { amount: true, ...带币种.签约 } } },
+    });
+    for (const row of batch) amounts.push({ id: row.id, createdAt: row.createdAt.getTime(), amount: row.contracts.reduce((sum, c) => sum + (签约币种(c) === currency ? 签约金额(c) : 0), 0) });
+    if (batch.length < 1000) break;
+    after = batch[batch.length - 1].id;
+  }
+  const direction = order === "amount-asc" ? 1 : -1;
+  amounts.sort((a, b) => direction * (a.amount - b.amount) || b.createdAt - a.createdAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+  const ids = amounts.slice((page - 1) * pageSize, page * pageSize).map(row => row.id);
+  if (!ids.length) return [];
+  const rows = await prisma.customer.findMany({ where: { AND: [where, { id: { in: ids } }] }, select: 客户行字段 });
+  const positions = new Map(ids.map((id, index) => [id, index]));
+  return rows.sort((a, b) => positions.get(a.id)! - positions.get(b.id)!);
+}
+
 export function 成客户行(r: 取到的行, 号: (p: string) => string) {
   return {
     id: r.id,
@@ -136,11 +148,12 @@ export function 成客户行(r: 取到的行, 号: (p: string) => string) {
     major: r.major,
     followStatus: r.followStatus,
     decisionStatus: r.decisionStatus,
-    expectedSignAt: r.expectedSignAt?.toISOString() ?? null,
+    expectedSignAt: scheduleValue(r.expectedSignAt, r.expectedSignOn),
     lastFollowAt: r.lastFollowAt?.toISOString() ?? null,
     remark: r.remark,
     referrerCustomerId: r.referrerCustomerId,
     channelId: r.channelId,
+    channelName: r.channel?.name ?? null,
     // 推荐人可能是渠道，也可能是已有学员
     referrerName: r.referrerCustomer?.name ?? r.channel?.name ?? null,
     // 渠道归属：往上两代的计算结果

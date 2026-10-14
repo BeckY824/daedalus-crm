@@ -7,7 +7,7 @@
  *
  * 不起 Electron：真正会坏的不是 DOM 行为，是「引用的东西存不存在」。
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -16,6 +16,8 @@ const 桌面 = path.resolve(__dirname, "../desktop");
 const main = fs.readFileSync(path.join(桌面, "main.js"), "utf8");
 const preload = fs.readFileSync(path.join(桌面, "preload-app.js"), "utf8");
 const cloud = fs.readFileSync(path.join(桌面, "cloud.js"), "utf8");
+const navigation = fs.readFileSync(path.join(桌面, "navigation.js"), "utf8");
+const notifications = fs.readFileSync(path.join(桌面, "notifications.js"), "utf8");
 const 去重 = (xs: string[]) => [...new Set(xs)];
 
 describe("壳里没有账号", () => {
@@ -90,7 +92,10 @@ describe("菜单照 Claude 桌面端那套：只有标准项", () => {
     // 也认「模版 && 功能开关」（2026-10-04：订单 / 供应商这一版不上，lib/features.ts）
     const 按模版 = new Set([...shell.matchAll(/b\.template === "\w+"(?: && [^?]+)? \? \[\{ key: "(\/[a-z-]+)"/g)].map((m) => m[1]));
     expect(按模版.has("/orders")).toBe(true);
-    const 路径 = 去重([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1])).filter((p) => !按模版.has(p));
+    // 托管工作区创建者的订阅入口同样由页面按权限决定，原生菜单不知道当前工作区角色。
+    const 按权限 = new Set([...shell.matchAll(/workspace\?\.billing \? \[\{ key: "(\/[a-z-]+)"/g)].map((m) => m[1]));
+    expect(按权限.has("/billing")).toBe(true);
+    const 路径 = 去重([...shell.matchAll(/key: "(\/[a-z-]+)", icon:/g)].map((m) => m[1])).filter((p) => !按模版.has(p) && !按权限.has(p));
     expect(路径.length).toBeGreaterThanOrEqual(8);
     for (const p of 路径) expect(菜单, `「前往」里少了 ${p}`).toContain(`"${p}"`);
   });
@@ -119,15 +124,17 @@ describe("壳给页面的口子", () => {
      * 拦截路由只认软导航，所以壳不能 loadURL，得让页面自己 push——
      * 这条路横跨主进程、preload 和 AppShell 三个文件，一个通道名写岔就是「按了没反应」。
      */
-    expect(main).toContain('win.webContents.send("nav:go"');
-    expect(main).toContain('ipcMain.once("nav:ok"');
+    expect(main).toContain('发送导航({');
+    expect(navigation).toContain('webContents.send("nav:go", 路径, id)');
+    expect(navigation).toContain('ipcMain.on("nav:ok"');
     expect(preload).toContain('ipcRenderer.on("nav:go"');
-    expect(preload).toContain('ipcRenderer.send("nav:ok")');
+    expect(preload).toContain('ipcRenderer.send("nav:ok", requestId)');
     // 设置那两个菜单项都不许再走硬跳转
     expect(main).toMatch(/设置…[^\n]*click: \(\) => 去\(/);
     expect(main).toMatch(/label: "设置", click: \(\) => 去\("\/settings"\)/);
     // 对面没人接时还得有退路：没有这一段，登录页上按 ⌘, 就真的什么都不会发生
-    expect(main).toMatch(/应答了[\s\S]{0,200}前往\(路径\)/);
+    expect(main).toContain('兜底: () => 前往(路径)');
+    expect(navigation).toContain('timer = setTimeout(回退, 等待毫秒)');
 
     const shell = fs.readFileSync(path.resolve(__dirname, "../src/components/AppShell.tsx"), "utf8");
     expect(shell).toContain("window.desktopNav?.onGo");
@@ -202,7 +209,7 @@ describe("跑完了叫人一声", () => {
   it("页面能传的只有标题、正文、去处三段字；去处只认站内相对路径，弹什么在壳里定死", () => {
     expect(preload).toMatch(/通知: \(标题, 正文, 去\) => ipcRenderer\.invoke\("notify:show", \{ 标题: String\(/);
     const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'));
-    expect(段.slice(0, 900)).toContain("new Notification({ title, body:");
+    expect(段.slice(0, 900)).toContain("通知出口.发({ title, body:");
     expect(段.slice(0, 900)).toContain("站内路径(内容?.去)");
     // 站内路径 的规则：/ 开头、不是 //、不带空白和反斜杠
     const 规则 = /function 站内路径\(v\) \{[\s\S]*?return (\/.+\/)\.test/.exec(main)?.[1];
@@ -214,7 +221,8 @@ describe("跑完了叫人一声", () => {
 
   it("点一下：有去处就去那儿，没有就把窗口叫到前面——不然人不知道该去哪看", () => {
     const 段 = main.slice(main.indexOf('ipcMain.handle("notify:show"'), main.indexOf('ipcMain.handle("shell:version"'));
-    expect(段).toContain('n.on("click"');
+    expect(段).toContain('通知出口.发(');
+    expect(notifications).toContain('n.once("click"');
     expect(段).toContain("if (去处) return 打开到(去处)");
     expect(段).toContain("win.focus()");
   });
@@ -293,10 +301,65 @@ function 取函数(src: string, 名: string): string {
   throw new Error(`function ${名} 的括号没配平`);
 }
 
+it.each(["win32", "darwin"])("D095 %s 实际菜单只给Mac使用zoom role，导航键两端通用", (platform) => {
+  let template: unknown[] = [];
+  new Function("process", "Menu", `const 读配置=()=>({mode:'local'}),APP_NAME='QA',运营台可用=false,文档地址='https://test',菜单客户名='伙伴';
+    ${取函数(main, "建菜单")};建菜单();`)(
+    { platform }, { buildFromTemplate: (t: unknown[]) => { template = t; return t; }, setApplicationMenu: () => {} },
+  );
+  const text = JSON.stringify(template);
+  expect(text.includes('"role":"zoom"')).toBe(platform === "darwin");
+  expect(text).toContain('"accelerator":"CmdOrCtrl+,"');
+  expect(text).toContain('"accelerator":"CmdOrCtrl+1"');
+  expect(text).toContain('"label":"伙伴"');
+  expect(text).not.toContain('"label":"学员"');
+  expect(text).not.toContain('"label":"报表"');
+  expect(text).not.toContain('"accelerator":"CmdOrCtrl+9"');
+});
+
+it("启动故障恢复只接受当前账号的自动备份，取消不恢复，失败可见", async () => {
+  const restore = vi.fn(async () => ({ ok: true }));
+  const open = vi.fn(async () => ({ canceled: true, filePaths: [] as string[] }));
+  const message = vi.fn(async (_win: unknown, _options: object) => ({ response: 1 }));
+  const choose = new Function("dialog", "自动备份", "fs", "path", "从自动备份恢复", `const 数据目录='/qa/current',win=null;
+    ${取函数(main, "选择自动备份恢复")};return 选择自动备份恢复;`)(
+    { showOpenDialog: open, showMessageBox: message }, { 备份目录: () => "/qa/current/backups" }, { realpathSync: (p: string) => p }, path.posix, restore,
+  );
+  expect(await choose()).toBe(false); expect(restore).not.toHaveBeenCalled();
+  open.mockResolvedValue({ canceled: false, filePaths: ["/qa/other/backups/daily-2026-10-01.db"] });
+  await expect(choose()).rejects.toThrow("当前账号"); expect(restore).not.toHaveBeenCalled();
+  open.mockResolvedValue({ canceled: false, filePaths: ["/qa/current/backups/daily-2026-10-01.db"] });
+  expect(await choose()).toBe(false); expect(restore).not.toHaveBeenCalled();
+  message.mockResolvedValue({ response: 0 }); expect(await choose()).toBe(true);
+  expect(restore).toHaveBeenCalledExactlyOnceWith("daily-2026-10-01.db");
+  restore.mockResolvedValue({ ok: false }); expect(await choose()).toBe(false);
+  expect(message.mock.calls.at(-1)?.[1]).toMatchObject({ title: "未恢复" });
+});
+
+it("恢复共享入口拒绝服务器模式及并发请求，启动救援成功重新启动完整应用", async () => {
+  const restore = vi.fn(() => ({ 另存: "before-restore-QA.db", 隔离: null }));
+  let release!: () => void;
+  const stop = vi.fn(() => new Promise<void>(resolve => { release = resolve; }));
+  const relaunch = vi.fn(), exit = vi.fn();
+  const make = (mode: string) => new Function("读配置", "本地服务", "自动备份", "app", "path", `
+    const 数据目录='/qa',备份={校验数据库(){}},崩溃={写崩溃日志(){}},win=null;
+    let 恢复进行中=false,启动故障保持运行=true,本地={},凭据监视=null;
+    const 盯住凭据=()=>{},启动本地=async()=>{},报告本地故障=()=>{};
+    ${取函数(main, "从自动备份恢复")};return 从自动备份恢复;`)(
+    () => ({ mode }), { stop }, { 恢复: restore }, { relaunch, exit }, path,
+  );
+  expect(await make("server")("daily-QA.db")).toMatchObject({ ok: false }); expect(stop).not.toHaveBeenCalled();
+  const run = make("local"); const first = run("daily-QA.db");
+  expect(await run("daily-QA.db")).toMatchObject({ ok: false, error: "正在恢复，请等待完成" });
+  release(); expect(await first).toMatchObject({ ok: true });
+  expect(restore).toHaveBeenCalledOnce(); expect(relaunch).toHaveBeenCalledOnce(); expect(exit).toHaveBeenCalledWith(0);
+  expect(main).toContain('process.platform !== "darwin" && !启动故障保持运行');
+});
+
 describe("本机服务起不来、起两次（回归核对 D-035 / D-036 / R-016）", () => {
   it("D-035 故障框只给「重试 / 查看完整日志 / 退出」，没有「改用服务器」（那会把人带进托管版的共享试用账号）", () => {
     const 段 = 取函数(main, "报告本地故障");
-    expect(段).toMatch(/buttons: \["重试", "查看完整日志", "退出"\]/);
+    expect(段).toMatch(/buttons: \["重试", "查看完整日志", "退出",/);
     expect(段).not.toContain("改用服务器");
     expect(段).not.toContain("连服务器(");
   });
@@ -372,7 +435,7 @@ describe("检查更新：整包不自动下、重试不弹框（回归核对 D-0
     expect(查).toMatch(/自动下 = 计划\.方式 === "差量";/);
     // 检查更新 里叫 下载更新 的只有「自动下」那一处
     expect(查.match(/下载更新\(\)/g)).toHaveLength(1);
-    expect(查).toMatch(/if \(自动下\) (?:await |void )?下载更新\(\);/);
+    expect(查).toMatch(/if \(自动下\) (?:await |void )?下载更新\(\)(?:\.catch|;)/);
     // 整个壳里叫 下载更新 的只有：检查更新 那一处、点「更新到 x」的 IPC。定时器、切回前台都只是查
     const 叫的地方 = [...main.matchAll(/下载更新\(\)/g)].map((m) => main.slice(Math.max(0, m.index! - 80), m.index! + 12));
     expect(叫的地方.filter((x) => !/function 下载更新\(\)/.test(x))).toHaveLength(2);
@@ -390,10 +453,39 @@ describe("检查更新：整包不自动下、重试不弹框（回归核对 D-0
     }
   });
 
-  // 【下一版】D-088 未修：update:check 等到差量下完才返回（main.js 末尾 await 下载更新()），左栏「检查更新」会一直转到下完。
-  // 不伤数据、不挡人用，排下一版；修法是 void 下载更新()，修完去掉 skip
-  it.skip("【下一版】D-088 「检查更新」查完就返回，差量在后台下，不等它下完", () => {
-    expect(查).toMatch(/if \(自动下\) void 下载更新\(\);/);
+  it("D-088 实际检查函数在差量下载挂起时返回，后台失败转错误态", async () => {
+    let fail!: (e: Error) => void;
+    const download = vi.fn(() => new Promise((_r, reject) => { fail = reject; }));
+    const states: { 阶段: string }[] = [];
+    const log = vi.fn();
+    const check = new Function("下载更新", "设更新状态", "崩溃", `
+      let 正在查=false,更新状态={阶段:'idle'},计划; const app={getVersion:()=>'.15',isPackaged:true};
+      const 更新={检查:async()=>({版本:'.16',sha256:'a'.repeat(64),dmg:'https://test/a.dmg',zip:'https://test/a.zip',manifest:'https://test/a.json'})};
+      const process={platform:'darwin',arch:'arm64'},path={join:()=>''},数据根='',应用包='',应用日志='';
+      const 安装={能原地更新:()=>({ok:true})},窗装={},写配置=()=>{},读配置=()=>({}),dialog={};
+      const 差量={差量估算:async()=>({清单:{},比对结果:{},要下:100})};
+      const 先主后备=async(a,b,run)=>run(a,false);
+      ${查}; return 检查更新;
+    `)(download, (s: { 阶段: string }) => states.push(s), { 写崩溃日志: log }) as () => Promise<void>;
+    await check();
+    expect(download).toHaveBeenCalledOnce();
+    expect(states.at(-1)?.阶段).toBe("available");
+    fail(new Error("QA download failed"));
+    await Promise.resolve(); await Promise.resolve();
+    expect(states.at(-1)?.阶段).toBe("error"); expect(log).toHaveBeenCalledOnce();
+  });
+
+  it("D-088 没有新版时静默检查只推checking→idle，菜单检查才显示系统框", async () => {
+    const states: { 阶段: string }[] = []; const show = vi.fn();
+    const check = new Function("设更新状态", "dialog", "displayVersion", `
+      let 正在查=false,更新状态={阶段:'idle'};const app={getVersion:()=>'.16'},win=null;
+      const 更新={检查:async()=>null},process={platform:'darwin',arch:'arm64'},写配置=()=>{},读配置=()=>({});
+      ${查};return 检查更新;
+    `)((s: { 阶段: string }) => states.push(s), { showMessageBox: show }, (v: string) => v);
+    await check({ 手动: true, 静默: true });
+    expect(states.map(x => x.阶段)).toEqual(["checking", "idle"]); expect(show).not.toHaveBeenCalled();
+    await check({ 手动: true });
+    expect(show).toHaveBeenCalledOnce(); expect(show.mock.calls[0][1].message).toBe("已经是最新版本");
   });
 });
 
@@ -405,11 +497,27 @@ describe("启动与第二个实例（回归核对 D-030）", () => {
     expect(cloud).toMatch(/function 校验\(/);
   });
 
-  // 【下一版】D-030 后半未修：Windows 启动那几秒（还没建窗口）再点图标，second-instance 里 if (!win) return，什么反馈都没有。
-  // 不伤数据，排下一版；修完（比如记一笔「建好窗口就聚焦」或先出过渡小窗）去掉 skip
-  it.skip("【下一版】D-030 窗口还没建好时再点图标：要给反馈，不是什么都不做", () => {
-    const 段 = main.slice(main.indexOf('app.on("second-instance"'), main.indexOf("app.whenReady()"));
-    expect(段).not.toMatch(/if \(!win\) return;/);
+  it("D-030 启动中的重复打开只建一个提示窗；已有窗口则恢复、显示并聚焦", () => {
+    const windows: Array<{ show: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn> }> = [];
+    const ready: Array<() => void> = [];
+    class FakeWindow {
+      show = vi.fn(); focus = vi.fn(); isDestroyed = () => false;
+      once(_name: string, cb: () => void) { ready.push(cb); }
+      loadURL = () => Promise.resolve();
+      constructor() { windows.push(this); }
+    }
+    let isReady = false; let onReady!: () => void;
+    const app = { isReady: () => isReady, once: (_name: string, cb: () => void) => { onReady = cb; } };
+    const api = new Function("app", "BrowserWindow", `let win=null,过渡小窗=null,启动要聚焦=false;
+      ${取函数(main, "聚焦或提示启动")};return {run:聚焦或提示启动,setWin:w=>win=w,pending:()=>启动要聚焦};`)(app, FakeWindow);
+    api.run(); expect(windows).toHaveLength(0); expect(api.pending()).toBe(true);
+    isReady = true; onReady(); ready[0](); api.run();
+    expect(windows).toHaveLength(1); expect(windows[0].show).toHaveBeenCalledTimes(2);
+    const window = { isDestroyed: () => false, isMinimized: () => true, restore: vi.fn(), show: vi.fn(), focus: vi.fn() };
+    api.setWin(window); api.run();
+    expect(window.restore).toHaveBeenCalledOnce(); expect(window.show).toHaveBeenCalledOnce(); expect(window.focus).toHaveBeenCalledOnce();
+    expect(main).toContain('app.on("second-instance", 聚焦或提示启动)');
+    expect(取函数(main, "建窗口")).toContain("if (启动要聚焦)");
   });
 });
 
@@ -428,4 +536,13 @@ describe("毛玻璃关着时的透明窗（回归核对 D-118）", () => {
     上玻璃(假窗, true);
     expect(记).toEqual({ 模糊: [0, 60], 底色: ["#fafafa", "#00000000"] });
   });
+});
+
+it("业务菜单名称桥只允许主窗口顶层同源HTTP页面，改名幂等并拒绝恶意输入",()=>{
+ const frame={url:"http://127.0.0.1:3100/dashboard"};const wc={mainFrame:frame,getURL:()=>frame.url};const menu=vi.fn();
+ const fn=new Function("win","建菜单",`let 菜单客户名='客户';${取函数(main,"更新菜单客户名")};return 更新菜单客户名;`)({isDestroyed:()=>false,webContents:wc},menu);
+ const event={sender:wc,senderFrame:frame};expect(fn(event,"伙伴")).toBe(true);expect(menu).toHaveBeenCalledTimes(1);expect(fn(event,"伙伴")).toBe(true);expect(menu).toHaveBeenCalledTimes(1);
+ for(const name of [null,{},""," ","a".repeat(13),"<script>","客户\n伪菜单"]){expect(fn(event,name)).toBe(false)}
+ expect(fn({sender:{},senderFrame:frame},"客户")).toBe(false);expect(fn({sender:wc,senderFrame:{...frame}},"客户")).toBe(false);
+ frame.url="file:///tmp/fake.html";expect(fn(event,"客户")).toBe(false);expect(menu).toHaveBeenCalledTimes(1);
 });

@@ -19,6 +19,12 @@
  * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
 const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session, nativeTheme } = require("electron");
+const Windows通知 = require("./windows-toast-activation");
+// 协议辅助进程不初始化默认账号库，也不争用任何 QA 实例的单实例锁。
+if (process.platform === "win32" && process.argv.some(a => a.toLowerCase().startsWith(`${Windows通知.协议}:`))) {
+  Windows通知.转交激活(process.argv).finally(() => app.exit(0));
+  return;
+}
 const path = require("node:path");
 const fs = require("node:fs");
 const 本地服务 = require("./local-server");
@@ -34,9 +40,12 @@ const 窗装 = require("./windows-install");
 const 备份 = require("./backup");
 const 自动备份 = require("./auto-backup");
 const 崩溃 = require("./crashlog");
+const { 创建通知出口 } = require("./notifications");
+const { 发送导航 } = require("./navigation");
 const 提醒 = require("./reminders");
 const 团队同步 = require("./sync");
 const 运营通知 = require("./ops-notices");
+const { displayVersion } = require("./release-version");
 
 /*
   这台装的是哪个版本。写进主进程自己的环境变量：desktop/cloud.js 发云端请求时带上它，
@@ -47,6 +56,7 @@ process.env.CRM_APP_VERSION = app.getVersion();
 const os = require("node:os");
 
 const APP_NAME = "Daedalus CRM";
+app.setAboutPanelOptions({ applicationName: APP_NAME, applicationVersion: displayVersion(app.getVersion()), version: "" });
 if (process.platform === "win32") app.setAppUserModelId("com.daedalus.crm");
 
 /**
@@ -79,6 +89,15 @@ let 数据目录 = null;
 const 日志文件 = path.join(数据根, "logs", "server.log");
 /** 应用本身（主进程）没接住的错误。本地服务的输出在 日志文件，两个分开，各看各的 */
 const 应用日志 = path.join(数据根, "logs", "app.log");
+const 通知上下文 = () => JSON.stringify([数据目录, 读配置().mode, 读配置().serverUrl]);
+let Windows激活入口 = null;
+const 通知出口 = 创建通知出口({
+  Notification,
+  取上下文: 通知上下文,
+  取激活入口: process.platform === "win32" ? () => Windows激活入口 : undefined,
+  // 不写通知正文、客户姓名、目标地址或凭据。只留生命周期，供区分系统点击与页面跳转故障。
+  记事件: e => 崩溃.写崩溃日志(应用日志, "通知事件", JSON.stringify(e)),
+});
 // 记不上 .owner 要留案（2026-10-04 修 B-2 / D-024）：它是认出「换人了」的依据，悄悄失败的话串库时无从查起
 账号.设日志((标题, e) => 崩溃.写崩溃日志(应用日志, `[accounts] ${标题}`, e));
 /**
@@ -86,6 +105,7 @@ const 应用日志 = path.join(数据根, "logs", "app.log");
  * 否则壳会对着上一个账号的令牌判断「登没登录」。
  */
 function 换数据目录(dir) {
+  if (数据目录 !== dir) 通知出口.清空();
   数据目录 = dir;
   云端.初始化(dir);
   盯住凭据(dir);
@@ -190,6 +210,7 @@ const 服务目录 = app.isPackaged ? path.join(process.resourcesPath, "server")
 const 默认服务器 = process.env.CRM_URL || "https://app.ai-daedalus.com";
 
 let win = null;
+let 菜单客户名 = "客户";
 /** before-quit 里置上：之后的加载失败都是退出本身造成的，不当故障 */
 let 正在退出 = false;
 /** 本地服务起来之后的地址与一次性令牌 */
@@ -408,6 +429,7 @@ async function 真启动本地() {
   本地 = await 本地服务.start({
     bundleDir: 服务目录,
     dataDir: 数据目录,
+    portRoot: 数据根,
     logFile: 日志文件,
     额外环境: { CRM_CLOUD_URL: 云端.默认云端, CRM_MACHINE_HASH: 机器.机器哈希() ?? "" },
   });
@@ -473,16 +495,13 @@ function 前往(路径) {
  */
 function 去(路径) {
   if (!win || win.isDestroyed()) return 建窗口();
-  let 应答了 = false;
-  const 收 = () => {
-    应答了 = true;
-  };
-  ipcMain.once("nav:ok", 收);
-  win.webContents.send("nav:go", 路径);
-  setTimeout(() => {
-    ipcMain.removeListener("nav:ok", 收);
-    if (!应答了) 前往(路径);
-  }, 400);
+  const w = win, context = 通知上下文();
+  发送导航({
+    ipcMain, webContents: w.webContents, 路径,
+    仍有效: () => win === w && !w.isDestroyed() && 通知上下文() === context,
+    兜底: () => 前往(路径),
+    记事件: e => 崩溃.写崩溃日志(应用日志, "导航事件", JSON.stringify(e)),
+  });
 }
 
 /**
@@ -505,10 +524,7 @@ function 打开到(路径) {
 
 /** 提醒发的通知：和「AI 答完了」那条不同，**窗口在前台也发**——到点就是到点，界面里没有别的地方会说这句话 */
 function 发提醒(标题, 正文, 路径) {
-  if (!Notification.isSupported()) return;
-  const n = new Notification({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) });
-  n.on("click", () => 打开到(路径));
-  n.show();
+  return 通知出口.发({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) }, () => 打开到(路径));
 }
 
 /**
@@ -581,10 +597,7 @@ let 上次问运营台 = 0;
 let 运营通知器 = null;
 
 function 发运营通知(标题, 正文, 去处) {
-  if (!Notification.isSupported()) return;
-  const n = new Notification({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) });
-  n.on("click", () => void 打开运营台(去处));
-  n.show();
+  return 通知出口.发({ title: String(标题).slice(0, 60), body: String(正文 ?? "").slice(0, 160) }, () => 打开运营台(去处), "ops");
 }
 
 async function 查运营台(force = false) {
@@ -743,6 +756,10 @@ function 建窗口() {
   // 主窗口露面了再关「正在完成更新」那个小窗，中间不留一个窗口都没有的空档（Windows 上那会让应用直接退出）
   win.once("ready-to-show", () => {
     win.show();
+    if (启动要聚焦) {
+      win.focus();
+      启动要聚焦 = false;
+    }
     关过渡小窗();
     // 窗口号要等窗口真的建出来才有；露面那一刻设上模糊，之后 WindowServer 一直记着
     if (透明窗 && 玻璃开着()) 模糊.设模糊(win, 模糊半径);
@@ -808,23 +825,27 @@ function 建窗口() {
  * 要重新登录、看到的不是自己的客户、每一页从香港加载。Sam 那台就是点了它，以为应用坏了、变卡了。
  * 连服务器是团队版的用法，留在菜单里；这里只给「重试」。
  */
+let 启动故障保持运行 = false;
 function 报告本地故障(原因或错误) {
+  启动故障保持运行 = true;
   const 原因 = typeof 原因或错误 === "string" ? 原因或错误 : (原因或错误?.message ?? String(原因或错误));
   崩溃.写崩溃日志(应用日志, "本地服务没能启动", 原因或错误);
   关过渡小窗();
+  const 可恢复 = (() => { try { return 自动备份.列出(数据目录).length > 0; } catch { return false; } })();
   dialog
     .showMessageBox(win ?? null, {
       type: "error",
       title: "本地服务没能启动",
       message: "本机的 CRM 服务没能起来",
       detail: `${原因}\n\n最后几行日志：\n${本地服务.日志尾巴() || "（没有输出）"}\n\n刚更新完的话，可能是安装还没结束：等一两分钟再点「重试」。`,
-      buttons: ["重试", "查看完整日志", "退出"],
+      buttons: ["重试", "查看完整日志", "退出", ...(可恢复 ? ["从自动备份恢复…"] : [])],
       defaultId: 0,
       cancelId: 2,
     })
     .then(({ response }) => {
       if (response === 0) 重开本地服务();
-      else if (response === 1) shell.showItemInFolder(日志文件);
+      else if (response === 1) { shell.showItemInFolder(日志文件); 报告本地故障(原因或错误); }
+      else if (response === 3) void 选择自动备份恢复().then((done) => { if (!done) 报告本地故障(原因或错误); }).catch((e) => 报告本地故障(e));
       else app.quit();
     });
 }
@@ -835,6 +856,7 @@ async function 重开本地服务() {
     await 本地服务.stop();
     本地 = null;
     await 启动本地();
+    启动故障保持运行 = false;
     if (win && !win.isDestroyed()) win.loadURL(本地入口());
     else 建窗口();
   } catch (e) {
@@ -845,6 +867,7 @@ async function 重开本地服务() {
 /* ---------- 模式切换 ---------- */
 
 async function 切到本地() {
+  通知出口.清空();
   // 远端的路径可能在本机不存在：本地模式的落点只读各账号数据目录里那份（route-memory.js），config.json 的 lastRoute 是服务器模式自己的
   写配置({ ...读配置(), mode: "local" });
   // 没登录云端账号也照开：本地服务的 /login 就是云端账号的门，壳不用再拦一道
@@ -863,6 +886,7 @@ async function 切到本地() {
  * 连一次服务器就把「上次检查更新」这些别的项一起抹了
  */
 function 连服务器(地址) {
+  通知出口.清空();
   写配置({ ...读配置(), mode: "server", serverUrl: 地址 });
   // 本地服务留着不停：切回来时不用再等一次冷启动
   win ? win.loadURL(地址) : 建窗口();
@@ -969,7 +993,7 @@ let 待装 = null;
 let 正在查 = false;
 
 function 设更新状态(s) {
-  更新状态 = s;
+  更新状态 = { ...s, 显示版本: s.版本 ? displayVersion(s.版本) : undefined };
   if (win && !win.isDestroyed()) win.webContents.send("update:state", 更新状态);
 }
 
@@ -1000,11 +1024,11 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
   */
   let 自动下 = false;
   if (更新状态.阶段 === "available") {
-    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `有新版本 ${更新状态.版本}`, detail: "这一版是整包，侧栏底部有按钮，点了才开始下载。" });
+    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `有新版本 ${displayVersion(更新状态.版本)}`, detail: "这一版是整包，侧栏底部有按钮，点了才开始下载。" });
     return;
   }
   if (更新状态.阶段 === "downloading" || 更新状态.阶段 === "ready" || 更新状态.阶段 === "installing") {
-    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `${更新状态.版本} 已在准备中`, detail: "下载完成后侧栏会出现「重启」按钮；不点的话，退出时会自动换上，下次打开就是新版。" });
+    if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: `${displayVersion(更新状态.版本)} 已在准备中`, detail: "下载完成后侧栏会出现「重启」按钮；不点的话，退出时会自动换上，下次打开就是新版。" });
     return;
   }
   正在查 = true;
@@ -1014,7 +1038,7 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
     const 新版 = await 更新.检查({ 当前版本: app.getVersion(), platform: process.platform, arch: process.arch });
     if (!新版) {
       设更新状态({ 阶段: "idle" });
-      if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: "已经是最新版本", detail: `当前版本 ${app.getVersion()}。` });
+      if (手动) dialog.showMessageBox(win ?? null, { type: "info", title: "检查更新", message: "已经是最新版本", detail: `当前版本 ${displayVersion(app.getVersion())}。` });
       return;
     }
     const 版本 = String(新版.版本).replace(/^v/, "");
@@ -1040,12 +1064,8 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
      * 「差量 2.3 MB」；任何不划算或对不上的情况（老 Release 没有清单、变得太多、包名不对…）
      * 都退回整包，按钮上写整包的体积。见 delta.js 顶部。
      */
-    // Windows 只在 NSIS 装在自己能写的地方时差量；不能就照旧整包，原因记一笔
-    let 窗可差量 = process.platform === "win32" ? 窗装.能差量更新(应用包) : { ok: false };
-    // 这一版已经连着两次换不成目录（组策略禁了 PowerShell、杀毒拦了……）：再下一遍差量只会再失败一遍，走整包
-    if (窗可差量.ok && 窗装.换目录屡败(更新目录, 版本)) 窗可差量 = { ok: false, 原因: `${版本} 连着两次没能换上（见 updates/update-swap.log），这次走整包` };
-    if (process.platform === "win32" && 新版.zip && !窗可差量.ok) 崩溃.写崩溃日志(应用日志, "差量不可用", 窗可差量.原因);
-    if ((process.platform === "darwin" || 窗可差量.ok) && 新版.zip && 新版.manifest) {
+    // Windows统一下载NSIS完整安装包；只有Mac按已有差量机制更新。
+    if (process.platform === "darwin" && 新版.zip && 新版.manifest) {
       try {
         设更新状态({ 阶段: "checking", 文字: "正在比对已装的文件…" });
         const 备 = 新版.备用 || {};
@@ -1076,7 +1096,10 @@ async function 检查更新({ 手动 = false, 静默 = false } = {}) {
   } finally {
     正在查 = false;
   }
-  if (自动下) await 下载更新();
+  if (自动下) void 下载更新().catch((e) => {
+    崩溃.写崩溃日志(应用日志, "后台下载失败", e);
+    设更新状态({ 阶段: "error", 错误: String(e?.message ?? e) });
+  });
 }
 
 /**
@@ -1148,7 +1171,7 @@ function 通知安装中(版本, 方式) {
   try {
     if (!Notification.isSupported()) return;
     new Notification({
-      title: `正在更新到 ${版本}`,
+      title: `正在更新到 ${displayVersion(版本)}`,
       body: 方式 === "差量" ? "几秒后自动重新打开。" : "正在安装，一两分钟后会自动打开，这段时间不用再点开它。",
     }).show();
   } catch { /* 通知发不出去不挡更新 */ }
@@ -1171,9 +1194,11 @@ async function 等安装装完(记录) {
   const 已是新版 = app.getVersion() === 版本;
   const 页 = `<!doctype html><meta charset="utf-8"><title>正在更新</title>
 <body style="margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#fafafa;color:#1f1f1f;font:14px/1.6 'Microsoft YaHei UI','PingFang SC',system-ui,sans-serif">
-<div style="max-width:320px;padding:0 24px"><div style="font-size:16px;font-weight:600;margin-bottom:6px">${已是新版 ? "正在完成更新" : `正在安装 ${版本.replace(/[<>&]/g, "")}`}</div>
+<div style="max-width:320px;padding:0 24px"><div style="font-size:16px;font-weight:600;margin-bottom:6px">${已是新版 ? "正在完成更新" : `正在安装 ${displayVersion(版本).replace(/[<>&]/g, "")}`}</div>
 <div style="color:#666">${已是新版 ? "马上就好。" : "装好后会自动打开，不用做别的。一般一两分钟。"}</div></div></body>`;
   const 小窗 = new BrowserWindow({ width: 420, height: 180, resizable: false, minimizable: false, maximizable: false, autoHideMenuBar: true, backgroundColor: "#fafafa", title: "正在更新", show: false });
+  关过渡小窗();
+  过渡小窗 = 小窗;
   小窗.once("ready-to-show", () => 小窗.show());
   小窗.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(页)}`);
   崩溃.写崩溃日志(应用日志, "启动时安装还没结束", `安装程序 pid=${记录.pid} 正在装 ${版本}，本进程是 ${app.getVersion()}，先等它`);
@@ -1297,18 +1322,15 @@ ipcMain.handle("notify:show", (_e, 内容) => {
   const 截 = (v, n) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, n);
   const title = 截(内容?.标题, 60);
   if (!title) return { ok: false, 原因: "没内容" };
-  const n = new Notification({ title, body: 截(内容?.正文, 160) });
   // 点了回到那件事所在的地方（那条回答、那张表）。只认站内的相对路径：页面传来的字符串不许把窗口带去别的站
   const 去处 = 站内路径(内容?.去);
-  n.on("click", () => {
+  return 通知出口.发({ title, body: 截(内容?.正文, 160) }, () => {
     if (去处) return 打开到(去处);
     if (!win || win.isDestroyed()) return 建窗口();
     if (win.isMinimized()) win.restore();
     win.show();
     win.focus();
-  });
-  n.show();
-  return { ok: true };
+  }, "ai");
 });
 
 /** "/customers/abc?x=1" 这种才算；"//evil.com"、"https://…"、带换行的都不算 */
@@ -1317,7 +1339,7 @@ function 站内路径(v) {
   return /^\/(?!\/)[^\s\\]*$/.test(s) && s.length < 300 ? s : null;
 }
 
-ipcMain.handle("shell:version", () => app.getVersion());
+ipcMain.handle("shell:version", () => displayVersion(app.getVersion()));
 // 毛玻璃：preload 每次载入同步问一次（不能异步：等回话那一下页面会先画出实底再变透明，闪一下）
 ipcMain.on("shell:glass-now", (e) => {
   e.returnValue = 玻璃开着();
@@ -1343,7 +1365,7 @@ nativeTheme.on("updated", () => {
   win.webContents.send("shell:glass", 生效);
 });
 /*
-  提醒的设置和「现在就再问一次」。设置存在壳这边（数据根下的 reminders.json）：
+  提醒的设置和「现在就再问一次」。设置存在壳这边（各账号数据目录下的 reminders.json）：
   窗口关着时是壳在发提醒，它得自己知道开关，不能等页面来告诉它。
   页面传进来的设置只认那四个字段（规整设置 里收），多余的一概丢掉。
 */
@@ -1359,8 +1381,7 @@ ipcMain.handle("reminders:refresh", () => {
 */
 ipcMain.handle("reminders:test", () => {
   if (!Notification.isSupported()) return { ok: false, 原因: "这台电脑不支持系统通知" };
-  发提醒("试一条：提醒能收到", "点这条会打开跟进计划。Dock 上的数就是那里「逾期」和「今天」两组加起来", 计划页);
-  return { ok: true };
+  return 发提醒("试一条：提醒能收到", "点这条会打开跟进计划。Dock 上的数就是那里「逾期」和「今天」两组加起来", 计划页);
 });
 ipcMain.handle("shell:backup", () => 备份数据库());
 
@@ -1369,30 +1390,60 @@ ipcMain.handle("shell:backup", () => 备份数据库());
  * 恢复要先停服务（库正开着），换进去之后再起、整页回到入口——和换账号那条路同一套停 / 起。
  * 当前库先另存成 before-restore-…，恢复错了还能再恢复回来
  */
-ipcMain.handle("shell:auto-backups", () => (数据目录 ? 自动备份.列出(数据目录) : []));
-ipcMain.handle("shell:restore-auto-backup", async (_e, 文件名) => {
+ipcMain.handle("shell:auto-backups", () => (读配置().mode === "local" && 数据目录 ? 自动备份.列出(数据目录) : []));
+let 恢复进行中 = false;
+async function 从自动备份恢复(文件名) {
+  if (读配置().mode !== "local") return { ok: false, error: "请先切换到本机数据，再恢复本机备份" };
   if (!数据目录) return { ok: false, error: "还没有本机数据" };
-  const 库 = path.join(数据目录, "crm.db");
-  凭据监视?.close();
-  await 本地服务.stop();
-  let 结果;
+  if (恢复进行中) return { ok: false, error: "正在恢复，请等待完成" };
+  恢复进行中 = true;
   try {
-    结果 = 自动备份.恢复({ 库, 数据目录, 文件名: String(文件名 ?? ""), 校验: 备份.校验数据库 });
-  } catch (e) {
-    崩溃.写崩溃日志(应用日志, "从自动备份恢复失败", e);
-    结果 = { error: String(e?.message ?? e) };
-  }
-  盯住凭据(数据目录);
-  try {
-    await 启动本地();
-  } catch (e) {
-    报告本地故障(e);
-    return { ok: false, error: "恢复之后本地服务没起来，日志里有原因" };
-  }
-  if (结果.error) return { ok: false, error: `没恢复：${结果.error}（数据没动）` };
-  win?.loadURL(本地入口());
-  return { ok: true, 另存: 结果.另存 };
-});
+    const 库 = path.join(数据目录, "crm.db");
+    凭据监视?.close();
+    await 本地服务.stop();
+    本地 = null;
+    let 结果;
+    try {
+      结果 = 自动备份.恢复({ 库, 数据目录, 文件名: String(文件名 ?? ""), 校验: 备份.校验数据库 });
+    } catch (e) {
+      崩溃.写崩溃日志(应用日志, "从自动备份恢复失败", e);
+      结果 = { error: String(e?.message ?? e) };
+    }
+    盯住凭据(数据目录);
+    try {
+      await 启动本地();
+    } catch (e) {
+      if (!启动故障保持运行) 报告本地故障(e);
+      return { ok: false, error: "恢复之后本地服务没起来，日志里有原因" };
+    }
+    if (结果.error) return { ok: false, error: `没恢复：${结果.error}（数据没动）` };
+    if (结果.隔离) {
+      崩溃.写崩溃日志(应用日志, "恢复已保护损坏库原件", path.join(自动备份.备份目录(数据目录), 结果.隔离));
+      await dialog.showMessageBox(win ?? null, { type: "info", title: "已恢复备份", message: "原数据库已损坏，原件已单独保留", detail: `已保存原数据库和临时文件，供进一步恢复，未把原件当成可用备份。位置：backups/${结果.隔离}` });
+    }
+    启动故障保持运行 = false;
+    if (win && !win.isDestroyed()) void win.loadURL(本地入口());
+    else { app.relaunch(); app.exit(0); }
+    return { ok: true, 另存: 结果.另存, 隔离: 结果.隔离 };
+  } finally { 恢复进行中 = false; }
+
+}
+ipcMain.handle("shell:restore-auto-backup", (_e, 文件名) => 从自动备份恢复(文件名));
+
+/** Rescue remains available even when migrations/corruption prevent the web UI from starting. */
+async function 选择自动备份恢复() {
+  const 目录 = 自动备份.备份目录(数据目录);
+  const { canceled, filePaths } = await dialog.showOpenDialog(win ?? null, { title: "选择本机自动备份", defaultPath: 目录, properties: ["openFile"], filters: [{ name: "数据库备份", extensions: ["db"] }] });
+  if (canceled || !filePaths?.[0]) return false;
+  const 文件 = filePaths[0];
+  if (fs.realpathSync(path.dirname(文件)) !== fs.realpathSync(目录)) throw new Error("请从当前账号的backups文件夹选择自动备份");
+  const { response } = await dialog.showMessageBox(win ?? null, { type: "warning", title: "恢复自动备份", message: `恢复 ${path.basename(文件)}？`, detail: "备份后的改动会回到当时的样子。当前好库先另存；损坏库及临时文件会原样保护。", buttons: ["恢复", "取消"], defaultId: 1, cancelId: 1 });
+  if (response !== 0) return false;
+  const result = await 从自动备份恢复(path.basename(文件));
+  if (!result.ok) await dialog.showMessageBox(win ?? null, { type: "error", title: "未恢复", message: result.error });
+  return result.ok;
+}
+
 ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
 /**
  * 换了个云端账号登录：把数据目录切过去，重起本地服务，窗口重载。
@@ -1467,6 +1518,20 @@ ipcMain.handle("shell:use-server", (_e, url) => {
   return { ok: true };
 });
 
+/** 只接收主应用顶层页面的业务名称，不允许子框架/其他窗口改菜单。 */
+function 更新菜单客户名(e, 名称) {
+  if (!win || win.isDestroyed() || e.sender !== win.webContents || !e.senderFrame || e.senderFrame !== win.webContents.mainFrame) return false;
+  try {
+    const url = new URL(e.senderFrame.url);
+    if (!/^https?:$/.test(url.protocol) || url.origin !== new URL(win.webContents.getURL()).origin) return false;
+  } catch { return false; }
+  if (typeof 名称 !== "string" || !名称.trim() || 名称.trim().length > 12 || /[\x00-\x1f\x7f-\x9f<>]/.test(名称)) return false;
+  const name = 名称.trim();
+  if (菜单客户名 !== name) { 菜单客户名 = name; 建菜单(); }
+  return true;
+}
+ipcMain.handle("nav:customer-label", 更新菜单客户名);
+
 function 建菜单() {
   const cfg = 读配置();
   const isMac = process.platform === "darwin";
@@ -1495,13 +1560,12 @@ function 建菜单() {
     ["首页", "/dashboard"],
     ["数据", "/overview"],
     ["线索", "/leads"],
-    ["学员", "/customers"],
+    [菜单客户名, "/customers"],
     ["渠道", "/channels"],
     ["联系人", "/contacts"],
     ["商机", "/opportunities"],
     ["跟进", "/follow-ups"],
-    ["报表", "/reports"],
-  ].map(([label, 路径], i) => ({ label, accelerator: i < 9 ? `CmdOrCtrl+${i + 1}` : undefined, click: () => 前往(路径) }));
+  ].map(([label, 路径], i) => ({ label, accelerator: i < 8 ? `CmdOrCtrl+${i + 1}` : undefined, click: () => 前往(路径) }));
 
   Menu.setApplicationMenu(
     Menu.buildFromTemplate([
@@ -1543,7 +1607,7 @@ function 建菜单() {
         role: "window",
         submenu: [
           { role: "minimize", label: "最小化" },
-          { role: "zoom", label: "缩放" },
+          ...(isMac ? [{ role: "zoom", label: "缩放" }] : []),
           ...(isMac ? [{ type: "separator" }, { role: "front", label: "前置全部窗口" }] : []),
         ],
       },
@@ -1574,23 +1638,56 @@ function 建菜单() {
   );
 }
 
+/** Repeated launches during startup keep one visible progress window, then focus the main window. */
+let 启动要聚焦 = false;
+function 聚焦或提示启动() {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    return;
+  }
+  启动要聚焦 = true;
+  if (!app.isReady()) {
+    app.once("ready", 聚焦或提示启动);
+    return;
+  }
+  if (!过渡小窗 || 过渡小窗.isDestroyed()) {
+    过渡小窗 = new BrowserWindow({
+      width: 420, height: 180, title: "正在启动 Daedalus CRM", show: false,
+      resizable: false, minimizable: false, maximizable: false, closable: false, autoHideMenuBar: true,
+      webPreferences: { contextIsolation: true, nodeIntegration: false },
+    });
+    const 小窗 = 过渡小窗;
+    小窗.once("ready-to-show", () => { if (!小窗.isDestroyed()) { 小窗.show(); 小窗.focus(); } });
+    const 页 = '<!doctype html><meta charset="utf-8"><body style="font:14px/1.7 system-ui;padding:24px;background:#fafafa">正在启动 Daedalus CRM…<p>正在准备服务，请稍候。无需再次打开。</p></body>';
+    void 小窗.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(页)}`).catch(() => {});
+  } else {
+    过渡小窗.show();
+    过渡小窗.focus();
+  }
+}
+
 /* ---------- 生命周期 ---------- */
 
 // 单实例：重复点图标时聚焦已开的窗口，而不是开第二个（第二个还会去抢端口）
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on("second-instance", () => {
-    if (!win) return;
-    if (win.isMinimized()) win.restore();
-    win.focus();
-  });
+  app.on("second-instance", 聚焦或提示启动);
 
   app.whenReady().then(async () => {
     // 整包安装程序还在跑：程序文件可能写了一半，这时什么都别起（见 等安装装完）
     if (process.platform === "win32") {
       const 装着 = 窗装.安装进行中(更新目录);
       if (装着 && !(await 等安装装完(装着))) return;
+      try {
+        if (!app.isPackaged || !app.setAsDefaultProtocolClient(Windows通知.协议)) throw new Error("通知协议未注册");
+        Windows激活入口 = await Windows通知.创建激活入口({
+          记事件: e => 崩溃.写崩溃日志(应用日志, "Windows 通知激活", JSON.stringify(e)),
+        });
+        app.once("will-quit", () => { void Windows激活入口?.关闭(); });
+      } catch { 崩溃.写崩溃日志(应用日志, "Windows 通知激活入口不可用", "请使用完整安装版验证通知点击"); }
     }
     建菜单();
     /*
@@ -1659,7 +1756,7 @@ if (!app.requestSingleInstanceLock()) {
       中途切去服务器模式，Dock 上的数就跟着清掉，不会挂着一个过期的数。
     */
     提醒器 = 提醒.开始({
-      文件: path.join(数据根, "reminders.json"),
+      文件: () => path.join(数据目录, "reminders.json"),
       取端口: () => (读配置().mode === "local" ? 本地?.port ?? null : null),
       取令牌: () => (读配置().mode === "local" ? 本地?.token ?? null : null),
       通知: 发提醒,
@@ -1737,6 +1834,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     // 先立标记再停服务：停服务会把正在加载的页面打断（-355），别让 did-fail-load 当成「本地服务没起来」记一笔、弹个框（第五轮 r5-pkg C1）
     正在退出 = true;
+    通知出口.清空();
     提醒器?.停();
     本地服务.stop();
     MCP桥.stop();
@@ -1756,6 +1854,6 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
   app.on("window-all-closed", () => {
-    if (process.platform !== "darwin") app.quit();
+    if (process.platform !== "darwin" && !启动故障保持运行) app.quit();
   });
 }

@@ -47,6 +47,7 @@ afterAll(async () => {
   delete process.env.MULTI_TENANT;
   delete process.env.ADMIN_TOKEN;
   delete process.env.OPS_ACCOUNTS;
+  delete process.env.TEST_ACCOUNTS;
   delete process.env.GATEWAY_API_KEY;
   delete process.env.GATEWAY_BASE_URL;
   delete process.env.GATEWAY_MODELS;
@@ -58,6 +59,7 @@ afterAll(async () => {
 beforeEach(async () => {
   process.env.ADMIN_TOKEN = TOKEN;
   delete process.env.OPS_ACCOUNTS;
+  delete process.env.TEST_ACCOUNTS;
   const { control } = await import("@/lib/tenant/control");
   await control.testAccount.deleteMany({});
   await control.aiCharge.deleteMany({});
@@ -144,8 +146,26 @@ describe("标 / 取消测试账号", () => {
     expect(await 是测试账号(路人)).toBe(false);
     expect([...(await 测试账号们()).entries()]).toEqual([[运营, "运营"]]);
     delete process.env.OPS_ACCOUNTS;
+  delete process.env.TEST_ACCOUNTS;
     expect(await 是测试账号(运营)).toBe(false);
   });
+});
+
+it("注册前预设测试名单排除新注册通知和统计，不授予运营权限；移除名单恢复", async () => {
+  const { 是测试账号, 测试账号们 } = await import("@/lib/tenant/test-accounts");
+  const { 是运营账号 } = await import("@/lib/ops-auth");
+  const { 读运营通知 } = await import("@/lib/ops-notices");
+  const start = new Date(Date.now() - 60_000).toISOString();
+  process.env.TEST_ACCOUNTS = "Preset@Example.test; 13900000001";
+  const test = await 建账号({ email: "preset@example.test" });
+  const real = await 建账号();
+  expect(await 是测试账号(test)).toBe(true);
+  expect(await 是测试账号(real)).toBe(false);
+  expect(await 是运营账号(test)).toBe(false);
+  expect([...(await 测试账号们()).entries()]).toEqual([[test, "预设"]]);
+  expect((await 读运营通知(start)).事件.filter(e => e.kind === "注册").map(e => e.key)).toEqual([`注册:${real}`]);
+  delete process.env.TEST_ACCOUNTS;
+  expect(await 是测试账号(test)).toBe(false);
 });
 
 describe("AI 不限次数", () => {

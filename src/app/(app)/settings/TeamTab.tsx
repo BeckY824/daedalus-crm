@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { App, Alert, Button, Input, Space, Tag, Typography } from "antd";
 import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
+import ScopeConflicts from "./ScopeConflicts";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
@@ -250,6 +251,14 @@ export default function TeamTab() {
             </>
           }
         />
+      )}
+
+      {/* 范围同步：失权的未上传改动（不静默丢弃）；AI 历史只统计不删除，见 docs/范围同步迁移说明.md */}
+      <ScopeConflicts onChange={() => void 刷()} />
+      {(s.范围?.清理?.AI残留 ?? 0) > 0 && (
+        <Alert type="info" showIcon style={{ marginBottom: 16 }} data-testid="scope-ai-residue"
+          message={`AI 对话历史里有 ${s.范围!.清理!.AI残留} 条提到了已不在你同步范围内的客户`}
+          description="升级只清理了客户资料本身；AI 历史不会自动删除，以免误删你自己的记录。需要的话请在 AI 对话列表里自行删除。" />
       )}
 
       <section className="team-card">

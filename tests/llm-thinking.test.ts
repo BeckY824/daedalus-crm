@@ -88,7 +88,7 @@ describe("模型不认 thinking 参数", () => {
     现在只要带了 thinking 被 4xx 就记「这个模型不认 thinking」，之后不带 tools 的调用也不再关思考，决策步变慢。
     修法：拿掉 thinking 重试一次仍 400，说明不是它的锅，别记。这一版不修（只影响快慢、不伤数据）
   */
-  it.skip("【下一版】带 tools 的请求 400、拿掉 thinking 重试仍 400：不是 thinking 的锅，不记「不认 thinking」（H-015）", async () => {
+  it("tools 格式400不污染thinking能力（H-015）", async () => {
     const 请求: Record<string, unknown>[] = [];
     globalThis.fetch = (async (_u: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
@@ -104,6 +104,19 @@ describe("模型不认 thinking 参数", () => {
     await chatMessagesJSON([{ role: "user", content: "y" }], { thinking: false });
     // 这个模型其实认 thinking：不带 tools 的调用照旧关思考
     expect(请求[0]?.thinking).toBeTruthy();
+  });
+  it("普通参数422不禁用思考控制；明确thinking不支持才缓存", async () => {
+    const 请求: Record<string, unknown>[] = [];
+    globalThis.fetch = (async (_u: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)); 请求.push(body);
+      return 请求.length === 1 ? 回应({ error: { message: "temperature out of range" } }, 422) : 回应(正常回答);
+    }) as typeof fetch;
+    const { chatMessagesJSON } = await import("@/lib/llm");
+    await chatMessagesJSON([{ role: "user", content: "x" }], { thinking: false });
+    请求.length = 0;
+    // 第二个问题仍应带thinking；本次JSON协议降级可临时去掉参数。
+    await chatMessagesJSON([{ role: "user", content: "y" }], { thinking: false });
+    expect(请求[0].thinking).toBeTruthy();
   });
 });
 

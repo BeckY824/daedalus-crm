@@ -1,5 +1,8 @@
 "use client";
 
+import { dayjs } from "@/lib/utils";
+import Shortcut from "@/components/Shortcut";
+
 import type { 页面范围 } from "@/lib/ai-context-page";
 import { 是刚交过来的 } from "@/lib/home-ask";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -21,7 +24,7 @@ import AskBox from "@/components/AskBox";
 import StartCard from "./StartCard";
 import TurnView from "./TurnView";
 import Signals from "./Signals";
-import { AiRemaining } from "@/components/AiCost";
+import { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
 import { Esc归别人 } from "@/lib/esc";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
@@ -87,6 +90,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   标题前缀?: string;
 }) {
   const b = useBusiness();
+  const AI已用完 = useAiOutOfCredits();
   const router = useRouter();
   const turns = useThread(scope);
   const 地址栏 = useSearchParams();
@@ -144,7 +148,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   const greet = useSyncExternalStore(
     () => () => {},
     () => {
-      const h = new Date().getHours();
+      const h = dayjs().hour();
       return h < 5 ? "夜深了" : h < 12 ? "早上好" : h < 18 ? "下午好" : "晚上好";
     },
     () => "你好",
@@ -153,8 +157,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   const 今天 = useSyncExternalStore(
     () => () => {},
     () => {
-      const d = new Date();
-      return `${d.getMonth() + 1} 月 ${d.getDate()} 日 · 周${"日一二三四五六"[d.getDay()]}`;
+      const d = dayjs();
+      return `${d.month() + 1} 月 ${d.date()} 日 · 周${"日一二三四五六"[d.day()]}`;
     },
     () => "",
   );
@@ -244,6 +248,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   }
 
   function start(turn: Turn) {
+    if (AI已用完) return;
     runStream<AgentAnswer>(
       `home:${turn.id}`,
       { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files, pageContext: 上下文提示, pageScope: 上下文范围 },
@@ -278,10 +283,10 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
 
   // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
   useEffect(() => {
-    if (running || !queued) return;
+    if (running || !queued || AI已用完) return;
     dequeueTurn(scope, queued.id);
     start(queued);
-  }, [running, queued]);
+  }, [running, queued, AI已用完]);
 
   function submit(raw: string, opts: { queue?: boolean } = {}) {
     const typed = raw.trim();
@@ -309,7 +314,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
       if (!c) return;
       question = c.question;
     }
-    if (question.length < 2) return;
+    if (question.length < 2 || AI已用完) return;
     // 正在答的时候再发：排队，不并发打模型
     const shouldQueue = opts.queue || Boolean(running);
     const turn = addTurn(scope, {
@@ -358,7 +363,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   }, [running]);
 
   const empty = turns.length === 0;
-  const canSend = q.trim().length > 0;
+  const canSend = q.trim().length > 0 && !AI已用完;
   /** 输入框底下摆不摆那排建议问题：只在还没问过、且库里有东西的时候 */
   const 摆建议 = empty && !空库 && suggestions.length > 0 && 模式 === "宽";
   const 问这条 = (x: Suggestion) => submit(x.kind === "prep" ? "/prep" : x.kind === "recap" ? "/recap" : x.question);
@@ -396,7 +401,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             <div className="cli-welcome-s">{context}</div>
             <div className="cli-welcome-hints">
               <div>
-                也可以直接问，或者让它记一笔、改状态、排计划——它给一张建议卡，你点确认才写入。输入 <kbd>/</kbd> 看命令，<kbd>⌘K</kbd> 回到输入框。
+                也可以直接问，或者让它记一笔、改状态、排计划——它给一张建议卡，你点确认才写入。输入 <kbd>/</kbd> 看命令，<kbd><Shortcut>⌘K</Shortcut></kbd> 回到输入框。
               </div>
             </div>
           </motion.div>
@@ -578,6 +583,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                   type="button"
                   className={`cli-q${i === suggIdx ? " cli-q-on" : ""}`}
                   onClick={() => 问这条(x)}
+                  disabled={AI已用完}
                 >
                   {x.label}
                 </button>
@@ -591,7 +597,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
               {running && (
                 <>
                   {" · "}
-                  <kbd>Esc</kbd> 打断 · <kbd>⌘↵</kbd> 排队
+                  <kbd>Esc</kbd> 打断 · <kbd><Shortcut>⌘↵</Shortcut></kbd> 排队
                 </>
               )}
             </span>
@@ -600,7 +606,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             <AiRemaining />
             <span style={{ flex: 1 }} />
             {!empty && suggestions.slice(0, 3).map((x) => (
-              <button key={x.label} type="button" className="cli-sugg" onClick={() => 问这条(x)}>
+              <button key={x.label} type="button" className="cli-sugg" disabled={AI已用完} onClick={() => 问这条(x)}>
                 {x.label}
               </button>
             ))}
@@ -633,7 +639,7 @@ function MenuRow({ label, keys }: { label: string; keys: string }) {
   return (
     <span className="cli-menu-row">
       <span>{label}</span>
-      <kbd>{keys}</kbd>
+      <kbd><Shortcut>{keys}</Shortcut></kbd>
     </span>
   );
 }

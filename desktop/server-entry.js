@@ -99,6 +99,10 @@ if (fs.existsSync(迁移目录)) {
       }
     }
   }
+  // 老记录能从原客户确定负责人时回填；来源已经删除、无法确认的留空，仅老板可见。
+  db.exec(`UPDATE "UnassignedContact" SET "ownerId" = (
+    SELECT COALESCE("salesOwnerId", "channelOwnerId") FROM "Customer" WHERE "id" = "UnassignedContact"."fromCustomerId"
+  ) WHERE "ownerId" IS NULL AND EXISTS (SELECT 1 FROM "Customer" WHERE "id" = "UnassignedContact"."fromCustomerId")`);
   db.close();
 }
 

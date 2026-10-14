@@ -5,11 +5,12 @@ import { Card, Row, Col, Table, Button, Space, Typography, Empty } from "antd";
 import { RadarChartOutlined, ThunderboltOutlined, CopyOutlined } from "@ant-design/icons";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
 import { 合计文字 } from "@/lib/currency";
+import { 签约叫 } from "@/lib/business-config";
 import { useBusiness } from "@/lib/business-client";
 import { useJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
-import AiCost from "@/components/AiCost";
+import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 
 /**
  * 转介绍雷达：左边是谁在帮我们带人，右边是下一个该请谁开口。
@@ -46,7 +47,7 @@ export default function ReferralRadar({
     >
       <Row gutter={[24, 16]}>
         <Col xs={24} xl={12}>
-          <div className="stat-label" style={{ marginBottom: 8 }}>推荐榜 · 谁在帮我们带人</div>
+          <div className="stat-label" style={{ marginBottom: 8 }}>推荐榜 · 按人数，其次按{b.currency}金额</div>
           {topReferrers.length === 0 ? (
             emptyNode(`还没有${b.customer}推荐过别人`)
           ) : (
@@ -62,16 +63,16 @@ export default function ReferralRadar({
                   render: (v, r) => <Link href={`/customers/${r.customerId}`} className="link-strong">{v}</Link>,
                 },
                 { title: "推荐人数", dataIndex: "referralCount", width: 100 },
-                { title: "其中签约", dataIndex: "signedCount", width: 100 },
-                { title: "带来签约额", dataIndex: "downstreamAmount", width: 130, render: (_v, r) => 合计文字(r.downstream) },
+                { title: `其中有${签约叫(b)}记录`, dataIndex: "signedCount", width: 100 },
+                { title: `带来${签约叫(b)}额`, dataIndex: "downstreamAmount", width: 130, render: (_v, r) => 合计文字(r.downstream) },
               ]}
             />
           )}
         </Col>
         <Col xs={24} xl={12}>
-          <div className="stat-label" style={{ marginBottom: 8 }}>建议邀请 · 下一个该请谁开口</div>
+          <div className="stat-label" style={{ marginBottom: 8 }}>建议邀请 · 按{b.currency}金额排序，不换汇</div>
           {inviteCandidates.length === 0 ? (
-            emptyNode(`已签约的${b.customer}都请过了`)
+            emptyNode(`暂无有${签约叫(b)}记录且尚无直接推荐记录的${b.customer}`)
           ) : (
             inviteCandidates.map((c) => <InviteRow key={c.customerId} c={c} aiEnabled={aiEnabled} onDraft={() => draft(c)} onCopy={copy} />)
           )}
@@ -83,6 +84,7 @@ export default function ReferralRadar({
 
 /** 单行拆成组件，各自订阅自己的邀请话术任务 */
 function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEnabled: boolean; onDraft: () => void; onCopy: (t: string) => void }) {
+  const AI已用完 = useAiOutOfCredits();
   const job = useJob<string>(草稿键("invite", c.customerId));
   const text = job?.status === "done" ? job.value : undefined;
   return (
@@ -93,7 +95,7 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
         </Link>
         <span style={{ flex: 1, minWidth: 160, color: "var(--text-muted)", fontSize: 14 }}>{c.reason}</span>
         {aiEnabled && !text && (
-          <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>
+          <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading" || AI已用完} onClick={onDraft}>
             起草邀请
             <AiCost />
           </Button>

@@ -39,7 +39,9 @@ function create(): PrismaClient {
     })();
   }
 
-  if (process.env.NODE_ENV !== "production") globalForControl.control = client;
+  // Proxy每次取属性都会调用create；生产也必须复用，否则每条查询都新建连接池，
+  // connection_limit=1无法串行化账本事务，还会不断堆积查询引擎。
+  globalForControl.control = client;
   return client;
 }
 

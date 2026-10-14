@@ -84,7 +84,7 @@ test("控制台巡检", async ({ page }) => {
   await page.waitForTimeout(1200);
   // 记录页没有页签；点一下状态标签把下拉也渲染一遍。
   // 标签行 2026-09-17 起在页头名字底下（.rec-tags），不在左边那张档案卡里
-  await page.locator(".rec-tags .ant-tag").first().click();
+  await page.getByRole("main").locator(".rec-tags .ant-tag").first().click();
   await page.waitForTimeout(800);
   await page.keyboard.press("Escape");
   const 详情正文数 = await page.locator("main").count();

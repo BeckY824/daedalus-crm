@@ -64,7 +64,13 @@ while (!fs.existsSync(path.join(新包, "Contents/Info.plist"))) {
   if (Date.now() - 开始 > 5 * 60_000) { console.error("5 分钟内没拼出 .app.new"); 进程.kill(); process.exit(1); }
   await 等(2000);
 }
-// 拼好之后主进程还要验签、写 ready 状态，给它几秒
+// 等更新器走到最后一步（日志里有「校验签名」），再给几秒写 ready 状态。
+// 原来只等 Info.plist 出现：它在拼装中途就写出来了，赶上大一点的差量就在半截退出、没换包（2026-10-08 验 afa1d1d 时连红两次）
+const 日志文件 = path.join(数据根, "logs/app.log");
+while (!(fs.existsSync(日志文件) && /校验签名/.test(fs.readFileSync(日志文件, "utf8")))) {
+  if (Date.now() - 开始 > 6 * 60_000) { console.error("6 分钟内更新器没走到校验签名"); 进程.kill(); process.exit(1); }
+  await 等(1000);
+}
 await 等(5000);
 console.log(`.app.new 拼好了（${Math.round((Date.now() - 开始) / 1000)}s），里面是 ${版本(新包)}`);
 

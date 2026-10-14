@@ -3,13 +3,14 @@
 import { 风格要求, 话术上限, type 起草风格 } from "@/lib/draft-style";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { consumeAiQuota } from "@/lib/ai-quota";
+import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { dayjs } from "@/lib/utils";
 import { FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { getBusiness } from "@/lib/business";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
+import { AI客户输入错误 } from "@/lib/ai-input";
 
 /**
  * 转介绍雷达的「起草邀请」：给已签约学员写一条请求转介绍的微信草稿。
@@ -17,6 +18,8 @@ import { 带额度 } from "@/lib/tenant/ai-allowance";
  * 托管版要占一次 AI 次数（带额度，见 lib/tenant/ai-allowance.ts）。
  */
 export async function draftInvite(input: { customerId: string; 风格?: 起草风格 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  const error = AI客户输入错误(input);
+  if (error) return { ok: false, error };
   return 带额度("invite", () => 起草邀请(input));
 }
 
@@ -26,7 +29,7 @@ async function 起草邀请(input: {
 }): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
   const customer = await prisma.customer.findUnique({
@@ -66,7 +69,7 @@ ${timeline}
 输出严格 JSON：{"message": "..."}`;
 
   try {
-    const raw = (await chatJSON(prompt)) as { message?: unknown };
+    const raw = (await chatJSON(prompt, { feature: "invite" })) as { message?: unknown };
     const message = typeof raw.message === "string" ? raw.message.trim().slice(0, 话术上限) : "";
     if (!message) return { ok: false, error: "AI 未能生成话术，请重试" };
     await recordAiUse(user, "invite", `AI 起草转介绍邀请（${b.customer}「${customer.name}」）`, input.customerId);

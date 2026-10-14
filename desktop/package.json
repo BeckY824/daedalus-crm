@@ -1,6 +1,6 @@
 {
   "name": "daedalus-crm-desktop",
-  "version": "0.46.15",
+  "version": "0.46.17",
   "description": "Daedalus CRM 桌面客户端",
   "main": "main.js",
   "license": "AGPL-3.0-only",
@@ -9,7 +9,7 @@
     "build:server": "node scripts/build-server.mjs",
     "build:server:fast": "node scripts/build-server.mjs --no-build",
     "dist:mac": "npm run build:server && electron-builder --mac",
-    "dist:win": "npm run build:server && electron-builder --win"
+    "dist:win": "node scripts/patch-nsis-template.mjs && npm run build:server && electron-builder --win"
   },
   "devDependencies": {
     "electron": "^38.8.6",
@@ -24,6 +24,7 @@
     },
     "files": [
       "main.js",
+      "release-version.js",
       "preload.js",
       "preload-app.js",
       "local-server.js",
@@ -33,6 +34,7 @@
       "accounts.js",
       "machine.js",
       "updater.js",
+      "update-security.js",
       "route-memory.js",
       "install.js",
       "windows-install.js",
@@ -40,6 +42,9 @@
       "backup.js",
       "auto-backup.js",
       "crashlog.js",
+      "notifications.js",
+      "navigation.js",
+      "windows-toast-activation.js",
       "reminders.js",
       "sync.js",
       "ops-notices.js",
@@ -78,9 +83,11 @@
           ]
         }
       ],
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "protocols": [{ "name": "Daedalus CRM notification", "schemes": ["daedalus-crm-notify"] }]
     },
     "nsis": {
+      "include": "crm-installer.nsh",
       "deleteAppDataOnUninstall": false,
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

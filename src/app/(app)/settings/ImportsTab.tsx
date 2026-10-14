@@ -91,6 +91,7 @@ export default function ImportsTab() {
             render: (_, r) => (
               <Typography.Text type="secondary" style={{ fontSize: 13 }}>
                 新建 {r.created} 条{r.updated ? `，补空 ${r.updated} 条` : ""}
+                {r.recordedRows > r.created + r.updated && <div>计数未完成，已记录 {r.recordedRows} 条写入，可撤销</div>}
               </Typography.Text>
             ),
           },
@@ -101,10 +102,14 @@ export default function ImportsTab() {
             render: (_, r) =>
               r.revertedAt ? (
                 <Tag>已撤销</Tag>
+              ) : r.recordedRows === 0 ? (
+                <Typography.Text type="secondary">无写入，无需撤销</Typography.Text>
               ) : (
                 <Popconfirm
                   title="撤销这一批导入？"
-                  description={`会删掉这一批新建的 ${r.created} 位${叫法.customer}${r.updated ? `、还原 ${r.updated} 位补过空的` : ""}。导入之后改过档案、记过跟进的那几位会留着。`}
+                  description={r.recordedRows > r.created + r.updated
+                    ? `这批计数未完成，将按 ${r.recordedRows} 条写入记录删除新建${叫法.customer}、还原补空字段。导入之后改过档案、记过跟进的那几位会留着。`
+                    : `会删掉这一批新建的 ${r.created} 位${叫法.customer}${r.updated ? `、还原 ${r.updated} 位补过空的` : ""}。导入之后改过档案、记过跟进的那几位会留着。`}
                   okText="撤销"
                   okButtonProps={{ danger: true }}
                   cancelText="不了"

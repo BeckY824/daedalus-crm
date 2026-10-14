@@ -102,11 +102,11 @@ export async function resolveAttribution(
       };
     }
 
-    // 推荐人是渠道直接带来的 → 第二代就是那个渠道（室友 → 小红）
+    // 渠道直荐取渠道；自然来源不足两代时，链顶就是推荐客户本人。
     return {
       channelId: referrer.channelId,
       attributionChannelId: referrer.channelId,
-      attributionCustomerId: null,
+      attributionCustomerId: referrer.channelId ? null : referrer.id,
       channelOwnerId: 现负责人,
     };
   }

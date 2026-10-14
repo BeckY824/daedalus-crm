@@ -6,6 +6,8 @@ import { App, Button, Dropdown, Space } from "antd";
 import { UnorderedListOutlined, PlusOutlined } from "@ant-design/icons";
 import { PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
+import { 主题颜色 } from "@/lib/chart-theme";
+import { 列表不问归属ID } from "@/lib/solo";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
 import { 金额, 按币种合计, 合计文字 } from "@/lib/currency";
 import { useBusiness } from "@/lib/business-client";
@@ -27,6 +29,7 @@ type Row = {
   expectedDealAt: string | null;
   customerId: string;
   customerName: string;
+  ownerId?: string;
   ownerName: string;
 };
 
@@ -60,6 +63,7 @@ export default function PipelineView({
   const router = useRouter();
   const { message } = App.useApp();
   const b = useBusiness();
+  const 显示负责人 = !rows.every(r => r.ownerId) || !列表不问归属ID(users, rows.map(r => r.ownerId));
   /*
     「新建商机」就地弹框（2026-09-29）：原来这一页没有表单，点了跳回列表页再打开——按钮写着新建，人却被带走了。
     保存后留在管道里，新的那张卡亮两秒（和列表里新建的行同一种亮法），人一眼看见它落在哪一列
@@ -146,9 +150,9 @@ export default function PipelineView({
     await 写阶段(r, "赢单成交");
   }
 
-  async function 写阶段(r: Row, 到: string, 是撤销 = false) {
+  async function 写阶段(r: Row, 到: string, 是撤销 = false, 期望版本?: string) {
     // 撤销时带回原来的概率（排查 D6）：r 是拖之前那一行，手填的 75% 不能变成阶段默认值
-    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined);
+    const res = await moveStage(r.id, 到, 是撤销 ? r.probability : undefined, 期望版本);
     if (!res.ok) {
       set挪(null);
       message.error(res.error);
@@ -157,12 +161,20 @@ export default function PipelineView({
     }
     router.refresh();
     if (是撤销) return void message.success(`「${r.name}」已退回 ${stageLabel(b, 到)}`);
+    const key = `stage-${r.id}`;
+    let 已撤销 = false;
     // 手滑是拖拽最常见的结果，而这一下真写库了。给一条退路，并写清退到哪儿
     message.success({
+      key,
       content: (
         <span>
           「{r.name}」已推进到 {stageLabel(b, 到)}
-          <Button type="link" size="small" onClick={() => 推进({ ...r, stage: 到 }, r.stage, true)}>
+          <Button type="link" size="small" onClick={() => {
+            if (已撤销) return;
+            已撤销 = true;
+            message.destroy(key);
+            void 写阶段({ ...r, stage: 到 }, r.stage, true, res.版本).catch(() => message.error("撤销失败，请刷新查看最新内容"));
+          }}>
             撤销
           </Button>
         </span>
@@ -218,7 +230,7 @@ export default function PipelineView({
           const items = rows.filter((r) => 显示阶段(r) === stage);
           // 按币种分开加，不换汇（lib/currency.ts）：一列里有美元有欧元就写两段
           const sum = 合计文字(按币种合计(items, (r) => r.amount, (r) => r.currency), b.currency);
-          const color = OPP_STAGE_COLOR[stage];
+          const color = 主题颜色(OPP_STAGE_COLOR[stage]);
           const active = overStage === stage;
 
           return (
@@ -276,7 +288,7 @@ export default function PipelineView({
                     <div className="pipe-card-t">{r.name}</div>
                     <div className="pipe-card-m">
                       <span className="pipe-card-a">{金额(r.amount, r.currency)}</span>
-                      <span className="pipe-card-o">{r.ownerName}</span>
+                      {显示负责人 && <span className="pipe-card-o">{r.ownerName}</span>}
                     </div>
                   </div>
                 </Dropdown>

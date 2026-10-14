@@ -6,16 +6,22 @@ docs
 # 整个目录才 36K，与其靠 .dockerignore 的否定语义（`scripts` + `!scripts/xxx`）赌它
 # 在 BuildKit 里的行为，不如直接让它进上下文——这一条在 v0.21.0 上挂过一次，
 # 报错是「Could not resolve scripts/shared-workspace.ts」，而本地 esbuild 跑得好好的。
-prisma/dev.db
+prisma/*.db
+prisma/*.db-*
 *.md
-.env
+!CHANGELOG.md
+.env*
 tests
 vitest.config.ts
 e2e
+e2e-desktop
+playwright.*.config.ts
 playwright.config.ts
 test-results
 playwright-report
 # 桌面端。它自带一份完整的服务（desktop/server-bundle），和容器镜像没有关系；
 # 不排掉的话 desktop/node_modules 里那 500M 的 Electron 会被 Next 的 standalone 一起拷进镜像
-desktop
+desktop/*
+# Web客户端和桌面本地服务共享公开版本映射；只纳入这个纯函数文件。
+!desktop/release-version.js
 **/node_modules

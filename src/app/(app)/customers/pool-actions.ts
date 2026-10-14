@@ -4,6 +4,7 @@
  * 公海的三个动作（2026-10-03，0.46.15 第 6 块）：放进公海、领取、撤销（两个动作的提示条上都有）。
  * 规矩在 lib/pool.ts、自动掉公海在 lib/pool-db.ts。
  */
+import { 转交商机 } from "@/lib/opportunity-activity";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { 看全部 } from "@/lib/team-scope";
@@ -82,17 +83,24 @@ export async function 领取(ids: string[]): Promise<公海结果> {
       他在业务员眼里「不见了」——限定着读会读不到、返回 null，公海那一行却已经删了：客户出了公海、没归任何领的人（2026-10-04 五人实测）。
       能不能领只看「删到了公海那一行」，事务里不用再限定
     */
+    /*
+      团队范围同步（2026-10-14）：先改负责人、最后删公海那一行。同步日志按这个顺序推，
+      哪怕被切进前后两次推送（或连的是还没修的旧服务端，逐包按前一包落下后的状态核）也都过得去：
+      改负责人那一刻还在公海（人人可写），删公海那一刻已经归我。反过来先删公海，客户在服务端眼里就成了原负责人的私客、
+      这台再改负责人被拒——各台负责人对不上（五台实测）。能不能领仍只看「删到了公海那一行」：删到 0 行就整个回滚。
+    */
     const 原 = await 看全部(() => prisma.$transaction(async (tx) => {
-      const 删 = await tx.customerPool.deleteMany({ where: { customerId: id } });
-      if (!删.count) return null;
+      if (!(await tx.customerPool.findUnique({ where: { customerId: id }, select: { customerId: true } }))) return null;
       const c = await tx.customer.findUnique({ where: { id }, select: { salesOwnerId: true } });
-      // 客户没了：抛出去让删公海那一下也回滚
+      // 客户没了：抛出去整个回滚
       if (!c) throw new Error("客户不在了");
       if (c.salesOwnerId !== me.id) await tx.customer.update({ where: { id }, data: { salesOwnerId: me.id } });
       await tx.customerClaim.upsert({ where: { customerId: id }, update: { userId: me.id, at: new Date() }, create: { customerId: id, userId: me.id } });
+      const 删 = await tx.customerPool.deleteMany({ where: { customerId: id } });
+      if (!删.count) throw new Error("已被领走");
       return c.salesOwnerId;
     })).catch((e) => {
-      if (e instanceof Error && e.message === "客户不在了") return null;
+      if (e instanceof Error && (e.message === "客户不在了" || e.message === "已被领走")) return null;
       throw e;
     });
     if (原 !== null) 领到.push({ id, 值: 原 });
@@ -129,14 +137,15 @@ export async function 撤销公海(动作: "放进" | "领取", 原: { id: strin
   await 钉住老签约();
   for (const x of 退) {
     await prisma.$transaction(async (tx) => {
-      await tx.customer.update({ where: { id: x.id }, data: { salesOwnerId: x.值 } });
+      // 先放回公海、再把负责人还回去（团队范围同步：放回公海那一刻还归我，之后人人可写；反过来还完负责人我就写不了公海那一行）
       await tx.customerPool.create({ data: { customerId: x.id, userId: me.id, reason: "手动" } });
+      await tx.customer.update({ where: { id: x.id }, data: { salesOwnerId: x.值 } });
       await tx.customerClaim.deleteMany({ where: { customerId: x.id, userId: me.id } });
       // 领取时带过来的活还回去：还挂在我名下、还没做完的才还
       if (带过来) {
         await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: me.id, done: false }, data: { ownerId: x.值 } });
         await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: me.id, done: false }, data: { ownerId: x.值 } });
-        await tx.opportunity.updateMany({ where: { id: { in: 带过来.商机 }, customerId: x.id, ownerId: me.id, status: "OPEN" }, data: { ownerId: x.值 } });
+        await 转交商机(tx, { id: { in: 带过来.商机 }, customerId: x.id, ownerId: me.id, status: "OPEN" }, x.值);
       }
     });
   }

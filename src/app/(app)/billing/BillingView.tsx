@@ -5,6 +5,7 @@ import { App, Alert, Button, Input } from "antd";
 import { CheckOutlined } from "@ant-design/icons";
 import { submitPayment } from "./actions";
 import { PLANS, type PlanKey } from "@/lib/tenant/plans";
+import { 长期有效 } from "@/lib/tenant/entitlement-display";
 import { dayjs } from "@/lib/utils";
 
 /**
@@ -44,12 +45,17 @@ export default function BillingView({
       return;
     }
     setSaving(true);
-    const r = await submitPayment({ plan, reference: ref.trim() });
-    setSaving(false);
-    if (r.ok) {
-      setDone(true);
-      message.success("已收到，我们会在一个工作日内开通");
-    } else message.error(r.error);
+    try {
+      const r = await submitPayment({ plan, reference: ref.trim() });
+      if (r.ok) {
+        setDone(true);
+        message.success("已收到，我们会在一个工作日内开通");
+      } else message.error(r.error);
+    } catch {
+      message.error("提交失败，请稍后重试");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -57,7 +63,7 @@ export default function BillingView({
       <h1 className="bill-h">开通订阅</h1>
       <div className="bill-sub">
         工作区「{workspaceName}」
-        {paidUntil ? ` · 已开通至 ${dayjs(paidUntil).format("YYYY-MM-DD")}` : writable ? ` · 试用还剩 ${daysLeft} 天` : " · 试用已结束"}
+        {paidUntil ? ` · 已开通至 ${dayjs(paidUntil).format("YYYY-MM-DD")}` : writable ? 长期有效(daysLeft) ? " · 长期有效" : ` · 试用还剩 ${daysLeft} 天` : " · 试用已结束"}
       </div>
 
       {!writable && (

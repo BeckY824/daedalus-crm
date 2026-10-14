@@ -6,7 +6,7 @@ import { Badge, Button, Space, Select, Tag } from "antd";
 import { useFollowDue } from "@/components/FollowDue";
 import { CalendarOutlined, PlusOutlined } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
-import { 列表不问归属 } from "@/lib/solo";
+import { 列表不问归属ID } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, CustomerLink, UserCell, FollowTypeCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -31,6 +31,7 @@ type Row = {
   customerName: string;
   contactName: string | null;
   ownerName: string;
+  ownerId: string;
 };
 
 export default function FollowUpsView({
@@ -59,7 +60,7 @@ export default function FollowUpsView({
   const b = useBusiness();
   const { f, setF, apply, reset, pending } = useUrlFilters("/follow-ups", filters);
   /** 只有一个人：跟进人那一列、「全部成员」筛选都不摆（审查 D2），见 lib/solo.ts */
-  const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
+  const 不问归属 = !f.ownerId && 列表不问归属ID(users, rows.map((r) => r.ownerId));
   /**
    * 「记录跟进」就地弹框（2026-09-29）。原来它跳去客户列表让人自己挑一位——按钮写着「记录」
    * 却把人带走了，被当成 bug 报上来。现在框里第一格挑人（CustomerPick），保存后留在这一页：
@@ -152,7 +153,7 @@ export default function FollowUpsView({
         行链接={(r) => `/customers/${r.customerId}`}
         空态={{
           title: "还没有跟进记录",
-          hint: `一条跟进记录就是一次真实发生过的沟通：随手记一笔，或粘一段聊天记录让 AI 整理；这一页把全团队的汇总起来查。`,
+          hint: `一条跟进记录就是一次真实发生过的沟通：随手记一笔，或粘一段聊天记录让 AI 整理；${不问归属 ? "在这里按时间、类型查找自己的记录。" : "在这里汇总当前可见成员的记录，也可按成员筛选。"}`,
           primary: { label: "记第一条跟进", onClick: () => set新建开着(true) },
         }}
         筛选={

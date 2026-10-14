@@ -70,6 +70,7 @@ export const 同步的设置 = ["business"];
  * **有一半没有外键**（ContractOwner、TradeOrder、AuditLog…），光靠 PRAGMA foreign_key_list 找不全（探针场景 ①）。
  */
 export const 指向人的列: [string, string][] = [
+  ["UnassignedContact", "ownerId"],
   ["Lead", "ownerId"],
   ["Channel", "channelOwnerId"],
   ["Customer", "salesOwnerId"],

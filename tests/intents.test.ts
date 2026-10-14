@@ -187,12 +187,13 @@ describe("某某的联系方式：跨表找人", () => {
 });
 
 describe("我这一段做了什么", () => {
-  it("「这个月」算 30 天，别的算 7 天", () => {
-    expect(认意图("这个月我做了什么")?.调用[0].args).toEqual({ days: 30 });
-    expect(认意图("我这周做了什么")?.调用[0].args).toEqual({ days: 7 });
+  it("「这个月/这周」使用自然月/周，最近才使用N天", () => {
+    expect(认意图("这个月我做了什么")?.调用[0].args).toEqual({ period: "this_month" });
+    expect(认意图("我这周做了什么")?.调用[0].args).toEqual({ period: "this_week" });
+    expect(认意图("最近我做了什么")?.调用[0].args).toEqual({ days: 7 });
   });
 
-  it("不认「上周」——工具只会「最近 N 天」，按 7 天跑出来是这周的数，比答不上来糟", () => {
+  it("「上周」交给模型明确传last_week，不错按7天快捷处理", () => {
     expect(认意图("上周我做了什么")).toBeNull();
   });
 

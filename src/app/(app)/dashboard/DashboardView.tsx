@@ -1,5 +1,9 @@
 "use client";
 
+import { dayjs } from "@/lib/utils";
+
+import { 截止说法 } from "@/lib/deadline";
+import { 是逾期 } from "@/lib/overdue";
 import { useMemo, useState, useSyncExternalStore } from "react";
 import { palette, categorical, alpha } from "@/lib/palette";
 import Link from "next/link";
@@ -20,7 +24,7 @@ import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
-import { smartTime, 成员选项 } from "@/lib/utils";
+import { 成员选项 } from "@/lib/utils";
 import { 合计文字, 合并合计, 取币种, type 币种合计 } from "@/lib/currency";
 import { stageLabel, 签约叫 } from "@/lib/business-config";
 import { OPP_STAGE_COLOR } from "@/lib/constants";
@@ -62,11 +66,12 @@ type Props = {
   /** 待办 = 任务 + 跟进计划，和 `/follow-ups/plans` 同一个口径。`kind` 区分是哪一种 */
   tasks: { id: string; title: string; customerId: string; customerName: string; dueAt: string | null; kind: "任务" | "计划" }[];
   watchlist: WatchItem[];
+  watchlistTotal?: number;
   /** 服务端是否配置了 AI。没配时盯盘照常显示，只是没有「起草跟进」按钮 */
   aiEnabled: boolean;
 };
 
-export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, aiEnabled, 内嵌, 多人 = true }: Props & {
+export default function DashboardView({ 空库, stats, trend, funnel, ranking, tasks, watchlist, watchlistTotal, aiEnabled, 内嵌, 多人 = true }: Props & {
   内嵌?: boolean;
   /** 不止一个负责人。一个人用（桌面端）时卡片说明不写「全团队」——没有团队（2026-10-02 按桌面端复核） */
   多人?: boolean;
@@ -91,7 +96,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         extraCssText: "box-shadow:0 6px 20px rgba(16,43,77,.12);border-radius:8px;",
       },
       legend: {
-        data: ["累计客户", "活跃客户"],
+        data: [`累计${b.customer}`, `活跃${b.customer}`],
         left: 0,
         top: 0,
         icon: "circle",
@@ -115,7 +120,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
       },
       series: [
         {
-          name: "累计客户",
+          name: `累计${b.customer}`,
           type: "line",
           smooth: true,
           symbolSize: 5,
@@ -124,7 +129,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
           lineStyle: { width: 2 },
         },
         {
-          name: "活跃客户",
+          name: `活跃${b.customer}`,
           type: "line",
           smooth: true,
           symbolSize: 5,
@@ -144,7 +149,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
         },
       ],
     }),
-    [sliced],
+    [sliced, b.customer],
   );
 
   // 条的长短只能按一个币种比：本位币那一份（排序也是按它，见 Board）
@@ -168,10 +173,10 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
    */
   const 今天零点 = useSyncExternalStore(
     () => () => {},
-    () => new Date(new Date().setHours(0, 0, 0, 0)).toISOString(),
+    () => dayjs().startOf("day").toISOString(),
     () => "",
   );
-  const 逾期了 = (dueAt: string | null) => Boolean(今天零点 && dueAt && dueAt < 今天零点);
+  const 逾期了 = (dueAt: string | null) => Boolean(今天零点 && 是逾期(dueAt));
 
   if (空库) {
     return (
@@ -226,6 +231,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             label={`新增${b.customer}`}
             value={stats.newCustomersThisMonth.toLocaleString()}
             delta={stats.newCustomersDelta ?? undefined}
+            note={stats.newCustomersDelta === null ? "上月没有新增" : undefined}
             href="/customers?createdWithin=本月"
           />
         </Col>
@@ -253,14 +259,14 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
       </Row>
 
       {/* 盯盘提醒：没有信号时整卡不出现，首页不该有一块常驻的空提醒 */}
-      {watchlist.length > 0 && <SentinelCard items={watchlist} aiEnabled={aiEnabled} />}
+      {watchlist.length > 0 && <SentinelCard items={watchlist} total={watchlistTotal} aiEnabled={aiEnabled} />}
 
       {/* 趋势 + 排行 */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} xl={15}>
           <Card
             styles={{ body: { paddingTop: 14 } }}
-            title={<span className="section-title">客户趋势分析</span>}
+            title={<span className="section-title">{b.customer}趋势分析</span>}
             extra={
               <Segmented
                 size="small"
@@ -278,7 +284,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
               「活跃」更是没人猜得到，所以一并写明。这一页的规矩：数字必须说得清自己是怎么来的。
             */}
             <div className="stat-delta" style={{ marginTop: 8 }}>
-              累计客户 = 截至当天库里一共有多少位；活跃客户 = 其中最近 30 天有过跟进记录的
+              累计{b.customer} = 截至当天库里一共有多少位；活跃{b.customer} = 其中最近 30 天有过跟进记录的
             </div>
           </Card>
         </Col>
@@ -391,7 +397,7 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                     {t.customerName}
                   </Link>
                 </div>
-                <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{smartTime(t.dueAt)}</span>
+                <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{截止说法(t.dueAt)}</span>
                 {/*
                   原来一律是一枚橙色的「待处理」。两处不对：
                   时间已经过去的那几条也写「待处理」，而它们正是上面「逾期跟进」数的那些；
@@ -462,26 +468,9 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   <span className="stat-icon" style={{ width: 38, height: 38, fontSize: 18, background: alpha(categorical.green, 0.12), color: categorical.green }}>
                     <UserAddOutlined />
                   </span>
-                  <Typography.Text type="secondary" style={{ fontSize: 15 }}>新增客户（本月）</Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 15 }}>新增{b.customer}走势（近8周）</Typography.Text>
                 </Space>
-                <div className="stat-value" style={{ marginTop: 8 }}>{stats.newCustomersThisMonth}</div>
-                {/* 原本写死 ↑ 和绿色，还用 Math.abs 把负数也显示成上升——
-                    下降会被显示成增长，这是会误导决策的 */}
-                <div className="stat-delta">
-                  {stats.newCustomersDelta === null ? "上月没有新增" : "较上月 "}
-                  {stats.newCustomersDelta === null ? null : stats.newCustomersDelta === 0 ? (
-                    "持平"
-                  ) : (
-                    <span
-                      style={{
-                        color: stats.newCustomersDelta > 0 ? "var(--success)" : "var(--danger)",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {stats.newCustomersDelta > 0 ? "↑" : "↓"} {Math.abs(stats.newCustomersDelta)}%
-                    </span>
-                  )}
-                </div>
+                <div className="stat-delta" style={{ marginTop: 8 }}>按建档日期，每周新增数量</div>
                 <Sparkline data={stats.newCustomerSeries} color={categorical.green} height={52} />
               </Card>
             </Col>

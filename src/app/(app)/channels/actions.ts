@@ -1,9 +1,11 @@
 "use server";
 
+import { hasVisibleText } from "@/lib/form-validation";
+
 import { 版本冲突, 版本条件 } from "@/lib/edit-version";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { 认回打码号 } from "@/lib/phone";
+import { 认回打码号, 查电话, 号码带着字 } from "@/lib/phone";
 import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 唯一负责人 } from "@/lib/owners";
@@ -26,7 +28,7 @@ export async function saveChannel(input: {
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const me = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.name ?? "").trim()) return { ok: false, error: "请填写渠道名称" };
+  if (!hasVisibleText(input.name)) return { ok: false, error: "请填写渠道名称" };
   const b = await getBusiness();
   const name = input.name.trim();
   const channelOwnerId = input.channelOwnerId || (await 唯一负责人());
@@ -41,11 +43,17 @@ export async function saveChannel(input: {
   // 共享试用区的渠道页给的是打码号码：交回来的正是原号打码的样子就认回原号，别的带 * 的不收（2026-10-02 排查 A6）
   const 原号 = input.id ? (await prisma.channel.findUnique({ where: { id: input.id }, select: { phone: true } }))?.phone : null;
   const 号 = 认回打码号(input.phone?.trim() || null, 原号);
-  if (号 && 号.includes("*")) return { ok: false, error: "电话里不能有 *" };
+  if (号 && 号.includes("*")) return { ok: false as const, error: "电话里不能有 *" };
+  // 未改的历史号码与准确打码返回保持原文；只规范新填写/更改的号码。
+  const 电话 = 号 === 原号 ? { ok: true as const, phone: 号 ?? "" } : 查电话(号, { 必填: false });
+  if (!电话.ok) return { ok: false as const, error: 电话.error };
+  const 原文 = 号 && 号 !== 原号 && 号码带着字(号) ? `原始电话：${号}` : "";
+  const 备注 = input.remark?.trim() || "";
+  const remark = 原文 && !备注.includes(原文) ? [备注, 原文].filter(Boolean).join("\n") : 备注;
   const data = {
     name,
-    phone: 号 || null,
-    remark: input.remark?.trim() || null,
+    phone: 电话.phone || null,
+    remark: remark || null,
     channelOwnerId,
   };
 

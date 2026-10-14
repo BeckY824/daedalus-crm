@@ -184,8 +184,20 @@ if ($Handshake) {
   }
   if (Test-Path -LiteralPath ($Handshake + '.cancel')) { Say 'handoff cancelled'; exit 5 }
 }
-if ($WaitPid -gt 0) { try { Wait-Process -Id $WaitPid -Timeout 60 -ErrorAction SilentlyContinue } catch {} }
-if ($WaitPid -gt 0 -and (Get-Process -Id $WaitPid -ErrorAction SilentlyContinue)) { Say 'app still running, abort'; exit 6 }
+if ($WaitPid -gt 0) {
+  $appProcess = Get-Process -Id $WaitPid -ErrorAction SilentlyContinue
+  if ($appProcess) {
+    try {
+      # A retained process object can outlive the process. Wait on the captured
+      # process handle; a second PID lookup is not proof that it is still running.
+      if (-not $appProcess.WaitForExit(60000)) { Say 'app still running, abort'; exit 6 }
+      Say 'app exit confirmed'
+    } catch {
+      Say ('cannot verify app exit, keep old version: ' + $_)
+      exit 6
+    } finally { $appProcess.Dispose() }
+  }
+}
 if (Test-Path -LiteralPath $Old) {
   try { Remove-Item -LiteralPath $Old -Recurse -Force } catch { $Old = $Dir + '.old-' + (Get-Date -Format yyyyMMddHHmmss) }
 }

@@ -11,11 +11,11 @@ import { createSession } from "@/lib/auth";
 import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP阈值 } from "@/lib/rate-limit";
 import { multiTenant } from "@/lib/tenant/context";
 import { verifyAccount } from "@/lib/tenant/accounts";
-import { listWorkspacesFor } from "@/lib/tenant/workspaces";
+import { accessibleWorkspacesFor } from "@/lib/tenant/workspace-access";
 import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, 核对验证码 as 云端核对验证码, type 注册去向 } from "@/lib/desktop/cloud";
 
 export type LoginResult =
-  | { ok: true; 换账号?: boolean }
+  | { ok: true; 换账号?: boolean; 选工作区?: boolean }
   /** 已开号：注册成了、紧接着的登录没成（第六轮 C6）。门口据此带人去输密码，而不是让他再注册一遍 */
   | { ok: false; error: string; 已开号?: boolean };
 
@@ -67,7 +67,7 @@ export async function login(email: string, password: string): Promise<LoginResul
       // 不区分「账号不存在」和「密码错」：区分开就成了查号接口
       return { ok: false, error: "账号或密码不对" };
     }
-    const list = await listWorkspacesFor(account.id);
+    const list = await accessibleWorkspacesFor(account.id);
     /**
      * 密码对但一个工作区都没有。2026-09-16 起这是**常态而不是异常**：
      * 注册只开账号，账号是给桌面端用的（桌面端本地模式必须先登录云端账号，
@@ -81,9 +81,9 @@ export async function login(email: string, password: string): Promise<LoginResul
       return { ok: false, error: "这个账号用于桌面端。网页版是另一套账号，想试用请联系我们" };
     }
     keys.forEach(([k]) => 清除限流(k));
-    // 多个工作区时先进第一个；切换留给应用内的工作区菜单
+    // 先建立有效成员会话；多个可用工作区时在进入业务界面前选择。
     await createSession(account.id, list[0].id);
-    return { ok: true };
+    return { ok: true, ...(list.length > 1 ? { 选工作区: true } : {}) };
   }
 
   const user = await prisma.user.findUnique({ where: { email: 账号 } });

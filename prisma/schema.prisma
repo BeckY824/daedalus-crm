@@ -131,6 +131,7 @@ model Customer {
   followStatus   String    @default("待跟进") /// 跟进状态
   decisionStatus String    @default("了解中") /// 客户决策状态
   expectedSignAt DateTime? /// 预计签约时间
+  expectedSignOn String? /// 原日历日；旧记录未知为空
   lastFollowAt   DateTime? /// 最近跟进
   remark         String?
 
@@ -240,12 +241,16 @@ model UnassignedContact {
   email            String?
   wechat           String?
   remark           String?
+  ownerId          String? // 移出/保留联系人时的操作者；不连外键，原客户删除后仍保留归属
   fromCustomerId   String? // 原来是谁的。不连外键：那位之后可能被删了
   fromCustomerName String? // 原来那位的名字，给人看
+  wasPrimary       Boolean? // 移出时是否关键；老数据未记录则为空，不推测
   followUpIds      String? // 原来指着他的跟进记录 id（JSON 数组）。挂回原来那位时接回去
   detachedAt       DateTime @default(now())
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+
+  @@index([ownerId])
 }
 
 model Opportunity {
@@ -263,6 +268,8 @@ model Opportunity {
   owner          User      @relation(fields: [ownerId], references: [id])
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+  /// 最近业务推进；转交负责人不算推进。老数据为空时沿用原修改时间。
+  activityAt     DateTime?
 
   followUps      FollowUp[]
   /// 赢单 / 丢单的那一刻（排查 C6）。见 OpportunityClose
@@ -543,6 +550,8 @@ model FollowUp {
   duration     Int? // 通话/会议时长（秒）
   occurredAt   DateTime  @default(now())
   dueAt        DateTime? // 任务截止 / 提醒时间
+  dueOn        String? // 仅日期原日历日；空表示未定/明确钟点/旧未知
+  dueHasTime   Boolean? // 是否明确钟点；空表示旧未知，不从午夜反推
   participants String? // 与会人，逗号分隔
 
   customerId String
@@ -584,6 +593,8 @@ model Task {
   id         String    @id @default(cuid())
   title      String
   dueAt      DateTime?
+  dueOn      String?
+  dueHasTime Boolean?
   done       Boolean   @default(false)
   doneAt     DateTime?
   customerId String
@@ -602,8 +613,11 @@ model FollowPlan {
   id         String   @id @default(cuid())
   subject    String // 跟进主题
   plannedAt  DateTime // 计划时间
+  plannedOn  String? // 仅日期原日历日，跨时区不漂移
+  plannedHasTime Boolean? // 明确钟点可为00:00；空表示旧未知
   method     String   @default("电话沟通") // 跟进方式
   done       Boolean  @default(false)
+  doneAt     DateTime? // 实际完成时间；旧计划未知时为空
   customerId String
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   ownerId    String

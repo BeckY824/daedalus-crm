@@ -146,6 +146,46 @@ export function 关系候选(b: Pick<BusinessConfig, "fields">): string[] {
 /** 允许改显示名的状态值全集 */
 export const RELABELABLE_STATUSES: readonly string[] = [...FOLLOW_STATUSES, ...DECISION_STATUSES];
 
+/** 视觉上相同的空白/格式控制符也不能拿来区别状态。 */
+const 状态名键 = (s: string) => s.normalize("NFKC").replace(/[\p{White_Space}\p{Cf}]/gu, "");
+
+const 保留状态名 = new Map<string, Set<string>>();
+for (const value of RELABELABLE_STATUSES) {
+  for (const name of [value, ...Object.values(BUSINESS_PRESETS).map(p => p.statusLabels[value]).filter(Boolean)]) {
+    const key = 状态名键(name);
+    if (!保留状态名.has(key)) 保留状态名.set(key, new Set());
+    保留状态名.get(key)!.add(value);
+  }
+}
+const 空状态名: Record<string, string> = {};
+const 状态名缓存 = new WeakMap<Record<string, string>, { signature: string; problems: Record<string, string> }>();
+
+/** 只检查显示名，绝不修改存储值；旧配置读取时也用它提示原状态。 */
+export function 状态名问题(b: Pick<BusinessConfig, "statusLabels"> | null | undefined): Record<string, string> {
+  const labels = b?.statusLabels ?? 空状态名;
+  const signature = JSON.stringify(labels);
+  const cached = 状态名缓存.get(labels);
+  if (cached?.signature === signature) return cached.problems;
+  const effective = new Map<string, string[]>();
+  const problems: Record<string, string> = {};
+  for (const value of RELABELABLE_STATUSES) {
+    const label = labels[value]?.trim() || value;
+    const key = 状态名键(label);
+    if (!key) problems[value] = `「${value}」的显示名不能只有空白或隐藏字符`;
+    else if ([...label].length > 8) problems[value] = `「${value}」的显示名请控制在8字以内`;
+    const owners = 保留状态名.get(key);
+    if (owners && !owners.has(value)) problems[value] = `「${value}」不能叫「${label}」：这个名称属于其他状态`;
+    const group = effective.get(key) ?? [];
+    group.push(value); effective.set(key, group);
+  }
+  for (const values of effective.values()) {
+    if (values.length < 2) continue;
+    for (const value of values) problems[value] ??= `「${values.join("」「")}」的显示名重复，请分别命名`;
+  }
+  状态名缓存.set(labels, { signature, problems });
+  return problems;
+}
+
 /**
  * 状态值 → 显示名；没改过就是值本身。
  *
@@ -155,7 +195,8 @@ export const RELABELABLE_STATUSES: readonly string[] = [...FOLLOW_STATUSES, ...D
  */
 export function statusLabel(b: Pick<BusinessConfig, "statusLabels"> | null | undefined, value: string): string {
   const l = b?.statusLabels?.[value];
-  return l && l.trim() ? l.trim() : value;
+  const label = l && l.trim() ? l.trim() : value;
+  return 状态名问题(b)[value] ? `${label}（原状态：${value}）` : label;
 }
 
 /**

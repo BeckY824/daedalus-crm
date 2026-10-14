@@ -7,6 +7,7 @@ import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { 是币种, 规整币种, 金额 as 显示金额 } from "@/lib/currency";
 import { 结论们, 要理由, 评级们 } from "@/lib/supplier";
+import { 供应商页 } from "@/lib/features";
 
 /**
  * 供应商档案和比价的写操作（2026-10-03 外贸第 3c 块）。规则在 lib/supplier.ts。
@@ -44,6 +45,7 @@ export type 供应商输入 = {
 export async function saveSupplier(input: 供应商输入) {
   try {
     const me = await requireUser();
+    if (!供应商页) return { ok: false as const, error: "此版本未开放供应商档案与比价功能" };
     const name = 文本(input.name, 60);
     if (!name) return { ok: false as const, error: "请填供应商名称" };
     if (input.rating && !评级们.some((x) => x.value === input.rating)) return { ok: false as const, error: "评级只能是 A / B / C" };
@@ -75,6 +77,7 @@ export async function saveSupplier(input: 供应商输入) {
 /** 删之前数一下：比价记录跟着删，订单上的采购只是不再指向它 */
 export async function 删供应商前清点(id: string) {
   await requireUser();
+  if (!供应商页) return { 比价: 0, 订单: 0 };
   const [比价, 订单] = await Promise.all([
     prisma.supplierQuote.count({ where: { supplierId: String(id ?? "") } }),
     prisma.tradeOrderPurchase.count({ where: { supplierId: String(id ?? "") } }),
@@ -85,6 +88,7 @@ export async function 删供应商前清点(id: string) {
 export async function deleteSupplier(id: string) {
   try {
     const me = await requireUser();
+    if (!供应商页) return { ok: false as const, error: "此版本未开放供应商档案与比价功能" };
     const s = await prisma.supplier.findUnique({ where: { id: String(id ?? "") } });
     if (!s) return { ok: true as const };
     await prisma.supplier.delete({ where: { id: s.id } });
@@ -117,6 +121,7 @@ export type 比价输入 = {
 export async function saveSupplierQuote(input: 比价输入) {
   try {
     const me = await requireUser();
+    if (!供应商页) return { ok: false as const, error: "此版本未开放供应商档案与比价功能" };
     const 商机 = await prisma.opportunity.findUnique({ where: { id: String(input.opportunityId ?? "") }, select: { id: true, name: true, customerId: true } });
     if (!商机) return { ok: false as const, error: "这个商机已经不在了" };
     const product = 文本(input.product, 120);
@@ -170,6 +175,7 @@ export async function saveSupplierQuote(input: 比价输入) {
 export async function deleteSupplierQuote(id: string) {
   try {
     const me = await requireUser();
+    if (!供应商页) return { ok: false as const, error: "此版本未开放供应商档案与比价功能" };
     const q = await prisma.supplierQuote.findUnique({ where: { id: String(id ?? "") }, include: { supplier: { select: { name: true } }, opportunity: { select: { name: true } } } });
     if (!q) return { ok: true as const };
     await prisma.supplierQuote.delete({ where: { id: q.id } });
@@ -184,6 +190,7 @@ export async function deleteSupplierQuote(id: string) {
 /** 比价抽屉要的：这个商机的比价行、供应商候选、商机当前报价里的产品（录比价时下拉选） */
 export async function 读比价(opportunityId: string) {
   await requireUser();
+  if (!供应商页) return { 行: [], 供应商: [], 产品: [] };
   const id = String(opportunityId ?? "");
   const [行, 供应商, 报价] = await Promise.all([
     prisma.supplierQuote.findMany({ where: { opportunityId: id }, orderBy: [{ product: "asc" }, { unitPrice: "asc" }], include: { supplier: { select: { id: true, name: true, rating: true, issues: true } } } }),

@@ -56,7 +56,7 @@ test("在记录页记一笔跟进：时间线上看得见，首页开场说「�
   await expect(page.locator("main").getByText("聊了预算和交付周期")).toBeVisible();
 
   await page.goto("/dashboard");
-  await expect(page.locator(".cli-welcome-s")).toContainText(`上次跟的是${客户名}`);
+  await expect(page.getByRole("main").locator(".cli-welcome-s")).toContainText(`上次跟的是${客户名}`);
 });
 
 /*

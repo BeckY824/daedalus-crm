@@ -8,6 +8,9 @@
  *   3. 「当前节点」= 第一个既没完成也不是不适用的，算出来、不让人手填
  */
 
+import { businessDayjs } from "./business-clock";
+import { calendarDay, calendarDaysBetween } from "./schedule-date";
+
 export const 节点名们 = [
   "询盘",
   "找供应商（比价）",
@@ -66,11 +69,6 @@ export function 当前节点<T extends Pick<节点, "status" | "idx">>(nodes: T[
   return [...nodes].sort((a, b) => a.idx - b.idx).find((n) => !不算(n)) ?? null;
 }
 
-/** 本地日期的「今天零点」。超期按日历天算：截止日当天还不算超期 */
-function 零点(d: Date): number {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-}
-
 export type 灯 = "红" | "黄" | "绿" | "灰" | "无";
 
 /**
@@ -85,7 +83,7 @@ export function 节点灯(n: Pick<节点, "status" | "dueAt">, 现在: Date = ne
   if (n.status === "不适用") return "灰";
   if (n.status === "卡住") return "红";
   if (!n.dueAt) return "无";
-  const 差天 = Math.round((零点(new Date(n.dueAt)) - 零点(现在)) / 86400000);
+  const 差天 = calendarDaysBetween(calendarDay(现在), businessDayjs(n.dueAt).format("YYYY-MM-DD"));
   if (差天 < 0) return "红";
   if (差天 <= 3) return "黄";
   return "无";
@@ -130,7 +128,7 @@ export function 订单的钱(o: { amount: number; depositDue: number; depositPai
  * 客户国家我们不一定有；人可以自己改成 PI 号。`今天已有` 是今天已经用掉的号（同一天第二单就是 -2）。
  */
 export function 默认订单号(今天已有: string[], 现在: Date = new Date(), 前缀 = ""): string {
-  const 日 = `${前缀}${现在.getFullYear()}${String(现在.getMonth() + 1).padStart(2, "0")}${String(现在.getDate()).padStart(2, "0")}`;
+  const 日 = `${前缀}${businessDayjs(现在).format("YYYYMMDD")}`;
   let n = 1;
   while (今天已有.includes(`${日}-${n}`)) n++;
   return `${日}-${n}`;

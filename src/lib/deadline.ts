@@ -1,4 +1,5 @@
 import { dayjs } from "./utils";
+import { isCalendarDate } from "./schedule-date";
 
 /**
  * 计划和待办的「什么时候要做」一律这么写（审查 D1）：
@@ -15,12 +16,14 @@ export function 截止说法(d: Date | string | null | undefined, now = dayjs())
   const t = dayjs(d);
   const 过了几天 = now.startOf("day").diff(t.startOf("day"), "day");
   if (过了几天 >= 1) return `逾期 ${过了几天} 天`;
-  if (过了几天 === 0) return `今天 ${t.format("HH:mm")}`;
-  if (过了几天 === -1) return `明天 ${t.format("HH:mm")}`;
+  const 钟点 = typeof d === "string" && isCalendarDate(d) ? "" : ` ${t.format("HH:mm")}`;
+  if (过了几天 === 0) return `今天${钟点}`;
+  if (过了几天 === -1) return `明天${钟点}`;
   return t.isSame(now, "year") ? t.format("M 月 D 日") : t.format("YYYY 年 M 月 D 日");
 }
 
 /** 这件事拖过了没有：截止时刻已经过去（今天早些时候到期的也算） */
 export function 已过期(d: Date | string | null | undefined, now = dayjs()): boolean {
+  if (typeof d === "string" && isCalendarDate(d)) return dayjs(d).isBefore(now.startOf("day"));
   return Boolean(d) && dayjs(d).isBefore(now);
 }

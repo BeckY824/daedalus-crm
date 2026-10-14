@@ -77,7 +77,7 @@ test("J-003 行内「职位」：敲两个字 → ↓ 回车选候选 → 存的
   await page.goto(`/customers/${id}`);
   // 点开那一格（dev 下刚出来可能还没水合：没变成输入框就再点）
   const 格 = page.getByRole("button", { name: "编辑职位" });
-  const 框 = page.locator(".rec-field-editing input");
+  const 框 = page.getByRole("main").locator(".rec-field-editing input");
   await expect(async () => {
     if (!(await 框.isVisible())) await 格.click();
     await expect(框).toBeVisible({ timeout: 2_000 });
@@ -96,7 +96,7 @@ test("J-082 记录页勾完成的待办：原地划线留着、能撤销；之�
   const 待办 = await 查((p) => p.task.create({ data: { title: "寄样品", customerId: id, ownerId: 我id, dueAt: new Date(Date.now() + 86400_000) } }));
   await 登录(page);
   await page.goto(`/customers/${id}`);
-  const 行 = page.locator(".rec-task", { hasText: "寄样品" });
+  const 行 = page.getByRole("main").locator(".rec-task", { hasText: "寄样品" });
   // CI 机器慢：页面还没接上事件就点了，勾不上（10-07 main CI）——勾上为止
   await expect(async () => {
     await 行.getByRole("checkbox", { name: "完成 寄样品" }).check({ timeout: 2_000 });
@@ -115,7 +115,7 @@ test("J-082 记录页勾完成的待办：原地划线留着、能撤销；之�
   await expect(行).toBeHidden({ timeout: 10_000 });
   await page.goto("/follow-ups/plans");
   await page.locator(".ant-segmented").first().getByText(/^已完成/).click();
-  await expect(page.locator(".plan-row-was", { hasText: "寄样品" })).toBeVisible();
+  await expect(page.getByRole("main").locator(".plan-row-was", { hasText: "寄样品" })).toBeVisible();
 });
 
 test("J-097 记录页删待办：先问一句；点「取消」不删，点「删除」才删", async ({ page }) => {
@@ -123,7 +123,7 @@ test("J-097 记录页删待办：先问一句；点「取消」不删，点「�
   const 待办 = await 查((p) => p.task.create({ data: { title: "回个电话", customerId: id, ownerId: 我id } }));
   await 登录(page);
   await page.goto(`/customers/${id}`);
-  const 行 = page.locator(".rec-task", { hasText: "回个电话" });
+  const 行 = page.getByRole("main").locator(".rec-task", { hasText: "回个电话" });
   await 点到出现(行.getByRole("button", { name: "删除待办" }), 行.getByText("删除这条？"));
   // 一点就删是原来的毛病：问的时候库里还在
   expect(await 查((p) => p.task.count({ where: { id: 待办.id } }))).toBe(1);
@@ -134,7 +134,7 @@ test("J-097 记录页删待办：先问一句；点「取消」不删，点「�
   await 行.getByRole("button", { name: "删除待办" }).click();
   await 行.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.locator(".ant-message")).toContainText("待办已删除");
-  await expect(page.locator(".rec-task", { hasText: "回个电话" })).toHaveCount(0);
+  await expect(page.getByRole("main").locator(".rec-task", { hasText: "回个电话" })).toHaveCount(0);
   expect(await 查((p) => p.task.count({ where: { id: 待办.id } }))).toBe(0);
 });
 
@@ -143,11 +143,11 @@ test.skip("【下一版】记录页删待办之后，提示条里能撤销、原
   await 查((p) => p.task.create({ data: { title: "删了再要回来", customerId: id, ownerId: 我id } }));
   await 登录(page);
   await page.goto(`/customers/${id}`);
-  const 行 = page.locator(".rec-task", { hasText: "删了再要回来" });
+  const 行 = page.getByRole("main").locator(".rec-task", { hasText: "删了再要回来" });
   await 点到出现(行.getByRole("button", { name: "删除待办" }), 行.getByText("删除这条？"));
   await 行.getByRole("button", { name: "删除", exact: true }).click();
   await page.locator(".ant-message").getByRole("button", { name: /撤\s*销/ }).click();
-  await expect(page.locator(".rec-task", { hasText: "删了再要回来" })).toBeVisible();
+  await expect(page.getByRole("main").locator(".rec-task", { hasText: "删了再要回来" })).toBeVisible();
 });
 
 test("J-079 计划页每一行的「删」：先问、确认后那一行和库里都没了", async ({ page }) => {
@@ -155,12 +155,12 @@ test("J-079 计划页每一行的「删」：先问、确认后那一行和库�
   const 计划 = await 查((p) => p.followPlan.create({ data: { customerId: id, ownerId: 我id, subject: "删掉的回访", method: "电话沟通", plannedAt: new Date(Date.now() + 2 * 3600_000) } }));
   await 登录(page);
   await page.goto("/follow-ups/plans");
-  const 行 = page.locator(".plan-row", { hasText: "删掉的回访" });
+  const 行 = page.getByRole("main").locator(".plan-row", { hasText: "删掉的回访" });
   await 点到出现(行.getByRole("button", { name: "删除 删掉的回访" }), 行.getByText("删除这条？"));
   expect(await 查((p) => p.followPlan.count({ where: { id: 计划.id } }))).toBe(1);
   await 行.getByRole("button", { name: "删除", exact: true }).click();
   await expect(page.locator(".ant-message")).toContainText("计划已删除");
-  await expect(page.locator(".plan-row", { hasText: "删掉的回访" })).toHaveCount(0);
+  await expect(page.getByRole("main").locator(".plan-row", { hasText: "删掉的回访" })).toHaveCount(0);
   expect(await 查((p) => p.followPlan.count({ where: { id: 计划.id } }))).toBe(0);
 });
 
@@ -169,11 +169,11 @@ test.skip("【下一版】计划页删一条计划之后，提示条里能撤销
   await 查((p) => p.followPlan.create({ data: { customerId: id, ownerId: 我id, subject: "删了再要回来的计划", method: "电话沟通", plannedAt: new Date(Date.now() + 2 * 3600_000) } }));
   await 登录(page);
   await page.goto("/follow-ups/plans");
-  const 行 = page.locator(".plan-row", { hasText: "删了再要回来的计划" });
+  const 行 = page.getByRole("main").locator(".plan-row", { hasText: "删了再要回来的计划" });
   await 点到出现(行.getByRole("button", { name: "删除 删了再要回来的计划" }), 行.getByText("删除这条？"));
   await 行.getByRole("button", { name: "删除", exact: true }).click();
   await page.locator(".ant-message").getByRole("button", { name: /撤\s*销/ }).click();
-  await expect(page.locator(".plan-row", { hasText: "删了再要回来的计划" })).toBeVisible();
+  await expect(page.getByRole("main").locator(".plan-row", { hasText: "删了再要回来的计划" })).toBeVisible();
 });
 
 test("J-083 计划页点完成：那一行先留在原地打着勾，不立刻抽走", async ({ page }) => {
@@ -185,11 +185,11 @@ test("J-083 计划页点完成：那一行先留在原地打着勾，不立刻�
   });
   await 登录(page);
   await page.goto("/follow-ups/plans");
-  const 行 = page.locator(".plan-row", { hasText: "先做的回访" });
+  const 行 = page.getByRole("main").locator(".plan-row", { hasText: "先做的回访" });
   await 行.getByRole("button", { name: "完成 先做的回访" }).click();
   // 点完的那一刻还在原处、是「做完了」的样子；下面那条没顶上来
   await expect(行).toHaveClass(/plan-row-done/, { timeout: 300 });
-  await expect(page.locator(".plan-row").filter({ hasText: /先做的回访|后面那条/ }).first()).toContainText("先做的回访");
+  await expect(page.getByRole("main").locator(".plan-row").filter({ hasText: /先做的回访|后面那条/ }).first()).toContainText("先做的回访");
   // 留够了再走
   await expect(行).toBeHidden({ timeout: 10_000 });
 });
@@ -241,7 +241,7 @@ test("J-088 记录页左栏的商机写状态：赢单、丢单各挂一个标�
   );
   await 登录(page);
   await page.goto(`/customers/${id}`);
-  const 行 = (名: string) => page.locator(".rec-mini", { hasText: 名 });
+  const 行 = (名: string) => page.locator("main .rec-mini:visible", { hasText: 名 });
   await expect(行("赢下的那单")).toContainText("已赢单");
   await expect(行("丢掉的那单")).toContainText("已丢单");
   await expect(行("在谈的那单")).not.toContainText(/已赢单|已丢单/);

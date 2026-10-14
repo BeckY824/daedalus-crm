@@ -63,7 +63,7 @@ test("15 寸 1512 宽、面板收着：记录页的时间线至少 480，AI 栏�
   await page.setViewportSize({ width: 1512, height: 982 });
   await 登录(page);
   await 进第一位客户(page);
-  const 时间线 = page.locator(".rec > .rec-col").first();
+  const 时间线 = page.getByRole("main").locator(".rec > .rec-col").first();
   await expect(时间线).toBeVisible();
   await expect.poll(async () => (await 时间线.boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(480);
 });
@@ -119,10 +119,10 @@ test("J-203：15 寸 1512×900 打开记录页，不用滚就看得见「下次�
     await page.goto(`/customers/${c.id}`);
     await expect(page.getByRole("heading", { name: "待办在上面" })).toBeVisible();
     // 第一帧按视口断点排（三栏），量到正文宽度之后才换成两栏——要看的是换完之后的样子
-    await expect(page.locator(".rec").first()).toHaveClass(/rec-2col/);
+    await expect(page.getByRole("main").locator(".rec").first()).toHaveClass(/rec-2col/);
     await page.waitForTimeout(300);
-    await expect(page.locator(".rec-plan")).toBeInViewport();
-    await expect(page.locator(".rec-side-t", { hasText: "待办" })).toBeInViewport();
+    await expect(page.getByRole("main").locator(".rec-plan")).toBeInViewport();
+    await expect(page.getByRole("main").locator(".rec-side-t", { hasText: "待办" })).toBeInViewport();
     await expect(page.getByText("寄合同样本")).toBeInViewport();
     expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0);
   } finally {
@@ -216,7 +216,7 @@ test.describe("窗口最窄、面板开着", () => {
       const 开键 = page.getByRole("navigation", { name: "主导航" }).getByRole("button", { name: /打开 AI 面板/ });
       if (await 开键.isVisible()) await 开键.click();
       await expect(page.locator("aside.dock")).toBeVisible();
-      const 名 = page.locator(".rec-head-name").first();
+      const 名 = page.getByRole("main").locator(".rec-head-name").first();
       await expect(名).toContainText("钱同学");
       const 量 = await 名.evaluate((el) => {
         const r = el.getBoundingClientRect();

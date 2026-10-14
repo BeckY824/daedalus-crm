@@ -18,6 +18,10 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 
+// 仅本文件的回环HTTP服务器；生产更新默认仍强制HTTPS。
+beforeAll(() => vi.stubEnv("CRM_UPDATE_ALLOW_LOCAL_HTTP", "1"));
+afterAll(() => vi.unstubAllEnvs());
+
 const require_ = createRequire(import.meta.url);
 const 差量 = require_("../desktop/delta.js");
 const 生成器 = path.resolve(__dirname, "../desktop/scripts/make-manifest.mjs");
@@ -82,17 +86,17 @@ describe("比对", () => {
 describe("取Range 的判定", () => {
   const 假 = (status: number, body: Buffer) => async () => ({ status, ok: status < 300, arrayBuffer: async () => body, url: "" });
   it("206 且长度对才收", async () => {
-    const b = await 差量.取Range({ url: "x", start: 10, end: 14, fetch: 假(206, Buffer.from("abcd")) });
+    const b = await 差量.取Range({ url: "https://example.com/x", start: 10, end: 14, fetch: 假(206, Buffer.from("abcd")) });
     expect(b.toString()).toBe("abcd");
   });
   it("200 表示服务器不理 Range、要给整个文件——必须拒绝，绝不能默默收下 160 MB", async () => {
-    await expect(差量.取Range({ url: "x", start: 0, end: 4, fetch: 假(200, Buffer.alloc(4)) })).rejects.toThrow(/206/);
+    await expect(差量.取Range({ url: "https://example.com/x", start: 0, end: 4, fetch: 假(200, Buffer.alloc(4)) })).rejects.toThrow(/206/);
   });
   it("403 标成过期，让上层重解析直链", async () => {
-    await expect(差量.取Range({ url: "x", start: 0, end: 4, fetch: 假(403, Buffer.alloc(0)) })).rejects.toMatchObject({ 过期: true });
+    await expect(差量.取Range({ url: "https://example.com/x", start: 0, end: 4, fetch: 假(403, Buffer.alloc(0)) })).rejects.toMatchObject({ 过期: true });
   });
   it("长度不对就抛", async () => {
-    await expect(差量.取Range({ url: "x", start: 0, end: 4, fetch: 假(206, Buffer.alloc(3)) })).rejects.toThrow(/字节/);
+    await expect(差量.取Range({ url: "https://example.com/x", start: 0, end: 4, fetch: 假(206, Buffer.alloc(3)) })).rejects.toThrow(/字节/);
   });
 });
 

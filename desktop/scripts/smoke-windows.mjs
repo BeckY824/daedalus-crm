@@ -8,7 +8,12 @@ import { spawn, execFileSync } from "node:child_process";
 
 const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 fs.mkdirSync(path.join(desktop, ".smoke-data"), { recursive: true });
-const root = fs.mkdtempSync(path.join(desktop, ".smoke-data", "运行 空格-"));
+const installedRoot = process.env.CRM_SMOKE_DATA_ROOT;
+if (installedRoot && (process.env.GITHUB_ACTIONS !== "true" || path.resolve(installedRoot) !== path.resolve(process.env.APPDATA, "DaedalusCRM") || fs.existsSync(installedRoot))) {
+  throw new Error("Default-root smoke is allowed only in a fresh GitHub Actions runner");
+}
+const root = installedRoot || fs.mkdtempSync(path.join(desktop, ".smoke-data", "运行 空格-"));
+fs.mkdirSync(root, { recursive: true });
 const executablePath = process.argv[2] || path.join(desktop, "dist/win-unpacked/Daedalus CRM.exe");
 let identity = "windows-smoke";
 // 隔离的云端契约替身：不注册真实账号，不调用付费模型。
@@ -25,11 +30,20 @@ await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const cloud = `http://127.0.0.1:${server.address().port}`;
 const env = { ...process.env, CRM_DATA_ROOT: root, CRM_CLOUD_URL: cloud, CRM_UPDATE_URL: `${cloud}/updates`, CRM_UPDATE_FALLBACK_URL: `${cloud}/updates` };
 delete env.ELECTRON_RUN_AS_NODE;
+// 首次登录尚未重启时，数据库还在未认领目录；重启才写账号指针。
+const accountFile = () => {
+  const pointer = path.join(root, "current.json");
+  const key = fs.existsSync(pointer) ? JSON.parse(fs.readFileSync(pointer, "utf8")).key : "_未认领";
+  return path.join(root, "accounts", key, "crm.db");
+};
 /**
  * 0.46.15 的新登录门：先填邮箱点「继续」，云端说是老号才出密码框。
  * 这个替身没有「注册开始」接口、回 404——桌面端当成老云端，直接去输密码（H-055），正好走登录这条
  */
 async function 登录(p, 邮箱) {
+  // SSR 的输入框先于 React 事件处理器出现。差量重启后的热启动更快，
+  // 不能把「看见邮箱框」当成表单已就绪；与 desktop E2E 一样等首轮资源加载结束。
+  await p.waitForLoadState("networkidle");
   await p.locator("#auth-email").fill(邮箱);
   await p.getByRole("button", { name: /继\s*续/ }).click();
   await p.locator('input[type="password"]').fill("smoke-password");
@@ -42,6 +56,9 @@ async function 登录(p, 邮箱) {
 async function 进主界面(p) {
   const 模版 = p.getByRole("button", { name: /用通用销售开始/ });
   await expect(模版.or(p.locator(".rail")).first()).toBeVisible({ timeout: 60000 });
+  // 换账号会重起本地服务；新文档的 SSR 卡片先于 React 事件处理器出现。
+  // 等这份文档加载完成再选，不能把点击未水合卡片误判为产品导航失败。
+  await p.waitForLoadState("networkidle");
   if (await 模版.isVisible()) await 模版.click();
   await expect(p.locator(".rail")).toBeVisible({ timeout: 60000 });
   const 知道了 = p.getByRole("button", { name: /知\s*道\s*了/ });
@@ -110,12 +127,18 @@ try {
   await 商框.getByLabel("商机名称").fill("Windows LED 询盘");
   await 商框.getByLabel("所属客户").click();
   await 商框.getByLabel("所属客户").fill("Windows 外贸客户");
-  await page.locator(".ant-select-item-option", { hasText: "Windows 外贸客户" }).click();
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option:not(.ant-select-item-option-disabled)", { hasText: "Windows 外贸客户" }).click();
+  await expect(商框.locator(".ant-select-content-has-value").filter({ hasText: "Windows 外贸客户" })).toBeVisible();
   await 商框.getByLabel("商机金额").fill("18000");
   const 负责人 = 商框.getByLabel("负责人");
   if (await 负责人.count()) { await 负责人.click(); await page.keyboard.press("Enter"); }
   await 商框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(商框).toBeHidden();
+  const selectedDb = new DatabaseSync(accountFile(), { readOnly: true });
+  try {
+    const link = selectedDb.prepare('SELECT c.name FROM Opportunity o JOIN Customer c ON c.id=o.customerId WHERE o.name=?').get("Windows LED 询盘");
+    if (link?.name !== "Windows 外贸客户") throw new Error("商机未保存到选择的外贸客户");
+  } finally { selectedDb.close(); }
   await page.getByRole("button", { name: "Windows LED 询盘 的更多操作" }).click();
   await page.getByRole("menuitem", { name: "转为订单" }).click();
   const 单框 = page.getByRole("dialog", { name: "转为订单" });
@@ -123,7 +146,7 @@ try {
   await 单框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(page.getByText(/订单 PI-WIN-01 已建好/)).toBeVisible();
   await page.goto(`${origin}/orders`);
-  await expect(page.locator(".ant-table-row", { hasText: "PI-WIN-01" })).toContainText("Windows 外贸客户");
+  await expect(page.locator("main .ant-table-row:visible", { hasText: "PI-WIN-01" })).toContainText("Windows 外贸客户");
   console.log("PASS: trade template — WhatsApp-only customer, opportunity → order, order list");
   const backup = path.join(root, "备份 空格.db");
   await app.evaluate(({ dialog }, file) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath: file }); }, backup);
@@ -145,7 +168,6 @@ try {
   const restarted = await app.firstWindow();
   await expect(restarted.locator(".rail")).toBeVisible({ timeout: 60000 });
   console.log("PASS: restart restores login and local database");
-  const accountFile = () => path.join(root, "accounts", JSON.parse(fs.readFileSync(path.join(root, "current.json"), "utf8")).key, "crm.db");
   const firstDb = accountFile();
   const db = new DatabaseSync(firstDb);
   db.prepare("INSERT OR REPLACE INTO Setting (key,value,updatedAt) VALUES ('smoke.marker','account A',0)").run();
@@ -207,6 +229,12 @@ try {
   console.log(`Evidence: ${root}`);
 } catch (error) {
   console.error(`Evidence: ${root}`);
+  if (app) {
+    for (const [i, p] of app.windows().entries()) {
+      await p.screenshot({ path: path.join(root, `failure-${i}.png`) }).catch(() => {});
+      console.error(`Window ${i}: ${p.url()}\n${await p.locator("body").innerText().catch(() => "（窗口不可读）")}`);
+    }
+  }
   for (const log of ["server.log", "app.log"]) {
     const p = path.join(root, "logs", log);
     if (fs.existsSync(p)) console.error(fs.readFileSync(p, "utf8").slice(-6000));

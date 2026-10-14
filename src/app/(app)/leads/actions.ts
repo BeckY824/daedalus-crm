@@ -1,13 +1,14 @@
 "use server";
 
+import { hasVisibleText } from "@/lib/form-validation";
+
 import { 规整外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
 
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
 import { 看全部, 看得到, 限定的我 } from "@/lib/team-scope";
-import { 认回打码号 } from "@/lib/phone";
-import { 查电话 } from "@/lib/phone";
+import { 认回打码号, 查电话, 号码带着字 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import { 同邮箱条件 } from "@/lib/email-dedupe";
 
@@ -40,7 +41,7 @@ export async function saveLead(input: {
 }) {
   const user = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
-  if (!String(input.name ?? "").trim()) return { ok: false as const, error: "请填写线索名称" };
+  if (!hasVisibleText(input.name)) return { ok: false as const, error: "请填写线索名称" };
   if (!LEAD_STATUSES.includes(input.status as (typeof LEAD_STATUSES)[number])) {
     return { ok: false as const, error: `线索状态「${input.status}」不是合法取值` };
   }
@@ -58,7 +59,13 @@ export async function saveLead(input: {
   */
   const 号 = 认回打码号(input.phone?.trim() || null, 原?.phone);
   if (号 && 号.includes("*")) return { ok: false as const, error: "电话里不能有 *" };
-  input = { ...input, phone: 号 };
+  // 未改的历史号码与准确打码返回保持原文；只规范新填写/更改的号码。
+  const 电话 = 号 === 原?.phone ? { ok: true as const, phone: 号 ?? "" } : 查电话(号, { 必填: false });
+  if (!电话.ok) return { ok: false as const, error: 电话.error };
+  const 原文 = 号 && 号 !== 原?.phone && 号码带着字(号) ? `原始电话：${号}` : "";
+  const 备注 = input.remark?.trim() || "";
+  const remark = 原文 && !备注.includes(原文) ? [备注, 原文].filter(Boolean).join("\n") : 备注;
+  input = { ...input, phone: 电话.phone, remark };
   /*
     来源能选也能填（2026-10-02 用户定）：不在业务配置列表里的也收——没有程序按来源的值去判断什么，
     人手上的说法（「视频号直播间」「老板朋友圈」）只让选等于逼他挑一个不对的。只限个长度

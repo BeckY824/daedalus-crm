@@ -20,6 +20,12 @@ jobs:
           cache: npm
       - run: npm ci
         # 上线用到的依赖有高危及以上漏洞就红（H-068，10-04 起）。修不了上游的用 package.json 的 overrides 钉住
+      # NSIS 单测读取锁定版本的真实上游模板；不运行 Electron 下载或原生构建脚本。
+      - name: 安装 NSIS 模板测试依赖
+        run: npm ci --prefix desktop --ignore-scripts --no-audit --no-fund
+      # 安装桌面依赖也会启用既有解压链路测试。7zip-bin 的文件未必带执行位，先修复并验证工具可运行。
+      - name: 准备解压链路测试工具
+        run: node -e "const {path7za}=require('./desktop/node_modules/7zip-bin'); require('node:fs').chmodSync(path7za,0o755); require('node:child_process').execFileSync(path7za,['i'],{stdio:'ignore'})"
       - run: npm audit --omit=dev --audit-level=high
       - run: npx prisma generate
         # 托管版的控制面客户端也要生成，否则 import @/generated/control 编译不过
@@ -50,8 +56,10 @@ jobs:
       - run: npx prisma generate --schema=prisma/control.prisma
         env:
           CONTROL_DATABASE_URL: file:/tmp/control-ci.db
+      # 默认网页验生产构建，避免只验证 dev server；仍使用隔离 E2E 库。
       - run: npx playwright test
         env:
+          E2E_PROD: "1"
           HOME: /root
           # 用例的浏览器固定 Asia/Shanghai，服务端也要一致，否则日期文案水合失配
           TZ: Asia/Shanghai

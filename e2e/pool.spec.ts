@@ -1,6 +1,7 @@
 /**
  * 公海轻量（2026-10-03，0.46.15 第 6 块）：张三把自己的客户放进公海 → 李四在「公海」里看到「公海（原 张三）」→
  * 领取，负责人变成李四 → 撤销，又回到公海 → 记录页上也有那枚标签和「领取」。
+ * 2026-10-13 起公海和客户分两页签：默认「客户」页签不含公海，「公海」页签（?pool=1）只有公海；负责人下拉里不再有「公海」。
  * 种子库本来就有三个人（多人），公海的入口才出现。造的客户结束时删掉。
  */
 import { test, expect, type Browser, type Page } from "@playwright/test";
@@ -64,20 +65,40 @@ test("放进公海 → 别人在公海里领走 → 撤销回到公海；记录�
   await 行.getByRole("checkbox").check();
   await 张.page.getByRole("button", { name: "放进公海" }).click();
   await expect(张.page.getByText("已放进公海 1 位")).toBeVisible();
-  await expect(行.getByText("公海（原 张三）")).toBeVisible();
+  // 「客户」页签不含公海：放进去就从这一页走了；搜不到时指一条去公海的路
+  await expect(行).toHaveCount(0);
+  await 张.page.getByRole("button", { name: /公海里有 1 位匹配/ }).click();
+  await expect(张.page).toHaveURL(/pool=1/);
+  await expect(张.page.getByRole("row", { name: new RegExp(客户名) }).getByText("公海（原 张三）")).toBeVisible();
   await 张.ctx.close();
 
   const 李 = await 一个人(browser, 李四);
   const page = 李.page;
-  // 李四：负责人下拉里选「公海」，这一位在里面
+  // 李四：负责人下拉里没有「公海」了（页签代替了它）
   await page.goto("/customers");
+  await expect(page.getByRole("row", { name: new RegExp(客户名) })).toHaveCount(0);
   await page.locator(".list-bar .ant-select").filter({ hasText: "全部负责人" }).click();
   const 下拉 = page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)");
   await 下拉.waitFor({ state: "visible" });
-  await 下拉.getByTitle("公海", { exact: true }).click();
+  await expect(下拉.getByTitle("公海", { exact: true })).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  // 页签上的数：没进团队叫「我的客户 N」+「公海 M」，加起来 = 左栏「客户」角标
+  const 页签 = page.locator(".page-head .ant-segmented-item");
+  await expect(页签.first()).toHaveText(/^我的客户 \d+$/);
+  await expect(页签.nth(1)).toHaveText(/^公海 \d+$/);
+  const [客户N, 公海M] = (await 页签.allInnerTexts()).map((t) => Number(t.match(/\d+/)![0]));
+  expect(公海M).toBeGreaterThanOrEqual(1);
+  await expect(page.locator(".rail-nav a", { has: page.locator("b", { hasText: /^客户$/ }) }).locator(".rail-num")).toHaveText(String(客户N + 公海M));
+  // 「公海」页签，这一位在里面
+  await page.locator(".page-head .ant-segmented-item", { hasText: /^公海/ }).click();
   await expect(page).toHaveURL(/pool=1/);
   const 公海行 = page.getByRole("row", { name: new RegExp(客户名) });
   await expect(公海行.getByText("公海（原 张三）")).toBeVisible();
+  // 公海页签上批量只有「领取」，没有「放进公海」
+  await 公海行.getByRole("checkbox").check();
+  await expect(page.locator(".list-sel").getByRole("button", { name: "领取" })).toBeVisible();
+  await expect(page.locator(".list-sel").getByRole("button", { name: "放进公海" })).toHaveCount(0);
+  await 公海行.getByRole("checkbox").uncheck();
 
   // 行上「领取」
   await 公海行.getByRole("button", { name: `领取 ${客户名}` }).click();

@@ -22,6 +22,7 @@ import { 不开放的工具 } from "@/lib/features";
 const TOOLS = 全部工具.filter((t) => !不开放的工具.includes(t.name));
 const TOOL_MAP = new Map(TOOLS.map((t) => [t.name, t])) as typeof 全部工具表;
 import { SCHEMAS } from "./schemas";
+import { 查询表 } from "./query";
 import { 有DSML, 解析DSML } from "@/lib/llm-dsml";
 import { 认意图, type 页面范围 } from "./intents";
 import type { Proposal } from "./proposals";
@@ -114,6 +115,19 @@ export function 摘掉已写入(text: string, 卡片数: number): string {
 /** 重答之后还是不行时给人看的话：宁可说没做成，也不把协议标记或一句假话留在屏幕上 */
 export const 没答成 = "这一步没有顺利完成——模型把要查的东西当成回答吐了出来，没能整理成人话。请再发一次，或者换个说法。";
 export const 没出卡片 = "这一轮没有生成卡片，刚才那句「卡片上确认」不对。请把要记的内容再说一次（哪位客户、什么事、什么时间），我重新生成一张让你确认。";
+const 可见范围未找到 = "当前可访问范围内未找到匹配记录（0 条）；记录可能不存在，也可能无权访问，无法据此区分。";
+
+/** 只认成功的记录查询；参数错误不算搜空，其他成功工具阻止把混合结果当成全空。 */
+function 查询命中数(name: string, data: unknown): number | null | undefined {
+  if (!data || typeof data !== "object") return null;
+  const d = data as Record<string, unknown>;
+  if ((name === "find_person" || name === "get_customer") && typeof d.找到 === "number") return d.找到;
+  if (d.error) return undefined;
+  if (name === "get_customer" && typeof d.id === "string") return 1;
+  if (name === "search_customers" && typeof d.total === "number") return Array.isArray(d.这个名字在别的表里) && d.这个名字在别的表里.length ? 1 : d.total;
+  if (name === "query_records" && typeof d.总数 === "number") return d.总数 + (typeof d.未归属联系人 === "number" ? d.未归属联系人 : 0);
+  return null;
+}
 
 export function 不是答案(text: string, 工具名: string[]): boolean {
   const t = text.trim();
@@ -336,6 +350,8 @@ export async function runAgent(
     buildSystemPrompt(b.brief).replace(/必须只输出用户要求的 JSON[^。]*。?/, "") +
     `\n你是销售「${user.name}」的助手，回答关于${b.customer}和业务数字的问题。现在是 ${现在带周几()}。
 ${日期对照()}
+${页面范围?.筛选 && Object.keys(页面范围.筛选).length ? "当前客户页的筛选已在search_customers、query_records及query_metric中自动叠加。要回答这个子集，使用这三个工具；其他清单工具不代表本页范围。" : ""}
+query_records 的客户字段使用当前业务叫法：${Object.values(查询表("客户", b).字段).map(f => f.名).join("、")}。旧字段名学校/年级/专业也兼容；职位等档案字段可以查询已有自由文本。
 ${原生模式 ? "" : `你能调用的工具：\n${toolDoc}\n`}
 取值表（propose_* 的参数只能用这里的词）：
 ${proposalVocab(b)}
@@ -352,7 +368,8 @@ ${工作方式}
 - 按条件筛一批客户（某个学校 / 状态 / 我负责的）才用 search_customers——那是「找一批」，不是「找一个人」
 - 问某一类人（某个学校 / 专业 / 跟进状态 / 我负责的，"有多少、分别是谁"）：search_customers 用那个关键词或过滤条件，它返回总数和名单，直接据此回答，不用逐个 get_customer
 - **工具回话里带了「这个名字在别的表里」时，那就是答案**：照着它给的记录直接回答（渠道、联系人、线索、团队成员都是这个库里的人），不要再说"没找到"，更不要反过来让用户给更完整的姓名
-- 工具没找到、也没告诉你别处有时，才如实说"没有匹配的"，不要把关键词当成人名
+- 所有查询都经过当前账号的权限和条件过滤；未找到或 0 条只表示当前可访问范围内未找到，不能判断全系统不存在，也不能判断是否由权限造成。不要说“不是权限问题”或断言别人拥有这条资料
+- 工具没找到、也没告诉你别处有时，只说“当前可访问范围内未找到”，不要把关键词当成人名
 - 问数字用 query_metric；问"该联系谁"用 get_watchlist / get_my_plans
 - 已经拿到足够信息就停下来回答，不要重复调用同一个工具
 - 最多 ${MAX_STEPS} 步
@@ -409,7 +426,7 @@ ${工作方式}
     而 AI 工具原来是**没人接上的第四个出口**——问一句就能拿到完整号码，
     还会原样写进回答和对话存档。见 lib/shared-ws/current.ts。
   */
-  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [], 号: await 号码脱敏器() };
+  const ctx: ToolContext = { userId: user.id, userName: user.name, b, recordOffset: 0, proposals: [], 号: await 号码脱敏器(), 页面筛选: 页面范围?.表 === "客户" ? 页面范围.筛选 : undefined };
   const records: BriefRecord[] = [];
   const customers = new Map<string, 提到的客户>();
   const mentioned = new Map<string, 提到的客户>();
@@ -419,6 +436,7 @@ ${工作方式}
   const 待跑 = 直连 ? [...直连.调用] : [];
   /** 已经真正跑过几个工具。为 0 时模型要作答，说明它手上一条数据都没有 */
   let 查过的工具 = 0;
+  const 查询命中们: (number | null)[] = [];
   /** 空手作答只顶一次，免得来回拉锯 */
   let 顶过 = false;
   /** 这一轮调过哪些「工具 + 参数」，值是当时的结果摘要。用来拦原地打转 */
@@ -433,7 +451,12 @@ ${工作方式}
     try {
       result = await tool.run(args, ctx);
       查过的工具 += 1;
+      if (!tool.name.startsWith("propose_")) {
+        const n = 查询命中数(tool.name, result.data);
+        if (n !== undefined) 查询命中们.push(n);
+      }
     } catch (e) {
+      查询命中们.push(null);
       result = { summary: "工具出错", data: { error: e instanceof Error ? e.message : "工具执行失败" } };
     }
     if (result.records?.length) {
@@ -644,13 +667,14 @@ ${工作方式}
 - **表格只在三条以上同构记录时用**，最多五列。一条记录不画表，直接说
 - 不起「几点说明」「总结」「建议」这类小标题，不用分隔线，不用 emoji
 - 只基于工具结果，禁止编造；引用某条跟进记录时在句末标它的 [编号]
+- 未找到只代表当前可访问范围内未找到，不能断言全系统不存在、排除权限因素或确认别人有这条资料
 - 数字类问题：先一句结论，再给关键数字；不要把整张表抄一遍
 - 如果是"该怎么推进"这类问题，给 3~5 条具体可执行的建议，并指出风险
 - 人没问的不要主动揽活（不要以「想让我帮你……说一声就行」这类话收尾）
 - 不要再输出 JSON，不要提到"工具"这个词`;
   /** 跑一次最终回答。静默时只把文本拿回来，不往界面推 token */
   const 组织回答 = async (提示: string, 静默: boolean) => {
-    const 清洗 = 开头清洗器((t) => { if (!静默) ev.onToken?.(t); });
+    const 清洗 = 开头清洗器((t) => { if (!静默) 推回答(t); });
     await chatTextStream([...messages, { role: "user", content: 提示 + 有卡时的要求(ctx.proposals.length) }], { maxTokens: 1800, timeoutMs: 120_000, model: ev.model, signal: ev.signal, requestId: 问题id, feature: "ask" }, (t) => 清洗.推入(t));
     清洗.收尾();
     return 清洗.文本();
@@ -687,7 +711,15 @@ ${工作方式}
     而它是一串没人看得懂的标记，不是一句像模像样的假话——一闪而过再被替换，
     比全体回答失去流式划算。抹掉靠流协议的 `reset`（lib/ai-stream.ts）。
   */
-  let text = await 组织回答(finalPrompt, 零工具);
+  const 只有空查询 = () => ctx.proposals.length === 0 && 查询命中们.length > 0 && 查询命中们.every(n => n === 0);
+  const 推回答 = (value: string) => { if (!只有空查询()) ev.onToken?.(value); };
+  // 空查询时先缓冲，不能把“不是权限问题、客户不存在”等无依据断言流到用户面前。
+  let text = await 组织回答(finalPrompt, 零工具 || 只有空查询());
+  if (只有空查询() && !有DSML(text) && !不是答案(text, 工具名单)) {
+    ev.onToken?.(可见范围未找到);
+    ev.emit?.({ id: "answer", label: "组织回答", status: "done" });
+    return { text: 可见范围未找到, records, customers: [...customers.values()], proposals: ctx.proposals, steps };
+  }
   /*
     **回答里吐的是一个认得出来的工具调用**：它还想查（或者想提一张卡），只是这一步手上没有工具，
     只好写成 DSML 标记。2026-09-28 桌面端：决策几步都「没调工具」，到回答这步才想起要 find_person 李文龙，
@@ -762,7 +794,7 @@ ${工作方式}
       console.warn(`[agent] 重答还是不是答案，不上屏：${text.slice(0, 80)}`);
       text = 没答成;
     }
-    ev.onToken?.(text);
+    推回答(text);
   } else if (零工具 && 凭空断言(text)) {
     // 攒着的那份从没推出去过，所以这儿不用 reset——编的那句话一个字都没上过屏
     console.warn(`[agent] 零工具却断言了数据，重答一次：${text.slice(0, 80)}`);
@@ -774,7 +806,7 @@ ${工作方式}
       false,
     );
   } else if (零工具) {
-    ev.onToken?.(text); // 攒着的那份验过了，原样推出去
+    推回答(text); // 攒着的那份验过了，原样推出去
   }
   /*
     **说有卡片、其实没有**：抹掉重答一次（这次攒着验过再推），还说有就换成一句实话。
@@ -791,7 +823,7 @@ ${工作方式}
       true,
     );
     if (不是答案(text, 工具名单) || 声称有卡片(text)) text = 没出卡片;
-    ev.onToken?.(text);
+    推回答(text);
   }
   /*
     **出了卡、却说已经改好了**（J-173）：同一个思路——抹掉，攒着重答一次；还这么说，就把那几句摘掉，开头写死一句实话。
@@ -808,8 +840,9 @@ ${工作方式}
     );
     if (不是答案(text, 工具名单)) text = 点确认才会改(ctx.proposals.length);
     else if (声称已写入(text)) text = 摘掉已写入(text, ctx.proposals.length);
-    ev.onToken?.(text);
+    推回答(text);
   }
+  if (只有空查询()) { text = 可见范围未找到; ev.onToken?.(text); }
   ev.emit?.({ id: "answer", label: "组织回答", status: "done" });
   for (const r of mentioned.values()) if (!customers.has(r.id) && customers.size < 5 && text.includes(r.name)) customers.set(r.id, r);
   return { text, records, customers: [...customers.values()], proposals: ctx.proposals, steps };

@@ -6,6 +6,7 @@ import { 负责人候选 } from "@/lib/owners";
 import { llmEnabled } from "@/lib/llm";
 import { buildReferralRadar } from "@/lib/referral";
 import { 带币种, 签约合计 } from "@/lib/money-db";
+import { getBusiness, 签约叫 } from "@/lib/business";
 import { 渠道汇总 } from "@/lib/attribution";
 
 export const dynamic = "force-dynamic";
@@ -51,20 +52,22 @@ export default async function ChannelsPage() {
     },
   });
 
-  const 签约额 = (c: { contracts: { amount: number }[] }) => c.contracts.reduce((s, ct) => s + ct.amount, 0);
   // 「直接」和「整条链」是两个谓词——到 2026-09-19 为止是同一个，两列永远相等。
   // 口径和为什么抽成函数见 lib/attribution.ts 的 渠道汇总
   const statMap = 渠道汇总(channels.map((c) => c.id), allCustomers);
 
+  const business = await getBusiness();
   const radar = buildReferralRadar(
     allCustomers.map((c) => ({
       id: c.id,
       name: c.name,
       followStatus: c.followStatus,
       referrerCustomerId: c.referrerCustomerId,
-      signedAmount: 签约额(c),
+      contractCount: c.contracts.length,
+      signedAmount: 0, // 已提供按币种精确合计，不使用旧人民币兼容值
       signed: 签约合计(c.contracts),
     })),
+    business.currency, 签约叫(business),
   );
 
   const 号 = await 号码脱敏器();

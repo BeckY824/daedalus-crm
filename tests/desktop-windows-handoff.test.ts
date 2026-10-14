@@ -114,7 +114,7 @@ describe.skipIf(process.platform !== "win32" || !electronPath)("真实 Electron 
       app.setPath('userData',${JSON.stringify(path.join(根, "userData"))});
       const 窗装=require(${JSON.stringify(模块)}), 应用包=${JSON.stringify(目录)}, 更新目录=${JSON.stringify(更新目录)};
       let 待装={方式:'差量',版本:'99.0.0'}, 更新状态={阶段:'ready'};
-      const 崩溃={写崩溃日志(){}}, 应用日志='', 提醒器=null, 本地服务={运行中:()=>false,stop(){}}, MCP桥={stop(){}};
+      const 崩溃={写崩溃日志(){}}, 应用日志='', 提醒器=null, 通知出口={清空(){}}, 本地服务={运行中:()=>false,stop(){}}, MCP桥={stop(){}};
       const 设更新状态=(s)=>{更新状态=s}, win={isDestroyed:()=>false}, 建窗口=()=>{}, 通知安装中=()=>{};
       const dialog={showMessageBox(){app.exit(2)}};
       ${wrapper}
@@ -127,20 +127,32 @@ describe.skipIf(process.platform !== "win32" || !electronPath)("真实 Electron 
     `);
     const env = { ...process.env };
     delete env.ELECTRON_RUN_AS_NODE;
-    const child = spawn(electronPath, [harness], { env, windowsHide: true, stdio: "ignore" });
+    const logPath = path.join(根, "electron.log");
+    const output = fs.openSync(logPath, "a");
+    const child = spawn(electronPath, [harness], { env, windowsHide: true, stdio: ["ignore", output, output] });
+    fs.closeSync(output);
     let killTimer: ReturnType<typeof setTimeout>;
     const code = await new Promise((resolve, reject) => {
-      killTimer = setTimeout(() => { child.kill(); reject(new Error("Electron handoff timeout")); }, 30_000);
+      killTimer = setTimeout(() => {
+        child.kill();
+        const logs = [logPath, path.join(根, "error.txt")].filter(f => fs.existsSync(f)).map(f => `${path.basename(f)}: ${fs.readFileSync(f, "utf8").slice(-3200)}`).join("\n");
+        reject(new Error(`Electron handoff timeout\n${logs}`));
+      }, 30_000);
       child.once("error", reject); child.once("exit", resolve);
     }).finally(() => clearTimeout(killTimer));
     expect(code).toBe(0);
-    // CI 的 Windows 机器慢，换目录有时 10 秒还没做完（0.46.15 出包时撞过一次）
-    const deadline = Date.now() + 30_000;
+    // 与真实脚本的预算一致：Wait-Process 最多60秒，文件锁重试再30秒。
+    // 不能30秒就清掉沙盒，把仍在合法等待的更新误判为失败。
+    const deadline = Date.now() + 100_000;
     while (Date.now() < deadline && fs.existsSync(`${目录}.new`)) await 等(100);
-    expect(fs.readFileSync(path.join(目录, "version.txt"), "utf8")).toBe("new");
+    const 日志 = () => ["update-swap.log", "update-swap.out.log"].map(n => {
+      const f = path.join(更新目录, n);
+      return `${n}: ${fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "（不存在）"}`;
+    }).join("\n");
+    expect(fs.readFileSync(path.join(目录, "version.txt"), "utf8"), 日志()).toBe("new");
     expect(fs.readFileSync(path.join(`${目录}.old`, "version.txt"), "utf8")).toBe("old");
     expect(fs.readdirSync(更新目录).filter(n => n.startsWith("swap-") && n !== "swap-attempts.json")).toHaveLength(1);
     // 等脚本释放文件句柄，再回收临时目录。
     await 等(500);
-  }, 75_000);
+  }, 150_000);
 });

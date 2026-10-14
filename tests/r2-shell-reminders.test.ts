@@ -37,7 +37,7 @@ afterAll(async () => {
 });
 
 /** 一个壳 + 一个假的本地服务。服务那头的数据是 项，口径是 算提醒 */
-function 起壳(项: () => 提醒项[], opts: { 文件?: string; 服务在?: () => boolean; 早报?: boolean } = {}) {
+function 起壳(项: () => 提醒项[], opts: { 文件?: string | (() => string); 服务在?: () => boolean; 早报?: boolean } = {}) {
   let now = new Date();
   const 发了: { 标题: string; 正文: string; 去: string; 时: string }[] = [];
   const 角标: number[] = [];
@@ -247,20 +247,44 @@ describe("早报：跨天 / 时区", () => {
 });
 
 describe("换账号 / 服务在重启", () => {
-  /*
-    【C】reminders.json 在数据根（main.js:1393），不分账号：甲今天收过早报，换乙登录，乙今天就收不到早报。
-    （已提醒的键是计划 id，跨账号不会撞；只有早报日是共享的。）全面排查 D11 记过同类。
-  */
-  it("【C-3 现状】甲收过今天的早报，换成乙：乙今天收不到早报", async () => {
-    const f = path.join(目录, "reminders.json");
-    const 甲 = 起壳(() => [项("a1", 北京("2026-10-01T00:00:00"))], { 文件: f, 早报: true });
-    await 甲.到(北京("2026-10-02T09:00:00"));
-    甲.停();
-    const 乙 = 起壳(() => [项("b1", 北京("2026-10-01T00:00:00")), 项("b2", 北京("2026-10-02T00:00:00"))], { 文件: f, 早报: true });
-    await 乙.到(北京("2026-10-02T09:30:00"));
-    乙.停();
-    expect(甲.发了.length).toBe(1);
-    expect(乙.发了.length).toBe(0);
+  it("D-050：同一个壳换账号，两人各收早报；切回不重复且设置各自保存", async () => {
+    const a = path.join(目录, "a-reminders.json");
+    const b = path.join(目录, "b-reminders.json");
+    let f = a;
+    const 壳 = 起壳(() => [项("a1", 北京("2026-10-01T00:00:00"))], { 文件: () => f, 早报: true });
+    await 壳.到(北京("2026-10-02T09:00:00"));
+    壳.改设置({ 早报时间: "08:30" });
+    f = b;
+    await 壳.到(北京("2026-10-02T09:30:00"));
+    f = a;
+    await 壳.到(北京("2026-10-02T09:40:00"));
+    壳.停();
+    expect(壳.发了.length).toBe(2);
+    expect(JSON.parse(fs.readFileSync(a, "utf8")).设置.早报时间).toBe("08:30");
+    expect(JSON.parse(fs.readFileSync(b, "utf8")).设置.早报时间).toBe("09:00");
+  });
+
+  it("切账号期间返回的旧请求、停止后的请求，都不能再通知或写文件", async () => {
+    let f = path.join(目录, "a.json");
+    let resolve!: (response: Response) => void;
+    const 通知 = vi.fn();
+    const 设角标 = vi.fn();
+    const 壳 = 提醒.开始({ 文件: () => f, 取端口: () => 1, 取令牌: () => "token",
+      通知, 设角标, 现在: () => 北京("2026-10-02T10:00:00"),
+      fetch: () => new Promise<Response>((r) => { resolve = r; }),
+    });
+    const run = 壳.刷新();
+    f = path.join(目录, "b.json");
+    resolve(new Response(JSON.stringify({ 逾期: 1, 今天: 1, 定时: [] })));
+    await run;
+    expect(通知).not.toHaveBeenCalled();
+    expect(fs.existsSync(f)).toBe(false);
+    const late = 壳.刷新();
+    壳.停();
+    resolve(new Response(JSON.stringify({ 逾期: 1, 今天: 1, 定时: [] })));
+    await late;
+    expect(通知).not.toHaveBeenCalled();
+    expect(fs.existsSync(f)).toBe(false);
   });
 
   it("本地服务在重启（换账号中）：角标保持上一次的数，不闪成 0；服务回来马上更新", async () => {

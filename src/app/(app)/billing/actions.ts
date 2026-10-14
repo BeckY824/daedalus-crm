@@ -5,6 +5,7 @@ import { multiTenant } from "@/lib/tenant/context";
 import { resolveCurrentTenant } from "@/lib/tenant/resolve";
 import { control } from "@/lib/tenant/control";
 import { isPlanKey, PLANS } from "@/lib/tenant/plans";
+import { 是共享工作区 } from "@/lib/shared-ws/config";
 
 export type PayResult = { ok: true } | { ok: false; error: string };
 
@@ -21,9 +22,12 @@ export async function submitPayment(input: { plan: string; reference: string }):
 
   const t = await resolveCurrentTenant();
   if (!t) return { ok: false, error: "没有工作区上下文" };
+  // 共享账号的OWNER身份也是公开给试用者的，不授予控制面账单写入权。
+  if (是共享工作区(t.slug)) return { ok: false, error: "共享试用工作区不支持提交付款信息" };
   // 只有创建者能提交，避免同一个工作区收到几份互相矛盾的付款信息
   if (t.role !== "OWNER") return { ok: false, error: "只有工作区创建者能开通" };
-  if (!isPlanKey(input.plan)) return { ok: false, error: "套餐不对" };
+  if (!input || typeof input !== "object" || !isPlanKey(input.plan)) return { ok: false, error: "套餐不对" };
+  if (typeof input.reference !== "string") return { ok: false, error: "请填写转账单号" };
 
   const ref = input.reference.trim().slice(0, 64);
   if (ref.length < 4) return { ok: false, error: "请填写转账单号" };

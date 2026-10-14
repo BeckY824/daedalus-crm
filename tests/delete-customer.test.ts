@@ -10,7 +10,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 vi.mock("@/lib/auth", () => ({ requireUser: async () => mocks.user }));
 
-import { prisma } from "@/lib/prisma";
+import { prisma, defaultClient as raw } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { deleteCustomers, 删除前清点 } from "@/app/(app)/customers/actions";
 
@@ -117,3 +117,33 @@ describe("批量删多位客户", () => {
   });
 });
 
+
+
+describe("删除确认后的数据变化仍原子保护",()=>{
+ it("依赖预检后、事务前新增下游，整批拒绝且不把推荐链置空",async()=>{
+  const original=raw.$transaction.bind(raw);let injected=false;
+  const spy=vi.spyOn(raw,"$transaction");
+  spy.mockImplementation((async(...args:unknown[])=>{
+   if(!injected){injected=true;await raw.customer.create({data:{id:"late-referral",name:"事务前新增下游",phone:"13900000009",salesOwnerId:mocks.user.id,referrerCustomerId:张三.id}})}
+   return Reflect.apply(original,raw,args);
+  }) as typeof raw.$transaction);
+  try{
+   const result=await deleteCustomers([张三.id]);expect(result).toMatchObject({ok:false,error:expect.stringContaining("推荐")});
+   expect(await raw.customer.findUnique({where:{id:"late-referral"}})).toMatchObject({referrerCustomerId:张三.id});
+   expect(await raw.customer.findUnique({where:{id:张三.id}})).not.toBeNull();expect(await raw.unassignedContact.count()).toBe(0);expect(await raw.contact.count()).toBe(1);
+   expect(await raw.auditLog.count({where:{action:"delete",entity:"Customer"}})).toBe(0);
+  }finally{spy.mockRestore()}
+ });
+ it("确认后、事务前新增联系人，也搬入未归属，不被级联删除",async()=>{
+  const original=raw.$transaction.bind(raw);let injected=false;
+  const spy=vi.spyOn(raw,"$transaction");
+  spy.mockImplementation((async(...args:unknown[])=>{
+   if(!injected){injected=true;await raw.contact.create({data:{id:"late-contact",name:"迟到联系人",customerId:张三.id,phone:"13900000009"}})}
+   return Reflect.apply(original,raw,args);
+  }) as typeof raw.$transaction);
+  try{
+   expect(await deleteCustomers([张三.id])).toMatchObject({ok:true,留下联系人:2});
+   expect(await raw.unassignedContact.findUnique({where:{id:"late-contact"}})).toMatchObject({name:"迟到联系人",fromCustomerId:张三.id});
+  }finally{spy.mockRestore()}
+ });
+});

@@ -5,12 +5,11 @@
  * 「升上来第一次进主界面弹更新记录」都只在库还是新的时候成立。
  */
 import { test, expect } from "@playwright/test";
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { ROOT, 云端账号, 进门地址, DESKTOP_TOKEN } from "./env";
+import { 云端账号, 进门地址, DESKTOP_TOKEN } from "./env";
 import { 没登录云端时, 进门 } from "./helpers";
 
-const 版本 = (JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { version: string }).version;
+// 用户要求公开版本固定 0.46.15；package.json 的内部构建号用于安装与更新排序。
+const 版本 = "0.46.15";
 
 test.describe.configure({ mode: "serial" });
 

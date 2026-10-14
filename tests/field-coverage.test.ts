@@ -66,7 +66,9 @@ const 可写: Record<string, string[]> = {
 
 /** 派生 / 只读：写明为什么不能直接改 */
 const 派生: Record<string, Record<string, string>> = {
+  Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
+    expectedSignOn: "预计签约原日历日，随保存/导入/同步保留；旧数据未知为空",
     attributionChannelId: "推荐链往上两代算出来的，改推荐人它就跟着变",
     attributionCustomerId: "同上",
     lastFollowAt: "最近一条跟进的时间，记跟进时自动维护",
@@ -75,7 +77,7 @@ const 派生: Record<string, Record<string, string>> = {
     convertedAt: "convertLead 转化时打上",
     customerId: "转化后指向新建的客户，由 convertLead 设置",
   },
-  Task: { doneAt: "toggleTask 完成时打上", ownerId: "创建者，不做转派" },
+  Task: { dueOn: "仅日期的原日历日，保存时派生并随同步保留", dueHasTime: "明确钟点选择；旧数据未知为空", doneAt: "toggleTask 完成时打上", ownerId: "创建者，不做转派" },
   OpportunityClose: {
     opportunityId: "哪个商机，变成赢单或丢单时一起写",
     closedAt: "赢单 / 丢单的那一刻，系统打上；回到进行中就删掉这一行",
@@ -125,13 +127,15 @@ const 派生: Record<string, Record<string, string>> = {
     channelOwnerId: "签约那一刻客户的渠道负责人，同上",
   },
   UnassignedContact: {
+    wasPrimary: "移出时保存原关键身份；空值表示旧数据未知，挂回原客户可预选恢复，换客户不默认接管关键身份",
+    ownerId: "移出或保留联系人时记录操作者，权限隔离使用；不允许表单转派",
     fromCustomerId: "detachContact 移出时记下原来是谁的，挂回原处时接回跟进记录用",
     fromCustomerName: "同上，给人看（那位之后可能被删）",
     followUpIds: "detachContact 移出时记下原来指着他的跟进记录",
     detachedAt: "移出的时刻，系统打上",
   },
-  FollowPlan: { ownerId: "创建者，不做转派" },
-  FollowUp: { ownerId: "记录人，不做转派" },
+  FollowPlan: { plannedOn: "仅日期的原日历日，保存时派生并随同步保留", plannedHasTime: "明确钟点选择；旧数据未知为空", ownerId: "创建者，不做转派", doneAt: "实际完成时系统记录；撤销完成清空，旧记录未知则为空，不允许手工伪造" },
+  FollowUp: { dueOn: "仅日期原日历日，随派生待办/撤销保存", dueHasTime: "明确钟点选择；旧数据未知为空", ownerId: "记录人，不做转派" },
   AiConversation: {
     ownerId: "问的人，落库时打上。对话只有自己看得见，转派没有意义",
     scope: "在哪一页问的，新建那条对话时打上。一条对话在哪一页开的，之后不会变——面板按它翻这一页的历史",

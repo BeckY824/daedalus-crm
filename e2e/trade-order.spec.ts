@@ -108,7 +108,7 @@ test("外贸：转为订单 → 客户页订单区 → 跟进挂订单 → 订�
   // 客户页：订单区、档案里的外贸几格；没有推荐关系、预计签约
   await page.locator(".ant-table-row", { hasText: 商机名 }).getByRole("link", { name: 客户名 }).click();
   await page.waitForURL(/\/customers\/[^/?]+/);
-  const 档案 = page.locator(".rec-rail.rec-card");
+  const 档案 = page.getByRole("main").locator(".rec-rail.rec-card");
   await expect(档案.locator(".rec-sec-t", { hasText: "订单" })).toBeVisible();
   await expect(档案).toContainText("PI-E2E-01");
   await expect(档案).toContainText("T/T 30/70 · 临沂测试食品厂");
@@ -116,22 +116,22 @@ test("外贸：转为订单 → 客户页订单区 → 跟进挂订单 → 订�
   await expect(档案).not.toContainText("推荐关系");
   await expect(档案).not.toContainText("预计签约");
   await expect(page.getByRole("link", { name: /WhatsApp/ })).toHaveAttribute("href", "https://wa.me/998901230021");
-  await expect(page.locator(".rec-tags")).toContainText("已下单");
+  await expect(page.getByRole("main").locator(".rec-tags")).toContainText("已下单");
 
   // 记跟进挂到订单上
   await page.getByPlaceholder(/记一笔/).first().fill("工厂说 10 月 25 日货好");
   await page.getByRole("button", { name: "直接记" }).click();
-  await expect(page.locator(".rec-tl-item", { hasText: "工厂说 10 月 25 日货好" })).toBeVisible();
-  await page.locator(".rec-tl-item", { hasText: "工厂说 10 月 25 日货好" }).hover();
-  await page.locator(".rec-tl-item", { hasText: "工厂说 10 月 25 日货好" }).getByRole("button", { name: /编辑/ }).click();
+  await expect(page.getByRole("main").locator(".rec-tl-item", { hasText: "工厂说 10 月 25 日货好" })).toBeVisible();
+  await page.getByRole("main").locator(".rec-tl-item", { hasText: "工厂说 10 月 25 日货好" }).hover();
+  await page.getByRole("main").locator(".rec-tl-item", { hasText: "工厂说 10 月 25 日货好" }).getByRole("button", { name: /编辑/ }).click();
   const 跟进框 = page.getByRole("dialog");
   await 跟进框.getByLabel("关联商机 / 订单").click();
   await page.locator(".ant-select-item-option", { hasText: "订单 PI-E2E-01" }).click();
   await 跟进框.getByRole("button", { name: /保\s*存/ }).click();
-  await expect(page.locator(".rec-tl-item", { hasText: "工厂说 10 月 25 日货好" }).locator(".rec-tl-order")).toHaveText("订单 PI-E2E-01");
+  await expect(page.getByRole("main").locator(".rec-tl-item", { hasText: "工厂说 10 月 25 日货好" }).locator(".rec-tl-order")).toHaveText("订单 PI-E2E-01");
 
   // 订单页：信息 + 挂着的跟进；再记一笔
-  await page.locator(".rec-tl-order", { hasText: "PI-E2E-01" }).click();
+  await page.getByRole("main").locator(".rec-tl-order", { hasText: "PI-E2E-01" }).click();
   await page.waitForURL(/\/orders\/[^/?]+$/);
   await expect(page.locator(".ord-notes").first()).toContainText("工厂说 10 月 25 日货好");
   // 节点开着时订单页是节点那一套（e2e/order-nodes.spec.ts 走它），挂在整单上的跟进在「整单的记录」里——上面那句已经验过

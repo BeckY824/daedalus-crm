@@ -9,8 +9,8 @@ export default async function NotFound() {
   const b = await getBusiness();
   return (
     <StatePage
-      标题="这条记录不在了"
-      说明={`地址是对的，但它指向的东西已经不在库里——多半是被人删掉了，也可能是链接里的编号抄错了一位。回${b.customer}列表按名字搜一下最快。`}
+      标题="没有找到这条记录"
+      说明={`这条记录可能已删除、暂不可见，或链接中的编号不正确。回${b.customer}列表按名字搜一下。`}
       动作={{ label: `回${b.customer}列表`, href: "/customers" }}
       次动作={{ label: "回首页", href: "/dashboard" }}
     />

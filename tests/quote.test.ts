@@ -11,6 +11,8 @@ import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "我", email: "me@local", role: "ADMIN", title: "管理员", avatar: null },
 }));
+// 此套件验证高级功能启用时的实现；默认关闭的服务端拒绝由remediation-feature-access单独覆盖。
+vi.mock("@/lib/features", async (original) => ({ ...(await original<object>()), 报价明细: true }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 vi.mock("@/lib/auth", () => ({ requireUser: async () => mocks.user }));
 

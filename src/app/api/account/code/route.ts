@@ -26,6 +26,9 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
+  if (!body || typeof body !== "object" || Array.isArray(body) || (body.target != null && typeof body.target !== "string")) {
+    return NextResponse.json({ error: "账号必须是文字" }, { status: 400 });
+  }
   const target = (body.target ?? "").trim();
   if (!target) return NextResponse.json({ error: "请填邮箱" }, { status: 400 });
 

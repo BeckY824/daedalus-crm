@@ -9,6 +9,7 @@ import { 登录之后 } from "./after-login";
 import { useMotionTheme } from "@/components/MotionTheme";
 import { PixelLogo } from "@/components/Logo";
 import AuthSide from "./AuthSide";
+import {记找回邮箱,useLoginEmail} from "@/lib/auth-email-prefill";
 
 /** server action 迟迟不返回时的等待上限。链路正常时登录在 3 秒内完成。 */
 const 请求超时毫秒 = 20000;
@@ -40,7 +41,7 @@ export default function LoginForm({
   const { 曲线, 时长 } = useMotionTheme();
   /** 托管版的账号是邮箱，自部署是管理员建的登录名。见 page.tsx */
   const 账号名 = 用邮箱 ? "邮箱" : "用户名";
-  const [账号, set账号] = useState("");
+  const [账号, set账号] = useLoginEmail(用邮箱);
   const [密码, set密码] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +123,7 @@ export default function LoginForm({
           </div>
           <div className="auth-step">
             <h1>登录</h1>
-            <p className="auth-hint">{用邮箱 ? "用团队发给你的账号登录网页版。" : "用管理员给你开的账号登录。"}</p>
+            <p className="auth-hint">{用邮箱 ? "使用你的账号登录网页版。" : "使用此部署中的账号登录。"}</p>
             <label className="auth-label" htmlFor="auth-account">
               {账号名}
             </label>
@@ -158,7 +159,7 @@ export default function LoginForm({
             </Button>
             {(可找回密码 || (可注册 && 注册地址)) && (
               <p className="auth-alt">
-                {可找回密码 && <Link href="/forgot">忘记密码？</Link>}
+                {可找回密码 && <Link href="/forgot" onClick={()=>记找回邮箱(账号)}>忘记密码？</Link>}
                 {/* 两端同一个入口、同一句话。注册开的是**云端账号**——网页版没有工作区这件事
                     由注册页和登录失败那句话说，不在这个链接上解释，否则一个按钮要背一段话 */}
                 {可注册 && 注册地址 && (

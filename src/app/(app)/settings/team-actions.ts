@@ -7,6 +7,7 @@ import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { recordAudit } from "@/lib/audit";
 import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
+import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
 
 /**
  * 设置 → 团队（2026-10-03，团队同步）。只在桌面端本地模式有这一栏；真正的活在 lib/sync/client.ts。
@@ -39,7 +40,8 @@ async function 每人概况(账号们: string[]): Promise<Record<string, 一人>
   for (const a of 账号们) {
     const id = 团队身份id(a);
     const [客户, 近7天跟进, 最近] = await Promise.all([
-      prisma.customer.count({ where: { salesOwnerId: id } }),
+      // 手上的：公海里的（负责人还挂着原来那位）不算，和点进去的客户列表「客户」页签对得上
+      prisma.customer.count({ where: { salesOwnerId: id, pool: { is: null } } }),
       prisma.followUp.count({ where: { ownerId: id, occurredAt: { gte: 七天前 } } }),
       prisma.followUp.findFirst({ where: { ownerId: id }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } }),
     ]);
@@ -98,4 +100,21 @@ export async function 换邀请码动作() {
   const r = await 换邀请码();
   if (r.ok) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: "换了团队邀请码和钥匙，旧邀请码作废" });
   return r;
+}
+
+/* ---------------- 范围同步：失权的未上传改动（只列、导出、确认，从不删除） ---------------- */
+export async function 读范围冲突() {
+  await requireUser();
+  return 列出范围冲突(prisma);
+}
+export async function 导出范围冲突动作() {
+  await requireUser();
+  return 导出范围冲突(prisma);
+}
+export async function 确认范围冲突动作(ids: number[]) {
+  const me = await requireUser();
+  const n = await 确认范围冲突(prisma, Array.isArray(ids) ? ids.map(Number) : []);
+  if (n) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: `确认了 ${n} 条失权冲突（只标记已处理，未删除）` });
+  revalidatePath("/settings");
+  return { ok: true as const, 确认: n };
 }

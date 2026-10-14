@@ -181,6 +181,7 @@ describe("R7-4 注册后登录失败带去输密码（dcb680f 修 C6）", () => 
     await 走到注册(page, "Secret12345");
     expect(await 标题(page)).toBe("输入密码");
     expect(await page.inputValue("#auth-pw")).toBe("Secret12345");
+    expect(await page.getByRole("status").textContent()).toContain("账号已注册");
     const 痕迹 = await page.evaluate(() => JSON.stringify({ l: { ...localStorage }, s: { ...sessionStorage }, u: location.href, c: document.cookie }));
     expect(痕迹).not.toContain("Secret12345");
     await page.close();
@@ -195,8 +196,8 @@ describe("R7-4 注册后登录失败带去输密码（dcb680f 修 C6）", () => 
     await page.close();
   });
 
-  // 【下一版】第七轮 C1：0.46.15 不修（A0 B0，C 级排下一版，用户定的放行条件）
-  it.skip("【C】客户端超时（或云端那趟超时）之后号其实开好了：再点注册 →「请先获取验证码」被退回输码 → 点「重发」云端说已注册，界面应带去输密码，实际原地不动、也不说话", async () => {
+  // H048：重发返回已注册时必须恢复到登录。
+  it("注册结果未知后重发得到已注册：带去密码页并保留刚设密码", async () => {
     const page = await 开("登录", `{
       下一步: async () => (window.__第几次 = (window.__第几次 || 0) + 1) === 1 ? { ok: true, data: { 去: "验证码" } } : { ok: true, data: { 去: "密码" } },
       注册: async () => ({ ok: false, error: "请先获取验证码" }),
@@ -212,8 +213,9 @@ describe("R7-4 注册后登录失败带去输密码（dcb680f 修 C6）", () => 
     await 过场(page);
     // 前提：重发真的问了云端，云端说的是「去输密码」（注册过了）
     expect(await page.evaluate(() => (window as unknown as { __调用: Record<string, unknown[]> }).__调用.下一步.length)).toBe(2);
-    // 实际：标题还是「看一下邮箱」，错误条也被清了，人对着空格子
     expect(await 标题(page)).toBe("输入密码");
+    expect(await page.inputValue("#auth-pw")).toBe("Secret12345");
+    expect(await page.getByRole("status").textContent()).toContain("账号已注册");
     await page.close();
   }, 60_000);
 });

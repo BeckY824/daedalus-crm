@@ -1,5 +1,9 @@
 "use client";
 
+import { useFollowHistory } from "./useFollowHistory";
+
+import Shortcut from "@/components/Shortcut";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -20,13 +24,14 @@ import {
 import { motion, AnimatePresence } from "motion/react";
 import InlineConfirm from "@/components/InlineConfirm";
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
-import { dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, AVATAR_TEXT, 独自一人 } from "@/lib/utils";
+import { 成员选项, dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, AVATAR_TEXT, 独自一人 } from "@/lib/utils";
 import { FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸订单, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { 国家候选, WhatsApp网址 } from "@/lib/customer-extra";
 import FollowUpForm from "./FollowUpForm";
 import TaskForm from "./TaskForm";
+import OpportunityForm from "../../opportunities/OpportunityForm";
 import PlanForm from "./PlanForm";
 import ContactForm from "./ContactForm";
 import ContractForm, { type ContractRow } from "./ContractForm";
@@ -34,7 +39,7 @@ import CustomerForm from "../CustomerForm";
 import InlineField from "./InlineField";
 import AiPanel from "./AiPanel";
 import StarButton from "./StarButton";
-import AiCost from "@/components/AiCost";
+import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { toggleTask, deleteTask, deleteFollowUp, restoreFollowUp, completePlan, saveFollowUp } from "./actions";
 import { useContactRemoval } from "./useContactRemoval";
 import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
@@ -49,6 +54,7 @@ import { 金额, 合计文字 } from "@/lib/currency";
 import { 公海标签 } from "@/lib/pool";
 import { 带走说法 } from "@/lib/carry-over";
 import { 放进公海, 领取, 撤销公海 } from "../pool-actions";
+import { useDeleteCustomers } from "../useDeleteCustomers";
 
 /**
  * 记录页（v0.4）：三栏。
@@ -73,14 +79,15 @@ type Entry =
   | { kind: "contract"; at: string; c: ContractRow };
 
 /** 负责人下拉的选项：现任不在候选里（管理员、已停用）时补进去，标上「（不在候选里）」，别显示成一串 id */
-function 带上现任(users: { id: string; name: string }[], 现任: string | null, 现任名: string | null | undefined) {
-  const 选项 = users.map((u) => ({ value: u.id, label: u.name }));
+function 带上现任(users: { id: string; name: string; email: string }[], 现任: string | null, 现任名: string | null | undefined) {
+  const 选项 = 成员选项(users);
   if (现任 && !users.some((u) => u.id === 现任)) 选项.unshift({ value: 现任, label: `${现任名 ?? "（已删除的成员）"}（不在候选里）` });
   return 选项;
 }
 
 export default function RecordView({
   customer,
+  sourceLead = null,
   contacts,
   contracts,
   opportunities,
@@ -88,6 +95,7 @@ export default function RecordView({
   tasks,
   plan,
   followUps,
+  followUpsHasMore = false,
   users,
   channels,
   referrableCustomers,
@@ -98,7 +106,10 @@ export default function RecordView({
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
   const { message, modal } = App.useApp();
+  const { 问删除 } = useDeleteCustomers();
+  const AI已用完 = useAiOutOfCredits();
   const b = useBusiness();
+  const history = useFollowHistory(customer.id, followUps, followUpsHasMore);
   const { 问怎么拿掉 } = useContactRemoval();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
   const [报价全开, set报价全开] = useState(false);
@@ -132,6 +143,7 @@ export default function RecordView({
   const [followOpen, setFollowOpen] = useState(false);
   const [followInit, setFollowInit] = useState<{ record: FollowUpRow | null; aiText?: string }>({ record: null });
   const [taskOpen, setTaskOpen] = useState(false);
+  const [opportunityOpen, setOpportunityOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
   /*
     从到点提醒点进来（desktop/reminders.js 带 ?focus=plan:… / task:…）：把那一条滚到眼前、闪一下，
@@ -180,11 +192,11 @@ export default function RecordView({
 
   const entries = useMemo<Entry[]>(() => {
     const list: Entry[] = [
-      ...followUps.filter((f) => filter === "全部" || filter === f.type).map((f) => ({ kind: "follow" as const, at: f.occurredAt, f })),
+      ...history.rows.filter((f) => filter === "全部" || filter === f.type).map((f) => ({ kind: "follow" as const, at: f.occurredAt, f })),
       ...(filter === "全部" || filter === "CONTRACT" ? contracts.map((c) => ({ kind: "contract" as const, at: c.signedAt, c })) : []),
     ];
     return list.sort((a, b2) => dayjs(b2.at).valueOf() - dayjs(a.at).valueOf());
-  }, [followUps, contracts, filter]);
+  }, [history.rows, contracts, filter]);
 
   const openTasks = tasks.filter((t) => !t.done);
 
@@ -261,9 +273,13 @@ export default function RecordView({
    * 完成眼前这条计划（审查 M10）。提示里带「撤销」和「排下一次」：
    * 原来点完「下次跟进」那块直接变成「尚未安排」，点错了改不回来，做完了也没人问下一次什么时候
    */
-  async function 完成计划(p: Pick<NonNullable<typeof plan>, "id" | "subject">, 顺带?: string) {
-    await completePlan(p.id);
+  async function 完成计划(p: Pick<NonNullable<typeof plan>, "id" | "subject">, 顺带?: string, 已完成 = false) {
+    if (!已完成) {
+      const result = await completePlan(p.id).catch(() => ({ ok: false as const, error: "计划完成失败，请稍后重试" }));
+      if (!result.ok) return void message.error(result.error);
+    }
     router.refresh();
+    void window.desktopReminders?.刷新();
     const key = `plan-${p.id}`;
     message.success({
       key,
@@ -276,7 +292,9 @@ export default function RecordView({
             size="small"
             onClick={async () => {
               message.destroy(key);
-              await completePlan(p.id, false);
+              const result = await completePlan(p.id, false).catch(() => ({ ok: false as const, error: "计划恢复失败，请稍后重试" }));
+              if (!result.ok) return void message.error(result.error);
+              void window.desktopReminders?.刷新();
               message.success(`「${p.subject}」已改回未完成`);
               router.refresh();
             }}
@@ -291,7 +309,8 @@ export default function RecordView({
     });
   }
 
-  const fingerprint = `${followUps.length}:${followUps[0]?.occurredAt ?? ""}:${followUps[0]?.id ?? ""}`;
+  // 历史页编辑/删除也推进客户版本；翻页本身不使AI缓存失效。
+  const fingerprint = `${customer.updatedAt}:${followUps.length}:${followUps[0]?.occurredAt ?? ""}:${followUps[0]?.id ?? ""}`;
 
   /** 公海（第 6 块）：放进 / 领取这一位，提示条上带一次撤销（和列表上同一个做法） */
   async function 公海动作(动作: "放进" | "领取") {
@@ -365,12 +384,12 @@ export default function RecordView({
           </div>
           {/* 副标题是这个人的三个定位：年级 · 专业 · 谁在跟。没填的那项不占位 */}
           <div className="rec-head-sub">
-            {[customer.grade, customer.major, customer.salesOwnerName].filter(Boolean).join(" · ")}
+            {[customer.grade, customer.major, !独自一人(users, customer.salesOwnerId) && customer.salesOwnerName].filter(Boolean).join(" · ")}
           </div>
         </div>
         {名单在抽屉里 && (
           <Button size="small" icon={<UnorderedListOutlined />} onClick={开名单}>
-            换一位（⌘K）
+            换一位（<Shortcut>⌘K</Shortcut>）
           </Button>
         )}
         <span style={{ flex: 1 }} />
@@ -389,6 +408,7 @@ export default function RecordView({
                 ...FOLLOW_TYPES.map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
                 { type: "divider" as const },
                 { key: "edit", icon: <EditOutlined />, label: `编辑${b.customer}资料`, onClick: () => setCustOpen(true) },
+                { key: "delete", icon: <DeleteOutlined />, danger: true, label: `删除这位${b.customer}`, onClick: () => void 问删除([{ id: customer.id, name: customer.name }], () => router.push("/customers")) },
                 // 公海（第 6 块）：多人时、我是负责人或管理员、还不在公海里
                 ...(!独自一人(users) && 能放公海 && !customer.pool
                   ? [{ key: "pool", icon: <InboxOutlined />, label: "放进公海", onClick: () => void 公海动作("放进") }]
@@ -396,7 +416,7 @@ export default function RecordView({
               ],
             }}
           >
-            <Button type="primary" icon={<DownOutlined />} />
+            <Button type="primary" icon={<DownOutlined />} aria-label="客户更多操作" />
           </Dropdown>
         </Space.Compact>
       </div>
@@ -466,6 +486,13 @@ export default function RecordView({
               <div className="rec-field-k">电话</div>
               <div className="rec-field-v">{customer.phone || <span className="rec-field-empty">未填</span>}</div>
             </div>
+            {sourceLead && <div className="rec-field" style={{cursor:"default"}} data-testid="customer-lead-origin">
+              <div className="rec-field-k">来源线索</div>
+              <div className="rec-field-v" style={{overflowWrap:"anywhere"}}>
+                <div>{sourceLead.name} · {sourceLead.source}</div>
+                <div style={{color:"var(--text-muted)",fontSize:12}}>编号 {sourceLead.id} · 转化时间 {sourceLead.convertedAt ? fmtDateTime(sourceLead.convertedAt) : "未记录"}</div>
+              </div>
+            </div>}
             <InlineField customerId={customer.id} field="school" label={b.fields.school} value={customer.school} />
             <InlineField customerId={customer.id} field="major" label={b.fields.major} value={customer.major} />
             <InlineField customerId={customer.id} field="grade" label={b.fields.grade} value={customer.grade} kind="combo" options={b.grades.map((g) => ({ value: g, label: g }))} />
@@ -550,13 +577,13 @@ export default function RecordView({
           <div className="rec-sec">
             <div className="rec-sec-t">
               <span>商机 {opportunities.length > 0 && opportunities.length}</span>
-              <Link href="/opportunities">全部 ›</Link>
+              <Space size={4}><Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setOpportunityOpen(true)} aria-label="新建关联商机" /> <Link href="/opportunities">全部 ›</Link></Space>
             </div>
             {opportunities.length === 0 && <div className="rec-empty">还没有商机</div>}
             {opportunities.map((o) => (
               // 两行：名字独占一行，阶段和金额在下面（审查 M4）。原来三样挤一行，
               // 264 宽的左栏里名字只剩「恒拓 · …」，截掉的恰恰是认出这一单的那半截
-              <Link key={o.id} href={`/opportunities?keyword=${encodeURIComponent(o.name)}`} className="rec-mini rec-mini-2">
+              <Link key={o.id} href={`/opportunities?opportunity=${encodeURIComponent(o.id)}`} className="rec-mini rec-mini-2">
                 <span className="rec-mini-n" title={o.name}>{o.name}</span>
                 <span className="rec-mini-sub">
                   <StageTag stage={o.stage} />
@@ -589,7 +616,7 @@ export default function RecordView({
                 )}
               </div>
               {(报价全开 ? 报价记录 : 报价记录.slice(0, 5)).map((r, i) => (
-                <Link key={`${r.quotedAt}-${i}`} href={`/opportunities?keyword=${encodeURIComponent(r.商机)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
+                <Link key={`${r.quotedAt}-${i}`} href={`/opportunities?opportunity=${encodeURIComponent(r.商机id)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
                   <span className="rec-mini-n" title={r.spec ? `${r.product}（${r.spec}）` : r.product}>
                     {r.product}
                     {r.spec && <span className="rec-mini-m"> · {r.spec}</span>}
@@ -657,7 +684,7 @@ export default function RecordView({
                 {aiEnabled ? "「AI 解析」会把它整理成跟进记录并留存原文；「直接记」原样存为一条记录" : "Enter 换行，写完点「直接记」"}
               </span>
               {aiEnabled && (
-                <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={memo.trim().length < 5} onClick={() => openFollow(null, memo)}>
+                <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={memo.trim().length < 5 || AI已用完} onClick={() => openFollow(null, memo)}>
                   AI 解析
                   <AiCost />
                 </Button>
@@ -701,7 +728,7 @@ export default function RecordView({
           <div className="rec-tl">
             {entries.length === 0 && (
               <div style={{ padding: "36px 0", textAlign: "center", color: "var(--text-muted)" }}>
-                {filter === "全部" ? "还没有任何记录。上面随手记一笔，或粘一段聊天记录让 AI 整理。" : "这个类型下还没有记录"}
+                {filter !== "CONTRACT" && history.hasMore ? "已加载的记录中暂无此类型，可继续加载更早的跟进。" : filter === "全部" ? "还没有任何记录。上面随手记一笔，或粘一段聊天记录让 AI 整理。" : "这个类型下还没有记录"}
               </div>
             )}
             {/* 打开一位的记录时逐条进场（间隔 70ms、八条以后一起）——原来 initial={false}，
@@ -724,10 +751,17 @@ export default function RecordView({
                     </div>
                   </motion.div>
                 ) : (
-                  <FollowItem key={e.f.id} f={e.f} index={i} onEdit={() => openFollow(e.f)} onDelete={() => deleteFollow(e.f)} />
+                  <FollowItem key={e.f.id} f={e.f} showOwner={!e.f.ownerId || !独自一人(users, e.f.ownerId)} index={i} onEdit={() => openFollow(e.f)} onDelete={() => deleteFollow(e.f)} />
                 ),
               )}
             </AnimatePresence>
+            {filter !== "CONTRACT" && history.hasMore && (
+              <div style={{ padding: 16, textAlign: "center" }}>
+                <Button loading={history.loading} onClick={() => void history.loadMore().catch(error => message.error(error instanceof Error ? error.message : "历史跟进加载失败，请重试"))}>加载更早的跟进</Button>
+                <div className="muted" style={{ marginTop: 8 }}>已加载 {history.rows.length} 条跟进 · 筛选作用于已加载记录</div>
+              </div>
+            )}
+            {filter !== "CONTRACT" && history.paged && <div style={{ textAlign: "center", paddingBottom: 12 }}><Button type="link" onClick={() => { history.reset(); router.refresh(); }}>重新加载历史</Button></div>}
           </div>
         </section>
 
@@ -810,6 +844,7 @@ export default function RecordView({
         onSaved={() => {
           setFollowOpen(false);
           setMemo("");
+          if (followInit.record?.id) void history.refreshRow(followInit.record.id).catch(() => message.warning("跟进已保存，请刷新页面核对最新内容"));
           router.refresh();
         }}
         customerId={customer.id}
@@ -817,12 +852,13 @@ export default function RecordView({
         initialAiText={followInit.aiText}
         /* 到期了（今天或更早）的那条计划：记完这一笔默认顺手完成它（审查 M9） */
         待收口计划={plan && !dayjs(plan.plannedAt).isAfter(dayjs().endOf("day")) ? plan : null}
-        完成了计划={(p) => void 完成计划(p, `跟进已记录，计划「${p.subject}」一并完成`)}
+        完成了计划={(p, 已完成) => void 完成计划(p, `跟进已记录，计划「${p.subject}」一并完成`, 已完成)}
         contacts={contacts}
         opportunities={opportunities}
         orders={contracts.flatMap((c) => (c.order ? [{ id: c.order.id, no: c.order.no }] : []))}
         aiEnabled={aiEnabled}
       />
+      <OpportunityForm open={opportunityOpen} editing={null} initialCustomer={{ id: customer.id, name: customer.name }} users={users} customers={[]} onClose={() => setOpportunityOpen(false)} onSaved={() => { setOpportunityOpen(false); router.refresh(); }} />
       <TaskForm open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={() => { setTaskOpen(false); router.refresh(); }} customerId={customer.id} />
       <PlanForm
         open={planOpen}
@@ -866,6 +902,7 @@ export default function RecordView({
     const r = await deleteFollowUp(f.id, customer.id);
     router.refresh();
     if (!r.ok) return void message.error(r.error);
+    history.remove(f.id);
     // 给一次撤销（排查 D2）：AI 速记的跟进连原文一起删，原来删了就再也找不回来
     const key = `follow-${f.id}`;
     message.success({
@@ -881,6 +918,7 @@ export default function RecordView({
               message.destroy(key);
               const u = await restoreFollowUp(r.快照);
               if (!u.ok) return void message.error(u.error);
+              await history.refreshRow(f.id).catch(() => message.warning("跟进已恢复，请刷新页面核对最新内容"));
               message.success("这条跟进回来了");
               router.refresh();
             }}
@@ -990,7 +1028,7 @@ function StatusPicker({
   );
 }
 
-function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: number; onEdit: () => void; onDelete: () => void }) {
+function FollowItem({ f, showOwner, index, onEdit, onDelete }: { f: FollowUpRow; showOwner: boolean; index: number; onEdit: () => void; onDelete: () => void }) {
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const meta = FOLLOW_TYPE_MAP[f.type] ?? FOLLOW_TYPE_MAP.OTHER;
   const [srcOpen, setSrcOpen] = useState(false);
@@ -1007,6 +1045,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
           {f.order && !f.title?.includes(f.order.no) && (
             <Link href={`/orders/${f.order.id}`} className="rec-tl-order">订单 {f.order.no}</Link>
           )}
+          {f.opportunity && <Link href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order">关联商机：{f.opportunity.name}</Link>}
           {f.status !== "已完成" && (
             <Tag color={FOLLOW_RECORD_STATUS_COLOR[f.status] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
               {f.status}
@@ -1058,7 +1097,7 @@ function FollowItem({ f, index, onEdit, onDelete }: { f: FollowUpRow; index: num
           {f.contactName && <span>{f.contactName}{f.contactPosition ? `（${f.contactPosition}）` : ""}</span>}
           {f.participants && <span>参与人：{f.participants}</span>}
           {f.dueAt && <span>截止 {fmtDateTime(f.dueAt)}</span>}
-          <span style={{ marginLeft: "auto" }}>{f.ownerName}</span>
+          {showOwner && <span style={{ marginLeft: "auto" }}>{f.ownerName}</span>}
         </div>
       </div>
     </motion.div>

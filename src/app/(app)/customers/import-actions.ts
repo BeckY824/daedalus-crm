@@ -1,5 +1,7 @@
 "use server";
 
+import { parseSignDate } from "@/lib/schedule-date";
+
 import { 外贸导入字段 } from "@/lib/import/fields";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
 import { 按邮箱找, 同邮箱条件, 邮箱认人表 } from "@/lib/email-dedupe";
@@ -47,6 +49,8 @@ export type 预览 = {
    * 界面在第 4 步改处置时据此当场重算（import-steps 的 按处置），不用退回去再预览一次（2026-10-02 排查）
    */
   已在库里: number;
+  /** 有修改权限且确实能填空/追加备注的已有客户；与当前处置无关。 */
+  可补空?: number;
   说不清: number;
   进不了: number;
   /** 表里手机号重复、被合成一条的行数 */
@@ -90,32 +94,80 @@ async function 排好(方案: 导入方案) {
   return { b, 表, 行, 合掉几行 };
 }
 
-/**
- * 预览：这一份表导进去会发生什么。
- *
- * **这里算出来的数就是真正会发生的数**，不是估计。同一手机号的多行在
- * `并重复行` 里已经合过了，库里已有的那些在这儿真查了一遍。
- * Attio 的预览写的是「最多创建 X 条」，因为他们把合并留到执行时才做；
- * 人看到的数和事后的结果不一致，比数大一点更伤信任。
- */
+async function 导入匹配(行: ReturnType<typeof 摊开>) {
+  // 带分机的号也认老库里只存了主号的那位（第三轮 B4）；库里老写法「138 0000 1111」按号键认（R-067 / R-069，见 lib/phone-dedupe）
+  const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
+  const 邮命中 = await 按邮箱找(prisma, 邮箱那一批(行));
+  /*
+    团队版业务员（lib/team-scope.ts）：同号的人要看全部才认得出——同事的客户也算「已经有了」，不另建一份；
+    但同事的客户不替他补空（业务员改不了别人的客户），算跳过
+  */
+  const 命中 = await 看全部(async () => prisma.customer.findMany({
+    where: { OR: [await 这一批同号的(prisma, 这一批), { id: { in: 邮命中.map((x) => x.id) } }] },
+    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, expectedSignOn: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
+  }));
+  // 外贸档案（2026-10-05）在旁表里：补空也是「那一格空着才补」，先取一份现值
+  const 档案们 = new Map(
+    (await 看全部(async () => prisma.customerExtra.findMany({ where: { customerId: { in: 命中.map((c) => c.id) } } }))).map((x) => [x.customerId, x]),
+  );
+  const 限定我 = await 限定的我(defaultClient);
+  const 表 = 认人表(命中, 这一批, await 分机留存起());
+  const 按id = new Map(命中.map((c) => [c.id, c]));
+  const 邮表 = 邮箱认人表(邮命中.flatMap((x) => (按id.has(x.id) ? [{ 客户: 按id.get(x.id)!, 键: x.键 }] : [])));
+
+  return { 表, 邮表, 档案们, 限定我 };
+}
+
+function 算补空(r: ReturnType<typeof 摊开>[number], 旧: { school: string | null; grade: string | null; major: string | null; expectedSignAt: Date | null; expectedSignOn: string | null; remark: string | null }, 档案?: Partial<Record<(typeof 外贸导入字段)[number], string | null>>) {
+  const 补: Record<string, unknown> = {};
+  const before: Record<string, unknown> = {};
+  for (const k of 补空字段名单) {
+    const 新值 = r.值[k as 字段名];
+    if (!新值) continue;
+    // 库里那格有值就一个字都不动——文件头第 2 条
+    if ((旧 as Record<string, unknown>)[k] != null && (旧 as Record<string, unknown>)[k] !== "") continue;
+    补[k] = k === "expectedSignAt" ? parseSignDate(新值)!.at : 新值;
+    before[k] = (旧 as Record<string, unknown>)[k] ?? null;
+    if (k === "expectedSignAt") {
+      补.expectedSignOn = parseSignDate(新值)!.on;
+      before.expectedSignOn = 旧.expectedSignOn;
+    }
+  }
+  /*
+    库里备注有值：对上「备注」的那一列照旧不动，但表里我们没有的列（「微信号：…」）只有备注这一个去处——
+    添在库里备注后面，原来的字一个不动、已经在里面的那行不重复添。原来这条路上整列丢，预览还说补空 0
+    （2026-10-04 L-004 / J-051）。撤销照 before 把备注还原成原样
+  */
+  // 外贸档案：同一个规矩，库里那格空着才补。before 里记成「extra.国家键」，撤销时照它还原
+  const 补档案: Partial<Record<(typeof 外贸导入字段)[number], string>> = {};
+  for (const k of 外贸导入字段) {
+    const 新值 = r.值[k];
+    if (!新值 || 档案?.[k]) continue;
+    补档案[k] = 新值;
+    before[`${档案前缀}${k}`] = null;
+  }
+  if (!("remark" in 补) && r.并进备注?.length && 旧.remark) {
+    const 添后 = 添行(旧.remark, r.并进备注);
+    if (添后 !== 旧.remark) {
+      补.remark = 添后;
+      before.remark = 旧.remark;
+    }
+  }
+
+  return { 补, 补档案, before };
+}
+
+/** 预览反映当前数据库快照；执行前数据或权限变化时，以执行结果为准。 */
 export async function 预览导入(方案: 导入方案): Promise<{ ok: true; 预览: 预览 } | { ok: false; error: string }> {
   await requireUser();
   const { 行, 合掉几行 } = await 排好(方案);
   if (行.length > 落库上限) return { ok: false, error: `一次最多导 ${落库上限} 行，这份表有 ${行.length} 行` };
 
-  // 带分机的号也认老库里只存了主号的那位，规矩见 lib/phone-dedupe 的 认人表（预览和执行同一张表，数才对得上）
-  const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
-  const 表 = 认人表(
-    // 团队版业务员：同事的客户也要认出来（不然悄悄建出第二份），看全部
-    await 看全部(async () => prisma.customer.findMany({ where: await 这一批同号的(prisma, 这一批), select: { phone: true, createdAt: true } })),
-    这一批,
-    await 分机留存起(),
-  );
-  // 外贸按邮箱认的行（没有电话）：裸 SQL 本来就看全部
-  const 邮表 = 邮箱认人表((await 按邮箱找(prisma, 邮箱那一批(行))).map((x) => ({ 客户: { id: x.id }, 键: x.键 })));
+  const { 表, 邮表, 档案们, 限定我 } = await 导入匹配(行);
 
   let 新建 = 0;
   let 撞上 = 0;
+  let 可补空 = 0;
   let 说不清 = 0;
   let 进不了 = 0;
   const 挡下: 预览["挡下"] = [];
@@ -125,11 +177,17 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: r.进不了 });
       continue;
     }
-    const { n, 说法 } = r.值.phone ? 表.认(r.值.phone) : 邮表.认(r.值.email!);
+    const { n, 旧, 说法 } = r.值.phone ? 表.认(r.值.phone) : 邮表.认(r.值.email!);
     if (n > 1) {
       说不清++;
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: 说法 ?? `库里有 ${n} 位都是这个号码，不知道该算谁的` });
-    } else if (n === 1) 撞上++;
+    } else if (n === 1) {
+      撞上++;
+      if (旧 && 看得到(旧, 限定我)) {
+        const { 补, 补档案 } = 算补空(r, 旧, 档案们.get(旧.id));
+        if (Object.keys(补).length || Object.keys(补档案).length) 可补空++;
+      }
+    }
     else 新建++;
   }
 
@@ -158,10 +216,11 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
     预览: {
       新建,
       已在库里: 撞上,
+      可补空,
       说不清,
-      补空: 方案.重复行 === "补空" ? 撞上 : 0,
+      补空: 方案.重复行 === "补空" ? 可补空 : 0,
       // 库里同号多条的那些一律算跳过：不知道该算谁的，就谁也不动
-      跳过: (方案.重复行 === "补空" ? 0 : 撞上) + 说不清,
+      跳过: 撞上 - (方案.重复行 === "补空" ? 可补空 : 0) + 说不清,
       进不了,
       合掉几行,
       // 拦行的排最前：那几格是真的让人进不来的
@@ -201,25 +260,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     (await prisma.channel.findMany({ where: { name: { in: 渠道名单 } }, select: { id: true, name: true } })).map((c) => [c.name, c.id]),
   );
 
-  // 带分机的号也认老库里只存了主号的那位（第三轮 B4）；库里老写法「138 0000 1111」按号键认（R-067 / R-069，见 lib/phone-dedupe）
-  const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
-  const 邮命中 = await 按邮箱找(prisma, 邮箱那一批(行));
-  /*
-    团队版业务员（lib/team-scope.ts）：同号的人要看全部才认得出——同事的客户也算「已经有了」，不另建一份；
-    但同事的客户不替他补空（业务员改不了别人的客户），算跳过
-  */
-  const 命中 = await 看全部(async () => prisma.customer.findMany({
-    where: { OR: [await 这一批同号的(prisma, 这一批), { id: { in: 邮命中.map((x) => x.id) } }] },
-    select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
-  }));
-  // 外贸档案（2026-10-05）在旁表里：补空也是「那一格空着才补」，先取一份现值
-  const 档案们 = new Map(
-    (await 看全部(async () => prisma.customerExtra.findMany({ where: { customerId: { in: 命中.map((c) => c.id) } } }))).map((x) => [x.customerId, x]),
-  );
-  const 限定我 = await 限定的我(defaultClient);
-  const 表 = 认人表(命中, 这一批, await 分机留存起());
-  const 按id = new Map(命中.map((c) => [c.id, c]));
-  const 邮表 = 邮箱认人表(邮命中.flatMap((x) => (按id.has(x.id) ? [{ 客户: 按id.get(x.id)!, 键: x.键 }] : [])));
+  const { 表, 邮表, 档案们, 限定我 } = await 导入匹配(行);
 
   const batch = await prisma.importBatch.create({
     data: { userId: me.id, userName: me.name, fileName: fileName.slice(0, 200), created: 0, updated: 0, skipped: 0, failed: 0 },
@@ -262,36 +303,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         跳过++;
         continue;
       }
-      const 补: Record<string, unknown> = {};
-      const before: Record<string, unknown> = {};
-      for (const k of 补空字段名单) {
-        const 新值 = r.值[k as 字段名];
-        if (!新值) continue;
-        // 库里那格有值就一个字都不动——文件头第 2 条
-        if ((旧 as Record<string, unknown>)[k] != null && (旧 as Record<string, unknown>)[k] !== "") continue;
-        补[k] = k === "expectedSignAt" ? new Date(新值) : 新值;
-        before[k] = (旧 as Record<string, unknown>)[k] ?? null;
-      }
-      /*
-        库里备注有值：对上「备注」的那一列照旧不动，但表里我们没有的列（「微信号：…」）只有备注这一个去处——
-        添在库里备注后面，原来的字一个不动、已经在里面的那行不重复添。原来这条路上整列丢，预览还说补空 0
-        （2026-10-04 L-004 / J-051）。撤销照 before 把备注还原成原样
-      */
-      // 外贸档案：同一个规矩，库里那格空着才补。before 里记成「extra.国家键」，撤销时照它还原
-      const 补档案: Partial<Record<(typeof 外贸导入字段)[number], string>> = {};
-      for (const k of 外贸导入字段) {
-        const 新值 = r.值[k];
-        if (!新值 || 档案们.get(旧.id)?.[k]) continue;
-        补档案[k] = 新值;
-        before[`${档案前缀}${k}`] = null;
-      }
-      if (!("remark" in 补) && r.并进备注?.length && 旧.remark) {
-        const 添后 = 添行(旧.remark, r.并进备注);
-        if (添后 !== 旧.remark) {
-          补.remark = 添后;
-          before.remark = 旧.remark;
-        }
-      }
+      const { 补, 补档案, before } = 算补空(r, 旧, 档案们.get(旧.id));
       if (Object.keys(补).length === 0 && Object.keys(补档案).length === 0) {
         跳过++;
         continue;
@@ -331,7 +343,8 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
             major: r.值.major ?? null,
             ...(r.值.followStatus ? { followStatus: r.值.followStatus } : {}),
             ...(r.值.decisionStatus ? { decisionStatus: r.值.decisionStatus } : {}),
-            expectedSignAt: r.值.expectedSignAt ? new Date(r.值.expectedSignAt) : null,
+            expectedSignAt: parseSignDate(r.值.expectedSignAt)!.at,
+            expectedSignOn: parseSignDate(r.值.expectedSignAt)!.on,
             remark: r.值.remark ?? null,
             salesOwnerId,
             referrerCustomerId: null,
@@ -349,7 +362,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       }
       新建++;
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
-      const 记 = { id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null };
+      const 记 = { id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, expectedSignOn: c.expectedSignOn, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null };
       if (phone) 表.记下(记);
       else 邮表.记下(email, 记);
     } catch {
@@ -379,13 +392,14 @@ export type 批次 = {
   fileName: string;
   created: number;
   updated: number;
+  recordedRows: number;
   revertedAt: string | null;
 };
 
 /** 最近几批。设置页「数据」栏列它们，每批一颗撤销 */
 export async function 最近批次(take = 10): Promise<批次[]> {
   await requireUser();
-  const rows = await prisma.importBatch.findMany({ orderBy: { at: "desc" }, take });
+  const rows = await prisma.importBatch.findMany({ orderBy: [{ at: "desc" }, { id: "desc" }], take, include: { _count: { select: { rows: true } } } });
   return rows.map((r) => ({
     id: r.id,
     at: r.at.toISOString(),
@@ -393,6 +407,7 @@ export async function 最近批次(take = 10): Promise<批次[]> {
     fileName: r.fileName,
     created: r.created,
     updated: r.updated,
+    recordedRows: r._count.rows,
     revertedAt: r.revertedAt?.toISOString() ?? null,
   }));
 }
@@ -423,6 +438,8 @@ export async function 撤销批次(batchId: string): Promise<撤销结果> {
   const batch = await 读批次(batchId);
   if (!batch) return { ok: false, error: "这一批导入记录已经不在了" };
   if (batch.revertedAt) return { ok: false, error: "这一批已经撤销过了" };
+  // 中途失败可能还没更新created/updated；实际写入记录才是能否撤销的依据。
+  if (batch.rows.length === 0) return { ok: false, error: "这一批没有写入记录，无需撤销" };
   /*
     先占住这一批再动手（2026-10-04 第 2 期 2a）：原来「撤销」连点两下，两边都过了上面那句检查、
     各撤一遍，后一下删同一位时抛 P2025（界面上没反应），还会留两条撤销痕。
@@ -522,9 +539,10 @@ async function 撤这一批(
           continue;
         }
         // 只写回补空能碰的那几格：before 里还记着 写前键 这类不是字段的东西
-        if (!(补空字段名单 as readonly string[]).includes(k)) continue;
+        if (!(补空字段名单 as readonly string[]).includes(k) && k !== "expectedSignOn") continue;
         data[k] = k === "expectedSignAt" && v ? new Date(v as string) : (v ?? null);
       }
+      if ("expectedSignAt" in data && !("expectedSignOn" in data)) data.expectedSignOn = null;
       if (Object.keys(档案还原).length) await 写外贸档案(prisma, c.id, 档案还原, false);
       if (Object.keys(data).length > 0) {
         const 撤后 = await prisma.customer.update({ where: { id: c.id }, data, select: { updatedAt: true } });

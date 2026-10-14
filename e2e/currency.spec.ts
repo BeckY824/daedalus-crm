@@ -28,13 +28,6 @@ async function 登录(page: Page) {
   throw new Error("登录失败");
 }
 
-/** antd 下拉：点开、敲字、回车选第一个 */
-async function 选(page: Page, 框: ReturnType<Page["getByLabel"]>, 字: string) {
-  await 框.click();
-  await 框.fill(字);
-  await page.keyboard.press("Enter");
-}
-
 let 客户id = "";
 
 test.beforeAll(async () => {
@@ -66,17 +59,25 @@ test("美元商机 → 登记签约带上币种 → 列表、记录页、数据�
   await page.getByRole("button", { name: /新建商机/ }).first().click();
   const 框 = page.getByRole("dialog", { name: "新建商机" });
   await 框.getByLabel("商机名称").fill("美元询盘");
-  await 选(page, 框.getByLabel("所属客户"), 客户名);
+  await 框.getByLabel("所属客户").click();
+  await 框.getByLabel("所属客户").fill(客户名);
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option:not(.ant-select-item-option-disabled)").filter({hasText: 客户名 + " · 13755550001"}).click();
+  await expect(框.locator(".ant-select-content-has-value").filter({ hasText: 客户名 })).toBeVisible();
   // 管理员不在负责人候选里：负责人留空、自己选，不再默认名单第一人（2026-10-04 T-025）
   await 框.getByLabel("负责人", { exact: true }).click();
   // 上一个下拉（所属客户）可能还没收起：按选项文字点，别按「第一个展开的下拉」找
   await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option", { hasText: "张三" }).first().click();
-  await 选(page, 框.getByLabel("币种"), "USD");
+  await 框.getByLabel("币种").click();
+  await 框.getByLabel("币种").fill("USD");
+  // 搜索词不是选中值；Enter可能早于过滤结果提交，实际仍保留CNY。
+  await page.locator('.ant-select-dropdown:visible .ant-select-item-option[title="USD 美元"]').click();
+  await expect(框.getByTitle("美元").first()).toHaveText("USD");
   await 框.getByLabel("商机金额").fill("3250.5");
   await 框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(框).toBeHidden();
   const 行 = page.locator(".ant-table-row", { hasText: "美元询盘" });
   await expect(行).toContainText("US$ 3,250.50");
+  const saved = 连库(); try { expect(await saved.opportunity.findFirstOrThrow({where:{name:"美元询盘"},include:{money:true}})).toMatchObject({customerId:客户id,money:{currency:"USD"},amount:3250.5}); } finally { await saved.$disconnect(); }
 
   // 2. 登记签约：勾着的商机是美元，金额和币种都跟着带
   await page.goto(`/customers/${客户id}`);
@@ -93,15 +94,15 @@ test("美元商机 → 登记签约带上币种 → 列表、记录页、数据�
   await page.goto("/overview?view=本月");
   const 切换 = page.locator(".reports-cur");
   await expect(切换).toBeVisible();
-  await expect(切换).toContainText("这一段共签");
+  await expect(切换).toContainText("这一段已发生的签约合计");
   await expect(切换).toContainText("US$ 3,250.50");
   await 切换.getByText("USD", { exact: true }).click();
   await page.waitForURL(/currency=USD/);
-  await expect(page.locator(".stat-card", { hasText: "签约总额" })).toContainText("US$ 3,250.50");
+  await expect(page.getByRole("main").locator(".stat-card", { hasText: "签约总额" })).toContainText("US$ 3,250.50");
 
   // 4. 数据页「现在」：本月签约那张卡两种币并排写，不加成一个数
   await page.goto("/overview?view=现在");
-  const 卡 = page.locator(".stat-card", { hasText: "本月签约" });
+  const 卡 = page.getByRole("main").locator(".stat-card", { hasText: "本月签约" });
   await expect(卡).toContainText("US$ 3,250.50");
   await expect(卡).toContainText("¥");
 });

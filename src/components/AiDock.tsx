@@ -21,6 +21,7 @@ import WidthHandle, { 面板把手 } from "./WidthHandle";
 import DockThreads from "./DockThreads";
 import HomeChat, { type Suggestion } from "@/app/(app)/dashboard/HomeChat";
 import type { ModelOption } from "@/lib/llm";
+import { useBusiness } from "@/lib/business-client";
 import { 认页面 } from "@/lib/ai-context-page";
 import { 订阅页面行, 读页面行, 读详情名 } from "@/lib/page-rows";
 
@@ -81,6 +82,7 @@ export default function AiDock({
   }, [开着]);
 
   // 这一页上列着的名字（DataList 登记的）。Hook 要在早退之前调，顺序每次一样
+  const b = useBusiness();
   const 可见行 = useSyncExternalStore(订阅页面行, 读页面行, () => 空名单);
   // 记录页上这条记录叫什么（RecordView 登记的）
   const 详情名 = useSyncExternalStore(订阅页面行, 读详情名, () => null);
@@ -88,7 +90,7 @@ export default function AiDock({
   // 首页就是宽模式的它，不在那儿再开一块
   if (pathname === "/dashboard") return null;
 
-  const 上下文 = 认页面(pathname, params, 详情名, 可见行);
+  const 上下文 = 认页面(pathname, params, 详情名, 可见行, b);
 
   /*
     收起时这里什么都不画：入口在左栏底部那一行「问一句 ⌘J」（AppShell）。

@@ -68,6 +68,7 @@ describe("基线：一切正常时", () => {
     expect(await 用掉(账号.acc.id)).toBe(1);
     // 一次调用就带着问题编号（2026-10-02 A2 修过）
     expect(线.网关[0].questionId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(线.网关[0].feature).toBe("wakeup");
   });
 });
 
@@ -98,7 +99,7 @@ describe("chatJSON 那条路（起草话术）", () => {
 
   // 【下一版】回归核对 D-058 后半：次数已经是 0 时按钮照样能点、照样往网关发一趟（网关回 402、不扣、说人话，上面那条钉着）。
   // 输入框下那行和左栏用量条会变红，但按钮不置灰。不伤数据、不扣次，排下一版；做了「0 次本地就拦」后去掉 skip
-  it.skip("【下一版】D-058 次数已知是 0：本地就拦下说「用完」，不往网关发", async () => {
+  it("D-058 次数已知是0本地拦，刷新到补赠后可恢复", async () => {
     const { 扣一次 } = await import("@/lib/tenant/credits");
     for (let i = 0; i < 200; i++) if (!(await 扣一次(账号.owner)).ok) break;
     const 线 = 接线({ 上游: () => 回文本("{}") });
@@ -107,6 +108,12 @@ describe("chatJSON 那条路（起草话术）", () => {
     const r = await 起草();
     expect(错误(r)).toContain("用完");
     expect(线.网关.length, "已经知道是 0 了，第二次不该再去网关").toBe(之前);
+    const { 赠送 } = await import("@/lib/tenant/credits");
+    await 赠送(账号.owner, { amount: 2, reason: "QA补赠", key: "qa-refresh" });
+    await (await import("@/lib/desktop/cloud")).余额();
+    const recover = 接线({ 上游: () => 回文本('{"message":"恢复成功"}') });
+    expect((await 起草()).ok).toBe(true);
+    expect(recover.网关.length).toBe(1);
   });
 
   it("网关自己的频率闸（429）：说「太频繁、等几秒」，不扣", async () => {
@@ -162,7 +169,7 @@ describe("chatJSON 那条路（起草话术）", () => {
     await 等一下(900); // 让网关那边把上游等完，别把这次请求漏到下一条用例里
   });
 
-  it.skip("【下一版】【坏】桌面端这边先超时（上游慢）：人看到「超时」，但这一次照样被扣了", async () => {
+  it("桌面先超时，上游迟返后退还未交付的答案", async () => {
     // 上游 0.6 秒才回；桌面端 0.2 秒就放弃。真实世界里是：话术 60 秒、网关等上游 120 秒
     接线({ 上游: async () => { await 等一下(600); return 回文本('{"message":"迟到的话术"}'); } });
     const { chatJSON } = await import("@/lib/llm");
@@ -203,19 +210,19 @@ describe("chatJSON 那条路（起草话术）", () => {
     接线({ 上游: () => 回JSON({ choices: [] }) });
     const r = await 起草();
     expect(r.ok).toBe(false);
-    // 一个问题编号：重试共用，只扣一次
-    expect(await 用掉(账号.acc.id)).toBe(1);
+    // 空结果重试仍未给出可用答案，不保留扣次
+    expect(await 用掉(账号.acc.id)).toBe(0);
     expect(是人话(错误(r)), `界面上会显示：${错误(r)}`).toBe(true);
   });
 
-  it("finish_reason=length 被截断：重试一次后报截断，只扣一次", async () => {
+  it("finish_reason=length 被截断：重试一次后仍截断，不保留扣次", async () => {
     const 线 = 接线({ 上游: () => 回JSON({ choices: [{ message: { content: '{"message":"王同' }, finish_reason: "length" }] }) });
     const r = await 起草();
     expect(r.ok).toBe(false);
     expect(错误(r)).toContain("截断");
     expect(线.上游).toHaveLength(2);
     expect(new Set(线.网关.map((g) => g.questionId)).size, "两次重试共用一个编号").toBe(1);
-    expect(await 用掉(账号.acc.id)).toBe(1);
+    expect(await 用掉(账号.acc.id)).toBe(0);
   });
 
   it("模型回了坏 JSON、修一次修好了：只扣一次", async () => {
@@ -378,9 +385,7 @@ describe("agent 那条路（首页对话框）", () => {
     expect(屏幕).toBe("王同学目前在");
   });
 
-  // 【下一版】D-061 后半：回答流到一半断了，这一次照样算了 1 次（网关在上游回 200 时就记账，流断了不退）。
-  // 不伤数据，排下一版；网关能认出「流没走完」后去掉 skip
-  it.skip("【下一版】最终回答流到一半断了：人只拿到半句，这一次不该算", async () => {
+  it("最终回答流到一半断了：保留半句并退还本次计数", async () => {
     接线({
       上游: (r) => {
         const k = 种类(r);
@@ -390,6 +395,30 @@ describe("agent 那条路（首页对话框）", () => {
     });
     await 问AI("王同学现在怎么样了");
     expect(await 用掉(账号.acc.id)).toBe(0);
+  });
+
+  it("上游静默EOF缺DONE标记：不能把半句当完整成功，保留内容并退款", async () => {
+    const encoder = new TextEncoder();
+    接线({ 上游: () => new Response(new ReadableStream({ start(c) { c.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"部分回答"}}]}\n\n')); c.close(); } }), { headers: { "Content-Type": "text/event-stream" } }) });
+    const tokens: string[] = [];
+    const { chatTextStream } = await import("@/lib/llm");
+    await expect(chatTextStream([{ role: "user", content: "QA stream" }], { requestId: "qa-missing-done", feature: "ask" }, (t) => tokens.push(t))).rejects.toThrow(/断|完整/);
+    expect(tokens.join("")).toBe("部分回答"); expect(await 用掉(账号.acc.id)).toBe(0);
+  });
+
+  it("非流式响应头200后body读取中断：返回人话且不保留扣次", async () => {
+    接线({ 上游: () => new Response(new ReadableStream({ start(c) { c.error(new Error("QA body interrupted")); } }), { headers: { "Content-Type": "application/json" } }) });
+    const r = await 起草(); expect(r.ok).toBe(false); expect(是人话(错误(r))).toBe(true); expect(await 用掉(账号.acc.id)).toBe(0);
+  });
+
+  it("无DONE但明确finish_reason=stop的兼容流仍成功，UTF8逐字节分片不丢字并记录成本", async () => {
+    const bytes = new TextEncoder().encode('data: {"choices":[{"delta":{"content":"中文🙂"}}]}\r\n\r\ndata: {"choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":3}}');
+    接线({ 上游: () => new Response(new ReadableStream({ start(c) { for (const b of bytes) c.enqueue(Uint8Array.of(b)); c.close(); } }), { headers: { "Content-Type": "text/event-stream" } }) });
+    const { chatTextStream } = await import("@/lib/llm"); const tokens: string[] = [];
+    expect(await chatTextStream([{ role: "user", content: "QA success" }], { requestId: "qa-stream-success", feature: "ask" }, (t) => tokens.push(t))).toBe("中文🙂");
+    expect(tokens.join("")).toBe("中文🙂"); expect(await 用掉(账号.acc.id)).toBe(1);
+    const { control } = await import("@/lib/tenant/control");
+    expect(await control.aiCall.findFirst({ where: { ownerId: 账号.acc.id } })).toMatchObject({ feature: "ask", inputTokens: 10, outputTokens: 3 });
   });
 
   it("决策步 finish_reason=length（工具参数被截断）：不卡死，有回答", async () => {
@@ -406,4 +435,3 @@ describe("agent 那条路（首页对话框）", () => {
     expect(await 用掉(账号.acc.id)).toBe(1);
   });
 });
-

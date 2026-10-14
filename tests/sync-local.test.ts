@@ -10,6 +10,7 @@ import path from "node:path";
 import { PrismaClient } from "@/generated/prisma";
 import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, 没同步上, 本机结构签名, type 改动 } from "@/lib/sync/local";
 import { 封, 拆, 新钥匙 } from "@/lib/sync/crypto";
+import { 转交商机 } from "@/lib/opportunity-activity";
 
 const 测试库 = path.resolve(__dirname, "../prisma/test.db");
 const 模板账号 = [
@@ -20,13 +21,46 @@ const 模板账号 = [
 
 let 目录: string;
 const 开着: PrismaClient[] = [];
+/*
+  Windows CI 防卡（2026-10-14，候选 7 的「公海」那条在 Windows 上 20 秒没跑完，下一条也拖到 17 秒）：
+  原来每台拷贝是 Prisma 默认的样子：连接池好几个连接、delete 日志模式（每次提交在旁边新建再删掉一个 -journal 文件）、
+  每次提交都刷盘。Windows 上杀毒软件要扫每个新建的 -journal，删的时候它还占着的话 SQLite 要退避重试（每次提交最多一秒多），
+  再加上磁盘刷盘抖动，几十次提交就能拖过 20 秒——Mac 上 0.2 秒的用例在 Windows CI 上偶发超时，多半就是这么来的（同一轮里别的文件也忽快忽慢两三倍）。改成和桌面端
+  正式库一模一样（lib/prisma.ts、lib/sqlite-url.ts）：
+  - 只开 1 个连接：多个连接写同一个 SQLite 文件，交互事务开着时别的连接撞锁等待，正是 sqlite-url.ts 记的那种卡法；
+  - WAL + synchronous = NORMAL：提交只追加 WAL、不新建删除文件、不每次刷盘；
+  - 每一步限时（步）：卡住时报出卡在哪一步，不是笼统的「Test timed out」；
+  - 超时那条的后半截还在跑时不许碰下一条的库（第几条 / 代号），也不再把下一条拖慢。
+*/
+let 第几条 = 0;
+const 代号 = new WeakMap<PrismaClient, number>();
+const 一步限时 = 12_000;
+async function 步<T>(名: string, dbs: PrismaClient[], 做: () => Promise<T>, ms = 一步限时): Promise<T> {
+  for (const db of dbs) if (代号.get(db) !== 第几条) throw new Error(`sync-local：「${名}」属于已经结束（超时）的上一条用例，停下，不碰这一条的库`);
+  let 闹钟: ReturnType<typeof setTimeout> | undefined;
+  const 卡住 = new Promise<never>((_, 不行) => {
+    闹钟 = setTimeout(() => 不行(new Error(`sync-local：「${名}」${ms / 1000} 秒没返回——多半是 SQLite 文件锁或磁盘卡住（Windows CI），不是合并逻辑慢；平常这一步不到 1 秒`)), ms);
+  });
+  try {
+    return await Promise.race([做(), 卡住]);
+  } finally {
+    clearTimeout(闹钟);
+  }
+}
 
 async function 一台(名: string): Promise<PrismaClient> {
+  const 这条 = 第几条;
   const f = path.join(目录, `${名}.db`);
   fs.copyFileSync(测试库, f);
   if (fs.existsSync(`${测试库}-wal`)) fs.copyFileSync(`${测试库}-wal`, `${f}-wal`); // 没落盘的那部分一起拷
-  const db = new PrismaClient({ datasourceUrl: `file:${f}` });
+  if (这条 !== 第几条) throw new Error(`sync-local：建库「${名}」时上一条用例已经超时结束，停下`);
+  const db = new PrismaClient({ datasourceUrl: `file:${f}?connection_limit=1` });
+  代号.set(db, 这条);
   开着.push(db);
+  await 步(`建库 ${名}：和桌面端一样的 WAL`, [db], async () => {
+    await db.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+    await db.$queryRawUnsafe("PRAGMA synchronous = NORMAL");
+  });
   // 拷来的测试库里可能有别的用例留下的数据：清空业务表，种上模板账号
   for (const t of ["AiConversation", "AiProject", "Setting", "AuditLog", "ImportBatch", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead"]) {
     await db.$executeRawUnsafe(`DELETE FROM "${t}"`);
@@ -40,39 +74,103 @@ async function 一台(名: string): Promise<PrismaClient> {
 
 /** 进团队：改身份 → 建表 → 装触发器 → 本机已有的整份记成新建 */
 async function 进团队(db: PrismaClient, 账号: string, email: string, name: string) {
-  await 改身份(db, `acct_${账号}`, { email, name });
-  await 建同步表(db);
-  await 装触发器(db);
-  await 记全量(db);
+  await 步(`${账号} 进团队`, [db], async () => {
+    await 改身份(db, `acct_${账号}`, { email, name });
+    await 建同步表(db);
+    await 装触发器(db);
+    await 记全量(db);
+  });
 }
 
 const 钥匙 = 新钥匙();
 /** 一台推：编号、加密成一包；对方拉：解密、回放。和真实循环一样经过 封 / 拆 */
-async function 推(db: PrismaClient, 设备: string): Promise<string | null> {
-  const { 改动: 批, 到 } = await 待推(db, 设备);
-  if (!批.length) return null;
-  await 记已推(db, 到);
-  return 封(批, 钥匙);
+async function 推(db: PrismaClient, 设备: string, 限时 = 一步限时): Promise<string | null> {
+  return 步(`${设备} 推`, [db], async () => {
+    const { 改动: 批, 到 } = await 待推(db, 设备);
+    if (!批.length) return null;
+    await 记已推(db, 到);
+    return 封(批, 钥匙);
+  }, 限时);
 }
-async function 同步(甲: PrismaClient, 乙: PrismaClient) {
-  const a = await 推(甲, "A");
-  const b = await 推(乙, "B");
-  if (a) await 回放(乙, 拆(a, 钥匙), "B");
-  if (b) await 回放(甲, 拆(b, 钥匙), "A");
+/** 限时：每一步最多等多久；几百条一批的用例（T-008）自己给大的 */
+async function 同步(甲: PrismaClient, 乙: PrismaClient, 限时 = 一步限时) {
+  const a = await 推(甲, "A", 限时);
+  const b = await 推(乙, "B", 限时);
+  if (a) await 步("B 回放 A 的改动", [乙], () => 回放(乙, 拆(a, 钥匙), "B"), 限时);
+  if (b) await 步("A 回放 B 的改动", [甲], () => 回放(甲, 拆(b, 钥匙), "A"), 限时);
   // 回放不进日志；本机重算派生也不进：再推一轮应当都是空的
   return { a: a ? 拆(a, 钥匙).length : 0, b: b ? 拆(b, 钥匙).length : 0 };
 }
 const 睡 = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 beforeEach(() => {
+  第几条++;
   目录 = fs.mkdtempSync(path.join(os.tmpdir(), "crm-sync-"));
 });
 afterEach(async () => {
+  第几条++; // 超时那条的后半截从这里起碰不到任何库（见 步）
   for (const db of 开着.splice(0)) await db.$disconnect();
-  fs.rmSync(目录, { recursive: true, force: true });
+  // Windows 上刚关的库文件可能还被占着一小会儿（杀毒扫描）：有限次重试，不无限等
+  fs.rmSync(目录, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+});
+
+it("防卡：一步卡住时报出卡在哪一步；超时那条的后半截碰不到下一条的库（Windows CI 2026-10-14）", async () => {
+  await expect(步("故意卡住", [], () => new Promise<never>(() => undefined), 50)).rejects.toThrow(/「故意卡住」0\.05 秒没返回.*文件锁/);
+  const db = await 一台("guard");
+  expect(await 步("正常一步", [db], async () => (await db.user.count()) > 0)).toBe(true);
+  代号.set(db, 第几条 - 1); // 装成上一条用例留下的库
+  let 跑了 = false;
+  await expect(步("上一条的后半截", [db], async () => { 跑了 = true; })).rejects.toThrow(/上一条用例/);
+  expect(跑了).toBe(false);
+});
+
+it("日期语义随真实同步传到第二库，不从时刻猜测原日历日", async () => {
+  const a = await 一台("calendar-A"); const b = await 一台("calendar-B");
+  for (const db of [a, b]) { await 建同步表(db); await 装触发器(db); }
+  const c = await a.customer.create({ data: { name: "日历客户", phone: "", salesOwnerId: 模板账号[0].id, expectedSignAt: new Date("2026-10-07T16:00:00Z"), expectedSignOn: "2026-10-08" } });
+  const p = await a.followPlan.create({ data: { customerId: c.id, ownerId: 模板账号[0].id, subject: "跨区", plannedAt: new Date("2026-10-07T16:00:00Z"), plannedOn: "2026-10-08", plannedHasTime: false } });
+  const t = await a.task.create({ data: { customerId: c.id, ownerId: 模板账号[0].id, title: "午夜定时", dueAt: new Date("2026-10-07T16:00:00Z"), dueHasTime: true } });
+  await 同步(a, b);
+  expect(await b.customer.findUniqueOrThrow({ where: { id: c.id } })).toMatchObject({ expectedSignAt: c.expectedSignAt, expectedSignOn: "2026-10-08" });
+  expect(await b.followPlan.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ plannedOn: "2026-10-08", plannedHasTime: false, plannedAt: p.plannedAt });
+  expect(await b.task.findUniqueOrThrow({ where: { id: t.id } })).toMatchObject({ dueOn: null, dueHasTime: true, dueAt: t.dueAt });
+});
+
+it("L-029 转交商机的旧业务时间随团队同步，另一台不误认为刚推进", async () => {
+  const a = await 一台("activity-A"); const b = await 一台("activity-B");
+  for (const db of [a, b]) { await 建同步表(db); await 装触发器(db); }
+  const old = new Date("2026-09-01T08:00:00Z");
+  const c = await a.customer.create({ data: { name: "同步客户", phone: "", salesOwnerId: 模板账号[0].id } });
+  const o = await a.opportunity.create({ data: { name: "停滞商机", customerId: c.id, ownerId: 模板账号[0].id, updatedAt: old } });
+  await 同步(a, b);
+  await a.$transaction((tx) => 转交商机(tx, { id: o.id }, 模板账号[1].id));
+  const pending = await 待推(a, "A");
+  expect(pending.改动.some((x) => x.t === "Opportunity" && x.c.includes("activityAt"))).toBe(true);
+  expect(pending.改动.some((x) => x.t === "Opportunity" && x.c.includes("ownerId"))).toBe(true);
+  await 同步(a, b);
+  const after = await b.opportunity.findUniqueOrThrow({ where: { id: o.id } });
+  expect(after.ownerId).toBe(模板账号[1].id); expect(after.activityAt).toEqual(old); expect(after.updatedAt.getTime()).toBeGreaterThan(old.getTime());
 });
 
 describe("改身份（探针场景 ①）", () => {
+  it.each(["ADMIN", "SALES"])("F1 旧库已有本人 acct 身份（%s），重新入队不覆盖旧老板或改写资料归属", async role => {
+    const db = await 一台("switch-team");
+    await db.user.update({ where: { id: 模板账号[0].id }, data: { id: "acct_old_boss", email: "old-boss@example.invalid", createdAt: new Date("2020-01-01") } });
+    await db.user.create({ data: { id: "acct_me", email: "me@example.invalid", name: "本人", password: "!team-sync", role } });
+    const mine = await db.customer.create({ data: { name: "本人的客户", phone: "13900001801", salesOwnerId: "acct_me" } });
+    const theirs = await db.customer.create({ data: { name: "旧老板的客户", phone: "13900001802", salesOwnerId: "acct_old_boss" } });
+    await db.followUp.create({ data: { type: "PHONE", title: "本人跟进", content: "留在本机", customerId: mine.id, ownerId: "acct_me" } });
+    await db.tradeOrder.create({ data: { no: "REJOIN-USD-900", customerId: mine.id, ownerId: "acct_me", amount: 900, currency: "USD" } });
+    for (let i = 0; i < 2; i++) await 改身份(db, "acct_me", { email: "me@example.invalid", name: "更新本人姓名" });
+    expect(await db.user.findUniqueOrThrow({ where: { id: "acct_me" } })).toMatchObject({ name: "更新本人姓名", role });
+    expect(await db.user.findUniqueOrThrow({ where: { id: "acct_old_boss" } })).toMatchObject({ email: "old-boss@example.invalid" });
+    expect((await db.customer.findUniqueOrThrow({ where: { id: mine.id } })).salesOwnerId).toBe("acct_me");
+    expect((await db.customer.findUniqueOrThrow({ where: { id: theirs.id } })).salesOwnerId).toBe("acct_old_boss");
+    expect(await db.followUp.findFirstOrThrow({ where: { customerId: mine.id } })).toMatchObject({ ownerId: "acct_me" });
+    expect(await db.tradeOrder.findFirstOrThrow({ where: { customerId: mine.id } })).toMatchObject({ ownerId: "acct_me", amount: 900, currency: "USD" });
+    expect(await db.$queryRawUnsafe<unknown[]>("PRAGMA foreign_key_check")).toEqual([]);
+  });
+
   it("两台的管理员原本同一个 id；改成按云端账号算的，指向它的列（有外键、没外键的）都跟着改；没用过的占位账号删掉", async () => {
     const 甲 = await 一台("A");
     const c = await 甲.customer.create({ data: { name: "王总", phone: "13800000001", salesOwnerId: 模板账号[0].id } });
@@ -478,7 +576,7 @@ describe("推拉合并", () => {
       if (typeof fn === "function") 时限.push(opts?.timeout);
       return 原(fn, opts);
     };
-    await 同步(甲, 乙);
+    await 同步(甲, 乙, 100_000); // Windows CI 上几百条一批回放一步就要二十来秒，不按平常一步 12 秒卡
     expect(时限.length, "回放该开一个交互事务").toBeGreaterThan(0);
     for (const t of 时限) expect(t ?? 5000, "回放事务的时限").toBeGreaterThanOrEqual(60_000);
     expect(await 乙.customer.count({ where: { id: { startsWith: "big" } } })).toBe(数);
@@ -567,4 +665,48 @@ describe("跨版本：本机表结构签名（2026-10-05 复查）", () => {
     await 甲.$executeRawUnsafe('ALTER TABLE "CustomerExtra" ADD COLUMN "多一列" TEXT');
     expect(await 本机结构签名(甲)).not.toBe(前);
   });
+});
+
+
+it("旧结构跳过的新列/新表，真实加列建表后重放补齐且清除已恢复错误；旧包不复活新删除", async () => {
+  const a = await 一台("upgrade-A"), b = await 一台("upgrade-B");
+  for (const db of [a,b]) await 建同步表(db);
+  await 装触发器(a);
+  const extraDDL = (await b.$queryRawUnsafe<{sql:string}[]>('SELECT sql FROM sqlite_master WHERE type=\'table\' AND name=\'CustomerExtra\''))[0].sql;
+  await b.$executeRawUnsafe('ALTER TABLE "Customer" DROP COLUMN "expectedSignOn"');
+  await b.$executeRawUnsafe('DROP TABLE "CustomerExtra"');
+  const legacy = await 本机结构签名(b);
+  const owner = (await a.user.findFirstOrThrow()).id;
+  await a.customer.create({data:{id:"upgrade-c",name:"跨版本客户",phone:"13800001111",salesOwnerId:owner,expectedSignAt:new Date("2026-11-01T16:00:00Z"),expectedSignOn:"2026-11-02"}});
+  await a.customerExtra.create({data:{customerId:"upgrade-c",country:"德国",whatsapp:"49123456789"}});
+  const encrypted = (await 推(a,"A"))!; const events = 拆(encrypted,钥匙);
+  await 回放(b,events,"B");
+  expect(await b.customer.count({where:{id:"upgrade-c"}})).toBe(1);
+  expect((await 没同步上(b)).条数).toBe(1);
+  await b.$executeRawUnsafe('ALTER TABLE "Customer" ADD COLUMN "expectedSignOn" TEXT'); await b.$executeRawUnsafe(extraDDL);
+  expect(await 本机结构签名(b)).not.toBe(legacy);
+  await 回放(b,events,"B");
+  expect(await b.customer.findUnique({where:{id:"upgrade-c"}})).toMatchObject({expectedSignOn:"2026-11-02"});
+  expect(await b.customerExtra.findUnique({where:{customerId:"upgrade-c"}})).toMatchObject({country:"德国",whatsapp:"49123456789"});
+  expect((await 没同步上(b)).条数).toBe(0);
+  await a.customer.delete({where:{id:"upgrade-c"}}); const deletion=(await 推(a,"A"))!;
+  await 回放(b,拆(deletion,钥匙),"B"); await 回放(b,events,"B");
+  expect(await b.customer.count({where:{id:"upgrade-c"}})).toBe(0); expect(await b.customerExtra.count({where:{customerId:"upgrade-c"}})).toBe(0);
+});
+
+/*
+  候选 9：装触发器 原来先全删、再几十条各自提交地建——同一进程里两次调用交错会撞「trigger … already exists」（测试里见过一次），
+  删完到建好之间写的那一笔也不进日志。现在每条 CREATE 前紧跟 DROP IF EXISTS、整组放进一个事务
+*/
+it("同时装几次触发器不报错，装出来的一套不多不少、照常记日志", async () => {
+  const db = await 一台("trigger-race");
+  await 步("建同步表", [db], () => 建同步表(db));
+  await 步("同时装 4 次", [db], () => Promise.all([装触发器(db), 装触发器(db), 装触发器(db), 装触发器(db)]));
+  const 有 = await db.$queryRawUnsafe<{ name: string }[]>("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '\\_s\\_%' ESCAPE '\\'");
+  const 应有 = (await import("@/lib/sync/tables")).同步表.length * 3;
+  expect(有.length).toBe(应有);
+  expect(new Set(有.map((r) => r.name)).size).toBe(应有);
+  const owner = (await db.user.findFirstOrThrow()).id;
+  await db.customer.create({ data: { id: "race-c", name: "并发装触发器", phone: "13800002222", salesOwnerId: owner } });
+  expect((await 待推(db, "A")).改动.filter((e) => e.t === "Customer" && e.k === "race-c")).toHaveLength(1);
 });

@@ -1,5 +1,7 @@
 "use client";
 
+import { useBusinessTimeZone } from "@/lib/business-client";
+
 import { useState } from "react";
 import { useSearchParams, usePathname } from "next/navigation";
 import { PageHead } from "@/components/ui";
@@ -72,6 +74,7 @@ export default function SettingsView({
 }) {
   const [搜, set搜] = useState("");
   // 当前页签由地址栏 ?tab= 决定：中栏那列设置项就是一组带 tab 的链接，刷新、回退都对得上
+  const timeZone = useBusinessTimeZone();
   const pathname = usePathname();
   const tab = useSearchParams().get("tab") ?? "members";
 
@@ -140,7 +143,7 @@ export default function SettingsView({
 
   return (
     <>
-      <PageHead title="设置" subtitle="成员、AI 与业务配置" />
+      <PageHead title="设置" subtitle={`成员、AI 与业务配置 · ${timeZone ? "业务日期按北京时间（UTC+8）" : "业务日期按本机时区"}`} />
 
       {/*
         左目录，不是顶上一排页签。有两项只有管理员看得到，页签横着排时

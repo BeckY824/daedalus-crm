@@ -54,8 +54,8 @@ export function describeCustomerChanges(
 ) {
   return keys.map((k) => ({
     字段: labels[k] ?? k,
-    原值: 展示(before[k]),
-    新值: 展示(after[k]),
+    原值: 展示(k === "expectedSignAt" ? before.expectedSignOn ?? before[k] : before[k]),
+    新值: 展示(k === "expectedSignAt" ? after.expectedSignOn ?? after[k] : after[k]),
   }));
 }
 

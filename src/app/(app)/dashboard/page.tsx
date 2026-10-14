@@ -8,7 +8,7 @@ import { 唯一负责人 } from "@/lib/owners";
 import { dayjs } from "@/lib/utils";
 import { getBusiness } from "@/lib/business";
 import { statusLabel, 外贸订单 } from "@/lib/business-config";
-import { loadWatchlist } from "@/lib/sentinel-data";
+import { loadWatchlistPage } from "@/lib/sentinel-data";
 import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
 import StartCard from "./StartCard";
@@ -52,14 +52,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
   const b = await getBusiness();
   const now = dayjs();
-  const [提醒项, 没做完的待办, myPlans, myLast, mine, models, 逾期, 高意向, 本月签约, 学员数] = await Promise.all([
+  const [提醒项, 没做完的待办, myPlans, myLast, mine, models, 逾期, 高意向, 本月签约, 学员数, 线索数] = await Promise.all([
     // 欢迎句「今天要跟 N 条」和左栏角标、Dock 同一个函数（lib/reminders）：计划 + 待办、逾期 + 今天（排查 C5）
     取提醒项(user.id),
     prisma.task.count({ where: { ownerId: user.id, done: false } }),
     prisma.followPlan.count({ where: { ownerId: user.id, done: false } }),
     prisma.followUp.findFirst({ where: { ownerId: user.id }, orderBy: { occurredAt: "desc" }, select: { customer: { select: { name: true } } } }),
     // 只看我名下的、先筛再排前 8（排查 C7）。原来先取全团队前 8 再按姓名筛，会数漏、重名会混
-    loadWatchlist(now, { ownerId: user.id }),
+    loadWatchlistPage(now, { ownerId: user.id }),
     listModelOptions(),
     /*
       首页那一行信号。三个数都必须是**这一刻真查出来的**，而且每个都能点到
@@ -68,10 +68,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     */
     // 计划 + 待办都算，和点进去的计划页「我的 · 逾期」、数据页那张卡同一个函数（lib/overdue.ts）
     数逾期跟进(prisma, { ownerId: user.id }),
-    prisma.customer.count({ where: { followStatus: "意向较高" } }),
+    // 公海里的不算：点进去是客户列表的「客户」页签，那里不含公海（2026-10-13），数要对得上
+    prisma.customer.count({ where: { followStatus: "意向较高", pool: { is: null } } }),
     // 取行按币种合计（不换汇）：币种在 ContractMoney 上，aggregate 分不了
-    prisma.contract.findMany({ select: { amount: true, ...带币种.签约 }, where: { signedAt: { gte: now.startOf("month").toDate(), lt: now.endOf("month").toDate() } } }),
+    prisma.contract.findMany({ select: { amount: true, ...带币种.签约 }, where: { signedAt: { gte: now.startOf("month").toDate(), lt: now.add(1, "month").startOf("month").toDate(), lte: now.toDate() } } }),
     prisma.customer.count(),
+    prisma.lead.count(),
   ]);
 
   const 就我一个人 = (await 唯一负责人()) !== null;
@@ -86,8 +88,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         ? `有 ${没做完} 条没做完的计划和待办`
         : "今天没有要跟的",
   );
-  if (mine.length > 0) parts.push(`${mine.length} 位${b.customer}正在被遗忘`);
+  if (mine.total > 0) parts.push(`${mine.total} 位${b.customer}正在被遗忘`);
   if (myLast?.customer.name) parts.push(`上次跟的是${myLast.customer.name}`);
+  if (线索数 > 0) parts.push(`有 ${线索数} 条线索`);
 
   /*
     输入框底下那排问题。设计稿要求 4-6 条，而且**每一条都要是具体的问题**，
@@ -98,9 +101,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     空库时首页压根不走这条路（走 StartCard），所以不存在「点了什么也答不出来」。
   */
   const suggestions: Suggestion[] = [];
+  if (线索数 > 0) suggestions.push({label:"跟进手上的线索",question:"列出待跟进的线索，帮我确认接下来跟哪一条"});
   if (myPlans > 0) suggestions.push({ label: "准备下次跟进", question: "", kind: "prep" });
   if (myLast) suggestions.push({ label: "回顾上次沟通", question: "", kind: "recap" });
-  for (const w of mine.slice(0, 2)) suggestions.push({ label: `${w.customerName}：${w.reason.replace(/^「[^」]*」的\S+?/, "")}`, question: `${w.customerName}这边该怎么接上？` });
+  for (const w of mine.items.slice(0, 2)) suggestions.push({ label: `${w.customerName}：${w.reason.replace(/^「[^」]*」的\S+?/, "")}`, question: `${w.customerName}这边该怎么接上？` });
   /*
     **一个人用的时候，团队类的问句是废话。**
 
@@ -141,7 +145,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       context={parts.join("，") + "。"}
       models={models}
       /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
-      空库={学员数 === 0 && mine.length === 0 && myPlans === 0}
+      空库={学员数 === 0 && 线索数 === 0 && mine.total === 0 && myPlans === 0 && 没做完的待办 === 0}
       信号={{
         逾期,
         高意向,

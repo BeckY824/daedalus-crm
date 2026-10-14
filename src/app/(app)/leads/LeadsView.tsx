@@ -1,5 +1,7 @@
 "use client";
 
+import { requiredText } from "@/lib/form-validation";
+
 import { 签约叫 } from "@/lib/business-config";
 import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
@@ -13,7 +15,7 @@ import {
   EditOutlined,
 } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
-import { 列表不问归属 } from "@/lib/solo";
+import { 列表不问归属ID } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
 import { PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
@@ -131,7 +133,7 @@ export default function LeadsView({
   }
 
   /** 只有一个人：负责人列不摆（审查 D2），见 lib/solo.ts */
-  const 不问归属 = !f.ownerId && 列表不问归属(users, rows.map((r) => r.ownerName));
+  const 不问归属 = !f.ownerId && 列表不问归属ID(users, rows.map((r) => r.ownerId));
 
   const 列表: 列<Row>[] = [
     { title: "线索", key: "name", dataIndex: "name", width: 220, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
@@ -209,6 +211,7 @@ export default function LeadsView({
               onClick={() =>
                 modal.confirm({
                   title: `删除线索「${r.name}」？`,
+                  content: "删除后不可恢复。确认前请核对线索名称；取消不会修改资料。",
                   okText: "删除",
                   okButtonProps: { danger: true },
                   cancelText: "取消",
@@ -302,7 +305,7 @@ export default function LeadsView({
         <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
           <Row gutter={16}>
             <Col span={24}>
-              <Form.Item name="name" label="线索名称" rules={[{ required: true, message: "请填写线索名称" }]}>
+              <Form.Item name="name" label="线索名称" rules={[requiredText("请填写线索名称")]}>
                 <Input placeholder="公司名称或线索标题" />
               </Form.Item>
             </Col>

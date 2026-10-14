@@ -4,7 +4,8 @@ import { SignJWT, jwtVerify } from "jose";
 import { prisma } from "./prisma";
 import { readSecret } from "./secret";
 import { multiTenant, runWithTenant } from "./tenant/context";
-import { resolveCurrentTenant } from "./tenant/resolve";
+import { resolveTenant } from "./tenant/workspaces";
+import { control } from "./tenant/control";
 import { 会话已作废 } from "./tenant/session-cutoff";
 
 export const SECRET = new TextEncoder().encode(
@@ -29,6 +30,9 @@ export type SessionUser = {
   role: string;
   title: string;
   avatar?: string | null;
+  /** 托管身份用于跨工作区隔离；业务User.id只在本库唯一。 */
+  accountId?: string;
+  workspaceId?: string;
 };
 
 /**
@@ -42,7 +46,8 @@ export type SessionUser = {
 export async function createSession(userId: string, workspaceId?: string) {
   // ims：签发时刻到毫秒（改密作废按它比，iat 只有秒，见 lib/tenant/session-cutoff.ts）
   const ims = Date.now();
-  const token = await new SignJWT(workspaceId ? { sub: userId, ws: workspaceId, ims } : { sub: userId, ims })
+  const cutoff = workspaceId ? await control.sessionCutoff.findUnique({ where: { accountId: userId }, select: { since: true } }) : null;
+  const token = await new SignJWT(workspaceId ? { sub: userId, ws: workspaceId, ims, sc: cutoff?.since.toISOString() ?? null } : { sub: userId, ims })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime("7d")
@@ -84,9 +89,11 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
        *
        * 都不放在 proxy.ts：那里跑在 Edge 运行时，连不了控制面库。
        */
-      if (await 会话已作废(id, typeof payload.iat === "number" ? payload.iat : undefined, new Date(), typeof payload.ims === "number" ? payload.ims : undefined)) return null;
+      if (await 会话已作废(id, typeof payload.iat === "number" ? payload.iat : undefined, new Date(), typeof payload.ims === "number" ? payload.ims : undefined, payload.sc === null || typeof payload.sc === "string" ? payload.sc : undefined)) return null;
       // 成员关系被撤销 / 工作区被删 → 会话立刻失效，不给宽限
-      const tenant = await resolveCurrentTenant();
+      const account = await control.account.findUnique({ where: { id }, select: { active: true } });
+      if (!account?.active || typeof payload.ws !== "string") return null;
+      const tenant = await resolveTenant(id, payload.ws);
       if (!tenant) return null;
       // 这几条查询显式包在工作区上下文里，省掉各自再解析一次
       return runWithTenant(tenant, async () => {
@@ -95,7 +102,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
         if (!link) return null;
         const me = await prisma.user.findFirst({ where: { id: link.userId, active: true } });
         if (!me) return null;
-        return { id: me.id, name: me.name, email: me.email, role: me.role, title: me.title, avatar: me.avatar };
+        return { id: me.id, name: me.name, email: me.email, role: me.role, title: me.title, avatar: me.avatar, accountId: id, workspaceId: tenant.workspaceId };
       });
     }
 

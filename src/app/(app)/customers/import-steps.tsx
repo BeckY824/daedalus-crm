@@ -1,15 +1,16 @@
 "use client";
 
-import { Alert, Button, Empty, Input, Popconfirm, Radio, Select, Space, Switch, Table, Tag, Typography } from "antd";
+import { Alert, Button, Checkbox, Empty, Input, Popconfirm, Radio, Select, Space, Switch, Table, Tag, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import { 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 像表头, type 字段名 } from "@/lib/import/fields";
 import { 改动键 } from "@/lib/import/plan";
-import { 粘贴字数上限, type 编造格 } from "@/lib/import/paste";
+import { 粘贴字数上限, type 编造格, type 粘贴结果 } from "@/lib/import/paste";
 import { 样例行数 } from "@/lib/jev/columns";
 import type { 预览, 导入方案 } from "./import-actions";
 import { 外贸精简, type BusinessConfig } from "@/lib/business-config";
 import AiWait from "@/components/AiWait";
+import { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
 
 /**
  * 报第几行时怎么说（审查 D15）。行号按文件那条路算（1 是表头，第一条数据是 2，人照着去 Excel 里找）；
@@ -23,11 +24,12 @@ export function 第几行(行号: number, 粘贴: boolean): string {
 /** 导入抽屉（ImportDrawer.tsx）的各一步：粘贴、对列、复核、确认，外加页脚那排按钮。流程和状态在抽屉里 */
 
 export function 页脚({
-  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法, 认人叫法 = "手机号",
+  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法, 认人叫法 = "手机号", 原文未确认 = false,
 }: {
   步: number; 忙: boolean; 认人列: number; 看: 预览 | null;
   /** 第 1 步那个灰按钮上的「先指出 X 那一列」：外贸是「电话、WhatsApp 或邮箱」 */
   认人叫法?: string;
+  原文未确认?: boolean;
   set步: (n: number) => void; 去预览: () => void; 落库: () => void; 撤: () => void; 重来: () => void;
   /** 点「完成」：收起抽屉，列表只显示这一批（审查 D10） */
   完成: () => void;
@@ -41,7 +43,7 @@ export function 页脚({
     return (
       <Space style={{ display: "flex", justifyContent: "space-between" }}>
         {/* 整批撤销一次动很多条，和「设置 → 导入记录」里同一个确认（审查 M15）。原来一点就删 */}
-        <Popconfirm
+        {这一批 && 这一批.新建 + 这一批.补空 > 0 ? <Popconfirm
           title="撤销这一批导入？"
           description={`会删掉这一批新建的 ${这一批?.新建 ?? 0} 位${客户叫法}${这一批?.补空 ? `、还原 ${这一批.补空} 位补过空的` : ""}。导入之后改过档案、记过跟进的那几位会留着。`}
           okText="撤销"
@@ -50,7 +52,7 @@ export function 页脚({
           onConfirm={撤}
         >
           <Button danger loading={忙}>撤销这一批</Button>
-        </Popconfirm>
+        </Popconfirm> : <Typography.Text type="secondary">本批无写入，无需撤销</Typography.Text>}
         <Space>
           <Button onClick={重来}>再导一份</Button>
           <Button type="primary" onClick={完成}>完成</Button>
@@ -61,7 +63,7 @@ export function 页脚({
     <Space style={{ display: "flex", justifyContent: "flex-end" }}>
       <Button onClick={() => set步(步 - 1)} disabled={忙}>上一步</Button>
       {步 === 1 && (
-        <Button type="primary" onClick={去预览} loading={忙} disabled={认人列 < 0}>
+        <Button type="primary" onClick={去预览} loading={忙} disabled={认人列 < 0 || 原文未确认}>
           {认人列 < 0 ? `先指出${认人叫法}那一列` : "下一步"}
         </Button>
       )}
@@ -82,13 +84,14 @@ export function 页脚({
  * （见文件头「AI 不自动跑」）。按钮在没接模型、没粘东西、粘超了三种情况下都是灰的，
  * 每一种旁边都写着为什么，而不是灰在那儿让人猜。
  */
-export function 粘贴面板({
+export function PastePanel({
   原文, set原文, 忙, aiEnabled, 整理, 进度, b,
 }: {
   原文: string; set原文: (v: string) => void; 忙: boolean; aiEnabled: boolean; 整理: () => void;
   进度: { 起: number; 出错?: string } | null; b: BusinessConfig;
 }) {
   const 称呼 = b.customer;
+  const AI已用完 = useAiOutOfCredits();
   const 超了 = 原文.length > 粘贴字数上限;
   /**
    * 一段能直接点来用的例子。**空白页是第一次用的人最容易退出去的地方**——
@@ -135,14 +138,15 @@ export function 粘贴面板({
           <Button
             type="primary"
             icon={<ThunderboltOutlined />}
-            disabled={忙 || !aiEnabled || !原文.trim() || 超了}
+            disabled={忙 || !aiEnabled || !原文.trim() || 超了 || AI已用完}
             onClick={整理}
           >
-            整理成表格
+            {AI已用完 ? "AI 次数已用完" : "整理成表格"}
           </Button>
         </div>
       </div>
 
+      {AI已用完 && <div style={{ marginTop: 12 }}><AiRemaining /></div>}
       {!aiEnabled ? (
         <Alert
           type="info"
@@ -160,6 +164,7 @@ export function 粘贴面板({
         <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14, marginBottom: 0 }}>
           AI 只做一件事：把这段文本<b>切成行和列</b>，每一格都是原文里的原字——不改写、不补全、
           不把「下周三」算成哪一天。切完先给你看，确认无误再往下走。
+          长名单按原文行分批处理；失败会保留已完成批次，再点整理只继续剩余部分。修改原文则重新开始。
           <br />
           原文里找不到的格子会被清空并列给你；原文里有、表里没有的手机号也会列出来，
           那多半是有人被漏掉了。
@@ -170,15 +175,17 @@ export function 粘贴面板({
     </>
   );
 }
+export { PastePanel as 粘贴面板 };
 
 /** 第二步：每一列对到哪个字段。**认人那一列没指出来就不让走**，见下面那条提示 */
 export function 对列({
-  表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉, AI认列,
+  表头, 数据, 映射, set映射, 表, 认人列, 文件名, 截断了, b, 没对上的列, set没对上的列, 编造, 漏掉, AI认列, 原文复核,
 }: {
   表头: string[]; 数据: string[][]; 映射: (字段名 | null)[]; set映射: (m: (字段名 | null)[]) => void;
   表: ReturnType<typeof 字段表>; 认人列: number; 文件名: string; 截断了?: { 行?: number; 列?: number }; b: BusinessConfig;
   没对上的列: 导入方案["没对上的列"]; set没对上的列: (v: 导入方案["没对上的列"]) => void;
   编造: 编造格[]; 漏掉: string[];
+  原文复核?: Pick<粘贴结果, "关联" | "未覆盖"> & { 原文: string; 已确认: boolean; 确认: (v: boolean) => void };
   /**
    * 「让 AI 认一下」（L-076）。不给 = 这个部署没接判断模型、或管理员没打开「导入时让 AI 认列」，就不摆按钮。
    * 点了才发，按钮旁边一句话说清发什么
@@ -206,8 +213,8 @@ export function 对列({
           style={{ marginBottom: 12 }}
           title="这份表太大，只取了前面一截"
           description={[
-            截断了.行 ? `原表 ${截断了.行} 行，只读了前 ${行数上限} 行。` : "",
-            截断了.列 ? `原表 ${截断了.列} 列，只读了前 ${列数上限} 列。` : "",
+            截断了.行 ? `检测到超过 ${行数上限} 行，本次只保留前 ${行数上限} 条数据。原文件总行数未统计；请拆成每份不超过 ${行数上限} 条后继续导入。` : "",
+            截断了.列 ? `检测到超过 ${列数上限} 列，本次只保留前 ${列数上限} 列。原文件总列数未统计；请删除无用列或将需要的列移到前面。` : "",
           ].join("")}
         />
       )}
@@ -276,6 +283,30 @@ export function 对列({
             </span>
           }
         />
+      )}
+      {原文复核 && (
+        <section aria-label="粘贴原文复核" style={{ marginBottom: 16 }}>
+          <Alert type="warning" showIcon title="逐条对照原文后再继续"
+            description="文字在原文里出现过，不代表姓名、号码和公司属于同一人。下面的定位只是核对线索；跨行、同段多人及单字姓名会标为待核对。发现错配或遗漏，请回上一步分人分行修改原文后重新整理。" />
+          <details style={{ margin: "12px 0" }}>
+            <summary>查看完整原文</summary>
+            <pre style={{ whiteSpace: "pre-wrap", maxHeight: 260, overflow: "auto" }}>{原文复核.原文}</pre>
+          </details>
+          {原文复核.未覆盖.length > 0 && <Alert type="warning" title={`有 ${原文复核.未覆盖.length} 段原文未完整关联到表格，请检查是否漏人`}
+            description={<details><summary>展开未覆盖的原文（也可能是标题或说明）</summary>
+              {原文复核.未覆盖.map((p) => <div key={p.行号}>原文第 {p.行号} 行：{p.文本}</div>)}
+            </details>} />}
+          <Table size="small" rowKey="行号" pagination={{ pageSize: 10, showSizeChanger: false }}
+            dataSource={原文复核.关联} style={{ margin: "12px 0" }} columns={[
+              { title: "整理结果", render: (_, r) => <div>第 {r.行号 - 1} 条：{数据[r.行号 - 2]?.filter(Boolean).join(" · ")}</div> },
+              { title: "原文定位", render: (_, r) => <div>{r.待核对 && <Tag color="warning">关联待核对</Tag>}
+                {r.原文.map((p) => <div key={p.行号}>第 {p.行号} 行：{p.文本}</div>)}
+                {!r.原文.length && "没有找到同段原文，请核对"}</div> },
+            ]} />
+          <Checkbox checked={原文复核.已确认} onChange={(e) => 原文复核.确认(e.target.checked)}>
+            我已逐条核对姓名、联系方式、公司及遗漏提示，确认继续导入这份结果
+          </Checkbox>
+        </section>
       )}
       {没对上.length > 0 && (
         <Alert
@@ -453,10 +484,11 @@ export function 复核({
  * 人到第 4 步改成「只补空」不重算的话：界面写「补空 0」，表里的人全在库里时「开始导入」一直是灰的（2026-10-02 排查）
  */
 export function 按处置(看: 预览, 重复行: 导入方案["重复行"]): 预览 {
-  return { ...看, 补空: 重复行 === "补空" ? 看.已在库里 : 0, 跳过: (重复行 === "补空" ? 0 : 看.已在库里) + 看.说不清 };
+  const 补空 = 重复行 === "补空" ? (看.可补空 ?? 0) : 0;
+  return { ...看, 补空, 跳过: 看.已在库里 - 补空 + 看.说不清 };
 }
 
-/** 第四步：四个数 + 重复行怎么办。**这四个数就是真正会发生的**，不是估计 */
+/** 第四步：当前快照中的处置数量及重复行策略 */
 export function 确认({
   看, 重复行, set重复行, b,
 }: {
@@ -469,10 +501,11 @@ export function 确认({
   const 已有 = 看.跳过 + 看.补空;
   return (
     <>
-      <Space size={24} style={{ marginBottom: 18 }}>
+      <Typography.Paragraph type="secondary">以下按当前数据和权限预览；执行前数据变化时，以完成结果为准。</Typography.Paragraph>
+      <Space size={24} wrap style={{ marginBottom: 18 }}>
         {([
           ["新建", 看.新建],
-          ...(已有 > 0 ? [[重复行 === "补空" ? "补空字段" : "跳过（已有）", 重复行 === "补空" ? 看.补空 : 看.跳过]] : []),
+          ...(已有 > 0 ? [[重复行 === "补空" ? "补空字段" : "跳过（已有）", 重复行 === "补空" ? 看.补空 : 看.跳过], ...(重复行 === "补空" ? [["跳过（无需补空/不可修改）", 看.跳过]] : [])] : []),
           ["进不来", 看.进不了],
         ] as [string, number][]).map(([k, v]) => (
           <div key={String(k)}>
@@ -497,7 +530,7 @@ export function 确认({
         {外贸精简(b) ? "已经在库里的那些行怎么办" : "手机号已经在库里的那些行怎么办"}
       </Typography.Title>
       {/* 竖排靠 Group 的 flex，不给 Radio 设 display:block——那会把圆点和字拆成两行、说明文字冲出抽屉（核对教程时看到的） */}
-      <Radio.Group value={重复行} onChange={(e) => set重复行(e.target.value)} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <Radio.Group className="import-dup-policy" value={重复行} onChange={(e) => set重复行(e.target.value)} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <Radio value="跳过">
           <b>跳过</b>
           <div style={{ fontSize: 12, color: "var(--text-muted)" }}>一个字都不动。不确定表里哪一份新时选它</div>

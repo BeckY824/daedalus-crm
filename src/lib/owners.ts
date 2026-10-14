@@ -71,3 +71,12 @@ export async function 唯一负责人(): Promise<string | null> {
   const 候选 = await 负责人候选();
   return 候选.length === 1 ? 候选[0].id : null;
 }
+
+/** 历史记录筛选不是指派：管理员及留有跟进的停用成员都必须可选。 */
+export async function 跟进筛选成员() {
+  return prisma.user.findMany({
+    where: { OR: [{ active: true }, { followUps: { some: {} } }] },
+    select: { id: true, name: true, email: true },
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  });
+}

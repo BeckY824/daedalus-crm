@@ -745,6 +745,9 @@ html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, tra
   font-size: var(--fs-note);
 }
 
+/* 标题和紧跟着它的那一小块（客户页的「客户 / 公海」页签）摆一行 */
+.page-head-t { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
+
 /* 页头右上角那组动作。⌘N 也认这个选择器找主按钮，别改名 */
 .page-head-a { flex: none; display: flex; align-items: center; gap: var(--s2); }
 
@@ -2301,3 +2304,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .ord-notes li { border-top: 1px solid var(--line); padding-top: 12px; }
 .ord-note-h { display: flex; justify-content: space-between; gap: 12px; font-size: var(--fs-note); }
 .ord-note-c { margin-top: 4px; white-space: pre-wrap; line-height: 1.7; }
+
+/* 多行说明的单选圆点始终对齐第一行标题。 */
+.import-dup-policy .ant-radio-wrapper { align-items: flex-start; }
+.import-dup-policy .ant-radio-wrapper .ant-radio { align-self: flex-start; margin-top: 3px; }

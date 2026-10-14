@@ -185,6 +185,11 @@ export function 读xlsx带行号(bytes: Uint8Array): { rows: string[][]; 行号:
       const body = cm[2] ?? "";
       const ref = /r="([A-Z]+\d+)"/.exec(attrs)?.[1];
       const t = /t="([^"]+)"/.exec(attrs)?.[1];
+      // 不计算公式；未缓存的结果不是用户留空，必须先修好文件，避免悄悄丢列或误报缺号码。
+      const cache = /<v>([\s\S]*?)<\/v>/.exec(body);
+      if (/<f\b/.test(body) && (!cache || (!cache[1].trim() && t !== "str"))) {
+        throw new 读不出来(`单元格 ${ref ?? `第 ${行号们.at(-1)! + 1} 行`} 的公式没有缓存结果。请在 Excel/WPS 重新计算并保存，或复制后粘贴为值再导入。`);
+      }
       let v = "";
       if (t === "s") {
         // 共享字符串：<v> 里是下标

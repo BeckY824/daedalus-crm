@@ -35,7 +35,7 @@ export function 签约各币(r: { signedAmount: number; signedTotals?: { 币种:
   return r.signedTotals ?? (r.signedAmount ? [{ 币种: "CNY", 合计: r.signedAmount }] : []);
 }
 
-export function 客户导出表(rows: 导出行[], b: BusinessConfig): { head: string[]; body: string[][] } {
+export function 客户导出表(rows: 导出行[], b: BusinessConfig, 隐藏负责人 = false): { head: string[]; body: string[][] } {
   /*
     外贸模版（2026-10-05）：多国家 / WhatsApp / 微信 / 邮箱 / 来源五列，不写推荐人、渠道归属、渠道负责人、预计签约
     （界面上不摆的，导出也不写）。表头和导入认的别名一致（lib/import/fields.ts），导回来各落各的格
@@ -43,11 +43,11 @@ export function 客户导出表(rows: 导出行[], b: BusinessConfig): { head: s
   if (外贸精简(b)) {
     const 金额 = (r: 导出行) => 签约各币(r).filter((x) => x.合计 > 0).map((x) => `${x.币种} ${x.合计}`).join(" · ");
     return {
-      head: [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "国家", "WhatsApp", "微信", "邮箱", "来源", "跟进状态", "决策状态", `${签约叫(b)}金额`, "销售负责人", "备注"],
+      head: [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "国家", "WhatsApp", "微信", "邮箱", "来源", "跟进状态", "决策状态", `${签约叫(b)}金额`, ...(隐藏负责人 ? [] : ["销售负责人"]), "备注"],
       body: rows.map((r) => [
         r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
         r.extra?.country ?? "", r.extra?.whatsapp ?? "", r.extra?.wechat ?? "", r.extra?.email ?? "", r.extra?.source ?? "",
-        statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus), 金额(r), r.salesOwnerName, r.remark ?? "",
+        statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus), 金额(r), ...(隐藏负责人 ? [] : [r.salesOwnerName]), r.remark ?? "",
       ]),
     };
   }
@@ -56,13 +56,13 @@ export function 客户导出表(rows: 导出行[], b: BusinessConfig): { head: s
     不会变成「某某：…」并进别处（2026-10-04 J-073）
   */
   // 姓名那一列跟叫法走（L-057：叫「学员」的库导出来还写「客户姓名」）；导入的别名认 `${b.customer}姓名`，导回来照样认得
-  const head = [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", "销售负责人", "渠道负责人", "备注"];
+  const head = [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", ...(隐藏负责人 ? [] : ["销售负责人", "渠道负责人"]), "备注"];
   const body = rows.map((r) => [
     r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
     r.referrerName ?? "", r.attributionName ?? "", statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus),
     // 导出写「USD 3,200 · CNY 19,800」：只写数字的话，美元单在表里就成了人民币
     r.expectedSignAt ? fmtDate(r.expectedSignAt) : "", 签约各币(r).filter((x) => x.合计 > 0).map((x) => `${x.币种} ${x.合计}`).join(" · "),
-    r.salesOwnerName, r.channelOwnerName ?? "",
+    ...(隐藏负责人 ? [] : [r.salesOwnerName, r.channelOwnerName ?? ""]),
     r.remark ?? "",
   ]);
   return { head, body };

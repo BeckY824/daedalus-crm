@@ -20,7 +20,7 @@ import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { getSetting, invalidateSettingsCache } from "@/lib/settings";
 import { 切更新记录, 只留桌面端, 并成段 } from "@/lib/changelog";
-import { 有没有新内容 } from "@/app/(app)/whats-new-actions";
+import { 有没有新内容, 看过了 } from "@/app/(app)/whats-new-actions";
 
 const 仓库CHANGELOG = fs.readFileSync(path.resolve("CHANGELOG.md"), "utf8");
 
@@ -50,6 +50,10 @@ describe("升级判定", () => {
   const 原cwd = process.cwd();
   let 目录 = "";
   const MD = `# 更新记录
+
+## 0.46.17（2026-10-14）
+
+十七
 
 ## 0.46.16（2026-10-10）
 
@@ -95,7 +99,37 @@ describe("升级判定", () => {
     process.env.CRM_APP_VERSION = "0.46.16";
     await 建一位客户();
     const r = await 有没有新内容();
-    // 现在只给「现在这一版」（filter s.版本 === 现在），最大的那一版 0.46.15 被跳过
-    expect(r?.段.map((s) => s.版本)).toEqual(["0.46.16", "0.46.15"]);
+    // 两段内容都保留，维护构建统一展示为公开版本 0.46.15。
+    expect(r?.版本).toBe("0.46.15");
+    expect(r?.段.map((s) => s.版本)).toEqual(["0.46.15"]);
+    expect(r?.段[0].正文).toContain("十六");
+    expect(r?.段[0].正文).toContain("大改的那一版");
+    await 看过了();
+    expect(await getSetting("desktop.whatsNewSeen")).toBe("0.46.16");
+    expect(await 有没有新内容()).toBeNull();
+  });
+
+  it("从 0.46.14 直接升到最终构建 0.46.17：三段并成公开版 0.46.15", async () => {
+    process.env.CRM_APP_VERSION = "0.46.17";
+    await 建一位客户();
+    const r = await 有没有新内容();
+    expect(r?.版本).toBe("0.46.15");
+    expect(r?.段.map((s) => s.版本)).toEqual(["0.46.15"]);
+    for (const 词 of ["十七", "十六", "大改的那一版"]) expect(r?.段[0].正文).toContain(词);
+    expect(r?.段[0].正文).not.toContain("十四");
+  });
+
+  it("测试人员装着候选 0.46.16、应用内更新到 0.46.17：只给这次新加的，标题仍是 0.46.15", async () => {
+    process.env.CRM_APP_VERSION = "0.46.16";
+    await 建一位客户();
+    await 看过了();
+    process.env.CRM_APP_VERSION = "0.46.17";
+    const r = await 有没有新内容();
+    expect(r?.版本).toBe("0.46.15");
+    expect(r?.段.map((s) => s.版本)).toEqual(["0.46.15"]);
+    expect(r?.段[0].正文).toBe("十七");
+    await 看过了();
+    expect(await getSetting("desktop.whatsNewSeen")).toBe("0.46.17");
+    expect(await 有没有新内容()).toBeNull();
   });
 });

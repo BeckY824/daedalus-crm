@@ -1,10 +1,11 @@
+import { scheduleValue, scheduleOrder } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { OPP_STAGES } from "@/lib/constants";
 import { 负责人口径 } from "@/lib/owners";
 import { dayjs } from "@/lib/utils";
 import { llmEnabled } from "@/lib/llm";
-import { loadWatchlist } from "@/lib/sentinel-data";
+import { loadWatchlistPage } from "@/lib/sentinel-data";
 import DashboardView from "./DashboardView";
 import { 数逾期跟进 } from "@/lib/overdue";
 import { 带币种, 商机币种, 签约合计 } from "@/lib/money-db";
@@ -28,7 +29,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
 
   const [
     leadTotal,
-    activeCustomers,
+    customerTotal,
     openOpps,
     owners,
     upcomingTasks,
@@ -43,7 +44,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   ] = await Promise.all([
     // 这两个只用来判「空库」，不再进指标卡
     prisma.lead.count(),
-    prisma.customer.count({ where: { followStatus: { notIn: ["已流失"] } } }),
+    prisma.customer.count(),
     prisma.opportunity.findMany({
       where: { status: "OPEN" },
       // 只要金额和币种：预测销售额那张卡撤了之后，概率在这一页不再用到。
@@ -69,18 +70,16 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       **Task 和 FollowPlan 两张表合在一起**按逾期/今天/本周分组的（见 PlansView），
       于是只用「跟进计划」的人——新建客户时排的那种——首页这张卡永远是空的，
       点进去却满满一屏。两边必须同一个口径。
-      各取 5 条，在内存里按时间合并后再取前 5。
+      日期语义可能与旧瞬间索引不同序：在服务端按原日历日合并排序，只交给浏览器前5条。
     */
     prisma.task.findMany({
       where: { done: false },
       orderBy: { dueAt: { sort: "asc", nulls: "last" } },
-      take: 5,
       include: { customer: { select: { id: true, name: true } } },
     }),
     prisma.followPlan.findMany({
       where: { done: false },
       orderBy: { plannedAt: "asc" },
-      take: 5,
       include: { customer: { select: { id: true, name: true } } },
     }),
     prisma.customer.findMany({ select: { createdAt: true, lastFollowAt: true } }),
@@ -95,7 +94,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       每一个都点得进一个能把它重新数一遍的页面（页面规则「关键指标可跳到明细」）。
     */
     // 按币种分开合计（不换汇），所以取行而不是 aggregate：币种在 ContractMoney 上
-    prisma.contract.findMany({ select: { amount: true, ...带币种.签约 }, where: { signedAt: { gte: monthStart, lt: nextMonthStart } } }),
+    prisma.contract.findMany({ select: { amount: true, ...带币种.签约 }, where: { signedAt: { gte: monthStart, lt: nextMonthStart, lte: now.toDate() } } }),
     prisma.contract.findMany({ select: { amount: true, ...带币种.签约 }, where: { signedAt: { gte: lastMonthStart, lt: monthStart } } }),
     /*
       逾期是全团队口径：这一页看的是整个盘子，不是「我的」。
@@ -191,7 +190,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
   const 本月签约额 = 签约合计(本月签约);
   const 上月签约额 = 签约合计(上月签约);
 
-  const watchlist = await loadWatchlist(now);
+  const watchlist = await loadWatchlistPage(now);
 
   /**
    * 待办 = 任务 + 跟进计划，按时间合并后取最近 5 条。
@@ -205,7 +204,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       title: t.title,
       customerId: t.customer.id,
       customerName: t.customer.name,
-      dueAt: t.dueAt ? t.dueAt.toISOString() : null,
+      dueAt: scheduleValue(t.dueAt, t.dueOn),
       kind: "任务" as const,
     })),
     ...upcomingPlans.map((p) => ({
@@ -213,11 +212,11 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       title: p.subject,
       customerId: p.customer.id,
       customerName: p.customer.name,
-      dueAt: p.plannedAt.toISOString(),
+      dueAt: scheduleValue(p.plannedAt, p.plannedOn)!,
       kind: "计划" as const,
     })),
   ]
-    .sort((a, b) => (a.dueAt ?? "9999").localeCompare(b.dueAt ?? "9999"))
+    .sort((a, b) => scheduleOrder(a.dueAt) - scheduleOrder(b.dueAt) || a.id.localeCompare(b.id))
     .slice(0, 5);
 
   /**
@@ -260,7 +259,7 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
        * 既不好看也不给信息，第一次打开的人还以为是坏了。
        * 判据用线索 + 客户 + 商机三个总数，不看金额：录了人还没报价也算有数据。
        */
-      空库={leadTotal === 0 && activeCustomers === 0 && oppsForSeries.length === 0}
+      空库={leadTotal === 0 && customerTotal === 0 && oppsForSeries.length === 0}
       stats={{
         newCustomersThisMonth,
         // 上月是 0：没有可比的口径，不给环比（原来给 0，显示成「较上月 持平」，实际是从 0 涨上来的，2026-10-02 排查）
@@ -282,7 +281,8 @@ export default async function Board({ 内嵌 = false }: { 内嵌?: boolean }) {
       funnel={funnel}
       ranking={ranking}
       tasks={待办}
-      watchlist={watchlist}
+      watchlist={watchlist.items}
+      watchlistTotal={watchlist.total}
       aiEnabled={await llmEnabled()}
     />
   );

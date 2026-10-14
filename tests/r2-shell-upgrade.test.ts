@@ -14,6 +14,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync, spawn } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import { createRequire } from "node:module";
+import {BUSINESS_PRESETS,mergeBusiness} from "@/lib/business-config";
+import {签约金额,签约币种} from "@/lib/money-db";
+const automaticBackup = createRequire(import.meta.url)("../desktop/auto-backup.js");
+const backupValidation = createRequire(import.meta.url)("../desktop/backup.js");
 /** node:sqlite 运行时认 { readOnly }，这版 @types/node 的构造函数只写了一个参数 */
 const 只读库 = (f: string) =>
   new (DatabaseSync as unknown as new (f: string, o: { readOnly: boolean }) => InstanceType<typeof DatabaseSync>)(f, { readOnly: true });
@@ -26,7 +31,7 @@ const PRISMA = path.join(ROOT, "node_modules/prisma/build/index.js");
 const 工作区 = fs.mkdtempSync(path.join(os.tmpdir(), "r2-upgrade-"));
 afterAll(() => fs.rmSync(工作区, { recursive: true, force: true }));
 
-const 要测的老版本 = ["v0.14.0", "v0.30.0", "v0.37.0", "v0.39.2", "v0.40.0", "v0.46.0", "v0.46.14"];
+const 要测的老版本 = ["v0.14.0", "v0.30.0", "v0.37.0", "v0.39.2", "v0.40.0", "v0.46.0", "v0.46.14", "v0.46.15"];
 const 老版本们 = 要测的老版本.filter((t) => {
   try {
     execFileSync("git", ["rev-parse", "--verify", "--quiet", `${t}^{commit}`], { cwd: ROOT, stdio: "ignore" });
@@ -134,6 +139,7 @@ function 塞业务数据(db: DatabaseSync) {
   插(db, "FollowUp", { id: "f1", type: "PHONE", content: "张三打过电话", status: "已完成", occurredAt: 现在, customerId: "c_zs", ownerId: "u_zs", createdAt: 现在, updatedAt: 现在 });
   插(db, "FollowPlan", { id: "p1", subject: "回访", plannedAt: 现在 + 3_600_000, method: "电话", customerId: "c_zs", ownerId: "u_zs", done: 0, createdAt: 现在, updatedAt: 现在 });
   插(db, "Task", { id: "t1", title: "寄资料", dueAt: 现在, customerId: "c_ls", ownerId: "u_ls", done: 0, createdAt: 现在, updatedAt: 现在 });
+  插(db, "Opportunity", { id: "o1", name: "旧商机", customerId: "c_zs", ownerId: "u_zs", createdAt: 现在 - 30 * 86_400_000, updatedAt: 现在 - 20 * 86_400_000 });
   插(db, "Setting", { key: "business", value: JSON.stringify({ 预设: "教培" }), updatedAt: 现在 });
 }
 
@@ -206,6 +212,10 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
     升级前 = 快照(path.join(目录, "crm.db"));
   }, 60_000);
 
+  it("真实历史库在升级前即通过CRM备份识别，不要求新币种/扩展表", () => {
+    expect(() => backupValidation.校验CRM备份(path.join(目录, "crm.db"))).not.toThrow();
+  });
+
   it("server-entry 跑得通、跑两遍也通（幂等）", async () => {
     const 一 = await 跑入口(目录);
     expect(一.out).toContain("[stub] Next 起来了");
@@ -217,6 +227,12 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
 
   it("老数据一行不少、老列一格不变（管理员那一行除外：对上了云端账号）", () => {
     const 之后 = 快照(path.join(目录, "crm.db"));
+    expect(升级前.Opportunity).toHaveLength(1);
+    expect(之后.Customer.map((r) => r.expectedSignOn)).toEqual(之后.Customer.map(() => null));
+    expect(之后.Opportunity.map((r) => r.activityAt)).toEqual([null]);
+    for (const [table, dateKey, clockKey] of [["FollowPlan", "plannedOn", "plannedHasTime"], ["Task", "dueOn", "dueHasTime"], ["FollowUp", "dueOn", "dueHasTime"]]) {
+      for (const row of 之后[table]) { expect(row[dateKey]).toBeNull(); expect(row[clockKey]).toBeNull(); }
+    }
     // entry 会新记一条 desktop.syncedName（人改过名字没有的账），那一行不算老数据
     之后.Setting = (之后.Setting ?? []).filter((r) => r.key !== "desktop.syncedName");
     for (const [表, 老行] of Object.entries(升级前)) {
@@ -271,6 +287,27 @@ describe.each(老版本们)("从 %s 升级上来", (tag) => {
     expect(坏的).toEqual([]);
   }, 30_000);
 });
+
+it.each(["通用销售","外贸出口"])("D042 真实0.46.15旧库缺template/currency的%s配置：升级幂等、旧合同人民币、升级前备份完整",async(preset)=>{
+ const directory=造老库("v0.46.15",`old15-${preset}`);const file=path.join(directory,"crm.db");
+ const {template:_template,currency:_currency,...legacy}=BUSINESS_PRESETS[preset];const value=JSON.stringify(legacy);
+ const before=new DatabaseSync(file);before.prepare('UPDATE Setting SET value=? WHERE key=?').run(value,"business");
+ 插(before,"Contract",{id:"old15-contract",customerId:"c_zs",amount:12345,signedAt:Date.now(),createdAt:Date.now(),updatedAt:Date.now()});
+ expect(before.prepare('SELECT count(*) AS n FROM ContractMoney WHERE contractId=?').get("old15-contract")).toEqual({n:0});before.close();
+ const snapshot=快照(file);const logs:string[]=[];
+ automaticBackup.自动备份({库:file,数据目录:directory,版本:"0.46.15",日志:(line:string)=>logs.push(line)});
+ const backups=automaticBackup.自动备份({库:file,数据目录:directory,版本:"0.46.16",日志:(line:string)=>logs.push(line)});
+ const filename="before-upgrade-0.46.15-to-0.46.16.db";expect(backups).toContain(filename);
+ const saved=path.join(automaticBackup.备份目录(directory),filename);expect(快照(saved)).toEqual(snapshot);expect(()=>backupValidation.校验CRM备份(saved)).not.toThrow();
+ for(let i=0;i<2;i++){const result=await 跑入口(directory);expect(result.code,result.out).toBe(0);expect(result.out).toContain("[stub] Next 起来了")}
+ const {PrismaClient}=await import("@/generated/prisma");const client=new PrismaClient({datasourceUrl:`file:${file}`});try{
+  const setting=await client.setting.findUniqueOrThrow({where:{key:"business"}});expect(setting.value).toBe(value);const config=JSON.parse(setting.value);expect(config).not.toHaveProperty("template");expect(config).not.toHaveProperty("currency");
+  expect(mergeBusiness(config)).toMatchObject({template:preset==="外贸出口"?"trade":"general",currency:preset==="外贸出口"?"USD":"CNY"});
+  const contract=await client.contract.findUniqueOrThrow({where:{id:"old15-contract"},include:{money:true}});expect(contract.money).toBeNull();expect(签约金额(contract)).toBe(12345);expect(签约币种(contract)).toBe("CNY");
+  expect(await client.customer.count()).toBe(3);expect(await client.followUp.count()).toBe(1);expect(await client.followPlan.count()).toBe(1);expect(await client.opportunity.count()).toBe(1);
+ }finally{await client.$disconnect()}
+ expect(快照(saved)).toEqual(snapshot);expect(缺的(file)).toEqual([]);expect(logs.some(line=>line.includes("没做成"))).toBe(false);
+},30000);
 
 describe("全新安装（没有 crm.db）", () => {
   it("复制模板、去掉张三李四、生成本机密码、管理员对上云端账号", async () => {
@@ -381,7 +418,12 @@ describe("迁移中途出事", () => {
     const 再 = await 跑入口(d);
     expect(再.code).toBe(0);
     const 后 = 快照(path.join(d, "crm.db"));
-    for (const t of ["Customer", "FollowUp", "FollowPlan", "Task"]) expect(后[t]).toEqual(前[t]);
+    for (const t of ["Customer", "FollowUp", "FollowPlan", "Task"]) {
+      // 迁移可增加列，但原有列和行必须逐一保留，不能以整行结构相同阻止增量迁移。
+      expect(后[t]).toHaveLength(前[t].length);
+      expect(后[t].map((r, i) => Object.fromEntries(Object.keys(前[t][i]).map((key) => [key, r[key]])))).toEqual(前[t]);
+    }
+    expect(后.FollowPlan.map((r) => r.doneAt)).toEqual(前.FollowPlan.map(() => null));
   }, 30_000);
 
   it("磁盘满（整条迁移没执行）：exit 1 不坏库；有空间了再开一次补齐", async () => {

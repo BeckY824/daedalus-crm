@@ -1,8 +1,10 @@
 "use client";
 
+import DatePicker from "@/components/BusinessDatePicker";
+
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { App, AutoComplete, DatePicker, Input, Select } from "antd";
+import { App, AutoComplete, Input, Select } from "antd";
 import { dayjs } from "@/lib/utils";
 import { patchCustomer, type PatchableKey } from "../actions";
 import { 带走说法 } from "@/lib/carry-over";
@@ -174,7 +176,7 @@ export default function InlineField({
           open
           value={draft ? dayjs(draft) : null}
           onChange={(d) => {
-            const v = d ? d.toDate().toISOString() : null;
+            const v = d ? d.format("YYYY-MM-DD") : null;
             setDraft(v);
             void commit(v);
           }}

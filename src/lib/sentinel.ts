@@ -45,7 +45,7 @@ const STATUS_WEIGHT: Record<string, number> = {
 
 export type SentinelInput = {
   /** 未完成且已到期的跟进计划 */
-  overduePlans: { customerId: string; customerName: string; ownerName: string; subject: string; plannedAt: Date }[];
+  overduePlans: { customerId: string; customerName: string; ownerName: string; subject: string; plannedAt: Date | string }[];
   /** 非终态、非暂缓的学员 */
   customers: { id: string; name: string; followStatus: string; lastFollowAt: Date | null; createdAt: Date; ownerName: string }[];
   /** 进行中的商机 */
@@ -59,6 +59,7 @@ export function buildWatchlist(
   now: Date,
   customerTerm = "学员",
   statusLabel: (v: string) => string = (v) => v,
+  limit = 8,
 ): WatchItem[] {
   const n = dayjs(now);
   const items: WatchItem[] = [];
@@ -101,14 +102,15 @@ export function buildWatchlist(
   for (const c of input.customers) {
     const weight = STATUS_WEIGHT[c.followStatus];
     if (weight === undefined) continue;
-    const days = n.diff(c.lastFollowAt ?? c.createdAt, "day");
+    const 未来日期 = c.lastFollowAt && dayjs(c.lastFollowAt).isAfter(n);
+    const days = n.startOf("day").diff(dayjs(未来日期 ? c.createdAt : c.lastFollowAt ?? c.createdAt).startOf("day"), "day");
     if (days < STALE_DAYS) continue;
     items.push({
       kind: "sleeping",
       customerId: c.id,
       customerName: c.name,
       ownerName: c.ownerName,
-      reason: c.lastFollowAt
+      reason: 未来日期 ? `最近跟进日期在未来，请核对；按录入时间已 ${days} 天` : c.lastFollowAt
         ? `「${statusLabel(c.followStatus)}」的${customerTerm}已 ${days} 天没人跟进`
         : `录入 ${days} 天从未跟进过`,
       score: weight * 8 + Math.min(days, 40),
@@ -116,7 +118,7 @@ export function buildWatchlist(
   }
 
   for (const o of input.opportunities) {
-    const days = n.diff(o.updatedAt, "day");
+    const days = n.startOf("day").diff(dayjs(o.updatedAt).startOf("day"), "day");
     if (days < STALE_DAYS) continue;
     items.push({
       kind: "stalled_opp",
@@ -136,5 +138,5 @@ export function buildWatchlist(
     if (!cur || it.score > cur.score) byCustomer.set(it.customerId, it);
   }
 
-  return [...byCustomer.values()].sort((a, b) => b.score - a.score).slice(0, 8);
+  return [...byCustomer.values()].sort((a, b) => b.score - a.score || a.customerId.localeCompare(b.customerId)).slice(0, limit);
 }

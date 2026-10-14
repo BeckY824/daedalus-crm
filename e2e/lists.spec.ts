@@ -14,7 +14,7 @@
  * 默认 e2e 库里没配 AI（配过的 spec 自己会拆掉），首页走的就是数据看板那一支。
  */
 import { readFileSync } from "node:fs";
-import { 读xlsx } from "../src/lib/import/xlsx";
+import { 读取完整导出 } from "./export-download";
 import { test, expect, type Page } from "@playwright/test";
 import { 连库, 清空业务数据 } from "./mock-data";
 import { 装个假模型, 拆掉假模型 } from "./fake-llm";
@@ -71,22 +71,38 @@ test.afterAll(async () => {
 
 /** 当前这一屏表格里的客户名 */
 async function 这一屏(page: Page) {
-  await expect(page.locator(".ant-table-row").first()).toBeVisible();
-  return page.locator(".ant-table-row td a").allInnerTexts();
+  await expect(page.getByRole("main").locator(".ant-table-row").first()).toBeVisible();
+  return page.getByRole("main").locator(".ant-table-row td a").allInnerTexts();
 }
 
 async function 翻到第二页(page: Page) {
-  await page.locator(".ant-pagination-item-2").click();
+  await page.getByRole("main").locator(".ant-pagination-item-2").click();
   await page.waitForURL(/page=2/);
 }
+
+test("J-011：异常分页参数和超出末页时仍能打开客户列表", async ({ page }) => {
+  await 登录(page);
+  for (const query of ["page=abc&pageSize=bad", "page=1.5&pageSize=-1", "page=999999999999999999999"]) {
+    await page.goto(`/customers?${query}`);
+    await expect.poll(() => new URL(page.url()).searchParams.get("page")).toBe("1");
+    await expect(page.getByRole("main").locator(".ant-table-row").first()).toBeVisible();
+    await expect(page.getByRole("main").locator(".ant-pagination-item-active")).toHaveCount(1);
+    await expect(page.getByRole("main").locator(".ant-pagination-item-active")).toHaveText("1");
+  }
+  await page.goto("/customers?page=999");
+  await expect.poll(() => new URL(page.url()).searchParams.get("page")).toBe("3");
+  await expect(page.getByRole("main").locator(".ant-table-row").first()).toBeVisible();
+  await expect(page.getByRole("main").locator(".ant-pagination-item-active")).toHaveCount(1);
+  await expect(page.getByRole("main").locator(".ant-pagination-item-active")).toHaveText("3");
+});
 
 test("J-002 本月新增：翻到第 2 页、再搜一下，子集都还在（地址留着条件、行全是本月的）", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers?createdWithin=本月");
-  await expect(page.getByText("只看本月新增")).toBeVisible();
+  await expect(page.getByRole("main").getByText("只看本月新增")).toBeVisible();
   await 翻到第二页(page);
   expect(decodeURIComponent(page.url())).toContain("createdWithin=本月");
-  await expect(page.getByText("只看本月新增")).toBeVisible();
+  await expect(page.getByRole("main").getByText("只看本月新增")).toBeVisible();
   await expect.poll(() => 这一屏(page)).toEqual(["本月新01", "本月新00"]);
 
   await page.getByPlaceholder(/姓名 \/ 电话/).fill("新1");
@@ -101,14 +117,14 @@ test("J-002 本月新增：翻到第 2 页、再搜一下，子集都还在（�
 test("J-002 渠道直接带来的、刚导入的这一批：翻页后子集都还在", async ({ page }) => {
   await 登录(page);
   await page.goto(`/customers?directOf=${渠道id}`);
-  await expect(page.getByText(/只看「协会王主任」直接带来的 · 21 位/)).toBeVisible();
+  await expect(page.getByRole("main").getByText(/只看「协会王主任」直接带来的 · 21 位/)).toBeVisible();
   await 翻到第二页(page);
   expect(page.url()).toContain(`directOf=${渠道id}`);
   await expect.poll(async () => (await 这一屏(page)).length).toBe(1);
   expect((await 这一屏(page))[0]).toMatch(/^老客/);
 
   await page.goto(`/customers?batch=${批次id}`);
-  await expect(page.getByText(/只看刚导入的这一批 · 21 位/)).toBeVisible();
+  await expect(page.getByRole("main").getByText(/只看刚导入的这一批 · 21 位/)).toBeVisible();
   await 翻到第二页(page);
   expect(page.url()).toContain(`batch=${批次id}`);
   await expect.poll(async () => (await 这一屏(page)).length).toBe(1);
@@ -118,13 +134,13 @@ test("J-002 渠道直接带来的、刚导入的这一批：翻页后子集都�
 test("导出按当前的子集和筛选：本月新增里导出的是这 22 位全部，不是当前一页、也没有老客", async ({ page }) => {
   await 登录(page);
   await page.goto("/customers?createdWithin=本月");
-  await expect(page.getByText("只看本月新增")).toBeVisible();
+  await expect(page.getByRole("main").getByText("只看本月新增")).toBeVisible();
   const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
-  // 导出是 xlsx（2026-10-05，第二张表是跟进记录）：读第一张表
-  const 行 = 读xlsx(readFileSync(await 下载.path())).slice(1);
+  // 导出整个筛选范围，核对清单和所有内层客户分片
+  const 行 = 读取完整导出(readFileSync((await 下载.path())!)).客户.slice(1);
   expect(行.length).toBe(22);
   expect(行.filter((r) => !r[0].startsWith("本月新")), "导出里混进了子集以外的人").toEqual([]);
-  await expect(page.locator(".ant-message")).toContainText("导出了 22 位");
+  await expect(page.locator(".ant-message")).toContainText("已完整导出 22 位");
 });
 
 test("J-013 有数据的库里搜一个不存在的词：写「没有符合条件的」，不画「新建第一位」，筛选栏还在", async ({ page }) => {
@@ -231,7 +247,7 @@ test("T-029 线索列表：按电话搜得到；按负责人、来源筛得出�
   await p.$disconnect();
   await 登录(page);
   const 行名 = async () => {
-    await expect(page.locator(".ant-table-row").first()).toBeVisible();
+    await expect(page.getByRole("main").locator(".ant-table-row").first()).toBeVisible();
     return page.locator(".ant-table-row td:first-child").allInnerTexts();
   };
   // 电话：搜中间一段数字、带空格的写法都算
@@ -269,7 +285,7 @@ test("J-015 联系人页按关系本地筛完：不冒「只有最近 N 条，�
     await expect(page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "采购" })).toBeVisible({ timeout: 2_000 });
   }).toPass({ timeout: 20_000 });
   await page.locator(".ant-select-dropdown:visible .ant-select-item-option", { hasText: "采购" }).click();
-  await expect(page.locator(".ant-table-row")).toHaveCount(2);
+  await expect(page.getByRole("main").locator(".ant-table-row")).toHaveCount(2);
   await expect(page.getByText(/只有最近/)).toHaveCount(0);
   await expect(page.locator(".ant-pagination-total-text")).toHaveText("共 2 条");
 });
@@ -324,7 +340,7 @@ test("没配 AI 的首页：页头「首页」不和「数据」重名；本月�
   // J-124：页头是「首页」；侧栏「数据」那一页叫「数据」——两条入口落到两个不同名的页
   await expect(page.locator(".page-head h1")).toHaveText("首页");
   // J-125：本月签约 0 → ¥0，不是「—」
-  const 签约卡 = page.locator(".stat-card", { hasText: "本月签约" });
+  const 签约卡 = page.getByRole("main").locator(".stat-card", { hasText: "本月签约" });
   await expect(签约卡).toContainText(/¥\s?0(?![\d,])/);
   await expect(签约卡).not.toContainText("—");
   // J-121：排行每行金额带 ¥，口径写出来
@@ -333,7 +349,7 @@ test("没配 AI 的首页：页头「首页」不和「数据」重名；本月�
   await expect(榜).toContainText(/¥\s?50,000/);
   await expect(榜).toContainText("不限时间");
   // J-111：上月 0 位新增 → 「上月没有新增」，不写「持平」
-  const 新增卡 = page.locator(".ant-card", { hasText: "新增客户（本月）" });
+  const 新增卡 = page.getByRole("main").locator(".stat-card").filter({ has: page.locator(".stat-label", { hasText: /^新增客户$/ }) });
   await expect(新增卡).toContainText("上月没有新增");
   await expect(新增卡).not.toContainText("持平");
 
@@ -343,7 +359,7 @@ test("没配 AI 的首页：页头「首页」不和「数据」重名；本月�
   await expect(导航.getByRole("link", { name: "数据", exact: true })).toHaveAttribute("href", "/overview");
   await page.goto("/overview");
   await expect(page.locator(".page-head h1")).toHaveText("数据");
-  await expect(page.locator(".stat-card", { hasText: "本月签约" })).toContainText(/¥\s?0(?![\d,])/);
+  await expect(page.getByRole("main").locator(".stat-card", { hasText: "本月签约" })).toContainText(/¥\s?0(?![\d,])/);
 });
 
 /*

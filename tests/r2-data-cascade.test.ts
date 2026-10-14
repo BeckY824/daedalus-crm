@@ -60,7 +60,7 @@ async function 满满的客户(name = "海川外贸") {
   const [年框, 试单] = await prisma.opportunity.findMany({ where: { customerId: c.id }, orderBy: { amount: "desc" } });
   await setOppStatus(试单.id, "WON");
   await saveFollowUp({ customerId: c.id, type: "PHONE", content: "聊报价", status: "已完成", occurredAt: 昨天(), contactId: 王.id, opportunityId: 年框.id, sourceText: "原话" });
-  await saveFollowUp({ customerId: c.id, type: "REMIND", content: "提醒回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: 昨天() });
+  await saveFollowUp({ customerId: c.id, type: "REMIND", content: "提醒回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: 昨天(), 确认过期待办: true });
   await savePlan({ customerId: c.id, subject: "回访", plannedAt: 昨天(), method: "电话沟通" });
   await saveTask({ customerId: c.id, title: "发合同", dueAt: 昨天() });
   await saveContract({ customerId: c.id, amount: 3000, signedAt: new Date(), remark: null });
@@ -229,7 +229,7 @@ describe("删商机 / 联系人", () => {
 describe("跟进「提醒 / 任务」顺带建的待办", () => {
   it("【B】删掉那条「跟进提醒」：顺带建的待办还在，到点照样提醒、计划页照样算逾期", async () => {
     const c = await 造客户(我);
-    const f = await saveFollowUp({ customerId: c.id, type: "REMIND", content: "周五回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: 昨天() });
+    const f = await saveFollowUp({ customerId: c.id, type: "REMIND", content: "周五回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: 昨天(), 确认过期待办: true });
     if (!f.ok) throw new Error("x");
     expect(await prisma.task.count()).toBe(1);
     await deleteFollowUp(f.id, c.id);
@@ -239,8 +239,8 @@ describe("跟进「提醒 / 任务」顺带建的待办", () => {
   it("两条同标题、同时间的提醒删掉一条：只带走一条待办，另一条还在（第三轮复查）", async () => {
     const c = await 造客户(我);
     const t = 昨天();
-    const 一 = await saveFollowUp({ customerId: c.id, type: "REMIND", content: "周五回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: t });
-    const 二 = await saveFollowUp({ customerId: c.id, type: "REMIND", content: "周五回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: t });
+    const 一 = await saveFollowUp({ customerId: c.id, type: "REMIND", content: "周五回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: t, 确认过期待办: true });
+    const 二 = await saveFollowUp({ customerId: c.id, type: "REMIND", content: "周五回电", status: "待处理", occurredAt: new Date().toISOString(), dueAt: t, 确认过期待办: true });
     if (!一.ok || !二.ok) throw new Error("x");
     expect(await prisma.task.count({ where: { done: false } })).toBe(2);
     await deleteFollowUp(一.id, c.id);

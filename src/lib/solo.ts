@@ -16,3 +16,8 @@ export function 列表不问归属(候选: { name: string }[], 行负责人: (st
   const 我 = 候选[0]?.name;
   return 行负责人.every((n) => !n || n === "—" || n === 我);
 }
+
+/** 有稳定ID的列表按身份判断；同名的停用成员不是当前唯一成员。 */
+export function 列表不问归属ID(候选: { id: string }[], 行负责人: (string | null | undefined)[]): boolean {
+  return 候选.length <= 1 && 行负责人.every(id => !id || id === 候选[0]?.id);
+}

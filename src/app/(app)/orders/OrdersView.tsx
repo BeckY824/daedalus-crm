@@ -82,7 +82,7 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
       sorter: (a, b) => a.超期 - b.超期,
       render: (v: number) => (v > 0 ? <span className="ord-late">{v}</span> : <span className="muted">—</span>),
     },
-    { title: "未收", key: "未收", dataIndex: "未收", width: 120, render: (v: number, r) => (v > 0 ? 金额(v, r.currency) : <span className="muted">收齐了</span>) },
+    { title: <Tooltip title="订单金额减去定金实收和尾款实收，最低为0；按订单币种计算">未收</Tooltip>, 列名: "未收", key: "未收", dataIndex: "未收", width: 120, render: (v: number, r) => (v > 0 ? 金额(v, r.currency) : <span className="muted">收齐了</span>) },
     // 外贸客户要的那三列（二审：节点版一览原来没有），收在「列」里
     { title: "付款方式", key: "payment", dataIndex: "payment", width: 120, 默认: false, render: (v: string | null) => v ?? <span className="muted">—</span> },
     { title: "供应商", key: "supplier", dataIndex: "supplier", width: 140, 默认: false, render: (v: string | null) => v ?? <span className="muted">—</span> },
@@ -122,10 +122,10 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
           ) : undefined
         }
         汇总={
-          !订单节点 && rows.length > 0 ? (
-            // 轻量一览一行合计（二审）：按币种分开，不换汇——和商机列表那颗药丸同一个说法
-            <div className="list-sum">共 {rows.length} 单 · {合计文字(按币种合计(rows, (r) => r.amount, (r) => r.currency))}</div>
-          ) : 订单节点 && rows.length > 0 ? (
+          rows.length > 0 ? (
+            <>
+            <div className="list-sum">全部筛选结果 · 共 {rows.length} 单 · {合计文字(按币种合计(rows, (r) => r.amount, (r) => r.currency))}{订单节点 && <> · 未收 {合计文字(按币种合计(rows, (r) => r.未收, (r) => r.currency))}</>}</div>
+            {订单节点 && (
             <div className="ord-stuck">
               {停.map((x) => (
                 <span key={x.idx} className={x.超期 ? "ord-stuck-late" : undefined}>
@@ -135,6 +135,8 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
               ))}
               {结了 > 0 && <span className="muted">已走完 {结了}</span>}
             </div>
+            )}
+            </>
           ) : undefined
         }
       />

@@ -45,6 +45,7 @@ const 步骤 = [];
 const 过 = (s) => { 步骤.push(s); console.log(`PASS: ${s}`); };
 
 async function 登录(p, 邮箱) {
+  await p.waitForLoadState("networkidle");
   await p.locator("#auth-email").fill(邮箱);
   await p.getByRole("button", { name: /继\s*续/ }).click();
   await p.locator('input[type="password"]').fill("smoke-password");
@@ -54,6 +55,7 @@ async function 登录(p, 邮箱) {
 async function 进主界面(p, 模版 = "外贸出口") {
   const 选 = p.getByRole("button", { name: new RegExp(`用${模版}开始`) });
   await expect(选.or(p.locator(".rail")).first()).toBeVisible({ timeout: 60000 });
+  await p.waitForLoadState("networkidle");
   if (await 选.isVisible()) await 选.click();
   await expect(p.locator(".rail")).toBeVisible({ timeout: 60000 });
   return 关更新说明(p);
@@ -128,12 +130,14 @@ try {
   await 商框.getByLabel("商机名称").fill(商机名);
   await 商框.getByLabel("所属客户").click();
   await 商框.getByLabel("所属客户").fill(客户名);
-  await page.locator(".ant-select-item-option", { hasText: 客户名 }).click();
+  await page.locator(".ant-select-dropdown:visible .ant-select-item-option:not(.ant-select-item-option-disabled)", { hasText: 客户名 }).click();
+  await expect(商框.locator(".ant-select-content-has-value").filter({ hasText: 客户名 })).toBeVisible();
   await 商框.getByLabel("商机金额").fill("18000");
   const 负责人 = 商框.getByLabel("负责人");
   if (await 负责人.count()) { await 负责人.click(); await page.keyboard.press("Enter"); }
   await 商框.getByRole("button", { name: /保\s*存/ }).click();
   await expect(商框).toBeHidden();
+  await page.waitForLoadState("networkidle");
   await page.getByRole("button", { name: `${商机名} 的更多操作` }).click();
   await page.getByRole("menuitem", { name: "转为订单" }).click();
   const 单框 = page.getByRole("dialog", { name: "转为订单" });
@@ -148,7 +152,7 @@ try {
     if ((await page.locator("body").innerText()).includes("Application error")) throw new Error(`页面挂了：${route}`);
   }
   await page.goto(`${origin}/orders`);
-  await expect(page.locator(".ant-table-row", { hasText: 单号 })).toContainText(客户名);
+  await expect(page.locator("main .ant-table-row:visible", { hasText: 单号 })).toContainText(客户名);
   await 截图(page, "02-订单一览");
   过("各页都画得出来，订单一览里有刚转的那单");
 
@@ -164,7 +168,7 @@ try {
 
   // 停在订单一览上关掉，重开要回到这里（D-025 停在上次那页）
   await page.goto(`${origin}/orders`);
-  await expect(page.locator(".ant-table-row", { hasText: 单号 })).toBeVisible();
+  await expect(page.locator("main .ant-table-row:visible", { hasText: 单号 })).toBeVisible();
   await app.close(); app = null;
   app = await electron.launch({ executablePath, env, timeout: 60000 });
   page = await app.firstWindow();
@@ -172,7 +176,7 @@ try {
   await expect(page.locator(".rail")).toBeVisible({ timeout: 60000 });
   if (await 关更新说明(page)) throw new Error("重开又弹了一次「这一版更新了这些」（看过就该收）");
   await expect(page).toHaveURL(/\/orders/);
-  await expect(page.locator(".ant-table-row", { hasText: 单号 })).toContainText(客户名);
+  await expect(page.locator("main .ant-table-row:visible", { hasText: 单号 })).toContainText(客户名);
   过("关掉重开：不用再登录、停在订单一览、数据都在");
 
   if (老数据根) {
@@ -205,12 +209,18 @@ try {
     await 换账号(identity = "mac-smoke");
     if (当前库() !== 第一个库) throw new Error("换回 A 没回到 A 的库");
     await page.goto(`${new URL(page.url()).origin}/orders`);
-    await expect(page.locator(".ant-table-row", { hasText: 单号 })).toBeVisible();
+    await expect(page.locator("main .ant-table-row:visible", { hasText: 单号 })).toBeVisible();
     过("两个账号：B 是通用、看不到 A 的客户；换回 A，订单还在");
   }
   console.log(`\n全过 ${步骤.length} 步。证据：${root}`);
 } catch (error) {
   console.error(`证据：${root}`);
+  if (app) {
+    for (const [i, p] of app.windows().entries()) {
+      await p.screenshot({ path: path.join(root, `failure-${i}.png`) }).catch(() => {});
+      console.error(`Window ${i}: ${p.url()}\n${await p.locator("body").innerText().catch(() => "（窗口不可读）")}`);
+    }
+  }
   for (const log of ["server.log", "app.log"]) {
     const p = path.join(root, "logs", log);
     if (fs.existsSync(p)) console.error(fs.readFileSync(p, "utf8").slice(-6000));

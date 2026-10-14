@@ -60,8 +60,8 @@ const GitHub正式版 = (tag: string) => ({
 const Mac = { platform: "darwin", arch: "arm64" };
 const Win = { platform: "win32", arch: "x64" };
 
-/** 照抄 main.js:839-842（能不能原地装）+ :852-858（走不走差量）。窗可差量 假设 NSIS 装在可写处 */
-function 会怎么装(新版: Record<string, unknown> | null, platform: string, { 已打包 = true, 窗可差量 = true, Mac能原地 = true } = {}) {
+/** 对齐main.js的平台策略：Mac差量，Windows完整安装包。 */
+function 会怎么装(新版: Record<string, unknown> | null, platform: string, { 已打包 = true, Mac能原地 = true } = {}) {
   if (!新版) return "不提示";
   // 和 main.js 检查更新() 里那段一致：没有能核对的 sha256，两个平台都不原地装（B-7，2026-10-04 修）
   const 哈希可核 = /^[a-f0-9]{64}$/i.test(String(新版.sha256 || ""));
@@ -72,7 +72,7 @@ function 会怎么装(新版: Record<string, unknown> | null, platform: string, 
         ? { ok: Mac能原地 }
         : { ok: false };
   if (!可原地.ok) return "手动（打开下载页）";
-  if ((platform === "darwin" || (platform === "win32" && 窗可差量)) && 新版.zip && 新版.manifest) return "差量";
+  if (platform === "darwin" && 新版.zip && 新版.manifest) return "差量";
   return "整包";
 }
 
@@ -148,9 +148,9 @@ describe("feed 字段缺失 / 损坏", () => {
     【C】dmg / zip / manifest / exe 这几个地址不校验协议（备用 那几个是校验的，updater.js:65-73）：
     feed 里写成 http:// 也照下。有 sha256 时内容被换会被拦下，所以只是 C。
   */
-  it("【C-4 现状】feed 里 dmg 写成 http://：照单全收（备用地址才查协议）", async () => {
+  it("R-004 修后：feed的HTTP制品不能自动下载", async () => {
     假网络(官网feed("0.46.15", { dmg: "http://insecure.example/x.dmg" }), null);
-    expect((await 检查({ 当前版本: "0.46.14", ...Mac }))?.dmg).toBe("http://insecure.example/x.dmg");
+    expect((await 检查({ 当前版本: "0.46.14", ...Mac }))?.dmg).toBeNull();
   });
 });
 

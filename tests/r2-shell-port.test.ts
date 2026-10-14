@@ -1,9 +1,7 @@
 /**
  * R2 · 本地服务端口（desktop/local-server.js 拿端口，本轮新加的 .port）。
  *
- * localStorage 按 origin（含端口）存：端口一变，外观 / 列表列 / 选的模型 / 栏宽就回默认。
- * 所以 .port 坏了、越界、被占、写不进去时，要么照旧用上次的，要么换一个能用的——
- * **绝不能因为 .port 起不来服务**。
+ * 端口配置要持久化并隔离账号；不可写时明确失败，避免无声丢失偏好。
  */
 import { describe, it, expect, afterAll, afterEach } from "vitest";
 import fs from "node:fs";
@@ -85,11 +83,10 @@ describe(".port 坏了 / 越界：不抛、换一个能用的、记下新的", (
     expect(await 拿端口(d)).toBe(一);
   });
 
-  it(".port 是个目录：不抛，给一个能用的端口", async () => {
+  it(".port 是个目录：明确拒绝损坏的端口配置", async () => {
     const d = 新目录();
     fs.mkdirSync(path.join(d, ".port"));
-    const p = await 拿端口(d);
-    expect(await 能听(p)).toBe(true);
+    await expect(拿端口(d)).rejects.toThrow(/端口配置/);
   });
 });
 
@@ -118,28 +115,17 @@ describe("被占 / 写不进", () => {
     await 放开(s);
   });
 
-  it("目录不可写：照样给端口（只是下次又换一个，偏好会丢——见报告 C）", async () => {
-    if (process.platform === "win32" || process.getuid?.() === 0) return;
-    const d = 新目录();
-    fs.chmodSync(d, 0o500);
-    const 一 = await 拿端口(d);
-    const 二 = await 拿端口(d);
-    expect(await 能听(一)).toBe(true);
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)("目录不可写：明确失败，不换随机端口", async () => {
+    const d = 新目录(); fs.chmodSync(d, 0o500);
+    await expect(拿端口(d)).rejects.toThrow(/目录不可写/);
     expect(fs.existsSync(path.join(d, ".port"))).toBe(false);
-    // 记不下 → 每次都是新的随机端口 → localStorage 每次都是空的（回到修之前的样子）
-    expect(二).not.toBe(一);
   });
 
-  it(".port 只读（权限 0400）、上次的端口被占：换到的新端口记不下，但不抛", async () => {
-    if (process.platform === "win32" || process.getuid?.() === 0) return;
-    const d = 新目录();
-    const 一 = await 拿端口(d);
-    fs.chmodSync(path.join(d, ".port"), 0o400);
-    const s = await 占住(一);
-    const 二 = await 拿端口(d);
-    await 放开(s);
-    expect(二).not.toBe(一);
-    expect(Number(记下的(d))).toBe(一); // 还是旧的：下次旧的空出来又回去，偏好回来
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(".port只读且旧端口被占：拒绝并保留原配置", async () => {
+    const d = 新目录(); const 一 = await 拿端口(d);
+    fs.chmodSync(path.join(d, ".port"), 0o400); const s = await 占住(一);
+    try { await expect(拿端口(d)).rejects.toThrow(/端口配置不可写/); expect(Number(记下的(d))).toBe(一); }
+    finally { await 放开(s); }
   });
 });
 
@@ -154,17 +140,11 @@ describe("多账号各自的 .port", () => {
     expect(await 拿端口(乙)).toBe(b);
   });
 
-  /*
-    【C】换账号时新账号第一次拿的是随机端口，**不避开别的账号记着的端口**。
-    撞上的概率很小（一万多分之一），但撞上就是两个账号共用一个 origin：
-    外观、选的模型、栏宽这些 localStorage 偏好会串（没有业务数据）。
-    把整个账号目录拷给另一个账号（手工搬数据）时是必然撞上。
-  */
-  it("【C-1】把甲的目录整个拷成乙的（手工搬数据）：两个账号同一个端口 → 同一个 origin", async () => {
-    const 甲 = 新目录();
-    const 乙 = 新目录();
-    const a = await 拿端口(甲);
-    fs.copyFileSync(path.join(甲, ".port"), path.join(乙, ".port"));
-    expect(await 拿端口(乙)).toBe(a);
+  it("复制账号.port后也分配独立origin", async () => {
+    const root = 新目录(); const 甲 = path.join(root, "accounts", "a"); const 乙 = path.join(root, "accounts", "b");
+    fs.mkdirSync(甲, { recursive: true }); fs.mkdirSync(乙, { recursive: true });
+    const a = await 拿端口(甲); fs.copyFileSync(path.join(甲, ".port"), path.join(乙, ".port"));
+    expect(await 拿端口(乙)).not.toBe(a);
+    expect(await 拿端口(甲)).toBe(a);
   });
 });

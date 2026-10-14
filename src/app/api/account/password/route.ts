@@ -29,6 +29,10 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "请求体不是合法 JSON" }, { status: 400 });
   }
+  if (!body || typeof body !== "object" || Array.isArray(body) ||
+      [body.target, body.code, body.password].some((v) => v != null && typeof v !== "string")) {
+    return NextResponse.json({ error: "账号、验证码和密码必须是文字" }, { status: 400 });
+  }
   const r = await 重置密码(
     { target: (body.target ?? "").trim(), code: (body.code ?? "").trim(), password: body.password ?? "" },
     解析来源IP(req.headers.get("x-forwarded-for")),

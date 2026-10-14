@@ -74,7 +74,7 @@ test("L-025 编辑框只换推荐渠道：保存后渠道负责人是新渠道�
   expect(await q.customer.findUniqueOrThrow({ where: { id: c.id }, select: { channelOwnerId: true } })).toEqual({ channelOwnerId: 李四.id });
   await q.$disconnect();
   await page.goto(`/customers/${c.id}`);
-  await expect(page.locator(".rec-field", { hasText: "渠道负责人" })).toContainText("李四");
+  await expect(page.getByRole("main").locator(".rec-field", { hasText: "渠道负责人" })).toContainText("李四");
 });
 
 test("L-046 记录页头「已签约」后面是签约日（回填的上个月那天），不是预计签约日", async ({ page }) => {
@@ -88,7 +88,7 @@ test("L-046 记录页头「已签约」后面是签约日（回填的上个月�
 
   await 登录(page);
   await page.goto(`/customers/${c.id}`);
-  const 头 = page.locator(".rec-tags-n", { hasText: "已签约" });
+  const 头 = page.getByRole("main").locator(".rec-tags-n", { hasText: "已签约" });
   await expect(头).toContainText("2026-09-15");
   await expect(头).not.toContainText("2026-11-20");
 });

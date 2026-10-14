@@ -16,8 +16,7 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { unzipSync, strFromU8 } from "fflate";
-import { 读xlsx } from "../src/lib/import/xlsx";
+import { 读取完整导出 } from "../e2e/export-download";
 import { CLOUD_URL, DATA_DIR, 云端账号 } from "./env";
 import { 设云端团队, 连库, 进门 } from "./helpers";
 
@@ -125,12 +124,24 @@ test("业务员的客户列表：只有自己负责的、渠道是自己的、�
   const 表 = page.locator("main");
   await expect(表.getByRole("link", { name: 名.我的 })).toBeVisible();
   await expect(表.getByRole("link", { name: 名.渠道是我 })).toBeVisible();
-  await expect(表.getByRole("link", { name: 名.公海 })).toBeVisible();
+  // 公海和自己的分两页签（2026-10-13）：「客户」页签不含公海
+  await expect(表.getByRole("link", { name: 名.公海 })).toHaveCount(0);
   await expect(表.getByRole("link", { name: 名.老板的 })).toHaveCount(0);
   // 前面几组以原来那位管理员身份建的客户（不自动跑、提醒客户……）也不是我的
   await expect(表.getByRole("link", { name: "不自动跑" })).toHaveCount(0);
   await expect(表.getByRole("link", { name: "提醒客户" })).toHaveCount(0);
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(3);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(2);
+  // 业务员的第一个页签叫「我的客户」；我的 2 + 公海 1 = 左栏「客户」角标 3（同一套限定下数的）
+  const 页签 = page.locator(".page-head .ant-segmented-item");
+  await expect(页签.first()).toHaveText("我的客户 2");
+  await expect(页签.nth(1)).toHaveText("公海 1");
+  await expect(page.locator(".rail-nav a", { has: page.locator("b", { hasText: /^客户$/ }) }).locator(".rail-num")).toHaveText("3");
+  // 「公海」页签：只有公海里那一位
+  await page.locator(".page-head .ant-segmented-item", { hasText: /^公海/ }).click();
+  await expect(page).toHaveURL(/pool=1/);
+  await expect(表.getByRole("link", { name: 名.公海 })).toBeVisible();
+  await expect(表.getByRole("link", { name: 名.老板的 })).toHaveCount(0);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(1);
 
   // 跟进记录页同一个口径：老板那位客户上的跟进不出现
   await page.goto("/follow-ups");
@@ -142,7 +153,7 @@ test("业务员按网址直接打开老板的客户：找不到；自己的、�
   await 进门(page);
   // 限定之下这一位「不存在」：记录页走 notFound()。布局已经开始流式输出，状态码还是 200，看的是页面上那句话
   await page.goto(`/customers/${id.老板的}`);
-  await expect(page.locator("main")).toContainText("这条记录不在了");
+  await expect(page.locator("main")).toContainText("没有找到这条记录");
   await expect(page.getByRole("heading", { name: 名.老板的 })).toHaveCount(0);
   await expect(page.locator("body")).not.toContainText("老板亲自谈的价");
 
@@ -157,12 +168,14 @@ test("业务员按网址直接打开老板的客户：找不到；自己的、�
 test("业务员搜索：搜老板客户的名字搜不到；联系人页、计划页、商机页也没有老板客户上的", async ({ page }) => {
   await 进门(page, `/customers?keyword=${encodeURIComponent("权限-老板")}`);
   await expect(page.locator("main")).not.toContainText(名.老板的);
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(0);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(0);
   await page.goto(`/customers?keyword=${encodeURIComponent("权限-")}`);
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(3);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(2);
+  await page.goto(`/customers?pool=1&keyword=${encodeURIComponent("权限-")}`);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(1);
   // 按号码搜也一样（号码搜不走名字那条路）
   await page.goto("/customers?keyword=13600000004");
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(0);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(0);
 
   await page.goto("/contacts");
   await expect(page.locator("main")).toContainText("我客户的联系人");
@@ -178,24 +191,31 @@ test("业务员搜索：搜老板客户的名字搜不到；联系人页、计�
 });
 
 test("业务员导出客户：文件里只有自己的、渠道是自己的、公海的", async ({ page }) => {
-  await 进门(page, "/customers");
-  const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
-  // 导出是 xlsx（2026-10-05）：第一张表是客户，第二张是这些客户的跟进记录——两张都只能有看得到的
-  const 包 = unzipSync(readFileSync((await 下载.path())!));
-  const 内容 = strFromU8(包["xl/worksheets/sheet1.xml"]);
-  const 跟进表 = strFromU8(包["xl/worksheets/sheet2.xml"]);
-  for (const n of [名.我的, 名.渠道是我, 名.公海]) expect(内容, `导出里该有「${n}」`).toContain(n);
-  expect(内容, "导出里不该有老板的客户").not.toContain(名.老板的);
-  expect(内容).not.toContain("不自动跑");
-  expect(跟进表, "跟进记录那张表里不该有老板客户的跟进").not.toContain("老板亲自谈的价");
-  expect(跟进表).not.toContain(名.老板的);
-  const 行 = 读xlsx(readFileSync((await 下载.path())!));
-  expect(行, `表头 1 行 + 看得到的 3 位：\n${JSON.stringify(行)}`).toHaveLength(4);
+  // 导出跟着页签走（导的就是看到的）：「客户」页签导自己的两位，「公海」页签导公海那一位
+  const 导出 = async (地址: string) => {
+    await 进门(page, 地址);
+    const [下载] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: /导\s*出/ }).click()]);
+    // 核对全部客户/跟进分片，不能泄露任何不可见记录
+    return 读取完整导出(readFileSync((await 下载.path())!));
+  };
+  for (const [地址, 该有, 不该有] of [["/customers", [名.我的, 名.渠道是我], [名.公海]], ["/customers?pool=1", [名.公海], [名.我的, 名.渠道是我]]] as const) {
+    const 包 = await 导出(地址);
+    const 内容 = 包.客户XML;
+    const 跟进表 = 包.跟进XML;
+    for (const n of 该有) expect(内容, `${地址} 导出里该有「${n}」`).toContain(n);
+    for (const n of 不该有) expect(内容, `${地址} 导出里不该有「${n}」`).not.toContain(n);
+    expect(内容, "导出里不该有老板的客户").not.toContain(名.老板的);
+    expect(内容).not.toContain("不自动跑");
+    expect(跟进表, "跟进记录那张表里不该有老板客户的跟进").not.toContain("老板亲自谈的价");
+    expect(跟进表).not.toContain(名.老板的);
+    const 行 = 包.客户;
+    expect(行, `表头 1 行 + 看得到的 ${该有.length} 位：\n${JSON.stringify(行)}`).toHaveLength(1 + 该有.length);
+  }
 });
 
 test("业务员的数据页：新增客户只数看得到的 3 位，进行中商机不含老板的大单，本月签约不含老板签的", async ({ page }) => {
   await 进门(page, "/overview");
-  const 卡 = (名字: string) => page.locator(".stat-card", { has: page.locator(".stat-label", { hasText: 名字 }) });
+  const 卡 = (名字: string) => page.getByRole("main").locator(".stat-card", { has: page.locator(".stat-label", { hasText: 名字 }) });
   await expect(卡("新增客户").locator(".stat-value")).toHaveText("3");
   await expect(卡("进行中商机").locator(".stat-value")).toHaveText("1");
   await expect(卡("进行中商机")).not.toContainText("99");
@@ -219,7 +239,7 @@ test("业务员新建客户：负责人默认是我，建完自己的列表里�
     await p.$disconnect();
   }
   await page.goto(`/customers?keyword=${encodeURIComponent("权限-我刚建的")}`);
-  await expect(page.locator("tr.ant-table-row")).toHaveCount(1);
+  await expect(page.getByRole("main").locator("tr.ant-table-row")).toHaveCount(1);
 });
 
 test("被老板移出（中转名单里没这个团了）：设置 → 团队只摆「退出团队」，不摆作废的邀请码（T-050）", async ({ page, request }) => {

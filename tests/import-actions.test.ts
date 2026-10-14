@@ -20,9 +20,10 @@ import { resetDb } from "./reset";
 
 vi.mock("next/cache", () => ({ revalidatePath: () => {}, revalidateTag: () => {} }));
 vi.mock("@/lib/auth", () => ({
-  requireUser: async () => ({ id: mocks.userId, name: "测试员", email: "t", role: "ADMIN", title: "" }),
+  requireUser: async () => ({ id: mocks.userId, name: mocks.userName, email: "t", role: "ADMIN", title: "" }),
 }));
-const mocks = { userId: "" };
+const mocks = { userId: "", userName: "测试员", limited: null as string | null };
+vi.mock("@/lib/team-scope", async (original) => ({ ...await original<typeof import("@/lib/team-scope")>(), 限定的我: async () => mocks.limited }));
 
 import { 预览导入, 执行导入, 撤销批次, 最近批次, type 导入方案 } from "@/app/(app)/customers/import-actions";
 import { 解析CSV, 成表 } from "@/lib/import/parse";
@@ -32,6 +33,8 @@ import { DEFAULT_BUSINESS } from "@/lib/business-config";
 let 销售: string;
 
 beforeEach(async () => {
+  mocks.limited = null;
+  mocks.userName = "测试员";
   await resetDb();
   const u = await prisma.user.create({ data: { id: "tester-id", email: "t@x", name: "测试员", title: "管理员", role: "ADMIN", password: "x" } });
   销售 = u.id;
@@ -49,6 +52,28 @@ const 建客户 = (name: string, phone: string, extra: Record<string, unknown> =
   prisma.customer.create({ data: { name, phone, salesOwnerId: 销售, ...extra } });
 
 describe("预览说的就是真正会发生的", () => {
+  it("J050：不受重复行默认值影响，仅真实修改计补空，备注追加去重", async () => {
+    await 建客户("无空位", "13800000001", { school: "已有公司" });
+    await 建客户("有空位", "13800000002");
+    await 建客户("追加", "13800000003", { remark: "原备注" });
+    const p = 方案("姓名,手机号,公司,微信号\n无空位,13800000001,新公司,\n有空位,13800000002,新公司,\n追加,13800000003,,wx_3");
+    const r = await 预览导入(p);
+    if (!r.ok) throw new Error(r.error);
+    expect(r.预览).toMatchObject({ 已在库里: 3, 可补空: 2, 补空: 0, 跳过: 3 });
+    const w = await 执行导入({ ...p, 重复行: "补空" }, "preview.csv");
+    expect(w).toMatchObject({ ok: true, 补空: 2, 跳过: 1 });
+    const again = await 预览导入({ ...p, 重复行: "补空" });
+    expect(again).toMatchObject({ ok: true, 预览: { 可补空: 0, 补空: 0, 跳过: 3 } });
+  });
+
+  it("J050：认得出同事的客户，但没有修改权限不能计补空", async () => {
+    await 建客户("同事的", "13800000001");
+    mocks.limited = "another-sales";
+    const p = 方案("姓名,手机号,公司\n同事的,13800000001,新公司", "补空");
+    expect(await 预览导入(p)).toMatchObject({ ok: true, 预览: { 新建: 0, 可补空: 0, 补空: 0, 跳过: 1 } });
+    expect(await 执行导入(p, "restricted.csv")).toMatchObject({ ok: true, 补空: 0, 跳过: 1 });
+  });
+
   it("新建、跳过、进不了三个数各归各位", async () => {
     await 建客户("老客户", "13800000001");
     const r = await 预览导入(方案("姓名,手机号\n老客户,13800000001\n新客户,13800000002\n没号的,"));
@@ -274,5 +299,36 @@ describe("整批撤销", () => {
     expect(b.fileName).toBe("b.csv");
     expect(b.created).toBe(1);
     expect(b.revertedAt).not.toBeNull();
+  });
+});
+
+
+describe("导入批次操作者与零写入撤销", () => {
+  it("切换登录者后仍显示导入时的姓名，改名不重写历史", async () => {
+    mocks.userName = "原导入者";
+    const r = await 执行导入(方案("姓名,手机号\n甲,13800000001"), "actor.csv");
+    if (!r.ok) throw new Error(r.error);
+    const other = await prisma.user.create({data:{name:"现在查看者",email:"other@x",password:"x",role:"ADMIN"}});
+    await prisma.user.update({where:{id:mocks.userId},data:{name:"导入者改名了"}});
+    mocks.userId = other.id; mocks.userName = other.name;
+    expect((await 最近批次()).find(b => b.id === r.batchId)).toMatchObject({userName:"原导入者",created:1});
+  });
+  it("零写入批次拒绝假撤销，不改撤销时间、不写成功日志", async () => {
+    await 建客户("已有", "13800000001");
+    const r = await 执行导入(方案("姓名,手机号\n已有,13800000001"), "zero.csv");
+    if (!r.ok) throw new Error(r.error);
+    expect(r).toMatchObject({新建:0,补空:0,跳过:1});
+    const before = await prisma.auditLog.count();
+    expect(await 撤销批次(r.batchId)).toMatchObject({ok:false,error:expect.stringContaining("没有写入")});
+    expect(await prisma.importBatch.findUnique({where:{id:r.batchId}})).toMatchObject({revertedAt:null});
+    expect(await prisma.auditLog.count()).toBe(before);
+    expect((await 最近批次())[0]).toMatchObject({recordedRows:0});
+  });
+  it("中断后计数仍为零但已有ImportRow，允许实际撤销", async () => {
+    const c = await 建客户("中断前已写入", "13800000001");
+    const batch = await prisma.importBatch.create({data:{userId:销售,userName:"导入者",fileName:"interrupted.csv",rows:{create:{customerId:c.id,kind:"create",writtenAt:c.updatedAt}}}});
+    expect((await 最近批次())[0]).toMatchObject({created:0,updated:0,recordedRows:1});
+    expect(await 撤销批次(batch.id)).toMatchObject({ok:true,删掉:1});
+    expect(await prisma.customer.findUnique({where:{id:c.id}})).toBeNull();
   });
 });

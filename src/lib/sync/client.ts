@@ -13,6 +13,11 @@ import { prisma } from "../prisma";
 import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/cloud";
 import { 团队身份id } from "../desktop/me";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, 本机结构签名, type 改动 } from "./local";
+import { createHmac } from "node:crypto";
+import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 主字段, type 拉到的范围包 } from "./scoped-local";
+import { 提取范围, 行键, 范围字段, type 范围索引 } from "./scope-policy";
+import { 同步表 } from "./tables";
+import { 封范围, 规范串 } from "./crypto";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
 import { 看全部, 忘掉限定, 在同步里 } from "../team-scope";
 import { invalidateSettingsCache } from "../settings";
@@ -50,6 +55,25 @@ export type 团队配置 = {
   lastError?: string | null;
   /** 上一轮做了什么，给界面那一行说话 */
   last?: { 推: number; 拉: number; 撞: number };
+  /** v4 按范围同步（见 lib/tenant/sync-scoped.ts）。没有 = 仍走旧的全队包 */
+  scoped?: 范围配置;
+};
+export type 范围配置 = {
+  stage: "migrating" | "ready";
+  /** 每个范围拉到哪个序号、当时的路由版本；版本变大（转交、改归属）从 0 重拉该范围 */
+  cursors: Record<string, { after: number; revision: number }>;
+  /** 老板迁移：起点已推多少条、服务端新落库多少条（含迁移期间的新改动） */
+  baselineSent?: number;
+  stored?: number;
+  /** 改过归属、还没补发成功「当前状态起点」的记录（行键）；补发成功才移走 */
+  snapshotPending?: string[];
+  /** 确定性坏包（元数据不符、父链指向不可见记录）跳过了多少 */
+  skipped?: number;
+  /**
+   * 上一轮清理：删了多少失权副本、转成冲突几条、AI 历史里可能还提到失权客户的条数（不删，只提示）；
+   * 擦净 = 删完之后整库重建、WAL 截断成功（库文件字节里不留删掉的行），false = 下一轮清理先补擦
+   */
+  cleaned?: { 删: number; 冲突: number; AI残留: number; 擦净?: boolean };
 };
 
 type 结果<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -136,16 +160,26 @@ function 能用(): 结果<{ accountId: string; contact: string; name: string }> 
 }
 
 /**
- * 本机开同步：改身份（必须在装触发器之前）→ 建表 → 装触发器 → 本机已有的整份记成新建。
+ * 本机开同步：身份在请求云端建队/入队前预检，随后建表 → 装触发器 → 本机已有的整份记成新建。
  * 已经装过（重新加入另一个团队）：只换团队，不再改身份、不再记全量——日志里已经有了
  */
-async function 本机开同步(我: { accountId: string; contact: string; name: string }, 加入别人的: boolean) {
+async function 本机开同步(加入别人的: boolean) {
   if (await 装了吗(prisma)) return;
-  await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 我.name || 我.contact.split("@")[0] });
   await 建同步表(prisma);
   await 装触发器(prisma);
   // 加入别人团队的不推业务配置：团队的模版、币种以建团队的人为准（见 记全量）
   await 记全量(prisma, { 不含设置: 加入别人的 });
+}
+
+/** 本地身份错误须在云端写成员之前拦住，避免重试在云端留下多支未完成的队。 */
+async function 准备本机身份(我: { accountId: string; contact: string; name: string }): Promise<结果> {
+  try {
+    if (!await 装了吗(prisma)) await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 我.name || 我.contact.split("@")[0] });
+    return { ok: true };
+  } catch (error) {
+    console.error("[sync] 本机身份准备失败", error);
+    return { ok: false, error: "本机账号准备失败，尚未创建或加入团队。请先备份数据并联系我们" };
+  }
 }
 
 export function 建团队(名字: string): Promise<结果<{ 邀请码: string }>> {
@@ -155,12 +189,15 @@ async function 建团队里(名字: string): Promise<结果<{ 邀请码: string 
   const 我 = 能用();
   if (!我.ok) return 我;
   if (读团队()) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
+  if (!名字.trim()) return { ok: false, error: "请填写团队名字" };
+  const 准备 = await 准备本机身份(我);
+  if (!准备.ok) return 准备;
   const 设备 = `d${randomBytes(6).toString("hex")}`;
   const 对 = 设备钥匙对();
   const 签 = 签名钥匙对();
   const r = await 云("POST", "/api/sync/team", { name: 名字, device: 设备, pubKey: 对.公钥 });
   if (r.状态 !== 200 || !r.json.teamId) return { ok: false, error: String(r.json.error ?? "建不了团队") };
-  await 本机开同步(我, false);
+  await 本机开同步(false);
   const c: 团队配置 = { teamId: String(r.json.teamId), teamName: 名字.trim(), joinSecret: String(r.json.joinSecret), key: 新钥匙(), epoch: 0, keys: {}, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, signPub: 签.公钥, signPriv: 签.私钥, ownerAccountId: 我.accountId, pulled: 0, lastError: null };
   写团队(c);
   return { ok: true, 邀请码: 邀请码(c) };
@@ -185,13 +222,15 @@ async function 加入团队里(码: string): Promise<结果<{ teamName: string; 
     return { ok: true, teamName: 现.teamName, active: true };
   }
   if (现) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
+  const 准备 = await 准备本机身份(我);
+  if (!准备.ok) return 准备;
   const 设备 = `d${randomBytes(6).toString("hex")}`;
   const 对 = 设备钥匙对();
   const r = await 云("POST", "/api/sync/join", { teamId: 解.teamId, joinSecret: 解.joinSecret, device: 设备, pubKey: 对.公钥 });
   if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "加入不了") };
   const k = await 收下码里的钥匙(解.teamId, 设备, 解.key, 解.signPub);
   if (!k.ok) return k;
-  await 本机开同步(我, true);
+  await 本机开同步(true);
   写团队({ ...解, teamName: String(r.json.teamName ?? ""), epoch: k.epoch, keys: k.keys, device: 设备, devPub: 对.公钥, devPriv: 对.私钥, pulled: 0, lastError: null });
   // 加入别人的团队 = 业务员（老板是建团队的人）。先按名单对一次：不等第一轮同步，界面马上就是业务员的样子
   await 对齐角色().catch(() => undefined);
@@ -462,7 +501,7 @@ async function 跑一轮并重试(): Promise<结果<{ 推: number; 拉: number; 
   return !r.ok && /schema has changed/i.test(r.error) ? 跑一轮() : r;
 }
 
-async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
+async function 跑一轮(选项: { 旧协议?: boolean; 只拉?: boolean } = {}): Promise<结果<{ 推: number; 拉: number; 撞: number }>> {
   const 起 = 读团队();
   if (!起) return { ok: false, error: "没有加入团队" };
   let c: 团队配置 = 起;
@@ -479,8 +518,12 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
       await 装触发器(prisma);
       触发器对过 = true;
     }
+    if (!选项.旧协议) {
+      const 走 = await 选协议(c);
+      if (走 !== "legacy") return 走;
+    }
     let 推 = 0;
-    for (;;) {
+    for (; !选项.只拉;) {
       const { 改动, 到 } = await 待推(prisma, c.device);
       if (!改动.length) break;
       const 封这批 = () => 封(改动, c.key, c.epoch ?? 0, { teamId: c.teamId, device: c.device });
@@ -556,7 +599,8 @@ async function 跑一轮(): Promise<结果<{ 推: number; 拉: number; 撞: numb
         拉到 = b.seq;
         记({ pulled: 拉到 }); // 每批记一次：中途断了下一轮从这里接着拉，不重复回放
       }
-      if (!r.json.more) break;
+      // 云端说「还有」却一批也没给：游标不会前进，再要也是同一页——停下，下一轮接着拉（不空转、不把这一轮卡死）
+      if (!r.json.more || !批们.length) break;
     }
     记({ pulled: 拉到, 结构: 签名, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推, 拉, 撞 } });
     /*
@@ -605,6 +649,8 @@ export async function 团队状态() {
     last: c.last ?? null,
     /** 回放时撞了合不了的唯一约束、两台因此对不上的几条（T-003）：界面上写「有 N 条没同步上」，不静默 */
     没同步上: await 没同步上(prisma).catch(() => ({ 条数: 0, 例子: [] as { 表: string; 原因: string }[] })),
+    /** 范围同步：阶段、待老板核对的失权改动条数（不静默丢弃）、跳过的坏包、上一轮清理结果 */
+    范围: await 范围同步概况().catch(() => null),
   };
 }
 
@@ -655,4 +701,364 @@ async function 被移出后收拾() {
     // 收拾完放开：以后进了别的团队又被移出，还要再收拾一次（原来置上就再也不放）
     收拾中 = false;
   }
+}
+
+/* ---------------- v4 按范围同步：业务员只收本人 + 公海，老板收全队（2026-10-13） ---------------- */
+
+type 轮结果 = 结果<{ 推: number; 拉: number; 撞: number }>;
+const 范围路径 = "/api/sync/scoped";
+const 范围请求 = (c: 团队配置, action: string, extra: Record<string, unknown> = {}) => 云("POST", 范围路径, { teamId: c.teamId, action, ...extra });
+const 记团队 = (teamId: string, x: Partial<团队配置>) => { const 现 = 读团队(); if (现?.teamId === teamId) 写团队({ ...现, ...x }); };
+const 数据目录 = () => { const d = process.env.CRM_DATA_DIR; if (!d) throw new Error("没有 CRM_DATA_DIR"); return d; };
+/** 迁移前备份、起点文件：可读的固定名字，不用哈希命名 */
+export const 迁移备份文件 = () => path.join(数据目录(), "backups", "before-scoped-sync-migration.db");
+const 起点文件 = () => path.join(数据目录(), "scoped-sync-migration-baseline.json");
+/** 事件编号：团队钥匙做 HMAC，同一事件重发得到同一编号（服务端去重），中转不能据此反推内容 */
+const 事件编号 = (c: 团队配置, 标签: string, e: 改动) => createHmac("sha256", Buffer.from(c.key, "base64url")).update(`${标签}|${规范串(e)}`).digest("hex");
+function 做包(c: 团队配置, e: 改动, eventId: string) {
+  const meta = 提取范围(e);
+  return { meta, eventId, data: 封范围({ meta, change: e }, c.key, c.epoch ?? 0, { teamId: c.teamId, device: c.device, eventId, meta }) };
+}
+const 错话 = (r: { 状态: number; json: Record<string, unknown> }, 默认: string) => String(r.json.error ?? `${默认}（${r.状态}）`);
+
+/** 服务端 state 回包里决定走哪套协议的几项（见 tenant/sync-scoped.ts 范围状态） */
+export type 范围状态回包 = { stage: string; owner: boolean; enabled: boolean; device: string | null };
+export type 协议决定 = { 走: "legacy" } | { 走: "scoped" } | { 走: "migrate" } | { 走: "等"; error: string };
+export const 等老板迁移 = "团队同步正在升级（业务员电脑只存自己的客户和公海）：需要老板在建团队的那台电脑上打开最新版 Daedalus 同步一次，完成后这台会自动接着同步";
+
+/**
+ * 每轮先问服务端：团队在哪个阶段、我是不是老板（以服务端为准，不信本机 User.role）。
+ *  - 服务端没有这个接口 / 灰度没开 → 旧协议
+ *  - ready → 范围同步
+ *  - building：老板在开始迁移的那台继续；别的设备 / 业务员等待
+ *  - legacy 且服务端开关开（enabled）：
+ *      · 我是老板、在建团队那台 → 老板先迁移。**只看服务端的开关**（2026-10-14 候选 9）：原来还要本机也设 CRM_SCOPED_SYNC=1，
+ *        真用户双击打开桌面端，从来不设环境变量——服务端一开，业务员全被 409、老板却永远不迁移，团队卡死。
+ *        新建的团队也走这一条：开通后老板那台第一轮就迁移，业务员等它完成
+ *      · 老板的其它电脑 → 旧协议（老板的旧接口还能用），等建团队那台迁移
+ *      · 业务员 → 等老板（旧接口对业务员一律 409，不去碰；说清楚卡在老板那边）
+ *  - 本机 CRM_SCOPED_SYNC=0：显式不开始迁移（应急用，只管「开始」；已经 building / ready 的照旧走新协议，旧流已冻结、退不回去）
+ */
+export function 定协议(s: 范围状态回包, c: Pick<团队配置, "device"> & { 能管理: boolean }, 本机开关 = process.env.CRM_SCOPED_SYNC): 协议决定 {
+  if (s.stage === "ready") return { 走: "scoped" };
+  if (s.stage === "building") {
+    if (s.owner && s.device === c.device) return { 走: "migrate" };
+    return { 走: "等", error: s.owner ? "团队隔离迁移正在老板的另一台电脑上进行，请在那台继续" : "老板正在升级团队同步，完成后这台会自动只同步本人和公海客户" };
+  }
+  if (!s.enabled || 本机开关?.trim() === "0") return { 走: "legacy" };
+  if (!s.owner) return { 走: "等", error: 等老板迁移 };
+  return c.能管理 ? { 走: "migrate" } : { 走: "legacy" };
+}
+
+async function 选协议(c: 团队配置): Promise<"legacy" | 轮结果> {
+  const r = await 范围请求(c, "state");
+  // 非 200（旧服务端没有此接口、未开通、已被移出、网络断）一律交给旧流程：它会给出原有的提示，
+  // 而迁移后的服务端对旧接口也只会返回 409，不会因此回落成全队包
+  if (r.状态 !== 200 || typeof r.json.stage !== "string") return "legacy";
+  const owner = !!r.json.owner;
+  const d = 定协议({ stage: String(r.json.stage), owner, enabled: !!r.json.enabled, device: r.json.device == null ? null : String(r.json.device) }, { device: c.device, 能管理: 能管理团队(c) });
+  if (d.走 === "scoped") return 范围一轮(读团队() ?? c, owner, 读推送规则(r.json));
+  if (d.走 === "migrate") return 老板迁移(c, 读推送规则(r.json));
+  if (d.走 === "等") {
+    记团队(c.teamId, { lastError: d.error, lastSyncAt: new Date().toISOString() });
+    return { ok: false, error: d.error };
+  }
+  return "legacy";
+}
+
+/**
+ * 老板先迁移（可断点续做）：
+ *  1. 本机备份（固定名字，已有不覆盖）
+ *  2. 旧协议推完本机改动、拉齐 → begin 冻结旧流，得到 fence
+ *  3. 再只拉旧流直到 ≥ fence（冻结前同事推的）
+ *  4. 生成按字段钟的完整起点，落到本机文件；按序号分块推，进度记在 .team.json，断了从断点接着推
+ *  5. 起点之后本机的新改动照常按范围推；commit 时服务端核对条数，才开放业务员
+ */
+async function 老板迁移(c0: 团队配置, 规则: 推送规则 = 旧推送规则): Promise<轮结果> {
+  let c = c0;
+  const teamId = c.teamId;
+  try {
+    if (!c.scoped) {
+      const f = 迁移备份文件();
+      if (!fs.existsSync(f)) {
+        fs.mkdirSync(path.dirname(f), { recursive: true });
+        await prisma.$executeRawUnsafe("VACUUM INTO ?", f);
+      }
+      // begin 已成功但 .team.json 没记上（上次在这一步断了）：旧推送已被冻结，跳过旧推送直接续做
+      const 已开始 = String((await 范围请求(c, "state")).json.stage ?? "") === "building";
+      const 前 = await 跑一轮({ 旧协议: true, 只拉: 已开始 });
+      if (!前.ok) return 前;
+      const b = await 范围请求(c, "begin", { device: c.device });
+      if (b.状态 !== 200) return { ok: false, error: 错话(b, "开始迁移失败") };
+      记团队(teamId, { scoped: { stage: "migrating", cursors: {}, baselineSent: 0, stored: 0 } });
+      c = 读团队() ?? c;
+    }
+    const s = await 范围请求(c, "state");
+    const fence = Number(s.json.fence ?? 0);
+    if ((c.pulled ?? 0) < fence) {
+      const 拉 = await 跑一轮({ 旧协议: true, 只拉: true });
+      if (!拉.ok) return 拉;
+      c = 读团队() ?? c;
+      if ((c.pulled ?? 0) < fence) return { ok: false, error: "还没拉齐冻结前同事的改动，下一轮继续迁移" };
+    }
+    let 起点: { cutoff: number; events: 改动[] };
+    if (fs.existsSync(起点文件())) 起点 = JSON.parse(fs.readFileSync(起点文件(), "utf8"));
+    else {
+      await 待推(prisma, c.device, 1); // 先给本机未编钟的改动编上字段钟，起点里的列钟才完整
+      起点 = await 范围快照(prisma);
+      const 临 = `${起点文件()}.${process.pid}.tmp`;
+      fs.writeFileSync(临, JSON.stringify(起点), { mode: 0o600 });
+      fs.renameSync(临, 起点文件());
+    }
+    let sent = c.scoped?.baselineSent ?? 0, stored = c.scoped?.stored ?? 0, 换钥 = 0;
+    while (sent < 起点.events.length) {
+      const 块 = 起点.events.slice(sent, sent + 100);
+      const packets = 块.map((e, i) => ({ ...做包(c, e, 事件编号(c, `baseline|${sent + i}`, e)), baseline: true }));
+      const r = await 范围请求(c, "push", { device: c.device, packets });
+      if (r.状态 === 409 && /换过钥匙/.test(String(r.json.error ?? "")) && 换钥++ < 3) { c = await 更新钥匙(c); continue; } // 有上限，不无限重试
+      if (r.状态 !== 200) return { ok: false, error: 错话(r, "推送迁移起点失败") };
+      sent += 块.length; stored += Number(r.json.stored ?? 0);
+      记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "migrating", cursors: {} }), baselineSent: sent, stored } });
+    }
+    // 起点已含 cutoff 之前的全部日志；之后的日志按范围单条推
+    await 记已推(prisma, 起点.cutoff);
+    const 后 = await 范围推(c, true);
+    if (!后.ok) return 后;
+    stored += 后.stored;
+    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "migrating", cursors: {} }), stored } });
+    const done = await 范围请求(c, "commit", { device: c.device, count: stored });
+    if (done.状态 !== 200) return { ok: false, error: 错话(done, "完成迁移失败") };
+    记团队(teamId, { scoped: { stage: "ready", cursors: {}, baselineSent: sent, stored } });
+    fs.rmSync(起点文件(), { force: true });
+    return 范围一轮(读团队() ?? c, true, 规则);
+  } catch (e) {
+    const 话 = e instanceof 同步问题 ? e.message : `团队隔离迁移没完成，下一轮从断点继续：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
+    记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() });
+    return { ok: false, error: 话 };
+  }
+}
+
+/**
+ * 服务端怎么核一次推送（state 回包的 pushRule）：
+ *  - "request-start"（2026-10-14 起）：每包按「这次请求开始时的权限」或「前面几包落下之后」核（scope-policy 推送可写），
+ *    转交 / 领取、跟在后面的子记录改动和它的起点快照放进同一次请求就都收；被拒时回包带 denied（被拒的下标）。
+ *  - 没有（旧服务端）：逐包按前面几包落下之后的状态核，一次最多 100 包，起点只能事后单独补发。
+ */
+type 推送规则 = { 按请求开始: boolean; 上限: number };
+const 旧推送规则: 推送规则 = { 按请求开始: false, 上限: 100 };
+function 读推送规则(json: Record<string, unknown>): 推送规则 {
+  if (json.pushRule !== "request-start") return 旧推送规则;
+  return { 按请求开始: true, 上限: Math.max(100, Math.min(Math.floor(Number(json.maxPackets) || 100), 1000)) };
+}
+const 失权原因 = "推送时该记录已不在你的同步范围内（转交、领取或权限变化）；未上传改动已保留，请与老板核对";
+
+/**
+ * 按范围推本机日志。
+ *
+ * 新规则（服务端 request-start）：一块改动里有改归属的（转交、领取、进出公海、改父链），把这些记录当前的起点快照
+ * （记录快照：本条 + 全部子记录 + 操作日志）直接附在同一次请求里——这台设备在请求开始时还有权写，服务端照收；
+ * 接手的人（或领到的人自己）马上就能从这份起点拉。块里有改归属的就多带一些（最多 300 条），
+ * 同一个动作里跟在转交后面的改动（交接带走的计划、操作日志）不被切到下一次请求（那时已经没权了）。
+ * 起点太大放不下（> 服务端上限）就不附：先只推改动、起点记成待补（补发起点；自己补不了时由老板那台补，见 范围一轮）。
+ *
+ * 被拒（403）：新服务端回 denied = 被拒的那几包。只把它们转成显式冲突（不静默丢弃），其余原样重推（整批是回滚了的）；
+ * 只有起点包被拒就去掉起点重推。旧服务端没有 denied：照旧逐条重推，仍被拒的转冲突。
+ */
+async function 范围推(c0: 团队配置, 迁移中 = false, 规则: 推送规则 = 旧推送规则): Promise<结果<{ 推: number; 冲突: number; stored: number }>> {
+  let c = c0, 推 = 0, 冲突 = 0, stored = 0;
+  const 新规 = 规则.按请求开始 && !迁移中;
+  let 不带起点 = false, 重来 = 0, 换钥 = 0;
+  for (;;) {
+    let { 改动, 到 } = await 待推(prisma, c.device, 新规 ? 300 : 100);
+    if (!改动.length) break;
+    const 已推 = Number((await prisma.$queryRawUnsafe<{ v: bigint }[]>("SELECT v FROM _sync_cursor WHERE k = 'pushed'"))[0]?.v ?? 0);
+    const seqs = (await prisma.$queryRawUnsafe<{ seq: bigint }[]>("SELECT seq FROM _sync_log WHERE seq > ? ORDER BY seq LIMIT ?", 已推, 改动.length)).map((r) => Number(r.seq));
+    // 前 100 条里没有改归属的：照常 100 条一块
+    if (改动.length > 100 && !改归属根(改动.slice(0, 100)).length) { 改动 = 改动.slice(0, 100); 到 = seqs[99]; }
+    const 包 = (e: 改动) => 做包(c, e, 事件编号(c, `log|${c.device}`, e));
+    let packets;
+    try { packets = 改动.map(包); } catch (e) { throw new 同步问题(`本机有一条改动格式不对，没法按范围推送：${(e as Error).message}`); }
+    const roots = 改归属根(改动);
+    let 起点包: ReturnType<typeof 包>[] = [];
+    if (新规 && roots.length && !不带起点) {
+      const events = await 记录快照(prisma, roots);
+      // 起点事件编号按（设备, 这一块推到哪条）定：回包丢了重推同一块得到同样的编号，服务端当重复事件收下，不再核权限
+      const 快照 = events.map((e, j) => ({ ...做包(c, e, 事件编号(c, `snap|${c.device}|${到}|${j}`, e)), baseline: true }));
+      if (packets.length + 快照.length <= 规则.上限 && JSON.stringify(packets).length + JSON.stringify(快照).length < 7 * 1024 * 1024) 起点包 = 快照;
+    }
+    let r = await 范围请求(c, "push", { device: c.device, packets: [...packets, ...起点包] });
+    // 换过钥匙：取新钥匙重推；有上限，云端一直回 409 时这一轮报错停下，不无限重试
+    if (r.状态 === 409 && /换过钥匙/.test(String(r.json.error ?? "")) && 换钥++ < 3) { c = await 更新钥匙(c); continue; }
+    if (r.状态 === 413 && 起点包.length) { 不带起点 = true; continue; }
+    if (r.状态 === 403 && 新规 && Array.isArray(r.json.denied) && 重来++ < 50) {
+      const denied = (r.json.denied as unknown[]).filter((i): i is number => Number.isInteger(i));
+      const 失权 = denied.filter((i) => i >= 0 && i < 改动.length).map((i) => seqs[i]);
+      if (失权.length) {
+        冲突 += await 转为范围冲突(prisma, 失权, 失权原因);
+        continue;
+      }
+      if (起点包.length) { 不带起点 = true; continue; }
+    }
+    if (r.状态 === 403 && !迁移中) {
+      const 失权: number[] = [];
+      for (let i = 0; i < 改动.length; i++) {
+        r = await 范围请求(c, "push", { device: c.device, packets: [包(改动[i])] });
+        if (r.状态 === 403) 失权.push(seqs[i]);
+        else if (r.状态 !== 200) return { ok: false, error: 错话(r, "推送失败") };
+        else stored += Number(r.json.stored ?? 0);
+      }
+      记待补起点(c.teamId, 改归属根(改动.filter((_, i) => !失权.includes(seqs[i]))));
+      冲突 += await 转为范围冲突(prisma, 失权, 失权原因);
+      await 记已推(prisma, 到);
+      推 += 改动.length - 失权.length;
+      continue;
+    }
+    if (r.状态 !== 200) return { ok: false, error: 错话(r, "推送失败") };
+    stored += Number(r.json.stored ?? 0);
+    // 起点已经跟着改归属一起落下了就不用再补；没附上的记成待补
+    if (!起点包.length) 记待补起点(c.teamId, roots);
+    不带起点 = false;
+    await 记已推(prisma, 到);
+    推 += 改动.length;
+  }
+  const s = await 补发起点(c);
+  if (!s.ok) return s;
+  return { ok: true, 推, 冲突, stored: stored + s.stored };
+}
+
+/** 这批改动里改了归属的（路由字段变了、进出公海）：要给它们补「改归属之后的起点」的根 */
+function 改归属根(改动: 改动[]): string[] {
+  const roots = new Set<string>();
+  for (const e of 改动) {
+    if (e.t === "CustomerPool") roots.add(行键("Customer", e.k));
+    else if (e.o === "U" && (范围字段[e.t] ?? []).some((f) => e.c.includes(f))) roots.add(行键(e.t, e.k));
+  }
+  return [...roots];
+}
+/** 记成待补发起点的根：先落盘再补发，断了下一轮接着补 */
+function 记待补起点(teamId: string, roots: string[]) {
+  if (!roots.length) return;
+  const 现 = 读团队();
+  if (现?.teamId !== teamId) return;
+  const sc = 现.scoped ?? { stage: "ready" as const, cursors: {} };
+  写团队({ ...现, scoped: { ...sc, snapshotPending: [...new Set([...(sc.snapshotPending ?? []), ...roots])] } });
+}
+async function 补发起点(c: 团队配置): Promise<结果<{ stored: number }>> {
+  const pending = 读团队()?.scoped?.snapshotPending ?? [];
+  if (!pending.length) return { ok: true, stored: 0 };
+  const events = await 记录快照(prisma, pending);
+  const 批次 = `snap|${Date.now()}`;
+  let stored = 0;
+  for (let i = 0; i < events.length; i += 100) {
+    const packets = events.slice(i, i + 100).map((e, j) => ({ ...做包(c, e, 事件编号(c, `${批次}|${i + j}`, e)), baseline: true }));
+    const r = await 范围请求(c, "push", { device: c.device, packets });
+    // 403：这台已经没有权限写这条（例如刚转走）；起点由仍有权的设备补，这里不卡住
+    if (r.状态 === 403) continue;
+    if (r.状态 !== 200) return { ok: false, error: 错话(r, "补发起点失败") };
+    stored += Number(r.json.stored ?? 0);
+  }
+  const 现 = 读团队();
+  if (现?.teamId === c.teamId && 现.scoped) 写团队({ ...现, scoped: { ...现.scoped, snapshotPending: (现.scoped.snapshotPending ?? []).filter((k) => !pending.includes(k)) } });
+  return { ok: true, stored };
+}
+
+/** 一轮范围同步：推 → 目录 →（业务员）清理失权副本 → 按范围拉、逐包核对后回放 →（老板）补起点 */
+async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规则 = 旧推送规则): Promise<轮结果> {
+  let c = c0;
+  const teamId = c.teamId;
+  try {
+    if (!c.scoped || c.scoped.stage !== "ready") { 记团队(teamId, { scoped: { ...(c.scoped ?? { cursors: {} }), stage: "ready" } }); c = 读团队() ?? c; }
+    const p = await 范围推(c, false, 规则);
+    if (!p.ok) { 记团队(teamId, { lastError: p.error, lastSyncAt: new Date().toISOString() }); return p; }
+    c = 读团队() ?? c;
+    const d = await 范围请求(c, "directory");
+    if (d.状态 !== 200) { const 话 = 错话(d, "取不到同步目录"); 记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() }); return { ok: false, error: 话 }; }
+    if (Number(d.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
+    const scopes = (d.json.scopes as { id: string; revision: number; records: 范围索引[] }[]) ?? [];
+    const index = new Map<string, 范围索引>();
+    for (const s of scopes) for (const r of s.records) index.set(行键(r.t, r.k), r);
+    const allowed = new Set(index.keys());
+    // 待推已推完（失权的已转冲突）才清理：否则刚建、还没进目录的本人记录会被当成失权
+    let cleaned = c.scoped?.cleaned;
+    if (!owner) cleaned = await 看全部(() => 清理失权副本(prisma, allowed));
+    const cursors: 范围配置["cursors"] = {};
+    let 拉 = 0, 撞 = 0, skipped = c.scoped?.skipped ?? 0;
+    for (const s of scopes) {
+      const cur = c.scoped?.cursors?.[s.id];
+      let after = cur && cur.revision >= s.revision ? cur.after : 0;
+      for (;;) {
+        const r = await 范围请求(c, "pull", { scopeId: s.id, after });
+        if (r.状态 !== 200) {
+          const 话 = 错话(r, "拉取失败");
+          记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...(c.scoped?.cursors ?? {}), ...cursors } }, lastError: 话, lastSyncAt: new Date().toISOString() });
+          return { ok: false, error: 话 };
+        }
+        const batches = (r.json.batches as 拉到的范围包[]) ?? [];
+        const 收: 改动[] = [];
+        for (const b of batches) {
+          try { 收.push(验收范围包(b, 全部钥匙(c), teamId, index.get(行键(b.meta.t, b.meta.k)), allowed)); }
+          catch (e) { if (e instanceof 范围包错误) { skipped++; continue; } throw e; }
+        }
+        if (收.length) { const x = await 回放(prisma, 收, c.device); 拉 += x.应用; 撞 += x.撞; }
+        if (batches.length) after = batches[batches.length - 1].seq;
+        cursors[s.id] = { after, revision: s.revision };
+        记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...cursors } } });
+        if (!r.json.more || !batches.length) break; // 同上：没前进就不再要同一页
+      }
+    }
+    // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
+    const 补删 = await 照目录补删除(index.values(), c.device);
+    拉 += 补删;
+    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, cleaned }, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推: p.推, 拉, 撞 } });
+    /*
+      老板那台补起点：目录里的 needBaseline = 改过归属、有业务员看得到、却还没有改归属之后起点的记录
+      （交出去的人是旧版本客户端、起点太大没跟转交一起推、推完转交就断了……）。老板收全队、刚拉齐，永远有权写，由它补上；
+      补不上（本机还没有这条）下一轮目录里还会列出来。
+    */
+    const need = owner && Array.isArray(d.json.needBaseline) ? (d.json.needBaseline as unknown[]).filter((k): k is string => typeof k === "string") : [];
+    if (need.length) {
+      记待补起点(teamId, need);
+      const s = await 补发起点(读团队() ?? c);
+      if (!s.ok) { 记团队(teamId, { lastError: s.error, lastSyncAt: new Date().toISOString() }); return s; }
+    }
+    if (拉 > 0) invalidateSettingsCache();
+    if (Date.now() - 上次对角色 > 5 * 60_000 || (拉 > 0 && 上次对角色 === 0)) await 对齐角色().catch(() => undefined);
+    return { ok: true, 推: p.推, 拉, 撞 };
+  } catch (e) {
+    const 话 = e instanceof 同步问题 ? e.message : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
+    记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() });
+    return { ok: false, error: 话 };
+  }
+}
+
+/**
+ * 目录里标着已删除、本机还有这一行的记录，补一次删除（2026-10-14 候选 6 实机）。
+ * 删除只在本机落：当成回放（不进推送队列），用目录里的字段钟当删除钟——本机这一行有更晚的字段钟（别人删之后又改过）就不删；
+ * 本机还有没推上去的改动的记录不动，等推送有了结论再说（这里先筛一遍；读完待推之后人又写的那一笔，由 回放 在事务里先编字段钟兜住）。
+ * 只用目录里的编号和钟，不碰任何密文。
+ * 旧服务端 / 已经把游标拉过了删除包的设备（游标在删除包之后）靠这一步收尾；新服务端拉取时也会直接给删除包。
+ */
+async function 照目录补删除(rows: Iterable<范围索引>, 设备: string): Promise<number> {
+  const 删了 = [...rows].filter((r) => r.deleted && r.clock);
+  if (!删了.length) return 0;
+  const 待推 = new Set((await prisma.$queryRawUnsafe<{ tbl: string; pk: string }[]>("SELECT DISTINCT tbl, pk FROM _sync_log WHERE seq > COALESCE((SELECT v FROM _sync_cursor WHERE k = 'pushed'), 0)")).map((r) => 行键(r.tbl, r.pk)));
+  const 按表 = new Map<string, 范围索引[]>();
+  for (const r of 删了) if ((同步表 as readonly string[]).includes(r.t) && !待推.has(行键(r.t, r.k))) 按表.set(r.t, [...(按表.get(r.t) ?? []), r]);
+  const 要删: 改动[] = [];
+  for (const [t, rs] of 按表) {
+    const pk = 主字段(t);
+    for (let i = 0; i < rs.length; i += 400) {
+      const part = rs.slice(i, i + 400);
+      const 在 = new Set((await prisma.$queryRawUnsafe<{ k: string }[]>(`SELECT "${pk}" AS k FROM "${t}" WHERE "${pk}" IN (${part.map(() => "?").join(",")})`, ...part.map((r) => r.k))).map((x) => String(x.k)));
+      for (const r of part) if (在.has(r.k)) 要删.push({ t, k: r.k, o: "D", r: null, c: [], h: r.clock });
+    }
+  }
+  if (!要删.length) return 0;
+  return (await 回放(prisma, 要删, 设备, { 含本人: true })).应用;
+}
+
+/** 设置 → 团队显示用：范围同步状态与待核对冲突数 */
+export async function 范围同步概况() {
+  const c = 读团队();
+  return { 阶段: c?.scoped?.stage ?? "legacy", 冲突: await 范围冲突数(prisma), 跳过: c?.scoped?.skipped ?? 0, 清理: c?.scoped?.cleaned ?? null };
 }

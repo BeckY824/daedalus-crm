@@ -1,5 +1,7 @@
 "use client";
 
+import { dayjs } from "@/lib/utils";
+
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { App, Dropdown, Input, Modal } from "antd";
@@ -159,13 +161,9 @@ export default function ConversationList({ rows }: { rows: 对话概要[] }) {
  * 而不是因为超过 24 小时跳进「更早」。
  */
 function 分组(rows: 对话概要[]): [string, 对话概要[]][] {
-  const 日 = (s: string) => {
-    const d = new Date(s);
-    return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-  };
-  const now = new Date();
-  const 今 = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const 昨 = 今 - 86_400_000;
+  const 日 = (s: string) => dayjs(s).format("YYYY-MM-DD");
+  const 今 = dayjs().format("YYYY-MM-DD");
+  const 昨 = dayjs().subtract(1, "day").format("YYYY-MM-DD");
   const out: Record<string, 对话概要[]> = { 今天: [], 昨天: [], 更早: [] };
   for (const r of rows) {
     const d = 日(r.lastAskedAt);

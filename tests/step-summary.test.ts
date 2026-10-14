@@ -25,3 +25,7 @@ describe("summarizeSteps", () => {
     expect(summarizeSteps([步("some_new_tool({})")], "客户")).toBe("调了 some_new_tool");
   });
 });
+
+it("账号名单描述不假定存在销售团队", () => {
+  expect(summarizeSteps([步("list_users({})")], "客户")).toBe("查了账号名单");
+});

@@ -45,13 +45,13 @@ async function 登录管理员(page: Page) {
  * 在设置页把 AI 接入填上。要求这一页已经是管理员登录着的。
  * 重复填一次是安全的：同一把假 Key 覆盖同一行设置。
  */
-export async function 配好AI(page: Page) {
+export async function 配好AI(page: Page, baseUrl = "http://127.0.0.1:9/v1") {
   await page.goto("/settings?tab=ai");
   // AI 接入 2026-09-17 起是「两个选择」：先说要用自己的 Key，再选「其它」才出现接口地址
   await page.getByRole("radio", { name: /用你自己的 API Key/ }).click();
   await page.getByLabel("用哪一家").click();
   await page.locator(".ant-select-dropdown:not(.ant-select-dropdown-hidden)").getByText("其它（自己填接口地址）").click();
-  await page.locator("#baseUrl").fill("http://127.0.0.1:9/v1");
+  await page.locator("#baseUrl").fill(baseUrl);
   // 纯 ASCII：中文塞进 Authorization 头会在 fetch 那一层就报错，掩盖掉真正的失败原因
   await page.locator("#apiKey").fill("e2e-not-a-real-key");
   await page.locator("#model").fill("e2e-model");

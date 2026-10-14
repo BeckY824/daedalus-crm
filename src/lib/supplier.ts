@@ -1,3 +1,4 @@
+import { businessDayjs } from "./business-clock";
 /**
  * 供应商比价的规则（2026-10-03 外贸第 3c 块）。不碰数据库，客户端和服务端都能引。
  * 依据：~/CRM/外贸CRM模版-2026-10-03/外贸CRM模版.md 第三节。
@@ -67,6 +68,5 @@ export function 毛利(o: { amount: number; currency: string }, 采: { cost: num
 /** 报价过了有效期：过期的那一行变灰，提醒「这个价不一定还作数」 */
 export function 过期了(validUntil: string | Date | null | undefined, 现在: Date = new Date()): boolean {
   if (!validUntil) return false;
-  const d = new Date(validUntil);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() < new Date(现在.getFullYear(), 现在.getMonth(), 现在.getDate()).getTime();
+  return businessDayjs(validUntil).format("YYYY-MM-DD") < businessDayjs(现在).format("YYYY-MM-DD");
 }

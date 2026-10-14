@@ -1,5 +1,6 @@
 "use client";
 
+import { useBusinessTimeZone } from "@/lib/business-client";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { Segmented, Space, Button, App, Tag } from "antd";
@@ -21,6 +22,7 @@ type Plan = {
   id: string;
   subject: string;
   plannedAt: string;
+  plannedHasTime?: boolean | null;
   method: string;
   /** 编辑框的版本号（J-105） */
   updatedAt: string;
@@ -34,6 +36,7 @@ type Task = {
   id: string;
   title: string;
   dueAt: string | null;
+  dueHasTime?: boolean | null;
   /** 编辑框的版本号（J-105） */
   updatedAt: string;
   customerId: string;
@@ -42,14 +45,14 @@ type Task = {
   ownerName: string;
 };
 
-/** 做完的那些。计划没有 doneAt 列，完成时间取 updatedAt，见 page.tsx 的说明 */
+/** 旧记录未留存实际完成时间时保留 null，不拿编辑时间代替。 */
 export type 已完成 = {
   key: string;
   kind: "plan" | "task";
   标题: string;
   方式?: string;
   计划时间: string | null;
-  完成时间: string;
+  完成时间: string | null;
   customerId: string;
   customerName: string;
   ownerId: string;
@@ -66,6 +69,7 @@ type 事项 = {
   方式?: string;
   /** 打开「改」那一刻的 updatedAt，保存时当版本闸门（J-105） */
   版本: string;
+  明确钟点?: boolean | null;
   customerId: string;
   customerName: string;
   ownerId: string;
@@ -105,6 +109,7 @@ export default function PlansView({
    */
   全员?: boolean;
 }) {
+  const timeZone = useBusinessTimeZone();
   const router = useRouter();
   const { message } = App.useApp();
   const [scope, setScope] = useState<string | number>(全员 ? "全部成员" : "我的");
@@ -124,10 +129,10 @@ export default function PlansView({
   const [在改, set在改] = useState<事项 | null>(null);
   // 表单的 record 要稳定：它是 useEffect 的依赖，每次渲染新建一个对象会让表单边输入边被重置
   const 改计划 = useMemo(
-    () => (在改?.kind === "plan" ? { id: 在改.id, subject: 在改.标题, plannedAt: 在改.时间 ?? new Date().toISOString(), method: 在改.方式 ?? "电话沟通", updatedAt: 在改.版本 } : null),
+    () => (在改?.kind === "plan" ? { id: 在改.id, subject: 在改.标题, plannedAt: 在改.时间 ?? new Date().toISOString(), plannedHasTime: 在改.明确钟点, method: 在改.方式 ?? "电话沟通", updatedAt: 在改.版本 } : null),
     [在改],
   );
-  const 改待办 = useMemo(() => (在改?.kind === "task" ? { id: 在改.id, title: 在改.标题, dueAt: 在改.时间, updatedAt: 在改.版本 } : null), [在改]);
+  const 改待办 = useMemo(() => (在改?.kind === "task" ? { id: 在改.id, title: 在改.标题, dueAt: 在改.时间, dueHasTime: 在改.明确钟点, updatedAt: 在改.版本 } : null), [在改]);
 
   async function 删掉(x: 事项) {
     const r = x.kind === "plan" ? await deletePlan(x.id) : await deleteTask(x.id);
@@ -166,11 +171,11 @@ export default function PlansView({
   const 全部: 事项[] = useMemo(
     () => [
       ...plans.map((p) => ({
-        key: `plan:${p.id}`, kind: "plan" as const, id: p.id, 标题: p.subject, 时间: p.plannedAt, 方式: p.method, 版本: p.updatedAt,
+        key: `plan:${p.id}`, kind: "plan" as const, id: p.id, 标题: p.subject, 时间: p.plannedAt, 明确钟点: p.plannedHasTime, 方式: p.method, 版本: p.updatedAt,
         customerId: p.customerId, customerName: p.customerName, ownerId: p.ownerId, ownerName: p.ownerName,
       })),
       ...tasks.map((t) => ({
-        key: `task:${t.id}`, kind: "task" as const, id: t.id, 标题: t.title, 时间: t.dueAt, 版本: t.updatedAt,
+        key: `task:${t.id}`, kind: "task" as const, id: t.id, 标题: t.title, 时间: t.dueAt, 明确钟点: t.dueHasTime, 版本: t.updatedAt,
         customerId: t.customerId, customerName: t.customerName, ownerId: t.ownerId, ownerName: t.ownerName,
       })),
     ],
@@ -199,7 +204,7 @@ export default function PlansView({
       }
     }
     for (const k of Object.keys(out) as (keyof typeof out)[]) {
-      out[k].sort((a, c) => (a.时间 ?? "").localeCompare(c.时间 ?? ""));
+      out[k].sort((a, c) => (a.时间 ? dayjs(a.时间).valueOf() : Infinity) - (c.时间 ? dayjs(c.时间).valueOf() : Infinity));
     }
     return out;
   }, [我的]);
@@ -249,7 +254,7 @@ export default function PlansView({
   }
 
   const 我的已完成 = useMemo(
-    () => done.filter((x) => (scope === "我的" ? x.ownerId === meId : true)),
+    () => done.filter((x) => (scope === "我的" ? x.ownerId === meId : true)).slice(0, 200),
     [done, scope, meId],
   );
 
@@ -262,7 +267,7 @@ export default function PlansView({
           「新建计划」就地弹框、第一格挑人；「上次谈到哪儿」跟着挑中的人进框里 */}
       <PageHead
         title="跟进计划"
-        subtitle="逾期、今天、本周要联系的人"
+        subtitle={`逾期、今天、本周要联系的人 · ${timeZone ? "北京时间（UTC+8）" : "本机时区"}`}
         extra={
           <Space>
             <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/follow-ups")}>
@@ -303,7 +308,7 @@ export default function PlansView({
                 <div className="plan-g-h">
                   <b>做完的</b>
                   <span className="plan-g-n">{我的已完成.length}</span>
-                  <span className="plan-g-s">按完成时间倒序，最近 200 条</span>
+                  <span className="plan-g-s">按实际完成时间倒序，最多 200 条；旧时间未知的排后</span>
                 </div>
                 {我的已完成.length === 0 ? (
                   <div className="plan-empty">{scope === "我的" ? "你还没完成过计划或待办" : "还没有完成过的"}</div>
@@ -321,8 +326,8 @@ export default function PlansView({
                           {x.计划时间 && <span className="plan-row-was-p">原定 {fmtDateTime(x.计划时间)}</span>}
                         </span>
                       </span>
-                      {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
-                      <span className="plan-row-d">{fmtDateTime(x.完成时间)} 完成</span>
+                      {!只有我 && scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
+                      <span className="plan-row-d">{x.完成时间 ? `${fmtDateTime(x.完成时间)} 完成` : "已完成 · 完成时间未记录"}</span>
                     </div>
                   ))
                 )}
@@ -332,11 +337,11 @@ export default function PlansView({
           <div className="plans">
             {/* 三组的空文案各不相同：全写「这一组是空的」，人分不出
                 「今天没排」和「已经全做完了」——那是两件完全不同的事 */}
-            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
-            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
-            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
+            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
             {组.以后.length > 0 && (
-              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 改={set在改} 删={删掉} />
+              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
             )}
           </div>
           )}
@@ -382,7 +387,7 @@ export default function PlansView({
 }
 
 function 组块({
-  名, 说明, 空话, 事项, 危险, 完成, 刚完成, 刚建, 刚建那行, scope, 改, 删,
+  名, 说明, 空话, 事项, 危险, 完成, 刚完成, 刚建, 刚建那行, scope, 只有我, 改, 删,
 }: {
   /** 改这一条：计划开计划表单，待办开待办表单（2026-10-02 排查 3-4：原来计划页上只能「完成」） */
   改: (x: 事项) => void;
@@ -399,6 +404,7 @@ function 组块({
   刚建: string | null;
   刚建那行: React.RefObject<HTMLDivElement | null>;
   scope: string | number;
+  只有我: boolean;
 }) {
   return (
     <section className={`plan-g${危险 ? " plan-g-warn" : ""}`}>
@@ -434,7 +440,7 @@ function 组块({
                   <Tag style={{ margin: 0, borderRadius: 6 }}>{x.kind === "plan" ? "跟进计划" : "待办"}</Tag>
                 </span>
               </span>
-              {scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
+              {!只有我 && scope === "全部成员" && <UserCell name={x.ownerName} size={22} />}
               {/* 截止时间一种说法：逾期 N 天 / 今天 / 明天 / M 月 D 日（审查 D1，lib/deadline.ts） */}
               <span className="plan-row-d" title={x.时间 ? fmtDateTime(x.时间) : undefined}>{截止说法(x.时间)}</span>
               {!完了 && (

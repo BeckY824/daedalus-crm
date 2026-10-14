@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { 主题图表选项 } from "@/lib/chart-theme";
 import { palette } from "@/lib/palette";
 import * as echarts from "echarts/core";
 import { LineChart, BarChart } from "echarts/charts";
@@ -101,7 +102,15 @@ export default function Chart({
   }, []);
 
   useEffect(() => {
-    inst.current?.setOption(option, true);
+    const apply = (reset: boolean) => {
+      if (!inst.current) return;
+      const styles = getComputedStyle(document.documentElement);
+      inst.current.setOption(主题图表选项(option, token => token ? styles.getPropertyValue(token) : ""), reset);
+    };
+    apply(true);
+    const observer = new MutationObserver(() => apply(false));
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-skin", "data-paper"] });
+    return () => observer.disconnect();
   }, [option]);
 
   return <div ref={ref} style={{ width: "100%", height, cursor: 点一段 ? "pointer" : undefined }} />;

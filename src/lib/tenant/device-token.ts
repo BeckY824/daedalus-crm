@@ -41,13 +41,15 @@ export async function 签发(accountId: string, name: string): Promise<{ id: str
 const 记录间隔毫秒 = 5 * 60 * 1000;
 
 /**
- * 认令牌。认不出、被吊销都返回 null——**不区分**，区分开就成了令牌探测接口。
+ * 认令牌。认不出、被吊销、账号停用都返回 null，不缓存账号状态：停用必须立即挡住旧设备。
  */
 export async function 认领(raw: string | null | undefined): Promise<{ id: string; accountId: string } | null> {
   const token = raw?.trim();
   if (!token || !像令牌吗(token)) return null;
   const row = await control.deviceToken.findUnique({ where: { tokenHash: 指纹(token) } });
   if (!row || row.revokedAt) return null;
+  const account = await control.account.findUnique({ where: { id: row.accountId }, select: { active: true } });
+  if (!account?.active) return null;
 
   if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 记录间隔毫秒) {
     // 记时间失败不该让调用失败：它只是给人看「这台机器还在用吗」

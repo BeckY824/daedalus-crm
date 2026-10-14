@@ -9,7 +9,7 @@ import { explainWatchlist } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
-import AiCost from "@/components/AiCost";
+import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
@@ -23,11 +23,12 @@ const KIND_COLOR: Record<WatchItem["kind"], string> = {
  * 盯盘提醒：正在被遗忘的学员/商机/计划，按优先级排列。
  * 「起草跟进」生成微信话术草稿，由销售自己复制发出——AI 起草、人签发。
  */
-export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[]; aiEnabled: boolean }) {
+export default function SentinelCard({ items, total = items.length, aiEnabled }: { items: WatchItem[]; total?: number; aiEnabled: boolean }) {
   const b = useBusiness();
   const kindLabel = (k: WatchItem["kind"]) => KIND_LABEL[k].replace("学员", b.customer);
   // 解读与话术都挂在进程内任务表上（ai-jobs），离开首页再回来，转圈和结果都还在。
   // 话术的 key 与记录页共用：两边起草的是同一条，互相能看到
+  const AI已用完 = useAiOutOfCredits();
   const explainJob = useJob<Record<string, string>>("sentinel:explain");
   const notes = explainJob?.status === "done" ? explainJob.value : null;
   const explaining = explainJob?.status === "loading";
@@ -52,14 +53,14 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
           <EyeOutlined style={{ color: "var(--brand)" }} />
           <span className="section-title">盯盘提醒</span>
           <Typography.Text type="secondary" style={{ fontSize: 13, fontWeight: 400 }}>
-            {items.length} 项正在被遗忘
+            {total} 位需要跟进{total > items.length ? `，先显示 ${items.length} 位` : ""}
           </Typography.Text>
         </Space>
       }
       extra={
         aiEnabled && !notes ? (
           /* 跑着时不转圈：在做什么、过了几秒，卡片里那一行说 */
-          <Button size="small" icon={<BulbOutlined />} disabled={explaining} onClick={explain}>
+          <Button size="small" icon={<BulbOutlined />} disabled={explaining || AI已用完} onClick={explain}>
             AI 解读
             <AiCost />
           </Button>
@@ -76,6 +77,7 @@ export default function SentinelCard({ items, aiEnabled }: { items: WatchItem[];
           />
         </div>
       )}
+      {total > items.length && <Link href="/follow-ups/watchlist?scope=team">查看全部 {total} 位</Link>}
       {items.map((it) => (
         <SentinelRow key={it.customerId} it={it} aiEnabled={aiEnabled} note={notes?.[it.customerId]} kindLabel={kindLabel} onDraft={() => draft(it)} onCopy={copy} />
       ))}
@@ -99,6 +101,7 @@ function SentinelRow({
   onDraft: () => void;
   onCopy: (t: string) => void;
 }) {
+  const AI已用完 = useAiOutOfCredits();
   const job = useJob<string>(草稿键("wakeup", it.customerId));
   const draftText = job?.status === "done" ? job.value : undefined;
   return (
@@ -116,7 +119,7 @@ function SentinelRow({
             </span>
             <span style={{ color: "var(--text-muted)", fontSize: 13, flex: "none" }}>{it.ownerName}</span>
             {aiEnabled && !draftText && (
-              <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading"} onClick={onDraft}>
+              <Button size="small" icon={<ThunderboltOutlined />} disabled={job?.status === "loading" || AI已用完} onClick={onDraft}>
                 起草跟进
                 <AiCost />
               </Button>

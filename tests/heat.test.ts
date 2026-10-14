@@ -6,7 +6,7 @@ import { describe, it, expect } from "vitest";
 import { dayjs, 冷热 } from "@/lib/utils";
 
 const 今天 = dayjs("2026-09-28T09:00:00");
-const 前 = (天: number, 时 = "20:00") => 今天.subtract(天, "day").format(`YYYY-MM-DDT${时}:00`);
+const 前 = (天: number, 时 = "07:00") => 今天.subtract(天, "day").format(`YYYY-MM-DDT${时}:00`);
 
 describe("冷热", () => {
   it("从没跟过是空格，天数是 null——不能当成「今天跟过」", () => {
@@ -28,8 +28,8 @@ describe("冷热", () => {
     expect(冷热(今天.format("YYYY-MM-DDT07:00:00"), 今天).天).toBe(0);
   });
 
-  it("未来的时间（录错了日期）按今天算，不出负数", () => {
-    expect(冷热(今天.add(3, "day").toISOString(), 今天)).toEqual({ 格: 4, 天: 0 });
+  it("未来的时间不能被当作今天跟过、显示热度满格", () => {
+    expect(冷热(今天.add(3, "day").toISOString(), 今天)).toEqual({ 格: 0, 天: null });
   });
 });
 

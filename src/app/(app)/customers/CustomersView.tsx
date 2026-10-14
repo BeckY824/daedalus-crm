@@ -1,10 +1,10 @@
 "use client";
 
 import Heat from "@/components/Heat";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button, Select, Space, Dropdown, App, Tag, Popover } from "antd";
+import { Button, Select, Space, Dropdown, App, Tag, Popover, Segmented } from "antd";
 import {
   PlusOutlined,
   ExportOutlined,
@@ -20,26 +20,25 @@ import {
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { 合计文字 } from "@/lib/currency";
 import { maskPhone, smartTime, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
-import { 写xlsx } from "@/lib/xlsx-write";
 import ListSearch from "@/components/ListSearch";
 import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
-import { 导出客户 } from "./export-action";
-import { 客户导出表, 跟进导出表, 签约各币, type 跟进导出行 } from "./export-table";
+import { 完整导出 } from "./export-client";
+import { 签约各币 } from "./export-table";
 import ImportDrawer from "./ImportDrawer";
 import { assignSalesOwner, bulkFollowStatus, 撤销改负责人, type BulkResult } from "./actions";
 import { useDeleteCustomers } from "./useDeleteCustomers";
 import { 带走说法 } from "@/lib/carry-over";
 import { useBusiness } from "@/lib/business-client";
-import type { BusinessConfig } from "@/lib/business-config";
 import { statusLabel, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { WhatsApp网址 } from "@/lib/customer-extra";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 列表不问归属 } from "@/lib/solo";
-import { 公海标签 } from "@/lib/pool";
+import { 公海标签, type 客户页签归属 } from "@/lib/pool";
 import { 放进公海, 领取, 撤销公海, type 公海结果 } from "./pool-actions";
 import ResetFilters from "@/components/ResetFilters";
+import CurrencySelect from "@/components/CurrencySelect";
 
 /**
  * 批量操作的结果文案。
@@ -56,14 +55,14 @@ function bulkSummary(res: Extract<BulkResult, { ok: true }>, action: string): st
 
 type Option = { id: string; name: string };
 
-/** 负责人下拉里「公海」那一项的值（不会和成员 id 撞：cuid 没有冒号） */
-const 公海值 = "pool:";
-
 type Props = {
   rows: CustomerRow[];
   total: number;
   page: number;
+  requestedPage?: string;
   pageSize: number;
+  金额排序?: string;
+  排序币种?: string;
   users: 可选成员[];
   channels: Option[];
   customers: Option[];
@@ -84,6 +83,17 @@ type Props = {
    * 和「只看本月新增」一样是一枚带叉的标记，点叉回到全部
    */
   本批?: { 几位: number } | null;
+  /**
+   * 公海里一共几位（「公海」页签上的那个数）。null = 正在看一个子集（上面三种），不摆页签。
+   * 2026-10-13：公海和自己的客户分两个页签摆，原来混在一张表里、只靠负责人下拉第一项「公海」切
+   */
+  公海数?: number | null;
+  /** 不在公海里的一共几位（第一个页签上的数）。和 公海数 加起来 = 左栏「客户」角标 */
+  客户数?: number | null;
+  /** 第一个页签叫「我的 / 团队」客户：团队业务员、一个人用 = 我的；团队老板 = 团队（lib/pool.ts） */
+  客户页签?: 客户页签归属;
+  /** 「客户」页签搜不到时，同样的条件在公海里有几位（0 = 没有，不提） */
+  公海里匹配?: number;
   /** 接上模型了没有。没接上时导入抽屉里「粘一段文本」那条路只说明原因，不给按钮 */
   aiEnabled?: boolean;
   /**
@@ -107,7 +117,7 @@ type Props = {
     createdWithin: string;
     directOf: string;
     batch: string;
-    /** 「1」= 只看公海 */
+    /** 「1」= 「公海」页签；空 = 「客户」页签（不含公海）。子集里不分页签 */
     pool: string;
     /** 外贸档案的国家 / 来源（2026-10-05） */
     country: string;
@@ -131,9 +141,19 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, aiEnabled, 旧职位 = [], 国家们 = [],
+  rows, total, page, requestedPage, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
+  // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
+  useEffect(() => {
+    if (requestedPage === undefined || requestedPage === String(page)) return;
+    const url = new URL(window.location.href);
+    // 翻页中的旧 props 不能把新目标地址改回旧页。
+    if (url.searchParams.get("page") !== requestedPage) return;
+    url.searchParams.set("page", String(page));
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  }, [page, requestedPage]);
+
   const { message } = App.useApp();
   const { 问删除 } = useDeleteCustomers();
 
@@ -227,15 +247,26 @@ export default function CustomersView({
   }
   const b = useBusiness();
 
-  const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", filters);
+  const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", { ...filters, sort: 金额排序, sortCurrency: 排序币种 ?? b.currency }, pageSize);
   /**
    * 「空库」是「一条都没有 **且** 没在筛」。筛出 0 条不算——
    * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
    * 按 filters（服务端那次查询用的条件）判而不是 f（输入框里的草稿）。
    */
-  const 空库 = total === 0 && !本月新增 && !直接推荐 && !本批 && !Object.values(filters).some((v) => v);
+  /*
+    公海里还有人也不算空库：「客户」页签空了（比如一个人用、全被自动放进了公海），页签和筛选栏得留着，
+    不然人看到的是「新建第一位」，以为客户全没了
+  */
+  const 空库 = total === 0 && !公海数 && !本月新增 && !直接推荐 && !本批 && !Object.values(filters).some((v) => v);
+  /** 在看三种子集之一：公海里的和自己的一起列，不摆页签（query.ts 在看子集） */
+  const 子集 = Boolean(本月新增 || 直接推荐 || 本批);
+  /** 「公海」页签（按服务端这次查询的条件判，不按草稿） */
+  const 公海页 = filters.pool === "1";
   const [editing, setEditing] = useState<CustomerRow | null>(null);
   const [导出中, set导出中] = useState(false);
+  const [导出进度, set导出进度] = useState("");
+  const 导出取消 = useRef<AbortController | null>(null);
+  useEffect(() => () => 导出取消.current?.abort(), []);
   const [formOpen, setFormOpen] = useState(Boolean(直接新建));
   const [导入开着, set导入开着] = useState(Boolean(直接粘贴));
   /** ?new=1 / ?import=paste 进来就开：等水合完再开。服务端先画一个开着的弹窗，会和客户端那一版对不上（跟进页同一写法） */
@@ -257,8 +288,10 @@ export default function CustomersView({
 
   /** 收起来的那三个里还筛着几个。收起来不等于可以不告诉人 */
   const 更多筛了 = [f.grade, f.decisionStatus, f.channelOwnerId, f.source].filter(Boolean).length;
-  /** 一共筛着几个。0 的时候「重置」看不见——没筛过的页面上它是个哑按钮（位置留着，见 ResetFilters） */
-  const 筛了 = Object.values(f).filter(Boolean).length;
+  /** 一共筛着几个。0 的时候「重置」看不见——没筛过的页面上它是个哑按钮（位置留着，见 ResetFilters）。页签不算筛选 */
+  const 筛了 = Object.entries(f).filter(([k, v]) => k !== "pool" && v).length;
+  /** 重置留在当前页签：在「公海」里点重置，回到的是全部公海，不是跳回「客户」 */
+  const 重置 = () => (f.pool && !子集 ? apply({ ...(Object.fromEntries(Object.keys(f).map((k) => [k, ""])) as typeof f), pool: "1" }) : reset());
   /**
    * 只有一个人的库：负责人列、负责人筛选、渠道负责人、批量分配都不摆（审查 D2 / M3）。
    * 13 寸窗口下负责人那一列正好把「最近跟进」挤出视野，而它每一格都是同一个名字。
@@ -333,7 +366,7 @@ export default function CustomersView({
         : <UserCell name={v} size={24} />,
     }]),
     {
-      title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 132,
+      title: "最近跟进", key: "lastFollowAt", dataIndex: "lastFollowAt", width: 208,
       // 冷热在前：扫一眼这一列就知道谁凉了，日期留着给要细看的人
       render: (v, r) => (
         <span className="heat-cell">
@@ -347,8 +380,9 @@ export default function CustomersView({
     { title: b.fields.grade, key: "grade", dataIndex: "grade", width: 90, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
     { title: "决策状态", key: "decisionStatus", dataIndex: "decisionStatus", width: 128, 默认: false, render: (v) => <DecisionStatusTag status={v} /> },
     {
-      title: `${签约叫(b)}金额`, key: "signedAmount", dataIndex: "signedAmount", width: 120, 默认: false,
-      sorter: (a, b2) => a.signedAmount - b2.signedAmount,
+      title: <span title={`按 ${f.sortCurrency || b.currency} 金额在全部筛选结果中排序，其他币种不相加`}>{签约叫(b)}金额</span>, 列名: `${签约叫(b)}金额`, key: "signedAmount", dataIndex: "signedAmount", width: 120, 默认: false,
+      sorter: true,
+      sortOrder: 金额排序 === "amount-asc" ? "ascend" : 金额排序 === "amount-desc" ? "descend" : null,
       render: (v: number, r) => (v > 0 ? <span style={{ fontWeight: 500 }}>{合计文字(签约各币(r))}</span> : <span className="muted">—</span>),
     },
     // 推荐人、渠道归属、渠道负责人：外贸不摆（推荐分佣链是教培那一套，外贸看来源）
@@ -393,6 +427,24 @@ export default function CustomersView({
       <PageHead
         title={b.customer}
         subtitle="全部档案与跟进"
+        /*
+          「客户 / 公海」两个页签（2026-10-13：老板、业务员、一个人用的都要「公海和自己的分开看」）。
+          摆在标题旁边，不进筛选行：1024 宽时筛选行本来就刚好一行，再塞一个会把「列」挤到第二行（e2e/window-sizes.spec.ts）。
+          页签记在地址上（pool=1），翻页、搜索、筛选都留在这一页签里。
+          一个人用、公海里也没人时不摆——那时公海就是个空抽屉；空库不摆；子集（筛选行上那三种标记）里不摆：那几个数本来就含公海
+        */
+        titleAside={!空库 && !子集 && (users.length > 1 || (公海数 ?? 0) > 0 || f.pool) ? (
+          <Segmented
+            aria-label={`${b.customer} / 公海`}
+            value={f.pool ? "公海" : "客户"}
+            // 换到公海清掉负责人：公海里的负责人是「原负责人」，带过去筛出来的是另一回事（和原来下拉里选「公海」一样）
+            onChange={(v) => apply(v === "公海" ? { pool: "1", salesOwnerId: "" } : { pool: "" })}
+            options={[
+              { value: "客户", label: `${客户页签}${b.customer} ${客户数 ?? 0}` },
+              { value: "公海", label: `公海 ${公海数 ?? 0}` },
+            ]}
+          />
+        ) : undefined}
         extra={
           /* 主动作在页头右上角，全站六张列表页同一个位置（设计稿 11/PAGE）。
              导出是次动作，排在它左边，空库时没什么可导，不出现 */
@@ -400,29 +452,31 @@ export default function CustomersView({
             {/* 导入和导出都是次动作，排在主动作左边。导入空库时也要在——
                 第一次进来的人手上那份 Excel 正是他不想一条条录的原因 */}
             <Button icon={<ImportOutlined />} onClick={() => set导入开着(true)}>导入</Button>
-            {!空库 && (
+            {!空库 && (<>
               <Button
                 icon={<ExportOutlined />}
                 loading={导出中}
                 onClick={async () => {
                   // 按服务端这次查询用的条件导全部（filters），不是当前这一页，也不是输入框里还没搜的草稿
+                  const controller = new AbortController();
+                  导出取消.current = controller;
                   set导出中(true);
                   try {
-                    const r = await 导出客户(filters);
-                    if (!r.ok) return void message.error(r.error);
-                    exportXlsx(r.rows, r.跟进, b);
-                    const 跟进说 = r.跟进.length ? `，连同 ${r.跟进.length} 条跟进记录（第二张表）${r.跟进截断了 ? "，跟进太多只带了一部分" : ""}` : "";
-                    message.success(r.截断了 ? `导出了前 ${r.rows.length} 位${跟进说}（一次最多这么多，先筛一下再导剩下的）` : `导出了 ${r.rows.length} 位${跟进说}`);
-                  } catch {
-                    message.error("导出失败，请重试");
+                    const r = await 完整导出(filters, b, set导出进度, controller.signal);
+                    message.success(`已完整导出 ${r.客户} 位${b.customer}、${r.跟进} 条跟进，ZIP内附分批Excel和核对清单`);
+                  } catch (error) {
+                    if (!controller.signal.aborted) message.error(error instanceof Error ? error.message : "导出失败，请重试");
                   } finally {
+                    导出取消.current = null;
                     set导出中(false);
+                    set导出进度("");
                   }
                 }}
               >
                 导出
               </Button>
-            )}
+              {导出中 && <Space><span role="status" style={{ fontSize: 12 }}>{导出进度}</span><Button size="small" onClick={() => 导出取消.current?.abort()}>取消导出</Button></Space>}
+            </>)}
             <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
               新建{b.customer}
             </Button>
@@ -433,6 +487,18 @@ export default function CustomersView({
       <DataList<CustomerRow>
         页="customers"
         空库={空库}
+        没对上={
+          公海里匹配 > 0 ? (
+            <div className="list-none">
+              这里没有符合条件的；
+              <Button type="link" size="small" style={{ padding: 0 }} onClick={() => apply({ pool: "1", salesOwnerId: "" })}>
+                公海里有 {公海里匹配} 位匹配 ›
+              </Button>
+            </div>
+          ) : 公海页 && !Object.entries(filters).some(([k, v]) => k !== "pool" && v) ? (
+            <div className="list-none">公海里现在没有{b.customer}</div>
+          ) : undefined
+        }
         列={列表}
         行={rows}
         加载中={pending}
@@ -452,6 +518,11 @@ export default function CustomersView({
             收起来不等于可以不告诉人，否则人会对着一张筛过的表当成全部。
           */
           <Space wrap size={[10, 10]}>
+            {子集 && f.pool && (
+              <Tag closable onClose={() => apply({ pool: "" })} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
+                只看公海里的
+              </Tag>
+            )}
             {/* 从「数据」页那张卡走进来的：说清这是一个子集，并给一条回到全部的路 */}
             {本月新增 && (
               <Tag closable onClose={() => apply({ createdWithin: "" })} color="processing" style={{ margin: 0, borderRadius: 999, padding: "3px 10px" }}>
@@ -469,7 +540,7 @@ export default function CustomersView({
               </Tag>
             )}
             <ListSearch
-              placeholder={外贸 ? `姓名 / 电话 / ${b.fields.school} / 邮箱 / WhatsApp / 联系人` : `姓名 / 电话 / ${b.fields.school} / ${b.fields.major} / 备注`}
+              placeholder={外贸 ? `姓名 / 电话 / ${b.fields.school} / 联系人 / 订单号 / 邮箱` : `姓名 / 电话 / ${b.fields.school} / ${b.fields.major} / 备注 / 订单号`}
               value={f.keyword}
               onChange={(v) => setF({ ...f, keyword: v })}
               onSearch={(v) => apply({ keyword: v })}
@@ -483,13 +554,12 @@ export default function CustomersView({
                 value={f.country || undefined} onChange={(v) => apply({ country: v ?? "" })}
                 options={[...new Set([...国家们, ...(f.country ? [f.country] : [])])].map((x) => ({ value: x, label: x }))} />
             )}
-            {!不问归属 && (
-              /* 公海是负责人下拉的第一项（第 6 块）：它就是「没人负责的那一池」。
-                 原来单摆一个开关，1024 宽时把「更多筛选」挤到了第二行 */
+            {/* 公海原来是这个下拉的第一项，2026-10-13 起由页签代替。「公海」页签上不摆（除非地址上正筛着某人，不然看不见自己筛了什么） */}
+            {!不问归属 && (!f.pool || 子集 || f.salesOwnerId) && (
               <Select style={{ width: 150 }} placeholder="全部负责人" allowClear
-                value={f.pool ? 公海值 : f.salesOwnerId || undefined}
-                onChange={(v) => apply(v === 公海值 ? { pool: "1", salesOwnerId: "" } : { salesOwnerId: v ?? "", pool: "" })}
-                options={[{ value: 公海值, label: "公海" }, ...成员选项(users)]} />
+                value={f.salesOwnerId || undefined}
+                onChange={(v) => apply({ salesOwnerId: v ?? "" })}
+                options={成员选项(users)} />
             )}
             <Popover
               trigger="click"
@@ -520,7 +590,7 @@ export default function CustomersView({
             {/* 没有「搜索」按钮：下拉改了就生效，关键词回车或清空就生效。
                 一个要再点一下才算数的筛选栏，会让人以为自己已经筛了其实没有。
                 「重置」只在真筛了东西的时候看得见；位置一直留着，筛的那一下表格不往下跳（M17） */}
-            <ResetFilters 显示={筛了 > 0} onClick={reset} />
+            <ResetFilters 显示={筛了 > 0} onClick={重置} />
           </Space>
         }
         批量={(selected, 清空, 选中行) => (
@@ -543,7 +613,8 @@ export default function CustomersView({
             >
               <Button size="small" icon={<UserSwitchOutlined />}>批量分配</Button>
             </Dropdown>}
-            {!不问归属 && (选中行.some((r) => r.pool) ? (
+            {/* 「公海」页签只有领取，「客户」页签只有放进公海；子集里两种混着，看勾的是什么 */}
+            {!不问归属 && (公海页 || (子集 && 选中行.some((r) => r.pool)) ? (
               <Button size="small" icon={<UserAddOutlined />}
                 onClick={async () => { const ids = 选中行.filter((r) => r.pool).map((r) => r.id); 公海提示(await 领取(ids), "领取", ids); 清空(); }}>
                 领取
@@ -587,6 +658,8 @@ export default function CustomersView({
             </Button>
           </>
         )}
+        排序={(key, order) => { if (key === "signedAmount") apply({ sort: order === "ascend" ? "amount-asc" : order === "descend" ? "amount-desc" : "", sortCurrency: f.sortCurrency || b.currency }); }}
+        汇总={金额排序 && <Space wrap style={{ marginBottom: 12 }}><span>金额按</span><CurrencySelect aria-label="金额排序币种" value={f.sortCurrency || b.currency} onChange={v => apply({ sortCurrency: v })}/><span>在全部筛选结果中{金额排序 === "amount-asc" ? "升序" : "降序"}排列；其他币种不相加</span></Space>}
         分页={{
           当前页: page,
           每页: pageSize,
@@ -620,24 +693,4 @@ export default function CustomersView({
       />
     </>
   );
-}
-
-/**
- * 导出成一个 Excel（2026-10-05 外贸客户：「导出客户的时候，是否也能把跟进的记录也一并导出」）。
- * 第一张表「客户」和原来的 CSV 同样几列（能原样导回来，导入只读第一张表）；第二张表「跟进记录」一条跟进一行。
- * 写哪几列在 export-table.ts（带备注，2026-10-04 J-073），拆出去是为了能单测「导出 → 再导入一圈」
- */
-function exportXlsx(rows: CustomerRow[], 跟进: 跟进导出行[], b: BusinessConfig) {
-  const 客户 = 客户导出表(rows, b);
-  const 记录 = 跟进导出表(跟进, b);
-  const 字节 = 写xlsx([
-    { 名: `${b.customer}`, 表头: 客户.head, 行: 客户.body },
-    { 名: "跟进记录", 表头: 记录.head, 行: 记录.body, 列宽: [16, 16, 18, 10, 24, 60, 10, 22, 10] },
-  ]);
-  const blob = new Blob([字节 as BlobPart], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = `${b.customer}列表-${new Date().toISOString().slice(0, 10)}.xlsx`;
-  a.click();
-  URL.revokeObjectURL(a.href);
 }

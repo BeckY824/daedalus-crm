@@ -150,8 +150,8 @@ test("删跟进（顺带建了待办的提醒）：就地确认说「连同它�
 
   await 登录(page);
   await page.goto(`/customers/${c.id}`);
-  const 那条 = page.locator(".rec-tl-item", { hasText: `周五回电${戳}` });
-  const 待办 = page.locator(".rec-task", { hasText: `周五回电${戳}` });
+  const 那条 = page.getByRole("main").locator(".rec-tl-item", { hasText: `周五回电${戳}` });
+  const 待办 = page.getByRole("main").locator(".rec-task", { hasText: `周五回电${戳}` });
   await expect(待办).toHaveCount(1);
   await 那条.hover();
   await 那条.getByRole("button", { name: "删除跟进" }).click();

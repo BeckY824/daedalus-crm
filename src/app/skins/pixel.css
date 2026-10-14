@@ -8,6 +8,8 @@
  * 中文没有像素字（Google Fonts 上没有简体像素体），中文走系统黑体；只有拉丁字母和数字是像素字。
  */
 :root[data-skin="pixel"], [data-skin-preview="pixel"] {
+  --cat-blue: var(--brand); --cat-green: var(--success); --cat-yellow: var(--warning); --cat-orange: var(--danger);
+  --cat-pink: var(--brand-deep); --cat-violet: var(--pencil); --cat-cyan: var(--text-muted); --cat-amber: var(--warning-text);
   --brand: #2d3cff; --brand-deep: #1a22a8; --brand-bg: #e0e3ff; --brand-line: #9aa1ff;
   --ink: #111111; --ink-soft: #2b2b2b; --text-muted: #5d5d5d; --text-faint: #8e8e8e;
   --line: #111111; --line-soft: #cfd0d3; --line-strong: #111111;

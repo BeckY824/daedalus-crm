@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { control } from "./control";
 import { 是测试账号 } from "./test-accounts";
+import type { Prisma } from "@/generated/control";
+type LedgerDb = Prisma.TransactionClient;
 
 /**
  * AI 免费次数的赠送账本。
@@ -84,35 +86,35 @@ export async function 赠送(owner: Owner, input: { amount: number; reason: stri
   }
 }
 
-export async function 赠送总和(owner: Owner): Promise<number> {
+export async function 赠送总和(owner: Owner, db: LedgerDb = control): Promise<number> {
   const r =
     owner.kind === "workspace"
-      ? await control.aiGrant.aggregate({ where: { workspaceId: owner.id }, _sum: { amount: true } })
-      : await control.accountAiGrant.aggregate({ where: { accountId: owner.id }, _sum: { amount: true } });
+      ? await db.aiGrant.aggregate({ where: { workspaceId: owner.id }, _sum: { amount: true } })
+      : await db.accountAiGrant.aggregate({ where: { accountId: owner.id }, _sum: { amount: true } });
   return r._sum.amount ?? 0;
 }
 
-export async function 用掉次数(owner: Owner): Promise<number> {
+export async function 用掉次数(owner: Owner, db: LedgerDb = control): Promise<number> {
   const u =
     owner.kind === "workspace"
-      ? await control.aiUsage.findUnique({ where: { workspaceId: owner.id } })
-      : await control.accountAiUsage.findUnique({ where: { accountId: owner.id } });
+      ? await db.aiUsage.findUnique({ where: { workspaceId: owner.id } })
+      : await db.accountAiUsage.findUnique({ where: { accountId: owner.id } });
   return u?.calls ?? 0;
 }
 
 /** 原子自增，返回自增后的值。不先读再写：两个标签页同时问会各读到 29、各写 30 */
-export async function 自增用量(owner: Owner): Promise<number> {
+export async function 自增用量(owner: Owner, db: LedgerDb = control): Promise<number> {
   const after =
     owner.kind === "workspace"
-      ? await control.aiUsage.upsert({ where: { workspaceId: owner.id }, create: { workspaceId: owner.id, calls: 1 }, update: { calls: { increment: 1 } } })
-      : await control.accountAiUsage.upsert({ where: { accountId: owner.id }, create: { accountId: owner.id, calls: 1 }, update: { calls: { increment: 1 } } });
+      ? await db.aiUsage.upsert({ where: { workspaceId: owner.id }, create: { workspaceId: owner.id, calls: 1 }, update: { calls: { increment: 1 } } })
+      : await db.accountAiUsage.upsert({ where: { accountId: owner.id }, create: { accountId: owner.id, calls: 1 }, update: { calls: { increment: 1 } } });
   return after.calls;
 }
 
 /** 超额被拦下的那一次要还回去，否则被拦十次之后补的十次等于白补 */
-export async function 回退一次(owner: Owner): Promise<void> {
-  if (owner.kind === "workspace") await control.aiUsage.update({ where: { workspaceId: owner.id }, data: { calls: { decrement: 1 } } });
-  else await control.accountAiUsage.update({ where: { accountId: owner.id }, data: { calls: { decrement: 1 } } });
+export async function 回退一次(owner: Owner, db: LedgerDb = control): Promise<void> {
+  if (owner.kind === "workspace") await db.aiUsage.updateMany({ where: { workspaceId: owner.id, calls: { gt: 0 } }, data: { calls: { decrement: 1 } } });
+  else await db.accountAiUsage.updateMany({ where: { accountId: owner.id, calls: { gt: 0 } }, data: { calls: { decrement: 1 } } });
 }
 
 /**
@@ -277,8 +279,7 @@ export type 扣的结果 = { ok: true; 还剩: number; 扣了: boolean } | { ok:
  *
  * 返回里多一个 `扣了`：调用方拿它决定上游失败时要不要退（没扣过的那几步不用退）。
  *
- * **不抛。** 记账这一层出问题不该让用户的提问失败——建行失败时按「扣了」返回，
- * 最坏的情况是这个问题退回老口径，而不是问不出来。
+ * 记账失败抛错并回滚；调用方不能在未知余额下继续生成或重复扣次。
  */
 export async function 按问题扣一次(owner: Owner, requestId: string | null): Promise<扣的结果> {
   /*
@@ -291,36 +292,22 @@ export async function 按问题扣一次(owner: Owner, requestId: string | null)
     const r = await 扣一次(owner);
     return r.ok ? { ok: true, 还剩: r.还剩, 扣了: true } : r;
   }
+  await 结算赠送(owner);
   const where = { ownerKind_ownerId_requestId: { ownerKind: owner.kind, ownerId: owner.id, requestId } };
-
-  let 已有: { id: string; calls: number; refunded: boolean } | null = null;
-  try {
-    已有 = await control.aiCharge.findUnique({ where, select: { id: true, calls: true, refunded: true } });
-  } catch (e) {
-    // 查不动就退回老口径：宁可多扣一次，也不要因为账本抖了一下让人问不出话
-    console.warn("[credits] 问题编号查不动，按老口径扣：", e instanceof Error ? e.message : e);
-    const r = await 扣一次(owner);
-    return r.ok ? { ok: true, 还剩: r.还剩, 扣了: true } : r;
-  }
-
-  // 同一个问题的后续几步：不扣，只计数
-  if (已有 && !已有.refunded && 已有.calls < 每问最多步) {
-    await control.aiCharge.update({ where: { id: 已有.id }, data: { calls: { increment: 1 } } }).catch(() => {});
-    const b = await 余额(owner);
-    return { ok: true, 还剩: b.还剩, 扣了: false };
-  }
-
-  const r = await 扣一次(owner);
-  if (!r.ok) return r;
-  try {
-    if (已有) await control.aiCharge.update({ where: { id: 已有.id }, data: { calls: 1, refunded: false, at: new Date() } });
-    else await control.aiCharge.create({ data: { ownerKind: owner.kind, ownerId: owner.id, requestId } });
-  } catch (e) {
-    // 并发下两步同时到、都没查到行：后到的那个建不上（唯一索引）。它已经扣过了，
-    // 就让它这么算——多扣一次，不至于让这一步失败
-    console.warn("[credits] 问题编号记不上：", e instanceof Error ? e.message : e);
-  }
-  return { ok: true, 还剩: r.还剩, 扣了: true };
+  // 编号、步数和余额在同一事务内；失败不能退回按请求重复扣次。
+  return control.$transaction(async (db) => {
+    const existing = await db.aiCharge.findUnique({ where, select: { id: true, calls: true, refunded: true } });
+    if (existing && !existing.refunded && existing.calls < 每问最多步) {
+      await db.aiCharge.update({ where: { id: existing.id }, data: { calls: { increment: 1 } } });
+      const remaining = Math.max(0, await 赠送总和(owner, db) - await 用掉次数(owner, db));
+      return { ok: true, 还剩: remaining, 扣了: false };
+    }
+    const result = await 在事务里扣一次(owner, db);
+    if (!result.ok) return result;
+    if (existing) await db.aiCharge.update({ where: { id: existing.id }, data: { calls: 1, refunded: false, at: new Date() } });
+    else await db.aiCharge.create({ data: { ownerKind: owner.kind, ownerId: owner.id, requestId } });
+    return { ok: true, 还剩: result.还剩, 扣了: true };
+  }, { maxWait: 10_000, timeout: 10_000 });
 }
 
 /**
@@ -337,25 +324,27 @@ export async function 退这一次(owner: Owner, requestId: string | null, 扣�
     await 回退一次(owner);
     return;
   }
-  try {
-    const n = await control.aiCharge.updateMany({
+  await control.$transaction(async (db) => {
+    const n = await db.aiCharge.updateMany({
       where: { ownerKind: owner.kind, ownerId: owner.id, requestId, refunded: false },
       data: { refunded: true },
     });
-    if (n.count === 1) await 回退一次(owner);
-  } catch (e) {
-    console.warn("[credits] 退这一次没退成：", e instanceof Error ? e.message : e);
-  }
+    if (n.count === 1) await 回退一次(owner, db);
+  }, { maxWait: 10_000, timeout: 10_000 });
 }
 
 export async function 扣一次(owner: Owner): Promise<{ ok: true; 还剩: number } | { ok: false; 上限: number }> {
   // 测试账号不扣（见 按问题扣一次 开头那段）。这里再拦一道，免得哪天有人绕过 按问题扣一次 直接调它
   if (owner.kind === "account" && (await 是测试账号(owner.id))) return { ok: true, 还剩: 测试账号显示余量 };
   await 结算赠送(owner);
-  const 上限 = await 赠送总和(owner);
-  const after = await 自增用量(owner);
+  return control.$transaction((db) => 在事务里扣一次(owner, db), { maxWait: 10_000, timeout: 10_000 });
+}
+
+async function 在事务里扣一次(owner: Owner, db: LedgerDb): Promise<{ ok: true; 还剩: number } | { ok: false; 上限: number }> {
+  const 上限 = await 赠送总和(owner, db);
+  const after = await 自增用量(owner, db);
   if (after > 上限) {
-    await 回退一次(owner);
+    await 回退一次(owner, db);
     return { ok: false, 上限 };
   }
   return { ok: true, 还剩: 上限 - after };

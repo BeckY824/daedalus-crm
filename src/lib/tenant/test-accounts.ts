@@ -10,15 +10,21 @@ import { 运营名单 } from "@/lib/ops-auth";
  *   2. **它是运营账号**——邮箱或手机号在 OPS_ACCOUNTS 里。那是我们自己的号，天天点来点去，
  *      算进注册数 / 活跃数只会把数抬高，扣它的次数也只是给自己设卡。所以默认就当测试账号，不用再去标；
  *      从名单里拿掉，它就回到普通账号（运营台上标过的另算）
+ *   3. 联系方式在 TEST_ACCOUNTS 预设名单里：注册前配置可过滤首次注册通知，不授予运营权限。
  *
  * 测试账号意味着三件事，各自在用的地方判：
- *   - AI 不限次数：lib/tenant/credits.ts 的 按问题扣一次 / 余额（账号这一路；工作区那一路不看这个）
+ *   - AI 不限次数：lib/tenant/credits.ts 的 按问题扣一次 / 余额（桌面账号及托管版当前认证测试者；不免除工作区权限检查）
  *   - 运营台的统计一律排除：app/admin/data.ts、app/admin/usage、lib/tenant/ai-cost.ts 的 成本概览
  *   - 不触发运营通知：lib/ops-notices.ts（新注册、用量异常）
  * 调用照样记进 AiCall——「用量仍然记录，方便我们看」，只是不进统计。
  */
 
-export type 测试来由 = "标的" | "运营";
+export type 测试来由 = "标的" | "运营" | "预设";
+
+/** 注册前预设的精确邮箱/手机号；只影响测试策略，不授予运营权限。 */
+function 预设名单(env: Record<string, string | undefined>): string[] {
+  return (env.TEST_ACCOUNTS ?? "").split(/[,;\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+}
 
 /** 联系方式在不在运营名单里。和 lib/ops-auth.ts 的 是运营账号 同一个口径（不看停没停用：停了也还是我们的号） */
 function 在运营名单(a: { email: string | null; phone: string | null }, 名单: string[]): boolean {
@@ -30,7 +36,9 @@ function 在运营名单(a: { email: string | null; phone: string | null }, 名�
  * 运营台标过、同时又是运营账号的，记「标的」——取消标记之后它仍然是测试账号（因为是运营），界面上要说得清
  */
 export async function 测试账号们(env: Record<string, string | undefined> = process.env): Promise<Map<string, 测试来由>> {
-  const 名单 = 运营名单(env);
+  const 运营 = 运营名单(env);
+  const 预设 = 预设名单(env);
+  const 名单 = [...new Set([...运营, ...预设])];
   const [标的, 运营们] = await Promise.all([
     control.testAccount.findMany({ where: { on: true }, select: { accountId: true } }),
     名单.length
@@ -41,7 +49,10 @@ export async function 测试账号们(env: Record<string, string | undefined> = 
       : Promise.resolve([] as { id: string; email: string | null; phone: string | null }[]),
   ]);
   const 出 = new Map<string, 测试来由>();
-  for (const a of 运营们) if (在运营名单(a, 名单)) 出.set(a.id, "运营");
+  for (const a of 运营们) {
+    if (在运营名单(a, 预设)) 出.set(a.id, "预设");
+    if (在运营名单(a, 运营)) 出.set(a.id, "运营");
+  }
   for (const t of 标的) 出.set(t.accountId, "标的");
   return 出;
 }
@@ -54,12 +65,23 @@ export async function 是测试账号(accountId: string, env: Record<string, str
   try {
     const t = await control.testAccount.findUnique({ where: { accountId }, select: { on: true } });
     if (t?.on) return true;
-    const 名单 = 运营名单(env);
+    const 名单 = [...运营名单(env), ...预设名单(env)];
     if (名单.length === 0) return false;
     const a = await control.account.findUnique({ where: { id: accountId }, select: { email: true, phone: true } });
     return Boolean(a && 在运营名单(a, 名单));
   } catch (e) {
     console.warn("[test-accounts] 查不动，按普通账号算：", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
+/** 只认服务器认证的当前账户和工作区；读不到会话则按普通账号处理。 */
+export async function 当前是测试账号(workspaceId: string): Promise<boolean> {
+  try {
+    const { getCurrentUser } = await import("@/lib/auth");
+    const user = await getCurrentUser();
+    return Boolean(user?.accountId && user.workspaceId === workspaceId && await 是测试账号(user.accountId));
+  } catch {
     return false;
   }
 }

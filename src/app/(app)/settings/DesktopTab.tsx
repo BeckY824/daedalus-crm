@@ -32,7 +32,7 @@ declare global {
       backup(): Promise<{ ok: boolean; 文件?: string; error?: string }>;
       /** 自动备份（desktop/auto-backup.js，2026-10-04）。老版本的壳没有这两个口子 */
       autoBackups?(): Promise<自动备份项[]>;
-      restoreAutoBackup?(文件名: string): Promise<{ ok: boolean; 另存?: string | null; error?: string }>;
+      restoreAutoBackup?(文件名: string): Promise<{ ok: boolean; 另存?: string | null; 隔离?: string | null; error?: string }>;
       openDataDir(): Promise<void>;
       openLogs(): Promise<void>;
       diagnostics(): Promise<string>;
@@ -143,7 +143,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
               恢复步骤要写全（2026-10-02 排查桌面端 D1）：库开着 WAL，退出后旁边常留着 crm.db-wal / crm.db-shm，
               不删的话下次启动旧 WAL 会重放到换进来的备份上——要么恢复没生效，要么库直接坏掉
             */}
-            一个 SQLite 文件，就在这台机器上。每天会自动备一份（见下）；从自己另存的备份恢复：先退出应用，在数据文件夹里删掉 crm.db-wal 和 crm.db-shm（有的话），再把备份改名成 crm.db 放进去。
+            一个 SQLite 文件，就在这台机器上。每天会自动备一份（见下）；优先使用下方自动恢复，程序会停止服务并处理WAL/SHM。服务无法启动时，可在故障窗口选择「从自动备份恢复」。手动恢复自己另存的备份：先退出应用，把当前crm.db及crm.db-wal、crm.db-shm（有的话）移到单独文件夹保留，再把备份改名成crm.db放进去。Windows 请先显示文件扩展名，确认最终名称是 crm.db，避免改成 crm.db.db。
           </Typography.Paragraph>
           <Space wrap>
             <Button onClick={备份} disabled={!shell}>
@@ -176,7 +176,7 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
 
         <Card size="small" title="连接服务器">
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
-            团队共用一台自己部署的服务器时用。连上之后这个窗口显示的就是那台机器上的 CRM；本机数据留在本机，想切回来在应用菜单里。
+            团队共用一台自己部署的服务器时用。连上之后这个窗口显示的就是那台机器上的 CRM；本机数据留在本机，想切回来在应用菜单里。连接服务器期间，本机的 Dock 数字和系统提醒暂停，服务器上的计划请在网页内查看。外部 AI 工具需要使用该服务器提供的 MCP 连接；返回本机后才能使用本机 MCP 桥。
           </Typography.Paragraph>
           <Space.Compact style={{ width: "100%", maxWidth: 480 }}>
             <Input placeholder="https://crm.your-company.com" value={服务器} onChange={(e) => set服务器(e.target.value)} />

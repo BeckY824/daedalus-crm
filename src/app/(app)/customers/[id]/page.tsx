@@ -1,8 +1,10 @@
+import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { notFound } from "next/navigation";
 import { 收藏了吗 } from "@/lib/favorites";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
+import { followHistoryInclude, followHistoryOrder, serializeFollowHistory } from "./follow-history-query";
 import { 负责人候选 } from "@/lib/owners";
 import { 可选渠道, 可选客户 } from "@/lib/options";
 import { llmEnabled } from "@/lib/llm";
@@ -10,6 +12,7 @@ import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { 带币种, 签约金额, 签约币种, 签约合计, 商机币种 } from "@/lib/money-db";
 import { 客户报价记录 } from "@/lib/quote-db";
 import { 报价明细 } from "@/lib/features";
+import { 客户来源线索 } from "@/lib/customer-lead-origin";
 import { 取档案 } from "@/lib/customer-extra-db";
 
 export const dynamic = "force-dynamic";
@@ -45,30 +48,23 @@ export default async function CustomerDetailPage({
       // 签约带上它是哪张订单（外贸，2026-10-05）：订单号、付款方式、供应商
       contracts: {
         orderBy: { signedAt: "desc" },
-        include: { ...带币种.签约, order: { select: { id: true, no: true, payment: true, purchase: { select: { supplier: { select: { name: true } } } } } } },
+        include: { ...带币种.签约, order: { select: { id: true, no: true, payment: true, purchase: { select: { supplierId: true, supplier: { select: { name: true } } } } } } },
       },
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] },
       opportunities: { orderBy: { createdAt: "desc" }, include: 带币种.商机 },
       tasks: { orderBy: [{ done: "asc" }, { dueAt: "asc" }] },
-      plans: { where: { done: false, ...(要看的计划 ? { id: 要看的计划 } : {}) }, orderBy: { plannedAt: "asc" }, take: 1 },
-      followUps: {
-        orderBy: { occurredAt: "desc" },
-        take: 50,
-        include: {
-          owner: { select: { name: true } },
-          contact: { select: { name: true, position: true } },
-          source: { select: { text: true } },
-          orderNode: { select: { order: { select: { id: true, no: true } } } },
-        },
-      },
+      plans: { where: { done: false, ...(要看的计划 ? { id: 要看的计划 } : {}) }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }] },
+      followUps: { orderBy: followHistoryOrder, take: 51, include: followHistoryInclude },
     },
   });
 
   if (!customer) notFound();
   // 叫你的那条已经做完 / 删了：照旧摆最早那条没做完的
   if (要看的计划 && customer.plans.length === 0) {
-    customer.plans = await prisma.followPlan.findMany({ where: { customerId: id, done: false }, orderBy: { plannedAt: "asc" }, take: 1 });
+    customer.plans = await prisma.followPlan.findMany({ where: { customerId: id, done: false }, orderBy: [{ plannedAt: "asc" }, { id: "asc" }] });
   }
+
+  customer.plans = earliestScheduled(customer.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1);
 
   // 演示区是公开的，同一份数据所有访客共用：号码一律打码。
   // 自己部署的实例不受影响——销售要照着这个号打电话。
@@ -81,18 +77,10 @@ export default async function CustomerDetailPage({
     可选客户(id),
   ]);
 
-  /*
-    这儿原来算了一组「沟通统计」（跟进次数 / 累计通话时长 / 会议数 / 邮件数）
-    并一路传到 RecordView——而 RecordView 从来没解构过它，界面上一个字都没有。
-    2026-09-19 删掉。两个理由：
-      1. 算了不显示的数据就是死代码，类型里还占着一行，下一个人会以为它在用
-      2. **它还是错的**：上面那个 followUps 带着 `take: 50`，所以这组数是从
-         最近 50 条里算的。真接上去的话，跟进超过 50 次的人「累计通话时长」
-         会停止增长——一个只在老客户身上出错的数，最不容易被发现。
-    要做这组数得单独 groupBy 聚合，不能借那 50 条现成的行。
-  */
   return (
     <RecordView
+      key={customer.id}
+      sourceLead={await 客户来源线索(customer.id)}
       users={users}
       channels={channels}
       referrableCustomers={referrableCustomers}
@@ -108,11 +96,12 @@ export default async function CustomerDetailPage({
         major: customer.major,
         followStatus: customer.followStatus,
         decisionStatus: customer.decisionStatus,
-        expectedSignAt: customer.expectedSignAt?.toISOString() ?? null,
+        expectedSignAt: scheduleValue(customer.expectedSignAt, customer.expectedSignOn),
         lastFollowAt: customer.lastFollowAt?.toISOString() ?? null,
         remark: customer.remark,
         referrerCustomerId: customer.referrerCustomerId,
         channelId: customer.channelId,
+    channelName: customer.channel?.name ?? null,
         referrerName: customer.referrerCustomer?.name ?? customer.channel?.name ?? null,
         attributionName: customer.attributionChannel?.name ?? customer.attributionCustomer?.name ?? null,
         channelOwnerId: customer.channelOwnerId,
@@ -144,7 +133,7 @@ export default async function CustomerDetailPage({
         currency: 签约币种(c),
         signedAt: c.signedAt.toISOString(),
         remark: c.remark,
-        order: c.order ? { id: c.order.id, no: c.order.no, payment: c.order.payment, supplier: c.order.purchase?.supplier?.name ?? null } : null,
+        order: c.order ? { id: c.order.id, no: c.order.no, payment: c.order.payment, supplier: c.order.purchase?.supplier?.name ?? null, supplierId: c.order.purchase?.supplierId ?? null } : null,
       }))}
       opportunities={customer.opportunities.map((o) => ({
         id: o.id,
@@ -160,7 +149,8 @@ export default async function CustomerDetailPage({
       tasks={customer.tasks.map((t) => ({
         id: t.id,
         title: t.title,
-        dueAt: t.dueAt?.toISOString() ?? null,
+        dueAt: scheduleValue(t.dueAt, t.dueOn),
+        dueHasTime: t.dueHasTime,
         done: t.done,
       }))}
       plan={
@@ -168,32 +158,15 @@ export default async function CustomerDetailPage({
           ? {
               id: customer.plans[0].id,
               subject: customer.plans[0].subject,
-              plannedAt: customer.plans[0].plannedAt.toISOString(),
+              plannedAt: scheduleValue(customer.plans[0].plannedAt, customer.plans[0].plannedOn)!,
+              plannedHasTime: customer.plans[0].plannedHasTime,
               method: customer.plans[0].method,
               updatedAt: customer.plans[0].updatedAt.toISOString(),
             }
           : null
       }
-      followUps={customer.followUps.map((f) => ({
-        id: f.id,
-        type: f.type,
-        title: f.title,
-        content: f.content,
-        status: f.status,
-        duration: f.duration,
-        occurredAt: f.occurredAt.toISOString(),
-        dueAt: f.dueAt?.toISOString() ?? null,
-        participants: f.participants,
-        sourceText: f.source?.text ?? null,
-        ownerName: f.owner.name,
-        contactName: f.contact?.name ?? null,
-        contactPosition: f.contact?.position ?? null,
-        contactId: f.contactId,
-        opportunityId: f.opportunityId,
-        orderId: f.orderNode?.order.id ?? null,
-        order: f.orderNode?.order ?? null,
-        updatedAt: f.updatedAt.toISOString(),
-      }))}
+      followUps={customer.followUps.slice(0, 50).map(serializeFollowHistory)}
+      followUpsHasMore={customer.followUps.length > 50}
     />
   );
 }

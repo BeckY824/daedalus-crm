@@ -43,11 +43,6 @@ function 写AI用量(calls: number) {
   `, CONTROL_DB, 共享工作区.slug, String(calls)], { stdio: "pipe" });
 }
 
-/** 从控制面库里把刚发的验证码取出来。没配通道时它只打进服务端日志，测试读库最省事 */
-function 取验证码(target: string, purpose: string): string {
-  return 查控制面('SELECT code FROM "VerifyCode" WHERE target = ? AND purpose = ? AND usedAt IS NULL ORDER BY createdAt DESC LIMIT 1', target, purpose);
-}
-
 /** 注册走两步：第一步只填邮箱，第二步填密码。默认配置不要验证码，所以第一步是「下一步」 */
 async function 注册(page: Page, 邮箱: string, 密码: string) {
   await page.goto("/signup");
@@ -265,32 +260,41 @@ test("7 运营台要 token：不带、带错都是 404", async ({ page }) => {
 /*
   H-070（2026-09-28 用户说运营台点起来好卡）：慢的是到香港那一趟，点下去页面纹丝不动、像没点上。
   修法（ba3a101）：导航整页预取 + 没取好时哪里在等就挂 .opx-pending（导航那一项先亮、正文变暗、指针转圈）。
-  这里把服务端回包人为拖慢 1.5 秒，模拟线上那一趟：点了以后 600ms 内要看得出「在等」，到了以后记号消失；
+  这里暂停服务端回包，模拟线上等待：点了以后 600ms 内要看得出「在等」，检查完再放行，到了以后记号消失；
   每一页都点得开、口令跟着走
 */
 test("7b 运营台：导航每一页都点得开、口令跟着走；回包慢时点了当场看得出在等（H-070）", async ({ page }) => {
-  // 拖慢：所有 RSC 回包（点导航、刷新走的都是它）晚 1.5 秒到。先拖慢再点：点过的页进了路由缓存，再点就不等了
+  // 先拦住预取和导航，避免固定延时在检查样式前已到期、或 networkidle 已把预取等完。
+  let 放行!: () => void;
+  let 回包关卡 = new Promise<void>((resolve) => { 放行 = resolve; });
   let 拖慢 = true;
   await page.route(
     (u) => u.searchParams.has("_rsc"),
     async (route) => {
-      if (拖慢) await new Promise((r) => setTimeout(r, 1500));
+      if (拖慢) await 回包关卡;
       await route.continue().catch(() => {});
     },
   );
   await page.goto("/admin?token=e2e-admin-token");
   await expect(page.locator(".opx-kpi").first()).toContainText("注册用户", { timeout: 15_000 });
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForFunction(() => {
+    const link = document.querySelector(".opx-nav a");
+    return link && Object.keys(link).some((key) => key.startsWith("__reactProps"));
+  });
   const 导航 = page.getByRole("navigation", { name: "运营台导航" });
   const 反馈 = 导航.getByRole("link", { name: "反馈" });
 
-  await 反馈.click();
-  // 当场有反馈：导航那一项里挂上记号，ops.css 用 :has() 认它——那一项先亮、正文变暗。两件事同一刻都在
-  await expect(反馈.locator(".opx-pending")).toHaveCount(1, { timeout: 600 });
-  await expect
-    .poll(() => page.locator(".opx-main").evaluate((el) => Number(getComputedStyle(el).opacity)), { timeout: 1000, message: "等的时候正文要变暗" })
-    .toBeLessThan(0.9);
-  await expect(page).toHaveURL(/\/admin\?token=/); // 还没到
+  try {
+    await 反馈.click();
+    // 当场有反馈：导航那一项里挂上记号，ops.css 用 :has() 认它——那一项先亮、正文变暗。两件事同一刻都在
+    await expect(反馈.locator(".opx-pending")).toHaveCount(1, { timeout: 600 });
+    await expect
+      .poll(() => page.locator(".opx-main").evaluate((el) => Number(getComputedStyle(el).opacity)), { timeout: 1000, message: "等的时候正文要变暗" })
+      .toBeLessThan(0.9);
+    await expect(page).toHaveURL(/\/admin\?token=/); // 还没到
+  } finally {
+    放行();
+  }
   // 到了：记号消失、正文复原、标成当前页
   await expect(page).toHaveURL(/\/admin\/feedback\?token=e2e-admin-token/, { timeout: 15_000 });
   await expect(反馈).toHaveAttribute("aria-current", "page", { timeout: 15_000 });
@@ -299,9 +303,14 @@ test("7b 运营台：导航每一页都点得开、口令跟着走；回包慢�
 
   // 刷新按钮同一套：点了就转圈、写「刷新中…」、按钮先灰掉，回来复原
   const 刷新 = page.locator(".opx-side-foot button");
-  await 刷新.click();
-  await expect(刷新).toContainText("刷新中", { timeout: 600 });
-  await expect(刷新).toBeDisabled();
+  回包关卡 = new Promise<void>((resolve) => { 放行 = resolve; });
+  try {
+    await 刷新.click();
+    await expect(刷新).toContainText("刷新中", { timeout: 600 });
+    await expect(刷新).toBeDisabled();
+  } finally {
+    放行();
+  }
   await expect(刷新).not.toContainText("刷新中", { timeout: 15_000 });
   await expect(刷新).toBeEnabled();
 
@@ -398,7 +407,14 @@ test("12 忘记密码：收码、设新密码，旧会话当场作废", async ({
   await page.getByRole("button", { name: "设置新密码" }).click();
   await expect(page.getByText("验证码不对")).toBeVisible({ timeout: 15_000 });
 
-  const code = 取验证码(共享工作区.邮箱, "reset");
+  const mailboxUrl = `http://127.0.0.1:${(Number(process.env.HOSTED_E2E_PORT) || 3400) + 2}/messages`;
+  let code = "";
+  await expect.poll(async () => {
+    const response = await page.request.get(mailboxUrl);
+    const messages = await response.json() as { recipient: string; subject: string }[];
+    code = /^(\d{6}) 是你的 /.exec(messages.findLast(m => m.recipient === 共享工作区.邮箱)?.subject ?? "")?.[1] ?? "";
+    return code.length;
+  }).toBe(6);
   expect(code).toHaveLength(6);
   await page.getByPlaceholder("邮件里的 6 位验证码").fill(code);
   await page.getByRole("button", { name: "设置新密码" }).click();

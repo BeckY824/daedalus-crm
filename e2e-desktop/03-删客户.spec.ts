@@ -40,10 +40,10 @@ test("删客户：确认框列出一起删的跟进和签约，签约要先勾�
   await 删.click();
 
   await expect(page.locator(".ant-message")).toContainText("1 位联系人留在联系人页");
-  await expect(page.locator("tr.ant-table-row", { hasText: 名 })).toHaveCount(0);
+  await expect(page.getByRole("main").locator("tr.ant-table-row", { hasText: 名 })).toHaveCount(0);
 
   await page.goto("/contacts");
-  await expect(page.locator("tr.ant-table-row", { hasText: "甲的采购" })).toContainText("未归属");
+  await expect(page.getByRole("main").locator("tr.ant-table-row", { hasText: "甲的采购" })).toContainText("未归属");
 
   // 库里也确实删了：跟进、签约跟着走，联系人挪进未归属
   const p = 连库();

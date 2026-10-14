@@ -1,7 +1,10 @@
 "use client";
 
+import { requiredText, isFormValidationError } from "@/lib/form-validation";
+import CustomerSearchSelect from "@/components/CustomerSearchSelect";
+
 import { useEffect, useState } from "react";
-import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Select, Button } from "antd";
+import { Modal, Form, Input, Switch, Row, Col, App, AutoComplete, Button } from "antd";
 import { saveContact, saveUnassignedContact } from "./actions";
 import type { ContactRow } from "./types";
 import { useBusiness } from "@/lib/business-client";
@@ -76,6 +79,8 @@ export default function ContactForm({
     set存着(true);
     try {
       await onOk();
+    } catch (error) {
+      if (!isFormValidationError(error)) message.error("保存失败，请刷新确认结果后重试");
     } finally {
       set存着(false);
     }
@@ -135,19 +140,20 @@ export default function ContactForm({
                 rules={未归属 ? [] : [{ required: true, message: `请选择所属${b.customer}` }]}
                 extra={未归属 && !挑的 ? `现在不在任何${b.customer}下面。挑一位就挂过去，不挑就还留在未归属` : undefined}
               >
-                <Select
-                  showSearch
+                <CustomerSearchSelect
                   allowClear={未归属}
-                  optionFilterProp="label"
+                  onChange={(id) => {
+                    if (未归属) form.setFieldValue("isPrimary", id === record?.fromCustomerId && record?.wasPrimary === true);
+                  }}
                   placeholder={未归属 ? `未归属（挑一位${b.customer}挂过去）` : `搜索并选择一位${b.customer}`}
                   // 重名的显示成「王强（星辰科技 · 尾号 1111）」，不然两行一样的「王强」挑错了也看不出（2026-10-04 J-016）
-                  options={(学员们 ?? []).map((c) => ({ value: c.id, label: c.label ?? c.name }))}
+                  initialOptions={学员们}
                 />
               </Form.Item>
             </Col>
           )}
           <Col span={12}>
-            <Form.Item name="name" label="姓名" rules={[{ required: true, message: "请填写姓名" }]}>
+            <Form.Item name="name" label="姓名" rules={[requiredText("请填写姓名")]}>
               <Input placeholder="张经理" />
             </Form.Item>
           </Col>
@@ -173,7 +179,7 @@ export default function ContactForm({
           </Col>
           {!还没归属 && (
             <Col span={12}>
-              <Form.Item name="isPrimary" label="关键联系人" valuePropName="checked">
+              <Form.Item name="isPrimary" label="关键联系人" valuePropName="checked" extra={未归属 && 挑的 === record?.fromCustomerId && record?.wasPrimary == null ? "移出前是否关键未记录，请核对后选择" : undefined}>
                 <Switch checkedChildren="是" unCheckedChildren="否" />
               </Form.Item>
             </Col>

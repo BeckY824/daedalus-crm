@@ -6,11 +6,11 @@ import { describe, it, expect } from "vitest";
 import { 按处置 } from "@/app/(app)/customers/import-steps";
 import type { 预览 } from "@/app/(app)/customers/import-actions";
 
-const 看: 预览 = { 新建: 0, 补空: 0, 跳过: 5, 已在库里: 4, 说不清: 1, 进不了: 0, 合掉几行: 0, 待复核: [], 挡下: [], 没对上的列名: [] } as unknown as 预览;
+const 看: 预览 = { 新建: 0, 补空: 0, 跳过: 5, 已在库里: 4, 可补空: 2, 说不清: 1, 进不了: 0, 合掉几行: 0, 待复核: [], 挡下: [], 没对上的列名: [] } as unknown as 预览;
 
 describe("按处置", () => {
-  it("改成只补空：认得出的 4 位都算补空，认不清的 1 位照样跳过", () => {
-    expect(按处置(看, "补空")).toMatchObject({ 补空: 4, 跳过: 1 });
+  it("改成只补空：仅可补空的2位算补空，无修改/无权限与认不清的3位跳过", () => {
+    expect(按处置(看, "补空")).toMatchObject({ 补空: 2, 跳过: 3 });
   });
   it("跳过：补空 0，跳过 = 认得出的 + 认不清的", () => {
     expect(按处置(看, "跳过")).toMatchObject({ 补空: 0, 跳过: 5 });

@@ -150,6 +150,7 @@ describe("该记的都记了", () => {
     const log = await 最新日志();
     expect(log.summary).toContain("行业");
     expect(log.summary).toContain("自动合并");
+    expect(log.summary).not.toContain("他人");
   });
 });
 

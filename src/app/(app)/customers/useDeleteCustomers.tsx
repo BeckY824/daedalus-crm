@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useBusiness } from "@/lib/business-client";
 import { 签约叫 } from "@/lib/business-config";
 import { 删除确认标题 } from "@/lib/list-select";
-import { deleteCustomers, 删除前清点, type 删除清点 } from "./actions";
+import { deleteCustomers, 删除前清点, 客户删除预检, type 删除清点 } from "./actions";
 
 /**
  * 删客户的确认（单条、批量共用）。2026-10-02 排查 B1。
@@ -25,6 +25,8 @@ export function useDeleteCustomers() {
     const ids = rows.map((r) => r.id);
     let 数: 删除清点;
     try {
+      const preflight = await 客户删除预检(ids);
+      if (!preflight.ok) return void message.error(preflight.error, 8);
       数 = await 删除前清点(ids);
     } catch {
       return void message.error("没数清楚会一起删掉什么，先别删，刷新再试");

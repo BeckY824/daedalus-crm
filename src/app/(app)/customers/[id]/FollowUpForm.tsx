@@ -1,18 +1,24 @@
 "use client";
 
+import DatePicker from "@/components/BusinessDatePicker";
+
+import { isCalendarDate } from "@/lib/schedule-date";
+import { 是逾期 } from "@/lib/overdue";
+import { requiredText } from "@/lib/form-validation";
+
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Modal, Form, Input, Select, DatePicker, InputNumber, Row, Col, App, Button, Checkbox, Space, Typography } from "antd";
+import { Modal, Form, Input, Select, InputNumber, Row, Col, App, Button, Checkbox, Space, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
 import { dayjs, fmtDateTime } from "@/lib/utils";
-import { saveFollowUp, saveTask, savePlan, completePlan } from "./actions";
+import { saveFollowUp, completePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸订单 } from "@/lib/business-config";
 import { 拆关联, 订单前缀 } from "@/lib/follow-link";
 import AiWait from "@/components/AiWait";
-import AiCost from "@/components/AiCost";
+import AiCost, { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
 import { clearJob, runJob } from "@/lib/ai-jobs";
 import { statusLabel } from "@/lib/business-config";
 import { 只填没动过的, 跳过说明 } from "@/lib/fill-untouched";
@@ -39,6 +45,7 @@ type Rec = {
   duration?: number | null;
   occurredAt?: string;
   dueAt?: string | null;
+  dueHasTime?: boolean | null;
   contactId?: string | null;
   opportunityId?: string | null;
   /** 挂在哪张订单上（2026-10-05） */
@@ -98,16 +105,21 @@ export default function FollowUpForm({
    */
   待收口计划?: { id: string; subject: string; plannedAt: string; method: string } | null;
   /**
-   * 勾着「同时完成」保存之后，由记录页去完成它（提示条里带撤销和排下一次）。
+   * 勾着「同时完成」保存之后，服务端已一并完成，由记录页显示提示（带撤销和排下一次）。
    * 不给（跟进页上挑人时）就由这张表单自己完成，提示条里带撤销和去他记录页的路
    */
-  完成了计划?: (p: { id: string; subject: string; plannedAt: string; method: string }) => void;
+  完成了计划?: (p: { id: string; subject: string; plannedAt: string; method: string }, 已完成?: boolean) => void;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
+  const AI已用完 = useAiOutOfCredits();
   const router = useRouter();
   const b = useBusiness();
   const type = Form.useWatch("type", form);
+  const dueAt = Form.useWatch("dueAt", form);
+  const dueHasTime = Form.useWatch("dueHasTime", form) ?? true;
+  const status = Form.useWatch("status", form);
+  const 创建过期待办 = !record?.id && (type === "TASK" || type === "REMIND") && status !== "已完成" && dueAt && (dueHasTime ? dueAt.valueOf() < Date.now() - 60_000 : 是逾期(dueAt.format("YYYY-MM-DD")));
 
   const 挑人 = !给定客户;
   /** 挑中那位的近况：联系人、商机、到期计划都从这儿来。关框、保存时清掉 */
@@ -166,6 +178,7 @@ export default function FollowUpForm({
   }
 
   async function runParse(text: string) {
+    if (AI已用完) return;
     if (!customerId) {
       message.warning(`先挑一位${b.customer}`);
       return;
@@ -252,13 +265,15 @@ export default function FollowUpForm({
         opportunityId: record.orderId && 挂订单 ? `${订单前缀}${record.orderId}` : record.opportunityId,
         occurredAt: dayjs(record.occurredAt),
         dueAt: record.dueAt ? dayjs(record.dueAt) : null,
+        dueHasTime: !record.dueAt || !isCalendarDate(record.dueAt),
         durationMinutes: record.duration ? Math.round(record.duration / 60) : null,
       });
+      form.setFields([{ name: "dueHasTime", touched: false }, { name: "dueAt", touched: false }]);
     } else {
       form.resetFields();
       form.setFieldsValue({
         type: record?.type ?? "PHONE",
-        status: "已完成",
+        status: "已完成", dueHasTime: true,
         occurredAt: dayjs(),
       });
     }
@@ -274,6 +289,8 @@ export default function FollowUpForm({
     set存着(true);
     try {
       await onOk();
+    } catch (error) {
+      if (!error || typeof error !== "object" || !("errorFields" in error)) message.error("保存失败，请刷新确认结果后重试");
     } finally {
       set存着(false);
     }
@@ -283,6 +300,7 @@ export default function FollowUpForm({
     const v = await form.validateFields();
     const 谁 = 给定客户 ?? (v.customerId as string);
     const 名 = 近况?.name;
+    const 要收口 = !record?.id && 收口计划 && 收口 ? 收口计划 : null;
     const res = await saveFollowUp({
       id: record?.id,
       版本: record?.id ? record.updatedAt : null,
@@ -293,12 +311,19 @@ export default function FollowUpForm({
       status: v.status,
       durationMinutes: v.durationMinutes ?? null,
       occurredAt: v.occurredAt.toISOString(),
-      dueAt: v.dueAt ? v.dueAt.toISOString() : null,
+      dueAt: v.dueAt ? v.dueHasTime ? v.dueAt.toISOString() : v.dueAt.format("YYYY-MM-DD") : null,
+      dueHasTime: !record?.id || record.dueHasTime != null || form.isFieldTouched("dueHasTime") || form.isFieldTouched("dueAt") ? Boolean(v.dueHasTime) : undefined,
+      确认过期待办: 创建过期待办 && v.确认过期待办 === true,
       contactId: v.contactId ?? null,
       ...拆关联(v.opportunityId, 挂订单, record?.id ? record.opportunityId ?? null : null),
       participants: v.participants ?? null,
       // 经 AI 解析过才带原文：手工写的跟进没有"原文"这个概念
       sourceText: !record?.id && extras ? aiText : null,
+      ...(!record?.id ? { 附带: {
+        tasks: extras?.tasks.filter((t) => t.checked).map(({ title, dueAt }) => ({ title, dueAt })) ?? [],
+        plan: extras?.plan?.checked ? { subject: extras.plan.subject, plannedAt: extras.plan.plannedAt, method: extras.plan.method } : null,
+        完成计划: 要收口?.id,
+      } } : {}),
     });
     // 校验不通过时必须如实报错，否则界面照样提示成功、人以为已经存下了
     if (!res.ok) {
@@ -308,42 +333,12 @@ export default function FollowUpForm({
       return;
     }
 
-    // AI 顺带解析出的待办/计划，只创建勾选的；失败不吞——跟进本体已存上，
-    // 但要让人知道哪部分要手工补，不能让"部分成功"伪装成"全部成功"
-    if (!record?.id && extras) {
-      const jobs: Promise<{ ok: boolean }>[] = [];
-      for (const t of extras.tasks) {
-        if (t.checked) jobs.push(saveTask({ customerId: 谁, title: t.title, dueAt: t.dueAt }));
-      }
-      if (extras.plan?.checked) {
-        jobs.push(
-          savePlan({
-            customerId: 谁,
-            subject: extras.plan.subject,
-            plannedAt: extras.plan.plannedAt,
-            method: extras.plan.method,
-          }),
-        );
-      }
-      if (jobs.length) {
-        const results = await Promise.allSettled(jobs);
-        const failed = results.filter((r) => r.status === "rejected" || !r.value.ok).length;
-        if (failed > 0) {
-          message.warning(`跟进已保存，但有 ${failed} 项待办/计划创建失败，请手动补建`);
-          resetAi();
-          onSaved();
-          return;
-        }
-      }
-    }
-
-    const 要收口 = !record?.id && 收口计划 && 收口 ? 收口计划 : null;
     resetAi();
     onSaved();
     // 顺手完成那条到期计划：记录页上提示由它出（带撤销、排下一次），这里就不再单说一句「跟进已记录」
-    if (要收口 && 完成了计划) return void 完成了计划(要收口);
+    if (要收口 && 完成了计划) return void 完成了计划(要收口, true);
     if (!挑人 || !名) {
-      if (要收口) await completePlan(要收口.id);
+      if (要收口) void window.desktopReminders?.刷新();
       if ("待办id" in res && res.待办id) {
         // 顺带建了待办：Dock 数和到点提醒要马上跟上
         void window.desktopReminders?.刷新();
@@ -354,7 +349,6 @@ export default function FollowUpForm({
 
     // 跟进页上挑人记的：人留在原地（新的那行会亮一下），提示里给撤销和去他记录页的路
     if (要收口) {
-      await completePlan(要收口.id);
       void window.desktopReminders?.刷新();
     }
     const key = `followup-new-${res.id}`;
@@ -443,11 +437,12 @@ export default function FollowUpForm({
                 </Typography.Text>
               )}
               {/* 跑着时不转圈：在做什么、过了几秒，左边那一行已经说了。按钮只负责「现在不能再点」 */}
-              <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={aiLoading || 还没挑} onClick={onAiParse}>
+              <Button size="small" type="primary" ghost icon={<ThunderboltOutlined />} disabled={aiLoading || 还没挑 || AI已用完} onClick={onAiParse}>
                 {解析?.结果 ? "重新解析" : "AI 解析填表"}
                 <AiCost />
               </Button>
             </div>
+            {AI已用完 && <AiRemaining />}
           </div>
         )}
         <Row gutter={16}>
@@ -463,7 +458,7 @@ export default function FollowUpForm({
           </Col>
           <Col span={8}>
             <Form.Item name="occurredAt" label="发生时间" rules={[{ required: true }]}>
-              <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
+              <DatePicker showTime maxDate={dayjs().endOf("day")} format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
             </Form.Item>
           </Col>
 
@@ -474,7 +469,7 @@ export default function FollowUpForm({
             </Form.Item>
           </Col>
           <Col span={24}>
-            <Form.Item name="content" label="沟通内容" rules={[{ required: true, message: "请填写沟通内容" }]}>
+            <Form.Item name="content" label="沟通内容" rules={[requiredText("请填写沟通内容")]}>
               <Input.TextArea rows={4} placeholder="记录沟通要点、客户反馈、下一步动作…" />
             </Form.Item>
           </Col>
@@ -520,12 +515,14 @@ export default function FollowUpForm({
               <Form.Item
                 name="dueAt"
                 label={type === "TASK" ? "截止时间" : "提醒时间"}
-                extra={record?.id ? undefined : "填了会同时加进待办，到点提醒"}
+                extra={record?.id ? undefined : 创建过期待办 ? "这个时间已过期，创建的待办会立即进入到期清单" : dueHasTime ? "填了会同时加进待办，到点提醒" : "仅日期会进入当天待办，不弹定时提醒"}
               >
-                <DatePicker showTime format="YYYY-MM-DD HH:mm" style={{ width: "100%" }} />
+                <DatePicker showTime={dueHasTime} format={dueHasTime ? "YYYY-MM-DD HH:mm" : "YYYY-MM-DD"} style={{ width: "100%" }} />
               </Form.Item>
             </Col>
           )}
+          {showDue && <Col span={24}><Form.Item name="dueHasTime" valuePropName="checked"><Checkbox>指定钟点并到点提醒</Checkbox></Form.Item>{record?.dueAt && record.dueHasTime == null && !isCalendarDate(record.dueAt) && <Typography.Paragraph type="secondary">旧记录未保存是否选了钟点；只改其他内容会保留原提醒方式，请核对后重新选择日期或钟点。</Typography.Paragraph>}</Col>}
+          {创建过期待办 && <Col span={24}><Form.Item name="确认过期待办" preserve={false} valuePropName="checked" rules={[{ validator: (_, v) => v === true ? Promise.resolve() : Promise.reject(new Error("请确认创建过期待办，或修改提醒时间/状态")) }]}><Checkbox>我确认仍要创建过期待办</Checkbox></Form.Item></Col>}
           {type === "MEETING" && (
             <Col span={12}>
               <Form.Item name="participants" label="参与人" tooltip="多人用逗号分隔">
@@ -573,7 +570,7 @@ export default function FollowUpForm({
             )}
             {suggestions.length > 0 && (
               <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                AI 建议：{suggestions.join("；")}（如认可，请到「编辑{b.customer}」里修改）
+                AI 建议：{suggestions.join("；")}（如认可，保存后可点{b.customer}档案页顶部的对应状态标签修改）
               </Typography.Text>
             )}
           </Space>

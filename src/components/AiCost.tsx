@@ -25,23 +25,34 @@ import type { AI计次 } from "@/lib/ai-meter";
 
 const 不计次: AI计次 = { 计次: false, 还剩: null, 上限: null };
 const Ctx = createContext<AI计次>(不计次);
+const RefreshCtx = createContext<() => void>(() => {});
 
 export function AiMeterProvider({ 初值, children }: { 初值: AI计次; children: React.ReactNode }) {
   const [值, set值] = useState(初值);
   const 跑着 = useRunningCount();
   const 上一次 = useRef<number | null>(null);
+  const 请求轮 = useRef(0);
 
   const 问 = useCallback(() => {
+    const 轮 = ++请求轮.current;
     fetch("/api/ai/meter", { cache: "no-store" })
       .then((r) => (r.ok ? (r.json() as Promise<AI计次>) : null))
       .then((d) => {
         // 问不到数（断网）就别拿 null 把已知的数冲掉
-        if (d && (d.还剩 !== null || !d.计次)) set值(d);
+        if (轮 === 请求轮.current && d && (d.还剩 !== null || !d.计次)) set值(d);
       })
       .catch(() => {
         /* 问不到就维持原样：角标照挂，那行字不带数 */
       });
   }, []);
+
+  // 切回应用、补赠或改用自己的Key后可以恢复；零额度状态不永久锁按钮。
+  useEffect(() => {
+    const refresh = () => 问();
+    window.addEventListener("focus", refresh);
+    const timer = 值.计次 && 值.还剩 === 0 ? window.setInterval(refresh, 30_000) : undefined;
+    return () => { window.removeEventListener("focus", refresh); if (timer !== undefined) window.clearInterval(timer); };
+  }, [问, 值.计次, 值.还剩]);
 
   // 托管版布局已经带着数来了，不必再问；桌面端的数要联网，布局没问，页面出来以后问一次
   useEffect(() => {
@@ -55,20 +66,24 @@ export function AiMeterProvider({ 初值, children }: { 初值: AI计次; childr
     if (初值.计次 && 上 !== null && 跑着 < 上) 问();
   }, [跑着, 初值.计次, 问]);
 
-  return <Ctx.Provider value={值}>{children}</Ctx.Provider>;
+  return <RefreshCtx.Provider value={问}><Ctx.Provider value={值}>{children}</Ctx.Provider></RefreshCtx.Provider>;
 }
 
 export function useAiMeter(): AI计次 {
   return useContext(Ctx);
 }
+export function useAiOutOfCredits(): boolean {
+  const { 计次, 还剩 } = useAiMeter();
+  return 计次 && 还剩 === 0;
+}
 
 /** 按钮里的「1 次」。不计次的人什么都不显示 */
 export default function AiCost({ 次 = 1 }: { 次?: number }) {
-  const { 计次 } = useAiMeter();
+  const { 计次, 还剩 } = useAiMeter();
   if (!计次) return null;
   return (
-    <span className="ai-cost" title={`会用掉 ${次} 次 AI 额度`}>
-      {次} 次
+    <span className="ai-cost" title={还剩 === 0 ? "AI 次数已用完，可刷新余额或在设置填自己的模型 Key" : `会用掉 ${次} 次 AI 额度`}>
+      {还剩 === 0 ? "已用完" : `${次} 次`}
     </span>
   );
 }
@@ -76,11 +91,13 @@ export default function AiCost({ 次 = 1 }: { 次?: number }) {
 /** 输入框下那行淡字。不计次的人不显示；数问不到时只说「每问用 1 次」 */
 export function AiRemaining() {
   const { 计次, 还剩 } = useAiMeter();
+  const 刷新 = useContext(RefreshCtx);
   if (!计次) return null;
   if (还剩 === null) return <span className="cli-quota">每问用 1 次 AI 额度</span>;
   return (
     <span className={`cli-quota${还剩 === 0 ? " cli-quota-out" : 还剩 <= 2 ? " cli-quota-low" : ""}`}>
       免费次数还剩 {还剩} 次 · 每问用 1 次
+      {还剩 === 0 && <> · <button type="button" className="cli-link" onClick={刷新}>刷新余额</button> · <a href="/settings?tab=ai">设置模型 Key</a></>}
     </span>
   );
 }
@@ -100,6 +117,7 @@ const 满格 = 30;
 
 export function AiMeterBar() {
   const { 计次, 还剩, 上限 } = useAiMeter();
+  const 刷新 = useContext(RefreshCtx);
   if (!计次 || 还剩 === null || !上限) return null;
   const 比 = Math.max(0, Math.min(1, 还剩 / 满格));
   const 档 = 还剩 === 0 ? " out" : 还剩 <= 2 ? " low" : "";
@@ -112,6 +130,7 @@ export function AiMeterBar() {
       <div className="rail-meter-bar" role="meter" aria-label="AI 免费次数" aria-valuemin={0} aria-valuemax={满格} aria-valuenow={Math.min(还剩, 满格)}>
         <span style={{ width: `${比 * 100}%` }} />
       </div>
+      {还剩 === 0 && <button type="button" className="cli-link" onClick={刷新}>刷新余额</button>}
     </div>
   );
 }

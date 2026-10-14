@@ -1,4 +1,5 @@
 "use client";
+import {记找回邮箱,useLoginEmail} from "@/lib/auth-email-prefill";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -62,7 +63,7 @@ export default function DesktopAuth({
   const 秒 = (t: number) => (少动 ? 0 : t);
 
   const [步骤, set步骤] = useState<步>("邮箱");
-  const [邮箱, set邮箱] = useState("");
+  const [邮箱, set邮箱] = useLoginEmail();
   const [密码, set密码] = useState("");
   const [码, set码] = useState("");
   const [同意, set同意] = useState(false);
@@ -74,6 +75,7 @@ export default function DesktopAuth({
   const [核对中, set核对中] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [说明, set说明] = useState<string | null>(null);
+  const [恢复提示, set恢复提示] = useState<string | null>(null);
   const [冷却, set冷却] = useState(0);
   const 密码框 = useRef<HTMLInputElement>(null);
   const 邮箱框 = useRef<HTMLInputElement>(null);
@@ -91,6 +93,7 @@ export default function DesktopAuth({
   }, [步骤]);
 
   const 去 = (s: 步) => {
+    set恢复提示(null);
     setError(null);
     set码错退回(false);
     set步骤(s);
@@ -126,6 +129,16 @@ export default function DesktopAuth({
       const r = await 限时(桌面端下一步(邮箱.trim()));
       if (!r.ok) return setError(r.error);
       setError(null);
+      if (r.data.去 !== "验证码") {
+        set码("");
+        set冷却(0);
+        set说明(null);
+        去(r.data.去);
+        if (r.data.去 === "密码") set恢复提示("账号已注册，请用刚设置的密码登录");
+        return;
+      }
+      set码("");
+      set码错退回(false);
       set说明(r.data.去 === "验证码" ? (r.data.hint ?? "新的验证码发出去了") : null);
       set冷却(重发冷却秒);
     } catch (e) {
@@ -151,6 +164,7 @@ export default function DesktopAuth({
       if (res.已开号) {
         set码("");
         set步骤("密码");
+        set恢复提示("账号已注册，请用刚设置的密码登录");
         setError(res.error);
         setLoading(false);
         return;
@@ -249,6 +263,7 @@ export default function DesktopAuth({
               {步骤 === "密码" && (
                 <>
                   <h1>输入密码</h1>
+                  {恢复提示 && <p className="auth-hint" role="status">{恢复提示}</p>}
                   <p className="auth-hint">
                     <b>{邮箱}</b>
                     <button type="button" className="auth-link" onClick={() => 去("邮箱")}>
@@ -276,7 +291,7 @@ export default function DesktopAuth({
                   </Button>
                   {(可找回密码 || (可注册 && !应用内注册)) && (
                     <p className="auth-alt">
-                      {可找回密码 && <Link href="/forgot">忘记密码？</Link>}
+                      {可找回密码 && <Link href="/forgot" onClick={()=>记找回邮箱(邮箱)}>忘记密码？</Link>}
                       {/* 云端还没有应用内注册：新用户在这一步去网页开号，回来接着在这里登录 */}
                       {可注册 && !应用内注册 && (
                         <>

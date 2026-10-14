@@ -142,8 +142,8 @@ export default function OrderForm({
                 <Form.Item name="currency" noStyle>
                   <CurrencySelect />
                 </Form.Item>
-                <Form.Item name="amount" noStyle rules={[{ required: true, message: "请填订单金额" }]}>
-                  <InputNumber<number> min={0} style={{ width: "100%" }} formatter={金额格式} aria-label="订单金额" />
+                <Form.Item name="amount" noStyle rules={[{ required: true, message: "请填订单金额" }, { type: "number", min: 0, message: "订单金额不能为负数" }]}>
+                  <InputNumber<number> style={{ width: "100%" }} formatter={金额格式} aria-label="订单金额" />
                 </Form.Item>
               </Space.Compact>
             </Form.Item>
@@ -168,13 +168,14 @@ export default function OrderForm({
               label="定金应收"
               dependencies={["amount"]}
               rules={[
+                { type: "number", min: 0, message: "定金应收不能为负数" },
                 ({ getFieldValue }) => ({
                   validator: (_, v) => ((v ?? 0) > (getFieldValue("amount") ?? 0) ? Promise.reject(new Error("定金比订单金额还多")) : Promise.resolve()),
                 }),
               ]}
               extra="选了「T/T 30/70」这类会按比例先算好；没有定金留空"
             >
-              <InputNumber<number> min={0} style={{ width: "100%" }} formatter={金额格式} prefix={币种} />
+              <InputNumber<number> style={{ width: "100%" }} formatter={金额格式} prefix={币种} />
             </Form.Item>
           </Col>
           {!跟签约 && (

@@ -12,7 +12,7 @@
  *   - 老板（建团队的人）一对 Ed25519 签名钥匙：公钥在邀请码里（DT2），信封、钥匙环都带老板的签名，
  *     成员只收签名对得上的新钥匙。中转手里没有私钥，伪造不了
  */
-import { createCipheriv, createDecipheriv, createPublicKey, createPrivateKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign, verify } from "node:crypto";
+import { createHash, createCipheriv, createDecipheriv, createPublicKey, createPrivateKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign, verify } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 import type { 改动 } from "./local";
 
@@ -62,7 +62,7 @@ export function 封(东西: 改动[] | unknown, 钥匙: string, 编号 = 0, 绑?
 export function 包的编号(封好: string): number {
   const b = Buffer.from(封好.slice(0, 8), "base64url");
   if (b[0] === 1) return 0;
-  if ((b[0] === 2 || b[0] === 3) && b.length >= 5) return b.readUInt32BE(1);
+  if ((b[0] === 2 || b[0] === 3 || b[0] === 4) && b.length >= 5) return b.readUInt32BE(1);
   throw new Error(`不认识的同步包版本 ${b[0]}`);
 }
 
@@ -155,4 +155,32 @@ export function 拆自(我的私钥: string, 封好: string): string {
   const 临时公 = createPublicKey({ key: b.subarray(2, 2 + 长), format: "der", type: "spki" });
   const 共享 = diffieHellman({ privateKey: 私(我的私钥), publicKey: 临时公 });
   return 解密(b.subarray(2 + 长), 派生(共享)).toString("utf8");
+}
+
+/* ---------------- 范围同步（v4）：密文绑定外层授权元数据 ---------------- */
+
+/** 外层元数据的规范串：键按字母排序，避免同一内容因字段顺序不同而得出不同摘要 */
+export function 规范串(x: unknown): string {
+  if (Array.isArray(x)) return `[${x.map(规范串).join(",")}]`;
+  if (x && typeof x === "object") return `{${Object.keys(x as object).sort().map((k) => `${JSON.stringify(k)}:${规范串((x as Record<string, unknown>)[k])}`).join(",")}}`;
+  return JSON.stringify(x ?? null);
+}
+/** v4 绑定：团队、推送设备、事件编号、外层元数据摘要。中转改了其中任何一项，接收端都解不开 */
+export type 范围绑定 = { teamId: string; device: string; eventId: string; meta: unknown };
+const 范围附加 = (头: Buffer, x: 范围绑定) =>
+  Buffer.concat([头, Buffer.from(`|scoped|${x.teamId}|${x.device}|${x.eventId}|${createHash("sha256").update(规范串(x.meta)).digest("hex")}`, "utf8")]);
+
+export function 封范围(东西: unknown, 钥匙: string, 编号: number, 绑: 范围绑定): string {
+  const 头 = Buffer.alloc(5);
+  头[0] = 4;
+  头.writeUInt32BE(编号, 1);
+  return Buffer.concat([头, 加密(gzipSync(Buffer.from(JSON.stringify(东西), "utf8")), 钥匙, 范围附加(头, 绑))]).toString("base64url");
+}
+export function 拆范围<T>(封好: string, 钥匙: string | 钥匙环, 绑: 范围绑定): T {
+  const b = Buffer.from(封好, "base64url");
+  if (b[0] !== 4 || b.length < 33) throw new Error("范围密文版本不对");
+  const 编号 = b.readUInt32BE(1);
+  const k = typeof 钥匙 === "string" ? 钥匙 : 钥匙[String(编号)];
+  if (!k) throw new Error(`没有 ${编号} 号钥匙`);
+  return JSON.parse(gunzipSync(解密(b.subarray(5), k, 范围附加(b.subarray(0, 5), 绑))).toString("utf8")) as T;
 }

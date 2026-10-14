@@ -21,10 +21,11 @@ export type AuditRow = {
 const ACTION_LABEL: Record<string, string> = {
   create: "新建", update: "修改", delete: "删除", assign: "转派",
   convert: "转化", deactivate: "停用", reactivate: "恢复", password: "改密码", device_revoke: "退出机器", ai_use: "AI", ai_apply: "确认 AI 建议", ai_undo: "撤销 AI 建议",
-  pool: "放进公海", claim: "领取",
+  pool: "放进公海", claim: "领取", import: "导入",
 };
 const ENTITY_LABEL: Record<string, string> = {
   Customer: "学员", Contract: "签约", Lead: "线索", User: "成员", Channel: "渠道", Setting: "系统设置", Ai: "AI 功能", Device: "机器",
+  Opportunity: "商机", Contact: "联系人", FollowUp: "跟进记录", Task: "待办", FollowPlan: "跟进计划", TradeOrder: "订单", Supplier: "供应商",
 };
 /** 明细是入库时序列化的 JSON，格式化给人看；万一存了非法内容也不能让页面崩 */
 function safeJson(raw: string | null): string {
@@ -50,13 +51,14 @@ export default function AuditTab({ logs }: { logs: AuditRow[] }) {
                 type="info"
                 showIcon
                 style={{ marginBottom: 14 }}
-                title={`所有人都能查看和修改全部${b.customer}数据，因此每一次改动都会记录在这里`}
+                title={`${b.customer}等业务数据的修改会记录在这里`}
                 description="记录只增不改不删，成员被停用或删除后其历史操作仍然保留。此处显示最近 200 条。"
               />
               <Table<AuditRow>
                 rowKey="id"
                 size="middle"
                 dataSource={logs}
+                scroll={{ x: 760 }}
                 pagination={{ pageSize: 20, showSizeChanger: false }}
                 locale={{ emptyText: "还没有任何操作记录" }}
                 expandable={{

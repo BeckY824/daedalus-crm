@@ -1,8 +1,9 @@
 "use server";
 
+import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
-import { consumeAiQuota } from "@/lib/ai-quota";
+import { consumeUserAiQuota } from "@/lib/ai-quota";
 import { recordAiUse } from "@/lib/ai-usage";
 import { chatJSON } from "@/lib/llm";
 import { sanitizeFollowUpDraft, sanitizeBrief, type FollowUpDraft, type CustomerBrief } from "@/lib/ai-draft";
@@ -24,6 +25,7 @@ import type { BriefRecord } from "@/lib/ai-draft";
 import { 带额度 } from "@/lib/tenant/ai-allowance";
 import { 带币种, 商机币种, 签约合计 } from "@/lib/money-db";
 import { 金额 as 显示金额, 合计文字 } from "@/lib/currency";
+import { AI客户输入错误, AI文本输入错误 } from "@/lib/ai-input";
 
 /**
  * AI 只起草、不落库：这两个 action 都不写业务表。
@@ -40,6 +42,8 @@ export async function parseFollowUpDraft(input: {
   customerId: string;
   text: string;
 }): Promise<{ ok: true; draft: FollowUpDraft } | { ok: false; error: string }> {
+  const error = AI客户输入错误(input) ?? AI文本输入错误(input?.text, 5, 5000, "内容太短，AI 没有可整理的信息");
+  if (error) return { ok: false, error };
   return 带额度("parse", () => 解析速记(input));
 }
 
@@ -49,7 +53,7 @@ async function 解析速记(input: {
 }): Promise<{ ok: true; draft: FollowUpDraft } | { ok: false; error: string }> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
 
   const text = input.text.trim();
@@ -146,6 +150,8 @@ export async function generateBrief(input: {
   /** 销售此刻想问的具体问题（来自首页提问）。给了就让「这次建议谈」围绕它回答 */
   question?: string;
 }, emit?: Emit): Promise<简报回执> {
+  const error = AI客户输入错误(input) ?? (input?.question === undefined ? null : AI文本输入错误(input.question, 0, 200, ""));
+  if (error) return { ok: false, error };
   return 带额度("brief", () => 生成简报(input, emit));
 }
 
@@ -155,7 +161,7 @@ async function 生成简报(input: {
 }, emit?: Emit): Promise<简报回执> {
   const user = await requireUser();
   const b = await getBusiness();
-  const wait = consumeAiQuota(user.id);
+  const wait = consumeUserAiQuota(user);
   if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
   stepStart(emit, "load", "读取记录");
 
@@ -172,8 +178,8 @@ async function 生成简报(input: {
         select: { name: true, amount: true, stage: true, status: true, expectedDealAt: true, ...带币种.商机 },
         orderBy: { createdAt: "desc" },
       },
-      tasks: { where: { done: false }, select: { title: true, dueAt: true }, orderBy: { dueAt: { sort: "asc", nulls: "last" } } },
-      plans: { where: { done: false }, select: { subject: true, plannedAt: true, method: true }, take: 1 },
+      tasks: { where: { done: false }, select: { title: true, dueAt: true, dueOn: true }, orderBy: { dueAt: { sort: "asc", nulls: "last" } } },
+      plans: { where: { done: false }, select: { id: true, subject: true, plannedAt: true, plannedOn: true, method: true } },
       followUps: {
         orderBy: { occurredAt: "desc" },
         take: 30,
@@ -225,9 +231,9 @@ async function 生成简报(input: {
         .join("\n")
     : "（无）";
   const taskLines = customer.tasks.length
-    ? customer.tasks.map((t) => `- ${t.title}${t.dueAt ? `（截止 ${dayjs(t.dueAt).format("MM-DD HH:mm")}）` : ""}`).join("\n")
+    ? customer.tasks.map((t) => `- ${t.title}${t.dueAt ? `（截止 ${dayjs(scheduleValue(t.dueAt, t.dueOn)).format(t.dueOn ? "MM-DD" : "MM-DD HH:mm")}）` : ""}`).join("\n")
     : "（无）";
-  const plan = customer.plans[0];
+  const plan = earliestScheduled(customer.plans, p => scheduleOrder(p.plannedAt, p.plannedOn), 1)[0];
   // 按币种写（不换汇）：「US$ 3,200 · ¥ 19,800」
   const 已签 = 签约合计(customer.contracts).filter((x) => x.合计 > 0);
 
@@ -243,7 +249,7 @@ ${外贸精简(b)
   ? `国家：${customer.extra?.country ?? "未填"}；来源：${customer.extra?.source ?? "未填"}
 已下单金额：${已签.length ? 合计文字(已签) : "还没有订单"}`
   : `推荐来源：${customer.referrerCustomer?.name ?? customer.channel?.name ?? "无记录"}
-预计签约：${customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定"}；已签约金额：${已签.length ? 合计文字(已签) : "未签约"}`}
+预计签约：${customer.expectedSignOn ?? (customer.expectedSignAt ? dayjs(customer.expectedSignAt).format("YYYY-MM-DD") : "未定")}；已签约金额：${已签.length ? 合计文字(已签) : "未签约"}`}
 备注：${customer.remark || "（无）"}
 
 【商机】
@@ -253,7 +259,7 @@ ${oppLines}
 ${taskLines}
 
 【下次跟进计划】
-${plan ? `${dayjs(plan.plannedAt).format("YYYY-MM-DD HH:mm")} ${plan.method}：${plan.subject}` : "（未安排）"}
+${plan ? `${dayjs(scheduleValue(plan.plannedAt, plan.plannedOn)).format(plan.plannedOn ? "YYYY-MM-DD" : "YYYY-MM-DD HH:mm")} ${plan.method}：${plan.subject}` : "（未安排）"}
 
 【跟进时间线（新→旧，最近 ${customer.followUps.length} 条，每条前面的 [编号] 是它的引用号；带「原文」的是当时的聊天记录原话）】
 ${timeline}

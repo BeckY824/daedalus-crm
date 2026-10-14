@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient, Prisma } from "@/generated/prisma";
 import { 同步表, 不同步列, 同步的设置, 指向人的列, 同名合并, 模板占位账号 } from "./tables";
+import { 擦净删除残留 } from "./scoped-local";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -79,35 +80,48 @@ async function 记的列(db: Db, t: string): Promise<string[]> {
 /**
  * 装触发器。每次启动都重装一遍：迁移加了列之后，老触发器里写死的列名就不全了。
  * Setting 只记业务配置那几个 key。
+ *
+ * 一次装完（2026-10-14 候选 9）：原来先把全部触发器删掉、再一条一条建，几十条语句各自提交——
+ * 同一进程里两次调用交错（例如建团队的 本机开同步 和第一轮同步的重装撞上）会撞「trigger … already exists」（测试里见过一次）；
+ * 而且删完到建好之间用户写的那一笔不进同步日志。现在先把要执行的语句全部算好，每条 CREATE 前紧跟一条 DROP IF EXISTS，
+ * 放进同一个事务：要么全换成新的，要么一条没动；并发的两次各自原子、先后执行，结果一样。装出来的触发器和原来一模一样。
  */
 export async function 装触发器(db: Db) {
-  await 卸触发器(db);
   const 编号 = `MAX(${墙钟}, (SELECT l + 1 FROM _sync_clock WHERE id = 1))`;
   const 推钟 = "UPDATE _sync_clock SET l = (SELECT MAX(at) FROM _sync_log) WHERE id = 1;";
   const 没在回放 = "(SELECT applying FROM _sync_state WHERE id = 1) = 0";
+  const 语句: string[] = [];
+  const 建 = (名: string, sql: string) => 语句.push(`DROP TRIGGER IF EXISTS "${名}"`, sql);
   for (const t of 同步表) {
     const cs = await 记的列(db, t);
     const pk = await 主键(db, t);
     const 行 = (p: string) => `json_object(${cs.map((c) => `'${c}', ${p}.${引(c)}`).join(", ")})`;
     const 变了 = cs.map((c) => `CASE WHEN OLD.${引(c)} IS NOT NEW.${引(c)} THEN '${c},' ELSE '' END`).join(" || ");
     const 只设置 = (p: string) => (t === "Setting" ? ` AND ${p}.${引(pk)} IN (${同步的设置.map((k) => `'${k}'`).join(", ")})` : "");
-    await db.$executeRawUnsafe(`CREATE TRIGGER "_s_${t}_i" AFTER INSERT ON ${引(t)} WHEN ${没在回放}${只设置("NEW")} BEGIN
+    建(`_s_${t}_i`, `CREATE TRIGGER "_s_${t}_i" AFTER INSERT ON ${引(t)} WHEN ${没在回放}${只设置("NEW")} BEGIN
       INSERT INTO _sync_log (tbl, pk, op, row, changed, at) VALUES ('${t}', NEW.${引(pk)}, 'I', ${行("NEW")}, '*', ${编号});
       ${推钟}
     END`);
-    await db.$executeRawUnsafe(`CREATE TRIGGER "_s_${t}_u" AFTER UPDATE ON ${引(t)} WHEN ${没在回放}${只设置("NEW")} AND (${变了}) <> '' BEGIN
+    建(`_s_${t}_u`, `CREATE TRIGGER "_s_${t}_u" AFTER UPDATE ON ${引(t)} WHEN ${没在回放}${只设置("NEW")} AND (${变了}) <> '' BEGIN
       INSERT INTO _sync_log (tbl, pk, op, row, changed, at) VALUES ('${t}', NEW.${引(pk)}, 'U', ${行("NEW")}, ${变了}, ${编号});
       ${推钟}
     END`);
-    await db.$executeRawUnsafe(`CREATE TRIGGER "_s_${t}_d" AFTER DELETE ON ${引(t)} WHEN ${没在回放}${只设置("OLD")} BEGIN
+    建(`_s_${t}_d`, `CREATE TRIGGER "_s_${t}_d" AFTER DELETE ON ${引(t)} WHEN ${没在回放}${只设置("OLD")} BEGIN
       INSERT INTO _sync_log (tbl, pk, op, row, changed, at) VALUES ('${t}', OLD.${引(pk)}, 'D', NULL, '', ${编号});
       ${推钟}
     END`);
   }
+  await 一起执行(db, 语句);
 }
 
 export async function 卸触发器(db: Db) {
-  for (const t of 同步表) for (const s of ["i", "u", "d"]) await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "_s_${t}_${s}"`);
+  await 一起执行(db, 同步表.flatMap((t) => ["i", "u", "d"].map((s) => `DROP TRIGGER IF EXISTS "_s_${t}_${s}"`)));
+}
+
+/** 一组 DDL 放进同一个事务执行；已经在事务里（传进来的是事务客户端）就直接按顺序执行，由外面那个事务管原子 */
+async function 一起执行(db: Db, 语句: string[]) {
+  if ("$transaction" in db) await db.$transaction(语句.map((sql) => db.$executeRawUnsafe(sql)));
+  else for (const sql of 语句) await db.$executeRawUnsafe(sql);
 }
 
 /** 本机已有的数据整份记成「新建」：第一次进团队时推上去，和别人的合并 */
@@ -137,9 +151,15 @@ export async function 记全量(db: Db, 选项: { 不含设置?: boolean } = {})
 export async function 改身份(db: PrismaClient, 新id: string, 资料: { email: string; name: string }) {
   await db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
-    const 管理员 = await tx.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
-    if (管理员 && 管理员.id !== 新id) await 换id(tx, 管理员.id, 新id);
-    await tx.user.update({ where: { id: 新id }, data: { email: 资料.email, name: 资料.name } }).catch(() => undefined);
+    // 退队后的旧库还留着旧老板 User；本人 acct 身份也已存在，不能再把最早管理员改成本人。
+    const 本人 = await tx.user.findUnique({ where: { id: 新id }, select: { id: true } });
+    if (!本人) {
+      const 管理员 = await tx.user.findFirst({ where: { role: "ADMIN", active: true }, orderBy: { createdAt: "asc" }, select: { id: true } });
+      if (!管理员) throw new Error("找不到这台电脑的本机账号，请重新登录后再试");
+      await 换id(tx, 管理员.id, 新id);
+    }
+    // 更新失败必须回滚，不能把身份迁移只做一半。
+    await tx.user.update({ where: { id: 新id }, data: { email: 资料.email, name: 资料.name } });
     for (const email of 模板占位账号) {
       const u = await tx.user.findUnique({ where: { email }, select: { id: true } });
       if (!u) continue;
@@ -222,15 +242,20 @@ async function 记本机字段钟(db: Db, 设备: string) {
  *   - 外键是延后检查的（同一批里先子后父也放得进），提交前用 foreign_key_check 找出孤儿：
  *     父行在本机已经删了（甲删客户、乙同时给他记了跟进）——能空的那一列置空，不能空的整行删掉、记下跳过
  */
-export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: string): Promise<{ 应用: number; 撞: number; 跳: number }> {
-  const 排好 = [...批].filter((e) => !e.h.endsWith(`-${本机设备}`)).sort((a, b) => a.h.localeCompare(b.h));
+export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: string, 选项: { 含本人?: boolean } = {}): Promise<{ 应用: number; 撞: number; 跳: number }> {
+  const 排好 = [...批].filter((e) => 选项.含本人 || !e.h.endsWith(`-${本机设备}`)).sort((a, b) => a.h.localeCompare(b.h));
   if (!排好.length) return { 应用: 0, 撞: 0, 跳: 0 };
   let 撞 = 0;
   let 跳 = 0;
   const 动过的客户 = new Set<string>();
-  // 先把本机还没编字段钟的改动编上：不然别人更早的改动会盖掉我刚改、还没推的
-  await 记本机字段钟(db, 本机设备);
   await db.$transaction(async (tx) => {
+    /*
+      先把本机还没编字段钟的改动编上：不然别人更早的改动会盖掉我刚改、还没推的。
+      放在事务里面编（2026-10-14 安全复查）：原来在事务外编，编完到开事务之间人又写了一笔（例如撤销领取把公海那一行放回来），
+      那一笔没有字段钟，紧接着回放的删除 / 照目录补删除就把它当成更早的改动删掉了，而它的插入照样推出去——两边对不上。
+      事务里本机只有这一个连接在写，编完到回放之间插不进新改动。
+    */
+    await 记本机字段钟(tx, 本机设备);
     await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 1 WHERE id = 1");
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
     const 记跳过 = async (t: string, k: string, h: string, why: string) => {
@@ -253,6 +278,12 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
       const pk = await 主(e.t);
       const k = (await 别名到(e.t, e.k)) as string;
       if (e.o === "D") {
+        // 旧客户端先移出联系人、再删客户；必须在来源行消失前保住可确认的归属。
+        if (e.t === "Customer" && (await 本机列们("UnassignedContact")).has("ownerId")) {
+          await tx.$executeRawUnsafe(`UPDATE "UnassignedContact" SET "ownerId" = (
+            SELECT COALESCE("salesOwnerId", "channelOwnerId") FROM "Customer" WHERE "id" = ?
+          ) WHERE "ownerId" IS NULL AND "fromCustomerId" = ?`, k, k);
+        }
         // 删跟进 / 签约：「最近跟进」要重算，得在删之前记下是哪位客户（远端的删除不带整行）
         if (e.t === "FollowUp" || e.t === "Contract") {
           const 谁 = (await tx.$queryRawUnsafe<{ customerId: string }[]>(`SELECT customerId FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k))[0]?.customerId;
@@ -330,19 +361,33 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
       if ((e.t === "FollowUp" || e.t === "Contract") && typeof row.customerId === "string") 动过的客户.add(row.customerId);
     }
 
+    const 已回放: 改动[] = [];
     for (const e of 排好) {
       if (!(同步表 as readonly string[]).includes(e.t)) continue; // 对方版本新、多了一张我这还没有的表：跳过
       await tx.$executeRawUnsafe("SAVEPOINT s1");
       try {
         await 放一条(e);
         await tx.$executeRawUnsafe("RELEASE s1");
+        已回放.push(e);
       } catch (err) {
         await tx.$executeRawUnsafe("ROLLBACK TO s1");
         await tx.$executeRawUnsafe("RELEASE s1");
         await 记跳过(e.t, e.k, e.h, String((err as Error)?.message ?? err));
       }
     }
+    // 升级重拉后只清同一成功事件的失败标记；其他版本仍保留。
+    // 批量删除避免正常大库回放每一行多一次数据库往返。
+    for (let i = 0; i < 已回放.length; i += 200) {
+      const batch = 已回放.slice(i, i + 200);
+      await tx.$executeRawUnsafe(`DELETE FROM _sync_skip WHERE ${batch.map(() => "(tbl = ? AND pk = ? AND hlc = ?)").join(" OR ")}`, ...batch.flatMap(e => [e.t, e.k, e.h]));
+    }
     await 清孤儿(tx, 记跳过);
+    // 老客户端没有 ownerId：能认出来源负责人时补上，无法确认的仍只给老板看。
+    if (排好.some((x) => x.t === "UnassignedContact" || x.t === "Customer") && (await 列们(tx, "UnassignedContact")).some((c) => c.name === "ownerId")) {
+      await tx.$executeRawUnsafe(`UPDATE "UnassignedContact" SET "ownerId" = (
+        SELECT COALESCE("salesOwnerId", "channelOwnerId") FROM "Customer" WHERE "id" = "UnassignedContact"."fromCustomerId"
+      ) WHERE "ownerId" IS NULL AND EXISTS (SELECT 1 FROM "Customer" WHERE "id" = "UnassignedContact"."fromCustomerId")`);
+    }
     await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 0 WHERE id = 1");
   }, { timeout: 180_000, maxWait: 20_000 }); // 新人第一次拉一个大团队，一批 2000 条要好几秒，默认 5 秒会超时、每轮重试都失败（复查）
   await 重算派生(db, [...动过的客户]);
@@ -462,14 +507,17 @@ export async function 装了吗(db: Db): Promise<boolean> {
  * 同步日志里存着的整行副本也清掉。**必须在卸了触发器之后做**：这些删除不能当成改动推出去。
  */
 export async function 只留自己的(db: PrismaClient, 我: string) {
+  await db.$queryRawUnsafe("PRAGMA secure_delete = ON");
   const 我的客户 = (await db.customer.findMany({ where: { OR: [{ salesOwnerId: 我 }, { channelOwnerId: 我 }] }, select: { id: true } })).map((c) => c.id);
   await db.$transaction(async (tx) => {
     await tx.customer.deleteMany({ where: { id: { notIn: 我的客户 } } });
     await tx.lead.deleteMany({ where: { OR: [{ ownerId: null }, { ownerId: { not: 我 } }], customerId: null } });
     await tx.auditLog.deleteMany({ where: { userId: { not: 我 } } });
-    await tx.unassignedContact.deleteMany({ where: { OR: [{ fromCustomerId: null }, { fromCustomerId: { notIn: 我的客户 } }] } });
+    await tx.unassignedContact.deleteMany({ where: { OR: [{ ownerId: null }, { ownerId: { not: 我 } }] } });
   });
   for (const t of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip", "_sync_cursor", "_sync_alias"]) {
     await db.$executeRawUnsafe(`DELETE FROM ${t}`).catch(() => undefined);
   }
+  // 删掉的同事客户不在库文件字节里留副本：整库重建 + 截断 WAL（scoped-local 擦净删除残留）
+  return { 擦净: await 擦净删除残留(db) };
 }

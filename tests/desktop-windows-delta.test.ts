@@ -20,6 +20,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { EventEmitter } from "node:events";
 
+// 仅本文件的回环HTTP服务器；生产更新默认仍强制HTTPS。
+beforeAll(() => vi.stubEnv("CRM_UPDATE_ALLOW_LOCAL_HTTP", "1"));
+afterAll(() => vi.unstubAllEnvs());
+
 const require_ = createRequire(import.meta.url);
 const 窗装 = require_("../desktop/windows-install.js");
 const 差量 = require_("../desktop/delta.js");
@@ -347,6 +351,30 @@ describe.skipIf(process.platform !== "win32")("真的 PowerShell 换目录（Win
     } finally {
       占着.kill();
     }
+  });
+
+  it("指定进程已退出但另一处仍持有其句柄：照常换目录", () => {
+    const 目录 = 摆("retained-process-handle");
+    const 日志 = path.join(更新目录, "retained-process-handle.log");
+    const quote = (v: string) => `'${v.replaceAll("'", "''")}'`;
+    const 命令 = `
+      $p = New-Object System.Diagnostics.Process
+      $p.StartInfo.FileName = ${quote(process.execPath)}
+      $p.StartInfo.Arguments = '-e "setTimeout(() => {}, 200)"'
+      $p.StartInfo.UseShellExecute = $false
+      $p.StartInfo.CreateNoWindow = $true
+      [void]$p.Start()
+      $retainedHandle = $p.Handle
+      $targetPid = $p.Id
+      $p.WaitForExit()
+      try {
+        & ([scriptblock]::Create(${quote(窗装.换目录脚本)})) -Dir ${quote(目录)} -Log ${quote(日志)} -WaitPid $targetPid
+      } finally { $p.Dispose() }
+    `;
+    const r = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(命令, "utf16le").toString("base64")], { encoding: "utf8", timeout: 20_000 });
+    expect(r.status, r.stderr + (fs.existsSync(日志) ? fs.readFileSync(日志, "utf8") : "")).toBe(0);
+    expect(fs.readFileSync(path.join(目录, "a.txt"), "utf8")).toBe("new");
+    expect(fs.readFileSync(path.join(`${目录}.old`, "a.txt"), "utf8")).toBe("old");
   });
 
   it("走应用自己的那条路（启动换目录：spawn、不等它、unref）也真能换过去——直接调 PowerShell 的用例抓不到启动方式的问题", async () => {
