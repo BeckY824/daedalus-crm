@@ -84,19 +84,20 @@ async function 进团队(db: PrismaClient, 账号: string, email: string, name: 
 
 const 钥匙 = 新钥匙();
 /** 一台推：编号、加密成一包；对方拉：解密、回放。和真实循环一样经过 封 / 拆 */
-async function 推(db: PrismaClient, 设备: string): Promise<string | null> {
+async function 推(db: PrismaClient, 设备: string, 限时 = 一步限时): Promise<string | null> {
   return 步(`${设备} 推`, [db], async () => {
     const { 改动: 批, 到 } = await 待推(db, 设备);
     if (!批.length) return null;
     await 记已推(db, 到);
     return 封(批, 钥匙);
-  });
+  }, 限时);
 }
-async function 同步(甲: PrismaClient, 乙: PrismaClient) {
-  const a = await 推(甲, "A");
-  const b = await 推(乙, "B");
-  if (a) await 步("B 回放 A 的改动", [乙], () => 回放(乙, 拆(a, 钥匙), "B"));
-  if (b) await 步("A 回放 B 的改动", [甲], () => 回放(甲, 拆(b, 钥匙), "A"));
+/** 限时：每一步最多等多久；几百条一批的用例（T-008）自己给大的 */
+async function 同步(甲: PrismaClient, 乙: PrismaClient, 限时 = 一步限时) {
+  const a = await 推(甲, "A", 限时);
+  const b = await 推(乙, "B", 限时);
+  if (a) await 步("B 回放 A 的改动", [乙], () => 回放(乙, 拆(a, 钥匙), "B"), 限时);
+  if (b) await 步("A 回放 B 的改动", [甲], () => 回放(甲, 拆(b, 钥匙), "A"), 限时);
   // 回放不进日志；本机重算派生也不进：再推一轮应当都是空的
   return { a: a ? 拆(a, 钥匙).length : 0, b: b ? 拆(b, 钥匙).length : 0 };
 }
@@ -575,7 +576,7 @@ describe("推拉合并", () => {
       if (typeof fn === "function") 时限.push(opts?.timeout);
       return 原(fn, opts);
     };
-    await 同步(甲, 乙);
+    await 同步(甲, 乙, 100_000); // Windows CI 上几百条一批回放一步就要二十来秒，不按平常一步 12 秒卡
     expect(时限.length, "回放该开一个交互事务").toBeGreaterThan(0);
     for (const t of 时限) expect(t ?? 5000, "回放事务的时限").toBeGreaterThanOrEqual(60_000);
     expect(await 乙.customer.count({ where: { id: { startsWith: "big" } } })).toBe(数);
