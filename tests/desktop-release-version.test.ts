@@ -2,29 +2,14 @@ import { it, expect } from "vitest";
 import { createRequire } from "node:module";
 const { displayVersion, displayReleaseNotes } = createRequire(import.meta.url)("../desktop/release-version.js");
 
-it("maintenance builds 0.46.16 / 0.46.17 display the public version without changing later releases", () => {
-  expect(displayVersion("0.46.16")).toBe("0.46.15");
-  expect(displayVersion("v0.46.17")).toBe("0.46.15");
-  expect(displayVersion("0.46.17")).toBe("0.46.15");
-  expect(displayVersion("0.46.15")).toBe("0.46.15");
-  expect(displayVersion("0.46.18")).toBe("0.46.18");
-  expect(displayVersion("0.47.0")).toBe("0.47.0");
+it("显示的版本就是包的版本号，原样返回", () => {
+  for (const v of ["0.46.14", "0.46.15", "v0.46.15", "0.47.0"]) expect(displayVersion(v)).toBe(v);
 });
 
-it("public release notes retain both maintenance and original content", () => {
-  const entries = [{ 版本: "0.46.16", 正文: "maintenance" }, { 版本: "0.46.15", 正文: "original" }, { 版本: "0.46.14", 正文: "older" }];
-  expect(displayReleaseNotes(entries)).toEqual([
-    { 版本: "0.46.15", 正文: "maintenance\n\noriginal" }, { 版本: "0.46.14", 正文: "older" },
-  ]);
-  expect(entries[0].版本).toBe("0.46.16");
-});
-
-it("final build 0.46.17 merges with both 0.46.16 and 0.46.15 notes", () => {
-  const entries = [{ 版本: "0.46.17", 正文: "final" }, { 版本: "0.46.16", 正文: "maintenance" }, { 版本: "0.46.15", 正文: "original" }, { 版本: "0.46.14", 正文: "older" }];
-  expect(displayReleaseNotes(entries)).toEqual([
-    { 版本: "0.46.15", 正文: "final\n\nmaintenance\n\noriginal" }, { 版本: "0.46.14", 正文: "older" },
-  ]);
-  expect(displayReleaseNotes([{ 版本: "0.46.18", 正文: "next" }, { 版本: "0.46.17", 正文: "final" }])).toEqual([
-    { 版本: "0.46.18", 正文: "next" }, { 版本: "0.46.15", 正文: "final" },
-  ]);
+it("更新内容一版一段原样给，不合并、不改版本号，也不改调用方传进来的数组", () => {
+  const entries = [{ 版本: "0.46.15", 正文: "this" }, { 版本: "0.46.14", 正文: "older" }];
+  const out = displayReleaseNotes(entries);
+  expect(out).toEqual([{ 版本: "0.46.15", 正文: "this" }, { 版本: "0.46.14", 正文: "older" }]);
+  expect(out).not.toBe(entries);
+  expect(displayReleaseNotes([])).toEqual([]);
 });
