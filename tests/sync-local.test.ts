@@ -693,3 +693,20 @@ it("旧结构跳过的新列/新表，真实加列建表后重放补齐且清除
   await 回放(b,拆(deletion,钥匙),"B"); await 回放(b,events,"B");
   expect(await b.customer.count({where:{id:"upgrade-c"}})).toBe(0); expect(await b.customerExtra.count({where:{customerId:"upgrade-c"}})).toBe(0);
 });
+
+/*
+  候选 9：装触发器 原来先全删、再几十条各自提交地建——同一进程里两次调用交错会撞「trigger … already exists」（测试里见过一次），
+  删完到建好之间写的那一笔也不进日志。现在每条 CREATE 前紧跟 DROP IF EXISTS、整组放进一个事务
+*/
+it("同时装几次触发器不报错，装出来的一套不多不少、照常记日志", async () => {
+  const db = await 一台("trigger-race");
+  await 步("建同步表", [db], () => 建同步表(db));
+  await 步("同时装 4 次", [db], () => Promise.all([装触发器(db), 装触发器(db), 装触发器(db), 装触发器(db)]));
+  const 有 = await db.$queryRawUnsafe<{ name: string }[]>("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '\\_s\\_%' ESCAPE '\\'");
+  const 应有 = (await import("@/lib/sync/tables")).同步表.length * 3;
+  expect(有.length).toBe(应有);
+  expect(new Set(有.map((r) => r.name)).size).toBe(应有);
+  const owner = (await db.user.findFirstOrThrow()).id;
+  await db.customer.create({ data: { id: "race-c", name: "并发装触发器", phone: "13800002222", salesOwnerId: owner } });
+  expect((await 待推(db, "A")).改动.filter((e) => e.t === "Customer" && e.k === "race-c")).toHaveLength(1);
+});

@@ -80,35 +80,48 @@ async function 记的列(db: Db, t: string): Promise<string[]> {
 /**
  * 装触发器。每次启动都重装一遍：迁移加了列之后，老触发器里写死的列名就不全了。
  * Setting 只记业务配置那几个 key。
+ *
+ * 一次装完（2026-10-14 候选 9）：原来先把全部触发器删掉、再一条一条建，几十条语句各自提交——
+ * 同一进程里两次调用交错（例如建团队的 本机开同步 和第一轮同步的重装撞上）会撞「trigger … already exists」（测试里见过一次）；
+ * 而且删完到建好之间用户写的那一笔不进同步日志。现在先把要执行的语句全部算好，每条 CREATE 前紧跟一条 DROP IF EXISTS，
+ * 放进同一个事务：要么全换成新的，要么一条没动；并发的两次各自原子、先后执行，结果一样。装出来的触发器和原来一模一样。
  */
 export async function 装触发器(db: Db) {
-  await 卸触发器(db);
   const 编号 = `MAX(${墙钟}, (SELECT l + 1 FROM _sync_clock WHERE id = 1))`;
   const 推钟 = "UPDATE _sync_clock SET l = (SELECT MAX(at) FROM _sync_log) WHERE id = 1;";
   const 没在回放 = "(SELECT applying FROM _sync_state WHERE id = 1) = 0";
+  const 语句: string[] = [];
+  const 建 = (名: string, sql: string) => 语句.push(`DROP TRIGGER IF EXISTS "${名}"`, sql);
   for (const t of 同步表) {
     const cs = await 记的列(db, t);
     const pk = await 主键(db, t);
     const 行 = (p: string) => `json_object(${cs.map((c) => `'${c}', ${p}.${引(c)}`).join(", ")})`;
     const 变了 = cs.map((c) => `CASE WHEN OLD.${引(c)} IS NOT NEW.${引(c)} THEN '${c},' ELSE '' END`).join(" || ");
     const 只设置 = (p: string) => (t === "Setting" ? ` AND ${p}.${引(pk)} IN (${同步的设置.map((k) => `'${k}'`).join(", ")})` : "");
-    await db.$executeRawUnsafe(`CREATE TRIGGER "_s_${t}_i" AFTER INSERT ON ${引(t)} WHEN ${没在回放}${只设置("NEW")} BEGIN
+    建(`_s_${t}_i`, `CREATE TRIGGER "_s_${t}_i" AFTER INSERT ON ${引(t)} WHEN ${没在回放}${只设置("NEW")} BEGIN
       INSERT INTO _sync_log (tbl, pk, op, row, changed, at) VALUES ('${t}', NEW.${引(pk)}, 'I', ${行("NEW")}, '*', ${编号});
       ${推钟}
     END`);
-    await db.$executeRawUnsafe(`CREATE TRIGGER "_s_${t}_u" AFTER UPDATE ON ${引(t)} WHEN ${没在回放}${只设置("NEW")} AND (${变了}) <> '' BEGIN
+    建(`_s_${t}_u`, `CREATE TRIGGER "_s_${t}_u" AFTER UPDATE ON ${引(t)} WHEN ${没在回放}${只设置("NEW")} AND (${变了}) <> '' BEGIN
       INSERT INTO _sync_log (tbl, pk, op, row, changed, at) VALUES ('${t}', NEW.${引(pk)}, 'U', ${行("NEW")}, ${变了}, ${编号});
       ${推钟}
     END`);
-    await db.$executeRawUnsafe(`CREATE TRIGGER "_s_${t}_d" AFTER DELETE ON ${引(t)} WHEN ${没在回放}${只设置("OLD")} BEGIN
+    建(`_s_${t}_d`, `CREATE TRIGGER "_s_${t}_d" AFTER DELETE ON ${引(t)} WHEN ${没在回放}${只设置("OLD")} BEGIN
       INSERT INTO _sync_log (tbl, pk, op, row, changed, at) VALUES ('${t}', OLD.${引(pk)}, 'D', NULL, '', ${编号});
       ${推钟}
     END`);
   }
+  await 一起执行(db, 语句);
 }
 
 export async function 卸触发器(db: Db) {
-  for (const t of 同步表) for (const s of ["i", "u", "d"]) await db.$executeRawUnsafe(`DROP TRIGGER IF EXISTS "_s_${t}_${s}"`);
+  await 一起执行(db, 同步表.flatMap((t) => ["i", "u", "d"].map((s) => `DROP TRIGGER IF EXISTS "_s_${t}_${s}"`)));
+}
+
+/** 一组 DDL 放进同一个事务执行；已经在事务里（传进来的是事务客户端）就直接按顺序执行，由外面那个事务管原子 */
+async function 一起执行(db: Db, 语句: string[]) {
+  if ("$transaction" in db) await db.$transaction(语句.map((sql) => db.$executeRawUnsafe(sql)));
+  else for (const sql of 语句) await db.$executeRawUnsafe(sql);
 }
 
 /** 本机已有的数据整份记成「新建」：第一次进团队时推上去，和别人的合并 */
