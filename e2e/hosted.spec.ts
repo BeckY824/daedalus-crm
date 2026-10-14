@@ -443,9 +443,10 @@ test("13 登录页把找回入口摆出来", async ({ page }) => {
 
 /**
  * 2026-09-20：注册入口原来只画给桌面端看，网页登录页一个字都没有——于是网页上点进登录的人
- * 会以为这个产品不收新用户。两端现在是同一个入口、同一句话。
+ * 会以为这个产品不收新用户。
+ * 2026-10-14 对外口径：注册在桌面端里做，浏览器登录页的注册入口指向官网下载页。
  */
-test("13b 登录页也给注册入口，两端同一句话", async ({ page }) => {
+test("13b 登录页也给注册入口，指向下载页", async ({ page }) => {
   await page.goto("/login");
-  await expect(page.getByRole("link", { name: "注册新账号" })).toHaveAttribute("href", "/signup");
+  await expect(page.getByRole("link", { name: "下载桌面端" })).toHaveAttribute("href", "https://ai-daedalus.com/download.html");
 });

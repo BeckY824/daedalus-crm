@@ -109,6 +109,11 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
         说明={
           <>
             回到 <b>Daedalus CRM 桌面端</b>，用 <b>{邮箱}</b> 和刚才设的密码登录。这个页面可以关掉了。
+            还没装桌面端？到
+            <a href="https://ai-daedalus.com/download.html" target="_blank" rel="noopener noreferrer">
+              下载页
+            </a>
+            下载。
           </>
         }
       >
@@ -126,7 +131,16 @@ export default function SignupForm({ 注册赠送, 要验证码 }: { 注册赠�
         注册赠送在**桌面端第一次登录**那一刻才发，而且认机器（lib/tenant/credits.ts）。
         原来这里只写「送 30 次」，于是同一台电脑上开第二个账号的人看到的是 3 次，界面上找不到任何解释。
       */
-      说明={`桌面端用它登录，第一次登录送 ${注册赠送} 次 AI 对话（一台电脑只送一份）。数据仍然只在你自己的机器上。`}
+      说明={
+        <>
+          桌面端用它登录，第一次登录送 {注册赠送} 次 AI 提问（一台电脑只送一份）。数据仍然只在你自己的机器上。
+          新版桌面端里就能直接注册，还没装的到
+          <a href="https://ai-daedalus.com/download.html" target="_blank" rel="noopener noreferrer">
+            下载页
+          </a>
+          下载。
+        </>
+      }
     >
         {error && <Alert type="error" showIcon title={error} />}
         {hint && 步骤 === 2 && <Alert type="info" showIcon title={hint} />}

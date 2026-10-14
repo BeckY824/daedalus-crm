@@ -81,10 +81,10 @@ it.each([false, true])("H-097 跟进角标说明符合desktop=%s", async desktop
   const title = await page.getByRole("link", { name: "跟进，要跟 3 条（逾期 1）" }).locator(".rail-count").getAttribute("title");
   expect(title).toContain(desktop ? "应用图标提示" : "跟进计划"); if (!desktop) expect(title).not.toContain("图标"); await page.close();
 });
-it("H-095 托管登录说明按云端和权限说明，不把所有工作区说成共享试用", async () => {
+it("H-095 托管登录说明：这里只是账号和云端服务，CRM 请下载桌面端（2026-10-14 口径，不再提网页版）", async () => {
   const page = await browser.newPage(); await page.route("http://shell.test/**", r => r.fulfill({ contentType: "text/html", body: "<meta charset='utf-8'><div id='root'></div>" }));
   await page.goto("http://shell.test/auth"); await page.addScriptTag({ content: bundle }); await page.locator(".auth-fine").waitFor();
-  const text = await page.locator(".auth-fine").innerText(); expect(text).toContain("云服务器"); expect(text).toContain("按账号权限"); expect(text).not.toContain("团队共用的试用工作区"); await page.close();
+  const text = await page.locator(".auth-fine").innerText(); expect(text).toContain("账号和云端服务"); expect(text).toContain("下载桌面端"); expect(text).not.toContain("网页版"); expect(text).not.toContain("工作区"); expect(text).not.toContain("团队共用的试用工作区"); await page.close();
 });
 
 it("真实Shell挂载和业务称谓切换向桌面菜单传递配置名，旧壳无此桥仍可使用",async()=>{

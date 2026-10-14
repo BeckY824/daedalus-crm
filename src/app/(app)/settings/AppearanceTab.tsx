@@ -96,7 +96,7 @@ function GlassRow() {
   };
   const 项 = [
     { 开: true, 名: "毛玻璃", 说明: "透出桌面壁纸，左栏最透" },
-    { 开: false, 名: "实底", 说明: "不透明，和网页版一样" },
+    { 开: false, 名: "实底", 说明: "不透明" },
   ];
   return (
     <section className="appr-row" aria-labelledby="appr-glass">

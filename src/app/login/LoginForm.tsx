@@ -123,7 +123,19 @@ export default function LoginForm({
           </div>
           <div className="auth-step">
             <h1>登录</h1>
-            <p className="auth-hint">{用邮箱 ? "使用你的账号登录网页版。" : "使用此部署中的账号登录。"}</p>
+            <p className="auth-hint">
+              {用邮箱 ? (
+                <>
+                  这里是 Daedalus 账号和云端服务。CRM 请到
+                  <a href="https://ai-daedalus.com/download.html" target="_blank" rel="noopener noreferrer">
+                    下载页
+                  </a>
+                  下载桌面端使用。
+                </>
+              ) : (
+                "使用此部署中的账号登录。"
+              )}
+            </p>
             <label className="auth-label" htmlFor="auth-account">
               {账号名}
             </label>
@@ -160,12 +172,16 @@ export default function LoginForm({
             {(可找回密码 || (可注册 && 注册地址)) && (
               <p className="auth-alt">
                 {可找回密码 && <Link href="/forgot" onClick={()=>记找回邮箱(账号)}>忘记密码？</Link>}
-                {/* 两端同一个入口、同一句话。注册开的是**云端账号**——网页版没有工作区这件事
-                    由注册页和登录失败那句话说，不在这个链接上解释，否则一个按钮要背一段话 */}
+                {/* 注册已经在桌面端里做（2026-10-14 对外口径）：浏览器里的注册入口指向下载页，
+                    装好桌面端在软件里注册。/signup 这条路本身还在，老版本桌面端会开它 */}
                 {可注册 && 注册地址 && (
                   <>
                     {可找回密码 && " · "}
-                    还没有账号？<Link href={注册地址}>注册新账号</Link>
+                    还没有账号？
+                    <a href="https://ai-daedalus.com/download.html" target="_blank" rel="noopener noreferrer">
+                      下载桌面端
+                    </a>
+                    ，在软件里注册
                   </>
                 )}
               </p>
