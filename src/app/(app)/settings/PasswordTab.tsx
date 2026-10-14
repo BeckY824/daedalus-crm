@@ -55,7 +55,7 @@ export default function PasswordTab({ 机器 }: { 机器: 机器[] | null }) {
           showIcon
           style={{ marginBottom: 16, maxWidth: 560 }}
           title="改完密码，所有地方都要重新登录"
-          description="网页端其他设备上的登录状态会作废，桌面端每一台已登录的机器也会退出（那些机器上的数据不受影响）。只想退出其中一台的话，用下面的「已登录的机器」，别动密码。"
+          description="浏览器里的登录状态会作废，桌面端每一台已登录的机器也会退出（那些机器上的数据不受影响）。只想退出其中一台的话，用下面的「已登录的机器」，别动密码。"
         />
       )}
       <Form

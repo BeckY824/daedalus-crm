@@ -240,7 +240,7 @@ export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
                 <>
                   <h1>密码改好了</h1>
                   <p className="auth-hint" role="status">
-                    所有地方都要用新密码重新登录：网页端的登录状态已经作废，桌面端已登录的机器也一起退出了。本机数据不受影响。
+                    所有地方都要用新密码重新登录：浏览器里的登录状态已经作废，桌面端已登录的机器也一起退出了。本机数据不受影响。
                   </p>
                   <Link href="/login" onClick={()=>记找回邮箱(邮箱)}>
                     <Button type="primary" size="large" block>

@@ -33,7 +33,7 @@ export default async function ForgotPage() {
     <AuthShell 门={multiTenant() ? "托管版" : "自部署"} 标题="找回密码" 说明="这个部署还没开通自助找回。">
       <p className="auth-alt">
         {multiTenant()
-          ? "用我们托管版的，请从网页右上角「反馈」或官网联系我们，我们人工帮你重置。"
+          ? "请从官网联系我们，我们人工帮你重置。"
           : "请找你们的管理员，在「设置 → 团队成员」里帮你重置密码。"}
       </p>
       <p className="auth-alt">

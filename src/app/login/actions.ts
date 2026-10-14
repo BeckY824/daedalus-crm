@@ -78,7 +78,7 @@ export async function login(email: string, password: string): Promise<LoginResul
      * 别让他去「重新注册」——同一个邮箱注册不了第二次。
      */
     if (list.length === 0) {
-      return { ok: false, error: "这个账号用于桌面端。网页版是另一套账号，想试用请联系我们" };
+      return { ok: false, error: "这个账号用于桌面端。请下载桌面端，用这个账号登录使用。" };
     }
     keys.forEach(([k]) => 清除限流(k));
     // 先建立有效成员会话；多个可用工作区时在进入业务界面前选择。

@@ -345,7 +345,7 @@ function ChangePasswordModal({ open, 账号, onClose }: { open: boolean; 账号:
         showIcon
         style={{ marginBottom: 14 }}
         title="改完之后所有地方都要重新登录"
-        description="网页端的登录状态、以及每一台已登录的机器，包括这一台。本机数据不受影响。"
+        description="浏览器里的登录状态、以及每一台已登录的机器，包括这一台。本机数据不受影响。"
       />
       {error && <Alert type="error" showIcon style={{ marginBottom: 14 }} title={error} />}
       {hint && <Alert type="info" showIcon style={{ marginBottom: 14 }} title={hint} />}
