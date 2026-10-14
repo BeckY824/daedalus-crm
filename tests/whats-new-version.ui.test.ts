@@ -40,8 +40,8 @@ it("服务器构建16时桌面显示15，合并更新内容且不泄漏内部版
     expect(await p.locator(".wn-ver").count()).toBe(1);
   } finally { await p.close(); }
 });
-it("服务器未来17也不冒充已安装的桌面版本", async () => {
-  const p = await open({ __serverVersion: "0.46.17" });
+it("服务器未来18也不冒充已安装的桌面版本", async () => {
+  const p = await open({ __serverVersion: "0.46.18" });
   try { expect(await p.locator(".ant-modal-title").innerText()).toContain("现在是 0.46.15"); }
   finally { await p.close(); }
 });

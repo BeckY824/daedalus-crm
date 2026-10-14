@@ -6,7 +6,7 @@ import { it, expect } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import { 切更新记录, 只留桌面端, 比版本 } from "@/lib/changelog";
+import { 切更新记录, 只留桌面端, 比版本, 这次新的 } from "@/lib/changelog";
 
 const { displayReleaseNotes } = createRequire(import.meta.url)("../desktop/release-version.js");
 const 全部 = 切更新记录(fs.readFileSync(path.resolve(__dirname, "../CHANGELOG.md"), "utf8"));
@@ -27,4 +27,11 @@ it("公开版 0.46.15 写全了这一串候选里用户看得到的大事", () =
   expect(win).toContain("端口被系统占用或保留时自动换一个");
   expect(mac).not.toContain("端口被系统占用");
   expect(mac).not.toContain("**Windows**");
+});
+
+it("测试人员从候选 0.46.16 更新到最终构建 0.46.17：只看到这次新加的，标题仍是 0.46.15", () => {
+  const 段 = displayReleaseNotes(这次新的(全部, "0.46.16", "0.46.17"));
+  expect(段.map((s: { 版本: string }) => s.版本)).toEqual(["0.46.15"]);
+  expect(段[0].正文).toContain("我的客户");
+  expect(段[0].正文).not.toContain("毛玻璃");
 });

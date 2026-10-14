@@ -1,5 +1,5 @@
 /** Actual NSIS full update. Synthetic feed version 99 only triggers the check;
- * the installer and restarted application must retain their real 0.46.16 version.
+ * the installer and restarted application must retain their real build version (desktop/package.json).
  * No Windows delta archive or manifest is generated or requested.
  */
 import fs from "node:fs";

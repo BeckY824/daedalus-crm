@@ -51,6 +51,10 @@ describe("升级判定", () => {
   let 目录 = "";
   const MD = `# 更新记录
 
+## 0.46.17（2026-10-14）
+
+十七
+
 ## 0.46.16（2026-10-10）
 
 十六
@@ -102,6 +106,30 @@ describe("升级判定", () => {
     expect(r?.段[0].正文).toContain("大改的那一版");
     await 看过了();
     expect(await getSetting("desktop.whatsNewSeen")).toBe("0.46.16");
+    expect(await 有没有新内容()).toBeNull();
+  });
+
+  it("从 0.46.14 直接升到最终构建 0.46.17：三段并成公开版 0.46.15", async () => {
+    process.env.CRM_APP_VERSION = "0.46.17";
+    await 建一位客户();
+    const r = await 有没有新内容();
+    expect(r?.版本).toBe("0.46.15");
+    expect(r?.段.map((s) => s.版本)).toEqual(["0.46.15"]);
+    for (const 词 of ["十七", "十六", "大改的那一版"]) expect(r?.段[0].正文).toContain(词);
+    expect(r?.段[0].正文).not.toContain("十四");
+  });
+
+  it("测试人员装着候选 0.46.16、应用内更新到 0.46.17：只给这次新加的，标题仍是 0.46.15", async () => {
+    process.env.CRM_APP_VERSION = "0.46.16";
+    await 建一位客户();
+    await 看过了();
+    process.env.CRM_APP_VERSION = "0.46.17";
+    const r = await 有没有新内容();
+    expect(r?.版本).toBe("0.46.15");
+    expect(r?.段.map((s) => s.版本)).toEqual(["0.46.15"]);
+    expect(r?.段[0].正文).toBe("十七");
+    await 看过了();
+    expect(await getSetting("desktop.whatsNewSeen")).toBe("0.46.17");
     expect(await 有没有新内容()).toBeNull();
   });
 });
