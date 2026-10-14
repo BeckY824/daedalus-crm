@@ -32,7 +32,8 @@ export const 范围父表: Record<string, Record<string, string>> = {
   FollowUpOrder: { followUpId: "FollowUp", orderId: "TradeOrder" },
 };
 export type 范围元数据 = Pick<改动, "t" | "k" | "o" | "h"> & { fields: Record<string, string | null> };
-export type 范围索引 = { t: string; k: string; fields: Record<string, string | null>; clocks: Record<string, string>; deleted: boolean; clock: string; routeSeq: number };
+/** delSeq：把它删成现在这样的那一包的批次号（deleted 时才有意义；2026-10-14 起记，之前建的索引没有） */
+export type 范围索引 = { t: string; k: string; fields: Record<string, string | null>; clocks: Record<string, string>; deleted: boolean; clock: string; routeSeq: number; delSeq?: number };
 export type 范围 = { id: string; owners: string[]; public: boolean; routeSeq: number };
 /** 只读的记录索引（Map 或叠加视图）：判权限时只查不改 */
 export type 范围行表 = { get(key: string): 范围索引 | undefined };

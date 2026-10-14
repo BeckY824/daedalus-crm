@@ -111,6 +111,8 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     type 一包 = { i: number; packet: 范围包; key: string; batchId: number };
     const 试 = async ({ packet, key, batchId }: 一包) => {
       const old = rows.get(key), n = 合并范围(old, packet.meta, batchId);
+      // 这一包删除成了当前状态：记下批次号，拉取时直接给这一包（见 给范围拉取），不用回头翻批次
+      if (packet.meta.o === 'D' && n.deleted && n.clock === packet.meta.h) n.delSeq = batchId;
       if (p.stage === 'ready' && !推送可写(start, rows, n, accountId, owner)) return false;
       落(key, n); stored++;
       await tx.syncScopedRecord.upsert({ where: { teamId_key: { teamId, key } }, create: { teamId, key, metadata: JSON.stringify(n) }, update: { metadata: JSON.stringify(n) } });
@@ -204,13 +206,25 @@ async function 目录里(accountId: string, teamId: string, db: Db, 要补起点
 }
 /** 这条记录在改归属（threshold）之前有没有批次：有 = 新获权的人需要一份起点，没有 = 整段历史都在改归属之后 */
 const 有更早批次 = async (db: Db, teamId: string, recordKey: string, threshold: number) => !!(await db.syncScopedBatch.findFirst({ where: { teamId, recordKey, id: { lt: threshold } }, select: { id: true } }));
-/** 把这条记录删成现在这样的那一包（删除、字段钟等于索引里的当前钟）；找不到 = 不给 */
-async function 当前删除包(db: Db, teamId: string, recordKey: string, clock: string) {
-  for (const b of await db.syncScopedBatch.findMany({ where: { teamId, recordKey }, orderBy: { id: 'desc' }, take: 50, select: { id: true, metadata: true } })) {
-    const m = JSON.parse(b.metadata) as 范围元数据;
-    if (m.o === 'D' && m.h === clock && !Object.keys(m.fields ?? {}).length) return b.id;
+/**
+ * 把这条记录删成现在这样的那一包（删除、字段钟等于索引里的当前钟）；找不到 = 不给。
+ * 2026-10-14 起索引里直接记 delSeq（收范围推送），不用查库；之前建的索引没有，才按记录翻它的批次（只认删除包，分页翻完，不设固定回看条数——
+ * 删除之后又来几十条更早字段钟的改动也不会把它挤出去）。
+ */
+async function 当前删除包(db: Db, teamId: string, r: 范围索引) {
+  const recordKey = 行键(r.t, r.k);
+  // delSeq 只在「这一包删除成了当前状态」时写（删除包按 validate 不带归属字段）；之后被改回来 deleted 就是 false、用不到它，
+  // 更新的删除会覆盖它——所以直接用，不再查库
+  if (r.delSeq) return r.delSeq;
+  for (let before = Number.MAX_SAFE_INTEGER; ;) {
+    const page = await db.syncScopedBatch.findMany({ where: { teamId, recordKey, id: { lt: before } }, orderBy: { id: 'desc' }, take: 200, select: { id: true, metadata: true } });
+    for (const b of page) {
+      const m = JSON.parse(b.metadata) as 范围元数据;
+      if (m.o === 'D' && m.h === r.clock && !Object.keys(m.fields ?? {}).length) return b.id;
+    }
+    if (page.length < 200) return null;
+    before = page[page.length - 1].id;
   }
-  return null;
 }
 export async function 给范围拉取(accountId: string, teamId: string, scopeId: string, after: number) {
   return control.$transaction(async tx => {
@@ -240,7 +254,7 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
       所以不会因此拿到失权期间的任何历史。
     */
     else if (r.deleted) {
-      const d = await 当前删除包(tx, teamId, key, r.clock);
+      const d = await 当前删除包(tx, teamId, r);
       if (d && d > from) starts.push({ key, gt: from, only: d });
     }
   }

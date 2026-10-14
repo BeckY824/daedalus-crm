@@ -235,3 +235,24 @@ it("已删除、没有改归属之后起点的记录（例如领取时删掉的�
   // 别的业务员（看不到的范围）照样 403
   await expect(拉("wang", "Customer:hd")).rejects.toMatchObject({ 状态: 403 });
 });
+
+it("删除之后又来 60 条字段钟更早的改动：删除包照样下发（索引里记 delSeq）；没有 delSeq 的旧索引按记录分页找到（2026-10-14 安全复查 low #2）", async () => {
+  await 推事件("li", [ev("Customer", "d3", { salesOwnerId: A("li") }), ev("FollowUp", "d3-a", { customerId: "d3" }), ev("FollowUp", "d3-b", { customerId: "d3" })]);
+  await 推事件("li", [删("FollowUp", "d3-a"), 删("FollowUp", "d3-b")]);
+  expect((await 索引("FollowUp:d3-a"))?.delSeq).toBeGreaterThan(0);
+  // 60 条比删除更早字段钟的改动（离线设备迟到的旧改动）：不会把记录改回来，原来的固定回看 50 条就找不到删除包了
+  const 旧改 = (k: string, i: number): 改动 => ({ t: "FollowUp", k, r: { id: k, content: `旧改动${i}` }, o: "U", c: ["content"], h: `${1700000000000 + i}-qa` });
+  for (const k of ["d3-a", "d3-b"]) await 推("li", Array.from({ length: 60 }, (_, i) => pk(旧改(k, i), "li")));
+  expect((await 索引("FollowUp:d3-a"))?.deleted).toBe(true);
+  // d3-b 模拟「这次改动之前建的索引」：去掉 delSeq
+  const rb = await control.syncScopedRecord.findUniqueOrThrow({ where: { teamId_key: { teamId: team, key: "FollowUp:d3-b" } } });
+  const mb = JSON.parse(rb.metadata) as 范围索引; delete mb.delSeq;
+  await control.syncScopedRecord.update({ where: { teamId_key: { teamId: team, key: "FollowUp:d3-b" } }, data: { metadata: JSON.stringify(mb) } });
+  // 交给 zhao：两条跟进都只给删除包，旧改动一条不给
+  await 推事件("li", [改("Customer", "d3", { salesOwnerId: A("zhao") })], [快照("Customer", "d3", { salesOwnerId: A("zhao") })]);
+  const got = await 拉("zhao", "Customer:d3");
+  for (const k of ["d3-a", "d3-b"]) expect(got.batches.filter((b) => b.meta.k === k).map((b) => b.meta.o)).toEqual(["D"]);
+  // 删掉之后又被更新的改动改回来（字段钟更晚）：不再是 deleted，delSeq 用不上，照旧要起点
+  await 推事件("zhao", [{ t: "FollowUp", k: "d3-a", r: { id: "d3-a", customerId: "d3" }, o: "I", c: ["id", "customerId"], h: `${1790000000000 + ++seq}-qa` }]);
+  expect((await 索引("FollowUp:d3-a"))?.deleted).toBe(false);
+});
