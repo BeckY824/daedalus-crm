@@ -9,6 +9,7 @@ import { control } from "./control";
 import type { Prisma } from "@/generated/control";
 import { workspaceDir } from "./clients";
 import { 当前编号 } from "./sync-relay";
+import { 范围开关 } from "./scoped-flag";
 import { 包的编号 } from "../sync/crypto";
 import { 合并范围, 推送可写, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
 
@@ -39,21 +40,24 @@ async function auth(accountId: string, teamId: string, device?: string, db: Db =
 async function indices(teamId: string, db: Db = control) {
   return new Map((await db.syncScopedRecord.findMany({ where: { teamId } })).map(r => [r.key, JSON.parse(r.metadata) as 范围索引]));
 }
-/** 灰度开关：CRM_SCOPED_SYNC=1 才能开始迁移；已开始/完成迁移的团队即使关了开关也继续走新协议（不能退回全队包） */
-export const 范围开关 = () => process.env.CRM_SCOPED_SYNC === "1";
+/**
+ * 灰度开关（scoped-flag.ts）：CRM_SCOPED_SYNC=1 且团队不在 CRM_SCOPED_SYNC_LEGACY_TEAMS 里才能开始迁移；
+ * 已开始/完成迁移的团队即使关了开关也继续走新协议（不能退回全队包）
+ */
+export { 范围开关 };
 export async function 范围开放(teamId: string) {
-  return 范围开关() || !!(await control.syncPrivacy.findUnique({ where: { teamId } }));
+  return 范围开关(teamId) || !!(await control.syncPrivacy.findUnique({ where: { teamId } }));
 }
 export async function 范围状态(accountId: string, teamId: string) {
   const { owner } = await auth(accountId, teamId);
   const p = await control.syncPrivacy.findUnique({ where: { teamId } });
   // pushRule：服务端按「请求开始时的权限」核一次推送（推送可写），客户端才把转交和起点快照放进同一次请求；旧服务端没有这一项
-  return { stage: p?.stage ?? "legacy", owner, enabled: 范围开关() || !!p, fence: p?.fence ?? 0, epoch: await 当前编号(teamId), device: owner ? p?.device ?? null : null, pushRule: "request-start", maxPackets: 范围单次上限 };
+  return { stage: p?.stage ?? "legacy", owner, enabled: 范围开关(teamId) || !!p, fence: p?.fence ?? 0, epoch: await 当前编号(teamId), device: owner ? p?.device ?? null : null, pushRule: "request-start", maxPackets: 范围单次上限 };
 }
 export async function 开始范围迁移(accountId: string, teamId: string, device: string) {
   const { owner } = await auth(accountId, teamId, device);
   if (!owner) fail(403, "请先由老板升级并迁移团队同步");
-  if (!范围开关() && !(await control.syncPrivacy.findUnique({ where: { teamId } }))) fail(404, "范围同步尚未开放");
+  if (!范围开关(teamId) && !(await control.syncPrivacy.findUnique({ where: { teamId } }))) fail(404, "范围同步尚未开放");
   // 旧推送的写事务也要核状态，确保 fence 后没有漏掉的旧包。
   return control.$transaction(async tx => {
     await auth(accountId, teamId, device, tx);

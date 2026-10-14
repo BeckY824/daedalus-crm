@@ -108,3 +108,24 @@ it('灰度开关关闭且团队未迁移：不能开始迁移', async () => {
     expect(await scoped.范围开放(team)).toBe(true);
   } finally { process.env.CRM_SCOPED_SYNC = '1'; }
 });
+it('开关开、团队还没迁移：业务员旧接口的话要老板升级并打开；例外名单里的团队照旧协议', async () => {
+  const t = await relay.建团队(other, 'not-yet', { device: 'ny-dev', pubKey: 设备钥匙对().公钥 });
+  if (!t.ok) throw Error(t.error);
+  await relay.入队(owner, t.teamId, t.joinSecret, { device: 'ny-member', pubKey: 设备钥匙对().公钥 });
+  await relay.设开通(t.teamId, true);
+  const r = await relay.给拉取(owner, t.teamId, 0);
+  expect(r).toMatchObject({ ok: false, 状态: 409 });
+  expect(!r.ok && r.error).toMatch(/老板.*最新版/);
+  expect(await scoped.范围状态(other, t.teamId)).toMatchObject({ stage: 'legacy', enabled: true, owner: true });
+  process.env.CRM_SCOPED_SYNC_LEGACY_TEAMS = `x-team, ${t.teamId}`;
+  try {
+    expect(await scoped.范围状态(other, t.teamId)).toMatchObject({ stage: 'legacy', enabled: false });
+    expect(await scoped.范围开放(t.teamId)).toBe(false);
+    await expect(scoped.开始范围迁移(other, t.teamId, 'ny-dev')).rejects.toMatchObject({ 状态: 404 });
+    expect(await relay.给拉取(owner, t.teamId, 0)).toMatchObject({ ok: true });
+    // 已迁移的团队不受例外名单影响：不能退回全队包
+    process.env.CRM_SCOPED_SYNC_LEGACY_TEAMS = team;
+    expect(await scoped.范围开放(team)).toBe(true);
+    expect(await scoped.范围状态(owner, team)).toMatchObject({ stage: 'ready', enabled: true });
+  } finally { delete process.env.CRM_SCOPED_SYNC_LEGACY_TEAMS; }
+});

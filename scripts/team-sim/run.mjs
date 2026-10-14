@@ -14,8 +14,11 @@
  * TEAM_SIM_OLD_BUNDLE（混版本，2026-10-06 测试分期 E.2：给一份旧版本的 server-bundle 目录，sun 那台就用它跑——
  * 前面照常参加，外贸段「转订单」之后换成这一版重启，核对它从头重拉、补齐旧版本收不下的档案和订单）。
  * TEAM_SIM_SCOPED（2026-10-13 范围同步）：不设 = 旧协议（全队包，和以前一模一样）；
- *   1 / --scoped = 云端和每台都开 CRM_SCOPED_SYNC=1，新建的团队一开始就按范围同步：业务员库里只该有本人 + 公海 + 全队共享 + 本人条目；
- *   migrate / --migrate = 先按旧协议建团队、同步、看可见性，再带开关重启云端和 5 台 → 老板迁移 → 业务员清理失权副本，之后按范围断言。
+ *   1 / --scoped = 只有云端开 CRM_SCOPED_SYNC=1（桌面端不设，和真用户双击打开一样），新建的团队一开始就按范围同步：
+ *     业务员库里只该有本人 + 公海 + 全队共享 + 本人条目；
+ *   migrate / --migrate = 先按旧协议建团队、同步、看可见性，再带开关重启云端 → 老板那台先带 CRM_SCOPED_SYNC=0（应急开关）
+ *     核对不迁移、业务员被告知等老板 → 老板那台不带任何变量重启，**只凭服务端开关**自动迁移 → 业务员清理失权副本，之后按范围断言。
+ * TEAM_SIM_DESK_FLAG（2026-10-14 候选 9）：桌面端那几台的 CRM_SCOPED_SYNC，默认空（真用户不会设）；设 1 可复现候选 8 之前「两边都设」的跑法。
  * 不改业务代码迁就它：哪一步不对就红，打印哪一步、哪台、期望和实际。
  */
 import fs from "node:fs";
@@ -37,8 +40,10 @@ const 留着 = process.env.TEAM_SIM_KEEP === "1";
  */
 const 范围模式 = process.argv.includes("--migrate") ? "migrate" : process.argv.includes("--scoped") ? "1" : (process.env.TEAM_SIM_SCOPED || (process.env.CRM_SCOPED_SYNC === "1" ? "1" : "")).trim();
 if (!["", "0", "1", "migrate"].includes(范围模式)) throw new Error(`TEAM_SIM_SCOPED 只认 1 或 migrate（现在是「${范围模式}」）`);
-/** 子进程现在带不带 CRM_SCOPED_SYNC=1（migrate：迁移那一步重启时才打开） */
+/** 云端现在带不带 CRM_SCOPED_SYNC=1（migrate：迁移那一步重启时才打开）。桌面端不跟着它：见 起桌面端 */
 let 开关 = 范围模式 === "1";
+/** 桌面端的 CRM_SCOPED_SYNC：默认空（候选 9 起老板迁移只看服务端开关）；单台可以用 t.本机开关 覆盖（migrate 里试应急开关 0） */
+const 桌面开关 = (process.env.TEAM_SIM_DESK_FLAG ?? "").trim();
 /** 现在按哪套断言：false = 全队包（每台都有全队数据），true = 范围（业务员只有本人 + 公海） */
 let 范围 = 范围模式 === "1";
 const 模式名 = { "": "旧协议", "0": "旧协议", "1": "范围同步", migrate: "旧协议 → 范围同步迁移" }[范围模式];
@@ -163,7 +168,7 @@ function 起桌面端(t) {
       DESKTOP_LOCAL: "1",
       DESKTOP_TOKEN: t.令牌,
       CRM_CLOUD_URL: 云址,
-      CRM_SCOPED_SYNC: 开关 ? "1" : "",
+      CRM_SCOPED_SYNC: t.本机开关 ?? 桌面开关,
     },
   });
 }
@@ -391,7 +396,7 @@ async function 主线() {
     台[旧台].表 = 读动作表(path.join(旧包, ".next/server/server-reference-manifest.json"));
     console.log(`混版本：${旧台} 那台先跑 ${旧包}`);
   }
-  console.log(`临时目录 ${临时}；端口 ${云端口}–${云端口 + 名单.length}；批次 ${批}；${模式名}${开关 ? "（云端和各台 CRM_SCOPED_SYNC=1）" : ""}`);
+  console.log(`临时目录 ${临时}；端口 ${云端口}–${云端口 + 名单.length}；批次 ${批}；${模式名}${开关 ? "（云端 CRM_SCOPED_SYNC=1）" : ""}${桌面开关 ? `（桌面端 CRM_SCOPED_SYNC=${桌面开关}）` : "（桌面端不设 CRM_SCOPED_SYNC）"}`);
   if (范围模式 && 范围模式 !== "0") 读范围表();
 
   await 步(`起本机云端（托管模式 + 中转，:${云端口}）`, async () => {
@@ -468,7 +473,8 @@ async function 主线() {
     */
     if (范围) {
       /*
-        范围同步：开关开着时新团队没有单独的「范围团队」入口——老板那台下一轮看到「开关开、我是老板、还是 legacy」就走老板迁移
+        范围同步：开关开着时新团队没有单独的「范围团队」入口——老板那台下一轮看到「服务端开关开、我是老板、还是 legacy」就走老板迁移
+        （候选 9 起桌面端不设任何环境变量：只凭服务端开关）
         （备份 → 冻结旧流 → 推完整起点 → commit），控制库 SyncPrivacy 变 ready 才放业务员进来。老数据随起点上云（不计在 last.推 里）
       */
       const 控制库 = path.join(云目录, "control.db");
@@ -609,7 +615,7 @@ async function 主线() {
   const 详情看得到 = async (t, c) => (await t.会.页面(`/customers/${c.id}`)).text.includes(c.名字);
 
   /* ================= 范围同步迁移（TEAM_SIM_SCOPED=migrate）：上面按旧协议跑，从这里起按范围 ================= */
-  if (范围模式 === "migrate") await 步("开范围同步：云端和 5 台带 CRM_SCOPED_SYNC=1 按进程号重启（同一数据目录）→ 老板迁移 → 业务员清掉失权副本、继续同步", async () => {
+  if (范围模式 === "migrate") await 步("开范围同步：只有云端带 CRM_SCOPED_SYNC=1 重启 → 老板那台先带应急开关 0（不迁移、业务员被告知等老板）→ 不带变量重启、自动迁移 → 业务员清掉失权副本、继续同步", async () => {
     const 控制库 = path.join(云目录, "control.db");
     const 老板前 = { 客户: 客户数(老), 跟进: 跟进数(老) };
     const 业务员前 = Object.fromEntries(业务员.map((n) => [n, 客户数(台[n])]));
@@ -619,6 +625,19 @@ async function 主线() {
     await 关掉(进程.云);
     进程.云 = 起云端();
     await 等起来(进程.云, 云, "云端");
+    /*
+      应急开关（候选 9）：老板那台带 CRM_SCOPED_SYNC=0 起来——服务端开着也不开始迁移，老板旧协议照常同步；
+      业务员不去碰必然 409 的旧接口，回的话要说清楚是在等老板
+    */
+    老.本机开关 = "0";
+    await 关机(老);
+    await 开机(老);
+    await 跑完一轮(老);
+    判(!查库(控制库, "SELECT stage FROM SyncPrivacy WHERE teamId = ?", 团队id)[0] && !读团队文件(老)?.scoped, { 步骤: "老板那台带 CRM_SCOPED_SYNC=0：服务端开着也不开始迁移", 哪台: 老板, 期望: "控制库没有这个团队的 SyncPrivacy、.team.json 没有 scoped", 实际: { 控制库: 查库(控制库, "SELECT stage FROM SyncPrivacy WHERE teamId = ?", 团队id)[0] ?? null, 本机: 读团队文件(老)?.scoped ?? null } });
+    const 王说 = await fetch(`${台.wang.会.base}/api/desktop/sync`, { method: "POST", headers: { "x-desktop-token": 台.wang.令牌 }, signal: AbortSignal.timeout(120_000) }).then((x) => x.json());
+    判(!王说?.ok && /老板/.test(王说?.error ?? "") && /最新版/.test(王说?.error ?? ""), { 步骤: "老板还没迁移时业务员这一轮的提示", 哪台: "wang", 期望: "没成，话里叫老板打开最新版", 实际: 王说 });
+    // 老板那台正常重启（双击打开不带任何环境变量）：只凭服务端开关迁移
+    老.本机开关 = undefined;
     const 起 = Date.now();
     await 关机(老);
     await 开机(老);
@@ -629,7 +648,7 @@ async function 主线() {
     });
     const 迁完 = Date.now();
     判(客户数(老) === 老板前.客户 && 跟进数(老) === 老板前.跟进, { 步骤: "老板那台迁移前后数据不变", 哪台: 老板, 期望: 老板前, 实际: { 客户: 客户数(老), 跟进: 跟进数(老) } });
-    // 业务员升级：同样带开关重启（手册说业务员不需要开关；带着也不该有区别）
+    // 业务员升级：重启（同样不带任何环境变量）
     for (const n of 业务员) {
       await 关机(台[n]);
       await 开机(台[n]);

@@ -721,25 +721,48 @@ function 做包(c: 团队配置, e: 改动, eventId: string) {
 }
 const 错话 = (r: { 状态: number; json: Record<string, unknown> }, 默认: string) => String(r.json.error ?? `${默认}（${r.状态}）`);
 
+/** 服务端 state 回包里决定走哪套协议的几项（见 tenant/sync-scoped.ts 范围状态） */
+export type 范围状态回包 = { stage: string; owner: boolean; enabled: boolean; device: string | null };
+export type 协议决定 = { 走: "legacy" } | { 走: "scoped" } | { 走: "migrate" } | { 走: "等"; error: string };
+export const 等老板迁移 = "团队同步正在升级（业务员电脑只存自己的客户和公海）：需要老板在建团队的那台电脑上打开最新版 Daedalus 同步一次，完成后这台会自动接着同步";
+
 /**
  * 每轮先问服务端：团队在哪个阶段、我是不是老板（以服务端为准，不信本机 User.role）。
  *  - 服务端没有这个接口 / 灰度没开 → 旧协议
  *  - ready → 范围同步
- *  - legacy 且开关开、我是老板、本机也开了 CRM_SCOPED_SYNC → 老板先迁移
  *  - building：老板在开始迁移的那台继续；别的设备 / 业务员等待
+ *  - legacy 且服务端开关开（enabled）：
+ *      · 我是老板、在建团队那台 → 老板先迁移。**只看服务端的开关**（2026-10-14 候选 9）：原来还要本机也设 CRM_SCOPED_SYNC=1，
+ *        真用户双击打开桌面端，从来不设环境变量——服务端一开，业务员全被 409、老板却永远不迁移，团队卡死。
+ *        新建的团队也走这一条：开通后老板那台第一轮就迁移，业务员等它完成
+ *      · 老板的其它电脑 → 旧协议（老板的旧接口还能用），等建团队那台迁移
+ *      · 业务员 → 等老板（旧接口对业务员一律 409，不去碰；说清楚卡在老板那边）
+ *  - 本机 CRM_SCOPED_SYNC=0：显式不开始迁移（应急用，只管「开始」；已经 building / ready 的照旧走新协议，旧流已冻结、退不回去）
  */
+export function 定协议(s: 范围状态回包, c: Pick<团队配置, "device"> & { 能管理: boolean }, 本机开关 = process.env.CRM_SCOPED_SYNC): 协议决定 {
+  if (s.stage === "ready") return { 走: "scoped" };
+  if (s.stage === "building") {
+    if (s.owner && s.device === c.device) return { 走: "migrate" };
+    return { 走: "等", error: s.owner ? "团队隔离迁移正在老板的另一台电脑上进行，请在那台继续" : "老板正在升级团队同步，完成后这台会自动只同步本人和公海客户" };
+  }
+  if (!s.enabled || 本机开关?.trim() === "0") return { 走: "legacy" };
+  if (!s.owner) return { 走: "等", error: 等老板迁移 };
+  return c.能管理 ? { 走: "migrate" } : { 走: "legacy" };
+}
+
 async function 选协议(c: 团队配置): Promise<"legacy" | 轮结果> {
   const r = await 范围请求(c, "state");
   // 非 200（旧服务端没有此接口、未开通、已被移出、网络断）一律交给旧流程：它会给出原有的提示，
   // 而迁移后的服务端对旧接口也只会返回 409，不会因此回落成全队包
   if (r.状态 !== 200 || typeof r.json.stage !== "string") return "legacy";
-  const stage = String(r.json.stage ?? "legacy"), owner = !!r.json.owner, enabled = !!r.json.enabled;
-  if (stage === "ready") return 范围一轮(读团队() ?? c, owner, 读推送规则(r.json));
-  if (stage === "building") {
-    if (owner && String(r.json.device ?? "") === c.device) return 老板迁移(c, 读推送规则(r.json));
-    return { ok: false, error: owner ? "团队隔离迁移正在老板的另一台电脑上进行，请在那台继续" : "老板正在升级团队同步，完成后这台会自动只同步本人和公海客户" };
+  const owner = !!r.json.owner;
+  const d = 定协议({ stage: String(r.json.stage), owner, enabled: !!r.json.enabled, device: r.json.device == null ? null : String(r.json.device) }, { device: c.device, 能管理: 能管理团队(c) });
+  if (d.走 === "scoped") return 范围一轮(读团队() ?? c, owner, 读推送规则(r.json));
+  if (d.走 === "migrate") return 老板迁移(c, 读推送规则(r.json));
+  if (d.走 === "等") {
+    记团队(c.teamId, { lastError: d.error, lastSyncAt: new Date().toISOString() });
+    return { ok: false, error: d.error };
   }
-  if (enabled && owner && process.env.CRM_SCOPED_SYNC === "1" && 能管理团队(c)) return 老板迁移(c, 读推送规则(r.json));
   return "legacy";
 }
 

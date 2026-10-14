@@ -11,6 +11,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { control } from "./control";
+import { 范围开关 } from "./scoped-flag";
 import { workspaceDir } from "./clients";
 import { 包的编号, 是设备公钥 } from "@/lib/sync/crypto";
 
@@ -221,11 +222,19 @@ export async function 我的团队(accountId: string) {
   }));
 }
 
+/**
+ * 业务员（旧接口）被范围同步挡下时看到的话（2026-10-14 候选 9）：
+ * 团队已开始 / 完成迁移 → 只要他自己升级；还没迁移（开关开了、老板还没在新版本上同步过）→ 要老板先升级并打开一次，
+ * 原来一律「请升级桌面端」，业务员升级了还是同一句，不知道卡在老板那边
+ */
+const 已隔离请升级 = "团队已启用设备范围隔离，请升级桌面端；不能再下载或上传全队包";
+const 等老板迁移 = "团队同步正在升级（业务员电脑只存自己的客户和公海）：请老板把 Daedalus 升级到最新版，在建团队的那台电脑上打开并同步一次；你这台也请升级到最新版，之后会自动接着同步";
+
 export async function 收推送(accountId: string, teamId: string, device: string, data: string): Promise<结果<{ seq: number }>> {
   const t = await control.syncTeam.findUnique({ where: { id: String(teamId ?? "") } });
   if (!t || !(await 在队里(t.id, accountId))) return 错(403, "你不在这个团队里");
   if (!t.active) return 错(402, "团队同步还没开通");
-  if (process.env.CRM_SCOPED_SYNC === '1' && t.ownerAccountId !== accountId) return 错(409, "团队已启用设备范围隔离，请升级桌面端；不能再下载或上传全队包");
+  if (范围开关(t.id) && t.ownerAccountId !== accountId) return 错(409, (await control.syncPrivacy.findUnique({ where: { teamId: t.id } })) ? 已隔离请升级 : 等老板迁移);
   if (typeof data !== "string" || !data || data.length > 一批上限) return 错(413, "这一批太大了");
   if (typeof device !== "string" || !/^[\w-]{4,64}$/.test(device)) return 错(400, "设备编号不对");
   const 目录 = 安全名(t.id) && path.join(同步目录(), t.id);
@@ -264,7 +273,7 @@ export async function 给拉取(accountId: string, teamId: string, after: number
   if (!t || !(await 在队里(t.id, accountId))) return 错(403, "你不在这个团队里");
   if (!t.active) return 错(402, "团队同步还没开通");
   const privacy = await control.syncPrivacy.findUnique({ where: { teamId: t.id } });
-  if ((process.env.CRM_SCOPED_SYNC === '1' || privacy) && t.ownerAccountId !== accountId) return 错(409, "团队已启用设备范围隔离，请升级桌面端；不能再下载或上传全队包");
+  if ((范围开关(t.id) || privacy) && t.ownerAccountId !== accountId) return 错(409, privacy ? 已隔离请升级 : 等老板迁移);
   if (privacy?.stage === 'ready') return 错(409, "团队已完成范围迁移，请升级桌面端使用范围同步");
   const rows = await control.syncBatch.findMany({ where: { teamId: t.id, id: { gt: Math.max(0, Math.floor(Number(after) || 0)) } }, orderBy: { id: "asc" }, take: 一次拉 + 1 });
   const 这批 = rows.slice(0, 一次拉);

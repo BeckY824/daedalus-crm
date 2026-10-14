@@ -41,8 +41,9 @@ TEAM_SIM_SCOPED=1 TEAM_SIM_PORT=3730 npm run test:team        # 新团队一开�
 TEAM_SIM_SCOPED=migrate TEAM_SIM_PORT=3740 npm run test:team  # 旧协议的老团队 → 开开关 → 老板迁移
 ```
 
-- `1`：云端和 5 台本地服务都带 `CRM_SCOPED_SYNC=1`。开关开着时新团队没有单独入口：老板那台开通后的第一轮看到「开关开、我是老板、还是 legacy」就走老板迁移（备份 → 冻结旧流 → 推起点 → commit），控制库 `SyncPrivacy` 变 `ready` 之后业务员才进得来。
-- `migrate`：第 1–11 步照旧协议跑（每台都有全队数据），然后**一步**：同一数据目录、同一密钥带开关重起云端 → 重起老板那台、等迁移完成（控制库 `SyncPrivacy = ready`、`.team.json scoped.stage = ready`、`backups/before-scoped-sync-migration.db` 在、`scoped-sync-migration-baseline.json` 删了、老板客户 / 跟进数不变）→ 重起 4 位业务员 → 各台清掉失权副本（`scoped.cleaned.删 > 0`、客户只剩自己的、同事的客户没了、自己的还看得到）。之后的步骤全按范围断言（迁移后继续同步就是靠它们证明的）。
+- **桌面端不设 `CRM_SCOPED_SYNC`**（2026-10-14 候选 9 起，两种范围模式都是）：真用户双击打开桌面端，从来不设环境变量，老板迁移只凭服务端开关。`TEAM_SIM_DESK_FLAG=1` 可以复现以前「云端和桌面端都设」的跑法。
+- `1`：只有云端带 `CRM_SCOPED_SYNC=1`。开关开着时新团队没有单独入口：老板那台开通后的第一轮看到「服务端开关开、我是老板、还是 legacy」就走老板迁移（备份 → 冻结旧流 → 推起点 → commit），控制库 `SyncPrivacy` 变 `ready` 之后业务员才进得来。
+- `migrate`：第 1–11 步照旧协议跑（每台都有全队数据），然后**一步**：同一数据目录、同一密钥带开关重起云端 → 老板那台先带应急开关 `CRM_SCOPED_SYNC=0` 重起、跑完一轮，核对控制库没有 `SyncPrivacy`、业务员 wang 这一轮没成且提示「老板……最新版」→ 老板那台不带任何变量再重起、等迁移完成（控制库 `SyncPrivacy = ready`、`.team.json scoped.stage = ready`、`backups/before-scoped-sync-migration.db` 在、`scoped-sync-migration-baseline.json` 删了、老板客户 / 跟进数不变）→ 重起 4 位业务员 → 各台清掉失权副本（`scoped.cleaned.删 > 0`、客户只剩自己的、同事的客户没了、自己的还看得到）。之后的步骤全按范围断言（迁移后继续同步就是靠它们证明的）。
 - 不能和 `TEAM_SIM_OLD_BUNDLE` 一起用（旧版本客户端开了开关会被 409 拒掉）。
 
 **按范围改了的断言**（每台该有什么以老板那台为准——老板收全队）：

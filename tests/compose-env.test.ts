@@ -28,6 +28,7 @@ const 不用进容器: Record<string, string> = {
   AGENT_TOOLCALLS: "调试开关，默认走原生工具调用",
   // 有默认值，托管版就用默认
   CRM_SCOPED_SYNC: "范围同步灰度开关，默认关；须老板迁移流程验收、服务器备份及回退方案就绪后由运维显式加入 compose",
+  CRM_SCOPED_SYNC_LEGACY_TEAMS: "范围同步开着时仍走旧协议的团队（回滚逃生口），默认空；需要时由运维和 CRM_SCOPED_SYNC 一起加入 compose",
   SYNC_DIR: "默认在 WORKSPACE_DIR 下的 sync/，跟着数据卷走",
   WORKSPACE_TEMPLATE: "默认 WORKSPACE_DIR/_template.db，entrypoint 每次启动重建",
   SMTP_PRODUCT_NAME: "邮件里的产品名，默认 Daedalus CRM",
