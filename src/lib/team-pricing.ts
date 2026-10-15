@@ -14,7 +14,7 @@ export const 月数对 = (m: unknown): m is number => 时长们.some((x) => x.mo
 export const 时长名 = (months: number) => 时长们.find((x) => x.months === months)?.label ?? `${months} 个月`;
 
 export type 价格表 = { prices: { months: number; perSeat: number }[]; trialDays: number };
-/** 每人的价（元）。10-15 用户定；运营台「价格表」可改，改了存 SyncPricing，这里只是没改过时的默认 */
+/** 每人的价（元）。10-15 用户定（试用 10-15 从 14 天改成 7 天）；运营台「价格表」可改，改了存 SyncPricing，这里只是没改过时的默认 */
 export const 默认价格: 价格表 = {
   prices: [
     { months: 1, perSeat: 29.9 },
@@ -22,7 +22,7 @@ export const 默认价格: 价格表 = {
     { months: 6, perSeat: 159 },
     { months: 12, perSeat: 299 },
   ],
-  trialDays: 14,
+  trialDays: 7,
 };
 
 /** 应收 = 每人价 × 人数，分为单位四舍五入（29.9 × 3 在浮点里是 89.69999…） */
