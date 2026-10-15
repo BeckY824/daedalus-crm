@@ -147,11 +147,11 @@ export async function 拒绝手机动作(id: string) {
 
 /* ---------- 多设备同步（2026-10-15）：这台新电脑连上团队、我的设备。活在 lib/sync/device-link.ts、mobile-desktop.ts ---------- */
 
-/** 首页提醒用：这台没连上、账号在云上是哪个团队的（不是 / 已连上 = null） */
+/** 首页弹框用（components/TeamConnectPrompt）：这台没连上、账号在云上是哪个团队的，是不是已经在等、本机几位客户（不是 / 已连上 = null） */
 export async function 待连接团队动作() {
   await requireUser();
   const x = await 连接概况().catch(() => null);
-  return x?.云上的团 ? { 团名: x.云上的团.name } : null;
+  return x?.云上的团 ? { 团名: x.云上的团.name, 我是建的人: x.云上的团.我是建的人, 等授权: x.等授权, 本机客户: x.本机客户 } : null;
 }
 
 export async function 发起连接动作() {
