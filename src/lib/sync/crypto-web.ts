@@ -192,3 +192,13 @@ export async function 拆自(我的私钥: CryptoKey, 封好: string): Promise<s
   const k = await 派生(await 共享密钥(我的私钥, b.subarray(2, 2 + 长)));
   return 读字.decode(await 解密(b.subarray(2 + 长), k));
 }
+
+/**
+ * 配对数字：手机公钥的 sha256 取前 4 字节、模一百万，补成 6 位。手机和电脑各算一遍显示出来，用户对一眼——
+ * 中转被人动了、把手机的公钥换成别人的，两边数字就对不上，电脑那边别点允许（方案 3.2）。
+ */
+export async function 配对数字(公钥: string): Promise<string> {
+  const d = new Uint8Array(await subtle().digest("SHA-256", 字.encode(`daedalus-mobile-pair|${公钥}`)));
+  const n = new DataView(d.buffer).getUint32(0) % 1_000_000;
+  return String(n).padStart(6, "0");
+}
