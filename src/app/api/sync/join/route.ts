@@ -7,5 +7,5 @@ export async function POST(req: Request) {
   const a = await 认同步(req);
   if (!a.ok) return a.res;
   const body = (await req.json().catch(() => ({}))) as { teamId?: string; joinSecret?: string; device?: string; pubKey?: string };
-  return 回(await 入队(a.accountId, String(body.teamId ?? ""), String(body.joinSecret ?? ""), body.device ? { device: String(body.device), pubKey: String(body.pubKey ?? "") } : undefined));
+  return 回(await 入队(a.accountId, String(body.teamId ?? ""), String(body.joinSecret ?? ""), body.device ? { device: String(body.device), pubKey: String(body.pubKey ?? ""), tokenId: a.tokenId } : undefined));
 }

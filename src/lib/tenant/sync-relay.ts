@@ -32,15 +32,19 @@ export async function 在队里(teamId: string, accountId: string) {
   return m && !m.leftAt ? m : null;
 }
 
-/** 设备：编号 + 公钥（建团队、加入时一起登记；换钥匙时据此给每台封一份） */
-export type 设备 = { device: string; pubKey: string };
+/** 设备：编号 + 公钥（建团队、加入时一起登记；换钥匙时据此给每台封一份）。tokenId：登记时用的登录令牌（「我的设备」的名字、移除时作废它） */
+export type 设备 = { device: string; pubKey: string; tokenId?: string };
 const 设备号对 = (d: unknown) => typeof d === "string" && /^[\w-]{4,64}$/.test(d);
 /** 真是一把 X25519 公钥才收：只看长相的话，成员能登记一把乱写的，让老板每次换钥匙都失败（复查低-中 3） */
 const 公钥对 = (k: unknown) => typeof k === "string" && /^[\w-]{40,200}$/.test(k) && 是设备公钥(k);
-/** 一个人在一个团队里最多几台电脑：挡住一口气登记 200 台、让换钥匙的信封撑爆上限 */
-export const 每人设备上限 = 5;
+/**
+ * 一个人在一个团队里最多几台设备（电脑和手机合计）：挡住一口气登记 200 台、让换钥匙的信封撑爆上限。
+ * 2026-10-15 你定：从 5 台收到 3 台（家里、公司两台电脑 + 一部手机）。已经登记超过 3 台的不踢，只是不能再加
+ */
+export const 每人设备上限 = 3;
+export const 设备满了 = `一个人在团队里最多 ${每人设备上限} 台设备（电脑和手机合计）：先在「设置 → 团队 → 我的设备」里移除一台不用的`;
 
-type 库 = Pick<typeof control, "syncDevice">;
+type 库 = Pick<typeof control, "syncDevice" | "syncDeviceSeen">;
 
 /** 登记一台设备。编号已经是别的账号的：不收（冒用的话，被冒用的那台会把这些批次当成自己推的跳过） */
 export async function 登记设备(teamId: string, accountId: string, d: 设备 | undefined, db: 库 = control): Promise<string | null> {
@@ -48,9 +52,36 @@ export async function 登记设备(teamId: string, accountId: string, d: 设备 
   if (!设备号对(d.device) || !公钥对(d.pubKey)) return "设备信息不对";
   const 已 = await db.syncDevice.findUnique({ where: { teamId_device: { teamId, device: d.device } } });
   if (已 && 已.accountId !== accountId) return "这个设备编号已经被团队里别人用了";
-  if (!已 && (await db.syncDevice.count({ where: { teamId, accountId } })) >= 每人设备上限) return `一个人在团队里最多 ${每人设备上限} 台电脑：先在不用的那台上退出团队`;
+  if (!已 && (await db.syncDevice.count({ where: { teamId, accountId } })) >= 每人设备上限) return 设备满了;
   await db.syncDevice.upsert({ where: { teamId_device: { teamId, device: d.device } }, update: { pubKey: d.pubKey }, create: { teamId, device: d.device, accountId, pubKey: d.pubKey } });
+  const tokenId = d.tokenId ?? null;
+  await db.syncDeviceSeen.upsert({ where: { teamId_device: { teamId, device: d.device } }, update: { accountId, tokenId, lastSeenAt: new Date() }, create: { teamId, device: d.device, accountId, tokenId } });
   return null;
+}
+
+/** 隔多久才再记一次「这台还在同步」：每 30 秒一轮，没必要每轮都写库 */
+const 在用记录间隔毫秒 = 5 * 60_000;
+/**
+ * 同步时顺手记：这台设备最近一次同步、现在用的是哪枚令牌（重新登录过令牌会换）。
+ * 只记登记在这个账号名下的设备；记不上不影响同步（「我的设备」那一格而已）
+ */
+export async function 记设备在用(teamId: string, accountId: string, device: string, tokenId?: string): Promise<void> {
+  try {
+    const 机 = await control.syncDevice.findUnique({ where: { teamId_device: { teamId, device } } });
+    if (!机 || 机.accountId !== accountId) return;
+    const 旧 = await control.syncDeviceSeen.findUnique({ where: { teamId_device: { teamId, device } } });
+    if (旧 && 旧.tokenId === (tokenId ?? 旧.tokenId) && Date.now() - 旧.lastSeenAt.getTime() < 在用记录间隔毫秒) return;
+    const data = { accountId, lastSeenAt: new Date(), ...(tokenId ? { tokenId } : {}) };
+    await control.syncDeviceSeen.upsert({ where: { teamId_device: { teamId, device } }, update: data, create: { teamId, device, ...data } });
+  } catch {
+    /* 只是给人看的记录 */
+  }
+}
+
+/** 这台设备还登记在这个账号名下吗（被「我的设备」移除了就不在）。拉取时新客户端带上设备号，据此挡住被移除的那台 */
+export async function 设备还在(teamId: string, accountId: string, device: string): Promise<boolean> {
+  const 机 = await control.syncDevice.findUnique({ where: { teamId_device: { teamId, device } } });
+  return !!机 && 机.accountId === accountId;
 }
 
 /** 团队现在用第几把钥匙（没换过 = 0，就是最早邀请码里那把） */
@@ -121,6 +152,7 @@ export async function 移除成员(accountId: string, teamId: string, 谁: strin
     control.syncTeam.update({ where: { id: t.id }, data: { joinSecretHash: 指纹(joinSecret) } }),
     control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } }, data: { leftAt: new Date() } }),
     control.syncDevice.deleteMany({ where: { teamId: t.id, accountId: m.accountId } }),
+    control.syncDeviceSeen.deleteMany({ where: { teamId: t.id, accountId: m.accountId } }),
   ]);
   return { ok: true, joinSecret };
 }
@@ -188,9 +220,19 @@ function 等长相等(a: string, b: string) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
-export async function 退队(accountId: string, teamId: string): Promise<结果<object>> {
+export async function 退队(accountId: string, teamId: string, device?: string): Promise<结果<{ 只清这台?: boolean }>> {
   const m = await 在队里(String(teamId ?? ""), accountId);
   if (!m) return { ok: true };
+  /*
+    退出团队 = 这个人退出，他名下的电脑和手机一起退（2026-10-15 你定：设备跟账号走）。只想停用一台，在别的设备的「我的设备」里移除它。
+    唯一的例外：这台已经在「我的设备」里被移除过（不在他名下了）、重新登录后点退出——只是清它自己的团队设置，
+    不能因为在一台丢掉不用的电脑上点了一下，把他家里、公司那几台都踢出去。新客户端带设备号来才认得出；老客户端不带，照旧
+  */
+  if (typeof device === "string" && device) {
+    const 这台 = await control.syncDevice.findUnique({ where: { teamId_device: { teamId: m.teamId, device } } });
+    const 别的 = await control.syncDevice.count({ where: { teamId: m.teamId, accountId } });
+    if (!(这台 && 这台.accountId === accountId) && 别的 > 0) return { ok: true, 只清这台: true };
+  }
   /*
     老板（建团队的人）不能撇下同事自己走：走了以后没人能移除成员、换钥匙，他却还是「建的人」（换钥匙复查低 7）。
     先移除其他人，最后一个走的就是他
@@ -202,7 +244,20 @@ export async function 退队(accountId: string, teamId: string): Promise<结果<
   await control.syncMember.update({ where: { teamId_accountId: { teamId: m.teamId, accountId } }, data: { leftAt: new Date() } });
   // 走了的人的设备不再收新钥匙
   await control.syncDevice.deleteMany({ where: { teamId: m.teamId, accountId } });
+  await control.syncDeviceSeen.deleteMany({ where: { teamId: m.teamId, accountId } });
   return { ok: true };
+}
+
+/** 移除了一台设备：记下「这个团队该换钥匙了」，老板那台下次同步时换（lib/sync/client.ts 老板补换钥匙） */
+export async function 记要换钥匙(teamId: string, db: Pick<typeof control, "syncRekeyWanted"> = control) {
+  await db.syncRekeyWanted.upsert({ where: { teamId }, update: { wantedAt: new Date() }, create: { teamId } });
+}
+/** 移除设备之后还没有更晚的一把钥匙 */
+export async function 要换钥匙吗(teamId: string): Promise<boolean> {
+  const w = await control.syncRekeyWanted.findUnique({ where: { teamId } });
+  if (!w) return false;
+  const k = await control.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: "desc" }, select: { createdAt: true } });
+  return !k || k.createdAt.getTime() <= w.wantedAt.getTime();
 }
 
 /** 我在的团队，带成员（名字、联系方式、谁是建的人）和开通了没有 */
@@ -212,11 +267,15 @@ export async function 我的团队(accountId: string) {
   const 成员们 = await control.syncMember.findMany({ where: { teamId: { in: 团队们.map((t) => t.id) }, leftAt: null }, orderBy: { joinedAt: "asc" } });
   const 账号们 = await control.account.findMany({ where: { id: { in: [...new Set(成员们.map((m) => m.accountId))] } }, select: { id: true, name: true, email: true, phone: true } });
   const 账 = new Map(账号们.map((a) => [a.id, a]));
+  // 老板那台据此补换钥匙：有人移除过设备、之后还没换过
+  const 要换 = new Set<string>();
+  for (const t of 团队们.filter((x) => x.ownerAccountId === accountId)) if (await 要换钥匙吗(t.id)) 要换.add(t.id);
   return 团队们.map((t) => ({
     id: t.id,
     name: t.name,
     active: t.active,
     我是建的人: t.ownerAccountId === accountId,
+    ...(要换.has(t.id) ? { 要换钥匙: true } : {}),
     ownerAccountId: t.ownerAccountId,
     成员: 成员们.filter((m) => m.teamId === t.id).map((m) => ({ accountId: m.accountId, role: m.role, name: 账.get(m.accountId)?.name ?? "（已注销）", contact: 账.get(m.accountId)?.email ?? 账.get(m.accountId)?.phone ?? "", joinedAt: m.joinedAt.toISOString() })),
   }));

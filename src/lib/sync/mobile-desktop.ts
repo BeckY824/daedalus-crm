@@ -5,6 +5,10 @@
  * 用手机自己生成的公钥封好交给中转。中转只转交、解不开；手机用私钥解开后作为本人的又一台设备同步。
  * 批准之前先领挑战：用本机 .team.json 里的设备私钥解开服务端封的随机数，证明是团队里的这台电脑（偷到密码也批不了）。
  * 配对数字：手机屏幕上显示一个、这里算一个，用户对上了再点允许（中转把手机公钥换掉的话两边对不上）。
+ *
+ * 2026-10-15 多设备同步：本人的**新电脑**也走这一套（服务端同一张申请表，设备编号 d 开头）。封给电脑的多几样：
+ * 入队口令（设置页显示邀请码用）、老板是谁；这台是老板那台（手上有签名私钥）时连签名私钥一起封过去——
+ * 老板在第二台电脑上也能移除同事、换邀请码。新电脑那头见 lib/sync/device-link.ts。
  */
 import { 读团队, 调云 } from "./client";
 import { 封给, 拆自 } from "./crypto";
@@ -18,15 +22,19 @@ const 话 = (r: { 状态: number; json: Record<string, unknown> }, 默认: strin
 
 /** 封给手机的那一份：手机端 lib/mobile/link.ts 的 打开授权 照这个样子读 */
 export type 授权内容 = { v: 1; teamId: string; teamName: string; device: string; key: string; epoch: number; keys: Record<string, string>; signPub?: string; userId: string };
+/** 封给本人新电脑的那一份：lib/sync/device-link.ts 的 查连接 照这个样子读 */
+export type 电脑授权内容 = 授权内容 & { kind: "desktop"; joinSecret: string; signPriv?: string; ownerAccountId?: string };
 
-export type 待授权手机 = { id: string; label: string; createdAt: string; 配对数字: string };
+const 是电脑 = (device: string) => /^d[0-9a-f]{12}$/.test(device);
+
+export type 待授权手机 = { id: string; label: string; createdAt: string; 配对数字: string; 电脑: boolean };
 
 export async function 待授权手机(): Promise<结果<{ 手机: 待授权手机[] }>> {
   if (!读团队()) return { ok: true, 手机: [] };
   const r = await 调云("POST", 路径, { action: "pending" });
   if (r.状态 !== 200) return { ok: false, error: 话(r, "查不到待授权的手机") };
-  const links = (r.json.links as { id: string; label: string; pubKey: string; createdAt: string }[]) ?? [];
-  return { ok: true, 手机: await Promise.all(links.map(async (l) => ({ id: l.id, label: l.label, createdAt: String(l.createdAt), 配对数字: await 配对数字(l.pubKey) }))) };
+  const links = (r.json.links as { id: string; label: string; device: string; pubKey: string; createdAt: string }[]) ?? [];
+  return { ok: true, 手机: await Promise.all(links.map(async (l) => ({ id: l.id, label: l.label, createdAt: String(l.createdAt), 配对数字: await 配对数字(l.pubKey), 电脑: 是电脑(String(l.device)) }))) };
 }
 
 export async function 允许手机(id: string): Promise<结果> {
@@ -44,7 +52,10 @@ export async function 允许手机(id: string): Promise<结果> {
   let nonce: string;
   try { nonce = 拆自(c.devPriv, String(ch.json.challenge ?? "")); } catch { return { ok: false, error: "没能确认这台电脑（挑战解不开），请重试" }; }
   const 内容: 授权内容 = { v: 1, teamId: c.teamId, teamName: c.teamName, device: link.device, key: c.key, epoch: c.epoch ?? 0, keys: c.keys ?? {}, signPub: c.signPub, userId: 团队身份id(我.accountId!) };
-  const sealed = 封给(link.pubKey, JSON.stringify(内容));
+  const 给电脑: 电脑授权内容 | null = 是电脑(link.device)
+    ? { ...内容, kind: "desktop", joinSecret: c.joinSecret, ownerAccountId: c.ownerAccountId, ...(c.signPriv ? { signPriv: c.signPriv } : {}) }
+    : null;
+  const sealed = 封给(link.pubKey, JSON.stringify(给电脑 ?? 内容));
   const r = await 调云("POST", 路径, { action: "approve", id, teamId: c.teamId, sealed, nonce });
   return r.状态 === 200 ? { ok: true } : { ok: false, error: 话(r, "授权没成功") };
 }
@@ -65,5 +76,30 @@ export async function 已连接手机(): Promise<结果<{ 手机: 已连接手�
 
 export async function 移除手机(id: string): Promise<结果> {
   const r = await 调云("POST", 路径, { action: "remove", id });
+  return r.状态 === 200 ? { ok: true } : { ok: false, error: 话(r, "没移除成") };
+}
+
+/* ---------- 我的设备（2026-10-15 多设备同步）：本人在团队里的电脑和手机，丢了的在这里移除。服务端见 lib/tenant/my-devices.ts ---------- */
+
+export type 我的一台 = { device: string; 种类: "电脑" | "手机"; label: string; 连上: string; 最近同步: string | null; 这台: boolean };
+
+export async function 我的设备(): Promise<结果<{ 设备: 我的一台[]; 上限: number }>> {
+  const c = 读团队();
+  if (!c) return { ok: true, 设备: [], 上限: 3 };
+  const r = await 调云("POST", "/api/sync/my-devices", { action: "list", teamId: c.teamId });
+  if (r.状态 !== 200) return { ok: false, error: 话(r, "查不到我的设备") };
+  const 设备 = ((r.json.devices as 我的一台[]) ?? []).map((d) => ({
+    device: d.device, 种类: d.种类, label: d.label, 连上: String(d.连上), 最近同步: d.最近同步 ? String(d.最近同步) : null,
+    // 服务端按令牌认「这台」；这台还没在新版本上同步过（没记令牌）时按设备编号认
+    这台: !!d.这台 || d.device === c.device,
+  }));
+  return { ok: true, 设备, 上限: Number(r.json.上限 ?? 3) };
+}
+
+export async function 移除设备(device: string): Promise<结果> {
+  const c = 读团队();
+  if (!c) return { ok: false, error: "没有加入团队" };
+  if (device === c.device) return { ok: false, error: "正在用的这台不能在这里移除：要让这台停止同步，请点「退出团队」" };
+  const r = await 调云("POST", "/api/sync/my-devices", { action: "remove", teamId: c.teamId, device });
   return r.状态 === 200 ? { ok: true } : { ok: false, error: 话(r, "没移除成") };
 }

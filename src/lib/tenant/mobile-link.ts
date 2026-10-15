@@ -17,20 +17,33 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { control } from "./control";
-import { 登记设备, 在队里 } from "./sync-relay";
+import { 登记设备, 在队里, 每人设备上限, 设备满了, 记要换钥匙 } from "./sync-relay";
 import { 吊销 } from "./device-token";
 import { 封给 } from "../sync/crypto";
 
 type 结果<T> = ({ ok: true } & T) | { ok: false; 状态: number; error: string };
 const 错 = (状态: number, error: string) => ({ ok: false as const, 状态, error });
 
-const 设备号对 = (d: unknown): d is string => typeof d === "string" && /^m_[\w-]{8,60}$/.test(d);
+/**
+ * 2026-10-15 多设备同步：电脑也走这一套——新电脑登录同一个账号后发申请，本人另一台电脑点「允许」，
+ * 把团队钥匙环（老板的还有签名钥匙）封给新电脑。电脑的设备编号和 lib/sync/client.ts 建团队 / 加入时一样：d + 12 位十六进制
+ */
+export const 是电脑设备 = (d: unknown): d is string => typeof d === "string" && /^d[0-9a-f]{12}$/.test(d);
+const 设备号对 = (d: unknown): d is string => (typeof d === "string" && /^m_[\w-]{8,60}$/.test(d)) || 是电脑设备(d);
 /** 一个账号同时挂着的手机申请不多于几条：挡住脚本刷表 */
 export const 待授权上限 = 5;
 /** 等了这么久没人点，就当作废：手机那边重新申请 */
 export const 申请有效毫秒 = 24 * 3600_000;
 
 export type 手机申请 = { id: string; device: string; pubKey: string; label: string; createdAt: Date };
+
+/** 在的团队里这个人的设备都满了：发申请时当场说，不让人等到电脑上点允许才失败（不在任何团队里的不拦，和原来一样） */
+async function 设备都满了(accountId: string): Promise<boolean> {
+  const 团们 = (await control.syncMember.findMany({ where: { accountId, leftAt: null }, select: { teamId: true } })).map((m) => m.teamId);
+  if (!团们.length) return false;
+  const 满 = await Promise.all(团们.map(async (teamId) => (await control.syncDevice.count({ where: { teamId, accountId } })) >= 每人设备上限));
+  return 满.every(Boolean);
+}
 
 /** 手机发申请。同一枚令牌再发一次：还在等的原样返回（手机重开页面不会多出一条） */
 export async function 申请(accountId: string, tokenId: string, x: { device?: unknown; pubKey?: unknown; label?: unknown }): Promise<结果<{ id: string; status: string }>> {
@@ -41,11 +54,22 @@ export async function 申请(accountId: string, tokenId: string, x: { device?: u
   const 已 = await control.syncMobileLink.findUnique({ where: { tokenId } });
   if (已) {
     if (已.accountId !== accountId) return 错(403, "登录已失效，请重新登录");
+    /*
+      电脑的令牌是它的登录令牌，不会像手机那样「重新登录换一枚」：被拒、过期、退出团队后再连，就把这一条重新挂成待授权
+      （等于手机上重新登录再申请一次，仍要本人另一台电脑点允许）
+    */
+    const 过期了 = 已.status === "pending" && Date.now() - 已.createdAt.getTime() > 申请有效毫秒;
+    if (是电脑设备(x.device) && (已.status !== "pending" || 过期了)) {
+      if (await 设备都满了(accountId)) return 错(409, 设备满了);
+      await control.syncMobileLink.update({ where: { id: 已.id }, data: { device: x.device, pubKey: x.pubKey, label, status: "pending", teamId: null, sealed: null, createdAt: new Date(), decidedAt: null, proofHash: null, proofDevice: null, proofAt: null } });
+      return { ok: true, id: 已.id, status: "pending" };
+    }
     if (已.status === "pending" && (已.device !== x.device || 已.pubKey !== x.pubKey)) {
       await control.syncMobileLink.update({ where: { id: 已.id }, data: { device: x.device, pubKey: x.pubKey, label, createdAt: new Date() } });
     }
     return { ok: true, id: 已.id, status: 已.status };
   }
+  if (await 设备都满了(accountId)) return 错(409, 设备满了);
   const 在等 = await control.syncMobileLink.count({ where: { accountId, status: "pending", createdAt: { gt: new Date(Date.now() - 申请有效毫秒) } } });
   if (在等 >= 待授权上限) return 错(429, "等着授权的手机太多了，先在电脑上处理一下");
   try {
@@ -112,7 +136,7 @@ export async function 允许(accountId: string, id: string, teamId: string, seal
     if (!对) return 错(403, "没能确认是团队里的这台电脑，请重试");
     const 机 = await tx.syncDevice.findUnique({ where: { teamId_device: { teamId, device: r.proofDevice ?? "" } } });
     if (!机 || 机.accountId !== accountId) return 错(403, "这台电脑不在这个团队里");
-    const 设备错 = await 登记设备(teamId, accountId, { device: r.device, pubKey: r.pubKey }, tx);
+    const 设备错 = await 登记设备(teamId, accountId, { device: r.device, pubKey: r.pubKey, tokenId: r.tokenId }, tx);
     if (设备错) return 错(409, 设备错);
     await tx.syncMobileLink.update({ where: { id: r.id }, data: { status: "approved", teamId, sealed, decidedAt: new Date() } });
     return { ok: true as const };
@@ -126,7 +150,8 @@ export async function 拒绝(accountId: string, id: string): Promise<结果<obje
 
 /** 电脑上：已经连着的手机（最后一次用是令牌的 lastUsedAt） */
 export async function 已连接(accountId: string): Promise<结果<{ phones: { id: string; label: string; teamId: string | null; createdAt: Date; decidedAt: Date | null; lastUsedAt: Date | null }[] }>> {
-  const links = await control.syncMobileLink.findMany({ where: { accountId, status: "approved" }, orderBy: { decidedAt: "desc" } });
+  // 只列手机：电脑授权的电脑在「我的设备」里（my-devices.ts）
+  const links = (await control.syncMobileLink.findMany({ where: { accountId, status: "approved" }, orderBy: { decidedAt: "desc" } })).filter((l) => !是电脑设备(l.device));
   const tokens = await control.deviceToken.findMany({ where: { id: { in: links.map((l) => l.tokenId) } }, select: { id: true, lastUsedAt: true, revokedAt: true } });
   const 令牌 = new Map(tokens.map((t) => [t.id, t]));
   return {
@@ -140,7 +165,12 @@ export async function 移除(accountId: string, id: string): Promise<结果<obje
   const r = await control.syncMobileLink.findUnique({ where: { id: String(id ?? "") } });
   if (!r || r.accountId !== accountId) return 错(404, "这台手机不在了");
   await 吊销(r.tokenId, accountId);
-  if (r.teamId) await control.syncDevice.deleteMany({ where: { teamId: r.teamId, device: r.device, accountId } });
+  if (r.teamId) {
+    await control.syncDevice.deleteMany({ where: { teamId: r.teamId, device: r.device, accountId } });
+    await control.syncDeviceSeen.deleteMany({ where: { teamId: r.teamId, device: r.device, accountId } });
+    // 手机里还留着当时的钥匙：老板那台下次同步时换一把（2026-10-15 多设备同步）
+    await 记要换钥匙(r.teamId);
+  }
   await control.syncMobileLink.update({ where: { id: r.id }, data: { status: "removed", sealed: null, decidedAt: new Date() } });
   return { ok: true };
 }

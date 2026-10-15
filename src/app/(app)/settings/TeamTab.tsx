@@ -7,7 +7,8 @@ import { App, Alert, Button, Input, Space, Tag, Typography } from "antd";
 import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import ScopeConflicts from "./ScopeConflicts";
-import PhonesCard from "./PhonesCard";
+import DevicesCard from "./DevicesCard";
+import ConnectCard from "./ConnectCard";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
@@ -142,8 +143,8 @@ export default function TeamTab() {
     modal.confirm({
       title: "退出团队？",
       content: s?.在团队 && s.我是建的人
-        ? "这台电脑上的数据全都留着，只是不再和同事同步。你是老板：团队里还有同事时要先把他们移除。"
-        : "退出后这台电脑上只留你自己负责的客户（连同跟进、商机），同事的客户会从这台电脑上删掉；之后也不再和同事同步。要回来，找老板再要一次邀请码。",
+        ? "这台电脑上的数据全都留着，只是不再和同事同步。你这个账号的其它电脑和手机也会一起退出。你是老板：团队里还有同事时要先把他们移除。"
+        : "退出后这台电脑上只留你自己负责的客户（连同跟进、商机），同事的客户会从这台电脑上删掉；之后也不再和同事同步。你这个账号的其它电脑和手机也会一起退出。只想停用某一台，到「我的设备」里移除它。要回来，找老板再要一次邀请码。",
       okText: "退出团队",
       okButtonProps: { danger: true },
       cancelText: "取消",
@@ -159,24 +160,34 @@ export default function TeamTab() {
   if (!s) return <div className="set-col muted" style={{ paddingTop: 8 }}>读取中…</div>;
 
   if (!s.在团队) {
+    // 账号在云上已经是团队成员、这台还没连上（新电脑登录同一个账号）：先给「在另一台电脑上允许」，邀请码放在后面（2026-10-15 多设备同步）
+    const 云上 = "连接" in s ? s.连接 : null;
     return (
       <div className="set-col team" style={{ paddingTop: 8 }}>
         <p className="team-intro">
           几个人各用各的桌面端，客户、跟进、商机自动同步。数据在你们每个人的电脑上；
-          改动加密后经我们的服务器转交，<b>钥匙只在你们的邀请码里，我们看不到内容</b>。
+          改动加密后经我们的服务器转交，<b>钥匙只在你们的电脑和邀请码里，我们看不到内容</b>。
         </p>
         {!s.能用 && <Alert type="info" showIcon message="先在「桌面端」那一栏登录云端账号" style={{ marginBottom: 16 }} />}
-        <section className="team-card">
+        {云上?.云上的团 && (
+          <ConnectCard 团名={云上.云上的团.name} 我是建的人={云上.云上的团.我是建的人} 等授权={云上.等授权} 本机客户={云上.本机客户}
+            onJoined={() => { void 刷(); router.refresh(); }} />
+        )}
+        {!云上?.云上的团 && <section className="team-card">
           <h3>建一个团队</h3>
           <p className="muted">建团队的人就是老板：看得到所有人的客户和跟进。建好之后把邀请码发给同事，他们进来是业务员。这台电脑上已有的客户会一起带进团队。</p>
           <Space.Compact style={{ width: "100%", maxWidth: 420 }}>
             <Input value={名字} onChange={(e) => set名字(e.target.value)} placeholder="团队名字，如：明亮贸易" maxLength={40} aria-label="团队名字" disabled={!s.能用} onPressEnter={() => 名字.trim() && void 建()} />
             <Button type="primary" icon={<TeamOutlined />} loading={忙 === "建"} disabled={!s.能用 || !名字.trim() || 忙 !== null} onClick={() => void 建()}>建团队</Button>
           </Space.Compact>
-        </section>
+        </section>}
         <section className="team-card">
-          <h3>加入同事的团队</h3>
-          <p className="muted">把老板发来的邀请码整段粘贴进来（DT2. 开头）。进来之后你是业务员：看得到自己负责的客户和公海；你这台电脑上已有的客户归你，老板也看得到。</p>
+          <h3>{云上?.云上的团 ? "另一台电脑不在身边：用邀请码连接" : "加入同事的团队"}</h3>
+          <p className="muted">
+            {云上?.云上的团
+              ? "找老板要一个邀请码（DT2. 开头）整段粘贴进来，效果一样。"
+              : "把老板发来的邀请码整段粘贴进来（DT2. 开头）。进来之后你是业务员：看得到自己负责的客户和公海；你这台电脑上已有的客户归你，老板也看得到。"}
+          </p>
           <Input.TextArea value={码} onChange={(e) => set码(e.target.value)} rows={2} placeholder="DT2.…" aria-label="邀请码" disabled={!s.能用} style={{ maxWidth: 560 }} />
           <div style={{ marginTop: 8 }}>
             <Button loading={忙 === "入"} disabled={!s.能用 || !码.trim() || 忙 !== null} onClick={() => void 入()}>加入团队</Button>
@@ -317,8 +328,8 @@ export default function TeamTab() {
         </section>
       )}
 
-      {/* 手机：本人授权、本人移除（老板也替不了业务员点）。团队开通了才有意义 */}
-      {s.active === true && <PhonesCard />}
+      {/* 我的设备：本人的电脑和手机，本人授权、本人移除（老板也替不了业务员点） */}
+      <DevicesCard />
 
       {!s.我是建的人 && (
         <section className="team-card">
@@ -342,7 +353,7 @@ export default function TeamTab() {
           </div>
         ) : (
           // 老板在另一台电脑上进来的：签名钥匙不在这台，换出去的钥匙同事会拒收（lib/sync/client 的 能管理团队）
-          <p className="muted" style={{ marginTop: 8 }}>移除同事、换邀请码要在<b>建团队的那台电脑</b>上做：老板的签名钥匙只在那台上。</p>
+          <p className="muted" style={{ marginTop: 8 }}>移除同事、换邀请码要在<b>建团队的那台电脑</b>（或它授权连上的电脑）上做：老板的签名钥匙只在那几台上。这台是用邀请码连上的，没有。</p>
         )}
       </section>
       )}
@@ -360,7 +371,7 @@ export default function TeamTab() {
 
       <section className="team-card">
         <Button danger onClick={退}>退出团队</Button>
-        <span className="muted" style={{ marginLeft: 12 }}>本机数据都留着，只是不再同步</span>
+        <span className="muted" style={{ marginLeft: 12 }}>你这个账号的电脑和手机都不再同步（本机数据留着）；只停用一台请到「我的设备」里移除</span>
       </section>
     </div>
   );
