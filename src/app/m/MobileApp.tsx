@@ -60,6 +60,14 @@ function 设备标签() {
   return `${机} · ${器}`.slice(0, 60);
 }
 
+/** 请求超时。AbortSignal.timeout 要 Chrome 103：夸克（内核 Chrome 100）上没有，直接抛错就成了「连不上网络」（10-15 真机） */
+function 超时(毫秒: number): AbortSignal {
+  if (typeof AbortSignal.timeout === "function") return AbortSignal.timeout(毫秒);
+  const c = new AbortController();
+  setTimeout(() => c.abort(), 毫秒);
+  return c.signal;
+}
+
 /** 和云端说话：同源接口 + 手机自己的令牌。断网回 状态 0 */
 function 做传输(token: string, 记断网: (断: boolean) => void): 同步.传输 {
   return async (方法, 路径, body) => {
@@ -68,7 +76,7 @@ function 做传输(token: string, 记断网: (断: boolean) => void): 同步.传
         method: 方法, cache: "no-store",
         headers: { Authorization: `Bearer ${token}`, ...(body ? { "Content-Type": "application/json" } : {}) },
         body: body ? JSON.stringify(body) : undefined,
-        signal: AbortSignal.timeout(30_000),
+        signal: 超时(30_000),
       });
       记断网(false);
       return { 状态: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };

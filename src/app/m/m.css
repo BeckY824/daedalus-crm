@@ -39,6 +39,7 @@ html.m-page nextjs-portal { display: none; }
 .m-page-shell { position: absolute; inset: 0; display: flex; flex-direction: column; }
 .m-nav {
   position: relative; z-index: 3; padding-top: env(safe-area-inset-top);
+  background: var(--page-bg); /* color-mix 要 Chrome 111：夸克（Chrome 100）等老内核先用这行不透明的 */
   background: color-mix(in srgb, var(--page-bg) 80%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
   border-bottom: 0.5px solid transparent; transition: border-color 0.2s, box-shadow 0.2s;
@@ -75,13 +76,13 @@ html.m-page nextjs-portal { display: none; }
 
 /* ---------- 搜索 + 分段 ---------- */
 .m-search-wrap { padding: 2px 16px 10px; }
-.m-search { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; border-radius: 10px; background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--text-muted); }
+.m-search { display: flex; align-items: center; gap: 8px; height: 38px; padding: 0 10px; border-radius: 10px; background: var(--hover); background: color-mix(in srgb, var(--ink) 6%, transparent); color: var(--text-muted); }
 .m-search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font-size: 16px; color: var(--ink); }
 .m-search input::placeholder { color: var(--text-faint); }
 .m-search button { color: var(--text-faint); display: grid; place-items: center; width: 24px; height: 24px; }
-.m-root[data-os="android"] .m-search { height: 50px; border-radius: 25px; padding: 0 16px; background: color-mix(in srgb, var(--ink) 5%, var(--panel)); }
+.m-root[data-os="android"] .m-search { height: 50px; border-radius: 25px; padding: 0 16px; background: var(--hover); background: color-mix(in srgb, var(--ink) 5%, var(--panel)); }
 
-.m-seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; margin-top: 10px; padding: 2px; border-radius: 9px; background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.m-seg { position: relative; display: grid; grid-template-columns: 1fr 1fr; margin-top: 10px; padding: 2px; border-radius: 9px; background: var(--hover); background: color-mix(in srgb, var(--ink) 6%, transparent); }
 .m-seg-3 { grid-template-columns: 1fr 1fr 1fr; }
 .m-seg button { position: relative; z-index: 1; height: 32px; font-size: 14px; font-weight: 500; color: var(--ink-soft); }
 .m-seg button span { color: var(--text-faint); font-weight: 500; margin-left: 2px; }
@@ -202,6 +203,7 @@ html.m-page nextjs-portal { display: none; }
 .m-bottom-bar {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 4;
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+  background: var(--page-bg);
   background: color-mix(in srgb, var(--page-bg) 82%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
   border-top: 0.5px solid var(--line);
@@ -226,6 +228,7 @@ html.m-page nextjs-portal { display: none; }
 .m-tabbar {
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 4;
   display: grid; grid-template-columns: 1fr 1fr; padding-bottom: env(safe-area-inset-bottom);
+  background: var(--panel);
   background: color-mix(in srgb, var(--panel) 78%, transparent);
   -webkit-backdrop-filter: saturate(180%) blur(20px); backdrop-filter: saturate(180%) blur(20px);
   border-top: 0.5px solid var(--line);
@@ -303,7 +306,7 @@ html.m-page nextjs-portal { display: none; }
   width: max-content; max-width: calc(100% - 32px); margin: 0 auto;
   display: flex; align-items: center; gap: 8px; padding: 10px 16px;
   font-size: 14px; font-weight: 500; color: var(--on-ink);
-  background: color-mix(in srgb, var(--ink) 90%, transparent); border-radius: 999px;
+  background: var(--ink); background: color-mix(in srgb, var(--ink) 90%, transparent); border-radius: 999px;
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   pointer-events: none;
 }
