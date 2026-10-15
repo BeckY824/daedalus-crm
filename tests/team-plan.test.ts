@@ -238,7 +238,7 @@ describe("价格表", () => {
         { months: 6, label: "半年", perSeat: 159, perMonth: 26.5 },
         { months: 12, label: "1 年", perSeat: 299, perMonth: 24.9 },
       ],
-      trialDays: 14,
+      trialDays: 7,
     });
     expect(await p.存价格({ prices: [{ months: 1, perSeat: 19.9 }, { months: 3, perSeat: 55 }, { months: 6, perSeat: 100 }, { months: 12, perSeat: 188 }], trialDays: 7 }, "ops@x.com")).toBeNull();
     expect(await p.读价格()).toEqual({ prices: [{ months: 1, perSeat: 19.9 }, { months: 3, perSeat: 55 }, { months: 6, perSeat: 100 }, { months: 12, perSeat: 188 }], trialDays: 7 });
