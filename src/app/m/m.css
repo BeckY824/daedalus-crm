@@ -364,3 +364,8 @@ a.m-icon-btn { text-decoration: none; }
 .m-spinner-big { width: 44px; height: 44px; border-width: 3px; }
 .m-unsynced-btns { display: flex; gap: 8px; margin-top: 10px; }
 .m-kv-btn:disabled { color: var(--text-faint) !important; }
+
+/* 我的设备、批准本人新设备（2026-10-15，0.46.17） */
+.m-list-h { margin: 4px 4px 8px; font-size: 13px; color: var(--text-muted); }
+.m-kv > .m-kv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+[data-testid="m-approve"] .m-unsynced-btns > .m-btn { flex: 1; }

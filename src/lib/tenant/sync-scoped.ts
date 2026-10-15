@@ -55,7 +55,7 @@ export { 范围开关 };
  */
 export async function 核设备(accountId: string, teamId: string, device: unknown, tokenId?: string) {
   if (typeof device !== "string" || !device) return;
-  if (!(await 设备还在(teamId, accountId, device))) fail(403, "这台设备已经从「我的设备」里移除，不能再同步：在「设置 → 团队」里重新连接");
+  if (!(await 设备还在(teamId, accountId, device))) fail(403, "这台设备已经从「我的设备」里移除，不能再同步：在「设置 → 团队」里点「退出团队」（只清这台电脑），再重新连接");
   await 记设备在用(teamId, accountId, device, tokenId);
 }
 export async function 范围开放(teamId: string) {

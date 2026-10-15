@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
 import {
   AudioOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseCircleFilled, CloseOutlined, CloudSyncOutlined, CopyOutlined,
-  DisconnectOutlined, EditOutlined, ExclamationCircleFilled, LaptopOutlined, LockOutlined, MailOutlined, PhoneOutlined, RightOutlined,
+  DisconnectOutlined, EditOutlined, ExclamationCircleFilled, LaptopOutlined, LockOutlined, MailOutlined, MobileOutlined, PhoneOutlined, RightOutlined,
   SearchOutlined, WhatsAppOutlined,
 } from "@ant-design/icons";
 import * as 同步 from "@/lib/mobile/sync";
@@ -112,6 +112,10 @@ export default function MobileApp() {
   const [面板, set面板] = useState<面板>(null);
   const [现在, set现在] = useState(() => Date.now());
   const 同步中 = useRef(false);
+  // 本人的新电脑 / 新手机来要授权（2026-10-15，0.46.17）：这台手机也能点允许
+  const [待批, set待批] = useState<连.待授权 | null>(null);
+  const 稍后批 = useRef(new Set<string>());
+  const [设备版本, set设备版本] = useState(0);
 
   const 说 = useCallback((字: string, 图?: ReactNode) => set提示({ id: Date.now(), 字, 图 }), []);
   useEffect(() => { if (!提示) return; const t = setTimeout(() => set提示(null), 2400); return () => clearTimeout(t); }, [提示]);
@@ -197,6 +201,45 @@ export default function MobileApp() {
     window.addEventListener("online", 联网);
     return () => { clearTimeout(首); clearInterval(t); document.removeEventListener("visibilitychange", 前台); window.removeEventListener("online", 联网); };
   }, [阶段, 跑同步]);
+
+  /* ---------- 本人的新设备来要授权：在前台时每 15 秒问一次，回到前台马上问（和电脑上的 MobileAuthPrompt 一样） ---------- */
+  useEffect(() => {
+    if (阶段 !== "app" || !云) return;
+    let 停 = false;
+    const 问 = async () => {
+      if (document.hidden || 停) return;
+      const 列 = await 连.待授权的(云).catch(() => null);
+      if (停 || !列) return;
+      const x = 列.find((p) => !稍后批.current.has(p.id));
+      set待批((旧) => 旧 ?? x ?? null);
+    };
+    void 问();
+    const t = setInterval(() => void 问(), 15_000);
+    const 回前台 = () => { if (!document.hidden) void 问(); };
+    document.addEventListener("visibilitychange", 回前台);
+    return () => { 停 = true; clearInterval(t); document.removeEventListener("visibilitychange", 回前台); };
+  }, [阶段, 云]);
+
+  async function 批(允许: boolean) {
+    const x = 待批, k = 库;
+    if (!x || !云 || !团队 || !k) return;
+    try {
+      if (允许) {
+        // 先取一次钥匙：团队刚换过钥匙、这台手机还没同步到的话，封出去的得是现在这把
+        const 新 = await 同步.更新钥匙(团队, 云);
+        if (新 !== 团队) { set团队(新); await k.写("team", 新); }
+        await 连.允许设备(云, 新, 团队名, x.id);
+        说(x.电脑 ? "已授权，那台电脑马上开始同步" : "已授权，那台手机马上开始同步", <CheckCircleFilled />);
+        set设备版本((v) => v + 1);
+      } else {
+        await 连.拒绝设备(云, x.id);
+      }
+      震一下();
+      set待批(null);
+    } catch (e) {
+      说(e instanceof Error ? e.message : String(e), <ExclamationCircleFilled />);
+    }
+  }
 
   /* ---------- 返回：一律走浏览器历史（安卓返回键 / 手势和页面上的返回按钮同一条路） ---------- */
   const 顶x = useMotionValue(0);
@@ -345,11 +388,19 @@ export default function MobileApp() {
             })()}
             {面板.kind === "me" && (
               <MeSheet 账号={账号} 团队名={团队名} 断网={断网} 待同步={待同步数} 在同步={在同步} 上次同步={快照.lastSyncAt}
-                错误={快照.lastError} 现在={现在} 没同步上={没同步上.length}
+                错误={快照.lastError} 现在={现在} 没同步上={没同步上.length} 云={云} 团队={团队} 设备版本={设备版本}
                 onSync={() => void 跑同步(true)} onUnsynced={() => { 返回(); setTimeout(() => 打开面板({ kind: "unsynced" }), 300); }}
                 onLogout={() => { 返回(); setTimeout(() => void 退出(), 250); }} />
             )}
             {面板.kind === "unsynced" && <UnsyncedSheet 列={没同步上} 说={说} on处理={(x) => void 处理掉(x)} />}
+          </Sheet>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {待批 && !面板 && 阶段 === "app" && (
+          <Sheet key={`approve-${待批.id}`} 高="auto" onClose={() => { 稍后批.current.add(待批.id); set待批(null); }}>
+            <ApproveSheet x={待批} onAllow={() => 批(true)} onDeny={() => 批(false)} onLater={() => { 稍后批.current.add(待批.id); set待批(null); }} />
           </Sheet>
         )}
       </AnimatePresence>
@@ -644,11 +695,19 @@ function RecordSheet({ c, os, 我, onCancel, onSave }: { c: 客户视图; os: �
 
 /* ====================================================================== 我的、没同步上的 */
 
-function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步, 错误, 现在, 没同步上, onSync, onUnsynced, onLogout }: {
+function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步, 错误, 现在, 没同步上, 云, 团队, 设备版本, onSync, onUnsynced, onLogout }: {
   账号: 账号 | null; 团队名: string; 断网: boolean; 待同步: number; 在同步: boolean; 上次同步: number | null; 错误: string | null; 现在: number;
-  没同步上: number; onSync: () => void; onUnsynced: () => void; onLogout: () => void;
+  没同步上: number; 云: 同步.传输 | null; 团队: 同步.手机团队 | null; 设备版本: number; onSync: () => void; onUnsynced: () => void; onLogout: () => void;
 }) {
   const [确认退出, set确认退出] = useState(false);
+  // 我的设备（2026-10-15）：本人在团队里的电脑和手机；授权了新设备（设备版本 +1）就重新取
+  const [设备, set设备] = useState<{ 设备: 连.我的一台[]; 上限: number } | null>(null);
+  useEffect(() => {
+    if (!云 || !团队) return;
+    let 停 = false;
+    连.我的设备(云, 团队).then((r) => { if (!停) set设备(r); }, () => undefined);
+    return () => { 停 = true; };
+  }, [云, 团队, 设备版本]);
   return (
     <div className="m-me-sheet">
       <div className="m-me-card">
@@ -662,6 +721,20 @@ function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步
         <button className="m-kv m-kv-btn" onClick={onSync} disabled={在同步}>立即同步</button>
         {没同步上 > 0 && <button className="m-kv m-kv-btn" onClick={onUnsynced}>没同步上的跟进（{没同步上}）</button>}
       </div>
+      {设备 && (
+        <>
+          <div className="m-list-h">我的设备 {设备.设备.length} / {设备.上限}</div>
+          <div className="m-list m-list-inset" data-testid="m-devices">
+            {设备.设备.map((d) => (
+              <div key={d.device} className="m-kv">
+                {d.种类 === "电脑" ? <LaptopOutlined /> : <MobileOutlined />}
+                <span className="m-kv-name">{d.label}{d.这台 ? "（这台）" : ""}</span>
+                <b>{d.最近同步 ? 相对时间(Date.parse(d.最近同步)) : ""}</b>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
       <div className="m-list m-list-inset">
         {!确认退出 ? (
           <button className="m-kv m-kv-btn is-danger" onClick={() => set确认退出(true)}>退出登录</button>
@@ -673,7 +746,7 @@ function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步
           </>
         )}
       </div>
-      <div className="m-foot-note">在电脑上「设置 → 团队 → 手机」里可以随时移除这台手机</div>
+      <div className="m-foot-note">新电脑、新手机登录这个账号后，在这里或电脑上点「允许」就能连上（最多 {设备?.上限 ?? 3} 台）。在电脑上「设置 → 团队 → 我的设备」里可以移除不用的设备</div>
     </div>
   );
 }
@@ -695,6 +768,41 @@ function UnsyncedSheet({ 列, 说, on处理 }: { 列: { key: string; 来自: "�
           </div>
         </section>
       ))}
+    </div>
+  );
+}
+
+/**
+ * 本人的新电脑 / 新手机来要授权（2026-10-15，0.46.17）。话和电脑上的授权框（components/MobileAuthPrompt）对齐：
+ * 传什么、我们看不到、在哪移除；再加配对数字——和那台屏幕上的对一下，对不上别点允许。
+ * 新电脑在这里批准的话管不了团队（老板的管理钥匙不在手机上），那台的设置页会写明。
+ */
+function ApproveSheet({ x, onAllow, onDeny, onLater }: { x: 连.待授权; onAllow: () => Promise<void>; onDeny: () => Promise<void>; onLater: () => void }) {
+  const [忙, set忙] = useState<"允许" | "拒绝" | null>(null);
+  const 做 = async (哪个: "允许" | "拒绝") => { set忙(哪个); try { await (哪个 === "允许" ? onAllow() : onDeny()); } finally { set忙(null); } };
+  return (
+    <div className="m-me-sheet" data-testid="m-approve">
+      <div className="m-sheet-h"><span /><b>{x.电脑 ? "允许这台电脑加入团队同步？" : "允许这台手机查看和记录客户？"}</b><span /></div>
+      <div className="m-me-card">
+        <span className="m-avatar" style={{ width: 44, height: 44, background: "var(--brand-bg)", color: "var(--brand-deep)", fontSize: 20 }}>{x.电脑 ? <LaptopOutlined /> : <MobileOutlined />}</span>
+        <div><b>{x.label}</b><span>用你的账号登录的{x.电脑 ? "另一台电脑" : "另一台手机"}</span></div>
+      </div>
+      <p className="m-note" style={{ padding: "0 4px" }}>
+        {x.电脑
+          ? "允许后，那台电脑拿到团队钥匙，和你的其它设备一样同步你能看到的客户、跟进、商机。我们的服务器只负责转交，看不到内容。"
+          : "会把你能看到的客户、联系人、商机阶段和跟进，加密后传到那台手机。我们的服务器只负责转交，看不到内容。"}
+        随时可以在电脑上「设置 → 团队 → 我的设备」里移除。
+      </p>
+      <div className="m-pair" style={{ marginTop: 16 }}>
+        <span>{x.电脑 ? "那台电脑屏幕上的配对数字应该是" : "那台手机屏幕上的配对数字应该是"}</span>
+        <b data-testid="m-approve-code">{x.配对数字.slice(0, 3)} {x.配对数字.slice(3)}</b>
+        <small>对不上、或者不是你自己在用的设备，就点「不允许」</small>
+      </div>
+      <div className="m-unsynced-btns" style={{ marginTop: 16 }}>
+        <button className="m-btn m-btn-ghost" disabled={忙 !== null} onClick={() => void 做("拒绝")}>{忙 === "拒绝" ? <span className="m-spinner is-on" /> : "不允许"}</button>
+        <button className="m-btn" disabled={忙 !== null} onClick={() => void 做("允许")}>{忙 === "允许" ? <span className="m-spinner is-on is-light" /> : "允许"}</button>
+      </div>
+      <button className="m-text-btn" style={{ display: "block", margin: "12px auto 0" }} disabled={忙 !== null} onClick={onLater}>稍后再说</button>
     </div>
   );
 }
@@ -795,20 +903,20 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
   return (
     <motion.div className="m-flow" {...进场}>
       <div className="m-flow-top">
-        <h1>请在你的电脑上授权</h1>
-        <p>打开电脑上的 Daedalus CRM，会弹出一个框，核对下面的数字后点「允许」</p>
+        <h1>请在你的电脑或手机上授权</h1>
+        <p>打开你已经连上的电脑（Daedalus CRM）或手机（这个手机版），会弹出一个框，核对下面的数字后点「允许」</p>
       </div>
       <div className="m-pair">
         <span>配对数字</span>
         <b>{数字 ? `${数字.slice(0, 3)} ${数字.slice(3)}` : "··· ···"}</b>
-        <small>和电脑上显示的一样才点允许</small>
+        <small>和那台设备上显示的一样才点允许</small>
       </div>
-      {状态 === "pending" && <div className="m-waiting"><span /><span /><span />等电脑那边点允许</div>}
-      {状态 === "denied" && <div className="m-callout">电脑那边点了「不允许」。如果是误点，重新登录再来一次。</div>}
+      {状态 === "pending" && <div className="m-waiting"><span /><span /><span />等那边点允许</div>}
+      {状态 === "denied" && <div className="m-callout">那边点了「不允许」。如果是误点，重新登录再来一次。</div>}
       {状态 === "expired" && <div className="m-callout">这次申请过期了，重新登录再来一次。</div>}
       {状态 === "error" && <div className="m-callout">{错}</div>}
       <div className="m-flow-foot">
-        <p className="m-faint">电脑不在身边？先放着，回到电脑前打开桌面端就会弹出来。只有第一次需要授权。</p>
+        <p className="m-faint">电脑不在身边？先放着，打开桌面端或已连上的手机版就会弹出来。只有第一次需要授权。</p>
         {状态 !== "pending" && <button className="m-btn m-btn-block" onClick={() => void onRestart()}>重新登录</button>}
         {状态 === "pending" && <button className="m-text-btn" onClick={() => void onRestart()}>换个账号</button>}
       </div>
