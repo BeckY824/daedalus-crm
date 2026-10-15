@@ -11,7 +11,7 @@ import * as 同步 from "@/lib/mobile/sync";
 import * as 连 from "@/lib/mobile/link";
 import * as 密 from "@/lib/sync/crypto-web";
 import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
-import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 金额, type 客户视图 } from "@/lib/mobile/view";
+import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
 import "./m.css";
@@ -97,9 +97,11 @@ export default function MobileApp() {
   const [团队, set团队] = useState<同步.手机团队 | null>(null);
   const [团队名, set团队名] = useState("");
   const [账号, set账号] = useState<账号 | null>(null);
+  const [现在, set现在] = useState(() => Date.now());
   const 态 = useRef<同步.同步状态>(同步.新状态());
   const [快照, set快照] = useState<快照>(() => 拍(同步.新状态()));
-  const 拍一下 = useCallback(() => set快照(拍(态.current)), []);
+  // 顺手把「现在」拨到此刻：刚同步完、刚记完的不会因为「现在」还停在 30 秒前而显示成「今天 hh:mm」
+  const 拍一下 = useCallback(() => { set快照(拍(态.current)); set现在(Date.now()); }, []);
   const 取状态 = useCallback(() => 态.current, []);
   const [版本, set版本] = useState(0);
   const [在同步, set在同步] = useState(false);
@@ -110,7 +112,6 @@ export default function MobileApp() {
   const [tab, setTab] = useState<标签>("today");
   const [详情, set详情] = useState<string | null>(null);
   const [面板, set面板] = useState<面板>(null);
-  const [现在, set现在] = useState(() => Date.now());
   const 同步中 = useRef(false);
   // 本人的新电脑 / 新手机来要授权（2026-10-15，0.46.17）：这台手机也能点允许
   const [待批, set待批] = useState<连.待授权 | null>(null);
@@ -971,14 +972,14 @@ function FirstSync({ 团队, 云, 库, 取状态, onDone, onFail }: { 团队: �
   return (
     <motion.div className="m-flow m-flow-center" {...进场}>
       {!错 && <span className="m-spinner is-on m-spinner-big" />}
-      <h1>{错 ? "没同步下来" : "正在从团队同步"}</h1>
+      <h1>{错 ? 首次同步失败(错).标题 : "正在从团队同步"}</h1>
       <div className="m-sync-counts">
         <div><b>{数.客户}</b><span>位客户</span></div>
         <div><b>{数.跟进}</b><span>条跟进</span></div>
       </div>
       {错 ? (
         <>
-          <p className="m-faint">{错}</p>
+          <p className="m-faint" data-testid="m-first-sync-why">{首次同步失败(错).话}</p>
           <button className="m-btn" onClick={() => { set错(null); set次((n) => n + 1); }}>再试一次</button>
         </>
       ) : <p className="m-faint"><LockOutlined /> 加密传输 · 服务器看不到内容</p>}
