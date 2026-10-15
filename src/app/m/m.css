@@ -137,6 +137,14 @@ html.m-page nextjs-portal { display: none; }
 .m-sync { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 500; color: var(--success-text); background: var(--success-bg); }
 .m-sync.is-wait { color: var(--brand-deep); background: var(--brand-bg); }
 .m-sync.is-off { color: var(--warning-text); background: var(--warning-bg); }
+/* 团队暂停同步（到期、没开通）：要人去续费 / 开通，和会自己好的「离线」分开 */
+.m-sync.is-stop { color: var(--danger-text); background: var(--danger-bg); }
+.m-sync.is-tap { transition: transform 90ms, opacity 90ms; }
+.m-sync.is-tap:active { opacity: 0.6; }
+.m-sync.is-tap > :last-child { font-size: 9px; opacity: 0.7; }
+/* 点开状态条：为什么、怎么办 */
+.m-sync-why { margin: 0 0 16px; }
+.m-sync-why .m-note + .m-note { margin-top: 8px; }
 .m-install { display: flex; align-items: center; gap: 12px; margin: 0 16px 16px; padding: 12px; background: var(--brand-bg); border: 1px solid var(--brand-line); border-radius: var(--r-card); }
 .m-install img { width: 38px; height: 38px; border-radius: 9px; background: var(--panel); flex: none; }
 .m-install-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
@@ -298,6 +306,7 @@ html.m-page nextjs-portal { display: none; }
 .m-kv > span { color: var(--ink-soft); white-space: nowrap; }
 .m-kv > b { margin-left: auto; font-size: 14px; font-weight: 500; text-align: right; }
 .m-kv-col { flex-direction: column; align-items: stretch; gap: 8px; }
+.m-kv-col > span { white-space: normal; line-height: 1.5; }
 .m-kv-col > .m-seg { margin-top: 0; }
 .m-kv-btn { justify-content: center; color: var(--brand); }
 .m-kv-btn:active { background: var(--hover); }

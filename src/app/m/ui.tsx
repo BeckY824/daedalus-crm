@@ -7,8 +7,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { motion, useDragControls, useTransform, type MotionValue } from "motion/react";
 import { 层样子, type 推入 } from "./push";
-import { ArrowLeftOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseOutlined, CloudSyncOutlined, ContactsFilled, ContactsOutlined, DisconnectOutlined, LeftOutlined, UploadOutlined } from "@ant-design/icons";
-import { 简称, 头像色, 相对时间 } from "@/lib/mobile/view";
+import { ArrowLeftOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseOutlined, CloudSyncOutlined, ContactsFilled, ContactsOutlined, DisconnectOutlined, ExclamationCircleFilled, LeftOutlined, PauseCircleFilled, RightOutlined, UploadOutlined } from "@ant-design/icons";
+import { 简称, 头像色, 同步条 } from "@/lib/mobile/view";
 import { 现状动效 } from "@/lib/motion";
 
 export type 系统 = "ios" | "android";
@@ -64,11 +64,15 @@ export function StatusTag({ s }: { s: string }) {
   const c = 状态色[s] ?? 状态色.待跟进;
   return <span className="m-tag" style={{ color: c.fg, background: c.bg }}>{s}</span>;
 }
-export function SyncChip({ 断网, 待同步, 上次同步, 现在, 在同步 }: { 断网: boolean; 待同步: number; 上次同步: number | null; 现在: number; 在同步: boolean }) {
-  if (断网) return <span className="m-sync is-off"><DisconnectOutlined /> 离线{待同步 ? ` · ${待同步} 条待同步` : ""}</span>;
-  if (在同步 || 待同步) return <span className="m-sync is-wait"><CloudSyncOutlined /> {待同步 ? `${待同步} 条同步中` : "同步中"}</span>;
-  if (!上次同步) return <span className="m-sync is-wait"><CloudSyncOutlined /> 还没同步</span>;
-  return <span className="m-sync"><CheckCircleFilled /> 已同步 · {相对时间(上次同步, 现在)}</span>;
+/** 同步状态条。出了错（团队到期、没开通、同步没成功）给了 onOpen 就能点，点开看原因和怎么办 */
+export function SyncChip({ 断网, 待同步, 上次成功, 错误, 现在, 在同步, onOpen }: {
+  断网: boolean; 待同步: number; 上次成功: number | null; 错误: string | null; 现在: number; 在同步: boolean; onOpen?: () => void;
+}) {
+  const x = 同步条({ 断网, 待同步, 上次成功, 错误, 现在, 在同步 });
+  const 图 = x.样子 === "ok" ? <CheckCircleFilled /> : x.样子 === "stop" ? <PauseCircleFilled /> : x.样子 === "off" ? (x.详 ? <ExclamationCircleFilled /> : <DisconnectOutlined />) : <CloudSyncOutlined />;
+  const 类 = `m-sync${x.样子 === "ok" ? "" : ` is-${x.样子}`}`;
+  if (x.详 && onOpen) return <button type="button" className={`${类} is-tap`} onClick={onOpen} data-testid="m-sync">{图} {x.字}<RightOutlined /></button>;
+  return <span className={类} data-testid="m-sync">{图} {x.字}</span>;
 }
 
 /** iPhone：大标题，往上滚收成顶栏小标题；安卓：标题靠左的顶栏。吸顶（搜索框）放在页头里，大标题在它上面 */

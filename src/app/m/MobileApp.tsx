@@ -12,7 +12,7 @@ import * as 连 from "@/lib/mobile/link";
 import * as 密 from "@/lib/sync/crypto-web";
 import { 我的名字 } from "@/lib/mobile/view";
 import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
-import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 金额, type 客户视图 } from "@/lib/mobile/view";
+import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
 import { 推入 } from "./push";
@@ -29,16 +29,16 @@ import "./m.css";
  */
 
 type 阶段 = "boot" | "login" | "authorize" | "syncing" | "app";
-type 面板 = null | { kind: "record"; id: string } | { kind: "me" } | { kind: "unsynced" };
+type 面板 = null | { kind: "record"; id: string } | { kind: "me" } | { kind: "unsynced" } | { kind: "sync" };
 type 设备 = { device: string; 公钥: string; 私钥: 密.设备私钥 };
 type 账号 = { name: string; contact: string };
 type 遗留 = { content: string; customer: string; at: number };
 /** 同步状态会被同步库原地改，放在 ref 里只在回调中动；渲染读这一份快照（改完一次拍一次） */
-type 快照 = { 待推跟进: string[]; 被拒: { content: string; customerId: string; at: number; 原因: string }[]; lastSyncAt: number | null; lastError: string | null };
+type 快照 = { 待推跟进: string[]; 被拒: { content: string; customerId: string; at: number; 原因: string }[]; 上次成功: number | null; lastError: string | null };
 const 拍 = (s: 同步.同步状态): 快照 => ({
   待推跟进: s.待推.filter((e) => e.t === "FollowUp").map((e) => e.k),
   被拒: s.被拒.filter((x) => x.改动.t === "FollowUp" && x.改动.r).map((x) => ({ content: String(x.改动.r!.content ?? ""), customerId: String(x.改动.r!.customerId ?? ""), at: Number(x.改动.r!.occurredAt) || 0, 原因: x.原因 })),
-  lastSyncAt: s.lastSyncAt ? Date.parse(s.lastSyncAt) : null,
+  上次成功: 同步.上次成功(s),
   lastError: s.lastError ?? null,
 });
 
@@ -102,9 +102,11 @@ export default function MobileApp() {
   const [团队, set团队] = useState<同步.手机团队 | null>(null);
   const [团队名, set团队名] = useState("");
   const [登录账号, set账号] = useState<账号 | null>(null);
+  const [现在, set现在] = useState(() => Date.now());
   const 态 = useRef<同步.同步状态>(同步.新状态());
   const [快照, set快照] = useState<快照>(() => 拍(同步.新状态()));
-  const 拍一下 = useCallback(() => set快照(拍(态.current)), []);
+  // 顺手把「现在」拨到此刻：刚同步完、刚记完的不会因为「现在」还停在 30 秒前而显示成「今天 hh:mm」
+  const 拍一下 = useCallback(() => { set快照(拍(态.current)); set现在(Date.now()); }, []);
   const 取状态 = useCallback(() => 态.current, []);
   const [版本, set版本] = useState(0);
   const [在同步, set在同步] = useState(false);
@@ -115,7 +117,6 @@ export default function MobileApp() {
   const [tab, setTab] = useState<标签>("today");
   const [详情, set详情] = useState<string | null>(null);
   const [面板, set面板] = useState<面板>(null);
-  const [现在, set现在] = useState(() => Date.now());
   const 同步中 = useRef(false);
   // 推入推出（2026-10-15 重做，见 push.ts）：进度 p 一个数，0 = 详情完全进来，1 = 完全退回
   const 进度 = useMotionValue(1);
@@ -405,8 +406,8 @@ export default function MobileApp() {
             <BaseLayer p={进度} 宽={宽} os={os} 少动={少动} 有详情={!!详情}>
               <div className="m-tabs-body">
                 {tab === "today"
-                  ? <TodayScreen os={os} 今天={今天} 现在={现在} 断网={断网} 待同步={待同步数} 上次同步={快照.lastSyncAt} 在同步={在同步}
-                      没同步上={没同步上.length} 名={账号?.name ?? ""} onOpen={打开详情} onMe={() => 打开面板({ kind: "me" })} onUnsynced={() => 打开面板({ kind: "unsynced" })} onSync={() => 跑同步(true)} />
+                  ? <TodayScreen os={os} 今天={今天} 现在={现在} 断网={断网} 待同步={待同步数} 上次成功={快照.上次成功} 错误={快照.lastError} 在同步={在同步}
+                      没同步上={没同步上.length} onSyncInfo={() => 打开面板({ kind: "sync" })} 名={账号?.name ?? ""} onOpen={打开详情} onMe={() => 打开面板({ kind: "me" })} onUnsynced={() => 打开面板({ kind: "unsynced" })} onSync={() => 跑同步(true)} />
                   : <CustomersScreen os={os} 客户们={客户们} 我={我} 现在={现在} 断网={断网} 名={账号?.name ?? ""} onOpen={打开详情} onMe={() => 打开面板({ kind: "me" })} onSync={() => 跑同步(true)} />}
               </div>
               <TabBar os={os} tab={tab} onTab={(t) => { if (t !== tab) { setTab(t); 震一下(); } }} 今天数={今天数} />
@@ -422,17 +423,20 @@ export default function MobileApp() {
 
       <AnimatePresence>
         {面板 && (
-          <Sheet key={面板.kind} onClose={返回} 高={面板.kind === "record" ? "auto" : "tall"}>
+          <Sheet key={面板.kind} onClose={返回} 高={面板.kind === "record" || 面板.kind === "sync" ? "auto" : "tall"}>
             {面板.kind === "record" && (() => {
               const c = 客户们.find((x) => x.id === 面板.id);
               if (!c) return null;
               return <RecordSheet c={c} os={os} 我={我} onCancel={返回} onSave={(输入) => { void 记(c.id, 输入); 返回(); }} />;
             })()}
             {面板.kind === "me" && (
-              <MeSheet 账号={账号} 团队名={团队名} 断网={断网} 待同步={待同步数} 在同步={在同步} 上次同步={快照.lastSyncAt}
+              <MeSheet 账号={账号} 团队名={团队名} 断网={断网} 待同步={待同步数} 在同步={在同步} 上次成功={快照.上次成功}
                 错误={快照.lastError} 现在={现在} 没同步上={没同步上.length} 云={云} 团队={团队} 设备版本={设备版本}
                 onSync={() => void 跑同步(true)} onUnsynced={() => { 返回(); setTimeout(() => 打开面板({ kind: "unsynced" }), 300); }}
                 onLogout={() => { 返回(); setTimeout(() => void 退出(), 250); }} />
+            )}
+            {面板.kind === "sync" && (
+              <SyncSheet 断网={断网} 待同步={待同步数} 在同步={在同步} 上次成功={快照.上次成功} 错误={快照.lastError} 现在={现在} onSync={() => void 跑同步(true)} />
             )}
             {面板.kind === "unsynced" && <UnsyncedSheet 列={没同步上} 说={说} on处理={(x) => void 处理掉(x)} />}
           </Sheet>
@@ -460,16 +464,16 @@ export default function MobileApp() {
 
 /* ====================================================================== 今天 */
 
-function TodayScreen({ os, 今天, 现在, 断网, 待同步, 上次同步, 在同步, 没同步上, 名, onOpen, onMe, onUnsynced, onSync }: {
-  os: 系统; 今天: ReturnType<typeof 今天要跟>; 现在: number; 断网: boolean; 待同步: number; 上次同步: number | null; 在同步: boolean;
-  没同步上: number; 名: string; onOpen: (id: string) => void; onMe: () => void; onUnsynced: () => void; onSync: () => Promise<void>;
+function TodayScreen({ os, 今天, 现在, 断网, 待同步, 上次成功, 错误, 在同步, 没同步上, 名, onOpen, onMe, onUnsynced, onSync, onSyncInfo }: {
+  os: 系统; 今天: ReturnType<typeof 今天要跟>; 现在: number; 断网: boolean; 待同步: number; 上次成功: number | null; 错误: string | null; 在同步: boolean;
+  没同步上: number; 名: string; onOpen: (id: string) => void; onMe: () => void; onUnsynced: () => void; onSync: () => Promise<void>; onSyncInfo: () => void;
 }) {
   const d = new Date(现在);
   const 已装 = useSyncExternalStore(不订, 已装到主屏幕, () => true);
   const [关了装提示, set关了装提示] = useState(false);
   return (
     <Page os={os} 标题="今天" 右={<button className="m-me" onClick={onMe} aria-label="我的">{简称(名 || "我")}</button>}
-      副标题={<><span>{d.getMonth() + 1}月{d.getDate()}日 周{"日一二三四五六"[d.getDay()]}</span><SyncChip 断网={断网} 待同步={待同步} 上次同步={上次同步} 现在={现在} 在同步={在同步} /></>}
+      副标题={<><span>{d.getMonth() + 1}月{d.getDate()}日 周{"日一二三四五六"[d.getDay()]}</span><SyncChip 断网={断网} 待同步={待同步} 上次成功={上次成功} 错误={错误} 现在={现在} 在同步={在同步} onOpen={onSyncInfo} /></>}
       onRefresh={onSync}>
       {!已装 && !关了装提示 && <InstallHint os={os} onClose={() => set关了装提示(true)} />}
       {没同步上 > 0 && (
@@ -737,11 +741,12 @@ function RecordSheet({ c, os, 我, onCancel, onSave }: { c: 客户视图; os: �
 
 /* ====================================================================== 我的、没同步上的 */
 
-function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步, 错误, 现在, 没同步上, 云, 团队, 设备版本, onSync, onUnsynced, onLogout }: {
-  账号: 账号 | null; 团队名: string; 断网: boolean; 待同步: number; 在同步: boolean; 上次同步: number | null; 错误: string | null; 现在: number;
+function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次成功, 错误, 现在, 没同步上, 云, 团队, 设备版本, onSync, onUnsynced, onLogout }: {
+  账号: 账号 | null; 团队名: string; 断网: boolean; 待同步: number; 在同步: boolean; 上次成功: number | null; 错误: string | null; 现在: number;
   没同步上: number; 云: 同步.传输 | null; 团队: 同步.手机团队 | null; 设备版本: number; onSync: () => void; onUnsynced: () => void; onLogout: () => void;
 }) {
   const [确认退出, set确认退出] = useState(false);
+  const 详 = 同步条({ 断网, 待同步, 在同步, 上次成功, 错误, 现在 }).详;
   // 我的设备（2026-10-15）：本人在团队里的电脑和手机；授权了新设备（设备版本 +1）就重新取
   const [设备, set设备] = useState<{ 设备: 连.我的一台[]; 上限: number } | null>(null);
   useEffect(() => {
@@ -757,9 +762,9 @@ function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步
         <div><b>{账号?.name || "我"}</b>{账号?.contact && <span>{账号.contact}</span>}{团队名 && <span>{团队名}</span>}</div>
       </div>
       <div className="m-list m-list-inset">
-        <div className="m-kv"><CloudSyncOutlined /><span>同步</span><b><SyncChip 断网={断网} 待同步={待同步} 上次同步={上次同步} 现在={现在} 在同步={在同步} /></b></div>
+        <div className="m-kv"><CloudSyncOutlined /><span>同步</span><b><SyncChip 断网={断网} 待同步={待同步} 上次成功={上次成功} 错误={错误} 现在={现在} 在同步={在同步} /></b></div>
         <div className="m-kv"><LockOutlined /><span>加密</span><b>端到端，服务器看不到内容</b></div>
-        {错误 && <div className="m-kv m-kv-col"><span className="is-danger">{错误}</span></div>}
+        {详 && <div className="m-kv m-kv-col" data-testid="m-sync-why"><span>{详.原因}{详.怎么办}</span></div>}
         <button className="m-kv m-kv-btn" onClick={onSync} disabled={在同步}>立即同步</button>
         {没同步上 > 0 && <button className="m-kv m-kv-btn" onClick={onUnsynced}>没同步上的跟进（{没同步上}）</button>}
       </div>
@@ -789,6 +794,29 @@ function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步
         )}
       </div>
       <div className="m-foot-note">新电脑、新手机登录这个账号后，在这里或电脑上点「允许」就能连上（最多 {设备?.上限 ?? 3} 台）。在电脑上「设置 → 团队 → 我的设备」里可以移除不用的设备</div>
+    </div>
+  );
+}
+
+/** 点今天页的同步状态条：为什么没同步、该怎么办、上次成功是什么时候 */
+function SyncSheet({ 断网, 待同步, 在同步, 上次成功, 错误, 现在, onSync }: {
+  断网: boolean; 待同步: number; 在同步: boolean; 上次成功: number | null; 错误: string | null; 现在: number; onSync: () => void;
+}) {
+  const x = 同步条({ 断网, 待同步, 在同步, 上次成功, 错误, 现在 });
+  return (
+    <div className="m-me-sheet" data-testid="m-sync-sheet">
+      <div className="m-sheet-h"><span /><b>{x.详?.标题 ?? "同步"}</b><span /></div>
+      {x.详 ? (
+        <div className="m-sync-why">
+          <p className="m-note">{x.详.原因}</p>
+          <p className="m-note">{x.详.怎么办}</p>
+        </div>
+      ) : <div className="m-sync-why"><p className="m-note">同步恢复了。</p></div>}
+      <div className="m-list m-list-inset">
+        <div className="m-kv"><CloudSyncOutlined /><span>现在</span><b><SyncChip 断网={断网} 待同步={待同步} 上次成功={上次成功} 错误={错误} 现在={现在} 在同步={在同步} /></b></div>
+        <div className="m-kv"><CheckCircleFilled /><span>上次同步成功</span><b>{上次成功 ? 相对时间(上次成功, 现在) : "还没有"}</b></div>
+        <button className="m-kv m-kv-btn" onClick={onSync} disabled={在同步}>{在同步 ? "正在试…" : "再试一次"}</button>
+      </div>
     </div>
   );
 }
@@ -986,14 +1014,14 @@ function FirstSync({ 团队, 云, 库, 取状态, onDone, onFail }: { 团队: �
   return (
     <motion.div className="m-flow m-flow-center" {...进场}>
       {!错 && <span className="m-spinner is-on m-spinner-big" />}
-      <h1>{错 ? "没同步下来" : "正在从团队同步"}</h1>
+      <h1>{错 ? 首次同步失败(错).标题 : "正在从团队同步"}</h1>
       <div className="m-sync-counts">
         <div><b>{数.客户}</b><span>位客户</span></div>
         <div><b>{数.跟进}</b><span>条跟进</span></div>
       </div>
       {错 ? (
         <>
-          <p className="m-faint">{错}</p>
+          <p className="m-faint" data-testid="m-first-sync-why">{首次同步失败(错).话}</p>
           <button className="m-btn" onClick={() => { set错(null); set次((n) => n + 1); }}>再试一次</button>
         </>
       ) : <p className="m-faint"><LockOutlined /> 加密传输 · 服务器看不到内容</p>}

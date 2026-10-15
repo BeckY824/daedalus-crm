@@ -3,8 +3,9 @@
  * 「今天」只算我的计划；搜索认电话里的空格和横线。
  */
 import { describe, expect, it } from "vitest";
-import { 分表, 客户们, 今天要跟, 搜, 毫秒, 真, 国旗 } from "@/lib/mobile/view";
-import type { 记录 } from "@/lib/mobile/sync";
+import { 分表, 客户们, 今天要跟, 搜, 毫秒, 真, 国旗, 同步条, 首次同步失败 } from "@/lib/mobile/view";
+import { 上次成功, type 记录 } from "@/lib/mobile/sync";
+import { 到期话, 没开通话 } from "@/lib/team-pricing";
 
 const 今早 = (() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); })();
 const 行 = (t: string, r: Record<string, unknown>): 记录 => ({ t, k: String(r.id ?? r.customerId ?? r.opportunityId), r, 钟: {} });
@@ -60,5 +61,71 @@ describe("手机界面的数据", () => {
     expect([真(1), 真(true), 真("1"), 真(0), 真(false), 真(null)]).toEqual([true, true, true, false, false, false]);
     expect(国旗("美国")).toBe("🇺🇸");
     expect(国旗("火星")).toBe("");
+  });
+});
+
+/**
+ * 同步状态条（2026-10-15）：团队到期被服务端拒了，手机首页还写「已同步 · 刚刚」。
+ * 错误文字直接用服务端那几句（team-pricing.ts），服务端改了说法这里会先红
+ */
+describe("同步状态条", () => {
+  const 现在 = Date.parse("2026-10-15T10:00:00Z");
+  const 平 = { 断网: false, 待同步: 0, 在同步: false, 上次成功: 现在 - 20_000, 错误: null as string | null, 现在 };
+  const 到期 = 到期话(new Date("2026-10-14T15:59:59.999Z"));
+
+  it("正常：已同步 · 多久前", () => {
+    expect(同步条(平)).toEqual({ 样子: "ok", 字: "已同步 · 刚刚" });
+    expect(同步条({ ...平, 在同步: true }).字).toBe("同步中");
+    expect(同步条({ ...平, 待同步: 2 }).字).toBe("2 条同步中");
+    expect(同步条({ ...平, 上次成功: null })).toEqual({ 样子: "wait", 字: "还没同步" });
+    // 界面的「现在」30 秒才走一次：刚同步完的时间比它新，也算「刚刚」
+    expect(同步条({ ...平, 上次成功: 现在 + 25_000 }).字).toBe("已同步 · 刚刚");
+  });
+
+  it("团队到期：暂停同步，点开说续费后自动恢复、手机上照常能看；同步中、有待推也不改口", () => {
+    const x = 同步条({ ...平, 错误: 到期 });
+    expect(x).toMatchObject({ 样子: "stop", 字: "团队已到期，暂停同步" });
+    expect(x.详!.原因).toContain("2026-10-14");
+    expect(x.详!.怎么办).toContain("续费后自动恢复，这台手机上的内容照常能看");
+    expect(x.详!.怎么办).not.toContain("电脑");
+    expect(同步条({ ...平, 错误: 到期, 在同步: true }).字).toBe("团队已到期，暂停同步");
+    const 有待推 = 同步条({ ...平, 错误: 到期, 待同步: 3 });
+    expect(有待推.字).toBe("团队已到期，暂停同步");
+    expect(有待推.详!.怎么办).toContain("新记的 3 条先存在这台手机上");
+  });
+
+  it("没开通 / 停用：团队没开通，暂不同步", () => {
+    const x = 同步条({ ...平, 错误: 没开通话 });
+    expect(x).toMatchObject({ 样子: "stop", 字: "团队没开通，暂不同步" });
+    expect(x.详!.怎么办).toContain("开通后自动开始同步");
+  });
+
+  it("断网：离线（不当成出错弹详情）；其它错误：同步没成功，详情里带原话", () => {
+    expect(同步条({ ...平, 断网: true, 待同步: 1 })).toEqual({ 样子: "off", 字: "离线 · 1 条待同步" });
+    expect(同步条({ ...平, 错误: "连不上网络" })).toEqual({ 样子: "off", 字: "离线" });
+    const x = 同步条({ ...平, 错误: "拉取失败（500）" });
+    expect(x).toMatchObject({ 样子: "off", 字: "同步没成功" });
+    expect(x.详!.原因).toBe("拉取失败（500）");
+    // 断网优先：到期了又断网，先说离线
+    expect(同步条({ ...平, 断网: true, 错误: 到期 }).样子).toBe("off");
+  });
+
+  it("第一次同步就失败：按原因说，不提「这台电脑」、也不说内容照常能看（手机上还什么都没有）", () => {
+    const x = 首次同步失败(到期);
+    expect(x.标题).toBe("团队同步已到期");
+    expect(x.话).toContain("2026-10-14");
+    expect(x.话).toContain("续费后点「再试一次」就行");
+    expect(x.话).not.toMatch(/电脑|照常/);
+    expect(首次同步失败(没开通话).标题).toBe("团队同步没开通");
+    expect(首次同步失败("连不上网络").标题).toBe("没连上网络");
+    expect(首次同步失败("拉取失败（500）")).toEqual({ 标题: "没同步下来", 话: "拉取失败（500）" });
+  });
+
+  it("上次成功：只认成功的那次；老状态没有 lastOkAt，出着错就当不知道", () => {
+    const t = "2026-10-15T09:00:00.000Z";
+    expect(上次成功({ lastOkAt: t, lastSyncAt: "2026-10-15T09:59:00.000Z", lastError: 到期 })).toBe(Date.parse(t));
+    expect(上次成功({ lastSyncAt: t, lastError: null })).toBe(Date.parse(t));
+    expect(上次成功({ lastSyncAt: t, lastError: 到期 })).toBeNull();
+    expect(上次成功({})).toBeNull();
   });
 });
