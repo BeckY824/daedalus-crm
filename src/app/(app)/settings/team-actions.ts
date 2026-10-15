@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { requireUser, createSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { 本机我, 团队身份id } from "@/lib/desktop/me";
+import { 云端地址 } from "@/lib/desktop/cloud";
 import { recordAudit } from "@/lib/audit";
 import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
+import { 待授权手机, 允许手机, 拒绝手机, 已连接手机, 移除手机 } from "@/lib/sync/mobile-desktop";
 
 /**
  * 设置 → 团队（2026-10-03，团队同步）。只在桌面端本地模式有这一栏；真正的活在 lib/sync/client.ts。
@@ -117,4 +119,37 @@ export async function 确认范围冲突动作(ids: number[]) {
   if (n) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: `确认了 ${n} 条失权冲突（只标记已处理，未删除）` });
   revalidatePath("/settings");
   return { ok: true as const, 确认: n };
+}
+
+/* ---------- 手机（2026-10-15，手机端方案 3.2）：授权、列出、移除。活在 lib/sync/mobile-desktop.ts ---------- */
+
+export async function 待授权手机动作() {
+  await requireUser();
+  return 待授权手机();
+}
+
+export async function 允许手机动作(id: string, label: string) {
+  const user = await requireUser();
+  const r = await 允许手机(String(id ?? ""));
+  if (r.ok) await recordAudit({ user, action: "create", entity: "Setting", entityId: "mobile", summary: `授权了一台手机（${String(label ?? "").slice(0, 60)}）查看和记录客户` });
+  return r;
+}
+
+export async function 拒绝手机动作(id: string) {
+  await requireUser();
+  return 拒绝手机(String(id ?? ""));
+}
+
+export async function 已连接手机动作() {
+  await requireUser();
+  const r = await 已连接手机();
+  // 手机上打开哪个地址：和这台电脑连的是同一个云端
+  return r.ok ? { ...r, 地址: `${云端地址()}/m` } : r;
+}
+
+export async function 移除手机动作(id: string, label: string) {
+  const user = await requireUser();
+  const r = await 移除手机(String(id ?? ""));
+  if (r.ok) await recordAudit({ user, action: "delete", entity: "Setting", entityId: "mobile", summary: `移除了一台手机（${String(label ?? "").slice(0, 60)}），它不能再同步` });
+  return r;
 }

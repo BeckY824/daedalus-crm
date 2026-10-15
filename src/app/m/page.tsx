@@ -1,0 +1,38 @@
+import type { Metadata, Viewport } from "next";
+import MobileApp from "./MobileApp";
+import SwRegister from "./SwRegister";
+
+/**
+ * 手机版（2026-10-15，方案：~/Opensource_CRM/02-开发与发版/手机端-方案-20261015.md）。
+ * 只给团队版成员用：账号密码登录后要本人的电脑授权才有数据；页面本身不带任何数据（proxy.ts 放行 /m）。
+ */
+export const metadata: Metadata = {
+  title: "Daedalus",
+  manifest: "/m/manifest.webmanifest",
+  appleWebApp: { capable: true, title: "Daedalus", statusBarStyle: "default" },
+  formatDetection: { telephone: false, email: false, address: false },
+  // 老一点的 iPhone（iOS 16.4 以前）只认这一行才全屏打开；新的读 manifest 的 display: standalone
+  other: { "apple-mobile-web-app-capable": "yes" },
+  robots: { index: false, follow: false },
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e1013" },
+  ],
+};
+
+export default function MobilePage() {
+  return (
+    <>
+      <MobileApp />
+      <SwRegister />
+    </>
+  );
+}

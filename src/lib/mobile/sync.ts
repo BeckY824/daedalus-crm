@@ -217,7 +217,8 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
     const d = await 云("POST", 范围路径, { teamId: c.teamId, action: "directory" });
     if (d.状态 !== 200) throw new 同步问题(话(d, "取不到同步目录"));
     if (Number(d.json.epoch ?? 0) > c.epoch) c = await 更新钥匙(c, 云);
-    const scopes = (d.json.scopes as { id: string; revision: number; records: 范围索引[] }[]) ?? [];
+    // 「团队」范围（成员、设置）先拉，和桌面端一样
+    const scopes = ((d.json.scopes as { id: string; revision: number; records: 范围索引[] }[]) ?? []).sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
     const index = new Map<string, 范围索引>();
     for (const s of scopes) for (const r of s.records) index.set(行键(r.t, r.k), r);
     const allowed = new Set(index.keys());
