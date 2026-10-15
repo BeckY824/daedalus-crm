@@ -30,8 +30,15 @@ export function 认浏览器(ua = typeof navigator === "undefined" ? "" : naviga
   ];
   return 表.find(([re]) => re.test(ua))?.[1] ?? "浏览器";
 }
-/** 这几个确认能装到主屏幕（菜单里有，或者会弹安装）；其余的不一定有入口（夸克 10.19 菜单里就没有） */
-const 能装 = new Set<浏览器>(["Chrome", "Edge", "三星浏览器"]);
+/**
+ * 确认能装到主屏幕的，各自菜单里怎么说（10-15 真机：华为浏览器 17 有「添加到桌面」；夸克 10.19、QQ 浏览器 20.6 没有）。
+ * 不在表里的给通用说明
+ */
+const 装法: Partial<Record<浏览器, string>> = {
+  Chrome: "浏览器菜单 ⋮ →「添加到主屏幕」或「安装应用」",
+  Edge: "浏览器菜单 ⋮ →「添加到主屏幕」或「安装应用」",
+  华为浏览器: "浏览器菜单里点「添加到桌面」",
+};
 
 export function 已装到主屏幕() {
   if (typeof window === "undefined") return false;
@@ -201,7 +208,7 @@ export function InstallHint({ os, onClose }: { os: 系统; onClose: () => void }
           : os === "ios"
           ? <span>点底部的 <UploadOutlined /> 分享，再点「添加到主屏幕」</span>
           : 事件 ? <span>不用去应用商店，点右边就装好</span>
-          : 能装.has(器) ? <span>浏览器菜单 ⋮ →「添加到主屏幕」或「安装应用」</span>
+          : 装法[器] ? <span>{装法[器]}</span>
           : <>
               <span>菜单里找「添加到桌面」；没有的话，用 Chrome 或 Edge 打开这个网址再装。不装也能直接用</span>
               <small>点了没反应：在手机设置里给这个浏览器打开「创建桌面快捷方式」权限</small>
