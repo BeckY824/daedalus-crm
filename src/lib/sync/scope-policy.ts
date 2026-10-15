@@ -3,7 +3,8 @@
  */
 import { 同步表 } from "./tables";
 import type { 改动 } from "./local";
-import { 规范串 } from "./crypto";
+// 从 canon 取、不从 crypto 取：这个文件手机端（浏览器）也要用，不能牵进 node:crypto
+import { 规范串 } from "./canon";
 export const 范围字段: Record<string, readonly string[]> = {
   User: [], Setting: [], Channel: [], Supplier: [],
   Customer: ["salesOwnerId", "channelOwnerId"],

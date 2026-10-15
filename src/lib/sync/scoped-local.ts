@@ -4,6 +4,7 @@ import { 同步表, 不同步列, 同步的设置 } from "./tables";
 import { 行键, 核对范围, 范围父表, type 范围索引, type 范围元数据 } from "./scope-policy";
 import { 拆范围, 规范串, type 钥匙环 } from "./crypto";
 import type { 改动 } from "./local";
+import { 归一化范围行 as 归一化纯 } from "./scoped-pure";
 const q = (s: string) => `"${s.replaceAll('"', '""')}"`;
 const models = new Map(Prisma.dmmf.datamodel.models.map(m => [m.name, m]));
 export const 主字段 = (table: string) => models.get(table)!.fields.find(f => f.isId)!.name;
@@ -268,13 +269,9 @@ export async function 擦净删除残留(db: PrismaClient, 预算毫秒 = 擦净
   await 记欠擦(db).catch(() => undefined);
   return false;
 }
-/** 服务端当前路由覆盖历史包中的过期路由；隐藏推荐人只置空 FK，不复制隐藏客户来满足外键。 */
+/** 服务端当前路由覆盖历史包中的过期路由（逻辑在 scoped-pure.ts，手机端共用）；桌面端主键从 DMMF 读 */
 export function 归一化范围行(e: 改动, current: 范围索引, authorized: Set<string>): 改动 {
-  if (e.o === 'D') return e;
-  if (!e.r || String(e.r[主字段(e.t)]) !== e.k) throw Error('密文的记录编号与授权编号不一致');
-  const r = { ...e.r, ...current.fields };
-  if (e.t === 'Customer') for (const field of ['referrerCustomerId', 'attributionCustomerId']) if (r[field] && !authorized.has(行键('Customer', String(r[field])))) r[field] = null;
-  return { ...e, r };
+  return 归一化纯(e, current, authorized, 主字段);
 }
 
 /** 一包范围密文不合规（元数据对不上、关系链指向不可见记录）：确定性错误，重试也不会好，接收端跳过并记下。 */
