@@ -325,6 +325,64 @@ test("7b 运营台：导航每一页都点得开、口令跟着走；回包慢�
   }
 });
 
+/*
+  团队版按时长开通（2026-10-15）：运营台「团队同步」点「开通 / 续费」，选时长和人数、按价格表看应收，确认后有到期日；
+  改到期日到昨天 = 已到期；每次操作在展开行里留记录；价格表能改。团队直接写进控制面库（建团队要桌面端的设备令牌，这里不走那条路）
+*/
+test("7c 运营台团队同步：按时长开通、看到期、改到期日、改价格", async ({ page }) => {
+  execFileSync("node", ["--experimental-sqlite", "-e", `
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(process.argv[1]);
+    db.prepare('INSERT INTO "SyncTeam" ("id", "name", "ownerAccountId", "joinSecretHash", "active") VALUES (?, ?, ?, ?, 0)').run('e2eplanteam0001', 'E2E 计费团队', 'nobody', 'x');
+    db.close();
+  `, CONTROL_DB]);
+  await page.goto("/admin/sync?token=e2e-admin-token");
+  await expect(page.locator(".opx-prices")).toContainText("¥29.9", { timeout: 15_000 });
+  await expect(page.locator(".opx-prices")).toContainText("¥299");
+  const 行 = page.locator("tr", { hasText: "E2E 计费团队" });
+  await expect(行.getByText("待开通")).toBeVisible();
+
+  await 行.getByRole("button", { name: "开通 / 续费" }).click();
+  const 框 = page.getByRole("dialog", { name: /开通 \/ 续费/ });
+  await 框.getByText("3 个月", { exact: true }).click();
+  await 框.getByRole("spinbutton").first().fill("3");
+  // 84.9 × 3 = 254.7（按分四舍五入，不是 254.70000000000002）
+  await expect(框.getByText("¥254.7", { exact: true })).toBeVisible();
+  await expect(框).toContainText("每人 ¥84.9 × 3 人");
+  await 框.getByPlaceholder(/微信转账/).fill("e2e 微信转账");
+  await 框.getByRole("button", { name: "确认开通" }).click();
+  await expect(page.getByText(/已开通，到期 \d{4}-\d{2}-\d{2}/)).toBeVisible({ timeout: 15_000 });
+  await expect(行.getByText("已开通")).toBeVisible({ timeout: 15_000 });
+  await expect(行.locator(".opx-due")).toContainText(/剩 9\d 天/);
+  await expect(行).toContainText("0 / 3");
+  // 展开看记录：谁、时长、人数、实收、备注
+  await 行.getByRole("button", { name: /展开|Expand/ }).click();
+  await expect(page.locator(".opx-plan-log")).toContainText("开通 · 3 个月 · 3 人 · 实收 ¥254.7");
+  await expect(page.locator(".opx-plan-log")).toContainText("e2e 微信转账");
+  await expect(page.locator(".opx-plan-log")).toContainText("口令");
+
+  // 改到期日到昨天：显示已到期、已过期 1 天
+  const 昨天 = new Date(Date.now() + 8 * 3600_000 - 86_400_000).toISOString().slice(0, 10);
+  await 行.getByRole("button", { name: /更多操作/ }).click();
+  await page.getByRole("menuitem", { name: "改到期日" }).click();
+  const 改 = page.getByRole("dialog", { name: /改到期日/ });
+  await 改.locator('input[type="date"]').fill(昨天);
+  // antd 给两个汉字的按钮中间加空格：「保 存」
+  await 改.getByRole("button", { name: /保\s*存/ }).click();
+  await expect(行.getByText("已到期")).toBeVisible({ timeout: 15_000 });
+  await expect(行.locator(".opx-due")).toContainText("已过期 1 天");
+  expect(查控制面('SELECT COUNT(*) FROM "SyncTeamPlanLog" WHERE "teamId" = ?', "e2eplanteam0001")).toBe("2");
+
+  // 改价格：1 个月改成 19.9，卡片上马上是新价；再改回来
+  for (const 价 of ["19.9", "29.9"]) {
+    await page.getByRole("button", { name: "改价格" }).click();
+    const 价框 = page.getByRole("dialog", { name: /改价格/ });
+    await 价框.getByRole("spinbutton").first().fill(价);
+    await 价框.getByRole("button", { name: /保\s*存/ }).click();
+    await expect(page.locator(".opx-price").first()).toContainText(`¥${价}`, { timeout: 15_000 });
+  }
+});
+
 test("8 没登录时能打开的就是那几页；演示区已经不存在", async ({ page }) => {
   for (const 页 of ["/login", "/signup", "/forgot", "/terms", "/privacy"]) {
     await page.goto(页);

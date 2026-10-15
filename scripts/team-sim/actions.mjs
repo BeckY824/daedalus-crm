@@ -20,7 +20,7 @@ export const 动作 = {
   团队状态: "src/app/(app)/settings/team-actions.ts#读团队状态",
   移除成员: "src/app/(app)/settings/team-actions.ts#移除成员动作",
   退出团队: "src/app/(app)/settings/team-actions.ts#退出团队动作",
-  开通团队: "src/app/admin/actions.ts#setSyncTeam",
+  开通团队: "src/app/admin/actions.ts#开通续费团队",
   // 外贸（2026-10-06 测试分期 E.1）
   存业务配置: "src/app/(app)/settings/actions.ts#saveBusinessSettings",
   登记签约: "src/app/(app)/customers/actions.ts#saveContract",

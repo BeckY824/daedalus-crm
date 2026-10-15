@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { 云端地址 } from "@/lib/desktop/cloud";
 import { recordAudit } from "@/lib/audit";
-import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码 } from "@/lib/sync/client";
+import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
 import { 待授权手机, 允许手机, 拒绝手机, 我的设备, 移除设备 } from "@/lib/sync/mobile-desktop";
@@ -27,12 +27,13 @@ async function 换票() {
 }
 export async function 读团队状态() {
   await requireUser();
-  const s = await 团队状态();
+  // 价格表（2026-10-15）：服务器上的，运营台改了这里就是新价；和团队状态一起拿，不多等一轮
+  const [s, 价格] = await Promise.all([团队状态(), 读价格表().catch(() => null)]);
   // 这台还没连上：账号在云上是哪个团队的、是不是在等另一台电脑允许（2026-10-15 多设备同步）
-  if (!s.在团队) return { ...s, 连接: await 连接概况().catch(() => null) };
+  if (!s.在团队) return { ...s, 价格, 连接: await 连接概况().catch(() => null) };
   // 老板看每个人的客户数和跟进（2026-10-04：老板要看得到业务员的跟进过程）；疑似重复也只给老板看——业务员只看得到自己那一半
-  if (!s.我是建的人) return { ...s, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人> };
-  return { ...s, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)) };
+  if (!s.我是建的人) return { ...s, 价格, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人> };
+  return { ...s, 价格, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)) };
 }
 
 type 一人 = { 客户: number; 近7天跟进: number; 最近跟进: string | null; userId: string };

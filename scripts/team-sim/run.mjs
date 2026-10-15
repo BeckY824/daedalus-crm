@@ -464,7 +464,7 @@ async function 主线() {
     码 = r.邀请码;
     团队id = 码.split(".")[1];
     范围团队id = 团队id;
-    const k = await 调动作(云, 表, 动作.开通团队, [{ token: 运营口令, teamId: 团队id, on: true }], { 查询: `?token=${运营口令}` });
+    const k = await 调动作(云, 表, 动作.开通团队, [{ token: 运营口令, teamId: 团队id, months: 1, seats: 5, amount: 149.5, note: "team-sim" }], { 查询: `?token=${运营口令}` });
     判(k?.ok, { 步骤: "运营台开通团队", 哪台: "云端", 期望: "{ok:true}", 实际: k });
     /*
       真实顺序：建团队 → 运营台人工开通（分钟级）→ 同事加入，加入时老板的老数据早就在云上了。

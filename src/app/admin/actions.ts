@@ -51,12 +51,59 @@ export async function activate(input: { token: string; workspaceId: string; plan
   return { ok: true };
 }
 
-/** 团队同步：开通 / 停用一个团队（2026-10-03）。停用后成员推拉都回「还没开通」，本机数据不受影响 */
-export async function setSyncTeam(input: { token: string; teamId: string; on: boolean }): Promise<AdminResult> {
+/** 运营者是谁：运营账号的邮箱 / 手机；用网址口令进来的记「口令」。留在操作记录里 */
+async function 运营者(): Promise<string> {
+  const 运营 = await 当前运营账号();
+  const a = 运营 ? await control.account.findUnique({ where: { id: 运营 }, select: { email: true, phone: true } }) : null;
+  return a?.email ?? a?.phone ?? "口令";
+}
+
+/**
+ * 团队同步：开通 / 续费（2026-10-15 按时长）。选时长（1 / 3 / 6 / 12 个月，或试用几天）和人数，
+ * 还没到期从原到期日顺延，已过期或从没开通从今天算（lib/tenant/team-plan.ts）。amount：实收（元），null = 没收钱
+ */
+export async function 开通续费团队(input: { token: string; teamId: string; months?: number; days?: number; seats: number; amount: number | null; note?: string }): Promise<AdminResult & { paidUntil?: string | null }> {
   const g = await guard(input.token);
   if (!g.ok) return g;
-  const { 设开通 } = await import("@/lib/tenant/sync-relay");
-  await 设开通(input.teamId, input.on);
+  const { 开通续费, 北京日期 } = await import("@/lib/tenant/team-plan");
+  const 时长 = input.days ? { days: Number(input.days) } : { months: Number(input.months) };
+  const r = await 开通续费({ teamId: String(input.teamId), 时长, seats: Number(input.seats), amount: input.amount === null ? null : Number(input.amount), note: input.note, by: await 运营者() });
+  if (!r.ok) return r;
+  revalidatePath("/admin", "layout");
+  return { ok: true, paidUntil: r.paidUntil ? 北京日期(r.paidUntil) : null };
+}
+
+/** 手动改到期日（纠错用）。date：「YYYY-MM-DD」（北京时间那天结束），null = 不限期 */
+export async function 改团队到期(input: { token: string; teamId: string; date: string | null; note?: string }): Promise<AdminResult> {
+  const g = await guard(input.token);
+  if (!g.ok) return g;
+  const { 改到期, 解析日期 } = await import("@/lib/tenant/team-plan");
+  const d = input.date === null ? null : 解析日期(String(input.date));
+  if (input.date !== null && !d) return { ok: false, error: "日期不对" };
+  const r = await 改到期({ teamId: String(input.teamId), paidUntil: d, note: input.note, by: await 运营者() });
+  if (!r.ok) return r;
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}
+
+/** 团队同步：停用（2026-10-03）。成员推拉都回「还没开通」，本机数据不受影响；到期日不动，之后续费照常顺延 */
+export async function 停用团队(input: { token: string; teamId: string; note?: string }): Promise<AdminResult> {
+  const g = await guard(input.token);
+  if (!g.ok) return g;
+  const { 停用 } = await import("@/lib/tenant/team-plan");
+  const r = await 停用({ teamId: String(input.teamId), note: input.note, by: await 运营者() });
+  if (!r.ok) return r;
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}
+
+/** 团队版价格表（每人）。改了桌面端「设置 → 团队」马上看到 */
+export async function 改团队价格(input: { token: string; prices: { months: number; perSeat: number }[]; trialDays: number }): Promise<AdminResult> {
+  const g = await guard(input.token);
+  if (!g.ok) return g;
+  const { 存价格 } = await import("@/lib/tenant/team-plan");
+  const 错 = await 存价格({ prices: input.prices, trialDays: input.trialDays }, await 运营者());
+  if (错) return { ok: false, error: 错 };
   revalidatePath("/admin", "layout");
   return { ok: true };
 }

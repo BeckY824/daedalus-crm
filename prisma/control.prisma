@@ -566,3 +566,44 @@ model SyncRekeyWanted {
   teamId   String   @id
   wantedAt DateTime @default(now())
 }
+
+/// 团队版按时长开通（2026-10-15，control-migrations/023）。运营台「开通 / 续费」选时长和人数后写这里。
+/// paidUntil 过了就暂停同步（和「待开通 / 停用」同一道闸，见 lib/tenant/team-plan.ts），续费顺延后自动恢复；每个人电脑上的数据照常能用。
+/// 没有这一行、或 paidUntil 为空 = 不限期（10-15 之前开通的老团队，运营台显示「未设到期」）。
+/// seats：买了几个席位。人数超了本次只在运营台提示，不拦
+model SyncTeamPlan {
+  teamId    String    @id
+  paidUntil DateTime?
+  seats     Int?
+  updatedAt DateTime  @default(now())
+}
+
+/// 运营台每次开通、续费、改到期日、停用的记录：谁（运营账号邮箱 / 「口令」）、何时、时长、人数、金额、前后到期日、备注。只加不删
+model SyncTeamPlanLog {
+  id     String    @id @default(cuid())
+  teamId String
+  at     DateTime  @default(now())
+  by     String
+  /// 开通 | 续费 | 试用 | 改到期 | 停用
+  kind   String
+  months Int?
+  days   Int?
+  seats  Int?
+  /// 实收（元）。运营者填的，可以和价格表算出来的不一样（打折、补差价）
+  amount Float?
+  before DateTime?
+  after  DateTime?
+  note   String?
+
+  @@index([teamId, at])
+}
+
+/// 团队版价格表（每人）。只有一行 id = "default"；没有这一行用 lib/tenant/team-plan.ts 里的默认价。
+/// prices：JSON [{ months, perSeat }]。运营台改，桌面端「设置 → 团队」从 /api/sync/pricing 读来显示
+model SyncPricing {
+  id        String   @id
+  prices    String
+  trialDays Int
+  updatedAt DateTime @default(now())
+  by        String?
+}
