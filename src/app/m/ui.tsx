@@ -8,6 +8,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { animate, motion, useDragControls, useTransform, type MotionValue } from "motion/react";
 import { ArrowLeftOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseOutlined, CloudSyncOutlined, ContactsFilled, ContactsOutlined, DisconnectOutlined, LeftOutlined, UploadOutlined } from "@ant-design/icons";
 import { 简称, 头像色, 相对时间 } from "@/lib/mobile/view";
+import { 现状动效 } from "@/lib/motion";
 
 export type 系统 = "ios" | "android";
 export const 弹簧 = { type: "spring", stiffness: 420, damping: 42, mass: 0.9 } as const;
@@ -135,7 +136,7 @@ export function Sheet({ onClose, children, 高 }: { onClose: () => void; childre
   const 拖 = useDragControls();
   return (
     <>
-      <motion.div className="m-scrim" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} />
+      <motion.div className="m-scrim" onClick={onClose} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 现状动效.时长.base }} />
       <motion.div className={`m-sheet m-sheet-${高}`} role="dialog"
         initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} transition={弹簧}
         drag="y" dragListener={false} dragControls={拖} dragConstraints={{ top: 0, bottom: 0 }} dragElastic={{ top: 0.05, bottom: 0.9 }}

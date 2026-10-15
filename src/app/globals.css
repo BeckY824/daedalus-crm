@@ -2340,3 +2340,4 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 手机授权框里的配对数字（components/MobileAuthPrompt）：大、等宽，和手机屏幕上的对一眼 */
 .mobile-pair { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-top: var(--s4); padding: var(--s4); background: var(--workbench); border: 1px solid var(--line); border-radius: var(--r-card); text-align: center; }
 .mobile-pair b { font-family: var(--font-num); font-size: 30px; font-weight: 600; letter-spacing: 0.08em; font-variant-numeric: tabular-nums; color: var(--ink); }
+

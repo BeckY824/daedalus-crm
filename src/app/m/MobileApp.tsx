@@ -13,6 +13,7 @@ import * as 密 from "@/lib/sync/crypto-web";
 import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
 import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 金额, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
+import { 现状动效 } from "@/lib/motion";
 import "./m.css";
 
 /**
@@ -27,7 +28,6 @@ import "./m.css";
 
 type 阶段 = "boot" | "login" | "authorize" | "syncing" | "app";
 type 面板 = null | { kind: "record"; id: string } | { kind: "me" } | { kind: "unsynced" };
-type 深浅 = "auto" | "light" | "dark";
 type 设备 = { device: string; 公钥: string; 私钥: CryptoKey };
 type 账号 = { name: string; contact: string };
 type 遗留 = { content: string; customer: string; at: number };
@@ -100,7 +100,6 @@ export default function MobileApp() {
   const [提示, set提示] = useState<{ id: number; 字: string; 图?: ReactNode } | null>(null);
   const [失效提示, set失效提示] = useState<string | null>(null);
   const [遗留们, set遗留们] = useState<遗留[]>([]);
-  const [深色, set深色] = useState<深浅>("auto");
   const [tab, setTab] = useState<标签>("today");
   const [详情, set详情] = useState<string | null>(null);
   const [面板, set面板] = useState<面板>(null);
@@ -119,11 +118,10 @@ export default function MobileApp() {
       const k = await 本地库.打开();
       if (停) return;
       set库(k);
-      const [t, 团, 态0, 名, 号, 遗, 深] = await Promise.all([k.读("token"), k.读("team"), k.读("state"), k.读("teamName"), k.读("account"), k.读("leftover"), k.读("dark")]);
+      const [t, 团, 态0, 名, 号, 遗] = await Promise.all([k.读("token"), k.读("team"), k.读("state"), k.读("teamName"), k.读("account"), k.读("leftover")]);
       if (停) return;
       if (态0) { 态.current = 态0 as 同步.同步状态; set快照(拍(态.current)); }
       set遗留们((遗 as 遗留[] | undefined) ?? []);
-      set深色((深 as 深浅 | undefined) ?? "auto");
       set账号((号 as 账号 | undefined) ?? null);
       set团队名(String(名 ?? ""));
       if (!t) { set阶段("login"); return; }
@@ -268,7 +266,7 @@ export default function MobileApp() {
     set阶段("login");
   }
 
-  const 根属性 = { "data-os": os, "data-dark": 深色 } as Record<string, string>;
+  const 根属性 = { "data-os": os } as Record<string, string>;
   const 今天 = 今天要跟(客户们, 我, 现在);
   const 今天数 = 今天.过期.length + 今天.今天.length;
 
@@ -311,7 +309,7 @@ export default function MobileApp() {
             onFail={(话) => { if (/登录已失效/.test(话)) void 失效("登录失效了，请重新登录"); }} />
         )}
         {阶段 === "app" && 团队 && (
-          <motion.div key="app" className="m-app" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.25 }}>
+          <motion.div key="app" className="m-app" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 现状动效.时长.morph }}>
             <BaseLayer 顶x={顶x} 宽={宽} os={os} 有详情={!!详情}>
               <div className="m-tabs-body">
                 {tab === "today"
@@ -340,8 +338,7 @@ export default function MobileApp() {
             })()}
             {面板.kind === "me" && (
               <MeSheet 账号={账号} 团队名={团队名} 断网={断网} 待同步={待同步数} 在同步={在同步} 上次同步={快照.lastSyncAt}
-                错误={快照.lastError} 现在={现在} 深色={深色} 没同步上={没同步上.length}
-                set深色={(d) => { set深色(d); void 库?.写("dark", d); }}
+                错误={快照.lastError} 现在={现在} 没同步上={没同步上.length}
                 onSync={() => void 跑同步(true)} onUnsynced={() => { 返回(); setTimeout(() => 打开面板({ kind: "unsynced" }), 300); }}
                 onLogout={() => { 返回(); setTimeout(() => void 退出(), 250); }} />
             )}
@@ -640,9 +637,9 @@ function RecordSheet({ c, os, 我, onCancel, onSave }: { c: 客户视图; os: �
 
 /* ====================================================================== 我的、没同步上的 */
 
-function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步, 错误, 现在, 深色, set深色, 没同步上, onSync, onUnsynced, onLogout }: {
+function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步, 错误, 现在, 没同步上, onSync, onUnsynced, onLogout }: {
   账号: 账号 | null; 团队名: string; 断网: boolean; 待同步: number; 在同步: boolean; 上次同步: number | null; 错误: string | null; 现在: number;
-  深色: 深浅; set深色: (d: 深浅) => void; 没同步上: number; onSync: () => void; onUnsynced: () => void; onLogout: () => void;
+  没同步上: number; onSync: () => void; onUnsynced: () => void; onLogout: () => void;
 }) {
   const [确认退出, set确认退出] = useState(false);
   return (
@@ -657,14 +654,6 @@ function MeSheet({ 账号, 团队名, 断网, 待同步, 在同步, 上次同步
         {错误 && <div className="m-kv m-kv-col"><span className="is-danger">{错误}</span></div>}
         <button className="m-kv m-kv-btn" onClick={onSync} disabled={在同步}>立即同步</button>
         {没同步上 > 0 && <button className="m-kv m-kv-btn" onClick={onUnsynced}>没同步上的跟进（{没同步上}）</button>}
-      </div>
-      <div className="m-list m-list-inset">
-        <div className="m-kv m-kv-col"><span>深浅色</span>
-          <div className="m-seg m-seg-sm m-seg-3">
-            {(["auto", "light", "dark"] as const).map((k) => <button key={k} className={深色 === k ? "is-on" : ""} onClick={() => set深色(k)}>{{ auto: "跟随系统", light: "浅色", dark: "深色" }[k]}</button>)}
-            <i className="m-seg-thumb" style={{ transform: `translateX(${["auto", "light", "dark"].indexOf(深色) * 100}%)` }} />
-          </div>
-        </div>
       </div>
       <div className="m-list m-list-inset">
         {!确认退出 ? (
@@ -705,7 +694,7 @@ function UnsyncedSheet({ 列, 说, on处理 }: { 列: { key: string; 来自: "�
 
 /* ====================================================================== 登录 → 授权 → 首次同步 */
 
-const 进场 = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -12 }, transition: { duration: 0.28 } };
+const 进场 = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -12 }, transition: { duration: 现状动效.时长.morph } };
 
 function LoginFlow({ 失效提示, 遗留, onDone }: { 失效提示: string | null; 遗留: number; onDone: (token: string, 号: 账号) => Promise<void> }) {
   const [邮箱, set邮箱] = useState("");

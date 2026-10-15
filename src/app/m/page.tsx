@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { palette } from "@/lib/palette";
 import MobileApp from "./MobileApp";
 import SwRegister from "./SwRegister";
 
@@ -22,10 +23,8 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#fafafa" },
-    { media: "(prefers-color-scheme: dark)", color: "#0e1013" },
-  ],
+  // 只有浅色（和桌面端一样）：状态栏就是页面底色
+  themeColor: palette.workbench,
 };
 
 export default function MobilePage() {

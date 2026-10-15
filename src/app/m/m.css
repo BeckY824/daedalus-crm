@@ -1,37 +1,10 @@
 /*
  * 手机版（2026-10-15，原型 /lab/m 定稿后搬过来）。颜色、字体、圆角、头像色全用 globals.css / skins 里的变量——换主题跟着变，和桌面端是一家人。
  * 只有手机才有的东西（安全区、标签栏、底部面板、两个平台的差异）写在这里。
- * data-os="ios" | "android" 决定按哪个系统的习惯；data-dark 是深浅色（桌面端没有深色，这里先只给手机配一套）。
+ * data-os="ios" | "android" 决定按哪个系统的习惯。
  */
 
-/* ---------- 深色（跟随系统 / 手动） ---------- */
-.m-root[data-dark="dark"] {
-  --brand: #5b8cff; --brand-deep: #b4c8ff; --brand-bg: #1b2541; --brand-line: #2c3d6b;
-  --ink: #f2f3f5; --ink-soft: #d0d3d9; --text-muted: #9ba1ab; --text-faint: #6b717c;
-  --line: #2a2d34; --line-soft: #22252b; --line-strong: #3a3e47;
-  --panel: #17191e; --workbench: #0e1013; --hover: #22252c; --row-hover: #1c1f25; --page-bg: #0e1013;
-  --success: #34c759; --success-text: #6ee08e; --success-bg: #12301c; --success-line: #1f5131;
-  --warning: #f5a524; --warning-text: #f7c46b; --warning-bg: #352812; --warning-line: #5a4216;
-  --danger: #ff5a52; --danger-text: #ff8a84; --danger-bg: #3a1615; --danger-line: #5e2321;
-  --avatar-1: #1e3357; --avatar-2: #173b27; --avatar-3: #3d3214; --avatar-4: #45201f;
-  --avatar-5: #2e2650; --avatar-6: #123446; --avatar-7: #43203a; --avatar-8: #2a3039;
-  --on-ink: #ffffff;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: dark) {
-  .m-root[data-dark="auto"] {
-    --brand: #5b8cff; --brand-deep: #b4c8ff; --brand-bg: #1b2541; --brand-line: #2c3d6b;
-    --ink: #f2f3f5; --ink-soft: #d0d3d9; --text-muted: #9ba1ab; --text-faint: #6b717c;
-    --line: #2a2d34; --line-soft: #22252b; --line-strong: #3a3e47;
-    --panel: #17191e; --workbench: #0e1013; --hover: #22252c; --row-hover: #1c1f25; --page-bg: #0e1013;
-    --success: #34c759; --success-text: #6ee08e; --success-bg: #12301c; --success-line: #1f5131;
-    --warning: #f5a524; --warning-text: #f7c46b; --warning-bg: #352812; --warning-line: #5a4216;
-    --danger: #ff5a52; --danger-text: #ff8a84; --danger-bg: #3a1615; --danger-line: #5e2321;
-    --avatar-1: #1e3357; --avatar-2: #173b27; --avatar-3: #3d3214; --avatar-4: #45201f;
-    --avatar-5: #2e2650; --avatar-6: #123446; --avatar-7: #43203a; --avatar-8: #2a3039;
-    color-scheme: dark;
-  }
-}
+/* 只有浅色：桌面端也没有深色，设计系统的颜色只有 :root 那一套（tests/design-tokens.test.ts）。要做深色得全产品一起做 */
 
 /* ---------- 地基：铺满屏幕、不许整页回弹、不要网页的点按高亮和长按菜单 ---------- */
 html.m-page, html.m-page body { height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--workbench); }
@@ -57,7 +30,7 @@ html.m-page nextjs-portal { display: none; }
 .m-top { z-index: 2; }
 .m-root[data-os="ios"] .m-top { box-shadow: -10px 0 30px rgba(0, 0, 0, 0.08); }
 .m-edge { position: absolute; left: 0; top: 0; bottom: 0; width: 22px; z-index: 6; touch-action: none; }
-.m-dim { position: absolute; inset: 0; background: #000; pointer-events: none; }
+.m-dim { position: absolute; inset: 0; background: rgb(0 0 0); pointer-events: none; }
 .m-tabs-body { position: relative; flex: 1; min-height: 0; }
 
 /* ---------- 页头：iPhone 大标题 ↔ 小标题；安卓靠左的顶栏 ---------- */
@@ -170,7 +143,7 @@ html.m-page nextjs-portal { display: none; }
 .m-ptr { display: grid; place-items: center; overflow: hidden; transition: height 0.18s; }
 .m-spinner { display: inline-block; width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line-strong); border-top-color: var(--brand); }
 .m-spinner.is-on { animation: m-spin 0.8s linear infinite; }
-.m-spinner.is-light { border-color: rgba(255, 255, 255, 0.35); border-top-color: #fff; }
+.m-spinner.is-light { border-color: rgba(255, 255, 255, 0.35); border-top-color: var(--on-ink); }
 
 /* ---------- 客户详情 ---------- */
 .m-hero { display: flex; align-items: center; gap: 14px; padding: 2px 16px 16px; }
@@ -258,7 +231,7 @@ html.m-page nextjs-portal { display: none; }
 .m-tabbar button { display: flex; flex-direction: column; align-items: center; gap: 2px; height: 50px; padding-top: 6px; color: var(--text-muted); }
 .m-tabbar button.is-on { color: var(--brand); }
 .m-tab-ic { position: relative; font-size: 23px; line-height: 1; }
-.m-tab-ic em { position: absolute; top: -4px; right: -11px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px; background: var(--danger); color: #fff; font-size: 11px; font-style: normal; font-weight: 600; }
+.m-tab-ic em { position: absolute; top: -4px; right: -11px; min-width: 17px; height: 17px; padding: 0 4px; display: grid; place-items: center; border-radius: 9px; background: var(--danger); color: var(--on-ink); font-size: 11px; font-style: normal; font-weight: 600; }
 .m-tab-l { font-size: 10px; font-weight: 500; }
 .m-tabbar[data-os="android"] { background: var(--panel); -webkit-backdrop-filter: none; backdrop-filter: none; border-top: 0; box-shadow: 0 -1px 0 var(--line-soft); }
 .m-tabbar[data-os="android"] button { height: 80px; padding-top: 12px; gap: 4px; color: var(--ink-soft); }
@@ -328,12 +301,12 @@ html.m-page nextjs-portal { display: none; }
   width: max-content; max-width: calc(100% - 32px); margin: 0 auto;
   display: flex; align-items: center; gap: 8px; padding: 10px 16px;
   font-size: 14px; font-weight: 500; color: var(--on-ink);
-  background: color-mix(in srgb, #111827 90%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--ink) 90%, transparent); border-radius: 999px;
   -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   pointer-events: none;
 }
-.m-toast svg { color: #4ade80; }
-.m-root[data-os="android"] .m-toast { top: auto; bottom: calc(96px + env(safe-area-inset-bottom)); border-radius: 8px; padding: 14px 16px; background: #2f3033; }
+.m-toast svg { color: var(--success-line); }
+.m-root[data-os="android"] .m-toast { top: auto; bottom: calc(96px + env(safe-area-inset-bottom)); border-radius: 8px; padding: 14px 16px; background: var(--ink); }
 
 /* ---------- 登录 → 授权 → 首次同步 ---------- */
 .m-flow { position: absolute; inset: 0; display: flex; flex-direction: column; overflow-y: auto; padding: calc(env(safe-area-inset-top) + 56px) 24px calc(env(safe-area-inset-bottom) + 24px); background: var(--page-bg); }
@@ -349,30 +322,16 @@ html.m-page nextjs-portal { display: none; }
 .m-flow-foot { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: auto; padding-top: 28px; font-size: 13px; text-align: center; color: var(--text-muted); }
 .m-flow-foot p { margin: 0; line-height: 1.5; }
 .m-faint { color: var(--text-faint); font-size: 12px; }
-.m-desk { margin-top: 28px; overflow: hidden; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 16px 36px -16px rgba(0, 0, 0, 0.25); }
-.m-desk-bar { display: flex; gap: 6px; padding: 10px 12px; background: var(--workbench); border-bottom: 1px solid var(--line-soft); }
-.m-desk-bar i { width: 10px; height: 10px; border-radius: 50%; background: #ff5f57; }
-.m-desk-bar i:nth-child(2) { background: #febc2e; }
-.m-desk-bar i:nth-child(3) { background: #28c840; }
-.m-desk-body { padding: 16px; }
-.m-desk-body b { font-size: 15px; }
-.m-desk-body p { margin: 8px 0 0; font-size: 13px; line-height: 1.55; color: var(--ink-soft); }
-.m-desk-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
-.m-desk-btns span { padding: 6px 14px; font-size: 13px; border: 1px solid var(--line-strong); border-radius: 6px; }
-.m-desk-btns .is-brand { color: var(--on-ink); background: var(--brand); border-color: var(--brand); animation: m-pulse 1.8s ease-in-out infinite; }
 .m-waiting { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 26px; font-size: 14px; color: var(--text-muted); }
 .m-waiting span { width: 6px; height: 6px; border-radius: 50%; background: var(--brand); animation: m-dot 1.2s ease-in-out infinite; }
 .m-waiting span:nth-child(2) { animation-delay: 0.15s; }
 .m-waiting span:nth-child(3) { animation-delay: 0.3s; margin-right: 6px; }
 .m-flow-center { justify-content: center; align-items: center; gap: 14px; text-align: center; }
 .m-flow-center h1 { font-size: 22px; font-weight: 600; margin-top: 10px; }
-.m-ring { --p: 0; width: 124px; height: 124px; display: grid; place-items: center; border-radius: 50%; background: conic-gradient(var(--brand) calc(var(--p) * 360deg), var(--line) 0); }
-.m-ring span { width: 108px; height: 108px; display: grid; place-items: center; border-radius: 50%; background: var(--page-bg); font-family: var(--font-num); font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .m-sync-counts { display: flex; gap: 36px; }
 .m-sync-counts b { display: block; font-family: var(--font-num); font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .m-sync-counts span { font-size: 13px; color: var(--text-muted); }
 .m-flow-center .m-faint { display: inline-flex; align-items: center; gap: 4px; }
-.m-done { display: flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 600; color: var(--success-text); }
 
 @keyframes m-spin { to { transform: rotate(360deg); } }
 @keyframes m-dot { 0%, 100% { opacity: 0.25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-3px); } }
@@ -382,8 +341,7 @@ html.m-page nextjs-portal { display: none; }
 /* 关了动画：位移都撤掉，但「在等」「在转」还得看得出来——改成原地一明一暗（同 0.46.16 的做法） */
 @media (prefers-reduced-motion: reduce) {
   .m-spinner.is-on, .m-waiting span { animation: m-fade 0.8s ease-in-out infinite alternate; }
-  .m-desk-btns .is-brand { animation: none; }
-  .m-seg-thumb { transition: none; }
+    .m-seg-thumb { transition: none; }
 }
 
 /* ---------- 正式版多出来的（2026-10-15） ---------- */

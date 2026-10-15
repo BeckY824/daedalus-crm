@@ -1,3 +1,5 @@
+import { palette } from "@/lib/palette";
+
 /** 「添加到主屏幕 / 安装应用」读的清单：名字、图标、全屏打开、从 /m 起 */
 export function GET() {
   return Response.json(
@@ -8,8 +10,8 @@ export function GET() {
       scope: "/m",
       display: "standalone",
       orientation: "portrait",
-      background_color: "#fafafa",
-      theme_color: "#fafafa",
+      background_color: palette.workbench,
+      theme_color: palette.workbench,
       icons: [
         { src: "/apple-icon.png", sizes: "180x180", type: "image/png" },
         { src: "/icon.svg", sizes: "any", type: "image/svg+xml" },
