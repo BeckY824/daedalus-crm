@@ -24,7 +24,7 @@ export async function 发申请(云: 传输, x: { device: string; pubKey: string
 export type 申请结果 = { status: "pending" | "denied" | "expired" | "removed" | "none" } | { status: "approved"; 团队: 手机团队; teamName: string };
 
 /** 问一下电脑点了没。允许了就解开、核对是封给这台手机的，返回能直接同步的身份 */
-export async function 查申请(云: 传输, 本机: { device: string; 私钥: CryptoKey }): Promise<申请结果> {
+export async function 查申请(云: 传输, 本机: { device: string; 私钥: 密.设备私钥 }): Promise<申请结果> {
   const r = await 云("POST", 路径, { action: "status" });
   if (r.状态 !== 200) throw new Error(话(r, "查不到授权结果"));
   const status = String(r.json.status);

@@ -28,7 +28,7 @@ import "./m.css";
 
 type 阶段 = "boot" | "login" | "authorize" | "syncing" | "app";
 type 面板 = null | { kind: "record"; id: string } | { kind: "me" } | { kind: "unsynced" };
-type 设备 = { device: string; 公钥: string; 私钥: CryptoKey };
+type 设备 = { device: string; 公钥: string; 私钥: 密.设备私钥 };
 type 账号 = { name: string; contact: string };
 type 遗留 = { content: string; customer: string; at: number };
 /** 同步状态会被同步库原地改，放在 ref 里只在回调中动；渲染读这一份快照（改完一次拍一次） */

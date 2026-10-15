@@ -171,7 +171,7 @@ afterAll(async () => {
 });
 
 const 手机云 = 用令牌("手机");
-let 手机钥: { 公钥: string; 私钥: CryptoKey };
+let 手机钥: Awaited<ReturnType<typeof 密.设备钥匙对>>;
 const 手机设备 = 连.新设备号();
 let 机: 手机.手机团队;
 const 库 = new 手机.内存库();

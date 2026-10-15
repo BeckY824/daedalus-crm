@@ -7,10 +7,12 @@
  *   - 还存几样小东西（kv）：登录令牌、设备号和私钥、团队身份、同步状态
  *   - kv 里带「私钥」的值（设备、团队身份）：私钥导成 PKCS8、用上面那把行钥匙加密后再存，读时解开导回 CryptoKey。
  *     因为 Safari（WebKit）存 X25519 的 CryptoKey 不报错、读回来却是 undefined（整条丢掉）——2026-10-15 真 iPhone 上
- *     配对数字每 30 秒变一次、电脑点了允许手机也收不到，就是它。老格式（私钥是 CryptoKey 本身，安卓上已有的）照认
+ *     配对数字每 30 秒变一次、电脑点了允许手机也收不到，就是它。老格式（私钥是 CryptoKey 本身，安卓上已有的）照认。
+ *     浏览器没内置 X25519 时私钥本来就是原始 32 字节（crypto-web.ts），同样封起来存
  *
  * 只在浏览器里用（window.indexedDB）。测试用 sync.ts 的 内存库。
  */
+import type { 设备私钥 } from "@/lib/sync/crypto-web";
 import { 行键 } from "@/lib/sync/scope-policy";
 import { 内存库, type 记录 } from "./sync";
 
@@ -36,9 +38,11 @@ const 等完 = (t: IDBTransaction) => new Promise<void>((ok, bad) => { t.oncompl
 const 字 = new TextEncoder();
 const 读字 = new TextDecoder();
 type 密行 = { iv: Uint8Array<ArrayBuffer>; ct: ArrayBuffer };
-type 带私钥 = { 私钥: CryptoKey };
-type 封私钥 = { 私钥封: 密行 };
-const 带私钥吗 = (v: unknown): v is 带私钥 => typeof v === "object" && v !== null && (v as 带私钥).私钥 instanceof CryptoKey;
+type 带私钥 = { 私钥: 设备私钥 };
+/** 形：没有 = PKCS8（内置 X25519 导出的）；"raw" = 原始 32 字节（纯 JS 实现的） */
+type 封私钥 = { 私钥封: 密行 & { 形?: "raw" } };
+const 原始吗 = (k: unknown): k is { raw: Uint8Array } => typeof k === "object" && k !== null && (k as { raw?: unknown }).raw instanceof Uint8Array;
+const 带私钥吗 = (v: unknown): v is 带私钥 => typeof v === "object" && v !== null && ((v as 带私钥).私钥 instanceof CryptoKey || 原始吗((v as 带私钥).私钥));
 const 封私钥吗 = (v: unknown): v is 封私钥 => typeof v === "object" && v !== null && "私钥封" in v;
 const 新行钥匙 = () => crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 
@@ -101,6 +105,7 @@ export class 本地库 extends 内存库 {
     const { 私钥封, ...其余 } = v;
     try {
       const pk = await crypto.subtle.decrypt({ name: "AES-GCM", iv: 私钥封.iv }, this.钥, 私钥封.ct);
+      if (私钥封.形 === "raw") return { ...其余, 私钥: { raw: new Uint8Array(pk) } };
       // 导回来仍可导出：之后 写 团队身份 时要再封一次
       return { ...其余, 私钥: await crypto.subtle.importKey("pkcs8", pk, { name: "X25519" }, true, ["deriveBits"]) };
     } catch {
@@ -110,11 +115,13 @@ export class 本地库 extends 内存库 {
   async 写(名: string, 值: unknown): Promise<void> {
     let 存 = 值;
     // 不可导出的老私钥（安卓上已有的）没法封，原样存——Chrome 存得住
-    if (带私钥吗(值) && 值.私钥.extractable) {
+    if (带私钥吗(值) && (原始吗(值.私钥) || 值.私钥.extractable)) {
       const iv = crypto.getRandomValues(new Uint8Array(12));
-      const pk = await crypto.subtle.exportKey("pkcs8", 值.私钥);
+      const 原始 = 原始吗(值.私钥);
+      const pk = 原始吗(值.私钥) ? new Uint8Array(值.私钥.raw) : await crypto.subtle.exportKey("pkcs8", 值.私钥);
       const { 私钥: _, ...其余 } = 值;
-      存 = { ...其余, 私钥封: { iv, ct: await crypto.subtle.encrypt({ name: "AES-GCM", iv }, this.钥, pk) } };
+      const 封 = { iv, ct: await crypto.subtle.encrypt({ name: "AES-GCM", iv }, this.钥, pk) };
+      存 = { ...其余, 私钥封: 原始 ? { ...封, 形: "raw" as const } : 封 };
     }
     const t = this.db.transaction("kv", "readwrite");
     if (存 === undefined) t.objectStore("kv").delete(名); else t.objectStore("kv").put(存, 名);

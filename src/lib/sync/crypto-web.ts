@@ -12,7 +12,11 @@
  *   - 封给 / 拆自：X25519 临时钥匙 + 对方公钥 → HKDF-SHA256（盐为空，info "daedalus-team-key-v1"）→ AES-GCM；
  *     输出：临时公钥长度（2 字节）+ 临时公钥（SPKI DER）+ 密文
  *   - 签名：Ed25519，公钥是 JWK 的 x；签的是 `用途|原文`
+ *
+ * X25519 / Ed25519 浏览器没内置时（2026-10-15 真机：华为浏览器 17、QQ 浏览器 20.6，内核 Chrome 121–132），
+ * 换成 @noble/curves 的纯 JS 实现，算法一样、字节一样。这时私钥是 { raw: 32 字节 }，而不是 CryptoKey。
  */
+import { ed25519, x25519 } from "@noble/curves/ed25519.js";
 import { 规范串 } from "./canon";
 
 const subtle = () => {
@@ -146,8 +150,11 @@ export async function 验(签好: string, 用途: string, 公钥: string): Promi
   if (i <= 0) return null;
   const 原文 = 签好.slice(0, i);
   try {
+    const 签 = 解b64u(签好.slice(i + 1)), 文 = 字.encode(`${用途}|${原文}`);
+    // 纯 JS 那边按 RFC 8032 严格验（zip215: false），和 WebCrypto / Node 一样
+    if (!(await 有内置("Ed25519"))) return ed25519.verify(签, 文, 解b64u(公钥), { zip215: false }) ? 原文 : null;
     const k = await subtle().importKey("jwk", { kty: "OKP", crv: "Ed25519", x: 公钥 }, { name: "Ed25519" }, false, ["verify"]);
-    return (await subtle().verify({ name: "Ed25519" }, k, 纯(解b64u(签好.slice(i + 1))), 字.encode(`${用途}|${原文}`))) ? 原文 : null;
+    return (await subtle().verify({ name: "Ed25519" }, k, 纯(签), 文)) ? 原文 : null;
   } catch {
     return null;
   }
@@ -155,11 +162,32 @@ export async function 验(签好: string, 用途: string, 公钥: string): Promi
 
 /* ---------------- 设备钥匙对：电脑授权时把团队钥匙封给这台手机 ---------------- */
 
+/** 设备私钥：浏览器内置 X25519 时是 CryptoKey；没内置时是原始 32 字节（纯 JS 实现用） */
+export type 设备私钥 = CryptoKey | { raw: Uint8Array };
+
+const 内置: Partial<Record<"X25519" | "Ed25519", Promise<boolean>>> = {};
+/** 浏览器内置这个算法吗：试生成一把钥匙，结果记住（一个页面只试一次） */
+export function 有内置(算法: "X25519" | "Ed25519"): Promise<boolean> {
+  return (内置[算法] ??= subtle().generateKey({ name: 算法 }, false, 算法 === "X25519" ? ["deriveBits"] : ["sign", "verify"]).then(() => true, () => false));
+}
+
+/** X25519 公钥的 SPKI DER = 固定 12 字节头 + 32 字节原始公钥（和 Node / 桌面端导出的一样） */
+const X25519头 = new Uint8Array([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00]);
+const 包公钥 = (raw: Uint8Array) => 拼(X25519头, raw);
+function 拆公钥(spki: Uint8Array): Uint8Array {
+  if (spki.length !== 44 || X25519头.some((b, i) => spki[i] !== b)) throw new Error("公钥格式不对");
+  return spki.subarray(12);
+}
+
 /**
- * 手机自己的 X25519 钥匙对。私钥默认**不可导出**：存进 IndexedDB 的是 CryptoKey 本身，
- * 页面脚本也拿不出原始字节（方案 3.3）。公钥导成 SPKI DER 的 base64url，和桌面端 设备钥匙对 的格式一样。
+ * 手机自己的 X25519 钥匙对。公钥导成 SPKI DER 的 base64url，和桌面端 设备钥匙对 的格式一样。
+ * 内置时私钥默认**不可导出**（方案 3.3）；手机端传 可导出 = true，本地库要把它封起来再存（store.ts）
  */
-export async function 设备钥匙对(可导出 = false): Promise<{ 公钥: string; 私钥: CryptoKey }> {
+export async function 设备钥匙对(可导出 = false): Promise<{ 公钥: string; 私钥: 设备私钥 }> {
+  if (!(await 有内置("X25519"))) {
+    const raw = x25519.utils.randomSecretKey();
+    return { 公钥: 转b64u(包公钥(x25519.getPublicKey(raw))), 私钥: { raw } };
+  }
   const p = (await subtle().generateKey({ name: "X25519" }, 可导出, ["deriveBits"])) as CryptoKeyPair;
   return { 公钥: 转b64u(new Uint8Array(await subtle().exportKey("spki", p.publicKey))), 私钥: p.privateKey };
 }
@@ -173,20 +201,30 @@ async function 派生(共享: Uint8Array): Promise<string> {
   const bits = await subtle().deriveBits({ name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: 字.encode("daedalus-team-key-v1") }, ikm, 256);
   return 转b64u(new Uint8Array(bits));
 }
-async function 共享密钥(私: CryptoKey, 公spki: Uint8Array): Promise<Uint8Array> {
+async function 共享密钥(私: 设备私钥, 公spki: Uint8Array): Promise<Uint8Array> {
+  // 纯 JS 那边对全零结果（对方给了小阶点）会抛错，和 WebCrypto 一样拦下
+  if (!(私 instanceof CryptoKey)) return x25519.getSharedSecret(私.raw, 拆公钥(公spki));
   const pub = await subtle().importKey("spki", 纯(公spki), { name: "X25519" }, false, []);
   return new Uint8Array(await subtle().deriveBits({ name: "X25519", public: pub }, 私, 256));
 }
 
 export async function 封给(对方公钥: string, 明文: string): Promise<string> {
-  const 临时 = (await subtle().generateKey({ name: "X25519" }, false, ["deriveBits"])) as CryptoKeyPair;
-  const 临时公 = new Uint8Array(await subtle().exportKey("spki", 临时.publicKey));
-  const k = await 派生(await 共享密钥(临时.privateKey, 解b64u(对方公钥)));
+  let 临时公: Uint8Array, 共享: Uint8Array;
+  if (await 有内置("X25519")) {
+    const 临时 = (await subtle().generateKey({ name: "X25519" }, false, ["deriveBits"])) as CryptoKeyPair;
+    临时公 = new Uint8Array(await subtle().exportKey("spki", 临时.publicKey));
+    共享 = await 共享密钥(临时.privateKey, 解b64u(对方公钥));
+  } else {
+    const raw = x25519.utils.randomSecretKey();
+    临时公 = 包公钥(x25519.getPublicKey(raw));
+    共享 = await 共享密钥({ raw }, 解b64u(对方公钥));
+  }
+  const k = await 派生(共享);
   const 长 = new Uint8Array(2);
   new DataView(长.buffer).setUint16(0, 临时公.length);
   return 转b64u(拼(长, 临时公, await 加密(字.encode(明文), k)));
 }
-export async function 拆自(我的私钥: CryptoKey, 封好: string): Promise<string> {
+export async function 拆自(我的私钥: 设备私钥, 封好: string): Promise<string> {
   const b = 解b64u(封好);
   const 长 = new DataView(b.buffer, b.byteOffset, b.byteLength).getUint16(0);
   const k = await 派生(await 共享密钥(我的私钥, b.subarray(2, 2 + 长)));

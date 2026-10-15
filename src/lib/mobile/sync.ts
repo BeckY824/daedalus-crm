@@ -34,8 +34,8 @@ export type 手机团队 = {
   signPub?: string;
   /** 本人在团队库里的用户 id（acct_<云端账号>） */
   userId: string;
-  /** 不可导出的 X25519 私钥（IndexedDB 里存的是 CryptoKey 本身） */
-  私钥: CryptoKey;
+  /** 这台手机的 X25519 私钥：内置时是 CryptoKey，没内置时是原始字节（存盘前都由 store.ts 封起来） */
+  私钥: 密.设备私钥;
 };
 
 export type 同步状态 = {

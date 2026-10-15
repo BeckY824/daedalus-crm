@@ -15,6 +15,8 @@ html.m-page, html.m-page body { height: 100%; overflow: hidden; overscroll-behav
   -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none;
   -webkit-text-size-adjust: 100%; -webkit-font-smoothing: antialiased;
 }
+/* 浏览器太旧时 page.tsx 叠上来的说明：盖住页面里所有层 */
+.m-too-old { z-index: 100; }
 /* :where 把这条的优先级压到 0，各个按钮自己的 padding / 底色才盖得住它 */
 .m-root :where(button) { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 /* 开发服务器左下角那个 N 会压在标签栏上（正式版没有它） */
