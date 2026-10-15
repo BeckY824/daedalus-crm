@@ -47,10 +47,22 @@ export type 同步状态 = {
   /** 本机时钟：上一次编的毫秒数。收到别人的改动会推到对方的数（和桌面端 _sync_clock 一样） */
   钟: number;
   skipped: number;
+  /** 上一次「试着同步」的时间：成功、出错都记 */
   lastSyncAt?: string;
+  /**
+   * 上一次同步成功的时间（2026-10-15 起才有）。只在成功时写：团队到期被拒时不能拿出错的时间冒充「已同步 · 刚才」。
+   * 之前存下的老状态没有这一项，读法见 上次成功()
+   */
+  lastOkAt?: string;
   lastError?: string | null;
 };
 export const 新状态 = (): 同步状态 => ({ cursors: {}, 待推: [], 被拒: [], 钟: 0, skipped: 0 });
+/** 上次同步成功是什么时候（毫秒）。老状态没有 lastOkAt：没出错时 lastSyncAt 就是成功的那次，出着错就不知道 */
+export function 上次成功(s: Pick<同步状态, "lastSyncAt" | "lastOkAt" | "lastError">): number | null {
+  const v = s.lastOkAt ?? (s.lastError ? undefined : s.lastSyncAt);
+  const t = v ? Date.parse(v) : NaN;
+  return Number.isFinite(t) ? t : null;
+}
 
 /** 手机上存的一行：整行 + 每列的字段钟 */
 export type 记录 = { t: string; k: string; r: Record<string, unknown>; 钟: Record<string, string> };
@@ -250,10 +262,11 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
     for (const r of index.values()) if (r.deleted && r.clock && !待推键.has(行键(r.t, r.k)) && (await 库.取(r.t, r.k))) 补删.push({ t: r.t, k: r.k, o: "D", r: null, c: [], h: r.clock });
     if (补删.length) 拉 += await 回放(库, 补删, c.device, 状态, { 含本人: true });
     状态.cursors = cursors;
-    状态.lastSyncAt = new Date().toISOString();
+    状态.lastSyncAt = 状态.lastOkAt = new Date().toISOString();
     状态.lastError = null;
     return { c, 推: p.推, 拉, 拒: p.拒 };
   } catch (e) {
+    // 只记「试过」，不动 lastOkAt
     状态.lastSyncAt = new Date().toISOString();
     状态.lastError = e instanceof 同步问题 ? e.message : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
     throw e;

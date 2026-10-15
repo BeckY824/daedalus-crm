@@ -244,4 +244,38 @@ describe("手机端同步：和真实桌面端一起", () => {
     expect(await db("boss").followUp.findUnique({ where: { id } })).toMatchObject({ content: "手机用新钥匙推的" });
     expect(状态.skipped).toBe(0);
   });
+
+  it("团队到期 / 停用：服务端拒绝，手机记下原因、不把出错时间当成上次成功；续费后自动恢复", async () => {
+    const { 改到期 } = await import("@/lib/tenant/team-plan");
+    const { 同步条 } = await import("@/lib/mobile/view");
+    const 条 = () => 同步条({ 断网: false, 待同步: 状态.待推.length, 在同步: false, 上次成功: 手机.上次成功(状态), 错误: 状态.lastError ?? null, 现在: Date.now() });
+    await 手机轮();
+    const 成功于 = 状态.lastOkAt;
+    expect(成功于).toBeTruthy();
+    expect(条().样子).toBe("ok");
+
+    // 运营台把到期日改到昨天
+    expect(await 改到期({ teamId: 机.teamId, paidUntil: new Date(Date.now() - 86400_000), by: "test" })).toMatchObject({ ok: true });
+    const { id } = await 手机.记跟进(机, 库, 状态, { customerId: "c-li", type: "PHONE", content: "到期期间记的" });
+    await expect(手机轮()).rejects.toThrow(/已到期/);
+    expect(状态.lastError).toMatch(/已到期/);
+    expect(状态.lastOkAt).toBe(成功于);
+    expect(状态.待推.some((e) => e.k === id)).toBe(true);
+    expect(条()).toMatchObject({ 样子: "stop", 字: "团队已到期，暂停同步" });
+
+    // 停用：没开通
+    await relay.设开通(机.teamId, false);
+    await expect(手机轮()).rejects.toThrow(/没开通/);
+    expect(条()).toMatchObject({ 样子: "stop", 字: "团队没开通，暂不同步" });
+
+    // 续费（重新开通、到期日放到以后）：下一轮就恢复，到期期间记的推上去
+    await relay.设开通(机.teamId, true);
+    expect(await 改到期({ teamId: 机.teamId, paidUntil: null, by: "test" })).toMatchObject({ ok: true });
+    await 手机轮();
+    expect(状态.lastError).toBeNull();
+    expect(状态.lastOkAt! > 成功于!).toBe(true);
+    expect(条().样子).toBe("ok");
+    await 都轮("li");
+    expect(await db("li").followUp.findUnique({ where: { id } })).toMatchObject({ content: "到期期间记的" });
+  });
 });

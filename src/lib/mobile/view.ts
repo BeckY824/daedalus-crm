@@ -5,6 +5,7 @@
  * 这里统一读法：时间 → 毫秒，布尔 → true/false。
  */
 import type { 记录 } from "./sync";
+import { 没开通话 } from "@/lib/team-pricing";
 
 export const 毫秒 = (v: unknown): number | null => {
   if (v == null || v === "") return null;
@@ -143,4 +144,48 @@ export function 相对时间(t: number, 现在 = Date.now()): string {
 export function 金额(n: number, cur: string) {
   const sym: Record<string, string> = { USD: "$", EUR: "€", GBP: "£", CNY: "¥", JPY: "¥", HKD: "HK$" };
   return `${sym[cur] ?? `${cur} `}${n.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+}
+
+/* ---------------- 同步状态条（今天页标题下、「我的」里那一枚） ---------------- */
+
+/**
+ * 样子对应 m.css 的 .m-sync：ok 绿、wait 品牌色、off 黄（离线 / 没成功，多半自己会好）、stop 红（团队暂停，要人去续费 / 开通）
+ */
+export type 同步条 = {
+  样子: "ok" | "wait" | "off" | "stop";
+  字: string;
+  /** 出错时点开看的：为什么、该怎么办 */
+  详?: { 标题: string; 原因: string; 怎么办: string };
+};
+
+/**
+ * 同步状态条显示什么（2026-10-15）。之前只看上次同步时间：团队到期被服务端拒了，还写「已同步 · 刚刚」。
+ * 出错按服务端的话分（lib/team-pricing.ts 的 没开通话 / 到期话，402）：到期 → 暂停；待开通、停用 → 没开通；断网 → 离线；其它 → 没成功。
+ * 出错时排在「同步中」前面：每 30 秒自动试一轮，不能在「暂停」和「同步中」之间来回跳；成功一轮 lastError 就清掉了。
+ */
+export function 同步条(x: { 断网: boolean; 待同步: number; 在同步: boolean; 上次成功: number | null; 错误: string | null; 现在: number }): 同步条 {
+  const 待 = x.待同步 ? `，手机上新记的 ${x.待同步} 条先存在这台手机上，恢复后自动传上去` : "";
+  if (x.断网 || (x.错误 && /连不上网络/.test(x.错误))) return { 样子: "off", 字: `离线${x.待同步 ? ` · ${x.待同步} 条待同步` : ""}` };
+  if (x.错误) {
+    if (/已到期/.test(x.错误)) {
+      const 日 = /（(\d{4}-\d{2}-\d{2})）/.exec(x.错误)?.[1];
+      return {
+        样子: "stop", 字: "团队已到期，暂停同步",
+        详: { 标题: "团队同步已到期", 原因: `团队同步${日 ? `在 ${日} ` : ""}到期了，服务器暂停了这个团队的同步。`, 怎么办: `续费后自动恢复，这台手机上的内容照常能看${待}。续费请团队老板私信我们。` },
+      };
+    }
+    if (x.错误.includes(没开通话) || /停用/.test(x.错误)) {
+      return {
+        样子: "stop", 字: "团队没开通，暂不同步",
+        详: { 标题: "团队同步没开通", 原因: "这个团队的同步还没开通，或者已经停用了，服务器暂时不给同步。", 怎么办: `开通后自动开始同步，这台手机上的内容照常能看${待}。开通请团队老板私信我们。` },
+      };
+    }
+    return {
+      样子: "off", 字: "同步没成功",
+      详: { 标题: "同步没成功", 原因: x.错误, 怎么办: `手机每 30 秒会自己再试一次，这台手机上的内容照常能看${待}。一直不好的话，点「再试一次」，或者联系我们。` },
+    };
+  }
+  if (x.在同步 || x.待同步) return { 样子: "wait", 字: x.待同步 ? `${x.待同步} 条同步中` : "同步中" };
+  if (!x.上次成功) return { 样子: "wait", 字: "还没同步" };
+  return { 样子: "ok", 字: `已同步 · ${相对时间(x.上次成功, x.现在)}` };
 }
