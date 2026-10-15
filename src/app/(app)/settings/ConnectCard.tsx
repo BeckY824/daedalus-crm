@@ -61,11 +61,11 @@ export default function ConnectCard({ 团名, 我是建的人, 等授权, 本机
       </p>
       {本机客户 > 0 && (
         <Alert type="info" showIcon style={{ marginBottom: 12 }}
-          message={`这台电脑上已有的 ${本机客户} 位客户会带进团队`}
+          title={`这台电脑上已有的 ${本机客户} 位客户会带进团队`}
           description="和云上的合在一起、不覆盖；同一位客户两边各有一份的，会列在「疑似重复」里。连上之前会先自动备份一份。" />
       )}
-      {结果 === "denied" && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="另一台电脑点了「不允许」" />}
-      {结果 === "expired" && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="等太久过期了，请再发一次" />}
+      {结果 === "denied" && <Alert type="warning" showIcon style={{ marginBottom: 12 }} title="另一台电脑点了「不允许」" />}
+      {结果 === "expired" && <Alert type="warning" showIcon style={{ marginBottom: 12 }} title="等太久过期了，请再发一次" />}
       {数字 ? (
         <div className="mobile-pair" data-testid="device-link-waiting">
           <span className="muted">请到你的另一台电脑上（打开 Daedalus），核对弹框里的数字是</span>

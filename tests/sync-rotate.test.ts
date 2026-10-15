@@ -238,10 +238,11 @@ describe("移除成员 + 换钥匙", () => {
   it("乱写的设备公钥、一个人登记太多台：中转不收（复查低-中 3）", async () => {
     const 新码 = 解邀请码(邀请码(读团队()!))!;
     expect((await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: "dDingXX", pubKey: "a".repeat(60) })).ok).toBe(false);
-    for (let i = 2; i <= 5; i++) expect((await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: `dDing0${i}`, pubKey: 设备钥匙对().公钥 })).ok).toBe(true);
-    const 第六台 = await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: "dDing06", pubKey: 设备钥匙对().公钥 });
-    expect(第六台.ok).toBe(false);
-    expect(!第六台.ok && 第六台.error).toMatch(/最多 5 台/);
+    // 每人最多 3 台（电脑和手机合计，2026-10-15 从 5 台收紧）：丁已经有 dDing01
+    for (let i = 2; i <= 3; i++) expect((await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: `dDing0${i}`, pubKey: 设备钥匙对().公钥 })).ok).toBe(true);
+    const 第四台 = await r.入队(账号们.丁, teamId, 新码.joinSecret, { device: "dDing04", pubKey: 设备钥匙对().公钥 });
+    expect(第四台.ok).toBe(false);
+    expect(!第四台.ok && 第四台.error).toMatch(/最多 3 台/);
   });
 
   it("设备编号认账号：丁拿乙的编号登记、推送都不收", async () => {
