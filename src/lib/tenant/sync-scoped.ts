@@ -10,6 +10,7 @@ import type { Prisma } from "@/generated/control";
 import { workspaceDir } from "./clients";
 import { 当前编号, 设备还在, 记设备在用 } from "./sync-relay";
 import { 范围开关 } from "./scoped-flag";
+import { 能同步 } from "./team-plan";
 import { 包的编号 } from "../sync/crypto";
 import { 合并范围, 推送可写, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
 
@@ -30,7 +31,9 @@ async function auth(accountId: string, teamId: string, device?: string, db: Db =
   const account = await db.account.findUnique({ where: { id: accountId }, select: { active: true } });
   if (!account?.active) fail(403, "账号已停用，请联系管理员");
   if (!t || !m || m.leftAt) fail(403, "你不在这个团队里");
-  if (!t.active) fail(402, "团队同步还没开通");
+  // 没开通、停用、到期（2026-10-15）都在这一道闸
+  const 闸 = await 能同步(t, db);
+  if (闸) fail(402, 闸);
   if (device !== undefined) {
     const d = await db.syncDevice.findUnique({ where: { teamId_device: { teamId, device } } });
     if (!d || d.accountId !== accountId) fail(403, "设备身份不符，请重新加入团队");

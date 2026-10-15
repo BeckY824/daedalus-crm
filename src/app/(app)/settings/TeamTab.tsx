@@ -9,6 +9,7 @@ import { smartTime } from "@/lib/utils";
 import ScopeConflicts from "./ScopeConflicts";
 import DevicesCard from "./DevicesCard";
 import ConnectCard from "./ConnectCard";
+import TeamPricing from "./TeamPricing";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
@@ -19,6 +20,7 @@ type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
  * 几个人各用各的桌面端，数据在每个人电脑上；改动加密后经我们的服务器转给同事。
  * 两句话必须说在明处：**我们看不到你们的数据**（钥匙只在邀请码里）；**邀请码只发给同事**（谁拿到谁就能进来、能解开）。
  * 新团队要开通才开始同步（收费）：建好、把人拉齐可以先做，开通了一起开始。
+ * 2026-10-15 起按时长开通：有到期日（显示还剩几天），到期暂停同步、续费自动恢复；价格表从服务器读（TeamPricing）。
  */
 export default function TeamTab() {
   const router = useRouter();
@@ -193,6 +195,7 @@ export default function TeamTab() {
             <Button loading={忙 === "入"} disabled={!s.能用 || !码.trim() || 忙 !== null} onClick={() => void 入()}>加入团队</Button>
           </div>
         </section>
+        <TeamPricing 价格={s.价格} />
       </div>
     );
   }
@@ -225,18 +228,27 @@ export default function TeamTab() {
       <div className="team-head">
         <h3>{s.teamName}</h3>
         {s.active === true && <Tag color="success">同步中</Tag>}
-        {s.active === false && <Tag color="warning">待开通</Tag>}
+        {s.active === false && (s.已到期 ? <Tag color="error">已到期</Tag> : <Tag color="warning">待开通</Tag>)}
         {s.active === null && <Tag>连不上云端</Tag>}
       </div>
-      {s.active === false && (
-        <Alert type="warning" showIcon style={{ marginBottom: 16 }} message="团队还没开通，暂不同步"
-          description={
-            <>
-              开通后自动开始，改动都记着，不会丢。<b>开通后先免费用 14 天</b>，之后按人计：每人每月 39 元，年付每人 399 元（建团队的人也算一人）。
-              开通请点左下角的「反馈」告诉我们团队名字。
-            </>
-          }
-        />
+      {/* 有效期（2026-10-15 按时长开通）：没有到期日 = 不限期，不显示这一行 */}
+      {s.active === true && s.到期 && (
+        <p className="muted team-plan" data-testid="team-plan">
+          有效期至 {s.到期.日}（{s.到期.剩 > 0 ? `还剩 ${s.到期.剩} 天` : "今天到期"}）
+          {s.席位 ? ` · ${s.席位} 个席位，现在 ${s.成员.length} 人` : ""}
+        </p>
+      )}
+      {s.active === true && s.到期 && s.到期.剩 <= 7 && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }} title={s.到期.剩 > 0 ? `团队同步还有 ${s.到期.剩} 天到期` : "团队同步今天到期"}
+          description="到期后暂停同步（这台电脑上的数据照常能用）。续费请点左下角「反馈」告诉我们团队名字、人数和时长，续上之后接着同步。" />
+      )}
+      {s.active === false && s.已到期 && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }} title={`团队同步已到期${s.到期 ? `（${s.到期.日}）` : ""}，暂停同步`}
+          description="这台电脑上的数据照常能用，改动都记着，不会丢。续费请点左下角「反馈」告诉我们团队名字、人数和时长；续上之后自动恢复，把这段时间的改动补上。" />
+      )}
+      {s.active === false && !s.已到期 && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }} title="团队还没开通，暂不同步"
+          description="开通后自动开始，改动都记着，不会丢。价格见下方「团队版价格」；开通请点左下角的「反馈」告诉我们团队名字、人数和时长。" />
       )}
       <div className="team-sync">
         <span className="muted">
@@ -246,8 +258,8 @@ export default function TeamTab() {
         </span>
         <Button icon={<SyncOutlined spin={忙 === "同步"} />} disabled={忙 !== null || s.active !== true} onClick={() => void 同步()}>立即同步</Button>
       </div>
-      {/* 没开通时上面那条黄的已经说了，红的不再重复一遍 */}
-      {s.lastError && !(s.active === false && /没开通/.test(s.lastError)) && <Alert type="error" showIcon message={s.lastError} style={{ marginBottom: 16 }} />}
+      {/* 没开通、到期时上面那条黄的已经说了，红的不再重复一遍 */}
+      {s.lastError && !(s.active === false && /没开通|已到期/.test(s.lastError)) && <Alert type="error" showIcon message={s.lastError} style={{ marginBottom: 16 }} />}
       {/* 回放时撞了合不了的（两条线索挂同一位客户、同事账号登录名撞了）：这几条两台对不上，说出来（T-003），不静默 */}
       {s.没同步上.条数 > 0 && (
         <Alert
@@ -368,6 +380,8 @@ export default function TeamTab() {
           </div>
         </section>
       )}
+
+      <TeamPricing 价格={s.价格} />
 
       <section className="team-card">
         <Button danger onClick={退}>退出团队</Button>

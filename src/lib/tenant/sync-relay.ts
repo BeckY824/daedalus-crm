@@ -6,6 +6,7 @@
  *
  * 新团队「待开通」，运营台开通后才收推送（收费，价格等备案——10-03 拍板）。建团队、入队、看成员不受这一条限制：
  * 人可以先把团队建好、把同事拉进来，等开通了一起开始同步。
+ * 2026-10-15 起开通按时长，团队有到期日：到期和「待开通 / 停用」同一道闸（team-plan.ts 的 能同步），续费后自动恢复。
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
@@ -14,6 +15,7 @@ import { control } from "./control";
 import { 范围开关 } from "./scoped-flag";
 import { workspaceDir } from "./clients";
 import { 包的编号, 是设备公钥 } from "@/lib/sync/crypto";
+import { 能同步, 已到期, 北京日期, 剩几天 } from "./team-plan";
 
 /** 一批最大多少（base64 之后）。一次推送 2000 条改动压缩加密后也就几百 KB；大了多半是出了问题 */
 export const 一批上限 = 8 * 1024 * 1024;
@@ -270,15 +272,29 @@ export async function 我的团队(accountId: string) {
   // 老板那台据此补换钥匙：有人移除过设备、之后还没换过
   const 要换 = new Set<string>();
   for (const t of 团队们.filter((x) => x.ownerAccountId === accountId)) if (await 要换钥匙吗(t.id)) 要换.add(t.id);
-  return 团队们.map((t) => ({
+  const 到期们 = new Map((await control.syncTeamPlan.findMany({ where: { teamId: { in: 团队们.map((t) => t.id) } } })).map((p) => [p.teamId, p]));
+  const now = new Date();
+  return 团队们.map((t) => {
+    const plan = 到期们.get(t.id);
+    const 过期 = t.active && 已到期(plan, now);
+    return {
     id: t.id,
     name: t.name,
-    active: t.active,
+    /** 到期了也回 false：老版本桌面端据此显示「暂不同步」、不再显示「同步中」；新版本看 expired 区分两种 */
+    active: t.active && !过期,
+    /**
+     * 到期日（北京日期 YYYY-MM-DD）、还剩几天、席位、是不是因为到期才停的（2026-10-15 按时长开通）。
+     * 没有到期日 = 不限期，这几项不带
+     */
+    ...(plan?.paidUntil ? { paidUntil: 北京日期(plan.paidUntil), 剩几天: 剩几天(plan.paidUntil, now) } : {}),
+    ...(plan?.seats ? { seats: plan.seats } : {}),
+    ...(过期 ? { expired: true } : {}),
     我是建的人: t.ownerAccountId === accountId,
     ...(要换.has(t.id) ? { 要换钥匙: true } : {}),
     ownerAccountId: t.ownerAccountId,
     成员: 成员们.filter((m) => m.teamId === t.id).map((m) => ({ accountId: m.accountId, role: m.role, name: 账.get(m.accountId)?.name ?? "（已注销）", contact: 账.get(m.accountId)?.email ?? 账.get(m.accountId)?.phone ?? "", joinedAt: m.joinedAt.toISOString() })),
-  }));
+  };
+  });
 }
 
 /**
@@ -292,7 +308,8 @@ const 等老板迁移 = "团队同步正在升级（业务员电脑只存自己�
 export async function 收推送(accountId: string, teamId: string, device: string, data: string): Promise<结果<{ seq: number }>> {
   const t = await control.syncTeam.findUnique({ where: { id: String(teamId ?? "") } });
   if (!t || !(await 在队里(t.id, accountId))) return 错(403, "你不在这个团队里");
-  if (!t.active) return 错(402, "团队同步还没开通");
+  const 闸 = await 能同步(t);
+  if (闸) return 错(402, 闸);
   if (范围开关(t.id) && t.ownerAccountId !== accountId) return 错(409, (await control.syncPrivacy.findUnique({ where: { teamId: t.id } })) ? 已隔离请升级 : 等老板迁移);
   if (typeof data !== "string" || !data || data.length > 一批上限) return 错(413, "这一批太大了");
   if (typeof device !== "string" || !/^[\w-]{4,64}$/.test(device)) return 错(400, "设备编号不对");
@@ -330,7 +347,8 @@ export async function 收推送(accountId: string, teamId: string, device: strin
 export async function 给拉取(accountId: string, teamId: string, after: number): Promise<结果<{ batches: { seq: number; device: string; data: string }[]; more: boolean; epoch: number }>> {
   const t = await control.syncTeam.findUnique({ where: { id: String(teamId ?? "") } });
   if (!t || !(await 在队里(t.id, accountId))) return 错(403, "你不在这个团队里");
-  if (!t.active) return 错(402, "团队同步还没开通");
+  const 闸 = await 能同步(t);
+  if (闸) return 错(402, 闸);
   const privacy = await control.syncPrivacy.findUnique({ where: { teamId: t.id } });
   if ((范围开关(t.id) || privacy) && t.ownerAccountId !== accountId) return 错(409, privacy ? 已隔离请升级 : 等老板迁移);
   if (privacy?.stage === 'ready') return 错(409, "团队已完成范围迁移，请升级桌面端使用范围同步");

@@ -5,7 +5,7 @@ import { 测试账号们 } from "./tenant/test-accounts";
  * 运营通知（2026-10-02）：运营台里有事，**只推给运营名单里那一个账号的桌面端**。
  *
  * 四类：新注册、新反馈、用量异常、新团队待开通（2026-10-07：桌面端有人建了团队，要运营台点「开通」才开始同步，原来没人告诉运营）。壳每两分钟拿设备令牌问一次 /api/ops/notices?since=…，
- * 自己发系统通知；点一下打开运营台对应那一页。门和「运营台…」菜单是同一道（是运营账号），
+ * 自己发系统通知；点一下打开运营台对应那一页。团队快到期 / 已到期（2026-10-15）也算「团队」这一类。门和「运营台…」菜单是同一道（是运营账号），
  * 别的账号问只会拿到 403，壳里也根本不起这个轮询。
  *
  * 规矩照提醒那套：通知少，每一条都要你做点什么。
@@ -143,6 +143,28 @@ export async function 读运营通知(since: string | null | undefined, now = ne
         kind: "团队",
         标题: `新团队待开通：${截(一行(t.name), 30)}`,
         正文: `${老板们.get(t.ownerAccountId) ?? "有人"} 建的 · 点开去运营台「团队同步」开通`,
+        path: "/admin/sync",
+      });
+    }
+  }
+
+  /*
+    团队快到期 / 已到期（2026-10-15 按时长开通）：3 天内到期的报一次「快到期」，好私信客户续费；到点了再报一次「已到期、同步已暂停」。
+    键带到期日：同一次到期壳只发一次，续费后到期日变了，下次快到期再报。停用了的不报
+  */
+  const 快到期们 = await control.syncTeamPlan.findMany({ where: { paidUntil: { gt: new Date(now.getTime() - 3 * 86_400_000), lte: new Date(now.getTime() + 3 * 86_400_000) } } });
+  if (快到期们.length) {
+    const 团队们 = new Map((await control.syncTeam.findMany({ where: { id: { in: 快到期们.map((p) => p.teamId) }, active: true }, select: { id: true, name: true } })).map((t) => [t.id, t.name]));
+    for (const p of 快到期们) {
+      const 名 = 团队们.get(p.teamId);
+      if (!名 || !p.paidUntil) continue;
+      const 日 = 北京(p.paidUntil).slice(0, 10);
+      const 过了 = p.paidUntil.getTime() <= now.getTime();
+      事件.push({
+        key: `团队到期:${过了 ? "已" : "将"}:${p.teamId}@${日}`,
+        kind: "团队",
+        标题: 过了 ? `团队已到期：${截(一行(名), 30)}` : `团队快到期：${截(一行(名), 30)}`,
+        正文: 过了 ? `${日} 到期，同步已暂停 · 续费后点运营台「开通 / 续费」` : `${日} 到期 · 记得提醒续费`,
         path: "/admin/sync",
       });
     }

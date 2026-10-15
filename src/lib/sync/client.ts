@@ -655,7 +655,7 @@ export async function 团队状态() {
   const c = 读团队();
   if (!c) return { 在团队: false as const, 能用: 能用().ok };
   const r = await 云("GET", "/api/sync/team");
-  const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
+  const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; paidUntil?: string; 剩几天?: number; seats?: number; expired?: boolean; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
   if (团) await 看全部(() => 按名单对角色(团.成员, 团.id)).catch(() => undefined);
   return {
     在团队: true as const,
@@ -666,6 +666,13 @@ export async function 团队状态() {
     被移出: r.状态 === 200 && !团,
     teamName: 团?.name ?? c.teamName,
     active: 团?.active ?? null,
+    /**
+     * 到期日（北京日期）和还剩几天、席位、是不是到期停的（2026-10-15 按时长开通）。
+     * 没有到期日 = 不限期；老服务器不回这几项，界面上就不显示
+     */
+    到期: 团?.paidUntil ? { 日: 团.paidUntil, 剩: Number(团.剩几天 ?? 0) } : null,
+    席位: 团?.seats ?? null,
+    已到期: 团?.expired === true,
     我是建的人: 团?.我是建的人 ?? false,
     /** 这台能不能移除同事、换邀请码（见 能管理团队）：老板在别的电脑上进来的，这两样只给一句说明 */
     能管理: 能管理团队(c),
@@ -680,6 +687,15 @@ export async function 团队状态() {
     /** 范围同步：阶段、待老板核对的失权改动条数（不静默丢弃）、跳过的坏包、上一轮清理结果 */
     范围: await 范围同步概况().catch(() => null),
   };
+}
+
+export type 团队价格 = { prices: { months: number; label: string; perSeat: number; perMonth: number }[]; trialDays: number };
+/** 团队版价格表（每人，2026-10-15）：存在服务器、运营台改，这里只拿来显示。拿不到（没登录、连不上、老服务器）回 null，界面上就不摆 */
+export async function 读价格表(): Promise<团队价格 | null> {
+  const r = await 云("GET", "/api/sync/pricing").catch(() => null);
+  if (!r || r.状态 !== 200 || !Array.isArray(r.json.prices)) return null;
+  const prices = (r.json.prices as 团队价格["prices"]).filter((p) => p && typeof p.perSeat === "number" && typeof p.label === "string");
+  return prices.length ? { prices, trialDays: Number(r.json.trialDays) || 0 } : null;
 }
 
 /* ---------------- 老板 / 业务员（2026-10-04 两档权限，lib/team-scope.ts） ---------------- */
