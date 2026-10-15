@@ -360,6 +360,13 @@ function 写(c: 云端凭据) {
   fs.writeFileSync(文件(), JSON.stringify(c, null, 2), { mode: 0o600 });
 }
 
+/** 云端账号名改了（桌面端改名推上去了 / 别处改的对下来了）：.cloud.json 里那份跟着换，令牌等其余不动 */
+export function 记名字(name: string) {
+  const c = 读();
+  if (!c || c.name === name) return;
+  写({ ...c, name });
+}
+
 export function 清() {
   try {
     fs.rmSync(文件(), { force: true });

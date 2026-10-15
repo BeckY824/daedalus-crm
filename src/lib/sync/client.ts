@@ -12,6 +12,7 @@ import { randomBytes } from "node:crypto";
 import { prisma } from "../prisma";
 import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/cloud";
 import { 团队身份id } from "../desktop/me";
+import { 对齐我的名字 } from "../desktop/my-name";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, 本机结构签名, type 改动 } from "./local";
 import { createHmac } from "node:crypto";
 import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 主字段, type 拉到的范围包 } from "./scoped-local";
@@ -176,7 +177,13 @@ export async function 本机开同步(加入别人的: boolean) {
 /** 本地身份错误须在云端写成员之前拦住，避免重试在云端留下多支未完成的队。 */
 export async function 准备本机身份(我: { accountId: string; contact: string; name: string }): Promise<结果> {
   try {
-    if (!await 装了吗(prisma)) await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 我.name || 我.contact.split("@")[0] });
+    if (!await 装了吗(prisma)) {
+      // 先和云端对一次名字（2026-10-15）：本机改过没推上去的推上去；新电脑（本机还是「管理员」）拿到云端现在的名字，
+      // 不用登录那一刻的旧名字。连不上不拦：改身份 本来就不盖本机改过的名字
+      await 对齐我的名字(调云).catch(() => undefined);
+      const 云端名 = 读云端凭据()?.name || 我.name;
+      await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 云端名 || 我.contact.split("@")[0] });
+    }
     return { ok: true };
   } catch (error) {
     console.error("[sync] 本机身份准备失败", error);

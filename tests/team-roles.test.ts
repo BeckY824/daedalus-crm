@@ -653,7 +653,8 @@ describe("退出团队：按中转名单判业务员，老板那台永远不删�
     try {
       const r = mode === "create" ? await 建团队("新队") : await 加入团队(`DT1.newteam.testsecret.${"k".repeat(43)}`);
       expect(r).toMatchObject({ ok: false, error: expect.stringContaining("尚未创建或加入团队") });
-      expect(transport).not.toHaveBeenCalled(); expect(读团队()).toBeNull();
+      // 只先问了一下云端名字（lib/desktop/my-name.ts 对齐我的名字），团队、成员一样没碰
+      expect(transport.mock.calls.every(([方法, 路径]) => 方法 === "GET" && 路径 === "/api/account/name")).toBe(true); expect(读团队()).toBeNull();
       expect((await raw.user.findUniqueOrThrow({ where: { id: 小王 } })).email).toBe(`${小王}@x.com`);
     } finally { log.mockRestore(); 设传输(假传输); }
   });

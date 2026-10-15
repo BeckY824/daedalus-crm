@@ -18,6 +18,9 @@ import { 配账号, 改密码 as 改控制面密码, 核对密码, 撤成员, �
 import { 列出 as 列出设备, 吊销 as 吊销设备 } from "@/lib/tenant/device-token";
 import { 本地模式, 读 as 读云端凭据, 发码 as 云端发码, 重置密码 as 云端重置密码, 清 as 清云端凭据 } from "@/lib/desktop/cloud";
 import { destroySession } from "@/lib/auth";
+import { 本机我 } from "@/lib/desktop/me";
+import { 云端跟着改名 } from "@/lib/desktop/my-name";
+import { 调云 } from "@/lib/sync/client";
 import { isEmail } from "@/lib/tenant/accounts";
 import { createSession } from "@/lib/auth";
 import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, type ModelOption } from "@/lib/llm";
@@ -433,6 +436,8 @@ export async function 改我的资料(input: { name: string; title: string }) {
     summary: `改了自己的资料：${旧.name}${旧.title ? `（${旧.title}）` : ""} → ${name}${title ? `（${title}）` : ""}`,
     detail: { from: { name: 旧.name, title: 旧.title }, to: { name, title } },
   });
+  // 桌面端登录着云端：云端账号名一起改（手机「我的」、授权框、运营台显示它）。推不上不拦，下次建团队 / 登录时再对
+  if (本地模式() && 旧.name !== name && 读云端凭据()?.token && (await 本机我(prisma))?.id === me.id) await 云端跟着改名(调云, name).catch(() => false);
   // 名字出现在左栏、署名、业绩榜上，改完整站都要跟着变
   revalidatePath("/", "layout");
   return { ok: true as const };

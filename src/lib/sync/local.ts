@@ -15,6 +15,7 @@
 import { createHash } from "node:crypto";
 import type { PrismaClient, Prisma } from "@/generated/prisma";
 import { 同步表, 不同步列, 同步的设置, 指向人的列, 同名合并, 模板占位账号 } from "./tables";
+import { 是模板名字 } from "@/lib/desktop/synced-name";
 import { 擦净删除残留 } from "./scoped-local";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -158,8 +159,12 @@ export async function 改身份(db: PrismaClient, 新id: string, 资料: { email
       if (!管理员) throw new Error("找不到这台电脑的本机账号，请重新登录后再试");
       await 换id(tx, 管理员.id, 新id);
     }
-    // 更新失败必须回滚，不能把身份迁移只做一半。
-    await tx.user.update({ where: { id: 新id }, data: { email: 资料.email, name: 资料.name } });
+    /*
+      名字：本机改过的留着，只有还是模板默认（「管理员」、空）才用云端账号名（2026-10-15 实测：先改名再建团队，名字被改回注册名）。
+      邮箱照旧换成云端账号——那是身份，要和云端对上。更新失败必须回滚，不能把身份迁移只做一半。
+    */
+    const 现名 = (await tx.user.findUnique({ where: { id: 新id }, select: { name: true } }))?.name ?? "";
+    await tx.user.update({ where: { id: 新id }, data: { email: 资料.email, name: 是模板名字(现名) ? 资料.name : 现名.trim() } });
     for (const email of 模板占位账号) {
       const u = await tx.user.findUnique({ where: { email }, select: { id: true } });
       if (!u) continue;
