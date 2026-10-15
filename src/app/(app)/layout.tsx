@@ -18,6 +18,7 @@ import { AiMeterProvider } from "@/components/AiCost";
 import { 记下分机留存起 } from "@/lib/phone-dedupe";
 import { 是共享工作区 } from "@/lib/shared-ws/config";
 import { ShortcutProvider } from "@/components/Shortcut";
+import MobileAuthPrompt from "@/components/MobileAuthPrompt";
 
 export default async function AppLayout({
   children,
@@ -110,6 +111,8 @@ export default async function AppLayout({
         {children}
       </AppShell>
       {modal}
+      {/* 手机来要授权时弹出来：只有桌面端（数据在这台电脑上）才授权得了 */}
+      {本地模式() && <MobileAuthPrompt />}
       </AiMeterProvider>
     </BusinessProvider>
     </ShortcutProvider>

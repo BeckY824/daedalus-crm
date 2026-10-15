@@ -7,6 +7,7 @@ import { App, Alert, Button, Input, Space, Tag, Typography } from "antd";
 import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import ScopeConflicts from "./ScopeConflicts";
+import PhonesCard from "./PhonesCard";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
@@ -315,6 +316,9 @@ export default function TeamTab() {
           </ul>
         </section>
       )}
+
+      {/* 手机：本人授权、本人移除（老板也替不了业务员点）。团队开通了才有意义 */}
+      {s.active === true && <PhonesCard />}
 
       {!s.我是建的人 && (
         <section className="team-card">

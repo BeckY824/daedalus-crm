@@ -123,6 +123,8 @@ let 云: 传输 = HTTP;
 export function 设传输(t: 传输 | null) {
   云 = t ?? HTTP;
 }
+/** 别的模块（手机授权，sync/mobile-desktop.ts）和云端说话也走这一条：测试里换掉传输时一起换 */
+export const 调云: 传输 = (方法, 路径, body) => 云(方法, 路径, body);
 
 /** 本机手上的全部钥匙（之前的 + 现在这把） */
 const 全部钥匙 = (c: 团队配置): 钥匙环 => ({ ...(c.keys ?? {}), [String(c.epoch ?? 0)]: c.key });

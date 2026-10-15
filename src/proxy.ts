@@ -56,8 +56,10 @@ export async function proxy(request: NextRequest) {
   // /admin 是我们的运营台，不属于任何工作区，用它自己的 ADMIN_TOKEN 保护；
   // /terms 与 /privacy 是注册前要读的条款，当然不能要求先登录；
   // /forgot 是找回密码，忘了密码的人当然是未登录状态；
+  // /m 是手机版（2026-10-15）：页面本身没有数据，数据在手机本地、接口凭手机自己的令牌（Bearer），不用网页会话
   const 公开 =
-    pathname === "/login" || pathname === "/signup" || pathname === "/forgot" || pathname === "/terms" || pathname === "/privacy" || pathname.startsWith("/admin");
+    pathname === "/login" || pathname === "/signup" || pathname === "/forgot" || pathname === "/terms" || pathname === "/privacy" || pathname.startsWith("/admin") ||
+    pathname === "/m" || pathname.startsWith("/m/");
 
   if (!valid && !公开) {
     const url = request.nextUrl.clone();

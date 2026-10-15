@@ -27,7 +27,7 @@ const 安全名 = (id: string) => (/^[a-z0-9]{10,40}$/i.test(id) ? id : null);
 type 结果<T> = ({ ok: true } & T) | { ok: false; 状态: number; error: string };
 const 错 = (状态: number, error: string) => ({ ok: false as const, 状态, error });
 
-async function 在队里(teamId: string, accountId: string) {
+export async function 在队里(teamId: string, accountId: string) {
   const m = await control.syncMember.findUnique({ where: { teamId_accountId: { teamId, accountId } } });
   return m && !m.leftAt ? m : null;
 }
@@ -43,7 +43,7 @@ export const 每人设备上限 = 5;
 type 库 = Pick<typeof control, "syncDevice">;
 
 /** 登记一台设备。编号已经是别的账号的：不收（冒用的话，被冒用的那台会把这些批次当成自己推的跳过） */
-async function 登记设备(teamId: string, accountId: string, d: 设备 | undefined, db: 库 = control): Promise<string | null> {
+export async function 登记设备(teamId: string, accountId: string, d: 设备 | undefined, db: 库 = control): Promise<string | null> {
   if (!d) return null;
   if (!设备号对(d.device) || !公钥对(d.pubKey)) return "设备信息不对";
   const 已 = await db.syncDevice.findUnique({ where: { teamId_device: { teamId, device: d.device } } });

@@ -15,6 +15,7 @@
 import { createHash, createCipheriv, createDecipheriv, createPublicKey, createPrivateKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign, verify } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 import type { 改动 } from "./local";
+import { 规范串 } from "./canon";
 
 export function 新钥匙(): string {
   return randomBytes(32).toString("base64url");
@@ -159,12 +160,8 @@ export function 拆自(我的私钥: string, 封好: string): string {
 
 /* ---------------- 范围同步（v4）：密文绑定外层授权元数据 ---------------- */
 
-/** 外层元数据的规范串：键按字母排序，避免同一内容因字段顺序不同而得出不同摘要 */
-export function 规范串(x: unknown): string {
-  if (Array.isArray(x)) return `[${x.map(规范串).join(",")}]`;
-  if (x && typeof x === "object") return `{${Object.keys(x as object).sort().map((k) => `${JSON.stringify(k)}:${规范串((x as Record<string, unknown>)[k])}`).join(",")}}`;
-  return JSON.stringify(x ?? null);
-}
+/** 外层元数据的规范串：键按字母排序，避免同一内容因字段顺序不同而得出不同摘要。手机端也要算，所以放在不依赖 node: 的 canon.ts */
+export { 规范串 };
 /** v4 绑定：团队、推送设备、事件编号、外层元数据摘要。中转改了其中任何一项，接收端都解不开 */
 export type 范围绑定 = { teamId: string; device: string; eventId: string; meta: unknown };
 const 范围附加 = (头: Buffer, x: 范围绑定) =>

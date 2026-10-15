@@ -517,3 +517,32 @@ model SyncScopedBaseline {
   @@id([teamId, batchId])
   @@index([teamId, recordKey, batchId])
 }
+
+/// 手机连团队（2026-10-15，control-migrations/021）。手机用账号密码登录（DeviceToken）后发申请，
+/// 本人的电脑点「允许」：电脑把团队钥匙环封给手机的公钥（sealed，我们解不开），服务端把手机登记成这个成员的一台同步设备。
+/// 移除：作废手机那枚令牌、注销同步设备。status：pending | approved | denied | removed
+model SyncMobileLink {
+  id        String    @id @default(cuid())
+  accountId String
+  /// 手机登录拿到的 DeviceToken.id：一枚令牌只对应一条申请，移除时连令牌一起作废
+  tokenId   String    @unique
+  /// 手机在团队里的设备编号（m_ 开头）
+  device    String
+  /// 手机自己生成的 X25519 公钥（SPKI，base64url）。配对数字由它算出，两边屏幕对一下
+  pubKey    String
+  /// 给人看的：iPhone · Safari 之类
+  label     String
+  status    String
+  teamId    String?
+  sealed    String?
+  createdAt DateTime  @default(now())
+  decidedAt DateTime?
+  /// 批准前的挑战：服务端用电脑登记在团队里的公钥封一个一次性随机数，电脑解开交回来才算数（只有密码、没有那台电脑批不了）。
+  /// 这里只存随机数的 sha256、是哪台电脑、什么时候发的
+  proofHash   String?
+  proofDevice String?
+  proofAt     DateTime?
+
+  @@index([accountId, status])
+}
+
