@@ -10,6 +10,7 @@ import {
 import * as 同步 from "@/lib/mobile/sync";
 import * as 连 from "@/lib/mobile/link";
 import * as 密 from "@/lib/sync/crypto-web";
+import { 我的名字 } from "@/lib/mobile/view";
 import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
 import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
@@ -96,7 +97,7 @@ export default function MobileApp() {
   const [token, setToken] = useState<string | null>(null);
   const [团队, set团队] = useState<同步.手机团队 | null>(null);
   const [团队名, set团队名] = useState("");
-  const [账号, set账号] = useState<账号 | null>(null);
+  const [登录账号, set账号] = useState<账号 | null>(null);
   const [现在, set现在] = useState(() => Date.now());
   const 态 = useRef<同步.同步状态>(同步.新状态());
   const [快照, set快照] = useState<快照>(() => 拍(同步.新状态()));
@@ -264,6 +265,12 @@ export default function MobileApp() {
     if (!k || !团队) return [] as 客户视图[];
     return 算客户们(分表(k.行.values()), 团队.userId, new Set(快照.待推跟进));
   }, [版本, 团队, 库, 快照]);
+  // 名字以团队里自己那行 User 为准（电脑上改名后跟着变），拿不到再用登录时的账号名
+  const 账号 = useMemo(() => {
+    void 版本;
+    if (!登录账号) return null;
+    return { ...登录账号, name: 库 ? 我的名字(库.行, 我, 登录账号.name) : 登录账号.name };
+  }, [版本, 库, 我, 登录账号]);
   const 待同步数 = 快照.待推跟进.length;
   const 没同步上 = useMemo(() => {
     const 名 = new Map(客户们.map((c) => [c.id, c.name]));
