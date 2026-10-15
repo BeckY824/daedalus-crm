@@ -22,23 +22,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 
-type 谁 = "boss" | "li" | "zhao" | "boss2" | "li2";
+type 谁 = "boss" | "li" | "zhao" | "boss2" | "li2" | "li3";
 const 临时 = vi.hoisted(() => {
   const fs = process.getBuiltinModule("node:fs") as typeof import("node:fs");
   const os = process.getBuiltinModule("node:os") as typeof import("node:os");
   const path = process.getBuiltinModule("node:path") as typeof import("node:path");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "crm-device-link-"));
-  for (const who of ["boss", "li", "zhao", "boss2", "li2"]) {
+  for (const who of ["boss", "li", "zhao", "boss2", "li2", "li3"]) {
     fs.mkdirSync(path.join(root, who), { recursive: true });
     fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db"), path.join(root, who, "crm.db"));
     if (fs.existsSync(path.resolve(__dirname, "../prisma/test.db-wal"))) fs.copyFileSync(path.resolve(__dirname, "../prisma/test.db-wal"), path.join(root, who, "crm.db-wal"));
   }
-  return { root, 谁: "boss" as "boss" | "li" | "zhao" | "boss2" | "li2" };
+  return { root, 谁: "boss" as "boss" | "li" | "zhao" | "boss2" | "li2" | "li3" };
 });
 vi.mock("@/lib/prisma", async () => {
   const { PrismaClient } = await import("@/generated/prisma");
   const mk = (w: string) => new PrismaClient({ datasourceUrl: `file:${path.join(临时.root, w, "crm.db")}?connection_limit=1` });
-  const dbs = { boss: mk("boss"), li: mk("li"), zhao: mk("zhao"), boss2: mk("boss2"), li2: mk("li2") };
+  const dbs = { boss: mk("boss"), li: mk("li"), zhao: mk("zhao"), boss2: mk("boss2"), li2: mk("li2"), li3: mk("li3") };
   (globalThis as { __dbs?: typeof dbs }).__dbs = dbs;
   const prisma = new Proxy({}, { get: (_t, p) => { const db = dbs[临时.谁] as unknown as Record<string | symbol, unknown>; const v = db[p]; return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(db) : v; } });
   return { prisma };
@@ -61,7 +61,7 @@ let 我的: typeof import("@/lib/tenant/my-devices");
 const 令牌: Record<string, string> = {};
 const 账号: Record<"boss" | "li" | "zhao", string> = { boss: "", li: "", zhao: "" };
 /** 同账号的第二台：用谁的账号 */
-const 账号的: Record<谁, "boss" | "li" | "zhao"> = { boss: "boss", li: "li", zhao: "zhao", boss2: "boss", li2: "li" };
+const 账号的: Record<谁, "boss" | "li" | "zhao"> = { boss: "boss", li: "li", zhao: "zhao", boss2: "boss", li2: "li", li3: "li" };
 const db = (w: 谁) => (globalThis as unknown as { __dbs: Record<string, PrismaClient> }).__dbs[w];
 function 当(w: 谁) { 临时.谁 = w; process.env.CRM_DATA_DIR = path.join(临时.root, w); }
 const A = (w: 谁) => `acct_${账号[账号的[w]]}`;
@@ -157,7 +157,7 @@ beforeAll(async () => {
   令牌库 = await import("@/lib/tenant/device-token");
   client = await import("@/lib/sync/client");
   for (const w of ["boss", "li", "zhao"] as const) 账号[w] = (await control.account.create({ data: { name: w, email: `${w}@example.invalid`, password: "not-a-login" } })).id;
-  for (const w of ["boss", "li", "zhao", "boss2", "li2"] as const) {
+  for (const w of ["boss", "li", "zhao", "boss2", "li2", "li3"] as const) {
     const 号 = 账号[账号的[w]];
     令牌[w] = (await 令牌库.签发(号, `${w}-机器`)).token;
     fs.writeFileSync(path.join(临时.root, w, ".cloud.json"), JSON.stringify({ baseUrl: "http://fake", token: 令牌[w], accountId: 号, name: 账号的[w], contact: `${账号的[w]}@example.invalid`, models: [], loggedAt: new Date().toISOString() }));
@@ -179,7 +179,7 @@ beforeAll(async () => {
 }, 180_000);
 afterAll(async () => {
   client?.设传输(null);
-  for (const w of ["boss", "li", "zhao", "boss2", "li2"] as const) await db(w).$disconnect();
+  for (const w of ["boss", "li", "zhao", "boss2", "li2", "li3"] as const) await db(w).$disconnect();
   await control?.$disconnect();
   for (const n of ["MULTI_TENANT", "DESKTOP_LOCAL", "SYNC_DIR", "CONTROL_DATABASE_URL", "CRM_DATA_DIR", "CRM_SCOPED_SYNC"]) delete process.env[n];
   fs.rmSync(临时.root, { recursive: true, force: true });
@@ -303,6 +303,14 @@ describe("我的设备", () => {
     expect(String(满.json.error)).toContain("最多 3 台");
     // 已经登记的不受影响：li2 照常同步
     await 都轮("li2");
+    // 又一台新电脑（li3 那个目录）打开时自动发申请（首页弹框，components/TeamConnectPrompt）：当场说满了，本机不留半路的申请
+    当("li3");
+    expect((await 新机.连接概况()).云上的团).toMatchObject({ name: "授权QA" });
+    const 满了 = await 新机.发起连接();
+    expect(满了.ok).toBe(false);
+    expect(!满了.ok && 满了.error).toContain("最多 3 台");
+    expect((await 新机.连接概况()).等授权).toBeNull();
+    expect(fs.existsSync(path.join(临时.root, "li3", ".team-link.json"))).toBe(false);
   });
 
   it("移除正在用的这台不行；移除 li3：令牌作废、设备注销，老板那台下一轮自动换钥匙，新钥匙不再封给它", async () => {
