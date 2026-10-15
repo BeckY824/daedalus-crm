@@ -17,6 +17,22 @@ export function 猜系统(): 系统 {
   if (typeof navigator === "undefined") return "ios";
   return /android/i.test(navigator.userAgent) ? "android" : "ios";
 }
+/**
+ * 认浏览器：国内的几个内核都写着 Chrome，得先认它们自己的标记（10-15 真机：夸克、华为、QQ、小米都被认成了 Chrome）。
+ * 装到主屏幕的说明、电脑上显示的设备名都用它
+ */
+export type 浏览器 = "微信" | "QQ" | "QQ 浏览器" | "夸克" | "UC" | "华为浏览器" | "小米浏览器" | "OPPO 浏览器" | "vivo 浏览器" | "三星浏览器" | "Edge" | "Chrome" | "Safari" | "浏览器";
+export function 认浏览器(ua = typeof navigator === "undefined" ? "" : navigator.userAgent): 浏览器 {
+  const 表: [RegExp, 浏览器][] = [
+    [/MicroMessenger/, "微信"], [/ QQ\//, "QQ"], [/MQQBrowser/, "QQ 浏览器"], [/Quark\//, "夸克"], [/UCBrowser|UCWEB/, "UC"],
+    [/HuaweiBrowser/, "华为浏览器"], [/MiuiBrowser/, "小米浏览器"], [/HeyTapBrowser/, "OPPO 浏览器"], [/VivoBrowser/, "vivo 浏览器"],
+    [/SamsungBrowser/, "三星浏览器"], [/EdgA|EdgiOS/, "Edge"], [/CriOS|Chrome/, "Chrome"], [/Safari/, "Safari"],
+  ];
+  return 表.find(([re]) => re.test(ua))?.[1] ?? "浏览器";
+}
+/** 这几个确认能装到主屏幕（菜单里有，或者会弹安装）；其余的不一定有入口（夸克 10.19 菜单里就没有） */
+const 能装 = new Set<浏览器>(["Chrome", "Edge", "三星浏览器"]);
+
 export function 已装到主屏幕() {
   if (typeof window === "undefined") return false;
   return window.matchMedia?.("(display-mode: standalone)").matches || (navigator as unknown as { standalone?: boolean }).standalone === true;
@@ -168,6 +184,7 @@ export function TabBar({ os, tab, onTab, 今天数 }: { os: 系统; tab: 标签;
 
 export function InstallHint({ os, onClose }: { os: 系统; onClose: () => void }) {
   const [事件, set事件] = useState<(Event & { prompt?: () => void }) | null>(null);
+  const [器] = useState(() => 认浏览器());
   useEffect(() => {
     const on = (e: Event) => { e.preventDefault(); set事件(e as Event & { prompt?: () => void }); };
     window.addEventListener("beforeinstallprompt", on);
@@ -179,9 +196,16 @@ export function InstallHint({ os, onClose }: { os: 系统; onClose: () => void }
       <img src="/icon.svg" alt="" />
       <div className="m-install-t">
         <b>装到主屏幕，用起来像 App</b>
-        {os === "ios"
+        {器 === "微信" || 器 === "QQ"
+          ? <span>{器}里装不到桌面：点右上角「···」，在{os === "ios" ? " Safari " : "浏览器"}里打开后再装</span>
+          : os === "ios"
           ? <span>点底部的 <UploadOutlined /> 分享，再点「添加到主屏幕」</span>
-          : 事件 ? <span>不用去应用商店，点右边就装好</span> : <span>浏览器菜单 ⋮ →「添加到主屏幕」或「安装应用」</span>}
+          : 事件 ? <span>不用去应用商店，点右边就装好</span>
+          : 能装.has(器) ? <span>浏览器菜单 ⋮ →「添加到主屏幕」或「安装应用」</span>
+          : <>
+              <span>菜单里找「添加到桌面」；没有的话，用 Chrome 或 Edge 打开这个网址再装。不装也能直接用</span>
+              <small>点了没反应：在手机设置里给这个浏览器打开「创建桌面快捷方式」权限</small>
+            </>}
       </div>
       {os === "android" && 事件 ? <button className="m-btn m-btn-sm" onClick={() => 事件.prompt?.()}>安装</button> : null}
       <button className="m-icon-btn" onClick={onClose} aria-label="关掉"><CloseOutlined /></button>

@@ -12,7 +12,7 @@ import * as 连 from "@/lib/mobile/link";
 import * as 密 from "@/lib/sync/crypto-web";
 import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
 import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 金额, type 客户视图 } from "@/lib/mobile/view";
-import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
+import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
 import "./m.css";
 
@@ -56,8 +56,7 @@ const 阶段表 = ["初步沟通", "需求确认", "方案报价", "谈判审核
 function 设备标签() {
   const ua = navigator.userAgent;
   const 机 = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? (/; ([^;)]+) Build\//.exec(ua)?.[1]?.trim() || "安卓手机") : "手机";
-  const 器 = /EdgA|EdgiOS/.test(ua) ? "Edge" : /CriOS|Chrome/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "浏览器";
-  return `${机} · ${器}`.slice(0, 60);
+  return `${机} · ${认浏览器(ua)}`.slice(0, 60);
 }
 
 /** 请求超时。AbortSignal.timeout 要 Chrome 103：夸克（内核 Chrome 100）上没有，直接抛错就成了「连不上网络」（10-15 真机） */
