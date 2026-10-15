@@ -6,6 +6,6 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const a = await 认同步(req);
   if (!a.ok) return a.res;
-  const body = (await req.json().catch(() => ({}))) as { teamId?: string };
-  return 回(await 退队(a.accountId, String(body.teamId ?? "")));
+  const body = (await req.json().catch(() => ({}))) as { teamId?: string; device?: string };
+  return 回(await 退队(a.accountId, String(body.teamId ?? ""), typeof body.device === "string" ? body.device : undefined));
 }

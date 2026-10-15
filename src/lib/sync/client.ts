@@ -92,7 +92,7 @@ export function 读团队(): 团队配置 | null {
   }
 }
 /** 先写临时文件再改名（写到一半断电不会留下半个 .team.json），权限每次都收紧到 0600（复查低 8） */
-function 写团队(c: 团队配置) {
+export function 写团队(c: 团队配置) {
   const f = 配置文件();
   const 临 = `${f}.${process.pid}.tmp`;
   fs.writeFileSync(临, JSON.stringify(c, null, 2), { mode: 0o600 });
@@ -154,7 +154,7 @@ function 验过(签好: string, 用途: string, signPub: string | undefined): st
   return 原;
 }
 
-function 能用(): 结果<{ accountId: string; contact: string; name: string }> {
+export function 能用(): 结果<{ accountId: string; contact: string; name: string }> {
   if (!本地模式()) return { ok: false, error: "团队同步只在桌面端用" };
   const c = 读云端凭据();
   if (!c?.accountId) return { ok: false, error: "先登录云端账号" };
@@ -165,7 +165,7 @@ function 能用(): 结果<{ accountId: string; contact: string; name: string }> 
  * 本机开同步：身份在请求云端建队/入队前预检，随后建表 → 装触发器 → 本机已有的整份记成新建。
  * 已经装过（重新加入另一个团队）：只换团队，不再改身份、不再记全量——日志里已经有了
  */
-async function 本机开同步(加入别人的: boolean) {
+export async function 本机开同步(加入别人的: boolean) {
   if (await 装了吗(prisma)) return;
   await 建同步表(prisma);
   await 装触发器(prisma);
@@ -174,7 +174,7 @@ async function 本机开同步(加入别人的: boolean) {
 }
 
 /** 本地身份错误须在云端写成员之前拦住，避免重试在云端留下多支未完成的队。 */
-async function 准备本机身份(我: { accountId: string; contact: string; name: string }): Promise<结果> {
+export async function 准备本机身份(我: { accountId: string; contact: string; name: string }): Promise<结果> {
   try {
     if (!await 装了吗(prisma)) await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 我.name || 我.contact.split("@")[0] });
     return { ok: true };
@@ -364,6 +364,29 @@ async function 移除成员里(accountId: string): Promise<结果> {
   return k.ok ? k : { ok: false, error: `人已经移出了，但钥匙没换成：${k.error}。再点一次「换邀请码」` };
 }
 
+/**
+ * 补换钥匙（2026-10-15 多设备同步）：谁在「我的设备」里移除了一台电脑 / 手机，云端记一笔「该换钥匙了」，
+ * 老板那台（手上有签名钥匙的）同步完一轮后看到就换一把——被移除的那台里留着的旧钥匙从此解不开新改动。
+ * 口令不变（换钥匙之后老邀请码里的钥匙对不上，同样作废；设置页显示的是新码）。几分钟问一次名单，不每轮问
+ */
+let 上次问换钥匙 = 0;
+export async function 老板补换钥匙(强制 = false): Promise<结果<{ 换了: boolean }>> {
+  const c = 读团队();
+  if (!c || !c.signPriv || !能管理团队(c)) return { ok: true, 换了: false };
+  if (!强制 && Date.now() - 上次问换钥匙 < 5 * 60_000) return { ok: true, 换了: false };
+  上次问换钥匙 = Date.now();
+  const r = await 云("GET", "/api/sync/team");
+  if (r.状态 !== 200) return { ok: true, 换了: false };
+  const 团 = ((r.json.teams as { id: string; 要换钥匙?: boolean }[]) ?? []).find((t) => t.id === c.teamId);
+  if (!团?.要换钥匙) return { ok: true, 换了: false };
+  const k = await 一个一个来(async () => {
+    if (在跑) await 在跑.catch(() => undefined);
+    const 现 = 读团队();
+    return 现 ? 换钥匙并换码(现, 现.joinSecret) : { ok: false as const, error: "没有加入团队" };
+  });
+  return k.ok ? { ok: true, 换了: true } : k;
+}
+
 /** 换邀请码（只有建团队的人）：旧码作废、钥匙一起换（码里带着钥匙）。已经在团队里的人自动拿到新钥匙 */
 export function 换邀请码(): Promise<结果<{ 邀请码: string; 跳过: number }>> {
   // 连点：第二下直接拿第一下的结果，不再去云端换第二次
@@ -437,7 +460,8 @@ async function 退出团队里(): Promise<结果> {
   if (!c) return { ok: true };
   // 先问名单、再退队：退了之后名单里就没有这个团了，问不出谁是老板（T-041）
   const 团 = await 名单里的团(c.teamId).catch(() => undefined);
-  const r = await 云("POST", "/api/sync/leave", { teamId: c.teamId });
+  // 带上设备号：这台已经在「我的设备」里被移除过的，服务端只当清本机设置、不让整个账号离队（2026-10-15 多设备同步）
+  const r = await 云("POST", "/api/sync/leave", { teamId: c.teamId, device: c.device });
   // 老板还有同事在队里：云端不让走（见 sync-relay 退队）。连不上云端、已经被移出（403）照旧在本机退
   if (r.状态 === 409) return { ok: false, error: String(r.json.error ?? "退不了") };
   const 账号 = 读云端凭据()?.accountId;
@@ -489,6 +513,8 @@ export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: 
     });
     // 云端说我不在这个团队里了：这一轮结束之后（退出团队要等这一轮跑完）看看是不是被移出
     void 在跑.then((r) => { if (!r.ok && /不在这个团队/.test(r.error)) void 被移出后收拾(); });
+    // 老板那台：有人在「我的设备」里移除过设备，补换一把钥匙（几分钟问一次，不每轮问）
+    void 在跑.then((r) => { if (r.ok) void 老板补换钥匙().catch(() => undefined); });
   }
   return 在跑;
 }
@@ -973,7 +999,8 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     const p = await 范围推(c, false, 规则);
     if (!p.ok) { 记团队(teamId, { lastError: p.error, lastSyncAt: new Date().toISOString() }); return p; }
     c = 读团队() ?? c;
-    const d = await 范围请求(c, "directory");
+    // 带上设备号：服务端据此记「我的设备」里的最近同步，被移除的这台在这里就被挡下（2026-10-15 多设备同步）
+    const d = await 范围请求(c, "directory", { device: c.device });
     if (d.状态 !== 200) { const 话 = 错话(d, "取不到同步目录"); 记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() }); return { ok: false, error: 话 }; }
     if (Number(d.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
     // 「团队」范围（成员、设置）先拉：客户的负责人得先在本机，不然回放当孤儿跳过（新服务端目录已经这么排，这里给老服务端兜底）
@@ -990,7 +1017,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
       const cur = c.scoped?.cursors?.[s.id];
       let after = cur && cur.revision >= s.revision ? cur.after : 0;
       for (;;) {
-        const r = await 范围请求(c, "pull", { scopeId: s.id, after });
+        const r = await 范围请求(c, "pull", { scopeId: s.id, after, device: c.device });
         if (r.状态 !== 200) {
           const 话 = 错话(r, "拉取失败");
           记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...(c.scoped?.cursors ?? {}), ...cursors } }, lastError: 话, lastSyncAt: new Date().toISOString() });

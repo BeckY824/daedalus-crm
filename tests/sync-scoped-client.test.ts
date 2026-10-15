@@ -59,7 +59,7 @@ const 传: 传输 = async (方法, 路径, body) => {
   if (u.pathname === "/api/sync/key") return 回(await relay.取钥匙(a, u.searchParams.get("teamId")!, u.searchParams.get("device")!));
   if (u.pathname === "/api/sync/pull") return 回(await relay.给拉取(a, u.searchParams.get("teamId")!, Number(u.searchParams.get("after"))));
   if (u.pathname === "/api/sync/push") return 回(await relay.收推送(a, String(b.teamId), String(b.device), String(b.data)));
-  if (u.pathname === "/api/sync/leave") return 回(await relay.退队(a, String(b.teamId)));
+  if (u.pathname === "/api/sync/leave") return 回(await relay.退队(a, String(b.teamId), typeof b.device === "string" ? b.device : undefined));
   if (u.pathname === "/api/sync/scoped") {
     const { POST } = await import("@/app/api/sync/scoped/route");
     void POST;

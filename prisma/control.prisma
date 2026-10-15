@@ -546,3 +546,23 @@ model SyncMobileLink {
   @@index([accountId, status])
 }
 
+
+/// 同一个人的每台设备（电脑、手机）最近一次同步是什么时候、用的是哪枚登录令牌（2026-10-15 多设备同步，control-migrations/022）。
+/// 「设置 → 团队 → 我的设备」据此列出名字（令牌的机器名 / 手机申请时的型号）和最后同步时间；
+/// 移除一台电脑时连它的令牌一起作废（它就此退出登录，拉不到也推不了）。同步时顺手记，几分钟记一次。
+model SyncDeviceSeen {
+  teamId     String
+  device     String
+  accountId  String
+  tokenId    String?
+  lastSeenAt DateTime @default(now())
+
+  @@id([teamId, device])
+}
+
+/// 移除了一台设备、还没换钥匙的团队（2026-10-15 多设备同步）。老板那台（手上有签名钥匙的）下次同步时看到就换一把，
+/// 被移除的设备里留着的旧钥匙从此解不开新改动。换过之后（SyncKey 有更晚的一把）这一行就不再作数
+model SyncRekeyWanted {
+  teamId   String   @id
+  wantedAt DateTime @default(now())
+}

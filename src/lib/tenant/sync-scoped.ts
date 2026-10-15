@@ -8,7 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { control } from "./control";
 import type { Prisma } from "@/generated/control";
 import { workspaceDir } from "./clients";
-import { 当前编号 } from "./sync-relay";
+import { 当前编号, 设备还在, 记设备在用 } from "./sync-relay";
 import { 范围开关 } from "./scoped-flag";
 import { 包的编号 } from "../sync/crypto";
 import { 合并范围, 推送可写, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
@@ -45,6 +45,16 @@ async function indices(teamId: string, db: Db = control) {
  * 已开始/完成迁移的团队即使关了开关也继续走新协议（不能退回全队包）
  */
 export { 范围开关 };
+/**
+ * 带着设备号来的请求（2026-10-15 多设备同步）：顺手记「这台最近在同步、用的哪枚令牌」；
+ * 拉取、目录这两样原来不带设备号（只按账号核），在「我的设备」里被移除的那台用同一个账号重新登录还能拉——
+ * 新客户端带上设备号，设备已经不在这个账号名下就挡下。老客户端不带，照旧（它们的令牌在移除时已作废）
+ */
+export async function 核设备(accountId: string, teamId: string, device: unknown, tokenId?: string) {
+  if (typeof device !== "string" || !device) return;
+  if (!(await 设备还在(teamId, accountId, device))) fail(403, "这台设备已经从「我的设备」里移除，不能再同步：在「设置 → 团队」里重新连接");
+  await 记设备在用(teamId, accountId, device, tokenId);
+}
 export async function 范围开放(teamId: string) {
   return 范围开关(teamId) || !!(await control.syncPrivacy.findUnique({ where: { teamId } }));
 }

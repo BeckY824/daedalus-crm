@@ -214,7 +214,7 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
   try {
     const p = await 推(c, 云, 状态);
     c = p.c;
-    const d = await 云("POST", 范围路径, { teamId: c.teamId, action: "directory" });
+    const d = await 云("POST", 范围路径, { teamId: c.teamId, action: "directory", device: c.device });
     if (d.状态 !== 200) throw new 同步问题(话(d, "取不到同步目录"));
     if (Number(d.json.epoch ?? 0) > c.epoch) c = await 更新钥匙(c, 云);
     // 「团队」范围（成员、设置）先拉，和桌面端一样
@@ -230,7 +230,7 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
       const cur = 状态.cursors[s.id];
       let after = cur && cur.revision >= s.revision ? cur.after : 0;
       for (;;) {
-        const r = await 云("POST", 范围路径, { teamId: c.teamId, action: "pull", scopeId: s.id, after });
+        const r = await 云("POST", 范围路径, { teamId: c.teamId, action: "pull", scopeId: s.id, after, device: c.device });
         if (r.状态 !== 200) throw new 同步问题(话(r, "拉取失败"));
         const batches = (r.json.batches as 拉到的包[]) ?? [];
         const 收: 改动[] = [];

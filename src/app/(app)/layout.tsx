@@ -19,6 +19,7 @@ import { 记下分机留存起 } from "@/lib/phone-dedupe";
 import { 是共享工作区 } from "@/lib/shared-ws/config";
 import { ShortcutProvider } from "@/components/Shortcut";
 import MobileAuthPrompt from "@/components/MobileAuthPrompt";
+import TeamConnectNotice from "@/components/TeamConnectNotice";
 
 export default async function AppLayout({
   children,
@@ -113,6 +114,8 @@ export default async function AppLayout({
       {modal}
       {/* 手机来要授权时弹出来：只有桌面端（数据在这台电脑上）才授权得了 */}
       {本地模式() && <MobileAuthPrompt />}
+      {/* 新电脑登录了团队成员的账号、还没连上：提醒一句去连接（多设备同步） */}
+      {本地模式() && <TeamConnectNotice />}
       </AiMeterProvider>
     </BusinessProvider>
     </ShortcutProvider>

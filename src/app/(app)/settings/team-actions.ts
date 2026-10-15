@@ -9,7 +9,8 @@ import { recordAudit } from "@/lib/audit";
 import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
-import { 待授权手机, 允许手机, 拒绝手机, 已连接手机, 移除手机 } from "@/lib/sync/mobile-desktop";
+import { 待授权手机, 允许手机, 拒绝手机, 我的设备, 移除设备 } from "@/lib/sync/mobile-desktop";
+import { 连接概况, 发起连接, 查连接, 取消连接 } from "@/lib/sync/device-link";
 
 /**
  * 设置 → 团队（2026-10-03，团队同步）。只在桌面端本地模式有这一栏；真正的活在 lib/sync/client.ts。
@@ -27,7 +28,8 @@ async function 换票() {
 export async function 读团队状态() {
   await requireUser();
   const s = await 团队状态();
-  if (!s.在团队) return s;
+  // 这台还没连上：账号在云上是哪个团队的、是不是在等另一台电脑允许（2026-10-15 多设备同步）
+  if (!s.在团队) return { ...s, 连接: await 连接概况().catch(() => null) };
   // 老板看每个人的客户数和跟进（2026-10-04：老板要看得到业务员的跟进过程）；疑似重复也只给老板看——业务员只看得到自己那一半
   if (!s.我是建的人) return { ...s, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人> };
   return { ...s, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)) };
@@ -121,17 +123,18 @@ export async function 确认范围冲突动作(ids: number[]) {
   return { ok: true as const, 确认: n };
 }
 
-/* ---------- 手机（2026-10-15，手机端方案 3.2）：授权、列出、移除。活在 lib/sync/mobile-desktop.ts ---------- */
+/* ---------- 手机和本人的新电脑（2026-10-15，手机端方案 3.2 / 多设备同步）：授权。活在 lib/sync/mobile-desktop.ts；列出、移除见下面「我的设备」 ---------- */
 
 export async function 待授权手机动作() {
   await requireUser();
   return 待授权手机();
 }
 
-export async function 允许手机动作(id: string, label: string) {
+export async function 允许手机动作(id: string, label: string, 电脑 = false) {
   const user = await requireUser();
   const r = await 允许手机(String(id ?? ""));
-  if (r.ok) await recordAudit({ user, action: "create", entity: "Setting", entityId: "mobile", summary: `授权了一台手机（${String(label ?? "").slice(0, 60)}）查看和记录客户` });
+  const 名 = String(label ?? "").slice(0, 60);
+  if (r.ok) await recordAudit({ user, action: "create", entity: "Setting", entityId: 电脑 ? "device" : "mobile", summary: 电脑 ? `授权了自己的另一台电脑（${名}）加入团队同步` : `授权了一台手机（${名}）查看和记录客户` });
   return r;
 }
 
@@ -140,16 +143,48 @@ export async function 拒绝手机动作(id: string) {
   return 拒绝手机(String(id ?? ""));
 }
 
-export async function 已连接手机动作() {
+
+/* ---------- 多设备同步（2026-10-15）：这台新电脑连上团队、我的设备。活在 lib/sync/device-link.ts、mobile-desktop.ts ---------- */
+
+/** 首页提醒用：这台没连上、账号在云上是哪个团队的（不是 / 已连上 = null） */
+export async function 待连接团队动作() {
   await requireUser();
-  const r = await 已连接手机();
+  const x = await 连接概况().catch(() => null);
+  return x?.云上的团 ? { 团名: x.云上的团.name } : null;
+}
+
+export async function 发起连接动作() {
+  await requireUser();
+  return 发起连接();
+}
+
+/** 问另一台电脑点了没；连上了跟加入团队一样：本机管理员 id 改成按云端账号算的，重签会话票、留日志 */
+export async function 查连接动作() {
+  await requireUser();
+  const r = await 查连接();
+  if (r.ok && r.status === "joined" && r.teamName !== undefined) {
+    const me = await 换票();
+    if (me) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: `在另一台电脑上授权后连上了团队「${r.teamName}」，这台电脑开始团队同步` });
+    revalidatePath("/", "layout");
+  }
+  return r;
+}
+
+export async function 取消连接动作() {
+  await requireUser();
+  return 取消连接();
+}
+
+export async function 我的设备动作() {
+  await requireUser();
+  const r = await 我的设备();
   // 手机上打开哪个地址：和这台电脑连的是同一个云端
   return r.ok ? { ...r, 地址: `${云端地址()}/m` } : r;
 }
 
-export async function 移除手机动作(id: string, label: string) {
+export async function 移除设备动作(device: string, label: string) {
   const user = await requireUser();
-  const r = await 移除手机(String(id ?? ""));
-  if (r.ok) await recordAudit({ user, action: "delete", entity: "Setting", entityId: "mobile", summary: `移除了一台手机（${String(label ?? "").slice(0, 60)}），它不能再同步` });
+  const r = await 移除设备(String(device ?? ""));
+  if (r.ok) await recordAudit({ user, action: "delete", entity: "Setting", entityId: "device", summary: `从「我的设备」里移除了「${String(label ?? "").slice(0, 60)}」，它退出登录、不能再同步` });
   return r;
 }
