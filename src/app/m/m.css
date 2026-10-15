@@ -31,6 +31,8 @@ html.m-page nextjs-portal { display: none; }
 .m-base { z-index: 1; }
 .m-top { z-index: 2; }
 .m-root[data-os="ios"] .m-top { box-shadow: -10px 0 30px rgba(0, 0, 0, 0.08); }
+/* 正在退回的详情层不接点击：点的是底下看得见的列表，不是快淡没了的详情（安卓上尤其明显） */
+.m-top.is-leaving { pointer-events: none; }
 .m-edge { position: absolute; left: 0; top: 0; bottom: 0; width: 22px; z-index: 6; touch-action: none; }
 .m-dim { position: absolute; inset: 0; background: rgb(0 0 0); pointer-events: none; }
 .m-tabs-body { position: relative; flex: 1; min-height: 0; }

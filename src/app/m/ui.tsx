@@ -5,7 +5,8 @@
  * 手感按两个平台的系统习惯：iPhone 大标题收成小标题、边缘右滑返回；安卓靠左顶栏、系统返回键。见 m.css。
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { animate, motion, useDragControls, useTransform, type MotionValue } from "motion/react";
+import { motion, useDragControls, useTransform, type MotionValue } from "motion/react";
+import { 层样子, type 推入 } from "./push";
 import { ArrowLeftOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseOutlined, CloudSyncOutlined, ContactsFilled, ContactsOutlined, DisconnectOutlined, ExclamationCircleFilled, LeftOutlined, PauseCircleFilled, RightOutlined, UploadOutlined } from "@ant-design/icons";
 import { 简称, 头像色, 同步条 } from "@/lib/mobile/view";
 import { 现状动效 } from "@/lib/motion";
@@ -134,9 +135,10 @@ export function Page({ os, 标题, 副标题, 右, 返回, 返回字, 吸顶, ch
   );
 }
 
-export function BaseLayer({ 顶x, 宽, os, 有详情, children }: { 顶x: MotionValue<number>; 宽: number; os: 系统; 有详情: boolean; children: ReactNode }) {
-  const x = useTransform(顶x, (v) => (有详情 && os === "ios" ? (v / 宽 - 1) * 宽 * 0.28 : 0));
-  const 暗 = useTransform(顶x, (v) => (有详情 ? (1 - v / 宽) * (os === "ios" ? 0.1 : 0) : 0));
+/** 底下那一层（今天 / 客户）。p：0 = 详情完全进来，1 = 完全退回（push.ts） */
+export function BaseLayer({ p, 宽, os, 少动, 有详情, children }: { p: MotionValue<number>; 宽: number; os: 系统; 少动: boolean; 有详情: boolean; children: ReactNode }) {
+  const x = useTransform(p, (v) => (有详情 ? 层样子(v, 宽, os, 少动).底x : 0));
+  const 暗 = useTransform(p, (v) => (有详情 ? 层样子(v, 宽, os, 少动).暗 : 0));
   return (
     <motion.div className="m-layer m-base" style={{ x }} aria-hidden={有详情}>
       {children}
@@ -144,21 +146,36 @@ export function BaseLayer({ 顶x, 宽, os, 有详情, children }: { 顶x: Motion
     </motion.div>
   );
 }
-
-/** 推进来的那一层。iPhone：从左边缘往右拖返回，过了三分之一或甩得快就返回，否则弹回去 */
-export function TopLayer({ 顶x, 宽, os, onBack, children }: { 顶x: MotionValue<number>; 宽: number; os: 系统; onBack: () => void; children: ReactNode }) {
-  const 透明 = useTransform(顶x, [0, 宽 * 0.18], [1, 0]);
-  const 拖 = useDragControls();
+/**
+ * 推进来的那一层（客户详情）。iPhone 左边缘一条右滑返回；拖动自己管（不用 motion 的 drag：
+ * 它一按下就停掉正在跑的推入动画，没拖就松开会停在半路，见 push.ts）
+ */
+export function TopLayer({ p, 宽, os, 少动, 推, 退着, children }: { p: MotionValue<number>; 宽: number; os: 系统; 少动: boolean; 推: 推入; 退着: boolean; children: ReactNode }) {
+  const x = useTransform(p, (v) => 层样子(v, 宽, os, 少动).顶x);
+  const 透明 = useTransform(p, (v) => 层样子(v, 宽, os, 少动).顶透明);
+  const 按下 = (e: React.PointerEvent) => {
+    if (!e.isPrimary) return;
+    推.按下(e.clientX);
+    const 移 = (ev: PointerEvent) => { if (ev.pointerId === e.pointerId) 推.移动(ev.clientX); };
+    const 完 = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId && ev.type !== "pointercancel") return;
+      if (ev.type === "pointerup") 推.松手(ev.clientX); else 推.取消();
+      window.removeEventListener("pointermove", 移, true);
+      window.removeEventListener("pointerup", 完, true);
+      window.removeEventListener("pointercancel", 完, true);
+    };
+    // 挂在 window 的捕获阶段：手指滑出这条边、子元素拦了事件，都收得到松手和取消
+    window.addEventListener("pointermove", 移, true);
+    window.addEventListener("pointerup", 完, true);
+    window.addEventListener("pointercancel", 完, true);
+  };
   return (
-    <motion.div className="m-layer m-top" style={{ x: 顶x, opacity: os === "android" ? 透明 : 1 }}
-      drag={os === "ios" ? "x" : false} dragListener={false} dragControls={拖} dragConstraints={{ left: 0, right: 宽 }} dragElastic={0} dragMomentum={false}
-      onDragEnd={(_, i) => { if (i.offset.x > 宽 / 3 || i.velocity.x > 600) onBack(); else animate(顶x, 0, 弹簧); }}>
-      {os === "ios" && <div className="m-edge" onPointerDown={(e) => 拖.start(e)} />}
+    <motion.div className={`m-layer m-top${退着 ? " is-leaving" : ""}`} style={{ x, opacity: 透明 }} aria-hidden={退着}>
+      {os === "ios" && <div className="m-edge" onPointerDown={按下} />}
       {children}
     </motion.div>
   );
 }
-
 export function Sheet({ onClose, children, 高 }: { onClose: () => void; children: ReactNode; 高: "auto" | "tall" }) {
   const 拖 = useDragControls();
   return (

@@ -15,6 +15,7 @@ import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
 import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
+import { 推入 } from "./push";
 import "./m.css";
 
 /**
@@ -41,6 +42,9 @@ const 拍 = (s: 同步.同步状态): 快照 => ({
   lastError: s.lastError ?? null,
 });
 
+const 少动查询 = "(prefers-reduced-motion: reduce)";
+const 订少动 = (cb: () => void) => { const m = window.matchMedia(少动查询); m.addEventListener("change", cb); return () => m.removeEventListener("change", cb); };
+const 读少动 = () => window.matchMedia(少动查询).matches;
 const 订尺寸 = (cb: () => void) => { window.addEventListener("resize", cb); return () => window.removeEventListener("resize", cb); };
 const 不订 = () => () => {};
 const 类型表 = [
@@ -114,6 +118,22 @@ export default function MobileApp() {
   const [详情, set详情] = useState<string | null>(null);
   const [面板, set面板] = useState<面板>(null);
   const 同步中 = useRef(false);
+  // 推入推出（2026-10-15 重做，见 push.ts）：进度 p 一个数，0 = 详情完全进来，1 = 完全退回
+  const 进度 = useMotionValue(1);
+  // 系统的「减弱动态效果」：自己订（motion 的 useReducedMotion 中途改了设置不会跟着变）
+  const 少动 = useSyncExternalStore(订少动, 读少动, () => false);
+  const [退着, set退着] = useState(false);
+  const 层 = useRef({ 详情: null as string | null, 面板: null as 面板 });
+  const [推] = useState(() => new 推入({
+    值: 进度,
+    动画: (到, 秒) => animate(进度, 到, { duration: 秒, ease: 现状动效.曲线.ease }),
+    // 整程用形变档（iOS 推入差不多也是这么长）；减弱动态效果时只淡入淡出，用常规档
+    时长: { 整程: 现状动效.时长.morph, 淡: 现状动效.时长.base, 最短: 现状动效.时长.fast },
+    退完: () => set详情(null),
+    要返回: () => history.back(),
+    目标变了: (目标) => set退着(目标 === "退回"),
+  }));
+  useEffect(() => { 层.current = { 详情, 面板 }; 推.设(宽, 少动); });
   // 本人的新电脑 / 新手机来要授权（2026-10-15，0.46.17）：这台手机也能点允许
   const [待批, set待批] = useState<连.待授权 | null>(null);
   const 稍后批 = useRef(new Set<string>());
@@ -160,10 +180,10 @@ export default function MobileApp() {
     await k.清空();
     await k.写("leftover", 留);
     态.current = 同步.新状态(); 拍一下();
-    set遗留们(留); set团队(null); setToken(null); set详情(null); set面板(null); set团队名("");
+    set遗留们(留); set团队(null); setToken(null); set详情(null); 推.复位(); set面板(null); set团队名("");
     set失效提示(话);
     set阶段("login");
-  }, [遗留们, 库, 拍一下]);
+  }, [遗留们, 库, 拍一下, 推]);
 
   /* ---------- 同步：打开时、回到前台时、恢复联网时、下拉时、记完一笔后；开着时每 30 秒 ---------- */
   const 跑同步 = useCallback(async (手动 = false) => {
@@ -244,18 +264,33 @@ export default function MobileApp() {
   }
 
   /* ---------- 返回：一律走浏览器历史（安卓返回键 / 手势和页面上的返回按钮同一条路） ---------- */
-  const 顶x = useMotionValue(0);
-  const 层 = useRef({ 详情: null as string | null, 面板: null as 面板 });
-  useEffect(() => { 层.current = { 详情, 面板 }; });
-  const 收详情 = useCallback(() => { animate(顶x, 宽, { ...弹簧, stiffness: 380 }).then(() => { set详情(null); 顶x.set(0); }); }, [顶x, 宽]);
   useEffect(() => {
-    const on = () => { if (层.current.面板) set面板(null); else if (层.current.详情) 收详情(); };
+    const on = () => { if (层.current.面板) set面板(null); else if (层.current.详情) 推.去("退回"); };
+    // 切后台 / 页面冻住时动画帧会停：切换的那一刻就把动画落到位
+    const 收 = () => 推.收尾();
     window.addEventListener("popstate", on);
-    return () => window.removeEventListener("popstate", on);
-  }, [收详情]);
-  const 打开详情 = (id: string) => { history.pushState({ m: "detail" }, ""); set详情(id); 顶x.set(os === "ios" ? 宽 : 宽 * 0.18); animate(顶x, 0, 弹簧); };
+    document.addEventListener("visibilitychange", 收);
+    window.addEventListener("pageshow", 收);
+    window.addEventListener("pagehide", 收);
+    return () => {
+      window.removeEventListener("popstate", on);
+      document.removeEventListener("visibilitychange", 收);
+      window.removeEventListener("pageshow", 收);
+      window.removeEventListener("pagehide", 收);
+    };
+  }, [推]);
+  const 打开详情 = (id: string) => {
+    // 已经在进来（连点同一行、或者进来的半路又点了一行）：换内容就行，不再记一笔历史
+    if (推.目标 === "进来") { set详情(id); return; }
+    history.pushState({ m: "detail" }, "");
+    // 完全退回了从屏幕外进来；退回的半路又点进去，就从当前位置折返
+    if (!详情) 进度.jump(1);
+    set详情(id);
+    推.去("进来");
+  };
   const 打开面板 = (p: NonNullable<面板>) => { history.pushState({ m: "sheet" }, ""); set面板(p); };
-  const 返回 = () => history.back();
+  // 只在历史顶上确实是详情 / 面板时才退：退回的半路再点返回，不能把浏览器退到上一个网页去
+  const 返回 = () => { if (面板 || 推.目标 === "进来") history.back(); };
 
   /* ---------- 数据 ---------- */
   const 我 = 团队?.userId ?? "";
@@ -320,7 +355,7 @@ export default function MobileApp() {
     if (token) await fetch("/api/account/token", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
     await k?.清空();
     态.current = 同步.新状态(); 拍一下();
-    set团队(null); setToken(null); set账号(null); set遗留们([]); set面板(null); set详情(null); set失效提示(null);
+    set团队(null); setToken(null); set账号(null); set遗留们([]); set面板(null); set详情(null); 推.复位(); set失效提示(null);
     set阶段("login");
   }
 
@@ -368,7 +403,7 @@ export default function MobileApp() {
         )}
         {阶段 === "app" && 团队 && (
           <motion.div key="app" className="m-app" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 现状动效.时长.morph }}>
-            <BaseLayer 顶x={顶x} 宽={宽} os={os} 有详情={!!详情}>
+            <BaseLayer p={进度} 宽={宽} os={os} 少动={少动} 有详情={!!详情}>
               <div className="m-tabs-body">
                 {tab === "today"
                   ? <TodayScreen os={os} 今天={今天} 现在={现在} 断网={断网} 待同步={待同步数} 上次成功={快照.上次成功} 错误={快照.lastError} 在同步={在同步}
@@ -378,7 +413,7 @@ export default function MobileApp() {
               <TabBar os={os} tab={tab} onTab={(t) => { if (t !== tab) { setTab(t); 震一下(); } }} 今天数={今天数} />
             </BaseLayer>
             {当前客户 && (
-              <TopLayer 顶x={顶x} 宽={宽} os={os} onBack={返回}>
+              <TopLayer p={进度} 宽={宽} os={os} 少动={少动} 推={推} 退着={退着}>
                 <DetailScreen os={os} c={当前客户} 现在={现在} 来自={tab === "today" ? "今天" : "客户"} onBack={返回} onRecord={() => 打开面板({ kind: "record", id: 当前客户.id })} />
               </TopLayer>
             )}
