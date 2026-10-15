@@ -206,7 +206,13 @@ async function 目录里(accountId: string, teamId: string, db: Db, 要补起点
       if ((x._min.id ?? Infinity) < 候选.get(x.recordKey)! && needBaseline.length < 500) needBaseline.push(x.recordKey);
     }
   }
-  return { owner, scopes: [...scopes.values()], epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
+  /*
+    「团队」范围（成员、设置、渠道、供应商）放最前（2026-10-15）：客户端照目录的顺序拉，原来按记录键字母序，
+    「Customer:…」排在「User:…」前面——新同事加入后马上录了客户、老板这段时间没同步，老板就先收到客户、后收到同事的账号行，
+    回放时负责人在本机不存在，整批客户当孤儿永久跳过（tests/sync-scoped-join-order.test.ts）
+  */
+  const 排好 = [...scopes.values()].sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
+  return { owner, scopes: 排好, epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
 }
 /** 这条记录在改归属（threshold）之前有没有批次：有 = 新获权的人需要一份起点，没有 = 整段历史都在改归属之后 */
 const 有更早批次 = async (db: Db, teamId: string, recordKey: string, threshold: number) => !!(await db.syncScopedBatch.findFirst({ where: { teamId, recordKey, id: { lt: threshold } }, select: { id: true } }));

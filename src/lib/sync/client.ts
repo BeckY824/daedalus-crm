@@ -974,7 +974,8 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     const d = await 范围请求(c, "directory");
     if (d.状态 !== 200) { const 话 = 错话(d, "取不到同步目录"); 记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() }); return { ok: false, error: 话 }; }
     if (Number(d.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
-    const scopes = (d.json.scopes as { id: string; revision: number; records: 范围索引[] }[]) ?? [];
+    // 「团队」范围（成员、设置）先拉：客户的负责人得先在本机，不然回放当孤儿跳过（新服务端目录已经这么排，这里给老服务端兜底）
+    const scopes = ((d.json.scopes as { id: string; revision: number; records: 范围索引[] }[]) ?? []).sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
     const index = new Map<string, 范围索引>();
     for (const s of scopes) for (const r of s.records) index.set(行键(r.t, r.k), r);
     const allowed = new Set(index.keys());
