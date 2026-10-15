@@ -355,8 +355,8 @@ export default function TeamTab() {
         <h3>邀请同事</h3>
         <p className="muted">把邀请码发给同事，他们进来就是业务员。<b>只发给同事</b>：拿到它的人就能进团队。</p>
         <Space.Compact style={{ width: "100%", maxWidth: 560 }}>
-          <Input value={s.邀请码} readOnly aria-label="邀请码" />
-          <Button icon={<CopyOutlined />} onClick={() => void 复制(s.邀请码)}>复制</Button>
+          <Input value={s.邀请码 || "这台看不到邀请码"} readOnly aria-label="邀请码" disabled={!s.邀请码} />
+          <Button icon={<CopyOutlined />} disabled={!s.邀请码} onClick={() => void 复制(s.邀请码)}>复制</Button>
         </Space.Compact>
         {s.能管理 ? (
           <div style={{ marginTop: 8 }}>
@@ -365,7 +365,10 @@ export default function TeamTab() {
           </div>
         ) : (
           // 老板在另一台电脑上进来的：签名钥匙不在这台，换出去的钥匙同事会拒收（lib/sync/client 的 能管理团队）
-          <p className="muted" style={{ marginTop: 8 }}>移除同事、换邀请码要在<b>建团队的那台电脑</b>（或它授权连上的电脑）上做：老板的签名钥匙只在那几台上。这台是用邀请码连上的，没有。</p>
+          <p className="muted" style={{ marginTop: 8 }}>
+            移除同事、换邀请码{s.邀请码 ? "" : "、看邀请码"}要在<b>建团队的那台电脑</b>（或它授权连上的电脑）上做：老板的管理钥匙只在那几台上。
+            这台是用邀请码或在手机上批准连上的，没有。
+          </p>
         )}
       </section>
       )}

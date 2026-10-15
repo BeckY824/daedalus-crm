@@ -367,7 +367,8 @@ async function 移除成员里(accountId: string): Promise<结果> {
 /**
  * 补换钥匙（2026-10-15 多设备同步）：谁在「我的设备」里移除了一台电脑 / 手机，云端记一笔「该换钥匙了」，
  * 老板那台（手上有签名钥匙的）同步完一轮后看到就换一把——被移除的那台里留着的旧钥匙从此解不开新改动。
- * 口令不变（换钥匙之后老邀请码里的钥匙对不上，同样作废；设置页显示的是新码）。几分钟问一次名单，不每轮问
+ * **口令一起换**（和「换邀请码」同一件事）：被移除的电脑里留着入队口令，口令不换的话，拿到那台电脑的人另注册一个账号
+ * 就能凭口令进团队、登记设备，下一次换钥匙还会封给它。几分钟问一次名单，不每轮问
  */
 let 上次问换钥匙 = 0;
 export async function 老板补换钥匙(强制 = false): Promise<结果<{ 换了: boolean }>> {
@@ -379,11 +380,7 @@ export async function 老板补换钥匙(强制 = false): Promise<结果<{ 换�
   if (r.状态 !== 200) return { ok: true, 换了: false };
   const 团 = ((r.json.teams as { id: string; 要换钥匙?: boolean }[]) ?? []).find((t) => t.id === c.teamId);
   if (!团?.要换钥匙) return { ok: true, 换了: false };
-  const k = await 一个一个来(async () => {
-    if (在跑) await 在跑.catch(() => undefined);
-    const 现 = 读团队();
-    return 现 ? 换钥匙并换码(现, 现.joinSecret) : { ok: false as const, error: "没有加入团队" };
-  });
+  const k = await 一个一个来(换邀请码里);
   return k.ok ? { ok: true, 换了: true } : k;
 }
 
@@ -678,7 +675,8 @@ export async function 团队状态() {
     能管理: 能管理团队(c),
     我: 读云端凭据()?.accountId ?? null,
     成员: 团?.成员 ?? [],
-    邀请码: 邀请码(c),
+    /** 手机批准连上的电脑没有入队口令（lib/sync/device-link.ts）：不给一个拼坏的码 */
+    邀请码: c.joinSecret ? 邀请码(c) : "",
     lastSyncAt: c.lastSyncAt ?? null,
     lastError: c.lastError ?? (r.状态 === 200 ? null : String(r.json.error ?? "")),
     last: c.last ?? null,

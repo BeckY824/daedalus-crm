@@ -10,7 +10,8 @@ export const runtime = "nodejs";
 /**
  * 手机连团队（lib/tenant/mobile-link.ts）。手机和电脑都拿各自的设备令牌来（dk_…），按 action 分：
  *   手机：request（发申请：device、pubKey、label）、status（问结果）
- *   电脑：pending（待授权）、challenge（id、teamId、device：领挑战）、approve（id、teamId、sealed、nonce）、deny（id）、list（已连接）、remove（id）
+ *   本人已连上的电脑或手机（手机 2026-10-15 起）：pending（待授权）、challenge（id、teamId、device：领挑战）、approve（id、teamId、sealed、nonce）、deny（id）
+ *   电脑：list（已连接的手机）、remove（id）
  * 都按令牌认账号：只看得到、只处理得了自己账号的手机。
  */
 export async function POST(req: Request) {
