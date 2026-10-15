@@ -55,7 +55,7 @@ export default function MobileAuthPrompt() {
   }
 
   return (
-    <Modal open title={<><MobileOutlined /> 允许「{当前.label}」查看和记录你的客户？</>} onCancel={() => { 稍后.current.add(当前.id); 关(); }} maskClosable={false}
+    <Modal open title={<><MobileOutlined /> 允许「{当前.label}」查看和记录你的客户？</>} onCancel={() => { 稍后.current.add(当前.id); 关(); }} mask={{ closable: false }}
       footer={[
         <Button key="no" danger disabled={忙 !== null} loading={忙 === "拒绝"} onClick={() => void 拒绝()}>不允许</Button>,
         <Button key="yes" type="primary" disabled={忙 !== null} loading={忙 === "允许"} onClick={() => void 允许()}>允许</Button>,

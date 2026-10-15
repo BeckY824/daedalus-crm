@@ -48,8 +48,15 @@ export async function 申请(accountId: string, tokenId: string, x: { device?: u
   }
   const 在等 = await control.syncMobileLink.count({ where: { accountId, status: "pending", createdAt: { gt: new Date(Date.now() - 申请有效毫秒) } } });
   if (在等 >= 待授权上限) return 错(429, "等着授权的手机太多了，先在电脑上处理一下");
-  const r = await control.syncMobileLink.create({ data: { accountId, tokenId, device: x.device, pubKey: x.pubKey, label, status: "pending" } });
-  return { ok: true, id: r.id, status: r.status };
+  try {
+    const r = await control.syncMobileLink.create({ data: { accountId, tokenId, device: x.device, pubKey: x.pubKey, label, status: "pending" } });
+    return { ok: true, id: r.id, status: r.status };
+  } catch (e) {
+    // 同一枚令牌几乎同时发了两次（页面重开、网络重发）：后到的撞上唯一约束，读出先建好的那条
+    const 先 = (e as { code?: string }).code === "P2002" ? await control.syncMobileLink.findUnique({ where: { tokenId } }) : null;
+    if (先 && 先.accountId === accountId) return { ok: true, id: 先.id, status: 先.status };
+    throw e;
+  }
 }
 
 /** 手机问：我的申请怎么样了。允许了就带上封好的那份（只有这台手机的私钥解得开） */
@@ -60,14 +67,15 @@ export async function 我的申请(accountId: string, tokenId: string): Promise<
   return { ok: true, status: 过期 ? "expired" : r.status, teamId: r.teamId, sealed: r.status === "approved" ? r.sealed : null };
 }
 
-/** 电脑上：本账号在等授权的手机 */
+/** 电脑上：本账号在等授权的手机。发申请的那枚令牌已经作废的（手机上退出、换了账号）不列：那台手机已经不在等了 */
 export async function 待授权(accountId: string): Promise<结果<{ links: 手机申请[] }>> {
   const links = await control.syncMobileLink.findMany({
     where: { accountId, status: "pending", createdAt: { gt: new Date(Date.now() - 申请有效毫秒) } },
     orderBy: { createdAt: "desc" },
-    select: { id: true, device: true, pubKey: true, label: true, createdAt: true },
+    select: { id: true, tokenId: true, device: true, pubKey: true, label: true, createdAt: true },
   });
-  return { ok: true, links };
+  const 活着 = new Set((await control.deviceToken.findMany({ where: { id: { in: links.map((l) => l.tokenId) }, revokedAt: null }, select: { id: true } })).map((t) => t.id));
+  return { ok: true, links: links.filter((l) => 活着.has(l.tokenId)).map(({ tokenId: _, ...l }) => l) };
 }
 
 /** 挑战多久内要交回来 */

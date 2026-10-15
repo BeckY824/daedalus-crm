@@ -281,3 +281,30 @@ describe("手机连团队：申请 → 电脑授权 → 同步", () => {
     expect(await control.syncKeyEnvelope.findUnique({ where: { teamId_epoch_device: { teamId, epoch: 编号, device: 手机设备 } } })).toBeNull();
   });
 });
+
+describe("申请并发安全", () => {
+  it("同一枚令牌同时发两次申请：都成功、只有一条", async () => {
+    const 名 = "并发";
+    令牌[名] = (await 令牌库.签发(账号.li, "手机 · 并发")).token;
+    const 云 = 用令牌(名);
+    const 钥 = await 密.设备钥匙对();
+    const [a, b] = await Promise.all([1, 2].map(() => 连.发申请(云, { device: "m_concurrent_1", pubKey: 钥.公钥, label: "并发" })));
+    expect(a.id).toBe(b.id);
+    expect(await control.syncMobileLink.count({ where: { device: "m_concurrent_1" } })).toBe(1);
+  });
+});
+
+describe("手机上退出 / 换账号后，旧申请不再出现在电脑上", () => {
+  it("发申请的令牌作废了：电脑上的待授权里没有它", async () => {
+    令牌.退了 = (await 令牌库.签发(账号.li, "手机 · 退了")).token;
+    const 钥 = await 密.设备钥匙对();
+    await 连.发申请(用令牌("退了"), { device: "m_logged_out_1", pubKey: 钥.公钥, label: "退了的手机" });
+    当("li");
+    const 前 = await 授权.待授权手机();
+    expect(前.ok && 前.手机.map((x) => x.label)).toContain("退了的手机");
+    const t = await 令牌库.认领(令牌.退了);
+    await 令牌库.吊销(t!.id, 账号.li);
+    const 后 = await 授权.待授权手机();
+    expect(后.ok && 后.手机.map((x) => x.label)).not.toContain("退了的手机");
+  });
+});

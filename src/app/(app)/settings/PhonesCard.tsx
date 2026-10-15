@@ -57,7 +57,7 @@ export default function PhonesCard() {
             <li key={p.id}>
               <b>{p.label}</b>
               <span className="muted">
-                {p.decidedAt ? `${smartTime(p.decidedAt)}授权` : ""}
+                {p.decidedAt ? `授权于 ${smartTime(p.decidedAt)}` : ""}
                 {p.lastUsedAt ? ` · 最近使用 ${smartTime(p.lastUsedAt)}` : ""}
               </span>
               <Button size="small" type="text" danger onClick={() => 移除(p)}>移除</Button>

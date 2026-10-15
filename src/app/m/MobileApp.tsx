@@ -294,7 +294,11 @@ export default function MobileApp() {
               set团队(团); set团队名(名);
               set阶段("syncing");
             }}
-            onRestart={async () => { await 库?.写("token", undefined); setToken(null); set阶段("login"); }} />
+            onRestart={async () => {
+              // 旧令牌作废：它发的那条申请就不会再出现在电脑上（服务端只列令牌还活着的申请）
+              await fetch("/api/account/token", { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+              await 库?.写("token", undefined); setToken(null); set阶段("login");
+            }} />
         )}
         {阶段 === "syncing" && 团队 && 云 && (
           <FirstSync key="sync" 团队={团队} 云={云} 库={库!} 取状态={取状态}
@@ -746,6 +750,23 @@ function LoginFlow({ 失效提示, 遗留, onDone }: { 失效提示: string | nu
   );
 }
 
+/**
+ * 这台手机的设备号和钥匙对：第一次用时生成、存进本地库，之后一直用这一对（配对数字跟着它）。
+ * 同一时刻只生成一次：页面重开、效果跑两遍时不会各生成一对、各发一条申请（电脑上就会多出一条对不上数字的）
+ */
+let 生成中: Promise<设备> | null = null;
+function 本机设备(库: 本地库): Promise<设备> {
+  生成中 ??= (async () => {
+    const 有 = (await 库.读("dev")) as 设备 | undefined;
+    if (有) return 有;
+    const k = await 密.设备钥匙对();
+    const d = { device: 连.新设备号(), 公钥: k.公钥, 私钥: k.私钥 };
+    await 库.写("dev", d);
+    return d;
+  })().finally(() => { 生成中 = null; });
+  return 生成中;
+}
+
 function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; 库: 本地库; onApproved: (团: 同步.手机团队, 名: string) => Promise<void>; onRestart: () => Promise<void> }) {
   const [数字, set数字] = useState<string | null>(null);
   const [状态, set状态] = useState<"pending" | "denied" | "expired" | "error">("pending");
@@ -755,8 +776,7 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
     let 停 = false;
     const 云 = 做传输(token, () => undefined);
     (async () => {
-      let d = (await 库.读("dev")) as 设备 | undefined;
-      if (!d) { const k = await 密.设备钥匙对(); d = { device: 连.新设备号(), 公钥: k.公钥, 私钥: k.私钥 }; await 库.写("dev", d); }
+      const d = await 本机设备(库);
       设.current = d;
       await 连.发申请(云, { device: d.device, pubKey: d.公钥, label: 设备标签() });
       const n = await 密.配对数字(d.公钥);
