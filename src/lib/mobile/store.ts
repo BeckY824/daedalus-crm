@@ -5,6 +5,9 @@
  *     页面脚本也拿不出原始字节；直接翻浏览器存储文件看到的只有密文
  *   - 打开时整库读进内存（一个人能看的客户也就几千行），读写都在内存里；改过的行攒着，存盘() 一个事务写回
  *   - 还存几样小东西（kv）：登录令牌、设备号和私钥、团队身份、同步状态
+ *   - kv 里带「私钥」的值（设备、团队身份）：私钥导成 PKCS8、用上面那把行钥匙加密后再存，读时解开导回 CryptoKey。
+ *     因为 Safari（WebKit）存 X25519 的 CryptoKey 不报错、读回来却是 undefined（整条丢掉）——2026-10-15 真 iPhone 上
+ *     配对数字每 30 秒变一次、电脑点了允许手机也收不到，就是它。老格式（私钥是 CryptoKey 本身，安卓上已有的）照认
  *
  * 只在浏览器里用（window.indexedDB）。测试用 sync.ts 的 内存库。
  */
@@ -33,6 +36,11 @@ const 等完 = (t: IDBTransaction) => new Promise<void>((ok, bad) => { t.oncompl
 const 字 = new TextEncoder();
 const 读字 = new TextDecoder();
 type 密行 = { iv: Uint8Array<ArrayBuffer>; ct: ArrayBuffer };
+type 带私钥 = { 私钥: CryptoKey };
+type 封私钥 = { 私钥封: 密行 };
+const 带私钥吗 = (v: unknown): v is 带私钥 => typeof v === "object" && v !== null && (v as 带私钥).私钥 instanceof CryptoKey;
+const 封私钥吗 = (v: unknown): v is 封私钥 => typeof v === "object" && v !== null && "私钥封" in v;
+const 新行钥匙 = () => crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 
 export class 本地库 extends 内存库 {
   private 脏 = new Set<string>();
@@ -43,7 +51,7 @@ export class 本地库 extends 内存库 {
     const db = await 开库();
     let 钥 = await 等(db.transaction("kv").objectStore("kv").get("rowKey")) as CryptoKey | undefined;
     if (!钥) {
-      钥 = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+      钥 = await 新行钥匙();
       const t = db.transaction("kv", "readwrite");
       t.objectStore("kv").put(钥, "rowKey");
       await 等完(t);
@@ -88,20 +96,41 @@ export class 本地库 extends 内存库 {
   }
 
   async 读(名: string): Promise<unknown> {
-    return 等(this.db.transaction("kv").objectStore("kv").get(名));
+    const v = await 等(this.db.transaction("kv").objectStore("kv").get(名));
+    if (!封私钥吗(v)) return v;
+    const { 私钥封, ...其余 } = v;
+    try {
+      const pk = await crypto.subtle.decrypt({ name: "AES-GCM", iv: 私钥封.iv }, this.钥, 私钥封.ct);
+      // 导回来仍可导出：之后 写 团队身份 时要再封一次
+      return { ...其余, 私钥: await crypto.subtle.importKey("pkcs8", pk, { name: "X25519" }, true, ["deriveBits"]) };
+    } catch {
+      return undefined; // 行钥匙换过 / 存坏了：当没有，重新登录授权
+    }
   }
   async 写(名: string, 值: unknown): Promise<void> {
+    let 存 = 值;
+    // 不可导出的老私钥（安卓上已有的）没法封，原样存——Chrome 存得住
+    if (带私钥吗(值) && 值.私钥.extractable) {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const pk = await crypto.subtle.exportKey("pkcs8", 值.私钥);
+      const { 私钥: _, ...其余 } = 值;
+      存 = { ...其余, 私钥封: { iv, ct: await crypto.subtle.encrypt({ name: "AES-GCM", iv }, this.钥, pk) } };
+    }
     const t = this.db.transaction("kv", "readwrite");
-    if (值 === undefined) t.objectStore("kv").delete(名); else t.objectStore("kv").put(值, 名);
+    if (存 === undefined) t.objectStore("kv").delete(名); else t.objectStore("kv").put(存, 名);
     await 等完(t);
   }
 
   /** 退出登录 / 被移除：业务数据、团队身份、令牌全清（行钥匙也换一把） */
   async 清空(): Promise<void> {
     this.行.clear(); this.墓碑.clear(); this.脏.clear(); this.墓脏.clear();
+    // 新钥匙同一个事务里存回去：不然下次打开又生成一把，清空后才存的设备私钥就解不开了
+    const 新 = await 新行钥匙();
     const t = this.db.transaction(["rows", "tombs", "kv"], "readwrite");
     t.objectStore("rows").clear(); t.objectStore("tombs").clear(); t.objectStore("kv").clear();
+    t.objectStore("kv").put(新, "rowKey");
     await 等完(t);
+    this.钥 = 新;
   }
 }
 

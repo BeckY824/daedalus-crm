@@ -748,7 +748,8 @@ function 本机设备(库: 本地库): Promise<设备> {
   生成中 ??= (async () => {
     const 有 = (await 库.读("dev")) as 设备 | undefined;
     if (有) return 有;
-    const k = await 密.设备钥匙对();
+    // 可导出：本地库要把它封起来再存（Safari 存不住 X25519 的 CryptoKey，见 store.ts）
+    const k = await 密.设备钥匙对(true);
     const d = { device: 连.新设备号(), 公钥: k.公钥, 私钥: k.私钥 };
     await 库.写("dev", d);
     return d;
@@ -761,6 +762,9 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
   const [状态, set状态] = useState<"pending" | "denied" | "expired" | "error">("pending");
   const [错, set错] = useState<string | null>(null);
   const 设 = useRef<设备 | null>(null);
+  // 外层每 30 秒重画一次（「现在」走表），onApproved 每次都是新函数：放进 ref，别让它把申请流程整个重跑一遍
+  const 批了 = useRef(onApproved);
+  useEffect(() => { 批了.current = onApproved; });
   useEffect(() => {
     let 停 = false;
     const 云 = 做传输(token, () => undefined);
@@ -773,13 +777,13 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
       while (!停) {
         const r = await 连.查申请(云, { device: d.device, 私钥: d.私钥 }).catch((e: unknown) => { const 话 = e instanceof Error ? e.message : String(e); if (/登录已失效/.test(话)) throw e; return null; });
         if (停) return;
-        if (r?.status === "approved") { await onApproved(r.团队, r.teamName); return; }
+        if (r?.status === "approved") { await 批了.current(r.团队, r.teamName); return; }
         if (r && (r.status === "denied" || r.status === "expired" || r.status === "removed")) { set状态(r.status === "denied" ? "denied" : "expired"); return; }
         await new Promise((ok) => setTimeout(ok, 3000));
       }
     })().catch((e: unknown) => { if (!停) { set状态("error"); set错(e instanceof Error ? e.message : String(e)); } });
     return () => { 停 = true; };
-  }, [token, 库, onApproved]);
+  }, [token, 库]);
 
   return (
     <motion.div className="m-flow" {...进场}>
@@ -809,16 +813,19 @@ function FirstSync({ 团队, 云, 库, 取状态, onDone, onFail }: { 团队: �
   const [错, set错] = useState<string | null>(null);
   const [次, set次] = useState(0);
   const [数, set数] = useState({ 客户: 0, 跟进: 0 });
+  // 同 AuthorizeFlow：回调放 ref，外层 30 秒重画不会再开一轮同步、和没跑完的那轮叠在一起
+  const 回 = useRef({ onDone, onFail });
+  useEffect(() => { 回.current = { onDone, onFail }; });
   useEffect(() => {
     let 停 = false;
     const 数一数 = () => { const 键 = [...库.行.keys()]; set数({ 客户: 键.filter((k) => k.startsWith("Customer:")).length, 跟进: 键.filter((k) => k.startsWith("FollowUp:")).length }); };
     const t = setInterval(数一数, 300);
     同步.同步一轮(团队, 云, 库, 取状态())
-      .then(async (r) => { 数一数(); if (!停) await onDone(r.c); })
-      .catch((e: unknown) => { const 话 = e instanceof Error ? e.message : String(e); if (!停) { set错(话); onFail(话); } })
+      .then(async (r) => { 数一数(); if (!停) await 回.current.onDone(r.c); })
+      .catch((e: unknown) => { const 话 = e instanceof Error ? e.message : String(e); if (!停) { set错(话); 回.current.onFail(话); } })
       .finally(() => clearInterval(t));
     return () => { 停 = true; clearInterval(t); };
-  }, [团队, 云, 库, 取状态, onDone, onFail, 次]);
+  }, [团队, 云, 库, 取状态, 次]);
   return (
     <motion.div className="m-flow m-flow-center" {...进场}>
       {!错 && <span className="m-spinner is-on m-spinner-big" />}
