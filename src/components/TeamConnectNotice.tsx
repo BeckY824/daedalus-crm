@@ -22,7 +22,7 @@ export default function TeamConnectNotice() {
       notification.info({
         key: "team-connect",
         title: `你的账号在团队「${r.团名}」里，这台电脑还没连上`,
-        description: "在你另一台电脑上点一下「允许」，这台就开始同步客户和跟进。",
+        description: "在你另一台已连上的电脑或手机上点一下「允许」，这台就开始同步客户和跟进。",
         actions: <Button type="primary" size="small" onClick={() => { notification.destroy("team-connect"); router.push("/settings?tab=team"); }}>去连接</Button>,
         duration: 0,
       });

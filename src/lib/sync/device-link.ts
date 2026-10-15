@@ -9,7 +9,9 @@
  *   4. 这台取回封好的那份、用私钥解开，写 .team.json，开始同步（和用邀请码加入后一样：本机已有的客户带进团队）
  *
  * 钥匙一直在两台电脑之间封着走，我们的服务器只转交、解不开。半路的私钥存在 .team-link.json（0600），连上就删。
- * 只有本人的电脑能授权本人的新电脑（服务端按账号核、还要过挑战），老板也替不了业务员点——10-15 你定。
+ * 只有本人的设备能授权本人的新电脑（服务端按账号核、还要过挑战），老板也替不了业务员点——10-15 你定。
+ * 本人已连上的**手机**也能批（10-15，0.46.17）：手机上没有老板的签名私钥和入队口令，封过来的 signPriv 没有、joinSecret 是空的——
+ * 这台照样能同步；是老板的话管不了团队（设置页写明要在建团队那台或它授权的电脑上批才有），也看不到邀请码。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -118,7 +120,7 @@ export async function 查连接(): Promise<结果<{ status: "none" | "pending" |
   } catch {
     return { ok: false, error: "授权内容解不开：请在另一台电脑上重新允许" };
   }
-  if (内容.v !== 1 || 内容.kind !== "desktop" || 内容.device !== 半.device || 内容.teamId !== r.json.teamId || !内容.key || !内容.joinSecret) {
+  if (内容.v !== 1 || 内容.kind !== "desktop" || 内容.device !== 半.device || 内容.teamId !== r.json.teamId || !内容.key || typeof 内容.joinSecret !== "string") {
     return { ok: false, error: "授权内容对不上这台电脑，请在另一台电脑上重新允许" };
   }
   return 收下(内容, 半, 我);
@@ -148,6 +150,7 @@ async function 收下(内容: 电脑授权内容, 半: 半路, 我: { accountId:
   const c: 团队配置 = {
     teamId: 内容.teamId,
     teamName: 内容.teamName,
+    // 手机批的是空串：这台不显示邀请码（团队状态 里按空串处理）
     joinSecret: 内容.joinSecret,
     key: 内容.key,
     epoch: 内容.epoch ?? 0,

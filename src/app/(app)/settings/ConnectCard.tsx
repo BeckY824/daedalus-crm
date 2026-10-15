@@ -8,7 +8,7 @@ import { 发起连接动作, 查连接动作, 取消连接动作 } from "./team-
 /**
  * 新电脑连上团队（2026-10-15 多设备同步，lib/sync/device-link.ts）。
  * 这个账号在云上已经是某个团队的成员、这台电脑还没连上时，「设置 → 团队」最上面是这一张：
- * 点「在我的另一台电脑上允许」→ 显示配对数字 → 本人已经连上的那台弹出授权框，对上数字点允许 → 这台自动连上。
+ * 点「在我的另一台电脑或手机上允许」→ 显示配对数字 → 本人已经连上的电脑或手机（2026-10-15 起手机也能批）弹出授权框，对上数字点允许 → 这台自动连上。
  * 另一台不在身边：下面照旧能粘邀请码（找老板要）。
  */
 export default function ConnectCard({ 团名, 我是建的人, 等授权, 本机客户, onJoined }: {
@@ -56,25 +56,25 @@ export default function ConnectCard({ 团名, 我是建的人, 等授权, 本机
     <section className="team-card" data-testid="team-connect">
       <h3><DesktopOutlined /> 你的账号在团队「{团名}」里，这台电脑还没连上</h3>
       <p className="muted">
-        在你自己另一台已经连上的电脑上点一下「允许」，这台就会收到团队钥匙、开始同步{我是建的人 ? "（老板的管理权限也一起过来，这台也能移除同事、换邀请码）" : ""}。
-        钥匙在两台电脑之间加密转交，我们看不到内容。
+        在你自己另一台已经连上的电脑或手机上点一下「允许」，这台就会收到团队钥匙、开始同步。钥匙在你的设备之间加密转交，我们看不到内容。
+        {我是建的人 && <><br />想让这台也能移除同事、换邀请码：要在<b>建团队的那台电脑</b>（或它授权的电脑）上点允许，老板的管理权限才会一起过来；在手机上允许的话，这台能看能记，但管不了团队。</>}
       </p>
       {本机客户 > 0 && (
         <Alert type="info" showIcon style={{ marginBottom: 12 }}
           title={`这台电脑上已有的 ${本机客户} 位客户会带进团队`}
           description="和云上的合在一起、不覆盖；同一位客户两边各有一份的，会列在「疑似重复」里。连上之前会先自动备份一份。" />
       )}
-      {结果 === "denied" && <Alert type="warning" showIcon style={{ marginBottom: 12 }} title="另一台电脑点了「不允许」" />}
+      {结果 === "denied" && <Alert type="warning" showIcon style={{ marginBottom: 12 }} title="另一台设备上点了「不允许」" />}
       {结果 === "expired" && <Alert type="warning" showIcon style={{ marginBottom: 12 }} title="等太久过期了，请再发一次" />}
       {数字 ? (
         <div className="mobile-pair" data-testid="device-link-waiting">
-          <span className="muted">请到你的另一台电脑上（打开 Daedalus），核对弹框里的数字是</span>
+          <span className="muted">请到你另一台已连上的电脑（打开 Daedalus）或手机（打开手机版），核对弹框里的数字是</span>
           <b data-testid="device-pair-code">{数字.slice(0, 3)} {数字.slice(3)}</b>
-          <span className="muted">一样就点「允许」。那台没开着的话，开机打开 Daedalus 就会弹出来。</span>
+          <span className="muted">一样就点「允许」。那台没开着的话，打开 Daedalus 或手机版就会弹出来。</span>
           <Button size="small" type="text" onClick={() => void 不等了()}>不等了</Button>
         </div>
       ) : (
-        <Button type="primary" icon={<DesktopOutlined />} loading={忙} onClick={() => void 发起()}>在我的另一台电脑上允许</Button>
+        <Button type="primary" icon={<DesktopOutlined />} loading={忙} onClick={() => void 发起()}>在我的另一台电脑或手机上允许</Button>
       )}
     </section>
   );

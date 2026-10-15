@@ -13,7 +13,8 @@
  * **批准要证明是团队里那台电脑**（挑战）：只凭账号令牌就能批的话，偷到密码的人开两个会话，一个装手机申请、一个自己批，
  * 就把自己的设备登记进团队，之后老板每次换钥匙都会封一份给它——而今天没有邀请码根本进不来。所以批准前服务端用
  * 这台电脑登记在团队里的公钥（SyncDevice）封一个一次性随机数，电脑用只在本机 .team.json 里的私钥解开、交回来才算数。
- * 手机设备（m_ 开头）不能批别的手机：授权的意思是「把电脑上的数据给手机」。
+ * 2026-10-15（0.46.17）：已经连上团队的手机也能批（本人的新电脑、新手机）——挑战同样封给这台手机登记的公钥，只有它的私钥解得开。
+ * 被移除的手机：令牌已作废、同步设备已注销，领不到挑战。
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { control } from "./control";
@@ -110,9 +111,11 @@ const 摘要 = (s: string) => createHash("sha256").update(s).digest("hex");
 export async function 挑战(accountId: string, id: string, teamId: string, device: string): Promise<结果<{ challenge: string }>> {
   const r = await control.syncMobileLink.findUnique({ where: { id: String(id ?? "") } });
   if (!r || r.accountId !== accountId || r.status !== "pending") return 错(404, "这条申请不在了");
-  if (typeof device !== "string" || device.startsWith("m_")) return 错(403, "要在电脑上授权");
+  if (typeof device !== "string" || !device) return 错(400, "设备信息不对");
+  // 不能自己批自己：申请的那台还没登记，领不到挑战；这里再挡一次明确的
+  if (device === r.device) return 错(403, "要在你另一台已经连上的电脑或手机上授权");
   const 机 = await control.syncDevice.findUnique({ where: { teamId_device: { teamId: String(teamId ?? ""), device } } });
-  if (!机 || 机.accountId !== accountId || !(await 在队里(机.teamId, accountId))) return 错(403, "这台电脑不在这个团队里");
+  if (!机 || 机.accountId !== accountId || !(await 在队里(机.teamId, accountId))) return 错(403, "这台设备不在这个团队里");
   const nonce = randomBytes(32).toString("base64url");
   await control.syncMobileLink.update({ where: { id: r.id }, data: { proofHash: 摘要(nonce), proofDevice: device, proofAt: new Date() } });
   return { ok: true, challenge: 封给(机.pubKey, nonce) };
@@ -133,9 +136,9 @@ export async function 允许(accountId: string, id: string, teamId: string, seal
       timingSafeEqual(Buffer.from(摘要(nonce)), Buffer.from(r.proofHash));
     // 挑战只能用一次：对不对都清掉
     await tx.syncMobileLink.update({ where: { id: r.id }, data: { proofHash: null, proofAt: null } });
-    if (!对) return 错(403, "没能确认是团队里的这台电脑，请重试");
+    if (!对) return 错(403, "没能确认是团队里的这台设备，请重试");
     const 机 = await tx.syncDevice.findUnique({ where: { teamId_device: { teamId, device: r.proofDevice ?? "" } } });
-    if (!机 || 机.accountId !== accountId) return 错(403, "这台电脑不在这个团队里");
+    if (!机 || 机.accountId !== accountId) return 错(403, "这台设备不在这个团队里");
     const 设备错 = await 登记设备(teamId, accountId, { device: r.device, pubKey: r.pubKey, tokenId: r.tokenId }, tx);
     if (设备错) return 错(409, 设备错);
     await tx.syncMobileLink.update({ where: { id: r.id }, data: { status: "approved", teamId, sealed, decidedAt: new Date() } });
