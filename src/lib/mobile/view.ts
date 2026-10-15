@@ -5,6 +5,7 @@
  * 这里统一读法：时间 → 毫秒，布尔 → true/false。
  */
 import type { 记录 } from "./sync";
+import { 行键 } from "@/lib/sync/scope-policy";
 
 export const 毫秒 = (v: unknown): number | null => {
   if (v == null || v === "") return null;
@@ -26,6 +27,15 @@ export type 客户视图 = {
   status: string; 公海: boolean; salesOwnerId: string; 负责人: string; remark: string;
   上次跟进: number | null; 联系人: 联系人视图[]; 商机: 商机视图 | null; 计划: 计划视图 | null; 跟进: 跟进视图[];
 };
+
+/**
+ * 「我的」页显示的名字（2026-10-15）：优先团队库里自己那行 User 的名字——电脑上改了名，同步过来就跟着变；
+ * 还没同步到那一行（刚连上）才用登录时云端给的账号名。行们 = 手机库的 行（键是 行键：表 + 主键）
+ */
+export function 我的名字(行们: ReadonlyMap<string, 记录>, 我: string, 账号名: string): string {
+  const 行 = 我 ? 行们.get(行键("User", 我)) : undefined;
+  return 字(行?.r.name).trim() || 账号名;
+}
 
 /** 按表把行分好（一次遍历），后面各页都从这里取 */
 export function 分表(行们: Iterable<记录>) {

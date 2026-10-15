@@ -162,7 +162,8 @@ describe("改身份（探针场景 ①）", () => {
     await db.followUp.create({ data: { type: "PHONE", title: "本人跟进", content: "留在本机", customerId: mine.id, ownerId: "acct_me" } });
     await db.tradeOrder.create({ data: { no: "REJOIN-USD-900", customerId: mine.id, ownerId: "acct_me", amount: 900, currency: "USD" } });
     for (let i = 0; i < 2; i++) await 改身份(db, "acct_me", { email: "me@example.invalid", name: "更新本人姓名" });
-    expect(await db.user.findUniqueOrThrow({ where: { id: "acct_me" } })).toMatchObject({ name: "更新本人姓名", role });
+    // 本机的名字是人自己的（不是模板的「管理员」）：不拿云端名盖掉（2026-10-15 先改名再建团队被改回注册名）
+    expect(await db.user.findUniqueOrThrow({ where: { id: "acct_me" } })).toMatchObject({ name: "本人", role });
     expect(await db.user.findUniqueOrThrow({ where: { id: "acct_old_boss" } })).toMatchObject({ email: "old-boss@example.invalid" });
     expect((await db.customer.findUniqueOrThrow({ where: { id: mine.id } })).salesOwnerId).toBe("acct_me");
     expect((await db.customer.findUniqueOrThrow({ where: { id: theirs.id } })).salesOwnerId).toBe("acct_old_boss");
