@@ -77,7 +77,7 @@ export default function TeamTab() {
     set忙(null);
     if (!r.ok) return void message.error(r.error);
     set码("");
-    message.success(`已加入「${r.teamName}」${r.active ? "，正在同步" : "，团队开通后开始同步"}`);
+    message.success(`已加入「${r.teamName}」${r.active ? "，正在同步" : "，团队开通后开始同步"}。模版和币种跟建团队的人用同一套`);
     await 刷();
     router.refresh();
     if (r.active) void 同步();
@@ -188,7 +188,7 @@ export default function TeamTab() {
           <p className="muted">
             {云上?.云上的团
               ? "找老板要一个邀请码（DT2. 开头）整段粘贴进来，效果一样。"
-              : "把老板发来的邀请码整段粘贴进来（DT2. 开头）。进来之后你是业务员：看得到自己负责的客户和公海；你这台电脑上已有的客户归你，老板也看得到。"}
+              : "把老板发来的邀请码整段粘贴进来（DT2. 开头）。进来之后你是业务员：看得到自己负责的客户和公海；你这台电脑上已有的客户归你，老板也看得到。团队的模版和币种以建团队的人为准，你这台原来设的会换成老板那套。"}
           </p>
           <Input.TextArea value={码} onChange={(e) => set码(e.target.value)} rows={2} placeholder="DT2.…" aria-label="邀请码" disabled={!s.能用} style={{ maxWidth: 560 }} />
           <div style={{ marginTop: 8 }}>

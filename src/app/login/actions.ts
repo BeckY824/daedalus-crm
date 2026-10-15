@@ -7,6 +7,8 @@ import { headers } from "next/headers";
 import { prisma } from "@/lib/prisma";
 import { getSetting, setSetting } from "@/lib/settings";
 import { 同步名字键 } from "@/lib/desktop/synced-name";
+import { 对齐我的名字 } from "@/lib/desktop/my-name";
+import { 调云 } from "@/lib/sync/client";
 import { createSession } from "@/lib/auth";
 import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP阈值 } from "@/lib/rate-limit";
 import { multiTenant } from "@/lib/tenant/context";
@@ -162,6 +164,8 @@ export async function 桌面端登录(target: string, password: string): Promise
     await prisma.user.update({ where: { id: admin.id }, data: { name: 名字 } }).catch(() => {});
   }
   await createSession(admin.id);
+  // 这台改过名字、当时没推上云端的，登录上了顺手推上去（lib/desktop/my-name.ts）；不等它，登录不因网络慢卡住
+  void 对齐我的名字(调云).catch(() => undefined);
   return { ok: true };
 }
 
