@@ -68,8 +68,8 @@ function 假模型(opts: { 一直搜?: boolean; 不吃tools?: boolean } = {}): �
       调用.push({ kind: "tools", prompt });
       if (opts.不吃tools) throw Object.assign(new Error("接口返回 400：tools not supported"), { status: 400 });
       const 第几 = messages.filter((m) => m.role === "tool").length;
-      if (opts.一直搜) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: `"${公司}" news ${调用.length}` }) } }], text: "再搜一次" };
-      if (第几 === 0) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: `"${公司}" hiring fair` }) } }], text: "先搜公司全名" };
+      if (opts.一直搜) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "search_web", arguments: JSON.stringify({ query: `"${公司}" news ${调用.length}` }) } }], text: "再搜一次" };
+      if (第几 === 0) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "search_web", arguments: JSON.stringify({ query: `"${公司}" hiring fair` }) } }], text: "先搜公司全名" };
       if (第几 === 1 && prompt.includes("认准是哪一家")) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "read_page", arguments: JSON.stringify({ url: `${官网}/about` }) } }], text: "读官网" };
       return { toolCalls: [], text: "够了" };
     },
@@ -77,9 +77,9 @@ function 假模型(opts: { 一直搜?: boolean; 不吃tools?: boolean } = {}): �
       const prompt = String(messages[messages.length - 1]?.content ?? "");
       调用.push({ kind: "json", prompt });
       // JSON 协议下的「下一步」：搜一次就够
-      if (prompt.includes('"tool":"web_search"')) {
+      if (prompt.includes('"tool":"search_web"')) {
         const 搜过 = messages.some((m) => m.role === "user" && String(m.content).startsWith("结果："));
-        return 搜过 ? { done: true } : { thought: "先搜", tool: "web_search", query: `"${公司}"` };
+        return 搜过 ? { done: true } : { thought: "先搜", tool: "search_web", query: `"${公司}"` };
       }
       return 假结论(String(messages[1]?.content ?? ""));
     },
@@ -205,6 +205,14 @@ describe("背调 6 步编排", () => {
     expect(事件.some((e) => e.type === "stage" && e.status === "error")).toBe(true);
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
     expect(收尾).toHaveBeenCalledWith("run-test", true, expect.anything());
+  });
+
+  it("工具不叫 web_search（中转站会把同名函数当成它自家的内置搜索吞掉）", async () => {
+    const 名们: string[] = [];
+    const m = 假模型();
+    const 包 = { ...m, tools: (a: never, t: { function: { name: string } }[], o: never) => (名们.push(...t.map((x) => x.function.name)), m.tools(a, t as never, o)) };
+    await 跑({ 模型: 包 as unknown as 模型调用 });
+    expect(new Set(名们)).toEqual(new Set(["search_web", "read_page"]));
   });
 
   it("对面不吃 tools：退回 JSON 协议照样跑完", async () => {

@@ -180,3 +180,41 @@ describe("挑服务和兜底", () => {
     expect(f).not.toHaveBeenCalled();
   });
 });
+
+describe("GPT：正文里自己写网址、不给引用标记（10-16 试跑踩到）", () => {
+  const 回应 = {
+    output: [
+      { type: "web_search_call", action: { type: "search", sources: [{ type: "url", url: "https://www.rexelusa.com/" }, { type: "url", url: "https://www.rexel.com/en" }] } },
+      {
+        type: "message",
+        content: [
+          {
+            type: "output_text",
+            annotations: [],
+            text: "Rexel USA | https://www.rexelusa.com/ | 美国电气批发\nRexel | https://www.rexel.com/en | 集团官网\n编的 | https://made-up.example/x | 搜索结果里没有",
+          },
+        ],
+      },
+    ],
+  };
+
+  it("认正文里的行，但网址必须是真搜到过的（编的那条丢掉）", () => {
+    const r = 解析GPT回应(回应);
+    expect(r.map((x) => x.url)).toEqual(["https://www.rexelusa.com/", "https://www.rexel.com/en"]);
+    expect(r[0]).toMatchObject({ title: "Rexel USA", snippet: "美国电气批发" });
+  });
+
+  it("正文一条都认不出：把真搜到的网址交回去", () => {
+    const r = 解析GPT回应({ output: [回应.output[0], { type: "message", content: [{ type: "output_text", annotations: [], text: "找到了几个网站。" }] }] });
+    expect(r.map((x) => x.url)).toEqual(["https://www.rexelusa.com/", "https://www.rexel.com/en"]);
+  });
+
+  it("请求里要了真搜到的网址（include sources）", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify(回应), { status: 200 }));
+    vi.stubGlobal("fetch", fetch);
+    await gpt搜索(cfg).search("Rexel", { signal: AbortSignal.timeout(5000) });
+    const body = JSON.parse(String((fetch.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body.include).toEqual(["web_search_call.action.sources"]);
+    vi.unstubAllGlobals();
+  });
+});

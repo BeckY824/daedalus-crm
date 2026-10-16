@@ -226,17 +226,31 @@ export function 解析GPT回应(data: unknown): 搜索结果[] {
   if (!Array.isArray(output)) return [];
   const 出: 搜索结果[] = [];
   const 见过 = new Set<string>();
-  for (const item of output as { type?: string; content?: { type?: string; text?: string; annotations?: GPT注释[] }[] }[]) {
+  const 收 = (r: 搜索结果) => {
+    const k = 网址键(r.url);
+    if (见过.has(k) || 出.length >= 每次最多条) return;
+    见过.add(k);
+    出.push(r);
+  };
+  type 项 = { type?: string; action?: { sources?: { type?: string; url?: string }[] }; content?: { type?: string; text?: string; annotations?: GPT注释[] }[] };
+  const 项们 = output as 项[];
+  /*
+    真的搜到过的网址：web_search_call.action.sources（请求里带 include 才有）。
+    10-16 对比实验试跑踩到：照提示词写「标题 | 网址 | 一句话」时，GPT 把网址自己写进正文、一个引用标记都不给，
+    原来只认引用标记，于是 0 条。现在正文里的行也认，但**网址必须在这张表里**——防它编网址
+  */
+  const 真网址 = new Map<string, string>();
+  for (const it of 项们) if (it.type === "web_search_call") for (const x of it.action?.sources ?? []) if (x?.url && /^https?:\/\//i.test(x.url)) 真网址.set(网址键(去追踪参数(x.url)), 去追踪参数(x.url));
+
+  for (const item of 项们) {
     if (item.type !== "message" || !Array.isArray(item.content)) continue;
     for (const c of item.content) {
       if (c.type !== "output_text") continue;
       const text = c.text ?? "";
+      // 1. 引用标记（url_citation）：最可信
       for (const a of c.annotations ?? []) {
         if (a.type !== "url_citation" || !a.url || !/^https?:\/\//i.test(a.url)) continue;
         const url = 去追踪参数(a.url);
-        const k = 网址键(url);
-        if (见过.has(k) || 出.length >= 每次最多条) continue;
-        见过.add(k);
         /*
           start_index / end_index 圈的是引用标记本身（往往就是那个 markdown 链接），不是被引用的那句话。
           摘要取引用标记所在的那一行、去掉链接——那一行就是模型照提示词写的「标题 | 网址 | 一句话」
@@ -246,11 +260,21 @@ export function 解析GPT回应(data: unknown): 搜索结果[] {
         const 行尾 = text.indexOf("\n", s);
         const 行 = text.slice(行首, 行尾 === -1 ? undefined : 行尾);
         const 段 = 行.split("|").map((x) => x.trim());
-        const snippet = 清摘要(段.length >= 3 ? 段.slice(2).join(" ") : 行);
-        出.push({ title: (a.title ?? "").trim() || url, url, snippet });
+        收({ title: (a.title ?? "").trim() || url, url, snippet: 清摘要(段.length >= 3 ? 段.slice(2).join(" ") : 行) });
+      }
+      // 2. 正文里的「标题 | 网址 | 一句话」行：网址得是真搜到过的
+      for (const 行 of text.split("\n")) {
+        const 段 = 行.split("|").map((x) => x.trim());
+        const i = 段.findIndex((x) => /^https?:\/\/\S+$/i.test(x));
+        if (i < 0) continue;
+        const url = 去追踪参数(段[i]);
+        if (!真网址.has(网址键(url))) continue;
+        收({ title: 段.slice(0, i).join(" ").replace(/^[-*\d.\s]+/, "").trim() || url, url, snippet: 清摘要(段.slice(i + 1).join(" ")) });
       }
     }
   }
+  // 3. 一条都没认出来：至少把真搜到的网址交回去（没有摘要，模型可以接着读）
+  if (!出.length) for (const url of 真网址.values()) 收({ title: url, url, snippet: "" });
   return 出;
 }
 
@@ -263,7 +287,8 @@ export function gpt搜索(cfg: 网关配置, model: string = 默认搜索模型.
         {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
-          body: JSON.stringify({ model, tools: [{ type: "web_search" }], input: 提示词(query) }),
+          // include：要回真搜到过的网址（解析时拿它核正文里的网址，见 解析GPT回应）
+          body: JSON.stringify({ model, tools: [{ type: "web_search" }], include: ["web_search_call.action.sources"], input: 提示词(query) }),
         },
         "GPT",
         cfg.apiKey,

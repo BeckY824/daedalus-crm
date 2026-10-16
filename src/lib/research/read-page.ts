@@ -112,7 +112,18 @@ export function 是内网地址(ip: string): boolean {
 /* ---------------- 一跳 ---------------- */
 
 /** 查这一跳的网址能不能连，能连就返回要钉住的地址 */
-async function 查网址(raw: string, resolve: 解析): Promise<{ url: URL; 地址: { address: string; family: number } }> {
+/**
+ * 代理软件「假 IP」模式（Clash / Surge 的 fake-ip）给的地址：198.18.0.0/15。开着这类代理的电脑上，
+ * 每个外网域名都解析到这一段，真正的连接由代理去打——内网防护照规矩会把它们全挡掉。
+ * **只有本机跑对比实验时才放行**（scripts/research-bench.ts，BENCH_ALLOW_FAKE_IP=1）；服务器上的读页从不传这个选项：
+ * 服务器没有这种代理，那一段在服务器上出现就是有人在探内网。
+ */
+export function 是代理假IP(ip: string): boolean {
+  const m = ip.replace(/^::ffff:/i, "").match(/^198\.(18|19)\.\d{1,3}\.\d{1,3}$/);
+  return Boolean(m);
+}
+
+async function 查网址(raw: string, resolve: 解析, 放行代理假IP = false): Promise<{ url: URL; 地址: { address: string; family: number } }> {
   let url: URL;
   try {
     url = new URL(raw);
@@ -136,7 +147,7 @@ async function 查网址(raw: string, resolve: 解析): Promise<{ url: URL; 地�
     }
   }
   if (地址们.length === 0) throw new 读页出错("域名解析不到");
-  if (地址们.some((a) => 是内网地址(a.address))) throw new 读页出错("不能读内网地址");
+  if (地址们.some((a) => 是内网地址(a.address) && !(放行代理假IP && 是代理假IP(a.address)))) throw new 读页出错("不能读内网地址");
   return { url, 地址: 地址们[0] };
 }
 
@@ -276,7 +287,7 @@ export function 网页转文字(html: string): { title: string; text: string } {
  */
 export async function 读网页(
   url: string,
-  opts: { signal?: AbortSignal; fetchImpl?: 取页; resolveImpl?: 解析 } = {},
+  opts: { signal?: AbortSignal; fetchImpl?: 取页; resolveImpl?: 解析; /** 只给本机对比实验：见 是代理假IP */ 放行代理假IP?: boolean } = {},
 ): Promise<读页结果> {
   const resolve = opts.resolveImpl ?? 默认解析;
   const signal = opts.signal ? AbortSignal.any([opts.signal, AbortSignal.timeout(读页超时毫秒)]) : AbortSignal.timeout(读页超时毫秒);
@@ -291,7 +302,7 @@ export async function 读网页(
   let res: Response | null = null;
   try {
     for (let 跳 = 0; ; 跳++) {
-      const { url: u, 地址 } = await 查网址(当前, resolve);
+      const { url: u, 地址 } = await 查网址(当前, resolve, opts.放行代理假IP);
       const 取 = opts.fetchImpl ?? 钉住地址取(地址);
       res = await 取(u.toString(), { signal, headers, redirect: "manual" });
       if (res.status >= 300 && res.status < 400 && res.headers.get("location")) {

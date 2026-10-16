@@ -3,7 +3,10 @@ import { randomUUID } from "node:crypto";
  * 背调的 6 步编排（2026-10-16）。
  *
  * **顺序由程序定，不让模型自己决定**：认准公司 → 基本面 → 相关性 → 近期信号 → 风险 → 切入建议。
- * 每一步里模型只能做三件事：web_search、read_page、说「这一步够了」——在本步和整次的上限之内。
+ * 每一步里模型只能做三件事：search_web、read_page、说「这一步够了」——在本步和整次的上限之内。
+ *
+ * **工具不能叫 web_search**（10-16 对比实验试跑踩到）：中转站把 Claude 的 OpenAI 兼容接口里叫 web_search 的函数
+ * 当成它自家内置的联网搜索吞掉了，模型那边只看得到 read_page，回一句「我没有搜索工具」，整次一条材料都没有。
  * 够了以后单独问一次「这一步的结论」（JSON），程序校验后变成事件推给浏览器。
  *
  * 为什么不是一个大 agent 自己跑到底：
@@ -73,7 +76,7 @@ const 工具表: 工具声明[] = [
   {
     type: "function",
     function: {
-      name: "web_search",
+      name: "search_web",
       description: "上网搜索。查询词用英文或这家公司所在国的语言，带上公司名；一次只查一件事。",
       parameters: { type: "object", properties: { query: { type: "string", description: "搜索词" } }, required: ["query"] },
     },
@@ -241,17 +244,17 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       }
       if (!调用) {
         const raw = (await 模型.json(
-          [...messages, { role: "user", content: '只输出 JSON：要搜索 {"thought":"一句打算","tool":"web_search","query":"…"}；要读网页 {"thought":"…","tool":"read_page","url":"…"}；够了 {"done":true}' }],
+          [...messages, { role: "user", content: '只输出 JSON：要搜索 {"thought":"一句打算","tool":"search_web","query":"…"}；要读网页 {"thought":"…","tool":"read_page","url":"…"}；够了 {"done":true}' }],
           opts(60_000),
         )) as Record<string, unknown>;
-        if (!raw || raw.done || (raw.tool !== "web_search" && raw.tool !== "read_page")) return;
+        if (!raw || raw.done || (raw.tool !== "search_web" && raw.tool !== "read_page")) return;
         调用 = { name: String(raw.tool), args: raw, thought: 短(raw.thought, 120), 回执: [{ role: "assistant", content: JSON.stringify(raw) }] };
       }
       if (调用.thought && i === 0) 发({ type: "thought", stage, text: 调用.thought.slice(0, 120) });
       let 结果: string;
-      if (调用.name === "web_search" && 短(调用.args.query, 200)) 结果 = await 搜(stage, 短(调用.args.query, 200));
+      if (调用.name === "search_web" && 短(调用.args.query, 200)) 结果 = await 搜(stage, 短(调用.args.query, 200));
       else if (调用.name === "read_page" && 是网址(调用.args.url)) 结果 = await 读(stage, (调用.args.url as string).trim());
-      else 结果 = `参数不对：web_search 要 query，read_page 要 http(s) 网址。`;
+      else 结果 = `参数不对：search_web 要 query，read_page 要 http(s) 网址。`;
       messages.push(...调用.回执, 调用.callId ? { role: "tool", tool_call_id: 调用.callId, content: 结果 } : { role: "user", content: `结果：\n${结果}` });
     }
   };

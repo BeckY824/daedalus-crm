@@ -9,7 +9,7 @@ import { describe, it, expect, afterAll } from "vitest";
 import http from "node:http";
 import zlib from "node:zlib";
 import type { AddressInfo } from "node:net";
-import { 读网页, 读页出错, 是内网地址, 网页转文字, 钉住地址取, 最多字数 } from "@/lib/research/read-page";
+import { 读网页, 读页出错, 是内网地址, 是代理假IP, 网页转文字, 钉住地址取, 最多字数 } from "@/lib/research/read-page";
 
 const 公网 = async () => [{ address: "93.184.216.34", family: 4 }];
 const 页 = (body: string | Uint8Array, init: { status?: number; type?: string; headers?: Record<string, string> } = {}) =>
@@ -189,5 +189,27 @@ describe("默认的取页：连接钉在查过的地址上", () => {
     expect(await a.text()).toBe(`<p>host=nowhere.invalid:${port}</p>`);
     const b = await 取(`http://nowhere.invalid:${port}/gz`, init);
     expect(await b.text()).toBe("<p>压缩过的</p>");
+  });
+});
+
+describe("代理「假 IP」（198.18.0.0/15）：只有本机对比实验显式放行", () => {
+  const 假IP = async () => [{ address: "198.18.0.99", family: 4 }];
+  const 一页 = async () => new Response("<title>Rexel</title><p>Rexel distributes electrical supplies.</p>", { status: 200, headers: { "content-type": "text/html" } });
+
+  it("认得出那一段", () => {
+    expect(是代理假IP("198.18.0.99")).toBe(true);
+    expect(是代理假IP("198.19.255.1")).toBe(true);
+    expect(是代理假IP("198.20.0.1")).toBe(false);
+    expect(是代理假IP("10.0.0.1")).toBe(false);
+  });
+
+  it("默认照挡（服务器上从不放行）；放行了才读", async () => {
+    await expect(读网页("https://www.rexel.com/", { resolveImpl: 假IP, fetchImpl: 一页 })).rejects.toThrow("不能读内网地址");
+    const r = await 读网页("https://www.rexel.com/", { resolveImpl: 假IP, fetchImpl: 一页, 放行代理假IP: true });
+    expect(r.text).toContain("Rexel distributes");
+  });
+
+  it("放行假 IP 不等于放行真内网", async () => {
+    await expect(读网页("https://x.example/", { resolveImpl: async () => [{ address: "10.0.0.5", family: 4 }], fetchImpl: 一页, 放行代理假IP: true })).rejects.toThrow("不能读内网地址");
   });
 });

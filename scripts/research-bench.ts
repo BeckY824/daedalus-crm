@@ -140,7 +140,8 @@ function 直连通道(服务: 搜索服务, 账: 账): 背调通道 {
       return r.results;
     },
     async 读页(_runId, url, signal) {
-      return 读网页(url, { signal });
+      // 开着「假 IP」代理的电脑上，外网域名都解析到 198.18.x，要显式放行（服务器上从不放行）
+      return 读网页(url, { signal, 放行代理假IP: process.env.BENCH_ALLOW_FAKE_IP === "1" });
     },
     async 收尾() {
       return null;

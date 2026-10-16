@@ -73,7 +73,7 @@ export function 起假模型(port = 0, { 慢 = 0 } = {}): Promise<{ url: string;
       if (Array.isArray(body.tools) && body.tools.length) {
         const 交回 = msgs.filter((m: 消息) => m.role === "tool").length;
         const 名 = 首问.match(/背调对象：(.+)/)?.[1]?.trim() ?? "Company";
-        if (交回 === 0) return 回(res, { role: "assistant", content: "先搜公司全名", tool_calls: [{ id: `c${Date.now()}`, type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: `"${名}" hiring fair` }) } }] });
+        if (交回 === 0) return 回(res, { role: "assistant", content: "先搜公司全名", tool_calls: [{ id: `c${Date.now()}`, type: "function", function: { name: "search_web", arguments: JSON.stringify({ query: `"${名}" hiring fair` }) } }] });
         if (交回 === 1 && 首问.includes("认准是哪一家")) {
           const d = 名.toLowerCase().replace(/\b(gmbh|ltd|limited|inc|llc|co|corp|ag|plc)\b\.?/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
           return 回(res, { role: "assistant", content: "读官网", tool_calls: [{ id: `c${Date.now()}`, type: "function", function: { name: "read_page", arguments: JSON.stringify({ url: `https://${d}.example/about` }) } }] });
