@@ -148,8 +148,13 @@ export async function 记全量(db: Db, 选项: { 不含设置?: boolean } = {})
  * 进团队前改身份（探针场景 ①）：模板里的管理员每台都是同一个 id，换成按云端账号算的；
  * 没被用过的模板占位账号（张三、李四）删掉，用过的换成随机 id——它们在每台电脑上也是同一个 id。
  * **必须在装触发器之前做**：装了之后改主键会被记成一条「改了 id」，别人对不上。
+ *
+ * 占位归我（2026-10-16，业务员带着老数据进团队）：用过的占位账号不换随机 id，名下的全部归到本人、占位账号删掉。
+ * 业务员只能推本人 + 公海的客户：挂在随机 id 张三名下的，推上去被范围策略拒（进「待老板核对」），
+ * 接着本机清理失权副本把它删掉——团队里谁都看不到、这台也没了，只剩连接前的备份。单机时的张三、李四是模板里的示例账号，
+ * 这台电脑上的客户本来就都是本人在管，归到本人最不意外。老板什么都能推，照旧留着张三（以后再分给真同事）。
  */
-export async function 改身份(db: PrismaClient, 新id: string, 资料: { email: string; name: string }) {
+export async function 改身份(db: PrismaClient, 新id: string, 资料: { email: string; name: string }, 选项: { 占位归我?: boolean } = {}) {
   await db.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("PRAGMA defer_foreign_keys = ON");
     // 退队后的旧库还留着旧老板 User；本人 acct 身份也已存在，不能再把最早管理员改成本人。
@@ -174,7 +179,10 @@ export async function 改身份(db: PrismaClient, 新id: string, 资料: { email
         if (数(n[0]?.n) > 0) { 用过 = true; break; }
       }
       if (!用过) await tx.user.delete({ where: { id: u.id } });
-      else {
+      else if (选项.占位归我) {
+        for (const [t, c] of 指向人的列) await tx.$executeRawUnsafe(`UPDATE ${引(t)} SET ${引(c)} = ? WHERE ${引(c)} = ?`, 新id, u.id).catch(() => undefined);
+        await tx.user.delete({ where: { id: u.id } });
+      } else {
         const 新 = `u_${Math.random().toString(36).slice(2, 12)}`;
         await 换id(tx, u.id, 新);
         await tx.user.update({ where: { id: 新 }, data: { email: `${email}.${新}` } });
