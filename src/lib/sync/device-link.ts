@@ -18,7 +18,7 @@ import path from "node:path";
 import { randomBytes } from "node:crypto";
 import { prisma } from "../prisma";
 import { 设备名 } from "../desktop/cloud";
-import { 读团队, 写团队, 能用, 准备本机身份, 本机开同步, 对齐角色, 调云, type 团队配置 } from "./client";
+import { 读团队, 写团队, 能用, 准备本机身份, 本机开同步, 对齐角色, 调云, 我是老板吗, type 团队配置 } from "./client";
 import { 设备钥匙对, 拆自 } from "./crypto";
 import { 配对数字 } from "./crypto-web";
 import { 看全部 } from "../team-scope";
@@ -137,14 +137,16 @@ async function 先备份() {
 }
 
 async function 收下(内容: 电脑授权内容, 半: 半路, 我: { accountId: string; contact: string; name: string }): Promise<结果<{ status: "joined"; teamName: string }>> {
-  const 准备 = await 准备本机身份(我);
-  if (!准备.ok) return 准备;
+  // 先备份、再改身份（2026-10-16）：原来反过来，备份里的人已经换成云端账号、张三换成了随机 id，不是连之前原样的库
   try {
     await 先备份();
   } catch (e) {
     console.error("[sync] 连接前备份失败", e);
     return { ok: false, error: "连接前没能备份这台电脑上的数据（磁盘满了？），先没连。腾出空间后再点一次" };
   }
+  // 业务员的新电脑：张三、李四名下的归到本人，不然推上去被拒、本机还会当失权清掉（见 local.ts 改身份）。手机批的没带老板是谁，问一次名单
+  const 准备 = await 准备本机身份(我, { 占位归我: !(await 我是老板吗(内容.teamId, 我.accountId, 内容.ownerAccountId)) });
+  if (!准备.ok) return 准备;
   // 团队的模版、币种以团队为准（和用邀请码加入一样，不推这台的业务配置）
   await 本机开同步(true);
   const c: 团队配置 = {

@@ -174,15 +174,18 @@ export async function 本机开同步(加入别人的: boolean) {
   await 记全量(prisma, { 不含设置: 加入别人的 });
 }
 
-/** 本地身份错误须在云端写成员之前拦住，避免重试在云端留下多支未完成的队。 */
-export async function 准备本机身份(我: { accountId: string; contact: string; name: string }): Promise<结果> {
+/**
+ * 本地身份错误须在云端写成员之前拦住，避免重试在云端留下多支未完成的队。
+ * 占位归我：业务员进团队时张三、李四名下的归到本人（见 local.ts 改身份）；老板不传
+ */
+export async function 准备本机身份(我: { accountId: string; contact: string; name: string }, 选项: { 占位归我?: boolean } = {}): Promise<结果> {
   try {
     if (!await 装了吗(prisma)) {
       // 先和云端对一次名字（2026-10-15）：本机改过没推上去的推上去；新电脑（本机还是「管理员」）拿到云端现在的名字，
       // 不用登录那一刻的旧名字。连不上不拦：改身份 本来就不盖本机改过的名字
       await 对齐我的名字(调云).catch(() => undefined);
       const 云端名 = 读云端凭据()?.name || 我.name;
-      await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 云端名 || 我.contact.split("@")[0] });
+      await 改身份(prisma, 团队身份id(我.accountId), { email: 我.contact, name: 云端名 || 我.contact.split("@")[0] }, 选项);
     }
     return { ok: true };
   } catch (error) {
@@ -231,7 +234,7 @@ async function 加入团队里(码: string): Promise<结果<{ teamName: string; 
     return { ok: true, teamName: 现.teamName, active: true };
   }
   if (现) return { ok: false, error: "这台电脑已经在一个团队里了，先退出" };
-  const 准备 = await 准备本机身份(我);
+  const 准备 = await 准备本机身份(我, { 占位归我: !(await 我是老板吗(解.teamId, 我.accountId)) });
   if (!准备.ok) return 准备;
   const 设备 = `d${randomBytes(6).toString("hex")}`;
   const 对 = 设备钥匙对();
@@ -437,6 +440,16 @@ function 走时只留自己的(c: 团队配置, 团: 名单团 | undefined, 我�
   if (!我账号 || c.signPriv) return false;
   const 老板 = (团 && 名单里的老板(团, 我账号)) || c.ownerAccountId || null;
   return !!老板 && 老板 !== 我账号;
+}
+
+/**
+ * 进团队前：这个团的老板是不是我（2026-10-16）。定改身份时张三、李四名下的归不归本人。
+ * 知道老板是谁（授权内容里带了）就不问；问不到当业务员——归到本人什么都不丢，反过来业务员那台会丢
+ */
+export async function 我是老板吗(teamId: string, 我账号: string, 已知老板?: string): Promise<boolean> {
+  if (已知老板) return 已知老板 === 我账号;
+  const 团 = await 名单里的团(teamId).catch(() => undefined);
+  return !!团 && 名单里的老板(团, 我账号) === 我账号;
 }
 
 /** 问一次中转名单里这个团（问不到、名单里没有都是 undefined） */
