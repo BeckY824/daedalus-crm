@@ -5,6 +5,8 @@ import { 行键, 核对范围, 范围父表, type 范围索引, type 范围元�
 import { 拆范围, 规范串, type 钥匙环 } from "./crypto";
 import type { 改动 } from "./local";
 import { 归一化范围行 as 归一化纯 } from "./scoped-pure";
+import { 表的叫法, 列的叫法 } from "./labels";
+import { 清掉不在的被盖 } from "./overwritten";
 const q = (s: string) => `"${s.replaceAll('"', '""')}"`;
 const models = new Map(Prisma.dmmf.datamodel.models.map(m => [m.name, m]));
 export const 主字段 = (table: string) => models.get(table)!.fields.find(f => f.isId)!.name;
@@ -87,7 +89,6 @@ export async function 建范围冲突表(db: Db) {
   if (!cols.some(c => c.name === "resolvedAt")) await db.$executeRawUnsafe("ALTER TABLE _sync_scope_conflict ADD COLUMN resolvedAt BIGINT");
 }
 export type 范围冲突条目 = { id: number; 表: string; 编号: string; 名称: string; 操作: string; 改动列: string[]; 改动时间: string; 原因: string; 已确认: string | null };
-const 表名: Record<string, string> = { Customer: "客户", Contact: "联系人", FollowUp: "跟进", Opportunity: "商机", Contract: "签约", Task: "任务", FollowPlan: "跟进计划", Lead: "线索", UnassignedContact: "待归属联系人", TradeOrder: "外贸订单" };
 /**
  * 列出失权冲突（默认只列未确认的）。名称：记录仍在本机（仍有权）就用本机的名字；
  * 否则只用冲突里本人改过的值（name/title），都没有就只显示编号——不为显示去找失权记录的资料。
@@ -104,8 +105,8 @@ export async function 列出范围冲突(db: Db, 含已确认 = false): Promise<
       if (col) 名称 = String((await db.$queryRawUnsafe<{ v: string }[]>(`SELECT ${q(col)} AS v FROM ${q(r.tbl)} WHERE ${q(主字段(r.tbl))} = ?`, r.pk))[0]?.v ?? "");
     }
     if (!名称 && r.row) { try { const j = JSON.parse(r.row) as Record<string, unknown>; 名称 = String(j.name ?? j.title ?? ""); } catch { /* 坏行只显示编号 */ } }
-    const 改动列 = r.changed === "*" ? ["（整条新建）"] : r.changed.split(",").filter(Boolean);
-    out.push({ id: Number(r.id), 表: 表名[r.tbl] ?? r.tbl, 编号: r.pk, 名称: 名称 || r.pk, 操作: r.op === "I" ? "新建" : r.op === "D" ? "删除" : "修改", 改动列, 改动时间: new Date(Number(r.at)).toISOString(), 原因: r.reason, 已确认: r.resolvedAt == null ? null : new Date(Number(r.resolvedAt)).toISOString() });
+    const 改动列 = r.changed === "*" ? ["（整条新建）"] : 列的叫法(r.tbl, r.changed.split(",").filter(Boolean));
+    out.push({ id: Number(r.id), 表: 表的叫法(r.tbl), 编号: r.pk, 名称: 名称 || r.pk, 操作: r.op === "I" ? "新建" : r.op === "D" ? "删除" : "修改", 改动列, 改动时间: new Date(Number(r.at)).toISOString(), 原因: r.reason, 已确认: r.resolvedAt == null ? null : new Date(Number(r.resolvedAt)).toISOString() });
   }
   return out;
 }
@@ -211,6 +212,8 @@ export async function 清理失权副本(db: PrismaClient, allowed: Set<string>)
     await 记欠擦(tx);
     return { 删: lost.length, 冲突: conflicts, AI残留: ai };
   }, { timeout: 180_000 });
+  // 删掉的记录挂着的「被同事盖掉」提示一起删（里面有那条记录的内容），赶在整库重建之前
+  if (r.删) await 清掉不在的被盖(db);
   // 删了就整库重建；这一轮没删、但上一次没擦净（WAL 被别的读者占着）也补擦
   if (r.删 || await 欠擦(db)) return { ...r, 擦净: await 擦净删除残留(db) };
   return r;

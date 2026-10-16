@@ -128,7 +128,7 @@ describe("清理失权副本", () => {
   it("冲突列表：失权记录只显示本人改过的值或编号；确认只标记不删除；导出含全部", async () => {
     const list = await 列出范围冲突(db);
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ 表: "客户", 编号: "lost2", 名称: "lost2", 操作: "修改", 改动列: expect.arrayContaining(["remark"]), 已确认: null });
+    expect(list[0]).toMatchObject({ 表: "客户", 编号: "lost2", 名称: "lost2", 操作: "修改", 改动列: ["备注"], 已确认: null });
     expect(JSON.stringify(list)).not.toContain("将失权");
     expect(await 确认范围冲突(db, [list[0].id])).toBe(1);
     expect(await 确认范围冲突(db, [list[0].id])).toBe(0);

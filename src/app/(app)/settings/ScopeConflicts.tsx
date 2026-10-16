@@ -48,7 +48,8 @@ export default function ScopeConflicts({ onChange }: { onChange?: () => void }) 
         renderItem={(r) => (
           <List.Item>
             <Checkbox aria-label={`选择 ${r.名称}`} checked={选.includes(r.id)} onChange={(e) => set选(e.target.checked ? [...选, r.id] : 选.filter((x) => x !== r.id))} style={{ marginRight: 8 }} />
-            <span style={{ flex: 1 }}><Tag>{r.表}</Tag>{r.名称} · {r.操作}：{r.改动列.join("、")}</span>
+            {/* 名称和编号一样 = 这条已经不在这台电脑上、名字不留（防止转走的客户资料留在这里），别把一串编号摆给人看 */}
+            <span style={{ flex: 1 }}><Tag>{r.表}</Tag>{r.名称 === r.编号 ? <span className="muted">（已转走，名字不显示）</span> : r.名称} · {r.操作}：{r.改动列.join("、")}</span>
             <span className="muted">{smartTime(r.改动时间)}</span>
           </List.Item>
         )} />

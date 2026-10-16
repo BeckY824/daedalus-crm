@@ -9,6 +9,7 @@ import { recordAudit } from "@/lib/audit";
 import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
+import { 列出被盖, 看过被盖 } from "@/lib/sync/overwritten";
 import { 待授权手机, 允许手机, 拒绝手机, 我的设备, 移除设备 } from "@/lib/sync/mobile-desktop";
 import { 连接概况, 发起连接, 查连接, 取消连接 } from "@/lib/sync/device-link";
 
@@ -122,6 +123,18 @@ export async function 确认范围冲突动作(ids: number[]) {
   if (n) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: `确认了 ${n} 条失权冲突（只标记已处理，未删除）` });
   revalidatePath("/settings");
   return { ok: true as const, 确认: n };
+}
+
+/* ---------------- 被同事盖掉的改动（2026-10-16）：同时改了同一格，同事后改的赢，给我看我原来写的 ---------------- */
+export async function 读被盖掉() {
+  await requireUser();
+  return 列出被盖(prisma);
+}
+export async function 看过被盖掉动作(ids: number[]) {
+  await requireUser();
+  const n = await 看过被盖(prisma, Array.isArray(ids) ? ids.map(Number) : []);
+  revalidatePath("/settings");
+  return { ok: true as const, 看过: n };
 }
 
 /* ---------- 手机和本人的新电脑（2026-10-15，手机端方案 3.2 / 多设备同步）：授权。活在 lib/sync/mobile-desktop.ts；列出、移除见下面「我的设备」 ---------- */

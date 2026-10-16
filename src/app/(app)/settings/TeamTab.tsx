@@ -7,6 +7,7 @@ import { App, Alert, Button, Input, Space, Tag, Typography } from "antd";
 import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import ScopeConflicts from "./ScopeConflicts";
+import OverwrittenCard from "./OverwrittenCard";
 import DevicesCard from "./DevicesCard";
 import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
@@ -236,19 +237,27 @@ export default function TeamTab() {
         <p className="muted team-plan" data-testid="team-plan">
           有效期至 {s.到期.日}（{s.到期.剩 > 0 ? `还剩 ${s.到期.剩} 天` : "今天到期"}）
           {s.席位 ? ` · ${s.席位} 个席位，现在 ${s.成员.length} 人` : ""}
+          {/* 人数超了只提示、不拦（lib/tenant/team-plan.ts）：老板心里有数，续费时按现在的人数开 */}
+          {s.我是建的人 && s.席位 && s.成员.length > s.席位 ? `（比买的多 ${s.成员.length - s.席位} 人，续费时按现在的人数算）` : ""}
         </p>
       )}
       {s.active === true && s.到期 && s.到期.剩 <= 7 && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} title={s.到期.剩 > 0 ? `团队同步还有 ${s.到期.剩} 天到期` : "团队同步今天到期"}
-          description="到期后暂停同步（这台电脑上的数据照常能用）。续费请点左下角「反馈」告诉我们团队名字、人数和时长，续上之后接着同步。" />
+          description={s.我是建的人
+            ? "到期后暂停同步（这台电脑上的数据照常能用）。续费请点左下角「反馈」告诉我们团队名字、人数和时长，续上之后接着同步。"
+            : "到期后暂停同步（这台电脑上的数据照常能用）。续费由老板办，提醒老板一声就行。"} />
       )}
       {s.active === false && s.已到期 && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} title={`团队同步已到期${s.到期 ? `（${s.到期.日}）` : ""}，暂停同步`}
-          description="这台电脑上的数据照常能用，改动都记着，不会丢。续费请点左下角「反馈」告诉我们团队名字、人数和时长；续上之后自动恢复，把这段时间的改动补上。" />
+          description={s.我是建的人
+            ? "这台电脑上的数据照常能用，改动都记着，不会丢。续费请点左下角「反馈」告诉我们团队名字、人数和时长；续上之后自动恢复，把这段时间的改动补上。"
+            : "这台电脑上的数据照常能用，改动都记着，不会丢。请老板续费；续上之后自动恢复，把这段时间的改动补上。"} />
       )}
       {s.active === false && !s.已到期 && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }} title="团队还没开通，暂不同步"
-          description="开通后自动开始，改动都记着，不会丢。价格见下方「团队版价格」；开通请点左下角的「反馈」告诉我们团队名字、人数和时长。" />
+          description={s.我是建的人
+            ? "开通后自动开始，改动都记着，不会丢。价格见下方「团队版价格」；开通请点左下角的「反馈」告诉我们团队名字、人数和时长。"
+            : "开通后自动开始，改动都记着，不会丢。开通由老板办，等老板开通就行。"} />
       )}
       <div className="team-sync">
         <span className="muted">
@@ -259,7 +268,12 @@ export default function TeamTab() {
         <Button icon={<SyncOutlined spin={忙 === "同步"} />} disabled={忙 !== null || s.active !== true} onClick={() => void 同步()}>立即同步</Button>
       </div>
       {/* 没开通、到期时上面那条黄的已经说了，红的不再重复一遍 */}
-      {s.lastError && !(s.active === false && /没开通|已到期/.test(s.lastError)) && <Alert type="error" showIcon message={s.lastError} style={{ marginBottom: 16 }} />}
+      {s.lastError && !(s.active === false && /没开通|已到期/.test(s.lastError)) && (
+        <Alert type="error" showIcon style={{ marginBottom: 16 }}
+          // 「登录已失效」是云端那边的原话，人不知道去哪登录、为什么失效（多半是在别的设备上把这台从「我的设备」里移除了）
+          message={/登录已失效/.test(s.lastError) ? "这台电脑的云端登录失效了，暂停同步" : s.lastError}
+          description={/登录已失效/.test(s.lastError) ? "可能在你的另一台设备上把这台从「我的设备」里移除了，或者改过密码。到「桌面端」那一栏重新登录；要是移除过，登录后点下面的「退出团队」，再按提示连回来。" : undefined} />
+      )}
       {/* 回放时撞了合不了的（两条线索挂同一位客户、同事账号登录名撞了）：这几条两台对不上，说出来（T-003），不静默 */}
       {s.没同步上.条数 > 0 && (
         <Alert
@@ -279,6 +293,8 @@ export default function TeamTab() {
 
       {/* 范围同步：失权的未上传改动（不静默丢弃）；AI 历史只统计不删除，见 docs/范围同步迁移说明.md */}
       <ScopeConflicts onChange={() => void 刷()} />
+      {/* 和同事同时改了同一格、被同事后来的改动盖掉的：把我原来写的给我看（lib/sync/overwritten.ts） */}
+      <OverwrittenCard onChange={() => void 刷()} />
       {(s.范围?.清理?.AI残留 ?? 0) > 0 && (
         <Alert type="info" showIcon style={{ marginBottom: 16 }} data-testid="scope-ai-residue"
           message={`AI 对话历史里有 ${s.范围!.清理!.AI残留} 条提到了已不在你同步范围内的客户`}
