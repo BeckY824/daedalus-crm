@@ -46,7 +46,15 @@ export type 背调输入 = {
   runId?: string;
 };
 
-export type 背调结果 = { ok: true; 状态: 背调状态; runId: string } | { ok: false; error: string; 退了: boolean };
+export type 背调结果 =
+  | {
+      ok: true;
+      状态: 背调状态;
+      runId: string;
+      /** 这次查到的全部材料（网址 + 正文）。产品里不用；对比实验拿它核「来源里真有这句」（scripts/research-bench.ts） */
+      材料: { url: string; text: string }[];
+    }
+  | { ok: false; error: string; 退了: boolean };
 
 /** 每一步最多几次工具调用（搜 + 读合计）。整次还受 背调上限 管，哪个先到算哪个 */
 const 每步工具上限: Record<阶段号, number> = { identify: 3, basics: 3, fit: 1, signals: 3, risks: 3, approach: 0 };
@@ -364,5 +372,5 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   if (停在) 不完整 = true;
   await 通道.收尾(runId, true, { searches: 搜索数, pages: 读页数 });
   发({ type: "done", charge: 通道.扣次, 不完整 });
-  return { ok: true, 状态, runId };
+  return { ok: true, 状态, runId, 材料: 材料.map((m) => ({ url: m.url, text: m.text })) };
 }
