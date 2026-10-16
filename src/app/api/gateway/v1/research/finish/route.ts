@@ -8,14 +8,14 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
- * 收尾：出了报告（ok=true）只记账；没出报告（ok=false）整笔退（lib/tenant/credits.ts 的 收尾背调）。
+ * 收尾：记下桌面端报的结果（ok = 6 步跑完了；取消 = 用户自己停的），**退不退服务器自己判断**
+ * （lib/tenant/credits.ts 的 收尾背调）：最后一步交没交出去、我们这边失败过没有，都是网关和搜索接口自己记的。
  *
  * 请求里的 searches / pages 不用：服务器自己数过（AiResearchRun），客户端报的只是它那边的口径，
  * 拿它覆盖服务器的数就等于让客户端自己填账。
  *
- * 退不退由桌面端说了算，这是一个已知的口子：改过的客户端可以每次都报「没出报告」，白拿搜索和读页。
- * 能用的程度被 start 的频率闸（五分钟 30 次）和每次背调的次数闸压着；真被这么用了，
- * 运营台按 AiResearchRun 里 refunded = 1 且 searches 很多的行一查就看得出来。
+ * 桌面端能左右的只剩「取消」：报了就不退——谎报只会让它自己少退一次。
+ * 想白拿材料的路（跳过最后一步再报没跑完）要有服务器记到的失败才退，见 收尾背调 第 5 条。
  */
 export async function POST(req: Request) {
   try {
@@ -34,9 +34,10 @@ async function 处理(req: Request) {
   const runId = 认runId(读.body);
   if (!runId) return 网关错误(400, "runId 不对：要 1–64 位字母、数字、- 或 _");
   if (typeof 读.body.ok !== "boolean") return 网关错误(400, "ok 要是 true 或 false");
+  if (读.body.取消 !== undefined && typeof 读.body.取消 !== "boolean") return 网关错误(400, "取消 要是 true 或 false");
 
   const owner = { kind: "account" as const, id: accountId };
-  const r = await 收尾背调(owner, runId, 读.body.ok);
+  const r = await 收尾背调(owner, runId, 读.body.ok, 读.body.取消 === true);
   if (!r.有这笔) return 网关错误(404, "找不到这次背调");
   // 还剩的是背调次数（和问答的 AI 次数分开）
   const 还剩 = (await 背调余额(owner)).还剩;

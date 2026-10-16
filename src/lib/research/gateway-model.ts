@@ -5,9 +5,11 @@
  * 10-16 总控定背调的搜索和分析一律用我们的服务、照价扣，所以这里固定用云端账号的设备令牌打我们的网关，
  * 每次都带这次背调的编号（X-Question-Id = runId）：网关认得是同一笔、不另扣，背调专用模型也只对这一笔放行。
  *
- * 只做背调要的两件事：带工具问一步、要一段 JSON。超时 / 5xx 原样重发一次（网关对失败的那次会退，重发不多扣）。
+ * 只做背调要的两件事：带工具问一步、要一段 JSON。超时 / 5xx 原样重发一次（retry.ts；网关对失败的那次会退，重发不多扣）。
+ * 每次都带 X-Research-Stage（这是 6 步里的哪一步）：服务器看到最后一步交出去了，才算这次背调跑完（credits.ts 的 收尾背调）。
  */
 import type { 模型调用 } from "./run";
+import { 背调超时, 重发一次 } from "./retry";
 
 type 配置 = { baseUrl: string; apiKey: string };
 
@@ -24,34 +26,29 @@ function 认错(status: number, t: string): Error {
 
 export function 网关模型(cfg: 配置, 当前模型: () => string | undefined): 模型调用 {
   const base = cfg.baseUrl.replace(/\/+$/, "");
-  const 发 = async (body: Record<string, unknown>, opts: { signal?: AbortSignal; timeoutMs?: number; requestId?: string; maxTokens?: number; temperature?: number; model?: string }) => {
-    const 一次 = async () => {
-      const 超时 = AbortSignal.timeout(opts.timeoutMs ?? 90_000);
-      const res = await fetch(`${base}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${cfg.apiKey}`,
-          ...(opts.requestId ? { "X-Question-Id": opts.requestId } : {}),
-          "X-Feature": "research",
-        },
-        // 编排按角色传模型名（摘要用 mini、最后打分写报告用 gpt-5.5）；没传就用通道上的报告模型
-        body: JSON.stringify({ model: opts.model ?? 当前模型(), temperature: opts.temperature ?? 0, max_tokens: opts.maxTokens ?? 2000, ...body }),
-        signal: opts.signal ? AbortSignal.any([opts.signal, 超时]) : 超时,
-      });
-      const t = await res.text();
-      if (!res.ok) throw 认错(res.status, t);
-      return JSON.parse(t) as { choices?: { message?: { content?: string | null; tool_calls?: unknown[] } }[] };
-    };
-    let j;
-    try {
-      j = await 一次();
-    } catch (e) {
-      const st = (e as { status?: number }).status;
-      const 名 = e instanceof Error ? e.name : "";
-      if (opts.signal?.aborted || !(名 === "TimeoutError" || (st !== undefined && st >= 500))) throw e;
-      j = await 一次();
-    }
+  const 发 = async (body: Record<string, unknown>, opts: { signal?: AbortSignal; timeoutMs?: number; requestId?: string; maxTokens?: number; temperature?: number; model?: string; researchStage?: string }) => {
+    const j = await 重发一次(
+      async (signal) => {
+        const res = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${cfg.apiKey}`,
+            ...(opts.requestId ? { "X-Question-Id": opts.requestId } : {}),
+            ...(opts.researchStage ? { "X-Research-Stage": opts.researchStage } : {}),
+            "X-Feature": "research",
+          },
+          // 编排按角色传模型名（摘要用 mini、最后打分写报告用 gpt-5.5）；没传就用通道上的报告模型
+          body: JSON.stringify({ model: opts.model ?? 当前模型(), temperature: opts.temperature ?? 0, max_tokens: opts.maxTokens ?? 2000, ...body }),
+          signal,
+        });
+        const t = await res.text();
+        if (!res.ok) throw 认错(res.status, t);
+        return JSON.parse(t) as { choices?: { message?: { content?: string | null; tool_calls?: unknown[] } }[] };
+      },
+      opts.timeoutMs ?? 背调超时.模型每次,
+      opts.signal,
+    );
     return j.choices?.[0]?.message ?? {};
   };
   return {

@@ -1,3 +1,4 @@
+import { 背调超时 } from "./retry";
 import { createHash } from "node:crypto";
 import { 搜索结果量 } from "./price";
 import type { 网关配置 } from "@/lib/gateway";
@@ -28,7 +29,8 @@ export type 搜索服务 = {
 
 /** 搜索服务出的错。message 只进日志（已抹 Key），给用户看的话由路由另写 */
 export class 搜索出错 extends Error {
-  constructor(message: string, readonly status?: number) {
+  /** 超时 = 中转站卡住了：原样重搜一次通常就回来（见 卡了重搜一次） */
+  constructor(message: string, readonly status?: number, readonly 超时 = false) {
     super(message);
     this.name = "搜索出错";
   }
@@ -36,8 +38,8 @@ export class 搜索出错 extends Error {
 
 /** 一次搜索最多回几条：多了模型读不过来，token 也白花 */
 export const 每次最多条 = 8;
-/** 单次上游调用的超时。带搜索的模型调用比普通问答慢得多，实测 10–30 秒 */
-const 超时毫秒 = 45_000;
+/** 单次上游调用的超时。带搜索的模型调用比普通问答慢得多：实测 10–30 秒，5.5 有时 60 秒以上（10-16 ABC 试跑），见 retry.ts */
+const 超时毫秒 = 背调超时.搜索每次;
 export const 默认搜索模型 = { claude: "claude-sonnet-5.5", gpt: "gpt-5.5" } as const;
 
 function 提示词(query: string): string {
@@ -102,7 +104,7 @@ async function 发请求(url: string, init: RequestInit, 哪家: string, key: st
     res = await fetch(url, { ...init, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(超时毫秒)]) : AbortSignal.timeout(超时毫秒) });
   } catch (e) {
     const 超时 = e instanceof Error && e.name === "TimeoutError";
-    throw new 搜索出错(`${哪家} 搜索${超时 ? "超时" : "连不上"}：${抹掉密钥(e instanceof Error ? e.message : String(e), key)}`);
+    throw new 搜索出错(`${哪家} 搜索${超时 ? "超时" : "连不上"}：${抹掉密钥(e instanceof Error ? e.message : String(e), key)}`, undefined, 超时);
   }
   if (!res.ok) throw await 上游失败(res, 哪家, key);
   try {
@@ -341,9 +343,9 @@ export function 模拟搜索(): 搜索服务 {
  *   RESEARCH_SEARCH        gpt（默认）| claude | mock
  *   RESEARCH_SEARCH_MODEL  换掉主用的那家的模型（默认 claude-sonnet-5.5 / gpt-5.5）
  *
- * 默认走 GPT（10-16 总控定），它挂了（上游报错、超时、连不上）就换 Claude 再试一次：两家同一个中转站、同一把 Key，
- * 一家临时不通时另一家多半还在。只换一次、只往一个方向换——备用的也挂了就是真挂了，不来回试着烧钱。
- * 调用方自己放弃的（桌面端断开）不换，直接抛。
+ * 默认走 GPT（10-16 总控定）。卡住（超时）先原样重搜 GPT 一次——中转站偶尔卡一个请求，重发多半就回来（10-16 ABC 试跑）；
+ * 挂了（上游报错、连不上）就换 Claude 再试一次：两家同一个中转站、同一把 Key，一家临时不通时另一家多半还在。
+ * 一共最多两趟（卡了重搜一次）——第二趟也不行就是真挂了，不来回试着烧钱。调用方自己放弃的（桌面端断开）不重试，直接抛。
  */
 export function 选搜索服务(cfg: 网关配置, env: Record<string, string | undefined> = process.env): 搜索服务 {
   const 哪家 = (env.RESEARCH_SEARCH ?? "").trim().toLowerCase();
@@ -357,16 +359,22 @@ export function 选搜索服务(cfg: 网关配置, env: Record<string, string | 
   const 结果量 = 搜索结果量(env);
   const 主 = claude为主 ? claude搜索(cfg, 模型) : gpt搜索(cfg, 模型, 结果量);
   const 备 = claude为主 ? gpt搜索(cfg, undefined, 结果量) : claude搜索(cfg);
-  return {
-    名: 主.名,
-    async search(query, opts) {
-      try {
-        return await 主.search(query, opts);
-      } catch (e) {
-        if (opts.signal?.aborted) throw e;
-        console.warn(`[research] ${主.名} 搜索失败，换 ${备.名} 再试一次：${e instanceof Error ? e.message : String(e)}`);
-        return 备.search(query, opts);
-      }
-    },
-  };
+  return { 名: 主.名, search: (query, opts) => 卡了重搜一次(主, 备, query, opts) };
+}
+
+/**
+ * 一次搜索最多两趟：中转站卡住（超时）就原样重搜同一家（多半几秒就回来）；别的错（上游报错、连不上）换备用那家。
+ * 没给备用的（对比实验，每组只测一家）出什么错都重搜同一家。调用方自己放弃的（桌面端断开）不重搜，直接抛。
+ * 产品（选搜索服务）和对比实验（scripts/research-bench.ts）用的是这同一份
+ */
+export async function 卡了重搜一次(主: 搜索服务, 备: 搜索服务 | undefined, query: string, opts: { signal?: AbortSignal }) {
+  try {
+    return await 主.search(query, opts);
+  } catch (e) {
+    if (opts.signal?.aborted) throw e;
+    const 卡了 = e instanceof 搜索出错 && e.超时;
+    const 换 = 卡了 || !备 ? 主 : 备;
+    console.warn(`[research] ${主.名} 搜索${卡了 ? "超时" : "失败"}，${换 === 主 ? "重搜一次" : `换 ${备!.名} 再试一次`}：${e instanceof Error ? e.message : String(e)}`);
+    return 换.search(query, opts);
+  }
 }

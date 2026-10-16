@@ -40,13 +40,15 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { 跑背调, type 模型调用 } from "../src/lib/research/run";
-import { claude搜索, gpt搜索, type 搜索服务 } from "../src/lib/research/providers";
+import { claude搜索, gpt搜索, 卡了重搜一次, type 搜索服务 } from "../src/lib/research/providers";
 import { 读网页 } from "../src/lib/research/read-page";
 import { 模拟通道 } from "../src/lib/research/mock";
 import { 报告文本 } from "../src/lib/research/report";
 import type { 背调通道 } from "../src/lib/research/channel";
 import type { 背调状态 } from "../src/lib/research/state";
 import { 读价目, 模型花费元, 搜索花费元, type 价目 } from "../src/lib/research/price";
+import { 背调超时, 重发一次, 截 } from "../src/lib/research/retry";
+import { 阶段表 } from "../src/lib/research/types";
 
 /* ---------- 配置 ---------- */
 
@@ -113,15 +115,23 @@ type 账 = { 输入: number; 缓存: number; 输出: number; 调用: number; 花
 const 新账 = (): 账 => ({ 输入: 0, 缓存: 0, 输出: 0, 调用: 0, 花费元: 0 });
 
 function 直连模型(base: string, key: string, 默认模型: string, 账: 账, 价: 价目): 模型调用 {
-  const 发 = async (body: Record<string, unknown>, model: string, signal?: AbortSignal) => {
-    const r = await fetch(`${base}/chat/completions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model, temperature: 0, max_tokens: 2000, ...body }),
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(180_000)]) : AbortSignal.timeout(180_000),
-    });
-    const t = await r.text();
-    if (!r.ok) throw Object.assign(new Error(`接口返回 ${r.status}：${t.slice(0, 200)}`), { status: r.status });
+  /** 和产品（gateway-model.ts）同一套：每一趟等 opts.timeoutMs（编排给的 背调超时.模型每次），卡住 / 5xx 重发一次 */
+  const 发 = async (body: Record<string, unknown>, model: string, opts: { signal?: AbortSignal; timeoutMs?: number }) => {
+    const t = await 重发一次(
+      async (signal) => {
+        const r = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+          body: JSON.stringify({ model, temperature: 0, max_tokens: 2000, ...body }),
+          signal,
+        });
+        const t = await r.text();
+        if (!r.ok) throw Object.assign(new Error(`接口返回 ${r.status}：${t.slice(0, 200)}`), { status: r.status });
+        return t;
+      },
+      opts.timeoutMs ?? 背调超时.模型每次,
+      opts.signal,
+    );
     const j = JSON.parse(t) as {
       choices?: { message?: { content?: string | null; tool_calls?: unknown[] } }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
@@ -136,16 +146,16 @@ function 直连模型(base: string, key: string, 默认模型: string, 账: 账,
   };
   return {
     async tools(messages, tools, opts) {
-      const m = await 发({ messages, tools }, opts.model ?? 默认模型, opts.signal);
+      const m = await 发({ messages, tools }, opts.model ?? 默认模型, opts);
       return { toolCalls: (m.tool_calls ?? []) as never, text: (m.content ?? "").trim() };
     },
     async json(messages, opts) {
       const model = opts.model ?? 默认模型;
       let m;
       try {
-        m = await 发({ messages, response_format: { type: "json_object" } }, model, opts.signal);
+        m = await 发({ messages, response_format: { type: "json_object" } }, model, opts);
       } catch (e) {
-        if ((e as { status?: number }).status === 400) m = await 发({ messages }, model, opts.signal);
+        if ((e as { status?: number }).status === 400) m = await 发({ messages }, model, opts);
         else throw e;
       }
       const s = (m.content ?? "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
@@ -169,7 +179,8 @@ function 直连通道(g: 组合, 服务: 搜索服务, 账: 账, 价: 价目, �
       return { ok: true, 扣了: 0, 还剩: 0, 模型: g.报告, 摘要模型: g.摘要, 搜索上限: g.搜索上限 };
     },
     async 搜索(_runId, query, signal) {
-      const r = await 服务.search(query, { signal: signal ?? AbortSignal.timeout(120_000) });
+      // 和产品的搜索接口同一套：卡住重搜一次（实验每组只测一家，不换备用）
+      const r = await 卡了重搜一次(服务, undefined, query, { signal: signal ?? AbortSignal.timeout(背调超时.搜索接口) });
       账.调用 += 1;
       if (r.usage) {
         账.输入 += r.usage.input;
@@ -282,11 +293,37 @@ type 一次 = {
   秒: number;
   成本元: number;
   错: string;
+  /** 哪一步出错停下的、报的什么（没停就空着） */
+  停在: string;
 };
 
 const 均 = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const 百 = (x: number) => (Number.isFinite(x) ? `${Math.round(x * 100)}%` : "—");
 const 文件名 = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, "_");
+
+/** 「基本面：The operation was aborted due to timeout」这样：一眼看出卡在哪一步、是什么错 */
+function 停在哪(状态: 背调状态 | null): string {
+  if (!状态) return "";
+  const 错的 = 阶段表.find((x) => 状态.stages[x.id].status === "error");
+  return 错的 ? `${错的.label}：${截(状态.stages[错的.id].summary ?? "", 80)}` : "";
+}
+
+/**
+ * 同一家公司最多几组同时跑。10-16 下午 ABC 试跑 4 组一起跑，中转站把其中两组的请求卡到超时；总控定最多 2 组
+ */
+const 同时跑 = 2;
+async function 限并发<T, R>(xs: T[], n: number, 做: (x: T) => Promise<R>): Promise<R[]> {
+  const 出: R[] = new Array(xs.length);
+  let 下一个 = 0;
+  const 工人 = async () => {
+    while (下一个 < xs.length) {
+      const i = 下一个++;
+      出[i] = await 做(xs[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(n, xs.length) }, 工人));
+  return 出;
+}
 
 async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: string, 价: 价目): Promise<{ 行: 一次; 状态: 背调状态 | null; 嫌疑: 核对["嫌疑"] }> {
   const 模型账 = 新账();
@@ -346,6 +383,7 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
     // 模拟数据不花钱（假模型名按兜底价估出来的数没有意义）
     成本元: 参数.模拟 ? 0 : Math.round(已花() * 1000) / 1000,
     错,
+    停在: 停在哪(状态),
   };
   if (状态) writeFileSync(path.join(参数.输出, `${文件名(co.名)}__${文件名(g.名)}.txt`), 报告文本(状态));
   return { 行, 状态, 嫌疑: 核.嫌疑 };
@@ -406,8 +444,8 @@ async function main() {
   const 嫌疑表: { 组: string; 公司: string; 话: string; 源: string }[] = [];
   for (const [第几家, co] of 公司们.entries()) {
     const 这家的组 = c.组合.filter((g) => !g.只跑前 || 第几家 < g.只跑前);
-    console.log(`\n${co.名}（${这家的组.length} 组同时跑）`);
-    const 结果们 = await Promise.all(这家的组.map((g) => 跑一次(c, g, co, base, key, 价)));
+    console.log(`\n${co.名}（${这家的组.length} 组，最多 ${同时跑} 组同时跑）`);
+    const 结果们 = await 限并发(这家的组, 同时跑, (g) => 跑一次(c, g, co, base, key, 价));
     for (const [i, r] of 结果们.entries()) {
       行们.push(r.行);
       状态表.set(`${这家的组[i].名}|${co.名}`, r.状态);

@@ -7,7 +7,7 @@
  *   3. 请求发对了地方、带对了头（Claude 走 {根}/v1/messages，GPT 走 {baseUrl}/responses）
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { 解析Claude回应, 解析GPT回应, claude搜索, gpt搜索, 模拟搜索, 选搜索服务, 每次最多条 } from "@/lib/research/providers";
+import { 解析Claude回应, 解析GPT回应, claude搜索, gpt搜索, 模拟搜索, 选搜索服务, 卡了重搜一次, 每次最多条 } from "@/lib/research/providers";
 
 const cfg = { baseUrl: "https://relay.example.com/v1", apiKey: "fake-relay-key", models: [{ id: "deepseek-chat" }] };
 
@@ -141,14 +141,51 @@ describe("挑服务和兜底", () => {
     expect(r.results.length).toBeGreaterThan(0);
   });
 
-  it("超时 / 连不上也换", async () => {
+  it("连不上也换", async () => {
     const f = vi.fn(async (url: string) => {
-      if (url.endsWith("/responses")) throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      if (url.endsWith("/responses")) throw new TypeError("fetch failed");
       return json(Claude回应);
     });
     vi.stubGlobal("fetch", f);
     vi.spyOn(console, "warn").mockImplementation(() => {});
     expect((await 选搜索服务(cfg, {}).search("Acme", {})).results.length).toBeGreaterThan(0);
+  });
+
+  it("卡住（超时）先原样重搜同一家一次——中转站偶尔卡一个请求，重发多半就回来（10-16 ABC 试跑）", async () => {
+    let 第 = 0;
+    const f = vi.fn(async (url: string) => {
+      if (url.endsWith("/responses") && ++第 === 1) throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      return url.endsWith("/responses") ? json(GPT回应) : json(Claude回应);
+    });
+    vi.stubGlobal("fetch", f);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect((await 选搜索服务(cfg, {}).search("Acme", {})).results[0].url).toBe("https://acme.example/");
+    expect(f.mock.calls.map(([u]) => String(u).split("/").pop())).toEqual(["responses", "responses"]);
+  });
+
+  it("一共最多两趟：连卡两次就抛，不再换第三趟烧钱", async () => {
+    const f = vi.fn(async () => {
+      throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
+    });
+    vi.stubGlobal("fetch", f);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const e = await 选搜索服务(cfg, {}).search("Acme", {}).catch((x: Error) => x);
+    expect(e).toBeInstanceOf(Error);
+    expect((e as Error).message).toContain("超时");
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+
+  it("卡了重搜一次：没给备用的（对比实验）出什么错都重搜同一家；调用方自己停的不重搜", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let n = 0;
+    const 主 = { 名: "gpt", search: vi.fn(async () => (++n === 1 ? Promise.reject(new Error("502")) : { results: [{ title: "a", url: "https://a.example/", snippet: "" }] })) };
+    expect((await 卡了重搜一次(主, undefined, "Acme", {})).results).toHaveLength(1);
+    expect(主.search).toHaveBeenCalledTimes(2);
+    const 停 = new AbortController();
+    停.abort();
+    const 主2 = { 名: "gpt", search: vi.fn(async () => Promise.reject(new Error("aborted"))) };
+    await expect(卡了重搜一次(主2, undefined, "Acme", { signal: 停.signal })).rejects.toThrow("aborted");
+    expect(主2.search).toHaveBeenCalledTimes(1);
   });
 
   it("RESEARCH_SEARCH=claude 反过来：Claude 主、GPT 备", async () => {

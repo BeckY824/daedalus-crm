@@ -9,7 +9,7 @@
  *   3. 档案格一格一格填（没到的是骨架条），不是一大段字
  *   4. 相关性分数滚上去，外圈跟着画；信号 / 风险一条条出来
  *   5. 来源统一编号，结论后面的 [n] 点了用系统浏览器打开那一页
- *   6. 底部状态条：用时、搜了几次、读了几页、扣几次 AI
+ *   6. 底部状态条：用时、搜了几次、读了几页、扣几次背调（没跑完退回的照实说）
  * 动效只表达真实进度：每个变化都对应一条事件（lib/research/types.ts 研究事件）。
  * 时长、曲线一律取 useMotionTheme()；开了「减弱动态」时 MotionConfig 撤位移，样式表撤扫光（research.css 末尾）。
  */
@@ -396,7 +396,9 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
         <span>
           读了 <b className="rs-num">{s.usage.pages}</b> 页
         </span>
-        {s.done && s.done.charge > 0 && <span className="rs-charge">扣 {s.done.charge} 次 AI</span>}
+        {/* 背调次数和问答的 AI 次数分开记。没跑完是我们这边的原因（超时、上游报错）时服务器退了那 1 次，照实说 */}
+        {s.done && s.done.charge > 0 &&
+          (s.done.退了 ? <span className="rs-charge">没跑完，已退回这 {s.done.charge} 次背调</span> : <span className="rs-charge">扣 {s.done.charge} 次背调</span>)}
       </div>
 
       {error && !running && <div className="rs-err">{error}</div>}

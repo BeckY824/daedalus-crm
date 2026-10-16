@@ -166,13 +166,14 @@ describe("背调 6 步编排", () => {
     expect(fit?.prompt).toContain("2. Sol Andino｜在谈｜智利");
   });
 
-  it("模型一直要搜：整次最多搜 背调上限.搜索 次，碰到上限的报告标「不完整」", async () => {
+  it("模型一直要搜：整次最多搜 背调上限.搜索 次；搜满了是预算，6 步都走完的报告不标「材料不全」（10-16 ABC 试跑 C 组误标）", async () => {
     const 通道 = 模拟通道();
     const 搜 = vi.spyOn(通道, "搜索");
     const { r, 事件 } = await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
     expect(搜).toHaveBeenCalledTimes(背调上限.搜索);
     expect(r.ok).toBe(true);
-    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
+    expect(事件.filter((e) => e.type === "stage" && e.status === "done")).toHaveLength(6);
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: false });
   });
 
   it("花到单次成本上限（服务器每次搜索后报的 花费）：后面不再搜、不再读，照样出报告，标「不完整」", async () => {
@@ -235,7 +236,7 @@ describe("背调 6 步编排", () => {
     expect(m.调用).toHaveLength(0);
   });
 
-  it("中途某一步出错：已经查到的照样出报告，标「不完整」，收尾报「出了」（不退）", async () => {
+  it("中途某一步出错：已经查到的照样出报告，标「不完整」；收尾报「没跑完、不是用户停的」，退不退服务器判断", async () => {
     const m = 假模型();
     let n = 0;
     const 坏 = { ...m, json: async (a: never, o: never) => { if (++n === 3) throw new Error("AI 响应超时，请稍后重试"); return m.json(a, o); } };
@@ -245,7 +246,67 @@ describe("背调 6 步编排", () => {
     expect(r.ok).toBe(true);
     expect(事件.some((e) => e.type === "stage" && e.status === "error")).toBe(true);
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
-    expect(收尾).toHaveBeenCalledWith("run-test", true, expect.anything());
+    expect(收尾).toHaveBeenCalledWith("run-test", false, expect.objectContaining({ 取消: false }));
+  });
+
+  it("服务器判定退了（收尾回 退了 > 0）：done 事件带 退了，卡片照实说「已退回」", async () => {
+    const m = 假模型();
+    let n = 0;
+    const 坏 = { ...m, json: async (a: never, o: never) => { if (++n === 3) throw new Error("上游模型接口超时"); return m.json(a, o); } };
+    const 通道 = 模拟通道();
+    通道.收尾 = async () => ({ ok: true, 退了: 1, 还剩: 3 });
+    const { 事件 } = await 跑({ 模型: 坏 as unknown as 模型调用, 通道 });
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true, 退了: true });
+  });
+
+  it("6 步都跑完：收尾报 ok、不是取消；done 不带 退了", async () => {
+    const 通道 = 模拟通道();
+    const 收尾 = vi.spyOn(通道, "收尾");
+    const { 事件 } = await 跑({ 通道 });
+    expect(收尾).toHaveBeenCalledWith("run-test", true, expect.objectContaining({ 取消: false }));
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: false, 退了: false });
+  });
+
+  it("每次模型调用都带这是哪一步（X-Research-Stage 靠它），超时是每一趟 100 秒（retry.ts 的 背调超时）", async () => {
+    const 阶段们: string[] = [];
+    const m = 假模型();
+    const 包 = {
+      tools: (a: never, t: never, o: { researchStage?: string; timeoutMs?: number }) => (阶段们.push(o.researchStage ?? "?"), expect(o.timeoutMs).toBe(100_000), m.tools(a, t, o as never)),
+      json: (a: never, o: { researchStage?: string; timeoutMs?: number }) => (阶段们.push(o.researchStage ?? "?"), expect(o.timeoutMs).toBe(100_000), m.json(a, o as never)),
+    };
+    await 跑({ 模型: 包 as unknown as 模型调用 });
+    expect(new Set(阶段们)).toEqual(new Set(["identify", "basics", "fit", "signals", "risks", "approach"]));
+  });
+
+  it("结论回的不是合法 JSON：再要一次，不让整次背调停在这一步", async () => {
+    const m = 假模型();
+    let 坏过 = false;
+    const 包 = { ...m, json: async (a: never, o: { researchStage?: string }) => { if (o.researchStage === "approach" && !坏过) { 坏过 = true; throw new SyntaxError("Unexpected token"); } return m.json(a, o as never); } };
+    const { 事件 } = await 跑({ 模型: 包 as unknown as 模型调用 });
+    expect(坏过).toBe(true);
+    expect(事件.filter((e) => e.type === "stage" && e.status === "done")).toHaveLength(6);
+    expect(事件.some((e) => e.type === "score")).toBe(true);
+  });
+
+  it("用户自己停的：收尾报 取消（服务器那边不退）", async () => {
+    const 停 = new AbortController();
+    const m = 假模型();
+    let n = 0;
+    const 包 = { ...m, json: async (a: never, o: never) => { if (++n === 2) 停.abort(); return m.json(a, o); } };
+    const 通道 = 模拟通道();
+    const 收尾 = vi.spyOn(通道, "收尾");
+    await 跑({ 模型: 包 as unknown as 模型调用, 通道, signal: 停.signal });
+    expect(收尾).toHaveBeenCalledWith("run-test", false, expect.objectContaining({ 取消: true }));
+  });
+
+  it("给人看的结论按字符截、截了带省略号，不切坏字、不在网址半中间硬断", async () => {
+    const 长 = "法国 Rexel 集团的官网和法国官方企业目录都显示公司注册地址在 Paris，".repeat(10);
+    const m = 假模型();
+    const 包 = { ...m, json: async (a: never, o: { researchStage?: string }) => { const r = (await m.json(a, o as never)) as Record<string, unknown>; return o.researchStage === "identify" ? { ...r, 说明: 长 } : r; } };
+    const { 事件 } = await 跑({ 模型: 包 as unknown as 模型调用 });
+    const 认 = 事件.find((e) => e.type === "stage" && e.stage === "identify" && e.status === "done") as { summary?: string };
+    expect(Array.from(认.summary ?? "")).toHaveLength(140);
+    expect(认.summary?.endsWith("…")).toBe(true);
   });
 
   it("工具不叫 web_search（中转站会把同名函数当成它自家的内置搜索吞掉）", async () => {

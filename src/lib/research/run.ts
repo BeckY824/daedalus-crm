@@ -19,6 +19,8 @@ import { randomUUID } from "node:crypto";
  * 计费：开跑前 通道.开始() 扣一次背调的次数（服务器那边，见 api/gateway/v1/research/start）；
  * 所有模型调用带同一个编号（runId），网关认得是同一次背调、不再另扣。
  * 一条材料都没拿到就收工的（搜不到、第一步就出错、开头就被停）全退；拿到了材料就出报告，不完整的写明。
+ * 拿到了材料、但因为我们这边的原因（超时、上游报错）没跑完 6 步的也退——**退不退服务器自己判断**（credits.ts 的 收尾背调），
+ * 这里只告诉它「是不是用户自己停的」。
  */
 import type { chatTools, ToolMessage, 工具声明, 工具调用 } from "../llm";
 import type { BusinessConfig } from "../business-config";
@@ -27,6 +29,7 @@ import { 背调上限, 阶段表, 字段表, type 研究事件, type 阶段号, 
 import { 算相关性, 清洗评档, type 评档, type 风险 } from "./score";
 import { 认像的老客户, 老客户表文本, 老客户维度档, type 老客户 } from "./similar";
 import { 初始状态, 归约, type 背调状态 } from "./state";
+import { 背调超时, 截 } from "./retry";
 
 type ChatOpts = NonNullable<Parameters<typeof chatTools>[2]>;
 
@@ -135,7 +138,8 @@ function 解参数(s: string): Record<string, unknown> {
   return v && typeof v === "object" ? (v as Record<string, unknown>) : {};
 }
 
-const 短 = (s: unknown, n: number) => (typeof s === "string" ? s.trim().slice(0, n) : "");
+/** 给人看的结论、标签：按字符截、截了带省略号（10-16 试跑：按 UTF-16 硬切，结论断在半句、网址断在「https://www」） */
+const 短 = 截;
 const 是网址 = (s: unknown): s is string => typeof s === "string" && /^https?:\/\/\S+$/i.test(s.trim());
 
 export async function 跑背调(input: 背调输入): Promise<背调结果> {
@@ -171,18 +175,19 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   };
   let 工具号 = 0;
   /** 每一步挑工具、写摘要用摘要模型（可以是便宜的 mini）；最后打分写报告那一步单独传报告模型（通道.模型，固定 gpt-5.5） */
-  const opts = (超时: number, 模型名?: string): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", temperature: 0, thinking: false, timeoutMs: 超时, maxTokens: 2000 });
+  /** 每次调用都带上这是哪一步（X-Research-Stage）：服务器看到最后一步交出去了才算跑完。超时是每一趟的，卡了 gateway-model 会重发一次 */
+  const opts = (stage: 阶段号, 模型名?: string): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", researchStage: stage, temperature: 0, thinking: false, timeoutMs: 背调超时.模型每次, maxTokens: 2000 });
   /** 用原生 function calling；对面不吃 tools 时退回 JSON 协议（和首页 agent 同一个判断） */
   let 用原生 = true;
 
   const 搜 = async (stage: 阶段号, query: string): Promise<string> => {
+    // 搜满了是预算（降本开关定的次数），不是材料不全：报告不标（10-16 试跑 C 组 6 步都走完了也被标了）
     if (搜索数 >= 搜索上限) {
-      不完整 = true;
       return "这次背调的搜索次数用完了，请用已有材料。";
     }
     搜索数 += 1;
     const id = `t${++工具号}`;
-    const label = `搜索「${query.slice(0, 60)}」`;
+    const label = `搜索「${截(query, 60)}」`;
     const t0 = Date.now();
     发({ type: "tool", stage, id, kind: "search", label, status: "running" });
     try {
@@ -200,7 +205,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     } catch (e) {
       if (signal?.aborted) throw e;
       const msg = e instanceof Error ? e.message : "搜索出错";
-      发({ type: "tool", stage, id, kind: "search", label, status: "error", result: msg.slice(0, 60), ms: Date.now() - t0 });
+      发({ type: "tool", stage, id, kind: "search", label, status: "error", result: 截(msg, 60), ms: Date.now() - t0 });
       看钱(msg);
       return `搜索失败：${msg}`;
     }
@@ -209,14 +214,13 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   const 读 = async (stage: 阶段号, url: string): Promise<string> => {
     if (读过.has(url)) return "这一页前面已经读过，内容在材料里。";
     if (读页数 >= 背调上限.读页) {
-      不完整 = true;
       return "这次背调能读的页数用完了，请用已有材料。";
     }
     读页数 += 1;
     读过.add(url);
     const id = `t${++工具号}`;
     const 名 = 材料.find((m) => m.url === url)?.title ?? url.replace(/^https?:\/\//, "").slice(0, 50);
-    const label = `读「${名.slice(0, 50)}」`;
+    const label = `读「${截(名, 50)}」`;
     const t0 = Date.now();
     发({ type: "tool", stage, id, kind: "read", label, status: "running" });
     try {
@@ -230,7 +234,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     } catch (e) {
       if (signal?.aborted) throw e;
       const msg = e instanceof Error ? e.message : "读不了";
-      发({ type: "tool", stage, id, kind: "read", label, status: "error", result: msg.slice(0, 60), ms: Date.now() - t0 });
+      发({ type: "tool", stage, id, kind: "read", label, status: "error", result: 截(msg, 60), ms: Date.now() - t0 });
       看钱(msg);
       return `读不了：${msg}`;
     }
@@ -275,7 +279,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       let 调用: { name: string; args: Record<string, unknown>; thought: string; 回执: ToolMessage[]; callId?: string } | null = null;
       if (用原生) {
         try {
-          const r = await 模型.tools(messages, 工具表, opts(60_000));
+          const r = await 模型.tools(messages, 工具表, opts(stage));
           const c = r.toolCalls[0];
           if (!c) return 认JSON(r.text);
           let args: Record<string, unknown> = {};
@@ -295,12 +299,12 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       if (!调用) {
         const raw = (await 模型.json(
           [...messages, { role: "user", content: '只输出 JSON：要搜索 {"thought":"一句打算","tool":"search_web","query":"…"}；要读网页 {"thought":"…","tool":"read_page","url":"…"}；够了 {"done":true}' }],
-          opts(60_000),
+          opts(stage),
         )) as Record<string, unknown>;
         if (!raw || raw.done || (raw.tool !== "search_web" && raw.tool !== "read_page")) return null;
         调用 = { name: String(raw.tool), args: raw, thought: 短(raw.thought, 120), 回执: [{ role: "assistant", content: JSON.stringify(raw) }] };
       }
-      if (调用.thought && i === 0 && !调用.thought.trim().startsWith("{")) 发({ type: "thought", stage, text: 调用.thought.slice(0, 120) });
+      if (调用.thought && i === 0 && !调用.thought.trim().startsWith("{")) 发({ type: "thought", stage, text: 截(调用.thought, 120) });
       let 结果: string;
       if (调用.name === "search_web" && 短(调用.args.query, 200)) 结果 = await 搜(stage, 短(调用.args.query, 200));
       else if (调用.name === "read_page" && 是网址(调用.args.url)) 结果 = await 读(stage, (调用.args.url as string).trim());
@@ -310,15 +314,26 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     return null;
   };
 
-  /** 本步的结论：单独问一次 JSON（查 没交出来时，以及最后那一步）。前缀和 查 一样，缓存照样命中 */
+  /**
+   * 本步的结论：单独问一次 JSON（查 没交出来时，以及最后那一步）。前缀和 查 一样，缓存照样命中。
+   * 回的不是合法 JSON 就再要一次：那是模型的毛病，不该让整次背调停在这一步
+   */
   const 结论 = async (stage: 阶段号, 要什么: string, 模型名?: string): Promise<Record<string, unknown>> => {
-    const raw = await 模型.json(
-      [
-        ...前缀(),
-        { role: "user", content: `这一步：${本步目标[stage]}\n只输出这一步的结论 JSON，不要任何 JSON 之外的文字或 Markdown 代码块标记：${要什么}\n${来源规矩}` },
-      ],
-      opts(90_000, 模型名),
-    );
+    const 问 = () =>
+      模型.json(
+        [
+          ...前缀(),
+          { role: "user", content: `这一步：${本步目标[stage]}\n只输出这一步的结论 JSON，不要任何 JSON 之外的文字或 Markdown 代码块标记：${要什么}\n${来源规矩}` },
+        ],
+        opts(stage, 模型名),
+      );
+    let raw: unknown;
+    try {
+      raw = await 问();
+    } catch (e) {
+      if (signal?.aborted || !(e instanceof SyntaxError || (e instanceof Error && /不是合法 JSON/.test(e.message)))) throw e;
+      raw = await 问();
+    }
     return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   };
   const 材料里的 = (u: unknown) => (是网址(u) && 材料.some((m) => m.url === u.trim()) ? u.trim() : undefined);
@@ -339,7 +354,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       // 官网那一格只显示域名：模型常给 About 页的网址，整串摆上去像一条来源而不是官网
       if (是网址(r.官网)) 发({ type: "field", key: "site", value: new URL((r.官网 as string).trim()).host.replace(/^www\./, ""), source: 材料里的(r.官网) ?? 材料里的(r.来源) });
       if (短(r.国家城市, 40)) 发({ type: "field", key: "country", value: 短(r.国家城市, 40), source: 材料里的(r.来源) });
-      return 短(r.说明, 80) || (r.认准 ? "认准了" : "没能确认是哪一家");
+      return 短(r.说明, 140) || (r.认准 ? "认准了" : "没能确认是哪一家");
     },
     async basics() {
       const r = (await 查("basics", "优先读官网的 About / 公司介绍页。", 要.basics)) ?? (await 结论("basics", 要.basics));
@@ -349,26 +364,26 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
         const v = 短(f[key]?.value, 40);
         if (v && !/^查不到|未知|不详$/.test(v)) 发({ type: "field", key: key as 字段键, value: v, source: 材料里的(f[key]?.source) });
       }
-      return 短(r.小结, 80) || undefined;
+      return 短(r.小结, 140) || undefined;
     },
     async fit() {
       const r = (await 查("fit", "材料不够判断就再查一次，够了就直接下结论。", 要.fit)) ?? (await 结论("fit", 要.fit));
-      return 短(r.小结, 80) || undefined;
+      return 短(r.小结, 140) || undefined;
     },
     async signals() {
       const r = (await 查("signals", "搜招聘、新闻、展会，各一次就够。", 要.signals)) ?? (await 结论("signals", 要.signals));
       const 信号 = Array.isArray(r.信号) ? (r.信号 as { text?: unknown; source?: unknown }[]) : [];
-      for (const s of 信号.slice(0, 4)) if (短(s?.text, 60)) 发({ type: "tag", tone: "signal", text: 短(s.text, 60), source: 材料里的(s.source) });
-      return 短(r.小结, 80) || (信号.length ? undefined : "近期没查到明显动作");
+      for (const s of 信号.slice(0, 4)) if (短(s?.text, 100)) 发({ type: "tag", tone: "signal", text: 短(s.text, 100), source: 材料里的(s.source) });
+      return 短(r.小结, 140) || (信号.length ? undefined : "近期没查到明显动作");
     },
     async risks() {
       const r = (await 查("risks", "搜付款纠纷、投诉、诉讼、破产，用英文和当地语言各试一次。", 要.risks)) ?? (await 结论("risks", 要.risks));
       风险们 = (Array.isArray(r.风险) ? (r.风险 as Record<string, unknown>[]) : [])
-        .filter((x) => x && (x.级别 === "low" || x.级别 === "mid" || x.级别 === "high") && 短(x.说明, 80))
+        .filter((x) => x && (x.级别 === "low" || x.级别 === "mid" || x.级别 === "high") && 短(x.说明, 120))
         .slice(0, 4)
-        .map((x) => ({ 级别: x.级别 as 风险["级别"], 说明: 短(x.说明, 80), 来源: 材料里的(x.来源) }));
+        .map((x) => ({ 级别: x.级别 as 风险["级别"], 说明: 短(x.说明, 120), 来源: 材料里的(x.来源) }));
       for (const x of 风险们) 发({ type: "tag", tone: "risk", level: x.级别, text: x.说明, source: x.来源 });
-      return 短(r.小结, 80) || (风险们.length ? undefined : "没查到明显风险");
+      return 短(r.小结, 140) || (风险们.length ? undefined : "没查到明显风险");
     },
     /**
      * 最后一步：**打分 + 写切入建议，固定用报告模型（gpt-5.5）**——用户定「保证最后回复的质量」。
@@ -389,9 +404,9 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       发({ type: "similar", items: 像, 比了: input.老客户.length });
       const 老客户档: 评档 = { 维度: "similar", 档: 老客户维度档(像, input.老客户.length), 证据: 像[0] ? `像 ${像[0].name}：${像[0].像在哪}` : undefined };
       发({ type: "score", 评分: 算相关性([...网上评档, 老客户档], 风险们) });
-      const points = (Array.isArray(r.建议) ? r.建议 : []).map((x) => 短(x, 100)).filter(Boolean).slice(0, 3);
+      const points = (Array.isArray(r.建议) ? r.建议 : []).map((x) => 短(x, 200)).filter(Boolean).slice(0, 3);
       if (points.length) 发({ type: "approach", points });
-      return 短(r.小结, 80) || undefined;
+      return 短(r.小结, 140) || undefined;
     },
   };
 
@@ -409,18 +424,20 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     } catch (e) {
       停在 = id;
       出错 = signal?.aborted ? "已停止" : e instanceof Error ? e.message : "这一步出错了";
-      发({ type: "stage", stage: id, status: "error", summary: 出错.slice(0, 60) });
+      发({ type: "stage", stage: id, status: "error", summary: 截(出错, 60) });
       break;
     }
   }
 
+  // 用户自己停的（点了停、关了页面）：服务器那边不退。别的没跑完（超时、上游报错）退不退由服务器按它自己记的判断
+  const 取消 = Boolean(signal?.aborted);
   // 一条材料都没拿到：这份「报告」什么都不是，全退
   if (!材料.length) {
-    await 通道.收尾(runId, false, { searches: 搜索数, pages: 读页数 });
+    await 通道.收尾(runId, false, { searches: 搜索数, pages: 读页数, 取消 });
     return { ok: false, error: 出错 ?? "一条资料都没查到，这次不扣次数", 退了: true };
   }
   if (停在) 不完整 = true;
-  await 通道.收尾(runId, true, { searches: 搜索数, pages: 读页数 });
-  发({ type: "done", charge: 通道.扣次, 不完整 });
+  const 收 = await 通道.收尾(runId, !停在, { searches: 搜索数, pages: 读页数, 取消 });
+  发({ type: "done", charge: 通道.扣次, 不完整, 退了: (收?.退了 ?? 0) > 0 });
   return { ok: true, 状态, runId, 材料: 材料.map((m) => ({ url: m.url, text: m.text })) };
 }

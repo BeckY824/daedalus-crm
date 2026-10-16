@@ -10,6 +10,7 @@
  * 真有人要，再加一个「直连」通道就是——编排一行不用改。
  */
 import { 本地模式, 模型配置 as 云端模型配置 } from "../desktop/cloud";
+import { 背调超时 } from "./retry";
 import type { 开始回应, 搜索结果, 读页结果, 收尾回应, 价目回应, 花费, 搜索回应, 读页回应 } from "./types";
 import { 模拟通道 } from "./mock";
 import { 网关模型 } from "./gateway-model";
@@ -35,7 +36,8 @@ export type 背调通道 = {
   开始(runId: string, signal?: AbortSignal): Promise<开始回应>;
   搜索(runId: string, query: string, signal?: AbortSignal): Promise<搜索结果[]>;
   读页(runId: string, url: string, signal?: AbortSignal): Promise<读页结果>;
-  收尾(runId: string, ok: boolean, 用量: { searches: number; pages: number }): Promise<收尾回应 | null>;
+  /** ok = 6 步都跑完了；取消 = 用户自己停的。退不退服务器判断，回应里的 退了 > 0 就是退了 */
+  收尾(runId: string, ok: boolean, 用量: { searches: number; pages: number; 取消?: boolean }): Promise<收尾回应 | null>;
 };
 
 export type 通道结果 = { ok: true; 通道: 背调通道 } | { ok: false; error: string };
@@ -104,8 +106,8 @@ export function 云端通道(cfg: { baseUrl: string; apiKey: string; models: str
       }
     },
     async 搜索(runId, query, signal): Promise<搜索结果[]> {
-      // GPT 搜索一次要几十秒到一两分钟（试跑实测），给足 120 秒
-      const r = await 发<搜索回应>("search", { runId, query }, signal, 120);
+      // 服务器那头一次最多两趟（卡住重搜一次，或换备用那家），等它先到点（retry.ts 的 背调超时）
+      const r = await 发<搜索回应>("search", { runId, query }, signal, 背调超时.搜索接口 / 1000);
       if (r.花费) 通道.花费 = r.花费;
       return r.results ?? [];
     },

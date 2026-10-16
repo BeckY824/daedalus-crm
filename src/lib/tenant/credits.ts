@@ -540,19 +540,53 @@ export async function 背调有收获(owner: Owner, runId: string): Promise<void
 }
 
 /**
- * 收尾记账：记下出没出报告和收尾时刻；没出报告的整笔退。返回这次退了几次。
+ * 我们这边失败了一次（网关等上游超时 / 上游 5xx、429 / 连不上；搜索接口两趟都没搜成）。
+ * 没跑完 6 步时退不退就看有没有这一笔——服务器自己记的，桌面端改不了。记不上只打日志：别让记账拖垮那次请求
+ */
+export async function 背调记失败(owner: Owner, runId: string): Promise<void> {
+  try {
+    await control.aiResearchRun.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, data: { failures: { increment: 1 } } });
+  } catch (e) {
+    console.warn("[research] 失败没记上：", e instanceof Error ? e.message : e);
+  }
+}
+
+/** 最后一步（打分 + 切入建议）的模型调用成功交出去了：这次背调 6 步跑完。只记第一次 */
+export async function 背调交了报告(owner: Owner, runId: string): Promise<void> {
+  try {
+    await control.aiResearchRun.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, runId, reportAt: null }, data: { reportAt: new Date() } });
+  } catch (e) {
+    console.warn("[research] 交报告没记上：", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * 收尾记账：记下桌面端报的结果和收尾时刻，按服务器自己记的判断退不退。返回这次退了几次。
+ *
+ * **退不退（10-16 下午总控定：别让用户为我们的超时买单）**，从上往下第一条命中的算：
+ *   1. 最后一步交出去了（reportAt 有值），或者桌面端自己说 6 步都跑完了（ok）→ 不退
+ *   2. 一条材料都没交出去（hits = 0）→ 用户什么都没拿到，退（原来的规矩，开头就停的也退）
+ *   3. 用户自己停的（取消）→ 不退
+ *   4. 我们这边失败过（failures > 0：上游超时 / 报错、搜索没搜成）→ 退
+ *   5. 别的（桌面端说没跑完、服务器却没见到我们这边出错）→ 不退：
+ *      改过的客户端可以每次跳过最后一步再报「没跑完」，白拿前五步的材料；要退得有服务器自己记的证据
  *
  * 已经收过尾的再来一次：ok / finishedAt 以第一次为准，退不退也只听第一次的——
- * 否则先报「出了报告」拿走报告、再补一句「没出」，就能把已经交付的那一笔退回去。
- *
- * **退不退最终看服务器自己数的 hits**：桌面端报「没出」、但服务器已经交出去过材料的，不退。
- * 正常的桌面端只在一条材料都没拿到时才报「没出」（lib/research/run.ts），两边口径一致；
- * 被改过的客户端报「没出」想白拿搜索，这一条挡住
+ * 否则先报「跑完了」拿走报告、再补一句「没跑完」，就能把已经交付的那一笔退回去
  */
-export async function 收尾背调(owner: Owner, runId: string, ok: boolean): Promise<{ 有这笔: boolean; 退了: number }> {
+export async function 收尾背调(owner: Owner, runId: string, ok: boolean, 取消 = false): Promise<{ 有这笔: boolean; 退了: number }> {
   const base = { ownerKind: owner.kind, ownerId: owner.id, runId };
   if (!(await control.aiResearchRun.findFirst({ where: base, select: { id: true } }))) return { 有这笔: false, 退了: 0 };
-  await control.aiResearchRun.updateMany({ where: { ...base, finishedAt: null }, data: { ok, finishedAt: new Date() } });
-  const run = await control.aiResearchRun.findFirst({ where: base, select: { ok: true, hits: true } });
-  return { 有这笔: true, 退了: run?.ok === false && run.hits === 0 ? await 退背调(owner, runId) : 0 };
+  const n = await control.aiResearchRun.updateMany({ where: { ...base, finishedAt: null }, data: { ok, finishedAt: new Date() } });
+  if (n.count !== 1) return { 有这笔: true, 退了: 0 };
+  const run = await control.aiResearchRun.findFirst({ where: base, select: { hits: true, failures: true, reportAt: true } });
+  return { 有这笔: true, 退了: run && 该退背调({ ...run, ok, 取消 }) ? await 退背调(owner, runId) : 0 };
+}
+
+/** 收尾背调 的判断本身（纯函数，好测） */
+export function 该退背调(r: { hits: number; failures: number; reportAt: Date | null; ok: boolean; 取消: boolean }): boolean {
+  if (r.reportAt || r.ok) return false;
+  if (r.hits === 0) return true;
+  if (r.取消) return false;
+  return r.failures > 0;
 }

@@ -9,7 +9,8 @@
 --
 -- 扣费口径（lib/tenant/credits.ts 的 按背调扣 / 退背调）：
 --   开始时一次扣足 units（走我们的模型 6、自己的模型 2），不够就一次都不扣；
---   没出报告（finish ok=false）整笔退，refunded 标记保证只退一次。
+--   没跑完 6 步、又是我们这边的原因（failures > 0），或者一条材料都没交出去（hits = 0）：整笔退；
+--   用户自己停的、最后一步交出去了（reportAt 有值）：不退。refunded 标记保证只退一次（credits.ts 的 收尾背调）。
 CREATE TABLE IF NOT EXISTS "AiResearchRun" (
   "id"         TEXT NOT NULL PRIMARY KEY,
   -- account（桌面端）| workspace（托管版，目前没有这条路，留着和 AiCharge 一个口径）
@@ -30,6 +31,11 @@ CREATE TABLE IF NOT EXISTS "AiResearchRun" (
   -- 到现在估计花了多少钱，单位「厘」（0.001 元）：模型网关和搜索接口按 token、搜索次数实时累加（lib/research/price.ts）。
   -- 到了上限（RESEARCH_COST_CAP，默认 4 元）就不再给搜、不再给读
   "costLi"     INTEGER NOT NULL DEFAULT 0,
+  -- 我们这边失败过几次（10-16 下午总控定「别让用户为我们的超时买单」）：网关等上游超时 / 上游 5xx、429 / 连不上，
+  -- 搜索接口两趟都没搜成。服务器自己记的，桌面端改不了——没跑完时退不退就看它
+  "failures"   INTEGER NOT NULL DEFAULT 0,
+  -- 最后一步（打分 + 切入建议）的模型调用成功交出去的时刻（桌面端带 X-Research-Stage: approach）。有值 = 6 步跑完了
+  "reportAt"   DATETIME,
   -- 整笔退过了没有。标记而不是删行：幂等全靠它
   "refunded"   INTEGER NOT NULL DEFAULT 0,
   -- 收尾时桌面端报的结果：出了报告 1、没出 0、还没收尾 NULL

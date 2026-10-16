@@ -282,6 +282,82 @@ describe("finish", () => {
   });
 });
 
+describe("退不退由服务器判断（10-16 下午总控定：别让用户为我们的超时买单）", () => {
+  const 问一步 = async (token: string, runId: string, stage: string) => {
+    const { POST: 问 } = await import("@/app/api/gateway/v1/chat/completions/route");
+    return 问(请求("chat/completions", token, { model: "gpt-5.5", messages: [{ role: "user", content: stage }] }, { "X-Question-Id": runId, "X-Feature": "research", "X-Research-Stage": stage }));
+  };
+  const 好回答 = () => vi.stubGlobal("fetch", vi.fn(async () => Response.json({ choices: [{ message: { role: "assistant", content: "{}" }, finish_reason: "stop" }], usage: { prompt_tokens: 10, completion_tokens: 5 } })));
+  const 这一行 = async (ownerId: string, runId: string) => (await import("@/lib/tenant/control")).control.aiResearchRun.findFirst({ where: { ownerId, runId } });
+
+  it("上游超时：网关记一笔我们这边的失败、回 504；拿到了材料、没跑完 → 退这 1 次", async () => {
+    const { token, owner } = await 建账号带令牌();
+    const { start, search, finish } = await 路由();
+    await start(请求("research/start", token, { runId: "run-slow", 走我们的模型: true }));
+    expect((await search(请求("research/search", token, { runId: "run-slow", query: "Acme" }))).status).toBe(200);
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" }))));
+    expect((await 问一步(token, "run-slow", "basics")).status).toBe(504);
+    expect((await 这一行(owner.id, "run-slow"))?.failures).toBe(1);
+    expect(await (await finish(请求("research/finish", token, { runId: "run-slow", ok: false }))).json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
+  });
+
+  it("上游 5xx 也记；用户自己停的（取消）照样不退", async () => {
+    const { token, owner } = await 建账号带令牌();
+    const { start, search, finish } = await 路由();
+    await start(请求("research/start", token, { runId: "run-stop", 走我们的模型: true }));
+    await search(请求("research/search", token, { runId: "run-stop", query: "Acme" }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("bad gateway", { status: 502 })));
+    expect((await 问一步(token, "run-stop", "fit")).status).toBe(502);
+    expect((await 这一行(owner.id, "run-stop"))?.failures).toBe(1);
+    expect(await (await finish(请求("research/finish", token, { runId: "run-stop", ok: false, 取消: true }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
+  });
+
+  it("最后一步（X-Research-Stage: approach）交出去了 = 跑完了：中间超时过也不退", async () => {
+    const { token, owner } = await 建账号带令牌();
+    const { start, search, finish } = await 路由();
+    await start(请求("research/start", token, { runId: "run-done", 走我们的模型: true }));
+    await search(请求("research/search", token, { runId: "run-done", query: "Acme" }));
+    vi.stubGlobal("fetch", vi.fn(async () => Promise.reject(Object.assign(new Error("timeout"), { name: "TimeoutError" }))));
+    await 问一步(token, "run-done", "basics");
+    好回答();
+    await 问一步(token, "run-done", "basics");
+    expect((await 这一行(owner.id, "run-done"))?.reportAt).toBeNull();
+    await 问一步(token, "run-done", "approach");
+    expect((await 这一行(owner.id, "run-done"))?.reportAt).toBeInstanceOf(Date);
+    // 桌面端就算报「没跑完」也不退：最后一步服务器亲手交出去了
+    expect(await (await finish(请求("research/finish", token, { runId: "run-done", ok: false }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
+  });
+
+  it("没见到我们这边出错、桌面端却说没跑完（跳过最后一步白拿材料）：不退", async () => {
+    const { token } = await 建账号带令牌();
+    const { start, search, finish } = await 路由();
+    await start(请求("research/start", token, { runId: "run-skip", 走我们的模型: true }));
+    await search(请求("research/search", token, { runId: "run-skip", query: "Acme" }));
+    好回答();
+    await 问一步(token, "run-skip", "basics");
+    expect(await (await finish(请求("research/finish", token, { runId: "run-skip", ok: false }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
+  });
+
+  it("搜索两趟都没搜成：也算我们这边的失败", async () => {
+    process.env.RESEARCH_SEARCH = "gpt";
+    const { token, owner } = await 建账号带令牌();
+    const { start, search } = await 路由();
+    await start(请求("research/start", token, { runId: "run-nosearch", 走我们的模型: true }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("bad", { status: 500 })));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect((await search(请求("research/search", token, { runId: "run-nosearch", query: "Acme" }))).status).toBe(502);
+    expect((await 这一行(owner.id, "run-nosearch"))?.failures).toBe(1);
+  });
+
+  it("取消 不是布尔 → 400", async () => {
+    const { token } = await 建账号带令牌();
+    const { start, finish } = await 路由();
+    await start(请求("research/start", token, { runId: "run-x", 走我们的模型: true }));
+    expect((await finish(请求("research/finish", token, { runId: "run-x", ok: false, 取消: "yes" }))).status).toBe(400);
+  });
+});
+
 describe("模型网关认得背调的编号", () => {
   it("同一个 runId 跑 40 步：一次都不另扣，频率闸也不挡（普通问题第 21 步起要过闸）", async () => {
     const { token, acc, owner } = await 建账号带令牌();

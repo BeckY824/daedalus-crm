@@ -21,7 +21,7 @@ export type 背调状态 = {
   /** 报告里引用过的来源，按第一次出现的顺序编号（界面上的 [1] [2]） */
   sources: 来源[];
   usage: { searches: number; pages: number };
-  done?: { charge: number; 不完整: boolean };
+  done?: { charge: number; 不完整: boolean; 退了?: boolean };
 };
 
 export function 初始状态(目标: 背调状态["目标"]): 背调状态 {
@@ -82,7 +82,7 @@ export function 归约(s: 背调状态, e: 研究事件): 背调状态 {
     case "usage":
       return { ...s, usage: { searches: e.searches, pages: e.pages } };
     case "done":
-      return { ...s, done: { charge: e.charge, 不完整: e.不完整 } };
+      return { ...s, done: { charge: e.charge, 不完整: e.不完整, 退了: e.退了 } };
   }
 }
 

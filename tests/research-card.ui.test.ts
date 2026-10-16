@@ -143,7 +143,7 @@ it("开跑前先问扣几次；点「开始」才发请求，流式展开到完�
   await page.getByText("已完成").waitFor();
   expect((globalThis as unknown as { __请求: unknown[] }).__请求).toEqual([{ mode: "research", company: "Lumora Trading GmbH" }]);
   expect(await page.locator(".rs-stage-done").count()).toBe(6);
-  expect(await page.locator(".rs-charge").textContent()).toBe("扣 6 次 AI"); // 事件里 done.charge 写的 6：卡上照实显示服务器扣了几次
+  expect(await page.locator(".rs-charge").textContent()).toBe("扣 6 次背调"); // 事件里 done.charge 写的 6：卡上照实显示服务器扣了几次（背调次数，和问答的 AI 次数分开）
 
   await page.getByRole("button", { name: "存进客户" }).click();
   await page.getByRole("button", { name: "存到「Lumora GmbH」" }).click();

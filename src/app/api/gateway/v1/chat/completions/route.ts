@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 收拾请求体, 背调模型表 } from "@/lib/gateway";
-import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 背调最多步, 注册赠送发过吗, 余额, 背调记花费 } from "@/lib/tenant/credits";
+import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 背调最多步, 注册赠送发过吗, 余额, 背调记花费, 背调记失败, 背调交了报告 } from "@/lib/tenant/credits";
+import { 背调超时 } from "@/lib/research/retry";
 import { 读价目, 模型花费元 } from "@/lib/research/price";
 import { 是背调 } from "@/lib/research/runs-memory";
 import { consumeAiQuota } from "@/lib/ai-quota";
@@ -191,6 +192,16 @@ async function 处理请求(req: Request) {
     const 缓存 = Number((原始 as { prompt_tokens_details?: { cached_tokens?: unknown } } | null)?.prompt_tokens_details?.cached_tokens) || 0;
     await 背调记花费(owner, 问题id, 模型花费元(读价目(), String(整理.body.model ?? ""), u.input, u.output, 缓存));
   };
+  /*
+    背调那一笔的两样证据（退不退背调次数看它们，credits.ts 的 收尾背调）：
+      上游超时 / 报错 / 连不上 → 记一笔「我们这边失败了」；
+      最后一步（X-Research-Stage: approach）成功交出去 → 记「报告交了」，这次背调就算跑完。
+    不是背调的编号 updateMany 一行都碰不到，同上
+  */
+  const 背调失败 = async () => {
+    if (功能 === "research" && 问题id) await 背调记失败(owner, 问题id);
+  };
+  const 是最后一步 = 功能 === "research" && 问题id && req.headers.get("x-research-stage") === "approach";
   /** 这一份失败 / 没人收到时退。同一编号后面又发了一份的，交给那一份决定（见 问过的 那段） */
   const 退 = async () => {
     if (键 && 问过的.get(键)?.最后 !== 这一份) return;
@@ -208,11 +219,16 @@ async function 处理请求(req: Request) {
         桌面端断开就把上游也掐掉（2026-10-06 G.3）：桌面端 15 秒等不到就重发，原来这一份还挂在中转站上直到 120 秒，
         一个问题最多同时挂三份。掐掉走下面 catch 那支：是最新一份才退次数，和原来「没人收到就退」一个口径
       */
-      signal: AbortSignal.any([req.signal, AbortSignal.timeout(120_000)]),
+      /*
+        背调那一笔等 90 秒（比桌面端每一趟的 100 秒短）：上游卡住时由我们先认出「上游超时」、记下这笔失败、回 504，
+        桌面端收到再重发——反过来的话桌面端先断开，这边只看到客户端走了，分不清是我们慢还是用户停的（lib/research/retry.ts）
+      */
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(功能 === "research" ? 背调超时.上游模型 : 120_000)]),
     });
   } catch (e) {
     // 上游没给出任何东西：这一次不该由用户买单。不是扣的那一步也退——这个问题整个答不出来了（第二轮 AI A4）
     await 退();
+    if (!req.signal.aborted) await 背调失败();
     const 超时 = e instanceof Error && e.name === "TimeoutError";
     return 网关错误(504, 超时 ? "上游模型接口超时" : "连不上上游模型接口", 剩余头);
   }
@@ -244,6 +260,7 @@ async function 处理请求(req: Request) {
     const 我们的锅 = [401, 402, 403, 404].includes(upstream.status);
     if (upstream.status >= 500 || upstream.status === 429 || upstream.status === 408 || 我们的锅) {
       await 退();
+      await 背调失败();
     }
     const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
     // 上游在限我们（429）：退了次数，话也别带上游的英文原文（第二轮 AI）
@@ -366,6 +383,8 @@ async function 处理请求(req: Request) {
     老客户端（0.46.2 及以前）不带编号，用的是 合成编号，同样按这条退
   */
   if (req.signal.aborted && 键) await 退();
+  // 背调的最后一步交出去了：6 步跑完（桌面端已经走了的不算——它没收到）
+  if (是最后一步 && !noResult && !req.signal.aborted) await 背调交了报告(owner, 问题id);
 
   /*
     成本账。桌面端的请求只有经过这里才看得见 token——它那边的 llm.ts 跑在

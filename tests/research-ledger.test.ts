@@ -233,6 +233,35 @@ describe("退和收尾", () => {
   });
 });
 
+describe("该退背调（收尾时的判断，10-16 下午总控定）", () => {
+  it("从上往下第一条命中的算", async () => {
+    const { 该退背调 } = await import("@/lib/tenant/credits");
+    const 基 = { hits: 3, failures: 0, reportAt: null as Date | null, ok: false, 取消: false };
+    expect(该退背调({ ...基, reportAt: new Date(), failures: 2 })).toBe(false); // 最后一步交出去了
+    expect(该退背调({ ...基, ok: true, failures: 2 })).toBe(false); // 桌面端自己说跑完了
+    expect(该退背调({ ...基, hits: 0, 取消: true })).toBe(true); // 什么都没拿到
+    expect(该退背调({ ...基, failures: 1, 取消: true })).toBe(false); // 用户自己停的
+    expect(该退背调({ ...基, failures: 1 })).toBe(true); // 我们这边超时 / 报错没跑完
+    expect(该退背调(基)).toBe(false); // 没证据
+  });
+
+  it("记失败 / 交报告落到库里；收尾按它们退", async () => {
+    const { 按背调扣, 收尾背调, 背调有收获, 背调记失败, 背调交了报告 } = await import("@/lib/tenant/credits");
+    const owner = await 建账号(3);
+    await 按背调扣(owner, "run-timeout");
+    await 背调有收获(owner, "run-timeout");
+    await 背调记失败(owner, "run-timeout");
+    expect(await 收尾背调(owner, "run-timeout", false)).toEqual({ 有这笔: true, 退了: 1 });
+
+    await 按背调扣(owner, "run-finished");
+    await 背调有收获(owner, "run-finished");
+    await 背调记失败(owner, "run-finished");
+    await 背调交了报告(owner, "run-finished");
+    expect(await 收尾背调(owner, "run-finished", false)).toEqual({ 有这笔: true, 退了: 0 });
+    expect(await 背调剩(owner)).toBe(2);
+  });
+});
+
 describe("搜索 / 读页的次数闸", () => {
   it("到上限就不加了；别人的 runId 不认；过期的不认", async () => {
     const { 按背调扣, 背调计一次, 背调还一次, 背调有效期 } = await import("@/lib/tenant/credits");

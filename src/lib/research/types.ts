@@ -75,8 +75,11 @@ export type 搜索回应 = { results: 搜索结果[]; 花费?: 花费 };
 export type 读页请求 = { runId: string; url: string };
 export type 读页回应 = 读页结果 & { 花费?: 花费 };
 
-/** 没出报告就退（ok=false）；出了报告传 ok=true，只用来收尾记账 */
-export type 收尾请求 = { runId: string; ok: boolean; searches?: number; pages?: number };
+/**
+ * 收尾。ok = 桌面端这边 6 步都跑完了（只记账用）；取消 = 用户自己停的（点了停、关了页面），不退。
+ * **退不退服务器自己判断**（credits.ts 的 收尾背调）：最后一步交没交出去、我们这边失败过没有，都是服务器自己记的
+ */
+export type 收尾请求 = { runId: string; ok: boolean; 取消?: boolean; searches?: number; pages?: number };
 export type 收尾回应 = { ok: true; 退了: number; 还剩: number };
 
 /* ---------- 背调过程的事件流（本机 /api/ai/stream → 浏览器） ----------
@@ -125,4 +128,11 @@ export type 研究事件 =
   | { type: "similar"; items: 像的老客户[]; /** CRM 里拿来比的老客户有几位；0 = 还没有成交 / 在谈的客户 */ 比了: number }
   | { type: "approach"; points: string[] }
   | { type: "usage"; searches: number; pages: number }
-  | { type: "done"; charge: number; /** 碰到上限或某一步失败，用已有材料出的报告 */ 不完整: boolean };
+  | {
+      type: "done";
+      charge: number;
+      /** 某一步没跑完，或碰到单次成本上限停手：用已有材料出的报告。搜索 / 读页次数用满不算（那是预算） */
+      不完整: boolean;
+      /** 服务器判定这次没跑完是我们这边的原因，扣的那 1 次退回了 */
+      退了?: boolean;
+    };

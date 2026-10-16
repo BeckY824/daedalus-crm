@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
-import { 背调还一次, 背调有收获, 背调记花费 } from "@/lib/tenant/credits";
+import { 背调还一次, 背调有收获, 背调记失败, 背调记花费 } from "@/lib/tenant/credits";
 import { 读价目, 搜索花费元 } from "@/lib/research/price";
 import { 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
@@ -55,8 +55,10 @@ async function 处理(req: Request) {
   try {
     r = await 服务.search(query, { signal: req.signal });
   } catch (e) {
-    // 搜索服务自己出的错：这一次什么都没搜到，名额还回去，桌面端可以再搜一次
+    // 搜索服务自己出的错（两趟都没搜成，见 卡了重搜一次）：这一次什么都没搜到，名额还回去，桌面端可以再搜一次
     await 背调还一次(owner, runId, "searches");
+    // 我们这边的失败，记一笔：这次背调要是因此没跑完，收尾时退次数（credits.ts 的 收尾背调）。桌面端自己走了的不算
+    if (!req.signal.aborted) await 背调记失败(owner, runId);
     console.error(`[research/search] ${服务.名} 搜索失败：`, 抹掉密钥(e instanceof Error ? e.message : String(e), cfg.apiKey));
     return 网关错误(502, "搜索服务这会儿没响应，这次没算次数，可以再搜一次");
   }
