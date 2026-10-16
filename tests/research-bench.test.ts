@@ -2,7 +2,7 @@
  * 背调对比实验的自动核对（scripts/research-bench.ts，10-16 定的评判标准）：认对公司、来源里真有、两遍稳不稳。
  */
 import { describe, it, expect } from "vitest";
-import { 认对了, 可核的词, 核来源, 稳定 } from "../scripts/research-bench";
+import { 认对了, 可核的词, 核来源, 稳定, 来源比A } from "../scripts/research-bench";
 import { 初始状态, 归约, type 背调状态 } from "@/lib/research/state";
 import { 算相关性 } from "@/lib/research/score";
 import type { 研究事件 } from "@/lib/research/types";
@@ -42,5 +42,18 @@ describe("稳定", () => {
     expect(r.分差).toBe(Math.abs(a.评分!.分! - b.评分!.分!));
     expect(r.档一致).toBeCloseTo(5 / 6);
     expect(稳定(a, null)).toEqual({ 分差: null, 档一致: null });
+  });
+});
+
+describe("结论带来源和 A 比（10-16 晚总控定：逐家比再平均，最多比 A 低 5 个百分点）", () => {
+  const 行 = (组: string, 公司: string, 有来源: number, 结论数 = 10, 错 = "") => ({ 组, 公司, 有来源, 结论数, 错 });
+  it("逐家「这组 − A」取平均", () => {
+    const 行们 = [行("A", "甲", 7), 行("A", "乙", 9), 行("B", "甲", 8), 行("B", "乙", 6)];
+    expect(来源比A(行们, "A", "B")).toBeCloseTo((0.1 - 0.3) / 2);
+  });
+  it("A 或这组那家没跑成、没结论的不比；一家都比不了是 NaN", () => {
+    const 行们 = [行("A", "甲", 7), 行("A", "乙", 9, 10, "超时"), 行("B", "甲", 7), 行("B", "乙", 2), 行("B", "丙", 0, 0)];
+    expect(来源比A(行们, "A", "B")).toBeCloseTo(0);
+    expect(来源比A([行("A", "甲", 7, 10, "超时"), 行("B", "甲", 7)], "A", "B")).toBeNaN();
   });
 });
