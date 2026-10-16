@@ -126,7 +126,7 @@ async function 一起执行(db: Db, 语句: string[]) {
 }
 
 /** 本机已有的数据整份记成「新建」：第一次进团队时推上去，和别人的合并 */
-export async function 记全量(db: Db, 选项: { 不含设置?: boolean } = {}) {
+export async function 记全量(db: Db, 选项: { 不含设置?: boolean; 本人?: string } = {}) {
   for (const t of 同步表) {
     /*
       加入别人团队的那台不推业务配置：两边的全量时钟都是 1，谁的 business 赢只看设备编号大小，
@@ -135,10 +135,17 @@ export async function 记全量(db: Db, 选项: { 不含设置?: boolean } = {})
     if (t === "Setting" && 选项.不含设置) continue;
     const cs = await 记的列(db, t);
     const pk = await 主键(db, t);
-    const 过滤 = t === "Setting" ? ` WHERE ${引(pk)} IN (${同步的设置.map((k) => `'${k}'`).join(", ")})` : "";
+    /*
+      本人：别的成员的账号行（acct_…）不记。业务员退出后重新加入、被移除的电脑重新连接，库里还留着老板和同事那几行，
+      记成「新建」推上去被范围策略拒，在「待老板核对」里冒出「王老板 · 新建」（2026-10-16 团队版全面检验）。
+      团队里本来就有这几行，用不着这台推；模板里的张三、李四（u_… / 原 id）照旧记
+    */
+    const 过滤 = t === "Setting" ? ` WHERE ${引(pk)} IN (${同步的设置.map((k) => `'${k}'`).join(", ")})`
+      : t === "User" && 选项.本人 ? ` WHERE NOT (${引(pk)} LIKE 'acct\\_%' ESCAPE '\\' AND ${引(pk)} <> ?)` : "";
     await db.$executeRawUnsafe(
       `INSERT INTO _sync_log (tbl, pk, op, row, changed, at)
        SELECT '${t}', ${引(pk)}, 'I', json_object(${cs.map((c) => `'${c}', ${引(c)}`).join(", ")}), '*', (SELECT l + 1 FROM _sync_clock WHERE id = 1) FROM ${引(t)}${过滤}`,
+      ...(t === "User" && 选项.本人 ? [选项.本人] : []),
     );
     await db.$executeRawUnsafe("UPDATE _sync_clock SET l = MAX(l, COALESCE((SELECT MAX(at) FROM _sync_log), 0)) WHERE id = 1");
   }

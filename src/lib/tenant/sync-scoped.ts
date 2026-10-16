@@ -8,7 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { control } from "./control";
 import type { Prisma } from "@/generated/control";
 import { workspaceDir } from "./clients";
-import { 当前编号, 设备还在, 记设备在用 } from "./sync-relay";
+import { 当前编号, 在队里, 设备还在, 记设备在用 } from "./sync-relay";
 import { 范围开关 } from "./scoped-flag";
 import { 能同步 } from "./team-plan";
 import { 包的编号 } from "../sync/crypto";
@@ -55,6 +55,12 @@ export { 范围开关 };
  */
 export async function 核设备(accountId: string, teamId: string, device: unknown, tokenId?: string) {
   if (typeof device !== "string" || !device) return;
+  /*
+    人已经不在团队里（被老板移出、在别的设备上退出了）：设备也一起注销了，但不能说成「从我的设备里移除」——
+    那是让人去点「退出团队」再连回来，人其实已经回不来了；手机上更是没有「设置 → 团队」。说「不在这个团队里」，
+    桌面端据此自动退出、只留自己的，手机据此清掉数据（2026-10-16 团队版全面检验）
+  */
+  if (!(await 在队里(teamId, accountId))) fail(403, "你不在这个团队里了：可能被老板移出了，或者你在别的设备上退出了团队");
   if (!(await 设备还在(teamId, accountId, device))) fail(403, "这台设备已经从「我的设备」里移除，不能再同步：在「设置 → 团队」里点「退出团队」（只清这台电脑），再重新连接");
   await 记设备在用(teamId, accountId, device, tokenId);
 }

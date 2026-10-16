@@ -12,7 +12,7 @@ import * as 连 from "@/lib/mobile/link";
 import * as 密 from "@/lib/sync/crypto-web";
 import { 我的名字 } from "@/lib/mobile/view";
 import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
-import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, type 客户视图 } from "@/lib/mobile/view";
+import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, 要清掉, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
 import { 推入 } from "./push";
@@ -201,7 +201,8 @@ export default function MobileApp() {
       if (r.拒 > 0) 说(`有 ${r.拒} 条没同步上，客户已经不归你了`, <ExclamationCircleFilled />);
     } catch (e) {
       const 话 = e instanceof Error ? e.message : String(e);
-      if (/登录已失效/.test(话)) { await 失效("这台手机的登录失效了：在电脑上移除了这台手机，或者改过密码。为了安全，手机上的客户数据已经清掉，重新登录后在电脑上授权就行。"); return; }
+      const 清 = 要清掉(话);
+      if (清) { await 失效(清); return; }
       await k.存盘().catch(() => undefined);
       await k.写("state", 态.current).catch(() => undefined);
       if (手动) 说(/连不上/.test(话) ? "没有网络，记的内容先存在手机上" : 话, <DisconnectOutlined />);
@@ -339,7 +340,9 @@ export default function MobileApp() {
     if (x.来自 === "被拒") {
       const 剩 = 态.current.被拒.filter((r) => r.改动.t === "FollowUp" && r.改动.r);
       const 去 = 剩[x.i];
-      态.current.被拒 = 态.current.被拒.filter((r) => r !== 去);
+      // 跟着它一起被拒的操作日志（lib/mobile/sync.ts 推）也一起去掉
+      const 它 = 去 ? `${去.改动.t}:${去.改动.k}` : "";
+      态.current.被拒 = 态.current.被拒.filter((r) => r !== 去 && !(r.改动.t === "AuditLog" && `${String(r.改动.r?.entity ?? "")}:${String(r.改动.r?.entityId ?? "")}` === 它));
       await k.写("state", 态.current);
       拍一下();
     } else {
@@ -399,7 +402,7 @@ export default function MobileApp() {
               set版本((v) => v + 1);
               set阶段("app");
             }}
-            onFail={(话) => { if (/登录已失效/.test(话)) void 失效("登录失效了，请重新登录"); }} />
+            onFail={(话) => { const 清 = 要清掉(话); if (清) void 失效(清); }} />
         )}
         {阶段 === "app" && 团队 && (
           <motion.div key="app" className="m-app" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 现状动效.时长.morph }}>

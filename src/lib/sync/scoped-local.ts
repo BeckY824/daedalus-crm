@@ -5,6 +5,7 @@ import { 行键, 核对范围, 范围父表, type 范围索引, type 范围元�
 import { 拆范围, 规范串, type 钥匙环 } from "./crypto";
 import type { 改动 } from "./local";
 import { 归一化范围行 as 归一化纯 } from "./scoped-pure";
+import { CUSTOMER_FIELD_LABELS } from "../concurrency";
 const q = (s: string) => `"${s.replaceAll('"', '""')}"`;
 const models = new Map(Prisma.dmmf.datamodel.models.map(m => [m.name, m]));
 export const 主字段 = (table: string) => models.get(table)!.fields.find(f => f.isId)!.name;
@@ -88,6 +89,20 @@ export async function 建范围冲突表(db: Db) {
 }
 export type 范围冲突条目 = { id: number; 表: string; 编号: string; 名称: string; 操作: string; 改动列: string[]; 改动时间: string; 原因: string; 已确认: string | null };
 const 表名: Record<string, string> = { Customer: "客户", Contact: "联系人", FollowUp: "跟进", Opportunity: "商机", Contract: "签约", Task: "任务", FollowPlan: "跟进计划", Lead: "线索", UnassignedContact: "待归属联系人", TradeOrder: "外贸订单" };
+/** 界面上的叫法：原来直接摆库里的列名（「remark、updatedAt」），业务员看不懂改的是什么（2026-10-16 团队版全面检验） */
+const 通用列名: Record<string, string> = {
+  name: "名称", phone: "电话", email: "邮箱", wechat: "微信", remark: "备注", title: "标题", content: "内容", type: "类型", status: "状态",
+  subject: "主题", plannedAt: "计划时间", plannedOn: "计划日期", method: "方式", done: "完成", doneAt: "完成时间", occurredAt: "发生时间",
+  dueAt: "截止时间", dueOn: "截止日期", amount: "金额", stage: "阶段", probability: "赢率", expectedDealAt: "预计成交", position: "职位",
+  isPrimary: "主联系人", ownerId: "负责人", customerId: "所属客户", contactId: "联系人", opportunityId: "商机", duration: "时长", participants: "参与人",
+};
+/** 每一行都会带着变的时间戳，不算人改的 */
+const 不提的列 = new Set(["updatedAt", "createdAt", "activityAt", "plannedHasTime", "dueHasTime"]);
+function 列的叫法(tbl: string, cols: string[]): string[] {
+  const 叫 = (c: string) => (tbl === "Customer" ? CUSTOMER_FIELD_LABELS[c] : undefined) ?? 通用列名[c] ?? c;
+  const out = [...new Set(cols.filter((c) => !不提的列.has(c)).map(叫))];
+  return out.length ? out : cols.map(叫);
+}
 /**
  * 列出失权冲突（默认只列未确认的）。名称：记录仍在本机（仍有权）就用本机的名字；
  * 否则只用冲突里本人改过的值（name/title），都没有就只显示编号——不为显示去找失权记录的资料。
@@ -104,7 +119,7 @@ export async function 列出范围冲突(db: Db, 含已确认 = false): Promise<
       if (col) 名称 = String((await db.$queryRawUnsafe<{ v: string }[]>(`SELECT ${q(col)} AS v FROM ${q(r.tbl)} WHERE ${q(主字段(r.tbl))} = ?`, r.pk))[0]?.v ?? "");
     }
     if (!名称 && r.row) { try { const j = JSON.parse(r.row) as Record<string, unknown>; 名称 = String(j.name ?? j.title ?? ""); } catch { /* 坏行只显示编号 */ } }
-    const 改动列 = r.changed === "*" ? ["（整条新建）"] : r.changed.split(",").filter(Boolean);
+    const 改动列 = r.changed === "*" ? ["（整条新建）"] : 列的叫法(r.tbl, r.changed.split(",").filter(Boolean));
     out.push({ id: Number(r.id), 表: 表名[r.tbl] ?? r.tbl, 编号: r.pk, 名称: 名称 || r.pk, 操作: r.op === "I" ? "新建" : r.op === "D" ? "删除" : "修改", 改动列, 改动时间: new Date(Number(r.at)).toISOString(), 原因: r.reason, 已确认: r.resolvedAt == null ? null : new Date(Number(r.resolvedAt)).toISOString() });
   }
   return out;

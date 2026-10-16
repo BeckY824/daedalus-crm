@@ -170,8 +170,9 @@ export async function 本机开同步(加入别人的: boolean) {
   if (await 装了吗(prisma)) return;
   await 建同步表(prisma);
   await 装触发器(prisma);
-  // 加入别人团队的不推业务配置：团队的模版、币种以建团队的人为准（见 记全量）
-  await 记全量(prisma, { 不含设置: 加入别人的 });
+  // 加入别人团队的不推业务配置：团队的模版、币种以建团队的人为准（见 记全量）；别的成员的账号行也不推（团队里本来就有）
+  const 账号 = 读云端凭据()?.accountId;
+  await 记全量(prisma, { 不含设置: 加入别人的, ...(加入别人的 && 账号 ? { 本人: 团队身份id(账号) } : {}) });
 }
 
 /**
@@ -913,6 +914,8 @@ function 读推送规则(json: Record<string, unknown>): 推送规则 {
   return { 按请求开始: true, 上限: Math.max(100, Math.min(Math.floor(Number(json.maxPackets) || 100), 1000)) };
 }
 const 失权原因 = "推送时该记录已不在你的同步范围内（转交、领取或权限变化）；未上传改动已保留，请与老板核对";
+/** 403 是不是「这几条不归你了」：新服务端带 denied，旧服务端只有这句话（tenant/sync-scoped.ts 收范围推送） */
+const 是按归属被拒 = (r: { json: Record<string, unknown> }) => Array.isArray(r.json.denied) || /同步权限范围/.test(String(r.json.error ?? ""));
 
 /**
  * 按范围推本机日志。
@@ -961,7 +964,9 @@ async function 范围推(c0: 团队配置, 迁移中 = false, 规则: 推送规�
       }
       if (起点包.length) { 不带起点 = true; continue; }
     }
-    if (r.状态 === 403 && !迁移中) {
+    // 只有「按归属被拒」才逐条重推、转冲突。设备被移除、人被移出、账号停用也是 403，那是这台整个不能同步了：
+    // 原样报出来，改动留在队列里（退出团队后重新连接会整份带上去），不能当成「待老板核对」（2026-10-16 团队版全面检验）
+    if (r.状态 === 403 && !迁移中 && 是按归属被拒(r)) {
       const 失权: number[] = [];
       for (let i = 0; i < 改动.length; i++) {
         r = await 范围请求(c, "push", { device: c.device, packets: [包(改动[i])] });
