@@ -284,27 +284,6 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     );
   }
 
-  /**
-   * ⌘K 里直接问的那一句会带在地址上（/dashboard?q=…）。
-   * 到了这儿就发出去，然后把 q 从地址里抹掉——留着的话刷新一次会再问一遍。
-   *
-   * **只有本应用 ⌘K 刚交过来的才自动发**（2026-10-04，J-158）：别人发来的链接、收藏夹里的地址点开，
-   * 只把问题填进输入框、光标放进去，等人自己按回车——不然点一下链接就白扣一次次数。见 lib/home-ask.ts
-   *
-   * 那个 ref 不是多余的：开发模式下 StrictMode 会把 effect 跑两遍（挂载 → 清理 → 再挂载），
-   * 而 router.replace 生效没那么快，结果就是同一句话问了两遍、扣两次额度。
-   */
-  const 已消化地址问句 = useRef(false);
-  useEffect(() => {
-    const q0 = 地址栏.get("q");
-    if (!q0 || 已消化地址问句.current) return;
-    已消化地址问句.current = true;
-    router.replace("/dashboard");
-    if (是刚交过来的(q0)) submit(q0);
-    // 只认挂载时地址上的那一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
   useEffect(() => {
     if (running || !queued || AI已用完) return;
@@ -384,6 +363,30 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     setQ("");
     setFiles([]);
   }
+
+  /**
+   * ⌘K 里直接问的那一句会带在地址上（/dashboard?q=…）。
+   * 到了这儿就发出去，然后把 q 从地址里抹掉——留着的话刷新一次会再问一遍。
+   *
+   * **只有本应用 ⌘K 刚交过来的才自动发**（2026-10-04，J-158）：别人发来的链接、收藏夹里的地址点开，
+   * 只把问题填进输入框、光标放进去，等人自己按回车——不然点一下链接就白扣一次次数。见 lib/home-ask.ts
+   *
+   * 放在 submit 定义之后：effect 里提前用到后面才声明的函数，React 编译器的检查不认。
+   *
+   * 那个 ref 不是多余的：开发模式下 StrictMode 会把 effect 跑两遍（挂载 → 清理 → 再挂载），
+   * 而 router.replace 生效没那么快，结果就是同一句话问了两遍、扣两次额度。
+   */
+  const 已消化地址问句 = useRef(false);
+  useEffect(() => {
+    const q0 = 地址栏.get("q");
+    if (!q0 || 已消化地址问句.current) return;
+    已消化地址问句.current = true;
+    router.replace("/dashboard");
+    // 放进微任务里发：submit 会改输入框等状态，effect 体里同步 setState 会连着多渲染一轮（react-hooks/set-state-in-effect）
+    if (是刚交过来的(q0)) queueMicrotask(() => submit(q0));
+    // 只认挂载时地址上的那一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function stop() {
     if (running) cancelStream(`home:${running.id}`);
