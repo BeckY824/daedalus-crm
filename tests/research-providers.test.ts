@@ -9,7 +9,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { 解析Claude回应, 解析GPT回应, claude搜索, gpt搜索, 模拟搜索, 选搜索服务, 每次最多条 } from "@/lib/research/providers";
 
-const cfg = { baseUrl: "https://relay.example.com/v1", apiKey: "sk-secret-relay-key-123456", models: [{ id: "deepseek-chat" }] };
+const cfg = { baseUrl: "https://relay.example.com/v1", apiKey: "fake-relay-key", models: [{ id: "deepseek-chat" }] };
 
 const Claude回应 = {
   id: "msg_1",
