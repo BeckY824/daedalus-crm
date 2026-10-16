@@ -53,6 +53,18 @@ export function 读网关配置(env: NodeJS.ProcessEnv = process.env): 网关配
   };
 }
 
+/**
+ * 背调专用的模型（2026-10-16 用户定：背调只用 GPT / Claude）。**不进 GATEWAY_MODELS**：
+ * 进了的话桌面端平时问答的模型选单里也会出现它们，一问一次的价钱扛不住 Claude 的成本。
+ * 所以单开一张表，模型网关只在「这个问题编号是一次背调」（research/start 开过的 runId）时放行，
+ * 背调用哪个由服务器定（start 的回应里带回去），不听客户端点名。第一个是默认。
+ * RESEARCH_MODELS 不配就是 claude-sonnet-5.5、gpt-5.5（10-16 在中转站上测过两家都能用）。
+ */
+export function 背调模型表(env: NodeJS.ProcessEnv = process.env): string[] {
+  const 表 = 解析模型表(env.RESEARCH_MODELS).map((m) => m.id);
+  return 表.length ? 表 : ["claude-sonnet-5.5", "gpt-5.5"];
+}
+
 /** 工具表的上限：我们自己的 agent 现在二十来个工具、几十 KB；再大就不是我们的客户端了 */
 const 最多工具数 = 64;
 const 工具表最大字节 = 200_000;
@@ -66,6 +78,8 @@ const 工具表最大字节 = 200_000;
 export function 收拾请求体(
   body: Record<string, unknown>,
   cfg: 网关配置,
+  /** 这一次额外许可的模型：背调那一笔里是 背调模型表()，别的请求不给 */
+  额外许可: string[] = [],
 ): { ok: true; body: Record<string, unknown>; stream: boolean } | { ok: false; error: string } {
   /*
     不在白名单里的模型：**换成默认模型，不报错**（2026-10-02 排查 D2）。
@@ -74,7 +88,7 @@ export function 收拾请求体(
     白名单照旧是闸：花的是我们的钱，客户端点名要什么都只会落在我们许可的那几个里。
   */
   const 要的 = typeof body.model === "string" && body.model.trim() ? body.model.trim() : cfg.models[0].id;
-  const model = cfg.models.some((m) => m.id === 要的) ? 要的 : cfg.models[0].id;
+  const model = cfg.models.some((m) => m.id === 要的) || 额外许可.includes(要的) ? 要的 : cfg.models[0].id;
   const messages = body.messages;
   if (!Array.isArray(messages) || messages.length === 0) return { ok: false, error: "messages 不能为空" };
 

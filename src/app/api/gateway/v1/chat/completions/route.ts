@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
-import { 收拾请求体 } from "@/lib/gateway";
-import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 注册赠送发过吗, 余额 } from "@/lib/tenant/credits";
+import { 收拾请求体, 背调模型表 } from "@/lib/gateway";
+import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 背调最多步, 注册赠送发过吗, 余额 } from "@/lib/tenant/credits";
+import { 是背调 } from "@/lib/research/runs-memory";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
@@ -133,7 +134,9 @@ async function 处理请求(req: Request) {
   */
   const 早问题id = 规整请求id(req.headers.get("x-question-id")) ?? 合成编号(accountId, raw);
   const 见过 = 早问题id ? 问过(`${accountId}:${早问题id}`) : null;
-  if (!见过 || ++见过.n > 每问最多步) {
+  // 背调（research/start 开过的 runId）一次要几十步，免频率闸的步数和扣费那边一样放宽到 背调最多步
+  const 免闸步数 = 早问题id && 是背调(accountId, 早问题id) ? 背调最多步 : 每问最多步;
+  if (!见过 || ++见过.n > 免闸步数) {
     const 等 = consumeAiQuota(`gw:${accountId}`);
     if (等 !== null) return 网关错误(429, `请求太频繁，请 ${等} 秒后再试`);
     if (早问题id && !见过) 记下问过(`${accountId}:${早问题id}`);
@@ -145,7 +148,8 @@ async function 处理请求(req: Request) {
     if (r) r.最后 = 这一份;
   }
 
-  const 整理 = 收拾请求体((raw ?? {}) as Record<string, unknown>, cfg);
+  // 背调那一笔（start 开过的 runId）额外许可背调专用的模型（Claude / GPT），平时问答还是只认 GATEWAY_MODELS
+  const 整理 = 收拾请求体((raw ?? {}) as Record<string, unknown>, cfg, 早问题id && 是背调(accountId, 早问题id) ? 背调模型表() : []);
   if (!整理.ok) return 网关错误(400, 整理.error);
 
   const owner = { kind: "account" as const, id: accountId };

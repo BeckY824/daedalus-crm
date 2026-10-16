@@ -26,6 +26,7 @@ import TurnView from "./TurnView";
 import Signals from "./Signals";
 import { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
 import { Esc归别人 } from "@/lib/esc";
+import { 认背调意图 } from "@/lib/research/intent";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -203,8 +204,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
           model,
           ms: job.value?.ms ?? null,
           steps: job.value?.steps,
-          // 建议卡不存：它是一件当时就处理完的事，翻历史不该再摆回来
-          refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [] },
+          // 建议卡不存：它是一件当时就处理完的事，翻历史不该再摆回来。背调的整份报告存着：翻历史还是那张卡
+          refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [], ...(job.value?.answer?.research ? { research: job.value.answer.research } : {}) },
           标题前缀: 标题前缀,
           // 新建那条对话时记下「在哪一页问的」。标题前缀是给人看的，这个才是键
           scope,
@@ -248,7 +249,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   }
 
   function start(turn: Turn) {
-    if (AI已用完) return;
+    // 背调那一轮不在这里开跑：先出确认卡（扣几次、还剩几次），人点「开始」才跑，见 components/research/ResearchRun
+    if (AI已用完 || turn.kind === "research") return;
     runStream<AgentAnswer>(
       `home:${turn.id}`,
       { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files, pageContext: 上下文提示, pageScope: 上下文范围 },
@@ -315,6 +317,18 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
       question = c.question;
     }
     if (question.length < 2 || AI已用完) return;
+    /*
+      「帮我背调 XX」：不走 agent（那条路没有联网搜索，还会白扣一次），直接摆一张背调确认卡。
+      不排队——确认卡本身不调模型，人点了「开始」才跑
+    */
+    const 背调公司 = typed.startsWith("/") ? null : 认背调意图(question);
+    if (背调公司) {
+      const turn = addTurn(scope, { question, kind: "research", 公司: 背调公司 });
+      set刚发的(turn.id);
+      setQ("");
+      setFiles([]);
+      return;
+    }
     // 正在答的时候再发：排队，不并发打模型
     const shouldQueue = opts.queue || Boolean(running);
     const turn = addTurn(scope, {

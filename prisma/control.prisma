@@ -350,6 +350,35 @@ model AiCharge {
   @@index([at])
 }
 
+/// AI 联网背调（2026-10-16）：一次背调一行。也是 10-14 记账方案里 searches / pages / runId 那几列——
+/// 控制面迁移只能加表，所以单独一张，按 runId 和 AiCharge 对得上。见 control-migrations/024-ai-research.sql
+model AiResearchRun {
+  id         String    @id @default(cuid())
+  /// account（桌面端）| workspace
+  ownerKind  String
+  ownerId    String
+  /// 桌面端给这次背调的编号，也是这次背调里模型调用带的 X-Question-Id
+  runId      String
+  /// 这次扣了几次 AI（测试账号 0）
+  units      Int
+  /// 走我们的模型：AiCharge 里同一个 runId 有一行，后面的模型调用不另扣
+  withModel  Boolean
+  /// 服务器真去搜了几次 / 读了几页，上限见 lib/research/types.ts 的 背调上限
+  searches   Int       @default(0)
+  pages      Int       @default(0)
+  /// 服务器交出去的有用材料：有结果的搜索 + 读成功的页。退不退看它（桌面端报的不算数）
+  hits       Int       @default(0)
+  /// 整笔退过了没有
+  refunded   Boolean   @default(false)
+  /// 收尾结果：出了报告 true、没出 false、还没收尾 null
+  ok         Boolean?
+  at         DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@unique([ownerKind, ownerId, runId])
+  @@index([at])
+}
+
 /// 每台桌面端装的是什么：系统、芯片、版本号。**一枚设备令牌一行**。
 ///
 /// 运营台要分得出 Mac 和 Windows（2026-09-28 起两边都发），还要看得出谁停在老版本。

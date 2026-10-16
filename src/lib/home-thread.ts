@@ -28,8 +28,10 @@ import { useSyncExternalStore } from "react";
 export type Turn = {
   id: string;
   question: string;
-  kind: "ask" | "prep" | "recap";
+  kind: "ask" | "prep" | "recap" | "research";
   at: number;
+  /** kind=research：要背调的公司（从这一句里摘出来的，lib/research/intent.ts） */
+  公司?: string;
   /** 上一问还在跑时发的：排队，等它答完再起 */
   queued?: boolean;
   /**

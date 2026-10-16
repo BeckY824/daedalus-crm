@@ -1,0 +1,231 @@
+/**
+ * 背调的 6 步编排（lib/research/run.ts，2026-10-16）。不联网、不调真模型：通道用模拟（lib/research/mock.ts），
+ * 模型用一个按「这一步」回答的假模型。钉的是编排的规矩，不是模型的本事：
+ *   - 6 步按固定顺序走完，每一步都有开始和结束；分数由程序算
+ *   - 搜索 / 读页的次数卡在上限（模型一直要也不给）
+ *   - 来源只认材料里出现过的网址（模型编的网址丢掉）；像的老客户按编号对回清单，编号越界的丢掉
+ *   - 一条材料都没拿到：收尾报「没出」（服务器据此全退）；拿到了：报「出了」，不完整的写明
+ *   - 对面不吃 tools：退回 JSON 协议照样跑完
+ */
+import { describe, it, expect, vi } from "vitest";
+import { 跑背调, type 模型调用 } from "@/lib/research/run";
+import { 模拟通道 } from "@/lib/research/mock";
+import { 背调上限, 阶段表, type 研究事件 } from "@/lib/research/types";
+import type { 背调通道 } from "@/lib/research/channel";
+import type { 老客户 } from "@/lib/research/similar";
+
+const 公司 = "Lumora Trading GmbH";
+const 官网 = "https://lumora-trading.example";
+
+const 老客户们: 老客户[] = [
+  { id: "c-1", name: "Nordlicht Elektro", 国家: "德国", 档案: "行业：电气批发", 状态: "已成交" },
+  { id: "c-2", name: "Sol Andino", 国家: "智利", 档案: "", 状态: "在谈" },
+];
+
+/** 按提示词里「这一步：」后面那句认出是哪一步，回那一步该回的 JSON */
+function 假结论(prompt: string): unknown {
+  if (prompt.includes("认准是哪一家")) return { 认准: true, 官网: `${官网}/about`, 国家城市: "德国·汉堡", 说明: "官网和商业登记对上了", 来源: `https://registry.example/lumora-trading` };
+  if (prompt.includes("查基本面"))
+    return {
+      字段: {
+        founded: { value: "2009 年", source: `https://registry.example/lumora-trading` },
+        size: { value: "约 40 人", source: `${官网}/about` },
+        business: { value: "户外 / 工业 LED 照明分销", source: `${官网}/about` },
+        buyerType: { value: "进口分销商", source: "https://made-up.example/x" },
+        contact: { value: "sales@lumora-trading.example", source: `${官网}/about` },
+      },
+      小结: "汉堡的照明进口分销商",
+    };
+  if (prompt.includes("对照我们的业务"))
+    return {
+      评档: [
+        { 维度: "category", 档: "high", 证据: "主营户外照明", 来源: `${官网}/about` },
+        { 维度: "buyerType", 档: "high", 证据: "进口分销", 来源: `${官网}/about` },
+        { 维度: "market", 档: "mid", 证据: "德奥瑞", 来源: "https://made-up.example/y" },
+        { 维度: "scale", 档: "unknown" },
+        // 相关性那一步不许评信号和老客户：由后面那一步 / 老客户清单来定
+        { 维度: "signals", 档: "high", 证据: "瞎评的" },
+      ],
+      像的老客户: [
+        { 编号: 1, 档: "high", 像在哪: "同在德国、都做电气批发" },
+        { 编号: 9, 档: "high", 像在哪: "编号越界，该丢" },
+      ],
+      小结: "品类和买家类型都对口",
+    };
+  if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/lumora-trading-category-manager` }], 档: "high", 证据: "在招品类经理", 小结: "在扩户外品类" };
+  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `https://forum.example/t/lumora-trading-payment` }, { 级别: "超高", 说明: "级别写错，该丢" }], 小结: "风险低" };
+  if (prompt.includes("怎么切入")) return { 建议: ["找品类经理", "主推工矿灯", "提前给 ENEC 证书"], 小结: "从品类经理切入" };
+  return {};
+}
+
+/** 每一步第一次先搜一次公司名，第二次读官网 About，第三次说够了 */
+function 假模型(opts: { 一直搜?: boolean; 不吃tools?: boolean } = {}): 模型调用 & { 调用: { kind: string; prompt: string }[] } {
+  const 调用: { kind: string; prompt: string }[] = [];
+  return {
+    调用,
+    async tools(messages) {
+      const prompt = String(messages[1]?.content ?? "");
+      调用.push({ kind: "tools", prompt });
+      if (opts.不吃tools) throw Object.assign(new Error("接口返回 400：tools not supported"), { status: 400 });
+      const 第几 = messages.filter((m) => m.role === "tool").length;
+      if (opts.一直搜) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: `"${公司}" news ${调用.length}` }) } }], text: "再搜一次" };
+      if (第几 === 0) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: `"${公司}" hiring fair` }) } }], text: "先搜公司全名" };
+      if (第几 === 1 && prompt.includes("认准是哪一家")) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "read_page", arguments: JSON.stringify({ url: `${官网}/about` }) } }], text: "读官网" };
+      return { toolCalls: [], text: "够了" };
+    },
+    async json(messages) {
+      const prompt = String(messages[messages.length - 1]?.content ?? "");
+      调用.push({ kind: "json", prompt });
+      // JSON 协议下的「下一步」：搜一次就够
+      if (prompt.includes('"tool":"web_search"')) {
+        const 搜过 = messages.some((m) => m.role === "user" && String(m.content).startsWith("结果："));
+        return 搜过 ? { done: true } : { thought: "先搜", tool: "web_search", query: `"${公司}"` };
+      }
+      return 假结论(String(messages[1]?.content ?? ""));
+    },
+  };
+}
+
+async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客户?: 老客户[]; signal?: AbortSignal } = {}) {
+  const 事件: 研究事件[] = [];
+  const 通道 = opts.通道 ?? 模拟通道();
+  const r = await 跑背调({
+    公司,
+    b: { brief: "户外 LED 照明出口欧洲", fields: { school: "公司", grade: "职位", major: "行业" } },
+    通道,
+    模型: opts.模型 ?? 假模型(),
+    老客户: opts.老客户 ?? 老客户们,
+    发: (e) => 事件.push(e),
+    signal: opts.signal,
+    runId: "run-test",
+  });
+  return { r, 事件 };
+}
+
+describe("背调 6 步编排", () => {
+  it("6 步按固定顺序走完，每步先 running 后 done", async () => {
+    const { r, 事件 } = await 跑();
+    expect(r.ok).toBe(true);
+    const 阶段事件 = 事件.filter((e): e is Extract<研究事件, { type: "stage" }> => e.type === "stage");
+    const 开始顺序 = 阶段事件.filter((e) => e.status === "running").map((e) => e.stage);
+    expect(开始顺序).toEqual(阶段表.map((x) => x.id));
+    for (const { id } of 阶段表) {
+      const i = 阶段事件.findIndex((e) => e.stage === id && e.status === "running");
+      const j = 阶段事件.findIndex((e) => e.stage === id && e.status === "done");
+      expect(j).toBeGreaterThan(i);
+    }
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: false });
+  });
+
+  it("分数由程序算：相关性那一步评的「信号」不算数，由信号那一步定；老客户那一维取最像那位的档", async () => {
+    const { r } = await 跑();
+    if (!r.ok) throw new Error(r.error);
+    const 明细 = Object.fromEntries(r.状态.评分!.明细.map((d) => [d.维度, d]));
+    expect(明细.signals.证据).toBe("在招品类经理");
+    expect(明细.similar.档).toBe("high");
+    expect(明细.scale.档).toBe("unknown");
+    // category 25×1 + buyerType 15×1 + market 15×0.6 + signals 15×1 + similar 20×1 = 84，scale 不进分母（90）→ 93
+    expect(r.状态.评分!.分).toBe(93);
+  });
+
+  it("来源只认材料里出现过的网址：模型编的网址丢掉（字段照留，没有角标）", async () => {
+    const { r } = await 跑();
+    if (!r.ok) throw new Error(r.error);
+    expect(r.状态.fields.buyerType).toEqual({ value: "进口分销商", source: undefined });
+    expect(r.状态.sources.some((x) => x.url.includes("made-up"))).toBe(false);
+    expect(r.状态.评分!.明细.find((d) => d.维度 === "market")?.来源).toBeUndefined();
+  });
+
+  it("像的老客户按编号对回清单：越界的丢掉；风险级别写错的丢掉", async () => {
+    const { r } = await 跑();
+    if (!r.ok) throw new Error(r.error);
+    expect(r.状态.similar).toEqual({ items: [{ id: "c-1", name: "Nordlicht Elektro", 档: "high", 像在哪: "同在德国、都做电气批发" }], 比了: 2 });
+    expect(r.状态.tags.filter((t) => t.tone === "risk").map((t) => t.text)).toEqual(["2024 年有一次付款延迟"]);
+    expect(r.状态.approach).toHaveLength(3);
+  });
+
+  it("没有老客户：第 6 维是「查不到」，不进分母", async () => {
+    const { r } = await 跑({ 老客户: [] });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.状态.similar).toEqual({ items: [], 比了: 0 });
+    expect(r.状态.评分!.明细.find((d) => d.维度 === "similar")?.档).toBe("unknown");
+  });
+
+  it("发给模型的老客户只有名字、成交/在谈、国家、档案字段", async () => {
+    const m = 假模型();
+    await 跑({ 模型: m });
+    const fit = m.调用.find((c) => c.kind === "json" && c.prompt.includes("像不像"));
+    expect(fit?.prompt).toContain("1. Nordlicht Elektro｜已成交｜德国｜行业：电气批发");
+    expect(fit?.prompt).toContain("2. Sol Andino｜在谈｜智利");
+  });
+
+  it("模型一直要搜：整次最多搜 背调上限.搜索 次，碰到上限的报告标「不完整」", async () => {
+    const 通道 = 模拟通道();
+    const 搜 = vi.spyOn(通道, "搜索");
+    const { r, 事件 } = await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
+    expect(搜).toHaveBeenCalledTimes(背调上限.搜索);
+    expect(r.ok).toBe(true);
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
+  });
+
+  it("所有模型调用带同一个编号（runId）和 feature=research：网关据此不另扣", async () => {
+    const opts: unknown[] = [];
+    const m = 假模型();
+    const 包 = { tools: (a: never, b: never, o: never) => (opts.push(o), m.tools(a, b, o)), json: (a: never, o: never) => (opts.push(o), m.json(a, o)) };
+    await 跑({ 模型: 包 as unknown as 模型调用 });
+    expect(opts.length).toBeGreaterThan(6);
+    for (const o of opts) expect(o).toMatchObject({ requestId: "run-test", feature: "research" });
+  });
+
+  it("一条材料都没拿到：收尾报「没出报告」（服务器全退），不出报告", async () => {
+    const 通道 = { ...模拟通道(), 搜索: async () => [], 读页: async () => { throw new Error("读不了"); } } as 背调通道;
+    const 收尾 = vi.spyOn(通道, "收尾");
+    const { r } = await 跑({ 通道 });
+    expect(r).toMatchObject({ ok: false, 退了: true });
+    expect(收尾).toHaveBeenCalledWith("run-test", false, expect.anything());
+  });
+
+  it("开始就被服务器拒了（次数不够）：一步都不跑", async () => {
+    const 通道 = { ...模拟通道(), 开始: async () => ({ ok: false as const, error: "免费的 AI 次数已经用完" }) } as 背调通道;
+    const m = 假模型();
+    const { r, 事件 } = await 跑({ 通道, 模型: m });
+    expect(r).toEqual({ ok: false, error: "免费的 AI 次数已经用完", 退了: false });
+    expect(事件).toHaveLength(0);
+    expect(m.调用).toHaveLength(0);
+  });
+
+  it("中途某一步出错：已经查到的照样出报告，标「不完整」，收尾报「出了」（不退）", async () => {
+    const m = 假模型();
+    let n = 0;
+    const 坏 = { ...m, json: async (a: never, o: never) => { if (++n === 3) throw new Error("AI 响应超时，请稍后重试"); return m.json(a, o); } };
+    const 通道 = 模拟通道();
+    const 收尾 = vi.spyOn(通道, "收尾");
+    const { r, 事件 } = await 跑({ 模型: 坏 as unknown as 模型调用, 通道 });
+    expect(r.ok).toBe(true);
+    expect(事件.some((e) => e.type === "stage" && e.status === "error")).toBe(true);
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
+    expect(收尾).toHaveBeenCalledWith("run-test", true, expect.anything());
+  });
+
+  it("对面不吃 tools：退回 JSON 协议照样跑完", async () => {
+    const { r } = await 跑({ 模型: 假模型({ 不吃tools: true }) });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.状态.usage.searches).toBeGreaterThan(0);
+  });
+
+  it("人点了停：已经查到的出一份不完整的报告", async () => {
+    const ac = new AbortController();
+    const 通道 = 模拟通道();
+    const 原搜 = 通道.搜索;
+    let 次 = 0;
+    通道.搜索 = async (...a) => {
+      const r = await 原搜(...a);
+      if (++次 === 2) ac.abort();
+      return r;
+    };
+    const { r, 事件 } = await 跑({ 通道, signal: ac.signal });
+    expect(r.ok).toBe(true);
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
+    expect(事件.filter((e) => e.type === "stage" && e.status === "running").length).toBeLessThan(6);
+  });
+});

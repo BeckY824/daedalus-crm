@@ -21,6 +21,7 @@ import { summarizeSteps } from "@/lib/agent/step-summary";
 import { dayjs } from "@/lib/utils";
 import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
 import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
+import ResearchRun from "@/components/research/ResearchRun";
 
 /** 对话里的一轮：问题、过程条、回答、建议卡、提到的客户。首页和右侧 AI 面板共用 */
 
@@ -205,6 +206,36 @@ export default function TurnView({ turn, onRetry, onRemove, onAsk, scrollOnMount
         <button type="button" className="cli-link" onClick={() => set移走中(false)}>
           撤销
         </button>
+      </div>
+    );
+  }
+
+  /*
+    背调那一轮：回答不是一段字，是一张背调卡（components/research）。确认、流式展开、存进客户都在卡里；
+    这里只留问题气泡和底下那一排（重新背调 / 移除 / 时间）
+  */
+  if (turn.kind === "research" && turn.公司) {
+    return (
+      <div ref={ref} className="cli-turn">
+        <div className="cli-user">
+          <div className="cli-bubble">{turn.question}</div>
+        </div>
+        <ResearchRun jobKey={`home:${turn.id}`} company={turn.公司} onCancel={() => set移走中(true)} 任务去={`/dashboard#turn-${turn.id}`} />
+        {done && (
+          <div className="cli-bar">
+            <Tooltip title="重新背调（会再扣一次）">
+              <button type="button" className="cli-ic" aria-label="重新背调" onClick={onRetry}>
+                <ReloadOutlined />
+              </button>
+            </Tooltip>
+            <Tooltip title="移除这一轮">
+              <button type="button" className="cli-ic" aria-label="移除这一轮" onClick={() => set移走中(true)}>
+                <CloseOutlined />
+              </button>
+            </Tooltip>
+            <span className="cli-bar-t">{whenLabel(turn.at)}</span>
+          </div>
+        )}
       </div>
     );
   }

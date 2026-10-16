@@ -15,6 +15,7 @@ export const AI_FEATURES = {
   explain: "盯盘解读",
   invite: "转介绍邀请",
   paste: "粘成表格",
+  research: "联网背调",
 } as const;
 export type AiFeature = keyof typeof AI_FEATURES;
 

@@ -150,7 +150,18 @@ export default function RecordView({
     人不用在一页里自己找「刚才叫我的是哪件事」。闪完把参数去掉，刷新不会再闪一遍
   */
   useEffect(() => {
-    const 要 = new URLSearchParams(window.location.search).get("focus");
+    const 参 = new URLSearchParams(window.location.search);
+    /* 首页背调卡上点「记一条跟进」带过来的（?do=followup）：进来就打开跟进表单，打开后把参数去掉，刷新不会再弹 */
+    if (参.get("do") === "followup") {
+      window.history.replaceState(null, "", window.location.pathname);
+      // 等这一页画完再弹：表单要量弹窗位置，挂载同一拍里打开会先闪一下
+      const t = setTimeout(() => {
+        setFollowInit({ record: null });
+        setFollowOpen(true);
+      }, 0);
+      return () => clearTimeout(t);
+    }
+    const 要 = 参.get("focus");
     if (!要) return;
     const el = document.querySelector<HTMLElement>(`[data-focus="${CSS.escape(要)}"]`);
     // 只改地址、不重新取页面：router.replace 会让服务端按「没有 focus」重画，计划条随即换回最早那条，
@@ -770,7 +781,7 @@ export default function RecordView({
           <Space orientation="vertical" size={14} style={{ width: "100%" }}>
             {aiEnabled && !AI在抽屉里 && (
               <div className="rec-card">
-                <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} />
+                <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
               </div>
             )}
 
@@ -833,7 +844,7 @@ export default function RecordView({
           进程内任务表上（lib/ai-jobs），不在组件 state 里，关掉再开还在那儿 */}
       {aiEnabled && AI在抽屉里 && (
         <Drawer placement="right" styles={{ wrapper: { width: 380 } }} open={AI抽屉开着} onClose={() => setAI抽屉开着(false)} title={`AI · ${customer.name}`}>
-          <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} />
+          <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
         </Drawer>
       )}
 

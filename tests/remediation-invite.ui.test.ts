@@ -7,7 +7,7 @@ const plugin:Plugin={name:'turn-boundaries',setup(b){
  const stub=(filter:RegExp,code:string)=>b.onResolve({filter},a=>({path:a.path,namespace:'fixture',pluginData:code}));
  stub(/^next\/navigation$/,"export const useRouter=()=>({refresh(){}});");
  stub(/^next\/link$/,"export default function Link(p){return <a {...p}/>}");
- stub(/(^|\/)(ProposalCard|AiWait|StreamMarkdown)$/,"export default function View(){return null}");
+ stub(/(^|\/)(ProposalCard|AiWait|StreamMarkdown|ResearchRun)$/,"export default function View(){return null}");
  stub(/(^|\/)AiCost$/,"export default function Cost(){return null};export const useAiOutOfCredits=()=>false;");
  stub(/^@\/lib\/ai-jobs$/,"export const clearJob=()=>{},useJob=key=>key.startsWith('home:')?window.__job:null;");
  stub(/^@\/lib\/draft-jobs$/,"export const useCopyDraft=()=>()=>{},草稿键=(kind,id)=>kind+id,起草=(...args)=>window.__drafts.push(args);");
