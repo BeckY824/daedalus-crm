@@ -32,7 +32,9 @@ import { useDeleteCustomers } from "./useDeleteCustomers";
 import { 带走说法 } from "@/lib/carry-over";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸精简, 签约叫 } from "@/lib/business-config";
-import { WhatsApp网址 } from "@/lib/customer-extra";
+import { WhatsApp网址, 官网网址, 官网短写, 客户等级, 客户等级说明, type 客户等级 as 等级 } from "@/lib/customer-extra";
+import LocalTime from "@/components/LocalTime";
+import { 未分级 } from "./query-shared";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 列表不问归属 } from "@/lib/solo";
 import { 公海标签, type 客户页签归属 } from "@/lib/pool";
@@ -62,6 +64,8 @@ type Props = {
   requestedPage?: string;
   pageSize: number;
   金额排序?: string;
+  /** 按客户等级排（2026-10-16）：level-asc / level-desc */
+  等级排序?: string;
   排序币种?: string;
   users: 可选成员[];
   channels: Option[];
@@ -122,6 +126,8 @@ type Props = {
     /** 外贸档案的国家 / 来源（2026-10-05） */
     country: string;
     source: string;
+    /** 客户等级（2026-10-16）：A–D 或「未分级」 */
+    level: string;
   };
 };
 
@@ -141,7 +147,7 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, requestedPage, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 等级排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
   // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
@@ -247,7 +253,7 @@ export default function CustomersView({
   }
   const b = useBusiness();
 
-  const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", { ...filters, sort: 金额排序, sortCurrency: 排序币种 ?? b.currency }, pageSize);
+  const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", { ...filters, sort: 金额排序 || 等级排序, sortCurrency: 排序币种 ?? b.currency }, pageSize);
   /**
    * 「空库」是「一条都没有 **且** 没在筛」。筛出 0 条不算——
    * 那时筛选栏必须留着，否则人看不见自己筛了什么，也点不到重置。
@@ -305,7 +311,20 @@ export default function CustomersView({
   const 外贸 = 外贸精简(b);
   const 空 = <span className="muted">—</span>;
   const 外贸列: 列<CustomerRow>[] = [
-    { title: "国家", key: "country", width: 100, render: (_: unknown, r) => r.extra?.country ?? 空 },
+    /* 客户等级（2026-10-16）：A 在前；点表头在全部筛选结果里排，没分级的总在最后 */
+    {
+      title: "等级", key: "level", width: 76,
+      sorter: true,
+      sortOrder: 等级排序 === "level-asc" ? "ascend" : 等级排序 === "level-desc" ? "descend" : null,
+      render: (_: unknown, r) => (r.extra?.level ? <span className={`cust-level cust-level-${r.extra.level}`} title={客户等级说明[r.extra.level as 等级] ?? r.extra.level}>{r.extra.level}</span> : 空),
+    },
+    /* 国家下面一行小字是对方此刻几点（2026-10-16）：挑这会儿能联系谁，不用再去算时差 */
+    {
+      title: "国家", key: "country", width: 120,
+      render: (_: unknown, r) => r.extra?.country
+        ? <span className="country-cell"><span>{r.extra.country}</span><LocalTime country={r.extra.country} 简短 className="muted country-cell-t" /></span>
+        : 空,
+    },
     {
       title: "WhatsApp", key: "whatsapp", width: 150,
       // 点号码直接打开对话（wa.me）。停在链接上不跳进这位的记录页（行点击会进记录页）
@@ -320,6 +339,13 @@ export default function CustomersView({
     },
     { title: "微信", key: "wechat", width: 120, 默认: false, render: (_: unknown, r) => r.extra?.wechat ?? 空 },
     { title: "来源", key: "source", width: 110, 默认: false, render: (_: unknown, r) => r.extra?.source ?? 空 },
+    {
+      title: "官网", key: "website", width: 170, 默认: false,
+      render: (_: unknown, r) => {
+        const 网址 = 官网网址(r.extra?.website);
+        return 网址 ? <a href={网址} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} style={{ display: "inline-block", maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={网址}>{官网短写(r.extra?.website)}</a> : 空;
+      },
+    },
   ];
 
   const 列表: 列<CustomerRow>[] = [
@@ -554,6 +580,12 @@ export default function CustomersView({
                 value={f.country || undefined} onChange={(v) => apply({ country: v ?? "" })}
                 options={[...new Set([...国家们, ...(f.country ? [f.country] : [])])].map((x) => ({ value: x, label: x }))} />
             )}
+            {/* 客户等级（2026-10-16）：和国家一样摆在外面——按等级挑今天先跟谁 */}
+            {外贸 && (
+              <Select style={{ width: 120 }} placeholder="全部等级" allowClear aria-label="客户等级"
+                value={f.level || undefined} onChange={(v) => apply({ level: v ?? "" })}
+                options={[...客户等级.map((x) => ({ value: x, label: 客户等级说明[x] })), { value: 未分级, label: 未分级 }]} />
+            )}
             {/* 公海原来是这个下拉的第一项，2026-10-13 起由页签代替。「公海」页签上不摆（除非地址上正筛着某人，不然看不见自己筛了什么） */}
             {!不问归属 && (!f.pool || 子集 || f.salesOwnerId) && (
               <Select style={{ width: 150 }} placeholder="全部负责人" allowClear
@@ -658,7 +690,10 @@ export default function CustomersView({
             </Button>
           </>
         )}
-        排序={(key, order) => { if (key === "signedAmount") apply({ sort: order === "ascend" ? "amount-asc" : order === "descend" ? "amount-desc" : "", sortCurrency: f.sortCurrency || b.currency }); }}
+        排序={(key, order) => {
+          if (key === "signedAmount") apply({ sort: order === "ascend" ? "amount-asc" : order === "descend" ? "amount-desc" : "", sortCurrency: f.sortCurrency || b.currency });
+          if (key === "level") apply({ sort: order === "ascend" ? "level-asc" : order === "descend" ? "level-desc" : "" });
+        }}
         汇总={金额排序 && <Space wrap style={{ marginBottom: 12 }}><span>金额按</span><CurrencySelect aria-label="金额排序币种" value={f.sortCurrency || b.currency} onChange={v => apply({ sortCurrency: v })}/><span>在全部筛选结果中{金额排序 === "amount-asc" ? "升序" : "降序"}排列；其他币种不相加</span></Space>}
         分页={{
           当前页: page,

@@ -43,10 +43,11 @@ export function 客户导出表(rows: 导出行[], b: BusinessConfig, 隐藏负�
   if (外贸精简(b)) {
     const 金额 = (r: 导出行) => 签约各币(r).filter((x) => x.合计 > 0).map((x) => `${x.币种} ${x.合计}`).join(" · ");
     return {
-      head: [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "国家", "WhatsApp", "微信", "邮箱", "来源", "跟进状态", "决策状态", `${签约叫(b)}金额`, ...(隐藏负责人 ? [] : ["销售负责人"]), "备注"],
+      head: [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "国家", "WhatsApp", "微信", "邮箱", "来源", "客户等级", "官网", "跟进状态", "决策状态", `${签约叫(b)}金额`, ...(隐藏负责人 ? [] : ["销售负责人"]), "备注"],
       body: rows.map((r) => [
         r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
         r.extra?.country ?? "", r.extra?.whatsapp ?? "", r.extra?.wechat ?? "", r.extra?.email ?? "", r.extra?.source ?? "",
+        r.extra?.level ?? "", r.extra?.website ?? "",
         statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus), 金额(r), ...(隐藏负责人 ? [] : [r.salesOwnerName]), r.remark ?? "",
       ]),
     };

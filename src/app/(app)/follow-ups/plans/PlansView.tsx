@@ -14,6 +14,7 @@ import TaskForm from "../../customers/[id]/TaskForm";
 import InlineConfirm from "@/components/InlineConfirm";
 import PlanForm from "../../customers/[id]/PlanForm";
 import { 截止说法 } from "@/lib/deadline";
+import CompletePlanModal, { type 要完成的计划 } from "../../customers/[id]/CompletePlanModal";
 
 
 /** 只用来认「水合完了没有」（见下面的 已水合） */
@@ -125,6 +126,8 @@ export default function PlansView({
   const [刚完成, set刚完成] = useState<string[]>([]);
   /** 「排下一次」给哪一位排：完成一条计划之后提示条里点进来（审查 M10） */
   const [排给, set排给] = useState<string | null>(null);
+  /** 正在完成的那条计划：先弹小框记一笔（2026-10-16 外贸基础），待办照旧一点就完 */
+  const [在完成, set在完成] = useState<(要完成的计划 & { key: string; 标题: string }) | null>(null);
   /** 正在改的那一条（计划或待办） */
   const [在改, set在改] = useState<事项 | null>(null);
   // 表单的 record 要稳定：它是 useEffect 的依赖，每次渲染新建一个对象会让表单边输入边被重置
@@ -208,6 +211,23 @@ export default function PlansView({
     }
     return out;
   }, [我的]);
+
+  /** 点了计划前面的 ✓：先弹小框（方式 + 一句话 + 下次），待办照旧直接完成 */
+  function 点完成(x: 事项) {
+    if (x.kind === "plan") return void set在完成({ id: x.id, subject: x.标题, method: x.方式 ?? "", customerId: x.customerId, customerName: x.customerName, key: x.key, 标题: x.标题 });
+    void 完成(x);
+  }
+
+  /** 小框里保存了：计划已经在服务端一起完成了，这里只管留位、提示 */
+  function 记完了(x: { key: string; 标题: string; customerName?: string }, next: string | null) {
+    set刚完成((v) => [...v, x.key]);
+    message.success(next ? `已记一笔，「${x.标题}」完成；下次 ${dayjs(next).format("M 月 D 日")}` : `已记一笔，「${x.标题}」完成`);
+    void window.desktopReminders?.刷新();
+    setTimeout(() => {
+      set刚完成((v) => v.filter((k) => k !== x.key));
+      router.refresh();
+    }, 600);
+  }
 
   async function 完成(x: 事项) {
     set刚完成((v) => [...v, x.key]);
@@ -337,17 +357,30 @@ export default function PlansView({
           <div className="plans">
             {/* 三组的空文案各不相同：全写「这一组是空的」，人分不出
                 「今天没排」和「已经全做完了」——那是两件完全不同的事 */}
-            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
-            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
-            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="逾期" 说明="计划时间已经过去了，先处理这些" 空话="没有逾期的，都跟上了" 事项={组.逾期} 危险 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="今天" 说明="今天之内要做的" 空话="今天没有排计划" 事项={组.今天} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+            <组块 名="本周" 说明="这周剩下的几天" 空话="这周剩下的几天还没排" 事项={组.本周} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
             {组.以后.length > 0 && (
-              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
+              <组块 名="以后" 说明="更远的，和还没定时间的" 空话="没有更远的" 事项={组.以后} 完成={点完成} 刚完成={刚完成} 刚建={刚建} 刚建那行={刚建那行} scope={scope} 只有我={只有我} 改={set在改} 删={删掉} />
             )}
           </div>
           )}
         </>
       )}
 
+      <CompletePlanModal
+        plan={在完成}
+        onClose={() => set在完成(null)}
+        onDone={(r) => {
+          const x = 在完成;
+          set在完成(null);
+          if (!x) return;
+          if (r.kind === "saved") return 记完了(x, r.next);
+          // 跳过：和原来点 ✓ 一模一样（先原地打勾、再存；提示里带撤销、排下一次）
+          const 原 = 全部.find((y) => y.key === x.key);
+          if (原) void 完成(原);
+        }}
+      />
       {排给 && (
         <PlanForm open onClose={() => set排给(null)} onSaved={() => { set排给(null); router.refresh(); }} customerId={排给} record={null} 默认天数={7} />
       )}

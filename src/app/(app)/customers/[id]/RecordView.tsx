@@ -23,12 +23,14 @@ import {
 } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
 import InlineConfirm from "@/components/InlineConfirm";
-import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
+import { 跟进类型们, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, AVATAR_TEXT, 独自一人 } from "@/lib/utils";
 import { FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸订单, 外贸精简, 签约叫 } from "@/lib/business-config";
-import { 国家候选, WhatsApp网址 } from "@/lib/customer-extra";
+import { 国家候选, WhatsApp网址, 官网网址, 客户等级, 客户等级说明, type 客户等级 as 客户等级值 } from "@/lib/customer-extra";
+import LocalTime from "@/components/LocalTime";
+import CompletePlanModal, { type 要完成的计划 } from "./CompletePlanModal";
 import FollowUpForm from "./FollowUpForm";
 import TaskForm from "./TaskForm";
 import OpportunityForm from "../../opportunities/OpportunityForm";
@@ -124,6 +126,7 @@ export default function RecordView({
   /** 切回通用模版后，填过的外贸档案照样摆出来（二审：搜得到却看不出为什么，像数据丢了） */
   const 摆档案 = 外贸 || (!!档 && Object.values(档).some(Boolean));
   const wa = WhatsApp网址(档?.whatsapp);
+  const 官网 = 官网网址(档?.website);
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
   const 已签约文字 = 合计文字(customer.signedTotals ?? [{ 币种: "CNY", 合计: customer.signedAmount }]);
@@ -273,6 +276,8 @@ export default function RecordView({
    * 完成眼前这条计划（审查 M10）。提示里带「撤销」和「排下一次」：
    * 原来点完「下次跟进」那块直接变成「尚未安排」，点错了改不回来，做完了也没人问下一次什么时候
    */
+  /** 点了「下次跟进」上的完成：先弹小框记一笔（2026-10-16 外贸基础，CompletePlanModal） */
+  const [在完成, set在完成] = useState<要完成的计划 | null>(null);
   async function 完成计划(p: Pick<NonNullable<typeof plan>, "id" | "subject">, 顺带?: string, 已完成 = false) {
     if (!已完成) {
       const result = await completePlan(p.id).catch(() => ({ ok: false as const, error: "计划完成失败，请稍后重试" }));
@@ -405,7 +410,7 @@ export default function RecordView({
           <Dropdown
             menu={{
               items: [
-                ...FOLLOW_TYPES.map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
+                ...跟进类型们(外贸).map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
                 { type: "divider" as const },
                 { key: "edit", icon: <EditOutlined />, label: `编辑${b.customer}资料`, onClick: () => setCustOpen(true) },
                 { key: "delete", icon: <DeleteOutlined />, danger: true, label: `删除这位${b.customer}`, onClick: () => void 问删除([{ id: customer.id, name: customer.name }], () => router.push("/customers")) },
@@ -438,11 +443,20 @@ export default function RecordView({
         {外贸
           ? 档?.source && <span className="rec-tags-n">来源：{档.source}</span>
           : customer.referrerName && <span className="rec-tags-n">来源：{customer.referrerName}</span>}
+        {/* 客户等级（2026-10-16）：一枚字母章，放在国家前面——先看这位要花多少力气 */}
+        {外贸 && 档?.level && <span className={`cust-level cust-level-${档.level}`} title={`客户等级：${客户等级说明[档.level as 客户等级值] ?? 档.level}`}>{档.level}</span>}
         {外贸 && 档?.country && <span className="rec-tags-n">{档.country}</span>}
+        {/* 对方此刻几点（2026-10-16）：按国家首都的时区；和本机同一钟点时不显示 */}
+        {外贸 && 档?.country && <LocalTime country={档.country} className="rec-tags-n" />}
         {/* WhatsApp 点一下打开对话（wa.me）：外贸客户的主沟通渠道，抄号码再去手机上搜太绕 */}
         {wa && (
           <a className="rec-tags-n" href={wa} target="_blank" rel="noreferrer" title={`在 WhatsApp 里打开和 ${档?.whatsapp} 的对话`}>
             WhatsApp ↗
+          </a>
+        )}
+        {外贸 && 官网 && (
+          <a className="rec-tags-n" href={官网} target="_blank" rel="noreferrer" title={`打开 ${官网}`}>
+            官网 ↗
           </a>
         )}
         {/* 在公海里（第 6 块）：标签写原负责人，旁边就是「领取」——看到就能接手 */}
@@ -503,6 +517,8 @@ export default function RecordView({
                 <InlineField customerId={customer.id} field="email" label="邮箱" value={档?.email ?? null} />
                 <InlineField customerId={customer.id} field="wechat" label="微信" value={档?.wechat ?? null} />
                 <InlineField customerId={customer.id} field="source" label="来源" value={档?.source ?? null} kind="combo" options={b.sources.map((x) => ({ value: x, label: x }))} />
+                <InlineField customerId={customer.id} field="level" label="客户等级" value={档?.level ?? null} kind="select" options={客户等级.map((x) => ({ value: x, label: 客户等级说明[x] }))} placeholder="没分级" 可清空 />
+                <InlineField customerId={customer.id} field="website" label="官网" value={档?.website ?? null} placeholder="如 www.example.com" />
               </>
             )}
             {/* 选项里带上现任：负责人是管理员或已停用时不在候选里，原来下拉直接显示一串 id（排查 D8）。
@@ -708,14 +724,14 @@ export default function RecordView({
               <Button size="small" type="text" onClick={() => { set排新计划(false); setPlanOpen(true); }}>
                 改
               </Button>
-              <Button size="small" type="text" icon={<CheckCircleOutlined />} onClick={() => void 完成计划(plan)}>
+              <Button size="small" type="text" icon={<CheckCircleOutlined />} onClick={() => set在完成({ id: plan.id, subject: plan.subject, method: plan.method, customerId: customer.id })}>
                 完成
               </Button>
             </div>
           )}
 
           <div className="rec-filters">
-            {["全部", ...FOLLOW_TYPES.map((t) => t.value), "CONTRACT"].map((k) => {
+            {["全部", ...跟进类型们(外贸).map((t) => t.value), "CONTRACT"].map((k) => {
               const label = k === "全部" ? "全部" : k === "CONTRACT" ? 叫 : FOLLOW_TYPE_MAP[k]?.label ?? k;
               return (
                 <span key={k} className={`rec-chip${filter === k ? " rec-chip-on" : ""}`} onClick={() => setFilter(k)}>
@@ -857,6 +873,19 @@ export default function RecordView({
         opportunities={opportunities}
         orders={contracts.flatMap((c) => (c.order ? [{ id: c.order.id, no: c.order.no }] : []))}
         aiEnabled={aiEnabled}
+      />
+      <CompletePlanModal
+        plan={在完成}
+        onClose={() => set在完成(null)}
+        onDone={(r) => {
+          const p = 在完成;
+          set在完成(null);
+          if (!p) return;
+          if (r.kind === "skip") return void 完成计划(p);
+          router.refresh();
+          void window.desktopReminders?.刷新();
+          message.success(r.next ? `已记一笔，「${p.subject}」完成；下次 ${dayjs(r.next).format("M 月 D 日")}` : `已记一笔，「${p.subject}」完成`);
+        }}
       />
       <OpportunityForm open={opportunityOpen} editing={null} initialCustomer={{ id: customer.id, name: customer.name }} users={users} customers={[]} onClose={() => setOpportunityOpen(false)} onSaved={() => { setOpportunityOpen(false); router.refresh(); }} />
       <TaskForm open={taskOpen} onClose={() => setTaskOpen(false)} onSaved={() => { setTaskOpen(false); router.refresh(); }} customerId={customer.id} />

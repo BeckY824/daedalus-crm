@@ -31,10 +31,13 @@ export type 字段名 =
   | "whatsapp"
   | "wechat"
   | "email"
-  | "source";
+  | "source"
+  // 2026-10-16 外贸基础：客户等级（A–D）、官网
+  | "level"
+  | "website";
 
 /** 落在外贸档案（旁表 CustomerExtra）里的那几个导入字段 */
-export const 外贸导入字段 = ["country", "whatsapp", "wechat", "email", "source"] as const satisfies readonly 字段名[];
+export const 外贸导入字段 = ["country", "whatsapp", "wechat", "email", "source", "level", "website"] as const satisfies readonly 字段名[];
 
 export type 字段规格 = {
   名: 字段名;
@@ -88,6 +91,9 @@ export function 字段表(b: { fields: { school: string; grade: string; major: s
       { 名: "wechat", label: "微信", kind: "text", 别名: ["微信", "微信号", "wechat", "weixin", "wx", "wechatid"] },
       { 名: "email", label: "邮箱", kind: "text", 别名: ["邮箱", "电子邮箱", "邮件", "邮箱地址", "email", "e-mail", "mail", "emailaddress", "联系人邮箱"] },
       { 名: "source", label: "来源", kind: "text", 别名: ["来源", "客户来源", "询盘来源", "获客渠道", "来源渠道", "渠道", "source", "leadsource"] },
+      // 2026-10-16：「grade」不能当别名——它是职位那一列的（通用字段 grade）
+      { 名: "level", label: "客户等级", kind: "text", 别名: ["客户等级", "等级", "客户级别", "级别", "重要等级", "客户分级", "分级", "level", "customerlevel", "rating"] },
+      { 名: "website", label: "官网", kind: "text", 别名: ["官网", "网站", "公司网站", "公司官网", "官方网站", "网址", "website", "web", "homepage", "site", "url"] },
     ];
   }
   return 通用字段(b);

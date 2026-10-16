@@ -46,6 +46,7 @@
      八个色相拉开；好坏另有 success / warning / danger。JS 那边同一套在 lib/palette.ts */
   --cat-blue: #2563eb; --cat-green: #22c55e; --cat-yellow: #eab308; --cat-orange: #f97316;
   --cat-pink: #ec4899; --cat-violet: #8b5cf6; --cat-cyan: #06b6d4; --cat-amber: #f59e0b;
+  --cat-teal: #128c7e; /* WhatsApp 跟进（2026-10-16） */
   /* 头像底色：八个淡色，按名字哈希选 */
   --avatar-1: #dbeafe; --avatar-2: #dcfce7; --avatar-3: #fef3c7; --avatar-4: #fde2e2;
   --avatar-5: #ede9fe; --avatar-6: #e0f2fe; --avatar-7: #fce7f3; --avatar-8: #e2e8f0;
@@ -932,6 +933,20 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 记录页名字底下那一行标签：两个状态（点得改）+ 预计 / 已签约（只读） */
 .rec-tags { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin: 0 0 var(--s3); }
 .rec-tags-n { font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* 对方当地时间（2026-10-16 外贸基础）：夜里压暗、带一个「夜里」小标；客户等级是一枚小字母章 */
+.local-time-night { opacity: 0.7; }
+.local-time-tag { margin-left: 4px; padding: 0 4px; border-radius: 4px; font-size: 11px; line-height: 16px; background: var(--warning-bg); color: var(--warning-text); }
+.cust-level { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 6px; font-size: 12px; font-weight: 600; line-height: 1; border: 1px solid var(--line); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.cust-level-A { border-color: var(--danger-line); color: var(--danger-text); background: var(--danger-bg); }
+/* 完成计划时弹的小框（2026-10-16）：三行，左边一个短标签 */
+.done-plan-row { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.done-plan-k { flex: 0 0 48px; line-height: 32px; color: var(--text-muted); font-size: var(--fs-note); }
+.done-plan-row > :not(.done-plan-k) { flex: 1; min-width: 0; }
+.done-plan-row .ant-select { flex: 0 0 auto; }
+.done-plan-tip { margin-left: 60px; color: var(--text-muted); font-size: var(--fs-note); }
+.country-cell { display: inline-flex; flex-direction: column; line-height: 1.3; }
+.country-cell-t { font-size: 12px; font-variant-numeric: tabular-nums; }
+.cust-level-B { border-color: var(--warning-line); color: var(--warning-text); background: var(--warning-bg); }
 .rec-sec { padding: 6px 12px 10px; border-top: 1px solid var(--border); }
 .rec-sec:first-of-type { border-top: none; }
 .rec-sec-t {

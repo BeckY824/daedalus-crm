@@ -26,6 +26,8 @@ type SP = Promise<{
   /** 外贸档案的国家 / 来源（2026-10-05） */
   country?: string;
   source?: string;
+  /** 客户等级（2026-10-16）：A–D 或「未分级」 */
+  level?: string;
   page?: string;
   pageSize?: string;
   sort?: string;
@@ -68,6 +70,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   const pageSize = Math.min(100, Math.max(10, 正整数(sp.pageSize, 20)));
   const b = await getBusiness();
   const sort = sp.sort === "amount-asc" || sp.sort === "amount-desc" ? sp.sort : "";
+  /** 按客户等级排（2026-10-16）：A→D 或 D→A，没分级的总在最后 */
+  const 等级排序 = sp.sort === "level-asc" || sp.sort === "level-desc" ? sp.sort : "";
   const sortCurrency = 规整币种(sp.sortCurrency, b.currency);
 
   const where = await 客户筛选条件(sp);
@@ -94,7 +98,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   const [rows, users, channels, allCustomers, 用着的职位, 用着的国家] = await Promise.all([
     sort ? 客户金额分页(where, sort, sortCurrency, page, pageSize) : prisma.customer.findMany({
       where,
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: 等级排序
+        ? [{ extra: { level: { sort: 等级排序 === "level-asc" ? "asc" : "desc", nulls: "last" } } }, { createdAt: "desc" }, { id: "desc" }]
+        : [{ createdAt: "desc" }, { id: "desc" }],
       skip: (page - 1) * pageSize,
       take: pageSize,
       select: 客户行字段,
@@ -119,6 +125,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       requestedPage={sp.page}
       pageSize={pageSize}
       金额排序={sort}
+      等级排序={等级排序}
       排序币种={sortCurrency}
       users={users}
       channels={channels}
@@ -139,6 +146,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         pool: sp.pool === "1" ? "1" : "",
         country: sp.country ?? "",
         source: sp.source ?? "",
+        level: sp.level ?? "",
       }}
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
