@@ -185,8 +185,11 @@ async function 处理请求(req: Request) {
     背调那一笔的模型调用：钱也累到这次背调上（AiResearchRun.costLi），单次成本上限靠它（lib/research/price.ts）。
     不是背调的编号 updateMany 一行都碰不到，所以只按功能名判断就够，不用先查一次库
   */
-  const 记背调花费 = async (u: { input: number; output: number }) => {
-    if (功能 === "research" && 问题id) await 背调记花费(owner, 问题id, 模型花费元(读价目(), String(整理.body.model ?? ""), u.input, u.output));
+  const 记背调花费 = async (u: { input: number; output: number }, 原始: unknown) => {
+    if (功能 !== "research" || !问题id) return;
+    // 命中提示缓存的那部分按缓存读价算（输入价的 1/10，lib/research/price.ts）
+    const 缓存 = Number((原始 as { prompt_tokens_details?: { cached_tokens?: unknown } } | null)?.prompt_tokens_details?.cached_tokens) || 0;
+    await 背调记花费(owner, 问题id, 模型花费元(读价目(), String(整理.body.model ?? ""), u.input, u.output, 缓存));
   };
   /** 这一份失败 / 没人收到时退。同一编号后面又发了一份的，交给那一份决定（见 问过的 那段） */
   const 退 = async () => {
@@ -276,7 +279,7 @@ async function 处理请求(req: Request) {
       if (failed) await 退();
       const usage = 读用量(state.usage);
       if (usage) await 记一次(owner, { model: String(整理.body.model ?? ""), usage, feature: 功能 });
-      if (usage) await 记背调花费(usage);
+      if (usage) await 记背调花费(usage, state.usage);
     };
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
@@ -372,7 +375,7 @@ async function 处理请求(req: Request) {
   try {
     const u = 读用量(JSON.parse(data));
     if (u) await 记一次({ kind: "account", id: accountId }, { model: String(整理.body.model ?? ""), usage: u, feature: 功能 });
-    if (u) await 记背调花费(u);
+    if (u) await 记背调花费(u, (JSON.parse(data) as { usage?: unknown }).usage);
   } catch {
     // 上游回的不是 JSON —— 那是上面 upstream.ok 该管的事，这儿不掺和
   }

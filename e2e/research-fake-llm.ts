@@ -30,20 +30,23 @@ const 结论 = (prompt: string): unknown => {
       },
       小结: "汉堡的照明进口分销商",
     };
-  if (prompt.includes("对照我们的业务"))
+  if (prompt.includes("对照我们的业务")) return { 小结: "品类和买家类型都对口" };
+  if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/${d}-category-manager` }, { text: "参展 light+building 2026", source: `https://fair.example/light-building-2026/${d}` }], 小结: "在扩户外品类" };
+  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次 30 天付款延迟，已解决", 来源: `https://forum.example/t/${d}-payment` }], 小结: "风险低" };
+  // 最后一步（打分 + 切入建议，产品里固定 gpt-5.5）
+  if (prompt.includes("怎么切入"))
     return {
       评档: [
         { 维度: "category", 档: "high", 证据: "主营户外和工业照明", 来源: `${官网}/about` },
         { 维度: "buyerType", 档: "high", 证据: "进口后卖给电气批发和工程商", 来源: `${官网}/about` },
         { 维度: "market", 档: "mid", 证据: "覆盖德奥瑞，需要 ENEC", 来源: `${官网}/about` },
         { 维度: "scale", 档: "mid", 证据: "约 40 人", 来源: `${官网}/about` },
+        { 维度: "signals", 档: "high", 证据: "在招品类经理、参展", 来源: `https://jobs.example/${d}-category-manager` },
       ],
       像的老客户: [{ 编号: 1, 档: "mid", 像在哪: "都是做照明的分销商" }],
-      小结: "品类和买家类型都对口",
+      建议: ["找新招的户外照明品类经理", "主推工矿灯和路灯，带 ENEC 证书", "提一句 light+building 展位上见"],
+      小结: "从品类经理切入",
     };
-  if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/${d}-category-manager` }, { text: "参展 light+building 2026", source: `https://fair.example/light-building-2026/${d}` }], 档: "high", 证据: "在招品类经理、参展", 小结: "在扩户外品类" };
-  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次 30 天付款延迟，已解决", 来源: `https://forum.example/t/${d}-payment` }], 小结: "风险低" };
-  if (prompt.includes("怎么切入")) return { 建议: ["找新招的户外照明品类经理", "主推工矿灯和路灯，带 ENEC 证书", "提一句 light+building 展位上见"], 小结: "从品类经理切入" };
   return {};
 };
 
@@ -69,7 +72,8 @@ export function 起假模型(port = 0, { 慢 = 0 } = {}): Promise<{ url: string;
       }
       if (慢) await new Promise((r) => setTimeout(r, 慢));
       const msgs = Array.isArray(body.messages) ? body.messages : [];
-      const 首问 = String(msgs[1]?.content ?? "");
+      // 提示词的样子（run.ts）：系统 → 「背调对象 + 已有材料」→ 「这一步要做什么」（缓存友好：每步一样的放前面）。全拼起来认
+      const 首问 = msgs.filter((m: 消息) => m.role === "user").map((m: 消息) => String(m.content ?? "")).join("\n");
       if (Array.isArray(body.tools) && body.tools.length) {
         const 交回 = msgs.filter((m: 消息) => m.role === "tool").length;
         const 名 = 首问.match(/背调对象：(.+)/)?.[1]?.trim() ?? "Company";

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { 搜索结果量 } from "./price";
 import type { 网关配置 } from "@/lib/gateway";
 import { 抹掉密钥 } from "@/lib/secret";
 import type { 搜索结果 } from "./types";
@@ -18,7 +19,8 @@ import type { 搜索结果 } from "./types";
  * 报错一律不带 Key（抹掉密钥）：有的中转站鉴权失败会把收到的 Key 回显在错误体里。
  */
 
-export type 搜索用量 = { model: string; input: number; output: number };
+/** input 含命中缓存的那部分；cached 是其中按缓存读价算的（lib/research/price.ts） */
+export type 搜索用量 = { model: string; input: number; output: number; cached?: number };
 export type 搜索服务 = {
   名: string;
   search(query: string, opts: { signal?: AbortSignal }): Promise<{ results: 搜索结果[]; usage?: 搜索用量 }>;
@@ -206,10 +208,12 @@ export function claude搜索(cfg: 网关配置, model: string = 默认搜索模�
       const 工具错 = Claude搜索工具错误(data);
       const results = 解析Claude回应(data);
       if (工具错 && results.length === 0) throw new 搜索出错(`Claude 搜索工具报错：${工具错}`, 502);
-      const u = (data as { usage?: { input_tokens?: unknown; output_tokens?: unknown }; model?: unknown }).usage;
+      const u = (data as { usage?: { input_tokens?: unknown; output_tokens?: unknown; cache_read_input_tokens?: unknown }; model?: unknown }).usage;
+      // Claude 的 input_tokens 不含缓存读的那部分，cache_read_input_tokens 另列：加回去，口径和 GPT 一致
+      const 缓存 = typeof u?.cache_read_input_tokens === "number" ? u.cache_read_input_tokens : 0;
       const usage =
         u && typeof u.input_tokens === "number"
-          ? { model: String((data as { model?: unknown }).model ?? model), input: u.input_tokens, output: typeof u.output_tokens === "number" ? u.output_tokens : 0 }
+          ? { model: String((data as { model?: unknown }).model ?? model), input: u.input_tokens + 缓存, output: typeof u.output_tokens === "number" ? u.output_tokens : 0, cached: 缓存 }
           : undefined;
       return { results, usage };
     },
@@ -278,7 +282,7 @@ export function 解析GPT回应(data: unknown): 搜索结果[] {
   return 出;
 }
 
-export function gpt搜索(cfg: 网关配置, model: string = 默认搜索模型.gpt): 搜索服务 {
+export function gpt搜索(cfg: 网关配置, model: string = 默认搜索模型.gpt, 结果量?: "low" | "medium" | "high"): 搜索服务 {
   return {
     名: "gpt",
     async search(query, opts) {
@@ -288,16 +292,18 @@ export function gpt搜索(cfg: 网关配置, model: string = 默认搜索模型.
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
           // include：要回真搜到过的网址（解析时拿它核正文里的网址，见 解析GPT回应）
-          body: JSON.stringify({ model, tools: [{ type: "web_search" }], include: ["web_search_call.action.sources"], input: 提示词(query) }),
+          // search_context_size：搜索塞给模型多少结果（降本开关，RESEARCH_SEARCH_CONTEXT）。10-16 实测 low 只省约 4% 输入
+          body: JSON.stringify({ model, tools: [{ type: "web_search", ...(结果量 ? { search_context_size: 结果量 } : {}) }], include: ["web_search_call.action.sources"], input: 提示词(query) }),
         },
         "GPT",
         cfg.apiKey,
         opts.signal,
       );
-      const u = (data as { usage?: { input_tokens?: unknown; output_tokens?: unknown } }).usage;
+      const u = (data as { usage?: { input_tokens?: unknown; output_tokens?: unknown; input_tokens_details?: { cached_tokens?: unknown } } }).usage;
+      const 缓存 = typeof u?.input_tokens_details?.cached_tokens === "number" ? u.input_tokens_details.cached_tokens : 0;
       const usage =
         u && typeof u.input_tokens === "number"
-          ? { model: String((data as { model?: unknown }).model ?? model), input: u.input_tokens, output: typeof u.output_tokens === "number" ? u.output_tokens : 0 }
+          ? { model: String((data as { model?: unknown }).model ?? model), input: u.input_tokens, output: typeof u.output_tokens === "number" ? u.output_tokens : 0, cached: 缓存 }
           : undefined;
       return { results: 解析GPT回应(data), usage };
     },
@@ -348,8 +354,9 @@ export function 选搜索服务(cfg: 网关配置, env: Record<string, string | 
     RESEARCH_SEARCH=claude 反过来：Claude 主、GPT 备
   */
   const claude为主 = 哪家 === "claude";
-  const 主 = claude为主 ? claude搜索(cfg, 模型) : gpt搜索(cfg, 模型);
-  const 备 = claude为主 ? gpt搜索(cfg) : claude搜索(cfg);
+  const 结果量 = 搜索结果量(env);
+  const 主 = claude为主 ? claude搜索(cfg, 模型) : gpt搜索(cfg, 模型, 结果量);
+  const 备 = claude为主 ? gpt搜索(cfg, undefined, 结果量) : claude搜索(cfg);
   return {
     名: 主.名,
     async search(query, opts) {

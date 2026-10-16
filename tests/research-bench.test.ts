@@ -29,7 +29,8 @@ describe("来源里真有这句", () => {
       { type: "field", key: "country", value: "比利时 Wevelgem" },
     ]);
     const r = 核来源(s, [{ url: "https://a.example", text: "Founded in 1993 in Wevelgem, Delta Light employs 600 people." }]);
-    expect(r).toEqual({ 结论数: 4, 有来源: 3, 核得上: 1, 核不上: 1, 核不了: 1 });
+    // 「约 300 人」：300 在原文里没有（原文是 600）——数字对不上，记一条编造嫌疑
+    expect(r).toEqual({ 结论数: 4, 有来源: 3, 核得上: 1, 核不上: 1, 核不了: 1, 嫌疑: [{ 话: "约 300 人", 源: "https://a.example" }] });
   });
 });
 

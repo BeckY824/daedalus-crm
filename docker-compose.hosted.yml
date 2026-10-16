@@ -70,11 +70,18 @@ services:
       RESEARCH_SEARCH_MODEL: "${RESEARCH_SEARCH_MODEL:-}"
       # 背调的分析模型（只给背调那一笔放行，不进平时问答的 GATEWAY_MODELS）。空着 = gpt-5.5,claude-sonnet-5.5，第一个是默认
       RESEARCH_MODELS: "${RESEARCH_MODELS:-}"
-      # 背调的价钱和成本（lib/research/price.ts）：AI_PRICE_TABLE 空着 = {"research":60}；RESEARCH_COST_CAP 单次成本上限（元），空着 = 4；
-      # RESEARCH_PRICES 单价（美元 / 百万 token、每次搜索的钱、汇率），空着 = 官方价
-      AI_PRICE_TABLE: "${AI_PRICE_TABLE:-}"
+      # 背调的成本和降本开关（lib/research/price.ts）。都可以空着：
+      #   RESEARCH_REPORT_MODEL 最后打分写报告（默认 gpt-5.5，用户定保证最后回复的质量）；RESEARCH_SUMMARY_MODEL 每步摘要（默认同报告）
+      #   RESEARCH_SEARCH_CONTEXT GPT 搜索结果量 low/medium/high；RESEARCH_SEARCH_LIMIT 一次最多搜几次（默认 8）
+      #   RESEARCH_COST_CAP 单次成本上限（元，默认 4，实验后定）；RESEARCH_PRICES 单价（默认 b.ai 10-16 实价）
+      #   RESEARCH_SIGNUP_GRANT 新用户送几次背调（默认 0；背调次数和 AI 次数分开记，运营台「背调 +N」手动加）
+      RESEARCH_REPORT_MODEL: "${RESEARCH_REPORT_MODEL:-}"
+      RESEARCH_SUMMARY_MODEL: "${RESEARCH_SUMMARY_MODEL:-}"
+      RESEARCH_SEARCH_CONTEXT: "${RESEARCH_SEARCH_CONTEXT:-}"
+      RESEARCH_SEARCH_LIMIT: "${RESEARCH_SEARCH_LIMIT:-}"
       RESEARCH_COST_CAP: "${RESEARCH_COST_CAP:-}"
       RESEARCH_PRICES: "${RESEARCH_PRICES:-}"
+      RESEARCH_SIGNUP_GRANT: "${RESEARCH_SIGNUP_GRANT:-}"
       # 条款页里的运营主体与联系邮箱（可选，默认 Daedalus.AI / README 里的邮箱）
       LEGAL_ENTITY: "${LEGAL_ENTITY:-}"
       LEGAL_CONTACT: "${LEGAL_CONTACT:-}"

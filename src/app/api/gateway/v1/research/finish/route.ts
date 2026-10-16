@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
-import { 收尾背调, 余额 } from "@/lib/tenant/credits";
+import { 收尾背调, 背调余额 } from "@/lib/tenant/credits";
 import type { 收尾回应 } from "@/lib/research/types";
 import { 读请求体, 认runId, 兜底 } from "../_shared";
 
@@ -38,7 +38,8 @@ async function 处理(req: Request) {
   const owner = { kind: "account" as const, id: accountId };
   const r = await 收尾背调(owner, runId, 读.body.ok);
   if (!r.有这笔) return 网关错误(404, "找不到这次背调");
-  const 还剩 = (await 余额(owner)).还剩;
+  // 还剩的是背调次数（和问答的 AI 次数分开）
+  const 还剩 = (await 背调余额(owner)).还剩;
   const 回应: 收尾回应 = { ok: true, 退了: r.退了, 还剩 };
-  return NextResponse.json(回应, { headers: { "X-Credits-Remaining": String(还剩) } });
+  return NextResponse.json(回应);
 }

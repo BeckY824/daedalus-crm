@@ -111,7 +111,8 @@ describe("发请求", () => {
     expect(body.model).toBe("claude-sonnet-5.5");
     expect(body.tools).toEqual([{ type: "web_search_20250305", name: "web_search", max_uses: 1 }]);
     expect(body.messages[0].content).toContain("Acme Lighting 进口商");
-    expect(r.usage).toEqual({ model: "claude-sonnet-5.5", input: 1234, output: 210 });
+    // 用量带上命中缓存的那部分（没有就是 0）：成本按缓存读价算（lib/research/price.ts）
+    expect(r.usage).toEqual({ model: "claude-sonnet-5.5", input: 1234, output: 210, cached: 0 });
     expect(r.results).toHaveLength(3);
   });
 
@@ -122,7 +123,7 @@ describe("发请求", () => {
     const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("https://relay.example.com/v1/responses");
     expect(JSON.parse(String(init.body))).toMatchObject({ model: "gpt-5.5", tools: [{ type: "web_search" }] });
-    expect(r.usage).toEqual({ model: "gpt-5.5", input: 900, output: 150 });
+    expect(r.usage).toEqual({ model: "gpt-5.5", input: 900, output: 150, cached: 0 });
     expect(r.results).toHaveLength(2);
   });
 });

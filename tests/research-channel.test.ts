@@ -91,7 +91,9 @@ describe("背调专用模型：只在背调那一笔里放行，平时问答点�
 
   it("不配 RESEARCH_MODELS：GPT 为主，Claude 备用", () => {
     expect(背调模型表({} as NodeJS.ProcessEnv)).toEqual(["gpt-5.5", "claude-sonnet-5.5"]);
-    expect(背调模型表({ RESEARCH_MODELS: "claude-sonnet-5.5|备注,claude-haiku-5.5" } as unknown as NodeJS.ProcessEnv)).toEqual(["claude-sonnet-5.5", "claude-haiku-5.5"]);
+    expect(背调模型表({ RESEARCH_MODELS: "claude-sonnet-5.5|备注,claude-haiku-5.5" } as unknown as NodeJS.ProcessEnv)).toEqual(["claude-sonnet-5.5", "claude-haiku-5.5", "gpt-5.5"]);
+    // 服务器给背调指定的角色模型（搜索 / 摘要 / 报告）一定放行：配了 mini 摘要，mini 就在表里
+    expect(背调模型表({ RESEARCH_SUMMARY_MODEL: "gpt-5.4-mini" } as unknown as NodeJS.ProcessEnv)).toContain("gpt-5.4-mini");
   });
 
   it("平时点名 GPT：换成默认模型；背调那一笔：放行", () => {

@@ -10,7 +10,7 @@ import { isPlanKey, PLANS } from "@/lib/tenant/plans";
 import { createWorkspace } from "@/lib/tenant/workspaces";
 import { createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
 import { 加次数 } from "@/lib/tenant/ai-allowance";
-import { 赠送 } from "@/lib/tenant/credits";
+import { 赠送, 赠送背调 } from "@/lib/tenant/credits";
 import { 查回复, 回复通道可用, 组回复邮件, 回信地址, 发回复 } from "@/lib/feedback-reply";
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
@@ -210,6 +210,21 @@ export async function grantAccountAi(input: { token: string; accountId: string; 
   if (!a) return { ok: false, error: "账号不存在" };
   const n = Math.max(1, Math.min(1000, Math.floor(input.amount)));
   await 赠送({ kind: "account", id: a.id }, { amount: n, reason: "admin", note: input.note ?? "运营台" });
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}
+
+/**
+ * 给一个桌面端账号手动加背调次数（用户详情页的「背调 +N」，2026-10-16）。背调次数和问答的 AI 次数分开记，
+ * 没有购买页，先由运营台手动加——和团队版开通一样。一次 1–100，记成 admin，只加不减
+ */
+export async function grantAccountResearch(input: { token: string; accountId: string; amount: number; note?: string }): Promise<AdminResult> {
+  const g = await guard(input.token);
+  if (!g.ok) return g;
+  const a = await control.account.findUnique({ where: { id: input.accountId }, select: { id: true } });
+  if (!a) return { ok: false, error: "账号不存在" };
+  const n = Math.max(1, Math.min(100, Math.floor(Number(input.amount) || 0)));
+  await 赠送背调(a.id, { amount: n, reason: "admin", note: input.note ?? "运营台" });
   revalidatePath("/admin", "layout");
   return { ok: true };
 }

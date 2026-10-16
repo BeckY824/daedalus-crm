@@ -156,6 +156,17 @@
 .rs-save input { border: 1px solid var(--line-strong); border-radius: var(--r-ctl); padding: 4px 8px; font: inherit; font-size: var(--fs-note); background: var(--panel); color: var(--ink); min-width: 0; flex: 1 1 140px; }
 .rs-save-hint { color: var(--text-muted); font-size: var(--fs-min); }
 
+/* ---------- 首页输入框：背调模式开关（选中要一眼看得出来：品牌色底 + 描边） ---------- */
+.cli-tool.cli-tool-on { background: var(--brand-bg); color: var(--brand-deep); box-shadow: inset 0 0 0 1px var(--brand-line); font-weight: 600; }
+.cli-tool.cli-tool-on:hover:not(:disabled) { background: var(--brand-bg); color: var(--brand-deep); }
+
+/* 认不准是哪家：点选 / 补一句（不扣次数） */
+.rs-pick { flex-direction: column; align-items: stretch; }
+.rs-pick-n { margin-left: 6px; color: var(--text-muted); font-size: var(--fs-min); }
+.rs-pick-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.rs-pick-row:empty { display: none; }
+.rs-pick input { flex: 1 1 200px; min-width: 0; border: 1px solid var(--line-strong); border-radius: var(--r-ctl); padding: 5px 9px; font: inherit; font-size: var(--fs-note); background: var(--panel); color: var(--ink); }
+
 /* ---------- 记录页右栏：背调卡、上次背调那一行 ---------- */
 .rec-ai-research { display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
 .rec-ai-research .rs-card { padding: 12px; }

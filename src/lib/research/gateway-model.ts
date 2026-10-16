@@ -24,7 +24,7 @@ function 认错(status: number, t: string): Error {
 
 export function 网关模型(cfg: 配置, 当前模型: () => string | undefined): 模型调用 {
   const base = cfg.baseUrl.replace(/\/+$/, "");
-  const 发 = async (body: Record<string, unknown>, opts: { signal?: AbortSignal; timeoutMs?: number; requestId?: string; maxTokens?: number; temperature?: number }) => {
+  const 发 = async (body: Record<string, unknown>, opts: { signal?: AbortSignal; timeoutMs?: number; requestId?: string; maxTokens?: number; temperature?: number; model?: string }) => {
     const 一次 = async () => {
       const 超时 = AbortSignal.timeout(opts.timeoutMs ?? 90_000);
       const res = await fetch(`${base}/chat/completions`, {
@@ -35,7 +35,8 @@ export function 网关模型(cfg: 配置, 当前模型: () => string | undefined
           ...(opts.requestId ? { "X-Question-Id": opts.requestId } : {}),
           "X-Feature": "research",
         },
-        body: JSON.stringify({ model: 当前模型(), temperature: opts.temperature ?? 0, max_tokens: opts.maxTokens ?? 2000, ...body }),
+        // 编排按角色传模型名（摘要用 mini、最后打分写报告用 gpt-5.5）；没传就用通道上的报告模型
+        body: JSON.stringify({ model: opts.model ?? 当前模型(), temperature: opts.temperature ?? 0, max_tokens: opts.maxTokens ?? 2000, ...body }),
         signal: opts.signal ? AbortSignal.any([opts.signal, 超时]) : 超时,
       });
       const t = await res.text();

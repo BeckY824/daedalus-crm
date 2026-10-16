@@ -14,6 +14,8 @@
  * 就能把免费额度花在最贵的模型上——一次扣一次的账，成本却能差两个数量级。
  */
 
+import { 背调模型们 } from "./research/price";
+
 export const 默认上游 = "https://api.deepseek.com/v1";
 
 /** 单次请求允许的最大输出长度。上限由我们定，客户端传得再大也夹到这里 */
@@ -62,7 +64,9 @@ export function 读网关配置(env: NodeJS.ProcessEnv = process.env): 网关配
  */
 export function 背调模型表(env: NodeJS.ProcessEnv = process.env): string[] {
   const 表 = 解析模型表(env.RESEARCH_MODELS).map((m) => m.id);
-  return 表.length ? 表 : ["gpt-5.5", "claude-sonnet-5.5"];
+  // 服务器给背调指定的三个角色（搜索 / 摘要 / 报告，lib/research/price.ts）一定放行，不然配了 mini 摘要却被换成默认模型
+  const 角色 = Object.values(背调模型们(env));
+  return [...new Set([...(表.length ? 表 : ["gpt-5.5", "claude-sonnet-5.5"]), ...角色])];
 }
 
 /** 工具表的上限：我们自己的 agent 现在二十来个工具、几十 KB；再大就不是我们的客户端了 */

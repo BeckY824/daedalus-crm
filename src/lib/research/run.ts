@@ -39,6 +39,8 @@ export type 背调输入 = {
   公司: string;
   /** 从客户详情页发起的：这位客户的 id 和档案里已有的线索（国家、官网、备注），帮第一步认准 */
   客户?: { id: string; 已知: string };
+  /** 背调模式里用户输入的那句原话（「帮我查 Rexel 适不适合我们」）：带给模型，让它知道人关心什么 */
+  需求?: string;
   b: Pick<BusinessConfig, "brief" | "fields">;
   通道: 背调通道;
   模型: 模型调用;
@@ -93,12 +95,15 @@ const 工具表: 工具声明[] = [
 
 type 材料条 = { n: number; kind: "search" | "read"; title: string; url: string; text: string };
 
-/** 拼进提示词的材料：读过的页给 1500 字，搜索摘要给 300 字，整份封顶 14000 字（越新的越靠后、越不会被截） */
+/**
+ * 拼进提示词的材料：读过的页给 1500 字，搜索摘要给 300 字，整份封顶 30000 字（越新的越靠后、越不会被截）。
+ * 封顶放宽到 30000（原来 14000）：截的是最前面那几条，一截前缀就变了、提示缓存就不命中；正常一次背调到不了这个数
+ */
 function 材料文本(材料: 材料条[]): string {
   if (!材料.length) return "（还没有材料）";
   const 段 = 材料.map((m) => `[${m.n}] ${m.title}\n${m.url}\n${m.text.slice(0, m.kind === "read" ? 1500 : 300)}`);
   let 出 = 段.join("\n\n");
-  while (出.length > 14000 && 段.length > 1) {
+  while (出.length > 30000 && 段.length > 1) {
     段.shift();
     出 = "（更早的材料略）\n\n" + 段.join("\n\n");
   }
@@ -111,6 +116,18 @@ function 系统提示(b: 背调输入["b"]): string {
     "规矩：只依据搜索和网页材料说话，材料里没有的写「查不到」，不许编；每条结论尽量注明来源网址（必须是材料里出现过的网址）；" +
     "同名公司要分清，拿不准就说拿不准。"
   );
+}
+
+/** 模型直接交回来的结论：去掉代码块标记，解得出对象才算 */
+function 认JSON(text: string): Record<string, unknown> | null {
+  const t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  if (!t.startsWith("{")) return null;
+  try {
+    const v = JSON.parse(t) as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 function 解参数(s: string): Record<string, unknown> {
@@ -132,6 +149,8 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
 
   const 开 = await 通道.开始(runId, signal);
   if (!开.ok) return { ok: false, error: 开.error, 退了: false };
+  // 这次最多搜几次听服务器的（RESEARCH_SEARCH_LIMIT，降本开关）；老服务器不回就按默认
+  const 搜索上限 = 开.搜索上限 && 开.搜索上限 > 0 ? Math.min(开.搜索上限, 背调上限.搜索) : 背调上限.搜索;
 
   const 材料: 材料条[] = [];
   const 读过 = new Set<string>();
@@ -151,12 +170,13 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     }
   };
   let 工具号 = 0;
-  const opts = (超时: number): ChatOpts => ({ model: 通道.模型, signal, requestId: runId, feature: "research", temperature: 0, thinking: false, timeoutMs: 超时, maxTokens: 2000 });
+  /** 每一步挑工具、写摘要用摘要模型（可以是便宜的 mini）；最后打分写报告那一步单独传报告模型（通道.模型，固定 gpt-5.5） */
+  const opts = (超时: number, 模型名?: string): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", temperature: 0, thinking: false, timeoutMs: 超时, maxTokens: 2000 });
   /** 用原生 function calling；对面不吃 tools 时退回 JSON 协议（和首页 agent 同一个判断） */
   let 用原生 = true;
 
   const 搜 = async (stage: 阶段号, query: string): Promise<string> => {
-    if (搜索数 >= 背调上限.搜索) {
+    if (搜索数 >= 搜索上限) {
       不完整 = true;
       return "这次背调的搜索次数用完了，请用已有材料。";
     }
@@ -216,34 +236,48 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     }
   };
 
-  /** 本步的查找循环：模型挑工具 → 我们执行 → 结果交回去，直到它说够了或本步次数用完 */
-  const 查 = async (stage: 阶段号, 补充: string) => {
+  /*
+    提示缓存（降本，10-16）：每一步的请求都是「系统提示 + 背调对象 + 已有材料」打头、「这一步要做什么」放最后。
+    材料只往后加不往前插，所以前一步发过的那一整段就是这一步的前缀——中转站按缓存读价收（输入价的 1/10）
+  */
+  const 前缀 = (): ToolMessage[] => [
+    { role: "system", content: 系统提示(input.b) },
+    {
+      role: "user",
+      content:
+        `背调对象：${input.公司}\n${input.客户 ? `CRM 里已有的线索：${input.客户.已知}\n` : ""}${input.需求 ? `用户的原话：${input.需求}\n` : ""}` +
+        `\n已有材料：\n${材料文本(材料)}`,
+    },
+  ];
+  const 来源规矩 = "每条结论都要带来源网址，只能填材料里出现过的网址；材料里没有的写「查不到」、不写来源，不许编。";
+
+  /**
+   * 本步的查找循环：模型挑工具 → 我们执行 → 结果交回去。**它觉得材料够了，就在同一次调用里直接交这一步的结论 JSON**
+   * （10-16 降本：原来「够了」之后还要单独问一次结论，19 次分析调用里有 6 次是这么来的）。
+   * 返回结论；没交出合格的 JSON（次数用完、回的不是 JSON、对面不吃 tools）返回 null，调用方再单独问一次。
+   */
+  const 查 = async (stage: 阶段号, 补充: string, 要什么: string): Promise<Record<string, unknown> | null> => {
     const 上限 = 每步工具上限[stage];
-    if (!上限 || 钱到了) return;
+    if (!上限 || 钱到了) return null;
     const messages: ToolMessage[] = [
-      { role: "system", content: 系统提示(input.b) },
+      ...前缀(),
       {
         role: "user",
         content:
-          `背调对象：${input.公司}\n${input.客户 ? `CRM 里已有的线索：${input.客户.已知}\n` : ""}` +
           `这一步：${本步目标[stage]}\n${补充}\n` +
-          `已有材料：\n${材料文本(材料)}\n\n` +
-          `这一步最多再调 ${上限} 次工具（整次还剩搜索 ${背调上限.搜索 - 搜索数} 次、读页 ${背调上限.读页 - 读页数} 页）。` +
-          "材料够了就不要调工具，直接回一句「够了」。",
+          `这一步最多再调 ${上限} 次工具（整次还剩搜索 ${搜索上限 - 搜索数} 次、读页 ${背调上限.读页 - 读页数} 页）。\n` +
+          `材料够了就不要再调工具，直接只输出这一步的结论 JSON：${要什么}\n${来源规矩}`,
       },
     ];
     for (let i = 0; i < 上限; i++) {
       if (signal?.aborted) throw new DOMException("已停止", "AbortError");
-      if (钱到了 || (搜索数 >= 背调上限.搜索 && 读页数 >= 背调上限.读页)) return;
+      if (钱到了 || (搜索数 >= 搜索上限 && 读页数 >= 背调上限.读页)) return null;
       let 调用: { name: string; args: Record<string, unknown>; thought: string; 回执: ToolMessage[]; callId?: string } | null = null;
       if (用原生) {
         try {
           const r = await 模型.tools(messages, 工具表, opts(60_000));
           const c = r.toolCalls[0];
-          if (!c) {
-            if (r.text && i === 0) 发({ type: "thought", stage, text: r.text.slice(0, 120) });
-            return;
-          }
+          if (!c) return 认JSON(r.text);
           let args: Record<string, unknown> = {};
           try {
             args = 解参数(c.function.arguments);
@@ -263,54 +297,52 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
           [...messages, { role: "user", content: '只输出 JSON：要搜索 {"thought":"一句打算","tool":"search_web","query":"…"}；要读网页 {"thought":"…","tool":"read_page","url":"…"}；够了 {"done":true}' }],
           opts(60_000),
         )) as Record<string, unknown>;
-        if (!raw || raw.done || (raw.tool !== "search_web" && raw.tool !== "read_page")) return;
+        if (!raw || raw.done || (raw.tool !== "search_web" && raw.tool !== "read_page")) return null;
         调用 = { name: String(raw.tool), args: raw, thought: 短(raw.thought, 120), 回执: [{ role: "assistant", content: JSON.stringify(raw) }] };
       }
-      if (调用.thought && i === 0) 发({ type: "thought", stage, text: 调用.thought.slice(0, 120) });
+      if (调用.thought && i === 0 && !调用.thought.trim().startsWith("{")) 发({ type: "thought", stage, text: 调用.thought.slice(0, 120) });
       let 结果: string;
       if (调用.name === "search_web" && 短(调用.args.query, 200)) 结果 = await 搜(stage, 短(调用.args.query, 200));
       else if (调用.name === "read_page" && 是网址(调用.args.url)) 结果 = await 读(stage, (调用.args.url as string).trim());
       else 结果 = `参数不对：search_web 要 query，read_page 要 http(s) 网址。`;
       messages.push(...调用.回执, 调用.callId ? { role: "tool", tool_call_id: 调用.callId, content: 结果 } : { role: "user", content: `结果：\n${结果}` });
     }
+    return null;
   };
 
-  /** 本步的结论：单独问一次 JSON。材料只给编号过的那份，来源必须是材料里的网址 */
-  const 结论 = async (stage: 阶段号, 要什么: string): Promise<Record<string, unknown>> => {
+  /** 本步的结论：单独问一次 JSON（查 没交出来时，以及最后那一步）。前缀和 查 一样，缓存照样命中 */
+  const 结论 = async (stage: 阶段号, 要什么: string, 模型名?: string): Promise<Record<string, unknown>> => {
     const raw = await 模型.json(
       [
-        { role: "system", content: 系统提示(input.b) + "\n必须只输出要求的 JSON，不要任何 JSON 之外的文字或 Markdown 代码块标记。" },
-        {
-          role: "user",
-          content: `背调对象：${input.公司}\n这一步：${本步目标[stage]}\n\n材料：\n${材料文本(材料)}\n\n${要什么}\n来源字段只能填上面材料里出现过的网址，没有就留空。`,
-        },
+        ...前缀(),
+        { role: "user", content: `这一步：${本步目标[stage]}\n只输出这一步的结论 JSON，不要任何 JSON 之外的文字或 Markdown 代码块标记：${要什么}\n${来源规矩}` },
       ],
-      opts(90_000),
+      opts(90_000, 模型名),
     );
     return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   };
   const 材料里的 = (u: unknown) => (是网址(u) && 材料.some((m) => m.url === u.trim()) ? u.trim() : undefined);
 
-  let 网上评档: 评档[] = [];
   let 风险们: 风险[] = [];
-  let 老客户档: 评档 = { 维度: "similar", 档: "unknown" };
-  const 出分 = () => 发({ type: "score", 评分: 算相关性([...网上评档.filter((x) => x.维度 !== "similar"), 老客户档], 风险们) });
+
+  const 要 = {
+    identify: '{"认准":true|false,"官网":"网址或空","国家城市":"…或空","说明":"一句话：凭什么认定是这一家，或者为什么拿不准","来源":"网址"}',
+    basics: '{"字段":{"country":{"value":"…","source":"网址"},"founded":{…},"size":{…},"business":{…},"buyerType":{…},"contact":{…}},"小结":"一句话"}。查不到的字段不要写。value 用中文短语（≤30 字）',
+    fit: '{"小结":"一句话：从材料看它和我们的业务对不对口（品类、买家类型、市场、规模），先不打分"}',
+    signals: '{"信号":[{"text":"一句话（中文）","source":"网址"}],"小结":"一句话"}。最多 4 条，优先近一年的；没有就空数组',
+    risks: '{"风险":[{"级别":"low|mid|high","说明":"一句话（中文）","来源":"网址"}],"小结":"一句话"}。没查到风险就空数组，小结写「没查到明显风险」',
+  } as const;
 
   const 步骤: Record<阶段号, () => Promise<string | undefined>> = {
     async identify() {
-      await 查("identify", "先搜公司全名，找官网；再找一个独立来源核对。");
-      const r = await 结论("identify", '输出 JSON：{"认准":true|false,"官网":"网址或空","国家城市":"…或空","说明":"一句话：凭什么认定是这一家，或者为什么拿不准","来源":"网址"}');
+      const r = (await 查("identify", "先搜公司全名，找官网；再找一个独立来源核对。", 要.identify)) ?? (await 结论("identify", 要.identify));
       // 官网那一格只显示域名：模型常给 About 页的网址，整串摆上去像一条来源而不是官网
       if (是网址(r.官网)) 发({ type: "field", key: "site", value: new URL((r.官网 as string).trim()).host.replace(/^www\./, ""), source: 材料里的(r.官网) ?? 材料里的(r.来源) });
       if (短(r.国家城市, 40)) 发({ type: "field", key: "country", value: 短(r.国家城市, 40), source: 材料里的(r.来源) });
       return 短(r.说明, 80) || (r.认准 ? "认准了" : "没能确认是哪一家");
     },
     async basics() {
-      await 查("basics", "优先读官网的 About / 公司介绍页。");
-      const r = await 结论(
-        "basics",
-        '输出 JSON：{"字段":{"country":{"value":"…","source":"网址"},"founded":{…},"size":{…},"business":{…},"buyerType":{…},"contact":{…}},"小结":"一句话"}。查不到的字段不要写。value 用中文短语（≤30 字）。',
-      );
+      const r = (await 查("basics", "优先读官网的 About / 公司介绍页。", 要.basics)) ?? (await 结论("basics", 要.basics));
       const f = (r.字段 && typeof r.字段 === "object" ? r.字段 : {}) as Record<string, { value?: unknown; source?: unknown }>;
       for (const { key } of 字段表) {
         if (key === "site") continue;
@@ -320,44 +352,43 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       return 短(r.小结, 80) || undefined;
     },
     async fit() {
-      await 查("fit", "");
-      const r = await 结论(
-        "fit",
-        "对下面 4 项各评一档（high / mid / low / unknown），每项一句证据和来源网址：\n" +
-          "category 品类匹配：它卖的 / 用的产品和我们的重合多少\nbuyerType 买家类型：是不是我们要找的那类买家\nmarket 市场与地区：在不在我们的目标国家、认证够不够\nscale 规模与采购力\n" +
-          `再和我们的老客户比像不像（国家、品类、买家类型、规模），最多挑 3 位，按编号回：\n${老客户表文本(input.老客户)}\n` +
-          '输出 JSON：{"评档":[{"维度":"category","档":"high","证据":"…","来源":"网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"小结":"一句话"}',
-      );
-      网上评档 = 清洗评档(r.评档).filter((x) => x.维度 !== "signals" && x.维度 !== "similar").map((x) => ({ ...x, 来源: 材料里的(x.来源) }));
-      const 像 = 认像的老客户(r.像的老客户, input.老客户);
-      发({ type: "similar", items: 像, 比了: input.老客户.length });
-      老客户档 = { 维度: "similar", 档: 老客户维度档(像, input.老客户.length), 证据: 像[0] ? `像 ${像[0].name}：${像[0].像在哪}` : undefined };
-      出分();
+      const r = (await 查("fit", "材料不够判断就再查一次，够了就直接下结论。", 要.fit)) ?? (await 结论("fit", 要.fit));
       return 短(r.小结, 80) || undefined;
     },
     async signals() {
-      await 查("signals", "搜招聘、新闻、展会，各一次就够。");
-      const r = await 结论("signals", '输出 JSON：{"信号":[{"text":"一句话（中文）","source":"网址"}],"档":"high|mid|low|unknown","证据":"一句话","小结":"一句话"}。最多 4 条，没有就空数组、档写 unknown。');
+      const r = (await 查("signals", "搜招聘、新闻、展会，各一次就够。", 要.signals)) ?? (await 结论("signals", 要.signals));
       const 信号 = Array.isArray(r.信号) ? (r.信号 as { text?: unknown; source?: unknown }[]) : [];
       for (const s of 信号.slice(0, 4)) if (短(s?.text, 60)) 发({ type: "tag", tone: "signal", text: 短(s.text, 60), source: 材料里的(s.source) });
-      const 档 = r.档 === "high" || r.档 === "mid" || r.档 === "low" ? r.档 : "unknown";
-      网上评档 = [...网上评档.filter((x) => x.维度 !== "signals"), ...清洗评档([{ 维度: "signals", 档, 证据: 短(r.证据, 120) || undefined, 来源: 材料里的(信号[0]?.source) }]).filter((x) => x.维度 === "signals")];
-      出分();
       return 短(r.小结, 80) || (信号.length ? undefined : "近期没查到明显动作");
     },
     async risks() {
-      await 查("risks", "搜付款纠纷、投诉、诉讼、破产，用英文和当地语言各试一次。");
-      const r = await 结论("risks", '输出 JSON：{"风险":[{"级别":"low|mid|high","说明":"一句话（中文）","来源":"网址"}],"小结":"一句话"}。没查到风险就空数组，小结写「没查到明显风险」。');
+      const r = (await 查("risks", "搜付款纠纷、投诉、诉讼、破产，用英文和当地语言各试一次。", 要.risks)) ?? (await 结论("risks", 要.risks));
       风险们 = (Array.isArray(r.风险) ? (r.风险 as Record<string, unknown>[]) : [])
         .filter((x) => x && (x.级别 === "low" || x.级别 === "mid" || x.级别 === "high") && 短(x.说明, 80))
         .slice(0, 4)
         .map((x) => ({ 级别: x.级别 as 风险["级别"], 说明: 短(x.说明, 80), 来源: 材料里的(x.来源) }));
       for (const x of 风险们) 发({ type: "tag", tone: "risk", level: x.级别, text: x.说明, source: x.来源 });
-      出分();
       return 短(r.小结, 80) || (风险们.length ? undefined : "没查到明显风险");
     },
+    /**
+     * 最后一步：**打分 + 写切入建议，固定用报告模型（gpt-5.5）**——用户定「保证最后回复的质量」。
+     * 前面五步（可以是便宜的模型）只负责查和摘要；评档、像哪位老客户、怎么切入都在这一步看着全部材料一次定。
+     */
     async approach() {
-      const r = await 结论("approach", '输出 JSON：{"建议":["…","…","…"],"小结":"一句话"}。3 条以内，每条一句话，具体到找谁、聊什么、推什么。');
+      const r = await 结论(
+        "approach",
+        "对下面 5 项各评一档（high / mid / low / unknown），每项一句证据和来源网址：\n" +
+          "category 品类匹配：它卖的 / 用的产品和我们的重合多少\nbuyerType 买家类型：是不是我们要找的那类买家\nmarket 市场与地区：在不在我们的目标国家、认证够不够\nscale 规模与采购力\nsignals 近期信号：在招人、扩品类、参展、开新店（近一年）\n" +
+          `再和我们的老客户比像不像（国家、品类、买家类型、规模），最多挑 3 位，按编号回：\n${老客户表文本(input.老客户)}\n` +
+          "最后给 3 条以内切入建议，每条一句话，具体到找谁、聊什么、推什么。\n" +
+          '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"建议":["…"],"小结":"一句话"}',
+        通道.模型,
+      );
+      const 网上评档 = 清洗评档(r.评档).filter((x) => x.维度 !== "similar").map((x) => ({ ...x, 来源: 材料里的(x.来源) }));
+      const 像 = 认像的老客户(r.像的老客户, input.老客户);
+      发({ type: "similar", items: 像, 比了: input.老客户.length });
+      const 老客户档: 评档 = { 维度: "similar", 档: 老客户维度档(像, input.老客户.length), 证据: 像[0] ? `像 ${像[0].name}：${像[0].像在哪}` : undefined };
+      发({ type: "score", 评分: 算相关性([...网上评档, 老客户档], 风险们) });
       const points = (Array.isArray(r.建议) ? r.建议 : []).map((x) => 短(x, 100)).filter(Boolean).slice(0, 3);
       if (points.length) 发({ type: "approach", points });
       return 短(r.小结, 80) || undefined;

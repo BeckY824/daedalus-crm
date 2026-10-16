@@ -5,7 +5,8 @@ import { 读价目, 搜索花费元 } from "@/lib/research/price";
 import { 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
 import { 选搜索服务 } from "@/lib/research/providers";
-import { 背调上限, type 搜索回应 } from "@/lib/research/types";
+import type { 搜索回应 } from "@/lib/research/types";
+import { 搜索上限 } from "@/lib/research/price";
 import { 读请求体, 认runId, 先记一次, 查花费, 兜底 } from "../_shared";
 
 export const dynamic = "force-dynamic";
@@ -46,7 +47,7 @@ async function 处理(req: Request) {
   const owner = { kind: "account" as const, id: accountId };
   const 钱 = await 查花费(owner, runId);
   if (钱.挡) return 钱.挡;
-  const 挡 = await 先记一次(owner, runId, "searches", 背调上限.搜索 + 搜索余量);
+  const 挡 = await 先记一次(owner, runId, "searches", 搜索上限() + 搜索余量);
   if (挡) return 挡;
 
   const 服务 = 选搜索服务(cfg);
@@ -64,7 +65,7 @@ async function 处理(req: Request) {
   if (r.usage) await 记一次(owner, { model: r.usage.model, usage: { input: r.usage.input, output: r.usage.output }, feature: "research" });
   if (r.results.length) await 背调有收获(owner, runId);
   // 这一次搜索的钱（搜索那一路的 token + 每次的搜索费）累到这次背调上，回应里告诉桌面端到现在花了多少
-  const 这次 = 搜索花费元(读价目(), r.usage?.model ?? 服务.名, r.usage?.input ?? 0, r.usage?.output ?? 0);
+  const 这次 = 搜索花费元(读价目(), r.usage?.model ?? 服务.名, r.usage?.input ?? 0, r.usage?.output ?? 0, r.usage?.cached ?? 0);
   await 背调记花费(owner, runId, 这次);
   // 按厘取整，和库里记的单位一致（不带 0.07200000000000001 这种浮点尾巴）
   const 回应: 搜索回应 = { results: r.results, 花费: { 已花元: Math.round((钱.花费.已花元 + 这次) * 1000) / 1000, 上限元: 钱.花费.上限元 } };

@@ -253,6 +253,8 @@ export type 用户详情 = {
   机器数: number;
   /** 标 / 取消测试账号的留痕，新的在前 */
   测试留痕: string[];
+  /** 背调次数（2026-10-16：和问答的 AI 次数分开记）：送了几次、用了几次、还剩几次；测试账号不限 */
+  背调: { 送: number; 用: number; 剩: number; 不限?: true };
 };
 
 export async function 读用户(id: string, now = new Date()): Promise<用户详情 | null> {
@@ -297,6 +299,10 @@ export async function 读用户(id: string, now = new Date()): Promise<用户详
     反馈: 反馈.map((f) => ({ id: f.id, at: f.at.toISOString(), body: f.body, path: f.path, version: f.version, handled: f.handled })),
     机器数,
     测试留痕: 留痕,
+    背调: await (async () => {
+      const r = await (await import("@/lib/tenant/credits")).背调余额({ kind: "account", id });
+      return { 送: r.送, 用: r.用, 剩: r.还剩, ...(r.不限 ? { 不限: true as const } : {}) };
+    })(),
   };
 }
 

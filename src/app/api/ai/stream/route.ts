@@ -120,7 +120,7 @@ export async function POST(req: Request) {
           */
           const abort = new AbortController();
           req.signal.addEventListener("abort", () => abort.abort());
-          res = await 背调一次({ company: body.company, customerId: body.customerId }, send, abort.signal);
+          res = await 背调一次({ company: body.company, customerId: body.customerId, need: body.need }, send, abort.signal);
         } else if (body.mode === "brief" && typeof body.customerId === "string") {
           const r = await generateBrief({ customerId: body.customerId, question: typeof body.question === "string" ? body.question : undefined }, emit);
           res = r.ok ? { ok: true, answer: { brief: r.brief, records: r.records } } : r;

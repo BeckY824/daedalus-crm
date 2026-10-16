@@ -3,8 +3,8 @@ import { closeTestDatabases } from "./close-databases";
  * 背调的四个网关接口（api/gateway/v1/research/{start,search,read,finish}）。
  *
  * 和模型网关一样，钉的多是「什么时候不放行」：没令牌、次数不够、搜索超上限、没开始过的 runId、内网网址。
- * 正向的：start 扣 60（AI_PRICE_TABLE，自己填了 Key 的也照扣）、search 走模拟搜索、finish 没出报告整笔退、
- * 花费到上限（RESEARCH_COST_CAP）不再给搜；以及背调的编号在模型网关那边能跑满 60 步不被频率闸挡、花费累到这次背调上。
+ * 正向的：start 扣 1 次背调次数（和问答的 AI 次数分开；自己填了 Key 的也照扣）、search 走模拟搜索、finish 没出报告整笔退、
+ * 花费到上限（RESEARCH_COST_CAP）不再给搜；以及背调的编号在模型网关那边能跑满 60 步不被频率闸挡、不扣 AI 次数、花费累到这次背调上。
  * 不连网：搜索用 RESEARCH_SEARCH=mock 或假 fetch，读页只测会被拦下的地址。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
@@ -65,10 +65,8 @@ beforeEach(async () => {
 });
 
 let 序号 = 0;
-/**
- * 建账号、签令牌、像登录过一样把注册赠送（30 次）结掉，再加 加次（默认 100）：一次背调要 60 次，光有注册的 30 次开不了
- */
-async function 建账号带令牌(加次 = 100) {
+/** 建账号、签令牌、像登录过一样把注册赠送（30 次 AI）结掉，再送 背调次（默认 3 次背调，和 AI 次数分开记） */
+async function 建账号带令牌(背调次 = 3) {
   const { createAccount } = await import("@/lib/tenant/accounts");
   const { 签发 } = await import("@/lib/tenant/device-token");
   const { 结算赠送 } = await import("@/lib/tenant/credits");
@@ -80,7 +78,7 @@ async function 建账号带令牌(加次 = 100) {
   });
   const { token } = await 签发(acc.id, "我的 MacBook");
   await 结算赠送({ kind: "account", id: acc.id }, createHash("sha256").update(`背调测试机器:${第几个}`).digest("hex"));
-  if (加次 > 0) await (await import("@/lib/tenant/credits")).赠送({ kind: "account", id: acc.id }, { amount: 加次, reason: "manual" });
+  if (背调次 > 0) await (await import("@/lib/tenant/credits")).赠送背调(acc.id, { amount: 背调次, reason: "admin" });
   return { acc, token, owner: { kind: "account" as const, id: acc.id } };
 }
 
@@ -99,6 +97,7 @@ const 路由 = async () => ({
   finish: (await import("@/app/api/gateway/v1/research/finish/route")).POST,
 });
 const 用掉 = async (owner: { kind: "account"; id: string }) => (await import("@/lib/tenant/credits")).用掉次数(owner);
+const 背调剩 = async (owner: { kind: "account"; id: string }) => (await (await import("@/lib/tenant/credits")).背调余额(owner)).还剩;
 
 describe("门口", () => {
   it("没令牌 → 401；四个接口都一样", async () => {
@@ -123,46 +122,47 @@ describe("门口", () => {
 });
 
 describe("start", () => {
-  it("扣 60，回还剩几次；重发不重扣", async () => {
-    const { token, owner } = await 建账号带令牌();
+  it("扣 1 次背调，回还剩几次和这次用哪些模型；重发不重扣；问答次数不动", async () => {
+    const { token, owner } = await 建账号带令牌(3);
     const { start } = await 路由();
-    const res = await start(请求("research/start", token, { runId: "run-1", 走我们的模型: true }));
+    const res = await start(请求("research/start", token, { runId: "run-1" }));
     expect(res.status).toBe(200);
-    // 背调用哪个模型由服务器定（lib/gateway.ts 背调模型表），随回应带回去
-    expect(await res.json()).toEqual({ ok: true, 扣了: 60, 还剩: 70, 模型: "gpt-5.5" });
-    expect(res.headers.get("X-Credits-Remaining")).toBe("70");
-    const 再来 = await start(请求("research/start", token, { runId: "run-1", 走我们的模型: true }));
+    // 模型由服务器定：最后打分写报告固定 gpt-5.5；摘要默认同报告；搜索上限默认 8（lib/research/price.ts）
+    expect(await res.json()).toEqual({ ok: true, 扣了: 1, 还剩: 2, 模型: "gpt-5.5", 摘要模型: "gpt-5.5", 搜索上限: 8 });
+    const 再来 = await start(请求("research/start", token, { runId: "run-1" }));
     expect((await 再来.json()).扣了).toBe(0);
-    expect(await 用掉(owner)).toBe(60);
+    expect(await 背调剩(owner)).toBe(2);
+    expect(await 用掉(owner)).toBe(0);
   });
 
-  it("自己填了模型 Key 的（老客户端带 走我们的模型: false）也照扣 60：背调的搜索和分析都用我们的", async () => {
-    const { token, owner } = await 建账号带令牌();
+  it("降本开关从配置来：摘要模型、搜索上限", async () => {
+    const { token } = await 建账号带令牌();
+    process.env.RESEARCH_SUMMARY_MODEL = "gpt-5.4-mini";
+    process.env.RESEARCH_SEARCH_LIMIT = "5";
+    try {
+      const body = await (await (await 路由()).start(请求("research/start", token, { runId: "run-cfg" }))).json();
+      expect(body).toMatchObject({ 模型: "gpt-5.5", 摘要模型: "gpt-5.4-mini", 搜索上限: 5 });
+    } finally {
+      delete process.env.RESEARCH_SUMMARY_MODEL;
+      delete process.env.RESEARCH_SEARCH_LIMIT;
+    }
+  });
+
+  it("自己填了模型 Key 的（老客户端带 走我们的模型: false）也照扣：背调的搜索和分析都用我们的", async () => {
+    const { token, owner } = await 建账号带令牌(3);
     await (await 路由()).start(请求("research/start", token, { runId: "run-own", 走我们的模型: false }));
-    expect(await 用掉(owner)).toBe(60);
+    expect(await 背调剩(owner)).toBe(2);
   });
 
-  it("扣几次按 AI_PRICE_TABLE；配错了按默认 60，不会变成免费", async () => {
-    const { token, owner } = await 建账号带令牌();
-    process.env.AI_PRICE_TABLE = JSON.stringify({ research: 45 });
-    await (await 路由()).start(请求("research/start", token, { runId: "run-45" }));
-    expect(await 用掉(owner)).toBe(45);
-    process.env.AI_PRICE_TABLE = "{坏的";
-    await (await 路由()).start(请求("research/start", token, { runId: "run-bad-cfg" }));
-    expect(await 用掉(owner)).toBe(105);
-  });
-
-  it("次数不够 → 402，一句中文，一次都不扣", async () => {
+  it("背调次数用完 → 402，一句中文，一次都不扣（问答次数再多也不顶用）", async () => {
     const { token, owner } = await 建账号带令牌(0);
-    const { control } = await import("@/lib/tenant/control");
-    await control.accountAiUsage.upsert({ where: { accountId: owner.id }, create: { accountId: owner.id, calls: 27 }, update: { calls: 27 } });
-    const res = await (await 路由()).start(请求("research/start", token, { runId: "run-poor", 走我们的模型: true }));
+    const res = await (await 路由()).start(请求("research/start", token, { runId: "run-poor" }));
     expect(res.status).toBe(402);
     const msg = (await res.json()).error.message as string;
-    expect(msg).toContain("背调要 60 次，你还剩 3 次");
-    // 填了 Key 背调也照扣，不能再指路去填 Key
+    expect(msg).toContain("背调次数用完了");
+    expect(msg).toContain("你还剩 0 次背调");
     expect(msg).not.toContain("API Key");
-    expect(await 用掉(owner)).toBe(27);
+    expect(await 用掉(owner)).toBe(0);
   });
 });
 
@@ -258,12 +258,11 @@ describe("finish", () => {
     const { token, owner } = await 建账号带令牌();
     const { start, search, finish } = await 路由();
     await start(请求("research/start", token, { runId: "run-fail", 走我们的模型: true }));
-    expect(await 用掉(owner)).toBe(60);
+    expect(await 背调剩(owner)).toBe(2);
     const res = await finish(请求("research/finish", token, { runId: "run-fail", ok: false }));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true, 退了: 60, 还剩: 130 });
-    expect(res.headers.get("X-Credits-Remaining")).toBe("130");
-    expect(await (await finish(请求("research/finish", token, { runId: "run-fail", ok: false }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 130 });
+    expect(await res.json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
+    expect(await (await finish(请求("research/finish", token, { runId: "run-fail", ok: false }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 3 });
     expect((await search(请求("research/search", token, { runId: "run-fail", query: "Acme" }))).status).toBe(409);
   });
 
@@ -271,8 +270,8 @@ describe("finish", () => {
     const { token, owner } = await 建账号带令牌();
     const { start, finish } = await 路由();
     await start(请求("research/start", token, { runId: "run-ok", 走我们的模型: true }));
-    expect(await (await finish(请求("research/finish", token, { runId: "run-ok", ok: true, searches: 3, pages: 2 }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 70 });
-    expect(await 用掉(owner)).toBe(60);
+    expect(await (await finish(请求("research/finish", token, { runId: "run-ok", ok: true, searches: 3, pages: 2 }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
+    expect(await 背调剩(owner)).toBe(2);
   });
 
   it("ok 不是布尔 → 400；没开始过 → 404", async () => {
@@ -292,15 +291,16 @@ describe("模型网关认得背调的编号", () => {
     await start(请求("research/start", token, { runId: "run-chat", 走我们的模型: true }));
     // 频率闸只剩 1 次：第一步用掉它，后面 39 步全靠背调的放宽
     for (let i = 0; i < AI_LIMIT - 1; i++) consumeAiQuota(`gw:${acc.id}`);
-    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ choices: [{ message: { role: "assistant", content: "好的" }, finish_reason: "stop" }], usage: { prompt_tokens: 10_000, completion_tokens: 1_000 } })));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ choices: [{ message: { role: "assistant", content: "好的" }, finish_reason: "stop" }], usage: { prompt_tokens: 10_000, completion_tokens: 1_000, prompt_tokens_details: { cached_tokens: 4_000 } } })));
     for (let i = 0; i < 40; i++) {
       const res = await 问(请求("chat/completions", token, { model: "gpt-5.5", messages: [{ role: "user", content: `第 ${i} 步` }] }, { "X-Question-Id": "run-chat", "X-Feature": "research" }));
       expect(res.status, `第 ${i + 1} 步`).toBe(200);
     }
-    expect(await 用掉(owner)).toBe(60);
-    // 每步的模型钱累到这次背调上：gpt-5.5 官方价 1 万入 + 1 千出 ≈ 0.162 元，40 步 ≈ 6.48 元
+    // 背调里的模型调用一次 AI 次数都不扣（钱在背调次数里收了）
+    expect(await 用掉(owner)).toBe(0);
+    // 每步的模型钱累到这次背调上：gpt-5.5 按 b.ai 实价 1 万入（其中 4 千命中缓存）+ 1 千出 = (6000×5 + 4000×0.5 + 1000×30)/1e6 = $0.062 ≈ 0.446 元（按厘记），40 步 ≈ 17.84 元
     const { 背调已花 } = await import("@/lib/tenant/credits");
-    expect(await 背调已花(owner, "run-chat")).toBeCloseTo(6.48, 1);
+    expect(await 背调已花(owner, "run-chat")).toBeCloseTo(17.84, 1);
   });
 });
 
@@ -309,7 +309,7 @@ describe("问价 / 单次成本上限", () => {
     const { token } = await 建账号带令牌();
     const { GET } = await import("@/app/api/gateway/v1/research/price/route");
     const res = await GET(new Request("https://app.example.com/api/gateway/v1/research/price", { headers: { Authorization: `Bearer ${token}` } }));
-    expect(await res.json()).toEqual({ 扣次: 60, 还剩: 130 });
+    expect(await res.json()).toEqual({ 扣次: 1, 还剩: 3 });
     expect((await GET(new Request("https://app.example.com/api/gateway/v1/research/price"))).status).toBe(401);
   });
 

@@ -25,7 +25,7 @@ export function 收公司名(v: unknown): string | null {
 }
 
 export async function 背调一次(
-  body: { company: unknown; customerId?: unknown },
+  body: { company: unknown; customerId?: unknown; need?: unknown },
   send: (obj: unknown) => void,
   signal: AbortSignal,
 ): Promise<{ ok: true; answer: 背调回答 } | { ok: false; error: string }> {
@@ -58,6 +58,7 @@ export async function 背调一次(
   const r = await 跑背调({
     公司,
     客户,
+    需求: typeof body.need === "string" && body.need.trim() ? body.need.trim().slice(0, 300) : undefined,
     b,
     通道: 通道.通道,
     // 云端通道自带「打我们的网关」的模型调用（自己填了 Key 的也走我们的，照价扣）；模拟通道用本机配的模型

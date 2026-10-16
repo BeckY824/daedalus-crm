@@ -17,7 +17,7 @@ import { 起草语言们, 起草语气们, type 起草语言, type 起草语气 
 import { useLocalPref } from "@/lib/local-pref";
 import ResearchRun from "@/components/research/ResearchRun";
 import { dayjs } from "@/lib/utils";
-import { 最近背调 } from "@/lib/research/actions";
+import { 最近背调, 背调价目 } from "@/lib/research/actions";
 
 type BriefAnswer = { brief: CustomerBrief; records: BriefRecord[] };
 
@@ -66,6 +66,27 @@ export default function AiPanel({
   const [背调开, set背调开] = useState(false);
   const [上次背调, set上次背调] = useState<Awaited<ReturnType<typeof 最近背调>>>(null);
   const [看上次, set看上次] = useState(false);
+  /* 按钮上写「背调 · 剩 N 次」：点按钮本身就是确认（10-16 用户），所以扣费得写在按钮上，不够就点不了 */
+  const [背调价, set背调价] = useState<Awaited<ReturnType<typeof 背调价目>> | null>(null);
+  useEffect(() => {
+    let 活 = true;
+    背调价目().then((r) => 活 && set背调价(r)).catch(() => {});
+    return () => {
+      活 = false;
+    };
+  }, [researchJob?.status]);
+  const 背调能点 = Boolean(背调价?.可用 && (背调价.还剩 == null || 背调价.还剩 >= 背调价.扣次));
+  const 背调说明 = !背调价
+    ? "上网查这家公司：基本面、相关性、信号、风险、切入建议"
+    : !背调价.可用
+      ? `背调用不了：${背调价.原因}`
+      : 背调价.模拟
+        ? "开发环境用模拟数据，不扣次数"
+        : 背调价.还剩 == null
+          ? "上网背调这家公司（不限次数）"
+          : 背调能点
+            ? `上网背调这家公司，扣 1 次背调（还剩 ${背调价.还剩} 次）`
+            : "背调次数用完了，需要加次数请联系我们";
   useEffect(() => {
     let 活 = true;
     最近背调(customerId).then((r) => 活 && set上次背调(r)).catch(() => {});
@@ -150,9 +171,9 @@ export default function AiPanel({
             </Button>
           </Tooltip>
         )}
-        <Tooltip title="上网查这家公司：基本面、相关性、信号、风险、切入建议">
-          <Button size="small" type="text" icon={<GlobalOutlined />} onClick={() => set背调开(true)} disabled={背调开 || Boolean(researchJob)} aria-label="背调">
-            背调
+        <Tooltip title={背调说明}>
+          <Button size="small" type="text" icon={<GlobalOutlined />} onClick={() => set背调开(true)} disabled={背调开 || Boolean(researchJob) || !背调能点} aria-label="背调">
+            背调{背调价?.可用 && !背调价.模拟 && 背调价.还剩 != null ? ` · 剩 ${背调价.还剩} 次` : ""}
           </Button>
         </Tooltip>
       </div>
@@ -164,6 +185,7 @@ export default function AiPanel({
             company={customerName}
             customer={{ id: customerId, name: customerName }}
             on记跟进={on记跟进}
+            直接开跑
             onCancel={() => set背调开(false)}
             任务去={`/customers/${customerId}`}
           />

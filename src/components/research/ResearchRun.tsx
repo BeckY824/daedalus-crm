@@ -6,14 +6,17 @@
  *
  * 状态挂在 ai-jobs 上（key 由外面给），不在组件 state 里：切去别的页面再回来，转圈还在转、卡还在。
  *
- * **开跑前一定先问**（2026-09-18「AI 不许自动跑」那条）：说清这次扣几次、还剩几次，点「开始」才跑。
- * 这台机器背调不了（没登录云端账号）就在这一步说清楚，不让人点了才知道。
+ * **开跑前要么问一句、要么人已经主动选了**（2026-09-18「AI 不许自动跑」那条）：
+ *   - 普通问答里说「帮我背调 XX」：人没主动选背调，出确认卡说清扣 1 次背调、还剩几次，点「开始」才跑；
+ *   - 背调模式里发出去 / 记录页点「背调」按钮：选模式、点按钮本身就是确认（10-16 用户），直接开跑（直接开跑 = true）。
+ * 这台机器背调不了（没登录云端账号）就在确认卡上说清楚，不让人点了才知道。
+ * 背调次数和问答的 AI 次数分开记（10-16 用户），这里说的「次」都是背调次数。
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { App } from "antd";
 import ResearchCard from "./ResearchCard";
-import { useJob, clearJob } from "@/lib/ai-jobs";
+import { useJob, clearJob, getJob } from "@/lib/ai-jobs";
 import { useBusiness } from "@/lib/business-client";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import type { 背调状态 } from "@/lib/research/state";
@@ -31,6 +34,8 @@ export default function ResearchRun({
   on记跟进,
   onCancel,
   任务去,
+  直接开跑,
+  需求,
 }: {
   jobKey: string;
   company: string;
@@ -42,6 +47,10 @@ export default function ResearchRun({
   onCancel?: () => void;
   /** 侧栏「AI 任务」里点这一条回到哪 */
   任务去?: string;
+  /** 背调模式 / 记录页按钮发起的：人已经主动选了，不出确认卡、直接开跑 */
+  直接开跑?: boolean;
+  /** 背调模式里那句原话，带给模型 */
+  需求?: string;
 }) {
   const job = useJob<StreamJob<背调答案>>(jobKey);
   const running = job?.status === "loading";
@@ -54,7 +63,8 @@ export default function ResearchRun({
   const 查到过 = 原 ? Object.values(原.stages).some((x) => x.tools.some((t) => t.status === "done")) : false;
   const s = 原 && !原.done && job?.status === "error" && 查到过 ? { ...原, done: { charge: 0, 不完整: true } } : 原;
 
-  if (!job) return <Confirm company={company} onCancel={onCancel} onStart={() => runStream<背调答案>(jobKey, { mode: "research", company, customerId: customer?.id }, undefined, { 名: `背调 ${company}`.slice(0, 18), 去: 任务去 })} />;
+  const 开跑 = () => runStream<背调答案>(jobKey, { mode: "research", company, customerId: customer?.id, need: 需求 }, undefined, { 名: `背调 ${company}`.slice(0, 18), 去: 任务去 });
+  if (!job) return 直接开跑 ? <AutoStart jobKey={jobKey} onStart={开跑} /> : <Confirm company={company} onCancel={onCancel} onStart={开跑} />;
   if (!s) return job.status === "error" ? <div className="rs-err">{job.error}</div> : null;
 
   const 出错 = job.status === "error" ? job.error : undefined;
@@ -86,6 +96,71 @@ export default function ResearchRun({
   );
 }
 
+/**
+ * 直接开跑：挂上就发一次。开发模式下 StrictMode 会把 effect 跑两遍，第二遍时任务表里已经有这一条了（runStream 同步登记），
+ * 所以按任务表判断、不按组件 state 判断——不然一次背调扣两次
+ */
+function AutoStart({ jobKey, onStart }: { jobKey: string; onStart: () => void }) {
+  const 发过 = useRef(false);
+  useEffect(() => {
+    if (发过.current || getJob(jobKey)) return;
+    发过.current = true;
+    onStart();
+    // 只在挂上那一下
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <div className="rs-confirm"><span className="rs-confirm-t">开始背调…</span></div>;
+}
+
+/**
+ * 背调模式里认不准是哪家（lib/research/target.ts）：先让人点选或补一句，**不扣次数**，选定了才跑。
+ */
+export function ResearchPick({ 待选, onPick, onCancel }: { 待选: { 种类: "候选" | "要补充" | "认不出"; 候选?: string[]; 公司?: string; 原因?: string }; onPick: (公司: string) => void; onCancel?: () => void }) {
+  const [补, set补] = useState(待选.公司 ?? "");
+  const 交 = () => {
+    const v = 补.trim();
+    if (v.length >= 2) onPick(v);
+  };
+  return (
+    <div className="rs-confirm rs-pick" role="group" aria-label="选要背调的公司">
+      <span className="rs-confirm-t">
+        {待选.种类 === "候选" ? "这句里有好几家，背调哪一家？" : 待选.种类 === "要补充" ? 待选.原因 : "没认出要背调哪家公司。输入公司名或官网："}
+        <span className="rs-pick-n">（还没扣次数）</span>
+      </span>
+      <div className="rs-pick-row">
+        {待选.种类 === "候选" &&
+          (待选.候选 ?? []).map((c) => (
+            <button key={c} type="button" className="rs-btn" onClick={() => onPick(c)}>
+              背调「{c}」
+            </button>
+          ))}
+        {待选.种类 === "要补充" && 待选.公司 && (
+          <button type="button" className="rs-btn" onClick={() => onPick(待选.公司!)}>
+            就查「{待选.公司}」
+          </button>
+        )}
+      </div>
+      <div className="rs-pick-row">
+        <input
+          aria-label="公司名或官网"
+          value={补}
+          placeholder={待选.种类 === "要补充" ? `补一个国家或官网，比如「${待选.公司} 德国」或官网网址` : "公司名或官网，比如 Rexel / rexel.com"}
+          onChange={(e) => set补(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && 交()}
+        />
+        <button type="button" className="rs-btn rs-btn-primary" disabled={补.trim().length < 2} onClick={交}>
+          开始背调
+        </button>
+        {onCancel && (
+          <button type="button" className="rs-btn" onClick={onCancel}>
+            算了
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Confirm({ company, onStart, onCancel }: { company: string; onStart: () => void; onCancel?: () => void }) {
   const [价, set价] = useState<价目 | null>(null);
   useEffect(() => {
@@ -114,9 +189,9 @@ function Confirm({ company, onStart, onCancel }: { company: string; onStart: () 
           "（开发环境，用模拟数据，不扣次数）"
         ) : (
           <>
-            {/* 自己填了模型 Key 的也照扣（10-16 总控定）：要说清楚为什么，不然他会以为扣错了 */}
-            背调用的是我们的搜索和分析服务，按次数扣：<b>背调要 {价.扣次} 次</b>
-            {价.还剩 != null && <>，你还剩 {价.还剩} 次</>}。{不够 && "次数不够，需要加次数请联系我们。"}
+            {/* 背调次数和问答次数分开（10-16 用户）；自己填了模型 Key 的也照扣（总控定）——要说清楚为什么 */}
+            背调用的是我们的搜索和分析服务，<b>扣 1 次背调</b>
+            {价.还剩 != null && <>（你还剩 {价.还剩} 次背调）</>}。{不够 && "背调次数用完了，需要加次数请联系我们。"}
           </>
         )}
       </span>

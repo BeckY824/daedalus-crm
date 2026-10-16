@@ -381,6 +381,22 @@ model AiResearchRun {
   @@index([at])
 }
 
+/// 背调次数的赠送（2026-10-16）：背调单独计数，一次扣 1 次，和问答的 AI 次数分开。
+/// 余额 = amount 之和 − AiResearchRun 里没退的 units 之和。来路：运营台「背调 +N」、RESEARCH_SIGNUP_GRANT（默认 0）
+model ResearchGrant {
+  id        String   @id @default(cuid())
+  accountId String
+  amount    Int
+  /// admin | signup
+  reason    String
+  /// 幂等键：同一份赠送重复发静默跳过
+  key       String   @unique
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+}
+
 /// 每台桌面端装的是什么：系统、芯片、版本号。**一枚设备令牌一行**。
 ///
 /// 运营台要分得出 Mac 和 Windows（2026-09-28 起两边都发），还要看得出谁停在老版本。

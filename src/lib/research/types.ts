@@ -33,14 +33,17 @@ export type 搜索结果 = {
 /** 读一页回来的正文（已去掉标签，截断过） */
 export type 读页结果 = { url: string; title: string; text: string; 截断了: boolean };
 
-/** 一次背调的硬上限。服务器按同一份数再卡一遍（客户端可以被改，服务器不行） */
+/**
+ * 一次背调的硬上限（默认值）。搜索次数可以在服务器上调（RESEARCH_SEARCH_LIMIT，price.ts），开始时随回应告诉桌面端；
+ * 服务器按同一份数再卡一遍（客户端可以被改，服务器不行）
+ */
 export const 背调上限 = { 搜索: 8, 读页: 10 } as const;
 
 /* 扣几次、花多少的规矩在 price.ts（服务器按配置算，桌面端开跑前问 /research/price 拿数） */
 
 /* ---------- 网关接口（/api/gateway/v1/research/*）的请求和回应 ---------- */
 
-/** 开跑前问价：一次扣几次、你还剩几次（测试账号 不限） */
+/** 开跑前问价：一次扣几次背调次数（1）、还剩几次背调（和问答的 AI 次数分开；测试账号 不限） */
 export type 价目回应 = { 扣次: number; 还剩: number; 不限?: true };
 
 /** 这次背调到现在估计花了多少钱、上限多少（元）。搜索 / 读页的回应里带着，桌面端到了上限就停手 */
@@ -51,7 +54,20 @@ export type 花费 = { 已花元: number; 上限元: number };
  * 走我们的模型：老字段，服务器不再看——10-16 起背调的搜索和分析一律走我们的服务器、一律照价扣（price.ts）
  */
 export type 开始请求 = { runId: string; 走我们的模型?: boolean };
-export type 开始回应 = { ok: true; 扣了: number; 还剩: number; /** 这次背调的分析用哪个模型（服务器定） */ 模型?: string } | { ok: false; error: string };
+export type 开始回应 =
+  | {
+      ok: true;
+      扣了: number;
+      /** 背调次数还剩几次 */
+      还剩: number;
+      /** 最后打分 + 写报告用哪个模型（服务器定，固定 gpt-5.5） */
+      模型?: string;
+      /** 每一步挑工具、写摘要用哪个模型（服务器定，可以是便宜的 mini） */
+      摘要模型?: string;
+      /** 这次最多搜几次（服务器配置 RESEARCH_SEARCH_LIMIT） */
+      搜索上限?: number;
+    }
+  | { ok: false; error: string };
 
 export type 搜索请求 = { runId: string; query: string };
 export type 搜索回应 = { results: 搜索结果[]; 花费?: 花费 };

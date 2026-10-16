@@ -32,7 +32,7 @@ export type StreamBody =
     }
   | { mode: "brief"; customerId: string; question?: string }
   /** 背调（lib/research）：公司名必填；从客户详情页发起的带客户 id */
-  | { mode: "research"; company: string; customerId?: string };
+  | { mode: "research"; company: string; customerId?: string; /** 背调模式里那句原话，带给模型（让它知道人关心什么） */ need?: string };
 
 export type StreamJob<T> = {
   steps: StepEvent[];

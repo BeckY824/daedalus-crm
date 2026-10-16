@@ -36,52 +36,59 @@ function 假结论(prompt: string): unknown {
       },
       小结: "汉堡的照明进口分销商",
     };
-  if (prompt.includes("对照我们的业务"))
+  if (prompt.includes("对照我们的业务")) return { 小结: "品类和买家类型都对口" };
+  if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/lumora-trading-category-manager` }], 小结: "在扩户外品类" };
+  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `https://forum.example/t/lumora-trading-payment` }, { 级别: "超高", 说明: "级别写错，该丢" }], 小结: "风险低" };
+  // 最后一步：统一打分 + 像哪位老客户 + 切入建议（产品里固定 gpt-5.5）
+  if (prompt.includes("怎么切入"))
     return {
       评档: [
         { 维度: "category", 档: "high", 证据: "主营户外照明", 来源: `${官网}/about` },
         { 维度: "buyerType", 档: "high", 证据: "进口分销", 来源: `${官网}/about` },
         { 维度: "market", 档: "mid", 证据: "德奥瑞", 来源: "https://made-up.example/y" },
         { 维度: "scale", 档: "unknown" },
-        // 相关性那一步不许评信号和老客户：由后面那一步 / 老客户清单来定
-        { 维度: "signals", 档: "high", 证据: "瞎评的" },
+        { 维度: "signals", 档: "high", 证据: "在招品类经理", 来源: `https://jobs.example/lumora-trading-category-manager` },
       ],
       像的老客户: [
         { 编号: 1, 档: "high", 像在哪: "同在德国、都做电气批发" },
         { 编号: 9, 档: "high", 像在哪: "编号越界，该丢" },
       ],
-      小结: "品类和买家类型都对口",
+      建议: ["找品类经理", "主推工矿灯", "提前给 ENEC 证书"],
+      小结: "从品类经理切入",
     };
-  if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/lumora-trading-category-manager` }], 档: "high", 证据: "在招品类经理", 小结: "在扩户外品类" };
-  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `https://forum.example/t/lumora-trading-payment` }, { 级别: "超高", 说明: "级别写错，该丢" }], 小结: "风险低" };
-  if (prompt.includes("怎么切入")) return { 建议: ["找品类经理", "主推工矿灯", "提前给 ENEC 证书"], 小结: "从品类经理切入" };
   return {};
 }
 
-/** 每一步第一次先搜一次公司名，第二次读官网 About，第三次说够了 */
-function 假模型(opts: { 一直搜?: boolean; 不吃tools?: boolean } = {}): 模型调用 & { 调用: { kind: string; prompt: string }[] } {
-  const 调用: { kind: string; prompt: string }[] = [];
+/** 提示词里的用户消息全拼起来（run.ts：「背调对象 + 材料」在前，「这一步」在最后） */
+const 全文 = (messages: { role: string; content?: unknown }[]) => messages.filter((m) => m.role === "user").map((m) => String(m.content ?? "")).join("\n");
+
+/**
+ * 每一步第一次先搜一次公司名，第二次读官网 About，第三次说够了。
+ * 合并结论：合并 = true 时「够了」那一次直接交这一步的结论 JSON（10-16 降本），不再单独问一次
+ */
+function 假模型(opts: { 一直搜?: boolean; 不吃tools?: boolean; 合并?: boolean } = {}): 模型调用 & { 调用: { kind: string; prompt: string; model?: string; messages: { role: string; content?: unknown }[] }[] } {
+  const 调用: { kind: string; prompt: string; model?: string; messages: { role: string; content?: unknown }[] }[] = [];
   return {
     调用,
-    async tools(messages) {
-      const prompt = String(messages[1]?.content ?? "");
-      调用.push({ kind: "tools", prompt });
+    async tools(messages, _tools, o) {
+      const prompt = 全文(messages);
+      调用.push({ kind: "tools", prompt, model: o.model, messages });
       if (opts.不吃tools) throw Object.assign(new Error("接口返回 400：tools not supported"), { status: 400 });
       const 第几 = messages.filter((m) => m.role === "tool").length;
       if (opts.一直搜) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "search_web", arguments: JSON.stringify({ query: `"${公司}" news ${调用.length}` }) } }], text: "再搜一次" };
       if (第几 === 0) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "search_web", arguments: JSON.stringify({ query: `"${公司}" hiring fair` }) } }], text: "先搜公司全名" };
       if (第几 === 1 && prompt.includes("认准是哪一家")) return { toolCalls: [{ id: `c${调用.length}`, type: "function", function: { name: "read_page", arguments: JSON.stringify({ url: `${官网}/about` }) } }], text: "读官网" };
-      return { toolCalls: [], text: "够了" };
+      return { toolCalls: [], text: opts.合并 ? JSON.stringify(假结论(prompt)) : "够了" };
     },
-    async json(messages) {
+    async json(messages, o) {
       const prompt = String(messages[messages.length - 1]?.content ?? "");
-      调用.push({ kind: "json", prompt });
+      调用.push({ kind: "json", prompt: 全文(messages), model: o.model, messages });
       // JSON 协议下的「下一步」：搜一次就够
       if (prompt.includes('"tool":"search_web"')) {
         const 搜过 = messages.some((m) => m.role === "user" && String(m.content).startsWith("结果："));
         return 搜过 ? { done: true } : { thought: "先搜", tool: "search_web", query: `"${公司}"` };
       }
-      return 假结论(String(messages[1]?.content ?? ""));
+      return 假结论(全文(messages));
     },
   };
 }
@@ -117,7 +124,7 @@ describe("背调 6 步编排", () => {
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: false });
   });
 
-  it("分数由程序算：相关性那一步评的「信号」不算数，由信号那一步定；老客户那一维取最像那位的档", async () => {
+  it("分数由程序算：最后一步统一评档（含信号）；老客户那一维取最像那位的档", async () => {
     const { r } = await 跑();
     if (!r.ok) throw new Error(r.error);
     const 明细 = Object.fromEntries(r.状态.评分!.明细.map((d) => [d.维度, d]));
@@ -154,7 +161,7 @@ describe("背调 6 步编排", () => {
   it("发给模型的老客户只有名字、成交/在谈、国家、档案字段", async () => {
     const m = 假模型();
     await 跑({ 模型: m });
-    const fit = m.调用.find((c) => c.kind === "json" && c.prompt.includes("像不像"));
+    const fit = m.调用.find((c) => c.kind === "json" && c.prompt.includes("最多挑 3 位，按编号回"));
     expect(fit?.prompt).toContain("1. Nordlicht Elektro｜已成交｜德国｜行业：电气批发");
     expect(fit?.prompt).toContain("2. Sol Andino｜在谈｜智利");
   });
@@ -247,6 +254,60 @@ describe("背调 6 步编排", () => {
     const 包 = { ...m, tools: (a: never, t: { function: { name: string } }[], o: never) => (名们.push(...t.map((x) => x.function.name)), m.tools(a, t as never, o)) };
     await 跑({ 模型: 包 as unknown as 模型调用 });
     expect(new Set(名们)).toEqual(new Set(["search_web", "read_page"]));
+  });
+
+  it("模型分工：每步挑工具、写摘要用摘要模型；最后打分写报告用报告模型（10-16 用户：保证最后回复的质量）", async () => {
+    const 通道 = { ...模拟通道(), 模型: "gpt-5.5", 摘要模型: "gpt-5.4-mini" } as 背调通道;
+    const m = 假模型();
+    await 跑({ 模型: m, 通道 });
+    const 最后 = m.调用.filter((c) => c.prompt.includes("最多挑 3 位，按编号回"));
+    expect(最后).toHaveLength(1);
+    expect(最后[0].model).toBe("gpt-5.5");
+    const 其余 = m.调用.filter((c) => !c.prompt.includes("最多挑 3 位，按编号回"));
+    expect(其余.length).toBeGreaterThan(5);
+    for (const c of 其余) expect(c.model).toBe("gpt-5.4-mini");
+  });
+
+  it("够了的那一次直接交结论：不再单独问一次（10-16 降本）", async () => {
+    const 分开 = 假模型();
+    await 跑({ 模型: 分开 });
+    const 合并 = 假模型({ 合并: true });
+    const { r } = await 跑({ 模型: 合并 });
+    expect(r.ok).toBe(true);
+    // 认准 / 基本面 / 信号 / 风险四步各省一次单独的结论调用；相关性那步只给 1 次工具、轮不到「够了」，最后一步本来就只有一次
+    expect(分开.调用.length - 合并.调用.length).toBe(4);
+    if (r.ok) expect(r.状态.fields.founded?.value).toBe("2009 年");
+  });
+
+  it("提示缓存：系统提示、背调对象和已有材料在前面不变，「这一步」放最后；背调模式的原话带给模型", async () => {
+    const m = 假模型();
+    await 跑背调({
+      公司,
+      需求: "帮我查 Lumora 适不适合我们",
+      b: { brief: "户外 LED 照明出口欧洲", fields: { school: "公司", grade: "职位", major: "行业" } },
+      通道: 模拟通道(),
+      模型: m,
+      老客户: [],
+      发: () => {},
+      runId: "run-cache",
+    });
+    const 首 = m.调用[0].messages;
+    expect(首[0].role).toBe("system");
+    expect(String(首[1].content)).toMatch(/^背调对象：Lumora Trading GmbH/);
+    expect(String(首[1].content)).toContain("用户的原话：帮我查 Lumora 适不适合我们");
+    expect(String(首[1].content)).toContain("已有材料：");
+    expect(String(首[2].content)).toMatch(/^这一步：/);
+    // 下一步的前缀 = 上一步那一段，只是材料往后多了几条：开头整段不变，缓存才命中得了
+    const 第二步 = m.调用.find((c) => c.prompt.includes("查基本面"))!;
+    expect(String(第二步.messages[1].content).startsWith(String(首[1].content).replace(/（还没有材料）$/, ""))).toBe(true);
+  });
+
+  it("搜索上限听服务器的（降本开关 RESEARCH_SEARCH_LIMIT）", async () => {
+    const 通道 = 模拟通道();
+    通道.开始 = async () => ({ ok: true, 扣了: 0, 还剩: 0, 搜索上限: 3 });
+    const 搜 = vi.spyOn(通道, "搜索");
+    await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
+    expect(搜).toHaveBeenCalledTimes(3);
   });
 
   it("对面不吃 tools：退回 JSON 协议照样跑完", async () => {

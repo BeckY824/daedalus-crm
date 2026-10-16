@@ -40,3 +40,19 @@ CREATE TABLE IF NOT EXISTS "AiResearchRun" (
 -- 幂等的依据：同一个 owner 的同一个 runId 只有一行，重复 start 不会重扣
 CREATE UNIQUE INDEX IF NOT EXISTS "AiResearchRun_ownerKind_ownerId_runId_key" ON "AiResearchRun"("ownerKind", "ownerId", "runId");
 CREATE INDEX IF NOT EXISTS "AiResearchRun_at_idx" ON "AiResearchRun"("at");
+
+-- 背调次数的赠送（2026-10-16 用户定：背调单独计数，和问答的 AI 次数分开记、分开显示，一次背调扣 1 次）。
+-- 余额 = 这张表的 amount 之和 − AiResearchRun 里没退的 units 之和（不另开计数器：账就是这两张表，对得上）。
+-- 来路两样：运营台手动「背调 +N」（reason = admin）；配置 RESEARCH_SIGNUP_GRANT 的新用户赠送（reason = signup，默认 0 不送）。
+-- 只加不减，和 AccountAiGrant 一个规矩；key 唯一，同一份赠送重复发静默跳过。
+CREATE TABLE IF NOT EXISTS "ResearchGrant" (
+  "id"        TEXT NOT NULL PRIMARY KEY,
+  "accountId" TEXT NOT NULL,
+  "amount"    INTEGER NOT NULL,
+  "reason"    TEXT NOT NULL,
+  "key"       TEXT NOT NULL,
+  "note"      TEXT,
+  "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "ResearchGrant_key_key" ON "ResearchGrant"("key");
+CREATE INDEX IF NOT EXISTS "ResearchGrant_accountId_idx" ON "ResearchGrant"("accountId");

@@ -8,7 +8,7 @@ import { 是刚交过来的 } from "@/lib/home-ask";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Dropdown, Tooltip } from "antd";
-import { ArrowUpOutlined, SnippetsOutlined } from "@ant-design/icons";
+import { ArrowUpOutlined, SnippetsOutlined, GlobalOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import ModelPicker, { useModel } from "@/components/ModelPicker";
 import AskFiles, { type 附件 } from "@/components/AskFiles";
@@ -17,7 +17,7 @@ import type { ModelOption } from "@/lib/llm";
 import { useBusiness } from "@/lib/business-client";
 import { clearJob, getJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
-import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
+import { addTurn, clearThread, dequeueTurn, removeTurn, updateTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
 import { 载入历史, type AgentAnswer, type 历史消息 } from "@/lib/thread-history";
 import { 落一轮 } from "./threads";
 import AskBox from "@/components/AskBox";
@@ -27,6 +27,9 @@ import Signals from "./Signals";
 import { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
 import { Esc归别人 } from "@/lib/esc";
 import { 认背调意图 } from "@/lib/research/intent";
+import { 认背调对象 } from "@/lib/research/target";
+import { 背调价目 } from "@/lib/research/actions";
+import ResearchModeLine from "@/components/research/ResearchModeLine";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -133,6 +136,13 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     是本应用 ⌘K 交过来的，下面那个 effect 会直接发出去（submit 会把框清空）
   */
   const [q, setQ] = useState(() => 地址栏.get("q") ?? "");
+  /*
+    背调模式（10-16 用户：「背调可以单独作为一个 agent……在对话那里选择这个，然后直接输入需求，就直接进入背调」）。
+    和普通问答并列切换；选中以后发出去的每一句都是一次背调，直接开跑——**选模式本身就是确认**。
+    扣的是背调次数（和问答次数分开），输入框底下常驻「背调 · 每次扣 1 次 · 剩 N 次」；没次数就发不出去。
+  */
+  const [背调模式, set背调模式] = useState(false);
+  const [背调价, set背调价] = useState<Awaited<ReturnType<typeof 背调价目>> | null>(null);
   const [cmdIdx, setCmdIdx] = useState(0);
   /** 输入框空着时，↑↓ 在下面那排建议问题里选，回车就发。-1 = 没选 */
   const [suggIdx, setSuggIdx] = useState(-1);
@@ -165,6 +175,18 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   );
 
   const runningKey = useRunningKey(turns.map((t) => `home:${t.id}`));
+
+  /* 进背调模式就问一次价（还剩几次背调）；有一轮跑完（runningKey 变了）再问一次——刚扣过 */
+  useEffect(() => {
+    if (!背调模式) return;
+    let 活 = true;
+    背调价目()
+      .then((r) => 活 && set背调价(r))
+      .catch(() => 活 && set背调价({ 可用: false, 原因: "问不到背调次数，稍后再试" }));
+    return () => {
+      活 = false;
+    };
+  }, [背调模式, runningKey]);
 
   /**
    * 库 → 这一屏。
@@ -293,6 +315,26 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   function submit(raw: string, opts: { queue?: boolean } = {}) {
     const typed = raw.trim();
     if (!typed) return;
+    /*
+      背调模式：这一句就是要背调的对象（可以是公司名、官网、或一句需求）。认得出是哪家就直接开跑；
+      认不准（好几家 / 太短 / 认不出）先摆一张点选卡，不扣次数（lib/research/target.ts）。
+      问答次数用完了不挡——背调次数是另一本账
+    */
+    if (背调模式) {
+      if (!背调能发) return;
+      const 对象 = 认背调对象(typed);
+      const turn = addTurn(scope, {
+        question: typed,
+        kind: "research",
+        直接: true,
+        需求: typed,
+        ...(对象.种类 === "公司" ? { 公司: 对象.公司 } : { 待选: 对象 }),
+      });
+      set刚发的(turn.id);
+      setQ("");
+      setFiles([]);
+      return;
+    }
     let question = typed;
     if (typed.startsWith("/")) {
       const c = 命令表(models.length).find((x) => x.cmd === typed.split(/\s+/)[0]);
@@ -377,7 +419,9 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   }, [running]);
 
   const empty = turns.length === 0;
-  const canSend = q.trim().length > 0 && !AI已用完;
+  /** 背调模式能不能发：这台机器能背调、背调次数还有（不限 = 测试账号 / 开发环境的模拟） */
+  const 背调能发 = Boolean(背调价?.可用 && (背调价.还剩 == null || 背调价.还剩 >= 背调价.扣次));
+  const canSend = q.trim().length > 0 && (背调模式 ? 背调能发 : !AI已用完);
   /** 输入框底下摆不摆那排建议问题：只在还没问过、且库里有东西的时候 */
   const 摆建议 = empty && !空库 && suggestions.length > 0 && 模式 === "宽";
   const 问这条 = (x: Suggestion) => submit(x.kind === "prep" ? "/prep" : x.kind === "recap" ? "/recap" : x.question);
@@ -437,6 +481,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                   removeTurn(scope, t.id);
                 }}
                 onAsk={(q) => submit(q)}
+                on选定={(公司) => updateTurn(scope, t.id, { 公司, 待选: undefined })}
               />
             ))}
             <div ref={endRef} />
@@ -453,10 +498,31 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             }}
             onSubmit={() => submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q)}
             onPaste={认一下粘的是什么}
-            placeholder={running ? "正在回答… 再问会排队，Esc 打断" : `问一位${b.customer}，或问一个数`}
+            placeholder={
+              背调模式
+                ? "输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们"
+                : running
+                  ? "正在回答… 再问会排队，Esc 打断"
+                  : `问一位${b.customer}，或问一个数`
+            }
             栏左={
               <>
-                <AskFiles files={files} onChange={setFiles} disabled={running != null} />
+                {/* 背调模式开关：和普通问答并列切换，选中有明显的状态（.cli-tool-on） */}
+                <button
+                  type="button"
+                  className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}${背调模式 ? " cli-tool-on" : ""}`}
+                  aria-pressed={背调模式}
+                  aria-label="背调"
+                  onClick={() => {
+                    set背调模式((v) => !v);
+                    taRef.current?.focus();
+                  }}
+                  title={背调模式 ? "退出背调，回到普通问答" : "背调模式：输入公司名或一句需求，直接上网背调"}
+                >
+                  <GlobalOutlined />
+                  {模式 === "宽" && <span>背调</span>}
+                </button>
+                {!背调模式 && <AskFiles files={files} onChange={setFiles} disabled={running != null} />}
                 {/*
                   主线入口。和加文件并排——都是「把外面的东西弄进来」，不是「问一句」。
                   **窄模式（右侧面板）只留图标**：380 宽那一条里还要塞模型选单和发送键，
@@ -464,7 +530,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                   粘一段名单是首页的事。
                 */}
                 {/* 空库的欢迎态上那张「开始」卡已经有一颗「粘一段聊天」，这里不再摆第二颗（审查 D11） */}
-                {!(empty && 空库 && 模式 === "宽") && (
+                {!背调模式 && !(empty && 空库 && 模式 === "宽") && (
                   <button
                     type="button"
                     className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}`}
@@ -617,7 +683,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             </span>
             {/* 免费次数常驻显示。等横条弹出来才知道，人已经在问第五句了。
                 每一问、每个建议问题都花 1 次，在这儿说一次，不在每个胶囊上挂角标（components/AiCost.tsx） */}
-            <AiRemaining />
+            {背调模式 ? <ResearchModeLine 价={背调价} /> : <AiRemaining />}
             <span style={{ flex: 1 }} />
             {!empty && suggestions.slice(0, 3).map((x) => (
               <button key={x.label} type="button" className="cli-sugg" disabled={AI已用完} onClick={() => 问这条(x)}>

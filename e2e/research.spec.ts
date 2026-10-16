@@ -92,3 +92,36 @@ test("问背调本身的问题不当成要背调：照常走问答", async ({ pa
   await 框.press("Enter");
   await expect(page.getByRole("group", { name: "背调确认" })).toHaveCount(0);
 });
+
+test("背调模式：选中有明显状态，发出去直接开跑；认不准先点选；再点一下回到普通问答", async ({ page }) => {
+  test.setTimeout(120_000);
+  await 登录(page);
+  const 开关 = page.getByRole("button", { name: "背调", exact: true });
+  await expect(开关).toHaveAttribute("aria-pressed", "false");
+  await 开关.click();
+  await expect(开关).toHaveAttribute("aria-pressed", "true");
+  const 框 = page.getByPlaceholder("输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们");
+  await expect(框).toBeVisible();
+  // 扣费说在前面（e2e 走模拟通道：不扣次数）
+  await expect(page.getByText("背调 · 开发环境用模拟数据，不扣次数")).toBeVisible();
+
+  // 1. 发出去 = 直接开跑，不出确认卡
+  await 框.fill("帮我查 Lumora Trading GmbH 适不适合我们");
+  await 框.press("Enter");
+  const 卡 = page.getByRole("region", { name: "背调 Lumora Trading GmbH" });
+  await expect(卡.locator(".rs-pill")).toHaveText("已完成", { timeout: 60_000 });
+  await expect(page.getByRole("group", { name: "背调确认" })).toHaveCount(0);
+
+  // 2. 一句里两家：先点选（不扣次数），点了才跑
+  await 框.fill("Nordwerk 和 Polaris Elektro");
+  await 框.press("Enter");
+  const 选 = page.getByRole("group", { name: "选要背调的公司" });
+  await expect(选).toContainText("还没扣次数");
+  await 选.getByRole("button", { name: "背调「Polaris Elektro」" }).click();
+  await expect(page.getByRole("region", { name: "背调 Polaris Elektro" }).locator(".rs-pill")).toHaveText("已完成", { timeout: 60_000 });
+
+  // 3. 再点一下：回到普通问答
+  await 开关.click();
+  await expect(开关).toHaveAttribute("aria-pressed", "false");
+  await expect(page.getByPlaceholder("输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们")).toHaveCount(0);
+});
