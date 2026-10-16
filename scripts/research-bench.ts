@@ -15,6 +15,14 @@
  *   参考：全 mini（只跑前 5 家，不作为候选）
  *   提示缓存每组都开着（编排本身就是按缓存友好的顺序拼提示词，run.ts 的 前缀）。
  *
+ * ## 10-17 起默认跑「A / C 同材料回放」（research-bench.ac.json；用户嫌全量太贵）
+ *
+ *   每家只让 A 真跑一遍，录下每一步搜到的、读到的（输出目录/录像/，按家分文件）；C 组配了 "回放": "A 全 5.5"，
+ *   不再搜索、不读新页，用 A 录的同一批材料重放「mini 每步摘要 + 5.5 打分写报告」——两组材料一样，只比模型，C 一次不到 1 元。
+ *   C 上线以后要自己搜，所以「估真实单次成本」= A 同一家的搜索花费 + C 的模型花费（偏高：A 的搜索是 5.5 中等结果量、最多 8 次）。
+ *   回放规则见 回放()；C 要的材料录里没有的次数记在 results.csv 的 回放缺搜 / 回放缺页。
+ *   5 家，2 家同时跑（每家里 A 跑完才回放 C）。A 跑过的家加 --重用录像 不再真跑 A，只重放 C（改了 C 的提示词想再比一次时用）。
+ *
  * ## 过线（和 A 比，任何一条不过整组淘汰；门槛在配置的「过线」里）
  *
  *   认对公司 100%；结论带来源的比例不低于 A 5 个百分点以上（逐家和 A 比、再取平均——10-16 晚总控定：A 自己试跑才 74%，
@@ -34,11 +42,12 @@
  *   BENCH_BASE_URL=https://api.b.ai/v1 BENCH_KEY=… npx tsx scripts/research-bench.ts --配置 … --公司 …
  *     真跑：花的是中转站额度。Key 只放环境变量（~/Opensource_CRM/02-开发与发版/背调-脚本/对比实验.sh 从服务器取，不打印）
  *   … --只跑 1     先跑第 1 家看看
+ *   … --重用录像   录像目录里已有的组不再真跑，直接拿上次的结果，只跑回放组
  *
- * 同一家公司的几组并排同时跑（中转站扛得住，总时长缩到原来的几分之一）。
+ * 同一家最多 2 组同时跑；几家同时跑看配置的 同时跑几家（默认 1）。
  * 输出到 --输出 指定的目录：results.csv、summary.md、编造嫌疑.md、盲评.html / 盲评.pdf / 盲评-答案.txt、每份报告的 txt。
  */
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { 跑背调, type 模型调用 } from "../src/lib/research/run";
 import { claude搜索, gpt搜索, 卡了重搜一次, type 搜索服务 } from "../src/lib/research/providers";
@@ -49,7 +58,7 @@ import type { 背调通道 } from "../src/lib/research/channel";
 import type { 背调状态 } from "../src/lib/research/state";
 import { 读价目, 模型花费元, 搜索花费元, type 价目 } from "../src/lib/research/price";
 import { 背调超时, 重发一次, 截 } from "../src/lib/research/retry";
-import { 阶段表 } from "../src/lib/research/types";
+import { 阶段表, type 花费, type 搜索结果, type 读页结果 } from "../src/lib/research/types";
 
 /* ---------- 配置 ---------- */
 
@@ -71,14 +80,23 @@ type 组合 = {
   参考?: boolean;
   /** 只跑名单前几家 */
   只跑前?: number;
+  /**
+   * 不自己搜：回放这一组（写组名）同一家录下的搜索结果和网页，只比模型（10-17 总控定的「A / C 同材料回放」）。
+   * 这组排在被回放的那组后面跑；成本只有模型那部分，估真实单次成本时再加上被回放那组的搜索花费
+   */
+  回放?: string;
 };
 /** 有来源差：结论带来源的比例最多比 A 低多少（0.05 = 5 个百分点），逐家比再取平均；A 自己不比 */
 type 过线 = { 认对: number; 有来源差: number; 核得上: number; 分差: number; 档一致: number; 编造: number };
 type 配置 = {
   /** 「我们卖什么、卖给谁、哪些国家」——等于设置里的业务简介，评分照它评 */
   我方: string;
-  /** 每组跑名单前几家（组里另写 只跑前 的以组为准） */
-  公司数: number;
+  /** 每组跑名单前几家（组里另写 只跑前 的以组为准）；写了 公司 就按 公司 */
+  公司数?: number;
+  /** 只跑这几家（名单里「公司」那一列的名字，照这里的顺序） */
+  公司?: string[];
+  /** 几家同时跑（默认 1）。同一家里几组同时跑另有 同时跑（最多 2） */
+  同时跑几家?: number;
   /** 实验里的单次成本上限（元）。产品默认 4 元，实验放宽到 10，别让 5.5 那组被截断 */
   成本上限元: number;
   组合: 组合[];
@@ -95,7 +113,7 @@ const 参数 = (() => {
     const i = a.indexOf(k);
     return i >= 0 ? a[i + 1] : undefined;
   };
-  return { 配置: 取("--配置"), 公司: 取("--公司"), 模拟: a.includes("--模拟"), 只跑: Number(取("--只跑") ?? 0) || 0, 输出: 取("--输出") ?? "research-bench-out" };
+  return { 配置: 取("--配置"), 公司: 取("--公司"), 模拟: a.includes("--模拟"), 重用录像: a.includes("--重用录像"), 只跑: Number(取("--只跑") ?? 0) || 0, 输出: 取("--输出") ?? "research-bench-out" };
 })();
 
 function 读公司(p: string): 公司[] {
@@ -207,6 +225,100 @@ function 直连通道(g: 组合, 服务: 搜索服务, 账: 账, 价: 价目, �
   return 通道;
 }
 
+/* ---------- 录制 / 回放：A 真跑时把每一步搜到的、读到的原样录下来，C 用同一批材料重放，只比模型 ---------- */
+
+export type 录像 = {
+  公司: string;
+  组: string;
+  /** 按发生顺序；步 = 哪一步搜的（回放时同一步按顺序给） */
+  搜索: { 步: string; query: string; 结果?: 搜索结果[]; 错?: string }[];
+  读页: { url: string; 页?: 读页结果; 错?: string }[];
+  /** 这一组这一家跑出来的整份结果（--重用录像 时不再真跑，直接拿来和回放组比） */
+  结果?: 一次结果;
+};
+type 一次结果 = { 行: 一次; 状态: 背调状态 | null; 材料: { url: string; text: string }[]; 嫌疑: 核对["嫌疑"] };
+
+const 错文 = (e: unknown) => (e instanceof Error ? e.message : String(e));
+/** 同一页：去掉 #、末尾的 /、域名大小写 */
+const 页键 = (u: string) => {
+  try {
+    const x = new URL(u.trim());
+    x.hash = "";
+    return `${x.protocol}//${x.host.toLowerCase()}${x.pathname.replace(/\/+$/, "")}${x.search}`;
+  } catch {
+    return u.trim();
+  }
+};
+
+/** 包一层：搜索 / 读页照常走 基，结果（连出的错）按发生顺序记进 录 */
+export function 录下(基: 背调通道, 录: 录像, 当前步: () => string): 背调通道 {
+  const 通道: 背调通道 = {
+    ...基,
+    async 搜索(runId, query, signal) {
+      const 步 = 当前步();
+      try {
+        const r = await 基.搜索(runId, query, signal);
+        录.搜索.push({ 步, query, 结果: r });
+        return r;
+      } catch (e) {
+        if (!signal?.aborted) 录.搜索.push({ 步, query, 错: 错文(e) });
+        throw e;
+      } finally {
+        通道.花费 = 基.花费;
+      }
+    },
+    async 读页(runId, url, signal) {
+      try {
+        const p = await 基.读页(runId, url, signal);
+        录.读页.push({ url, 页: p });
+        return p;
+      } catch (e) {
+        if (!signal?.aborted) 录.读页.push({ url, 错: 错文(e) });
+        throw e;
+      } finally {
+        通道.花费 = 基.花费;
+      }
+    },
+  };
+  return 通道;
+}
+
+/**
+ * 回放 录 里的材料，不联网：
+ * - 搜索：同一步里先找一字不差的查询，没有就按顺序给这一步下一条没用过的；这一步录的用完了给 0 条（记一笔 缺.搜）
+ * - 读页：只给录里有的页（录的时候读失败的照样失败）；没有的报错、不补读（记一笔 缺.页）——两组材料必须一样
+ */
+export function 回放(录: 录像, 基: 背调通道, 当前步: () => string, 缺: { 搜: number; 页: number }, 看钱?: () => 花费): 背调通道 {
+  const 用过 = new Set<number>();
+  const 通道: 背调通道 = {
+    ...基,
+    async 搜索(_runId, query) {
+      const 步 = 当前步();
+      const 这步 = 录.搜索.map((x, i) => ({ x, i })).filter(({ x, i }) => x.步 === 步 && !用过.has(i));
+      const 中 = 这步.find(({ x }) => x.query.trim().toLowerCase() === query.trim().toLowerCase()) ?? 这步[0];
+      通道.花费 = 看钱?.();
+      if (!中) {
+        缺.搜 += 1;
+        return [];
+      }
+      用过.add(中.i);
+      if (中.x.错) throw new Error(中.x.错);
+      return 中.x.结果 ?? [];
+    },
+    async 读页(_runId, url) {
+      const 中 = 录.读页.find((x) => 页键(x.url) === 页键(url) || (x.页?.url && 页键(x.页.url) === 页键(url)));
+      通道.花费 = 看钱?.();
+      if (!中) {
+        缺.页 += 1;
+        throw new Error("这一页读不了（回放：标准组没读过这一页，不补读）");
+      }
+      if (中.错 || !中.页) throw new Error(中.错 ?? "这一页读不了");
+      return 中.页;
+    },
+  };
+  return 通道;
+}
+
 /* ---------- 自动核 ---------- */
 
 /** 域名对不对得上：去掉 www，后缀相同就算（ledvance.de 对 ledvance.com 要在名单里另列） */
@@ -294,6 +406,17 @@ type 一次 = {
   搜索输出: number;
   秒: number;
   成本元: number;
+  /** 成本里搜索那部分 / 模型那部分 */
+  搜索元: number;
+  模型元: number;
+  /**
+   * 估真实单次成本：回放组 = 被回放那组同一家的 搜索元 + 自己的 模型元（上线以后它要自己搜）；别的组 = 成本元。
+   * 被回放的 A 用的是 5.5 中等结果量、最多 8 次搜索，比 C 正式配的（low、最多 5 次）贵一点，所以这是偏高的估计
+   */
+  估实价元: number;
+  /** 回放时这一步录的搜索用完了、又要搜的次数；要读录里没有的页的次数 */
+  回放缺搜: number;
+  回放缺页: number;
   错: string;
   /** 哪一步出错停下的、报的什么（没停就空着） */
   停在: string;
@@ -341,13 +464,26 @@ async function 限并发<T, R>(xs: T[], n: number, 做: (x: T) => Promise<R>): P
   return 出;
 }
 
-async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: string, 价: 价目): Promise<{ 行: 一次; 状态: 背调状态 | null; 嫌疑: 核对["嫌疑"] }> {
+function 空行(g: 组合, co: 公司): 一次 {
+  return {
+    组: g.名, 公司: co.名, 国家: co.国家, 类型: co.类型, 认对: "没找到", 认到的官网: "", 分: "", 步完成: 0, 不完整: true,
+    结论数: 0, 有来源: 0, 核得上: 0, 核不上: 0, 核不了: 0, 嫌疑: 0, 搜索次数: 0, 读页数: 0, 模型调用: 0, 模型输入: 0, 模型缓存读: 0, 模型输出: 0,
+    搜索输入: 0, 搜索缓存读: 0, 搜索输出: 0, 秒: 0, 成本元: 0, 搜索元: 0, 模型元: 0, 估实价元: 0, 回放缺搜: 0, 回放缺页: 0, 错: "", 停在: "",
+  };
+}
+
+/** 录：真跑并把材料录进去；源：不自己搜，回放它 */
+async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: string, 价: 价目, 带: { 录?: 录像; 源?: 录像 } = {}): Promise<一次结果> {
   const 模型账 = 新账();
   const 搜索账 = 新账();
   const 已花 = () => 模型账.花费元 + 搜索账.花费元;
   const cfg = { baseUrl: base, apiKey: key, models: [] };
   const 服务 = /^claude/i.test(g.搜索) ? claude搜索(cfg, g.搜索) : gpt搜索(cfg, g.搜索, g.搜索结果量);
-  const 通道 = 参数.模拟 ? 模拟通道() : 直连通道(g, 服务, 搜索账, 价, 已花, c.成本上限元);
+  const 基 = 参数.模拟 ? 模拟通道() : 直连通道(g, 服务, 搜索账, 价, 已花, c.成本上限元);
+  // 编排每次调工具前先发一个 tool running 事件（带是哪一步），紧跟着就调通道：拿它认「这次搜索是哪一步的」
+  let 当前步 = "";
+  const 缺 = { 搜: 0, 页: 0 };
+  const 通道 = 带.源 ? 回放(带.源, 基, () => 当前步, 缺, () => ({ 已花元: 已花(), 上限元: c.成本上限元 })) : 带.录 ? 录下(基, 带.录, () => 当前步) : 基;
   const t0 = Date.now();
   let 状态: 背调状态 | null = null;
   let 材料: { url: string; text: string }[] = [];
@@ -359,7 +495,9 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
       通道,
       模型: 直连模型(base, key, 参数.模拟 ? "e2e-model" : g.报告, 模型账, 价),
       老客户: [],
-      发: () => {},
+      发: (e) => {
+        if (e.type === "tool" && e.status === "running") 当前步 = e.stage;
+      },
     });
     if (r.ok) {
       状态 = r.状态;
@@ -398,11 +536,16 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
     秒: Math.round(秒 * 10) / 10,
     // 模拟数据不花钱（假模型名按兜底价估出来的数没有意义）
     成本元: 参数.模拟 ? 0 : Math.round(已花() * 1000) / 1000,
+    搜索元: 参数.模拟 ? 0 : Math.round(搜索账.花费元 * 1000) / 1000,
+    模型元: 参数.模拟 ? 0 : Math.round(模型账.花费元 * 1000) / 1000,
+    估实价元: 参数.模拟 ? 0 : Math.round(已花() * 1000) / 1000,
+    回放缺搜: 缺.搜,
+    回放缺页: 缺.页,
     错,
     停在: 停在哪(状态),
   };
   if (状态) writeFileSync(path.join(参数.输出, `${文件名(co.名)}__${文件名(g.名)}.txt`), 报告文本(状态));
-  return { 行, 状态, 嫌疑: 核.嫌疑 };
+  return { 行, 状态, 材料, 嫌疑: 核.嫌疑 };
 }
 
 /** 盲评：A 和挑中的那组并排，去掉组合名、随机左右，出 HTML 再打成 PDF */
@@ -439,7 +582,14 @@ async function main() {
   if (!参数.配置 || !参数.公司) throw new Error("要 --配置 和 --公司，见文件头的用法");
   const c = JSON.parse(readFileSync(参数.配置, "utf8")) as 配置;
   const 价: 价目 = 读价目({ RESEARCH_PRICES: c.价目 ? JSON.stringify(c.价目) : process.env.RESEARCH_PRICES });
-  let 公司们 = 读公司(参数.公司).slice(0, c.公司数 || undefined);
+  const 名单 = 读公司(参数.公司);
+  let 公司们 = c.公司?.length
+    ? c.公司.map((n) => {
+        const co = 名单.find((x) => x.名 === n);
+        if (!co) throw new Error(`配置里的公司「${n}」在名单里找不到`);
+        return co;
+      })
+    : 名单.slice(0, c.公司数 || undefined);
   if (参数.只跑) 公司们 = 公司们.slice(0, 参数.只跑);
   mkdirSync(参数.输出, { recursive: true });
 
@@ -458,15 +608,61 @@ async function main() {
   const 行们: 一次[] = [];
   const 状态表 = new Map<string, 背调状态 | null>();
   const 嫌疑表: { 组: string; 公司: string; 话: string; 源: string }[] = [];
-  for (const [第几家, co] of 公司们.entries()) {
+  const 录像目录 = path.join(参数.输出, "录像");
+  mkdirSync(录像目录, { recursive: true });
+  const 同时几家 = Math.max(1, c.同时跑几家 ?? 1);
+  console.log(`${公司们.length} 家，${同时几家} 家同时跑；组：${c.组合.map((g) => g.名 + (g.回放 ? `（回放 ${g.回放} 的材料）` : "")).join(" / ")}`);
+
+  /** 一家：先真跑不回放的组（录下材料），再跑回放组 */
+  const 跑一家 = async (co: 公司, 第几家: number) => {
     const 这家的组 = c.组合.filter((g) => !g.只跑前 || 第几家 < g.只跑前);
-    console.log(`\n${co.名}（${这家的组.length} 组，最多 ${同时跑} 组同时跑）`);
-    const 结果们 = await 限并发(这家的组, 同时跑, (g) => 跑一次(c, g, co, base, key, 价));
-    for (const [i, r] of 结果们.entries()) {
+    const 录们 = new Map<string, 录像>();
+    const 出 = new Map<string, 一次结果>();
+    await 限并发(
+      这家的组.filter((g) => !g.回放),
+      同时跑,
+      async (g) => {
+        const 文件 = path.join(录像目录, `${文件名(co.名)}__${文件名(g.名)}.json`);
+        if (参数.重用录像 && existsSync(文件)) {
+          const 旧 = JSON.parse(readFileSync(文件, "utf8")) as 录像;
+          if (旧.结果 && !旧.结果.行.错) {
+            录们.set(g.名, 旧);
+            出.set(g.名, 旧.结果);
+            console.log(`  ${co.名} · ${g.名}：用上次的录像，不重跑`);
+            return;
+          }
+        }
+        const 录: 录像 = { 公司: co.名, 组: g.名, 搜索: [], 读页: [] };
+        const r = await 跑一次(c, g, co, base, key, 价, { 录 });
+        录.结果 = r;
+        writeFileSync(文件, JSON.stringify(录));
+        录们.set(g.名, 录);
+        出.set(g.名, r);
+      },
+    );
+    for (const g of 这家的组.filter((g) => g.回放)) {
+      const 源 = 录们.get(g.回放!);
+      const r = 源 ? await 跑一次(c, g, co, base, key, 价, { 源 }) : null;
+      if (r && 源?.结果) r.行.估实价元 = Math.round((源.结果.行.搜索元 + r.行.模型元) * 1000) / 1000;
+      出.set(g.名, r ?? { 行: { ...空行(g, co), 错: `没有「${g.回放}」的录像（那组没跑或跑错了组名）` }, 状态: null, 材料: [], 嫌疑: [] });
+    }
+    for (const g of 这家的组) {
+      const r = 出.get(g.名)!;
+      console.log(`  ${co.名} · ${r.行.组}：${r.行.错 ? `出错 ${r.行.错.slice(0, 60)}` : `${r.行.分 === "" ? "—" : r.行.分} 分，${r.行.秒}s，${r.行.成本元.toFixed(2)} 元${g.回放 ? `（估真实 ${r.行.估实价元.toFixed(2)} 元，缺搜 ${r.行.回放缺搜}、缺页 ${r.行.回放缺页}）` : ""}，认对 ${r.行.认对}，嫌疑 ${r.行.嫌疑}`}`);
+    }
+    return 这家的组.map((g) => ({ g, r: 出.get(g.名)! }));
+  };
+  const 各家 = await 限并发(
+    公司们.map((co, i) => ({ co, i })),
+    同时几家,
+    ({ co, i }) => 跑一家(co, i),
+  );
+  for (const [i, 这家] of 各家.entries()) {
+    const co = 公司们[i];
+    for (const { g, r } of 这家) {
       行们.push(r.行);
-      状态表.set(`${这家的组[i].名}|${co.名}`, r.状态);
-      for (const x of r.嫌疑) 嫌疑表.push({ 组: 这家的组[i].名, 公司: co.名, ...x });
-      console.log(`  ${r.行.组}：${r.行.错 ? `出错 ${r.行.错.slice(0, 60)}` : `${r.行.分 === "" ? "—" : r.行.分} 分，${r.行.秒}s，${r.行.成本元.toFixed(2)} 元，认对 ${r.行.认对}，嫌疑 ${r.行.嫌疑}`}`);
+      状态表.set(`${g.名}|${co.名}`, r.状态);
+      for (const x of r.嫌疑) 嫌疑表.push({ 组: g.名, 公司: co.名, ...x });
     }
   }
   await 收拾?.();
@@ -494,6 +690,8 @@ async function main() {
     const 档一致 = 均(比A.map((x) => x.档一致!));
     const 嫌疑 = 成.reduce((a, r) => a + r.嫌疑, 0);
     const 成本 = 均(成.map((r) => r.成本元));
+    const 估实价 = 均(成.map((r) => r.估实价元));
+    const 缺 = 成.reduce((a, r) => a + r.回放缺搜 + r.回放缺页, 0);
     const 入 = 成.reduce((a, r) => a + r.模型输入 + r.搜索输入, 0);
     const 缓存占比 = 入 ? 成.reduce((a, r) => a + r.模型缓存读 + r.搜索缓存读, 0) / 入 : NaN;
     const 不过: string[] = [];
@@ -504,10 +702,10 @@ async function main() {
     if (g !== A && !(分差 <= c.过线.分差)) 不过.push("分差大");
     if (g !== A && !(档一致 >= c.过线.档一致 / 6)) 不过.push("档位不一致");
     if (嫌疑 > c.过线.编造) 不过.push("有编造嫌疑");
-    return { g, rs, 成, 认对率, 有来源率, 有来源比A, 核得上率, 分差, 档一致, 嫌疑, 成本, 缓存占比, 秒: 均(成.map((r) => r.秒)), 调用: 均(成.map((r) => r.模型调用)), 不过 };
+    return { g, rs, 成, 认对率, 有来源率, 有来源比A, 核得上率, 分差, 档一致, 嫌疑, 成本, 估实价, 缺, 缓存占比, 秒: 均(成.map((r) => r.秒)), 调用: 均(成.map((r) => r.模型调用)), 不过 };
   });
   const 标准 = 汇总.find((x) => x.g === A)!;
-  const 候选 = 汇总.filter((x) => !x.g.参考 && x.g !== A && x.不过.length === 0).sort((a, b) => a.成本 - b.成本);
+  const 候选 = 汇总.filter((x) => !x.g.参考 && x.g !== A && x.不过.length === 0).sort((a, b) => a.估实价 - b.估实价);
   const 默认 = 候选[0] ?? 标准;
   const 数 = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "—");
 
@@ -516,29 +714,42 @@ async function main() {
     "",
     `公司 ${公司们.length} 家${参数.模拟 ? "（模拟数据，不代表真实效果）" : ""}；成本按 b.ai 实价（含缓存读价），实验上限 ${c.成本上限元} 元；评分依据：${c.我方}`,
     "",
-    "| 组合 | 跑成 | 认对公司 | 结论带来源 | 来源里核得上 | 和 A 平均分差 | 和 A 档位一致 | 编造嫌疑 | 平均每次成本（元） | 成本 × 3 建议售价（元） | 缓存读占输入 | 平均分析调用 | 平均耗时 | 过线 |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    "| 组合 | 跑成 | 认对公司 | 结论带来源 | 来源里核得上 | 和 A 平均分差 | 和 A 档位一致 | 编造嫌疑 | 这次平均花了（元） | 估真实单次成本（元） | 成本 × 3 建议售价（元） | 缓存读占输入 | 平均分析调用 | 平均耗时 | 过线 |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ...汇总.map(
       (x) =>
-        `| ${x.g.名}${x.g.参考 ? "（参考）" : ""} | ${x.成.length}/${x.rs.length} | ${百(x.认对率)} | ${百(x.有来源率)}${x.g === A || !Number.isFinite(x.有来源比A) ? "" : `（比 A ${x.有来源比A >= 0 ? "+" : "−"}${Math.abs(x.有来源比A * 100).toFixed(0)} 点）`} | ${百(x.核得上率)} | ${x.g === A ? "（标准）" : 数(x.分差, 1)} | ${x.g === A ? "—" : Number.isFinite(x.档一致) ? `${(x.档一致 * 6).toFixed(1)} / 6` : "—"} | ${x.嫌疑} | ${数(x.成本)} | ${数(x.成本 * 3, 1)} | ${百(x.缓存占比)} | ${数(x.调用, 0)} | ${数(x.秒, 0)}s | ${x.g.参考 ? "—" : x.不过.length ? `✗ ${x.不过.join("、")}` : "✓"} |`,
+        `| ${x.g.名}${x.g.参考 ? "（参考）" : ""} | ${x.成.length}/${x.rs.length} | ${百(x.认对率)} | ${百(x.有来源率)}${x.g === A || !Number.isFinite(x.有来源比A) ? "" : `（比 A ${x.有来源比A >= 0 ? "+" : "−"}${Math.abs(x.有来源比A * 100).toFixed(0)} 点）`} | ${百(x.核得上率)} | ${x.g === A ? "（标准）" : 数(x.分差, 1)} | ${x.g === A ? "—" : Number.isFinite(x.档一致) ? `${(x.档一致 * 6).toFixed(1)} / 6` : "—"} | ${x.嫌疑} | ${数(x.成本)} | ${数(x.估实价)}${x.g.回放 ? "（加回搜索）" : ""} | ${数(x.估实价 * 3, 1)} | ${百(x.缓存占比)} | ${数(x.调用, 0)} | ${数(x.秒, 0)}s | ${x.g.参考 ? "—" : x.不过.length ? `✗ ${x.不过.join("、")}` : "✓"} |`,
     ),
     "",
-    `**建议默认：${默认.g.名}**（${默认 === 标准 ? "没有组合过线，用 A + 降本开关" : "过线组合里最便宜的"}），平均每次 ${数(默认.成本)} 元，按成本 × 3 约 ${数(默认.成本 * 3, 1)} 元一次。`,
+    `**建议默认：${默认.g.名}**（${默认 === 标准 ? "没有组合过线，用 A + 降本开关" : "过线组合里最便宜的"}），估真实单次成本 ${数(默认.估实价)} 元，按成本 × 3 约 ${数(默认.估实价 * 3, 1)} 元一次。`,
+    ...(汇总.some((x) => x.g.回放)
+      ? [
+          "",
+          `回放组（${汇总.filter((x) => x.g.回放).map((x) => x.g.名).join("、")}）不自己搜，用被回放那组同一家录下的搜索结果和网页，两组材料一样、只比模型；` +
+            "「这次平均花了」只有模型那部分，「估真实单次成本」= 被回放那组同一家的搜索花费 + 回放组的模型花费（上线以后它要自己搜；被回放的 A 搜索用的是 5.5 中等结果量、最多 8 次，比 C 正式配的贵一点，所以偏高）。" +
+            `回放时要的材料录里没有的共 ${汇总.filter((x) => x.g.回放).reduce((a, x) => a + x.缺, 0)} 次（results.csv 的 回放缺搜 / 回放缺页）。`,
+        ]
+      : []),
     "",
     `过线门槛：认对 ${百(c.过线.认对)}、结论带来源不比 A 低 ${Math.round(c.过线.有来源差 * 100)} 个百分点以上（逐家比再平均）、核得上 ≥ ${百(c.过线.核得上)}、和 A 平均分差 ≤ ${c.过线.分差}、档位平均至少 ${c.过线.档一致} / 6 一致、编造嫌疑 ≤ ${c.过线.编造}。`,
     "编造嫌疑逐条在 编造嫌疑.md；每份报告的原文在同目录的 txt；「核得上」只算摘得出数字 / 英文词的结论。",
   ];
   writeFileSync(path.join(参数.输出, "summary.md"), md.join("\n"));
 
-  // 盲评：A 和建议默认（不是 A 时）并排，最多 5 家
-  if (默认 !== 标准) {
+  // 盲评：A 和建议默认并排；都没过线就和最便宜的候选组比（10-17 总控要 5 家盲评，过不过线都出），最多 5 家
+  const 盲评组 = 默认 !== 标准 ? 默认 : 汇总.filter((x) => !x.g.参考 && x.g !== A && x.成.length).sort((a, b) => a.估实价 - b.估实价)[0];
+  let 出了盲评 = false;
+  if (盲评组) {
     const 对 = 公司们
-      .map((co) => ({ 公司: co.名, A: 状态表.get(`${A.名}|${co.名}`), 候选: 状态表.get(`${默认.g.名}|${co.名}`) }))
+      .map((co) => ({ 公司: co.名, A: 状态表.get(`${A.名}|${co.名}`), 候选: 状态表.get(`${盲评组.g.名}|${co.名}`) }))
       .filter((x): x is { 公司: string; A: 背调状态; 候选: 背调状态 } => Boolean(x.A && x.候选))
       .slice(0, 5);
-    if (对.length) await 出盲评(对, 默认.g.名);
+    if (对.length) {
+      await 出盲评(对, 盲评组.g.名);
+      出了盲评 = true;
+    }
   }
-  console.log(`\n写好了：${参数.输出}/summary.md、results.csv、编造嫌疑.md${默认 !== 标准 ? "、盲评.pdf（答案在 盲评-答案.txt）" : ""}`);
+  console.log(`\n写好了：${参数.输出}/summary.md、results.csv、编造嫌疑.md${出了盲评 ? "、盲评.pdf（答案在 盲评-答案.txt）" : ""}`);
 }
 
 // 只在直接运行时跑（单测会 import 上面那几个核对函数）
