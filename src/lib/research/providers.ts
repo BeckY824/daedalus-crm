@@ -332,28 +332,32 @@ export function 模拟搜索(): 搜索服务 {
 
 /**
  * 按环境变量挑搜索服务：
- *   RESEARCH_SEARCH        claude（默认）| gpt | mock
+ *   RESEARCH_SEARCH        gpt（默认）| claude | mock
  *   RESEARCH_SEARCH_MODEL  换掉主用的那家的模型（默认 claude-sonnet-5.5 / gpt-5.5）
  *
- * 默认走 Claude，它挂了（上游报错、超时、连不上）就换 GPT 再试一次：两家同一个中转站、同一把 Key，
- * 一家临时不通时另一家多半还在。只换一次、只往一个方向换——GPT 也挂了就是真挂了，不来回试着烧钱。
+ * 默认走 GPT（10-16 总控定），它挂了（上游报错、超时、连不上）就换 Claude 再试一次：两家同一个中转站、同一把 Key，
+ * 一家临时不通时另一家多半还在。只换一次、只往一个方向换——备用的也挂了就是真挂了，不来回试着烧钱。
  * 调用方自己放弃的（桌面端断开）不换，直接抛。
  */
 export function 选搜索服务(cfg: 网关配置, env: Record<string, string | undefined> = process.env): 搜索服务 {
   const 哪家 = (env.RESEARCH_SEARCH ?? "").trim().toLowerCase();
   const 模型 = env.RESEARCH_SEARCH_MODEL?.trim() || undefined;
   if (哪家 === "mock") return 模拟搜索();
-  if (哪家 === "gpt") return gpt搜索(cfg, 模型);
-  const 主 = claude搜索(cfg, 模型);
-  const 备 = gpt搜索(cfg);
+  /*
+    10-16 总控定：默认 GPT（试跑一次约 2.6 元、来源核得上 94%），Claude 只做备用（GPT 挂了才用，约 6 元）。
+    RESEARCH_SEARCH=claude 反过来：Claude 主、GPT 备
+  */
+  const claude为主 = 哪家 === "claude";
+  const 主 = claude为主 ? claude搜索(cfg, 模型) : gpt搜索(cfg, 模型);
+  const 备 = claude为主 ? gpt搜索(cfg) : claude搜索(cfg);
   return {
-    名: "claude",
+    名: 主.名,
     async search(query, opts) {
       try {
         return await 主.search(query, opts);
       } catch (e) {
         if (opts.signal?.aborted) throw e;
-        console.warn(`[research] Claude 搜索失败，换 GPT 再试一次：${e instanceof Error ? e.message : String(e)}`);
+        console.warn(`[research] ${主.名} 搜索失败，换 ${备.名} 再试一次：${e instanceof Error ? e.message : String(e)}`);
         return 备.search(query, opts);
       }
     },

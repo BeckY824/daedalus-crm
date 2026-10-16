@@ -10,16 +10,26 @@
  * 真有人要，再加一个「直连」通道就是——编排一行不用改。
  */
 import { 本地模式, 模型配置 as 云端模型配置 } from "../desktop/cloud";
-import { 模型来源 } from "../llm-config";
-import { 背调扣次, type 开始回应, type 搜索结果, type 读页结果, type 收尾回应 } from "./types";
+import type { 开始回应, 搜索结果, 读页结果, 收尾回应, 价目回应, 花费, 搜索回应, 读页回应 } from "./types";
 import { 模拟通道 } from "./mock";
+import { 网关模型 } from "./gateway-model";
+import type { 模型调用 } from "./run";
 
 export type 背调通道 = {
   名: "云端" | "模拟";
-  /** 这次背调扣几次（开跑前给人看的那个数） */
+  /** 这次背调扣了几次（开始以后是服务器回的实数；开始前是 0） */
   扣次: number;
-  /** 背调的分析用哪个模型：只用 GPT / Claude（10-16 用户定），网关白名单里没有就 undefined = 用默认 */
+  /** 背调的分析用哪个模型：服务器在 start 的回应里定（默认 GPT，10-16 总控定）；开始前是猜的 */
   模型?: string;
+  /**
+   * 背调的分析走哪儿。云端通道给：**直接打我们的模型网关**，不管这台机器在设置里填没填自己的 Key——
+   * 背调的搜索和分析都用我们的服务、照价扣（10-16 总控定）。不给（模拟）就用本机配的模型（lib/llm.ts）
+   */
+  模型调用?: 模型调用;
+  /** 到现在估计花了多少、上限多少：每次搜索 / 读页后服务器回的。编排据此在上限前停手（run.ts） */
+  花费?: 花费;
+  /** 开跑前问价：扣几次、还剩几次（不限 = 测试账号）。模拟通道不扣 */
+  价目(signal?: AbortSignal): Promise<{ 扣次: number; 还剩: number | null; 不限?: boolean }>;
   开始(runId: string, signal?: AbortSignal): Promise<开始回应>;
   搜索(runId: string, query: string, signal?: AbortSignal): Promise<搜索结果[]>;
   读页(runId: string, url: string, signal?: AbortSignal): Promise<读页结果>;
@@ -28,10 +38,13 @@ export type 背调通道 = {
 
 export type 通道结果 = { ok: true; 通道: 背调通道 } | { ok: false; error: string };
 
-/** 背调只用 GPT / Claude：在网关给的模型里挑，Claude 优先（检测里快一倍、能卡搜索次数） */
+/**
+ * 背调只用 GPT / Claude：在网关给的模型里挑，**GPT 优先**（10-16 试跑：GPT 一次约 2.6 元、来源核得上 94%，
+ * Claude 约 6 元）。只是开始前的猜测——真正用哪个听服务器 start 的回应
+ */
 export function 挑背调模型(models: string[]): string | undefined {
   const ids = models.map((m) => m.split("|")[0].trim()).filter(Boolean);
-  return ids.find((m) => /claude/i.test(m) && /sonnet/i.test(m)) ?? ids.find((m) => /claude/i.test(m)) ?? ids.find((m) => /^gpt/i.test(m));
+  return ids.find((m) => /^gpt/i.test(m)) ?? ids.find((m) => /claude/i.test(m) && /sonnet/i.test(m)) ?? ids.find((m) => /claude/i.test(m));
 }
 
 /** 网关的错误体是 OpenAI 那套 { error: { message } }，取出那句中文 */
@@ -48,7 +61,7 @@ async function 读错(res: Response): Promise<string> {
   return `背调服务出错了（${res.status}），稍后再试`;
 }
 
-export function 云端通道(cfg: { baseUrl: string; apiKey: string; models: string[] }, 走我们的模型: boolean): 背调通道 {
+export function 云端通道(cfg: { baseUrl: string; apiKey: string; models: string[] }): 背调通道 {
   const base = cfg.baseUrl.replace(/\/+$/, "");
   const 发 = async <T>(路: string, body: unknown, signal?: AbortSignal, 秒 = 60): Promise<T> => {
     const res = await fetch(`${base}/research/${路}`, {
@@ -60,25 +73,43 @@ export function 云端通道(cfg: { baseUrl: string; apiKey: string; models: str
     if (!res.ok) throw Object.assign(new Error(await 读错(res)), { status: res.status });
     return (await res.json()) as T;
   };
-  return {
+  const 通道: 背调通道 = {
     名: "云端",
-    扣次: 走我们的模型 ? 背调扣次.走我们的模型 : 背调扣次.自己的模型,
-    模型: 走我们的模型 ? 挑背调模型(cfg.models) : undefined,
+    扣次: 0,
+    模型: 挑背调模型(cfg.models),
+    模型调用: undefined,
+    async 价目(signal) {
+      const res = await fetch(`${base}/research/price`, {
+        headers: { Authorization: `Bearer ${cfg.apiKey}` },
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000),
+      });
+      if (!res.ok) throw Object.assign(new Error(await 读错(res)), { status: res.status });
+      const r = (await res.json()) as 价目回应;
+      return { 扣次: r.扣次, 还剩: r.不限 ? null : r.还剩, 不限: r.不限 };
+    },
     async 开始(runId, signal) {
       try {
-        const r = await 发<开始回应>("start", { runId, 走我们的模型 }, signal, 20);
+        const r = await 发<开始回应>("start", { runId, 走我们的模型: true }, signal, 20);
         // 背调用哪个模型听服务器的（背调专用模型不在平时的白名单里，只有这一笔放行）。编排每次调用现读 通道.模型
-        if (r.ok && r.模型) this.模型 = r.模型;
+        if (r.ok) {
+          通道.扣次 = r.扣了;
+          if (r.模型) 通道.模型 = r.模型;
+        }
         return r;
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : "背调没能开始" };
       }
     },
-    async 搜索(runId, query, signal) {
-      return (await 发<{ results: 搜索结果[] }>("search", { runId, query }, signal, 60)).results ?? [];
+    async 搜索(runId, query, signal): Promise<搜索结果[]> {
+      // GPT 搜索一次要几十秒到一两分钟（试跑实测），给足 120 秒
+      const r = await 发<搜索回应>("search", { runId, query }, signal, 120);
+      if (r.花费) 通道.花费 = r.花费;
+      return r.results ?? [];
     },
-    async 读页(runId, url, signal) {
-      return 发<读页结果>("read", { runId, url }, signal, 30);
+    async 读页(runId, url, signal): Promise<读页结果> {
+      const r = await 发<读页回应>("read", { runId, url }, signal, 30);
+      if (r.花费) 通道.花费 = r.花费;
+      return r;
     },
     async 收尾(runId, ok, 用量) {
       // 收尾失败不能让报告出不来：只是少记一笔账 / 少退一次，打一行日志
@@ -90,6 +121,8 @@ export function 云端通道(cfg: { baseUrl: string; apiKey: string; models: str
       }
     },
   };
+  通道.模型调用 = 网关模型(cfg, () => 通道.模型);
+  return 通道;
 }
 
 /**
@@ -101,11 +134,8 @@ export function 云端通道(cfg: { baseUrl: string; apiKey: string; models: str
 export async function 选通道(env: NodeJS.ProcessEnv = process.env): Promise<通道结果> {
   if (env.CRM_RESEARCH_CHANNEL === "mock") return { ok: true, 通道: 模拟通道() };
   const 云端 = 本地模式() ? 云端模型配置() : null;
-  if (云端) {
-    // 自己在设置里填了模型 Key 的：模型走他自己的，只有搜索走我们的服务器
-    const 走我们的模型 = (await 模型来源()) !== "ui";
-    return { ok: true, 通道: 云端通道(云端, 走我们的模型) };
-  }
+  // 登录了云端就走云端：填没填自己的模型 Key 都一样——背调的搜索和分析都用我们的服务、照价扣（10-16 总控定）
+  if (云端) return { ok: true, 通道: 云端通道(云端) };
   if (env.NODE_ENV !== "production") return { ok: true, 通道: 模拟通道() };
   return { ok: false, error: 本地模式() ? "背调要联网搜索，请先在桌面端登录账号" : "背调目前只在桌面端可用" };
 }

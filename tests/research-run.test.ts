@@ -168,6 +168,40 @@ describe("背调 6 步编排", () => {
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
   });
 
+  it("花到单次成本上限（服务器每次搜索后报的 花费）：后面不再搜、不再读，照样出报告，标「不完整」", async () => {
+    const 通道 = 模拟通道();
+    const 原搜 = 通道.搜索;
+    let 次 = 0;
+    通道.搜索 = async (...a) => {
+      const r = await 原搜(...a);
+      次 += 1;
+      通道.花费 = { 已花元: 4.2, 上限元: 4 };
+      return r;
+    };
+    const 读 = vi.spyOn(通道, "读页");
+    const { r, 事件 } = await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
+    expect(次).toBe(1);
+    expect(读).not.toHaveBeenCalled();
+    expect(r.ok).toBe(true);
+    expect(事件.filter((e) => e.type === "stage" && e.status === "done")).toHaveLength(6);
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
+  });
+
+  it("服务器回「花费到上限」（429）也一样停手", async () => {
+    const 通道 = 模拟通道();
+    const 原搜 = 通道.搜索;
+    let 次 = 0;
+    通道.搜索 = async (...a) => {
+      次 += 1;
+      if (次 > 1) throw new Error("这次背调的花费到上限了（4 元），用已经查到的出报告");
+      return 原搜(...a);
+    };
+    const { r, 事件 } = await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
+    expect(次).toBe(2);
+    expect(r.ok).toBe(true);
+    expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
+  });
+
   it("所有模型调用带同一个编号（runId）和 feature=research：网关据此不另扣", async () => {
     const opts: unknown[] = [];
     const m = 假模型();

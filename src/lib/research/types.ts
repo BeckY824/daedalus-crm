@@ -36,24 +36,28 @@ export type 读页结果 = { url: string; title: string; text: string; 截断了
 /** 一次背调的硬上限。服务器按同一份数再卡一遍（客户端可以被改，服务器不行） */
 export const 背调上限 = { 搜索: 8, 读页: 10 } as const;
 
-/**
- * 一次背调扣几次 AI。
- *   走我们的模型（桌面端默认）：6 次，10-16 定，对比实验后按实际成本改
- *   自己填了模型 Key 的：模型不花我们的钱，只收搜索那部分 2 次（10-14 记账方案第 5 节）
- */
-export const 背调扣次 = { 走我们的模型: 6, 自己的模型: 2 } as const;
+/* 扣几次、花多少的规矩在 price.ts（服务器按配置算，桌面端开跑前问 /research/price 拿数） */
 
 /* ---------- 网关接口（/api/gateway/v1/research/*）的请求和回应 ---------- */
 
-/** runId 和 X-Question-Id 同一个规矩：1–64 位 [A-Za-z0-9_-] */
-export type 开始请求 = { runId: string; /** 自己填了模型 Key 的传 false：只扣搜索那部分 */ 走我们的模型: boolean };
-export type 开始回应 = { ok: true; 扣了: number; 还剩: number; /** 这次背调的分析用哪个模型（服务器定）；自己填了 Key 的没有 */ 模型?: string } | { ok: false; error: string };
+/** 开跑前问价：一次扣几次、你还剩几次（测试账号 不限） */
+export type 价目回应 = { 扣次: number; 还剩: number; 不限?: true };
+
+/** 这次背调到现在估计花了多少钱、上限多少（元）。搜索 / 读页的回应里带着，桌面端到了上限就停手 */
+export type 花费 = { 已花元: number; 上限元: number };
+
+/**
+ * runId 和 X-Question-Id 同一个规矩：1–64 位 [A-Za-z0-9_-]。
+ * 走我们的模型：老字段，服务器不再看——10-16 起背调的搜索和分析一律走我们的服务器、一律照价扣（price.ts）
+ */
+export type 开始请求 = { runId: string; 走我们的模型?: boolean };
+export type 开始回应 = { ok: true; 扣了: number; 还剩: number; /** 这次背调的分析用哪个模型（服务器定） */ 模型?: string } | { ok: false; error: string };
 
 export type 搜索请求 = { runId: string; query: string };
-export type 搜索回应 = { results: 搜索结果[] };
+export type 搜索回应 = { results: 搜索结果[]; 花费?: 花费 };
 
 export type 读页请求 = { runId: string; url: string };
-export type 读页回应 = 读页结果;
+export type 读页回应 = 读页结果 & { 花费?: 花费 };
 
 /** 没出报告就退（ok=false）；出了报告传 ok=true，只用来收尾记账 */
 export type 收尾请求 = { runId: string; ok: boolean; searches?: number; pages?: number };

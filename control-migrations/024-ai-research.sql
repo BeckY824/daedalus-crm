@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS "AiResearchRun" (
   -- 服务器交出去的「有用的东西」：有结果的搜索 + 读成功的页。退不退看它，不听桌面端的
   -- （桌面端可以被改：每次都报「没出报告」就能白拿搜索）。一条材料都没交出去才退
   "hits"       INTEGER NOT NULL DEFAULT 0,
+  -- 到现在估计花了多少钱，单位「厘」（0.001 元）：模型网关和搜索接口按 token、搜索次数实时累加（lib/research/price.ts）。
+  -- 到了上限（RESEARCH_COST_CAP，默认 4 元）就不再给搜、不再给读
+  "costLi"     INTEGER NOT NULL DEFAULT 0,
   -- 整笔退过了没有。标记而不是删行：幂等全靠它
   "refunded"   INTEGER NOT NULL DEFAULT 0,
   -- 收尾时桌面端报的结果：出了报告 1、没出 0、还没收尾 NULL

@@ -502,6 +502,23 @@ export async function 背调还一次(owner: Owner, runId: string, 哪样: "sear
   });
 }
 
+/** 这次背调又花了多少（元）。模型网关、搜索接口各记各的，累在同一行上。**永不抛**：记账失败不能让背调失败 */
+export async function 背调记花费(owner: Owner, runId: string, 元: number): Promise<void> {
+  const 厘 = Math.round(元 * 1000);
+  if (!(厘 > 0)) return;
+  try {
+    await control.aiResearchRun.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, data: { costLi: { increment: 厘 } } });
+  } catch (e) {
+    console.warn("[research] 花费没记上：", e instanceof Error ? e.message : e);
+  }
+}
+
+/** 这次背调到现在估计花了多少（元）；没有这笔返回 null */
+export async function 背调已花(owner: Owner, runId: string): Promise<number | null> {
+  const r = await control.aiResearchRun.findFirst({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, select: { costLi: true } });
+  return r ? r.costLi / 1000 : null;
+}
+
 /** 服务器交出去一条有用的材料（有结果的搜索、读成功的页）。收尾时据此判断退不退 */
 export async function 背调有收获(owner: Owner, runId: string): Promise<void> {
   await control.aiResearchRun.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, data: { hits: { increment: 1 } } });

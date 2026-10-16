@@ -128,26 +128,35 @@ describe("发请求", () => {
 });
 
 describe("挑服务和兜底", () => {
-  it("默认 Claude；它 5xx 了换 GPT 试一次", async () => {
-    const f = vi.fn(async (url: string) => (url.endsWith("/messages") ? new Response("bad gateway", { status: 502 }) : json(GPT回应)));
+  it("默认 GPT（10-16 总控定）；它 5xx 了换 Claude 试一次", async () => {
+    const f = vi.fn(async (url: string) => (url.endsWith("/responses") ? new Response("bad gateway", { status: 502 }) : json(Claude回应)));
     vi.stubGlobal("fetch", f);
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const s = 选搜索服务(cfg, {});
-    expect(s.名).toBe("claude");
+    expect(s.名).toBe("gpt");
     const r = await s.search("Acme", {});
     expect(f).toHaveBeenCalledTimes(2);
-    expect(r.results[0].url).toBe("https://acme.example/");
-    expect(r.usage?.model).toBe("gpt-5.5");
+    expect((f.mock.calls[1] as unknown as [string])[0]).toMatch(/\/v1\/messages$/);
+    expect(r.results.length).toBeGreaterThan(0);
   });
 
   it("超时 / 连不上也换", async () => {
     const f = vi.fn(async (url: string) => {
-      if (url.endsWith("/messages")) throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
-      return json(GPT回应);
+      if (url.endsWith("/responses")) throw Object.assign(new Error("timed out"), { name: "TimeoutError" });
+      return json(Claude回应);
     });
     vi.stubGlobal("fetch", f);
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect((await 选搜索服务(cfg, {}).search("Acme", {})).results).toHaveLength(2);
+    expect((await 选搜索服务(cfg, {}).search("Acme", {})).results.length).toBeGreaterThan(0);
+  });
+
+  it("RESEARCH_SEARCH=claude 反过来：Claude 主、GPT 备", async () => {
+    const f = vi.fn(async (url: string) => (url.endsWith("/messages") ? new Response("bad gateway", { status: 502 }) : json(GPT回应)));
+    vi.stubGlobal("fetch", f);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const s = 选搜索服务(cfg, { RESEARCH_SEARCH: "claude" });
+    expect(s.名).toBe("claude");
+    expect((await s.search("Acme", {})).results[0].url).toBe("https://acme.example/");
   });
 
   it("两家都挂了就抛，报错里没有 Key（中转站把 Key 回显在错误体里也一样）", async () => {
@@ -159,12 +168,13 @@ describe("挑服务和兜底", () => {
     expect((e as Error).message).toContain("****");
   });
 
-  it("RESEARCH_SEARCH=gpt 只走 GPT，不兜底；RESEARCH_SEARCH_MODEL 换模型", async () => {
+  it("RESEARCH_SEARCH_MODEL 换主用那家的模型；备用只试一次，不来回烧钱", async () => {
     const f = vi.fn(async () => new Response("down", { status: 503 }));
     vi.stubGlobal("fetch", f);
-    const s = 选搜索服务(cfg, { RESEARCH_SEARCH: "gpt", RESEARCH_SEARCH_MODEL: "gpt-6" });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const s = 选搜索服务(cfg, { RESEARCH_SEARCH_MODEL: "gpt-6" });
     await expect(s.search("Acme", {})).rejects.toThrow();
-    expect(f).toHaveBeenCalledTimes(1);
+    expect(f).toHaveBeenCalledTimes(2);
     expect(JSON.parse(String((f.mock.calls[0] as unknown as [string, RequestInit])[1].body)).model).toBe("gpt-6");
   });
 

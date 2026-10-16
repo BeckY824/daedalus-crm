@@ -109,9 +109,16 @@ function Confirm({ company, onStart, onCancel }: { company: string; onStart: () 
   return (
     <div className="rs-confirm" role="group" aria-label="背调确认">
       <span className="rs-confirm-t">
-        上网背调 <b>{company}</b>：认准公司 → 基本面 → 相关性 → 近期信号 → 风险 → 切入建议。
-        {价.模拟 ? "（开发环境，用模拟数据，不扣次数）" : 价.扣次 > 0 ? <> 扣 <b>{价.扣次}</b> 次 AI{价.还剩 != null && <>，你还剩 {价.还剩} 次</>}。</> : null}
-        {不够 && " 次数不够了。"}
+        上网背调 <b>{company}</b>：认准公司 → 基本面 → 相关性 → 近期信号 → 风险 → 切入建议，大约要几分钟。
+        {价.模拟 ? (
+          "（开发环境，用模拟数据，不扣次数）"
+        ) : (
+          <>
+            {/* 自己填了模型 Key 的也照扣（10-16 总控定）：要说清楚为什么，不然他会以为扣错了 */}
+            背调用的是我们的搜索和分析服务，按次数扣：<b>背调要 {价.扣次} 次</b>
+            {价.还剩 != null && <>，你还剩 {价.还剩} 次</>}。{不够 && "次数不够，需要加次数请联系我们。"}
+          </>
+        )}
       </span>
       {onCancel && <button type="button" className="rs-btn" onClick={onCancel}>取消</button>}
       <button type="button" className="rs-btn rs-btn-primary" onClick={onStart} disabled={不够}>

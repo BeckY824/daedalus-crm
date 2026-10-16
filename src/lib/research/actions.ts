@@ -4,7 +4,7 @@
  * 背调卡上那几个按钮背后的动作。**AI 不自己写库**（10-14 用户定：增删改查不靠 AI），
  * 这里每一个都是人点了按钮才调。
  *
- *   背调价目        开跑前问一句：这台机器能不能背调、扣几次（确认卡上那句「扣 6 次」）
+ *   背调价目        开跑前问一句：这台机器能不能背调、扣几次、还剩几次（确认卡上那句「背调要 60 次，你还剩 N 次」）
  *   存背调到客户    存成那位客户时间线上的一条「其他记录」，标题以「背调｜」开头，正文是整份报告 + 来源链接
  *   新建客户并存背调 公司还不在 CRM 里：按查到的名字 / 国家 / 联系方式建档，再存报告
  *   找同名客户      「存进客户」先看看库里是不是已经有这家，有就让人选，不自己猜着合并
@@ -22,14 +22,18 @@ import { saveCustomer } from "@/app/(app)/customers/actions";
 import { 选通道 } from "./channel";
 import { 认背调状态 } from "./state";
 import { 报告文本, 背调标题, 背调标题前缀 } from "./report";
-import { 读AI计次 } from "../ai-meter";
 
 export async function 背调价目(): Promise<{ 可用: true; 扣次: number; 还剩: number | null; 模拟: boolean } | { 可用: false; 原因: string }> {
   await requireUser();
   const r = await 选通道();
   if (!r.ok) return { 可用: false, 原因: r.error };
-  const 计次 = await 读AI计次({ 问余额: true }).catch(() => null);
-  return { 可用: true, 扣次: r.通道.扣次, 还剩: 计次?.计次 ? 计次.还剩 : null, 模拟: r.通道.名 === "模拟" };
+  // 扣几次、还剩几次都问服务器（扣几次是服务器的配置，改价不用等发版）。自己填了 Key 的也照扣，所以不看本机的计次
+  try {
+    const p = await r.通道.价目();
+    return { 可用: true, 扣次: p.扣次, 还剩: p.还剩, 模拟: r.通道.名 === "模拟" };
+  } catch (e) {
+    return { 可用: false, 原因: e instanceof Error ? e.message : "问不到背调的价目，稍后再试" };
+  }
 }
 
 export async function 存背调到客户(customerId: string, 状态原始: unknown): Promise<{ ok: true; id: string } | { ok: false; error: string }> {

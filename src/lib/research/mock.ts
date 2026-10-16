@@ -82,6 +82,9 @@ export function 模拟通道(): 背调通道 {
     名: "模拟",
     扣次: 0,
     模型: undefined,
+    async 价目() {
+      return { 扣次: 0, 还剩: null };
+    },
     async 开始() {
       return { ok: true, 扣了: 0, 还剩: 0 };
     },

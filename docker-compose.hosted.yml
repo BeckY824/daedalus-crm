@@ -65,11 +65,16 @@ services:
       GATEWAY_BASE_URL: "${GATEWAY_BASE_URL:-}"
       GATEWAY_MODELS: "${GATEWAY_MODELS:-}"
       # AI 背调的搜索（lib/research/providers.ts）：用中转站自带的搜索，Key 就是上面的 GATEWAY_API_KEY。
-      # RESEARCH_SEARCH 空着 = claude（挂了自动换 gpt 试一次），可填 gpt / mock；RESEARCH_SEARCH_MODEL 换主用的模型
+      # RESEARCH_SEARCH 空着 = gpt（挂了自动换 claude 试一次），可填 claude / mock；RESEARCH_SEARCH_MODEL 换主用的模型
       RESEARCH_SEARCH: "${RESEARCH_SEARCH:-}"
       RESEARCH_SEARCH_MODEL: "${RESEARCH_SEARCH_MODEL:-}"
-      # 背调的分析模型（只给背调那一笔放行，不进平时问答的 GATEWAY_MODELS）。空着 = claude-sonnet-5.5,gpt-5.5，第一个是默认
+      # 背调的分析模型（只给背调那一笔放行，不进平时问答的 GATEWAY_MODELS）。空着 = gpt-5.5,claude-sonnet-5.5，第一个是默认
       RESEARCH_MODELS: "${RESEARCH_MODELS:-}"
+      # 背调的价钱和成本（lib/research/price.ts）：AI_PRICE_TABLE 空着 = {"research":60}；RESEARCH_COST_CAP 单次成本上限（元），空着 = 4；
+      # RESEARCH_PRICES 单价（美元 / 百万 token、每次搜索的钱、汇率），空着 = 官方价
+      AI_PRICE_TABLE: "${AI_PRICE_TABLE:-}"
+      RESEARCH_COST_CAP: "${RESEARCH_COST_CAP:-}"
+      RESEARCH_PRICES: "${RESEARCH_PRICES:-}"
       # 条款页里的运营主体与联系邮箱（可选，默认 Daedalus.AI / README 里的邮箱）
       LEGAL_ENTITY: "${LEGAL_ENTITY:-}"
       LEGAL_CONTACT: "${LEGAL_CONTACT:-}"

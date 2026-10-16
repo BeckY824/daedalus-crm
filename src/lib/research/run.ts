@@ -138,6 +138,18 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   let 搜索数 = 0;
   let 读页数 = 0;
   let 不完整 = false;
+  /**
+   * 单次成本硬上限（lib/research/price.ts，默认 4 元）：服务器每次搜索 / 读页都回「到现在花了多少」（通道.花费），
+   * 到了就不再调工具——后面几步只用已有材料下结论，报告写「材料不全」。服务器那头到了也不再给搜、给读（429）
+   */
+  let 钱到了 = false;
+  const 看钱 = (错?: string) => {
+    const f = 通道.花费;
+    if ((f && f.已花元 >= f.上限元) || (错 && /花费到上限/.test(错))) {
+      钱到了 = true;
+      不完整 = true;
+    }
+  };
   let 工具号 = 0;
   const opts = (超时: number): ChatOpts => ({ model: 通道.模型, signal, requestId: runId, feature: "research", temperature: 0, thinking: false, timeoutMs: 超时, maxTokens: 2000 });
   /** 用原生 function calling；对面不吃 tools 时退回 JSON 协议（和首页 agent 同一个判断） */
@@ -163,11 +175,13 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       }
       发({ type: "tool", stage, id, kind: "search", label, status: "done", result: `${rs.length} 条结果`, ms: Date.now() - t0, sources: 新.slice(0, 6) });
       发({ type: "usage", searches: 搜索数, pages: 读页数 });
+      看钱();
       return rs.length ? rs.map((r) => `- ${r.title}\n  ${r.url}\n  ${(r.snippet ?? "").slice(0, 300)}`).join("\n") : "没有搜到结果，换个说法或换个角度再搜。";
     } catch (e) {
       if (signal?.aborted) throw e;
       const msg = e instanceof Error ? e.message : "搜索出错";
       发({ type: "tool", stage, id, kind: "search", label, status: "error", result: msg.slice(0, 60), ms: Date.now() - t0 });
+      看钱(msg);
       return `搜索失败：${msg}`;
     }
   };
@@ -191,11 +205,13 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       const 字 = p.text.length >= 1000 ? `${(p.text.length / 1000).toFixed(1)}k 字` : `${p.text.length} 字`;
       发({ type: "tool", stage, id, kind: "read", label, status: "done", result: `1 页 · ${字}`, ms: Date.now() - t0, sources: [{ title: p.title || 名, url: p.url || url }] });
       发({ type: "usage", searches: 搜索数, pages: 读页数 });
+      看钱();
       return `${p.title}\n${p.text.slice(0, 4000)}`;
     } catch (e) {
       if (signal?.aborted) throw e;
       const msg = e instanceof Error ? e.message : "读不了";
       发({ type: "tool", stage, id, kind: "read", label, status: "error", result: msg.slice(0, 60), ms: Date.now() - t0 });
+      看钱(msg);
       return `读不了：${msg}`;
     }
   };
@@ -203,7 +219,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   /** 本步的查找循环：模型挑工具 → 我们执行 → 结果交回去，直到它说够了或本步次数用完 */
   const 查 = async (stage: 阶段号, 补充: string) => {
     const 上限 = 每步工具上限[stage];
-    if (!上限) return;
+    if (!上限 || 钱到了) return;
     const messages: ToolMessage[] = [
       { role: "system", content: 系统提示(input.b) },
       {
@@ -218,7 +234,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     ];
     for (let i = 0; i < 上限; i++) {
       if (signal?.aborted) throw new DOMException("已停止", "AbortError");
-      if (搜索数 >= 背调上限.搜索 && 读页数 >= 背调上限.读页) return;
+      if (钱到了 || (搜索数 >= 背调上限.搜索 && 读页数 >= 背调上限.读页)) return;
       let 调用: { name: string; args: Record<string, unknown>; thought: string; 回执: ToolMessage[]; callId?: string } | null = null;
       if (用原生) {
         try {

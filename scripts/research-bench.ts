@@ -19,7 +19,10 @@
  *                全是中文、摘不出可比的词的，记「核不了」，不算对也不算错
  *   完整          6 步跑完几步、有没有标「材料不全」
  *   稳定          同一家跑两遍：分数差多少、6 项档位一样的占几成（模型只评档、分由程序算，就是为了这个）
- *   成本 / 耗时   照记：token × 单价 + 搜索次数 × 每次搜索的价，折成元，再折成「扣几次 AI」
+ *   成本 / 耗时   照记：和服务器同一套算法（lib/research/price.ts），单次成本到 4 元就停手（和产品一样）；
+ *                汇总里按实测平均成本重算该扣几次（成本 ÷ 0.05 × 1.15，取整）
+ *
+ * 10-16 总控定：只跑 GPT 组合（搜索 + 分析都是 GPT），20 家各 1 遍、其中 5 家再跑 1 遍看稳定性，约 25 次。
  *
  * ## 用法
  *
@@ -40,22 +43,26 @@ import { 模拟通道 } from "../src/lib/research/mock";
 import { 报告文本 } from "../src/lib/research/report";
 import type { 背调通道 } from "../src/lib/research/channel";
 import type { 背调状态 } from "../src/lib/research/state";
+import { 读价目, 模型花费元, 成本上限元, 建议扣次, type 价目 } from "../src/lib/research/price";
 
 /* ---------- 配置 ---------- */
 
-type 单价 = { 输入每百万: number; 输出每百万: number };
-type 组合 = { 搜索: "claude" | "gpt"; 模型: string; /** 每家跑几遍（2 = 看稳定性） */ 重复: number; /** 只跑名单前几家（对照组省钱用），不填 = 全部 */ 只跑前?: number };
+type 组合 = {
+  搜索: "claude" | "gpt";
+  模型: string;
+  /** 每家跑几遍 */
+  重复: number;
+  /** 只跑名单前几家（对照组省钱用），不填 = 全部 */
+  只跑前?: number;
+  /** 名单前几家再多跑一遍，看两遍稳不稳 */
+  再跑前?: number;
+};
 type 配置 = {
   /** 「我们卖什么、卖给谁、哪些国家」——等于设置里的业务简介，评分照它评 */
   我方: string;
   组合: 组合[];
-  /** 美元单价（中转站实付价；不知道就填 0，成本列会是 0，token 照记） */
-  单价: Record<string, 单价>;
-  /** 每次搜索另收的钱（美元）：Claude web_search 官方价约 $0.01 / 次 */
-  每次搜索: Record<string, number>;
-  汇率: number;
-  /** 「1 次 AI」值多少元。用来把每家的成本折成「扣几次」 */
-  一次的成本: number;
+  /** 和服务器的 RESEARCH_PRICES 同一个格式；不写就用 price.ts 里的官方价 */
+  价目?: Record<string, unknown>;
 };
 
 type 公司 = { 名: string; 官网: string[]; 国家: string; 类型: string; 规模: string; 备注: string };
@@ -123,10 +130,14 @@ function 直连模型(base: string, key: string, model: string, 账: 账): 模�
 
 /* ---------- 直连通道：搜索走中转站自带的搜索，读页走我们那份带内网防护的读法 ---------- */
 
-function 直连通道(服务: 搜索服务, 账: 账): 背调通道 {
-  return {
+function 直连通道(服务: 搜索服务, 账: 账, 已花: () => number): 背调通道 {
+  const 上限元 = 成本上限元();
+  const 通道: 背调通道 = {
     名: "云端",
     扣次: 0,
+    async 价目() {
+      return { 扣次: 0, 还剩: null };
+    },
     async 开始() {
       return { ok: true, 扣了: 0, 还剩: 0 };
     },
@@ -137,16 +148,21 @@ function 直连通道(服务: 搜索服务, 账: 账): 背调通道 {
         账.输入 += r.usage.input;
         账.输出 += r.usage.output;
       }
+      // 和服务器一样：每次搜索后报一次「到现在花了多少」，编排到了上限就停手（run.ts）
+      通道.花费 = { 已花元: 已花(), 上限元 };
       return r.results;
     },
     async 读页(_runId, url, signal) {
       // 开着「假 IP」代理的电脑上，外网域名都解析到 198.18.x，要显式放行（服务器上从不放行）
-      return 读网页(url, { signal, 放行代理假IP: process.env.BENCH_ALLOW_FAKE_IP === "1" });
+      const p = await 读网页(url, { signal, 放行代理假IP: process.env.BENCH_ALLOW_FAKE_IP === "1" });
+      通道.花费 = { 已花元: 已花(), 上限元 };
+      return p;
     },
     async 收尾() {
       return null;
     },
   };
+  return 通道;
 }
 
 /* ---------- 自动核 ---------- */
@@ -229,17 +245,16 @@ type 一行 = {
   搜索输出: number;
   秒: number;
   成本元: number;
-  折合次数: number;
   错: string;
 };
 
-const 元 = (c: 配置, model: string, 入: number, 出: number) => ((入 * (c.单价[model]?.输入每百万 ?? 0) + 出 * (c.单价[model]?.输出每百万 ?? 0)) / 1e6) * c.汇率;
 const 均 = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
 const 百 = (x: number) => (Number.isFinite(x) ? `${Math.round(x * 100)}%` : "—");
 
 async function main() {
   if (!参数.配置 || !参数.公司) throw new Error("要 --配置 和 --公司，见文件头的用法");
   const c = JSON.parse(readFileSync(参数.配置, "utf8")) as 配置;
+  const 价: 价目 = 读价目({ RESEARCH_PRICES: c.价目 ? JSON.stringify(c.价目) : process.env.RESEARCH_PRICES });
   let 公司们 = 读公司(参数.公司);
   if (参数.只跑) 公司们 = 公司们.slice(0, 参数.只跑);
   mkdirSync(参数.输出, { recursive: true });
@@ -262,11 +277,14 @@ async function main() {
   for (const g of c.组合) {
     const 这组公司 = g.只跑前 ? 公司们.slice(0, g.只跑前) : 公司们;
     const 模型名 = 参数.模拟 ? "e2e-model" : g.模型;
-    for (const co of 这组公司) {
-      for (let 遍 = 1; 遍 <= Math.max(1, g.重复); 遍++) {
+    for (const [第几家, co] of 这组公司.entries()) {
+      const 遍数 = Math.max(1, g.重复) + (g.再跑前 && 第几家 < g.再跑前 ? 1 : 0);
+      for (let 遍 = 1; 遍 <= 遍数; 遍++) {
         const 模型账: 账 = { 输入: 0, 输出: 0, 调用: 0 };
         const 搜索账: 账 = { 输入: 0, 输出: 0, 调用: 0 };
-        const 通道 = 参数.模拟 ? 模拟通道() : 直连通道(g.搜索 === "claude" ? claude搜索(cfg) : gpt搜索(cfg), 搜索账);
+        const 搜索模型 = g.搜索 === "claude" ? "claude-sonnet-5.5" : "gpt-5.5";
+        const 花了 = () => 模型花费元(价, 模型名, 模型账.输入, 模型账.输出) + 模型花费元(价, 搜索模型, 搜索账.输入, 搜索账.输出) + 搜索账.调用 * 价.每次搜索美元 * 价.汇率;
+        const 通道 = 参数.模拟 ? 模拟通道() : 直连通道(g.搜索 === "claude" ? claude搜索(cfg) : gpt搜索(cfg), 搜索账, 花了);
         const t0 = Date.now();
         process.stdout.write(`${co.名} × 搜索 ${g.搜索} × ${模型名}（第 ${遍} 遍）… `);
         let 状态: 背调状态 | null = null;
@@ -290,8 +308,7 @@ async function main() {
         }
         const 秒 = (Date.now() - t0) / 1000;
         const 搜索次数 = 状态?.usage.searches ?? 搜索账.调用;
-        const 搜索模型 = g.搜索 === "claude" ? "claude-sonnet-5.5" : "gpt-5.5";
-        const 成本 = 元(c, 模型名, 模型账.输入, 模型账.输出) + 元(c, 搜索模型, 搜索账.输入, 搜索账.输出) + (参数.模拟 ? 0 : 搜索次数 * (c.每次搜索[g.搜索] ?? 0) * c.汇率);
+        const 成本 = 参数.模拟 ? 0 : 花了();
         const 核 = 状态 ? 核来源(状态, 材料) : { 结论数: 0, 有来源: 0, 核得上: 0, 核不上: 0, 核不了: 0 };
         const 键 = `${g.搜索}×${模型名}×${co.名}`;
         状态们.set(键, [...(状态们.get(键) ?? []), 状态]);
@@ -318,7 +335,6 @@ async function main() {
           搜索输出: 搜索账.输出,
           秒: Math.round(秒 * 10) / 10,
           成本元: Math.round(成本 * 1000) / 1000,
-          折合次数: c.一次的成本 > 0 ? Math.round((成本 / c.一次的成本) * 10) / 10 : 0,
           错,
         });
         if (状态) writeFileSync(path.join(参数.输出, `${co.名.replace(/[^\p{L}\p{N}]+/gu, "_")}__${g.搜索}__${模型名}__${遍}.txt`), 报告文本(状态));
@@ -338,8 +354,8 @@ async function main() {
     "",
     `公司 ${公司们.length} 家${参数.模拟 ? "（模拟数据，不代表真实效果）" : ""}，评分依据：${c.我方}`,
     "",
-    "| 组合 | 跑成 | 认对公司 | 有来源 | 来源里核得上 | 6 步跑完 | 两遍分差 | 两遍档位一致 | 平均耗时 | 平均成本（元） | 折合扣次 |",
-    "|---|---|---|---|---|---|---|---|---|---|---|",
+    "| 组合 | 跑成 | 认对公司 | 有来源 | 来源里核得上 | 6 步跑完 | 两遍分差 | 两遍档位一致 | 平均耗时 | 平均成本（元） | 最贵一次（元） | 碰到 4 元上限 | 按实测该扣几次 |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
   ];
   for (const g of c.组合) {
     const 模型名 = 参数.模拟 ? "e2e-model" : g.模型;
@@ -351,7 +367,7 @@ async function main() {
     const 核得上 = 均(成.map((r) => (r.核得上 + r.核不上 ? r.核得上 / (r.核得上 + r.核不上) : NaN)).filter(Number.isFinite));
     const 稳 = [...状态们.entries()].filter(([k, v]) => k.startsWith(`${g.搜索}×${模型名}×`) && v.length >= 2).map(([, v]) => 稳定(v[0], v[1]));
     md.push(
-      `| 搜索 ${g.搜索} × ${模型名} | ${成.length}/${rs.length} | ${认.length ? `${认.filter((r) => r.认对 === "对").length}/${认.length}` : "—"} | ${百(有源)} | ${百(核得上)} | ${百(均(成.map((r) => r.步完成 / 6)))} | ${稳.length ? 均(稳.map((x) => x.分差 ?? NaN).filter(Number.isFinite)).toFixed(1) : "—"} | ${稳.length ? 百(均(稳.map((x) => x.档一致 ?? NaN).filter(Number.isFinite))) : "—"} | ${均(成.map((r) => r.秒)).toFixed(0)}s | ${均(成.map((r) => r.成本元)).toFixed(2)} | ${均(成.map((r) => r.折合次数)).toFixed(1)} |`,
+      `| 搜索 ${g.搜索} × ${模型名} | ${成.length}/${rs.length} | ${认.length ? `${认.filter((r) => r.认对 === "对").length}/${认.length}` : "—"} | ${百(有源)} | ${百(核得上)} | ${百(均(成.map((r) => r.步完成 / 6)))} | ${稳.length ? 均(稳.map((x) => x.分差 ?? NaN).filter(Number.isFinite)).toFixed(1) : "—"} | ${稳.length ? 百(均(稳.map((x) => x.档一致 ?? NaN).filter(Number.isFinite))) : "—"} | ${均(成.map((r) => r.秒)).toFixed(0)}s | ${均(成.map((r) => r.成本元)).toFixed(2)} | ${Math.max(0, ...成.map((r) => r.成本元)).toFixed(2)} | ${成.filter((r) => r.成本元 >= 成本上限元() * 0.95).length} | ${参数.模拟 ? "—" : 建议扣次(均(成.map((r) => r.成本元)))} |`,
     );
   }
   const 认错 = 行们.filter((r) => r.第几遍 === 1 && (r.认对 === "错" || r.认对 === "没找到"));
@@ -360,6 +376,7 @@ async function main() {
     for (const r of 认错) md.push(`| ${r.搜索} × ${r.模型} | ${r.公司} | ${r.认到的官网 || "（没找到）"} |`);
   }
   md.push("", "「来源里核得上」只算摘得出数字 / 英文词的那些结论；全中文、摘不出词的记「核不了」，在 results.csv 里。每份报告的原文在同目录的 txt。");
+  md.push("「按实测该扣几次」= 平均成本 ÷ 0.05 × 1.15，取整（向上）。成本按官方价估（lib/research/price.ts），中转站实价可能更低。");
   writeFileSync(path.join(参数.输出, "summary.md"), md.join("\n"));
   console.log(`\n写好了：${参数.输出}/results.csv、summary.md`);
 }

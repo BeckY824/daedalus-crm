@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 收拾请求体, 背调模型表 } from "@/lib/gateway";
-import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 背调最多步, 注册赠送发过吗, 余额 } from "@/lib/tenant/credits";
+import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 背调最多步, 注册赠送发过吗, 余额, 背调记花费 } from "@/lib/tenant/credits";
+import { 读价目, 模型花费元 } from "@/lib/research/price";
 import { 是背调 } from "@/lib/research/runs-memory";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
@@ -180,6 +181,13 @@ async function 处理请求(req: Request) {
   }
 
   const 剩余头 = { "X-Credits-Remaining": String(扣.还剩) };
+  /*
+    背调那一笔的模型调用：钱也累到这次背调上（AiResearchRun.costLi），单次成本上限靠它（lib/research/price.ts）。
+    不是背调的编号 updateMany 一行都碰不到，所以只按功能名判断就够，不用先查一次库
+  */
+  const 记背调花费 = async (u: { input: number; output: number }) => {
+    if (功能 === "research" && 问题id) await 背调记花费(owner, 问题id, 模型花费元(读价目(), String(整理.body.model ?? ""), u.input, u.output));
+  };
   /** 这一份失败 / 没人收到时退。同一编号后面又发了一份的，交给那一份决定（见 问过的 那段） */
   const 退 = async () => {
     if (键 && 问过的.get(键)?.最后 !== 这一份) return;
@@ -268,6 +276,7 @@ async function 处理请求(req: Request) {
       if (failed) await 退();
       const usage = 读用量(state.usage);
       if (usage) await 记一次(owner, { model: String(整理.body.model ?? ""), usage, feature: 功能 });
+      if (usage) await 记背调花费(usage);
     };
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
@@ -363,6 +372,7 @@ async function 处理请求(req: Request) {
   try {
     const u = 读用量(JSON.parse(data));
     if (u) await 记一次({ kind: "account", id: accountId }, { model: String(整理.body.model ?? ""), usage: u, feature: 功能 });
+    if (u) await 记背调花费(u);
   } catch {
     // 上游回的不是 JSON —— 那是上面 upstream.ok 该管的事，这儿不掺和
   }

@@ -3,7 +3,7 @@ import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 读网页, 读页出错 } from "@/lib/research/read-page";
 import { 背调有收获 } from "@/lib/tenant/credits";
 import { 背调上限, type 读页回应 } from "@/lib/research/types";
-import { 读请求体, 认runId, 先记一次, 兜底 } from "../_shared";
+import { 读请求体, 认runId, 先记一次, 查花费, 兜底 } from "../_shared";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -38,12 +38,16 @@ async function 处理(req: Request) {
   if (url.length > 网址最长) return 网关错误(400, "网址太长了");
 
   const owner = { kind: "account" as const, id: accountId };
+  const 钱 = await 查花费(owner, runId);
+  if (钱.挡) return 钱.挡;
   const 挡 = await 先记一次(owner, runId, "pages", 背调上限.读页 + 读页余量);
   if (挡) return 挡;
 
   try {
-    const 回应: 读页回应 = await 读网页(url, { signal: req.signal });
+    const 页 = await 读网页(url, { signal: req.signal });
     await 背调有收获(owner, runId);
+    // 读页在我们服务器上读，不花模型的钱；花费照样带回去，桌面端每一步都知道离上限多远
+    const 回应: 读页回应 = { ...页, 花费: 钱.花费 };
     return NextResponse.json(回应);
   } catch (e) {
     /*

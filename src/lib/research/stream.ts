@@ -60,7 +60,8 @@ export async function 背调一次(
     客户,
     b,
     通道: 通道.通道,
-    模型: { tools: chatTools, json: chatMessagesJSON },
+    // 云端通道自带「打我们的网关」的模型调用（自己填了 Key 的也走我们的，照价扣）；模拟通道用本机配的模型
+    模型: 通道.通道.模型调用 ?? { tools: chatTools, json: chatMessagesJSON },
     老客户,
     发: (e: 研究事件) => send({ type: "research", e }),
     signal,

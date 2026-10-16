@@ -368,6 +368,8 @@ model AiResearchRun {
   pages      Int       @default(0)
   /// 服务器交出去的有用材料：有结果的搜索 + 读成功的页。退不退看它（桌面端报的不算数）
   hits       Int       @default(0)
+  /// 到现在估计花了多少钱（厘 = 0.001 元），按 token + 搜索次数实时累加；到上限就不再给搜、给读（lib/research/price.ts）
+  costLi     Int       @default(0)
   /// 整笔退过了没有
   refunded   Boolean   @default(false)
   /// 收尾结果：出了报告 true、没出 false、还没收尾 null

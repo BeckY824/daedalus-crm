@@ -82,7 +82,7 @@ beforeAll(async () => {
           }));
           b.onLoad({ filter: /^actions$/, namespace: "stub" }, () => ({
             contents: `
-              export const 背调价目 = async () => ({ 可用: true, 扣次: 6, 还剩: 23, 模拟: false });
+              export const 背调价目 = async () => (window.__价目 ?? { 可用: true, 扣次: 60, 还剩: 123, 模拟: false });
               export const 找同名客户 = async () => [{ id: 'c-9', name: 'Lumora GmbH' }];
               export const 认联系方式 = async () => ({ email: 'sales@lumora-trading.example', phone: '' });
               export const 存背调到客户 = async (id, s) => { window.__存.push([id, s.目标.name]); return { ok: true, id }; };
@@ -102,7 +102,7 @@ afterAll(async () => {
   await browser?.close();
 });
 
-async function open(模式: "run" | "done" | "running", opts: { reducedMotion?: boolean } = {}): Promise<Page> {
+async function open(模式: "run" | "done" | "running", opts: { reducedMotion?: boolean; 价目?: unknown } = {}): Promise<Page> {
   const page = await browser.newPage({ reducedMotion: opts.reducedMotion ? "reduce" : "no-preference" });
   // 打包出来的组件在页面里崩了的话，测试只会表现成「等不到」超时：把页面报错打出来
   page.on("pageerror", (e) => console.error("[页面报错]", e.message));
@@ -118,7 +118,7 @@ async function open(模式: "run" | "done" | "running", opts: { reducedMotion?: 
   await page.goto("http://card.test/");
   await page.addStyleTag({ content: css });
   // 组件里有读 process.env 的（业务配置那一层），Next 会把它编进去，这里打的包没有：给一个空的
-  await page.addScriptTag({ content: `window.process={env:{}}; window.__模式=${JSON.stringify(模式)}; window.__存=[]; window.__状态=${JSON.stringify(模式 === "running" ? 事件.slice(0, 3).reduce(归约, 初始状态({ name: "Lumora Trading GmbH" })) : 最终)};` });
+  await page.addScriptTag({ content: `window.process={env:{}}; window.__价目=${JSON.stringify(opts.价目 ?? null)} ?? undefined; window.__模式=${JSON.stringify(模式)}; window.__存=[]; window.__状态=${JSON.stringify(模式 === "running" ? 事件.slice(0, 3).reduce(归约, 初始状态({ name: "Lumora Trading GmbH" })) : 最终)};` });
   await page.addScriptTag({ content: bundle });
   return page;
 }
@@ -128,20 +128,30 @@ it("开跑前先问扣几次；点「开始」才发请求，流式展开到完�
   const page = await open("run");
   const 确认 = page.getByRole("group", { name: "背调确认" });
   await 确认.waitFor();
-  expect(await 确认.textContent()).toContain("扣 6 次 AI，你还剩 23 次");
+  expect(await 确认.textContent()).toContain("背调用的是我们的搜索和分析服务，按次数扣：背调要 60 次，你还剩 123 次");
   expect((globalThis as unknown as { __请求: unknown[] }).__请求).toHaveLength(0);
 
   await page.getByRole("button", { name: "开始背调" }).click();
   await page.getByText("已完成").waitFor();
   expect((globalThis as unknown as { __请求: unknown[] }).__请求).toEqual([{ mode: "research", company: "Lumora Trading GmbH" }]);
   expect(await page.locator(".rs-stage-done").count()).toBe(6);
-  expect(await page.locator(".rs-charge").textContent()).toBe("扣 6 次 AI");
+  expect(await page.locator(".rs-charge").textContent()).toBe("扣 6 次 AI"); // 事件里 done.charge 写的 6：卡上照实显示服务器扣了几次
 
   await page.getByRole("button", { name: "存进客户" }).click();
   await page.getByRole("button", { name: "存到「Lumora GmbH」" }).click();
   await page.getByRole("button", { name: "✓ 已存进「Lumora GmbH」" }).waitFor();
   expect(await page.evaluate(() => (window as unknown as { __存: unknown[] }).__存)).toEqual([["c-9", "Lumora Trading GmbH"]]);
   // 新建那一栏把查到的邮箱填好了
+  await page.close();
+}, 30_000);
+
+it("次数不够：开始按钮是灰的，说清差多少（背调是付费功能，新用户送的 30 次不够）", async () => {
+  const page = await open("run", { 价目: { 可用: true, 扣次: 60, 还剩: 30, 模拟: false } });
+  const 确认 = page.getByRole("group", { name: "背调确认" });
+  await 确认.waitFor();
+  expect(await 确认.textContent()).toContain("背调要 60 次，你还剩 30 次");
+  expect(await 确认.textContent()).toContain("次数不够");
+  expect(await page.getByRole("button", { name: "开始背调" }).isDisabled()).toBe(true);
   await page.close();
 }, 30_000);
 
