@@ -3,7 +3,7 @@
  * 「今天」只算我的计划；搜索认电话里的空格和横线。
  */
 import { describe, expect, it } from "vitest";
-import { 分表, 客户们, 今天要跟, 搜, 毫秒, 真, 国旗, 同步条, 首次同步失败 } from "@/lib/mobile/view";
+import { 分表, 客户们, 今天要跟, 搜, 毫秒, 真, 国旗, 同步条, 首次同步失败, 要清掉 } from "@/lib/mobile/view";
 import { 上次成功, type 记录 } from "@/lib/mobile/sync";
 import { 到期话, 没开通话 } from "@/lib/team-pricing";
 
@@ -127,5 +127,16 @@ describe("同步状态条", () => {
     expect(上次成功({ lastSyncAt: t, lastError: null })).toBe(Date.parse(t));
     expect(上次成功({ lastSyncAt: t, lastError: 到期 })).toBeNull();
     expect(上次成功({})).toBeNull();
+  });
+});
+
+describe("什么时候把手机上的数据清掉（2026-10-16 团队版全面检验）", () => {
+  it("登录失效、人不在团队里了、这台被移除了：清；到期、没开通、断网、别的出错：不清", () => {
+    expect(要清掉("登录已失效，请重新登录")).toMatch(/已经清掉/);
+    // 服务端 tenant/sync-scoped.ts 核设备 / auth 的原话
+    expect(要清掉("你不在这个团队里了：可能被老板移出了，或者你在别的设备上退出了团队")).toMatch(/不在这个团队里了.*已经清掉/);
+    expect(要清掉("你不在这个团队里")).toMatch(/已经清掉/);
+    expect(要清掉("这台设备已经从「我的设备」里移除，不能再同步：在「设置 → 团队」里点「退出团队」（只清这台电脑），再重新连接")).toMatch(/被移除了.*已经清掉/);
+    for (const x of [到期话(new Date("2026-10-15T15:00:00Z")), 没开通话, "连不上网络", "拉取失败（500）", "团队换过钥匙了，这台手机没拿到新钥匙：在电脑上重新授权这台手机"]) expect(要清掉(x), x).toBeNull();
   });
 });

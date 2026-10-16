@@ -207,7 +207,15 @@ export async function 推(c0: 手机团队, 云: 传输, 状态: 同步状态): 
       if (denied.size) {
         for (const i of denied) 状态.被拒.push({ 改动: 这批[i], 原因: "这位客户已经不归你了，这条没同步上" });
         拒 += denied.size;
-        状态.待推 = [...这批.filter((_, i) => !denied.has(i)), ...状态.待推.slice(这批.length)];
+        /*
+          被拒那几条的操作日志（「记了 XX 的一条跟进」）也不推：操作日志按它说的那条记录算归属，那条没落下就算成本人的，
+          服务端照收——老板的操作日志里写着记了一条跟进，跟进却不在（2026-10-16 团队版全面检验）。一起挪进被拒，界面只列跟进
+        */
+        const 被拒的 = new Set([...denied].map((i) => 行键(这批[i].t, 这批[i].k)));
+        const 跟着拒 = (e: 改动) => e.t === "AuditLog" && !!e.r && 被拒的.has(行键(String(e.r.entity ?? ""), String(e.r.entityId ?? "")));
+        const 剩 = [...这批.filter((_, i) => !denied.has(i)), ...状态.待推.slice(这批.length)];
+        for (const e of 剩.filter(跟着拒)) 状态.被拒.push({ 改动: e, 原因: "这位客户已经不归你了，这条没同步上" });
+        状态.待推 = 剩.filter((e) => !跟着拒(e));
         continue;
       }
     }
