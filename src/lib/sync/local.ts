@@ -17,6 +17,7 @@ import type { PrismaClient, Prisma } from "@/generated/prisma";
 import { 同步表, 不同步列, 同步的设置, 指向人的列, 同名合并, 模板占位账号 } from "./tables";
 import { 是模板名字 } from "@/lib/desktop/synced-name";
 import { 擦净删除残留 } from "./scoped-local";
+import { 建被盖表, 记推送时间, 记被盖, 清掉不在的被盖 } from "./overwritten";
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -46,6 +47,7 @@ export async function 建同步表(db: Db) {
   ]) {
     await db.$executeRawUnsafe(sql);
   }
+  await 建被盖表(db);
 }
 
 /**
@@ -228,6 +230,8 @@ export async function 待推(db: Db, 设备: string, 最多 = 2000): Promise<{ �
 
 export async function 记已推(db: Db, 到: number) {
   await db.$executeRawUnsafe("INSERT INTO _sync_cursor (k, v) VALUES ('pushed', ?) ON CONFLICT(k) DO UPDATE SET v = MAX(v, excluded.v)", 到);
+  // 什么时候传上去的：同事的改动早于这个时间 = 他没看到我这笔（overwritten.ts 被同事盖掉的改动）
+  await 记推送时间(db, 到);
 }
 
 /**
@@ -345,6 +349,7 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
         for (const c of cols.filter((c) => e.t !== "CustomerExtra" || row[c] != null)) await 记字段钟(tx, e.t, k, c, e.h);
       } else {
         const 要改: string[] = [];
+        const 本机钟们 = new Map<string, string>();
         /*
           外贸档案一位一行、主键就是客户 id（2026-10-05 复查）：两台各自给同一位客户新建了这一行（老板填国家、业务员填 WhatsApp），
           后到的那条「插入」带着全部列，空着的列会把对方填的冲掉。插入撞上已有行时，空值不算改动
@@ -352,7 +357,7 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
         const 插入只带有值的 = e.o === "I" && e.t === "CustomerExtra";
         for (const c of e.c.filter((c) => cols.includes(c) && !(插入只带有值的 && row[c] == null))) {
           const h = (await tx.$queryRawUnsafe<{ hlc: string }[]>("SELECT hlc FROM _sync_field WHERE tbl = ? AND pk = ? AND col = ?", e.t, k, c))[0]?.hlc;
-          if (!h || h < e.h) 要改.push(c);
+          if (!h || h < e.h) { 要改.push(c); if (h) 本机钟们.set(c, h); }
         }
         if (要改.length) {
           /*
@@ -363,6 +368,12 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
           const 规 = 同名合并[e.t];
           await tx.$executeRawUnsafe("SAVEPOINT s_upd");
           try {
+            // 要盖掉的格子里有本人在这台改过的：先记下原来的值（同事和我同时改了同一格时提示我，见 overwritten.ts）
+            const 我改过的 = 要改.filter((c) => 本机钟们.get(c)?.endsWith(`-${本机设备}`));
+            if (我改过的.length) {
+              const 原 = (await tx.$queryRawUnsafe<Record<string, unknown>[]>(`SELECT ${我改过的.map(引).join(", ")} FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k))[0] ?? {};
+              await 记被盖(tx, { t: e.t, k, 本机设备, 对方钟: e.h, 格: 我改过的.map((c) => ({ c, 本机钟: 本机钟们.get(c)!, 我的: 原[c], 对方的: 值(row[c]) })) });
+            }
             await tx.$executeRawUnsafe(`UPDATE ${引(e.t)} SET ${要改.map((c) => `${引(c)} = ?`).join(", ")} WHERE ${引(pk)} = ?`, ...要改.map((c) => 值(row[c])), k);
             await tx.$executeRawUnsafe("RELEASE s_upd");
           } catch (err) {
@@ -535,7 +546,8 @@ export async function 只留自己的(db: PrismaClient, 我: string) {
     await tx.auditLog.deleteMany({ where: { userId: { not: 我 } } });
     await tx.unassignedContact.deleteMany({ where: { OR: [{ ownerId: null }, { ownerId: { not: 我 } }] } });
   });
-  for (const t of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip", "_sync_cursor", "_sync_alias"]) {
+  await 清掉不在的被盖(db);
+  for (const t of ["_sync_log", "_sync_field", "_sync_tomb", "_sync_skip", "_sync_cursor", "_sync_alias", "_sync_push"]) {
     await db.$executeRawUnsafe(`DELETE FROM ${t}`).catch(() => undefined);
   }
   // 删掉的同事客户不在库文件字节里留副本：整库重建 + 截断 WAL（scoped-local 擦净删除残留）

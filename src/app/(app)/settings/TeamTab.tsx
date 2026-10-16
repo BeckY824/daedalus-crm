@@ -7,6 +7,7 @@ import { App, Alert, Button, Input, Space, Tag, Typography } from "antd";
 import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import ScopeConflicts from "./ScopeConflicts";
+import OverwrittenCard from "./OverwrittenCard";
 import DevicesCard from "./DevicesCard";
 import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
@@ -292,6 +293,8 @@ export default function TeamTab() {
 
       {/* 范围同步：失权的未上传改动（不静默丢弃）；AI 历史只统计不删除，见 docs/范围同步迁移说明.md */}
       <ScopeConflicts onChange={() => void 刷()} />
+      {/* 和同事同时改了同一格、被同事后来的改动盖掉的：把我原来写的给我看（lib/sync/overwritten.ts） */}
+      <OverwrittenCard onChange={() => void 刷()} />
       {(s.范围?.清理?.AI残留 ?? 0) > 0 && (
         <Alert type="info" showIcon style={{ marginBottom: 16 }} data-testid="scope-ai-residue"
           message={`AI 对话历史里有 ${s.范围!.清理!.AI残留} 条提到了已不在你同步范围内的客户`}

@@ -51,6 +51,7 @@ import * as 连 from "@/lib/mobile/link";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 没同步上 } from "@/lib/sync/local";
 import { 列出范围冲突 } from "@/lib/sync/scoped-local";
+import { 列出被盖, 看过被盖 } from "@/lib/sync/overwritten";
 
 let client: typeof import("@/lib/sync/client");
 let relay: typeof import("@/lib/tenant/sync-relay");
@@ -162,16 +163,17 @@ const 客户们 = async (w: 谁) => (await db(w).customer.findMany({ select: { i
 const 设置 = async (w: 谁) => (await db(w).setting.findUnique({ where: { key: "business" } }))?.value ?? null;
 const 状态 = async (w: 谁) => { 当(w); return client.团队状态(); };
 const 在团队的状态 = async (w: 谁) => { const s = await 状态(w); if (!s.在团队) throw Error(`${w} 不在团队里`); return s; };
-/** 「没同步上」「待老板核对」「回放跳过」三张清单（设置 → 团队里给人看的）：默认都要是空的 */
+/** 「没同步上」「待老板核对」「回放跳过」「被同事盖掉」几张清单（设置 → 团队里给人看的）：默认都要是空的 */
 async function 清单(w: 谁) {
   当(w);
   return {
     没同步上: (await 没同步上(db(w))).条数,
     待核对: (await client.范围同步概况()).冲突,
     跳过: ((await db(w).$queryRawUnsafe("SELECT tbl, pk, why FROM _sync_skip")) as unknown[]).length,
+    被盖: (await 列出被盖(db(w))).length,
   };
 }
-async function 都干净(...ws: 谁[]) { for (const w of ws) expect(await 清单(w), w).toEqual({ 没同步上: 0, 待核对: 0, 跳过: 0 }); }
+async function 都干净(...ws: 谁[]) { for (const w of ws) expect(await 清单(w), w).toEqual({ 没同步上: 0, 待核对: 0, 跳过: 0, 被盖: 0 }); }
 /** 在本人已连上的电脑上批准（电脑的授权框）。返回批准结果（满了会失败） */
 async function 电脑批(w: 谁) {
   当(w);
@@ -601,7 +603,7 @@ describe("4. 公海领取、交接、转走后的推送被拒不丢", () => {
   });
 });
 
-describe("5. 断网时两边改同一位客户", () => {
+describe("5. 断网时两边改同一位客户（后改的赢；被盖掉的一方有提示）", () => {
   it("老板、赵都断着网改同一位：不同字段两边都留；同一字段后改的赢（不看谁先联网）；两边最后一样", async () => {
     断网.add("boss"); 断网.add("zhao");
     await db("zhao").customer.update({ where: { id: "c-li-own" }, data: { remark: "赵先改的备注", school: "赵填的院校" } });
@@ -617,11 +619,50 @@ describe("5. 断网时两边改同一位客户", () => {
     }
   });
 
-  it("被盖掉的那一方有没有提示：同步结果和「设置 → 团队」里都没有（只写「推了 / 收到几条」）——记进报告", async () => {
+  it("被盖掉的赵那边有提示：哪位客户、哪一格、他原来写的、现在是什么；老板那边（赢的一方）没有", async () => {
+    当("zhao");
+    const 列 = await 列出被盖(db("zhao"));
+    expect(列).toEqual([expect.objectContaining({ 表: "客户", 名称: "李的老客户", 列: "备注", 我写的: "赵先改的备注", 现在: "老板后改的备注", href: "/customers/c-li-own" })]);
+    当("boss");
+    expect(await 列出被盖(db("boss"))).toEqual([]);
+    // 其余几张清单照旧是空的：这不是「没同步上」，也不是「待核对」
     const s = await 在团队的状态("zhao");
-    expect(s.last?.撞 ?? 0).toBe(0);
     expect(s.没同步上.条数).toBe(0);
     expect(s.范围?.冲突 ?? 0).toBe(0);
+    // 点「知道了」：不再提示
+    当("zhao");
+    expect(await 看过被盖(db("zhao"), 列.map((x) => x.id))).toBe(1);
+    expect(await 列出被盖(db("zhao"))).toEqual([]);
+  });
+
+  it("正常接着改不提示：赵联网改了备注、传上去之后，老板看到再改——赵那边不冒提示", async () => {
+    await db("zhao").customer.update({ where: { id: "c-li-own" }, data: { remark: "赵联网改的" } });
+    await 都轮("zhao", "boss");
+    await new Promise((r) => setTimeout(r, 5));
+    await db("boss").customer.update({ where: { id: "c-li-own" }, data: { remark: "老板看到之后接着改的" } });
+    await 都轮("boss", "zhao");
+    expect(await db("zhao").customer.findUnique({ where: { id: "c-li-own" } })).toMatchObject({ remark: "老板看到之后接着改的" });
+    当("zhao");
+    expect(await 列出被盖(db("zhao"))).toEqual([]);
+  });
+
+  it("没推上去时就被盖：赵断网改了电话和计划时间，老板联网后改了同一格 → 赵联网时提示；值一样的不提示", async () => {
+    断网.add("zhao");
+    await db("zhao").customer.update({ where: { id: "c-li-own" }, data: { phone: "+8613900000099", major: "赵改的行业" } });
+    await db("zhao").followPlan.update({ where: { id: "p-li-own" }, data: { plannedAt: new Date(2026, 9, 21, 9, 30) } });
+    await new Promise((r) => setTimeout(r, 5));
+    await db("boss").customer.update({ where: { id: "c-li-own" }, data: { phone: "+8613900000088", major: "赵改的行业" } });
+    await db("boss").followPlan.update({ where: { id: "p-li-own" }, data: { plannedAt: new Date(2026, 9, 22, 14, 0) } });
+    await 都轮("boss");
+    断网.delete("zhao");
+    await 都轮("zhao", "boss", "zhao");
+    当("zhao");
+    // 日期按日期时间给人看，不露毫秒数
+    expect((await 列出被盖(db("zhao"))).map((x) => [x.表, x.名称, x.列, x.我写的, x.现在]).sort()).toEqual([
+      ["客户", "李的老客户", "联系电话", "+8613900000099", "+8613900000088"],
+      ["跟进计划", "李的老客户 · 下周回访", "计划时间", "2026-10-21 09:30", "2026-10-22 14:00"],
+    ]);
+    await 看过被盖(db("zhao"), (await 列出被盖(db("zhao"))).map((x) => x.id));
   });
 });
 
