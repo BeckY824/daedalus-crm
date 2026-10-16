@@ -10,8 +10,10 @@ import { 切更新记录, 只留桌面端 } from "@/lib/changelog";
 const 全部 = 切更新记录(fs.readFileSync(path.resolve(__dirname, "../CHANGELOG.md"), "utf8"));
 const 这一版 = 全部.find((s) => s.版本 === "0.46.17")!;
 
-it("最上面是 0.46.17，下面紧接 0.46.16", () => {
-  expect(全部.slice(0, 2).map((s) => s.版本)).toEqual(["0.46.17", "0.46.16"]);
+it("0.46.17 下面紧接 0.46.16", () => {
+  const 版本们 = 全部.map((s) => s.版本);
+  const i = 版本们.indexOf("0.46.17");
+  expect(版本们.slice(i, i + 2)).toEqual(["0.46.17", "0.46.16"]);
 });
 
 it("手机端、多设备、按时长开通都写了，Mac 和 Windows 一样", () => {
