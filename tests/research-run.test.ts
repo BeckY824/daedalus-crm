@@ -288,6 +288,38 @@ describe("背调 6 步编排", () => {
     expect(事件.some((e) => e.type === "score")).toBe(true);
   });
 
+  it("最后一步被截断（思考把额度用光、正文是空的）：再要一次；给的额度是 背调输出上限 不是 2000", async () => {
+    const { 截断了, 背调输出上限 } = await import("@/lib/research/retry");
+    const m = 假模型();
+    let 截过 = false;
+    const 包 = {
+      ...m,
+      json: async (a: never, o: { researchStage?: string; maxTokens?: number }) => {
+        expect(o.maxTokens).toBe(背调输出上限);
+        if (o.researchStage === "approach" && !截过) {
+          截过 = true;
+          throw new 截断了();
+        }
+        return m.json(a, o as never);
+      },
+    };
+    const { 事件 } = await 跑({ 模型: 包 as unknown as 模型调用 });
+    expect(截过).toBe(true);
+    expect(事件.some((e) => e.type === "score")).toBe(true);
+  });
+
+  it("最后一步连着两次截断：这一步报错、不当成「跑完了」（服务器那边按我们这边的失败退）", async () => {
+    const { 截断了 } = await import("@/lib/research/retry");
+    const m = 假模型();
+    const 包 = { ...m, json: async (a: never, o: { researchStage?: string }) => { if (o.researchStage === "approach") throw new 截断了(); return m.json(a, o as never); } };
+    const 通道 = 模拟通道();
+    const 收尾 = vi.spyOn(通道, "收尾");
+    const { 事件 } = await 跑({ 模型: 包 as unknown as 模型调用, 通道 });
+    expect(事件.some((e) => e.type === "stage" && e.stage === "approach" && e.status === "error")).toBe(true);
+    expect(事件.some((e) => e.type === "score")).toBe(false);
+    expect(收尾).toHaveBeenCalledWith("run-test", false, expect.objectContaining({ 取消: false }));
+  });
+
   it("用户自己停的：收尾报 取消（服务器那边不退）", async () => {
     const 停 = new AbortController();
     const m = 假模型();

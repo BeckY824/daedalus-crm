@@ -29,7 +29,7 @@ import { 背调上限, 阶段表, 字段表, type 研究事件, type 阶段号, 
 import { 算相关性, 清洗评档, type 评档, type 风险 } from "./score";
 import { 认像的老客户, 老客户表文本, 老客户维度档, type 老客户 } from "./similar";
 import { 初始状态, 归约, type 背调状态 } from "./state";
-import { 背调超时, 截 } from "./retry";
+import { 背调超时, 背调输出上限, 截, 截断了 } from "./retry";
 
 type ChatOpts = NonNullable<Parameters<typeof chatTools>[2]>;
 
@@ -176,7 +176,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   let 工具号 = 0;
   /** 每一步挑工具、写摘要用摘要模型（可以是便宜的 mini）；最后打分写报告那一步单独传报告模型（通道.模型，固定 gpt-5.5） */
   /** 每次调用都带上这是哪一步（X-Research-Stage）：服务器看到最后一步交出去了才算跑完。超时是每一趟的，卡了 gateway-model 会重发一次 */
-  const opts = (stage: 阶段号, 模型名?: string): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", researchStage: stage, temperature: 0, thinking: false, timeoutMs: 背调超时.模型每次, maxTokens: 2000 });
+  const opts = (stage: 阶段号, 模型名?: string): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", researchStage: stage, temperature: 0, thinking: false, timeoutMs: 背调超时.模型每次, maxTokens: 背调输出上限 });
   /** 用原生 function calling；对面不吃 tools 时退回 JSON 协议（和首页 agent 同一个判断） */
   let 用原生 = true;
 
@@ -316,7 +316,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
 
   /**
    * 本步的结论：单独问一次 JSON（查 没交出来时，以及最后那一步）。前缀和 查 一样，缓存照样命中。
-   * 回的不是合法 JSON 就再要一次：那是模型的毛病，不该让整次背调停在这一步
+   * 回的不是合法 JSON、被截断了就再要一次：那是模型的毛病，不该让整次背调停在这一步
    */
   const 结论 = async (stage: 阶段号, 要什么: string, 模型名?: string): Promise<Record<string, unknown>> => {
     const 问 = () =>
@@ -331,7 +331,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     try {
       raw = await 问();
     } catch (e) {
-      if (signal?.aborted || !(e instanceof SyntaxError || (e instanceof Error && /不是合法 JSON/.test(e.message)))) throw e;
+      if (signal?.aborted || !(e instanceof SyntaxError || e instanceof 截断了 || (e instanceof Error && /不是合法 JSON/.test(e.message)))) throw e;
       raw = await 问();
     }
     return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};

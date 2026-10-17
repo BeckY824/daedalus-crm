@@ -60,3 +60,15 @@ describe("截", () => {
     expect(截(undefined, 10)).toBe("");
   });
 });
+
+describe("取回答（10-17：gpt-5.5 思考把 max_tokens 用光，正文是空的，原来被当成 {} 收下，6 步「完成」却没分）", () => {
+  it("被截断、要 JSON 却是空的都抛 截断了；带工具调用的不算", async () => {
+    const { 取回答, 截断了 } = await import("@/lib/research/retry");
+    expect(() => 取回答({ choices: [{ message: { content: "" }, finish_reason: "length" }] }, true)).toThrow(截断了);
+    expect(() => 取回答({ choices: [{ message: { content: "{\"a\":" }, finish_reason: "length" }] }, false)).toThrow(截断了);
+    expect(() => 取回答({ choices: [{ message: { content: "  " }, finish_reason: "stop" }] }, true)).toThrow("正文是空的");
+    expect(取回答({ choices: [{ message: { content: "", tool_calls: [{ id: "1" }] }, finish_reason: "length" }] }, true).tool_calls).toHaveLength(1);
+    expect(取回答({ choices: [{ message: { content: "" }, finish_reason: "stop" }] }, false).content).toBe("");
+    expect(取回答({ choices: [{ message: { content: "{}" }, finish_reason: "stop" }] }, true).content).toBe("{}");
+  });
+});

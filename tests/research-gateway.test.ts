@@ -301,6 +301,19 @@ describe("退不退由服务器判断（10-16 下午总控定：别让用户为�
     expect(await (await finish(请求("research/finish", token, { runId: "run-slow", ok: false }))).json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
   });
 
+  it("最后一步被截断（finish_reason=length、正文空）：不算交了报告，记一笔我们这边的失败 → 退", async () => {
+    const { token, owner } = await 建账号带令牌();
+    const { start, search, finish } = await 路由();
+    await start(请求("research/start", token, { runId: "run-cut", 走我们的模型: true }));
+    await search(请求("research/search", token, { runId: "run-cut", query: "Acme" }));
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ choices: [{ message: { role: "assistant", content: "" }, finish_reason: "length" }], usage: { prompt_tokens: 10, completion_tokens: 2000 } })));
+    await 问一步(token, "run-cut", "approach");
+    const 行 = await 这一行(owner.id, "run-cut");
+    expect(行?.reportAt).toBeNull();
+    expect(行?.failures).toBe(1);
+    expect(await (await finish(请求("research/finish", token, { runId: "run-cut", ok: false }))).json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
+  });
+
   it("上游 5xx 也记；用户自己停的（取消）照样不退", async () => {
     const { token, owner } = await 建账号带令牌();
     const { start, search, finish } = await 路由();

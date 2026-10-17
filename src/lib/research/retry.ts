@@ -46,6 +46,37 @@ export async function 重发一次<T>(做: (signal: AbortSignal) => Promise<T>, 
   }
 }
 
+/**
+ * 背调每次模型调用给的 max_tokens（10-17 AC 回放实验：SLV 的 A、C 和 Delta Light 的 C「— 分」）。
+ *
+ * gpt-5.5 是推理模型，max_tokens 是「思考 + 正文」共用的：原来给 2000，最后一步要看全部材料、评 6 项、写建议，
+ * 思考就把 2000 用光了，正文是空的（finish_reason=length），又被当成 {} 收下——6 步都「完成」、分数全是「查不到」。
+ * 只按实际用掉的 token 收钱，给多了不多花。lib/llm.ts 的 思考预算 是同一个坑
+ */
+export const 背调输出上限 = 8000;
+
+/** 回答被 max_tokens 截断 / 什么都没回：明说，不当成空 JSON 收下。编排对它重要一次（run.ts 的 结论） */
+export class 截断了 extends Error {
+  constructor(detail = "") {
+    super(`AI 的回答被截断了（思考把额度用光了）${detail}`);
+    this.name = "截断了";
+  }
+}
+
+type 回答 = { message?: { content?: string | null; tool_calls?: unknown[] }; finish_reason?: string | null };
+/**
+ * 从 chat/completions 的回包里取第一条回答。被截断（finish_reason=length）且没有工具调用的、
+ * 要 JSON 却什么都没回的，都抛 截断了
+ */
+export function 取回答(j: { choices?: 回答[] } | null | undefined, 要正文: boolean): NonNullable<回答["message"]> {
+  const c = j?.choices?.[0];
+  const m = c?.message ?? {};
+  const 有工具 = Array.isArray(m.tool_calls) && m.tool_calls.length > 0;
+  if (c?.finish_reason === "length" && !有工具) throw new 截断了();
+  if (要正文 && !(m.content ?? "").trim() && !有工具) throw new 截断了("（正文是空的）");
+  return m;
+}
+
 /** 按字符截（不切坏汉字和表情），截了就带省略号。给人看的结论、标签都走它 */
 export function 截(s: unknown, n: number): string {
   if (typeof s !== "string") return "";

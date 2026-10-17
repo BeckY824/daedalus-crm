@@ -96,7 +96,7 @@ describe("A / C 同材料回放（10-17 总控定：C 不再搜索，用 A 录�
     expect(录.读页.map((x) => [x.url, x.错 ?? x.页?.title])).toEqual([["https://a.example/about", "页"], ["https://a.example/404", "读不到"]]);
   });
 
-  it("回放：同一步先给一字不差的查询，再按顺序给没用过的；用完给 0 条；不同步的不串", async () => {
+  it("回放：不看查询词——同一步先给一字不差的、再按顺序给；这一步的用完了给别的步的；全给完了把 A 搜到过的合起来再给", async () => {
     const r = (q: string) => [{ title: q, url: `https://x.example/${q}`, snippet: q }];
     const 录: 录像 = {
       公司: "甲",
@@ -108,42 +108,51 @@ describe("A / C 同材料回放（10-17 总控定：C 不再搜索，用 A 录�
       ],
       读页: [],
     };
-    const 缺 = { 搜: 0, 页: 0 };
+    const 记 = { 缺搜: 0, 补读: 0 };
     let 步 = "basics";
     const 真搜 = vi.fn();
     const b = 基();
     b.搜索 = 真搜;
-    const 通道 = 回放(录, b, () => 步, 缺);
+    const 通道 = 回放(录, b, () => 步, 记);
     expect((await 通道.搜索("r", "Q2 "))[0].title).toBe("q2");
     expect((await 通道.搜索("r", "别的说法"))[0].title).toBe("q1");
-    expect(await 通道.搜索("r", "再搜")).toEqual([]);
+    步 = "fit"; // A 在这一步没搜过：给别的步还没用过的
+    expect((await 通道.搜索("r", "再搜"))[0].title).toBe("q3");
     步 = "risks";
-    expect((await 通道.搜索("r", "x"))[0].title).toBe("q3");
-    expect(缺).toEqual({ 搜: 1, 页: 0 });
+    expect((await 通道.搜索("r", "x")).map((x) => x.title)).toEqual(["q1", "q2", "q3"]);
+    expect(记).toEqual({ 缺搜: 0, 补读: 0 });
     expect(真搜).not.toHaveBeenCalled();
   });
 
-  it("回放：只给录过的页（末尾 / 和 # 不算不同）；录的时候失败的照样失败；没录过的不补读", async () => {
+  it("回放：A 一次都没搜成才算缺搜；录的时候失败的照样失败", async () => {
+    const 录: 录像 = { 公司: "甲", 组: "A", 搜索: [{ 步: "basics", query: "坏", 错: "搜索超时" }], 读页: [] };
+    const 记 = { 缺搜: 0, 补读: 0 };
+    const 通道 = 回放(录, 基(), () => "basics", 记);
+    await expect(通道.搜索("r", "坏")).rejects.toThrow("搜索超时");
+    expect(await 通道.搜索("r", "再搜")).toEqual([]);
+    expect(记).toEqual({ 缺搜: 1, 补读: 0 });
+  });
+
+  it("回放：A 读过的页给录下的那份（末尾 / 和 # 不算不同，读失败的照样失败）；A 没读过的现场读、记一笔补读", async () => {
     const 录: 录像 = {
       公司: "甲",
       组: "A",
-      搜索: [{ 步: "basics", query: "坏", 错: "搜索超时" }],
+      搜索: [],
       读页: [
         { url: "https://a.example/about/", 页: { url: "https://a.example/about/", title: "关于", text: "正文", 截断了: false } },
         { url: "https://a.example/404", 错: "读不到" },
       ],
     };
-    const 缺 = { 搜: 0, 页: 0 };
-    const 真读 = vi.fn();
+    const 记 = { 缺搜: 0, 补读: 0 };
+    const 真读 = vi.fn(async (_r: string, url: string) => ({ url, title: "现场读的", text: "新", 截断了: false }));
     const b = 基();
     b.读页 = 真读;
-    const 通道 = 回放(录, b, () => "basics", 缺, () => ({ 已花元: 1, 上限元: 10 }));
+    const 通道 = 回放(录, b, () => "basics", 记, () => ({ 已花元: 1, 上限元: 10 }));
     expect((await 通道.读页("r", "https://A.example/about#team")).title).toBe("关于");
     await expect(通道.读页("r", "https://a.example/404")).rejects.toThrow("读不到");
-    await expect(通道.读页("r", "https://a.example/new")).rejects.toThrow("没读过");
-    await expect(通道.搜索("r", "坏")).rejects.toThrow("搜索超时");
-    expect(缺).toEqual({ 搜: 0, 页: 1 });
-    expect(真读).not.toHaveBeenCalled();
+    expect((await 通道.读页("r", "https://a.example/new")).title).toBe("现场读的");
+    expect(真读).toHaveBeenCalledTimes(1);
+    expect(记).toEqual({ 缺搜: 0, 补读: 1 });
     expect(通道.花费).toEqual({ 已花元: 1, 上限元: 10 });
   });
 });
