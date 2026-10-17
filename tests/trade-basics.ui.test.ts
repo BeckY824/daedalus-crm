@@ -52,7 +52,8 @@ beforeAll(async () => {
     stub(/^next\/navigation$/, "export const useRouter=()=>({refresh(){},push(){}});");
     stub(/^\.\/actions$/, "export const saveFollowUp=async()=>({ok:true,id:'f1'}),completePlan=saveFollowUp,savePlan=saveFollowUp;");
     stub(/^\.\/ai$/, "export const parseFollowUpDraft=async()=>({ok:false,error:'no'});");
-    stub(/^\.\/CustomerPick$/, "export default function C(p){return <button type='button' onClick={()=>p.on近况({id:'c9',name:'Zeta',上次跟进:null,未完成计划:null,未完成计划数:0,contacts:[],opportunities:[],orders:[],有WhatsApp:true})}>挑 Zeta</button>}");
+    stub(/^\.\/CustomerPick$/, `const 人=(id,name,有WhatsApp)=>({id,name,上次跟进:null,未完成计划:null,未完成计划数:0,contacts:[],opportunities:[],orders:[],有WhatsApp});
+      export default function C(p){return <><button type='button' onClick={()=>p.on近况(人('c9','Zeta',true))}>挑 Zeta</button><button type='button' onClick={()=>p.on近况(人('c8','Bright',false))}>挑 Bright</button></>}`);
     b.onLoad({ filter: /.*/, namespace: "stub" }, (a) => ({ contents: a.pluginData, loader: "jsx", resolveDir: process.cwd() }));
   } };
   const f = await build({ stdin: { contents: `
@@ -239,5 +240,34 @@ it("新建计划：有 WhatsApp 号方式默认 WhatsApp，没号照旧电话沟
   await expect.poll(() => 方式格(page).inputValue()).toBe("电话沟通");
   await page.getByRole("button", { name: "挑 Zeta" }).click();
   await expect.poll(() => 方式格(page).inputValue()).toBe("WhatsApp");
+  // 2026-10-17 复测：有号 → 没号要回电话沟通（程序填进去的 WhatsApp 不算人改过）
+  await page.getByRole("button", { name: "挑 Bright" }).click();
+  await expect.poll(() => 方式格(page).inputValue()).toBe("电话沟通");
+  await page.close();
+});
+
+it("新建计划：人亲手改过方式（邮件）之后再换人，方式不动", async () => {
+  const { page } = await 开表单("计划挑人");
+  await page.getByRole("button", { name: "挑 Zeta" }).click();
+  await expect.poll(() => 方式格(page).inputValue()).toBe("WhatsApp");
+  await 方式格(page).fill("邮件沟通");
+  await expect.poll(() => 方式格(page).inputValue()).toBe("邮件沟通");
+  await page.getByRole("button", { name: "挑 Bright" }).click();
+  await page.getByRole("button", { name: "挑 Zeta" }).click();
+  await expect.poll(() => 方式格(page).inputValue()).toBe("邮件沟通");
+  await page.close();
+});
+
+it("记录跟进：有号 → 没号回电话沟通；人亲手改过类型（邮件）之后再换人，类型不动", async () => {
+  const { page } = await 开表单("跟进挑人");
+  await page.getByRole("button", { name: "挑 Zeta" }).click();
+  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+WhatsApp$/);
+  await page.getByRole("button", { name: "挑 Bright" }).click();
+  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+电话沟通$/);
+  await 类型格(page).locator(".ant-select").click();
+  await page.locator(".ant-select-dropdown:visible").getByText("邮件沟通", { exact: true }).click();
+  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+邮件沟通$/);
+  await page.getByRole("button", { name: "挑 Zeta" }).click();
+  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+邮件沟通$/);
   await page.close();
 });

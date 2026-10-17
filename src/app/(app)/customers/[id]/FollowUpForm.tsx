@@ -130,6 +130,8 @@ export default function FollowUpForm({
   const 挑人 = !给定客户;
   /** 挑中那位的近况：联系人、商机、到期计划都从这儿来。关框、保存时清掉 */
   const [近况, set近况] = useState<客户近况 | null>(null);
+  /** 人亲手改过「跟进类型」没有：换人时没改过才跟着新那位有没有 WhatsApp 号走（2026-10-17 复测，同 PlanForm 人改过方式） */
+  const 人改过类型 = useRef(false);
   const customerId = 给定客户 ?? 近况?.id;
   const contacts = 给定联系人 ?? 近况?.contacts ?? [];
   const opportunities = 给定商机 ?? 近况?.opportunities ?? [];
@@ -149,7 +151,7 @@ export default function FollowUpForm({
     // 联系人、商机是上一位的，换了人就不作数了（AI 解析填进去的也一样）
     form.setFieldsValue({ contactId: undefined, opportunityId: undefined });
     // 类型人没碰过：跟着这一位有没有 WhatsApp 号走
-    if (!record?.id && !record?.type && !form.isFieldTouched("type")) form.setFieldsValue({ type: v?.有WhatsApp ? "WHATSAPP" : "PHONE" });
+    if (!record?.id && !record?.type && !人改过类型.current) form.setFieldsValue({ type: v?.有WhatsApp ? "WHATSAPP" : "PHONE" });
   }
 
   const [aiText, setAiText] = useState("");
@@ -258,6 +260,7 @@ export default function FollowUpForm({
   useEffect(() => {
     if (!open) {
       autoParsed.current = null;
+      人改过类型.current = false;
       return;
     }
     if (initialAiText && aiEnabled && !record?.id && autoParsed.current !== initialAiText) {
@@ -415,7 +418,7 @@ export default function FollowUpForm({
       destroyOnHidden
     >
       {/* AI 速记块放在 Form 里面（它不是字段）：挑人那一格是 Form.Item，得在它上面、仍是第一格 */}
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={(changed) => { if ("type" in changed) 人改过类型.current = true; }}>
         {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={换人} 不提计划={Boolean(收口计划)} />}
         {showAi && (
           <div
