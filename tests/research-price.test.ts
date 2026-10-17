@@ -49,9 +49,9 @@ describe("降本开关", () => {
     expect(搜索结果量({ RESEARCH_SEARCH_CONTEXT: "tiny" })).toBeUndefined();
   });
 
-  it("成本上限默认 4 元，RESEARCH_COST_CAP 能改，配错按默认", () => {
-    expect(成本上限元({})).toBe(4);
+  it("成本上限默认 10 元，RESEARCH_COST_CAP 能改，配错按默认", () => {
+    expect(成本上限元({})).toBe(10);
     expect(成本上限元({ RESEARCH_COST_CAP: "1.5" })).toBe(1.5);
-    expect(成本上限元({ RESEARCH_COST_CAP: "零" })).toBe(4);
+    expect(成本上限元({ RESEARCH_COST_CAP: "零" })).toBe(10);
   });
 });
