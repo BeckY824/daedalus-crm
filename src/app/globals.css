@@ -2211,6 +2211,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .mcp-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; font-size: var(--fs-min);
   font-family: var(--font-mono); color: var(--ink); }
 .mcp-hint { margin-bottom: 10px; }
+.mcp-cmd-k { margin: 4px 0 6px; font-size: var(--fs-min); font-weight: 600; color: var(--ink); }
 .mcp-hint code { font-size: var(--fs-min); font-family: var(--font-mono); }
 
 /* 业务配置底下的演示数据那一小块。和表单隔开：它不是一个配置项，是一个动作 */

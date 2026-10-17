@@ -11,6 +11,7 @@ import { saveLlmSettings, testLlmSettings, clearLlmSettings, 查MCP接入, 开�
 import type { AiUsage } from "@/lib/ai-usage";
 import type { ModelOption } from "@/lib/llm";
 import { PROVIDERS, 认服务商 } from "@/lib/providers";
+import { MCP令牌变量, MCP接入命令 } from "@/lib/mcp/commands";
 
 export type LlmView = {
   /** ui：界面里填的；cloud：桌面端登录的云端账号给的；env：运维在 .env 里配的；null：未配置 */
@@ -389,6 +390,26 @@ function AssistBlock() {
   );
 }
 
+function McpCmd({ 命令, 多行 = false }: { 命令: string; 多行?: boolean }) {
+  const { message } = App.useApp();
+  return (
+    <div className="mcp-cmd">
+      <code style={多行 ? { whiteSpace: "pre" } : undefined}>{命令}</code>
+      <Button
+        size="small"
+        onClick={() => {
+          navigator.clipboard.writeText(命令).then(
+            () => message.success("命令已复制，去终端里粘贴执行"),
+            () => message.error("复制不了，手动选中拷贝吧"),
+          );
+        }}
+      >
+        复制
+      </Button>
+    </div>
+  );
+}
+
 /**
  * 让别的 agent 连进来（MCP）。
  *
@@ -409,9 +430,8 @@ function McpBlock() {
 
   if (!状态?.可用) return null;
 
-  const 命令 = 状态.令牌
-    ? `claude mcp add --transport http daedalus ${状态.地址} --header "Authorization: Bearer ${状态.令牌}"`
-    : "";
+  const 是Windows = typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+  const 命令 = 状态.令牌 ? MCP接入命令(状态.地址, 状态.令牌, 是Windows) : null;
 
   async function 开() {
     set忙(true);
@@ -446,26 +466,25 @@ function McpBlock() {
         写不了任何东西——记一笔、改状态、排计划仍然只能在这里点。
       </p>
 
-      {状态.已开 && 状态.令牌 ? (
+      {状态.已开 && 命令 ? (
         <>
-          <div className="mcp-cmd">
-            <code>{命令}</code>
-            <Button
-              size="small"
-              onClick={() => {
-                navigator.clipboard.writeText(命令).then(
-                  () => message.success("命令已复制，去终端里粘贴执行"),
-                  () => message.error("复制不了，手动选中拷贝吧"),
-                );
-              }}
-            >
-              复制
-            </Button>
-          </div>
+          <div className="mcp-cmd-k">Claude Code</div>
+          <McpCmd 命令={命令.claude} />
+          <p className="mcp-hint">粘到终端里执行一次就接上了。</p>
+          <div className="mcp-cmd-k">Codex</div>
+          {命令.codex.map((c) => <McpCmd key={c} 命令={c} />)}
           <p className="mcp-hint">
-            粘到终端里执行一次就接上了。Codex 用 <code>codex mcp add</code>，参数一样。
-            这把令牌等于这个库的只读钥匙，别贴到公开的地方；重新生成会让旧的立刻失效。
+            两行按顺序执行。Codex 每次启动都从 <code>{MCP令牌变量}</code> 这个环境变量读令牌，第一行只管当前这个终端窗口；
+            想一直有效，{是Windows
+              ? <>改用 <code>setx {MCP令牌变量} &quot;令牌&quot;</code>，之后新开的窗口都有。</>
+              : <>把第一行加进 <code>~/.zshrc</code>。</>}
           </p>
+          <p className="mcp-hint">
+            用 ChatGPT / Codex 桌面应用、不开终端的：把下面这段加到{" "}
+            <code>{是Windows ? "%USERPROFILE%\\.codex\\config.toml" : "~/.codex/config.toml"}</code> 末尾，重开应用。令牌直接写在这段里，不用设变量。
+          </p>
+          <McpCmd 命令={命令.codex配置} 多行 />
+          <p className="mcp-hint">这把令牌等于这个库的只读钥匙，别贴到公开的地方；重新生成会让旧的立刻失效。</p>
           <Space wrap>
             <Button size="small" onClick={开} loading={忙}>重新生成令牌</Button>
             <Button size="small" danger type="text" onClick={关}>关掉接入</Button>
