@@ -12,21 +12,62 @@ Codex 或 Claude Code。接上之后他在那边问「张三最近跟进到哪�
 
 ## 怎么接
 
-1. 打开 **设置 → AI 接入**，拉到底，点「生成接入令牌」
-2. 把那一整条命令复制到终端里执行：
+打开 **设置 → AI 接入**，拉到底，点「生成接入令牌」。下面会出现 Claude Code 和 Codex 两组命令，
+令牌已经填好，各带「复制」按钮。两家的写法**不一样**，别拿一家的改个名字给另一家用。
 
-   ```bash
-   claude mcp add --transport http daedalus http://127.0.0.1:3717/api/mcp \
-     --header "Authorization: Bearer dcrm_……"
-   ```
+### Claude Code
 
-   Codex 用 `codex mcp add`，参数一样。
+一条命令，令牌直接放进请求头：
 
-3. 在 Claude Code 里 `/mcp` 能看到 `daedalus`，然后就可以直接问：
+```bash
+claude mcp add --transport http daedalus http://127.0.0.1:3717/api/mcp \
+  --header "Authorization: Bearer dcrm_……"
+```
 
-   > 「我目前有哪些渠道，哪个带来的客户最多？」
-   > 「张三这条线最近跟进到哪了？」
-   > 「这个月签约金额按销售分一下」
+接好后在 Claude Code 里 `/mcp` 能看到 `daedalus`。
+
+### Codex
+
+Codex 的 `codex mcp add` 没有 `--header`，令牌从**环境变量**读，所以是两行——先设变量，再 add：
+
+```bash
+export DAEDALUS_TOKEN="dcrm_……"
+codex mcp add daedalus --url http://127.0.0.1:3717/api/mcp --bearer-token-env-var DAEDALUS_TOKEN
+```
+
+Windows 的终端（PowerShell）不认 `export`，第一行换成 `$env:DAEDALUS_TOKEN="dcrm_……"`，设置页在 Windows 上给的就是这个。
+
+也可以不用命令行，直接写 `~/.codex/config.toml`：
+
+```toml
+[mcp_servers.daedalus]
+url = "http://127.0.0.1:3717/api/mcp"
+bearer_token_env_var = "DAEDALUS_TOKEN"
+```
+
+**环境变量要在启动 Codex 的那个终端里有。** 配置里记的只是变量名，Codex 每次启动时才去读它的值；
+`export` 只管当前这个窗口，换个窗口开 Codex 会因为没有令牌连不上。想一直有效：
+Mac 把 `export` 那一行加进 `~/.zshrc`；Windows 用 `setx DAEDALUS_TOKEN "dcrm_……"`，之后新开的窗口都有。
+
+接好后 `codex mcp list` 能看到 `daedalus`。参数以 [Codex 的 MCP 文档](https://developers.openai.com/codex/mcp) 为准。
+
+### 自部署 / 团队主机
+
+地址换成你的服务器：`https://你的地址/api/mcp`，令牌在那台服务器网页的「设置 → AI 接入」里生成
+（不是桌面端那把）。比如 Codex：
+
+```bash
+export DAEDALUS_TOKEN="dcrm_……"
+codex mcp add daedalus --url https://你的地址/api/mcp --bearer-token-env-var DAEDALUS_TOKEN
+```
+
+Claude Code 同理，把上面那条里的 `http://127.0.0.1:3717/api/mcp` 换掉；`config.toml` 里改 `url` 那一行。
+
+### 然后就可以直接问
+
+> 「我目前有哪些渠道，哪个带来的客户最多？」
+> 「张三这条线最近跟进到哪了？」
+> 「这个月签约金额按销售分一下」
 
 ## 能做什么、不能做什么
 
