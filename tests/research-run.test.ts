@@ -358,6 +358,20 @@ describe("背调 6 步编排", () => {
     expect(认.summary?.endsWith("…")).toBe(true);
   });
 
+  it("这一步搜到 / 读到的也带材料编号，和后面「已有材料」里同一条的编号一致（来源填编号才对得上）", async () => {
+    const m = 假模型();
+    await 跑({ 模型: m });
+    const 回执 = m.调用.flatMap((c) => c.messages).filter((x) => x.role === "tool").map((x) => String(x.content ?? ""));
+    const 读 = 回执.find((t) => t.includes("Lumora") && /^\[\d+\] /.test(t));
+    expect(读).toBeDefined();
+    expect(回执.some((t) => /^- \[\d+\] /m.test(t))).toBe(true);
+    // 读官网那条的号，后面步骤的材料里同号同网址
+    const 号 = 读!.match(/^\[(\d+)\] /)![1];
+    const 后面 = m.调用.at(-1)!.prompt;
+    expect(后面).toContain(`[${号}] `);
+    expect(后面.split(`[${号}] `)[1].split("\n")[1]).toBe(`${官网}/about`);
+  });
+
   it("工具不叫 web_search（中转站会把同名函数当成它自家的内置搜索吞掉）", async () => {
     const 名们: string[] = [];
     const m = 假模型();

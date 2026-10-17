@@ -242,15 +242,18 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     try {
       const rs = await 通道.搜索(runId, query, signal);
       const 新: 来源[] = [];
+      const 号 = new Map<string, number>();
       for (const r of rs) {
         if (!是网址(r.url)) continue;
         材料.push({ n: 材料.length + 1, kind: "search", title: r.title || r.url, url: r.url, text: r.snippet ?? "" });
+        号.set(r.url, 材料.length);
         新.push({ title: r.title || r.url, url: r.url });
       }
       发({ type: "tool", stage, id, kind: "search", label, status: "done", result: `${rs.length} 条结果`, ms: Date.now() - t0, sources: 新.slice(0, 6) });
       发({ type: "usage", searches: 搜索数, pages: 读页数 });
       看钱();
-      return rs.length ? rs.map((r) => `- ${r.title}\n  ${r.url}\n  ${(r.snippet ?? "").slice(0, 300)}`).join("\n") : "没有搜到结果，换个说法或换个角度再搜。";
+      // 带上和「已有材料」同一套编号：来源可以填编号（认来源），这一步新搜到的不带号，模型照着位置猜就会对错条
+      return rs.length ? rs.map((r) => `- ${号.has(r.url) ? `[${号.get(r.url)}] ` : ""}${r.title}\n  ${r.url}\n  ${(r.snippet ?? "").slice(0, 300)}`).join("\n") : "没有搜到结果，换个说法或换个角度再搜。";
     } catch (e) {
       if (signal?.aborted) throw e;
       const msg = e instanceof Error ? e.message : "搜索出错";
@@ -279,7 +282,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       发({ type: "tool", stage, id, kind: "read", label, status: "done", result: `1 页 · ${字}`, ms: Date.now() - t0, sources: [{ title: p.title || 名, url: p.url || url }] });
       发({ type: "usage", searches: 搜索数, pages: 读页数 });
       看钱();
-      return `${p.title}\n${p.text.slice(0, 4000)}`;
+      return `[${材料.length}] ${p.title}\n${p.text.slice(0, 4000)}`;
     } catch (e) {
       if (signal?.aborted) throw e;
       const msg = e instanceof Error ? e.message : "读不了";
