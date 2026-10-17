@@ -147,6 +147,16 @@ describe("chatJSON 那条路（起草话术）", () => {
     });
   }
 
+  it("中转站余额不足（400 insufficient_user_quota）：我们的锅——说人话、次数退回、不带英文原文", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    接线({ 上游: () => new Response('{"error":{"code":"insufficient_user_quota","message":"credit insufficient balance: balance=1 required=2"}}', { status: 400 }) });
+    const r = await 起草();
+    expect(r.ok).toBe(false);
+    expect(错误(r)).not.toContain("insufficient");
+    expect(是人话(错误(r)), `界面上会显示：${错误(r)}`).toBe(true);
+    expect(await 用掉(账号.acc.id)).toBe(0);
+  });
+
   it("上游超时（网关 120 秒等不到）→ 504：说人话、退次数", async () => {
     接线({
       上游: () => {

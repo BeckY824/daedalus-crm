@@ -325,6 +325,34 @@ describe("退不退由服务器判断（10-16 下午总控定：别让用户为�
     expect(await (await finish(请求("research/finish", token, { runId: "run-stop", ok: false, 取消: true }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
   });
 
+  it("中转站余额不足（b.ai 回 400 insufficient_user_quota）：我们的锅——说人话、记失败、没跑完退次数，日志里打告警", async () => {
+    const { token, owner } = await 建账号带令牌();
+    const { start, search, finish } = await 路由();
+    await start(请求("research/start", token, { runId: "run-broke", 走我们的模型: true }));
+    await search(请求("research/search", token, { runId: "run-broke", query: "Acme" }));
+    const 日志 = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"error":{"code":"insufficient_user_quota","message":"credit insufficient balance: balance=129174 required=160530"}}', { status: 400 })));
+    const res = await 问一步(token, "run-broke", "approach");
+    expect(res.status).toBe(503);
+    expect(JSON.stringify(await res.json())).not.toContain("insufficient");
+    expect(日志.mock.calls.some((c) => String(c[0]).includes("[告警][中转站余额不足]"))).toBe(true);
+    expect((await 这一行(owner.id, "run-broke"))?.failures).toBe(1);
+    expect(await (await finish(请求("research/finish", token, { runId: "run-broke", ok: false }))).json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
+  });
+
+  it("搜索撞上中转站余额不足：名额还回去、记失败，也打告警", async () => {
+    process.env.RESEARCH_SEARCH = "gpt";
+    const { token, owner } = await 建账号带令牌();
+    const { start, search } = await 路由();
+    await start(请求("research/start", token, { runId: "run-broke-s", 走我们的模型: true }));
+    vi.stubGlobal("fetch", vi.fn(async () => new Response('{"error":{"code":"insufficient_user_quota","message":"credit insufficient balance"}}', { status: 400 })));
+    const 日志 = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect((await search(请求("research/search", token, { runId: "run-broke-s", query: "Acme" }))).status).toBe(502);
+    expect((await 这一行(owner.id, "run-broke-s"))?.failures).toBe(1);
+    expect(日志.mock.calls.some((c) => String(c[0]).includes("[告警][中转站余额不足] research/search"))).toBe(true);
+  });
+
   it("最后一步（X-Research-Stage: approach）交出去了 = 跑完了：中间超时过也不退", async () => {
     const { token, owner } = await 建账号带令牌();
     const { start, search, finish } = await 路由();

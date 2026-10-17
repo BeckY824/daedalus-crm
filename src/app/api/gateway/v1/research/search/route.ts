@@ -4,6 +4,7 @@ import { 背调还一次, 背调有收获, 背调记失败, 背调记花费 } fr
 import { 读价目, 搜索花费元 } from "@/lib/research/price";
 import { 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
+import { 是余额不足, 余额告警 } from "@/lib/upstream-alert";
 import { 选搜索服务 } from "@/lib/research/providers";
 import type { 搜索回应 } from "@/lib/research/types";
 import { 搜索上限 } from "@/lib/research/price";
@@ -59,7 +60,10 @@ async function 处理(req: Request) {
     await 背调还一次(owner, runId, "searches");
     // 我们这边的失败，记一笔：这次背调要是因此没跑完，收尾时退次数（credits.ts 的 收尾背调）。桌面端自己走了的不算
     if (!req.signal.aborted) await 背调记失败(owner, runId);
-    console.error(`[research/search] ${服务.名} 搜索失败：`, 抹掉密钥(e instanceof Error ? e.message : String(e), cfg.apiKey));
+    const 原文 = 抹掉密钥(e instanceof Error ? e.message : String(e), cfg.apiKey);
+    console.error(`[research/search] ${服务.名} 搜索失败：`, 原文);
+    // 中转站余额不足：不只是这一次没搜成，线上 AI 全停了，打告警（lib/upstream-alert.ts）
+    if (是余额不足(原文)) await 余额告警("research/search", 原文);
     return 网关错误(502, "搜索服务这会儿没响应，这次没算次数，可以再搜一次");
   }
 

@@ -9,6 +9,7 @@ import { 是背调 } from "@/lib/research/runs-memory";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
+import { 是余额不足, 余额告警 } from "@/lib/upstream-alert";
 import { AI功能 } from "@/lib/ai-features";
 import { CompletionStream } from "@/lib/llm-stream";
 import { 核对 } from "@/lib/import/paste";
@@ -257,14 +258,20 @@ async function 处理请求(req: Request) {
       每点一次扣一次，界面上还是上游的英文原文。这几种退掉，并说一句人话；原文只进日志。
       不是扣的那一步（同一问题的第 2 步以后）失败了也退：这个问题整个答不出来了（第二轮 AI A4）
     */
-    const 我们的锅 = [401, 402, 403, 404].includes(upstream.status);
+    /*
+      中转站余额不足回的是 400（b.ai：insufficient_user_quota，10-17 实验把线上余额花光那次），
+      OpenAI 是 429 insufficient_quota——不管哪个状态码，认出来就是我们的锅，并且打告警（lib/upstream-alert.ts）
+    */
+    const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
+    const 余额不够 = 是余额不足(text);
+    const 我们的锅 = [401, 402, 403, 404].includes(upstream.status) || 余额不够;
     if (upstream.status >= 500 || upstream.status === 429 || upstream.status === 408 || 我们的锅) {
       await 退();
       await 背调失败();
     }
-    const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
+    if (余额不够) await 余额告警("gateway", text);
     // 上游在限我们（429）：退了次数，话也别带上游的英文原文（第二轮 AI）
-    if (upstream.status === 429) {
+    if (upstream.status === 429 && !余额不够) {
       console.warn(`[gateway] 上游 429：${text}`);
       return 网关错误(429, "AI 那边这会儿太忙了，这次没扣次数，过一会儿再试", 剩余头);
     }

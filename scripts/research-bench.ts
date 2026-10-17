@@ -86,6 +86,8 @@ type 组合 = {
    * 这组排在被回放的那组后面跑；成本只有模型那部分，估真实单次成本时再加上被回放那组的搜索花费
    */
   回放?: string;
+  /** 开跑前估花费用：这组跑一家大约几元（不写：回放组 1 元，真跑的 7 元——10-17 实测 A 5–7 元、C 0.8 元） */
+  预计每次元?: number;
 };
 /** 有来源差：结论带来源的比例最多比 A 低多少（0.05 = 5 个百分点），逐家比再取平均；A 自己不比 */
 type 过线 = { 认对: number; 有来源差: number; 核得上: number; 分差: number; 档一致: number; 编造: number };
@@ -115,6 +117,8 @@ const 参数 = (() => {
     return i >= 0 ? a[i + 1] : undefined;
   };
   return { 配置: 取("--配置"), 公司: 取("--公司"), 模拟: a.includes("--模拟"), 重用录像: a.includes("--重用录像"),
+    /** 不探中转站余额（探不了的中转站用；b.ai 能探） */
+    不查余额: a.includes("--不查余额"),
     /** --重跑 SLV,alfanar：这几家不用录像、A 重新真跑（配合 --重用录像：别的家只重放） */
     重跑: (取("--重跑") ?? "").split(",").map((x) => x.trim()).filter(Boolean), 只跑: Number(取("--只跑") ?? 0) || 0, 输出: 取("--输出") ?? "research-bench-out" };
 })();
@@ -344,6 +348,50 @@ export function 回放(录: 录像, 基: 背调通道, 当前步: () => string, 
 /* ---------- 自动核 ---------- */
 
 /** 域名对不对得上：去掉 www，后缀相同就算（ledvance.de 对 ledvance.com 要在名单里另列） */
+/* ---------- 开跑前：中转站余额够不够这一次（10-17 AC 全量跑到第 5 家撞上余额不足，跑了一半） ---------- */
+
+/**
+ * 从中转站「余额不足」的回包里读出余额（元）。b.ai：`credit insufficient balance: balance=14598812 required=…`，
+ * 单位是积分，$1 = 100 万积分（price.ts 同一套）。读不出来回 null
+ */
+export function 读余额元(回包: string, 汇率: number): number | null {
+  const m = /balance=(\d+)/.exec(回包);
+  return m ? (Number(m[1]) / 1e6) * 汇率 : null;
+}
+
+/**
+ * 探余额：b.ai 不开放查余额的接口（只放推理路径），就发一次 max_tokens 一千万的最小调用——
+ * 中转站按 max_tokens 预扣，余额不够直接回 400 带上 balance=…，**被拒不花钱**；
+ * 真放行了（余额够一千万 token，几百美元）就当足够，这一趟只回一两个字，花费可以忽略。
+ * 返回：余额元（够多 = Infinity）；探不出来 null（只提示，不挡）
+ */
+export async function 探余额元(base: string, key: string, 汇率: number, fetch_ = fetch): Promise<number | null> {
+  try {
+    const res = await fetch_(`${base}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "gpt-5.5", messages: [{ role: "user", content: "1" }], max_tokens: 10_000_000 }),
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (res.ok) return Infinity;
+    return 读余额元(await res.text(), 汇率);
+  } catch {
+    return null;
+  }
+}
+
+/** 这次大约花多少元：真跑的组按 预计每次元（默认 7），能用录像的不算；回放组每家都算（默认 1） */
+export function 预计花费元(组们: 组合[], 公司们: string[], 能重用: (公司: string, 组: string) => boolean): number {
+  let 元 = 0;
+  公司们.forEach((co, i) => {
+    for (const g of 组们.filter((g) => !g.只跑前 || i < g.只跑前)) {
+      if (!g.回放 && 能重用(co, g.名)) continue;
+      元 += g.预计每次元 ?? (g.回放 ? 1 : 7);
+    }
+  });
+  return 元;
+}
+
 export function 认对了(状态: 背调状态 | null, 官网: string[]): "对" | "错" | "没找到" {
   const v = 状态?.fields.site?.value?.toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0];
   if (!v) return "没找到";
@@ -628,6 +676,29 @@ async function main() {
     收拾 = s.close;
   }
   if (!base || !key) throw new Error("真跑要 BENCH_BASE_URL 和 BENCH_KEY 两个环境变量（中转站地址和 Key）");
+
+  const 录像文件 = (公司: string, 组: string) => path.join(参数.输出, "录像", `${文件名(公司)}__${文件名(组)}.json`);
+  const 有录像结果 = (公司: string, 组: string) => {
+    if (!参数.重用录像 || 参数.重跑.includes(公司) || !existsSync(录像文件(公司, 组))) return false;
+    try {
+      return Boolean((JSON.parse(readFileSync(录像文件(公司, 组), "utf8")) as 录像).结果);
+    } catch {
+      return false;
+    }
+  };
+  if (!参数.模拟) {
+    const 预计 = 预计花费元(c.组合, 公司们.map((x) => x.名), 有录像结果);
+    // 最后一笔调用中转站按 max_tokens 预扣（背调输出上限 8000 × 5.5 输出价 ≈ 1.7 元，加上输入），留 3 元余量
+    const 要 = 预计 + 3;
+    if (参数.不查余额) {
+      console.log(`预计这次花约 ${预计.toFixed(0)} 元（没查中转站余额）`);
+    } else {
+      const 余额 = await 探余额元(base, key, 价.汇率);
+      if (余额 === null) console.warn(`预计这次花约 ${预计.toFixed(0)} 元；中转站余额探不出来，照跑——余额不够会跑到一半停`);
+      else if (余额 < 要) throw new Error(`中转站余额约 ${余额.toFixed(1)} 元，这次预计要 ${预计.toFixed(0)} 元（再留 3 元余量），不够，先充值再跑。没开跑，一分没花`);
+      else console.log(`中转站余额约 ${Number.isFinite(余额) ? 余额.toFixed(1) : "很多"} 元，这次预计 ${预计.toFixed(0)} 元，够`);
+    }
+  }
 
   const 行们: 一次[] = [];
   const 状态表 = new Map<string, 背调状态 | null>();

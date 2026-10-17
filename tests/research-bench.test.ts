@@ -2,7 +2,7 @@
  * 背调对比实验的自动核对（scripts/research-bench.ts，10-16 定的评判标准）：认对公司、来源里真有、两遍稳不稳。
  */
 import { describe, it, expect, vi } from "vitest";
-import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, type 录像 } from "../scripts/research-bench";
+import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, type 录像 } from "../scripts/research-bench";
 import type { 背调通道 } from "../src/lib/research/channel";
 import { 初始状态, 归约, type 背调状态 } from "@/lib/research/state";
 import { 算相关性 } from "@/lib/research/score";
@@ -154,5 +154,30 @@ describe("A / C 同材料回放（10-17 总控定：C 不再搜索，用 A 录�
     expect(真读).toHaveBeenCalledTimes(1);
     expect(记).toEqual({ 缺搜: 0, 补读: 1 });
     expect(通道.花费).toEqual({ 已花元: 1, 上限元: 10 });
+  });
+});
+
+describe("开跑前查中转站余额", () => {
+  const 不够 = '{"error":{"message":"credit insufficient balance: balance=14598812 required=300000046 (request id: x)","code":"insufficient_user_quota"}}';
+  it("从余额不足的回包里读出余额：积分 / 100 万 = 美元，再乘汇率", () => {
+    expect(读余额元(不够, 7.2)).toBeCloseTo(105.11, 1);
+    expect(读余额元('{"error":{"message":"bad request"}}', 7.2)).toBeNull();
+  });
+  it("探：被拒读余额；放行当足够；连不上 null；发的是 max_tokens 一千万的最小调用", async () => {
+    const f = vi.fn(async () => new Response(不够, { status: 400 }));
+    expect(await 探余额元("https://x/v1", "k", 7.2, f as unknown as typeof fetch)).toBeCloseTo(105.11, 1);
+    const 体 = JSON.parse(String((f.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(体.max_tokens).toBe(10_000_000);
+    expect(await 探余额元("https://x/v1", "k", 7.2, (async () => Response.json({ choices: [] })) as unknown as typeof fetch)).toBe(Infinity);
+    expect(await 探余额元("https://x/v1", "k", 7.2, (async () => { throw new Error("断网"); }) as unknown as typeof fetch)).toBeNull();
+  });
+  it("预计花费：真跑的组默认 7 元、能用录像的不算；回放组每家 1 元；写了 预计每次元 按写的", () => {
+    const 组们 = [
+      { 名: "A", 搜索: "gpt-5.5", 摘要: "gpt-5.5", 报告: "gpt-5.5", 标准: true },
+      { 名: "C", 搜索: "gpt-5.5", 摘要: "gpt-5.4-mini", 报告: "gpt-5.5", 回放: "A" },
+    ];
+    expect(预计花费元(组们, ["甲", "乙"], () => false)).toBe(16);
+    expect(预计花费元(组们, ["甲", "乙"], (co) => co === "甲")).toBe(9);
+    expect(预计花费元([{ ...组们[0], 预计每次元: 5 }, { ...组们[1], 预计每次元: 0.8 }], ["甲"], () => false)).toBeCloseTo(5.8);
   });
 });
