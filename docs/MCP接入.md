@@ -45,14 +45,27 @@ url = "http://127.0.0.1:3717/api/mcp"
 bearer_token_env_var = "DAEDALUS_TOKEN"
 ```
 
-**环境变量要在启动 Codex 的那个终端里有。** 配置里记的只是变量名，Codex 每次启动时才去读它的值；
+**用 ChatGPT / Codex 桌面应用、不开终端的**：变量要设在启动应用的环境里，一般不好弄。
+改用 `http_headers`，令牌直接写进配置，不靠变量——设置页「Codex」下面最后那一段就是这个，加到 `~/.codex/config.toml`
+（Windows 是 `%USERPROFILE%\.codex\config.toml`）末尾，重开应用：
+
+```toml
+[mcp_servers.daedalus]
+url = "http://127.0.0.1:3717/api/mcp"
+http_headers = { Authorization = "Bearer dcrm_……" }
+```
+
+令牌明文落在这个文件里（Claude Code 那条同样是明文存在它自己的配置里）；换令牌后记得改这一行。
+
+**用环境变量那种写法时，变量要在启动 Codex 的那个终端里有。** 配置里记的只是变量名，Codex 每次启动时才去读它的值；
 `export` 只管当前这个窗口，换个窗口开 Codex 会因为没有令牌连不上。想一直有效：
 Mac 把 `export` 那一行加进 `~/.zshrc`；Windows 用 `setx DAEDALUS_TOKEN "dcrm_……"`，之后新开的窗口都有。
 
 接好后 `codex mcp list` 能看到 `daedalus`。参数以 [Codex 的 MCP 文档](https://developers.openai.com/codex/mcp) 为准。
 
-2026-10-17 用 Codex CLI 0.162 实测过：照设置页那两行接上，`codex exec "列出我 CRM 里的客户"` 直接调我们的工具答出来，
-不用每次批准——开出去的工具都标了只读（`readOnlyHint: true`、`openWorldHint: false`），Codex 默认对只读工具不弹批准。
+2026-10-17 用 Codex CLI 0.162 实测过：照设置页那两行接上，`codex exec "列出我 CRM 里的客户"` 直接调我们的工具答出来；
+`http_headers` 那种写法不设变量也一样。桌面应用本身没实测，它读的是同一份 config.toml。
+工具调用不用每次批准——开出去的工具都标了只读（`readOnlyHint: true`、`openWorldHint: false`），Codex 默认对只读工具不弹批准。
 
 ### 自部署 / 团队主机
 

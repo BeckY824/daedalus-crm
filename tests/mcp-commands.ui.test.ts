@@ -3,6 +3,7 @@
  * 原来只给 Claude Code 一条，Codex 一句「参数一样」——不一样：Codex 没有 --header，令牌走环境变量
  * （codex mcp add … --bearer-token-env-var）。这里核：
  *   ① Claude Code、Codex 两组命令都出现，令牌、地址填对；每行一个「复制」，复制出去的就是那一行
+ *     Codex 桌面应用那段 config.toml（令牌写在 http_headers 里）也在
  *   ② Windows 上 Codex 第一行是 PowerShell 的 $env:，不是 export
  *   ③ 旧的「参数一样」那句不在了
  *
@@ -103,8 +104,10 @@ describe("生成接入令牌后的命令", () => {
       `claude mcp add --transport http daedalus ${地址} --header "Authorization: Bearer ${令牌}"`,
       `export DAEDALUS_TOKEN="${令牌}"`,
       `codex mcp add daedalus --url ${地址} --bearer-token-env-var DAEDALUS_TOKEN`,
+      `[mcp_servers.daedalus]\nurl = "${地址}"\nhttp_headers = { Authorization = "Bearer ${令牌}" }`,
     ]);
-    expect(期望.codex).toEqual((await 各行(page)).slice(1));
+    expect(期望.codex).toEqual((await 各行(page)).slice(1, 3));
+    expect(期望.codex配置).toBe((await 各行(page))[3]);
     const 全文 = await page.locator(".mcp-block").innerText();
     expect(全文).toContain("Claude Code");
     expect(全文).toContain("Codex");
@@ -112,8 +115,8 @@ describe("生成接入令牌后的命令", () => {
     expect(全文).not.toContain("参数一样");
 
     const 复制键 = page.locator(".mcp-cmd").getByRole("button", { name: /复\s*制/ });
-    expect(await 复制键.count()).toBe(3);
-    for (let i = 0; i < 3; i++) await 复制键.nth(i).click();
+    expect(await 复制键.count()).toBe(4);
+    for (let i = 0; i < 4; i++) await 复制键.nth(i).click();
     await expect
       .poll(() => page.evaluate(() => (window as unknown as { __复制: string[] }).__复制))
       .toEqual(await 各行(page));
@@ -126,7 +129,9 @@ describe("生成接入令牌后的命令", () => {
     expect(行[1]).toBe(`$env:DAEDALUS_TOKEN="${令牌}"`);
     expect(行[2]).toBe(`codex mcp add daedalus --url ${地址} --bearer-token-env-var DAEDALUS_TOKEN`);
     expect(行.join("\n")).not.toContain("export ");
-    expect(await page.locator(".mcp-block").innerText()).toContain("setx DAEDALUS_TOKEN");
+    const 全文 = await page.locator(".mcp-block").innerText();
+    expect(全文).toContain("setx DAEDALUS_TOKEN");
+    expect(全文).toContain("%USERPROFILE%\\.codex\\config.toml");
     await page.context().close();
   });
 });

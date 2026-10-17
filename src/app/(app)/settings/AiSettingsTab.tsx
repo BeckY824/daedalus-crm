@@ -390,11 +390,11 @@ function AssistBlock() {
   );
 }
 
-function McpCmd({ 命令 }: { 命令: string }) {
+function McpCmd({ 命令, 多行 = false }: { 命令: string; 多行?: boolean }) {
   const { message } = App.useApp();
   return (
     <div className="mcp-cmd">
-      <code>{命令}</code>
+      <code style={多行 ? { whiteSpace: "pre" } : undefined}>{命令}</code>
       <Button
         size="small"
         onClick={() => {
@@ -479,6 +479,11 @@ function McpBlock() {
               ? <>改用 <code>setx {MCP令牌变量} &quot;令牌&quot;</code>，之后新开的窗口都有。</>
               : <>把第一行加进 <code>~/.zshrc</code>。</>}
           </p>
+          <p className="mcp-hint">
+            用 ChatGPT / Codex 桌面应用、不开终端的：把下面这段加到{" "}
+            <code>{是Windows ? "%USERPROFILE%\\.codex\\config.toml" : "~/.codex/config.toml"}</code> 末尾，重开应用。令牌直接写在这段里，不用设变量。
+          </p>
+          <McpCmd 命令={命令.codex配置} 多行 />
           <p className="mcp-hint">这把令牌等于这个库的只读钥匙，别贴到公开的地方；重新生成会让旧的立刻失效。</p>
           <Space wrap>
             <Button size="small" onClick={开} loading={忙}>重新生成令牌</Button>
