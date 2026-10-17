@@ -213,19 +213,24 @@ async function 开表单(哪个: string) {
 }
 /** 「跟进类型」那一格：读整格的字（标签 + 选中的那一项），下拉不展开时只有选中的那一项 */
 const 类型格 = (page: Page) => page.getByRole("dialog").locator(".ant-form-item", { hasText: "跟进类型" }).first();
+/**
+ * 「跟进类型」选中的那个值。只读选择框里显示的那一格（antd 6 画在 .ant-select-content 里），不读整格：
+ * 下拉还没收起时选项也在格子里，整格读出来是「邮件沟通 邮件沟通」（2026-10-17 推送钩子里偶发挂过一次）
+ */
+const 类型值 = (page: Page) => 类型格(page).locator(".ant-select-content").first().innerText().then((t) => t.trim());
 const 方式格 = (page: Page) => page.getByRole("dialog").locator(".ant-form-item", { hasText: "跟进方式" }).locator("input");
 
 it("记录跟进：有 WhatsApp 号默认 WhatsApp，没号照旧电话沟通；挑人时挑中有号的那位也跟着变", async () => {
   for (const [哪个, 应是] of [["跟进有号", "WhatsApp"], ["跟进没号", "电话沟通"]] as const) {
     const { page, errors } = await 开表单(哪个);
-    await expect.poll(() => 类型格(page).innerText()).toMatch(new RegExp(`跟进类型\\s+${应是}$`));
+    await expect.poll(() => 类型值(page)).toBe(应是);
     expect(errors).toEqual([]);
     await page.close();
   }
   const { page } = await 开表单("跟进挑人");
-  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+电话沟通$/);
+  await expect.poll(() => 类型值(page)).toBe("电话沟通");
   await page.getByRole("button", { name: "挑 Zeta" }).click();
-  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+WhatsApp$/);
+  await expect.poll(() => 类型值(page)).toBe("WhatsApp");
   await page.close();
 });
 
@@ -261,13 +266,13 @@ it("新建计划：人亲手改过方式（邮件）之后再换人，方式不�
 it("记录跟进：有号 → 没号回电话沟通；人亲手改过类型（邮件）之后再换人，类型不动", async () => {
   const { page } = await 开表单("跟进挑人");
   await page.getByRole("button", { name: "挑 Zeta" }).click();
-  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+WhatsApp$/);
+  await expect.poll(() => 类型值(page)).toBe("WhatsApp");
   await page.getByRole("button", { name: "挑 Bright" }).click();
-  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+电话沟通$/);
+  await expect.poll(() => 类型值(page)).toBe("电话沟通");
   await 类型格(page).locator(".ant-select").click();
   await page.locator(".ant-select-dropdown:visible").getByText("邮件沟通", { exact: true }).click();
-  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+邮件沟通$/);
+  await expect.poll(() => 类型值(page)).toBe("邮件沟通");
   await page.getByRole("button", { name: "挑 Zeta" }).click();
-  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+邮件沟通$/);
+  await expect.poll(() => 类型值(page)).toBe("邮件沟通");
   await page.close();
 });
