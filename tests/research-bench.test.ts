@@ -2,7 +2,8 @@
  * 背调对比实验的自动核对（scripts/research-bench.ts，10-16 定的评判标准）：认对公司、来源里真有、两遍稳不稳。
  */
 import { describe, it, expect, vi } from "vitest";
-import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, 左右各半, type 录像 } from "../scripts/research-bench";
+import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, 左右各半, 编造率of, 读报告评分, 读结果csv, type 录像 } from "../scripts/research-bench";
+import { 报告文本 } from "@/lib/research/report";
 import type { 背调通道 } from "../src/lib/research/channel";
 import { 初始状态, 归约, type 背调状态 } from "@/lib/research/state";
 import { 算相关性 } from "@/lib/research/score";
@@ -190,5 +191,27 @@ describe("盲评左右", () => {
       expect(左 === 2 || 左 === 3).toBe(true);
       expect(左右各半(4).filter(Boolean).length).toBe(2);
     }
+  });
+});
+
+describe("编造率（10-17 总控改：按比例和 A 比，≤ A + 3 个百分点，几遍合计）", () => {
+  it("嫌疑 ÷ 带来源，几行合起来算；没有带来源的是 NaN", () => {
+    expect(编造率of([{ 嫌疑: 11, 有来源: 90 }, { 嫌疑: 8, 有来源: 88 }])).toBeCloseTo(19 / 178);
+    expect(编造率of([{ 嫌疑: 0, 有来源: 0 }])).toBeNaN();
+  });
+});
+
+describe("--只出汇总：从上次的 results.csv 和报告 txt 读回来", () => {
+  it("报告 txt 里读回总分和各项档位，和原来的状态比分差 0、档位全一致", () => {
+    const a = 造([{ type: "score", 评分: 算相关性([{ 维度: "category", 档: "high", 证据: "x" }, { 维度: "market", 档: "mid", 证据: "德奥" }, { 维度: "buyerType", 档: "low" }]) }]);
+    const 回 = 读报告评分(报告文本(a));
+    expect(稳定(a, 回)).toEqual({ 分差: 0, 档一致: 1 });
+    expect(读报告评分("Rexel 背调\n\n【公司】\n规模：大")).toBeNull();
+  });
+  it("csv：去 BOM，引号里的逗号 / 双引号 / 换行原样回来", () => {
+    expect(读结果csv('\uFEFF组,公司,错\nA,Rexel,\nC,"S, LV","说""超时""\n第二行"')).toEqual([
+      { 组: "A", 公司: "Rexel", 错: "" },
+      { 组: "C", 公司: "S, LV", 错: '说"超时"\n第二行' },
+    ]);
   });
 });

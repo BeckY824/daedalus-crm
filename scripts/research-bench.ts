@@ -28,6 +28,8 @@
  *   认对公司 100%；结论带来源的比例不低于 A 5 个百分点以上（逐家和 A 比、再取平均——10-16 晚总控定：A 自己试跑才 74%，
  *   绝对线连标准组都过不了）；来源里核得上 ≥ 90%（这条是绝对线，防编造）；和 A 的总分平均差 ≤ 5、6 项档位平均至少 5 项一致；
  *   **编造嫌疑 0 条**：结论里的数字在它标的那一页原文里一个都找不到，就算一条嫌疑（编造嫌疑.md 逐条列出，人再看一眼）。
+ *   （10-17 总控改：都和 A 比——核得上 ≥ A − 5 点；编造率 = 嫌疑 ÷ 带来源的结论，≤ A 的编造率 + 3 个百分点，
+ *   有同配置重跑时几遍合起来算；分差只看同配置几遍的平均。上面几条是 10-16 的旧线，留着对照）
  *   过线的组合里挑最便宜的做默认；都不过线就用 A。
  *
  * ## 盲评
@@ -40,10 +42,11 @@
  *   npx tsx scripts/research-bench.ts --配置 scripts/research-bench.example.json --公司 scripts/research-bench.companies.csv --模拟
  *     不联网、不花钱：模拟搜索 + 本机假模型（e2e/research-fake-llm.ts），验流程和输出格式
  *   BENCH_BASE_URL=https://api.b.ai/v1 BENCH_KEY=… npx tsx scripts/research-bench.ts --配置 … --公司 …
- *     真跑：花的是中转站额度。Key 只放环境变量（~/Opensource_CRM/02-开发与发版/背调-脚本/对比实验.sh 从服务器取，不打印）
+ *     真跑：花的是中转站额度。Key 只放环境变量（~/Opensource_CRM/02-开发与发版/背调-脚本/对比实验.sh 从本机实验令牌 bench.env 读，不打印）
  *   … --只跑 1     先跑第 1 家看看
  *   … --重用录像   录像目录里已有的组不再真跑，直接拿上次的结果，只跑回放组
  *   … --重跑 SLV,alfanar   这几家不用录像，A 重新真跑
+ *   … --只出汇总   不调模型、不花钱：拿输出目录里的 results.csv 和每份报告的 txt 按现在的过线规则重出 summary.md（盲评不动）
  *
  * 同一家最多 2 组同时跑；几家同时跑看配置的 同时跑几家（默认 1）。
  * 输出到 --输出 指定的目录：results.csv、summary.md、编造嫌疑.md、盲评.html / 盲评.pdf / 盲评-答案.txt、每份报告的 txt。
@@ -57,6 +60,7 @@ import { 模拟通道 } from "../src/lib/research/mock";
 import { 报告文本 } from "../src/lib/research/report";
 import type { 背调通道 } from "../src/lib/research/channel";
 import type { 背调状态 } from "../src/lib/research/state";
+import { 维度表 } from "../src/lib/research/score";
 import { 读价目, 模型花费元, 搜索花费元, type 价目 } from "../src/lib/research/price";
 import { 背调超时, 背调输出上限, 取回答, 重发一次, 截 } from "../src/lib/research/retry";
 import { 阶段表, type 花费, type 搜索结果, type 读页结果 } from "../src/lib/research/types";
@@ -96,9 +100,10 @@ type 组合 = {
 };
 /**
  * 10-17 总控定：都和 A 比，A 自己不判。有来源差 / 核得上差：最多比 A 低多少（0.05 = 5 个百分点，有来源逐家比再平均）；
- * 编造嫌疑不比 A 多；分差只在有「同配置」重跑时按几遍的平均分判（单次跑同配置自己就差 7–9 分，判不了）
+ * 编造率差：编造率（嫌疑 ÷ 带来源的结论）最多比 A 高多少（0.03 = 3 个百分点；10-17 总控改，原来「嫌疑条数不比 A 多」——
+ * 带来源的结论越多、条数自然越多）；有同配置重跑时几遍合起来算。分差只在有「同配置」重跑时按几遍的平均分判（单次跑同配置自己就差 7–9 分，判不了）
  */
-type 过线 = { 认对: number; 有来源差: number; 核得上差: number; 分差: number; 档一致: number };
+type 过线 = { 认对: number; 有来源差: number; 核得上差: number; 编造率差: number; 分差: number; 档一致: number };
 type 配置 = {
   /** 「我们卖什么、卖给谁、哪些国家」——等于设置里的业务简介，评分照它评 */
   我方: string;
@@ -127,6 +132,8 @@ const 参数 = (() => {
   return { 配置: 取("--配置"), 公司: 取("--公司"), 模拟: a.includes("--模拟"), 重用录像: a.includes("--重用录像"),
     /** 不探中转站余额（探不了的中转站用；b.ai 能探） */
     不查余额: a.includes("--不查余额"),
+    /** 不跑、不花钱：读输出目录的 results.csv + 报告 txt，按现在的过线规则重出 summary.md */
+    只出汇总: a.includes("--只出汇总"),
     /** --重跑 SLV,alfanar：这几家不用录像、A 重新真跑（配合 --重用录像：别的家只重放） */
     重跑: (取("--重跑") ?? "").split(",").map((x) => x.trim()).filter(Boolean), 只跑: Number(取("--只跑") ?? 0) || 0, 输出: 取("--输出") ?? "research-bench-out" };
 })();
@@ -516,6 +523,12 @@ export function 来源比A(行们: Pick<一次, "组" | "公司" | "错" | "结�
   );
 }
 const 百 = (x: number) => (Number.isFinite(x) ? `${Math.round(x * 100)}%` : "—");
+const 百1 = (x: number) => (Number.isFinite(x) ? `${(x * 100).toFixed(1)}%` : "—");
+/** 编造率 = 嫌疑条数 ÷ 带来源的结论条数（几行合起来算，不是逐行平均）；一条带来源的都没有是 NaN */
+export function 编造率of(rs: Pick<一次, "嫌疑" | "有来源">[]): number {
+  const 有 = rs.reduce((a, r) => a + r.有来源, 0);
+  return 有 ? rs.reduce((a, r) => a + r.嫌疑, 0) / 有 : NaN;
+}
 const 文件名 = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, "_");
 
 /** 「基本面：The operation was aborted due to timeout」这样：一眼看出卡在哪一步、是什么错 */
@@ -672,6 +685,178 @@ async function 出盲评(对: { 公司: string; A: 背调状态; 候选: 背调�
   }
 }
 
+/** 汇总：每组一行，和 A 比，写 summary.md；要盲评 = 顺手出盲评（--只出汇总 不出，免得把发给用户的那份换掉） */
+async function 写汇总(c: 配置, 公司们: 公司[], 行们: 一次[], 状态表: Map<string, 背调状态 | null>, 要盲评: boolean) {
+  const A = c.组合.find((g) => g.标准) ?? c.组合[0];
+  const 汇总 = c.组合.map((g) => {
+    const rs = 行们.filter((r) => r.组 === g.名);
+    const 成 = rs.filter((r) => !r.错);
+    const 认 = 成.filter((r) => r.认对 !== "模拟");
+    const 认对率 = 认.length ? 认.filter((r) => r.认对 === "对").length / 认.length : NaN;
+    const 有来源率 = 均(成.map((r) => (r.结论数 ? r.有来源 / r.结论数 : NaN)).filter(Number.isFinite));
+    const 有来源比A = g === A ? NaN : 来源比A(行们, A.名, g.名);
+    const 核得上率 = 均(成.map((r) => (r.核得上 + r.核不上 ? r.核得上 / (r.核得上 + r.核不上) : NaN)).filter(Number.isFinite));
+    const 比A = g === A ? [] : rs.map((r) => 稳定(状态表.get(`${A.名}|${r.公司}`) ?? null, 状态表.get(`${g.名}|${r.公司}`) ?? null)).filter((x) => x.分差 != null);
+    const 分差 = 均(比A.map((x) => x.分差!));
+    const 档一致 = 均(比A.map((x) => x.档一致!));
+    const 嫌疑 = 成.reduce((a, r) => a + r.嫌疑, 0);
+    const 编造率 = 编造率of(成);
+    const 成本 = 均(成.map((r) => r.成本元));
+    const 估实价 = 均(成.map((r) => r.估实价元));
+    const 缺 = 成.reduce((a, r) => a + r.回放缺搜, 0);
+    const 补读 = 成.reduce((a, r) => a + r.回放补读页, 0);
+    const 入 = 成.reduce((a, r) => a + r.模型输入 + r.搜索输入, 0);
+    const 缓存占比 = 入 ? 成.reduce((a, r) => a + r.模型缓存读 + r.搜索缓存读, 0) / 入 : NaN;
+    return { g, rs, 成, 认对率, 有来源率, 有来源比A, 核得上率, 分差, 档一致, 嫌疑, 编造率, 多遍编造率: NaN, 成本, 估实价, 缺, 补读, 缓存占比, 秒: 均(成.map((r) => r.秒)), 调用: 均(成.map((r) => r.模型调用)), 不过: [] as string[], 两遍差: NaN, 多遍分差: NaN, 两遍明细: "" };
+  });
+  const 标准 = 汇总.find((x) => x.g === A)!;
+  for (const x of 汇总) {
+    const g = x.g;
+    // 同配置重跑的那几组：逐家把几遍的分拿来，看自己差多少；和 A 比用几遍的平均分
+    const 重跑组 = c.组合.filter((h) => h.同配置 === g.名).map((h) => h.名);
+    if (重跑组.length) {
+      const 分 = (组: string, 公司: string) => {
+        const r = 行们.find((y) => y.组 === 组 && y.公司 === 公司 && !y.错);
+        return r && r.分 !== "" ? Number(r.分) : NaN;
+      };
+      const 各家 = 公司们.map((co) => ({ 名: co.名, 遍: [g.名, ...重跑组].map((n) => 分(n, co.名)).filter(Number.isFinite), A: 分(A.名, co.名) }));
+      const 有两遍 = 各家.filter((y) => y.遍.length >= 2);
+      x.两遍差 = 均(有两遍.map((y) => Math.max(...y.遍) - Math.min(...y.遍)));
+      x.两遍明细 = 有两遍.map((y) => `${y.名} ${y.遍.join(" / ")}`).join("；");
+      x.多遍分差 = 均(各家.filter((y) => y.遍.length && Number.isFinite(y.A)).map((y) => Math.abs(y.A - 均(y.遍))));
+      x.多遍编造率 = 编造率of(行们.filter((y) => [g.名, ...重跑组].includes(y.组) && !y.错));
+    }
+    if (!(x.成.length === x.rs.length && x.rs.length)) x.不过.push("有跑失败的");
+    if (!参数.模拟 && !(x.认对率 >= c.过线.认对)) x.不过.push("认错公司");
+    if (g === A || g.同配置) continue;
+    if (!(x.有来源比A >= -c.过线.有来源差)) x.不过.push("来源比 A 少");
+    if (!(x.核得上率 >= 标准.核得上率 - c.过线.核得上差)) x.不过.push("核得上比 A 差");
+    const 率 = Number.isFinite(x.多遍编造率) ? x.多遍编造率 : x.编造率;
+    if (!(率 <= 标准.编造率 + c.过线.编造率差 + 1e-9)) x.不过.push(`编造率比 A 高 ${Math.round(c.过线.编造率差 * 100)} 点以上${Number.isFinite(x.多遍编造率) ? "（几遍合计）" : ""}`);
+    if (Number.isFinite(x.多遍分差) && !(x.多遍分差 <= c.过线.分差)) x.不过.push("分差大（几遍平均）");
+    if (!(x.档一致 >= c.过线.档一致 / 6)) x.不过.push("档位不一致");
+  }
+  const 候选 = 汇总.filter((x) => !x.g.参考 && !x.g.同配置 && x.g !== A && x.不过.length === 0).sort((a, b) => a.估实价 - b.估实价);
+  const 默认 = 候选[0] ?? 标准;
+  const 数 = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "—");
+
+  const md = [
+    "# 背调对比实验汇总",
+    "",
+    `公司 ${公司们.length} 家${参数.模拟 ? "（模拟数据，不代表真实效果）" : ""}；成本按 b.ai 实价（含缓存读价），实验上限 ${c.成本上限元} 元；评分依据：${c.我方}`,
+    "",
+    "| 组合 | 跑成 | 认对公司 | 结论带来源 | 来源里核得上 | 和 A 平均分差 | 和 A 档位一致 | 编造嫌疑 | 这次平均花了（元） | 估真实单次成本（元） | 成本 × 3 建议售价（元） | 缓存读占输入 | 平均分析调用 | 平均耗时 | 过线 |",
+    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ...汇总.map(
+      (x) =>
+        `| ${x.g.名}${x.g.参考 ? "（参考）" : ""} | ${x.成.length}/${x.rs.length} | ${百(x.认对率)} | ${百(x.有来源率)}${x.g === A || !Number.isFinite(x.有来源比A) ? "" : `（比 A ${x.有来源比A >= 0 ? "+" : "−"}${Math.abs(x.有来源比A * 100).toFixed(0)} 点）`} | ${百(x.核得上率)} | ${x.g === A ? "（标准）" : `${数(x.分差, 1)}${Number.isFinite(x.多遍分差) ? `（${x.两遍明细 ? "几遍平均 " : ""}${数(x.多遍分差, 1)}）` : ""}`} | ${x.g === A ? "—" : Number.isFinite(x.档一致) ? `${(x.档一致 * 6).toFixed(1)} / 6` : "—"} | ${x.嫌疑}（${百1(x.编造率)}${Number.isFinite(x.多遍编造率) ? `，几遍合计 ${百1(x.多遍编造率)}` : ""}） | ${数(x.成本)} | ${数(x.估实价)}${x.g.回放 ? "（加回搜索）" : ""} | ${数(x.估实价 * 3, 1)} | ${百(x.缓存占比)} | ${数(x.调用, 0)} | ${数(x.秒, 0)}s | ${x.g.参考 || x.g.同配置 ? "—" : x.g === A ? "（标准）" : x.不过.length ? `✗ ${x.不过.join("、")}` : "✓"} |`,
+    ),
+    ...汇总
+      .filter((x) => Number.isFinite(x.两遍差))
+      .flatMap((x) => ["", `**${x.g.名} 同配置几遍的分差**：平均 ${数(x.两遍差, 1)} 分（目标 ≤ ${c.过线.分差}）。逐家：${x.两遍明细}。`]),
+    "",
+    `**建议默认：${默认.g.名}**（${默认 === 标准 ? "没有组合过线，用 A + 降本开关" : "过线组合里最便宜的"}），估真实单次成本 ${数(默认.估实价)} 元，按成本 × 3 约 ${数(默认.估实价 * 3, 1)} 元一次。`,
+    ...(汇总.some((x) => x.g.回放)
+      ? [
+          "",
+          `回放组（${汇总.filter((x) => x.g.回放).map((x) => x.g.名).join("、")}）不自己搜，用被回放那组同一家录下的搜索结果和网页，两组的搜索结果一样、只比模型；` +
+            "「这次平均花了」只有模型那部分，「估真实单次成本」= 被回放那组同一家的搜索花费 + 回放组的模型花费（上线以后它要自己搜；被回放的 A 搜索用的是 5.5 中等结果量、最多 8 次，比 C 正式配的贵一点，所以偏高）。" +
+            `回放不看查询词，A 搜到过的都给；给不出搜索结果的共 ${汇总.filter((x) => x.g.回放).reduce((a, x) => a + x.缺, 0)} 次（应为 0）；A 没读过、现场补读的页共 ${汇总.filter((x) => x.g.回放).reduce((a, x) => a + x.补读, 0)} 页（读网页不花钱，产品里 C 也会自己读）。`,
+        ]
+      : []),
+    "",
+    `过线门槛（都和 A 比，A 自己不判）：认对 ${百(c.过线.认对)}、结论带来源不比 A 低 ${Math.round(c.过线.有来源差 * 100)} 个百分点以上（逐家比再平均）、核得上不比 A 低 ${Math.round(c.过线.核得上差 * 100)} 个百分点以上、编造率（嫌疑 ÷ 带来源的结论）不比 A 高 ${Math.round(c.过线.编造率差 * 100)} 个百分点以上（有同配置重跑时几遍合计）、档位平均至少 ${c.过线.档一致} / 6 一致；` +
+      `和 A 的分差只在同配置跑了几遍时按平均分判（≤ ${c.过线.分差}），单跑一遍同配置自己就差 7–9 分，不判。`,
+    "编造嫌疑逐条在 编造嫌疑.md；每份报告的原文在同目录的 txt；「核得上」只算摘得出数字 / 英文词的结论。",
+  ];
+  writeFileSync(path.join(参数.输出, "summary.md"), md.join("\n"));
+
+  // 盲评：A 和建议默认并排；都没过线就和最便宜的候选组比（10-17 总控要 5 家盲评，过不过线都出），最多 5 家
+  const 盲评组 = 默认 !== 标准 ? 默认 : 汇总.filter((x) => !x.g.参考 && !x.g.同配置 && x.g !== A && x.成.length).sort((a, b) => a.估实价 - b.估实价)[0];
+  let 出了盲评 = false;
+  if (要盲评 && 盲评组) {
+    const 对 = 公司们
+      .map((co) => ({ 公司: co.名, A: 状态表.get(`${A.名}|${co.名}`), 候选: 状态表.get(`${盲评组.g.名}|${co.名}`) }))
+      .filter((x): x is { 公司: string; A: 背调状态; 候选: 背调状态 } => Boolean(x.A && x.候选))
+      .slice(0, 5);
+    if (对.length) {
+      await 出盲评(对, 盲评组.g.名);
+      出了盲评 = true;
+    }
+  }
+  console.log(`\n写好了：${参数.输出}/summary.md${要盲评 ? `、results.csv、编造嫌疑.md${出了盲评 ? "、盲评.pdf（答案在 盲评-答案.txt）" : ""}` : "（只重出了汇总，results.csv / 编造嫌疑.md / 盲评没动）"}`);
+}
+
+/** 报告 txt 里拿回总分和各项档位（--只出汇总 用：算和 A 的分差、档位一致只要这两样） */
+export function 读报告评分(txt: string): 背调状态 | null {
+  const 头 = txt.match(/【相关性】(\d+|—) 分/);
+  if (!头) return null;
+  const 档 = { 高: "high", 中: "mid", 低: "low", 查不到: "unknown" } as const;
+  const 段 = txt.slice(头.index! + 头[0].length).split("\n\n")[0];
+  const 明细 = 维度表.flatMap((d) => {
+    const m = 段.match(new RegExp(`^- ${d.label}：(高|中|低|查不到)`, "m"));
+    return m ? [{ 维度: d.key, label: d.label, 档: 档[m[1] as keyof typeof 档] }] : [];
+  });
+  return { 评分: { 分: 头[1] === "—" ? null : Number(头[1]), 明细 } } as unknown as 背调状态;
+}
+
+/** 读上次写出的 results.csv（自己写的格式：带 BOM，含逗号 / 引号 / 换行的格子加双引号） */
+export function 读结果csv(文本: string): Record<string, string>[] {
+  const 行: string[][] = [];
+  let 格 = "", 当前: string[] = [], 引 = false;
+  const t = 文本.replace(/^\uFEFF/, "");
+  for (let i = 0; i < t.length; i++) {
+    const ch = t[i];
+    if (引) {
+      if (ch === '"' && t[i + 1] === '"') {
+        格 += '"';
+        i++;
+      } else if (ch === '"') 引 = false;
+      else 格 += ch;
+    } else if (ch === '"') 引 = true;
+    else if (ch === "," || ch === "\n") {
+      当前.push(格);
+      格 = "";
+      if (ch === "\n") {
+        行.push(当前);
+        当前 = [];
+      }
+    } else 格 += ch;
+  }
+  if (格 || 当前.length) {
+    当前.push(格);
+    行.push(当前);
+  }
+  const [头, ...身] = 行;
+  return 身.map((c) => Object.fromEntries(头.map((k, i) => [k, c[i] ?? ""])));
+}
+
+function 读上次结果(c: 配置, 公司们: 公司[]): { 行们: 一次[]; 状态表: Map<string, 背调状态 | null> } {
+  const csv = path.join(参数.输出, "results.csv");
+  if (!existsSync(csv)) throw new Error(`${csv} 不存在，没有可以重出汇总的结果`);
+  const 行们: 一次[] = [];
+  const 状态表 = new Map<string, 背调状态 | null>();
+  for (const o of 读结果csv(readFileSync(csv, "utf8"))) {
+    const g = c.组合.find((x) => x.名 === o.组);
+    const co = 公司们.find((x) => x.名 === o.公司);
+    if (!g || !co) continue;
+    const 底 = 空行(g, co);
+    const r = Object.fromEntries(
+      Object.entries(底).map(([k, v]) => {
+        const 原 = o[k] ?? "";
+        if (k === "分") return [k, 原 === "" ? "" : Number(原)];
+        if (typeof v === "number") return [k, Number(原) || 0];
+        if (typeof v === "boolean") return [k, 原 === "true"];
+        return [k, 原];
+      }),
+    ) as 一次;
+    行们.push(r);
+    const txt = path.join(参数.输出, `${文件名(co.名)}__${文件名(g.名)}.txt`);
+    状态表.set(`${g.名}|${co.名}`, existsSync(txt) ? 读报告评分(readFileSync(txt, "utf8")) : null);
+  }
+  return { 行们, 状态表 };
+}
+
 async function main() {
   if (!参数.配置 || !参数.公司) throw new Error("要 --配置 和 --公司，见文件头的用法");
   const c = JSON.parse(readFileSync(参数.配置, "utf8")) as 配置;
@@ -686,6 +871,11 @@ async function main() {
     : 名单.slice(0, c.公司数 || undefined);
   if (参数.只跑) 公司们 = 公司们.slice(0, 参数.只跑);
   mkdirSync(参数.输出, { recursive: true });
+  if (参数.只出汇总) {
+    const { 行们, 状态表 } = 读上次结果(c, 公司们);
+    await 写汇总(c, 公司们, 行们, 状态表, false);
+    return;
+  }
 
   let base = process.env.BENCH_BASE_URL?.replace(/\/+$/, "") ?? "";
   let key = process.env.BENCH_KEY ?? "";
@@ -798,102 +988,7 @@ async function main() {
     ["# 编造嫌疑（结论里的数字在它标的那一页原文里一个都找不到）", "", ...(嫌疑表.length ? 嫌疑表.map((x) => `- **${x.组}** · ${x.公司}：${x.话}\n  来源 ${x.源}`) : ["（没有）"])].join("\n"),
   );
 
-  // 汇总：每组一行，和 A 比
-  const A = c.组合.find((g) => g.标准) ?? c.组合[0];
-  const 汇总 = c.组合.map((g) => {
-    const rs = 行们.filter((r) => r.组 === g.名);
-    const 成 = rs.filter((r) => !r.错);
-    const 认 = 成.filter((r) => r.认对 !== "模拟");
-    const 认对率 = 认.length ? 认.filter((r) => r.认对 === "对").length / 认.length : NaN;
-    const 有来源率 = 均(成.map((r) => (r.结论数 ? r.有来源 / r.结论数 : NaN)).filter(Number.isFinite));
-    const 有来源比A = g === A ? NaN : 来源比A(行们, A.名, g.名);
-    const 核得上率 = 均(成.map((r) => (r.核得上 + r.核不上 ? r.核得上 / (r.核得上 + r.核不上) : NaN)).filter(Number.isFinite));
-    const 比A = g === A ? [] : rs.map((r) => 稳定(状态表.get(`${A.名}|${r.公司}`) ?? null, 状态表.get(`${g.名}|${r.公司}`) ?? null)).filter((x) => x.分差 != null);
-    const 分差 = 均(比A.map((x) => x.分差!));
-    const 档一致 = 均(比A.map((x) => x.档一致!));
-    const 嫌疑 = 成.reduce((a, r) => a + r.嫌疑, 0);
-    const 成本 = 均(成.map((r) => r.成本元));
-    const 估实价 = 均(成.map((r) => r.估实价元));
-    const 缺 = 成.reduce((a, r) => a + r.回放缺搜, 0);
-    const 补读 = 成.reduce((a, r) => a + r.回放补读页, 0);
-    const 入 = 成.reduce((a, r) => a + r.模型输入 + r.搜索输入, 0);
-    const 缓存占比 = 入 ? 成.reduce((a, r) => a + r.模型缓存读 + r.搜索缓存读, 0) / 入 : NaN;
-    return { g, rs, 成, 认对率, 有来源率, 有来源比A, 核得上率, 分差, 档一致, 嫌疑, 成本, 估实价, 缺, 补读, 缓存占比, 秒: 均(成.map((r) => r.秒)), 调用: 均(成.map((r) => r.模型调用)), 不过: [] as string[], 两遍差: NaN, 多遍分差: NaN, 两遍明细: "" };
-  });
-  const 标准 = 汇总.find((x) => x.g === A)!;
-  for (const x of 汇总) {
-    const g = x.g;
-    // 同配置重跑的那几组：逐家把几遍的分拿来，看自己差多少；和 A 比用几遍的平均分
-    const 重跑组 = c.组合.filter((h) => h.同配置 === g.名).map((h) => h.名);
-    if (重跑组.length) {
-      const 分 = (组: string, 公司: string) => {
-        const r = 行们.find((y) => y.组 === 组 && y.公司 === 公司 && !y.错);
-        return r && r.分 !== "" ? Number(r.分) : NaN;
-      };
-      const 各家 = 公司们.map((co) => ({ 名: co.名, 遍: [g.名, ...重跑组].map((n) => 分(n, co.名)).filter(Number.isFinite), A: 分(A.名, co.名) }));
-      const 有两遍 = 各家.filter((y) => y.遍.length >= 2);
-      x.两遍差 = 均(有两遍.map((y) => Math.max(...y.遍) - Math.min(...y.遍)));
-      x.两遍明细 = 有两遍.map((y) => `${y.名} ${y.遍.join(" / ")}`).join("；");
-      x.多遍分差 = 均(各家.filter((y) => y.遍.length && Number.isFinite(y.A)).map((y) => Math.abs(y.A - 均(y.遍))));
-    }
-    if (!(x.成.length === x.rs.length && x.rs.length)) x.不过.push("有跑失败的");
-    if (!参数.模拟 && !(x.认对率 >= c.过线.认对)) x.不过.push("认错公司");
-    if (g === A || g.同配置) continue;
-    if (!(x.有来源比A >= -c.过线.有来源差)) x.不过.push("来源比 A 少");
-    if (!(x.核得上率 >= 标准.核得上率 - c.过线.核得上差)) x.不过.push("核得上比 A 差");
-    if (x.嫌疑 > 标准.嫌疑) x.不过.push("编造嫌疑比 A 多");
-    if (Number.isFinite(x.多遍分差) && !(x.多遍分差 <= c.过线.分差)) x.不过.push("分差大（几遍平均）");
-    if (!(x.档一致 >= c.过线.档一致 / 6)) x.不过.push("档位不一致");
-  }
-  const 候选 = 汇总.filter((x) => !x.g.参考 && !x.g.同配置 && x.g !== A && x.不过.length === 0).sort((a, b) => a.估实价 - b.估实价);
-  const 默认 = 候选[0] ?? 标准;
-  const 数 = (x: number, d = 2) => (Number.isFinite(x) ? x.toFixed(d) : "—");
-
-  const md = [
-    "# 背调对比实验汇总",
-    "",
-    `公司 ${公司们.length} 家${参数.模拟 ? "（模拟数据，不代表真实效果）" : ""}；成本按 b.ai 实价（含缓存读价），实验上限 ${c.成本上限元} 元；评分依据：${c.我方}`,
-    "",
-    "| 组合 | 跑成 | 认对公司 | 结论带来源 | 来源里核得上 | 和 A 平均分差 | 和 A 档位一致 | 编造嫌疑 | 这次平均花了（元） | 估真实单次成本（元） | 成本 × 3 建议售价（元） | 缓存读占输入 | 平均分析调用 | 平均耗时 | 过线 |",
-    "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
-    ...汇总.map(
-      (x) =>
-        `| ${x.g.名}${x.g.参考 ? "（参考）" : ""} | ${x.成.length}/${x.rs.length} | ${百(x.认对率)} | ${百(x.有来源率)}${x.g === A || !Number.isFinite(x.有来源比A) ? "" : `（比 A ${x.有来源比A >= 0 ? "+" : "−"}${Math.abs(x.有来源比A * 100).toFixed(0)} 点）`} | ${百(x.核得上率)} | ${x.g === A ? "（标准）" : `${数(x.分差, 1)}${Number.isFinite(x.多遍分差) ? `（${x.两遍明细 ? "几遍平均 " : ""}${数(x.多遍分差, 1)}）` : ""}`} | ${x.g === A ? "—" : Number.isFinite(x.档一致) ? `${(x.档一致 * 6).toFixed(1)} / 6` : "—"} | ${x.嫌疑} | ${数(x.成本)} | ${数(x.估实价)}${x.g.回放 ? "（加回搜索）" : ""} | ${数(x.估实价 * 3, 1)} | ${百(x.缓存占比)} | ${数(x.调用, 0)} | ${数(x.秒, 0)}s | ${x.g.参考 || x.g.同配置 ? "—" : x.g === A ? "（标准）" : x.不过.length ? `✗ ${x.不过.join("、")}` : "✓"} |`,
-    ),
-    ...汇总
-      .filter((x) => Number.isFinite(x.两遍差))
-      .flatMap((x) => ["", `**${x.g.名} 同配置几遍的分差**：平均 ${数(x.两遍差, 1)} 分（目标 ≤ ${c.过线.分差}）。逐家：${x.两遍明细}。`]),
-    "",
-    `**建议默认：${默认.g.名}**（${默认 === 标准 ? "没有组合过线，用 A + 降本开关" : "过线组合里最便宜的"}），估真实单次成本 ${数(默认.估实价)} 元，按成本 × 3 约 ${数(默认.估实价 * 3, 1)} 元一次。`,
-    ...(汇总.some((x) => x.g.回放)
-      ? [
-          "",
-          `回放组（${汇总.filter((x) => x.g.回放).map((x) => x.g.名).join("、")}）不自己搜，用被回放那组同一家录下的搜索结果和网页，两组的搜索结果一样、只比模型；` +
-            "「这次平均花了」只有模型那部分，「估真实单次成本」= 被回放那组同一家的搜索花费 + 回放组的模型花费（上线以后它要自己搜；被回放的 A 搜索用的是 5.5 中等结果量、最多 8 次，比 C 正式配的贵一点，所以偏高）。" +
-            `回放不看查询词，A 搜到过的都给；给不出搜索结果的共 ${汇总.filter((x) => x.g.回放).reduce((a, x) => a + x.缺, 0)} 次（应为 0）；A 没读过、现场补读的页共 ${汇总.filter((x) => x.g.回放).reduce((a, x) => a + x.补读, 0)} 页（读网页不花钱，产品里 C 也会自己读）。`,
-        ]
-      : []),
-    "",
-    `过线门槛（都和 A 比，A 自己不判）：认对 ${百(c.过线.认对)}、结论带来源不比 A 低 ${Math.round(c.过线.有来源差 * 100)} 个百分点以上（逐家比再平均）、核得上不比 A 低 ${Math.round(c.过线.核得上差 * 100)} 个百分点以上、编造嫌疑不比 A 多、档位平均至少 ${c.过线.档一致} / 6 一致；` +
-      `和 A 的分差只在同配置跑了几遍时按平均分判（≤ ${c.过线.分差}），单跑一遍同配置自己就差 7–9 分，不判。`,
-    "编造嫌疑逐条在 编造嫌疑.md；每份报告的原文在同目录的 txt；「核得上」只算摘得出数字 / 英文词的结论。",
-  ];
-  writeFileSync(path.join(参数.输出, "summary.md"), md.join("\n"));
-
-  // 盲评：A 和建议默认并排；都没过线就和最便宜的候选组比（10-17 总控要 5 家盲评，过不过线都出），最多 5 家
-  const 盲评组 = 默认 !== 标准 ? 默认 : 汇总.filter((x) => !x.g.参考 && !x.g.同配置 && x.g !== A && x.成.length).sort((a, b) => a.估实价 - b.估实价)[0];
-  let 出了盲评 = false;
-  if (盲评组) {
-    const 对 = 公司们
-      .map((co) => ({ 公司: co.名, A: 状态表.get(`${A.名}|${co.名}`), 候选: 状态表.get(`${盲评组.g.名}|${co.名}`) }))
-      .filter((x): x is { 公司: string; A: 背调状态; 候选: 背调状态 } => Boolean(x.A && x.候选))
-      .slice(0, 5);
-    if (对.length) {
-      await 出盲评(对, 盲评组.g.名);
-      出了盲评 = true;
-    }
-  }
-  console.log(`\n写好了：${参数.输出}/summary.md、results.csv、编造嫌疑.md${出了盲评 ? "、盲评.pdf（答案在 盲评-答案.txt）" : ""}`);
+  await 写汇总(c, 公司们, 行们, 状态表, true);
 }
 
 // 只在直接运行时跑（单测会 import 上面那几个核对函数）
