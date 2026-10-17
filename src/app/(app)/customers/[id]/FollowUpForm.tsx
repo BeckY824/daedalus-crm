@@ -10,12 +10,12 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal, Form, Input, Select, InputNumber, Row, Col, App, Button, Checkbox, Space, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
-import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
+import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES, 跟进类型们 } from "@/lib/constants";
 import { dayjs, fmtDateTime } from "@/lib/utils";
 import { saveFollowUp, completePlan } from "./actions";
 import { parseFollowUpDraft } from "./ai";
 import { useBusiness } from "@/lib/business-client";
-import { 外贸订单 } from "@/lib/business-config";
+import { 外贸订单, 外贸精简 } from "@/lib/business-config";
 import { 拆关联, 订单前缀 } from "@/lib/follow-link";
 import AiWait from "@/components/AiWait";
 import AiCost, { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
@@ -81,6 +81,7 @@ export default function FollowUpForm({
   initialAiText,
   待收口计划 = null,
   完成了计划,
+  有WhatsApp = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -109,6 +110,11 @@ export default function FollowUpForm({
    * 不给（跟进页上挑人时）就由这张表单自己完成，提示条里带撤销和去他记录页的路
    */
   完成了计划?: (p: { id: string; subject: string; plannedAt: string; method: string }, 已完成?: boolean) => void;
+  /**
+   * 给定的这位档案里填了 WhatsApp 号：新建时类型默认 WhatsApp（2026-10-17 PR26 手测，和手机上一样）。
+   * 挑人时看挑中那位的（近况.有WhatsApp）
+   */
+  有WhatsApp?: boolean;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
@@ -124,6 +130,8 @@ export default function FollowUpForm({
   const 挑人 = !给定客户;
   /** 挑中那位的近况：联系人、商机、到期计划都从这儿来。关框、保存时清掉 */
   const [近况, set近况] = useState<客户近况 | null>(null);
+  /** 人亲手改过「跟进类型」没有：换人时没改过才跟着新那位有没有 WhatsApp 号走（2026-10-17 复测，同 PlanForm 人改过方式） */
+  const 人改过类型 = useRef(false);
   const customerId = 给定客户 ?? 近况?.id;
   const contacts = 给定联系人 ?? 近况?.contacts ?? [];
   const opportunities = 给定商机 ?? 近况?.opportunities ?? [];
@@ -142,6 +150,8 @@ export default function FollowUpForm({
     set近况(v);
     // 联系人、商机是上一位的，换了人就不作数了（AI 解析填进去的也一样）
     form.setFieldsValue({ contactId: undefined, opportunityId: undefined });
+    // 类型人没碰过：跟着这一位有没有 WhatsApp 号走
+    if (!record?.id && !record?.type && !人改过类型.current) form.setFieldsValue({ type: v?.有WhatsApp ? "WHATSAPP" : "PHONE" });
   }
 
   const [aiText, setAiText] = useState("");
@@ -250,6 +260,7 @@ export default function FollowUpForm({
   useEffect(() => {
     if (!open) {
       autoParsed.current = null;
+      人改过类型.current = false;
       return;
     }
     if (initialAiText && aiEnabled && !record?.id && autoParsed.current !== initialAiText) {
@@ -272,12 +283,12 @@ export default function FollowUpForm({
     } else {
       form.resetFields();
       form.setFieldsValue({
-        type: record?.type ?? "PHONE",
+        type: record?.type ?? (有WhatsApp ? "WHATSAPP" : "PHONE"),
         status: "已完成", dueHasTime: true,
         occurredAt: dayjs(),
       });
     }
-  }, [open, record, form]);
+  }, [open, record, form, 有WhatsApp]);
 
   /*
     保存中：网慢时连点两下会建出两条一样的记录（跟进带的 AI 待办和计划也各建两份，2026-10-02 排查）。
@@ -407,7 +418,7 @@ export default function FollowUpForm({
       destroyOnHidden
     >
       {/* AI 速记块放在 Form 里面（它不是字段）：挑人那一格是 Form.Item，得在它上面、仍是第一格 */}
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={(changed) => { if ("type" in changed) 人改过类型.current = true; }}>
         {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={换人} 不提计划={Boolean(收口计划)} />}
         {showAi && (
           <div
@@ -448,7 +459,7 @@ export default function FollowUpForm({
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item name="type" label="跟进类型" rules={[{ required: true }]}>
-              <Select options={FOLLOW_TYPES.map((t) => ({ value: t.value, label: t.label }))} />
+              <Select options={跟进类型们(外贸精简(b)).map((t) => ({ value: t.value, label: t.label }))} />
             </Form.Item>
           </Col>
           <Col span={8}>

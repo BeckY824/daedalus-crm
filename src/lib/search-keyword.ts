@@ -28,6 +28,17 @@ export function 号码片段(k: string): string | null {
   return 规范.length >= 3 ? 规范 : null;
 }
 
+/**
+ * 关键词像一个网址时，拿去比官网那一格的域名（2026-10-17 PR26 手测）。
+ * 从「官网 ↗」打开、再从地址栏复制回来的是 https://www.acme.com/，或带着 /contact 这样的路径；
+ * 库里存的是人填的 www.acme.com，原样包含匹配对不上。去掉协议、www.、端口、路径和末尾斜杠，小写。
+ * 不像网址的（没有点、带空格、邮箱的 @）返回 null，官网那一格照原样比
+ */
+export function 网址域名(k: string): string | null {
+  const m = /^(?:https?:\/\/)?(?:www\.)?([^\s/?#:@]+\.[^\s/?#:@.]{2,})(?::\d+)?(?:[/?#]\S*)?$/i.exec(k.trim());
+  return m ? m[1].toLowerCase() : null;
+}
+
 export function 有通配符(k: string): boolean {
   return /[%_]/.test(k);
 }
@@ -74,15 +85,15 @@ export async function 客户关键词条件(raw: unknown, onlyPicker = false): P
   const k = 搜索词(raw);
   if (!k) return {};
   const phone = 号码片段(k);
-  const pattern = 包含模式(k), phonePattern = 包含模式(phone ?? k);
+  const pattern = 包含模式(k), phonePattern = 包含模式(phone ?? k), sitePattern = 包含模式(网址域名(k) ?? k);
   const fields = onlyPicker ? ["name", "school"] : ["name", "school", "major", "grade", "remark"];
   const parts = fields.map(c => `c."${c}" GLOB ?`);
   const values = fields.map(() => pattern);
   parts.push('c."phone" GLOB ?'); values.push(phonePattern);
   if (phone) { parts.push(`${号键SQL('c."phone"')} GLOB ?`); values.push(phonePattern); }
   if (!onlyPicker) {
-    parts.push('EXISTS (SELECT 1 FROM "CustomerExtra" e WHERE e."customerId"=c.id AND (e.whatsapp GLOB ? OR e.whatsapp GLOB ? OR e.email GLOB ? OR e.wechat GLOB ? OR e.country GLOB ?))');
-    values.push(pattern,phonePattern,pattern,pattern,pattern);
+    parts.push('EXISTS (SELECT 1 FROM "CustomerExtra" e WHERE e."customerId"=c.id AND (e.whatsapp GLOB ? OR e.whatsapp GLOB ? OR e.email GLOB ? OR e.wechat GLOB ? OR e.country GLOB ? OR e.website GLOB ?))');
+    values.push(pattern,phonePattern,pattern,pattern,pattern,sitePattern);
     parts.push('EXISTS (SELECT 1 FROM "Contact" t WHERE t."customerId"=c.id AND (t.name GLOB ? OR t.phone GLOB ? OR t.phone GLOB ? OR t.email GLOB ? OR t.wechat GLOB ?))');
     values.push(pattern,pattern,phonePattern,pattern,pattern);
     parts.push('EXISTS (SELECT 1 FROM "TradeOrder" o WHERE o."customerId"=c.id AND o.no GLOB ?)'); values.push(pattern);

@@ -49,6 +49,7 @@ const 订尺寸 = (cb: () => void) => { window.addEventListener("resize", cb); r
 const 不订 = () => () => {};
 const 类型表 = [
   { value: "PHONE", 短: "电话", color: "var(--cat-green)", label: "电话沟通" },
+  { value: "WHATSAPP", 短: "WhatsApp", color: "var(--cat-teal)", label: "WhatsApp" },
   { value: "SMS", 短: "消息", color: "var(--cat-cyan)", label: "短信沟通" },
   { value: "EMAIL", 短: "邮件", color: "var(--cat-pink)", label: "邮件沟通" },
   { value: "MEETING", 短: "会议", color: "var(--cat-blue)", label: "线上会议" },
@@ -685,7 +686,8 @@ function 计划标题(字: string) {
 }
 
 function RecordSheet({ c, os, 我, onCancel, onSave }: { c: 客户视图; os: 系统; 我: string; onCancel: () => void; onSave: (x: Omit<同步.记跟进输入, "customerId">) => void }) {
-  const [t, setT] = useState<(typeof 同步.手机跟进类型)[number]>("SMS");
+  // 有 WhatsApp 号的（外贸客户多半是）默认记成 WhatsApp，没有的照旧默认消息（2026-10-16）
+  const [t, setT] = useState<(typeof 同步.手机跟进类型)[number]>(c.whatsapp ? "WHATSAPP" : "SMS");
   const [字, set字] = useState("");
   const [下次, set下次] = useState<"none" | "1" | "3" | "7" | "pick">("3");
   const [日期, set日期] = useState(() => { const d = new Date(Date.now() + 3 * 86400_000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });

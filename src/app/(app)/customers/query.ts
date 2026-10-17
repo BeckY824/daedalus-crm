@@ -5,6 +5,7 @@ import { dayjs } from "@/lib/utils";
 import { 带币种, 签约金额, 签约合计, 签约币种 } from "@/lib/money-db";
 import { 客户关键词条件, 客户id集合 } from "@/lib/search-keyword";
 import { 取档案 } from "@/lib/customer-extra-db";
+import { 未分级 } from "./query-shared";
 
 /**
  * 客户列表的查询条件、取哪些字段、怎么变成一行——列表页和「导出」共用这一份（2026-10-02 排查）。
@@ -29,7 +30,16 @@ export type 客户条件 = {
   /** 外贸档案的国家 / 来源（2026-10-05） */
   country?: string;
   source?: string;
+  /** 客户等级（2026-10-16）：A / B / C / D，或「未分级」= 没填的 */
+  level?: string;
 };
+
+/** 等级筛选：A–D 按字母筛；「未分级」= 没有档案行或等级空着的。别的值不筛（地址栏手改的） */
+function 等级条件(level: string | undefined): Prisma.CustomerWhereInput | null {
+  if (!level) return null;
+  if (level === 未分级) return { OR: [{ extra: { is: null } }, { extra: { is: { level: null } } }] };
+  return /^[ABCD]$/.test(level) ? { extra: { is: { level } } } : null;
+}
 
 /**
  * 三种「从一个数走进来」的子集：导入「看这一批」、数据页「本月新增」、渠道页「直接推荐」。
@@ -60,8 +70,9 @@ export async function 客户筛选条件(
 
   const keyword = await 客户关键词条件(sp.keyword);
 
+  const 等级 = 等级条件(sp.level);
   return {
-    AND: [keyword, ...(本批 ? [客户id集合(本批.map(r => r.customerId))] : [])],
+    AND: [keyword, ...(本批 ? [客户id集合(本批.map(r => r.customerId))] : []), ...(等级 ? [等级] : [])],
     ...(sp.grade ? { grade: sp.grade } : {}),
     ...(sp.followStatus ? { followStatus: sp.followStatus } : {}),
     ...(sp.decisionStatus ? { decisionStatus: sp.decisionStatus } : {}),

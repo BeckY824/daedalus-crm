@@ -5,7 +5,7 @@ import DatePicker from "@/components/BusinessDatePicker";
 import { requiredText, isFormValidationError } from "@/lib/form-validation";
 
 import OptionInput from "@/components/OptionInput";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal, Form, Input, App, Button, Checkbox, Typography } from "antd";
 import { FOLLOW_METHODS } from "@/lib/constants";
@@ -28,6 +28,7 @@ export default function PlanForm({
   预选客户,
   record,
   默认天数 = 2,
+  有WhatsApp = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -41,6 +42,8 @@ export default function PlanForm({
   record: { id: string; subject: string; plannedAt: string; method: string; plannedHasTime?: boolean | null; updatedAt?: string } | null;
   /** 新建时计划时间默认几天后的 9 点。完成一次之后「排下一次」默认一周后（审查 M10） */
   默认天数?: number;
+  /** 给定的这位档案里填了 WhatsApp 号：新建时方式默认 WhatsApp（2026-10-17 PR26 手测）。挑人时看挑中那位的 */
+  有WhatsApp?: boolean;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
@@ -49,9 +52,15 @@ export default function PlanForm({
   const 挑人 = !customerId;
   /** 挑中那位的近况（上次跟进、欠着的计划）。关框时清掉，下次打开不带着上一位 */
   const [近况, set近况] = useState<客户近况 | null>(null);
+  /**
+   * 人亲手改过「跟进方式」没有（2026-10-17 复测）。原来拿 isFieldTouched 判断，程序填进去的 WhatsApp 也算「碰过」，
+   * 先挑有号的、再换没号的，方式停在 WhatsApp。onValuesChange 只在人操作时触发，程序 setFieldsValue 不算
+   */
+  const 人改过方式 = useRef(false);
 
   useEffect(() => {
     if (!open) return;
+    人改过方式.current = false;
     if (record) {
       form.resetFields();
       form.setFieldsValue({ subject: record.subject, method: record.method, plannedAt: dayjs(record.plannedAt), hasTime: !isCalendarDate(record.plannedAt) });
@@ -59,11 +68,17 @@ export default function PlanForm({
     } else {
       form.resetFields();
       form.setFieldsValue({
-        method: "电话沟通", hasTime: true,
+        method: 有WhatsApp ? "WhatsApp" : "电话沟通", hasTime: true,
         plannedAt: dayjs().add(默认天数, "day").hour(9).minute(0),
       });
     }
-  }, [open, record, form, 默认天数]);
+  }, [open, record, form, 默认天数, 有WhatsApp]);
+
+  /** 挑中一位：方式人没碰过的，跟着这一位有没有 WhatsApp 号走 */
+  function 换人(v: 客户近况 | null) {
+    set近况(v);
+    if (!record && !人改过方式.current) form.setFieldsValue({ method: v?.有WhatsApp ? "WhatsApp" : "电话沟通" });
+  }
 
   function 关() {
     set近况(null);
@@ -138,8 +153,8 @@ export default function PlanForm({
       cancelText="取消"
       destroyOnHidden
     >
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-        {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={set近况} 给计划 />}
+      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={(changed) => { if ("method" in changed) 人改过方式.current = true; }}>
+        {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={换人} 给计划 />}
         <Form.Item name="subject" label="跟进主题" rules={[requiredText("请填写跟进主题")]}>
           <Input placeholder="如：跟进预算审批进度" />
         </Form.Item>

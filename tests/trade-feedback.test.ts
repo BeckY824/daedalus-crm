@@ -630,7 +630,7 @@ describe("回归核对补钉（10-06，W-外贸并进）", () => {
   });
 
   it("W-024 编辑框只交改过的档案格（空串当空）", () => {
-    const 原 = { country: "美国", whatsapp: null, wechat: null, email: "a@b.com", source: null };
+    const 原 = { country: "美国", whatsapp: null, wechat: null, email: "a@b.com", source: null, level: null, website: null };
     expect(改过的档案({ country: "美国", whatsapp: "+1 2", wechat: "", email: "a@b.com", source: undefined }, 原)).toEqual({ whatsapp: "+1 2" });
     expect(改过的档案({ country: "", email: "a@b.com" }, 原)).toEqual({ country: null });
     expect(改过的档案({ country: "日本" }, null)).toEqual({ country: "日本" });

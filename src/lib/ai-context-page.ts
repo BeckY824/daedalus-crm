@@ -166,6 +166,7 @@ const 筛选说法: Record<string, string> = {
   batch: "导入批次",
   pool: "公海",
   country: "国家",
+  level: "客户等级",
   type: "跟进类型",
   customer: "客户编号",
   ownerName: "负责人",

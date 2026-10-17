@@ -187,6 +187,8 @@ test("J-083 计划页点完成：那一行先留在原地打着勾，不立刻�
   await page.goto("/follow-ups/plans");
   const 行 = page.getByRole("main").locator(".plan-row", { hasText: "先做的回访" });
   await 行.getByRole("button", { name: "完成 先做的回访" }).click();
+  // 2026-10-16 起点计划的完成先弹小框（记一笔 + 排下次）；这里只看留位，走「跳过，直接完成」= 原来那一下
+  await page.getByRole("button", { name: "跳过，直接完成" }).click();
   // 点完的那一刻还在原处、是「做完了」的样子；下面那条没顶上来
   await expect(行).toHaveClass(/plan-row-done/, { timeout: 300 });
   await expect(page.getByRole("main").locator(".plan-row").filter({ hasText: /先做的回访|后面那条/ }).first()).toContainText("先做的回访");

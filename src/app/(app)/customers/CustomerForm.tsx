@@ -16,7 +16,7 @@ import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } fr
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸精简 } from "@/lib/business-config";
-import { 国家候选, 改过的档案, type 外贸档案 } from "@/lib/customer-extra";
+import { 国家候选, 改过的档案, 客户等级, 客户等级说明, 规整官网, type 外贸档案 } from "@/lib/customer-extra";
 import { 查电话 } from "@/lib/phone";
 import { 推荐方式 } from "@/lib/referrer-kind";
 import { 带走说法 } from "@/lib/carry-over";
@@ -439,6 +439,23 @@ function CustomerFormInner({
               <Col span={8}>
                 <Form.Item label="来源" name={["extra", "source"]}>
                   <OptionInput options={b.sources} placeholder="选一个，或直接填" />
+                </Form.Item>
+              </Col>
+              {/* 客户等级（2026-10-16 外贸基础）：只分 A/B/C/D 四档，空着 = 没分级 */}
+              <Col span={8}>
+                <Form.Item label="客户等级" name={["extra", "level"]}>
+                  <Select allowClear placeholder="没分级" options={客户等级.map((x) => ({ value: x, label: 客户等级说明[x] }))} />
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={16}>
+                <Form.Item
+                  label="官网"
+                  name={["extra", "website"]}
+                  rules={[{ validator: (_, v?: string) => { const r = 规整官网(v); return r.ok ? Promise.resolve() : Promise.reject(new Error(r.error)); } }]}
+                >
+                  <Input placeholder="如 www.example.com" />
                 </Form.Item>
               </Col>
             </Row>

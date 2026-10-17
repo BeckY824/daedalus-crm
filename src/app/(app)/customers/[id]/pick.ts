@@ -57,6 +57,8 @@ export type 客户近况 = {
   opportunities: { id: string; name: string }[];
   /** 这位客户的订单（2026-10-05，跟进能挂订单）。新的在前 */
   orders: { id: string; no: string }[];
+  /** 档案里填了 WhatsApp 号：跟进的类型、计划的方式默认 WhatsApp（2026-10-17 PR26 手测） */
+  有WhatsApp: boolean;
 };
 
 /** 挑中一位之后取回来的东西：框里那行淡字，和跟进表单要的联系人、商机 */
@@ -73,6 +75,7 @@ export async function 取客户近况(id: string): Promise<客户近况 | null> 
       contacts: { orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }], select: { id: true, name: true, position: true } },
       opportunities: { orderBy: { createdAt: "desc" }, select: { id: true, name: true } },
       tradeOrders: { orderBy: { createdAt: "desc" }, select: { id: true, no: true } },
+      extra: { select: { whatsapp: true } },
     },
   });
   if (!c) return null;
@@ -87,5 +90,6 @@ export async function 取客户近况(id: string): Promise<客户近况 | null> 
     contacts: c.contacts,
     opportunities: c.opportunities,
     orders: c.tradeOrders,
+    有WhatsApp: !!c.extra?.whatsapp?.trim(),
   };
 }
