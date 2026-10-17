@@ -225,6 +225,17 @@ describe("请求体", () => {
     expect(r2.ok && r2.body.model).toBe(cfg.models[0].id);
   });
 
+  it("推理强度只放到 medium：none / low / medium 照传，high / xhigh / 乱写的丢掉（背调最后打分固定 medium）", async () => {
+    const { 收拾请求体, 读网关配置 } = await import("@/lib/gateway");
+    const cfg = 读网关配置()!;
+    const 问 = (e: unknown) => {
+      const r = 收拾请求体({ messages: [{ role: "user", content: "x" }], reasoning_effort: e }, cfg);
+      return r.ok ? r.body.reasoning_effort : "拒了";
+    };
+    expect([问("none"), 问("low"), 问("medium")]).toEqual(["none", "low", "medium"]);
+    expect([问("high"), 问("xhigh"), 问("bogus"), 问(undefined)]).toEqual([undefined, undefined, undefined, undefined]);
+  });
+
   it("messages 为空就拒", async () => {
     const { token } = await 建账号带令牌();
     const { POST } = await import("@/app/api/gateway/v1/chat/completions/route");

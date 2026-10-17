@@ -10,6 +10,7 @@ import { resolveModel } from "@/lib/llm";
 import { 收文件, 拼文件 } from "@/lib/ask-files";
 import { 收客户页面筛选 } from "@/lib/ai-page-filters";
 import { AI文本输入错误 } from "@/lib/ai-input";
+import { 背调一次 } from "@/lib/research/stream";
 
 /** 一个问题最多多长。300 太短，一句完整的业务问题经常就写不下 */
 const 问题上限 = 1000;
@@ -111,6 +112,15 @@ export async function POST(req: Request) {
             },
             { 中断: req.signal },
           );
+        } else if (body.mode === "research") {
+          /*
+            背调：不套 带额度——它的次数在我们服务器上一次扣齐（/api/gateway/v1/research/start，扣 6 次），
+            托管版网页端根本走不到这里（lib/research/channel.ts 选通道：只认桌面端登录的云端账号和开发环境的模拟）。
+            用户中途停了：已经查到的照样出一份「不完整」的报告，见 lib/research/run.ts
+          */
+          const abort = new AbortController();
+          req.signal.addEventListener("abort", () => abort.abort());
+          res = await 背调一次({ company: body.company, customerId: body.customerId, need: body.need }, send, abort.signal);
         } else if (body.mode === "brief" && typeof body.customerId === "string") {
           const r = await generateBrief({ customerId: body.customerId, question: typeof body.question === "string" ? body.question : undefined }, emit);
           res = r.ok ? { ok: true, answer: { brief: r.brief, records: r.records } } : r;

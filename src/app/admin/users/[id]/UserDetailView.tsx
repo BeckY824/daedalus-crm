@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { App, Button, Popconfirm, Table } from "antd";
+import { App, Button, InputNumber, Popconfirm, Table } from "antd";
 import { DesktopOutlined, FireOutlined, GiftOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import Chart from "@/components/Chart";
 import { dayjs } from "@/lib/utils";
 import { 分布说法 } from "@/lib/device-os";
-import { grantAccountAi } from "../../actions";
+import { grantAccountAi, grantAccountResearch } from "../../actions";
 import { 站内, LinkPending } from "../../OpsShell";
 import { Kpi, 卡片, 按天柱图, 横条图, 头像, TimeAgo, 千分位, 次数条, 系统 } from "../../ui";
 import type { 用户详情, 设备行 } from "../../data";
@@ -27,6 +27,16 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
   const [忙, set忙] = useState(false);
   const a = 详情.账号;
   const 在用 = a.设备.filter((d) => !d.revoked);
+
+  /* 背调次数（和问答次数分开）：运营台手动加，没有购买页 */
+  const [背调加几, set背调加几] = useState(5);
+  async function 加背调() {
+    set忙(true);
+    const r = await grantAccountResearch({ token, accountId: a.id, amount: 背调加几 });
+    set忙(false);
+    if (r.ok) message.success(`给 ${a.name} 加了 ${背调加几} 次背调`);
+    else message.error(r.error);
+  }
 
   async function 加十次() {
     set忙(true);
@@ -82,6 +92,22 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
                 </Button>
               </Popconfirm>
             )}
+            {!a.测试 && (
+              <Popconfirm
+                title={`给 ${a.name} 加几次背调？`}
+                description={
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <InputNumber min={1} max={100} value={背调加几} onChange={(v) => set背调加几(Number(v) || 1)} aria-label="加几次背调" />
+                    次。背调次数和 AI 次数分开记，只加不减。
+                  </span>
+                }
+                onConfirm={加背调}
+              >
+                <Button icon={<GiftOutlined />} loading={忙}>
+                  背调 +N
+                </Button>
+              </Popconfirm>
+            )}
           </div>
         </div>
       </section>
@@ -108,6 +134,7 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
             </>
           )}
         </div>
+        <Kpi 名="背调次数" icon={<GiftOutlined />} 数={详情.背调.不限 ? "不限" : 详情.背调.剩} 尾={详情.背调.不限 ? "" : "次"} 注={详情.背调.不限 ? "测试账号不扣" : `送了 ${详情.背调.送} 次，用了 ${详情.背调.用} 次（和 AI 次数分开记）`} />
         <Kpi 名="近 30 天模型调用" icon={<ThunderboltOutlined />} 数={详情.调用30天} 尾="次" 注={`按问题扣的：开户以来 ${千分位(a.ai.用)} 次（一问可能调好几次）`} />
         <Kpi 名="近 30 天 token" icon={<FireOutlined />} 数={详情.token30天} 注={详情.调用30天 ? `平均一次 ${千分位(Math.round(详情.token30天 / 详情.调用30天))}` : "这 30 天没用过"} />
         <Kpi 名="在用设备" icon={<DesktopOutlined />} 数={在用.length} 尾="台" 注={在用.length ? 分布说法(a.分布) : "没有在用的设备"} />

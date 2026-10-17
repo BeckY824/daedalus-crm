@@ -1,11 +1,15 @@
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
-import { 收拾请求体 } from "@/lib/gateway";
-import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 注册赠送发过吗, 余额 } from "@/lib/tenant/credits";
+import { 收拾请求体, 背调模型表 } from "@/lib/gateway";
+import { 按问题扣一次, 规整请求id, 退这一次, 每问最多步, 背调最多步, 注册赠送发过吗, 余额, 背调记花费, 背调记失败, 背调交了报告 } from "@/lib/tenant/credits";
+import { 背调超时 } from "@/lib/research/retry";
+import { 读价目, 模型花费元 } from "@/lib/research/price";
+import { 是背调 } from "@/lib/research/runs-memory";
 import { consumeAiQuota } from "@/lib/ai-quota";
 import { 读用量, 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
+import { 是余额不足, 余额告警 } from "@/lib/upstream-alert";
 import { AI功能 } from "@/lib/ai-features";
 import { CompletionStream } from "@/lib/llm-stream";
 import { 核对 } from "@/lib/import/paste";
@@ -133,7 +137,9 @@ async function 处理请求(req: Request) {
   */
   const 早问题id = 规整请求id(req.headers.get("x-question-id")) ?? 合成编号(accountId, raw);
   const 见过 = 早问题id ? 问过(`${accountId}:${早问题id}`) : null;
-  if (!见过 || ++见过.n > 每问最多步) {
+  // 背调（research/start 开过的 runId）一次要几十步，免频率闸的步数和扣费那边一样放宽到 背调最多步
+  const 免闸步数 = 早问题id && 是背调(accountId, 早问题id) ? 背调最多步 : 每问最多步;
+  if (!见过 || ++见过.n > 免闸步数) {
     const 等 = consumeAiQuota(`gw:${accountId}`);
     if (等 !== null) return 网关错误(429, `请求太频繁，请 ${等} 秒后再试`);
     if (早问题id && !见过) 记下问过(`${accountId}:${早问题id}`);
@@ -145,7 +151,8 @@ async function 处理请求(req: Request) {
     if (r) r.最后 = 这一份;
   }
 
-  const 整理 = 收拾请求体((raw ?? {}) as Record<string, unknown>, cfg);
+  // 背调那一笔（start 开过的 runId）额外许可背调专用的模型（Claude / GPT），平时问答还是只认 GATEWAY_MODELS
+  const 整理 = 收拾请求体((raw ?? {}) as Record<string, unknown>, cfg, 早问题id && 是背调(accountId, 早问题id) ? 背调模型表() : []);
   if (!整理.ok) return 网关错误(400, 整理.error);
 
   const owner = { kind: "account" as const, id: accountId };
@@ -176,6 +183,26 @@ async function 处理请求(req: Request) {
   }
 
   const 剩余头 = { "X-Credits-Remaining": String(扣.还剩) };
+  /*
+    背调那一笔的模型调用：钱也累到这次背调上（AiResearchRun.costLi），单次成本上限靠它（lib/research/price.ts）。
+    不是背调的编号 updateMany 一行都碰不到，所以只按功能名判断就够，不用先查一次库
+  */
+  const 记背调花费 = async (u: { input: number; output: number }, 原始: unknown) => {
+    if (功能 !== "research" || !问题id) return;
+    // 命中提示缓存的那部分按缓存读价算（输入价的 1/10，lib/research/price.ts）
+    const 缓存 = Number((原始 as { prompt_tokens_details?: { cached_tokens?: unknown } } | null)?.prompt_tokens_details?.cached_tokens) || 0;
+    await 背调记花费(owner, 问题id, 模型花费元(读价目(), String(整理.body.model ?? ""), u.input, u.output, 缓存));
+  };
+  /*
+    背调那一笔的两样证据（退不退背调次数看它们，credits.ts 的 收尾背调）：
+      上游超时 / 报错 / 连不上 → 记一笔「我们这边失败了」；
+      最后一步（X-Research-Stage: approach）成功交出去 → 记「报告交了」，这次背调就算跑完。
+    不是背调的编号 updateMany 一行都碰不到，同上
+  */
+  const 背调失败 = async () => {
+    if (功能 === "research" && 问题id) await 背调记失败(owner, 问题id);
+  };
+  const 是最后一步 = 功能 === "research" && 问题id && req.headers.get("x-research-stage") === "approach";
   /** 这一份失败 / 没人收到时退。同一编号后面又发了一份的，交给那一份决定（见 问过的 那段） */
   const 退 = async () => {
     if (键 && 问过的.get(键)?.最后 !== 这一份) return;
@@ -193,11 +220,16 @@ async function 处理请求(req: Request) {
         桌面端断开就把上游也掐掉（2026-10-06 G.3）：桌面端 15 秒等不到就重发，原来这一份还挂在中转站上直到 120 秒，
         一个问题最多同时挂三份。掐掉走下面 catch 那支：是最新一份才退次数，和原来「没人收到就退」一个口径
       */
-      signal: AbortSignal.any([req.signal, AbortSignal.timeout(120_000)]),
+      /*
+        背调那一笔等 90 秒（比桌面端每一趟的 100 秒短）：上游卡住时由我们先认出「上游超时」、记下这笔失败、回 504，
+        桌面端收到再重发——反过来的话桌面端先断开，这边只看到客户端走了，分不清是我们慢还是用户停的（lib/research/retry.ts）
+      */
+      signal: AbortSignal.any([req.signal, AbortSignal.timeout(功能 === "research" ? 背调超时.上游模型 : 120_000)]),
     });
   } catch (e) {
     // 上游没给出任何东西：这一次不该由用户买单。不是扣的那一步也退——这个问题整个答不出来了（第二轮 AI A4）
     await 退();
+    if (!req.signal.aborted) await 背调失败();
     const 超时 = e instanceof Error && e.name === "TimeoutError";
     return 网关错误(504, 超时 ? "上游模型接口超时" : "连不上上游模型接口", 剩余头);
   }
@@ -226,13 +258,20 @@ async function 处理请求(req: Request) {
       每点一次扣一次，界面上还是上游的英文原文。这几种退掉，并说一句人话；原文只进日志。
       不是扣的那一步（同一问题的第 2 步以后）失败了也退：这个问题整个答不出来了（第二轮 AI A4）
     */
-    const 我们的锅 = [401, 402, 403, 404].includes(upstream.status);
+    /*
+      中转站余额不足回的是 400（b.ai：insufficient_user_quota，10-17 实验把线上余额花光那次），
+      OpenAI 是 429 insufficient_quota——不管哪个状态码，认出来就是我们的锅，并且打告警（lib/upstream-alert.ts）
+    */
+    const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
+    const 余额不够 = 是余额不足(text);
+    const 我们的锅 = [401, 402, 403, 404].includes(upstream.status) || 余额不够;
     if (upstream.status >= 500 || upstream.status === 429 || upstream.status === 408 || 我们的锅) {
       await 退();
+      await 背调失败();
     }
-    const text = 抹掉密钥((await upstream.text()).slice(0, 500), process.env.GATEWAY_API_KEY);
+    if (余额不够) await 余额告警("gateway", text);
     // 上游在限我们（429）：退了次数，话也别带上游的英文原文（第二轮 AI）
-    if (upstream.status === 429) {
+    if (upstream.status === 429 && !余额不够) {
       console.warn(`[gateway] 上游 429：${text}`);
       return 网关错误(429, "AI 那边这会儿太忙了，这次没扣次数，过一会儿再试", 剩余头);
     }
@@ -264,6 +303,7 @@ async function 处理请求(req: Request) {
       if (failed) await 退();
       const usage = 读用量(state.usage);
       if (usage) await 记一次(owner, { model: String(整理.body.model ?? ""), usage, feature: 功能 });
+      if (usage) await 记背调花费(usage, state.usage);
     };
     const stream = new ReadableStream<Uint8Array>({
       async pull(controller) {
@@ -345,11 +385,18 @@ async function 处理请求(req: Request) {
   }
   if (noResult) await 退();
   /*
+    背调那一笔被截断 / 空回答（10-17：gpt-5.5 思考把 max_tokens 用光，正文是空的）：用户什么都没拿到，是我们这边的问题——
+    记一笔失败，这次背调没跑完就退（桌面端拿到截断也会重要一次，再不行这一步报错）
+  */
+  if (noResult && !req.signal.aborted) await 背调失败();
+  /*
     桌面端已经走了（首轮超时、整体超时、人点了停）：这份答案没人收到。是这个编号最新的一份就退，
     不是最新的（后面还有重发）就不管——见 问过的 那段（第三轮 A1 / 第四轮 A1、兼容 A0）。
     老客户端（0.46.2 及以前）不带编号，用的是 合成编号，同样按这条退
   */
   if (req.signal.aborted && 键) await 退();
+  // 背调的最后一步交出去了：6 步跑完（桌面端已经走了的不算——它没收到）
+  if (是最后一步 && !noResult && !req.signal.aborted) await 背调交了报告(owner, 问题id);
 
   /*
     成本账。桌面端的请求只有经过这里才看得见 token——它那边的 llm.ts 跑在
@@ -359,6 +406,7 @@ async function 处理请求(req: Request) {
   try {
     const u = 读用量(JSON.parse(data));
     if (u) await 记一次({ kind: "account", id: accountId }, { model: String(整理.body.model ?? ""), usage: u, feature: 功能 });
+    if (u) await 记背调花费(u, (JSON.parse(data) as { usage?: unknown }).usage);
   } catch {
     // 上游回的不是 JSON —— 那是上面 upstream.ok 该管的事，这儿不掺和
   }

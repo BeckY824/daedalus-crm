@@ -5,5 +5,5 @@
  * 网关只收这几个（会进库、会出现在运营台上，不该让客户端往里写任意字符串），
  * 发请求那边（lib/llm.ts 的 ChatOpts.feature）也只能填这几个：加一个功能只改这里。
  */
-export const AI功能 = ["ask", "brief", "draft", "wakeup", "explain", "invite", "parse", "paste", "import", "other"] as const;
+export const AI功能 = ["ask", "brief", "draft", "wakeup", "explain", "invite", "parse", "paste", "import", "research", "other"] as const;
 export type AI功能 = (typeof AI功能)[number];

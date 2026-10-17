@@ -60,6 +60,8 @@ type ChatOpts = {
    * 不填也能用——只是回头算「哪块烧得最凶」时这一行归不了类。
    */
   feature?: AI功能;
+  /** 背调里这是 6 步的哪一步（lib/research/run.ts）。只有背调走的 gateway-model.ts 会带成 X-Research-Stage，这里的 chatRaw 不看 */
+  researchStage?: string;
   /**
    * **这一次属于哪个问题。** 同一个问题的每一步（agent 决策、工具、最终回答）都带同一个，
    * 网关据此只扣一次——价格页那句「一次提问算一次」的实现就在这一对头上

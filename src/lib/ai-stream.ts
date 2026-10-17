@@ -6,6 +6,8 @@
  */
 import { runJob, patchJob, type 任务标签 } from "./ai-jobs";
 import { mergeSteps, type StepEvent } from "./ai-steps";
+import { 初始状态, 归约, type 背调状态 } from "./research/state";
+import type { 研究事件 } from "./research/types";
 
 export type StreamBody =
   | {
@@ -28,9 +30,19 @@ export type StreamBody =
        */
       files?: { name: string; text: string }[];
     }
-  | { mode: "brief"; customerId: string; question?: string };
+  | { mode: "brief"; customerId: string; question?: string }
+  /** 背调（lib/research）：公司名必填；从客户详情页发起的带客户 id */
+  | { mode: "research"; company: string; customerId?: string; /** 背调模式里那句原话，带给模型（让它知道人关心什么） */ need?: string };
 
-export type StreamJob<T> = { steps: StepEvent[]; answer?: T; ms?: number; /** 流式回答的已到达文本 */ text?: string };
+export type StreamJob<T> = {
+  steps: StepEvent[];
+  answer?: T;
+  ms?: number;
+  /** 流式回答的已到达文本 */
+  text?: string;
+  /** 背调：事件一条条叠成的状态（lib/research/state.ts）。只有 mode=research 才有 */
+  research?: 背调状态;
+};
 
 const controllers = new Map<string, AbortController>();
 
@@ -46,6 +58,7 @@ export function runStream<T>(key: string, body: StreamBody, meta?: string, 标�
       const t0 = Date.now();
       let steps: StepEvent[] = [];
       let text = "";
+      let research: 背调状态 | undefined = body.mode === "research" ? 初始状态({ name: body.company, customerId: body.customerId }) : undefined;
       patchJob<StreamJob<T>>(key, { steps });
       const ac = new AbortController();
       controllers.set(key, ac);
@@ -69,7 +82,7 @@ export function runStream<T>(key: string, body: StreamBody, meta?: string, 标�
           chunkRead = await reader.read();
         } catch {
           controllers.delete(key);
-          return { ok: false, error: "已取消", value: { steps, text } };
+          return { ok: false, error: "已取消", value: { steps, text, research } };
         }
         const { value, done } = chunkRead;
         if (done) {
@@ -92,9 +105,13 @@ export function runStream<T>(key: string, body: StreamBody, meta?: string, 标�
             continue;
           }
           const e = ev as { type: string } & Record<string, unknown>;
-          if (e.type === "step") {
+          if (e.type === "research" && research && e.e && typeof e.e === "object") {
+            // 背调的过程事件：叠进状态，界面订阅的是这份状态（一条条展开就靠它）
+            research = 归约(research, e.e as 研究事件);
+            patchJob<StreamJob<T>>(key, { steps, text, research });
+          } else if (e.type === "step") {
             steps = mergeSteps(steps, e as unknown as StepEvent);
-            patchJob<StreamJob<T>>(key, { steps, text });
+            patchJob<StreamJob<T>>(key, { steps, text, research });
           } else if (e.type === "token" && typeof e.text === "string") {
             text += e.text;
             patchJob<StreamJob<T>>(key, { steps, text });
@@ -114,12 +131,12 @@ export function runStream<T>(key: string, body: StreamBody, meta?: string, 标�
           } else if (e.type === "result") {
             const r = e as unknown as { ok: boolean; answer?: T; error?: string };
             // 出错也把走过的步骤留着：人能看到卡在哪一步
-            final = r.ok ? { ok: true, value: { steps, answer: r.answer, text, ms: Date.now() - t0 } } : { ok: false, error: r.error ?? "生成失败", value: { steps, text, ms: Date.now() - t0 } };
+            final = r.ok ? { ok: true, value: { steps, answer: r.answer, text, ms: Date.now() - t0, research } } : { ok: false, error: r.error ?? "生成失败", value: { steps, text, ms: Date.now() - t0, research } };
           }
         }
       }
       controllers.delete(key);
-      return final ?? { ok: false, error: "连接中断，请重试", value: { steps, text } };
+      return final ?? { ok: false, error: "连接中断，请重试", value: { steps, text, research } };
     },
     meta,
     标签,

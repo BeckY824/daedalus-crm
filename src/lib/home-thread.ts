@@ -28,8 +28,16 @@ import { useSyncExternalStore } from "react";
 export type Turn = {
   id: string;
   question: string;
-  kind: "ask" | "prep" | "recap";
+  kind: "ask" | "prep" | "recap" | "research";
   at: number;
+  /** kind=research：要背调的公司（从这一句里摘出来的，lib/research/intent.ts / target.ts）。还没认准时为空，见 待选 */
+  公司?: string;
+  /** kind=research：从背调模式发出来的——选模式本身就是确认，直接开跑，不再出确认卡 */
+  直接?: boolean;
+  /** kind=research：背调模式里那句原话（「帮我查 Rexel 适不适合我们」），带给模型 */
+  需求?: string;
+  /** kind=research：认不准是哪家（多家 / 太短 / 认不出），先让人点选或补一句，不扣次数（lib/research/target.ts） */
+  待选?: { 种类: "候选" | "要补充" | "认不出"; 候选?: string[]; 公司?: string; 原因?: string };
   /** 上一问还在跑时发的：排队，等它答完再起 */
   queued?: boolean;
   /**
@@ -132,6 +140,13 @@ export function addTurn(scope: string, t: Omit<Turn, "id" | "at">): Turn {
   s.turns = [...s.turns, turn];
   notify();
   return turn;
+}
+
+/** 改一轮的几个字段（背调那一轮：人点选了是哪家公司以后，填上 公司、去掉 待选） */
+export function updateTurn(scope: string, id: string, patch: Partial<Omit<Turn, "id" | "at">>) {
+  const s = 取(scope);
+  s.turns = s.turns.map((t) => (t.id === id ? { ...t, ...patch } : t));
+  notify();
 }
 
 /** 排队的那条轮到它了：去掉排队标记（真正开跑由页面调 runStream） */

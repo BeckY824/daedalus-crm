@@ -16,6 +16,7 @@ import { 载入对话, type Turn } from "./home-thread";
 import type { BriefRecord } from "./ai-draft";
 import type { AgentResult } from "./agent/run";
 import type { StreamJob } from "./ai-stream";
+import { 认背调状态, type 背调状态 } from "./research/state";
 
 /** 库里的一条消息。落库那头见 dashboard/threads.ts */
 export type 历史消息 = {
@@ -29,7 +30,8 @@ export type 历史消息 = {
   createdAt: string;
 };
 
-export type AgentAnswer = Omit<AgentResult, "steps">;
+/** research：这一轮是背调（lib/research），回答画成背调卡而不是一段字 */
+export type AgentAnswer = Omit<AgentResult, "steps"> & { research?: 背调状态 };
 
 /** 一条对话，读出来的样子。首页由服务端传进来，面板点开时自己去要 */
 export type 会话 = { id: string; title: string; messages: 历史消息[] };
@@ -55,15 +57,18 @@ export function 历史成屏(messages: 历史消息[]): { turns: Turn[]; jobs: {
     const a = messages[i + 1]?.role === "assistant" ? messages[i + 1] : null;
     if (!a) continue;
     i++;
-    turns.push({ id: u.id, question: u.text, kind: "ask", at: Date.parse(u.createdAt) });
-    const refs = (a.refs ?? {}) as { records?: BriefRecord[]; customers?: AgentAnswer["customers"] };
+    const refs = (a.refs ?? {}) as { records?: BriefRecord[]; customers?: AgentAnswer["customers"]; research?: unknown };
+    // 背调那一轮：报告整份存在 refs.research 里，读回来照样画成卡（形状不对就退回当一段字显示）
+    const research = 认背调状态(refs.research) ?? undefined;
+    turns.push({ id: u.id, question: u.text, kind: research ? "research" : "ask", at: Date.parse(u.createdAt), ...(research ? { 公司: research.目标.name } : {}) });
     jobs.push({
       key: `home:${u.id}`,
       value: {
         steps: 认步骤(a.steps),
         text: a.text,
         ms: a.ms ?? undefined,
-        answer: { text: a.text, records: refs.records ?? [], customers: refs.customers ?? [], proposals: [] },
+        research,
+        answer: { text: a.text, records: refs.records ?? [], customers: refs.customers ?? [], proposals: [], ...(research ? { research } : {}) },
       },
     });
   }
