@@ -51,6 +51,9 @@ Mac 把 `export` 那一行加进 `~/.zshrc`；Windows 用 `setx DAEDALUS_TOKEN "
 
 接好后 `codex mcp list` 能看到 `daedalus`。参数以 [Codex 的 MCP 文档](https://developers.openai.com/codex/mcp) 为准。
 
+2026-10-17 用 Codex CLI 0.162 实测过：照设置页那两行接上，`codex exec "列出我 CRM 里的客户"` 直接调我们的工具答出来，
+不用每次批准——开出去的工具都标了只读（`readOnlyHint: true`、`openWorldHint: false`），Codex 默认对只读工具不弹批准。
+
 ### 自部署 / 团队主机
 
 地址换成你的服务器：`https://你的地址/api/mcp`，令牌在那台服务器网页的「设置 → AI 接入」里生成

@@ -21,7 +21,16 @@ export type McpTool = {
   name: string;
   description: string;
   inputSchema: Schema;
+  annotations: { title?: string; readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean };
 };
+
+/**
+ * 工具标注（MCP 2025-03-26 起）：开出去的全是只读查询，明说出来。
+ * 2026-10-17 实测 Codex（0.162）：没标 readOnlyHint 的工具它一律当「可能会写」，每调一次都要人批准，
+ * `codex exec` 里直接调不了（「MCP tool call requires approval」）。标了只读、不出本库（openWorldHint: false），
+ * 它按默认的 auto 规则就直接调。Claude Code 也认这几个标注
+ */
+const 只读标注 = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false } as const;
 
 /** 开出去的工具名单。propose_* 一个都不在里面，理由见文件头 */
 export const MCP_TOOL_NAMES = Object.keys(只读SCHEMAS).filter((n) => !不开放的工具.includes(n));
@@ -31,6 +40,7 @@ export function 列工具(): McpTool[] {
     name: t.name,
     description: t.description,
     inputSchema: 只读SCHEMAS[t.name],
+    annotations: { ...只读标注 },
   }));
 }
 

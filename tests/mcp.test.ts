@@ -101,6 +101,12 @@ describe("开出去的工具", () => {
       expect(t.inputSchema.additionalProperties).toBe(false);
     }
   });
+
+  it("每个工具都标成只读、不写、不出本库——Codex 靠它决定要不要每次让人批准（2026-10-17 实测）", () => {
+    for (const t of 列工具()) {
+      expect(t.annotations, t.name).toMatchObject({ readOnlyHint: true, destructiveHint: false, openWorldHint: false });
+    }
+  });
 });
 
 describe("协议", () => {
