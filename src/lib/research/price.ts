@@ -22,7 +22,7 @@
  *   RESEARCH_SEARCH_CONTEXT GPT 搜索的 search_context_size（low / medium / high）。10-16 实测中转站收下了，
  *                           但 low 只把一次搜索的输入从约 9.9k 降到 9.5k token，作用很小
  *   RESEARCH_SEARCH_LIMIT   一次背调最多搜几次（默认 8，试 5）
- *   RESEARCH_COST_CAP       单次成本上限（元），到了就停手、用已有材料出报告。默认 4，等实验结果再定
+ *   RESEARCH_COST_CAP       单次成本上限（元），到了就停手、用已有材料出报告。默认 10（10-17 选 A 后定）
  *   RESEARCH_PRICES         覆盖上面的单价（JSON）
  */
 
@@ -43,7 +43,8 @@ const 兜底单价: 单价 = { 入: 5, 缓存: 0.5, 出: 30 };
 export const 默认汇率 = 7.2;
 /** 每次联网搜索另收的钱（美元）。待用户看 b.ai 账单确认是否单独收费 */
 export const 默认每次搜索美元 = 0.01;
-export const 默认成本上限元 = 4;
+/** 10-17 用户选 A（全 gpt-5.5，一次约 5.6 元，实验里最贵 6.2 元）：上限放到 10 元，不然每次都在半路被截断 */
+export const 默认成本上限元 = 10;
 export const 默认搜索上限 = 8;
 /** 最后打分 + 写报告：固定 gpt-5.5（用户定，保证最后回复的质量） */
 export const 默认报告模型 = "gpt-5.5";
