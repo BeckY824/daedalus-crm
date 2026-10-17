@@ -27,7 +27,7 @@ function 认错(status: number, t: string): Error {
 
 export function 网关模型(cfg: 配置, 当前模型: () => string | undefined): 模型调用 {
   const base = cfg.baseUrl.replace(/\/+$/, "");
-  const 发 = async (body: Record<string, unknown>, 要正文: boolean, opts: { signal?: AbortSignal; timeoutMs?: number; requestId?: string; maxTokens?: number; temperature?: number; model?: string; researchStage?: string }) => {
+  const 发 = async (body: Record<string, unknown>, 要正文: boolean, opts: { signal?: AbortSignal; timeoutMs?: number; requestId?: string; maxTokens?: number; temperature?: number; model?: string; researchStage?: string; reasoningEffort?: string }) => {
     const j = await 重发一次(
       async (signal) => {
         const res = await fetch(`${base}/chat/completions`, {
@@ -40,7 +40,7 @@ export function 网关模型(cfg: 配置, 当前模型: () => string | undefined
             "X-Feature": "research",
           },
           // 编排按角色传模型名（摘要用 mini、最后打分写报告用 gpt-5.5）；没传就用通道上的报告模型
-          body: JSON.stringify({ model: opts.model ?? 当前模型(), temperature: opts.temperature ?? 0, max_tokens: opts.maxTokens ?? 背调输出上限, ...body }),
+          body: JSON.stringify({ model: opts.model ?? 当前模型(), temperature: opts.temperature ?? 0, max_tokens: opts.maxTokens ?? 背调输出上限, ...(opts.reasoningEffort ? { reasoning_effort: opts.reasoningEffort } : {}), ...body }),
           signal,
         });
         const t = await res.text();

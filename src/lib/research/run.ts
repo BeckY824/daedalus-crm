@@ -29,9 +29,10 @@ import { 背调上限, 阶段表, 字段表, type 研究事件, type 阶段号, 
 import { 算相关性, 清洗评档, type 评档, type 风险 } from "./score";
 import { 认像的老客户, 老客户表文本, 老客户维度档, type 老客户 } from "./similar";
 import { 初始状态, 归约, type 背调状态 } from "./state";
-import { 背调超时, 背调输出上限, 截, 截断了 } from "./retry";
+import { 背调超时, 背调输出上限, 背调打分推理强度, 截, 截断了 } from "./retry";
 
-type ChatOpts = NonNullable<Parameters<typeof chatTools>[2]>;
+/** reasoningEffort：只有最后打分那一步传（背调打分推理强度），网关 / 实验脚本转成 reasoning_effort */
+type ChatOpts = NonNullable<Parameters<typeof chatTools>[2]> & { reasoningEffort?: "none" | "low" | "medium" };
 
 export type 模型调用 = {
   tools(messages: ToolMessage[], tools: 工具声明[], opts: ChatOpts): Promise<{ toolCalls: 工具调用[]; text: string }>;
@@ -224,7 +225,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   let 工具号 = 0;
   /** 每一步挑工具、写摘要用摘要模型（可以是便宜的 mini）；最后打分写报告那一步单独传报告模型（通道.模型，固定 gpt-5.5） */
   /** 每次调用都带上这是哪一步（X-Research-Stage）：服务器看到最后一步交出去了才算跑完。超时是每一趟的，卡了 gateway-model 会重发一次 */
-  const opts = (stage: 阶段号, 模型名?: string): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", researchStage: stage, temperature: 0, thinking: false, timeoutMs: 背调超时.模型每次, maxTokens: 背调输出上限 });
+  const opts = (stage: 阶段号, 模型名?: string): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", researchStage: stage, temperature: 0, thinking: false, timeoutMs: 背调超时.模型每次, maxTokens: 背调输出上限, ...(stage === "approach" ? { reasoningEffort: 背调打分推理强度 } : {}) });
   /** 用原生 function calling；对面不吃 tools 时退回 JSON 协议（和首页 agent 同一个判断） */
   let 用原生 = true;
 
@@ -454,7 +455,20 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       const r = await 结论(
         "approach",
         "对下面 5 项各评一档（high / mid / low / unknown），每项一句证据和来源（材料编号或网址）：\n" +
-          "category 品类匹配：它卖的 / 用的产品和我们的重合多少\nbuyerType 买家类型：是不是我们要找的那类买家\nmarket 市场与地区：在不在我们的目标国家、认证够不够\nscale 规模与采购力\nsignals 近期信号：在招人、扩品类、参展、开新店（近一年）\n" +
+          "category 品类匹配：它卖的 / 用的产品和我们的重合多少\n" +
+          // 10-17 AC 回放：同材料同配置跑两遍，这两项在 high / mid 之间来回摇摆（每家分数差 7–9 分），判档条件写死
+          "buyerType 买家类型——先从材料认出它是哪一类：进口商 / 分销商 / 批发商、品牌商（自己不生产或部分外包）、工程商 / 安装商、零售商、同类制造商、终端用户。\n" +
+          "  high：属于我们业务简介里要找的那类买家，并且材料能看出它对外采购或代理同类产品（列了合作品牌 / 供应商、产品线里有外购品牌、招采购或品类岗、自称 distributor / importer）；例：自称电气分销商、官网列着几十个照明品牌。\n" +
+          "  mid：类型对但看不出它对外采购；或者是相邻类型（自己设计、部分生产部分外包的品牌商，小型零售 / 安装商）；例：自称「设计和制造」灯具、看不出外包。\n" +
+          "  low：同类制造商（和我们是竞争对手）、终端用户、或和我们的买家类型都不沾边。\n" +
+          "  unknown：材料看不出它是哪一类。\n" +
+          "market 市场与地区——只看材料里写明的总部、分公司 / 网点、主要客户所在的国家，和我们业务简介里的目标地区比：\n" +
+          "  high：总部在目标地区，并且业务覆盖目标地区里 ≥ 2 个国家（同一国的不同城市算 1 个）；例：总部法国、在德国英国都有网点。\n" +
+          "  mid：只覆盖目标地区里 1 个国家；或者总部在目标地区之外、但材料写明在目标地区有分公司 / 网点 / 主要客户；或者材料写明它要的认证我们没有。\n" +
+          "  low：总部和业务都不在目标地区。\n" +
+          "  unknown：材料看不出它在哪些国家做生意。\n" +
+          "  认证没提到不扣档；只有材料写明它要某个认证、而我们的简介里没有，才降一档。\n" +
+          "scale 规模与采购力\nsignals 近期信号：在招人、扩品类、参展、开新店（近一年）\n" +
           `再和我们的老客户比像不像（国家、品类、买家类型、规模），最多挑 3 位，按编号回：\n${老客户表文本(input.老客户)}\n` +
           "最后给 3 条以内切入建议，每条一句话，具体到找谁、聊什么、推什么。\n" +
           '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"材料编号或网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"建议":["…"],"小结":"一句话"}',

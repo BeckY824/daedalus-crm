@@ -55,6 +55,12 @@ export async function 重发一次<T>(做: (signal: AbortSignal) => Promise<T>, 
  */
 export const 背调输出上限 = 8000;
 
+/**
+ * 最后打分那一步的推理强度：写死，不跟中转站 / 模型的默认走（10-17 AC 回放：同材料同配置跑两遍，每家分数差 7–9 分）。
+ * medium 是 gpt-5.5 的常用档；high 思考更长、8000 的输出上限容易被截断。网关只放行到 medium
+ */
+export const 背调打分推理强度 = "medium" as const;
+
 /** 回答被 max_tokens 截断 / 什么都没回：明说，不当成空 JSON 收下。编排对它重要一次（run.ts 的 结论） */
 export class 截断了 extends Error {
   constructor(detail = "") {

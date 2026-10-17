@@ -103,6 +103,8 @@ export function 收拾请求体(
   // 这两个是 llm.ts 会发的：JSON 模式、关思维链。原样透传，上游不认时由它自己报错
   if (body.response_format) out.response_format = body.response_format;
   if (body.thinking) out.thinking = body.thinking;
+  // 推理强度（背调最后打分那一步固定 medium，10-17 同配置两遍分数差 7–9 分）。只放到 medium：再高就是客户端替我们多花钱
+  if (body.reasoning_effort === "none" || body.reasoning_effort === "low" || body.reasoning_effort === "medium") out.reasoning_effort = body.reasoning_effort;
   /*
     工具表原样转（2026-10-02 排查 AI A1）。原来白名单里没有这两个，桌面端带着工具表来问，
     转到上游时工具表没了：模型不知道能查库，建议卡几乎出不来，只能靠它照提示词自己写一段 DSML 碰运气

@@ -67,7 +67,7 @@ services:
       # AI 背调的搜索（lib/research/providers.ts）：用中转站自带的搜索，Key 就是上面的 GATEWAY_API_KEY。
       # RESEARCH_SEARCH 空着 = gpt（挂了自动换 claude 试一次），可填 claude / mock；RESEARCH_SEARCH_MODEL 换主用的模型
       RESEARCH_SEARCH: "${RESEARCH_SEARCH:-}"
-      RESEARCH_SEARCH_MODEL: "${RESEARCH_SEARCH_MODEL:-}"
+      RESEARCH_SEARCH_MODEL: "${RESEARCH_SEARCH_MODEL:-gpt-5.5}"
       # 背调的分析模型（只给背调那一笔放行，不进平时问答的 GATEWAY_MODELS）。空着 = gpt-5.5,claude-sonnet-5.5，第一个是默认
       RESEARCH_MODELS: "${RESEARCH_MODELS:-}"
       # 背调的成本和降本开关（lib/research/price.ts）。都可以空着：
@@ -75,10 +75,12 @@ services:
       #   RESEARCH_SEARCH_CONTEXT GPT 搜索结果量 low/medium/high；RESEARCH_SEARCH_LIMIT 一次最多搜几次（默认 8）
       #   RESEARCH_COST_CAP 单次成本上限（元，默认 4，实验后定）；RESEARCH_PRICES 单价（默认 b.ai 10-16 实价）
       #   RESEARCH_SIGNUP_GRANT 新用户送几次背调（默认 0；背调次数和 AI 次数分开记，运营台「背调 +N」手动加）
-      RESEARCH_REPORT_MODEL: "${RESEARCH_REPORT_MODEL:-}"
-      RESEARCH_SUMMARY_MODEL: "${RESEARCH_SUMMARY_MODEL:-}"
-      RESEARCH_SEARCH_CONTEXT: "${RESEARCH_SEARCH_CONTEXT:-}"
-      RESEARCH_SEARCH_LIMIT: "${RESEARCH_SEARCH_LIMIT:-}"
+      # 10-17 总控定默认用 C：5.5 搜（low 结果量、最多 5 次）+ mini 每步摘要 + 5.5 打分写报告（AC 同材料回放：
+      #   带来源不比 A 少、核得上 / 编造不比 A 差，估成本约 4 元 / 次）。.env 里写了哪个就以 .env 为准
+      RESEARCH_REPORT_MODEL: "${RESEARCH_REPORT_MODEL:-gpt-5.5}"
+      RESEARCH_SUMMARY_MODEL: "${RESEARCH_SUMMARY_MODEL:-gpt-5.4-mini}"
+      RESEARCH_SEARCH_CONTEXT: "${RESEARCH_SEARCH_CONTEXT:-low}"
+      RESEARCH_SEARCH_LIMIT: "${RESEARCH_SEARCH_LIMIT:-5}"
       RESEARCH_COST_CAP: "${RESEARCH_COST_CAP:-}"
       RESEARCH_PRICES: "${RESEARCH_PRICES:-}"
       RESEARCH_SIGNUP_GRANT: "${RESEARCH_SIGNUP_GRANT:-}"

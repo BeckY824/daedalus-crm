@@ -2,7 +2,7 @@
  * 背调对比实验的自动核对（scripts/research-bench.ts，10-16 定的评判标准）：认对公司、来源里真有、两遍稳不稳。
  */
 import { describe, it, expect, vi } from "vitest";
-import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, type 录像 } from "../scripts/research-bench";
+import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, 左右各半, type 录像 } from "../scripts/research-bench";
 import type { 背调通道 } from "../src/lib/research/channel";
 import { 初始状态, 归约, type 背调状态 } from "@/lib/research/state";
 import { 算相关性 } from "@/lib/research/score";
@@ -179,5 +179,16 @@ describe("开跑前查中转站余额", () => {
     expect(预计花费元(组们, ["甲", "乙"], () => false)).toBe(16);
     expect(预计花费元(组们, ["甲", "乙"], (co) => co === "甲")).toBe(9);
     expect(预计花费元([{ ...组们[0], 预计每次元: 5 }, { ...组们[1], 预计每次元: 0.8 }], ["甲"], () => false)).toBeCloseTo(5.8);
+  });
+});
+
+describe("盲评左右", () => {
+  it("左右各占一半（单数差一家），不会一边倒", () => {
+    for (let k = 0; k < 200; k++) {
+      const x = 左右各半(5);
+      const 左 = x.filter(Boolean).length;
+      expect(左 === 2 || 左 === 3).toBe(true);
+      expect(左右各半(4).filter(Boolean).length).toBe(2);
+    }
   });
 });

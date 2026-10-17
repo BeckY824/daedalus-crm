@@ -289,6 +289,22 @@ describe("背调 6 步编排", () => {
     expect(事件.some((e) => e.type === "score")).toBe(true);
   });
 
+  it("最后打分那一步固定推理强度（背调打分推理强度）、带着买家类型 / 市场两项的判档条件；前五步不传推理强度", async () => {
+    const { 背调打分推理强度 } = await import("@/lib/research/retry");
+    const 强度: [string, unknown][] = [];
+    const 底 = 假模型();
+    const m: 模型调用 = {
+      tools: (ms, t, o) => (强度.push(["tools", o.reasoningEffort]), 底.tools(ms, t, o)),
+      json: (ms, o) => (强度.push([String(ms[ms.length - 1]?.content ?? "").includes("怎么切入") ? "approach" : "json", o.reasoningEffort]), 底.json(ms, o)),
+    };
+    await 跑({ 模型: m });
+    expect(强度.filter(([k]) => k === "approach").map(([, e]) => e)).toEqual([背调打分推理强度]);
+    expect(强度.filter(([k]) => k !== "approach").every(([, e]) => e === undefined)).toBe(true);
+    const 最后 = 底.调用.find((c) => c.kind === "json" && c.prompt.includes("怎么切入"))!.prompt;
+    expect(最后).toContain("≥ 2 个国家");
+    expect(最后).toContain("对外采购或代理同类产品");
+  });
+
   it("最后一步被截断（思考把额度用光、正文是空的）：再要一次；给的额度是 背调输出上限 不是 2000", async () => {
     const { 截断了, 背调输出上限 } = await import("@/lib/research/retry");
     const m = 假模型();
