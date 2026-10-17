@@ -33,7 +33,8 @@ export default async function PlansPage({
       where: { done: false },
       orderBy: { plannedAt: "asc" },
       include: {
-        customer: { select: { id: true, name: true } },
+        // 有 WhatsApp 号的：完成小框的方式默认 WhatsApp（2026-10-17 PR26 手测）
+        customer: { select: { id: true, name: true, extra: { select: { whatsapp: true } } } },
         owner: { select: { id: true, name: true } },
       },
     }),
@@ -64,6 +65,7 @@ export default async function PlansPage({
         updatedAt: p.updatedAt.toISOString(),
         customerId: p.customer.id,
         customerName: p.customer.name,
+        有WhatsApp: !!p.customer.extra?.whatsapp?.trim(),
         ownerId: p.owner.id,
         ownerName: p.owner.name,
       }))}

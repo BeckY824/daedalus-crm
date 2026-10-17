@@ -111,10 +111,21 @@ export const FOLLOW_TYPES = [
   // 以前是另一个紫（#a855f7），和上门拜访那个几乎分不出来；换成粉，八个类型八个色相
   { value: "EMAIL", label: "邮件沟通", color: categorical.pink, icon: "mail" },
   { value: "SMS", label: "短信沟通", color: categorical.cyan, icon: "message" },
+  // 2026-10-16 外贸基础：外贸最常用的渠道原来只能记成「其他」。色用 WhatsApp 自己的深青，和电话的绿分得开
+  { value: "WHATSAPP", label: "WhatsApp", color: categorical.teal, icon: "whats-app" },
   { value: "TASK", label: "跟进任务", color: categorical.amber, icon: "carry-out" },
   { value: "REMIND", label: "跟进提醒", color: categorical.orange, icon: "bell" },
   { value: "OTHER", label: "其他记录", color: palette.textMuted, icon: "ellipsis" },
 ] as const;
+
+/**
+ * 下拉里的顺序：外贸模版把 WhatsApp 提到最前（外贸业务员一天里多半是在 WhatsApp 上聊），通用模版照原来的顺序。
+ * 只改顺序，存的值不变；老记录一条不动
+ */
+export function 跟进类型们(外贸: boolean): readonly (typeof FOLLOW_TYPES)[number][] {
+  if (!外贸) return FOLLOW_TYPES;
+  return [...FOLLOW_TYPES.filter((t) => t.value === "WHATSAPP"), ...FOLLOW_TYPES.filter((t) => t.value !== "WHATSAPP")];
+}
 
 export const FOLLOW_TYPE_MAP = Object.fromEntries(
   FOLLOW_TYPES.map((t) => [t.value, t]),
@@ -123,6 +134,7 @@ export const FOLLOW_TYPE_MAP = Object.fromEntries(
 /** 跟进方式的候选。计划表单里能选也能填，这里只是常用的几种 */
 export const FOLLOW_METHODS = [
   "电话沟通",
+  "WhatsApp",
   "微信沟通",
   "企业微信",
   "线上会议",

@@ -8,7 +8,8 @@ const plugin: Plugin = { name: "clock-ui", setup(b) {
   stub(/^next\/navigation$/, "export const useRouter=()=>({refresh(){window.__refreshes=(window.__refreshes??0)+1},push(){}});export const usePathname=()=>'/follow-ups/plans';");
   stub(/^@\/app\/\(app\)\/demo-data$/, "export const 查演示数据状态=async()=>({可灌:false,可清:false}),灌一套演示数据=async()=>({ok:true}),清除演示数据=灌一套演示数据;");
   stub(/^next\/link$/, "export default function L(p){return <a {...p}/>}");
-  stub(/customers\/\[id\]\/actions$/, "export const toggleTask=async()=>({ok:true}),completePlan=toggleTask,deletePlan=toggleTask,deleteTask=toggleTask;");
+  // ./actions：完成计划的小框（customers/[id]/CompletePlanModal）从同目录引
+  stub(/(customers\/\[id\]\/|^\.\/)actions$/, "export const toggleTask=async()=>({ok:true}),completePlan=toggleTask,deletePlan=toggleTask,deleteTask=toggleTask,saveFollowUp=toggleTask,撤销记一笔=toggleTask;");
   stub(/customers\/\[id\]\/(PlanForm|TaskForm)$/, "export default function C(){return null}");
   b.onLoad({ filter: /.*/, namespace: "stub" }, a => ({ contents: a.pluginData, loader: "jsx", resolveDir: process.cwd() }));
 } };

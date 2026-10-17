@@ -164,6 +164,7 @@ export async function saveFollowUp(input: FollowUpInput) {
       const audits: Parameters<typeof recordAudit>[0][] = [];
       let id = input.id ?? "";
       let 待办id: string | undefined;
+      let 下次计划id: string | undefined;
       if (input.id) {
         const 改前 = await tx.followUp.findUnique({ where: { id: input.id }, select: { type: true, title: true, content: true, status: true, dueAt: true, dueOn: true, dueHasTime: true } });
         if (!改前) return { ok: false as const, error: "这条跟进已经不在了（可能在别处删了），刷新看看" };
@@ -189,6 +190,7 @@ export async function saveFollowUp(input: FollowUpInput) {
       if (extra?.plan) {
         const 时间 = parseScheduleDate(extra.plan.plannedAt)!;
         const next = await tx.followPlan.create({ data: { subject: extra.plan.subject.trim(), plannedAt: 时间.at!, plannedOn: 时间.on, plannedHasTime: 时间.hasTime, method: extra.plan.method, customerId: input.customerId, ownerId: user.id } });
+        下次计划id = next.id;
         audits.push({ user, action: "create", entity: "FollowPlan", entityId: next.id, summary: `给${customer.name}排了跟进计划（${dayjs(next.plannedAt).format("YYYY-MM-DD")} ${next.method}·${next.subject}）` });
       }
       if (plan && !plan.done) {
@@ -197,13 +199,13 @@ export async function saveFollowUp(input: FollowUpInput) {
       }
       const latest = await tx.followUp.findFirst({ where: { customerId: input.customerId, occurredAt: { lte: new Date() } }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
       await tx.customer.update({ where: { id: input.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
-      return { ok: true as const, id, 待办id, audits };
+      return { ok: true as const, id, 待办id, 下次计划id, audits };
     });
     if (!result.ok) return result;
     for (const audit of result.audits) await recordAudit(audit);
     刷新待办(input.customerId);
     revalidatePath("/follow-ups");
-    return { ok: true as const, id: result.id, ...(result.待办id ? { 待办id: result.待办id } : {}) };
+    return { ok: true as const, id: result.id, ...(result.待办id ? { 待办id: result.待办id } : {}), ...(result.下次计划id ? { 下次计划id: result.下次计划id } : {}) };
   } catch (e) { return 不在了(e); }
 }
 
@@ -489,6 +491,48 @@ export async function completePlan(id: string, 完成 = true) {
         : `撤销完成跟进计划「${p.subject}」（${await 客户名(p.customerId)}）`,
     });
     revalidatePath(`/customers/${p.customerId}`);
+    revalidatePath("/follow-ups/plans");
+    revalidatePath("/dashboard");
+    return { ok: true as const };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/**
+ * 撤销完成小框里的「保存并完成」（2026-10-17 PR26 手测：点错了只能去时间线删跟进、计划页删计划）。
+ * 和「跳过，直接完成」的撤销同一个意思——回到点之前：删掉刚记的那笔、删掉刚排的下一条、原计划改回待办。
+ * 一个事务，三条都只认这位客户名下的。下一条要是已经被做完了（人已经在用它），不删它
+ */
+export async function 撤销记一笔(input: { customerId: string; 跟进id: string; 计划id: string; 下次计划id?: string | null }) {
+  try {
+    const user = await requireUser();
+    const result = await prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.findUnique({ where: { id: input.customerId }, select: { name: true } });
+      if (!customer) return { ok: false as const, error: "这位客户已经不在了，撤不回来" };
+      const 计划 = await tx.followPlan.findFirst({ where: { id: input.计划id, customerId: input.customerId }, select: { id: true, subject: true } });
+      if (!计划) return { ok: false as const, error: "这条计划已经不在了，刷新看看" };
+      const audits: Parameters<typeof recordAudit>[0][] = [];
+      const 跟进 = await tx.followUp.findFirst({ where: { id: input.跟进id, customerId: input.customerId }, select: { id: true, type: true, occurredAt: true } });
+      if (跟进) {
+        await tx.followUp.delete({ where: { id: 跟进.id } });
+        audits.push({ user, action: "delete", entity: "FollowUp", entityId: 跟进.id, summary: `撤销：删掉${customer.name}刚记的一条${类型名(跟进.type)}跟进（${dayjs(跟进.occurredAt).format("YYYY-MM-DD")}）` });
+      }
+      const 下次 = input.下次计划id ? await tx.followPlan.findFirst({ where: { id: input.下次计划id, customerId: input.customerId, done: false }, select: { id: true, subject: true } }) : null;
+      if (下次) {
+        await tx.followPlan.delete({ where: { id: 下次.id } });
+        audits.push({ user, action: "delete", entity: "FollowPlan", entityId: 下次.id, summary: `撤销：删掉给${customer.name}刚排的跟进计划「${下次.subject}」` });
+      }
+      await tx.followPlan.updateMany({ where: { id: 计划.id, done: true }, data: { done: false, doneAt: null } });
+      audits.push({ user, action: "update", entity: "FollowPlan", entityId: 计划.id, summary: `撤销完成跟进计划「${计划.subject}」（${customer.name}）` });
+      const latest = await tx.followUp.findFirst({ where: { customerId: input.customerId, occurredAt: { lte: new Date() } }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
+      await tx.customer.update({ where: { id: input.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
+      return { ok: true as const, audits };
+    });
+    if (!result.ok) return result;
+    for (const audit of result.audits) await recordAudit(audit);
+    revalidatePath(`/customers/${input.customerId}`);
+    revalidatePath("/follow-ups");
     revalidatePath("/follow-ups/plans");
     revalidatePath("/dashboard");
     return { ok: true as const };

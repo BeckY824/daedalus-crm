@@ -422,8 +422,13 @@ model CustomerExtra {
   email      String?
   /// 来源：候选是业务配置里的来源那一组（外贸：阿里国际站、展会……），能选也能填
   source     String?
+  /// 客户等级 A / B / C / D（2026-10-16 外贸基础，迁移 037）：只存这四个大写字母，空 = 没分级
+  level      String?
+  /// 官网（2026-10-16，迁移 038）：存人填的样子（可能不带 https://），点开时补协议，见 lib/customer-extra.ts 官网网址()
+  website    String?
 
   @@index([country])
+  @@index([level])
 }
 
 model CustomerClaim {

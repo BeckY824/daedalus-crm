@@ -1,5 +1,5 @@
 /**
- * 客户的外贸档案（2026-10-05，外贸客户建议）：国家、WhatsApp、微信、邮箱、来源。
+ * 客户的外贸档案（2026-10-05，外贸客户建议）：国家、WhatsApp、微信、邮箱、来源；2026-10-16 加客户等级、官网。
  * 存在旁表 CustomerExtra（Customer 是 schema 建的老表，不能加列）。不碰数据库的规则放这里，客户端服务端都能引；
  * 读写在 lib/customer-extra-db.ts。
  *
@@ -7,7 +7,7 @@
  * 客户说「线索里面已经有来源」——可直接建、Excel 导入的客户不经过线索，客户自己身上得有地方记来源。
  */
 
-export const 外贸键 = ["country", "whatsapp", "wechat", "email", "source"] as const;
+export const 外贸键 = ["country", "whatsapp", "wechat", "email", "source", "level", "website"] as const;
 export type 外贸键 = (typeof 外贸键)[number];
 export type 外贸档案 = Record<外贸键, string | null>;
 
@@ -17,18 +17,71 @@ export const 外贸字段名: Record<外贸键, string> = {
   wechat: "微信",
   email: "邮箱",
   source: "来源",
+  level: "客户等级",
+  website: "官网",
 };
 
-/** 每一格最长多少字：国家、来源是短名字；邮箱按 RFC 上限 */
-const 上限: Record<外贸键, number> = { country: 40, whatsapp: 40, wechat: 60, email: 254, source: 40 };
+/**
+ * 客户等级（2026-10-16 外贸基础，迁移 037）：只有 A / B / C / D 四档，空 = 没分级。
+ * 只是一个让人按等级分配精力的标记，不配节奏、不算分（总控 10-16：「不做按等级配节奏」）
+ */
+export const 客户等级 = ["A", "B", "C", "D"] as const;
+export type 客户等级 = (typeof 客户等级)[number];
+/** 下拉里的说法：等级本身只存一个字母 */
+export const 客户等级说明: Record<客户等级, string> = { A: "A 重点", B: "B 常规", C: "C 培育", D: "D 唤醒" };
+/** 列表排序用：A 在前，没分级的最后 */
+export const 等级序 = (v: string | null | undefined): number => {
+  const i = (客户等级 as readonly string[]).indexOf(String(v ?? ""));
+  return i < 0 ? 客户等级.length : i;
+};
 
-export const 空档案 = (): 外贸档案 => ({ country: null, whatsapp: null, wechat: null, email: null, source: null });
+/** 人或表里写的等级 → 大写字母：「a」「A级」「A 类」都认成 A，「重点」这类说法不认（返回 undefined）；空返回 null */
+export function 认等级(v: unknown): 客户等级 | null | undefined {
+  const t = String(v ?? "").trim().toUpperCase().replace(/\s+/g, "").replace(/(级|类|等)$/u, "");
+  if (!t) return null;
+  return (客户等级 as readonly string[]).includes(t) ? (t as 客户等级) : undefined;
+}
+
+/**
+ * 官网（迁移 038）：存人填的样子，去掉首尾空格和末尾斜杠；点开时没写协议的补 https://。
+ * 只许 http(s)，也不许带空格、不许没有点——防的是把一句话或 javascript: 当网址存进来
+ */
+export function 规整官网(v: unknown): { ok: true; v: string | null } | { ok: false; error: string } {
+  const s = String(v ?? "").trim().slice(0, 200).replace(/\/+$/, "");
+  if (!s) return { ok: true, v: null };
+  if (/\s/.test(s)) return { ok: false, error: "官网里不能有空格" };
+  const 去协议 = s.replace(/^https?:\/\//i, "");
+  if (/^[a-z][a-z0-9+.-]*:/i.test(去协议) || !/^[^/?#]+\.[^/?#.]{2,}/.test(去协议)) return { ok: false, error: "官网格式不对，例如 www.example.com" };
+  return { ok: true, v: s };
+}
+
+/** 官网点开的网址：没写协议补 https://；不像网址的不给链接 */
+export function 官网网址(v: string | null | undefined): string | null {
+  const r = 规整官网(v);
+  if (!r.ok || !r.v) return null;
+  return /^https?:\/\//i.test(r.v) ? r.v : `https://${r.v}`;
+}
+
+/** 列表里显示的官网：去掉协议和 www.，短一点 */
+export function 官网短写(v: string | null | undefined): string {
+  return String(v ?? "").trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/+$/, "");
+}
+
+/** 每一格最长多少字：国家、来源是短名字；邮箱按 RFC 上限 */
+const 上限: Record<外贸键, number> = { country: 40, whatsapp: 40, wechat: 60, email: 254, source: 40, level: 4, website: 200 };
+
+export const 空档案 = (): 外贸档案 => ({ country: null, whatsapp: null, wechat: null, email: null, source: null, level: null, website: null });
 
 /**
  * 规整一格：去首尾空格、截长度、空串当没填。邮箱不合格式报错（只看有没有 @ 和点——
  * 再严就会把人手里真实存在的怪邮箱拒掉）；WhatsApp 只许数字、空格、+、-、括号
  */
 export function 规整外贸格(k: 外贸键, v: unknown): { ok: true; v: string | null } | { ok: false; error: string } {
+  if (k === "level") {
+    const 等 = 认等级(v);
+    return 等 === undefined ? { ok: false, error: "客户等级只能是 A / B / C / D" } : { ok: true, v: 等 };
+  }
+  if (k === "website") return 规整官网(v);
   const s = typeof v === "string" ? v.trim().slice(0, 上限[k]) : v == null ? "" : String(v).trim().slice(0, 上限[k]);
   if (!s) return { ok: true, v: null };
   if (k === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) return { ok: false, error: "邮箱格式不对" };

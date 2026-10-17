@@ -266,7 +266,7 @@ export function 摊开(p: 排布): 一行[] {
         外贸档案的邮箱、WhatsApp（2026-10-05）：格式不对的不落进那一格（WhatsApp 链接点不开、邮箱发不出），
         原文并进备注，字一个不丢；国家写成统一叫法（「UAE」→「阿联酋」），筛选才对得上
       */
-      if (字段 === "email" || 字段 === "whatsapp" || 字段 === "country" || 字段 === "wechat" || 字段 === "source") {
+      if (字段 === "email" || 字段 === "whatsapp" || 字段 === "country" || 字段 === "wechat" || 字段 === "source" || 字段 === "level" || 字段 === "website") {
         // 和表单同一套规整（截长度、格式），国家先认成统一叫法
         const r = 规整外贸格(字段, 字段 === "country" ? 认国家(v) ?? v : v);
         if (!r.ok) {
