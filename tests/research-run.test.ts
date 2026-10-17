@@ -8,7 +8,7 @@
  *   - 对面不吃 tools：退回 JSON 协议照样跑完
  */
 import { describe, it, expect, vi } from "vitest";
-import { 跑背调, type 模型调用 } from "@/lib/research/run";
+import { 跑背调, 认来源, type 模型调用 } from "@/lib/research/run";
 import { 模拟通道 } from "@/lib/research/mock";
 import { 背调上限, 阶段表, type 研究事件 } from "@/lib/research/types";
 import type { 背调通道 } from "@/lib/research/channel";
@@ -38,7 +38,7 @@ function 假结论(prompt: string): unknown {
     };
   if (prompt.includes("对照我们的业务")) return { 小结: "品类和买家类型都对口" };
   if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/lumora-trading-category-manager` }], 小结: "在扩户外品类" };
-  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `https://forum.example/t/lumora-trading-payment` }, { 级别: "超高", 说明: "级别写错，该丢" }], 小结: "风险低" };
+  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `${官网}/about/` }, { 级别: "mid", 说明: "没带来源，该丢", 来源: "https://made-up.example/z" }, { 级别: "超高", 说明: "级别写错，该丢" }], 小结: "风险低" };
   // 最后一步：统一打分 + 像哪位老客户 + 切入建议（产品里固定 gpt-5.5）
   if (prompt.includes("怎么切入"))
     return {
@@ -135,19 +135,20 @@ describe("背调 6 步编排", () => {
     expect(r.状态.评分!.分).toBe(93);
   });
 
-  it("来源只认材料里出现过的网址：模型编的网址丢掉（字段照留，没有角标）", async () => {
+  it("来源只认材料里出现过的网址：编的网址认不出，那条结论不进报告（评档照留，没有角标）", async () => {
     const { r } = await 跑();
     if (!r.ok) throw new Error(r.error);
-    expect(r.状态.fields.buyerType).toEqual({ value: "进口分销商", source: undefined });
+    expect(r.状态.fields.buyerType).toBeUndefined();
+    expect(r.状态.fields.size).toEqual({ value: "约 40 人", source: `${官网}/about` });
     expect(r.状态.sources.some((x) => x.url.includes("made-up"))).toBe(false);
     expect(r.状态.评分!.明细.find((d) => d.维度 === "market")?.来源).toBeUndefined();
   });
 
-  it("像的老客户按编号对回清单：越界的丢掉；风险级别写错的丢掉", async () => {
+  it("像的老客户按编号对回清单：越界的丢掉；风险级别写错的、没带来源的丢掉", async () => {
     const { r } = await 跑();
     if (!r.ok) throw new Error(r.error);
     expect(r.状态.similar).toEqual({ items: [{ id: "c-1", name: "Nordlicht Elektro", 档: "high", 像在哪: "同在德国、都做电气批发" }], 比了: 2 });
-    expect(r.状态.tags.filter((t) => t.tone === "risk").map((t) => t.text)).toEqual(["2024 年有一次付款延迟"]);
+    expect(r.状态.tags.filter((t) => t.tone === "risk").map((t) => [t.text, t.source])).toEqual([["2024 年有一次付款延迟", `${官网}/about`]]);
     expect(r.状态.approach).toHaveLength(3);
   });
 
@@ -423,5 +424,30 @@ describe("背调 6 步编排", () => {
     expect(r.ok).toBe(true);
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
     expect(事件.filter((e) => e.type === "stage" && e.status === "running").length).toBeLessThan(6);
+  });
+});
+
+describe("认来源（10-17 AC 回放：mini 带来源少 16 点，原来要一字不差）", () => {
+  const 材料 = [
+    { n: 1, kind: "search" as const, title: "官网", url: "https://www.lumora.example/about", text: "" },
+    { n: 2, kind: "read" as const, title: "招聘", url: "https://jobs.example/lumora/category-manager-2026-outdoor", text: "", 别名: "https://lumora.example/jobs" },
+    { n: 3, kind: "search" as const, title: "新闻", url: "https://news.example/lumora?id=7", text: "" },
+  ];
+  it("编号：3、[3]、【3】、数字 3", () => {
+    for (const u of ["3", "[3]", "【3】", 3]) expect(认来源(材料, u)).toBe("https://news.example/lumora?id=7");
+    expect(认来源(材料, "9")).toBeUndefined();
+  });
+  it("网址写法不同：结尾 /、没 www、http、#、utm_ 参数、大小写", () => {
+    for (const u of ["https://www.lumora.example/about/", "https://lumora.example/about", "http://www.lumora.example/about#team", "https://www.lumora.example/About?utm_source=x"])
+      expect(认来源(材料, u)).toBe("https://www.lumora.example/about");
+    expect(认来源(材料, "https://news.example/lumora?id=7&utm_medium=y")).toBe("https://news.example/lumora?id=7");
+  });
+  it("跳转前的网址（别名）、截成省略号的长网址（只认唯一一条）、一格写了几个", () => {
+    expect(认来源(材料, "https://lumora.example/jobs")).toBe("https://jobs.example/lumora/category-manager-2026-outdoor");
+    expect(认来源(材料, "https://jobs.example/lumora/category-mana…")).toBe("https://jobs.example/lumora/category-manager-2026-outdoor");
+    expect(认来源(材料, "https://made-up.example/x；https://www.lumora.example/about")).toBe("https://www.lumora.example/about");
+  });
+  it("编的网址、空的、不是网址的：认不出", () => {
+    for (const u of ["https://made-up.example/x", "", "官网", null, undefined, "https://lumora…"]) expect(认来源(材料, u)).toBeUndefined();
   });
 });

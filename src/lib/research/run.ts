@@ -96,7 +96,55 @@ const 工具表: 工具声明[] = [
   },
 ];
 
-type 材料条 = { n: number; kind: "search" | "read"; title: string; url: string; text: string };
+/** 别名：读页时要读的网址（跳转以后 url 是落地页，模型常引用跳转前那个） */
+type 材料条 = { n: number; kind: "search" | "read"; title: string; url: string; text: string; 别名?: string };
+
+/** 比网址用：去掉协议、www、#、utm_ 参数、结尾的 / 和省略号，小写 */
+export function 规整网址(u: string): string {
+  return u
+    .trim()
+    .replace(/(…|\.\.\.)+$/, "")
+    .replace(/^https?:\/\//i, "")
+    .replace(/^www\./i, "")
+    .replace(/#.*$/, "")
+    .replace(/([?&])utm_[^&]*&?/gi, "$1")
+    .replace(/[?&]+$/, "")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
+/**
+ * 模型给的来源 → 材料里那一条的网址；认不出就 undefined（不许编：材料里没有的网址不收）。
+ * 10-17 AC 回放：同一批材料，mini 摘要的结论带来源比 A 少 16 点——它常写材料编号（「3」「[3]」）、
+ * 少个结尾的 /、引用跳转前的网址、把长网址截成「…」，原来要一字不差才收，全被丢了。现在这几种都认：
+ * 编号；规整以后相同；带省略号的按前缀认（只认唯一一条）；一格里写了几个的取第一个认得出的
+ */
+export function 认来源(材料: 材料条[], u: unknown): string | undefined {
+  if (typeof u === "number") return 材料.find((m) => m.n === u)?.url;
+  if (typeof u !== "string" || !u.trim()) return undefined;
+  const s = u.trim();
+  const 号 = /^(?:\[|【)?\s*(\d{1,3})\s*(?:\]|】)?$/.exec(s);
+  if (号) return 材料.find((m) => m.n === Number(号[1]))?.url;
+  const 精确 = 材料.find((m) => m.url === s || m.别名 === s);
+  if (精确) return 精确.url;
+  const 几个 = s.split(/[\s；;，,、]+/).filter(Boolean);
+  if (几个.length > 1) {
+    for (const x of 几个) {
+      const r = 认来源(材料, x);
+      if (r) return r;
+    }
+    return undefined;
+  }
+  if (!/^\S+\.\S+/.test(s.replace(/^https?:\/\//i, ""))) return undefined;
+  const k = 规整网址(s);
+  const 同 = 材料.find((m) => 规整网址(m.url) === k || (m.别名 !== undefined && 规整网址(m.别名) === k));
+  if (同) return 同.url;
+  if (/(…|\.\.\.)$/.test(s) && k.length >= 12) {
+    const 前 = [...new Set(材料.filter((m) => 规整网址(m.url).startsWith(k)).map((m) => m.url))];
+    if (前.length === 1) return 前[0];
+  }
+  return undefined;
+}
 
 /**
  * 拼进提示词的材料：读过的页给 1500 字，搜索摘要给 300 字，整份封顶 30000 字（越新的越靠后、越不会被截）。
@@ -116,7 +164,7 @@ function 材料文本(材料: 材料条[]): string {
 function 系统提示(b: 背调输入["b"]): string {
   return (
     "你在帮一家外贸公司做客户背景调查（背调），用中文写结论。我们的业务：" + (b.brief?.trim() || "（未填写）") + "\n" +
-    "规矩：只依据搜索和网页材料说话，材料里没有的写「查不到」，不许编；每条结论尽量注明来源网址（必须是材料里出现过的网址）；" +
+    "规矩：只依据搜索和网页材料说话，材料里没有的写「查不到」，不许编；每条结论都注明来源（材料前面的编号，或者材料里原样的网址）；" +
     "同名公司要分清，拿不准就说拿不准。"
   );
 }
@@ -225,7 +273,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     发({ type: "tool", stage, id, kind: "read", label, status: "running" });
     try {
       const p = await 通道.读页(runId, url, signal);
-      材料.push({ n: 材料.length + 1, kind: "read", title: p.title || 名, url: p.url || url, text: p.text });
+      材料.push({ n: 材料.length + 1, kind: "read", title: p.title || 名, url: p.url || url, text: p.text, ...(p.url && p.url !== url ? { 别名: url } : {}) });
       const 字 = p.text.length >= 1000 ? `${(p.text.length / 1000).toFixed(1)}k 字` : `${p.text.length} 字`;
       发({ type: "tool", stage, id, kind: "read", label, status: "done", result: `1 页 · ${字}`, ms: Date.now() - t0, sources: [{ title: p.title || 名, url: p.url || url }] });
       发({ type: "usage", searches: 搜索数, pages: 读页数 });
@@ -253,7 +301,13 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
         `\n已有材料：\n${材料文本(材料)}`,
     },
   ];
-  const 来源规矩 = "每条结论都要带来源网址，只能填材料里出现过的网址；材料里没有的写「查不到」、不写来源，不许编。";
+  /*
+    10-17 AC 回放：mini 摘要的结论带来源比 A 少 16 点。来源可以填材料编号（不用抄长网址），
+    并且明说：不带来源的结论不进报告（下面 basics / signals / risks / 国家 都照这条丢）
+  */
+  const 来源规矩 =
+    "每条结论都要带来源：填它出自的那条材料前面的编号（比如 3），或者把材料里的网址原样抄过来（别改、别截）；" +
+    "不带来源的结论不会进报告。材料里没有的写「查不到」、不写来源，不许编。";
 
   /**
    * 本步的查找循环：模型挑工具 → 我们执行 → 结果交回去。**它觉得材料够了，就在同一次调用里直接交这一步的结论 JSON**
@@ -336,16 +390,16 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     }
     return raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   };
-  const 材料里的 = (u: unknown) => (是网址(u) && 材料.some((m) => m.url === u.trim()) ? u.trim() : undefined);
+  const 材料里的 = (u: unknown) => 认来源(材料, u);
 
   let 风险们: 风险[] = [];
 
   const 要 = {
-    identify: '{"认准":true|false,"官网":"网址或空","国家城市":"…或空","说明":"一句话：凭什么认定是这一家，或者为什么拿不准","来源":"网址"}',
-    basics: '{"字段":{"country":{"value":"…","source":"网址"},"founded":{…},"size":{…},"business":{…},"buyerType":{…},"contact":{…}},"小结":"一句话"}。查不到的字段不要写。value 用中文短语（≤30 字）',
+    identify: '{"认准":true|false,"官网":"网址或空","国家城市":"…或空","说明":"一句话：凭什么认定是这一家，或者为什么拿不准","来源":"材料编号或网址"}',
+    basics: '{"字段":{"country":{"value":"…","source":"材料编号或网址"},"founded":{…},"size":{…},"business":{…},"buyerType":{…},"contact":{…}},"小结":"一句话"}。查不到的字段不要写。value 用中文短语（≤30 字）',
     fit: '{"小结":"一句话：从材料看它和我们的业务对不对口（品类、买家类型、市场、规模），先不打分"}',
-    signals: '{"信号":[{"text":"一句话（中文）","source":"网址"}],"小结":"一句话"}。最多 4 条，优先近一年的；没有就空数组',
-    risks: '{"风险":[{"级别":"low|mid|high","说明":"一句话（中文）","来源":"网址"}],"小结":"一句话"}。没查到风险就空数组，小结写「没查到明显风险」',
+    signals: '{"信号":[{"text":"一句话（中文）","source":"材料编号或网址"}],"小结":"一句话"}。最多 4 条，优先近一年的；没有就空数组',
+    risks: '{"风险":[{"级别":"low|mid|high","说明":"一句话（中文）","来源":"材料编号或网址"}],"小结":"一句话"}。没查到风险就空数组，小结写「没查到明显风险」',
   } as const;
 
   const 步骤: Record<阶段号, () => Promise<string | undefined>> = {
@@ -353,7 +407,9 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       const r = (await 查("identify", "先搜公司全名，找官网；再找一个独立来源核对。", 要.identify)) ?? (await 结论("identify", 要.identify));
       // 官网那一格只显示域名：模型常给 About 页的网址，整串摆上去像一条来源而不是官网
       if (是网址(r.官网)) 发({ type: "field", key: "site", value: new URL((r.官网 as string).trim()).host.replace(/^www\./, ""), source: 材料里的(r.官网) ?? 材料里的(r.来源) });
-      if (短(r.国家城市, 40)) 发({ type: "field", key: "country", value: 短(r.国家城市, 40), source: 材料里的(r.来源) });
+      // 不带来源的结论不进报告（官网那格除外：认准是哪一家靠它，对不对另有 认对 核）
+      const 国家来源 = 材料里的(r.来源);
+      if (短(r.国家城市, 40) && 国家来源) 发({ type: "field", key: "country", value: 短(r.国家城市, 40), source: 国家来源 });
       return 短(r.说明, 140) || (r.认准 ? "认准了" : "没能确认是哪一家");
     },
     async basics() {
@@ -362,7 +418,8 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       for (const { key } of 字段表) {
         if (key === "site") continue;
         const v = 短(f[key]?.value, 40);
-        if (v && !/^查不到|未知|不详$/.test(v)) 发({ type: "field", key: key as 字段键, value: v, source: 材料里的(f[key]?.source) });
+        const 源 = 材料里的(f[key]?.source);
+        if (v && 源 && !/^查不到|未知|不详$/.test(v)) 发({ type: "field", key: key as 字段键, value: v, source: 源 });
       }
       return 短(r.小结, 140) || undefined;
     },
@@ -373,7 +430,10 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     async signals() {
       const r = (await 查("signals", "搜招聘、新闻、展会，各一次就够。", 要.signals)) ?? (await 结论("signals", 要.signals));
       const 信号 = Array.isArray(r.信号) ? (r.信号 as { text?: unknown; source?: unknown }[]) : [];
-      for (const s of 信号.slice(0, 4)) if (短(s?.text, 100)) 发({ type: "tag", tone: "signal", text: 短(s.text, 100), source: 材料里的(s.source) });
+      for (const s of 信号.slice(0, 4)) {
+        const 源 = 材料里的(s?.source);
+        if (短(s?.text, 100) && 源) 发({ type: "tag", tone: "signal", text: 短(s.text, 100), source: 源 });
+      }
       return 短(r.小结, 140) || (信号.length ? undefined : "近期没查到明显动作");
     },
     async risks() {
@@ -381,7 +441,8 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       风险们 = (Array.isArray(r.风险) ? (r.风险 as Record<string, unknown>[]) : [])
         .filter((x) => x && (x.级别 === "low" || x.级别 === "mid" || x.级别 === "high") && 短(x.说明, 120))
         .slice(0, 4)
-        .map((x) => ({ 级别: x.级别 as 风险["级别"], 说明: 短(x.说明, 120), 来源: 材料里的(x.来源) }));
+        .map((x) => ({ 级别: x.级别 as 风险["级别"], 说明: 短(x.说明, 120), 来源: 材料里的(x.来源) }))
+        .filter((x) => x.来源);
       for (const x of 风险们) 发({ type: "tag", tone: "risk", level: x.级别, text: x.说明, source: x.来源 });
       return 短(r.小结, 140) || (风险们.length ? undefined : "没查到明显风险");
     },
@@ -392,11 +453,11 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     async approach() {
       const r = await 结论(
         "approach",
-        "对下面 5 项各评一档（high / mid / low / unknown），每项一句证据和来源网址：\n" +
+        "对下面 5 项各评一档（high / mid / low / unknown），每项一句证据和来源（材料编号或网址）：\n" +
           "category 品类匹配：它卖的 / 用的产品和我们的重合多少\nbuyerType 买家类型：是不是我们要找的那类买家\nmarket 市场与地区：在不在我们的目标国家、认证够不够\nscale 规模与采购力\nsignals 近期信号：在招人、扩品类、参展、开新店（近一年）\n" +
           `再和我们的老客户比像不像（国家、品类、买家类型、规模），最多挑 3 位，按编号回：\n${老客户表文本(input.老客户)}\n` +
           "最后给 3 条以内切入建议，每条一句话，具体到找谁、聊什么、推什么。\n" +
-          '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"建议":["…"],"小结":"一句话"}',
+          '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"材料编号或网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"建议":["…"],"小结":"一句话"}',
         通道.模型,
       );
       const 网上评档 = 清洗评档(r.评档).filter((x) => x.维度 !== "similar").map((x) => ({ ...x, 来源: 材料里的(x.来源) }));

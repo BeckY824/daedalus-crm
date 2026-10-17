@@ -724,6 +724,8 @@ async function main() {
           if (旧.结果) {
             // 10-17 之前录的：没分也没记错，补上，免得汇总里算「跑成」
             if (旧.结果.行.分 === "" && !旧.结果.行.错) 旧.结果.行.错 = "最后一步没出分";
+            // 旧录像的行少了后来加的列（回放补读页 等）：补齐成这一版的格式，汇总相加不出 NaN
+            旧.结果.行 = { ...空行(g, co), ...旧.结果.行 };
             录们.set(g.名, 旧);
             出.set(g.名, 旧.结果);
             console.log(`  ${co.名} · ${g.名}：用上次的录像，不重跑${旧.结果.行.错 ? `（上次${旧.结果.行.错.slice(0, 40)}，要重跑加 --重跑 ${co.名}）` : ""}`);
@@ -765,8 +767,9 @@ async function main() {
   }
   await 收拾?.();
 
-  const 列 = Object.keys(行们[0] ?? {}) as (keyof 一次)[];
-  const 格 = (v: unknown) => (/[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
+  // 列按这一版的行格式定，不按第一行：第一行常是旧录像里的 A（10-17：旧录像没有「回放补读页」，这一列整列没写出来）
+  const 列 = Object.keys(空行(c.组合[0], 公司们[0])) as (keyof 一次)[];
+  const 格 = (v: unknown) => (v == null ? "" : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
   writeFileSync(path.join(参数.输出, "results.csv"), "﻿" + [列.join(","), ...行们.map((r) => 列.map((k) => 格(r[k])).join(","))].join("\n"));
   writeFileSync(
     path.join(参数.输出, "编造嫌疑.md"),
