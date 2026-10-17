@@ -163,19 +163,24 @@ async function chatRaw(cfg: LlmConfig, messages: ToolMessage[], opts: ChatOpts, 
   if (云端网关 && 已知AI用完(cfg, opts.requestId)) throw Object.assign(new Error("AI 次数用完了，可在设置刷新余额或填自己的模型 API Key"), { status: 402 });
   const 模型 = opts.model ?? cfg.model;
   const 键 = 上游键(cfg, 模型);
-  const body: Record<string, unknown> = {
-    model: 模型,
-    messages,
-    temperature: opts.temperature ?? 0.3,
-    max_tokens: (opts.maxTokens ?? DEFAULT_MAX_TOKENS) + (思考模型.has(键) ? 思考预算 : 0),
-  };
+  /*
+    直连 OpenAI 官方接口（设置里选了「OpenAI（GPT）」）：它的 gpt-5 系列不认 max_tokens（要 max_completion_tokens，
+    同样是「思考 + 正文」共用，所以一开始就加思考预算，不等 usage 里看见 reasoning_tokens 再补）、
+    temperature 只认默认值、不认 thinking 字段。不避开的话「测试连接」第一下就是 400。
+    只认官方这一个地址：中转站上同名的 gpt-5.5 照旧走老路，那边认 max_tokens
+  */
+  const 官方 = /^https:\/\/api\.openai\.com\/v1\/?$/i.test(cfg.baseUrl.trim());
+  const 预算 = (opts.maxTokens ?? DEFAULT_MAX_TOKENS) + (官方 || 思考模型.has(键) ? 思考预算 : 0);
+  const body: Record<string, unknown> = 官方
+    ? { model: 模型, messages, max_completion_tokens: 预算 }
+    : { model: 模型, messages, temperature: opts.temperature ?? 0.3, max_tokens: 预算 };
   if (tools?.length) {
     body.tools = tools;
     body.tool_choice = "auto";
   }
   // 带着 tools 时不能再要 json_object：两个一起发，多数网关会二选一地忽略掉其中一个
   if (useJsonFormat && !tools?.length) body.response_format = { type: "json_object" };
-  if (opts.thinking === false && !不认thinking.has(键)) body.thinking = { type: "disabled" };
+  if (opts.thinking === false && !官方 && !不认thinking.has(键)) body.thinking = { type: "disabled" };
   if (stream) body.stream = true;
   /*
     两个只有我们自己的网关会看的头。对别家上游（DeepSeek 直连、第三方中转）是多余字段，
