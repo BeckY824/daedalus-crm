@@ -71,6 +71,8 @@ export default defineConfig({
       // 同理，导入那一步的「让 AI 认一下」也不调：默认套件不该依赖网络，也不该按次花钱。
       // 关掉之后导入走内置的表头对照规则——import.spec.ts 钉的本来就是那条路。
       JEV_API_KEY: "",
+      // 背调（research.spec.ts）：搜索走模拟数据，不连我们的服务器、不花钱。生产模式下不配就背调不了，所以两种模式都钉上
+      CRM_RESEARCH_CHANNEL: "mock",
       ...(生产模式 ? { NODE_ENV: "production" } : {}),
     },
   },

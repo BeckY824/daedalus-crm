@@ -316,6 +316,9 @@ const 不扣: Record<string, string> = {
   "app/(app)/settings/actions.ts#testLlmSettings": "连通性测试，不是 AI 功能",
   // 桌面端的云端网关：按账号扣（lib/tenant/credits.ts 的 按问题扣一次），不是工作区账本
   "app/api/gateway/v1/chat/completions/route.ts": "网关自己按账号扣",
+  // 背调的分析（2026-10-16）：打的是我们的模型网关，次数在服务器上开始背调时一次扣足（api/gateway/v1/research/start，
+  // 默认 60 次），后面的每步带同一个编号、网关认得不另扣。这里再套 带额度 就成了一次背调多扣一次
+  "lib/research/gateway-model.ts": "背调开始时在服务器上一次扣足",
 };
 
 type 函数段 = { 名: string; 导出: boolean; 体: string };

@@ -350,6 +350,57 @@ model AiCharge {
   @@index([at])
 }
 
+/// AI 联网背调（2026-10-16）：一次背调一行。也是 10-14 记账方案里 searches / pages / runId 那几列——
+/// 控制面迁移只能加表，所以单独一张，按 runId 和 AiCharge 对得上。见 control-migrations/024-ai-research.sql
+model AiResearchRun {
+  id         String    @id @default(cuid())
+  /// account（桌面端）| workspace
+  ownerKind  String
+  ownerId    String
+  /// 桌面端给这次背调的编号，也是这次背调里模型调用带的 X-Question-Id
+  runId      String
+  /// 这次扣了几次 AI（测试账号 0）
+  units      Int
+  /// 走我们的模型：AiCharge 里同一个 runId 有一行，后面的模型调用不另扣
+  withModel  Boolean
+  /// 服务器真去搜了几次 / 读了几页，上限见 lib/research/types.ts 的 背调上限
+  searches   Int       @default(0)
+  pages      Int       @default(0)
+  /// 服务器交出去的有用材料：有结果的搜索 + 读成功的页。退不退看它（桌面端报的不算数）
+  hits       Int       @default(0)
+  /// 到现在估计花了多少钱（厘 = 0.001 元），按 token + 搜索次数实时累加；到上限就不再给搜、给读（lib/research/price.ts）
+  costLi     Int       @default(0)
+  /// 我们这边失败过几次：网关等上游超时 / 上游 5xx、429 / 连不上，搜索接口两趟都没搜成。退不退的证据（见 收尾背调）
+  failures   Int       @default(0)
+  /// 最后一步（打分 + 切入建议）的模型调用成功交出去的时刻：有它 = 6 步跑完了，不退
+  reportAt   DateTime?
+  /// 整笔退过了没有
+  refunded   Boolean   @default(false)
+  /// 收尾结果：出了报告 true、没出 false、还没收尾 null
+  ok         Boolean?
+  at         DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@unique([ownerKind, ownerId, runId])
+  @@index([at])
+}
+
+/// 背调次数的赠送（2026-10-16）：背调单独计数，一次扣 1 次，和问答的 AI 次数分开。
+/// 余额 = amount 之和 − AiResearchRun 里没退的 units 之和。来路：运营台「背调 +N」、RESEARCH_SIGNUP_GRANT（默认 0）
+model ResearchGrant {
+  id        String   @id @default(cuid())
+  accountId String
+  amount    Int
+  /// admin | signup
+  reason    String
+  /// 幂等键：同一份赠送重复发静默跳过
+  key       String   @unique
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+}
+
 /// 每台桌面端装的是什么：系统、芯片、版本号。**一枚设备令牌一行**。
 ///
 /// 运营台要分得出 Mac 和 Windows（2026-09-28 起两边都发），还要看得出谁停在老版本。

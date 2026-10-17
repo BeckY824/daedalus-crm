@@ -14,6 +14,8 @@
  * 就能把免费额度花在最贵的模型上——一次扣一次的账，成本却能差两个数量级。
  */
 
+import { 背调模型们 } from "./research/price";
+
 export const 默认上游 = "https://api.deepseek.com/v1";
 
 /** 单次请求允许的最大输出长度。上限由我们定，客户端传得再大也夹到这里 */
@@ -53,6 +55,20 @@ export function 读网关配置(env: NodeJS.ProcessEnv = process.env): 网关配
   };
 }
 
+/**
+ * 背调专用的模型（2026-10-16 用户定：背调只用 GPT / Claude）。**不进 GATEWAY_MODELS**：
+ * 进了的话桌面端平时问答的模型选单里也会出现它们，一问一次的价钱扛不住 Claude 的成本。
+ * 所以单开一张表，模型网关只在「这个问题编号是一次背调」（research/start 开过的 runId）时放行，
+ * 背调用哪个由服务器定（start 的回应里带回去），不听客户端点名。第一个是默认。
+ * RESEARCH_MODELS 不配就是 gpt-5.5、claude-sonnet-5.5（10-16 总控定 GPT 为主：试跑一次约 2.6 元，Claude 约 6 元）。
+ */
+export function 背调模型表(env: NodeJS.ProcessEnv = process.env): string[] {
+  const 表 = 解析模型表(env.RESEARCH_MODELS).map((m) => m.id);
+  // 服务器给背调指定的三个角色（搜索 / 摘要 / 报告，lib/research/price.ts）一定放行，不然配了 mini 摘要却被换成默认模型
+  const 角色 = Object.values(背调模型们(env));
+  return [...new Set([...(表.length ? 表 : ["gpt-5.5", "claude-sonnet-5.5"]), ...角色])];
+}
+
 /** 工具表的上限：我们自己的 agent 现在二十来个工具、几十 KB；再大就不是我们的客户端了 */
 const 最多工具数 = 64;
 const 工具表最大字节 = 200_000;
@@ -66,6 +82,8 @@ const 工具表最大字节 = 200_000;
 export function 收拾请求体(
   body: Record<string, unknown>,
   cfg: 网关配置,
+  /** 这一次额外许可的模型：背调那一笔里是 背调模型表()，别的请求不给 */
+  额外许可: string[] = [],
 ): { ok: true; body: Record<string, unknown>; stream: boolean } | { ok: false; error: string } {
   /*
     不在白名单里的模型：**换成默认模型，不报错**（2026-10-02 排查 D2）。
@@ -74,7 +92,7 @@ export function 收拾请求体(
     白名单照旧是闸：花的是我们的钱，客户端点名要什么都只会落在我们许可的那几个里。
   */
   const 要的 = typeof body.model === "string" && body.model.trim() ? body.model.trim() : cfg.models[0].id;
-  const model = cfg.models.some((m) => m.id === 要的) ? 要的 : cfg.models[0].id;
+  const model = cfg.models.some((m) => m.id === 要的) || 额外许可.includes(要的) ? 要的 : cfg.models[0].id;
   const messages = body.messages;
   if (!Array.isArray(messages) || messages.length === 0) return { ok: false, error: "messages 不能为空" };
 
@@ -85,6 +103,8 @@ export function 收拾请求体(
   // 这两个是 llm.ts 会发的：JSON 模式、关思维链。原样透传，上游不认时由它自己报错
   if (body.response_format) out.response_format = body.response_format;
   if (body.thinking) out.thinking = body.thinking;
+  // 推理强度（背调最后打分那一步固定 medium，10-17 同配置两遍分数差 7–9 分）。只放到 medium：再高就是客户端替我们多花钱
+  if (body.reasoning_effort === "none" || body.reasoning_effort === "low" || body.reasoning_effort === "medium") out.reasoning_effort = body.reasoning_effort;
   /*
     工具表原样转（2026-10-02 排查 AI A1）。原来白名单里没有这两个，桌面端带着工具表来问，
     转到上游时工具表没了：模型不知道能查库，建议卡几乎出不来，只能靠它照提示词自己写一段 DSML 碰运气

@@ -58,6 +58,9 @@ afterAll(async () => {
 beforeEach(async () => {
   const { control } = await import("@/lib/tenant/control");
   await control.machineSignup.deleteMany({});
+  await control.aiResearchRun.deleteMany({});
+  await control.researchGrant.deleteMany({});
+  delete process.env.RESEARCH_SIGNUP_GRANT;
   await control.accountAiGrant.deleteMany({});
   await control.accountAiUsage.deleteMany({});
   await control.aiGrant.deleteMany({});
@@ -101,6 +104,52 @@ const 赠送条数 = async (accountId: string, reason?: string) => {
   const { control } = await import("@/lib/tenant/control");
   return control.accountAiGrant.count({ where: { accountId, ...(reason ? { reason } : {}) } });
 };
+
+describe("新账号送 1 次背调（10-17 用户：「送一次。（不是每天一次，是只送一次）」）", () => {
+  const 背调剩 = async (accountId: string) => (await (await import("@/lib/tenant/credits")).背调余额({ kind: "account", id: accountId })).还剩;
+
+  it("第一台电脑上的新账号登录就有 1 次；再登几次也还是 1 次", async () => {
+    const 甲 = await 建账号();
+    expect(await 背调剩(甲.id), "还没登录过，不该先有").toBe(0);
+    await 登录(甲.phone!, 电脑("甲的笔记本"));
+    expect(await 背调剩(甲.id)).toBe(1);
+    await 登录(甲.phone!, 电脑("甲的笔记本"));
+    await 登录(甲.phone!, 电脑("甲的笔记本"));
+    expect(await 背调剩(甲.id)).toBe(1);
+  });
+
+  it("同一台电脑上的第二个号不送", async () => {
+    const 这台 = 电脑("共用那台");
+    const 甲 = await 建账号();
+    const 乙 = await 建账号();
+    await 登录(甲.phone!, 这台);
+    await 登录(乙.phone!, 这台);
+    expect(await 背调剩(甲.id)).toBe(1);
+    expect(await 背调剩(乙.id)).toBe(0);
+  });
+
+  it("用完扣成 0，再登录、过几天都不补", async () => {
+    const { 按背调扣 } = await import("@/lib/tenant/credits");
+    const 甲 = await 建账号();
+    await 登录(甲.phone!, 电脑("甲的笔记本"));
+    expect(await 按背调扣({ kind: "account", id: 甲.id }, "run-1")).toEqual({ ok: true, 扣了: 1, 还剩: 0 });
+    await 登录(甲.phone!, 电脑("甲的笔记本"));
+    await 登录(甲.phone!, 电脑("另一台"));
+    expect(await 背调剩(甲.id)).toBe(0);
+    expect((await 按背调扣({ kind: "account", id: 甲.id }, "run-2")).ok).toBe(false);
+  });
+
+  it("不带机器不送；RESEARCH_SIGNUP_GRANT=0 不送，但问答那 30 次照常", async () => {
+    const { 注册赠送 } = await import("@/lib/tenant/credits");
+    const 甲 = await 建账号();
+    await 登录(甲.phone!);
+    expect(await 背调剩(甲.id)).toBe(0);
+    process.env.RESEARCH_SIGNUP_GRANT = "0";
+    const 乙 = await 建账号();
+    expect((await 登录(乙.phone!, 电脑("乙的"))).credits.还剩).toBe(注册赠送);
+    expect(await 背调剩(乙.id)).toBe(0);
+  });
+});
 
 describe("一台电脑一份注册赠送", () => {
   it("第一台电脑上的第一个账号照常拿到 30 次", async () => {

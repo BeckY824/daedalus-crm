@@ -8,7 +8,7 @@ import { 是刚交过来的 } from "@/lib/home-ask";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Dropdown, Tooltip } from "antd";
-import { ArrowUpOutlined, SnippetsOutlined } from "@ant-design/icons";
+import { ArrowUpOutlined, SnippetsOutlined, GlobalOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import ModelPicker, { useModel } from "@/components/ModelPicker";
 import AskFiles, { type 附件 } from "@/components/AskFiles";
@@ -17,7 +17,7 @@ import type { ModelOption } from "@/lib/llm";
 import { useBusiness } from "@/lib/business-client";
 import { clearJob, getJob, useRunningKey } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
-import { addTurn, clearThread, dequeueTurn, removeTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
+import { addTurn, clearThread, dequeueTurn, removeTurn, updateTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
 import { 载入历史, type AgentAnswer, type 历史消息 } from "@/lib/thread-history";
 import { 落一轮 } from "./threads";
 import AskBox from "@/components/AskBox";
@@ -26,6 +26,10 @@ import TurnView from "./TurnView";
 import Signals from "./Signals";
 import { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
 import { Esc归别人 } from "@/lib/esc";
+import { 认背调意图 } from "@/lib/research/intent";
+import { 认背调对象 } from "@/lib/research/target";
+import { 背调价目 } from "@/lib/research/actions";
+import ResearchModeLine from "@/components/research/ResearchModeLine";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -132,6 +136,13 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     是本应用 ⌘K 交过来的，下面那个 effect 会直接发出去（submit 会把框清空）
   */
   const [q, setQ] = useState(() => 地址栏.get("q") ?? "");
+  /*
+    背调模式（10-16 用户：「背调可以单独作为一个 agent……在对话那里选择这个，然后直接输入需求，就直接进入背调」）。
+    和普通问答并列切换；选中以后发出去的每一句都是一次背调，直接开跑——**选模式本身就是确认**。
+    扣的是背调次数（和问答次数分开），输入框底下常驻「背调 · 每次扣 1 次 · 剩 N 次」；没次数就发不出去。
+  */
+  const [背调模式, set背调模式] = useState(false);
+  const [背调价, set背调价] = useState<Awaited<ReturnType<typeof 背调价目>> | null>(null);
   const [cmdIdx, setCmdIdx] = useState(0);
   /** 输入框空着时，↑↓ 在下面那排建议问题里选，回车就发。-1 = 没选 */
   const [suggIdx, setSuggIdx] = useState(-1);
@@ -164,6 +175,18 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   );
 
   const runningKey = useRunningKey(turns.map((t) => `home:${t.id}`));
+
+  /* 进背调模式就问一次价（还剩几次背调）；有一轮跑完（runningKey 变了）再问一次——刚扣过 */
+  useEffect(() => {
+    if (!背调模式) return;
+    let 活 = true;
+    背调价目()
+      .then((r) => 活 && set背调价(r))
+      .catch(() => 活 && set背调价({ 可用: false, 原因: "问不到背调次数，稍后再试" }));
+    return () => {
+      活 = false;
+    };
+  }, [背调模式, runningKey]);
 
   /**
    * 库 → 这一屏。
@@ -203,8 +226,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
           model,
           ms: job.value?.ms ?? null,
           steps: job.value?.steps,
-          // 建议卡不存：它是一件当时就处理完的事，翻历史不该再摆回来
-          refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [] },
+          // 建议卡不存：它是一件当时就处理完的事，翻历史不该再摆回来。背调的整份报告存着：翻历史还是那张卡
+          refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [], ...(job.value?.answer?.research ? { research: job.value.answer.research } : {}) },
           标题前缀: 标题前缀,
           // 新建那条对话时记下「在哪一页问的」。标题前缀是给人看的，这个才是键
           scope,
@@ -248,7 +271,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   }
 
   function start(turn: Turn) {
-    if (AI已用完) return;
+    // 背调那一轮不在这里开跑：先出确认卡（扣几次、还剩几次），人点「开始」才跑，见 components/research/ResearchRun
+    if (AI已用完 || turn.kind === "research") return;
     runStream<AgentAnswer>(
       `home:${turn.id}`,
       { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files, pageContext: 上下文提示, pageScope: 上下文范围 },
@@ -260,27 +284,6 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     );
   }
 
-  /**
-   * ⌘K 里直接问的那一句会带在地址上（/dashboard?q=…）。
-   * 到了这儿就发出去，然后把 q 从地址里抹掉——留着的话刷新一次会再问一遍。
-   *
-   * **只有本应用 ⌘K 刚交过来的才自动发**（2026-10-04，J-158）：别人发来的链接、收藏夹里的地址点开，
-   * 只把问题填进输入框、光标放进去，等人自己按回车——不然点一下链接就白扣一次次数。见 lib/home-ask.ts
-   *
-   * 那个 ref 不是多余的：开发模式下 StrictMode 会把 effect 跑两遍（挂载 → 清理 → 再挂载），
-   * 而 router.replace 生效没那么快，结果就是同一句话问了两遍、扣两次额度。
-   */
-  const 已消化地址问句 = useRef(false);
-  useEffect(() => {
-    const q0 = 地址栏.get("q");
-    if (!q0 || 已消化地址问句.current) return;
-    已消化地址问句.current = true;
-    router.replace("/dashboard");
-    if (是刚交过来的(q0)) submit(q0);
-    // 只认挂载时地址上的那一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
   useEffect(() => {
     if (running || !queued || AI已用完) return;
@@ -291,6 +294,26 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   function submit(raw: string, opts: { queue?: boolean } = {}) {
     const typed = raw.trim();
     if (!typed) return;
+    /*
+      背调模式：这一句就是要背调的对象（可以是公司名、官网、或一句需求）。认得出是哪家就直接开跑；
+      认不准（好几家 / 太短 / 认不出）先摆一张点选卡，不扣次数（lib/research/target.ts）。
+      问答次数用完了不挡——背调次数是另一本账
+    */
+    if (背调模式) {
+      if (!背调能发) return;
+      const 对象 = 认背调对象(typed);
+      const turn = addTurn(scope, {
+        question: typed,
+        kind: "research",
+        直接: true,
+        需求: typed,
+        ...(对象.种类 === "公司" ? { 公司: 对象.公司 } : { 待选: 对象 }),
+      });
+      set刚发的(turn.id);
+      setQ("");
+      setFiles([]);
+      return;
+    }
     let question = typed;
     if (typed.startsWith("/")) {
       const c = 命令表(models.length).find((x) => x.cmd === typed.split(/\s+/)[0]);
@@ -315,6 +338,18 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
       question = c.question;
     }
     if (question.length < 2 || AI已用完) return;
+    /*
+      「帮我背调 XX」：不走 agent（那条路没有联网搜索，还会白扣一次），直接摆一张背调确认卡。
+      不排队——确认卡本身不调模型，人点了「开始」才跑
+    */
+    const 背调公司 = typed.startsWith("/") ? null : 认背调意图(question);
+    if (背调公司) {
+      const turn = addTurn(scope, { question, kind: "research", 公司: 背调公司 });
+      set刚发的(turn.id);
+      setQ("");
+      setFiles([]);
+      return;
+    }
     // 正在答的时候再发：排队，不并发打模型
     const shouldQueue = opts.queue || Boolean(running);
     const turn = addTurn(scope, {
@@ -328,6 +363,30 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     setQ("");
     setFiles([]);
   }
+
+  /**
+   * ⌘K 里直接问的那一句会带在地址上（/dashboard?q=…）。
+   * 到了这儿就发出去，然后把 q 从地址里抹掉——留着的话刷新一次会再问一遍。
+   *
+   * **只有本应用 ⌘K 刚交过来的才自动发**（2026-10-04，J-158）：别人发来的链接、收藏夹里的地址点开，
+   * 只把问题填进输入框、光标放进去，等人自己按回车——不然点一下链接就白扣一次次数。见 lib/home-ask.ts
+   *
+   * 放在 submit 定义之后：effect 里提前用到后面才声明的函数，React 编译器的检查不认。
+   *
+   * 那个 ref 不是多余的：开发模式下 StrictMode 会把 effect 跑两遍（挂载 → 清理 → 再挂载），
+   * 而 router.replace 生效没那么快，结果就是同一句话问了两遍、扣两次额度。
+   */
+  const 已消化地址问句 = useRef(false);
+  useEffect(() => {
+    const q0 = 地址栏.get("q");
+    if (!q0 || 已消化地址问句.current) return;
+    已消化地址问句.current = true;
+    router.replace("/dashboard");
+    // 放进微任务里发：submit 会改输入框等状态，effect 体里同步 setState 会连着多渲染一轮（react-hooks/set-state-in-effect）
+    if (是刚交过来的(q0)) queueMicrotask(() => submit(q0));
+    // 只认挂载时地址上的那一次
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function stop() {
     if (running) cancelStream(`home:${running.id}`);
@@ -363,7 +422,9 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   }, [running]);
 
   const empty = turns.length === 0;
-  const canSend = q.trim().length > 0 && !AI已用完;
+  /** 背调模式能不能发：这台机器能背调、背调次数还有（不限 = 测试账号 / 开发环境的模拟） */
+  const 背调能发 = Boolean(背调价?.可用 && (背调价.还剩 == null || 背调价.还剩 >= 背调价.扣次));
+  const canSend = q.trim().length > 0 && (背调模式 ? 背调能发 : !AI已用完);
   /** 输入框底下摆不摆那排建议问题：只在还没问过、且库里有东西的时候 */
   const 摆建议 = empty && !空库 && suggestions.length > 0 && 模式 === "宽";
   const 问这条 = (x: Suggestion) => submit(x.kind === "prep" ? "/prep" : x.kind === "recap" ? "/recap" : x.question);
@@ -423,6 +484,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                   removeTurn(scope, t.id);
                 }}
                 onAsk={(q) => submit(q)}
+                on选定={(公司) => updateTurn(scope, t.id, { 公司, 待选: undefined })}
               />
             ))}
             <div ref={endRef} />
@@ -439,10 +501,31 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             }}
             onSubmit={() => submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q)}
             onPaste={认一下粘的是什么}
-            placeholder={running ? "正在回答… 再问会排队，Esc 打断" : `问一位${b.customer}，或问一个数`}
+            placeholder={
+              背调模式
+                ? "输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们"
+                : running
+                  ? "正在回答… 再问会排队，Esc 打断"
+                  : `问一位${b.customer}，或问一个数`
+            }
             栏左={
               <>
-                <AskFiles files={files} onChange={setFiles} disabled={running != null} />
+                {/* 背调模式开关：和普通问答并列切换，选中有明显的状态（.cli-tool-on） */}
+                <button
+                  type="button"
+                  className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}${背调模式 ? " cli-tool-on" : ""}`}
+                  aria-pressed={背调模式}
+                  aria-label="背调"
+                  onClick={() => {
+                    set背调模式((v) => !v);
+                    taRef.current?.focus();
+                  }}
+                  title={背调模式 ? "退出背调，回到普通问答" : "背调模式：输入公司名或一句需求，直接上网背调"}
+                >
+                  <GlobalOutlined />
+                  {模式 === "宽" && <span>背调</span>}
+                </button>
+                {!背调模式 && <AskFiles files={files} onChange={setFiles} disabled={running != null} />}
                 {/*
                   主线入口。和加文件并排——都是「把外面的东西弄进来」，不是「问一句」。
                   **窄模式（右侧面板）只留图标**：380 宽那一条里还要塞模型选单和发送键，
@@ -450,7 +533,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                   粘一段名单是首页的事。
                 */}
                 {/* 空库的欢迎态上那张「开始」卡已经有一颗「粘一段聊天」，这里不再摆第二颗（审查 D11） */}
-                {!(empty && 空库 && 模式 === "宽") && (
+                {!背调模式 && !(empty && 空库 && 模式 === "宽") && (
                   <button
                     type="button"
                     className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}`}
@@ -603,7 +686,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             </span>
             {/* 免费次数常驻显示。等横条弹出来才知道，人已经在问第五句了。
                 每一问、每个建议问题都花 1 次，在这儿说一次，不在每个胶囊上挂角标（components/AiCost.tsx） */}
-            <AiRemaining />
+            {背调模式 ? <ResearchModeLine 价={背调价} /> : <AiRemaining />}
             <span style={{ flex: 1 }} />
             {!empty && suggestions.slice(0, 3).map((x) => (
               <button key={x.label} type="button" className="cli-sugg" disabled={AI已用完} onClick={() => 问这条(x)}>

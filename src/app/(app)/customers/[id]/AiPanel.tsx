@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button, Input, Alert, Typography, Tooltip, Dropdown } from "antd";
-import { ThunderboltOutlined, ReloadOutlined, CopyOutlined, ArrowUpOutlined, DownOutlined, EditOutlined } from "@ant-design/icons";
+import { ThunderboltOutlined, ReloadOutlined, CopyOutlined, ArrowUpOutlined, DownOutlined, EditOutlined, GlobalOutlined } from "@ant-design/icons";
 import { motion, AnimatePresence } from "motion/react";
 import type { CustomerBrief, BriefRecord } from "@/lib/ai-draft";
 import { useBusiness } from "@/lib/business-client";
@@ -15,6 +15,9 @@ import AiCost, { useAiMeter, useAiOutOfCredits } from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
 import { 起草语言们, 起草语气们, type 起草语言, type 起草语气 } from "@/lib/draft-style";
 import { useLocalPref } from "@/lib/local-pref";
+import ResearchRun from "@/components/research/ResearchRun";
+import { dayjs } from "@/lib/utils";
+import { 最近背调, 背调价目 } from "@/lib/research/actions";
 
 type BriefAnswer = { brief: CustomerBrief; records: BriefRecord[] };
 
@@ -31,6 +34,7 @@ export default function AiPanel({
   fingerprint,
   signed,
   hasRecords,
+  on记跟进,
 }: {
   customerId: string;
   customerName: string;
@@ -38,6 +42,8 @@ export default function AiPanel({
   fingerprint: string;
   signed: boolean;
   hasRecords: boolean;
+  /** 背调卡上「记一条跟进」：就地打开记录页的跟进表单（RecordView 给） */
+  on记跟进?: () => void;
 }) {
   const b = useBusiness();
   // 自己 Key、付费、自部署的人不花次数，那句「会用掉 1 次」对他们不成立（lib/ai-meter.ts）
@@ -51,6 +57,43 @@ export default function AiPanel({
   const wakeupJob = useJob<string>(草稿键("wakeup", customerId));
   const inviteJob = useJob<string>(草稿键("invite", customerId));
   const [q, setQ] = useState("");
+  /*
+    背调（lib/research）：点了才出确认卡，确认了才跑、才扣。任务挂在 ai-jobs 上（research:<客户>），
+    切走再回来卡还在。上一次背调存成了时间线上一条「背调｜」开头的记录，这里摆一行能展开的摘要
+  */
+  const researchKey = `research:${customerId}`;
+  const researchJob = useJob(researchKey);
+  const [背调开, set背调开] = useState(false);
+  const [上次背调, set上次背调] = useState<Awaited<ReturnType<typeof 最近背调>>>(null);
+  const [看上次, set看上次] = useState(false);
+  /* 按钮上写「背调 · 剩 N 次」：点按钮本身就是确认（10-16 用户），所以扣费得写在按钮上，不够就点不了 */
+  const [背调价, set背调价] = useState<Awaited<ReturnType<typeof 背调价目>> | null>(null);
+  useEffect(() => {
+    let 活 = true;
+    背调价目().then((r) => 活 && set背调价(r)).catch(() => {});
+    return () => {
+      活 = false;
+    };
+  }, [researchJob?.status]);
+  const 背调能点 = Boolean(背调价?.可用 && (背调价.还剩 == null || 背调价.还剩 >= 背调价.扣次));
+  const 背调说明 = !背调价
+    ? "上网查这家公司：基本面、相关性、信号、风险、切入建议"
+    : !背调价.可用
+      ? `背调用不了：${背调价.原因}`
+      : 背调价.模拟
+        ? "开发环境用模拟数据，不扣次数"
+        : 背调价.还剩 == null
+          ? "上网背调这家公司（不限次数）"
+          : 背调能点
+            ? `上网背调这家公司，扣 1 次背调（还剩 ${背调价.还剩} 次）`
+            : "背调次数用完了，需要加次数请联系我们";
+  useEffect(() => {
+    let 活 = true;
+    最近背调(customerId).then((r) => 活 && set上次背调(r)).catch(() => {});
+    return () => {
+      活 = false;
+    };
+  }, [customerId, researchJob?.status]);
 
   /** 侧栏那条「AI 任务」认这个：叫什么、点了回哪儿 */
   const 标签 = useMemo(() => ({ 名: `${customerName} 的简报`, 去: `/customers/${customerId}` }), [customerName, customerId]);
@@ -128,7 +171,39 @@ export default function AiPanel({
             </Button>
           </Tooltip>
         )}
+        <Tooltip title={背调说明}>
+          <Button size="small" type="text" icon={<GlobalOutlined />} onClick={() => set背调开(true)} disabled={背调开 || Boolean(researchJob) || !背调能点} aria-label="背调">
+            背调{背调价?.可用 && !背调价.模拟 && 背调价.还剩 != null ? ` · 剩 ${背调价.还剩} 次` : ""}
+          </Button>
+        </Tooltip>
       </div>
+
+      {(背调开 || researchJob) && (
+        <div className="rec-ai-research">
+          <ResearchRun
+            jobKey={researchKey}
+            company={customerName}
+            customer={{ id: customerId, name: customerName }}
+            on记跟进={on记跟进}
+            直接开跑
+            onCancel={() => set背调开(false)}
+            任务去={`/customers/${customerId}`}
+          />
+          {researchJob && researchJob.status !== "loading" && (
+            <a className="rec-ai-research-x" onClick={() => { clearJob(researchKey); set背调开(false); }}>
+              收起背调
+            </a>
+          )}
+        </div>
+      )}
+      {!背调开 && !researchJob && 上次背调 && (
+        <div className="rec-ai-last">
+          <a onClick={() => set看上次((v) => !v)}>
+            上次背调 {dayjs(上次背调.at).format("MM-DD")}：{上次背调.title.replace(/^背调｜/, "")}
+          </a>
+          {看上次 && <pre className="rec-ai-last-body">{上次背调.content}</pre>}
+        </div>
+      )}
 
       {hasRecords && (loading || steps.length > 0) && <AiTrace steps={steps} done={!loading} ms={shown?.value?.ms} compact />}
 

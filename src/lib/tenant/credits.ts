@@ -159,6 +159,9 @@ async function 结算注册赠送(accountId: string, 机器: string | null | und
   // 这台机器的那一份已经被别的账号领走了
   if (!(await 占住机器(hash, accountId))) return;
 
+  // 背调的注册赠送跟着同一个机器名额走（10-17 用户：「送一次。（不是每天一次，是只送一次）」）。
+  // 放在问答那份前面：中途进程被杀，下次登录问答那份的 key 还没有、会再走到这里，两份都带 key 不会重发
+  await 赠送背调(accountId, { amount: 背调注册赠送次数(), reason: "signup", key: `${accountId}:research-signup`, note: `机器 ${hash.slice(0, 12)}` });
   await 赠送({ kind: "account", id: accountId }, {
     amount: 注册赠送,
     reason: "signup",
@@ -252,6 +255,15 @@ export async function 余额(owner: Owner): Promise<{ 上限: number; 用掉: nu
 export const 每问最多步 = 20;
 
 /**
+ * 一次 AI 背调（lib/research，2026-10-16）最多允许几次模型调用。
+ *
+ * 背调 6 个阶段，每个阶段模型要来回好几轮（想搜什么 → 看结果 → 再读一页 → 写这一段），
+ * 实测一次十几到三十几次请求；20 会在半路被当成新问题再扣一次，而这一笔背调已经按整笔扣过了。
+ * 60 仍然是防滥用的上限：只有账本里真有一笔没退的背调（AiResearchRun）才放宽，别的问题照旧 每问最多步
+ */
+export const 背调最多步 = 60;
+
+/**
  * 规整客户端给的问题编号。
  *
  * 只认 1–64 位的 `[A-Za-z0-9_-]`（uuid、cuid、随机串都在里面）。不是这个样子的一律当
@@ -297,7 +309,10 @@ export async function 按问题扣一次(owner: Owner, requestId: string | null)
   // 编号、步数和余额在同一事务内；失败不能退回按请求重复扣次。
   return control.$transaction(async (db) => {
     const existing = await db.aiCharge.findUnique({ where, select: { id: true, calls: true, refunded: true } });
-    if (existing && !existing.refunded && existing.calls < 每问最多步) {
+    // 背调的编号放宽到 背调最多步。只在超过 每问最多步 时才去查背调表：普通问题每一步不多一次查询
+    const 放宽 = existing && !existing.refunded && existing.calls >= 每问最多步 && existing.calls < 背调最多步 &&
+      (await 背调还在(owner, requestId, db));
+    if (existing && !existing.refunded && (existing.calls < 每问最多步 || 放宽)) {
       await db.aiCharge.update({ where: { id: existing.id }, data: { calls: { increment: 1 } } });
       const remaining = Math.max(0, await 赠送总和(owner, db) - await 用掉次数(owner, db));
       return { ok: true, 还剩: remaining, 扣了: false };
@@ -325,6 +340,12 @@ export async function 退这一次(owner: Owner, requestId: string | null, 扣�
     return;
   }
   await control.$transaction(async (db) => {
+    /*
+      背调里的某一步模型调用失败：不按步退。那一笔是开始时按整笔扣的（按背调扣），退也按整笔、由收尾决定（退背调）。
+      这里要是退了，AiCharge 那行变成「退过」、用量少 1，下一步又当新问题扣 1——来回一趟账是平的，
+      但整笔退的时候会多退出去 1 次（整笔退的是 units，不知道中间已经退过一次）
+    */
+    if (await 背调还在(owner, requestId, db)) return;
     const n = await db.aiCharge.updateMany({
       where: { ownerKind: owner.kind, ownerId: owner.id, requestId, refunded: false },
       data: { refunded: true },
@@ -348,4 +369,230 @@ async function 在事务里扣一次(owner: Owner, db: LedgerDb): Promise<{ ok: 
     return { ok: false, 上限 };
   }
   return { ok: true, 还剩: 上限 - after };
+}
+
+/* ---------- AI 联网背调（2026-10-16，lib/research） ---------- */
+
+/** 这个编号是不是一笔还没退的背调。按问题扣一次 / 退这一次 拿它决定步数上限和退不退 */
+async function 背调还在(owner: Owner, runId: string, db: LedgerDb): Promise<boolean> {
+  const run = await db.aiResearchRun.findUnique({
+    where: { ownerKind_ownerId_runId: { ownerKind: owner.kind, ownerId: owner.id, runId } },
+    select: { refunded: true },
+  });
+  return !!run && !run.refunded;
+}
+
+
+export type 背调扣的结果 = { ok: true; 扣了: number; 还剩: number } | { ok: false; 还剩: number };
+
+/**
+ * 背调次数（2026-10-16 用户定）：**和问答的 AI 次数分开记、分开显示**，一次背调扣 1 次。
+ * 定价只看 GPT 背调的实际成本，不再和首页问答（DeepSeek）的「1 次」挂钩。
+ *
+ * 余额 = ResearchGrant 的 amount 之和 − AiResearchRun 里没退的 units 之和。不另开计数器：账就是这两张表。
+ * 来路：运营台手动「背调 +N」；新账号注册赠送 RESEARCH_SIGNUP_GRANT 次（默认 1，10-17 用户定，终身一次）。没有购买页。
+ *
+ * 注册赠送和问答那 30 次同一个口子：只在桌面端登录（带机器哈希）时发，一台电脑只送一份，见 结算注册赠送()。
+ * 查余额、扣次数这些只认令牌的路**不发**——原来 背调余额() 里顺手补发，换个号、不带机器也能领，10-17 拿掉了。
+ * 改版前就领过问答注册赠送的老账号不补（「新账号送」）；用完扣成 0 不再补。
+ */
+export const 背调每次 = 1;
+
+async function 背调送的(accountId: string, db: LedgerDb = control): Promise<number> {
+  return (await db.researchGrant.aggregate({ where: { accountId }, _sum: { amount: true } }))._sum.amount ?? 0;
+}
+async function 背调用的(accountId: string, db: LedgerDb = control): Promise<number> {
+  return (await db.aiResearchRun.aggregate({ where: { ownerKind: "account", ownerId: accountId, refunded: false }, _sum: { units: true } }))._sum.units ?? 0;
+}
+
+/** 送背调次数。带 key 的重复调用静默跳过（唯一索引替我们判），返回发没发 */
+export async function 赠送背调(accountId: string, input: { amount: number; reason: string; key?: string; note?: string }): Promise<boolean> {
+  if (!(input.amount > 0)) return false;
+  try {
+    await control.researchGrant.create({ data: { accountId, amount: Math.floor(input.amount), reason: input.reason, key: input.key ?? randomUUID(), note: input.note ?? null } });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** 新账号送几次背调：RESEARCH_SIGNUP_GRANT，没配 = 1；写 0 就不送 */
+export function 背调注册赠送次数(env: Record<string, string | undefined> = process.env): number {
+  const v = env.RESEARCH_SIGNUP_GRANT?.trim();
+  if (!v) return 1;
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : 0;
+}
+
+/** 背调还剩几次。测试账号不限（不扣、不拦，见 按背调扣） */
+export async function 背调余额(owner: Owner): Promise<{ 送: number; 用: number; 还剩: number; 不限?: true }> {
+  if (owner.kind !== "account") return { 送: 0, 用: 0, 还剩: 0 };
+  if (await 是测试账号(owner.id)) return { 送: 0, 用: 0, 还剩: 测试账号显示余量, 不限: true };
+  const [送, 用] = await Promise.all([背调送的(owner.id), 背调用的(owner.id)]);
+  return { 送, 用, 还剩: Math.max(0, 送 - 用) };
+}
+
+/**
+ * 开始一次背调：扣 1 次**背调次数**（不碰问答的 AI 次数）。
+ *
+ *   同一个 runId 再来、没退过 → 不再扣（桌面端重发 start 不会重扣），扣了 = 0
+ *   背调次数不够              → 不扣，返回还剩几次
+ *   退过的 runId 再来         → 当新的一笔重新扣，计数清零
+ *
+ * 同时在 AiCharge 里给这个 runId 记一行（calls = 0）：后面带 `X-Question-Id: runId` 的模型调用走 按问题扣一次 时
+ * 就是「同一个问题的后续步骤」，**一次 AI 次数都不扣**，步数上限放宽到 背调最多步。背调的钱全在背调次数里收了。
+ *
+ * 测试账号：不扣，但照样记一行 AiResearchRun（units = 0）——搜索 / 读页要认这一行才放行。
+ */
+export async function 按背调扣(owner: Owner, runId: string): Promise<背调扣的结果> {
+  const where = { ownerKind_ownerId_runId: { ownerKind: owner.kind, ownerId: owner.id, runId } };
+  const 新行 = { ownerKind: owner.kind, ownerId: owner.id, runId, withModel: true };
+  const 记AiCharge = async (db: LedgerDb) => {
+    const 键 = { ownerKind_ownerId_requestId: { ownerKind: owner.kind, ownerId: owner.id, requestId: runId } };
+    await db.aiCharge.upsert({ where: 键, create: { ownerKind: owner.kind, ownerId: owner.id, requestId: runId, calls: 0 }, update: { calls: 0, refunded: false, at: new Date() } });
+  };
+  if (owner.kind === "account" && (await 是测试账号(owner.id))) {
+    await control.aiResearchRun.upsert({ where, create: { ...新行, units: 0 }, update: {} });
+    await 记AiCharge(control);
+    return { ok: true, 扣了: 0, 还剩: 测试账号显示余量 };
+  }
+  if (owner.kind !== "account") return { ok: false, 还剩: 0 };
+  return control.$transaction(async (db) => {
+    const 送 = await 背调送的(owner.id, db);
+    const existing = await db.aiResearchRun.findUnique({ where, select: { id: true, refunded: true } });
+    if (existing && !existing.refunded) return { ok: true, 扣了: 0, 还剩: Math.max(0, 送 - (await 背调用的(owner.id, db))) };
+    const 用 = await 背调用的(owner.id, db);
+    if (送 - 用 < 背调每次) return { ok: false, 还剩: Math.max(0, 送 - 用) };
+    const 重来 = { units: 背调每次, withModel: true, searches: 0, pages: 0, hits: 0, costLi: 0, refunded: false, ok: null, at: new Date(), finishedAt: null };
+    if (existing) await db.aiResearchRun.update({ where: { id: existing.id }, data: 重来 });
+    else await db.aiResearchRun.create({ data: { ...新行, units: 背调每次 } });
+    await 记AiCharge(db);
+    return { ok: true, 扣了: 背调每次, 还剩: 送 - 用 - 背调每次 };
+  }, { maxWait: 10_000, timeout: 10_000 });
+}
+
+/**
+ * 整笔退一次背调（没出报告时，见 api/gateway/v1/research/finish）。幂等：refunded 标记保证只退一次，
+ * 返回这次真退了几次（第二次调是 0）。余额是现算的（送的 − 没退的），标了 refunded 就等于退回去了。
+ * AiCharge 那行一起标成退过：之后再拿这个 runId 调模型就是新的问题、照常扣
+ */
+export async function 退背调(owner: Owner, runId: string): Promise<number> {
+  return control.$transaction(async (db) => {
+    const where = { ownerKind: owner.kind, ownerId: owner.id, runId, refunded: false };
+    const run = await db.aiResearchRun.findFirst({ where, select: { units: true } });
+    if (!run) return 0;
+    const n = await db.aiResearchRun.updateMany({ where, data: { refunded: true } });
+    if (n.count !== 1) return 0;
+    await db.aiCharge.updateMany({
+      where: { ownerKind: owner.kind, ownerId: owner.id, requestId: runId, refunded: false },
+      data: { refunded: true },
+    });
+    return run.units;
+  }, { maxWait: 10_000, timeout: 10_000 });
+}
+
+/** 一次背调最长活多久。超过的不再让它搜 / 读：正常一次几分钟跑完，30 分钟还在用的不是正常的背调 */
+export const 背调有效期 = 30 * 60_000;
+
+export type 背调计数结果 = "ok" | "没有" | "退过" | "过期" | "超了";
+
+/**
+ * 给一次背调的搜索 / 读页计数加一，超过上限就不加、返回「超了」。
+ *
+ * 用一句带条件的 updateMany 原子地「判断 + 加一」：先读再写的话，桌面端并发发几次搜索会一起读到 7、一起放行。
+ * 上限是客户端那份（背调上限）再加一点余量，由调用方传进来——这里只管账。
+ */
+export async function 背调计一次(owner: Owner, runId: string, 哪样: "searches" | "pages", 上限: number, now = Date.now()): Promise<背调计数结果> {
+  const base = { ownerKind: owner.kind, ownerId: owner.id, runId };
+  const run = await control.aiResearchRun.findFirst({ where: base, select: { refunded: true, at: true } });
+  if (!run) return "没有";
+  if (run.refunded) return "退过";
+  if (now - run.at.getTime() > 背调有效期) return "过期";
+  const n = await control.aiResearchRun.updateMany({
+    where: { ...base, refunded: false, [哪样]: { lt: 上限 } },
+    data: { [哪样]: { increment: 1 } },
+  });
+  return n.count === 1 ? "ok" : "超了";
+}
+
+/** 背调计一次 的反向：搜索服务自己出错时把这一次还回去（那一次没搜到东西，不该占名额） */
+export async function 背调还一次(owner: Owner, runId: string, 哪样: "searches" | "pages"): Promise<void> {
+  await control.aiResearchRun.updateMany({
+    where: { ownerKind: owner.kind, ownerId: owner.id, runId, [哪样]: { gt: 0 } },
+    data: { [哪样]: { decrement: 1 } },
+  });
+}
+
+/** 这次背调又花了多少（元）。模型网关、搜索接口各记各的，累在同一行上。**永不抛**：记账失败不能让背调失败 */
+export async function 背调记花费(owner: Owner, runId: string, 元: number): Promise<void> {
+  const 厘 = Math.round(元 * 1000);
+  if (!(厘 > 0)) return;
+  try {
+    await control.aiResearchRun.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, data: { costLi: { increment: 厘 } } });
+  } catch (e) {
+    console.warn("[research] 花费没记上：", e instanceof Error ? e.message : e);
+  }
+}
+
+/** 这次背调到现在估计花了多少（元）；没有这笔返回 null */
+export async function 背调已花(owner: Owner, runId: string): Promise<number | null> {
+  const r = await control.aiResearchRun.findFirst({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, select: { costLi: true } });
+  return r ? r.costLi / 1000 : null;
+}
+
+/** 服务器交出去一条有用的材料（有结果的搜索、读成功的页）。收尾时据此判断退不退 */
+export async function 背调有收获(owner: Owner, runId: string): Promise<void> {
+  await control.aiResearchRun.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, data: { hits: { increment: 1 } } });
+}
+
+/**
+ * 我们这边失败了一次（网关等上游超时 / 上游 5xx、429 / 连不上；搜索接口两趟都没搜成）。
+ * 没跑完 6 步时退不退就看有没有这一笔——服务器自己记的，桌面端改不了。记不上只打日志：别让记账拖垮那次请求
+ */
+export async function 背调记失败(owner: Owner, runId: string): Promise<void> {
+  try {
+    await control.aiResearchRun.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, data: { failures: { increment: 1 } } });
+  } catch (e) {
+    console.warn("[research] 失败没记上：", e instanceof Error ? e.message : e);
+  }
+}
+
+/** 最后一步（打分 + 切入建议）的模型调用成功交出去了：这次背调 6 步跑完。只记第一次 */
+export async function 背调交了报告(owner: Owner, runId: string): Promise<void> {
+  try {
+    await control.aiResearchRun.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, runId, reportAt: null }, data: { reportAt: new Date() } });
+  } catch (e) {
+    console.warn("[research] 交报告没记上：", e instanceof Error ? e.message : e);
+  }
+}
+
+/**
+ * 收尾记账：记下桌面端报的结果和收尾时刻，按服务器自己记的判断退不退。返回这次退了几次。
+ *
+ * **退不退（10-16 下午总控定：别让用户为我们的超时买单）**，从上往下第一条命中的算：
+ *   1. 最后一步交出去了（reportAt 有值），或者桌面端自己说 6 步都跑完了（ok）→ 不退
+ *   2. 一条材料都没交出去（hits = 0）→ 用户什么都没拿到，退（原来的规矩，开头就停的也退）
+ *   3. 用户自己停的（取消）→ 不退
+ *   4. 我们这边失败过（failures > 0：上游超时 / 报错、搜索没搜成）→ 退
+ *   5. 别的（桌面端说没跑完、服务器却没见到我们这边出错）→ 不退：
+ *      改过的客户端可以每次跳过最后一步再报「没跑完」，白拿前五步的材料；要退得有服务器自己记的证据
+ *
+ * 已经收过尾的再来一次：ok / finishedAt 以第一次为准，退不退也只听第一次的——
+ * 否则先报「跑完了」拿走报告、再补一句「没跑完」，就能把已经交付的那一笔退回去
+ */
+export async function 收尾背调(owner: Owner, runId: string, ok: boolean, 取消 = false): Promise<{ 有这笔: boolean; 退了: number }> {
+  const base = { ownerKind: owner.kind, ownerId: owner.id, runId };
+  if (!(await control.aiResearchRun.findFirst({ where: base, select: { id: true } }))) return { 有这笔: false, 退了: 0 };
+  const n = await control.aiResearchRun.updateMany({ where: { ...base, finishedAt: null }, data: { ok, finishedAt: new Date() } });
+  if (n.count !== 1) return { 有这笔: true, 退了: 0 };
+  const run = await control.aiResearchRun.findFirst({ where: base, select: { hits: true, failures: true, reportAt: true } });
+  return { 有这笔: true, 退了: run && 该退背调({ ...run, ok, 取消 }) ? await 退背调(owner, runId) : 0 };
+}
+
+/** 收尾背调 的判断本身（纯函数，好测） */
+export function 该退背调(r: { hits: number; failures: number; reportAt: Date | null; ok: boolean; 取消: boolean }): boolean {
+  if (r.reportAt || r.ok) return false;
+  if (r.hits === 0) return true;
+  if (r.取消) return false;
+  return r.failures > 0;
 }
