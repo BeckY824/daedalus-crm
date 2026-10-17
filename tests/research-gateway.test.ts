@@ -20,6 +20,8 @@ const 上游 = "https://relay.example.com/v1";
 beforeAll(() => {
   fs.mkdirSync(临时根, { recursive: true });
   process.env.MULTI_TENANT = "1";
+  // 新账号登录送的那 1 次背调（10-17）在 machine-signup.test.ts 钉；这里关掉，各用例的背调次数就是 建账号带令牌 给的数
+  process.env.RESEARCH_SIGNUP_GRANT = "0";
   process.env.CONTROL_DATABASE_URL = `file:${path.join(临时根, "control.db")}`;
   const sql = execFileSync(
     process.execPath,
@@ -39,6 +41,7 @@ beforeAll(() => {
 
 afterAll(async () => {
   delete process.env.MULTI_TENANT;
+  delete process.env.RESEARCH_SIGNUP_GRANT;
   delete process.env.GATEWAY_API_KEY;
   delete process.env.GATEWAY_BASE_URL;
   delete process.env.GATEWAY_MODELS;
