@@ -9,7 +9,7 @@ import { 跟进类型们, FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸精简 } from "@/lib/business-config";
 import { hasVisibleText } from "@/lib/form-validation";
-import { saveFollowUp } from "./actions";
+import { saveFollowUp, 撤销记一笔 } from "./actions";
 import { 聚焦首项 } from "@/lib/modal-focus";
 
 /**
@@ -22,7 +22,11 @@ import { 聚焦首项 } from "@/lib/modal-focus";
  * 手机上「记一笔」那张面板是同一个样子（app/m/MobileApp.tsx RecordSheet）：下次的主题、方式也照它的规矩取。
  */
 
-export type 要完成的计划 = { id: string; subject: string; method: string; customerId: string; customerName?: string };
+export type 要完成的计划 = {
+  id: string; subject: string; method: string; customerId: string; customerName?: string;
+  /** 档案里填了 WhatsApp 号（2026-10-17 PR26 手测）：方式默认 WhatsApp，见 默认完成类型 */
+  有WhatsApp?: boolean;
+};
 
 /** 计划上写的方式 → 跟进类型。对不上的：外贸当 WhatsApp，别的当电话 */
 export function 方式到类型(method: string | null | undefined, 外贸: boolean): string {
@@ -38,6 +42,17 @@ export function 方式到类型(method: string | null | undefined, 外贸: boole
   return 外贸 ? "WHATSAPP" : "PHONE";
 }
 
+/**
+ * 小框打开时「方式」那一格（2026-10-17 PR26 手测：电脑上有 WhatsApp 号的客户也该默认 WhatsApp，和手机上一样）。
+ * 计划上的方式空着、或者是「电话沟通」——那是建计划时的老默认，多半没人挑过——而客户有 WhatsApp 号：WhatsApp。
+ * 计划上明明白白写了别的（邮件、拜访……）照它的
+ */
+export function 默认完成类型(method: string | null | undefined, 外贸: boolean, 有WhatsApp = false): string {
+  const m = String(method ?? "").trim();
+  if (有WhatsApp && (!m || m === "电话沟通")) return "WHATSAPP";
+  return 方式到类型(m, 外贸);
+}
+
 /** 下次那条计划的主题：和手机上一样，取这次那句话的第一句 */
 export function 下次主题(内容: string): string {
   const 首句 = 内容.trim().split(/[，。！？,.!?\n]/)[0].slice(0, 20);
@@ -46,15 +61,55 @@ export function 下次主题(内容: string): string {
 
 type 下次 = "none" | "3" | "7" | "pick";
 
+export type 记完了 = { kind: "saved"; next: string | null; 跟进id: string; 下次计划id: string | null };
+
+/**
+ * 「保存并完成」之后的提示，带「撤销」（2026-10-17 PR26 手测：「跳过，直接完成」有撤销，这边没有，
+ * 点错了只能去时间线删跟进、计划页删计划）。撤销 = 删掉刚记的那笔和刚排的下一条、计划回到待办（撤销记一笔）。
+ * 记录页和计划页共用；撤销成了由页面自己刷新
+ */
+export function 提示记完了(
+  message: ReturnType<typeof App.useApp>["message"],
+  plan: Pick<要完成的计划, "id" | "subject" | "customerId">,
+  r: 记完了,
+  撤销完了: () => void,
+) {
+  const key = `plan-saved-${plan.id}`;
+  message.success({
+    key,
+    duration: 6,
+    content: (
+      <span>
+        {r.next ? `已记一笔，「${plan.subject}」完成；下次 ${dayjs(r.next).format("M 月 D 日")}` : `已记一笔，「${plan.subject}」完成`}
+        <Button
+          type="link"
+          size="small"
+          onClick={async () => {
+            message.destroy(key);
+            const u = await 撤销记一笔({ customerId: plan.customerId, 跟进id: r.跟进id, 计划id: plan.id, 下次计划id: r.下次计划id })
+              .catch(() => ({ ok: false as const, error: "没撤销成，请稍后重试" }));
+            if (!u.ok) return void message.error(u.error);
+            message.success(`「${plan.subject}」已改回未完成，刚记的那笔已删掉`);
+            撤销完了();
+          }}
+        >
+          撤销
+        </Button>
+      </span>
+    ),
+  });
+}
+
 type 框参数 = {
   /** 有值就开着 */
   plan: 要完成的计划 | null;
   onClose: () => void;
   /**
-   * saved = 记了一笔、计划已在服务端一起完成（next 是排的下一次，YYYY-MM-DD，没排为 null）；
+   * saved = 记了一笔、计划已在服务端一起完成（next 是排的下一次，YYYY-MM-DD，没排为 null；
+   *   跟进id / 下次计划id 给提示条上的「撤销」用，见 提示记完了）；
    * skip = 人点了「跳过，直接完成」，由页面走原来那一下完成（计划页先原地打勾再存，留位不变）
    */
-  onDone: (r: { kind: "saved"; next: string | null } | { kind: "skip" }) => void;
+  onDone: (r: 记完了 | { kind: "skip" }) => void;
 };
 
 /** 每换一条计划整个框重新挂一次（key = 计划 id），框里的格子从这条计划的方式起头，不带上一条的残留 */
@@ -66,7 +121,7 @@ function CompletePlanDialog({ plan, onClose, onDone }: 框参数 & { plan: 要�
   const b = useBusiness();
   const 外贸 = 外贸精简(b);
   const { message } = App.useApp();
-  const [类型, set类型] = useState(() => 方式到类型(plan.method, 外贸));
+  const [类型, set类型] = useState(() => 默认完成类型(plan.method, 外贸, plan.有WhatsApp));
   const [字, set字] = useState("");
   const [下次, set下次] = useState<下次>("7");
   const [日子, set日子] = useState<Dayjs | null>(() => dayjs().add(7, "day"));
@@ -94,7 +149,7 @@ function CompletePlanDialog({ plan, onClose, onDone }: 框参数 & { plan: 要�
         },
       }).catch(() => ({ ok: false as const, error: "没保存上，请稍后重试" }));
       if (!r.ok) return void message.error("error" in r ? r.error : "没保存上，请稍后重试");
-      onDone({ kind: "saved", next: 下次日 });
+      onDone({ kind: "saved", next: 下次日, 跟进id: r.id, 下次计划id: r.下次计划id ?? null });
     } finally {
       set忙(false);
     }

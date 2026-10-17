@@ -30,7 +30,7 @@ import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸订单, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { 国家候选, WhatsApp网址, 官网网址, 客户等级, 客户等级说明, type 客户等级 as 客户等级值 } from "@/lib/customer-extra";
 import LocalTime from "@/components/LocalTime";
-import CompletePlanModal, { type 要完成的计划 } from "./CompletePlanModal";
+import CompletePlanModal, { 提示记完了, type 要完成的计划 } from "./CompletePlanModal";
 import FollowUpForm from "./FollowUpForm";
 import TaskForm from "./TaskForm";
 import OpportunityForm from "../../opportunities/OpportunityForm";
@@ -126,6 +126,8 @@ export default function RecordView({
   /** 切回通用模版后，填过的外贸档案照样摆出来（二审：搜得到却看不出为什么，像数据丢了） */
   const 摆档案 = 外贸 || (!!档 && Object.values(档).some(Boolean));
   const wa = WhatsApp网址(档?.whatsapp);
+  /** 有 WhatsApp 号：记跟进、排计划、完成小框的方式都默认 WhatsApp（2026-10-17 PR26 手测，和手机上一样） */
+  const 有WhatsApp = !!档?.whatsapp?.trim();
   const 官网 = 官网网址(档?.website);
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
@@ -724,7 +726,7 @@ export default function RecordView({
               <Button size="small" type="text" onClick={() => { set排新计划(false); setPlanOpen(true); }}>
                 改
               </Button>
-              <Button size="small" type="text" icon={<CheckCircleOutlined />} onClick={() => set在完成({ id: plan.id, subject: plan.subject, method: plan.method, customerId: customer.id })}>
+              <Button size="small" type="text" icon={<CheckCircleOutlined />} onClick={() => set在完成({ id: plan.id, subject: plan.subject, method: plan.method, customerId: customer.id, 有WhatsApp })}>
                 完成
               </Button>
             </div>
@@ -864,6 +866,7 @@ export default function RecordView({
           router.refresh();
         }}
         customerId={customer.id}
+        有WhatsApp={有WhatsApp}
         record={followInit.record}
         initialAiText={followInit.aiText}
         /* 到期了（今天或更早）的那条计划：记完这一笔默认顺手完成它（审查 M9） */
@@ -884,7 +887,7 @@ export default function RecordView({
           if (r.kind === "skip") return void 完成计划(p);
           router.refresh();
           void window.desktopReminders?.刷新();
-          message.success(r.next ? `已记一笔，「${p.subject}」完成；下次 ${dayjs(r.next).format("M 月 D 日")}` : `已记一笔，「${p.subject}」完成`);
+          提示记完了(message, p, r, () => { void window.desktopReminders?.刷新(); router.refresh(); });
         }}
       />
       <OpportunityForm open={opportunityOpen} editing={null} initialCustomer={{ id: customer.id, name: customer.name }} users={users} customers={[]} onClose={() => setOpportunityOpen(false)} onSaved={() => { setOpportunityOpen(false); router.refresh(); }} />
@@ -894,6 +897,7 @@ export default function RecordView({
         onClose={() => setPlanOpen(false)}
         onSaved={() => { setPlanOpen(false); router.refresh(); }}
         customerId={customer.id}
+        有WhatsApp={有WhatsApp}
         record={排新计划 ? null : plan}
         默认天数={排新计划 ? 7 : 2}
       />

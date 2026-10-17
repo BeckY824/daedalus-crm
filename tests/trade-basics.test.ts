@@ -20,7 +20,8 @@ import { resetDb } from "./reset";
 import { invalidateSettingsCache, setSetting } from "@/lib/settings";
 import { BUSINESS_PRESETS, DEFAULT_BUSINESS } from "@/lib/business-config";
 import { saveCustomer, patchCustomer } from "@/app/(app)/customers/actions";
-import { saveFollowUp, savePlan } from "@/app/(app)/customers/[id]/actions";
+import { saveFollowUp, savePlan, 撤销记一笔 } from "@/app/(app)/customers/[id]/actions";
+import { 取客户近况 } from "@/app/(app)/customers/[id]/pick";
 import { 执行导入 } from "@/app/(app)/customers/import-actions";
 import { 导出客户 } from "@/app/(app)/customers/export-action";
 import { 客户导出表 } from "@/app/(app)/customers/export-table";
@@ -32,8 +33,8 @@ import { 对方当地, 国家时区 } from "@/lib/country-time";
 import { 国家候选 } from "@/lib/customer-extra";
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, FOLLOW_METHODS, 跟进类型们 } from "@/lib/constants";
 import { 手机跟进类型 } from "@/lib/mobile/sync";
-import { 方式到类型, 下次主题 } from "@/app/(app)/customers/[id]/CompletePlanModal";
-import { 客户关键词条件 } from "@/lib/search-keyword";
+import { 方式到类型, 下次主题, 默认完成类型 } from "@/app/(app)/customers/[id]/CompletePlanModal";
+import { 客户关键词条件, 网址域名 } from "@/lib/search-keyword";
 
 const 关键词 = async (k: string) => (await prisma.customer.findMany({ where: await 客户关键词条件(k), select: { id: true } })).map((x) => x.id);
 
@@ -148,6 +149,26 @@ describe("规则（不碰库）", () => {
     expect(下次主题("客户要新报价，下周回")).toBe("接着跟进：客户要新报价");
     expect(下次主题("   ")).toBe("接着跟进");
   });
+
+  it("小框的方式（2026-10-17）：有 WhatsApp 号、计划写的是空或老默认「电话沟通」→ WhatsApp；写了别的照它的；没号照旧", () => {
+    expect(默认完成类型("电话沟通", true, true)).toBe("WHATSAPP");
+    expect(默认完成类型("", false, true)).toBe("WHATSAPP");
+    expect(默认完成类型("邮件沟通", true, true)).toBe("EMAIL");
+    expect(默认完成类型("上门拜访", false, true)).toBe("VISIT");
+    expect(默认完成类型("电话沟通", true, false)).toBe("PHONE");
+    expect(默认完成类型("电话沟通", true)).toBe("PHONE");
+  });
+
+  it("搜索里的网址规整成域名（2026-10-17）：去协议、www.、端口、路径、末尾斜杠，小写；不像网址的不动", () => {
+    expect(网址域名("https://www.acme.com/")).toBe("acme.com");
+    expect(网址域名("www.acme.com/contact")).toBe("acme.com");
+    expect(网址域名(" WWW.ACME.COM ")).toBe("acme.com");
+    expect(网址域名("http://acme.co.uk:8080/en?x=1#top")).toBe("acme.co.uk");
+    expect(网址域名("acme.com")).toBe("acme.com");
+    expect(网址域名("sales@acme.com")).toBeNull();
+    expect(网址域名("张三")).toBeNull();
+    expect(网址域名("acme company")).toBeNull();
+  });
 });
 
 describe("客户等级 / 官网落库、筛选、排序", () => {
@@ -207,6 +228,17 @@ describe("客户等级 / 官网落库、筛选、排序", () => {
     await 外贸();
     const id = await 建客户("Globex", { website: "www.globex-industrial.com" });
     expect(await 关键词("globex-industrial")).toEqual([id]);
+  });
+
+  it("粘完整网址也搜得到（2026-10-17 PR26 手测：从「官网 ↗」打开再从地址栏复制回来的）", async () => {
+    await 外贸();
+    const id = await 建客户("Globex", { website: "www.globex-industrial.com" });
+    const 另一位 = await 建客户("Initech", { website: "https://initech.co.uk/en" });
+    expect(await 关键词("https://www.globex-industrial.com/")).toEqual([id]);
+    expect(await 关键词("www.globex-industrial.com/contact")).toEqual([id]);
+    expect(await 关键词("HTTPS://GLOBEX-INDUSTRIAL.COM")).toEqual([id]);
+    expect(await 关键词("http://www.initech.co.uk/about/")).toEqual([另一位]);
+    expect(await 关键词("https://www.nobody.com/")).toEqual([]);
   });
 });
 
@@ -291,5 +323,64 @@ describe("跟进方式 WhatsApp + 完成计划时记一笔", () => {
     expect(await saveFollowUp({ customerId: id, type: "PHONE", content: "打过了", status: "已完成", occurredAt: new Date().toISOString(), 附带: { tasks: [], 完成计划: p.id } })).toMatchObject({ ok: true });
     expect(await prisma.followPlan.count({ where: { customerId: id } })).toBe(1);
     expect((await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).done).toBe(true);
+  });
+
+  it("挑人时带回这位有没有 WhatsApp 号（记录跟进、新建计划的方式跟着它走）", async () => {
+    await 外贸();
+    const 有 = await 建客户("HasWa", {});
+    const 没 = await 建客户("NoWa", { whatsapp: null, email: "buyer@nowa.example" });
+    expect((await 取客户近况(有))?.有WhatsApp).toBe(true);
+    expect((await 取客户近况(没))?.有WhatsApp).toBe(false);
+  });
+
+  it("「保存并完成」的撤销（2026-10-17）：删掉刚记的那笔和刚排的下一条，原计划回到待办，最近跟进跟着退回", async () => {
+    await 外贸();
+    const id = await 建客户("Undo", {});
+    const p = await savePlan({ customerId: id, subject: "催定金", plannedAt: new Date().toISOString(), method: "WhatsApp" });
+    if (!p.ok) throw new Error("建计划失败");
+    const 别的 = await savePlan({ customerId: id, subject: "原来就有的另一条", plannedAt: new Date().toISOString(), method: "WhatsApp" });
+    if (!别的.ok) throw new Error("建计划失败");
+    const r = await saveFollowUp({
+      customerId: id, type: "WHATSAPP", title: "", content: "催了，说下周付", status: "已完成", occurredAt: new Date().toISOString(),
+      附带: { tasks: [], plan: { subject: 下次主题("催了，说下周付"), plannedAt: "2026-10-24", method: "WhatsApp" }, 完成计划: p.id },
+    });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.下次计划id).toBeTruthy();
+    expect(await 撤销记一笔({ customerId: id, 跟进id: r.id, 计划id: p.id, 下次计划id: r.下次计划id })).toEqual({ ok: true });
+    expect(await prisma.followUp.count({ where: { customerId: id } })).toBe(0);
+    expect(await prisma.followPlan.findUnique({ where: { id: r.下次计划id! } })).toBeNull();
+    expect(await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).toMatchObject({ done: false, doneAt: null });
+    expect(await prisma.followPlan.findUnique({ where: { id: 别的.id } })).not.toBeNull();
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id } })).lastFollowAt).toBeNull();
+    const 痕 = await prisma.auditLog.findMany({ where: { summary: { startsWith: "撤销" } }, select: { summary: true } });
+    expect(痕.map((x) => x.summary)).toEqual(expect.arrayContaining([expect.stringContaining("撤销：删掉Undo刚记的一条WhatsApp跟进")]));
+  });
+
+  it("撤销：没排下一条的也行；下一条已经做完了（人在用它）就不删；别的客户名下的 id 不认", async () => {
+    await 外贸();
+    const id = await 建客户("Undo2", {});
+    const 别人 = await 建客户("Other", {});
+    const p = await savePlan({ customerId: id, subject: "回访", plannedAt: new Date().toISOString(), method: "电话沟通" });
+    if (!p.ok) throw new Error("建计划失败");
+    const r = await saveFollowUp({ customerId: id, type: "PHONE", content: "打过了", status: "已完成", occurredAt: new Date().toISOString(),
+      附带: { tasks: [], plan: { subject: "接着跟进：打过了", plannedAt: "2026-10-24", method: "电话沟通" }, 完成计划: p.id } });
+    if (!r.ok) throw new Error(r.error);
+    // 别的客户名下：一条都不动
+    expect(await 撤销记一笔({ customerId: 别人, 跟进id: r.id, 计划id: p.id, 下次计划id: r.下次计划id })).toMatchObject({ ok: false });
+    expect(await prisma.followUp.count({ where: { customerId: id } })).toBe(1);
+    // 下一条已经做完了：留着它，其余照撤
+    await prisma.followPlan.update({ where: { id: r.下次计划id! }, data: { done: true, doneAt: new Date() } });
+    expect(await 撤销记一笔({ customerId: id, 跟进id: r.id, 计划id: p.id, 下次计划id: r.下次计划id })).toEqual({ ok: true });
+    expect(await prisma.followPlan.findUnique({ where: { id: r.下次计划id! } })).not.toBeNull();
+    expect((await prisma.followPlan.findUniqueOrThrow({ where: { id: p.id } })).done).toBe(false);
+    expect(await prisma.followUp.count({ where: { customerId: id } })).toBe(0);
+    // 没排下一条
+    const q = await savePlan({ customerId: id, subject: "再回访", plannedAt: new Date().toISOString(), method: "电话沟通" });
+    if (!q.ok) throw new Error("建计划失败");
+    const r2 = await saveFollowUp({ customerId: id, type: "PHONE", content: "又打了", status: "已完成", occurredAt: new Date().toISOString(), 附带: { tasks: [], 完成计划: q.id } });
+    if (!r2.ok) throw new Error(r2.error);
+    expect(r2.下次计划id).toBeUndefined();
+    expect(await 撤销记一笔({ customerId: id, 跟进id: r2.id, 计划id: q.id, 下次计划id: null })).toEqual({ ok: true });
+    expect((await prisma.followPlan.findUniqueOrThrow({ where: { id: q.id } })).done).toBe(false);
   });
 });

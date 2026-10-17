@@ -566,7 +566,7 @@ export default function CustomersView({
               </Tag>
             )}
             <ListSearch
-              placeholder={外贸 ? `姓名 / 电话 / ${b.fields.school} / 联系人 / 订单号 / 邮箱` : `姓名 / 电话 / ${b.fields.school} / ${b.fields.major} / 备注 / 订单号`}
+              placeholder={外贸 ? `姓名 / 电话 / ${b.fields.school} / 联系人 / 订单号 / 邮箱 / 官网` : `姓名 / 电话 / ${b.fields.school} / ${b.fields.major} / 备注 / 订单号`}
               value={f.keyword}
               onChange={(v) => setF({ ...f, keyword: v })}
               onSearch={(v) => apply({ keyword: v })}

@@ -28,6 +28,7 @@ export default function PlanForm({
   预选客户,
   record,
   默认天数 = 2,
+  有WhatsApp = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -41,6 +42,8 @@ export default function PlanForm({
   record: { id: string; subject: string; plannedAt: string; method: string; plannedHasTime?: boolean | null; updatedAt?: string } | null;
   /** 新建时计划时间默认几天后的 9 点。完成一次之后「排下一次」默认一周后（审查 M10） */
   默认天数?: number;
+  /** 给定的这位档案里填了 WhatsApp 号：新建时方式默认 WhatsApp（2026-10-17 PR26 手测）。挑人时看挑中那位的 */
+  有WhatsApp?: boolean;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
@@ -59,11 +62,17 @@ export default function PlanForm({
     } else {
       form.resetFields();
       form.setFieldsValue({
-        method: "电话沟通", hasTime: true,
+        method: 有WhatsApp ? "WhatsApp" : "电话沟通", hasTime: true,
         plannedAt: dayjs().add(默认天数, "day").hour(9).minute(0),
       });
     }
-  }, [open, record, form, 默认天数]);
+  }, [open, record, form, 默认天数, 有WhatsApp]);
+
+  /** 挑中一位：方式人没碰过的，跟着这一位有没有 WhatsApp 号走 */
+  function 换人(v: 客户近况 | null) {
+    set近况(v);
+    if (!record && !form.isFieldTouched("method")) form.setFieldsValue({ method: v?.有WhatsApp ? "WhatsApp" : "电话沟通" });
+  }
 
   function 关() {
     set近况(null);
@@ -139,7 +148,7 @@ export default function PlanForm({
       destroyOnHidden
     >
       <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
-        {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={set近况} 给计划 />}
+        {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={换人} 给计划 />}
         <Form.Item name="subject" label="跟进主题" rules={[requiredText("请填写跟进主题")]}>
           <Input placeholder="如：跟进预算审批进度" />
         </Form.Item>

@@ -81,6 +81,7 @@ export default function FollowUpForm({
   initialAiText,
   待收口计划 = null,
   完成了计划,
+  有WhatsApp = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -109,6 +110,11 @@ export default function FollowUpForm({
    * 不给（跟进页上挑人时）就由这张表单自己完成，提示条里带撤销和去他记录页的路
    */
   完成了计划?: (p: { id: string; subject: string; plannedAt: string; method: string }, 已完成?: boolean) => void;
+  /**
+   * 给定的这位档案里填了 WhatsApp 号：新建时类型默认 WhatsApp（2026-10-17 PR26 手测，和手机上一样）。
+   * 挑人时看挑中那位的（近况.有WhatsApp）
+   */
+  有WhatsApp?: boolean;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
@@ -142,6 +148,8 @@ export default function FollowUpForm({
     set近况(v);
     // 联系人、商机是上一位的，换了人就不作数了（AI 解析填进去的也一样）
     form.setFieldsValue({ contactId: undefined, opportunityId: undefined });
+    // 类型人没碰过：跟着这一位有没有 WhatsApp 号走
+    if (!record?.id && !record?.type && !form.isFieldTouched("type")) form.setFieldsValue({ type: v?.有WhatsApp ? "WHATSAPP" : "PHONE" });
   }
 
   const [aiText, setAiText] = useState("");
@@ -272,12 +280,12 @@ export default function FollowUpForm({
     } else {
       form.resetFields();
       form.setFieldsValue({
-        type: record?.type ?? "PHONE",
+        type: record?.type ?? (有WhatsApp ? "WHATSAPP" : "PHONE"),
         status: "已完成", dueHasTime: true,
         occurredAt: dayjs(),
       });
     }
-  }, [open, record, form]);
+  }, [open, record, form, 有WhatsApp]);
 
   /*
     保存中：网慢时连点两下会建出两条一样的记录（跟进带的 AI 待办和计划也各建两份，2026-10-02 排查）。

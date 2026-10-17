@@ -152,14 +152,14 @@ test("界面：客户列表按等级筛、排；国家下面是对方此刻几�
   await expect(表.locator(".ant-table-row", { hasText: "甲A" }).locator(".country-cell")).toContainText(/美国\s*(前一天 |次日 )?\d{2}:\d{2}/);
 
   // 筛 A：只有甲A 和刚才改成 A 的那位
-  await page.getByLabel("客户等级").click();
+  await page.getByRole("combobox", { name: "客户等级" }).click();
   await 选(page, "A 重点");
   await expect(page).toHaveURL(/level=A/);
   await expect(表.locator(".ant-table-row")).toHaveCount(2);
   await expect(表).not.toContainText("乙C");
 
   // 未分级：只有丙空
-  await page.getByLabel("客户等级").click();
+  await page.getByRole("combobox", { name: "客户等级" }).click();
   await 选(page, "未分级");
   await expect(表.locator(".ant-table-row")).toHaveCount(1);
   await expect(表).toContainText("丙空");
@@ -223,7 +223,8 @@ test("端到端：记录页「下次跟进」点完成 → 跳过，直接完成
   await page.getByRole("main").locator(".rec-plan").getByRole("button", { name: /完\s*成/ }).click();
   const 框 = page.getByTestId("complete-plan-modal");
   await expect(框).toBeVisible();
-  await expect(框.locator(".done-plan-row", { hasText: "方式" }).first()).toContainText("电话沟通");
+  // 计划写的是老默认「电话沟通」，乙C 有 WhatsApp 号：默认 WhatsApp（2026-10-17 PR26 手测）
+  await expect(框.locator(".done-plan-row", { hasText: "方式" }).first()).toContainText("WhatsApp");
   await page.getByRole("button", { name: "跳过，直接完成" }).click();
   await expect(page.getByText("「问样品反馈」已完成")).toBeVisible();
   await expect(page.getByRole("button", { name: "撤销" })).toBeVisible();
@@ -234,4 +235,34 @@ test("端到端：记录页「下次跟进」点完成 → 跳过，直接完成
   } finally {
     await db.$disconnect();
   }
+});
+
+test("端到端：记录页「保存并完成」后点提示里的「撤销」→ 刚记的那笔、刚排的下一条都没了，计划回到待办", async ({ page }) => {
+  await 登录(page);
+  const db = 连库();
+  let 原计划: string;
+  try {
+    // 上面计划页那条排出来的「接着跟进：新报价发了」
+    原计划 = (await db.followPlan.findFirstOrThrow({ where: { customerId: ids["甲A"], done: false } })).id;
+  } finally {
+    await db.$disconnect();
+  }
+  await page.goto(`/customers/${ids["甲A"]}`);
+  await page.getByRole("main").locator(".rec-plan").getByRole("button", { name: /完\s*成/ }).click();
+  const 框 = page.getByTestId("complete-plan-modal");
+  await expect(框.locator(".done-plan-row", { hasText: "方式" }).first()).toContainText("WhatsApp");
+  await 框.getByLabel("这次聊了什么").fill("点错了的一笔");
+  await page.getByRole("button", { name: "保存并完成" }).click();
+  await expect(page.getByText(/已记一笔，「接着跟进：新报价发了」完成；下次/)).toBeVisible();
+  await page.getByRole("button", { name: "撤销" }).click();
+  await expect(page.getByText("「接着跟进：新报价发了」已改回未完成，刚记的那笔已删掉")).toBeVisible();
+  const db2 = 连库();
+  try {
+    expect((await db2.followPlan.findUniqueOrThrow({ where: { id: 原计划 } })).done).toBe(false);
+    expect(await db2.followUp.count({ where: { customerId: ids["甲A"], content: "点错了的一笔" } })).toBe(0);
+    expect(await db2.followPlan.count({ where: { customerId: ids["甲A"], subject: "接着跟进：点错了的一笔" } })).toBe(0);
+  } finally {
+    await db2.$disconnect();
+  }
+  await expect(page.getByRole("main").locator(".rec-plan")).toContainText("接着跟进：新报价发了");
 });
