@@ -85,3 +85,5 @@ services:
       # 条款页里的运营主体与联系邮箱（可选，默认 Daedalus.AI / README 里的邮箱）
       LEGAL_ENTITY: "${LEGAL_ENTITY:-}"
       LEGAL_CONTACT: "${LEGAL_CONTACT:-}"
+      # 中转站余额不足的告警邮件发给谁（lib/upstream-alert.ts；要配了 SMTP 才发）。空着 = 发给 LEAD_TO / LEGAL_CONTACT
+      ALERT_TO: "${ALERT_TO:-}"
