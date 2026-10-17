@@ -159,6 +159,9 @@ async function 结算注册赠送(accountId: string, 机器: string | null | und
   // 这台机器的那一份已经被别的账号领走了
   if (!(await 占住机器(hash, accountId))) return;
 
+  // 背调的注册赠送跟着同一个机器名额走（10-17 用户：「送一次。（不是每天一次，是只送一次）」）。
+  // 放在问答那份前面：中途进程被杀，下次登录问答那份的 key 还没有、会再走到这里，两份都带 key 不会重发
+  await 赠送背调(accountId, { amount: 背调注册赠送次数(), reason: "signup", key: `${accountId}:research-signup`, note: `机器 ${hash.slice(0, 12)}` });
   await 赠送({ kind: "account", id: accountId }, {
     amount: 注册赠送,
     reason: "signup",
@@ -387,7 +390,11 @@ export type 背调扣的结果 = { ok: true; 扣了: number; 还剩: number } | 
  * 定价只看 GPT 背调的实际成本，不再和首页问答（DeepSeek）的「1 次」挂钩。
  *
  * 余额 = ResearchGrant 的 amount 之和 − AiResearchRun 里没退的 units 之和。不另开计数器：账就是这两张表。
- * 来路：运营台手动「背调 +N」；配置 RESEARCH_SIGNUP_GRANT 的新用户赠送（默认 0，先不送）。没有购买页。
+ * 来路：运营台手动「背调 +N」；新账号注册赠送 RESEARCH_SIGNUP_GRANT 次（默认 1，10-17 用户定，终身一次）。没有购买页。
+ *
+ * 注册赠送和问答那 30 次同一个口子：只在桌面端登录（带机器哈希）时发，一台电脑只送一份，见 结算注册赠送()。
+ * 查余额、扣次数这些只认令牌的路**不发**——原来 背调余额() 里顺手补发，换个号、不带机器也能领，10-17 拿掉了。
+ * 改版前就领过问答注册赠送的老账号不补（「新账号送」）；用完扣成 0 不再补。
  */
 export const 背调每次 = 1;
 
@@ -409,18 +416,18 @@ export async function 赠送背调(accountId: string, input: { amount: number; r
   }
 }
 
-/** 新用户送几次背调（RESEARCH_SIGNUP_GRANT，默认 0）。一个账号只发一次；配置改大了，没领过的人下次问价时补上 */
-async function 结算背调赠送(accountId: string, env: Record<string, string | undefined> = process.env): Promise<void> {
-  const n = Number(env.RESEARCH_SIGNUP_GRANT);
-  if (!Number.isInteger(n) || n <= 0) return;
-  await 赠送背调(accountId, { amount: n, reason: "signup", key: `${accountId}:research-signup` });
+/** 新账号送几次背调：RESEARCH_SIGNUP_GRANT，没配 = 1；写 0 就不送 */
+export function 背调注册赠送次数(env: Record<string, string | undefined> = process.env): number {
+  const v = env.RESEARCH_SIGNUP_GRANT?.trim();
+  if (!v) return 1;
+  const n = Number(v);
+  return Number.isInteger(n) && n > 0 ? n : 0;
 }
 
 /** 背调还剩几次。测试账号不限（不扣、不拦，见 按背调扣） */
 export async function 背调余额(owner: Owner): Promise<{ 送: number; 用: number; 还剩: number; 不限?: true }> {
   if (owner.kind !== "account") return { 送: 0, 用: 0, 还剩: 0 };
   if (await 是测试账号(owner.id)) return { 送: 0, 用: 0, 还剩: 测试账号显示余量, 不限: true };
-  await 结算背调赠送(owner.id);
   const [送, 用] = await Promise.all([背调送的(owner.id), 背调用的(owner.id)]);
   return { 送, 用, 还剩: Math.max(0, 送 - 用) };
 }
@@ -450,7 +457,6 @@ export async function 按背调扣(owner: Owner, runId: string): Promise<背调�
     return { ok: true, 扣了: 0, 还剩: 测试账号显示余量 };
   }
   if (owner.kind !== "account") return { ok: false, 还剩: 0 };
-  await 结算背调赠送(owner.id);
   return control.$transaction(async (db) => {
     const 送 = await 背调送的(owner.id, db);
     const existing = await db.aiResearchRun.findUnique({ where, select: { id: true, refunded: true } });

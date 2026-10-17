@@ -8,7 +8,7 @@ import { closeTestDatabases } from "./close-databases";
  *   3. 背调里带同一个编号的模型调用不扣 AI 次数，步数放宽到 60——**只对背调放宽**
  *   4. 退是整笔退、只退一次；背调里某一步模型失败不按步退
  *   5. 测试账号不扣，但有那一行（搜索 / 读页认它）
- *   6. 背调次数从哪来：运营台手动加、RESEARCH_SIGNUP_GRANT（默认 0）
+ *   6. 背调次数从哪来：运营台手动加；新账号注册送 RESEARCH_SIGNUP_GRANT 次（默认 1），只在桌面端登录带机器时发（machine-signup.test.ts）
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import fs from "node:fs";
@@ -104,13 +104,22 @@ describe("开始一次背调：扣 1 次背调次数", () => {
     expect(await 用掉(owner)).toBe(0);
   });
 
-  it("新用户送几次背调按 RESEARCH_SIGNUP_GRANT（默认 0），一个账号只送一次", async () => {
-    const { 背调余额 } = await import("@/lib/tenant/credits");
+  it("查余额、扣次数都不发注册赠送（只在登录带机器时发，不然换个号、不带机器就能领）", async () => {
+    const { 背调余额, 按背调扣 } = await import("@/lib/tenant/credits");
     const owner = await 建账号(0);
     expect((await 背调余额(owner)).还剩).toBe(0);
     process.env.RESEARCH_SIGNUP_GRANT = "2";
-    expect((await 背调余额(owner)).还剩).toBe(2);
-    expect((await 背调余额(owner)).还剩).toBe(2);
+    expect((await 背调余额(owner)).还剩).toBe(0);
+    expect((await 按背调扣(owner, "run-0")).ok).toBe(false);
+  });
+
+  it("送几次：没配 = 1，写 0 / 乱写 = 不送", async () => {
+    const { 背调注册赠送次数 } = await import("@/lib/tenant/credits");
+    expect(背调注册赠送次数({})).toBe(1);
+    expect(背调注册赠送次数({ RESEARCH_SIGNUP_GRANT: "" })).toBe(1);
+    expect(背调注册赠送次数({ RESEARCH_SIGNUP_GRANT: "3" })).toBe(3);
+    expect(背调注册赠送次数({ RESEARCH_SIGNUP_GRANT: "0" })).toBe(0);
+    expect(背调注册赠送次数({ RESEARCH_SIGNUP_GRANT: "abc" })).toBe(0);
   });
 
   it("测试账号不扣，但有那一行（units = 0），搜索认得出", async () => {

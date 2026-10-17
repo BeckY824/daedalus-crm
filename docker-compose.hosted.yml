@@ -74,16 +74,17 @@ services:
       #   RESEARCH_REPORT_MODEL 最后打分写报告（默认 gpt-5.5，用户定保证最后回复的质量）；RESEARCH_SUMMARY_MODEL 每步摘要（默认同报告）
       #   RESEARCH_SEARCH_CONTEXT GPT 搜索结果量 low/medium/high；RESEARCH_SEARCH_LIMIT 一次最多搜几次（默认 8）
       #   RESEARCH_COST_CAP 单次成本上限（元，默认 4，实验后定）；RESEARCH_PRICES 单价（默认 b.ai 10-16 实价）
-      #   RESEARCH_SIGNUP_GRANT 新用户送几次背调（默认 0；背调次数和 AI 次数分开记，运营台「背调 +N」手动加）
-      # 10-17 总控定默认用 C：5.5 搜（low 结果量、最多 5 次）+ mini 每步摘要 + 5.5 打分写报告（AC 同材料回放：
-      #   带来源不比 A 少、核得上 / 编造不比 A 差，估成本约 4 元 / 次）。.env 里写了哪个就以 .env 为准
+      #   RESEARCH_SIGNUP_GRANT 新账号送几次背调（默认 1，终身一次、一台电脑只送一份，桌面端登录时发；写 0 不送。
+      #   背调次数和 AI 次数分开记，运营台「背调 +N」手动加）
+      # 10-17 用户盲评选 A：搜索 / 每步摘要 / 打分写报告全用 gpt-5.5（搜索 low 结果量、最多 5 次），估成本约 5.6 元 / 次。
+      #   省钱的 C（每步摘要换 mini，约 4 元）还能用：.env 里写 RESEARCH_SUMMARY_MODEL=gpt-5.4-mini。.env 里写了哪个就以 .env 为准
       RESEARCH_REPORT_MODEL: "${RESEARCH_REPORT_MODEL:-gpt-5.5}"
-      RESEARCH_SUMMARY_MODEL: "${RESEARCH_SUMMARY_MODEL:-gpt-5.4-mini}"
+      RESEARCH_SUMMARY_MODEL: "${RESEARCH_SUMMARY_MODEL:-gpt-5.5}"
       RESEARCH_SEARCH_CONTEXT: "${RESEARCH_SEARCH_CONTEXT:-low}"
       RESEARCH_SEARCH_LIMIT: "${RESEARCH_SEARCH_LIMIT:-5}"
       RESEARCH_COST_CAP: "${RESEARCH_COST_CAP:-}"
       RESEARCH_PRICES: "${RESEARCH_PRICES:-}"
-      RESEARCH_SIGNUP_GRANT: "${RESEARCH_SIGNUP_GRANT:-}"
+      RESEARCH_SIGNUP_GRANT: "${RESEARCH_SIGNUP_GRANT:-1}"
       # 条款页里的运营主体与联系邮箱（可选，默认 Daedalus.AI / README 里的邮箱）
       LEGAL_ENTITY: "${LEGAL_ENTITY:-}"
       LEGAL_CONTACT: "${LEGAL_CONTACT:-}"
