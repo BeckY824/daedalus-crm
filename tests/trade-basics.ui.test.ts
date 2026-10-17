@@ -266,8 +266,10 @@ it("记录跟进：有号 → 没号回电话沟通；人亲手改过类型（�
   await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+电话沟通$/);
   await 类型格(page).locator(".ant-select").click();
   await page.locator(".ant-select-dropdown:visible").getByText("邮件沟通", { exact: true }).click();
-  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+邮件沟通$/);
+  // 下拉开过之后它挂在这一格里，整格 innerText 会多带选项文字（快慢不定，全量并发跑时常撞上）：只看选中的那一项
+  const 选中 = () => 类型格(page).locator(".ant-select-content").first().innerText();
+  await expect.poll(选中).toBe("邮件沟通");
   await page.getByRole("button", { name: "挑 Zeta" }).click();
-  await expect.poll(() => 类型格(page).innerText()).toMatch(/跟进类型\s+邮件沟通$/);
+  await expect.poll(选中).toBe("邮件沟通");
   await page.close();
 });
