@@ -36,6 +36,17 @@ vi.mock("@/lib/prisma", async () => {
   const { PrismaClient } = await import("@/generated/prisma");
   const dbs: Record<string, InstanceType<typeof PrismaClient>> = {};
   for (const w of ["boss", "boss2", "li", "li2", "li3", "zhao", "old", "old2"]) dbs[w] = new PrismaClient({ datasourceUrl: `file:${path.join(临时.root, w, "crm.db")}?connection_limit=1` });
+  /*
+    和真桌面端一样开库（src/lib/prisma.ts）：WAL + synchronous=NORMAL + 等锁 5 秒。
+    原来没设，模拟的电脑跑在 SQLite 默认的 delete 日志模式、每次提交都刷盘：Windows CI 上每写一次都新建 / 删掉
+    -journal 文件再刷盘，整份慢到本机的几十倍，退出团队那条（三台电脑各 VACUUM 一次）超过 20 秒（v0.46.19 desktop.yml）。
+    而且擦净删除残留里截 WAL 那一步在 delete 模式下根本没走到——和真电脑不一样
+  */
+  for (const d of Object.values(dbs)) {
+    await d.$queryRawUnsafe("PRAGMA journal_mode = WAL");
+    await d.$queryRawUnsafe("PRAGMA busy_timeout = 5000");
+    await d.$queryRawUnsafe("PRAGMA synchronous = NORMAL");
+  }
   (globalThis as { __dbs?: typeof dbs }).__dbs = dbs;
   const prisma = new Proxy({}, { get: (_t, p) => { const db = dbs[临时.谁] as unknown as Record<string | symbol, unknown>; const v = db[p]; return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(db) : v; } });
   return { prisma };
