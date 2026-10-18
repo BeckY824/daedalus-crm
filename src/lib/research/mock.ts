@@ -66,12 +66,13 @@ const 见过的页 = new Map<string, { title: string; text: string }>();
 
 /** 按查询挑几条：查官网 / 登记的、查招聘展会的、查纠纷的，各给各的，像真的搜索一样有偏重 */
 /**
- * 只有人名 + 电话的「找公司」（person.ts）：搜的是号码（加引号）或「"人名" 国家」。
+ * 只有人名 + 电话的「找公司」（person.ts）：搜的是号码（加引号的几种写法 OR 在一起，或者不加引号的一串数字）或「"人名" 国家」。
  * 号码里带 0000000（e2e 用 +49 40 0000 0000，和 Lumora 官网上那个一样）→ 一条名录页，上面有这个号码和 Lumora Trading GmbH；
  * 名字是 Anna Beispiel → 一条 LinkedIn 搜索结果；别的号码什么都搜不到（走「只有人」的简版），别的名字照公司那套给（里面没有这个名字）
  */
 function 模拟找人(query: string): 搜索结果[] | null {
-  const 引 = query.match(/^"([^"]+)"/)?.[1];
+  // 加引号的号码 / 名字，或者不加引号、只有一串号码的（「114 327 1314」那种写法）
+  const 引 = query.match(/^"([^"]+)"/)?.[1] ?? (/^[+\d][\d\s().-]{6,}$/.test(query.trim()) ? query.trim() : undefined);
   if (!引) return null;
   const 数 = 引.replace(/\D/g, "");
   if (/^[+\d][\d\s().-]{6,}$/.test(引)) {

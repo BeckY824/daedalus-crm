@@ -64,6 +64,8 @@ beforeAll(async () => {
       ? <PersonCard s={window.__状态} running={false} onPick={(c) => window.__选.push(c)} />
       : 模式 === 'person-confirm'
       ? <ResearchPerson jobKey="t:p" 名="Anna Beispiel" 电话="+49 40 0000 0000" onPick={() => {}} onAsCompany={(x) => window.__选.push(x)} onCancel={() => {}} />
+      : 模式 === 'person-fake'
+      ? <ResearchPerson jobKey="t:pf" 电话="+44 20 7946 0123" onPick={() => {}} onCancel={() => {}} />
       : 模式 === 'mail'
       ? <MailPaste open onCancel={() => {}} onOk={(x) => window.__邮件.push(x)} />
       : 模式 === 'direct-mail'
@@ -106,7 +108,9 @@ beforeAll(async () => {
               export const 存背调到客户 = async (id, s) => { window.__存.push([id, s.目标.name]); return { ok: true, id }; };
               export const 新建客户并存背调 = async () => ({ ok: true, id: 'new' });
               export const 最近背调 = async () => null;
-              export const 认号码动作 = async (号) => ({ 号: '+49 40 00000000', 本国: '040 00000000', 本体: '4000000000', 国家: 'DE', 国名: '德国', 类型: '固话', 有效: true });`,
+              export const 认号码动作 = async (号) => 号.includes('7946')
+                ? ({ 号: '+44 20 7946 0123', 本国: '020 7946 0123', 本体: '2079460123', 国家: 'GB', 国名: '英国', 类型: '固话', 有效: true, 虚构: 'Ofcom 留给影视剧的虚构号段（伦敦 020 7946 0xxx）' })
+                : ({ 号: '+49 40 00000000', 本国: '040 00000000', 本体: '4000000000', 国家: 'DE', 国名: '德国', 类型: '固话', 有效: true });`,
             loader: "js",
           }));
         },
@@ -121,7 +125,7 @@ afterAll(async () => {
   await browser?.close();
 });
 
-async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "line" | "mail" | "direct-mail" | "person" | "person-confirm", opts: { reducedMotion?: boolean; 价目?: unknown; 待选?: unknown; 状态?: unknown; 带邮件?: unknown } = {}): Promise<Page> {
+async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "line" | "mail" | "direct-mail" | "person" | "person-confirm" | "person-fake", opts: { reducedMotion?: boolean; 价目?: unknown; 待选?: unknown; 状态?: unknown; 带邮件?: unknown } = {}): Promise<Page> {
   const page = await browser.newPage({ reducedMotion: opts.reducedMotion ? "reduce" : "no-preference" });
   // 打包出来的组件在页面里崩了的话，测试只会表现成「等不到」超时：把页面报错打出来
   page.on("pageerror", (e) => console.error("[页面报错]", e.message));
@@ -373,6 +377,18 @@ it("只有人名 + 电话：开跑前先判号码、写明「开始搜索后扣 
   expect(t).toContain("找不到公司也照扣");
   await page.getByRole("button", { name: "「Anna Beispiel」其实是公司名，直接背调" }).click();
   expect(await page.evaluate(() => (window as unknown as { __选: unknown[] }).__选)).toEqual(["Anna Beispiel"]);
+  await page.close();
+}, 30_000);
+
+it("只有一个虚构号码（Ofcom 影视剧号段）：写明是虚构号码、不拿它找公司，「开始找公司」点不了", async () => {
+  const page = await open("person-fake");
+  const 确认 = page.getByRole("group", { name: "找这个人所在的公司" });
+  await 确认.waitFor();
+  const t = (await 确认.textContent()) ?? "";
+  expect(t).toContain("这是虚构号码（Ofcom 留给影视剧的虚构号段（伦敦 020 7946 0xxx））");
+  expect(t).toContain("只有这个号码，没法找公司");
+  expect(t).not.toContain("先上网搜这个号码");
+  expect(await page.getByRole("button", { name: "开始找公司" }).isDisabled()).toBe(true);
   await page.close();
 }, 30_000);
 

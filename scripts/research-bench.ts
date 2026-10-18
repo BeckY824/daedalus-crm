@@ -46,6 +46,7 @@
  *   … --只跑 1     先跑第 1 家看看
  *   … --重用录像   录像目录里已有的组不再真跑，直接拿上次的结果，只跑回放组
  *   … --重跑 SLV,alfanar   这几家不用录像，A 重新真跑
+ *   … --只找公司   「只有人」的样例只跑找公司那一步（几次搜索，不到 1 元），找到候选也不接着背调；别的样例不跑（10-18 复核：额度只剩 3 元多）
  *   … --只出汇总   不调模型、不花钱：拿输出目录里的 results.csv 和每份报告的 txt 按现在的过线规则重出 summary.md（盲评不动）
  *
  * 同一家最多 2 组同时跑；几家同时跑看配置的 同时跑几家（默认 1）。
@@ -152,6 +153,7 @@ const 参数 = (() => {
     不查余额: a.includes("--不查余额"),
     /** 不跑、不花钱：读输出目录的 results.csv + 报告 txt，按现在的过线规则重出 summary.md */
     只出汇总: a.includes("--只出汇总"),
+    只找公司: a.includes("--只找公司"),
     /** --重跑 SLV,alfanar：这几家不用录像、A 重新真跑（配合 --重用录像：别的家只重放） */
     重跑: (取("--重跑") ?? "").split(",").map((x) => x.trim()).filter(Boolean), 只跑: Number(取("--只跑") ?? 0) || 0, 输出: 取("--输出") ?? "research-bench-out" };
 })();
@@ -440,6 +442,15 @@ export async function 探余额元(base: string, key: string, 汇率: number, fe
   }
 }
 
+/**
+ * 重用的旧录像：10-17 之前录的没分也没记错，补上「最后一步没出分」，免得汇总里算「跑成」。
+ * 简版（「只有人」没认出公司）、--只找公司 找到就停的，本来就不打分，是正常跑完，不补（10-18 复核误标过）
+ */
+export function 旧行的错(行: { 分: number | ""; 错: string; 认对: string }): string {
+  if (行.错 || 行.分 !== "" || 行.认对.startsWith("简版") || 行.认对.startsWith("找到 ")) return 行.错;
+  return "最后一步没出分";
+}
+
 /** 这次大约花多少元：真跑的组按 预计每次元（默认 7），能用录像的不算；回放组每家都算（默认 1） */
 export function 预计花费元(组们: 组合[], 公司们: string[], 能重用: (公司: string, 组: string) => boolean): number {
   let 元 = 0;
@@ -630,6 +641,7 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
   let 材料: { url: string; text: string }[] = [];
   let 错 = "";
   let 简版 = false;
+  let 找到 = "";
   try {
     const 模型 = 直连模型(base, key, 参数.模拟 ? "e2e-model" : g.报告, 模型账, 价);
     const 发 = (e: Parameters<Parameters<typeof 跑背调>[0]["发"]>[0]) => {
@@ -639,6 +651,7 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
     let 接着: Parameters<typeof 跑背调>[0]["接着"];
     let 接着runId: string | undefined;
     let 公司名 = co.名;
+    if (参数.只找公司 && !co.只有人) throw new Error("--只找公司 只跑「只有人」的样例，这家没跑");
     if (co.只有人) {
       const 电话 = co.线索?.电话[0] ?? "";
       const 名 = /^[+\d][\d\s().-]+$/.test(co.名) ? undefined : co.名;
@@ -650,13 +663,16 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
       if (!选 || !号) {
         状态 = 人状态;
         简版 = true;
+      } else if (参数.只找公司) {
+        状态 = 人状态;
+        找到 = `找到 ${选.公司}（${选.官网 ?? "没给官网"}；${选.号码对上 ? "号码对上" : "只有名字对上"}）`;
       } else {
         公司名 = 选.公司;
         接着runId = 找.runId;
         接着 = { 人: { 名, 号 }, 候选: 选, 出现: 找.出现, 证据: 找.材料.filter((r) => r.url === 选.来源.url) };
       }
     }
-    const r = 简版
+    const r = 简版 || 找到
       ? null
       : await 跑背调({
           公司: 公司名,
@@ -669,7 +685,7 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
           ...(接着 && 接着runId ? { 接着, runId: 接着runId } : {}),
         });
     if (!r) {
-      // 简版：没认出公司，不算出错（报告照写、照算钱）
+      // 简版：没认出公司，不算出错（报告照写、照算钱）；只找公司：找到就停，也不算出错
     } else if (r.ok) {
       状态 = r.状态;
       材料 = r.材料;
@@ -686,7 +702,7 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
     公司: co.名,
     国家: co.国家,
     类型: co.类型,
-    认对: 简版 ? "简版（没认出公司）" : 参数.模拟 ? "模拟" : 认对了(状态, co.官网),
+    认对: 简版 ? "简版（没认出公司）" : 找到 || (参数.模拟 ? "模拟" : 认对了(状态, co.官网)),
     认到的官网: 状态?.fields.site?.value ?? "",
     分: 状态?.评分?.分 ?? "",
     步完成: 状态 ? Object.values(状态.stages).filter((x) => x.status === "done").length : 0,
@@ -1045,8 +1061,7 @@ async function main() {
           const 旧 = JSON.parse(readFileSync(文件, "utf8")) as 录像;
           // 有录像就重用（材料还在）；A 那次没出分 / 没跑完要重跑的，用 --重跑 点名——别在「只重放」里悄悄多花一次 A 的钱
           if (旧.结果) {
-            // 10-17 之前录的：没分也没记错，补上，免得汇总里算「跑成」
-            if (旧.结果.行.分 === "" && !旧.结果.行.错) 旧.结果.行.错 = "最后一步没出分";
+            旧.结果.行.错 = 旧行的错(旧.结果.行);
             // 旧录像的行少了后来加的列（回放补读页 等）：补齐成这一版的格式，汇总相加不出 NaN
             旧.结果.行 = { ...空行(g, co), ...旧.结果.行 };
             录们.set(g.名, 旧);

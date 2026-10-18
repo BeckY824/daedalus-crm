@@ -3,7 +3,7 @@
  * 钉的是「模型编的不收」：型号名、联系人的姓名电话邮箱要在来源原文里出现过；必查查不到不带来源；私人社交页上的联系人不收。
  */
 import { describe, it, expect } from "vitest";
-import { 原文里有, 号码在原文, 认必查, 认型号, 认联系人, 认型号对比, 认开发信, 必查转风险, type 找材料 } from "@/lib/research/extras";
+import { 原文里有, 号码在原文, 认必查, 认型号, 认联系人, 认型号对比, 认开发信, 必查转风险, 母公司查询, type 找材料 } from "@/lib/research/extras";
 
 const 官网 = "https://lumora.example/about";
 const 页: Record<string, string> = {
@@ -114,5 +114,11 @@ describe("型号对比、开发信", () => {
     expect(认开发信({ 主题: "您好", 正文: `${词(100)} 我们是一家照明工厂` })).toBeUndefined();
     expect(认开发信({ 主题: "", 正文: 词(100) })).toBeUndefined();
     expect(认开发信("x")).toBeUndefined();
+  });
+});
+
+describe("母公司定向搜索", () => {
+  it("公司名加引号，四种说法 OR 在一起", () => {
+    expect(母公司查询(" Ansell Lighting ")).toBe('"Ansell Lighting" ("owned by" OR "parent company" OR "acquired by" OR "subsidiary of")');
   });
 });

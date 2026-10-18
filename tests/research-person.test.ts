@@ -7,7 +7,7 @@
  *   - 输入框那一句怎么认成「人」（target.ts）；浏览器回传的点选怎么收（stream.ts 收接着）
  */
 import { describe, it, expect, vi } from "vitest";
-import { 认号码, 有号码, 有名字, 是私人社交, 找公司查询, 核候选, 找公司, 人号项, 简版建议, type 号码信息 } from "@/lib/research/person";
+import { 认号码, 有号码, 有名字, 是私人社交, 找公司查询, 号码写法, 核候选, 找公司, 人号项, 简版建议, type 号码信息 } from "@/lib/research/person";
 import { 跑背调, type 模型调用 } from "@/lib/research/run";
 import { 模拟通道, 模拟搜索 } from "@/lib/research/mock";
 import { 认背调对象 } from "@/lib/research/target";
@@ -49,9 +49,24 @@ describe("认号码 / 有号码 / 有名字", () => {
     for (const u of ["https://www.facebook.com/LumoraTrading", "https://www.linkedin.com/in/anna", "https://directory.example/x"]) expect(是私人社交(u)).toBe(false);
   });
 
-  it("搜什么：号码两种写法加引号，再加「名字 + 英文国名」，最多 3 次", () => {
-    expect(找公司查询("Anna Beispiel", 号)).toEqual(['"+49 40 00000000"', '"040 00000000"', '"Anna Beispiel" Germany']);
-    expect(找公司查询(undefined, 号)).toEqual(['"+49 40 00000000"', '"040 00000000"']);
+  it("搜什么：国际（带 (0)）、本国（连写）各 OR 在一次里，不带开头 0 的一串，再加「名字 + 英文国名」，最多 4 次", () => {
+    expect(找公司查询("Anna Beispiel", 号)).toEqual(['"+49 40 00000000" OR "+49 (0)40 00000000"', '"040 00000000" OR "04000000000"', "40 00000000", '"Anna Beispiel" Germany']);
+    expect(找公司查询(undefined, 号)).toEqual(['"+49 40 00000000" OR "+49 (0)40 00000000"', '"040 00000000" OR "04000000000"', "40 00000000"]);
+    // 10-18 复核：sunrgy.co.uk 上写的是「0114 327 1314」
+    const 英 = 认号码("+44 114 327 1314") as 号码信息;
+    expect(号码写法(英)).toEqual({ 国际: ["+44 114 327 1314", "+44 (0)114 327 1314"], 本国: ["0114 327 1314", "01143271314"], 去零: "114 327 1314" });
+    expect(找公司查询(undefined, 英)).toEqual(['"+44 114 327 1314" OR "+44 (0)114 327 1314"', '"0114 327 1314" OR "01143271314"', "114 327 1314"]);
+    // 本国写法不带 0 的（美国）：没有 (0) 那种、也没有「去零」那一次
+    const 美 = 认号码("+1 212 736 3100") as 号码信息;
+    expect(找公司查询(undefined, 美)).toEqual(['"+1 212 736 3100"', '"(212) 736-3100" OR "2127363100"']);
+  });
+
+  it("虚构号码（Ofcom 影视剧号段）：认得出；不搜号码，只搜名字；连名字都没有就一次不搜", () => {
+    const 假 = 认号码("+44 20 7946 0123") as 号码信息;
+    expect(假.虚构).toContain("伦敦 020 7946 0xxx");
+    expect(号.虚构).toBeUndefined();
+    expect(找公司查询("Anna Beispiel", 假)).toEqual(['"Anna Beispiel" United Kingdom']);
+    expect(找公司查询(undefined, 假)).toEqual([]);
   });
 });
 
@@ -126,7 +141,7 @@ describe("找公司", () => {
     expect(r.出现.名字.map((x) => x.url)).toEqual(["https://www.linkedin.com/in/anna-beispiel-example"]);
     expect(收尾).not.toHaveBeenCalled();
     expect(事件[0]).toMatchObject({ type: "person", 名: "Anna Beispiel" });
-    expect(事件.filter((e) => e.type === "tool" && e.status === "done")).toHaveLength(3);
+    expect(事件.filter((e) => e.type === "tool" && e.status === "done")).toHaveLength(4);
     expect(事件.some((e) => e.type === "done")).toBe(false);
     expect(m.调用).toEqual(["json:person"]);
     const 找到 = 事件.find((e) => e.type === "person-found");
@@ -139,11 +154,11 @@ describe("找公司", () => {
     const { r, 事件, m } = await 找(undefined, "+971 50 123 4567", 通道);
     expect(r.ok && r.候选).toEqual([]);
     expect(m.调用).toEqual([]);
-    expect(收尾).toHaveBeenCalledWith("run-p", true, { searches: 2, pages: 0 });
+    expect(收尾).toHaveBeenCalledWith("run-p", true, { searches: 3, pages: 0 });
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: false, 退了: false });
     let s = 初始状态({ name: "+971 50 123 4567" });
     for (const e of 事件) s = 归约(s, e);
-    expect(s.人?.tools).toHaveLength(2);
+    expect(s.人?.tools).toHaveLength(3);
     expect(s.人?.出现).toEqual({ 号码: [], 名字: [] });
     const 文 = 报告文本(s);
     expect(文).toContain("只有人，没有公司");
@@ -153,6 +168,39 @@ describe("找公司", () => {
     expect(文).toContain("没有登录、没有抓取");
     // 读回来的状态认得出 人
     expect(认背调状态(JSON.parse(JSON.stringify(s)))?.人?.号.号).toBe("+971 50 123 4567");
+  });
+
+  it("只有一个虚构号码：不开始、不搜、不扣，直接出简版，建议第一条写明是虚构号码", async () => {
+    const 通道 = 模拟通道();
+    const 开始 = vi.spyOn(通道, "开始");
+    const 搜索 = vi.spyOn(通道, "搜索");
+    const 收尾 = vi.spyOn(通道, "收尾");
+    const { r, 事件, m } = await 找(undefined, "+44 20 7946 0123", 通道);
+    expect(r.ok && r.候选).toEqual([]);
+    expect(开始).not.toHaveBeenCalled();
+    expect(搜索).not.toHaveBeenCalled();
+    expect(收尾).not.toHaveBeenCalled();
+    expect(m.调用).toEqual([]);
+    expect(事件.at(-1)).toEqual({ type: "done", charge: 0, 不完整: false });
+    const 找到 = 事件.find((e) => e.type === "person-found");
+    const 建议 = 找到 && "建议" in 找到 ? 找到.建议 ?? [] : [];
+    expect(建议[0]).toContain("这个号码是虚构号码");
+    expect(建议.join("")).toContain("这次没搜索、没扣次数");
+  });
+
+  it("虚构号码 + 名字：只搜名字；页面上出现这个号码（拿它当占位符的网站）不算认出", async () => {
+    const 通道 = 模拟通道();
+    const 查询们: string[] = [];
+    通道.搜索 = async (_id, q) => {
+      查询们.push(q);
+      // Happy Sandpit 那种：联系页拿虚构号码当占位符
+      return [{ title: "Happy Sandpit — Contact", url: "https://happysandpit.example/contact", snippet: "Happy Sandpit Ltd. Call us on 020 7946 0123." }];
+    };
+    const { r } = await 找("Anna Beispiel", "+44 20 7946 0123", 通道);
+    expect(查询们).toEqual(['"Anna Beispiel" United Kingdom']);
+    // 名字没出现、号码不算：没东西给模型，没有候选
+    expect(r.ok && r.候选).toEqual([]);
+    expect(r.ok && r.出现.号码).toEqual([]);
   });
 
   it("号码认不出：不开始、不扣", async () => {
@@ -227,6 +275,20 @@ describe("人号项", () => {
     expect(人号项({ 名: "Anna Beispiel", 号 }, "Lumora Trading GmbH", undefined, [材("Lumora Trading GmbH", "https://instagram.com/p/1", "+49 40 0000 0000")])).toMatchObject({ 灯: "yellow", 态: "没查到" });
     // 号码在它官网上（页面里没写公司名）也算
     expect(人号项({ 号 }, "Lumora Trading GmbH", "lumora-trading.example", [材("Kontakt", "https://www.lumora-trading.example/kontakt", "Tel 040 0000 0000")])).toMatchObject({ 灯: "green" });
+  });
+
+  it("虚构号码：哪怕出现在这家公司的页面上（拿它当占位符）也亮红，写明是虚构号码", () => {
+    const 假 = 认号码("+44 20 7946 0123") as 号码信息;
+    const r = 人号项({ 名: "Anna Beispiel", 号: 假 }, "Happy Sandpit Ltd", "happysandpit.example", [材("Contact", "https://happysandpit.example/contact", "Call us on 020 7946 0123")]);
+    expect(r).toMatchObject({ key: "person", 灯: "red", 态: "已核" });
+    expect(r.事实).toContain("是虚构号码");
+    expect(r.事实).toContain("伦敦 020 7946 0xxx");
+  });
+
+  it("核候选：虚构号码出现在页面上不算号码对上", () => {
+    const 假 = 认号码("+44 20 7946 0123") as 号码信息;
+    const 结果 = [{ title: "Happy Sandpit Ltd — Contact", url: "https://happysandpit.example/contact", snippet: "Happy Sandpit Ltd. Call us on 020 7946 0123." }];
+    expect(核候选([{ 公司: "Happy Sandpit Ltd", 来源: 1 }], 结果, undefined, 假)).toEqual([]);
   });
 });
 

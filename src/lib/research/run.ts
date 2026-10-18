@@ -27,7 +27,7 @@ import type { chatTools, ToolMessage, 工具声明, 工具调用 } from "../llm"
 import type { BusinessConfig } from "../business-config";
 import type { 背调通道 } from "./channel";
 import { 背调上限, 社媒搜索次数, 阶段表, 字段表, type 研究事件, type 阶段号, type 字段键, type 来源, type 搜索结果, type 必查项, type 在卖型号 } from "./types";
-import { 认必查, 认型号, 认联系人, 认型号对比, 认开发信, 必查转风险 } from "./extras";
+import { 认必查, 认型号, 认联系人, 认型号对比, 认开发信, 必查转风险, 母公司查询 } from "./extras";
 import { 算相关性, 清洗评档, type 评档, type 风险 } from "./score";
 import { 认像的老客户, 老客户表文本, 老客户维度档, type 老客户 } from "./similar";
 import { 初始状态, 归约, type 背调状态 } from "./state";
@@ -92,7 +92,8 @@ export type 背调结果 =
   | { ok: false; error: string; 退了: boolean };
 
 /** 每一步最多几次工具调用（搜 + 读合计）。整次还受 背调上限 管，哪个先到算哪个 */
-const 每步工具上限: Record<阶段号, number> = { identify: 3, basics: 3, fit: 2, signals: 3, risks: 4, approach: 0 };
+// risks 另有程序先发的一次母公司搜索（母公司查询），模型自己最多再调 3 次，合起来还是 4 次
+const 每步工具上限: Record<阶段号, number> = { identify: 3, basics: 3, fit: 2, signals: 3, risks: 3, approach: 0 };
 
 /** 每一步要查清什么。写给模型看的，也是界面上那一步的意思 */
 const 本步目标: Record<阶段号, string> = {
@@ -587,8 +588,10 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       return 短(r.小结, 300) || (信号.length ? undefined : "近期没查到明显动作");
     },
     async risks() {
+      // 母公司 / 股东：程序先定向搜一次（owned by / parent company / acquired by / subsidiary of），不让模型自己挑词
+      if (!钱到了) await 搜("risks", 母公司查询(社媒名));
       const r =
-        (await 查("risks", "先搜母公司 / 股东和近两年财务（年报、再融资、重组新闻），再搜付款纠纷、投诉、诉讼、破产；英文和当地语言各试一次。", 要.risks)) ??
+        (await 查("risks", "母公司已经按「owned by / parent company / acquired by / subsidiary of」专门搜过一次，结果在材料里，先看它（没搜到再换登记全称或当地语言试一次）；再搜近两年财务（年报、再融资、重组新闻），再搜付款纠纷、投诉、诉讼、破产。", 要.risks)) ??
         (await 结论("risks", 要.risks));
       必查们 = 认必查(r.必查, 找原文);
       发({ type: "checks", 项: 必查们 });

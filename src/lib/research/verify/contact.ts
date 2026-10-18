@@ -3,13 +3,14 @@
  *   邮箱  和官网是不是一家（主域名比）、是不是免费邮箱、是不是仿冒官网的域名、这个域名能不能收信（MX）
  *   电话  libphonenumber（Google 开源库，本地判，不联网）：号码有效没有、哪国的、手机 / 固话 / 网络电话，
  *         和自报的国家对不对得上
- * 小公司用 Gmail、迪拜公司用英国手机号都很常见：只标黄并写清是哪两项对不上。**仿冒域名才标红**——那是骗子最典型的手法。
+ * 小公司用 Gmail、迪拜公司用英国手机号都很常见：只标黄并写清是哪两项对不上。**仿冒域名、虚构号码才标红**——那是骗子最典型的手法。
  */
 import { resolveMx } from "node:dns/promises";
 import { parsePhoneNumberFromString, type CountryCode, type NumberType } from "libphonenumber-js/max";
 import { 主域名, 是免费邮箱, 比域名 } from "./domain";
 import { 国名, 同一国 } from "./country";
 import { 天数, type 域名年龄 } from "./rdap";
+import { 是虚构号码 } from "./fiction";
 import type { 核验项, 灯 } from "./types";
 
 const 灯序: Record<灯, number> = { gray: 0, green: 1, yellow: 2, red: 3 };
@@ -109,6 +110,13 @@ export function 查电话(电话们: string[], 公司国家?: string, 自报国�
   let 总: 灯 = "gray";
   const 句: string[] = [];
   for (const raw of 列) {
+    // 影视剧 / 示例专用的虚构号段（Ofcom 020 7946 0xxx 这类）：不会分给任何人，亮红（10-18 复核）
+    const 虚构 = 是虚构号码(raw, 公司国家);
+    if (虚构) {
+      总 = 最坏(总, "red");
+      句.push(`${raw}：这是虚构号码——${虚构}，不会分给任何真实用户；请对方给真实的公司电话`);
+      continue;
+    }
     const n = parsePhoneNumberFromString(raw, (公司国家 as CountryCode | undefined) ?? undefined);
     if (!n || !n.isValid()) {
       总 = 最坏(总, "yellow");

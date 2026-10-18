@@ -4,7 +4,9 @@ import { randomUUID } from "node:crypto";
  *
  * 先找公司，再背调：
  *   1. 判号码（libphonenumber，本机，不花钱、不扣次数）：哪国的、手机还是固话
- *   2. 搜号码本身（国际写法、本国写法），再搜「人名 + 国家」——**从这一步起算花了钱，扣 1 次**
+ *   2. 搜号码本身（国际 / 带 (0) / 本国 / 连写 / 不带开头 0 几种写法），再搜「人名 + 国家」——**从这一步起算花了钱，扣 1 次**
+ *      号码落在虚构号段（Ofcom 留给影视剧的 020 7946 0xxx 这类，verify/fiction.ts）：不搜号码、不拿它认公司；
+ *      连名字都没有就不搜、不扣，直接出简版
  *   3. 模型从搜索结果里认出这个人 / 这个号码属于哪家公司，**程序再核一遍**：来源得是这次的搜索结果，
  *      那一条里得真有这个号码或这个名字、也真有那家公司的名字，对不上的候选不给
  *   4. 有候选：列出来让人点选（点选、接着跑正常背调都算同一次，不另扣，见 run.ts 的 接着）
@@ -24,6 +26,7 @@ import { 国名 } from "./verify/country";
 import { 主域名 } from "./verify/domain";
 import { 名词, 提到了, 规整名 } from "./verify/names";
 import type { 核验项 } from "./verify/types";
+import { 虚构号段 } from "./verify/fiction";
 
 export type 号码信息 = {
   /** 国际写法：「+971 50 123 4567」 */
@@ -36,6 +39,8 @@ export type 号码信息 = {
   国名: string;
   类型: string;
   有效: boolean;
+  /** 落在影视剧 / 示例专用的虚构号段（Ofcom 020 7946 0xxx 这类）：一句说明。这种号不拿去认公司，电话亮红 */
+  虚构?: string;
 };
 
 const 类型名: Partial<Record<NumberType & string, string>> = {
@@ -55,6 +60,7 @@ export function 认号码(电话: string): 号码信息 | null {
   const n = parsePhoneNumberFromString(电话.trim());
   if (!n) return null;
   const 类 = n.getType();
+  const 虚构 = 虚构号段(String(n.countryCallingCode), String(n.nationalNumber));
   return {
     号: n.formatInternational(),
     本国: n.formatNational(),
@@ -63,6 +69,7 @@ export function 认号码(电话: string): 号码信息 | null {
     国名: n.country ? 国名(n.country) : "归属国认不出",
     类型: (类 && 类型名[类]) ?? "号码",
     有效: n.isValid(),
+    ...(虚构 ? { 虚构 } : {}),
   };
 }
 
@@ -152,9 +159,33 @@ function 英文国名(码?: string): string {
   }
 }
 
-/** 搜什么：号码的国际写法、本国写法，再加「人名 + 国家」。号码加引号，按整串找 */
+/**
+ * 号码的几种常见写法（10-18 复核：sunrgy.co.uk 写的是「0114 327 1314」，只搜「+44 114 327 1314」搜不到）：
+ * 国际「+44 114 327 1314」、带 (0) 的「+44 (0)114 327 1314」、本国「0114 327 1314」、连写「01143271314」、
+ * 不带开头 0 的「114 327 1314」
+ */
+export function 号码写法(号: 号码信息): { 国际: string[]; 本国: string[]; 去零: string } {
+  const 码 = 号.号.match(/^\+(\d+)\s/)?.[1] ?? "";
+  const 有零 = /^0/.test(号.本国);
+  const 去零 = 有零 ? 号.本国.replace(/^0\s?/, "") : 号.本国;
+  const 国际 = [号.号, ...(码 && 有零 ? [`+${码} (0)${去零}`] : [])];
+  const 本国 = [号.本国, 号.本国.replace(/\D/g, "")];
+  return { 国际: [...new Set(国际)], 本国: [...new Set(本国)], 去零 };
+}
+
+/**
+ * 搜什么：号码的国际写法（加 (0) 的）、本国写法（连写的）、不带开头 0 的那串，再加「人名 + 国家」。
+ * 同一类写法 OR 在一次搜索里，一共不超过 找公司搜索次数。
+ * 虚构号码（影视剧号段）不搜：搜到的只会是拿它当占位符的网页，认出来的公司是错的（10-18 复核 Anna 那一家）
+ */
 export function 找公司查询(名: string | undefined, 号: 号码信息): string[] {
-  const q = [`"${号.号}"`, `"${号.本国}"`];
+  const q: string[] = [];
+  if (!号.虚构) {
+    const 写 = 号码写法(号);
+    const 或 = (列: string[]) => 列.map((x) => `"${x}"`).join(" OR ");
+    q.push(或(写.国际), 或(写.本国));
+    if (写.去零 !== 号.本国) q.push(写.去零);
+  }
   const 名字 = 名?.trim();
   if (名字) q.push(`"${名字}" ${英文国名(号.国家)}`.trim());
   return [...new Set(q)].slice(0, 找公司搜索次数);
@@ -170,6 +201,15 @@ export async function 找公司(input: 找公司输入): Promise<找公司结果
   if (!号) return { ok: false, error: "这个号码认不出来：要 + 开头、带国家码的国际号码", 退了: false };
   input.发({ type: "person", 名: input.名?.trim() || undefined, 号 });
 
+  // 只有一个虚构号码：没东西可搜，直接出简版。没花钱，不扣（不调 开始）
+  const 查询们 = 找公司查询(input.名, 号);
+  if (!查询们.length) {
+    const 出: 出现 = { 号码: [], 名字: [] };
+    input.发({ type: "person-found", 候选: [], 出现: 出, 建议: 简版建议(号, 出, false) });
+    input.发({ type: "done", charge: 0, 不完整: false });
+    return { ok: true, runId, 候选: [], 出现: 出, 材料: [] };
+  }
+
   const 开 = await 通道.开始(runId, signal);
   if (!开.ok) return { ok: false, error: 开.error, 退了: false };
 
@@ -177,7 +217,7 @@ export async function 找公司(input: 找公司输入): Promise<找公司结果
   let 搜索数 = 0;
   let 出错: string | null = null;
   try {
-    for (const [i, q] of 找公司查询(input.名, 号).entries()) {
+    for (const [i, q] of 查询们.entries()) {
       if (signal?.aborted) throw new DOMException("已停止", "AbortError");
       const id = `p${i + 1}`;
       const label = `搜索「${截(q, 60)}」`;
@@ -197,12 +237,13 @@ export async function 找公司(input: 找公司输入): Promise<找公司结果
     }
 
     const 全文 = (r: 搜索结果) => `${r.title}\n${r.snippet ?? ""}\n${r.url}`;
+    const 号对 = (r: 搜索结果) => !号.虚构 && 有号码(全文(r), 号);
     const 出: 出现 = {
-      号码: 材料.filter((r) => !是私人社交(r.url) && 有号码(全文(r), 号)).slice(0, 8).map((r) => ({ title: r.title || r.url, url: r.url })),
+      号码: 材料.filter((r) => !是私人社交(r.url) && 号对(r)).slice(0, 8).map((r) => ({ title: r.title || r.url, url: r.url })),
       名字: 材料.filter((r) => !是私人社交(r.url) && 有名字(全文(r), input.名)).slice(0, 8).map((r) => ({ title: r.title || r.url, url: r.url })),
     };
     // 号码和名字一条都没对上：不用再问模型（问了也只能编），直接出简版
-    const 有用 = 材料.filter((r) => !是私人社交(r.url) && (有号码(全文(r), 号) || 有名字(全文(r), input.名)));
+    const 有用 = 材料.filter((r) => !是私人社交(r.url) && (号对(r) || 有名字(全文(r), input.名)));
     let 候选: 候选公司[] = [];
     if (有用.length) {
       const messages: ToolMessage[] = [
@@ -216,7 +257,7 @@ export async function 找公司(input: 找公司输入): Promise<找公司结果
         {
           role: "user",
           content:
-            `名字：${input.名?.trim() || "（没给）"}\n电话：${号.号}（${号.国名}${号.类型}）\n\n搜索结果：\n` +
+            `名字：${input.名?.trim() || "（没给）"}\n电话：${号.号}（${号.国名}${号.类型}）${号.虚构 ? `——这是虚构号码（${号.虚构}），网页上出现它只是占位符，不能拿号码认公司，只看名字` : ""}\n\n搜索结果：\n` +
             有用.map((r, i) => `[${i + 1}] ${r.title}\n${r.url}\n${(r.snippet ?? "").slice(0, 400)}`).join("\n\n") +
             `\n\n只输出 JSON，最多 4 家，认不出就空数组：${要}`,
         },
@@ -254,7 +295,8 @@ export function 核候选(原始: unknown, 结果: 搜索结果[], 名: string |
     const r = Number.isInteger(号源) && 号源 >= 1 ? 结果[号源 - 1] : 结果.find((m) => m.url === o.来源);
     if (!r) continue;
     const 文 = `${r.title}\n${r.snippet ?? ""}\n${r.url}`;
-    const 号码对上 = 有号码(文, 号);
+    // 虚构号码出现在页面上只是占位符，不算对上
+    const 号码对上 = !号.虚构 && 有号码(文, 号);
     const 名字对上 = 有名字(文, 名);
     if (!号码对上 && !名字对上) continue;
     // 那一条里得真有这家公司：名字提到了，或者网址就是它的域名（「alfanar.com/contact」）
@@ -288,8 +330,13 @@ export function 核候选(原始: unknown, 结果: 搜索结果[], 名: string |
 }
 
 /** 「只有人」简版的建议：代码给，不交给模型（固定几条，按实情挑） */
-export function 简版建议(号: 号码信息, 出: 出现): string[] {
-  const 建 = ["先请对方给公司全名和官网，拿到后再背调公司（这次已经扣过，再背调公司会另扣 1 次）", "请对方用公司邮箱发一封邮件（看邮箱域名是不是公司自己的），或发营业执照 / 公司登记号"];
+export function 简版建议(号: 号码信息, 出: 出现, 扣了 = true): string[] {
+  const 建: string[] = [];
+  if (号.虚构) 建.push(`这个号码是虚构号码（${号.虚构}），不会分给任何真实用户：对方留的联系方式不可信，先要真实的公司电话和公司邮箱`);
+  建.push(
+    `先请对方给公司全名和官网，拿到后再背调公司（${扣了 ? "这次已经扣过，再背调公司会另扣 1 次" : "这次没搜索、没扣次数"}）`,
+    "请对方用公司邮箱发一封邮件（看邮箱域名是不是公司自己的），或发营业执照 / 公司登记号",
+  );
   if (号.类型.startsWith("网络电话") || 号.类型 === "个人转接号") 建.push("这个号码是虚拟号段，常用来注册账号，务必先核实身份");
   if (!出.号码.length && !出.名字.length) 建.push("号码和名字在网上都没出现过：首单小额、预付或信用证，别先发货");
   else 建.push("视频看一下办公室 / 仓库；首单小额、预付或信用证");
@@ -301,11 +348,15 @@ export function 简版建议(号: 号码信息, 出: 出现): string[] {
  *   🟢 号码出现在提到这家公司的页面上，或者就在它官网上
  *   🟡 号码没对上，只有名字和这家公司一起出现过（同名的人可能很多）
  *   🟡 号码、名字都没在这家公司的页面上出现：对不上，请对方用公司邮箱确认
+ *   🔴 号码是虚构号码（影视剧号段）
  */
 export function 人号项(人: { 名?: string; 号: 号码信息 }, 公司: string, 官网域: string | undefined, 材料: { title: string; url: string; text: string }[]): 核验项 {
   const 是它的 = (m: { title: string; url: string; text: string }) => 提到了(`${m.title}\n${m.text}`, 公司) || Boolean(官网域 && 主域名(m.url) === 官网域);
   const 全 = (m: { title: string; url: string; text: string }) => `${m.title}\n${m.text}\n${m.url}`;
   const 页 = (列: { title: string; url: string }[]) => [...new Map(列.map((m) => [m.url, { title: m.title || m.url, url: m.url }])).values()].slice(0, 3);
+  // 虚构号码（影视剧号段）：哪怕出现在这家公司的页面上，也只是占位符——亮红，不算对上（10-18 复核 Anna 那一家）
+  if (人.号.虚构)
+    return { key: "person", 灯: "red", 态: "已核", 事实: `号码 ${人.号.号} 是虚构号码（${人.号.虚构}），不会分给任何真实用户，不能用它确认这个人和 ${公司} 的关系；请对方给真实的公司电话，并用公司邮箱发一封邮件` };
   const 号页 = 页(材料.filter((m) => !是私人社交(m.url) && 是它的(m) && 有号码(全(m), 人.号)));
   if (号页.length) return { key: "person", 灯: "green", 态: "已核", 事实: `号码 ${人.号.号} 出现在提到 ${公司} 的公开页面上（${号页.map((x) => 全句(x.title, 80)).join("；")}），对得上`, 链接: 号页 };
   const 名页 = 人.名 ? 页(材料.filter((m) => !是私人社交(m.url) && 是它的(m) && 有名字(全(m), 人.名))) : [];

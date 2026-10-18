@@ -646,6 +646,17 @@ describe("真实性（10-18）", () => {
     expect(await 社媒搜的("Lumora", "Lumora Trading GmbH")).toEqual(['"Lumora" site:facebook.com']);
   });
 
+  it("风险那一步：程序先定向搜一次母公司（owned by / parent company / acquired by / subsidiary of），名字跟社媒那次一样", async () => {
+    const 通道 = 模拟通道();
+    const 搜 = vi.spyOn(通道, "搜索");
+    const { 事件 } = await 跑({ 通道 });
+    const 查 = 搜.mock.calls.map((c) => String(c[1]));
+    const 母 = 查.filter((q) => q.includes('"owned by"'));
+    expect(母).toEqual([`"${公司}" ("owned by" OR "parent company" OR "acquired by" OR "subsidiary of")`]);
+    // 发在风险那一步，界面上看得到
+    expect(事件.some((e) => e.type === "tool" && e.stage === "risks" && e.kind === "search" && e.label.includes("owned by"))).toBe(true);
+  });
+
   it("模型要读 LinkedIn / Facebook 的页面：不打开，告诉它只用搜索结果", async () => {
     const 通道 = 模拟通道();
     const 读 = vi.spyOn(通道, "读页");

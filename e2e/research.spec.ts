@@ -191,10 +191,17 @@ test("只有人名 + 电话（10-18）：先判号码，找公司出候选，点
   await expect(卡.locator(".rs-verdict")).toBeVisible();
 
   // 2. 只有号码、网上搜不到：「只有人」简版
-  await 框.fill("+44 20 7946 0123");
+  await 框.fill("+44 20 7123 4567");
   await 框.press("Enter");
   const 确认2 = page.getByRole("group", { name: "找这个人所在的公司" }).last();
   await 确认2.getByRole("button", { name: "开始找公司" }).click();
   await expect(page.locator(".rs-thin").last()).toContainText("信息少，谨慎", { timeout: 60_000 });
   await expect(page.locator(".rs-card").last()).toContainText("没有登录、没有抓取");
+
+  // 3. 只有一个虚构号码（Ofcom 留给影视剧的 020 7946 0xxx，10-18 复核）：写明是虚构号码，不拿它找公司
+  await 框.fill("+44 20 7946 0123");
+  await 框.press("Enter");
+  const 确认3 = page.getByRole("group", { name: "找这个人所在的公司" }).last();
+  await expect(确认3).toContainText("这是虚构号码");
+  await expect(确认3.getByRole("button", { name: "开始找公司" })).toBeDisabled();
 });

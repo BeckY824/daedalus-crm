@@ -77,7 +77,14 @@ function Confirm({ 名, 电话, onStart, onAsCompany, onCancel }: { 名?: string
       <span className="rs-confirm-t">
         只有{名 ? <>名字 <b>{名}</b> 和</> : null}电话 <b>{号?.号 ?? 电话}</b>
         {号 ? `（${号.国名}${号.类型}${号.有效 ? "" : "，号码位数不对"}）` : "（号码认不出，要 + 开头的国际号码）"}，没有公司名。
-        先上网搜这个号码{名 ? "和名字" : ""}，找到候选公司让你点选，再接着背调那家。
+        {号?.虚构 ? (
+          <>
+            <b className="rs-warn">这是虚构号码</b>（{号.虚构}），不会分给任何真实用户，对方留的联系方式不可信。
+            {名 ? `只按名字「${名}」搜，不拿这个号码认公司。` : "只有这个号码，没法找公司，先向对方要真实的公司电话和公司邮箱。"}
+          </>
+        ) : (
+          <>先上网搜这个号码{名 ? "和名字" : ""}，找到候选公司让你点选，再接着背调那家。</>
+        )}
         {价.可用 ? (
           价.模拟 ? (
             "（开发环境，用模拟数据，不扣次数）"
@@ -94,7 +101,7 @@ function Confirm({ 名, 电话, onStart, onAsCompany, onCancel }: { 名?: string
         <span className="rs-pick-n">（还没扣次数）</span>
       </span>
       <div className="rs-pick-row">
-        <button type="button" className="rs-btn rs-btn-primary" onClick={onStart} disabled={!价.可用 || 不够 || !号}>
+        <button type="button" className="rs-btn rs-btn-primary" onClick={onStart} disabled={!价.可用 || 不够 || !号 || Boolean(号.虚构 && !名)}>
           开始找公司
         </button>
         {名 && onAsCompany && (
@@ -191,6 +198,7 @@ export function PersonCard({ s, running, error, onPick, onStop, onRetry }: { s: 
             {人.号.国名}
             {人.号.类型}
             {人.号.有效 ? "" : "（号码位数不对，可能写错了）"}；
+            {人.号.虚构 && <b className="rs-warn">这是虚构号码（{人.号.虚构}），不会分给任何真实用户；</b>}
             {人.出现.号码.length ? `在 ${人.出现.号码.length} 个公开页面上出现过：` : "公开网页上没搜到这个号码。"}
           </p>
           {人.出现.号码.length > 0 && <Links s={s} 列={人.出现.号码} />}

@@ -126,6 +126,14 @@ export function 认开发信(raw: unknown): { 主题: string; 正文: string } |
   return { 主题, 正文 };
 }
 
+/**
+ * 母公司定向搜索（10-18 复核：Ansell Lighting 的母公司 Endo 有自己的工厂，我们让模型自己挑词搜，写了「查不到」，
+ * 免费产品都查到了）。风险那一步由程序先发这一次，不交给模型挑词
+ */
+export function 母公司查询(名: string): string {
+  return `"${名.trim()}" ("owned by" OR "parent company" OR "acquired by" OR "subsidiary of")`;
+}
+
 /** 必查里有级别的那几项也算风险（进风险级别、进「先核实」结论）；和模型另列的风险重了就不重复 */
 export function 必查转风险(项: 必查项[]): { 级别: "low" | "mid" | "high"; 说明: string; 来源?: string }[] {
   return 项.filter((x) => x.级别 !== "none" && x.source).map((x) => ({ 级别: x.级别 as "low" | "mid" | "high", 说明: `${必查表.find((k) => k.key === x.key)!.label}：${x.结论}`, 来源: x.source }));

@@ -46,10 +46,10 @@ export const 背调上限 = { 搜索: 8, 读页: 10 } as const;
 export const 社媒搜索次数 = 1;
 
 /**
- * 只有人名 + 电话、没有公司（lib/research/person.ts）：先搜号码的国际写法、本国写法和「人名 + 国家」，
+ * 只有人名 + 电话、没有公司（lib/research/person.ts）：先搜号码的国际写法、本国写法、不带开头 0 的写法和「人名 + 国家」，
  * 最多这么几次。服务器的次数闸也多放这么几次（找完公司接着背调用的是同一个 runId）
  */
-export const 找公司搜索次数 = 3;
+export const 找公司搜索次数 = 4;
 
 /* 扣几次、花多少的规矩在 price.ts（服务器按配置算，桌面端开跑前问 /research/price 拿数） */
 

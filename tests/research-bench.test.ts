@@ -2,7 +2,7 @@
  * 背调对比实验的自动核对（scripts/research-bench.ts，10-16 定的评判标准）：认对公司、来源里真有、两遍稳不稳。
  */
 import { describe, it, expect, vi } from "vitest";
-import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, 左右各半, 编造率of, 读报告评分, 读结果csv, type 录像 } from "../scripts/research-bench";
+import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, 左右各半, 编造率of, 读报告评分, 读结果csv, 旧行的错, type 录像 } from "../scripts/research-bench";
 import { 报告文本 } from "@/lib/research/report";
 import type { 背调通道 } from "../src/lib/research/channel";
 import { 初始状态, 归约, type 背调状态 } from "@/lib/research/state";
@@ -234,5 +234,15 @@ describe("--只出汇总：从上次的 results.csv 和报告 txt 读回来", ()
       { 组: "A", 公司: "Rexel", 错: "" },
       { 组: "C", 公司: "S, LV", 错: '说"超时"\n第二行' },
     ]);
+  });
+});
+
+describe("重用旧录像：没分要不要补错", () => {
+  it("没分没错的补「最后一步没出分」；简版本来不打分，算正常跑完；原来有错的照留", () => {
+    expect(旧行的错({ 分: "", 错: "", 认对: "对" })).toBe("最后一步没出分");
+    expect(旧行的错({ 分: "", 错: "", 认对: "简版（没认出公司）" })).toBe("");
+    expect(旧行的错({ 分: "", 错: "", 认对: "找到 Sunrgy LED Lighting Ltd（https://sunrgy.co.uk；号码对上）" })).toBe("");
+    expect(旧行的错({ 分: 80, 错: "", 认对: "对" })).toBe("");
+    expect(旧行的错({ 分: "", 错: "中转站余额不足", 认对: "对" })).toBe("中转站余额不足");
   });
 });

@@ -176,6 +176,7 @@
 .rs-btn-primary:hover:not(:disabled) { background: var(--brand-deep); }
 .rs-btn-saved { background: var(--success-bg); border-color: var(--success-line); color: var(--success-text); }
 .rs-err { font-size: var(--fs-note); color: var(--danger-text); }
+.rs-warn { color: var(--danger-text); }
 
 /* ---------- 开跑前的确认卡、存进客户那一小块 ---------- */
 .rs-confirm { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 14px; border: 1px solid var(--brand-line); background: var(--brand-bg); border-radius: var(--r-card); font-size: var(--fs-note); }
