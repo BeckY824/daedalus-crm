@@ -359,7 +359,11 @@ export function 回放(录: 录像, 基: 背调通道, 当前步: () => string, 
           return 录.搜索[录的].结果 ?? [];
         }
         try {
-          return await 基.搜索(runId, query, signal);
+          const r = await 基.搜索(runId, query, signal);
+          // 记进录像（调用方会写回文件）：下一轮回放这一家就不用再真搜
+          录.搜索.push({ 步, query, 结果: r });
+          用过.add(录.搜索.length - 1);
+          return r;
         } finally {
           通道.花费 = 看钱?.();
         }
@@ -1026,14 +1030,21 @@ async function main() {
     for (const g of 这家的组.filter((g) => g.回放)) {
       const 源 = 录们.get(g.回放!) ?? 读录像(co.名, g.回放!);
       if (!源 && g.没录像就真跑) {
-        const 录: 录像 = { 公司: co.名, 组: g.名, 搜索: [], 读页: [] };
+        // 按被回放那组的名字存：下一轮同一份配置就回放它，不再真跑
+        const 录: 录像 = { 公司: co.名, 组: g.回放!, 搜索: [], 读页: [] };
         const r = await 跑一次(c, g, co, base, key, 价, { 录 });
         录.结果 = r;
-        writeFileSync(path.join(录像目录, `${文件名(co.名)}__${文件名(g.名)}.json`), JSON.stringify(录));
+        writeFileSync(录像文件(co.名, g.回放!), JSON.stringify(录));
         出.set(g.名, r);
         continue;
       }
+      const 搜前 = 源?.搜索.length ?? 0;
       const r = 源 ? await 跑一次(c, g, co, base, key, 价, { 源 }) : null;
+      // 回放时真搜了录像里没有的社媒定向搜索：写回那份录像（只动 搜索，原来的结果留着）
+      if (源 && 源.搜索.length > 搜前 && !录们.has(g.回放!) && existsSync(录像文件(co.名, g.回放!))) {
+        const 旧 = JSON.parse(readFileSync(录像文件(co.名, g.回放!), "utf8")) as 录像;
+        writeFileSync(录像文件(co.名, g.回放!), JSON.stringify({ ...旧, 搜索: 源.搜索 }));
+      }
       if (r && 源?.结果) r.行.估实价元 = Math.round((源.结果.行.搜索元 + r.行.模型元) * 1000) / 1000;
       出.set(g.名, r ?? { 行: { ...空行(g, co), 错: `没有「${g.回放}」的录像（那组没跑或跑错了组名）` }, 状态: null, 材料: [], 嫌疑: [] });
     }

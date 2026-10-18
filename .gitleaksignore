@@ -24,3 +24,7 @@ f471a1b4b31e877a7e5b3d578f87449cbbb89918:tests/llm-key-source.test.ts:generic-ap
 # 背调搜索服务的单元测试（2026-10-16）：拿一把假的中转站 Key 测「上游报错里回显的 Key 要抹掉」，
 # 值是手写的 sk-secret-relay-key-123456，被 generic-api-key 判成真 Key。从没对应过任何账号；下一个提交起已改成 fake-relay-key。
 5d28c8a8673841903b8c2d90f54a290440cd1907:tests/research-providers.test.ts:generic-api-key:12
+
+# 背调真实性的欧盟制裁名单下载地址（lib/research/verify/sanctions.ts）。token=dG9rZW4tMjAxNw 是 base64 的
+# 「token-2017」，欧盟金融制裁数据库（FSF）公开页上给所有人的同一个下载链接，不是谁的凭证。
+fd851cf21cf2ded88be2bcc6d3072bf1d37cb00b:src/lib/research/verify/sanctions.ts:generic-api-key:29

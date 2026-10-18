@@ -128,6 +128,24 @@ describe("A / C 同材料回放（10-17 总控定：C 不再搜索，用 A 录�
     expect(真搜).not.toHaveBeenCalled();
   });
 
+  it("回放：LinkedIn / Facebook 定向搜索录像里有一字不差的就给，没有就真搜并记进录像（下一轮回放不再真搜）；不混进别的查询", async () => {
+    const r = (q: string) => [{ title: q, url: `https://x.example/${encodeURIComponent(q)}`, snippet: q }];
+    const 录: 录像 = { 公司: "甲", 组: "A", 搜索: [{ 步: "basics", query: "q1", 结果: r("q1") }], 读页: [] };
+    const 真搜 = vi.fn(async (_id: string, q: string) => r(`真:${q}`));
+    const b = 基();
+    b.搜索 = 真搜;
+    const 通道 = 回放(录, b, () => "verify", { 缺搜: 0, 补读: 0 });
+    expect((await 通道.搜索("r", "site:linkedin.com 甲"))[0].title).toBe("真:site:linkedin.com 甲");
+    expect(录.搜索.at(-1)).toMatchObject({ 步: "verify", query: "site:linkedin.com 甲" });
+    // 别的查询拿不到社媒那条
+    expect((await 通道.搜索("r", "q9"))[0].title).toBe("q1");
+    expect((await 通道.搜索("r", "q10")).map((x) => x.title)).toEqual(["q1"]);
+    // 下一轮：同一份录像，社媒那次直接给录下的
+    const 再 = 回放(录, b, () => "verify", { 缺搜: 0, 补读: 0 });
+    expect((await 再.搜索("r", "site:linkedin.com 甲"))[0].title).toBe("真:site:linkedin.com 甲");
+    expect(真搜).toHaveBeenCalledTimes(1);
+  });
+
   it("回放：A 一次都没搜成才算缺搜；录的时候失败的照样失败", async () => {
     const 录: 录像 = { 公司: "甲", 组: "A", 搜索: [{ 步: "basics", query: "坏", 错: "搜索超时" }], 读页: [] };
     const 记 = { 缺搜: 0, 补读: 0 };
