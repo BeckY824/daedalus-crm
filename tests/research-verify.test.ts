@@ -14,7 +14,7 @@ import { 认足迹, 是社媒网址, 社媒查询 } from "@/lib/research/verify/
 import { 查邮箱, 查电话 } from "@/lib/research/verify/contact";
 import { 认停放页 } from "@/lib/research/verify/site";
 import { 解CSV, 解OFAC, 解EU行, 解UN, 解UK行, 比名单, 制裁项, type 名单 } from "@/lib/research/verify/sanctions";
-import { 查工商, 挑登记, 认税号, 查税号, 国家库, type 登记 } from "@/lib/research/verify/registry";
+import { 查工商, 挑登记, 认税号, 查税号, 国家库, 设美国重试毫秒, type 登记 } from "@/lib/research/verify/registry";
 import { 认线索, 合并线索 } from "@/lib/research/verify/clues";
 import { 核验, 域名项 } from "@/lib/research/verify/check";
 import { 定总灯, 合成真实性, 信息少, 独立来源数 } from "@/lib/research/verify/rules";
@@ -268,6 +268,78 @@ describe("工商库", () => {
     expect(await 查工商(["Inconnu"], "FR", { GLEIF: async () => [], env: {} })).toMatchObject({ 灯: "yellow", 态: "没查到" });
     vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
     expect(await 查工商(["Inconnu"], "FR", { GLEIF: async () => [], env: {} })).toMatchObject({ 灯: "gray", 态: "查不了" });
+  });
+});
+
+describe("第三期：芬兰 / 捷克 / 美国 / 波兰官方库（假 fetch）", () => {
+  const 回 = (按网址: (url: string, init?: RequestInit) => unknown, status = 200) =>
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => new Response(JSON.stringify(按网址(String(url), init)), { status })));
+
+  it("哪些国家有库：芬兰、捷克、美国直接查；波兰要对方给了波兰税号", () => {
+    expect(国家库("FI", {}).库).toBeTypeOf("function");
+    expect(国家库("CZ", {}).库).toBeTypeOf("function");
+    expect(国家库("US", {})).toMatchObject({ 名: "美国 SEC EDGAR", 不全: true });
+    expect(国家库("PL", {}).库).toBeUndefined();
+    expect(国家库("PL", {}).缺税号).toBe(true);
+    expect(国家库("PL", {}, "PL 526-025-09-95").库).toBeTypeOf("function");
+    expect(国家库("PL", {}, "DE143454214").库).toBeUndefined();
+  });
+
+  it("芬兰 PRH：正式名、注销了的看 endDate", async () => {
+    回(() => ({
+      companies: [
+        { businessId: { value: "1761136-9" }, registrationDate: "2002-04-22", names: [{ name: "Helvar Oy Ab", type: "1" }, { name: "Helvar", type: "3" }], addresses: [{ street: "Keilaranta", postOffices: [{ city: "ESBO" }] }] },
+        { businessId: { value: "0108851-8" }, endDate: "2002-09-29", tradeRegisterStatus: "4", names: [{ name: "Helvar Oy", type: "1", endDate: "2002-09-29" }] },
+      ],
+    }));
+    const x = await 查工商(["Helvar Oy Ab"], "FI", { GLEIF: async () => [], env: {} });
+    expect(x).toMatchObject({ 灯: "green", 态: "已核" });
+    expect(x.事实).toBe("芬兰 PRH 企业登记（YTJ）：Helvar Oy Ab，Y-tunnus 1761136-9，存续，2002-04-22 成立，Keilaranta, ESBO");
+    expect(x.链接?.[0].url).toBe("https://tietopalvelu.ytj.fi/yritys/1761136-9");
+  });
+
+  it("捷克 ARES：POST 按名字查；名字太常见是「查不了」不是「没查到」", async () => {
+    回((url, init) => {
+      expect(url).toContain("ares.gov.cz");
+      expect(JSON.parse(String(init?.body))).toEqual({ obchodniJmeno: "ELKO EP s.r.o.", pocet: 10 });
+      return { ekonomickeSubjekty: [{ ico: "25508717", obchodniJmeno: "ELKO EP, s.r.o.", datumVzniku: "1997-11-10", sidlo: { textovaAdresa: "Palackého 493, 76901 Holešov" } }] };
+    });
+    const x = await 查工商(["ELKO EP s.r.o."], "CZ", { GLEIF: async () => [], env: {} });
+    expect(x).toMatchObject({ 灯: "green" });
+    expect(x.事实).toContain("IČO 25508717");
+    回(() => ({ kod: "CHYBA_VSTUPU", subKod: "VYSTUP_PRILIS_MNOHO_VYSLEDKU" }), 400);
+    expect(await 查工商(["Elektro"], "CZ", { GLEIF: async () => [], env: {} })).toMatchObject({ 灯: "gray", 态: "查不了" });
+  });
+
+  it("美国 EDGAR：查到是绿；没查到不扣分（多数美国进口商是私人公司，不在 SEC）", async () => {
+    回(() => ({ hits: { hits: [{ _id: "1144215", _source: { entity: "Acuity Brands Inc" } }] } }));
+    const x = await 查工商(["Acuity Brands"], "US", { GLEIF: async () => [], env: {} });
+    expect(x).toMatchObject({ 灯: "green" });
+    expect(x.事实).toBe("美国 SEC EDGAR：Acuity Brands Inc，CIK 1144215，在 SEC 有申报记录");
+    // 偶发 500：隔一下重试一次
+    设美国重试毫秒(0);
+    let 次 = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => (++次 === 1 ? new Response("", { status: 500 }) : new Response(JSON.stringify({ hits: { hits: [{ _id: "1144215", _source: { entity: "Acuity Brands Inc" } }] } }), { status: 200 }))));
+    expect(await 查工商(["Acuity Brands"], "US", { GLEIF: async () => [], env: {} })).toMatchObject({ 灯: "green" });
+    expect(次).toBe(2);
+    回(() => ({ hits: { hits: [] } }));
+    const 没 = await 查工商(["Bright Lamps LLC"], "US", { GLEIF: async () => [], env: {} });
+    expect(没).toMatchObject({ 灯: "gray", 态: "不适用" });
+    expect(没.事实).toContain("只收上市");
+  });
+
+  it("波兰白名单：按税号查一次（两个名字也只请求一次），名字对得上才认；没给税号写明", async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify({ result: { subject: { name: "LUMEN POLSKA SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ", nip: "5260250995", krs: "0000010681", statusVat: "Czynny", residenceAddress: "ALEJE JEROZOLIMSKIE 160, 02-326 WARSZAWA", registrationLegalDate: "2004-01-01", removalDate: null, accountNumbers: ["58103015080000000503131332"] } } }), { status: 200 }));
+    vi.stubGlobal("fetch", f);
+    const x = await 查工商(["Lumen Polska Sp. z o.o.", "Lumen Polska"], "PL", { GLEIF: async () => [], env: {}, 税号: "PL5260250995" });
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(String((f.mock.calls[0] as unknown[])[0])).toMatch(/^https:\/\/wl-api\.mf\.gov\.pl\/api\/search\/nip\/5260250995\?date=\d{4}-\d{2}-\d{2}$/);
+    expect(x).toMatchObject({ 灯: "green", 态: "已核" });
+    expect(x.事实).toContain("NIP 5260250995，KRS 0000010681");
+    expect(x.事实).not.toContain("58103015080000000503131332");
+    const 无税号 = await 查工商(["Lumen Polska"], "PL", { GLEIF: async () => [], env: {} });
+    expect(无税号).toMatchObject({ 灯: "gray", 态: "不适用" });
+    expect(无税号.事实).toContain("要拿税号（NIP）查");
   });
 });
 

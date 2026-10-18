@@ -12,5 +12,11 @@
   { "说明": "制裁名单：同名但国家对不上 → 只标黄", "请求": { "公司": "Rosoboronexport", "国家": "DE" }, "应该": { "sanctions": "yellow" } },
   { "说明": "税号：欧盟 VIES 有效（SAP SE）", "请求": { "公司": "SAP SE", "税号": "DE143454214", "国家": "DE" }, "应该": { "vat": "green" } },
   { "说明": "税号：格式对、VIES 无效", "请求": { "公司": "Lumexa Trading GmbH", "税号": "DE000000000", "国家": "DE" } },
-  { "说明": "电话：无效号码", "请求": { "公司": "Nobody Ltd", "电话": ["+1 000 000 0000"], "国家": "US" }, "应该": { "phone": "yellow" } }
+  { "说明": "电话：无效号码", "请求": { "公司": "Nobody Ltd", "电话": ["+1 000 000 0000"], "国家": "US" }, "应该": { "phone": "yellow" } },
+  { "说明": "第三期 芬兰：Helvar（PRH 开放数据）", "请求": { "公司": "Helvar Oy Ab", "域名": "helvar.com", "国家": "FI" }, "应该": { "registry": "green" } },
+  { "说明": "第三期 捷克：ELKO EP（ARES）", "请求": { "公司": "ELKO EP, s.r.o.", "域名": "elkoep.cz", "国家": "CZ" }, "应该": { "registry": "green" } },
+  { "说明": "第三期 美国上市公司：Orion Energy Systems（SEC EDGAR）", "请求": { "公司": "Orion Energy Systems, Inc.", "域名": "orionlighting.com", "国家": "US" }, "应该": { "registry": "green" } },
+  { "说明": "第三期 美国私人公司：EDGAR 没有，不扣分", "请求": { "公司": "Bright Path Lamps Trading LLC", "国家": "US" }, "应该": { "registry": "gray" } },
+  { "说明": "第三期 波兰：按税号查白名单（Orange Polska）", "请求": { "公司": "Orange Polska S.A.", "域名": "orange.pl", "国家": "PL", "税号": "PL5260250995" }, "应该": { "registry": "green", "vat": "green" } },
+  { "说明": "第三期 波兰没给税号：写明跳过", "请求": { "公司": "Orange Polska S.A.", "国家": "PL" }, "应该": { "registry": "gray" } }
 ]

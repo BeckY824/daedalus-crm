@@ -65,7 +65,7 @@ export async function 核验(请求: Omit<核验请求, "runId">, 依赖: 核验
     查邮箱(请求.邮箱 ?? [], 域, { 查MX: 依赖.查MX ?? 默认查MX, 查年龄: 年龄 }).catch(兜("email", "邮箱这会儿查不了")),
     Promise.resolve().then(() => 查电话(请求.电话 ?? [], 请求.国家, 请求.自报国家)).catch(兜("phone", "电话这会儿查不了")),
     名单们.then((单) => 制裁项(单, 名字们, 请求.国家)).catch(兜("sanctions", "制裁名单这会儿查不了")),
-    (依赖.查工商 ?? 查工商)(名字们, 请求.国家, { signal: 依赖.signal }).catch(兜("registry", "工商库这会儿查不了")),
+    (依赖.查工商 ?? 查工商)(名字们, 请求.国家, { signal: 依赖.signal, 税号: 请求.税号 }).catch(兜("registry", "工商库这会儿查不了")),
     (依赖.查税号 ?? 查税号)(请求.税号, 请求.公司, 依赖.signal).catch(兜("vat", "税号这会儿查不了")),
   ]);
   const 单 = await 名单们;

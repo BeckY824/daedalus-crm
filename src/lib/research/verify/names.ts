@@ -14,7 +14,9 @@ const 后缀 = new Set([
   "sa", "sas", "sasu", "sarl", "eurl", "sl", "slu", "srl", "spa", "snc", "sac", "saa", "ltda", "eireli", "me", "epp",
   "bv", "nv", "vof", "cv", "bvba", "sprl", "srl",
   "as", "asa", "ab", "publ", "oy", "oyj", "aps", "a/s", "hf", "ehf",
-  "sp", "zoo", "z", "o", "o.o", "sro", "spol", "as", "kft", "zrt", "nyrt", "doo", "ad", "ood", "eood",
+  "sp", "zoo", "z", "o", "o.o", "oo", "sro", "spol", "s", "ro", "as", "kft", "zrt", "nyrt", "doo", "ad", "ood", "eood",
+  // 波兰白名单里是全称（「SPÓŁKA Z OGRANICZONĄ ODPOWIEDZIALNOŚCIĄ」）；ł 去重音以后不变
+  "społka", "spolka", "ograniczona", "odpowiedzialnoscia", "akcyjna", "komandytowa", "komandytowo", "jawna", "cywilna",
   "pty", "pte", "bhd", "sdn", "tbk", "pt", "jsc", "pjsc", "ojsc", "zao", "ooo", "oao",
   "fze", "fzco", "fzc", "fzllc", "est", "wll",
   "kk", "gk", "yk",

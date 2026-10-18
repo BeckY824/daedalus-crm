@@ -7,7 +7,12 @@
  *         德国这类没有官方接口的国家，常能从这里查到 HRB 号（10-18 实测 SLV GmbH → HRB 9712）
  *   欧盟  VIES 增值税号校验：对方给了税号才查。德国、西班牙只回「有效 / 无效」不回名字；
  *         对方国家的系统挂了是「查不了」，和「无效」分开
- * 付费的（荷兰 KvK、OpenCorporates……）一律不接。
+ * 第三期（10-18）再接几个免费、不用 key 的：
+ *   芬兰  PRH 开放数据（avoindata.prh.fi）
+ *   捷克  ARES（ares.gov.cz）
+ *   美国  SEC EDGAR：只收向 SEC 申报的公司（上市 / 发债），没查到不扣分
+ *   波兰  财政部增值税白名单（wl-api.mf.gov.pl）：没有按名字查的免费官方库，对方给了波兰税号才按 NIP 查
+ * 付费的（荷兰 KvK、OpenCorporates……）一律不接。丹麦 CVR、澳大利亚 ABN 这类免费但要注册账号的也先不接。
  *
  * 认「是不是这家」用 names.ts 的 比名字：一字不差的「同」优先，其次「近」。**已注销只在「同」、并且没有同名存续的时候才标红**。
  */
@@ -26,6 +31,8 @@ export type 登记 = {
   国?: string;
   链: string;
   像: Exclude<像不像, null>;
+  /** 库里不记存续 / 注销的（SEC EDGAR）：句子里写这个，不写「存续」 */
+  状态?: string;
 };
 
 type 查库 = (名: string, signal?: AbortSignal) => Promise<登记[]>;
@@ -120,27 +127,153 @@ export const GLEIF库: 查库 = async (名, signal) => {
   );
 };
 
+/* ---- 第三期（2026-10-18）：再接几个免费、不用 key 的官方库，按出口客户常见的国家挑 ---- */
+
+export const 芬兰库: 查库 = async (名, signal) => {
+  type 名字 = { name: string; type: string; endDate?: string };
+  type R = { companies?: { businessId: { value: string; registrationDate?: string }; names?: 名字[]; endDate?: string; tradeRegisterStatus?: string; registrationDate?: string; addresses?: { street?: string; postCode?: string; postOffices?: { city?: string }[] }[] }[] };
+  const r = await 取JSON<R>(`https://avoindata.prh.fi/opendata-ytj-api/v3/companies?name=${encodeURIComponent(名)}`, { 秒: 8, signal });
+  return 留像的(
+    (r.data?.companies ?? []).slice(0, 20).flatMap((x) => {
+      // type 1 是正式名（3 是副名）；注销了的公司名字也带 endDate，取最后那个
+      const 正 = (x.names ?? []).filter((n) => n.type === "1");
+      const 名字 = (正.find((n) => !n.endDate) ?? 正.at(-1))?.name;
+      if (!名字) return [];
+      const 址 = x.addresses?.[0];
+      return [
+        {
+          库: "芬兰 PRH 企业登记（YTJ）",
+          名: 名字,
+          号: `Y-tunnus ${x.businessId.value}`,
+          存续: !x.endDate && x.tradeRegisterStatus !== "4",
+          成立: x.registrationDate ?? x.businessId.registrationDate,
+          地址: [址?.street, 址?.postOffices?.[0]?.city].filter(Boolean).join(", ") || undefined,
+          国: "FI",
+          链: `https://tietopalvelu.ytj.fi/yritys/${x.businessId.value}`,
+        },
+      ];
+    }),
+    名,
+  );
+};
+
+export const 捷克库: 查库 = async (名, signal) => {
+  type R = { kod?: string; subKod?: string; ekonomickeSubjekty?: { ico: string; obchodniJmeno: string; datumVzniku?: string; datumZaniku?: string; sidlo?: { textovaAdresa?: string } }[] };
+  const r = await 取JSON<R>("https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/vyhledat", { 秒: 8, signal, 方法: "POST", body: { obchodniJmeno: 名, pocet: 10 } });
+  // 名字太常见（ARES 一次最多回 1000 条，超了直接报错）：不能说「没查到」
+  if (r.data?.subKod === "VYSTUP_PRILIS_MNOHO_VYSLEDKU") throw new 查不了("名字太常见，捷克 ARES 回的结果太多");
+  return 留像的(
+    (r.data?.ekonomickeSubjekty ?? []).map((x) => ({
+      库: "捷克 ARES 经济主体登记",
+      名: x.obchodniJmeno,
+      号: `IČO ${x.ico}`,
+      存续: !x.datumZaniku,
+      成立: x.datumVzniku,
+      地址: x.sidlo?.textovaAdresa,
+      国: "CZ",
+      链: `https://ares.gov.cz/ekonomicke-subjekty?ico=${x.ico}`,
+    })),
+    名,
+  );
+};
+
+export let 美国重试毫秒 = 1000;
+/** 测试用 */
+export function 设美国重试毫秒(n: number) {
+  美国重试毫秒 = n;
+}
+
+/** 美国 SEC EDGAR：只收上市 / 发债、向 SEC 申报的公司（多数美国进口商是私人公司，不在里面） */
+export const 美国库: 查库 = async (名, signal) => {
+  type R = { hits?: { hits?: { _id: string; _source: { entity: string } }[] } };
+  const url = `https://efts.sec.gov/LATEST/search-index?keysTyped=${encodeURIComponent(名)}`;
+  // 10-18 实测偶尔回一次 500、马上再查就好：隔一秒重试一次
+  const r = await 取JSON<R>(url, { 秒: 8, signal }).catch(async (e: unknown) => {
+    if (!(e instanceof 查不了)) throw e;
+    await new Promise((ok) => setTimeout(ok, 美国重试毫秒));
+    return 取JSON<R>(url, { 秒: 8, signal });
+  });
+  return 留像的(
+    (r.data?.hits?.hits ?? []).map((x) => {
+      const cik = x._id.replace(/\D/g, "");
+      return {
+        库: "美国 SEC EDGAR",
+        // 名字后面常带「(CIK 0001144215)」「, Inc. (DE)」这类尾巴，比名字前去掉括号
+        名: x._source.entity.replace(/\s*\([^)]*\)\s*$/g, "").trim(),
+        号: `CIK ${cik}`,
+        存续: true,
+        状态: "在 SEC 有申报记录",
+        国: "US",
+        链: `https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=${cik}`,
+      };
+    }),
+    名,
+  );
+};
+
+/**
+ * 波兰：没有免费的按名字查的官方库；财政部的「增值税纳税人白名单」（Biała lista）能按税号（NIP）查到登记名、
+ * 状态、注册日期、KRS 号。对方给了波兰税号才查；回来的银行账号、代表人姓名一律不用。
+ */
+export function 波兰库(nip: string): 查库 {
+  let 一次: Promise<Omit<登记, "像">[]> | null = null;
+  return (名, signal) => {
+    const 查 = (一次 ??= (async () => {
+      type R = { result?: { subject?: { name: string; nip: string; krs?: string | null; statusVat?: string; residenceAddress?: string | null; workingAddress?: string | null; registrationLegalDate?: string | null; removalDate?: string | null } | null } };
+      const 今 = new Date().toISOString().slice(0, 10);
+      const r = await 取JSON<R>(`https://wl-api.mf.gov.pl/api/search/nip/${nip}?date=${今}`, { 秒: 8, signal });
+      const s = r.data?.result?.subject;
+      if (!s) return [];
+      return [
+        {
+          库: "波兰财政部增值税白名单（Biała lista）",
+          名: s.name,
+          号: `NIP ${s.nip}${s.krs ? `，KRS ${s.krs}` : ""}`,
+          存续: !s.removalDate,
+          成立: s.registrationLegalDate ?? undefined,
+          地址: s.workingAddress ?? s.residenceAddress ?? undefined,
+          国: "PL",
+          链: "https://www.podatki.gov.pl/wykaz-podatnikow-vat-wyszukiwarka",
+        },
+      ];
+    })());
+    return 查.then((列) => 留像的(列, 名));
+  };
+}
+
 /** 哪些国家有能直查的官方库。英国要 key */
-export function 国家库(国家: string | undefined, env: Record<string, string | undefined> = process.env): { 库?: 查库; 名?: string; 缺key?: boolean } {
+export function 国家库(
+  国家: string | undefined,
+  env: Record<string, string | undefined> = process.env,
+  税号?: string,
+): { 库?: 查库; 名?: string; 缺key?: boolean; 缺税号?: boolean; 不全?: boolean } {
   if (国家 === "GB") {
     const key = env.COMPANIES_HOUSE_API_KEY?.trim();
     return key ? { 库: 英国库(key), 名: "英国 Companies House" } : { 名: "英国 Companies House", 缺key: true };
   }
   if (国家 === "FR") return { 库: 法国库, 名: "法国企业名录" };
   if (国家 === "NO") return { 库: 挪威库, 名: "挪威登记中心" };
+  if (国家 === "FI") return { 库: 芬兰库, 名: "芬兰 PRH 企业登记" };
+  if (国家 === "CZ") return { 库: 捷克库, 名: "捷克 ARES" };
+  // 不全：库里只有一部分公司，没查到不能当疑点
+  if (国家 === "US") return { 库: 美国库, 名: "美国 SEC EDGAR", 不全: true };
+  if (国家 === "PL") {
+    const v = 税号 ? 认税号(税号) : null;
+    return v?.国 === "PL" && /^\d{10}$/.test(v.号) ? { 库: 波兰库(v.号), 名: "波兰增值税白名单" } : { 名: "波兰增值税白名单", 缺税号: true };
+  }
   return {};
 }
 
-const 句 = (x: 登记) => `${x.库}：${x.名}，${x.号}，${x.存续 ? "存续" : "已注销 / 解散"}${x.成立 ? `，${x.成立.slice(0, 10)} 成立` : ""}${x.地址 ? `，${x.地址}` : ""}`;
+const 句 = (x: 登记) => `${x.库}：${x.名}，${x.号}，${x.状态 ?? (x.存续 ? "存续" : "已注销 / 解散")}${x.成立 ? `，${x.成立.slice(0, 10)} 成立` : ""}${x.地址 ? `，${x.地址}` : ""}`;
 
 export async function 查工商(
   公司们: string[],
   国家: string | undefined,
-  opts: { signal?: AbortSignal; env?: Record<string, string | undefined>; GLEIF?: 查库 } = {},
+  opts: { signal?: AbortSignal; env?: Record<string, string | undefined>; GLEIF?: 查库; 税号?: string } = {},
 ): Promise<核验项> {
   const 名们 = [...new Set(公司们.map(查询名).filter((n) => n.length >= 2))].slice(0, 2);
   if (!名们.length) return { key: "registry", 灯: "gray", 态: "不适用", 事实: "没有能拿去查的公司名" };
-  const 本国 = 国家库(国家, opts.env);
+  const 本国 = 国家库(国家, opts.env, opts.税号);
   const 查 = async (库: 查库) => {
     const 出: 登记[] = [];
     for (const n of 名们) 出.push(...(await 库(n, opts.signal)));
@@ -167,8 +300,11 @@ export async function 查工商(
   }
   const 挂 = [国结果, 全球].filter((x) => x instanceof 查不了).length;
   if (本国.库) {
-    if (国结果 instanceof 查不了) return { key: "registry", 灯: "gray", 态: "查不了", 事实: `${本国.名}这会儿查不了（${国结果.message}）` };
-    return { key: "registry", 灯: "yellow", 态: "没查到", 事实: `${本国.名}和 GLEIF 里都没查到「${名们.join("」「")}」` };
+    // 库名以西文结尾（「SEC EDGAR」）的，和后面的中文之间空一格
+    const 名接 = `${本国.名}${/[A-Za-z]$/.test(本国.名 ?? "") ? " " : ""}`;
+    if (国结果 instanceof 查不了) return { key: "registry", 灯: "gray", 态: "查不了", 事实: `${名接}这会儿查不了（${国结果.message}）` };
+    if (本国.不全) return { key: "registry", 灯: "gray", 态: "不适用", 事实: `${名接}和 GLEIF 里都没查到「${名们.join("」「")}」。美国没有全国统一的工商库，EDGAR 只收上市、发债这类向 SEC 申报的公司，私人公司查不到很正常，不扣分` };
+    return { key: "registry", 灯: "yellow", 态: "没查到", 事实: `${名接}和 GLEIF 里都没查到「${名们.join("」「")}」` };
   }
   if (挂 && !本国.缺key) return { key: "registry", 灯: "gray", 态: "查不了", 事实: "GLEIF 这会儿查不了；这个国家没有能直查的官方库" };
   const 国字 = 国家 ? 国名(国家) : "这家公司所在国";
@@ -176,7 +312,11 @@ export async function 查工商(
     key: "registry",
     灯: "gray",
     态: "不适用",
-    事实: 本国.缺key ? `${本国.名} 还没接上（缺查询 key），这一项跳过；GLEIF 里也没查到` : `${国字}没有能直查的官方工商库，GLEIF 里也没有；登记信息以下面网页搜索的为准`,
+    事实: 本国.缺key
+      ? `${本国.名} 还没接上（缺查询 key），这一项跳过；GLEIF 里也没查到`
+      : 本国.缺税号
+        ? `波兰的官方库要拿税号（NIP）查，对方没给波兰税号，这一项跳过；GLEIF 里也没查到`
+        : `${国字}没有能直查的官方工商库，GLEIF 里也没有；登记信息以下面网页搜索的为准`,
   };
 }
 
