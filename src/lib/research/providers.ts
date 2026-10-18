@@ -295,7 +295,11 @@ export function gpt搜索(cfg: 网关配置, model: string = 默认搜索模型.
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
           // include：要回真搜到过的网址（解析时拿它核正文里的网址，见 解析GPT回应）
           // search_context_size：搜索塞给模型多少结果（降本开关，RESEARCH_SEARCH_CONTEXT）。10-16 实测 low 只省约 4% 输入
-          body: JSON.stringify({ model, tools: [{ type: "web_search", ...(结果量 ? { search_context_size: 结果量 } : {}) }], include: ["web_search_call.action.sources"], input: 提示词(query) }),
+          body: (() => {
+            const 拆 = 拆站点(query);
+            const 工具 = { type: "web_search", ...(结果量 ? { search_context_size: 结果量 } : {}), ...(拆.域名.length ? { filters: { allowed_domains: 拆.域名 } } : {}) };
+            return JSON.stringify({ model, tools: [工具], include: ["web_search_call.action.sources"], input: 提示词(拆.查询) });
+          })(),
         },
         "GPT",
         cfg.apiKey,
@@ -310,6 +314,24 @@ export function gpt搜索(cfg: 网关配置, model: string = 默认搜索模型.
       return { results: 解析GPT回应(data), usage };
     },
   };
+}
+
+/**
+ * 查询里的 site:xxx 拆出来，改成 web_search 的域名过滤（filters.allowed_domains）。
+ * 10-18 真实性 bench：gpt-5.5 的网页搜索对「"Rexel" site:linkedin.com」一条都不回、对 site:facebook.com 回一堆不相干的帖子——
+ * 它不认 site: 这个写法。只拆形如 site:域名 的（或者 site:a OR site:b），别的原样留着
+ */
+export function 拆站点(query: string): { 查询: string; 域名: string[] } {
+  const 域名: string[] = [];
+  const 查询 = query
+    .replace(/(?:^|\s)site:([a-z0-9.-]+\.[a-z]{2,})(?=\s|$)/gi, (_, d: string) => {
+      域名.push(d.toLowerCase().replace(/^www\./, ""));
+      return " ";
+    })
+    .replace(/(^|\s)OR(?=\s|$)/g, (m, sp: string) => (域名.length ? sp : m))
+    .replace(/\s+/g, " ")
+    .trim();
+  return 域名.length && 查询 ? { 查询, 域名: [...new Set(域名)] } : { 查询: query, 域名: [] };
 }
 
 /* ---------------- 模拟：开发和测试用，不花钱 ---------------- */

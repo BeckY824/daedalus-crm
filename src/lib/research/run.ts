@@ -35,7 +35,8 @@ import type { 线索 } from "./verify/clues";
 import { 认国家 } from "./verify/country";
 import { 主机 } from "./verify/domain";
 import { 查询名 } from "./verify/names";
-import { 合成真实性, 灯符 } from "./verify/rules";
+import { 合成真实性, 灯符, 邮件头项 } from "./verify/rules";
+import type { 邮件信号 } from "./verify/mail";
 import { 是社媒网址, 社媒查询, 认足迹 } from "./verify/social";
 
 /** reasoningEffort：只有最后打分那一步传（背调打分推理强度），网关 / 实验脚本转成 reasoning_effort */
@@ -54,6 +55,13 @@ export type 背调输入 = {
   需求?: string;
   /** 对方自报的邮箱、电话、官网、税号、国家（客户档案 + 那句话里贴的），拿去做真实性核对（verify/clues.ts） */
   线索?: 线索;
+  /**
+   * 「粘贴询盘邮件」（第二期）：桌面端浏览器里从邮件原文认出来的几样（verify/mail.ts），原文不进来。
+   * 邮箱 / 电话已经并进上面的 线索；这里只用它拼「邮件头」那一项
+   */
+  邮件?: 邮件信号;
+  /** 发件 IP → 国家（桌面端本机的离线库，verify/ip-country.ts）；不给就当 IP 库查不了 */
+  查IP?: (ip: string) => Promise<string | null>;
   b: Pick<BusinessConfig, "brief" | "fields">;
   通道: 背调通道;
   模型: 模型调用;
@@ -427,10 +435,19 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   */
   let 核验中: Promise<核验回应 | null> | null = null;
   let 真: 真实性 | null = null;
+  let 核验国家: { 国家?: string; 自报国家?: string } = {};
+  // 发件 IP 一开始就去查（本机离线库，第一次要下载几秒），到拼真实性的时候多半已经好了
+  const 发件IP = input.邮件?.发件IP;
+  const IP国家: Promise<string | null | "查不了" | undefined> = !发件IP
+    ? Promise.resolve(undefined)
+    : !input.查IP
+      ? Promise.resolve("查不了")
+      : input.查IP(发件IP).catch(() => "查不了" as const);
   const 开始核验 = (官网?: string, 国家城市?: string, 全称?: string) => {
     if (核验中) return;
     const 线 = input.线索;
     const 名 = 查询名(input.公司);
+    核验国家 = { 国家: 认国家(国家城市) ?? 认国家(线?.国家), 自报国家: 认国家(线?.国家) };
     核验中 = 通道
       .核验(
         {
@@ -455,7 +472,14 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     const 回 = await Promise.race([核验中!, new Promise<null>((r) => (停表 = setTimeout(() => r(null), 45_000)))]);
     clearTimeout(停表);
     const 足迹 = 认足迹(全部结果.filter((r) => 是社媒网址(r.url)), 查询名(input.公司), 社媒搜成);
-    真 = 合成真实性(回?.项 ?? null, 足迹, { 名单更新于: 回?.名单更新于 });
+    let 邮件项;
+    if (input.邮件) {
+      let 停IP: ReturnType<typeof setTimeout> | undefined;
+      const 国 = await Promise.race([IP国家, new Promise<"查不了">((r) => (停IP = setTimeout(() => r("查不了"), 15_000)))]);
+      clearTimeout(停IP);
+      邮件项 = 邮件头项(input.邮件, 国, 核验国家);
+    }
+    真 = 合成真实性(回?.项 ?? null, 足迹, { 名单更新于: 回?.名单更新于, 邮件项 });
     发({ type: "verify", 真实性: 真 });
     // 制裁疑似命中两边都出：真实性标红，风险里也列一条「高」（方案 3.1）
     const 制裁 = 真.项.find((x) => x.key === "sanctions" && x.硬红);

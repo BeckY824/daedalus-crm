@@ -11,6 +11,7 @@ import path from "node:path";
 
 const 不用防: Record<string, string> = {
   "src/app/(app)/dashboard/ConversationList.tsx": "只有改对话名字：点两下也是改成同一个名字，不会多出东西",
+  "src/components/research/MailPaste.tsx": "「带上这封邮件」只在本机把认出的几样记到输入框上方，不发请求、不存库；点两下还是同一封",
 };
 
 function 列文件(dir: string): string[] {

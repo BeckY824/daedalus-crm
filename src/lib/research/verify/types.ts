@@ -28,7 +28,7 @@ export const 核验项表 = [
   { key: "site", label: "官网" },
   { key: "email", label: "邮箱" },
   { key: "phone", label: "电话" },
-  { key: "ip", label: "发件 IP" },
+  { key: "ip", label: "邮件头" },
   { key: "sanctions", label: "制裁名单" },
   { key: "footprint", label: "网上足迹" },
 ] as const;

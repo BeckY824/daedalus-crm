@@ -220,3 +220,14 @@
   .rs-node-ring, .rs-spin { animation-duration: 1.6s !important; animation-iteration-count: infinite !important; }
   .rs-status-dot { animation-duration: 2.2s !important; animation-iteration-count: infinite !important; }
 }
+
+/* 「粘贴询盘邮件」弹窗（第二期）：说明、原文框、认出来的几样、隐私说明 */
+.mp-help { margin: 0 0 10px; color: var(--ink-soft); line-height: 1.7; }
+.mp-ta { font-size: var(--fs-note); }
+.mp-warn { margin: 8px 0 0; color: var(--warning-text); font-size: var(--fs-note); line-height: 1.6; }
+.mp-got { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 12px; margin: 12px 0 0;
+  padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-ctl); font-size: var(--fs-note); }
+.mp-got dt { color: var(--text-muted); }
+.mp-got dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.mp-got dd.mp-bad { color: var(--warning-text); }
+.mp-note { margin: 10px 0 0; color: var(--text-muted); font-size: var(--fs-min); line-height: 1.6; }

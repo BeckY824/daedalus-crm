@@ -24,6 +24,7 @@
  * **首页那条列表照样看得到每一页问过什么**（这是要的：独立的是上下文，不是存档）。
  */
 import { useSyncExternalStore } from "react";
+import type { 邮件信号 } from "./research/verify/mail";
 
 export type Turn = {
   id: string;
@@ -38,6 +39,8 @@ export type Turn = {
   需求?: string;
   /** kind=research：认不准是哪家（多家 / 太短 / 认不出），先让人点选或补一句，不扣次数（lib/research/target.ts） */
   待选?: { 种类: "候选" | "要补充" | "认不出"; 候选?: string[]; 公司?: string; 原因?: string };
+  /** kind=research：「粘贴询盘邮件」认出来的几样（发件人、发件 IP、认证结论…）。原文不在这里，只在浏览器里解析过一次 */
+  邮件?: 邮件信号;
   /** 上一问还在跑时发的：排队，等它答完再起 */
   queued?: boolean;
   /**

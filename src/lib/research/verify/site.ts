@@ -64,6 +64,7 @@ export async function 查官网(域: string, 公司: string, signal?: AbortSigna
   const 落地主 = 主域名(页.url);
   const 跳走 = 落地主 && 落地主 !== 主域名(域) ? `，打开后跳到 ${落地主}` : "";
   const 有名 = 提到了(`${页.title}\n${页.text.slice(0, 6000)}`, 公司);
-  const 事实 = `可打开，${https ? "HTTPS" : "只有 HTTP（没加密）"}${跳走}；${有名 ? "页面上有这家公司的名字" : "首页上没看到这家公司的名字"}`;
-  return { key: "site", 灯: https ? "green" : "yellow", 态: "已核", 事实, 链接 };
+  // 首页上找不到这家的名字：多半不是它的官网（10-18 bench：假公司 Lumexa Trading 被认到了同名前缀的 Lumexa Imaging），标黄
+  const 事实 = `可打开，${https ? "HTTPS" : "只有 HTTP（没加密）"}${跳走}；${有名 ? "页面上有这家公司的名字" : "首页上没看到这家公司的名字，可能不是这家的官网"}`;
+  return { key: "site", 灯: https && 有名 ? "green" : "yellow", 态: "已核", 事实, 链接 };
 }

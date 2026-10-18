@@ -6,6 +6,7 @@
  *   - 只回答「有没有」，有就附链接。不数人头、不把人名职位抄成联系人列表，存进客户时也不自动建联系人；
  *   - 不接第三方 LinkedIn 数据商。
  * 这一行只是真实性的参考信号：全未搜到标黄、不标红（很多中小进口商确实不做社媒）。
+ * LinkedIn 我们的搜索不收录（10-18 实测），只能从别的搜索结果里顺带认到。
  */
 import type { 搜索结果 } from "../types";
 import type { 核验项, 核验链接 } from "./types";
@@ -21,10 +22,14 @@ export function 是社媒网址(url: string): boolean {
   }
 }
 
-/** 近期信号那一步程序自己发的两次定向搜索（不让模型挑）：用现有的搜索通道 */
+/**
+ * 近期信号那一步程序自己发的定向搜索（不让模型挑）：用现有的搜索通道，site: 由搜索服务转成域名过滤（providers.ts 拆站点）。
+ * **只搜 Facebook**：10-18 bench 实测我们用的网页搜索（gpt-5.5）不收录 LinkedIn——加不加过滤、换什么说法都搜不出
+ * linkedin.com 的链接，那一次白花钱。LinkedIn 只从这次别的搜索结果里顺带认（认足迹），事实里写明搜不到不扣分
+ */
 export function 社媒查询(公司: string): string[] {
   const 名 = 查询名(公司);
-  return [`"${名}" site:linkedin.com`, `"${名}" site:facebook.com`];
+  return [`"${名}" site:facebook.com`];
 }
 
 type 分类 = "公司主页" | "员工" | "Facebook";
@@ -84,11 +89,12 @@ export function 认足迹(结果: 搜索结果[], 公司: string, 搜成了: boo
   const 员工 = 收.员工.slice(0, 3);
   const fb = 收.Facebook.slice(0, 2);
   const 事实 = [
-    `LinkedIn 公司主页：${主页.length ? "有" : "未搜到"}`,
-    `在职员工：${员工.length ? "搜到" : "未搜到"}`,
     `Facebook 主页：${fb.length ? "有" : "未搜到"}`,
+    主页.length || 员工.length
+      ? `LinkedIn：${[主页.length && "公司主页有", 员工.length && "搜到在职员工"].filter(Boolean).join("、")}`
+      : "LinkedIn：我们用的网页搜索不收录，没法查（不扣分）",
   ].join("；");
   const 有 = 主页.length + 员工.length + fb.length > 0;
-  if (!有 && !搜成了) return { key: "footprint", 灯: "gray", 态: "查不了", 事实: "LinkedIn / Facebook 定向搜索没搜成" };
+  if (!有 && !搜成了) return { key: "footprint", 灯: "gray", 态: "查不了", 事实: "Facebook 定向搜索没搜成；LinkedIn 我们用的网页搜索不收录" };
   return { key: "footprint", 灯: 有 ? "green" : "yellow", 态: 有 ? "已核" : "没查到", 事实, 链接: [...主页, ...员工, ...fb] };
 }

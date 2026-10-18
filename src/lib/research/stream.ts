@@ -15,6 +15,10 @@ import { 报告文本 } from "./report";
 import type { 研究事件 } from "./types";
 import type { 背调状态 } from "./state";
 import { 合并线索, 认线索, type 线索 } from "./verify/clues";
+import { 收邮件信号, type 邮件信号 } from "./verify/mail";
+import { 是免费邮箱 } from "./verify/domain";
+import { 取IP库, 查IP } from "./verify/ip-country";
+import { 模拟查IP } from "./mock";
 
 export type 背调回答 = { text: string; records: []; customers: { id: string; name: string; followStatus: string }[]; proposals: []; research: 背调状态 };
 
@@ -26,7 +30,7 @@ export function 收公司名(v: unknown): string | null {
 }
 
 export async function 背调一次(
-  body: { company: unknown; customerId?: unknown; need?: unknown },
+  body: { company: unknown; customerId?: unknown; need?: unknown; mail?: unknown },
   send: (obj: unknown) => void,
   signal: AbortSignal,
 ): Promise<{ ok: true; answer: 背调回答 } | { ok: false; error: string }> {
@@ -64,6 +68,19 @@ export async function 背调一次(
       };
     }
   }
+  /*
+    「粘贴询盘邮件」（第二期）：浏览器里已经从原文认出了几样（verify/mail.ts），原文不发过来。
+    这里只收认得的字段；发件人、回复地址、签名里的电话和税号并进线索，和手填的一样去核
+  */
+  const 邮件 = 收邮件信号(body.mail);
+  const 邮件线索: Partial<线索> | undefined = 邮件 && {
+    邮箱: [邮件.发件人, 邮件.回复到].filter((x): x is string => Boolean(x)),
+    电话: 邮件.电话,
+    税号: 邮件.税号,
+    官网: 邮件.发件人 && !是免费邮箱(邮件.发件人) ? 邮件.发件人.split("@")[1] : undefined,
+  };
+  // IP 库先拿起来（本机第一次要下载几秒）：等到拼真实性的时候多半已经好了
+  if (邮件?.发件IP && 通道.通道.名 !== "模拟") void 取IP库();
   // 老客户里去掉它自己：不然从客户详情页背调一位老客户，「最像的老客户」永远是它本人
   const 老客户 = (await 老客户清单(b)).filter((c) => c.id !== 客户?.id);
 
@@ -72,7 +89,10 @@ export async function 背调一次(
     公司,
     客户,
     需求,
-    线索: 合并线索(档案线索, 认线索(需求), 认线索(公司)),
+    线索: 合并线索(档案线索, 邮件线索, 认线索(需求), 认线索(公司)),
+    邮件,
+    // 模拟通道（e2e、演示）不下载真的 IP 库
+    查IP: 通道.通道.名 === "模拟" ? 模拟查IP : 查发件IP,
     b,
     通道: 通道.通道,
     // 云端通道自带「打我们的网关」的模型调用（自己填了 Key 的也走我们的，照价扣）；模拟通道用本机配的模型
@@ -96,3 +116,12 @@ export async function 背调一次(
     },
   };
 }
+
+/** 发件 IP 查国家：本机离线库（verify/ip-country.ts），IP 不发出去。库下不来 → 抛错，编排那边当「查不了」 */
+async function 查发件IP(ip: string): Promise<string | null> {
+  const 库 = await 取IP库();
+  if (!库) throw new Error("IP 库没下下来");
+  return 查IP(库, ip);
+}
+
+export type { 邮件信号 };

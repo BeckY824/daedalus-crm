@@ -57,8 +57,13 @@ beforeAll(async () => {
     import ResearchRun, { ResearchPick } from '@/components/research/ResearchRun';
     import ResearchCard from '@/components/research/ResearchCard';
     import ResearchModeLine from '@/components/research/ResearchModeLine';
+    import MailPaste from '@/components/research/MailPaste';
     const 模式 = window.__模式;
-    createRoot(document.getElementById('root')).render(<App>{模式 === 'run'
+    createRoot(document.getElementById('root')).render(<App>{模式 === 'mail'
+      ? <MailPaste open onCancel={() => {}} onOk={(x) => window.__邮件.push(x)} />
+      : 模式 === 'direct-mail'
+      ? <ResearchRun jobKey="t:3" company="abc-lighting.ae" 直接开跑 需求="查一下这家" 邮件={window.__带邮件} />
+      : 模式 === 'run'
       ? <ResearchRun jobKey="t:1" company="Lumora Trading GmbH" />
       : 模式 === 'direct'
         ? <ResearchRun jobKey="t:2" company="Lumora Trading GmbH" 直接开跑 需求="帮我查 Lumora 适不适合我们" />
@@ -110,7 +115,7 @@ afterAll(async () => {
   await browser?.close();
 });
 
-async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "line", opts: { reducedMotion?: boolean; 价目?: unknown; 待选?: unknown; 状态?: unknown } = {}): Promise<Page> {
+async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "line" | "mail" | "direct-mail", opts: { reducedMotion?: boolean; 价目?: unknown; 待选?: unknown; 状态?: unknown; 带邮件?: unknown } = {}): Promise<Page> {
   const page = await browser.newPage({ reducedMotion: opts.reducedMotion ? "reduce" : "no-preference" });
   // 打包出来的组件在页面里崩了的话，测试只会表现成「等不到」超时：把页面报错打出来
   page.on("pageerror", (e) => console.error("[页面报错]", e.message));
@@ -126,7 +131,7 @@ async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "li
   await page.goto("http://card.test/");
   await page.addStyleTag({ content: css });
   // 组件里有读 process.env 的（业务配置那一层），Next 会把它编进去，这里打的包没有：给一个空的
-  await page.addScriptTag({ content: `window.process={env:{}}; window.__价目=${JSON.stringify(opts.价目 ?? null)} ?? undefined; window.__待选=${JSON.stringify(opts.待选 ?? null)}; window.__选=[]; window.__模式=${JSON.stringify(模式)}; window.__存=[]; window.__状态=${JSON.stringify(opts.状态 ?? (模式 === "running" ? 事件.slice(0, 3).reduce(归约, 初始状态({ name: "Lumora Trading GmbH" })) : 最终))};` });
+  await page.addScriptTag({ content: `window.process={env:{}}; window.__价目=${JSON.stringify(opts.价目 ?? null)} ?? undefined; window.__待选=${JSON.stringify(opts.待选 ?? null)}; window.__选=[]; window.__邮件=[]; window.__带邮件=${JSON.stringify(opts.带邮件 ?? null)} ?? undefined; window.__模式=${JSON.stringify(模式)}; window.__存=[]; window.__状态=${JSON.stringify(opts.状态 ?? (模式 === "running" ? 事件.slice(0, 3).reduce(归约, 初始状态({ name: "Lumora Trading GmbH" })) : 最终))};` });
   await page.addScriptTag({ content: bundle });
   return page;
 }
@@ -186,7 +191,7 @@ it("真实性块（程序直查、不进 100 分）：总灯、每一项的灯�
       { key: "domain", 灯: "yellow", 态: "已核", 事实: "ghost-trading.example 注册于 2026-09-18（RDAP），才 30 天", 新域名: true, 链接: [{ title: "ghost-trading.example 的 RDAP 记录", url: "https://rdap.example/ghost" }] },
       { key: "sanctions", 灯: "green", 态: "已核", 事实: "美国 OFAC / 欧盟：未命中（名单更新于 10-18）" },
     ],
-    { key: "footprint", 灯: "yellow", 态: "没查到", 事实: "LinkedIn 公司主页：未搜到；在职员工：未搜到；Facebook 主页：未搜到" },
+    { key: "footprint", 灯: "yellow", 态: "没查到", 事实: "Facebook 主页：未搜到；LinkedIn：我们用的网页搜索不收录，没法查（不扣分）" },
     { 名单更新于: "2026-10-18T01:00:00Z" },
   );
   const s = [...事件.slice(0, -1), { type: "verify", 真实性 }, { type: "verify-note", text: "域名很新、网上几乎没有足迹，先要营业执照。" }, { type: "import", 有: false }, 事件.at(-1)!]
@@ -195,7 +200,7 @@ it("真实性块（程序直查、不进 100 分）：总灯、每一项的灯�
   const 块 = page.locator(".rs-trust");
   await 块.waitFor();
   const t = (await 块.textContent()) ?? "";
-  for (const x of ["真实性", "高危", "域名注册不到 90 天", "程序直查 · 不经模型", "域名很新、网上几乎没有足迹", "工商登记", "才 30 天", "LinkedIn 公司主页：未搜到", "发件 IP", "没贴询盘邮件原文", "制裁名单（美国 OFAC、欧盟、联合国、英国）更新于 2026-10-18"]) expect(t).toContain(x);
+  for (const x of ["真实性", "高危", "域名注册不到 90 天", "程序直查 · 不经模型", "域名很新、网上几乎没有足迹", "工商登记", "才 30 天", "Facebook 主页：未搜到", "邮件头", "没贴询盘邮件原文", "制裁名单（美国 OFAC、欧盟、联合国、英国）更新于 2026-10-18"]) expect(t).toContain(x);
   expect(await 块.getAttribute("class")).toContain("rs-trust-red");
   expect(await page.locator(".rs-check").count()).toBe(9);
   expect(await page.getByRole("link", { name: "ghost-trading.example 的 RDAP 记录" }).getAttribute("href")).toBe("https://rdap.example/ghost");
@@ -264,3 +269,53 @@ it("背调模式那一行：剩几次；用完了说还差几次", async () => {
   await page.getByText("背调用不了：背调要联网搜索，请先在桌面端登录账号").waitFor();
   await page.close();
 }, 30_000);
+
+const 询盘原文 = [
+  "Received: from mail.abc-lighting.ae (mail.abc-lighting.ae [94.200.1.10]) by mx1.ourfactory.cn with ESMTP id 999",
+  "Received: from DESKTOP-AHMED (unknown [192.168.1.23]) by mail.abc-lighting.ae with ESMTPA",
+  "Authentication-Results: mx1.ourfactory.cn; spf=pass smtp.mailfrom=abc-lighting.ae; dkim=pass header.d=abc-lighting.ae",
+  'From: "Ahmed" <ahmed@abc-lighting.ae>',
+  "Reply-To: ahmed.abc@gmail.com",
+  "Subject: Inquiry",
+  "",
+  "Dear Sir, we need 2000 pcs.",
+  "Tel: +971 4 123 4567",
+].join("\n");
+
+it("粘贴询盘邮件（第二期）：粘原文当场认出发件人 / IP / 认证 / 电话，回复地址换了标出来；只粘正文给提示、按钮灰；手机宽度不横向滚", async () => {
+  const page = await open("mail");
+  const 框 = page.getByRole("textbox", { name: "询盘邮件原文" });
+  await 框.waitFor();
+  const 带上 = page.getByRole("button", { name: "带上这封邮件" });
+  await 框.fill("Dear Sir, we need 2000 pcs LED street light.");
+  expect(await page.textContent(".mp-warn")).toContain("不像邮件原文");
+  expect(await 带上.isDisabled()).toBe(true);
+  await 框.fill(询盘原文);
+  const 认 = page.getByRole("definition");
+  expect(await 认.allTextContents()).toEqual([
+    "ahmed@abc-lighting.ae",
+    "ahmed.abc@gmail.com（和发件人不是一个域名，留意）",
+    "94.200.1.10（最早一跳，背调时在本机查国家）",
+    "SPF 通过、DKIM 通过",
+    "+971 4 123 4567",
+  ]);
+  expect(await page.textContent(".mp-note")).toContain("原文不上传");
+  await page.setViewportSize({ width: 380, height: 800 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= 380)).toBe(true);
+  await 带上.click();
+  const 交 = (await page.evaluate(() => (window as unknown as { __邮件: unknown[] }).__邮件)) as Record<string, unknown>[];
+  expect(交).toHaveLength(1);
+  expect(交[0]).toMatchObject({ 发件人: "ahmed@abc-lighting.ae", 回复到: "ahmed.abc@gmail.com", 发件IP: "94.200.1.10", spf: "pass", dkim: "pass" });
+  expect(JSON.stringify(交[0])).not.toContain("Dear Sir");
+  await page.close();
+});
+
+it("带着邮件开跑：请求里只有认出来的那几样，没有原文", async () => {
+  (globalThis as unknown as { __请求: unknown[] }).__请求 = [];
+  const 信 = { 发件人: "ahmed@abc-lighting.ae", 发件IP: "94.200.1.10", IP来源: "最早一跳", spf: "pass", 电话: ["+971 4 123 4567"], 跳数: 2 };
+  const page = await open("direct-mail", { 带邮件: 信 });
+  await expect.poll(() => (globalThis as unknown as { __请求: unknown[] }).__请求.length).toBe(1);
+  const 体 = (globalThis as unknown as { __请求: Record<string, unknown>[] }).__请求[0];
+  expect(体.mail).toEqual(信);
+  await page.close();
+});

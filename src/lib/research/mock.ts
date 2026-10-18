@@ -149,3 +149,14 @@ export async function 模拟核验(请求: Omit<核验请求, "runId">): Promise
     名单更新于: 名单[0].更新于,
   };
 }
+
+/**
+ * 模拟的「发件 IP → 国家」（第二期）：e2e、演示用，不下载真的 IP 库。
+ * 按 IP 第一段给个固定的国家（不到 100 阿联酋、不到 200 德国、其余中国），够测「对得上 / 对不上」两种
+ */
+export async function 模拟查IP(ip: string): Promise<string | null> {
+  const 头 = Number(ip.split(".")[0]);
+  if (!Number.isFinite(头)) return null;
+  return 头 < 100 ? "AE" : 头 < 200 ? "DE" : "CN";
+}
+

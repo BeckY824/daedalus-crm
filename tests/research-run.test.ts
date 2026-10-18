@@ -14,6 +14,7 @@ import { 背调上限, 社媒搜索次数, 阶段表, type 研究事件 } from "
 import type { 背调通道 } from "@/lib/research/channel";
 import type { 老客户 } from "@/lib/research/similar";
 import type { 线索 } from "@/lib/research/verify/clues";
+import type { 邮件信号 } from "@/lib/research/verify/mail";
 
 const 公司 = "Lumora Trading GmbH";
 const 官网 = "https://lumora-trading.example";
@@ -97,7 +98,7 @@ function 假模型(opts: { 一直搜?: boolean; 不吃tools?: boolean; 合并?: 
 /** 模型自己要的搜索（去掉程序发的 site:linkedin.com / site:facebook.com 那两次） */
 const 模型搜的 = (搜: { mock: { calls: unknown[][] } }) => 搜.mock.calls.filter((c) => !/site:(linkedin|facebook)\.com/.test(String(c[1]))).length;
 
-async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客户?: 老客户[]; signal?: AbortSignal; 线索?: 线索; 公司?: string } = {}) {
+async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客户?: 老客户[]; signal?: AbortSignal; 线索?: 线索; 公司?: string; 邮件?: 邮件信号; 查IP?: (ip: string) => Promise<string | null> } = {}) {
   const 事件: 研究事件[] = [];
   const 通道 = opts.通道 ?? 模拟通道();
   const r = await 跑背调({
@@ -110,6 +111,8 @@ async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客�
     发: (e) => 事件.push(e),
     signal: opts.signal,
     runId: "run-test",
+    邮件: opts.邮件,
+    查IP: opts.查IP,
   });
   return { r, 事件 };
 }
@@ -498,6 +501,22 @@ describe("真实性（10-18）", () => {
     const v = 取核验((await 跑({ 通道 })).事件);
     expect(v.真实性.项.find((x) => x.key === "registry")?.事实).toContain("服务器这次没核成");
     expect(v.真实性.项.find((x) => x.key === "footprint")?.灯).toBe("green");
+  });
+
+  it("带了询盘邮件（第二期）：发件 IP 在本机查国家，和自称的国家对不上就黄；没给查 IP 的就是「查不了」", async () => {
+    const 邮件: 邮件信号 = { 发件人: "sales@lumora-trading.example", 发件IP: "41.58.1.2", IP来源: "最早一跳", spf: "pass", 电话: [], 跳数: 3 };
+    const 查IP = vi.fn(async () => "NG");
+    const v = 取核验((await 跑({ 邮件, 查IP, 线索: { 邮箱: [], 电话: [], 国家: "德国" } })).事件);
+    expect(查IP).toHaveBeenCalledWith("41.58.1.2");
+    const ip = v.真实性.项.find((x) => x.key === "ip")!;
+    expect(ip).toMatchObject({ 灯: "yellow", 态: "已核" });
+    expect(ip.事实).toContain("在尼日利亚，和对方自称的国家德国对不上");
+    const 查不了 = 取核验((await 跑({ 邮件 })).事件).真实性.项.find((x) => x.key === "ip")!;
+    expect(查不了).toMatchObject({ 灯: "gray", 态: "查不了" });
+    const 坏 = 取核验((await 跑({ 邮件, 查IP: async () => Promise.reject(new Error("断网")) })).事件).真实性.项.find((x) => x.key === "ip")!;
+    expect(坏.态).toBe("查不了");
+    const 没贴 = 取核验((await 跑()).事件).真实性.项.find((x) => x.key === "ip")!;
+    expect(没贴.事实).toContain("没贴询盘邮件原文");
   });
 
   it("制裁疑似命中：风险里也列一条「高」", async () => {

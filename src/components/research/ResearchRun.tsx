@@ -20,6 +20,7 @@ import { useJob, clearJob, getJob } from "@/lib/ai-jobs";
 import { useBusiness } from "@/lib/business-client";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import type { 背调状态 } from "@/lib/research/state";
+import type { 邮件信号 } from "@/lib/research/verify/mail";
 import { 报告文本 } from "@/lib/research/report";
 import { 背调价目, 存背调到客户, 新建客户并存背调, 找同名客户, 认联系方式 } from "@/lib/research/actions";
 
@@ -36,6 +37,7 @@ export default function ResearchRun({
   任务去,
   直接开跑,
   需求,
+  邮件,
 }: {
   jobKey: string;
   company: string;
@@ -51,6 +53,8 @@ export default function ResearchRun({
   直接开跑?: boolean;
   /** 背调模式里那句原话，带给模型 */
   需求?: string;
+  /** 「粘贴询盘邮件」认出来的几样（不是原文） */
+  邮件?: 邮件信号;
 }) {
   const job = useJob<StreamJob<背调答案>>(jobKey);
   const running = job?.status === "loading";
@@ -63,7 +67,7 @@ export default function ResearchRun({
   const 查到过 = 原 ? Object.values(原.stages).some((x) => x.tools.some((t) => t.status === "done")) : false;
   const s = 原 && !原.done && job?.status === "error" && 查到过 ? { ...原, done: { charge: 0, 不完整: true } } : 原;
 
-  const 开跑 = () => runStream<背调答案>(jobKey, { mode: "research", company, customerId: customer?.id, need: 需求 }, undefined, { 名: `背调 ${company}`.slice(0, 18), 去: 任务去 });
+  const 开跑 = () => runStream<背调答案>(jobKey, { mode: "research", company, customerId: customer?.id, need: 需求, ...(邮件 ? { mail: 邮件 } : {}) }, undefined, { 名: `背调 ${company}`.slice(0, 18), 去: 任务去 });
   if (!job) return 直接开跑 ? <AutoStart jobKey={jobKey} onStart={开跑} /> : <Confirm company={company} onCancel={onCancel} onStart={开跑} />;
   if (!s) return job.status === "error" ? <div className="rs-err">{job.error}</div> : null;
 

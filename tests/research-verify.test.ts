@@ -97,8 +97,8 @@ describe("国家", () => {
 });
 
 describe("网上足迹（只看搜索结果，不打开页面）", () => {
-  it("两条定向搜索；社媒网址认得出", () => {
-    expect(社媒查询("SLV 德国")).toEqual(['"SLV" site:linkedin.com', '"SLV" site:facebook.com']);
+  it("一条 Facebook 定向搜索（LinkedIn 搜索不收录）；社媒网址认得出", () => {
+    expect(社媒查询("SLV 德国")).toEqual(['"SLV" site:facebook.com']);
     expect(是社媒网址("https://de.linkedin.com/company/slv")).toBe(true);
     expect(是社媒网址("https://www.facebook.com/slvlighting")).toBe(true);
     expect(是社媒网址("https://slv.com")).toBe(false);
@@ -117,7 +117,7 @@ describe("网上足迹（只看搜索结果，不打开页面）", () => {
       true,
     );
     expect(x).toMatchObject({ 灯: "green", 态: "已核" });
-    expect(x.事实).toBe("LinkedIn 公司主页：有；在职员工：搜到；Facebook 主页：有");
+    expect(x.事实).toBe("Facebook 主页：有；LinkedIn：公司主页有、搜到在职员工");
     expect(x.链接?.map((l) => l.url)).toEqual(["https://www.linkedin.com/company/slv-gmbh/", "https://de.linkedin.com/in/anna-m", "https://www.facebook.com/slv.lighting"]);
   });
   it("全未搜到标黄（不标红）；一次都没搜成是「查不了」", () => {
@@ -350,13 +350,15 @@ describe("总灯和信息少（代码定，不经模型）", () => {
   });
   it("有黄、或者能核的不到一半：黄；都核得上：绿。没提供 / 不适用不算能核的", () => {
     expect(定总灯([项("domain", "green"), 项("email", "yellow")]).总字).toBe("基本可信，有 1 处要留意");
+    // 3 处以上不再说「基本可信」（10-18 bench：假公司 4 处黄）
+    expect(定总灯([项("domain", "yellow"), 项("site", "yellow"), 项("email", "yellow"), 项("phone", "yellow"), 项("sanctions", "green")]).总字).toBe("疑点较多，有 4 处要留意，先核实再谈");
     expect(定总灯([项("domain", "green"), 项("registry", "gray", "查不了"), 项("site", "gray", "查不了")]).总灯).toBe("yellow");
     expect(定总灯([项("domain", "green"), 项("site", "green"), 项("phone", "gray", "没提供"), 项("vat", "gray", "不适用")]).总灯).toBe("green");
   });
   it("合成：九项按固定顺序，缺的补默认那一行", () => {
     const v = 合成真实性(null, 项("footprint", "green"));
     expect(v.项.map((x) => x.key)).toEqual(["registry", "vat", "domain", "site", "email", "phone", "ip", "sanctions", "footprint"]);
-    expect(v.项.find((x) => x.key === "ip")?.事实).toBe("没贴询盘邮件原文，未查");
+    expect(v.项.find((x) => x.key === "ip")?.事实).toBe("没贴询盘邮件原文，未查（背调模式里点「粘贴询盘邮件」可以带上）");
     expect(v.总灯).toBe("yellow");
   });
 
@@ -370,7 +372,7 @@ describe("总灯和信息少（代码定，不经模型）", () => {
     expect(信息少(跑(事件))).toBeNull();
     const s = 跑([...事件, { type: "done", charge: 1, 不完整: false }]);
     const 少 = 信息少(s);
-    expect(少?.缺).toEqual(expect.arrayContaining(["没有工商登记", "没有 LinkedIn / Facebook", "没找到官网", "没有独立来源"]));
+    expect(少?.缺).toEqual(expect.arrayContaining(["没有工商登记", "没搜到 Facebook 主页", "没找到官网", "没有独立来源"]));
     expect(少?.文字).toMatch(/^网上能查到的很少：.*建议先要营业执照、视频验厂，或走信用证 \/ 小额试单。$/);
   });
   it("独立来源按主域名算，不算它自己的官网", () => {

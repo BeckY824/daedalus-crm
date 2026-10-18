@@ -65,7 +65,7 @@ test("首页说「帮我背调 XX」：先出确认卡，开始后 6 步展开�
   await expect(真).toContainText("程序直查 · 不经模型");
   await expect(真.locator(".rs-check")).toHaveCount(9);
   await expect(真).toContainText("示例登记库");
-  await expect(真).toContainText("LinkedIn 公司主页：有");
+  await expect(真).toContainText("Facebook 主页：有");
   await expect(卡.locator(".rs-fit-light")).toContainText("真实性");
   await expect(卡.locator(".rs-fields")).toContainText("进口记录");
 
@@ -133,4 +133,34 @@ test("背调模式：选中有明显状态，发出去直接开跑；认不准�
   await 开关.click();
   await expect(开关).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByPlaceholder("输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们")).toHaveCount(0);
+});
+
+test("背调模式里粘贴询盘邮件（第二期）：本机认出发件人和 IP，带着它开跑，真实性里「邮件头」一项按 IP 国家定灯", async ({ page }) => {
+  test.setTimeout(120_000);
+  await 登录(page);
+  await page.getByRole("button", { name: "背调", exact: true }).click();
+  await page.getByRole("button", { name: "粘贴询盘邮件" }).click();
+  const 原文 = [
+    "Received: from mail.lumora-trading.example (mail.lumora-trading.example [94.200.1.10]) by mx.ourfactory.cn with ESMTP id 1",
+    "Authentication-Results: mx.ourfactory.cn; spf=pass smtp.mailfrom=lumora-trading.example",
+    "From: Jonas <jonas@lumora-trading.example>",
+    "Subject: Inquiry",
+    "",
+    "Dear Sir, please quote 500 pcs.",
+  ].join("\n");
+  await page.getByRole("textbox", { name: "询盘邮件原文" }).fill(原文);
+  await page.getByRole("button", { name: "带上这封邮件" }).click();
+  await expect(page.getByText("带上询盘邮件：jonas@lumora-trading.example · 发件 IP 94.200.1.10")).toBeVisible();
+
+  const 框 = page.getByPlaceholder("输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们");
+  await 框.fill("Lumora Trading GmbH");
+  await 框.press("Enter");
+  const 卡 = page.getByRole("region", { name: "背调 Lumora Trading GmbH" }).last();
+  await expect(卡.locator(".rs-pill")).toHaveText("已完成", { timeout: 60_000 });
+  // 发出去就不带了：下一轮要再贴
+  await expect(page.getByText(/带上询盘邮件：/)).toHaveCount(0);
+  // 模拟查 IP：94.x 当阿联酋；官网认出来是德国 → 对不上，黄
+  const 邮件头 = 卡.locator(".rs-check").filter({ hasText: "邮件头" });
+  await expect(邮件头).toContainText("发件 IP 94.200.1.10（最早一跳）在阿联酋");
+  await expect(邮件头).toContainText("SPF 通过");
 });

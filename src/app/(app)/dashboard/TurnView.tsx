@@ -241,6 +241,7 @@ export default function TurnView({
             company={turn.公司}
             直接开跑={turn.直接}
             需求={turn.需求}
+            邮件={turn.邮件}
             onCancel={() => set移走中(true)}
             任务去={`/dashboard#turn-${turn.id}`}
           />

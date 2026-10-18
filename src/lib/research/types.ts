@@ -40,10 +40,10 @@ export type 读页结果 = { url: string; title: string; text: string; 截断了
 export const 背调上限 = { 搜索: 8, 读页: 10 } as const;
 
 /**
- * 近期信号那一步程序自己发的 LinkedIn / Facebook 定向搜索（lib/research/verify/social.ts 社媒查询）：
+ * 近期信号那一步程序自己发的 Facebook 定向搜索（lib/research/verify/social.ts 社媒查询；LinkedIn 搜索不收录，10-18 去掉）：
  * 不占模型的搜索次数，服务器的次数闸多放这么几次（10-18）
  */
-export const 社媒搜索次数 = 2;
+export const 社媒搜索次数 = 1;
 
 /* 扣几次、花多少的规矩在 price.ts（服务器按配置算，桌面端开跑前问 /research/price 拿数） */
 
