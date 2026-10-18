@@ -117,8 +117,33 @@ describe("网上足迹（只看搜索结果，不打开页面）", () => {
       true,
     );
     expect(x).toMatchObject({ 灯: "green", 态: "已核" });
-    expect(x.事实).toBe("Facebook 主页：有；LinkedIn：公司主页有、搜到在职员工");
+    expect(x.事实).toBe("Facebook 主页：有（SLV Lighting）；LinkedIn：公司主页有、搜到在职员工");
     expect(x.链接?.map((l) => l.url)).toEqual(["https://www.linkedin.com/company/slv-gmbh/", "https://de.linkedin.com/in/anna-m", "https://www.facebook.com/slv.lighting"]);
+  });
+  it("Facebook 主页下的帖子算那个主页（10-18 bench：搜到的多是 /RexelFR/posts/…）；别家主页的帖子、graph 图片不算", () => {
+    const x = 认足迹(
+      [
+        { title: "Rexel France - Découvrez la toute nouvelle application... - Facebook", url: "https://www.facebook.com/RexelFR/posts/-d%C3%A9couvrez-la/784486757016022/", snippet: "" },
+        { title: "Rexel France - Bizline vous présente... Facebook", url: "https://www.facebook.com/RexelFR/videos/easy-cee/2052327971816199/", snippet: "" },
+      ],
+      "Rexel France",
+      true,
+    );
+    expect(x).toMatchObject({ 灯: "green", 态: "已核" });
+    expect(x.链接).toEqual([{ title: "Rexel France（Facebook 主页）", url: "https://www.facebook.com/RexelFR" }]);
+    // 萨尔瓦多经销商 AlfaLight 的帖子里提到 deltalight、Ansell 那条是 graph 接口的头像图：都不是这家的主页
+    const 别家 = 认足迹(
+      [
+        { title: "Facebook", url: "https://www.facebook.com/AlfaLight.sv/posts/iluminaci%C3%B3n-deltalight-elsalvador/963376393729968/", snippet: "Iluminación Delta Light" },
+        { title: "AlfaLight - Iluminación Delta Light en El Salvador", url: "https://www.facebook.com/AlfaLight.sv/posts/x/1/", snippet: "" },
+        { title: "graph.facebook.com", url: "https://graph.facebook.com/v2.8/2083225758519903/picture/", snippet: "" },
+        { title: "Delta Light", url: "https://www.facebook.com/permalink.php?story_fbid=1", snippet: "" },
+        { title: "Finalisation de l’étage bientôt le reste de la maison !! #DeltaLight# ...", url: "https://www.facebook.com/electrodesign95/videos/finalisation/1522614678182577/", snippet: "" },
+      ],
+      "Delta Light",
+      true,
+    );
+    expect(别家).toMatchObject({ 灯: "yellow", 态: "没查到" });
   });
   it("全未搜到标黄（不标红）；一次都没搜成是「查不了」", () => {
     expect(认足迹([], "Ghost Trading", true)).toMatchObject({ 灯: "yellow", 态: "没查到" });

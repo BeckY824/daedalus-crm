@@ -10,7 +10,7 @@
  */
 import type { 搜索结果 } from "../types";
 import type { 核验项, 核验链接 } from "./types";
-import { 提到了, 查询名 } from "./names";
+import { 提到了, 比名字, 查询名 } from "./names";
 
 const 社媒域 = /(^|\.)(linkedin\.com|facebook\.com|fb\.com|fb\.me|instagram\.com|lnkd\.in)$/i;
 
@@ -34,6 +34,9 @@ export function 社媒查询(公司: string): string[] {
 
 type 分类 = "公司主页" | "员工" | "Facebook";
 
+/** facebook.com 下不是某个主页的路径 */
+const FB保留 = /^\/(search|login|sharer|share|dialog|plugins|watch|events|marketplace|groups|hashtag|help|policies|privacy|permalink\.php|story\.php|photo\.php|profile\.php|people|pages|p|reel|stories)(\/|$)/;
+
 function 分类(url: string): 分类 | null {
   let u: URL;
   try {
@@ -49,8 +52,8 @@ function 分类(url: string): 分类 | null {
     return null;
   }
   if (/(^|\.)facebook\.com$/.test(h)) {
-    // 搜索页、登录页、分享链接、单条帖子不算主页
-    if (/^\/(search|login|sharer|share|dialog|plugins|watch|events|marketplace|groups|hashtag|help|policies|privacy)(\/|$)/.test(p) || p === "/" || /\/posts\//.test(p)) return null;
+    // 搜索页、登录页、分享链接不算主页；主页下的单条帖子 / 视频 / 照片算它那个主页（认足迹 里换成主页链接）
+    if (FB保留.test(p) || p === "/") return null;
     return "Facebook";
   }
   return null;
@@ -78,18 +81,35 @@ export function 认足迹(结果: 搜索结果[], 公司: string, 搜成了: boo
   for (const r of 结果) {
     const k = 分类(r.url);
     if (!k) continue;
-    const 键 = r.url.replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase();
+    // Facebook 主页下的帖子、子页（facebook.com/RexelFR/posts/…、/about/、/reels/，10-18 bench 搜到的多是这种）：
+    // 算它那个主页，链接换成主页本身
+    const 帖 = k === "Facebook" ? /^\/([^/]+)\/[^/]+/i.exec(new URL(r.url).pathname) : null;
+    const url = 帖 ? `https://www.facebook.com/${帖[1]}` : r.url;
+    const 键 = url.replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase();
     if (见过.has(键)) continue;
-    const 对 = k === "员工" ? 提到了(`${r.title} ${r.snippet}`, 公司) : 提到了(路径名(r.url), 公司) || 提到了(r.title, 公司);
+    // 主页名从标题里挑：「Rexel USA - Facebook」「SLV GmbH - Hurra, es wird…」「At Alfanar Training... - alfanar Engineering service - Facebook」，
+    // 去掉「Facebook」和截断的帖子摘要（以 ... 结尾），剩下的那段是主页名。标题里有主页名就只按它比（链接那一截
+    // alfanar.resort 其实是黎巴嫩的度假村 Al Fanar Resort）；标题里没有才看链接。要同名或近名（多一两个词）：
+    // 「提到」不算（施工视频带个 #SLV# 标签也会提到）
+    const 主页名 =
+      k === "Facebook"
+        ? (r.title ?? "")
+            .split(/\s[-–|]\s/)
+            .map((x) => x.replace(/\s+facebook$/i, "").trim())
+            .filter((x) => x && !/^facebook$/i.test(x) && !/(\.\.\.|…)$/.test(x) && x !== new URL(r.url).hostname)
+        : [];
+    const 认的名 = 主页名.length ? 主页名.find((x) => 比名字(x, 公司)) : 比名字(路径名(url), 公司) ? 路径名(url) : undefined;
+    const 对 = k === "员工" ? 提到了(`${r.title} ${r.snippet}`, 公司) : k === "Facebook" ? Boolean(认的名) : 提到了(路径名(url), 公司) || 提到了(r.title, 公司);
     if (!对) continue;
     见过.add(键);
-    收[k].push({ title: r.title || r.url, url: r.url });
+    收[k].push({ title: k === "Facebook" ? `${认的名}（Facebook 主页）` : r.title || r.url, url });
   }
   const 主页 = 收.公司主页.slice(0, 2);
   const 员工 = 收.员工.slice(0, 3);
   const fb = 收.Facebook.slice(0, 2);
   const 事实 = [
-    `Facebook 主页：${fb.length ? "有" : "未搜到"}`,
+    // 列出主页名：同名的别家（「SLV Sports & Wellness」）一眼能看出来
+    `Facebook 主页：${fb.length ? `有（${[...new Set(fb.map((l) => l.title.replace(/（Facebook 主页）$/, "")))].join("、")}）` : "未搜到"}`,
     主页.length || 员工.length
       ? `LinkedIn：${[主页.length && "公司主页有", 员工.length && "搜到在职员工"].filter(Boolean).join("、")}`
       : "LinkedIn：我们用的网页搜索不收录，没法查（不扣分）",

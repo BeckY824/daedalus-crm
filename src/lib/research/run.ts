@@ -34,7 +34,7 @@ import { 核验项表, type 核验回应, type 真实性 } from "./verify/types"
 import type { 线索 } from "./verify/clues";
 import { 认国家 } from "./verify/country";
 import { 主机 } from "./verify/domain";
-import { 查询名 } from "./verify/names";
+import { 查询名, 比名字, 名词 } from "./verify/names";
 import { 合成真实性, 灯符, 邮件头项 } from "./verify/rules";
 import type { 邮件信号 } from "./verify/mail";
 import { 是社媒网址, 社媒查询, 认足迹 } from "./verify/social";
@@ -443,10 +443,15 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     : !input.查IP
       ? Promise.resolve("查不了")
       : input.查IP(发件IP).catch(() => "查不了" as const);
+  // 社媒搜什么名字：输入的是「SLV」这种很短的缩写，认出了登记全称、又是同一家，就用全称（10-18 bench：搜「SLV」回来的是
+  // 健身房 SLV Sports，搜「SLV GmbH」全是它自己的主页）。名字不短就还用输入的：「Alfanar Company」「Delta Light NV」
+  // 这样带后缀搜反而一条主页都搜不到
+  let 社媒名 = 查询名(input.公司);
   const 开始核验 = (官网?: string, 国家城市?: string, 全称?: string) => {
     if (核验中) return;
     const 线 = input.线索;
     const 名 = 查询名(input.公司);
+    if (全称 && 比名字(全称, 名) && 名词(名).join("").length <= 4) 社媒名 = 查询名(全称);
     核验国家 = { 国家: 认国家(国家城市) ?? 认国家(线?.国家), 自报国家: 认国家(线?.国家) };
     核验中 = 通道
       .核验(
@@ -471,7 +476,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     let 停表: ReturnType<typeof setTimeout> | undefined;
     const 回 = await Promise.race([核验中!, new Promise<null>((r) => (停表 = setTimeout(() => r(null), 45_000)))]);
     clearTimeout(停表);
-    const 足迹 = 认足迹(全部结果.filter((r) => 是社媒网址(r.url)), 查询名(input.公司), 社媒搜成);
+    const 足迹 = 认足迹(全部结果.filter((r) => 是社媒网址(r.url)), 社媒名, 社媒搜成);
     let 邮件项;
     if (input.邮件) {
       let 停IP: ReturnType<typeof setTimeout> | undefined;
@@ -530,7 +535,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     },
     async signals() {
       // LinkedIn / Facebook 定向搜索：程序自己发（不让模型挑），只看搜索结果判断有没有主页、有没有在职员工（verify/social.ts）
-      if (!钱到了) await Promise.all(社媒查询(input.公司).map((q) => 搜("signals", q, true)));
+      if (!钱到了) await Promise.all(社媒查询(社媒名).map((q) => 搜("signals", q, true)));
       const r = (await 查("signals", "搜招聘、新闻、展会，各一次就够（LinkedIn / Facebook 已经搜过了，结果在材料里）。", 要.signals)) ?? (await 结论("signals", 要.signals));
       const 信号 = Array.isArray(r.信号) ? (r.信号 as { text?: unknown; source?: unknown }[]) : [];
       for (const s of 信号.slice(0, 4)) {

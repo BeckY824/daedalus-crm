@@ -543,6 +543,28 @@ describe("真实性（10-18）", () => {
     expect(编.事件).toContainEqual({ type: "import", 有: false });
   });
 
+  it("输入的是很短的缩写：社媒按认出的登记全称搜（10-18 bench：搜「SLV」回来的是同名健身房）；全称不像、名字不短都还用输入的", async () => {
+    const 带全称 = (全称: string) => {
+      const m = 假模型();
+      const 原 = m.json.bind(m);
+      m.json = async (messages, o) => {
+        const r = (await 原(messages, o)) as Record<string, unknown>;
+        return 全文(messages).includes("认准是哪一家") ? { ...r, 全称 } : r;
+      };
+      return m;
+    };
+    const 社媒搜的 = async (公司: string, 全称: string) => {
+      const 通道 = 模拟通道();
+      const 搜 = vi.spyOn(通道, "搜索");
+      await 跑({ 公司, 模型: 带全称(全称), 通道 });
+      return 搜.mock.calls.map((c) => String(c[1])).filter((q) => q.includes("site:facebook.com"));
+    };
+    expect(await 社媒搜的("LTG", "LTG Lumora Trading GmbH")).toEqual(['"LTG Lumora Trading GmbH" site:facebook.com']);
+    // 全称和输入的不像；输入的名字不短（带后缀搜反而搜不到主页）：都还用输入的
+    expect(await 社媒搜的("LTG", "Nordwerk Holding AG")).toEqual(['"LTG" site:facebook.com']);
+    expect(await 社媒搜的("Lumora", "Lumora Trading GmbH")).toEqual(['"Lumora" site:facebook.com']);
+  });
+
   it("模型要读 LinkedIn / Facebook 的页面：不打开，告诉它只用搜索结果", async () => {
     const 通道 = 模拟通道();
     const 读 = vi.spyOn(通道, "读页");
