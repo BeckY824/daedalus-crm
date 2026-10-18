@@ -15,6 +15,8 @@ import type { 背调通道 } from "@/lib/research/channel";
 import type { 老客户 } from "@/lib/research/similar";
 import type { 线索 } from "@/lib/research/verify/clues";
 import type { 邮件信号 } from "@/lib/research/verify/mail";
+import { 初始状态, 归约 } from "@/lib/research/state";
+import { 报告文本 } from "@/lib/research/report";
 
 const 公司 = "Lumora Trading GmbH";
 const 官网 = "https://lumora-trading.example";
@@ -36,11 +38,13 @@ function 假结论(prompt: string): unknown {
         buyerType: { value: "进口分销商", source: "https://made-up.example/x" },
         contact: { value: "sales@lumora-trading.example", source: `${官网}/about` },
       },
+      联系人: [{ 岗位: "采购负责人", 姓名: "Jan Beispiel", 电话: "+49 40 0000 0000", 邮箱: "sales@lumora-trading.example", 来源: `${官网}/about` }, { 岗位: "总经理", 姓名: "Max Erfunden", 来源: `${官网}/about` }],
       小结: "汉堡的照明进口分销商",
     };
-  if (prompt.includes("对照我们的业务")) return { 小结: "品类和买家类型都对口" };
+  if (prompt.includes("对照我们的业务"))
+    return { 型号: [{ 型号: "HB-150", 是什么: "工矿灯", 来源: `${官网}/about` }, { 型号: "SL-60", 是什么: "路灯", 来源: `${官网}/about` }, { 型号: "ZZ-999", 是什么: "原文里没有，该丢", 来源: `${官网}/about` }], 小结: "品类和买家类型都对口" };
   if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/lumora-trading-category-manager` }], 小结: "在扩户外品类" };
-  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `${官网}/about/` }, { 级别: "mid", 说明: "没带来源，该丢", 来源: "https://made-up.example/z" }, { 级别: "超高", 说明: "级别写错，该丢" }], 小结: "风险低" };
+  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `${官网}/about/` }, { 级别: "mid", 说明: "没带来源，该丢", 来源: "https://made-up.example/z" }, { 级别: "超高", 说明: "级别写错，该丢" }], 必查: { 母公司: { 结论: "独立公司，商业登记上没有母公司", 级别: "none", 来源: `https://registry.example/lumora-trading` }, 财务: { 结论: "查不到" }, 同行: { 结论: "只做进口分销，不自己生产", 是: "否", 级别: "none", 来源: `${官网}/about` }, 市场: { 结论: "在德奥瑞做生意，正在扩户外品类", 级别: "none", 来源: `${官网}/about` } }, 小结: "风险低" };
   // 最后一步：统一打分 + 像哪位老客户 + 切入建议（产品里固定 gpt-5.5）
   if (prompt.includes("怎么切入"))
     return {
@@ -56,6 +60,8 @@ function 假结论(prompt: string): unknown {
         { 编号: 9, 档: "high", 像在哪: "编号越界，该丢" },
       ],
       建议: ["找品类经理", "主推工矿灯", "提前给 ENEC 证书"],
+      型号对比: [{ 对方: "HB-150", 我们: "UFO 工矿灯 150W", 怎么比: "同功率，我们有 ENEC 版，交期 4–5 周" }, { 对方: "XX-1", 我们: "随便", 怎么比: "对方型号认不出，该丢" }],
+      开发信: { 主题: "High-bay and street lights for your outdoor range", 正文: `Dear Mr Beispiel,\n\nI noticed that ${公司} is hiring a Category Manager for Outdoor Lighting to expand its street-light and high-bay range. We are an LED lighting manufacturer in China supplying distributors in Germany, Austria and Switzerland with high-bay fixtures and street lights. Our range sits close to your HB-150 and SL-60, with ENEC and CE certified versions available, stable lead times of four to five weeks, and private-label packaging for wholesalers. Many of our distributor customers start with a small trial order to check quality before they list a product. If it is useful, I can send a sample of our closest high-bay model together with a price list for your volume range. Would you have fifteen minutes next week for a short call, or should I send the samples straight to your Hamburg office?\n\nBest regards,\nLi Wei` },
       小结: "从品类经理切入",
     };
   return {};
@@ -230,12 +236,21 @@ describe("背调 6 步编排", () => {
     for (const o of opts) expect(o).toMatchObject({ requestId: "run-test", feature: "research" });
   });
 
-  it("一条材料都没拿到：收尾报「没出报告」（服务器全退），不出报告", async () => {
+  it("一条材料都没搜到、6 步照样跑完：搜索花了钱，照常出报告、收尾报跑完（10-18「我们花钱就扣」）", async () => {
     const 通道 = { ...模拟通道(), 搜索: async () => [], 读页: async () => { throw new Error("读不了"); } } as 背调通道;
     const 收尾 = vi.spyOn(通道, "收尾");
-    const { r } = await 跑({ 通道 });
-    expect(r).toMatchObject({ ok: false, 退了: true });
-    expect(收尾).toHaveBeenCalledWith("run-test", false, expect.anything());
+    const { r, 事件 } = await 跑({ 通道 });
+    expect(r.ok).toBe(true);
+    expect(收尾).toHaveBeenCalledWith("run-test", true, expect.anything());
+    expect(事件.at(-1)).toMatchObject({ type: "done", 退了: false });
+  });
+
+  it("一条材料都没拿到就出错停了：不出报告；服务器退了才说「不扣次数」", async () => {
+    const 坏 = { tools: async () => { throw new Error("上游模型接口超时"); }, json: async () => { throw new Error("上游模型接口超时"); } } as unknown as 模型调用;
+    const 退 = { ...模拟通道(), 收尾: async () => ({ ok: true, 退了: 1, 还剩: 3 }) } as 背调通道;
+    expect((await 跑({ 通道: 退, 模型: 坏 })).r).toEqual({ ok: false, error: "上游模型接口超时，这次不扣次数", 退了: true });
+    const 不退 = { ...模拟通道(), 收尾: async () => ({ ok: true, 退了: 0, 还剩: 2 }) } as 背调通道;
+    expect((await 跑({ 通道: 不退, 模型: 坏 })).r).toEqual({ ok: false, error: "上游模型接口超时", 退了: false });
   });
 
   it("开始就被服务器拒了（次数不够）：一步都不跑", async () => {
@@ -358,14 +373,26 @@ describe("背调 6 步编排", () => {
     expect(收尾).toHaveBeenCalledWith("run-test", false, expect.objectContaining({ 取消: true }));
   });
 
-  it("给人看的结论按字符截、截了带省略号，不切坏字、不在网址半中间硬断", async () => {
-    const 长 = "法国 Rexel 集团的官网和法国官方企业目录都显示公司注册地址在 Paris，".repeat(10);
+  it("给人看的结论不带「…」（10-18 对比免费产品第四点）：太长按整句收住，模型自己写的省略号也去掉；整份报告里没有「…」", async () => {
+    const 长 = "法国 Rexel 集团的官网和法国官方企业目录都显示公司注册地址在 Paris。".repeat(12);
     const m = 假模型();
-    const 包 = { ...m, json: async (a: never, o: { researchStage?: string }) => { const r = (await m.json(a, o as never)) as Record<string, unknown>; return o.researchStage === "identify" ? { ...r, 说明: 长 } : r; } };
+    const 包 = {
+      ...m,
+      json: async (a: never, o: { researchStage?: string }) => {
+        const r = (await m.json(a, o as never)) as Record<string, unknown>;
+        if (o.researchStage === "identify") return { ...r, 说明: 长 };
+        if (o.researchStage === "basics") return { ...r, 小结: "汉堡的照明进口分销商，规模中等…" };
+        return r;
+      },
+    };
     const { 事件 } = await 跑({ 模型: 包 as unknown as 模型调用 });
     const 认 = 事件.find((e) => e.type === "stage" && e.stage === "identify" && e.status === "done") as { summary?: string };
-    expect(Array.from(认.summary ?? "")).toHaveLength(140);
-    expect(认.summary?.endsWith("…")).toBe(true);
+    expect(Array.from(认.summary ?? "").length).toBeLessThanOrEqual(300);
+    expect(认.summary?.endsWith("Paris。")).toBe(true);
+    const 基 = 事件.find((e) => e.type === "stage" && e.stage === "basics" && e.status === "done") as { summary?: string };
+    expect(基.summary).toBe("汉堡的照明进口分销商，规模中等");
+    const s = 事件.reduce(归约, 初始状态({ name: 公司 }));
+    expect(报告文本(s)).not.toContain("…");
   });
 
   it("这一步搜到 / 读到的也带材料编号，和后面「已有材料」里同一条的编号一致（来源填编号才对得上）", async () => {
@@ -408,8 +435,8 @@ describe("背调 6 步编排", () => {
     const 合并 = 假模型({ 合并: true });
     const { r } = await 跑({ 模型: 合并 });
     expect(r.ok).toBe(true);
-    // 认准 / 基本面 / 信号 / 风险四步各省一次单独的结论调用；相关性那步只给 1 次工具、轮不到「够了」，最后一步本来就只有一次
-    expect(分开.调用.length - 合并.调用.length).toBe(4);
+    // 认准 / 基本面 / 相关性 / 信号 / 风险五步各省一次单独的结论调用（10-18 相关性那步给到 2 次工具、要找型号，也轮得到「够了」）；最后一步本来就只有一次
+    expect(分开.调用.length - 合并.调用.length).toBe(5);
     if (r.ok) expect(r.状态.fields.founded?.value).toBe("2009 年");
   });
 
@@ -541,6 +568,60 @@ describe("真实性（10-18）", () => {
     expect(真.事件).toContainEqual({ type: "verify-note", text: "登记和域名都对得上。" });
     const 编 = await 跑({ 模型: 带进口("https://made-up.example/bill-of-lading") });
     expect(编.事件).toContainEqual({ type: "import", 有: false });
+  });
+
+  it("10-18 对比免费产品：必查四项、在卖型号、联系人、型号对比、英文开发信都出来；编的型号 / 联系人格子 / 对比被丢；同行判断拿去封顶", async () => {
+    const { 事件 } = await 跑();
+    const 取 = <T extends 研究事件["type"]>(t: T) => 事件.find((e): e is Extract<研究事件, { type: T }> => e.type === t);
+    expect(取("checks")!.项.map((x) => [x.key, x.source ? "有来源" : "无"])).toEqual([
+      ["母公司", "有来源"],
+      ["财务", "无"],
+      ["同行", "有来源"],
+      ["市场", "有来源"],
+    ]);
+    expect(取("models")!.items.map((m) => m.型号)).toEqual(["HB-150", "SL-60"]);
+    // 总经理 Max Erfunden 原文里没有：整条丢；Jan Beispiel 那条电话邮箱都在原文里
+    expect(取("contacts")!.items).toEqual([{ 岗位: "采购负责人", 姓名: "Jan Beispiel", 电话: "+49 40 0000 0000", 邮箱: "sales@lumora-trading.example", source: `${官网}/about` }]);
+    expect(取("compare")!.items).toEqual([{ 对方: "HB-150", 我们: "UFO 工矿灯 150W", 怎么比: "同功率，我们有 ENEC 版，交期 4–5 周" }]);
+    expect(取("email")!.主题).toBe("High-bay and street lights for your outdoor range");
+    expect(取("score")!.评分.结论).toBeDefined();
+    const s = 事件.reduce(归约, 初始状态({ name: 公司 }));
+    const t = 报告文本(s);
+    for (const 段 of ["【公开联系人】", "【在卖的型号】", "【型号对比】", "【英文开发信】", "是不是同行：只做进口分销", "近两年财务：查不到（材料里没有）", "结论："]) expect(t).toContain(段);
+  });
+
+  it("同行「是」：分数封顶 40、结论不建议优先；切入那一步的提示词带上认出的型号、要求小结不给建议", async () => {
+    const m = 假模型();
+    const 原 = m.json.bind(m);
+    m.json = async (messages, o) => {
+      const r = (await 原(messages, o)) as Record<string, unknown>;
+      return 全文(messages).includes("排查风险") ? { ...r, 必查: { 同行: { 结论: "自己生产户外灯具", 是: "是", 级别: "high", 来源: `${官网}/about` } } } : r;
+    };
+    const { 事件 } = await 跑({ 模型: m });
+    const 分 = 事件.find((e): e is Extract<研究事件, { type: "score" }> => e.type === "score")!.评分;
+    expect(分.分).toBeLessThanOrEqual(40);
+    expect(分.封顶?.原因.join("")).toContain("同行");
+    // 同行级别 high → 也算高风险：结论先核实
+    expect(分.结论?.档).toBe("先核实");
+    const 切入 = m.调用.find((c) => c.prompt.includes("怎么切入"))!.prompt;
+    expect(切入).toContain("型号对比：拿它在卖的这几个型号（HB-150、SL-60）");
+    expect(切入).toContain("小结只写事实");
+  });
+
+  it("英国公司服务器查到 HMRC 进口记录：盖过模型那句，来源是名录那条（带标题）；名录里没有就还用模型认的", async () => {
+    const 通道 = 模拟通道();
+    const 原核验 = 通道.核验.bind(通道);
+    const 链接 = "https://api.uktradeinfo.com/Trader(42)?$expand=Imports";
+    通道.核验 = async (q, sg) => ({ ...(await 原核验(q, sg))!, 进口: { 名: "LUMORA TRADING LTD", 月份: [{ 月: "2025-03", 编码: "94054000", 品类: "灯具" }], 链接 } });
+    const { 事件 } = await 跑({ 通道 });
+    const 进 = 事件.find((e): e is Extract<研究事件, { type: "import" }> => e.type === "import")!;
+    expect(进).toMatchObject({ 有: true, source: 链接, 来源名: "HMRC 进口商名录 · LUMORA TRADING LTD" });
+    expect(进.摘要).toContain("2025-03 有 1 个月申报过进口，其中照明类（灯具）1 个月");
+    expect(进.摘要).toContain("不能据此判断采购量");
+    const 通道2 = 模拟通道();
+    const 原2 = 通道2.核验.bind(通道2);
+    通道2.核验 = async (q, sg) => ({ ...(await 原2(q, sg))!, 进口: null });
+    expect((await 跑({ 通道: 通道2 })).事件).toContainEqual({ type: "import", 有: false });
   });
 
   it("输入的是很短的缩写：社媒按认出的登记全称搜（10-18 bench：搜「SLV」回来的是同名健身房）；全称不像、名字不短都还用输入的", async () => {

@@ -31,6 +31,8 @@ export const 核验项表 = [
   { key: "ip", label: "邮件头" },
   { key: "sanctions", label: "制裁名单" },
   { key: "footprint", label: "网上足迹" },
+  /** 只有人名 + 电话、从搜索结果认出公司再背调的（person.ts）才有：这个号码 / 这个人和这家公司对得上吗 */
+  { key: "person", label: "人和号码" },
 ] as const;
 export type 核验键 = (typeof 核验项表)[number]["key"];
 
@@ -47,7 +49,13 @@ export type 核验项 = {
   硬红?: string;
   /** 域名注册不到 90 天：和「网上足迹全未搜到」凑在一起才算硬红（rules.ts） */
   新域名?: boolean;
+  /** 工商登记那一项：登记的成立日期（YYYY-MM-DD 或年份），拿去和官网自己的说法比（check.ts 比官网说法） */
+  成立?: string;
+  /** 官网那一项：首页上自己说的「since 2009」「10+ years experience」（site.ts 认官网说法） */
+  说法?: 官网说法;
 };
+
+export type 官网说法 = { 成立年?: number; 经验年?: number; 原文: string };
 
 /** 桌面端交给服务器核的东西。全是可选的：有什么核什么 */
 export type 核验请求 = {
@@ -73,6 +81,11 @@ export type 核验回应 = {
   项: 核验项[];
   /** 制裁名单最近一次同步的时间（ISO） */
   名单更新于?: string;
+  /**
+   * 公开进口记录（imports.ts，10-18 对比免费产品第七点）：只查英国公司（HMRC 进口商名录，免费、不用 key）。
+   * 有 = 查到这家；null = 查了、名录里没有；没这个字段 = 不是英国公司或这会儿查不了
+   */
+  进口?: import("./imports").进口记录 | null;
 };
 
 export type 真实性 = {

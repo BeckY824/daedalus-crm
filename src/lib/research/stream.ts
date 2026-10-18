@@ -13,12 +13,14 @@ import { 老客户清单 } from "./similar";
 import { 跑背调 } from "./run";
 import { 报告文本 } from "./report";
 import type { 研究事件 } from "./types";
-import type { 背调状态 } from "./state";
+import { 初始状态, 归约, type 背调状态 } from "./state";
 import { 合并线索, 认线索, type 线索 } from "./verify/clues";
 import { 收邮件信号, type 邮件信号 } from "./verify/mail";
-import { 是免费邮箱 } from "./verify/domain";
+import { 是免费邮箱, 主机 } from "./verify/domain";
 import { 取IP库, 查IP } from "./verify/ip-country";
 import { 模拟查IP } from "./mock";
+import { 找公司, 认号码, type 候选公司, type 出现 } from "./person";
+import type { 搜索结果 } from "./types";
 
 export type 背调回答 = { text: string; records: []; customers: { id: string; name: string; followStatus: string }[]; proposals: []; research: 背调状态 };
 
@@ -29,11 +31,95 @@ export function 收公司名(v: unknown): string | null {
   return s.length >= 2 && s.length <= 120 ? s : null;
 }
 
-export async function 背调一次(
-  body: { company: unknown; customerId?: unknown; need?: unknown; mail?: unknown },
+/** runId 和网关同一个规矩：1–64 位 [A-Za-z0-9_-] */
+const 收runId = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(v) ? v : undefined);
+
+const 收来源 = (v: unknown): { title: string; url: string } | null => {
+  const o = v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  return typeof o.url === "string" && /^https?:\/\/\S+$/i.test(o.url) ? { title: typeof o.title === "string" ? o.title.slice(0, 300) : o.url, url: o.url } : null;
+};
+
+/** 找公司时点选的那一家（浏览器回传的，形状不对就当没给） */
+export function 收接着(v: unknown): { 名?: string; 电话: string; 候选: 候选公司; 出现: 出现; 证据: 搜索结果[] } | null {
+  const o = v && typeof v === "object" ? (v as Record<string, unknown>) : null;
+  if (!o || typeof o.phone !== "string") return null;
+  const c = o.候选 && typeof o.候选 === "object" ? (o.候选 as Record<string, unknown>) : null;
+  const 源 = 收来源(c?.来源);
+  const 公司 = 收公司名(c?.公司);
+  if (!c || !源 || !公司) return null;
+  const 列 = (x: unknown) => (Array.isArray(x) ? x.map(收来源).filter((y): y is { title: string; url: string } => Boolean(y)).slice(0, 8) : []);
+  const 出 = o.出现 && typeof o.出现 === "object" ? (o.出现 as Record<string, unknown>) : {};
+  const 证据 = (Array.isArray(o.证据) ? o.证据 : [])
+    .flatMap((r) => {
+      const x = 收来源(r);
+      const sn = r && typeof r === "object" ? (r as Record<string, unknown>).snippet : undefined;
+      return x ? [{ ...x, snippet: typeof sn === "string" ? sn.slice(0, 1000) : "" }] : [];
+    })
+    .slice(0, 4);
+  return {
+    名: typeof o.name === "string" && o.name.trim() ? o.name.trim().slice(0, 80) : undefined,
+    电话: o.phone.slice(0, 40),
+    候选: {
+      公司,
+      ...(typeof c.官网 === "string" && c.官网 ? { 官网: c.官网.slice(0, 200) } : {}),
+      ...(typeof c.职位 === "string" && c.职位 ? { 职位: c.职位.slice(0, 60) } : {}),
+      依据: typeof c.依据 === "string" ? c.依据.slice(0, 200) : "",
+      来源: 源,
+      号码对上: c.号码对上 === true,
+      名字对上: c.名字对上 === true,
+    },
+    出现: { 号码: 列(出.号码), 名字: 列(出.名字) },
+    证据,
+  };
+}
+
+export type 找人回答 = { text: string; records: []; customers: []; proposals: []; research: 背调状态; runId?: string; 材料: 搜索结果[] };
+
+/**
+ * 只有人名 + 电话（person.ts）：先找公司。有候选就把 runId 和认出候选的那几条搜索结果交回浏览器，
+ * 人点选以后带着它们再来一次（body.pick），同一个 runId 接着背调、不另扣
+ */
+async function 找人一次(
+  body: { person: unknown; need?: unknown },
   send: (obj: unknown) => void,
   signal: AbortSignal,
-): Promise<{ ok: true; answer: 背调回答 } | { ok: false; error: string }> {
+): Promise<{ ok: true; answer: 找人回答 } | { ok: false; error: string }> {
+  const p = body.person && typeof body.person === "object" ? (body.person as Record<string, unknown>) : {};
+  const 电话 = typeof p.phone === "string" ? p.phone.trim().slice(0, 40) : "";
+  const 名 = typeof p.name === "string" && p.name.trim() ? p.name.trim().slice(0, 80) : undefined;
+  const 号 = 认号码(电话);
+  if (!号) return { ok: false, error: "这个号码认不出来：要 + 开头、带国家码的国际号码" };
+  const user = await requireUser();
+  const wait = consumeUserAiQuota(user);
+  if (wait !== null) return { ok: false, error: `AI 调用太频繁，请 ${wait} 秒后再试` };
+  const 通道 = await 选通道();
+  if (!通道.ok) return { ok: false, error: 通道.error };
+  const b = await getBusiness();
+  send({ type: "research-start", 扣次: 通道.通道.扣次, 通道: 通道.通道.名 });
+  let 状态 = 初始状态({ name: 名 ?? 号.号 });
+  const r = await 找公司({
+    名,
+    电话,
+    b,
+    通道: 通道.通道,
+    模型: 通道.通道.模型调用 ?? { tools: chatTools, json: chatMessagesJSON },
+    发: (e: 研究事件) => {
+      状态 = 归约(状态, e);
+      send({ type: "research", e });
+    },
+    signal,
+  });
+  if (!r.ok) return { ok: false, error: r.退了 ? `${r.error}（没扣次数）` : r.error };
+  await recordAiUse(user, "research", `AI 背调·找公司：${名 ? `「${名.slice(0, 40)}」` : ""}${号.号}（搜索 ${状态.usage.searches} 次，认出 ${r.候选.length} 家${通道.通道.名 === "模拟" ? "，模拟数据" : ""}）`);
+  return { ok: true, answer: { text: 报告文本(状态), records: [], customers: [], proposals: [], research: 状态, runId: r.runId, 材料: r.材料 } };
+}
+
+export async function 背调一次(
+  body: { company: unknown; customerId?: unknown; need?: unknown; mail?: unknown; person?: unknown; runId?: unknown; pick?: unknown },
+  send: (obj: unknown) => void,
+  signal: AbortSignal,
+): Promise<{ ok: true; answer: 背调回答 | 找人回答 } | { ok: false; error: string }> {
+  if (body.person && !body.company) return 找人一次({ person: body.person, need: body.need }, send, signal);
   const 公司 = 收公司名(body.company);
   if (!公司) return { ok: false, error: "要背调的公司名写得不对（2–120 个字）" };
   const user = await requireUser();
@@ -84,12 +170,18 @@ export async function 背调一次(
   // 老客户里去掉它自己：不然从客户详情页背调一位老客户，「最像的老客户」永远是它本人
   const 老客户 = (await 老客户清单(b)).filter((c) => c.id !== 客户?.id);
 
-  send({ type: "research-start", 扣次: 通道.通道.扣次, 通道: 通道.通道.名 });
+  /* 只有人名 + 电话、找公司时点选了这家：同一个 runId 接着跑（服务器认得这笔、不另扣），号码并进线索去核 */
+  const 收 = 收接着(body.pick);
+  const 号 = 收 ? 认号码(收.电话) : null;
+  const 接着 = 收 && 号 && 收.候选.公司 === 公司 ? { 人: { 名: 收.名, 号 }, 候选: 收.候选, 出现: 收.出现, 证据: 收.证据 } : undefined;
+  const runId = 接着 ? 收runId(body.runId) : undefined;
+  send({ type: "research-start", 扣次: runId ? 0 : 通道.通道.扣次, 通道: 通道.通道.名 });
   const r = await 跑背调({
     公司,
     客户,
     需求,
-    线索: 合并线索(档案线索, 邮件线索, 认线索(需求), 认线索(公司)),
+    ...(接着 && runId ? { 接着, runId } : {}),
+    线索: 合并线索(档案线索, 邮件线索, 认线索(需求), 认线索(公司), 接着 ? { 电话: [接着.人.号.号], 官网: 接着.候选.官网 ? 主机(接着.候选.官网) : undefined } : undefined),
     邮件,
     // 模拟通道（e2e、演示）不下载真的 IP 库
     查IP: 通道.通道.名 === "模拟" ? 模拟查IP : 查发件IP,

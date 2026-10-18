@@ -322,7 +322,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
         kind: "research",
         直接: true,
         需求: typed,
-        ...(对象.种类 === "公司" ? { 公司: 对象.公司 } : { 待选: 对象 }),
+        ...(对象.种类 === "公司" ? { 公司: 对象.公司 } : 对象.种类 === "人" ? { 人: { 名: 对象.名, 电话: 对象.电话 } } : { 待选: 对象 }),
         ...(邮件 ? { 邮件 } : {}),
       });
       set邮件(null);
@@ -492,6 +492,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                 scrollOnMount={t.id === 刚发的}
                 onRetry={() => {
                   clearJob(`home:${t.id}`);
+                  // 找公司后接着背调的那一轮：重新背调是新的一次（新 runId，照常扣），不再沿用找公司那一笔
+                  if (t.接着) updateTurn(scope, t.id, { 接着: undefined });
                   if (running) dequeueTurn(scope, t.id);
                   start(t);
                 }}
@@ -502,6 +504,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                 }}
                 onAsk={(q) => submit(q)}
                 on选定={(公司) => updateTurn(scope, t.id, { 公司, 待选: undefined })}
+                on改={(patch) => updateTurn(scope, t.id, patch)}
               />
             ))}
             <div ref={endRef} />

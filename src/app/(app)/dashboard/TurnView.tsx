@@ -22,6 +22,7 @@ import { dayjs } from "@/lib/utils";
 import { 起草, 草稿键, useCopyDraft, type 草稿类 } from "@/lib/draft-jobs";
 import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import ResearchRun, { ResearchPick } from "@/components/research/ResearchRun";
+import ResearchPerson from "@/components/research/ResearchPerson";
 
 /** 对话里的一轮：问题、过程条、回答、建议卡、提到的客户。首页和右侧 AI 面板共用 */
 
@@ -108,6 +109,7 @@ export default function TurnView({
   onRemove,
   onAsk,
   on选定,
+  on改,
   scrollOnMount,
 }: {
   turn: Turn;
@@ -116,6 +118,8 @@ export default function TurnView({
   onAsk: (q: string) => void;
   /** 背调模式里认不准是哪家、人点选了以后（lib/research/target.ts） */
   on选定?: (公司: string) => void;
+  /** 只有人名 + 电话那一轮：点选了候选公司（接着背调）/「其实是公司名」 */
+  on改?: (patch: Partial<Turn>) => void;
   scrollOnMount: boolean;
 }) {
   const b = useBusiness();
@@ -229,7 +233,7 @@ export default function TurnView({
     背调那一轮：回答不是一段字，是一张背调卡（components/research）。确认、流式展开、存进客户都在卡里；
     这里只留问题气泡和底下那一排（重新背调 / 移除 / 时间）
   */
-  if (turn.kind === "research" && (turn.公司 || turn.待选)) {
+  if (turn.kind === "research" && (turn.公司 || turn.待选 || turn.人)) {
     return (
       <div ref={ref} className="cli-turn">
         <div className="cli-user">
@@ -242,6 +246,18 @@ export default function TurnView({
             直接开跑={turn.直接}
             需求={turn.需求}
             邮件={turn.邮件}
+            接着={turn.接着}
+            onCancel={() => set移走中(true)}
+            任务去={`/dashboard#turn-${turn.id}`}
+          />
+        ) : turn.人 ? (
+          <ResearchPerson
+            jobKey={`home:${turn.id}:person`}
+            名={turn.人.名}
+            电话={turn.人.电话}
+            需求={turn.需求}
+            onPick={(c, runId, 证据, 出现) => on改?.({ 公司: c.公司, 接着: { runId, 人: turn.人!, 候选: c, 出现, 证据 } })}
+            onAsCompany={(公司) => on改?.({ 公司, 人: undefined })}
             onCancel={() => set移走中(true)}
             任务去={`/dashboard#turn-${turn.id}`}
           />

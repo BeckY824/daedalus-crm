@@ -19,7 +19,7 @@ import Link from "next/link";
 import { AnimatePresence, animate, motion, useMotionValue, useTransform } from "motion/react";
 import { useMotionTheme } from "@/components/MotionTheme";
 import { 思考打字 } from "@/lib/motion";
-import { 阶段表, 字段表, type 工具事件 } from "@/lib/research/types";
+import { 阶段表, 字段表, 必查表, type 工具事件 } from "@/lib/research/types";
 import { 补标题, 来源号, type 背调状态, type 阶段状态 } from "@/lib/research/state";
 import { 核验项表, type 灯, type 真实性 } from "@/lib/research/verify/types";
 import { 信息少 } from "@/lib/research/verify/rules";
@@ -68,7 +68,7 @@ function ToolIcon({ kind }: { kind: "search" | "read" }) {
 }
 
 /** [n]：来源角标。不在来源表里就不画 */
-function Ref({ s, url }: { s: 背调状态; url?: string }) {
+export function Ref({ s, url }: { s: 背调状态; url?: string }) {
   const n = 来源号(s, url);
   if (!n || !url) return null;
   return (
@@ -78,7 +78,7 @@ function Ref({ s, url }: { s: 背调状态; url?: string }) {
   );
 }
 
-function ToolCard({ t }: { t: 工具事件 }) {
+export function ToolCard({ t }: { t: 工具事件 }) {
   const { 时长, 曲线 } = useMotionTheme();
   const [开, set开] = useState(false);
   const 有来源 = t.status === "done" && (t.sources?.length ?? 0) > 0;
@@ -239,6 +239,34 @@ function 用秒(running: boolean, 起: number | undefined, 总?: number): number
   return 总 != null ? 总 / 1000 : running && 起 ? (Date.now() - 起) / 1000 : 0;
 }
 
+/** 英文开发信：原样显示，一键复制（主题 + 正文） */
+function EmailBlock({ 主题, 正文 }: { 主题: string; 正文: string }) {
+  const [复制了, set复制了] = useState(false);
+  const 复制 = async () => {
+    try {
+      await navigator.clipboard.writeText(`Subject: ${主题}\n\n${正文}`);
+      set复制了(true);
+      window.setTimeout(() => set复制了(false), 1500);
+    } catch {
+      set复制了(false);
+    }
+  };
+  return (
+    <div className="rs-email">
+      <div className="rs-email-head">
+        <p className="rs-block-t">英文开发信</p>
+        <button type="button" className="rs-btn" onClick={复制}>
+          {复制了 ? "已复制" : "复制开发信"}
+        </button>
+      </div>
+      <div className="rs-email-subj">Subject: {主题}</div>
+      <div className="rs-email-body" lang="en">
+        {正文}
+      </div>
+    </div>
+  );
+}
+
 export type ResearchCardProps = {
   s: 背调状态;
   /** 还在跑 */
@@ -301,6 +329,16 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
         </div>
       )}
 
+      {/* 只有人名 + 电话、从搜索结果认出这家再背调的（lib/research/person.ts）：开头写清楚是怎么认出来的 */}
+      {s.人?.选了 && (
+        <p className="rs-from-person">
+          询盘人{s.人.名 ? ` ${s.人.名}` : ""}（{s.人.号.号}，{s.人.号.国名}
+          {s.人.号.类型}）没给公司名，是从
+          {s.人.候选?.[0]?.号码对上 ? "号码" : "名字"}在网上认出这家、你点选的：{s.人.候选?.[0]?.依据}
+          <Ref s={s} url={s.人.候选?.[0]?.来源.url} />
+        </p>
+      )}
+
       <dl className="rs-fields">
         {字段们.map((f) => {
           const v = s.fields[f.key];
@@ -339,6 +377,37 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
             </dd>
           </div>
         )}
+        {s.联系人 && s.联系人.length > 0 && (
+          <div className="rs-field">
+            <dt>公开联系人</dt>
+            <dd>
+              <ul className="rs-plain">
+                {s.联系人.map((c) => (
+                  <li key={`${c.姓名 ?? ""}${c.邮箱 ?? ""}${c.电话 ?? ""}`}>
+                    {[c.岗位, c.姓名, c.电话, c.邮箱].filter(Boolean).join(" · ")}
+                    <Ref s={s} url={c.source} />
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        )}
+        {s.型号 && s.型号.length > 0 && (
+          <div className="rs-field">
+            <dt>在卖的型号</dt>
+            <dd>
+              <ul className="rs-plain">
+                {s.型号.map((m) => (
+                  <li key={m.型号}>
+                    <b>{m.型号}</b>
+                    {m.是什么 ? `：${m.是什么}` : ""}
+                    <Ref s={s} url={m.source} />
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        )}
       </dl>
 
       <AnimatePresence>{s.真实性 && <TrustBlock v={s.真实性} />}</AnimatePresence>
@@ -369,6 +438,12 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
                   </span>
                 )}
               </div>
+              {s.评分.结论 && <div className={`rs-verdict rs-verdict-${s.评分.结论.档}`}>{s.评分.结论.字}</div>}
+              {s.评分.封顶 && (
+                <div className="rs-cap">
+                  按权重算 {s.评分.原分} 分，封顶 {s.评分.封顶.上限} 分：{s.评分.封顶.原因.join("；")}
+                </div>
+              )}
               <ul className="rs-dims">
                 {s.评分.明细.map((d, i) => (
                   <motion.li key={d.维度} className="rs-dim" initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 时长.base, ease: 曲线.ease, delay: i * 间隔 }}>
@@ -405,6 +480,24 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
         </div>
       )}
 
+      {s.必查 && s.必查.length > 0 && (
+        <div>
+          <p className="rs-block-t">风险必查</p>
+          <ul className="rs-musts">
+            {s.必查.map((x) => (
+              <li key={x.key} className={`rs-must rs-${x.级别}`}>
+                <span className="rs-must-l">{必查表.find((k) => k.key === x.key)?.label ?? x.key}</span>
+                <span className={x.source ? "" : "rs-none"}>
+                  {x.级别 !== "none" && <span className="rs-must-lv">{风险名[x.级别]}</span>}
+                  {x.结论}
+                  <Ref s={s} url={x.source} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {(信号.length > 0 || 风险.length > 0 || s.stages.risks.status === "done") && (
         <div className="rs-tags">
           <AnimatePresence initial={false}>
@@ -427,7 +520,7 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
               </motion.div>
             ))}
           </AnimatePresence>
-          {!风险.length && s.stages.risks.status === "done" && (
+          {!风险.length && !s.必查?.some((x) => x.级别 !== "none") && s.stages.risks.status === "done" && (
             <div className="rs-tag">
               <span className="rs-none">没查到明显风险</span>
             </div>
@@ -445,6 +538,21 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
           </ol>
         </div>
       )}
+
+      {s.型号对比 && s.型号对比.length > 0 && (
+        <div>
+          <p className="rs-block-t">型号对比</p>
+          <ul className="rs-plain rs-compare">
+            {s.型号对比.map((c) => (
+              <li key={c.对方}>
+                <b>{c.对方}</b> ↔ 我们的{c.我们}：{c.怎么比}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {s.开发信 && <EmailBlock 主题={s.开发信.主题} 正文={s.开发信.正文} />}
 
       {来源.length > 0 && !running && (
         <div>
@@ -474,6 +582,7 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
         {/* 背调次数和问答的 AI 次数分开记。没跑完是我们这边的原因（超时、上游报错）时服务器退了那 1 次，照实说 */}
         {s.done && s.done.charge > 0 &&
           (s.done.退了 ? <span className="rs-charge">没跑完，已退回这 {s.done.charge} 次背调</span> : <span className="rs-charge">扣 {s.done.charge} 次背调</span>)}
+        {s.done && s.done.charge === 0 && s.人?.选了 && <span className="rs-charge">找公司时已扣 1 次，接着背调不另扣</span>}
       </div>
 
       {error && !running && <div className="rs-err">{error}</div>}

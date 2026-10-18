@@ -90,3 +90,20 @@ export function 截(s: unknown, n: number): string {
   const 字 = Array.from(t);
   return 字.length > n ? 字.slice(0, n - 1).join("").trimEnd() + "…" : t;
 }
+
+/**
+ * 报告里给人看的结论、信号、风险、建议：**不截成「…」**（10-18 对比免费产品：一份报告 17 处半句话，看着像坏了）。
+ * 只防模型失控写出一大段：超过上限才收，收在上限以内最后一个句号（。！？.!?；;）处；连一个句号都没有就收在最后一个逗号处。
+ * 收完永远是整句，不带省略号
+ */
+export function 全句(s: unknown, 上限: number): string {
+  if (typeof s !== "string") return "";
+  const t = s.trim().replace(/(…|\.\.\.)+$/, "").trimEnd();
+  const 字 = Array.from(t);
+  if (字.length <= 上限) return t;
+  const 前 = 字.slice(0, 上限).join("");
+  const 句 = Math.max(...["。", "！", "？", "；", ". ", "! ", "? ", "; "].map((x) => 前.lastIndexOf(x)));
+  if (句 > 上限 / 3) return 前.slice(0, 句 + 1).trimEnd();
+  const 逗 = Math.max(前.lastIndexOf("，"), 前.lastIndexOf(", "), 前.lastIndexOf("、"));
+  return (逗 > 上限 / 3 ? 前.slice(0, 逗) : 前).trimEnd();
+}

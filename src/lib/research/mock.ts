@@ -39,7 +39,7 @@ export function 模拟材料(公司: string) {
     页: {
       [`${官网}/about`]: {
         title: `${公司} — About us`,
-        text: `${公司} is an importer and distributor of outdoor and industrial LED lighting based in Hamburg, Germany. Founded in 2009, the company employs around 40 people and supplies electrical wholesalers and installation contractors in Germany, Austria and Switzerland. Contact: sales@${d}.example, +49 40 0000 0000.`,
+        text: `${公司} is an importer and distributor of outdoor and industrial LED lighting based in Hamburg, Germany. Founded in 2009, the company employs around 40 people and supplies electrical wholesalers and installation contractors in Germany, Austria and Switzerland. Contact: sales@${d}.example, +49 40 0000 0000. Range includes the HB-150 high-bay and the SL-60 street light. Head of Purchasing: Jan Beispiel.`,
       },
       [`https://registry.example/${d}`]: {
         title: `Handelsregister 公开摘要：${公司}（示例）`,
@@ -65,7 +65,29 @@ export function 模拟材料(公司: string) {
 const 见过的页 = new Map<string, { title: string; text: string }>();
 
 /** 按查询挑几条：查官网 / 登记的、查招聘展会的、查纠纷的，各给各的，像真的搜索一样有偏重 */
+/**
+ * 只有人名 + 电话的「找公司」（person.ts）：搜的是号码（加引号）或「"人名" 国家」。
+ * 号码里带 0000000（e2e 用 +49 40 0000 0000，和 Lumora 官网上那个一样）→ 一条名录页，上面有这个号码和 Lumora Trading GmbH；
+ * 名字是 Anna Beispiel → 一条 LinkedIn 搜索结果；别的号码什么都搜不到（走「只有人」的简版），别的名字照公司那套给（里面没有这个名字）
+ */
+function 模拟找人(query: string): 搜索结果[] | null {
+  const 引 = query.match(/^"([^"]+)"/)?.[1];
+  if (!引) return null;
+  const 数 = 引.replace(/\D/g, "");
+  if (/^[+\d][\d\s().-]{6,}$/.test(引)) {
+    if (!数.includes("0000000")) return [];
+    return [
+      { title: "Lumora Trading GmbH — Kontakt | Großhandel Verzeichnis（示例）", url: "https://directory.example/lumora-trading-gmbh", snippet: `Lumora Trading GmbH, Hamburg. Tel. ${引}. LED-Beleuchtung Import und Großhandel.` },
+      { title: "Instagram（示例）", url: "https://www.instagram.com/p/example", snippet: `Call ${引}` },
+    ];
+  }
+  if (/anna beispiel/i.test(引)) return [{ title: "Anna Beispiel - Einkauf - Lumora Trading GmbH | LinkedIn", url: "https://www.linkedin.com/in/anna-beispiel-example", snippet: "Purchasing at Lumora Trading GmbH. Hamburg." }];
+  return null;
+}
+
 export function 模拟搜索(query: string): 搜索结果[] {
+  const 人 = 模拟找人(query);
+  if (人) return 人;
   const 公司 = 认公司(query);
   // LinkedIn / Facebook 定向搜索（verify/social.ts 社媒查询）：给几条像样的搜索结果。链接是编的（带 -example），不对应真实主页
   if (/site:(linkedin|facebook)\.com/i.test(query)) {

@@ -7,7 +7,7 @@
 import { 读网页 } from "../read-page";
 import { 主域名 } from "./domain";
 import { 提到了 } from "./names";
-import type { 核验项 } from "./types";
+import type { 核验项, 官网说法 } from "./types";
 
 const 停放词 = [
   /this domain (name )?(is|may be) for sale/i,
@@ -44,6 +44,24 @@ export function 认停放页(title: string, text: string, 落地: string): strin
   return null;
 }
 
+/**
+ * 官网首页自己说的成立年份 / 从业年数（10-18 对比免费产品：豆包抓到 Sunrgy 官网写「10+ 年经验」，工商登记 2020 年才成立）。
+ * 只认几种明确的写法（英、德、法、西、意、荷、中），认不出就当没说。和工商登记比在 check.ts 的 比官网说法
+ */
+export function 认官网说法(text: string): 官网说法 | undefined {
+  const t = text.slice(0, 20000).replace(/\s+/g, " ");
+  const 今年 = new Date().getFullYear();
+  const 成 = t.match(/\b(?:since|established(?: in)?|est\.|founded(?: in)?|seit|gegr(?:ü|ue)ndet(?: im jahr| in)?|depuis|fond[ée]e? en|desde|fundad[ao] en|dal|fondata nel|sinds|opgericht in)\s*((?:19|20)\d{2})\b|(?:成立于|创立于|始于)\s*((?:19|20)\d{2})/i);
+  const 经 = t.match(/(?:\bover |\bmore than |\b)(\d{1,3})\s*\+?\s*(?:years?|yrs?|jahre[n]?|ans|años|anni|jaar)(?: of)?\s+(?:experience|expertise|erfahrung|d['’]exp[ée]rience|de experiencia|di esperienza|ervaring|in (?:the )?(?:business|industry|lighting|market))|(\d{1,3})\s*\+?\s*年(?:以上)?(?:的)?(?:行业|从业)?经验/i);
+  const 成立年 = 成 ? Number(成[1] ?? 成[2]) : undefined;
+  const 经验年 = 经 ? Number(经[1] ?? 经[2]) : undefined;
+  const 好成 = 成立年 && 成立年 >= 1850 && 成立年 <= 今年 ? 成立年 : undefined;
+  const 好经 = 经验年 && 经验年 >= 2 && 经验年 <= 150 ? 经验年 : undefined;
+  if (!好成 && !好经) return undefined;
+  const 原文 = [好成 ? 成![0] : "", 好经 ? 经![0] : ""].filter(Boolean).join("；").trim();
+  return { ...(好成 ? { 成立年: 好成 } : {}), ...(好经 ? { 经验年: 好经 } : {}), 原文 };
+}
+
 /** 放行代理假IP：只给本机实验（开着「假 IP」代理的电脑，见 read-page.ts 是代理假IP），服务器上从不传 */
 export async function 查官网(域: string, 公司: string, signal?: AbortSignal, 读选项: { 放行代理假IP?: boolean } = {}): Promise<核验项> {
   let 页: Awaited<ReturnType<typeof 读网页>> | null = null;
@@ -66,5 +84,6 @@ export async function 查官网(域: string, 公司: string, signal?: AbortSigna
   const 有名 = 提到了(`${页.title}\n${页.text.slice(0, 6000)}`, 公司);
   // 首页上找不到这家的名字：多半不是它的官网（10-18 bench：假公司 Lumexa Trading 被认到了同名前缀的 Lumexa Imaging），标黄
   const 事实 = `可打开，${https ? "HTTPS" : "只有 HTTP（没加密）"}${跳走}；${有名 ? "页面上有这家公司的名字" : "首页上没看到这家公司的名字，可能不是这家的官网"}`;
-  return { key: "site", 灯: https && 有名 ? "green" : "yellow", 态: "已核", 事实, 链接 };
+  const 说法 = 认官网说法(`${页.title}\n${页.text}`);
+  return { key: "site", 灯: https && 有名 ? "green" : "yellow", 态: "已核", 事实, 链接, ...(说法 ? { 说法 } : {}) };
 }

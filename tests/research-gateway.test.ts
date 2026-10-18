@@ -192,12 +192,12 @@ describe("search", () => {
     expect((await search(请求("research/search", token, { runId: "run-s", query: "   " }))).status).toBe(400);
   });
 
-  it("搜到 背调上限.搜索 + 社媒定向搜索 2 次 + 余量 2 次之后 → 429", async () => {
+  it("搜到 背调上限.搜索 + 社媒定向搜索 + 找公司搜索 + 余量 2 次之后 → 429", async () => {
     const { token } = await 建账号带令牌();
     const { start, search } = await 路由();
-    const { 背调上限, 社媒搜索次数 } = await import("@/lib/research/types");
+    const { 背调上限, 社媒搜索次数, 找公司搜索次数 } = await import("@/lib/research/types");
     await start(请求("research/start", token, { runId: "run-cap", 走我们的模型: true }));
-    for (let i = 0; i < 背调上限.搜索 + 社媒搜索次数 + 2; i++) {
+    for (let i = 0; i < 背调上限.搜索 + 社媒搜索次数 + 找公司搜索次数 + 2; i++) {
       expect((await search(请求("research/search", token, { runId: "run-cap", query: `q${i}` }))).status).toBe(200);
     }
     const 超 = await search(请求("research/search", token, { runId: "run-cap", query: "one more" }));
@@ -326,10 +326,13 @@ describe("finish", () => {
     expect((await search(请求("research/search", token, { runId: "run-fail", query: "Acme" }))).status).toBe(409);
   });
 
-  it("出了报告不退", async () => {
+  it("出了报告不退（搜过 = 花了钱）；一次都没搜、没调模型就收尾的退（10-18：我们不花钱，则不扣）", async () => {
     const { token, owner } = await 建账号带令牌();
-    const { start, finish } = await 路由();
+    const { start, finish, search } = await 路由();
+    await start(请求("research/start", token, { runId: "run-free", 走我们的模型: true }));
+    expect(await (await finish(请求("research/finish", token, { runId: "run-free", ok: true }))).json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
     await start(请求("research/start", token, { runId: "run-ok", 走我们的模型: true }));
+    expect((await search(请求("research/search", token, { runId: "run-ok", query: "Acme" }))).status).toBe(200);
     expect(await (await finish(请求("research/finish", token, { runId: "run-ok", ok: true, searches: 3, pages: 2 }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
     expect(await 背调剩(owner)).toBe(2);
   });

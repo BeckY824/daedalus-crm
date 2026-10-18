@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { 算相关性, 清洗评档, 默认权重, 信息不足门槛, type 评档 } from "@/lib/research/score";
+import { 算相关性, 清洗评档, 默认权重, 信息不足门槛, 定结论, type 评档 } from "@/lib/research/score";
 
 const 全高: 评档[] = [
   { 维度: "category", 档: "high", 证据: "官网产品页：户外照明", 来源: "https://a.example" },
@@ -80,5 +80,50 @@ describe("背调相关性打分", () => {
 
   it("说「高」却没证据，降成「中」", () => {
     expect(清洗评档([{ 维度: "scale", 档: "high" }]).find((d) => d.维度 === "scale")?.档).toBe("mid");
+  });
+});
+
+describe("封顶和结论（10-18 对比免费产品第三点：可信度 40% 拿 96 分、同行也满分）", () => {
+  const 只 = (...keys: 评档["维度"][]) => 全高.map((x) => (keys.includes(x.维度) ? x : { ...x, 档: "unknown" as const }));
+
+  it("可信度 < 50% 最多 50 分；50%–70% 最多 70 分；70% 以上不压。原分照留，原因写明", () => {
+    const 低 = 算相关性(只("category", "buyerType")); // 25 + 15 = 40%
+    expect(低).toMatchObject({ 分: 50, 原分: 100, 可信度: 0.4, 封顶: { 上限: 50, 原因: ["可信度 40%（查到的维度不到一半），最多 50 分"] } });
+    const 中 = 算相关性(只("category", "buyerType", "similar")); // 60%
+    expect(中).toMatchObject({ 分: 70, 原分: 100, 封顶: { 上限: 70 } });
+    const 高 = 算相关性(只("category", "buyerType", "similar", "market")); // 75%
+    expect(高.分).toBe(100);
+    expect(高.封顶).toBeUndefined();
+  });
+
+  it("原分本来就不高于上限：不算封顶", () => {
+    const r = 算相关性([{ 维度: "category", 档: "low", 证据: "只做室内" }]);
+    expect(r.分).toBe(20);
+    expect(r.封顶).toBeUndefined();
+  });
+
+  it("同行：是 → 最多 40 分、结论不建议优先；部分 → 最多 70 分；几条同时成立取最低", () => {
+    const 是 = 算相关性(全高, [], {}, { 同行: "是" });
+    expect(是).toMatchObject({ 分: 40, 原分: 100, 结论: { 档: "不优先" } });
+    expect(是.结论?.字).toContain("同行");
+    expect(算相关性(全高, [], {}, { 同行: "部分" })).toMatchObject({ 分: 70, 结论: { 档: "可以试" } });
+    const 两条 = 算相关性(只("category"), [], {}, { 同行: "部分" });
+    expect(两条.分).toBe(50);
+    expect(两条.封顶?.原因).toHaveLength(2);
+    expect(算相关性(全高, [], {}, { 同行: "否" }).分).toBe(100);
+    expect(算相关性(全高, [], {}, { 同行: "查不到" }).分).toBe(100);
+  });
+
+  it("结论只按最后的分：≥75 重点、50–74 可以试、<50 不优先；有高风险先核实；一维没查到说不知道", () => {
+    expect(定结论(75, [], false).档).toBe("重点");
+    expect(定结论(74, [], false).档).toBe("可以试");
+    expect(定结论(50, [], false).档).toBe("可以试");
+    expect(定结论(49, [], false).档).toBe("不优先");
+    expect(定结论(90, [{ 级别: "high", 说明: "母公司在重组" }], false)).toEqual({ 档: "先核实", 字: "先核实风险再决定：母公司在重组" });
+    expect(定结论(90, [{ 级别: "mid", 说明: "x" }], false).档).toBe("重点");
+    expect(定结论(null, [], true).档).toBe("不知道");
+    expect(定结论(50, [], true).字).toContain("信息不足，仅供参考");
+    // 分数和结论一致：可信度低的高分被压到 50，结论跟着是「可以试」而不是「重点」
+    expect(算相关性(只("category", "buyerType")).结论?.档).toBe("可以试");
   });
 });

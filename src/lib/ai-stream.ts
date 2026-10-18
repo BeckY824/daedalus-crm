@@ -32,7 +32,9 @@ export type StreamBody =
     }
   | { mode: "brief"; customerId: string; question?: string }
   /** 背调（lib/research）：公司名必填；从客户详情页发起的带客户 id */
-  | { mode: "research"; company: string; customerId?: string; /** 背调模式里那句原话，带给模型（让它知道人关心什么） */ need?: string };
+  | { mode: "research"; company: string; customerId?: string; /** 背调模式里那句原话，带给模型（让它知道人关心什么） */ need?: string; mail?: unknown; /** 找公司后接着背调：找公司那一次的编号和点选的那家（lib/research/stream.ts 收接着） */ runId?: string; pick?: unknown }
+  /** 只有人名 + 电话、没有公司：先找公司（lib/research/person.ts） */
+  | { mode: "research"; person: { name?: string; phone: string }; need?: string };
 
 export type StreamJob<T> = {
   steps: StepEvent[];
@@ -58,7 +60,8 @@ export function runStream<T>(key: string, body: StreamBody, meta?: string, 标�
       const t0 = Date.now();
       let steps: StepEvent[] = [];
       let text = "";
-      let research: 背调状态 | undefined = body.mode === "research" ? 初始状态({ name: body.company, customerId: body.customerId }) : undefined;
+      let research: 背调状态 | undefined =
+        body.mode !== "research" ? undefined : "person" in body ? 初始状态({ name: body.person.name || body.person.phone }) : 初始状态({ name: body.company, customerId: body.customerId });
       patchJob<StreamJob<T>>(key, { steps });
       const ac = new AbortController();
       controllers.set(key, ac);

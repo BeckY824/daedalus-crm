@@ -9,6 +9,7 @@
  *   新建客户并存背调 公司还不在 CRM 里：按查到的名字 / 国家 / 联系方式建档，再存报告
  *   找同名客户      「存进客户」先看看库里是不是已经有这家，有就让人选，不自己猜着合并
  *   最近背调        客户详情页那块「背调」：最近一次的标题、时间、正文
+ *   认号码动作      只有人名 + 电话时，开跑前在本机判号码（哪国、手机还是固话）：不联网、不花钱、不扣次数
  *
  * 为什么存成跟进记录而不是新开一张表：跟进记录团队版本来就同步，老版本的同事那边也照样显示
  * （「其他记录」类型）；新开一张表要改同步协议、要等所有人升级。
@@ -22,6 +23,7 @@ import { saveCustomer } from "@/app/(app)/customers/actions";
 import { 选通道 } from "./channel";
 import { 认背调状态 } from "./state";
 import { 报告文本, 背调标题, 背调标题前缀 } from "./report";
+import { 认号码, type 号码信息 } from "./person";
 
 export async function 背调价目(): Promise<{ 可用: true; 扣次: number; 还剩: number | null; 模拟: boolean } | { 可用: false; 原因: string }> {
   await requireUser();
@@ -34,6 +36,11 @@ export async function 背调价目(): Promise<{ 可用: true; 扣次: number; �
   } catch (e) {
     return { 可用: false, 原因: e instanceof Error ? e.message : "问不到背调的价目，稍后再试" };
   }
+}
+
+export async function 认号码动作(电话: string): Promise<号码信息 | null> {
+  await requireUser();
+  return typeof 电话 === "string" ? 认号码(电话.slice(0, 40)) : null;
 }
 
 export async function 存背调到客户(customerId: string, 状态原始: unknown): Promise<{ ok: true; id: string } | { ok: false; error: string }> {

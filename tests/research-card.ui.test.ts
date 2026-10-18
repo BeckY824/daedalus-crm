@@ -58,8 +58,13 @@ beforeAll(async () => {
     import ResearchCard from '@/components/research/ResearchCard';
     import ResearchModeLine from '@/components/research/ResearchModeLine';
     import MailPaste from '@/components/research/MailPaste';
+    import ResearchPerson, { PersonCard } from '@/components/research/ResearchPerson';
     const 模式 = window.__模式;
-    createRoot(document.getElementById('root')).render(<App>{模式 === 'mail'
+    createRoot(document.getElementById('root')).render(<App>{模式 === 'person'
+      ? <PersonCard s={window.__状态} running={false} onPick={(c) => window.__选.push(c)} />
+      : 模式 === 'person-confirm'
+      ? <ResearchPerson jobKey="t:p" 名="Anna Beispiel" 电话="+49 40 0000 0000" onPick={() => {}} onAsCompany={(x) => window.__选.push(x)} onCancel={() => {}} />
+      : 模式 === 'mail'
       ? <MailPaste open onCancel={() => {}} onOk={(x) => window.__邮件.push(x)} />
       : 模式 === 'direct-mail'
       ? <ResearchRun jobKey="t:3" company="abc-lighting.ae" 直接开跑 需求="查一下这家" 邮件={window.__带邮件} />
@@ -100,7 +105,8 @@ beforeAll(async () => {
               export const 认联系方式 = async () => ({ email: 'sales@lumora-trading.example', phone: '' });
               export const 存背调到客户 = async (id, s) => { window.__存.push([id, s.目标.name]); return { ok: true, id }; };
               export const 新建客户并存背调 = async () => ({ ok: true, id: 'new' });
-              export const 最近背调 = async () => null;`,
+              export const 最近背调 = async () => null;
+              export const 认号码动作 = async (号) => ({ 号: '+49 40 00000000', 本国: '040 00000000', 本体: '4000000000', 国家: 'DE', 国名: '德国', 类型: '固话', 有效: true });`,
             loader: "js",
           }));
         },
@@ -115,7 +121,7 @@ afterAll(async () => {
   await browser?.close();
 });
 
-async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "line" | "mail" | "direct-mail", opts: { reducedMotion?: boolean; 价目?: unknown; 待选?: unknown; 状态?: unknown; 带邮件?: unknown } = {}): Promise<Page> {
+async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "line" | "mail" | "direct-mail" | "person" | "person-confirm", opts: { reducedMotion?: boolean; 价目?: unknown; 待选?: unknown; 状态?: unknown; 带邮件?: unknown } = {}): Promise<Page> {
   const page = await browser.newPage({ reducedMotion: opts.reducedMotion ? "reduce" : "no-preference" });
   // 打包出来的组件在页面里崩了的话，测试只会表现成「等不到」超时：把页面报错打出来
   page.on("pageerror", (e) => console.error("[页面报错]", e.message));
@@ -142,7 +148,7 @@ it("开跑前先问扣几次；点「开始」才发请求，流式展开到完�
   const 确认 = page.getByRole("group", { name: "背调确认" });
   await 确认.waitFor();
   // 背调次数和问答次数分开（10-16 用户）：一次扣 1 次背调
-  expect(await 确认.textContent()).toContain("背调用的是我们的搜索和分析服务，扣 1 次背调（你还剩 3 次背调）");
+  expect(await 确认.textContent()).toContain("背调用的是我们的搜索和分析服务，开始搜索后扣 1 次背调（你还剩 3 次背调）；还没开始搜就停了的不扣");
   expect((globalThis as unknown as { __请求: unknown[] }).__请求).toHaveLength(0);
 
   await page.getByRole("button", { name: "开始背调" }).click();
@@ -260,7 +266,7 @@ it("认不准是哪家：点候选、或者补一句再开始；说清还没扣�
 
 it("背调模式那一行：剩几次；用完了说还差几次", async () => {
   let page = await open("line", { 价目: { 可用: true, 扣次: 1, 还剩: 4, 模拟: false } });
-  await page.getByText("背调 · 每次扣 1 次 · 剩 4 次").waitFor();
+  await page.getByText("背调 · 开始搜索后扣 1 次 · 剩 4 次").waitFor();
   await page.close();
   page = await open("line", { 价目: { 可用: true, 扣次: 1, 还剩: 0, 模拟: false } });
   await page.getByText("还差 1 次，需要加次数请联系我们").waitFor();
@@ -319,3 +325,79 @@ it("带着邮件开跑：请求里只有认出来的那几样，没有原文", a
   expect(体.mail).toEqual(信);
   await page.close();
 });
+
+it("10-18 新加的几块：结论和封顶、风险必查四项、公开联系人、在卖型号、型号对比、英文开发信（能复制）", async () => {
+  const 加: 研究事件[] = [
+    { type: "contacts", items: [{ 岗位: "采购负责人", 姓名: "Jan Beispiel", 电话: "+49 40 0000 0000", source: 官网 }] },
+    { type: "models", items: [{ 型号: "HB-150", 是什么: "工矿灯", source: 官网 }] },
+    {
+      type: "checks",
+      项: [
+        { key: "母公司", 结论: "独立公司", 级别: "none", source: 官网 },
+        { key: "财务", 结论: "查不到（材料里没有）", 级别: "none" },
+        { key: "同行", 结论: "母公司自己有工厂", 级别: "mid", source: 官网, 是: "部分" },
+        { key: "市场", 结论: "在德奥瑞", 级别: "none", source: 官网 },
+      ],
+    },
+    { type: "score", 评分: 算相关性([{ 维度: "category", 档: "high", 证据: "主营户外照明", 来源: 官网 }, { 维度: "buyerType", 档: "high", 证据: "分销" }], [], {}, { 同行: "部分" }) },
+    { type: "compare", items: [{ 对方: "HB-150", 我们: "UFO 工矿灯 150W", 怎么比: "同功率，我们有 ENEC 版" }] },
+    { type: "email", 主题: "High-bays for Lumora", 正文: "Dear Mr Beispiel,\n\nWe make high-bay fixtures." },
+  ];
+  const s = [...事件.slice(0, -1), ...加, 事件.at(-1)!].reduce(归约, 初始状态({ name: "Lumora Trading GmbH" }));
+  const page = await open("done", { 状态: s });
+  const 卡 = page.getByRole("region", { name: "背调 Lumora Trading GmbH" });
+  await 卡.waitFor();
+  const t = (await 卡.textContent()) ?? "";
+  for (const x of ["公开联系人", "采购负责人 · Jan Beispiel · +49 40 0000 0000", "在卖的型号", "HB-150", "风险必查", "母公司 / 股东", "近两年财务", "查不到（材料里没有）", "是不是同行", "母公司自己有工厂", "型号对比", "UFO 工矿灯 150W", "英文开发信", "Subject: High-bays for Lumora"]) expect(t).toContain(x);
+  // 可信度 40%、部分同行：按权重算 100，封顶 50；结论跟着分数走
+  expect(await page.locator(".rs-cap").textContent()).toContain("按权重算 100 分，封顶 50 分");
+  expect(await page.locator(".rs-verdict").textContent()).toContain("可以试");
+  await expect.poll(async () => page.locator(".rs-score-num").textContent()).toBe("50");
+  // 查不到的那一行没有来源角标
+  expect(await page.locator(".rs-must").nth(1).locator(".rs-ref").count()).toBe(0);
+  // card.test 不是安全来源，没有真剪贴板：换个桩，看写进去的是什么
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { value: { writeText: async (x: string) => void ((window as unknown as { __剪: string }).__剪 = x) } }));
+  await page.getByRole("button", { name: "复制开发信" }).click();
+  await page.getByRole("button", { name: "已复制" }).waitFor();
+  expect(await page.evaluate(() => (window as unknown as { __剪: string }).__剪)).toBe("Subject: High-bays for Lumora\n\nDear Mr Beispiel,\n\nWe make high-bay fixtures.");
+  await page.close();
+}, 30_000);
+
+it("只有人名 + 电话：开跑前先判号码、写明「开始搜索后扣 1 次」，可以改说是公司名", async () => {
+  const page = await open("person-confirm");
+  const 确认 = page.getByRole("group", { name: "找这个人所在的公司" });
+  await 确认.waitFor();
+  const t = (await 确认.textContent()) ?? "";
+  expect(t).toContain("（德国固话）");
+  expect(t).toContain("判号码不扣次数；开始搜索后扣 1 次背调");
+  expect(t).toContain("找不到公司也照扣");
+  await page.getByRole("button", { name: "「Anna Beispiel」其实是公司名，直接背调" }).click();
+  expect(await page.evaluate(() => (window as unknown as { __选: unknown[] }).__选)).toEqual(["Anna Beispiel"]);
+  await page.close();
+}, 30_000);
+
+it("只有人名 + 电话：候选公司点选接着背调；「都不是」出「只有人」简版，带「信息少，谨慎」和 WhatsApp 说明", async () => {
+  const 号 = { 号: "+49 40 00000000", 本国: "040 00000000", 本体: "4000000000", 国家: "DE", 国名: "德国", 类型: "固话", 有效: true };
+  const 名录 = { title: "Lumora Trading GmbH — Kontakt", url: "https://directory.example/lumora-trading-gmbh" };
+  const 候选 = { 公司: "Lumora Trading GmbH", 官网: "https://lumora-trading.example", 依据: "号码出现在名录里这家的联系方式上", 来源: 名录, 号码对上: true, 名字对上: false };
+  const s = ([
+    { type: "person", 名: "Anna Beispiel", 号 },
+    { type: "tool", stage: "person", id: "p1", kind: "search", label: "搜索「\"+49 40 0000 0000\"」", status: "done", result: "2 条结果", ms: 500, sources: [名录] },
+    { type: "person-found", 候选: [候选], 出现: { 号码: [名录], 名字: [] }, 建议: ["回邮件问一句公司全名和官网"] },
+    { type: "usage", searches: 3, pages: 0 },
+  ] as 研究事件[]).reduce(归约, 初始状态({ name: "Anna Beispiel" }));
+  const page = await open("person", { 状态: s });
+  await page.getByText("认出的公司（点一家接着背调，不另扣）").waitFor();
+  expect(await page.locator(".rs-cand").textContent()).toContain("号码对上");
+  await page.getByRole("button", { name: "背调这家" }).click();
+  expect(await page.evaluate(() => (window as unknown as { __选: { 公司: string }[] }).__选.map((c) => c.公司))).toEqual(["Lumora Trading GmbH"]);
+  await page.getByRole("button", { name: "都不是，只看这个人" }).click();
+  const 简 = page.locator(".rs-thin");
+  await 简.waitFor();
+  expect(await 简.textContent()).toContain("信息少，谨慎");
+  const 全 = (await page.locator(".rs-card").textContent()) ?? "";
+  expect(全).toContain("在 1 个公开页面上出现过");
+  expect(全).toContain("回邮件问一句公司全名和官网");
+  expect(全).toContain("没有登录、没有抓取");
+  await page.close();
+}, 30_000);

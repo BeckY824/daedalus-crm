@@ -8,6 +8,8 @@ import { 查邮箱, 查电话, 默认查MX, type 查MX } from "./contact";
 import { 取名单, 制裁项, type 名单 } from "./sanctions";
 import { 查工商, 查税号 } from "./registry";
 import { 主域名 } from "./domain";
+import { 查英国进口 } from "./imports";
+import { 查不了 } from "./net";
 import type { 核验回应, 核验请求, 核验项, 核验键 } from "./types";
 
 export type 核验依赖 = {
@@ -17,10 +19,29 @@ export type 核验依赖 = {
   取名单?: () => Promise<名单[]>;
   查工商?: typeof 查工商;
   查税号?: typeof 查税号;
+  查进口?: typeof 查英国进口;
   signal?: AbortSignal;
   /** 只给本机实验：开着「假 IP」代理时读官网要放行（read-page.ts 是代理假IP）。服务器上从不传 */
   放行代理假IP?: boolean;
 };
+
+/**
+ * 官网自己的说法和工商登记比（10-18 对比免费产品第七点）。只在登记的成立日期确定、公司不到 10 年时比：
+ *   官网写「since 2009」，登记 2020 年成立（早了 2 年以上）→ 官网那一项标黄、补一句
+ *   官网写「10+ years experience」，登记成立才 5 年（多出 2 年以上）→ 同上
+ * 老公司改过名、换过主体的很常见（登记的是新主体），所以只比年轻公司、只标黄、写明「可能是前身」
+ */
+export function 比官网说法(site: 核验项, registry: 核验项, 今年 = new Date().getFullYear()): 核验项 {
+  const 登记年 = registry.态 === "已核" && registry.成立 ? Number(registry.成立.slice(0, 4)) : NaN;
+  const 说 = site.说法;
+  if (!说 || !Number.isFinite(登记年) || 今年 - 登记年 >= 10) return site;
+  const 岁 = 今年 - 登记年;
+  const 不对: string[] = [];
+  if (说.成立年 && 说.成立年 <= 登记年 - 2) 不对.push(`官网写 ${说.成立年} 年起`);
+  if (说.经验年 && 说.经验年 >= 岁 + 2) 不对.push(`官网写 ${说.经验年} 年以上经验`);
+  if (!不对.length) return site;
+  return { ...site, 灯: "yellow", 事实: `${site.事实}；${不对.join("、")}（「${说.原文}」），工商登记 ${登记年} 年才成立，对不上（也可能是前身公司的年头，问一句）` };
+}
 
 export function 域名项(域: string | undefined, 年: 域名年龄 | Error | null): 核验项 {
   if (!域) return { key: "domain", 灯: "yellow", 态: "没查到", 事实: "没找到官网，域名没法查" };
@@ -58,6 +79,14 @@ export async function 核验(请求: Omit<核验请求, "runId">, 依赖: 核验
     return 年龄缓存.get(d)!;
   };
   const 名单们 = (依赖.取名单 ?? (() => 取名单()))().catch(() => [] as 名单[]);
+  // 英国公司查 HMRC 进口商名录（免费、不用 key）。查不了不当「没有」：undefined，报告里不写这一句
+  const 进口们 =
+    请求.国家 === "GB"
+      ? (依赖.查进口 ?? 查英国进口)(名字们, 依赖.signal).catch((e: unknown) => {
+          if (!(e instanceof 查不了)) console.warn("[research/verify] 进口记录出错：", e instanceof Error ? e.message : e);
+          return undefined;
+        })
+      : Promise.resolve(undefined);
 
   const [domain, site, email, phone, sanctions, registry, vat] = await Promise.all([
     域 ? 年龄(域).then((y) => 域名项(域, y), (e: unknown) => 域名项(域, e instanceof Error ? e : new Error(String(e)))) : Promise.resolve(域名项(undefined, null)),
@@ -70,5 +99,6 @@ export async function 核验(请求: Omit<核验请求, "runId">, 依赖: 核验
   ]);
   const 单 = await 名单们;
   const 更 = 单.map((x) => x.更新于).sort()[0];
-  return { 项: [registry, vat, domain, site, email, phone, sanctions], ...(更 ? { 名单更新于: 更 } : {}) };
+  const 进口 = await 进口们;
+  return { 项: [registry, vat, domain, 比官网说法(site, registry), email, phone, sanctions], ...(更 ? { 名单更新于: 更 } : {}), ...(进口 !== undefined ? { 进口 } : {}) };
 }

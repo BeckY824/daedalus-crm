@@ -40,10 +40,11 @@ export function 定总灯(项: 核验项[]): { 总灯: 灯; 总字: string } {
 }
 
 /** 服务器那份 + 桌面端认的足迹 → 按固定顺序排好的整块；缺的项补上默认的那一行 */
-export function 合成真实性(服务器项: 核验项[] | null, 足迹: 核验项, opts: { 名单更新于?: string; 邮件项?: 核验项 } = {}): 真实性 {
+export function 合成真实性(服务器项: 核验项[] | null, 足迹: 核验项, opts: { 名单更新于?: string; 邮件项?: 核验项; 人项?: 核验项 } = {}): 真实性 {
   const 有 = new Map<核验键, 核验项>();
-  for (const x of 服务器项 ?? []) if (核验项表.some((k) => k.key === x.key) && x.key !== "footprint") 有.set(x.key, x);
+  for (const x of 服务器项 ?? []) if (核验项表.some((k) => k.key === x.key) && x.key !== "footprint" && x.key !== "person") 有.set(x.key, x);
   有.set("footprint", 足迹);
+  if (opts.人项) 有.set("person", opts.人项);
   const 默认: Record<核验键, 核验项> = {
     registry: { key: "registry", 灯: "gray", 态: "查不了", 事实: "服务器这次没核成，工商库没查" },
     vat: { key: "vat", 灯: "gray", 态: "没提供", 事实: "没提供税号，未查" },
@@ -54,8 +55,10 @@ export function 合成真实性(服务器项: 核验项[] | null, 足迹: 核验
     ip: opts.邮件项 ?? { key: "ip", 灯: "gray", 态: "没提供", 事实: "没贴询盘邮件原文，未查（背调模式里点「粘贴询盘邮件」可以带上）" },
     sanctions: { key: "sanctions", 灯: "gray", 态: "查不了", 事实: "服务器这次没核成，制裁名单没查" },
     footprint: 足迹,
+    person: { key: "person", 灯: "gray", 态: "不适用", 事实: "" },
   };
-  const 项 = 核验项表.map(({ key }) => 有.get(key) ?? 默认[key]);
+  // 「人和号码」只在从人名 + 电话认出公司的那种背调里有，别的背调不列这一行
+  const 项 = 核验项表.filter(({ key }) => key !== "person" || 有.has("person")).map(({ key }) => 有.get(key) ?? 默认[key]);
   return { 项, ...定总灯(项), ...(opts.名单更新于 ? { 名单更新于: opts.名单更新于 } : {}) };
 }
 

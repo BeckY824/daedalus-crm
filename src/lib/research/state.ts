@@ -4,9 +4,10 @@
  *
  * 纯函数、不可变：浏览器那边每来一条事件就出一份新状态，React 按引用判断哪块要重画。
  */
-import { 阶段表, 字段表, type 来源, type 字段键, type 像的老客户, type 研究事件, type 工具事件, type 阶段号 } from "./types";
+import { 阶段表, 字段表, type 来源, type 字段键, type 像的老客户, type 研究事件, type 工具事件, type 阶段号, type 必查项, type 在卖型号, type 联系人, type 型号对比 } from "./types";
 import type { 评分结果 } from "./score";
 import type { 真实性 } from "./verify/types";
+import type { 候选公司, 出现, 号码信息 } from "./person";
 
 export type 阶段状态 = { status: "idle" | "running" | "done" | "error"; summary?: string; thought?: string; tools: 工具事件[] };
 
@@ -21,12 +22,23 @@ export type 背调状态 = {
   approach: string[];
   /** 真实性那一块（不进 100 分）。老版本存下来的报告没有 */
   真实性?: 真实性;
+  /** 10-18 对比免费产品加的几块（老版本的报告都没有）：风险必查四项、在卖型号、联系人、型号对比、英文开发信 */
+  必查?: 必查项[];
+  型号?: 在卖型号[];
+  联系人?: 联系人[];
+  型号对比?: 型号对比[];
+  开发信?: { 主题: string; 正文: string };
   /** 公开进口记录：有 = 摘要 + 来源；没有 = 「未查到公开进口记录」。老版本的报告没有这一项 */
   进口?: { 有: boolean; 摘要?: string; source?: string };
   /** 报告里引用过的来源，按第一次出现的顺序编号（界面上的 [1] [2]） */
   sources: 来源[];
   usage: { searches: number; pages: number };
   done?: { charge: number; 不完整: boolean; 退了?: boolean };
+  /**
+   * 只有人名 + 电话、没有公司（person.ts）：找公司那几次搜索、认出的候选、号码 / 名字在哪出现过。
+   * 选了一家接着背调的，选了 = 那家的名字（报告开头写「从 XX 和号码认出」）
+   */
+  人?: { 名?: string; 号: 号码信息; tools: 工具事件[]; 候选?: 候选公司[]; 出现?: 出现; 建议?: string[]; 选了?: string };
 };
 
 export function 初始状态(目标: 背调状态["目标"]): 背调状态 {
@@ -64,6 +76,12 @@ export function 归约(s: 背调状态, e: 研究事件): 背调状态 {
       return { ...s, stages: { ...s.stages, [e.stage]: { ...old, thought: e.text } } };
     }
     case "tool": {
+      if (e.stage === "person") {
+        if (!s.人) return s;
+        const i = s.人.tools.findIndex((t) => t.id === e.id);
+        const tools = i >= 0 ? s.人.tools.map((t, k) => (k === i ? { ...t, ...e } : t)) : [...s.人.tools, e];
+        return { ...s, 人: { ...s.人, tools } };
+      }
       const old = s.stages[e.stage];
       const i = old.tools.findIndex((t) => t.id === e.id);
       const tools = i >= 0 ? old.tools.map((t, k) => (k === i ? { ...t, ...e } : t)) : [...old.tools, e];
@@ -92,12 +110,29 @@ export function 归约(s: 背调状态, e: 研究事件): 背调状态 {
       return {
         ...s,
         进口: e.有 && e.摘要 && e.source ? { 有: true, 摘要: e.摘要, source: e.source } : { 有: false },
-        sources: e.有 && e.source ? 收来源(s.sources, [{ title: e.source, url: e.source }]) : s.sources,
+        sources: e.有 && e.source ? 收来源(s.sources, [{ title: e.来源名 || e.source, url: e.source }]) : s.sources,
       };
+    case "checks":
+      return { ...s, 必查: e.项, sources: 收来源(s.sources, e.项.map((x) => (x.source ? { title: x.source, url: x.source } : undefined))) };
+    case "models":
+      return { ...s, 型号: e.items, sources: 收来源(s.sources, e.items.map((x) => ({ title: x.source, url: x.source }))) };
+    case "contacts":
+      return { ...s, 联系人: e.items, sources: 收来源(s.sources, e.items.map((x) => ({ title: x.source, url: x.source }))) };
+    case "compare":
+      return { ...s, 型号对比: e.items };
+    case "email":
+      return { ...s, 开发信: { 主题: e.主题, 正文: e.正文 } };
     case "usage":
       return { ...s, usage: { searches: e.searches, pages: e.pages } };
     case "done":
       return { ...s, done: { charge: e.charge, 不完整: e.不完整, 退了: e.退了 } };
+    case "person":
+      return { ...s, 人: { 名: e.名, 号: e.号, tools: s.人?.tools ?? [] } };
+    case "person-found": {
+      if (!s.人) return s;
+      const 页 = [...e.候选.map((c) => c.来源), ...e.出现.号码, ...e.出现.名字];
+      return { ...s, 人: { ...s.人, 候选: e.候选, 出现: e.出现, 建议: e.建议, 选了: e.选了 }, sources: 收来源(s.sources, 页) };
+    }
   }
 }
 
@@ -107,7 +142,7 @@ export function 归约(s: 背调状态, e: 研究事件): 背调状态 {
  */
 export function 补标题(s: 背调状态): 来源[] {
   const 标题 = new Map<string, string>();
-  for (const st of Object.values(s.stages)) for (const t of st.tools) for (const x of t.sources ?? []) if (x.title && x.title !== x.url) 标题.set(x.url, x.title);
+  for (const t of [...Object.values(s.stages).flatMap((st) => st.tools), ...(s.人?.tools ?? [])]) for (const x of t.sources ?? []) if (x.title && x.title !== x.url) 标题.set(x.url, x.title);
   return s.sources.map((x) => (x.title === x.url && 标题.has(x.url) ? { ...x, title: 标题.get(x.url)! } : x));
 }
 
@@ -133,5 +168,11 @@ export function 认背调状态(v: unknown): 背调状态 | null {
     usage: o.usage ?? { searches: 0, pages: 0 },
     真实性: o.真实性 && Array.isArray(o.真实性.项) ? o.真实性 : undefined,
     进口: o.进口 && typeof o.进口.有 === "boolean" ? o.进口 : undefined,
+    必查: Array.isArray(o.必查) ? o.必查 : undefined,
+    型号: Array.isArray(o.型号) ? o.型号 : undefined,
+    联系人: Array.isArray(o.联系人) ? o.联系人 : undefined,
+    型号对比: Array.isArray(o.型号对比) ? o.型号对比 : undefined,
+    开发信: o.开发信 && typeof o.开发信.正文 === "string" && typeof o.开发信.主题 === "string" ? o.开发信 : undefined,
+    人: o.人 && o.人.号 && typeof o.人.号.号 === "string" && Array.isArray(o.人.tools) ? o.人 : undefined,
   } as 背调状态;
 }

@@ -54,6 +54,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { 跑背调, type 模型调用 } from "../src/lib/research/run";
+import { 找公司, 认号码 } from "../src/lib/research/person";
+import { 初始状态, 归约 } from "../src/lib/research/state";
 import { claude搜索, gpt搜索, 卡了重搜一次, type 搜索服务 } from "../src/lib/research/providers";
 import { 读网页 } from "../src/lib/research/read-page";
 import { 模拟通道 } from "../src/lib/research/mock";
@@ -132,7 +134,12 @@ type 配置 = {
 };
 
 /** 线索（10-18）：对方自报的邮箱、电话、税号（名单里可选的三列，多个用 | 隔开），交给真实性那一块核 */
-type 公司 = { 名: string; 官网: string[]; 国家: string; 类型: string; 规模: string; 备注: string; 线索?: 线索 };
+/**
+ * 只有人 = 「是」（10-18 加的名字 + 电话样本）：「公司」那一列写的是人名（只有号码就写号码），「电话」那一列必填，
+ * 「官网」写我们知道的那家公司的官网（拿来核认没认对）。跑法和产品一样：先找公司，有候选点第一家接着背调（同一个 runId），
+ * 没有就是「只有人」简版
+ */
+type 公司 = { 名: string; 官网: string[]; 国家: string; 类型: string; 规模: string; 备注: string; 线索?: 线索; 只有人?: boolean };
 
 const 参数 = (() => {
   const a = process.argv.slice(2);
@@ -160,7 +167,7 @@ function 读公司(p: string): 公司[] {
       const 多 = (n: string) => 取(c, n).split("|").map((x) => x.trim()).filter(Boolean);
       const 线 = 合并线索({ 邮箱: 多("邮箱").map((x) => x.toLowerCase()), 电话: 多("电话"), 税号: 认线索(取(c, "税号")).税号 });
       const 有线 = 线.邮箱.length + 线.电话.length > 0 || Boolean(线.税号);
-      return { 名: 取(c, "公司"), 官网: 取(c, "官网").split("|").map((x) => x.trim().toLowerCase()).filter(Boolean), 国家: 取(c, "国家"), 类型: 取(c, "类型"), 规模: 取(c, "规模"), 备注: 取(c, "备注"), ...(有线 ? { 线索: { ...线, 国家: 取(c, "国家") || undefined } } : {}) };
+      return { 名: 取(c, "公司"), 官网: 取(c, "官网").split("|").map((x) => x.trim().toLowerCase()).filter(Boolean), 国家: 取(c, "国家"), 类型: 取(c, "类型"), 规模: 取(c, "规模"), 备注: 取(c, "备注"), ...(有线 ? { 线索: { ...线, 国家: 取(c, "国家") || undefined } } : {}), ...(取(c, "只有人") === "是" ? { 只有人: true } : {}) };
     })
     .filter((x) => x.名);
 }
@@ -622,19 +629,48 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
   let 状态: 背调状态 | null = null;
   let 材料: { url: string; text: string }[] = [];
   let 错 = "";
+  let 简版 = false;
   try {
-    const r = await 跑背调({
-      公司: co.名,
-      线索: co.线索,
-      b: { brief: c.我方, fields: { school: "公司", grade: "职位", major: "行业" } },
-      通道,
-      模型: 直连模型(base, key, 参数.模拟 ? "e2e-model" : g.报告, 模型账, 价),
-      老客户: [],
-      发: (e) => {
-        if (e.type === "tool" && e.status === "running") 当前步 = e.stage;
-      },
-    });
-    if (r.ok) {
+    const 模型 = 直连模型(base, key, 参数.模拟 ? "e2e-model" : g.报告, 模型账, 价);
+    const 发 = (e: Parameters<Parameters<typeof 跑背调>[0]["发"]>[0]) => {
+      if (e.type === "tool" && e.status === "running") 当前步 = e.stage;
+    };
+    // 只有名字 + 电话：先找公司，点第一家候选接着背调（产品里是人点；这里取模型排第一的）
+    let 接着: Parameters<typeof 跑背调>[0]["接着"];
+    let 接着runId: string | undefined;
+    let 公司名 = co.名;
+    if (co.只有人) {
+      const 电话 = co.线索?.电话[0] ?? "";
+      const 名 = /^[+\d][\d\s().-]+$/.test(co.名) ? undefined : co.名;
+      let 人状态 = 初始状态({ name: co.名 });
+      const 找 = await 找公司({ 名, 电话, b: { brief: c.我方 }, 通道, 模型, 发: (e) => ((人状态 = 归约(人状态, e)), 发(e)) });
+      const 号 = 认号码(电话);
+      if (!找.ok) throw new Error(找.error);
+      const 选 = 找.候选[0];
+      if (!选 || !号) {
+        状态 = 人状态;
+        简版 = true;
+      } else {
+        公司名 = 选.公司;
+        接着runId = 找.runId;
+        接着 = { 人: { 名, 号 }, 候选: 选, 出现: 找.出现, 证据: 找.材料.filter((r) => r.url === 选.来源.url) };
+      }
+    }
+    const r = 简版
+      ? null
+      : await 跑背调({
+          公司: 公司名,
+          线索: 接着 ? 合并线索(co.线索 ?? { 邮箱: [], 电话: [] }, { 电话: [接着.人.号.号], 官网: 接着.候选.官网 ? 接着.候选.官网.replace(/^https?:\/\//, "").split("/")[0] : undefined }) : co.线索,
+          b: { brief: c.我方, fields: { school: "公司", grade: "职位", major: "行业" } },
+          通道,
+          模型,
+          老客户: [],
+          发,
+          ...(接着 && 接着runId ? { 接着, runId: 接着runId } : {}),
+        });
+    if (!r) {
+      // 简版：没认出公司，不算出错（报告照写、照算钱）
+    } else if (r.ok) {
       状态 = r.状态;
       材料 = r.材料;
       // 6 步都「完成」却没分：最后一步没交出东西（10-17 第一次跑的 SLV），不能算跑成
@@ -650,7 +686,7 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
     公司: co.名,
     国家: co.国家,
     类型: co.类型,
-    认对: 参数.模拟 ? "模拟" : 认对了(状态, co.官网),
+    认对: 简版 ? "简版（没认出公司）" : 参数.模拟 ? "模拟" : 认对了(状态, co.官网),
     认到的官网: 状态?.fields.site?.value ?? "",
     分: 状态?.评分?.分 ?? "",
     步完成: 状态 ? Object.values(状态.stages).filter((x) => x.status === "done").length : 0,
