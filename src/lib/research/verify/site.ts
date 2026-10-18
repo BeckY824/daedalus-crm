@@ -5,8 +5,8 @@
  * 一家正经做生意的公司，官网不会是一张「Welcome to nginx」。
  */
 import { 读网页 } from "../read-page";
-import { 主域名 } from "./domain";
-import { 提到了 } from "./names";
+import { 主域名, 名段 } from "./domain";
+import { 提到了, 比名字, 名词 } from "./names";
 import type { 核验项, 官网说法 } from "./types";
 
 const 停放词 = [
@@ -62,8 +62,22 @@ export function 认官网说法(text: string): 官网说法 | undefined {
   return { ...(好成 ? { 成立年: 好成 } : {}), ...(好经 ? { 经验年: 好经 } : {}), 原文 };
 }
 
+/**
+ * 首页上有没有这家的名字。名字们：工商全称、人输入的品牌名（run.ts 开始核验 交的 公司 + 别名）。
+ * 10-18 免费对比复核：Ansell 拿全称 Ansell Electrical Products Limited 去比，首页只写品牌名 Ansell Lighting（13 次），误报黄灯。
+ * 域名主体（ansell-lighting.com → ansell lighting）只在它像这家的某个名字时才拿来比：
+ * 不然同名前缀的别家官网（假公司 Lumexa Trading 认到 lumexa-imaging.com）也会对上
+ */
+export function 首页有名(文字: string, 名字们: readonly string[], 域: string): boolean {
+  const 名们 = 名字们.map((x) => x.trim()).filter(Boolean);
+  const 主 = 主域名(域);
+  const 主体 = (主 ? 名段(主) : 域).replace(/[-_]+/g, " ").trim();
+  const 用主体 = 名词(主体).join("").length >= 4 && 名们.some((n) => 比名字(主体, n));
+  return [...名们, ...(用主体 ? [主体] : [])].some((n) => 提到了(文字, n));
+}
+
 /** 放行代理假IP：只给本机实验（开着「假 IP」代理的电脑，见 read-page.ts 是代理假IP），服务器上从不传 */
-export async function 查官网(域: string, 公司: string, signal?: AbortSignal, 读选项: { 放行代理假IP?: boolean } = {}): Promise<核验项> {
+export async function 查官网(域: string, 公司: string | readonly string[], signal?: AbortSignal, 读选项: { 放行代理假IP?: boolean } = {}): Promise<核验项> {
   let 页: Awaited<ReturnType<typeof 读网页>> | null = null;
   let 错 = "";
   for (const 协议 of ["https", "http"]) {
@@ -81,7 +95,7 @@ export async function 查官网(域: string, 公司: string, signal?: AbortSigna
   const https = 页.url.startsWith("https://");
   const 落地主 = 主域名(页.url);
   const 跳走 = 落地主 && 落地主 !== 主域名(域) ? `，打开后跳到 ${落地主}` : "";
-  const 有名 = 提到了(`${页.title}\n${页.text.slice(0, 6000)}`, 公司);
+  const 有名 = 首页有名(`${页.title}\n${页.text.slice(0, 6000)}`, typeof 公司 === "string" ? [公司] : 公司, 域);
   // 首页上找不到这家的名字：多半不是它的官网（10-18 bench：假公司 Lumexa Trading 被认到了同名前缀的 Lumexa Imaging），标黄
   const 事实 = `可打开，${https ? "HTTPS" : "只有 HTTP（没加密）"}${跳走}；${有名 ? "页面上有这家公司的名字" : "首页上没看到这家公司的名字，可能不是这家的官网"}`;
   const 说法 = 认官网说法(`${页.title}\n${页.text}`);

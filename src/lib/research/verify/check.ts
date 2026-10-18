@@ -90,7 +90,7 @@ export async function 核验(请求: Omit<核验请求, "runId">, 依赖: 核验
 
   const [domain, site, email, phone, sanctions, registry, vat] = await Promise.all([
     域 ? 年龄(域).then((y) => 域名项(域, y), (e: unknown) => 域名项(域, e instanceof Error ? e : new Error(String(e)))) : Promise.resolve(域名项(undefined, null)),
-    域 ? (依赖.查官网 ?? 查官网)(域, 请求.公司, 依赖.signal, { 放行代理假IP: 依赖.放行代理假IP }).catch(兜("site", `${域} 这会儿查不了`)) : Promise.resolve<核验项>({ key: "site", 灯: "yellow", 态: "没查到", 事实: "没找到官网" }),
+    域 ? (依赖.查官网 ?? 查官网)(域, 名字们, 依赖.signal, { 放行代理假IP: 依赖.放行代理假IP }).catch(兜("site", `${域} 这会儿查不了`)) : Promise.resolve<核验项>({ key: "site", 灯: "yellow", 态: "没查到", 事实: "没找到官网" }),
     查邮箱(请求.邮箱 ?? [], 域, { 查MX: 依赖.查MX ?? 默认查MX, 查年龄: 年龄 }).catch(兜("email", "邮箱这会儿查不了")),
     Promise.resolve().then(() => 查电话(请求.电话 ?? [], 请求.国家, 请求.自报国家)).catch(兜("phone", "电话这会儿查不了")),
     名单们.then((单) => 制裁项(单, 名字们, 请求.国家)).catch(兜("sanctions", "制裁名单这会儿查不了")),

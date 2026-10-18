@@ -42,6 +42,7 @@ import { 合成真实性, 灯符, 邮件头项 } from "./verify/rules";
 import type { 邮件信号 } from "./verify/mail";
 import { 是社媒网址, 社媒查询, 认足迹 } from "./verify/social";
 import { 人号项, type 候选公司, type 出现, type 号码信息 } from "./person";
+import { 换引用, 删引用, 去掉没查到进口 } from "./cite";
 
 /** reasoningEffort：只有最后打分那一步传（背调打分推理强度），网关 / 实验脚本转成 reasoning_effort */
 type ChatOpts = NonNullable<Parameters<typeof chatTools>[2]> & { reasoningEffort?: "none" | "low" | "medium" };
@@ -221,16 +222,54 @@ function 解参数(s: string): Record<string, unknown> {
  * 上限只防模型失控写一大段，正常的一句话碰不到
  */
 const 短 = 全句;
+
+/** 风险里模型自己说拿不准是不是这一家的（同名的别家公司） */
+const 拿不准同一家 = /(无法|不能|未能|难以|没法|不确定)(确认|确定|判断|核实|区分)[^。；;]{0,80}(同一|是这一家|是这家)|同名(的)?(不同|另一|别的)|(不是|并非)同一(家|主体|公司|实体)/;
+/** 官网上的公司历史页 */
+const 历史页路径 = /histor|our-?story|heritage|geschichte|histoire|historia|storia|geschiedenis|chronik|timeline|milestones/i;
+/** 判了「是同行」时切入建议的第一条（10-18 免费对比复核第 6 点） */
+const 先确认外采 =
+  "先确认它外不外采：它自己设计、生产同类产品，多半是竞争对手；先问清楚有没有对外采购或外包的品类（产能不够的型号、配件、私标），有再谈 OEM，没有就别在它身上多花力气";
 const 是网址 = (s: unknown): s is string => typeof s === "string" && /^https?:\/\/\S+$/i.test(s.trim());
 
 export async function 跑背调(input: 背调输入): Promise<背调结果> {
   const runId = input.runId ?? randomUUID();
   const { 通道, 模型, signal } = input;
   let 状态 = 初始状态({ name: input.公司, customerId: input.客户?.id });
-  const 发 = (e: 研究事件) => {
+  const 发原样 = (e: 研究事件) => {
     状态 = 归约(状态, e);
     input.发(e);
   };
+  /**
+   * 正文里的材料编号（「来源:17,28」「[17]」）换成【来源】列表的编号，对不上的删；开发信里全删（cite.ts，10-18 免费对比复核第 2 点）。
+   * 列表要算上这条事件自己带的来源，所以先叠一次拿到新列表再换字。每条事件只换一次：再发一遍的（去掉没查到进口）走 发原样
+   */
+  const 换字 = (e: 研究事件): 研究事件 => {
+    const 列表 = 归约(状态, e).sources.map((x) => x.url);
+    const 换 = (t: string) => 换引用(t, (n) => 材料.find((m) => m.n === n)?.url, 列表);
+    switch (e.type) {
+      case "stage":
+        return e.status === "done" && e.summary ? { ...e, summary: 换(e.summary) } : e;
+      case "tag":
+      case "verify-note":
+        return { ...e, text: 换(e.text) };
+      case "approach":
+        return { ...e, points: e.points.map(换).filter(Boolean) };
+      case "compare":
+        return { ...e, items: e.items.map((x) => ({ ...x, 怎么比: 换(x.怎么比) })) };
+      case "checks":
+        return { ...e, 项: e.项.map((x) => ({ ...x, 结论: 换(x.结论) })) };
+      case "models":
+        return { ...e, items: e.items.map((x) => (x.是什么 ? { ...x, 是什么: 换(x.是什么) } : x)) };
+      case "score":
+        return { ...e, 评分: { ...e.评分, 明细: e.评分.明细.map((d) => (d.证据 ? { ...d, 证据: 换(d.证据) } : d)), ...(e.评分.结论 ? { 结论: { ...e.评分.结论, 字: 换(e.评分.结论.字) } } : {}) } };
+      case "email":
+        return { ...e, 主题: 删引用(e.主题), 正文: 删引用(e.正文) };
+      default:
+        return e;
+    }
+  };
+  const 发 = (e: 研究事件) => 发原样(换字(e));
 
   const 开 = await 通道.开始(runId, signal);
   if (!开.ok) return { ok: false, error: 开.error, 退了: false };
@@ -458,6 +497,22 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     const url = 认来源(材料, u);
     return url ? { url, text: 材料.filter((m) => m.url === url).map((m) => `${m.title}\n${m.text}`).join("\n") } : undefined;
   };
+  /** 材料里官网上的公司历史页（history / our story / Geschichte…），没读过的第一条 */
+  const 官网历史页 = (): string | undefined => {
+    const 站 = 状态.fields.site?.value;
+    const 主 = 站 ? 主域名(站) : undefined;
+    if (!主) return undefined;
+    return 材料
+      .map((m) => m.url)
+      .find((u) => {
+        if (读过.has(u) || 主域名(u) !== 主) return false;
+        try {
+          return 历史页路径.test(new URL(u).pathname);
+        } catch {
+          return false;
+        }
+      });
+  };
 
   /*
     真实性（10-18）：第一步认出官网以后，就把官网、对方自报的邮箱电话税号交给服务器去程序直查（不经模型、不另扣次数），
@@ -590,16 +645,24 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     async risks() {
       // 母公司 / 股东：程序先定向搜一次（owned by / parent company / acquired by / subsidiary of），不让模型自己挑词
       if (!钱到了) await 搜("risks", 母公司查询(社媒名));
+      // 搜到官网的公司历史页就读一次：被收购、母公司常只写在那（10-18 免费对比复核：Ansell 的 history 页写着 2014 年被 Endo 收购，报告只读了 about-us）
+      const 史 = 官网历史页();
+      if (史 && !钱到了) await 读("risks", 史);
       const r =
-        (await 查("risks", "母公司已经按「owned by / parent company / acquired by / subsidiary of」专门搜过一次，结果在材料里，先看它（没搜到再换登记全称或当地语言试一次）；再搜近两年财务（年报、再融资、重组新闻），再搜付款纠纷、投诉、诉讼、破产。", 要.risks)) ??
-        (await 结论("risks", 要.risks));
+        (await 查(
+          "risks",
+          "母公司已经按「owned by / parent company / acquired by / subsidiary of」专门搜过一次，官网的公司历史页（history）搜到了也读过了，都在材料里，先看它们（没搜到再换登记全称或当地语言试一次）；再搜近两年财务（年报、再融资、重组新闻），再搜付款纠纷、投诉、诉讼、破产。" +
+            "拿不准是不是这一家的（同名的别家公司）不要列进风险。",
+          要.risks,
+        )) ?? (await 结论("risks", 要.risks));
       必查们 = 认必查(r.必查, 找原文);
       发({ type: "checks", 项: 必查们 });
       风险们 = (Array.isArray(r.风险) ? (r.风险 as Record<string, unknown>[]) : [])
         .filter((x) => x && (x.级别 === "low" || x.级别 === "mid" || x.级别 === "high") && 短(x.说明, 240))
         .slice(0, 4)
         .map((x) => ({ 级别: x.级别 as 风险["级别"], 说明: 短(x.说明, 240), 来源: 材料里的(x.来源) }))
-        .filter((x) => x.来源);
+        // 模型自己都说「无法确认是同一主体」的不算这家的风险（10-18 复核：澳洲手套公司 Ansell Ltd 的集体诉讼混进了 Ansell Lighting 的风险）
+        .filter((x) => x.来源 && !拿不准同一家.test(x.说明));
       for (const x of 风险们) 发({ type: "tag", tone: "risk", level: x.级别, text: x.说明, source: x.来源 });
       return 短(r.小结, 300) || (风险们.length || 必查们.some((x) => x.级别 !== "none") ? undefined : "没查到明显风险");
     },
@@ -609,6 +672,10 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
      */
     async approach() {
       const 真实 = await 出真实性();
+      // 英国公司的 HMRC 进口商名录是程序查的：先告诉模型，别再写「未查到进口记录」（10-18 复核第 1 点）
+      const 名录 = 核验回?.进口 ? 进口摘要(核验回.进口) : null;
+      // 必查里「是不是同行」判了「是」：切入先确认它外不外采（复核第 6 点）
+      const 同行 = 必查们.find((x) => x.key === "同行")?.是;
       const r = await 结论(
         "approach",
         "对下面 5 项各评一档（high / mid / low / unknown），每项一句证据和来源（材料编号或网址）：\n" +
@@ -628,6 +695,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
           "scale 规模与采购力\nsignals 近期信号：在招人、扩品类、参展、开新店（近一年）\n" +
           `再和我们的老客户比像不像（国家、品类、买家类型、规模），最多挑 3 位，按编号回：\n${老客户表文本(input.老客户)}\n` +
           "最后给 3 条以内切入建议，每条一句话，具体到找谁、聊什么、推什么。\n" +
+          (同行 === "是" ? "风险那一步判了「是同行」（多半是竞争对手，不是买家）：切入建议第一条先写「先确认它外不外采」，再谈 OEM。\n" : "") +
           (型号们.length
             ? `型号对比：拿它在卖的这几个型号（${型号们.map((m) => m.型号).join("、")}），各挑我们业务简介里最接近的一类产品，一句话说怎么比（价格档、参数、认证、交期，材料里有什么说什么，不编数字）。\n`
             : "") +
@@ -635,41 +703,56 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
           "中间说我们能提供什么，结尾一个具体的下一步（寄样 / 报价 / 约 15 分钟电话）。不编我们没有的认证和数字。\n" +
           "小结只写事实，不要写值不值得开发、要不要跟进——结论由程序按分数定。\n" +
           `程序直查的真实性结果（灯是代码按规则定的，你不能改，也不要另编事实）：\n${真实性文本(真实)}\n` +
-          "进口记录：材料里有没有这家公司公开的进口 / 提单 / 海关记录（公开提单页、年报里写的进口量、行业媒体报道）。有就写一句摘要并带来源；没有就 {\"有\":false}。" +
-          "不许估算：不从员工数、门店数倒推，也不拿国家或品类的宏观数据充数。\n" +
+          (名录
+            ? `进口记录程序已经查到了（HMRC 进口商名录，代码查的）：${名录}。进口记录那一项回 {"有":false} 就行；小结、建议里不要写「未查到进口记录」。\n`
+            : "进口记录：材料里有没有这家公司公开的进口 / 提单 / 海关记录（公开提单页、年报里写的进口量、行业媒体报道）。有就写一句摘要并带来源；没有就 {\"有\":false}。" +
+              "不许估算：不从员工数、门店数倒推，也不拿国家或品类的宏观数据充数。\n") +
           "真实性：一句话（60 字以内），结合上面程序直查的结果和材料，说这家公司真不真、要留意什么；不能和程序结果矛盾。\n" +
           '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"材料编号或网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"建议":["…"],"型号对比":[{"对方":"它的型号","我们":"我们的哪类产品","怎么比":"一句话"}],"开发信":{"主题":"英文","正文":"英文"},"进口记录":{"有":true,"摘要":"一句话","来源":"材料编号或网址"},"真实性":"一句话","小结":"一句话"}',
         通道.模型,
       );
-      const 网上评档 = 清洗评档(r.评档).filter((x) => x.维度 !== "similar").map((x) => ({ ...x, 来源: 材料里的(x.来源) }));
+      // 进口记录：英国公司先看服务器直查的 HMRC 进口商名录（程序查的，模型改不了）；查到就用它，盖过模型那句。
+      // 否则用模型从材料里认的：来源必须是这次真读过 / 搜到的材料（认来源），对不上就当没有——模型没法凭空写出一条进口记录
+      const 进 = r.进口记录 && typeof r.进口记录 === "object" ? (r.进口记录 as Record<string, unknown>) : {};
+      const 进源 = 进.有 === true ? 材料里的(进.来源) : undefined;
+      const 进摘 = 短(进.摘要, 300);
+      const 有名录 = Boolean(名录 && 核验回?.进口);
+      // 查到了进口记录：结论、建议里「未查到进口记录」那半句删掉，前后不打架（复核第 1 点）
+      const 净 = (t: string) => (有名录 || (进源 && 进摘) ? 去掉没查到进口(t) : t);
+      const 网上评档 = 清洗评档(r.评档)
+        .filter((x) => x.维度 !== "similar")
+        .map((x) => ({ ...x, 来源: 材料里的(x.来源), ...(x.证据 ? { 证据: 净(x.证据) || undefined } : {}) }));
       const 像 = 认像的老客户(r.像的老客户, input.老客户);
       发({ type: "similar", items: 像, 比了: input.老客户.length });
       const 老客户档: 评档 = { 维度: "similar", 档: 老客户维度档(像, input.老客户.length), 证据: 像[0] ? `像 ${像[0].name}：${像[0].像在哪}` : undefined };
       // 必查里有级别的几项也算风险（进风险级别和「先核实」结论），同行那一项的判断拿去封顶（score.ts）
-      const 同行 = 必查们.find((x) => x.key === "同行")?.是;
       发({ type: "score", 评分: 算相关性([...网上评档, 老客户档], [...风险们, ...必查转风险(必查们)], {}, { 同行 }) });
-      const points = (Array.isArray(r.建议) ? r.建议 : []).map((x) => 短(x, 400)).filter(Boolean).slice(0, 3);
+      let points = (Array.isArray(r.建议) ? r.建议 : []).map((x) => 净(短(x, 400))).filter(Boolean).slice(0, 3);
+      if (同行 === "是" && !/外不外采|外采|对外采购|外包/.test(points[0] ?? "")) points = [先确认外采, ...points].slice(0, 3);
       if (points.length) 发({ type: "approach", points });
-      const 比 = 认型号对比(r.型号对比, 型号们);
+      const 比 = 认型号对比(r.型号对比, 型号们).map((x) => ({ ...x, 怎么比: 净(x.怎么比) || x.怎么比 }));
       if (比.length) 发({ type: "compare", items: 比 });
       const 信 = 认开发信(r.开发信);
       if (信) 发({ type: "email", ...信 });
-      // 进口记录：英国公司先看服务器直查的 HMRC 进口商名录（程序查的，模型改不了）；查到就用它，盖过模型那句。
-      // 否则用模型从材料里认的：来源必须是这次真读过 / 搜到的材料（认来源），对不上就当没有——模型没法凭空写出一条进口记录
-      const 名录 = 核验回?.进口 ? 进口摘要(核验回.进口) : null;
-      const 进 = r.进口记录 && typeof r.进口记录 === "object" ? (r.进口记录 as Record<string, unknown>) : {};
-      const 进源 = 进.有 === true ? 材料里的(进.来源) : undefined;
-      const 进摘 = 短(进.摘要, 300);
       发(
-        名录 && 核验回?.进口
+        有名录 && 名录 && 核验回?.进口
           ? { type: "import", 有: true, 摘要: 名录, source: 核验回.进口.链接, 来源名: `HMRC 进口商名录 · ${核验回.进口.名}` }
           : 进源 && 进摘
             ? { type: "import", 有: true, 摘要: 进摘, source: 进源 }
             : { type: "import", 有: false },
       );
-      const 一句 = 短(r.真实性, 200);
+      const 一句 = 净(短(r.真实性, 200));
       if (一句) 发({ type: "verify-note", text: 一句 });
-      return 短(r.小结, 300) || undefined;
+      // 前面几步的一句话结论里也可能写了「没查到进口记录」：已经换过引用了，只删那半句、原样再发一遍
+      if (状态.进口?.有) {
+        for (const { id } of 阶段表) {
+          const st = 状态.stages[id];
+          if (st.status !== "done" || !st.summary) continue;
+          const t = 去掉没查到进口(st.summary);
+          if (t !== st.summary) 发原样({ type: "stage", stage: id, status: "done", summary: t });
+        }
+      }
+      return 净(短(r.小结, 300)) || undefined;
     },
   };
 
