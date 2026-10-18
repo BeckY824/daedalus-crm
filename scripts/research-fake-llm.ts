@@ -7,8 +7,13 @@
  *
  * 两种用法：
  *   e2e：import { 起假模型 } 在 beforeAll 里起，设置页把 AI 接入指到它（走界面，见 fake-llm.ts 的 配好AI）
- *   本机看效果：npx tsx -e "import('./e2e/research-fake-llm.ts').then((m) => m.起假模型(3191, { 慢: 600 }))"，
+ *   本机看效果：npx tsx -e "import('./scripts/research-fake-llm.ts').then((m) => m.起假模型(3191, { 慢: 600 }))"，
  *              再在设置里把接口地址填 http://127.0.0.1:3191/v1（.claude/launch.json 的 research 就是这么起的）
+ *   实验：scripts/research-bench.ts 的「模拟」模式也起它
+ *
+ * **放在 scripts/ 不放 e2e/**（10-18）：bench 在 scripts/ 下要引它，而镜像构建的上下文排掉了 e2e/（.dockerignore），
+ * tsconfig 又会把 scripts/ 一起做类型检查——v0.46.19 的服务器镜像就挂在这儿（找不到 ../e2e/research-fake-llm）。
+ * scripts/ 和 src/ 不许引 e2e/、tests/，tests/docker-context.test.ts 守着。
  */
 import http from "node:http";
 

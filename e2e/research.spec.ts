@@ -2,13 +2,13 @@
  * AI 联网背调，首页从头到尾（2026-10-16）。
  *
  * 和别的 AI 用例不一样：这里**真走服务端**——本机服务的 6 步编排、事件流、卡片、存进客户都是真的，
- * 只有两头换成假的：模型是 e2e/research-fake-llm.mjs（按步骤回固定答案），搜索走模拟通道（CRM_RESEARCH_CHANNEL=mock，
+ * 只有两头换成假的：模型是 scripts/research-fake-llm.ts（按步骤回固定答案），搜索走模拟通道（CRM_RESEARCH_CHANNEL=mock，
  * playwright.config.ts 里钉着）。所以这一组钉的是「整条链接得上」，不是模型答得好不好。
  */
 import { test, expect, type Page } from "@playwright/test";
 import { 配好AI, 拆掉假模型 } from "./fake-llm";
 import { 连库 } from "./mock-data";
-import { 起假模型 } from "./research-fake-llm";
+import { 起假模型 } from "../scripts/research-fake-llm";
 
 const 账号 = { 用户名: "admin", 密码: "admin123" };
 let 假模型: { url: string; close: () => Promise<void> };
