@@ -75,8 +75,15 @@ afterAll(async () => {
   await browser?.close();
 });
 
-async function 开(ua?: string): Promise<Page> {
-  const ctx = await browser.newContext(ua ? { userAgent: ua } : {});
+/*
+  浏览器标识要写明（2026-10-18）：不写的话 Chromium 报的是跑测试那台机器的系统，
+  Windows CI 上页面照设计给 PowerShell 的 $env:，按 Mac 写的期望就对不上（v0.46.19 的 Windows 构建挂在这）
+*/
+const Mac标识 = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+const Windows标识 = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
+
+async function 开(ua: string): Promise<Page> {
+  const ctx = await browser.newContext({ userAgent: ua });
   const page = await ctx.newPage();
   // 剪贴板换成记下来：无头 Chromium 里真剪贴板要授权，这里只关心复制出去的是哪一行
   await page.addInitScript(() => {
@@ -98,7 +105,7 @@ const 各行 = (page: Page) => page.locator(".mcp-cmd code").allInnerTexts();
 
 describe("生成接入令牌后的命令", () => {
   it("① Claude Code 一条 + Codex 两行，令牌、地址填对，各自复制的是自己那一行", async () => {
-    const page = await 开();
+    const page = await 开(Mac标识);
     const 期望 = MCP接入命令(地址, 令牌);
     expect(await 各行(page)).toEqual([
       `claude mcp add --transport http daedalus ${地址} --header "Authorization: Bearer ${令牌}"`,
@@ -124,10 +131,11 @@ describe("生成接入令牌后的命令", () => {
   });
 
   it("② Windows 上 Codex 第一行用 $env:，第二行不变；提示里说 setx", async () => {
-    const page = await 开("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
+    const page = await 开(Windows标识);
     const 行 = await 各行(page);
     expect(行[1]).toBe(`$env:DAEDALUS_TOKEN="${令牌}"`);
     expect(行[2]).toBe(`codex mcp add daedalus --url ${地址} --bearer-token-env-var DAEDALUS_TOKEN`);
+    expect(行.slice(1, 3)).toEqual(MCP接入命令(地址, 令牌, true).codex);
     expect(行.join("\n")).not.toContain("export ");
     const 全文 = await page.locator(".mcp-block").innerText();
     expect(全文).toContain("setx DAEDALUS_TOKEN");
