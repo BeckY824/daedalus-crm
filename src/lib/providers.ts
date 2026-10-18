@@ -24,6 +24,10 @@
  * 填地址、Key、模型名照样能跑——那是留给知道自己在做什么的人的。
  * 已经存过别家配置的库也不会坏：`认服务商` 认不出来就当「其它」，
  * 地址和模型名原样显示在那儿，能看能改。
+ *
+ * **2026-10-18 加回 OpenAI 一家**（用户定）。上面那条「提示词只照一家调过」对它不成立：
+ * 背调和我们网关那几笔本来就跑在 gpt-5.5 上，首页问答的提示词在 GPT 上也天天在跑。
+ * 它官方接口的脾气在 llm.ts 的 `OpenAI官方` 那里单独处理（不认 max_tokens、不认改 temperature）。
  */
 export type Provider = {
   id: string;
@@ -48,6 +52,17 @@ export const PROVIDERS: Provider[] = [
     ],
     keyUrl: "https://platform.deepseek.com/api_keys",
     keyHint: "sk-…",
+  },
+  {
+    id: "openai",
+    name: "OpenAI（GPT）",
+    baseUrl: "https://api.openai.com/v1",
+    models: [
+      { id: "gpt-5.5", note: "最聪明，贵一些" },
+      { id: "gpt-5.4-mini", note: "便宜、快" },
+    ],
+    keyUrl: "https://platform.openai.com/api-keys",
+    keyHint: "sk-proj-…",
   },
 ];
 
