@@ -40,7 +40,7 @@
  * ## 用法
  *
  *   npx tsx scripts/research-bench.ts --配置 scripts/research-bench.example.json --公司 scripts/research-bench.companies.csv --模拟
- *     不联网、不花钱：模拟搜索 + 本机假模型（e2e/research-fake-llm.ts），验流程和输出格式
+ *     不联网、不花钱：模拟搜索 + 本机假模型（scripts/research-fake-llm.ts），验流程和输出格式
  *   BENCH_BASE_URL=https://api.b.ai/v1 BENCH_KEY=… npx tsx scripts/research-bench.ts --配置 … --公司 …
  *     真跑：花的是中转站额度。Key 只放环境变量（~/Opensource_CRM/02-开发与发版/背调-脚本/对比实验.sh 从本机实验令牌 bench.env 读，不打印）
  *   … --只跑 1     先跑第 1 家看看
@@ -881,7 +881,7 @@ async function main() {
   let key = process.env.BENCH_KEY ?? "";
   let 收拾: (() => Promise<void>) | undefined;
   if (参数.模拟) {
-    const { 起假模型 } = await import("../e2e/research-fake-llm");
+    const { 起假模型 } = await import("./research-fake-llm");
     const s = await 起假模型(0);
     base = s.url;
     key = "bench-mock";
