@@ -60,6 +60,14 @@ test("首页说「帮我背调 XX」：先出确认卡，开始后 6 步展开�
   await expect(卡).toContainText("进口分销商");
   await expect(卡.locator(".rs-score-num")).toHaveText(/^\d+$/);
   await expect(卡.locator(".rs-srcs li").first()).toContainText("Lumora Trading GmbH");
+  // 真实性（10-18）：服务器那头的程序直查走模拟（mock.ts 模拟核验），网上足迹从模拟的 LinkedIn / Facebook 搜索结果认
+  const 真 = 卡.locator(".rs-trust");
+  await expect(真).toContainText("程序直查 · 不经模型");
+  await expect(真.locator(".rs-check")).toHaveCount(9);
+  await expect(真).toContainText("示例登记库");
+  await expect(真).toContainText("LinkedIn 公司主页：有");
+  await expect(卡.locator(".rs-fit-light")).toContainText("真实性");
+  await expect(卡.locator(".rs-fields")).toContainText("进口记录");
 
   // 3. 存进客户：库里没有像的，新建一位（邮箱已经按查到的填好）
   await 卡.getByRole("button", { name: "存进客户" }).click();
@@ -76,6 +84,7 @@ test("首页说「帮我背调 XX」：先出确认卡，开始后 6 步展开�
     expect(报告?.type).toBe("OTHER");
     expect(报告?.content).toContain("【来源】");
     expect(报告?.content).toContain("https://lumora-trading.example/about");
+    expect(报告?.content).toContain("【真实性】");
   } finally {
     await db.$disconnect();
   }

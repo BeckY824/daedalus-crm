@@ -515,6 +515,15 @@ export async function 背调计一次(owner: Owner, runId: string, 哪样: "sear
   return n.count === 1 ? "ok" : "超了";
 }
 
+/** 程序直查（research/verify）之前看一眼：这次背调得是这个账号开的、没退过、没过期。只看不记 */
+export async function 背调还能用(owner: Owner, runId: string, now = Date.now()): Promise<Exclude<背调计数结果, "超了">> {
+  const run = await control.aiResearchRun.findFirst({ where: { ownerKind: owner.kind, ownerId: owner.id, runId }, select: { refunded: true, at: true } });
+  if (!run) return "没有";
+  if (run.refunded) return "退过";
+  if (now - run.at.getTime() > 背调有效期) return "过期";
+  return "ok";
+}
+
 /** 背调计一次 的反向：搜索服务自己出错时把这一次还回去（那一次没搜到东西，不该占名额） */
 export async function 背调还一次(owner: Owner, runId: string, 哪样: "searches" | "pages"): Promise<void> {
   await control.aiResearchRun.updateMany({

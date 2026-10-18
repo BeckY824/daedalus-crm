@@ -58,6 +58,9 @@ import { claude搜索, gpt搜索, 卡了重搜一次, type 搜索服务 } from "
 import { 读网页 } from "../src/lib/research/read-page";
 import { 模拟通道 } from "../src/lib/research/mock";
 import { 报告文本 } from "../src/lib/research/report";
+import { 核验 } from "../src/lib/research/verify/check";
+import { 认线索, 合并线索, type 线索 } from "../src/lib/research/verify/clues";
+import { 信息少, 灯符 } from "../src/lib/research/verify/rules";
 import type { 背调通道 } from "../src/lib/research/channel";
 import type { 背调状态 } from "../src/lib/research/state";
 import { 维度表 } from "../src/lib/research/score";
@@ -97,6 +100,13 @@ type 组合 = {
   同配置?: string;
   /** 开跑前估花费用：这组跑一家大约几元（不写：回放组 1 元，真跑的 7 元——10-17 实测 A 5–7 元、C 0.8 元） */
   预计每次元?: number;
+  /**
+   * 回放组：被回放那组这次不在配置里时，到输出目录的 录像/ 里找它上次录的（10-18 真实性 bench：A 的录像拷过来，A 不再跑）；
+   * 这一家没有录像就自己真跑并录下来（假公司、信息少的公司），下一轮可以回放它
+   */
+  没录像就真跑?: boolean;
+  /** 没录像真跑时大约几元（开跑前估花费用；不写按 7 元） */
+  真跑预计元?: number;
 };
 /**
  * 10-17 总控定：都和 A 比，A 自己不判。有来源差 / 核得上差：最多比 A 低多少（0.05 = 5 个百分点，有来源逐家比再平均）；
@@ -121,7 +131,8 @@ type 配置 = {
   价目?: Record<string, unknown>;
 };
 
-type 公司 = { 名: string; 官网: string[]; 国家: string; 类型: string; 规模: string; 备注: string };
+/** 线索（10-18）：对方自报的邮箱、电话、税号（名单里可选的三列，多个用 | 隔开），交给真实性那一块核 */
+type 公司 = { 名: string; 官网: string[]; 国家: string; 类型: string; 规模: string; 备注: string; 线索?: 线索 };
 
 const 参数 = (() => {
   const a = process.argv.slice(2);
@@ -146,7 +157,10 @@ function 读公司(p: string): 公司[] {
   return 身
     .map((l) => {
       const c = l.split(",");
-      return { 名: 取(c, "公司"), 官网: 取(c, "官网").split("|").map((x) => x.trim().toLowerCase()).filter(Boolean), 国家: 取(c, "国家"), 类型: 取(c, "类型"), 规模: 取(c, "规模"), 备注: 取(c, "备注") };
+      const 多 = (n: string) => 取(c, n).split("|").map((x) => x.trim()).filter(Boolean);
+      const 线 = 合并线索({ 邮箱: 多("邮箱").map((x) => x.toLowerCase()), 电话: 多("电话"), 税号: 认线索(取(c, "税号")).税号 });
+      const 有线 = 线.邮箱.length + 线.电话.length > 0 || Boolean(线.税号);
+      return { 名: 取(c, "公司"), 官网: 取(c, "官网").split("|").map((x) => x.trim().toLowerCase()).filter(Boolean), 国家: 取(c, "国家"), 类型: 取(c, "类型"), 规模: 取(c, "规模"), 备注: 取(c, "备注"), ...(有线 ? { 线索: { ...线, 国家: 取(c, "国家") || undefined } } : {}) };
     })
     .filter((x) => x.名);
 }
@@ -246,6 +260,10 @@ function 直连通道(g: 组合, 服务: 搜索服务, 账: 账, 价: 价目, �
       通道.花费 = { 已花元: 已花(), 上限元 };
       return p;
     },
+    async 核验({ runId: _runId, ...请求 }, signal) {
+      // 程序直查本机直接跑（和服务器 research/verify 同一份代码，不经模型、不花钱）。制裁名单缓存在 RESEARCH_CACHE_DIR
+      return 核验(请求, { signal, 放行代理假IP: process.env.BENCH_ALLOW_FAKE_IP === "1" }).catch(() => null);
+    },
     async 收尾() {
       return null;
     },
@@ -321,16 +339,32 @@ export function 录下(基: 背调通道, 录: 录像, 当前步: () => string):
  */
 export function 回放(录: 录像, 基: 背调通道, 当前步: () => string, 记: { 缺搜: number; 补读: number }, 看钱?: () => 花费): 背调通道 {
   const 用过 = new Set<number>();
-  const 成了 = 录.搜索.map((x, i) => ({ x, i })).filter(({ x }) => !x.错);
+  // LinkedIn / Facebook 定向搜索（10-18）：程序自己发的，录像里有一字不差的就给，没有就真搜（A 的旧录像里没有这两次）。
+  // 别的查询的「不看查询词都给」不发这两条
+  const 社媒 = (q: string) => /site:(linkedin|facebook)\.com/i.test(q);
+  const 成了 = 录.搜索.map((x, i) => ({ x, i })).filter(({ x }) => !x.错 && !社媒(x.query));
   const 全部结果 = () => {
     const 见过 = new Set<string>();
     return 成了.flatMap(({ x }) => x.结果 ?? []).filter((r) => !见过.has(页键(r.url)) && Boolean(见过.add(页键(r.url))));
   };
   const 通道: 背调通道 = {
     ...基,
-    async 搜索(_runId, query) {
+    async 搜索(runId, query, signal) {
       const 步 = 当前步();
-      const 没用过 = 录.搜索.map((x, i) => ({ x, i })).filter(({ i }) => !用过.has(i));
+      if (社媒(query)) {
+        const 录的 = 录.搜索.findIndex((x, i) => !用过.has(i) && x.query === query && !x.错);
+        if (录的 >= 0) {
+          用过.add(录的);
+          通道.花费 = 看钱?.();
+          return 录.搜索[录的].结果 ?? [];
+        }
+        try {
+          return await 基.搜索(runId, query, signal);
+        } finally {
+          通道.花费 = 看钱?.();
+        }
+      }
+      const 没用过 = 录.搜索.map((x, i) => ({ x, i })).filter(({ i, x }) => !用过.has(i) && !社媒(x.query));
       const 这步 = 没用过.filter(({ x }) => x.步 === 步);
       const 中 = 这步.find(({ x }) => x.query.trim().toLowerCase() === query.trim().toLowerCase()) ?? 这步[0] ?? 没用过[0];
       通道.花费 = 看钱?.();
@@ -505,6 +539,10 @@ type 一次 = {
   错: string;
   /** 哪一步出错停下的、报的什么（没停就空着） */
   停在: string;
+  /** 真实性（10-18）：总灯、每一项的灯（🟢🟡🔴⚪ 按 工商/税号/域名/官网/邮箱/电话/IP/制裁/足迹 的顺序）、出没出「信息少」、缺的几样 */
+  真实性: string;
+  各项灯: string;
+  信息少: string;
 };
 
 const 均 = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN);
@@ -560,6 +598,7 @@ function 空行(g: 组合, co: 公司): 一次 {
     组: g.名, 公司: co.名, 国家: co.国家, 类型: co.类型, 认对: "没找到", 认到的官网: "", 分: "", 步完成: 0, 不完整: true,
     结论数: 0, 有来源: 0, 核得上: 0, 核不上: 0, 核不了: 0, 嫌疑: 0, 搜索次数: 0, 读页数: 0, 模型调用: 0, 模型输入: 0, 模型缓存读: 0, 模型输出: 0,
     搜索输入: 0, 搜索缓存读: 0, 搜索输出: 0, 秒: 0, 成本元: 0, 搜索元: 0, 模型元: 0, 估实价元: 0, 回放缺搜: 0, 回放补读页: 0, 错: "", 停在: "",
+    真实性: "", 各项灯: "", 信息少: "",
   };
 }
 
@@ -582,6 +621,7 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
   try {
     const r = await 跑背调({
       公司: co.名,
+      线索: co.线索,
       b: { brief: c.我方, fields: { school: "公司", grade: "职位", major: "行业" } },
       通道,
       模型: 直连模型(base, key, 参数.模拟 ? "e2e-model" : g.报告, 模型账, 价),
@@ -636,6 +676,12 @@ async function 跑一次(c: 配置, g: 组合, co: 公司, base: string, key: st
     回放补读页: 记.补读,
     错,
     停在: 停在哪(状态),
+    真实性: 状态?.真实性 ? `${灯符[状态.真实性.总灯]} ${状态.真实性.总字}` : "",
+    各项灯: 状态?.真实性 ? 状态.真实性.项.map((x) => 灯符[x.灯]).join("") : "",
+    信息少: (() => {
+      const 少 = 状态 ? 信息少(状态) : null;
+      return 少 ? `是：${少.缺.join("、")}` : 状态 ? "否" : "";
+    })(),
   };
   if (状态) writeFileSync(path.join(参数.输出, `${文件名(co.名)}__${文件名(g.名)}.txt`), 报告文本(状态));
   return { 行, 状态, 材料, 嫌疑: 核.嫌疑 };
@@ -768,6 +814,18 @@ async function 写汇总(c: 配置, 公司们: 公司[], 行们: 一次[], 状�
     `过线门槛（都和 A 比，A 自己不判）：认对 ${百(c.过线.认对)}、结论带来源不比 A 低 ${Math.round(c.过线.有来源差 * 100)} 个百分点以上（逐家比再平均）、核得上不比 A 低 ${Math.round(c.过线.核得上差 * 100)} 个百分点以上、编造率（嫌疑 ÷ 带来源的结论）不比 A 高 ${Math.round(c.过线.编造率差 * 100)} 个百分点以上（有同配置重跑时几遍合计）、档位平均至少 ${c.过线.档一致} / 6 一致；` +
       `和 A 的分差只在同配置跑了几遍时按平均分判（≤ ${c.过线.分差}），单跑一遍同配置自己就差 7–9 分，不判。`,
     "编造嫌疑逐条在 编造嫌疑.md；每份报告的原文在同目录的 txt；「核得上」只算摘得出数字 / 英文词的结论。",
+    ...(行们.some((r) => r.真实性)
+      ? [
+          "",
+          "## 真实性（10-18，程序直查，不经模型、不进 100 分）",
+          "",
+          "各项灯的顺序：工商登记 / 税号 / 域名 / 官网 / 邮箱 / 电话 / 发件 IP / 制裁名单 / 网上足迹。每一项的事实在报告 txt 的【真实性】里。",
+          "",
+          "| 组合 | 公司 | 总灯 | 各项 | 信息少 |",
+          "|---|---|---|---|---|",
+          ...行们.filter((r) => r.真实性 || r.错).map((r) => `| ${r.组} | ${r.公司} | ${r.真实性 || `（${r.错.slice(0, 40)}）`} | ${r.各项灯} | ${r.信息少} |`),
+        ]
+      : []),
   ];
   writeFileSync(path.join(参数.输出, "summary.md"), md.join("\n"));
 
@@ -899,7 +957,12 @@ async function main() {
     }
   };
   if (!参数.模拟) {
-    const 预计 = 预计花费元(c.组合, 公司们.map((x) => x.名), 有录像结果);
+    const 预计 =
+      预计花费元(c.组合, 公司们.map((x) => x.名), 有录像结果) +
+      // 回放组这一家没录像、要真跑的：按真跑算（多出来的那部分）
+      c.组合
+        .filter((g) => g.回放 && g.没录像就真跑 && !c.组合.some((h) => h.名 === g.回放))
+        .reduce((a, g) => a + 公司们.filter((co) => !existsSync(录像文件(co.名, g.回放!))).length * ((g.真跑预计元 ?? 7) - (g.预计每次元 ?? 1)), 0);
     // 最后一笔调用中转站按 max_tokens 预扣（背调输出上限 8000 × 5.5 输出价 ≈ 1.7 元，加上输入），留 3 元余量
     const 要 = 预计 + 3;
     if (参数.不查余额) {
@@ -917,6 +980,14 @@ async function main() {
   const 嫌疑表: { 组: string; 公司: string; 话: string; 源: string }[] = [];
   const 录像目录 = path.join(参数.输出, "录像");
   mkdirSync(录像目录, { recursive: true });
+  /** 被回放的组不在这次的配置里：读它上次录的（只要材料，不要它的结果） */
+  const 读录像 = (公司: string, 组: string): 录像 | undefined => {
+    if (c.组合.some((g) => g.名 === 组)) return undefined;
+    const f = 录像文件(公司, 组);
+    if (!existsSync(f)) return undefined;
+    const 录 = JSON.parse(readFileSync(f, "utf8")) as 录像;
+    return { 公司: 录.公司, 组: 录.组, 搜索: 录.搜索, 读页: 录.读页 };
+  };
   const 同时几家 = Math.max(1, c.同时跑几家 ?? 1);
   console.log(`${公司们.length} 家，${同时几家} 家同时跑；组：${c.组合.map((g) => g.名 + (g.回放 ? `（回放 ${g.回放} 的材料）` : "")).join(" / ")}`);
 
@@ -953,7 +1024,15 @@ async function main() {
       },
     );
     for (const g of 这家的组.filter((g) => g.回放)) {
-      const 源 = 录们.get(g.回放!);
+      const 源 = 录们.get(g.回放!) ?? 读录像(co.名, g.回放!);
+      if (!源 && g.没录像就真跑) {
+        const 录: 录像 = { 公司: co.名, 组: g.名, 搜索: [], 读页: [] };
+        const r = await 跑一次(c, g, co, base, key, 价, { 录 });
+        录.结果 = r;
+        writeFileSync(path.join(录像目录, `${文件名(co.名)}__${文件名(g.名)}.json`), JSON.stringify(录));
+        出.set(g.名, r);
+        continue;
+      }
       const r = 源 ? await 跑一次(c, g, co, base, key, 价, { 源 }) : null;
       if (r && 源?.结果) r.行.估实价元 = Math.round((源.结果.行.搜索元 + r.行.模型元) * 1000) / 1000;
       出.set(g.名, r ?? { 行: { ...空行(g, co), 错: `没有「${g.回放}」的录像（那组没跑或跑错了组名）` }, 状态: null, 材料: [], 嫌疑: [] });

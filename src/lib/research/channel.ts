@@ -15,6 +15,7 @@ import type { 开始回应, 搜索结果, 读页结果, 收尾回应, 价目回�
 import { 模拟通道 } from "./mock";
 import { 网关模型 } from "./gateway-model";
 import type { 模型调用 } from "./run";
+import type { 核验请求, 核验回应 } from "./verify/types";
 
 export type 背调通道 = {
   名: "云端" | "模拟";
@@ -36,6 +37,11 @@ export type 背调通道 = {
   开始(runId: string, signal?: AbortSignal): Promise<开始回应>;
   搜索(runId: string, query: string, signal?: AbortSignal): Promise<搜索结果[]>;
   读页(runId: string, url: string, signal?: AbortSignal): Promise<读页结果>;
+  /**
+   * 程序直查（域名、官网、邮箱、电话、制裁名单、工商库、税号）：不经模型、不另扣次数。
+   * 回 null = 这次没核成（老服务器没有这个接口、超时、出错）：真实性那块照样出，那几项写「没核成」
+   */
+  核验(请求: 核验请求, signal?: AbortSignal): Promise<核验回应 | null>;
   /** ok = 6 步都跑完了；取消 = 用户自己停的。退不退服务器判断，回应里的 退了 > 0 就是退了 */
   收尾(runId: string, ok: boolean, 用量: { searches: number; pages: number; 取消?: boolean }): Promise<收尾回应 | null>;
 };
@@ -115,6 +121,16 @@ export function 云端通道(cfg: { baseUrl: string; apiKey: string; models: str
       const r = await 发<读页回应>("read", { runId, url }, signal, 30);
       if (r.花费) 通道.花费 = r.花费;
       return r;
+    },
+    async 核验(请求, signal) {
+      // 服务器那头几项并行、每项自带超时（最慢的是读官网首页），40 秒还没回就不等了
+      try {
+        return await 发<核验回应>("verify", 请求, signal, 40);
+      } catch (e) {
+        if (signal?.aborted) throw e;
+        console.warn("[research] 程序直查没核成：", e instanceof Error ? e.message : e);
+        return null;
+      }
     },
     async 收尾(runId, ok, 用量) {
       // 收尾失败不能让报告出不来：只是少记一笔账 / 少退一次，打一行日志

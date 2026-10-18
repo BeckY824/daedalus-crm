@@ -25,11 +25,18 @@ import { randomUUID } from "node:crypto";
 import type { chatTools, ToolMessage, 工具声明, 工具调用 } from "../llm";
 import type { BusinessConfig } from "../business-config";
 import type { 背调通道 } from "./channel";
-import { 背调上限, 阶段表, 字段表, type 研究事件, type 阶段号, type 字段键, type 来源 } from "./types";
+import { 背调上限, 社媒搜索次数, 阶段表, 字段表, type 研究事件, type 阶段号, type 字段键, type 来源, type 搜索结果 } from "./types";
 import { 算相关性, 清洗评档, type 评档, type 风险 } from "./score";
 import { 认像的老客户, 老客户表文本, 老客户维度档, type 老客户 } from "./similar";
 import { 初始状态, 归约, type 背调状态 } from "./state";
 import { 背调超时, 背调输出上限, 背调打分推理强度, 截, 截断了 } from "./retry";
+import { 核验项表, type 核验回应, type 真实性 } from "./verify/types";
+import type { 线索 } from "./verify/clues";
+import { 认国家 } from "./verify/country";
+import { 主机 } from "./verify/domain";
+import { 查询名 } from "./verify/names";
+import { 合成真实性, 灯符 } from "./verify/rules";
+import { 是社媒网址, 社媒查询, 认足迹 } from "./verify/social";
 
 /** reasoningEffort：只有最后打分那一步传（背调打分推理强度），网关 / 实验脚本转成 reasoning_effort */
 type ChatOpts = NonNullable<Parameters<typeof chatTools>[2]> & { reasoningEffort?: "none" | "low" | "medium" };
@@ -45,6 +52,8 @@ export type 背调输入 = {
   客户?: { id: string; 已知: string };
   /** 背调模式里用户输入的那句原话（「帮我查 Rexel 适不适合我们」）：带给模型，让它知道人关心什么 */
   需求?: string;
+  /** 对方自报的邮箱、电话、官网、税号、国家（客户档案 + 那句话里贴的），拿去做真实性核对（verify/clues.ts） */
+  线索?: 线索;
   b: Pick<BusinessConfig, "brief" | "fields">;
   通道: 背调通道;
   模型: 模型调用;
@@ -71,9 +80,9 @@ const 每步工具上限: Record<阶段号, number> = { identify: 3, basics: 3, 
 /** 每一步要查清什么。写给模型看的，也是界面上那一步的意思 */
 const 本步目标: Record<阶段号, string> = {
   identify: "认准是哪一家：找到它的官网和至少一个独立来源（工商登记、名录、行业媒体），排除同名公司。名字里有 GmbH / Ltd / S.A. 之类的，按对应国家找。",
-  basics: "查基本面：国家城市、成立年份、规模（员工 / 门店 / 营收，有什么写什么）、主营产品、买家类型（进口商 / 分销商 / 品牌商 / 工程商 / 零售）、公开的联系方式。",
+  basics: "查基本面：国家城市、成立年份、规模（员工 / 门店 / 营收，有什么写什么）、主营产品、买家类型（进口商 / 分销商 / 品牌商 / 工程商 / 零售）、公开的联系方式；顺带留意有没有公开的进口 / 提单 / 海关记录（有就记下出处，没有不用硬找）。",
   fit: "对照我们的业务，判断它和我们相不相关：品类重合、买家类型对不对、市场和认证、规模和采购力；再和我们的老客户比像不像。材料不够可以再查一次。",
-  signals: "找近期信号：在招人（尤其采购 / 品类岗位）、扩品类、开新店、参展、融资、新闻。优先近一年的。",
+  signals: "找近期信号：在招人（尤其采购 / 品类岗位）、扩品类、开新店、参展（展会的参展商名单）、融资、新闻。优先近一年的。",
   risks: "排查风险：付款纠纷、投诉、诉讼、破产 / 清算、被制裁、负面新闻、和我们是同行（竞争对手）。查不到负面就说查不到，不要编。",
   approach: "根据前面查到的，给出怎么切入：找谁、用什么话题开口、主推哪类产品、注意什么。",
 };
@@ -208,6 +217,11 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   const 材料: 材料条[] = [];
   const 读过 = new Set<string>();
   let 搜索数 = 0;
+  /** 程序自己发的 LinkedIn / Facebook 定向搜索：不占模型的搜索次数（服务器那头多放 社媒搜索次数 次） */
+  let 社媒数 = 0;
+  let 社媒搜成 = false;
+  /** 这次所有的搜索结果：「网上足迹」从里面认 LinkedIn / Facebook 链接（verify/social.ts） */
+  const 全部结果: 搜索结果[] = [];
   let 读页数 = 0;
   let 不完整 = false;
   /**
@@ -229,18 +243,25 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   /** 用原生 function calling；对面不吃 tools 时退回 JSON 协议（和首页 agent 同一个判断） */
   let 用原生 = true;
 
-  const 搜 = async (stage: 阶段号, query: string): Promise<string> => {
-    // 搜满了是预算（降本开关定的次数），不是材料不全：报告不标（10-16 试跑 C 组 6 步都走完了也被标了）
-    if (搜索数 >= 搜索上限) {
-      return "这次背调的搜索次数用完了，请用已有材料。";
+  const 搜 = async (stage: 阶段号, query: string, 社媒 = false): Promise<string> => {
+    if (社媒) {
+      if (社媒数 >= 社媒搜索次数) return "";
+      社媒数 += 1;
+    } else {
+      // 搜满了是预算（降本开关定的次数），不是材料不全：报告不标（10-16 试跑 C 组 6 步都走完了也被标了）
+      if (搜索数 >= 搜索上限) {
+        return "这次背调的搜索次数用完了，请用已有材料。";
+      }
+      搜索数 += 1;
     }
-    搜索数 += 1;
     const id = `t${++工具号}`;
     const label = `搜索「${截(query, 60)}」`;
     const t0 = Date.now();
     发({ type: "tool", stage, id, kind: "search", label, status: "running" });
     try {
       const rs = await 通道.搜索(runId, query, signal);
+      全部结果.push(...rs);
+      if (社媒) 社媒搜成 = true;
       const 新: 来源[] = [];
       const 号 = new Map<string, number>();
       for (const r of rs) {
@@ -250,7 +271,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
         新.push({ title: r.title || r.url, url: r.url });
       }
       发({ type: "tool", stage, id, kind: "search", label, status: "done", result: `${rs.length} 条结果`, ms: Date.now() - t0, sources: 新.slice(0, 6) });
-      发({ type: "usage", searches: 搜索数, pages: 读页数 });
+      发({ type: "usage", searches: 搜索数 + 社媒数, pages: 读页数 });
       看钱();
       // 带上和「已有材料」同一套编号：来源可以填编号（认来源），这一步新搜到的不带号，模型照着位置猜就会对错条
       return rs.length ? rs.map((r) => `- ${号.has(r.url) ? `[${号.get(r.url)}] ` : ""}${r.title}\n  ${r.url}\n  ${(r.snippet ?? "").slice(0, 300)}`).join("\n") : "没有搜到结果，换个说法或换个角度再搜。";
@@ -265,6 +286,8 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
 
   const 读 = async (stage: 阶段号, url: string): Promise<string> => {
     if (读过.has(url)) return "这一页前面已经读过，内容在材料里。";
+    // LinkedIn / Facebook 不打开（10-18 用户定：不登录、不抓取），只用搜索结果。不占读页名额
+    if (是社媒网址(url)) return "LinkedIn / Facebook 的页面不打开，只用搜索结果里的标题和摘要。";
     if (读页数 >= 背调上限.读页) {
       return "这次背调能读的页数用完了，请用已有材料。";
     }
@@ -280,7 +303,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       材料.push({ n: 材料.length + 1, kind: "read", title: p.title || 名, url: p.url || url, text: p.text, ...(p.url && p.url !== url ? { 别名: url } : {}) });
       const 字 = p.text.length >= 1000 ? `${(p.text.length / 1000).toFixed(1)}k 字` : `${p.text.length} 字`;
       发({ type: "tool", stage, id, kind: "read", label, status: "done", result: `1 页 · ${字}`, ms: Date.now() - t0, sources: [{ title: p.title || 名, url: p.url || url }] });
-      发({ type: "usage", searches: 搜索数, pages: 读页数 });
+      发({ type: "usage", searches: 搜索数 + 社媒数, pages: 读页数 });
       看钱();
       return `[${材料.length}] ${p.title}\n${p.text.slice(0, 4000)}`;
     } catch (e) {
@@ -398,8 +421,56 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
 
   let 风险们: 风险[] = [];
 
+  /*
+    真实性（10-18）：第一步认出官网以后，就把官网、对方自报的邮箱电话税号交给服务器去程序直查（不经模型、不另扣次数），
+    和后面几步并行；切入建议那一步之前等它回来，连同「网上足迹」拼成那一块。灯全是代码按规则定的（verify/rules.ts）
+  */
+  let 核验中: Promise<核验回应 | null> | null = null;
+  let 真: 真实性 | null = null;
+  const 开始核验 = (官网?: string, 国家城市?: string, 全称?: string) => {
+    if (核验中) return;
+    const 线 = input.线索;
+    const 名 = 查询名(input.公司);
+    核验中 = 通道
+      .核验(
+        {
+          runId,
+          公司: 全称 || 名,
+          别名: 全称 && 全称 !== 名 ? [名] : [],
+          域名: (官网 && 主机(官网)) || 线?.官网,
+          邮箱: 线?.邮箱 ?? [],
+          电话: 线?.电话 ?? [],
+          税号: 线?.税号,
+          国家: 认国家(国家城市) ?? 认国家(线?.国家),
+          自报国家: 认国家(线?.国家),
+        },
+        signal,
+      )
+      .catch(() => null);
+  };
+  const 出真实性 = async (): Promise<真实性> => {
+    if (真) return 真;
+    开始核验();
+    let 停表: ReturnType<typeof setTimeout> | undefined;
+    const 回 = await Promise.race([核验中!, new Promise<null>((r) => (停表 = setTimeout(() => r(null), 45_000)))]);
+    clearTimeout(停表);
+    const 足迹 = 认足迹(全部结果.filter((r) => 是社媒网址(r.url)), 查询名(input.公司), 社媒搜成);
+    真 = 合成真实性(回?.项 ?? null, 足迹, { 名单更新于: 回?.名单更新于 });
+    发({ type: "verify", 真实性: 真 });
+    // 制裁疑似命中两边都出：真实性标红，风险里也列一条「高」（方案 3.1）
+    const 制裁 = 真.项.find((x) => x.key === "sanctions" && x.硬红);
+    if (制裁) {
+      const r: 风险 = { 级别: "high", 说明: 短(制裁.硬红, 120), 来源: 制裁.链接?.[0]?.url };
+      风险们 = [...风险们, r];
+      发({ type: "tag", tone: "risk", level: "high", text: r.说明, source: r.来源 });
+    }
+    return 真;
+  };
+  const 真实性文本 = (x: 真实性) =>
+    x.项.map((y) => `- ${核验项表.find((k) => k.key === y.key)?.label ?? y.key} ${灯符[y.灯]}：${y.事实}`).join("\n") + `\n总灯 ${灯符[x.总灯]}：${x.总字}`;
+
   const 要 = {
-    identify: '{"认准":true|false,"官网":"网址或空","国家城市":"…或空","说明":"一句话：凭什么认定是这一家，或者为什么拿不准","来源":"材料编号或网址"}',
+    identify: '{"认准":true|false,"官网":"网址或空","全称":"材料里写的登记全称（带 GmbH / Ltd 之类）或空","国家城市":"…或空","说明":"一句话：凭什么认定是这一家，或者为什么拿不准","来源":"材料编号或网址"}',
     basics: '{"字段":{"country":{"value":"…","source":"材料编号或网址"},"founded":{…},"size":{…},"business":{…},"buyerType":{…},"contact":{…}},"小结":"一句话"}。查不到的字段不要写。value 用中文短语（≤30 字）',
     fit: '{"小结":"一句话：从材料看它和我们的业务对不对口（品类、买家类型、市场、规模），先不打分"}',
     signals: '{"信号":[{"text":"一句话（中文）","source":"材料编号或网址"}],"小结":"一句话"}。最多 4 条，优先近一年的；没有就空数组',
@@ -414,6 +485,8 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       // 不带来源的结论不进报告（官网那格除外：认准是哪一家靠它，对不对另有 认对 核）
       const 国家来源 = 材料里的(r.来源);
       if (短(r.国家城市, 40) && 国家来源) 发({ type: "field", key: "country", value: 短(r.国家城市, 40), source: 国家来源 });
+      // 程序直查在后台跑，后面几步照常往下走。官网和上面那一格同一个（没认出就用对方自报的）
+      开始核验(是网址(r.官网) ? (r.官网 as string) : undefined, 国家来源 ? 短(r.国家城市, 40) : undefined, 短(r.全称, 120) || undefined);
       return 短(r.说明, 140) || (r.认准 ? "认准了" : "没能确认是哪一家");
     },
     async basics() {
@@ -432,7 +505,9 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       return 短(r.小结, 140) || undefined;
     },
     async signals() {
-      const r = (await 查("signals", "搜招聘、新闻、展会，各一次就够。", 要.signals)) ?? (await 结论("signals", 要.signals));
+      // LinkedIn / Facebook 定向搜索：程序自己发（不让模型挑），只看搜索结果判断有没有主页、有没有在职员工（verify/social.ts）
+      if (!钱到了) await Promise.all(社媒查询(input.公司).map((q) => 搜("signals", q, true)));
+      const r = (await 查("signals", "搜招聘、新闻、展会，各一次就够（LinkedIn / Facebook 已经搜过了，结果在材料里）。", 要.signals)) ?? (await 结论("signals", 要.signals));
       const 信号 = Array.isArray(r.信号) ? (r.信号 as { text?: unknown; source?: unknown }[]) : [];
       for (const s of 信号.slice(0, 4)) {
         const 源 = 材料里的(s?.source);
@@ -455,6 +530,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
      * 前面五步（可以是便宜的模型）只负责查和摘要；评档、像哪位老客户、怎么切入都在这一步看着全部材料一次定。
      */
     async approach() {
+      const 真实 = await 出真实性();
       const r = await 结论(
         "approach",
         "对下面 5 项各评一档（high / mid / low / unknown），每项一句证据和来源（材料编号或网址）：\n" +
@@ -474,7 +550,11 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
           "scale 规模与采购力\nsignals 近期信号：在招人、扩品类、参展、开新店（近一年）\n" +
           `再和我们的老客户比像不像（国家、品类、买家类型、规模），最多挑 3 位，按编号回：\n${老客户表文本(input.老客户)}\n` +
           "最后给 3 条以内切入建议，每条一句话，具体到找谁、聊什么、推什么。\n" +
-          '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"材料编号或网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"建议":["…"],"小结":"一句话"}',
+          `程序直查的真实性结果（灯是代码按规则定的，你不能改，也不要另编事实）：\n${真实性文本(真实)}\n` +
+          "进口记录：材料里有没有这家公司公开的进口 / 提单 / 海关记录（公开提单页、年报里写的进口量、行业媒体报道）。有就写一句摘要并带来源；没有就 {\"有\":false}。" +
+          "不许估算：不从员工数、门店数倒推，也不拿国家或品类的宏观数据充数。\n" +
+          "真实性：一句话（60 字以内），结合上面程序直查的结果和材料，说这家公司真不真、要留意什么；不能和程序结果矛盾。\n" +
+          '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"材料编号或网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"建议":["…"],"进口记录":{"有":true,"摘要":"一句话","来源":"材料编号或网址"},"真实性":"一句话","小结":"一句话"}',
         通道.模型,
       );
       const 网上评档 = 清洗评档(r.评档).filter((x) => x.维度 !== "similar").map((x) => ({ ...x, 来源: 材料里的(x.来源) }));
@@ -484,6 +564,13 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       发({ type: "score", 评分: 算相关性([...网上评档, 老客户档], 风险们) });
       const points = (Array.isArray(r.建议) ? r.建议 : []).map((x) => 短(x, 200)).filter(Boolean).slice(0, 3);
       if (points.length) 发({ type: "approach", points });
+      // 进口记录：来源必须是这次真读过 / 搜到的材料（认来源），对不上就当没有——模型没法凭空写出一条进口记录
+      const 进 = r.进口记录 && typeof r.进口记录 === "object" ? (r.进口记录 as Record<string, unknown>) : {};
+      const 进源 = 进.有 === true ? 材料里的(进.来源) : undefined;
+      const 进摘 = 短(进.摘要, 120);
+      发(进源 && 进摘 ? { type: "import", 有: true, 摘要: 进摘, source: 进源 } : { type: "import", 有: false });
+      const 一句 = 短(r.真实性, 80);
+      if (一句) 发({ type: "verify-note", text: 一句 });
       return 短(r.小结, 140) || undefined;
     },
   };
@@ -507,15 +594,24 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     }
   }
 
+  // 没走到切入建议那一步（中途出错）：真实性那一块照样出，程序直查的结果不该跟着丢
+  if (!真 && 材料.length && !signal?.aborted) {
+    try {
+      await 出真实性();
+    } catch {
+      /* 拼不出来就算了：报告其余部分照常 */
+    }
+  }
+
   // 用户自己停的（点了停、关了页面）：服务器那边不退。别的没跑完（超时、上游报错）退不退由服务器按它自己记的判断
   const 取消 = Boolean(signal?.aborted);
   // 一条材料都没拿到：这份「报告」什么都不是，全退
   if (!材料.length) {
-    await 通道.收尾(runId, false, { searches: 搜索数, pages: 读页数, 取消 });
+    await 通道.收尾(runId, false, { searches: 搜索数 + 社媒数, pages: 读页数, 取消 });
     return { ok: false, error: 出错 ?? "一条资料都没查到，这次不扣次数", 退了: true };
   }
   if (停在) 不完整 = true;
-  const 收 = await 通道.收尾(runId, !停在, { searches: 搜索数, pages: 读页数, 取消 });
+  const 收 = await 通道.收尾(runId, !停在, { searches: 搜索数 + 社媒数, pages: 读页数, 取消 });
   发({ type: "done", charge: 通道.扣次, 不完整, 退了: (收?.退了 ?? 0) > 0 });
   return { ok: true, 状态, runId, 材料: 材料.map((m) => ({ url: m.url, text: m.text })) };
 }

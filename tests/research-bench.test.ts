@@ -79,6 +79,9 @@ describe("A / C 同材料回放（10-17 总控定：C 不再搜索，用 A 录�
       if (url.includes("404")) throw new Error("读不到");
       return { url, title: "页", text: `正文 ${url}`, 截断了: false };
     },
+    async 核验() {
+      return null;
+    },
     async 收尾() {
       return null;
     },

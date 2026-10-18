@@ -10,6 +10,7 @@
  *   4. 相关性分数滚上去，外圈跟着画；信号 / 风险一条条出来
  *   5. 来源统一编号，结论后面的 [n] 点了用系统浏览器打开那一页
  *   6. 底部状态条：用时、搜了几次、读了几页、扣几次背调（没跑完退回的照实说）
+ * 2026-10-18 加「真实性」块（不进 100 分，灯由代码定：lib/research/verify/rules.ts）和「信息少，谨慎」横幅。
  * 动效只表达真实进度：每个变化都对应一条事件（lib/research/types.ts 研究事件）。
  * 时长、曲线一律取 useMotionTheme()；开了「减弱动态」时 MotionConfig 撤位移，样式表撤扫光（research.css 末尾）。
  */
@@ -20,6 +21,8 @@ import { useMotionTheme } from "@/components/MotionTheme";
 import { 思考打字 } from "@/lib/motion";
 import { 阶段表, 字段表, type 工具事件 } from "@/lib/research/types";
 import { 补标题, 来源号, type 背调状态, type 阶段状态 } from "@/lib/research/state";
+import { 核验项表, type 灯, type 真实性 } from "@/lib/research/verify/types";
+import { 信息少 } from "@/lib/research/verify/rules";
 import "./research.css";
 
 const 档名 = { high: "高", mid: "中", low: "低", unknown: "查不到" } as const;
@@ -190,6 +193,47 @@ function FitScore({ value }: { value: number }) {
   );
 }
 
+const 灯名: Record<灯, string> = { green: "可信", yellow: "留意", red: "高危", gray: "没法判断" };
+const 项名 = Object.fromEntries(核验项表.map((x) => [x.key, x.label])) as Record<string, string>;
+
+/** 真实性：一项一盏灯。灯和事实全是代码直查出来的，模型只写下面那一句总结 */
+function TrustBlock({ v }: { v: 真实性 }) {
+  const { 时长, 曲线, 间隔 } = useMotionTheme();
+  return (
+    <motion.div className={`rs-trust rs-trust-${v.总灯}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 时长.morph, ease: 曲线.ease }}>
+      <div className="rs-trust-head">
+        <span className="rs-trust-t">真实性</span>
+        <span className={`rs-light rs-light-${v.总灯}`}>
+          <span className="rs-dot" aria-hidden />
+          {灯名[v.总灯]}
+        </span>
+        <span className="rs-trust-sum">{v.总字}</span>
+        <span className="rs-trust-by" title="这一块的灯和每一条事实都是程序直接查官方接口得来的，没经过 AI，也不计入相关性分">
+          程序直查 · 不经模型
+        </span>
+      </div>
+      {v.总结 && <p className="rs-trust-note">{v.总结}</p>}
+      <ul className="rs-checks">
+        {v.项.map((x, i) => (
+          <motion.li key={x.key} className={`rs-check rs-check-${x.灯}`} initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 时长.base, ease: 曲线.ease, delay: i * 间隔 }}>
+            <span className="rs-dot" aria-label={灯名[x.灯]} />
+            <span className="rs-check-l">{项名[x.key] ?? x.key}</span>
+            <span className="rs-check-f">
+              {x.事实}
+              {x.链接?.map((l) => (
+                <a key={l.url} className="rs-check-a" href={l.url} target="_blank" rel="noreferrer" title={l.url}>
+                  {l.title}
+                </a>
+              ))}
+            </span>
+          </motion.li>
+        ))}
+      </ul>
+      {v.名单更新于 && <p className="rs-trust-foot">制裁名单（美国 OFAC、欧盟、联合国、英国）更新于 {v.名单更新于.slice(0, 10)}</p>}
+    </motion.div>
+  );
+}
+
 /** 跑着时秒表自己走；跑完停在总用时 */
 function 用秒(running: boolean, 起: number | undefined, 总?: number): number {
   return 总 != null ? 总 / 1000 : running && 起 ? (Date.now() - 起) / 1000 : 0;
@@ -224,6 +268,7 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
   const 状态字 = running ? null : error ? (s.done ? "材料不全" : "没跑完") : s.done?.不完整 ? "材料不全" : s.done ? "已完成" : null;
   const 状态类 = !running && error && !s.done ? "rs-pill-err" : s.done?.不完整 || error ? "rs-pill-part" : "rs-pill-done";
   const 字段们 = 字段表.filter((f) => f.key !== "site");
+  const 少 = 信息少(s);
 
   return (
     <section className="rs-card" aria-label={`背调 ${s.目标.name}`}>
@@ -249,6 +294,13 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
         <span className={`rs-pill ${running ? "" : 状态类}`}>{running ? <Shimmer text="背调中" /> : 状态字}</span>
       </div>
 
+      {少 && (
+        <div className="rs-thin" role="note">
+          <b>信息少，谨慎</b>
+          <span>{少.文字}</span>
+        </div>
+      )}
+
       <dl className="rs-fields">
         {字段们.map((f) => {
           const v = s.fields[f.key];
@@ -272,7 +324,24 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
             </div>
           );
         })}
+        {s.进口 && (
+          <div className="rs-field">
+            <dt>进口记录</dt>
+            <dd>
+              {s.进口.有 ? (
+                <span>
+                  {s.进口.摘要}
+                  <Ref s={s} url={s.进口.source} />
+                </span>
+              ) : (
+                <span className="rs-none">未查到公开进口记录</span>
+              )}
+            </dd>
+          </div>
+        )}
       </dl>
+
+      <AnimatePresence>{s.真实性 && <TrustBlock v={s.真实性} />}</AnimatePresence>
 
       <div className="rs-rail-wrap">
         <span className="rs-rail" aria-hidden>
@@ -293,6 +362,12 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
               <div className="rs-fit-title">
                 和我们的相关性
                 {s.评分.信息不足 && <span className="rs-fit-note">信息不足，仅供参考</span>}
+                {s.真实性 && (
+                  <span className={`rs-light rs-light-${s.真实性.总灯} rs-fit-light`} title="真实性单独看，不计入这个分">
+                    <span className="rs-dot" aria-hidden />
+                    真实性{灯名[s.真实性.总灯]}
+                  </span>
+                )}
               </div>
               <ul className="rs-dims">
                 {s.评分.明细.map((d, i) => (

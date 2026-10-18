@@ -14,6 +14,7 @@ import { 跑背调 } from "./run";
 import { 报告文本 } from "./report";
 import type { 研究事件 } from "./types";
 import type { 背调状态 } from "./state";
+import { 合并线索, 认线索, type 线索 } from "./verify/clues";
 
 export type 背调回答 = { text: string; records: []; customers: { id: string; name: string; followStatus: string }[]; proposals: []; research: 背调状态 };
 
@@ -41,9 +42,21 @@ export async function 背调一次(
 
   /* 从客户详情页发起：把档案里已有的线索带上，帮第一步认准（同名公司很常见）。查不到这位就当没给——可能刚被删，或者看不到 */
   let 客户: { id: string; 已知: string } | undefined;
+  const 需求 = typeof body.need === "string" && body.need.trim() ? body.need.trim().slice(0, 300) : undefined;
+  /* 真实性核对要的对方自报的东西：档案里的邮箱 / 电话 / WhatsApp / 官网 / 国家，加上那句话里贴的（verify/clues.ts） */
+  let 档案线索: Partial<线索> | undefined;
   if (typeof body.customerId === "string" && body.customerId) {
-    const c = await prisma.customer.findUnique({ where: { id: body.customerId }, select: { id: true, name: true, remark: true, extra: { select: { country: true, email: true } } } });
+    const c = await prisma.customer.findUnique({
+      where: { id: body.customerId },
+      select: { id: true, name: true, remark: true, phone: true, extra: { select: { country: true, email: true, whatsapp: true, website: true } } },
+    });
     if (c) {
+      档案线索 = {
+        邮箱: c.extra?.email ? [c.extra.email] : [],
+        电话: [c.phone, c.extra?.whatsapp].filter((x): x is string => Boolean(x?.trim())),
+        官网: c.extra?.website ?? undefined,
+        国家: c.extra?.country ?? undefined,
+      };
       const 邮箱域 = c.extra?.email?.split("@")[1];
       客户 = {
         id: c.id,
@@ -58,7 +71,8 @@ export async function 背调一次(
   const r = await 跑背调({
     公司,
     客户,
-    需求: typeof body.need === "string" && body.need.trim() ? body.need.trim().slice(0, 300) : undefined,
+    需求,
+    线索: 合并线索(档案线索, 认线索(需求), 认线索(公司)),
     b,
     通道: 通道.通道,
     // 云端通道自带「打我们的网关」的模型调用（自己填了 Key 的也走我们的，照价扣）；模拟通道用本机配的模型

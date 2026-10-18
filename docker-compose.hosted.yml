@@ -85,6 +85,9 @@ services:
       RESEARCH_COST_CAP: "${RESEARCH_COST_CAP:-}"
       RESEARCH_PRICES: "${RESEARCH_PRICES:-}"
       RESEARCH_SIGNUP_GRANT: "${RESEARCH_SIGNUP_GRANT:-1}"
+      # 背调「真实性」程序直查（lib/research/verify/，不调模型）。英国 Companies House 要自己去 developer.company-information.service.gov.uk
+      #   注册一个免费 key 填这里；空着 = 英国公司那一项跳过，报告里写明。别的国家的官方库、VIES、制裁名单都不用 key
+      COMPANIES_HOUSE_API_KEY: "${COMPANIES_HOUSE_API_KEY:-}"
       # 条款页里的运营主体与联系邮箱（可选，默认 Daedalus.AI / README 里的邮箱）
       LEGAL_ENTITY: "${LEGAL_ENTITY:-}"
       LEGAL_CONTACT: "${LEGAL_CONTACT:-}"

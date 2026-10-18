@@ -10,9 +10,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { 跑背调, 认来源, type 模型调用 } from "@/lib/research/run";
 import { 模拟通道 } from "@/lib/research/mock";
-import { 背调上限, 阶段表, type 研究事件 } from "@/lib/research/types";
+import { 背调上限, 社媒搜索次数, 阶段表, type 研究事件 } from "@/lib/research/types";
 import type { 背调通道 } from "@/lib/research/channel";
 import type { 老客户 } from "@/lib/research/similar";
+import type { 线索 } from "@/lib/research/verify/clues";
 
 const 公司 = "Lumora Trading GmbH";
 const 官网 = "https://lumora-trading.example";
@@ -93,11 +94,15 @@ function 假模型(opts: { 一直搜?: boolean; 不吃tools?: boolean; 合并?: 
   };
 }
 
-async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客户?: 老客户[]; signal?: AbortSignal } = {}) {
+/** 模型自己要的搜索（去掉程序发的 site:linkedin.com / site:facebook.com 那两次） */
+const 模型搜的 = (搜: { mock: { calls: unknown[][] } }) => 搜.mock.calls.filter((c) => !/site:(linkedin|facebook)\.com/.test(String(c[1]))).length;
+
+async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客户?: 老客户[]; signal?: AbortSignal; 线索?: 线索; 公司?: string } = {}) {
   const 事件: 研究事件[] = [];
   const 通道 = opts.通道 ?? 模拟通道();
   const r = await 跑背调({
-    公司,
+    公司: opts.公司 ?? 公司,
+    线索: opts.线索,
     b: { brief: "户外 LED 照明出口欧洲", fields: { school: "公司", grade: "职位", major: "行业" } },
     通道,
     模型: opts.模型 ?? 假模型(),
@@ -171,7 +176,9 @@ describe("背调 6 步编排", () => {
     const 通道 = 模拟通道();
     const 搜 = vi.spyOn(通道, "搜索");
     const { r, 事件 } = await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
-    expect(搜).toHaveBeenCalledTimes(背调上限.搜索);
+    // 程序自己发的 LinkedIn / Facebook 定向搜索另算，不占模型的次数
+    expect(模型搜的(搜)).toBe(背调上限.搜索);
+    expect(搜).toHaveBeenCalledTimes(背调上限.搜索 + 社媒搜索次数);
     expect(r.ok).toBe(true);
     expect(事件.filter((e) => e.type === "stage" && e.status === "done")).toHaveLength(6);
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: false });
@@ -431,7 +438,7 @@ describe("背调 6 步编排", () => {
     通道.开始 = async () => ({ ok: true, 扣了: 0, 还剩: 0, 搜索上限: 3 });
     const 搜 = vi.spyOn(通道, "搜索");
     await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
-    expect(搜).toHaveBeenCalledTimes(3);
+    expect(模型搜的(搜)).toBe(3);
   });
 
   it("对面不吃 tools：退回 JSON 协议照样跑完", async () => {
@@ -454,6 +461,85 @@ describe("背调 6 步编排", () => {
     expect(r.ok).toBe(true);
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
     expect(事件.filter((e) => e.type === "stage" && e.status === "running").length).toBeLessThan(6);
+  });
+});
+
+describe("真实性（10-18）", () => {
+  const 取核验 = (事件: 研究事件[]) => 事件.find((e): e is Extract<研究事件, { type: "verify" }> => e.type === "verify")!;
+
+  it("认出官网就把官网、自报的线索交给服务器直查；切入建议那一步前出 verify 事件，灯和事实原样带进提示词", async () => {
+    const 通道 = 模拟通道();
+    const 核 = vi.spyOn(通道, "核验");
+    const m = 假模型();
+    const { 事件 } = await 跑({ 模型: m, 通道, 线索: { 邮箱: ["sales@lumora-trading.example"], 电话: ["+49 40 1234567"], 税号: "DE123456789", 国家: "德国" } });
+    expect(核).toHaveBeenCalledTimes(1);
+    expect(核.mock.calls[0][0]).toMatchObject({ runId: "run-test", 公司: "Lumora Trading GmbH", 域名: "lumora-trading.example", 邮箱: ["sales@lumora-trading.example"], 税号: "DE123456789", 国家: "DE", 自报国家: "DE" });
+    const 第几 = (f: (e: 研究事件) => boolean) => 事件.findIndex(f);
+    expect(第几((e) => e.type === "verify")).toBeLessThan(第几((e) => e.type === "stage" && e.stage === "approach" && e.status === "done"));
+    const v = 取核验(事件);
+    expect(v.真实性.项.map((x) => x.key)).toEqual(["registry", "vat", "domain", "site", "email", "phone", "ip", "sanctions", "footprint"]);
+    // 网上足迹从模拟的 LinkedIn / Facebook 搜索结果里认出来
+    expect(v.真实性.项.find((x) => x.key === "footprint")).toMatchObject({ 灯: "green", 态: "已核" });
+    expect(v.真实性.总灯).toBe("green");
+    const 最后 = m.调用.filter((c) => c.prompt.includes("怎么切入")).at(-1)!;
+    expect(最后.prompt).toContain("程序直查的真实性结果");
+    expect(最后.prompt).toContain("示例登记库：Lumora Trading GmbH");
+  });
+
+  it("假公司：域名才 30 天、社媒全无 → 总灯红", async () => {
+    const v = 取核验((await 跑({ 公司: "Fake Lumora Trading" })).事件);
+    expect(v.真实性.项.find((x) => x.key === "footprint")).toMatchObject({ 灯: "yellow", 态: "没查到" });
+    expect(v.真实性.总灯).toBe("red");
+  });
+
+  it("服务器没核成（回 null）：照样出真实性块，各项写「服务器这次没核成」，足迹照认", async () => {
+    const 通道 = 模拟通道();
+    通道.核验 = vi.fn(async () => null);
+    const v = 取核验((await 跑({ 通道 })).事件);
+    expect(v.真实性.项.find((x) => x.key === "registry")?.事实).toContain("服务器这次没核成");
+    expect(v.真实性.项.find((x) => x.key === "footprint")?.灯).toBe("green");
+  });
+
+  it("制裁疑似命中：风险里也列一条「高」", async () => {
+    const 通道 = 模拟通道();
+    通道.核验 = async () => ({ 项: [{ key: "sanctions", 灯: "red", 态: "已核", 事实: "疑似命中", 硬红: "制裁名单疑似命中（美国 OFAC 名单上有同名单位）", 链接: [{ title: "OFAC", url: "https://sanctions.example/1" }] }] });
+    const { 事件 } = await 跑({ 通道 });
+    expect(事件).toContainEqual(expect.objectContaining({ type: "tag", tone: "risk", level: "high", text: "制裁名单疑似命中（美国 OFAC 名单上有同名单位）" }));
+  });
+
+  it("进口记录的来源必须是材料里的；编的来源当没有。模型那一句真实性总结进 verify-note", async () => {
+    const 带进口 = (来源: string) => {
+      const m = 假模型();
+      const 原 = m.json.bind(m);
+      m.json = async (messages, o) => {
+        const r = (await 原(messages, o)) as Record<string, unknown>;
+        return 全文(messages).includes("怎么切入") ? { ...r, 进口记录: { 有: true, 摘要: "2025 年从宁波进口灯具", 来源 }, 真实性: "登记和域名都对得上。" } : r;
+      };
+      return m;
+    };
+    const 真 = await 跑({ 模型: 带进口(`${官网}/about`) });
+    expect(真.事件).toContainEqual({ type: "import", 有: true, 摘要: "2025 年从宁波进口灯具", source: `${官网}/about` });
+    expect(真.事件).toContainEqual({ type: "verify-note", text: "登记和域名都对得上。" });
+    const 编 = await 跑({ 模型: 带进口("https://made-up.example/bill-of-lading") });
+    expect(编.事件).toContainEqual({ type: "import", 有: false });
+  });
+
+  it("模型要读 LinkedIn / Facebook 的页面：不打开，告诉它只用搜索结果", async () => {
+    const 通道 = 模拟通道();
+    const 读 = vi.spyOn(通道, "读页");
+    const m = 假模型();
+    const 原 = m.tools.bind(m);
+    let 要过 = false;
+    m.tools = async (messages, tools, o) => {
+      if (!要过 && 全文(messages).includes("认准是哪一家")) {
+        要过 = true;
+        return { toolCalls: [{ id: "li", type: "function", function: { name: "read_page", arguments: JSON.stringify({ url: "https://www.linkedin.com/company/lumora" }) } }], text: "看看领英" };
+      }
+      return 原(messages, tools, o);
+    };
+    await 跑({ 模型: m, 通道 });
+    expect(读.mock.calls.some((c) => String(c[1]).includes("linkedin.com"))).toBe(false);
+    expect(m.调用.flatMap((c) => c.messages).some((x) => x.role === "tool" && String(x.content).includes("LinkedIn / Facebook 的页面不打开"))).toBe(true);
   });
 });
 

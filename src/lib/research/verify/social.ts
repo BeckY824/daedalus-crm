@@ -1,0 +1,94 @@
+/**
+ * 「网上足迹」：这家公司有没有 LinkedIn / Facebook 公司主页、能不能搜到在职员工（10-18 用户定）。
+ *
+ * **合规边界**：
+ *   - 不登录 LinkedIn / Facebook，不打开这些页面——读网页通道遇到这些域名直接跳过（是社媒网址），只用搜索结果；
+ *   - 只回答「有没有」，有就附链接。不数人头、不把人名职位抄成联系人列表，存进客户时也不自动建联系人；
+ *   - 不接第三方 LinkedIn 数据商。
+ * 这一行只是真实性的参考信号：全未搜到标黄、不标红（很多中小进口商确实不做社媒）。
+ */
+import type { 搜索结果 } from "../types";
+import type { 核验项, 核验链接 } from "./types";
+import { 提到了, 查询名 } from "./names";
+
+const 社媒域 = /(^|\.)(linkedin\.com|facebook\.com|fb\.com|fb\.me|instagram\.com|lnkd\.in)$/i;
+
+export function 是社媒网址(url: string): boolean {
+  try {
+    return 社媒域.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** 近期信号那一步程序自己发的两次定向搜索（不让模型挑）：用现有的搜索通道 */
+export function 社媒查询(公司: string): string[] {
+  const 名 = 查询名(公司);
+  return [`"${名}" site:linkedin.com`, `"${名}" site:facebook.com`];
+}
+
+type 分类 = "公司主页" | "员工" | "Facebook";
+
+function 分类(url: string): 分类 | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  const h = u.hostname.toLowerCase();
+  const p = u.pathname.toLowerCase();
+  if (/(^|\.)linkedin\.com$/.test(h)) {
+    if (/^\/(company|showcase)\/[^/]+/.test(p)) return "公司主页";
+    if (/^\/in\/[^/]+/.test(p)) return "员工";
+    return null;
+  }
+  if (/(^|\.)facebook\.com$/.test(h)) {
+    // 搜索页、登录页、分享链接、单条帖子不算主页
+    if (/^\/(search|login|sharer|share|dialog|plugins|watch|events|marketplace|groups|hashtag|help|policies|privacy)(\/|$)/.test(p) || p === "/" || /\/posts\//.test(p)) return null;
+    return "Facebook";
+  }
+  return null;
+}
+
+/** 链接里的那一截名字（linkedin.com/company/slv-gmbh → 「slv gmbh」），拿来和公司名比 */
+function 路径名(url: string): string {
+  try {
+    const 段 = new URL(url).pathname.split("/").filter(Boolean);
+    return decodeURIComponent(段[段[0] === "company" || 段[0] === "showcase" || 段[0] === "in" ? 1 : 0] ?? "").replace(/[-_.]+/g, " ");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * 从这次所有的搜索结果里认足迹。**只看搜索结果页上的标题、摘要和链接**：
+ *   公司主页 / Facebook：链接那一截名字或标题里有这家的名字
+ *   员工：个人页的标题或摘要里写着这家的名字（「… - Sales Manager - SLV GmbH | LinkedIn」）
+ * 搜索出错（一次都没搜成）是「查不了」，不是「未搜到」
+ */
+export function 认足迹(结果: 搜索结果[], 公司: string, 搜成了: boolean): 核验项 {
+  const 收: Record<分类, 核验链接[]> = { 公司主页: [], 员工: [], Facebook: [] };
+  const 见过 = new Set<string>();
+  for (const r of 结果) {
+    const k = 分类(r.url);
+    if (!k) continue;
+    const 键 = r.url.replace(/[?#].*$/, "").replace(/\/+$/, "").toLowerCase();
+    if (见过.has(键)) continue;
+    const 对 = k === "员工" ? 提到了(`${r.title} ${r.snippet}`, 公司) : 提到了(路径名(r.url), 公司) || 提到了(r.title, 公司);
+    if (!对) continue;
+    见过.add(键);
+    收[k].push({ title: r.title || r.url, url: r.url });
+  }
+  const 主页 = 收.公司主页.slice(0, 2);
+  const 员工 = 收.员工.slice(0, 3);
+  const fb = 收.Facebook.slice(0, 2);
+  const 事实 = [
+    `LinkedIn 公司主页：${主页.length ? "有" : "未搜到"}`,
+    `在职员工：${员工.length ? "搜到" : "未搜到"}`,
+    `Facebook 主页：${fb.length ? "有" : "未搜到"}`,
+  ].join("；");
+  const 有 = 主页.length + 员工.length + fb.length > 0;
+  if (!有 && !搜成了) return { key: "footprint", 灯: "gray", 态: "查不了", 事实: "LinkedIn / Facebook 定向搜索没搜成" };
+  return { key: "footprint", 灯: 有 ? "green" : "yellow", 态: 有 ? "已核" : "没查到", 事实, 链接: [...主页, ...员工, ...fb] };
+}

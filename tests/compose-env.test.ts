@@ -24,6 +24,7 @@ const 不用进容器: Record<string, string> = {
   CRM_MACHINE_HASH: "桌面端壳传",
   // 背调走模拟数据（e2e、演示）。托管版不配 = 托管版本来就背调不了（lib/research/channel.ts 只认桌面端）
   CRM_RESEARCH_CHANNEL: "e2e / 演示用，托管版不配",
+  RESEARCH_CACHE_DIR: "制裁名单缓存目录，默认 /data/research-cache（跟着数据卷走）；只给本机实验脚本换地方",
   CLOUD_ACCOUNT: "桌面端壳传",
   // 开关 / 调试：不配就是默认行为
   AGENT_INTENTS: "调试开关，默认开",

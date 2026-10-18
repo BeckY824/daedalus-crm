@@ -7,6 +7,8 @@
  */
 import { 阶段表, 字段表 } from "./types";
 import { 补标题, 来源号, type 背调状态 } from "./state";
+import { 核验项表 } from "./verify/types";
+import { 信息少, 灯符 } from "./verify/rules";
 
 const 档名 = { high: "高", mid: "中", low: "低", unknown: "查不到" } as const;
 const 风险名 = { low: "低", mid: "中", high: "高" } as const;
@@ -26,9 +28,24 @@ export function 报告文本(s: 背调状态): string {
   };
   const 行: string[] = [];
   行.push(`${s.目标.name} 背调${s.done?.不完整 ? "（材料不全，仅供参考）" : ""}`);
+  const 少 = 信息少(s);
+  if (少) 行.push(`⚠ 信息少，谨慎。${少.文字}`);
 
   const 字段 = 字段表.filter((f) => s.fields[f.key]).map((f) => `${f.label}：${s.fields[f.key]!.value}${号(s.fields[f.key]!.source)}`);
+  // 进口记录：老版本的报告没有这一项（s.进口 为空）就不写
+  if (s.进口) 字段.push(`进口记录：${s.进口.有 ? `${s.进口.摘要}${号(s.进口.source)}` : "未查到公开进口记录"}`);
   if (字段.length) 行.push("", "【公司】", ...字段);
+
+  // 真实性（不进相关性分数）：灯是程序按规则定的，每一项的链接原样附上
+  if (s.真实性) {
+    const v = s.真实性;
+    行.push("", `【真实性】${灯符[v.总灯]} ${v.总字}（程序直查，不经模型）`);
+    if (v.总结) 行.push(v.总结);
+    for (const x of v.项) {
+      const 链 = (x.链接 ?? []).map((l) => l.url).join(" ");
+      行.push(`${灯符[x.灯]} ${核验项表.find((k) => k.key === x.key)?.label ?? x.key}：${x.事实}${链 ? ` ${链}` : ""}`);
+    }
+  }
 
   const 结论 = 阶段表.filter((st) => s.stages[st.id].summary).map((st) => `${st.label}：${s.stages[st.id].summary}`);
   if (结论.length) 行.push("", "【各步结论】", ...结论);

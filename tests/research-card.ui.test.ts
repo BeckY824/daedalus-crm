@@ -16,6 +16,7 @@ import { chromium, type Browser, type Page } from "playwright";
 import { 初始状态, 归约 } from "@/lib/research/state";
 import { 算相关性 } from "@/lib/research/score";
 import type { 研究事件 } from "@/lib/research/types";
+import { 合成真实性 } from "@/lib/research/verify/rules";
 
 let browser: Browser;
 let bundle: string;
@@ -109,7 +110,7 @@ afterAll(async () => {
   await browser?.close();
 });
 
-async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "line", opts: { reducedMotion?: boolean; 价目?: unknown; 待选?: unknown } = {}): Promise<Page> {
+async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "line", opts: { reducedMotion?: boolean; 价目?: unknown; 待选?: unknown; 状态?: unknown } = {}): Promise<Page> {
   const page = await browser.newPage({ reducedMotion: opts.reducedMotion ? "reduce" : "no-preference" });
   // 打包出来的组件在页面里崩了的话，测试只会表现成「等不到」超时：把页面报错打出来
   page.on("pageerror", (e) => console.error("[页面报错]", e.message));
@@ -125,7 +126,7 @@ async function open(模式: "run" | "done" | "running" | "direct" | "pick" | "li
   await page.goto("http://card.test/");
   await page.addStyleTag({ content: css });
   // 组件里有读 process.env 的（业务配置那一层），Next 会把它编进去，这里打的包没有：给一个空的
-  await page.addScriptTag({ content: `window.process={env:{}}; window.__价目=${JSON.stringify(opts.价目 ?? null)} ?? undefined; window.__待选=${JSON.stringify(opts.待选 ?? null)}; window.__选=[]; window.__模式=${JSON.stringify(模式)}; window.__存=[]; window.__状态=${JSON.stringify(模式 === "running" ? 事件.slice(0, 3).reduce(归约, 初始状态({ name: "Lumora Trading GmbH" })) : 最终)};` });
+  await page.addScriptTag({ content: `window.process={env:{}}; window.__价目=${JSON.stringify(opts.价目 ?? null)} ?? undefined; window.__待选=${JSON.stringify(opts.待选 ?? null)}; window.__选=[]; window.__模式=${JSON.stringify(模式)}; window.__存=[]; window.__状态=${JSON.stringify(opts.状态 ?? (模式 === "running" ? 事件.slice(0, 3).reduce(归约, 初始状态({ name: "Lumora Trading GmbH" })) : 最终))};` });
   await page.addScriptTag({ content: bundle });
   return page;
 }
@@ -175,6 +176,37 @@ it("跑完的卡：档案、[n] 来源角标、分数、老客户、信号 / 风
   // 做完的那一步折成一行，点开看过程
   await page.getByRole("button", { name: /认准公司/ }).click();
   await page.getByText("搜索「Lumora Trading GmbH」").waitFor();
+  await page.close();
+}, 30_000);
+
+it("真实性块（程序直查、不进 100 分）：总灯、每一项的灯和事实、链接；分数旁一个小灯；进口记录一行；查得少出「信息少，谨慎」", async () => {
+  const 真实性 = 合成真实性(
+    [
+      { key: "registry", 灯: "yellow", 态: "没查到", 事实: "GLEIF 里没查到「Ghost Trading」" },
+      { key: "domain", 灯: "yellow", 态: "已核", 事实: "ghost-trading.example 注册于 2026-09-18（RDAP），才 30 天", 新域名: true, 链接: [{ title: "ghost-trading.example 的 RDAP 记录", url: "https://rdap.example/ghost" }] },
+      { key: "sanctions", 灯: "green", 态: "已核", 事实: "美国 OFAC / 欧盟：未命中（名单更新于 10-18）" },
+    ],
+    { key: "footprint", 灯: "yellow", 态: "没查到", 事实: "LinkedIn 公司主页：未搜到；在职员工：未搜到；Facebook 主页：未搜到" },
+    { 名单更新于: "2026-10-18T01:00:00Z" },
+  );
+  const s = [...事件.slice(0, -1), { type: "verify", 真实性 }, { type: "verify-note", text: "域名很新、网上几乎没有足迹，先要营业执照。" }, { type: "import", 有: false }, 事件.at(-1)!]
+    .reduce((a, e) => 归约(a, e as 研究事件), 初始状态({ name: "Ghost Trading" }));
+  const page = await open("done", { 状态: s });
+  const 块 = page.locator(".rs-trust");
+  await 块.waitFor();
+  const t = (await 块.textContent()) ?? "";
+  for (const x of ["真实性", "高危", "域名注册不到 90 天", "程序直查 · 不经模型", "域名很新、网上几乎没有足迹", "工商登记", "才 30 天", "LinkedIn 公司主页：未搜到", "发件 IP", "没贴询盘邮件原文", "制裁名单（美国 OFAC、欧盟、联合国、英国）更新于 2026-10-18"]) expect(t).toContain(x);
+  expect(await 块.getAttribute("class")).toContain("rs-trust-red");
+  expect(await page.locator(".rs-check").count()).toBe(9);
+  expect(await page.getByRole("link", { name: "ghost-trading.example 的 RDAP 记录" }).getAttribute("href")).toBe("https://rdap.example/ghost");
+  expect(await page.locator(".rs-fit-light").textContent()).toBe("真实性高危");
+  expect(await page.locator(".rs-fields").textContent()).toContain("未查到公开进口记录");
+  const 横幅 = page.getByRole("note");
+  expect(await 横幅.textContent()).toContain("信息少，谨慎");
+  expect(await 横幅.textContent()).toContain("建议先要营业执照、视频验厂");
+  // 窄面板（首页右侧、记录页右栏）也不撑破
+  await page.setViewportSize({ width: 380, height: 900 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= 380)).toBe(true);
   await page.close();
 }, 30_000);
 

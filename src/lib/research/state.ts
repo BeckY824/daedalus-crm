@@ -6,6 +6,7 @@
  */
 import { 阶段表, 字段表, type 来源, type 字段键, type 像的老客户, type 研究事件, type 工具事件, type 阶段号 } from "./types";
 import type { 评分结果 } from "./score";
+import type { 真实性 } from "./verify/types";
 
 export type 阶段状态 = { status: "idle" | "running" | "done" | "error"; summary?: string; thought?: string; tools: 工具事件[] };
 
@@ -18,6 +19,10 @@ export type 背调状态 = {
   tags: { tone: "signal" | "risk"; level?: "low" | "mid" | "high"; text: string; source?: string }[];
   similar?: { items: 像的老客户[]; 比了: number };
   approach: string[];
+  /** 真实性那一块（不进 100 分）。老版本存下来的报告没有 */
+  真实性?: 真实性;
+  /** 公开进口记录：有 = 摘要 + 来源；没有 = 「未查到公开进口记录」。老版本的报告没有这一项 */
+  进口?: { 有: boolean; 摘要?: string; source?: string };
   /** 报告里引用过的来源，按第一次出现的顺序编号（界面上的 [1] [2]） */
   sources: 来源[];
   usage: { searches: number; pages: number };
@@ -79,6 +84,16 @@ export function 归约(s: 背调状态, e: 研究事件): 背调状态 {
       return { ...s, similar: { items: e.items, 比了: e.比了 } };
     case "approach":
       return { ...s, approach: e.points };
+    case "verify":
+      return { ...s, 真实性: { ...e.真实性, 总结: e.真实性.总结 ?? s.真实性?.总结 } };
+    case "verify-note":
+      return s.真实性 ? { ...s, 真实性: { ...s.真实性, 总结: e.text } } : s;
+    case "import":
+      return {
+        ...s,
+        进口: e.有 && e.摘要 && e.source ? { 有: true, 摘要: e.摘要, source: e.source } : { 有: false },
+        sources: e.有 && e.source ? 收来源(s.sources, [{ title: e.source, url: e.source }]) : s.sources,
+      };
     case "usage":
       return { ...s, usage: { searches: e.searches, pages: e.pages } };
     case "done":
@@ -116,5 +131,7 @@ export function 认背调状态(v: unknown): 背调状态 | null {
     approach: Array.isArray(o.approach) ? o.approach : [],
     sources: Array.isArray(o.sources) ? o.sources : [],
     usage: o.usage ?? { searches: 0, pages: 0 },
+    真实性: o.真实性 && Array.isArray(o.真实性.项) ? o.真实性 : undefined,
+    进口: o.进口 && typeof o.进口.有 === "boolean" ? o.进口 : undefined,
   } as 背调状态;
 }

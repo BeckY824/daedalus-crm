@@ -3,6 +3,7 @@ import { 网关认证, 网关错误 } from "@/lib/tenant/gateway-auth";
 import { 读网页, 读页出错 } from "@/lib/research/read-page";
 import { 背调有收获 } from "@/lib/tenant/credits";
 import { 背调上限, type 读页回应 } from "@/lib/research/types";
+import { 是社媒网址 } from "@/lib/research/verify/social";
 import { 读请求体, 认runId, 先记一次, 查花费, 兜底 } from "../_shared";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,8 @@ async function 处理(req: Request) {
   const url = typeof 读.body.url === "string" ? 读.body.url.trim() : "";
   if (!url) return 网关错误(400, "网址是空的");
   if (url.length > 网址最长) return 网关错误(400, "网址太长了");
+  // LinkedIn / Facebook 不打开（10-18 用户定：不登录、不抓取，只用搜索结果）。不占读页名额
+  if (是社媒网址(url)) return 网关错误(422, "这个网址读不了：LinkedIn / Facebook 的页面不打开，只用搜索结果");
 
   const owner = { kind: "account" as const, id: accountId };
   const 钱 = await 查花费(owner, runId);
