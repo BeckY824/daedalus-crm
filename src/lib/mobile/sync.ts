@@ -455,7 +455,8 @@ async function 业务设置(库: 手机库): Promise<BusinessConfig> {
   return 读业务(await 库.取("Setting", BUSINESS_KEY));
 }
 
-export type 新建客户输入 = { name: string; phone?: string; whatsapp?: string; email?: string; country?: string; source?: string };
+/** wechat / website / remark：扫名片（2026-10-19）带过来的，手工新建表单里没有这几格 */
+export type 新建客户输入 = { name: string; phone?: string; whatsapp?: string; email?: string; country?: string; source?: string; wechat?: string; website?: string; remark?: string };
 
 /** 这台手机上已有的同号 / 同邮箱客户（成员手机只有本人 + 公海；同事名下的，联网时再问服务端：问同事） */
 async function 手机上撞的(库: 手机库, phone: string, email: string): Promise<string | null> {
@@ -487,7 +488,7 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
   const 外贸 = b.template === "trade";
   const 档案: Partial<外贸档案> = {};
   if (外贸) {
-    for (const k of ["whatsapp", "email", "source"] as const) {
+    for (const k of ["whatsapp", "email", "source", "wechat", "website"] as const) {
       const r = 规整外贸格(k, 输入[k]);
       if (!r.ok) throw new 同步问题(r.error);
       if (r.v) 档案[k] = r.v;
@@ -516,11 +517,13 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
 
   const id = 新编号();
   const name = 输入.name.trim();
+  // 扫名片把多出来的行都放进备注：截到 2000 字，认崩的名片别塞一大段乱码
+  const remark = String(输入.remark ?? "").trim().slice(0, 2000) || null;
   插("Customer", {
     id, name, phone: 电话.phone, school: null, grade: null, major: null,
     channelId: null, referrerCustomerId: null, attributionChannelId: null, attributionCustomerId: null,
     salesOwnerId: c.userId, channelOwnerId: null, followStatus: "待跟进", decisionStatus: "了解中",
-    expectedSignAt: null, expectedSignOn: null, remark: null, createdAt: 现在, updatedAt: 现在,
+    expectedSignAt: null, expectedSignOn: null, remark, createdAt: 现在, updatedAt: 现在,
   });
   if (Object.keys(档案).length) {
     插("CustomerExtra", { customerId: id, country: null, whatsapp: null, wechat: null, email: null, source: null, level: null, website: null, ...档案 });

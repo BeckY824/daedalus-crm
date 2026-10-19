@@ -1,0 +1,101 @@
+[
+ {
+  "id": "01-cn-classic",
+  "说明": "中文横版、白底、平扫",
+  "truth": {
+   "name": [
+    "王磊"
+   ],
+   "company": [
+    "深圳市晨曦照明科技有限公司"
+   ],
+   "title": [
+    "销售经理"
+   ],
+   "phones": [
+    "+8613800138001",
+    "+8675526981234"
+   ],
+   "wechat": "wanglei_led",
+   "email": "wanglei@chenxi-light.com",
+   "website": "chenxi-light.com",
+   "country": "CN",
+   "address": "深圳市宝安区福永街道兴围路88号3栋"
+  }
+ },
+ {
+  "id": "02-en-uk",
+  "说明": "英文横版（英国）、平扫",
+  "truth": {
+   "name": [
+    "Oliver Bennett"
+   ],
+   "company": [
+    "Harbourline Lighting Ltd"
+   ],
+   "title": [
+    "Purchasing Manager"
+   ],
+   "phones": [
+    "+442079460321",
+    "+447700900123"
+   ],
+   "email": "oliver.bennett@harbourline.co.uk",
+   "website": "harbourline.co.uk",
+   "country": "GB",
+   "address": "Unit 4, Riverside Park, London SE16 7PR"
+  }
+ },
+ {
+  "id": "08-en-uae-whatsapp",
+  "说明": "英文（阿联酋 LLC）、带 WhatsApp 标签、透视拍",
+  "truth": {
+   "name": [
+    "Ahmed Hassan"
+   ],
+   "company": [
+    "Al Faris General Trading LLC"
+   ],
+   "title": [
+    "Import Manager"
+   ],
+   "phones": [
+    "+97141234567",
+    "+971501234567"
+   ],
+   "whatsapp": "+971501234567",
+   "email": "ahmed@alfaris-trading.ae",
+   "website": "alfaris-trading.ae",
+   "country": "AE",
+   "address": "Office 1204, Deira, Dubai, UAE"
+  }
+ },
+ {
+  "id": "m01-kr-local",
+  "说明": "韩文、本地写法电话（051- / 010-）、H.P 标签、平扫",
+  "truth": {
+   "name": [
+    "김민준"
+   ],
+   "company": [
+    "(주)한빛수산",
+    "한빛수산",
+    "주식회사 한빛수산"
+   ],
+   "title": [
+    "과장",
+    "영업팀 / 과장",
+    "영업팀 과장"
+   ],
+   "phones": [
+    "+82511234567",
+    "+82511234568",
+    "+821012345678"
+   ],
+   "email": "minjun@hanbit-sf.co.kr",
+   "website": "hanbit-sf.co.kr",
+   "country": "KR",
+   "address": "부산광역시 중구 중앙대로 100, 한빛빌딩 5층"
+  }
+ }
+]
