@@ -71,6 +71,23 @@ async function 摆好(page: Page, 宽: number, 摆: string) {
   }, 摆);
 }
 
+/**
+ * 左下角的提示一次打开应用只出一次（记在 sessionStorage，FeedbackReplyToast）。进门落地的那一页上它可能已经出过了——
+ * 云端回得快（CI 的生产构建）就出在那一页，回得慢就出在下一页，看谁先到（10-19 CI 红过一次就是这个）。
+ * 所以在「第一次打开 址」这一页的脚本跑之前把记号清掉一次，等于「刚打开应用」，不靠赛跑；
+ * 只清一次：同一次打开里再刷新，提示不该再出（下面钉着）。进门之前调
+ */
+async function 当作刚打开应用(page: Page, 址: string) {
+  await page.addInitScript((路) => {
+    try {
+      if (location.pathname === 路 && !sessionStorage.getItem("e2e-toast-reset")) {
+        sessionStorage.removeItem("feedback-toast-shown");
+        sessionStorage.setItem("e2e-toast-reset", "1");
+      }
+    } catch { /* 没有就是没有 */ }
+  }, 址);
+}
+
 async function 去(page: Page, 址: string, 摆: string) {
   await page.goto(址);
   await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
@@ -100,10 +117,22 @@ async function 量(page: Page, 名: string, 问题们: string[]) {
   }
 }
 
-test.beforeAll(async () => {
+test.beforeAll(async ({ browser }) => {
   // 每轮从「一条都没看过」开始：红点、提示都该出
   rmSync(path.join(DATA_DIR, "feedback-seen.json"), { force: true });
   await 放数据(一串反馈);
+  // 单跑这一份时库是新的、进门会落到「你主要做哪一类生意？」：先选掉（整轮跑时前面的用例已经选过）
+  const page = await browser.newPage();
+  try {
+    await 进门(page);
+    const 选类型 = page.getByRole("heading", { name: "你主要做哪一类生意？" });
+    if (await 选类型.waitFor({ state: "visible", timeout: 5_000 }).then(() => true, () => false)) {
+      await page.getByRole("button", { name: /用通用销售开始/ }).click();
+      await expect(page).not.toHaveURL(/\/start/);
+    }
+  } finally {
+    await page.close();
+  }
 });
 
 test.afterAll(async ({ request }) => {
@@ -118,7 +147,10 @@ for (const 宽 of [1024, 1280, 1366]) {
     test(`${宽} 宽 · ${摆}：我的反馈不撑破、不被切、不被盖住`, async ({ page }) => {
       test.setTimeout(3 * 60_000);
       rmSync(path.join(DATA_DIR, "feedback-seen.json"), { force: true });
+      await 当作刚打开应用(page, "/customers");
       await 摆好(page, 宽, 摆);
+      // 等落地那一页取到回复（红点出来 = 提示也在那一页出过了）：每次都走 CI 上那种「提示先出在别处」的最坏情况
+      await expect(page.getByTestId("feedback-dot")).toBeVisible();
       const 问题们: string[] = [];
 
       // 左下角的提示 + 左栏红点：在客户列表上量（最常停的一页）
@@ -126,6 +158,10 @@ for (const 宽 of [1024, 1280, 1366]) {
       await expect(page.getByTestId("feedback-dot")).toBeVisible();
       await expect(page.getByTestId("feedback-toast")).toBeVisible();
       await 量(page, `${宽}-${摆}-提示`, 问题们);
+      // 同一次打开里再刷新：红点还在，提示不再出
+      await 去(page, "/customers", 摆);
+      await expect(page.getByTestId("feedback-dot")).toBeVisible();
+      await expect(page.getByTestId("feedback-toast")).toHaveCount(0);
 
       // 列表（宽的时候右边自动打开最新那一串）
       await 去(page, "/feedback", 摆);
@@ -180,6 +216,7 @@ for (const w of 外观们) {
       } catch { /* 存不下就是默认 */ }
       if (cls) document.addEventListener("DOMContentLoaded", () => document.documentElement.classList.add(cls));
     }, { 外观: w.外观, cls: w.class ?? "" });
+    await 当作刚打开应用(page, "/customers");
     await 摆好(page, w.宽, w.宽 === 1024 ? "AI栏常驻" : "默认");
     const 问题们: string[] = [];
     await 去(page, "/customers", "默认");
