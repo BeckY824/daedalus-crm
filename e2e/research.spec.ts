@@ -60,6 +60,22 @@ test("首页说「帮我背调 XX」：先出确认卡，开始后 6 步展开�
   await expect(卡).toContainText("进口分销商");
   await expect(卡.locator(".rs-score-num")).toHaveText(/^\d+$/);
   await expect(卡.locator(".rs-srcs li").first()).toContainText("Lumora Trading GmbH");
+  // 真实性（10-18）：服务器那头的程序直查走模拟（mock.ts 模拟核验），网上足迹从模拟的 LinkedIn / Facebook 搜索结果认
+  const 真 = 卡.locator(".rs-trust");
+  await expect(真).toContainText("程序直查 · 不经模型");
+  await expect(真.locator(".rs-check")).toHaveCount(9);
+  await expect(真).toContainText("示例登记库");
+  await expect(真).toContainText("Facebook 主页：有");
+  await expect(卡.locator(".rs-fit-light")).toContainText("真实性");
+  await expect(卡.locator(".rs-fields")).toContainText("进口记录");
+  // A+D 结构（10-19）：结论 + 画像、已核实、关键发现、产品匹配（系列名不在原文里的丢掉）、切入步骤
+  await expect(卡.locator(".rs-lead")).toContainText("德国照明进口分销商");
+  await expect(卡.locator(".rs-lead-first li")).toHaveCount(2);
+  await expect(卡.locator(".rs-verified")).toBeVisible();
+  await expect(卡.locator(".rs-finds li")).toHaveCount(2);
+  await expect(卡.locator(".rs-match")).toHaveCount(2);
+  await expect(卡.locator(".rs-matches")).not.toContainText("编的系列");
+  await expect(卡.locator(".rs-approach li").first()).toContainText("UFO 工矿灯");
 
   // 3. 存进客户：库里没有像的，新建一位（邮箱已经按查到的填好）
   await 卡.getByRole("button", { name: "存进客户" }).click();
@@ -76,6 +92,12 @@ test("首页说「帮我背调 XX」：先出确认卡，开始后 6 步展开�
     expect(报告?.type).toBe("OTHER");
     expect(报告?.content).toContain("【来源】");
     expect(报告?.content).toContain("https://lumora-trading.example/about");
+    expect(报告?.content).toContain("【真实性】");
+    const 文 = 报告?.content ?? "";
+    for (const [前, 后] of [["【结论】", "【已核实】"], ["【已核实】", "【关键发现】"], ["【关键发现】", "【产品匹配】"], ["【产品匹配】", "【切入步骤】"], ["【切入步骤】", "【来源】"]]) {
+      expect(文.indexOf(前), `${前} 要有`).toBeGreaterThanOrEqual(0);
+      expect(文.indexOf(前), `${前} 在 ${后} 前面`).toBeLessThan(文.indexOf(后));
+    }
   } finally {
     await db.$disconnect();
   }
@@ -124,4 +146,75 @@ test("背调模式：选中有明显状态，发出去直接开跑；认不准�
   await 开关.click();
   await expect(开关).toHaveAttribute("aria-pressed", "false");
   await expect(page.getByPlaceholder("输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们")).toHaveCount(0);
+});
+
+test("背调模式里粘贴询盘邮件（第二期）：本机认出发件人和 IP，带着它开跑，真实性里「邮件头」一项按 IP 国家定灯", async ({ page }) => {
+  test.setTimeout(120_000);
+  await 登录(page);
+  await page.getByRole("button", { name: "背调", exact: true }).click();
+  await page.getByRole("button", { name: "粘贴询盘邮件" }).click();
+  const 原文 = [
+    "Received: from mail.lumora-trading.example (mail.lumora-trading.example [94.200.1.10]) by mx.ourfactory.cn with ESMTP id 1",
+    "Authentication-Results: mx.ourfactory.cn; spf=pass smtp.mailfrom=lumora-trading.example",
+    "From: Jonas <jonas@lumora-trading.example>",
+    "Subject: Inquiry",
+    "",
+    "Dear Sir, please quote 500 pcs.",
+  ].join("\n");
+  await page.getByRole("textbox", { name: "询盘邮件原文" }).fill(原文);
+  await page.getByRole("button", { name: "带上这封邮件" }).click();
+  await expect(page.getByText("带上询盘邮件：jonas@lumora-trading.example · 发件 IP 94.200.1.10")).toBeVisible();
+
+  const 框 = page.getByPlaceholder("输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们");
+  await 框.fill("Lumora Trading GmbH");
+  await 框.press("Enter");
+  const 卡 = page.getByRole("region", { name: "背调 Lumora Trading GmbH" }).last();
+  await expect(卡.locator(".rs-pill")).toHaveText("已完成", { timeout: 60_000 });
+  // 发出去就不带了：下一轮要再贴
+  await expect(page.getByText(/带上询盘邮件：/)).toHaveCount(0);
+  // 模拟查 IP：94.x 当阿联酋；官网认出来是德国 → 对不上，黄
+  const 邮件头 = 卡.locator(".rs-check").filter({ hasText: "邮件头" });
+  await expect(邮件头).toContainText("发件 IP 94.200.1.10（最早一跳）在阿联酋");
+  await expect(邮件头).toContainText("SPF 通过");
+});
+
+test("只有人名 + 电话（10-18）：先判号码，找公司出候选，点选接着背调（同一次、不另扣）；号码搜不到出「只有人」简版", async ({ page }) => {
+  test.setTimeout(150_000);
+  await 登录(page);
+  await page.getByRole("button", { name: "背调", exact: true }).click();
+  const 框 = page.getByPlaceholder("输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们");
+
+  // 1. 名字 + 号码：模拟搜索里这个号码出现在 Lumora 的名录页上 → 候选 → 点选 → 背调这家
+  await 框.fill("Anna Beispiel +49 40 0000 0000");
+  await 框.press("Enter");
+  const 确认 = page.getByRole("group", { name: "找这个人所在的公司" });
+  await expect(确认).toContainText("德国");
+  await expect(确认).toContainText("模拟数据");
+  await 确认.getByRole("button", { name: "开始找公司" }).click();
+  await page.getByRole("button", { name: "背调这家" }).click({ timeout: 60_000 });
+  const 卡 = page.getByRole("region", { name: "背调 Lumora Trading GmbH" });
+  await expect(卡.locator(".rs-pill")).toHaveText("已完成", { timeout: 60_000 });
+  await expect(卡.locator(".rs-from-person")).toBeVisible();
+  await expect(卡.locator(".rs-trust")).toContainText("人和号码");
+  // 10-18 对比免费产品加的几块，整条链接得上（假模型按步骤回固定答案）
+  await expect(卡).toContainText("必查四项");
+  await expect(卡).toContainText("在卖的型号");
+  await expect(卡).toContainText("HB-150");
+  await expect(卡).toContainText("英文开发信");
+  await expect(卡.locator(".rs-verdict")).toBeVisible();
+
+  // 2. 只有号码、网上搜不到：「只有人」简版
+  await 框.fill("+44 20 7123 4567");
+  await 框.press("Enter");
+  const 确认2 = page.getByRole("group", { name: "找这个人所在的公司" }).last();
+  await 确认2.getByRole("button", { name: "开始找公司" }).click();
+  await expect(page.locator(".rs-thin").last()).toContainText("信息少，谨慎", { timeout: 60_000 });
+  await expect(page.locator(".rs-card").last()).toContainText("没有登录、没有抓取");
+
+  // 3. 只有一个虚构号码（Ofcom 留给影视剧的 020 7946 0xxx，10-18 复核）：写明是虚构号码，不拿它找公司
+  await 框.fill("+44 20 7946 0123");
+  await 框.press("Enter");
+  const 确认3 = page.getByRole("group", { name: "找这个人所在的公司" }).last();
+  await expect(确认3).toContainText("这是虚构号码");
+  await expect(确认3.getByRole("button", { name: "开始找公司" })).toBeDisabled();
 });

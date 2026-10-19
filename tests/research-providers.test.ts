@@ -7,7 +7,7 @@
  *   3. 请求发对了地方、带对了头（Claude 走 {根}/v1/messages，GPT 走 {baseUrl}/responses）
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { 解析Claude回应, 解析GPT回应, claude搜索, gpt搜索, 模拟搜索, 选搜索服务, 卡了重搜一次, 每次最多条 } from "@/lib/research/providers";
+import { 解析Claude回应, 解析GPT回应, claude搜索, gpt搜索, 模拟搜索, 选搜索服务, 卡了重搜一次, 每次最多条, 拆站点 } from "@/lib/research/providers";
 
 const cfg = { baseUrl: "https://relay.example.com/v1", apiKey: "fake-relay-key", models: [{ id: "deepseek-chat" }] };
 
@@ -125,6 +125,20 @@ describe("发请求", () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ model: "gpt-5.5", tools: [{ type: "web_search" }] });
     expect(r.usage).toEqual({ model: "gpt-5.5", input: 900, output: 150, cached: 0 });
     expect(r.results).toHaveLength(2);
+  });
+
+  it("GPT：查询里的 site: 不管用（10-18 实测），拆成 web_search 的域名过滤", async () => {
+    expect(拆站点('"SLV GmbH" site:facebook.com')).toEqual({ 查询: '"SLV GmbH"', 域名: ["facebook.com"] });
+    expect(拆站点('"SLV" site:www.linkedin.com OR site:facebook.com')).toEqual({ 查询: '"SLV"', 域名: ["linkedin.com", "facebook.com"] });
+    // 只有 site: 没别的词、或者根本没有 site:：原样不动
+    expect(拆站点("site:facebook.com")).toEqual({ 查询: "site:facebook.com", 域名: [] });
+    expect(拆站点("LED OR lighting importer")).toEqual({ 查询: "LED OR lighting importer", 域名: [] });
+    const f = vi.fn(async () => json(GPT回应));
+    vi.stubGlobal("fetch", f);
+    await gpt搜索(cfg).search('"SLV GmbH" site:facebook.com', {});
+    const body = JSON.parse(String((f.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body.tools[0].filters).toEqual({ allowed_domains: ["facebook.com"] });
+    expect(JSON.stringify(body.input)).not.toContain("site:");
   });
 });
 

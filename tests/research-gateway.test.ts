@@ -14,6 +14,10 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 
+// 真实性直查（verify）会往外打 RDAP、工商库、制裁名单：这里换成假的，只钉门口和请求怎么转过去（各项本身在 research-verify.test.ts）
+const 假核验 = vi.hoisted(() => vi.fn(async (_请求: unknown, _依赖?: unknown) => ({ 项: [{ key: "domain", 灯: "green", 态: "已核", 事实: "slv.com 注册于 2001-01-01（RDAP），25 年" }] })));
+vi.mock("@/lib/research/verify/check", () => ({ 核验: 假核验 }));
+
 const 临时根 = path.join(os.tmpdir(), `crm-research-gw-${process.pid}`);
 const 上游 = "https://relay.example.com/v1";
 
@@ -98,12 +102,13 @@ const 路由 = async () => ({
   search: (await import("@/app/api/gateway/v1/research/search/route")).POST,
   read: (await import("@/app/api/gateway/v1/research/read/route")).POST,
   finish: (await import("@/app/api/gateway/v1/research/finish/route")).POST,
+  verify: (await import("@/app/api/gateway/v1/research/verify/route")).POST,
 });
 const 用掉 = async (owner: { kind: "account"; id: string }) => (await import("@/lib/tenant/credits")).用掉次数(owner);
 const 背调剩 = async (owner: { kind: "account"; id: string }) => (await (await import("@/lib/tenant/credits")).背调余额(owner)).还剩;
 
 describe("门口", () => {
-  it("没令牌 → 401；四个接口都一样", async () => {
+  it("没令牌 → 401；五个接口都一样", async () => {
     const r = await 路由();
     for (const [名, POST] of Object.entries(r)) {
       expect((await POST(请求(`research/${名}`, null, { runId: "r1" }))).status, 名).toBe(401);
@@ -187,12 +192,12 @@ describe("search", () => {
     expect((await search(请求("research/search", token, { runId: "run-s", query: "   " }))).status).toBe(400);
   });
 
-  it("搜到 背调上限.搜索 + 2 次之后 → 429", async () => {
+  it("搜到 背调上限.搜索 + 社媒定向搜索 + 找公司搜索 + 余量 2 次之后 → 429", async () => {
     const { token } = await 建账号带令牌();
     const { start, search } = await 路由();
-    const { 背调上限 } = await import("@/lib/research/types");
+    const { 背调上限, 社媒搜索次数, 找公司搜索次数 } = await import("@/lib/research/types");
     await start(请求("research/start", token, { runId: "run-cap", 走我们的模型: true }));
-    for (let i = 0; i < 背调上限.搜索 + 2; i++) {
+    for (let i = 0; i < 背调上限.搜索 + 社媒搜索次数 + 找公司搜索次数 + 2; i++) {
       expect((await search(请求("research/search", token, { runId: "run-cap", query: `q${i}` }))).status).toBe(200);
     }
     const 超 = await search(请求("research/search", token, { runId: "run-cap", query: "one more" }));
@@ -246,6 +251,17 @@ describe("read", () => {
     expect((await control.aiResearchRun.findFirst({ where: { ownerId: owner.id, runId: "run-r" } }))?.pages).toBe(1);
   });
 
+  it("LinkedIn / Facebook 的页面不打开 → 422，不占名额", async () => {
+    const { token, owner } = await 建账号带令牌();
+    const { start, read } = await 路由();
+    await start(请求("research/start", token, { runId: "run-soc", 走我们的模型: true }));
+    const res = await read(请求("research/read", token, { runId: "run-soc", url: "https://www.linkedin.com/company/slv" }));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error.message).toContain("LinkedIn / Facebook");
+    const { control } = await import("@/lib/tenant/control");
+    expect((await control.aiResearchRun.findFirst({ where: { ownerId: owner.id, runId: "run-soc" } }))?.pages).toBe(0);
+  });
+
   it("读满上限之后 → 429", async () => {
     const { token } = await 建账号带令牌();
     const { start, read } = await 路由();
@@ -253,6 +269,47 @@ describe("read", () => {
     await start(请求("research/start", token, { runId: "run-rc", 走我们的模型: true }));
     for (let i = 0; i < 背调上限.读页 + 2; i++) await read(请求("research/read", token, { runId: "run-rc", url: "http://127.0.0.1/" }));
     expect((await read(请求("research/read", token, { runId: "run-rc", url: "http://127.0.0.1/" }))).status).toBe(429);
+  });
+});
+
+describe("verify（真实性直查）", () => {
+  it("没开始过 → 404；公司名不对 → 400；不另扣次数；请求按白名单收、整理过再交给核验", async () => {
+    const { token, owner } = await 建账号带令牌(3);
+    const { start, verify } = await 路由();
+    expect((await verify(请求("research/verify", token, { runId: "never", 公司: "SLV" }))).status).toBe(404);
+    await start(请求("research/start", token, { runId: "run-v", 走我们的模型: true }));
+    expect((await verify(请求("research/verify", token, { runId: "run-v", 公司: "S" }))).status).toBe(400);
+    假核验.mockClear();
+    const res = await verify(
+      请求("research/verify", token, {
+        runId: "run-v",
+        公司: " SLV GmbH ",
+        域名: "https://www.slv.com/de",
+        邮箱: ["a@slv.com", 42, "x".repeat(300)],
+        电话: ["+49 2405 4170"],
+        国家: "DE",
+        自报国家: "germany",
+        税号: "DE123456789",
+        别的: "不收",
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).项[0]).toMatchObject({ key: "domain", 灯: "green" });
+    expect(假核验).toHaveBeenCalledTimes(1);
+    expect(假核验.mock.calls[0][0]).toEqual({ 公司: "SLV GmbH", 别名: [], 域名: "www.slv.com", 邮箱: ["a@slv.com"], 电话: ["+49 2405 4170"], 税号: "DE123456789", 国家: "DE", 自报国家: undefined });
+    expect(await 背调剩(owner)).toBe(2);
+  });
+
+  it("一次背调最多核 2 次；退过的不核", async () => {
+    const { token } = await 建账号带令牌();
+    const { start, verify, finish } = await 路由();
+    await start(请求("research/start", token, { runId: "run-v2", 走我们的模型: true }));
+    expect((await verify(请求("research/verify", token, { runId: "run-v2", 公司: "SLV" }))).status).toBe(200);
+    expect((await verify(请求("research/verify", token, { runId: "run-v2", 公司: "SLV" }))).status).toBe(200);
+    expect((await verify(请求("research/verify", token, { runId: "run-v2", 公司: "SLV" }))).status).toBe(429);
+    await start(请求("research/start", token, { runId: "run-v3", 走我们的模型: true }));
+    await finish(请求("research/finish", token, { runId: "run-v3", ok: false }));
+    expect((await verify(请求("research/verify", token, { runId: "run-v3", 公司: "SLV" }))).status).toBe(409);
   });
 });
 
@@ -269,18 +326,37 @@ describe("finish", () => {
     expect((await search(请求("research/search", token, { runId: "run-fail", query: "Acme" }))).status).toBe(409);
   });
 
-  it("出了报告不退", async () => {
+  it("出了报告不退（搜过 = 花了钱）；一次都没搜、没调模型就收尾的退（10-18：我们不花钱，则不扣）", async () => {
     const { token, owner } = await 建账号带令牌();
-    const { start, finish } = await 路由();
+    const { start, finish, search } = await 路由();
+    await start(请求("research/start", token, { runId: "run-free", 走我们的模型: true }));
+    expect(await (await finish(请求("research/finish", token, { runId: "run-free", ok: true }))).json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
     await start(请求("research/start", token, { runId: "run-ok", 走我们的模型: true }));
+    expect((await search(请求("research/search", token, { runId: "run-ok", query: "Acme" }))).status).toBe(200);
     expect(await (await finish(请求("research/finish", token, { runId: "run-ok", ok: true, searches: 3, pages: 2 }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
     expect(await 背调剩(owner)).toBe(2);
   });
 
-  it("ok 不是布尔 → 400；没开始过 → 404", async () => {
+  it("10-19 只有人名 + 电话、没认出公司、报了简版 → 退；读过页的报简版不认", async () => {
+    const { token, owner } = await 建账号带令牌();
+    const { start, finish, search } = await 路由();
+    await start(请求("research/start", token, { runId: "run-thin", 走我们的模型: true }));
+    expect((await search(请求("research/search", token, { runId: "run-thin", query: "+971 50 123 4567" }))).status).toBe(200);
+    expect(await (await finish(请求("research/finish", token, { runId: "run-thin", ok: true, searches: 1, pages: 0, 简版: true }))).json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
+    await start(请求("research/start", token, { runId: "run-fake-thin", 走我们的模型: true }));
+    expect((await search(请求("research/search", token, { runId: "run-fake-thin", query: "Acme" }))).status).toBe(200);
+    // 读过一页（读页接口在测试里不联网，直接记上服务器那一笔）
+    const { control } = await import("@/lib/tenant/control");
+    await control.aiResearchRun.updateMany({ where: { ownerId: owner.id, runId: "run-fake-thin" }, data: { pages: 1 } });
+    expect(await (await finish(请求("research/finish", token, { runId: "run-fake-thin", ok: true, 简版: true }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
+    expect(await 背调剩(owner)).toBe(2);
+  });
+
+  it("ok 不是布尔 → 400；简版不是布尔 → 400；没开始过 → 404", async () => {
     const { token } = await 建账号带令牌();
     const { finish } = await 路由();
     expect((await finish(请求("research/finish", token, { runId: "x1", ok: "no" }))).status).toBe(400);
+    expect((await finish(请求("research/finish", token, { runId: "x1", ok: true, 简版: "yes" }))).status).toBe(400);
     expect((await finish(请求("research/finish", token, { runId: "x1", ok: false }))).status).toBe(404);
   });
 });

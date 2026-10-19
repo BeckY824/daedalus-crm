@@ -201,7 +201,8 @@ html.m-page nextjs-portal { display: none; }
 .m-tl-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; }
 .m-tl-h b { font-size: 14px; font-weight: 600; }
 .m-tl-h span { font-size: 12px; color: var(--text-muted); }
-.m-timeline p { margin: 4px 0 0; font-size: 15px; line-height: 1.55; color: var(--ink-soft); user-select: text; -webkit-user-select: text; }
+/* 跟进正文照原样换行（背调报告是一大段分段的文字，吞了换行手机上就糊成一整段）；长网址可断行，不撑出横向滚动 */
+.m-timeline p { margin: 4px 0 0; font-size: 15px; line-height: 1.55; color: var(--ink-soft); user-select: text; -webkit-user-select: text; white-space: pre-wrap; overflow-wrap: anywhere; }
 .m-pending { display: inline-flex; align-items: center; gap: 3px; padding: 1px 7px; font-size: 12px; font-style: normal; color: var(--brand-deep); background: var(--brand-bg); border-radius: 999px; }
 .m-contact { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
 .m-contact + .m-contact { border-top: 1px solid var(--line-soft); }

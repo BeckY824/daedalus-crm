@@ -8,11 +8,15 @@
  *   - 对面不吃 tools：退回 JSON 协议照样跑完
  */
 import { describe, it, expect, vi } from "vitest";
-import { 跑背调, 认来源, type 模型调用 } from "@/lib/research/run";
+import { 跑背调, 认来源, 账目网址, 账目摘要, type 模型调用 } from "@/lib/research/run";
 import { 模拟通道 } from "@/lib/research/mock";
-import { 背调上限, 阶段表, type 研究事件 } from "@/lib/research/types";
+import { 背调上限, 社媒搜索次数, 阶段表, type 研究事件 } from "@/lib/research/types";
 import type { 背调通道 } from "@/lib/research/channel";
 import type { 老客户 } from "@/lib/research/similar";
+import type { 线索 } from "@/lib/research/verify/clues";
+import type { 邮件信号 } from "@/lib/research/verify/mail";
+import { 初始状态, 归约 } from "@/lib/research/state";
+import { 报告文本 } from "@/lib/research/report";
 
 const 公司 = "Lumora Trading GmbH";
 const 官网 = "https://lumora-trading.example";
@@ -34,12 +38,19 @@ function 假结论(prompt: string): unknown {
         buyerType: { value: "进口分销商", source: "https://made-up.example/x" },
         contact: { value: "sales@lumora-trading.example", source: `${官网}/about` },
       },
+      联系人: [{ 岗位: "采购负责人", 姓名: "Jan Beispiel", 电话: "+49 40 0000 0000", 邮箱: "sales@lumora-trading.example", 来源: `${官网}/about` }, { 岗位: "总经理", 姓名: "Max Erfunden", 来源: `${官网}/about` }],
       小结: "汉堡的照明进口分销商",
     };
-  if (prompt.includes("对照我们的业务")) return { 小结: "品类和买家类型都对口" };
+  if (prompt.includes("对照我们的业务"))
+    return { 型号: [{ 型号: "HB-150", 是什么: "工矿灯", 来源: `${官网}/about` }, { 型号: "SL-60", 是什么: "路灯", 来源: `${官网}/about` }, { 型号: "ZZ-999", 是什么: "原文里没有，该丢", 来源: `${官网}/about` }], 小结: "品类和买家类型都对口" };
   if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/lumora-trading-category-manager` }], 小结: "在扩户外品类" };
-  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `${官网}/about/` }, { 级别: "mid", 说明: "没带来源，该丢", 来源: "https://made-up.example/z" }, { 级别: "超高", 说明: "级别写错，该丢" }], 小结: "风险低" };
-  // 最后一步：统一打分 + 像哪位老客户 + 切入建议（产品里固定 gpt-5.5）
+  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `${官网}/about/` }, { 级别: "mid", 说明: "没带来源，该丢", 来源: "https://made-up.example/z" }, { 级别: "超高", 说明: "级别写错，该丢" }], 必查: { 母公司: { 结论: "独立公司，商业登记上没有母公司", 级别: "none", 来源: `https://registry.example/lumora-trading` }, 财务: { 结论: "查不到" }, 同行: { 结论: "只做进口分销，不自己生产", 是: "否", 级别: "none", 来源: `${官网}/about` }, 市场: { 结论: "在德奥瑞做生意，正在扩户外品类", 级别: "none", 来源: `${官网}/about` } }, 小结: "风险低" };
+  // 最后一步拆成并行两次（10-18 A+D 结构，产品里都是 gpt-5.5）：切入那次认「切入步骤：」，评估那次是另一个（「对下面 5 项」）
+  if (prompt.includes("切入步骤："))
+    return {
+      切入: { 切口: "模型写的切口，有产品匹配时不用", 找谁: ["Category Manager Outdoor", "Purchasing Manager"], 提案: "3 页：工矿灯参数对比、ENEC 证书、交期", 先问: ["新供应商要不要验厂", "起订量怎么算"] },
+      开发信: { 主题: "High-bay and street lights for your outdoor range", 正文: `Dear Mr Beispiel,\n\nI noticed that ${公司} is hiring a Category Manager for Outdoor Lighting to expand its street-light and high-bay range. We are an LED lighting manufacturer in China supplying distributors in Germany, Austria and Switzerland with high-bay fixtures and street lights. Our range sits close to your HB-150 and SL-60, with ENEC and CE certified versions available, stable lead times of four to five weeks, and private-label packaging for wholesalers. Many of our distributor customers start with a small trial order to check quality before they list a product. If it is useful, I can send a sample of our closest high-bay model together with a price list for your volume range. Would you have fifteen minutes next week for a short call, or should I send the samples straight to your Hamburg office?\n\nBest regards,\nLi Wei` },
+    };
   if (prompt.includes("怎么切入"))
     return {
       评档: [
@@ -53,7 +64,16 @@ function 假结论(prompt: string): unknown {
         { 编号: 1, 档: "high", 像在哪: "同在德国、都做电气批发" },
         { 编号: 9, 档: "high", 像在哪: "编号越界，该丢" },
       ],
-      建议: ["找品类经理", "主推工矿灯", "提前给 ENEC 证书"],
+      画像: { 类型: "德国照明进口分销商，潜在批发客户", 先验证: ["新供应商要不要先过验厂"] },
+      发现: [
+        { 事实: "只做进口分销，不自己生产", 机会: "是买家不是同行", 来源: `${官网}/about` },
+        { 事实: "没带来源，该丢", 机会: "x" },
+        { 事实: "只有事实没写机会障碍，该丢", 来源: `${官网}/about` },
+      ],
+      匹配: [
+        { 品类: "UFO 工矿灯", 匹配: "高", 系列: ["HB-150", "编的系列"], 开发: "优先", 依据: "它在卖同功率工矿灯", 准备: "ENEC 证书", 来源: `${官网}/about` },
+        { 品类: "路灯", 匹配: "超高", 系列: ["SL-60"], 开发: "优先", 来源: `${官网}/about` },
+      ],
       小结: "从品类经理切入",
     };
   return {};
@@ -93,11 +113,15 @@ function 假模型(opts: { 一直搜?: boolean; 不吃tools?: boolean; 合并?: 
   };
 }
 
-async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客户?: 老客户[]; signal?: AbortSignal } = {}) {
+/** 模型自己要的搜索（去掉程序发的 site:linkedin.com / site:facebook.com 那两次） */
+const 模型搜的 = (搜: { mock: { calls: unknown[][] } }) => 搜.mock.calls.filter((c) => !/site:(linkedin|facebook)\.com/.test(String(c[1]))).length;
+
+async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客户?: 老客户[]; signal?: AbortSignal; 线索?: 线索; 公司?: string; 邮件?: 邮件信号; 查IP?: (ip: string) => Promise<string | null> } = {}) {
   const 事件: 研究事件[] = [];
   const 通道 = opts.通道 ?? 模拟通道();
   const r = await 跑背调({
-    公司,
+    公司: opts.公司 ?? 公司,
+    线索: opts.线索,
     b: { brief: "户外 LED 照明出口欧洲", fields: { school: "公司", grade: "职位", major: "行业" } },
     通道,
     模型: opts.模型 ?? 假模型(),
@@ -105,6 +129,8 @@ async function 跑(opts: { 模型?: 模型调用; 通道?: 背调通道; 老客�
     发: (e) => 事件.push(e),
     signal: opts.signal,
     runId: "run-test",
+    邮件: opts.邮件,
+    查IP: opts.查IP,
   });
   return { r, 事件 };
 }
@@ -149,7 +175,10 @@ describe("背调 6 步编排", () => {
     if (!r.ok) throw new Error(r.error);
     expect(r.状态.similar).toEqual({ items: [{ id: "c-1", name: "Nordlicht Elektro", 档: "high", 像在哪: "同在德国、都做电气批发" }], 比了: 2 });
     expect(r.状态.tags.filter((t) => t.tone === "risk").map((t) => [t.text, t.source])).toEqual([["2024 年有一次付款延迟", `${官网}/about`]]);
-    expect(r.状态.approach).toHaveLength(3);
+    // 切入步骤由代码拼：选切口（跟产品匹配里「优先」那行）→ 找对人 → 提案 → 先问 → 联系入口（核过原文的邮箱）
+    expect(r.状态.approach).toHaveLength(5);
+    expect(r.状态.approach[0]).toBe("选产品切口：先拿UFO 工矿灯切入，对标它的 HB-150；准备：ENEC 证书");
+    expect(r.状态.approach[4]).toContain("sales@lumora-trading.example");
   });
 
   it("没有老客户：第 6 维是「查不到」，不进分母", async () => {
@@ -171,7 +200,9 @@ describe("背调 6 步编排", () => {
     const 通道 = 模拟通道();
     const 搜 = vi.spyOn(通道, "搜索");
     const { r, 事件 } = await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
-    expect(搜).toHaveBeenCalledTimes(背调上限.搜索);
+    // 程序自己发的 LinkedIn / Facebook 定向搜索另算，不占模型的次数
+    expect(模型搜的(搜)).toBe(背调上限.搜索);
+    expect(搜).toHaveBeenCalledTimes(背调上限.搜索 + 社媒搜索次数);
     expect(r.ok).toBe(true);
     expect(事件.filter((e) => e.type === "stage" && e.status === "done")).toHaveLength(6);
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: false });
@@ -220,12 +251,21 @@ describe("背调 6 步编排", () => {
     for (const o of opts) expect(o).toMatchObject({ requestId: "run-test", feature: "research" });
   });
 
-  it("一条材料都没拿到：收尾报「没出报告」（服务器全退），不出报告", async () => {
+  it("一条材料都没搜到、6 步照样跑完：搜索花了钱，照常出报告、收尾报跑完（10-18「我们花钱就扣」）", async () => {
     const 通道 = { ...模拟通道(), 搜索: async () => [], 读页: async () => { throw new Error("读不了"); } } as 背调通道;
     const 收尾 = vi.spyOn(通道, "收尾");
-    const { r } = await 跑({ 通道 });
-    expect(r).toMatchObject({ ok: false, 退了: true });
-    expect(收尾).toHaveBeenCalledWith("run-test", false, expect.anything());
+    const { r, 事件 } = await 跑({ 通道 });
+    expect(r.ok).toBe(true);
+    expect(收尾).toHaveBeenCalledWith("run-test", true, expect.anything());
+    expect(事件.at(-1)).toMatchObject({ type: "done", 退了: false });
+  });
+
+  it("一条材料都没拿到就出错停了：不出报告；服务器退了才说「不扣次数」", async () => {
+    const 坏 = { tools: async () => { throw new Error("上游模型接口超时"); }, json: async () => { throw new Error("上游模型接口超时"); } } as unknown as 模型调用;
+    const 退 = { ...模拟通道(), 收尾: async () => ({ ok: true, 退了: 1, 还剩: 3 }) } as 背调通道;
+    expect((await 跑({ 通道: 退, 模型: 坏 })).r).toEqual({ ok: false, error: "上游模型接口超时，这次不扣次数", 退了: true });
+    const 不退 = { ...模拟通道(), 收尾: async () => ({ ok: true, 退了: 0, 还剩: 2 }) } as 背调通道;
+    expect((await 跑({ 通道: 不退, 模型: 坏 })).r).toEqual({ ok: false, error: "上游模型接口超时", 退了: false });
   });
 
   it("开始就被服务器拒了（次数不够）：一步都不跑", async () => {
@@ -295,12 +335,18 @@ describe("背调 6 步编排", () => {
     const 底 = 假模型();
     const m: 模型调用 = {
       tools: (ms, t, o) => (强度.push(["tools", o.reasoningEffort]), 底.tools(ms, t, o)),
-      json: (ms, o) => (强度.push([String(ms[ms.length - 1]?.content ?? "").includes("怎么切入") ? "approach" : "json", o.reasoningEffort]), 底.json(ms, o)),
+      json: (ms, o) => {
+        const p = String(ms[ms.length - 1]?.content ?? "");
+        强度.push([p.includes("切入步骤：") ? "切入" : p.includes("怎么切入") ? "approach" : "json", o.reasoningEffort]);
+        return 底.json(ms, o);
+      },
     };
     await 跑({ 模型: m });
     expect(强度.filter(([k]) => k === "approach").map(([, e]) => e)).toEqual([背调打分推理强度]);
-    expect(强度.filter(([k]) => k !== "approach").every(([, e]) => e === undefined)).toBe(true);
-    const 最后 = 底.调用.find((c) => c.kind === "json" && c.prompt.includes("怎么切入"))!.prompt;
+    // 切入步骤 + 开发信那次（和打分并行）：写信不用打分那么深的推理
+    expect(强度.filter(([k]) => k === "切入").map(([, e]) => e)).toEqual(["low"]);
+    expect(强度.filter(([k]) => k === "json" || k === "tools").every(([, e]) => e === undefined)).toBe(true);
+    const 最后 = 底.调用.find((c) => c.kind === "json" && c.prompt.includes("对下面 5 项"))!.prompt;
     expect(最后).toContain("≥ 2 个国家");
     expect(最后).toContain("对外采购或代理同类产品");
   });
@@ -348,14 +394,26 @@ describe("背调 6 步编排", () => {
     expect(收尾).toHaveBeenCalledWith("run-test", false, expect.objectContaining({ 取消: true }));
   });
 
-  it("给人看的结论按字符截、截了带省略号，不切坏字、不在网址半中间硬断", async () => {
-    const 长 = "法国 Rexel 集团的官网和法国官方企业目录都显示公司注册地址在 Paris，".repeat(10);
+  it("给人看的结论不带「…」（10-18 对比免费产品第四点）：太长按整句收住，模型自己写的省略号也去掉；整份报告里没有「…」", async () => {
+    const 长 = "法国 Rexel 集团的官网和法国官方企业目录都显示公司注册地址在 Paris。".repeat(12);
     const m = 假模型();
-    const 包 = { ...m, json: async (a: never, o: { researchStage?: string }) => { const r = (await m.json(a, o as never)) as Record<string, unknown>; return o.researchStage === "identify" ? { ...r, 说明: 长 } : r; } };
+    const 包 = {
+      ...m,
+      json: async (a: never, o: { researchStage?: string }) => {
+        const r = (await m.json(a, o as never)) as Record<string, unknown>;
+        if (o.researchStage === "identify") return { ...r, 说明: 长 };
+        if (o.researchStage === "basics") return { ...r, 小结: "汉堡的照明进口分销商，规模中等…" };
+        return r;
+      },
+    };
     const { 事件 } = await 跑({ 模型: 包 as unknown as 模型调用 });
     const 认 = 事件.find((e) => e.type === "stage" && e.stage === "identify" && e.status === "done") as { summary?: string };
-    expect(Array.from(认.summary ?? "")).toHaveLength(140);
-    expect(认.summary?.endsWith("…")).toBe(true);
+    expect(Array.from(认.summary ?? "").length).toBeLessThanOrEqual(300);
+    expect(认.summary?.endsWith("Paris。")).toBe(true);
+    const 基 = 事件.find((e) => e.type === "stage" && e.stage === "basics" && e.status === "done") as { summary?: string };
+    expect(基.summary).toBe("汉堡的照明进口分销商，规模中等");
+    const s = 事件.reduce(归约, 初始状态({ name: 公司 }));
+    expect(报告文本(s)).not.toContain("…");
   });
 
   it("这一步搜到 / 读到的也带材料编号，和后面「已有材料」里同一条的编号一致（来源填编号才对得上）", async () => {
@@ -384,10 +442,11 @@ describe("背调 6 步编排", () => {
     const 通道 = { ...模拟通道(), 模型: "gpt-5.5", 摘要模型: "gpt-5.4-mini" } as 背调通道;
     const m = 假模型();
     await 跑({ 模型: m, 通道 });
-    const 最后 = m.调用.filter((c) => c.prompt.includes("最多挑 3 位，按编号回"));
-    expect(最后).toHaveLength(1);
-    expect(最后[0].model).toBe("gpt-5.5");
-    const 其余 = m.调用.filter((c) => !c.prompt.includes("最多挑 3 位，按编号回"));
+    // 最后一步是并行的两次（打分 / 切入和开发信），都用报告模型
+    const 最后 = m.调用.filter((c) => c.prompt.includes("怎么切入"));
+    expect(最后).toHaveLength(2);
+    for (const c of 最后) expect(c.model).toBe("gpt-5.5");
+    const 其余 = m.调用.filter((c) => !c.prompt.includes("怎么切入"));
     expect(其余.length).toBeGreaterThan(5);
     for (const c of 其余) expect(c.model).toBe("gpt-5.4-mini");
   });
@@ -398,8 +457,8 @@ describe("背调 6 步编排", () => {
     const 合并 = 假模型({ 合并: true });
     const { r } = await 跑({ 模型: 合并 });
     expect(r.ok).toBe(true);
-    // 认准 / 基本面 / 信号 / 风险四步各省一次单独的结论调用；相关性那步只给 1 次工具、轮不到「够了」，最后一步本来就只有一次
-    expect(分开.调用.length - 合并.调用.length).toBe(4);
+    // 认准 / 基本面 / 相关性 / 信号 / 风险五步各省一次单独的结论调用（10-18 相关性那步给到 2 次工具、要找型号，也轮得到「够了」）；最后一步本来就只有一次
+    expect(分开.调用.length - 合并.调用.length).toBe(5);
     if (r.ok) expect(r.状态.fields.founded?.value).toBe("2009 年");
   });
 
@@ -431,7 +490,7 @@ describe("背调 6 步编排", () => {
     通道.开始 = async () => ({ ok: true, 扣了: 0, 还剩: 0, 搜索上限: 3 });
     const 搜 = vi.spyOn(通道, "搜索");
     await 跑({ 模型: 假模型({ 一直搜: true }), 通道 });
-    expect(搜).toHaveBeenCalledTimes(3);
+    expect(模型搜的(搜)).toBe(3);
   });
 
   it("对面不吃 tools：退回 JSON 协议照样跑完", async () => {
@@ -454,6 +513,250 @@ describe("背调 6 步编排", () => {
     expect(r.ok).toBe(true);
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: true });
     expect(事件.filter((e) => e.type === "stage" && e.status === "running").length).toBeLessThan(6);
+  });
+});
+
+describe("真实性（10-18）", () => {
+  const 取核验 = (事件: 研究事件[]) => 事件.find((e): e is Extract<研究事件, { type: "verify" }> => e.type === "verify")!;
+
+  it("认出官网就把官网、自报的线索交给服务器直查；切入建议那一步前出 verify 事件，灯和事实原样带进提示词", async () => {
+    const 通道 = 模拟通道();
+    const 核 = vi.spyOn(通道, "核验");
+    const m = 假模型();
+    const { 事件 } = await 跑({ 模型: m, 通道, 线索: { 邮箱: ["sales@lumora-trading.example"], 电话: ["+49 40 1234567"], 税号: "DE123456789", 国家: "德国" } });
+    expect(核).toHaveBeenCalledTimes(1);
+    expect(核.mock.calls[0][0]).toMatchObject({ runId: "run-test", 公司: "Lumora Trading GmbH", 域名: "lumora-trading.example", 邮箱: ["sales@lumora-trading.example"], 税号: "DE123456789", 国家: "DE", 自报国家: "DE" });
+    const 第几 = (f: (e: 研究事件) => boolean) => 事件.findIndex(f);
+    expect(第几((e) => e.type === "verify")).toBeLessThan(第几((e) => e.type === "stage" && e.stage === "approach" && e.status === "done"));
+    const v = 取核验(事件);
+    expect(v.真实性.项.map((x) => x.key)).toEqual(["registry", "vat", "domain", "site", "email", "phone", "ip", "sanctions", "footprint"]);
+    // 网上足迹从模拟的 LinkedIn / Facebook 搜索结果里认出来
+    expect(v.真实性.项.find((x) => x.key === "footprint")).toMatchObject({ 灯: "green", 态: "已核" });
+    expect(v.真实性.总灯).toBe("green");
+    const 最后 = m.调用.find((c) => c.prompt.includes("对下面 5 项"))!;
+    expect(最后.prompt).toContain("程序直查的真实性结果");
+    expect(最后.prompt).toContain("示例登记库：Lumora Trading GmbH");
+  });
+
+  it("假公司：域名才 30 天、社媒全无 → 总灯红", async () => {
+    const v = 取核验((await 跑({ 公司: "Fake Lumora Trading" })).事件);
+    expect(v.真实性.项.find((x) => x.key === "footprint")).toMatchObject({ 灯: "yellow", 态: "没查到" });
+    expect(v.真实性.总灯).toBe("red");
+  });
+
+  it("服务器没核成（回 null）：照样出真实性块，各项写「服务器这次没核成」，足迹照认", async () => {
+    const 通道 = 模拟通道();
+    通道.核验 = vi.fn(async () => null);
+    const v = 取核验((await 跑({ 通道 })).事件);
+    expect(v.真实性.项.find((x) => x.key === "registry")?.事实).toContain("服务器这次没核成");
+    expect(v.真实性.项.find((x) => x.key === "footprint")?.灯).toBe("green");
+  });
+
+  it("带了询盘邮件（第二期）：发件 IP 在本机查国家，和自称的国家对不上就黄；没给查 IP 的就是「查不了」", async () => {
+    const 邮件: 邮件信号 = { 发件人: "sales@lumora-trading.example", 发件IP: "41.58.1.2", IP来源: "最早一跳", spf: "pass", 电话: [], 跳数: 3 };
+    const 查IP = vi.fn(async () => "NG");
+    const v = 取核验((await 跑({ 邮件, 查IP, 线索: { 邮箱: [], 电话: [], 国家: "德国" } })).事件);
+    expect(查IP).toHaveBeenCalledWith("41.58.1.2");
+    const ip = v.真实性.项.find((x) => x.key === "ip")!;
+    expect(ip).toMatchObject({ 灯: "yellow", 态: "已核" });
+    expect(ip.事实).toContain("在尼日利亚，和对方自称的国家德国对不上");
+    const 查不了 = 取核验((await 跑({ 邮件 })).事件).真实性.项.find((x) => x.key === "ip")!;
+    expect(查不了).toMatchObject({ 灯: "gray", 态: "查不了" });
+    const 坏 = 取核验((await 跑({ 邮件, 查IP: async () => Promise.reject(new Error("断网")) })).事件).真实性.项.find((x) => x.key === "ip")!;
+    expect(坏.态).toBe("查不了");
+    const 没贴 = 取核验((await 跑()).事件).真实性.项.find((x) => x.key === "ip")!;
+    expect(没贴.事实).toContain("没贴询盘邮件原文");
+  });
+
+  it("制裁疑似命中：风险里也列一条「高」", async () => {
+    const 通道 = 模拟通道();
+    通道.核验 = async () => ({ 项: [{ key: "sanctions", 灯: "red", 态: "已核", 事实: "疑似命中", 硬红: "制裁名单疑似命中（美国 OFAC 名单上有同名单位）", 链接: [{ title: "OFAC", url: "https://sanctions.example/1" }] }] });
+    const { 事件 } = await 跑({ 通道 });
+    expect(事件).toContainEqual(expect.objectContaining({ type: "tag", tone: "risk", level: "high", text: "制裁名单疑似命中（美国 OFAC 名单上有同名单位）" }));
+  });
+
+  it("进口记录的来源必须是材料里的；编的来源当没有。模型那一句真实性总结进 verify-note", async () => {
+    const 带进口 = (来源: string) => {
+      const m = 假模型();
+      const 原 = m.json.bind(m);
+      m.json = async (messages, o) => {
+        const r = (await 原(messages, o)) as Record<string, unknown>;
+        return 全文(messages).includes("怎么切入") ? { ...r, 进口记录: { 有: true, 摘要: "2025 年从宁波进口灯具", 来源 }, 真实性: "登记和域名都对得上。" } : r;
+      };
+      return m;
+    };
+    const 真 = await 跑({ 模型: 带进口(`${官网}/about`) });
+    expect(真.事件).toContainEqual({ type: "import", 有: true, 摘要: "2025 年从宁波进口灯具", source: `${官网}/about` });
+    expect(真.事件).toContainEqual({ type: "verify-note", text: "登记和域名都对得上。" });
+    const 编 = await 跑({ 模型: 带进口("https://made-up.example/bill-of-lading") });
+    expect(编.事件).toContainEqual({ type: "import", 有: false });
+  });
+
+  it("10-18 对比免费产品：必查四项、在卖型号、联系人、英文开发信都出来；编的型号 / 联系人格子被丢；同行判断拿去封顶", async () => {
+    const { 事件 } = await 跑();
+    const 取 = <T extends 研究事件["type"]>(t: T) => 事件.find((e): e is Extract<研究事件, { type: T }> => e.type === t);
+    expect(取("checks")!.项.map((x) => [x.key, x.source ? "有来源" : "无"])).toEqual([
+      ["母公司", "有来源"],
+      ["财务", "无"],
+      ["同行", "有来源"],
+      ["市场", "有来源"],
+    ]);
+    expect(取("models")!.items.map((m) => m.型号)).toEqual(["HB-150", "SL-60"]);
+    // 总经理 Max Erfunden 原文里没有：整条丢；Jan Beispiel 那条电话邮箱都在原文里
+    expect(取("contacts")!.items).toEqual([{ 岗位: "采购负责人", 姓名: "Jan Beispiel", 电话: "+49 40 0000 0000", 邮箱: "sales@lumora-trading.example", source: `${官网}/about` }]);
+    // 型号对比：新提示词不再要（产品匹配顶替了）
+    expect(取("compare")).toBeUndefined();
+    expect(取("email")!.主题).toBe("High-bay and street lights for your outdoor range");
+    expect(取("score")!.评分.结论).toBeDefined();
+    const s = 事件.reduce(归约, 初始状态({ name: 公司 }));
+    const t = 报告文本(s);
+    for (const 段 of ["【公开联系人】", "【在卖的型号】", "【英文开发信】", "是不是同行：只做进口分销", "近两年财务：查不到（材料里没有）", "结论："]) expect(t).toContain(段);
+  });
+
+  it("同行「是」：分数封顶 40、结论不建议优先；切入那一步的提示词带上认出的型号、要求小结不给建议", async () => {
+    const m = 假模型();
+    const 原 = m.json.bind(m);
+    m.json = async (messages, o) => {
+      const r = (await 原(messages, o)) as Record<string, unknown>;
+      if (全文(messages).includes("切入步骤：")) {
+        const q = r.切入 as Record<string, unknown>;
+        return { ...r, 切入: { ...q, 先问: ["它外不外采同类灯具", ...(q.先问 as string[])] } };
+      }
+      return 全文(messages).includes("排查风险") ? { ...r, 必查: { 同行: { 结论: "自己生产户外灯具", 是: "是", 级别: "high", 来源: `${官网}/about` } } } : r;
+    };
+    const { 事件 } = await 跑({ 模型: m });
+    const 分 = 事件.find((e): e is Extract<研究事件, { type: "score" }> => e.type === "score")!.评分;
+    expect(分.分).toBeLessThanOrEqual(40);
+    expect(分.封顶?.原因.join("")).toContain("同行");
+    // 同行级别 high → 也算高风险：结论先核实
+    expect(分.结论?.档).toBe("先核实");
+    const 评估 = m.调用.find((c) => c.prompt.includes("对下面 5 项"))!.prompt;
+    expect(评估).toContain("它在卖的型号（HB-150、SL-60）可以拿来对");
+    expect(评估).toContain("小结只写事实");
+    expect(评估).toContain("先弄清的第一件写「它外不外采」");
+    const 切入 = m.调用.find((c) => c.prompt.includes("切入步骤："))!.prompt;
+    expect(切入).toContain("先问里不要再写它");
+    // 画像的「先弄清」和切入步骤第一条都先问外不外采
+    expect(事件.find((e): e is Extract<研究事件, { type: "profile" }> => e.type === "profile")!.先验证[0]).toContain("外不外采");
+    const 步骤 = 事件.find((e): e is Extract<研究事件, { type: "approach" }> => e.type === "approach")!.points;
+    expect(步骤[0]).toMatch(/^先确认它外不外采/);
+    // 只说一处（10-19 用户定）：模型在「先问」里又写了外不外采也去掉，别的先问照留
+    expect(步骤.slice(1).join("\n")).not.toMatch(/外不外采|外采|外包/);
+    expect(步骤.find((x) => x.startsWith("先问采购机制"))).toContain("起订量怎么算");
+  });
+
+  it("英国公司服务器查到 HMRC 进口记录：盖过模型那句，来源是名录那条（带标题）；名录里没有就还用模型认的", async () => {
+    const 通道 = 模拟通道();
+    const 原核验 = 通道.核验.bind(通道);
+    const 链接 = "https://api.uktradeinfo.com/Trader(42)?$expand=Imports";
+    通道.核验 = async (q, sg) => ({ ...(await 原核验(q, sg))!, 进口: { 名: "LUMORA TRADING LTD", 月份: [{ 月: "2025-03", 编码: "94054000", 品类: "灯具" }], 链接 } });
+    const { 事件 } = await 跑({ 通道 });
+    const 进 = 事件.find((e): e is Extract<研究事件, { type: "import" }> => e.type === "import")!;
+    expect(进).toMatchObject({ 有: true, source: 链接, 来源名: "HMRC 进口商名录 · LUMORA TRADING LTD" });
+    expect(进.摘要).toContain("2025-03 有 1 个月申报过进口，其中照明类（灯具）1 个月");
+    expect(进.摘要).toContain("不能据此判断采购量");
+    const 通道2 = 模拟通道();
+    const 原2 = 通道2.核验.bind(通道2);
+    通道2.核验 = async (q, sg) => ({ ...(await 原2(q, sg))!, 进口: null });
+    expect((await 跑({ 通道: 通道2 })).事件).toContainEqual({ type: "import", 有: false });
+  });
+
+  it("输入的是很短的缩写：社媒按认出的登记全称搜（10-18 bench：搜「SLV」回来的是同名健身房）；全称不像、名字不短都还用输入的", async () => {
+    const 带全称 = (全称: string) => {
+      const m = 假模型();
+      const 原 = m.json.bind(m);
+      m.json = async (messages, o) => {
+        const r = (await 原(messages, o)) as Record<string, unknown>;
+        return 全文(messages).includes("认准是哪一家") ? { ...r, 全称 } : r;
+      };
+      return m;
+    };
+    const 社媒搜的 = async (公司: string, 全称: string) => {
+      const 通道 = 模拟通道();
+      const 搜 = vi.spyOn(通道, "搜索");
+      await 跑({ 公司, 模型: 带全称(全称), 通道 });
+      return 搜.mock.calls.map((c) => String(c[1])).filter((q) => q.includes("site:facebook.com"));
+    };
+    expect(await 社媒搜的("LTG", "LTG Lumora Trading GmbH")).toEqual(['"LTG Lumora Trading GmbH" site:facebook.com']);
+    // 全称和输入的不像；输入的名字不短（带后缀搜反而搜不到主页）：都还用输入的
+    expect(await 社媒搜的("LTG", "Nordwerk Holding AG")).toEqual(['"LTG" site:facebook.com']);
+    expect(await 社媒搜的("Lumora", "Lumora Trading GmbH")).toEqual(['"Lumora" site:facebook.com']);
+  });
+
+  it("风险那一步：程序先定向搜一次母公司（owned by / parent company / acquired by / subsidiary of），名字跟社媒那次一样", async () => {
+    const 通道 = 模拟通道();
+    const 搜 = vi.spyOn(通道, "搜索");
+    const { 事件 } = await 跑({ 通道 });
+    const 查 = 搜.mock.calls.map((c) => String(c[1]));
+    const 母 = 查.filter((q) => q.includes('"owned by"'));
+    expect(母).toEqual([`"${公司}" ("owned by" OR "parent company" OR "acquired by" OR "subsidiary of")`]);
+    // 发在风险那一步，界面上看得到
+    expect(事件.some((e) => e.type === "tool" && e.stage === "risks" && e.kind === "search" && e.label.includes("owned by"))).toBe(true);
+  });
+
+  it("英国公司（10-19 复核3 财务退步）：工商登记认出公司号 → 风险那一步程序读公开账目页，账目表摘到前面，提示词写明不用再搜财务", async () => {
+    const 通道 = 模拟通道();
+    const 原核验 = 通道.核验.bind(通道);
+    vi.spyOn(通道, "核验").mockImplementation(async (q) => {
+      const r = await 原核验(q);
+      return r && { ...r, 项: r.项.map((x) => (x.key === "registry" ? { ...x, 英国号: "04134581" } : x)) };
+    });
+    const 原读 = 通道.读页.bind(通道);
+    const 正式 = "https://theaccounts.uk/company/04134581/ansell-electrical-products-limited/";
+    const 读 = vi.spyOn(通道, "读页").mockImplementation(async (id, url, sig) =>
+      url === 账目网址("04134581")
+        ? { title: "ANSELL ELECTRICAL PRODUCTS LIMITED — The Accounts", url: 正式, text: `${"导航 / 订阅提醒 / 图表说明\n".repeat(80)}Accounts\n2-year trend\nMetric Trend 2024-01-31 2025-01-31 Δ vs prior\nTurnover £85,469,379 £78,818,226 -7.8%\nProfit before tax £11,325,388 £9,839,487 -13.1%\nAverage employees 186 193 +3.8%\nAudit opinion\nUnqualified (clean)`, 截断了: false }
+        : 原读(id, url, sig),
+    );
+    const m = 假模型();
+    const { 事件 } = await 跑({ 通道, 模型: m });
+    expect(读.mock.calls.map((c) => c[1])).toContain("https://theaccounts.uk/company/04134581/");
+    expect(事件.some((e) => e.type === "tool" && e.stage === "risks" && e.kind === "read" && e.status === "done" && e.sources?.[0]?.url === 正式)).toBe(true);
+    const 风险 = m.调用.find((c) => c.prompt.includes("排查风险"))!;
+    expect(风险.prompt).toContain("公司号 04134581");
+    expect(风险.prompt).toContain("不用再搜财务");
+    expect(风险.prompt).not.toContain("再搜近两年财务");
+    // 表在原文 1500 字以后，摘到前面以后材料里看得到
+    expect(风险.prompt).toContain("Turnover £85,469,379 £78,818,226 -7.8%");
+  });
+
+  it("不是英国公司（工商登记没带公司号）：不读账目页，财务照旧让模型搜；信号那一步最多 2 次工具、新闻和参展合成一次", async () => {
+    const 通道 = 模拟通道();
+    const 读 = vi.spyOn(通道, "读页");
+    const m = 假模型();
+    await 跑({ 通道, 模型: m });
+    expect(读.mock.calls.some((c) => String(c[1]).includes("theaccounts.uk"))).toBe(false);
+    expect(m.调用.find((c) => c.prompt.includes("排查风险"))!.prompt).toContain("再搜近两年财务");
+    const 信号 = m.调用.find((c) => c.prompt.includes("找近期信号"))!;
+    expect(信号.prompt).toContain("新闻和参展合成一次搜");
+    expect(信号.prompt).toContain("这一步最多再调 2 次工具");
+  });
+
+  it("账目摘要：把「Metric … Turnover」那张表起的一段摘到最前面；认不出表就原样", () => {
+    const 原 = `${"导航\n".repeat(400)}Metric Trend 2024-01-31 2025-01-31\nTurnover £1 £2 +100%\nCash £3 £4`;
+    const 摘 = 账目摘要(原);
+    expect(摘.startsWith("Metric Trend")).toBe(true);
+    expect(摘.slice(0, 1500)).toContain("Turnover £1 £2 +100%");
+    expect(账目摘要("没有表的页面")).toBe("没有表的页面");
+    expect(账目网址("SC123456")).toBe("https://theaccounts.uk/company/SC123456/");
+  });
+
+  it("模型要读 LinkedIn / Facebook 的页面：不打开，告诉它只用搜索结果", async () => {
+    const 通道 = 模拟通道();
+    const 读 = vi.spyOn(通道, "读页");
+    const m = 假模型();
+    const 原 = m.tools.bind(m);
+    let 要过 = false;
+    m.tools = async (messages, tools, o) => {
+      if (!要过 && 全文(messages).includes("认准是哪一家")) {
+        要过 = true;
+        return { toolCalls: [{ id: "li", type: "function", function: { name: "read_page", arguments: JSON.stringify({ url: "https://www.linkedin.com/company/lumora" }) } }], text: "看看领英" };
+      }
+      return 原(messages, tools, o);
+    };
+    await 跑({ 模型: m, 通道 });
+    expect(读.mock.calls.some((c) => String(c[1]).includes("linkedin.com"))).toBe(false);
+    expect(m.调用.flatMap((c) => c.messages).some((x) => x.role === "tool" && String(x.content).includes("LinkedIn / Facebook 的页面不打开"))).toBe(true);
   });
 });
 

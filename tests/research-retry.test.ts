@@ -2,7 +2,7 @@
  * 背调的「卡住重发一次」和按字符截（lib/research/retry.ts，10-16 下午 ABC 试跑：一次模型调用干等 180 秒、整次报废；结论硬切半句）。
  */
 import { describe, it, expect, vi } from "vitest";
-import { 背调超时, 重发一次, 该重发, 截 } from "@/lib/research/retry";
+import { 背调超时, 重发一次, 该重发, 截, 全句 } from "@/lib/research/retry";
 
 const 超时错 = () => Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
 
@@ -70,5 +70,19 @@ describe("取回答（10-17：gpt-5.5 思考把 max_tokens 用光，正文是空
     expect(取回答({ choices: [{ message: { content: "", tool_calls: [{ id: "1" }] }, finish_reason: "length" }] }, true).tool_calls).toHaveLength(1);
     expect(取回答({ choices: [{ message: { content: "" }, finish_reason: "stop" }] }, false).content).toBe("");
     expect(取回答({ choices: [{ message: { content: "{}" }, finish_reason: "stop" }] }, true).content).toBe("{}");
+  });
+});
+
+describe("全句（给人看的结论，10-18：不带「…」）", () => {
+  it("没超原样；超了在上限内最后一个整句收住，没有句号就在逗号前收，都没有才硬断；永远不加省略号", () => {
+    expect(全句("规模中等。", 10)).toBe("规模中等。");
+    expect(全句("第一句很长很长。第二句也很长很长很长。第三句", 20)).toBe("第一句很长很长。第二句也很长很长很长。");
+    expect(全句("Founded in 1998. Imports LED panels from Ningbo and Xiamen", 30)).toBe("Founded in 1998.");
+    expect(全句("汉堡的照明进口分销商，规模中等，主营户外灯具和工程照明", 16)).toBe("汉堡的照明进口分销商，规模中等");
+    expect(全句("一二三四五六七八九十一二三四五", 6)).toBe("一二三四五六");
+    expect(全句("模型自己写的省略号…", 50)).toBe("模型自己写的省略号");
+    expect(全句("three dots...", 50)).toBe("three dots");
+    expect(全句(undefined, 10)).toBe("");
+    for (const n of [5, 17, 40, 120]) expect(全句("这家公司在汉堡，做照明进口……还有别的；也做工程。".repeat(5), n)).not.toMatch(/…$|\.\.\.$/);
   });
 });

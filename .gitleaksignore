@@ -29,4 +29,5 @@ f471a1b4b31e877a7e5b3d578f87449cbbb89918:tests/llm-key-source.test.ts:generic-ap
 # 「token-2017」，欧盟金融制裁数据库（FSF）公开页上给所有人的同一个下载链接，不是谁的凭证。
 # CI 的密钥扫描 fetch-depth 0 会扫到别的分支的提交，所以发版分支也要认这两条（和 #33 的 .gitleaksignore 同一内容；用户 10-18 同意加）。
 fd851cf21cf2ded88be2bcc6d3072bf1d37cb00b:src/lib/research/verify/sanctions.ts:generic-api-key:29
+# 上一行说明里原先照抄了那个 token，它自己也被扫出来（5bc99b7），同一个公开值
 5bc99b77f5560c74e6795e2ed1d559d90043f82b:.gitleaksignore:generic-api-key:28

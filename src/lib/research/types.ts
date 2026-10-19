@@ -39,6 +39,18 @@ export type 读页结果 = { url: string; title: string; text: string; 截断了
  */
 export const 背调上限 = { 搜索: 8, 读页: 10 } as const;
 
+/**
+ * 近期信号那一步程序自己发的 Facebook 定向搜索（lib/research/verify/social.ts 社媒查询；LinkedIn 搜索不收录，10-18 去掉）：
+ * 不占模型的搜索次数，服务器的次数闸多放这么几次（10-18）
+ */
+export const 社媒搜索次数 = 1;
+
+/**
+ * 只有人名 + 电话、没有公司（lib/research/person.ts）：先搜号码的国际写法、本国写法、不带开头 0 的写法和「人名 + 国家」，
+ * 最多这么几次。服务器的次数闸也多放这么几次（找完公司接着背调用的是同一个 runId）
+ */
+export const 找公司搜索次数 = 4;
+
 /* 扣几次、花多少的规矩在 price.ts（服务器按配置算，桌面端开跑前问 /research/price 拿数） */
 
 /* ---------- 网关接口（/api/gateway/v1/research/*）的请求和回应 ---------- */
@@ -105,7 +117,8 @@ export type 字段键 = (typeof 字段表)[number]["key"];
 
 export type 工具事件 = {
   type: "tool";
-  stage: 阶段号;
+  /** person = 只有人名 + 电话时「找公司」那几次搜索（不属于 6 步里的哪一步） */
+  stage: 阶段号 | "person";
   id: string;
   kind: "search" | "read";
   label: string;
@@ -124,10 +137,33 @@ export type 研究事件 =
   | 工具事件
   | { type: "field"; key: 字段键; value: string; source?: string }
   | { type: "score"; 评分: import("./score").评分结果 }
-  | { type: "tag"; tone: "signal" | "risk"; level?: "low" | "mid" | "high"; text: string; source?: string }
+  | { type: "tag"; tone: "signal" | "risk"; level?: "low" | "mid" | "high"; text: string; source?: string; /** 风险那条：怎么应对（10-18 A+D 结构：风险 | 证据 | 应对） */ 应对?: string }
   | { type: "similar"; items: 像的老客户[]; /** CRM 里拿来比的老客户有几位；0 = 还没有成交 / 在谈的客户 */ 比了: number }
   | { type: "approach"; points: string[] }
+  /** 真实性那一块（灯是代码定的，见 verify/rules.ts）；切入建议那一步写完后再来一条 verify-note 补上模型那句话 */
+  | { type: "verify"; 真实性: import("./verify/types").真实性 }
+  | { type: "verify-note"; text: string }
+  /** 公开的进口记录（10-18 用户定：不接付费源）。有 = 摘要 + 一条核得上的来源；没有就是「未查到公开进口记录」 */
+  | { type: "import"; 有: boolean; 摘要?: string; source?: string; /** 来源的标题（HMRC 名录那条不在材料里，没有标题） */ 来源名?: string }
+  /** 风险那一步必查的四项（10-18 对比免费产品第一点）：每项一句结论；查不到的不带来源 */
+  | { type: "checks"; 项: 必查项[] }
+  /** 它在卖的具体型号（fit 那一步；型号名必须在来源原文里出现过） */
+  | { type: "models"; items: 在卖型号[] }
+  /** 公开的业务联系人（basics 那一步；姓名、电话、邮箱都必须在来源原文里出现过，私人社交不算） */
+  | { type: "contacts"; items: 联系人[] }
+  /** 切入那一步：对方型号和我们的产品怎么比；英文开发信 */
+  | { type: "compare"; items: 型号对比[] }
+  | { type: "email"; 主题: string; 正文: string }
+  /** 10-18 报告结构（盲评 A + D）：开头那段「它是哪类客户、开发前先弄清什么」、关键发现（机会 / 障碍）、按我们品类的产品匹配、认证提醒 */
+  | { type: "profile"; 类型: string; 先验证: string[] }
+  | { type: "findings"; items: 关键发现[] }
+  | { type: "match"; items: 产品匹配[] }
+  | { type: "certs"; 提醒: string[] }
   | { type: "usage"; searches: number; pages: number }
+  /** 只有人名 + 电话（person.ts）：开头先来一条，号码是本机判的（哪国、手机还是固话） */
+  | { type: "person"; 名?: string; 号: import("./person").号码信息 }
+  /** 找完了：认出的候选公司（程序核过来源）、号码 / 名字在哪些公开页面上出现过、没候选时简版的建议 */
+  | { type: "person-found"; 候选: import("./person").候选公司[]; 出现: import("./person").出现; 建议?: string[]; 选了?: string }
   | {
       type: "done";
       charge: number;
@@ -136,3 +172,31 @@ export type 研究事件 =
       /** 服务器判定这次没跑完是我们这边的原因，扣的那 1 次退回了 */
       退了?: boolean;
     };
+
+/** 风险必查四项（10-18 对比免费产品第一点：豆包 / ChatGPT 都查了母公司、财务、是不是同行、在不在目标市场，我们没查） */
+export const 必查表 = [
+  { key: "母公司", label: "母公司 / 股东", 问: "母公司 / 大股东是谁；集团自己有没有工厂、是不是在重组 / 出售" },
+  { key: "财务", label: "近两年财务", 问: "近两年营收、盈亏、再融资 / 债务重组、评级、裁员" },
+  { key: "同行", label: "是不是同行", 问: "自己生产同类产品吗（同行 = 竞争对手，不是买家）" },
+  { key: "市场", label: "目标市场", 问: "在不在我们的目标市场做生意；有没有撤出 / 收缩" },
+] as const;
+export type 必查键 = (typeof 必查表)[number]["key"];
+export type 必查项 = {
+  key: 必查键;
+  结论: string;
+  /** none = 查了、没问题 */
+  级别: "none" | "low" | "mid" | "high";
+  /** 查不到就没有来源 */
+  source?: string;
+  /** 只有「同行」那一项有：是 / 部分 / 否 / 查不到，评分封顶用（score.ts） */
+  是?: import("./score").同行判断;
+  /** 有级别的那几项：怎么应对，一句话 */
+  应对?: string;
+};
+export type 在卖型号 = { 型号: string; 是什么?: string; source: string };
+export type 联系人 = { 岗位?: string; 姓名?: string; 电话?: string; 邮箱?: string; source: string };
+export type 型号对比 = { 对方: string; 我们: string; 怎么比: string };
+/** 关键发现：一条和开发策略有关的事实（带来源），对我们是机会还是障碍 */
+export type 关键发现 = { 事实: string; 机会?: string; 障碍?: string; source: string };
+/** 产品匹配：按我们业务简介里的品类一行一行比——匹配度、它官网上原样写的系列名、开发优先级、要准备什么 */
+export type 产品匹配 = { 品类: string; 匹配: "高" | "中" | "低"; 开发: "优先" | "选择性" | "谨慎"; 系列: string[]; 依据?: string; 准备?: string; source?: string };

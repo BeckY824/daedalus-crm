@@ -6,6 +6,7 @@
  *   候选    一句里说了好几家（「Rexel 和 Sonepar」）：让人点一家
  *   要补充  名字太短、太常见，很可能撞名（「SLV」「ABC」）：可以直接查，也可以补个国家或官网
  *   认不出  只有「这家公司」「他们」这种：让人输入公司名或官网
+ *   人      只有人名 + 电话 / WhatsApp（+ 开头的国际号码），没有公司名、没有网址邮箱：先找这个人在哪家公司
  * 只在本地按字面认，不调模型、不联网——这一步得是免费的。真正「是不是这一家」由背调第一步「认准公司」去核。
  */
 
@@ -13,7 +14,9 @@ export type 背调对象 =
   | { 种类: "公司"; 公司: string }
   | { 种类: "候选"; 候选: string[] }
   | { 种类: "要补充"; 公司: string; 原因: string }
-  | { 种类: "认不出" };
+  | { 种类: "认不出" }
+  /** 只有人名 + 电话 / WhatsApp、没有公司（10-18 用户）：先搜号码找公司（person.ts），找到了让人点选 */
+  | { 种类: "人"; 名?: string; 电话: string };
 
 /** 句首常见的说法：帮我查查 / 看看 / 背调一下 / 了解一下…… */
 const 句首 = /^(?:请|帮我|帮忙|麻烦|给我|我想|想)?\s*(?:查一?查|查一下|查|看一?看|看一下|背调(?:一下)?|调查(?:一下)?|了解(?:一下)?|分析(?:一下)?|研究(?:一下)?|搜一?搜|搜一下)?\s*[:：]?\s*/;
@@ -26,9 +29,43 @@ function 规整(s: string): string {
   return s.replace(/^[「『“"'《\s]+|[」』”"'》\s。.!！?？]+$/g, "").trim();
 }
 
+/** 公司名里常见的后缀 / 行业词：有这些就当公司名，不当人名 */
+const 公司词 = /\b(gmbh|ltd|limited|llc|inc|corp|co|company|group|trading|s\.?a\.?|s\.?r\.?l\.?|b\.?v\.?|ag|plc|fze|fzco|l\.?l\.?c|est|enterprises?|industr(y|ies)|lighting|electric(al)?|import|export)\b|有限公司|公司|集团|商行|贸易/i;
+
+/** 一句里的 + 开头国际号码（「+971 50 123 4567」「+971501234567」）；没有返回 null */
+export function 认电话(t: string): string | null {
+  const m = t.match(/\+\d[\d\s().-]{6,20}\d/);
+  return m ? m[0].replace(/\s+/g, " ").trim() : null;
+}
+
+/**
+ * 只有人名 + 电话：有 + 开头的号码、没有网址和邮箱、剩下的字里没有公司后缀词。
+ * 「Ahmed Khan +971 50 123 4567」「客户叫 Ahmed，WhatsApp +971…」→ 人；「Lumora Trading GmbH +49 …」→ 不是（按公司背调，号码拿去核）
+ */
+function 认人(t: string): 背调对象 | null {
+  const 电话 = 认电话(t);
+  if (!电话 || /@|https?:\/\/|www\./i.test(t)) return null;
+  const 余 = t
+    .replace(电话, " ")
+    .replace(句首, "")
+    .replace(/(?:客户|对方|询盘|联系人)?(?:叫|名字是|名叫|是)\s*/g, " ")
+    .replace(/whats\s*app|\bwa\b|电话|手机|号码|微信|\btel\b\.?|\bphone\b|\bmobile\b|名字|姓名|客户|对方|只有|只留了|留了|没有公司|没给公司|的?公司名?|这个|那个|一下|帮我|查查|查|看看|和|与|及|的|这|那|[:：，,。；;、()（）]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (公司词.test(余)) return null;
+  const 名 = 余.split(" ").filter((w) => /^[\p{L}][\p{L}'.-]*$/u.test(w)).slice(0, 4).join(" ");
+  return { 种类: "人", ...(名.length >= 2 ? { 名 } : {}), 电话 };
+}
+
 export function 认背调对象(原话: string): 背调对象 {
   const t = 原话.trim();
   if (!t) return { 种类: "认不出" };
+
+  const 人 = 认人(t);
+  if (人) return 人;
+  // 公司名后面跟着电话（「Lumora Trading GmbH +49 …」）：号码不算公司名的一部分（stream.ts 从原话里认出它拿去核）
+  const 号 = 认电话(t);
+  if (号) return 认背调对象(t.replace(号, " ").replace(/\s*(?:whats\s*app|电话|手机|tel\.?|phone)\s*[:：]?\s*$/i, "").trim());
 
   // 给了网址 / 域名：最准的线索，直接按它查
   const 网址 = t.match(/(?:https?:\/\/)?(?:www\.)?([a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,})(?:\/\S*)?/i);

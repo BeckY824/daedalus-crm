@@ -20,6 +20,8 @@ import { useJob, clearJob, getJob } from "@/lib/ai-jobs";
 import { useBusiness } from "@/lib/business-client";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import type { 背调状态 } from "@/lib/research/state";
+import type { 邮件信号 } from "@/lib/research/verify/mail";
+import type { Turn } from "@/lib/home-thread";
 import { 报告文本 } from "@/lib/research/report";
 import { 背调价目, 存背调到客户, 新建客户并存背调, 找同名客户, 认联系方式 } from "@/lib/research/actions";
 
@@ -36,6 +38,8 @@ export default function ResearchRun({
   任务去,
   直接开跑,
   需求,
+  邮件,
+  接着,
 }: {
   jobKey: string;
   company: string;
@@ -51,6 +55,10 @@ export default function ResearchRun({
   直接开跑?: boolean;
   /** 背调模式里那句原话，带给模型 */
   需求?: string;
+  /** 「粘贴询盘邮件」认出来的几样（不是原文） */
+  邮件?: 邮件信号;
+  /** 只有人名 + 电话、找公司时点选了这家：同一个 runId 接着背调，不另扣（lib/research/person.ts） */
+  接着?: Turn["接着"];
 }) {
   const job = useJob<StreamJob<背调答案>>(jobKey);
   const running = job?.status === "loading";
@@ -63,7 +71,20 @@ export default function ResearchRun({
   const 查到过 = 原 ? Object.values(原.stages).some((x) => x.tools.some((t) => t.status === "done")) : false;
   const s = 原 && !原.done && job?.status === "error" && 查到过 ? { ...原, done: { charge: 0, 不完整: true } } : 原;
 
-  const 开跑 = () => runStream<背调答案>(jobKey, { mode: "research", company, customerId: customer?.id, need: 需求 }, undefined, { 名: `背调 ${company}`.slice(0, 18), 去: 任务去 });
+  const 开跑 = () =>
+    runStream<背调答案>(
+      jobKey,
+      {
+        mode: "research",
+        company,
+        customerId: customer?.id,
+        need: 需求,
+        ...(邮件 ? { mail: 邮件 } : {}),
+        ...(接着 ? { runId: 接着.runId, pick: { name: 接着.人.名, phone: 接着.人.电话, 候选: 接着.候选, 出现: 接着.出现, 证据: 接着.证据 } } : {}),
+      },
+      undefined,
+      { 名: `背调 ${company}`.slice(0, 18), 去: 任务去 },
+    );
   if (!job) return 直接开跑 ? <AutoStart jobKey={jobKey} onStart={开跑} /> : <Confirm company={company} onCancel={onCancel} onStart={开跑} />;
   if (!s) return job.status === "error" ? <div className="rs-err">{job.error}</div> : null;
 
@@ -190,8 +211,9 @@ function Confirm({ company, onStart, onCancel }: { company: string; onStart: () 
         ) : (
           <>
             {/* 背调次数和问答次数分开（10-16 用户）；自己填了模型 Key 的也照扣（总控定）——要说清楚为什么 */}
-            背调用的是我们的搜索和分析服务，<b>扣 1 次背调</b>
-            {价.还剩 != null && <>（你还剩 {价.还剩} 次背调）</>}。{不够 && "背调次数用完了，需要加次数请联系我们。"}
+            {/* 10-18 用户：「我们不花钱，则不扣；我们花钱就扣」。发起前写清楚 */}
+            背调用的是我们的搜索和分析服务，<b>开始搜索后扣 {价.扣次} 次背调</b>
+            {价.还剩 != null && <>（你还剩 {价.还剩} 次背调）</>}；还没开始搜就停了的不扣，因为我们这边出错没跑完的退回。{不够 && "背调次数用完了，需要加次数请联系我们。"}
           </>
         )}
       </span>

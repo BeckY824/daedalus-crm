@@ -20,6 +20,11 @@ import http from "node:http";
 type 消息 = { role: string; content?: unknown };
 
 const 结论 = (prompt: string): unknown => {
+  // 只有人名 + 电话的「找公司」（person.ts）：认第一条带「Lumora」的搜索结果
+  if (prompt.includes("最多 4 家")) {
+    const 条 = [...prompt.matchAll(/^\[(\d+)\] (.+)$/gm)].find((m) => /Lumora/.test(m[2]));
+    return { 候选: 条 ? [{ 公司: "Lumora Trading GmbH", 官网: "https://lumora-trading.example", 职位: "", 依据: "号码出现在名录里 Lumora Trading GmbH 的联系方式上", 来源: Number(条[1]) }] : [] };
+  }
   const 名 = prompt.match(/背调对象：(.+)/)?.[1]?.trim() ?? "Company";
   const d = 名.toLowerCase().replace(/\b(gmbh|ltd|limited|inc|llc|co|corp|ag|plc)\b\.?/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "company";
   const 官网 = `https://${d}.example`;
@@ -33,13 +38,25 @@ const 结论 = (prompt: string): unknown => {
         buyerType: { value: "进口分销商", source: `${官网}/about` },
         contact: { value: `sales@${d}.example`, source: `${官网}/about` },
       },
+      联系人: [{ 岗位: "采购负责人", 姓名: "Jan Beispiel", 电话: "+49 40 0000 0000", 邮箱: "sales@${d}.example", 来源: `${官网}/about` }, { 岗位: "总经理", 姓名: "Max Erfunden", 来源: `${官网}/about` }],
       小结: "汉堡的照明进口分销商",
     };
-  if (prompt.includes("对照我们的业务")) return { 小结: "品类和买家类型都对口" };
+  if (prompt.includes("对照我们的业务"))
+    return { 型号: [{ 型号: "HB-150", 是什么: "工矿灯", 来源: `${官网}/about` }, { 型号: "SL-60", 是什么: "路灯", 来源: `${官网}/about` }, { 型号: "ZZ-999", 是什么: "原文里没有，该丢", 来源: `${官网}/about` }], 小结: "品类和买家类型都对口" };
   if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/${d}-category-manager` }, { text: "参展 light+building 2026", source: `https://fair.example/light-building-2026/${d}` }], 小结: "在扩户外品类" };
-  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次 30 天付款延迟，已解决", 来源: `https://forum.example/t/${d}-payment` }], 小结: "风险低" };
-  // 最后一步（打分 + 切入建议，产品里固定 gpt-5.5）
-  if (prompt.includes("怎么切入"))
+  if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次 30 天付款延迟，已解决", 来源: `https://forum.example/t/${d}-payment` }], 必查: { 母公司: { 结论: "独立公司，商业登记上没有母公司", 级别: "none", 来源: `https://registry.example/${d}` }, 财务: { 结论: "查不到" }, 同行: { 结论: "只做进口分销，不自己生产", 是: "否", 级别: "none", 来源: `${官网}/about` }, 市场: { 结论: "在德奥瑞做生意，正在扩户外品类", 级别: "none", 来源: `${官网}/about` } }, 小结: "风险低" };
+  // 最后一步拆成并行的两次（10-18 A+D 结构，产品里固定 gpt-5.5）：切入那次认「切入步骤」，评估那次认「对下面 5 项」
+  if (prompt.includes("切入步骤："))
+    return {
+      切入: {
+        切口: "先拿 UFO 工矿灯切入，对标它的 HB-150",
+        找谁: ["Category Manager Outdoor Lighting", "Purchasing Manager"],
+        提案: "3 页：工矿灯和路灯各一款的参数对比、ENEC 证书、交期和起订量",
+        先问: ["新供应商要不要先过验厂", "起订量和试单怎么算"],
+      },
+      开发信: { 主题: "High-bay and street lights for your outdoor range", 正文: `Dear Mr Beispiel,\n\nI noticed that ${名} is hiring a Category Manager for Outdoor Lighting to expand its street-light and high-bay range. We are an LED lighting manufacturer in China supplying distributors in Germany, Austria and Switzerland with high-bay fixtures and street lights. Our range sits close to your HB-150 and SL-60, with ENEC and CE certified versions available, stable lead times of four to five weeks, and private-label packaging for wholesalers. Many of our distributor customers start with a small trial order to check quality before they list a product. If it is useful, I can send a sample of our closest high-bay model together with a price list for your volume range. Would you have fifteen minutes next week for a short call, or should I send the samples straight to your Hamburg office?\n\nBest regards,\nLi Wei` },
+    };
+  if (prompt.includes("对下面 5 项"))
     return {
       评档: [
         { 维度: "category", 档: "high", 证据: "主营户外和工业照明", 来源: `${官网}/about` },
@@ -49,8 +66,16 @@ const 结论 = (prompt: string): unknown => {
         { 维度: "signals", 档: "high", 证据: "在招品类经理、参展", 来源: `https://jobs.example/${d}-category-manager` },
       ],
       像的老客户: [{ 编号: 1, 档: "mid", 像在哪: "都是做照明的分销商" }],
-      建议: ["找新招的户外照明品类经理", "主推工矿灯和路灯，带 ENEC 证书", "提一句 light+building 展位上见"],
-      小结: "从品类经理切入",
+      画像: { 类型: "德国照明进口分销商，潜在批发客户", 先验证: ["新供应商要不要先过验厂", "起订量能不能接受试单"] },
+      发现: [
+        { 事实: "在招户外照明品类经理，正在扩户外品类", 机会: "新品类要找新供应商", 来源: `https://jobs.example/${d}-category-manager` },
+        { 事实: "只做进口分销，不自己生产", 机会: "不是同行，是买家", 障碍: "要和现有供应商比价", 来源: `${官网}/about` },
+      ],
+      匹配: [
+        { 品类: "UFO 工矿灯", 匹配: "高", 系列: ["HB-150", "编的系列"], 开发: "优先", 依据: "它在卖同功率工矿灯", 准备: "ENEC 证书和光通量参数", 来源: `${官网}/about` },
+        { 品类: "路灯", 匹配: "中", 系列: ["SL-60"], 开发: "选择性", 依据: "它在卖 60W 路灯", 来源: `${官网}/about` },
+      ],
+      小结: "品类和买家类型都对口",
     };
   return {};
 };

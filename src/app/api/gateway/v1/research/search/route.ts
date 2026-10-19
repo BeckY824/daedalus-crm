@@ -6,7 +6,7 @@ import { 记一次 } from "@/lib/tenant/ai-cost";
 import { 抹掉密钥 } from "@/lib/secret";
 import { 是余额不足, 余额告警 } from "@/lib/upstream-alert";
 import { 选搜索服务 } from "@/lib/research/providers";
-import type { 搜索回应 } from "@/lib/research/types";
+import { 社媒搜索次数, 找公司搜索次数, type 搜索回应 } from "@/lib/research/types";
 import { 搜索上限 } from "@/lib/research/price";
 import { 读请求体, 认runId, 先记一次, 查花费, 兜底 } from "../_shared";
 
@@ -48,7 +48,8 @@ async function 处理(req: Request) {
   const owner = { kind: "account" as const, id: accountId };
   const 钱 = await 查花费(owner, runId);
   if (钱.挡) return 钱.挡;
-  const 挡 = await 先记一次(owner, runId, "searches", 搜索上限() + 搜索余量);
+  // 只有人名 + 电话的：先找公司（找公司搜索次数），点选后同一个 runId 接着背调，所以多放这几次
+  const 挡 = await 先记一次(owner, runId, "searches", 搜索上限() + 社媒搜索次数 + 找公司搜索次数 + 搜索余量);
   if (挡) return 挡;
 
   const 服务 = 选搜索服务(cfg);

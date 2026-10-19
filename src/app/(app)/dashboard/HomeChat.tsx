@@ -8,7 +8,7 @@ import { 是刚交过来的 } from "@/lib/home-ask";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Dropdown, Tooltip } from "antd";
-import { ArrowUpOutlined, SnippetsOutlined, GlobalOutlined } from "@ant-design/icons";
+import { ArrowUpOutlined, SnippetsOutlined, GlobalOutlined, MailOutlined } from "@ant-design/icons";
 import { motion } from "motion/react";
 import ModelPicker, { useModel } from "@/components/ModelPicker";
 import AskFiles, { type 附件 } from "@/components/AskFiles";
@@ -30,6 +30,9 @@ import { 认背调意图 } from "@/lib/research/intent";
 import { 认背调对象 } from "@/lib/research/target";
 import { 背调价目 } from "@/lib/research/actions";
 import ResearchModeLine from "@/components/research/ResearchModeLine";
+import MailPaste, { 邮件摘要 } from "@/components/research/MailPaste";
+import { 像邮件原文, type 邮件信号 } from "@/lib/research/verify/mail";
+import { 是免费邮箱 } from "@/lib/research/verify/domain";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
 
@@ -122,6 +125,12 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
 
   function 认一下粘的是什么(e: React.ClipboardEvent<HTMLTextAreaElement>) {
     const 全文 = e.clipboardData?.getData("text") ?? "";
+    // 背调模式里粘进来一封邮件原文：不往框里塞（几百行邮件头），直接打开「粘贴询盘邮件」，在本机解析
+    if (背调模式 && 像邮件原文(全文)) {
+      e.preventDefault();
+      set邮件框({ 初值: 全文 });
+      return;
+    }
     const 行数 = 全文.split(/\r?\n/).filter((l) => l.trim()).length;
     if (行数 >= 3 && 全文.trim().length >= 60) set提示粘贴({ 文本: 全文, 行数 });
   }
@@ -142,6 +151,12 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     扣的是背调次数（和问答次数分开），输入框底下常驻「背调 · 每次扣 1 次 · 剩 N 次」；没次数就发不出去。
   */
   const [背调模式, set背调模式] = useState(false);
+  /*
+    「粘贴询盘邮件」（背调补充方案第二期）：弹窗开着没有、带上了哪封。只存认出来的几样（verify/mail.ts），
+    原文在弹窗里解析完就丢了，不进 turn、不进库。发出去那一轮背调带上，带完清掉
+  */
+  const [邮件框, set邮件框] = useState<{ 初值?: string } | null>(null);
+  const [邮件, set邮件] = useState<邮件信号 | null>(null);
   const [背调价, set背调价] = useState<Awaited<ReturnType<typeof 背调价目>> | null>(null);
   const [cmdIdx, setCmdIdx] = useState(0);
   /** 输入框空着时，↑↓ 在下面那排建议问题里选，回车就发。-1 = 没选 */
@@ -307,8 +322,10 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
         kind: "research",
         直接: true,
         需求: typed,
-        ...(对象.种类 === "公司" ? { 公司: 对象.公司 } : { 待选: 对象 }),
+        ...(对象.种类 === "公司" ? { 公司: 对象.公司 } : 对象.种类 === "人" ? { 人: { 名: 对象.名, 电话: 对象.电话 } } : { 待选: 对象 }),
+        ...(邮件 ? { 邮件 } : {}),
       });
+      set邮件(null);
       set刚发的(turn.id);
       setQ("");
       setFiles([]);
@@ -475,6 +492,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                 scrollOnMount={t.id === 刚发的}
                 onRetry={() => {
                   clearJob(`home:${t.id}`);
+                  // 找公司后接着背调的那一轮：重新背调是新的一次（新 runId，照常扣），不再沿用找公司那一笔
+                  if (t.接着) updateTurn(scope, t.id, { 接着: undefined });
                   if (running) dequeueTurn(scope, t.id);
                   start(t);
                 }}
@@ -485,6 +504,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                 }}
                 onAsk={(q) => submit(q)}
                 on选定={(公司) => updateTurn(scope, t.id, { 公司, 待选: undefined })}
+                on改={(patch) => updateTurn(scope, t.id, patch)}
               />
             ))}
             <div ref={endRef} />
@@ -526,6 +546,18 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
                   {模式 === "宽" && <span>背调</span>}
                 </button>
                 {!背调模式 && <AskFiles files={files} onChange={setFiles} disabled={running != null} />}
+                {背调模式 && (
+                  <button
+                    type="button"
+                    className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}${邮件 ? " cli-tool-on" : ""}`}
+                    onClick={() => set邮件框({})}
+                    title="把询盘邮件的原文（带邮件头）粘进来：查发件 IP、SPF / DKIM / DMARC、回复地址换没换。只在这台电脑上解析"
+                    aria-label="粘贴询盘邮件"
+                  >
+                    <MailOutlined />
+                    {模式 === "宽" && <span>粘贴询盘邮件</span>}
+                  </button>
+                )}
                 {/*
                   主线入口。和加文件并排——都是「把外面的东西弄进来」，不是「问一句」。
                   **窄模式（右侧面板）只留图标**：380 宽那一条里还要塞模型选单和发送键，
@@ -549,7 +581,18 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             }
             栏右={<ModelPicker options={models} value={model} />}
             上方={
-              提示粘贴 ? (
+              背调模式 && 邮件 ? (
+                /* 带上了一封询盘邮件：这一轮背调会把它认出的几样一起核。点「去掉」就不带 */
+                <div className="cli-paste">
+                  <MailOutlined />
+                  <span className="cli-paste-t" title={邮件摘要(邮件)}>
+                    带上询盘邮件：{邮件摘要(邮件)}
+                  </span>
+                  <button type="button" className="cli-paste-n" onClick={() => set邮件(null)}>
+                    去掉
+                  </button>
+                </div>
+              ) : 提示粘贴 ? (
                 /*
                   粘进来的像是一段聊天。**只提示，不自动跑**——这是 2026-09 拍板的那条
                   「AI 不自动跑」：一次切分要花一次 AI 次数，得他点。
@@ -713,6 +756,18 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
           set粘来的("");
         }}
         onDone={() => router.refresh()}
+      />
+      <MailPaste
+        open={邮件框 != null}
+        初值={邮件框?.初值}
+        onCancel={() => set邮件框(null)}
+        onOk={(x) => {
+          set邮件(x);
+          set邮件框(null);
+          // 框里还空着：用发件人的域名先填上（企业邮箱的域名多半就是官网），人可以改成公司名
+          if (!q.trim() && x.发件人 && !是免费邮箱(x.发件人)) setQ(x.发件人.split("@")[1]);
+          taRef.current?.focus();
+        }}
       />
     </div>
   );

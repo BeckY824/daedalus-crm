@@ -2,7 +2,7 @@
  * 背调对比实验的自动核对（scripts/research-bench.ts，10-16 定的评判标准）：认对公司、来源里真有、两遍稳不稳。
  */
 import { describe, it, expect, vi } from "vitest";
-import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, 左右各半, 编造率of, 读报告评分, 读结果csv, type 录像 } from "../scripts/research-bench";
+import { 认对了, 可核的词, 核来源, 稳定, 来源比A, 录下, 回放, 读余额元, 探余额元, 预计花费元, 左右各半, 编造率of, 读报告评分, 读结果csv, 旧行的错, type 录像 } from "../scripts/research-bench";
 import { 报告文本 } from "@/lib/research/report";
 import type { 背调通道 } from "../src/lib/research/channel";
 import { 初始状态, 归约, type 背调状态 } from "@/lib/research/state";
@@ -79,6 +79,9 @@ describe("A / C 同材料回放（10-17 总控定：C 不再搜索，用 A 录�
       if (url.includes("404")) throw new Error("读不到");
       return { url, title: "页", text: `正文 ${url}`, 截断了: false };
     },
+    async 核验() {
+      return null;
+    },
     async 收尾() {
       return null;
     },
@@ -123,6 +126,24 @@ describe("A / C 同材料回放（10-17 总控定：C 不再搜索，用 A 录�
     expect((await 通道.搜索("r", "x")).map((x) => x.title)).toEqual(["q1", "q2", "q3"]);
     expect(记).toEqual({ 缺搜: 0, 补读: 0 });
     expect(真搜).not.toHaveBeenCalled();
+  });
+
+  it("回放：LinkedIn / Facebook 定向搜索录像里有一字不差的就给，没有就真搜并记进录像（下一轮回放不再真搜）；不混进别的查询", async () => {
+    const r = (q: string) => [{ title: q, url: `https://x.example/${encodeURIComponent(q)}`, snippet: q }];
+    const 录: 录像 = { 公司: "甲", 组: "A", 搜索: [{ 步: "basics", query: "q1", 结果: r("q1") }], 读页: [] };
+    const 真搜 = vi.fn(async (_id: string, q: string) => r(`真:${q}`));
+    const b = 基();
+    b.搜索 = 真搜;
+    const 通道 = 回放(录, b, () => "verify", { 缺搜: 0, 补读: 0 });
+    expect((await 通道.搜索("r", "site:linkedin.com 甲"))[0].title).toBe("真:site:linkedin.com 甲");
+    expect(录.搜索.at(-1)).toMatchObject({ 步: "verify", query: "site:linkedin.com 甲" });
+    // 别的查询拿不到社媒那条
+    expect((await 通道.搜索("r", "q9"))[0].title).toBe("q1");
+    expect((await 通道.搜索("r", "q10")).map((x) => x.title)).toEqual(["q1"]);
+    // 下一轮：同一份录像，社媒那次直接给录下的
+    const 再 = 回放(录, b, () => "verify", { 缺搜: 0, 补读: 0 });
+    expect((await 再.搜索("r", "site:linkedin.com 甲"))[0].title).toBe("真:site:linkedin.com 甲");
+    expect(真搜).toHaveBeenCalledTimes(1);
   });
 
   it("回放：A 一次都没搜成才算缺搜；录的时候失败的照样失败", async () => {
@@ -213,5 +234,15 @@ describe("--只出汇总：从上次的 results.csv 和报告 txt 读回来", ()
       { 组: "A", 公司: "Rexel", 错: "" },
       { 组: "C", 公司: "S, LV", 错: '说"超时"\n第二行' },
     ]);
+  });
+});
+
+describe("重用旧录像：没分要不要补错", () => {
+  it("没分没错的补「最后一步没出分」；简版本来不打分，算正常跑完；原来有错的照留", () => {
+    expect(旧行的错({ 分: "", 错: "", 认对: "对" })).toBe("最后一步没出分");
+    expect(旧行的错({ 分: "", 错: "", 认对: "简版（没认出公司）" })).toBe("");
+    expect(旧行的错({ 分: "", 错: "", 认对: "找到 Sunrgy LED Lighting Ltd（https://sunrgy.co.uk；号码对上）" })).toBe("");
+    expect(旧行的错({ 分: 80, 错: "", 认对: "对" })).toBe("");
+    expect(旧行的错({ 分: "", 错: "中转站余额不足", 认对: "对" })).toBe("中转站余额不足");
   });
 });

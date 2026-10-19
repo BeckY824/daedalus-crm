@@ -1,0 +1,22 @@
+[
+  { "说明": "Rexel 法国：法国官方库 + 老域名", "请求": { "公司": "Rexel France", "别名": ["Rexel"], "域名": "rexel.fr", "国家": "FR" }, "应该": { "registry": "green", "domain": "green", "sanctions": "green" } },
+  { "说明": "SLV 德国：德国没有官方接口，GLEIF 兜底（HRB）；官网同域名邮箱", "请求": { "公司": "SLV GmbH", "别名": ["SLV"], "域名": "slv.com", "邮箱": ["info@slv.com"], "电话": ["+49 2405 4170"], "国家": "DE" }, "应该": { "registry": "green", "domain": "green", "email": "green", "phone": "green" } },
+  { "说明": "Ansell Lighting 英国：没配 Companies House key，跳过并写明", "请求": { "公司": "Ansell Lighting", "域名": "anselllighting.com", "国家": "GB" } },
+  { "说明": "Delta Light 比利时", "请求": { "公司": "Delta Light", "域名": "deltalight.com", "国家": "BE" } },
+  { "说明": "alfanar 沙特：没有能直查的官方库", "请求": { "公司": "alfanar", "域名": "alfanar.com", "国家": "SA" }, "应该": { "domain": "green", "sanctions": "green" } },
+  { "说明": "挪威 Glamox：挪威登记中心", "请求": { "公司": "Glamox AS", "别名": ["Glamox"], "域名": "glamox.com", "国家": "NO" }, "应该": { "registry": "green" } },
+  { "说明": "假买家：迪拜公司、Gmail、英国手机号、没官网", "请求": { "公司": "Lumexa Trading LLC", "邮箱": ["lumexa.trading@gmail.com"], "电话": ["+44 7911 123456"], "国家": "AE", "自报国家": "AE" }, "应该": { "email": "yellow", "phone": "yellow", "site": "yellow" } },
+  { "说明": "仿冒邮箱：Rexel 官网，邮箱差一个字母（rexe1.com）", "请求": { "公司": "Rexel", "域名": "rexel.com", "邮箱": ["orders@rexe1.com"], "国家": "FR" }, "应该": { "email": "red" } },
+  { "说明": "像官网的邮箱域名：SLV 官网，邮箱 slv-lighting.com（看注册多久）", "请求": { "公司": "SLV GmbH", "域名": "slv.com", "邮箱": ["purchase@slv-lighting.com"], "国家": "DE" } },
+  { "说明": "制裁名单：同名、国家也对上（俄罗斯国防出口公司）", "请求": { "公司": "Rosoboronexport", "国家": "RU" }, "应该": { "sanctions": "red" } },
+  { "说明": "制裁名单：同名但国家对不上 → 只标黄", "请求": { "公司": "Rosoboronexport", "国家": "DE" }, "应该": { "sanctions": "yellow" } },
+  { "说明": "税号：欧盟 VIES 有效（SAP SE）", "请求": { "公司": "SAP SE", "税号": "DE143454214", "国家": "DE" }, "应该": { "vat": "green" } },
+  { "说明": "税号：格式对、VIES 无效", "请求": { "公司": "Lumexa Trading GmbH", "税号": "DE000000000", "国家": "DE" } },
+  { "说明": "电话：无效号码", "请求": { "公司": "Nobody Ltd", "电话": ["+1 000 000 0000"], "国家": "US" }, "应该": { "phone": "yellow" } },
+  { "说明": "第三期 芬兰：Helvar（PRH 开放数据）", "请求": { "公司": "Helvar Oy Ab", "域名": "helvar.com", "国家": "FI" }, "应该": { "registry": "green" } },
+  { "说明": "第三期 捷克：ELKO EP（ARES）", "请求": { "公司": "ELKO EP, s.r.o.", "域名": "elkoep.cz", "国家": "CZ" }, "应该": { "registry": "green" } },
+  { "说明": "第三期 美国上市公司：Orion Energy Systems（SEC EDGAR）", "请求": { "公司": "Orion Energy Systems, Inc.", "域名": "orionlighting.com", "国家": "US" }, "应该": { "registry": "green" } },
+  { "说明": "第三期 美国私人公司：EDGAR 没有，不扣分", "请求": { "公司": "Bright Path Lamps Trading LLC", "国家": "US" }, "应该": { "registry": "gray" } },
+  { "说明": "第三期 波兰：按税号查白名单（Orange Polska）", "请求": { "公司": "Orange Polska S.A.", "域名": "orange.pl", "国家": "PL", "税号": "PL5260250995" }, "应该": { "registry": "green", "vat": "green" } },
+  { "说明": "第三期 波兰没给税号：写明跳过", "请求": { "公司": "Orange Polska S.A.", "国家": "PL" }, "应该": { "registry": "gray" } }
+]
