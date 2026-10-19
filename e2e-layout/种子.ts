@@ -78,3 +78,19 @@ export async function 灌真客户(db: PrismaClient, 我: string) {
     }
   }
 }
+
+/**
+ * 10-19 用户 Mac 截图（0.46.21）：客户详情时间线两处越出右边——「其他记录」行头的「订单 xxx」把日期挤出去、绿色订单卡把日期挤出去。
+ * main 上 8a8bd9f（.rec-tl-order 可缩省略）、de52983（订单卡头折行）应已修好；这里照截图造一份，闸门里量着
+ */
+export const 混排订单号 = "adijosidjfjsaofa撒大叔大叔大叔大叔大叔大叔的";
+export async function 灌混排订单(db: PrismaClient, 我: string) {
+  await db.customer.deleteMany({ where: { id: "gate-mixorder" } });
+  const 现在 = Date.now();
+  await db.customer.create({ data: { id: "gate-mixorder", name: "订单号混排测试客户", phone: "+86 138 0000 1919", salesOwnerId: 我, followStatus: "跟进中", lastFollowAt: new Date(现在) } });
+  // 外贸模版下签约就是订单：绿色订单卡画的是这条签约（订单号 + 金额 + 日期挤在一行）
+  await db.contract.create({ data: { id: "gate-mixorder-c0", customerId: "gate-mixorder", amount: 123123121, signedAt: new Date(现在 - 3600_000), owner: { create: { salesOwnerId: 我 } }, money: { create: { currency: "CNY", amountExact: 123123121 } } } });
+  await db.tradeOrder.create({ data: { id: "gate-mixorder-t0", no: 混排订单号, customerId: "gate-mixorder", contractId: "gate-mixorder-c0", ownerId: 我, amount: 123123121, currency: "CNY", payment: "T/T 30/70", createdAt: new Date(现在 - 3600_000) } });
+  const f = await db.followUp.create({ data: { customerId: "gate-mixorder", ownerId: 我, type: "OTHER", title: "", status: "已完成", occurredAt: new Date(现在 - 600_000), content: "客户确认了唛头和装柜时间" } });
+  await db.followUpOrder.create({ data: { followUpId: f.id, orderId: "gate-mixorder-t0", nodeIdx: 0 } });
+}
