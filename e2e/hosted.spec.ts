@@ -431,9 +431,9 @@ test("7d 运营台加次数：个人加背调 / AI、团队成员加两种、连
   await page.getByLabel("搜账号").fill("credit.buyer");
   await page.getByLabel("搜账号").press("Enter");
   await expect(page).toHaveURL(/q=credit\.buyer/, { timeout: 15_000 });
-  const 行 = page.locator(".opx-credit-accounts tbody tr", { hasText: "credit.buyer@e2e.local" });
+  const 行 = page.locator(".opx-credit-accounts tbody tr[data-row-key]", { hasText: "credit.buyer@e2e.local" });
   await expect(行).toHaveCount(1);
-  await expect(page.locator(".opx-credit-accounts tbody tr")).toHaveCount(1);
+  await expect(page.locator(".opx-credit-accounts tbody tr[data-row-key]")).toHaveCount(1);
 
   // 个人加背调 10 次（写备注），再加 AI 200 次
   await 加("给 个人客户老周 加背调次数", /加背调次数/, "10", "微信转账 10 次");
@@ -451,7 +451,7 @@ test("7d 运营台加次数：个人加背调 / AI、团队成员加两种、连
   await expect(行.locator("td").nth(1)).toContainText("15", { timeout: 15_000 });
 
   // 加次记录：新的在上，谁加的（口令进来的记「口令」）、几次、备注
-  const 记录 = page.locator(".opx-credit-log tbody tr");
+  const 记录 = page.locator(".opx-credit-log tbody tr[data-row-key]");
   await expect(记录.first()).toContainText("+5");
   await expect(page.locator(".opx-credit-log")).toContainText("微信转账 10 次");
   await expect(page.locator(".opx-credit-log")).toContainText("支付宝 200 次");
@@ -464,7 +464,7 @@ test("7d 运营台加次数：个人加背调 / AI、团队成员加两种、连
   await 截图("0-团队同步列表");
   await page.getByRole("link", { name: /E2E 外贸一部：看成员、加次数/ }).click();
   await expect(page).toHaveURL(/\/admin\/sync\/e2ecreditteam01\?token=e2e-admin-token/, { timeout: 15_000 });
-  const 成员们 = page.locator(".opx-team-members tbody tr");
+  const 成员们 = page.locator(".opx-team-members tbody tr[data-row-key]");
   await expect(成员们).toHaveCount(2);
   await expect(成员们.first()).toContainText("团队陈老板");
   await expect(成员们.first()).toContainText("建的人");
@@ -481,7 +481,7 @@ test("7d 运营台加次数：个人加背调 / AI、团队成员加两种、连
   await expect(成员们.nth(1).locator("td").nth(4)).toContainText("3", { timeout: 15_000 });
   await expect(成员们.nth(1).locator("td").nth(5)).toContainText("50", { timeout: 15_000 });
   // 团队页的记录只有这两个成员的，带团队名
-  await expect(page.locator(".opx-credit-log tbody tr")).toHaveCount(2);
+  await expect(page.locator(".opx-credit-log tbody tr[data-row-key]")).toHaveCount(2);
   await expect(page.locator(".opx-credit-log")).toContainText("团队「E2E 外贸一部」");
   await expect(page.locator(".opx-credit-log")).not.toContainText("个人客户老周");
   await 截图("2-团队详情");
