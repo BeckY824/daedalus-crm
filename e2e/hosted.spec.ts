@@ -383,6 +383,116 @@ test("7c 运营台团队同步：按时长开通、看到期、改到期日、�
   }
 });
 
+/*
+  运营台手动加次数（2026-10-19）：「次数」页搜到个人客户，加背调、加 AI；团队同步点进团队，给成员加两种；
+  确认按钮连点两下只加一次；每次都在加次记录里（谁、几次、备注、团队）。账号和团队直接写进控制面库（e2e 自己造的）。
+  E2E_SHOTS=目录 时顺手截图（给总控看界面用），平时不截
+*/
+test("7d 运营台加次数：个人加背调 / AI、团队成员加两种、连点只加一次、都留记录", async ({ page }) => {
+  execFileSync("node", ["--experimental-sqlite", "-e", `
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(process.argv[1]);
+    const 人 = db.prepare('INSERT INTO "Account" ("id", "email", "password", "name") VALUES (?, ?, ?, ?)');
+    人.run('e2ecredit-solo', 'credit.buyer@e2e.local', 'x', '个人客户老周');
+    人.run('e2ecredit-boss', 'credit.boss@e2e.local', 'x', '团队陈老板');
+    人.run('e2ecredit-staff', 'credit.staff@e2e.local', 'x', '业务员小王');
+    db.prepare('INSERT INTO "SyncTeam" ("id", "name", "ownerAccountId", "joinSecretHash", "active") VALUES (?, ?, ?, ?, 1)').run('e2ecreditteam01', 'E2E 外贸一部', 'e2ecredit-boss', 'x');
+    const 成员 = db.prepare('INSERT INTO "SyncMember" ("teamId", "accountId", "role") VALUES (?, ?, ?)');
+    成员.run('e2ecreditteam01', 'e2ecredit-boss', 'owner');
+    成员.run('e2ecreditteam01', 'e2ecredit-staff', 'member');
+    const 设备 = db.prepare('INSERT INTO "SyncDevice" ("teamId", "device", "accountId", "pubKey") VALUES (?, ?, ?, ?)');
+    设备.run('e2ecreditteam01', 'e2e-d1', 'e2ecredit-boss', 'k');
+    设备.run('e2ecreditteam01', 'e2e-d2', 'e2ecredit-boss', 'k');
+    设备.run('e2ecreditteam01', 'e2e-d3', 'e2ecredit-staff', 'k');
+    db.close();
+  `, CONTROL_DB]);
+  const 截图 = async (名: string) => {
+    if (!process.env.E2E_SHOTS) return;
+    // 等右上角的「加了 N 次」提示消失再拍，弹框的动画走完
+    await expect(page.locator(".ant-message-notice")).toHaveCount(0, { timeout: 15_000 });
+    await page.screenshot({ path: path.join(process.env.E2E_SHOTS, `${名}.png`), fullPage: true, animations: "disabled" });
+  };
+  const 送了 = (表: "ResearchGrant" | "AccountAiGrant", id: string) => 查控制面(`SELECT COALESCE(SUM("amount"), 0) FROM "${表}" WHERE "accountId" = ? AND "reason" = 'admin'`, id);
+  async function 加(按钮: string, 框名: RegExp, 几: string, 备注: string, 连点 = false) {
+    await page.getByRole("button", { name: 按钮 }).click();
+    const 框 = page.getByRole("dialog", { name: 框名 });
+    await 框.getByRole("spinbutton").fill(几);
+    if (备注) await 框.getByLabel("备注").fill(备注);
+    const 确认 = 框.getByRole("button", { name: `确认加 ${几} 次` });
+    if (连点) await 确认.dblclick();
+    else await 确认.click();
+    await expect(框).toBeHidden({ timeout: 15_000 });
+  }
+
+  // 导航上有「次数」；按邮箱搜到个人客户
+  await page.goto("/admin?token=e2e-admin-token");
+  await page.getByRole("link", { name: "次数" }).click();
+  await expect(page).toHaveURL(/\/admin\/credits\?token=e2e-admin-token/, { timeout: 15_000 });
+  await page.getByLabel("搜账号").fill("credit.buyer");
+  await page.getByLabel("搜账号").press("Enter");
+  await expect(page).toHaveURL(/q=credit\.buyer/, { timeout: 15_000 });
+  const 行 = page.locator(".opx-credit-accounts tbody tr", { hasText: "credit.buyer@e2e.local" });
+  await expect(行).toHaveCount(1);
+  await expect(page.locator(".opx-credit-accounts tbody tr")).toHaveCount(1);
+
+  // 个人加背调 10 次（写备注），再加 AI 200 次
+  await 加("给 个人客户老周 加背调次数", /加背调次数/, "10", "微信转账 10 次");
+  await expect(page.getByText("给 个人客户老周 加了 10 次背调")).toBeVisible();
+  expect(送了("ResearchGrant", "e2ecredit-solo")).toBe("10");
+  await expect(行.locator("td").nth(1)).toContainText("10", { timeout: 15_000 });
+  await 加("给 个人客户老周 加AI次数", /加AI次数/, "200", "支付宝 200 次");
+  expect(送了("AccountAiGrant", "e2ecredit-solo")).toBe("200");
+  await expect(行.locator("td").nth(2)).toContainText("200", { timeout: 15_000 });
+
+  // 连点两下确认：只加一次
+  await 加("给 个人客户老周 加背调次数", /加背调次数/, "5", "", true);
+  expect(送了("ResearchGrant", "e2ecredit-solo")).toBe("15");
+  expect(查控制面('SELECT COUNT(*) FROM "AdminCreditLog" WHERE "accountId" = ?', "e2ecredit-solo")).toBe("3");
+  await expect(行.locator("td").nth(1)).toContainText("15", { timeout: 15_000 });
+
+  // 加次记录：新的在上，谁加的（口令进来的记「口令」）、几次、备注
+  const 记录 = page.locator(".opx-credit-log tbody tr");
+  await expect(记录.first()).toContainText("+5");
+  await expect(page.locator(".opx-credit-log")).toContainText("微信转账 10 次");
+  await expect(page.locator(".opx-credit-log")).toContainText("支付宝 200 次");
+  await expect(记录.first()).toContainText("口令");
+  await 截图("1-次数页");
+
+  // 团队：团队同步列表里点团队名进去，成员、角色、设备数都在
+  await page.goto("/admin/sync?token=e2e-admin-token");
+  await expect(page.getByRole("link", { name: /E2E 外贸一部：看成员、加次数/ })).toBeVisible({ timeout: 15_000 });
+  await 截图("0-团队同步列表");
+  await page.getByRole("link", { name: /E2E 外贸一部：看成员、加次数/ }).click();
+  await expect(page).toHaveURL(/\/admin\/sync\/e2ecreditteam01\?token=e2e-admin-token/, { timeout: 15_000 });
+  const 成员们 = page.locator(".opx-team-members tbody tr");
+  await expect(成员们).toHaveCount(2);
+  await expect(成员们.first()).toContainText("团队陈老板");
+  await expect(成员们.first()).toContainText("建的人");
+  await expect(成员们.first()).toContainText("2 台");
+  await expect(成员们.nth(1)).toContainText("credit.staff@e2e.local");
+  await expect(成员们.nth(1)).toContainText("成员");
+
+  // 给业务员加背调 3 次、AI 50 次
+  await 加("给 业务员小王 加背调次数", /加背调次数/, "3", "团队买的背调");
+  await 加("给 业务员小王 加AI次数", /加AI次数/, "50", "");
+  expect(送了("ResearchGrant", "e2ecredit-staff")).toBe("3");
+  expect(送了("AccountAiGrant", "e2ecredit-staff")).toBe("50");
+  expect(查控制面('SELECT "teamId" FROM "AdminCreditLog" WHERE "accountId" = ? LIMIT 1', "e2ecredit-staff")).toBe("e2ecreditteam01");
+  await expect(成员们.nth(1).locator("td").nth(4)).toContainText("3", { timeout: 15_000 });
+  await expect(成员们.nth(1).locator("td").nth(5)).toContainText("50", { timeout: 15_000 });
+  // 团队页的记录只有这两个成员的，带团队名
+  await expect(page.locator(".opx-credit-log tbody tr")).toHaveCount(2);
+  await expect(page.locator(".opx-credit-log")).toContainText("团队「E2E 外贸一部」");
+  await expect(page.locator(".opx-credit-log")).not.toContainText("个人客户老周");
+  await 截图("2-团队详情");
+  // 弹框的样子
+  await page.getByRole("button", { name: "给 团队陈老板 加背调次数" }).click();
+  await page.getByRole("dialog", { name: /加背调次数/ }).getByLabel("备注").fill("微信转账 10 次");
+  await 截图("3-加次弹框");
+  await page.getByRole("dialog", { name: /加背调次数/ }).getByRole("button", { name: /取\s*消/ }).click();
+  expect(送了("ResearchGrant", "e2ecredit-boss")).toBe("0");
+});
+
 test("8 没登录时能打开的就是那几页；演示区已经不存在", async ({ page }) => {
   for (const 页 of ["/login", "/signup", "/forgot", "/terms", "/privacy"]) {
     await page.goto(页);

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { App, Alert, Button, Checkbox, Dropdown, Input, InputNumber, Modal, Segmented, Table, Tag, Tooltip } from "antd";
 import { MoreOutlined } from "@ant-design/icons";
 import { dayjs } from "@/lib/utils";
-import { 页头 } from "../OpsShell";
+import { 页头, 站内, LinkPending } from "../OpsShell";
 import { 卡片 } from "../ui";
 import { 开通续费团队, 改团队到期, 停用团队, 改团队价格 } from "../actions";
 import { 时长们, 时长名, 应收, 北京日期, 新到期日, type 价格表 } from "@/lib/team-pricing";
@@ -145,7 +146,17 @@ export default function SyncView({ token, rows, 价格, 今天 }: { token: strin
             ),
           }}
           columns={[
-            { title: "团队", dataIndex: "name", key: "n" },
+            {
+              // 点进去看每个成员、给某个人加背调 / AI 次数（2026-10-19）
+              title: "团队", key: "n",
+              render: (_, r) => (
+                <Link href={站内(token, `/sync/${r.id}`)} className="opx-team-link" aria-label={`${r.name}：看成员、加次数`}>
+                  <LinkPending />
+                  <span>{r.name}</span>
+                  <small>看成员 · 加次数 →</small>
+                </Link>
+              ),
+            },
             {
               title: "建的人", key: "o",
               render: (_, r) => (r.建的人 ? (
