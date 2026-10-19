@@ -11,6 +11,8 @@
  *   5. 来源统一编号，结论后面的 [n] 点了用系统浏览器打开那一页
  *   6. 底部状态条：用时、搜了几次、读了几页、扣几次背调（没跑完退回的照实说）
  * 2026-10-18 加「真实性」块（不进 100 分，灯由代码定：lib/research/verify/rules.ts）和「信息少，谨慎」横幅。
+ * 10-18 报告结构（盲评 A + D，和 report.ts 的文字同一个顺序）：结论 → 已核实 → 公司 → 关键发现 → 产品匹配 → 评分条 → 真实性 →
+ * 风险（风险 | 证据 | 应对）+ 认证提醒 → 信号 → 老客户 → 切入步骤 → 开发信 → 来源。老报告没有这几块，照老样子画。
  * 动效只表达真实进度：每个变化都对应一条事件（lib/research/types.ts 研究事件）。
  * 时长、曲线一律取 useMotionTheme()；开了「减弱动态」时 MotionConfig 撤位移，样式表撤扫光（research.css 末尾）。
  */
@@ -23,6 +25,7 @@ import { 阶段表, 字段表, 必查表, type 工具事件 } from "@/lib/resear
 import { 补标题, 来源号, type 背调状态, type 阶段状态 } from "@/lib/research/state";
 import { 核验项表, type 灯, type 真实性 } from "@/lib/research/verify/types";
 import { 信息少 } from "@/lib/research/verify/rules";
+import { 档条, 待验证, 已核实项, 已核财务 } from "@/lib/research/report";
 import "./research.css";
 
 const 档名 = { high: "高", mid: "中", low: "低", unknown: "查不到" } as const;
@@ -297,6 +300,15 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
   const 状态类 = !running && error && !s.done ? "rs-pill-err" : s.done?.不完整 || error ? "rs-pill-part" : "rs-pill-done";
   const 字段们 = 字段表.filter((f) => f.key !== "site");
   const 少 = 信息少(s);
+  /** 10-18 新结构的报告（有画像 / 发现 / 匹配 / 认证提醒其中一样）；老报告照老样子画 */
+  const 新版 = Boolean(s.画像 || s.发现 || s.匹配 || s.认证提醒);
+  const 财 = 已核财务(s);
+  const 已核实 = [
+    ...已核实项(s).map((x) => ({ k: x.key as string, 灯: x.灯, label: 项名[x.key] ?? x.key, 事实: x.事实, source: undefined as string | undefined })),
+    ...(s.进口?.有 && s.进口.摘要 ? [{ k: "import", 灯: "green" as 灯, label: "进口记录", 事实: s.进口.摘要, source: s.进口.source }] : []),
+    ...(财 ? [{ k: "finance", 灯: (财.级别 === "none" ? "green" : 财.级别 === "high" ? "red" : "yellow") as 灯, label: "近两年财务", 事实: 财.结论, source: 财.source }] : []),
+  ];
+  const 有应对 = Boolean(s.必查?.some((x) => x.应对) || 风险.some((t) => t.应对));
 
   return (
     <section className="rs-card" aria-label={`背调 ${s.目标.name}`}>
@@ -337,6 +349,47 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
           {s.人.候选?.[0]?.号码对上 ? "号码" : "名字"}在网上认出这家、你点选的：{s.人.候选?.[0]?.依据}
           <Ref s={s} url={s.人.候选?.[0]?.来源.url} />
         </p>
+      )}
+
+      {/* 结论：代码按分定的那句 + 它是哪类客户 + 开发前先弄清什么（新报告才有画像） */}
+      {s.画像 && (
+        <div className="rs-lead">
+          {s.评分?.结论 && (
+            <div className={`rs-verdict rs-verdict-${s.评分.结论.档}`}>
+              {s.评分.结论.字}
+              {s.评分.分 != null && <span className="rs-lead-score">相关性 {s.评分.分} 分</span>}
+            </div>
+          )}
+          <p className="rs-lead-type">{s.画像.类型}</p>
+          {s.画像.先验证.length > 0 && (
+            <div className="rs-lead-first">
+              <span className="rs-lead-k">先弄清</span>
+              <ul className="rs-plain">
+                {s.画像.先验证.map((x) => (
+                  <li key={x}>{x}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      {新版 && 已核实.length > 0 && (
+        <div className="rs-verified">
+          <p className="rs-block-t">已核实</p>
+          <ul className="rs-plain">
+            {已核实.map((x) => (
+              <li key={x.k} className={x.灯 === "red" ? "rs-verified-red" : ""}>
+                <span className={`rs-dot rs-dot-${x.灯}`} aria-hidden />
+                <span className="rs-verified-l">{x.label}</span>
+                <span className="rs-verified-f">
+                  {x.事实}
+                  <Ref s={s} url={x.source} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       <dl className="rs-fields">
@@ -410,7 +463,54 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
         )}
       </dl>
 
-      <AnimatePresence>{s.真实性 && <TrustBlock v={s.真实性} />}</AnimatePresence>
+      {s.发现 && s.发现.length > 0 && (
+        <div>
+          <p className="rs-block-t">关键发现</p>
+          <ul className="rs-finds">
+            {s.发现.map((x) => (
+              <li key={x.事实} className="rs-find">
+                <span className="rs-find-f">
+                  {x.事实}
+                  <Ref s={s} url={x.source} />
+                </span>
+                {x.机会 && (
+                  <span className="rs-find-x rs-find-op">
+                    <span className="rs-find-k">机会</span>
+                    {x.机会}
+                  </span>
+                )}
+                {x.障碍 && (
+                  <span className="rs-find-x rs-find-ob">
+                    <span className="rs-find-k">障碍</span>
+                    {x.障碍}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {s.匹配 && s.匹配.length > 0 && (
+        <div>
+          <p className="rs-block-t">产品匹配</p>
+          <ul className="rs-matches">
+            {s.匹配.map((x) => (
+              <li key={x.品类} className="rs-match">
+                <div className="rs-match-h">
+                  <b>{x.品类}</b>
+                  <span className={`rs-match-lv rs-match-${x.匹配}`}>匹配{x.匹配}</span>
+                  <span className={`rs-match-dev rs-match-dev-${x.开发}`}>{x.开发 === "谨慎" ? "谨慎" : `${x.开发}开发`}</span>
+                  <Ref s={s} url={x.source} />
+                </div>
+                {x.系列.length > 0 && <div className="rs-match-row">它的系列：{x.系列.join("、")}</div>}
+                {x.依据 && <div className="rs-match-row">依据：{x.依据}</div>}
+                {x.准备 && <div className="rs-match-row">要准备：{x.准备}</div>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="rs-rail-wrap">
         <span className="rs-rail" aria-hidden>
@@ -438,7 +538,7 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
                   </span>
                 )}
               </div>
-              {s.评分.结论 && <div className={`rs-verdict rs-verdict-${s.评分.结论.档}`}>{s.评分.结论.字}</div>}
+              {s.评分.结论 && !s.画像 && <div className={`rs-verdict rs-verdict-${s.评分.结论.档}`}>{s.评分.结论.字}</div>}
               {s.评分.封顶 && (
                 <div className="rs-cap">
                   按权重算 {s.评分.原分} 分，封顶 {s.评分.封顶.上限} 分：{s.评分.封顶.原因.join("；")}
@@ -448,8 +548,14 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
                 {s.评分.明细.map((d, i) => (
                   <motion.li key={d.维度} className="rs-dim" initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 时长.base, ease: 曲线.ease, delay: i * 间隔 }}>
                     <span className="rs-dim-l">{d.label}</span>
-                    <span className={`rs-grade rs-grade-${d.档}`}>{档名[d.档]}</span>
+                    <span className="rs-dim-g">
+                      <span className={`rs-grade rs-grade-${d.档}`}>{档名[d.档]}</span>
+                      <span className={`rs-bars rs-grade-${d.档}`} aria-hidden>
+                        {档条[d.档]}
+                      </span>
+                    </span>
                     <span className="rs-dim-e">
+                      {待验证(d) && <span className="rs-pending">待验证</span>}
                       {d.证据}
                       <Ref s={s} url={d.来源} />
                     </span>
@@ -460,6 +566,73 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AnimatePresence>{s.真实性 && <TrustBlock v={s.真实性} />}</AnimatePresence>
+
+      {((s.必查?.length ?? 0) > 0 || 风险.length > 0 || s.stages.risks.status === "done") && (
+        <div>
+          <p className="rs-block-t">{s.必查?.length ? "风险（必查四项 + 另外查到的）" : "风险"}</p>
+          <ul className={`rs-musts ${有应对 ? "rs-musts-3" : ""}`}>
+            {有应对 && (
+              <li className="rs-must rs-must-head" aria-hidden>
+                <span>风险</span>
+                <span>证据</span>
+                <span>应对</span>
+              </li>
+            )}
+            {(s.必查 ?? []).map((x) => (
+              <li key={x.key} className={`rs-must rs-${x.级别}`}>
+                <span className="rs-must-l">{必查表.find((k) => k.key === x.key)?.label ?? x.key}</span>
+                <span className={x.source ? "" : "rs-none"}>
+                  {x.级别 !== "none" && <span className="rs-must-lv">{风险名[x.级别]}</span>}
+                  {x.结论}
+                  <Ref s={s} url={x.source} />
+                </span>
+                {有应对 && <span className="rs-must-do">{x.应对 ?? ""}</span>}
+              </li>
+            ))}
+            {风险.map((t) => (
+              <li key={`r-${t.text}`} className={`rs-must rs-must-x rs-${t.level ?? "low"}`}>
+                <span className="rs-must-l">另外查到</span>
+                <span>
+                  {t.level && <span className="rs-must-lv">{风险名[t.level]}</span>}
+                  {t.text}
+                  <Ref s={s} url={t.source} />
+                </span>
+                {有应对 && <span className="rs-must-do">{t.应对 ?? ""}</span>}
+              </li>
+            ))}
+          </ul>
+          {!风险.length && !s.必查?.some((x) => x.级别 !== "none") && s.stages.risks.status === "done" && <p className="rs-none rs-norisk">没查到明显风险</p>}
+        </div>
+      )}
+
+      {s.认证提醒 && s.认证提醒.length > 0 && (
+        <div className="rs-certs">
+          <p className="rs-block-t">认证提醒</p>
+          <ul className="rs-plain">
+            {s.认证提醒.map((x) => (
+              <li key={x}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {信号.length > 0 && (
+        <div className="rs-tags">
+          <AnimatePresence initial={false}>
+            {信号.map((t) => (
+              <motion.div key={`s-${t.text}`} className="rs-tag rs-tag-signal" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 时长.morph, ease: 曲线.spring }}>
+                <span className="rs-tag-mark">信号</span>
+                <span>
+                  {t.text}
+                  <Ref s={s} url={t.source} />
+                </span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
 
       {s.similar && (
         <div>
@@ -480,57 +653,9 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
         </div>
       )}
 
-      {s.必查 && s.必查.length > 0 && (
-        <div>
-          <p className="rs-block-t">风险必查</p>
-          <ul className="rs-musts">
-            {s.必查.map((x) => (
-              <li key={x.key} className={`rs-must rs-${x.级别}`}>
-                <span className="rs-must-l">{必查表.find((k) => k.key === x.key)?.label ?? x.key}</span>
-                <span className={x.source ? "" : "rs-none"}>
-                  {x.级别 !== "none" && <span className="rs-must-lv">{风险名[x.级别]}</span>}
-                  {x.结论}
-                  <Ref s={s} url={x.source} />
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {(信号.length > 0 || 风险.length > 0 || s.stages.risks.status === "done") && (
-        <div className="rs-tags">
-          <AnimatePresence initial={false}>
-            {信号.map((t) => (
-              <motion.div key={`s-${t.text}`} className="rs-tag rs-tag-signal" initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 时长.morph, ease: 曲线.spring }}>
-                <span className="rs-tag-mark">信号</span>
-                <span>
-                  {t.text}
-                  <Ref s={s} url={t.source} />
-                </span>
-              </motion.div>
-            ))}
-            {风险.map((t) => (
-              <motion.div key={`r-${t.text}`} className={`rs-tag rs-tag-risk rs-${t.level ?? "low"}`} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 时长.morph, ease: 曲线.spring }}>
-                <span className="rs-tag-mark">风险{t.level ? `·${风险名[t.level]}` : ""}</span>
-                <span>
-                  {t.text}
-                  <Ref s={s} url={t.source} />
-                </span>
-              </motion.div>
-            ))}
-          </AnimatePresence>
-          {!风险.length && !s.必查?.some((x) => x.级别 !== "none") && s.stages.risks.status === "done" && (
-            <div className="rs-tag">
-              <span className="rs-none">没查到明显风险</span>
-            </div>
-          )}
-        </div>
-      )}
-
       {s.approach.length > 0 && (
         <div>
-          <p className="rs-block-t">切入建议</p>
+          <p className="rs-block-t">{新版 ? "切入步骤" : "切入建议"}</p>
           <ol className="rs-approach">
             {s.approach.map((p) => (
               <li key={p}>{p}</li>

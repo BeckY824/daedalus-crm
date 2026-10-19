@@ -45,7 +45,12 @@ function 假结论(prompt: string): unknown {
     return { 型号: [{ 型号: "HB-150", 是什么: "工矿灯", 来源: `${官网}/about` }, { 型号: "SL-60", 是什么: "路灯", 来源: `${官网}/about` }, { 型号: "ZZ-999", 是什么: "原文里没有，该丢", 来源: `${官网}/about` }], 小结: "品类和买家类型都对口" };
   if (prompt.includes("找近期信号")) return { 信号: [{ text: "在招户外照明品类经理", source: `https://jobs.example/lumora-trading-category-manager` }], 小结: "在扩户外品类" };
   if (prompt.includes("排查风险")) return { 风险: [{ 级别: "low", 说明: "2024 年有一次付款延迟", 来源: `${官网}/about/` }, { 级别: "mid", 说明: "没带来源，该丢", 来源: "https://made-up.example/z" }, { 级别: "超高", 说明: "级别写错，该丢" }], 必查: { 母公司: { 结论: "独立公司，商业登记上没有母公司", 级别: "none", 来源: `https://registry.example/lumora-trading` }, 财务: { 结论: "查不到" }, 同行: { 结论: "只做进口分销，不自己生产", 是: "否", 级别: "none", 来源: `${官网}/about` }, 市场: { 结论: "在德奥瑞做生意，正在扩户外品类", 级别: "none", 来源: `${官网}/about` } }, 小结: "风险低" };
-  // 最后一步：统一打分 + 像哪位老客户 + 切入建议（产品里固定 gpt-5.5）
+  // 最后一步拆成并行两次（10-18 A+D 结构，产品里都是 gpt-5.5）：切入那次认「切入步骤：」，评估那次是另一个（「对下面 5 项」）
+  if (prompt.includes("切入步骤："))
+    return {
+      切入: { 切口: "模型写的切口，有产品匹配时不用", 找谁: ["Category Manager Outdoor", "Purchasing Manager"], 提案: "3 页：工矿灯参数对比、ENEC 证书、交期", 先问: ["新供应商要不要验厂", "起订量怎么算"] },
+      开发信: { 主题: "High-bay and street lights for your outdoor range", 正文: `Dear Mr Beispiel,\n\nI noticed that ${公司} is hiring a Category Manager for Outdoor Lighting to expand its street-light and high-bay range. We are an LED lighting manufacturer in China supplying distributors in Germany, Austria and Switzerland with high-bay fixtures and street lights. Our range sits close to your HB-150 and SL-60, with ENEC and CE certified versions available, stable lead times of four to five weeks, and private-label packaging for wholesalers. Many of our distributor customers start with a small trial order to check quality before they list a product. If it is useful, I can send a sample of our closest high-bay model together with a price list for your volume range. Would you have fifteen minutes next week for a short call, or should I send the samples straight to your Hamburg office?\n\nBest regards,\nLi Wei` },
+    };
   if (prompt.includes("怎么切入"))
     return {
       评档: [
@@ -59,9 +64,16 @@ function 假结论(prompt: string): unknown {
         { 编号: 1, 档: "high", 像在哪: "同在德国、都做电气批发" },
         { 编号: 9, 档: "high", 像在哪: "编号越界，该丢" },
       ],
-      建议: ["找品类经理", "主推工矿灯", "提前给 ENEC 证书"],
-      型号对比: [{ 对方: "HB-150", 我们: "UFO 工矿灯 150W", 怎么比: "同功率，我们有 ENEC 版，交期 4–5 周" }, { 对方: "XX-1", 我们: "随便", 怎么比: "对方型号认不出，该丢" }],
-      开发信: { 主题: "High-bay and street lights for your outdoor range", 正文: `Dear Mr Beispiel,\n\nI noticed that ${公司} is hiring a Category Manager for Outdoor Lighting to expand its street-light and high-bay range. We are an LED lighting manufacturer in China supplying distributors in Germany, Austria and Switzerland with high-bay fixtures and street lights. Our range sits close to your HB-150 and SL-60, with ENEC and CE certified versions available, stable lead times of four to five weeks, and private-label packaging for wholesalers. Many of our distributor customers start with a small trial order to check quality before they list a product. If it is useful, I can send a sample of our closest high-bay model together with a price list for your volume range. Would you have fifteen minutes next week for a short call, or should I send the samples straight to your Hamburg office?\n\nBest regards,\nLi Wei` },
+      画像: { 类型: "德国照明进口分销商，潜在批发客户", 先验证: ["新供应商要不要先过验厂"] },
+      发现: [
+        { 事实: "只做进口分销，不自己生产", 机会: "是买家不是同行", 来源: `${官网}/about` },
+        { 事实: "没带来源，该丢", 机会: "x" },
+        { 事实: "只有事实没写机会障碍，该丢", 来源: `${官网}/about` },
+      ],
+      匹配: [
+        { 品类: "UFO 工矿灯", 匹配: "高", 系列: ["HB-150", "编的系列"], 开发: "优先", 依据: "它在卖同功率工矿灯", 准备: "ENEC 证书", 来源: `${官网}/about` },
+        { 品类: "路灯", 匹配: "超高", 系列: ["SL-60"], 开发: "优先", 来源: `${官网}/about` },
+      ],
       小结: "从品类经理切入",
     };
   return {};
@@ -163,7 +175,10 @@ describe("背调 6 步编排", () => {
     if (!r.ok) throw new Error(r.error);
     expect(r.状态.similar).toEqual({ items: [{ id: "c-1", name: "Nordlicht Elektro", 档: "high", 像在哪: "同在德国、都做电气批发" }], 比了: 2 });
     expect(r.状态.tags.filter((t) => t.tone === "risk").map((t) => [t.text, t.source])).toEqual([["2024 年有一次付款延迟", `${官网}/about`]]);
-    expect(r.状态.approach).toHaveLength(3);
+    // 切入步骤由代码拼：选切口（跟产品匹配里「优先」那行）→ 找对人 → 提案 → 先问 → 联系入口（核过原文的邮箱）
+    expect(r.状态.approach).toHaveLength(5);
+    expect(r.状态.approach[0]).toBe("选产品切口：先拿UFO 工矿灯切入，对标它的 HB-150；准备：ENEC 证书");
+    expect(r.状态.approach[4]).toContain("sales@lumora-trading.example");
   });
 
   it("没有老客户：第 6 维是「查不到」，不进分母", async () => {
@@ -320,12 +335,18 @@ describe("背调 6 步编排", () => {
     const 底 = 假模型();
     const m: 模型调用 = {
       tools: (ms, t, o) => (强度.push(["tools", o.reasoningEffort]), 底.tools(ms, t, o)),
-      json: (ms, o) => (强度.push([String(ms[ms.length - 1]?.content ?? "").includes("怎么切入") ? "approach" : "json", o.reasoningEffort]), 底.json(ms, o)),
+      json: (ms, o) => {
+        const p = String(ms[ms.length - 1]?.content ?? "");
+        强度.push([p.includes("切入步骤：") ? "切入" : p.includes("怎么切入") ? "approach" : "json", o.reasoningEffort]);
+        return 底.json(ms, o);
+      },
     };
     await 跑({ 模型: m });
     expect(强度.filter(([k]) => k === "approach").map(([, e]) => e)).toEqual([背调打分推理强度]);
-    expect(强度.filter(([k]) => k !== "approach").every(([, e]) => e === undefined)).toBe(true);
-    const 最后 = 底.调用.find((c) => c.kind === "json" && c.prompt.includes("怎么切入"))!.prompt;
+    // 切入步骤 + 开发信那次（和打分并行）：写信不用打分那么深的推理
+    expect(强度.filter(([k]) => k === "切入").map(([, e]) => e)).toEqual(["low"]);
+    expect(强度.filter(([k]) => k === "json" || k === "tools").every(([, e]) => e === undefined)).toBe(true);
+    const 最后 = 底.调用.find((c) => c.kind === "json" && c.prompt.includes("对下面 5 项"))!.prompt;
     expect(最后).toContain("≥ 2 个国家");
     expect(最后).toContain("对外采购或代理同类产品");
   });
@@ -421,10 +442,11 @@ describe("背调 6 步编排", () => {
     const 通道 = { ...模拟通道(), 模型: "gpt-5.5", 摘要模型: "gpt-5.4-mini" } as 背调通道;
     const m = 假模型();
     await 跑({ 模型: m, 通道 });
-    const 最后 = m.调用.filter((c) => c.prompt.includes("最多挑 3 位，按编号回"));
-    expect(最后).toHaveLength(1);
-    expect(最后[0].model).toBe("gpt-5.5");
-    const 其余 = m.调用.filter((c) => !c.prompt.includes("最多挑 3 位，按编号回"));
+    // 最后一步是并行的两次（打分 / 切入和开发信），都用报告模型
+    const 最后 = m.调用.filter((c) => c.prompt.includes("怎么切入"));
+    expect(最后).toHaveLength(2);
+    for (const c of 最后) expect(c.model).toBe("gpt-5.5");
+    const 其余 = m.调用.filter((c) => !c.prompt.includes("怎么切入"));
     expect(其余.length).toBeGreaterThan(5);
     for (const c of 其余) expect(c.model).toBe("gpt-5.4-mini");
   });
@@ -511,7 +533,7 @@ describe("真实性（10-18）", () => {
     // 网上足迹从模拟的 LinkedIn / Facebook 搜索结果里认出来
     expect(v.真实性.项.find((x) => x.key === "footprint")).toMatchObject({ 灯: "green", 态: "已核" });
     expect(v.真实性.总灯).toBe("green");
-    const 最后 = m.调用.filter((c) => c.prompt.includes("怎么切入")).at(-1)!;
+    const 最后 = m.调用.find((c) => c.prompt.includes("对下面 5 项"))!;
     expect(最后.prompt).toContain("程序直查的真实性结果");
     expect(最后.prompt).toContain("示例登记库：Lumora Trading GmbH");
   });
@@ -570,7 +592,7 @@ describe("真实性（10-18）", () => {
     expect(编.事件).toContainEqual({ type: "import", 有: false });
   });
 
-  it("10-18 对比免费产品：必查四项、在卖型号、联系人、型号对比、英文开发信都出来；编的型号 / 联系人格子 / 对比被丢；同行判断拿去封顶", async () => {
+  it("10-18 对比免费产品：必查四项、在卖型号、联系人、英文开发信都出来；编的型号 / 联系人格子被丢；同行判断拿去封顶", async () => {
     const { 事件 } = await 跑();
     const 取 = <T extends 研究事件["type"]>(t: T) => 事件.find((e): e is Extract<研究事件, { type: T }> => e.type === t);
     expect(取("checks")!.项.map((x) => [x.key, x.source ? "有来源" : "无"])).toEqual([
@@ -582,12 +604,13 @@ describe("真实性（10-18）", () => {
     expect(取("models")!.items.map((m) => m.型号)).toEqual(["HB-150", "SL-60"]);
     // 总经理 Max Erfunden 原文里没有：整条丢；Jan Beispiel 那条电话邮箱都在原文里
     expect(取("contacts")!.items).toEqual([{ 岗位: "采购负责人", 姓名: "Jan Beispiel", 电话: "+49 40 0000 0000", 邮箱: "sales@lumora-trading.example", source: `${官网}/about` }]);
-    expect(取("compare")!.items).toEqual([{ 对方: "HB-150", 我们: "UFO 工矿灯 150W", 怎么比: "同功率，我们有 ENEC 版，交期 4–5 周" }]);
+    // 型号对比：新提示词不再要（产品匹配顶替了）
+    expect(取("compare")).toBeUndefined();
     expect(取("email")!.主题).toBe("High-bay and street lights for your outdoor range");
     expect(取("score")!.评分.结论).toBeDefined();
     const s = 事件.reduce(归约, 初始状态({ name: 公司 }));
     const t = 报告文本(s);
-    for (const 段 of ["【公开联系人】", "【在卖的型号】", "【型号对比】", "【英文开发信】", "是不是同行：只做进口分销", "近两年财务：查不到（材料里没有）", "结论："]) expect(t).toContain(段);
+    for (const 段 of ["【公开联系人】", "【在卖的型号】", "【英文开发信】", "是不是同行：只做进口分销", "近两年财务：查不到（材料里没有）", "结论："]) expect(t).toContain(段);
   });
 
   it("同行「是」：分数封顶 40、结论不建议优先；切入那一步的提示词带上认出的型号、要求小结不给建议", async () => {
@@ -603,9 +626,15 @@ describe("真实性（10-18）", () => {
     expect(分.封顶?.原因.join("")).toContain("同行");
     // 同行级别 high → 也算高风险：结论先核实
     expect(分.结论?.档).toBe("先核实");
-    const 切入 = m.调用.find((c) => c.prompt.includes("怎么切入"))!.prompt;
-    expect(切入).toContain("型号对比：拿它在卖的这几个型号（HB-150、SL-60）");
-    expect(切入).toContain("小结只写事实");
+    const 评估 = m.调用.find((c) => c.prompt.includes("对下面 5 项"))!.prompt;
+    expect(评估).toContain("它在卖的型号（HB-150、SL-60）可以拿来对");
+    expect(评估).toContain("小结只写事实");
+    expect(评估).toContain("先弄清的第一件写「它外不外采」");
+    const 切入 = m.调用.find((c) => c.prompt.includes("切入步骤："))!.prompt;
+    expect(切入).toContain("先问的第一条写「外不外采」");
+    // 画像的「先弄清」和切入步骤第一条都先问外不外采
+    expect(事件.find((e): e is Extract<研究事件, { type: "profile" }> => e.type === "profile")!.先验证[0]).toContain("外不外采");
+    expect(事件.find((e): e is Extract<研究事件, { type: "approach" }> => e.type === "approach")!.points[0]).toMatch(/^先确认它外不外采/);
   });
 
   it("英国公司服务器查到 HMRC 进口记录：盖过模型那句，来源是名录那条（带标题）；名录里没有就还用模型认的", async () => {

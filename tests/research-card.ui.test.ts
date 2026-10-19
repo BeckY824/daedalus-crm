@@ -184,7 +184,7 @@ it("跑完的卡：档案、[n] 来源角标、分数、老客户、信号 / 风
   const 卡 = page.getByRole("region", { name: "背调 Lumora Trading GmbH" });
   await 卡.waitFor();
   const t = (await 卡.textContent()) ?? "";
-  for (const x of ["德国·汉堡", "sales@lumora-trading.example", "像你的老客户", "Nordlicht Elektro", "在招户外照明品类经理", "风险·低", "一次付款延迟", "找品类经理", "Lumora — About us"]) expect(t).toContain(x);
+  for (const x of ["德国·汉堡", "sales@lumora-trading.example", "像你的老客户", "Nordlicht Elektro", "在招户外照明品类经理", "另外查到", "一次付款延迟", "找品类经理", "Lumora — About us"]) expect(t).toContain(x);
   expect(await page.locator(".rs-ref").first().getAttribute("href")).toBe(官网);
   expect(await page.locator(".rs-ref").first().getAttribute("target")).toBe("_blank");
   await expect.poll(async () => page.locator(".rs-score-num").textContent()).toBe(String(最终.评分!.分));
@@ -352,7 +352,7 @@ it("10-18 新加的几块：结论和封顶、风险必查四项、公开联系�
   const 卡 = page.getByRole("region", { name: "背调 Lumora Trading GmbH" });
   await 卡.waitFor();
   const t = (await 卡.textContent()) ?? "";
-  for (const x of ["公开联系人", "采购负责人 · Jan Beispiel · +49 40 0000 0000", "在卖的型号", "HB-150", "风险必查", "母公司 / 股东", "近两年财务", "查不到（材料里没有）", "是不是同行", "母公司自己有工厂", "型号对比", "UFO 工矿灯 150W", "英文开发信", "Subject: High-bays for Lumora"]) expect(t).toContain(x);
+  for (const x of ["公开联系人", "采购负责人 · Jan Beispiel · +49 40 0000 0000", "在卖的型号", "HB-150", "风险（必查四项", "母公司 / 股东", "近两年财务", "查不到（材料里没有）", "是不是同行", "母公司自己有工厂", "型号对比", "UFO 工矿灯 150W", "英文开发信", "Subject: High-bays for Lumora"]) expect(t).toContain(x);
   // 可信度 40%、部分同行：按权重算 100，封顶 50；结论跟着分数走
   expect(await page.locator(".rs-cap").textContent()).toContain("按权重算 100 分，封顶 50 分");
   expect(await page.locator(".rs-verdict").textContent()).toContain("可以试");
@@ -364,6 +364,70 @@ it("10-18 新加的几块：结论和封顶、风险必查四项、公开联系�
   await page.getByRole("button", { name: "复制开发信" }).click();
   await page.getByRole("button", { name: "已复制" }).waitFor();
   expect(await page.evaluate(() => (window as unknown as { __剪: string }).__剪)).toBe("Subject: High-bays for Lumora\n\nDear Mr Beispiel,\n\nWe make high-bay fixtures.");
+  await page.close();
+}, 30_000);
+
+it("10-19 报告结构 A + D：结论 / 已核实 / 关键发现 / 产品匹配 / 评分条 / 风险表（应对）/ 认证提醒 / 切入步骤；宽屏三列、窄面板叠成一列", async () => {
+  const 真实性 = 合成真实性(
+    [
+      { key: "registry", 灯: "green", 态: "已核", 事实: "示例登记库：Lumora Trading GmbH，存续" },
+      { key: "sanctions", 灯: "green", 态: "已核", 事实: "美国 OFAC：未命中" },
+    ],
+    { key: "footprint", 灯: "green", 态: "已核", 事实: "Facebook 主页：有" },
+  );
+  const 加: 研究事件[] = [
+    { type: "verify", 真实性 },
+    { type: "contacts", items: [{ 岗位: "采购负责人", 姓名: "Jan Beispiel", 邮箱: "sales@lumora-trading.example", source: 官网 }] },
+    {
+      type: "checks",
+      项: [
+        { key: "母公司", 结论: "独立公司", 级别: "none", source: 官网 },
+        { key: "财务", 结论: "2024 年营收 1200 万欧元，盈利", 级别: "none", source: 官网 },
+        { key: "同行", 结论: "只做分销", 级别: "none", source: 官网, 是: "否" },
+        { key: "市场", 结论: "刚撤出爱尔兰市场，英国照常", 级别: "mid", source: 官网, 应对: "先问爱尔兰的项目还做不做" },
+      ],
+    },
+    { type: "tag", tone: "risk", level: "high", text: "2025 年有一起供应商欠款诉讼，仍在审理", source: 官网, 应对: "首单走 30% 预付加信用证" },
+    { type: "profile", 类型: "德国照明进口分销商，潜在批发客户", 先验证: ["新供应商要不要先过验厂"] },
+    { type: "findings", items: [{ 事实: "在宁波有采购办公室", 机会: "习惯从中国采购", 障碍: "可能已有固定供应商", source: 官网 }] },
+    { type: "match", items: [{ 品类: "UFO 工矿灯", 匹配: "高", 开发: "优先", 系列: ["HB-150"], 依据: "它在卖同功率工矿灯", 准备: "ENEC 证书", source: 官网 }] },
+    { type: "certs", 提醒: ["我们的 CE / RoHS 不一定覆盖每一款产品：报价前按具体型号核对证书范围，测试报告一并准备好。"] },
+    { type: "import", 有: true, 摘要: "2025 年 3 月起每月有照明类进口申报", source: 官网 },
+    { type: "approach", points: ["选产品切口：先拿UFO 工矿灯切入，对标它的 HB-150", "找对人：优先找 Category Manager（建议去找的岗位，不代表已经确认有这个人）"] },
+  ];
+  // 原来那串里的「切入建议」那条去掉（approach 事件是覆盖的，新的那条在 加 里）
+  const 原 = 事件.slice(0, -1).filter((e) => e.type !== "approach");
+  const s = [...原, ...加, 事件.at(-1)!].reduce(归约, 初始状态({ name: "Lumora Trading GmbH" }));
+  const page = await open("done", { 状态: s });
+  const 卡 = page.getByRole("region", { name: "背调 Lumora Trading GmbH" });
+  await 卡.waitFor();
+  const t = (await 卡.textContent()) ?? "";
+  for (const x of ["德国照明进口分销商，潜在批发客户", "先弄清", "新供应商要不要先过验厂", "已核实", "关键发现", "在宁波有采购办公室", "机会", "障碍", "产品匹配", "匹配高", "优先开发", "它的系列：HB-150", "要准备：ENEC 证书", "认证提醒", "切入步骤", "选产品切口", "●●●●●", "待验证"]) expect(t).toContain(x);
+  // 结论只出一处（在最上面那块，分数块里不再重复）
+  expect(await page.locator(".rs-verdict").count()).toBe(1);
+  expect(await page.locator(".rs-lead .rs-verdict").count()).toBe(1);
+  // 已核实：程序直查已核的绿灯 + 进口 + 有来源的财务
+  const 已核 = (await page.locator(".rs-verified").textContent()) ?? "";
+  for (const x of ["工商登记", "制裁名单", "网上足迹", "进口记录", "2025 年 3 月起", "近两年财务", "1200 万欧元"]) expect(已核).toContain(x);
+  // 真实性块还是全部 9 项
+  expect(await page.locator(".rs-check").count()).toBe(9);
+  // 风险表：表头一行 + 必查四项 + 另外查到的两条（原来那串里有一条低的）；宽屏三列
+  expect(await page.locator(".rs-must").count()).toBe(7);
+  const 市场 = page.locator(".rs-must").nth(4);
+  expect(await 市场.locator(".rs-must-do").textContent()).toBe("先问爱尔兰的项目还做不做");
+  expect(await page.locator(".rs-must-x.rs-high .rs-must-do").textContent()).toBe("首单走 30% 预付加信用证");
+  const 列 = async () => page.locator(".rs-must").nth(4).evaluate((el) => getComputedStyle(el).gridTemplateColumns.split(" ").length);
+  await page.setViewportSize({ width: 1000, height: 900 });
+  expect(await 列()).toBe(3);
+  expect(await page.locator(".rs-must-head").isVisible()).toBe(true);
+  // 手机宽度（≤640px）、窄面板：叠成一列，表头藏起来，不撑出横向滚动
+  await page.setViewportSize({ width: 380, height: 900 });
+  expect(await 列()).toBe(1);
+  expect(await page.locator(".rs-must-head").isVisible()).toBe(false);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= 380)).toBe(true);
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await page.evaluate(() => document.getElementById("root")!.classList.add("rec-ai"));
+  expect(await 列()).toBe(1);
   await page.close();
 }, 30_000);
 

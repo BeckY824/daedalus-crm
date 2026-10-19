@@ -137,7 +137,7 @@ export type 研究事件 =
   | 工具事件
   | { type: "field"; key: 字段键; value: string; source?: string }
   | { type: "score"; 评分: import("./score").评分结果 }
-  | { type: "tag"; tone: "signal" | "risk"; level?: "low" | "mid" | "high"; text: string; source?: string }
+  | { type: "tag"; tone: "signal" | "risk"; level?: "low" | "mid" | "high"; text: string; source?: string; /** 风险那条：怎么应对（10-18 A+D 结构：风险 | 证据 | 应对） */ 应对?: string }
   | { type: "similar"; items: 像的老客户[]; /** CRM 里拿来比的老客户有几位；0 = 还没有成交 / 在谈的客户 */ 比了: number }
   | { type: "approach"; points: string[] }
   /** 真实性那一块（灯是代码定的，见 verify/rules.ts）；切入建议那一步写完后再来一条 verify-note 补上模型那句话 */
@@ -154,6 +154,11 @@ export type 研究事件 =
   /** 切入那一步：对方型号和我们的产品怎么比；英文开发信 */
   | { type: "compare"; items: 型号对比[] }
   | { type: "email"; 主题: string; 正文: string }
+  /** 10-18 报告结构（盲评 A + D）：开头那段「它是哪类客户、开发前先弄清什么」、关键发现（机会 / 障碍）、按我们品类的产品匹配、认证提醒 */
+  | { type: "profile"; 类型: string; 先验证: string[] }
+  | { type: "findings"; items: 关键发现[] }
+  | { type: "match"; items: 产品匹配[] }
+  | { type: "certs"; 提醒: string[] }
   | { type: "usage"; searches: number; pages: number }
   /** 只有人名 + 电话（person.ts）：开头先来一条，号码是本机判的（哪国、手机还是固话） */
   | { type: "person"; 名?: string; 号: import("./person").号码信息 }
@@ -185,7 +190,13 @@ export type 必查项 = {
   source?: string;
   /** 只有「同行」那一项有：是 / 部分 / 否 / 查不到，评分封顶用（score.ts） */
   是?: import("./score").同行判断;
+  /** 有级别的那几项：怎么应对，一句话 */
+  应对?: string;
 };
 export type 在卖型号 = { 型号: string; 是什么?: string; source: string };
 export type 联系人 = { 岗位?: string; 姓名?: string; 电话?: string; 邮箱?: string; source: string };
 export type 型号对比 = { 对方: string; 我们: string; 怎么比: string };
+/** 关键发现：一条和开发策略有关的事实（带来源），对我们是机会还是障碍 */
+export type 关键发现 = { 事实: string; 机会?: string; 障碍?: string; source: string };
+/** 产品匹配：按我们业务简介里的品类一行一行比——匹配度、它官网上原样写的系列名、开发优先级、要准备什么 */
+export type 产品匹配 = { 品类: string; 匹配: "高" | "中" | "低"; 开发: "优先" | "选择性" | "谨慎"; 系列: string[]; 依据?: string; 准备?: string; source?: string };

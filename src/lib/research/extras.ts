@@ -6,7 +6,7 @@
  *   必查四项查不到就写「查不到」、不带来源，不许拿没来源的话充数。
  * 纯函数：run.ts 把「来源 → 材料原文」的查法传进来（找），测试直接喂假材料。
  */
-import { 必查表, type 必查项, type 在卖型号, type 联系人, type 型号对比 } from "./types";
+import { 必查表, type 必查项, type 在卖型号, type 联系人, type 型号对比, type 关键发现, type 产品匹配 } from "./types";
 import type { 同行判断 } from "./score";
 import { 全句 } from "./retry";
 import { 是私人社交 } from "./person";
@@ -59,7 +59,9 @@ export function 认必查(raw: unknown, 找: 找材料): 必查项[] {
     const 查不到: 必查项 = { key, 结论: "查不到（材料里没有）", 级别: "none", ...(key === "同行" ? { 是: "查不到" as const } : {}) };
     if (!结论 || !页 || /^(查不到|没查到|未查到|材料里没有|不详|未知)/.test(结论)) return 查不到;
     const 是 = key === "同行" ? (是同行判断(x.是) ? x.是 : "查不到") : undefined;
-    return { key, 结论, 级别: 是级(x.级别) ? x.级别 : "none", source: 页.url, ...(是 ? { 是 } : {}) };
+    const 级别 = 是级(x.级别) ? x.级别 : "none";
+    const 应对 = 级别 !== "none" ? 全句(x.应对, 120) : "";
+    return { key, 结论, 级别, source: 页.url, ...(是 ? { 是 } : {}), ...(应对 ? { 应对 } : {}) };
   });
 }
 
@@ -137,4 +139,86 @@ export function 母公司查询(名: string): string {
 /** 必查里有级别的那几项也算风险（进风险级别、进「先核实」结论）；和模型另列的风险重了就不重复 */
 export function 必查转风险(项: 必查项[]): { 级别: "low" | "mid" | "high"; 说明: string; 来源?: string }[] {
   return 项.filter((x) => x.级别 !== "none" && x.source).map((x) => ({ 级别: x.级别 as "low" | "mid" | "high", 说明: `${必查表.find((k) => k.key === x.key)!.label}：${x.结论}`, 来源: x.source }));
+}
+
+/* ---------- 10-18 报告结构（盲评 A + D：只学 D 的结构，事实照我们的规矩核） ---------- */
+
+/** 它是哪类客户 + 开发前最要先弄清的 1–2 件事。类型没写就整块不要 */
+export function 认画像(raw: unknown): { 类型: string; 先验证: string[] } | undefined {
+  const o = 对象(raw);
+  const 类型 = 全句(o.类型, 80);
+  if (!类型) return undefined;
+  const 先验证 = (Array.isArray(o.先验证) ? o.先验证 : []).map((x) => 全句(x, 100)).filter(Boolean).slice(0, 2);
+  return { 类型, 先验证 };
+}
+
+/** 关键发现：最多 3 条，每条一句事实、必须带核得上的来源，机会 / 障碍至少写一样 */
+export function 认发现(raw: unknown, 找: 找材料): 关键发现[] {
+  const 出: 关键发现[] = [];
+  for (const x of 列(raw)) {
+    const 页 = 找(x.来源 ?? x.source);
+    const 事实 = 全句(x.事实, 200);
+    const 机会 = 全句(x.机会, 120);
+    const 障碍 = 全句(x.障碍, 120);
+    if (!页 || !事实 || (!机会 && !障碍) || 出.some((y) => y.事实 === 事实)) continue;
+    出.push({ 事实, ...(机会 ? { 机会 } : {}), ...(障碍 ? { 障碍 } : {}), source: 页.url });
+    if (出.length >= 3) break;
+  }
+  return 出;
+}
+
+const 匹配档 = { 高: "高", 中: "中", 低: "低", high: "高", mid: "中", low: "低" } as const;
+const 开发档 = { 优先: "优先", 选择性: "选择性", 谨慎: "谨慎" } as const;
+
+/**
+ * 产品匹配：按我们的品类最多 3 行。必须带核得上的来源；它的系列名要在那条来源原文里出现过，没出现的去掉
+ * （和在卖型号同一条规矩：模型最爱编的就是型号名）。匹配度、开发优先级写错的整行不要
+ */
+export function 认匹配(raw: unknown, 找: 找材料): 产品匹配[] {
+  const 出: 产品匹配[] = [];
+  for (const x of 列(raw)) {
+    const 品类 = 全句(x.品类, 30);
+    const 匹配 = 匹配档[String(x.匹配 ?? "").trim() as keyof typeof 匹配档];
+    const 开发 = 开发档[String(x.开发 ?? "").trim().replace(/开发$/, "") as keyof typeof 开发档];
+    const 页 = 找(x.来源 ?? x.source);
+    if (!品类 || !匹配 || !开发 || !页 || 出.some((y) => y.品类 === 品类)) continue;
+    const 系列 = [...new Set((Array.isArray(x.系列) ? x.系列 : []).filter((v): v is string => typeof v === "string").map((v) => v.trim().slice(0, 40)))]
+      .filter((v) => 原文里有(页.text, v))
+      .slice(0, 4);
+    const 依据 = 全句(x.依据, 160);
+    const 准备 = 全句(x.准备, 160);
+    出.push({ 品类, 匹配, 开发, 系列, ...(依据 ? { 依据 } : {}), ...(准备 ? { 准备 } : {}), source: 页.url });
+    if (出.length >= 3) break;
+  }
+  return 出;
+}
+
+/** 业务简介里写到的认证（CE / ENEC / RoHS / UKCA / UL……），原样大小写去重 */
+export function 我们的认证(简介: string | undefined): string[] {
+  const 出: string[] = [];
+  for (const m of (简介 ?? "").matchAll(/(?<![A-Za-z])(CE|ENEC\+?|RoHS|UKCA|UL|ETL|DLC|CB|SAA|SASO|TÜV|TUV|GS|FCC|ErP|ERP|REACH|CCC|KC|PSE|BIS|INMETRO|IECEx|ATEX)(?![A-Za-z])/g)) {
+    const v = m[1] === "ROHS" ? "RoHS" : m[1];
+    if (!出.some((x) => x.toLowerCase() === v.toLowerCase())) 出.push(v);
+  }
+  return 出;
+}
+
+const 英国 = /英国|英格兰|苏格兰|威尔士|北爱|\bUK\b|United Kingdom|Great Britain|England|Scotland|Wales|Northern Ireland/i;
+const 中东 = /中东|海湾|沙特|阿联酋|迪拜|阿布扎比|卡塔尔|科威特|阿曼|巴林|Middle East|GCC|Saudi|UAE|Emirates|Dubai|Qatar|Kuwait|Oman|Bahrain/i;
+
+/**
+ * 认证提醒（D 那份的「你们的认证可能还不够」）：代码按业务简介里的认证、对方国家、我们的目标市场拼，不经模型、不花钱。
+ * 只说「要核对什么」，不替用户下「够不够」的结论（我们不知道每款产品的证书范围）
+ */
+export function 认证提醒(简介: string | undefined, 对方国家: string | undefined): string[] {
+  const 证 = 我们的认证(简介);
+  const 出 = [
+    证.length
+      ? `我们的 ${证.join(" / ")} 不一定覆盖每一款产品：报价前按具体型号核对证书范围，测试报告一并准备好。`
+      : "业务简介里没写认证：报价前按具体型号核对对方要的认证和测试报告。",
+  ];
+  const 地 = `${对方国家 ?? ""} ${简介 ?? ""}`;
+  if (英国.test(对方国家 ?? "")) 出.push("英国市场：问清对方要 CE 还是 UKCA，以及有没有英国本地的标准或交付要求。");
+  if (中东.test(地)) 出.push("中东项目：可能要当地认证（比如沙特 SASO），还要确认电压、高温、防尘防水等级这些当地条件。");
+  return 出;
 }

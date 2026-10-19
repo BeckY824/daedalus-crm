@@ -4,7 +4,7 @@
  *
  * 纯函数、不可变：浏览器那边每来一条事件就出一份新状态，React 按引用判断哪块要重画。
  */
-import { 阶段表, 字段表, type 来源, type 字段键, type 像的老客户, type 研究事件, type 工具事件, type 阶段号, type 必查项, type 在卖型号, type 联系人, type 型号对比 } from "./types";
+import { 阶段表, 字段表, type 来源, type 字段键, type 像的老客户, type 研究事件, type 工具事件, type 阶段号, type 必查项, type 在卖型号, type 联系人, type 型号对比, type 关键发现, type 产品匹配 } from "./types";
 import type { 评分结果 } from "./score";
 import type { 真实性 } from "./verify/types";
 import type { 候选公司, 出现, 号码信息 } from "./person";
@@ -17,7 +17,7 @@ export type 背调状态 = {
   stages: Record<阶段号, 阶段状态>;
   fields: Partial<Record<字段键, { value: string; source?: string }>>;
   评分?: 评分结果;
-  tags: { tone: "signal" | "risk"; level?: "low" | "mid" | "high"; text: string; source?: string }[];
+  tags: { tone: "signal" | "risk"; level?: "low" | "mid" | "high"; text: string; source?: string; 应对?: string }[];
   similar?: { items: 像的老客户[]; 比了: number };
   approach: string[];
   /** 真实性那一块（不进 100 分）。老版本存下来的报告没有 */
@@ -28,6 +28,14 @@ export type 背调状态 = {
   联系人?: 联系人[];
   型号对比?: 型号对比[];
   开发信?: { 主题: string; 正文: string };
+  /**
+   * 10-18 报告结构（盲评 A + D，老版本的报告都没有）：它是哪类客户 + 开发前先弄清的 1–2 件事、关键发现（机会 / 障碍）、
+   * 按我们品类的产品匹配、认证提醒（代码按业务简介和对方国家拼的）
+   */
+  画像?: { 类型: string; 先验证: string[] };
+  发现?: 关键发现[];
+  匹配?: 产品匹配[];
+  认证提醒?: string[];
   /** 公开进口记录：有 = 摘要 + 来源；没有 = 「未查到公开进口记录」。老版本的报告没有这一项 */
   进口?: { 有: boolean; 摘要?: string; source?: string };
   /** 报告里引用过的来源，按第一次出现的顺序编号（界面上的 [1] [2]） */
@@ -97,7 +105,7 @@ export function 归约(s: 背调状态, e: 研究事件): 背调状态 {
     case "score":
       return { ...s, 评分: e.评分, sources: 收来源(s.sources, e.评分.明细.map((d) => (d.来源 ? { title: d.来源, url: d.来源 } : undefined))) };
     case "tag":
-      return { ...s, tags: [...s.tags, { tone: e.tone, level: e.level, text: e.text, source: e.source }], sources: 收来源(s.sources, [e.source ? { title: e.source, url: e.source } : undefined]) };
+      return { ...s, tags: [...s.tags, { tone: e.tone, level: e.level, text: e.text, source: e.source, ...(e.应对 ? { 应对: e.应对 } : {}) }], sources: 收来源(s.sources, [e.source ? { title: e.source, url: e.source } : undefined]) };
     case "similar":
       return { ...s, similar: { items: e.items, 比了: e.比了 } };
     case "approach":
@@ -122,6 +130,14 @@ export function 归约(s: 背调状态, e: 研究事件): 背调状态 {
       return { ...s, 型号对比: e.items };
     case "email":
       return { ...s, 开发信: { 主题: e.主题, 正文: e.正文 } };
+    case "profile":
+      return { ...s, 画像: { 类型: e.类型, 先验证: e.先验证 } };
+    case "findings":
+      return { ...s, 发现: e.items, sources: 收来源(s.sources, e.items.map((x) => ({ title: x.source, url: x.source }))) };
+    case "match":
+      return { ...s, 匹配: e.items, sources: 收来源(s.sources, e.items.map((x) => (x.source ? { title: x.source, url: x.source } : undefined))) };
+    case "certs":
+      return { ...s, 认证提醒: e.提醒 };
     case "usage":
       return { ...s, usage: { searches: e.searches, pages: e.pages } };
     case "done":
@@ -173,6 +189,10 @@ export function 认背调状态(v: unknown): 背调状态 | null {
     联系人: Array.isArray(o.联系人) ? o.联系人 : undefined,
     型号对比: Array.isArray(o.型号对比) ? o.型号对比 : undefined,
     开发信: o.开发信 && typeof o.开发信.正文 === "string" && typeof o.开发信.主题 === "string" ? o.开发信 : undefined,
+    画像: o.画像 && typeof o.画像.类型 === "string" && Array.isArray(o.画像.先验证) ? o.画像 : undefined,
+    发现: Array.isArray(o.发现) ? o.发现.filter((x) => x && typeof x.事实 === "string") : undefined,
+    匹配: Array.isArray(o.匹配) ? o.匹配.filter((x) => x && typeof x.品类 === "string" && Array.isArray(x.系列)) : undefined,
+    认证提醒: Array.isArray(o.认证提醒) ? o.认证提醒.filter((x) => typeof x === "string") : undefined,
     人: o.人 && o.人.号 && typeof o.人.号.号 === "string" && Array.isArray(o.人.tools) ? o.人 : undefined,
   } as 背调状态;
 }

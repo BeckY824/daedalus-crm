@@ -27,7 +27,7 @@ import type { chatTools, ToolMessage, 工具声明, 工具调用 } from "../llm"
 import type { BusinessConfig } from "../business-config";
 import type { 背调通道 } from "./channel";
 import { 背调上限, 社媒搜索次数, 阶段表, 字段表, type 研究事件, type 阶段号, type 字段键, type 来源, type 搜索结果, type 必查项, type 在卖型号 } from "./types";
-import { 认必查, 认型号, 认联系人, 认型号对比, 认开发信, 必查转风险, 母公司查询 } from "./extras";
+import { 认必查, 认型号, 认联系人, 认型号对比, 认开发信, 必查转风险, 母公司查询, 认画像, 认发现, 认匹配, 认证提醒 } from "./extras";
 import { 算相关性, 清洗评档, type 评档, type 风险 } from "./score";
 import { 认像的老客户, 老客户表文本, 老客户维度档, type 老客户 } from "./similar";
 import { 初始状态, 归约, type 背调状态 } from "./state";
@@ -128,7 +128,8 @@ const 工具表: 工具声明[] = [
 ];
 
 /** 别名：读页时要读的网址（跳转以后 url 是落地页，模型常引用跳转前那个） */
-type 材料条 = { n: number; kind: "search" | "read"; title: string; url: string; text: string; 别名?: string };
+/** 长 = 官网的公司介绍 / 历史 / 生产测试设施页：拼进提示词时给得多一些（关键发现、母公司常在后半页） */
+type 材料条 = { n: number; kind: "search" | "read"; title: string; url: string; text: string; 别名?: string; 长?: true };
 
 /** 比网址用：去掉协议、www、#、utm_ 参数、结尾的 / 和省略号，小写 */
 export function 规整网址(u: string): string {
@@ -178,12 +179,12 @@ export function 认来源(材料: 材料条[], u: unknown): string | undefined {
 }
 
 /**
- * 拼进提示词的材料：读过的页给 1500 字，搜索摘要给 300 字，整份封顶 30000 字（越新的越靠后、越不会被截）。
+ * 拼进提示词的材料：读过的页给 1500 字（官网的公司介绍 / 历史 / 设施页给 3000 字），搜索摘要给 300 字，整份封顶 30000 字（越新的越靠后、越不会被截）。
  * 封顶放宽到 30000（原来 14000）：截的是最前面那几条，一截前缀就变了、提示缓存就不命中；正常一次背调到不了这个数
  */
 function 材料文本(材料: 材料条[]): string {
   if (!材料.length) return "（还没有材料）";
-  const 段 = 材料.map((m) => `[${m.n}] ${m.title}\n${m.url}\n${m.text.slice(0, m.kind === "read" ? 1500 : 300)}`);
+  const 段 = 材料.map((m) => `[${m.n}] ${m.title}\n${m.url}\n${m.text.slice(0, m.kind === "read" ? (m.长 ? 3000 : 1500) : 300)}`);
   let 出 = 段.join("\n\n");
   while (出.length > 30000 && 段.length > 1) {
     段.shift();
@@ -227,6 +228,10 @@ const 短 = 全句;
 const 拿不准同一家 = /(无法|不能|未能|难以|没法|不确定)(确认|确定|判断|核实|区分)[^。；;]{0,80}(同一|是这一家|是这家)|同名(的)?(不同|另一|别的)|(不是|并非)同一(家|主体|公司|实体)/;
 /** 官网上的公司历史页 */
 const 历史页路径 = /histor|our-?story|heritage|geschichte|histoire|historia|storia|geschiedenis|chronik|timeline|milestones/i;
+/** 官网上的生产 / 测试设施页（自有工厂、实验室：判同行、写关键发现用，10-18 A+D 结构） */
+const 设施页路径 = /facilit|factor(y|ies)|manufactur|production|testing|laborator|quality|fabrik|werk(e|s)?\b|usine|fabbrica|fabrica/i;
+/** 官网上的公司介绍页：读到的给长一点（材料文本） */
+const 公司页路径 = /about|company|who-?we-?are|ueber-uns|uber-uns|qui-sommes|chi-siamo|over-ons|quienes-somos|sobre/i;
 /** 判了「是同行」时切入建议的第一条（10-18 免费对比复核第 6 点） */
 const 先确认外采 =
   "先确认它外不外采：它自己设计、生产同类产品，多半是竞争对手；先问清楚有没有对外采购或外包的品类（产能不够的型号、配件、私标），有再谈 OEM，没有就别在它身上多花力气";
@@ -251,14 +256,21 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       case "stage":
         return e.status === "done" && e.summary ? { ...e, summary: 换(e.summary) } : e;
       case "tag":
+        return { ...e, text: 换(e.text), ...(e.应对 ? { 应对: 换(e.应对) } : {}) };
       case "verify-note":
         return { ...e, text: 换(e.text) };
+      case "profile":
+        return { ...e, 类型: 换(e.类型), 先验证: e.先验证.map(换).filter(Boolean) };
+      case "findings":
+        return { ...e, items: e.items.map((x) => ({ ...x, 事实: 换(x.事实), ...(x.机会 ? { 机会: 换(x.机会) } : {}), ...(x.障碍 ? { 障碍: 换(x.障碍) } : {}) })) };
+      case "match":
+        return { ...e, items: e.items.map((x) => ({ ...x, ...(x.依据 ? { 依据: 换(x.依据) } : {}), ...(x.准备 ? { 准备: 换(x.准备) } : {}) })) };
       case "approach":
         return { ...e, points: e.points.map(换).filter(Boolean) };
       case "compare":
         return { ...e, items: e.items.map((x) => ({ ...x, 怎么比: 换(x.怎么比) })) };
       case "checks":
-        return { ...e, 项: e.项.map((x) => ({ ...x, 结论: 换(x.结论) })) };
+        return { ...e, 项: e.项.map((x) => ({ ...x, 结论: 换(x.结论), ...(x.应对 ? { 应对: 换(x.应对) } : {}) })) };
       case "models":
         return { ...e, items: e.items.map((x) => (x.是什么 ? { ...x, 是什么: 换(x.是什么) } : x)) };
       case "score":
@@ -308,7 +320,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   let 工具号 = 0;
   /** 每一步挑工具、写摘要用摘要模型（可以是便宜的 mini）；最后打分写报告那一步单独传报告模型（通道.模型，固定 gpt-5.5） */
   /** 每次调用都带上这是哪一步（X-Research-Stage）：服务器看到最后一步交出去了才算跑完。超时是每一趟的，卡了 gateway-model 会重发一次 */
-  const opts = (stage: 阶段号, 模型名?: string): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", researchStage: stage, temperature: 0, thinking: false, timeoutMs: 背调超时.模型每次, maxTokens: 背调输出上限, ...(stage === "approach" ? { reasoningEffort: 背调打分推理强度 } : {}) });
+  const opts = (stage: 阶段号, 模型名?: string, 推理?: ChatOpts["reasoningEffort"]): ChatOpts => ({ model: 模型名 ?? 通道.摘要模型 ?? 通道.模型, signal, requestId: runId, feature: "research", researchStage: stage, temperature: 0, thinking: false, timeoutMs: 背调超时.模型每次, maxTokens: 背调输出上限, ...(stage === "approach" ? { reasoningEffort: 推理 ?? 背调打分推理强度 } : {}) });
   /** 用原生 function calling；对面不吃 tools 时退回 JSON 协议（和首页 agent 同一个判断） */
   let 用原生 = true;
 
@@ -369,7 +381,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     发({ type: "tool", stage, id, kind: "read", label, status: "running" });
     try {
       const p = await 通道.读页(runId, url, signal);
-      材料.push({ n: 材料.length + 1, kind: "read", title: p.title || 名, url: p.url || url, text: p.text, ...(p.url && p.url !== url ? { 别名: url } : {}) });
+      材料.push({ n: 材料.length + 1, kind: "read", title: p.title || 名, url: p.url || url, text: p.text, ...(p.url && p.url !== url ? { 别名: url } : {}), ...(是官网公司页(p.url || url) ? { 长: true as const } : {}) });
       const 字 = p.text.length >= 1000 ? `${(p.text.length / 1000).toFixed(1)}k 字` : `${p.text.length} 字`;
       发({ type: "tool", stage, id, kind: "read", label, status: "done", result: `1 页 · ${字}`, ms: Date.now() - t0, sources: [{ title: p.title || 名, url: p.url || url }] });
       发({ type: "usage", searches: 搜索数 + 社媒数, pages: 读页数 });
@@ -469,14 +481,14 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
    * 本步的结论：单独问一次 JSON（查 没交出来时，以及最后那一步）。前缀和 查 一样，缓存照样命中。
    * 回的不是合法 JSON、被截断了就再要一次：那是模型的毛病，不该让整次背调停在这一步
    */
-  const 结论 = async (stage: 阶段号, 要什么: string, 模型名?: string): Promise<Record<string, unknown>> => {
+  const 结论 = async (stage: 阶段号, 要什么: string, 模型名?: string, 推理?: ChatOpts["reasoningEffort"]): Promise<Record<string, unknown>> => {
     const 问 = () =>
       模型.json(
         [
           ...前缀(),
           { role: "user", content: `这一步：${本步目标[stage]}\n只输出这一步的结论 JSON，不要任何 JSON 之外的文字或 Markdown 代码块标记：${要什么}\n${来源规矩}` },
         ],
-        opts(stage, 模型名),
+        opts(stage, 模型名, 推理),
       );
     let raw: unknown;
     try {
@@ -489,7 +501,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
   };
   const 材料里的 = (u: unknown) => 认来源(材料, u);
 
-  let 风险们: 风险[] = [];
+  let 风险们: (风险 & { 应对?: string })[] = [];
   let 必查们: 必查项[] = [];
   let 型号们: 在卖型号[] = [];
   // 模型写的来源 → 那条材料的原文（同一个网址搜到过又读过的拼在一起）：型号名、联系人要在原文里核（extras.ts）
@@ -497,21 +509,27 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     const url = 认来源(材料, u);
     return url ? { url, text: 材料.filter((m) => m.url === url).map((m) => `${m.title}\n${m.text}`).join("\n") } : undefined;
   };
-  /** 材料里官网上的公司历史页（history / our story / Geschichte…），没读过的第一条 */
-  const 官网历史页 = (): string | undefined => {
+  /** 网址在官网上、路径像某一类页（历史 / 设施 / 公司介绍） */
+  const 官网上的 = (u: string, 路径: RegExp): boolean => {
     const 站 = 状态.fields.site?.value;
     const 主 = 站 ? 主域名(站) : undefined;
-    if (!主) return undefined;
-    return 材料
-      .map((m) => m.url)
-      .find((u) => {
-        if (读过.has(u) || 主域名(u) !== 主) return false;
-        try {
-          return 历史页路径.test(new URL(u).pathname);
-        } catch {
-          return false;
-        }
-      });
+    if (!主 || 主域名(u) !== 主) return false;
+    try {
+      return 路径.test(new URL(u).pathname);
+    } catch {
+      return false;
+    }
+  };
+  function 是官网公司页(u: string): boolean {
+    return 官网上的(u, 历史页路径) || 官网上的(u, 设施页路径) || 官网上的(u, 公司页路径);
+  }
+  /**
+   * 材料里官网上的公司历史页（history / our story / Geschichte…）和生产 / 测试设施页，各取没读过的第一条。
+   * 被收购、母公司、自有工厂、在中国的团队常只写在这两页（10-18 免费对比复核：Ansell 的 history 页写着 2014 年被 Endo 收购）
+   */
+  const 官网公司页 = (): string[] => {
+    const 没读 = [...new Set(材料.map((m) => m.url))].filter((u) => !读过.has(u));
+    return [没读.find((u) => 官网上的(u, 历史页路径)), 没读.find((u) => 官网上的(u, 设施页路径) && !官网上的(u, 历史页路径))].filter((u): u is string => Boolean(u));
   };
 
   /*
@@ -590,12 +608,13 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     identify: '{"认准":true|false,"官网":"网址或空","全称":"材料里写的登记全称（带 GmbH / Ltd 之类）或空","国家城市":"…或空","说明":"一句话：凭什么认定是这一家，或者为什么拿不准","来源":"材料编号或网址"}',
     basics:
       '{"字段":{"country":{"value":"…","source":"材料编号或网址"},"founded":{…},"size":{…},"business":{…},"buyerType":{…},"contact":{…}},"联系人":[{"岗位":"中文","姓名":"原文","电话":"原文","邮箱":"原文","来源":"材料编号或网址"}],"小结":"一句话"}。查不到的字段不要写。value 用中文短语（≤30 字）。' +
-      "联系人最多 3 位，只写公司官网 / 名录 / 新闻稿 / LinkedIn 上公开的业务联系人，姓名电话邮箱照材料原文抄，没有的格子不写；不写私人信息（住址、家人、私人社交）",
+      "联系人最多 3 位，只写公司官网 / 名录 / 新闻稿 / LinkedIn 上公开的业务联系人，优先出口 / 国际业务（export / international）和采购的公开邮箱，姓名电话邮箱照材料原文抄，没有的格子不写；不写私人信息（住址、家人、私人社交）",
     fit: '{"型号":[{"型号":"产品页上原样写的型号名","是什么":"一句话（中文）","来源":"材料编号或网址"}],"小结":"一句话：从材料看它和我们的业务对不对口（品类、买家类型、市场、规模），先不打分"}。型号最多 3 个，必须是材料原文里写着的；没有就空数组',
     signals: '{"信号":[{"text":"一句话（中文）","source":"材料编号或网址"}],"小结":"一句话"}。最多 4 条，优先近一年的；没有就空数组',
     risks:
-      '{"必查":{"母公司":{"结论":"一句话（中文）","级别":"none|low|mid|high","来源":"材料编号或网址"},"财务":{…},"同行":{"结论":"…","是":"是|部分|否|查不到","级别":"…","来源":"…"},"市场":{…}},"风险":[{"级别":"low|mid|high","说明":"一句话（中文）","来源":"材料编号或网址"}],"小结":"一句话，只写事实"}。' +
+      '{"必查":{"母公司":{"结论":"一句话（中文）","级别":"none|low|mid|high","来源":"材料编号或网址","应对":"…"},"财务":{…},"同行":{"结论":"…","是":"是|部分|否|查不到","级别":"…","来源":"…","应对":"…"},"市场":{…}},"风险":[{"级别":"low|mid|high","说明":"一句话（中文）","来源":"材料编号或网址","应对":"…"}],"小结":"一句话，只写事实"}。' +
       "必查四项都要写；查不到的写 {\"结论\":\"查不到\"}、不写来源。级别 none = 查了、没问题。" +
+      "级别不是 none 的、和「风险」里每一条，写一句「应对」（30 字以内，我们这边怎么办：先问清什么、准备什么材料）。" +
       "例：母公司是有自己工厂的照明集团 → 同行「部分」、级别 mid；集团宣布退出中东 → 市场 mid（目标市场在中东时 high）；被私募股东再融资 / 债务重组 → 财务 mid。" +
       "「风险」只列必查四项以外的（付款、诉讼、投诉、负面新闻），没有就空数组",
   } as const;
@@ -645,13 +664,13 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     async risks() {
       // 母公司 / 股东：程序先定向搜一次（owned by / parent company / acquired by / subsidiary of），不让模型自己挑词
       if (!钱到了) await 搜("risks", 母公司查询(社媒名));
-      // 搜到官网的公司历史页就读一次：被收购、母公司常只写在那（10-18 免费对比复核：Ansell 的 history 页写着 2014 年被 Endo 收购，报告只读了 about-us）
-      const 史 = 官网历史页();
-      if (史 && !钱到了) await 读("risks", 史);
+      // 搜到官网的公司历史页、生产 / 测试设施页就各读一次（两页一起读，不多占时间）：被收购、母公司、自有工厂常只写在那
+      // （10-18 免费对比复核：Ansell 的 history 页写着 2014 年被 Endo 收购，报告只读了 about-us）
+      if (!钱到了) await Promise.all(官网公司页().map((u) => 读("risks", u)));
       const r =
         (await 查(
           "risks",
-          "母公司已经按「owned by / parent company / acquired by / subsidiary of」专门搜过一次，官网的公司历史页（history）搜到了也读过了，都在材料里，先看它们（没搜到再换登记全称或当地语言试一次）；再搜近两年财务（年报、再融资、重组新闻），再搜付款纠纷、投诉、诉讼、破产。" +
+          "母公司已经按「owned by / parent company / acquired by / subsidiary of」专门搜过一次，官网的公司历史页（history）、生产 / 测试设施页搜到了也读过了，都在材料里，先看它们（没搜到再换登记全称或当地语言试一次）；再搜近两年财务（年报、再融资、重组新闻），再搜付款纠纷、投诉、诉讼、破产。" +
             "拿不准是不是这一家的（同名的别家公司）不要列进风险。",
           要.risks,
         )) ?? (await 结论("risks", 要.risks));
@@ -660,10 +679,10 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       风险们 = (Array.isArray(r.风险) ? (r.风险 as Record<string, unknown>[]) : [])
         .filter((x) => x && (x.级别 === "low" || x.级别 === "mid" || x.级别 === "high") && 短(x.说明, 240))
         .slice(0, 4)
-        .map((x) => ({ 级别: x.级别 as 风险["级别"], 说明: 短(x.说明, 240), 来源: 材料里的(x.来源) }))
+        .map((x) => ({ 级别: x.级别 as 风险["级别"], 说明: 短(x.说明, 240), 来源: 材料里的(x.来源), 应对: 短(x.应对, 120) }))
         // 模型自己都说「无法确认是同一主体」的不算这家的风险（10-18 复核：澳洲手套公司 Ansell Ltd 的集体诉讼混进了 Ansell Lighting 的风险）
         .filter((x) => x.来源 && !拿不准同一家.test(x.说明));
-      for (const x of 风险们) 发({ type: "tag", tone: "risk", level: x.级别, text: x.说明, source: x.来源 });
+      for (const x of 风险们) 发({ type: "tag", tone: "risk", level: x.级别, text: x.说明, source: x.来源, ...(x.应对 ? { 应对: x.应对 } : {}) });
       return 短(r.小结, 300) || (风险们.length || 必查们.some((x) => x.级别 !== "none") ? undefined : "没查到明显风险");
     },
     /**
@@ -676,8 +695,7 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       const 名录 = 核验回?.进口 ? 进口摘要(核验回.进口) : null;
       // 必查里「是不是同行」判了「是」：切入先确认它外不外采（复核第 6 点）
       const 同行 = 必查们.find((x) => x.key === "同行")?.是;
-      const r = await 结论(
-        "approach",
+      const 评估要 =
         "对下面 5 项各评一档（high / mid / low / unknown），每项一句证据和来源（材料编号或网址）：\n" +
           "category 品类匹配：它卖的 / 用的产品和我们的重合多少\n" +
           // 10-17 AC 回放：同材料同配置跑两遍，这两项在 high / mid 之间来回摇摆（每家分数差 7–9 分），判档条件写死
@@ -694,13 +712,12 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
           "  认证没提到不扣档；只有材料写明它要某个认证、而我们的简介里没有，才降一档。\n" +
           "scale 规模与采购力\nsignals 近期信号：在招人、扩品类、参展、开新店（近一年）\n" +
           `再和我们的老客户比像不像（国家、品类、买家类型、规模），最多挑 3 位，按编号回：\n${老客户表文本(input.老客户)}\n` +
-          "最后给 3 条以内切入建议，每条一句话，具体到找谁、聊什么、推什么。\n" +
-          (同行 === "是" ? "风险那一步判了「是同行」（多半是竞争对手，不是买家）：切入建议第一条先写「先确认它外不外采」，再谈 OEM。\n" : "") +
-          (型号们.length
-            ? `型号对比：拿它在卖的这几个型号（${型号们.map((m) => m.型号).join("、")}），各挑我们业务简介里最接近的一类产品，一句话说怎么比（价格档、参数、认证、交期，材料里有什么说什么，不编数字）。\n`
-            : "") +
-          "开发信：用英文写一封给这家公司的开发信（120–200 词），收件人用上面查到的联系人岗位 / 姓名（没有就写 Purchasing team），开头一句说明为什么找它（引用材料里查到的具体事实），" +
-          "中间说我们能提供什么，结尾一个具体的下一步（寄样 / 报价 / 约 15 分钟电话）。不编我们没有的认证和数字。\n" +
+          "客户画像：一句话说它是哪类客户（例：英国照明品牌商 / 潜在 OEM 客户，不是普通进口商），再写开发前最要先弄清的 1–2 件事（具体到这家，比如它外不外采、接不接受我们的起订量），每句 40 字以内。\n" +
+          (同行 === "是" ? "风险那一步判了「是同行」：先弄清的第一件写「它外不外采」。\n" : "") +
+          "关键发现：最多 2 条和开发策略有关的事实（优先从官网的公司介绍、历史、生产 / 测试设施页找：自有工厂、在中国的团队、被谁收购、主要渠道），每条带来源，再各写一句对我们是机会还是障碍（可以两样都写，各 40 字以内）。\n" +
+          "产品匹配：按我们业务简介里的品类，最多 3 类，各写匹配度（高 / 中 / 低）、它官网上原样写的系列名（材料里没有就空数组，不编）、开发优先级（优先 / 选择性 / 谨慎）、一句依据、一句要准备什么（参数、认证、资料），带来源。" +
+          (型号们.length ? `它在卖的型号（${型号们.map((m) => m.型号).join("、")}）可以拿来对。` : "") +
+          "\n" +
           "小结只写事实，不要写值不值得开发、要不要跟进——结论由程序按分数定。\n" +
           `程序直查的真实性结果（灯是代码按规则定的，你不能改，也不要另编事实）：\n${真实性文本(真实)}\n` +
           (名录
@@ -708,9 +725,26 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
             : "进口记录：材料里有没有这家公司公开的进口 / 提单 / 海关记录（公开提单页、年报里写的进口量、行业媒体报道）。有就写一句摘要并带来源；没有就 {\"有\":false}。" +
               "不许估算：不从员工数、门店数倒推，也不拿国家或品类的宏观数据充数。\n") +
           "真实性：一句话（60 字以内），结合上面程序直查的结果和材料，说这家公司真不真、要留意什么；不能和程序结果矛盾。\n" +
-          '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"材料编号或网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"建议":["…"],"型号对比":[{"对方":"它的型号","我们":"我们的哪类产品","怎么比":"一句话"}],"开发信":{"主题":"英文","正文":"英文"},"进口记录":{"有":true,"摘要":"一句话","来源":"材料编号或网址"},"真实性":"一句话","小结":"一句话"}',
-        通道.模型,
-      );
+          '{"评档":[{"维度":"category","档":"high","证据":"…","来源":"材料编号或网址"},…],"像的老客户":[{"编号":1,"档":"high","像在哪":"一句话"}],"画像":{"类型":"…","先验证":["…"]},"发现":[{"事实":"…","机会":"…","障碍":"…","来源":"材料编号或网址"}],"匹配":[{"品类":"我们的哪类产品","匹配":"高|中|低","系列":["它的系列名"],"开发":"优先|选择性|谨慎","依据":"…","准备":"…","来源":"材料编号或网址"}],"进口记录":{"有":true,"摘要":"一句话","来源":"材料编号或网址"},"真实性":"一句话","小结":"一句话"}';
+      /*
+        切入步骤和开发信单独一次、和上面那次并行问（10-18 A+D 结构）：输出多了几块，拆开不加等待时间；
+        前缀一样，提示缓存照样命中，只多一次缓存读。写信不用打分那么深的推理
+      */
+      const 切入要 =
+        "切入步骤：按这家的情况写 4 样，每样一句话（40 字以内）：切口 = 先拿我们哪类产品、对标它哪个系列；" +
+        "找谁 = 2–4 个要找的岗位名（英文原名，比如 Product Manager、Sourcing Manager，只写岗位、不编人名）；" +
+        "提案 = 第一次发的精简提案（3–5 页）里放哪几样；先问 = 报价前先问清的 2–3 个采购机制问题（外不外采、开不开放新供应商、起订量怎么算、要不要验厂）。\n" +
+        (同行 === "是" ? "风险那一步判了「是同行」（多半是竞争对手，不是买家）：先问的第一条写「外不外采」。\n" : "") +
+        "开发信：用英文写一封给这家公司的开发信（120–200 词），收件人用材料里查到的联系人岗位 / 姓名（没有就写 Purchasing team），开头一句说明为什么找它（引用材料里查到的具体事实），" +
+        "中间说我们能提供什么，结尾一个具体的下一步（寄样 / 报价 / 约 15 分钟电话）。不编我们没有的认证和数字。\n" +
+        '{"切入":{"切口":"…","找谁":["…"],"提案":"…","先问":["…"]},"开发信":{"主题":"英文","正文":"英文"}}';
+      const [评, 切] = await Promise.allSettled([结论("approach", 评估要, 通道.模型), 结论("approach", 切入要, 通道.模型, "low")]);
+      if (评.status === "rejected") throw 评.reason;
+      if (切.status === "rejected" && signal?.aborted) throw 切.reason;
+      // 切入那次没成：报告照出（没有切入步骤和开发信），标「材料不全」
+      if (切.status === "rejected") 不完整 = true;
+      const r = 评.value;
+      const q = 切.status === "fulfilled" ? 切.value : {};
       // 进口记录：英国公司先看服务器直查的 HMRC 进口商名录（程序查的，模型改不了）；查到就用它，盖过模型那句。
       // 否则用模型从材料里认的：来源必须是这次真读过 / 搜到的材料（认来源），对不上就当没有——模型没法凭空写出一条进口记录
       const 进 = r.进口记录 && typeof r.进口记录 === "object" ? (r.进口记录 as Record<string, unknown>) : {};
@@ -727,12 +761,40 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       const 老客户档: 评档 = { 维度: "similar", 档: 老客户维度档(像, input.老客户.length), 证据: 像[0] ? `像 ${像[0].name}：${像[0].像在哪}` : undefined };
       // 必查里有级别的几项也算风险（进风险级别和「先核实」结论），同行那一项的判断拿去封顶（score.ts）
       发({ type: "score", 评分: 算相关性([...网上评档, 老客户档], [...风险们, ...必查转风险(必查们)], {}, { 同行 }) });
-      let points = (Array.isArray(r.建议) ? r.建议 : []).map((x) => 净(短(x, 400))).filter(Boolean).slice(0, 3);
-      if (同行 === "是" && !/外不外采|外采|对外采购|外包/.test(points[0] ?? "")) points = [先确认外采, ...points].slice(0, 3);
+      const 画像 = 认画像(r.画像);
+      if (画像) {
+        const 先验证 = 同行 === "是" && !画像.先验证.some((x) => /外不外采|外采|对外采购|外包/.test(x)) ? ["它外不外采（自己生产同类产品，多半是竞争对手）", ...画像.先验证].slice(0, 2) : 画像.先验证;
+        发({ type: "profile", 类型: 净(画像.类型) || 画像.类型, 先验证: 先验证.map((x) => 净(x)).filter(Boolean) });
+      }
+      const 发现们 = 认发现(r.发现, 找原文).map((x) => ({ ...x, 事实: 净(x.事实) || x.事实 }));
+      if (发现们.length) 发({ type: "findings", items: 发现们 });
+      const 匹配们 = 认匹配(r.匹配, 找原文);
+      if (匹配们.length) 发({ type: "match", items: 匹配们 });
+      发({ type: "certs", 提醒: 认证提醒(input.b.brief, 状态.fields.country?.value) });
+      // 切入步骤：切口跟着产品匹配里「优先」那一行走（两次是并行问的，免得两处说法不一样）；联系入口用核过原文的联系人
+      const 切入 = q.切入 && typeof q.切入 === "object" ? (q.切入 as Record<string, unknown>) : null;
+      const 列字 = (v: unknown, n: number, 长: number) => (Array.isArray(v) ? v : []).map((x) => 短(x, 长)).filter(Boolean).slice(0, n);
+      let points: string[];
+      if (切入) {
+        const 优先 = 匹配们.find((x) => x.开发 === "优先") ?? 匹配们[0];
+        const 切口 = 优先 ? `先拿${优先.品类}切入${优先.系列.length ? `，对标它的 ${优先.系列.slice(0, 2).join("、")}` : ""}${优先.准备 ? `；准备：${优先.准备}` : ""}` : 短(切入.切口, 160);
+        const 找谁 = 列字(切入.找谁, 4, 60);
+        const 先问 = 列字(切入.先问, 3, 80);
+        const 邮箱们 = (状态.联系人 ?? []).filter((c) => c.邮箱).sort((a, b) => Number(/出口|国际|export|international/i.test(b.岗位 ?? "")) - Number(/出口|国际|export|international/i.test(a.岗位 ?? ""))).slice(0, 2);
+        points = [
+          切口 && `选产品切口：${切口}`,
+          找谁.length && `找对人：优先找 ${找谁.join("、")}（建议去找的岗位，不代表已经确认有这个人）`,
+          短(切入.提案, 160) && `发精简提案：${短(切入.提案, 160)}`,
+          先问.length && `先问采购机制，再报价：${先问.join("；")}`,
+          邮箱们.length && `联系入口：${邮箱们.map((c) => `${c.岗位 ? `${c.岗位} ` : ""}${c.邮箱}`).join("；")}（官网公开的），英文开发信在下面`,
+        ].filter((x): x is string => Boolean(x)).map(净).filter(Boolean);
+      } else points = (Array.isArray(q.建议) ? q.建议 : Array.isArray(r.建议) ? r.建议 : []).map((x) => 净(短(x, 400))).filter(Boolean).slice(0, 3);
+      if (同行 === "是" && !/外不外采|外采|对外采购|外包/.test(points[0] ?? "")) points = [先确认外采, ...points];
       if (points.length) 发({ type: "approach", points });
-      const 比 = 认型号对比(r.型号对比, 型号们).map((x) => ({ ...x, 怎么比: 净(x.怎么比) || x.怎么比 }));
+      // 老的「型号对比」：新提示词不再要（产品匹配顶替了），模型自己给了还照收
+      const 比 = 认型号对比(q.型号对比 ?? r.型号对比, 型号们).map((x) => ({ ...x, 怎么比: 净(x.怎么比) || x.怎么比 }));
       if (比.length) 发({ type: "compare", items: 比 });
-      const 信 = 认开发信(r.开发信);
+      const 信 = 认开发信(q.开发信 ?? r.开发信);
       if (信) 发({ type: "email", ...信 });
       发(
         有名录 && 名录 && 核验回?.进口

@@ -68,6 +68,14 @@ test("首页说「帮我背调 XX」：先出确认卡，开始后 6 步展开�
   await expect(真).toContainText("Facebook 主页：有");
   await expect(卡.locator(".rs-fit-light")).toContainText("真实性");
   await expect(卡.locator(".rs-fields")).toContainText("进口记录");
+  // A+D 结构（10-19）：结论 + 画像、已核实、关键发现、产品匹配（系列名不在原文里的丢掉）、切入步骤
+  await expect(卡.locator(".rs-lead")).toContainText("德国照明进口分销商");
+  await expect(卡.locator(".rs-lead-first li")).toHaveCount(2);
+  await expect(卡.locator(".rs-verified")).toBeVisible();
+  await expect(卡.locator(".rs-finds li")).toHaveCount(2);
+  await expect(卡.locator(".rs-match")).toHaveCount(2);
+  await expect(卡.locator(".rs-matches")).not.toContainText("编的系列");
+  await expect(卡.locator(".rs-approach li").first()).toContainText("UFO 工矿灯");
 
   // 3. 存进客户：库里没有像的，新建一位（邮箱已经按查到的填好）
   await 卡.getByRole("button", { name: "存进客户" }).click();
@@ -85,6 +93,11 @@ test("首页说「帮我背调 XX」：先出确认卡，开始后 6 步展开�
     expect(报告?.content).toContain("【来源】");
     expect(报告?.content).toContain("https://lumora-trading.example/about");
     expect(报告?.content).toContain("【真实性】");
+    const 文 = 报告?.content ?? "";
+    for (const [前, 后] of [["【结论】", "【已核实】"], ["【已核实】", "【关键发现】"], ["【关键发现】", "【产品匹配】"], ["【产品匹配】", "【切入步骤】"], ["【切入步骤】", "【来源】"]]) {
+      expect(文.indexOf(前), `${前} 要有`).toBeGreaterThanOrEqual(0);
+      expect(文.indexOf(前), `${前} 在 ${后} 前面`).toBeLessThan(文.indexOf(后));
+    }
   } finally {
     await db.$disconnect();
   }
@@ -184,7 +197,7 @@ test("只有人名 + 电话（10-18）：先判号码，找公司出候选，点
   await expect(卡.locator(".rs-from-person")).toBeVisible();
   await expect(卡.locator(".rs-trust")).toContainText("人和号码");
   // 10-18 对比免费产品加的几块，整条链接得上（假模型按步骤回固定答案）
-  await expect(卡).toContainText("风险必查");
+  await expect(卡).toContainText("必查四项");
   await expect(卡).toContainText("在卖的型号");
   await expect(卡).toContainText("HB-150");
   await expect(卡).toContainText("英文开发信");
