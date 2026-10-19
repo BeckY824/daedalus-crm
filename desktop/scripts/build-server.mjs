@@ -145,6 +145,8 @@ const 拷 = (从, 到) => {
 拷(".next/standalone/src/generated", "src/generated");
 拷(".next/static", ".next/static");
 拷("public", "public");
+// 扫名片的模型和运行库（≈ 110 MB）只给手机伴侣用，手机连的是云端，桌面本地服务用不上
+fs.rmSync(path.join(OUT, "public/ocr"), { recursive: true, force: true });
 /**
  * Next 的依赖追踪会漏掉 Prisma（客户端是 generate 出来的，不是静态引用），
  * 不显式拷贝的话应用一查库就 MODULE_NOT_FOUND。和 Dockerfile 里同一处理。

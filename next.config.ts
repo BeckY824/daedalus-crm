@@ -1,4 +1,16 @@
 import type { NextConfig } from "next";
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
+
+/**
+ * 扫名片的识别运行库（public/ocr/v1，scripts/build-ocr.mjs 从 node_modules 打出来，不进仓库）。
+ * 放在这里而不是 package.json 的 build：next dev / next build 有好几处直接调（e2e、桌面打包、Dockerfile），
+ * 哪一处起服务都先补上；已经有了就不动
+ */
+if (!existsSync(path.join(process.cwd(), "public/ocr/v1/paddle.js"))) {
+  execFileSync(process.execPath, [path.join(process.cwd(), "scripts/build-ocr.mjs")], { stdio: "inherit" });
+}
 
 /**
  * 安全响应头放在这里而不是反代里：托管版前面是 Caddy，自部署的人多半直接裸露 3000 端口，
@@ -35,6 +47,9 @@ const 静态资源前缀 = process.env.ASSET_PREFIX?.trim() || undefined;
 const nextConfig: NextConfig = {
   // 容器部署：产出自带最小 node_modules 的独立 server.js
   output: "standalone",
+  // Prisma 生成的客户端里有动态路径，Turbopack 会把整个项目追进 standalone（含 public/）；Dockerfile 另外再拷一遍 public，
+  // 扫名片的 115 MB 识别文件就会在镜像里出现两份。public/ocr 不追，只走 COPY public 那一份
+  outputFileTracingExcludes: { "*": ["public/ocr/**"] },
 
   assetPrefix: 静态资源前缀,
 
@@ -42,7 +57,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
 
   async headers() {
-    return [{ source: "/:path*", headers: 安全头 }];
+    return [
+      { source: "/:path*", headers: 安全头 },
+      // 扫名片的模型和运行库：几十 MB，第一次下完就别再问服务器（展会上没网也能认）。换内容时目录 v1 → v2
+      { source: "/ocr/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+    ];
   },
 
   experimental: {
