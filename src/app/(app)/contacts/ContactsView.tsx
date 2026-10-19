@@ -117,7 +117,7 @@ export default function ContactsView({
             未归属
           </span>
         ) : (
-          <CustomerLink id={r.customerId} name={v} />
+          <CustomerLink id={r.customerId} name={v} company={r.school} />
         ),
     },
     // 「关系」就是他和这位的关系（本人、采购、财务；教培里是母亲、父亲），候选跟着业务配置走
@@ -183,7 +183,7 @@ export default function ContactsView({
         }}
         筛选={
           <Space wrap size={[10, 10]}>
-            <ListSearch width={300} placeholder={`姓名 / 电话 / 微信 / ${b.customer}`} value={kw} onChange={setKw} onSearch={search} />
+            <ListSearch width={300} placeholder={`姓名 / 电话 / 微信 / ${b.customer} / ${b.fields.school}`} value={kw} onChange={setKw} onSearch={search} />
             <Select
               style={{ width: 140 }}
               placeholder="全部关系"

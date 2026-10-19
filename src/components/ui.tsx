@@ -191,14 +191,27 @@ export function StageTag({ stage }: { stage: string }) {
   );
 }
 
-export function CustomerLink({ id, name }: { id: string; name: string }) {
+/**
+ * 列表里「所属客户」那一格。给了 company（Customer.school，外贸叫公司、教培叫学校）就摆两行：
+ * 上面人名可点，下面公司灰色小字、一行省略、悬停看全名（2026-10-19 用户定：不加新列，同一格两行）。
+ * 没填公司不占第二行。logo={false} 给本来就不摆头像的列表（订单一览）用
+ */
+export function CustomerLink({ id, name, company, logo = true }: { id: string; name: string; company?: string | null; logo?: boolean }) {
+  const 公司 = company?.trim();
   return (
-    <Space size={10}>
-      <CompanyLogo name={name} />
-      <Link href={`/customers/${id}`} className="link-strong">
-        {name}
-      </Link>
-    </Space>
+    <span className="cust-link">
+      {logo && <CompanyLogo name={name} />}
+      <span className="cust-link-t">
+        <Link href={`/customers/${id}`} className="link-strong">
+          {name}
+        </Link>
+        {公司 && (
+          <span className="cust-link-co" title={公司}>
+            {公司}
+          </span>
+        )}
+      </span>
+    </span>
   );
 }
 

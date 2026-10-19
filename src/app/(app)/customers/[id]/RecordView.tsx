@@ -1084,9 +1084,9 @@ function FollowItem({ f, showOwner, index, onEdit, onDelete }: { f: FollowUpRow;
           {f.title?.trim() && <span className="rec-tl-title" title={f.title}>· {f.title}</span>}
           {/* 挂在订单上的（2026-10-05）：标出订单号，点过去看这张订单的全部跟进。标题已经写着这个订单号就不重复 */}
           {f.order && !f.title?.includes(f.order.no) && (
-            <Link href={`/orders/${f.order.id}`} className="rec-tl-order">订单 {f.order.no}</Link>
+            <Link href={`/orders/${f.order.id}`} className="rec-tl-order" title={`订单 ${f.order.no}`}>订单 {f.order.no}</Link>
           )}
-          {f.opportunity && <Link href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order">关联商机：{f.opportunity.name}</Link>}
+          {f.opportunity && <Link href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order" title={`关联商机：${f.opportunity.name}`}>关联商机：{f.opportunity.name}</Link>}
           {f.status !== "已完成" && (
             <Tag color={FOLLOW_RECORD_STATUS_COLOR[f.status] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
               {f.status}

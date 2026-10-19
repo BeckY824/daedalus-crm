@@ -49,6 +49,8 @@ export type OppRow = {
   remark: string | null;
   customerId: string;
   customerName: string;
+  /** 公司（Customer.school）：所属客户那一格的第二行 */
+  customerCompany?: string | null;
   ownerId: string;
   ownerName: string;
   /** 编辑框的版本号：保存时带回去，期间有人改过就不盖掉（排查 D3，lib/edit-version.ts） */
@@ -322,7 +324,7 @@ export default function OpportunitiesView({
     },
     {
       title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 170,
-      render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
+      render: (v, r) => <CustomerLink id={r.customerId} name={v} company={r.customerCompany} />,
     },
     {
       title: "金额", key: "amount", dataIndex: "amount", width: 110,
@@ -507,7 +509,7 @@ export default function OpportunitiesView({
           <Space wrap size={[10, 10]}>
             <ListSearch
               width={240}
-              placeholder={`商机名称 / ${b.customer}`}
+              placeholder={`商机名称 / ${b.customer} / ${b.fields.school}`}
               value={f.keyword}
               onChange={(v) => setF({ ...f, keyword: v })}
               onSearch={(v) => apply({ keyword: v })}

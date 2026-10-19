@@ -26,6 +26,7 @@ export default async function ContactsPage({
           // 搜索框写着能搜微信（2026-10-02 排查 H6）
           { wechat: { contains: 词 } },
           { customer: { name: { contains: 词 } } },
+          { customer: { school: { contains: 词 } } },
         ],
       }
     : {};
