@@ -85,6 +85,17 @@ export async function 改团队到期(input: { token: string; teamId: string; da
   return { ok: true };
 }
 
+/** 只改人数上限（2026-10-19）：客户要加人 / 减人时改，不动到期日、不收钱；下一次入队、批准设备马上按新数拦 */
+export async function 改团队人数(input: { token: string; teamId: string; seats: number; note?: string }): Promise<AdminResult> {
+  const g = await guard(input.token);
+  if (!g.ok) return g;
+  const { 改人数 } = await import("@/lib/tenant/team-plan");
+  const r = await 改人数({ teamId: String(input.teamId), seats: Number(input.seats), note: input.note, by: await 运营者() });
+  if (!r.ok) return r;
+  revalidatePath("/admin", "layout");
+  return { ok: true };
+}
+
 /** 团队同步：停用（2026-10-03）。成员推拉都回「还没开通」，本机数据不受影响；到期日不动，之后续费照常顺延 */
 export async function 停用团队(input: { token: string; teamId: string; note?: string }): Promise<AdminResult> {
   const g = await guard(input.token);

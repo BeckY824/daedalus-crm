@@ -20,6 +20,7 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { control } from "./control";
 import { 登记设备, 在队里, 每人设备上限, 设备满了, 记要换钥匙 } from "./sync-relay";
 import { 吊销 } from "./device-token";
+import { 席位闸 } from "./team-plan";
 import { 封给 } from "../sync/crypto";
 
 type 结果<T> = ({ ok: true } & T) | { ok: false; 状态: number; error: string };
@@ -139,6 +140,9 @@ export async function 允许(accountId: string, id: string, teamId: string, seal
     if (!对) return 错(403, "没能确认是团队里的这台设备，请重试");
     const 机 = await tx.syncDevice.findUnique({ where: { teamId_device: { teamId, device: r.proofDevice ?? "" } } });
     if (!机 || 机.accountId !== accountId) return 错(403, "这台设备不在这个团队里");
+    // 席位（2026-10-19）：本人加手机 / 电脑不占人数，只在人数已经超过运营台填的上限时拦（lib/tenant/team-plan.ts 席位闸）
+    const 满 = await 席位闸(teamId, false, tx);
+    if (满) return 错(409, 满);
     const 设备错 = await 登记设备(teamId, accountId, { device: r.device, pubKey: r.pubKey, tokenId: r.tokenId }, tx);
     if (设备错) return 错(409, 设备错);
     await tx.syncMobileLink.update({ where: { id: r.id }, data: { status: "approved", teamId, sealed, decidedAt: new Date() } });

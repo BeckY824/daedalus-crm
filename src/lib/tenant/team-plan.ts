@@ -7,11 +7,13 @@
  *
  * 到期 = 暂停同步：和「待开通 / 停用」同一道闸（同步闸），收推送、给拉取、范围同步都过它。
  * 每个人电脑上的数据照常能用，续费后自动恢复。没有到期日 = 不限期（10-15 之前开通的老团队）。
- * 席位：人数超了只在运营台提示，不拦（要拦先问用户）。
+ * 席位（2026-10-19 用户拍板要拦，原来只在运营台提示）：客户先说要几人，运营台开通时填的人数就是上限，以后要改找我们改。
+ * 满了新成员加入拦下（席位闸）；同一个人加电脑 / 手机不占人数，只在人数已经超过上限（运营台把人数改小了）时拦。
+ * 没填人数（10-19 之前开通的老团队）= 不限。运营台改人数下一次请求就生效（每次现查）。
  */
 import { control } from "./control";
 import type { Prisma } from "@/generated/control";
-import { 时长们, 时长名, 月数对, 默认价格, 新到期日, 同步闸, 没开通话, type 价格表 } from "@/lib/team-pricing";
+import { 时长们, 时长名, 月数对, 默认价格, 新到期日, 同步闸, 没开通话, 人满话, type 价格表 } from "@/lib/team-pricing";
 
 export * from "@/lib/team-pricing";
 
@@ -64,6 +66,17 @@ export async function 能同步(t: { id: string; active: boolean }, db: Db = con
   return 同步闸(t, await db.syncTeamPlan.findUnique({ where: { teamId: t.id } }), now);
 }
 
+/**
+ * 席位闸：加人 = 有新成员要进来（满了就拦）；不加人 = 本人加一台设备（人数已经超过上限才拦）。
+ * 人数按还在队里的成员算（含老板），和运营台「人数 / 席位」那一格同一个数
+ */
+export async function 席位闸(teamId: string, 加人: boolean, db: Db = control): Promise<string | null> {
+  const seats = (await db.syncTeamPlan.findUnique({ where: { teamId }, select: { seats: true } }))?.seats;
+  if (!seats) return null;
+  const n = await db.syncMember.count({ where: { teamId, leftAt: null } });
+  return (加人 ? n >= seats : n > seats) ? 人满话(seats) : null;
+}
+
 /* ---------------- 运营台的几个动作 ---------------- */
 
 type 结果 = { ok: true; paidUntil: Date | null } | { ok: false; error: string };
@@ -95,6 +108,20 @@ export async function 开通续费(
       data: { teamId: t.id, at: now, by: input.by, kind, months: "months" in 时长 ? 时长.months : null, days: "days" in 时长 ? 时长.days : null, seats: input.seats, amount: input.amount, before, after, note },
     });
     return { ok: true as const, paidUntil: after };
+  });
+}
+
+/** 只改人数（席位上限），不动到期日（2026-10-19）：客户要加人 / 减人时运营台改，下一次入队、批准设备就按新数拦 */
+export async function 改人数(input: { teamId: string; seats: number; note?: string; by: string }, now = new Date()): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!Number.isInteger(input.seats) || input.seats < 1 || input.seats > 100) return { ok: false, error: "人数要是 1 到 100 的整数" };
+  const note = String(input.note ?? "").trim().slice(0, 200) || null;
+  return control.$transaction(async (tx) => {
+    const t = await tx.syncTeam.findUnique({ where: { id: input.teamId } });
+    if (!t) return { ok: false as const, error: "团队不存在" };
+    const plan = await tx.syncTeamPlan.findUnique({ where: { teamId: t.id } });
+    await tx.syncTeamPlan.upsert({ where: { teamId: t.id }, update: { seats: input.seats, updatedAt: now }, create: { teamId: t.id, seats: input.seats, updatedAt: now } });
+    await tx.syncTeamPlanLog.create({ data: { teamId: t.id, at: now, by: input.by, kind: "改人数", seats: input.seats, before: plan?.paidUntil ?? null, after: plan?.paidUntil ?? null, note: note ?? (plan?.seats ? `原来 ${plan.seats} 人` : null) } });
+    return { ok: true as const };
   });
 }
 

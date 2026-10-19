@@ -79,3 +79,6 @@ export function 同步闸(t: { active: boolean }, plan: { paidUntil: Date | null
   if (已到期(plan, now)) return 到期话(plan!.paidUntil!);
   return null;
 }
+
+/** 席位满了那句话（入队、批准新设备、桌面端设置页同一句；2026-10-19 拍板要拦，见 tenant/team-plan.ts 席位闸） */
+export const 人满话 = (n: number) => `团队人数已满（${n} 人），要加人请私信我们`;

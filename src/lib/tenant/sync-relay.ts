@@ -15,7 +15,7 @@ import { control } from "./control";
 import { 范围开关 } from "./scoped-flag";
 import { workspaceDir } from "./clients";
 import { 包的编号, 是设备公钥 } from "@/lib/sync/crypto";
-import { 能同步, 已到期, 北京日期, 剩几天 } from "./team-plan";
+import { 能同步, 已到期, 北京日期, 剩几天, 席位闸 } from "./team-plan";
 
 /** 一批最大多少（base64 之后）。一次推送 2000 条改动压缩加密后也就几百 KB；大了多半是出了问题 */
 export const 一批上限 = 8 * 1024 * 1024;
@@ -117,6 +117,9 @@ export async function 入队(accountId: string, teamId: string, joinSecret: stri
     if (!t || !对) return 错(403, "邀请码不对或已经作废了，找老板要一个新的");
     const 已 = await tx.syncMember.findUnique({ where: { teamId_accountId: { teamId: t.id, accountId } } });
     if (!(已 && !已.leftAt) && (await tx.syncMember.count({ where: { teamId: t.id, leftAt: null } })) >= 20) return 错(409, "这个团队已经有 20 个人了");
+    // 席位（2026-10-19）：新进来的人（含被移出后重新加入）占一个；本人拿邀请码连第二台电脑不占，只在人数已超上限时拦
+    const 满 = await 席位闸(t.id, !(已 && !已.leftAt), tx);
+    if (满) return 错(409, 满);
     const 设备错 = await 登记设备(t.id, accountId, 设备, tx);
     if (设备错) return 错(409, 设备错);
     if (已 && 已.leftAt) await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date() } });
