@@ -618,6 +618,10 @@ describe("真实性（10-18）", () => {
     const 原 = m.json.bind(m);
     m.json = async (messages, o) => {
       const r = (await 原(messages, o)) as Record<string, unknown>;
+      if (全文(messages).includes("切入步骤：")) {
+        const q = r.切入 as Record<string, unknown>;
+        return { ...r, 切入: { ...q, 先问: ["它外不外采同类灯具", ...(q.先问 as string[])] } };
+      }
       return 全文(messages).includes("排查风险") ? { ...r, 必查: { 同行: { 结论: "自己生产户外灯具", 是: "是", 级别: "high", 来源: `${官网}/about` } } } : r;
     };
     const { 事件 } = await 跑({ 模型: m });
@@ -631,10 +635,14 @@ describe("真实性（10-18）", () => {
     expect(评估).toContain("小结只写事实");
     expect(评估).toContain("先弄清的第一件写「它外不外采」");
     const 切入 = m.调用.find((c) => c.prompt.includes("切入步骤："))!.prompt;
-    expect(切入).toContain("先问的第一条写「外不外采」");
+    expect(切入).toContain("先问里不要再写它");
     // 画像的「先弄清」和切入步骤第一条都先问外不外采
     expect(事件.find((e): e is Extract<研究事件, { type: "profile" }> => e.type === "profile")!.先验证[0]).toContain("外不外采");
-    expect(事件.find((e): e is Extract<研究事件, { type: "approach" }> => e.type === "approach")!.points[0]).toMatch(/^先确认它外不外采/);
+    const 步骤 = 事件.find((e): e is Extract<研究事件, { type: "approach" }> => e.type === "approach")!.points;
+    expect(步骤[0]).toMatch(/^先确认它外不外采/);
+    // 只说一处（10-19 用户定）：模型在「先问」里又写了外不外采也去掉，别的先问照留
+    expect(步骤.slice(1).join("\n")).not.toMatch(/外不外采|外采|外包/);
+    expect(步骤.find((x) => x.startsWith("先问采购机制"))).toContain("起订量怎么算");
   });
 
   it("英国公司服务器查到 HMRC 进口记录：盖过模型那句，来源是名录那条（带标题）；名录里没有就还用模型认的", async () => {
