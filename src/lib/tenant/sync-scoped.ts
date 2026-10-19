@@ -12,13 +12,14 @@ import { 当前编号, 在队里, 设备还在, 记设备在用 } from "./sync-r
 import { 范围开关 } from "./scoped-flag";
 import { 能同步 } from "./team-plan";
 import { 包的编号 } from "../sync/crypto";
-import { 合并范围, 推送可写, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
+import { 合并范围, 推送可写, 挂在已删的上, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
 
 /** denied：403 时被拒的包在本次 packets 里的下标（整批已回滚）；新客户端据此只把这几条转冲突、其余原样重推 */
-export class 范围错误 extends Error { constructor(public 状态: number, message: string, public denied?: number[]) { super(message); } }
+/** gone：denied 里挂在已删客户 / 商机下面的那几包（2026-10-19），手机据此说清「客户已被删」，不是「不归你了」 */
+export class 范围错误 extends Error { constructor(public 状态: number, message: string, public denied?: number[], public gone?: number[]) { super(message); } }
 /** 一次推送最多几包：转交 / 领取那一批要和它的起点快照放进同一次请求（见 推送可写），起点可能有几百包 */
 export const 范围单次上限 = 1000;
-function fail(status: number, message: string, denied?: number[]): never { throw new 范围错误(status, message, denied); }
+function fail(status: number, message: string, denied?: number[], gone?: number[]): never { throw new 范围错误(status, message, denied, gone); }
 const 根 = () => path.join(process.env.SYNC_DIR ?? path.join(workspaceDir(), "sync"), "scoped");
 const file = (digest: string) => path.join(根(), `${digest}.bin`);
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -170,7 +171,10 @@ export async function 收范围推送(accountId: string, teamId: string, device:
       for (const x of [...待定]) if (await 试(x)) { 待定.splice(待定.indexOf(x), 1); 有进展 = true; }
     }
     // 仍被拒：全部报出来（下标），整批回滚——新客户端只把这几条转成冲突、其余重推
-    if (待定.length) fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i));
+    if (待定.length) {
+      const gone = 待定.filter(x => 挂在已删的上(合并范围(rows.get(x.key), x.packet.meta, x.batchId), rows)).map(x => x.i);
+      fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i), gone);
+    }
     // stored = 本次新落库条数（重发的不算），客户端据此累计迁移批次数，回包丢失重试也不会重复计数
     return { received: packets.length, stored };
   }, { timeout: 60_000 });

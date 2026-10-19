@@ -47,6 +47,7 @@ export const 功能名: Record<string, string> = {
   parse: "速记解析",
   paste: "粘贴整理",
   import: "导入猜列",
+  research: "AI 背调",
   other: "其它",
 };
 export const 功能名之 = (f: string | null) => (f ? 功能名[f] ?? f : "未标注");

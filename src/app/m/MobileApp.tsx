@@ -1006,7 +1006,7 @@ function UnsyncedSheet({ 列, 说, on处理 }: { 列: { key: string; 来自: "�
   return (
     <div className="m-me-sheet">
       <div className="m-sheet-h"><span /><b>没同步上的跟进</b><span /></div>
-      <p className="m-note" style={{ padding: "0 4px 12px" }}>这些记录没进任何人的电脑（客户转给了别人，或者登录失效前没来得及传）。复制下来，在对的客户上重新记一笔或重新建。</p>
+      <p className="m-note" style={{ padding: "0 4px 12px" }}>这些记录没进任何人的电脑（客户转给了别人、被删了，或者登录失效前没来得及传）。复制下来，在对的客户上重新记一笔或重新建。</p>
       {列.length === 0 && <div className="m-empty">都处理完了</div>}
       {列.map((x) => (
         <section key={x.key} className="m-card">

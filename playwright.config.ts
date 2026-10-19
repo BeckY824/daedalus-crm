@@ -27,8 +27,9 @@ export default defineConfig({
    *   hosted 要 MULTI_TENANT=1 和另一套库，有自己的 config（npm run test:hosted）
    *   e2e-desktop/ 是桌面端本地模式那套（DESKTOP_LOCAL=1，另一个库和数据目录），npm run test:desktop。
    *     testDir 已经只指 e2e/，这里再排一遍：谁把 testDir 放宽到仓库根，也不会把它拉进网页模式里跑
+   *   team-qa-ops 是运营台排版压测，托管模式 + 自己的库（playwright.team-qa-ops.config.ts）
    */
-  testIgnore: ["**/ai-acceptance.spec.ts", "**/hosted.spec.ts", "**/e2e-desktop/**"],
+  testIgnore: ["**/ai-acceptance.spec.ts", "**/hosted.spec.ts", "**/e2e-desktop/**", "**/team-qa-ops.spec.ts"],
   globalSetup: "./e2e/global-setup.ts",
   // 冒烟用例共用一个库、按业务链条前后依赖，必须串行
   fullyParallel: false,

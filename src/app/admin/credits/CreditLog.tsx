@@ -15,15 +15,17 @@ export function CreditLog({ token, rows, 显示账号 = true }: { token: string;
       pagination={rows.length > 20 ? { pageSize: 20, size: "small" } : false}
       dataSource={rows}
       className="opx-credit-log"
+      // 「谁加的」是不带空格的长邮箱，曾把表撑宽、「备注」（订单号、团队名）整列被裁掉（10-19 排查）：长串可断行，窄屏表格横滚
+      scroll={{ x: 760 }}
       locale={{ emptyText: <div className="opx-empty">还没有加过次数</div> }}
       columns={[
         { title: "时间", key: "at", width: 130, render: (_, r) => <span className="num opx-muted opx-nowrap">{dayjs(r.at).format("MM-DD HH:mm")}</span> },
         ...(显示账号
-          ? [{ title: "账号", key: "a", render: (_: unknown, r: 加次记录行) => <Link href={站内(token, `/users/${r.accountId}`)}>{r.账号}</Link> }]
-          : [{ title: "账号", key: "a", render: (_: unknown, r: 加次记录行) => r.账号 }]),
+          ? [{ title: "账号", key: "a", render: (_: unknown, r: 加次记录行) => <Link href={站内(token, `/users/${r.accountId}`)} style={{ overflowWrap: "anywhere" }}>{r.账号}</Link> }]
+          : [{ title: "账号", key: "a", render: (_: unknown, r: 加次记录行) => <span style={{ overflowWrap: "anywhere" }}>{r.账号}</span> }]),
         { title: "加了", key: "n", width: 110, render: (_, r) => <span className="opx-nowrap"><Tag color={r.种类 === "research" ? "purple" : "blue"}>{r.种类 === "research" ? "背调" : "AI"}</Tag><b className="num" style={{ color: "var(--x-ok)" }}>+{r.数}</b></span> },
-        { title: "谁加的", key: "by", width: 170, render: (_, r) => (r.by ? <span>{r.by}</span> : <span className="opx-faint" title="10-19 之前加的，没记是谁">—</span>) },
-        { title: "备注", key: "note", render: (_, r) => <span className="opx-muted">{[r.团队 ? `团队「${r.团队}」` : "", r.note ?? ""].filter(Boolean).join(" · ")}</span> },
+        { title: "谁加的", key: "by", width: 170, render: (_, r) => (r.by ? <span style={{ overflowWrap: "anywhere" }}>{r.by}</span> : <span className="opx-faint" title="10-19 之前加的，没记是谁">—</span>) },
+        { title: "备注", key: "note", render: (_, r) => <span className="opx-muted" style={{ overflowWrap: "anywhere" }}>{[r.团队 ? `团队「${r.团队}」` : "", r.note ?? ""].filter(Boolean).join(" · ")}</span> },
       ]}
     />
   );

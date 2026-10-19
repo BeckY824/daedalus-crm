@@ -63,6 +63,13 @@ jobs:
           HOME: /root
           # 用例的浏览器固定 Asia/Shanghai，服务端也要一致，否则日期文案水合失配
           TZ: Asia/Shanghai
+      # 发版前排版闸门（10-19）：桌面本地模式 + 像真客户的数据，1024/1280/1366 × AI 栏常驻 / 左栏最宽量主要页面越界、被盖住。
+      # 这几天的显示 bug 都是客户先发现的，以后让它在这里先红。规则见 e2e/layout-audit.ts，不许为了变绿放宽
+      - run: npx playwright test -c playwright.layout.config.ts
+        env:
+          E2E_PROD: "1"
+          HOME: /root
+          TZ: Asia/Shanghai
       # 托管版有自己的库和端口，与上面那套互不干扰
       - run: npm run test:hosted
         env:

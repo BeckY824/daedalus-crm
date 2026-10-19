@@ -130,6 +130,8 @@ export default function SyncView({ token, rows, 价格, 今天 }: { token: strin
           size="small"
           pagination={false}
           dataSource={rows}
+          // 1024 宽时最右「开通 / 续费」「⋯」被卡片切掉、批次被挤成竖排（10-19 排查）：表格自己横滚，操作列钉在右边
+          scroll={{ x: 980 }}
           locale={{ emptyText: "还没有人建团队" }}
           expandable={{
             rowExpandable: (r) => r.记录.length > 0,
@@ -193,7 +195,7 @@ export default function SyncView({ token, rows, 价格, 今天 }: { token: strin
             { title: "到期", key: "d", width: 110, render: (_, r) => 到期格(r) },
             { title: "状态", key: "a", width: 76, render: (_, r) => 状态(r) },
             {
-              title: "", key: "act", width: 150,
+              title: "", key: "act", width: 150, fixed: "right",
               render: (_, r) => (
                 <span className="opx-row-acts">
                   <Button size="small" type="primary" onClick={() => set开(r)}>开通 / 续费</Button>

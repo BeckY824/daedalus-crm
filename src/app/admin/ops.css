@@ -134,7 +134,8 @@
 .opx-kpi-k .anticon { color: var(--x-blue); font-size: 13px; }
 .opx-kpi-v { margin-top: 8px; font-size: 28px; font-weight: 650; letter-spacing: -0.6px; line-height: 1.1; font-variant-numeric: tabular-nums; }
 .opx-kpi-v i { font-style: normal; font-size: 13px; font-weight: 500; color: var(--x-muted); margin-left: 3px; letter-spacing: 0; }
-.opx-kpi-n { margin-top: 6px; font-size: 12px; color: var(--x-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* 注一行写不下就换行（10-19 排查：1024 宽「送了 30 次，问了 24 …」被省略号吃掉的正是要看的数） */
+.opx-kpi-n { margin-top: 6px; font-size: 12px; color: var(--x-muted); overflow-wrap: anywhere; }
 .opx-kpi-warn .opx-kpi-v { color: var(--x-danger); }
 .opx-kpi-warn .opx-kpi-k .anticon { color: var(--x-danger); }
 .opx-kpi-quiet .opx-kpi-v { color: var(--x-faint); }
@@ -227,6 +228,8 @@
   transition: background var(--t-fast) var(--ease);
 }
 .opx-list > a:hover { background: var(--x-hover); }
+/* 名字 / 邮箱一长串不断行，把卡片和整页撑出横滚（10-19 排查：总览「最新反馈」） */
+.opx-list > a b, .opx-list > div b { overflow-wrap: anywhere; }
 .opx-list > * + * { border-top: 1px solid var(--x-line-soft); }
 .opx-list-r { margin-left: auto; font-size: 12.5px; color: var(--x-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 
@@ -265,7 +268,9 @@
 .opx-fb-done p { color: var(--x-muted); }
 .opx-fb-h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--x-muted); }
 .opx-fb-h b { color: var(--x-ink); font-size: 13.5px; }
-.opx-fb p { margin: 8px 0 0; white-space: pre-wrap; line-height: 1.7; color: var(--x-ink); }
+.opx-fb p { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; color: var(--x-ink); }
+/* 反馈时所在页面的地址：一长串不断行，伸出卡片（10-19 排查）；截成一行，悬停看全 */
+.opx-fb-h .opx-mono { flex: 1 1 0; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .opx-fb-reply { margin-top: 10px; padding: 8px 12px; border-left: 2px solid var(--x-line); }
 .opx-fb-reply-h { font-size: 12px; color: var(--x-muted); }
 .opx-fb-reply p { margin-top: 4px; color: var(--x-muted); }
@@ -308,3 +313,7 @@
 @media (prefers-reduced-motion: reduce) {
   .opx *, .opx *::before { transition: none !important; }
 }
+
+/* 弹框标题给右上 × 让位置：antd 6 默认不让，「给 欧阳·超级长名字的外贸业务经理张三丰 加AI次数」这种长标题会钻到 × 底下（10-19 排版检查「压字」）。
+   弹框挂在 body 上不在 .opx 里，用 :has 只管运营台 */
+body:has(.opx) .ant-modal-header { padding-inline-end: 36px; }

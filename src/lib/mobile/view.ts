@@ -7,6 +7,7 @@
 import type { 记录 } from "./sync";
 import { 行键 } from "@/lib/sync/scope-policy";
 import { 没开通话 } from "@/lib/team-pricing";
+import { 认国家 } from "@/lib/customer-extra";
 
 export const 毫秒 = (v: unknown): number | null => {
   if (v == null || v === "") return null;
@@ -135,14 +136,17 @@ const 旗: Record<string, string> = {
   中国: "🇨🇳", 香港: "🇭🇰", 中国香港: "🇭🇰", 台湾: "🇹🇼", 中国台湾: "🇹🇼", 日本: "🇯🇵", 韩国: "🇰🇷", 印度: "🇮🇳", 巴基斯坦: "🇵🇰", 孟加拉: "🇧🇩",
   越南: "🇻🇳", 泰国: "🇹🇭", 马来西亚: "🇲🇾", 新加坡: "🇸🇬", 印度尼西亚: "🇮🇩", 印尼: "🇮🇩", 菲律宾: "🇵🇭", 柬埔寨: "🇰🇭", 缅甸: "🇲🇲",
   澳大利亚: "🇦🇺", 新西兰: "🇳🇿",
+  // 2026-10-19 补齐客户档案国家候选（lib/customer-extra 国家候选）里有、这里没有的
+  阿曼: "🇴🇲", 巴林: "🇧🇭", 约旦: "🇯🇴", 乌兹别克斯坦: "🇺🇿", 哈萨克斯坦: "🇰🇿", 吉尔吉斯斯坦: "🇰🇬", 塔吉克斯坦: "🇹🇯", 土库曼斯坦: "🇹🇲",
+  格鲁吉亚: "🇬🇪", 阿塞拜疆: "🇦🇿", 亚美尼亚: "🇦🇲", 阿富汗: "🇦🇫", 孟加拉国: "🇧🇩", 斯里兰卡: "🇱🇰", 尼泊尔: "🇳🇵", 蒙古: "🇲🇳",
+  中国澳门: "🇲🇴", 澳门: "🇲🇴", 厄瓜多尔: "🇪🇨", 委内瑞拉: "🇻🇪", 巴拿马: "🇵🇦", 哥斯达黎加: "🇨🇷", 多米尼加: "🇩🇴", 乌拉圭: "🇺🇾",
+  巴拉圭: "🇵🇾", 玻利维亚: "🇧🇴", 埃塞俄比亚: "🇪🇹", 坦桑尼亚: "🇹🇿", 突尼斯: "🇹🇳", 利比亚: "🇱🇾", 安哥拉: "🇦🇴", 乌干达: "🇺🇬",
+  科特迪瓦: "🇨🇮", 塞内加尔: "🇸🇳", 喀麦隆: "🇨🇲", "刚果（金）": "🇨🇩", 苏丹: "🇸🇩",
 };
-export const 国旗 = (country: string) => 旗[country.trim()] ?? "";
+/** 认得别名：「阿拉伯联合酋长国」「UAE」「Dubai」都是阿联酋（同电脑上导入时的认法） */
+export const 国旗 = (country: string) => 旗[country.trim()] ?? 旗[认国家(country) ?? ""] ?? "";
 
-export function 简称(name: string) {
-  if (/[぀-ヿ一-鿿]/.test(name)) return name.trim().slice(0, 1);
-  const w = name.replace(/[^A-Za-z0-9 ]/g, " ").trim().split(/\s+/);
-  return ((w[0]?.[0] ?? "") + (w[1]?.[0] ?? "")).toUpperCase() || "·";
-}
+export { 简称 } from "@/lib/initials";
 /** 头像底色：照桌面端 --avatar-1…8，按名字取模，同一个客户永远同一个色 */
 export function 头像色(name: string) {
   let h = 0;

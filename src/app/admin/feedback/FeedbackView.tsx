@@ -74,7 +74,9 @@ export default function FeedbackView({ token, 反馈, 回信到 }: { token: stri
               <span className="opx-num">{dayjs(f.at).format("MM-DD HH:mm")}</span>
               {f.version && <span className="opx-num">v{f.version}</span>}
               {f.path && <span className="opx-mono">{f.path}</span>}
-              <span style={{ flex: 1 }} />
+              {/* 有地址时地址自己占满中间、放不下就省略号；没有才要空白把按钮推到右边。
+                  原来空白 + 长地址一起抢，挤不下时「系统 / 回复 / 处理过了」掉到第二行左边，每条位置都不一样（10-19 排查） */}
+              {!f.path && <span style={{ flex: 1 }} />}
               {/* 系统信息挺长，放进悬停：它只在「复现不出来」的时候才要看 */}
               {f.platform && (
                 <Tooltip title={f.platform}>

@@ -58,6 +58,8 @@ export default function MobileAuthPrompt() {
   const 电脑 = 当前.电脑;
   return (
     <Modal open title={电脑 ? <><DesktopOutlined /> 允许「{当前.label}」加入团队同步？</> : <><MobileOutlined /> 允许「{当前.label}」查看和记录你的客户？</>} onCancel={() => { 稍后.current.add(当前.id); 关(); }} mask={{ closable: false }}
+      // 设备名长（「HUAWEI Mate 60 Pro · 华为浏览器 · 深圳市南山区」）时标题第一行会钻到右上 × 底下：给 × 让出位置（10-19 排版闸门「压字」）
+      styles={{ header: { paddingInlineEnd: 36 } }}
       footer={[
         <Button key="no" danger disabled={忙 !== null} loading={忙 === "拒绝"} onClick={() => void 拒绝()}>不允许</Button>,
         <Button key="yes" type="primary" disabled={忙 !== null} loading={忙 === "允许"} onClick={() => void 允许()}>允许</Button>,
