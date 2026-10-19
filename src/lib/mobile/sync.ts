@@ -28,6 +28,7 @@ import { 金额 as 显示金额, 规整币种 } from "@/lib/currency";
 import { 认国家, 规整外贸格, type 外贸档案 } from "@/lib/customer-extra";
 import { hasVisibleText } from "@/lib/form-validation";
 import { 号键, 查电话 } from "@/lib/phone";
+import { 客户查重值, 查重键, 查重原文, 查重标签绑定, 查重指纹, 查重单次上限, 同事撞号说法, type 查重种类, type 查重条目, type 查重命中 } from "@/lib/sync/dedupe";
 
 export type { 改动 };
 export type 传输 = (方法: "GET" | "POST", 路径: string, body?: unknown) => Promise<{ 状态: number; json: Record<string, unknown> }>;
@@ -65,6 +66,8 @@ export type 同步状态 = {
    */
   lastOkAt?: string;
   lastError?: string | null;
+  /** 跨成员查重：这台报过的客户指纹（客户 id → 查重指纹，见 lib/sync/dedupe.ts），只报变了的 */
+  查重?: Record<string, string>;
 };
 export const 新状态 = (): 同步状态 => ({ cursors: {}, 待推: [], 被拒: [], 钟: 0, skipped: 0 });
 /** 上次同步成功是什么时候（毫秒）。老状态没有 lastOkAt：没出错时 lastSyncAt 就是成功的那次，出着错就不知道 */
@@ -284,6 +287,8 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
     状态.cursors = cursors;
     状态.lastSyncAt = 状态.lastOkAt = new Date().toISOString();
     状态.lastError = null;
+    // 跨成员查重的索引（2026-10-19）：报不上不算这一轮失败，下一轮再报
+    await 报查重(c, 云, 库, 状态).catch(() => undefined);
     return { c, 推: p.推, 拉, 拒: p.拒 };
   } catch (e) {
     // 只记「试过」，不动 lastOkAt
@@ -405,7 +410,7 @@ async function 业务设置(库: 手机库): Promise<BusinessConfig> {
 
 export type 新建客户输入 = { name: string; phone?: string; whatsapp?: string; email?: string; country?: string; source?: string };
 
-/** 这台手机上已有的同号 / 同邮箱客户（成员手机只有本人 + 公海，同事名下的撞号要到电脑上才查得到；服务端不查重） */
+/** 这台手机上已有的同号 / 同邮箱客户（成员手机只有本人 + 公海；同事名下的，联网时再问服务端：问同事） */
 async function 手机上撞的(库: 手机库, phone: string, email: string): Promise<string | null> {
   const 号 = phone ? 号键(phone) : "";
   const 邮 = email.trim().toLowerCase();
@@ -429,7 +434,7 @@ async function 手机上撞的(库: 手机库, phone: string, email: string): Pr
  *   - 写客户一行、（外贸填了才有）外贸档案一行、操作日志一条，先进手机库再进待推
  * 跟进状态 / 决策状态用库里的默认值；推荐人、渠道这些通用模版的东西手机上不问，空着（电脑上照样能补）
  */
-export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同步状态, 输入: 新建客户输入, 现在 = Date.now()): Promise<{ id: string }> {
+export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同步状态, 输入: 新建客户输入, 现在 = Date.now(), 云?: 传输): Promise<{ id: string }> {
   if (!hasVisibleText(输入.name)) throw new 同步问题("请填写名字");
   const b = await 业务设置(库);
   const 外贸 = b.template === "trade";
@@ -449,6 +454,12 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
   if (!电话.ok) throw new 同步问题(外贸 && !String(填的电话 ?? "").trim() ? "电话、WhatsApp、邮箱至少填一个（没有电话就用它认人）" : 电话.error);
   const 撞 = await 手机上撞的(库, 电话.phone, 按邮箱认 ? String(档案.email) : "");
   if (撞) throw new 同步问题(撞);
+  // 联网时再问一下服务端是不是同事名下的（2026-10-19 跨成员查重）；断网、超时当没撞，照样建（老板那台「疑似重复」兜底）
+  if (云) {
+    const 问的: [查重种类, string, string] | null = 电话.phone ? ["phone", 电话.phone, `手机号 ${电话.phone}`] : 按邮箱认 ? ["email", String(档案.email), `邮箱 ${String(档案.email)}`] : null;
+    const 同事 = 问的 && (await 问同事(c, 云, 库, 问的[0], 问的[1]));
+    if (同事 && 问的) throw new 同步问题(同事撞号说法(问的[2], 同事.同事, 同事.客户名, b.customer));
+  }
 
   const 我 = await 库.取("User", c.userId);
   const 我名 = String(我?.r.name ?? "");
@@ -514,4 +525,63 @@ export async function 新建商机(c: 手机团队, 库: 手机库, 状态: 同�
   await 回放(库, 改, c.device, 状态, { 含本人: true });
   状态.待推.push(...改);
   return { id };
+}
+
+/* ---------------- 跨成员查重（2026-10-19，规则见 lib/sync/dedupe.ts） ---------------- */
+
+async function 查重哈希们(c: 手机团队, 值: { phone?: unknown; email?: unknown; wechat?: unknown }): Promise<string[]> {
+  const 出: string[] = [];
+  for (const { 种, 键 } of 客户查重值({ phone: String(值.phone ?? ""), email: String(值.email ?? ""), wechat: String(值.wechat ?? "") })) 出.push(await 密.查重哈希(c.key, 查重原文(c.teamId, 种, 键)));
+  return 出;
+}
+
+/** 把手机库里客户的查重索引报上去（只报指纹变了的；服务端没收的下一轮再报）。和电脑那边 sync/dedupe-client.ts 报查重 同一套 */
+export async function 报查重(c: 手机团队, 云: 传输, 库: 手机库, 状态: 同步状态): Promise<number> {
+  const 旧 = 状态.查重 ?? {};
+  const 新: Record<string, string> = {};
+  const 要报: { e: 查重条目; 指纹: string }[] = [];
+  for (const key of await 库.键们()) {
+    if (!key.startsWith("Customer:")) continue;
+    const x = await 库.取("Customer", key.slice("Customer:".length));
+    if (!x) continue;
+    const 额 = await 库.取("CustomerExtra", x.k);
+    const hashes = await 查重哈希们(c, { phone: x.r.phone, email: 额?.r.email, wechat: 额?.r.wechat });
+    const 名 = String(x.r.name ?? "");
+    const 指纹 = 查重指纹(c.epoch, hashes, 名);
+    if (旧[x.k] === 指纹) { 新[x.k] = 指纹; continue; }
+    要报.push({ e: { k: x.k, epoch: c.epoch, hashes, label: await 密.封(名, c.key, c.epoch, 查重标签绑定(c.teamId)) }, 指纹 });
+  }
+  let 报 = 0;
+  for (let i = 0; i < 要报.length; i += 查重单次上限) {
+    const 段 = 要报.slice(i, i + 查重单次上限);
+    const r = await 云("POST", 范围路径, { teamId: c.teamId, action: "dedupe-put", device: c.device, entries: 段.map((x) => x.e) });
+    if (r.状态 !== 200) break;
+    const 没收 = new Set(Array.isArray(r.json.skipped) ? (r.json.skipped as string[]) : []);
+    for (const x of 段) if (!没收.has(x.e.k)) { 新[x.e.k] = x.指纹; 报++; }
+  }
+  状态.查重 = 新;
+  return 报;
+}
+
+/** 录入前问服务端：这个号码 / 邮箱是不是同事名下的客户。断网、超时（3 秒）、服务端旧都当没撞 */
+export async function 问同事(c: 手机团队, 云: 传输, 库: 手机库, 种: 查重种类, 值: string): Promise<{ 同事: string; 客户名: string } | null> {
+  const 键 = 查重键(种, 值);
+  if (!键) return null;
+  try {
+    const r = await Promise.race([
+      密.查重哈希(c.key, 查重原文(c.teamId, 种, 键)).then((h) => 云("POST", 范围路径, { teamId: c.teamId, action: "dedupe-find", hashes: [h] })),
+      new Promise<null>((ok) => setTimeout(() => ok(null), 3000)),
+    ]);
+    if (!r || r.状态 !== 200 || !Array.isArray(r.json.hits)) return null;
+    for (const h of r.json.hits as 查重命中[]) {
+      if (!h || typeof h.k !== "string" || (await 库.取("Customer", h.k))) continue;
+      const 人 = h.owner ? await 库.取("User", h.owner) : undefined;
+      let 客户名 = "";
+      try { 客户名 = String((await 密.拆<string>(h.label, 全部钥匙(c), 查重标签绑定(c.teamId))) ?? ""); } catch { /* 解不开只说同事 */ }
+      return { 同事: String(人?.r.name ?? "") || "同事", 客户名 };
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

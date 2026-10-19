@@ -143,6 +143,13 @@ export async function 事件编号(团队钥匙: string, 标签: string, 改动:
   return [...d].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
+/** 跨成员查重的哈希（lib/sync/dedupe.ts），和桌面端 crypto.ts 的 查重哈希 同一算法 */
+export async function 查重哈希(钥匙: string, 原文: string): Promise<string> {
+  const k = await subtle().importKey("raw", 纯(解b64u(钥匙)), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const d = new Uint8Array(await subtle().sign("HMAC", k, 字.encode(原文)));
+  return [...d].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
 /* ---------------- 老板的签名：新钥匙只认老板发的 ---------------- */
 
 export async function 验(签好: string, 用途: string, 公钥: string): Promise<string | null> {

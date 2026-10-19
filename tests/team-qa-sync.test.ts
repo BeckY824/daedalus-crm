@@ -66,7 +66,7 @@ import { 疑似重复 } from "@/lib/sync/dupes";
 import { 没同步上 } from "@/lib/sync/local";
 import { 列出范围冲突 } from "@/lib/sync/scoped-local";
 import { 忘掉限定 } from "@/lib/team-scope";
-import { checkDuplicate } from "@/app/(app)/customers/actions";
+import { checkDuplicate, saveCustomer } from "@/app/(app)/customers/actions";
 
 let client: typeof import("@/lib/sync/client");
 let relay: typeof import("@/lib/tenant/sync-relay");
@@ -119,12 +119,14 @@ async function 调中转(raw: string, 方法: string, 路径: string, body: unkn
     try {
       if (act !== "state" && !(await scoped.范围开放(t))) return { 状态: 404, json: { error: "范围同步尚未开放" } };
       if (act === "state") return { 状态: 200, json: await scoped.范围状态(a, t) as unknown as Record<string, unknown> };
-      if (act === "directory" || act === "pull" || act === "push") await scoped.核设备(a, t, b.device, tk.id);
+      if (act === "directory" || act === "pull" || act === "push" || act === "dedupe-put") await scoped.核设备(a, t, b.device, tk.id);
       let r: unknown;
       if (act === "directory") r = await scoped.范围目录(a, t);
       else if (act === "begin") r = await scoped.开始范围迁移(a, t, String(b.device));
       else if (act === "commit") r = await scoped.完成范围迁移(a, t, String(b.device), Number(b.count));
       else if (act === "push") r = await scoped.收范围推送(a, t, String(b.device), b.packets as never[]);
+      else if (act === "dedupe-put") r = await scoped.收查重索引(a, t, String(b.device), b.entries);
+      else if (act === "dedupe-find") r = await scoped.查查重(a, t, b.hashes);
       else r = await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
       return { 状态: 200, json: r as Record<string, unknown> };
     } catch (e) {
@@ -507,25 +509,51 @@ describe("F. 手机断网新建客户，同事这期间录了同一个号码", (
   });
 });
 
-describe("F2. 联网时在电脑上录同事已有的号码", () => {
+describe("F2. 联网时在电脑上 / 手机上录同事已有的号码（2026-10-19 跨成员查重）", () => {
   /*
-    BUG（显示错 / 提示缺失）：customers/actions.ts checkDuplicate 在「看全部」里查本机库，注释写着「团队版业务员录到同事已有的号码，也要提醒」，
-    手机端 lib/mobile/sync.ts 手机上撞的 也写「同事名下的撞号要到电脑上才查得到」。
-    可正式服开着范围同步（CRM_SCOPED_SYNC=1），业务员电脑上只有本人 + 公海（scoped-local.ts 每轮清掉失权副本），
-    同事的客户根本不在本机库里——电脑上也查不出来，同一个号码照样存成两份，只有老板那台「疑似重复」里看得到。
-    tests/team-roles.test.ts「新建时撞同事的：挡下」是在一份含全队数据的库上测的，测不出这一点。
+    原来是 BUG（it.fails 记着）：正式服开着范围同步，业务员电脑上只有本人 + 公海，同事的客户根本不在本机库里——
+    checkDuplicate 查不出来，同一个号码照样存成两份，只有老板那台「疑似重复」里看得到。
+    10-19 用户拍板做服务端查重（lib/sync/dedupe.ts）：各台报号码哈希，录入前问一下；只露同事名 + 客户名
   */
-  it.fails("李在电脑上（联网、刚同步完）录一个赵已有的号码：查重提醒「这号赵业务在跟」（不露客户名）", async () => {
+  it("李在电脑上（联网、刚同步完）录一个赵已有的号码：查重提醒「这号赵业务在跟、客户叫什么」，打不开、看不到别的", async () => {
     // 号码按界面存的样子（规整手机号之后）：大陆手机号不带 +86
-    await db("zhao").customer.create({ data: { id: "c-f2-zhao", name: "赵的老客户（查重用）", phone: "13900009100", salesOwnerId: A("zhao") } });
+    await db("zhao").customer.create({ data: { id: "c-f2-zhao", name: "赵的老客户（查重用）", phone: "13900009100", school: "不该露出来的学校", salesOwnerId: A("zhao") } });
     await 都轮("zhao", "boss", "li");
     当("li");
     忘掉限定();
     (globalThis as { __登录的?: unknown }).__登录的 = { id: A("li"), name: "李业务", email: "li@example.invalid", role: "SALES", title: "" };
     const hit = await checkDuplicate("139 0000 9100");
-    // 实际：null（李的电脑库里没有赵的客户）
     expect(await db("li").customer.findUnique({ where: { id: "c-f2-zhao" } })).toBeNull();
-    expect(hit, JSON.stringify(hit)).toMatchObject({ salesOwnerName: "赵业务", id: null, name: null });
+    expect(hit, JSON.stringify(hit)).toEqual({ salesOwnerName: "赵业务", id: null, name: "赵的老客户（查重用）", school: null, createdAt: null });
+  });
+
+  it("李在电脑上照样点保存：挡下，说清是赵业务的哪位；本机、服务端都没多出一份", async () => {
+    当("li");
+    忘掉限定();
+    (globalThis as { __登录的?: unknown }).__登录的 = { id: A("li"), name: "李业务", email: "li@example.invalid", role: "SALES", title: "" };
+    const r = await saveCustomer({ name: "李又录了一遍", phone: "139 0000 9100", salesOwnerId: A("li") } as never);
+    expect(r).toMatchObject({ ok: false });
+    expect(!r.ok && r.error).toContain("同事 赵业务");
+    expect(!r.ok && r.error).toContain("赵的老客户（查重用）");
+    expect(!r.ok && r.error).not.toContain("不该露出来的学校");
+    expect(await db("li").customer.count({ where: { name: "李又录了一遍" } })).toBe(0);
+  });
+
+  it("李的手机联网新建同一个号码：同一句话挡下（断网时照样建、老板那台「疑似重复」兜底，见 F）", async () => {
+    await 手机都轮("li-m");
+    const 机 = 手机们["li-m"];
+    await expect(手机.新建客户(机.团, 机.库, 机.态, { name: "李手机又录了一遍", phone: "13900009100" }, Date.now(), 机.云)).rejects.toThrow(/同事 赵业务.*赵的老客户（查重用）/);
+    expect(手机表("li-m", "Customer").some((c) => c.name === "李手机又录了一遍")).toBe(false);
+  });
+
+  it("服务端那张索引里只有哈希和封好的名字，没有号码、客户名明文", async () => {
+    const 行 = await control.syncDedupeKey.findMany({ where: { recordKey: "c-f2-zhao" } });
+    expect(行.length).toBeGreaterThan(0);
+    for (const x of 行) {
+      expect(x.hash).toMatch(/^[0-9a-f]{64}$/);
+      expect(JSON.stringify(x)).not.toContain("13900009100");
+      expect(JSON.stringify(x)).not.toContain("赵的老客户");
+    }
   });
 
   it("对照：老板那台查同一个号码查得到（老板库里有全队）", async () => {

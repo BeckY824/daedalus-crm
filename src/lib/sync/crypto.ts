@@ -12,7 +12,7 @@
  *   - 老板（建团队的人）一对 Ed25519 签名钥匙：公钥在邀请码里（DT2），信封、钥匙环都带老板的签名，
  *     成员只收签名对得上的新钥匙。中转手里没有私钥，伪造不了
  */
-import { createHash, createCipheriv, createDecipheriv, createPublicKey, createPrivateKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign, verify } from "node:crypto";
+import { createHash, createHmac, createCipheriv, createDecipheriv, createPublicKey, createPrivateKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign, verify } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
 import type { 改动 } from "./local";
 import { 规范串 } from "./canon";
@@ -180,4 +180,9 @@ export function 拆范围<T>(封好: string, 钥匙: string | 钥匙环, 绑: �
   const k = typeof 钥匙 === "string" ? 钥匙 : 钥匙[String(编号)];
   if (!k) throw new Error(`没有 ${编号} 号钥匙`);
   return JSON.parse(gunzipSync(解密(b.subarray(5), k, 范围附加(b.subarray(0, 5), 绑))).toString("utf8")) as T;
+}
+
+/** 跨成员查重的哈希（lib/sync/dedupe.ts）：团队钥匙做 HMAC-SHA256（hex）。手机端 crypto-web.ts 同名函数同一算法 */
+export function 查重哈希(钥匙: string, 原文: string): string {
+  return createHmac("sha256", 钥(钥匙)).update(原文, "utf8").digest("hex");
 }

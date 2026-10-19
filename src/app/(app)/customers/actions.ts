@@ -12,6 +12,8 @@ import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
 import { 看全部, 看得到, 限定的我 } from "@/lib/team-scope";
+import { 同事撞号说法, type 查重种类 } from "@/lib/sync/dedupe";
+import { 问同事 } from "@/lib/sync/dedupe-client";
 import { requireUser } from "@/lib/auth";
 import { resolveAttribution, wouldCreateCycle } from "@/lib/attribution";
 import {
@@ -97,15 +99,16 @@ export type CustomerSnapshot = Pick<
 > & { channelOwnerId?: string | null };
 
 /**
- * 撞号时给界面的那位。业务员撞到同事名下、自己看不到的（团队版两档权限）：**只给负责人**，
- * id / 名字 / 学校都是 null——不露同事客户是谁（10-04 用户拍板，原来给名字），只够他知道「这号有人在跟、找谁」
+ * 撞号时给界面的那位。业务员撞到同事名下、自己看不到的（团队版两档权限）：**只给负责人 + 客户名**，
+ * id / 学校 / 录入时间都是 null——10-04 拍板只给负责人，10-19 跨成员查重时用户改成「只露同事名 + 客户名」，
+ * 够他知道「这号是谁在跟、跟的是哪位」，打不开、也看不到客户的其它资料
  */
 export type DuplicateHit = {
   id: string | null;
   name: string | null;
   school: string | null;
   salesOwnerName: string;
-  createdAt: string;
+  createdAt: string | null;
 } | null;
 
 type 撞到的 = { name: string; salesOwnerId: string | null; channelOwnerId: string | null; pool: unknown; salesOwner: { name: string } | null };
@@ -114,8 +117,7 @@ const 撞到的字段 = { name: true, salesOwnerId: true, channelOwnerId: true, 
 /** 保存时撞号那句话：看得到的说是谁；业务员撞同事的只说负责人（同 DuplicateHit）。依据 =「手机号 138…」或「邮箱 a@b.com」 */
 function 撞号说法(依据: string, dup: 撞到的, 我: string | null, 客户: string): string {
   if (看得到(dup, 我)) return `${依据} 已存在（${dup.name}），请勿重复录入`;
-  const 负责人 = dup.salesOwner?.name ?? "同事";
-  return `${依据} 已是同事 ${负责人} 名下的${客户}，请勿重复录入；要接手请找 ${负责人} 或老板`;
+  return 同事撞号说法(依据, dup.salesOwner?.name ?? "同事", dup.name, 客户);
 }
 
 /** 按手机号查重。手机号唯一性最可靠，姓名可能重名。和保存那一步一样先规整：「138 0000 1111」就是 13800001111 */
@@ -129,14 +131,18 @@ export async function checkDuplicate(phone: string, excludeId?: string): Promise
     where: { AND: [await 同号条件(prisma, 号, 起), ...(excludeId ? [{ id: { not: excludeId } }] : [])] },
     select: { id: true, school: true, createdAt: true, ...撞到的字段 },
   }));
-  if (!hit) return null;
+  if (!hit) {
+    // 范围同步下同事名下的客户本机没有：问一下服务端（2026-10-19 跨成员查重，lib/sync/dedupe-client.ts）。断网 / 没开团队版当没撞
+    const 撞 = await 问同事("phone", 号, excludeId);
+    return 撞 ? { id: null, name: 撞.客户名 || null, school: null, salesOwnerName: 撞.同事, createdAt: null } : null;
+  }
   const 看得见 = 看得到(hit, await 限定的我(defaultClient));
   return {
     id: 看得见 ? hit.id : null,
-    name: 看得见 ? hit.name : null,
+    name: hit.name,
     school: 看得见 ? hit.school : null,
     salesOwnerName: hit.salesOwner?.name ?? "同事",
-    createdAt: hit.createdAt.toISOString(),
+    createdAt: 看得见 ? hit.createdAt.toISOString() : null,
   };
 }
 
@@ -239,6 +245,19 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       select: 撞到的字段,
     }));
     if (dup) return { ok: false, error: 撞号说法(`微信 ${交的微信}`, dup, await 限定的我(defaultClient), b.customer) };
+  }
+
+  /*
+    跨成员查重（2026-10-19 用户拍板）：范围同步下业务员电脑上只有本人 + 公海，同事名下的号码上面查不到。
+    本机没撞的再问一下服务端（号码 / 邮箱 / 微信号的哈希，规则同上面：有电话只按电话）；断网、没开团队版当没撞
+  */
+  const 问的: [查重种类, string, string] | null = phone && !(改前 && phone === 改前.phone) ? ["phone", phone, `手机号 ${phone}`]
+    : 查邮箱 ? ["email", 交的邮箱, `邮箱 ${交的邮箱}`]
+    : 查微信 ? ["wechat", 交的微信, `微信 ${交的微信}`]
+    : null;
+  if (问的) {
+    const 撞 = await 问同事(问的[0], 问的[1], input.id);
+    if (撞) return { ok: false, error: 同事撞号说法(问的[2], 撞.同事, 撞.客户名, b.customer) };
   }
 
   // 推荐链不能成环。只挡「推荐人是自己」不够：A→B→A 两步就能绕过去

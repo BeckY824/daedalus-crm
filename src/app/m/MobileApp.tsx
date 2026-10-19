@@ -365,7 +365,7 @@ export default function MobileApp() {
     const k = 库;
     if (!k || !团队) return "还没连上团队";
     try {
-      const r = "客户" in 哪个 ? await 同步.新建客户(团队, k, 态.current, 哪个.客户) : await 同步.新建商机(团队, k, 态.current, 哪个.商机);
+      const r = "客户" in 哪个 ? await 同步.新建客户(团队, k, 态.current, 哪个.客户, Date.now(), 断网 || !云 ? undefined : 云) : await 同步.新建商机(团队, k, 态.current, 哪个.商机);
       await k.存盘();
       await k.写("state", 态.current);
       拍一下();

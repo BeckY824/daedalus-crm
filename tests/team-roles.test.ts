@@ -822,7 +822,7 @@ describe("线索撞了已有客户的号：说清是谁、能并过去（J-024�
   一起查出来的两处：编辑时把号码改成同事客户的号，原来只看得到自己的、查不出来，悄悄存成两份同号档案；
   团队设置里的「疑似重复」号码是裸 SQL 查的、不过限定，两条都是同事的那组记录是空的、号码却摆给了业务员。
 */
-describe("撞号不露同事的客户（10-04）", () => {
+describe("撞号只露同事名 + 客户名（10-04 起不露资料；10-19 跨成员查重时用户改成给客户名）", () => {
   const 号 = async (客户: string) => (await raw.customer.findUniqueOrThrow({ where: { id: ids[客户] } })).phone;
   const 小王登录 = { ...登录的.user };
   const 表单 = (phone: string, 补: Record<string, unknown> = {}) => ({
@@ -839,28 +839,28 @@ describe("撞号不露同事的客户（10-04）", () => {
     登录的.user = { ...小王登录 };
   });
 
-  it("表单失焦查重：撞同事的只给负责人，id / 名字 / 学校都是空；撞自己的照常给名字", async () => {
+  it("表单失焦查重：撞同事的只给负责人 + 客户名，id / 学校 / 录入时间都是空（打不开）；撞自己的照常给", async () => {
     const 同事 = await checkDuplicate(await 号("小李的客户"));
-    expect(同事).toMatchObject({ id: null, name: null, school: null, salesOwnerName: "小李" });
+    expect(同事).toEqual({ id: null, name: "小李的客户", school: null, createdAt: null, salesOwnerName: "小李" });
     const 自己 = await checkDuplicate(await 号("小王的客户"));
     expect(自己).toMatchObject({ id: ids["小王的客户"], name: "小王的客户", salesOwnerName: "小王" });
   });
 
-  it("新建时撞同事的：挡下，话里只有负责人，没有客户名", async () => {
+  it("新建时撞同事的：挡下，话里是负责人 + 客户名", async () => {
     const r = await saveCustomer(表单(await 号("小李的客户")) as Parameters<typeof saveCustomer>[0]);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.error).not.toContain("小李的客户");
-    expect(r.error).toContain("小李");
+    expect(r.error).toContain("同事 小李 名下");
+    expect(r.error).toContain("（小李的客户）");
     expect(await raw.customer.count()).toBe(5);
   });
 
-  it("编辑时把号码改成同事客户的号：挡下（原来查不出来、存成两份同号），话里不露客户名", async () => {
+  it("编辑时把号码改成同事客户的号：挡下（原来查不出来、存成两份同号），话里是负责人 + 客户名", async () => {
     const 我的 = await raw.customer.findUniqueOrThrow({ where: { id: ids["小王的客户"] } });
     const r = await saveCustomer(表单(await 号("小李的客户"), { id: 我的.id, name: 我的.name, updatedAt: 我的.updatedAt.toISOString() }) as Parameters<typeof saveCustomer>[0]);
     expect(r.ok).toBe(false);
     if (r.ok) return;
-    expect(r.error).not.toContain("小李的客户");
+    expect(r.error).toContain("同事 小李 名下");
     expect((await raw.customer.findUniqueOrThrow({ where: { id: 我的.id } })).phone).toBe(我的.phone);
   });
 
