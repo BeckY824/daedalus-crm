@@ -12,17 +12,25 @@ import { createContext, useCallback, useContext, useEffect, useState, useSyncExt
 /* 这两个 hook 的名字是英文的：react-hooks 那条规则按「use + 大写字母」认 hook，
    写成 use名单开着 它根本不当 hook 看，整条规则对调用它的文件就失效了 */
 
-let 开着 = false;
+/**
+ * 中栏收成抽屉时，抽屉开没开。两条中栏各记各的：记录页的名单（roster）、首页的对话列表（chat），
+ * 开关按钮见 components/PaneToggle.tsx，什么时候收见 lib/middle-pane.ts
+ */
+export type 中栏 = "roster" | "chat";
+const 开着: Record<中栏, boolean> = { roster: false, chat: false };
 const listeners = new Set<() => void>();
 const notify = () => listeners.forEach((l) => l());
 
-export function 开名单() {
-  开着 = true;
+export function 设抽屉(栏: 中栏, 开: boolean) {
+  if (开着[栏] === 开) return;
+  开着[栏] = 开;
   notify();
 }
+export function 开名单() {
+  设抽屉("roster", true);
+}
 export function 关名单() {
-  开着 = false;
-  notify();
+  设抽屉("roster", false);
 }
 
 /**
@@ -78,15 +86,18 @@ export function 换一位(): boolean {
   return true;
 }
 
-export function useRosterOpen() {
+export function useDrawerOpen(栏: 中栏) {
   return useSyncExternalStore(
     (l) => {
       listeners.add(l);
       return () => listeners.delete(l);
     },
-    () => 开着,
+    () => 开着[栏],
     () => false,
   );
+}
+export function useRosterOpen() {
+  return useDrawerOpen("roster");
 }
 
 /**

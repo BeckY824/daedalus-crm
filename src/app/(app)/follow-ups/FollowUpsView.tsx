@@ -30,6 +30,8 @@ type Row = {
   occurredAt: string;
   customerId: string;
   customerName: string;
+  /** 公司（Customer.school）：所属客户那一格的第二行 */
+  customerCompany: string | null;
   contactName: string | null;
   ownerName: string;
   ownerId: string;
@@ -74,8 +76,9 @@ export default function FollowUpsView({
   const 列表: 列<Row>[] = [
     {
       // 第一列是「这条是谁的」，和别的列表一样钉在左边；类型再有用也回答不了「是谁」
-      title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 150, 常驻: true,
-      render: (v, r) => <CustomerLink id={r.customerId} name={v} />,
+      title: `所属${b.customer}`, 列名: `所属${b.customer}`, key: "customerName", dataIndex: "customerName", width: 190, 常驻: true,
+      // 人名下面一行公司（2026-10-19）：同名的人、只记得公司名的人，扫一眼就对得上
+      render: (v, r) => <CustomerLink id={r.customerId} name={v} company={r.customerCompany} />,
     },
     {
       // 「什么时候」紧跟在「是谁」后面（审查 M3）：原来排在最右，13 寸窗口下只剩一个数字露在外面。
@@ -161,7 +164,7 @@ export default function FollowUpsView({
           <Space wrap size={[10, 10]}>
             <ListSearch
               width={300}
-              placeholder={`标题 / 内容 / ${b.customer}`}
+              placeholder={`标题 / 内容 / ${b.customer} / ${b.fields.school}`}
               value={f.keyword}
               onChange={(v) => setF({ ...f, keyword: v })}
               onSearch={(v) => apply({ keyword: v })}

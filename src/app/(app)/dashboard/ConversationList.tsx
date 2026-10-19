@@ -4,12 +4,15 @@ import { dayjs } from "@/lib/utils";
 
 import { useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { App, Dropdown, Input, Modal } from "antd";
+import { App, Drawer, Dropdown, Input, Modal } from "antd";
 import { PlusOutlined, MoreOutlined } from "@ant-design/icons";
 import { 删掉对话的屏, 新起一屏, 当前对话, 首页屏 } from "@/lib/home-thread";
 import { clearJob } from "@/lib/ai-jobs";
 import { 重命名对话, 删除对话, type 对话概要 } from "./threads";
 import WidthHandle, { 对话列表把手 } from "@/components/WidthHandle";
+import PaneToggle from "@/components/PaneToggle";
+import { useMiddlePane, usePaneShortcut } from "@/lib/middle-pane";
+import { 设抽屉 } from "@/lib/roster";
 
 /**
  * 首页中栏：问过的对话。
@@ -33,13 +36,19 @@ export default function ConversationList({ rows }: { rows: 对话概要[] }) {
   const [改名, set改名] = useState<{ id: string; title: string } | null>(null);
 
   const 选中 = sp.get("c") ?? 当前对话(首页屏) ?? "";
+  // 收起 / 太窄时成抽屉（lib/middle-pane.ts）。抽屉里点了一条就关上：打开它就是为了换一条
+  const 中栏 = useMiddlePane("chat");
+  usePaneShortcut(中栏.切换);
+  const 关抽屉 = () => 设抽屉("chat", false);
 
   function 新建() {
+    关抽屉();
     新起一屏(首页屏);
     router.push("/dashboard");
   }
 
   function 打开(id: string) {
+    关抽屉();
     if (id === 选中) return;
     router.push(`/dashboard?c=${id}`);
   }
@@ -81,15 +90,14 @@ export default function ConversationList({ rows }: { rows: 对话概要[] }) {
 
   const 组 = 分组(rows);
 
-  return (
-    <aside className="pane pane-chat">
-      {/* 和左栏同一条能拖的缝：这一列装的是一句句问过的话，多长不是我们定的 */}
-      <WidthHandle 规格={对话列表把手} />
+  const 内容 = (
+    <>
       <div className="pane-h">
         <span className="pane-t">
           对话
           {rows.length > 0 && <span className="pane-n">{rows.length}</span>}
         </span>
+        <PaneToggle 栏="chat" 位置="中栏" />
       </div>
 
       <div className="pane-rows">
@@ -150,6 +158,29 @@ export default function ConversationList({ rows }: { rows: 对话概要[] }) {
           placeholder="这条对话叫什么"
         />
       </Modal>
+    </>
+  );
+
+  if (!中栏.露着) {
+    return (
+      <Drawer
+        placement="left"
+        open={中栏.抽屉开着}
+        onClose={关抽屉}
+        closable={false}
+        styles={{ wrapper: { width: 280 }, body: { padding: 0, display: "flex", flexDirection: "column" } }}
+        rootClassName="pane-drawer pane-drawer-chat"
+      >
+        {内容}
+      </Drawer>
+    );
+  }
+
+  return (
+    <aside className="pane pane-chat">
+      {/* 和左栏同一条能拖的缝：这一列装的是一句句问过的话，多长不是我们定的。往窄拖过头就顺势收起（像访达 / Notion） */}
+      <WidthHandle 规格={对话列表把手} on拖过头={中栏.收起} />
+      {内容}
     </aside>
   );
 }

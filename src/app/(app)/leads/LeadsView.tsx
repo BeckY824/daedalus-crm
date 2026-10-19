@@ -25,6 +25,7 @@ import { saveLead, deleteLeads, convertLead, mergeLeadInto, type 线索撞号 } 
 import { useBusiness } from "@/lib/business-client";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 import { 转化会带上 } from "@/lib/lead-convert";
 
 type Row = {
@@ -85,6 +86,8 @@ export default function LeadsView({
 
   // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
   const [存着, set存着] = useState(false);
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）
+  const 守 = useFormGuard({ open, form, 草稿键: editing ? null : "新建线索", 关: () => setOpen(false), 忙: 存着, afterOpenChange: 聚焦首项 });
   async function onOk() {
     if (存着) return;
     set存着(true);
@@ -103,6 +106,7 @@ export default function LeadsView({
       return;
     }
     message.success(editing ? "已保存" : "线索已创建");
+    守.存好了();
     setOpen(false);
     router.refresh();
   }
@@ -292,17 +296,16 @@ export default function LeadsView({
       />
 
       <Modal
-        afterOpenChange={聚焦首项}
+        {...守.弹窗}
         open={open}
         title={editing ? "编辑线索" : "新建线索"}
-        onCancel={() => setOpen(false)}
         onOk={onOk} confirmLoading={存着}
         okText="保存"
         cancelText="取消"
         width={600}
         destroyOnHidden
       >
-        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+        <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={守.改了}>
           <Row gutter={16}>
             <Col span={24}>
               <Form.Item name="name" label="线索名称" rules={[requiredText("请填写线索名称")]}>

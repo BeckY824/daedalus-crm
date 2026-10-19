@@ -10,14 +10,14 @@ import { 按币种合计 } from "@/lib/currency";
 
 export const dynamic = "force-dynamic";
 const opportunityInclude = {
-  customer: { select: { id: true, name: true } },
+  customer: { select: { id: true, name: true, school: true } },
   owner: { select: { id: true, name: true } },
   ...带币种.商机,
 } satisfies Prisma.OpportunityInclude;
 function opportunityRow(o: Prisma.OpportunityGetPayload<{ include: typeof opportunityInclude }>): OppRow {
   return { id: o.id, name: o.name, amount: o.amount, currency: 商机币种(o), stage: o.stage, status: o.status,
     probability: o.probability, updatedAt: o.updatedAt.toISOString(), expectedDealAt: o.expectedDealAt?.toISOString() ?? null,
-    createdAt: o.createdAt.toISOString(), remark: o.remark, customerId: o.customer.id, customerName: o.customer.name,
+    createdAt: o.createdAt.toISOString(), remark: o.remark, customerId: o.customer.id, customerName: o.customer.name, customerCompany: o.customer.school,
     ownerId: o.owner.id, ownerName: o.owner.name };
 }
 
@@ -33,7 +33,7 @@ export default async function OpportunitiesPage({
 
   const where: Prisma.OpportunityWhereInput = {
     ...(词
-      ? { OR: [{ name: { contains: 词 } }, { customer: { name: { contains: 词 } } }] }
+      ? { OR: [{ name: { contains: 词 } }, { customer: { name: { contains: 词 } } }, { customer: { school: { contains: 词 } } }] }
       : {}),
     ...(sp.stage ? { stage: sp.stage } : {}),
     ...(sp.status ? { status: sp.status } : {}),

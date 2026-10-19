@@ -47,6 +47,7 @@
   --cat-blue: #2563eb; --cat-green: #22c55e; --cat-yellow: #eab308; --cat-orange: #f97316;
   --cat-pink: #ec4899; --cat-violet: #8b5cf6; --cat-cyan: #06b6d4; --cat-amber: #f59e0b;
   --cat-teal: #128c7e; /* WhatsApp 跟进（2026-10-16） */
+  --cat-lime: #65a30d; /* 微信沟通跟进（2026-10-19） */
   /* 头像底色：八个淡色，按名字哈希选 */
   --avatar-1: #dbeafe; --avatar-2: #dcfce7; --avatar-3: #fef3c7; --avatar-4: #fde2e2;
   --avatar-5: #ede9fe; --avatar-6: #e0f2fe; --avatar-7: #fce7f3; --avatar-8: #e2e8f0;
@@ -334,6 +335,15 @@ a {
 html.os-win .shell-desktop .rail { padding-top: 14px; }
 html.os-win .shell-desktop .drag-strip { height: var(--caption-h); }
 html.os-win .shell-desktop .main { padding-top: calc(var(--caption-h) + 8px) !important; }
+/* 整页是跟着窗口滚的，右上角那三颗系统按钮却是盖在网页上面、不跟着滚。2026-10-19 客户截图：
+   跟进记录往下滚一点，页头右边的「记录跟进」整颗钻到按钮底下、「计划」只剩左半截，像被窗口切掉了。
+   正文顶上垫一条和系统按钮同高、同底色、不跟着滚的带子：滚上去的内容整条没进带子里，不再被三颗按钮切成半截 */
+html.os-win .shell-desktop .main::before {
+  content: ""; display: block; position: sticky; top: 0; z-index: 20; height: var(--caption-h);
+  margin: calc(-1 * (var(--caption-h) + 8px)) -26px 8px; background: var(--page-bg); pointer-events: none;
+}
+/* 正文里贴顶的几样（记录页左栏、设置目录、条款目录）跟着让出这条带子 */
+html.os-win .shell-desktop .main :is(.rec-rail, .set-nav, .legal-toc) { top: calc(var(--caption-h) + 8px); }
 /* Windows 的字比 Mac 细（ClearType + 雅黑），同一个灰在 Windows 上淡一截：「点击填写」「暂无待办」几乎看不见。
    只在默认主题里各压深一档；别的主题自己定了字色（科技主题还是深底），不替它们改 */
 /* 不另拍颜色（色值只许在 :root）：拿次级正文色往面板底色里兑，约等于 #5f6774 / #838993 */
@@ -675,7 +685,24 @@ html.glass .roster-row:hover { background: color-mix(in srgb, var(--panel) 50%, 
 html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, transparent); box-shadow: 0 1px 3px color-mix(in srgb, var(--ink) 6%, transparent); }
 .pane-kbd { flex: none; font-size: var(--fs-min); color: var(--text-faint); border: 1px solid var(--line); border-radius: var(--r-ctl); padding: 0 4px; line-height: 16px; }
 /* 收成抽屉时，里面那套样式原样复用 */
-.pane-drawer .pane-h { border-bottom: 1px solid var(--line-soft); }
+.pane-drawer .pane-h { border-bottom: 0; }
+/* 名单页头底下不画线，和首页对话列表一样靠留白分开（2026-10-19：毛玻璃下那条半透明白线贴着「全部 / 本周要跟」页签，页签像顶在线上） */
+.pane-roster .pane-h { border-bottom: 0; }
+
+/* 中栏开关（components/PaneToggle.tsx）：中栏页头右端一颗，中栏不在时主区页头最左边一颗，同一个图标 */
+.pane-toggle { flex: none; padding: 0; border: 0; background: none; cursor: pointer; }
+.pane-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.pane-toggle-tip { display: inline-flex; align-items: center; gap: 8px; }
+.pane-toggle-tip kbd { font-family: var(--font-mono); font-size: var(--fs-min); opacity: .75; }
+/* 记录页：头像左边，和页头一起垂直居中 */
+.rec-head > .pane-toggle { margin-left: -6px; }
+/* 首页问答区没有页头：贴在左栏右边、中栏页头那一行的高度上，收起前后手几乎不用挪 */
+.pane-toggle-float { position: fixed; top: calc((var(--drag-h) - 28px) / 2); left: calc(var(--rail-w) + 12px); z-index: 21; }
+/* 往窄拖过最窄值再拖一段：松手就收起。拖到这一步先让那一栏淡下去，告诉人「再松手它就收了」 */
+body.rail-resizing-collapse .pane-chat { opacity: .45; }
+@media (prefers-reduced-motion: reduce) {
+  .pane-drawer .ant-drawer-content-wrapper, .pane-drawer .ant-drawer-mask { transition: none !important; animation-duration: 0s !important; }
+}
 
 .main { flex: 1; min-width: 0; }
 
@@ -839,6 +866,11 @@ html.glass .roster-row.on { background: color-mix(in srgb, var(--panel) 85%, tra
   flex: none;
 }
 
+/* 列表里「所属客户」那一格：头像 + 人名，有公司时人名下面一行灰字（CustomerLink） */
+.cust-link { display: inline-flex; align-items: center; gap: 10px; max-width: 100%; min-width: 0; vertical-align: middle; }
+.cust-link-t { display: flex; flex-direction: column; min-width: 0; line-height: 1.35; }
+.cust-link-co { color: var(--text-muted); font-size: var(--fs-note); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* 滚动条 */
 ::-webkit-scrollbar {
   width: 10px;
@@ -932,7 +964,11 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 记录页名字底下那一行标签：两个状态（点得改）+ 预计 / 已签约（只读） */
 .rec-tags { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin: 0 0 var(--s3); }
-.rec-tags-n { font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rec-tags-n { min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* 外贸新建客户：电话 / WhatsApp / 邮箱 / 微信四格旁边同一个记号，四格填一格就行（2026-10-19 客户反馈），和必填的红星分开 */
+.cf-any-mark { color: var(--brand); font-size: 9px; margin-left: 4px; vertical-align: 2px; cursor: help; }
+/* 报错那行已经把规矩说了一遍，下面这行提示就别再重复 */
+.ant-form-item-has-error .cf-any-hint { display: none; }
 /* 对方当地时间（2026-10-16 外贸基础）：夜里压暗、带一个「夜里」小标；客户等级是一枚小字母章 */
 .local-time-night { opacity: 0.7; }
 .local-time-tag { margin-left: 4px; padding: 0 4px; border-radius: 4px; font-size: 11px; line-height: 16px; background: var(--warning-bg); color: var(--warning-text); }
@@ -989,7 +1025,17 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 商机那一行分两行：名字独占一行，阶段和金额在下面 */
 .rec-mini-2 { flex-direction: column; align-items: stretch; gap: 2px; }
 .rec-mini-2 .rec-mini-n { flex: none; }
-.rec-mini-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* 第二行的几段（阶段、金额、询盘日 / 确认日、付款方式、供应商）挤不下就折到下一行，不再撑出卡片（2026-10-19 客户 Windows 截图：
+   雅黑比苹方宽，「客户确认｜已转订单｜US$ 49,250｜2026-10-15 询盘」越过了左栏右边框）。单独一段比整行还长（供应商全称）才省略，悬停看全文 */
+.rec-mini-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; }
+.rec-mini-sub > * { min-width: 0; max-width: 100%; }
+.rec-mini-sub > .rec-mini-m { overflow: hidden; text-overflow: ellipsis; }
+/* 金额不许被截：它折到下一行也整段显示 */
+.rec-mini-sub > .rec-mini-money { flex: none; overflow: visible; }
+/* 订单那行第一行：订单号是认单的那半截，放不下时金额折到下一行；订单号比整行还长才省略。金额整段留着 */
+.rec-mini-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
+.rec-mini-line > .rec-mini-cut { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-mini-line > .rec-mini-amt { flex: none; }
 .rec-empty { padding: 4px 8px 8px; font-size: var(--fs-note); color: var(--text-faint); }
 
 .rec-composer { padding: 14px 16px 12px; }
@@ -1026,11 +1072,13 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec-tl-head { display: flex; align-items: center; gap: 8px; }
 .rec-tl-type { flex: none; font-weight: 600; font-size: var(--fs-section); color: var(--ink); }
 .rec-tl-title { color: var(--ink-soft); font-size: var(--fs-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* 跟进挂着的订单号（2026-10-05）：小一号的链接，不和标题抢 */
-.rec-tl-order { font-size: var(--fs-note); white-space: nowrap; flex: none; }
+/* 跟进挂着的订单号（2026-10-05）、关联商机：小一号的链接，不和标题抢。
+   2026-10-19 客户截图：商机名一长（「chicken breast BFQ. Exw. 10kg/Box. … 500 tons」），原来 flex:none 不让缩，
+   时间和编辑 / 删除被推出中栏、压到右边 AI 栏底下，点铅笔点到的是 AI 栏。现在它跟着缩、一行省略，悬停看全文 */
+.rec-tl-order { font-size: var(--fs-note); white-space: nowrap; flex: 0 1 auto; min-width: 3em; overflow: hidden; text-overflow: ellipsis; }
 .rec-tl-head > .ant-tag { flex: none; }
-.rec-tl-time { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.rec-tl-when { position: relative; margin-left: auto; display: inline-flex; align-items: center; }
+.rec-tl-time { flex: none; margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.rec-tl-when { flex: none; position: relative; margin-left: auto; display: inline-flex; align-items: center; }
 /* 编辑 / 删除平时不占位：原来它透明但占着宽度，中栏一窄就被挤到第二行，每条记录标题下空出一行。
    现在悬停（或键盘焦点进来）时盖在时间上出现，左缘渐隐；触屏没有悬停，就一直显示在时间下面那行 */
 .rec-tl-acts { position: absolute; right: 0; top: 50%; translate: 0 -50%; display: flex; gap: 0;
@@ -1043,6 +1091,10 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec-tl-content { margin: 6px 0 4px; color: var(--ink-soft); font-size: var(--fs-section); line-height: 1.75; white-space: pre-wrap; }
 .rec-tl-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--fs-note); color: var(--text-muted); margin-top: 4px; }
 .rec-tl-contract { background: var(--success-bg); border: 1px solid var(--success-line); border-radius: var(--r-card); padding: 10px 14px; }
+/* 签约 / 订单卡片：订单号 + 金额长的时候日期折到下一行靠右，不再越出卡片（2026-10-19 排查） */
+.rec-tl-contract .rec-tl-head { flex-wrap: wrap; row-gap: 2px; }
+.rec-tl-contract .rec-tl-type { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.rec-nowrap { white-space: nowrap; }
 
 .rec-ai { padding: 16px 18px 14px; }
 .rec-ai-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -1077,7 +1129,9 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec-side-card { padding: 14px 18px 12px; }
 .rec-side-t { font-size: var(--fs-note); font-weight: 600; color: var(--text-muted); margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
 .rec-task { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: var(--fs-body); }
-.rec-task-due { margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
+/* 待办标题长了折行，到期时间不被挤出右栏（2026-10-19 排查） */
+.rec-task-t { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.rec-task-due { flex: none; margin-left: auto; font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
 /* 刚勾完成、还留在原处的那几秒：划线变淡，一眼看得出「这条完了」，也看得出还能撤 */
 .rec-task.is-done .rec-task-t { text-decoration: line-through; color: var(--text-muted); }
 
@@ -1111,7 +1165,14 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec.rec-2col > .rec-col { grid-column: 2; grid-row: 2; }
 .rec.rec-2col > .rec-right > .ant-space { flex-direction: row; flex-wrap: wrap; column-gap: var(--s4); }
 .rec.rec-2col > .rec-right > .ant-space > .ant-space-item { flex: 1 1 200px; min-width: 0; }
-.rec.rec-1col { grid-template-columns: 1fr; }
+.rec.rec-1col { grid-template-columns: minmax(0, 1fr); }
+/* 单栏时 rec-2col 也挂着（正文 < 630 一定也 < 1090），上面那几条「放第 2 列」更具体、会盖过单栏：
+   网格多出一条隐式列，时间线整栏被挤到正文右边、压在全局 AI 面板底下，铅笔点不到
+   （2026-10-19 客户 Windows 截图；1280 宽手动开着 AI 面板就是这样）。叠成一列：档案、待办、时间线 */
+.rec.rec-2col.rec-1col { grid-template-rows: none; }
+.rec.rec-2col.rec-1col > .rec-rail:first-child { grid-column: 1; grid-row: 1; }
+.rec.rec-2col.rec-1col > .rec-right { grid-column: 1; grid-row: 2; }
+.rec.rec-2col.rec-1col > .rec-col { grid-column: 1; grid-row: 3; }
 
 /* ---------- 首页：对话面 ---------- */
 .home { min-height: calc(100vh - 140px); display: flex; flex-direction: column; }

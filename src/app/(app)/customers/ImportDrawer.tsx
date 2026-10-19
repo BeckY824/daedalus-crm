@@ -313,8 +313,8 @@ export default function ImportDrawer({
     }
   }
 
-  // 外贸：电话、WhatsApp、邮箱哪一列都能认人（没电话拿 WhatsApp，再没有拿邮箱，2026-10-07），指出一列就能往下走
-  const 认人列 = 外贸精简(b) ? (["phone", "whatsapp", "email"] as const).map((f) => 映射.indexOf(f)).find((i) => i >= 0) ?? -1 : 映射.indexOf("phone");
+  // 外贸：电话、WhatsApp、邮箱、微信哪一列都能认人（没电话拿 WhatsApp，再没有拿邮箱，2026-10-07；再没有拿微信，2026-10-19），指出一列就能往下走
+  const 认人列 = 外贸精简(b) ? (["phone", "whatsapp", "email", "wechat"] as const).map((f) => 映射.indexOf(f)).find((i) => i >= 0) ?? -1 : 映射.indexOf("phone");
   // 第 4 步改「重复行」处置时当场重算的那几个数（预览只在第 2 步算一次）
   const 现看 = 看 ? 按处置(看, 重复行) : null;
 
@@ -388,7 +388,7 @@ export default function ImportDrawer({
       footer={
         <页脚
           {...{ 步, 忙, 认人列, set步, 去预览, 落库, 撤, 重来 }}
-          认人叫法={外贸精简(b) ? "电话、WhatsApp 或邮箱" : "手机号"}
+          认人叫法={外贸精简(b) ? "电话、WhatsApp、邮箱或微信" : "手机号"}
           原文未确认={Boolean(原文核对 && !已核对原文)}
           看={现看}
           客户叫法={b.customer}
@@ -446,8 +446,8 @@ export default function ImportDrawer({
           </Upload.Dragger>
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14 }}>
             {外贸精简(b) ? (
-              <>只导{b.customer}这一张表。<b>电话是认人的那一列</b>：没有电话拿 WhatsApp 认，再没有拿邮箱认，
-              三样都没有的行进不来。导完可以整批撤销。</>
+              <>只导{b.customer}这一张表。<b>电话是认人的那一列</b>：没有电话拿 WhatsApp 认，再没有拿邮箱、微信认，
+              四样都没有的行进不来。导完可以整批撤销。</>
             ) : (
               <>只导{b.customer}这一张表。<b>手机号是认人的那一列</b>：同一个手机号算同一个人，
               所以没有手机号的行进不来。导完可以整批撤销。</>

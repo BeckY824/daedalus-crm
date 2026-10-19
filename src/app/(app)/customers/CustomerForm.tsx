@@ -21,6 +21,7 @@ import { 查电话 } from "@/lib/phone";
 import { 推荐方式 } from "@/lib/referrer-kind";
 import { 带走说法 } from "@/lib/carry-over";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 import { 字段是公司, 字段是行业 } from "@/lib/lead-convert";
 
 export type CustomerRow = {
@@ -96,6 +97,8 @@ function CustomerFormInner({
   const [form] = Form.useForm();
   const 我 = useMe();
   const [saving, setSaving] = useState(false);
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）
+  const 守 = useFormGuard({ open, form, 草稿键: editing ? null : "新建客户", 关: () => onClose(false), 忙: saving, afterOpenChange: 聚焦首项 });
   const [dup, setDup] = useState<DuplicateHit | null>(null);
   /** 保存时发现别人已经改过这条记录 */
   const [conflict, setConflict] = useState<SaveConflict | null>(null);
@@ -113,6 +116,12 @@ function CustomerFormInner({
    */
   /** 新建必填；编辑时只有原来就有号码的才必填（和 saveCustomer 同一条，见 lib/phone.ts） */
   const 电话必填 = !editing || Boolean(editing.phone);
+  /**
+   * 外贸：电话 / WhatsApp / 邮箱 / 微信至少填一个（2026-10-19 客户反馈「联系电话没星号却是必填；只知道微信号怎么办」）。
+   * 四格旁边标同一个记号，不再只红电话一格。原来就有电话的那位改资料时，电话不许清空，照旧标红星
+   */
+  const 四选一 = 外贸 && !editing?.phone;
+  const 填了 = (k: "whatsapp" | "email" | "wechat") => String(form.getFieldValue(["extra", k]) ?? "").trim() !== "";
   const 负责人选项 = 成员选项(users);
   if (editing && !users.some((u) => u.id === editing.salesOwnerId)) {
     负责人选项.push({ value: editing.salesOwnerId, label: `${editing.salesOwnerName}（已不再担任负责人）` });
@@ -206,6 +215,7 @@ function CustomerFormInner({
       // 换了负责人时，原负责人没做完的活一起转了过去，说一声（排查 B3）
       const 带走 = 带走说法(res.带走);
       message.success(editing ? (带走 ? `已保存${带走}一起转给了新负责人` : "已保存") : `${b.customer}已创建`);
+      守.存好了();
       onClose(true);
     } finally {
       setSaving(false);
@@ -215,10 +225,9 @@ function CustomerFormInner({
   return (
     <>
     <Modal
-      afterOpenChange={聚焦首项}
+      {...守.弹窗}
       open={open}
       title={editing ? `编辑${b.customer}` : `新建${b.customer}`}
-      onCancel={() => onClose(false)}
       onOk={onOk}
       confirmLoading={saving}
       okText="保存"
@@ -230,6 +239,7 @@ function CustomerFormInner({
         form={form}
         layout="vertical"
         style={{ marginTop: 8 }}
+        onValuesChange={守.改了}
         initialValues={
           editing
             ? { ...editing, expectedSignAt: editing.expectedSignAt ? dayjs(editing.expectedSignAt) : null }
@@ -299,20 +309,20 @@ function CustomerFormInner({
             {/* 和导入、服务端同一条规矩（lib/phone.ts）：收海外号和座机；
                 只有新建、或原来就有号码的才必填——原来没电话的人改个备注不该被它卡住 */}
             <Form.Item
-              label="联系电话"
+              label={四选一 ? <>联系电话<认人记号 /></> : "联系电话"}
               name="phone"
-              required={电话必填 && !外贸}
-              dependencies={外贸 ? [["extra", "whatsapp"], ["extra", "email"]] : undefined}
-              extra={外贸 && 电话必填 ? "没有电话可以只填 WhatsApp 或邮箱，就用它认人" : undefined}
+              required={电话必填 && !四选一}
+              dependencies={外贸 ? [["extra", "whatsapp"], ["extra", "email"], ["extra", "wechat"]] : undefined}
+              extra={四选一 ? <span className="cf-any-hint"><认人记号 /> {四选一说法}</span> : undefined}
               rules={[
                 {
                   validator: (_, v: string | undefined) => {
                     // 外贸：电话空着、填了 WhatsApp 就行（服务端拿 WhatsApp 当电话，二审）
-                    if (外贸 && !v?.trim() && String(form.getFieldValue(["extra", "whatsapp"]) ?? "").trim()) return Promise.resolve();
-                    // 外贸：电话、WhatsApp 都没有，有邮箱也行——按邮箱认人（2026-10-07，lib/email-dedupe.ts）
+                    if (外贸 && !v?.trim() && 填了("whatsapp")) return Promise.resolve();
+                    // 外贸：电话、WhatsApp 都没有，有邮箱也行——按邮箱认人（2026-10-07，lib/email-dedupe.ts）；邮箱也没有、有微信也行（2026-10-19）
                     // 原来有号码的照旧不许清空（服务端同一条），所以只管新建和原来就没电话的
-                    if (外贸 && !v?.trim() && !editing?.phone && String(form.getFieldValue(["extra", "email"]) ?? "").trim()) return Promise.resolve();
-                    if (外贸 && !v?.trim() && 电话必填) return Promise.reject(new Error("电话、WhatsApp、邮箱至少填一个"));
+                    if (外贸 && !v?.trim() && !editing?.phone && (填了("email") || 填了("wechat"))) return Promise.resolve();
+                    if (外贸 && !v?.trim() && 电话必填) return Promise.reject(new Error(四选一说法));
                     // 共享试用区里号码是打了码给人看的：没动它就放行，服务端会认回原号（排查 A2）
                     if (editing && v && v.includes("*") && v === editing.phone) return Promise.resolve();
                     const r = 查电话(v, { 必填: 电话必填 });
@@ -390,7 +400,7 @@ function CustomerFormInner({
                 <Form.Item
                   label={
                     <Space size={8}>
-                      WhatsApp
+                      <span>WhatsApp{四选一 && <认人记号 />}</span>
                       <Button
                         type="link"
                         size="small"
@@ -412,15 +422,15 @@ function CustomerFormInner({
               </Col>
               <Col span={8}>
                 <Form.Item
-                  label="邮箱"
+                  label={四选一 ? <>邮箱<认人记号 /></> : "邮箱"}
                   name={["extra", "email"]}
-                  dependencies={[["phone"], ["extra", "whatsapp"]]}
+                  dependencies={[["phone"], ["extra", "whatsapp"], ["extra", "wechat"]]}
                   rules={[
                     { type: "email", message: "邮箱格式不对" },
                     {
-                      // 没有电话、按邮箱认的那位：邮箱清空就认不出是谁了（服务端同一条）
+                      // 没有电话、按邮箱认的那位：邮箱清空（又没有微信）就认不出是谁了（服务端同一条）
                       validator: (_, v?: string) =>
-                        editing && !editing.phone && editing.extra?.email && !v?.trim() && !String(form.getFieldValue("phone") ?? "").trim() && !String(form.getFieldValue(["extra", "whatsapp"]) ?? "").trim()
+                        editing && !editing.phone && editing.extra?.email && !v?.trim() && !String(form.getFieldValue("phone") ?? "").trim() && !填了("whatsapp") && !填了("wechat")
                           ? Promise.reject(new Error("这位没有电话，是按邮箱认的，邮箱不能清空"))
                           : Promise.resolve(),
                     },
@@ -432,8 +442,21 @@ function CustomerFormInner({
             </Row>
             <Row gutter={16}>
               <Col span={8}>
-                <Form.Item label="微信" name={["extra", "wechat"]}>
-                  <Input placeholder="选填" />
+                <Form.Item
+                  label={四选一 ? <>微信<认人记号 /></> : "微信"}
+                  name={["extra", "wechat"]}
+                  dependencies={[["phone"], ["extra", "whatsapp"], ["extra", "email"]]}
+                  rules={[
+                    {
+                      // 没有电话、没有邮箱、按微信认的那位：微信清空就认不出是谁了（服务端同一条，2026-10-19）
+                      validator: (_, v?: string) =>
+                        editing && !editing.phone && !editing.extra?.email && editing.extra?.wechat && !v?.trim() && !String(form.getFieldValue("phone") ?? "").trim() && !填了("whatsapp") && !填了("email")
+                          ? Promise.reject(new Error("这位没有电话，是按微信认的，微信不能清空"))
+                          : Promise.resolve(),
+                    },
+                  ]}
+                >
+                  <Input placeholder={四选一 ? "只知道微信号也行" : "选填"} />
                 </Form.Item>
               </Col>
               <Col span={8}>
@@ -605,6 +628,7 @@ function QuickChannelModal({
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  const 守 = useFormGuard({ open, form, 关: () => onClose(null), 忙: saving, afterOpenChange: 聚焦首项 });
 
   async function onOk() {
     // 校验没过 antd 自己把错标在格子下面；Modal 不接 onOk 的拒绝，不吞掉就是一条未处理的报错（10-07 外贸 e2e 盯控制台抓到）
@@ -632,10 +656,9 @@ function QuickChannelModal({
 
   return (
     <Modal
-      afterOpenChange={聚焦首项}
+      {...守.弹窗}
       open={open}
       title="新建外部渠道"
-      onCancel={() => onClose(null)}
       onOk={onOk}
       confirmLoading={saving}
       okText="创建"
@@ -647,7 +670,7 @@ function QuickChannelModal({
     >
       {/* name 前缀不能省：这个表单和「新建学员」同时在 DOM 里，
           字段名又都叫 name/phone/remark，不加前缀 label 会绑到学员那几个框上 */}
-      <Form form={form} name="quickChannel" layout="vertical" style={{ marginTop: 8 }}>
+      <Form form={form} name="quickChannel" layout="vertical" style={{ marginTop: 8 }} onValuesChange={守.改了}>
         <Form.Item label="渠道姓名" name="name" rules={[requiredText("请输入渠道姓名")]}>
           <Input placeholder="如：小红" />
         </Form.Item>
@@ -670,5 +693,17 @@ function QuickChannelModal({
         </Form.Item>
       </Form>
     </Modal>
+  );
+}
+
+const 四选一说法 = "电话 / WhatsApp / 邮箱 / 微信至少填一个";
+
+/** 外贸新建客户：电话、WhatsApp、邮箱、微信四格旁边同一个记号，四格填一格就行（2026-10-19） */
+/** 读屏不念这个记号：规矩在电话格下面那行字里念一次就够，四个格子的名字还是「微信」「邮箱」本身 */
+function 认人记号() {
+  return (
+    <span className="cf-any-mark" title={四选一说法} aria-hidden>
+      ◆
+    </span>
   );
 }

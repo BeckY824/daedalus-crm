@@ -21,6 +21,7 @@ import { addTurn, clearThread, dequeueTurn, removeTurn, updateTurn, useThread, �
 import { 载入历史, type AgentAnswer, type 历史消息 } from "@/lib/thread-history";
 import { 落一轮 } from "./threads";
 import AskBox from "@/components/AskBox";
+import PaneToggle from "@/components/PaneToggle";
 import StartCard from "./StartCard";
 import TurnView from "./TurnView";
 import Signals from "./Signals";
@@ -450,6 +451,8 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
 
   return (
     <div className={`cli${empty ? " cli-empty" : ""}${窄 ? " cli-narrow" : ""}`}>
+      {/* 首页对话列表收起了（或窗口太窄成了抽屉）：问答区左上角一颗侧栏图标把它叫回来，和列表页头上那颗是同一个。右侧 AI 面板（窄）里不摆 */}
+      {!窄 && <PaneToggle 栏="chat" 位置="主区" className="pane-toggle-float" />}
       <div className="cli-col">
         {empty && 窄 ? (
           /*

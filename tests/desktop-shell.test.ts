@@ -410,12 +410,12 @@ describe("config.json：写进去的每一项读配置都要读回来（回归�
     }
     // 只有展开写的那几种：整个换掉的写法（写配置({ mode, serverUrl })）就是当初抹掉配置的那个坑
     expect(main.match(/写配置\(\{(?!\s*\.\.\.读配置\(\))/g), "写配置 只许 {...读配置(), 改的那几项} 这一种写法").toBeNull();
-    expect([...键们].sort()).toEqual(["glass", "lastRoute", "lastUpdateCheck", "mode", "serverUrl"]);
+    expect([...键们].sort()).toEqual(["closeAction", "glass", "lastRoute", "lastUpdateCheck", "mode", "serverUrl"]);
 
     const 目录 = fs.mkdtempSync(path.join(os.tmpdir(), "cfg-"));
     try {
       const CONFIG_FILE = path.join(目录, "config.json");
-      const 值: Record<string, unknown> = { glass: false, lastRoute: "/customers/abc", lastUpdateCheck: "2026-10-04T00:00:00.000Z", mode: "local", serverUrl: "https://crm.example.com" };
+      const 值: Record<string, unknown> = { closeAction: "tray", glass: false, lastRoute: "/customers/abc", lastUpdateCheck: "2026-10-04T00:00:00.000Z", mode: "local", serverUrl: "https://crm.example.com" };
       fs.writeFileSync(CONFIG_FILE, JSON.stringify(值));
       const 读配置 = new Function("fs", "path", "CONFIG_FILE", "旧数据目录", "数据根", "默认服务器", `${取函数(main, "读配置")}; return 读配置;`)(
         fs, path, CONFIG_FILE, 目录, 目录, "https://default.example.com",

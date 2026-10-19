@@ -19,6 +19,7 @@ import ReferralRadar from "./ReferralRadar";
 import type { TopReferrer, InviteCandidate } from "@/lib/referral";
 import { useBusiness } from "@/lib/business-client";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 
 type Row = {
   id: string;
@@ -72,6 +73,8 @@ export default function ChannelsView({
   const [editing, setEditing] = useState<Row | null>(null);
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）
+  const 守 = useFormGuard({ open, form, 草稿键: editing ? null : "新建渠道", 关: () => { setOpen(false); setEditing(null); }, 忙: saving, afterOpenChange: 聚焦首项 });
   /** 只有一个人：渠道负责人那一列和筛选都不摆（审查 D2 / M3）。1120 宽时它正好把「状态」挤出视野 */
   const 不问归属 = !ownerId && 列表不问归属(users, 全部行.map((r) => r.channelOwnerName));
   /** 刚停用 / 恢复的那一行亮两秒（row-fresh）：原来点完表里什么也没变，只飘过一句提示 */
@@ -97,6 +100,7 @@ export default function ChannelsView({
       const res = await saveChannel({ id: editing?.id, 版本: editing?.updatedAt, ...v });
       if (!res.ok) return message.error(res.error);
       message.success(editing ? "已保存" : "渠道已创建");
+      守.存好了();
       setOpen(false);
       setEditing(null);
       router.refresh();
@@ -284,10 +288,9 @@ export default function ChannelsView({
 
       {open && (
         <Modal
-          afterOpenChange={聚焦首项}
+          {...守.弹窗}
           open
           title={editing ? "编辑渠道" : "新建渠道"}
-          onCancel={() => { setOpen(false); setEditing(null); }}
           onOk={onOk}
           confirmLoading={saving}
           okText="保存"
@@ -298,6 +301,7 @@ export default function ChannelsView({
             form={form}
             layout="vertical"
             style={{ marginTop: 8 }}
+            onValuesChange={守.改了}
             // 新建时渠道负责人默认是我（团队同步之后候选里有同事）
             initialValues={editing ?? { channelOwnerId: 默认负责人(我, users) }}
           >

@@ -9,7 +9,7 @@
  *                    差别是设置那一层——软导航才命中拦截路由，才是盖在当前页上的浮层；
  *                    硬跳转落到的是整页。页面接住后回 nav:ok；没接住或处理抛错时退回硬跳转。
  *   desktopShell  —— 壳的杂事，给设置页「桌面端」那一栏用：备份数据库、打开数据文件夹、
- *                    查看服务日志、复制诊断信息、连接服务器、问版本号。
+ *                    查看服务日志、复制诊断信息、连接服务器、问版本号、Windows 点 × 怎么办。
  *                    这些原来都在系统菜单里（2026-09-17 之前）；菜单按 Claude 桌面端那套
  *                    改成标准项之后，它们搬进了应用页面。
  */
@@ -107,6 +107,9 @@ contextBridge.exposeInMainWorld("desktopShell", {
   /** 毛玻璃：{ 可用, 开 }。可用=false（Windows 10、Linux）时设置页不摆这个开关 */
   glass: () => ipcRenderer.invoke("shell:glass"),
   setGlass: (开) => ipcRenderer.invoke("shell:set-glass", 开 === true),
+  /** Windows 点 × 怎么办：{ 可用, 方式: ask | tray | quit }。可用=false（Mac）时设置页不摆这一栏（close-to-tray.js） */
+  closeAction: () => ipcRenderer.invoke("shell:close-action"),
+  setCloseAction: (方式) => ipcRenderer.invoke("shell:set-close-action", String(方式 ?? "")),
 });
 
 contextBridge.exposeInMainWorld("desktopNotify", {
