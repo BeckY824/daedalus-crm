@@ -994,7 +994,17 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 商机那一行分两行：名字独占一行，阶段和金额在下面 */
 .rec-mini-2 { flex-direction: column; align-items: stretch; gap: 2px; }
 .rec-mini-2 .rec-mini-n { flex: none; }
-.rec-mini-sub { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+/* 第二行的几段（阶段、金额、询盘日 / 确认日、付款方式、供应商）挤不下就折到下一行，不再撑出卡片（2026-10-19 客户 Windows 截图：
+   雅黑比苹方宽，「客户确认｜已转订单｜US$ 49,250｜2026-10-15 询盘」越过了左栏右边框）。单独一段比整行还长（供应商全称）才省略，悬停看全文 */
+.rec-mini-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; min-width: 0; }
+.rec-mini-sub > * { min-width: 0; max-width: 100%; }
+.rec-mini-sub > .rec-mini-m { overflow: hidden; text-overflow: ellipsis; }
+/* 金额不许被截：它折到下一行也整段显示 */
+.rec-mini-sub > .rec-mini-money { flex: none; overflow: visible; }
+/* 订单那行第一行：订单号是认单的那半截，放不下时金额折到下一行；订单号比整行还长才省略。金额整段留着 */
+.rec-mini-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 6px; }
+.rec-mini-line > .rec-mini-cut { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rec-mini-line > .rec-mini-amt { flex: none; }
 .rec-empty { padding: 4px 8px 8px; font-size: var(--fs-note); color: var(--text-faint); }
 
 .rec-composer { padding: 14px 16px 12px; }
@@ -1048,6 +1058,10 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec-tl-content { margin: 6px 0 4px; color: var(--ink-soft); font-size: var(--fs-section); line-height: 1.75; white-space: pre-wrap; }
 .rec-tl-meta { display: flex; gap: 12px; flex-wrap: wrap; font-size: var(--fs-note); color: var(--text-muted); margin-top: 4px; }
 .rec-tl-contract { background: var(--success-bg); border: 1px solid var(--success-line); border-radius: var(--r-card); padding: 10px 14px; }
+/* 签约 / 订单卡片：订单号 + 金额长的时候日期折到下一行靠右，不再越出卡片（2026-10-19 排查） */
+.rec-tl-contract .rec-tl-head { flex-wrap: wrap; row-gap: 2px; }
+.rec-tl-contract .rec-tl-type { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.rec-nowrap { white-space: nowrap; }
 
 .rec-ai { padding: 16px 18px 14px; }
 .rec-ai-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }

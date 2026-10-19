@@ -622,7 +622,7 @@ export default function RecordView({
                       {o.status === "WON" ? (是订单 ? "已转订单" : "已赢单") : "已丢单"}
                     </Tag>
                   )}
-                  <span className="rec-mini-m">{金额(o.amount, o.currency)}</span>
+                  <span className="rec-mini-m rec-mini-money">{金额(o.amount, o.currency)}</span>
                   {/* 外贸：哪天询的盘（客户：「3 月问了一次没成，5 月又问，这样知道客户计划采购的时间点」） */}
                   {外贸 && o.createdAt && <span className="rec-mini-m" title="询盘时间">{fmtDate(o.createdAt)} 询盘</span>}
                 </span>
@@ -651,7 +651,7 @@ export default function RecordView({
                     {r.spec && <span className="rec-mini-m"> · {r.spec}</span>}
                   </span>
                   <span className="rec-mini-sub">
-                    <span className="rec-mini-m">
+                    <span className="rec-mini-m rec-mini-money">
                       {金额(r.unitPrice, r.currency)} × {r.qty}{r.unit ? ` ${r.unit}` : ""}
                     </span>
                     <span className="rec-mini-m">{r.状态 === "WON" ? "成交 · " : ""}{fmtDate(r.quotedAt)}</span>
@@ -671,12 +671,15 @@ export default function RecordView({
               是订单 ? (
                 // 外贸：一笔签约就是一张订单。两行：订单号 + 金额；确认日 · 付款方式 · 供应商。点进订单页看挂在它上面的跟进
                 <div key={c.id} className="rec-mini rec-mini-2">
-                  <span className="rec-mini-n">
-                    {c.order ? <Link href={`/orders/${c.order.id}`}>{c.order.no}</Link> : <span className="muted" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
-                    <span className="rec-mini-amt"> · {金额(c.amount, c.currency)}</span>
+                  <span className="rec-mini-n rec-mini-line">
+                    {c.order ? <Link className="rec-mini-cut" href={`/orders/${c.order.id}`} title={c.order.no}>{c.order.no}</Link> : <span className="muted rec-mini-cut" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
+                    <span className="rec-mini-amt">{金额(c.amount, c.currency)}</span>
                   </span>
+                  {/* 确认日、付款方式、供应商各一段，挤不下就折行（原来拼成一串 nowrap，长供应商名直接越出卡片） */}
                   <span className="rec-mini-sub">
-                    <span className="rec-mini-m">{[fmtDate(c.signedAt), c.order?.payment, c.order?.supplier].filter(Boolean).join(" · ")}</span>
+                    {[fmtDate(c.signedAt), c.order?.payment, c.order?.supplier].filter(Boolean).map((段, k) => (
+                      <span key={k} className="rec-mini-m" title={段 ?? undefined}>{段}</span>
+                    ))}
                   </span>
                   <span className="rec-mini-acts">
                     <Button type="text" size="small" icon={<EditOutlined />} aria-label={`编辑订单 ${c.order?.no ?? ""}`} onClick={() => { setEditingContract(c); setContractOpen(true); }} />
@@ -772,7 +775,7 @@ export default function RecordView({
                     <div className="rec-tl-body">
                       <div className="rec-tl-contract">
                         <div className="rec-tl-head">
-                          <span className="rec-tl-type">{是订单 && e.c.order ? `订单 ${e.c.order.no}` : 叫} {金额(e.c.amount, e.c.currency)}</span>
+                          <span className="rec-tl-type">{是订单 && e.c.order ? `订单 ${e.c.order.no}` : 叫} <span className="rec-nowrap">{金额(e.c.amount, e.c.currency)}</span></span>
                           {e.c.remark && <span className="rec-tl-title" title={e.c.remark}>· {e.c.remark}</span>}
                           <span className="rec-tl-time">{fmtDate(e.c.signedAt)}</span>
                         </div>
