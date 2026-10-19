@@ -14,7 +14,7 @@ import { 认足迹, 是社媒网址, 社媒查询 } from "@/lib/research/verify/
 import { 查邮箱, 查电话 } from "@/lib/research/verify/contact";
 import { 认停放页 } from "@/lib/research/verify/site";
 import { 解CSV, 解OFAC, 解EU行, 解UN, 解UK行, 比名单, 制裁项, type 名单 } from "@/lib/research/verify/sanctions";
-import { 查工商, 挑登记, 认税号, 查税号, 国家库, 设美国重试毫秒, type 登记 } from "@/lib/research/verify/registry";
+import { 查工商, 挑登记, 认税号, 查税号, 国家库, 设美国重试毫秒, GLEIF库, type 登记 } from "@/lib/research/verify/registry";
 import { 认线索, 合并线索 } from "@/lib/research/verify/clues";
 import { 核验, 域名项 } from "@/lib/research/verify/check";
 import { 定总灯, 合成真实性, 信息少, 独立来源数 } from "@/lib/research/verify/rules";
@@ -299,6 +299,27 @@ describe("工商库", () => {
     const 英 = await 查工商(["Ansell Lighting"], "GB", { GLEIF: async () => [], env: {} });
     expect(英).toMatchObject({ 灯: "gray", 态: "不适用" });
     expect(英.事实).toContain("还没接上（缺查询 key）");
+  });
+  it("英国公司号（10-19 复核3）：GLEIF 的 registeredAs 认出来，绿灯才带给风险那一步读账目页；名字只是像（黄）的不带", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({
+          data: [
+            { attributes: { lei: "2138003FIDU4A656XI66", entity: { legalName: { name: "ANSELL ELECTRICAL PRODUCTS LIMITED" }, status: "ACTIVE", legalAddress: { country: "GB", city: "WARRINGTON" }, creationDate: "2001-01-02T00:00:00Z", registeredAs: "04134581" } } },
+            { attributes: { lei: "529900AAAAAAAAAAAA00", entity: { legalName: { name: "ANSELL GMBH" }, legalAddress: { country: "DE" }, registeredAs: "HRB 12345" } } },
+          ],
+        }),
+      ),
+    );
+    const 库 = await GLEIF库("Ansell Electrical Products Limited");
+    expect(库.find((x) => x.国 === "GB")?.英国号).toBe("04134581");
+    expect(库.find((x) => x.国 === "DE")?.英国号).toBeUndefined();
+    const 绿 = await 查工商(["Ansell Electrical Products Limited"], "GB", { GLEIF: async () => [记({ 名: "ANSELL ELECTRICAL PRODUCTS LIMITED", 国: "GB", 号: "04134581（LEI x）", 英国号: "04134581" })], env: {} });
+    expect(绿).toMatchObject({ 灯: "green", 英国号: "04134581" });
+    const 黄 = await 查工商(["Ansell"], "GB", { GLEIF: async () => [记({ 名: "Ansell Holdings Group", 国: "GB", 像: "近", 英国号: "04134581" })], env: {} });
+    expect(黄.灯).toBe("yellow");
+    expect(黄.英国号).toBeUndefined();
   });
   it("法国库（假 fetch）：没查到标黄；对面 503 是「查不了」", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ results: [] }), { status: 200 })));

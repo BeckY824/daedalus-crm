@@ -8,7 +8,7 @@
  *   - 对面不吃 tools：退回 JSON 协议照样跑完
  */
 import { describe, it, expect, vi } from "vitest";
-import { 跑背调, 认来源, type 模型调用 } from "@/lib/research/run";
+import { 跑背调, 认来源, 账目网址, 账目摘要, type 模型调用 } from "@/lib/research/run";
 import { 模拟通道 } from "@/lib/research/mock";
 import { 背调上限, 社媒搜索次数, 阶段表, type 研究事件 } from "@/lib/research/types";
 import type { 背调通道 } from "@/lib/research/channel";
@@ -692,6 +692,53 @@ describe("真实性（10-18）", () => {
     expect(母).toEqual([`"${公司}" ("owned by" OR "parent company" OR "acquired by" OR "subsidiary of")`]);
     // 发在风险那一步，界面上看得到
     expect(事件.some((e) => e.type === "tool" && e.stage === "risks" && e.kind === "search" && e.label.includes("owned by"))).toBe(true);
+  });
+
+  it("英国公司（10-19 复核3 财务退步）：工商登记认出公司号 → 风险那一步程序读公开账目页，账目表摘到前面，提示词写明不用再搜财务", async () => {
+    const 通道 = 模拟通道();
+    const 原核验 = 通道.核验.bind(通道);
+    vi.spyOn(通道, "核验").mockImplementation(async (q) => {
+      const r = await 原核验(q);
+      return r && { ...r, 项: r.项.map((x) => (x.key === "registry" ? { ...x, 英国号: "04134581" } : x)) };
+    });
+    const 原读 = 通道.读页.bind(通道);
+    const 正式 = "https://theaccounts.uk/company/04134581/ansell-electrical-products-limited/";
+    const 读 = vi.spyOn(通道, "读页").mockImplementation(async (id, url, sig) =>
+      url === 账目网址("04134581")
+        ? { title: "ANSELL ELECTRICAL PRODUCTS LIMITED — The Accounts", url: 正式, text: `${"导航 / 订阅提醒 / 图表说明\n".repeat(80)}Accounts\n2-year trend\nMetric Trend 2024-01-31 2025-01-31 Δ vs prior\nTurnover £85,469,379 £78,818,226 -7.8%\nProfit before tax £11,325,388 £9,839,487 -13.1%\nAverage employees 186 193 +3.8%\nAudit opinion\nUnqualified (clean)`, 截断了: false }
+        : 原读(id, url, sig),
+    );
+    const m = 假模型();
+    const { 事件 } = await 跑({ 通道, 模型: m });
+    expect(读.mock.calls.map((c) => c[1])).toContain("https://theaccounts.uk/company/04134581/");
+    expect(事件.some((e) => e.type === "tool" && e.stage === "risks" && e.kind === "read" && e.status === "done" && e.sources?.[0]?.url === 正式)).toBe(true);
+    const 风险 = m.调用.find((c) => c.prompt.includes("排查风险"))!;
+    expect(风险.prompt).toContain("公司号 04134581");
+    expect(风险.prompt).toContain("不用再搜财务");
+    expect(风险.prompt).not.toContain("再搜近两年财务");
+    // 表在原文 1500 字以后，摘到前面以后材料里看得到
+    expect(风险.prompt).toContain("Turnover £85,469,379 £78,818,226 -7.8%");
+  });
+
+  it("不是英国公司（工商登记没带公司号）：不读账目页，财务照旧让模型搜；信号那一步最多 2 次工具、新闻和参展合成一次", async () => {
+    const 通道 = 模拟通道();
+    const 读 = vi.spyOn(通道, "读页");
+    const m = 假模型();
+    await 跑({ 通道, 模型: m });
+    expect(读.mock.calls.some((c) => String(c[1]).includes("theaccounts.uk"))).toBe(false);
+    expect(m.调用.find((c) => c.prompt.includes("排查风险"))!.prompt).toContain("再搜近两年财务");
+    const 信号 = m.调用.find((c) => c.prompt.includes("找近期信号"))!;
+    expect(信号.prompt).toContain("新闻和参展合成一次搜");
+    expect(信号.prompt).toContain("这一步最多再调 2 次工具");
+  });
+
+  it("账目摘要：把「Metric … Turnover」那张表起的一段摘到最前面；认不出表就原样", () => {
+    const 原 = `${"导航\n".repeat(400)}Metric Trend 2024-01-31 2025-01-31\nTurnover £1 £2 +100%\nCash £3 £4`;
+    const 摘 = 账目摘要(原);
+    expect(摘.startsWith("Metric Trend")).toBe(true);
+    expect(摘.slice(0, 1500)).toContain("Turnover £1 £2 +100%");
+    expect(账目摘要("没有表的页面")).toBe("没有表的页面");
+    expect(账目网址("SC123456")).toBe("https://theaccounts.uk/company/SC123456/");
   });
 
   it("模型要读 LinkedIn / Facebook 的页面：不打开，告诉它只用搜索结果", async () => {

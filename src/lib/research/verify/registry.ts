@@ -33,7 +33,12 @@ export type 登记 = {
   像: Exclude<像不像, null>;
   /** 库里不记存续 / 注销的（SEC EDGAR）：句子里写这个，不写「存续」 */
   状态?: string;
+  /** 英国公司的 Companies House 公司号（8 位数字，或 SC / NI / OC 等两个字母 + 6 位） */
+  英国号?: string;
 };
+
+/** Companies House 公司号的写法：8 位数字，或两个大写字母 + 6 位数字（苏格兰 SC、北爱 NI、LLP 的 OC…） */
+export const 英国公司号 = /^(?:\d{8}|[A-Z]{2}\d{6})$/;
 
 type 查库 = (名: string, signal?: AbortSignal) => Promise<登记[]>;
 
@@ -68,6 +73,7 @@ export const 英国库: (key: string) => 查库 = (key) => async (名, signal) =
       地址: x.address_snippet,
       国: "GB",
       链: `https://find-and-update.company-information.service.gov.uk/company/${x.company_number}`,
+      ...(英国公司号.test(x.company_number) ? { 英国号: x.company_number } : {}),
     })),
     名,
   );
@@ -122,6 +128,7 @@ export const GLEIF库: 查库 = async (名, signal) => {
       地址: a.entity.legalAddress?.city,
       国: a.entity.legalAddress?.country,
       链: `https://search.gleif.org/#/record/${a.lei}`,
+      ...(a.entity.legalAddress?.country === "GB" && 英国公司号.test(a.entity.registeredAs ?? "") ? { 英国号: a.entity.registeredAs } : {}),
     })),
     名,
   );
@@ -296,7 +303,7 @@ export async function 查工商(
     }
     // 只是名字像（多几个词）、或者登记的国家和认出来的不一样：标黄，让人看一眼是不是这家
     const 黄 = !选.存续 || 选.像 === "近" || (国家 && 选.国 && 选.国 !== 国家);
-    return { key: "registry", 灯: 黄 ? "yellow" : "green", 态: "已核", 事实: `${句(选)}${选.像 === "近" ? "（名字不完全一样，请确认是不是这家）" : ""}${缺key注}`, 链接, ...(选.成立 ? { 成立: 选.成立.slice(0, 10) } : {}) };
+    return { key: "registry", 灯: 黄 ? "yellow" : "green", 态: "已核", 事实: `${句(选)}${选.像 === "近" ? "（名字不完全一样，请确认是不是这家）" : ""}${缺key注}`, 链接, ...(选.成立 ? { 成立: 选.成立.slice(0, 10) } : {}), ...(选.英国号 && !黄 ? { 英国号: 选.英国号 } : {}) };
   }
   const 挂 = [国结果, 全球].filter((x) => x instanceof 查不了).length;
   if (本国.库) {

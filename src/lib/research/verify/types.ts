@@ -51,6 +51,11 @@ export type 核验项 = {
   新域名?: boolean;
   /** 工商登记那一项：登记的成立日期（YYYY-MM-DD 或年份），拿去和官网自己的说法比（check.ts 比官网说法） */
   成立?: string;
+  /**
+   * 工商登记那一项：英国公司的 Companies House 公司号（绿灯才带，GLEIF 的 registeredAs 或 Companies House 本身）。
+   * 风险那一步拿它直接读公开账目页（run.ts 账目网址），近两年营收 / 利润 / 员工从那里取（10-19 复核3：财务退步）
+   */
+  英国号?: string;
   /** 官网那一项：首页上自己说的「since 2009」「10+ years experience」（site.ts 认官网说法） */
   说法?: 官网说法;
 };

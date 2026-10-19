@@ -93,8 +93,9 @@ export type 背调结果 =
   | { ok: false; error: string; 退了: boolean };
 
 /** 每一步最多几次工具调用（搜 + 读合计）。整次还受 背调上限 管，哪个先到算哪个 */
-// risks 另有程序先发的一次母公司搜索（母公司查询），模型自己最多再调 3 次，合起来还是 4 次
-const 每步工具上限: Record<阶段号, number> = { identify: 3, basics: 3, fit: 2, signals: 3, risks: 3, approach: 0 };
+// risks 另有程序先发的一次母公司搜索（母公司查询），模型自己最多再调 3 次，合起来还是 4 次。
+// signals 3 → 2（10-19 复核3 成本超 10%）：招聘一次、新闻和参展合成一次；「参展商」单独搜两轮回来的都是展会大全，没用上
+const 每步工具上限: Record<阶段号, number> = { identify: 3, basics: 3, fit: 2, signals: 2, risks: 3, approach: 0 };
 
 /** 每一步要查清什么。写给模型看的，也是界面上那一步的意思 */
 const 本步目标: Record<阶段号, string> = {
@@ -182,6 +183,26 @@ export function 认来源(材料: 材料条[], u: unknown): string | undefined {
  * 拼进提示词的材料：读过的页给 1500 字（官网的公司介绍 / 历史 / 设施页给 3000 字），搜索摘要给 300 字，整份封顶 30000 字（越新的越靠后、越不会被截）。
  * 封顶放宽到 30000（原来 14000）：截的是最前面那几条，一截前缀就变了、提示缓存就不命中；正常一次背调到不了这个数
  */
+/**
+ * 英国公司的公开账目页（theaccounts.uk，按 Companies House 公司号打开，会跳到带公司名的正式页）。
+ * 那页是从 Companies House 的 iXBRL 账目里取的：营收、营业利润、税前 / 净利润、现金、员工，两年对比带同比；还有审计意见、持续经营、集团结构。
+ * 10-18 那次是模型自己搜到、读了它才有「£78.8M 营收、同比 −7.8%」；10-19 复核3 模型改读了 filing-history 和 endole（都没有数），财务写成「查不到」
+ */
+export function 账目网址(英国号: string): string {
+  return `https://theaccounts.uk/company/${encodeURIComponent(英国号)}/`;
+}
+
+/**
+ * 账目页正文开头是导航、提醒订阅、图表说明，两年对比的表在 1300 字以后——材料里读页只给模型前 1500 字，
+ * 所以把「Metric … Turnover …」那张表起的一段（含利润率、审计、持续经营、集团结构）摘到最前面。认不出表就原样
+ */
+export function 账目摘要(text: string): string {
+  const 起 = text.search(/\bMetric\b[^\n]*\n\s*Turnover\b|\n\s*Turnover\s+£/);
+  if (起 < 0) return text;
+  const 段 = text.slice(起, 起 + 2800).trim();
+  return `${段}\n\n${text.slice(0, 起).trim()}`;
+}
+
 function 材料文本(材料: 材料条[]): string {
   if (!材料.length) return "（还没有材料）";
   const 段 = 材料.map((m) => `[${m.n}] ${m.title}\n${m.url}\n${m.text.slice(0, m.kind === "read" ? (m.长 ? 3000 : 1500) : 300)}`);
@@ -366,7 +387,8 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     }
   };
 
-  const 读 = async (stage: 阶段号, url: string): Promise<string> => {
+  /** 账目 = 英国公司账目页（账目网址）：正文先过 账目摘要，按长页给模型看 */
+  const 读 = async (stage: 阶段号, url: string, 账目 = false): Promise<string> => {
     if (读过.has(url)) return "这一页前面已经读过，内容在材料里。";
     // LinkedIn / Facebook 不打开（10-18 用户定：不登录、不抓取），只用搜索结果。不占读页名额
     if (是社媒网址(url)) return "LinkedIn / Facebook 的页面不打开，只用搜索结果里的标题和摘要。";
@@ -381,8 +403,11 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     const t0 = Date.now();
     发({ type: "tool", stage, id, kind: "read", label, status: "running" });
     try {
-      const p = await 通道.读页(runId, url, signal);
-      材料.push({ n: 材料.length + 1, kind: "read", title: p.title || 名, url: p.url || url, text: p.text, ...(p.url && p.url !== url ? { 别名: url } : {}), ...(是官网公司页(p.url || url) ? { 长: true as const } : {}) });
+      const p0 = await 通道.读页(runId, url, signal);
+      const p = 账目 ? { ...p0, text: 账目摘要(p0.text) } : p0;
+      // 跳转后的正式网址也记成读过：账目页按公司号打开、会跳到带公司名的那页，模型从搜索结果里看到正式网址别再读一遍
+      if (p.url) 读过.add(p.url);
+      材料.push({ n: 材料.length + 1, kind: "read", title: p.title || 名, url: p.url || url, text: p.text, ...(p.url && p.url !== url ? { 别名: url } : {}), ...(账目 || 是官网公司页(p.url || url) ? { 长: true as const } : {}) });
       const 字 = p.text.length >= 1000 ? `${(p.text.length / 1000).toFixed(1)}k 字` : `${p.text.length} 字`;
       发({ type: "tool", stage, id, kind: "read", label, status: "done", result: `1 页 · ${字}`, ms: Date.now() - t0, sources: [{ title: p.title || 名, url: p.url || url }] });
       发({ type: "usage", searches: 搜索数 + 社媒数, pages: 读页数 });
@@ -575,6 +600,14 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       )
       .catch(() => null);
   };
+  /** 工商登记那一项认出的英国公司号（绿灯才有）。核验从第一步就在跑，到风险那一步多半早回来了；没回来最多等 8 秒 */
+  const 等英国号 = async (): Promise<string | undefined> => {
+    if (!核验中) return undefined;
+    let 停表: ReturnType<typeof setTimeout> | undefined;
+    const 回 = 核验回 ?? (await Promise.race([核验中, new Promise<null>((r) => (停表 = setTimeout(() => r(null), 8_000)))]));
+    clearTimeout(停表);
+    return 回?.项.find((x) => x.key === "registry")?.英国号;
+  };
   const 出真实性 = async (): Promise<真实性> => {
     if (真) return 真;
     开始核验();
@@ -654,7 +687,9 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
     async signals() {
       // LinkedIn / Facebook 定向搜索：程序自己发（不让模型挑），只看搜索结果判断有没有主页、有没有在职员工（verify/social.ts）
       if (!钱到了) await Promise.all(社媒查询(社媒名).map((q) => 搜("signals", q, true)));
-      const r = (await 查("signals", "搜招聘、新闻、展会，各一次就够（LinkedIn / Facebook 已经搜过了，结果在材料里）。", 要.signals)) ?? (await 结论("signals", 要.signals));
+      const r =
+        (await 查("signals", "搜招聘一次；新闻和参展合成一次搜（比如「公司名 news OR exhibitor 2025」），够了就下结论（LinkedIn / Facebook 已经搜过了，结果在材料里）。", 要.signals)) ??
+        (await 结论("signals", 要.signals));
       const 信号 = Array.isArray(r.信号) ? (r.信号 as { text?: unknown; source?: unknown }[]) : [];
       for (const s of 信号.slice(0, 4)) {
         const 源 = 材料里的(s?.source);
@@ -667,11 +702,19 @@ export async function 跑背调(input: 背调输入): Promise<背调结果> {
       if (!钱到了) await 搜("risks", 母公司查询(社媒名));
       // 搜到官网的公司历史页、生产 / 测试设施页就各读一次（两页一起读，不多占时间）：被收购、母公司、自有工厂常只写在那
       // （10-18 免费对比复核：Ansell 的 history 页写着 2014 年被 Endo 收购，报告只读了 about-us）
-      if (!钱到了) await Promise.all(官网公司页().map((u) => 读("risks", u)));
+      // 英国公司：按工商登记认出的公司号直接读公开账目页（和上面两页一起读），近两年财务从那取，不用模型再搜一次（10-19 复核3）
+      const 英国号 = 钱到了 ? undefined : await 等英国号();
+      const [账] = 钱到了 ? [""] : await Promise.all([英国号 ? 读("risks", 账目网址(英国号), true) : Promise.resolve(""), ...官网公司页().map((u) => 读("risks", u))]);
+      const 账读成 = Boolean(英国号) && /^\[\d+\] /.test(账);
+      const 财务怎么查 = 账读成
+        ? `近两年财务：这家英国公司的公开账目页（Companies House 公司号 ${英国号}，theaccounts.uk）已经读过、在材料里，营收、利润、员工、同比从那里取，写明账期，不用再搜财务；`
+        : "再搜近两年财务（年报、再融资、重组新闻），";
       const r =
         (await 查(
           "risks",
-          "母公司已经按「owned by / parent company / acquired by / subsidiary of」专门搜过一次，官网的公司历史页（history）、生产 / 测试设施页搜到了也读过了，都在材料里，先看它们（没搜到再换登记全称或当地语言试一次）；再搜近两年财务（年报、再融资、重组新闻），再搜付款纠纷、投诉、诉讼、破产。" +
+          "母公司已经按「owned by / parent company / acquired by / subsidiary of」专门搜过一次，官网的公司历史页（history）、生产 / 测试设施页搜到了也读过了，都在材料里，先看它们（没搜到再换登记全称或当地语言试一次）；" +
+            财务怎么查 +
+            "再搜付款纠纷、投诉、诉讼、破产。" +
             "拿不准是不是这一家的（同名的别家公司）不要列进风险。",
           要.risks,
         )) ?? (await 结论("risks", 要.risks));
