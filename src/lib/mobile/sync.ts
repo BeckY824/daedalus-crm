@@ -10,7 +10,8 @@
  *   - 收包时逐项核对一模一样（解密绑定、内外层元数据、在不在目录、父链可见），用的是同一份 scope-policy / scoped-pure
  *   - 合并规则一样：字段级后写为准、删除留墓碑、自己推过的不重放
  *   - 不做的：老板迁移、补发起点、改归属（手机第一版不领取公海、不改负责人——这些会牵动「起点」，留在电脑上做）
- *   - 手机只写这几张表：FollowUp、FollowPlan、AuditLog（记一笔跟进时电脑上写的也就是这几样，见 customers/[id]/actions.ts）
+ *   - 手机只写这几张表：FollowUp、FollowPlan、AuditLog（记一笔跟进时电脑上写的也就是这几样，见 customers/[id]/actions.ts）；
+ *     2026-10-19 起加上新建客户（Customer、CustomerExtra）和新建商机（Opportunity、OpportunityMoney），都归本人
  */
 import { 提取范围, 核对范围, 行键, 范围父表, type 范围索引, type 范围元数据 } from "@/lib/sync/scope-policy";
 import { 同步表, 不同步列 } from "@/lib/sync/tables";
@@ -18,6 +19,13 @@ import { 归一化范围行, 主键表 } from "@/lib/sync/scoped-pure";
 import { 规范串 } from "@/lib/sync/canon";
 import * as 密 from "@/lib/sync/crypto-web";
 import type { 改动 } from "@/lib/sync/local";
+// 下面这几样都不牵进服务端模块（Prisma、node:*）：手机页面直接打包
+import { BUSINESS_KEY, mergeBusiness, type BusinessConfig } from "@/lib/business-config";
+import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
+import { 金额 as 显示金额, 规整币种 } from "@/lib/currency";
+import { 认国家, 规整外贸格, type 外贸档案 } from "@/lib/customer-extra";
+import { hasVisibleText } from "@/lib/form-validation";
+import { 号键, 查电话 } from "@/lib/phone";
 
 export type { 改动 };
 export type 传输 = (方法: "GET" | "POST", 路径: string, body?: unknown) => Promise<{ 状态: number; json: Record<string, unknown> }>;
@@ -350,6 +358,133 @@ export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步�
       审("update", "FollowPlan", 计划.k, `完成跟进计划「${String(计划.r.subject ?? "")}」（${客户名}）`);
     }
   }
+  await 回放(库, 改, c.device, 状态, { 含本人: true });
+  状态.待推.push(...改);
+  return { id };
+}
+
+/* ---------------- 手机上新建客户 / 商机（2026-10-19 客户反馈第 7 条） ---------------- */
+
+/**
+ * 团队的业务设置（随团队同步下来的 Setting:business）：外贸 / 通用模版、来源选项、本位币、阶段叫法都看它。
+ * 还没同步到（第一次同步没完）就按默认的来
+ */
+export function 读业务(s: 记录 | undefined): BusinessConfig {
+  try { return mergeBusiness(s ? (JSON.parse(String(s.r.value ?? "null")) as Partial<BusinessConfig>) : null); } catch { return mergeBusiness(null); }
+}
+export const 业务行键 = 行键("Setting", BUSINESS_KEY);
+async function 业务设置(库: 手机库): Promise<BusinessConfig> {
+  return 读业务(await 库.取("Setting", BUSINESS_KEY));
+}
+
+export type 新建客户输入 = { name: string; phone?: string; whatsapp?: string; email?: string; country?: string; source?: string };
+
+/** 这台手机上已有的同号 / 同邮箱客户（成员手机只有本人 + 公海，同事名下的撞号要到电脑上才查得到；服务端不查重） */
+async function 手机上撞的(库: 手机库, phone: string, email: string): Promise<string | null> {
+  const 号 = phone ? 号键(phone) : "";
+  const 邮 = email.trim().toLowerCase();
+  for (const key of await 库.键们()) {
+    if (!key.startsWith("Customer:")) continue;
+    const x = await 库.取("Customer", key.slice("Customer:".length));
+    if (!x) continue;
+    if (号 && String(x.r.phone ?? "") && 号键(String(x.r.phone)) === 号) return `手机号 ${phone} 已经有了：${String(x.r.name ?? "")}`;
+    if (邮 && !phone) {
+      const 额 = await 库.取("CustomerExtra", x.k);
+      if (!x.r.phone && String(额?.r.email ?? "").trim().toLowerCase() === 邮) return `邮箱 ${email.trim()} 已经有了：${String(x.r.name ?? "")}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * 新建客户：和电脑上 saveCustomer 新建那一支同一套规矩（customers/actions.ts），只收手机上摆的几格。
+ *   - 名字必填；外贸：电话、WhatsApp、邮箱至少一个（没电话就拿 WhatsApp 当电话认人，都没有就按邮箱认）；通用：电话必填
+ *   - 归本人（salesOwnerId = 本人）——服务端的范围规则只许成员建自己名下的客户
+ *   - 写客户一行、（外贸填了才有）外贸档案一行、操作日志一条，先进手机库再进待推
+ * 跟进状态 / 决策状态用库里的默认值；推荐人、渠道这些通用模版的东西手机上不问，空着（电脑上照样能补）
+ */
+export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同步状态, 输入: 新建客户输入, 现在 = Date.now()): Promise<{ id: string }> {
+  if (!hasVisibleText(输入.name)) throw new 同步问题("请填写名字");
+  const b = await 业务设置(库);
+  const 外贸 = b.template === "trade";
+  const 档案: Partial<外贸档案> = {};
+  if (外贸) {
+    for (const k of ["whatsapp", "email", "source"] as const) {
+      const r = 规整外贸格(k, 输入[k]);
+      if (!r.ok) throw new 同步问题(r.error);
+      if (r.v) 档案[k] = r.v;
+    }
+    const 国 = 认国家(输入.country);
+    if (国) { const r = 规整外贸格("country", 国); if (!r.ok) throw new 同步问题(r.error); if (r.v) 档案.country = r.v; }
+  }
+  const 填的电话 = !String(输入.phone ?? "").trim() && 外贸 && 档案.whatsapp ? 档案.whatsapp : 输入.phone;
+  const 按邮箱认 = 外贸 && !String(填的电话 ?? "").trim() && Boolean(档案.email);
+  const 电话 = 查电话(填的电话, { 必填: !按邮箱认 });
+  if (!电话.ok) throw new 同步问题(外贸 && !String(填的电话 ?? "").trim() ? "电话、WhatsApp、邮箱至少填一个（没有电话就用它认人）" : 电话.error);
+  const 撞 = await 手机上撞的(库, 电话.phone, 按邮箱认 ? String(档案.email) : "");
+  if (撞) throw new 同步问题(撞);
+
+  const 我 = await 库.取("User", c.userId);
+  const 我名 = String(我?.r.name ?? "");
+  const 编钟 = () => { 状态.钟 = Math.max(现在, 状态.钟 + 1); return 钟串(状态.钟, c.device); };
+  const 改: 改动[] = [];
+  const 插 = (t: string, r: Record<string, unknown>) => { const h = 编钟(); 改.push({ t, k: String(r[主键表[t]]), o: "I", r, c: Object.keys(r), h }); };
+
+  const id = 新编号();
+  const name = 输入.name.trim();
+  插("Customer", {
+    id, name, phone: 电话.phone, school: null, grade: null, major: null,
+    channelId: null, referrerCustomerId: null, attributionChannelId: null, attributionCustomerId: null,
+    salesOwnerId: c.userId, channelOwnerId: null, followStatus: "待跟进", decisionStatus: "了解中",
+    expectedSignAt: null, expectedSignOn: null, remark: null, createdAt: 现在, updatedAt: 现在,
+  });
+  if (Object.keys(档案).length) {
+    插("CustomerExtra", { customerId: id, country: null, whatsapp: null, wechat: null, email: null, source: null, level: null, website: null, ...档案 });
+  }
+  插("AuditLog", { id: 新编号(), at: 现在, userId: c.userId, userName: 我名, action: "create", entity: "Customer", entityId: id, summary: `新建${b.customer}「${name}」`, detail: JSON.stringify({ 来自: "手机" }) });
+  await 回放(库, 改, c.device, 状态, { 含本人: true });
+  状态.待推.push(...改);
+  return { id };
+}
+
+/** 手机上能选的商机阶段：不含「赢单成交」——赢单要登记签约 / 转订单，留在电脑上做 */
+export const 手机商机阶段 = OPP_STAGES.filter((s) => s !== "赢单成交");
+
+export type 新建商机输入 = { customerId: string; name: string; amount: number; stage: string };
+
+/**
+ * 新建商机：和电脑上 saveOpportunity 新建那一支同一套（opportunities/actions.ts）——商机一行、币种一行（团队本位币）、操作日志一条。
+ * 归本人；只能挂在这台手机上看得到、不在公海里的客户下（成员的手机上就是本人名下的，服务端再按归属把关）
+ */
+export async function 新建商机(c: 手机团队, 库: 手机库, 状态: 同步状态, 输入: 新建商机输入, 现在 = Date.now()): Promise<{ id: string }> {
+  if (!hasVisibleText(输入.name)) throw new 同步问题("请填写商机名称");
+  if (!Number.isFinite(输入.amount) || 输入.amount < 0) throw new 同步问题("商机金额不能为负数");
+  if (!(手机商机阶段 as readonly string[]).includes(输入.stage)) throw new 同步问题("商机阶段不对");
+  const 客户 = await 库.取("Customer", 输入.customerId);
+  if (!客户) throw new 同步问题("这位客户不在这台手机上了，下拉同步一下");
+  if (await 库.取("CustomerPool", 输入.customerId)) throw new 同步问题("公海客户请先在电脑上领取");
+  const b = await 业务设置(库);
+  const 币 = 规整币种(b.currency);
+  const 我 = await 库.取("User", c.userId);
+  const 我名 = String(我?.r.name ?? "");
+  const 编钟 = () => { 状态.钟 = Math.max(现在, 状态.钟 + 1); return 钟串(状态.钟, c.device); };
+  const 改: 改动[] = [];
+  const 插 = (t: string, r: Record<string, unknown>) => { const h = 编钟(); 改.push({ t, k: String(r[主键表[t]]), o: "I", r, c: Object.keys(r), h }); };
+
+  const id = 新编号();
+  const name = 输入.name.trim();
+  const amount = Math.round(输入.amount * 100) / 100;
+  const probability = STAGE_PROBABILITY[输入.stage] ?? 20;
+  插("Opportunity", {
+    id, name, amount, stage: 输入.stage, status: "OPEN", probability, expectedDealAt: null, remark: null,
+    customerId: 输入.customerId, ownerId: c.userId, createdAt: 现在, updatedAt: 现在, activityAt: 现在,
+  });
+  插("OpportunityMoney", { opportunityId: id, currency: 币 });
+  插("AuditLog", {
+    id: 新编号(), at: 现在, userId: c.userId, userName: 我名, action: "create", entity: "Opportunity", entityId: id,
+    summary: `新建商机「${name}」：${输入.stage} · ${显示金额(amount, 币)}`,
+    detail: JSON.stringify({ 名称: name, 金额: amount, 币种: 币, 阶段: 输入.stage, 状态: "进行中", 概率: probability, 来自: "手机" }),
+  });
   await 回放(库, 改, c.device, 状态, { 含本人: true });
   状态.待推.push(...改);
   return { id };

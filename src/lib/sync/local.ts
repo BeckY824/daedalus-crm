@@ -17,6 +17,7 @@ import type { PrismaClient, Prisma } from "@/generated/prisma";
 import { 同步表, 不同步列, 同步的设置, 指向人的列, 同名合并, 模板占位账号 } from "./tables";
 import { 是模板名字 } from "@/lib/desktop/synced-name";
 import { 擦净删除残留 } from "./scoped-local";
+import { 记新插 } from "./team-notice-box";
 import { 建被盖表, 记推送时间, 记被盖, 清掉不在的被盖 } from "./overwritten";
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -272,6 +273,9 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
   let 撞 = 0;
   let 跳 = 0;
   const 动过的客户 = new Set<string>();
+  // 别人新建、本机原来没有的客户 / 商机 / 跟进：提交之后记给老板提醒（team-notice.ts）。本人的（含本人）不记
+  const 新插们: 改动[] = [];
+  let 本条新插 = false;
   await db.$transaction(async (tx) => {
     /*
       先把本机还没编字段钟的改动编上：不然别人更早的改动会盖掉我刚改、还没推的。
@@ -335,6 +339,7 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
         try {
           await tx.$executeRawUnsafe(`INSERT INTO ${引(e.t)} (${插列.map(引).join(", ")}) VALUES (${插列.map(() => "?").join(", ")})`, ...插列.map((c) => 值(row[c])));
           await tx.$executeRawUnsafe("RELEASE s_ins");
+          本条新插 = e.o === "I";
         } catch (err) {
           await tx.$executeRawUnsafe("ROLLBACK TO s_ins");
           await tx.$executeRawUnsafe("RELEASE s_ins");
@@ -396,10 +401,12 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
     for (const e of 排好) {
       if (!(同步表 as readonly string[]).includes(e.t)) continue; // 对方版本新、多了一张我这还没有的表：跳过
       await tx.$executeRawUnsafe("SAVEPOINT s1");
+      本条新插 = false;
       try {
         await 放一条(e);
         await tx.$executeRawUnsafe("RELEASE s1");
         已回放.push(e);
+        if (本条新插 && !选项.含本人) 新插们.push(e);
       } catch (err) {
         await tx.$executeRawUnsafe("ROLLBACK TO s1");
         await tx.$executeRawUnsafe("RELEASE s1");
@@ -422,6 +429,7 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
     await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 0 WHERE id = 1");
   }, { timeout: 180_000, maxWait: 20_000 }); // 新人第一次拉一个大团队，一批 2000 条要好几秒，默认 5 秒会超时、每轮重试都失败（复查）
   await 重算派生(db, [...动过的客户]);
+  for (const e of 新插们) 记新插(e);
   return { 应用: 排好.length - 跳, 撞, 跳 };
 }
 

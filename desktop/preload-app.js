@@ -116,13 +116,17 @@ contextBridge.exposeInMainWorld("desktopNotify", {
 
 /*
   desktopReminders —— 提醒的设置（Dock 数字 / 早上汇总 / 到点提醒）和「现在就再问一次」。
-  设置只有四个字段，由主进程规整；刷新不带参数。页面完成一条计划之后喊一声，Dock 上的数马上跟着变。
+  设置只有这几个字段，由主进程规整；刷新不带参数。页面完成一条计划之后喊一声，Dock 上的数马上跟着变。
+  同事新建的三个开关（设置 → 团队）：页面没带的就不传，不能把没带当成关（老页面只交四个字段）
 */
 contextBridge.exposeInMainWorld("desktopReminders", {
   设置: () => ipcRenderer.invoke("reminders:get"),
-  改设置: (s) => ipcRenderer.invoke("reminders:set", {
-    角标: Boolean(s?.角标), 早报: Boolean(s?.早报), 早报时间: String(s?.早报时间 ?? ""), 到点: Boolean(s?.到点),
-  }),
+  改设置: (s) => {
+    const 新 = {};
+    for (const k of ["角标", "早报", "到点", "同事客户", "同事商机", "同事跟进"]) if (s && k in s) 新[k] = Boolean(s[k]);
+    if (s && "早报时间" in s) 新.早报时间 = String(s.早报时间 ?? "");
+    return ipcRenderer.invoke("reminders:set", 新);
+  },
   刷新: () => ipcRenderer.invoke("reminders:refresh"),
   试一条: () => ipcRenderer.invoke("reminders:test"),
 });

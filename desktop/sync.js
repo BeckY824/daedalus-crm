@@ -8,13 +8,14 @@
  * 多久一轮（2026-10-04 用户：3–5 人的团队版要快）：窗口在前台 8 秒一轮，在后台 30 秒，切回应用立刻一轮。
  * 一个团队 5 个人都在前台也就每秒不到一次请求，没有改动时推这一步不发、拉是一个空列表。
  * 这一轮收到了同事的改动：告诉窗口（有新改动），页面跟着刷新，不用人自己去点。
+ * 老板那台，本地服务还会带上「同事新建」的那几条（lib/sync/team-notice.ts）：交给 同事新建，由 team-notices.js 决定怎么提醒。
  */
 const 前台间隔 = 8_000;
 const 后台间隔 = 30_000;
 /** 老名字：测试和别处读过它 */
 const 间隔 = 后台间隔;
 
-function 开始({ 取端口, 取令牌, 前台 = () => false, 有新改动 = () => {}, fetch: 拿 = globalThis.fetch }) {
+function 开始({ 取端口, 取令牌, 前台 = () => false, 有新改动 = () => {}, 同事新建 = () => {}, fetch: 拿 = globalThis.fetch }) {
   let 在跑 = false;
   let 计时 = null;
   let 停了 = false;
@@ -28,6 +29,10 @@ function 开始({ 取端口, 取令牌, 前台 = () => false, 有新改动 = () 
       const r = await 拿(`http://127.0.0.1:${port}/api/desktop/sync`, { method: "POST", headers: { "x-desktop-token": token }, signal: AbortSignal.timeout(120_000) });
       const j = await r.json().catch(() => null);
       if (j && j.ok && Number(j.拉) > 0) 有新改动(Number(j.拉));
+      // 「改完推一下」那几轮拉到的也在这里：这一轮自己拉到 0 条，照样可能带着
+      if (j && Array.isArray(j.同事新建) && j.同事新建.length) {
+        try { 同事新建(j.同事新建); } catch { /* 提醒出错不影响同步 */ }
+      }
     } catch {
       /* 本地服务重启中、云端连不上：下一轮再来，出错原因本地服务自己记在 .team.json 里 */
     } finally {

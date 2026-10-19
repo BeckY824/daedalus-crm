@@ -381,3 +381,12 @@ a.m-icon-btn { text-decoration: none; }
 .m-list-h { margin: 4px 4px 8px; font-size: 13px; color: var(--text-muted); }
 .m-kv > .m-kv-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
 [data-testid="m-approve"] .m-unsynced-btns > .m-btn { flex: 1; }
+
+/* 新建客户 / 商机（2026-10-19）：沿用登录表单的输入框，放在面板里收紧一点 */
+.m-form.m-form-sheet { margin-top: 8px; gap: 12px; }
+.m-form.m-form-sheet input { height: 46px; }
+.m-form.m-form-sheet .m-field-l { margin: 4px 0 -4px; }
+.m-form-tip { margin: -4px 0 0; font-size: 12px; color: var(--text-faint); }
+.m-add { width: 32px; height: 32px; margin-right: 8px; font-size: 15px; }
+.m-card-more { display: inline-flex; align-items: center; gap: 4px; margin: 8px -8px -6px; font-size: 14px; }
+.m-opp-name .m-pending { margin-left: 6px; vertical-align: 2px; }
