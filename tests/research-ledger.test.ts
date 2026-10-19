@@ -53,6 +53,8 @@ async function 建账号(背调次 = 3) {
   const 账本 = await import("@/lib/tenant/credits");
   await 账本.赠送({ kind: "account", id }, { amount: 30, reason: "signup", key: `${id}:signup` });
   if (背调次 > 0) await 账本.赠送背调(id, { amount: 背调次, reason: "admin" });
+  // 背调的注册赠送记成已发过（0 次）：不然它算「10-17 之前的老账号」，结账时会补 1 次（10-19），这里的数就不准了
+  await control.researchGrant.create({ data: { accountId: id, amount: 0, reason: "signup", key: `${id}:research-signup` } });
   return { kind: "account" as const, id };
 }
 

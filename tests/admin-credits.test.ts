@@ -106,6 +106,26 @@ async function 加(input: { accountId: string; 种类: "research" | "ai"; n: num
   return 给账号加次数({ token: input.token ?? TOKEN, key: input.key ?? 编号(), ...input });
 }
 
+describe("老用户补 1 次背调（10-19）", () => {
+  it("10-17 之前领过问答注册赠送的老账号：桌面端问价时补上 1 次，再问不重复补；运营台再加照常叠上去", async () => {
+    const a = await 建账号("老客户", "old@buyer.test");
+    const { control } = await import("@/lib/tenant/control");
+    await control.accountAiGrant.create({ data: { accountId: a.id, amount: 30, reason: "signup", key: `${a.id}:signup`, note: "10-17 之前" } });
+    const t = await 登录("old@buyer.test");
+    expect(await 桌面端读背调(t)).toBe(1);
+    expect(await 桌面端读背调(t)).toBe(1);
+    expect(await control.researchGrant.count({ where: { accountId: a.id } })).toBe(1);
+    expect((await 加({ accountId: a.id, 种类: "research", n: 5 })).ok).toBe(true);
+    expect(await 桌面端读背调(t)).toBe(6);
+  });
+
+  it("没领过问答注册赠送的账号（同一台电脑上的第二个号）问价不补", async () => {
+    await 建账号("第二个号", "second@buyer.test");
+    const t = await 登录("second@buyer.test");
+    expect(await 桌面端读背调(t)).toBe(0);
+  });
+});
+
 describe("个人加次数", () => {
   it("加背调：背调余额 +N，桌面端问价马上看到；记录里有谁、几次、备注", async () => {
     const a = await 建账号("王老板", "wang@buyer.test");
