@@ -103,3 +103,7 @@ node_modules
 
 # 背调对比实验的输出（scripts/research-bench.ts）：报告里是真实公司的公开信息，不进仓库
 research-bench-out/
+
+# 扫名片的识别运行库：scripts/build-ocr.mjs 从 node_modules 生成（模型 public/ocr/v1/models 进仓库）
+/public/ocr/v1/*
+!/public/ocr/v1/models/

@@ -19,6 +19,8 @@ const eslintConfig = defineConfig([
     // 桌面客户端是独立的 Electron 包：主进程必须走 CommonJS，
     // 用 Next 这套规则去 lint 它只会得到一堆「不许 require」的假阳性
     "desktop/**",
+    // 扫名片的识别运行库：scripts/build-ocr.mjs 从 node_modules 打出来的压缩包，不是我们写的
+    "public/ocr/**",
   ]),
   {
     rules: {

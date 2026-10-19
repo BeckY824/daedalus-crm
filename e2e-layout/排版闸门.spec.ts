@@ -21,6 +21,7 @@ import path from "node:path";
 import { 连库, 我的id, 进门 } from "../e2e-desktop/helpers";
 import { 查排版, 说问题, type 排版问题 } from "../e2e/layout-audit";
 import { 灌真客户 } from "./种子";
+import { 关掉弹窗, 切外贸 } from "./外贸模版";
 import 现存问题 from "./现存问题.json";
 
 test.describe.configure({ mode: "serial" });
@@ -67,14 +68,6 @@ const 页们: { 名: string; 址: string }[] = [
 const 忽略 = [".ant-message", ".ant-notification", "nextjs-portal"];
 
 /** 新库第一次进主界面会在页面出来之后自己弹「已更新到 …」：等一下，弹了就关（点过一次服务端记住，后面不再弹） */
-async function 关掉弹窗(page: Page, 等 = 0) {
-  const 弹窗 = page.getByRole("dialog", { name: /已更新到/ });
-  if (await 弹窗.waitFor({ state: "visible", timeout: 等 || 1 }).then(() => true, () => false)) {
-    await 弹窗.getByRole("button", { name: /知\s*道\s*了/ }).click();
-    await expect(弹窗).toBeHidden();
-  }
-}
-
 async function 去(page: Page, 址: string, 摆: 摆法) {
   await page.goto(址);
   // networkidle 最多等 5 秒：订单详情页在 CI 上一直等不到（10-19 #40 第一次跑卡了 583 秒），落定靠下面那 500ms
@@ -109,29 +102,7 @@ test.beforeAll(async ({ browser }) => {
   } finally {
     await db.$disconnect();
   }
-  // 外贸模版（订单、供应商、客户档案那几格）；走界面切，设置有进程内缓存
-  const page = await browser.newPage();
-  try {
-    await 进门(page, "/settings?tab=business");
-    if (await page.getByRole("heading", { name: "你主要做哪一类生意？" }).isVisible().catch(() => false)) {
-      await page.getByRole("button", { name: /用外贸出口开始/ }).click();
-      await expect(page).not.toHaveURL(/\/start/);
-      await 关掉弹窗(page, 4_000);
-    } else {
-      await 关掉弹窗(page, 4_000);
-      const 面板 = page.getByRole("tabpanel", { name: /^业务配置/ });
-      await expect(面板).toBeVisible();
-      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
-      await 面板.getByRole("button", { name: "外贸出口", exact: true }).click();
-      const 存 = 面板.locator(".biz-preset-todo").getByRole("button", { name: /保\s*存/ });
-      if (await 存.isVisible().catch(() => false)) {
-        await 存.click();
-        await expect(page.getByText("已保存，全站措辞已更新")).toBeVisible({ timeout: 15_000 });
-      }
-    }
-  } finally {
-    await page.close();
-  }
+  await 切外贸(browser);
 });
 
 test.afterAll(() => {
