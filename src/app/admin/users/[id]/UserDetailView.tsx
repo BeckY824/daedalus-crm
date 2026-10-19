@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import { App, Button, InputNumber, Popconfirm, Table } from "antd";
+import { Table } from "antd";
 import { DesktopOutlined, FireOutlined, GiftOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import Chart from "@/components/Chart";
 import { dayjs } from "@/lib/utils";
 import { 分布说法 } from "@/lib/device-os";
-import { grantAccountAi, grantAccountResearch } from "../../actions";
+import { AddCreditButtons } from "../../credits/AddCredits";
 import { 站内, LinkPending } from "../../OpsShell";
 import { Kpi, 卡片, 按天柱图, 横条图, 头像, TimeAgo, 千分位, 次数条, 系统 } from "../../ui";
 import type { 用户详情, 设备行 } from "../../data";
@@ -19,32 +18,12 @@ import { TestAccountToggle as 测试开关, TestAccountTag as 测试标签 } fro
  *   AI 还剩多少、这个月用了多少、用在哪（数 + 图）
  *   他在几台什么电脑上、停在哪一版（设备表）
  *   次数是怎么来的、他跟我们说过什么（赠送流水、反馈）
- * 动作两个：「AI 次数 +10」（内测阶段最常见的求助就是「用完了」），和标 / 取消测试账号（2026-10-04）。
- * 测试账号不限次数，+10 对它没意义，按钮就不摆了。
+ * 动作：「背调 +N」「AI +N」（2026-10-19 起和「次数」页同一个弹框），和标 / 取消测试账号（2026-10-04）。
+ * 测试账号不限次数，加了没意义，那里写「测试号不限」。
  */
 export default function UserDetailView({ token, 详情 }: { token: string; 详情: 用户详情 }) {
-  const { message } = App.useApp();
-  const [忙, set忙] = useState(false);
   const a = 详情.账号;
   const 在用 = a.设备.filter((d) => !d.revoked);
-
-  /* 背调次数（和问答次数分开）：运营台手动加，没有购买页 */
-  const [背调加几, set背调加几] = useState(5);
-  async function 加背调() {
-    set忙(true);
-    const r = await grantAccountResearch({ token, accountId: a.id, amount: 背调加几 });
-    set忙(false);
-    if (r.ok) message.success(`给 ${a.name} 加了 ${背调加几} 次背调`);
-    else message.error(r.error);
-  }
-
-  async function 加十次() {
-    set忙(true);
-    const r = await grantAccountAi({ token, accountId: a.id, amount: 10 });
-    set忙(false);
-    if (r.ok) message.success(`给 ${a.name} 加了 10 次`);
-    else message.error(r.error);
-  }
 
   return (
     <>
@@ -85,29 +64,8 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
             <测试开关 token={token} accountId={a.id} name={a.name} 测试={a.测试} />
-            {!a.测试 && (
-              <Popconfirm title={`给 ${a.name} 加 10 次 AI？`} description="记成「运营台加的」，只加不减，加了撤不回。" onConfirm={加十次}>
-                <Button type="primary" icon={<GiftOutlined />} loading={忙}>
-                  AI 次数 +10
-                </Button>
-              </Popconfirm>
-            )}
-            {!a.测试 && (
-              <Popconfirm
-                title={`给 ${a.name} 加几次背调？`}
-                description={
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                    <InputNumber min={1} max={100} value={背调加几} onChange={(v) => set背调加几(Number(v) || 1)} aria-label="加几次背调" />
-                    次。背调次数和 AI 次数分开记，只加不减。
-                  </span>
-                }
-                onConfirm={加背调}
-              >
-                <Button icon={<GiftOutlined />} loading={忙}>
-                  背调 +N
-                </Button>
-              </Popconfirm>
-            )}
+            {/* 背调 / AI 各 +N（2026-10-19 起和「次数」页同一个弹框：1–1000、写备注、连点只加一次、留记录）。测试账号写「测试号不限」 */}
+            <AddCreditButtons token={token} account={{ id: a.id, name: a.name, 测试: Boolean(a.测试) }} size="middle" />
           </div>
         </div>
       </section>
@@ -131,11 +89,15 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
               <div className="opx-kpi-n" style={{ marginTop: 8 }}>
                 <次数条 剩={a.ai.剩} 送={a.ai.送} />
               </div>
+              {/* 10-19 用户：只看「24 / 30」会拿去和下面的模型调用次数比，写明白是按问题扣的 */}
+              <div className="opx-kpi-n">
+                送了 {千分位(a.ai.送)} 次，问了 {千分位(a.ai.用)} 个问题
+              </div>
             </>
           )}
         </div>
         <Kpi 名="背调次数" icon={<GiftOutlined />} 数={详情.背调.不限 ? "不限" : 详情.背调.剩} 尾={详情.背调.不限 ? "" : "次"} 注={详情.背调.不限 ? "测试账号不扣" : `送了 ${详情.背调.送} 次，用了 ${详情.背调.用} 次（和 AI 次数分开记）`} />
-        <Kpi 名="近 30 天模型调用" icon={<ThunderboltOutlined />} 数={详情.调用30天} 尾="次" 注={`按问题扣的：开户以来 ${千分位(a.ai.用)} 次（一问可能调好几次）`} />
+        <Kpi 名="近 30 天模型调用" icon={<ThunderboltOutlined />} 数={详情.调用30天} 尾="次" 注="后台调模型的次数，看成本用；AI 答一个问题会调好几次，只扣 1 次" />
         <Kpi 名="近 30 天 token" icon={<FireOutlined />} 数={详情.token30天} 注={详情.调用30天 ? `平均一次 ${千分位(Math.round(详情.token30天 / 详情.调用30天))}` : "这 30 天没用过"} />
         <Kpi 名="在用设备" icon={<DesktopOutlined />} 数={在用.length} 尾="台" 注={在用.length ? 分布说法(a.分布) : "没有在用的设备"} />
       </div>

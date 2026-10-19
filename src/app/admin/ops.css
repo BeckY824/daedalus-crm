@@ -293,6 +293,10 @@
 .opx-nowrap { white-space: nowrap; }
 .opx-two { display: inline-flex; flex-direction: column; line-height: 1.35; min-width: 0; }
 .opx-two small { color: var(--x-muted); font-size: 12px; overflow-wrap: anywhere; }
+/* 团队同步列表里团队名可以点进去（2026-10-19：看成员、加次数） */
+.opx-team-link { display: inline-flex; flex-direction: column; line-height: 1.35; font-weight: 500; }
+.opx-team-link small { color: var(--x-faint); font-weight: 400; font-size: 12px; }
+.opx-team-link:hover small { color: inherit; }
 .opx-plan-log { list-style: none; margin: 0; padding: 4px 0; display: grid; gap: 6px; font-size: 13px; }
 .opx-plan-log li { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; gap: 12px; color: var(--x-ink-2); }
 .opx-form { display: grid; grid-template-columns: 64px minmax(0, 1fr); align-items: center; gap: 12px 14px; margin-top: 8px; }
