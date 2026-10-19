@@ -295,7 +295,7 @@ describe("2. Windows 点 ×：最小化到托盘 / 退出", () => {
     expect(main).toMatch(/关窗\.该怎么关\(\{ 平台: process\.platform, 要退出了: 正在退出 \|\| 系统要关, 方式: 读配置\(\)\.closeAction \}\)/);
     expect(main).toMatch(/closeAction: c\.closeAction/);
     expect(main).toMatch(/app\.on\("before-quit"[\s\S]*?正在退出 = true;/);
-    expect(main).toMatch(/app\.on\("window-all-closed", \(\) => \{\n\s+if \(process\.platform !== "darwin" && !启动故障保持运行\) app\.quit\(\);/);
+    expect(main).toMatch(/  app\.on\("window-all-closed", \(\) => \{\r?\n\s+if \(process\.platform !== "darwin" && !启动故障保持运行\) app\.quit\(\);/);
     expect(main).toMatch(/app\.on\("will-quit", \(\) => \{ 托盘\?\.销毁\(\); 托盘 = null; \}\);/);
     expect(main).toMatch(/on\("query-session-end", \(\) => \{ 系统要关 = true; \}\)/);
     // 打包清单里带上了这个文件：漏了的话装好的 Windows 版一启动就 require 失败

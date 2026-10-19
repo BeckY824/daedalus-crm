@@ -1985,10 +1985,10 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
   });
-  // 托盘图标随进程走：不销毁的话 Windows 右下角会留一个点了没反应的空图标，鼠标划过才消失
-  app.on("will-quit", () => { 托盘?.销毁(); 托盘 = null; });
-
-app.on("window-all-closed", () => {
+  app.on("window-all-closed", () => {
     if (process.platform !== "darwin" && !启动故障保持运行) app.quit();
   });
+  // 托盘图标随进程走：不销毁的话 Windows 右下角会留一个点了没反应的空图标，鼠标划过才消失。
+  // 放在 window-all-closed 后面：tests/desktop-windows-handoff.test.ts 截取 before-quit 到 window-all-closed 那一段在真 Electron 里跑
+  app.on("will-quit", () => { 托盘?.销毁(); 托盘 = null; });
 }
