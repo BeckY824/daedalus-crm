@@ -5,6 +5,7 @@ import { useBusinessTimeZone } from "@/lib/business-client";
 import { useState } from "react";
 import { useSearchParams, usePathname } from "next/navigation";
 import { PageHead } from "@/components/ui";
+import "./settings.css";
 import type { SessionUser } from "@/lib/auth";
 import type { 机器 } from "./actions";
 import MembersTab, { type Row } from "./MembersTab";
@@ -156,6 +157,8 @@ export default function SettingsView({
         这两件事的心理位置完全不同。搜索框在项数少时是多余的，但它救的是
         「我知道那个开关叫什么、但不知道它在哪一栏」，而那正是设置页最常见的一次来访。
       */}
+      {/* set-box 只为让下面按「正文实际多宽」排（settings.css）：1024 宽 + AI 栏常驻时正文只剩约 420px，按窗口宽度判断还是两栏，设置内容被挤成 150px 一条（10-19 排版闸门） */}
+      <div className="set-box">
       <div className="set">
         <div className="set-nav" role="tablist" aria-orientation="vertical" aria-label="设置分类">
           <input
@@ -199,6 +202,7 @@ export default function SettingsView({
         <div className="set-body" role="tabpanel" id={`set-panel-${当前}`} aria-labelledby={`set-tab-${当前}`}>
           {目录.find((x) => x.key === 当前)?.children}
         </div>
+      </div>
       </div>
     </>
   );

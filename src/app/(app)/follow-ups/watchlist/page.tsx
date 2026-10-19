@@ -25,7 +25,7 @@ export default async function WatchlistPage({ searchParams }: { searchParams: Pr
     <PageHead title="盯盘清单" subtitle={`${team ? "当前权限内团队" : "我名下"} · 共 ${result.total} 位需要跟进的${b.customer}`} />
     <p><Link href="/follow-ups/watchlist?scope=mine">我的</Link> · <Link href="/follow-ups/watchlist?scope=team">当前可见团队</Link></p>
     <div className="card-soft" style={{ padding: 20 }}>
-      {result.items.length === 0 ? <p className="muted">当前范围没有需要提醒的记录。</p> : result.items.map(item => <div key={item.customerId} style={{ padding: "12px 0", borderBottom: "1px solid var(--line-soft)" }}>
+      {result.items.length === 0 ? <p className="muted">当前范围没有需要提醒的记录。</p> : result.items.map(item => <div key={item.customerId} style={{ padding: "12px 0", borderBottom: "1px solid var(--line-soft)", overflowWrap: "anywhere" /* 无空格长客户名伸出卡片（10-19 排版闸门） */ }}>
         <Link href={`/customers/${item.customerId}`} className="link-strong">{item.customerName}</Link>
         <span className="muted"> · {item.ownerName} · {KIND_LABEL[item.kind].replace("学员", b.customer)}</span>
         <p style={{ margin: "6px 0 0" }}>{item.href ? <Link href={item.href}>{item.reason}</Link> : item.reason}</p>

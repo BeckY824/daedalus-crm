@@ -127,19 +127,19 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
           size="middle"
           dataSource={a.设备}
           pagination={false}
-          scroll={{ x: 760 }}
+          scroll={{ x: 620 }}
           locale={{ emptyText: <div className="opx-empty">没登录过桌面端</div> }}
           rowClassName={(d) => (d.revoked ? "opx-faint" : "")}
           columns={[
             { title: "电脑名", dataIndex: "name", render: (v: string) => <span style={{ fontWeight: 500 }}>{v}</span> },
-            { title: "系统", width: 110, render: (_, d) => <系统 名={d.系统} /> },
-            { title: "芯片", width: 90, render: (_, d) => <span className="opx-muted">{d.arch ?? "—"}</span> },
-            { title: "版本", width: 90, render: (_, d) => (d.version ? <span className="opx-num">v{d.version}</span> : <span className="opx-faint">未知</span>) },
-            { title: "登录于", width: 130, className: "num", render: (_, d) => <span className="opx-muted">{dayjs(d.createdAt).format("MM-DD HH:mm")}</span> },
-            { title: "最近使用", width: 110, render: (_, d) => <span className="opx-muted"><TimeAgo iso={d.lastUsedAt} /></span> },
+            // 芯片并进系统那格（10-19 排查：1024 宽七列放不下，最右「状态」被切掉、电脑名挤成一字一行）
+            { title: "系统", width: 130, render: (_, d) => <span style={{ whiteSpace: "nowrap" }}><系统 名={d.系统} />{d.arch && <span className="opx-muted"> · {d.arch}</span>}</span> },
+            { title: "版本", width: 84, render: (_, d) => (d.version ? <span className="opx-num">v{d.version}</span> : <span className="opx-faint">未知</span>) },
+            { title: "登录于", width: 104, className: "num", render: (_, d) => <span className="opx-muted">{dayjs(d.createdAt).format("MM-DD HH:mm")}</span> },
+            { title: "最近使用", width: 96, render: (_, d) => <span className="opx-muted"><TimeAgo iso={d.lastUsedAt} /></span> },
             {
               title: "状态",
-              width: 90,
+              width: 80,
               render: (_, d) => (d.revoked ? <span className="opx-tag opx-tag-dead">已吊销</span> : <span className="opx-tag opx-tag-ok">在用</span>),
             },
           ]}
@@ -152,13 +152,16 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
             rowKey="id"
             size="small"
             dataSource={详情.赠送流水}
+            // 1024 宽时这张卡只有一半宽，前三列定宽之后「备注」只剩二三十像素、表头挤成两行：窄了就横滚
+            scroll={{ x: 520 }}
             pagination={{ pageSize: 10, hideOnSinglePage: true }}
             locale={{ emptyText: <div className="opx-empty">还没有赠送记录</div> }}
             columns={[
-              { title: "时间", width: 120, className: "num", render: (_, g: 用户详情["赠送流水"][number]) => <span className="opx-muted">{dayjs(g.at).format("MM-DD HH:mm")}</span> },
-              { title: "来路", render: (_, g: 用户详情["赠送流水"][number]) => g.来路 },
+              { title: "时间", width: 100, className: "num", render: (_, g: 用户详情["赠送流水"][number]) => <span className="opx-muted">{dayjs(g.at).format("MM-DD HH:mm")}</span> },
+              // 来路给够宽（10-19 排查：备注里一长串订单号把它挤成一字一行），备注里的长串自己断行
+              { title: "来路", width: 150, render: (_, g: 用户详情["赠送流水"][number]) => g.来路 },
               { title: "次数", width: 70, className: "num", render: (_, g: 用户详情["赠送流水"][number]) => <b style={{ color: "var(--x-ok)" }}>+{g.数}</b> },
-              { title: "备注", render: (_, g: 用户详情["赠送流水"][number]) => <span className="opx-muted">{g.note ?? ""}</span> },
+              { title: "备注", render: (_, g: 用户详情["赠送流水"][number]) => <span className="opx-muted" style={{ overflowWrap: "anywhere" }}>{g.note ?? ""}</span> },
             ]}
           />
         </卡片>
@@ -170,7 +173,7 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
                 <div className="opx-fb-h">
                   <span>{dayjs(f.at).format("MM-DD HH:mm")}</span>
                   {f.version && <span>v{f.version}</span>}
-                  {f.path && <span className="opx-mono">{f.path}</span>}
+                  {f.path && <span className="opx-mono" title={f.path}>{f.path}</span>}
                   <span style={{ marginLeft: "auto" }} className={`opx-tag${f.handled ? "" : " opx-tag-blue"}`}>
                     {f.handled ? "处理过了" : "没处理"}
                   </span>

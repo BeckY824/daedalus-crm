@@ -17,6 +17,9 @@ import { 截止说法 } from "@/lib/deadline";
 import CompletePlanModal, { 提示记完了, type 要完成的计划, type 记完了 as 记完了结果 } from "../../customers/[id]/CompletePlanModal";
 
 
+/** 无空格的长客户名（AlRashidTrading…FreeZoneAuthority）曾把后面两个标签挤出这一行、压住「逾期 N 天」，1024 宽整页横滚（10-19 排版闸门）：名字可断行 */
+const 客户名样式 = { minWidth: 0, overflowWrap: "anywhere" } as const;
+
 /** 只用来认「水合完了没有」（见下面的 已水合） */
 const 无订阅 = () => () => {};
 type Plan = {
@@ -346,7 +349,7 @@ export default function PlansView({
                       <span className="plan-row-m">
                         <span className="plan-row-t">{x.标题}</span>
                         <span className="plan-row-s">
-                          <a href={`/customers/${x.customerId}`}>{x.customerName}</a>
+                          <a href={`/customers/${x.customerId}`} style={客户名样式}>{x.customerName}</a>
                           {x.方式 && <Tag style={{ margin: 0, borderRadius: 6 }}>{x.方式}</Tag>}
                           <Tag style={{ margin: 0, borderRadius: 6 }}>{x.kind === "plan" ? "跟进计划" : "待办"}</Tag>
                           {/* 原定什么时候做，和实际什么时候做完，是两件事——两个都留着 */}
@@ -475,7 +478,7 @@ function 组块({
               <span className="plan-row-m">
                 <span className="plan-row-t">{x.标题}</span>
                 <span className="plan-row-s">
-                  <a href={`/customers/${x.customerId}`}>{x.customerName}</a>
+                  <a href={`/customers/${x.customerId}`} style={客户名样式}>{x.customerName}</a>
                   {x.方式 && <Tag style={{ margin: 0, borderRadius: 6 }}>{x.方式}</Tag>}
                   <Tag style={{ margin: 0, borderRadius: 6 }}>{x.kind === "plan" ? "跟进计划" : "待办"}</Tag>
                 </span>

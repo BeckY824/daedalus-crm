@@ -1,0 +1,12 @@
+/*
+  设置页按正文实际多宽排目录，而不是按窗口（2026-10-19 排版闸门）。
+
+  globals.css 里 .set 是「目录 200px + 正文」两栏，窄于 1024 的窗口才压成单列。可桌面端右边 AI 栏常驻（380）、
+  左栏拖宽时，1024–1366 的窗口里正文区只剩 400 多 px，两栏一摆设置内容被挤成 150px 一条，
+  「用我们的 / 用你自己的 API Key」一字一行、长邮箱伸出卡片。这里让正文区不到 720px 时同样压成单列。
+*/
+.set-box { container-type: inline-size; }
+@container (max-width: 720px) {
+  .set { grid-template-columns: minmax(0, 1fr); }
+  .set-nav { position: static; }
+}

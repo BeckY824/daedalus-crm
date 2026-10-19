@@ -118,6 +118,20 @@ export function 范围可写(old: 范围索引 | undefined, n: 范围索引, row
   return ["Customer", "UnassignedContact"].includes(n.t) || 范围可读(after, accountId, false);
 }
 /**
+ * 新写的记录挂在已经删掉的客户 / 商机下面（2026-10-19 团队版主动排查）：手机断网记了一笔跟进，这期间老板把客户删了。
+ * 原来照收，电脑回放时当孤儿跳过、「没同步上」又不列孤儿——手机显示已同步，哪台电脑都没有，内容等于丢了。
+ * 现在拒掉（老板也一样：挂在已删的东西下面谁都看不到），客户端把它转进「被拒」/「待核对」，内容留着。删除包不拦（级联删照常）
+ */
+export function 挂在已删的上(n: 范围索引, rows: 范围行表): boolean {
+  if (n.deleted) return false;
+  for (const [field, table] of Object.entries(范围父表[n.t] ?? {})) {
+    const id = n.fields[field]; if (!id) continue;
+    if (rows.get(行键(table, id))?.deleted) return true;
+  }
+  return false;
+}
+
+/**
  * 一次推送里的一包能不能写（2026-10-14 领取 / 交接修复）。按两种状态各核一次，任一通过即可：
  *  ① 当前：本次请求里前面已接受的包落下之后的状态（原来的逐包规则；本次刚新建 / 刚领到的记录靠它）。
  *  ② 起点视图 start：请求开始时已有的记录取开始时的版本，本次请求里新建的记录取它刚建出来、刚核过的那一版。
@@ -128,6 +142,7 @@ export function 范围可写(old: 范围索引 | undefined, n: 范围索引, row
  * 所以 ② 里每一条记录都是这台设备在本次请求某一刻合法可读的版本；伪造归属、借外键塞进别人的私客，两种状态下都不过。
  */
 export function 推送可写(start: 范围行表, rows: 范围行表, n: 范围索引, accountId: string, owner: boolean): boolean {
+  if (挂在已删的上(n, rows)) return false;
   if (owner) return true;
   const key = 行键(n.t, n.k);
   return 范围可写(rows.get(key), n, rows, accountId, false) || 范围可写(start.get(key), n, start, accountId, false);

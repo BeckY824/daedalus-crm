@@ -3,6 +3,7 @@
 import { createContext, useContext } from "react";
 import type { EChartsCoreOption } from "echarts/core";
 import type { 设备分布 } from "@/lib/device-os";
+import { 简称 } from "@/lib/initials";
 
 /**
  * 运营台几页共用的小件。颜色全走 ops.css 里的变量；图表那边 echarts 不认 CSS 变量，
@@ -112,7 +113,8 @@ export function 次数条({ 剩, 送 }: { 剩: number; 送: number }) {
 export function 头像({ 名, 大 }: { 名: string; 大?: boolean }) {
   return (
     <span className={`opx-av${大 ? " opx-av-lg" : ""}`} aria-hidden>
-      {(名 || "?").trim().slice(0, 1).toUpperCase()}
+      {/* 按码点取（10-19：slice 把 emoji 名字切成半个，显示「�」还报水合错） */}
+      {[...简称(名 || "?")][0] ?? "?"}
     </span>
   );
 }
@@ -242,7 +244,8 @@ export function 横条图(数据: { 名: string; 数: number }[], 单位 = "次"
       data: 倒.map((x) => x.名),
       axisLine: { show: false },
       axisTick: { show: false },
-      axisLabel: { color: 色.字, fontSize: 12 },
+      // 名字太长（没登记的功能 key、长版本号）时左边被图表切掉（10-19 排查）：限宽、超了打省略号，悬停看全名
+      axisLabel: { color: 色.字, fontSize: 12, width: 120, overflow: "truncate" },
     },
     series: [
       {

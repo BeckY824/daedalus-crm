@@ -215,7 +215,9 @@ export async function 推(c0: 手机团队, 云: 传输, 状态: 同步状态): 
     if (r.状态 === 403 && Array.isArray(r.json.denied) && 重来++ < 50) {
       const denied = new Set((r.json.denied as unknown[]).filter((i): i is number => Number.isInteger(i) && (i as number) >= 0 && (i as number) < 这批.length));
       if (denied.size) {
-        for (const i of denied) 状态.被拒.push({ 改动: 这批[i], 原因: "这位客户已经不归你了，这条没同步上" });
+        // gone：挂在已经删掉的客户 / 商机下面（2026-10-19）；老服务端不回这一项，照旧按「不归你了」说
+        const 删了 = new Set(Array.isArray(r.json.gone) ? (r.json.gone as unknown[]).filter((i): i is number => Number.isInteger(i)) : []);
+        for (const i of denied) 状态.被拒.push({ 改动: 这批[i], 原因: 删了.has(i) ? "这位客户（或商机）已经在电脑上被删了，这条没同步上；内容还在，可以复制下来" : "这位客户已经不归你了，这条没同步上" });
         拒 += denied.size;
         /*
           被拒那几条的操作日志（「记了 XX 的一条跟进」）也不推：操作日志按它说的那条记录算归属，那条没落下就算成本人的，

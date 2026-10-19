@@ -45,6 +45,8 @@ export default function TeamView({ token, team, rows, 到期, 席位, 记录 }: 
           pagination={false}
           dataSource={rows}
           className="opx-team-members"
+          // 定宽列加起来 686px：1024 宽时「AI +N」只剩一个「+」、剩余两列竖排（10-19 排查），让表格自己横滚
+          scroll={{ x: 900 }}
           locale={{ emptyText: <div className="opx-empty">团队里没有人了</div> }}
           columns={[
             {

@@ -21,6 +21,7 @@ let 用掉 = 0;
  * 没放就是「没有团队」——同步一轮推拉都回空，对角色时什么也不改。
  */
 let 团队 = null;
+let 额外 = {};
 
 const json = (res, code, body) => {
   res.writeHead(code, { "Content-Type": "application/json" });
@@ -44,6 +45,11 @@ http
     }
     if (p === "/__stub/team") {
       团队 = req.method === "DELETE" ? null : JSON.parse(body || "null");
+      return json(res, 200, { ok: true });
+    }
+    // 设置 → 团队那几张卡要的（团队版主动排查 10-19）：价格表、我的设备、待授权的手机 / 电脑。DELETE 清空
+    if (p === "/__stub/extra") {
+      额外 = req.method === "DELETE" ? {} : JSON.parse(body || "{}");
       return json(res, 200, { ok: true });
     }
 
@@ -79,6 +85,13 @@ http
     if (p === "/api/sync/push") return json(res, 200, { ok: true });
     if (p === "/api/sync/pull") return json(res, 200, { batches: [], more: false, epoch: 0 });
     if (p === "/api/sync/team") return json(res, 200, { teams: 团队 ? [团队] : [] });
+    if (p === "/api/sync/pricing") return 额外.pricing ? json(res, 200, 额外.pricing) : json(res, 404, { error: "stub: 没设价格表" });
+    if (p === "/api/sync/my-devices") return json(res, 200, { devices: 额外.devices ?? [], 上限: 3 });
+    if (p === "/api/mobile/link") {
+      const a = JSON.parse(body || "{}").action;
+      if (a === "pending") return json(res, 200, { links: 额外.links ?? [] });
+      if (a === "list") return json(res, 200, { phones: [] });
+    }
 
     json(res, 404, { error: `stub: ${p}` });
   })
