@@ -36,6 +36,14 @@ const nextConfig: NextConfig = {
   // 容器部署：产出自带最小 node_modules 的独立 server.js
   output: "standalone",
 
+  /*
+    只给 e2e 用（playwright.feedback-chain.config.ts）：同一份代码里同时起「云端」和「桌面端本地服务」两个 next dev。
+    Next 16 一个构建目录只许一个 dev（<distDir>/dev/lock），所以云端那个换个目录；
+    tsconfig 也换成一个 extends 主配置的，免得 next dev 往 tsconfig.json 的 include 里加那个目录。不设就是默认
+  */
+  distDir: process.env.NEXT_DIST_DIR || ".next",
+  typescript: process.env.NEXT_TSCONFIG_PATH ? { tsconfigPath: process.env.NEXT_TSCONFIG_PATH } : undefined,
+
   assetPrefix: 静态资源前缀,
 
   // 不报框架名——对外少说一句是一句

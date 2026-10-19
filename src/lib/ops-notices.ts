@@ -93,7 +93,7 @@ export async function 读运营通知(since: string | null | undefined, now = ne
   // 「今天」按北京时间零点
   const 今天零点 = new Date(Date.parse(`${北京(now).slice(0, 10)}T00:00:00+08:00`));
 
-  const [测试们, 新账号, 新反馈, 近一小时, 今天, 新团队] = await Promise.all([
+  const [测试们, 新账号, 新反馈, 近一小时, 今天, 新团队, 接着说的] = await Promise.all([
     测试账号们(env),
     control.account.findMany({
       where: { createdAt: { gt: 起, lte: now } },
@@ -105,6 +105,8 @@ export async function 读运营通知(since: string | null | undefined, now = ne
     control.aiCall.groupBy({ by: ["ownerKind", "ownerId"], where: { at: { gte: 今天零点, lte: now } }, _sum: { inputTokens: true, outputTokens: true } }),
     // 已经开通了的（运营抢在通知前点了）就不报
     control.syncTeam.findMany({ where: { createdAt: { gt: 起, lte: now }, active: false }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, ownerAccountId: true } }),
+    // 用户在应用里「接着说」（2026-10-19）：和新反馈一样要有人看
+    control.feedbackMessage.findMany({ where: { side: "user", at: { gt: 起, lte: now } }, orderBy: { at: "asc" }, select: { id: true, feedbackId: true, body: true } }),
   ]);
 
   const 事件: 运营事件[] = [];
@@ -127,6 +129,21 @@ export async function 读运营通知(since: string | null | undefined, now = ne
       正文: 截(一行(f.body), 120),
       path: "/admin/feedback",
     });
+  }
+
+  if (接着说的.length) {
+    const 谁们 = new Map(
+      (await control.feedback.findMany({ where: { id: { in: 接着说的.map((m) => m.feedbackId) } }, select: { id: true, who: true } })).map((f) => [f.id, f.who]),
+    );
+    for (const m of 接着说的) {
+      事件.push({
+        key: `接着说:${m.id}`,
+        kind: "反馈",
+        标题: `接着说：${谁们.get(m.feedbackId) || "桌面端用户"}`,
+        正文: 截(一行(m.body), 120),
+        path: "/admin/feedback",
+      });
+    }
   }
 
   /*

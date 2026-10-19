@@ -3,7 +3,8 @@ import { closeTestDatabases } from "./close-databases";
  * 运营台回复反馈（lib/feedback-reply.ts + admin/actions.ts 的 回复反馈，2026-10-02）。
  *
  * 钉的是：信里带原话、Reply-To 一定有（发件地址收不了信）；收件人和正文先校验；
- * 没口令调不动；**发出去了才留底、才算处理过了**——发失败什么都不记；
+ * 没口令调不动；网页版的老反馈（只能发邮件）**发出去了才留底、才算处理过了**——发失败什么都不记；
+ * 桌面端账号的回复进应用、邮件可选，那一半在 tests/feedback-thread.test.ts；
  * 存量库的迁移补得上这张表。
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from "vitest";
@@ -54,6 +55,7 @@ let 发出: 回复邮件[] = [];
 beforeEach(async () => {
   const { control } = await import("@/lib/tenant/control");
   await control.feedbackReply.deleteMany({});
+  await control.feedbackMessage.deleteMany({});
   await control.feedback.deleteMany({});
   发出 = [];
   const { 设置回复发送器 } = await import("@/lib/feedback-reply");
@@ -112,18 +114,18 @@ describe("回复反馈（运营台动作）", () => {
     const { 读反馈 } = await import("@/app/admin/data");
     const f = await 建反馈();
     const r = await 回复反馈({ token: TOKEN, id: f.id, to: "a@b.com", body: "已经修好了" });
-    expect(r).toEqual({ ok: true });
+    expect(r).toEqual({ ok: true, 邮件: "发了", 邮件到: "a@b.com" });
     expect(发出).toHaveLength(1);
     expect(发出[0].text).toContain("> 导入的时候卡住了");
     expect(发出[0].replyTo).toBe("qy1g18@gmail.com");
 
     const 条 = (await 读反馈()).find((x) => x.id === f.id)!;
     expect(条.handled).toBe(true);
-    expect(条.回复).toHaveLength(1);
-    expect(条.回复[0]).toMatchObject({ to: "a@b.com", body: "已经修好了", by: "口令" });
+    expect(条.串).toHaveLength(1);
+    expect(条.串[0]).toMatchObject({ 谁: "团队", body: "已经修好了", by: "口令", 邮件: { to: "a@b.com", ok: true } });
   });
 
-  it("发失败：报错，什么都不记，也不标处理过了", async () => {
+  it("网页版的老反馈（没有账号）发失败：报错，什么都不记，也不标处理过了", async () => {
     const { 回复反馈 } = await import("@/app/admin/actions");
     const { 设置回复发送器 } = await import("@/lib/feedback-reply");
     const { control } = await import("@/lib/tenant/control");
@@ -135,6 +137,7 @@ describe("回复反馈（运营台动作）", () => {
     const r = await 回复反馈({ token: TOKEN, id: f.id, to: "a@b.com", body: "hi" });
     expect(r.ok).toBe(false);
     expect(await control.feedbackReply.count()).toBe(0);
+    expect(await control.feedbackMessage.count()).toBe(0);
     expect((await control.feedback.findUnique({ where: { id: f.id } }))!.handled).toBe(false);
   });
 

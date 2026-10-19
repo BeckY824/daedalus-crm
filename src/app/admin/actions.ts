@@ -10,7 +10,7 @@ import { isPlanKey, PLANS } from "@/lib/tenant/plans";
 import { createWorkspace } from "@/lib/tenant/workspaces";
 import { createAccount, findAccountByTarget, parseTarget } from "@/lib/tenant/accounts";
 import { 加次数 } from "@/lib/tenant/ai-allowance";
-import { 查回复, 回复通道可用, 组回复邮件, 回信地址, 发回复 } from "@/lib/feedback-reply";
+import { 查回复, 回复通道可用, 组回复邮件, 回信地址, 发回复, 回复上限 } from "@/lib/feedback-reply";
 
 export type AdminResult = { ok: true } | { ok: false; error: string };
 
@@ -262,34 +262,73 @@ export async function 标记反馈(input: { token: string; id: string; handled: 
   return { ok: true };
 }
 
+export type 回复结果 =
+  | { ok: true; 邮件: "没要发" | "发了" | "没发出去"; 邮件到: string | null; 原因?: string }
+  | { ok: false; error: string };
+
 /**
- * 回复一条反馈：用邮件发到对方邮箱（见 lib/feedback-reply.ts），发出去了才留底、才算处理过了。
- * 发不出去就原样报错、什么都不记——「运营台上显示回过了、其实对方没收到」比没回更糟。
+ * 回复一条反馈（2026-10-19 改）：**默认进应用**——桌面端那头定时来问「我的反馈」，红点、系统通知、轻提示都靠这一行。
+ * 对方有邮箱的话可以勾「同时发邮件」。邮件没发出去不影响应用里那份，但要如实回「邮件没发出去」，运营台照着写给人看。
+ *
+ * 网页版的老反馈（没有云端账号，accountId 为 null）进不了应用：只能发邮件，那就还是原来的规矩——
+ * 发出去了才留底、才算处理过了，发不出去原样报错、什么都不记。
  */
-export async function 回复反馈(input: { token: string; id: string; to: string; body: string }): Promise<AdminResult> {
+export async function 回复反馈(input: { token: string; id: string; body: string; 发邮件?: boolean; to?: string }): Promise<回复结果> {
   const g = await guard(input.token);
   if (!g.ok) return g;
-  const 查 = 查回复(input.to, input.body);
-  if (!查.ok) return 查;
-  if (!回复通道可用()) return { ok: false, error: "邮件通道没配好（SMTP），发不出去" };
+  const 正文 = (input.body ?? "").trim();
+  if (!正文) return { ok: false, error: "写一句再发" };
+  if (正文.length > 回复上限) return { ok: false, error: `太长了，${回复上限} 字以内` };
   const f = await control.feedback.findUnique({ where: { id: input.id } });
   if (!f) return { ok: false, error: "这条反馈不在了" };
 
   // 谁在回（只留底用，回信地址是固定的公司邮箱）：从桌面端进来的有运营账号；用网址口令进来的不知道是谁
   const 运营 = await 当前运营账号();
   const 运营邮箱 = 运营 ? ((await control.account.findUnique({ where: { id: 运营 }, select: { email: true } }))?.email ?? null) : null;
+  const by = 运营邮箱 ?? "口令";
 
-  const 信 = 组回复邮件({ to: 查.to, body: 查.body, 原话: f.body, 原话时间: f.at, replyTo: 回信地址() });
-  try {
-    await 发回复(信);
-  } catch (e) {
-    console.error("[feedback] 回复邮件发送失败：", e instanceof Error ? e.message : e);
-    return { ok: false, error: "邮件没发出去，稍后再试" };
+  if (!f.accountId) {
+    const 查 = 查回复(input.to ?? "", 正文);
+    if (!查.ok) return 查;
+    if (!回复通道可用()) return { ok: false, error: "邮件通道没配好（SMTP），发不出去" };
+    try {
+      await 发回复(组回复邮件({ to: 查.to, body: 查.body, 原话: f.body, 原话时间: f.at, replyTo: 回信地址() }));
+    } catch (e) {
+      console.error("[feedback] 回复邮件发送失败：", e instanceof Error ? e.message : e);
+      return { ok: false, error: "邮件没发出去，稍后再试" };
+    }
+    await control.$transaction([
+      control.feedbackMessage.create({ data: { feedbackId: f.id, side: "team", body: 查.body, by, emailTo: 查.to, emailOk: true } }),
+      control.feedback.update({ where: { id: f.id }, data: { handled: true } }),
+    ]);
+    revalidatePath("/admin", "layout");
+    return { ok: true, 邮件: "发了", 邮件到: 查.to };
   }
+
+  // 桌面端账号：先定邮件那一半，再一起落库——应用里那份无论如何都要落
+  const 邮箱 = (await control.account.findUnique({ where: { id: f.accountId }, select: { email: true } }))?.email ?? null;
+  let 邮件: "没要发" | "发了" | "没发出去" = "没要发";
+  let 原因: string | undefined;
+  if (input.发邮件) {
+    if (!邮箱) [邮件, 原因] = ["没发出去", "这个账号没留邮箱"];
+    else if (!回复通道可用()) [邮件, 原因] = ["没发出去", "邮件通道没配好（SMTP）"];
+    else {
+      try {
+        await 发回复(组回复邮件({ to: 邮箱, body: 正文, 原话: f.body, 原话时间: f.at, replyTo: 回信地址() }));
+        邮件 = "发了";
+      } catch (e) {
+        console.error("[feedback] 回复邮件发送失败：", e instanceof Error ? e.message : e);
+        [邮件, 原因] = ["没发出去", "邮件服务器没收下"];
+      }
+    }
+  }
+  const 发到 = 邮件 === "没要发" || !邮箱 ? null : 邮箱;
   await control.$transaction([
-    control.feedbackReply.create({ data: { feedbackId: f.id, to: 查.to, body: 查.body, by: 运营邮箱 ?? "口令" } }),
+    control.feedbackMessage.create({
+      data: { feedbackId: f.id, side: "team", body: 正文, by, emailTo: 发到, emailOk: 发到 ? 邮件 === "发了" : null },
+    }),
     control.feedback.update({ where: { id: f.id }, data: { handled: true } }),
   ]);
   revalidatePath("/admin", "layout");
-  return { ok: true };
+  return { ok: true, 邮件, 邮件到: 发到, ...(原因 ? { 原因 } : {}) };
 }
