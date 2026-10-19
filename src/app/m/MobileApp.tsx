@@ -71,8 +71,8 @@ const 不订 = () => () => {};
 const 类型表 = [
   { value: "PHONE", 短: "电话", color: "var(--cat-green)", label: "电话沟通" },
   { value: "WHATSAPP", 短: "WhatsApp", color: "var(--cat-teal)", label: "WhatsApp" },
-  // 微信沟通（2026-10-19 客户反馈第 3 条）：电脑上的色板还没有微信色时先用微信绿
-  { value: "WECHAT", 短: "微信", color: "var(--cat-wechat, #07c160)", label: "微信沟通" },
+  // 微信沟通（2026-10-19 客户反馈第 3 条）：和电脑上同一个色（--cat-lime，外贸功能分支加进 globals.css）；还没合并时先用绿色
+  { value: "WECHAT", 短: "微信", color: "var(--cat-lime, var(--cat-green))", label: "微信沟通" },
   { value: "SMS", 短: "消息", color: "var(--cat-cyan)", label: "短信沟通" },
   { value: "EMAIL", 短: "邮件", color: "var(--cat-pink)", label: "邮件沟通" },
   { value: "MEETING", 短: "会议", color: "var(--cat-blue)", label: "线上会议" },
