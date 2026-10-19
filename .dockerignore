@@ -15,6 +15,9 @@ tests
 vitest.config.ts
 e2e
 e2e-desktop
+# 所有 e2e-* 目录都只给测试用（e2e-layout、e2e-feedback-chain 是 0.46.22 新加的）：放进来的话 next build 的类型检查
+# 会去查它们，而它们引用的 e2e/、e2e-desktop/ 已经排掉了，镜像构建就挂（v0.46.22 第一次打 tag 挂过）
+e2e-*
 playwright.*.config.ts
 playwright.config.ts
 test-results
