@@ -43,7 +43,7 @@ export type 背调通道 = {
    */
   核验(请求: 核验请求, signal?: AbortSignal): Promise<核验回应 | null>;
   /** ok = 6 步都跑完了；取消 = 用户自己停的。退不退服务器判断，回应里的 退了 > 0 就是退了 */
-  收尾(runId: string, ok: boolean, 用量: { searches: number; pages: number; 取消?: boolean }): Promise<收尾回应 | null>;
+  收尾(runId: string, ok: boolean, 用量: { searches: number; pages: number; 取消?: boolean; 简版?: boolean }): Promise<收尾回应 | null>;
 };
 
 export type 通道结果 = { ok: true; 通道: 背调通道 } | { ok: false; error: string };

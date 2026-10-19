@@ -14,7 +14,8 @@ export const runtime = "nodejs";
  * 请求里的 searches / pages 不用：服务器自己数过（AiResearchRun），客户端报的只是它那边的口径，
  * 拿它覆盖服务器的数就等于让客户端自己填账。
  *
- * 桌面端能左右的只剩「取消」：报了就不退——谎报只会让它自己少退一次。
+ * 桌面端能左右的只剩「取消」和「简版」：取消报了就不退——谎报只会让它自己少退一次；
+ * 简版（只有人名 + 电话、没认出公司，10-19 不扣）要服务器自己的账也对得上才退，见 收尾背调 第 1b 条。
  * 想白拿材料的路（跳过最后一步再报没跑完）要有服务器记到的失败才退，见 收尾背调 第 5 条。
  */
 export async function POST(req: Request) {
@@ -35,9 +36,10 @@ async function 处理(req: Request) {
   if (!runId) return 网关错误(400, "runId 不对：要 1–64 位字母、数字、- 或 _");
   if (typeof 读.body.ok !== "boolean") return 网关错误(400, "ok 要是 true 或 false");
   if (读.body.取消 !== undefined && typeof 读.body.取消 !== "boolean") return 网关错误(400, "取消 要是 true 或 false");
+  if (读.body.简版 !== undefined && typeof 读.body.简版 !== "boolean") return 网关错误(400, "简版 要是 true 或 false");
 
   const owner = { kind: "account" as const, id: accountId };
-  const r = await 收尾背调(owner, runId, 读.body.ok, 读.body.取消 === true);
+  const r = await 收尾背调(owner, runId, 读.body.ok, 读.body.取消 === true, 读.body.简版 === true);
   if (!r.有这笔) return 网关错误(404, "找不到这次背调");
   // 还剩的是背调次数（和问答的 AI 次数分开）
   const 还剩 = (await 背调余额(owner)).还剩;

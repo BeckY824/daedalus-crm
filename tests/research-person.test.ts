@@ -3,7 +3,8 @@
  *   - 号码本机判（国家、类型），不花钱
  *   - 搜号码、搜名字；模型认出的候选**程序再核一遍**（来源得是这次的结果、里面得真有号码或名字和公司名）
  *   - 有候选：不收尾，等人点选；接着背调同一个 runId、真实性多一项「人和号码」
- *   - 没有：「只有人」简版照扣（搜索花了钱），出建议；私人社交不列
+ *   - 没有：「只有人」简版不扣（10-19 用户：没认出公司，我们贴搜索费；收尾报 简版，服务器对过账才退），出建议；私人社交不列
+ *   - 有候选、人点「都不是」：照扣（候选本身就是认出了公司），桌面端那时不收尾
  *   - 输入框那一句怎么认成「人」（target.ts）；浏览器回传的点选怎么收（stream.ts 收接着）
  */
 import { describe, it, expect, vi } from "vitest";
@@ -148,13 +149,13 @@ describe("找公司", () => {
     expect(找到 && "建议" in 找到 && 找到.建议?.length).toBeGreaterThan(1);
   });
 
-  it("号码、名字都搜不到：不问模型，出简版、收尾报跑完（照扣）", async () => {
+  it("号码、名字都搜不到：不问模型，出简版、收尾报跑完 + 简版（10-19 不扣）", async () => {
     const 通道 = 模拟通道();
     const 收尾 = vi.spyOn(通道, "收尾");
     const { r, 事件, m } = await 找(undefined, "+971 50 123 4567", 通道);
     expect(r.ok && r.候选).toEqual([]);
     expect(m.调用).toEqual([]);
-    expect(收尾).toHaveBeenCalledWith("run-p", true, { searches: 3, pages: 0 });
+    expect(收尾).toHaveBeenCalledWith("run-p", true, { searches: 3, pages: 0, 简版: true });
     expect(事件.at(-1)).toMatchObject({ type: "done", 不完整: false, 退了: false });
     let s = 初始状态({ name: "+971 50 123 4567" });
     for (const e of 事件) s = 归约(s, e);
@@ -165,6 +166,7 @@ describe("找公司", () => {
     expect(文).toContain("信息少，谨慎");
     expect(文).toContain("阿联酋手机");
     expect(文).toContain("公开网页上没搜到这个号码");
+    expect(文).toContain("只出简版这次不扣次数");
     expect(文).toContain("没有登录、没有抓取");
     // 读回来的状态认得出 人
     expect(认背调状态(JSON.parse(JSON.stringify(s)))?.人?.号.号).toBe("+971 50 123 4567");
@@ -293,9 +295,12 @@ describe("人号项", () => {
 });
 
 describe("简版建议", () => {
-  it("固定几条；虚拟号段多一条；全没搜到的写先别发货", () => {
+  it("固定几条；虚拟号段多一条；全没搜到的写先别发货；扣没扣按情形写", () => {
     const a = 简版建议(号, { 号码: [], 名字: [] });
     expect(a[0]).toContain("公司全名和官网");
+    expect(a[0]).toContain("只出简版这次不扣次数");
+    expect(简版建议(号, { 号码: [], 名字: [] }, "有候选")[0]).toContain("这次已经扣过");
+    expect(简版建议(号, { 号码: [], 名字: [] }, "没搜")[0]).toContain("没扣次数");
     expect(a.join()).toContain("别先发货");
     expect(简版建议({ ...号, 类型: "网络电话（虚拟号段）" }, { 号码: [{ title: "x", url: "https://x.example" }], 名字: [] }).join()).toContain("虚拟号段");
   });

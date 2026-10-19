@@ -438,7 +438,7 @@ it("只有人名 + 电话：开跑前先判号码、写明「开始搜索后扣 
   const t = (await 确认.textContent()) ?? "";
   expect(t).toContain("（德国固话）");
   expect(t).toContain("判号码不扣次数；开始搜索后扣 1 次背调");
-  expect(t).toContain("找不到公司也照扣");
+  expect(t).toContain("没认出公司、只出了简版的不扣");
   await page.getByRole("button", { name: "「Anna Beispiel」其实是公司名，直接背调" }).click();
   expect(await page.evaluate(() => (window as unknown as { __选: unknown[] }).__选)).toEqual(["Anna Beispiel"]);
   await page.close();

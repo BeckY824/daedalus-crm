@@ -337,10 +337,26 @@ describe("finish", () => {
     expect(await 背调剩(owner)).toBe(2);
   });
 
-  it("ok 不是布尔 → 400；没开始过 → 404", async () => {
+  it("10-19 只有人名 + 电话、没认出公司、报了简版 → 退；读过页的报简版不认", async () => {
+    const { token, owner } = await 建账号带令牌();
+    const { start, finish, search } = await 路由();
+    await start(请求("research/start", token, { runId: "run-thin", 走我们的模型: true }));
+    expect((await search(请求("research/search", token, { runId: "run-thin", query: "+971 50 123 4567" }))).status).toBe(200);
+    expect(await (await finish(请求("research/finish", token, { runId: "run-thin", ok: true, searches: 1, pages: 0, 简版: true }))).json()).toEqual({ ok: true, 退了: 1, 还剩: 3 });
+    await start(请求("research/start", token, { runId: "run-fake-thin", 走我们的模型: true }));
+    expect((await search(请求("research/search", token, { runId: "run-fake-thin", query: "Acme" }))).status).toBe(200);
+    // 读过一页（读页接口在测试里不联网，直接记上服务器那一笔）
+    const { control } = await import("@/lib/tenant/control");
+    await control.aiResearchRun.updateMany({ where: { ownerId: owner.id, runId: "run-fake-thin" }, data: { pages: 1 } });
+    expect(await (await finish(请求("research/finish", token, { runId: "run-fake-thin", ok: true, 简版: true }))).json()).toEqual({ ok: true, 退了: 0, 还剩: 2 });
+    expect(await 背调剩(owner)).toBe(2);
+  });
+
+  it("ok 不是布尔 → 400；简版不是布尔 → 400；没开始过 → 404", async () => {
     const { token } = await 建账号带令牌();
     const { finish } = await 路由();
     expect((await finish(请求("research/finish", token, { runId: "x1", ok: "no" }))).status).toBe(400);
+    expect((await finish(请求("research/finish", token, { runId: "x1", ok: true, 简版: "yes" }))).status).toBe(400);
     expect((await finish(请求("research/finish", token, { runId: "x1", ok: false }))).status).toBe(404);
   });
 });

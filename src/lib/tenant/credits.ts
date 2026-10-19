@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { control } from "./control";
 import { 是测试账号 } from "./test-accounts";
 import type { Prisma } from "@/generated/control";
+import { 找公司搜索次数 } from "@/lib/research/types";
 type LedgerDb = Prisma.TransactionClient;
 
 /**
@@ -583,8 +584,11 @@ export async function 背调交了报告(owner: Owner, runId: string): Promise<v
  * **退不退**（10-16 下午总控定：别让用户为我们的超时买单；10-18 用户定：「我们不花钱，则不扣；我们花钱就扣」），
  * 从上往下第一条命中的算：
  *   1. 我们一分钱没花（没调成模型、没搜、没读页、花费记 0）→ 退：只做了程序直查（判号码、RDAP、制裁名单、免费官方库）不扣
- *   2. 最后一步交出去了（reportAt 有值），或者桌面端自己说跑完了（ok）→ 不退。
- *      只有人名 + 电话、搜完没认出公司、出了「只有人」的简版：搜索花了钱，也算跑完，照扣
+ *   1b. 只有人名 + 电话、没认出公司、只出了「只有人」的简版 → 退（10-19 用户定：我们贴那 0.4–0.7 元搜索费）。
+ *      认出了候选、人点了「都不是」的不算（候选本身就是认出了公司，桌面端那时不收尾，照扣）。
+ *      桌面端报 简版，服务器还要自己的账对得上：没交报告、没读页、搜索不超过找公司那几次、模型最多调过 1 次（认候选那次）。
+ *      跑过背调步骤的（读过页、多搜、多调模型）报了也不认，免得改过的客户端拿前几步的材料白跑
+ *   2. 最后一步交出去了（reportAt 有值），或者桌面端自己说跑完了（ok）→ 不退
  *   3. 用户自己停的（取消）→ 不退
  *   4. 我们这边失败过（failures > 0：上游超时 / 报错、搜索没搜成）→ 退
  *   5. 别的（桌面端说没跑完、服务器却没见到我们这边出错）→ 不退：
@@ -593,7 +597,7 @@ export async function 背调交了报告(owner: Owner, runId: string): Promise<v
  * 已经收过尾的再来一次：ok / finishedAt 以第一次为准，退不退也只听第一次的——
  * 否则先报「跑完了」拿走报告、再补一句「没跑完」，就能把已经交付的那一笔退回去
  */
-export async function 收尾背调(owner: Owner, runId: string, ok: boolean, 取消 = false): Promise<{ 有这笔: boolean; 退了: number }> {
+export async function 收尾背调(owner: Owner, runId: string, ok: boolean, 取消 = false, 简版 = false): Promise<{ 有这笔: boolean; 退了: number }> {
   const base = { ownerKind: owner.kind, ownerId: owner.id, runId };
   if (!(await control.aiResearchRun.findFirst({ where: base, select: { id: true } }))) return { 有这笔: false, 退了: 0 };
   const n = await control.aiResearchRun.updateMany({ where: { ...base, finishedAt: null }, data: { ok, finishedAt: new Date() } });
@@ -602,12 +606,15 @@ export async function 收尾背调(owner: Owner, runId: string, ok: boolean, 取
   if (!run) return { 有这笔: true, 退了: 0 };
   const 调过模型 = (await control.aiCharge.findFirst({ where: { ownerKind: owner.kind, ownerId: owner.id, requestId: runId }, select: { calls: true } }))?.calls ?? 0;
   const 花了钱 = run.costLi > 0 || run.searches > 0 || run.pages > 0 || 调过模型 > 0;
-  return { 有这笔: true, 退了: 该退背调({ 花了钱, failures: run.failures, reportAt: run.reportAt, ok, 取消 }) ? await 退背调(owner, runId) : 0 };
+  // 简版：桌面端报的，服务器自己的账得对得上——只搜了找公司那几次、没读页、模型最多认过一次候选
+  const 只找了公司 = 简版 && run.pages === 0 && run.searches <= 找公司搜索次数 && 调过模型 <= 1;
+  return { 有这笔: true, 退了: 该退背调({ 花了钱, failures: run.failures, reportAt: run.reportAt, ok, 取消, 简版: 只找了公司 }) ? await 退背调(owner, runId) : 0 };
 }
 
-/** 收尾背调 的判断本身（纯函数，好测） */
-export function 该退背调(r: { 花了钱: boolean; failures: number; reportAt: Date | null; ok: boolean; 取消: boolean }): boolean {
+/** 收尾背调 的判断本身（纯函数，好测）。简版 = 桌面端报了、服务器的账也对得上的「只有人」简版 */
+export function 该退背调(r: { 花了钱: boolean; failures: number; reportAt: Date | null; ok: boolean; 取消: boolean; 简版?: boolean }): boolean {
   if (!r.花了钱) return true;
+  if (r.简版 && !r.reportAt) return true;
   if (r.reportAt || r.ok) return false;
   if (r.取消) return false;
   return r.failures > 0;

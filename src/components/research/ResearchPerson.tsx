@@ -5,7 +5,8 @@
  *   开跑前    号码本机判（哪国、手机还是固话，不花钱不扣次数），写明「开始搜索后扣 1 次」；也可以说「这其实是公司名」
  *   找公司    搜号码、搜名字，一张张工具卡（和背调卡同一套）
  *   有候选    列出来点选：点哪家就接着背调哪家，同一次，不另扣（HomeChat 把这一轮换成那家公司的背调卡）
- *   没有 / 都不是  「只有人」的简版：号码归属国和类型、号码 / 名字在网上出现过的页面、「信息少，谨慎」和建议
+ *   没有 / 都不是  「只有人」的简版：号码归属国和类型、号码 / 名字在网上出现过的页面、「信息少，谨慎」和建议。
+ *                 没认出公司、只出简版的不扣次数（10-19 用户）；认出了候选、人点「都不是」的照扣（候选本身就是认出了公司）
  * 只列和做生意有关的公开页面（公司官网、名录、B2B 平台、LinkedIn、Facebook 公司页），私人社交不列。
  */
 import { useEffect, useState } from "react";
@@ -91,7 +92,7 @@ function Confirm({ 名, 电话, onStart, onAsCompany, onCancel }: { 名?: string
           ) : (
             <>
               判号码不扣次数；<b>开始搜索后扣 1 次背调</b>
-              {价.还剩 != null && <>（你还剩 {价.还剩} 次）</>}，点选候选、接着背调都算这一次，不另扣；找不到公司也照扣（搜索已经花了钱）。
+              {价.还剩 != null && <>（你还剩 {价.还剩} 次）</>}，点选候选、接着背调都算这一次，不另扣；没认出公司、只出了简版的不扣（认出了候选、你都没选的照扣）。
               {不够 && "背调次数用完了，需要加次数请联系我们。"}
             </>
           )
@@ -224,8 +225,8 @@ export function PersonCard({ s, running, error, onPick, onStop, onRetry }: { s: 
         <span>
           搜索 <b className="rs-num">{s.usage.searches}</b> 次
         </span>
-        {s.done && s.done.charge > 0 && (s.done.退了 ? <span className="rs-charge">没跑完，已退回这 {s.done.charge} 次背调</span> : <span className="rs-charge">扣 {s.done.charge} 次背调</span>)}
-        {!s.done && 候选.length > 0 && !running && <span className="rs-charge">已扣 1 次背调，接着背调不另扣</span>}
+        {s.done && s.done.charge > 0 && (s.done.退了 ? <span className="rs-charge">{简版 ? "只出了简版，这次不扣次数" : `没跑完，已退回这 ${s.done.charge} 次背调`}</span> : <span className="rs-charge">扣 {s.done.charge} 次背调</span>)}
+        {!s.done && 候选.length > 0 && !running && <span className="rs-charge">{都不是 ? "已扣 1 次背调（认出过候选公司）" : "已扣 1 次背调，接着背调不另扣"}</span>}
       </div>
       {error && !running && <div className="rs-err">{error}</div>}
       <div className="rs-actions">

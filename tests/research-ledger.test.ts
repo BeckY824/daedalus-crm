@@ -251,7 +251,9 @@ describe("该退背调（收尾时的判断，10-16 下午总控定；10-18「�
     expect(该退背调({ ...基, 花了钱: false, ok: true })).toBe(true); // 只做了程序直查（判号码、RDAP、名单）：没花钱，不扣
     expect(该退背调({ ...基, 花了钱: false, 取消: true })).toBe(true); // 开头就停了、还没花钱
     expect(该退背调({ ...基, reportAt: new Date(), failures: 2 })).toBe(false); // 最后一步交出去了
-    expect(该退背调({ ...基, ok: true, failures: 2 })).toBe(false); // 桌面端自己说跑完了（含「只有人」的简版）
+    expect(该退背调({ ...基, ok: true, 简版: true })).toBe(true); // 10-19：没认出公司、只出了「只有人」简版，我们贴搜索费
+    expect(该退背调({ ...基, ok: true, 简版: true, reportAt: new Date() })).toBe(false); // 交过报告的不算简版
+    expect(该退背调({ ...基, ok: true, failures: 2 })).toBe(false); // 桌面端自己说跑完了
     expect(该退背调({ ...基, ok: true })).toBe(false); // 搜了、一条材料都没有，照样出了报告：花了钱就扣
     expect(该退背调({ ...基, failures: 1, 取消: true })).toBe(false); // 用户自己停的
     expect(该退背调({ ...基, failures: 1 })).toBe(true); // 我们这边超时 / 报错没跑完
@@ -300,7 +302,7 @@ describe("花没花钱（收尾背调 按库里记的判断）", () => {
     expect(await 背调剩(owner)).toBe(2);
   });
 
-  it("搜过一次（没搜到东西）、出了简版 → 扣；只调过模型（花费还没记上）也算花了钱", async () => {
+  it("搜过一次（没搜到东西）、桌面端没报简版 → 扣；只调过模型（花费还没记上）也算花了钱", async () => {
     const { 按背调扣, 收尾背调, 背调计一次 } = await import("@/lib/tenant/credits");
     const { control } = await import("@/lib/tenant/control");
     const owner = await 建账号(3);
@@ -312,6 +314,45 @@ describe("花没花钱（收尾背调 按库里记的判断）", () => {
     await control.aiCharge.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, requestId: "run-model" }, data: { calls: 1 } });
     expect(await 收尾背调(owner, "run-model", true)).toEqual({ 有这笔: true, 退了: 0 });
     expect(await 背调剩(owner)).toBe(1);
+  });
+
+  it("10-19 只有人名 + 电话、没认出公司、出了简版 → 不扣；服务器的账对不上（读过页、多搜、多调模型、交过报告）报了也不认", async () => {
+    const { 按背调扣, 收尾背调, 背调计一次, 背调交了报告 } = await import("@/lib/tenant/credits");
+    const { 找公司搜索次数 } = await import("@/lib/research/types");
+    const { control } = await import("@/lib/tenant/control");
+    const owner = await 建账号(6);
+    const 调模型 = (runId: string, calls: number) => control.aiCharge.updateMany({ where: { ownerKind: owner.kind, ownerId: owner.id, requestId: runId }, data: { calls } });
+
+    // 真简版：搜了找公司那几次、模型认过一次候选
+    await 按背调扣(owner, "run-thin");
+    for (let i = 0; i < 找公司搜索次数; i++) expect(await 背调计一次(owner, "run-thin", "searches", 40)).toBe("ok");
+    await 调模型("run-thin", 1);
+    expect(await 收尾背调(owner, "run-thin", true, false, true)).toEqual({ 有这笔: true, 退了: 1 });
+    expect(await 背调剩(owner)).toBe(6);
+
+    // 读过页：跑过背调步骤了
+    await 按背调扣(owner, "run-read");
+    expect(await 背调计一次(owner, "run-read", "searches", 40)).toBe("ok");
+    expect(await 背调计一次(owner, "run-read", "pages", 40)).toBe("ok");
+    expect(await 收尾背调(owner, "run-read", true, false, true)).toEqual({ 有这笔: true, 退了: 0 });
+
+    // 多搜
+    await 按背调扣(owner, "run-more");
+    for (let i = 0; i <= 找公司搜索次数; i++) expect(await 背调计一次(owner, "run-more", "searches", 40)).toBe("ok");
+    expect(await 收尾背调(owner, "run-more", true, false, true)).toEqual({ 有这笔: true, 退了: 0 });
+
+    // 多调模型
+    await 按背调扣(owner, "run-llm");
+    expect(await 背调计一次(owner, "run-llm", "searches", 40)).toBe("ok");
+    await 调模型("run-llm", 2);
+    expect(await 收尾背调(owner, "run-llm", true, false, true)).toEqual({ 有这笔: true, 退了: 0 });
+
+    // 交过报告
+    await 按背调扣(owner, "run-rep");
+    expect(await 背调计一次(owner, "run-rep", "searches", 40)).toBe("ok");
+    await 背调交了报告(owner, "run-rep");
+    expect(await 收尾背调(owner, "run-rep", true, false, true)).toEqual({ 有这笔: true, 退了: 0 });
+    expect(await 背调剩(owner)).toBe(2);
   });
 });
 
