@@ -80,7 +80,7 @@ async function 进设置团队(page: Page) {
     if (批准框开着) await 进门(page, "/settings?tab=team");
   }
   await expect(page.getByRole("tabpanel", { name: /^团队/ })).toBeVisible();
-  await page.waitForLoadState("networkidle").catch(() => {});
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
 }
 
 /** 有手机等着允许时，老板那台一进来就弹「允许 … 查看和记录你的客户？」：量这个框本身，再点右上 × （= 稍后，这次打开不再弹） */

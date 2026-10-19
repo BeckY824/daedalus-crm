@@ -77,7 +77,8 @@ async function 关掉弹窗(page: Page, 等 = 0) {
 
 async function 去(page: Page, 址: string, 摆: 摆法) {
   await page.goto(址);
-  await page.waitForLoadState("networkidle").catch(() => {});
+  // networkidle 最多等 5 秒：订单详情页在 CI 上一直等不到（10-19 #40 第一次跑卡了 583 秒），落定靠下面那 500ms
+  await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
   await 关掉弹窗(page);
   // 首页（/ → /dashboard）本身就是宽模式的 AI 对话，那里没有右栏（AiDock 在 /dashboard 不画）
   if (摆 === "AI栏常驻" && !new URL(page.url()).pathname.startsWith("/dashboard")) {
@@ -120,7 +121,7 @@ test.beforeAll(async ({ browser }) => {
       await 关掉弹窗(page, 4_000);
       const 面板 = page.getByRole("tabpanel", { name: /^业务配置/ });
       await expect(面板).toBeVisible();
-      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => {});
       await 面板.getByRole("button", { name: "外贸出口", exact: true }).click();
       const 存 = 面板.locator(".biz-preset-todo").getByRole("button", { name: /保\s*存/ });
       if (await 存.isVisible().catch(() => false)) {
