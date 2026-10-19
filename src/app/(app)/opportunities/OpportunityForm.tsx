@@ -22,6 +22,9 @@ import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useBusiness } from "@/lib/business-client";
 import { stageLabel, 外贸订单, 外贸精简 } from "@/lib/business-config";
 
+/** 商机名是一行字：换行（含粘贴进来的）并成一个空格 */
+const 并成一行 = (v: unknown) => (typeof v === "string" ? v.replace(/[ \t]*[\r\n]+[ \t]*/g, " ") : v);
+
 const subscribeHydration = () => () => {};
 const clientHydrated = () => true;
 const serverHydrated = () => false;
@@ -182,8 +185,14 @@ export default function OpportunityForm({
       <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={守.改了}>
         <Row gutter={16}>
           <Col span={24}>
-            <Form.Item name="name" label="商机名称" rules={[requiredText("请填写商机名称")]}>
-              <Input placeholder={b.template === "trade" ? "如：LED 面板灯 2000 pcs 询盘" : "如：CRM 系统企业版年度采购"} />
+            {/* 外贸客户常把询盘要求整段写进商机名（10-19 反馈）：和备注一样两行起、随内容长到六行。
+                名称仍是一行字——回车不换行，粘进来的换行并成空格，列表、时间线照旧一行显示 */}
+            <Form.Item name="name" label="商机名称" rules={[requiredText("请填写商机名称")]} normalize={并成一行}>
+              <Input.TextArea
+                autoSize={{ minRows: 2, maxRows: 6 }}
+                onPressEnter={(e) => e.preventDefault()}
+                placeholder={b.template === "trade" ? "如：LED 面板灯 2000 pcs 询盘，可以把客户的要求一起写进来" : "如：CRM 系统企业版年度采购"}
+              />
             </Form.Item>
           </Col>
           <Col span={12}>

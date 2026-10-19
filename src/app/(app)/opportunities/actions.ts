@@ -142,7 +142,7 @@ export async function saveOpportunity(input: {
   const 报价 = input.报价 === undefined ? null : 整理报价行(input.报价);
   if (报价 && !报价.ok) return { ok: false as const, error: 报价.error };
   const data = {
-    name: input.name.trim(),
+    name: input.name.replace(/\s*[\r\n]+\s*/g, " ").trim(),
     customerId: input.customerId,
     // 外币常有小数（US$ 3,250.50），留到分；原来取整是因为只有人民币
     amount: Math.round(input.amount * 100) / 100,
