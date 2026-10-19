@@ -185,11 +185,11 @@ describe("串起来：问服务、发通知、记下来、重启不重发", () =
     expect(角标).toEqual([2, 0, 0]);
   });
 
-  it("设置只认那四个字段，多塞的丢掉", () => {
+  it("设置只认那几个字段（含三个同事新建开关），多塞的丢掉", () => {
     const r = 起(() => {}, () => {});
     const s = r.改设置({ 早报时间: "08:30", 多余: "x" });
     r.停();
-    expect(s).toEqual({ 角标: true, 早报: true, 早报时间: "08:30", 到点: true });
+    expect(s).toEqual({ 角标: true, 早报: true, 早报时间: "08:30", 到点: true, 同事客户: true, 同事商机: true, 同事跟进: false });
     expect(JSON.parse(fs.readFileSync(文件, "utf8")).设置).toEqual(s);
   });
 });

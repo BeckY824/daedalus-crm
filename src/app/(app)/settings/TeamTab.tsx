@@ -11,6 +11,7 @@ import OverwrittenCard from "./OverwrittenCard";
 import DevicesCard from "./DevicesCard";
 import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
+import TeamNoticeCard from "./TeamNoticeCard";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
@@ -355,6 +356,9 @@ export default function TeamTab() {
           </ul>
         </section>
       )}
+
+      {/* 老板：同事新建客户 / 商机时这台弹通知（desktop/team-notices.js） */}
+      {s.我是建的人 && <TeamNoticeCard />}
 
       {/* 我的设备：本人的电脑和手机，本人授权、本人移除（老板也替不了业务员点） */}
       <DevicesCard />

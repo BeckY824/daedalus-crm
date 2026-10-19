@@ -45,6 +45,7 @@ const { 发送导航 } = require("./navigation");
 const 提醒 = require("./reminders");
 const 团队同步 = require("./sync");
 const 关窗 = require("./close-to-tray");
+const { 创建同事提醒 } = require("./team-notices");
 const 运营通知 = require("./ops-notices");
 const { displayVersion } = require("./release-version");
 
@@ -99,6 +100,14 @@ const 通知出口 = 创建通知出口({
   // 不写通知正文、客户姓名、目标地址或凭据。只留生命周期，供区分系统点击与页面跳转故障。
   记事件: e => 崩溃.写崩溃日志(应用日志, "通知事件", JSON.stringify(e)),
 });
+/**
+ * 同事新建了客户 / 商机 / 跟进（desktop/team-notices.js）：同一人一分钟内合并、离线回来合成一条。
+ * 和提醒一样窗口在前台也发——老板正看着别的页面，同事刚录的客户不会自己冒出来
+ */
+const 同事提醒 = 创建同事提醒({
+  发: ({ title, body, 去 }) => 通知出口.发({ title: String(title).slice(0, 60), body: String(body ?? "").slice(0, 160) }, () => 打开到(去), "team"),
+});
+
 // 记不上 .owner 要留案（2026-10-04 修 B-2 / D-024）：它是认出「换人了」的依据，悄悄失败的话串库时无从查起
 账号.设日志((标题, e) => 崩溃.写崩溃日志(应用日志, `[accounts] ${标题}`, e));
 /**
@@ -106,7 +115,7 @@ const 通知出口 = 创建通知出口({
  * 否则壳会对着上一个账号的令牌判断「登没登录」。
  */
 function 换数据目录(dir) {
-  if (数据目录 !== dir) 通知出口.清空();
+  if (数据目录 !== dir) { 通知出口.清空(); 同事提醒.清空(); }
   数据目录 = dir;
   云端.初始化(dir);
   盯住凭据(dir);
@@ -1877,6 +1886,8 @@ if (!app.requestSingleInstanceLock()) {
       有新改动: () => {
         for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send("team:changed");
       },
+      // 开关在提醒设置里（设置 → 团队「同事新建时提醒我」），提醒器还没起来就按默认
+      同事新建: (列表) => void 同事提醒.收(列表, 提醒器?.设置() ?? 提醒.默认设置),
     });
     app.on("browser-window-focus", () => void 同步器?.刷新());
     // 这个账号能不能开运营台：启动时问一次，之后切回应用时最多 5 分钟问一次（换了账号、被移出名单都跟得上）
