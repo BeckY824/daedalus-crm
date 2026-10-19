@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { multiTenant } from "@/lib/tenant/context";
 import { 认领, 取Bearer } from "@/lib/tenant/device-token";
 import { 回 } from "@/lib/tenant/sync-auth";
-import { 申请, 我的申请, 待授权, 挑战, 允许, 拒绝, 已连接, 移除 } from "@/lib/tenant/mobile-link";
+import { 资格, 申请, 我的申请, 待授权, 挑战, 允许, 拒绝, 已连接, 移除 } from "@/lib/tenant/mobile-link";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 /**
  * 手机连团队（lib/tenant/mobile-link.ts）。手机和电脑都拿各自的设备令牌来（dk_…），按 action 分：
- *   手机：request（发申请：device、pubKey、label）、status（问结果）
+ *   手机：eligibility（能不能连：个人版账号不给连，2026-10-19）、request（发申请：device、pubKey、label）、status（问结果）
  *   本人已连上的电脑或手机（手机 2026-10-15 起）：pending（待授权）、challenge（id、teamId、device：领挑战）、approve（id、teamId、sealed、nonce）、deny（id）
  *   电脑：list（已连接的手机）、remove（id）
  * 都按令牌认账号：只看得到、只处理得了自己账号的手机。
@@ -27,6 +27,7 @@ export async function POST(req: Request) {
   }
   const s = (v: unknown) => (typeof v === "string" ? v : "");
   switch (b.action) {
+    case "eligibility": return 回(await 资格(t.accountId));
     case "request": return 回(await 申请(t.accountId, t.id, { device: b.device, pubKey: b.pubKey, label: b.label }));
     case "status": return 回(await 我的申请(t.accountId, t.id));
     case "pending": return 回(await 待授权(t.accountId));

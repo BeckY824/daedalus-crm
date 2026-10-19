@@ -1130,6 +1130,9 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
   const [数字, set数字] = useState<string | null>(null);
   const [状态, set状态] = useState<"pending" | "denied" | "expired" | "error">("pending");
   const [错, set错] = useState<string | null>(null);
+  // 个人版账号 / 团队没开 / 电脑还没连上团队：不生成配对数字、不发申请，直接说清楚（2026-10-19 客户反馈手机一直干等）
+  const [不能, set不能] = useState<"no-team" | "inactive" | "no-device" | null>(null);
+  const [再查, set再查] = useState(0);
   const 设 = useRef<设备 | null>(null);
   // 外层每 30 秒重画一次（「现在」走表），onApproved 每次都是新函数：放进 ref，别让它把申请流程整个重跑一遍
   const 批了 = useRef(onApproved);
@@ -1138,9 +1141,17 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
     let 停 = false;
     const 云 = 做传输(token, () => undefined);
     (async () => {
+      const 资 = await 连.查资格(云);
+      if (停) return;
+      if (资 !== "ok") { set不能(资); return; }
+      set不能(null);
       const d = await 本机设备(库);
       设.current = d;
-      await 连.发申请(云, { device: d.device, pubKey: d.公钥, label: 设备标签() });
+      await 连.发申请(云, { device: d.device, pubKey: d.公钥, label: 设备标签() }).catch((e: unknown) => {
+        const 拦 = 连.资格被拦(e instanceof Error ? e.message : String(e));
+        if (拦) { 停 = true; set不能(拦); }
+        throw e;
+      });
       const n = await 密.配对数字(d.公钥);
       if (!停) set数字(n);
       while (!停) {
@@ -1152,7 +1163,9 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
       }
     })().catch((e: unknown) => { if (!停) { set状态("error"); set错(e instanceof Error ? e.message : String(e)); } });
     return () => { 停 = true; };
-  }, [token, 库]);
+  }, [token, 库, 再查]);
+
+  if (不能) return <NotTeamScreen why={不能} onRetry={() => set再查((n) => n + 1)} onLogout={onRestart} />;
 
   return (
     <motion.div className="m-flow" {...进场}>
@@ -1173,6 +1186,27 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
         <p className="m-faint">电脑不在身边？先放着，打开桌面端或已连上的手机版就会弹出来。只有第一次需要授权。</p>
         {状态 !== "pending" && <button className="m-btn m-btn-block" onClick={() => void onRestart()}>重新登录</button>}
         {状态 === "pending" && <button className="m-text-btn" onClick={() => void onRestart()}>换个账号</button>}
+      </div>
+    </motion.div>
+  );
+}
+
+/** 连不了手机的三种情况（2026-10-19）：不生成配对数字，说清楚为什么、下一步做什么 */
+function NotTeamScreen({ why, onRetry, onLogout }: { why: "no-team" | "inactive" | "no-device"; onRetry: () => void; onLogout: () => Promise<void> }) {
+  const 话 = {
+    "no-team": { 标题: "手机伴侣是团队版功能", 正文: "个人版的数据只在你的电脑上，手机连不上。想用手机记跟进，可以私信我们开通团队版。" },
+    inactive: { 标题: "团队同步还没开通", 正文: "你在团队里，但团队同步还没开通或已经停用。开通后再回来连手机；要开通可以私信我们。" },
+    "no-device": { 标题: "先在电脑上连上团队", 正文: "先在电脑上连上团队，再回来连手机。打开电脑上的 Daedalus CRM，在「设置 → 团队」里用邀请码加入；连上后回到这里点「再试一次」。" },
+  }[why];
+  return (
+    <motion.div className="m-flow" {...进场} data-testid="m-not-team" data-why={why}>
+      <div className="m-flow-top">
+        <h1>{话.标题}</h1>
+        <p>{话.正文}</p>
+      </div>
+      <div className="m-flow-foot">
+        {why !== "no-team" && <button className="m-btn m-btn-block" onClick={onRetry}>再试一次</button>}
+        <button className={why === "no-team" ? "m-btn m-btn-block" : "m-text-btn"} onClick={() => void onLogout()}>退出登录</button>
       </div>
     </motion.div>
   );
