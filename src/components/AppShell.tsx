@@ -38,6 +38,7 @@ import AiDock from "./AiDock";
 import { usePageUnderOverlay } from "@/lib/page-under-overlay";
 import type { ModelOption } from "@/lib/llm";
 import FeedbackButton from "./FeedbackButton";
+import FeedbackReplyToast from "./feedback/FeedbackReplyToast";
 import { AiMeterBar } from "./AiCost";
 import RailResizer from "./RailResizer";
 import CommandBar from "./CommandBar";
@@ -235,6 +236,8 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
   const 少动 = useReducedMotion();
   const selectedKey = useMemo(() => {
     const flat = ["/dashboard", "/overview", "/leads", "/customers", "/channels", "/reports", "/contacts", "/opportunities", "/orders", "/suppliers", "/follow-ups", "/settings", "/billing"];
+    // 「我的反馈」不在导航里：哪一项都不亮，亮的是左下角的反馈键（FeedbackButton）
+    if (pathname === "/feedback" || pathname.startsWith("/feedback/")) return "";
     return flat.find((k) => pathname === k || pathname.startsWith(k + "/")) ?? "/dashboard";
   }, [pathname]);
 
@@ -491,6 +494,8 @@ export default function AppShell({ user, workspace, 收藏 = [], 计数 = {}, �
 
       {/* ⌘K：跳页或问一句。挂在壳上，哪一页都在 */}
       <CommandBar 有AI={Boolean(ai)} />
+      {/* 我们回了你的反馈、还没看：左下角一条轻提示（一次一条，可关） */}
+      <FeedbackReplyToast 去向={反馈去向} />
 
 
       {/* 中栏：槽位自己带 <aside class="pane">，没有中栏的路由返回 null */}

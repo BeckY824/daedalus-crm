@@ -2,7 +2,7 @@ import { isEmail } from "./tenant/accounts";
 import { 建立SMTP, smtpConfigured } from "./tenant/notify";
 
 /**
- * 运营台回复反馈（2026-10-02）：运营台里写，用邮件发到对方邮箱。
+ * 运营台回复反馈的**邮件那一半**（2026-10-02）。10-19 起回复默认进应用（lib/feedback-thread.ts），邮件是勾了才发的那一份。
  *
  * 发件地址还是 no-reply@（阿里那边的触发类型地址，收不了信；也只能用我们验证过的域名发），
  * 所以 **Reply-To 一定要设**：固定成公司邮箱（2026-10-02 用户定），对方在邮箱里点「回复」
@@ -51,7 +51,7 @@ export function 组回复邮件(
     to: input.to,
     replyTo: input.replyTo,
     subject: `回复你的 ${产品} 反馈`,
-    text: `${input.body.trim()}\n\n——\n你 ${时间} 的反馈：\n${引用}\n\n直接回复这封邮件就能接着说。`,
+    text: `${input.body.trim()}\n\n——\n你 ${时间} 的反馈：\n${引用}\n\n直接回复这封邮件就能接着说；也可以在桌面端左下角的「反馈」里看这一串、接着说。`,
   };
 }
 

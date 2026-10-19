@@ -47,6 +47,7 @@ const 团队同步 = require("./sync");
 const 关窗 = require("./close-to-tray");
 const { 创建同事提醒 } = require("./team-notices");
 const 运营通知 = require("./ops-notices");
+const 反馈回复 = require("./feedback-replies");
 const { displayVersion } = require("./release-version");
 
 /*
@@ -594,6 +595,8 @@ function 设角标(n) {
 let 提醒器 = null;
 /** 团队同步的定时器（desktop/sync.js）。没加入团队时本地服务回「跳过」 */
 let 同步器 = null;
+/** 反馈回复的定时问（desktop/feedback-replies.js） */
+let 反馈回复器 = null;
 
 /*
   运营台（2026-09-28）：只有运营名单里的那一个云端账号，菜单里才有「运营台…」。
@@ -1890,6 +1893,20 @@ if (!app.requestSingleInstanceLock()) {
       同事新建: (列表) => void 同事提醒.收(列表, 提醒器?.设置() ?? 提醒.默认设置),
     });
     app.on("browser-window-focus", () => void 同步器?.刷新());
+    /*
+      我们回复了你的反馈（desktop/feedback-replies.js，2026-10-19）：启动 8 秒后问一次，之后每 5 分钟；切回应用时最多 5 分钟问一次，
+      和下面查运营台同一个节奏。有新回复弹系统通知，点了去「我的反馈」那一串；没看过的变了告诉窗口，左栏红点跟着出 / 收
+    */
+    反馈回复器 = 反馈回复.开始({
+      文件: () => (读配置().mode === "local" && 数据目录 ? path.join(数据目录, "feedback-notified.json") : null),
+      取端口: () => (读配置().mode === "local" ? 本地?.port ?? null : null),
+      取令牌: () => (读配置().mode === "local" ? 本地?.token ?? null : null),
+      通知: ({ title, body, 去 }) => 通知出口.发({ title: String(title).slice(0, 60), body: String(body ?? "").slice(0, 160) }, () => 打开到(去), "feedback"),
+      有变化: () => {
+        for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send("feedback:changed");
+      },
+    });
+    app.on("browser-window-focus", () => void 反馈回复器?.刷新());
     // 这个账号能不能开运营台：启动时问一次，之后切回应用时最多 5 分钟问一次（换了账号、被移出名单都跟得上）
     void 查运营台(true);
     app.on("browser-window-focus", () => void 查运营台());

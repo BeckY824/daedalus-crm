@@ -9,6 +9,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // 应用内反馈回复整条链 e2e 里云端那个 next dev 的构建目录（next.config.ts 的 distDir）
+    ".next-*/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

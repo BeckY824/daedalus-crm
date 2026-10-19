@@ -1,4 +1,5 @@
 import { control } from "@/lib/tenant/control";
+import { 读串, type 运营台串里一条 } from "@/lib/feedback-thread";
 import { fmtDate } from "@/lib/utils";
 import { 系统名, 数设备, type 设备分布 } from "@/lib/tenant/device-info";
 import { 测试账号们, 测试留痕, type 测试来由 } from "@/lib/tenant/test-accounts";
@@ -328,17 +329,18 @@ export type 反馈条 = {
   who: string | null;
   accountId: string | null;
   handled: boolean;
-  /** 回复默认发到哪：桌面端是云端账号的邮箱；网页版、只留了手机号的账号没有，要运营自己填 */
+  /** 「同时发邮件」发到哪：桌面端是云端账号的邮箱；只留了手机号的账号没有（勾选框置灰）；网页版的老反馈要运营自己填 */
   邮箱: string | null;
-  回复: { id: string; at: string; to: string; body: string; by: string | null }[];
+  /** 原话下面的一整串：我们的回复（含 0.46.22 之前只走邮件的那几封）和对方在应用里接着说的，按时间排 */
+  串: 运营台串里一条[];
 };
 
 export async function 读反馈(): Promise<反馈条[]> {
   const 行 = await control.feedback.findMany({ orderBy: { at: "desc" }, take: 300 });
   const 账号ids = [...new Set(行.map((f) => f.accountId).filter((x): x is string => Boolean(x)))];
-  const [账号们, 回复们] = await Promise.all([
+  const [账号们, 串们] = await Promise.all([
     control.account.findMany({ where: { id: { in: 账号ids } }, select: { id: true, email: true } }),
-    control.feedbackReply.findMany({ where: { feedbackId: { in: 行.map((f) => f.id) } }, orderBy: { at: "asc" } }),
+    读串(行.map((f) => f.id)),
   ]);
   const 邮箱of = new Map(账号们.map((a) => [a.id, a.email]));
   return 行.map((f) => ({
@@ -353,9 +355,7 @@ export async function 读反馈(): Promise<反馈条[]> {
     accountId: f.accountId,
     handled: f.handled,
     邮箱: (f.accountId && 邮箱of.get(f.accountId)) || null,
-    回复: 回复们
-      .filter((r) => r.feedbackId === f.id)
-      .map((r) => ({ id: r.id, at: r.at.toISOString(), to: r.to, body: r.body, by: r.by })),
+    串: 串们.get(f.id) ?? [],
   }));
 }
 

@@ -496,6 +496,33 @@ html.glass .rail-fb { background: color-mix(in srgb, var(--brand-bg) 85%, transp
 .fb-foot { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
 .fb-foot a { font-size: var(--fs-note); color: var(--text-muted); }
 .fb-foot a:hover { color: var(--brand); }
+/* 我们回了没看（2026-10-19）：反馈键右上角一颗红点，和左栏「更新记录」那颗「新」上的是同一种 */
+.rail-fb { position: relative; }
+/* 人在「我的反馈」页上：反馈键是实心的（左栏导航那几项这时都不亮） */
+.rail-fb.on { background: var(--brand); color: var(--on-ink); }
+.rail-fb.on:hover { background: var(--brand-deep); color: var(--on-ink); }
+.rail-fb-dot { position: absolute; top: -1px; right: -1px; width: 8px; height: 8px; border-radius: 999px; background: var(--danger);
+  box-shadow: 0 0 0 2px var(--page-bg); pointer-events: none; }
+/* 写反馈框的标题行：右边一个「我的反馈 ›」，进去看发过的和回复 */
+.fb-title { display: flex; align-items: baseline; gap: 12px; padding-right: 28px; }
+.fb-title-link { margin-left: auto; padding: 0; border: 0; background: none; font: inherit; font-size: var(--fs-note); font-weight: 400; color: var(--text-muted); cursor: pointer; white-space: nowrap; }
+.fb-title-link:hover { color: var(--brand); }
+.fb-title-link:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; border-radius: 4px; }
+/* 左下角那条轻提示：挨着左栏、对着带红点的反馈键。不是模态，不抢焦点 */
+.fbt { position: fixed; z-index: 30; left: calc(var(--rail-w) + 12px); bottom: 14px; display: flex; align-items: center; gap: 10px;
+  width: min(340px, calc(100vw - var(--rail-w) - 24px)); padding: 10px 8px 10px 14px; border: 1px solid var(--line); border-radius: var(--r-card);
+  background: var(--panel); box-shadow: var(--shadow-pop); animation: aitask-in var(--t) var(--ease); }
+html.glass .fbt { background: color-mix(in srgb, var(--panel) 88%, transparent); backdrop-filter: blur(18px) saturate(1.4); }
+.fbt-t { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.fbt-t b { font-size: var(--fs-note); font-weight: 600; color: var(--ink); }
+.fbt-t span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-min); color: var(--text-muted); }
+.fbt-go { flex: none; padding: 4px 10px; border: 0; border-radius: var(--r-ctl); background: var(--brand-bg); color: var(--brand); font: inherit; font-size: var(--fs-note); font-weight: 500; cursor: pointer; }
+.fbt-go:hover { background: color-mix(in srgb, var(--brand) 16%, var(--brand-bg)); }
+.fbt-x { flex: none; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0; border: 0; border-radius: var(--r-ctl);
+  background: none; color: var(--text-faint); font-size: 11px; cursor: pointer; }
+.fbt-x:hover { background: var(--hover); color: var(--ink); }
+.fbt-go:focus-visible, .fbt-x:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+@media (max-width: 767px) { .fbt { left: 12px; width: calc(100vw - 24px); } }
 
 /* 左栏右边那条能拖的缝：贴着分隔线骑在上面，平时看不见，指上去才显出来。
    6px 宽是拿得住的最小值——再窄就得瞄准，而这不是个需要精准的动作 */

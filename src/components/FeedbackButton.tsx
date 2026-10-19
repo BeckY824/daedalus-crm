@@ -11,11 +11,15 @@
  *
  * 自部署的开源版（去向 = github）不发请求：他的实例不该认识我们的云，
  * 点了直接开 GitHub issues，那也是 README 里写的那条路。
+ *
+ * 我们回了（2026-10-19）：键上出一个红点。有红点时点它直接去「我的反馈」里那一串（人点它就是为了看回复）；
+ * 没红点照旧弹写反馈的框，框的右上角有「我的反馈」进去看发过的。看过了红点就没了（已读记在本机）。
  */
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Modal, Input, Button, App } from "antd";
 import { useBusiness } from "@/lib/business-client";
+import { useMyFeedback, 刷新我的反馈 } from "./feedback/store";
 
 const ISSUES = "https://github.com/BeckY824/daedalus-crm/issues/new";
 
@@ -41,12 +45,20 @@ export default function FeedbackButton({ 去向 }: { 去向: "cloud" | "github" 
   const [文字, set文字] = useState("");
   const [发送中, set发送中] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
+  const 在我的反馈 = pathname === "/feedback";
   const { message } = App.useApp();
   const b = useBusiness();
+  const 我的 = useMyFeedback(去向 === "cloud");
+  const 头一条没看的 = 我的.反馈.find((f) => f.未读);
 
   function 点开() {
     if (去向 === "github") {
       window.open(ISSUES, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (头一条没看的) {
+      router.push(`/feedback?id=${encodeURIComponent(头一条没看的.id)}`);
       return;
     }
     setOpen(true);
@@ -75,8 +87,11 @@ export default function FeedbackButton({ 去向 }: { 去向: "cloud" | "github" 
       });
       const 回 = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(回.error || "没发出去");
-      // 收下了就说收下了，不额外承诺「我们会尽快回复」——回不回得看是什么事
-      message.success("收到了，谢谢");
+      // 收下了就说收下了，不额外承诺「我们会尽快回复」——回不回得看是什么事。只说回了会在哪儿看到
+      if (我的.可用) {
+        message.success("收到了，谢谢。我们回复的话，会出现在「我的反馈」里");
+        void 刷新我的反馈({ 新: true });
+      } else message.success("收到了，谢谢");
       setOpen(false);
       set文字("");
     } catch (e) {
@@ -90,18 +105,36 @@ export default function FeedbackButton({ 去向 }: { 去向: "cloud" | "github" 
     <>
       <button
         type="button"
-        className="rail-fb"
+        className={`rail-fb${我的.未读数 > 0 ? " has-dot" : ""}${在我的反馈 ? " on" : ""}`}
+        aria-current={在我的反馈 ? "page" : undefined}
         onClick={点开}
-        aria-label="反馈：说说哪儿不好用"
-        title={去向 === "github" ? "反馈：到 GitHub 提 issue" : "反馈：说说哪儿不好用，或者哪儿出错了"}
+        aria-label={我的.未读数 > 0 ? `反馈：我们回复了你的反馈，${我的.未读数} 条没看` : "反馈：说说哪儿不好用"}
+        title={去向 === "github" ? "反馈：到 GitHub 提 issue" : 我的.未读数 > 0 ? "我们回复了你的反馈，点开看看" : "反馈：说说哪儿不好用，或者哪儿出错了"}
       >
         <气泡 />
+        {我的.未读数 > 0 && <span className="rail-fb-dot" data-testid="feedback-dot" aria-hidden />}
       </button>
 
       <Modal
         open={open}
         onCancel={() => setOpen(false)}
-        title="反馈"
+        title={
+          <span className="fb-title">
+            反馈
+            {我的.可用 && 我的.反馈.length > 0 && (
+              <button
+                type="button"
+                className="fb-title-link"
+                onClick={() => {
+                  setOpen(false);
+                  router.push("/feedback");
+                }}
+              >
+                我的反馈 ›
+              </button>
+            )}
+          </span>
+        }
         width={520}
         footer={null}
         destroyOnHidden

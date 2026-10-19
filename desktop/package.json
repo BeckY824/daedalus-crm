@@ -50,6 +50,7 @@
       "sync.js",
       "ops-notices.js",
       "team-notices.js",
+      "feedback-replies.js",
       "sign.js",
       "assets/**"
     ],
