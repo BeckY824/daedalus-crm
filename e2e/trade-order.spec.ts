@@ -111,7 +111,10 @@ test("外贸：转为订单 → 客户页订单区 → 跟进挂订单 → 订�
   const 档案 = page.getByRole("main").locator(".rec-rail.rec-card");
   await expect(档案.locator(".rec-sec-t", { hasText: "订单" })).toBeVisible();
   await expect(档案).toContainText("PI-E2E-01");
-  await expect(档案).toContainText("T/T 30/70 · 临沂测试食品厂");
+  // 付款方式、供应商各自一段（中间的「·」是样式画的，挤不下各自折行）
+  const 订单小行 = 档案.locator(".rec-mini", { hasText: "PI-E2E-01" }).locator(".rec-mini-sub .rec-mini-m");
+  await expect(订单小行.filter({ hasText: "T/T 30/70" })).toBeVisible();
+  await expect(订单小行.filter({ hasText: "临沂测试食品厂" })).toBeVisible();
   await expect(档案).toContainText("乌兹别克斯坦");
   await expect(档案).not.toContainText("推荐关系");
   await expect(档案).not.toContainText("预计签约");

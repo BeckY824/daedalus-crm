@@ -11,6 +11,7 @@ import { statusLabel, 外贸订单 } from "@/lib/business-config";
 import { loadWatchlistPage } from "@/lib/sentinel-data";
 import Board from "./Board";
 import HomeChat, { type Suggestion } from "./HomeChat";
+import PaneToggle from "@/components/PaneToggle";
 import StartCard from "./StartCard";
 import { 读对话 } from "./threads";
 import { 数逾期跟进 } from "@/lib/overdue";
@@ -138,20 +139,24 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
 
   return (
-    <HomeChat
-      会话={对话}
-      userName={user.name}
-      suggestions={suggestions.slice(0, 6)}
-      context={parts.join("，") + "。"}
-      models={models}
-      /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
-      空库={学员数 === 0 && 线索数 === 0 && mine.total === 0 && myPlans === 0 && 没做完的待办 === 0}
-      信号={{
-        逾期,
-        高意向,
-        本月签约: 签约合计(本月签约),
-        高意向标签: statusLabel(b, "意向较高"),
-      }}
-    />
+    <>
+      {/* 对话列表收起了（或窗口太窄成了抽屉）：问答区左上角一颗侧栏图标把它叫回来，和列表页头上那颗是同一个 */}
+      <PaneToggle 栏="chat" 位置="主区" className="pane-toggle-float" />
+      <HomeChat
+        会话={对话}
+        userName={user.name}
+        suggestions={suggestions.slice(0, 6)}
+        context={parts.join("，") + "。"}
+        models={models}
+        /* 一条业务数据都没有：首页换成一张「开始」卡，不摆信号也不摆指标 */
+        空库={学员数 === 0 && 线索数 === 0 && mine.total === 0 && myPlans === 0 && 没做完的待办 === 0}
+        信号={{
+          逾期,
+          高意向,
+          本月签约: 签约合计(本月签约),
+          高意向标签: statusLabel(b, "意向较高"),
+        }}
+      />
+    </>
   );
 }

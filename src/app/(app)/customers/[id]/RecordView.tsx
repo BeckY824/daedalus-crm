@@ -2,7 +2,6 @@
 
 import { useFollowHistory } from "./useFollowHistory";
 
-import Shortcut from "@/components/Shortcut";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -16,7 +15,6 @@ import {
   ThunderboltOutlined,
   CheckCircleOutlined,
   DollarOutlined,
-  UnorderedListOutlined,
   InboxOutlined,
   UserAddOutlined,
   ThunderboltOutlined as AiOutlined,
@@ -44,7 +42,8 @@ import StarButton from "./StarButton";
 import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { toggleTask, deleteTask, deleteFollowUp, restoreFollowUp, completePlan, saveFollowUp } from "./actions";
 import { useContactRemoval } from "./useContactRemoval";
-import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
+import { useNarrow, useWidth } from "@/lib/roster";
+import PaneToggle from "@/components/PaneToggle";
 import { 登记详情名 } from "@/lib/page-rows";
 import Heat, { 冷热说法, 要看冷热 } from "@/components/Heat";
 import { deleteContract, 删签约前清点 } from "../actions";
@@ -189,9 +188,8 @@ export default function RecordView({
   /**
    * 两条断点（见 globals.css 里 .rec 上面那段）：
    * 1440 以下名单收成抽屉，1180 以下 AI 也收成抽屉。
-   * 收起来的东西必须有一个看得见的开关，否则就是没了。
+   * 收起来的东西必须有一个看得见的开关，否则就是没了。名单的开关是页头最左边那颗（PaneToggle）。
    */
-  const 名单在抽屉里 = useRosterInDrawer();
   /**
    * AI 栏收不收看正文实际多宽，不看视口：右边的全局面板开着时视口断点会误判（见 lib/roster.ts）。
    * 1090 = 资料 240 + AI 栏 340 + 两道间距 + 时间线至少 480。原来是 908（视口 1180 减左栏和留白，那时还没有名单），
@@ -389,8 +387,9 @@ export default function RecordView({
         {/*
           没有「← 返回列表」。左边就是窄名单，换一个人点一下就换（设计稿 12/PAGE：
           「切人不再返回列表」）；真要回列表，侧栏那一项一直在。
-          名单收窄进抽屉时（<1440）才补一个「换一位」——那时它才真的没了。
+          名单不在时（窗口太窄收成抽屉，或者人自己点了收起），最左边补一颗侧栏图标把它叫回来（components/PaneToggle.tsx）。
         */}
+        <PaneToggle 栏="roster" 位置="主区" />
         {/* 头像圆片 + 名字 + 星（2026-10-02 照毛玻璃原型）：一眼认出这是谁，星是「放到左栏，下次一点就到」 */}
         <span className="rec-head-av" aria-hidden="true" style={{ background: avatarColor(customer.name), color: AVATAR_TEXT }}>
           {initial(customer.name)}
@@ -405,11 +404,6 @@ export default function RecordView({
             {[customer.grade, customer.major, !独自一人(users, customer.salesOwnerId) && customer.salesOwnerName].filter(Boolean).join(" · ")}
           </div>
         </div>
-        {名单在抽屉里 && (
-          <Button size="small" icon={<UnorderedListOutlined />} onClick={开名单}>
-            换一位（<Shortcut>⌘K</Shortcut>）
-          </Button>
-        )}
         <span style={{ flex: 1 }} />
         {aiEnabled && AI在抽屉里 && (
           <Button size="small" icon={<AiOutlined />} onClick={() => setAI抽屉开着(true)} style={{ marginRight: 8 }}>

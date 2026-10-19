@@ -265,7 +265,7 @@ test("客户记录：左边有窄名单，切人不回列表", async ({ page }) 
   await expect(名单).toBeVisible();
 });
 
-test("客户记录：窄屏下名单收成抽屉，但「换一位」这条路还在", async ({ page }) => {
+test("客户记录：窄屏下名单收成抽屉，页头最左边那颗侧栏图标能把它叫出来", async ({ page }) => {
   // 门槛 1214（lib/roster 的 名单门槛：左栏 + 名单 + 记录页两栏放得下）。1180 是窄屏
   await page.setViewportSize({ width: 1180, height: 860 });
   await 登录(page);
@@ -275,7 +275,8 @@ test("客户记录：窄屏下名单收成抽屉，但「换一位」这条路�
   await expect(page).toHaveURL(/\/customers\/[^/]+$/);
 
   await expect(page.locator("aside.pane-roster")).toHaveCount(0);
-  const 按钮 = page.getByRole("button", { name: /换一位/ });
+  // 原来是「换一位（⌘K）」文字按钮，2026-10-19 统一成中栏开关（components/PaneToggle.tsx）
+  const 按钮 = page.getByRole("button", { name: /^显示.+名单$/ });
   await expect(按钮).toBeVisible();
   await 按钮.click();
   await expect(page.locator(".ant-drawer .roster-row").first()).toBeVisible();
@@ -290,7 +291,7 @@ test("客户记录：13/15 寸 Mac 的窗口（1280 宽）名单就在中栏，�
   await page.locator(".ant-table-row .link-strong").first().click();
   await expect(page).toHaveURL(/\/customers\/[^/]+$/);
   await expect(page.locator("aside.pane-roster")).toBeVisible();
-  await expect(page.getByRole("button", { name: /换一位/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^显示.+名单$/ })).toHaveCount(0);
 });
 
 /* ---------- 批 3 ---------- */
