@@ -152,7 +152,10 @@ async function 占住机器(machineHash: string, accountId: string): Promise<boo
  */
 async function 结算注册赠送(accountId: string, 机器: string | null | undefined): Promise<void> {
   const key = `${accountId}:signup`;
-  if (await control.accountAiGrant.findUnique({ where: { key } })) return;
+  if (await control.accountAiGrant.findUnique({ where: { key } })) {
+    await 补老用户背调(accountId);
+    return;
+  }
 
   const hash = 规整机器哈希(机器);
   // 不知道是哪台机器就不发。理由见文件头第 2 条——这是整个改动最容易写反的一句
@@ -170,6 +173,21 @@ async function 结算注册赠送(accountId: string, 机器: string | null | und
     // 留一句给客服查「他为什么只有 3 次」。只记哈希的头一截，够对得上，也还是不可还原
     note: `机器 ${hash.slice(0, 12)}`,
   });
+}
+
+/**
+ * 老用户补 1 次背调（10-19 用户：「所有老用户自动补 1 次」）。
+ *
+ * 背调的注册赠送 10-17 才有，挂在问答那份注册赠送后面发；10-17 之前就领过问答那份的老账号走到
+ * 上面那句「领过就到此为止」，背调一次都没拿到。这里给**领过问答注册赠送**的账号补上：
+ *   - 领过问答那份 = 当时已经按机器核过一次，不另看机器；没领过的（同一台电脑上的第二个号）照旧不补；
+ *   - key 和新账号那份相同（`<账号>:research-signup`），发过就不再发：新账号不会拿两份，老账号只补一次；
+ *   - 用完了也不会再补：看的是这一条发没发过，不是余额。
+ */
+async function 补老用户背调(accountId: string): Promise<void> {
+  const key = `${accountId}:research-signup`;
+  if (await control.researchGrant.findUnique({ where: { key } })) return;
+  await 赠送背调(accountId, { amount: 背调注册赠送次数(), reason: "signup", key, note: "老用户补发（10-19）" });
 }
 
 /**

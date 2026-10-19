@@ -89,11 +89,15 @@ export default function UserDetailView({ token, 详情 }: { token: string; 详�
               <div className="opx-kpi-n" style={{ marginTop: 8 }}>
                 <次数条 剩={a.ai.剩} 送={a.ai.送} />
               </div>
+              {/* 10-19 用户：只看「24 / 30」会拿去和下面的模型调用次数比，写明白是按问题扣的 */}
+              <div className="opx-kpi-n">
+                送了 {千分位(a.ai.送)} 次，问了 {千分位(a.ai.用)} 个问题
+              </div>
             </>
           )}
         </div>
         <Kpi 名="背调次数" icon={<GiftOutlined />} 数={详情.背调.不限 ? "不限" : 详情.背调.剩} 尾={详情.背调.不限 ? "" : "次"} 注={详情.背调.不限 ? "测试账号不扣" : `送了 ${详情.背调.送} 次，用了 ${详情.背调.用} 次（和 AI 次数分开记）`} />
-        <Kpi 名="近 30 天模型调用" icon={<ThunderboltOutlined />} 数={详情.调用30天} 尾="次" 注={`按问题扣的：开户以来 ${千分位(a.ai.用)} 次（一问可能调好几次）`} />
+        <Kpi 名="近 30 天模型调用" icon={<ThunderboltOutlined />} 数={详情.调用30天} 尾="次" 注="后台调模型的次数，看成本用；AI 答一个问题会调好几次，只扣 1 次" />
         <Kpi 名="近 30 天 token" icon={<FireOutlined />} 数={详情.token30天} 注={详情.调用30天 ? `平均一次 ${千分位(Math.round(详情.token30天 / 详情.调用30天))}` : "这 30 天没用过"} />
         <Kpi 名="在用设备" icon={<DesktopOutlined />} 数={在用.length} 尾="台" 注={在用.length ? 分布说法(a.分布) : "没有在用的设备"} />
       </div>
