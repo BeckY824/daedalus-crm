@@ -151,6 +151,57 @@ describe("新账号送 1 次背调（10-17 用户：「送一次。（不是每�
   });
 });
 
+describe("老用户补 1 次背调（10-19 用户：「所有老用户自动补 1 次」）", () => {
+  const 背调 = async (accountId: string) => (await import("@/lib/tenant/credits")).背调余额({ kind: "account", id: accountId });
+
+  /** 10-17 之前的老账号：问答那份注册赠送领过，背调那份没有 */
+  async function 老账号(机器名: string) {
+    const { control } = await import("@/lib/tenant/control");
+    const 甲 = await 建账号();
+    await 登录(甲.phone!, 电脑(机器名));
+    await control.researchGrant.deleteMany({ where: { accountId: 甲.id } });
+    expect((await 背调(甲.id)).还剩, "造出来的老账号应该是 0 次背调").toBe(0);
+    return 甲;
+  }
+
+  it("老账号再登录就补上 1 次；登几次、换电脑都只补一次", async () => {
+    const 甲 = await 老账号("老用户的笔记本");
+    await 登录(甲.phone!, 电脑("老用户的笔记本"));
+    expect((await 背调(甲.id)).送).toBe(1);
+    await 登录(甲.phone!, 电脑("老用户的笔记本"));
+    await 登录(甲.phone!, 电脑("另一台"));
+    expect((await 背调(甲.id)).送).toBe(1);
+  });
+
+  it("不登录、只走不带机器的结账（桌面端打开就会问余额）也能补上", async () => {
+    const { 结算赠送 } = await import("@/lib/tenant/credits");
+    const 甲 = await 老账号("老用户二");
+    await 结算赠送({ kind: "account", id: 甲.id });
+    await 结算赠送({ kind: "account", id: 甲.id });
+    expect((await 背调(甲.id)).还剩).toBe(1);
+  });
+
+  it("补的用完了不再补；新账号不会拿两份；同一台电脑上没领到问答赠送的第二个号不补", async () => {
+    const { 结算赠送, 按背调扣 } = await import("@/lib/tenant/credits");
+    const 甲 = await 老账号("老用户三");
+    await 结算赠送({ kind: "account", id: 甲.id });
+    expect((await 按背调扣({ kind: "account", id: 甲.id }, "run-old-1")).ok).toBe(true);
+    await 结算赠送({ kind: "account", id: 甲.id });
+    await 登录(甲.phone!, 电脑("老用户三"));
+    expect((await 背调(甲.id)).还剩).toBe(0);
+
+    const 新 = await 建账号();
+    await 登录(新.phone!, 电脑("新用户"));
+    await 结算赠送({ kind: "account", id: 新.id });
+    expect((await 背调(新.id)).送).toBe(1);
+
+    const 乙 = await 建账号();
+    await 登录(乙.phone!, 电脑("新用户"));
+    await 结算赠送({ kind: "account", id: 乙.id });
+    expect((await 背调(乙.id)).送).toBe(0);
+  });
+});
+
 describe("一台电脑一份注册赠送", () => {
   it("第一台电脑上的第一个账号照常拿到 30 次", async () => {
     const { 注册赠送 } = await import("@/lib/tenant/credits");
