@@ -658,3 +658,21 @@ model SyncPricing {
   updatedAt DateTime @default(now())
   by        String?
 }
+
+/// 运营台手动加次数的记录（2026-10-19，control-migrations/025）：谁、什么时候、给谁加了几次什么、备注、从哪个团队页加的。
+/// 次数本身记在 AccountAiGrant / ResearchGrant（reason = admin），key 和那一行相同；唯一索引保证同一次点击只加一次
+model AdminCreditLog {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  accountId String
+  /// research | ai
+  kind      String
+  amount    Int
+  by        String
+  note      String?
+  teamId    String?
+  at        DateTime @default(now())
+
+  @@index([accountId, at])
+  @@index([at])
+}
