@@ -1,5 +1,5 @@
 /**
- * 手机伴侣上新建客户 / 商机（2026-10-19 客户反馈第 7 条）的界面。
+ * 手机伴侣上新建客户 / 商机（2026-10-19 客户反馈第 7 条）、记跟进挂商机 / 订单（第 8 条）、「微信沟通」（第 3 条）的界面。
  *
  * 不走登录 + 电脑授权那条链路（那要真云端）：先开一次 /m 让页面建好本地库和行钥匙，再照 lib/mobile/store.ts 的格式
  * 把「已经连上团队」的状态灌进 IndexedDB（团队身份、本人、业务设置=外贸、一位老客户），刷新就进到主界面。
@@ -20,10 +20,11 @@ test.use({
 const 截 = (page: Page, 名: string) =>
   page.screenshot({ path: process.env.E2E_SHOT_DIR ? path.join(process.env.E2E_SHOT_DIR, 名) : test.info().outputPath(名) });
 
-async function 灌好(page: Page) {
+type 种子 = { t: string; k: string; r: Record<string, unknown> };
+async function 灌好(page: Page, 多的: 种子[] = []) {
   await page.goto("/m");
   await expect(page.getByRole("button", { name: /登录/ }).first()).toBeVisible();
-  await page.evaluate(async () => {
+  await page.evaluate(async (多的: 种子[]) => {
     const 开 = () => new Promise<IDBDatabase>((ok, bad) => { const r = indexedDB.open("daedalus-mobile", 1); r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error); });
     const 等 = <T,>(r: IDBRequest<T>) => new Promise<T>((ok, bad) => { r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error); });
     const db = await 开();
@@ -34,6 +35,7 @@ async function 灌好(page: Page) {
       { t: "Setting", k: "business", r: { key: "business", value: JSON.stringify({ template: "trade", currency: "USD", customer: "客户", sources: ["阿里国际站", "独立站询盘", "谷歌搜索", "展会获取", "WhatsApp", "邮件开发", "领英", "老客户返单", "转介绍", "其他"] }) } },
       { t: "Customer", k: "c-old", r: { id: "c-old", name: "Atlas Home Supplies", phone: "+14155550132", salesOwnerId: "acct_li", followStatus: "跟进中", createdAt: Date.now() - 86400_000, updatedAt: Date.now() - 86400_000 } },
       { t: "CustomerExtra", k: "c-old", r: { customerId: "c-old", country: "美国", whatsapp: "+14155550132", email: "maria@atlas.example" } },
+      ...多的,
     ];
     const 密的 = [];
     for (const x of 行们) {
@@ -49,7 +51,7 @@ async function 灌好(page: Page) {
     t.objectStore("kv").put("E2E 团队", "teamName");
     await new Promise<void>((ok, bad) => { t.oncomplete = () => ok(); t.onerror = () => bad(t.error); });
     db.close();
-  });
+  }, 多的);
   await page.reload();
   await page.getByRole("button", { name: "客户" }).last().click();
   await expect(page.getByText("Atlas Home Supplies")).toBeVisible();
@@ -103,4 +105,36 @@ test("手机新建客户（外贸）：至少一个联系方式，存下就进�
   await expect(page.getByText("待同步").first()).toBeVisible();
   await page.waitForTimeout(2600); // 等「商机已建好」提示收起
   await 截(page, "05-手机-建好后的详情.png");
+});
+
+test("手机记跟进：选「微信」、关联这位客户的订单；存下时间线上标着挂的哪张订单", async ({ page }) => {
+  const 前 = Date.now() - 86400_000;
+  await 灌好(page, [
+    { t: "Opportunity", k: "o-old", r: { id: "o-old", name: "庭院灯 800 套", customerId: "c-old", stage: "方案报价", status: "OPEN", amount: 12800, ownerId: "acct_li", createdAt: 前, updatedAt: 前, activityAt: 前 } },
+    { t: "OpportunityMoney", k: "o-old", r: { opportunityId: "o-old", currency: "USD" } },
+    { t: "TradeOrder", k: "t-old", r: { id: "t-old", no: "PI-20261012-3", customerId: "c-old", ownerId: "acct_li", amount: 9600, currency: "USD", createdAt: 前, updatedAt: 前 } },
+  ]);
+  await page.getByText("Atlas Home Supplies").click();
+  await page.getByRole("button", { name: "记一笔跟进" }).click();
+  const 表 = page.locator(".m-record");
+  await 表.getByRole("radio", { name: "微信" }).click();
+  await expect(表.getByRole("radio", { name: "微信" })).toHaveAttribute("aria-checked", "true");
+  await 表.getByPlaceholder("聊了什么？结果怎样？").fill("微信上确认了唛头和外箱尺寸，下周出货");
+  const 挂 = 表.getByTestId("m-record-link");
+  // 外贸模版：订单、商机两组都列，默认不关联
+  await expect(表.getByText("关联商机 / 订单")).toBeVisible();
+  await expect(挂).toHaveValue("");
+  await expect(挂.locator("option")).toHaveText(["不关联", "订单 PI-20261012-3", "庭院灯 800 套"]);
+  await 挂.selectOption({ label: "订单 PI-20261012-3" });
+  await expect(挂).toHaveValue("订单:t-old");
+  await page.waitForTimeout(400);
+  await 截(page, "06-手机-记跟进关联订单和微信.png");
+  await 表.getByRole("button", { name: "保存" }).first().click();
+  await expect(page.locator(".m-record")).toHaveCount(0);
+  const 条 = page.locator(".m-timeline li").first();
+  await expect(条).toContainText("微信沟通");
+  await expect(条).toContainText("订单 PI-20261012-3");
+  await expect(条).toContainText("待同步");
+  await page.waitForTimeout(2600); // 等「已记下」提示收起
+  await 截(page, "07-手机-跟进挂着订单.png");
 });

@@ -390,3 +390,6 @@ a.m-icon-btn { text-decoration: none; }
 .m-add { width: 32px; height: 32px; margin-right: 8px; font-size: 15px; }
 .m-card-more { display: inline-flex; align-items: center; gap: 4px; margin: 8px -8px -6px; font-size: 14px; }
 .m-opp-name .m-pending { margin-left: 6px; vertical-align: 2px; }
+/* 记跟进的「关联商机 / 订单」（2026-10-19）：系统原生下拉，样子跟日期框一样；时间线上挂着的显示成一行小字 */
+.m-select { margin-top: 0; appearance: none; -webkit-appearance: none; padding-right: 36px; background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%); background-position: calc(100% - 20px) 19px, calc(100% - 15px) 19px; background-size: 5px 5px; background-repeat: no-repeat; text-overflow: ellipsis; }
+.m-tl-link { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; max-width: 100%; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

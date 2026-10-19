@@ -148,6 +148,7 @@ afterAll(async () => {
 
 import { 同事新建提醒, type 同事新建 } from "@/lib/sync/team-notice";
 import { 记新插, 取走新插 } from "@/lib/sync/team-notice-box";
+import { 分表, 客户们 } from "@/lib/mobile/view";
 // 壳里的合并规则（CommonJS）：和 main.js 用的是同一份
 import 壳 from "../desktop/team-notices.js";
 import 提醒设置 from "../desktop/reminders.js";
@@ -312,5 +313,32 @@ describe("老板提醒 + 手机新建客户 / 商机（两台电脑 + 手机）"
     当("zhao");
     expect(await 同事新建提醒(db("zhao"), client.读团队(), 现在)).toEqual([]);
     expect(取走新插()).toEqual([]);
+  });
+
+  it("手机记跟进挂订单 / 商机、用「微信沟通」：li 和老板的电脑上打开这条跟进看得到挂的是哪张订单 / 哪个商机，类型存 WECHAT（还不认识它的电脑照样落库）", async () => {
+    const 客户 = [...库.表("Customer")].find((r) => r.name === "Nordlicht Leuchten GmbH")!.id as string;
+    // li 在电脑上给这位客户开了一张订单（外贸模版）
+    当("li");
+    const 单 = await db("li").tradeOrder.create({ data: { no: "PI-20261019-1", customerId: 客户, ownerId: A("li"), amount: 36000, currency: "USD" } });
+    expect(await 轮取("li")).toEqual([]);
+    await 手机轮();
+    const c = 客户们(分表(库.行.values()), A("li"), new Set()).find((x) => x.id === 客户)!;
+    expect(c.可关联.订单).toEqual([{ id: 单.id, no: "PI-20261019-1" }]);
+    const 商机 = c.可关联.商机[0].id;
+
+    const { id: 挂单 } = await 手机.记跟进(机, 库, 状态, { customerId: 客户, type: "WECHAT", content: "微信上确认了唛头", 关联: `订单:${单.id}` });
+    const { id: 挂商机 } = await 手机.记跟进(机, 库, 状态, { customerId: 客户, type: "WHATSAPP", content: "问了交期", 关联: 商机 });
+    expect((await 手机轮()).推).toBe(5);
+    expect(状态.被拒).toEqual([]);
+    await 都同步();
+    for (const w of ["li", "boss"] as const) {
+      const a = await db(w).followUp.findUnique({ where: { id: 挂单 }, include: { orderNode: true } });
+      expect(a).toMatchObject({ type: "WECHAT", content: "微信上确认了唛头", opportunityId: null, ownerId: A("li") });
+      expect(a!.orderNode).toMatchObject({ orderId: 单.id, nodeIdx: 0 });
+      const b = await db(w).followUp.findUnique({ where: { id: 挂商机 }, include: { orderNode: true } });
+      expect(b).toMatchObject({ type: "WHATSAPP", opportunityId: 商机, orderNode: null });
+      expect(await db(w).auditLog.findFirst({ where: { entityId: 挂单 } })).toMatchObject({ summary: expect.stringContaining("一条微信沟通跟进") });
+    }
+    expect(await db("zhao").followUp.findUnique({ where: { id: 挂单 } })).toBeNull();
   });
 });

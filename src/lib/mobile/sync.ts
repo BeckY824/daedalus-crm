@@ -11,7 +11,8 @@
  *   - 合并规则一样：字段级后写为准、删除留墓碑、自己推过的不重放
  *   - 不做的：老板迁移、补发起点、改归属（手机第一版不领取公海、不改负责人——这些会牵动「起点」，留在电脑上做）
  *   - 手机只写这几张表：FollowUp、FollowPlan、AuditLog（记一笔跟进时电脑上写的也就是这几样，见 customers/[id]/actions.ts）；
- *     2026-10-19 起加上新建客户（Customer、CustomerExtra）和新建商机（Opportunity、OpportunityMoney），都归本人
+ *     2026-10-19 起加上新建客户（Customer、CustomerExtra）和新建商机（Opportunity、OpportunityMoney），都归本人；
+ *     记跟进时挂订单写 FollowUpOrder（和电脑上「关联商机 / 订单」同一个字段）
  */
 import { 提取范围, 核对范围, 行键, 范围父表, type 范围索引, type 范围元数据 } from "@/lib/sync/scope-policy";
 import { 同步表, 不同步列 } from "@/lib/sync/tables";
@@ -20,7 +21,8 @@ import { 规范串 } from "@/lib/sync/canon";
 import * as 密 from "@/lib/sync/crypto-web";
 import type { 改动 } from "@/lib/sync/local";
 // 下面这几样都不牵进服务端模块（Prisma、node:*）：手机页面直接打包
-import { BUSINESS_KEY, mergeBusiness, type BusinessConfig } from "@/lib/business-config";
+import { BUSINESS_KEY, mergeBusiness, 外贸订单, type BusinessConfig } from "@/lib/business-config";
+import { 订单前缀 } from "@/lib/follow-link";
 import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { 金额 as 显示金额, 规整币种 } from "@/lib/currency";
 import { 认国家, 规整外贸格, type 外贸档案 } from "@/lib/customer-extra";
@@ -291,9 +293,12 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
 
 /* ---------------- 手机上记一笔跟进 ---------------- */
 
-const 类型名: Record<string, string> = { PHONE: "电话沟通", MEETING: "线上会议", VISIT: "上门拜访", EMAIL: "邮件沟通", SMS: "短信沟通", WHATSAPP: "WhatsApp", TASK: "跟进任务", REMIND: "跟进提醒", OTHER: "其他记录" };
-/** 手机上能记的类型（任务 / 提醒走「下次跟进」）。WhatsApp 2026-10-16 加 */
-export const 手机跟进类型 = ["PHONE", "WHATSAPP", "SMS", "EMAIL", "MEETING", "VISIT", "OTHER"] as const;
+const 类型名: Record<string, string> = { PHONE: "电话沟通", MEETING: "线上会议", VISIT: "上门拜访", EMAIL: "邮件沟通", SMS: "短信沟通", WHATSAPP: "WhatsApp", WECHAT: "微信沟通", TASK: "跟进任务", REMIND: "跟进提醒", OTHER: "其他记录" };
+/**
+ * 手机上能记的类型（任务 / 提醒走「下次跟进」）。WhatsApp 2026-10-16 加；微信沟通 2026-10-19 加（客户反馈第 3 条），
+ * 存 WECHAT，和电脑上 constants.ts 的跟进类型同一个值。还不认识 WECHAT 的电脑照样落库，界面上按「其他记录」的样子显示（同 0.46.20 加 WhatsApp）
+ */
+export const 手机跟进类型 = ["PHONE", "WHATSAPP", "WECHAT", "SMS", "EMAIL", "MEETING", "VISIT", "OTHER"] as const;
 
 /** 和 Prisma 的 cuid 同一个样子（c + 24 位），只用作主键，不要求真是 cuid 算法 */
 export function 新编号(): string {
@@ -310,6 +315,11 @@ export type 记跟进输入 = {
   下次?: { 时间: number; 主题: string; 方式: string } | null;
   /** 顺手把这位客户没完成的这条计划标成完成 */
   完成计划?: string | null;
+  /**
+   * 关联商机 / 订单（2026-10-19 客户反馈第 8 条）：和电脑上那一格同一种值——商机就是商机 id，订单是「订单:<id>」（lib/follow-link.ts）。
+   * 商机写进 FollowUp.opportunityId；订单写一行 FollowUpOrder（节点 0，和电脑上跟进挂订单一样）。订单只有外贸模版有
+   */
+  关联?: string | null;
 };
 
 /**
@@ -328,6 +338,19 @@ export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步�
   const 我 = await 库.取("User", c.userId);
   const 我名 = String(我?.r.name ?? "");
   const 客户名 = String(客户.r.name ?? "");
+  // 关联商机 / 订单：只认这位客户名下、这台手机上有的（服务端还会按父链再核一次：跟进、商机 / 订单得在同一位客户下）
+  let 商机id: string | null = null, 订单id: string | null = null;
+  const 关联 = 输入.关联?.trim();
+  if (关联?.startsWith(订单前缀)) {
+    if (!外贸订单(await 业务设置(库))) throw new 同步问题("这套模版没有订单，只能关联商机");
+    const o = await 库.取("TradeOrder", 关联.slice(订单前缀.length));
+    if (!o || o.r.customerId !== 输入.customerId) throw new 同步问题("这张订单不在这位客户名下了，下拉同步一下再选");
+    订单id = o.k;
+  } else if (关联) {
+    const o = await 库.取("Opportunity", 关联);
+    if (!o || o.r.customerId !== 输入.customerId) throw new 同步问题("这个商机不在这位客户名下了，下拉同步一下再选");
+    商机id = o.k;
+  }
 
   const 编钟 = () => { 状态.钟 = Math.max(现在, 状态.钟 + 1); return 钟串(状态.钟, c.device); };
   const 改: 改动[] = [];
@@ -339,8 +362,9 @@ export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步�
   插("FollowUp", {
     id, type: 输入.type, title: "", content: 内容, status: "已完成", duration: null, occurredAt: 现在,
     dueAt: null, dueOn: null, dueHasTime: null, participants: null,
-    customerId: 输入.customerId, contactId: null, opportunityId: null, ownerId: c.userId, createdAt: 现在, updatedAt: 现在,
+    customerId: 输入.customerId, contactId: null, opportunityId: 商机id, ownerId: c.userId, createdAt: 现在, updatedAt: 现在,
   });
+  if (订单id) 插("FollowUpOrder", { followUpId: id, orderId: 订单id, nodeIdx: 0 });
   审("create", "FollowUp", id, `记了${客户名}的一条${类型名[输入.type]}跟进（${本地日期(现在)}）`, { 客户: 客户名, 类型: 类型名[输入.type], 状态: "已完成", 内容: 内容.slice(0, 120), 来自: "手机" });
   if (输入.下次) {
     const pid = 新编号();

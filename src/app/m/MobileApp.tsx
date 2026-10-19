@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
 import {
   AudioOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseCircleFilled, CloseOutlined, CloudSyncOutlined, CopyOutlined,
-  DisconnectOutlined, EditOutlined, ExclamationCircleFilled, LaptopOutlined, LockOutlined, MailOutlined, MobileOutlined, PhoneOutlined, PlusOutlined, RightOutlined,
+  DisconnectOutlined, EditOutlined, ExclamationCircleFilled, LaptopOutlined, LinkOutlined, LockOutlined, MailOutlined, MobileOutlined, PhoneOutlined, PlusOutlined, RightOutlined,
   SearchOutlined, WhatsAppOutlined,
 } from "@ant-design/icons";
 import * as 同步 from "@/lib/mobile/sync";
@@ -15,7 +15,8 @@ import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
 import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, 要清掉, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
-import { stageLabel, type BusinessConfig } from "@/lib/business-config";
+import { stageLabel, 外贸订单, type BusinessConfig } from "@/lib/business-config";
+import { 订单前缀 } from "@/lib/follow-link";
 import { 国家候选 } from "@/lib/customer-extra";
 import { 推入 } from "./push";
 import "./m.css";
@@ -52,7 +53,8 @@ const 跟着它 = (它: 同步.改动, e: 同步.改动) =>
   e === 它
   || (e.t === "AuditLog" && `${String(e.r?.entity ?? "")}:${String(e.r?.entityId ?? "")}` === `${它.t}:${它.k}`)
   || (它.t === "Customer" && e.t === "CustomerExtra" && e.k === 它.k)
-  || (它.t === "Opportunity" && e.t === "OpportunityMoney" && e.k === 它.k);
+  || (它.t === "Opportunity" && e.t === "OpportunityMoney" && e.k === 它.k)
+  || (它.t === "FollowUp" && e.t === "FollowUpOrder" && e.k === 它.k);
 const 拍 = (s: 同步.同步状态): 快照 => ({
   待推跟进: s.待推.filter((e) => e.t === "FollowUp").map((e) => e.k),
   待推新建: s.待推.filter((e) => e.t === "Customer" || e.t === "Opportunity").map((e) => e.k),
@@ -69,6 +71,8 @@ const 不订 = () => () => {};
 const 类型表 = [
   { value: "PHONE", 短: "电话", color: "var(--cat-green)", label: "电话沟通" },
   { value: "WHATSAPP", 短: "WhatsApp", color: "var(--cat-teal)", label: "WhatsApp" },
+  // 微信沟通（2026-10-19 客户反馈第 3 条）：电脑上的色板还没有微信色时先用微信绿
+  { value: "WECHAT", 短: "微信", color: "var(--cat-wechat, #07c160)", label: "微信沟通" },
   { value: "SMS", 短: "消息", color: "var(--cat-cyan)", label: "短信沟通" },
   { value: "EMAIL", 短: "邮件", color: "var(--cat-pink)", label: "邮件沟通" },
   { value: "MEETING", 短: "会议", color: "var(--cat-blue)", label: "线上会议" },
@@ -473,7 +477,7 @@ export default function MobileApp() {
             {面板.kind === "record" && (() => {
               const c = 客户们.find((x) => x.id === 面板.id);
               if (!c) return null;
-              return <RecordSheet c={c} os={os} 我={我} onCancel={返回} onSave={(输入) => { void 记(c.id, 输入); 返回(); }} />;
+              return <RecordSheet c={c} os={os} 我={我} 业务={业务} onCancel={返回} onSave={(输入) => { void 记(c.id, 输入); 返回(); }} />;
             })()}
             {面板.kind === "newCustomer" && (
               <NewCustomerSheet os={os} 业务={业务} onCancel={返回} onSave={(输入) => 新建({ 客户: 输入 })} />
@@ -705,6 +709,7 @@ function DetailScreen({ os, c, 现在, 来自, 业务, 待同步, onBack, onReco
                     {x.待同步 && <em className="m-pending"><CloudSyncOutlined /> 待同步</em>}
                   </div>
                   <p>{x.content}</p>
+                  {x.关联 && <div className="m-tl-link"><LinkOutlined /> {x.关联}</div>}
                 </motion.li>
               ))}
             </AnimatePresence>
@@ -740,9 +745,14 @@ function 计划标题(字: string) {
   return 首句 ? `接着跟进：${首句}` : "接着跟进";
 }
 
-function RecordSheet({ c, os, 我, onCancel, onSave }: { c: 客户视图; os: 系统; 我: string; onCancel: () => void; onSave: (x: Omit<同步.记跟进输入, "customerId">) => void }) {
-  // 有 WhatsApp 号的（外贸客户多半是）默认记成 WhatsApp，没有的照旧默认消息（2026-10-16）
-  const [t, setT] = useState<(typeof 同步.手机跟进类型)[number]>(c.whatsapp ? "WHATSAPP" : "SMS");
+function RecordSheet({ c, os, 我, 业务, onCancel, onSave }: { c: 客户视图; os: 系统; 我: string; 业务: BusinessConfig; onCancel: () => void; onSave: (x: Omit<同步.记跟进输入, "customerId">) => void }) {
+  // 有 WhatsApp 号的（外贸客户多半是）默认记成 WhatsApp；只有微信号的默认微信沟通；都没有的照旧默认消息（2026-10-16 / 10-19）
+  const [t, setT] = useState<(typeof 同步.手机跟进类型)[number]>(c.whatsapp ? "WHATSAPP" : c.wechat ? "WECHAT" : "SMS");
+  // 关联商机 / 订单（2026-10-19 客户反馈第 8 条）：和电脑上那一格一样，外贸模版商机、订单两组都列，通用模版只有商机
+  const 挂订单 = 外贸订单(业务);
+  const 订单们 = 挂订单 ? c.可关联.订单 : [];
+  const 商机们 = c.可关联.商机;
+  const [关联, set关联] = useState("");
   const [字, set字] = useState("");
   const [下次, set下次] = useState<"none" | "1" | "3" | "7" | "pick">("3");
   const [日期, set日期] = useState(() => { const d = new Date(Date.now() + 3 * 86400_000); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; });
@@ -757,7 +767,7 @@ function RecordSheet({ c, os, 我, onCancel, onSave }: { c: 客户视图; os: �
     let 时间: number | null = null;
     if (下次 === "pick") { const [y, m, d] = 日期.split("-").map(Number); 时间 = new Date(y, m - 1, d, 10).getTime(); }
     else if (下次 !== "none") { const d = new Date(); d.setHours(10, 0, 0, 0); 时间 = d.getTime() + Number(下次) * 86400_000; }
-    onSave({ type: t, content: 内容, 下次: 时间 ? { 时间, 主题: 计划标题(内容), 方式: 类型(t).label } : null, 完成计划: 我的计划 && 完成 ? 我的计划.id : null });
+    onSave({ type: t, content: 内容, 下次: 时间 ? { 时间, 主题: 计划标题(内容), 方式: 类型(t).label } : null, 完成计划: 我的计划 && 完成 ? 我的计划.id : null, 关联: 关联 || null });
   };
   const 可存 = 字.trim().length > 0;
 
@@ -780,6 +790,18 @@ function RecordSheet({ c, os, 我, onCancel, onSave }: { c: 客户视图; os: �
         <textarea ref={框} value={字} onChange={(e) => set字(e.target.value)} rows={5} maxLength={5000} placeholder="聊了什么？结果怎样？" />
         <div className="m-textarea-tip"><AudioOutlined /> 懒得打字？按键盘上的话筒说</div>
       </div>
+      {(商机们.length > 0 || 订单们.length > 0) && (
+        <>
+          <div className="m-field-l">{挂订单 ? "关联商机 / 订单" : "关联商机"}</div>
+          <select className="m-date m-select" value={关联} onChange={(e) => set关联(e.target.value)} aria-label={挂订单 ? "关联商机 / 订单" : "关联商机"} data-testid="m-record-link">
+            <option value="">不关联</option>
+            {订单们.length > 0 && <optgroup label="订单">{订单们.map((o) => <option key={o.id} value={`${订单前缀}${o.id}`}>订单 {o.no}</option>)}</optgroup>}
+            {订单们.length > 0
+              ? 商机们.length > 0 && <optgroup label="商机">{商机们.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</optgroup>
+              : 商机们.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+          </select>
+        </>
+      )}
       {我的计划 && (
         <label className="m-check">
           <input type="checkbox" checked={完成} onChange={(e) => set完成(e.target.checked)} />
