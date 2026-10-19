@@ -67,6 +67,7 @@ import { 没同步上 } from "@/lib/sync/local";
 import { 列出范围冲突 } from "@/lib/sync/scoped-local";
 import { 忘掉限定 } from "@/lib/team-scope";
 import { checkDuplicate, saveCustomer } from "@/app/(app)/customers/actions";
+import { saveFollowUp } from "@/app/(app)/customers/[id]/actions";
 
 let client: typeof import("@/lib/sync/client");
 let relay: typeof import("@/lib/tenant/sync-relay");
@@ -130,7 +131,7 @@ async function 调中转(raw: string, 方法: string, 路径: string, body: unkn
       else r = await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
       return { 状态: 200, json: r as Record<string, unknown> };
     } catch (e) {
-      if (e instanceof scoped.范围错误) return { 状态: e.状态, json: e.denied ? { error: e.message, denied: e.denied, ...(e.gone?.length ? { gone: e.gone } : {}) } : { error: e.message } };
+      if (e instanceof scoped.范围错误) return { 状态: e.状态, json: e.denied ? { error: e.message, denied: e.denied, ...(e.gone?.length ? { gone: e.gone } : {}), ...(e.taken ? { taken: e.taken } : {}) } : { error: e.message } };
       throw e;
     }
   }
@@ -561,6 +562,67 @@ describe("F2. 联网时在电脑上 / 手机上录同事已有的号码（2026-1
     忘掉限定();
     (globalThis as { __登录的?: unknown }).__登录的 = { id: A("boss"), name: "王老板", email: "boss@example.invalid", role: "ADMIN", title: "" };
     expect(await checkDuplicate("139 0000 9100")).toMatchObject({ salesOwnerName: "赵业务" });
+  });
+});
+
+describe("P. 公海客户：记跟进 = 领取（2026-10-19 用户拍板）", () => {
+  it("李的手机联网时给公海客户记一笔：一步领到——各台负责人都是李、公海里没了，跟进在老板那边", async () => {
+    await db("boss").customer.create({ data: { id: "c-p-1", name: "公海·手机联网领", phone: "+8613900008001", salesOwnerId: A("boss") } });
+    await db("boss").customerPool.create({ data: { customerId: "c-p-1", userId: A("boss"), reason: "手动" } });
+    await db("boss").followPlan.create({ data: { id: "p-p-1", subject: "老板没做完的回访", plannedAt: new Date("2026-10-30T02:00:00Z"), customerId: "c-p-1", ownerId: A("boss") } });
+    await 都轮("boss");
+    await 手机都轮("li-m");
+    const 机 = 手机们["li-m"];
+    const r = await 手机.记跟进(机.团, 机.库, 机.态, { customerId: "c-p-1", type: "PHONE", content: "公海客户，打过去聊了聊" });
+    expect(r.领取了).toBe(true);
+    expect(await 手机轮("li-m")).toMatchObject({ ok: true, 拒: 0 });
+    await 都轮("boss", "li");
+    for (const w of ["boss", "li"] as const) {
+      expect(await db(w).customer.findUnique({ where: { id: "c-p-1" } }), w).toMatchObject({ salesOwnerId: A("li") });
+      expect(await db(w).customerPool.findUnique({ where: { customerId: "c-p-1" } }), w).toBeNull();
+    }
+    expect(await db("boss").followUp.findUnique({ where: { id: r.id } })).toMatchObject({ content: "公海客户，打过去聊了聊", ownerId: A("li") });
+    // 原负责人没做完的计划跟着过来（和电脑上领取一样）
+    expect(await db("boss").followPlan.findUnique({ where: { id: "p-p-1" } })).toMatchObject({ ownerId: A("li") });
+    expect(await db("boss").customerClaim.findUnique({ where: { customerId: "c-p-1" } })).toMatchObject({ userId: A("li") });
+  });
+
+  it("李的手机断网时记了一笔，这期间赵在电脑上先领走：李联网后这笔进「没同步上」，原因写「已被 赵业务 先领走」，内容还在；各台负责人都是赵", async () => {
+    await db("boss").customer.create({ data: { id: "c-p-2", name: "公海·两人抢", phone: "+8613900008002", salesOwnerId: A("boss") } });
+    await db("boss").customerPool.create({ data: { customerId: "c-p-2", userId: A("boss"), reason: "手动" } });
+    await 都轮("boss", "zhao");
+    await 手机都轮("li-m");
+    断网.add("li-m");
+    const 机 = 手机们["li-m"];
+    const r = await 手机.记跟进(机.团, 机.库, 机.态, { customerId: "c-p-2", type: "PHONE", content: "断网时记的：客户要报价" });
+    expect(r.领取了).toBe(true);
+    await 歇(5);
+    await 领取("zhao", "zhao", "c-p-2");
+    await 都轮("zhao", "boss");
+    断网.delete("li-m");
+    expect(await 手机轮("li-m")).toMatchObject({ ok: true });
+    const 拒的 = 机.态.被拒.find((x) => x.改动.k === r.id);
+    expect(拒的?.原因).toMatch(/已被 赵业务 先领走/);
+    expect(String(拒的?.改动.r?.content)).toBe("断网时记的：客户要报价");
+    await 都轮("boss", "zhao");
+    await 手机都轮("li-m");
+    for (const w of ["boss", "zhao"] as const) expect(await db(w).customer.findUnique({ where: { id: "c-p-2" } }), w).toMatchObject({ salesOwnerId: A("zhao") });
+    expect(await db("boss").followUp.findUnique({ where: { id: r.id } })).toBeNull();
+    expect(手机有("li-m", "Customer", "c-p-2")).toBeUndefined();
+  });
+
+  it("李在电脑上给公海客户记跟进（saveFollowUp）：同时领过来，回包说领取了", async () => {
+    await db("boss").customer.create({ data: { id: "c-p-3", name: "公海·电脑记跟进", phone: "+8613900008003", salesOwnerId: A("boss") } });
+    await db("boss").customerPool.create({ data: { customerId: "c-p-3", userId: A("boss"), reason: "手动" } });
+    await 都轮("boss", "li");
+    当("li");
+    忘掉限定();
+    (globalThis as { __登录的?: unknown }).__登录的 = { id: A("li"), name: "李业务", email: "li@example.invalid", role: "SALES", title: "" };
+    const r = await saveFollowUp({ customerId: "c-p-3", type: "PHONE", title: "", content: "电脑上记的", status: "已完成", occurredAt: new Date().toISOString() });
+    expect(r).toMatchObject({ ok: true, 领取了: true });
+    await 都轮("li", "boss");
+    expect(await db("boss").customer.findUnique({ where: { id: "c-p-3" } })).toMatchObject({ salesOwnerId: A("li") });
+    expect(await db("boss").customerPool.findUnique({ where: { customerId: "c-p-3" } })).toBeNull();
   });
 });
 

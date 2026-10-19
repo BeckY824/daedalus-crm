@@ -378,6 +378,7 @@ export default function RecordView({
       return;
     }
     setMemo("");
+    if ("领取了" in res && res.领取了) message.success("已领取并记下跟进，这位现在归你跟进");
     router.refresh();
   }
 
@@ -703,7 +704,7 @@ export default function RecordView({
               onChange={(e) => setMemo(e.target.value)}
               autoSize={{ minRows: 2, maxRows: 8 }}
               maxLength={5000}
-              placeholder={aiEnabled ? `记一笔，或直接粘贴和${b.customer}的微信聊天记录…` : "记一笔…"}
+              placeholder={customer.pool ? `公海${b.customer}：记一笔跟进就领取过来、归你跟进…` : aiEnabled ? `记一笔，或直接粘贴和${b.customer}的微信聊天记录…` : "记一笔…"}
             />
             <div className="rec-composer-bar">
               <span className="rec-composer-hint">

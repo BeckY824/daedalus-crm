@@ -9,6 +9,7 @@ import type { Prisma } from "@/generated/prisma";
 import { requireUser } from "@/lib/auth";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
 import { recordAudit } from "@/lib/audit";
+import { 领取 } from "../pool-actions";
 import { 认回打码号 } from "@/lib/phone";
 import { 版本冲突, 版本条件, 推进版本 } from "@/lib/edit-version";
 import { dayjs } from "@/lib/utils";
@@ -156,6 +157,13 @@ export async function saveFollowUp(input: FollowUpInput) {
       contactId: input.contactId || null, opportunityId: input.opportunityId || null,
       participants: input.participants || null, customerId: input.customerId,
     };
+    /*
+      公海客户：记跟进 = 领取（2026-10-19 用户拍板，和手机 lib/mobile/sync.ts 记跟进 同一条）。新记的跟进先领过来再记，
+      领取照电脑上原来那一套（改负责人、记领取时间、原负责人没做完的活跟过来、操作日志）；同步时和别人抢，先同步上的拿到，
+      后到的那台改负责人、领取和这条跟进都进「待核对」（tests/team-qa-sync.test.ts D4）
+    */
+    const 领取了 = !input.id && !!(await prisma.customerPool.findUnique({ where: { customerId: input.customerId }, select: { customerId: true } }))
+      && await 领取([input.customerId]).then((r) => r.ok && r.updated > 0);
     const result = await prisma.$transaction(async (tx) => {
       const customer = await tx.customer.findUnique({ where: { id: input.customerId }, select: { name: true } });
       if (!customer) return { ok: false as const, error: "这个客户已经不在了，请刷新重试" };
@@ -205,7 +213,7 @@ export async function saveFollowUp(input: FollowUpInput) {
     for (const audit of result.audits) await recordAudit(audit);
     刷新待办(input.customerId);
     revalidatePath("/follow-ups");
-    return { ok: true as const, id: result.id, ...(result.待办id ? { 待办id: result.待办id } : {}), ...(result.下次计划id ? { 下次计划id: result.下次计划id } : {}) };
+    return { ok: true as const, id: result.id, ...(result.待办id ? { 待办id: result.待办id } : {}), ...(result.下次计划id ? { 下次计划id: result.下次计划id } : {}), ...(领取了 ? { 领取了: true as const } : {}) };
   } catch (e) { return 不在了(e); }
 }
 

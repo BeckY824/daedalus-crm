@@ -9,7 +9,7 @@
  * 和桌面端 lib/sync/client.ts 的 范围一轮 对照：
  *   - 收包时逐项核对一模一样（解密绑定、内外层元数据、在不在目录、父链可见），用的是同一份 scope-policy / scoped-pure
  *   - 合并规则一样：字段级后写为准、删除留墓碑、自己推过的不重放
- *   - 不做的：老板迁移、补发起点、改归属（手机第一版不领取公海、不改负责人——这些会牵动「起点」，留在电脑上做）
+ *   - 不做的：老板迁移、补发起点、改负责人（这些会牵动「起点」，留在电脑上做）。公海客户记跟进时顺带领取（10-19「记跟进 = 领取」，见 记跟进）
  *   - 手机只写这几张表：FollowUp、FollowPlan、AuditLog（记一笔跟进时电脑上写的也就是这几样，见 customers/[id]/actions.ts）；
  *     2026-10-19 起加上新建客户（Customer、CustomerExtra）和新建商机（Opportunity、OpportunityMoney），都归本人；
  *     记跟进时挂订单写 FollowUpOrder（和电脑上「关联商机 / 订单」同一个字段）
@@ -208,7 +208,7 @@ async function 做包(c: 手机团队, e: 改动) {
 }
 
 /** 把待推的推上去。被服务端按归属拒掉的挪进「被拒」，其余照常（整批是回滚了的，去掉被拒的重推） */
-export async function 推(c0: 手机团队, 云: 传输, 状态: 同步状态): Promise<{ c: 手机团队; 推: number; 拒: number }> {
+export async function 推(c0: 手机团队, 云: 传输, 状态: 同步状态, 库?: 手机库): Promise<{ c: 手机团队; 推: number; 拒: number }> {
   let c = c0, 推 = 0, 拒 = 0, 换钥 = 0, 重来 = 0;
   while (状态.待推.length) {
     const 这批 = 状态.待推.slice(0, 100);
@@ -220,7 +220,21 @@ export async function 推(c0: 手机团队, 云: 传输, 状态: 同步状态): 
       if (denied.size) {
         // gone：挂在已经删掉的客户 / 商机下面（2026-10-19）；老服务端不回这一项，照旧按「不归你了」说
         const 删了 = new Set(Array.isArray(r.json.gone) ? (r.json.gone as unknown[]).filter((i): i is number => Number.isInteger(i)) : []);
-        for (const i of denied) 状态.被拒.push({ 改动: 这批[i], 原因: 删了.has(i) ? "这位客户（或商机）已经在电脑上被删了，这条没同步上；内容还在，可以复制下来" : "这位客户已经不归你了，这条没同步上" });
+        // taken：想领的公海客户被别人先领走了（2026-10-19「记跟进 = 领取」）：客户 id → 现在的负责人，名字从本机同事名单取
+        const 领走: Record<string, string> = {};
+        if (r.json.taken && typeof r.json.taken === "object") {
+          for (const [k, who] of Object.entries(r.json.taken as Record<string, unknown>)) {
+            const 人 = typeof who === "string" && 库 ? await 库.取("User", who) : undefined;
+            领走[k] = String(人?.r.name ?? "") || "同事";
+          }
+        }
+        const 哪位 = (e: 改动) => ["Customer", "CustomerClaim", "CustomerPool"].includes(e.t) ? e.k : String(e.r?.customerId ?? (e.t === "AuditLog" && e.r?.entity === "Customer" ? e.r.entityId : "") ?? "");
+        for (const i of denied) {
+          const 谁领走 = 领走[哪位(这批[i])];
+          状态.被拒.push({ 改动: 这批[i], 原因: 删了.has(i) ? "这位客户（或商机）已经在电脑上被删了，这条没同步上；内容还在，可以复制下来"
+            : 谁领走 ? `这位公海客户已被 ${谁领走} 先领走，这条没同步上；内容还在，可以复制下来`
+            : "这位客户已经不归你了，这条没同步上" });
+        }
         拒 += denied.size;
         /*
           被拒那几条的操作日志（「记了 XX 的一条跟进」）也不推：操作日志按它说的那条记录算归属，那条没落下就算成本人的，
@@ -229,7 +243,7 @@ export async function 推(c0: 手机团队, 云: 传输, 状态: 同步状态): 
         const 被拒的 = new Set([...denied].map((i) => 行键(这批[i].t, 这批[i].k)));
         const 跟着拒 = (e: 改动) => e.t === "AuditLog" && !!e.r && 被拒的.has(行键(String(e.r.entity ?? ""), String(e.r.entityId ?? "")));
         const 剩 = [...这批.filter((_, i) => !denied.has(i)), ...状态.待推.slice(这批.length)];
-        for (const e of 剩.filter(跟着拒)) 状态.被拒.push({ 改动: e, 原因: "这位客户已经不归你了，这条没同步上" });
+        for (const e of 剩.filter(跟着拒)) 状态.被拒.push({ 改动: e, 原因: 领走[哪位(e)] ? `这位公海客户已被 ${领走[哪位(e)]} 先领走，这条没同步上` : "这位客户已经不归你了，这条没同步上" });
         状态.待推 = 剩.filter((e) => !跟着拒(e));
         continue;
       }
@@ -247,7 +261,7 @@ export async function 推(c0: 手机团队, 云: 传输, 状态: 同步状态): 
 export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库, 状态: 同步状态): Promise<{ c: 手机团队; 推: number; 拉: number; 拒: number }> {
   let c = c0;
   try {
-    const p = await 推(c, 云, 状态);
+    const p = await 推(c, 云, 状态, 库);
     c = p.c;
     const d = await 云("POST", 范围路径, { teamId: c.teamId, action: "directory", device: c.device });
     if (d.状态 !== 200) throw new 同步问题(话(d, "取不到同步目录"));
@@ -334,14 +348,19 @@ export type 记跟进输入 = {
  * 先放进手机库（马上看得到），再进待推；最近跟进时间是各台自己算的，不同步，这里不写。
  * 时间存成毫秒数：和桌面端库里 DateTime 的存法一样（Prisma 在 SQLite 里存毫秒），推过去原样落库。
  */
-export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步状态, 输入: 记跟进输入, 现在 = Date.now()): Promise<{ id: string }> {
+export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步状态, 输入: 记跟进输入, 现在 = Date.now()): Promise<{ id: string; 领取了?: boolean }> {
   if (!(手机跟进类型 as readonly string[]).includes(输入.type)) throw new 同步问题("跟进类型不对");
   const 内容 = 输入.content.trim();
   if (!内容) throw new 同步问题("写点什么再保存");
   const 客户 = await 库.取("Customer", 输入.customerId);
   if (!客户) throw new 同步问题("这位客户不在这台手机上了，下拉同步一下");
-  // 公海客户要先领取（改归属）才能记——领取牵动「起点」，手机第一版不做，留在电脑上。其余有没有权限由服务端按归属判
-  if (await 库.取("CustomerPool", 输入.customerId)) throw new 同步问题("公海客户请先在电脑上领取");
+  /*
+    公海客户：记跟进 = 领取（2026-10-19 用户拍板，原来手机上一律拦「请先在电脑上领取」，断网时却能记、联网后被拒，两边不一致）。
+    和这笔跟进一起排队：先改负责人、记领取、删公海那一行（和电脑上 pool-actions 领取同一个顺序），原负责人没做完的活跟着过来。
+    两个人抢同一位，先同步上的拿到；后到的整组被拒，进「没同步上」，原因写「已被 X 先领走」（推 里按服务端回的 taken 说），内容可复制。
+    起点快照不在这里补：领之前人人看得到（公海），领到的人本来就有；有需要时老板那台照目录补（client.ts 范围一轮 needBaseline）
+  */
+  const 公海 = await 库.取("CustomerPool", 输入.customerId);
   const 我 = await 库.取("User", c.userId);
   const 我名 = String(我?.r.name ?? "");
   const 客户名 = String(客户.r.name ?? "");
@@ -364,6 +383,8 @@ export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步�
   const 插 = (t: string, r: Record<string, unknown>) => { const h = 编钟(); 改.push({ t, k: String(r[主键表[t]]), o: "I", r, c: Object.keys(r), h }); };
   const 审 = (action: string, entity: string, entityId: string, summary: string, detail?: unknown) =>
     插("AuditLog", { id: 新编号(), at: 现在, userId: c.userId, userName: 我名, action, entity, entityId, summary, detail: detail === undefined ? null : JSON.stringify(detail) });
+
+  if (公海) await 领取改动(c, 库, 客户, 改, 编钟, 审, 现在);
 
   const id = 新编号();
   插("FollowUp", {
@@ -391,7 +412,33 @@ export async function 记跟进(c: 手机团队, 库: 手机库, 状态: 同步�
   }
   await 回放(库, 改, c.device, 状态, { 含本人: true });
   状态.待推.push(...改);
-  return { id };
+  return { id, ...(公海 ? { 领取了: true } : {}) };
+}
+
+/** 领取这一位要写的几样（同电脑上 customers/pool-actions.ts 领取 + lib/carry-over-db.ts 带走）：只往 改 里加，由 记跟进 一起回放、排队 */
+async function 领取改动(c: 手机团队, 库: 手机库, 客户: 记录, 改: 改动[], 编钟: () => string, 审: (action: string, entity: string, entityId: string, summary: string, detail?: unknown) => void, 现在: number) {
+  const 旧 = String(客户.r.salesOwnerId ?? "");
+  const 我 = c.userId;
+  const 改一行 = (x: 记录, 新: Record<string, unknown>) => 改.push({ t: x.t, k: x.k, o: "U", r: { ...x.r, ...新 }, c: Object.keys(新), h: 编钟() });
+  if (旧 !== 我) 改一行(客户, { salesOwnerId: 我, updatedAt: 现在 });
+  const 领 = await 库.取("CustomerClaim", 客户.k);
+  if (领) 改一行(领, { userId: 我, at: 现在 });
+  else 改.push({ t: "CustomerClaim", k: 客户.k, o: "I", r: { customerId: 客户.k, userId: 我, at: 现在 }, c: ["customerId", "userId", "at"], h: 编钟() });
+  改.push({ t: "CustomerPool", k: 客户.k, o: "D", r: null, c: [], h: 编钟() });
+  // 原负责人在他身上没做完的活跟着过来：没完成的计划、待办，进行中的商机（别的同事的、做完的不动）
+  const 带: string[] = [];
+  if (旧 && 旧 !== 我) {
+    for (const key of await 库.键们()) {
+      const i = key.indexOf(":"); const t = key.slice(0, i);
+      if (t !== "FollowPlan" && t !== "Task" && t !== "Opportunity") continue;
+      const x = await 库.取(t, key.slice(i + 1));
+      if (!x || x.r.customerId !== 客户.k || x.r.ownerId !== 旧) continue;
+      if (t === "Opportunity" ? x.r.status !== "OPEN" : !!x.r.done) continue;
+      改一行(x, t === "Opportunity" ? { ownerId: 我, updatedAt: 现在, activityAt: x.r.activityAt ?? x.r.updatedAt ?? 现在 } : { ownerId: 我, updatedAt: 现在 });
+      带.push(x.k);
+    }
+  }
+  审("claim", "Customer", 客户.k, `从公海领取 1 名客户（${String(客户.r.name ?? "")}，记跟进时领取）`, { ids: [客户.k], 原负责人: [{ id: 客户.k, salesOwnerId: 旧 }], 来自: "手机", 带过来: 带.length });
 }
 
 /* ---------------- 手机上新建客户 / 商机（2026-10-19 客户反馈第 7 条） ---------------- */
@@ -499,7 +546,7 @@ export async function 新建商机(c: 手机团队, 库: 手机库, 状态: 同�
   if (!(手机商机阶段 as readonly string[]).includes(输入.stage)) throw new 同步问题("商机阶段不对");
   const 客户 = await 库.取("Customer", 输入.customerId);
   if (!客户) throw new 同步问题("这位客户不在这台手机上了，下拉同步一下");
-  if (await 库.取("CustomerPool", 输入.customerId)) throw new 同步问题("公海客户请先在电脑上领取");
+  if (await 库.取("CustomerPool", 输入.customerId)) throw new 同步问题("公海客户请先领取：记一笔跟进就领过来，再建商机");
   const b = await 业务设置(库);
   const 币 = 规整币种(b.currency);
   const 我 = await 库.取("User", c.userId);

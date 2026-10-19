@@ -17,10 +17,11 @@ import { 查重单次上限, 查重一问上限, 查重哈希格式, type 查重
 
 /** denied：403 时被拒的包在本次 packets 里的下标（整批已回滚）；新客户端据此只把这几条转冲突、其余原样重推 */
 /** gone：denied 里挂在已删客户 / 商机下面的那几包（2026-10-19），手机据此说清「客户已被删」，不是「不归你了」 */
-export class 范围错误 extends Error { constructor(public 状态: number, message: string, public denied?: number[], public gone?: number[]) { super(message); } }
+/** taken：这次推送想领的公海客户已被别人先领走（客户 id → 现在的负责人用户 id；2026-10-19「记跟进 = 领取」），客户端据此说「已被 X 先领走」 */
+export class 范围错误 extends Error { constructor(public 状态: number, message: string, public denied?: number[], public gone?: number[], public taken?: Record<string, string>) { super(message); } }
 /** 一次推送最多几包：转交 / 领取那一批要和它的起点快照放进同一次请求（见 推送可写），起点可能有几百包 */
 export const 范围单次上限 = 1000;
-function fail(status: number, message: string, denied?: number[], gone?: number[]): never { throw new 范围错误(status, message, denied, gone); }
+function fail(status: number, message: string, denied?: number[], gone?: number[], taken?: Record<string, string>): never { throw new 范围错误(status, message, denied, gone, taken); }
 const 根 = () => path.join(process.env.SYNC_DIR ?? path.join(workspaceDir(), "sync"), "scoped");
 const file = (digest: string) => path.join(根(), `${digest}.bin`);
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -174,7 +175,19 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     // 仍被拒：全部报出来（下标），整批回滚——新客户端只把这几条转成冲突、其余重推
     if (待定.length) {
       const gone = 待定.filter(x => 挂在已删的上(合并范围(rows.get(x.key), x.packet.meta, x.batchId), rows)).map(x => x.i);
-      fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i), gone);
+      /*
+        领公海没抢到（2026-10-19「记跟进 = 领取」）：这次被拒的里有「删公海那一行」，客户已经出了公海、归了别人——
+        只对这几位（刚才还在公海、人人看得到的）回现在的负责人，客户端说「已被 X 先领走」；别的私客不回
+      */
+      const taken: Record<string, string> = {};
+      for (const x of 待定) {
+        if (x.packet.meta.t !== "CustomerPool" || x.packet.meta.o !== "D") continue;
+        const cust = rows.get(行键("Customer", x.packet.meta.k));
+        const pool = rows.get(行键("CustomerPool", x.packet.meta.k));
+        const who = cust?.fields.salesOwnerId;
+        if (cust && !cust.deleted && (!pool || pool.deleted) && who && who !== `acct_${accountId}`) taken[x.packet.meta.k] = who;
+      }
+      fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i), gone, Object.keys(taken).length ? taken : undefined);
     }
     // stored = 本次新落库条数（重发的不算），客户端据此累计迁移批次数，回包丢失重试也不会重复计数
     return { received: packets.length, stored };
