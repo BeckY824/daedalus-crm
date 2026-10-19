@@ -46,6 +46,7 @@
     "@fontsource/pixelify-sans": "^5.3.0",
     "@fontsource/silkscreen": "^5.3.0",
     "@noble/curves": "2.4.0",
+    "@paddleocr/paddleocr-js": "0.4.2",
     "@prisma/client": "6.16.2",
     "@types/bcryptjs": "^2.4.6",
     "@typesafe-ai/sdk": "^0.6.0",
@@ -59,6 +60,7 @@
     "motion": "^12.43.0",
     "next": "16.3.8",
     "nodemailer": "^10.0.10",
+    "onnxruntime-web": "1.24.3",
     "prisma": "6.16.2",
     "react": "19.2.8",
     "react-dom": "19.2.8"
@@ -71,6 +73,7 @@
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.1.11",
     "docx": "^9.7.1",
+    "esbuild": "0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
     "tsx": "^4.23.13",
@@ -79,6 +82,7 @@
   },
   "overrides": {
     "effect": "^3.20.0",
-    "deepmerge-ts": "^8.0.2"
+    "deepmerge-ts": "^8.0.2",
+    "js-yaml": "^4.3.2"
   }
 }
