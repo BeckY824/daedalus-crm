@@ -410,11 +410,12 @@ test("计划页「新建计划」就地弹框：挑人、说清另加不替换�
   // 原来那条还在
   await expect(page.getByRole("main").locator(".plan-row").filter({ hasText: "发二版报价" }).filter({ hasText: 客.名 })).toHaveCount(1);
 
-  // 取消 / Esc 关框不留痕：再打开是空的
+  // 取消 / Esc 关框不留痕：再打开是空的。挑过客户就算填过，Esc 先问（2026-10-19 客户反馈），点「放弃」
   await page.getByRole("button", { name: "新建计划" }).click();
   await 挑(page, 客.名);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toBeHidden();
+  await page.getByRole("button", { name: /^放\s*弃$/ }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "新建计划" }).click();
   await expect(page.getByRole("dialog").locator(".pick-ctx")).not.toContainText("上次跟进");
 });
@@ -460,6 +461,7 @@ test("计划页「改」：框开着时这条在另一个窗口被改了，保�
   expect((await p.followPlan.findUniqueOrThrow({ where: { id: 客.旧计划id } })).subject).toBe("发二版报价（含运费）");
 
   await 弹窗.getByRole("button", { name: /取\s*消/ }).click();
+  await page.getByRole("button", { name: /^放\s*弃$/ }).click();
   await expect(弹窗).toBeHidden();
   await 这一行.getByRole("button", { name: "改 发二版报价（含运费）", exact: true }).click();
   await expect(page.getByRole("dialog").getByLabel("跟进主题")).toHaveValue("发二版报价（含运费）");

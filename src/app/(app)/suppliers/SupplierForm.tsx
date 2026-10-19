@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, Col, Form, Input, Modal, Row, Segmented } from "antd";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 import { 评级们 } from "@/lib/supplier";
 import { saveSupplier, type 供应商输入 } from "./actions";
 
@@ -18,6 +19,8 @@ export default function SupplierForm({ open, editing, onClose }: { open: boolean
 
   // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
   const [存着, set存着] = useState(false);
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）
+  const 守 = useFormGuard({ open, form, 草稿键: editing ? null : "新建供应商", 关: () => onClose(false), 忙: 存着, afterOpenChange: 聚焦首项 });
   async function onOk() {
     if (存着) return;
     set存着(true);
@@ -34,13 +37,14 @@ export default function SupplierForm({ open, editing, onClose }: { open: boolean
     const r = await saveSupplier({ ...v, id: editing?.id, rating: v.rating || null });
     if (!r.ok) return message.error(r.error);
     message.success(editing ? "已保存" : "供应商已建好");
+    守.存好了();
     onClose(true, r.id);
     router.refresh();
   }
 
   return (
-    <Modal open={open} title={editing ? "编辑供应商" : "新建供应商"} onCancel={() => onClose(false)} onOk={onOk} confirmLoading={存着} okText="保存" cancelText="取消" width={640} afterOpenChange={聚焦首项} destroyOnHidden>
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }} initialValues={editing ?? {}}>
+    <Modal {...守.弹窗} open={open} title={editing ? "编辑供应商" : "新建供应商"} onOk={onOk} confirmLoading={存着} okText="保存" cancelText="取消" width={640} destroyOnHidden>
+      <Form form={form} layout="vertical" style={{ marginTop: 8 }} initialValues={editing ?? {}} onValuesChange={守.改了}>
         <Row gutter={12}>
           <Col span={12}>
             <Form.Item name="name" label="名称" rules={[{ required: true, whitespace: true, message: "请填供应商名称" }]}>

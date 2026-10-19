@@ -206,3 +206,16 @@ it("WhatsApp 跟进同步到老版本那台：存的就是 WHATSAPP，老版本�
   expect((await 旧.followUp.findFirstOrThrow({ where: { customerId: c.id } })).type).toBe("WHATSAPP");
   expect((await 没同步上(旧)).条数).toBe(0);
 });
+
+it("微信沟通跟进（2026-10-19）同步到老版本那台：和 WhatsApp 一样存的就是 WECHAT，老版本按「其他记录」显示（不报错）", async () => {
+  const 新 = await 开(拷库("new4"));
+  const 旧库 = 拷库("old4");
+  拆成老库(旧库);
+  const 旧 = await 开(旧库);
+  const 史: 改动[][] = [];
+  const c = await 新.customer.create({ data: { name: "Wx", phone: "", salesOwnerId: 管理员.id } });
+  await 新.followUp.create({ data: { customerId: c.id, ownerId: 管理员.id, type: "WECHAT", title: "", content: "微信上发了目录" } });
+  await 回放(旧, await 推(新, "N", 史), "O");
+  expect((await 旧.followUp.findFirstOrThrow({ where: { customerId: c.id } })).type).toBe("WECHAT");
+  expect((await 没同步上(旧)).条数).toBe(0);
+});

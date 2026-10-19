@@ -47,6 +47,7 @@
   --cat-blue: #2563eb; --cat-green: #22c55e; --cat-yellow: #eab308; --cat-orange: #f97316;
   --cat-pink: #ec4899; --cat-violet: #8b5cf6; --cat-cyan: #06b6d4; --cat-amber: #f59e0b;
   --cat-teal: #128c7e; /* WhatsApp 跟进（2026-10-16） */
+  --cat-lime: #65a30d; /* 微信沟通跟进（2026-10-19） */
   /* 头像底色：八个淡色，按名字哈希选 */
   --avatar-1: #dbeafe; --avatar-2: #dcfce7; --avatar-3: #fef3c7; --avatar-4: #fde2e2;
   --avatar-5: #ede9fe; --avatar-6: #e0f2fe; --avatar-7: #fce7f3; --avatar-8: #e2e8f0;
@@ -933,6 +934,10 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 记录页名字底下那一行标签：两个状态（点得改）+ 预计 / 已签约（只读） */
 .rec-tags { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; margin: 0 0 var(--s3); }
 .rec-tags-n { font-size: var(--fs-note); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* 外贸新建客户：电话 / WhatsApp / 邮箱 / 微信四格旁边同一个记号，四格填一格就行（2026-10-19 客户反馈），和必填的红星分开 */
+.cf-any-mark { color: var(--brand); font-size: 9px; margin-left: 4px; vertical-align: 2px; cursor: help; }
+/* 报错那行已经把规矩说了一遍，下面这行提示就别再重复 */
+.ant-form-item-has-error .cf-any-hint { display: none; }
 /* 对方当地时间（2026-10-16 外贸基础）：夜里压暗、带一个「夜里」小标；客户等级是一枚小字母章 */
 .local-time-night { opacity: 0.7; }
 .local-time-tag { margin-left: 4px; padding: 0 4px; border-radius: 4px; font-size: 11px; line-height: 16px; background: var(--warning-bg); color: var(--warning-text); }

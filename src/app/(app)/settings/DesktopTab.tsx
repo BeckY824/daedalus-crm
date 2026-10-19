@@ -6,7 +6,7 @@ import AutoBackups, { type 自动备份项 } from "./AutoBackups";
 
 /** 壳的桥不会变，订阅什么都不用做 */
 const 无订阅 = () => () => {};
-import { Alert, App, Button, Card, Form, Input, Modal, Select, Space, Switch, Typography } from "antd";
+import { Alert, App, Button, Card, Form, Input, Modal, Radio, Select, Space, Switch, Typography } from "antd";
 import { 桌面端发码, 桌面端改密码 } from "./actions";
 import { 赠送说明 } from "@/lib/credits-copy";
 
@@ -48,6 +48,9 @@ declare global {
       /** 毛玻璃（设置 → 外观「窗口」那一行）。老壳没有这两个口子 */
       glass?(): Promise<{ 可用: boolean; 开: boolean; 系统关了?: boolean }>;
       setGlass?(开: boolean): Promise<{ 可用: boolean; 开: boolean; 系统关了?: boolean }>;
+      /** Windows 点 × 怎么办（desktop/close-to-tray.js，2026-10-19）。老壳没有这两个口子；Mac 上 可用 是 false */
+      closeAction?(): Promise<关窗设置>;
+      setCloseAction?(方式: 关窗方式): Promise<关窗设置>;
     };
     /** 提醒（desktop/reminders.js）：Dock 数字、早上汇总、到点提醒的开关。老版本的壳没有这个口子 */
     desktopReminders?: {
@@ -61,6 +64,8 @@ declare global {
 }
 
 type 提醒设置 = { 角标: boolean; 早报: boolean; 早报时间: string; 到点: boolean };
+type 关窗方式 = "ask" | "tray" | "quit";
+type 关窗设置 = { 可用: boolean; 方式: 关窗方式 };
 
 export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
   const { message, modal } = App.useApp();
@@ -137,6 +142,8 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
 
         <ReminderCard />
 
+        <CloseActionCard />
+
         <Card size="small" title="本机数据">
           <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
             {/*
@@ -205,6 +212,39 @@ export default function DesktopTab({ 信息 }: { 信息: 桌面端信息 }) {
 
       <ChangePasswordModal open={改密码开着} 账号={账号} onClose={() => set改密码开着(false)} />
     </div>
+  );
+}
+
+/**
+ * Windows 点右上角 × 怎么办（2026-10-19 客户反馈）。点 × 时弹框里勾了「记住」，改回来就在这儿。
+ * 只在 Windows 的新壳里出现：Mac 关窗本来就不退出；老壳没有这个口子，摆了也改不了
+ */
+function CloseActionCard() {
+  const shell = useSyncExternalStore(无订阅, () => window.desktopShell, () => undefined);
+  const [设置, set设置] = useState<关窗设置 | null>(null);
+  useEffect(() => {
+    shell?.closeAction?.().then(set设置).catch(() => {});
+  }, [shell]);
+  if (!shell?.setCloseAction || !设置?.可用) return null;
+  const 改 = (方式: 关窗方式) => {
+    set设置({ ...设置, 方式 });
+    shell.setCloseAction?.(方式).then(set设置).catch(() => {});
+  };
+  return (
+    <Card size="small" title="关闭窗口">
+      <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 10 }}>
+        点右上角 × 的时候怎么办。最小化到托盘：窗口收到右下角托盘里，跟进提醒和团队同步照常；右键托盘图标可以退出。
+      </Typography.Paragraph>
+      <Radio.Group
+        value={设置.方式}
+        onChange={(e) => 改(e.target.value as 关窗方式)}
+        options={[
+          { value: "ask", label: "每次问我" },
+          { value: "tray", label: "最小化到托盘" },
+          { value: "quit", label: "直接退出" },
+        ]}
+      />
+    </Card>
   );
 }
 

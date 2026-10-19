@@ -11,6 +11,7 @@ import { 外贸精简 } from "@/lib/business-config";
 import { hasVisibleText } from "@/lib/form-validation";
 import { saveFollowUp, 撤销记一笔 } from "./actions";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 
 /**
  * 完成一条跟进计划时弹的小框（2026-10-16 外贸基础，总控：「方式 + 一句话 + 下次时间（默认 7 天后），保留『跳过，直接完成』。不做节奏标签」）。
@@ -34,7 +35,8 @@ export function 方式到类型(method: string | null | undefined, 外贸: boole
   const 按名 = Object.values(FOLLOW_TYPE_MAP).find((t) => t.label === m || t.value === m.toUpperCase());
   if (按名 && 按名.value !== "TASK" && 按名.value !== "REMIND") return 按名.value;
   if (/whats\s*app/i.test(m)) return "WHATSAPP";
-  if (/微信|短信|消息/.test(m)) return "SMS";
+  if (/微信/.test(m)) return "WECHAT"; // 企业微信也算（2026-10-19 加微信沟通）
+  if (/短信|消息/.test(m)) return "SMS";
   if (/邮件|mail/i.test(m)) return "EMAIL";
   if (/电话|call/i.test(m)) return "PHONE";
   if (/会议|视频|zoom|teams/i.test(m)) return "MEETING";
@@ -126,6 +128,8 @@ function CompletePlanDialog({ plan, onClose, onDone }: 框参数 & { plan: 要�
   const [下次, set下次] = useState<下次>("7");
   const [日子, set日子] = useState<Dayjs | null>(() => dayjs().add(7, "day"));
   const [忙, set忙] = useState(false);
+  // 点外面不关；写了那一句再按 Esc / X 先问一句（2026-10-19 客户反馈，lib/form-guard.tsx）。挂着一条计划，不算新建弹窗，不存草稿
+  const 守 = useFormGuard({ open: true, 关: onClose, 填过: () => hasVisibleText(字), 忙, afterOpenChange: 聚焦首项 });
 
   const 下次日 = 下次 === "none" ? null : 下次 === "pick" ? 日子?.format("YYYY-MM-DD") ?? null : dayjs().add(Number(下次), "day").format("YYYY-MM-DD");
   const 可存 = hasVisibleText(字) && (下次 !== "pick" || !!日子);
@@ -164,8 +168,7 @@ function CompletePlanDialog({ plan, onClose, onDone }: 框参数 & { plan: 要�
     <Modal
       open
       title="完成这条计划"
-      onCancel={() => !忙 && onClose()}
-      afterOpenChange={聚焦首项}
+      {...守.弹窗}
       destroyOnHidden
       width={480}
       footer={

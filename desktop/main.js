@@ -18,7 +18,7 @@
  * 菜单照 Claude 桌面端那套：应用 / 文件 / 编辑 / 显示 / 前往 / 窗口 / 帮助，全是标准项。
  * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
-const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session, nativeTheme } = require("electron");
+const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session, nativeTheme, Tray } = require("electron");
 const Windows通知 = require("./windows-toast-activation");
 // 协议辅助进程不初始化默认账号库，也不争用任何 QA 实例的单实例锁。
 if (process.platform === "win32" && process.argv.some(a => a.toLowerCase().startsWith(`${Windows通知.协议}:`))) {
@@ -44,6 +44,7 @@ const { 创建通知出口 } = require("./notifications");
 const { 发送导航 } = require("./navigation");
 const 提醒 = require("./reminders");
 const 团队同步 = require("./sync");
+const 关窗 = require("./close-to-tray");
 const 运营通知 = require("./ops-notices");
 const { displayVersion } = require("./release-version");
 
@@ -241,6 +242,8 @@ function 读配置() {
       // 毛玻璃开没开（设置 → 外观 → 窗口）。不读回来的话 玻璃开着() 永远是开着，
       // 「实底」拨了不生效；而且每次 写配置({...读配置()}) 都会把它抹掉（第六轮 r6-pkg B1）
       glass: c.glass,
+      // Windows 点 × 怎么办（close-to-tray.js）：ask / tray / quit，没存过是 ask。同上，不读回来 写配置 会把它抹掉
+      closeAction: c.closeAction,
     };
   } catch {
     return { mode: "local", serverUrl: 默认服务器 };
@@ -567,6 +570,7 @@ function 设角标(n) {
     app.dock.setMenu(Menu.buildFromTemplate(n > 0 ? [{ label: `今天要跟 ${n} 条`, click: () => 打开到(计划页) }] : []));
   }
   if (process.platform === "win32") {
+    托盘?.设要跟数(n);
     if (!win || win.isDestroyed()) {
       上次角标 = -1; // 窗口回来之后要重画
       return;
@@ -825,6 +829,71 @@ function 建窗口() {
         else app.quit();
       });
   });
+
+  /*
+    Windows 点 ×（2026-10-19 客户反馈，close-to-tray.js）：第一次问「最小化到托盘 / 退出」，可以记住。
+    藏到托盘是 hide，窗口还在，window-all-closed 不触发，跟进提醒和团队同步照常。
+    app.quit() 走过来的（退出、装更新、换包）before-quit 已置上 正在退出，一律放行，那几条路不受影响。Mac 不动
+  */
+  const 这个窗 = win;
+  这个窗.on("close", (e) => {
+    const 做 = 关窗.该怎么关({ 平台: process.platform, 要退出了: 正在退出 || 系统要关, 方式: 读配置().closeAction });
+    if (做 === "放行") return;
+    e.preventDefault();
+    if (做 === "藏") return 藏到托盘(这个窗);
+    if (问关窗中) return;
+    问关窗中 = true;
+    void 关窗
+      .问一下(dialog, 这个窗)
+      .then(({ 方式, 记住 }) => {
+        if (记住) 写配置({ ...读配置(), closeAction: 方式 });
+        if (方式 === "tray") {
+          藏到托盘(这个窗);
+          托盘?.提示藏到这里();
+        } else if (方式 === "quit") app.quit();
+      })
+      .catch((err) => 崩溃.写崩溃日志(应用日志, "关窗口问话出错", err))
+      .finally(() => {
+        问关窗中 = false;
+      });
+  });
+  // 关机、注销：系统要关就关，不拦（拦了 Windows 会说「这个应用阻止关机」）
+  这个窗.on("query-session-end", () => { 系统要关 = true; });
+  这个窗.on("session-end", () => { 系统要关 = true; });
+}
+
+/* ---------- Windows 托盘（close-to-tray.js） ---------- */
+
+let 托盘 = null;
+let 问关窗中 = false;
+let 系统要关 = false;
+
+function 回主窗口() {
+  if (win && !win.isDestroyed()) {
+    if (win.isMinimized()) win.restore();
+    win.show();
+    win.focus();
+    // 藏着的时候任务栏按钮没了，红点跟着没了：回来重画一次
+    上次角标 = -1;
+    设角标(要跟数);
+    return;
+  }
+  建窗口();
+}
+
+function 藏到托盘(w) {
+  if (!托盘) {
+    托盘 = 关窗.建托盘({
+      Tray, Menu, nativeImage,
+      图标路径: path.join(__dirname, "assets/icon.png"),
+      名字: APP_NAME,
+      回窗口: 回主窗口,
+      去计划页: () => 打开到(计划页),
+      退出: () => app.quit(),
+    });
+    托盘.设要跟数(要跟数);
+  }
+  if (!w.isDestroyed()) w.hide();
 }
 
 /**
@@ -1367,6 +1436,12 @@ ipcMain.on("shell:titlebar", (e, v) => {
   }
 });
 ipcMain.handle("shell:glass", () => ({ 可用: 玻璃可用(), 开: 玻璃开着(), 系统关了: 系统要少透明() }));
+// Windows 点 × 怎么办（设置 → 桌面端，close-to-tray.js）。Mac 上 可用 是 false，那一栏不出现
+ipcMain.handle("shell:close-action", () => ({ 可用: process.platform === "win32", 方式: 关窗.规整方式(读配置().closeAction) }));
+ipcMain.handle("shell:set-close-action", (_e, 方式) => {
+  if (关窗.关窗方式们.includes(方式)) 写配置({ ...读配置(), closeAction: 方式 });
+  return { 可用: process.platform === "win32", 方式: 关窗.规整方式(读配置().closeAction) };
+});
 ipcMain.handle("shell:set-glass", (_e, 开) => {
   if (!玻璃可用()) return { 可用: false, 开: false, 系统关了: false };
   // 人选的照存；系统要少透明时先不生效，等他把系统那项关了自己回来
@@ -1882,7 +1957,10 @@ if (!app.requestSingleInstanceLock()) {
       }
     }
   });
-  app.on("window-all-closed", () => {
+  // 托盘图标随进程走：不销毁的话 Windows 右下角会留一个点了没反应的空图标，鼠标划过才消失
+  app.on("will-quit", () => { 托盘?.销毁(); 托盘 = null; });
+
+app.on("window-all-closed", () => {
     if (process.platform !== "darwin" && !启动故障保持运行) app.quit();
   });
 }

@@ -23,6 +23,7 @@ import { clearJob, runJob } from "@/lib/ai-jobs";
 import { statusLabel } from "@/lib/business-config";
 import { 只填没动过的, 跳过说明 } from "@/lib/fill-untouched";
 import CustomerPick, { type 客户近况 } from "./CustomerPick";
+import { useFormGuard } from "@/lib/form-guard";
 
 /** 「标题你改过，没动」里说的名字：和表单上的标签对得上，说短一点 */
 const 字段名: Record<string, string> = {
@@ -182,6 +183,22 @@ export default function FollowUpForm({
     set收口(true);
     set近况(null);
   }
+  /*
+    点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）。
+    同一位客户的「新建跟进」是同一个弹窗；跟进页上挑人的，客户、联系人、商机不进草稿（下次重新挑）。
+    速记框带原文打开的不存：那是 AI 马上要填的
+  */
+  const 守 = useFormGuard({
+    open,
+    form,
+    草稿键: record?.id || initialAiText ? null : `新建跟进:${给定客户 ?? "挑人"}:${record?.type ?? ""}`,
+    关: () => {
+      resetAi();
+      onClose();
+    },
+    填过: () => aiText.trim() !== "",
+    不存: 给定客户 ? [] : ["customerId", "contactId", "opportunityId"],
+  });
 
   async function onAiParse() {
     return runParse(aiText);
@@ -345,6 +362,7 @@ export default function FollowUpForm({
     }
 
     resetAi();
+    守.存好了();
     onSaved();
     // 顺手完成那条到期计划：记录页上提示由它出（带撤销、排下一次），这里就不再单说一句「跟进已记录」
     if (要收口 && 完成了计划) return void 完成了计划(要收口, true);
@@ -404,12 +422,9 @@ export default function FollowUpForm({
 
   return (
     <Modal
+      {...守.弹窗}
       open={open}
       title={record?.id ? "编辑跟进记录" : "新建跟进"}
-      onCancel={() => {
-        resetAi();
-        onClose();
-      }}
       onOk={保存}
       confirmLoading={存着}
       okText="保存"
@@ -418,7 +433,7 @@ export default function FollowUpForm({
       destroyOnHidden
     >
       {/* AI 速记块放在 Form 里面（它不是字段）：挑人那一格是 Form.Item，得在它上面、仍是第一格 */}
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={(changed) => { if ("type" in changed) 人改过类型.current = true; }}>
+      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={(changed) => { if ("type" in changed) 人改过类型.current = true; 守.改了(); }}>
         {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={换人} 不提计划={Boolean(收口计划)} />}
         {showAi && (
           <div

@@ -117,4 +117,7 @@ test("报价明细：金额跟着合计、再开还在、客户页有记录、�
   await 提示.getByRole("button", { name: "用这个价" }).click();
   await expect(框2.getByLabel("第 1 行单价")).toHaveValue("3.2");
   await 框2.getByRole("button", { name: /取\s*消/ }).click();
+  // 填过东西关框先问（2026-10-19 客户反馈）：放弃，草稿也不留
+  await page.getByRole("button", { name: /^放\s*弃$/ }).click();
+  await expect(框2).toBeHidden();
 });

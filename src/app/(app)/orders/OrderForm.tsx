@@ -5,6 +5,7 @@ import { App, AutoComplete, Col, Form, Input, InputNumber, Modal, Row, Select, S
 import CurrencySelect from "@/components/CurrencySelect";
 import { 金额格式 } from "@/lib/money-input";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 import { useBusiness } from "@/lib/business-client";
 import { 贸易条款们, 常用付款方式, 定金比例 } from "@/lib/order";
 import { useRef, useState } from "react";
@@ -58,6 +59,8 @@ export default function OrderForm({
 
   // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
   const [存着, set存着] = useState(false);
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）
+  const 守 = useFormGuard({ open, form, 草稿键: editing ? null : `新建订单:${customerId ?? ""}`, 关: () => onClose(false), 忙: 存着, afterOpenChange: 聚焦首项 });
   async function onOk() {
     if (存着) return;
     set存着(true);
@@ -86,6 +89,7 @@ export default function OrderForm({
       const r = await saveOrder(editing.id, 表);
       if (!r.ok) return message.error(r.error);
       message.success("已保存");
+      守.存好了();
       onClose(true);
       router.refresh();
       return;
@@ -94,16 +98,16 @@ export default function OrderForm({
     const r = await createOrder({ ...表, customerId });
     if (!r.ok) return message.error(r.error);
     message.success("订单已建好");
+    守.存好了();
     onClose(true);
     router.push(`/orders/${r.id}`);
   }
 
   return (
     <Modal
-      afterOpenChange={聚焦首项}
+      {...守.弹窗}
       open={open}
       title={跟签约 ? "贸易条款 · 定金" : editing ? "编辑订单" : "新建订单"}
-      onCancel={() => onClose(false)}
       onOk={onOk} confirmLoading={存着}
       okText="保存"
       cancelText="取消"
@@ -115,6 +119,7 @@ export default function OrderForm({
         layout="vertical"
         style={{ marginTop: 8 }}
         onValuesChange={(changed, all) => {
+          守.改了();
           if ("depositDue" in changed) 手填定金.current = true;
           else if ("payment" in changed || "amount" in changed) 跟着算定金(changed, all);
         }}

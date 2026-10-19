@@ -113,6 +113,8 @@ export const FOLLOW_TYPES = [
   { value: "SMS", label: "短信沟通", color: categorical.cyan, icon: "message" },
   // 2026-10-16 外贸基础：外贸最常用的渠道原来只能记成「其他」。色用 WhatsApp 自己的深青，和电话的绿分得开
   { value: "WHATSAPP", label: "WhatsApp", color: categorical.teal, icon: "whats-app" },
+  // 2026-10-19 客户反馈：只认微信的客户原来只能记成「短信沟通」。不做笼统的「社媒沟通」——分开才能按渠道统计
+  { value: "WECHAT", label: "微信沟通", color: categorical.lime, icon: "wechat" },
   { value: "TASK", label: "跟进任务", color: categorical.amber, icon: "carry-out" },
   { value: "REMIND", label: "跟进提醒", color: categorical.orange, icon: "bell" },
   { value: "OTHER", label: "其他记录", color: palette.textMuted, icon: "ellipsis" },

@@ -17,6 +17,7 @@ import { 供应商候选 } from "../../orders/actions";
 import { StageTag } from "@/components/ui";
 import { 金额格式 } from "@/lib/money-input";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 
 type 可收尾 = Awaited<ReturnType<typeof listContractLinks>>;
 
@@ -89,6 +90,15 @@ function Inner({
   const 日期原文 = useRef<string | null>(null);
   const [日期框版本, set日期框版本] = useState(0);
   const [saving, setSaving] = useState(false);
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）
+  const 守 = useFormGuard({
+    open: true,
+    form,
+    草稿键: editing ? null : `${订单 ? "新建订单" : "登记签约"}:${customerId}:${赢这一单?.id ?? ""}`,
+    关: () => onClose(false),
+    忙: saving,
+    afterOpenChange: 聚焦首项,
+  });
   /** 供应商下拉的候选：库里已有的名字（能选也能填，填个新的就新建一家） */
   const [供应商们, set供应商们] = useState<{ id: string; name: string }[]>([]);
   const [选中供应商, set选中供应商] = useState<string | null>(editing?.order?.supplierId ?? null);
@@ -178,6 +188,7 @@ function Inner({
       const res = await submit(false);
       if (res.ok) {
         message.success(editing ? "已保存" : 订单 ? `订单${res.订单 ? ` ${res.订单.no}` : ""} 已建好${联动说法(res.联动, true)}` : `签约已记录${联动说法(res.联动)}`);
+        守.存好了();
         onClose(true);
         return;
       }
@@ -213,6 +224,7 @@ function Inner({
       const again = await submit(true);
       if (again.ok) {
         message.success(editing ? "已保存" : 订单 ? `订单${again.订单 ? ` ${again.订单.no}` : ""} 已建好${联动说法(again.联动, true)}` : `签约已记录${联动说法(again.联动)}`);
+        守.存好了();
         onClose(true);
       } else if ("error" in again) message.error(again.error);
     } catch (error) {
@@ -224,10 +236,9 @@ function Inner({
 
   return (
     <Modal
-      afterOpenChange={聚焦首项}
+      {...守.弹窗}
       open
       title={订单 ? (editing ? `编辑订单${editing.order ? ` ${editing.order.no}` : ""}` : 赢这一单 ? "转为订单" : "新建订单") : editing ? "编辑签约记录" : "登记签约"}
-      onCancel={() => onClose(false)}
       onOk={onOk}
       confirmLoading={saving}
       okText="保存"
@@ -237,6 +248,7 @@ function Inner({
       <Form
         form={form}
         layout="vertical"
+        onValuesChange={守.改了}
         onInputCapture={e => {
           if (!(e.target instanceof HTMLInputElement) || e.target.id !== "signedAt") return;
           日期原文.current = e.target.value;

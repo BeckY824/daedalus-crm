@@ -4,7 +4,7 @@ import { parseSignDate } from "@/lib/schedule-date";
 
 import { 外贸导入字段 } from "@/lib/import/fields";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
-import { 按邮箱找, 同邮箱条件, 邮箱认人表 } from "@/lib/email-dedupe";
+import { 按微信找, 按邮箱找, 同微信条件, 同邮箱条件, 邮箱认人表 } from "@/lib/email-dedupe";
 
 /**
  * 导入与撤销。
@@ -16,7 +16,7 @@ import { 按邮箱找, 同邮箱条件, 邮箱认人表 } from "@/lib/email-dedu
  *
  *   1. **认人只认手机号。** schema 里 `Customer.phone` 的注释就是「查重主键」，
  *      建档那条路本来就拒绝重复手机号。按姓名认人不做——重名就是把客户挂到别人名下，
- *      和归属规则里「绝不猜」是同一条。外贸例外：没有电话 / WhatsApp 的行按邮箱认（2026-10-07，lib/email-dedupe.ts）。
+ *      和归属规则里「绝不猜」是同一条。外贸例外：没有电话 / WhatsApp 的行按邮箱认（2026-10-07，lib/email-dedupe.ts），邮箱也没有的按微信号认（2026-10-19）。
  *   2. **重复的不覆盖，只补空。** 库里那格有值就一个字都不动。
  *      理由和「个人资料里改的名字不许被同步覆盖」是同一条：
  *      凡是人录过的东西，都不该被一份表刷掉。
@@ -83,6 +83,11 @@ function 邮箱那一批(行: { 进不了?: string; 值: { phone?: string; email
   return 行.filter((r) => !r.进不了 && !r.值.phone && r.值.email).map((r) => r.值.email!);
 }
 
+/** 外贸按微信认的那些行（电话、邮箱都没有，2026-10-19）的微信号 */
+function 微信那一批(行: { 进不了?: string; 值: { phone?: string; email?: string; wechat?: string } }[]): string[] {
+  return 行.filter((r) => !r.进不了 && !r.值.phone && !r.值.email && r.值.wechat).map((r) => r.值.wechat!);
+}
+
 async function 排好(方案: 导入方案) {
   const b = await getBusiness();
   const 表 = 字段表(b);
@@ -98,12 +103,13 @@ async function 导入匹配(行: ReturnType<typeof 摊开>) {
   // 带分机的号也认老库里只存了主号的那位（第三轮 B4）；库里老写法「138 0000 1111」按号键认（R-067 / R-069，见 lib/phone-dedupe）
   const 这一批 = 行.filter((r) => !r.进不了 && r.值.phone).map((r) => r.值.phone!);
   const 邮命中 = await 按邮箱找(prisma, 邮箱那一批(行));
+  const 微命中 = await 按微信找(prisma, 微信那一批(行));
   /*
     团队版业务员（lib/team-scope.ts）：同号的人要看全部才认得出——同事的客户也算「已经有了」，不另建一份；
     但同事的客户不替他补空（业务员改不了别人的客户），算跳过
   */
   const 命中 = await 看全部(async () => prisma.customer.findMany({
-    where: { OR: [await 这一批同号的(prisma, 这一批), { id: { in: 邮命中.map((x) => x.id) } }] },
+    where: { OR: [await 这一批同号的(prisma, 这一批), { id: { in: [...邮命中, ...微命中].map((x) => x.id) } }] },
     select: { id: true, phone: true, school: true, grade: true, major: true, expectedSignAt: true, expectedSignOn: true, remark: true, createdAt: true, updatedAt: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } },
   }));
   // 外贸档案（2026-10-05）在旁表里：补空也是「那一格空着才补」，先取一份现值
@@ -114,8 +120,9 @@ async function 导入匹配(行: ReturnType<typeof 摊开>) {
   const 表 = 认人表(命中, 这一批, await 分机留存起());
   const 按id = new Map(命中.map((c) => [c.id, c]));
   const 邮表 = 邮箱认人表(邮命中.flatMap((x) => (按id.has(x.id) ? [{ 客户: 按id.get(x.id)!, 键: x.键 }] : [])));
+  const 微表 = 邮箱认人表(微命中.flatMap((x) => (按id.has(x.id) ? [{ 客户: 按id.get(x.id)!, 键: x.键 }] : [])), "微信号");
 
-  return { 表, 邮表, 档案们, 限定我 };
+  return { 表, 邮表, 微表, 档案们, 限定我 };
 }
 
 function 算补空(r: ReturnType<typeof 摊开>[number], 旧: { school: string | null; grade: string | null; major: string | null; expectedSignAt: Date | null; expectedSignOn: string | null; remark: string | null }, 档案?: Partial<Record<(typeof 外贸导入字段)[number], string | null>>) {
@@ -163,7 +170,7 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
   const { 行, 合掉几行 } = await 排好(方案);
   if (行.length > 落库上限) return { ok: false, error: `一次最多导 ${落库上限} 行，这份表有 ${行.length} 行` };
 
-  const { 表, 邮表, 档案们, 限定我 } = await 导入匹配(行);
+  const { 表, 邮表, 微表, 档案们, 限定我 } = await 导入匹配(行);
 
   let 新建 = 0;
   let 撞上 = 0;
@@ -177,7 +184,7 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: r.进不了 });
       continue;
     }
-    const { n, 旧, 说法 } = r.值.phone ? 表.认(r.值.phone) : 邮表.认(r.值.email!);
+    const { n, 旧, 说法 } = r.值.phone ? 表.认(r.值.phone) : r.值.email ? 邮表.认(r.值.email) : 微表.认(r.值.wechat!);
     if (n > 1) {
       说不清++;
       if (挡下.length < 20) 挡下.push({ 行号: r.行号, 原因: 说法 ?? `库里有 ${n} 位都是这个号码，不知道该算谁的` });
@@ -260,7 +267,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     (await prisma.channel.findMany({ where: { name: { in: 渠道名单 } }, select: { id: true, name: true } })).map((c) => [c.name, c.id]),
   );
 
-  const { 表, 邮表, 档案们, 限定我 } = await 导入匹配(行);
+  const { 表, 邮表, 微表, 档案们, 限定我 } = await 导入匹配(行);
 
   const batch = await prisma.importBatch.create({
     data: { userId: me.id, userName: me.name, fileName: fileName.slice(0, 200), created: 0, updated: 0, skipped: 0, failed: 0 },
@@ -276,9 +283,10 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       进不了++;
       continue;
     }
-    // 外贸按邮箱认的行 phone 是空串（lib/import/plan.ts 只放进来有邮箱的）
+    // 外贸按邮箱 / 微信认的行 phone 是空串（lib/import/plan.ts 只放进来有邮箱或微信的）
     const phone = r.值.phone ?? "";
     const email = r.值.email ?? "";
+    const wechat = r.值.wechat ?? "";
     /*
       库里同一个号码有两条：**谁也不动**。
 
@@ -287,7 +295,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       而随手挑一条去补，就是把一份表里的信息写到了另一个人的档案上。
       和归属那条规则同一个道理：重名不猜，同号也不猜。
     */
-    const 认 = phone ? 表.认(phone) : 邮表.认(email);
+    const 认 = phone ? 表.认(phone) : email ? 邮表.认(email) : 微表.认(wechat);
     if (认.n > 1) {
       跳过++;
       continue;
@@ -333,7 +341,7 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         在开头的认人表里已经算过了。一行一个小事务，不攥着写锁不放（文件头「不放在一个大事务里」那条照旧）
       */
       const c = await 查完再写(async (tx) => {
-        if (await 看全部(async () => tx.customer.findFirst({ where: phone ? await 同号条件(tx, phone, null) : await 同邮箱条件(tx, email), select: { id: true } }))) return null;
+        if (await 看全部(async () => tx.customer.findFirst({ where: phone ? await 同号条件(tx, phone, null) : email ? await 同邮箱条件(tx, email) : await 同微信条件(tx, wechat), select: { id: true } }))) return null;
         const c = await tx.customer.create({
           data: {
             name: r.值.name!,
@@ -364,7 +372,8 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       // 同一份表里后面还有同号的行（并重复行已合过，这里是防御），别再建一条
       const 记 = { id: c.id, phone, school: c.school, grade: c.grade, major: c.major, expectedSignAt: c.expectedSignAt, expectedSignOn: c.expectedSignOn, remark: c.remark, createdAt: c.createdAt, updatedAt: c.updatedAt, salesOwnerId: c.salesOwnerId, channelOwnerId: c.channelOwnerId, pool: null };
       if (phone) 表.记下(记);
-      else 邮表.记下(email, 记);
+      else if (email) 邮表.记下(email, 记);
+      else 微表.记下(wechat, 记);
     } catch {
       // 唯一约束、非法枚举之类：这一条不进，别把整批带下水
       进不了++;

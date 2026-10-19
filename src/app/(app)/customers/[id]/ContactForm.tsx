@@ -10,6 +10,7 @@ import type { ContactRow } from "./types";
 import { useBusiness } from "@/lib/business-client";
 import { 关系候选 } from "@/lib/business-config";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 
 /*
   与客户的关系。取值有限却不封闭（教培里有姑姑、哥哥，公司里有「副总」），
@@ -59,6 +60,15 @@ export default function ContactForm({
   const 挑的 = Form.useWatch("customerId", form) as string | undefined;
   /** 未归属又还没挑客户：谈不上是谁的关键联系人，那个开关不摆 */
   const 还没归属 = 未归属 && !挑的;
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）。联系人页上挑客户的，客户不进草稿
+  const 守 = useFormGuard({
+    open,
+    form,
+    草稿键: record ? null : `新建联系人:${customerId ?? "挑人"}`,
+    关: onClose,
+    afterOpenChange: 聚焦首项,
+    不存: customerId ? [] : ["customerId"],
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -95,21 +105,22 @@ export default function ContactForm({
       const r = await saveUnassignedContact({ id: record.id, 版本: record.updatedAt, ...v, isPrimary: Boolean(v.isPrimary), customerId: 归属 || null });
       if (!r.ok) return void message.error(r.error);
       message.success(r.挂到 ? `已挂到「${r.挂到}」` : "已保存");
+      守.存好了();
       return void onSaved();
     }
     const r = await saveContact({ id: record?.id, 版本: record?.updatedAt, ...v, isPrimary: Boolean(v.isPrimary), customerId: 归属 });
     // 原来不看返回值：联系人刚被别人移出、或电话不收时，弹框卡在那儿什么也不说（排查 D8）
     if (!r.ok) return void message.error(r.error);
     message.success(record ? "已保存" : "联系人已添加");
+    守.存好了();
     onSaved();
   }
 
   return (
     <Modal
-      afterOpenChange={聚焦首项}
+      {...守.弹窗}
       open={open}
       title={record ? `编辑联系人 · ${record.name}` : "添加联系人"}
-      onCancel={onClose}
       onOk={保存}
       confirmLoading={存着}
       okText="保存"
@@ -129,7 +140,7 @@ export default function ContactForm({
         )
       }
     >
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={守.改了}>
         <Row gutter={16}>
           {/* 从联系人列表进来时先选人：联系人挂在某一位学员下面，没有归属的联系人没有意义 */}
           {!customerId && (

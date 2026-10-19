@@ -46,6 +46,7 @@
       "navigation.js",
       "windows-toast-activation.js",
       "reminders.js",
+      "close-to-tray.js",
       "sync.js",
       "ops-notices.js",
       "sign.js",

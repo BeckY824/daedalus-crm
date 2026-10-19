@@ -16,6 +16,7 @@ import type { 一次报价 } from "@/lib/quote-db";
 import { 报价明细 } from "@/lib/features";
 import type { OppRow } from "./OpportunitiesView";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 import CurrencySelect from "@/components/CurrencySelect";
 import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useBusiness } from "@/lib/business-client";
@@ -134,6 +135,8 @@ export default function OpportunityForm({
 
   // 保存中不再收第二下：网慢、连着团队时连点几下会建出几条一样的（10-07 Sam 实测建出三条重复商机）
   const [存着, set存着] = useState(false);
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈「新建商机填到一半点框外面，弹窗没了」，lib/form-guard.tsx）
+  const 守 = useFormGuard({ open, form, 草稿键: editing ? null : `新建商机:${initialCustomer?.id ?? ""}`, 关: onClose, 忙: 存着, afterOpenChange: 聚焦首项 });
   async function onOk() {
     if (存着) return;
     set存着(true);
@@ -161,22 +164,22 @@ export default function OpportunityForm({
       return;
     }
     message.success(editing ? "已保存" : "商机已创建");
+    守.存好了();
     onSaved();
   }
 
   return (
     <Modal
-      afterOpenChange={聚焦首项}
+      {...守.弹窗}
       open={open && hydrated}
       title={editing ? "编辑商机" : "新建商机"}
-      onCancel={onClose}
       onOk={onOk} confirmLoading={存着}
       okText="保存"
       cancelText="取消"
       width={760}
       destroyOnHidden
     >
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={守.改了}>
         <Row gutter={16}>
           <Col span={24}>
             <Form.Item name="name" label="商机名称" rules={[requiredText("请填写商机名称")]}>

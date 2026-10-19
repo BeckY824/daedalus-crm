@@ -139,7 +139,7 @@ describe("规则（不碰库）", () => {
     expect(方式到类型("电话沟通", true)).toBe("PHONE");
     expect(方式到类型("WhatsApp", false)).toBe("WHATSAPP");
     expect(方式到类型("whatsapp 语音", false)).toBe("WHATSAPP");
-    expect(方式到类型("微信沟通", true)).toBe("SMS");
+    expect(方式到类型("微信沟通", true)).toBe("WECHAT"); // 2026-10-19 加了微信沟通，原来归到短信
     expect(方式到类型("邮件沟通", true)).toBe("EMAIL");
     expect(方式到类型("线上会议", true)).toBe("MEETING");
     expect(方式到类型("去展会见面", true)).toBe("VISIT");

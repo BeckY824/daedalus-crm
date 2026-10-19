@@ -18,7 +18,9 @@ test("生产冷加载new=1预填第1001位，无水合错误、取消不写入�
   await page.goto(`/opportunities?new=1&customer=${target}`);
   const dialog = page.getByRole("dialog", { name: "新建商机" }); await expect(dialog).toBeVisible();
   await expect(dialog.locator(".ant-select").filter({ has: page.locator("#customerId") })).toContainText("QA远端目标");
-  await dialog.locator("#name").fill("未保存的商机"); await dialog.getByRole("button", { name: /取\s*消/ }).click(); await expect(dialog).toBeHidden();
+  await dialog.locator("#name").fill("未保存的商机"); await dialog.getByRole("button", { name: /取\s*消/ }).click();
+  // 填过东西关框先问（2026-10-19 客户反馈）：放弃
+  await page.getByRole("button", { name: /^放\s*弃$/ }).click(); await expect(dialog).toBeHidden();
   expect(new URL(page.url()).searchParams.has("new")).toBe(false);
   const db = 连库(); try { expect(await db.opportunity.count()).toBe(0); } finally { await db.$disconnect(); }
   expect(errors).toEqual([]);
