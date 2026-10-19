@@ -26,7 +26,6 @@ import { 执行导入, 预览导入 } from "@/app/(app)/customers/import-actions
 import { 字段表, 猜列 } from "@/lib/import/fields";
 import { 摊开, 并重复行 } from "@/lib/import/plan";
 import { FOLLOW_TYPES, FOLLOW_TYPE_MAP, 跟进类型们 } from "@/lib/constants";
-import { 手机跟进类型 } from "@/lib/mobile/sync";
 import { 方式到类型 } from "@/app/(app)/customers/[id]/CompletePlanModal";
 import { 草稿全名, 读草稿, 存草稿, 清草稿, 有内容 } from "@/lib/form-guard";
 import { dayjs } from "@/lib/utils";
@@ -59,11 +58,10 @@ async function 编辑(id: string, patch: Record<string, unknown>) {
 const 微信 = async (id: string) => (await prisma.customerExtra.findUnique({ where: { customerId: id } }))?.wechat;
 
 describe("3. 跟进类型「微信沟通」", () => {
-  it("类型表、外贸 / 通用的下拉、手机端认的类型都有 WECHAT；不做笼统的「社媒沟通」", () => {
+  it("类型表、外贸 / 通用的下拉都有 WECHAT；不做笼统的「社媒沟通」（手机端认 WECHAT 归团队版那边）", () => {
     expect(FOLLOW_TYPE_MAP.WECHAT).toMatchObject({ label: "微信沟通", icon: "wechat" });
     expect(跟进类型们(true).map((t) => t.value)).toContain("WECHAT");
     expect(跟进类型们(false).map((t) => t.value)).toContain("WECHAT");
-    expect(手机跟进类型).toContain("WECHAT");
     expect(FOLLOW_TYPES.some((t) => /社媒/.test(t.label))).toBe(false);
   });
 

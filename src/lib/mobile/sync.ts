@@ -283,9 +283,9 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
 
 /* ---------------- 手机上记一笔跟进 ---------------- */
 
-const 类型名: Record<string, string> = { PHONE: "电话沟通", MEETING: "线上会议", VISIT: "上门拜访", EMAIL: "邮件沟通", SMS: "短信沟通", WHATSAPP: "WhatsApp", WECHAT: "微信沟通", TASK: "跟进任务", REMIND: "跟进提醒", OTHER: "其他记录" };
-/** 手机上能记的类型（任务 / 提醒走「下次跟进」）。WhatsApp 2026-10-16 加，微信沟通 2026-10-19 加（手机界面的按钮归团队版那边） */
-export const 手机跟进类型 = ["PHONE", "WHATSAPP", "WECHAT", "SMS", "EMAIL", "MEETING", "VISIT", "OTHER"] as const;
+const 类型名: Record<string, string> = { PHONE: "电话沟通", MEETING: "线上会议", VISIT: "上门拜访", EMAIL: "邮件沟通", SMS: "短信沟通", WHATSAPP: "WhatsApp", TASK: "跟进任务", REMIND: "跟进提醒", OTHER: "其他记录" };
+/** 手机上能记的类型（任务 / 提醒走「下次跟进」）。WhatsApp 2026-10-16 加 */
+export const 手机跟进类型 = ["PHONE", "WHATSAPP", "SMS", "EMAIL", "MEETING", "VISIT", "OTHER"] as const;
 
 /** 和 Prisma 的 cuid 同一个样子（c + 24 位），只用作主键，不要求真是 cuid 算法 */
 export function 新编号(): string {
