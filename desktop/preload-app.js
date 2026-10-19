@@ -160,3 +160,15 @@ contextBridge.exposeInMainWorld("desktopTeam", {
     return () => ipcRenderer.removeListener("team:changed", h);
   },
 });
+
+/*
+  desktopFeedback —— 我们回复了你的反馈（desktop/feedback-replies.js → main.js 发 feedback:changed）：
+  壳每几分钟问一次，没看过的那几条变了喊一声，页面去本地服务再取一遍，左栏的红点跟着出 / 收。不带任何参数
+*/
+contextBridge.exposeInMainWorld("desktopFeedback", {
+  onChanged: (cb) => {
+    const h = () => cb();
+    ipcRenderer.on("feedback:changed", h);
+    return () => ipcRenderer.removeListener("feedback:changed", h);
+  },
+});

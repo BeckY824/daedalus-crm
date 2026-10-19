@@ -22,6 +22,12 @@ let 用掉 = 0;
  */
 let 团队 = null;
 let 额外 = {};
+/**
+ * 「我的反馈」（应用内收回复，10-19）：用例 POST /__stub/feedback 放一串进来，DELETE 清掉。
+ * **没放就是 404**——和还没升级的老云端一样，其它用例里左栏不会冒红点、左下角不会冒提示
+ */
+let 反馈们 = null;
+let 反馈序 = 0;
 
 const json = (res, code, body) => {
   res.writeHead(code, { "Content-Type": "application/json" });
@@ -51,6 +57,22 @@ http
     if (p === "/__stub/extra") {
       额外 = req.method === "DELETE" ? {} : JSON.parse(body || "{}");
       return json(res, 200, { ok: true });
+    }
+
+    if (p === "/__stub/feedback") {
+      反馈们 = req.method === "DELETE" ? null : JSON.parse(body || "[]");
+      return json(res, 200, { ok: true });
+    }
+
+    // ---------- 我的反馈 ----------
+    if (p === "/api/feedback/mine" && 反馈们) {
+      if (req.method !== "POST") return json(res, 200, { 反馈: 反馈们 });
+      const j = JSON.parse(body || "{}");
+      const f = 反馈们.find((x) => x.id === j.feedbackId);
+      if (!f) return json(res, 404, { error: "没有这条反馈" });
+      const 消息 = { id: `stub_${++反馈序}`, at: new Date().toISOString(), 谁: "我", body: String(j.body ?? "").trim() };
+      f.消息.push(消息);
+      return json(res, 200, { ok: true, 消息 });
     }
 
     // ---------- 账号 ----------

@@ -435,6 +435,28 @@ model FeedbackReply {
   @@index([feedbackId])
 }
 
+/// 反馈下面的一整串往来（2026-10-19，control-migrations/027）：我们的回复进应用，用户在应用里「接着说」。
+/// 新开一张而不是给 FeedbackReply 加列：控制面只能加表。FeedbackReply 那几封是 0.46.22 之前只走邮件的回复，
+/// 读的时候并进同一串（当作「我们回的、发了邮件」）；从这一版起新回复只写这里。
+model FeedbackMessage {
+  id         String   @id @default(cuid())
+  feedbackId String
+  at         DateTime @default(now())
+  /// team = 我们回的；user = 用户在应用里接着说
+  side       String
+  body       String
+  /// 谁回的：运营账号的邮箱，用网址口令进来的记「口令」；用户那条是 null
+  by         String?
+  /// 勾了「同时发邮件」：发到哪个邮箱。没勾、没邮箱是 null
+  emailTo    String?
+  /// 邮件发出去了没。null = 没要发
+  emailOk    Boolean?
+  /// 桌面端发「接着说」时自己生成的一枚：没收到回音重发同一条，不会落两行
+  clientKey  String?
+
+  @@index([feedbackId])
+}
+
 /// 团队同步（2026-10-03，0.46.15 第 5 块，control-migrations/016）。几个人各用桌面端，数据在各自电脑上，
 /// 改动加密后经我们这里中转。**我们只见得到密文**：钥匙只在成员电脑上（邀请码里），不经过这里。
 /// 新团队「待开通」（active = false），运营台开通后才收推送——收费等备案（10-03 拍板）。

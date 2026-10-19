@@ -4,7 +4,7 @@ import Shortcut from "@/components/Shortcut";
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { App, Button, Input, Segmented, Tooltip } from "antd";
+import { App, Button, Checkbox, Input, Segmented, Tooltip } from "antd";
 import { dayjs } from "@/lib/utils";
 import { 标记反馈, 回复反馈 } from "../actions";
 import { 站内, 页头, LinkPending } from "../OpsShell";
@@ -17,17 +17,18 @@ type 看 = "没处理" | "处理过了" | "全部";
  * 读过就收起来，不该被一个误点抹掉。原话原样显示，换行照他敲的来：
  * 改写别人的话是复现问题时最容易丢线索的一步。
  *
- * 「回复」就地展开一个小框，写完用邮件发到对方邮箱（桌面端默认填他的注册邮箱）。
- * 发出去的那几封留在原话下面，免得两个人回同一条、或者忘了答应过什么。
+ * 「回复」就地展开一个小框。**回复默认进对方的桌面端应用**（2026-10-19）：红点、系统通知、「我的反馈」里看得到；
+ * 对方有邮箱的话可以勾「同时发邮件」。对方在应用里「接着说」的也挂在这条下面——原话下面就是一整串，
+ * 免得两个人回同一条、或者忘了答应过什么。网页版的老反馈进不了应用，只能填邮箱发邮件（原来那样）。
  */
-export default function FeedbackView({ token, 反馈, 回信到 }: { token: string; 反馈: 反馈条[]; 回信到: string }) {
+export default function FeedbackView({ token, 反馈, 回信到, 能发邮件 }: { token: string; 反馈: 反馈条[]; 回信到: string; 能发邮件: boolean }) {
   const { message } = App.useApp();
   const 没处理 = 反馈.filter((f) => !f.handled);
   const [看, set看] = useState<看>(没处理.length ? "没处理" : "全部");
   const [忙, set忙] = useState<string | null>(null);
   // 正在写回复的那一条。草稿按条存着：收起再打开，写了一半的还在
   const [写, set写] = useState<string | null>(null);
-  const [草稿, set草稿] = useState<Record<string, { to: string; body: string }>>({});
+  const [草稿, set草稿] = useState<Record<string, 草稿>>({});
   const 列 = 看 === "全部" ? 反馈 : 反馈.filter((f) => (看 === "没处理" ? !f.handled : f.handled));
 
   async function 切(f: 反馈条) {
@@ -91,30 +92,55 @@ export default function FeedbackView({ token, 反馈, 回信到 }: { token: stri
               </Button>
             </div>
             <p>{f.body}</p>
-            {f.回复.map((r) => (
-              <div key={r.id} className="opx-fb-reply">
-                <div className="opx-fb-reply-h">
-                  已回复 <span className="opx-num">{dayjs(r.at).format("MM-DD HH:mm")}</span> → {r.to}
-                  {r.by && r.by !== "口令" && <span> · {r.by}</span>}
-                </div>
-                <p>{r.body}</p>
+            {f.串.length > 0 && (
+              <div className="opx-fb-thread" aria-label="往来">
+                {f.串.map((m) =>
+                  m.谁 === "团队" ? (
+                    <div key={m.id} className="opx-fb-reply">
+                      <div className="opx-fb-reply-h">
+                        我们回复 <span className="opx-num">{dayjs(m.at).format("MM-DD HH:mm")}</span>
+                        {m.by && m.by !== "口令" && <span> · {m.by}</span>}
+                        <span> · </span>
+                        {m.邮件 ? (
+                          m.邮件.ok ? (
+                            <span>{f.accountId ? "应用里 + 邮件" : "邮件"} → {m.邮件.to}</span>
+                          ) : (
+                            <span className="opx-fb-mail-bad">应用里已送到，邮件没发出去（{m.邮件.to}）</span>
+                          )
+                        ) : (
+                          <span>只在应用里</span>
+                        )}
+                      </div>
+                      <p>{m.body}</p>
+                    </div>
+                  ) : (
+                    <div key={m.id} className="opx-fb-reply opx-fb-user">
+                      <div className="opx-fb-reply-h">
+                        对方接着说 <span className="opx-num">{dayjs(m.at).format("MM-DD HH:mm")}</span>
+                      </div>
+                      <p>{m.body}</p>
+                    </div>
+                  ),
+                )}
               </div>
-            ))}
+            )}
             {写 === f.id && (
               <ReplyBox
                 token={token}
                 f={f}
                 回信到={回信到}
-                草稿={草稿[f.id] ?? { to: f.邮箱 ?? "", body: "" }}
+                能发邮件={能发邮件}
+                草稿={草稿[f.id] ?? { to: f.accountId ? "" : (f.邮箱 ?? ""), body: "", 发邮件: false }}
                 改草稿={(d) => set草稿((m) => ({ ...m, [f.id]: d }))}
                 收起={() => set写(null)}
-                发完={(to) => {
+                发完={(说) => {
                   set草稿((m) => {
                     const { [f.id]: _, ...rest } = m;
                     return rest;
                   });
                   set写(null);
-                  message.success(看 === "没处理" ? `已发到 ${to}，这条收进「处理过了」` : `已发到 ${to}`);
+                  if (说.警告) message.warning(说.话, 6);
+                  else message.success(看 === "没处理" ? `${说.话}，这条收进「处理过了」` : 说.话);
                 }}
               />
             )}
@@ -125,10 +151,13 @@ export default function FeedbackView({ token, 反馈, 回信到 }: { token: stri
   );
 }
 
+type 草稿 = { to: string; body: string; 发邮件: boolean };
+
 function ReplyBox({
   token,
   f,
   回信到,
+  能发邮件,
   草稿,
   改草稿,
   收起,
@@ -137,19 +166,23 @@ function ReplyBox({
   token: string;
   f: 反馈条;
   回信到: string;
-  草稿: { to: string; body: string };
-  改草稿: (d: { to: string; body: string }) => void;
+  能发邮件: boolean;
+  草稿: 草稿;
+  改草稿: (d: 草稿) => void;
   收起: () => void;
-  发完: (to: string) => void;
+  发完: (说: { 话: string; 警告: boolean }) => void;
 }) {
   const [发, set发] = useState(false);
   const [错, set错] = useState<string | null>(null);
   const 正文框 = useRef<HTMLTextAreaElement>(null);
   const 邮箱框 = useRef<HTMLInputElement>(null);
+  /** 桌面端账号：回复进应用，邮件是勾了才发的。网页版的老反馈只能发邮件 */
+  const 进应用 = Boolean(f.accountId);
+  const 邮件不能 = !f.邮箱 ? "这个账号是手机号注册的，没留邮箱：只能在应用里看到" : !能发邮件 ? "邮件通道没配好（SMTP），这次只发到应用里" : null;
 
-  // 打开就能打字：有邮箱落正文，没邮箱先落邮箱
+  // 打开就能打字：要填邮箱的先落邮箱
   useEffect(() => {
-    (草稿.to ? 正文框.current : 邮箱框.current)?.focus();
+    (进应用 || 草稿.to ? 正文框.current : 邮箱框.current)?.focus();
     // 只在打开那一下
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -158,13 +191,16 @@ function ReplyBox({
     if (发) return;
     set错(null);
     set发(true);
-    const r = await 回复反馈({ token, id: f.id, to: 草稿.to, body: 草稿.body });
+    const r = await 回复反馈({ token, id: f.id, body: 草稿.body, ...(进应用 ? { 发邮件: 草稿.发邮件 && !邮件不能 } : { to: 草稿.to }) });
     set发(false);
     if (!r.ok) {
       set错(r.error);
       return;
     }
-    发完(草稿.to.trim());
+    if (!进应用) 发完({ 话: `已发邮件到 ${r.邮件到}`, 警告: false });
+    else if (r.邮件 === "发了") 发完({ 话: `已发到对方应用里，邮件也发到了 ${r.邮件到}`, 警告: false });
+    else if (r.邮件 === "没发出去") 发完({ 话: `已发到对方应用里；邮件没发出去${r.原因 ? `（${r.原因}）` : ""}`, 警告: true });
+    else 发完({ 话: "已发到对方应用里", 警告: false });
   }
 
   return (
@@ -180,19 +216,21 @@ function ReplyBox({
         }
       }}
     >
-      <div className="opx-fb-compose-to">
-        <span>发到</span>
-        <Input
-          ref={(el) => {
-            邮箱框.current = el?.input ?? null;
-          }}
-          size="small"
-          value={草稿.to}
-          placeholder={f.accountId ? "这个账号没留邮箱，填一个" : "网页反馈没带邮箱，填一个"}
-          aria-label="收件邮箱"
-          onChange={(e) => 改草稿({ ...草稿, to: e.target.value })}
-        />
-      </div>
+      {!进应用 && (
+        <div className="opx-fb-compose-to">
+          <span>发到</span>
+          <Input
+            ref={(el) => {
+              邮箱框.current = el?.input ?? null;
+            }}
+            size="small"
+            value={草稿.to}
+            placeholder="网页版的反馈进不了应用，填一个邮箱"
+            aria-label="收件邮箱"
+            onChange={(e) => 改草稿({ ...草稿, to: e.target.value })}
+          />
+        </div>
+      )}
       <Input.TextArea
         ref={(el) => {
           正文框.current = el?.resizableTextArea?.textArea ?? null;
@@ -200,7 +238,7 @@ function ReplyBox({
         value={草稿.body}
         autoSize={{ minRows: 3, maxRows: 12 }}
         maxLength={4000}
-        placeholder="写给对方的话。信里会附上原话"
+        placeholder={进应用 ? "写给对方的话。会出现在对方桌面端的「我的反馈」里，原话在上面" : "写给对方的话。信里会附上原话"}
         aria-label="回复内容"
         onChange={(e) => 改草稿({ ...草稿, body: e.target.value })}
       />
@@ -210,12 +248,23 @@ function ReplyBox({
         </div>
       )}
       <div className="opx-fb-compose-f">
-        <span className="opx-fb-compose-hint">对方回信到 {回信到} · <Shortcut>⌘↩</Shortcut> 发送 · Esc 收起（草稿留着）</span>
+        {进应用 ? (
+          <span className="opx-fb-compose-mail">
+            <Checkbox checked={草稿.发邮件 && !邮件不能} disabled={Boolean(邮件不能)} onChange={(e) => 改草稿({ ...草稿, 发邮件: e.target.checked })}>
+              同时发邮件{f.邮箱 ? <span className="opx-mono"> {f.邮箱}</span> : null}
+            </Checkbox>
+            {邮件不能 && <span className="opx-fb-compose-why">{邮件不能}</span>}
+          </span>
+        ) : null}
+        <span className="opx-fb-compose-hint">
+          {进应用 ? null : <>对方回信到 {回信到} · </>}
+          <Shortcut>⌘↩</Shortcut> 发送 · Esc 收起（草稿留着）
+        </span>
         <Button size="small" onClick={收起}>
           取消
         </Button>
-        <Button size="small" type="primary" loading={发} disabled={!草稿.to.trim() || !草稿.body.trim()} onClick={() => void 送()}>
-          发送邮件
+        <Button size="small" type="primary" loading={发} disabled={(!进应用 && !草稿.to.trim()) || !草稿.body.trim()} onClick={() => void 送()}>
+          {进应用 ? "发送" : "发送邮件"}
         </Button>
       </div>
     </div>
