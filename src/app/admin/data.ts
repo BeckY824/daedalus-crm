@@ -261,8 +261,9 @@ export async function 读用户(id: string, now = new Date()): Promise<用户详
   const 账号 = (await 读账号们(now)).find((a) => a.id === id);
   if (!账号) return null;
   const 起 = new Date(now.getTime() - 30 * 天毫秒);
-  const [流水, 调用, 反馈, 机器数, 留痕] = await Promise.all([
+  const [AI流水, 背调流水, 调用, 反馈, 机器数, 留痕] = await Promise.all([
     control.accountAiGrant.findMany({ where: { accountId: id }, orderBy: { createdAt: "desc" }, take: 200 }),
+    control.researchGrant.findMany({ where: { accountId: id }, orderBy: { createdAt: "desc" }, take: 200 }),
     control.aiCall.findMany({ where: { ownerKind: "account", ownerId: id, at: { gte: 起 } }, select: { at: true, feature: true, model: true, inputTokens: true, outputTokens: true } }),
     control.feedback.findMany({ where: { accountId: id }, orderBy: { at: "desc" }, take: 50 }),
     control.machineSignup.count({ where: { accountId: id } }),
@@ -290,7 +291,11 @@ export async function 读用户(id: string, now = new Date()): Promise<用户详
   }
   return {
     账号,
-    赠送流水: 流水.map((g) => ({ id: g.id, at: g.createdAt.toISOString(), 来路: 赠送来路[g.reason] ?? g.reason, 数: g.amount, note: g.note })),
+    // AI 次数和背调次数两本账合在一起看（2026-10-19），背调的在来路后面标出来
+    赠送流水: [
+      ...AI流水.map((g) => ({ id: g.id, at: g.createdAt.toISOString(), 来路: 赠送来路[g.reason] ?? g.reason, 数: g.amount, note: g.note })),
+      ...背调流水.map((g) => ({ id: `r-${g.id}`, at: g.createdAt.toISOString(), 来路: `${赠送来路[g.reason] ?? g.reason} · 背调次数`, 数: g.amount, note: g.note })),
+    ].sort((a, b) => (a.at < b.at ? 1 : -1)),
     调用趋势: 天们.map((d) => ({ 日: d, ...桶.get(d)! })),
     功能分布: [...功能.entries()].map(([k, n]) => ({ 功能: k, 次数: n })).sort((a, b) => b.次数 - a.次数),
     模型分布: [...模型.entries()].map(([k, v]) => ({ 模型: k, ...v })).sort((a, b) => b.次数 - a.次数),

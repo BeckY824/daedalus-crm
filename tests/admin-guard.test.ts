@@ -258,7 +258,7 @@ describe("开工作区", () => {
   });
 });
 
-describe("给桌面端账号加 AI 次数（用户详情页的「+10」）", () => {
+describe("给桌面端账号加 AI 次数（运营台的「AI +N」，2026-10-19 起和背调同一个动作）", () => {
   async function 建账号(手机号: string) {
     const { createAccount } = await import("@/lib/tenant/accounts");
     return createAccount({ target: { kind: "phone", value: 手机号 }, password: "abcd1234", name: "内测用户" });
@@ -267,28 +267,30 @@ describe("给桌面端账号加 AI 次数（用户详情页的「+10」）", () 
     const { control } = await import("@/lib/tenant/control");
     return (await control.accountAiGrant.aggregate({ where: { accountId, reason: "admin" }, _sum: { amount: true } }))._sum.amount ?? 0;
   };
+  let 第几下 = 0;
+  const 编号 = () => `guardclick${++第几下}`;
 
   it("不带、带错口令都拒——不验就等于任何人都能给自己续免费额度", async () => {
-    const { grantAccountAi } = await import("@/app/admin/actions");
+    const { 给账号加次数 } = await import("@/app/admin/actions");
     const a = await 建账号("13600000001");
-    expect((await grantAccountAi({ token: "", accountId: a.id, amount: 10 })).ok).toBe(false);
-    expect((await grantAccountAi({ token: "猜的", accountId: a.id, amount: 10 })).ok).toBe(false);
+    expect((await 给账号加次数({ token: "", accountId: a.id, 种类: "ai", n: 10, key: 编号() })).ok).toBe(false);
+    expect((await 给账号加次数({ token: "猜的", accountId: a.id, 种类: "ai", n: 10, key: 编号() })).ok).toBe(false);
     expect(await 送了多少(a.id)).toBe(0);
   });
 
   it("账号不存在就说不存在，不往空里送", async () => {
-    const { grantAccountAi } = await import("@/app/admin/actions");
-    const r = await grantAccountAi({ token: TOKEN, accountId: "没有这个人", amount: 10 });
+    const { 给账号加次数 } = await import("@/app/admin/actions");
+    const r = await 给账号加次数({ token: TOKEN, accountId: "没有这个人", 种类: "ai", n: 10, key: 编号() });
     expect(r).toEqual({ ok: false, error: "账号不存在" });
   });
 
-  it("口令对才真的加上，记成「运营台加的」；一次最多 1000", async () => {
-    const { grantAccountAi } = await import("@/app/admin/actions");
+  it("口令对才真的加上，记成「运营台加的」；超过 1000 直接拒（不偷偷夹成 1000）", async () => {
+    const { 给账号加次数 } = await import("@/app/admin/actions");
     const a = await 建账号("13600000002");
-    expect((await grantAccountAi({ token: TOKEN, accountId: a.id, amount: 10 })).ok).toBe(true);
+    expect((await 给账号加次数({ token: TOKEN, accountId: a.id, 种类: "ai", n: 10, key: 编号() })).ok).toBe(true);
     expect(await 送了多少(a.id)).toBe(10);
-    await grantAccountAi({ token: TOKEN, accountId: a.id, amount: 5000 });
-    expect(await 送了多少(a.id)).toBe(1010);
+    expect((await 给账号加次数({ token: TOKEN, accountId: a.id, 种类: "ai", n: 5000, key: 编号() })).ok).toBe(false);
+    expect(await 送了多少(a.id)).toBe(10);
   });
 });
 

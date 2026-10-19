@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   AppstoreOutlined,
   DashboardOutlined,
+  GiftOutlined,
   MessageOutlined,
   ReloadOutlined,
   TeamOutlined,
@@ -15,7 +16,7 @@ import {
 import { dayjs } from "@/lib/utils";
 import { 渲染时刻 } from "./ui";
 
-export type 页 = "总览" | "用户" | "工作区" | "团队同步" | "模型用量" | "反馈";
+export type 页 = "总览" | "用户" | "次数" | "工作区" | "团队同步" | "模型用量" | "反馈";
 
 const 导航: { 组: string; 项: { 名: 页; 去: string; icon: React.ReactNode }[] }[] = [
   {
@@ -29,6 +30,8 @@ const 导航: { 组: string; 项: { 名: 页; 去: string; icon: React.ReactNode
   {
     组: "运营",
     项: [
+      // 个人版手动加背调 / AI 次数（2026-10-19）。团队成员在团队同步里点进团队加
+      { 名: "次数", 去: "/credits", icon: <GiftOutlined /> },
       { 名: "工作区", 去: "/workspaces", icon: <AppstoreOutlined /> },
       // 桌面端的团队同步（2026-10-03）：新团队待开通，这里开（收费等备案）
       { 名: "团队同步", 去: "/sync", icon: <SyncOutlined /> },
