@@ -51,6 +51,8 @@ export const categorical = {
   amber: "#f59e0b",
   /** WhatsApp 跟进（2026-10-16）：WhatsApp 自己的深青，和电话的绿分得开 */
   teal: "#128c7e",
+  /** 微信沟通跟进（2026-10-19 客户反馈）：微信的绿和电话的绿太近，取黄绿，色相分得开 */
+  lime: "#65a30d",
 } as const;
 
 /** 头像底色：八个淡色，按名字哈希选一个。字色一律 inkSoft */

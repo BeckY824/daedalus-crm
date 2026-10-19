@@ -265,7 +265,7 @@ test("客户记录：左边有窄名单，切人不回列表", async ({ page }) 
   await expect(名单).toBeVisible();
 });
 
-test("客户记录：窄屏下名单收成抽屉，但「换一位」这条路还在", async ({ page }) => {
+test("客户记录：窄屏下名单收成抽屉，页头最左边那颗侧栏图标能把它叫出来", async ({ page }) => {
   // 门槛 1214（lib/roster 的 名单门槛：左栏 + 名单 + 记录页两栏放得下）。1180 是窄屏
   await page.setViewportSize({ width: 1180, height: 860 });
   await 登录(page);
@@ -275,7 +275,8 @@ test("客户记录：窄屏下名单收成抽屉，但「换一位」这条路�
   await expect(page).toHaveURL(/\/customers\/[^/]+$/);
 
   await expect(page.locator("aside.pane-roster")).toHaveCount(0);
-  const 按钮 = page.getByRole("button", { name: /换一位/ });
+  // 原来是「换一位（⌘K）」文字按钮，2026-10-19 统一成中栏开关（components/PaneToggle.tsx）
+  const 按钮 = page.getByRole("button", { name: /^显示.+名单$/ });
   await expect(按钮).toBeVisible();
   await 按钮.click();
   await expect(page.locator(".ant-drawer .roster-row").first()).toBeVisible();
@@ -290,7 +291,7 @@ test("客户记录：13/15 寸 Mac 的窗口（1280 宽）名单就在中栏，�
   await page.locator(".ant-table-row .link-strong").first().click();
   await expect(page).toHaveURL(/\/customers\/[^/]+$/);
   await expect(page.locator("aside.pane-roster")).toBeVisible();
-  await expect(page.getByRole("button", { name: /换一位/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^显示.+名单$/ })).toHaveCount(0);
 });
 
 /* ---------- 批 3 ---------- */
@@ -410,11 +411,12 @@ test("计划页「新建计划」就地弹框：挑人、说清另加不替换�
   // 原来那条还在
   await expect(page.getByRole("main").locator(".plan-row").filter({ hasText: "发二版报价" }).filter({ hasText: 客.名 })).toHaveCount(1);
 
-  // 取消 / Esc 关框不留痕：再打开是空的
+  // 取消 / Esc 关框不留痕：再打开是空的。挑过客户就算填过，Esc 先问（2026-10-19 客户反馈），点「放弃」
   await page.getByRole("button", { name: "新建计划" }).click();
   await 挑(page, 客.名);
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toBeHidden();
+  await page.getByRole("button", { name: /^放\s*弃$/ }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.getByRole("button", { name: "新建计划" }).click();
   await expect(page.getByRole("dialog").locator(".pick-ctx")).not.toContainText("上次跟进");
 });
@@ -460,6 +462,7 @@ test("计划页「改」：框开着时这条在另一个窗口被改了，保�
   expect((await p.followPlan.findUniqueOrThrow({ where: { id: 客.旧计划id } })).subject).toBe("发二版报价（含运费）");
 
   await 弹窗.getByRole("button", { name: /取\s*消/ }).click();
+  await page.getByRole("button", { name: /^放\s*弃$/ }).click();
   await expect(弹窗).toBeHidden();
   await 这一行.getByRole("button", { name: "改 发二版报价（含运费）", exact: true }).click();
   await expect(page.getByRole("dialog").getByLabel("跟进主题")).toHaveValue("发二版报价（含运费）");

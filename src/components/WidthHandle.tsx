@@ -33,9 +33,12 @@ export type 把手规格 = {
   aria: string;
 };
 
-export default function WidthHandle({ 规格 }: { 规格: 把手规格 }) {
+/** 拖到最窄之后再往里拖这么多，松手就收起（给了 on拖过头 的那几条） */
+const 收起余量 = 56;
+
+export default function WidthHandle({ 规格, on拖过头 }: { 规格: 把手规格; on拖过头?: () => void }) {
   const { 变量, 存档键, 默认, 最窄, 最宽, 量, 边, aria } = 规格;
-  const 起 = useRef<{ x: number; w: number } | null>(null);
+  const 起 = useRef<{ x: number; w: number; 过头: boolean } | null>(null);
 
   const 夹住 = useCallback((px: number) => Math.max(最窄, Math.min(最宽, Math.round(px))), [最窄, 最宽]);
 
@@ -79,7 +82,7 @@ export default function WidthHandle({ 规格 }: { 规格: 把手规格 }) {
   );
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    起.current = { x: e.clientX, w: 当前宽() };
+    起.current = { x: e.clientX, w: 当前宽(), 过头: false };
     e.currentTarget.setPointerCapture(e.pointerId);
     // 拖的时候别把字选中，也别让光标在跨过正文时变回箭头
     document.body.classList.add("rail-resizing");
@@ -88,14 +91,24 @@ export default function WidthHandle({ 规格 }: { 规格: 把手规格 }) {
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!起.current) return;
     const 位移 = e.clientX - 起.current.x;
-    应用(夹住(起.current.w + (边 === "右" ? 位移 : -位移)));
+    const 想要 = 起.current.w + (边 === "右" ? 位移 : -位移);
+    起.current.过头 = Boolean(on拖过头) && 想要 < 最窄 - 收起余量;
+    document.body.classList.toggle("rail-resizing-collapse", 起.current.过头);
+    应用(夹住(想要));
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
     if (!起.current) return;
+    const { w: 原宽, 过头 } = 起.current;
     起.current = null;
     e.currentTarget.releasePointerCapture(e.pointerId);
-    document.body.classList.remove("rail-resizing");
+    document.body.classList.remove("rail-resizing", "rail-resizing-collapse");
+    if (过头 && on拖过头) {
+      // 收起来，宽度留在拖之前那个：下次打开还是原来的样子
+      应用(原宽);
+      on拖过头();
+      return;
+    }
     定住(夹住(当前宽()));
   };
 

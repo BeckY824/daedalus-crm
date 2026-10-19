@@ -63,11 +63,11 @@ describe("表单（saveCustomer）", () => {
     expect(await prisma.customer.count()).toBe(1);
   });
 
-  it("外贸：电话、WhatsApp、邮箱都没有，说三样至少填一个", async () => {
+  it("外贸：电话、WhatsApp、邮箱、微信都没有，说四样至少填一个（2026-10-19 加了微信）", async () => {
     await 外贸();
     const r = await 新建("空的", {});
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.error).toBe("电话、WhatsApp、邮箱至少填一个（没有电话就用它认人）");
+    expect(!r.ok && r.error).toBe("电话 / WhatsApp / 邮箱 / 微信至少填一个（没有电话就用它认人）");
   });
 
   it("通用模版不变：只有邮箱照旧要电话", async () => {
@@ -192,11 +192,11 @@ describe("导入", () => {
     expect(await prisma.customer.count()).toBe(0);
   });
 
-  it("三样都没有的照旧进不来，说清是三样都没有；通用模版只有邮箱照旧说没有手机号", async () => {
+  it("四样都没有的照旧进不来，说清是四样都没有（2026-10-19 加了微信）；通用模版只有邮箱照旧说没有手机号", async () => {
     await 外贸();
     const 表 = 字段表(外贸配置);
     const [r] = 摊开({ 表头, 数据: [["Nobody", "", "德国", ""]], 行号: [2], 映射: 猜列(表头, 表), 字段表: 表 });
-    expect(r.进不了).toBe("这一行没有电话、WhatsApp，也没有邮箱");
+    expect(r.进不了).toBe("这一行没有电话、WhatsApp、邮箱，也没有微信");
     // 邮箱格式不对的不算有邮箱
     const [坏] = 摊开({ 表头, 数据: [["Bad", "not-an-email", "", ""]], 行号: [2], 映射: 猜列(表头, 表), 字段表: 表 });
     expect(坏.进不了).toBeTruthy();

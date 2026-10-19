@@ -1,5 +1,5 @@
 /**
- * 外贸：没有电话、也没有 WhatsApp 的客户按邮箱认人（2026-10-07，用户拍板）。
+ * 外贸：没有电话、也没有 WhatsApp 的客户按邮箱认人（2026-10-07，用户拍板）；邮箱也没有的按微信号认（2026-10-19）。
  *
  * 小满导出里邮件开发来的客户常常只有邮箱，原来认人锁电话 / WhatsApp，整行进不来、表单也存不了。
  * 只在**这一条没有电话**的时候拿邮箱认人：有电话的照旧只按电话认（同一公司几位联系人共用 info@ 的常见，
@@ -16,12 +16,24 @@ type 能裸查 = { $queryRawUnsafe: Prisma.TransactionClient["$queryRawUnsafe"] 
 
 /** 邮箱（按键比）在这几个里的客户：客户 id + 库里那格的键。一次 500 个，导入几千行也放得进参数上限 */
 export async function 按邮箱找(db: 能裸查, 邮箱们: string[]): Promise<{ id: string; 键: string }[]> {
-  const 键们 = [...new Set(邮箱们.map(邮箱键).filter(Boolean))];
+  return 按档案格找(db, "email", 邮箱们);
+}
+
+/**
+ * 微信号也一样（2026-10-19 客户反馈「只知道微信号怎么办」）：电话、WhatsApp、邮箱都没有、只有微信号的按微信号认。
+ * 微信号不分大小写，和邮箱同一个键法
+ */
+export async function 按微信找(db: 能裸查, 微信们: string[]): Promise<{ id: string; 键: string }[]> {
+  return 按档案格找(db, "wechat", 微信们);
+}
+
+async function 按档案格找(db: 能裸查, 列: "email" | "wechat", 值们: string[]): Promise<{ id: string; 键: string }[]> {
+  const 键们 = [...new Set(值们.map(邮箱键).filter(Boolean))];
   const 出: { id: string; 键: string }[] = [];
   for (let i = 0; i < 键们.length; i += 500) {
     const 段 = 键们.slice(i, i + 500);
     出.push(...(await db.$queryRawUnsafe<{ id: string; 键: string }[]>(
-      `SELECT "customerId" AS id, lower(trim("email")) AS 键 FROM "CustomerExtra" WHERE lower(trim("email")) IN (${段.map(() => "?").join(", ")})`,
+      `SELECT "customerId" AS id, lower(trim("${列}")) AS 键 FROM "CustomerExtra" WHERE lower(trim("${列}")) IN (${段.map(() => "?").join(", ")})`,
       ...段,
     )));
   }
@@ -33,17 +45,22 @@ export async function 同邮箱条件(db: 能裸查, email: string): Promise<Pri
   return { id: { in: (await 按邮箱找(db, [email])).map((r) => r.id) } };
 }
 
+/** 同上，微信号一样的客户 */
+export async function 同微信条件(db: 能裸查, wechat: string): Promise<Prisma.CustomerWhereInput> {
+  return { id: { in: (await 按微信找(db, [wechat])).map((r) => r.id) } };
+}
+
 /**
  * 导入用的邮箱认人表（同 phone-dedupe 的 认人表，只是没有分机那一套）：
  * 库里一位对上就是他；两位以上对上谁也不认（说不清）；这一批刚建的记下来，后面同邮箱的行不再建
  */
-export function 邮箱认人表<T extends { id: string }>(库里: { 客户: T; 键: string }[]) {
+export function 邮箱认人表<T extends { id: string }>(库里: { 客户: T; 键: string }[], 叫法 = "邮箱") {
   const 表 = new Map<string, T[]>();
   for (const { 客户, 键 } of 库里) if (键) 表.set(键, [...(表.get(键) ?? []).filter((c) => c.id !== 客户.id), 客户]);
   return {
     认(email: string): { n: number; 旧?: T; 说法?: string } {
       const 有 = 表.get(邮箱键(email)) ?? [];
-      return { n: 有.length, 旧: 有.length === 1 ? 有[0] : undefined, 说法: 有.length > 1 ? `库里有 ${有.length} 位都是这个邮箱，不知道该算谁的` : undefined };
+      return { n: 有.length, 旧: 有.length === 1 ? 有[0] : undefined, 说法: 有.length > 1 ? `库里有 ${有.length} 位都是这个${叫法}，不知道该算谁的` : undefined };
     },
     记下(email: string, c: T) {
       const k = 邮箱键(email);

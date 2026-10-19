@@ -27,6 +27,8 @@ export default async function FollowUpsPage({
             { title: { contains: 词 } },
             { content: { contains: 词 } },
             { customer: { name: { contains: 词 } } },
+            // 公司（Customer.school）也认：只记得公司名的时候照样搜得到（2026-10-19）
+            { customer: { school: { contains: 词 } } },
           ],
         }
       : {}),
@@ -42,7 +44,7 @@ export default async function FollowUpsPage({
       orderBy: { occurredAt: "desc" },
       take: 300,
       include: {
-        customer: { select: { id: true, name: true } },
+        customer: { select: { id: true, name: true, school: true } },
         owner: { select: { name: true } },
         contact: { select: { name: true } },
       },
@@ -72,6 +74,7 @@ export default async function FollowUpsPage({
         occurredAt: f.occurredAt.toISOString(),
         customerId: f.customer.id,
         customerName: f.customer.name,
+        customerCompany: f.customer.school,
         contactName: f.contact?.name ?? null,
         ownerName: f.owner.name,
         ownerId: f.ownerId,

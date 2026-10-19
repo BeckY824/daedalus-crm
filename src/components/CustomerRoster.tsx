@@ -12,7 +12,9 @@ import { 名单分组, 未填写组 } from "@/lib/roster-groups";
 import { avatarColor, initial, smartTime, AVATAR_TEXT } from "@/lib/utils";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel } from "@/lib/business-config";
-import { 开名单, 关名单, useRosterOpen, useRosterInDrawer, 登记换一位 } from "@/lib/roster";
+import { 开名单, 关名单, 登记换一位 } from "@/lib/roster";
+import { useMiddlePane, usePaneShortcut } from "@/lib/middle-pane";
+import PaneToggle from "@/components/PaneToggle";
 import { useLocalPref } from "@/lib/local-pref";
 
 export type CustomerRosterData = {
@@ -40,7 +42,7 @@ export type CustomerRosterData = {
  * 旁边再挂一条同样内容的名单，是把同一件事画两遍；而记录页缺的恰恰是
  * 「换一个人」这条路——原来从林夏切到陈航要退回列表再进去。
  *
- * 窄到 1440 以下时它收成抽屉，由记录页页头上那个按钮开（见 lib/roster.ts）：
+ * 窄到放不下（或人自己点了收起）时它收成抽屉，由记录页页头最左边那颗侧栏图标开（见 lib/middle-pane.ts）：
  * 名单 220 + 档案 264 + 时间线 + AI 340 在 164 的左栏旁边，1440 是下限。
  *
  * 只装最近 50 位；搜索和状态筛选在这 50 位里做，要翻全量按回车去表格。
@@ -50,8 +52,11 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
   const router = useRouter();
   const pathname = usePathname();
   const [q, setQ] = useState("");
-  const 抽屉里 = useRosterInDrawer();
-  const 抽屉开着 = useRosterOpen();
+  // 窗口太窄、或者人自己点了收起：名单收成抽屉（lib/middle-pane.ts）
+  const 中栏 = useMiddlePane("roster");
+  const 抽屉里 = !中栏.露着;
+  const 抽屉开着 = 中栏.抽屉开着;
+  usePaneShortcut(中栏.切换);
   const 搜索框 = useRef<HTMLInputElement>(null);
   const activeId = pathname.startsWith("/customers/") ? pathname.split("/")[2] : "";
 
@@ -166,6 +171,7 @@ export default function CustomerRoster({ data }: { data: CustomerRosterData }) {
         <Link href="/customers" className="pane-ib" aria-label={`${b.customer}表格`} title="表格视图">
           <TableOutlined />
         </Link>
+        <PaneToggle 栏="roster" 位置="中栏" />
       </div>
       <div className="roster-tabs" role="tablist" aria-label={`${b.customer}名单`}>
         {(有别人的 ? (["全部", "我的", "本周"] as const) : (["全部", "本周"] as const)).map((t) => (

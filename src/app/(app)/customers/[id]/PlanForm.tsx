@@ -14,6 +14,7 @@ import { dayjs } from "@/lib/utils";
 import { savePlan } from "./actions";
 import CustomerPick, { type 客户近况 } from "./CustomerPick";
 import { 聚焦首项 } from "@/lib/modal-focus";
+import { useFormGuard } from "@/lib/form-guard";
 
 /**
  * 跟进计划表单。两处用：记录页（给了 customerId，已经知道是谁）和计划页页头的「新建计划」
@@ -84,6 +85,15 @@ export default function PlanForm({
     set近况(null);
     onClose();
   }
+  // 点外面不关、关前问一句、新建的草稿留在本机（2026-10-19 客户反馈，lib/form-guard.tsx）。计划页上挑人的，客户不进草稿
+  const 守 = useFormGuard({
+    open,
+    form,
+    草稿键: record ? null : `新建计划:${customerId ?? "挑人"}`,
+    关,
+    afterOpenChange: 聚焦首项,
+    不存: customerId ? [] : ["customerId"],
+  });
 
   /*
     保存中：网慢时连点两下会建出两条一样的记录（跟进带的 AI 待办和计划也各建两份，2026-10-02 排查）。
@@ -122,6 +132,7 @@ export default function PlanForm({
     }
     void window.desktopReminders?.刷新();
     set近况(null);
+    守.存好了();
     onSaved(res.id);
     if (!挑人 || !近况) return void message.success("跟进计划已保存");
     // 列表页上建的：人留在原地，提示里给一条去他记录页的路
@@ -143,17 +154,16 @@ export default function PlanForm({
 
   return (
     <Modal
-      afterOpenChange={聚焦首项}
+      {...守.弹窗}
       open={open}
       title={record ? "编辑跟进计划" : 挑人 ? "新建跟进计划" : "制定跟进计划"}
-      onCancel={关}
       onOk={保存}
       confirmLoading={存着}
       okText="保存"
       cancelText="取消"
       destroyOnHidden
     >
-      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={(changed) => { if ("method" in changed) 人改过方式.current = true; }}>
+      <Form form={form} layout="vertical" style={{ marginTop: 8 }} onValuesChange={(changed) => { if ("method" in changed) 人改过方式.current = true; 守.改了(); }}>
         {挑人 && <CustomerPick 预选={预选客户} 近况={近况} on近况={换人} 给计划 />}
         <Form.Item name="subject" label="跟进主题" rules={[requiredText("请填写跟进主题")]}>
           <Input placeholder="如：跟进预算审批进度" />

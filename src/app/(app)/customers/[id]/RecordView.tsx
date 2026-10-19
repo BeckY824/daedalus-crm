@@ -2,7 +2,6 @@
 
 import { useFollowHistory } from "./useFollowHistory";
 
-import Shortcut from "@/components/Shortcut";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -16,7 +15,6 @@ import {
   ThunderboltOutlined,
   CheckCircleOutlined,
   DollarOutlined,
-  UnorderedListOutlined,
   InboxOutlined,
   UserAddOutlined,
   ThunderboltOutlined as AiOutlined,
@@ -44,7 +42,8 @@ import StarButton from "./StarButton";
 import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { toggleTask, deleteTask, deleteFollowUp, restoreFollowUp, completePlan, saveFollowUp } from "./actions";
 import { useContactRemoval } from "./useContactRemoval";
-import { 开名单, useNarrow, useRosterInDrawer, useWidth } from "@/lib/roster";
+import { useNarrow, useWidth } from "@/lib/roster";
+import PaneToggle from "@/components/PaneToggle";
 import { 登记详情名 } from "@/lib/page-rows";
 import Heat, { 冷热说法, 要看冷热 } from "@/components/Heat";
 import { deleteContract, 删签约前清点 } from "../actions";
@@ -189,9 +188,8 @@ export default function RecordView({
   /**
    * 两条断点（见 globals.css 里 .rec 上面那段）：
    * 1440 以下名单收成抽屉，1180 以下 AI 也收成抽屉。
-   * 收起来的东西必须有一个看得见的开关，否则就是没了。
+   * 收起来的东西必须有一个看得见的开关，否则就是没了。名单的开关是页头最左边那颗（PaneToggle）。
    */
-  const 名单在抽屉里 = useRosterInDrawer();
   /**
    * AI 栏收不收看正文实际多宽，不看视口：右边的全局面板开着时视口断点会误判（见 lib/roster.ts）。
    * 1090 = 资料 240 + AI 栏 340 + 两道间距 + 时间线至少 480。原来是 908（视口 1180 减左栏和留白，那时还没有名单），
@@ -389,8 +387,9 @@ export default function RecordView({
         {/*
           没有「← 返回列表」。左边就是窄名单，换一个人点一下就换（设计稿 12/PAGE：
           「切人不再返回列表」）；真要回列表，侧栏那一项一直在。
-          名单收窄进抽屉时（<1440）才补一个「换一位」——那时它才真的没了。
+          名单不在时（窗口太窄收成抽屉，或者人自己点了收起），最左边补一颗侧栏图标把它叫回来（components/PaneToggle.tsx）。
         */}
+        <PaneToggle 栏="roster" 位置="主区" />
         {/* 头像圆片 + 名字 + 星（2026-10-02 照毛玻璃原型）：一眼认出这是谁，星是「放到左栏，下次一点就到」 */}
         <span className="rec-head-av" aria-hidden="true" style={{ background: avatarColor(customer.name), color: AVATAR_TEXT }}>
           {initial(customer.name)}
@@ -405,11 +404,6 @@ export default function RecordView({
             {[customer.grade, customer.major, !独自一人(users, customer.salesOwnerId) && customer.salesOwnerName].filter(Boolean).join(" · ")}
           </div>
         </div>
-        {名单在抽屉里 && (
-          <Button size="small" icon={<UnorderedListOutlined />} onClick={开名单}>
-            换一位（<Shortcut>⌘K</Shortcut>）
-          </Button>
-        )}
         <span style={{ flex: 1 }} />
         {aiEnabled && AI在抽屉里 && (
           <Button size="small" icon={<AiOutlined />} onClick={() => setAI抽屉开着(true)} style={{ marginRight: 8 }}>
@@ -622,7 +616,7 @@ export default function RecordView({
                       {o.status === "WON" ? (是订单 ? "已转订单" : "已赢单") : "已丢单"}
                     </Tag>
                   )}
-                  <span className="rec-mini-m">{金额(o.amount, o.currency)}</span>
+                  <span className="rec-mini-m rec-mini-money">{金额(o.amount, o.currency)}</span>
                   {/* 外贸：哪天询的盘（客户：「3 月问了一次没成，5 月又问，这样知道客户计划采购的时间点」） */}
                   {外贸 && o.createdAt && <span className="rec-mini-m" title="询盘时间">{fmtDate(o.createdAt)} 询盘</span>}
                 </span>
@@ -651,7 +645,7 @@ export default function RecordView({
                     {r.spec && <span className="rec-mini-m"> · {r.spec}</span>}
                   </span>
                   <span className="rec-mini-sub">
-                    <span className="rec-mini-m">
+                    <span className="rec-mini-m rec-mini-money">
                       {金额(r.unitPrice, r.currency)} × {r.qty}{r.unit ? ` ${r.unit}` : ""}
                     </span>
                     <span className="rec-mini-m">{r.状态 === "WON" ? "成交 · " : ""}{fmtDate(r.quotedAt)}</span>
@@ -671,12 +665,15 @@ export default function RecordView({
               是订单 ? (
                 // 外贸：一笔签约就是一张订单。两行：订单号 + 金额；确认日 · 付款方式 · 供应商。点进订单页看挂在它上面的跟进
                 <div key={c.id} className="rec-mini rec-mini-2">
-                  <span className="rec-mini-n">
-                    {c.order ? <Link href={`/orders/${c.order.id}`}>{c.order.no}</Link> : <span className="muted" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
-                    <span className="rec-mini-amt"> · {金额(c.amount, c.currency)}</span>
+                  <span className="rec-mini-n rec-mini-line">
+                    {c.order ? <Link className="rec-mini-cut" href={`/orders/${c.order.id}`} title={c.order.no}>{c.order.no}</Link> : <span className="muted rec-mini-cut" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
+                    <span className="rec-mini-amt">{金额(c.amount, c.currency)}</span>
                   </span>
+                  {/* 确认日、付款方式、供应商各一段，挤不下就折行（原来拼成一串 nowrap，长供应商名直接越出卡片） */}
                   <span className="rec-mini-sub">
-                    <span className="rec-mini-m">{[fmtDate(c.signedAt), c.order?.payment, c.order?.supplier].filter(Boolean).join(" · ")}</span>
+                    {[fmtDate(c.signedAt), c.order?.payment, c.order?.supplier].filter(Boolean).map((段, k) => (
+                      <span key={k} className="rec-mini-m" title={段 ?? undefined}>{段}</span>
+                    ))}
                   </span>
                   <span className="rec-mini-acts">
                     <Button type="text" size="small" icon={<EditOutlined />} aria-label={`编辑订单 ${c.order?.no ?? ""}`} onClick={() => { setEditingContract(c); setContractOpen(true); }} />
@@ -772,7 +769,7 @@ export default function RecordView({
                     <div className="rec-tl-body">
                       <div className="rec-tl-contract">
                         <div className="rec-tl-head">
-                          <span className="rec-tl-type">{是订单 && e.c.order ? `订单 ${e.c.order.no}` : 叫} {金额(e.c.amount, e.c.currency)}</span>
+                          <span className="rec-tl-type">{是订单 && e.c.order ? `订单 ${e.c.order.no}` : 叫} <span className="rec-nowrap">{金额(e.c.amount, e.c.currency)}</span></span>
                           {e.c.remark && <span className="rec-tl-title" title={e.c.remark}>· {e.c.remark}</span>}
                           <span className="rec-tl-time">{fmtDate(e.c.signedAt)}</span>
                         </div>
@@ -1087,9 +1084,9 @@ function FollowItem({ f, showOwner, index, onEdit, onDelete }: { f: FollowUpRow;
           {f.title?.trim() && <span className="rec-tl-title" title={f.title}>· {f.title}</span>}
           {/* 挂在订单上的（2026-10-05）：标出订单号，点过去看这张订单的全部跟进。标题已经写着这个订单号就不重复 */}
           {f.order && !f.title?.includes(f.order.no) && (
-            <Link href={`/orders/${f.order.id}`} className="rec-tl-order">订单 {f.order.no}</Link>
+            <Link href={`/orders/${f.order.id}`} className="rec-tl-order" title={`订单 ${f.order.no}`}>订单 {f.order.no}</Link>
           )}
-          {f.opportunity && <Link href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order">关联商机：{f.opportunity.name}</Link>}
+          {f.opportunity && <Link href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order" title={`关联商机：${f.opportunity.name}`}>关联商机：{f.opportunity.name}</Link>}
           {f.status !== "已完成" && (
             <Tag color={FOLLOW_RECORD_STATUS_COLOR[f.status] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
               {f.status}

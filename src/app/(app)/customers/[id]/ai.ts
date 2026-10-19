@@ -114,7 +114,7 @@ ${text}
 }
 
 字段规则：
-- type 取值：PHONE 电话 / MEETING 线上会议 / VISIT 上门拜访 / EMAIL 邮件 / WHATSAPP WhatsApp 上的聊天（含语音消息） / SMS 短信或微信等别的文字消息 / TASK 跟进任务 / REMIND 跟进提醒 / OTHER 其他
+- type 取值：PHONE 电话 / MEETING 线上会议 / VISIT 上门拜访 / EMAIL 邮件 / WHATSAPP WhatsApp 上的聊天（含语音消息） / WECHAT 微信或企业微信上的聊天（含语音） / SMS 短信等别的文字消息 / TASK 跟进任务 / REMIND 跟进提醒 / OTHER 其他
 - content：以销售第一人称整理沟通要点，只保留原话里的事实，禁止编造与发挥
 - durationMinutes：原话明确提到时长才填（分钟数），否则 null
 - 时间一律写成「YYYY-MM-DD HH:mm」；相对时间基于现在时间换算（"下周三晚上"→下周三 19:00；上午按 10:00、下午按 15:00、晚上按 19:00 估）
