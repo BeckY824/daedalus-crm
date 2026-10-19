@@ -18,6 +18,7 @@ import { createHmac } from "node:crypto";
 import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 主字段, type 拉到的范围包 } from "./scoped-local";
 import { 提取范围, 行键, 范围字段, type 范围索引 } from "./scope-policy";
 import { 同步表 } from "./tables";
+import { 报查重 } from "./dedupe-client";
 import { 封范围, 规范串 } from "./crypto";
 import { 封, 拆, 新钥匙, 设备钥匙对, 封给, 拆自, 签名钥匙对, 签上, 验, type 钥匙环 } from "./crypto";
 import { 看全部, 忘掉限定, 在同步里 } from "../team-scope";
@@ -128,7 +129,7 @@ export function 设传输(t: 传输 | null) {
 export const 调云: 传输 = (方法, 路径, body) => 云(方法, 路径, body);
 
 /** 本机手上的全部钥匙（之前的 + 现在这把） */
-const 全部钥匙 = (c: 团队配置): 钥匙环 => ({ ...(c.keys ?? {}), [String(c.epoch ?? 0)]: c.key });
+export const 全部钥匙 = (c: 团队配置): 钥匙环 => ({ ...(c.keys ?? {}), [String(c.epoch ?? 0)]: c.key });
 
 /* ---------------- 邀请码：团队编号 + 入队口令 + 钥匙（+ 老板的签名公钥） ---------------- */
 /** DT2 = DT1 + 老板的签名公钥。有签名公钥就出 DT2 */
@@ -770,7 +771,7 @@ async function 被移出后收拾() {
 
 type 轮结果 = 结果<{ 推: number; 拉: number; 撞: number }>;
 const 范围路径 = "/api/sync/scoped";
-const 范围请求 = (c: 团队配置, action: string, extra: Record<string, unknown> = {}) => 云("POST", 范围路径, { teamId: c.teamId, action, ...extra });
+export const 范围请求 = (c: 团队配置, action: string, extra: Record<string, unknown> = {}) => 云("POST", 范围路径, { teamId: c.teamId, action, ...extra });
 const 记团队 = (teamId: string, x: Partial<团队配置>) => { const 现 = 读团队(); if (现?.teamId === teamId) 写团队({ ...现, ...x }); };
 const 数据目录 = () => { const d = process.env.CRM_DATA_DIR; if (!d) throw new Error("没有 CRM_DATA_DIR"); return d; };
 /** 迁移前备份、起点文件：可读的固定名字，不用哈希命名 */
@@ -1030,6 +1031,7 @@ async function 补发起点(c: 团队配置): Promise<结果<{ stored: number }>
 }
 
 /** 一轮范围同步：推 → 目录 →（业务员）清理失权副本 → 按范围拉、逐包核对后回放 →（老板）补起点 */
+let 上次报查重 = "";
 async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规则 = 旧推送规则): Promise<轮结果> {
   let c = c0;
   const teamId = c.teamId;
@@ -1091,6 +1093,9 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
       if (!s.ok) { 记团队(teamId, { lastError: s.error, lastSyncAt: new Date().toISOString() }); return s; }
     }
     if (拉 > 0) invalidateSettingsCache();
+    // 跨成员查重的索引（2026-10-19，sync/dedupe-client.ts）：有推有拉、换了钥匙、这次启动还没报过才报一遍；报不上不算这一轮失败
+    const 报的是 = `${teamId}|${c.device}|${(读团队() ?? c).epoch ?? 0}`;
+    if (p.推 > 0 || 拉 > 0 || 上次报查重 !== 报的是) await 报查重(读团队() ?? c).then(() => { 上次报查重 = 报的是; }, () => undefined);
     if (Date.now() - 上次对角色 > 5 * 60_000 || (拉 > 0 && 上次对角色 === 0)) await 对齐角色().catch(() => undefined);
     return { ok: true, 推: p.推, 拉, 撞 };
   } catch (e) {

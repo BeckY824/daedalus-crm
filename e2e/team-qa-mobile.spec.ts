@@ -166,3 +166,69 @@ for (const 宽 of 宽们) {
     if (!只记) expect(有的.map((x) => `${x.屏}\n${说问题(x.问题)}`).join("\n\n")).toBe("");
   });
 }
+
+/*
+ * 10-19 新加的两屏也过一遍排版检查：
+ *   - 个人版账号在手机上登录（客户反馈「手机点了 电脑没跳出来匹配」）：只给说明、不生成配对数字、不发申请；「退出登录」回到登录页
+ *   - 公海客户详情的「领取并记跟进」和弹层
+ */
+for (const 宽 of [360, 375]) {
+  test(`手机 ${宽} 宽：个人版账号登录只给说明、不发申请`, async ({ page }) => {
+    await page.setViewportSize({ width: 宽, height: 667 });
+    const 发过: string[] = [];
+    await page.route("**/api/mobile/link", async (r) => {
+      const 动作 = String((r.request().postDataJSON() as { action?: string } | null)?.action);
+      发过.push(动作);
+      await r.fulfill({ json: 动作 === "eligibility" ? { ok: true, status: "no-team" } : { error: "不该发到这里" }, status: 动作 === "eligibility" ? 200 : 500 });
+    });
+    await page.goto("/m");
+    await expect(page.getByRole("button", { name: /登录/ }).first()).toBeVisible();
+    // 登录这一步要真云端：直接把登录拿到的令牌放进本地库，刷新就进「授权」那一步
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((ok, bad) => { const r = indexedDB.open("daedalus-mobile", 1); r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error); });
+      const t = db.transaction("kv", "readwrite");
+      t.objectStore("kv").put("dk_e2e_solo_token", "token");
+      t.objectStore("kv").put({ name: "个人版用户 Personal Edition User", contact: "solo.personal.edition@example.com" }, "account");
+      await new Promise<void>((ok, bad) => { t.oncomplete = () => ok(); t.onerror = () => bad(t.error); });
+      db.close();
+    });
+    await page.reload();
+    const 屏 = page.getByTestId("m-not-team");
+    await expect(屏).toBeVisible();
+    await expect(屏).toHaveAttribute("data-why", "no-team");
+    await expect(屏.getByRole("heading", { name: "手机伴侣是团队版功能" })).toBeVisible();
+    await expect(屏).toContainText("个人版的数据只在你的电脑上，手机连不上。想用手机记跟进，可以私信我们开通团队版。");
+    await expect(page.getByText("配对数字")).toHaveCount(0);
+    await 量(page, 宽, "个人版说明");
+    // 只问了资格（开发模式下效果会跑两遍，问两次也算），没发申请
+    expect(发过.length > 0 && 发过.every((x) => x === "eligibility"), 发过.join(",")).toBe(true);
+    if (process.env.E2E_SHOT_DIR) await page.screenshot({ path: 出处(`手机-${宽}-个人版说明.png`) });
+    await 屏.getByRole("button", { name: "退出登录" }).click();
+    await expect(page.getByRole("button", { name: /登录/ }).first()).toBeVisible();
+    expect(发过.every((x) => x === "eligibility"), 发过.join(",")).toBe(true);
+    const 有的 = 全部.filter((x) => x.宽 === 宽 && x.屏 === "个人版说明" && x.问题.length);
+    if (!只记) expect(有的.map((x) => `${x.屏}\n${说问题(x.问题)}`).join("\n\n")).toBe("");
+  });
+
+  test(`手机 ${宽} 宽：公海客户「领取并记跟进」`, async ({ page }) => {
+    await page.setViewportSize({ width: 宽, height: 667 });
+    const 名 = `${名们.长英} 公海`;
+    await 灌手机(page, { 行们: [
+      { t: "User", k: "acct_wang", r: { id: "acct_wang", name: "王磊（华东区销售总监 · 兼外贸二部负责人）", active: true } },
+      { t: "Customer", k: "pool-x", r: { id: "pool-x", name: 名, phone: "+971500000009", salesOwnerId: "acct_wang", followStatus: "待跟进", createdAt: 现在 - 9 * 天, updatedAt: 现在 - 9 * 天 } },
+      { t: "CustomerPool", k: "pool-x", r: { customerId: "pool-x", reason: "超过 30 天没跟进，自动退回公海" } },
+    ] });
+    await page.getByRole("button", { name: "客户" }).last().click();
+    await page.getByText(/^公海/).first().click();
+    await page.getByText(名, { exact: true }).first().click();
+    await expect(page.getByRole("button", { name: /领取并记跟进/ })).toBeVisible();
+    await 量(page, 宽, "公海详情");
+    if (process.env.E2E_SHOT_DIR) await page.screenshot({ path: 出处(`手机-${宽}-公海详情.png`) });
+    await page.getByRole("button", { name: /领取并记跟进/ }).click();
+    await expect(page.getByTestId("m-record-pool")).toBeVisible();
+    await 量(page, 宽, "领取并记跟进", ".m-sheet");
+    if (process.env.E2E_SHOT_DIR) await page.screenshot({ path: 出处(`手机-${宽}-领取并记跟进.png`) });
+    const 有的 = 全部.filter((x) => x.宽 === 宽 && ["公海详情", "领取并记跟进"].includes(x.屏) && x.问题.length);
+    if (!只记) expect(有的.map((x) => `${x.屏}\n${说问题(x.问题)}`).join("\n\n")).toBe("");
+  });
+}

@@ -11,6 +11,7 @@
  *   - 电脑上记的、改的，手机同步后看得到；客户转走了，手机上就没了
  *   - 断网时记的、推之前客户被转走：推上去被拒，进「被拒」，不悄悄丢
  *   - 老板移除成员换了钥匙：手机拿到封给自己的新钥匙，照样能收能推
+ *   - 只给团队版（10-19）：个人版账号手机登录后问资格就是 no-team，不发申请；硬发也被拦；团队停用 / 自己没有已连上的设备各一句
  */
 import { beforeAll, afterAll, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
@@ -98,6 +99,7 @@ async function 调中转(raw: string, 方法: string, 路径: string, body: unkn
   if (u.pathname === "/api/mobile/link") {
     const s = (v: unknown) => (typeof v === "string" ? v : "");
     const act = b.action;
+    if (act === "eligibility") return 回(await link.资格(a) as never);
     if (act === "request") return 回(await link.申请(a, t.id, { device: b.device, pubKey: b.pubKey, label: b.label }));
     if (act === "status") return 回(await link.我的申请(a, t.id));
     if (act === "pending") return 回(await link.待授权(a) as never);
@@ -306,5 +308,53 @@ describe("手机上退出 / 换账号后，旧申请不再出现在电脑上", (
     await 令牌库.吊销(t!.id, 账号.li);
     const 后 = await 授权.待授权手机();
     expect(后.ok && 后.手机.map((x) => x.label)).not.toContain("退了的手机");
+  });
+});
+
+describe("手机伴侣只给团队版（2026-10-19 客户反馈：个人版账号手机一直挂着配对数字干等）", () => {
+  it("个人版账号（不在任何团队）：问资格是 no-team；硬发申请 403，说清是团队版功能；新电脑的申请也不收", async () => {
+    const solo = (await control.account.create({ data: { name: "个人版", email: "solo@example.invalid", password: "not-a-login" } })).id;
+    令牌.个人版 = (await 令牌库.签发(solo, "手机 · 个人版")).token;
+    const 云 = 用令牌("个人版");
+    expect(await 连.查资格(云)).toBe("no-team");
+    const 钥 = await 密.设备钥匙对();
+    await expect(连.发申请(云, { device: "m_solo_phone_1", pubKey: 钥.公钥, label: "个人版的手机" })).rejects.toThrow("手机伴侣是团队版功能，开通团队版后再连");
+    expect(连.资格被拦("手机伴侣是团队版功能，开通团队版后再连")).toBe("no-team");
+    const r = await 云("POST", "/api/mobile/link", { action: "request", device: "d0123456789ab", pubKey: 钥.公钥, label: "新电脑" });
+    expect(r.状态).toBe(403);
+    expect(await control.syncMobileLink.count({ where: { accountId: solo } })).toBe(0);
+  });
+
+  it("团队成员照常：li 新登录一台手机，问资格是 ok", async () => {
+    令牌.李新手机 = (await 令牌库.签发(账号.li, "手机 · 李新手机")).token;
+    expect(await 连.查资格(用令牌("李新手机"))).toBe("ok");
+  });
+
+  it("团队停用：手机不收（inactive），新电脑照收（团队还没开通时也能配）；开回来就好", async () => {
+    const teamId = 读配置("li").teamId;
+    const 云 = 用令牌("李新手机");
+    await relay.设开通(teamId, false);
+    try {
+      expect(await 连.查资格(云)).toBe("inactive");
+      const 钥 = await 密.设备钥匙对();
+      await expect(连.发申请(云, { device: "m_li_inactive", pubKey: 钥.公钥, label: "李的手机" })).rejects.toThrow("团队同步还没开通或已停用");
+      令牌.李新电脑 = (await 令牌库.签发(账号.li, "桌面端 · 李新电脑")).token;
+      expect((await 用令牌("李新电脑")("POST", "/api/mobile/link", { action: "request", device: "d00aa11bb22cc", pubKey: 钥.公钥, label: "李的新电脑" })).状态).toBe(200);
+    } finally {
+      await relay.设开通(teamId, true);
+    }
+    expect(await 连.查资格(云)).toBe("ok");
+  });
+
+  it("在团队里但自己一台已连上的设备都没有（电脑还没连上团队）：no-device，提示先在电脑上连上", async () => {
+    const teamId = 读配置("li").teamId;
+    const 李的 = await control.syncDevice.findMany({ where: { teamId, accountId: 账号.li } });
+    await control.syncDevice.deleteMany({ where: { teamId, accountId: 账号.li } });
+    try {
+      expect(await 连.查资格(用令牌("李新手机"))).toBe("no-device");
+    } finally {
+      for (const d of 李的) await control.syncDevice.create({ data: d });
+    }
+    expect(await 连.查资格(用令牌("李新手机"))).toBe("ok");
   });
 });

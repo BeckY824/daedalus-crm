@@ -20,6 +20,8 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { control } from "./control";
 import { 登记设备, 在队里, 每人设备上限, 设备满了, 记要换钥匙 } from "./sync-relay";
 import { 吊销 } from "./device-token";
+import { 席位闸 } from "./team-plan";
+import { 手机资格话, type 手机资格 } from "../team-pricing";
 import { 封给 } from "../sync/crypto";
 
 type 结果<T> = ({ ok: true } & T) | { ok: false; 状态: number; error: string };
@@ -46,12 +48,35 @@ async function 设备都满了(accountId: string): Promise<boolean> {
   return 满.every(Boolean);
 }
 
+/**
+ * 这个账号能不能连手机（2026-10-19）：在某个团队里（没离队）、那个团队开着、自己在那个团队里有已连上的设备（电脑或手机，才有人点允许）。
+ * 个人版账号（不在任何团队）直接说「手机伴侣是团队版功能」，不再让手机挂着配对数字干等
+ */
+export async function 连手机资格(accountId: string): Promise<手机资格> {
+  const 在的 = (await control.syncMember.findMany({ where: { accountId, leftAt: null }, select: { teamId: true } })).map((m) => m.teamId);
+  if (!在的.length) return "no-team";
+  const 开着的 = (await control.syncTeam.findMany({ where: { id: { in: 在的 }, active: true }, select: { id: true } })).map((t) => t.id);
+  if (!开着的.length) return "inactive";
+  return (await control.syncDevice.count({ where: { accountId, teamId: { in: 开着的 } } })) ? "ok" : "no-device";
+}
+
+/** 手机登录后先问一下：不是 ok 就不生成配对数字、不发申请 */
+export async function 资格(accountId: string): Promise<结果<{ status: 手机资格 }>> {
+  return { ok: true, status: await 连手机资格(accountId) };
+}
+
 /** 手机发申请。同一枚令牌再发一次：还在等的原样返回（手机重开页面不会多出一条） */
 export async function 申请(accountId: string, tokenId: string, x: { device?: unknown; pubKey?: unknown; label?: unknown }): Promise<结果<{ id: string; status: string }>> {
   const label = String(x.label ?? "").trim().slice(0, 60) || "手机";
   if (!设备号对(x.device)) return 错(400, "设备信息不对");
   // 公钥长相和真伪交给 登记设备 在允许时核；这里先挡掉明显不对的，免得电脑上弹出一条点了也会失败的申请
   if (typeof x.pubKey !== "string" || !/^[\w-]{40,200}$/.test(x.pubKey)) return 错(400, "设备信息不对");
+  // 只给团队版（2026-10-19）：手机按「在团队、团队开着、有自己的设备能点允许」拦；新电脑只在账号不在任何团队 / 团队里没有自己的设备时拦
+  // （桌面端只在账号已在团队里时才给「在另一台电脑上允许」这个入口，团队还没开通时照旧能配，不误伤）
+  const 资 = await 连手机资格(accountId);
+  if (是电脑设备(x.device) ? 资 === "no-team" || 资 === "no-device" : 资 !== "ok") {
+    return 错(403, 是电脑设备(x.device) ? "这个账号在团队里还没有连上的设备来批准这台，请找老板要邀请码加入" : 手机资格话[资 as Exclude<手机资格, "ok">]);
+  }
   const 已 = await control.syncMobileLink.findUnique({ where: { tokenId } });
   if (已) {
     if (已.accountId !== accountId) return 错(403, "登录已失效，请重新登录");
@@ -139,6 +164,9 @@ export async function 允许(accountId: string, id: string, teamId: string, seal
     if (!对) return 错(403, "没能确认是团队里的这台设备，请重试");
     const 机 = await tx.syncDevice.findUnique({ where: { teamId_device: { teamId, device: r.proofDevice ?? "" } } });
     if (!机 || 机.accountId !== accountId) return 错(403, "这台设备不在这个团队里");
+    // 席位（2026-10-19）：本人加手机 / 电脑不占人数，只在人数已经超过运营台填的上限时拦（lib/tenant/team-plan.ts 席位闸）
+    const 满 = await 席位闸(teamId, false, tx);
+    if (满) return 错(409, 满);
     const 设备错 = await 登记设备(teamId, accountId, { device: r.device, pubKey: r.pubKey, tokenId: r.tokenId }, tx);
     if (设备错) return 错(409, 设备错);
     await tx.syncMobileLink.update({ where: { id: r.id }, data: { status: "approved", teamId, sealed, decidedAt: new Date() } });

@@ -373,7 +373,7 @@ export default function FollowUpForm({
         void window.desktopReminders?.刷新();
         return void message.success("跟进已记录，也加进了待办——到点会提醒你");
       }
-      return void message.success(record?.id ? "已保存" : "跟进已记录");
+      return void message.success(record?.id ? "已保存" : "领取了" in res && res.领取了 ? "已领取并记下跟进，这位现在归你跟进" : "跟进已记录");
     }
 
     // 跟进页上挑人记的：人留在原地（新的那行会亮一下），提示里给撤销和去他记录页的路

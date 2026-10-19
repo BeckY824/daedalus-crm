@@ -13,13 +13,15 @@ import { 范围开关 } from "./scoped-flag";
 import { 能同步 } from "./team-plan";
 import { 包的编号 } from "../sync/crypto";
 import { 合并范围, 推送可写, 挂在已删的上, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
+import { 查重单次上限, 查重一问上限, 查重哈希格式, type 查重条目, type 查重命中 } from "../sync/dedupe";
 
 /** denied：403 时被拒的包在本次 packets 里的下标（整批已回滚）；新客户端据此只把这几条转冲突、其余原样重推 */
 /** gone：denied 里挂在已删客户 / 商机下面的那几包（2026-10-19），手机据此说清「客户已被删」，不是「不归你了」 */
-export class 范围错误 extends Error { constructor(public 状态: number, message: string, public denied?: number[], public gone?: number[]) { super(message); } }
+/** taken：这次推送想领的公海客户已被别人先领走（客户 id → 现在的负责人用户 id；2026-10-19「记跟进 = 领取」），客户端据此说「已被 X 先领走」 */
+export class 范围错误 extends Error { constructor(public 状态: number, message: string, public denied?: number[], public gone?: number[], public taken?: Record<string, string>) { super(message); } }
 /** 一次推送最多几包：转交 / 领取那一批要和它的起点快照放进同一次请求（见 推送可写），起点可能有几百包 */
 export const 范围单次上限 = 1000;
-function fail(status: number, message: string, denied?: number[], gone?: number[]): never { throw new 范围错误(status, message, denied, gone); }
+function fail(status: number, message: string, denied?: number[], gone?: number[], taken?: Record<string, string>): never { throw new 范围错误(status, message, denied, gone, taken); }
 const 根 = () => path.join(process.env.SYNC_DIR ?? path.join(workspaceDir(), "sync"), "scoped");
 const file = (digest: string) => path.join(根(), `${digest}.bin`);
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -173,7 +175,19 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     // 仍被拒：全部报出来（下标），整批回滚——新客户端只把这几条转成冲突、其余重推
     if (待定.length) {
       const gone = 待定.filter(x => 挂在已删的上(合并范围(rows.get(x.key), x.packet.meta, x.batchId), rows)).map(x => x.i);
-      fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i), gone);
+      /*
+        领公海没抢到（2026-10-19「记跟进 = 领取」）：这次被拒的里有「删公海那一行」，客户已经出了公海、归了别人——
+        只对这几位（刚才还在公海、人人看得到的）回现在的负责人，客户端说「已被 X 先领走」；别的私客不回
+      */
+      const taken: Record<string, string> = {};
+      for (const x of 待定) {
+        if (x.packet.meta.t !== "CustomerPool" || x.packet.meta.o !== "D") continue;
+        const cust = rows.get(行键("Customer", x.packet.meta.k));
+        const pool = rows.get(行键("CustomerPool", x.packet.meta.k));
+        const who = cust?.fields.salesOwnerId;
+        if (cust && !cust.deleted && (!pool || pool.deleted) && who && who !== `acct_${accountId}`) taken[x.packet.meta.k] = who;
+      }
+      fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i), gone, Object.keys(taken).length ? taken : undefined);
     }
     // stored = 本次新落库条数（重发的不算），客户端据此累计迁移批次数，回包丢失重试也不会重复计数
     return { received: packets.length, stored };
@@ -301,4 +315,68 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
     return { seq: b.id, device: b.device, eventId: b.eventId, meta: JSON.parse(b.metadata) as 范围元数据, data };
   }) };
   }, { timeout: 60_000 });
+}
+
+/* ---------------- 跨成员查重（2026-10-19，lib/sync/dedupe.ts） ---------------- */
+
+/**
+ * 各台上报自己库里客户的查重索引。只收这台看得到的客户（老板全部、成员本人 + 公海）：
+ * 看不到的不收，免得拿一份过期的副本盖掉负责人那台报的。不是当前钥匙编号的整批不收（换钥匙后旧哈希对不上）。
+ * 同一位客户整份替换：号码改了，旧哈希跟着没了
+ */
+export async function 收查重索引(accountId: string, teamId: string, device: string, entries: unknown): Promise<{ stored: number; skipped: string[] }> {
+  const { owner } = await auth(accountId, teamId, device);
+  if (!Array.isArray(entries) || entries.length > 查重单次上限) fail(400, "查重索引格式不对");
+  const epoch = await 当前编号(teamId);
+  const 收: 查重条目[] = [];
+  for (const e of entries as Partial<查重条目>[]) {
+    if (!e || typeof e.k !== "string" || !/^[\w-]{1,100}$/.test(e.k) || e.epoch !== epoch) fail(400, "查重索引格式不对");
+    if (!Array.isArray(e.hashes) || e.hashes.length > 查重一问上限 || !e.hashes.every((h) => typeof h === "string" && 查重哈希格式.test(h))) fail(400, "查重索引格式不对");
+    if (typeof e.label !== "string" || e.label.length > 4000) fail(400, "查重索引格式不对");
+    收.push(e as 查重条目);
+  }
+  const rows = await 查重用的行(teamId, 收.map((e) => e.k));
+  let stored = 0; const skipped: string[] = [];
+  await control.$transaction(async (tx) => {
+    for (const e of 收) {
+      const r = rows.get(行键("Customer", e.k));
+      if (!r || r.deleted || !范围可读(算范围(r, rows), accountId, owner)) { skipped.push(e.k); continue; }
+      await tx.syncDedupeKey.deleteMany({ where: { teamId, recordKey: e.k } });
+      if (e.hashes.length) await tx.syncDedupeKey.createMany({ data: [...new Set(e.hashes)].map((hash) => ({ teamId, recordKey: e.k, hash, epoch, label: e.label })) });
+      stored++;
+    }
+  });
+  return { stored, skipped };
+}
+
+/**
+ * 录入前问一下：这几样哈希是不是同事名下的客户。只回问的人**看不到**的（看得到的本机自己就查到了），
+ * 已删的、换钥匙前的不回。只给客户 id、负责人（用户 id，名字由本机同事名单取）、封好的客户名
+ */
+export async function 查查重(accountId: string, teamId: string, hashes: unknown): Promise<{ hits: 查重命中[] }> {
+  const { owner } = await auth(accountId, teamId);
+  if (!Array.isArray(hashes) || hashes.length > 查重一问上限 || !hashes.every((h) => typeof h === "string" && 查重哈希格式.test(h))) fail(400, "查重请求格式不对");
+  if (!hashes.length) return { hits: [] };
+  const epoch = await 当前编号(teamId);
+  const 撞 = await control.syncDedupeKey.findMany({ where: { teamId, epoch, hash: { in: hashes as string[] } }, select: { recordKey: true, label: true } });
+  const rows = await 查重用的行(teamId, 撞.map((x) => x.recordKey));
+  const hits: 查重命中[] = [];
+  for (const x of 撞) {
+    if (hits.some((h) => h.k === x.recordKey)) continue;
+    const r = rows.get(行键("Customer", x.recordKey));
+    if (!r || r.deleted) continue;
+    if (范围可读(算范围(r, rows), accountId, owner)) continue;
+    hits.push({ k: x.recordKey, owner: r.fields.salesOwnerId ?? r.fields.channelOwnerId ?? "", label: x.label });
+  }
+  return { hits };
+}
+
+/** 判这几位客户归谁要用到的索引行：客户本身 + 它在不在公海 */
+async function 查重用的行(teamId: string, ids: string[]): Promise<Map<string, 范围索引>> {
+  const keys = [...new Set(ids)].flatMap((k) => [行键("Customer", k), 行键("CustomerPool", k)]);
+  const 出 = new Map<string, 范围索引>();
+  for (let i = 0; i < keys.length; i += 500) {
+    for (const r of await control.syncScopedRecord.findMany({ where: { teamId, key: { in: keys.slice(i, i + 500) } } })) 出.set(r.key, JSON.parse(r.metadata) as 范围索引);
+  }
+  return 出;
 }

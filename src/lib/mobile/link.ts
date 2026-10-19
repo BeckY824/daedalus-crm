@@ -6,6 +6,7 @@
  */
 import * as 密 from "@/lib/sync/crypto-web";
 import type { 传输, 手机团队 } from "./sync";
+import { 手机资格话, type 手机资格 } from "@/lib/team-pricing";
 
 const 路径 = "/api/mobile/link";
 const 话 = (r: { 状态: number; json: Record<string, unknown> }, 默认: string) => String(r.json.error ?? `${默认}（${r.状态}）`);
@@ -13,6 +14,22 @@ const 话 = (r: { 状态: number; json: Record<string, unknown> }, 默认: strin
 export function 新设备号(): string {
   const b = globalThis.crypto.getRandomValues(new Uint8Array(16));
   return "m_" + 密.转b64u(b);
+}
+
+/**
+ * 登录后先问：这个账号能不能连手机（2026-10-19，个人版账号不给连）。旧服务端没有这个操作（400 / 404）就当能连，照原来的流程走
+ */
+export async function 查资格(云: 传输): Promise<手机资格> {
+  const r = await 云("POST", 路径, { action: "eligibility" });
+  if (r.状态 === 401) throw new Error(话(r, "登录已失效，请重新登录"));
+  const s = String(r.json.status ?? "");
+  return r.状态 === 200 && s in 手机资格话 ? (s as 手机资格) : "ok";
+}
+
+/** 发申请被服务端按资格拦下时，认出是哪一种（和 查资格 同一屏） */
+export function 资格被拦(话: string): Exclude<手机资格, "ok"> | null {
+  const k = (Object.keys(手机资格话) as Exclude<手机资格, "ok">[]).find((x) => 手机资格话[x] === 话);
+  return k ?? null;
 }
 
 export async function 发申请(云: 传输, x: { device: string; pubKey: string; label: string }): Promise<{ id: string; status: string }> {

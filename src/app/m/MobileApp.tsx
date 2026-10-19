@@ -39,9 +39,10 @@ type 遗留 = { content: string; customer: string; at: number };
 /** 同步状态会被同步库原地改，放在 ref 里只在回调中动；渲染读这一份快照（改完一次拍一次） */
 type 快照 = { 待推跟进: string[]; 待推新建: string[]; 被拒: { content: string; customerId: string; 客户名: string; at: number; 原因: string }[]; 上次成功: number | null; lastError: string | null };
 /**
- * 没同步上时列给人看的几样：跟进，和手机上新建的客户、商机（2026-10-19）。档案、币种、操作日志跟着它们走，不单列
+ * 没同步上时列给人看的几样：跟进，和手机上新建的客户、商机（2026-10-19）。档案、币种、操作日志跟着它们走，不单列；
+ * 领公海时改负责人、带过来的活（改动，不是新建）也不单列——没抢到时跟进那一条写着「已被 X 先领走」
  */
-const 列给人看 = (e: 同步.改动) => (e.t === "FollowUp" || e.t === "Customer" || e.t === "Opportunity") && !!e.r;
+const 列给人看 = (e: 同步.改动) => (e.t === "FollowUp" || ((e.t === "Customer" || e.t === "Opportunity") && e.o === "I")) && !!e.r;
 const 这条说的 = (e: 同步.改动) => {
   const r = e.r ?? {};
   if (e.t === "Customer") return { content: `新建客户「${String(r.name ?? "")}」${r.phone ? `，电话 ${String(r.phone)}` : ""}`, customerId: e.k, 客户名: String(r.name ?? ""), at: Number(r.createdAt) || 0 };
@@ -347,13 +348,13 @@ export default function MobileApp() {
     const k = 库;
     if (!k || !团队) return;
     try {
-      await 同步.记跟进(团队, k, 态.current, { customerId: id, ...输入 });
+      const r = await 同步.记跟进(团队, k, 态.current, { customerId: id, ...输入 });
       await k.存盘();
       await k.写("state", 态.current);
       拍一下();
       set版本((v) => v + 1);
       震一下();
-      说(断网 ? "已记下 · 有网后自动同步" : "已记下", 断网 ? <CloudSyncOutlined /> : <CheckCircleFilled />);
+      说(r.领取了 ? (断网 ? "已记下 · 联网后替你领取" : "已领取并记下") : 断网 ? "已记下 · 有网后自动同步" : "已记下", 断网 ? <CloudSyncOutlined /> : <CheckCircleFilled />);
       void 跑同步();
     } catch (e) {
       说(e instanceof Error ? e.message : String(e), <ExclamationCircleFilled />);
@@ -365,7 +366,7 @@ export default function MobileApp() {
     const k = 库;
     if (!k || !团队) return "还没连上团队";
     try {
-      const r = "客户" in 哪个 ? await 同步.新建客户(团队, k, 态.current, 哪个.客户) : await 同步.新建商机(团队, k, 态.current, 哪个.商机);
+      const r = "客户" in 哪个 ? await 同步.新建客户(团队, k, 态.current, 哪个.客户, Date.now(), 断网 || !云 ? undefined : 云) : await 同步.新建商机(团队, k, 态.current, 哪个.商机);
       await k.存盘();
       await k.写("state", 态.current);
       拍一下();
@@ -464,7 +465,7 @@ export default function MobileApp() {
             </BaseLayer>
             {当前客户 && (
               <TopLayer p={进度} 宽={宽} os={os} 少动={少动} 推={推} 退着={退着}>
-                <DetailScreen os={os} c={当前客户} 现在={现在} 来自={tab === "today" ? "今天" : "客户"} 业务={业务} 待同步={快照.待推新建} onBack={返回} onRecord={() => 打开面板({ kind: "record", id: 当前客户.id })} onNewOpp={() => 打开面板({ kind: "newOpp", id: 当前客户.id })} />
+                <DetailScreen os={os} c={当前客户} 现在={现在} 断网={断网} 来自={tab === "today" ? "今天" : "客户"} 业务={业务} 待同步={快照.待推新建} onBack={返回} onRecord={() => 打开面板({ kind: "record", id: 当前客户.id })} onNewOpp={() => 打开面板({ kind: "newOpp", id: 当前客户.id })} />
               </TopLayer>
             )}
           </motion.div>
@@ -477,7 +478,7 @@ export default function MobileApp() {
             {面板.kind === "record" && (() => {
               const c = 客户们.find((x) => x.id === 面板.id);
               if (!c) return null;
-              return <RecordSheet c={c} os={os} 我={我} 业务={业务} onCancel={返回} onSave={(输入) => { void 记(c.id, 输入); 返回(); }} />;
+              return <RecordSheet c={c} os={os} 我={我} 断网={断网} 业务={业务} onCancel={返回} onSave={(输入) => { void 记(c.id, 输入); 返回(); }} />;
             })()}
             {面板.kind === "newCustomer" && (
               <NewCustomerSheet os={os} 业务={业务} onCancel={返回} onSave={(输入) => 新建({ 客户: 输入 })} />
@@ -639,7 +640,7 @@ function CustomersScreen({ os, 客户们, 我, 现在, 断网, 名, onOpen, onMe
 /* ====================================================================== 详情 */
 
 const 号码 = (s: string) => s.replace(/[^\d+]/g, "");
-function DetailScreen({ os, c, 现在, 来自, 业务, 待同步, onBack, onRecord, onNewOpp }: { os: 系统; c: 客户视图; 现在: number; 来自: string; 业务: BusinessConfig; 待同步: string[]; onBack: () => void; onRecord: () => void; onNewOpp: () => void }) {
+function DetailScreen({ os, c, 现在, 断网, 来自, 业务, 待同步, onBack, onRecord, onNewOpp }: { os: 系统; c: 客户视图; 现在: number; 断网: boolean; 来自: string; 业务: BusinessConfig; 待同步: string[]; onBack: () => void; onRecord: () => void; onNewOpp: () => void }) {
   const 主 = c.联系人[0];
   const 电话 = 主?.phone || c.phone;
   const 邮箱 = 主?.email || c.email;
@@ -648,7 +649,7 @@ function DetailScreen({ os, c, 现在, 来自, 业务, 待同步, onBack, onReco
   const 过期 = c.计划 && c.计划.at < 今早.getTime();
   return (
     <Page os={os} 标题={c.name} 返回={onBack} 返回字={来自}
-      底部={c.公海 ? null : <div className="m-bottom-bar"><button className="m-btn m-btn-block" onClick={onRecord}><EditOutlined /> 记一笔跟进</button></div>}>
+      底部={<div className="m-bottom-bar"><button className="m-btn m-btn-block" onClick={onRecord}><EditOutlined /> {c.公海 ? "领取并记跟进" : "记一笔跟进"}</button></div>}>
       <div className="m-hero">
         <Avatar name={c.name} size={60} />
         <div className="m-hero-t">
@@ -662,10 +663,11 @@ function DetailScreen({ os, c, 现在, 来自, 业务, 待同步, onBack, onReco
         <a className={电话 ? "" : "is-off"} href={电话 ? `tel:${号码(电话)}` : undefined}><span><PhoneOutlined /></span>电话</a>
         <a className={c.whatsapp ? "" : "is-off"} href={c.whatsapp ? `https://wa.me/${号码(c.whatsapp).replace(/^\+/, "")}` : undefined} target="_blank" rel="noreferrer"><span><WhatsAppOutlined /></span>WhatsApp</a>
         <a className={邮箱 ? "" : "is-off"} href={邮箱 ? `mailto:${邮箱}` : undefined}><span><MailOutlined /></span>邮件</a>
-        {c.公海 ? <a className="is-off"><span><EditOutlined /></span>记一笔</a> : <button onClick={onRecord} className="is-brand"><span><EditOutlined /></span>记一笔</button>}
+        <button onClick={onRecord} className="is-brand"><span><EditOutlined /></span>记一笔</button>
       </div>
 
-      {c.公海 && <div className="m-callout">公海客户：在电脑上领取后归你跟进，才能在这里记跟进。</div>}
+      {/* 记跟进 = 领取（2026-10-19）：记一笔就领过来；断网时先排着，联网后替你领（被别人先领走的进「没同步上」） */}
+      {c.公海 && <div className="m-callout">{断网 ? "这是公海客户，联网后会替你领取。" : "公海客户：记一笔跟进就领取过来，归你跟进。"}</div>}
 
       {c.计划 && (
         <section className="m-card">
@@ -733,7 +735,7 @@ function DetailScreen({ os, c, 现在, 来自, 业务, 待同步, onBack, onReco
       )}
 
       {c.remark && <section className="m-card"><div className="m-card-h">备注</div><p className="m-note">{c.remark}</p></section>}
-      <div className="m-foot-note">改资料、领取公海客户请在电脑上操作</div>
+      <div className="m-foot-note">改资料请在电脑上操作；公海客户记一笔跟进就领取过来</div>
     </Page>
   );
 }
@@ -745,7 +747,7 @@ function 计划标题(字: string) {
   return 首句 ? `接着跟进：${首句}` : "接着跟进";
 }
 
-function RecordSheet({ c, os, 我, 业务, onCancel, onSave }: { c: 客户视图; os: 系统; 我: string; 业务: BusinessConfig; onCancel: () => void; onSave: (x: Omit<同步.记跟进输入, "customerId">) => void }) {
+function RecordSheet({ c, os, 我, 断网, 业务, onCancel, onSave }: { c: 客户视图; os: 系统; 我: string; 断网: boolean; 业务: BusinessConfig; onCancel: () => void; onSave: (x: Omit<同步.记跟进输入, "customerId">) => void }) {
   // 有 WhatsApp 号的（外贸客户多半是）默认记成 WhatsApp；只有微信号的默认微信沟通；都没有的照旧默认消息（2026-10-16 / 10-19）
   const [t, setT] = useState<(typeof 同步.手机跟进类型)[number]>(c.whatsapp ? "WHATSAPP" : c.wechat ? "WECHAT" : "SMS");
   // 关联商机 / 订单（2026-10-19 客户反馈第 8 条）：和电脑上那一格一样，外贸模版商机、订单两组都列，通用模版只有商机
@@ -775,10 +777,11 @@ function RecordSheet({ c, os, 我, 业务, onCancel, onSave }: { c: 客户视图
     <div className="m-record">
       <div className="m-sheet-h">
         <button className="m-text-btn" onClick={onCancel}>{os === "ios" ? "取消" : <CloseOutlined />}</button>
-        <b>记一笔跟进</b>
+        <b>{c.公海 ? "领取并记跟进" : "记一笔跟进"}</b>
         <button className="m-text-btn is-strong" disabled={!可存} onClick={存}>保存</button>
       </div>
       <div className="m-record-who"><Avatar name={c.name} size={28} /><span className="m-ellipsis">{c.name}</span><span className="m-flag">{国旗(c.country)}</span></div>
+      {c.公海 && <div className="m-callout" data-testid="m-record-pool">{断网 ? "这是公海客户，联网后会替你领取" : "这是公海客户，保存后归你跟进"}</div>}
       <div className="m-chips" role="radiogroup" aria-label="跟进方式">
         {类型表.map((x) => (
           <button key={x.value} role="radio" aria-checked={t === x.value} className={t === x.value ? "is-on" : ""} onClick={() => setT(x.value)}>
@@ -1127,6 +1130,9 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
   const [数字, set数字] = useState<string | null>(null);
   const [状态, set状态] = useState<"pending" | "denied" | "expired" | "error">("pending");
   const [错, set错] = useState<string | null>(null);
+  // 个人版账号 / 团队没开 / 电脑还没连上团队：不生成配对数字、不发申请，直接说清楚（2026-10-19 客户反馈手机一直干等）
+  const [不能, set不能] = useState<"no-team" | "inactive" | "no-device" | null>(null);
+  const [再查, set再查] = useState(0);
   const 设 = useRef<设备 | null>(null);
   // 外层每 30 秒重画一次（「现在」走表），onApproved 每次都是新函数：放进 ref，别让它把申请流程整个重跑一遍
   const 批了 = useRef(onApproved);
@@ -1135,9 +1141,17 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
     let 停 = false;
     const 云 = 做传输(token, () => undefined);
     (async () => {
+      const 资 = await 连.查资格(云);
+      if (停) return;
+      if (资 !== "ok") { set不能(资); return; }
+      set不能(null);
       const d = await 本机设备(库);
       设.current = d;
-      await 连.发申请(云, { device: d.device, pubKey: d.公钥, label: 设备标签() });
+      await 连.发申请(云, { device: d.device, pubKey: d.公钥, label: 设备标签() }).catch((e: unknown) => {
+        const 拦 = 连.资格被拦(e instanceof Error ? e.message : String(e));
+        if (拦) { 停 = true; set不能(拦); }
+        throw e;
+      });
       const n = await 密.配对数字(d.公钥);
       if (!停) set数字(n);
       while (!停) {
@@ -1149,7 +1163,9 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
       }
     })().catch((e: unknown) => { if (!停) { set状态("error"); set错(e instanceof Error ? e.message : String(e)); } });
     return () => { 停 = true; };
-  }, [token, 库]);
+  }, [token, 库, 再查]);
+
+  if (不能) return <NotTeamScreen why={不能} onRetry={() => set再查((n) => n + 1)} onLogout={onRestart} />;
 
   return (
     <motion.div className="m-flow" {...进场}>
@@ -1170,6 +1186,27 @@ function AuthorizeFlow({ token, 库, onApproved, onRestart }: { token: string; �
         <p className="m-faint">电脑不在身边？先放着，打开桌面端或已连上的手机版就会弹出来。只有第一次需要授权。</p>
         {状态 !== "pending" && <button className="m-btn m-btn-block" onClick={() => void onRestart()}>重新登录</button>}
         {状态 === "pending" && <button className="m-text-btn" onClick={() => void onRestart()}>换个账号</button>}
+      </div>
+    </motion.div>
+  );
+}
+
+/** 连不了手机的三种情况（2026-10-19）：不生成配对数字，说清楚为什么、下一步做什么 */
+function NotTeamScreen({ why, onRetry, onLogout }: { why: "no-team" | "inactive" | "no-device"; onRetry: () => void; onLogout: () => Promise<void> }) {
+  const 话 = {
+    "no-team": { 标题: "手机伴侣是团队版功能", 正文: "个人版的数据只在你的电脑上，手机连不上。想用手机记跟进，可以私信我们开通团队版。" },
+    inactive: { 标题: "团队同步还没开通", 正文: "你在团队里，但团队同步还没开通或已经停用。开通后再回来连手机；要开通可以私信我们。" },
+    "no-device": { 标题: "先在电脑上连上团队", 正文: "先在电脑上连上团队，再回来连手机。打开电脑上的 Daedalus CRM，在「设置 → 团队」里用邀请码加入；连上后回到这里点「再试一次」。" },
+  }[why];
+  return (
+    <motion.div className="m-flow" {...进场} data-testid="m-not-team" data-why={why}>
+      <div className="m-flow-top">
+        <h1>{话.标题}</h1>
+        <p>{话.正文}</p>
+      </div>
+      <div className="m-flow-foot">
+        {why !== "no-team" && <button className="m-btn m-btn-block" onClick={onRetry}>再试一次</button>}
+        <button className={why === "no-team" ? "m-btn m-btn-block" : "m-text-btn"} onClick={() => void onLogout()}>退出登录</button>
       </div>
     </motion.div>
   );

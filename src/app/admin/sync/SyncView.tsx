@@ -7,7 +7,7 @@ import { MoreOutlined } from "@ant-design/icons";
 import { dayjs } from "@/lib/utils";
 import { 页头, 站内, LinkPending } from "../OpsShell";
 import { 卡片 } from "../ui";
-import { 开通续费团队, 改团队到期, 停用团队, 改团队价格 } from "../actions";
+import { 开通续费团队, 改团队到期, 改团队人数, 停用团队, 改团队价格 } from "../actions";
 import { 时长们, 时长名, 应收, 北京日期, 新到期日, type 价格表 } from "@/lib/team-pricing";
 
 type 记录 = {
@@ -81,6 +81,7 @@ export default function SyncView({ token, rows, 价格, 今天 }: { token: strin
   const [忙, set忙] = useState<string | null>(null);
   const [开, set开] = useState<行 | null>(null);
   const [改, set改] = useState<行 | null>(null);
+  const [改人, set改人] = useState<行 | null>(null);
   const [改价, set改价] = useState(false);
 
   function 停(r: 行) {
@@ -175,7 +176,7 @@ export default function SyncView({ token, rows, 价格, 今天 }: { token: strin
                   {r.人数}
                   {r.席位 ? ` / ${r.席位}` : ""}
                   {r.席位 !== null && r.人数 > r.席位 && (
-                    <Tooltip title="人数超过买的席位：本次只提示、不拦，续费时按现有人数开">
+                    <Tooltip title="人数超过上限（多半是 10-19 开始拦之前进来的）：新成员、新设备都会被拦，要么在「改人数」里调高，要么请老板移出几位">
                       <Tag color="error" style={{ marginLeft: 6 }}>超 {r.人数 - r.席位}</Tag>
                     </Tooltip>
                   )}
@@ -204,9 +205,10 @@ export default function SyncView({ token, rows, 价格, 今天 }: { token: strin
                     menu={{
                       items: [
                         { key: "due", label: "改到期日" },
+                        { key: "seats", label: "改人数" },
                         ...(r.active ? [{ type: "divider" as const }, { key: "off", label: "停用", danger: true }] : []),
                       ],
-                      onClick: ({ key }) => (key === "due" ? set改(r) : 停(r)),
+                      onClick: ({ key }) => (key === "due" ? set改(r) : key === "seats" ? set改人(r) : 停(r)),
                     }}
                   >
                     <Button size="small" type="text" icon={<MoreOutlined />} loading={忙 === r.id} aria-label={`${r.name} 更多操作`} />
@@ -219,6 +221,7 @@ export default function SyncView({ token, rows, 价格, 今天 }: { token: strin
       </卡片>
       {开 && <OpenRenewModal key={开.id} token={token} r={开} 价格={价格} onClose={() => set开(null)} />}
       {改 && <EditDueModal key={改.id} token={token} r={改} 今天={今天} onClose={() => set改(null)} />}
+      {改人 && <EditSeatsModal key={改人.id} token={token} r={改人} onClose={() => set改人(null)} />}
       {改价 && <PriceModal token={token} 价格={价格} onClose={() => set改价(false)} />}
     </>
   );
@@ -261,7 +264,7 @@ function OpenRenewModal({ token, r, 价格, onClose }: { token: string; r: 行; 
         <label>人数</label>
         <div>
           <InputNumber min={1} max={100} precision={0} value={人} onChange={(v) => 换(月, Math.max(1, Number(v) || 1))} suffix="人" style={{ width: 120 }} />
-          <span className="opx-faint opx-form-tip">团队现在 {r.人数} 人{r.席位 ? ` · 原来买了 ${r.席位} 席` : ""}</span>
+          <span className="opx-faint opx-form-tip">团队现在 {r.人数} 人{r.席位 ? ` · 原来买了 ${r.席位} 席` : ""} · 这就是上限，满了新成员进不来</span>
         </div>
         <label>应收</label>
         <div>
@@ -320,6 +323,37 @@ function EditDueModal({ token, r, 今天, onClose }: { token: string; r: 行; �
         <Input value={备注} onChange={(e) => set备注(e.target.value)} maxLength={200} placeholder="为什么改，如：上次少算了 3 天" />
       </div>
       {!r.active && <Alert type="warning" showIcon style={{ marginTop: 16 }} title="这个团队现在没开通：改到期日不会打开同步，要开请用「开通 / 续费」" />}
+    </Modal>
+  );
+}
+
+/** 只改人数上限（不收钱、不动到期日）。客户先说要几人，以后要改就找我们改：改完马上按新数拦 */
+function EditSeatsModal({ token, r, onClose }: { token: string; r: 行; onClose: () => void }) {
+  const { message } = App.useApp();
+  const [人, set人] = useState(r.席位 ?? Math.max(1, r.人数));
+  const [备注, set备注] = useState("");
+  const [交, set交] = useState(false);
+  async function 确认() {
+    set交(true);
+    const res = await 改团队人数({ token, teamId: r.id, seats: 人, note: 备注 });
+    set交(false);
+    if (!res.ok) return void message.error(res.error ?? "操作失败");
+    message.success(`人数上限改成 ${人} 人`);
+    onClose();
+  }
+  return (
+    <Modal open getContainer={挂在运营台} title={`改人数：${r.name}`} onCancel={onClose} okText="保存" confirmLoading={交} onOk={() => void 确认()} width={480}>
+      <p className="opx-faint opx-form-lead">人数就是上限（含老板）：满了以后新成员加入、新设备批准都会被拦。改了马上生效，不动到期日、不记金额；要收差价请用「开通 / 续费」。</p>
+      <div className="opx-form">
+        <label>人数上限</label>
+        <div>
+          <InputNumber min={1} max={100} precision={0} value={人} onChange={(v) => set人(Math.max(1, Number(v) || 1))} suffix="人" style={{ width: 120 }} />
+          <span className="opx-faint opx-form-tip">现在 {r.人数} 人{r.席位 ? ` · 原来上限 ${r.席位} 人` : " · 原来没设上限"}</span>
+        </div>
+        <label>备注</label>
+        <Input value={备注} onChange={(e) => set备注(e.target.value)} maxLength={200} placeholder="如：客户私信说再加 2 人" />
+      </div>
+      {人 < r.人数 && <Alert type="warning" showIcon style={{ marginTop: 16 }} title={`比现在的 ${r.人数} 人还少：已经在队里的人不会被踢，但谁也加不进来，新设备也批不了，直到老板移出几位`} />}
     </Modal>
   );
 }

@@ -79,3 +79,17 @@ export function 同步闸(t: { active: boolean }, plan: { paidUntil: Date | null
   if (已到期(plan, now)) return 到期话(plan!.paidUntil!);
   return null;
 }
+
+/** 席位满了那句话（入队、批准新设备、桌面端设置页同一句；2026-10-19 拍板要拦，见 tenant/team-plan.ts 席位闸） */
+export const 人满话 = (n: number) => `团队人数已满（${n} 人），要加人请私信我们`;
+
+/**
+ * 手机伴侣只给团队版（2026-10-19 客户反馈「手机点了 电脑没跳出来匹配」：个人版账号手机登录后一直挂着配对数字干等）。
+ * 手机登录后先问一下（/api/mobile/link action=eligibility），不是 ok 就不生成配对数字，直接说清楚；发申请时服务端也按同一条拦
+ */
+export type 手机资格 = "ok" | "no-team" | "inactive" | "no-device";
+export const 手机资格话: Record<Exclude<手机资格, "ok">, string> = {
+  "no-team": "手机伴侣是团队版功能，开通团队版后再连",
+  inactive: "团队同步还没开通或已停用，开通后再连手机",
+  "no-device": "先在电脑上连上团队，再回来连手机",
+};

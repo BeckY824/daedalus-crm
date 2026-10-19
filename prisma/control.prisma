@@ -546,6 +546,22 @@ model SyncScopedRecord {
   @@id([teamId, key])
 }
 
+/// 跨成员查重的索引（2026-10-19，lib/sync/dedupe.ts）：号码 / 邮箱 / 微信号规整后用团队钥匙做的 HMAC，客户名封着。
+/// 不存明文；谁的客户不存，查的时候按 SyncScopedRecord 里这位客户当前的负责人算
+model SyncDedupeKey {
+  teamId String
+  /// 客户 id（SyncScopedRecord 的键是 Customer:<它>）
+  recordKey String
+  hash String
+  /// 封哈希时的钥匙编号：换了钥匙之后旧的对不上，查的时候只认当前编号
+  epoch Int
+  /// 封好的客户名（团队钥匙），只回给问的人
+  label String
+  updatedAt DateTime @default(now())
+  @@id([teamId, recordKey, hash])
+  @@index([teamId, hash])
+}
+
 model SyncScopedBatch {
   id Int @id @default(autoincrement())
   teamId String

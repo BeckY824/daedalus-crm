@@ -12,6 +12,7 @@ import DevicesCard from "./DevicesCard";
 import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
 import TeamNoticeCard from "./TeamNoticeCard";
+import { 人满话 } from "@/lib/team-pricing";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
@@ -237,9 +238,7 @@ export default function TeamTab() {
       {s.active === true && s.到期 && (
         <p className="muted team-plan" data-testid="team-plan">
           有效期至 {s.到期.日}（{s.到期.剩 > 0 ? `还剩 ${s.到期.剩} 天` : "今天到期"}）
-          {s.席位 ? ` · ${s.席位} 个席位，现在 ${s.成员.length} 人` : ""}
-          {/* 人数超了只提示、不拦（lib/tenant/team-plan.ts）：老板心里有数，续费时按现在的人数开 */}
-          {s.我是建的人 && s.席位 && s.成员.length > s.席位 ? `（比买的多 ${s.成员.length - s.席位} 人，续费时按现在的人数算）` : ""}
+          {s.席位 ? ` · 人数上限 ${s.席位} 人，现在 ${s.成员.length} 人` : ""}
         </p>
       )}
       {s.active === true && s.到期 && s.到期.剩 <= 7 && (
@@ -374,6 +373,11 @@ export default function TeamTab() {
       <section className="team-card">
         <h3>邀请同事</h3>
         <p className="muted">把邀请码发给同事，他们进来就是业务员。<b>只发给同事</b>：拿到它的人就能进团队。</p>
+        {/* 席位要拦（2026-10-19，lib/tenant/team-plan.ts 席位闸）：满了同事拿着邀请码也进不来，先说在这里 */}
+        {s.席位 && s.成员.length >= s.席位 ? (
+          <Alert type="warning" showIcon style={{ marginBottom: 12, maxWidth: 560 }} data-testid="team-seats-full"
+            title={人满话(s.席位)} description="已经在团队里的人照常用；同事拿着邀请码也进不来。开通时定的人数就是上限，要改请私信我们。" />
+        ) : null}
         <Space.Compact style={{ width: "100%", maxWidth: 560 }}>
           <Input value={s.邀请码 || "这台看不到邀请码"} readOnly aria-label="邀请码" disabled={!s.邀请码} />
           <Button icon={<CopyOutlined />} disabled={!s.邀请码} onClick={() => void 复制(s.邀请码)}>复制</Button>

@@ -6,7 +6,7 @@
  *   建团队 → 待开通 → 运营台按时长开通 → 邀请码加入（加入前本机已有客户、模版币种以团队为准）→ 范围同步
  *   → 本人新电脑配对（首页 / 设置页同一个申请，电脑批、手机批、老板第二台的管理权限）→ 每人 3 台上限 → 我的设备 / 移除设备
  *   → 公海领取、交接、转走后的推送被拒不丢 → 断网时两边改同一位客户 → 手机离线记跟进再联网
- *   → 快到期提醒 / 到期暂停 / 续费恢复 → 席位超了 → 改名 → 移除同事（换钥匙）→ 退出团队 / 重新加入
+ *   → 快到期提醒 / 到期暂停 / 续费恢复 → 改名 → 移除同事（换钥匙）→ 退出团队 / 重新加入
  *   → 0.46.16 时建的单设备团队升级后再加设备；一路核「没同步上」「疑似重复」「待老板核对」这几张清单。
  * 每一步除了数据对不对，还核给人看的那句话（界面原样显示的 error / lastError）说得清、知道下一步做什么。
  *
@@ -304,14 +304,14 @@ describe("1. 建团队 → 待开通 → 运营台按时长开通", () => {
     expect(s.成员.map((m) => m.name)).toEqual(["王老板", "李业务", "赵业务"]);
   });
 
-  it("运营台开通（1 个月、买 2 个席位，团队现在 3 人）：开始同步，有效期和席位显示出来", async () => {
-    const r = await 开通.开通续费({ teamId, 时长: { months: 1 }, seats: 2, amount: 59.8, by: "测试" });
+  it("运营台开通（1 个月、3 个人，团队现在正好 3 人；10-19 起人数就是上限、满了拦，见 team-plan.test.ts）：开始同步，有效期和席位显示出来", async () => {
+    const r = await 开通.开通续费({ teamId, 时长: { months: 1 }, seats: 3, amount: 89.7, by: "测试" });
     expect(r.ok).toBe(true);
     await 都轮("boss", "li", "zhao", "boss", "li", "zhao");
     const s = await 在团队的状态("boss");
     expect(s.active).toBe(true);
     expect(s.到期?.剩).toBeGreaterThanOrEqual(28);
-    expect(s.席位).toBe(2);
+    expect(s.席位).toBe(3);
     expect(s.成员).toHaveLength(3);
     expect(s.lastError).toBeNull();
   });
