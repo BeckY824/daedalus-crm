@@ -48,6 +48,7 @@
       "reminders.js",
       "sync.js",
       "ops-notices.js",
+      "team-notices.js",
       "sign.js",
       "assets/**"
     ],

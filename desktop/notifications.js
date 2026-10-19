@@ -49,7 +49,9 @@ function 创建通知出口({ Notification, 取上下文, 取激活入口, 记�
       n.once("click", click);
       while (活着.size > 最多) 收掉(活着.keys().next().value);
       n.show();
-      return { ok: true };
+      // 收回：同一个人一分钟内又录了几条，先收回上一条再发合并的那条（desktop/team-notices.js）
+      const 这条 = n;
+      return { ok: true, 收回: () => 收掉(这条) };
     } catch {
       if (n) 收掉(n);
       activation?.取消();
