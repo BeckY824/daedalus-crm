@@ -194,6 +194,11 @@ try {
   await wait(() => starts() > initialStarts,
     90_000, "NSIS automatic relaunch uses the same default user data root");
   console.log("PASS: actual full NSIS installer replaces installed file and relaunches the app");
+  // 0.46.22 起 Windows 点 × 默认先问「最小化到托盘 / 退出」（close-to-tray.js），下面用 CloseMainWindow 模拟点 ×，
+  // 弹框没人点就一直不退。当成用户选过「退出」并记住：合并写进 config.json（没有这个文件时 读配置 当本地模式，照写 mode: local）
+  const configFile = path.join(root, "config.json");
+  const config = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, "utf8")) : { mode: "local" };
+  fs.writeFileSync(configFile, JSON.stringify({ ...config, closeAction: "quit" }, null, 2));
   execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
     // The service-start log precedes BrowserWindow creation. Closing a snapshot
     // with no window leaves the automatic instance alive; the next launch then
