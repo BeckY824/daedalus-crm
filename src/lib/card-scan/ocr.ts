@@ -63,6 +63,22 @@ async function 建引擎(语言: 名片语言): Promise<引擎> {
   };
 }
 
+/**
+ * 这台手机下过中英那套没有（paddle.js 10 MB + wasm 25 MB + 模型 6 MB，服务器在香港）。下过就在浏览器缓存里（/ocr/ 一年不过期），
+ * 第一次那句进度话要说清楚多大、连 Wi-Fi，免得人以为卡住了。只是一句提示用的记号，读写不了（无痕、存储被禁）就当没下过
+ */
+const 下过键 = "m-ocr-v1-ready";
+export const 第一次下载的话 = "第一次要下载约 40MB 识别文件，连 Wi-Fi 更快，下过一次之后没网也能认";
+let 这次建好了 = false;
+function 下过(): boolean {
+  if (这次建好了) return true;
+  try { return localStorage.getItem(下过键) === "1"; } catch { return false; }
+}
+function 记下下过(): void {
+  这次建好了 = true;
+  try { localStorage.setItem(下过键, "1"); } catch { /* 存不了就下次再提示一遍 */ }
+}
+
 function 取引擎(语言: 名片语言): Promise<引擎> {
   let p = 引擎们.get(语言);
   if (!p) {
@@ -70,6 +86,7 @@ function 取引擎(语言: 名片语言): Promise<引擎> {
       if (k !== "中英") { 引擎们.delete(k); void q.then((e) => e.关()).catch(() => undefined); }
     }
     p = 建引擎(语言);
+    if (语言 === "中英") void p.then(记下下过, () => undefined);
     // 建失败（断网第一次下载、内存不够）别把坏的留着，下次再试
     p.catch(() => 引擎们.delete(语言));
     引擎们.set(语言, p);
@@ -113,7 +130,8 @@ export function 该换的语言(一: 框[]): 名片语言 | null {
  * 照片只在这个函数里用，返回的只有文字
  */
 export async function 认名片(file: Blob, 进: 进度, 指定?: 名片语言): Promise<识别结果> {
-  进("正在准备识别…");
+  // 点相机时已经在预热了（引擎们里有、但可能还在下），所以按「建好过没有」判断
+  进(下过() ? "正在准备识别…" : 第一次下载的话);
   const 中英 = await 取引擎("中英");
   进("正在认名片…");
   let 图 = await 缩图(file);
