@@ -12,18 +12,9 @@
  */
 import { 拆字段, 统一, 低分框, 合并两遍, 低分框得分, 低分框线索, 像假拉丁, 四边形转框, type 框, type 字段 } from "./parse";
 import { 下载齐, 下载中断, type 要下的 } from "./download";
-
-export type 名片语言 = "中英" | "日" | "韩" | "阿拉伯" | "泰" | "西里尔" | "天城";
-export const 名片语言们: { k: 名片语言; 叫: string; 模型: string; MB: number }[] = [
-  { k: "中英", 叫: "中英", 模型: "PP-OCRv6_tiny", MB: 0 },
-  { k: "日", 叫: "日文", 模型: "PP-OCRv6_small", MB: 19 },
-  { k: "韩", 叫: "韩文", 模型: "korean_PP-OCRv5_mobile", MB: 8 },
-  { k: "阿拉伯", 叫: "阿拉伯文", 模型: "arabic_PP-OCRv5_mobile", MB: 7 },
-  { k: "泰", 叫: "泰文", 模型: "th_PP-OCRv5_mobile", MB: 7 },
-  { k: "西里尔", 叫: "俄文", 模型: "cyrillic_PP-OCRv5_mobile", MB: 7 },
-  { k: "天城", 叫: "印地文", 模型: "devanagari_PP-OCRv5_mobile", MB: 7 },
-];
-const 语言表 = Object.fromEntries(名片语言们.map((x) => [x.k, x])) as Record<名片语言, (typeof 名片语言们)[number]>;
+import { 服务器认, 服务器预热, 服务器不认, 能用服务器, 等预热 } from "./cloud";
+import { 名片语言们, 语言表, type 名片语言 } from "./langs";
+export { 名片语言们, type 名片语言 };
 
 /** 百分 = 下载进度 0–100，只有在下识别文件时给 */
 export type 进度 = (话: string, 百分?: number) => void;
@@ -157,8 +148,15 @@ async function 等引擎(语言: 名片语言, 进: 进度, 话: (MB: number) =>
   }
 }
 
-/** 提前把中英那套载好（打开「扫名片」时就开始，拍照那几秒正好下完） */
+/**
+ * 打开「扫名片」时就开始准备，拍照那几秒正好备好：
+ * 本机下过识别文件的照旧本机认，先把引擎载好；没下过、服务器能用的叫服务器起好线程（不下 12 MB）；服务器不给用就照旧先下本机的
+ */
 export function 预热(): void {
+  if (!下过() && 能用服务器()) {
+    void 服务器预热().then((能) => { if (!能 && !能用服务器()) void 取引擎("中英").catch(() => undefined); });
+    return;
+  }
   void 取引擎("中英").catch(() => undefined);
 }
 
@@ -184,8 +182,8 @@ async function 读图(file: Blob): Promise<{ 图: CanvasImageSource; 宽: number
   }
 }
 
-/** 手机照片 1200 万像素：先按 EXIF 摆正、缩到长边 1600 再认；转 180° 也在这里做 */
-async function 缩图(file: Blob, 转180 = false): Promise<Blob> {
+/** 手机照片 1200 万像素：先按 EXIF 摆正、缩到长边 1600 再认；转 180° 也在这里做。传服务器的压狠一点（几百 KB，慢网也几秒传完） */
+async function 缩图(file: Blob, 转180 = false, 质量 = 0.92): Promise<Blob> {
   const { 图, 宽, 高, 关 } = await 读图(file);
   const k = Math.min(1, 1600 / Math.max(宽, 高));
   const w = Math.round(宽 * k), h = Math.round(高 * k);
@@ -195,7 +193,7 @@ async function 缩图(file: Blob, 转180 = false): Promise<Blob> {
   if (转180) { g.translate(w, h); g.rotate(Math.PI); }
   g.drawImage(图, 0, 0, w, h);
   关();
-  return new Promise((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error("照片读不出来"))), "image/jpeg", 0.92));
+  return new Promise((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error("照片读不出来"))), "image/jpeg", 质量));
 }
 
 const 平均 = (框们: 框[]) => (框们.length ? 框们.reduce((s, b) => s + b.score, 0) / 框们.length : 0);
@@ -218,24 +216,44 @@ export async function 认名片(file: Blob, 进: 进度, 指定?: 名片语言):
   // 点相机时已经在预热了（引擎们里有、但可能还在下），所以按「建好过没有」判断；在下的时候带上百分比
   const 第一次 = !下过();
   进("正在准备识别…");
-  // 下过的从浏览器缓存里过一遍，一下就到 100%，不说「下载」
-  const 中英 = await 等引擎("中英", 进, (MB) => (第一次 ? 第一次下载的话(MB) : "正在准备识别…"));
+  // 本机下过识别文件的照旧本机认（不用传照片）；没下过的先交给服务器，服务器不行这一张就改在手机上认
+  if (第一次) await 等预热();
+  let 云 = 第一次 && 能用服务器();
+  const 中英话 = (MB: number) => (第一次 ? 第一次下载的话(MB) : "正在准备识别…");
+  /** 认一遍：服务器能用先服务器；服务器不认（不给用、排太久、断了）就在手机上认（第一次要下识别文件，带百分比） */
+  const 认一遍 = async (图: Blob, 语言: 名片语言, 下载话: (MB: number) => string): Promise<框[]> => {
+    if (云) {
+      try {
+        const 项们 = await 服务器认(图, 语言, (前面) => 进(前面 > 0 ? `排队中，前面还有 ${前面} 张…` : "正在认名片…"));
+        return 项们.map((it) => 四边形转框(it.poly, it.text, it.score, 0));
+      } catch (e) {
+        if (!(e instanceof 服务器不认)) throw e;
+        云 = false;
+      }
+    }
+    const 引擎 = await 等引擎(语言, 进, 下载话);
+    进("正在认名片…");
+    return 引擎.认(图);
+  };
+  // 本机认：下过的从浏览器缓存里过一遍，一下就到 100%，不说「下载」
+  if (!云) await 等引擎("中英", 进, 中英话);
   进("正在认名片…");
-  let 图 = await 缩图(file);
-  let 一 = await 中英.认(图);
+  const 质量 = 云 ? 0.85 : 0.92;
+  let 图 = await 缩图(file, false, 质量);
+  let 一 = await 认一遍(图, "中英", 中英话);
   if (平均(一) < 0.8) {
     // 倒着拍的：转过来再认一遍，谁好用谁
-    const 倒 = await 缩图(file, true);
-    const 二 = await 中英.认(倒);
+    const 倒 = await 缩图(file, true, 质量);
+    const 二 = await 认一遍(倒, "中英", 中英话);
     if (平均(二) > 平均(一)) { 一 = 二; 图 = 倒; }
   }
   let 框们 = 一, 语言: 名片语言 = "中英";
   const 换 = 指定 && 指定 !== "中英" ? 指定 : 指定 ? null : 该换的语言(一);
   if (换) {
-    const 第一次 = !引擎们.has(换);
-    进(第一次 && 语言表[换].MB ? `正在下载${语言表[换].叫}识别（约 ${语言表[换].MB} MB，只下一次）…` : `正在按${语言表[换].叫}再认一遍…`);
+    const 要下 = !云 && !引擎们.has(换) && 语言表[换].MB;
+    进(要下 ? `正在下载${语言表[换].叫}识别（约 ${语言表[换].MB} MB，只下一次）…` : `正在按${语言表[换].叫}再认一遍…`);
     try {
-      const 二 = await (await 等引擎(换, 进, () => `正在下载${语言表[换].叫}识别（约 ${语言表[换].MB} MB，只下一次）…`)).认(图);
+      const 二 = await 认一遍(图, 换, () => `正在下载${语言表[换].叫}识别（约 ${语言表[换].MB} MB，只下一次）…`);
       // 自动换的：低分框上还认不好就不换（人点的照用）
       const 低 = 低分框(一);
       if (指定 || !低.length || 低分框得分(一, 二) >= 0.85) { 框们 = 合并两遍(一, 二); 语言 = 换; 最近语言 = 换; }

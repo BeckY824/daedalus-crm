@@ -13,6 +13,10 @@
  *   - 主文件不再带 OpenCV：我们只用 worker 模式，主线程那份 10 MB 的 OpenCV 从来不用（worker 里自带一份）
  *   - 每个文件预先压好 .br / .gz（app/ocr-files 按 Accept-Encoding 直接给，带长度，浏览器能显示进度、断了能续）
  *   - 写一份 manifest.json：每种语言要哪几个文件、多大，客户端照着自己下（显示百分比、断了重试，见 lib/card-scan/download.ts）
+ *
+ * 同一天改成服务器识别为主（用户同意）：服务器上跑同一套 SDK + 模型，在 worker 线程里（lib/card-scan/server/worker.ts），
+ * 这里顺手打成 ocr-server/worker.mjs（SDK、OpenCV、onnxruntime 都打进去；sharp 外置，standalone 里有），onnxruntime 的 Node 版 wasm 放旁边。
+ * 不进仓库，Dockerfile 拷进运行镜像；模型照旧读 public/ocr/v1/models
  */
 import { build } from "esbuild";
 import fs from "node:fs";
@@ -55,7 +59,38 @@ for (const f of ["ort-wasm-simd-threaded.jsep.mjs", "ort-wasm-simd-threaded.jsep
 }
 await 预压缩(出);
 写清单(出);
-console.log("ocr: public/ocr/v1 已生成");
+await 打服务器识别();
+console.log("ocr: public/ocr/v1、ocr-server 已生成");
+
+/** 服务器识别的 worker：打成一个 ESM 文件，OpenCV.js 里用的 __dirname / require 补上 */
+async function 打服务器识别() {
+  const 服 = path.join(根, "ocr-server");
+  fs.rmSync(服, { recursive: true, force: true });
+  await build({
+    entryPoints: { worker: path.join(根, "src/lib/card-scan/server/worker.ts") },
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    target: "node22",
+    outdir: 服,
+    outExtension: { ".js": ".mjs" },
+    minify: true,
+    legalComments: "none",
+    logLevel: "warning",
+    external: ["sharp"],
+    banner: {
+      js: [
+        'import { createRequire as __ocrRequire } from "node:module";',
+        'import { fileURLToPath as __ocrPath } from "node:url";',
+        "const require = __ocrRequire(import.meta.url);",
+        "const __filename = __ocrPath(import.meta.url);",
+        'const __dirname = __ocrPath(new URL(".", import.meta.url));',
+      ].join(" "),
+    },
+  });
+  // onnxruntime-web 的 Node 版按 import.meta.url 找这两个（不带 WebGPU 的那份）
+  for (const f of ["ort-wasm-simd-threaded.mjs", "ort-wasm-simd-threaded.wasm"]) fs.copyFileSync(path.join(ort, f), path.join(服, f));
+}
 
 /**
  * SDK 主文件里 `import cvModule from "@techstark/opencv-js"` 只给主线程模式用（OcrPipelineRunner.initialize → initOpenCvRuntime），

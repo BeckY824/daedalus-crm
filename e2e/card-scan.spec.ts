@@ -10,11 +10,14 @@
  *     第一次下识别文件时说清楚大小；/m 的 Permissions-Policy 放开相机
  *   - 2026-10-20「识别模型没下载下来」（伦敦，服务器在香港）：/ocr/ 给预压缩的 br、带长度；下载有百分比；
  *     断了自动重试；一直下不来给「再试一次」，接着下能认；页面在后台时断了说「下载被中断，保持在这个页面再点一次」
+ *   - 同一天改成服务器认为主（团队版，用户同意）：这里的服务器是自部署模式，/api/mobile/scan 回 404 → 上面这些都是本机认（兜底那条路）；
+ *     服务器认的几条用 page.route 演服务器（真接口在 hosted.spec.ts 里真认）：认得出不下识别文件、服务器忙 / 连不上改本机认
  */
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
 import { 查排版, 说问题 } from "./layout-audit";
 import { 灌手机, 外贸来源 } from "./mobile-seed";
+import fs from "node:fs";
 
 const 卡 = (n: string) => path.join(__dirname, "fixtures/cards", n);
 const 出处 = (名: string) => (process.env.E2E_SHOT_DIR ? path.join(process.env.E2E_SHOT_DIR, 名) : test.info().outputPath(名));
@@ -222,6 +225,59 @@ test("页面在后台时下载断了：说「下载被中断，保持在这个�
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
   await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
 });
+
+/** 演服务器认名片（团队版）：GET 回能用，POST 按 回 给一行一行的结果；记下传上去的照片 */
+async function 演服务器(page: Page, 回: (n: number) => string | "断") {
+  const 传了: { 令牌: string | null; 类型: string | null; 字节: number; 语言: string | null }[] = [];
+  await page.route("**/api/mobile/scan**", async (r) => {
+    if (r.request().method() === "GET") return r.fulfill({ json: { ok: true } });
+    const 请 = r.request();
+    传了.push({ 令牌: await 请.headerValue("authorization"), 类型: await 请.headerValue("content-type"), 字节: 请.postDataBuffer()?.length ?? 0, 语言: new URL(请.url()).searchParams.get("lang") });
+    const 体 = 回(传了.length);
+    if (体 === "断") return r.abort("internetdisconnected");
+    return r.fulfill({ status: 200, contentType: "application/x-ndjson", body: 体 });
+  });
+  const 下了: string[] = [];
+  page.on("request", (q) => { if (q.url().includes("/ocr/v1/")) 下了.push(q.url()); });
+  return { 传了, 下了 };
+}
+const 服务器认出的 = fs.readFileSync(卡("02-en-uk.server.json"), "utf8");
+
+test("服务器认（团队版）：第一次也不用下识别文件，照片压好了传一张，认完填好表单", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 667 });
+  await 灌手机(page, { 业务: 外贸 });
+  const { 传了, 下了 } = await 演服务器(page, () => `{"排队":1}\n{"排队":0}\n{"框":${服务器认出的}}\n`);
+  await page.getByRole("button", { name: "客户" }).last().click();
+  await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
+  const 表 = page.getByTestId("m-new-customer-sheet");
+  await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 30_000 });
+  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+  await expect(表.getByLabel("邮箱")).toHaveValue("oliver.bennett@harbourline.co.uk");
+  await expect(表.getByLabel("国家")).toHaveValue("英国");
+  expect(传了).toHaveLength(1);
+  expect(传了[0]).toMatchObject({ 令牌: "Bearer dk_e2e_fake_token", 类型: "image/jpeg", 语言: "中英" });
+  expect(传了[0].字节).toBeGreaterThan(5_000);
+  expect(传了[0].字节).toBeLessThan(1_000_000);
+  expect(下了, "服务器认的不该下识别文件").toEqual([]);
+  // 没在手机上下过：下一张照样先问服务器
+  expect(await page.evaluate(() => localStorage.getItem("m-ocr-v1-ready"))).toBeNull();
+});
+
+for (const [名, 回] of [["服务器忙（排队太久）", () => `{"排队":3}\n{"忙":true}\n`], ["服务器连不上", () => "断" as const]] as const) {
+  test(`${名}：这一张改在手机上认（第一次下识别文件、有百分比），照样认出来`, async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 667 });
+    await 灌手机(page, { 业务: 外贸 });
+    const { 传了, 下了 } = await 演服务器(page, 回);
+    await page.getByRole("button", { name: "客户" }).last().click();
+    await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
+    const 表 = page.getByTestId("m-new-customer-sheet");
+    await expect(表.getByTestId("m-scan-busy")).toContainText(/第一次要下载约 1[0-3]MB 识别文件/, { timeout: 30_000 });
+    await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
+    await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+    expect(传了).toHaveLength(1);
+    expect(下了.length).toBeGreaterThan(0);
+  });
+}
 
 for (const 宽 of [360, 375]) {
   test(`手机 ${宽} 宽：相机没打开（点了系统没弹）→ 提示 +「从相册选」走通识别`, async ({ page }) => {

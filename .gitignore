@@ -110,3 +110,5 @@ research-bench-out/
 # 预压缩的模型包（build-ocr.mjs 生成）
 /public/ocr/v1/models/*.br
 /public/ocr/v1/models/*.gz
+# 服务器识别名片的 worker（build-ocr.mjs 生成）
+/ocr-server/

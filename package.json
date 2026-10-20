@@ -63,7 +63,8 @@
     "onnxruntime-web": "1.24.3",
     "prisma": "6.16.2",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@playwright/test": "1.56.1",

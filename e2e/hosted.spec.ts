@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { 共享工作区 } from "./hosted-setup";
 
@@ -617,4 +618,42 @@ test("13 登录页把找回入口摆出来", async ({ page }) => {
 test("13b 登录页也给注册入口，指向下载页", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("link", { name: "下载桌面端" })).toHaveAttribute("href", "https://ai-daedalus.com/download.html");
+});
+
+/**
+ * 2026-10-20 扫名片改成服务器认为主（用户同意）：真起识别线程、真认一张。只给团队版令牌；不调 AI、不扣次数。
+ * 用第 1 条注册的那个账号：手机登录拿令牌 → 个人版被挡 → 直接在控制面库里给他开一个团队（建团队要桌面端，这里不走那条路）→ 能认
+ */
+test("14 服务器认名片：团队版令牌能认（一行一行回结果），个人版 403、不带令牌 401", async ({ request }) => {
+  const 登 = await request.post("/api/account/token", { data: { target: 桌面用户.邮箱, password: 桌面用户.密码, name: "手机 · e2e" } });
+  expect(登.ok()).toBe(true);
+  const { token } = (await 登.json()) as { token: string };
+  const 图 = fs.readFileSync(path.join(ROOT, "e2e/fixtures/cards/02-en-uk.jpg"));
+  const 认 = (令牌?: string) => request.post("/api/mobile/scan?lang=" + encodeURIComponent("中英"), {
+    headers: { "Content-Type": "image/jpeg", ...(令牌 ? { Authorization: `Bearer ${令牌}` } : {}) }, data: 图,
+  });
+  expect((await 认()).status()).toBe(401);
+  expect((await 认(token)).status()).toBe(403);
+  expect((await request.get("/api/mobile/scan", { headers: { Authorization: `Bearer ${token}` } })).status()).toBe(403);
+
+  const 我 = 查控制面("SELECT id FROM Account WHERE email = ?", 桌面用户.邮箱);
+  execFileSync("node", ["--experimental-sqlite", "-e", `
+    const { DatabaseSync } = require('node:sqlite');
+    const db = new DatabaseSync(process.argv[1]);
+    const 我 = process.argv[2];
+    db.prepare('INSERT INTO "SyncTeam" ("id", "name", "ownerAccountId", "joinSecretHash", "active") VALUES (?, ?, ?, ?, 1)').run('e2escanteam01', 'E2E 扫名片团队', 我, 'x');
+    db.prepare('INSERT INTO "SyncMember" ("teamId", "accountId", "role") VALUES (?, ?, ?)').run('e2escanteam01', 我, 'owner');
+    db.prepare('INSERT INTO "SyncDevice" ("teamId", "device", "accountId", "pubKey") VALUES (?, ?, ?, ?)').run('e2escanteam01', 'd_e2e_scan', 我, 'x');
+    db.close();
+  `, CONTROL_DB, 我]);
+
+  expect(await (await request.get("/api/mobile/scan", { headers: { Authorization: `Bearer ${token}` } })).json()).toEqual({ ok: true });
+  const r = await 认(token);
+  expect(r.status()).toBe(200);
+  expect(r.headers()["content-type"]).toContain("application/x-ndjson");
+  const 行们 = (await r.text()).trim().split("\n").map((l) => JSON.parse(l) as { 框?: { text: string }[] });
+  const 字 = (行们.at(-1)?.框 ?? []).map((x) => x.text);
+  expect(字).toContain("Oliver Bennett");
+  expect(字.join("\n")).toContain("oliver.bennett@harbourline.co.uk");
+  expect((await request.post("/api/mobile/scan?lang=xx", { headers: { Authorization: `Bearer ${token}` }, data: 图 })).status()).toBe(400);
 });

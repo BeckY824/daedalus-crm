@@ -6,9 +6,9 @@ import path from "node:path";
 /**
  * 扫名片的识别运行库（public/ocr/v1，scripts/build-ocr.mjs 从 node_modules 打出来，不进仓库）。
  * 放在这里而不是 package.json 的 build：next dev / next build 有好几处直接调（e2e、桌面打包、Dockerfile），
- * 哪一处起服务都先补上；已经有了就不动（认 manifest.json：2026-10-20 起才有，老副本里的旧产物会重打一遍）
+ * 哪一处起服务都先补上；已经有了就不动（认 manifest.json 和服务器识别的 ocr-server/worker.mjs：2026-10-20 起才有，老副本里的旧产物会重打一遍）
  */
-if (!existsSync(path.join(process.cwd(), "public/ocr/v1/manifest.json"))) {
+if (!["public/ocr/v1/manifest.json", "ocr-server/worker.mjs"].every((f) => existsSync(path.join(process.cwd(), f)))) {
   execFileSync(process.execPath, [path.join(process.cwd(), "scripts/build-ocr.mjs")], { stdio: "inherit" });
 }
 
@@ -56,8 +56,8 @@ const nextConfig: NextConfig = {
   // 容器部署：产出自带最小 node_modules 的独立 server.js
   output: "standalone",
   // Prisma 生成的客户端里有动态路径，Turbopack 会把整个项目追进 standalone（含 public/）；Dockerfile 另外再拷一遍 public，
-  // 扫名片的 115 MB 识别文件就会在镜像里出现两份。public/ocr 不追，只走 COPY public 那一份
-  outputFileTracingExcludes: { "*": ["public/ocr/**"] },
+  // 扫名片的 115 MB 识别文件就会在镜像里出现两份。public/ocr 不追，只走 COPY public 那一份；服务器识别的 ocr-server 也是 Dockerfile 单独拷
+  outputFileTracingExcludes: { "*": ["public/ocr/**", "ocr-server/**"] },
 
   /*
     只给 e2e 用（playwright.feedback-chain.config.ts）：同一份代码里同时起「云端」和「桌面端本地服务」两个 next dev。
