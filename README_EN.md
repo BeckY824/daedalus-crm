@@ -233,6 +233,10 @@ Open **http://localhost:3000**. The dev database comes with three accounts, all 
   <img src="https://contrib.rocks/image?repo=BeckY824/daedalus-crm" alt="contributors" />
 </a>
 
+**Participants** — people who reported issues and tracked down root causes. Thank you 🙏
+
+<a href="https://github.com/zixi66688" title="zixi66688: popups pushed off-screen with reduced motion on (#1)"><img src="https://github.com/zixi66688.png?size=96" width="48" height="48" alt="zixi66688" /></a>
+
 <br/>
 
 ## 🔒 Security
