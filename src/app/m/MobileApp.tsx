@@ -5,7 +5,7 @@ import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
 import {
   AudioOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseCircleFilled, CloseOutlined, CloudSyncOutlined, CopyOutlined,
   DisconnectOutlined, EditOutlined, ExclamationCircleFilled, LaptopOutlined, LinkOutlined, LockOutlined, MailOutlined, MobileOutlined, PhoneOutlined, PlusOutlined, RightOutlined,
-  SearchOutlined, WhatsAppOutlined, CameraOutlined,
+  SearchOutlined, WhatsAppOutlined, CameraOutlined, PictureOutlined,
 } from "@ant-design/icons";
 import * as 同步 from "@/lib/mobile/sync";
 import * as 连 from "@/lib/mobile/link";
@@ -19,7 +19,7 @@ import { stageLabel, 外贸订单, type BusinessConfig } from "@/lib/business-co
 import { 订单前缀 } from "@/lib/follow-link";
 import { 国家候选 } from "@/lib/customer-extra";
 import { 推入 } from "./push";
-import { ScanBar, ScanButton, useCardScan, 拍名片 } from "./CardScan";
+import { BrowserTip, ScanBar, ScanButton, useCardScan, usePickPhoto, NoCameraTip } from "./CardScan";
 import { 只补空格, 空名片表单, type 名片表单 } from "@/lib/card-scan/form";
 import { 号键 } from "@/lib/phone";
 import "./m.css";
@@ -606,9 +606,10 @@ function CustomersScreen({ os, 客户们, 我, 现在, 断网, 名, onOpen, onMe
   }, [q, 段, 客户们, 手上, 公海]);
   // 一次最多画 300 行：几千位客户时也不卡；要找的用搜索
   const 画 = 列表.slice(0, 300);
+  const 扫 = usePickPhoto(onScan);
   return (
     <Page os={os} 标题="客户" onRefresh={onSync}
-      右={<><ScanButton onPhoto={onScan} /><button className="m-icon-btn m-add" onClick={onNew} aria-label="新建客户" data-testid="m-new-customer"><PlusOutlined /></button><button className="m-me" onClick={onMe} aria-label="我的">{简称(名 || "我")}</button></>}
+      右={<><ScanButton onClick={扫.拍} /><button className="m-icon-btn m-add" onClick={onNew} aria-label="新建客户" data-testid="m-new-customer"><PlusOutlined /></button><button className="m-me" onClick={onMe} aria-label="我的">{简称(名 || "我")}</button></>}
       吸顶={
         <div className="m-search-wrap">
           <label className="m-search">
@@ -623,6 +624,8 @@ function CustomersScreen({ os, 客户们, 我, 现在, 断网, 名, onOpen, onMe
               <i className="m-seg-thumb" style={{ transform: `translateX(${段 === "mine" ? 0 : 100}%)` }} />
             </div>
           )}
+          {扫.点过 && 扫.换浏览器 && <BrowserTip 话={扫.换浏览器} />}
+          {扫.没开 && <NoCameraTip on相册={扫.相册} on关={扫.关} />}
         </div>
       }>
       {断网 && <div className="m-offline-note"><DisconnectOutlined /> 离线：看到的是上次同步的内容</div>}
@@ -897,15 +900,11 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
     if (话) { set错(话); return; }
     if (扫过) set存好(填.name.trim());
   };
-  const 再扫 = () => {
-    // 先开相机（要在点击里），拍到了再清表单；来源留着
-    void import("@/lib/card-scan/ocr").then((m) => m.预热());
-    void 拍名片().then((f) => {
-      if (!f) return;
-      set填((x) => ({ ...空(), source: x.source })); set黄(new Set()); set候选({ 名字: [], wa: null }); set存好(null); set错(null);
-      用照片(f);
-    });
-  };
+  // 再扫一张：先开相机（要在点击里），拍到了再清表单；来源留着
+  const 再扫 = usePickPhoto((f) => {
+    set填((x) => ({ ...空(), source: x.source })); set黄(new Set()); set候选({ 名字: [], wa: null }); set存好(null); set错(null);
+    用照片(f);
+  });
   const 黄的 = (k: keyof 名片表单) => (黄.has(k) ? " is-check" : "");
   const 老 = 错 ? 找老(填.phone, 填.email) : undefined;
   if (存好 !== null) {
@@ -914,7 +913,10 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
         <div className="m-scan-saved-ok"><CheckCircleFilled /></div>
         <b>已存好「{存好}」</b>
         <p>{填.source ? `来源：${填.source}，下一张会自动带上` : "下一张也从相机直接填"}</p>
-        <button className="m-btn m-btn-block" data-testid="m-scan-again" onClick={再扫}><CameraOutlined /> 再扫一张</button>
+        {再扫.点过 && 再扫.换浏览器 && <BrowserTip 话={再扫.换浏览器} />}
+        {再扫.没开 && <NoCameraTip />}
+        <button className="m-btn m-btn-block" data-testid="m-scan-again" onClick={再扫.拍}><CameraOutlined /> 再扫一张</button>
+        <button className="m-scan-take is-ghost" data-testid="m-scan-again-album" onClick={再扫.相册}><PictureOutlined /> 从相册选</button>
         <button className="m-btn m-btn-block m-btn-ghost" onClick={onCancel}>完成</button>
       </div>
     );

@@ -10,7 +10,7 @@ import dayjs from "dayjs";
  * 这里只负责看得见、点得回：恢复前当前库会先另存一份「恢复前」，恢复错了还能再恢复回来。
  * 老版本的壳没有这两个口子，那时整块不出现。
  */
-export type 自动备份项 = { 文件名: string; 类型: "每天" | "升级前" | "恢复前"; 时间: string; 大小: number };
+export type 自动备份项 = { 文件名: string; 类型: "每天" | "升级前" | "恢复前" | "合并前"; 时间: string; 大小: number };
 
 const 说大小 = (b: number) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
 /** 升级前那份把版本号念出来：before-upgrade-0.46.14-to-0.46.15.db → 0.46.14 → 0.46.15 */

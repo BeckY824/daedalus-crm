@@ -29,6 +29,14 @@ const 安全头 = [
 ];
 
 /**
+ * 手机伴侣 /m 要扫名片：相机放开给自己（不给嵌进来的别家页面），话筒、定位照旧关着。
+ * 2026-10-20 客户反馈扫名片「点了没反应」，查到 /m 也带着上面那条 camera=()。
+ * 拍照走的是 <input type=file capture>，规范上不归 Permissions-Policy 管，但国产浏览器 / 微信内核各有各的做法，
+ * 能放开的先放开。只放 /m 这一页（及其下的路径）：权限策略跟着页面走，页面里调的接口、静态文件不用带
+ */
+const 手机伴侣权限 = "camera=(self), microphone=(), geolocation=()";
+
+/**
  * 静态资源（`/_next/static/*`）换一个域名发。**只在构建镜像时生效**，运行时设它没有用。
  *
  * 2026-09-20 花了一下午确认这件事：我们托管的那份跑在香港、用户在国内，一个登录页
@@ -67,6 +75,8 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       { source: "/:path*", headers: 安全头 },
+      // 同一个头后面的覆盖前面的（Next 文档：同名头以后匹配的那条为准）；/m/:path* 也匹配 /m 本身
+      { source: "/m/:path*", headers: [{ key: "Permissions-Policy", value: 手机伴侣权限 }] },
       // 扫名片的模型和运行库：几十 MB，第一次下完就别再问服务器（展会上没网也能认）。换内容时目录 v1 → v2
       { source: "/ocr/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
     ];

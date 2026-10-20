@@ -25,7 +25,7 @@ import { 节点灯 } from "../order";
 import { 订单节点 } from "../features";
 import { 现值选取, 现值表 } from "./current-values";
 import { prisma, defaultClient } from "../prisma";
-import { 限定的我, 可见客户 } from "../team-scope";
+import { 读的我, 可见客户 } from "../team-scope";
 import { dayjs } from "../utils";
 import { FOLLOW_TYPE_MAP, OPP_STAGES } from "../constants";
 import { formatTimeline } from "../ai-context";
@@ -788,7 +788,8 @@ export const TOOLS: Tool[] = [
       const k = str(args.keyword, 30);
       const 产品 = str(args.product, 60);
       // 业务员只看得到自己客户的比价（二审，同 lib/supplier-db.ts）：供应商不挂在客户下面，嵌套带出的比价得自己筛
-      const 我 = await 限定的我(defaultClient);
+      // 团队开了互看：全队的比价都看得到（读的我 = null）
+      const 我 = await 读的我(defaultClient);
       const 比价限 = 我 ? { opportunity: { customer: 可见客户(我) } } : {};
       const rows = await prisma.supplier.findMany({
         where: {

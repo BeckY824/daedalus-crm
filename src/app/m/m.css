@@ -404,7 +404,9 @@ a.m-icon-btn { text-decoration: none; }
 .m-form label.is-check span::after { content: " · 请看一眼"; font-weight: 500; color: var(--warning-text); }
 .m-scan-mark { padding: 0 4px; font-weight: 600; color: var(--warning-text); background: var(--warning-bg); border-radius: 4px; }
 .m-scan-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 6px; padding: 10px 12px; font-size: 13px; color: var(--text-muted); background: var(--brand-bg); border-radius: var(--r-card); }
-.m-scan-bar.is-busy { color: var(--brand-deep); font-weight: 600; }
+.m-scan-bar.is-busy { flex-wrap: nowrap; align-items: flex-start; color: var(--brand-deep); font-weight: 600; line-height: 1.5; }
+.m-scan-bar.is-busy > .anticon { flex: none; margin-top: 3px; }
+.m-scan-bar.is-busy > span:not(.anticon) { flex: 1; min-width: 0; }
 .m-scan-bar.is-err { color: var(--warning-text); background: var(--warning-bg); }
 .m-scan-bar.is-err > span { flex: 1 1 200px; min-width: 0; }
 .m-scan-bar.is-done { display: block; background: var(--panel); border: 1px solid var(--line); }
@@ -412,6 +414,21 @@ a.m-icon-btn { text-decoration: none; }
 .m-scan-row > span { min-width: 0; }
 .m-scan-take { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; font-size: 14px; font-weight: 600; color: var(--brand); background: var(--panel); border: 1px solid var(--brand); border-radius: 999px; white-space: nowrap; }
 .m-scan-take:active { opacity: 0.6; }
+.m-scan-take.is-ghost { color: var(--ink-soft); border-color: var(--line-strong); }
+.m-scan-btns { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+/* 相机没打开（没权限 / 被静默拒绝）：一句话怎么办 +「从相册选」 */
+.m-scan-nocam { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 6px; padding: 10px 12px; font-size: 13px; line-height: 1.5; color: var(--warning-text); background: var(--warning-bg); border-radius: var(--r-card); }
+.m-scan-nocam.is-row { flex-direction: row; align-items: flex-start; }
+.m-scan-nocam.is-row > span { flex: 1; min-width: 0; }
+.m-scan-nocam-act { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.m-scan-nocam .m-icon-btn { margin-left: auto; }
+.m-scan-nocam .m-icon-btn { width: 28px; height: 28px; background: transparent; color: var(--text-muted); font-size: 13px; }
+.m-search-wrap .m-scan-nocam { margin: 8px 0 0; }
+/* 不在支持名单里的浏览器：推荐换 Edge / Safari（不拦人） */
+.m-scan-browser { margin: 4px 0 6px; padding: 8px 12px; font-size: 13px; line-height: 1.5; color: var(--ink-soft); background: var(--panel); border: 1px dashed var(--line-strong); border-radius: var(--r-card); }
+.m-search-wrap .m-scan-browser { margin: 8px 0 0; }
+.m-scan-saved .m-scan-browser { width: 100%; text-align: left; }
+.m-scan-saved .m-scan-nocam { width: 100%; text-align: left; }
 .m-scan-hint { min-width: 0; font-size: 12px; color: var(--text-faint); }
 .m-scan-langs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .m-scan-langs > span { margin-right: 2px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
