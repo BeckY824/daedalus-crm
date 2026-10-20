@@ -48,7 +48,7 @@ function 跑(cmd, args, opts = {}) {
 }
 
 function 步骤(n, 说明) {
-  console.log(`\n[${n}/9] ${说明}`);
+  console.log(`\n[${n}/10] ${说明}`);
 }
 
 /* ---------- 1. Prisma 客户端 ---------- */
@@ -293,7 +293,49 @@ if (!fs.existsSync(path.join(控制面, "index.js"))) {
 }
 console.log(`  删掉 ${控删} 个，省下 ${(控省 / 1024 / 1024).toFixed(0)} MB`);
 
-/* ---------- 9. 业务库的原生引擎必须还在 ---------- */
+/* ---------- 9. 裁掉运行时用不到的三类文件 ---------- */
+/*
+  2026-10-20 量 0.46.22 的安装目录时挑出来的，三样加起来 Mac 56 MB、Windows 39 MB：
+
+  - sharp 图片处理库（node_modules/sharp + @img/*）：Mac 是 27 MB 的原生库，Windows 是 10 MB 的 wasm 版。
+    它只在有人请求 /_next/image 时才加载，而全项目没有一处用 next/image；next.config.ts 也设了
+    images.unoptimized，那条路本身就不走了
+  - *.nft.json：next build 记依赖用的追踪清单（119 个，14 MB），standalone 服务运行时一次都不读
+  - *.map：source map（135 个，15 MB，大头是 Prisma 运行时自带的）。本地服务没开 --enable-source-maps，
+    崩溃日志也不靠它还原
+
+  **删不到东西要吭声**，理由同第 7、8 步：Next / Prisma 换了布局，这一步会静悄悄空转，包胖回去没人发现。
+  删过头的那一头由第 10 步兜住（引擎、server.js 还在不在）。
+*/
+步骤(9, "裁掉 sharp、依赖追踪清单和 source map");
+const 裁 = { sharp: { 个: 0, 字节: 0 }, nft: { 个: 0, 字节: 0 }, map: { 个: 0, 字节: 0 } };
+function 记删(类, p) {
+  裁[类].个++;
+  裁[类].字节 += fs.statSync(p).isDirectory() ? 字节数(p) : fs.statSync(p).size;
+  fs.rmSync(p, { recursive: true, force: true });
+}
+for (const 包 of ["node_modules/sharp", "node_modules/@img"]) {
+  const p = path.join(OUT, 包);
+  if (fs.existsSync(p)) 记删("sharp", p);
+}
+(function 扫(dir) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) 扫(p);
+    else if (e.name.endsWith(".nft.json")) 记删("nft", p);
+    else if (e.name.endsWith(".map")) 记删("map", p);
+  }
+})(OUT);
+for (const [类, { 个, 字节 }] of Object.entries(裁)) {
+  if (个 === 0) {
+    console.error(`  !! ${类} 一个都没删到。多半是 Next / Prisma 换了文件布局——去 server-bundle 里看一眼实际在哪，把上面的判断改对。`);
+    console.error("     不改的话包会白胖十几二十 MB，而且没有任何报错。");
+    process.exit(1);
+  }
+  console.log(`  ${类}：删掉 ${个} 个，省下 ${(字节 / 1048576).toFixed(1)} MB`);
+}
+
+/* ---------- 10. 业务库的原生引擎、服务入口必须还在 ---------- */
 /*
   上面三步都在删文件，而删错了的下场是「装上打开就崩」，本机 `npm run dev`
   完全看不出来（那条路不走这个产物）。所以最后再核一次：业务库的原生引擎在不在。
@@ -304,7 +346,13 @@ console.log(`  删掉 ${控删} 个，省下 ${(控省 / 1024 / 1024).toFixed(0)
   第 8 步起，包里本来就存心少了一份引擎（控制面那份），
   「哪儿都行」的判断会被别处的副本蒙混过去，而业务库那份才是每一次查询都要加载的。
 */
-步骤(9, "核对业务库的原生引擎还在");
+步骤(10, "核对业务库的原生引擎、服务入口还在");
+for (const 必须 of ["server.js", "entry.js", ".next/BUILD_ID", "node_modules/next/package.json"]) {
+  if (!fs.existsSync(path.join(OUT, 必须))) {
+    console.error(`  !! ${必须} 不见了，这个包装上打不开`);
+    process.exit(1);
+  }
+}
 if (本平台引擎) {
   const 业务引擎 = path.join(OUT, "src/generated/prisma", 本平台引擎);
   if (!fs.existsSync(业务引擎)) {
