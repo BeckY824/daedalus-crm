@@ -84,7 +84,8 @@ npm run dist:mac
 ```
 
 `dist:mac` 会先装配 `server-bundle/`（跑一次 `next build`，几分钟），再出 dmg，
-产物在 `desktop/dist/`。只改了外壳没改应用时用 `npm run build:server:fast` 省掉重新构建。
+最后把 dmg 转成 LZMA 压缩的 ULMO（`scripts/dmg-ulmo.mjs`，比 electron-builder 默认的小三成多），
+产物在 `desktop/dist/`。Windows 安装包用 `compression: maximum`（LZMA 固实压缩）。只改了外壳没改应用时用 `npm run build:server:fast` 省掉重新构建。
 
 **产物只适用于打包机器的架构。** 装配时会按平台裁掉其它平台的 Prisma 引擎，
 所以 Apple 芯片的机器打出来的包在 Intel Mac 上跑不了。要发 Intel 版就在 Intel 机器
