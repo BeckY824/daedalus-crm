@@ -4,7 +4,8 @@ import { hasVisibleText } from "@/lib/form-validation";
 
 import { 不在了 } from "@/lib/not-there";
 import { revalidatePath } from "next/cache";
-import { prisma } from "@/lib/prisma";
+import { prisma, defaultClient } from "@/lib/prisma";
+import { 只读客户 } from "@/lib/team-scope";
 import type { Prisma } from "@/generated/prisma";
 import { requireUser } from "@/lib/auth";
 import { FOLLOW_TYPES, FOLLOW_RECORD_STATUSES } from "@/lib/constants";
@@ -150,6 +151,17 @@ export async function saveFollowUp(input: FollowUpInput) {
     if (extra && (input.id || !Array.isArray(extra.tasks) || extra.tasks.length > 20 || extra.tasks.some((t) => !t || typeof t.title !== "string" || !hasVisibleText(t.title) || (t.dueAt != null && !有效日期(t.dueAt))) ||
       (extra.plan && (typeof extra.plan.subject !== "string" || !hasVisibleText(extra.plan.subject) || !有效日期(extra.plan.plannedAt) || typeof extra.plan.method !== "string" || !hasVisibleText(extra.plan.method))) ||
       (extra.完成计划 != null && (typeof extra.完成计划 !== "string" || !extra.完成计划)))) return { ok: false as const, error: "附带待办或计划信息不完整，请检查后重试" };
+    /*
+      同事的客户（团队开了互看，2026-10-20）：只许新记一条跟进。改已有的、顺手建待办 / 计划、完成别人的计划都不行——
+      服务端同一份规矩（scope-policy 互看可加），本机先说清楚，不等推上去被拒进「待核对」
+    */
+    const 目标 = await prisma.customer.findUnique({ where: { id: input.customerId }, select: { salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } } });
+    const 同事的 = !!目标 && await 只读客户(defaultClient, 目标);
+    if (同事的) {
+      if (input.id) return { ok: false as const, error: "这是同事的客户：只能新加跟进，改已有的跟进请找负责人" };
+      if (extra?.tasks?.length || extra?.plan || extra?.完成计划 || ((input.type === "TASK" || input.type === "REMIND") && !!input.dueAt && input.status !== "已完成"))
+        return { ok: false as const, error: "这是同事的客户：只能记跟进，待办、提醒和下一步计划请找负责人安排" };
+    }
     const data = {
       type: input.type, title: input.title?.trim() ?? "", content: input.content.trim(), status: input.status,
       duration: input.durationMinutes ? Math.round(input.durationMinutes * 60) : null,
@@ -206,7 +218,10 @@ export async function saveFollowUp(input: FollowUpInput) {
         audits.push({ user, action: "update", entity: "FollowPlan", entityId: plan.id, summary: `完成跟进计划「${plan.subject}」（${customer.name}）` });
       }
       const latest = await tx.followUp.findFirst({ where: { customerId: input.customerId, occurredAt: { lte: new Date() } }, orderBy: { occurredAt: "desc" }, select: { occurredAt: true } });
-      await tx.customer.update({ where: { id: input.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
+      // 同事的客户：最近跟进时间是派生列、本来就不同步（各台回放时重算），裸 SQL 只改本机，不动 updatedAt、不推一条改客户
+      // 和回放时的重算同一句（lib/sync/local.ts 重算派生），日期在库里怎么存不用这里管
+      if (同事的) await tx.$executeRawUnsafe('UPDATE "Customer" SET lastFollowAt = (SELECT MAX(occurredAt) FROM "FollowUp" WHERE customerId = ?) WHERE id = ?', input.customerId, input.customerId);
+      else await tx.customer.update({ where: { id: input.customerId }, data: { lastFollowAt: latest?.occurredAt ?? null } });
       return { ok: true as const, id, 待办id, 下次计划id, audits };
     });
     if (!result.ok) return result;

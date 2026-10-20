@@ -3,13 +3,15 @@
  *
  * 桌面端一个人也会开两个窗口、也会手快连点：编辑框开着时那条在另一个窗口删了、点「完成」时那条已经没了、
  * 删除连点两下、撤销连点两下——原来都直接抛 Prisma 的异常，界面上没有任何反应，人以为没点上又点。
- * 只认这三种，其余照旧抛出去（那是真出了问题，不该被一句「刷新看看」盖住）：
+ * 只认这三种（外加团队互看的「只读」），其余照旧抛出去（那是真出了问题，不该被一句「刷新看看」盖住）：
  *   P2025 要改 / 要删的那条不存在
  *   P2003 关联已变化，或仍被其他记录依赖；不能据此断言当前记录已被删除
  *   P2002 撤销时那条已经回来了（唯一键撞了）
  */
 export function 不在了(e: unknown): { ok: false; error: string } {
   const code = (e as { code?: string } | null)?.code;
+  // 团队互看：同事的客户只能看和加跟进（lib/team-scope.ts 只读错误），话是给人看的，原样回
+  if (code === "CRM_READONLY") return { ok: false, error: (e as Error).message };
   if (code === "P2025") return { ok: false, error: "这一条已经不在了（可能在别处删了），刷新看看" };
   if (code === "P2003") return { ok: false, error: "关联数据已变化，或仍有其他记录依赖它；这次操作未完成，请刷新核对关联记录后重试" };
   if (code === "P2002") return { ok: false, error: "这一条已经在了，刷新看看" };

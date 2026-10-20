@@ -1,7 +1,7 @@
 import { scheduleValue, scheduleOrder, earliestScheduled } from "@/lib/schedule-date";
 import { notFound } from "next/navigation";
 import { 收藏了吗 } from "@/lib/favorites";
-import { prisma } from "@/lib/prisma";
+import { prisma, defaultClient } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
 import { followHistoryInclude, followHistoryOrder, serializeFollowHistory } from "./follow-history-query";
@@ -14,6 +14,7 @@ import { 客户报价记录 } from "@/lib/quote-db";
 import { 报价明细 } from "@/lib/features";
 import { 客户来源线索 } from "@/lib/customer-lead-origin";
 import { 取档案 } from "@/lib/customer-extra-db";
+import { 只读客户 } from "@/lib/team-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +88,8 @@ export default async function CustomerDetailPage({
       aiEnabled={await llmEnabled()}
       已收藏={await 收藏了吗(me.id, id)}
       能放公海={me.role === "ADMIN" || customer.salesOwnerId === me.id}
+      // 团队开了互看、这位是同事的：只能看和加跟进（lib/team-scope.ts）
+      只读={await 只读客户(defaultClient, customer)}
       customer={{
         id: customer.id,
         name: customer.name,

@@ -802,6 +802,64 @@ async function 主线() {
     }
   });
 
+  /* ================= 团队互看 + 老板指派公海（2026-10-20，客户需求） ================= */
+
+  await 步("老板把公海里的一位直接分给业务员：他那台按时到、出公海，别的业务员那边没了；撤销回到公海、大家又看得到", async () => {
+    const s = 台.sun;
+    const c = await 录一位(老, 名("boss", "公海指派"), 1);
+    const r0 = await 调(老, 动作.放进公海, [[c.id]]);
+    判(r0?.ok && r0.updated === 1, { 步骤: "放进公海", 哪台: 老板, 期望: "ok、updated = 1", 实际: r0 });
+    for (const n of 业务员) await 等到({ 步骤: "公海里的到了每位业务员那台", 哪台: `${n} ← boss`, 期望: `库里有「${c.名字}」、在公海`, 取: () => ({ 有: Boolean(客户(台[n], c.id)), 公海: 在公海(台[n], c.id) }), 满足: (v) => v.有 && v.公海, 超时: 15_000, 迟到也报: 20_000 });
+    // 业务员调不了（按钮也不摆）
+    const 越 = await 调(台.wang, 动作.分配公海, [[c.id], 台.wang.我]);
+    判(越?.ok === false, { 步骤: "业务员调分配公海被拒", 哪台: "wang", 期望: "ok = false", 实际: 越 });
+    const r = await 调(老, 动作.分配公海, [[c.id], s.我]);
+    判(r?.ok && r.updated === 1 && r.给谁?.id === s.我, { 步骤: "老板分配", 哪台: 老板, 期望: `ok、updated = 1、给谁 = sun`, 实际: r });
+    const 分完 = Date.now();
+    const { 用时 } = await 等到({ 步骤: "分到的人那台：归他、出了公海、带着跟进，列表里看得到", 哪台: "sun ← boss", 期望: `「${c.名字}」负责人 sun、不在公海、跟进 1 条、列表有`, 取: async () => ({ 负责人: 客户(s, c.id)?.salesOwnerId, 公海: 在公海(s, c.id), 跟进: 数(s, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", c.id), 列表: (await 客户列表(s)).includes(c.名字) }), 满足: (v) => v.负责人 === s.我 && !v.公海 && v.跟进 === 1 && v.列表, 超时: 10_000, 迟到也报: 20_000 });
+    if (范围) for (const n of 业务员.filter((x) => x !== "sun")) await 等没了(台[n], c, "范围：老板分给别人之后本机库里清掉了");
+    else for (const n of 业务员.filter((x) => x !== "sun")) await 等到({ 步骤: "别的业务员那边出了公海", 哪台: `${n} ← boss`, 期望: "不在公海", 取: () => 在公海(台[n], c.id), 满足: (v) => !v, 超时: 10_000, 迟到也报: 20_000 });
+    const u = await 调(老, 动作.撤销公海, ["分配", r.原负责人, r.带过来, s.我]);
+    判(u?.ok && u.updated === 1, { 步骤: "老板撤销分配", 哪台: 老板, 期望: "ok、updated = 1", 实际: u });
+    for (const n of 业务员) await 等到({ 步骤: "撤销之后回到公海、每位业务员那台都有", 哪台: `${n} ← boss`, 期望: `库里有「${c.名字}」、在公海、负责人回老板`, 取: () => ({ 有: Boolean(客户(台[n], c.id)), 公海: 在公海(台[n], c.id), 负责人: 客户(台[n], c.id)?.salesOwnerId }), 满足: (v) => v.有 && v.公海 && v.负责人 === 老.我, 超时: 15_000, 迟到也报: 20_000 });
+    return { 说: `分到的人 ${(用时 / 1000).toFixed(1)}s 收到（分完到看见 ${((Date.now() - 分完) / 1000).toFixed(1)}s 内撤销也传遍）${范围 ? `；越权检查 ${await 核越权("老板指派公海")} 行` : ""}` };
+  });
+
+  if (范围) await 步("团队互看：老板打开 → 业务员 15 秒内收到全队客户和跟进；同事的客户只能加跟进；关掉 → 业务员库里清干净", async () => {
+    const w = 台.wang;
+    const 私客 = 种子[1];
+    const on = await 调(老, 动作.设互看, [true]);
+    判(on?.ok && on.on === true, { 步骤: "老板打开互看", 哪台: 老板, 期望: "ok、on = true", 实际: on });
+    const 业务员改不了 = await 调(w, 动作.设互看, [false]);
+    判(业务员改不了?.ok === false, { 步骤: "业务员改不了开关", 哪台: "wang", 期望: "ok = false", 实际: 业务员改不了 });
+    const 开完 = Date.now();
+    const 到 = [];
+    for (const n of 在队业务员) {
+      const { 用时 } = await 等到({
+        步骤: "打开后业务员收到全队", 哪台: `${n} ← boss`, 期望: "客户数、跟进数和老板那台一样；.team.json 记着互看",
+        取: () => ({ 客户: 客户数(台[n]), 老板客户: 客户数(老), 跟进: 跟进数(台[n]), 老板跟进: 跟进数(老), 互看: 读团队文件(台[n])?.互看 ?? null }),
+        满足: (v) => v.客户 === v.老板客户 && v.跟进 === v.老板跟进 && v.互看 === true, 超时: Math.max(500, 15_000 - (Date.now() - 开完)) + 前台间隔, 迟到也报: 30_000,
+      });
+      到.push(`${n} ${(用时 / 1000).toFixed(1)}s`);
+    }
+    判((await 客户列表(w)).includes(私客.名字), { 步骤: "业务员列表里看得到老板的私客", 哪台: "wang", 期望: `有「${私客.名字}」`, 实际: "没有" });
+    // 同事的客户：能记跟进（老板那边收到），改资料不行
+    const 内容 = `${私客.名字}-wang 替老板接的电话`;
+    const f = await 调(w, 动作.记跟进, [{ customerId: 私客.id, type: "PHONE", title: "", content: 内容, status: "已完成", occurredAt: new Date().toISOString() }]);
+    判(f?.ok, { 步骤: "业务员给老板的客户记跟进", 哪台: "wang", 期望: "ok", 实际: f });
+    const 改 = await 调(w, 动作.改一格, [私客.id, "remark", "业务员想改老板的客户"]);
+    判(改?.ok === false, { 步骤: "业务员改老板客户的资料被拒", 哪台: "wang", 期望: "ok = false", 实际: 改 });
+    await 等到({ 步骤: "老板那边收到业务员记的跟进", 哪台: `${老板} ← wang`, 期望: `有「${内容}」`, 取: () => 数(老, "SELECT COUNT(*) AS n FROM FollowUp WHERE content = ?", 内容), 满足: (v) => v === 1, 超时: 10_000, 迟到也报: 20_000 });
+    判(客户(老, 私客.id)?.remark !== "业务员想改老板的客户", { 步骤: "老板那边资料没被改", 哪台: 老板, 期望: "remark 不是业务员写的那句", 实际: 客户(老, 私客.id)?.remark });
+
+    const off = await 调(老, 动作.设互看, [false]);
+    判(off?.ok && off.on === false, { 步骤: "老板关掉互看", 哪台: 老板, 期望: "ok、on = false", 实际: off });
+    for (const n of 在队业务员) await 等到({ 步骤: "关掉后 .team.json 跟着关", 哪台: n, 期望: "互看 = false", 取: () => 读团队文件(台[n])?.互看 ?? null, 满足: (v) => v === false, 超时: 15_000 + 前台间隔, 迟到也报: 30_000 });
+    await 等没了(w, 私客, "关掉后老板的私客（连同业务员自己记的那条跟进）从业务员库里清掉");
+    判(!(await 客户列表(w)).includes(私客.名字), { 步骤: "关掉后业务员列表里没了", 哪台: "wang", 期望: `没有「${私客.名字}」`, 实际: "还在" });
+    return { 说: `打开后收到全队：${到.join("、")}；关掉后越权检查 ${await 核越权("关掉互看")} 行` };
+  });
+
   /* ================= 外贸（2026-10-06 测试分期 E.1）：模版、档案、订单在几台之间 ================= */
   const 预设 = JSON.parse(同步跑(path.join(根, "node_modules/.bin/tsx"), ["-e", "import('./src/lib/business-config.ts').then((m) => console.log(JSON.stringify(m.BUSINESS_PRESETS)))"]));
   const 模版 = (t) => JSON.parse(查库(t.库, "SELECT value FROM Setting WHERE key = 'business'")[0]?.value ?? "{}").template ?? "general";
