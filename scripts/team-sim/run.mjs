@@ -860,6 +860,32 @@ async function 主线() {
     return { 说: `打开后收到全队：${到.join("、")}；关掉后越权检查 ${await 核越权("关掉互看")} 行` };
   });
 
+  if (范围) await 步("业务主管：老板把 li 设成主管 → 他那台收到全队、本机角色 MANAGER、能改老板的客户；改回业务员 → 库里清干净", async () => {
+    const l = 台.li;
+    const 私客 = 种子[1];
+    const 越 = await 调(台.wang, 动作.设角色, [l.账号, "li", "manager"]);
+    判(越?.ok === false, { 步骤: "业务员设不了主管", 哪台: "wang", 期望: "ok = false", 实际: 越 });
+    const r = await 调(老, 动作.设角色, [l.账号, "li", "manager"]);
+    判(r?.ok && r.role === "manager", { 步骤: "老板把 li 设成主管", 哪台: 老板, 期望: "ok、role = manager", 实际: r });
+    const 设完 = Date.now();
+    const { 用时 } = await 等到({
+      步骤: "主管那台收到全队、本机角色跟上", 哪台: "li ← boss", 期望: "客户数、跟进数和老板那台一样；本机 User.role = MANAGER",
+      取: () => ({ 客户: 客户数(l), 老板客户: 客户数(老), 跟进: 跟进数(l), 老板跟进: 跟进数(老), 角色: 查库(l.库, "SELECT role FROM User WHERE id = ?", l.我)[0]?.role }),
+      满足: (v) => v.客户 === v.老板客户 && v.跟进 === v.老板跟进 && v.角色 === "MANAGER", 超时: 15_000 + 前台间隔, 迟到也报: 30_000,
+    });
+    判((await 客户列表(l)).includes(私客.名字), { 步骤: "主管列表里看得到老板的私客", 哪台: "li", 期望: `有「${私客.名字}」`, 实际: "没有" });
+    const 备注 = `主管改的-${批}`;
+    const 改 = await 调(l, 动作.改一格, [私客.id, "remark", 备注]);
+    判(改?.ok, { 步骤: "主管改老板客户的资料", 哪台: "li", 期望: "ok", 实际: 改 });
+    await 等到({ 步骤: "老板那边收到主管改的", 哪台: `${老板} ← li`, 期望: `remark = ${备注}`, 取: () => 客户(老, 私客.id)?.remark, 满足: (v) => v === 备注, 超时: 10_000, 迟到也报: 20_000 });
+
+    const back = await 调(老, 动作.设角色, [l.账号, "li", "member"]);
+    判(back?.ok && back.role === "member", { 步骤: "老板把 li 改回业务员", 哪台: 老板, 期望: "ok、role = member", 实际: back });
+    await 等到({ 步骤: "改回后本机角色跟着回", 哪台: "li", 期望: "User.role = SALES", 取: () => 查库(l.库, "SELECT role FROM User WHERE id = ?", l.我)[0]?.role, 满足: (v) => v === "SALES", 超时: 15_000 + 前台间隔, 迟到也报: 30_000 });
+    await 等没了(l, 私客, "改回业务员后老板的私客从他库里清掉");
+    return { 说: `主管 ${(用时 / 1000).toFixed(1)}s 收到全队（设完到看见 ${((Date.now() - 设完) / 1000).toFixed(1)}s 内改回也清掉）；改回后越权检查 ${await 核越权("改回业务员", ["li"])} 行` };
+  });
+
   /* ================= 外贸（2026-10-06 测试分期 E.1）：模版、档案、订单在几台之间 ================= */
   const 预设 = JSON.parse(同步跑(path.join(根, "node_modules/.bin/tsx"), ["-e", "import('./src/lib/business-config.ts').then((m) => console.log(JSON.stringify(m.BUSINESS_PRESETS)))"]));
   const 模版 = (t) => JSON.parse(查库(t.库, "SELECT value FROM Setting WHERE key = 'business'")[0]?.value ?? "{}").template ?? "general";

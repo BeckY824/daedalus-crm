@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { 云端地址 } from "@/lib/desktop/cloud";
 import { recordAudit } from "@/lib/audit";
-import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看 } from "@/lib/sync/client";
+import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看, 设角色 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
 import { 列出被盖, 看过被盖 } from "@/lib/sync/overwritten";
@@ -32,8 +32,9 @@ export async function 读团队状态() {
   const [s, 价格] = await Promise.all([团队状态(), 读价格表().catch(() => null)]);
   // 这台还没连上：账号在云上是哪个团队的、是不是在等另一台电脑允许（2026-10-15 多设备同步）
   if (!s.在团队) return { ...s, 价格, 连接: await 连接概况().catch(() => null) };
-  // 老板看每个人的客户数和跟进（2026-10-04：老板要看得到业务员的跟进过程）；疑似重复也只给老板看——业务员只看得到自己那一半
-  if (!s.我是建的人) return { ...s, 价格, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人> };
+  // 老板看每个人的客户数和跟进（2026-10-04：老板要看得到业务员的跟进过程）；疑似重复也只给老板看——业务员只看得到自己那一半。
+  // 业务主管（2026-10-20）看全队，这两样也给
+  if (!s.我是建的人 && !s.我是主管) return { ...s, 价格, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人> };
   return { ...s, 价格, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)) };
 }
 
@@ -109,6 +110,17 @@ export async function 设互看动作(on: boolean) {
   const r = await 设互看(on === true);
   if (r.ok) {
     await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: r.on ? "打开了「同事之间互相看得到客户」：业务员能看到全队客户（同事的只能看和加跟进）" : "关掉了「同事之间互相看得到客户」：业务员只看自己的客户和公海" });
+    revalidatePath("/", "layout");
+  }
+  return r;
+}
+
+/** 设业务主管 / 改回业务员（2026-10-20，只有老板；中继那边再核一次）。那位同事下一轮同步生效 */
+export async function 设角色动作(accountId: string, 名字: string, role: "manager" | "member") {
+  const me = await requireUser();
+  const r = await 设角色(String(accountId ?? ""), role === "manager" ? "manager" : "member");
+  if (r.ok) {
+    await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: role === "manager" ? `把「${名字}」设成了业务主管：看得到全队客户，能分配和处理重复` : `把「${名字}」改回了业务员：只看自己的客户和公海` });
     revalidatePath("/", "layout");
   }
   return r;
