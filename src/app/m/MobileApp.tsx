@@ -19,7 +19,7 @@ import { stageLabel, 外贸订单, type BusinessConfig } from "@/lib/business-co
 import { 订单前缀 } from "@/lib/follow-link";
 import { 国家候选 } from "@/lib/customer-extra";
 import { 推入 } from "./push";
-import { ScanBar, ScanButton, useCardScan, usePickPhoto, NoCameraTip } from "./CardScan";
+import { BrowserTip, ScanBar, ScanButton, useCardScan, usePickPhoto, NoCameraTip } from "./CardScan";
 import { 只补空格, 空名片表单, type 名片表单 } from "@/lib/card-scan/form";
 import { 号键 } from "@/lib/phone";
 import "./m.css";
@@ -624,6 +624,7 @@ function CustomersScreen({ os, 客户们, 我, 现在, 断网, 名, onOpen, onMe
               <i className="m-seg-thumb" style={{ transform: `translateX(${段 === "mine" ? 0 : 100}%)` }} />
             </div>
           )}
+          {扫.点过 && 扫.换浏览器 && <BrowserTip 话={扫.换浏览器} />}
           {扫.没开 && <NoCameraTip on相册={扫.相册} on关={扫.关} />}
         </div>
       }>
@@ -912,6 +913,7 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
         <div className="m-scan-saved-ok"><CheckCircleFilled /></div>
         <b>已存好「{存好}」</b>
         <p>{填.source ? `来源：${填.source}，下一张会自动带上` : "下一张也从相机直接填"}</p>
+        {再扫.点过 && 再扫.换浏览器 && <BrowserTip 话={再扫.换浏览器} />}
         {再扫.没开 && <NoCameraTip />}
         <button className="m-btn m-btn-block" data-testid="m-scan-again" onClick={再扫.拍}><CameraOutlined /> 再扫一张</button>
         <button className="m-scan-take is-ghost" data-testid="m-scan-again-album" onClick={再扫.相册}><PictureOutlined /> 从相册选</button>

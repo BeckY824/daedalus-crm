@@ -99,17 +99,39 @@ export function 预热(): void {
   void 取引擎("中英").catch(() => undefined);
 }
 
+/**
+ * 按 EXIF 摆正读进来。老内核不认 imageOrientation: "from-image"（10-20 模拟器：夸克 10.19 是 Chrome 100，直接报错、名片认不了），
+ * 退回 <img>（Chrome 81 起 <img> 默认按 EXIF 摆正）
+ */
+async function 读图(file: Blob): Promise<{ 图: CanvasImageSource; 宽: number; 高: number; 关: () => void }> {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    return { 图: bmp, 宽: bmp.width, 高: bmp.height, 关: () => bmp.close() };
+  } catch {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return { 图: img, 宽: img.naturalWidth, 高: img.naturalHeight, 关: () => URL.revokeObjectURL(url) };
+    } catch (e) {
+      URL.revokeObjectURL(url);
+      throw e;
+    }
+  }
+}
+
 /** 手机照片 1200 万像素：先按 EXIF 摆正、缩到长边 1600 再认；转 180° 也在这里做 */
 async function 缩图(file: Blob, 转180 = false): Promise<Blob> {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-  const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
+  const { 图, 宽, 高, 关 } = await 读图(file);
+  const k = Math.min(1, 1600 / Math.max(宽, 高));
+  const w = Math.round(宽 * k), h = Math.round(高 * k);
   const cv = document.createElement("canvas");
   cv.width = w; cv.height = h;
   const g = cv.getContext("2d")!;
   if (转180) { g.translate(w, h); g.rotate(Math.PI); }
-  g.drawImage(bmp, 0, 0, w, h);
-  bmp.close();
+  g.drawImage(图, 0, 0, w, h);
+  关();
   return new Promise((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error("照片读不出来"))), "image/jpeg", 0.92));
 }
 

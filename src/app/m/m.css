@@ -424,6 +424,10 @@ a.m-icon-btn { text-decoration: none; }
 .m-scan-nocam .m-icon-btn { margin-left: auto; }
 .m-scan-nocam .m-icon-btn { width: 28px; height: 28px; background: transparent; color: var(--text-muted); font-size: 13px; }
 .m-search-wrap .m-scan-nocam { margin: 8px 0 0; }
+/* 不在支持名单里的浏览器：推荐换 Edge / Safari（不拦人） */
+.m-scan-browser { margin: 4px 0 6px; padding: 8px 12px; font-size: 13px; line-height: 1.5; color: var(--ink-soft); background: var(--panel); border: 1px dashed var(--line-strong); border-radius: var(--r-card); }
+.m-search-wrap .m-scan-browser { margin: 8px 0 0; }
+.m-scan-saved .m-scan-browser { width: 100%; text-align: left; }
 .m-scan-saved .m-scan-nocam { width: 100%; text-align: left; }
 .m-scan-hint { min-width: 0; font-size: 12px; color: var(--text-faint); }
 .m-scan-langs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }

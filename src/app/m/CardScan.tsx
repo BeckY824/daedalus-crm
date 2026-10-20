@@ -9,7 +9,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { CameraOutlined, CloseOutlined, LoadingOutlined, PictureOutlined } from "@ant-design/icons";
-import { 取照片 } from "@/lib/card-scan/camera";
+import { 取照片, 换浏览器提示 } from "@/lib/card-scan/camera";
+import { 认浏览器 } from "./ui";
 import type { 名片语言, 识别结果 } from "@/lib/card-scan/ocr";
 import { 名片转表单, type 名片填法 } from "@/lib/card-scan/form";
 
@@ -18,18 +19,27 @@ const 预热 = () => { void import("@/lib/card-scan/ocr").then((m) => m.预热()
 
 /**
  * 拍名片 / 从相册选：拿到照片给 onPhoto。相机没打开（没权限、被静默拒绝）时 没开 = true，
- * 页面上给一句话和「从相册选」（NoCameraTip）；照片后来还是拍回来了，提示自己收起
+ * 页面上给一句话和「从相册选」（NoCameraTip）；相机其实开着（iPhone Safari 不发失焦）、拍回来或取消了，提示自己收起
  */
 export function usePickPhoto(onPhoto: (f: File) => void) {
   const [没开, set没开] = useState(false);
+  // 不在支持名单里的浏览器：点过扫名片就给一句推荐（不拦，照样开相机）
+  const [换浏览器] = useState(() => 换浏览器提示(认浏览器()));
+  const [点过, set点过] = useState(false);
   const 回调 = useRef(onPhoto);
   useEffect(() => { 回调.current = onPhoto; });
   const 取 = (相机: boolean) => {
     预热();
     set没开(false);
-    void 取照片(相机, () => set没开(true)).then((f) => { if (f) { set没开(false); 回调.current(f); } });
+    set点过(true);
+    void 取照片(相机, { 没开: () => set没开(true), 回来了: () => set没开(false) }).then((f) => { if (f) { set没开(false); 回调.current(f); } });
   };
-  return { 没开, 拍: () => 取(true), 相册: () => 取(false), 关: () => set没开(false) };
+  return { 没开, 换浏览器, 点过, 拍: () => 取(true), 相册: () => 取(false), 关: () => set没开(false) };
+}
+
+/** 不在支持名单里的浏览器：推荐换 Edge（安卓）/ Safari（iPhone）。不拦人 */
+export function BrowserTip({ 话 }: { 话: string }) {
+  return <div className="m-scan-browser" role="note" data-testid="m-scan-browser">{话}</div>;
 }
 
 /** 相机没打开时的那一条：怎么开权限 + 「从相册选」（表单里紧挨着就有「从相册选」，不再放一个） */
@@ -123,7 +133,8 @@ export function ScanBar({ 态, onPhoto, on换语言 }: { 态: 扫的状态 | nul
       </button>
     </span>
   );
-  const 没开 = 取.没开 && <NoCameraTip on关={取.关} />;
+  // 表单这一条就是扫名片入口：不在支持名单里的浏览器一直挂着推荐
+  const 没开 = <>{取.换浏览器 && <BrowserTip 话={取.换浏览器} />}{取.没开 && <NoCameraTip on关={取.关} />}</>;
   if (!态) return <>{没开}<div className="m-scan-bar">{拍}<span className="m-scan-hint">认完只留文字，照片不保存</span></div></>;
   if (态.阶段 === "错") return <>{没开}<div className="m-scan-bar is-err" role="alert"><span>{态.话}</span>{拍}</div></>;
   const 当前 = 态.指定 ?? "auto";
