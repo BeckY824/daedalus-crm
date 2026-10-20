@@ -14,6 +14,7 @@ import TeamPricing from "./TeamPricing";
 import TeamNoticeCard from "./TeamNoticeCard";
 import { 人满话 } from "@/lib/team-pricing";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
+import { RowLink } from "@/components/ui";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
 
@@ -346,7 +347,7 @@ export default function TeamTab() {
                 {g.记录.map((r, i) => (
                   <span key={r.id}>
                     {i > 0 && "、"}
-                    <Link href={r.href}>{r.name}</Link>
+                    <RowLink href={r.href}>{r.name}</RowLink>
                     {r.谁的 && <span className="muted">（{r.谁的}）</span>}
                   </span>
                 ))}
