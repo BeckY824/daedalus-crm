@@ -21,6 +21,7 @@ import { 国家候选 } from "@/lib/customer-extra";
 import { 推入 } from "./push";
 import { BrowserTip, ScanBar, ScanButton, useCardScan, usePickPhoto, NoCameraTip } from "./CardScan";
 import { 只补空格, 空名片表单, type 名片表单 } from "@/lib/card-scan/form";
+import { 设识别令牌 } from "@/lib/card-scan/cloud";
 import { 号键 } from "@/lib/phone";
 import "./m.css";
 
@@ -127,6 +128,8 @@ export default function MobileApp() {
   // 本地库是会原地变的对象：放在 state 里拿稳引用，变了靠「版本」重画
   const [库, set库] = useState<本地库 | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  // 扫名片先交给服务器认（团队版），要这枚令牌
+  useEffect(() => { 设识别令牌(token); }, [token]);
   const [团队, set团队] = useState<同步.手机团队 | null>(null);
   const [团队名, set团队名] = useState("");
   const [登录账号, set账号] = useState<账号 | null>(null);
@@ -878,8 +881,10 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
     set错(null);
   });
   // 从相机图标进来：一打开就认；手工「+」进来：聚焦名字格。只在打开时做一次
+  // （开发模式下 effect 会跑两遍：照片现在要传服务器认，别传两次）
+  const 认过 = useRef(false);
   useEffect(() => {
-    if (图) { void 扫.认(图); return; }
+    if (图) { if (!认过.current) { 认过.current = true; void 扫.认(图); } return; }
     const x = setTimeout(() => 名框.current?.focus(), 380);
     return () => clearTimeout(x);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -928,7 +933,7 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
         <b>新建{业务.customer}</b>
         <button className="m-text-btn is-strong" disabled={!可存} onClick={() => void 存()}>保存</button>
       </div>
-      <ScanBar 态={扫.态} onPhoto={用照片} on换语言={扫.换语言} />
+      <ScanBar 态={扫.态} onPhoto={用照片} on换语言={扫.换语言} on再试={扫.再试} />
       <form className="m-form m-form-sheet" onSubmit={(e) => { e.preventDefault(); void 存(); }}>
         <label className={黄的("name")}><span>名字</span><input ref={名框} value={填.name} onChange={改("name")} maxLength={100} placeholder={外贸 ? "公司名或联系人" : "姓名"} autoComplete="off" /></label>
         {候选.名字.length > 0 && (

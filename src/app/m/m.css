@@ -362,6 +362,7 @@ html.m-page nextjs-portal { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .m-spinner.is-on, .m-waiting span { animation: m-fade 0.8s ease-in-out infinite alternate; }
     .m-seg-thumb { transition: none; }
+  .m-scan-track > i { transition: none; }
 }
 
 /* ---------- 正式版多出来的（2026-10-15） ---------- */
@@ -404,7 +405,12 @@ a.m-icon-btn { text-decoration: none; }
 .m-form label.is-check span::after { content: " · 请看一眼"; font-weight: 500; color: var(--warning-text); }
 .m-scan-mark { padding: 0 4px; font-weight: 600; color: var(--warning-text); background: var(--warning-bg); border-radius: 4px; }
 .m-scan-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 6px; padding: 10px 12px; font-size: 13px; color: var(--text-muted); background: var(--brand-bg); border-radius: var(--r-card); }
-.m-scan-bar.is-busy { flex-wrap: nowrap; align-items: flex-start; color: var(--brand-deep); font-weight: 600; line-height: 1.5; }
+.m-scan-bar.is-busy { flex-wrap: wrap; align-items: flex-start; color: var(--brand-deep); font-weight: 600; line-height: 1.5; }
+/* 下识别文件时的进度条：单独一行，跟在那句话下面 */
+.m-scan-progress { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; padding-left: 22px; }
+.m-scan-track { flex: 1; height: 6px; background: var(--panel); border-radius: 999px; overflow: hidden; }
+.m-scan-track > i { display: block; height: 100%; background: var(--brand); border-radius: inherit; transition: width 0.3s ease; }
+.m-scan-progress > b { flex: none; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
 .m-scan-bar.is-busy > .anticon { flex: none; margin-top: 3px; }
 .m-scan-bar.is-busy > span:not(.anticon) { flex: 1; min-width: 0; }
 .m-scan-bar.is-err { color: var(--warning-text); background: var(--warning-bg); }

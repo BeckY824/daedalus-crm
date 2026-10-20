@@ -69,6 +69,8 @@ ENV TZ=Asia/Shanghai
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+# 服务器认名片的识别线程（scripts/build-ocr.mjs 打的，SDK + OpenCV + onnxruntime 一个文件 + wasm；sharp 用 standalone 里那份）
+COPY --from=builder /app/ocr-server ./ocr-server
 COPY --from=builder /app/CHANGELOG.md ./CHANGELOG.md
 
 # Next 的依赖追踪会漏掉 Prisma（客户端是 generate 出来的，非静态引用），
