@@ -70,8 +70,11 @@ test.beforeAll(async ({ request }) => {
   );
 });
 
-test.afterAll(async () => {
+test.afterAll(async ({ request }) => {
   rmSync(path.join(DATA_DIR, ".team.json"), { force: true });
+  // 假云端的团队名单也清掉（同 11-老板提醒）：留着的话云端说「你在团队里」、本机又没有 .team.json，
+  // 后面每一页都弹「这台电脑还没连上」挡住点击（10 的单人库用例就是这么挂的）
+  await request.delete(`${CLOUD_URL}/__stub/team`).catch(() => {});
   const p = 连库();
   try {
     await p.user.update({ where: { id: 我id }, data: { role: "ADMIN", active: true } });
