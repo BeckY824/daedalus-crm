@@ -63,6 +63,22 @@ async function 建引擎(语言: 名片语言): Promise<引擎> {
   };
 }
 
+/**
+ * 这台手机下过中英那套没有（paddle.js 10 MB + wasm 25 MB + 模型 6 MB，服务器在香港）。下过就在浏览器缓存里（/ocr/ 一年不过期），
+ * 第一次那句进度话要说清楚多大、连 Wi-Fi，免得人以为卡住了。只是一句提示用的记号，读写不了（无痕、存储被禁）就当没下过
+ */
+const 下过键 = "m-ocr-v1-ready";
+export const 第一次下载的话 = "第一次要下载约 40MB 识别文件，连 Wi-Fi 更快，下过一次之后没网也能认";
+let 这次建好了 = false;
+function 下过(): boolean {
+  if (这次建好了) return true;
+  try { return localStorage.getItem(下过键) === "1"; } catch { return false; }
+}
+function 记下下过(): void {
+  这次建好了 = true;
+  try { localStorage.setItem(下过键, "1"); } catch { /* 存不了就下次再提示一遍 */ }
+}
+
 function 取引擎(语言: 名片语言): Promise<引擎> {
   let p = 引擎们.get(语言);
   if (!p) {
@@ -70,6 +86,7 @@ function 取引擎(语言: 名片语言): Promise<引擎> {
       if (k !== "中英") { 引擎们.delete(k); void q.then((e) => e.关()).catch(() => undefined); }
     }
     p = 建引擎(语言);
+    if (语言 === "中英") void p.then(记下下过, () => undefined);
     // 建失败（断网第一次下载、内存不够）别把坏的留着，下次再试
     p.catch(() => 引擎们.delete(语言));
     引擎们.set(语言, p);
@@ -82,17 +99,39 @@ export function 预热(): void {
   void 取引擎("中英").catch(() => undefined);
 }
 
+/**
+ * 按 EXIF 摆正读进来。老内核不认 imageOrientation: "from-image"（10-20 模拟器：夸克 10.19 是 Chrome 100，直接报错、名片认不了），
+ * 退回 <img>（Chrome 81 起 <img> 默认按 EXIF 摆正）
+ */
+async function 读图(file: Blob): Promise<{ 图: CanvasImageSource; 宽: number; 高: number; 关: () => void }> {
+  try {
+    const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
+    return { 图: bmp, 宽: bmp.width, 高: bmp.height, 关: () => bmp.close() };
+  } catch {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      img.src = url;
+      await img.decode();
+      return { 图: img, 宽: img.naturalWidth, 高: img.naturalHeight, 关: () => URL.revokeObjectURL(url) };
+    } catch (e) {
+      URL.revokeObjectURL(url);
+      throw e;
+    }
+  }
+}
+
 /** 手机照片 1200 万像素：先按 EXIF 摆正、缩到长边 1600 再认；转 180° 也在这里做 */
 async function 缩图(file: Blob, 转180 = false): Promise<Blob> {
-  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
-  const k = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-  const w = Math.round(bmp.width * k), h = Math.round(bmp.height * k);
+  const { 图, 宽, 高, 关 } = await 读图(file);
+  const k = Math.min(1, 1600 / Math.max(宽, 高));
+  const w = Math.round(宽 * k), h = Math.round(高 * k);
   const cv = document.createElement("canvas");
   cv.width = w; cv.height = h;
   const g = cv.getContext("2d")!;
   if (转180) { g.translate(w, h); g.rotate(Math.PI); }
-  g.drawImage(bmp, 0, 0, w, h);
-  bmp.close();
+  g.drawImage(图, 0, 0, w, h);
+  关();
   return new Promise((ok, no) => cv.toBlob((b) => (b ? ok(b) : no(new Error("照片读不出来"))), "image/jpeg", 0.92));
 }
 
@@ -113,7 +152,8 @@ export function 该换的语言(一: 框[]): 名片语言 | null {
  * 照片只在这个函数里用，返回的只有文字
  */
 export async function 认名片(file: Blob, 进: 进度, 指定?: 名片语言): Promise<识别结果> {
-  进("正在准备识别…");
+  // 点相机时已经在预热了（引擎们里有、但可能还在下），所以按「建好过没有」判断
+  进(下过() ? "正在准备识别…" : 第一次下载的话);
   const 中英 = await 取引擎("中英");
   进("正在认名片…");
   let 图 = await 缩图(file);
