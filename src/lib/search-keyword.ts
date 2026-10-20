@@ -39,10 +39,6 @@ export function 网址域名(k: string): string | null {
   return m ? m[1].toLowerCase() : null;
 }
 
-export function 有通配符(k: string): boolean {
-  return /[%_]/.test(k);
-}
-
 // SQLite GLOB 按Unicode码点匹配，但不折叠大小写。字符组补齐单码点大小写等价类；
 // 不把ß改成SS等多字符展开，不改变原文，也不要求旧库重新写入搜索索引。
 let 大小写组: Map<string, Set<string>> | undefined;
