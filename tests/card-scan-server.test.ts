@@ -184,8 +184,8 @@ describe("POST /api/mobile/scan", () => {
     expect((await 发("dk_team", new Uint8Array(0))).status).toBe(413);
   });
 
-  it("按账号限次：10 分钟 60 遍，第 61 遍 429；别的账号不受影响", async () => {
-    for (let i = 0; i < 60; i++) expect((await 发("dk_team")).status).toBe(200);
+  it("按账号限次：10 分钟 90 遍，第 91 遍 429；别的账号不受影响", async () => {
+    for (let i = 0; i < 90; i++) expect((await 发("dk_team")).status).toBe(200);
     expect((await 发("dk_team")).status).toBe(429);
     expect((await 发("dk_team2")).status).toBe(200);
   });

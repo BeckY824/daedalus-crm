@@ -5,7 +5,8 @@
  *
  * 入口：「客户」页右上相机图标（一步到相机）、新建客户表单顶上「拍名片自动填」/「从相册选」、存完后「再扫一张」。
  * 相机没打开（没权限、被静默拒绝，2026-10-20 客户反馈「点了没反应」）：给一句话和「从相册选」，见 lib/card-scan/camera.ts。
- * 照片只在这台手机的内存里：认完只留文字；表单开着时留着这一张，给「名片语言」换语言重认，关掉表单就没了。不上传、不同步。
+ * 照片只在这台手机的内存里：认完只留文字；表单开着时留着这一张，给「名片语言」换语言重认，关掉表单就没了。不同步。
+ * 团队版：照片传服务器认（只在内存里），认出的文字再请服务器上的模型摆格子、翻译外文（不扣次数，lib/card-scan/ai.ts）。
  */
 import { useEffect, useRef, useState } from "react";
 import { CameraOutlined, CloseOutlined, LoadingOutlined, PictureOutlined, ReloadOutlined } from "@ant-design/icons";
@@ -84,7 +85,8 @@ const 语言按钮: { k: 名片语言 | "auto"; 叫: string }[] = [
 /**
  * 认一张：照片 → 表单填法。图留在 ref 里给换语言用，组件卸载就放掉
  */
-export function useCardScan(外贸: boolean, onFilled: (填法: 名片填法) => void) {
+export function useCardScan(设: { 外贸: boolean; 行业们: readonly string[]; 公司格: boolean }, onFilled: (填法: 名片填法) => void) {
+  const { 外贸, 行业们, 公司格 } = 设;
   const [态, set态] = useState<扫的状态 | null>(null);
   const 图 = useRef<File | null>(null);
   const 次 = useRef(0);
@@ -96,10 +98,15 @@ export function useCardScan(外贸: boolean, onFilled: (填法: 名片填法) =>
     const 这次 = ++次.current;
     set态({ 阶段: "认", 话: "正在准备识别…" });
     try {
-      const { 认名片 } = await import("@/lib/card-scan/ocr");
-      const r = await 认名片(f, (话, 百分) => { if (这次 === 次.current) set态({ 阶段: "认", 话, 百分 }); }, 指定);
+      const { 认名片, AI整理 } = await import("@/lib/card-scan/ocr");
+      let r = await 认名片(f, (话, 百分) => { if (这次 === 次.current) set态({ 阶段: "认", 话, 百分 }); }, 指定);
       if (这次 !== 次.current) return;
-      const 填法 = 名片转表单(r.字段, 外贸);
+      // 团队版：再请服务器整理一下（最多等 9 秒）；没有就用规则拆的，人看到的和没有 AI 时一样
+      set态({ 阶段: "认", 话: "正在整理…" });
+      const 整 = await AI整理(r, 行业们);
+      if (这次 !== 次.current) return;
+      if (整) r = { ...r, 字段: 整.字段 };
+      const 填法 = 名片转表单(r.字段, 外贸, 整?.附加, 公司格);
       if (!r.框数 || (!填法.填.name && !填法.填.phone && !填法.填.email)) {
         set态({ 阶段: "错", 话: "没认出字。名片横着放、靠近一点、别反光，再拍一张试试" });
         return;
