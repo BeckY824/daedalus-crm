@@ -122,7 +122,8 @@ export async function 入队(accountId: string, teamId: string, joinSecret: stri
     if (满) return 错(409, 满);
     const 设备错 = await 登记设备(t.id, accountId, 设备, tx);
     if (设备错) return 错(409, 设备错);
-    if (已 && 已.leftAt) await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date() } });
+    // 走过再回来的主管回来是业务员（2026-10-20）：老板要重新设，不能拿旧码一进来就看全队
+    if (已 && 已.leftAt) await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date(), ...(已.role === "manager" ? { role: "member" } : {}) } });
     else if (!已) await tx.syncMember.create({ data: { teamId: t.id, accountId } });
     const k = await tx.syncKey.findFirst({ where: { teamId: t.id }, orderBy: { epoch: "desc" }, select: { epoch: true } });
     return { ok: true as const, teamName: t.name, active: t.active, epoch: k?.epoch ?? 0 };
@@ -184,6 +185,23 @@ export async function 设互看(accountId: string, teamId: string, on: boolean):
   const 开 = on === true;
   await control.syncTeamShare.upsert({ where: { teamId: t.id }, update: { on: 开, changedAt: new Date(), by: accountId }, create: { teamId: t.id, on: 开, by: accountId } });
   return { ok: true, on: 开 };
+}
+
+/**
+ * 设业务主管 / 改回业务员（2026-10-20，老板 → 业务主管 → 业务员）。角色记在中继的 SyncMember.role（owner / manager / member），
+ * 只有老板能改；每台按 我的团队() 的成员名单对本机 User.role（lib/sync/client.ts 按名单对角色），本机改库升不了主管——
+ * 范围同步给不给全队、收不收他改的同事客户，都是这里按 role 判（sync-scoped auth）。
+ * 不另要老板的签名：中继本来就决定把哪些密文发给谁，签了也挡不住中继自己多发；挡的是成员冒充，那靠登录身份
+ */
+export async function 设角色(accountId: string, teamId: string, 谁: string, role: string): Promise<结果<{ role: "manager" | "member" }>> {
+  const t = await 是建的人(teamId, accountId);
+  if (!t) return 错(403, "只有老板（建团队的人）能设业务主管");
+  if (role !== "manager" && role !== "member") return 错(400, "角色只能是业务主管或业务员");
+  if (谁 === t.ownerAccountId) return 错(400, "老板就是老板，不用设");
+  const m = await 在队里(t.id, String(谁 ?? ""));
+  if (!m) return 错(404, "这个人已经不在团队里了");
+  if (m.role !== role) await control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } }, data: { role } });
+  return { ok: true, role };
 }
 
 /** 换钥匙要封给哪几台：在册成员登记过的设备 */

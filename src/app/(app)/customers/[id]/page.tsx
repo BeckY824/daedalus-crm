@@ -15,6 +15,7 @@ import { 报价明细 } from "@/lib/features";
 import { 客户来源线索 } from "@/lib/customer-lead-origin";
 import { 取档案 } from "@/lib/customer-extra-db";
 import { 只读客户 } from "@/lib/team-scope";
+import { 管全队客户 } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +88,7 @@ export default async function CustomerDetailPage({
       referrableCustomers={referrableCustomers}
       aiEnabled={await llmEnabled()}
       已收藏={await 收藏了吗(me.id, id)}
-      能放公海={me.role === "ADMIN" || customer.salesOwnerId === me.id}
+      能放公海={管全队客户(me.role) || customer.salesOwnerId === me.id}
       // 团队开了互看、这位是同事的：只能看和加跟进（lib/team-scope.ts）
       只读={await 只读客户(defaultClient, customer)}
       customer={{

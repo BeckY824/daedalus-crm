@@ -16,6 +16,7 @@ export const 动作 = {
   // 团队互看 + 老板指派公海（2026-10-20）
   分配公海: "src/app/(app)/customers/pool-actions.ts#分配公海",
   设互看: "src/app/(app)/settings/team-actions.ts#设互看动作",
+  设角色: "src/app/(app)/settings/team-actions.ts#设角色动作",
   删客户: "src/app/(app)/customers/actions.ts#deleteCustomers",
   删跟进: "src/app/(app)/customers/[id]/actions.ts#deleteFollowUp",
   建团队: "src/app/(app)/settings/team-actions.ts#建团队动作",

@@ -13,7 +13,7 @@ import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
 import TeamNoticeCard from "./TeamNoticeCard";
 import { 人满话 } from "@/lib/team-pricing";
-import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作, 设互看动作 } from "./team-actions";
+import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作, 设互看动作, 设角色动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
 
@@ -113,6 +113,33 @@ export default function TeamTab() {
         const r = await 移除成员动作(m.accountId, m.name);
         if (!r.ok) return void message.error(r.error);
         message.success(`已把「${m.name}」移出团队，邀请码和钥匙都换了`);
+        await 刷();
+      },
+    });
+  }
+
+  /** 设业务主管 / 改回业务员（2026-10-20）：先说清主管能做什么、不能做什么 */
+  function 设主管(m: { accountId: string; name: string }, 设: boolean) {
+    modal.confirm({
+      title: 设 ? `把「${m.name}」设成业务主管？` : `把「${m.name}」改回业务员？`,
+      content: (
+        <div data-testid="team-role-confirm">
+          {设 ? (
+            <>
+              <p>业务主管看得到<b>全队</b>的客户和跟进（不管「同事之间互相看得到客户」开没开），能分配客户、把公海客户指派给业务员、处理疑似重复。</p>
+              <p>加人、移除成员、看邀请码、改业务配置、拨开关、设别人的角色还是只有你能做。</p>
+            </>
+          ) : (
+            <p>改回后只看得到自己负责的客户和公海；下次同步时，他电脑上同事的客户会删掉。<b>已经看过、导出过的收不回</b>。</p>
+          )}
+        </div>
+      ),
+      okText: 设 ? "设为主管" : "改回业务员",
+      cancelText: "取消",
+      async onOk() {
+        const r = await 设角色动作(m.accountId, m.name, 设 ? "manager" : "member");
+        if (!r.ok) return void message.error(r.error);
+        message.success(设 ? `「${m.name}」现在是业务主管，他下次同步后看得到全队` : `「${m.name}」改回业务员了`);
         await 刷();
       },
     });
@@ -328,10 +355,12 @@ export default function TeamTab() {
 
       <section className="team-card">
         <h3>成员 {s.成员.length}</h3>
-        <p className="muted">
+        <p className="muted" data-testid="team-role-intro">
           {s.我是建的人
-            ? s.互看 ? "你是老板：看得到所有人的客户和跟进。业务员也看得到全队的客户（同事的只能看和加跟进）。" : "你是老板：看得到所有人的客户和跟进。业务员只看得到自己负责的客户和公海。"
-            : s.互看 ? "你是业务员：团队开了「同事之间互相看得到客户」，看得到全队的客户；同事的只能看和加跟进。老板（建团队的人）看得到全部。" : "你是业务员：看得到自己负责的客户和公海里的客户。老板（建团队的人）看得到全部。"}
+            ? `你是老板：看得到所有人的客户和跟进，在下面可以把业务员设成业务主管。业务主管看得到全队、能分配客户和处理重复；${s.互看 ? "业务员也看得到全队的客户（同事的只能看和加跟进）。" : "业务员只看得到自己负责的客户和公海。"}`
+            : s.我是主管
+              ? "你是业务主管：看得到全队的客户和跟进，能分配客户、把公海客户指派给业务员、处理疑似重复。加人、移除成员、邀请码和业务配置由老板管。"
+              : s.互看 ? "你是业务员：团队开了「同事之间互相看得到客户」，看得到全队的客户；同事的只能看和加跟进。老板和业务主管看得到全部。" : "你是业务员：看得到自己负责的客户和公海里的客户。老板和业务主管看得到全部。"}
         </p>
         <ul className="team-members">
           {s.成员.map((m) => {
@@ -340,7 +369,7 @@ export default function TeamTab() {
             <li key={m.accountId}>
               <b>{m.name}</b>
               <span className="muted">{m.contact}</span>
-              <Tag color={m.role === "owner" ? "gold" : undefined}>{m.role === "owner" ? "老板" : "业务员"}</Tag>
+              <Tag color={m.role === "owner" ? "gold" : m.role === "manager" ? "blue" : undefined}>{m.role === "owner" ? "老板" : m.role === "manager" ? "业务主管" : "业务员"}</Tag>
               {/* 老板看每个人的跟进过程：近 7 天几次、最近一次，点进去是这个人的跟进 / 客户 */}
               {概况 && (
                 <span className="team-member-stat">
@@ -349,6 +378,12 @@ export default function TeamTab() {
                     近 7 天跟进 {概况.近7天跟进} 次{概况.最近跟进 ? ` · 最近 ${smartTime(概况.最近跟进)}` : ""}
                   </Link>
                 </span>
+              )}
+              {/* 设主管（2026-10-20）：只有老板；不要签名钥匙，老板在哪台电脑上都能改 */}
+              {s.我是建的人 && m.role !== "owner" && m.accountId !== s.我 && (
+                <Button size="small" type="link" onClick={() => 设主管(m, m.role !== "manager")} aria-label={`${m.role === "manager" ? "改回业务员" : "设为主管"} ${m.name}`}>
+                  {m.role === "manager" ? "改回业务员" : "设为主管"}
+                </Button>
               )}
               {/* 只有建团队的人能移除别人；自己不在这里移除（走「退出团队」） */}
               {s.我是建的人 && s.能管理 && m.role !== "owner" && m.accountId !== s.我 && (

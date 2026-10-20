@@ -8,6 +8,7 @@ import { 转交商机 } from "@/lib/opportunity-activity";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { 看全部 } from "@/lib/team-scope";
+import { 管全队客户 } from "@/lib/constants";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
@@ -51,7 +52,7 @@ export async function 放进公海(ids: string[]): Promise<公海结果> {
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, 没权限: 0 };
   const 这些 = await prisma.customer.findMany({ where: { id: { in: ids } }, select: { id: true, salesOwnerId: true, pool: { select: { customerId: true } } } });
   const 已在 = 这些.filter((c) => c.pool);
-  const 能放 = 这些.filter((c) => !c.pool && (me.role === "ADMIN" || c.salesOwnerId === me.id));
+  const 能放 = 这些.filter((c) => !c.pool && (管全队客户(me.role) || c.salesOwnerId === me.id));
   const 没权限 = 这些.length - 已在.length - 能放.length;
   if (!能放.length) {
     return 没权限 ? { ok: false, error: `只有负责人或管理员能把${b.customer}放进公海` } : { ok: true, updated: 0, unchanged: 已在.length, 没权限: 0 };
@@ -122,12 +123,12 @@ export async function 领取(ids: string[]): Promise<公海结果> {
  * 老板把公海里的客户直接分给一位业务员（2026-10-20，客户需求：原来公海里的只能业务员自己领）。
  * 规矩和领取一模一样，只是「领的人」换成选中的那位：钉住老签约、原负责人没做完的活跟着过去、记领取时间（自动掉公海从它算起）、
  * 能撤销、记操作日志。同步顺序也照领取：先改负责人、最后删公海那一行（删到 0 行 = 已经被人领走，这一位跳过）。
- * 只给管理员（老板）；只分给在职成员
+ * 只给老板和业务主管（2026-10-20）；只分给在职成员
  */
 export async function 分配公海(ids: string[], userId: string): Promise<公海结果> {
   const me = await requireUser();
   const b = await getBusiness();
-  if (me.role !== "ADMIN") return { ok: false, error: `只有老板能把公海里的${b.customer}分给同事` };
+  if (!管全队客户(me.role)) return { ok: false, error: `只有老板和业务主管能把公海里的${b.customer}分给同事` };
   const 给 = await prisma.user.findFirst({ where: { id: String(userId ?? ""), active: true }, select: { id: true, name: true } });
   if (!给) return { ok: false, error: "这位同事不在了或已停用，换一位" };
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, 没权限: 0 };
@@ -171,7 +172,7 @@ export async function 撤销公海(动作: "放进" | "领取" | "分配", 原: 
   const me = await requireUser();
   const ids = 原.map((x) => x.id);
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, 没权限: 0 };
-  if (动作 === "分配" && (me.role !== "ADMIN" || !给谁)) return { ok: false, error: "只有老板能撤销分配" };
+  if (动作 === "分配" && (!管全队客户(me.role) || !给谁)) return { ok: false, error: "只有老板和业务主管能撤销分配" };
   /** 这几位现在归谁：领取 = 我，分配 = 分到的那位 */
   const 现 = 动作 === "分配" ? 给谁! : me.id;
   if (动作 === "放进") {

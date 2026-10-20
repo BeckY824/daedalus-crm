@@ -13,6 +13,7 @@ import { 读的我 } from "@/lib/team-scope";
 import { defaultClient } from "@/lib/prisma";
 import { 读团队 } from "@/lib/sync/client";
 import { 客户页签归属 } from "@/lib/pool";
+import { 管全队客户 } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -120,7 +121,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   return (
     <CustomersView
       // 公海里的直接分给同事：只给管理员（团队版的老板）。业务员那边不摆（2026-10-20）
-      能分配公海={me.role === "ADMIN"}
+      能分配公海={管全队客户(me.role)}
       rows={rows.map((r) => 成客户行(r, 号))}
       total={total}
       page={page}

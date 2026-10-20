@@ -113,6 +113,15 @@ http
       团队.互看 = JSON.parse(body || "{}").on === true;
       return json(res, 200, { ok: true, on: 团队.互看 });
     }
+    // 设业务主管 / 改回业务员（10-20）：老板改成员的 role，下一次名单就带出来
+    if (p === "/api/sync/role" && 团队) {
+      if (!团队.我是建的人) return json(res, 403, { error: "只有老板（建团队的人）能设业务主管" });
+      const { accountId, role } = JSON.parse(body || "{}");
+      const m = (团队.成员 ?? []).find((x) => x.accountId === accountId && x.role !== "owner");
+      if (!m || !["manager", "member"].includes(role)) return json(res, 400, { error: "设不了" });
+      m.role = role;
+      return json(res, 200, { ok: true, role });
+    }
     if (p === "/api/sync/pricing") return 额外.pricing ? json(res, 200, 额外.pricing) : json(res, 404, { error: "stub: 没设价格表" });
     if (p === "/api/sync/my-devices") return json(res, 200, { devices: 额外.devices ?? [], 上限: 3 });
     if (p === "/api/mobile/link") {
