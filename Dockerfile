@@ -88,7 +88,9 @@ COPY --from=builder /app/shared-workspace.js ./shared-workspace.js
 COPY --from=builder /app/seed-shared.js ./seed-shared.js
 
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Windows 上 git 默认 core.autocrlf=true，检出来的脚本是 CRLF，shebang 变成 #!/bin/sh\r，
+# 容器起不来、一直 Restarting (255)（GitHub issue #1 附带报的）。.gitattributes 已钉 LF，这里再保一道
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 ENTRYPOINT ["docker-entrypoint.sh"]
