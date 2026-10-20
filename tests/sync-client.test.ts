@@ -197,12 +197,12 @@ describe("桌面端同步客户端", () => {
     expect(!坏.ok && 坏.error).toContain("钥匙不对");
     云.批.pop();
 
-    // 两个人各录了同一位客户：同步后列进疑似重复，不替人合并
+    // 两个人各录了同一位客户：同步后列进疑似重复，不替人合并（2026-10-20 起带默认留哪份，合并要老板 / 主管自己点）
     await 乙.customer.create({ data: { id: "c3", name: "王总（乙录的）", phone: "13800000001", salesOwnerId: "acct_yi" } });
     await 乙同步(码.key, 码.teamId);
     await 同步一轮();
     const 重 = await 疑似重复();
-    expect(重).toEqual([{ 种类: "客户", 依据: "号码 13800000001", 记录: [expect.objectContaining({ id: "c1", 谁的: "甲" }), expect.objectContaining({ id: "c3", 谁的: "乙" })] }]);
+    expect(重).toEqual([{ 种类: "客户", 依据: "号码 13800000001", 留: "c1", 记录: [expect.objectContaining({ id: "c1", 谁的: "甲" }), expect.objectContaining({ id: "c3", 谁的: "乙" })] }]);
 
     // T-003 合不了的撞车（两人各把一条线索挂到同一位客户上）：不静默，设置 → 团队里数得出「没同步上」
     expect(await 团队状态()).toMatchObject({ 没同步上: { 条数: 0 } });

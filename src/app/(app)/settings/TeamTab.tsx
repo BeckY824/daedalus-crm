@@ -12,6 +12,7 @@ import DevicesCard from "./DevicesCard";
 import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
 import TeamNoticeCard from "./TeamNoticeCard";
+import DupeMergeCard from "./DupeMergeCard";
 import { 人满话 } from "@/lib/team-pricing";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作, 设互看动作, 设角色动作 } from "./team-actions";
 
@@ -410,26 +411,8 @@ export default function TeamTab() {
         </section>
       )}
 
-      {s.重复.length > 0 && (
-        <section className="team-card">
-          <h3>疑似重复 {s.重复.length}</h3>
-          <p className="muted">两个人各录了同一位客户、各建了同一家供应商时会出现在这里。同步不替你合并——号码一样不一定是同一个人。看一下，多的那条删掉。</p>
-          <ul className="team-dupes">
-            {s.重复.map((g) => (
-              <li key={`${g.种类}${g.依据}`}>
-                <span className="muted">{g.种类} · {g.依据}：</span>
-                {g.记录.map((r, i) => (
-                  <span key={r.id}>
-                    {i > 0 && "、"}
-                    <Link href={r.href}>{r.name}</Link>
-                    {r.谁的 && <span className="muted">（{r.谁的}）</span>}
-                  </span>
-                ))}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+      {/* 疑似重复：合并成一份 / 不是同一个人（2026-10-20，老板和业务主管；业务员那边 重复 是空的） */}
+      {(s.我是建的人 || s.我是主管) && <DupeMergeCard 组们={s.重复} 上次合并={s.上次合并} 叫法={s.叫法} 变了={刷} />}
 
       {/* 老板：同事新建客户 / 商机时这台弹通知（desktop/team-notices.js） */}
       {s.我是建的人 && <TeamNoticeCard />}

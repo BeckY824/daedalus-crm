@@ -121,6 +121,21 @@ const 派生: Record<string, Record<string, string>> = {
     userId: "谁领的，领取时打上",
     at: "领走的那一刻，自动掉公海从它算起",
   },
+  // 合并重复（2026-10-20）：两张都是一个动作的结果，没有单改某一格的入口
+  CustomerMerge: {
+    fromId: "被合并掉的那位，合并时打上（= id）",
+    intoId: "留下的那位，合并时打上",
+    fromName: "被合并那位原来的名字，合并时打上，给人看",
+    fromOwnerName: "被合并那位原来的负责人，合并时打上，给人看",
+    userId: "谁合并的，合并时打上",
+    at: "合并的那一刻，系统打上",
+  },
+  CustomerNotDupe: {
+    customerId: "两位里编号小的那位，标「不是同一个人」时打上",
+    otherId: "另一位，同上",
+    userId: "谁标的，标的时候打上",
+    at: "标的那一刻，系统打上",
+  },
   FollowUpOrder: { followUpId: "哪条跟进，在节点上记一笔时一起建", orderId: "挂在哪张订单上", nodeIdx: "挂在第几步上" },
   ContractOwner: {
     contractId: "哪一笔签约，saveContract 新登记时一起建",

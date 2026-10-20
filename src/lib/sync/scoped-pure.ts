@@ -8,7 +8,7 @@ import type { 改动 } from "./local";
 
 export const 主键表: Record<string, string> = {
   User: "id", Setting: "key", Channel: "id", Customer: "id",
-  CustomerPool: "customerId", CustomerClaim: "customerId", CustomerExtra: "customerId",
+  CustomerPool: "customerId", CustomerClaim: "customerId", CustomerExtra: "customerId", CustomerMerge: "id", CustomerNotDupe: "id",
   Contact: "id", UnassignedContact: "id", Lead: "id",
   Opportunity: "id", OpportunityClose: "opportunityId", OpportunityMoney: "opportunityId",
   Contract: "id", ContractOwner: "contractId", ContractMoney: "contractId", ContractWin: "opportunityId",
