@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth";
 import RecordView from "./RecordView";
 import { followHistoryInclude, followHistoryOrder, serializeFollowHistory } from "./follow-history-query";
 import { 负责人候选 } from "@/lib/owners";
-import { 可选渠道, 可选客户 } from "@/lib/options";
+import { 可选渠道 } from "@/lib/options";
 import { llmEnabled } from "@/lib/llm";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { 带币种, 签约金额, 签约币种, 签约合计, 商机币种 } from "@/lib/money-db";
@@ -70,12 +70,8 @@ export default async function CustomerDetailPage({
   // 自己部署的实例不受影响——销售要照着这个号打电话。
   const 号 = await 号码脱敏器();
 
-  const [users, channels, referrableCustomers] = await Promise.all([
-    负责人候选(),
-    可选渠道(),
-    // 排除自己，避免把自己设为推荐人导致推荐链成环
-    可选客户(id),
-  ]);
+  // 推荐人候选不再跟页面一起下来，客户表单打开时才取（CustomerForm 的 useReferrerCandidates，2026-10-20）
+  const [users, channels] = await Promise.all([负责人候选(), 可选渠道()]);
 
   return (
     <RecordView
@@ -83,7 +79,6 @@ export default async function CustomerDetailPage({
       sourceLead={await 客户来源线索(customer.id)}
       users={users}
       channels={channels}
-      referrableCustomers={referrableCustomers}
       aiEnabled={await llmEnabled()}
       已收藏={await 收藏了吗(me.id, id)}
       能放公海={me.role === "ADMIN" || customer.salesOwnerId === me.id}

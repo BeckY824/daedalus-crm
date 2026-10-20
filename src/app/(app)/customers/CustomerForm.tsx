@@ -6,13 +6,13 @@ import { isCalendarDate } from "@/lib/schedule-date";
 import { requiredText } from "@/lib/form-validation";
 
 import OptionInput from "@/components/OptionInput";
-import { useState } from "react";
-import { Alert, App, AutoComplete, Button, Col, Divider, Form, Input, Modal, Radio, Row, Select, Space, Typography } from "antd";
+import { useEffect, useState } from "react";
+import { Alert, App, AutoComplete, Button, Col, Divider, Form, Input, Modal, Radio, Row, Select, Space, Spin, Typography } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { dayjs, 成员选项, 独自一人, 可选成员 } from "@/lib/utils";
 import { useMe, 默认负责人 } from "@/lib/me-client";
-import { saveCustomer, checkDuplicate, type DuplicateHit, type SaveConflict } from "./actions";
+import { saveCustomer, checkDuplicate, 推荐人候选, type DuplicateHit, type SaveConflict } from "./actions";
 import { saveChannel } from "../channels/actions";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸精简 } from "@/lib/business-config";
@@ -68,10 +68,39 @@ type FormProps = {
   users: 可选成员[];
   /** 外部渠道（如老师、中介） */
   channels: Option[];
-  /** 已有学员，可作为推荐人 */
-  customers: Option[];
   onClose: (saved: boolean) => void;
 };
+
+/**
+ * 「推荐人 → 已有客户」的候选：表单打开才去取，不再跟着列表页 / 详情页的页面数据一起下来（2026-10-20）。
+ *
+ * 取回来之前下拉不能是空的——空着会让人以为「没有可选的人」：
+ *   - 原来就有推荐人的（编辑），先把那一位摆上，选中的名字立刻显示，不会闪成一串 id
+ *   - 其余时候转圈写「正在取」；取失败写明白、给重试，不留一个「暂无数据」
+ * 每次打开都重新取（内层按 key 重新挂载）：刚建的客户下回打开就在，和原来页面重取数据一样。
+ * 外贸模版不摆推荐人，也就不取。
+ */
+function useReferrerCandidates(要: boolean, 现有: Option | null) {
+  const [列表, set列表] = useState<Option[] | null>(null);
+  const [出错, set出错] = useState(false);
+  const [第几回, set第几回] = useState(0);
+  useEffect(() => {
+    if (!要) return;
+    let 作废 = false;
+    推荐人候选().then(
+      (r) => { if (!作废) set列表(r); },
+      () => { if (!作废) set出错(true); },
+    );
+    return () => { 作废 = true; };
+  }, [要, 第几回]);
+  const 已取 = 列表 ?? [];
+  return {
+    候选: 现有 && !已取.some((c) => c.id === 现有.id) ? [现有, ...已取] : 已取,
+    加载中: 要 && 列表 === null && !出错,
+    出错: 列表 === null && 出错,
+    重试: () => { set出错(false); set第几回((n) => n + 1); },
+  };
+}
 
 /**
  * 外层只负责挂载时机：用 key 让每次打开都重新挂载内层，
@@ -87,7 +116,6 @@ function CustomerFormInner({
   editing,
   users,
   channels,
-  customers,
   onClose,
 }: FormProps) {
   const b = useBusiness();
@@ -104,6 +132,10 @@ function CustomerFormInner({
   const [conflict, setConflict] = useState<SaveConflict | null>(null);
   // 先看推荐人再看渠道：转介绍的人 channelId 也有值（排查 A1，见 lib/referrer-kind.ts）
   const [referrerType, setReferrerType] = useState<"channel" | "customer" | "none">(推荐方式(editing));
+  const 推荐人 = useReferrerCandidates(
+    !外贸,
+    editing?.referrerCustomerId ? { id: editing.referrerCustomerId, name: editing.referrerName ?? editing.referrerCustomerId } : null,
+  );
   /**
    * 渠道下拉的选项。以 props 为初值，但就地新建的渠道要立刻出现在这里——
    * 服务端的 revalidatePath 要等本弹窗关闭、页面重取数据才生效，等不及。
@@ -128,6 +160,15 @@ function CustomerFormInner({
   }
 
   const 渠道选项 = channelOptions.map(c => ({ value: c.id, label: c.name }));
+  const 推荐人选项 = 推荐人.候选.filter((c) => c.id !== editing?.id).map((c) => ({ value: c.id, label: c.name }));
+  const 推荐人状态 = 推荐人.加载中 ? (
+    <Space size={8} style={{ padding: "6px 12px" }}><Spin size="small" />正在取{b.customer}名单…</Space>
+  ) : 推荐人.出错 ? (
+    <Space size={4} style={{ padding: "2px 12px" }}>
+      {b.customer}名单没取到
+      <Button type="link" size="small" onMouseDown={(e) => e.preventDefault()} onClick={推荐人.重试}>重试</Button>
+    </Space>
+  ) : null;
   if (editing?.channelId && !channelOptions.some(c => c.id === editing.channelId)) {
     渠道选项.push({ value: editing.channelId, label: `${editing.channelName ?? editing.referrerName ?? "原渠道"}（已停用）` });
   }
@@ -542,7 +583,16 @@ function CustomerFormInner({
               showSearch
               placeholder={`选择已有${b.customer}`}
               optionFilterProp="label"
-              options={customers.filter((c) => c.id !== editing?.id).map((c) => ({ value: c.id, label: c.name }))}
+              options={推荐人选项}
+              loading={推荐人.加载中}
+              // 取着 / 没取到：不出「暂无数据」。下拉里没项时状态顶替空白；编辑时原推荐人那一项在上面，状态就写在它底下
+              notFoundContent={推荐人状态 ?? undefined}
+              popupRender={(menu) => (
+                <>
+                  {menu}
+                  {推荐人选项.length > 0 && 推荐人状态}
+                </>
+              )}
             />
           </Form.Item>
         )}
