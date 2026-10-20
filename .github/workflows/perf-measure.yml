@@ -1,0 +1,108 @@
+name: Desktop perf measure
+
+# 桌面端性能测量（代码优化 2026-10-20）：在干净的 Windows / Mac runner 上装一份安装包，
+# 跑 desktop/scripts/perf/measure.mjs 量安装包体积、装好后的磁盘占用、冷启动、各进程内存、1 万客户时各页速度。
+# 本机没有 Windows，Windows 的数字靠这里出。
+#
+# 量哪一份：
+#   - 默认量已发布的 PERF_VERSION（从 GitHub 的 desktop-updates 下载）
+#   - workflow_dispatch 填 run_id：量那次 Desktop apps 运行打出来的包（优化 PR 的分支构建），前后对比就是两次结果
+# 只读、不发版、不碰 Release。
+on:
+  push:
+    branches: ["perf/measure*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 已发布的版本号（run_id 为空时用）
+        default: "0.46.22"
+      run_id:
+        description: 量某次 Desktop apps 运行的产物（留空 = 量已发布版本）
+        default: ""
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PERF_VERSION: ${{ inputs.version || '0.46.22' }}
+  PERF_RUN_ID: ${{ inputs.run_id || '' }}
+
+jobs:
+  measure:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: daedalus-crm-exe-x64
+          - os: macos-latest
+            artifact: daedalus-crm-dmg-arm64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 装依赖（造数据要 Prisma 客户端，拉起应用要 Playwright）
+        run: |
+          npm ci
+          npx prisma generate
+      - name: 取安装包
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p pkg
+          if [ -n "$PERF_RUN_ID" ]; then
+            gh run download "$PERF_RUN_ID" -n "${{ matrix.artifact }}" -D pkg
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            curl -fsSL -o "pkg/Daedalus-CRM-$PERF_VERSION-x64-setup.exe" "https://github.com/${{ github.repository }}/releases/download/desktop-updates/Daedalus-CRM-$PERF_VERSION-x64-setup.exe"
+          else
+            curl -fsSL -o "pkg/Daedalus CRM-$PERF_VERSION-arm64.dmg" "https://github.com/${{ github.repository }}/releases/download/desktop-updates/Daedalus.CRM-$PERF_VERSION-arm64.dmg"
+          fi
+          ls -l pkg
+          mkdir -p perf-out
+          node -e 'const fs=require("fs");const o={};for(const f of fs.readdirSync("pkg"))o[f]=+(fs.statSync("pkg/"+f).size/1048576).toFixed(1);fs.writeFileSync("perf-out/packages.json",JSON.stringify(o,null,2));console.log(o)'
+      - name: 安装（Windows：当前用户静默安装）
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem pkg -Filter *-setup.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S','/currentuser' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Daedalus CRM'
+          if (-not (Test-Path (Join-Path $dir 'Daedalus CRM.exe'))) { throw "没装上：$dir" }
+          "APP_DIR=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "APP_EXE=$(Join-Path $dir 'Daedalus CRM.exe')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: 安装（Mac：从 dmg 拷出 .app）
+        if: runner.os == 'macOS'
+        run: |
+          DMG=$(ls pkg/*.dmg | head -1)
+          MNT=$(hdiutil attach -nobrowse -readonly "$DMG" | tail -1 | awk -F'\t' '{print $NF}')
+          mkdir -p "$RUNNER_TEMP/app"
+          ditto "$MNT/Daedalus CRM.app" "$RUNNER_TEMP/app/Daedalus CRM.app"
+          hdiutil detach "$MNT" -quiet
+          echo "APP_DIR=$RUNNER_TEMP/app/Daedalus CRM.app" >> "$GITHUB_ENV"
+          echo "APP_EXE=$RUNNER_TEMP/app/Daedalus CRM.app/Contents/MacOS/Daedalus CRM" >> "$GITHUB_ENV"
+      - name: 测量
+        run: node desktop/scripts/perf/measure.mjs --exe "$APP_EXE" --app "$APP_DIR" --out perf-out 2>&1 | tee perf-out/measure.log
+      - name: 摘要
+        if: always()
+        run: |
+          node -e '
+            const fs=require("fs");const r=JSON.parse(fs.readFileSync("perf-out/result.json","utf8"));const p=JSON.parse(fs.readFileSync("perf-out/packages.json","utf8"));
+            const L=[];L.push(`### ${r.platform} ${r.arch}`);L.push("安装包 MB："+JSON.stringify(p));L.push("装好后 MB："+(r.disk?.totalMB));
+            for(const[k,v]of Object.entries(r.startup||{}))L.push(`启动 ${k}：`+JSON.stringify(v));
+            for(const[k,v]of Object.entries(r.memory||{}))L.push(`内存 ${k}：合计 ${v.合计} MB（`+v.行.map(x=>x.类+" "+x.MB).join("，")+"）");
+            L.push("切页中位 ms："+JSON.stringify(r.navMedianMs));L.push("各页："+JSON.stringify(r.pages));
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,L.join("\n\n")+"\n");'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-${{ runner.os }}
+          path: |
+            perf-out/result.json
+            perf-out/packages.json
+            perf-out/measure.log
