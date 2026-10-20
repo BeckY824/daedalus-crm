@@ -7,6 +7,7 @@ name: Desktop perf measure
 # 量哪一份：
 #   - 默认量已发布的 PERF_VERSION（从 GitHub 的 desktop-updates 下载）
 #   - workflow_dispatch 填 run_id：量那次 Desktop apps 运行打出来的包（优化 PR 的分支构建），前后对比就是两次结果
+#   - 推到 perf/measure-build* 分支：就地打这个分支的包再量（workflow_dispatch 要求文件已在默认分支上，合进去之前只能这样量分支）
 # 只读、不发版、不碰 Release。
 on:
   push:
@@ -27,6 +28,7 @@ permissions:
 env:
   PERF_VERSION: ${{ inputs.version || '0.46.22' }}
   PERF_RUN_ID: ${{ inputs.run_id || '' }}
+  PERF_BUILD: ${{ startsWith(github.ref_name, 'perf/measure-build') && '1' || '' }}
 
 jobs:
   measure:
@@ -36,14 +38,19 @@ jobs:
         include:
           - os: windows-latest
             artifact: daedalus-crm-exe-x64
+            script: dist:win
           - os: macos-latest
             artifact: daedalus-crm-dmg-arm64
+            script: dist:mac
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        # 和 desktop.yml 一样完整检出：打包时 electron-builder 要从 git 里认出仓库
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -56,7 +63,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p pkg
-          if [ -n "$PERF_RUN_ID" ]; then
+          if [ -n "$PERF_BUILD" ]; then
+            # electron-builder 在 CI 上要认出仓库才肯往下走（package.json 里没写 repository）；它认 TRAVIS_REPO_SLUG。
+            # 不是打 tag、也没有 token，不会往 Release 上传任何东西
+            (cd desktop && npm ci --no-audit --no-fund && TRAVIS_REPO_SLUG="${{ github.repository }}" npm run ${{ matrix.script }})
+            cp desktop/dist/*.dmg desktop/dist/*-setup.exe pkg/ 2>/dev/null || true
+          elif [ -n "$PERF_RUN_ID" ]; then
             gh run download "$PERF_RUN_ID" -n "${{ matrix.artifact }}" -D pkg
           elif [ "$RUNNER_OS" = "Windows" ]; then
             curl -fsSL -o "pkg/Daedalus-CRM-$PERF_VERSION-x64-setup.exe" "https://github.com/${{ github.repository }}/releases/download/desktop-updates/Daedalus-CRM-$PERF_VERSION-x64-setup.exe"
