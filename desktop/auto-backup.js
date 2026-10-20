@@ -4,6 +4,7 @@
  *   每天第一次启动拷一份      backups/daily-YYYY-MM-DD.db              留最近 7 份
  *   升级（版本号变了）先拷一份  backups/before-upgrade-<旧>-to-<新>.db   留最近 3 份
  *   从备份恢复之前先拷一份      backups/before-restore-YYYY-MM-DD-HHmm.db 留最近 3 份
+ *   合并疑似重复之前（2026-10-20） backups/before-merge-YYYY-MM-DD-HHmm-<hex>.db 留最近 5 份——那份由本地服务自己拷、自己修剪（src/lib/customer-merge.ts），这里只负责列出来、能恢复
  *
  * 为什么要有：桌面端的数据只在这台电脑上一个 SQLite 文件里，盘坏、误删、一次坏迁移就整份没了，
  * 而原来只有设置页里一个要人记得去点的「备份数据库…」。迁移失败时服务起不来，连那个按钮都进不去。
@@ -124,10 +125,10 @@ function 列出(数据目录) {
   if (!fs.existsSync(目录)) return [];
   return fs
     .readdirSync(目录)
-    .filter((f) => /^(daily|before-upgrade|before-restore)-.+\.db$/.test(f))
+    .filter((f) => /^(daily|before-upgrade|before-restore|before-merge)-.+\.db$/.test(f))
     .map((f) => {
       const st = fs.statSync(path.join(目录, f));
-      const 类型 = f.startsWith("daily-") ? "每天" : f.startsWith("before-upgrade-") ? "升级前" : "恢复前";
+      const 类型 = f.startsWith("daily-") ? "每天" : f.startsWith("before-upgrade-") ? "升级前" : f.startsWith("before-merge-") ? "合并前" : "恢复前";
       return { 文件名: f, 类型, 时间: st.mtime.toISOString(), 大小: st.size };
     })
     .sort((a, b) => (a.时间 < b.时间 ? 1 : -1));
@@ -139,7 +140,7 @@ function 列出(数据目录) {
  * 不删的话下次打开会把旧 WAL 重放到换进来的库上（设置页手动恢复的说明里也写着这一步，2026-10-02 D1）。
  */
 function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
-  if (!/^(daily|before-upgrade|before-restore)-[0-9A-Za-z._-]+\.db$/.test(String(文件名))) throw new Error("不认识这份备份");
+  if (!/^(daily|before-upgrade|before-restore|before-merge)-[0-9A-Za-z._-]+\.db$/.test(String(文件名))) throw new Error("不认识这份备份");
   const 目录 = 备份目录(数据目录);
   const 源 = path.join(目录, 文件名);
   if (!fs.existsSync(源)) throw new Error("这份备份已经不在了");

@@ -19,6 +19,9 @@ export const 同步表 = [
   "CustomerPool",
   "CustomerClaim",
   "CustomerExtra",
+  // 合并重复（2026-10-20）：合并记号、「不是同一个人」。都不建外键，排在客户后面就行
+  "CustomerMerge",
+  "CustomerNotDupe",
   "Contact",
   "UnassignedContact",
   "Lead",
@@ -77,6 +80,8 @@ export const 指向人的列: [string, string][] = [
   ["Customer", "channelOwnerId"],
   ["CustomerPool", "userId"],
   ["CustomerClaim", "userId"],
+  ["CustomerMerge", "userId"],
+  ["CustomerNotDupe", "userId"],
   ["ContractOwner", "salesOwnerId"],
   ["ContractOwner", "channelOwnerId"],
   ["Opportunity", "ownerId"],
@@ -98,6 +103,24 @@ export const 指向人的列: [string, string][] = [
 export const 同名合并: Record<string, { 列: string; 被指: [string, string][] }> = {
   Channel: { 列: "name", 被指: [["Customer", "channelId"], ["Customer", "attributionChannelId"]] },
 };
+
+/**
+ * 指向客户的列（2026-10-20 合并重复客户）：合并时把被合并那位名下的挪到留下的那位，回放时引用了被合并那位的改挂过去。
+ * 主键就是客户编号的那几张（公海、领取记录、外贸档案）不在这里：一位一行，被合并那位的那一行跟着它删，不挪
+ */
+export const 指向客户的列: [string, string][] = [
+  ["Contact", "customerId"],
+  ["Lead", "customerId"],
+  ["Opportunity", "customerId"],
+  ["Contract", "customerId"],
+  ["TradeOrder", "customerId"],
+  ["FollowUp", "customerId"],
+  ["Task", "customerId"],
+  ["FollowPlan", "customerId"],
+  ["Customer", "referrerCustomerId"],
+  ["Customer", "attributionCustomerId"],
+];
+export const 一位一行的表 = ["CustomerPool", "CustomerClaim", "CustomerExtra"];
 
 /** 桌面端模板库里固定种的账号（每台电脑 id 一样）。进团队前：管理员改身份，没用过的占位账号删掉 */
 export const 模板占位账号 = ["zhangsan", "lisi"];

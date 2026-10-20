@@ -17,6 +17,10 @@ export const 动作 = {
   分配公海: "src/app/(app)/customers/pool-actions.ts#分配公海",
   设互看: "src/app/(app)/settings/team-actions.ts#设互看动作",
   设角色: "src/app/(app)/settings/team-actions.ts#设角色动作",
+  // 疑似重复合并成一份（2026-10-20）
+  合并重复: "src/app/(app)/settings/team-actions.ts#合并重复动作",
+  撤销合并: "src/app/(app)/settings/team-actions.ts#撤销合并动作",
+  不是同一个人: "src/app/(app)/settings/team-actions.ts#不是同一个人动作",
   删客户: "src/app/(app)/customers/actions.ts#deleteCustomers",
   删跟进: "src/app/(app)/customers/[id]/actions.ts#deleteFollowUp",
   建团队: "src/app/(app)/settings/team-actions.ts#建团队动作",

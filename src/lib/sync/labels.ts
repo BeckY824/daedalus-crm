@@ -8,7 +8,9 @@ const 表名: Record<string, string> = { Customer: "客户", CustomerExtra: "客
   User: "成员", Setting: "设置", Channel: "渠道", CustomerPool: "公海", CustomerClaim: "领取记录", OpportunityClose: "商机结单", OpportunityMoney: "商机金额",
   ContractOwner: "签约负责人", ContractMoney: "签约金额", ContractWin: "签约赢下的商机", FollowUpSource: "跟进原文", AuditLog: "操作日志",
   Quote: "报价单", QuoteLine: "报价明细", Supplier: "供应商", SupplierQuote: "供应商报价", TradeOrderNode: "订单节点", TradeOrderDoc: "订单单据",
-  TradeOrderPurchase: "订单采购", FollowUpOrder: "跟进关联订单" };
+  TradeOrderPurchase: "订单采购", FollowUpOrder: "跟进关联订单",
+  // 合并重复（2026-10-20）
+  CustomerMerge: "合并记号", CustomerNotDupe: "不是同一个人的标记" };
 /** 列的叫法：原来直接摆库里的列名（「remark、updatedAt」），业务员看不懂改的是什么（2026-10-16 团队版全面检验） */
 const 通用列名: Record<string, string> = {
   name: "名称", phone: "电话", email: "邮箱", wechat: "微信", remark: "备注", title: "标题", content: "内容", type: "类型", status: "状态",

@@ -9,6 +9,8 @@ export const 范围字段: Record<string, readonly string[]> = {
   User: [], Setting: [], Channel: [], Supplier: [],
   Customer: ["salesOwnerId", "channelOwnerId"],
   CustomerPool: ["customerId"], CustomerClaim: ["customerId"], CustomerExtra: ["customerId"],
+  // 合并记号跟着被合并的那位走（原来管它的人那台也要收到、好把本机那份收掉）；「不是同一个人」跟着编号小的那位
+  CustomerMerge: ["fromId"], CustomerNotDupe: ["customerId"],
   Contact: ["customerId"], UnassignedContact: ["ownerId"],
   Lead: ["customerId", "ownerId"],
   Opportunity: ["customerId"], OpportunityClose: ["opportunityId"], OpportunityMoney: ["opportunityId"],
@@ -21,6 +23,7 @@ export const 范围字段: Record<string, readonly string[]> = {
 };
 export const 范围父表: Record<string, Record<string, string>> = {
   CustomerPool: { customerId: "Customer" }, CustomerClaim: { customerId: "Customer" }, CustomerExtra: { customerId: "Customer" },
+  CustomerMerge: { fromId: "Customer" }, CustomerNotDupe: { customerId: "Customer" },
   Contact: { customerId: "Customer" }, Lead: { customerId: "Customer" },
   Opportunity: { customerId: "Customer" }, OpportunityClose: { opportunityId: "Opportunity" }, OpportunityMoney: { opportunityId: "Opportunity" },
   Contract: { customerId: "Customer" }, ContractOwner: { contractId: "Contract" }, ContractMoney: { contractId: "Contract" },
@@ -160,6 +163,18 @@ export function 挂在已删的上(n: 范围索引, rows: 范围行表): boolean
 }
 
 /**
+ * 合并掉的客户不许复活（2026-10-20 疑似重复合并）：有合并记号（CustomerMerge，编号 = 被合并那位）、客户已删，
+ * 再来的改动 / 整行一律拒，老板也一样。防的是离线的那台回来推的旧改动：它合并之后才改的那一笔字段钟更晚，
+ * 按「删了又被更晚地改 → 带整行复活」本来会把删掉的那份推回来。挂在它下面的新记录由 挂在已删的上 拦。
+ * 撤销合并先删记号、再把客户建回来，同一次推送里按顺序核，过得去
+ */
+export function 合并掉了(n: 范围索引, rows: 范围行表): boolean {
+  if (n.deleted || n.t !== "Customer") return false;
+  const m = rows.get(行键("CustomerMerge", n.k));
+  return !!m && !m.deleted && !!rows.get(行键("Customer", n.k))?.deleted;
+}
+
+/**
  * 一次推送里的一包能不能写（2026-10-14 领取 / 交接修复）。按两种状态各核一次，任一通过即可：
  *  ① 当前：本次请求里前面已接受的包落下之后的状态（原来的逐包规则；本次刚新建 / 刚领到的记录靠它）。
  *  ② 起点视图 start：请求开始时已有的记录取开始时的版本，本次请求里新建的记录取它刚建出来、刚核过的那一版。
@@ -170,7 +185,7 @@ export function 挂在已删的上(n: 范围索引, rows: 范围行表): boolean
  * 所以 ② 里每一条记录都是这台设备在本次请求某一刻合法可读的版本；伪造归属、借外键塞进别人的私客，两种状态下都不过。
  */
 export function 推送可写(start: 范围行表, rows: 范围行表, n: 范围索引, accountId: string, owner: boolean, 互看 = false, 主管 = false): boolean {
-  if (挂在已删的上(n, rows)) return false;
+  if (挂在已删的上(n, rows) || 合并掉了(n, rows)) return false;
   if (owner) return true;
   const key = 行键(n.t, n.k);
   return 范围可写(rows.get(key), n, rows, accountId, false, 互看, 主管) || 范围可写(start.get(key), n, start, accountId, false, 互看, 主管);

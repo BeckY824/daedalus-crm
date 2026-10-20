@@ -266,6 +266,17 @@ async function 开机(t) {
   判(s.状态 === 307, { 步骤: "重新开机后自动登录", 哪台: t.名, 期望: "307", 实际: `${s.状态} → ${s.跳到}` });
 }
 
+/** 直接写这台的库（关着机时模拟「离线那台在本机改的」；触发器照记，开机后推出去） */
+function 改库(t, sql, ...参数) {
+  const db = new DatabaseSync(t.库);
+  try {
+    db.exec("PRAGMA busy_timeout = 5000");
+    return db.prepare(sql).run(...参数);
+  } finally {
+    db.close();
+  }
+}
+
 /* ---------------- 读数：库里的（全队数据）和页面上的（这个人看得到的） ---------------- */
 const 数 = (t, sql, ...p) => Number(Object.values(查库(t.库, sql, ...p)[0] ?? { n: 0 })[0]);
 const 客户数 = (t) => 数(t, "SELECT COUNT(*) AS n FROM Customer");
@@ -305,7 +316,9 @@ let 范围团队id = null;
 /** 这台库里越权的行（以老板那台为准）。含公海 = false：退出 / 被移出之后只该有本人的 */
 const 越权 = (n, 含公海 = true) => 查越权({ 库: 台[n].库, 老板库: 台[老板].库, 我: 台[n].我, ...读范围表(), 含公海, 控制库: path.join(云目录, "control.db"), 团队id: 范围团队id });
 /** 库文件原始字节里还搜得到的「不该有的客户」（电话 / 名字；SQL 查不到的空闲页、页内空隙、WAL 也算） */
-const 字节 = (n, 含公海 = true) => 字节残留({ 库: 台[n].库, 老板库: 台[老板].库, 我: 台[n].我, 含公海 }).filter((x) => x.命中.length).map((x) => `${x.文件}：${x.命中.length} 位（${x.命中.slice(0, 5).join("、")}）`);
+/** 各台的人自己在本机敲过的号码（合并疑似重复那步：业务员录的和老板那份是同一个号，见 scope-check 字节残留 的豁免） */
+const 自己录过的号 = {};
+const 字节 = (n, 含公海 = true) => 字节残留({ 库: 台[n].库, 老板库: 台[老板].库, 我: 台[n].我, 含公海, 豁免: 自己录过的号[n] ?? [] }).filter((x) => x.命中.length).map((x) => `${x.文件}：${x.命中.length} 位（${x.命中.slice(0, 5).join("、")}）`);
 /** 等到这几台库里没有越权的行、库文件字节里也没有删掉的客户（每台最多两轮壳） */
 async function 核越权(说明, 谁们 = [...在队业务员], 含公海 = true) {
   const 查了 = [];
@@ -884,6 +897,56 @@ async function 主线() {
     await 等到({ 步骤: "改回后本机角色跟着回", 哪台: "li", 期望: "User.role = SALES", 取: () => 查库(l.库, "SELECT role FROM User WHERE id = ?", l.我)[0]?.role, 满足: (v) => v === "SALES", 超时: 15_000 + 前台间隔, 迟到也报: 30_000 });
     await 等没了(l, 私客, "改回业务员后老板的私客从他库里清掉");
     return { 说: `主管 ${(用时 / 1000).toFixed(1)}s 收到全队（设完到看见 ${((Date.now() - 设完) / 1000).toFixed(1)}s 内改回也清掉）；改回后越权检查 ${await 核越权("改回业务员", ["li"])} 行` };
+  });
+
+  /*
+    合并疑似重复（2026-10-20，客户「硕诚包装」：老板和业务员各录了一份同号码的）。号码一份带空格、一份不带（号键同一组，
+    和老库里「138 0000 1111」对同事录的 13800001111 一样）
+  */
+  if (范围) await 步("合并疑似重复：老板和王各录了一份同号码的 → 老板合并成一份；王离线时又改了被合并那份、记了跟进，回来后各台都只剩一份、删掉的那份不会被推回来", async () => {
+    const w = 台.wang;
+    const Y = await 录一位(老, 名("boss", "重复-老板录的"), 2);
+    const X = await 录一位(w, 名("wang", "重复-王录的"), 1);
+    const 号 = 查库(老.库, "SELECT phone FROM Customer WHERE id = ?", Y.id)[0].phone;
+    const 带空格 = `${号.slice(0, 3)} ${号.slice(3, 7)} ${号.slice(7)}`;
+    改库(w, "UPDATE Customer SET phone = ?, updatedAt = ? WHERE id = ?", 带空格, Date.now(), X.id);
+    // 号码索引按号键存（去空格）：王的库里有这个号是他自己敲的，越权检查的「字节里搜老板私客电话」不把它算进去
+    (自己录过的号.wang ??= new Set()).add(号);
+    await 等到({ 步骤: "王那份改成同一个号，到了老板那台", 哪台: `${老板} ← wang`, 期望: `「${X.名字}」号码是 ${带空格}`, 取: () => 查库(老.库, "SELECT phone FROM Customer WHERE id = ?", X.id)[0]?.phone, 满足: (v) => v === 带空格, 超时: 15_000 + 前台间隔, 迟到也报: 30_000 });
+    const s0 = await 调(老, 动作.团队状态, []);
+    const 组 = s0?.重复?.find((g) => g.记录?.some((r) => r.id === X.id));
+    判(组 && 组.记录.some((r) => r.id === Y.id) && 组.留 === Y.id, { 步骤: "老板那台疑似重复列出这一对，默认留跟进多的（老板那份）", 哪台: 老板, 期望: `一组里有 X、Y，留 = Y`, 实际: 组 ?? s0?.重复 });
+    const 王状态 = await 调(w, 动作.团队状态, []);
+    判((王状态?.重复 ?? []).length === 0, { 步骤: "业务员那台没有疑似重复", 哪台: "wang", 期望: "重复 = []", 实际: 王状态?.重复 });
+    const 越 = await 调(w, 动作.合并重复, [[{ 留: X.id, 并: Y.id }]]);
+    判(越?.ok === false, { 步骤: "业务员调合并被拒", 哪台: "wang", 期望: "ok = false", 实际: 越 });
+
+    // 王关机，老板合并
+    await 关机(w);
+    const r = await 调(老, 动作.合并重复, [[{ 留: Y.id, 并: X.id }]]);
+    判(r?.ok && r.合了 === 1 && !r.没合?.length, { 步骤: "老板合并", 哪台: 老板, 期望: "ok、合了 1 对", 实际: r });
+    判(!客户(老, X.id) && 数(老, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", Y.id) === 3, { 步骤: "老板那台合并后", 哪台: 老板, 期望: "X 没了、Y 有 3 条跟进", 实际: { X: 客户(老, X.id), 跟进: 数(老, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", Y.id) } });
+    // 离线那台：改 X 的备注、给 X 记一条跟进
+    const 现在 = Date.now(), 离线跟进 = `sim_offline_${批}`;
+    改库(w, "UPDATE Customer SET remark = ?, updatedAt = ? WHERE id = ?", "王离线时改的", 现在, X.id);
+    改库(w, "INSERT INTO FollowUp (id, type, title, content, status, occurredAt, customerId, ownerId, createdAt, updatedAt) VALUES (?, 'PHONE', '', ?, '已完成', ?, ?, ?, ?, ?)", 离线跟进, `${X.名字}-离线记的`, 现在, X.id, w.我, 现在, 现在);
+    await 开机(w);
+    const 开 = Date.now();
+    const { 用时 } = await 等到({
+      步骤: "王回来以后：库里 X 没了（离线记的那条跟着清掉，内容进了待核对）", 哪台: "wang", 期望: "X 和它的跟进一行不剩；待核对里有被拒的那几条",
+      取: () => ({ 残留: 残留(w, X.id), 待核对: 数(w, "SELECT COUNT(*) AS n FROM _sync_scope_conflict WHERE pk IN (?, ?) AND resolvedAt IS NULL", X.id, 离线跟进) }),
+      满足: (v) => Object.keys(v.残留).length === 0 && v.待核对 >= 1, 超时: 首轮 + 前台间隔 * 2 + 4_000, 迟到也报: 45_000,
+    });
+    await Promise.all([跑完一轮(w), 跑完一轮(老)]);
+    for (const n of 名单) {
+      判(!客户(台[n], X.id), { 步骤: "X 不会回来", 哪台: n, 期望: "库里没有 X", 实际: 客户(台[n], X.id) });
+      判(数(台[n], "SELECT COUNT(*) AS n FROM FollowUp WHERE id = ?", 离线跟进) === 0 || 数(台[n], "SELECT COUNT(*) AS n FROM FollowUp WHERE id = ? AND customerId = ?", 离线跟进, Y.id) === 1, { 步骤: "离线记的那条不会挂在删掉的那份上", 哪台: n, 期望: "没有，或者挂在 Y 上", 实际: 查库(台[n].库, "SELECT customerId FROM FollowUp WHERE id = ?", 离线跟进) });
+    }
+    判(客户(老, Y.id)?.salesOwnerId === 老.我 && 客户(老, Y.id)?.remark !== "王离线时改的", { 步骤: "老板那份负责人不变、没被离线那台的旧改动盖掉", 哪台: 老板, 期望: "负责人老板、备注不是王离线写的", 实际: 客户(老, Y.id) });
+    判(查库(老.库, "SELECT fromOwnerName FROM CustomerMerge WHERE id = ?", X.id)[0]?.fromOwnerName === 查库(老.库, "SELECT name FROM User WHERE id = ?", w.我)[0]?.name, { 步骤: "合并记号记着被合并那份原来的负责人", 哪台: 老板, 期望: "fromOwnerName = 王", 实际: 查库(老.库, "SELECT * FROM CustomerMerge WHERE id = ?", X.id) });
+    const 日志 = 查库(老.库, "SELECT summary FROM AuditLog WHERE action = 'merge' AND entityId = ? ORDER BY at DESC LIMIT 1", Y.id)[0]?.summary ?? "";
+    判(日志.includes(X.名字), { 步骤: "操作日志记了一笔", 哪台: 老板, 期望: `summary 带「${X.名字}」和原负责人`, 实际: 日志 });
+    return { 说: `王回来 ${(用时 / 1000).toFixed(1)}s 清掉被合并那份（开机到核完 ${((Date.now() - 开) / 1000).toFixed(1)}s）；越权检查 ${await 核越权("合并疑似重复")} 行` };
   });
 
   /* ================= 外贸（2026-10-06 测试分期 E.1）：模版、档案、订单在几台之间 ================= */
