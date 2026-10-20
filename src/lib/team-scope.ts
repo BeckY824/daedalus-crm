@@ -19,6 +19,11 @@
  *   升级前已落到旧设备、手工备份、AI 历史里的资料技术上收不回；对外说法照这个说。
  *
  * 同步自己（推、拉、回放、改身份）和查重要看全部：包在 看全部() 里。
+ *
+ * **互看**（2026-10-20，客户需求）：老板在设置 → 团队里打开「同事之间互相看得到客户」（存在中继，每轮同步写进 .team.json）。
+ * 开着时业务员**读**不再限定客户（列表、详情、搜索、首页、AI 工具、MCP、导出跟着放开，服务端也把全队客户范围下发给他）；
+ * **改、删**照旧只限自己的 + 公海；同事的客户下面只许新建跟进（scope-policy 互看可加，服务端同一份规矩）。
+ * 未归属联系人、没挂客户的线索、操作日志照旧只看自己的。关掉后服务端目录里没了同事的客户，本机清理失权副本删掉。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -26,6 +31,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { Prisma, type PrismaClient } from "@/generated/prisma";
 import { 读 as 读云端凭据 } from "./desktop/cloud";
 import { 团队身份id } from "./desktop/me";
+import { 互看可加, 范围父表 } from "./sync/scope-policy";
 
 const 不限 = new AsyncLocalStorage<true>();
 
@@ -35,7 +41,10 @@ export function 看全部<T>(fn: () => Promise<T>): Promise<T> {
   return 不限.run(true, async () => await fn());
 }
 
-const g = globalThis as unknown as { __限定?: { 我: string | null; 到: number }; __限定刷新?: Promise<string | null> };
+/** 我：业务员本机的 id（老板等 = null）；互看：团队开了同事互看；别人的：互看时同事负责、不在公海的客户（拦在它们下面新建） */
+type 限定 = { 我: string | null; 互看: boolean; 别人的: ReadonlySet<string> };
+const 不限定: 限定 = { 我: null, 互看: false, 别人的: new Set() };
+const g = globalThis as unknown as { __限定?: 限定 & { 到: number }; __限定刷新?: Promise<限定> };
 
 /** 角色刚对过 / 刚进出团队：别等缓存过期 */
 export function 忘掉限定() {
@@ -48,6 +57,15 @@ function 在团队(): boolean {
   return !!dir && fs.existsSync(path.join(dir, ".team.json"));
 }
 
+/** .team.json 里记的互看开关（lib/sync/client.ts 记互看）。读不出 = 关 */
+function 团队开了互看(): boolean {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(process.env.CRM_DATA_DIR ?? "", ".team.json"), "utf8")).互看 === true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 现在要不要限定、限定成谁：业务员返回本机我的 id，其余（老板、没进团队、网页版、托管版）返回 null。
  * 缓存 3 秒：每条查询都会问一次，不能每次都读库。
@@ -58,26 +76,53 @@ function 在团队(): boolean {
  * 那是一个请求的第一句查询，在事务外面。
  */
 export async function 限定的我(db: PrismaClient): Promise<string | null> {
-  if (不限.getStore()) return null;
-  if (process.env.DESKTOP_LOCAL !== "1") return null;
+  return (await 现在的限定(db)).我;
+}
+
+/**
+ * 「看得到哪些客户」用的我（2026-10-20 互看）：开了互看 = null（全队都看得到），否则同 限定的我。
+ * 查重、比价这些「看全部取回来再按 看得到() 筛」的地方用它；判「能不能改」照旧用 限定的我
+ */
+export async function 读的我(db: PrismaClient): Promise<string | null> {
+  const x = await 现在的限定(db);
+  return x.互看 ? null : x.我;
+}
+
+/** 这位客户在业务员这台只能看、不能改（互看时同事负责、不在公海的客户）。老板、没进团队、自己的、公海的都是 false */
+export async function 只读客户(db: PrismaClient, c: { salesOwnerId: string | null; channelOwnerId?: string | null; pool?: unknown }): Promise<boolean> {
+  const { 我, 互看 } = await 现在的限定(db);
+  return !!我 && 互看 && !看得到(c, 我);
+}
+
+/** 按编号认「这是同事的客户」（互看时只读）：用缓存里的名单，不现查。保存、改一格之前先问，给人话而不是等数据库回找不到 */
+export async function 同事的客户(db: PrismaClient, id: string): Promise<boolean> {
+  const x = await 现在的限定(db);
+  return x.互看 && x.别人的.has(id);
+}
+
+async function 现在的限定(db: PrismaClient): Promise<限定> {
+  if (不限.getStore()) return 不限定;
+  if (process.env.DESKTOP_LOCAL !== "1") return 不限定;
   // 文件丢失不能等缓存到期，更不能把「认不出我」解释成老板。
   if (在团队() && !读云端凭据()?.accountId) throw new Error("团队身份缺失，请重新登录");
   const 现 = g.__限定;
-  if (现 && 现.到 > Date.now()) return 现.我;
+  if (现 && 现.到 > Date.now()) return 现;
   if (现) {
     void 认一次(db).catch(() => {});
-    return 现.我;
+    return 现;
   }
   return 认一次(db);
 }
 
-function 认一次(db: PrismaClient): Promise<string | null> {
+function 认一次(db: PrismaClient): Promise<限定> {
   if (g.__限定刷新) return g.__限定刷新;
-  const 票 = { p: undefined as Promise<string | null> | undefined };
+  const 票 = { p: undefined as Promise<限定> | undefined };
   const 是这次 = () => g.__限定刷新 === 票.p;
   票.p = (async () => {
     await Promise.resolve(); // 让 票.p 先挂上，下面的「是这次」才认得出
     let 我: string | null = null;
+    let 互看 = false;
+    let 别人的: ReadonlySet<string> = 不限定.别人的;
     if (在团队()) {
       const 账号 = 读云端凭据()?.accountId;
       if (账号) {
@@ -85,16 +130,25 @@ function 认一次(db: PrismaClient): Promise<string | null> {
         if (!u || !u.active) throw new Error("团队身份不存在或已停用，请重新登录");
         if (u.role !== "ADMIN") 我 = u.id;
       }
+      // 只拿编号：钩子里不能现查（SQLite 只开一个连接，交互式事务里再查会等到事务超时），新建前按这份判
+      if (我 && 团队开了互看()) {
+        互看 = true;
+        const 我的 = 我;
+        // 不用 where NOT(可见客户)：channelOwnerId 是 NULL 时 SQL 里 NOT(… OR NULL …) 算不出真，同事的客户一个都捞不到
+        const 全部 = await 不限.run(true, () => db.customer.findMany({ select: { id: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } } } }));
+        别人的 = new Set(全部.filter((c) => !看得到(c, 我的)).map((c) => c.id));
+      }
     }
+    const 新: 限定 = { 我, 互看, 别人的 };
     // 认的过程中被忘掉过（刚进出团队 / 角色刚对过）：这次的结果可能是旧的，不写，下一句再认
-    if (是这次()) g.__限定 = { 我, 到: Date.now() + 3000 };
-    return 我;
+    if (是这次()) g.__限定 = { ...新, 到: Date.now() + 3000 };
+    return 新;
   })()
     .catch((e) => {
       console.warn("[team-scope] 认不出我：", e?.message ?? e);
       // 有旧的用旧的；一次都没认出来就让这句查询报错——不能悄悄当成「不限定」，业务员会看到全队
       // 只有旧的业务员限定可继续使用；旧的「不限」不能作为身份失败时的退路。
-      if (g.__限定?.我 && !/身份不存在或已停用/.test(String(e?.message))) return g.__限定.我;
+      if (g.__限定?.我 && !/身份不存在或已停用/.test(String(e?.message))) return g.__限定;
       g.__限定 = undefined;
       throw e;
     })
@@ -113,8 +167,23 @@ export function 看得到(c: { salesOwnerId: string | null; channelOwnerId?: str
   return !我 || c.salesOwnerId === 我 || c.channelOwnerId === 我 || !!c.pool;
 }
 
-/** 每个要限定的模型加的那一句 where */
-export function 限定条件(model: string, 我: string): Record<string, unknown> | null {
+/**
+ * 每个要限定的模型加的那一句 where。互看读 = 开了互看时的读（查、数、汇总）：客户这条线不再限定，
+ * 计划 / 待办都挂在客户上、全放开；线索只放开挂了客户的；未归属联系人、操作日志照旧只看自己的
+ */
+export function 限定条件(model: string, 我: string, 互看读 = false): Record<string, unknown> | null {
+  if (互看读) {
+    switch (model) {
+      case "Lead":
+        return { OR: [{ ownerId: 我 }, { customerId: { not: null } }] };
+      case "AuditLog":
+        return { userId: 我 };
+      case "UnassignedContact":
+        return { ownerId: 我 };
+      default:
+        return null;
+    }
+  }
   const 客户 = 可见客户(我);
   switch (model) {
     case "Customer":
@@ -178,8 +247,8 @@ function 并限定(where: unknown, 条件: 查询参数): 查询参数 {
   return { ...w, AND: [...旧, 条件] };
 }
 
-/** Prisma 扩展只拦顶层操作：关联列表、可空关联和关联计数也必须补同一范围。 */
-function 限定关联(model: string, args: 查询参数, 我: string): 查询参数 {
+/** Prisma 扩展只拦顶层操作：关联列表、可空关联和关联计数也必须补同一范围。互看时带出来的关联都是读，按读放开 */
+function 限定关联(model: string, args: 查询参数, 我: string, 互看 = false): 查询参数 {
   const 关系 = 关系们.get(model) ?? [];
   const out = { ...args };
   for (const 模式 of ["include", "select"] as const) {
@@ -189,8 +258,8 @@ function 限定关联(model: string, args: 查询参数, 我: string): 查询参
     for (const f of 关系) {
       const v = 选[f.name];
       if (!v) continue;
-      let a = 限定关联(f.type, v === true ? {} : v as 查询参数, 我);
-      const 条件 = 限定条件(f.type, 我);
+      let a = 限定关联(f.type, v === true ? {} : v as 查询参数, 我, 互看);
+      const 条件 = 限定条件(f.type, 我, 互看);
       // Prisma 允许列表与可空单关联带 where；必填关联由父模型的限定保证。
       if (条件 && (f.isList || !f.isRequired)) a = { ...a, where: 并限定(a.where, 条件) };
       选[f.name] = a;
@@ -202,7 +271,7 @@ function 限定关联(model: string, args: 查询参数, 我: string): 查询参
       const 数 = { ...列 };
       for (const f of 关系.filter((f) => f.isList)) {
         const v = 数[f.name];
-        const 条件 = 限定条件(f.type, 我);
+        const 条件 = 限定条件(f.type, 我, 互看);
         if (!v || !条件) continue;
         const a = v === true ? {} : v as 查询参数;
         数[f.name] = { ...a, where: 并限定(a.where, 条件) };
@@ -215,6 +284,32 @@ function 限定关联(model: string, args: 查询参数, 我: string): 查询参
 }
 
 const 写操作 = new Set(["create", "createMany", "createManyAndReturn", "update", "updateMany", "updateManyAndReturn", "upsert", "delete", "deleteMany"]);
+const 新建操作 = new Set(["create", "createMany", "createManyAndReturn", "upsert"]);
+const 单条改删 = new Set(["update", "delete"]);
+
+/** 互看时改 / 删 / 在同事的客户下新建被挡（不在了() 认 code，给人看 message） */
+export class 只读错误 extends Error {
+  code = "CRM_READONLY";
+  constructor(message = "这是同事的客户：只能看和加跟进。改资料、删除、转交请找负责人或老板") {
+    super(message);
+  }
+}
+
+/** 新建的行挂在哪位客户下：直接带 customerId / connect 的那几张表（商机下面的报价等更深的，靠界面不给入口 + 服务端拒收） */
+function 挂的客户(d: unknown): string | null {
+  const x = d as { customerId?: unknown; customer?: { connect?: { id?: unknown } } } | null;
+  const id = x?.customerId ?? x?.customer?.connect?.id;
+  return typeof id === "string" ? id : null;
+}
+function 拦同事客户下新建(model: string, operation: string, args: 查询参数, 别人的: ReadonlySet<string>) {
+  // 只管会同步、挂在客户下面的表（收藏、AI 对话这些只在本机，随便建）
+  if (!范围父表[model] || 互看可加.has(model)) return;
+  const 数据 = operation === "upsert" ? [args.create, args.where] : Array.isArray(args.data) ? args.data : [args.data];
+  for (const d of 数据) {
+    const c = 挂的客户(d);
+    if (c && 别人的.has(c)) throw new 只读错误();
+  }
+}
 const 推 = globalThis as unknown as { __推送计时?: ReturnType<typeof setTimeout> };
 
 /**
@@ -249,12 +344,26 @@ export function 加上限定(db: PrismaClient): PrismaClient {
       $allModels: {
         async $allOperations({ model, operation, args, query }) {
           if (写操作.has(operation)) 改完推一下();
-          const 我 = await 限定的我(db);
+          const { 我, 互看, 别人的 } = await 现在的限定(db);
           if (!我) return query(args);
-          const a = 限定关联(model, (args ?? {}) as 查询参数, 我);
-          const 条件 = 限定的操作.has(operation) ? 限定条件(model, 我) : null;
+          if (互看 && 新建操作.has(operation)) 拦同事客户下新建(model, operation, (args ?? {}) as 查询参数, 别人的);
+          // 互看时同事的客户这一张：一眼认得出，不用等数据库回「找不到」
+          if (互看 && model === "Customer" && 单条改删.has(operation)) {
+            const id = ((args ?? {}) as { where?: { id?: unknown } }).where?.id;
+            if (typeof id === "string" && 别人的.has(id)) throw new 只读错误();
+          }
+          const a = 限定关联(model, (args ?? {}) as 查询参数, 我, 互看);
+          const 条件 = 限定的操作.has(operation) ? 限定条件(model, 我, 互看 && !写操作.has(operation)) : null;
           // 原来的 where 原样摊开、条件并进 AND：findUnique / update / delete 要求唯一键留在最外层
-          return query((条件 ? { ...a, where: 并限定(a.where, 条件) } : a) as typeof args);
+          const q = query((条件 ? { ...a, where: 并限定(a.where, 条件) } : a) as typeof args);
+          if (!互看 || !条件 || !单条改删.has(operation)) return q;
+          try {
+            return await q;
+          } catch (e) {
+            // 互看时读得到、改不到：多半是同事客户下面的那一条（也可能真在别处删了）
+            if ((e as { code?: string } | null)?.code === "P2025") throw new 只读错误("改不了：这一条在同事的客户下面（只能看和加跟进），或者已经在别处删了，刷新看看");
+            throw e;
+          }
         },
       },
     },

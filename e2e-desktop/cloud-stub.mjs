@@ -107,6 +107,12 @@ http
     if (p === "/api/sync/push") return json(res, 200, { ok: true });
     if (p === "/api/sync/pull") return json(res, 200, { batches: [], more: false, epoch: 0 });
     if (p === "/api/sync/team") return json(res, 200, { teams: 团队 ? [团队] : [] });
+    // 「同事之间互相看得到客户」（10-20）：老板改开关，记在团队上，下一次名单就带出来
+    if (p === "/api/sync/share" && 团队) {
+      if (!团队.我是建的人) return json(res, 403, { error: "只有建团队的人能改" });
+      团队.互看 = JSON.parse(body || "{}").on === true;
+      return json(res, 200, { ok: true, on: 团队.互看 });
+    }
     if (p === "/api/sync/pricing") return 额外.pricing ? json(res, 200, 额外.pricing) : json(res, 404, { error: "stub: 没设价格表" });
     if (p === "/api/sync/my-devices") return json(res, 200, { devices: 额外.devices ?? [], 上限: 3 });
     if (p === "/api/mobile/link") {

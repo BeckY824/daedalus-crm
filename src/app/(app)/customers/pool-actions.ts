@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * 公海的三个动作（2026-10-03，0.46.15 第 6 块）：放进公海、领取、撤销（两个动作的提示条上都有）。
+ * 公海的动作（2026-10-03，0.46.15 第 6 块）：放进公海、领取、老板分配（2026-10-20）、撤销（每个动作的提示条上都有）。
  * 规矩在 lib/pool.ts、自动掉公海在 lib/pool-db.ts。
  */
 import { 转交商机 } from "@/lib/opportunity-activity";
@@ -30,6 +30,8 @@ export type 公海结果 =
       原负责人?: { id: string; 值: string }[];
       /** 领取时带过来的是哪几条活：撤销只还这几条 */
       带过来?: 带走的;
+      /** 老板分配：分给了谁（id、名字），撤销时按他认「还归他」 */
+      给谁?: { id: string; name: string };
     }
   | { ok: false; error: string };
 
@@ -117,21 +119,67 @@ export async function 领取(ids: string[]): Promise<公海结果> {
 }
 
 /**
+ * 老板把公海里的客户直接分给一位业务员（2026-10-20，客户需求：原来公海里的只能业务员自己领）。
+ * 规矩和领取一模一样，只是「领的人」换成选中的那位：钉住老签约、原负责人没做完的活跟着过去、记领取时间（自动掉公海从它算起）、
+ * 能撤销、记操作日志。同步顺序也照领取：先改负责人、最后删公海那一行（删到 0 行 = 已经被人领走，这一位跳过）。
+ * 只给管理员（老板）；只分给在职成员
+ */
+export async function 分配公海(ids: string[], userId: string): Promise<公海结果> {
+  const me = await requireUser();
+  const b = await getBusiness();
+  if (me.role !== "ADMIN") return { ok: false, error: `只有老板能把公海里的${b.customer}分给同事` };
+  const 给 = await prisma.user.findFirst({ where: { id: String(userId ?? ""), active: true }, select: { id: true, name: true } });
+  if (!给) return { ok: false, error: "这位同事不在了或已停用，换一位" };
+  if (!ids.length) return { ok: true, updated: 0, unchanged: 0, 没权限: 0 };
+  await 钉住老签约();
+  const 分到: { id: string; 值: string }[] = [];
+  for (const id of [...new Set(ids)]) {
+    const 原 = await 看全部(() => prisma.$transaction(async (tx) => {
+      if (!(await tx.customerPool.findUnique({ where: { customerId: id }, select: { customerId: true } }))) return null;
+      const c = await tx.customer.findUnique({ where: { id }, select: { salesOwnerId: true } });
+      if (!c) throw new Error("客户不在了");
+      if (c.salesOwnerId !== 给.id) await tx.customer.update({ where: { id }, data: { salesOwnerId: 给.id } });
+      await tx.customerClaim.upsert({ where: { customerId: id }, update: { userId: 给.id, at: new Date() }, create: { customerId: id, userId: 给.id } });
+      const 删 = await tx.customerPool.deleteMany({ where: { customerId: id } });
+      if (!删.count) throw new Error("已被领走");
+      return c.salesOwnerId;
+    })).catch((e) => {
+      if (e instanceof Error && (e.message === "客户不在了" || e.message === "已被领走")) return null;
+      throw e;
+    });
+    if (原 !== null) 分到.push({ id, 值: 原 });
+  }
+  if (!分到.length) return { ok: true, updated: 0, unchanged: ids.length, 没权限: 0 };
+  const { 数: 带走, 记下: 带过来 } = await 带走并记下(分到.map((x) => ({ customerId: x.id, 旧: x.值 })), 给.id);
+  await recordAudit({
+    user: me, action: "assign", entity: "Customer", entityId: 分到.length === 1 ? 分到[0].id : null,
+    summary: `把公海里 ${分到.length} 名${b.customer}分给「${给.name}」`,
+    detail: { ids: 分到.map((x) => x.id), 给: 给.id, 原负责人: 分到.map((x) => ({ id: x.id, salesOwnerId: x.值 })) },
+  });
+  刷新(ids);
+  return { ok: true, updated: 分到.length, unchanged: ids.length - 分到.length, 没权限: 0, 带走, 原负责人: 分到, 带过来, 给谁: 给 };
+}
+
+/**
  * 撤销放进公海：把这几位从公海里拿回来，负责人本来就没动过。
  * 撤销领取：负责人还给原来的人、再放回公海；**只还领取时带过来的那几条活**（带过来），
  * 领取之前就归我的计划、待办、商机不动（复查：原来按「我名下没做完的」整个转回去，把我自己的也送走了）。
  * 只撤自己刚才那一下：只认「现在还归我、不在公海」的那几位；原负责人已经停用的不还（还给停用的人等于丢进黑洞），留在我这儿。
+ * 撤销分配（老板）：同撤销领取，「我」换成分到的那位（给谁）——只认现在还归他、不在公海的，他名下带过去的活还回去
  */
-export async function 撤销公海(动作: "放进" | "领取", 原: { id: string; 值: string }[], 带过来?: 带走的): Promise<公海结果> {
+export async function 撤销公海(动作: "放进" | "领取" | "分配", 原: { id: string; 值: string }[], 带过来?: 带走的, 给谁?: string): Promise<公海结果> {
   const me = await requireUser();
   const ids = 原.map((x) => x.id);
   if (!ids.length) return { ok: true, updated: 0, unchanged: 0, 没权限: 0 };
+  if (动作 === "分配" && (me.role !== "ADMIN" || !给谁)) return { ok: false, error: "只有老板能撤销分配" };
+  /** 这几位现在归谁：领取 = 我，分配 = 分到的那位 */
+  const 现 = 动作 === "分配" ? 给谁! : me.id;
   if (动作 === "放进") {
     const r = await prisma.customerPool.deleteMany({ where: { customerId: { in: ids }, userId: me.id } });
     刷新(ids);
     return { ok: true, updated: r.count, unchanged: ids.length - r.count, 没权限: 0 };
   }
-  const 还归我 = await prisma.customer.findMany({ where: { id: { in: ids }, salesOwnerId: me.id, pool: null }, select: { id: true } });
+  const 还归我 = await prisma.customer.findMany({ where: { id: { in: ids }, salesOwnerId: 现, pool: null }, select: { id: true } });
   const 在职的 = new Set((await prisma.user.findMany({ where: { id: { in: 原.map((x) => x.值) }, active: true }, select: { id: true } })).map((u) => u.id));
   const 退 = 原.filter((x) => 还归我.some((c) => c.id === x.id) && 在职的.has(x.值));
   await 钉住老签约();
@@ -140,12 +188,12 @@ export async function 撤销公海(动作: "放进" | "领取", 原: { id: strin
       // 先放回公海、再把负责人还回去（团队范围同步：放回公海那一刻还归我，之后人人可写；反过来还完负责人我就写不了公海那一行）
       await tx.customerPool.create({ data: { customerId: x.id, userId: me.id, reason: "手动" } });
       await tx.customer.update({ where: { id: x.id }, data: { salesOwnerId: x.值 } });
-      await tx.customerClaim.deleteMany({ where: { customerId: x.id, userId: me.id } });
-      // 领取时带过来的活还回去：还挂在我名下、还没做完的才还
+      await tx.customerClaim.deleteMany({ where: { customerId: x.id, userId: 现 } });
+      // 领取 / 分配时带过来的活还回去：还挂在领到的人名下、还没做完的才还
       if (带过来) {
-        await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: me.id, done: false }, data: { ownerId: x.值 } });
-        await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: me.id, done: false }, data: { ownerId: x.值 } });
-        await 转交商机(tx, { id: { in: 带过来.商机 }, customerId: x.id, ownerId: me.id, status: "OPEN" }, x.值);
+        await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: 现, done: false }, data: { ownerId: x.值 } });
+        await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: 现, done: false }, data: { ownerId: x.值 } });
+        await 转交商机(tx, { id: { in: 带过来.商机 }, customerId: x.id, ownerId: 现, status: "OPEN" }, x.值);
       }
     });
   }

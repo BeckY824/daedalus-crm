@@ -1671,6 +1671,12 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .team-price-v small { font-family: inherit; font-size: var(--fs-min); font-weight: 400; color: var(--text-muted); }
 .team-card p.team-price-how { margin: 0; }
 .team-plan { margin: calc(-1 * var(--s2)) 0 var(--s3); font-size: var(--fs-note); font-variant-numeric: tabular-nums; }
+/* 人员头像 + 姓名（components/ui.tsx UserCell）：头像不缩，名字那一项可以缩到省略号 */
+.user-cell > .ant-space-item:last-child { min-width: 0; }
+/* 同事之间互相看得到客户（2026-10-20）：标题和开关一行，说明在下面；「收不回」那句单独一行、用提醒色 */
+.team-share-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); max-width: 640px; margin-bottom: var(--s2); }
+.team-share p { max-width: 640px; }
+.team-card p.team-share-warn { color: var(--warning-text); }
 
 /* 选模版：在登录页右半边（app/start），两张卡并排，窗口窄了上下排 */
 .tpl { width: min(640px, 100%); display: flex; flex-direction: column; }

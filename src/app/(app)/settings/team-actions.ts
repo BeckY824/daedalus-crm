@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { 云端地址 } from "@/lib/desktop/cloud";
 import { recordAudit } from "@/lib/audit";
-import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表 } from "@/lib/sync/client";
+import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
 import { 列出被盖, 看过被盖 } from "@/lib/sync/overwritten";
@@ -97,6 +97,20 @@ export async function 移除成员动作(accountId: string, 名字: string) {
   const me = await requireUser();
   const r = await 移除成员(String(accountId ?? ""));
   if (r.ok) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: `把「${名字}」移出了团队，邀请码和钥匙都换了` });
+  return r;
+}
+
+/**
+ * 「同事之间互相看得到客户」开 / 关（2026-10-20，只有老板；中继那边再核一次是不是建团队的人）。
+ * 不用签名钥匙：老板在哪台电脑上都能改。业务员那几台下一轮同步生效
+ */
+export async function 设互看动作(on: boolean) {
+  const me = await requireUser();
+  const r = await 设互看(on === true);
+  if (r.ok) {
+    await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: r.on ? "打开了「同事之间互相看得到客户」：业务员能看到全队客户（同事的只能看和加跟进）" : "关掉了「同事之间互相看得到客户」：业务员只看自己的客户和公海" });
+    revalidatePath("/", "layout");
+  }
   return r;
 }
 

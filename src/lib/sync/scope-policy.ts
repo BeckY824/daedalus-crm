@@ -98,10 +98,31 @@ export function 算范围(row: 范围索引, rows: 范围行表, seen = new Set<
   if (!scopes.length || scopes.some(s => s.id !== scopes[0].id)) return null;
   return { ...scopes[0], routeSeq: Math.max(row.routeSeq, ...scopes.map(s => s.routeSeq)) };
 }
-export const 范围可读 = (scope: 范围 | null, accountId: string, owner: boolean) => !!scope && (owner || scope.public || scope.owners.includes(`acct_${accountId}`));
+/**
+ * 互看（2026-10-20，团队开关「同事之间互相看得到客户」，存在中继 SyncTeamShare）：开着时业务员也能读同事的客户范围。
+ * 「personal:」（未归属联系人、没挂客户的线索、认不出对象的操作日志）照旧只给本人
+ */
+export const 范围可读 = (scope: 范围 | null, accountId: string, owner: boolean, 互看 = false) =>
+  !!scope && (owner || scope.public || scope.owners.includes(`acct_${accountId}`) || (互看 && scope.id.startsWith("Customer:")));
+/**
+ * 互看时同事的客户只许「加跟进」：新建跟进、它的来源 / 关联订单、操作日志。改资料、删、转交、改别人的计划和待办一律不许。
+ * 计划、待办不在里面：服务器看不到它们的负责人（范围元数据只有客户编号），建了以后本人也改不了、勾不掉，干脆不让在同事的客户上建
+ */
+export const 互看可加 = new Set(["FollowUp", "FollowUpSource", "FollowUpOrder", "AuditLog"]);
 /** 写权限先核旧范围，再核新范围。转交出去允许，但不能借伪造归属抢其他私客。 */
-export function 范围可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, owner: boolean): boolean {
+export function 范围可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, owner: boolean, 互看 = false): boolean {
   if (owner) return true;
+  if (本人可写(old, n, rows, accountId)) return true;
+  // 互看：同事的客户下只许新建跟进家族的行（重发同一包在收推送时按 eventId 去重，到不了这里）
+  if (!互看 || old || n.deleted || !互看可加.has(n.t)) return false;
+  for (const [field, table] of Object.entries(范围父表[n.t] ?? {})) {
+    const id = n.fields[field]; if (!id) continue;
+    const parent = rows.get(行键(table, id));
+    if (!parent || !范围可读(算范围(parent, rows), accountId, false, true)) return false;
+  }
+  return 范围可读(算范围(n, 叠加(rows, 行键(n.t, n.k), n)), accountId, false, true);
+}
+function 本人可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string): boolean {
   if (n.t === "Setting") return false;
   if (n.t === "User") return n.k === `acct_${accountId}`;
   const before = old && 算范围(old, rows);
@@ -141,9 +162,9 @@ export function 挂在已删的上(n: 范围索引, rows: 范围行表): boolean
  * 不会多给权限的理由：请求开始时不可读的已有记录，本次请求中任何一包都不能让它变可读（改它本身、挂公海、改它的父链都要先可读），
  * 所以 ② 里每一条记录都是这台设备在本次请求某一刻合法可读的版本；伪造归属、借外键塞进别人的私客，两种状态下都不过。
  */
-export function 推送可写(start: 范围行表, rows: 范围行表, n: 范围索引, accountId: string, owner: boolean): boolean {
+export function 推送可写(start: 范围行表, rows: 范围行表, n: 范围索引, accountId: string, owner: boolean, 互看 = false): boolean {
   if (挂在已删的上(n, rows)) return false;
   if (owner) return true;
   const key = 行键(n.t, n.k);
-  return 范围可写(rows.get(key), n, rows, accountId, false) || 范围可写(start.get(key), n, start, accountId, false);
+  return 范围可写(rows.get(key), n, rows, accountId, false, 互看) || 范围可写(start.get(key), n, start, accountId, false, 互看);
 }

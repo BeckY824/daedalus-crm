@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { App, Alert, Button, Input, Space, Tag, Typography } from "antd";
+import { App, Alert, Button, Input, Space, Switch, Tag, Typography } from "antd";
 import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import ScopeConflicts from "./ScopeConflicts";
@@ -13,7 +13,7 @@ import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
 import TeamNoticeCard from "./TeamNoticeCard";
 import { 人满话 } from "@/lib/team-pricing";
-import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作 } from "./team-actions";
+import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作, 设互看动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
 
@@ -113,6 +113,31 @@ export default function TeamTab() {
         const r = await 移除成员动作(m.accountId, m.name);
         if (!r.ok) return void message.error(r.error);
         message.success(`已把「${m.name}」移出团队，邀请码和钥匙都换了`);
+        await 刷();
+      },
+    });
+  }
+
+  /** 「同事之间互相看得到客户」：开、关都先说清两件事——放开了什么 / 收回什么，以及看过、导出过的收不回 */
+  function 切互看(on: boolean) {
+    modal.confirm({
+      title: on ? "让同事之间互相看得到客户？" : "关掉「同事之间互相看得到客户」？",
+      content: (
+        <div data-testid="team-share-confirm">
+          {on ? (
+            <p>业务员会看到<b>全队</b>的客户、跟进记录和商机进度（列表、搜索、首页、AI、导出都算）。同事的客户只能看和加跟进，改资料、删除、转交还是负责人和你。</p>
+          ) : (
+            <p>业务员下次同步后只看得到自己的客户和公海，他们电脑上同事的客户会删掉。</p>
+          )}
+          <p><b>已经看过、导出过的收不回</b>{on ? "：以后再关掉，业务员电脑上同事的客户会删掉，但导出的表格、记下来的东西还在。" : "：导出的表格、记下来的东西还在他们那里。"}</p>
+        </div>
+      ),
+      okText: on ? "打开" : "关掉",
+      cancelText: "取消",
+      async onOk() {
+        const r = await 设互看动作(on);
+        if (!r.ok) return void message.error(r.error);
+        message.success(on ? "已打开：业务员下次同步后看得到全队客户" : "已关掉：业务员下次同步后只看自己的和公海");
         await 刷();
       },
     });
@@ -305,8 +330,8 @@ export default function TeamTab() {
         <h3>成员 {s.成员.length}</h3>
         <p className="muted">
           {s.我是建的人
-            ? "你是老板：看得到所有人的客户和跟进。业务员只看得到自己负责的客户和公海。"
-            : "你是业务员：看得到自己负责的客户和公海里的客户。老板（建团队的人）看得到全部。"}
+            ? s.互看 ? "你是老板：看得到所有人的客户和跟进。业务员也看得到全队的客户（同事的只能看和加跟进）。" : "你是老板：看得到所有人的客户和跟进。业务员只看得到自己负责的客户和公海。"
+            : s.互看 ? "你是业务员：团队开了「同事之间互相看得到客户」，看得到全队的客户；同事的只能看和加跟进。老板（建团队的人）看得到全部。" : "你是业务员：看得到自己负责的客户和公海里的客户。老板（建团队的人）看得到全部。"}
         </p>
         <ul className="team-members">
           {s.成员.map((m) => {
@@ -334,6 +359,21 @@ export default function TeamTab() {
           })}
         </ul>
       </section>
+
+      {/* 同事之间互相看得到客户（2026-10-20，客户需求）：整个团队一个开关，只有老板能改；老服务器不认（null）就不摆 */}
+      {s.我是建的人 && s.互看 !== null && (
+        <section className="team-card team-share" data-testid="team-share">
+          <div className="team-share-row">
+            <h3 style={{ margin: 0 }}>同事之间互相看得到客户</h3>
+            <Switch checked={s.互看} onChange={(on) => 切互看(on)} aria-label="同事之间互相看得到客户" />
+          </div>
+          <p className="muted">
+            打开后业务员能看到全队的客户、跟进记录和商机进度；同事的客户只能看和加跟进，改资料、删除、转交还是负责人和你。
+            关掉后回到「只看自己的 + 公海」，业务员电脑上同事的客户在下次同步时删掉。
+          </p>
+          <p className="team-share-warn">已经看过、导出过的收不回。</p>
+        </section>
+      )}
 
       {s.重复.length > 0 && (
         <section className="team-card">

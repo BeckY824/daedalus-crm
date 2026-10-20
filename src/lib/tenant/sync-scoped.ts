@@ -8,7 +8,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { control } from "./control";
 import type { Prisma } from "@/generated/control";
 import { workspaceDir } from "./clients";
-import { 当前编号, 在队里, 设备还在, 记设备在用 } from "./sync-relay";
+import { 当前编号, 互看, 在队里, 设备还在, 记设备在用 } from "./sync-relay";
 import { 范围开关 } from "./scoped-flag";
 import { 能同步 } from "./team-plan";
 import { 包的编号 } from "../sync/crypto";
@@ -41,7 +41,8 @@ async function auth(accountId: string, teamId: string, device?: string, db: Db =
     const d = await db.syncDevice.findUnique({ where: { teamId_device: { teamId, device } } });
     if (!d || d.accountId !== accountId) fail(403, "设备身份不符，请重新加入团队");
   }
-  return { owner: t.ownerAccountId === accountId, team: t };
+  // share：团队开了「同事之间互相看得到客户」（2026-10-20）。老板本来就看全队，用不上
+  return { owner: t.ownerAccountId === accountId, team: t, share: await 互看(teamId, db) };
 }
 async function indices(teamId: string, db: Db = control) {
   return new Map((await db.syncScopedRecord.findMany({ where: { teamId } })).map(r => [r.key, JSON.parse(r.metadata) as 范围索引]));
@@ -71,10 +72,10 @@ export async function 范围开放(teamId: string) {
   return 范围开关(teamId) || !!(await control.syncPrivacy.findUnique({ where: { teamId } }));
 }
 export async function 范围状态(accountId: string, teamId: string) {
-  const { owner } = await auth(accountId, teamId);
+  const { owner, share } = await auth(accountId, teamId);
   const p = await control.syncPrivacy.findUnique({ where: { teamId } });
   // pushRule：服务端按「请求开始时的权限」核一次推送（推送可写），客户端才把转交和起点快照放进同一次请求；旧服务端没有这一项
-  return { stage: p?.stage ?? "legacy", owner, enabled: 范围开关(teamId) || !!p, fence: p?.fence ?? 0, epoch: await 当前编号(teamId), device: owner ? p?.device ?? null : null, pushRule: "request-start", maxPackets: 范围单次上限 };
+  return { stage: p?.stage ?? "legacy", owner, enabled: 范围开关(teamId) || !!p, fence: p?.fence ?? 0, epoch: await 当前编号(teamId), device: owner ? p?.device ?? null : null, pushRule: "request-start", maxPackets: 范围单次上限, share };
 }
 export async function 开始范围迁移(accountId: string, teamId: string, device: string) {
   const { owner } = await auth(accountId, teamId, device);
@@ -117,7 +118,7 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     return { packet, digest };
   });
   return control.$transaction(async tx => {
-    const { owner } = await auth(accountId, teamId, device, tx);
+    const { owner, share } = await auth(accountId, teamId, device, tx);
     const current = (await tx.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0;
     if (current !== epoch) fail(409, "团队换过钥匙了，取到新钥匙再推");
     const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
@@ -139,7 +140,7 @@ export async function 收范围推送(accountId: string, teamId: string, device:
       const old = rows.get(key), n = 合并范围(old, packet.meta, batchId);
       // 这一包删除成了当前状态：记下批次号，拉取时直接给这一包（见 给范围拉取），不用回头翻批次
       if (packet.meta.o === 'D' && n.deleted && n.clock === packet.meta.h) n.delSeq = batchId;
-      if (p.stage === 'ready' && !推送可写(start, rows, n, accountId, owner)) return false;
+      if (p.stage === 'ready' && !推送可写(start, rows, n, accountId, owner, share)) return false;
       落(key, n); stored++;
       await tx.syncScopedRecord.upsert({ where: { teamId_key: { teamId, key } }, create: { teamId, key, metadata: JSON.stringify(n) }, update: { metadata: JSON.stringify(n) } });
       if (packet.baseline) await tx.syncScopedBaseline.create({ data: { teamId, recordKey: key, batchId } });
@@ -213,7 +214,7 @@ export async function 范围目录(accountId: string, teamId: string) {
 }
 /** 要补起点：只有 directory 动作算 needBaseline；拉取每个范围都会重算目录，不跟着多查 */
 async function 目录里(accountId: string, teamId: string, db: Db, 要补起点 = false) {
-  const { owner, team } = await auth(accountId, teamId, undefined, db);
+  const { owner, team, share } = await auth(accountId, teamId, undefined, db);
   const p = await db.syncPrivacy.findUnique({ where: { teamId } });
   if (p?.stage !== 'ready') fail(409, "请等待老板完成团队范围迁移");
   const rows = await indices(teamId, db);
@@ -222,7 +223,7 @@ async function 目录里(accountId: string, teamId: string, db: Db, 要补起点
   const 候选 = new Map<string, number>();
   for (const r of rows.values()) {
     const scope = 算范围(r, rows);
-    if (!范围可读(scope, accountId, owner) || !scope) continue;
+    if (!范围可读(scope, accountId, owner, share) || !scope) continue;
     const s = scopes.get(scope.id) ?? { id: scope.id, revision: 0, records: [] };
     s.revision = Math.max(s.revision, scope.routeSeq); s.records.push(r); scopes.set(scope.id, s);
     if (owner && 要补起点 && !r.deleted && scope.routeSeq > 0 && (scope.public || scope.owners.some(o => o !== 老板))) 候选.set(行键(r.t, r.k), scope.routeSeq);
@@ -249,7 +250,7 @@ async function 目录里(accountId: string, teamId: string, db: Db, 要补起点
     回放时负责人在本机不存在，整批客户当孤儿永久跳过（tests/sync-scoped-join-order.test.ts）
   */
   const 排好 = [...scopes.values()].sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
-  return { owner, scopes: 排好, epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
+  return { owner, share, scopes: 排好, epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
 }
 /** 这条记录在改归属（threshold）之前有没有批次：有 = 新获权的人需要一份起点，没有 = 整段历史都在改归属之后 */
 const 有更早批次 = async (db: Db, teamId: string, recordKey: string, threshold: number) => !!(await db.syncScopedBatch.findFirst({ where: { teamId, recordKey, id: { lt: threshold } }, select: { id: true } }));
@@ -284,7 +285,11 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
     失权期间（不在本范围时）的历史密文不下发；起点还没补上的记录这一轮先不给，游标不受影响。
     老板本来就看全队，照旧给全部历史。
   */
-  const rows = directory.owner ? null : await indices(teamId, tx);
+  /*
+    开了互看（2026-10-20）：业务员能读全队客户，同事客户的整段历史本来就在开关放行的范围里，和老板一样从头给，
+    不按改归属的起点截——否则老板转给另一位业务员、没有业务员看得到过的客户，要等老板那台补完起点才拉得到
+  */
+  const rows = directory.owner || directory.share ? null : await indices(teamId, tx);
   const starts: { key: string; gt: number; only?: number }[] = [];
   for (const r of scope.records) {
     const key = 行键(r.t, r.k);
@@ -325,7 +330,7 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
  * 同一位客户整份替换：号码改了，旧哈希跟着没了
  */
 export async function 收查重索引(accountId: string, teamId: string, device: string, entries: unknown): Promise<{ stored: number; skipped: string[] }> {
-  const { owner } = await auth(accountId, teamId, device);
+  const { owner, share } = await auth(accountId, teamId, device);
   if (!Array.isArray(entries) || entries.length > 查重单次上限) fail(400, "查重索引格式不对");
   const epoch = await 当前编号(teamId);
   const 收: 查重条目[] = [];
@@ -340,7 +345,7 @@ export async function 收查重索引(accountId: string, teamId: string, device:
   await control.$transaction(async (tx) => {
     for (const e of 收) {
       const r = rows.get(行键("Customer", e.k));
-      if (!r || r.deleted || !范围可读(算范围(r, rows), accountId, owner)) { skipped.push(e.k); continue; }
+      if (!r || r.deleted || !范围可读(算范围(r, rows), accountId, owner, share)) { skipped.push(e.k); continue; }
       await tx.syncDedupeKey.deleteMany({ where: { teamId, recordKey: e.k } });
       if (e.hashes.length) await tx.syncDedupeKey.createMany({ data: [...new Set(e.hashes)].map((hash) => ({ teamId, recordKey: e.k, hash, epoch, label: e.label })) });
       stored++;
@@ -354,7 +359,7 @@ export async function 收查重索引(accountId: string, teamId: string, device:
  * 已删的、换钥匙前的不回。只给客户 id、负责人（用户 id，名字由本机同事名单取）、封好的客户名
  */
 export async function 查查重(accountId: string, teamId: string, hashes: unknown): Promise<{ hits: 查重命中[] }> {
-  const { owner } = await auth(accountId, teamId);
+  const { owner, share } = await auth(accountId, teamId);
   if (!Array.isArray(hashes) || hashes.length > 查重一问上限 || !hashes.every((h) => typeof h === "string" && 查重哈希格式.test(h))) fail(400, "查重请求格式不对");
   if (!hashes.length) return { hits: [] };
   const epoch = await 当前编号(teamId);
@@ -365,7 +370,7 @@ export async function 查查重(accountId: string, teamId: string, hashes: unkno
     if (hits.some((h) => h.k === x.recordKey)) continue;
     const r = rows.get(行键("Customer", x.recordKey));
     if (!r || r.deleted) continue;
-    if (范围可读(算范围(r, rows), accountId, owner)) continue;
+    if (范围可读(算范围(r, rows), accountId, owner, share)) continue;
     hits.push({ k: x.recordKey, owner: r.fields.salesOwnerId ?? r.fields.channelOwnerId ?? "", label: x.label });
   }
   return { hits };

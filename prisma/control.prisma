@@ -656,6 +656,16 @@ model SyncRekeyWanted {
   wantedAt DateTime @default(now())
 }
 
+/// 团队「同事之间互相看得到客户」开关（2026-10-20，control-migrations/028）。没有这一行 = 关。
+/// 开了：范围同步把全队客户范围放给业务员读（见 lib/sync/scope-policy.ts 范围可读），同事的客户只许新加跟进家族的行。
+/// 只有老板（建团队的人）能改；业务员每轮同步从「范围状态」拿到它，写进本机 .team.json
+model SyncTeamShare {
+  teamId    String   @id
+  on        Boolean  @default(false)
+  changedAt DateTime @default(now())
+  by        String?
+}
+
 /// 团队版按时长开通（2026-10-15，control-migrations/023）。运营台「开通 / 续费」选时长和人数后写这里。
 /// paidUntil 过了就暂停同步（和「待开通 / 停用」同一道闸，见 lib/tenant/team-plan.ts），续费顺延后自动恢复；每个人电脑上的数据照常能用。
 /// 没有这一行、或 paidUntil 为空 = 不限期（10-15 之前开通的老团队，运营台显示「未设到期」）。

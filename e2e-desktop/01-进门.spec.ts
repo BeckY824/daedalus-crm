@@ -5,11 +5,14 @@
  * 「升上来第一次进主界面弹更新记录」都只在库还是新的时候成立。
  */
 import { test, expect } from "@playwright/test";
-import { 云端账号, 进门地址, DESKTOP_TOKEN } from "./env";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { 云端账号, 进门地址, DESKTOP_TOKEN, ROOT } from "./env";
 import { 没登录云端时, 进门 } from "./helpers";
 
 // 用户看到的版本就是 package.json 的版本号（desktop/release-version.js 原样返回）。
-const 版本 = "0.46.15";
+// 直接读它，不写死：原来写死 0.46.15，之后每发一版这里就过期，弹窗没点掉，后面整套用例都被它挡住（10-20 发现）
+const 版本 = (JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { version: string }).version;
 
 test.describe.configure({ mode: "serial" });
 
