@@ -1,0 +1,137 @@
+name: Desktop upgrade verify
+
+# 从已发布的旧版升级到某次 Desktop apps 运行打出来的包（代码优化 2026-10-20，#1 安装包瘦身 / #4 压缩格式）。
+# 用户手上装的是旧版，真正走升级的是**旧版里的更新代码**，所以这里先装旧版、再让它自己去下新包：
+#   - Mac 差量：旧版 .app + 新包的 zip / 清单 → verify-quit-install.mjs（自动下差量、退出时换包），日志里有差量下了多少
+#   - Mac 整包：旧版 .app + 新 dmg → verify-upgrade-dmg.mjs（下载、核 sha256、挂载、验签、换包、自动重启）
+#   - Windows：先装旧版 setup.exe 并造好两个账号的数据 → smoke-windows-update.mjs（CRM_SMOKE_BASE_SETUP）
+#     由旧版下载、校验、安装新 setup.exe，核数据都在、装上的文件和这次检出的一致
+# 新包：推到 verify/upgrade* 分支时就地打这个分支的包（workflow_dispatch 要求文件已在默认分支上，
+# 合进去之前只能靠 push 触发）；合进去以后也可以手动跑、填 run_id 取某次 Desktop apps 运行的产物。
+# 旧包从 GitHub 的 desktop-updates 下载，先和 GitHub 给的 sha256 对上再用。只读、不发版、不碰 Release。
+on:
+  push:
+    branches: ["verify/upgrade*"]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 新包取自哪次 Desktop apps 运行（留空 = 就地打这个分支的包）
+        default: ""
+      from:
+        description: 从哪个已发布版本升级
+        default: "0.46.22"
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  RUN_ID: ${{ inputs.run_id || '' }}
+  FROM: ${{ inputs.from || '0.46.22' }}
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            artifact: daedalus-crm-dmg-arm64
+            script: dist:mac
+            old: Daedalus.CRM-{v}-arm64.dmg
+          - os: windows-latest
+            artifact: daedalus-crm-exe-x64
+            script: dist:win
+            old: Daedalus-CRM-{v}-x64-setup.exe
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        # 和 desktop.yml 一样完整检出：打包时 electron-builder 要从 git 里认出仓库
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: 装依赖
+        run: |
+          npm ci --no-audit --no-fund
+          (cd desktop && npm ci --no-audit --no-fund)
+          npx playwright install chromium
+      - name: 新包：就地打（和 desktop.yml 的打包、差量产物两步一样）
+        if: env.RUN_ID == ''
+        working-directory: desktop
+        # electron-builder 在 CI 上要认出仓库才肯往下走（package.json 里没写 repository）；它认这个变量。
+        # 不是打 tag、也没有 token，不会往 Release 上传任何东西
+        env:
+          TRAVIS_REPO_SLUG: ${{ github.repository }}
+        run: |
+          npm run ${{ matrix.script }}
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            VER="$(node -p 'require("./package.json").version')"
+            ditto -c -k --keepParent --norsrc "dist/mac-arm64/Daedalus CRM.app" "dist/Daedalus CRM-$VER-arm64.app.zip"
+            node scripts/make-manifest.mjs "dist/Daedalus CRM-$VER-arm64.app.zip" "$VER" "dist/Daedalus CRM-$VER-arm64.manifest.json.gz"
+          fi
+      - name: 取新包（run_id 的产物）和旧包（desktop-updates，核 sha256）
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ -n "$RUN_ID" ]; then gh run download "$RUN_ID" -n "${{ matrix.artifact }}" -D desktop/dist; fi
+          ls -l desktop/dist
+          OLD="$(echo '${{ matrix.old }}' | sed "s/{v}/$FROM/")"
+          mkdir -p base
+          curl -fsSL -o "base/$OLD" "https://github.com/${{ github.repository }}/releases/download/desktop-updates/$OLD"
+          WANT="$(gh api "repos/${{ github.repository }}/releases/tags/desktop-updates" --jq ".assets[] | select(.name == \"$OLD\") | .digest" | sed 's/^sha256://')"
+          GOT="$(node -e 'const c=require("crypto"),f=require("fs");console.log(c.createHash("sha256").update(f.readFileSync(process.argv[1])).digest("hex"))' "base/$OLD")"
+          echo "旧包 $OLD：GitHub $WANT / 下回来 $GOT"
+          test -n "$WANT" && test "$WANT" = "$GOT"
+          P="$PWD/base/$OLD"
+          # Windows 上 node 认不得 git-bash 的 /d/a/... 路径
+          if [ "$RUNNER_OS" = "Windows" ]; then P="$(cygpath -w "$P")"; fi
+          echo "OLD_PKG=$P" >> "$GITHUB_ENV"
+
+      # ---------- Mac ----------
+      - name: Mac：从旧 dmg 拷出旧版 .app
+        if: runner.os == 'macOS'
+        run: |
+          MNT="$(mktemp -d)"
+          hdiutil attach "$OLD_PKG" -nobrowse -readonly -mountpoint "$MNT"
+          mkdir -p "$RUNNER_TEMP/old"
+          ditto "$MNT/Daedalus CRM.app" "$RUNNER_TEMP/old/Daedalus CRM.app"
+          hdiutil detach "$MNT" -force
+          echo "OLD_APP=$RUNNER_TEMP/old/Daedalus CRM.app" >> "$GITHUB_ENV"
+      - name: Mac：差量升级（旧版自动下差量、退出时换包）
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: |
+          VER="$(node -p 'require("./package.json").version')"
+          node scripts/perf/serve-range.mjs dist 18731 > "$RUNNER_TEMP/range.log" 2>&1 &
+          sleep 1
+          B=http://127.0.0.1:18731
+          node scripts/verify-quit-install.mjs "$OLD_APP" "$VER" "$B/Daedalus%20CRM-$VER-arm64.app.zip" "$B/Daedalus%20CRM-$VER-arm64.manifest.json.gz"
+          echo "--- 这次差量实际从 zip 取了多少（最后一行的累计）："
+          grep "app.zip" "$RUNNER_TEMP/range.log" | tail -1
+      - name: Mac：整包升级（旧版下载新 dmg、核 sha256、挂载、换包）
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        run: node scripts/verify-upgrade-dmg.mjs "$OLD_APP" "$(ls dist/*.dmg | head -1)"
+
+      # ---------- Windows ----------
+      - name: Windows：旧版装好、造数据 → 旧版下载并安装新 setup.exe → 数据都在
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        env:
+          CRM_SMOKE_BASE_SETUP: ${{ env.OLD_PKG }}
+        run: node scripts/smoke-windows-update.mjs
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: upgrade-verify-failure-${{ runner.os }}
+          include-hidden-files: true
+          path: |
+            desktop/.smoke-data/**/failure-*.png
+            desktop/.smoke-data/**/logs/*.log
+            desktop/.smoke-data/**/smoke.log
+          if-no-files-found: ignore
