@@ -184,7 +184,7 @@ try {
       const s = (a, k) => Math.round(a.reduce((x, e) => x + (e[k] || 0), 0) / 1024);
       const js = es.filter((e) => /\.js(\?|$)/.test(e.name));
       const css = es.filter((e) => /\.css(\?|$)/.test(e.name));
-      return { jsCount: js.length, jsKB: s(js, "decodedBodySize"), cssCount: css.length, cssKB: s(css, "decodedBodySize"), domNodes: document.getElementsByTagName("*").length };
+      return { jsCount: js.length, jsKB: s(js, "decodedBodySize"), cssCount: css.length, cssKB: s(css, "decodedBodySize"), domNodes: document.getElementsByTagName("*").length, viewport: `${innerWidth}x${innerHeight}` };
     });
     console.log("res", JSON.stringify(结果.dashboardResources));
     await 等(30_000);
@@ -197,7 +197,13 @@ try {
     // 表格视图 /customers 从名单顶上那个「表格视图」进
     const 点 = async (href) => {
       const t = Date.now();
-      await page.locator(`a[href="${href}"]:visible`).first().click({ timeout: 30_000 });
+      // runner 的屏幕小，窗口被压窄时中栏会收起、链接看不见，就改用 Next 自己的客户端路由跳，和点链接走的是同一条路
+      const 链接 = page.locator(`a[href="${href}"]:visible`).first();
+      if (await 链接.waitFor({ timeout: 10_000 }).then(() => true, () => false)) await 链接.click();
+      else {
+        await page.evaluate((h) => window.next.router.push(h), href);
+        结果.navFallback = [...(结果.navFallback ?? []), href];
+      }
       // /customers/recent 会再跳到 /customers/<最近那位>，等落到详情页为止
       const 到了 = href === "/customers/recent" ? (u) => /^\/customers\/(?!recent$)[^/]+$/.test(u.pathname) : (u) => u.pathname + u.search === href;
       await page.waitForURL(到了, { timeout: 60_000 }).catch(() => {});
