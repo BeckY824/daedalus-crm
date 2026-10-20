@@ -8,11 +8,12 @@
  * 照片只在这台手机的内存里：认完只留文字；表单开着时留着这一张，给「名片语言」换语言重认，关掉表单就没了。不上传、不同步。
  */
 import { useEffect, useRef, useState } from "react";
-import { CameraOutlined, CloseOutlined, LoadingOutlined, PictureOutlined } from "@ant-design/icons";
+import { CameraOutlined, CloseOutlined, LoadingOutlined, PictureOutlined, ReloadOutlined } from "@ant-design/icons";
 import { 取照片, 换浏览器提示 } from "@/lib/card-scan/camera";
 import { 认浏览器 } from "./ui";
 import type { 名片语言, 识别结果 } from "@/lib/card-scan/ocr";
 import { 名片转表单, type 名片填法 } from "@/lib/card-scan/form";
+import { 错的话 } from "@/lib/card-scan/download";
 
 /** 先把识别引擎载起来：拍照那几秒正好下完 */
 const 预热 = () => { void import("@/lib/card-scan/ocr").then((m) => m.预热()); };
@@ -69,9 +70,11 @@ export function ScanButton({ onClick }: { onClick: () => void }) {
 }
 
 export type 扫的状态 =
-  | { 阶段: "认"; 话: string }
+  | { 阶段: "认"; 话: string; 百分?: number }
   | { 阶段: "好"; 结果: 识别结果; 填法: 名片填法; 指定?: 名片语言 }
-  | { 阶段: "错"; 话: string };
+  /** 能重试 = 识别文件没下完：同一张照片点「再试一次」接着下（下完的不重下），不用重拍 */
+  | { 阶段: "错"; 话: string; 能重试?: boolean };
+
 
 const 语言按钮: { k: 名片语言 | "auto"; 叫: string }[] = [
   { k: "auto", 叫: "自动" }, { k: "中英", 叫: "中英" }, { k: "日", 叫: "日" }, { k: "韩", 叫: "韩" },
@@ -94,7 +97,7 @@ export function useCardScan(外贸: boolean, onFilled: (填法: 名片填法) =>
     set态({ 阶段: "认", 话: "正在准备识别…" });
     try {
       const { 认名片 } = await import("@/lib/card-scan/ocr");
-      const r = await 认名片(f, (话) => { if (这次 === 次.current) set态({ 阶段: "认", 话 }); }, 指定);
+      const r = await 认名片(f, (话, 百分) => { if (这次 === 次.current) set态({ 阶段: "认", 话, 百分 }); }, 指定);
       if (这次 !== 次.current) return;
       const 填法 = 名片转表单(r.字段, 外贸);
       if (!r.框数 || (!填法.填.name && !填法.填.phone && !填法.填.email)) {
@@ -105,23 +108,34 @@ export function useCardScan(外贸: boolean, onFilled: (填法: 名片填法) =>
       回调.current(填法);
     } catch (e) {
       if (这次 !== 次.current) return;
-      const 话 = e instanceof Error ? e.message : String(e);
-      set态({ 阶段: "错", 话: /fetch|network|Failed to load|import/i.test(话) ? "识别模型没下载下来：连上网再试一次（下过一次之后没网也能认）" : `没认出来：${话}` });
+      set态({ 阶段: "错", ...错的话(e) });
     }
   };
   return {
     态,
     认,
+    /** 同一张照片再认一次（识别文件没下完时） */
+    再试: () => { if (图.current) void 认(图.current); },
     换语言: (k: 名片语言 | "auto") => { if (图.current) void 认(图.current, k === "auto" ? undefined : k); },
     清: () => { 次.current++; 图.current = null; set态(null); },
   };
 }
 
 /** 表单顶上那一条：没拍过是「拍名片自动填」+「从相册选」；认的时候转圈；认好了列「名片语言」 */
-export function ScanBar({ 态, onPhoto, on换语言 }: { 态: 扫的状态 | null; onPhoto: (f: File) => void; on换语言: (k: 名片语言 | "auto") => void }) {
+export function ScanBar({ 态, onPhoto, on换语言, on再试 }: { 态: 扫的状态 | null; onPhoto: (f: File) => void; on换语言: (k: 名片语言 | "auto") => void; on再试?: () => void }) {
   const 取 = usePickPhoto(onPhoto);
   if (态?.阶段 === "认") {
-    return <div className="m-scan-bar is-busy" data-testid="m-scan-busy" role="status"><LoadingOutlined /><span>{态.话}</span></div>;
+    return (
+      <div className="m-scan-bar is-busy" data-testid="m-scan-busy" role="status">
+        <LoadingOutlined />
+        <span>{态.话}</span>
+        {态.百分 !== undefined && (
+          <div className="m-scan-progress" data-testid="m-scan-progress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={态.百分}>
+            <span className="m-scan-track"><i style={{ width: `${态.百分}%` }} /></span><b>{态.百分}%</b>
+          </div>
+        )}
+      </div>
+    );
   }
   const 拍 = (
     <span className="m-scan-btns">
@@ -136,7 +150,12 @@ export function ScanBar({ 态, onPhoto, on换语言 }: { 态: 扫的状态 | nul
   // 表单这一条就是扫名片入口：不在支持名单里的浏览器一直挂着推荐
   const 没开 = <>{取.换浏览器 && <BrowserTip 话={取.换浏览器} />}{取.没开 && <NoCameraTip on关={取.关} />}</>;
   if (!态) return <>{没开}<div className="m-scan-bar">{拍}<span className="m-scan-hint">认完只留文字，照片不保存</span></div></>;
-  if (态.阶段 === "错") return <>{没开}<div className="m-scan-bar is-err" role="alert"><span>{态.话}</span>{拍}</div></>;
+  if (态.阶段 === "错") {
+    const 再 = 态.能重试 && on再试 && (
+      <button type="button" className="m-scan-take" data-testid="m-scan-retry" onClick={on再试}><ReloadOutlined /> 再试一次</button>
+    );
+    return <>{没开}<div className="m-scan-bar is-err" role="alert" data-testid="m-scan-err"><span>{态.话}</span>{再}{拍}</div></>;
+  }
   const 当前 = 态.指定 ?? "auto";
   return (
     <>

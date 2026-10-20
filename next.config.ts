@@ -6,9 +6,9 @@ import path from "node:path";
 /**
  * 扫名片的识别运行库（public/ocr/v1，scripts/build-ocr.mjs 从 node_modules 打出来，不进仓库）。
  * 放在这里而不是 package.json 的 build：next dev / next build 有好几处直接调（e2e、桌面打包、Dockerfile），
- * 哪一处起服务都先补上；已经有了就不动
+ * 哪一处起服务都先补上；已经有了就不动（认 manifest.json：2026-10-20 起才有，老副本里的旧产物会重打一遍）
  */
-if (!existsSync(path.join(process.cwd(), "public/ocr/v1/paddle.js"))) {
+if (!existsSync(path.join(process.cwd(), "public/ocr/v1/manifest.json"))) {
   execFileSync(process.execPath, [path.join(process.cwd(), "scripts/build-ocr.mjs")], { stdio: "inherit" });
 }
 
@@ -72,13 +72,20 @@ const nextConfig: NextConfig = {
   // 不报框架名——对外少说一句是一句
   poweredByHeader: false,
 
+  /**
+   * 扫名片识别文件不让 Next 当 public 文件现压 gzip（不带长度、香港到伦敦约 90 KB/s，2026-10-20），
+   * 在找 public 文件之前改写到 app/ocr-files，直接给预先压好的 .br / .gz
+   */
+  async rewrites() {
+    return { beforeFiles: [{ source: "/ocr/:path*", destination: "/ocr-files/:path*" }], afterFiles: [], fallback: [] };
+  },
+
   async headers() {
     return [
       { source: "/:path*", headers: 安全头 },
       // 同一个头后面的覆盖前面的（Next 文档：同名头以后匹配的那条为准）；/m/:path* 也匹配 /m 本身
       { source: "/m/:path*", headers: [{ key: "Permissions-Policy", value: 手机伴侣权限 }] },
-      // 扫名片的模型和运行库：几十 MB，第一次下完就别再问服务器（展会上没网也能认）。换内容时目录 v1 → v2
-      { source: "/ocr/:path*", headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }] },
+      // 扫名片的模型和运行库的缓存头由 app/ocr-files 自己给（一年不变；manifest.json 每次问一下）
     ];
   },
 

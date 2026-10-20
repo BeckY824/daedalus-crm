@@ -8,6 +8,8 @@
  *   - 360 / 375 宽，表单每一屏跑 layout-audit；照片不发到任何接口
  *   - 2026-10-20「点了没反应」：相机没打开时给提示 +「从相册选」；「从相册选」不带 capture、走同一条识别；
  *     第一次下识别文件时说清楚大小；/m 的 Permissions-Policy 放开相机
+ *   - 2026-10-20「识别模型没下载下来」（伦敦，服务器在香港）：/ocr/ 给预压缩的 br、带长度；下载有百分比；
+ *     断了自动重试；一直下不来给「再试一次」，接着下能认；页面在后台时断了说「下载被中断，保持在这个页面再点一次」
  */
 import { test, expect, type Page } from "@playwright/test";
 import path from "node:path";
@@ -111,7 +113,7 @@ test("韩文名片：中英认不好，自动下韩文识别再认", async ({ pa
   await 量(page, "扫名片-375-韩文自动");
 });
 
-test("从相册选：不带 capture，走同一条识别；第一次说清楚要下约 40MB", async ({ page }) => {
+test("从相册选：不带 capture，走同一条识别；第一次说清楚要下多大、有百分比", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   const 大的 = 盯上传(page);
   await 灌手机(page, { 业务: 外贸 });
@@ -121,7 +123,9 @@ test("从相册选：不带 capture，走同一条识别；第一次说清楚要
   await expect(表.getByTestId("m-scan-fill-album")).toBeVisible();
   await 量(page, "扫名片-375-表单顶上两个按钮");
   await 拍(page, () => 表.getByTestId("m-scan-fill-album").click(), "02-en-uk.jpg", false);
-  await expect(表.getByTestId("m-scan-busy")).toContainText("第一次要下载约 40MB 识别文件，连 Wi-Fi 更快，下过一次之后没网也能认");
+  // 中英一套预压缩后约 11–12MB（2026-10-20 前是现压 gzip 约 18MB、说的 40MB 是没压的大小）
+  await expect(表.getByTestId("m-scan-busy")).toContainText(/第一次要下载约 1[0-3]MB 识别文件，连 Wi-Fi 更快，下过一次之后没网也能认/);
+  await expect(表.getByTestId("m-scan-progress")).toBeVisible();
   await 量(page, "扫名片-375-第一次下载");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 120_000 });
   await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
@@ -154,6 +158,69 @@ test("老内核不认 imageOrientation: \"from-image\"（夸克 10.19 = Chrome 1
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 120_000 });
   await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
   await expect(表.getByLabel("邮箱")).toHaveValue("oliver.bennett@harbourline.co.uk");
+});
+
+test("识别文件：/ocr/ 给预压缩的 br（带长度），主文件不带主线程 OpenCV", async ({ request }) => {
+  const r = await request.get("/ocr/v1/paddle.js", { headers: { "accept-encoding": "gzip, deflate, br" } });
+  expect(r.status()).toBe(200);
+  expect(r.headers()["content-encoding"]).toBe("br");
+  expect(Number(r.headers()["content-length"])).toBeLessThan(200_000);
+  expect((await r.body()).length).toBeLessThan(400_000);
+  const 清单 = await (await request.get("/ocr/v1/manifest.json")).json();
+  expect(清单.共用).toContain("ort/ort-wasm-simd-threaded.jsep.wasm");
+});
+
+test("识别文件下到一半断了：自动重试接着认，不用人管", async ({ page }) => {
+  let 断过 = 0;
+  await page.route("**/ocr/v1/models/PP-OCRv6_tiny_rec.tar", (r) => (断过++ === 0 ? r.abort("connectionreset") : r.continue()));
+  await page.setViewportSize({ width: 375, height: 667 });
+  await 灌手机(page, { 业务: 外贸 });
+  await page.getByRole("button", { name: "客户" }).last().click();
+  await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
+  const 表 = page.getByTestId("m-new-customer-sheet");
+  await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
+  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+  expect(断过).toBeGreaterThanOrEqual(2);
+});
+
+test("识别文件一直下不来：说没下载下来 +「再试一次」；网好了点一下接着认", async ({ page }) => {
+  let 通 = false;
+  await page.route("**/ocr/v1/models/PP-OCRv6_tiny_rec.tar", (r) => (通 ? r.continue() : r.abort("internetdisconnected")));
+  await page.setViewportSize({ width: 375, height: 667 });
+  await 灌手机(page, { 业务: 外贸 });
+  await page.getByRole("button", { name: "客户" }).last().click();
+  await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
+  const 错 = page.getByTestId("m-scan-err");
+  await expect(错).toContainText("识别模型没下载下来：网络不稳，点「再试一次」接着下（下完的不用重下）", { timeout: 90_000 });
+  await 量(page, "扫名片-375-没下载下来");
+  通 = true;
+  await 错.getByTestId("m-scan-retry").click();
+  const 表 = page.getByTestId("m-new-customer-sheet");
+  await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
+  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+});
+
+test("页面在后台时下载断了：说「下载被中断，保持在这个页面再点一次」；回来点「再试一次」接着认", async ({ page }) => {
+  // 学锁屏 / 切走：document.hidden 由测试控制
+  await page.addInitScript(() => {
+    (window as unknown as { 后台: boolean }).后台 = true;
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => (window as unknown as { 后台: boolean }).后台 });
+  });
+  let 通 = false;
+  await page.route("**/ocr/v1/models/PP-OCRv6_tiny_rec.tar", (r) => (通 ? r.continue() : r.abort("connectionreset")));
+  await page.setViewportSize({ width: 375, height: 667 });
+  await 灌手机(page, { 业务: 外贸 });
+  await page.getByRole("button", { name: "客户" }).last().click();
+  await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
+  const 错 = page.getByTestId("m-scan-err");
+  await expect(错).toContainText("下载被中断，保持在这个页面再点一次", { timeout: 60_000 });
+  await 量(page, "扫名片-375-下载被中断");
+  await page.evaluate(() => { (window as unknown as { 后台: boolean }).后台 = false; });
+  通 = true;
+  await 错.getByTestId("m-scan-retry").click();
+  const 表 = page.getByTestId("m-new-customer-sheet");
+  await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
+  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
 });
 
 for (const 宽 of [360, 375]) {

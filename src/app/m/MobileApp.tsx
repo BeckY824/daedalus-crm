@@ -928,7 +928,7 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
         <b>新建{业务.customer}</b>
         <button className="m-text-btn is-strong" disabled={!可存} onClick={() => void 存()}>保存</button>
       </div>
-      <ScanBar 态={扫.态} onPhoto={用照片} on换语言={扫.换语言} />
+      <ScanBar 态={扫.态} onPhoto={用照片} on换语言={扫.换语言} on再试={扫.再试} />
       <form className="m-form m-form-sheet" onSubmit={(e) => { e.preventDefault(); void 存(); }}>
         <label className={黄的("name")}><span>名字</span><input ref={名框} value={填.name} onChange={改("name")} maxLength={100} placeholder={外贸 ? "公司名或联系人" : "姓名"} autoComplete="off" /></label>
         {候选.名字.length > 0 && (
