@@ -139,9 +139,13 @@ for (const 宽 of 宽们) {
 
     await page.getByTestId("m-new-customer").click();
     const 表 = page.getByTestId("m-new-customer-sheet");
-    await 表.getByLabel("名字").fill(名们.长英);
+    await 表.getByLabel("客户姓名").fill(名们.长英);
     await 表.getByLabel("邮箱").fill(长邮箱);
     await 表.getByLabel("电话").fill("+966500000001");
+    // 10-20 和电脑上的新建框对齐后多了公司 / 职位和「更多」：长名字、展开的下拉一起量
+    await 表.getByLabel("公司").fill(名们.长英);
+    await 表.getByLabel("职位").fill(名们.长英);
+    await 表.getByTestId("m-new-more").click();
     await 表.getByRole("button", { name: "保存" }).first().click();
     await expect(表.getByRole("alert")).toBeVisible();
     await 量(page, 宽, "新建客户-撞号", ".m-sheet");

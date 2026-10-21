@@ -122,7 +122,8 @@ export async function 入队(accountId: string, teamId: string, joinSecret: stri
     if (满) return 错(409, 满);
     const 设备错 = await 登记设备(t.id, accountId, 设备, tx);
     if (设备错) return 错(409, 设备错);
-    if (已 && 已.leftAt) await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date() } });
+    // 走过再回来的主管回来是业务员（2026-10-20）：老板要重新设，不能拿旧码一进来就看全队
+    if (已 && 已.leftAt) await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date(), ...(已.role === "manager" ? { role: "member" } : {}) } });
     else if (!已) await tx.syncMember.create({ data: { teamId: t.id, accountId } });
     const k = await tx.syncKey.findFirst({ where: { teamId: t.id }, orderBy: { epoch: "desc" }, select: { epoch: true } });
     return { ok: true as const, teamName: t.name, active: t.active, epoch: k?.epoch ?? 0 };
@@ -167,6 +168,40 @@ export async function 换口令(accountId: string, teamId: string): Promise<结�
   const t = await 是建的人(teamId, accountId);
   if (!t) return 错(403, "只有老板（建团队的人）能换邀请码");
   return { ok: true, joinSecret: await 新口令(t.id) };
+}
+
+/**
+ * 「同事之间互相看得到客户」开关（2026-10-20）。整个团队一个，默认关；范围同步据此决定业务员能拉到哪些客户（scope-policy 范围可读）。
+ * 存在中继这边：服务器读不到加密的业务配置，放行得靠它自己知道的
+ */
+export async function 互看(teamId: string, db: Pick<typeof control, "syncTeamShare"> = control): Promise<boolean> {
+  return (await db.syncTeamShare.findUnique({ where: { teamId: String(teamId ?? "") }, select: { on: true } }))?.on ?? false;
+}
+
+/** 老板开 / 关互看。关掉后业务员下一轮同步目录里就没有同事的客户了，桌面端照「清理失权副本」把本机那份删掉 */
+export async function 设互看(accountId: string, teamId: string, on: boolean): Promise<结果<{ on: boolean }>> {
+  const t = await 是建的人(teamId, accountId);
+  if (!t) return 错(403, "只有老板（建团队的人）能改「同事之间互相看得到客户」");
+  const 开 = on === true;
+  await control.syncTeamShare.upsert({ where: { teamId: t.id }, update: { on: 开, changedAt: new Date(), by: accountId }, create: { teamId: t.id, on: 开, by: accountId } });
+  return { ok: true, on: 开 };
+}
+
+/**
+ * 设业务主管 / 改回业务员（2026-10-20，老板 → 业务主管 → 业务员）。角色记在中继的 SyncMember.role（owner / manager / member），
+ * 只有老板能改；每台按 我的团队() 的成员名单对本机 User.role（lib/sync/client.ts 按名单对角色），本机改库升不了主管——
+ * 范围同步给不给全队、收不收他改的同事客户，都是这里按 role 判（sync-scoped auth）。
+ * 不另要老板的签名：中继本来就决定把哪些密文发给谁，签了也挡不住中继自己多发；挡的是成员冒充，那靠登录身份
+ */
+export async function 设角色(accountId: string, teamId: string, 谁: string, role: string): Promise<结果<{ role: "manager" | "member" }>> {
+  const t = await 是建的人(teamId, accountId);
+  if (!t) return 错(403, "只有老板（建团队的人）能设业务主管");
+  if (role !== "manager" && role !== "member") return 错(400, "角色只能是业务主管或业务员");
+  if (谁 === t.ownerAccountId) return 错(400, "老板就是老板，不用设");
+  const m = await 在队里(t.id, String(谁 ?? ""));
+  if (!m) return 错(404, "这个人已经不在团队里了");
+  if (m.role !== role) await control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } }, data: { role } });
+  return { ok: true, role };
 }
 
 /** 换钥匙要封给哪几台：在册成员登记过的设备 */
@@ -276,6 +311,7 @@ export async function 我的团队(accountId: string) {
   const 要换 = new Set<string>();
   for (const t of 团队们.filter((x) => x.ownerAccountId === accountId)) if (await 要换钥匙吗(t.id)) 要换.add(t.id);
   const 到期们 = new Map((await control.syncTeamPlan.findMany({ where: { teamId: { in: 团队们.map((t) => t.id) } } })).map((p) => [p.teamId, p]));
+  const 互看们 = new Set((await control.syncTeamShare.findMany({ where: { teamId: { in: 团队们.map((t) => t.id) }, on: true }, select: { teamId: true } })).map((x) => x.teamId));
   const now = new Date();
   return 团队们.map((t) => {
     const plan = 到期们.get(t.id);
@@ -293,6 +329,8 @@ export async function 我的团队(accountId: string) {
     ...(plan?.seats ? { seats: plan.seats } : {}),
     ...(过期 ? { expired: true } : {}),
     我是建的人: t.ownerAccountId === accountId,
+    /** 同事之间互相看得到客户（2026-10-20）。老版本桌面端不认这一项，照旧只看自己的 */
+    互看: 互看们.has(t.id),
     ...(要换.has(t.id) ? { 要换钥匙: true } : {}),
     ownerAccountId: t.ownerAccountId,
     成员: 成员们.filter((m) => m.teamId === t.id).map((m) => ({ accountId: m.accountId, role: m.role, name: 账.get(m.accountId)?.name ?? "（已注销）", contact: 账.get(m.accountId)?.email ?? 账.get(m.accountId)?.phone ?? "", joinedAt: m.joinedAt.toISOString() })),

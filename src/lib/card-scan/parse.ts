@@ -22,7 +22,11 @@ export type 框 = {
   h: number;
 };
 
-export type 电话 = { e164: string; 类: "手机" | "座机" | "传真" | "WhatsApp" | "不确定"; 国家?: string; 核实: boolean; 原文: string };
+export type 电话 = {
+  e164: string; 类: "手机" | "座机" | "传真" | "WhatsApp" | "不确定"; 国家?: string; 核实: boolean; 原文: string;
+  /** 号段是手机号（标签写的是 Tel 也可能是手机：泰国名片「Tel: +66 99…」） */
+  手机号段?: boolean;
+};
 
 export type 字段 = {
   name: string | null;
@@ -32,7 +36,7 @@ export type 字段 = {
   title: string | null;
   titleAlt: string[];
   phones: 电话[];
-  /** 名片上明写了 WhatsApp 的号 */
+  /** 名片上明写了 WhatsApp 的号；只写了「WhatsApp」字样（二维码下面）、号码没标的，取那个手机号，并进 待核 */
   whatsapp: string | null;
   /** 没写 WhatsApp 时，界面上建议「第一个手机号也加成 WhatsApp」，不计分 */
   whatsapp建议: string | null;
@@ -97,7 +101,7 @@ const 标签 = {
 
 /** 国家名 / 城市 → ISO2。只放常见外贸国家；够原型用 */
 const 国家词: [RegExp, string][] = [
-  [/香港|Hong\s*Kong|Kowloon|九龍|九龙|\bHK\b/i, "HK"],
+  [/香港(?![东西南北中]?[路街道])|Hong\s*Kong|Kowloon|九龍|九龙|\bHK\b/i, "HK"],
   [/澳門|澳门|Macau|Macao/i, "MO"],
   [/台灣|台湾|Taiwan|台北/i, "TW"],
   [/United\s*Kingdom|\bUK\b|England|London|Manchester|Birmingham/i, "GB"],
@@ -156,10 +160,10 @@ const 国家词: [RegExp, string][] = [
   [/China|P\.R\.C|中国|中國|北京|上海|深圳|广州|廣州|杭州|宁波|寧波|义乌|義烏|佛山|东莞|東莞|厦门|廈門|南京|苏州|蘇州|青岛|天津|重庆|成都|武汉/i, "CN"],
 ];
 
-const 公司强 = /(有限公司|有限責任公司|有限责任公司|股份公司|集团|集團|公司|工厂|工廠|商行|(?<![\p{L}\d])(Ltd|Limited|LLC|L\.L\.C|Inc|Incorporated|Corp|Corporation|GmbH|AG|S\.?p\.?A|S\.?r\.?[lI1]|S\.?L|S\.?A|SARL|SAS|B\.?V|N\.?V|Pty|Pvt|Ltda|PLC|LLP|Co\.?,?\s*Ltd|K\.?K|Oy|AB|A\/S)(?![\p{L}\d])\.?)/iu; // 不用 \b：「Elüslé」里的 sl 会被当成 S.L
+const 公司强 = /(有限公司|有限責任公司|有限责任公司|股份公司|集团|集團|公司|工厂|工廠|商行|(?<![\p{L}\d])(Ltd|Limited|LLC|L\.L\.C|Inc|Incorporated|Corp|Corporation|GmbH|AG|S\.?p\.?A|S\.?r\.?[lI1]|S\.?L|S\.?A|SARL|SAS|B\.?V|N\.?V|Pty|Pvt|Ltda|PLC|LLP|Co\.?,?\s*Ltd|(?:O|C|P)?JSC|K\.?K|Oy|AB|A\/S)(?![\p{L}\d])\.?)/iu; // 不用 \b：「Elüslé」里的 sl 会被当成 S.L
 const 公司弱 = /\b(Trading|Group|Industries|Industrial|Enterprises?|Exports?|Imports?|Importadora|Supply|Supplies|International|Manufacturing|Technology|Technologies|Holdings|Foods?|Seafoods?|Fisheries|Fishery|Aquatic|F&B|Est)\b/i;
 /** 其它语言的公司后缀（不能用 \b：韩 / 日 / 阿 / 泰 / 俄文字母不算「单词字符」） */
-const 公司强外 = /(주식회사|\(주\)|㈜|株式会社|有限会社|㈱|شركة|مؤسسة|ش\.?\s?م\.?\s?م|ذ\.?\s?م\.?\s?م|المحدودة|บริษัท|จำกัด|(^|[\s«"])(ООО|ОАО|ЗАО|ПАО|АО|ИП)(?=[\s«"]|$)|Công\s*ty|TNHH|A\.\s?[ŞS][.,]?(?=\s|$)|Ltd\.?\s?Şti|प्राइवेट|लिमिटेड)/u;
+const 公司强外 = /(주식회사|\(주\)|㈜|株式会社|有限会社|㈱|شركة|مؤسسة|ش\.?\s?م\.?\s?م|ذ\.?\s?م\.?\s?م|المحدودة|บริษัท|จำกัด|(^|[\s«"])(ООО|ОАО|ЗАО|ПАО|АО|ИП)(?=[\s«"]|$)|(^|\s)(000|OOO|OAO|AO)(?=\s*[«"„“])|Công\s*ty|TNHH|A\.\s?[ŞS][.,]?(?=\s|$)|Ltd\.?\s?Şti|प्राइवेट|लिमिटेड)/u;
 const 公司弱外 = /(수산|물산|식품|무역|상사|F&B|水産|物産|食品|商事|貿易|للأغذية|للتصدير|لتجارة|Морепродукты|Рыба|рыба)/u;
 const 是公司强 = (t: string) => 公司强.test(t) || 公司强外.test(t);
 const 是公司弱 = (t: string) => 公司弱.test(t) || 公司弱外.test(t);
@@ -195,6 +199,8 @@ export function 视觉转阅读(s: string) {
 /** OCR 出来的字先统一：全角转半角（「：」保留成半角冒号也无妨）、各种破折号变成 -、阿拉伯-印度数字变普通数字 */
 export const 统一 = (s: string) =>
   s.normalize("NFKC").replace(/[\u2010-\u2015\u2212]/g, "-")
+    // NFKC 会把泰文「ำ」拆成「ํ」+「า」（จำกัด → จํากัด，看着一样、搜不到）：拼回去
+    .replace(/\u0E4D\u0E32/g, "\u0E33")
     .replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660))
     .replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06F0))
     .replace(/،/g, ",").replace(/؛/g, ";")
@@ -209,7 +215,7 @@ const 拆词 = (s: string) => s.replace(/([a-zà-ÿ])([A-Z][a-zà-ÿ]{2,}|[A-Z]{
 const 修域名 = (s: string) => s.replace(/\.(corm|comn|c0m|coom)$/, ".com");
 
 /** 公司后缀里 OCR 常见的认错：S.r.I. → S.r.l.（小写 L 认成大写 i） */
-const 修后缀 = (s: string) => s.replace(/S\.r\.[I1]\.?$/, "S.r.l.").replace(/\bLld\b/, "Ltd");
+export const 修后缀 = (s: string) => s.replace(/S\.r\.[I1]\.?$/, "S.r.l.").replace(/\bLld\b/, "Ltd").replace(/^(000|OOO)(?=\s*[«"„“])/, "ООО").replace(/^AO(?=\s*[«"„“])/, "АО");
 const 清 = (s: string) => s.replace(/\s+/g, " ").trim();
 const 去头标签 = (s: string) =>
   清(s.replace(/^\s*(地址|地 址|Add(ress)?|Addr|微信|WeChat|公司|Company|职位|Title|姓名|Name)\s*[./:：]?\s*/i, ""));
@@ -260,17 +266,52 @@ export function 像假拉丁(s: string) {
   return (s.match(/[a-z][HBKMTP][a-z]|∏|bI|[a-z]6[a-z.]|[A-Z]{1,2}[a-z]?[HBKM][a-z]/g) ?? []).length;
 }
 
-export function 拆字段(框们: 框[]): 字段 {
-  // 读的顺序：正面在前；同一面从上到下、同一行从左到右
-  // 名片横躺着拍（照片转了 90°）：大部分框是竖的，就把坐标转回横的（按顺时针躺着算：越靠右越是上面的行）
+/**
+ * 「名片上还有」里去掉噪音（10-20 用户：标语、logo 字进了备注）：
+ *   - 不到 2 个字母的（二维码、图标被认成的一两个字）、认得很没把握的（< 0.5）
+ *   - logo 字：去掉空格标点后是公司名 / 邮箱 / 官网里的一截（「Haedam」← haedam.co.kr，「NORD)L」← nordlicht.de）
+ *   - 标语：紧挨在 logo 字上下、同一栏的几行（「건강한 식탁을 위한 / Your Daily Partner」）；
+ *     紧挨在公司名上下、字明显小、不带数字的一行（「品质成就未来」「Свежесть с Севера」）；「Since 1952」这类创立年份
+ */
+type 行 = 框 & { rest: string };
+/** u 是不是紧挨在 x 上下、同一栏、字明显小的一行（公司名旁边的标语 / 业务说明） */
+function 挨着小字(u: 框 & { rest: string }, x: 框) {
+  return u !== x && u.side === x.side && u.h < 0.8 * x.h && Math.abs(u.cy - x.cy) < 2.2 * x.h && !/[@\d]/.test(u.rest) &&
+    Math.min(u.cx + u.w / 2, x.cx + x.w / 2) - Math.max(u.cx - u.w / 2, x.cx - x.w / 2) > 0.3 * Math.min(u.w, x.w);
+}
+const 创立年 = /\b(since|est\.?|established|founded)\s*(in\s*)?(19|20)\d{2}\b|(创立|成立|始创|創業|創立)于?\s*(19|20)\d{2}/iu;
+function 去噪音<T extends 行>(行们: T[], 有的: string[], 公司行们: 框[] = []): T[] {
+  const 紧 = (t: string) => t.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const 库 = 有的.flatMap((x) => [紧(x), ...x.split(/[@.]/).map(紧)]).filter((x) => x.length >= 3);
+  const 字母数 = (t: string) => t.match(/\p{L}/gu)?.length ?? 0;
+  const 是logo = (l: T) => { const k = 紧(l.rest); return k.length >= 3 && 库.some((x) => x.includes(k)); };
+  const logo们 = 行们.filter(是logo);
+  const 挨着logo = (l: T) => logo们.some((g) => g !== l && g.side === l.side && Math.abs(l.cy - g.cy) < 4 * Math.max(g.h, l.h) &&
+    Math.min(l.cx + l.w / 2, g.cx + g.w / 2) - Math.max(l.cx - l.w / 2, g.cx - g.w / 2) > 0.3 * Math.min(l.w, g.w));
+  // 号码标签剩下的（「Мо6.」「Di động」「DT」：认错一个字，前面没抠掉）、单独一行的国家名（国家那格已经有了）、logo 缩写（HB / SF）
+  const 标签残 = new RegExp(`^(${手机词}|${传真词}|${座机词}|Мо6|Di\\s*dong|DT|携带)\\s*[./:：]?$`, "iu");
+  const 杂 = (l: T) => 标签残.test(去声调(清(l.rest))) || /^[A-Z]{2,3}$/.test(l.rest.trim()) || 创立年.test(l.rest) ||
+    公司行们.some((x) => 挨着小字(l, x)) ||
+    国家词.some(([re]) => re.test(l.rest) && 清(l.rest.replace(re, "")).length === 0);
+  return 行们.filter((l) => 字母数(l.rest) >= 2 && l.score >= 0.5 && !是logo(l) && !挨着logo(l) && !杂(l));
+}
+
+/**
+ * 读的顺序：正面在前；同一面从上到下、同一行从左到右。拆字段和 AI 整理（ai.ts 按行号回答）都按这个顺序，行号两边对得上。
+ * 名片横躺着拍（照片转了 90°）：大部分框是竖的，就把坐标转回横的（按顺时针躺着算：越靠右越是上面的行）
+ */
+export function 排好的行(框们: 框[]): 框[] {
   const 竖 = 框们.filter((b) => b.text.trim().length >= 4);
   const 躺着 = 竖.length >= 3 && 竖.filter((b) => b.h > 1.5 * b.w).length >= 0.6 * 竖.length;
-  const 行们 = [...框们]
+  return [...框们]
     .map((b) => (躺着 ? { ...b, cx: b.cy, cy: -b.cx, w: b.h, h: b.w } : b))
     .map((b) => ({ ...b, text: 统一(视觉转阅读(b.text)) }))
     .filter((b) => b.text.trim())
-    .sort((a, b) => a.side - b.side || (Math.abs(a.cy - b.cy) < Math.min(a.h, b.h) * 0.6 ? a.cx - b.cx : a.cy - b.cy))
-    .map((b) => ({ ...b, rest: b.text, 用: "" as string }));
+    .sort((a, b) => a.side - b.side || (Math.abs(a.cy - b.cy) < Math.min(a.h, b.h) * 0.6 ? a.cx - b.cx : a.cy - b.cy));
+}
+
+export function 拆字段(框们: 框[]): 字段 {
+  const 行们 = 排好的行(框们).map((b) => ({ ...b, rest: b.text, 用: "" as string }));
 
   const 全文 = 行们.map((l) => l.text).join("\n");
   // 韩文 / 日文被中英模型认成的「汉字」置信度都低：只看认得有把握的行
@@ -313,6 +354,8 @@ export function 拆字段(框们: 框[]): 字段 {
 
   // ---- 网址（不和邮箱重叠：邮箱已经抠掉了）
   const sites: string[] = [];
+  /** 抠出过网址的行：剩下的几个词多半是这个网址的说明（「Seafood trading www.…」「Property Agent www.…」），不是公司 / 人名 */
+  const 有网址 = new Set<(typeof 行们)[number]>();
   for (const l of 行们) {
     l.rest = l.rest.replace(网址re, (m, off: number, all: string) => {
       const 前 = all.slice(Math.max(0, off - 1), off);
@@ -321,6 +364,7 @@ export function 拆字段(框们: 框[]): 字段 {
       const t = m.replace(/\s+/g, "").replace(/^https?:\/\//i, "").replace(/^www\./i, "").replace(/\/$/, "").toLowerCase();
       if (!/\./.test(t) || t.length < 5) return m;
       sites.push(修域名(t));
+      有网址.add(l);
       if (sites.length === 1) 记分("website", l.score);
       return " ";
     });
@@ -355,7 +399,8 @@ export function 拆字段(框们: 框[]): 字段 {
       const e164 = f.number.number as string;
       // 「手机/WhatsApp：」这种：标签里两样都有，算手机，同时记 WhatsApp
       const 也是WA = /WhatsApp|WA\b/i.test(前文);
-      if (!phones.some((p) => p.e164 === e164)) { phones.push({ e164, 类: 也是WA ? "WhatsApp" : 类, 国家: f.number.country, 核实: f.number.isValid(), 原文: s.slice(f.startsAt, f.endsAt) }); 记分("phones", l.score); }
+      const 号段 = f.number.getType();
+      if (!phones.some((p) => p.e164 === e164)) { phones.push({ e164, 类: 也是WA ? "WhatsApp" : 类, 国家: f.number.country, 核实: f.number.isValid(), 原文: s.slice(f.startsAt, f.endsAt), 手机号段: 号段 === "MOBILE" || 号段 === "FIXED_LINE_OR_MOBILE" }); 记分("phones", l.score); }
       剩 = 剩.replace(s.slice(f.startsAt, f.endsAt), " ");
     }
     // 号码前面的标签也一起去掉
@@ -380,6 +425,14 @@ export function 拆字段(框们: 框[]): 字段 {
     l.rest = 去分隔(l.rest.replace(/(邮箱|郵箱|邮件|电邮|网址|網址|微信|이메일|메일|홈페이지|البريد\s*الإلكتروني|بريد|อีเมล|อีเมล์|เว็บไซต์)\s*[./:：]?|(?<![\p{L}])(E-?mail|Email|Web(site)?|WeChat|E|W|Эл\.?\s?почта)\s*[:：]/giu, " "));
     if (!l.rest || /^[\s\p{P}\p{S}\d_]+$/u.test(l.rest)) l.用 = "联系方式";
   }
+  // 只写了「WhatsApp」、旁边没号码（二维码下面那个字，10-20 泰国真名片）：记下「名片上标了 WhatsApp」，这行不再进备注
+  let 标了WA = false;
+  for (const l of 行们) {
+    if (l.用) continue;
+    if (/^(whats\s*app|wa|واتساب|واتس\s*اب)$/iu.test(清(l.rest.replace(/[\p{P}\p{S}]/gu, " ")))) { 标了WA = true; l.用 = "联系方式"; continue; }
+    // 网址的说明：抠掉网址后只剩几个词、不带法定后缀
+    if (有网址.has(l) && l.rest.split(/\s+/).length <= 4 && !/\d/.test(l.rest) && !是公司强(l.rest)) l.用 = "联系方式";
+  }
 
   const 候选 = () => 行们.filter((l) => !l.用 && l.rest);
 
@@ -391,6 +444,10 @@ export function 拆字段(框们: 框[]): 字段 {
     .filter((x) => !((地址词英.test(x.l.rest) || 地址词外.test(x.l.rest)) && !是公司强(拆词(x.l.rest))))
     // 带法定后缀（有限公司 / Ltd / GmbH…）的优先；同样带后缀的，正面的优先（双面名片正面一般是母语）
     .sort((a, b) => Number(b.分 >= 2) - Number(a.分 >= 2) || a.l.side - b.l.side || b.分 - a.分 || b.l.h - a.l.h);
+  // 公司名下面一行小字的业务说明（「Seafood Import & Distribution」）：没有法定后缀、字明显小、紧挨着选中的公司，不算另一个公司
+  const 主公司 = 公司们[0];
+  for (const x of 公司们.slice(1))
+    if (主公司.分 >= 2 && x.分 < 2 && 挨着小字(x.l, 主公司.l)) { x.l.用 = "说明"; 公司们.splice(公司们.indexOf(x), 1); }
   for (const x of 公司们) x.l.用 = "公司";
   // 公司名分两行排（logo 旁边「GULF HOUSE」/「GROUP」）：选中的那行只有 1–2 个词时，把紧挨着、字一样大、对齐的上一行 / 下一行接上
   if (公司们[0]) {
@@ -489,8 +546,13 @@ export function 拆字段(框们: 框[]): 字段 {
   for (const [re, lang] of 域名语言) if (re.test(全文)) 线索.push(lang);
   if (country && 国家语言[country]) 线索.push(国家语言[country]);
   if (行们.filter((l) => 像假拉丁(l.text) >= 1).length >= 2) 线索.push("西里尔");
-  const wa = phones.find((p) => p.类 === "WhatsApp");
+  let wa = phones.find((p) => p.类 === "WhatsApp");
   const 第一手机 = phones.find((p) => p.类 === "手机");
+  // 名片上标了 WhatsApp、号码没标：用手机号（标签写的手机优先，其次号段是手机的；只有一个号码时就是它），标黄请人看一眼
+  if (!wa && 标了WA) {
+    const 可能 = 第一手机 ?? phones.find((p) => p.手机号段 && p.类 !== "传真") ?? (phones.length === 1 && phones[0].类 !== "传真" ? phones[0] : undefined);
+    if (可能) { wa = 可能; 待核.push("whatsapp"); }
+  }
   const pick = <T,>(xs: T[]) => (xs.length ? xs[0] : null);
 
   return {
@@ -508,7 +570,7 @@ export function 拆字段(框们: 框[]): 字段 {
     website: pick(sites.filter((s) => !emails.some((e) => e.endsWith("@" + s) && false))),
     country,
     address,
-    剩下: 行们.filter((l) => !l.用 && l.rest).map((l) => l.rest),
+    剩下: 去噪音(行们.filter((l) => !l.用 && l.rest), [公司们[0]?.l.rest ?? "", ...emails, ...sites], 公司们.map((x) => x.l)).map((l) => l.rest),
     待核: [...new Set(待核)],
     // 没人名的名片（只有公司）：建议用公司名，但公司那行得认得有把握，不然乱码会被建议成名字
     name建议: 名字 ? null : (公司们[0] && 公司们[0].l.score >= 0.85 ? 修后缀(去头标签(拆词(公司们[0].l.rest))) : null),

@@ -1,6 +1,6 @@
 {
   "name": "daedalus-crm",
-  "version": "0.46.22",
+  "version": "0.46.24",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22"
@@ -60,7 +60,8 @@
     "nodemailer": "^10.0.10",
     "prisma": "6.16.2",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "sharp": "0.35.5"
   },
   "devDependencies": {
     "@paddleocr/paddleocr-js": "0.4.2",
