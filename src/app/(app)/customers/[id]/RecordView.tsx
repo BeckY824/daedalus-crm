@@ -541,6 +541,7 @@ export default function RecordView({
                 <InlineField customerId={customer.id} field="whatsapp" label="WhatsApp" value={档?.whatsapp ?? null} />
                 <InlineField customerId={customer.id} field="email" label="邮箱" value={档?.email ?? null} />
                 <InlineField customerId={customer.id} field="wechat" label="微信" value={档?.wechat ?? null} />
+                <InlineField customerId={customer.id} field="alibabaId" label="阿里 ID" value={档?.alibabaId ?? null} />
                 <InlineField customerId={customer.id} field="source" label="来源" value={档?.source ?? null} kind="combo" options={b.sources.map((x) => ({ value: x, label: x }))} />
                 <InlineField customerId={customer.id} field="level" label="客户等级" value={档?.level ?? null} kind="select" options={客户等级.map((x) => ({ value: x, label: 客户等级说明[x] }))} placeholder="没分级" 可清空 />
                 <InlineField customerId={customer.id} field="website" label="官网" value={档?.website ?? null} placeholder="如 www.example.com" />

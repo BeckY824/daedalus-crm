@@ -90,8 +90,8 @@ describe("规则（不碰库）", () => {
   });
 
   it("编辑框只交改过的格：等级、官网和原来的五格一样", () => {
-    expect(外贸键).toEqual(["country", "whatsapp", "wechat", "email", "source", "level", "website"]);
-    const 原 = { country: "美国", whatsapp: null, wechat: null, email: null, source: null, level: "B", website: null };
+    expect(外贸键).toEqual(["country", "whatsapp", "wechat", "email", "source", "level", "website", "alibabaId"]);
+    const 原 = { country: "美国", whatsapp: null, wechat: null, email: null, source: null, level: "B", website: null, alibabaId: null };
     expect(改过的档案({ country: "美国", level: "A", website: "acme.com" }, 原)).toEqual({ level: "A", website: "acme.com" });
     expect(改过的档案({ country: "美国", level: undefined }, 原)).toEqual({ level: null });
   });

@@ -67,7 +67,7 @@ describe("表单（saveCustomer）", () => {
     await 外贸();
     const r = await 新建("空的", {});
     expect(r.ok).toBe(false);
-    expect(!r.ok && r.error).toBe("电话 / WhatsApp / 邮箱 / 微信至少填一个（没有电话就用它认人）");
+    expect(!r.ok && r.error).toBe("电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个（没有电话就用它认人）");
   });
 
   it("通用模版不变：只有邮箱照旧要电话", async () => {
@@ -196,7 +196,7 @@ describe("导入", () => {
     await 外贸();
     const 表 = 字段表(外贸配置);
     const [r] = 摊开({ 表头, 数据: [["Nobody", "", "德国", ""]], 行号: [2], 映射: 猜列(表头, 表), 字段表: 表 });
-    expect(r.进不了).toBe("这一行没有电话、WhatsApp、邮箱，也没有微信");
+    expect(r.进不了).toBe("这一行没有电话、WhatsApp、邮箱、微信，也没有阿里 ID");
     // 邮箱格式不对的不算有邮箱
     const [坏] = 摊开({ 表头, 数据: [["Bad", "not-an-email", "", ""]], 行号: [2], 映射: 猜列(表头, 表), 字段表: 表 });
     expect(坏.进不了).toBeTruthy();

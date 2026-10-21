@@ -25,7 +25,7 @@ import { BUSINESS_KEY, mergeBusiness, 外贸订单, type BusinessConfig } from "
 import { 订单前缀 } from "@/lib/follow-link";
 import { DECISION_STATUSES, FOLLOW_STATUSES, OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { 金额 as 显示金额, 规整币种 } from "@/lib/currency";
-import { 认国家, 规整外贸格, type 外贸档案 } from "@/lib/customer-extra";
+import { 认国家, 规整外贸格, 外贸至少一种, type 外贸档案 } from "@/lib/customer-extra";
 import { hasVisibleText } from "@/lib/form-validation";
 import { 号键, 查电话 } from "@/lib/phone";
 import { 客户查重值, 查重键, 查重原文, 查重标签绑定, 查重指纹, 查重单次上限, 同事撞号说法, type 查重种类, type 查重条目, type 查重命中 } from "@/lib/sync/dedupe";
@@ -462,7 +462,7 @@ async function 业务设置(库: 手机库): Promise<BusinessConfig> {
  */
 export type 新建客户输入 = {
   name: string; phone?: string; school?: string; grade?: string; major?: string;
-  whatsapp?: string; email?: string; country?: string; source?: string; wechat?: string; website?: string; level?: string;
+  whatsapp?: string; email?: string; country?: string; source?: string; wechat?: string; website?: string; level?: string; alibabaId?: string;
   followStatus?: string; decisionStatus?: string; remark?: string;
 };
 
@@ -470,10 +470,11 @@ export type 新建客户输入 = {
 const 不合法 = (名: string, 表: readonly string[], v: unknown) => (表.includes(v as string) ? null : `${名}「${v}」不是合法取值`);
 
 /** 这台手机上已有的同号 / 同邮箱客户（成员手机只有本人 + 公海；同事名下的，联网时再问服务端：问同事） */
-async function 手机上撞的(库: 手机库, phone: string, email: string, wechat = ""): Promise<string | null> {
+async function 手机上撞的(库: 手机库, phone: string, email: string, wechat = "", 阿里 = ""): Promise<string | null> {
   const 号 = phone ? 号键(phone) : "";
   const 邮 = email.trim().toLowerCase();
   const 微 = wechat.trim().toLowerCase();
+  const 阿 = 阿里.trim().toLowerCase();
   for (const key of await 库.键们()) {
     if (!key.startsWith("Customer:")) continue;
     const x = await 库.取("Customer", key.slice("Customer:".length));
@@ -487,13 +488,17 @@ async function 手机上撞的(库: 手机库, phone: string, email: string, wec
       const 额 = await 库.取("CustomerExtra", x.k);
       if (!x.r.phone && !String(额?.r.email ?? "").trim() && String(额?.r.wechat ?? "").trim().toLowerCase() === 微) return `微信 ${wechat.trim()} 已经有了：${String(x.r.name ?? "")}`;
     }
+    if (阿 && !phone && !邮 && !微) {
+      const 额 = await 库.取("CustomerExtra", x.k);
+      if (!x.r.phone && !String(额?.r.email ?? "").trim() && !String(额?.r.wechat ?? "").trim() && String(额?.r.alibabaId ?? "").trim().toLowerCase() === 阿) return `阿里 ID ${阿里.trim()} 已经有了：${String(x.r.name ?? "")}`;
+    }
   }
   return null;
 }
 
 /**
  * 新建客户：和电脑上 saveCustomer 新建那一支同一套规矩（customers/actions.ts），只收手机上摆的几格。
- *   - 名字必填；外贸：电话、WhatsApp、邮箱、微信至少一个（没电话就拿 WhatsApp 当电话认人，再没有按邮箱、微信认）；通用：电话必填
+ *   - 名字必填；外贸：电话、WhatsApp、邮箱、微信、阿里 ID 至少一个（没电话就拿 WhatsApp 当电话认人，再没有按邮箱、微信、阿里 ID 认）；通用：电话必填
  *   - 公司 / 职位 / 行业 / 客户等级 / 两个状态和电脑上存的是同一些列，取值表也一样（状态不在表里不收）
  *   - 归本人（salesOwnerId = 本人）——服务端的范围规则只许成员建自己名下的客户
  *   - 写客户一行、（外贸填了才有）外贸档案一行、操作日志一条，先进手机库再进待推
@@ -505,7 +510,7 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
   const 外贸 = b.template === "trade";
   const 档案: Partial<外贸档案> = {};
   if (外贸) {
-    for (const k of ["whatsapp", "email", "source", "wechat", "website", "level"] as const) {
+    for (const k of ["whatsapp", "email", "source", "wechat", "website", "level", "alibabaId"] as const) {
       const r = 规整外贸格(k, 输入[k]);
       if (!r.ok) throw new 同步问题(r.error);
       if (r.v) 档案[k] = r.v;
@@ -516,18 +521,20 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
   const 填的电话 = !String(输入.phone ?? "").trim() && 外贸 && 档案.whatsapp ? 档案.whatsapp : 输入.phone;
   const 按邮箱认 = 外贸 && !String(填的电话 ?? "").trim() && Boolean(档案.email);
   const 按微信认 = 外贸 && !String(填的电话 ?? "").trim() && !档案.email && Boolean(档案.wechat);
-  const 电话 = 查电话(填的电话, { 必填: !按邮箱认 && !按微信认 });
+  const 按阿里认 = 外贸 && !String(填的电话 ?? "").trim() && !档案.email && !档案.wechat && Boolean(档案.alibabaId);
+  const 电话 = 查电话(填的电话, { 必填: !按邮箱认 && !按微信认 && !按阿里认 });
   // 报错一字不差照抄电脑上的 saveCustomer
-  if (!电话.ok) throw new 同步问题(外贸 && !String(填的电话 ?? "").trim() ? "电话 / WhatsApp / 邮箱 / 微信至少填一个（没有电话就用它认人）" : 电话.error);
+  if (!电话.ok) throw new 同步问题(外贸 && !String(填的电话 ?? "").trim() ? 外贸至少一种 : 电话.error);
   const 状态错 = 不合法("跟进状态", FOLLOW_STATUSES, 输入.followStatus ?? "待跟进") ?? 不合法("决策状态", DECISION_STATUSES, 输入.decisionStatus ?? "了解中");
   if (状态错) throw new 同步问题(状态错);
-  const 撞 = await 手机上撞的(库, 电话.phone, 按邮箱认 ? String(档案.email) : "", 按微信认 ? String(档案.wechat) : "");
+  const 撞 = await 手机上撞的(库, 电话.phone, 按邮箱认 ? String(档案.email) : "", 按微信认 ? String(档案.wechat) : "", 按阿里认 ? String(档案.alibabaId) : "");
   if (撞) throw new 同步问题(撞);
   // 联网时再问一下服务端是不是同事名下的（2026-10-19 跨成员查重）；断网、超时当没撞，照样建（老板那台「疑似重复」兜底）
   if (云) {
     const 问的: [查重种类, string, string] | null = 电话.phone ? ["phone", 电话.phone, `手机号 ${电话.phone}`]
       : 按邮箱认 ? ["email", String(档案.email), `邮箱 ${String(档案.email)}`]
       : 按微信认 ? ["wechat", String(档案.wechat), `微信 ${String(档案.wechat)}`]
+      : 按阿里认 ? ["alibaba", String(档案.alibabaId), `阿里 ID ${String(档案.alibabaId)}`]
       : null;
     const 同事 = 问的 && (await 问同事(c, 云, 库, 问的[0], 问的[1]));
     if (同事 && 问的) throw new 同步问题(同事撞号说法(问的[2], 同事.同事, 同事.客户名, b.customer));
@@ -552,7 +559,7 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
     expectedSignAt: null, expectedSignOn: null, remark, createdAt: 现在, updatedAt: 现在,
   });
   if (Object.keys(档案).length) {
-    插("CustomerExtra", { customerId: id, country: null, whatsapp: null, wechat: null, email: null, source: null, level: null, website: null, ...档案 });
+    插("CustomerExtra", { customerId: id, country: null, whatsapp: null, wechat: null, email: null, source: null, level: null, website: null, alibabaId: null, ...档案 });
   }
   插("AuditLog", { id: 新编号(), at: 现在, userId: c.userId, userName: 我名, action: "create", entity: "Customer", entityId: id, summary: `新建${b.customer}「${name}」`, detail: JSON.stringify({ 来自: "手机" }) });
   await 回放(库, 改, c.device, 状态, { 含本人: true });
@@ -605,9 +612,9 @@ export async function 新建商机(c: 手机团队, 库: 手机库, 状态: 同�
 
 /* ---------------- 跨成员查重（2026-10-19，规则见 lib/sync/dedupe.ts） ---------------- */
 
-async function 查重哈希们(c: 手机团队, 值: { phone?: unknown; email?: unknown; wechat?: unknown }): Promise<string[]> {
+async function 查重哈希们(c: 手机团队, 值: { phone?: unknown; email?: unknown; wechat?: unknown; alibaba?: unknown }): Promise<string[]> {
   const 出: string[] = [];
-  for (const { 种, 键 } of 客户查重值({ phone: String(值.phone ?? ""), email: String(值.email ?? ""), wechat: String(值.wechat ?? "") })) 出.push(await 密.查重哈希(c.key, 查重原文(c.teamId, 种, 键)));
+  for (const { 种, 键 } of 客户查重值({ phone: String(值.phone ?? ""), email: String(值.email ?? ""), wechat: String(值.wechat ?? ""), alibaba: String(值.alibaba ?? "") })) 出.push(await 密.查重哈希(c.key, 查重原文(c.teamId, 种, 键)));
   return 出;
 }
 
@@ -621,7 +628,7 @@ export async function 报查重(c: 手机团队, 云: 传输, 库: 手机库, �
     const x = await 库.取("Customer", key.slice("Customer:".length));
     if (!x) continue;
     const 额 = await 库.取("CustomerExtra", x.k);
-    const hashes = await 查重哈希们(c, { phone: x.r.phone, email: 额?.r.email, wechat: 额?.r.wechat });
+    const hashes = await 查重哈希们(c, { phone: x.r.phone, email: 额?.r.email, wechat: 额?.r.wechat, alibaba: 额?.r.alibabaId });
     const 名 = String(x.r.name ?? "");
     const 指纹 = 查重指纹(c.epoch, hashes, 名);
     if (旧[x.k] === 指纹) { 新[x.k] = 指纹; continue; }
