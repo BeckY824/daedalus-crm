@@ -40,9 +40,12 @@ export default function ResearchRun({
   需求,
   邮件,
   接着,
+  对象,
 }: {
   jobKey: string;
   company: string;
+  /** 开跑那一下写的「在查谁」（客户页：背调 ISHA.A SAS（法国）· 联系人 ZEESHAN AFZAL，lib/research/subject.ts）。不给就写公司名 */
+  对象?: string;
   /** 从记录页发起的：背调的就是这位，「存进客户」直接存他名下 */
   customer?: { id: string; name: string };
   /** 记录页给：就地打开跟进表单。首页不给，存好以后跳去那位客户的页面记 */
@@ -85,7 +88,7 @@ export default function ResearchRun({
       undefined,
       { 名: `背调 ${company}`.slice(0, 18), 去: 任务去 },
     );
-  if (!job) return 直接开跑 ? <AutoStart jobKey={jobKey} onStart={开跑} /> : <Confirm company={company} onCancel={onCancel} onStart={开跑} />;
+  if (!job) return 直接开跑 ? <AutoStart jobKey={jobKey} onStart={开跑} text={`开始${对象 ?? `背调 ${company}`}…`} /> : <Confirm company={company} onCancel={onCancel} onStart={开跑} />;
   if (!s) return job.status === "error" ? <div className="rs-err">{job.error}</div> : null;
 
   const 出错 = job.status === "error" ? job.error : undefined;
@@ -121,7 +124,7 @@ export default function ResearchRun({
  * 直接开跑：挂上就发一次。开发模式下 StrictMode 会把 effect 跑两遍，第二遍时任务表里已经有这一条了（runStream 同步登记），
  * 所以按任务表判断、不按组件 state 判断——不然一次背调扣两次
  */
-function AutoStart({ jobKey, onStart }: { jobKey: string; onStart: () => void }) {
+export function AutoStart({ jobKey, onStart, text = "开始背调…" }: { jobKey: string; onStart: () => void; text?: string }) {
   const 发过 = useRef(false);
   useEffect(() => {
     if (发过.current || getJob(jobKey)) return;
@@ -130,7 +133,7 @@ function AutoStart({ jobKey, onStart }: { jobKey: string; onStart: () => void })
     // 只在挂上那一下
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  return <div className="rs-confirm"><span className="rs-confirm-t">开始背调…</span></div>;
+  return <div className="rs-confirm"><span className="rs-confirm-t">{text}</span></div>;
 }
 
 /**
