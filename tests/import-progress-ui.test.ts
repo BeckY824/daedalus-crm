@@ -5,6 +5,7 @@
  *   - 断了（连不上后台）：自己重试两次，还不行停下，说清写到哪、已经进去多少；「接着导」带同一批从断处往下
  *   - 服务端说暂存没了（软件重启过）：自己把表重新送一遍，人感觉不到
  *   - 检查那一步出错不再弹英文
+ *   - 超过 1 万条只读了前 1 万条：「确认」和「导完了」两步都说，不让人以为整张表都进去了（10-21 质量审 #76）
  *
  * 做法同 tests/import-ai-columns-ui.test.ts：esbuild 打包真组件，server action 换成桩
  */
@@ -89,7 +90,7 @@ const 默认分段 = `async ([, , 续]) => {
   return { ok: true, batchId: "b1", 新建: 下, 补空: 0, 跳过: 0, 进不了: 0, 下一个: 下 >= ${共} ? null : 下, 共: ${共} };
 }`;
 
-async function 开(分段 = 默认分段): Promise<Page> {
+async function 开(分段 = 默认分段, 文件 = { name: "一万条.csv", 内容: 表 }): Promise<Page> {
   const page = await browser.newPage();
   // 全量单测和别的会话一起跑时机器很忙，前面分块、检查那几步就能过 8 秒（10-21 推送时挂过一次）
   page.setDefaultTimeout(20_000);
@@ -100,7 +101,7 @@ async function 开(分段 = 默认分段): Promise<Page> {
   await page.evaluate(`window.__共 = ${共}; window.__分段 = ${分段};`);
   await page.addScriptTag({ content: 包 });
   await page.getByText("把 Excel 或 CSV 拖到这里").waitFor();
-  await page.locator('input[type="file"]').setInputFiles({ name: "一万条.csv", mimeType: "text/csv", buffer: Buffer.from(表) });
+  await page.locator('input[type="file"]').setInputFiles({ name: 文件.name, mimeType: "text/csv", buffer: Buffer.from(文件.内容) });
   await page.getByText(/读到了/).waitFor();
   return page;
 }
@@ -205,3 +206,17 @@ it("检查那一步后台出错：说人话，不弹英文", async () => {
   await page.getByText("没检查完：后台服务出了错，没有回话。库里什么都没动，点「下一步」再试一次").waitFor();
   await page.close();
 }, 60_000);
+
+it("超过 1 万条：确认、导完了两步都说只读了前 10,000 条、第 10,001 条起没进来", async () => {
+  const 大表 = ["姓名,手机号", ...Array.from({ length: 10_001 }, (_, i) => `客户${i},139${String(i).padStart(8, "0")}`)].join("\n");
+  const 一趟写完 = `async () => ({ ok: true, batchId: "b1", 新建: 10000, 补空: 0, 跳过: 0, 进不了: 0, 下一个: null, 共: 10000 })`;
+  const page = await 开(一趟写完, { name: "一万零一条.csv", 内容: 大表 });
+  const 话 = "这张表超过 10,000 条，只读了前 10,000 条，第 10,001 条起没读进来";
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.getByRole("button", { name: "下一步" }).click();
+  await page.getByText(话).waitFor();
+  await page.getByRole("button", { name: "开始导入" }).click();
+  await page.getByText("导完了").waitFor();
+  expect(await page.getByText(话).count()).toBe(1);
+  await page.close();
+});

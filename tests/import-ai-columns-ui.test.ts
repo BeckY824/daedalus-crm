@@ -267,7 +267,7 @@ it("J053/J055：真实文件上传如实提示截断和公式修复，不自动�
   await page.getByText(/原文件总行数未统计/).waitFor();
   const text = await page.locator("body").innerText();
   expect(text).toContain("原文件总列数未统计");
-  expect(text).toContain("请拆成每份不超过 10000 条");
+  expect(text).toContain("请拆成每份不超过 10,000 条");
   expect(text).not.toMatch(/原表 \d+ [行列]/);
   await page.screenshot({ path: path.resolve("../测试证据-2026-10-08/整改-J053-大表提示.png"), fullPage: true });
   await page.close();

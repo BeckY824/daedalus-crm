@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Alert, Drawer, Progress, Segmented, Steps, Typography, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
-import { 解析CSV带行号, 解码CSV, 成表, 文件太大, 读不出来的话, 行数上限, 列数上限 } from "@/lib/import/parse";
+import { 解析CSV带行号, 解码CSV, 成表, 文件太大, 读不出来的话, 只导了前面的话, 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 猜列, type 字段名 } from "@/lib/import/fields";
 import { type 编造格, type 粘贴结果, type 粘贴续作 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
@@ -258,7 +258,8 @@ export default function ImportDrawer({
   async function 收文件(f: File) {
     const 太大 = 文件太大(f.name, f.size);
     if (太大) {
-      message.error(太大);
+      // 话长，默认 3 秒来不及看完怎么拆
+      message.error({ content: 太大, duration: 8 });
       return;
     }
     set忙(true);
@@ -284,7 +285,7 @@ export default function ImportDrawer({
       set编造([]); set漏掉([]); set原文核对(null); set已核对原文(false); set续作(undefined);
       收表(f.name, t.表头, t.数据, t.截断了, t.行号);
     } catch (e) {
-      message.error(读不出来的话(e));
+      message.error({ content: 读不出来的话(e), duration: 8 });
     } finally {
       set忙(false);
     }
@@ -626,6 +627,9 @@ export default function ImportDrawer({
           </Typography.Text>
         </div>
       )}
+      {步 === 3 && 现看 && !进度 && !中断?.续.batchId && 只导了前面的话(截断了, 数据.length) && (
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} title={只导了前面的话(截断了, 数据.length)} />
+      )}
       {步 === 3 && 现看 && !进度 && !中断?.续.batchId && <确认 {...{ 重复行, set重复行, b }} 看={现看} />}
 
       {步 === 4 && 结果 && (
@@ -634,8 +638,11 @@ export default function ImportDrawer({
             type="success"
             showIcon
             title="导完了"
-            description={`新建 ${结果.新建} 条，补空 ${结果.补空} 条，跳过 ${结果.跳过} 条，${结果.进不了} 条没进来。`}
+            description={`新建 ${结果.新建.toLocaleString()} 条，补空 ${结果.补空.toLocaleString()} 条，跳过 ${结果.跳过.toLocaleString()} 条，${结果.进不了.toLocaleString()} 条没进来。`}
           />
+          {只导了前面的话(截断了, 数据.length) && (
+            <Alert type="warning" showIcon style={{ marginTop: 12 }} title={只导了前面的话(截断了, 数据.length)} />
+          )}
           {结果.新建 + 结果.补空 > 0 && <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14 }}>
             导错了可以整批撤销：新建的删掉、补上的还原。
             <b>导入之后你已经动过的那几位会留着</b>，撤销时会告诉你是哪几位。

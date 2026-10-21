@@ -2,7 +2,7 @@
 
 import { Alert, Button, Checkbox, Empty, Input, Popconfirm, Radio, Select, Space, Switch, Table, Tag, Typography } from "antd";
 import { ThunderboltOutlined } from "@ant-design/icons";
-import { 行数上限, 列数上限 } from "@/lib/import/parse";
+import { 列数上限 } from "@/lib/import/parse";
 import { 字段表, 像表头, type 字段名 } from "@/lib/import/fields";
 import { 改动键 } from "@/lib/import/plan";
 import { 粘贴字数上限, type 编造格, type 粘贴结果 } from "@/lib/import/paste";
@@ -239,7 +239,7 @@ export function 对列({
           style={{ marginBottom: 12 }}
           title="这份表太大，只取了前面一截"
           description={[
-            截断了.行 ? `检测到超过 ${行数上限} 行，本次只保留前 ${行数上限} 条数据。原文件总行数未统计；请拆成每份不超过 ${行数上限} 条后继续导入。` : "",
+            截断了.行 ? `检测到超过 ${数据.length.toLocaleString("en-US")} 行，本次只保留前 ${数据.length.toLocaleString("en-US")} 条数据。原文件总行数未统计；请拆成每份不超过 ${数据.length.toLocaleString("en-US")} 条后继续导入。` : "",
             截断了.列 ? `检测到超过 ${列数上限} 列，本次只保留前 ${列数上限} 列。原文件总列数未统计；请删除无用列或将需要的列移到前面。` : "",
           ].join("")}
         />
