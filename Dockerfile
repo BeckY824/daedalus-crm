@@ -69,6 +69,8 @@ ENV TZ=Asia/Shanghai
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+# 服务器认名片的识别线程（scripts/build-ocr.mjs 打的，SDK + OpenCV + onnxruntime 一个文件 + wasm；sharp 用 standalone 里那份）
+COPY --from=builder /app/ocr-server ./ocr-server
 COPY --from=builder /app/CHANGELOG.md ./CHANGELOG.md
 
 # Next 的依赖追踪会漏掉 Prisma（客户端是 generate 出来的，非静态引用），
@@ -88,7 +90,9 @@ COPY --from=builder /app/shared-workspace.js ./shared-workspace.js
 COPY --from=builder /app/seed-shared.js ./seed-shared.js
 
 COPY docker-entrypoint.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+# Windows 上 git 默认 core.autocrlf=true，检出来的脚本是 CRLF，shebang 变成 #!/bin/sh\r，
+# 容器起不来、一直 Restarting (255)（GitHub issue #1 附带报的）。.gitattributes 已钉 LF，这里再保一道
+RUN sed -i 's/\r$//' /usr/local/bin/docker-entrypoint.sh && chmod +x /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 ENTRYPOINT ["docker-entrypoint.sh"]

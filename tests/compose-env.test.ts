@@ -43,6 +43,9 @@ const 不用进容器: Record<string, string> = {
   GITHUB_TOKEN: "可选，只为抬高 GitHub 匿名限额",
   LEAD_ORIGINS: "官网预约表单的跨域追加来源，本地调官网时才用",
   LEAD_TO: "预约表单收件箱，缺了退到 LEGAL_CONTACT（已映射）",
+  OCR_WORKERS: "服务器认名片同时认几张，默认 1（docker --cpus=2 实测定的，同机还有别的服务）；要调由运维加进 compose",
+  OCR_QUEUE_MAX: "服务器认名片最多排几张，默认 30，超了手机改本机认",
+  OCR_QUEUE_WAIT_MS: "服务器认名片排多久算太久，默认 20 秒，超了手机改本机认",
   // Node / Next 自己的
   NODE_ENV: "Dockerfile 设 production",
   PORT: "Dockerfile 设 3000",

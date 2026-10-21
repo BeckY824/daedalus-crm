@@ -1671,6 +1671,27 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .team-price-v small { font-family: inherit; font-size: var(--fs-min); font-weight: 400; color: var(--text-muted); }
 .team-card p.team-price-how { margin: 0; }
 .team-plan { margin: calc(-1 * var(--s2)) 0 var(--s3); font-size: var(--fs-note); font-variant-numeric: tabular-nums; }
+/* 人员头像 + 姓名（components/ui.tsx UserCell）：头像不缩，名字那一项可以缩到省略号 */
+.user-cell > .ant-space-item:last-child { min-width: 0; }
+/* 同事之间互相看得到客户（2026-10-20）：标题和开关一行，说明在下面；「收不回」那句单独一行、用提醒色 */
+.team-share-row { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); max-width: 640px; margin-bottom: var(--s2); }
+.team-share p { max-width: 640px; }
+.team-card p.team-share-warn { color: var(--warning-text); }
+/* 疑似重复：合并成一份（2026-10-20）。每组一块：头一行勾选 + 依据 + 合并 / 不是同一个人；下面几份的对比表，窄窗口里表在块里横向滚，不撑出页面 */
+.dupe-undo { margin-bottom: var(--s3); max-width: 760px; }
+.dupe-bar { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s2); }
+.dupe-groups { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--s2); max-width: 760px; }
+.dupe-group { border: 1px solid var(--line); border-radius: var(--r-card); background: var(--panel); padding: var(--s2) var(--s3); min-width: 0; }
+.dupe-group-head { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; font-size: var(--fs-note); }
+.dupe-basis { color: var(--ink-soft); min-width: 0; overflow-wrap: anywhere; }
+.dupe-actions { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+.dupe-compare-wrap { overflow-x: auto; margin-top: 6px; }
+.dupe-compare { width: 100%; border-collapse: collapse; font-size: var(--fs-note); font-variant-numeric: tabular-nums; }
+.dupe-compare th { text-align: left; font-weight: 400; color: var(--text-muted); padding: 4px 8px; white-space: nowrap; }
+.dupe-compare td { padding: 4px 8px; border-top: 1px solid var(--line-soft); white-space: nowrap; }
+.dupe-compare th:first-child, .dupe-compare td:first-child { width: 40px; padding-left: 0; }
+.dupe-compare td.dupe-name, .dupe-compare td.dupe-owner { white-space: normal; overflow-wrap: anywhere; max-width: 220px; }
+.dupe-compare tr.is-keep td { color: var(--ink); font-weight: 500; }
 
 /* 选模版：在登录页右半边（app/start），两张卡并排，窗口窄了上下排 */
 .tpl { width: min(640px, 100%); display: flex; flex-direction: column; }
@@ -2316,6 +2337,14 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+  /* 上面只改了时长、没改 transition-property（初始值 all），等于每个元素都带着 transition: all。
+     rc-trigger 定位弹层时先把 left/top 归零、紧接着同步量一次位置，带着过渡量到的还是归零前的 -1000vw，
+     弹层整个落到屏幕外，用户看到的是「点了没反应」（GitHub issue #1）。
+     这些都是弹层根节点，进场走 animation、不靠 transition，掐掉不影响别的。 */
+  .ant-dropdown, .ant-select-dropdown, .ant-picker-dropdown, .ant-tooltip, .ant-popover,
+  .ant-cascader-dropdown, .ant-mentions-dropdown, .ant-tour {
+    transition: none !important;
   }
   /* 时长归零挡不住位移本身：按下去仍然会缩一下，只是缩得很快——
      对开了这个开关的人来说，那正是他不想看到的那种跳。所以把位移也撤掉，

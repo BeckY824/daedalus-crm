@@ -65,12 +65,20 @@ test("手机新建客户（外贸）：至少一个联系方式，存下就进�
   const 表 = page.getByTestId("m-new-customer-sheet");
   await expect(表.getByText("新建客户")).toBeVisible();
   const 存 = 表.getByRole("button", { name: "保存" }).first();
-  await 表.getByLabel("名字").fill("Nordlicht Leuchten GmbH");
-  // 只有名字：保存是灰的（电话、WhatsApp、邮箱至少一个）
+  await 表.getByLabel("客户姓名").fill("Nordlicht Leuchten GmbH");
+  // 只有姓名：保存是灰的（电话、WhatsApp、邮箱、微信至少一个）
   await expect(存).toBeDisabled();
   await 表.getByLabel("WhatsApp").fill("+49 151 2345 6789");
   await 表.getByLabel("邮箱").fill("einkauf@nordlicht.example");
   await 表.getByLabel("国家").fill("德国");
+  // 和电脑上新建客户同一套格子（10-20）：公司 / 行业 / 职位各一格；等级、两个状态收在「更多」，默认值同电脑
+  await 表.getByLabel("公司").fill("Nordlicht Leuchten GmbH");
+  await 表.getByLabel("行业").fill("制造业");
+  await 表.getByLabel("职位").fill("Einkaufsleiter");
+  await expect(表.getByTestId("m-new-more")).toContainText("没分级 · 待跟进 · 了解中");
+  await 表.getByTestId("m-new-more").click();
+  await 表.getByLabel("客户等级").selectOption("A");
+  await expect(表.getByLabel("跟进状态")).toHaveValue("待跟进");
   await 表.getByRole("button", { name: "展会获取" }).click();
   await expect(存).toBeEnabled();
   await 截(page, "03-手机-新建客户.png");
