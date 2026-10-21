@@ -91,7 +91,8 @@ const 默认分段 = `async ([, , 续]) => {
 
 async function 开(分段 = 默认分段): Promise<Page> {
   const page = await browser.newPage();
-  page.setDefaultTimeout(8000);
+  // 全量单测和别的会话一起跑时机器很忙，前面分块、检查那几步就能过 8 秒（10-21 推送时挂过一次）
+  page.setDefaultTimeout(20_000);
   await page.route("http://import-progress.test/**", (r) =>
     r.fulfill({ contentType: "text/html", body: `<!doctype html><meta charset="utf-8"><div id="root"></div>` }),
   );
@@ -116,7 +117,8 @@ async function 走到开始导入(page: Page) {
 it("表分块暂存（每块 1 MB 以内、拼回去一样），一段一段写、进度跟着走，写完到完成", async () => {
   const page = await 开();
   await 走到开始导入(page);
-  await page.getByText("已处理 1,000 / 3,000 条", { exact: false }).waitFor();
+  // 每段停 0.4 秒，某一个数字只露一下；认「已处理 x / 3,000 条」出现过就行，具体数字看下面的调用记录
+  await page.getByText(/已处理 [12],000 \/ 3,000 条/).waitFor();
   // 写的时候只剩一颗转圈的按钮，没有「上一步」
   expect(await page.locator(".ant-drawer-footer button").count()).toBe(1);
   expect(await page.locator(".ant-drawer-footer button").getAttribute("class")).toContain("ant-btn-loading");
