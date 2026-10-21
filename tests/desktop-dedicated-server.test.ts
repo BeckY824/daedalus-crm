@@ -107,7 +107,8 @@ describe("设了专属服务器：全跟着走", () => {
     const r = await 设专属服务器(`  ${专属.url}/  `);
     expect(r).toEqual({ ok: true, 状态: { 状态: "有", url: 专属.url, name: "" } });
     expect(JSON.parse(fs.readFileSync(设置文件, "utf8")).url).toBe(专属.url);
-    expect((fs.statSync(设置文件).mode & 0o777).toString(8)).toBe("600");
+    // Windows 没有 POSIX 权限位（读回来是 666），只在 Mac / Linux 上钉 0600
+    if (process.platform !== "win32") expect((fs.statSync(设置文件).mode & 0o777).toString(8)).toBe("600");
 
     const cloud = await import("@/lib/desktop/cloud");
     expect(cloud.云端地址()).toBe(专属.url);
