@@ -15,8 +15,8 @@ import { 团队身份id } from "../desktop/me";
 import { 对齐我的名字 } from "../desktop/my-name";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, 本机结构签名, type 改动 } from "./local";
 import { createHmac } from "node:crypto";
-import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 主字段, type 拉到的范围包 } from "./scoped-local";
-import { 提取范围, 行键, 范围字段, type 范围索引 } from "./scope-policy";
+import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 范围包未到, 主字段, type 拉到的范围包 } from "./scoped-local";
+import { 提取范围, 行键, 范围字段, 还等吗, type 范围索引, type 卡住的范围 } from "./scope-policy";
 import { 同步表 } from "./tables";
 import { 报查重 } from "./dedupe-client";
 import { 封范围, 规范串 } from "./crypto";
@@ -55,6 +55,8 @@ export type 团队配置 = {
   结构?: string;
   lastSyncAt?: string;
   lastError?: string | null;
+  /** 人多时云端让前台至少隔几秒才同步一轮（目录里的 pace，2026-10-21）；没有 / 0 = 壳几秒戳就几秒一轮 */
+  pace?: number;
   /** 上一轮做了什么，给界面那一行说话 */
   last?: { 推: number; 拉: number; 撞: number };
   /** v4 按范围同步（见 lib/tenant/sync-scoped.ts）。没有 = 仍走旧的全队包 */
@@ -76,6 +78,8 @@ export type 范围配置 = {
   snapshotPending?: string[];
   /** 确定性坏包（元数据不符、父链指向不可见记录）跳过了多少 */
   skipped?: number;
+  /** 哪些范围这一轮停在「目录里还没有」的那一包前面、等了几轮（scope-policy 还等吗） */
+  held?: 卡住的范围;
   /**
    * 上一轮清理：删了多少失权副本、转成冲突几条、AI 历史里可能还提到失权客户的条数（不删，只提示）；
    * 擦净 = 删完之后整库重建、WAL 截断成功（库文件字节里不留删掉的行），false = 下一轮清理先补擦
@@ -517,6 +521,16 @@ export function 推一下(): Promise<结果<{ 推: number; 拉: number; 撞: num
   return 同步一轮();
 }
 let 触发器对过 = false;
+
+/**
+ * 壳定时来戳时这一轮要不要跳过（2026-10-21 人多放慢，云端定的间隔见 tenant/sync-scoped.ts 前台最短间隔）。
+ * 只管壳的定时戳（/api/desktop/sync）：改完就推（推一下）、「立即同步」直接调 同步一轮，不经过这里。
+ * 留 2 秒余量：壳 8 秒一戳，20 秒的实际约 24 秒一轮、30 秒的约 32 秒。上一轮出错了不放慢，照旧下一戳就重试
+ */
+export function 该放慢(c: 团队配置 | null, now = Date.now()): boolean {
+  if (!c?.pace || !c.lastSyncAt || c.lastError) return false;
+  return now - Date.parse(c.lastSyncAt) < c.pace * 1000 - 2_000;
+}
 
 /**
  * 同步一轮：先推后拉（推的时候本机字段钟编好，拉回来的更早的改动就盖不掉本机刚改的）。
@@ -1093,6 +1107,8 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     const d = await 范围请求(c, "directory", { device: c.device });
     if (d.状态 !== 200) { const 话 = 错话(d, "取不到同步目录"); 记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() }); return { ok: false, error: 话 }; }
     if (Number(d.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
+    // 人多放慢以这次目录为准（老服务端不回 = 不放慢）
+    if ((Number(d.json.pace) || 0) !== (c.pace ?? 0)) 记团队(teamId, { pace: Number(d.json.pace) || 0 });
     // 互看开关以这次目录为准（和下面清理用的是同一份名单）：关掉了，同事的客户不在目录里，清理时删掉；老服务器不回 = 关
     记互看(teamId, d.json.share === true);
     // 主管也以这次目录为准（2026-10-20）：刚被设成 / 改回，本机角色马上跟上，不等 5 分钟一次的对角色
@@ -1108,6 +1124,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     if (!owner) cleaned = await 看全部(() => 清理失权副本(prisma, allowed));
     const cursors: 范围配置["cursors"] = {};
     let 拉 = 0, 撞 = 0, skipped = c.scoped?.skipped ?? 0;
+    const held: 卡住的范围 = {};
     for (const s of scopes) {
       const cur = c.scoped?.cursors?.[s.id];
       let after = cur && cur.revision >= s.revision ? cur.after : 0;
@@ -1120,21 +1137,29 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
         }
         const batches = (r.json.batches as 拉到的范围包[]) ?? [];
         const 收: 改动[] = [];
+        let 停在: number | null = null;
         for (const b of batches) {
           try { 收.push(验收范围包(b, 全部钥匙(c), teamId, index.get(行键(b.meta.t, b.meta.k)), allowed)); }
-          catch (e) { if (e instanceof 范围包错误) { skipped++; continue; } throw e; }
+          catch (e) {
+            // 这一轮目录里还没有它：这个范围停在它前面，下一轮拿新目录再拉（连等几轮还没有才当坏包跳过）
+            const 等 = e instanceof 范围包未到 ? 还等吗(c.scoped?.held, s.id, b.seq) : null;
+            if (等) { held[s.id] = 等; 停在 = b.seq; break; }
+            if (e instanceof 范围包错误) { skipped++; continue; }
+            throw e;
+          }
         }
         if (收.length) { const x = await 回放(prisma, 收, c.device); 拉 += x.应用; 撞 += x.撞; }
-        if (batches.length) after = batches[batches.length - 1].seq;
+        const 到 = 停在 == null ? batches : batches.filter((b) => b.seq < 停在);
+        if (到.length) after = 到[到.length - 1].seq;
         cursors[s.id] = { after, revision: s.revision };
         记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...cursors } } });
-        if (!r.json.more || !batches.length) break; // 同上：没前进就不再要同一页
+        if (停在 != null || !r.json.more || !batches.length) break; // 同上：没前进就不再要同一页
       }
     }
     // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
     const 补删 = await 照目录补删除(index.values(), c.device);
     拉 += 补删;
-    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, cleaned }, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推: p.推, 拉, 撞 } });
+    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned }, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推: p.推, 拉, 撞 } });
     /*
       老板那台补起点：目录里的 needBaseline = 改过归属、有业务员看得到、却还没有改归属之后起点的记录
       （交出去的人是旧版本客户端、起点太大没跟转交一起推、推完转交就断了……）。老板收全队、刚拉齐，永远有权写，由它补上；

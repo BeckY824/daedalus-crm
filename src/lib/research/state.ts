@@ -13,7 +13,8 @@ export type 阶段状态 = { status: "idle" | "running" | "done" | "error"; summ
 
 export type 背调状态 = {
   /** 背的是谁：用户说的那个名字；从客户详情页发起的带着客户 id */
-  目标: { name: string; customerId?: string };
+  /** 联系人：客户页发起时档案里的客户名（人），背调的主体是 name 那家公司（subject.ts） */
+  目标: { name: string; customerId?: string; 联系人?: string };
   stages: Record<阶段号, 阶段状态>;
   fields: Partial<Record<字段键, { value: string; source?: string }>>;
   评分?: 评分结果;
