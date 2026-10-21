@@ -79,21 +79,28 @@ async function 建(teamId: string, 旧: 团队索引 | undefined, 存 = true): P
   const ver = 索引版本(teamId);
   const 脏 = 存 ? 态.脏.get(teamId) : undefined;
   if (存) 态.脏.delete(teamId);
-  let rows: Map<string, 范围索引>, heads: Map<string, number>;
-  if (!旧) {
-    rows = new Map((await control.syncScopedRecord.findMany({ where: { teamId } })).map((r) => [r.key, JSON.parse(r.metadata) as 范围索引]));
-    heads = new Map((await control.syncScopedBatch.groupBy({ by: ["recordKey"], where: { teamId }, _max: { id: true } })).map((x) => [x.recordKey, x._max.id ?? 0]));
-  } else {
-    // 只重读改过的：不改原来那份（正在用它的请求不受影响），复制一份再改
-    rows = new Map(旧.rows); heads = new Map(旧.heads);
-    const keys = [...(脏 ?? [])];
-    for (let i = 0; i < keys.length; i += 400) {
-      const part = keys.slice(i, i + 400);
-      for (const r of await control.syncScopedRecord.findMany({ where: { teamId, key: { in: part } } })) rows.set(r.key, JSON.parse(r.metadata) as 范围索引);
-      for (const x of await control.syncScopedBatch.groupBy({ by: ["recordKey"], where: { teamId, recordKey: { in: part } }, _max: { id: true } })) heads.set(x.recordKey, x._max.id ?? 0);
+  let rows: Map<string, 范围索引>, heads: Map<string, number>, e: 团队索引;
+  try {
+    if (!旧) {
+      rows = new Map((await control.syncScopedRecord.findMany({ where: { teamId } })).map((r) => [r.key, JSON.parse(r.metadata) as 范围索引]));
+      heads = new Map((await control.syncScopedBatch.groupBy({ by: ["recordKey"], where: { teamId }, _max: { id: true } })).map((x) => [x.recordKey, x._max.id ?? 0]));
+    } else {
+      // 只重读改过的：不改原来那份（正在用它的请求不受影响），复制一份再改
+      rows = new Map(旧.rows); heads = new Map(旧.heads);
+      const keys = [...(脏 ?? [])];
+      for (let i = 0; i < keys.length; i += 400) {
+        const part = keys.slice(i, i + 400);
+        for (const r of await control.syncScopedRecord.findMany({ where: { teamId, key: { in: part } } })) rows.set(r.key, JSON.parse(r.metadata) as 范围索引);
+        for (const x of await control.syncScopedBatch.groupBy({ by: ["recordKey"], where: { teamId, recordKey: { in: part } }, _max: { id: true } })) heads.set(x.recordKey, x._max.id ?? 0);
+      }
     }
+    e = { ver, rows, heads, ...分组(rows, heads) };
+  } catch (err) {
+    // 读库失败：取走的脏键放回去（并上这期间新记的），下次照样重读这几条。不放回的话下次拿旧缓存 + 空脏键建出来、按新版本存下，
+    // 转走的客户就一直留在旧范围里，直到这位再被推一次或者云端重启（10-21 质量审 #78 抓到）
+    if (脏?.size) { const s = 态.脏.get(teamId) ?? new Set<string>(); for (const k of 脏) s.add(k); 态.脏.set(teamId, s); }
+    throw err;
   }
-  const e = { ver, rows, heads, ...分组(rows, heads) };
   // 建的这段时间里版本又变了也照样存：下次 团队索引 看到版本不对，再按新的脏键补
   if (存) 态.缓存.set(teamId, e);
   return e;
