@@ -129,3 +129,17 @@ it('开关开、团队还没迁移：业务员旧接口的话要老板升级并�
     expect(await scoped.范围状态(owner, team)).toMatchObject({ stage: 'ready', enabled: true });
   } finally { delete process.env.CRM_SCOPED_SYNC_LEGACY_TEAMS; }
 });
+it('人多放慢（2026-10-21）：目录里带 pace，不到 10 人 0、10 人起 20 秒、20 人起 30 秒', async () => {
+  const 人数 = () => control.syncMember.count({ where: { teamId: team, leftAt: null } });
+  expect(await 人数()).toBeLessThan(10);
+  expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 0 });
+  const 加到 = async (n: number) => {
+    while ((await 人数()) < n) {
+      const a = await control.account.create({ data: { name: 'pace', email: `pace${await 人数()}@example.invalid`, password: 'not-a-login' } });
+      await control.syncMember.create({ data: { teamId: team, accountId: a.id } });
+    }
+  };
+  await 加到(9); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 0 });
+  await 加到(10); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 20 });
+  await 加到(20); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 30 });
+});

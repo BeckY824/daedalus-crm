@@ -211,6 +211,12 @@ export async function 完成范围迁移(accountId: string, teamId: string, devi
     return { stage: 'ready' };
   });
 }
+/**
+ * 人多时前台放慢（2026-10-21 客户 Even 30 人压测的兜底）：壳在前台 8 秒戳一次本地服务，10 人起至少隔 20 秒才真同步一轮、20 人起 30 秒。
+ * 本机实测 30 台、老板 1000 位老客户：8 秒一轮云端一个核打满、老板要 4 分多钟才看到业务员写的；只把间隔改成 30 秒，老板 9 秒看到、云端平均 0.63 核。
+ * 改完 1.5 秒就推、「立即同步」不受它管（客户端 lib/sync/client.ts 该放慢）。由云端说，以后要调不用发客户端；单位秒，0 = 不放慢
+ */
+export const 前台最短间隔 = (人数: number) => (人数 >= 20 ? 30 : 人数 >= 10 ? 20 : 0);
 export async function 范围目录(accountId: string, teamId: string) {
   return control.$transaction(tx => 目录里(accountId, teamId, tx, true));
 }
@@ -252,7 +258,8 @@ async function 目录里(accountId: string, teamId: string, db: Db, 要补起点
     回放时负责人在本机不存在，整批客户当孤儿永久跳过（tests/sync-scoped-join-order.test.ts）
   */
   const 排好 = [...scopes.values()].sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
-  return { owner, share, manager, scopes: 排好, epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
+  const pace = 前台最短间隔(await db.syncMember.count({ where: { teamId, leftAt: null } }));
+  return { owner, share, manager, pace, scopes: 排好, epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
 }
 /** 这条记录在改归属（threshold）之前有没有批次：有 = 新获权的人需要一份起点，没有 = 整段历史都在改归属之后 */
 const 有更早批次 = async (db: Db, teamId: string, recordKey: string, threshold: number) => !!(await db.syncScopedBatch.findFirst({ where: { teamId, recordKey, id: { lt: threshold } }, select: { id: true } }));
