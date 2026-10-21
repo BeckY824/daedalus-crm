@@ -66,7 +66,7 @@ const 传: 传输 = async (方法, 路径, body) => {
     const t = String(b.teamId), act = String(b.action);
     try {
       if (act !== "state" && !(await scoped.范围开放(t))) return { 状态: 404, json: { error: "范围同步尚未开放" } };
-      const r = act === "state" ? await scoped.范围状态(a, t) : act === "directory" ? await scoped.范围目录(a, t) : act === "begin" ? await scoped.开始范围迁移(a, t, String(b.device)) : act === "commit" ? await scoped.完成范围迁移(a, t, String(b.device), Number(b.count)) : act === "push" ? await scoped.收范围推送(a, t, String(b.device), b.packets as never) : await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
+      const r = act === "state" ? await scoped.范围状态(a, t) : act === "directory" ? await scoped.范围目录(a, t) : act === "begin" ? await scoped.开始范围迁移(a, t, String(b.device)) : act === "commit" ? await scoped.完成范围迁移(a, t, String(b.device), Number(b.count)) : act === "push" ? await scoped.收范围推送(a, t, String(b.device), b.packets as never) : act === "pull-many" ? await scoped.给多个范围拉取(a, t, b.scopes) : await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
       return { 状态: 200, json: r as unknown as Record<string, unknown> };
     } catch (e) {
       if (e instanceof scoped.范围错误) return { 状态: e.状态, json: { error: e.message } };

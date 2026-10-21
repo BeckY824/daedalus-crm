@@ -155,6 +155,58 @@ it('索引缓存：拉取拿到索引后、读批次前客户被转走（每次�
   if (拉 && typeof 拉 === 'object' && 'batches' in 拉) expect((拉 as { batches: { seq: number }[] }).batches.filter(b => b.seq > 转走前)).toEqual([]);
   else expect(拉).toMatchObject({ 状态: 403 });
 });
+it('一次拉多个范围（pull-many）：和一个一个拉给的一样；看不到的那个回 403，不连累别的', async () => {
+  const d = await scoped.范围目录(other, team);
+  const ids = d.scopes.map(x => x.id);
+  const 多 = await scoped.给多个范围拉取(other, team, [...ids.map(scopeId => ({ scopeId, after: 0 })), { scopeId: 'Customer:boss-private', after: 0 }]);
+  for (const id of ids) {
+    const 一 = await scoped.给范围拉取(other, team, id, 0);
+    expect(多.scopes.find(x => x.scopeId === id)).toEqual({ scopeId: id, revision: 一.revision, more: 一.more, batches: 一.batches });
+  }
+  expect(多.scopes.at(-1)).toEqual({ scopeId: 'Customer:boss-private', error: 403 });
+  await expect(scoped.给多个范围拉取(other, team, [])).rejects.toMatchObject({ 状态: 400 });
+  await expect(scoped.给多个范围拉取(other, team, Array.from({ length: 501 }, () => ({ scopeId: 'team', after: 0 })))).rejects.toMatchObject({ 状态: 400 });
+});
+it('pull-many 额度用完时截断（more / later）：照客户端那样接着要，最后和一个一个拉一模一样，不漏不重', async () => {
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) await push(owner, 'owner-device', event(j ? 'FollowUp' : 'Customer', j ? `cut-${i}-f${j}` : `cut-${i}`, j ? { customerId: `cut-${i}`, ownerId: `acct_${owner}` } : { salesOwnerId: `acct_${owner}` }));
+  const ids = (await scoped.范围目录(owner, team)).scopes.map(x => x.id).filter(id => id !== 'team');
+  const 应有 = new Map<string, number[]>();
+  for (const id of ids) 应有.set(id, (await scoped.给范围拉取(owner, team, id, 0)).batches.map(b => b.seq));
+  for (const 额度 of [1, 2, 5]) {
+    scoped.设范围批量包上限(额度);
+    try {
+      const 游标 = new Map(ids.map(id => [id, 0])), 拿到 = new Map<string, number[]>(ids.map(id => [id, []]));
+      let 队 = [...ids], 次 = 0;
+      while (队.length) {
+        expect(++次).toBeLessThan(500);
+        const r = await scoped.给多个范围拉取(owner, team, 队.map(scopeId => ({ scopeId, after: 游标.get(scopeId) })));
+        expect(r.scopes.reduce((n, x) => n + (x.batches?.length ?? 0), 0)).toBeLessThanOrEqual(额度);
+        const 下 = [];
+        for (const x of r.scopes) {
+          if (x.later) { 下.push(x.scopeId); continue; }
+          const seqs = (x.batches ?? []).map(b => b.seq);
+          拿到.get(x.scopeId)!.push(...seqs);
+          if (seqs.length) 游标.set(x.scopeId, seqs.at(-1)!);
+          if (x.more && seqs.length) 下.push(x.scopeId);
+        }
+        队 = 下;
+      }
+      for (const id of ids) expect(拿到.get(id), `${额度} ${id}`).toEqual(应有.get(id));
+    } finally { scoped.设范围批量包上限(); }
+  }
+});
+it('pull-many 也一样：拿到索引后、读批次前客户被转走，拿不到转走那一批', async () => {
+  const k = 'race-many';
+  await push(other, 'other-device', event('Customer', k, { salesOwnerId: `acct_${other}` }));
+  await scoped.范围目录(other, team);
+  const 转走前 = (await control.syncScopedBatch.findFirstOrThrow({ where: { teamId: team }, orderBy: { id: 'desc' } })).id;
+  钩.插一手 = () => scoped.收范围推送(owner, team, 'owner-device', [packet(event('Customer', k, { salesOwnerId: `acct_${owner}`, name: 'secret' }, 'U', ['salesOwnerId', 'name']), 'owner-device')]);
+  const 多 = await scoped.给多个范围拉取(other, team, [{ scopeId: `Customer:${k}`, after: 0 }]);
+  expect(钩.插一手).toBeNull();
+  const x = 多.scopes[0];
+  expect((x.batches ?? []).filter(b => b.seq > 转走前)).toEqual([]);
+  expect(x).toMatchObject({ error: 403 });
+});
 it('目录只发变了的：带上次的 token 来只拿变了的范围和看不到了的；token 对不上拿全的；每个范围带 head', async () => {
   const 目录 = (base?: string) => scoped.范围目录(other, team, { device: 'other-device', base }) as Promise<{ token: string; delta?: boolean; removed?: string[]; scopes: { id: string; head: number }[] }>;
   const d1 = await 目录();

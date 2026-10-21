@@ -328,23 +328,104 @@ async function 当前删除包(db: Db, teamId: string, r: 范围索引) {
  * 有推送在途就等它结束；事务读完批次后索引版本变了（期间有推送提交）就整个重来
  */
 export async function 给范围拉取(accountId: string, teamId: string, scopeId: string, after: number) {
+  return 核着版本拉(teamId, async (e) => {
+    const tx = control;
+    const c = await 拉取前提(tx, accountId, teamId);
+    const scope = e.groups.get(scopeId);
+    if (!scope || !范围可读(scope.scope, accountId, c.owner, c.share || c.manager)) fail(403, "该范围不在你的同步权限内");
+    return { epoch: c.epoch, revision: scope.revision, ...(await 范围批次(tx, teamId, c, scope, after, e, 范围每页)) };
+  });
+}
+/**
+ * 一次拉多个范围（2026-10-21 客户 Even 30 人压测：开互看后每位业务员要拉全队上千个客户范围，一个范围一个请求，
+ * 29 台 × 1000 位就是近 3 万个请求，10 分钟一台都没拉齐）。权限、钥匙编号只查一次，同一个事务、同一份索引。
+ * 整次最多 范围批量包上限 包（按批次号从小到大），给到一些没给完的范围回 more、一包没轮上的回 later，客户端下一个请求再要。
+ * 一块范围一条查询，不再一个范围一条（压测：29 台同时开互看，一个范围一条查询时每个请求都超过 30 秒、客户端放弃重来、越堆越多）。
+ * 看不到的范围不让整次失败：回 error 403，客户端照单个拉到 403 的办法处理（这一轮失败、下一轮新目录里就没有它了）
+ */
+export const 范围批量上限 = 500, 范围批量包上限 = 1000;
+let 批量包上限 = 范围批量包上限;
+/** 测试用：把整次的包数额度调小，测截断 */
+export function 设范围批量包上限(n = 范围批量包上限) { 批量包上限 = n; }
+const 范围每页 = 200;
+export type 批量拉取项 = { scopeId: string; revision?: number; more?: boolean; later?: true; error?: number; batches?: 拉出的包[] };
+export async function 给多个范围拉取(accountId: string, teamId: string, items: unknown): Promise<{ epoch: number; scopes: 批量拉取项[] }> {
+  if (!Array.isArray(items) || !items.length || items.length > 范围批量上限) fail(400, "范围拉取格式不对");
+  const list = (items as { scopeId?: unknown; after?: unknown }[]).map((x) => {
+    if (!x || typeof x.scopeId !== "string" || x.scopeId.length > 200) fail(400, "范围拉取格式不对");
+    return { scopeId: x.scopeId as string, after: Number(x.after) || 0 };
+  });
+  return 核着版本拉(teamId, async (e) => {
+    const tx = control;
+    const c = await 拉取前提(tx, accountId, teamId);
+    const 出 = new Map<string, 批量拉取项>();
+    // 按整个范围凑块（一块最多 200 个起点）：一块一条查询，按批次号取最早的、整次最多 范围批量包上限 包。
+    // 同一个范围不跨块——截在某一块时，每个范围给到的都是它自己批次号最小的那几包，游标前进不会越过没给的
+    const 块: { scopeId: string; scope: 范围组; starts: 起点[] }[][] = [[]];
+    let 块里起点 = 0;
+    for (const { scopeId, after } of list) {
+      const scope = e.groups.get(scopeId);
+      if (!scope || !范围可读(scope.scope, accountId, c.owner, c.share || c.manager)) { 出.set(scopeId, { scopeId, error: 403 }); continue; }
+      const starts = await 范围起点(tx, teamId, c, scope, after, e);
+      if (!starts.length) { 出.set(scopeId, { scopeId, revision: scope.revision, more: false, batches: [] }); continue; }
+      // 一个范围就超过 200 个起点（很少见）：单独照一个范围的办法给一页
+      if (starts.length > 200) { 出.set(scopeId, { scopeId, revision: scope.revision, ...(await 范围批次(tx, teamId, c, scope, after, e, 范围每页)) }); continue; }
+      if (块里起点 + starts.length > 200) { 块.push([]); 块里起点 = 0; }
+      块.at(-1)!.push({ scopeId, scope, starts });
+      块里起点 += starts.length;
+    }
+    let 余 = 批量包上限;
+    for (let i = 0; i < 块.length; i++) {
+      const 这块 = 块[i];
+      if (!这块.length) continue;
+      if (余 <= 0) { for (const x of 块.slice(i).flat()) 出.set(x.scopeId, { scopeId: x.scopeId, later: true }); break; }
+      const 归 = new Map<string, string>();
+      for (const x of 这块) for (const st of x.starts) 归.set(st.key, x.scopeId);
+      let rows = await tx.syncScopedBatch.findMany({ where: { teamId, OR: 这块.flatMap((x) => x.starts.map(起点条件)) }, orderBy: { id: 'asc' }, take: 余 + 1 });
+      const 截了 = rows.length > 余;
+      if (截了) rows = rows.slice(0, 余);
+      余 -= rows.length;
+      const 分 = new Map<string, 拉出的包[]>();
+      for (const r of rows) { const id = 归.get(r.recordKey)!; const xs = 分.get(id) ?? []; xs.push(读密文(r)); 分.set(id, xs); }
+      for (const x of 这块) {
+        const got = 分.get(x.scopeId) ?? [];
+        // 截了：这块里给到一些的说 more（下一次接着要），一包都没轮上的说 later（游标不动、下一次再要）
+        出.set(x.scopeId, 截了 && !got.length ? { scopeId: x.scopeId, later: true } : { scopeId: x.scopeId, revision: x.scope.revision, more: 截了, batches: got });
+      }
+      if (截了) { for (const x of 块.slice(i + 1).flat()) 出.set(x.scopeId, { scopeId: x.scopeId, later: true }); break; }
+    }
+    return { epoch: c.epoch, scopes: list.map(({ scopeId }) => 出.get(scopeId)!) };
+  });
+}
+/*
+  拉取不开事务（2026-10-21 30 台压测：开互看后几十台同时拉，交互事务在 SQLite 上排队，等不到 2 秒就 P2028，一批 503）。
+  一致性靠的是 核着版本拉：推送提交之前就把版本加了，拉取读完才核版本，期间有任何推送提交都整个重来——
+  所以读到的批次、起点、权限和用来判范围的索引一定是同一时刻的，不需要事务再包一层
+*/
+async function 核着版本拉<T>(teamId: string, 拉: (e: 团队索引类型) => Promise<T>): Promise<T> {
   for (let 次 = 0; 次 < 40; 次++) {
     if (有推送在途(teamId)) { await new Promise(r => setTimeout(r, 25)); continue; }
     const e = await 团队索引(teamId);
     if (有推送在途(teamId)) continue;
-    const r = await 拉一个范围(accountId, teamId, scopeId, after, e);
+    const r = await 拉(e);
     if (e.ver === 索引版本(teamId) && !有推送在途(teamId)) return r;
   }
   return fail(503, "同步正忙，请稍后重试；游标未跳过");
 }
-async function 拉一个范围(accountId: string, teamId: string, scopeId: string, after: number, e: Awaited<ReturnType<typeof 团队索引>>) {
-  return control.$transaction(async tx => {
+type 团队索引类型 = Awaited<ReturnType<typeof 团队索引>>;
+type 拉取身份 = { accountId: string; owner: boolean; manager: boolean; share: boolean; epoch: number };
+async function 拉取前提(tx: Db, accountId: string, teamId: string): Promise<拉取身份> {
   const { owner, manager, share } = await auth(accountId, teamId, undefined, tx);
   const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
   if (p?.stage !== 'ready') fail(409, "请等待老板完成团队范围迁移");
-  const scope = e.groups.get(scopeId);
-  if (!scope || !范围可读(scope.scope, accountId, owner, share || manager)) fail(403, "该范围不在你的同步权限内");
   const epoch = (await tx.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0;
+  return { accountId, owner, manager, share, epoch };
+}
+type 拉出的包 = { seq: number; device: string; eventId: string; meta: 范围元数据; data: string };
+/** 一个范围从 after 往后最多 页 包（多一包就 more） */
+type 起点 = { key: string; gt: number; only?: number };
+/** 这个范围里每条记录从哪个批次之后给（改过归属的非老板从起点给、删了的只给删除那一包） */
+async function 范围起点(tx: Db, teamId: string, c: 拉取身份, scope: 范围组, after: number, e: 团队索引类型): Promise<起点[]> {
   const from = Math.max(0, Math.floor(after) || 0);
   /*
     改过归属（含父链、进出公海）的记录：非老板只从「改归属之后的第一个起点快照」开始拉，
@@ -356,8 +437,8 @@ async function 拉一个范围(accountId: string, teamId: string, scopeId: strin
     不按改归属的起点截——否则老板转给另一位业务员、没有业务员看得到过的客户，要等老板那台补完起点才拉得到
   */
   // 主管（2026-10-20）同理：刚被设成主管，全队客户从头给
-  const 截 = !(owner || share || manager);
-  const starts: { key: string; gt: number; only?: number }[] = [];
+  const 截 = !(c.owner || c.share || c.manager);
+  const starts: 起点[] = [];
   for (const r of scope.records) {
     const key = 行键(r.t, r.k);
     // 这条记录最新的批次都不比游标新：没什么可给的，不用再查起点（2026-10-21：老板一轮拉上千个范围，绝大多数在这里就结束）
@@ -379,16 +460,23 @@ async function 拉一个范围(accountId: string, teamId: string, scopeId: strin
       if (d && d > from) starts.push({ key, gt: from, only: d });
     }
   }
+  return starts;
+}
+const 起点条件 = (x: 起点) => (x.only ? { recordKey: x.key, id: x.only } : { recordKey: x.key, id: { gt: x.gt } });
+type 批次行 = { id: number; device: string; eventId: string; metadata: string; digest: string };
+const 读密文 = (b: 批次行): 拉出的包 => {
+  let data: string; try { data = fs.readFileSync(file(b.digest), 'utf8'); } catch { return fail(503, "范围密文暂不可读，请稍后重试；游标未跳过"); }
+  if (sha(data) !== b.digest) fail(503, "范围密文校验失败；游标未跳过");
+  return { seq: b.id, device: b.device, eventId: b.eventId, meta: JSON.parse(b.metadata) as 范围元数据, data };
+};
+/** 一个范围从 after 往后最多 页 包（多一包就 more） */
+async function 范围批次(tx: Db, teamId: string, c: 拉取身份, scope: 范围组, after: number, e: 团队索引类型, 页: number): Promise<{ more: boolean; batches: 拉出的包[] }> {
+  const starts = await 范围起点(tx, teamId, c, scope, after, e);
   const batches = [];
-  // 避开 SQLite 的变量个数上限，各分块取最早 201 条，再整体截到 200。
-  for (let i = 0; i < starts.length; i += 200) batches.push(...await tx.syncScopedBatch.findMany({ where: { teamId, OR: starts.slice(i, i + 200).map(x => (x.only ? { recordKey: x.key, id: x.only } : { recordKey: x.key, id: { gt: x.gt } })) }, orderBy: { id: 'asc' }, take: 201 }));
+  // 避开 SQLite 的变量个数上限，各分块取最早 页+1 条，再整体截到 页。
+  for (let i = 0; i < starts.length; i += 200) batches.push(...await tx.syncScopedBatch.findMany({ where: { teamId, OR: starts.slice(i, i + 200).map(起点条件) }, orderBy: { id: 'asc' }, take: 页 + 1 }));
   batches.sort((a, b) => a.id - b.id);
-  return { epoch, revision: scope.revision, more: batches.length > 200, batches: batches.slice(0, 200).map(b => {
-    let data: string; try { data = fs.readFileSync(file(b.digest), 'utf8'); } catch { return fail(503, "范围密文暂不可读，请稍后重试；游标未跳过"); }
-    if (sha(data) !== b.digest) fail(503, "范围密文校验失败；游标未跳过");
-    return { seq: b.id, device: b.device, eventId: b.eventId, meta: JSON.parse(b.metadata) as 范围元数据, data };
-  }) };
-  }, { timeout: 60_000 });
+  return { more: batches.length > 页, batches: batches.slice(0, 页).map(读密文) };
 }
 /* ---------------- 跨成员查重（2026-10-19，lib/sync/dedupe.ts） ---------------- */
 
@@ -418,7 +506,8 @@ export async function 收查重索引(accountId: string, teamId: string, device:
       if (e.hashes.length) await tx.syncDedupeKey.createMany({ data: [...new Set(e.hashes)].map((hash) => ({ teamId, recordKey: e.k, hash, epoch, label: e.label })) });
       stored++;
     }
-  });
+    // 开互看后几十台同时报全队客户的查重索引（2026-10-21 压测）：写事务在 SQLite 上排队，默认 2 秒等不到就 P2028 → 503
+  }, { maxWait: 15_000, timeout: 60_000 });
   return { stored, skipped };
 }
 

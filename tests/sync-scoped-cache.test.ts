@@ -66,6 +66,7 @@ async function 调中转(a: string, 方法: string, 路径: string, body: unknow
       else if (act === "begin") r = await scoped.开始范围迁移(a, t, String(b.device));
       else if (act === "commit") r = await scoped.完成范围迁移(a, t, String(b.device), Number(b.count));
       else if (act === "push") r = await scoped.收范围推送(a, t, String(b.device), b.packets as never[]);
+      else if (act === "pull-many") { if (插手.老服务端) return { 状态: 400, json: { error: "未知同步操作" } }; r = await scoped.给多个范围拉取(a, t, b.scopes); }
       else r = await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
       return { 状态: 200, json: r as Record<string, unknown> };
     } catch (e) {
@@ -76,13 +77,15 @@ async function 调中转(a: string, 方法: string, 路径: string, body: unknow
   return { 状态: 404, json: { error: `fake: ${路径}` } };
 }
 /** 测试里插手：丢回包（中转收下了，桌面端没收到回包）、给一份旧目录（取目录之后、拉取之前别人新建了记录） */
-const 记数: Record<谁, { pull: number; 目录: Record<string, unknown>[] }> = { boss: { pull: 0, 目录: [] }, li: { pull: 0, 目录: [] }, zhao: { pull: 0, 目录: [] } };
-const 清数 = () => { for (const w of ["boss", "li", "zhao"] as const) 记数[w] = { pull: 0, 目录: [] }; };
-const 插手: { 丢回包?: { 谁: 谁; 动作: string }; 旧目录?: { 谁: 谁; 目录: Record<string, unknown> } } = {};
+/** pull = 拉取请求数（一个范围一个的 pull 和一次多个的 pull-many 都算一个请求），批量 = 每个 pull-many 带了几个范围 */
+const 记数: Record<谁, { pull: number; 批量: number[]; 目录: Record<string, unknown>[] }> = { boss: { pull: 0, 批量: [], 目录: [] }, li: { pull: 0, 批量: [], 目录: [] }, zhao: { pull: 0, 批量: [], 目录: [] } };
+const 清数 = () => { for (const w of ["boss", "li", "zhao"] as const) 记数[w] = { pull: 0, 批量: [], 目录: [] }; };
+const 插手: { 丢回包?: { 谁: 谁; 动作: string }; 旧目录?: { 谁: 谁; 目录: Record<string, unknown> }; 老服务端?: boolean } = {};
 const 桌面传: 传输 = async (方法, 路径, body) => {
   const w = 临时.谁, act = 路径 === "/api/sync/scoped" ? String((body as Record<string, unknown>)?.action) : "";
   if (插手.旧目录 && 插手.旧目录.谁 === w && act === "directory") { const d = 插手.旧目录.目录; delete 插手.旧目录; return { 状态: 200, json: d }; }
-  if (act === "pull") 记数[w].pull++;
+  if (act === "pull" || act === "pull-many") 记数[w].pull++;
+  if (act === "pull-many") 记数[w].批量.push(((body as { scopes: unknown[] }).scopes).length);
   const r = await 调中转(账号[w], 方法, 路径, body);
   if (act === "directory" && r.状态 === 200) 记数[w].目录.push(r.json);
   if (插手.丢回包 && 插手.丢回包.谁 === w && 插手.丢回包.动作 === act && r.状态 === 200) { delete 插手.丢回包; return { 状态: 0, json: { error: "连不上云端，检查一下网络" } }; }
@@ -178,6 +181,34 @@ describe("索引缓存：空转不拉、只拉变了的、目录只发变了的"
     清数();
     await 都轮("boss", "li", "zhao");
     for (const w of ["boss", "li", "zhao"] as const) expect(记数[w].pull, w).toBe(0);
+  });
+
+  it("开互看：业务员一轮用两个请求拉齐全队 250 位客户（原来一位一个请求），之后空转不拉", async () => {
+    const 起 = await db("boss").customer.count();
+    for (let i = 0; i < 250; i++) await db("boss").customer.create({ data: { id: `c-many${i}`, name: `批量${i}`, phone: `1390000${String(i).padStart(4, "0")}`, salesOwnerId: A("boss") } });
+    await 都轮("boss");
+    await relay.设互看(账号.boss, 读配置("boss").teamId, true);
+    清数();
+    await 都轮("li");
+    expect(记数.li.pull).toBe(2);
+    expect(记数.li.批量).toEqual([200, expect.any(Number)]);
+    expect(await db("li").customer.count()).toBe(起 + 250);
+    清数();
+    await 都轮("li", "zhao");
+    expect(记数.li.pull).toBe(0);
+    expect(await db("zhao").customer.count()).toBe(起 + 250);
+  });
+
+  it("老服务端不认 pull-many：退回一个范围一个请求，照样拉齐", async () => {
+    for (let i = 0; i < 5; i++) await db("boss").customer.create({ data: { id: `c-old-srv${i}`, name: `老服务端${i}`, phone: `1370000000${i}`, salesOwnerId: A("boss") } });
+    await 都轮("boss");
+    插手.老服务端 = true;
+    try {
+      清数();
+      await 都轮("li");
+      expect(记数.li.pull).toBe(1 + 5); // 第一次 pull-many 被拒，之后 5 个范围各一个
+      for (let i = 0; i < 5; i++) expect(await db("li").customer.findUnique({ where: { id: `c-old-srv${i}` } })).not.toBeNull();
+    } finally { delete 插手.老服务端; }
   });
 
   it("本地服务重启（内存里上一份目录没了）：拿全的目录，照样不漏不重", async () => {

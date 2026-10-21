@@ -1108,6 +1108,9 @@ function 合目录(键: string, 上次: { token: string; scopes: Map<string, 目
   return [...合.values()];
 }
 
+/** 一次拉多个范围（2026-10-21）：每个请求最多几个范围（服务端上限 500）；老服务端不认就关掉，进程重启再试 */
+const 范围每批 = 200;
+let 批量拉取可用 = true;
 /** 一轮范围同步：推 → 目录 →（业务员）清理失权副本 → 按范围拉、逐包核对后回放 →（老板）补起点 */
 let 上次报查重 = "";
 async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规则 = 旧推送规则): Promise<轮结果> {
@@ -1141,39 +1144,84 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     const cursors: 范围配置["cursors"] = {};
     let 拉 = 0, 撞 = 0, skipped = c.scoped?.skipped ?? 0;
     const held: 卡住的范围 = {};
+    // 一页包：逐包核对，目录里还没有的那包停在它前面（连等几轮还没有才当坏包跳过）
+    const 收页 = (s: 目录范围, batches: 拉到的范围包[]) => {
+      const 收: 改动[] = [];
+      let 停在: number | null = null;
+      for (const b of batches) {
+        try { 收.push(验收范围包(b, 全部钥匙(c), teamId, index.get(行键(b.meta.t, b.meta.k)), allowed)); }
+        catch (e) {
+          const 等 = e instanceof 范围包未到 ? 还等吗(c.scoped?.held, s.id, b.seq) : null;
+          if (等) { held[s.id] = 等; 停在 = b.seq; break; }
+          if (e instanceof 范围包错误) { skipped++; continue; }
+          throw e;
+        }
+      }
+      return { 收, 到: 停在 == null ? batches : batches.filter((b) => b.seq < 停在!), 停了: 停在 != null };
+    };
+    const 记游标 = () => 记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...cursors } } });
+    const 拉失败 = (r: { 状态: number; json: Record<string, unknown> }) => {
+      const 话 = 错话(r, "拉取失败");
+      记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...(c.scoped?.cursors ?? {}), ...cursors } }, lastError: 话, lastSyncAt: new Date().toISOString() });
+      return { ok: false as const, error: 话 };
+    };
+    const 待拉: { s: 目录范围; after: number }[] = [];
     for (const s of scopes) {
       const cur = c.scoped?.cursors?.[s.id];
-      let after = cur && cur.revision >= s.revision ? cur.after : 0;
+      const after = cur && cur.revision >= s.revision ? cur.after : 0;
       // 游标已经到这个范围最新的批次：没什么可拉的，不发请求（2026-10-21：老板一轮原来每位客户一个请求；老服务端不回 head，照旧拉）
       if (typeof s.head === "number" && cur && after >= s.head) { cursors[s.id] = { after, revision: s.revision }; continue; }
+      待拉.push({ s, after });
+    }
+    /*
+      一次拉多个范围（2026-10-21，客户 Even 30 人压测：开互看后业务员一个范围一个请求要拉上千次）：「团队」范围照旧单独先拉
+     （负责人得先在本机），其余每 范围每批 个一个请求；服务端额度用完的回 later，排到后面再要；看不到了的（403）跳过，
+      下一轮新目录里就没有它了。老服务端不认 pull-many 就退回一个一个拉
+    */
+    const 单拉 = async (s: 目录范围, 起: number) => {
+      let after = 起;
       for (;;) {
         const r = await 范围请求(c, "pull", { scopeId: s.id, after, device: c.device });
-        if (r.状态 !== 200) {
-          const 话 = 错话(r, "拉取失败");
-          记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...(c.scoped?.cursors ?? {}), ...cursors } }, lastError: 话, lastSyncAt: new Date().toISOString() });
-          return { ok: false, error: 话 };
-        }
+        if (r.状态 !== 200) return r;
         const batches = (r.json.batches as 拉到的范围包[]) ?? [];
-        const 收: 改动[] = [];
-        let 停在: number | null = null;
-        for (const b of batches) {
-          try { 收.push(验收范围包(b, 全部钥匙(c), teamId, index.get(行键(b.meta.t, b.meta.k)), allowed)); }
-          catch (e) {
-            // 这一轮目录里还没有它：这个范围停在它前面，下一轮拿新目录再拉（连等几轮还没有才当坏包跳过）
-            const 等 = e instanceof 范围包未到 ? 还等吗(c.scoped?.held, s.id, b.seq) : null;
-            if (等) { held[s.id] = 等; 停在 = b.seq; break; }
-            if (e instanceof 范围包错误) { skipped++; continue; }
-            throw e;
-          }
-        }
-        if (收.length) { const x = await 回放(prisma, 收, c.device); 拉 += x.应用; 撞 += x.撞; }
-        const 到 = 停在 == null ? batches : batches.filter((b) => b.seq < 停在);
-        if (到.length) after = 到[到.length - 1].seq;
+        const 页 = 收页(s, batches);
+        if (页.收.length) { const x = await 回放(prisma, 页.收, c.device); 拉 += x.应用; 撞 += x.撞; }
+        if (页.到.length) after = 页.到[页.到.length - 1].seq;
         cursors[s.id] = { after, revision: s.revision };
-        记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...cursors } } });
-        if (停在 != null || !r.json.more || !batches.length) break; // 同上：没前进就不再要同一页
+        记游标();
+        if (页.停了 || !r.json.more || !batches.length) return null; // 同上：没前进就不再要同一页
       }
+    };
+    // 「团队」范围先单独拉完
+    for (const x of 待拉) if (x.s.id === "team") { const r = await 单拉(x.s, x.after); if (r) return 拉失败(r); }
+    const 一批批 = 待拉.filter((x) => x.s.id !== "team");
+    const 单个: typeof 待拉 = [];
+    if (!批量拉取可用) 单个.push(...一批批.splice(0));
+    while (一批批.length) {
+      const 这批 = 一批批.splice(0, 范围每批);
+      const r = await 范围请求(c, "pull-many", { device: c.device, scopes: 这批.map((x) => ({ scopeId: x.s.id, after: x.after })) });
+      if (r.状态 === 400 && r.json?.error === "未知同步操作") { 批量拉取可用 = false; 单个.push(...这批, ...一批批.splice(0)); break; }
+      if (r.状态 !== 200) return 拉失败(r);
+      const 回 = new Map(((r.json.scopes as { scopeId: string; later?: boolean; error?: number; more?: boolean; batches?: 拉到的范围包[] }[]) ?? []).map((x) => [x.scopeId, x]));
+      const 收: 改动[] = [];
+      const 前进: { s: 目录范围; after: number }[] = [];
+      for (const x of 这批) {
+        const y = 回.get(x.s.id);
+        if (!y || y.error) continue; // 回里没有（不该出现）或看不到了：这一轮跳过，游标不动
+        if (y.later) { 一批批.push(x); continue; }
+        const batches = y.batches ?? [];
+        const 页 = 收页(x.s, batches);
+        收.push(...页.收);
+        const after = 页.到.length ? 页.到[页.到.length - 1].seq : x.after;
+        前进.push({ s: x.s, after });
+        if (!页.停了 && y.more && batches.length) 一批批.push({ s: x.s, after });
+      }
+      // 各范围的包按批次号合起来回放一次（就是它们进中转的先后），游标在回放之后才前进
+      if (收.length) { const z = await 回放(prisma, 收, c.device); 拉 += z.应用; 撞 += z.撞; }
+      for (const x of 前进) cursors[x.s.id] = { after: x.after, revision: x.s.revision };
+      记游标();
     }
+    for (const x of 单个) { const r = await 单拉(x.s, x.after); if (r) return 拉失败(r); }
     // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
     const 补删 = await 照目录补删除(index.values(), c.device);
     拉 += 补删;
