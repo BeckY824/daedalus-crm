@@ -452,29 +452,32 @@ export type 云端策略 = { register: boolean; reset: boolean; inApp: boolean }
 
 /** 没问到时照云端平时的样子摆：注册、找回、应用内注册都开着 */
 const 都开: 云端策略 = { register: true, reset: true, inApp: true };
-const 都关: 云端策略 = { register: false, reset: false, inApp: false };
 
-/** 这次启动里最后一次问到的答案。登录页先照它画，不用每次都等云端 */
+/** 这次启动里最后一次**正常问到**的答案。登录页先照它画，不用每次都等云端 */
 let 上次问到: 云端策略 | null = null;
 
 /**
  * 这个部署开着哪两条路：网页那边还收不收新注册、能不能自助找回密码。
  * 登录页据此决定画哪几个入口——别摆一个点进去说「没开放」的链接。
  *
- * 只有云端回 404（老版本服务端、没有账号体系的部署）才按「都不开」算，只留登录。
- * **没问到**不能也这么算（2026-10-21）：国内第一次打开时这一问常常几秒内回不来，
- * 登录页就成了「用你的云端账号登录」、新邮箱点继续直接去输密码，新用户整个没有注册的路，
- * 只能对着「账号或密码不对」干瞪眼。超时、连不上、云端 5xx（发版重启时 Caddy 回 502）都算没问到，
- * 照平时的样子把路都摆出来：点「继续」时云端会再答一次（signup/start），
- * 老账号回 409 去输密码，真不收注册会回「这个部署没有开放注册」，原因当场说清。
+ * **只有云端正常回了（2xx、JSON）并且明说 false，才藏那个入口**（2026-10-21 P0）。
+ * 别的一律当「没问到」，照平时的样子把注册、找回都摆出来：超时、断网、4xx（含 404）、5xx（发版重启时 Caddy 回 502 / 503）、
+ * 回来的不是 JSON（公司网、酒店 Wi-Fi 的登录页回 200 + HTML）。
+ * 原来按「问不到 = 不收注册」画，国内第一次打开时这一问常常几秒回不来，新邮箱点继续直接去输密码，
+ * 新用户整个没有注册的路，只能对着「账号或密码不对」干瞪眼（10-21 客户反馈）；后来改成「有状态码就算明确回错」，
+ * 5xx 又漏了。我们的云端一直有这个接口，不用照顾没有它的老服务端。
+ * 摆出来的入口点了也不会白点：「继续」时云端再答一次（signup/start），老账号回 409 去输密码，
+ * 真不收注册会回「这个部署没有开放注册」，连不上会说连不上，原因当场说清。
  *
- * 登录页、找回密码页**不再等这一问**才出页（2026-10-21）：先按 上次策略() 画，页面出来以后在后台问，问到再改。
+ * 登录页、找回密码页**不等这一问**才出页：先按 上次策略() 画，页面出来以后在后台问，问到再改。
  */
 export async function 策略(超时毫秒 = 15_000): Promise<云端策略> {
-  const r = await 请求<{ register?: boolean; reset?: boolean; inApp?: boolean }>(`${云端地址()}/api/account/policy`, {}, 超时毫秒);
-  if (!r.ok) return r.状态 === 404 ? (上次问到 = 都关) : (上次问到 ?? 都开);
-  /* inApp：云端有没有 /api/account/signup/*（2026-10-02 加）。没有就照旧开浏览器去网页注册 */
-  return (上次问到 = { register: Boolean(r.data?.register), reset: Boolean(r.data?.reset), inApp: Boolean(r.data?.inApp) });
+  const r = await 请求<unknown>(`${云端地址()}/api/account/policy`, {}, 超时毫秒);
+  const d = r.ok ? r.data : null;
+  if (!d || typeof d !== "object" || Array.isArray(d)) return 上次问到 ?? 都开;
+  const 答 = d as { register?: unknown; reset?: unknown; inApp?: unknown };
+  /* inApp：云端有没有 /api/account/signup/*（2026-10-02 加）。明说没有才开浏览器去网页注册 */
+  return (上次问到 = { register: 答.register !== false, reset: 答.reset !== false, inApp: 答.inApp !== false });
 }
 
 /** 不联网：这次启动问到过就用那次的答案，没问到过就当都开着 */
