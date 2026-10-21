@@ -107,3 +107,8 @@ research-bench-out/
 # 扫名片的识别运行库：scripts/build-ocr.mjs 从 node_modules 生成（模型 public/ocr/v1/models 进仓库）
 /public/ocr/v1/*
 !/public/ocr/v1/models/
+# 预压缩的模型包（build-ocr.mjs 生成）
+/public/ocr/v1/models/*.br
+/public/ocr/v1/models/*.gz
+# 服务器识别名片的 worker（build-ocr.mjs 生成）
+/ocr-server/

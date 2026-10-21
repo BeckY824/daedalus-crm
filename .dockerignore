@@ -28,3 +28,5 @@ desktop/*
 # Web客户端和桌面本地服务共享公开版本映射；只纳入这个纯函数文件。
 !desktop/release-version.js
 **/node_modules
+# 服务器识别的 worker 每次在镜像里重打（scripts/build-ocr.mjs），本机打的不带进去
+ocr-server

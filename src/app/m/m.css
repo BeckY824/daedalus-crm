@@ -362,6 +362,7 @@ html.m-page nextjs-portal { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .m-spinner.is-on, .m-waiting span { animation: m-fade 0.8s ease-in-out infinite alternate; }
     .m-seg-thumb { transition: none; }
+  .m-scan-track > i { transition: none; }
 }
 
 /* ---------- 正式版多出来的（2026-10-15） ---------- */
@@ -389,6 +390,13 @@ a.m-icon-btn { text-decoration: none; }
 .m-form.m-form-sheet input { height: 46px; }
 .m-form.m-form-sheet .m-field-l { margin: 4px 0 -4px; }
 .m-form-tip { margin: -4px 0 0; font-size: 12px; color: var(--text-faint); }
+/* 新建客户「更多」（客户等级、两个状态，2026-10-20 和电脑上的新建框对齐）：收起时一行摘要 */
+.m-form .m-form-more { display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 14px; font: inherit; font-size: 15px; color: var(--ink); text-align: left; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
+.m-form .m-form-more em { flex: 1; min-width: 0; overflow: hidden; font-size: 13px; font-style: normal; color: var(--text-muted); text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.m-form .m-form-more .anticon { color: var(--text-faint); transition: transform 0.2s; }
+.m-form .m-form-more[aria-expanded="true"] .anticon { transform: rotate(90deg); }
+.m-form select { width: 100%; height: 50px; padding: 0 14px; font: inherit; font-size: 16px; color: var(--ink); background: var(--panel); border: 1px solid var(--line-strong); border-radius: 12px; outline: none; appearance: none; -webkit-appearance: none; }
+.m-form select:focus { border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-bg); }
 .m-add { width: 32px; height: 32px; margin-right: 8px; font-size: 15px; }
 .m-card-more { display: inline-flex; align-items: center; gap: 4px; margin: 8px -8px -6px; font-size: 14px; }
 .m-opp-name .m-pending { margin-left: 6px; vertical-align: 2px; }
@@ -404,7 +412,14 @@ a.m-icon-btn { text-decoration: none; }
 .m-form label.is-check span::after { content: " · 请看一眼"; font-weight: 500; color: var(--warning-text); }
 .m-scan-mark { padding: 0 4px; font-weight: 600; color: var(--warning-text); background: var(--warning-bg); border-radius: 4px; }
 .m-scan-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 4px 0 6px; padding: 10px 12px; font-size: 13px; color: var(--text-muted); background: var(--brand-bg); border-radius: var(--r-card); }
-.m-scan-bar.is-busy { color: var(--brand-deep); font-weight: 600; }
+.m-scan-bar.is-busy { flex-wrap: wrap; align-items: flex-start; color: var(--brand-deep); font-weight: 600; line-height: 1.5; }
+/* 下识别文件时的进度条：单独一行，跟在那句话下面 */
+.m-scan-progress { flex: 1 0 100%; display: flex; align-items: center; gap: 8px; padding-left: 22px; }
+.m-scan-track { flex: 1; height: 6px; background: var(--panel); border-radius: 999px; overflow: hidden; }
+.m-scan-track > i { display: block; height: 100%; background: var(--brand); border-radius: inherit; transition: width 0.3s ease; }
+.m-scan-progress > b { flex: none; min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+.m-scan-bar.is-busy > .anticon { flex: none; margin-top: 3px; }
+.m-scan-bar.is-busy > span:not(.anticon) { flex: 1; min-width: 0; }
 .m-scan-bar.is-err { color: var(--warning-text); background: var(--warning-bg); }
 .m-scan-bar.is-err > span { flex: 1 1 200px; min-width: 0; }
 .m-scan-bar.is-done { display: block; background: var(--panel); border: 1px solid var(--line); }
@@ -412,6 +427,21 @@ a.m-icon-btn { text-decoration: none; }
 .m-scan-row > span { min-width: 0; }
 .m-scan-take { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; font-size: 14px; font-weight: 600; color: var(--brand); background: var(--panel); border: 1px solid var(--brand); border-radius: 999px; white-space: nowrap; }
 .m-scan-take:active { opacity: 0.6; }
+.m-scan-take.is-ghost { color: var(--ink-soft); border-color: var(--line-strong); }
+.m-scan-btns { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+/* 相机没打开（没权限 / 被静默拒绝）：一句话怎么办 +「从相册选」 */
+.m-scan-nocam { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 6px; padding: 10px 12px; font-size: 13px; line-height: 1.5; color: var(--warning-text); background: var(--warning-bg); border-radius: var(--r-card); }
+.m-scan-nocam.is-row { flex-direction: row; align-items: flex-start; }
+.m-scan-nocam.is-row > span { flex: 1; min-width: 0; }
+.m-scan-nocam-act { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.m-scan-nocam .m-icon-btn { margin-left: auto; }
+.m-scan-nocam .m-icon-btn { width: 28px; height: 28px; background: transparent; color: var(--text-muted); font-size: 13px; }
+.m-search-wrap .m-scan-nocam { margin: 8px 0 0; }
+/* 不在支持名单里的浏览器：推荐换 Edge / Safari（不拦人） */
+.m-scan-browser { margin: 4px 0 6px; padding: 8px 12px; font-size: 13px; line-height: 1.5; color: var(--ink-soft); background: var(--panel); border: 1px dashed var(--line-strong); border-radius: var(--r-card); }
+.m-search-wrap .m-scan-browser { margin: 8px 0 0; }
+.m-scan-saved .m-scan-browser { width: 100%; text-align: left; }
+.m-scan-saved .m-scan-nocam { width: 100%; text-align: left; }
 .m-scan-hint { min-width: 0; font-size: 12px; color: var(--text-faint); }
 .m-scan-langs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
 .m-scan-langs > span { margin-right: 2px; font-size: 12px; font-weight: 600; color: var(--text-muted); }

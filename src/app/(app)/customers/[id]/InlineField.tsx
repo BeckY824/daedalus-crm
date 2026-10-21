@@ -2,7 +2,8 @@
 
 import DatePicker from "@/components/BusinessDatePicker";
 
-import { useRef, useState } from "react";
+import { useContext, useRef, useState } from "react";
+import { 只读上下文 } from "./read-only";
 import { useRouter } from "next/navigation";
 import { App, AutoComplete, Input, Select } from "antd";
 import { dayjs } from "@/lib/utils";
@@ -48,6 +49,7 @@ export default function InlineField({
 }) {
   const router = useRouter();
   const { message } = App.useApp();
+  const 只读 = useContext(只读上下文);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string | null>(value);
   const [saving, setSaving] = useState(false);
@@ -100,7 +102,7 @@ export default function InlineField({
 
   if (!editing) {
     return (
-      <div className="rec-field" onClick={开始} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && 开始()} aria-label={`编辑${label}`}>
+      <div className="rec-field" {...(只读 ? { style: { cursor: "default" } } : { onClick: 开始, role: "button", tabIndex: 0, onKeyDown: (e: React.KeyboardEvent) => e.key === "Enter" && 开始(), "aria-label": `编辑${label}` })}>
         <div className="rec-field-k">{label}</div>
         <div className={`rec-field-v${display ? "" : " rec-field-empty"}${saving ? " rec-field-saving" : ""}`}>
           {/* 邮箱放不下时在 @ 前换行，不从字母中间断开（F.1 走查：「ahmed@gulfled.a / e」） */}
@@ -111,7 +113,7 @@ export default function InlineField({
               {display.slice(display.indexOf("@"))}
             </>
           ) : (
-            display || placeholder
+            display || (只读 ? "—" : placeholder)
           )}
         </div>
       </div>
