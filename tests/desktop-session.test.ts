@@ -11,6 +11,7 @@
  */
 import { describe, it, expect, afterEach, afterAll, beforeEach, vi } from "vitest";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
@@ -78,7 +79,7 @@ describe("本地模式下 /login 是云端账号的门", () => {
     process.env.DESKTOP_LOCAL = "1";
     process.env.DESKTOP_TOKEN = "desktop-token-for-tests";
     process.env.CRM_DATA_DIR = 数据目录;
-    // 策略() 会去问云端；这里不联网，让它立刻失败——登录页只留登录那一条
+    // 策略() 会去问云端；这里不联网，让它立刻连不上
     process.env.CRM_CLOUD_URL = "http://127.0.0.1:9";
     fs.rmSync(令牌文件, { force: true });
     vi.resetModules();
@@ -145,6 +146,45 @@ describe("本地模式下 /login 是云端账号的门", () => {
     expect(el.type).toBe(DesktopAuth);
     expect(typeof el.props.应用内注册).toBe("boolean");
     expect(el.props.注册地址).toContain("/signup?from=desktop");
+  });
+
+  /*
+    2026-10-21 客户反馈「下载后无法注册，没有注册的按键」：国内第一次打开时问云端 policy 超时，
+    原来按「不收注册」画，新邮箱点继续直接去输密码，只能撞「账号或密码不对」。
+    没问到 ≠ 不收注册：入口照样摆出来，点继续时云端会再答一次
+  */
+  it("问不到云端（连不上 / 超时）：注册入口照样在，不变成只能登录", async () => {
+    vi.doMock("next/navigation", () => ({
+      redirect: () => {
+        throw new Error("没令牌不该跳");
+      },
+    }));
+    const { default: LoginPage } = await import("@/app/login/page");
+    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+    expect(el.props.可注册).toBe(true);
+    expect(el.props.应用内注册).toBe(true);
+  });
+
+  it("云端明确回错（老服务端 404）：才按不收注册算，只留登录", async () => {
+    const 服务 = http.createServer((_req, res) => {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "这个部署没有账号体系" }));
+    });
+    await new Promise<void>((ok) => 服务.listen(0, "127.0.0.1", ok));
+    process.env.CRM_CLOUD_URL = `http://127.0.0.1:${(服务.address() as { port: number }).port}`;
+    try {
+      vi.doMock("next/navigation", () => ({
+        redirect: () => {
+          throw new Error("没令牌不该跳");
+        },
+      }));
+      const { default: LoginPage } = await import("@/app/login/page");
+      const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+      expect(el.props.可注册).toBe(false);
+      expect(el.props.应用内注册).toBe(false);
+    } finally {
+      服务.close();
+    }
   });
 
   it("被吊销送回来的（?reason=revoked）：有令牌也不跳，先把原因说清", async () => {
