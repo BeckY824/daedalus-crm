@@ -261,6 +261,10 @@ export async function 推(c0: 手机团队, 云: 传输, 状态: 同步状态, �
 
 /* ---------------- 拉 ---------------- */
 
+/** 一次拉多个范围（2026-10-21，和电脑端 lib/sync/client.ts 同一条）：每个请求最多几个范围；老服务端不认就关掉 */
+const 范围每批 = 200;
+let 批量拉取可用 = true;
+
 /** 一轮：先推、再按目录拉、逐包核对后合并；目录里没有的（失权）本机删掉，目录说删了的补删 */
 export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库, 状态: 同步状态): Promise<{ c: 手机团队; 推: number; 拉: number; 拒: number }> {
   let c = c0;
@@ -271,7 +275,7 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
     if (d.状态 !== 200) throw new 同步问题(话(d, "取不到同步目录"));
     if (Number(d.json.epoch ?? 0) > c.epoch) c = await 更新钥匙(c, 云);
     // 「团队」范围（成员、设置）先拉，和桌面端一样
-    const scopes = ((d.json.scopes as { id: string; revision: number; records: 范围索引[] }[]) ?? []).sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
+    const scopes = ((d.json.scopes as { id: string; revision: number; head?: number; records: 范围索引[] }[]) ?? []).sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
     const index = new Map<string, 范围索引>();
     for (const s of scopes) for (const r of s.records) index.set(行键(r.t, r.k), r);
     const allowed = new Set(index.keys());
@@ -280,32 +284,71 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
     let 拉 = 0;
     const cursors: 同步状态["cursors"] = {};
     const held: 卡住的范围 = {};
-    for (const s of scopes) {
-      const cur = 状态.cursors[s.id];
-      let after = cur && cur.revision >= s.revision ? cur.after : 0;
+    type 范围 = (typeof scopes)[number];
+    const 收页 = async (s: 范围, batches: 拉到的包[]) => {
+      const 收: 改动[] = [];
+      let 停在: number | null = null;
+      for (const b of batches) {
+        try { 收.push(await 验收(b, 全部钥匙(c), c.teamId, index.get(行键(b.meta.t, b.meta.k)), allowed)); }
+        catch (e) {
+          // 和桌面端一样：这一轮目录里还没有它，范围停在它前面、下一轮再拉（连等几轮还没有才跳过）
+          const 等 = e instanceof 范围包未到 ? 还等吗(状态.held, s.id, b.seq) : null;
+          if (等) { held[s.id] = 等; 停在 = b.seq; break; }
+          if (e instanceof 范围包错误) { 状态.skipped++; continue; }
+          throw e;
+        }
+      }
+      return { 收, 到: 停在 == null ? batches : batches.filter((b) => b.seq < 停在!), 停了: 停在 != null };
+    };
+    const 单拉 = async (s: 范围, 起: number) => {
+      let after = 起;
       for (;;) {
         const r = await 云("POST", 范围路径, { teamId: c.teamId, action: "pull", scopeId: s.id, after, device: c.device });
         if (r.状态 !== 200) throw new 同步问题(话(r, "拉取失败"));
         const batches = (r.json.batches as 拉到的包[]) ?? [];
-        const 收: 改动[] = [];
-        let 停在: number | null = null;
-        for (const b of batches) {
-          try { 收.push(await 验收(b, 全部钥匙(c), c.teamId, index.get(行键(b.meta.t, b.meta.k)), allowed)); }
-          catch (e) {
-            // 和桌面端一样：这一轮目录里还没有它，范围停在它前面、下一轮再拉（连等几轮还没有才跳过）
-            const 等 = e instanceof 范围包未到 ? 还等吗(状态.held, s.id, b.seq) : null;
-            if (等) { held[s.id] = 等; 停在 = b.seq; break; }
-            if (e instanceof 范围包错误) { 状态.skipped++; continue; }
-            throw e;
-          }
-        }
-        if (收.length) 拉 += await 回放(库, 收, c.device, 状态);
-        const 到 = 停在 == null ? batches : batches.filter((b) => b.seq < 停在);
-        if (到.length) after = 到[到.length - 1].seq;
+        const 页 = await 收页(s, batches);
+        if (页.收.length) 拉 += await 回放(库, 页.收, c.device, 状态);
+        if (页.到.length) after = 页.到[页.到.length - 1].seq;
         cursors[s.id] = { after, revision: s.revision };
-        if (停在 != null || !r.json.more || !batches.length) break;
+        if (页.停了 || !r.json.more || !batches.length) return;
       }
+    };
+    const 待拉: { s: 范围; after: number }[] = [];
+    for (const s of scopes) {
+      const cur = 状态.cursors[s.id];
+      const after = cur && cur.revision >= s.revision ? cur.after : 0;
+      // 游标已经到这个范围最新的批次：不发请求（2026-10-21，和电脑端同一条；老服务端不回 head，照旧拉）
+      if (typeof s.head === "number" && cur && after >= s.head) { cursors[s.id] = { after, revision: s.revision }; continue; }
+      待拉.push({ s, after });
     }
+    // 「团队」范围单独先拉；其余一次拉多个（2026-10-21，和电脑端同一条：开互看后不再一位客户一个请求），老服务端不认就一个一个拉
+    for (const x of 待拉) if (x.s.id === "team") await 单拉(x.s, x.after);
+    const 一批批 = 待拉.filter((x) => x.s.id !== "team");
+    const 单个: typeof 待拉 = [];
+    if (!批量拉取可用) 单个.push(...一批批.splice(0));
+    while (一批批.length) {
+      const 这批 = 一批批.splice(0, 范围每批);
+      const r = await 云("POST", 范围路径, { teamId: c.teamId, action: "pull-many", device: c.device, scopes: 这批.map((x) => ({ scopeId: x.s.id, after: x.after })) });
+      if (r.状态 === 400 && r.json?.error === "未知同步操作") { 批量拉取可用 = false; 单个.push(...这批, ...一批批.splice(0)); break; }
+      if (r.状态 !== 200) throw new 同步问题(话(r, "拉取失败"));
+      const 回 = new Map(((r.json.scopes as { scopeId: string; later?: boolean; error?: number; more?: boolean; batches?: 拉到的包[] }[]) ?? []).map((x) => [x.scopeId, x]));
+      const 收: 改动[] = [];
+      const 前进: { s: 范围; after: number }[] = [];
+      for (const x of 这批) {
+        const y = 回.get(x.s.id);
+        if (!y || y.error) continue;
+        if (y.later) { 一批批.push(x); continue; }
+        const batches = y.batches ?? [];
+        const 页 = await 收页(x.s, batches);
+        收.push(...页.收);
+        const after = 页.到.length ? 页.到[页.到.length - 1].seq : x.after;
+        前进.push({ s: x.s, after });
+        if (!页.停了 && y.more && batches.length) 一批批.push({ s: x.s, after });
+      }
+      if (收.length) 拉 += await 回放(库, 收, c.device, 状态);
+      for (const x of 前进) cursors[x.s.id] = { after: x.after, revision: x.s.revision };
+    }
+    for (const x of 单个) await 单拉(x.s, x.after);
     // 目录里标着删了、本机还在的：补一次删除（没推上去的不动）
     const 待推键 = new Set(状态.待推.map((e) => 行键(e.t, e.k)));
     const 补删: 改动[] = [];

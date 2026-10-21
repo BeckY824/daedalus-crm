@@ -12,8 +12,8 @@ const 团队 = (x: Partial<团队配置>) => ({ teamId: "t", teamName: "t", join
 const 秒前 = (s: number) => new Date(现在 - s * 1000).toISOString();
 
 describe("人多放慢", () => {
-  it("云端按人数定间隔：不到 10 人不放慢，10 人起 20 秒，20 人起 30 秒", () => {
-    expect([1, 9, 10, 19, 20, 30, 100].map(前台最短间隔)).toEqual([0, 0, 20, 20, 30, 30, 30]);
+  it("云端按人数定间隔：不到 10 人不放慢，10 人起 15 秒（有了索引缓存，原来的 20 / 30 秒让老板看到改动超过 20 秒）", () => {
+    expect([1, 9, 10, 19, 20, 30, 100].map(前台最短间隔)).toEqual([0, 0, 15, 15, 15, 15, 15]);
   });
 
   it("没到间隔跳过、到了就同步；壳 8 秒一戳时 20 秒的实际约 24 秒一轮", () => {
@@ -23,6 +23,8 @@ describe("人多放慢", () => {
     expect(该放慢({ ...c, lastSyncAt: 秒前(24) }, 现在)).toBe(false);
     expect(该放慢(团队({ pace: 30, lastSyncAt: 秒前(24) }), 现在)).toBe(true);
     expect(该放慢(团队({ pace: 30, lastSyncAt: 秒前(32) }), 现在)).toBe(false);
+    expect(该放慢(团队({ pace: 15, lastSyncAt: 秒前(8) }), 现在)).toBe(true);
+    expect(该放慢(团队({ pace: 15, lastSyncAt: 秒前(16) }), 现在)).toBe(false);
   });
 
   it("没有 pace、从没同步过、上一轮出错、没加入团队：都不放慢", () => {

@@ -15,6 +15,8 @@ const ROOT = path.resolve(__dirname, "..");
 
 /** 不用进容器的，各写一句为什么。新加一个变量想放这儿，先想清楚托管版上它不配会怎样 */
 const 不用进容器: Record<string, string> = {
+  // 导入每趟写多久（2026-10-21 上万条导入）：只给测试调短用，不配就是 2 秒
+  IMPORT_SEGMENT_MS: "测试调短每趟时长用，不配走默认 2 秒",
   // 桌面端壳（desktop/main.js）起本地服务时传的，托管版没有这回事
   DESKTOP_LOCAL: "桌面端壳传",
   DESKTOP_TOKEN: "桌面端壳传",
