@@ -218,3 +218,85 @@ test("只有人名 + 电话（10-18）：先判号码，找公司出候选，点
   await expect(确认3).toContainText("这是虚构号码");
   await expect(确认3.getByRole("button", { name: "开始找公司" })).toBeDisabled();
 });
+
+/*
+  客户页点「背调」查谁（10-21 客户反馈）：以前拿客户名当公司查。线上那位：客户名 ZEESHAN AFZAL、公司 ISHA.A SAS、法国、
+  电话和 WhatsApp +33616988559。现在主体是公司、客户名是联系人；没公司有电话先找公司；都没有不让点（lib/research/subject.ts）
+*/
+test.describe("客户页的背调按钮", () => {
+  const 名们 = ["ZEESHAN AFZAL", "Anna Beispiel 客户页", "只有名字的客户"];
+  async function 造客户(data: { name: string; phone: string; school?: string; extra?: { country?: string; whatsapp?: string } }) {
+    const db = 连库();
+    try {
+      const 主人 = await db.user.findFirstOrThrow({ where: { role: "ADMIN" } });
+      const c = await db.customer.create({ data: { name: data.name, phone: data.phone, school: data.school, salesOwnerId: 主人.id, ...(data.extra ? { extra: { create: data.extra } } : {}) } });
+      return c.id;
+    } finally {
+      await db.$disconnect();
+    }
+  }
+  test.afterAll(async () => {
+    const db = 连库();
+    await db.customer.deleteMany({ where: { name: { in: 名们 } } });
+    await db.$disconnect();
+  });
+
+  test("有公司：按钮提示写清查谁，卡片抬头是公司、联系人是客户名，存进这位客户的跟进", async ({ page }) => {
+    test.setTimeout(120_000);
+    const id = await 造客户({ name: "ZEESHAN AFZAL", phone: "+33616988559", school: "ISHA.A SAS", extra: { country: "法国", whatsapp: "+33616988559" } });
+    await 登录(page);
+    await page.goto(`/customers/${id}`);
+    // 右上角「AI」打开右栏（客户说的「右上角点击背调」就是这里）
+    await page.getByRole("button", { name: "thunderbolt AI", exact: true }).click();
+    const 按钮 = page.getByRole("button", { name: "背调", exact: true });
+    await 按钮.hover();
+    await expect(page.getByRole("tooltip")).toContainText("背调 ISHA.A SAS（法国）· 联系人 ZEESHAN AFZAL");
+    await 按钮.click();
+    const 卡 = page.getByRole("region", { name: "背调 ISHA.A SAS" });
+    await expect(卡.locator(".rs-contact")).toHaveText("联系人 ZEESHAN AFZAL");
+    await expect(page.getByRole("region", { name: "背调 ZEESHAN AFZAL" })).toHaveCount(0);
+    await expect(卡.locator(".rs-pill")).toHaveText(/已完成|材料不全/, { timeout: 90_000 });
+    await 卡.getByRole("button", { name: "存进客户" }).click();
+    await expect(卡.getByRole("button", { name: /已存进「ZEESHAN AFZAL」/ })).toBeVisible();
+    const db = 连库();
+    try {
+      const 报告 = await db.followUp.findFirst({ where: { customerId: id, title: { startsWith: "背调｜ISHA.A SAS" } } });
+      expect(报告?.content).toContain("联系人：ZEESHAN AFZAL");
+    } finally {
+      await db.$disconnect();
+    }
+  });
+
+  test("没公司有国际号码：先找公司（按钮就是确认，不再出确认卡），点选候选接着背调那家", async ({ page }) => {
+    test.setTimeout(150_000);
+    const id = await 造客户({ name: "Anna Beispiel 客户页", phone: "+49 40 0000 0000" });
+    await 登录(page);
+    await page.goto(`/customers/${id}`);
+    // 右上角「AI」打开右栏（客户说的「右上角点击背调」就是这里）
+    await page.getByRole("button", { name: "thunderbolt AI", exact: true }).click();
+    const 按钮 = page.getByRole("button", { name: "背调", exact: true });
+    await 按钮.hover();
+    await expect(page.getByRole("tooltip")).toContainText("没填公司：先按 Anna Beispiel 客户页 和 +49 40 0000 0000 找他在哪家公司");
+    await 按钮.click();
+    await expect(page.getByRole("group", { name: "找这个人所在的公司" })).toHaveCount(0);
+    await page.getByRole("button", { name: "背调这家" }).click({ timeout: 60_000 });
+    await expect(page.getByRole("region", { name: "背调 Lumora Trading GmbH" }).locator(".rs-pill")).toHaveText("已完成", { timeout: 60_000 });
+  });
+
+  test("公司、官网、国际号码都没有：点了就地说清补哪样，不开跑", async ({ page }) => {
+    const id = await 造客户({ name: "只有名字的客户", phone: "13800138222" });
+    await 登录(page);
+    await page.goto(`/customers/${id}`);
+    // 右上角「AI」打开右栏（客户说的「右上角点击背调」就是这里）
+    await page.getByRole("button", { name: "thunderbolt AI", exact: true }).click();
+    const 按钮 = page.getByRole("button", { name: "背调", exact: true });
+    await 按钮.hover();
+    await expect(page.getByRole("tooltip")).toContainText("没法背调");
+    await 按钮.click();
+    const 说 = page.getByRole("group", { name: "背调查不了" });
+    await expect(说).toContainText("先在档案里补一样，不扣次数");
+    await expect(page.locator(".rs-card")).toHaveCount(0);
+    await 说.getByRole("button", { name: "知道了" }).click();
+    await expect(说).toHaveCount(0);
+  });
+});
