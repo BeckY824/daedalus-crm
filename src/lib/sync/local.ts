@@ -14,7 +14,7 @@
  */
 import { createHash } from "node:crypto";
 import type { PrismaClient, Prisma } from "@/generated/prisma";
-import { 同步表, 不同步列, 同步的设置, 指向人的列, 同名合并, 模板占位账号 } from "./tables";
+import { 同步表, 不同步列, 同步的设置, 指向人的列, 同名合并, 模板占位账号, 指向客户的列, 一位一行的表 } from "./tables";
 import { 是模板名字 } from "@/lib/desktop/synced-name";
 import { 擦净删除残留 } from "./scoped-local";
 import { 记新插 } from "./team-notice-box";
@@ -300,6 +300,21 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
     const 本机列们 = async (t: string) => 列表们.get(t) ?? (列表们.set(t, new Set((await 列们(tx, t)).map((c) => c.name))), 列表们.get(t)!);
     const 别名到 = async (表: string, id: unknown) =>
       typeof id === "string" ? ((await tx.$queryRawUnsafe<{ toId: string }[]>("SELECT toId FROM _sync_alias WHERE tbl = ? AND fromId = ?", 表, id))[0]?.toId ?? id) : id;
+    /*
+      合并掉的客户（2026-10-20 疑似重复合并，CustomerMerge）：并进了谁。合并过不止一次（甲并进乙、乙又并进丙）顺着找到底。
+      老库还没有这张表（迁移 039 之前）就当没合并过
+    */
+    const 有合并表 = (await 本机列们("CustomerMerge")).size > 0;
+    const 并进了 = async (id: unknown): Promise<string | null> => {
+      if (!有合并表 || typeof id !== "string") return null;
+      let 到: string | null = null;
+      for (let 次 = 0, 找 = id; 次 < 8; 次++) {
+        const r = (await tx.$queryRawUnsafe<{ intoId: string }[]>('SELECT "intoId" FROM "CustomerMerge" WHERE "id" = ?', 找))[0];
+        if (!r || r.intoId === id) break;
+        到 = 找 = r.intoId;
+      }
+      return 到;
+    };
 
     async function 放一条(e: 改动) {
       await tx.$executeRawUnsafe("UPDATE _sync_clock SET l = MAX(l, ?) WHERE id = 1", Number(e.h.split("-")[0]));
@@ -318,13 +333,34 @@ export async function 回放(db: PrismaClient, 批: 改动[], 本机设备: stri
           if (谁) 动过的客户.add(谁);
         }
         const 更晚 = await tx.$queryRawUnsafe<unknown[]>("SELECT 1 FROM _sync_field WHERE tbl = ? AND pk = ? AND hlc > ? LIMIT 1", e.t, k, e.h);
-        if (!更晚.length) await tx.$executeRawUnsafe(`DELETE FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k);
+        /*
+          合并掉的那位（有合并记号）：本机有更晚的改动也照删——离线时改的那一笔中转不收（推送可写 合并掉了），留着就是两份。
+          本机还挂在它名下的（离线时新记的跟进、被拒进了「待核对」的那几条还在本机）先挪到留下的那位：
+          挪的这一下要进同步日志（推出去，留下那位的负责人那边才有），所以临时关掉「回放中」。留下的那位本机没有（业务员看不到）就不挪，跟着删
+        */
+        const 并到 = e.t === "Customer" ? await 并进了(k) : null;
+        if (并到 && (await tx.$queryRawUnsafe<unknown[]>('SELECT 1 FROM "Customer" WHERE "id" = ?', 并到)).length) {
+          await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 0 WHERE id = 1");
+          // 推荐人 / 业绩归属指向被合并那位的：改指留下的那位；留下的那位自己指过去的置空（不能自己推荐自己）。线索撞了唯一（两位都有线索）就不挪
+          for (const [t, c] of 指向客户的列) {
+            if (t === "Customer") await tx.$executeRawUnsafe(`UPDATE "Customer" SET ${引(c)} = CASE WHEN "id" = ? THEN NULL ELSE ? END WHERE ${引(c)} = ?`, 并到, 并到, k);
+            else if (t === "Lead") await tx.$executeRawUnsafe(`UPDATE "Lead" SET "customerId" = ? WHERE "customerId" = ? AND NOT EXISTS (SELECT 1 FROM "Lead" WHERE "customerId" = ?)`, 并到, k, 并到);
+            else await tx.$executeRawUnsafe(`UPDATE ${引(t)} SET ${引(c)} = ? WHERE ${引(c)} = ?`, 并到, k);
+          }
+          await tx.$executeRawUnsafe("UPDATE _sync_state SET applying = 1 WHERE id = 1");
+          动过的客户.add(并到);
+        }
+        if (!更晚.length || 并到) await tx.$executeRawUnsafe(`DELETE FROM ${引(e.t)} WHERE ${引(pk)} = ?`, k);
         await tx.$executeRawUnsafe("INSERT INTO _sync_tomb (tbl, pk, hlc) VALUES (?, ?, ?) ON CONFLICT DO UPDATE SET hlc = MAX(hlc, excluded.hlc)", e.t, k, e.h);
         return;
       }
       const 墓 = (await tx.$queryRawUnsafe<{ hlc: string }[]>("SELECT hlc FROM _sync_tomb WHERE tbl = ? AND pk = ?", e.t, k))[0]?.hlc;
       if (墓 && 墓 > e.h) return;
+      // 合并掉的那位不复活（离线那台合并之后才推上来的改动，旧协议的中转照转）；它的公海 / 领取记录 / 外贸档案也不要了
+      if ((e.t === "Customer" || 一位一行的表.includes(e.t)) && (await 并进了(e.t === "Customer" ? k : e.r?.customerId))) return;
       const row = { ...(e.r ?? {}) };
+      // 引用了合并掉的那位：改挂到留下的那位（和同名渠道的别名一样）
+      for (const [t, c] of 指向客户的列) if (t === e.t && row[c] != null) { const 到 = await 并进了(row[c]); if (到) row[c] = t === "Customer" && 到 === k ? null : 到; }
       // 引用了被合并掉的那一方（同名渠道）：换成留下的那个
       for (const [表, 定义] of Object.entries(同名合并)) for (const [t, c] of 定义.被指) if (t === e.t && row[c] != null) row[c] = await 别名到(表, row[c]);
       // 本机的表比对方的少了某一列（版本不同）：只写本机有的列

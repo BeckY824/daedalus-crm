@@ -51,6 +51,11 @@ export type RecordProps = {
   sourceLead?: import("@/lib/customer-lead-origin").CustomerLeadOrigin | null;
   /** 这位在不在我左栏的「收藏的客户」里（lib/favorites.ts） */
   已收藏?: boolean;
+  /**
+   * 同事的客户、我只能看和加跟进（团队开了互看、我是业务员、这位不归我也不在公海，2026-10-20）。
+   * 档案、状态、联系人、商机、签约、计划、待办都只显示不给改；只剩「记录跟进」
+   */
+  只读?: boolean;
   /** 我能把这位放进公海吗：负责人本人或管理员（第 6 块） */
   能放公海?: boolean;
   customer: CustomerRow;

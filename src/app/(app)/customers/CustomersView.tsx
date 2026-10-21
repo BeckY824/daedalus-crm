@@ -38,7 +38,7 @@ import { 未分级 } from "./query-shared";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 列表不问归属 } from "@/lib/solo";
 import { 公海标签, type 客户页签归属 } from "@/lib/pool";
-import { 放进公海, 领取, 撤销公海, type 公海结果 } from "./pool-actions";
+import { 放进公海, 领取, 分配公海, 撤销公海, type 公海结果 } from "./pool-actions";
 import ResetFilters from "@/components/ResetFilters";
 import CurrencySelect from "@/components/CurrencySelect";
 
@@ -68,6 +68,8 @@ type Props = {
   等级排序?: string;
   排序币种?: string;
   users: 可选成员[];
+  /** 老板（管理员）：公海里的客户能直接「分配给…」某位同事（2026-10-20）。业务员不摆 */
+  能分配公海?: boolean;
   channels: Option[];
   /** 进来就把新建表单打开（首页空库那张「开始」卡的落点） */
   直接新建?: boolean;
@@ -146,7 +148,7 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, requestedPage, pageSize, users, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 等级排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 等级排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
   // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
@@ -211,21 +213,21 @@ export default function CustomersView({
   }
   /**
    * 公海两个动作的提示条：说清动了几位、几位没动为什么，带一次撤销（和批量改同一个做法）。
-   * 「领取」撤销 = 还给原来的人、放回公海；「放进」撤销 = 拿回来
+   * 「领取」撤销 = 还给原来的人、放回公海；「放进」撤销 = 拿回来；「分配」（老板）撤销同领取，按分到的那位认
    */
-  function 公海提示(res: 公海结果, 动作: "放进" | "领取", ids: string[]) {
+  function 公海提示(res: 公海结果, 动作: "放进" | "领取" | "分配", ids: string[]) {
     router.refresh();
     if (!res.ok) return void message.error(res.error);
-    const 名 = 动作 === "放进" ? "放进公海" : "领取";
+    const 名 = 动作 === "放进" ? "放进公海" : 动作 === "分配" ? `分给「${res.给谁?.name ?? "同事"}」` : "领取";
     if (!res.updated) {
-      return void message.info(动作 === "放进" ? "选中的已经都在公海里了" : "选中的已经被领走了，没有可领的");
+      return void message.info(动作 === "放进" ? "选中的已经都在公海里了" : 动作 === "分配" ? "选中的已经被领走了，没有可分的" : "选中的已经被领走了，没有可领的");
     }
     const 另 = [
       res.unchanged && (动作 === "放进" ? `${res.unchanged} 位本来就在公海` : `${res.unchanged} 位已被别人领走或不在公海`),
       res.没权限 && `${res.没权限} 位不是你负责的，没放（只有负责人或管理员能放）`,
     ].filter(Boolean);
-    const 文案 = `已${名} ${res.updated} 位${另.length ? `；${另.join("，")}` : ""}${带走说法(res.带走)}`;
-    const 原 = 动作 === "领取" ? (res.原负责人 ?? []) : ids.map((id) => ({ id, 值: "" }));
+    const 文案 = 动作 === "分配" ? `已把 ${res.updated} 位${名}${另.length ? `；${另.join("，")}` : ""}${带走说法(res.带走)}` : `已${名} ${res.updated} 位${另.length ? `；${另.join("，")}` : ""}${带走说法(res.带走)}`;
+    const 原 = 动作 === "放进" ? ids.map((id) => ({ id, 值: "" })) : (res.原负责人 ?? []);
     const key = `pool-${动作}-${ids[0]}-${ids.length}`;
     message.success({
       key,
@@ -238,7 +240,7 @@ export default function CustomersView({
             size="small"
             onClick={async () => {
               message.destroy(key);
-              const r = await 撤销公海(动作, 原, res.ok ? res.带过来 : undefined);
+              const r = await 撤销公海(动作, 原, res.ok ? res.带过来 : undefined, res.ok ? res.给谁?.id : undefined);
               router.refresh();
               if (!r.ok) return void message.error(`没能撤销：${r.error}`);
               message.success(`已撤销，${r.updated} 位改回原样`);
@@ -424,7 +426,7 @@ export default function CustomersView({
     }]),
     {
       // 这一页有公海里的才多一个「领取」、才加宽：表格本来就比 13 寸窗口宽一点，不为用不上的按钮再挤 30px
-      title: "", key: "action", width: !不问归属 && rows.some((r) => r.pool) ? 108 : 78, 常驻: true, fixed: "right",
+      title: "", key: "action", width: !不问归属 && rows.some((r) => r.pool) ? (能分配公海 ? 138 : 108) : 78, 常驻: true, fixed: "right",
       render: (_, r) => (
         // 纯图标按钮必须自带可访问名称：没有它，屏幕阅读器只会读出「按钮」，
         // 自动化也只能按位置取第一个——这类选择器一改动就漂。
@@ -433,6 +435,13 @@ export default function CustomersView({
           {r.pool && !不问归属 && (
             <Button aria-label={`领取 ${r.name}`} title="领取：负责人改成我"
               type="text" size="small" icon={<UserAddOutlined />} onClick={async () => 公海提示(await 领取([r.id]), "领取", [r.id])} />
+          )}
+          {/* 老板直接分给某位同事（2026-10-20）：规矩同领取，只是领的人换成选中的那位 */}
+          {r.pool && !不问归属 && 能分配公海 && (
+            // 菜单画在 body 上，但 React 事件照组件树冒泡到这一行：不拦住，点完名字就跟着进了记录页
+            <Dropdown trigger={["click"]} menu={{ items: 成员选项(users).map((o) => ({ key: o.value, label: o.label, onClick: async ({ domEvent }) => { domEvent.stopPropagation(); 公海提示(await 分配公海([r.id], o.value), "分配", [r.id]); } })) }}>
+              <Button aria-label={`分配 ${r.name} 给…`} title="分配给…：从公海直接分给一位同事" type="text" size="small" icon={<UserSwitchOutlined />} />
+            </Dropdown>
           )}
           <Button aria-label={`编辑 ${r.name}`} title="编辑"
             type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditing(r); setFormOpen(true); }} />
@@ -626,7 +635,19 @@ export default function CustomersView({
         }
         批量={(selected, 清空, 选中行) => (
           <>
-            {!不问归属 && <Dropdown
+            {/* 公海页签的老板：「分配给…」= 从公海直接分出去（出公海、记领取时间）；批量分配只换负责人、人还在公海里，这里不摆 */}
+            {!不问归属 && 公海页 && 能分配公海 && <Dropdown
+              menu={{
+                items: 成员选项(users).map((o) => ({
+                  key: o.value,
+                  label: o.label,
+                  onClick: async () => { const ids = 选中行.filter((r) => r.pool).map((r) => r.id); 公海提示(await 分配公海(ids, o.value), "分配", ids); 清空(); },
+                })),
+              }}
+            >
+              <Button size="small" icon={<UserSwitchOutlined />}>分配给…</Button>
+            </Dropdown>}
+            {!不问归属 && !(公海页 && 能分配公海) && <Dropdown
               menu={{
                 // 同样走 成员选项：批量分配比单条更需要认清人，转错了是一批数据
                 items: 成员选项(users).map((o) => ({

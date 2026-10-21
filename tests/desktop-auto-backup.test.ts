@@ -181,6 +181,14 @@ describe("恢复", () => {
     expect(列.map((x: { 类型: string }) => x.类型).sort()).toEqual(["恢复前", "每天"]);
     expect(new Date(列[0].时间).getTime()).toBeGreaterThanOrEqual(new Date(列[1].时间).getTime());
   });
+
+  it("合并疑似重复前那份（本地服务拷的 before-merge-…）也列出来、能恢复（2026-10-20）", () => {
+    备一份再改();
+    fs.copyFileSync(path.join(备份目录(), "daily-2026-10-04.db"), path.join(备份目录(), "before-merge-2026-10-20-1405-a1b2c3.db"));
+    expect(自动.列出(目录).find((x: { 文件名: string }) => x.文件名.startsWith("before-merge-"))?.类型).toBe("合并前");
+    自动.恢复({ 库, 数据目录: 目录, 文件名: "before-merge-2026-10-20-1405-a1b2c3.db", 校验: 备份.校验数据库 });
+    expect(数客户(库)).toBe(2);
+  });
 });
 
 describe("壳里接上了", () => {
