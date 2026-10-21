@@ -10,6 +10,8 @@ import { useMotionTheme } from "@/components/MotionTheme";
 import { 桌面端登录, 桌面端下一步, 桌面端注册, 桌面端核对码, type LoginResult } from "./actions";
 import { 登录之后 } from "./after-login";
 import AuthSide from "./AuthSide";
+import { useCloudPolicy } from "./use-policy";
+import type { 云端策略 } from "@/lib/desktop/cloud";
 
 /**
  * 桌面端的门：**一个邮箱框走到底**（2026-10-02 起，原型见 ~/CRM/新功能三线-规划-2026-10-02.md）。
@@ -45,19 +47,19 @@ const 网络错 = (e: unknown) =>
   e instanceof Error && e.message === "timeout" ? "服务器无响应，请检查网络连接后重试" : "请求失败，请检查网络连接后重试";
 
 export default function DesktopAuth({
-  可找回密码,
-  可注册,
-  应用内注册,
+  策略: 初始策略,
   注册地址,
   提示,
 }: {
-  可找回密码: boolean;
-  可注册: boolean;
-  /** 云端有没有应用内注册的接口（policy 的 inApp）。没有就开浏览器去注册 */
-  应用内注册: boolean;
+  /**
+   * 云端开着哪几条路（policy）：注册收不收、能不能自助找回、有没有应用内注册的接口（inApp，没有就开浏览器去注册）。
+   * 页面出来时用的是这次启动问到过的那份（没问到过就都开着），出页以后在后台再问一次（2026-10-21）
+   */
+  策略: 云端策略;
   注册地址: string;
   提示?: string;
 }) {
+  const { register: 可注册, reset: 可找回密码, inApp: 应用内注册 } = useCloudPolicy(初始策略);
   const { 曲线, 时长 } = useMotionTheme();
   const 少动 = useReducedMotion();
   const 秒 = (t: number) => (少动 ? 0 : t);

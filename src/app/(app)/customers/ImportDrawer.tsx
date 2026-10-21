@@ -313,8 +313,8 @@ export default function ImportDrawer({
     }
   }
 
-  // 外贸：电话、WhatsApp、邮箱、微信哪一列都能认人（没电话拿 WhatsApp，再没有拿邮箱，2026-10-07；再没有拿微信，2026-10-19），指出一列就能往下走
-  const 认人列 = 外贸精简(b) ? (["phone", "whatsapp", "email", "wechat"] as const).map((f) => 映射.indexOf(f)).find((i) => i >= 0) ?? -1 : 映射.indexOf("phone");
+  // 外贸：电话、WhatsApp、邮箱、微信、阿里 ID 哪一列都能认人（没电话拿 WhatsApp，再没有拿邮箱，2026-10-07；再没有拿微信，2026-10-19；再没有拿阿里 ID，2026-10-21），指出一列就能往下走
+  const 认人列 = 外贸精简(b) ? (["phone", "whatsapp", "email", "wechat", "alibabaId"] as const).map((f) => 映射.indexOf(f)).find((i) => i >= 0) ?? -1 : 映射.indexOf("phone");
   // 第 4 步改「重复行」处置时当场重算的那几个数（预览只在第 2 步算一次）
   const 现看 = 看 ? 按处置(看, 重复行) : null;
 
@@ -388,7 +388,7 @@ export default function ImportDrawer({
       footer={
         <页脚
           {...{ 步, 忙, 认人列, set步, 去预览, 落库, 撤, 重来 }}
-          认人叫法={外贸精简(b) ? "电话、WhatsApp、邮箱或微信" : "手机号"}
+          认人叫法={外贸精简(b) ? "电话、WhatsApp、邮箱、微信或阿里 ID" : "手机号"}
           原文未确认={Boolean(原文核对 && !已核对原文)}
           看={现看}
           客户叫法={b.customer}

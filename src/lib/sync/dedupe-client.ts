@@ -29,7 +29,7 @@ function 写指纹(teamId: string, d: Record<string, string>) {
 }
 
 /** 一位客户的几样哈希（用现在这把钥匙） */
-const 哈希们 = (c: 团队配置, 值: { phone?: string | null; email?: string | null; wechat?: string | null }) =>
+const 哈希们 = (c: 团队配置, 值: { phone?: string | null; email?: string | null; wechat?: string | null; alibaba?: string | null }) =>
   客户查重值(值).map(({ 种, 键 }) => 查重哈希(c.key, 查重原文(c.teamId, 种, 键)));
 
 /**
@@ -39,10 +39,10 @@ const 哈希们 = (c: 团队配置, 值: { phone?: string | null; email?: string
 export async function 报查重(c: 团队配置): Promise<{ 报: number }> {
   const epoch = c.epoch ?? 0;
   const 旧 = 读指纹(c.teamId);
-  const 客户们 = await 看全部(() => prisma.customer.findMany({ select: { id: true, name: true, phone: true, extra: { select: { email: true, wechat: true } } } }));
+  const 客户们 = await 看全部(() => prisma.customer.findMany({ select: { id: true, name: true, phone: true, extra: { select: { email: true, wechat: true, alibabaId: true } } } }));
   const 要报: { e: 查重条目; 指纹: string }[] = [];
   for (const x of 客户们) {
-    const hashes = 哈希们(c, { phone: x.phone, email: x.extra?.email, wechat: x.extra?.wechat });
+    const hashes = 哈希们(c, { phone: x.phone, email: x.extra?.email, wechat: x.extra?.wechat, alibaba: x.extra?.alibabaId });
     const 指纹 = 查重指纹(epoch, hashes, x.name);
     if (旧[x.id] === 指纹) continue;
     要报.push({ e: { k: x.id, epoch, hashes, label: 封(x.name, c.key, epoch, 查重标签绑定(c.teamId)) }, 指纹 });

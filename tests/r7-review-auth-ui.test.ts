@@ -32,6 +32,8 @@ const 桩插件: Plugin = {
       // 10-03 起输码填满先核对：没给桩就当对，流程照旧往下走（和云端没有这个接口时一样）
       export const 桌面端核对码 = (...a) => (window.__桩.核对 ? 叫("核对", ...a) : Promise.resolve({ 对: true }));
       export const 核对重置码 = (...a) => (window.__桩.核对 ? 叫("核对", ...a) : Promise.resolve({ 对: true }));
+      // 10-21 起出页以后后台问云端策略：没给桩就一直没回音（和国内第一次打开时一样），页面照初始那份画
+      export const 桌面端策略 = (...a) => 叫("策略", ...a);
     `);
     桩(/^\.\/after-login$/, `export async function 登录之后(res) { window.__进去了 = res; }`);
     桩(/AuthSide$/, `export default function AuthSide() { return null; }`);
@@ -70,8 +72,8 @@ async function 打包(组件: string, props: string) {
 }
 
 beforeAll(async () => {
-  包.登录 = await 打包("@/app/login/DesktopAuth", `{ 可找回密码: true, 可注册: true, 应用内注册: true, 注册地址: "https://x/signup" }`);
-  包.找回 = await 打包("@/app/forgot/DesktopForgot", `{ 可用: true }`);
+  包.登录 = await 打包("@/app/login/DesktopAuth", `{ 策略: { register: true, reset: true, inApp: true }, 注册地址: "https://x/signup" }`);
+  包.找回 = await 打包("@/app/forgot/DesktopForgot", `{ 策略: { register: true, reset: true, inApp: true } }`);
   browser = await chromium.launch();
 }, 120_000);
 
@@ -340,4 +342,47 @@ describe("登录门断网 / 过场焦点 / 格子只红一下（回归核对 D-0
     expect(await page.evaluate(() => (window as unknown as { __调用: Record<string, unknown[]> }).__调用.下一步.length)).toBe(2);
     await page.close();
   }, 60_000);
+});
+
+/*
+  2026-10-21：登录页、找回密码页不再等云端 policy 才出页（国内第一次打开时整扇窗白等好几秒，等不到还把注册入口藏了）。
+  页面先照初始那份画，出页以后在后台问；问到了再换，没问到就一直照初始那份
+*/
+describe("云端策略在后台问（2026-10-21）", () => {
+  it("云端一直不回话：注册入口照样在，「继续」照样去问这个邮箱该走哪步", async () => {
+    const page = await 开("登录", `{ 下一步: async () => ({ ok: true, data: { 去: "设密码" } }) }`); // 策略永远不回
+    expect(await 标题(page)).toBe("登录或注册");
+    await page.fill("#auth-email", "new@example.com");
+    await page.click("button[type=submit]");
+    await 过场(page);
+    expect(await page.evaluate(() => (window as unknown as { __调用: Record<string, unknown[]> }).__调用.下一步.length)).toBe(1);
+    expect(await page.evaluate(() => (window as unknown as { __调用: Record<string, unknown[]> }).__调用.策略.length)).toBe(1);
+    await page.close();
+  });
+
+  it("后台问到云端不收注册、不能找回：标题换成「登录」，忘记密码的链接收起来", async () => {
+    const page = await 开("登录", `{ 策略: async () => ({ register: false, reset: false, inApp: false }) }`);
+    await 过场(page);
+    expect(await 标题(page)).toBe("登录");
+    expect(await page.locator("a[href='/forgot']").count()).toBe(0);
+    await page.close();
+  });
+
+  it("后台那一问出错：页面照初始那份，不白屏不报错", async () => {
+    const page = await 开("登录", `{ 策略: async () => { throw new TypeError("Failed to fetch"); } }`);
+    await 过场(page);
+    expect(await 标题(page)).toBe("登录或注册");
+    await page.close();
+  });
+
+  it("找回密码：后台问到云端不能自助找回，才换成「这条路走不通」", async () => {
+    const page = await 开("找回", `{}`);
+    expect(await page.locator("#forgot-email").count()).toBe(1);
+    await page.close();
+    const 不能 = await 开("找回", `{ 策略: async () => ({ register: true, reset: false, inApp: true }) }`);
+    await 过场(不能);
+    expect(await 不能.locator("#forgot-email").count()).toBe(0);
+    expect(await 不能.locator(".auth-hint").first().textContent()).toContain("还没开通自助找回");
+    await 不能.close();
+  });
 });

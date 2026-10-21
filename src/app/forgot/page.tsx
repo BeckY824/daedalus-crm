@@ -4,7 +4,7 @@ import { multiTenant } from "@/lib/tenant/context";
 import ForgotForm from "./ForgotForm";
 import DesktopForgot from "./DesktopForgot";
 import { 能找回密码 } from "@/lib/tenant/password-reset";
-import { 本地模式, 策略 } from "@/lib/desktop/cloud";
+import { 本地模式, 上次策略 } from "@/lib/desktop/cloud";
 
 /**
  * 必须动态渲染：能不能自助找回取决于运行时的 MULTI_TENANT 和 SMTP_*，
@@ -16,7 +16,8 @@ export const dynamic = "force-dynamic";
 export default async function ForgotPage() {
   // 桌面端本地模式：账号在云端，能不能找回由云端说了算（动作那边也转调云端，见 actions.ts）
   // 桌面端：和登录页同一扇门（左栏一样，右边一步一屏），能不能找回由云端说了算
-  if (本地模式()) return <DesktopForgot 可用={(await 策略()).reset} />;
+  // 不等云端回话才出页（2026-10-21）：先照这次启动问到过的画，页面里后台再问
+  if (本地模式()) return <DesktopForgot 策略={上次策略()} />;
   if (能找回密码()) {
     return <ForgotForm />;
   }

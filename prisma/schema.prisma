@@ -426,6 +426,8 @@ model CustomerExtra {
   level      String?
   /// 官网（2026-10-16，迁移 038）：存人填的样子（可能不带 https://），点开时补协议，见 lib/customer-extra.ts 官网网址()
   website    String?
+  /// 阿里国际站买家 ID（2026-10-21，迁移 040）：国际站询盘常常只有它。外贸算一种联系方式，电话 / WhatsApp / 邮箱 / 微信都没有时按它认人
+  alibabaId  String?
 
   @@index([country])
   @@index([level])
