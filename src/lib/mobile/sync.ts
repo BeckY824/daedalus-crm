@@ -14,7 +14,7 @@
  *     2026-10-19 起加上新建客户（Customer、CustomerExtra）和新建商机（Opportunity、OpportunityMoney），都归本人；
  *     记跟进时挂订单写 FollowUpOrder（和电脑上「关联商机 / 订单」同一个字段）
  */
-import { 提取范围, 核对范围, 行键, 范围父表, type 范围索引, type 范围元数据 } from "@/lib/sync/scope-policy";
+import { 提取范围, 核对范围, 行键, 范围父表, 还等吗, type 范围索引, type 范围元数据, type 卡住的范围 } from "@/lib/sync/scope-policy";
 import { 同步表, 不同步列 } from "@/lib/sync/tables";
 import { 归一化范围行, 主键表 } from "@/lib/sync/scoped-pure";
 import { 规范串 } from "@/lib/sync/canon";
@@ -58,6 +58,8 @@ export type 同步状态 = {
   /** 本机时钟：上一次编的毫秒数。收到别人的改动会推到对方的数（和桌面端 _sync_clock 一样） */
   钟: number;
   skipped: number;
+  /** 哪些范围停在「目录里还没有」的那一包前面、等了几轮（2026-10-21，scope-policy 还等吗） */
+  held?: 卡住的范围;
   /** 上一次「试着同步」的时间：成功、出错都记 */
   lastSyncAt?: string;
   /**
@@ -105,6 +107,8 @@ export class 内存库 implements 手机库 {
 /** 说给人听的同步问题（不是程序错） */
 export class 同步问题 extends Error {}
 class 范围包错误 extends Error {}
+/** 不在这一轮目录里（可能是取目录之后才新建的）：下一轮再拉，见 scope-policy 还等吗 */
+class 范围包未到 extends 范围包错误 {}
 
 const 钟串 = (ms: number, 设备: string) => `${String(ms).padStart(15, "0")}-${设备}`;
 const 钟的毫秒 = (h: string) => Number(h.split("-")[0]) || 0;
@@ -190,11 +194,11 @@ async function 验收(b: 拉到的包, keys: 密.钥匙环, teamId: string, curr
   if (!inner || 规范串(inner.meta) !== 规范串(b.meta) || !核对范围(b.meta, inner.change)) throw new 范围包错误("密文内容与授权元数据不一致");
   if (inner.change.o === "D" && (inner.change.r != null || (inner.change.c ?? []).length)) throw new 范围包错误("删除包不能带内容");
   const key = 行键(b.meta.t, b.meta.k);
-  if (!current || !allowed.has(key)) throw new 范围包错误("该记录不在本机同步范围内");
+  if (!current || !allowed.has(key)) throw new 范围包未到("该记录不在本机同步范围内");
   const e = 归一化范围行(inner.change, current, allowed);
   if (e.o !== "D" && e.r) for (const [field, table] of Object.entries(范围父表[e.t] ?? {})) {
     const v = e.r[field];
-    if (v != null && !allowed.has(行键(table, String(v)))) throw new 范围包错误(`关联的${table}不在本机同步范围内`);
+    if (v != null && !allowed.has(行键(table, String(v)))) throw new 范围包未到(`关联的${table}不在本机同步范围内`);
   }
   return e;
 }
@@ -275,6 +279,7 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
     if (!状态.待推.length) for (const k of await 库.键们()) if (!allowed.has(k)) { const i = k.indexOf(":"); await 库.删(k.slice(0, i), k.slice(i + 1)); }
     let 拉 = 0;
     const cursors: 同步状态["cursors"] = {};
+    const held: 卡住的范围 = {};
     for (const s of scopes) {
       const cur = 状态.cursors[s.id];
       let after = cur && cur.revision >= s.revision ? cur.after : 0;
@@ -283,14 +288,22 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
         if (r.状态 !== 200) throw new 同步问题(话(r, "拉取失败"));
         const batches = (r.json.batches as 拉到的包[]) ?? [];
         const 收: 改动[] = [];
+        let 停在: number | null = null;
         for (const b of batches) {
           try { 收.push(await 验收(b, 全部钥匙(c), c.teamId, index.get(行键(b.meta.t, b.meta.k)), allowed)); }
-          catch (e) { if (e instanceof 范围包错误) { 状态.skipped++; continue; } throw e; }
+          catch (e) {
+            // 和桌面端一样：这一轮目录里还没有它，范围停在它前面、下一轮再拉（连等几轮还没有才跳过）
+            const 等 = e instanceof 范围包未到 ? 还等吗(状态.held, s.id, b.seq) : null;
+            if (等) { held[s.id] = 等; 停在 = b.seq; break; }
+            if (e instanceof 范围包错误) { 状态.skipped++; continue; }
+            throw e;
+          }
         }
         if (收.length) 拉 += await 回放(库, 收, c.device, 状态);
-        if (batches.length) after = batches[batches.length - 1].seq;
+        const 到 = 停在 == null ? batches : batches.filter((b) => b.seq < 停在);
+        if (到.length) after = 到[到.length - 1].seq;
         cursors[s.id] = { after, revision: s.revision };
-        if (!r.json.more || !batches.length) break;
+        if (停在 != null || !r.json.more || !batches.length) break;
       }
     }
     // 目录里标着删了、本机还在的：补一次删除（没推上去的不动）
@@ -299,6 +312,7 @@ export async function 同步一轮(c0: 手机团队, 云: 传输, 库: 手机库
     for (const r of index.values()) if (r.deleted && r.clock && !待推键.has(行键(r.t, r.k)) && (await 库.取(r.t, r.k))) 补删.push({ t: r.t, k: r.k, o: "D", r: null, c: [], h: r.clock });
     if (补删.length) 拉 += await 回放(库, 补删, c.device, 状态, { 含本人: true });
     状态.cursors = cursors;
+    状态.held = held;
     状态.lastSyncAt = 状态.lastOkAt = new Date().toISOString();
     状态.lastError = null;
     // 跨成员查重的索引（2026-10-19）：报不上不算这一轮失败，下一轮再报

@@ -178,17 +178,20 @@ it("抢领竞态：li 和 wang 同时领同一位，先到的收下；后到的�
   expect(await 看得到(赢 === "li" ? "wang" : "li", "Customer:race")).toBe(false);
 });
 
-it("重放：失权后原样重发转交前的旧事件只当重复（不落、不改归属）；同 eventId 换内容 409", async () => {
+it("重放：失权后原样重发转交前的旧事件只当重复（不落、不改归属）；同 eventId 换内容也只当重复、不落盘（2026-10-21 原来 409）", async () => {
   const e = 改("Customer", "li-second", { salesOwnerId: A("li") });
   const p = pk(e, "li");
   await 推("li", [p]);
   await 推事件("boss", [改("Customer", "li-second", { salesOwnerId: A("boss") })]);
   const before = await 批数();
-  expect(await 推("li", [p])).toMatchObject({ stored: 0 });
+  // stored 算「这次的包在中转上落着的条数」，重发的也算（2026-10-21：迁移靠它对数）；没多落一批看下一行
+  expect(await 推("li", [p])).toMatchObject({ stored: 1 });
   expect(await 批数()).toBe(before);
   expect((await 索引("Customer:li-second"))?.fields.salesOwnerId).toBe(A("boss"));
   const swapped = 封范围({ meta: p.meta, change: { ...e, r: { ...e.r, remark: "swap" } } }, key, 0, { teamId: team, device: 设备.li, eventId: p.eventId, meta: p.meta });
-  await expect(推("li", [{ ...p, data: swapped }])).rejects.toMatchObject({ 状态: 409 });
+  expect(await 推("li", [{ ...p, data: swapped }])).toMatchObject({ stored: 1 });
+  expect(await 批数()).toBe(before);
+  expect((await 索引("Customer:li-second"))?.fields.salesOwnerId).toBe(A("boss"));
 });
 
 it("交出去的人没附起点（旧客户端 / 起点太大）：老板目录列出 needBaseline，老板补推后接手的人拉得到；只给老板", async () => {
