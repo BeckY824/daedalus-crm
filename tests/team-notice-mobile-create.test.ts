@@ -205,7 +205,11 @@ describe("老板提醒 + 手机新建客户 / 商机（两台电脑 + 手机）"
 
   it("手机新建客户 + 商机：li 和老板的电脑同步后看得到（档案、币种、日志都在），zhao 看不到；只有老板那台出提醒，合成一条", async () => {
     const 建的时候 = Date.now();
-    const { id: 客户 } = await 手机.新建客户(机, 库, 状态, { name: "  Nordlicht Leuchten GmbH ", phone: "", whatsapp: "+49 151 2345 6789", email: "einkauf@nordlicht.example", country: "germany", source: "展会获取" });
+    const { id: 客户 } = await 手机.新建客户(机, 库, 状态, {
+      name: "  Nordlicht Leuchten GmbH ", phone: "", whatsapp: "+49 151 2345 6789", email: "einkauf@nordlicht.example", country: "germany", source: "展会获取",
+      // 和电脑上新建客户同一套格子（10-20）：公司 / 职位 / 行业 / 客户等级 / 跟进状态同步过去落进同名的列
+      school: "Nordlicht Leuchten GmbH", grade: "Einkaufsleiter", major: "制造业", level: "A", followStatus: "已加微信",
+    });
     const { id: 商机 } = await 手机.新建商机(机, 库, 状态, { customerId: 客户, name: "工矿灯 2000 套", amount: 36000.5, stage: "方案报价" });
     // 先在手机上看得到、标着待同步
     expect(await 手机有("Customer", 客户)).toMatchObject({ name: "Nordlicht Leuchten GmbH", salesOwnerId: A("li") });
@@ -218,8 +222,8 @@ describe("老板提醒 + 手机新建客户 / 商机（两台电脑 + 手机）"
     for (const w of ["li", "boss"] as const) {
       const c = await db(w).customer.findUnique({ where: { id: 客户 }, include: { extra: true } });
       // 没电话、填了 WhatsApp：WhatsApp 号当电话认人（和电脑上 saveCustomer 一样）；国家认成统一叫法
-      expect(c).toMatchObject({ name: "Nordlicht Leuchten GmbH", phone: "+4915123456789", salesOwnerId: A("li"), followStatus: "待跟进", decisionStatus: "了解中" });
-      expect(c!.extra).toMatchObject({ whatsapp: "+49 151 2345 6789", email: "einkauf@nordlicht.example", country: "德国", source: "展会获取" });
+      expect(c).toMatchObject({ name: "Nordlicht Leuchten GmbH", phone: "+4915123456789", salesOwnerId: A("li"), school: "Nordlicht Leuchten GmbH", grade: "Einkaufsleiter", major: "制造业", followStatus: "已加微信", decisionStatus: "了解中" });
+      expect(c!.extra).toMatchObject({ whatsapp: "+49 151 2345 6789", email: "einkauf@nordlicht.example", country: "德国", source: "展会获取", level: "A" });
       expect(Math.abs(c!.createdAt.getTime() - 建的时候)).toBeLessThan(2000);
       const o = await db(w).opportunity.findUnique({ where: { id: 商机 }, include: { money: true } });
       expect(o).toMatchObject({ name: "工矿灯 2000 套", amount: 36000.5, stage: "方案报价", status: "OPEN", probability: 60, ownerId: A("li"), customerId: 客户 });

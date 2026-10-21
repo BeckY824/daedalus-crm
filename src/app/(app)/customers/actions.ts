@@ -11,7 +11,7 @@ import { 查完再写 } from "@/lib/check-then-write";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 看全部, 看得到, 限定的我 } from "@/lib/team-scope";
+import { 看全部, 看得到, 读的我, 同事的客户, 只读错误 } from "@/lib/team-scope";
 import { 同事撞号说法, type 查重种类 } from "@/lib/sync/dedupe";
 import { 问同事 } from "@/lib/sync/dedupe-client";
 import { requireUser } from "@/lib/auth";
@@ -136,7 +136,7 @@ export async function checkDuplicate(phone: string, excludeId?: string): Promise
     const 撞 = await 问同事("phone", 号, excludeId);
     return 撞 ? { id: null, name: 撞.客户名 || null, school: null, salesOwnerName: 撞.同事, createdAt: null } : null;
   }
-  const 看得见 = 看得到(hit, await 限定的我(defaultClient));
+  const 看得见 = 看得到(hit, await 读的我(defaultClient));
   return {
     id: 看得见 ? hit.id : null,
     name: hit.name,
@@ -169,6 +169,8 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
 
   const 改前 = input.id ? await prisma.customer.findUnique({ where: { id: input.id } }) : null;
   if (input.id && !改前) return { ok: false, error: `这条${b.customer}已经不在了（可能已删除），无法保存` };
+  // 团队互看：同事的客户读得到、改不了（lib/team-scope.ts），先说人话
+  if (input.id && await 同事的客户(defaultClient, input.id)) return { ok: false, error: new 只读错误().message };
   /*
     编辑之前先把老签约的「签约那一刻是谁的」钉住（排查 X1）。不只换负责人：改来源渠道 / 推荐人也会重算渠道负责人（复查 R）。
     没有缺的时候它只是一次很轻的查询，所以编辑一律先调，不去猜这次会不会动到归属
@@ -226,7 +228,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       where: { AND: [await 同号条件(prisma, phone, await 分机留存起()), ...(input.id ? [{ id: { not: input.id } }] : [])] },
       select: 撞到的字段,
     }));
-    if (dup) return { ok: false, error: 撞号说法(`手机号 ${phone}`, dup, await 限定的我(defaultClient), b.customer) };
+    if (dup) return { ok: false, error: 撞号说法(`手机号 ${phone}`, dup, await 读的我(defaultClient), b.customer) };
   }
   // 按邮箱认的：邮箱没动的不查（同上面号码没动不查）。有电话的不拿邮箱挡——同一公司几位联系人共用 info@ 常见
   const 查邮箱 = 按邮箱认 && !phone && !(改前 && 邮箱键(交的邮箱) === 邮箱键(改前邮箱));
@@ -235,7 +237,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       where: { AND: [await 同邮箱条件(prisma, 交的邮箱), ...(input.id ? [{ id: { not: input.id } }] : [])] },
       select: 撞到的字段,
     }));
-    if (dup) return { ok: false, error: 撞号说法(`邮箱 ${交的邮箱}`, dup, await 限定的我(defaultClient), b.customer) };
+    if (dup) return { ok: false, error: 撞号说法(`邮箱 ${交的邮箱}`, dup, await 读的我(defaultClient), b.customer) };
   }
   // 按微信认的：同上，微信号没动的不查；有电话或邮箱的不拿微信挡
   const 查微信 = 按微信认 && !phone && !(改前 && 邮箱键(交的微信) === 邮箱键(改前微信));
@@ -244,7 +246,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       where: { AND: [await 同微信条件(prisma, 交的微信), ...(input.id ? [{ id: { not: input.id } }] : [])] },
       select: 撞到的字段,
     }));
-    if (dup) return { ok: false, error: 撞号说法(`微信 ${交的微信}`, dup, await 限定的我(defaultClient), b.customer) };
+    if (dup) return { ok: false, error: 撞号说法(`微信 ${交的微信}`, dup, await 读的我(defaultClient), b.customer) };
   }
 
   /*
@@ -359,7 +361,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       await 写外贸档案(tx, created.id, 档案.data, false);
       return { created } as const;
     });
-    if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone ? `手机号 ${phone}` : `邮箱 ${交的邮箱}`, 建了.撞号, await 限定的我(defaultClient), b.customer) };
+    if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone ? `手机号 ${phone}` : `邮箱 ${交的邮箱}`, 建了.撞号, await 读的我(defaultClient), b.customer) };
     const { created } = 建了;
     await recordAudit({
       user: me, action: "create", entity: "Customer", entityId: created.id,
@@ -1182,6 +1184,8 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   const me = await requireUser();
   const b = await getBusiness();
   if (!PATCHABLE.includes(key)) return { ok: false, error: "这个字段不能在这里改" };
+  // 团队互看：同事的客户读得到、改不了（lib/team-scope.ts），外贸档案那几格也一样
+  if (await 同事的客户(defaultClient, id)) return { ok: false, error: new 只读错误().message };
   // 动到归属的几格（负责人、渠道负责人、来源、推荐人）之前先钉住老签约（排查 X1 / 复查 R）
   if (["salesOwnerId", "channelOwnerId", "channelId", "referrerCustomerId"].includes(key)) await 钉住老签约();
 
