@@ -18,6 +18,29 @@ export const 行数上限 = 10000;
 export const 列数上限 = 50;
 
 /**
+ * 文件多大就不读了（2026-10-21 量过，见 #76）。一次最多导 1 万行，正常的表远到不了：
+ * 9 列外贸表 1 万行 CSV 约 3 MB、xlsx 约 0.5 MB；30 列、每位备注近 2000 字的 1 万行 CSV 46 MB。
+ * 再大的文件要整个读进页面才能截前 1 万行：CSV 90 MB 时页面占 1 GB、卡 2.6 秒，303 MB 时占 3.5 GB、卡 13 秒；
+ * xlsx 要把整张工作表解压成一串文字，100 万行时超过浏览器一串文字的上限（约 5 亿字），只报一句英文。
+ * 先按大小挡住，说清楚怎么拆
+ */
+export const 文件大小上限 = { csv: 100 * 1024 * 1024, xlsx: 30 * 1024 * 1024 };
+
+/** 太大就给一句人话；不大返回 null。xlsx 压过，同样多的行比 CSV 小好几倍，所以线也低 */
+export function 文件太大(名: string, 字节: number): string | null {
+  const 上限 = /\.xlsx$/i.test(名) ? 文件大小上限.xlsx : 文件大小上限.csv;
+  if (字节 <= 上限) return null;
+  const MB = Math.round(字节 / 1024 / 1024);
+  return `这个文件有 ${MB} MB，太大了，读不进来。一次最多导 ${行数上限.toLocaleString("en-US")} 行：请在 Excel 里拆成几份、每份 1 万行以内，再一份一份导`;
+}
+
+/** 读文件出错时给人看的话：我们自己抛的是中文，照说；浏览器抛的（内存不够、字符串太长）是英文，换成人话 */
+export function 读不出来的话(e: unknown): string {
+  if (e instanceof Error && /[\u4e00-\u9fa5]/.test(e.message)) return e.message;
+  return `这个文件读不出来：可能太大或者坏了。一次最多导 ${行数上限.toLocaleString("en-US")} 行，请拆小一点、或者在 Excel 里另存一份再试`;
+}
+
+/**
  * 分隔符自己认：逗号、制表符、分号。
  *
  * 为什么要认：Excel 在中文 Windows 上「另存为 CSV」出来的**是分号分隔的**

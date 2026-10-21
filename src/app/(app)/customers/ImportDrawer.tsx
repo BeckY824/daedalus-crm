@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { App, Alert, Drawer, Progress, Segmented, Steps, Typography, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
-import { 解析CSV带行号, 解码CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
+import { 解析CSV带行号, 解码CSV, 成表, 文件太大, 读不出来的话, 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 猜列, type 字段名 } from "@/lib/import/fields";
 import { type 编造格, type 粘贴结果, type 粘贴续作 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
@@ -256,6 +256,11 @@ export default function ImportDrawer({
   }
 
   async function 收文件(f: File) {
+    const 太大 = 文件太大(f.name, f.size);
+    if (太大) {
+      message.error(太大);
+      return;
+    }
     set忙(true);
     try {
       let 读到: { rows: string[][]; 行号: number[] };
@@ -279,7 +284,7 @@ export default function ImportDrawer({
       set编造([]); set漏掉([]); set原文核对(null); set已核对原文(false); set续作(undefined);
       收表(f.name, t.表头, t.数据, t.截断了, t.行号);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "这个文件读不出来");
+      message.error(读不出来的话(e));
     } finally {
       set忙(false);
     }
