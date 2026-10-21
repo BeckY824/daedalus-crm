@@ -3,10 +3,11 @@
 import { useFollowHistory } from "./useFollowHistory";
 
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { 只读上下文 } from "./read-only";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button, Drawer, Dropdown, Input, Space, Tag, Avatar, Checkbox, Tooltip, App, Select, Typography } from "antd";
+import { Alert, Button, Drawer, Dropdown, Input, Space, Tag, Avatar, Checkbox, Tooltip, App, Select, Typography } from "antd";
 import {
   DownOutlined,
   EditOutlined,
@@ -103,6 +104,7 @@ export default function RecordView({
   aiEnabled,
   已收藏 = false,
   能放公海 = false,
+  只读 = false,
 }: RecordProps) {
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const router = useRouter();
@@ -418,7 +420,9 @@ export default function RecordView({
           <Dropdown
             menu={{
               items: [
-                ...跟进类型们(外贸).map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
+                ...跟进类型们(外贸).filter((t) => !只读 || (t.value !== "TASK" && t.value !== "REMIND")).map((t) => ({ key: t.value, label: t.label, onClick: () => openFollow({ type: t.value } as FollowUpRow) })),
+                // 同事的客户（互看）：只能记跟进，编辑、删除、放公海都不摆
+                ...(只读 ? [] : [
                 { type: "divider" as const },
                 { key: "edit", icon: <EditOutlined />, label: `编辑${b.customer}资料`, onClick: () => setCustOpen(true) },
                 { key: "delete", icon: <DeleteOutlined />, danger: true, label: `删除这位${b.customer}`, onClick: () => void 问删除([{ id: customer.id, name: customer.name }], () => router.push("/customers")) },
@@ -426,6 +430,7 @@ export default function RecordView({
                 ...(!独自一人(users) && 能放公海 && !customer.pool
                   ? [{ key: "pool", icon: <InboxOutlined />, label: "放进公海", onClick: () => void 公海动作("放进") }]
                   : []),
+                ]),
               ],
             }}
           >
@@ -494,6 +499,18 @@ export default function RecordView({
         )}
       </div>
 
+      {只读 && (
+        <Alert
+          className="rec-readonly"
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={`同事 ${customer.salesOwnerName} 的${b.customer} · 只能看和加跟进`}
+          description="团队开了「同事之间互相看得到客户」。改资料、删除、转交、排计划请找负责人或老板"
+        />
+      )}
+
+      <只读上下文.Provider value={只读}>
       <div ref={recRef} className={`rec${AI在抽屉里 ? " rec-2col" : ""}${单栏 ? " rec-1col" : ""}`}>
         {/* ================= 左栏：档案 ================= */}
         <aside className="rec-rail rec-card">
@@ -502,7 +519,7 @@ export default function RecordView({
           <div className="rec-sec">
             <div className="rec-sec-t">
               <span>基本资料</span>
-              <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => setCustOpen(true)}>编辑全部</Button>
+              {!只读 && <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => setCustOpen(true)}>编辑全部</Button>}
             </div>
             <div className="rec-field" style={{ cursor: "default" }}>
               <div className="rec-field-k">电话</div>
@@ -568,7 +585,7 @@ export default function RecordView({
           <div className="rec-sec">
             <div className="rec-sec-t">
               <span>联系人 {contacts.length > 0 && contacts.length}</span>
-              <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => { setEditingContact(null); setContactOpen(true); }}>添加联系人</Button>
+              {!只读 && <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => { setEditingContact(null); setContactOpen(true); }}>添加联系人</Button>}
             </div>
             {contacts.length === 0 && <div className="rec-empty">还没有联系人</div>}
             {contacts.map((c) => (
@@ -582,7 +599,7 @@ export default function RecordView({
                 <span className="rec-mini-m">{c.position ?? c.phone ?? ""}</span>
                 {/* 编辑 / 删除平时不占位（审查 M4）：原来两颗图标常驻，三个字的名字被挤成「周明远…」。
                     悬停或键盘焦点进来时盖在右边那段说明上出现，和时间线每条的做法一样 */}
-                <span className="rec-mini-acts">
+                {!只读 && <span className="rec-mini-acts">
                   <Button type="text" size="small" icon={<EditOutlined />} aria-label={`编辑联系人 ${c.name}`} onClick={() => { setEditingContact(c); setContactOpen(true); }} />
                   <Button
                     type="text"
@@ -593,7 +610,7 @@ export default function RecordView({
                     // 先问只移出还是彻底删（2026-10-01 用户反馈：删完联系人页里也没了）
                     onClick={() => 问怎么拿掉(c)}
                   />
-                </span>
+                </span>}
               </div>
             ))}
           </div>
@@ -601,7 +618,7 @@ export default function RecordView({
           <div className="rec-sec">
             <div className="rec-sec-t">
               <span>商机 {opportunities.length > 0 && opportunities.length}</span>
-              <Space size={4}><Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setOpportunityOpen(true)} aria-label="新建关联商机" /> <Link href="/opportunities">全部 ›</Link></Space>
+              <Space size={4}>{!只读 && <Button type="text" size="small" icon={<PlusOutlined />} onClick={() => setOpportunityOpen(true)} aria-label="新建关联商机" />} <Link href="/opportunities">全部 ›</Link></Space>
             </div>
             {opportunities.length === 0 && <div className="rec-empty">还没有商机</div>}
             {opportunities.map((o) => (
@@ -659,7 +676,7 @@ export default function RecordView({
           <div className="rec-sec">
             <div className="rec-sec-t">
               <span>{叫} {contracts.length > 0 && contracts.length}</span>
-              <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => { setEditingContract(null); setContractOpen(true); }}>{是订单 ? "新建订单" : "登记签约"}</Button>
+              {!只读 && <Button type="link" size="small" style={{ padding: 0, height: "auto" }} onClick={() => { setEditingContract(null); setContractOpen(true); }}>{是订单 ? "新建订单" : "登记签约"}</Button>}
             </div>
             {contracts.length === 0 && <div className="rec-empty">{是订单 ? "还没有订单。商机点「转为订单」，或在这里新建" : "还没有签约"}</div>}
             {contracts.map((c) =>
@@ -676,20 +693,20 @@ export default function RecordView({
                       <span key={k} className="rec-mini-m" title={段 ?? undefined}>{段}</span>
                     ))}
                   </span>
-                  <span className="rec-mini-acts">
+                  {!只读 && <span className="rec-mini-acts">
                     <Button type="text" size="small" icon={<EditOutlined />} aria-label={`编辑订单 ${c.order?.no ?? ""}`} onClick={() => { setEditingContract(c); setContractOpen(true); }} />
                     <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`删除订单 ${c.order?.no ?? ""}`} onClick={() => void confirmDeleteContract(c)} />
-                  </span>
+                  </span>}
                 </div>
               ) : (
               <div key={c.id} className="rec-mini">
                 <DollarOutlined style={{ color: "var(--success)" }} />
                 <span className="rec-mini-n rec-mini-amt">{金额(c.amount, c.currency)}</span>
                 <span className="rec-mini-m">{fmtDate(c.signedAt)}</span>
-                <span className="rec-mini-acts">
+                {!只读 && <span className="rec-mini-acts">
                   <Button type="text" size="small" icon={<EditOutlined />} aria-label="编辑这笔签约" onClick={() => { setEditingContract(c); setContractOpen(true); }} />
                   <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除这笔签约" onClick={() => void confirmDeleteContract(c)} />
-                </span>
+                </span>}
               </div>
               ),
             )}
@@ -732,12 +749,16 @@ export default function RecordView({
               <span className={`rec-plan-m${已过期(plan.plannedAt) ? " is-over" : ""}`} title={fmtDateTime(plan.plannedAt)}>
                 {截止说法(plan.plannedAt)}
               </span>
-              <Button size="small" type="text" onClick={() => { set排新计划(false); setPlanOpen(true); }}>
-                改
-              </Button>
-              <Button size="small" type="text" icon={<CheckCircleOutlined />} onClick={() => set在完成({ id: plan.id, subject: plan.subject, method: plan.method, customerId: customer.id, 有WhatsApp })}>
-                完成
-              </Button>
+              {!只读 && (
+                <>
+                  <Button size="small" type="text" onClick={() => { set排新计划(false); setPlanOpen(true); }}>
+                    改
+                  </Button>
+                  <Button size="small" type="text" icon={<CheckCircleOutlined />} onClick={() => set在完成({ id: plan.id, subject: plan.subject, method: plan.method, customerId: customer.id, 有WhatsApp })}>
+                    完成
+                  </Button>
+                </>
+              )}
             </div>
           )}
 
@@ -778,7 +799,7 @@ export default function RecordView({
                     </div>
                   </motion.div>
                 ) : (
-                  <FollowItem key={e.f.id} f={e.f} showOwner={!e.f.ownerId || !独自一人(users, e.f.ownerId)} index={i} onEdit={() => openFollow(e.f)} onDelete={() => deleteFollow(e.f)} />
+                  <FollowItem key={e.f.id} f={e.f} showOwner={!e.f.ownerId || !独自一人(users, e.f.ownerId)} index={i} onEdit={() => openFollow(e.f)} onDelete={() => deleteFollow(e.f)} 可改={!只读} />
                 ),
               )}
             </AnimatePresence>
@@ -804,9 +825,11 @@ export default function RecordView({
             <div className="rec-card rec-side-card">
               <div className="rec-side-t">
                 <span>待办 {openTasks.length > 0 && openTasks.length}</span>
-                <Button type="link" size="small" style={{ padding: 0, height: "auto", fontWeight: 400 }} icon={<PlusOutlined />} onClick={() => setTaskOpen(true)}>
-                  新建任务
-                </Button>
+                {!只读 && (
+                  <Button type="link" size="small" style={{ padding: 0, height: "auto", fontWeight: 400 }} icon={<PlusOutlined />} onClick={() => setTaskOpen(true)}>
+                    新建任务
+                  </Button>
+                )}
               </div>
               {待办行.length === 0 && <Typography.Text type="secondary" style={{ fontSize: 13 }}>暂无待办</Typography.Text>}
               {/* 收起只淡出、不收高度：减弱动态时不许有位移，淡出在两种设置下都一样 */}
@@ -819,23 +842,25 @@ export default function RecordView({
                     exit={{ opacity: 0 }}
                     transition={{ duration: 时长.base, ease: 曲线.ease }}
                   >
-                    <Checkbox checked={已完成(t)} onChange={(e) => void 勾待办(t, e.target.checked)} aria-label={`完成 ${t.title}`} />
+                    <Checkbox checked={已完成(t)} disabled={只读} onChange={(e) => void 勾待办(t, e.target.checked)} aria-label={`完成 ${t.title}`} />
                     <span className="rec-task-t">{t.title}</span>
                     {/* 「逾期 2 天」而不是「2 天前」（审查 D1）：欠着没做的事，不是发生过的事 */}
                     <span className="rec-task-due" title={t.dueAt ? fmtDateTime(t.dueAt) : undefined} style={{ color: !已完成(t) && 已过期(t.dueAt) ? "var(--danger)" : undefined }}>
                       {t.dueAt ? 截止说法(t.dueAt) : ""}
                     </span>
                     {/* 就地确认：一条待办删了还能再建，一句话说得完，不值得弹框（见 components/InlineConfirm.tsx） */}
-                    <InlineConfirm
-                      问="删除这条？"
-                      做={async () => {
-                        await deleteTask(t.id);
-                        message.success("待办已删除");
-                        router.refresh();
-                      }}
-                    >
-                      <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除待办" />
-                    </InlineConfirm>
+                    {!只读 && (
+                      <InlineConfirm
+                        问="删除这条？"
+                        做={async () => {
+                          await deleteTask(t.id);
+                          message.success("待办已删除");
+                          router.refresh();
+                        }}
+                      >
+                        <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除待办" />
+                      </InlineConfirm>
+                    )}
                   </motion.div>
                 ))}
               </AnimatePresence>
@@ -847,14 +872,17 @@ export default function RecordView({
                   <span>下次跟进</span>
                 </div>
                 <Typography.Text type="secondary" style={{ fontSize: 13 }}>尚未安排</Typography.Text>
-                <Button block style={{ marginTop: 10 }} onClick={() => setPlanOpen(true)}>
-                  制定跟进计划
-                </Button>
+                {!只读 && (
+                  <Button block style={{ marginTop: 10 }} onClick={() => setPlanOpen(true)}>
+                    制定跟进计划
+                  </Button>
+                )}
               </div>
             )}
           </Space>
         </aside>
       </div>
+      </只读上下文.Provider>
 
       {/* 1180 以下 AI 收进抽屉。面板本身一个字都不用改——它的状态挂在
           进程内任务表上（lib/ai-jobs），不在组件 state 里，关掉再开还在那儿 */}
@@ -885,6 +913,7 @@ export default function RecordView({
         opportunities={opportunities}
         orders={contracts.flatMap((c) => (c.order ? [{ id: c.order.id, no: c.order.no }] : []))}
         aiEnabled={aiEnabled}
+        只读={只读}
       />
       <CompletePlanModal
         plan={在完成}
@@ -1046,6 +1075,8 @@ function StatusPicker({
   const router = useRouter();
   const { message } = App.useApp();
   const [saving, setSaving] = useState(false);
+  // 同事的客户（互看）：状态章只显示
+  if (useContext(只读上下文)) return <span style={{ display: "inline-flex" }}>{children}</span>;
   return (
     <Dropdown
       trigger={["click"]}
@@ -1070,7 +1101,7 @@ function StatusPicker({
   );
 }
 
-function FollowItem({ f, showOwner, index, onEdit, onDelete }: { f: FollowUpRow; showOwner: boolean; index: number; onEdit: () => void; onDelete: () => void }) {
+function FollowItem({ f, showOwner, index, onEdit, onDelete, 可改 = true }: { f: FollowUpRow; showOwner: boolean; index: number; onEdit: () => void; onDelete: () => void; 可改?: boolean }) {
   const { 曲线, 时长, 间隔 } = useMotionTheme();
   const meta = FOLLOW_TYPE_MAP[f.type] ?? FOLLOW_TYPE_MAP.OTHER;
   const [srcOpen, setSrcOpen] = useState(false);
@@ -1099,7 +1130,7 @@ function FollowItem({ f, showOwner, index, onEdit, onDelete }: { f: FollowUpRow;
             <span className="rec-tl-time" title={fmtDateTime(f.occurredAt)}>
               {dayjs(f.occurredAt).isSame(dayjs(), "year") ? dayjs(f.occurredAt).format("M 月 D 日 HH:mm") : fmtDateTime(f.occurredAt)}
             </span>
-            <span className="rec-tl-acts">
+            {可改 && <span className="rec-tl-acts">
               <Button type="text" size="small" icon={<EditOutlined />} onClick={onEdit} aria-label="编辑跟进" />
               {/* 就地确认，不弹框：一条跟进记录，删了还能再写一条——
                   后果一句话说得完的事，不值得一个盖住半屏的框（见 components/InlineConfirm.tsx） */}
@@ -1107,7 +1138,7 @@ function FollowItem({ f, showOwner, index, onEdit, onDelete }: { f: FollowUpRow;
               <InlineConfirm 问={(f.type === "TASK" || f.type === "REMIND") && f.dueAt && f.status !== "已完成" ? "连同它的待办一起删？" : "删除这条？"} 做={onDelete}>
                 <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label="删除跟进" />
               </InlineConfirm>
-            </span>
+            </span>}
           </span>
         </div>
         <div className="rec-tl-content">{f.content}</div>

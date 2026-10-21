@@ -59,6 +59,11 @@ export type 团队配置 = {
   last?: { 推: number; 拉: number; 撞: number };
   /** v4 按范围同步（见 lib/tenant/sync-scoped.ts）。没有 = 仍走旧的全队包 */
   scoped?: 范围配置;
+  /**
+   * 团队开了「同事之间互相看得到客户」（2026-10-20，老板在设置 → 团队里开，存在中继）。
+   * 每轮同步从目录回包、几分钟一次从团队名单拿到它；业务员这台的 team-scope 据此放开读（lib/team-scope.ts）
+   */
+  互看?: boolean;
 };
 export type 范围配置 = {
   stage: "migrating" | "ready";
@@ -669,13 +674,52 @@ async function 跑一轮(选项: { 旧协议?: boolean; 只拉?: boolean } = {})
   }
 }
 
+/** 记下团队的互看开关；变了就让 team-scope 重新读（老服务器不回这一项 = 不动） */
+function 记互看(teamId: string, v: unknown) {
+  if (typeof v !== "boolean") return;
+  const 现 = 读团队();
+  if (!现 || 现.teamId !== teamId || (现.互看 ?? false) === v) return;
+  写团队({ ...现, 互看: v });
+  忘掉限定();
+}
+
+/** 本机我的角色按目录对一下：主管 = MANAGER，否则 SALES。老板那台不走这里（目录 owner） */
+async function 记主管(是: boolean) {
+  const 账号 = 读云端凭据()?.accountId;
+  if (!账号) return;
+  const 应 = 是 ? "MANAGER" : "SALES";
+  const n = await prisma.$executeRawUnsafe(`UPDATE "User" SET role = ? WHERE id = ? AND role <> ? AND role <> 'ADMIN'`, 应, 团队身份id(账号), 应);
+  if (n) 忘掉限定();
+}
+
+/** 老板把一位同事设成业务主管 / 改回业务员（中继核是不是老板）。本机名单马上对一次，那位同事下一轮同步生效 */
+export async function 设角色(谁: string, role: "manager" | "member"): Promise<结果<{ role: string }>> {
+  const c = 读团队();
+  if (!c) return { ok: false, error: "没有加入团队" };
+  const r = await 云("POST", "/api/sync/role", { teamId: c.teamId, accountId: 谁, role });
+  if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "改不了，请稍后再试") };
+  await 对齐角色().catch(() => undefined);
+  return { ok: true, role: String(r.json.role ?? role) };
+}
+
+/** 老板开 / 关「同事之间互相看得到客户」。业务员那几台下一轮同步生效：开了收全队，关了清掉同事的客户 */
+export async function 设互看(on: boolean): Promise<结果<{ on: boolean }>> {
+  const c = 读团队();
+  if (!c) return { ok: false, error: "没有加入团队" };
+  const r = await 云("POST", "/api/sync/share", { teamId: c.teamId, on });
+  if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "改不了，请稍后再试") };
+  记互看(c.teamId, r.json.on === true);
+  return { ok: true, on: r.json.on === true };
+}
+
 /** 设置 → 团队要的：本机的团队、上次同步、出错原因，以及云端那边的成员和开通状态 */
 export async function 团队状态() {
   const c = 读团队();
   if (!c) return { 在团队: false as const, 能用: 能用().ok };
   const r = await 云("GET", "/api/sync/team");
-  const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; paidUntil?: string; 剩几天?: number; seats?: number; expired?: boolean; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
+  const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; paidUntil?: string; 剩几天?: number; seats?: number; expired?: boolean; 互看?: boolean; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
   if (团) await 看全部(() => 按名单对角色(团.成员, 团.id)).catch(() => undefined);
+  if (团) 记互看(团.id, 团.互看);
   return {
     在团队: true as const,
     /**
@@ -693,6 +737,10 @@ export async function 团队状态() {
     席位: 团?.seats ?? null,
     已到期: 团?.expired === true,
     我是建的人: 团?.我是建的人 ?? false,
+    /** 业务主管（2026-10-20）：看全队客户、分配、处理重复；加人、移除、邀请码、开关、业务配置都不归他 */
+    我是主管: !(团?.我是建的人) && !!团?.成员.some((m) => m.accountId === 读云端凭据()?.accountId && m.role === "manager"),
+    /** 同事之间互相看得到客户。null = 老服务器不认这个开关，界面上不摆 */
+    互看: typeof 团?.互看 === "boolean" ? 团.互看 : null,
     /** 这台能不能移除同事、换邀请码（见 能管理团队）：老板在别的电脑上进来的，这两样只给一句说明 */
     能管理: 能管理团队(c),
     我: 读云端凭据()?.accountId ?? null,
@@ -723,13 +771,13 @@ export async function 读价格表(): Promise<团队价格 | null> {
 let 上次对角色 = 0;
 
 /**
- * 按中转的成员名单对本机的角色：建团队的人（owner）是老板 = ADMIN，其余是业务员 = SALES。
+ * 按中转的成员名单对本机的角色：建团队的人（owner）是老板 = ADMIN，老板设的业务主管（manager）= MANAGER，其余是业务员 = SALES。
  * User.role 不同步（tables.ts 不同步列），每台各自对，结果一样。用裸 SQL：不碰 updatedAt，也就不进同步日志
  */
 async function 按名单对角色(成员: { accountId: string; role: string }[], teamId?: string) {
   if (teamId) 记下老板(teamId, 成员.find((m) => m.role === "owner")?.accountId ?? null);
   for (const m of 成员) {
-    const 应 = m.role === "owner" ? "ADMIN" : "SALES";
+    const 应 = m.role === "owner" ? "ADMIN" : m.role === "manager" ? "MANAGER" : "SALES";
     await prisma.$executeRawUnsafe(`UPDATE "User" SET role = ? WHERE id = ? AND role <> ?`, 应, 团队身份id(m.accountId), 应);
   }
   上次对角色 = Date.now();
@@ -741,8 +789,9 @@ export async function 对齐角色() {
   if (!c) return;
   const r = await 云("GET", "/api/sync/team");
   if (r.状态 !== 200) return;
-  const 团 = ((r.json.teams as { id: string; 成员: { accountId: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
+  const 团 = ((r.json.teams as { id: string; 互看?: boolean; 成员: { accountId: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
   if (团) await 看全部(() => 按名单对角色(团.成员, 团.id));
+  if (团) 记互看(团.id, 团.互看);
 }
 
 /**
@@ -1044,6 +1093,11 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     const d = await 范围请求(c, "directory", { device: c.device });
     if (d.状态 !== 200) { const 话 = 错话(d, "取不到同步目录"); 记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() }); return { ok: false, error: 话 }; }
     if (Number(d.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
+    // 互看开关以这次目录为准（和下面清理用的是同一份名单）：关掉了，同事的客户不在目录里，清理时删掉；老服务器不回 = 关
+    记互看(teamId, d.json.share === true);
+    // 主管也以这次目录为准（2026-10-20）：刚被设成 / 改回，本机角色马上跟上，不等 5 分钟一次的对角色
+    if (!owner && typeof d.json.manager === "boolean") await 看全部(() => 记主管(d.json.manager === true)).catch(() => undefined);
+    c = 读团队() ?? c;
     // 「团队」范围（成员、设置）先拉：客户的负责人得先在本机，不然回放当孤儿跳过（新服务端目录已经这么排，这里给老服务端兜底）
     const scopes = ((d.json.scopes as { id: string; revision: number; records: 范围索引[] }[]) ?? []).sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
     const index = new Map<string, 范围索引>();

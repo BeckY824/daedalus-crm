@@ -439,6 +439,41 @@ model CustomerClaim {
   at         DateTime @default(now())
 }
 
+/// 合并重复客户留下的记号（2026-10-20，迁移 039）：被合并掉的那位（id = 它原来的客户编号）并进了哪位。
+/// 不建外键：被合并的那位合并完就删了，记号得留着——中转照它拒掉「离线的那台把删掉的那份又推回来」，
+/// 各台回放时引用了它的改动改挂到留下的那位（lib/sync/local.ts 回放、lib/customer-merge.ts）。
+/// 范围跟着被合并的那位走（fromId）：原来管它的人那台也收得到，好把本机那份收掉
+model CustomerMerge {
+  id            String   @id
+  /// = id。单独一列给范围同步当归属字段（主键不进范围元数据）
+  fromId        String
+  /// 留下的那位
+  intoId        String
+  /// 被合并那位原来的名字、负责人（人看的，不建外键）
+  fromName      String
+  fromOwnerName String?
+  /// 谁合并的。不建外键，同 AuditLog
+  userId        String
+  at            DateTime @default(now())
+
+  @@index([intoId])
+}
+
+/// 疑似重复里标了「不是同一个人」的两位（2026-10-20，迁移 039）：一对一行，id = 两个客户编号排好、用 __ 连起来。
+/// 标了以后这一对不再列出来；同步给全队（老板和主管各台都不再列）。不建外键：哪位被删了，这一行留着也没人看
+model CustomerNotDupe {
+  id         String   @id
+  /// 编号小的那位：范围跟着它走
+  customerId String
+  otherId    String
+  /// 谁标的。不建外键，同 AuditLog
+  userId     String
+  at         DateTime @default(now())
+
+  @@index([customerId])
+  @@index([otherId])
+}
+
 /// 订单的采购（2026-10-03 外贸第 3c 块，迁移 017）：从哪家采、采购额多少、按什么汇率折，毛利就出来了。
 /// 旁表不加列：理由见迁移 017 开头。汇率只用在这一单的毛利上——全站合计照样不换汇。
 model TradeOrderPurchase {

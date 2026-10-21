@@ -9,10 +9,11 @@ import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页, 
 import { 规整币种 } from "@/lib/currency";
 import { 自动掉公海 } from "@/lib/pool-db";
 import { getBusiness } from "@/lib/business";
-import { 限定的我 } from "@/lib/team-scope";
+import { 读的我 } from "@/lib/team-scope";
 import { defaultClient } from "@/lib/prisma";
 import { 读团队 } from "@/lib/sync/client";
 import { 客户页签归属 } from "@/lib/pool";
+import { 管全队客户 } from "@/lib/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -119,6 +120,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
 
   return (
     <CustomersView
+      // 公海里的直接分给同事：只给管理员（团队版的老板）。业务员那边不摆（2026-10-20）
+      能分配公海={管全队客户(me.role)}
       rows={rows.map((r) => 成客户行(r, 号))}
       total={total}
       page={page}
@@ -154,10 +157,10 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       公海数={公海总数}
       客户数={非公海总数}
       /*
-        第一个页签叫「我的 / 团队客户」：和数据限定同一个来源——限定的我() 有值 = 团队业务员（lib/team-scope.ts，
-        按中转名单对出来的本机角色），读团队() 有 = 进了团队（.team.json）。都是缓存 / 读文件，不多查库
+        第一个页签叫「我的 / 团队客户」：和数据限定同一个来源——读的我() 有值 = 团队业务员、团队没开互看（lib/team-scope.ts，
+        按中转名单对出来的本机角色；开了互看列表就是全队的，叫「团队」），读团队() 有 = 进了团队（.team.json）。都是缓存 / 读文件，不多查库
       */
-      客户页签={客户页签归属({ 业务员: !!(await 限定的我(defaultClient)), 在团队: !!读团队() })}
+      客户页签={客户页签归属({ 业务员: !!(await 读的我(defaultClient)), 在团队: !!读团队() })}
       公海里匹配={公海里匹配}
       aiEnabled={aiEnabled}
       旧职位={[...new Set(旧职位)]}

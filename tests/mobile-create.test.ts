@@ -19,7 +19,7 @@ const 外贸 = { template: "trade", currency: "EUR" };
 describe("手机新建客户", () => {
   it("外贸：电话、WhatsApp、邮箱至少一个；只有邮箱的按邮箱认，电话空着", async () => {
     const { 库, 状态 } = await 新手机(外贸);
-    await expect(手机.新建客户(机, 库, 状态, { name: "Acme" })).rejects.toThrow("电话、WhatsApp、邮箱至少填一个");
+    await expect(手机.新建客户(机, 库, 状态, { name: "Acme" })).rejects.toThrow("电话 / WhatsApp / 邮箱 / 微信至少填一个");
     await expect(手机.新建客户(机, 库, 状态, { name: "   ", email: "a@b.co" })).rejects.toThrow("请填写名字");
     await expect(手机.新建客户(机, 库, 状态, { name: "Acme", email: "不是邮箱" })).rejects.toThrow("邮箱格式不对");
     await expect(手机.新建客户(机, 库, 状态, { name: "Acme", whatsapp: "abc123" })).rejects.toThrow("WhatsApp");
@@ -42,6 +42,32 @@ describe("手机新建客户", () => {
     await expect(手机.新建客户(机, 库, 状态, { name: "Mail 2", email: "info@mail.example" })).rejects.toThrow("邮箱 info@mail.example 已经有了：Mail Only");
     // 有电话的不拿邮箱挡（同一公司几位联系人共用 info@）
     await expect(手机.新建客户(机, 库, 状态, { name: "Mail 3", phone: "+44 20 7000 0000", email: "info@mail.example" })).resolves.toBeTruthy();
+  });
+
+  it("和电脑上新建客户同一套格子（10-20）：公司 / 职位 / 行业 / 客户等级 / 两个状态存进同名的列；不填就是电脑上的默认值", async () => {
+    const { 库, 状态 } = await 新手机(外贸);
+    const { id } = await 手机.新建客户(机, 库, 状态, {
+      name: "李瑞俊（이서준）", phone: "+82 10 2345 6789", school: " 海潭食品（해담식품） ", grade: "代理（대리）", major: "制造业",
+      level: "b", followStatus: "已加微信", decisionStatus: "与家人商议",
+    });
+    expect((await 库.取("Customer", id))?.r).toMatchObject({ school: "海潭食品（해담식품）", grade: "代理（대리）", major: "制造业", followStatus: "已加微信", decisionStatus: "与家人商议" });
+    expect((await 库.取("CustomerExtra", id))?.r).toMatchObject({ level: "B" });
+    const { id: 默认 } = await 手机.新建客户(机, 库, 状态, { name: "Acme", phone: "+44 20 7000 0002", school: "  " });
+    expect((await 库.取("Customer", 默认))?.r).toMatchObject({ school: null, grade: null, major: null, followStatus: "待跟进", decisionStatus: "了解中" });
+    expect(await 库.取("CustomerExtra", 默认)).toBeUndefined();
+    await expect(手机.新建客户(机, 库, 状态, { name: "X", phone: "+44 20 7000 0003", followStatus: "瞎填" })).rejects.toThrow("跟进状态「瞎填」不是合法取值");
+    await expect(手机.新建客户(机, 库, 状态, { name: "X", phone: "+44 20 7000 0003", decisionStatus: "瞎填" })).rejects.toThrow("决策状态「瞎填」不是合法取值");
+    await expect(手机.新建客户(机, 库, 状态, { name: "X", phone: "+44 20 7000 0003", level: "E" })).rejects.toThrow("客户等级");
+  });
+
+  it("外贸：只有微信号也能建（电脑上 10-19 同一条），手机上已有的同微信号挡住", async () => {
+    const { 库, 状态 } = await 新手机(外贸);
+    const { id } = await 手机.新建客户(机, 库, 状态, { name: "王总", wechat: "WangZong88" });
+    expect((await 库.取("Customer", id))?.r.phone).toBe("");
+    expect((await 库.取("CustomerExtra", id))?.r.wechat).toBe("WangZong88");
+    await expect(手机.新建客户(机, 库, 状态, { name: "王总 2", wechat: "wangzong88" })).rejects.toThrow("微信 wangzong88 已经有了：王总");
+    // 有电话的不拿微信挡
+    await expect(手机.新建客户(机, 库, 状态, { name: "王总 3", phone: "+86 139 0000 1111", wechat: "wangzong88" })).resolves.toBeTruthy();
   });
 
   it("通用模版（没同步到业务设置也按通用）：电话必填，不写外贸档案", async () => {

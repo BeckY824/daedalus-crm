@@ -83,6 +83,7 @@ export default function FollowUpForm({
   待收口计划 = null,
   完成了计划,
   有WhatsApp = false,
+  只读 = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -116,6 +117,11 @@ export default function FollowUpForm({
    * 挑人时看挑中那位的（近况.有WhatsApp）
    */
   有WhatsApp?: boolean;
+  /**
+   * 同事的客户（团队开了互看，2026-10-20）：只能记一条跟进。不给选提醒 / 任务、不带 AI 拆出来的待办和计划、不完成别人的计划
+   * （服务端 saveFollowUp 同样拦）
+   */
+  只读?: boolean;
 }) {
   const [form] = Form.useForm();
   const { message } = App.useApp();
@@ -348,9 +354,9 @@ export default function FollowUpForm({
       // 经 AI 解析过才带原文：手工写的跟进没有"原文"这个概念
       sourceText: !record?.id && extras ? aiText : null,
       ...(!record?.id ? { 附带: {
-        tasks: extras?.tasks.filter((t) => t.checked).map(({ title, dueAt }) => ({ title, dueAt })) ?? [],
-        plan: extras?.plan?.checked ? { subject: extras.plan.subject, plannedAt: extras.plan.plannedAt, method: extras.plan.method } : null,
-        完成计划: 要收口?.id,
+        tasks: 只读 ? [] : extras?.tasks.filter((t) => t.checked).map(({ title, dueAt }) => ({ title, dueAt })) ?? [],
+        plan: !只读 && extras?.plan?.checked ? { subject: extras.plan.subject, plannedAt: extras.plan.plannedAt, method: extras.plan.method } : null,
+        完成计划: 只读 ? undefined : 要收口?.id,
       } } : {}),
     });
     // 校验不通过时必须如实报错，否则界面照样提示成功、人以为已经存下了
@@ -474,7 +480,7 @@ export default function FollowUpForm({
         <Row gutter={16}>
           <Col span={8}>
             <Form.Item name="type" label="跟进类型" rules={[{ required: true }]}>
-              <Select options={跟进类型们(外贸精简(b)).map((t) => ({ value: t.value, label: t.label }))} />
+              <Select options={跟进类型们(外贸精简(b)).filter((t) => !只读 || (t.value !== "TASK" && t.value !== "REMIND")).map((t) => ({ value: t.value, label: t.label }))} />
             </Form.Item>
           </Col>
           <Col span={8}>
@@ -559,7 +565,7 @@ export default function FollowUpForm({
         </Row>
       </Form>
 
-      {!record?.id && 收口计划 && (
+      {!record?.id && !只读 && 收口计划 && (
         <div style={{ borderTop: "1px dashed var(--line-soft)", paddingTop: 12, marginTop: 4 }}>
           <Checkbox checked={收口} onChange={(e) => set收口(e.target.checked)}>
             同时完成计划「{收口计划.subject}」
@@ -568,7 +574,7 @@ export default function FollowUpForm({
         </div>
       )}
 
-      {extras && !record?.id && (extras.tasks.length > 0 || extras.plan || suggestions.length > 0) && (
+      {extras && !record?.id && !只读 && (extras.tasks.length > 0 || extras.plan || suggestions.length > 0) && (
         <div style={{ borderTop: "1px dashed var(--line-soft)", paddingTop: 12, marginTop: 4 }}>
           <Space orientation="vertical" size={6} style={{ width: "100%" }}>
             {extras.tasks.map((t, i) => (

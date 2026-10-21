@@ -245,6 +245,10 @@ npm install && npm run setup && npm run dev
   <img src="https://contrib.rocks/image?repo=BeckY824/daedalus-crm" alt="contributors" />
 </a>
 
+**参与者**：报问题、帮着查出根因的朋友也记在这里，谢谢 🙏
+
+<a href="https://github.com/zixi66688" title="zixi66688：减弱动态效果下弹层跑到屏幕外（#1）"><img src="https://github.com/zixi66688.png?size=96" width="48" height="48" alt="zixi66688" /></a>
+
 <br/>
 
 ## 🔒 安全
