@@ -8,6 +8,7 @@ import { multiTenant } from "@/lib/tenant/context";
 import { 自助注册已关闭 } from "@/lib/tenant/signup-policy";
 import { 本地模式, 读 as 读云端凭据, 上次策略, 云端地址 } from "@/lib/desktop/cloud";
 import { 停用了 } from "@/lib/desktop/disabled-text";
+import { 读专属服务器 } from "@/lib/desktop/dedicated-server";
 
 /**
  * 必须动态渲染：要不要画「忘记密码」取决于运行时的 MULTI_TENANT 和 SMTP_*。
@@ -49,11 +50,15 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
       桌面端一律是新的门（毛玻璃原型的登录页，2026-10-03 用户：照原型做，不留原来那张）。
       云端还没有应用内注册的接口时（托管版没部署到这一版），新邮箱那一步改成开浏览器去注册，不退回老页面
     */
+    /* 换了专属服务器 / 退回正式服（DedicatedServer 里 router.refresh()）：key 一变整张门重来，策略按新服务器重新问 */
+    const 云 = 云端地址();
     return (
       <DesktopAuth
+        key={云}
         策略={上次策略()}
-        注册地址={`${云端地址()}/signup?from=desktop`}
+        注册地址={`${云}/signup?from=desktop`}
         提示={sp.reason ? 原因文案[sp.reason] : undefined}
+        专属服务器={读专属服务器()}
       />
     );
   }

@@ -12,6 +12,8 @@ import { 登录之后 } from "./after-login";
 import AuthSide from "./AuthSide";
 import { useCloudPolicy } from "./use-policy";
 import type { 云端策略 } from "@/lib/desktop/cloud";
+import type { 专属服务器 as 专属服务器状态 } from "@/lib/desktop/dedicated-server";
+import DedicatedServer from "./DedicatedServer";
 
 /**
  * 桌面端的门：**一个邮箱框走到底**（2026-10-02 起，原型见 ~/CRM/新功能三线-规划-2026-10-02.md）。
@@ -50,6 +52,7 @@ export default function DesktopAuth({
   策略: 初始策略,
   注册地址,
   提示,
+  专属服务器 = { 状态: "无" },
 }: {
   /**
    * 云端开着哪几条路（policy）：注册收不收、能不能自助找回、有没有应用内注册的接口（inApp，没有就开浏览器去注册）。
@@ -58,6 +61,8 @@ export default function DesktopAuth({
   策略: 云端策略;
   注册地址: string;
   提示?: string;
+  /** 这台电脑设没设专属服务器（dedicated-server.ts）。设了就一直摆着连的是哪台、怎么退 */
+  专属服务器?: 专属服务器状态;
 }) {
   const { register: 可注册, reset: 可找回密码, inApp: 应用内注册 } = useCloudPolicy(初始策略);
   const { 曲线, 时长 } = useMotionTheme();
@@ -413,6 +418,7 @@ export default function DesktopAuth({
               </motion.div>
             )}
           </AnimatePresence>
+          <DedicatedServer 当前={专属服务器} 显示入口={步骤 === "邮箱"} />
         </form>
       </main>
     </div>

@@ -77,7 +77,8 @@ const 传: 传输 = async (方法, 路径, body) => {
         if (旧服务端 && packets.length > 100) return { 状态: 413, json: { error: "请分批推送范围改动" } };
         r = await scoped.收范围推送(a, t, String(b.device), packets);
         推送记录.push({ 谁: 临时.谁, 包: packets.length, 状态: 200 });
-      } else r = await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
+      } else if (act === "pull-many") r = await scoped.给多个范围拉取(a, t, b.scopes);
+      else r = await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
       return { 状态: 200, json: r as Record<string, unknown> };
     } catch (e) {
       if (e instanceof scoped.范围错误) {

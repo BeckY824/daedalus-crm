@@ -19,7 +19,7 @@ const 外贸 = { template: "trade", currency: "EUR" };
 describe("手机新建客户", () => {
   it("外贸：电话、WhatsApp、邮箱至少一个；只有邮箱的按邮箱认，电话空着", async () => {
     const { 库, 状态 } = await 新手机(外贸);
-    await expect(手机.新建客户(机, 库, 状态, { name: "Acme" })).rejects.toThrow("电话 / WhatsApp / 邮箱 / 微信至少填一个");
+    await expect(手机.新建客户(机, 库, 状态, { name: "Acme" })).rejects.toThrow("电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个");
     await expect(手机.新建客户(机, 库, 状态, { name: "   ", email: "a@b.co" })).rejects.toThrow("请填写名字");
     await expect(手机.新建客户(机, 库, 状态, { name: "Acme", email: "不是邮箱" })).rejects.toThrow("邮箱格式不对");
     await expect(手机.新建客户(机, 库, 状态, { name: "Acme", whatsapp: "abc123" })).rejects.toThrow("WhatsApp");
