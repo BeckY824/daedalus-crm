@@ -80,6 +80,9 @@ export function 同步闸(t: { active: boolean }, plan: { paidUntil: Date | null
   return null;
 }
 
+/** 一个团队最多几个人：运营台开通 / 改人数最多填这么多；没设人数的老团队入队也按这个拦（2026-10-21 原来另有一道写死的 20 人，开 30 人的团队第 21 个进不来） */
+export const 最多人数 = 100;
+
 /** 席位满了那句话（入队、批准新设备、桌面端设置页同一句；2026-10-19 拍板要拦，见 tenant/team-plan.ts 席位闸） */
 export const 人满话 = (n: number) => `团队人数已满（${n} 人），要加人请私信我们`;
 

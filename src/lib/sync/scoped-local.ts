@@ -279,6 +279,8 @@ export function 归一化范围行(e: 改动, current: 范围索引, authorized:
 
 /** 一包范围密文不合规（元数据对不上、关系链指向不可见记录）：确定性错误，重试也不会好，接收端跳过并记下。 */
 export class 范围包错误 extends Error {}
+/** 记录（或它的上级）不在本机这一轮的目录里：可能是取目录之后才新建的，下一轮拿新目录再拉（见 scope-policy 还等吗） */
+export class 范围包未到 extends 范围包错误 {}
 export type 拉到的范围包 = { seq: number; device: string; eventId: string; meta: 范围元数据; data: string };
 /**
  * 接收端逐项核对（服务端没有钥匙，只能在这里验）：
@@ -299,11 +301,11 @@ export function 验收范围包(b: 拉到的范围包, keys: 钥匙环, teamId: 
   // 删除包只是墓碑：不许夹带整行 / 改动列（服务端会把删除包下发给改归属之后才获权的人，见 给范围拉取）
   if (inner.change.o === 'D' && (inner.change.r != null || (inner.change.c ?? []).length)) throw new 范围包错误('删除包不能带内容');
   const key = 行键(b.meta.t, b.meta.k);
-  if (!current || !allowed.has(key)) throw new 范围包错误('该记录不在本机同步范围内');
+  if (!current || !allowed.has(key)) throw new 范围包未到('该记录不在本机同步范围内');
   const e = 归一化范围行(inner.change, current, allowed);
   if (e.o !== 'D' && e.r) for (const [field, table] of Object.entries(范围父表[e.t] ?? {})) {
     const v = e.r[field];
-    if (v != null && !allowed.has(行键(table, String(v)))) throw new 范围包错误(`关联的${table}不在本机同步范围内`);
+    if (v != null && !allowed.has(行键(table, String(v)))) throw new 范围包未到(`关联的${table}不在本机同步范围内`);
   }
   return e;
 }
