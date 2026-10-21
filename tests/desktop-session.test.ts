@@ -144,46 +144,101 @@ describe("本地模式下 /login 是云端账号的门", () => {
     const { default: DesktopAuth } = await import("@/app/login/DesktopAuth");
     const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { type: unknown; props: Record<string, unknown> };
     expect(el.type).toBe(DesktopAuth);
-    expect(typeof el.props.应用内注册).toBe("boolean");
+    expect(typeof (el.props.策略 as { inApp: unknown }).inApp).toBe("boolean");
     expect(el.props.注册地址).toContain("/signup?from=desktop");
   });
 
   /*
     2026-10-21 客户反馈「下载后无法注册，没有注册的按键」：国内第一次打开时问云端 policy 超时，
     原来按「不收注册」画，新邮箱点继续直接去输密码，只能撞「账号或密码不对」。
-    没问到 ≠ 不收注册：入口照样摆出来，点继续时云端会再答一次
+    没问到 ≠ 不收注册：入口照样摆出来，点继续时云端会再答一次。
+    而且登录页不再等这一问才出页：先照这次启动问到过的画，DesktopAuth 出来以后在后台问
   */
-  it("问不到云端（连不上 / 超时）：注册入口照样在，不变成只能登录", async () => {
+  const 不该跳 = () =>
     vi.doMock("next/navigation", () => ({
       redirect: () => {
         throw new Error("没令牌不该跳");
       },
     }));
-    const { default: LoginPage } = await import("@/app/login/page");
-    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
-    expect(el.props.可注册).toBe(true);
-    expect(el.props.应用内注册).toBe(true);
-  });
-
-  it("云端明确回错（老服务端 404）：才按不收注册算，只留登录", async () => {
-    const 服务 = http.createServer((_req, res) => {
-      res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "这个部署没有账号体系" }));
-    });
+  /** 起一个假云端，回答由 回 决定；不调 res.end 就是一直不回话 */
+  async function 假云端(回: (res: http.ServerResponse) => void) {
+    const 服务 = http.createServer((_req, res) => 回(res));
     await new Promise<void>((ok) => 服务.listen(0, "127.0.0.1", ok));
     process.env.CRM_CLOUD_URL = `http://127.0.0.1:${(服务.address() as { port: number }).port}`;
+    return () => {
+      服务.closeAllConnections();
+      服务.close();
+    };
+  }
+  const 回 = (status: number, body: unknown) => (res: http.ServerResponse) => {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(body));
+  };
+
+  it("问不到云端（连不上）：注册入口照样在，不变成只能登录", async () => {
+    不该跳();
+    const { default: LoginPage } = await import("@/app/login/page");
+    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+    expect(el.props.策略).toEqual({ register: true, reset: true, inApp: true });
+  });
+
+  it("云端一直不回话：登录页、找回密码页不等它，马上出页", async () => {
+    const 关 = await 假云端(() => {});
     try {
-      vi.doMock("next/navigation", () => ({
-        redirect: () => {
-          throw new Error("没令牌不该跳");
-        },
-      }));
+      不该跳();
+      const { default: LoginPage } = await import("@/app/login/page");
+      const { default: ForgotPage } = await import("@/app/forgot/page");
+      const 起 = Date.now();
+      const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+      const 找回 = (await ForgotPage()) as { props: Record<string, unknown> };
+      expect(Date.now() - 起).toBeLessThan(1000);
+      expect(el.props.策略).toEqual({ register: true, reset: true, inApp: true });
+      expect(找回.props.策略).toEqual({ register: true, reset: true, inApp: true });
+    } finally {
+      关();
+    }
+  });
+
+  it("云端 502 / 503（发版重启时 Caddy 回的）：不算不收注册", async () => {
+    for (const status of [502, 503]) {
+      const 关 = await 假云端(回(status, { error: "bad gateway" }));
+      try {
+        vi.resetModules();
+        const { 策略 } = await import("@/lib/desktop/cloud");
+        expect(await 策略(), String(status)).toEqual({ register: true, reset: true, inApp: true });
+      } finally {
+        关();
+      }
+    }
+  });
+
+  it("云端回 404（老服务端、没有账号体系）：才按不收注册算，登录页之后照这份画", async () => {
+    const 关 = await 假云端(回(404, { error: "这个部署没有账号体系" }));
+    try {
+      不该跳();
+      const { 策略 } = await import("@/lib/desktop/cloud");
+      expect(await 策略()).toEqual({ register: false, reset: false, inApp: false });
       const { default: LoginPage } = await import("@/app/login/page");
       const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
-      expect(el.props.可注册).toBe(false);
-      expect(el.props.应用内注册).toBe(false);
+      expect(el.props.策略).toEqual({ register: false, reset: false, inApp: false });
     } finally {
-      服务.close();
+      关();
+    }
+  });
+
+  it("问到过一次：之后云端再问不到，也照问到的那份，不跳回都开着", async () => {
+    let 第几次 = 0;
+    const 关 = await 假云端((res) => {
+      if (++第几次 === 1) return 回(200, { register: false, reset: true, inApp: true })(res);
+      回(502, { error: "bad gateway" })(res);
+    });
+    try {
+      const { 策略, 上次策略 } = await import("@/lib/desktop/cloud");
+      expect(await 策略()).toEqual({ register: false, reset: true, inApp: true });
+      expect(await 策略()).toEqual({ register: false, reset: true, inApp: true });
+      expect(上次策略()).toEqual({ register: false, reset: true, inApp: true });
+    } finally {
+      关();
     }
   });
 

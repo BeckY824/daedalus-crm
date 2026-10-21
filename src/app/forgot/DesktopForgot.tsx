@@ -9,6 +9,8 @@ import OtpInput from "@/components/OtpInput";
 import { useMotionTheme } from "@/components/MotionTheme";
 import AuthSide from "@/app/login/AuthSide";
 import { 发送重置码, 重置密码, 核对重置码 } from "./actions";
+import { useCloudPolicy } from "@/app/login/use-policy";
+import type { 云端策略 } from "@/lib/desktop/cloud";
 
 /**
  * 桌面端的找回密码（2026-10-03）：和登录页同一扇门——左栏一样，右边一步一屏。
@@ -23,7 +25,9 @@ type 步 = "邮箱" | "验证码" | "设密码" | "改好了";
 
 const 重发冷却秒 = 60;
 
-export default function DesktopForgot({ 可用 }: { 可用: boolean }) {
+export default function DesktopForgot({ 策略: 初始策略 }: { 策略: 云端策略 }) {
+  // 先照这次启动问到过的画，出页以后后台再问一次云端（2026-10-21，同登录页）
+  const 可用 = useCloudPolicy(初始策略).reset;
   const { 曲线, 时长 } = useMotionTheme();
   const 少动 = useReducedMotion();
   const 秒 = (t: number) => (少动 ? 0 : t);

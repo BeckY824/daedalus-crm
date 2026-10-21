@@ -6,7 +6,7 @@ import DesktopAuth from "./DesktopAuth";
 import { 能找回密码 } from "@/lib/tenant/password-reset";
 import { multiTenant } from "@/lib/tenant/context";
 import { 自助注册已关闭 } from "@/lib/tenant/signup-policy";
-import { 本地模式, 读 as 读云端凭据, 策略, 云端地址 } from "@/lib/desktop/cloud";
+import { 本地模式, 读 as 读云端凭据, 上次策略, 云端地址 } from "@/lib/desktop/cloud";
 import { 停用了 } from "@/lib/desktop/disabled-text";
 
 /**
@@ -32,7 +32,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   /**
    * 桌面端本地模式：这一页就是**云端账号**的门（2026-09-17 起桌面端只有这一套身份）。
    * 手上有令牌的人不该停在这里——走自动登录那条路，和壳启动时同一个路由。
-   * 画哪几个入口由云端说了算：注册收不收、能不能自助找回，问一次 /api/account/policy。
+   * 画哪几个入口由云端说了算：注册收不收、能不能自助找回，问 /api/account/policy。
+   * 这一问不挡出页（2026-10-21）：国内第一次打开时它常常几秒回不来，原来整扇窗跟着白等。
+   * 先照这次启动问到过的画（没问到过就都开着），DesktopAuth 出来以后在后台再问。
    */
   if (本地模式()) {
     /*
@@ -43,16 +45,13 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     if (读云端凭据() && process.env.DESKTOP_TOKEN && !sp.reason && 是本机地址(头.get("host")) && 来自壳(头.get("x-desktop-token"))) {
       redirect(`/api/desktop/session?t=${encodeURIComponent(process.env.DESKTOP_TOKEN)}`);
     }
-    const p = await 策略();
     /*
       桌面端一律是新的门（毛玻璃原型的登录页，2026-10-03 用户：照原型做，不留原来那张）。
       云端还没有应用内注册的接口时（托管版没部署到这一版），新邮箱那一步改成开浏览器去注册，不退回老页面
     */
     return (
       <DesktopAuth
-        可找回密码={p.reset}
-        可注册={p.register}
-        应用内注册={p.inApp}
+        策略={上次策略()}
         注册地址={`${云端地址()}/signup?from=desktop`}
         提示={sp.reason ? 原因文案[sp.reason] : undefined}
       />

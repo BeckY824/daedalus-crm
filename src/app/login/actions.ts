@@ -14,7 +14,7 @@ import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP
 import { multiTenant } from "@/lib/tenant/context";
 import { verifyAccount } from "@/lib/tenant/accounts";
 import { accessibleWorkspacesFor } from "@/lib/tenant/workspace-access";
-import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, 核对验证码 as 云端核对验证码, type 注册去向 } from "@/lib/desktop/cloud";
+import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, 核对验证码 as 云端核对验证码, 策略 as 云端策略, type 注册去向 } from "@/lib/desktop/cloud";
 
 export type LoginResult =
   | { ok: true; 换账号?: boolean; 选工作区?: boolean }
@@ -187,6 +187,15 @@ async function 该用的名字(本机名字: string, 云端名字: string): Prom
   const 人改过 = 上次 != null && 本机名字 !== 上次;
   await setSetting(同步名字键, 云端名字);
   return 人改过 ? 本机名字 : 云端名字;
+}
+
+/**
+ * 登录页、找回密码页出来以后在后台问云端开着哪几条路（2026-10-21）。
+ * 原来这一问挡在出页前面，国内第一次打开时整扇窗要白等好几秒。
+ */
+export async function 桌面端策略() {
+  if (!本地模式()) return null;
+  return 云端策略();
 }
 
 /**
