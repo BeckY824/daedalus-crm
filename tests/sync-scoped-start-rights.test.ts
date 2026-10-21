@@ -251,6 +251,7 @@ it("删除之后又来 60 条字段钟更早的改动：删除包照样下发（
   const rb = await control.syncScopedRecord.findUniqueOrThrow({ where: { teamId_key: { teamId: team, key: "FollowUp:d3-b" } } });
   const mb = JSON.parse(rb.metadata) as 范围索引; delete mb.delSeq;
   await control.syncScopedRecord.update({ where: { teamId_key: { teamId: team, key: "FollowUp:d3-b" } }, data: { metadata: JSON.stringify(mb) } });
+  (await import("@/lib/tenant/scoped-index")).清索引缓存(team); // 直接改了库，缓存不知道
   // 交给 zhao：两条跟进都只给删除包，旧改动一条不给
   await 推事件("li", [改("Customer", "d3", { salesOwnerId: A("zhao") })], [快照("Customer", "d3", { salesOwnerId: A("zhao") })]);
   const got = await 拉("zhao", "Customer:d3");
