@@ -197,7 +197,7 @@ describe("索引缓存：空转不拉、只拉变了的、目录只发变了的"
     await 都轮("li", "zhao");
     expect(记数.li.pull).toBe(0);
     expect(await db("zhao").customer.count()).toBe(起 + 250);
-  });
+  }, 120_000); // Windows 打包机慢，逐条建 250 位客户就要 20 秒以上
 
   it("老服务端不认 pull-many：退回一个范围一个请求，照样拉齐", async () => {
     for (let i = 0; i < 5; i++) await db("boss").customer.create({ data: { id: `c-old-srv${i}`, name: `老服务端${i}`, phone: `1370000000${i}`, salesOwnerId: A("boss") } });
