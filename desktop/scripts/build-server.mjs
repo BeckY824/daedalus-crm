@@ -299,7 +299,9 @@ console.log(`  删掉 ${控删} 个，省下 ${(控省 / 1024 / 1024).toFixed(0)
 
   - sharp 图片处理库（node_modules/sharp + @img/*）：Mac 是 27 MB 的原生库，Windows 是 10 MB 的 wasm 版。
     它只在有人请求 /_next/image 时才加载，而全项目没有一处用 next/image；next.config.ts 也设了
-    images.unoptimized，那条路本身就不走了
+    images.unoptimized，那条路本身就不走了。
+    10-21 起服务器认名片（src/lib/card-scan/server/worker.ts）也用 sharp，但那是云端容器里的 ocr-server/worker.mjs，
+    桌面端不带 ocr-server（next.config 不追它，第 5 步也删了 public/ocr），手机扫名片走的是云端，本地服务用不上
   - *.nft.json：next build 记依赖用的追踪清单（119 个，14 MB），standalone 服务运行时一次都不读
   - *.map：source map（135 个，15 MB，大头是 Prisma 运行时自带的）。本地服务没开 --enable-source-maps，
     崩溃日志也不靠它还原
