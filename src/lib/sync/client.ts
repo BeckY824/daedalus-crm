@@ -15,8 +15,8 @@ import { 团队身份id } from "../desktop/me";
 import { 对齐我的名字 } from "../desktop/my-name";
 import { 改身份, 建同步表, 装触发器, 卸触发器, 记全量, 待推, 记已推, 回放, 装了吗, 只留自己的, 没同步上, 本机结构签名, type 改动 } from "./local";
 import { createHmac } from "node:crypto";
-import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 主字段, type 拉到的范围包 } from "./scoped-local";
-import { 提取范围, 行键, 范围字段, type 范围索引 } from "./scope-policy";
+import { 范围快照, 记录快照, 清理失权副本, 转为范围冲突, 范围冲突数, 验收范围包, 范围包错误, 范围包未到, 主字段, type 拉到的范围包 } from "./scoped-local";
+import { 提取范围, 行键, 范围字段, 还等吗, type 范围索引, type 卡住的范围 } from "./scope-policy";
 import { 同步表 } from "./tables";
 import { 报查重 } from "./dedupe-client";
 import { 封范围, 规范串 } from "./crypto";
@@ -78,6 +78,8 @@ export type 范围配置 = {
   snapshotPending?: string[];
   /** 确定性坏包（元数据不符、父链指向不可见记录）跳过了多少 */
   skipped?: number;
+  /** 哪些范围这一轮停在「目录里还没有」的那一包前面、等了几轮（scope-policy 还等吗） */
+  held?: 卡住的范围;
   /**
    * 上一轮清理：删了多少失权副本、转成冲突几条、AI 历史里可能还提到失权客户的条数（不删，只提示）；
    * 擦净 = 删完之后整库重建、WAL 截断成功（库文件字节里不留删掉的行），false = 下一轮清理先补擦
@@ -1122,6 +1124,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     if (!owner) cleaned = await 看全部(() => 清理失权副本(prisma, allowed));
     const cursors: 范围配置["cursors"] = {};
     let 拉 = 0, 撞 = 0, skipped = c.scoped?.skipped ?? 0;
+    const held: 卡住的范围 = {};
     for (const s of scopes) {
       const cur = c.scoped?.cursors?.[s.id];
       let after = cur && cur.revision >= s.revision ? cur.after : 0;
@@ -1134,21 +1137,29 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
         }
         const batches = (r.json.batches as 拉到的范围包[]) ?? [];
         const 收: 改动[] = [];
+        let 停在: number | null = null;
         for (const b of batches) {
           try { 收.push(验收范围包(b, 全部钥匙(c), teamId, index.get(行键(b.meta.t, b.meta.k)), allowed)); }
-          catch (e) { if (e instanceof 范围包错误) { skipped++; continue; } throw e; }
+          catch (e) {
+            // 这一轮目录里还没有它：这个范围停在它前面，下一轮拿新目录再拉（连等几轮还没有才当坏包跳过）
+            const 等 = e instanceof 范围包未到 ? 还等吗(c.scoped?.held, s.id, b.seq) : null;
+            if (等) { held[s.id] = 等; 停在 = b.seq; break; }
+            if (e instanceof 范围包错误) { skipped++; continue; }
+            throw e;
+          }
         }
         if (收.length) { const x = await 回放(prisma, 收, c.device); 拉 += x.应用; 撞 += x.撞; }
-        if (batches.length) after = batches[batches.length - 1].seq;
+        const 到 = 停在 == null ? batches : batches.filter((b) => b.seq < 停在);
+        if (到.length) after = 到[到.length - 1].seq;
         cursors[s.id] = { after, revision: s.revision };
         记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready", cursors: {} }), cursors: { ...cursors } } });
-        if (!r.json.more || !batches.length) break; // 同上：没前进就不再要同一页
+        if (停在 != null || !r.json.more || !batches.length) break; // 同上：没前进就不再要同一页
       }
     }
     // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
     const 补删 = await 照目录补删除(index.values(), c.device);
     拉 += 补删;
-    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, cleaned }, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推: p.推, 拉, 撞 } });
+    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned }, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推: p.推, 拉, 撞 } });
     /*
       老板那台补起点：目录里的 needBaseline = 改过归属、有业务员看得到、却还没有改归属之后起点的记录
       （交出去的人是旧版本客户端、起点太大没跟转交一起推、推完转交就断了……）。老板收全队、刚拉齐，永远有权写，由它补上；

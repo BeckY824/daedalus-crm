@@ -33,7 +33,7 @@ const 子表: [表: string, 主键: string][] = [
 /** 留 空着时用 并 补上的列。推荐关系五列是一组：留 一样都没有才整组补（拆开补会对不上推荐链） */
 const 补的列 = ["phone", "school", "grade", "major", "remark"];
 const 推荐组 = ["channelId", "referrerCustomerId", "attributionChannelId", "attributionCustomerId", "channelOwnerId"];
-const 档案列 = ["country", "whatsapp", "wechat", "email", "source", "level", "website"];
+const 档案列 = ["country", "whatsapp", "wechat", "email", "source", "level", "website", "alibabaId"];
 const 一位一行 = ["CustomerPool", "CustomerClaim", "CustomerExtra"];
 
 const 引 = (s: string) => `"${s.replace(/"/g, '""')}"`;

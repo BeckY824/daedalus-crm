@@ -12,6 +12,7 @@
 import { useEffect, useState } from "react";
 import { App } from "antd";
 import { ToolCard, Ref } from "./ResearchCard";
+import { AutoStart } from "./ResearchRun";
 import { useJob, clearJob } from "@/lib/ai-jobs";
 import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
 import { 背调价目, 认号码动作 } from "@/lib/research/actions";
@@ -33,6 +34,7 @@ export default function ResearchPerson({
   onAsCompany,
   onCancel,
   任务去,
+  直接开跑,
 }: {
   jobKey: string;
   名?: string;
@@ -44,11 +46,14 @@ export default function ResearchPerson({
   onAsCompany?: (公司: string) => void;
   onCancel?: () => void;
   任务去?: string;
+  /** 客户页点「背调」、档案里没公司只有电话：点按钮本身就是确认（10-16 用户），不再出确认卡 */
+  直接开跑?: boolean;
 }) {
   const job = useJob<StreamJob<找人答案>>(jobKey);
   const running = job?.status === "loading";
   const s = job?.value?.answer?.research ?? job?.value?.research;
   const 开跑 = () => runStream<找人答案>(jobKey, { mode: "research", person: { name: 名, phone: 电话 }, need: 需求 }, undefined, { 名: `找 ${名 || 电话} 的公司`.slice(0, 18), 去: 任务去 });
+  if (!job && 直接开跑) return <AutoStart jobKey={jobKey} onStart={开跑} text={`开始找 ${名 || 电话} 的公司…`} />;
   if (!job) return <Confirm 名={名} 电话={电话} onStart={开跑} onAsCompany={onAsCompany} onCancel={onCancel} />;
   if (!s?.人) return job.status === "error" ? <div className="rs-err">{job.error}</div> : <div className="rs-confirm"><span className="rs-confirm-t">开始找公司…</span></div>;
   const runId = job.value?.answer?.runId;

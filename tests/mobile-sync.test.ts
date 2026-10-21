@@ -86,7 +86,12 @@ async function 调中转(a: string, 方法: string, 路径: string, body: unknow
   return { 状态: 404, json: { error: `fake: ${路径}` } };
 }
 const 桌面传: 传输 = (方法, 路径, body) => 调中转(账号[临时.谁], 方法, 路径, body);
-const 手机传: 手机.传输 = (方法, 路径, body) => 调中转(账号.li, 方法, 路径, body);
+/** 测试里插手：给手机一份旧目录（取目录之后、拉取之前电脑上新记了东西） */
+let 手机旧目录: Record<string, unknown> | null = null;
+const 手机传: 手机.传输 = async (方法, 路径, body) => {
+  if (手机旧目录 && 路径.includes("/api/sync/scoped") && (body as Record<string, unknown>)?.action === "directory") { const d = 手机旧目录; 手机旧目录 = null; return { 状态: 200, json: d }; }
+  return 调中转(账号.li, 方法, 路径, body);
+};
 
 async function 清空(d: PrismaClient) {
   for (const t of ["AiMessage", "AiConversation", "AiProject", "Setting", "AuditLog", "ImportRow", "ImportBatch", "Task", "FollowPlan", "FollowUpSource", "FollowUp", "Contract", "Opportunity", "Contact", "UnassignedContact", "Lead", "CustomerClaim", "CustomerPool"]) await d.$executeRawUnsafe(`DELETE FROM "${t}"`);
@@ -206,6 +211,19 @@ describe("手机端同步：和真实桌面端一起", () => {
     await 手机轮();
     expect(await 手机有("FollowUp", "f-li-2")).toMatchObject({ content: "发了修改后的报价单", type: "EMAIL" });
     expect(await 手机有("Customer", "c-li")).toMatchObject({ name: "Atlas Home Supplies Inc." });
+  });
+
+  it("手机取目录之后、拉取之前电脑上又记了一条跟进：这一轮先不收、不跳过，下一轮补上（2026-10-21 压测）", async () => {
+    const 旧 = await scoped.范围目录(账号.li, 机.teamId);
+    const 跳过 = 状态.skipped;
+    await db("li").followUp.create({ data: { id: "f-li-race", customerId: "c-li", ownerId: A("li"), type: "PHONE", title: "", content: "拉取途中记的" } });
+    await 都轮("li");
+    手机旧目录 = JSON.parse(JSON.stringify(旧));
+    await 手机轮();
+    expect(手机旧目录).toBeNull();
+    await 手机轮();
+    expect(await 手机有("FollowUp", "f-li-race")).toMatchObject({ content: "拉取途中记的" });
+    expect(状态.skipped).toBe(跳过);
   });
 
   it("断网时记的、推之前客户被老板转走：推上去被拒，进「被拒」，不悄悄丢；客户从手机上消失", async () => {

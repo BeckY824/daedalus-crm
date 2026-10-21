@@ -157,8 +157,13 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     for (const [i, { packet, digest }] of prepared.entries()) {
       const duplicate = await tx.syncScopedBatch.findUnique({ where: { teamId_device_eventId: { teamId, device, eventId: packet.eventId } } });
       if (duplicate) {
-        // 同一事件重发必须逐字节相同；否则可借旧 eventId 换掉已授权过的密文
-        if (duplicate.metadata !== JSON.stringify(packet.meta) || duplicate.digest !== digest) fail(409, "重复事件的范围信息不一致");
+        /*
+          同一事件重发：外层元数据必须一样，密文只认第一次收下的那份，这次的不落盘——借旧 eventId 换不掉已授权过的密文。
+          不再要求密文逐字节相同（2026-10-21）：事件编号按内容算，重推时一样，但每次加密随机 IV、字节必然不同；
+          原来回包一丢，下一轮重推就永久 409「重复事件的范围信息不一致」（老板卡在迁移、业务员再也推不上去）
+        */
+        if (duplicate.metadata !== JSON.stringify(packet.meta)) fail(409, "重复事件的范围信息不一致");
+        stored++;
         continue;
       }
       const key = 行键(packet.meta.t, packet.meta.k);
@@ -192,7 +197,11 @@ export async function 收范围推送(accountId: string, teamId: string, device:
       }
       fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i), gone, Object.keys(taken).length ? taken : undefined);
     }
-    // stored = 本次新落库条数（重发的不算），客户端据此累计迁移批次数，回包丢失重试也不会重复计数
+    /*
+      stored = 这次请求里的包在中转上落着的条数（新落库的 + 这台以前推过、这次重发的），客户端据此累计迁移批次数、完成迁移时和中转对数。
+      重发的也要算（2026-10-21）：会重发只有一种情况——上一次的回包这台没收到、没记进累计数；原来重发的不算，回包丢一次
+      完成迁移就永远对不上数（「迁移批次不全」）。事件编号按内容 + 字段钟算，同一台不会有两条真的不同的改动撞编号
+    */
     return { received: packets.length, stored };
   }, { timeout: 60_000 });
 }
