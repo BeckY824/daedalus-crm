@@ -229,7 +229,7 @@ it('目录只发变了的：带上次的 token 来只拿变了的范围和看不
   // 老客户端不带设备号：全的、也不发 token
   expect(await scoped.范围目录(other, team)).not.toHaveProperty('token');
 });
-it('CRM_SCOPED_CACHE_OFF=1 回老路：目录内容和缓存给的一模一样，只是发全的、不带 token 和 head；拉取照常', async () => {
+it('CRM_SCOPED_CACHE_OFF=1 回老路：目录内容和缓存给的一模一样，只是发全的、不带 token 和 head；拉取、pull-many 照常', async () => {
   // 范围的先后不算（客户端只要求「团队」排第一）：缓存里新记录排在后面，现读按键排
   const 去掉 = (d: Record<string, unknown>) => { const { token: _t, scopes, ...x } = d; return { ...x, scopes: (scopes as { id: string; head?: number }[]).map(({ head: _h, ...y }) => y).sort((a, b) => a.id.localeCompare(b.id)) }; };
   for (const [a, d] of [[owner, 'owner-device'], [other, 'other-device']]) {
@@ -243,7 +243,11 @@ it('CRM_SCOPED_CACHE_OFF=1 回老路：目录内容和缓存给的一模一样�
       for (const x of 老路.scopes) expect(x).not.toHaveProperty('head');
       expect(去掉(老路)).toEqual(缓存的);
       const 一个 = 老路.scopes.find(x => x.id !== 'team')!;
-      expect((await scoped.给范围拉取(a, team, 一个.id as string, 0)).batches.length).toBeGreaterThan(0);
+      const 单 = await scoped.给范围拉取(a, team, 一个.id as string, 0);
+      expect(单.batches.length).toBeGreaterThan(0);
+      // pull-many 不归开关管，关着时照样能用、给的和单个拉一样
+      const 多 = await scoped.给多个范围拉取(a, team, [{ scopeId: 一个.id, after: 0 }]);
+      expect(多.scopes[0].batches?.map(b => b.seq)).toEqual(单.batches.map(b => b.seq));
     } finally { delete process.env.CRM_SCOPED_CACHE_OFF; }
   }
 });
