@@ -7,7 +7,7 @@ import { 写外贸档案 } from "@/lib/customer-extra-db";
 
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 看全部, 看得到, 限定的我 } from "@/lib/team-scope";
+import { 看全部, 看得到, 限定的我, 读的我 } from "@/lib/team-scope";
 import { 认回打码号, 查电话, 号码带着字 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import { 同邮箱条件 } from "@/lib/email-dedupe";
@@ -162,6 +162,8 @@ export async function convertLead(id: string): Promise<
 
   const 起 = await 分机留存起();
   const 我 = await 限定的我(defaultClient);
+  // 团队开了互看：同事的客户看得到、但并不过去（并 = 改那位客户）
+  const 读我 = await 读的我(defaultClient);
   const outcome = await prisma.$transaction(async (tx) => {
     // 看全部：同事的客户也算已经有了（团队版业务员，lib/team-scope.ts）
     const dup = await 看全部(async () =>
@@ -181,6 +183,8 @@ export async function convertLead(id: string): Promise<
         ok: false as const,
         error: 能并
           ? `${phone ? "电话" : "邮箱"}已经是${b.customer}「${dup.name}」（负责人：${负责人}）的${依据}，可以把这条线索并到这位${b.customer}，不用另建档案`
+          : 看得到(dup, 读我)
+          ? `${phone ? "电话" : "邮箱"}已经是同事 ${负责人} 的${b.customer}「${dup.name}」的${依据}。同事的${b.customer}只能看，并不过去：可以把线索负责人改成 ${负责人} 由他来并，或者请老板并`
           : `${phone ? "电话" : "邮箱"}已经是同事 ${负责人} 名下一位${b.customer}的${依据}。你看不到这位${b.customer}，并不过去：可以把线索负责人改成 ${负责人} 由他来并，或者请老板并`,
         撞号: { 客户名: 能并 ? dup.name : null, 负责人, customerId: 能并 ? dup.id : null, 能并 } satisfies 线索撞号,
       };

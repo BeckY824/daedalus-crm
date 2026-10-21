@@ -4,11 +4,12 @@
  */
 import { describe, expect, it } from "vitest";
 import { 拆字段, type 框 } from "@/lib/card-scan/parse";
-import { 名片转表单, 只补空格, 空名片表单, 国家名 } from "@/lib/card-scan/form";
+import { 名片转表单, 只补空格, 空名片表单, 国家名, 带译文 } from "@/lib/card-scan/form";
 import { 该换的语言 } from "@/lib/card-scan/ocr";
 import * as 手机 from "@/lib/mobile/sync";
 import 二十张 from "./fixtures/card-scan/v6tiny-20张.json";
 import 多语言 from "./fixtures/card-scan/多语言-中英第一遍.json";
+import 新增 from "./fixtures/card-scan/新增样例-最终框.json";
 
 type 样 = { id: string; truth: { name?: string[]; company?: string[]; email?: string; phones?: string[]; country?: string } | null; 框们: 框[] };
 const 拿 = (组: 样[], id: string) => 组.find((x) => x.id === id)!;
@@ -36,22 +37,49 @@ describe("拆字段：20 张样例（v6 tiny 实测输出）", () => {
 
 describe("填表", () => {
   const 英 = 拆字段(拿(二十张 as unknown as 样[], "02-en-uk").框们);
-  it("外贸：名字放公司，人名 + 职位进备注；电话手机优先，座机进备注；国家用表单里的叫法", () => {
-    const { 填, 名字候选 } = 名片转表单(英, true);
-    expect(填.name).toBe("Harbourline Lighting Ltd");
+  it("和电脑上新建客户同一套格子：姓名放人、公司 / 职位各一格；电话手机优先，座机进备注；国家用表单里的叫法", () => {
+    const { 填, 名字候选, 公司候选 } = 名片转表单(英, true);
+    expect(填.name).toBe("Oliver Bennett");
+    expect(填.school).toBe("Harbourline Lighting Ltd");
+    expect(填.grade).toBe("Purchasing Manager");
+    expect(填.major).toBe("");
     expect(填.phone).toBe("+447700900123");
     expect(填.email).toBe("oliver.bennett@harbourline.co.uk");
     expect(填.country).toBe("英国");
-    expect(填.remark).toContain("联系人：Oliver Bennett（Purchasing Manager）");
-    expect(填.remark).toContain("+442079460321");
-    expect(名字候选).toContain("Oliver Bennett");
+    expect(填.remark).toContain("座机：+442079460321");
+    expect(填.remark).not.toMatch(/联系人|Purchasing Manager|Harbourline Lighting Ltd/);
+    expect([...名字候选, ...公司候选]).toEqual([]);
   });
-  it("通用模版：名字放人名；邮箱、官网这些表单没有的格子都进备注，不丢", () => {
+  it("通用模版：公司 / 职位照样各一格；邮箱、官网这些表单没有的格子都进备注，不丢", () => {
     const { 填 } = 名片转表单(英, false);
     expect(填.name).toBe("Oliver Bennett");
+    expect(填.school).toBe("Harbourline Lighting Ltd");
     expect(填.email).toBe("");
-    expect(填.remark).toMatch(/公司：Harbourline Lighting Ltd/);
     expect(填.remark).toMatch(/邮箱：oliver\.bennett@harbourline\.co\.uk/);
+  });
+  it("档案字段不叫公司的（教培模版院校 / 年级）：公司、职位不往里填，进备注", () => {
+    const { 填 } = 名片转表单(英, false, null, false);
+    expect([填.school, 填.grade]).toEqual(["", ""]);
+    expect(填.remark).toContain("公司：Harbourline Lighting Ltd · 职位：Purchasing Manager");
+  });
+  it("没有人名的名片：姓名放公司（电脑上姓名必填）", () => {
+    const { 填 } = 名片转表单({ ...英, name: null, nameAlt: [] }, true);
+    expect(填.name).toBe("Harbourline Lighting Ltd");
+    expect(填.school).toBe("Harbourline Lighting Ltd");
+  });
+  it("AI 附加：外文写成「中文（原文）」、行业进行业格、地址带中文、名片上的其他人进备注", () => {
+    const f = { ...英, name: "이서준", company: "해담식품", title: "대리", address: "부산시 해운대구 센텀로 12" };
+    const { 填 } = 名片转表单(f, true, { 行业: "制造业", 译: { 公司: "海潭食品", 名字: "李瑞俊", 职位: "代理", 地址: "釜山市海云台区Centum路 12" }, 别的联系人: ["김철수（과장）"] });
+    expect(填.name).toBe("李瑞俊（이서준）");
+    expect(填.school).toBe("海潭食品（해담식품）");
+    expect(填.grade).toBe("代理（대리）");
+    expect(填.major).toBe("制造业");
+    expect(填.remark).toContain("地址：부산시 해운대구 센텀로 12\n（中文：釜山市海云台区Centum路 12）");
+    expect(填.remark).toContain("其他联系人：김철수（과장）");
+  });
+  it("译文和原文一样（模型抄了一遍）只留原文", () => {
+    expect(带译文("Oliver Bennett", "Oliver Bennett")).toBe("Oliver Bennett");
+    expect(带译文("Acme Ltd", "")).toBe("Acme Ltd");
   });
   it("名片上没写 WhatsApp：不自动填，给「用手机号」", () => {
     const r = 名片转表单(英, true);
@@ -83,6 +111,54 @@ describe("自动换语言（汇总 7.3）", () => {
     expect(该换的语言(拿(组, "m01-kr-local").框们)).toBe("韩");
     expect(该换的语言(拿(组, "m11-ru").框们)).toBe("西里尔");
     for (const x of (二十张 as unknown as 样[]).slice(0, 10)) expect(该换的语言(x.框们), x.id).toBeNull();
+  });
+});
+
+describe("10-20 用户反馈：WhatsApp、换成候选、备注里的标语（新增样例，演示数据）", () => {
+  const 组 = 新增 as unknown as 样[];
+  const 拆 = (id: string) => 拆字段(拿(组, id).框们);
+  it("号码下面单独一行「WhatsApp」：手机号进 WhatsApp 格、标黄；「whatsapp」不进备注", () => {
+    for (const [id, 号] of [["n06-sa-bare-wa", "+966553217788"], ["n07-th-qr-wa", "+66812345678"]]) {
+      const f = 拆(id);
+      expect(f.whatsapp, id).toBe(号);
+      expect(f.剩下.join(" "), id).not.toMatch(/whatsapp/i);
+      const r = 名片转表单(f, true);
+      expect(r.填.whatsapp, id).toBe(号);
+      expect(r.黄, id).toContain("whatsapp");
+    }
+  });
+  it("「WA +44…」「WhatsApp: +7…」：直接进 WhatsApp 格，不标黄", () => {
+    expect(拆("n11-en-uk-wa").whatsapp).toBe("+447712345678");
+    expect(拆("n10-ru-en").whatsapp).toBe("+79147008899");
+    expect(名片转表单(拆("n11-en-uk-wa"), true).黄).not.toContain("whatsapp");
+  });
+  it("没写 WhatsApp 的不硬填", () => {
+    for (const id of ["n01-kr-slogan", "n03-jp-kabushiki", "n12-en-us-cell", "n13-cn-slogan"]) expect(拆(id).whatsapp, id).toBeNull();
+  });
+  it("「换成」候选不放公司下面的小字业务说明；人名、公司各进各的格", () => {
+    for (const [id, 人, 公司] of [["n12-en-us-cell", "Michael Rodriguez", "Pacific Bay Seafood, Inc."], ["n07-th-qr-wa", "Pornchai Wongsuwan", "SIAM SEA PRODUCTS CO., LTD."]]) {
+      const r = 名片转表单(拆(id), true);
+      expect([r.填.name, r.填.school], id).toEqual([人, 公司]);
+      expect([...r.名字候选, ...r.公司候选], id).toEqual([]);
+    }
+  });
+  it("备注里不放 logo 字、标语、创立年份、号码标签残字", () => {
+    for (const x of 组)
+      expect(拆字段(x.框们).剩下, x.id).not.toEqual(expect.arrayContaining([expect.stringMatching(/^(OCEANIA|MARUSAN|HAIXIN|SIAM SEA|携带|whatsapp|WA)$/i)]));
+    expect(拆("n13-cn-slogan").剩下).toEqual([]);
+    expect(拆("n04-jp-en-since").剩下).toEqual([]);
+    expect(拆("n09-ru-slogan").剩下).toEqual([]);
+    expect(拆("n11-en-uk-wa").剩下).toEqual([]);
+  });
+  it("俄文公司前缀被认成 000 / 拉丁 AO 也认得是公司，还原成 ООО / АО", () => {
+    expect(拆("n09-ru-slogan").company).toMatch(/^ООО\s*«Северное Море»$/);
+    expect(拆("n10-ru-en").company).toBe("АО «Восток Краб»");
+  });
+  it("青岛「香港中路」不是香港：国家看邮箱 .cn", () => {
+    expect(拆("n13-cn-slogan").country).toBe("CN");
+  });
+  it("泰文「จำกัด」NFKC 后拼回原样（不变成 ํ + า）", () => {
+    expect(拆("n08-th-thai").company).toContain("จำกัด");
   });
 });
 

@@ -135,17 +135,20 @@ export function 查越权({ 库, 老板库, 我, 父表, 同步表, 含公海 = 
  * 文件层面：crm.db、crm.db-wal 的原始字节里还搜得到多少位「不该有的客户」的电话 / 名字（删掉的行可能还留在空闲页、页内空隙、WAL 里）。
  * 2026-10-14 起判红：清理失权副本 / 退出团队删完之后产品会整库重建（VACUUM）并把 WAL 截断（scoped-local 擦净删除残留），
  * 删掉的客户在库文件里一个字节都不该剩。名字是该有的某位名字的一部分（老客户1 ⊂ 老客户10）、或是该有的名字后面接数字（老客户1 + 电话 138… 在页里拼成「老客户11」）就只搜电话。
- * @param {{ 库: string, 老板库: string, 我: string, 含公海?: boolean }} o 含公海 = false：退出 / 被移出之后公海的也不该有
+ * 豁免：这台的人自己在本机录过的号码（2026-10-20 合并疑似重复：业务员录的那份和老板那份本来就是同一个号，
+ * 被合并那份删掉后号码还留在空闲页里，那是他自己敲进去的，不是从老板那边漏过来的）。
+ * @param {{ 库: string, 老板库: string, 我: string, 含公海?: boolean, 豁免?: Iterable<string> }} o 含公海 = false：退出 / 被移出之后公海的也不该有
  * @returns {{ 文件: string, 命中: string[] }[]} 命中 = 客户 id
  */
-export function 字节残留({ 库, 老板库, 我, 含公海 = true }) {
+export function 字节残留({ 库, 老板库, 我, 含公海 = true, 豁免 = [] }) {
+  const 不算 = new Set(豁免);
   const 全部 = 查库(老板库, "SELECT c.id, c.name, c.phone, c.salesOwnerId, c.channelOwnerId, (SELECT 1 FROM CustomerPool p WHERE p.customerId = c.id) AS pool FROM Customer c");
   const 该有 = (c) => c.salesOwnerId === 我 || c.channelOwnerId === 我 || (含公海 && c.pool);
   const 该有名字 = 全部.filter(该有).map((c) => c.name ?? "");
   const 词 = [];
   for (const c of 全部) {
     if (该有(c)) continue;
-    if (c.phone) 词.push([c.phone, c.id]);
+    if (c.phone && !不算.has(c.phone)) 词.push([c.phone, c.id]);
     // 库页里一行的各列是挨着存的：该有的「老客户1」后面紧跟电话 138…，字节里就拼出了「老客户11」——这种名字也只搜电话
     if (c.name && !该有名字.some((n) => n.includes(c.name) || (c.name.startsWith(n) && /^\d+$/.test(c.name.slice(n.length))))) 词.push([c.name, c.id]);
   }
