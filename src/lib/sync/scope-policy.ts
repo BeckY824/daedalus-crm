@@ -190,3 +190,17 @@ export function 推送可写(start: 范围行表, rows: 范围行表, n: 范围�
   const key = 行键(n.t, n.k);
   return 范围可写(rows.get(key), n, rows, accountId, false, 互看, 主管) || 范围可写(start.get(key), n, start, accountId, false, 互看, 主管);
 }
+
+/*
+  拉取时遇到「这一轮目录里还没有」的记录（2026-10-21 30 台压测实锤）：取目录之后、拉取之前，同事在已有的范围里新建了记录
+  （新同事的账号行在「团队」范围、老客户下新记的跟进），中转拉取时按当下算范围、把批次给了，本机这一轮的目录里还没有它。
+  原来当坏包跳过、游标越过去，以后再也不补。现在这个范围停在它前面、下一轮拿新目录再拉；同一包连等几轮还不在目录里才当坏包跳过。
+*/
+export const 未到最多等 = 3;
+export type 卡住的范围 = Record<string, { seq: number; n: number }>;
+/** 范围 scopeId 这一轮卡在 seq：还等（返回记下的次数）还是跳过（null） */
+export function 还等吗(上轮: 卡住的范围 | undefined, scopeId: string, seq: number): { seq: number; n: number } | null {
+  const p = 上轮?.[scopeId];
+  const n = p && p.seq === seq ? p.n + 1 : 1;
+  return n > 未到最多等 ? null : { seq, n };
+}

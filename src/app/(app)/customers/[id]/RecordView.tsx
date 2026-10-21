@@ -130,6 +130,11 @@ export default function RecordView({
   /** 有 WhatsApp 号：记跟进、排计划、完成小框的方式都默认 WhatsApp（2026-10-17 PR26 手测，和手机上一样） */
   const 有WhatsApp = !!档?.whatsapp?.trim();
   const 官网 = 官网网址(档?.website);
+  /** 右栏「背调」查谁（lib/research/subject.ts）：公司那一栏 + 国家 / 官网 / 电话 / WhatsApp */
+  const 背调档案 = useMemo(
+    () => ({ company: customer.school, country: 档?.country, website: 档?.website, phone: customer.phone, whatsapp: 档?.whatsapp }),
+    [customer.school, customer.phone, 档?.country, 档?.website, 档?.whatsapp],
+  );
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
   const 已签约文字 = 合计文字(customer.signedTotals ?? [{ 币种: "CNY", 合计: customer.signedAmount }]);
@@ -819,7 +824,7 @@ export default function RecordView({
           <Space orientation="vertical" size={14} style={{ width: "100%" }}>
             {aiEnabled && !AI在抽屉里 && (
               <div className="rec-card">
-                <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
+                <AiPanel customerId={customer.id} customerName={customer.name} 档案={背调档案} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
               </div>
             )}
 
@@ -889,7 +894,7 @@ export default function RecordView({
           进程内任务表上（lib/ai-jobs），不在组件 state 里，关掉再开还在那儿 */}
       {aiEnabled && AI在抽屉里 && (
         <Drawer placement="right" styles={{ wrapper: { width: 380 } }} open={AI抽屉开着} onClose={() => setAI抽屉开着(false)} title={`AI · ${customer.name}`}>
-          <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
+          <AiPanel customerId={customer.id} customerName={customer.name} 档案={背调档案} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
         </Drawer>
       )}
 
