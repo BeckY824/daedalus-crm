@@ -36,6 +36,7 @@ import { 字段表, type 字段名 } from "@/lib/import/fields";
 import { 摊开, 并重复行, 添行, type 排布 } from "@/lib/import/plan";
 import { 认人表, 分机留存起, 同号条件, 这一批同号的 } from "@/lib/phone-dedupe";
 import { 查完再写 } from "@/lib/check-then-write";
+import { 收块, 取暂存, type 一块 } from "@/lib/import/staging";
 
 /** 一次导入最多落多少条。和 parse.ts 的行数上限一致，服务端再收一道 */
 const 落库上限 = 10000;
@@ -66,7 +67,34 @@ export type 预览 = {
 export type 导入方案 = Omit<排布, "字段表"> & {
   /** 手机号已经在库里的那些行怎么办 */
   重复行: "跳过" | "补空";
+  /**
+   * 表先分块送到服务端暂存过（暂存导入表）：这里给暂存号，表头、数据、行号都从暂存里取，参数里的那几项不看。
+   * 大表整张当参数送会超过 server action 的 1 MB 上限（2026-10-21，见 lib/import/staging.ts）
+   */
+  暂存?: string;
 };
+
+/** 暂存没了（进程重启、放太久）：抽屉看到 重送 会把表重新送一遍再试，人感觉不到 */
+const 暂存过期 = { ok: false as const, error: "这份表要重新交给软件一次", 重送: true as const };
+
+/** 把暂存号换回整张表。没给暂存号就原样（测试、小表老调用） */
+function 补全(方案: 导入方案, userId: string): 导入方案 | null {
+  if (!方案.暂存) return 方案;
+  const 表 = 取暂存(userId, 方案.暂存);
+  if (!表) return null;
+  const { 暂存: _号, 行号: _旧行号, ...余 } = 方案;
+  return { ...余, 表头: 表.表头, 数据: 表.数据, ...(表.行号 ? { 行号: 表.行号 } : {}) };
+}
+
+/**
+ * 分块收表（2026-10-21）。第一块（起 = 0）带表头和总条数；每块控制在几百 KB，抽屉那边按大小切。
+ * 只收、不碰库；收齐之后 预览导入 / 分段导入 拿暂存号来取
+ */
+export async function 暂存导入表(号: string, 块: 一块, 头?: { 表头: string[]; 共: number }): Promise<{ ok: true; 收到: number } | { ok: false; error: string }> {
+  const me = await requireUser();
+  const r = 收块(me.id, 号, 块, 头);
+  return r.ok || r.error !== "暂存过期" ? r : { ok: false, error: 暂存过期.error };
+}
 
 /** ImportRow.before 里记「补之前的 updatedAt」用的键。带 @ 的不是字段，撤销时不写回去（2026-10-04 J-052） */
 const 写前键 = "@写前";
@@ -129,7 +157,7 @@ async function 导入匹配(行: ReturnType<typeof 摊开>) {
   const 微表 = 邮箱认人表(微命中.flatMap((x) => (按id.has(x.id) ? [{ 客户: 按id.get(x.id)!, 键: x.键 }] : [])), "微信号");
   const 阿表 = 邮箱认人表(阿命中.flatMap((x) => (按id.has(x.id) ? [{ 客户: 按id.get(x.id)!, 键: x.键 }] : [])), "阿里 ID");
 
-  return { 表, 邮表, 微表, 阿表, 档案们, 限定我 };
+  return { 表, 邮表, 微表, 阿表, 档案们, 限定我, 命中ids: 命中.map((c) => c.id) };
 }
 
 function 算补空(r: ReturnType<typeof 摊开>[number], 旧: { school: string | null; grade: string | null; major: string | null; expectedSignAt: Date | null; expectedSignOn: string | null; remark: string | null }, 档案?: Partial<Record<(typeof 外贸导入字段)[number], string | null>>) {
@@ -172,8 +200,10 @@ function 算补空(r: ReturnType<typeof 摊开>[number], 旧: { school: string |
 }
 
 /** 预览反映当前数据库快照；执行前数据或权限变化时，以执行结果为准。 */
-export async function 预览导入(方案: 导入方案): Promise<{ ok: true; 预览: 预览 } | { ok: false; error: string }> {
-  await requireUser();
+export async function 预览导入(原方案: 导入方案): Promise<{ ok: true; 预览: 预览 } | { ok: false; error: string; 重送?: true }> {
+  const me = await requireUser();
+  const 方案 = 补全(原方案, me.id);
+  if (!方案) return 暂存过期;
   const { 行, 合掉几行 } = await 排好(方案);
   if (行.length > 落库上限) return { ok: false, error: `一次最多导 ${落库上限} 行，这份表有 ${行.length} 行` };
 
@@ -252,34 +282,29 @@ export async function 预览导入(方案: 导入方案): Promise<{ ok: true; �
 
 export type 导入结果 = { ok: true; batchId: string; 新建: number; 补空: number; 跳过: number; 进不了: number } | { ok: false; error: string };
 
-/**
- * 真正落库。一个批次号，整批可撤销。
- *
- * **不放在一个大事务里。** 一万行一个事务在 SQLite 上会把写锁攥住好几秒，
- * 而桌面端那个库同一个进程里还有别的查询在跑。改成一条一条写、
- * 批次表先建好：中途失败的话，已经写进去的那些仍然挂在这个批次上，
- * 人照样能一键撤销——这比「要么全成要么全不成」更符合实际
- * （全不成的那一版里，失败发生在第 9000 行时人什么都拿不到）。
- */
-export async function 执行导入(方案: 导入方案, fileName: string): Promise<导入结果> {
-  const me = await requireUser();
-  const { b, 行 } = await 排好(方案);
-  if (行.length > 落库上限) return { ok: false, error: `一次最多导 ${落库上限} 行，这份表有 ${行.length} 行` };
+type 排好的行 = Awaited<ReturnType<typeof 排好>>["行"];
+type 落库现场 = { batchId: string; 重复行: 导入方案["重复行"]; salesOwnerId: string; 渠道: Map<string, string> };
+type 几条 = { 新建: number; 补空: number; 跳过: number; 进不了: number };
 
+async function 落库准备(行: 排好的行, me: Awaited<ReturnType<typeof requireUser>>) {
   const salesOwnerId = await 唯一负责人() ?? me.id;
-
   // 渠道名 → id。对不上的在 排好 里已经留空、并进备注、预览里标过了
   const 渠道名单 = [...new Set(行.map((r) => r.值.channelName).filter(Boolean) as string[])];
   const 渠道 = new Map(
     (await prisma.channel.findMany({ where: { name: { in: 渠道名单 } }, select: { id: true, name: true } })).map((c) => [c.name, c.id]),
   );
+  return { salesOwnerId, 渠道 };
+}
 
-  const { 表, 邮表, 微表, 阿表, 档案们, 限定我 } = await 导入匹配(行);
-
-  const batch = await prisma.importBatch.create({
-    data: { userId: me.id, userName: me.name, fileName: fileName.slice(0, 200), created: 0, updated: 0, skipped: 0, failed: 0 },
-  });
-
+/**
+ * 把这几行写进库，挂在 现场.batchId 这一批上。认人表按这几行现查：前面几段刚建的也认得出来。
+ * 接着导（续上断掉的那一段）时，这一批自己已经写过的那几位跳过、不重复计数
+ */
+async function 落这些行(现场: 落库现场, 行: 排好的行, 续接 = false): Promise<几条> {
+  const { 表, 邮表, 微表, 阿表, 档案们, 限定我, 命中ids } = await 导入匹配(行);
+  const 本批写过 = new Set(
+    续接 ? (await prisma.importRow.findMany({ where: { batchId: 现场.batchId, customerId: { in: 命中ids } }, select: { customerId: true } })).map((x) => x.customerId) : [],
+  );
   let 新建 = 0;
   let 补空 = 0;
   let 跳过 = 0;
@@ -309,13 +334,15 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
       continue;
     }
     const 旧 = 认.旧;
+    // 接着导（分段导入断了又续上）：上一趟这一批自己已经写过这位，算过了，不再记一次跳过
+    if (旧 && 本批写过.has(旧.id)) continue;
 
     if (旧 && !看得到(旧 as { salesOwnerId: string | null }, 限定我)) {
       跳过++;
       continue;
     }
     if (旧) {
-      if (方案.重复行 !== "补空") {
+      if (现场.重复行 !== "补空") {
         跳过++;
         continue;
       }
@@ -334,13 +361,13 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
         塞在 before 里而不是加一列：不用为一个时刻动迁移；撤销只认 补空字段名单 里的键，不会把它当字段写回去
       */
       await prisma.importRow.create({
-        data: { batchId: batch.id, customerId: 旧.id, kind: "update", before: JSON.stringify({ ...before, [写前键]: 旧.updatedAt.toISOString() }), writtenAt: 写后.updatedAt },
+        data: { batchId: 现场.batchId, customerId: 旧.id, kind: "update", before: JSON.stringify({ ...before, [写前键]: 旧.updatedAt.toISOString() }), writtenAt: 写后.updatedAt },
       });
       补空++;
       continue;
     }
 
-    const channelId = r.值.channelName ? (渠道.get(r.值.channelName) ?? null) : null;
+    const channelId = r.值.channelName ? (现场.渠道.get(r.值.channelName) ?? null) : null;
     const attribution = await resolveAttribution({ channelId, referrerCustomerId: null });
     try {
       /*
@@ -362,13 +389,13 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
             expectedSignAt: parseSignDate(r.值.expectedSignAt)!.at,
             expectedSignOn: parseSignDate(r.值.expectedSignAt)!.on,
             remark: r.值.remark ?? null,
-            salesOwnerId,
+            salesOwnerId: 现场.salesOwnerId,
             referrerCustomerId: null,
             ...attribution,
           },
         });
         await 写外贸档案(tx, c.id, Object.fromEntries(外贸导入字段.filter((k) => r.值[k]).map((k) => [k, r.值[k]!])), false);
-        await tx.importRow.create({ data: { batchId: batch.id, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
+        await tx.importRow.create({ data: { batchId: 现场.batchId, customerId: c.id, kind: "create", writtenAt: c.updatedAt } });
         return c;
       });
       // 另一个窗口刚建了这个号码：算已在库里、跳过，不另建一份
@@ -389,18 +416,115 @@ export async function 执行导入(方案: 导入方案, fileName: string): Prom
     }
   }
 
-  await prisma.importBatch.update({ where: { id: batch.id }, data: { created: 新建, updated: 补空, skipped: 跳过, failed: 进不了 } });
+  return { 新建, 补空, 跳过, 进不了 };
+}
+
+async function 记一笔(me: Awaited<ReturnType<typeof requireUser>>, 客户叫法: string, batchId: string, fileName: string, n: 几条) {
   await recordAudit({
     user: me,
     action: "import",
     entity: "Customer",
-    entityId: batch.id,
-    summary: `从「${fileName}」导入${b.customer}：新建 ${新建} 条，补空 ${补空} 条，跳过 ${跳过} 条，${进不了} 条没进来`,
-    detail: { batchId: batch.id, fileName, 新建, 补空, 跳过, 进不了 },
+    entityId: batchId,
+    summary: `从「${fileName}」导入${客户叫法}：新建 ${n.新建} 条，补空 ${n.补空} 条，跳过 ${n.跳过} 条，${n.进不了} 条没进来`,
+    detail: { batchId, fileName, ...n },
   });
   revalidatePath("/customers");
   revalidatePath("/dashboard");
-  return { ok: true, batchId: batch.id, 新建, 补空, 跳过, 进不了 };
+}
+
+/**
+ * 真正落库。一个批次号，整批可撤销。
+ *
+ * **不放在一个大事务里。** 一万行一个事务在 SQLite 上会把写锁攥住好几秒，
+ * 而桌面端那个库同一个进程里还有别的查询在跑。改成一条一条写、
+ * 批次表先建好：中途失败的话，已经写进去的那些仍然挂在这个批次上，
+ * 人照样能一键撤销——这比「要么全成要么全不成」更符合实际
+ * （全不成的那一版里，失败发生在第 9000 行时人什么都拿不到）。
+ *
+ * 一趟写完整张表。导入抽屉走的是 分段导入（带进度、断了能接着导）；这个留给测试和小表
+ */
+export async function 执行导入(原方案: 导入方案, fileName: string): Promise<导入结果> {
+  const me = await requireUser();
+  const 方案 = 补全(原方案, me.id);
+  if (!方案) return 暂存过期;
+  const { b, 行 } = await 排好(方案);
+  if (行.length > 落库上限) return { ok: false, error: `一次最多导 ${落库上限} 行，这份表有 ${行.length} 行` };
+
+  const 准备 = await 落库准备(行, me);
+  const batch = await prisma.importBatch.create({
+    data: { userId: me.id, userName: me.name, fileName: fileName.slice(0, 200), created: 0, updated: 0, skipped: 0, failed: 0 },
+  });
+  const n = await 落这些行({ ...准备, batchId: batch.id, 重复行: 方案.重复行 }, 行);
+  await prisma.importBatch.update({ where: { id: batch.id }, data: { created: n.新建, updated: n.补空, skipped: n.跳过, failed: n.进不了 } });
+  await 记一笔(me, b.customer, batch.id, fileName, n);
+  return { ok: true, batchId: batch.id, ...n };
+}
+
+/**
+ * 分段导入每一趟干多久就回话：抽屉拿回话更新进度条。一趟里再按 每片 行分着认人、写库。
+ * 测试里用环境变量调短，好走到多趟
+ */
+const 每趟最长 = () => Number(process.env.IMPORT_SEGMENT_MS) || 2000;
+const 每片 = 200;
+
+export type 分段结果 =
+  | { ok: true; batchId: string; 新建: number; 补空: number; 跳过: number; 进不了: number; 下一个: number | null; 共: number }
+  | { ok: false; error: string; 重送?: true };
+
+/**
+ * 一段一段导（2026-10-21 用户放行：一次导上万条、带进度）。
+ *
+ * 抽屉从 起 = 0 开始调，每趟写约 2 秒就回话（下一个 = 接着从哪条来，null = 写完了），再带着 batchId 和 下一个 调下一趟。
+ * 合并同号行、对渠道（排好）每趟都对整张表做，所以分几趟和一趟写完认人的结果一样；认人表每片现查，前面几趟刚建的也认得出。
+ *
+ * 断了（网断、软件重启、服务出错）：已经写进去的挂在这一批上，能整批撤销；也能带着同一个 batchId 从断的地方接着导，
+ * 这一批自己写过的那几位认出来跳过，不会多出一份、也不重复计数。
+ * 批次上的新建 / 补空按 ImportRow 现数，跳过 / 进不了每趟累加；写完那一趟记操作日志
+ */
+export async function 分段导入(原方案: 导入方案, fileName: string, 续: { batchId?: string; 起: number }): Promise<分段结果> {
+  const 开始 = Date.now();
+  const me = await requireUser();
+  const 方案 = 补全(原方案, me.id);
+  if (!方案) return 暂存过期;
+  const { b, 行 } = await 排好(方案);
+  if (行.length > 落库上限) return { ok: false, error: `一次最多导 ${落库上限} 行，这份表有 ${行.length} 行` };
+  const 起 = Math.trunc(Number(续.起));
+  if (!Number.isFinite(起) || 起 < 0 || 起 > 行.length) return { ok: false, error: "接着导的位置不对，请重新开始导入" };
+
+  let batchId = 续.batchId;
+  if (batchId) {
+    const 批 = await prisma.importBatch.findUnique({ where: { id: batchId }, select: { userId: true, revertedAt: true } });
+    if (!批 || 批.userId !== me.id) return { ok: false, error: "这一批导入记录已经不在了，请重新开始导入" };
+    if (批.revertedAt) return { ok: false, error: "这一批已经撤销了，不能再接着导；要导请重新开始" };
+  } else {
+    batchId = (await prisma.importBatch.create({
+      data: { userId: me.id, userName: me.name, fileName: fileName.slice(0, 200), created: 0, updated: 0, skipped: 0, failed: 0 },
+    })).id;
+  }
+
+  const 现场 = { ...(await 落库准备(行, me)), batchId, 重复行: 方案.重复行 };
+  let i = 起;
+  let 跳过 = 0;
+  let 进不了 = 0;
+  // 至少写一片再看钟：排好整张表本身就可能超过一趟的时长（大表、慢机器），先看钟就永远走不动
+  while (i < 行.length) {
+    const 片 = 行.slice(i, i + 每片);
+    const n = await 落这些行(现场, 片, Boolean(续.batchId));
+    跳过 += n.跳过;
+    进不了 += n.进不了;
+    i += 片.length;
+    if (Date.now() - 开始 >= 每趟最长()) break;
+  }
+  const [新建, 补空] = await Promise.all(["create", "update"].map((kind) => prisma.importRow.count({ where: { batchId, kind } })));
+  const 批 = await prisma.importBatch.update({
+    where: { id: batchId },
+    data: { created: 新建, updated: 补空, skipped: { increment: 跳过 }, failed: { increment: 进不了 } },
+    select: { skipped: true, failed: true },
+  });
+  const 合计 = { 新建, 补空, 跳过: 批.skipped, 进不了: 批.failed };
+  const 完了 = i >= 行.length;
+  if (完了) await 记一笔(me, b.customer, batchId, fileName, 合计);
+  return { ok: true, batchId, ...合计, 下一个: 完了 ? null : i, 共: 行.length };
 }
 
 export type 批次 = {

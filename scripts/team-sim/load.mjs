@@ -128,6 +128,8 @@ function 云端环境() {
     CONTROL_DATABASE_URL: `file:${云目录}/control.db`, WORKSPACE_DIR: `${云目录}/ws`, DATABASE_URL: `file:${云目录}/never.db`, SYNC_DIR: `${云目录}/sync`,
     AUTH_SECRET: crypto.randomBytes(32).toString("hex"), COOKIE_SECURE: "false", ADMIN_TOKEN: 运营口令, PORT: String(云口), HOSTNAME: "127.0.0.1",
     LLM_API_KEY: "", LLM_BASE_URL: "", LLM_MODEL: "", SIGNUP_VERIFY: "", SIGNUP_REDIRECT: "", CRM_SCOPED_SYNC: "1",
+    // 只给云端限内存（例如 --max-old-space-size=512，模拟正式服可用内存），桌面端不受影响
+    ...(process.env.LOAD_CLOUD_NODE_OPTIONS ? { NODE_OPTIONS: process.env.LOAD_CLOUD_NODE_OPTIONS } : {}),
   };
 }
 function 起桌面端(t) {
