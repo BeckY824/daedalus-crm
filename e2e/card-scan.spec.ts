@@ -63,23 +63,25 @@ for (const 宽 of [360, 375]) {
     await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
     const 表 = page.getByTestId("m-new-customer-sheet");
     await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 120_000 });
-    // 外贸：名字格放公司，人名 + 职位进备注
-    await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+    // 和电脑上新建客户同一套格子（10-20）：客户姓名放人，公司、职位各一格
+    await expect(表.getByLabel("客户姓名")).toHaveValue("Oliver Bennett");
+    await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
+    await expect(表.getByLabel("职位")).toHaveValue("Purchasing Manager");
     await expect(表.getByLabel("电话")).toHaveValue("+447700900123");
     await expect(表.getByLabel("邮箱")).toHaveValue("oliver.bennett@harbourline.co.uk");
     await expect(表.getByLabel("国家")).toHaveValue("英国");
-    await expect(表.getByLabel("备注")).toHaveValue(/联系人：Oliver Bennett（Purchasing Manager）/);
+    await expect(表.getByLabel("备注")).toHaveValue(/座机：\+442079460321/);
     await 量(page, `扫名片-${宽}-填好的表单`);
 
     await 表.getByLabel("来源").fill("2026 迪拜展");
     await 表.getByRole("button", { name: "保存" }).last().click();
     const 好 = page.getByTestId("m-scan-saved");
-    await expect(好).toContainText("已存好「Harbourline Lighting Ltd」");
+    await expect(好).toContainText("已存好「Oliver Bennett」");
     await 量(page, `扫名片-${宽}-存好了`);
 
     await 拍(page, () => 好.getByTestId("m-scan-again").click(), "08-en-uae-whatsapp.jpg");
     await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 120_000 });
-    await expect(表.getByLabel("名字")).toHaveValue("Al Faris General Trading LLC");
+    await expect(表.getByLabel("公司")).toHaveValue("Al Faris General Trading LLC");
     await expect(表.getByLabel("来源")).toHaveValue("2026 迪拜展");
     await expect(表.getByLabel("WhatsApp")).not.toHaveValue("");
     await 量(page, `扫名片-${宽}-再扫一张`);
@@ -87,16 +89,16 @@ for (const 宽 of [360, 375]) {
   });
 }
 
-test("次入口：先手填了名字再「拍名片自动填」，填过的不被覆盖、只补空格", async ({ page }) => {
+test("次入口：先手填了姓名再「拍名片自动填」，填过的不被覆盖、只补空格", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await 灌手机(page, { 业务: 外贸 });
   await page.getByRole("button", { name: "客户" }).last().click();
   await page.getByTestId("m-new-customer").click();
   const 表 = page.getByTestId("m-new-customer-sheet");
-  await 表.getByLabel("名字").fill("王总（展会上认识的）");
+  await 表.getByLabel("客户姓名").fill("王总（展会上认识的）");
   await 拍(page, () => 表.getByTestId("m-scan-fill").click(), "01-cn-classic.jpg");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 120_000 });
-  await expect(表.getByLabel("名字")).toHaveValue("王总（展会上认识的）");
+  await expect(表.getByLabel("客户姓名")).toHaveValue("王总（展会上认识的）");
   await expect(表.getByLabel("电话")).toHaveValue("+8613800138001");
   await expect(表.getByLabel("微信")).toHaveValue("wanglei_led");
   await expect(表.getByLabel("国家")).toHaveValue("中国");
@@ -111,7 +113,7 @@ test("韩文名片：中英认不好，自动下韩文识别再认", async ({ pa
   const 表 = page.getByTestId("m-new-customer-sheet");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
   await expect(表.getByRole("button", { name: "自动·韩" })).toBeVisible();
-  await expect(表.getByLabel("名字")).toHaveValue(/한빛수산/);
+  await expect(表.getByLabel("公司")).toHaveValue(/한빛수산/);
   await expect(表.getByLabel("国家")).toHaveValue("韩国");
   await 量(page, "扫名片-375-韩文自动");
 });
@@ -131,7 +133,7 @@ test("从相册选：不带 capture，走同一条识别；第一次说清楚要
   await expect(表.getByTestId("m-scan-progress")).toBeVisible();
   await 量(page, "扫名片-375-第一次下载");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 120_000 });
-  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+  await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
   await expect(表.getByLabel("邮箱")).toHaveValue("oliver.bennett@harbourline.co.uk");
 
   // 下过一次：再认就不说「第一次」了（换语言重认这一张）
@@ -159,7 +161,7 @@ test("老内核不认 imageOrientation: \"from-image\"（夸克 10.19 = Chrome 1
   await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
   const 表 = page.getByTestId("m-new-customer-sheet");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 120_000 });
-  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+  await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
   await expect(表.getByLabel("邮箱")).toHaveValue("oliver.bennett@harbourline.co.uk");
 });
 
@@ -182,7 +184,7 @@ test("识别文件下到一半断了：自动重试接着认，不用人管", as
   await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
   const 表 = page.getByTestId("m-new-customer-sheet");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
-  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+  await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
   expect(断过).toBeGreaterThanOrEqual(2);
 });
 
@@ -200,7 +202,7 @@ test("识别文件一直下不来：说没下载下来 +「再试一次」；网
   await 错.getByTestId("m-scan-retry").click();
   const 表 = page.getByTestId("m-new-customer-sheet");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
-  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+  await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
 });
 
 test("页面在后台时下载断了：说「下载被中断，保持在这个页面再点一次」；回来点「再试一次」接着认", async ({ page }) => {
@@ -223,7 +225,7 @@ test("页面在后台时下载断了：说「下载被中断，保持在这个�
   await 错.getByTestId("m-scan-retry").click();
   const 表 = page.getByTestId("m-new-customer-sheet");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
-  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+  await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
 });
 
 /** 演服务器认名片（团队版）：GET 回能用，POST 按 回 给一行一行的结果；记下传上去的照片 */
@@ -237,21 +239,28 @@ async function 演服务器(page: Page, 回: (n: number) => string | "断") {
     if (体 === "断") return r.abort("internetdisconnected");
     return r.fulfill({ status: 200, contentType: "application/x-ndjson", body: 体 });
   });
+  // 认完再问一句 AI 整理（后注册的先匹配）：只传认出的文字行，不传照片；这里回 null = 模型没回，用规则拆的
+  const 问了AI: { 类型: string | null; 体: { 行们?: { text?: unknown }[]; 行业们?: unknown } }[] = [];
+  await page.route("**/api/mobile/scan/ai", async (r) => {
+    if (r.request().method() === "GET") return r.fulfill({ json: { ok: true } });
+    问了AI.push({ 类型: await r.request().headerValue("content-type"), 体: r.request().postDataJSON() });
+    return r.fulfill({ json: { 答: null } });
+  });
   const 下了: string[] = [];
   page.on("request", (q) => { if (q.url().includes("/ocr/v1/")) 下了.push(q.url()); });
-  return { 传了, 下了 };
+  return { 传了, 下了, 问了AI };
 }
 const 服务器认出的 = fs.readFileSync(卡("02-en-uk.server.json"), "utf8");
 
 test("服务器认（团队版）：第一次也不用下识别文件，照片压好了传一张，认完填好表单", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await 灌手机(page, { 业务: 外贸 });
-  const { 传了, 下了 } = await 演服务器(page, () => `{"排队":1}\n{"排队":0}\n{"框":${服务器认出的}}\n`);
+  const { 传了, 下了, 问了AI } = await 演服务器(page, () => `{"排队":1}\n{"排队":0}\n{"框":${服务器认出的}}\n`);
   await page.getByRole("button", { name: "客户" }).last().click();
   await 拍(page, () => page.getByTestId("m-scan-card").click(), "02-en-uk.jpg");
   const 表 = page.getByTestId("m-new-customer-sheet");
   await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 30_000 });
-  await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+  await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
   await expect(表.getByLabel("邮箱")).toHaveValue("oliver.bennett@harbourline.co.uk");
   await expect(表.getByLabel("国家")).toHaveValue("英国");
   expect(传了).toHaveLength(1);
@@ -259,6 +268,10 @@ test("服务器认（团队版）：第一次也不用下识别文件，照片�
   expect(传了[0].字节).toBeGreaterThan(5_000);
   expect(传了[0].字节).toBeLessThan(1_000_000);
   expect(下了, "服务器认的不该下识别文件").toEqual([]);
+  expect(问了AI).toHaveLength(1);
+  expect(问了AI[0].类型).toContain("application/json");
+  expect(问了AI[0].体.行们?.map((l) => l.text)).toContain("oliver.bennett@harbourline.co.uk");
+  expect(JSON.stringify(问了AI[0].体), "AI 那一句只带文字，不带照片").not.toMatch(/data:image|base64/);
   // 没在手机上下过：下一张照样先问服务器
   expect(await page.evaluate(() => localStorage.getItem("m-ocr-v1-ready"))).toBeNull();
 });
@@ -273,7 +286,7 @@ for (const [名, 回] of [["服务器忙（排队太久）", () => `{"排队":3}
     const 表 = page.getByTestId("m-new-customer-sheet");
     await expect(表.getByTestId("m-scan-busy")).toContainText(/第一次要下载约 1[0-3]MB 识别文件/, { timeout: 30_000 });
     await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 150_000 });
-    await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+    await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
     expect(传了).toHaveLength(1);
     expect(下了.length).toBeGreaterThan(0);
   });
@@ -350,6 +363,6 @@ test.describe("不在支持名单里的浏览器（QQ App 内置）", () => {
     await 量(page, "扫名片-375-推荐换浏览器-表单");
     await 拍(page, () => 表.getByTestId("m-scan-fill-album").click(), "02-en-uk.jpg", false);
     await expect(表.getByTestId("m-scan-done")).toBeVisible({ timeout: 120_000 });
-    await expect(表.getByLabel("名字")).toHaveValue("Harbourline Lighting Ltd");
+    await expect(表.getByLabel("公司")).toHaveValue("Harbourline Lighting Ltd");
   });
 });

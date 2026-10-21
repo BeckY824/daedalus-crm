@@ -12,13 +12,15 @@
  */
 import { 拆字段, 统一, 低分框, 合并两遍, 低分框得分, 低分框线索, 像假拉丁, 四边形转框, type 框, type 字段 } from "./parse";
 import { 下载齐, 下载中断, type 要下的 } from "./download";
-import { 服务器认, 服务器预热, 服务器不认, 能用服务器, 等预热 } from "./cloud";
+import { 服务器认, 服务器预热, 服务器不认, 服务器整理, 能用服务器, 等预热 } from "./cloud";
+import { 名片行们, 验AI回答, 合AI, type AI附加 } from "./ai";
 import { 名片语言们, 语言表, type 名片语言 } from "./langs";
 export { 名片语言们, type 名片语言 };
 
 /** 百分 = 下载进度 0–100，只有在下识别文件时给 */
 export type 进度 = (话: string, 百分?: number) => void;
-export type 识别结果 = { 字段: 字段; 语言: 名片语言; 平均分: number; 框数: number };
+/** 框们：认出的文字框（只有文字和位置，照片不在里面），给 AI 整理用，表单关了就没了 */
+export type 识别结果 = { 字段: 字段; 语言: 名片语言; 平均分: number; 框数: number; 框们: 框[] };
 
 const 根 = "/ocr/v1";
 type 引擎 = { 认: (img: Blob) => Promise<框[]>; 关: () => Promise<void> };
@@ -198,6 +200,9 @@ async function 缩图(file: Blob, 转180 = false, 质量 = 0.92): Promise<Blob> 
 
 const 平均 = (框们: 框[]) => (框们.length ? 框们.reduce((s, b) => s + b.score, 0) / 框们.length : 0);
 
+/** 没线索时服务器上盲试的语言：认成拉丁乱码、靠线索分不出来的这几种（韩文有「生僻汉字」、俄文有假拉丁、日文有写法，不用盲试） */
+const 盲试语言: 名片语言[] = ["阿拉伯", "泰", "天城"];
+
 /** 自动挑语言（汇总 7.3 的 ①+②）：不该换时回 null */
 export function 该换的语言(一: 框[]): 名片语言 | null {
   const 低 = 低分框(一);
@@ -249,6 +254,20 @@ export async function 认名片(file: Blob, 进: 进度, 指定?: 名片语言):
   }
   let 框们 = 一, 语言: 名片语言 = "中英";
   const 换 = 指定 && 指定 !== "中英" ? 指定 : 指定 ? null : 该换的语言(一);
+  // 有认不好的框、却看不出是哪种语言（阿拉伯 / 泰 / 印地文被认成拉丁乱码，10-20 阿曼真名片）：
+  // 服务器上认一遍不到 1 秒、不用下载，几种都试一下，低分框上认得最好、够 0.85 的就用它。手机上认的不盲试（每种要先下 7 MB）
+  if (!换 && !指定 && 云 && 低分框(一).length >= 2) {
+    let 最好: { k: 名片语言; 分: number; 框们: 框[] } | null = null;
+    for (const k of 盲试语言) {
+      进(`正在按${语言表[k].叫}试认…`);
+      try {
+        const 二 = await 服务器认(图, k, () => undefined);
+        const 分 = 低分框得分(一, 二.map((it) => 四边形转框(it.poly, it.text, it.score, 0)));
+        if (分 >= 0.85 && (!最好 || 分 > 最好.分)) 最好 = { k, 分, 框们: 二.map((it) => 四边形转框(it.poly, it.text, it.score, 0)) };
+      } catch { break; }
+    }
+    if (最好) { 最近语言 = 最好.k; 进("正在认名片…"); const 合 = 合并两遍(一, 最好.框们); return { 字段: 拆字段(合), 语言: 最好.k, 平均分: 平均(最好.框们), 框数: 最好.框们.length, 框们: 合 }; }
+  }
   if (换) {
     const 要下 = !云 && !引擎们.has(换) && 语言表[换].MB;
     进(要下 ? `正在下载${语言表[换].叫}识别（约 ${语言表[换].MB} MB，只下一次）…` : `正在按${语言表[换].叫}再认一遍…`);
@@ -262,5 +281,16 @@ export async function 认名片(file: Blob, 进: 进度, 指定?: 名片语言):
       // 自动换语言失败（没网下不了语言包）：先用中英的结果，人可以联网后再点
     }
   }
-  return { 字段: 拆字段(框们), 语言, 平均分: 平均(框们), 框数: 框们.length };
+  return { 字段: 拆字段(框们), 语言, 平均分: 平均(框们), 框数: 框们.length, 框们 };
+}
+
+/**
+ * 团队版认完再请服务器上的模型摆一下格子、翻译外文（2026-10-20 用户定「用 AI，免费不扣次数」，lib/card-scan/ai.ts）。
+ * 只传认出的文字，不传照片。不是团队版、服务器没配模型、超时、回的不对 → null，用规则拆的
+ */
+export async function AI整理(r: 识别结果, 行业们: readonly string[]): Promise<{ 字段: 字段; 附加: AI附加 } | null> {
+  if (!r.框们.length) return null;
+  const 行们 = 名片行们(r.框们);
+  const 答 = 验AI回答(await 服务器整理(行们, 行业们), 行们.length, 行业们);
+  return 答 ? 合AI(r.字段, r.框们, 答) : null;
 }

@@ -7,6 +7,7 @@
  * 这个文件要轻：MobileApp 一打开就 import 它来设令牌，识别那一大套（ocr.ts）还是点了扫名片才载
  */
 import type { 名片语言 } from "./langs";
+import type { 名片行 } from "./ai";
 
 export type 服务器识别项 = { poly: { x: number; y: number }[] | number[][]; text: string; score: number };
 
@@ -21,10 +22,12 @@ export class 服务器不认 extends Error {
 let 令牌: string | null = null;
 /** 这次打开期间服务器不给用（自部署没有接口、不是团队版、令牌失效）：不再每张都去问 */
 let 停用 = false;
+/** 这次打开期间服务器没有 AI 整理（不是团队版、没配模型、自部署没有接口）：不再每张都问 */
+let 不整理 = false;
 
 /** MobileApp 登录 / 退出时设 */
 export function 设识别令牌(t: string | null): void {
-  if (t !== 令牌) 停用 = false;
+  if (t !== 令牌) { 停用 = false; 不整理 = false; }
   令牌 = t;
 }
 
@@ -111,4 +114,27 @@ export async function 服务器认(
     void 读.cancel().catch(() => undefined);
   }
   throw new 服务器不认("坏");
+}
+
+
+/**
+ * 请服务器上的模型整理一张（app/api/mobile/scan/ai）。只传认出的文字行，不传照片。
+ * 回的是模型的原样回答（调用方用 验AI回答 再验一遍）；不给用、超时（默认 9 秒，服务器那头 8 秒）、出错一律 null
+ */
+export async function 服务器整理(行们: 名片行[], 行业们: readonly string[], 设: { 抓?: typeof fetch; 毫秒?: number } = {}): Promise<unknown> {
+  if (!令牌 || 不整理 || (typeof navigator !== "undefined" && navigator.onLine === false)) return null;
+  try {
+    const r = await (设.抓 ?? fetch)("/api/mobile/scan/ai", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${令牌}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ 行们, 行业们 }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(设.毫秒 ?? 9_000),
+    });
+    if (不给用(r.status)) { 不整理 = true; return null; }
+    if (!r.ok) return null;
+    return ((await r.json()) as { 答?: unknown }).答 ?? null;
+  } catch {
+    return null;
+  }
 }
