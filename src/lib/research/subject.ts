@@ -13,7 +13,7 @@ import { 主机 } from "./verify/domain";
 
 export type 客户档案 = {
   name: string;
-  /** Customer.school；只有业务配置里这一栏叫「公司」时才当公司（教培模版叫「院校」） */
+  /** Customer.school：通用 / 外贸叫「公司」，用户能改名（「公司名称」…），照样当公司；只有教培模版的「院校」不当 */
   company?: string | null;
   country?: string | null;
   website?: string | null;
@@ -32,9 +32,10 @@ const 像国际号码 = (p: string) => /^\+\d/.test(p) && p.replace(/\D/g, "").l
 const 同一个 = (a: string, b: string) => a.replace(/\s+/g, " ").toLowerCase() === b.replace(/\s+/g, " ").toLowerCase();
 
 export function 客户背调对象(c: 客户档案, 公司栏名: string): 背调对象 {
+  const 是公司栏 = 公司栏名.trim() !== "院校";
   const 名 = 干净(c.name);
   const 国家 = 干净(c.country) || undefined;
-  const 公司 = 公司栏名 === "公司" ? 干净(c.company) : "";
+  const 公司 = 是公司栏 ? 干净(c.company) : "";
   const 官网 = 主机(干净(c.website))?.replace(/^www\./, "");
   const 主体 = 公司.length >= 2 ? 公司.slice(0, 120) : 官网;
   if (主体) return { 种类: "公司", 公司: 主体, ...(名 && !同一个(名, 主体) ? { 联系人: 名.slice(0, 80) } : {}), ...(国家 ? { 国家 } : {}) };
@@ -42,7 +43,7 @@ export function 客户背调对象(c: 客户档案, 公司栏名: string): 背�
   if (号) return { 种类: "找人", 名: 名.slice(0, 80), 电话: 号, ...(国家 ? { 国家 } : {}) };
   return {
     种类: "不够",
-    原因: `这位客户没填${公司栏名 === "公司" ? "公司、" : ""}官网，也没有带国家码的电话 / WhatsApp（+ 开头），没法背调。先在档案里补一样，不扣次数`,
+    原因: `这位客户没填${是公司栏 ? `${公司栏名.trim() || "公司"}、` : ""}官网，也没有带国家码的电话 / WhatsApp（+ 开头），没法背调。先在档案里补一样，不扣次数`,
   };
 }
 

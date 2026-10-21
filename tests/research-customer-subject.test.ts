@@ -129,6 +129,11 @@ describe("客户背调对象 / 对象说明（按钮提示和开跑那一下写�
     expect(客户背调对象({ name: "ZEESHAN AFZAL", phone: "0616988559" }, "公司")).toMatchObject({ 种类: "不够" });
   });
 
+  it("「公司」那一栏改了名（公司名称）：照样当公司；提示里用改过的名字", () => {
+    expect(客户背调对象(档, "公司名称")).toMatchObject({ 种类: "公司", 公司: "ISHA.A SAS", 联系人: "ZEESHAN AFZAL" });
+    expect(客户背调对象({ name: "ZEESHAN AFZAL", phone: "0616988559" }, "公司名称")).toMatchObject({ 种类: "不够", 原因: expect.stringContaining("没填公司名称、官网") });
+  });
+
   it("教培模版那一栏叫「院校」：不当公司", () => {
     expect(客户背调对象({ ...档, company: "北京大学" }, "院校")).toMatchObject({ 种类: "找人" });
   });
