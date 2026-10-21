@@ -383,7 +383,7 @@ export async function 给多个范围拉取(accountId: string, teamId: string, i
       if (余 <= 0) { for (const x of 块.slice(i).flat()) 出.set(x.scopeId, { scopeId: x.scopeId, later: true }); break; }
       const 归 = new Map<string, string>();
       for (const x of 这块) for (const st of x.starts) 归.set(st.key, x.scopeId);
-      let rows = await tx.syncScopedBatch.findMany({ where: { teamId, OR: 这块.flatMap((x) => x.starts.map(起点条件)) }, orderBy: { id: 'asc' }, take: 余 + 1 });
+      let rows = await 按起点取批次(tx, teamId, 这块.flatMap((x) => x.starts), 余 + 1);
       const 截了 = rows.length > 余;
       if (截了) rows = rows.slice(0, 余);
       余 -= rows.length;
@@ -464,7 +464,27 @@ async function 范围起点(tx: Db, teamId: string, c: 拉取身份, scope: 范�
   }
   return starts;
 }
-const 起点条件 = (x: 起点) => (x.only ? { recordKey: x.key, id: x.only } : { recordKey: x.key, id: { gt: x.gt } });
+/*
+  按起点取批次，按批次号从小到大最多 take 条（2026-10-21 30 台、1 万位压测）：原来一个起点一个 OR 条件
+ （recordKey = ? AND id > ?），SQLite 只按 teamId 走索引、把全队的批次扫一遍——1 万位客户（8 万包）时每次约 1 秒，
+  开互看后云端单线程跑满。改成先用 recordKey IN 走 (teamId, recordKey, id) 索引只取编号，在这里按各自的起点筛，再按编号取整行
+*/
+async function 按起点取批次(tx: Db, teamId: string, starts: 起点[], take: number) {
+  const 起 = new Map(starts.map((s) => [s.key, s]));
+  const ids: number[] = [];
+  for (let i = 0; i < starts.length; i += 400) {
+    const part = starts.slice(i, i + 400);
+    const lo = Math.min(...part.map((s) => (s.only ? s.only - 1 : s.gt)));
+    for (const r of await tx.syncScopedBatch.findMany({ where: { teamId, recordKey: { in: part.map((s) => s.key) }, id: { gt: lo } }, select: { id: true, recordKey: true } })) {
+      const s = 起.get(r.recordKey);
+      if (s && (s.only ? r.id === s.only : r.id > s.gt)) ids.push(r.id);
+    }
+  }
+  const 要 = ids.sort((a, b) => a - b).slice(0, take);
+  const rows = [];
+  for (let i = 0; i < 要.length; i += 400) rows.push(...await tx.syncScopedBatch.findMany({ where: { teamId, id: { in: 要.slice(i, i + 400) } } }));
+  return rows.sort((a, b) => a.id - b.id);
+}
 type 批次行 = { id: number; device: string; eventId: string; metadata: string; digest: string };
 const 读密文 = (b: 批次行): 拉出的包 => {
   let data: string; try { data = fs.readFileSync(file(b.digest), 'utf8'); } catch { return fail(503, "范围密文暂不可读，请稍后重试；游标未跳过"); }
@@ -474,10 +494,7 @@ const 读密文 = (b: 批次行): 拉出的包 => {
 /** 一个范围从 after 往后最多 页 包（多一包就 more） */
 async function 范围批次(tx: Db, teamId: string, c: 拉取身份, scope: 范围组, after: number, e: 团队索引类型, 页: number): Promise<{ more: boolean; batches: 拉出的包[] }> {
   const starts = await 范围起点(tx, teamId, c, scope, after, e);
-  const batches = [];
-  // 避开 SQLite 的变量个数上限，各分块取最早 页+1 条，再整体截到 页。
-  for (let i = 0; i < starts.length; i += 200) batches.push(...await tx.syncScopedBatch.findMany({ where: { teamId, OR: starts.slice(i, i + 200).map(起点条件) }, orderBy: { id: 'asc' }, take: 页 + 1 }));
-  batches.sort((a, b) => a.id - b.id);
+  const batches = await 按起点取批次(tx, teamId, starts, 页 + 1);
   return { more: batches.length > 页, batches: batches.slice(0, 页).map(读密文) };
 }
 /* ---------------- 跨成员查重（2026-10-19，lib/sync/dedupe.ts） ---------------- */
