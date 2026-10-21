@@ -445,7 +445,12 @@ async function 请求<T = unknown>(url: string, init: RequestInit = {}, 超时�
   }
   if (!res.ok) {
     const d = data as { error?: string | { message?: string } } | null;
-    const msg = typeof d?.error === "string" ? d.error : (d?.error?.message ?? `服务器返回 ${res.status}`);
+    /*
+      云端没说原因（发版重启时 Caddy 回 502 / 503 的 HTML 页）：5xx 说人话，别只丢一个状态码（10-21 质量审 #71 提的）。
+      云端自己说了原因的（JSON 里的 error），原样交给门口
+    */
+    const 没说原因 = res.status >= 500 ? `服务器暂时出了问题（${res.status}），可能正在重启。过几分钟再试。` : `服务器返回 ${res.status}`;
+    const msg = typeof d?.error === "string" ? d.error : (d?.error?.message ?? 没说原因);
     return { ok: false, error: String(msg), 状态: res.status };
   }
   return { ok: true, data: data as T };
