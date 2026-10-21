@@ -6,8 +6,11 @@ import { prisma } from "@/lib/prisma";
 import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { 云端地址 } from "@/lib/desktop/cloud";
 import { recordAudit } from "@/lib/audit";
-import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表 } from "@/lib/sync/client";
+import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看, 设角色 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
+import { 合并一批, 撤销上一批, 读上次合并, 标不是同一个人, type 一对 } from "@/lib/customer-merge";
+import { 管全队客户 } from "@/lib/constants";
+import { getBusiness } from "@/lib/business";
 import { 列出范围冲突, 确认范围冲突, 导出范围冲突 } from "@/lib/sync/scoped-local";
 import { 列出被盖, 看过被盖 } from "@/lib/sync/overwritten";
 import { 待授权手机, 允许手机, 拒绝手机, 我的设备, 移除设备 } from "@/lib/sync/mobile-desktop";
@@ -32,9 +35,11 @@ export async function 读团队状态() {
   const [s, 价格] = await Promise.all([团队状态(), 读价格表().catch(() => null)]);
   // 这台还没连上：账号在云上是哪个团队的、是不是在等另一台电脑允许（2026-10-15 多设备同步）
   if (!s.在团队) return { ...s, 价格, 连接: await 连接概况().catch(() => null) };
-  // 老板看每个人的客户数和跟进（2026-10-04：老板要看得到业务员的跟进过程）；疑似重复也只给老板看——业务员只看得到自己那一半
-  if (!s.我是建的人) return { ...s, 价格, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人> };
-  return { ...s, 价格, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)) };
+  // 老板看每个人的客户数和跟进（2026-10-04：老板要看得到业务员的跟进过程）；疑似重复也只给老板看——业务员只看得到自己那一半。
+  // 业务主管（2026-10-20）看全队，这两样也给
+  if (!s.我是建的人 && !s.我是主管) return { ...s, 价格, 重复: [] as Awaited<ReturnType<typeof 疑似重复>>, 每人: {} as Record<string, 一人>, 上次合并: null as { at: string; 对数: number } | null, 叫法: "客户" };
+  const 上次 = await 读上次合并().catch(() => null);
+  return { ...s, 价格, 重复: await 疑似重复(), 每人: await 每人概况(s.成员.map((m) => m.accountId)), 上次合并: 上次 ? { at: 上次.at, 对数: 上次.料们.length } : null, 叫法: (await getBusiness()).customer };
 }
 
 type 一人 = { 客户: number; 近7天跟进: number; 最近跟进: string | null; userId: string };
@@ -98,6 +103,90 @@ export async function 移除成员动作(accountId: string, 名字: string) {
   const r = await 移除成员(String(accountId ?? ""));
   if (r.ok) await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: `把「${名字}」移出了团队，邀请码和钥匙都换了` });
   return r;
+}
+
+/**
+ * 「同事之间互相看得到客户」开 / 关（2026-10-20，只有老板；中继那边再核一次是不是建团队的人）。
+ * 不用签名钥匙：老板在哪台电脑上都能改。业务员那几台下一轮同步生效
+ */
+export async function 设互看动作(on: boolean) {
+  const me = await requireUser();
+  const r = await 设互看(on === true);
+  if (r.ok) {
+    await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: r.on ? "打开了「同事之间互相看得到客户」：业务员能看到全队客户（同事的只能看和加跟进）" : "关掉了「同事之间互相看得到客户」：业务员只看自己的客户和公海" });
+    revalidatePath("/", "layout");
+  }
+  return r;
+}
+
+/** 设业务主管 / 改回业务员（2026-10-20，只有老板；中继那边再核一次）。那位同事下一轮同步生效 */
+export async function 设角色动作(accountId: string, 名字: string, role: "manager" | "member") {
+  const me = await requireUser();
+  const r = await 设角色(String(accountId ?? ""), role === "manager" ? "manager" : "member");
+  if (r.ok) {
+    await recordAudit({ user: me, action: "update", entity: "Setting", entityId: "team", summary: role === "manager" ? `把「${名字}」设成了业务主管：看得到全队客户，能分配和处理重复` : `把「${名字}」改回了业务员：只看自己的客户和公海` });
+    revalidatePath("/", "layout");
+  }
+  return r;
+}
+
+/* ---------------- 疑似重复：合并成一份 / 标「不是同一个人」（2026-10-20，老板和业务主管） ---------------- */
+
+const 不能管重复 = "只有老板和业务主管能处理疑似重复";
+
+/**
+ * 合并一批（全选 / 单独合并都走这里）。先自动备份一份（设置 → 数据 → 自动备份里的「合并前」），一对一个事务，
+ * 每对记一条操作日志（被合并那位原来的负责人记在里面），撤销料留在本机，能撤一次
+ */
+export async function 合并重复动作(对们: 一对[]) {
+  const me = await requireUser();
+  if (!管全队客户(me.role)) return { ok: false as const, error: 不能管重复 };
+  const 清 = (Array.isArray(对们) ? 对们 : []).map((x) => ({ 留: String(x?.留 ?? ""), 并: String(x?.并 ?? "") })).filter((x) => x.留 && x.并 && x.留 !== x.并);
+  if (!清.length) return { ok: false as const, error: "没选要合并的" };
+  const 叫法 = (await getBusiness()).customer;
+  let r;
+  try {
+    r = await 合并一批(清, me);
+  } catch (e) {
+    console.error("[合并重复] 合并前备份失败", e);
+    return { ok: false as const, error: "合并前没能备份这台电脑上的数据（磁盘满了？），先没合并。腾出空间后再点一次" };
+  }
+  for (const 料 of r.合了) {
+    const 负责人 = (料.客户 as { salesOwnerId?: string }).salesOwnerId;
+    const 名 = 负责人 ? (await prisma.user.findUnique({ where: { id: 负责人 }, select: { name: true } }))?.name : null;
+    const 挪 = Object.entries(料.挪了).map(([t, ids]) => `${{ FollowUp: "跟进", Opportunity: "商机", Contract: "签约", Contact: "联系人", Task: "待办", FollowPlan: "计划", TradeOrder: "订单" }[t] ?? t} ${ids.length}`).join("、");
+    await recordAudit({
+      user: me, action: "merge", entity: "Customer", entityId: 料.留,
+      summary: `合并重复${叫法}：把「${料.并名}」（负责人 ${名 ?? "（已不在）"}）合并进「${料.留名}」${挪 ? `，挪过来 ${挪}` : ""}${Object.keys(料.补了).length + Object.keys(料.档案补了).length ? `，补上了 ${Object.keys(料.补了).length + Object.keys(料.档案补了).length} 格空着的资料` : ""}`,
+      detail: { 被合并: { id: 料.并, 名字: 料.并名, 负责人: 名 ?? null, 负责人id: 负责人 ?? null }, 挪过来: 料.挪了, 补上: { ...料.补了, ...料.档案补了 } },
+    });
+  }
+  revalidatePath("/", "layout");
+  return { ok: true as const, 合了: r.合了.length, 没合: r.没合.map((x) => x.原因), 备份: r.备份 };
+}
+
+/** 撤销上一次合并（只一次）。合并之后又改过的不动；撤不了的那几对照实说，备份还在 */
+export async function 撤销合并动作() {
+  const me = await requireUser();
+  if (!管全队客户(me.role)) return { ok: false as const, error: 不能管重复 };
+  const r = await 撤销上一批();
+  if (!r.撤了.length && !r.没撤.length) return { ok: false as const, error: "没有能撤销的合并（只能撤最近一次，撤过就没了）" };
+  const 叫法 = (await getBusiness()).customer;
+  for (const 料 of r.撤了) await recordAudit({ user: me, action: "update", entity: "Customer", entityId: 料.并, summary: `撤销合并：「${料.并名}」从「${料.留名}」里拆回来，成了单独一位${叫法}`, detail: { 留: 料.留, 并: 料.并 } });
+  revalidatePath("/", "layout");
+  return { ok: true as const, 撤了: r.撤了.length, 没撤: r.没撤.map((x) => x.原因) };
+}
+
+/** 标「不是同一个人」：这一组以后不再列出来（同步给全队） */
+export async function 不是同一个人动作(ids: string[], 名字们: string[] = []) {
+  const me = await requireUser();
+  if (!管全队客户(me.role)) return { ok: false as const, error: 不能管重复 };
+  const 清 = (Array.isArray(ids) ? ids : []).map(String).filter(Boolean);
+  if (清.length < 2) return { ok: false as const, error: "至少要两位" };
+  const n = await 标不是同一个人(清, me);
+  await recordAudit({ user: me, action: "update", entity: "Customer", entityId: 清[0], summary: `标了「不是同一个人」：${名字们.filter(Boolean).join("、") || `${清.length} 位`}，疑似重复里不再列`, detail: { ids: 清 } });
+  revalidatePath("/settings");
+  return { ok: true as const, 标了: n };
 }
 
 /** 换邀请码（只有建团队的人）：旧码作废，钥匙一起换 */

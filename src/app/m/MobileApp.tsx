@@ -5,7 +5,7 @@ import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
 import {
   AudioOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseCircleFilled, CloseOutlined, CloudSyncOutlined, CopyOutlined,
   DisconnectOutlined, EditOutlined, ExclamationCircleFilled, LaptopOutlined, LinkOutlined, LockOutlined, MailOutlined, MobileOutlined, PhoneOutlined, PlusOutlined, RightOutlined,
-  SearchOutlined, WhatsAppOutlined, CameraOutlined,
+  SearchOutlined, WhatsAppOutlined, CameraOutlined, PictureOutlined,
 } from "@ant-design/icons";
 import * as 同步 from "@/lib/mobile/sync";
 import * as 连 from "@/lib/mobile/link";
@@ -15,12 +15,15 @@ import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
 import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, 要清掉, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
-import { stageLabel, 外贸订单, type BusinessConfig } from "@/lib/business-config";
+import { stageLabel, statusLabel, 外贸订单, type BusinessConfig } from "@/lib/business-config";
 import { 订单前缀 } from "@/lib/follow-link";
-import { 国家候选 } from "@/lib/customer-extra";
+import { 国家候选, 客户等级, 客户等级说明 } from "@/lib/customer-extra";
+import { 字段是公司, 字段是行业 } from "@/lib/lead-convert";
+import { DECISION_STATUSES, FOLLOW_STATUSES } from "@/lib/constants";
 import { 推入 } from "./push";
-import { ScanBar, ScanButton, useCardScan, 拍名片 } from "./CardScan";
+import { BrowserTip, ScanBar, ScanButton, useCardScan, usePickPhoto, NoCameraTip } from "./CardScan";
 import { 只补空格, 空名片表单, type 名片表单 } from "@/lib/card-scan/form";
+import { 设识别令牌 } from "@/lib/card-scan/cloud";
 import { 号键 } from "@/lib/phone";
 import "./m.css";
 
@@ -127,6 +130,8 @@ export default function MobileApp() {
   // 本地库是会原地变的对象：放在 state 里拿稳引用，变了靠「版本」重画
   const [库, set库] = useState<本地库 | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  // 扫名片先交给服务器认（团队版），要这枚令牌
+  useEffect(() => { 设识别令牌(token); }, [token]);
   const [团队, set团队] = useState<同步.手机团队 | null>(null);
   const [团队名, set团队名] = useState("");
   const [登录账号, set账号] = useState<账号 | null>(null);
@@ -606,9 +611,10 @@ function CustomersScreen({ os, 客户们, 我, 现在, 断网, 名, onOpen, onMe
   }, [q, 段, 客户们, 手上, 公海]);
   // 一次最多画 300 行：几千位客户时也不卡；要找的用搜索
   const 画 = 列表.slice(0, 300);
+  const 扫 = usePickPhoto(onScan);
   return (
     <Page os={os} 标题="客户" onRefresh={onSync}
-      右={<><ScanButton onPhoto={onScan} /><button className="m-icon-btn m-add" onClick={onNew} aria-label="新建客户" data-testid="m-new-customer"><PlusOutlined /></button><button className="m-me" onClick={onMe} aria-label="我的">{简称(名 || "我")}</button></>}
+      右={<><ScanButton onClick={扫.拍} /><button className="m-icon-btn m-add" onClick={onNew} aria-label="新建客户" data-testid="m-new-customer"><PlusOutlined /></button><button className="m-me" onClick={onMe} aria-label="我的">{简称(名 || "我")}</button></>}
       吸顶={
         <div className="m-search-wrap">
           <label className="m-search">
@@ -623,6 +629,8 @@ function CustomersScreen({ os, 客户们, 我, 现在, 断网, 名, onOpen, onMe
               <i className="m-seg-thumb" style={{ transform: `translateX(${段 === "mine" ? 0 : 100}%)` }} />
             </div>
           )}
+          {扫.点过 && 扫.换浏览器 && <BrowserTip 话={扫.换浏览器} />}
+          {扫.没开 && <NoCameraTip on相册={扫.相册} on关={扫.关} />}
         </div>
       }>
       {断网 && <div className="m-offline-note"><DisconnectOutlined /> 离线：看到的是上次同步的内容</div>}
@@ -842,12 +850,17 @@ function RecordSheet({ c, os, 我, 断网, 业务, onCancel, onSave }: { c: 客�
 
 /* ====================================================================== 新建客户 / 商机（2026-10-19 客户反馈第 7 条） */
 
+/** 跟进状态 / 决策状态 / 客户等级不改就是电脑上新建框的默认值，收在「更多」里 */
+type 新建表单 = 名片表单 & { source: string; level: string; followStatus: string; decisionStatus: string };
+
 /**
- * 只放必填和常用几格（名字、联系方式、国家、来源）；推荐人、等级、官网这些在电脑上补。
- * 外贸：电话、WhatsApp、邮箱至少一个；通用模版只问名字和电话（和电脑上的新建框同一套规矩，lib/mobile/sync.ts 新建客户 里再核一次）
+ * 和电脑上「新建客户」同一张表（2026-10-20 用户：名片录入要和新建客户录的信息一致；customers/CustomerForm.tsx）：
+ *   姓名、电话、公司、行业、职位、国家、WhatsApp、邮箱、微信、来源、官网、备注照电脑上的顺序，名字也跟业务设置走（fields）；
+ *   客户等级、跟进状态、决策状态收在「更多」里，默认值和电脑上一样（没分级 / 待跟进 / 了解中）。
+ *   外贸：电话、WhatsApp、邮箱、微信至少一个；通用模版：电话必填（lib/mobile/sync.ts 新建客户 里再核一次）。推荐人、渠道在电脑上补
  *
  * 扫名片（2026-10-19）：从客户页相机图标进来时带着 图，一打开就认；表单顶上「拍名片自动填」只补空格。
- * 认出来的微信、官网、备注（职位、地址、其他电话…）这时才出现；拿不准的标黄，改过就不黄了。
+ * 拿不准的标黄，改过就不黄了。
  * 扫过的这一张存完不跳走，给「再扫一张」：展会上一张接一张。来源记住上一次（这次打开 App 期间）
  */
 function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, onRecordFor }: {
@@ -855,10 +868,13 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
   onCancel: () => void; onSave: (x: 同步.新建客户输入, 留着: boolean) => Promise<string | null>; onRecordFor: (id: string) => void;
 }) {
   const 外贸 = 业务.template === "trade";
-  const 空 = (): 名片表单 & { source: string } => ({ ...空名片表单(), source: 来源 });
+  const 公司格 = 字段是公司(业务.fields.school);
+  const 行业格 = 字段是行业(业务.fields.major);
+  const 空 = (): 新建表单 => ({ ...空名片表单(), source: 来源, level: "", followStatus: "待跟进", decisionStatus: "了解中" });
   const [填, set填] = useState(空);
   const [黄, set黄] = useState<Set<keyof 名片表单>>(new Set());
-  const [候选, set候选] = useState<{ 名字: string[]; wa: string | null }>({ 名字: [], wa: null });
+  const [候选, set候选] = useState<{ 名字: string[]; 公司: string[]; wa: string | null }>({ 名字: [], 公司: [], wa: null });
+  const [更多, set更多] = useState(false);
   const [扫过, set扫过] = useState(Boolean(图));
   const [存好, set存好] = useState<string | null>(null);
   const [错, set错] = useState<string | null>(null);
@@ -866,46 +882,50 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
   const 名框 = useRef<HTMLInputElement>(null);
   const 填ref = useRef(填);
   useEffect(() => { 填ref.current = 填; });
-  const 扫 = useCardScan(外贸, (法) => {
+  const 扫 = useCardScan({ 外贸, 行业们: 行业格 ? 业务.industries : [], 公司格 }, (法) => {
     // 已经填了的格子不覆盖（次入口：先手填了几格再拍）；第一次从相机进来时表单是空的，等于全填
     const { 填: 新, 补了 } = 只补空格(填ref.current, 法.填);
-    set填((f) => ({ ...新, source: f.source }));
+    set填((f) => ({ ...f, ...新 }));
     set黄(new Set(法.黄.filter((k) => 补了.includes(k))));
-    set候选({ 名字: 法.名字候选, wa: 法.whatsapp建议 });
+    set候选({ 名字: 法.名字候选, 公司: 法.公司候选, wa: 法.whatsapp建议 });
     set错(null);
   });
   // 从相机图标进来：一打开就认；手工「+」进来：聚焦名字格。只在打开时做一次
+  // （开发模式下 effect 会跑两遍：照片现在要传服务器认，别传两次）
+  const 认过 = useRef(false);
   useEffect(() => {
-    if (图) { void 扫.认(图); return; }
+    if (图) { if (!认过.current) { 认过.current = true; void 扫.认(图); } return; }
     const x = setTimeout(() => 名框.current?.focus(), 380);
     return () => clearTimeout(x);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const 用照片 = (f: File) => { set扫过(true); void 扫.认(f); };
-  const 改 = (k: keyof 名片表单 | "source") => (e: { target: { value: string } }) => {
+  const 改 = (k: keyof 新建表单) => (e: { target: { value: string } }) => {
     set填((f) => ({ ...f, [k]: e.target.value })); set错(null);
-    if (k !== "source") set黄((h) => { if (!h.has(k)) return h; const n = new Set(h); n.delete(k); return n; });
+    set黄((h) => { if (!h.has(k as keyof 名片表单)) return h; const n = new Set(h); n.delete(k as keyof 名片表单); return n; });
   };
   const 设 = (k: keyof 名片表单, v: string) => { set填((f) => ({ ...f, [k]: v })); set黄((h) => { const n = new Set(h); n.delete(k); return n; }); };
-  const 有联系 = Boolean(填.phone?.trim() || (外贸 && (填.whatsapp?.trim() || 填.email?.trim())));
+  /** 「换成」：点了的换上去，原来那个进候选 */
+  const 换 = (k: "name" | "school", 哪: "名字" | "公司", x: string) => {
+    设(k, x);
+    set候选((c) => ({ ...c, [哪]: c[哪].filter((y) => y !== x).concat(填[k] ? [填[k]] : []) }));
+  };
+  const 有联系 = Boolean(填.phone?.trim() || (外贸 && (填.whatsapp?.trim() || 填.email?.trim() || 填.wechat?.trim())));
   const 可存 = 填.name.trim().length > 0 && 有联系 && !存着 && 扫.态?.阶段 !== "认";
   const 存 = async () => {
     if (!可存) return;
     set存着(true);
-    const 话 = await onSave(外贸 ? 填 : { name: 填.name, phone: 填.phone, remark: 填.remark }, 扫过);
+    const 共有 = { name: 填.name, phone: 填.phone, school: 填.school, grade: 填.grade, major: 填.major, followStatus: 填.followStatus, decisionStatus: 填.decisionStatus, remark: 填.remark };
+    const 话 = await onSave(外贸 ? { ...共有, whatsapp: 填.whatsapp, email: 填.email, wechat: 填.wechat, website: 填.website, country: 填.country, source: 填.source, level: 填.level } : 共有, 扫过);
     set存着(false);
     if (话) { set错(话); return; }
     if (扫过) set存好(填.name.trim());
   };
-  const 再扫 = () => {
-    // 先开相机（要在点击里），拍到了再清表单；来源留着
-    void import("@/lib/card-scan/ocr").then((m) => m.预热());
-    void 拍名片().then((f) => {
-      if (!f) return;
-      set填((x) => ({ ...空(), source: x.source })); set黄(new Set()); set候选({ 名字: [], wa: null }); set存好(null); set错(null);
-      用照片(f);
-    });
-  };
+  // 再扫一张：先开相机（要在点击里），拍到了再清表单；来源留着
+  const 再扫 = usePickPhoto((f) => {
+    set填((x) => ({ ...空(), source: x.source })); set黄(new Set()); set候选({ 名字: [], 公司: [], wa: null }); set存好(null); set错(null);
+    用照片(f);
+  });
   const 黄的 = (k: keyof 名片表单) => (黄.has(k) ? " is-check" : "");
   const 老 = 错 ? 找老(填.phone, 填.email) : undefined;
   if (存好 !== null) {
@@ -914,11 +934,15 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
         <div className="m-scan-saved-ok"><CheckCircleFilled /></div>
         <b>已存好「{存好}」</b>
         <p>{填.source ? `来源：${填.source}，下一张会自动带上` : "下一张也从相机直接填"}</p>
-        <button className="m-btn m-btn-block" data-testid="m-scan-again" onClick={再扫}><CameraOutlined /> 再扫一张</button>
+        {再扫.点过 && 再扫.换浏览器 && <BrowserTip 话={再扫.换浏览器} />}
+        {再扫.没开 && <NoCameraTip />}
+        <button className="m-btn m-btn-block" data-testid="m-scan-again" onClick={再扫.拍}><CameraOutlined /> 再扫一张</button>
+        <button className="m-scan-take is-ghost" data-testid="m-scan-again-album" onClick={再扫.相册}><PictureOutlined /> 从相册选</button>
         <button className="m-btn m-btn-block m-btn-ghost" onClick={onCancel}>完成</button>
       </div>
     );
   }
+  const 四选一 = 外贸 ? " ◆" : "";
   return (
     <div className="m-record" data-testid="m-new-customer-sheet">
       <div className="m-sheet-h">
@@ -926,23 +950,32 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
         <b>新建{业务.customer}</b>
         <button className="m-text-btn is-strong" disabled={!可存} onClick={() => void 存()}>保存</button>
       </div>
-      <ScanBar 态={扫.态} onPhoto={用照片} on换语言={扫.换语言} />
+      <ScanBar 态={扫.态} onPhoto={用照片} on换语言={扫.换语言} on再试={扫.再试} />
       <form className="m-form m-form-sheet" onSubmit={(e) => { e.preventDefault(); void 存(); }}>
-        <label className={黄的("name")}><span>名字</span><input ref={名框} value={填.name} onChange={改("name")} maxLength={100} placeholder={外贸 ? "公司名或联系人" : "姓名"} autoComplete="off" /></label>
+        <label className={黄的("name")}><span>{业务.customer}姓名</span><input ref={名框} value={填.name} onChange={改("name")} maxLength={100} placeholder="如：张三" autoComplete="off" /></label>
         {候选.名字.length > 0 && (
-          <div className="m-scan-alt">换成：{候选.名字.map((x) => <button type="button" key={x} onClick={() => { 设("name", x); set候选((c) => ({ ...c, 名字: c.名字.filter((y) => y !== x).concat(填.name ? [填.name] : []) })); }}>{x}</button>)}</div>
+          <div className="m-scan-alt">换成：{候选.名字.map((x) => <button type="button" key={x} onClick={() => 换("name", "名字", x)}>{x}</button>)}</div>
         )}
-        <label className={黄的("phone")}><span>电话{外贸 ? "" : "（必填）"}</span><input value={填.phone} onChange={改("phone")} type="tel" inputMode="tel" maxLength={40} placeholder={外贸 ? "选填，可以带 +86 / +44" : "手机号"} autoComplete="off" /></label>
+        <label className={黄的("phone")}><span>联系电话{外贸 ? 四选一 : "（必填）"}</span><input value={填.phone} onChange={改("phone")} type="tel" inputMode="tel" maxLength={40} placeholder={外贸 ? "可以带 +86 / +44" : "13800001111"} autoComplete="off" /></label>
+        {外贸 && <p className="m-form-tip">◆ 电话 / WhatsApp / 邮箱 / 微信至少填一个</p>}
+        <label className={黄的("school")}><span>{业务.fields.school}</span><input value={填.school} onChange={改("school")} maxLength={200} placeholder={公司格 ? "如：星辰科技" : undefined} autoComplete="off" /></label>
+        {候选.公司.length > 0 && (
+          <div className="m-scan-alt">换成：{候选.公司.map((x) => <button type="button" key={x} onClick={() => 换("school", "公司", x)}>{x}</button>)}</div>
+        )}
+        <label className={黄的("major")}><span>{业务.fields.major}</span><input value={填.major} onChange={改("major")} list={行业格 ? "m-industries" : undefined} maxLength={200} placeholder={行业格 ? "选一个，或直接填" : undefined} autoComplete="off" /></label>
+        {行业格 && <datalist id="m-industries">{业务.industries.map((x) => <option key={x} value={x} />)}</datalist>}
+        <label className={黄的("grade")}><span>{业务.fields.grade}</span><input value={填.grade} onChange={改("grade")} list="m-grades" maxLength={200} placeholder="选一个，或直接填" autoComplete="off" /></label>
+        <datalist id="m-grades">{业务.grades.map((x) => <option key={x} value={x} />)}</datalist>
         {外贸 && (
           <>
-            <label className={黄的("whatsapp")}><span>WhatsApp</span><input value={填.whatsapp} onChange={改("whatsapp")} type="tel" inputMode="tel" maxLength={40} placeholder="选填，带国家区号" autoComplete="off" /></label>
-            {候选.wa && !填.whatsapp && <div className="m-scan-alt">名片上没写 WhatsApp：<button type="button" onClick={() => 设("whatsapp", 候选.wa!)}>用手机号 {候选.wa}</button></div>}
-            <label className={黄的("email")}><span>邮箱</span><input value={填.email} onChange={改("email")} type="email" inputMode="email" maxLength={200} placeholder="选填" autoComplete="off" autoCapitalize="none" /></label>
-            <p className="m-form-tip">电话、WhatsApp、邮箱至少填一个；没有电话就用 WhatsApp 或邮箱认人</p>
-            {(扫过 || 填.wechat) && <label className={黄的("wechat")}><span>微信</span><input value={填.wechat} onChange={改("wechat")} maxLength={60} placeholder="选填" autoComplete="off" autoCapitalize="none" /></label>}
-            {(扫过 || 填.website) && <label className={黄的("website")}><span>官网</span><input value={填.website} onChange={改("website")} inputMode="url" maxLength={200} placeholder="选填" autoComplete="off" autoCapitalize="none" /></label>}
             <label className={黄的("country")}><span>国家</span><input value={填.country} onChange={改("country")} list="m-countries" maxLength={60} placeholder="选一个，或直接填" autoComplete="off" /></label>
             <datalist id="m-countries">{国家候选.flatMap((g) => g.国家).map((x) => <option key={x} value={x} />)}</datalist>
+            <label className={黄的("whatsapp")}><span>WhatsApp{四选一}</span><input value={填.whatsapp} onChange={改("whatsapp")} type="tel" inputMode="tel" maxLength={40} placeholder="如 +971 50 123 4567" autoComplete="off" /></label>
+            {!填.whatsapp && (候选.wa || 填.phone.trim()) && (
+              <div className="m-scan-alt">{候选.wa ? "名片上没写 WhatsApp：" : ""}<button type="button" onClick={() => 设("whatsapp", 候选.wa || 填.phone.trim())}>{候选.wa ? `用手机号 ${候选.wa}` : "同电话"}</button></div>
+            )}
+            <label className={黄的("email")}><span>邮箱{四选一}</span><input value={填.email} onChange={改("email")} type="email" inputMode="email" maxLength={200} placeholder="如 buyer@company.com" autoComplete="off" autoCapitalize="none" /></label>
+            <label className={黄的("wechat")}><span>微信{四选一}</span><input value={填.wechat} onChange={改("wechat")} maxLength={60} placeholder="只知道微信号也行" autoComplete="off" autoCapitalize="none" /></label>
             <div className="m-field-l">来源</div>
             <div className="m-chips m-chips-plain">
               {业务.sources.map((x) => (
@@ -950,11 +983,31 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
               ))}
             </div>
             <input className="m-scan-source" value={业务.sources.includes(填.source) ? "" : 填.source} onChange={改("source")} maxLength={40} placeholder="或者填展会名，比如 2026 迪拜展" aria-label="来源" autoComplete="off" />
+            <label className={黄的("website")}><span>官网</span><input value={填.website} onChange={改("website")} inputMode="url" maxLength={200} placeholder="如 www.example.com" autoComplete="off" autoCapitalize="none" /></label>
           </>
         )}
-        {(扫过 || 填.remark) && (
-          <label className={黄的("remark")}><span>备注</span><textarea value={填.remark} onChange={改("remark")} maxLength={2000} rows={Math.min(6, Math.max(2, 填.remark.split("\n").length))} placeholder="职位、地址、其他电话" /></label>
+        <button type="button" className="m-form-more" aria-expanded={更多} data-testid="m-new-more" onClick={() => set更多((x) => !x)}>
+          <span>更多</span><em>{[外贸 ? (填.level ? 客户等级说明[填.level as 客户等级] : "没分级") : "", statusLabel(业务, 填.followStatus), statusLabel(业务, 填.decisionStatus)].filter(Boolean).join(" · ")}</em><RightOutlined />
+        </button>
+        {更多 && (
+          <>
+            {外贸 && (
+              <label><span>客户等级</span>
+                <select value={填.level} onChange={改("level")}>
+                  <option value="">没分级</option>
+                  {客户等级.map((x) => <option key={x} value={x}>{客户等级说明[x]}</option>)}
+                </select>
+              </label>
+            )}
+            <label><span>跟进状态</span>
+              <select value={填.followStatus} onChange={改("followStatus")}>{FOLLOW_STATUSES.map((x) => <option key={x} value={x}>{statusLabel(业务, x)}</option>)}</select>
+            </label>
+            <label><span>{业务.customer}决策状态</span>
+              <select value={填.decisionStatus} onChange={改("decisionStatus")}>{DECISION_STATUSES.map((x) => <option key={x} value={x}>{statusLabel(业务, x)}</option>)}</select>
+            </label>
+          </>
         )}
+        <label className={黄的("remark")}><span>备注</span><textarea value={填.remark} onChange={改("remark")} maxLength={2000} rows={Math.min(6, Math.max(2, 填.remark.split("\n").length))} placeholder={`${业务.customer}背景、意向、注意事项…`} /></label>
         {错 && <div className="m-form-err" role="alert">{错}</div>}
         {老 && <button type="button" className="m-btn m-btn-block m-btn-ghost" onClick={() => onRecordFor(老.id)}>改成给「{老.name}」记一笔跟进</button>}
         <button className="m-btn m-btn-block m-record-save" type="submit" disabled={!可存}>保存</button>

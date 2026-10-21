@@ -451,12 +451,17 @@ function 拒绝非本地(): 结果<never> | null {
 /**
  * 这个部署开着哪两条路：网页那边还收不收新注册、能不能自助找回密码。
  * 登录页据此决定画哪几个入口——别摆一个点进去说「没开放」的链接。
- * 问不到（断网、老版本服务端）就按「都不开」算，只留登录，那是永远走得通的那条。
+ *
+ * 云端明确回了错（老版本服务端 404 之类）才按「都不开」算，只留登录。
+ * **没问到**（超时、连不上）不能也这么算（2026-10-21）：国内第一次打开时这一问常常 5 秒内回不来，
+ * 登录页就成了「用你的云端账号登录」、新邮箱点继续直接去输密码，新用户整个没有注册的路，
+ * 只能对着「账号或密码不对」干瞪眼。没问到就照云端平时的样子把路都摆出来：
+ * 点「继续」时还会再问云端一次（超时更长），真不收注册、真连不上，那一步会把原因说出来。
  */
 export async function 策略(): Promise<{ register: boolean; reset: boolean; inApp: boolean }> {
   // 短超时：这一问挡在登录页渲染前面，断网时不能让人对着空白页等 20 秒
-  const r = await 请求<{ register?: boolean; reset?: boolean; inApp?: boolean }>(`${云端地址()}/api/account/policy`, {}, 5_000);
-  if (!r.ok) return { register: false, reset: false, inApp: false };
+  const r = await 请求<{ register?: boolean; reset?: boolean; inApp?: boolean }>(`${云端地址()}/api/account/policy`, {}, 8_000);
+  if (!r.ok) return r.状态 ? { register: false, reset: false, inApp: false } : { register: true, reset: true, inApp: true };
   /* inApp：云端有没有 /api/account/signup/*（2026-10-02 加）。没有就照旧开浏览器去网页注册 */
   return { register: Boolean(r.data?.register), reset: Boolean(r.data?.reset), inApp: Boolean(r.data?.inApp) };
 }
