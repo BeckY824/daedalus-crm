@@ -14,7 +14,8 @@ import { 检查限流, 记一次失败, 清除限流, 解析来源IP, 阈值, IP
 import { multiTenant } from "@/lib/tenant/context";
 import { verifyAccount } from "@/lib/tenant/accounts";
 import { accessibleWorkspacesFor } from "@/lib/tenant/workspace-access";
-import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, 核对验证码 as 云端核对验证码, 策略 as 云端策略, type 注册去向 } from "@/lib/desktop/cloud";
+import { 本地模式, 登录 as 云端登录, 注册开始 as 云端注册开始, 注册 as 云端注册, 核对验证码 as 云端核对验证码, 策略 as 云端策略, 读 as 读云端凭据, type 注册去向 } from "@/lib/desktop/cloud";
+import { 设专属服务器, 退出专属服务器, type 设置结果 } from "@/lib/desktop/dedicated-server";
 
 export type LoginResult =
   | { ok: true; 换账号?: boolean; 选工作区?: boolean }
@@ -196,6 +197,23 @@ async function 该用的名字(本机名字: string, 云端名字: string): Prom
 export async function 桌面端策略() {
   if (!本地模式()) return null;
   return 云端策略();
+}
+
+/**
+ * 登录页上的「使用专属服务器」/「退出专属服务器」。**只在没登录时能换**：
+ * 手上的令牌只对发它的那套云端有效，登录着换过去，同步、AI 会拿着这枚令牌去问另一套云端
+ */
+export async function 桌面端设专属服务器(输入: string): Promise<设置结果> {
+  if (!本地模式()) return { ok: false, error: "只有桌面端能设专属服务器" };
+  if (读云端凭据()) return { ok: false, error: "先退出登录，再换服务器" };
+  return 设专属服务器(String(输入 ?? "").slice(0, 2000));
+}
+
+export async function 桌面端退出专属服务器(): Promise<设置结果> {
+  if (!本地模式()) return { ok: false, error: "只有桌面端能设专属服务器" };
+  if (读云端凭据()) return { ok: false, error: "先退出登录，再换服务器" };
+  退出专属服务器();
+  return { ok: true, 状态: { 状态: "无" } };
 }
 
 /**

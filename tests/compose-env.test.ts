@@ -20,6 +20,7 @@ const 不用进容器: Record<string, string> = {
   DESKTOP_TOKEN: "桌面端壳传",
   CRM_DATA_DIR: "桌面端壳传",
   CRM_CLOUD_URL: "桌面端壳传（本机联调指到别处）",
+  CRM_SERVER_FILE: "桌面端壳传（数据根里专属服务器的设置文件）",
   CRM_APP_VERSION: "桌面端壳传",
   CRM_MACHINE_HASH: "桌面端壳传",
   // 背调走模拟数据（e2e、演示）。托管版不配 = 托管版本来就背调不了（lib/research/channel.ts 只认桌面端）

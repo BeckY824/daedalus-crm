@@ -4,10 +4,10 @@
  * 文件名带序号：整套共用一个库、串行跑，这一组必须最先——「新库第一次进门先选模版」
  * 「升上来第一次进主界面弹更新记录」都只在库还是新的时候成立。
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { test, expect } from "@playwright/test";
-import { 云端账号, 进门地址, DESKTOP_TOKEN, ROOT } from "./env";
+import { 云端账号, 进门地址, DESKTOP_TOKEN, ROOT, CLOUD_PORT, SERVER_FILE } from "./env";
 import { 没登录云端时, 进门 } from "./helpers";
 
 // 用户看到的版本就是 package.json 的版本号（desktop/release-version.js 原样返回）。
@@ -104,6 +104,42 @@ test("没登录云端账号：带着令牌也被挡在登录门（DesktopAuth）
   // 放回 .cloud.json = 重新登录过：再进门就到首页
   await 进门(page);
   await expect(page).toHaveURL(/\/dashboard/);
+});
+
+/*
+  专属服务器（2026-10-21）：登录门底下填一次地址，存进数据根的设置文件，刷新、重开都还连着它；退出回正式服。
+  假云端在 127.0.0.1 上，专属服务器填 localhost 的同一个端口——同一个桩，但地址不同，看得出连的是哪个
+*/
+test("没登录时设专属服务器：先认地址，连好后一直摆着连的是哪台；刷新还在；退出回正式服", async ({ page }) => {
+  const 专属 = `localhost:${CLOUD_PORT}`;
+  try {
+    await 没登录云端时(async () => {
+      await page.goto("/login");
+      await page.waitForLoadState("networkidle").catch(() => {});
+      // 认不过的地址：说清原因，不存
+      await page.getByRole("button", { name: "使用专属服务器" }).click();
+      await page.locator("#server-addr").fill("http://127.0.0.1:9");
+      await page.locator("#server-addr").press("Enter");
+      await expect(page.locator(".auth-server .ant-alert")).toContainText("连不上 127.0.0.1:9");
+      expect(() => readFileSync(SERVER_FILE)).toThrow();
+
+      await page.locator("#server-addr").fill(`http://${专属}`);
+      await page.locator("#server-addr").press("Enter");
+      await expect(page.locator(".auth-server")).toContainText(`专属服务器：${专属}`);
+      expect(JSON.parse(readFileSync(SERVER_FILE, "utf8")).url).toBe(`http://${专属}`);
+      // 回车只连服务器，没顺带提交邮箱那一步
+      await expect(page.getByRole("heading", { name: "登录或注册" })).toBeVisible();
+
+      await page.reload();
+      await expect(page.locator(".auth-server")).toContainText(`专属服务器：${专属}`);
+
+      await page.getByRole("button", { name: "退出专属服务器" }).click();
+      await expect(page.getByRole("button", { name: "使用专属服务器" })).toBeVisible();
+      expect(() => readFileSync(SERVER_FILE)).toThrow();
+    });
+  } finally {
+    rmSync(SERVER_FILE, { force: true });
+  }
 });
 
 test("进来之后云端账号被吊销：业务会话跟着作废，回登录门并说明原因", async ({ page }) => {
