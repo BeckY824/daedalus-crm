@@ -24,8 +24,12 @@ export function 第几行(行号: number, 粘贴: boolean): string {
 /** 导入抽屉（ImportDrawer.tsx）的各一步：粘贴、对列、复核、确认，外加页脚那排按钮。流程和状态在抽屉里 */
 
 export function 页脚({
-  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法, 认人叫法 = "手机号", 原文未确认 = false,
+  步, 忙, 认人列, 看, set步, 去预览, 落库, 撤, 重来, 完成, 这一批, 客户叫法, 认人叫法 = "手机号", 原文未确认 = false, 写入中 = false, 断了 = null,
 }: {
+  /** 正在一段一段写（2026-10-21）：只留一颗转圈的按钮，别的都不让点 */
+  写入中?: boolean;
+  /** 写到一半停下了。有批 = 已经写进去一些：只给「接着导」和「撤销已导入的」，不让退回去改了再导一份 */
+  断了?: { 写进去: number; 有批: boolean } | null;
   步: number; 忙: boolean; 认人列: number; 看: 预览 | null;
   /** 第 1 步那个灰按钮上的「先指出 X 那一列」：外贸是「电话、WhatsApp、邮箱或微信」 */
   认人叫法?: string;
@@ -59,6 +63,28 @@ export function 页脚({
         </Space>
       </Space>
     );
+  if (步 === 3 && 写入中)
+    return (
+      <Space style={{ display: "flex", justifyContent: "flex-end" }}>
+        <Button type="primary" loading>正在导入</Button>
+      </Space>
+    );
+  if (步 === 3 && 断了?.有批)
+    return (
+      <Space style={{ display: "flex", justifyContent: "space-between" }}>
+        {断了.写进去 > 0 ? <Popconfirm
+          title="撤销已经导进去的这些？"
+          description={`会删掉这一批新建的 ${这一批?.新建 ?? 0} 位${客户叫法}${这一批?.补空 ? `、还原 ${这一批.补空} 位补过空的` : ""}。导入之后改过档案、记过跟进的那几位会留着。`}
+          okText="撤销"
+          okButtonProps={{ danger: true }}
+          cancelText="不了"
+          onConfirm={撤}
+        >
+          <Button danger loading={忙}>撤销已导入的</Button>
+        </Popconfirm> : <span />}
+        <Button type="primary" onClick={落库} loading={忙}>接着导</Button>
+      </Space>
+    );
   return (
     <Space style={{ display: "flex", justifyContent: "flex-end" }}>
       <Button onClick={() => set步(步 - 1)} disabled={忙}>上一步</Button>
@@ -70,7 +96,7 @@ export function 页脚({
       {步 === 2 && <Button type="primary" onClick={() => set步(3)} disabled={忙}>下一步</Button>}
       {步 === 3 && (
         <Button type="primary" onClick={落库} loading={忙} disabled={!看 || 看.新建 + (看.补空 ?? 0) === 0}>
-          开始导入
+          {断了 ? "再试一次" : "开始导入"}
         </Button>
       )}
     </Space>

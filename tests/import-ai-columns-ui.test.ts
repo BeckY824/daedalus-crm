@@ -35,7 +35,9 @@ const 桩插件: Plugin = {
     桩(/^\.\/import-actions$/, `
       const 记 = (名, 参) => (window.__调用[名] ||= []).push(JSON.parse(JSON.stringify(参)));
       export const 预览导入 = (...参) => { 记("预览", 参); return Promise.resolve({ ok: true, 预览: window.__预览结果 ?? ${JSON.stringify(预览)} }); };
-      export const 执行导入 = (...参) => { 记("执行", 参); return Promise.resolve({ ok: true, batchId: "b1", 新建: 4, 补空: 0, 跳过: 0, 进不了: 0 }); };
+      export const 暂存导入表 = (号, 块) => Promise.resolve({ ok: true, 收到: 块.起 + 块.数据.length });
+      // 抽屉 2026-10-21 起一段一段导（分段导入）；这里一趟写完
+      export const 分段导入 = (...参) => { 记("执行", 参); return Promise.resolve({ ok: true, batchId: "b1", 新建: 4, 补空: 0, 跳过: 0, 进不了: 0, 下一个: null, 共: 4 }); };
       export const 撤销批次 = () => Promise.resolve({ ok: true, 删掉: 0, 还原: 0, 没动: [] });
     `);
     b.onLoad({ filter: /.*/, namespace: "stub" }, (a) => ({ contents: a.pluginData as string, loader: "jsx", resolveDir: process.cwd() }));
