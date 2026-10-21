@@ -525,7 +525,7 @@ let 触发器对过 = false;
 /**
  * 壳定时来戳时这一轮要不要跳过（2026-10-21 人多放慢，云端定的间隔见 tenant/sync-scoped.ts 前台最短间隔）。
  * 只管壳的定时戳（/api/desktop/sync）：改完就推（推一下）、「立即同步」直接调 同步一轮，不经过这里。
- * 留 2 秒余量：壳 8 秒一戳，20 秒的实际约 24 秒一轮、30 秒的约 32 秒。上一轮出错了不放慢，照旧下一戳就重试
+ * 留 2 秒余量：壳 8 秒一戳，15 秒的实际约 16 秒一轮、30 秒的约 32 秒。上一轮出错了不放慢，照旧下一戳就重试
  */
 export function 该放慢(c: 团队配置 | null, now = Date.now()): boolean {
   if (!c?.pace || !c.lastSyncAt || c.lastError) return false;

@@ -221,7 +221,7 @@ describe("v4 范围同步：业务员只同步本人 + 公海，老板全队", (
     expect(await db("boss").followUp.findUnique({ where: { id: "member-follow" } })).not.toBeNull();
   });
 
-  it("人多放慢（2026-10-21）：团队到 10 人，目录里的 pace 记进本机团队配置、壳的定时戳没到 20 秒就跳过；人少了回到不放慢", async () => {
+  it("人多放慢（2026-10-21）：团队到 10 人，目录里的 pace 记进本机团队配置、壳的定时戳没到 15 秒就跳过；人少了回到不放慢", async () => {
     const teamId = 读配置("boss").teamId;
     const 加的: string[] = [];
     for (let i = 0; i < 8; i++) {
@@ -230,7 +230,7 @@ describe("v4 范围同步：业务员只同步本人 + 公海，老板全队", (
       加的.push(a.id);
     }
     expect(await 轮("boss")).toMatchObject({ ok: true });
-    expect(读配置("boss").pace).toBe(20);
+    expect(读配置("boss").pace).toBe(15);
     expect(client.该放慢(读配置("boss"))).toBe(true);
     await control.syncMember.deleteMany({ where: { teamId, accountId: { in: 加的 } } });
     expect(await 轮("boss")).toMatchObject({ ok: true });
