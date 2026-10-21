@@ -89,13 +89,22 @@ it('幂等、密文缺失不越过游标；停用/移除账号后拒绝目录和
   await relay.移除成员(owner, team, member);
   await expect(scoped.给范围拉取(member, team, 'Customer:own-new', 0)).rejects.toMatchObject({ 状态: 403 });
 });
-it('v3 旧密文、同 eventId 换密文均拒收', async () => {
+/*
+  同 eventId 换密文（2026-10-21 改）：原来 409。可每次加密随机 IV，回包丢了客户端重推字节必然不同，一丢就永久 409；
+  中转解不开密文、分不出「同一条重加密」和「换了内容」，现在一律当重复：不落盘、原来那份不动（借旧编号换不掉内容），
+  外层范围信息不一样仍 409（那是中转能看到的、决定谁看得见的部分）
+*/
+it('v3 旧密文拒收；同 eventId 换密文当重复、不落盘；换范围信息 409', async () => {
   const e = event('Customer', 'own-v3', { salesOwnerId: `acct_${owner}` });
   const p = packet(e, 'owner-device');
   await expect(scoped.收范围推送(owner, team, 'owner-device', [{ ...p, data: 封({ meta: p.meta, change: e }, key, 0, { teamId: team, device: 'owner-device' }) }])).rejects.toMatchObject({ 状态: 400 });
   await scoped.收范围推送(owner, team, 'owner-device', [p]);
   const swapped = 封范围({ meta: p.meta, change: { ...e, r: { ...e.r, name: 'swap' } } }, key, 0, { teamId: team, device: 'owner-device', eventId: p.eventId, meta: p.meta });
-  await expect(scoped.收范围推送(owner, team, 'owner-device', [{ ...p, data: swapped }])).rejects.toMatchObject({ 状态: 409 });
+  const 前 = await control.syncScopedBatch.findFirstOrThrow({ where: { teamId: team, eventId: p.eventId } });
+  expect(await scoped.收范围推送(owner, team, 'owner-device', [{ ...p, data: swapped }])).toEqual({ received: 1, stored: 1 });
+  expect(await control.syncScopedBatch.findMany({ where: { teamId: team, eventId: p.eventId } })).toEqual([前]);
+  const 别人的 = packet(event('Customer', 'own-v3', { salesOwnerId: `acct_${member}` }), 'owner-device');
+  await expect(scoped.收范围推送(owner, team, 'owner-device', [{ ...别人的, eventId: p.eventId }])).rejects.toMatchObject({ 状态: 409 });
 });
 it('灰度开关关闭且团队未迁移：不能开始迁移', async () => {
   const t = await relay.建团队(other, 'flag-off', { device: 'flag-dev', pubKey: 设备钥匙对().公钥 });
@@ -128,4 +137,18 @@ it('开关开、团队还没迁移：业务员旧接口的话要老板升级并�
     expect(await scoped.范围开放(team)).toBe(true);
     expect(await scoped.范围状态(owner, team)).toMatchObject({ stage: 'ready', enabled: true });
   } finally { delete process.env.CRM_SCOPED_SYNC_LEGACY_TEAMS; }
+});
+it('人多放慢（2026-10-21）：目录里带 pace，不到 10 人 0、10 人起 20 秒、20 人起 30 秒', async () => {
+  const 人数 = () => control.syncMember.count({ where: { teamId: team, leftAt: null } });
+  expect(await 人数()).toBeLessThan(10);
+  expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 0 });
+  const 加到 = async (n: number) => {
+    while ((await 人数()) < n) {
+      const a = await control.account.create({ data: { name: 'pace', email: `pace${await 人数()}@example.invalid`, password: 'not-a-login' } });
+      await control.syncMember.create({ data: { teamId: team, accountId: a.id } });
+    }
+  };
+  await 加到(9); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 0 });
+  await 加到(10); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 20 });
+  await 加到(20); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 30 });
 });
