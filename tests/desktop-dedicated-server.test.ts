@@ -115,6 +115,8 @@ describe("设了专属服务器：全跟着走", () => {
     const 登 = await cloud.登录("z@even.cn", "pw-123456");
     expect(登.ok).toBe(true);
     expect(cloud.读()?.baseUrl).toBe(专属.url);
+    // AI（lib/llm-config.ts 的 环境配置）走的就是这一份：专属服务器上的网关
+    expect(cloud.模型配置()?.baseUrl).toBe(`${专属.url}/api/gateway/v1`);
 
     const { 调云 } = await import("@/lib/sync/client");
     expect((await 调云("GET", "/api/sync/directory")).状态).toBe(200);
