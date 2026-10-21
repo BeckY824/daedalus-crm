@@ -23,7 +23,7 @@ import type { 改动 } from "@/lib/sync/local";
 // 下面这几样都不牵进服务端模块（Prisma、node:*）：手机页面直接打包
 import { BUSINESS_KEY, mergeBusiness, 外贸订单, type BusinessConfig } from "@/lib/business-config";
 import { 订单前缀 } from "@/lib/follow-link";
-import { OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
+import { DECISION_STATUSES, FOLLOW_STATUSES, OPP_STAGES, STAGE_PROBABILITY } from "@/lib/constants";
 import { 金额 as 显示金额, 规整币种 } from "@/lib/currency";
 import { 认国家, 规整外贸格, type 外贸档案 } from "@/lib/customer-extra";
 import { hasVisibleText } from "@/lib/form-validation";
@@ -455,13 +455,25 @@ async function 业务设置(库: 手机库): Promise<BusinessConfig> {
   return 读业务(await 库.取("Setting", BUSINESS_KEY));
 }
 
-/** wechat / website / remark：扫名片（2026-10-19）带过来的，手工新建表单里没有这几格 */
-export type 新建客户输入 = { name: string; phone?: string; whatsapp?: string; email?: string; country?: string; source?: string; wechat?: string; website?: string; remark?: string };
+/**
+ * 和电脑上「新建客户」同一套格子（2026-10-20 用户：名片录入要和新建客户录的信息一致）。
+ * school / grade / major 是公司 / 职位 / 行业（外贸模版的叫法，business-config fields）；level 是客户等级 A–D；
+ * 跟进状态 / 决策状态不填就是电脑上的默认值（待跟进 / 了解中）
+ */
+export type 新建客户输入 = {
+  name: string; phone?: string; school?: string; grade?: string; major?: string;
+  whatsapp?: string; email?: string; country?: string; source?: string; wechat?: string; website?: string; level?: string;
+  followStatus?: string; decisionStatus?: string; remark?: string;
+};
+
+/** 状态不在取值表里给那句报错（和电脑上 customers/actions.ts 不合法 同一句） */
+const 不合法 = (名: string, 表: readonly string[], v: unknown) => (表.includes(v as string) ? null : `${名}「${v}」不是合法取值`);
 
 /** 这台手机上已有的同号 / 同邮箱客户（成员手机只有本人 + 公海；同事名下的，联网时再问服务端：问同事） */
-async function 手机上撞的(库: 手机库, phone: string, email: string): Promise<string | null> {
+async function 手机上撞的(库: 手机库, phone: string, email: string, wechat = ""): Promise<string | null> {
   const 号 = phone ? 号键(phone) : "";
   const 邮 = email.trim().toLowerCase();
+  const 微 = wechat.trim().toLowerCase();
   for (const key of await 库.键们()) {
     if (!key.startsWith("Customer:")) continue;
     const x = await 库.取("Customer", key.slice("Customer:".length));
@@ -471,16 +483,21 @@ async function 手机上撞的(库: 手机库, phone: string, email: string): Pr
       const 额 = await 库.取("CustomerExtra", x.k);
       if (!x.r.phone && String(额?.r.email ?? "").trim().toLowerCase() === 邮) return `邮箱 ${email.trim()} 已经有了：${String(x.r.name ?? "")}`;
     }
+    if (微 && !phone && !邮) {
+      const 额 = await 库.取("CustomerExtra", x.k);
+      if (!x.r.phone && !String(额?.r.email ?? "").trim() && String(额?.r.wechat ?? "").trim().toLowerCase() === 微) return `微信 ${wechat.trim()} 已经有了：${String(x.r.name ?? "")}`;
+    }
   }
   return null;
 }
 
 /**
  * 新建客户：和电脑上 saveCustomer 新建那一支同一套规矩（customers/actions.ts），只收手机上摆的几格。
- *   - 名字必填；外贸：电话、WhatsApp、邮箱至少一个（没电话就拿 WhatsApp 当电话认人，都没有就按邮箱认）；通用：电话必填
+ *   - 名字必填；外贸：电话、WhatsApp、邮箱、微信至少一个（没电话就拿 WhatsApp 当电话认人，再没有按邮箱、微信认）；通用：电话必填
+ *   - 公司 / 职位 / 行业 / 客户等级 / 两个状态和电脑上存的是同一些列，取值表也一样（状态不在表里不收）
  *   - 归本人（salesOwnerId = 本人）——服务端的范围规则只许成员建自己名下的客户
  *   - 写客户一行、（外贸填了才有）外贸档案一行、操作日志一条，先进手机库再进待推
- * 跟进状态 / 决策状态用库里的默认值；推荐人、渠道这些通用模版的东西手机上不问，空着（电脑上照样能补）
+ * 推荐人、渠道这些通用模版的东西手机上不问，空着（电脑上照样能补）
  */
 export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同步状态, 输入: 新建客户输入, 现在 = Date.now(), 云?: 传输): Promise<{ id: string }> {
   if (!hasVisibleText(输入.name)) throw new 同步问题("请填写名字");
@@ -488,7 +505,7 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
   const 外贸 = b.template === "trade";
   const 档案: Partial<外贸档案> = {};
   if (外贸) {
-    for (const k of ["whatsapp", "email", "source", "wechat", "website"] as const) {
+    for (const k of ["whatsapp", "email", "source", "wechat", "website", "level"] as const) {
       const r = 规整外贸格(k, 输入[k]);
       if (!r.ok) throw new 同步问题(r.error);
       if (r.v) 档案[k] = r.v;
@@ -498,13 +515,20 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
   }
   const 填的电话 = !String(输入.phone ?? "").trim() && 外贸 && 档案.whatsapp ? 档案.whatsapp : 输入.phone;
   const 按邮箱认 = 外贸 && !String(填的电话 ?? "").trim() && Boolean(档案.email);
-  const 电话 = 查电话(填的电话, { 必填: !按邮箱认 });
-  if (!电话.ok) throw new 同步问题(外贸 && !String(填的电话 ?? "").trim() ? "电话、WhatsApp、邮箱至少填一个（没有电话就用它认人）" : 电话.error);
-  const 撞 = await 手机上撞的(库, 电话.phone, 按邮箱认 ? String(档案.email) : "");
+  const 按微信认 = 外贸 && !String(填的电话 ?? "").trim() && !档案.email && Boolean(档案.wechat);
+  const 电话 = 查电话(填的电话, { 必填: !按邮箱认 && !按微信认 });
+  // 报错一字不差照抄电脑上的 saveCustomer
+  if (!电话.ok) throw new 同步问题(外贸 && !String(填的电话 ?? "").trim() ? "电话 / WhatsApp / 邮箱 / 微信至少填一个（没有电话就用它认人）" : 电话.error);
+  const 状态错 = 不合法("跟进状态", FOLLOW_STATUSES, 输入.followStatus ?? "待跟进") ?? 不合法("决策状态", DECISION_STATUSES, 输入.decisionStatus ?? "了解中");
+  if (状态错) throw new 同步问题(状态错);
+  const 撞 = await 手机上撞的(库, 电话.phone, 按邮箱认 ? String(档案.email) : "", 按微信认 ? String(档案.wechat) : "");
   if (撞) throw new 同步问题(撞);
   // 联网时再问一下服务端是不是同事名下的（2026-10-19 跨成员查重）；断网、超时当没撞，照样建（老板那台「疑似重复」兜底）
   if (云) {
-    const 问的: [查重种类, string, string] | null = 电话.phone ? ["phone", 电话.phone, `手机号 ${电话.phone}`] : 按邮箱认 ? ["email", String(档案.email), `邮箱 ${String(档案.email)}`] : null;
+    const 问的: [查重种类, string, string] | null = 电话.phone ? ["phone", 电话.phone, `手机号 ${电话.phone}`]
+      : 按邮箱认 ? ["email", String(档案.email), `邮箱 ${String(档案.email)}`]
+      : 按微信认 ? ["wechat", String(档案.wechat), `微信 ${String(档案.wechat)}`]
+      : null;
     const 同事 = 问的 && (await 问同事(c, 云, 库, 问的[0], 问的[1]));
     if (同事 && 问的) throw new 同步问题(同事撞号说法(问的[2], 同事.同事, 同事.客户名, b.customer));
   }
@@ -519,10 +543,12 @@ export async function 新建客户(c: 手机团队, 库: 手机库, 状态: 同�
   const name = 输入.name.trim();
   // 扫名片把多出来的行都放进备注：截到 2000 字，认崩的名片别塞一大段乱码
   const remark = String(输入.remark ?? "").trim().slice(0, 2000) || null;
+  // 公司 / 职位 / 行业：电脑上是 trim 以后空的存 null；手机这头再截个长度，认崩的名片别塞一长串
+  const 格 = (v: string | undefined) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 200) || null;
   插("Customer", {
-    id, name, phone: 电话.phone, school: null, grade: null, major: null,
+    id, name, phone: 电话.phone, school: 格(输入.school), grade: 格(输入.grade), major: 格(输入.major),
     channelId: null, referrerCustomerId: null, attributionChannelId: null, attributionCustomerId: null,
-    salesOwnerId: c.userId, channelOwnerId: null, followStatus: "待跟进", decisionStatus: "了解中",
+    salesOwnerId: c.userId, channelOwnerId: null, followStatus: 输入.followStatus ?? "待跟进", decisionStatus: 输入.decisionStatus ?? "了解中",
     expectedSignAt: null, expectedSignOn: null, remark, createdAt: 现在, updatedAt: 现在,
   });
   if (Object.keys(档案).length) {

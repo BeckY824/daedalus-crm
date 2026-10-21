@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { useReducedMotion } from "motion/react";
 import { 打字 } from "@/lib/motion";
 
 const 名字 = "Daedalus.AI CRM";
@@ -10,6 +9,11 @@ const 不订阅=()=>()=>{};
 function 读看过(){try{return 看过||sessionStorage.getItem("crm:auth-brand-seen")==="1"}catch{return 看过}}
 function 记看过(){看过=true;try{sessionStorage.setItem("crm:auth-brand-seen","1")}catch{/* 本次会话用内存 */}}
 const 服务端未看=()=>false;
+// 不用 motion 的 useReducedMotion：它在服务端是 null、到浏览器第一下就是 true，开了「减弱动态」的人
+// 每次进登录页都 hydration 对不上，React 把整张登录表单丢掉重画。服务端和水合那一下都按「没开」算，水合完再换真值
+const 少动查询="(prefers-reduced-motion: reduce)";
+const 订少动=(cb:()=>void)=>{const m=window.matchMedia(少动查询);m.addEventListener("change",cb);return()=>m.removeEventListener("change",cb)};
+const 读少动=()=>window.matchMedia(少动查询).matches;
 
 /**
  * 登录页像素标旁边的名字：打字机一样一个字一个字打出来，方块光标跟着往前走，打完闪几下收掉。
@@ -18,7 +22,7 @@ const 服务端未看=()=>false;
  * 标和名字不会跟着一点点往右挤。开了「减弱动态」就直接是打好的样子，没有光标。
  */
 export default function TypeBrand() {
-  const 少动 = Boolean(useReducedMotion());
+  const 少动 = useSyncExternalStore(订少动, 读少动, 服务端未看);
   const 已看=useSyncExternalStore(不订阅,读看过,服务端未看);
   const [n, setN] = useState(0);
   const [收了, set收了] = useState(false);

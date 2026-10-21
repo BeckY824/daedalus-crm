@@ -64,6 +64,13 @@ services:
       GATEWAY_API_KEY: "${GATEWAY_API_KEY:-}"
       GATEWAY_BASE_URL: "${GATEWAY_BASE_URL:-}"
       GATEWAY_MODELS: "${GATEWAY_MODELS:-}"
+      # 团队版扫名片的 AI 整理（lib/card-scan/server/ai-call.ts，不扣次数）。都可以空着：借上面 GATEWAY_* 的上游，模型 gpt-5.4-mini。
+      #   CARD_SCAN_AI_OFF=1 临时关掉（手机只用规则拆，认字不受影响）；CARD_SCAN_AI_MODEL 换模型；
+      #   CARD_SCAN_AI_KEY / CARD_SCAN_AI_BASE_URL 给名片单独一把 Key（便于单独看账）
+      CARD_SCAN_AI_OFF: "${CARD_SCAN_AI_OFF:-}"
+      CARD_SCAN_AI_MODEL: "${CARD_SCAN_AI_MODEL:-}"
+      CARD_SCAN_AI_KEY: "${CARD_SCAN_AI_KEY:-}"
+      CARD_SCAN_AI_BASE_URL: "${CARD_SCAN_AI_BASE_URL:-}"
       # AI 背调的搜索（lib/research/providers.ts）：用中转站自带的搜索，Key 就是上面的 GATEWAY_API_KEY。
       # RESEARCH_SEARCH 空着 = gpt（挂了自动换 claude 试一次），可填 claude / mock；RESEARCH_SEARCH_MODEL 换主用的模型
       RESEARCH_SEARCH: "${RESEARCH_SEARCH:-}"

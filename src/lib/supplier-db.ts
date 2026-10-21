@@ -3,7 +3,7 @@
  */
 import type { Prisma } from "@/generated/prisma";
 import { prisma, defaultClient } from "./prisma";
-import { 限定的我, 可见客户 } from "./team-scope";
+import { 读的我, 可见客户 } from "./team-scope";
 import { 规整币种 } from "./currency";
 import { 签约金额, 签约币种 } from "./money-db";
 
@@ -16,7 +16,7 @@ export type 供应商行 = {
 /** 供应商一览：合作过几单（订单采购指向它）、比过几次价、被选用几次。评级好的、合作多的排前面 */
 export async function 供应商列表(where: Prisma.SupplierWhereInput = {}): Promise<供应商行[]> {
   // 业务员只数自己客户的比价和订单（同 供应商详情，2026-10-06 复查）
-  const 我 = await 限定的我(defaultClient);
+  const 我 = await 读的我(defaultClient);
   const 限 = 我 ? 可见客户(我) : null;
   const 比价条件 = 限 ? { opportunity: { customer: 限 } } : {};
   const rows = await prisma.supplier.findMany({
@@ -45,7 +45,7 @@ export async function 供应商详情(id: string) {
     业务员（团队版）只看得到自己客户的比价和订单（2026-10-06 复查）：供应商本身不挂在客户下面、限定层不管它，
     这里嵌套带出来的比价 / 采购却挂着客户名——Prisma 扩展只限顶层查询，嵌套的要自己按可见客户筛
   */
-  const 我 = await 限定的我(defaultClient);
+  const 我 = await 读的我(defaultClient);
   const 限 = 我 ? 可见客户(我) : null;
   const s = await prisma.supplier.findUnique({
     where: { id },

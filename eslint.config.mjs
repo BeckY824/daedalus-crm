@@ -21,6 +21,8 @@ const eslintConfig = defineConfig([
     "desktop/**",
     // 扫名片的识别运行库：scripts/build-ocr.mjs 从 node_modules 打出来的压缩包，不是我们写的
     "public/ocr/**",
+    // 服务器认名片的识别线程：同一个脚本用 esbuild 打出来的（SDK + OpenCV + onnxruntime 一个文件）
+    "ocr-server/**",
   ]),
   {
     rules: {

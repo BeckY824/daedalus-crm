@@ -1,0 +1,2 @@
+# 脚本一律 LF：Windows 上 core.autocrlf=true 会把它们检成 CRLF，容器里 shebang 认不出（GitHub issue #1）
+*.sh text eol=lf
