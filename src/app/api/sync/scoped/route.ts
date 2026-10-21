@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     if (action === 'state') return Response.json(await 范围状态(a, teamId));
     // 带设备号的（推送、新客户端的目录和拉取）：被「我的设备」移除的挡下，其余顺手记最近同步时间
     if (action === 'directory' || action === 'pull' || action === 'push' || action === 'dedupe-put') await 核设备(a, teamId, body.device, auth.tokenId);
-    if (action === 'directory') return Response.json(await 范围目录(a, teamId));
+    if (action === 'directory') return Response.json(await 范围目录(a, teamId, { device: typeof body.device === 'string' ? body.device : undefined, base: body.base }));
     if (action === 'begin' && typeof body.device === 'string') return Response.json(await 开始范围迁移(a, teamId, body.device));
     if (action === 'commit' && typeof body.device === 'string' && Number.isSafeInteger(body.count)) return Response.json(await 完成范围迁移(a, teamId, body.device, body.count));
     if (action === 'push' && typeof body.device === 'string') return Response.json(await 收范围推送(a, teamId, body.device, body.packets as 范围包[]));

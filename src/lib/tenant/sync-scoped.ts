@@ -11,6 +11,7 @@ import { workspaceDir } from "./clients";
 import { 当前编号, 互看, 在队里, 设备还在, 记设备在用 } from "./sync-relay";
 import { 范围开关 } from "./scoped-flag";
 import { 能同步 } from "./team-plan";
+import { 团队索引, 缓存关着, 索引版本, 记改过, 推送开始, 推送结束, 有推送在途, 目录增量, type 范围组 } from "./scoped-index";
 import { 包的编号 } from "../sync/crypto";
 import { 合并范围, 推送可写, 挂在已删的上, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
 import { 查重单次上限, 查重一问上限, 查重哈希格式, type 查重条目, type 查重命中 } from "../sync/dedupe";
@@ -45,9 +46,6 @@ async function auth(accountId: string, teamId: string, device?: string, db: Db =
   // manager：业务主管（2026-10-20，老板在设置 → 团队里设）：读全队客户（不看开关），全队客户能改；业务配置、个人范围照旧不行
   const owner = t.ownerAccountId === accountId;
   return { owner, manager: !owner && m.role === "manager", team: t, share: await 互看(teamId, db) };
-}
-async function indices(teamId: string, db: Db = control) {
-  return new Map((await db.syncScopedRecord.findMany({ where: { teamId } })).map(r => [r.key, JSON.parse(r.metadata) as 范围索引]));
 }
 /**
  * 灰度开关（scoped-flag.ts）：CRM_SCOPED_SYNC=1 且团队不在 CRM_SCOPED_SYNC_LEGACY_TEAMS 里才能开始迁移；
@@ -119,6 +117,18 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     if (!fs.existsSync(f)) { fs.writeFileSync(temp, packet.data, { mode: 0o600 }); fs.renameSync(temp, f); }
     return { packet, digest };
   });
+  // 索引缓存（scoped-index.ts）：在途登记、提交前后各记一次改过的键
+  let 改过: string[] = [];
+  推送开始(teamId);
+  try {
+    const 回 = await 收范围推送事务(accountId, teamId, device, packets, epoch, prepared, (keys) => { 改过 = keys; 记改过(teamId, keys); });
+    记改过(teamId, 改过);
+    return 回;
+  } finally {
+    推送结束(teamId);
+  }
+}
+async function 收范围推送事务(accountId: string, teamId: string, device: string, packets: 范围包[], epoch: number, prepared: { packet: 范围包; digest: string }[], 提交前: (keys: string[]) => void) {
   return control.$transaction(async tx => {
     const { owner, manager, share } = await auth(accountId, teamId, device, tx);
     const current = (await tx.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0;
@@ -202,6 +212,7 @@ export async function 收范围推送(accountId: string, teamId: string, device:
       重发的也要算（2026-10-21）：会重发只有一种情况——上一次的回包这台没收到、没记进累计数；原来重发的不算，回包丢一次
       完成迁移就永远对不上数（「迁移批次不全」）。事件编号按内容 + 字段钟算，同一台不会有两条真的不同的改动撞编号
     */
+    提交前([...原样.keys()]);
     return { received: packets.length, stored };
   }, { timeout: 60_000 });
 }
@@ -223,52 +234,71 @@ export async function 完成范围迁移(accountId: string, teamId: string, devi
 /**
  * 人多时前台放慢（2026-10-21 客户 Even 30 人压测的兜底）：壳在前台 8 秒戳一次本地服务，10 人起至少隔 20 秒才真同步一轮、20 人起 30 秒。
  * 本机实测 30 台、老板 1000 位老客户：8 秒一轮云端一个核打满、老板要 4 分多钟才看到业务员写的；只把间隔改成 30 秒，老板 9 秒看到、云端平均 0.63 核。
- * 改完 1.5 秒就推、「立即同步」不受它管（客户端 lib/sync/client.ts 该放慢）。由云端说，以后要调不用发客户端；单位秒，0 = 不放慢
+ * 改完 1.5 秒就推、「立即同步」不受它管（客户端 lib/sync/client.ts 该放慢）。由云端说，以后要调不用发客户端；单位秒，0 = 不放慢。
+ * 云端设 CRM_SYNC_PACE_OFF=1 就全不放慢（有了索引缓存后压测对照用；正式服真要关也不用发版）
  */
-export const 前台最短间隔 = (人数: number) => (人数 >= 20 ? 30 : 人数 >= 10 ? 20 : 0);
-export async function 范围目录(accountId: string, teamId: string) {
-  return control.$transaction(tx => 目录里(accountId, teamId, tx, true));
-}
-/** 要补起点：只有 directory 动作算 needBaseline；拉取每个范围都会重算目录，不跟着多查 */
-async function 目录里(accountId: string, teamId: string, db: Db, 要补起点 = false) {
-  const { owner, manager, team, share } = await auth(accountId, teamId, undefined, db);
-  const p = await db.syncPrivacy.findUnique({ where: { teamId } });
+export const 前台最短间隔 = (人数: number) =>
+  process.env.CRM_SYNC_PACE_OFF === "1" ? 0 : 人数 >= 20 ? 30 : 人数 >= 10 ? 20 : 0;
+/**
+ * 目录（2026-10-21 起从索引缓存出，见 scoped-index.ts）：这个人看得到的范围，每个带 revision（改归属后从头拉）、
+ * head（这个范围最新的批次号：客户端游标已经到这儿就不用拉）和记录索引。
+ * 带 device 和 base（上次目录回的 token）来的新客户端只拿变了的范围 + removed（看不到了的范围编号），delta = true；
+ * 老客户端什么都不带，照旧拿全的
+ */
+export async function 范围目录(accountId: string, teamId: string, 选项: { device?: string; base?: unknown } = {}) {
+  const { owner, manager, team, share } = await auth(accountId, teamId);
+  const p = await control.syncPrivacy.findUnique({ where: { teamId } });
   if (p?.stage !== 'ready') fail(409, "请等待老板完成团队范围迁移");
-  const rows = await indices(teamId, db);
-  const scopes = new Map<string, { id: string; revision: number; records: 范围索引[] }>();
-  const 老板 = `acct_${team.ownerAccountId}`;
-  const 候选 = new Map<string, number>();
-  for (const r of rows.values()) {
-    const scope = 算范围(r, rows);
-    if (!范围可读(scope, accountId, owner, share || manager) || !scope) continue;
-    const s = scopes.get(scope.id) ?? { id: scope.id, revision: 0, records: [] };
-    s.revision = Math.max(s.revision, scope.routeSeq); s.records.push(r); scopes.set(scope.id, s);
-    if (owner && 要补起点 && !r.deleted && scope.routeSeq > 0 && (scope.public || scope.owners.some(o => o !== 老板))) 候选.set(行键(r.t, r.k), scope.routeSeq);
-  }
-  /*
-    老板那台补起点（2026-10-14）：改过归属、有业务员看得到、改归属之前有过批次（改归属之后才新建的不需要，见 给范围拉取）、
-    却还没有「改归属之后的起点」的记录——交出去的人推不了（旧版客户端、起点太大没跟转交放进同一次请求），接手的人就一直拉不到。
-    老板收全队、永远有权写，由它补。只查改过归属的那些记录，按块一次查，不逐条查。
-  */
-  const needBaseline: string[] = [];
-  const keys = [...候选.keys()];
-  for (let i = 0; i < keys.length && needBaseline.length < 500; i += 400) {
-    const part = keys.slice(i, i + 400);
-    const 起点 = new Map((await db.syncScopedBaseline.groupBy({ by: ['recordKey'], where: { teamId, recordKey: { in: part } }, _max: { batchId: true } })).map(x => [x.recordKey, x._max.batchId ?? 0]));
-    const 缺 = part.filter(k => (起点.get(k) ?? 0) < 候选.get(k)!);
-    if (!缺.length) continue;
-    for (const x of await db.syncScopedBatch.groupBy({ by: ['recordKey'], where: { teamId, recordKey: { in: 缺 } }, _min: { id: true } })) {
-      if ((x._min.id ?? Infinity) < 候选.get(x.recordKey)! && needBaseline.length < 500) needBaseline.push(x.recordKey);
-    }
-  }
+  const e = await 团队索引(teamId);
+  const 可读 = (x: 范围组) => 范围可读(x.scope, accountId, owner, share || manager);
   /*
     「团队」范围（成员、设置、渠道、供应商）放最前（2026-10-15）：客户端照目录的顺序拉，原来按记录键字母序，
     「Customer:…」排在「User:…」前面——新同事加入后马上录了客户、老板这段时间没同步，老板就先收到客户、后收到同事的账号行，
     回放时负责人在本机不存在，整批客户当孤儿永久跳过（tests/sync-scoped-join-order.test.ts）
   */
-  const 排好 = [...scopes.values()].sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
-  const pace = 前台最短间隔(await db.syncMember.count({ where: { teamId, leftAt: null } }));
-  return { owner, share, manager, pace, scopes: 排好, epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
+  const 看得到 = [...e.groups.values()].filter(可读).sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
+  const 老路 = 缓存关着();
+  const 增 = 目录增量(!老路 && typeof 选项.device === "string" ? `${teamId}|${accountId}|${选项.device}` : null, 选项.base, 看得到);
+  const pace = 前台最短间隔(await control.syncMember.count({ where: { teamId, leftAt: null } }));
+  return {
+    owner, share, manager, pace,
+    scopes: 增.scopes.map(x => ({ id: x.id, revision: x.revision, ...(老路 ? {} : { head: x.head }), records: x.records })),
+    ...(增.token ? { token: 增.token } : {}),
+    ...(增.delta ? { delta: true, removed: 增.removed } : {}),
+    epoch: (await control.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0,
+    ...(owner ? { needBaseline: await 要补起点(teamId, e, `acct_${team.ownerAccountId}`) } : {}),
+  };
+}
+/*
+  老板那台补起点（2026-10-14）：改过归属、有业务员看得到、改归属之前有过批次（改归属之后才新建的不需要，见 给范围拉取）、
+  却还没有「改归属之后的起点」的记录——交出去的人推不了（旧版客户端、起点太大没跟转交放进同一次请求），接手的人就一直拉不到。
+  老板收全队、永远有权写，由它补。只查改过归属的那些记录，按块一次查，不逐条查。
+  起点和批次只随推送变（推送会让索引版本变），所以同一版索引只算一次（2026-10-21）
+*/
+const 补起点记 = new WeakMap<object, Promise<string[]>>();
+function 要补起点(teamId: string, e: Awaited<ReturnType<typeof 团队索引>>, 老板: string): Promise<string[]> {
+  let p = 补起点记.get(e);
+  if (!p) { p = 算要补起点(teamId, e, 老板); 补起点记.set(e, p); p.catch(() => 补起点记.delete(e)); }
+  return p;
+}
+async function 算要补起点(teamId: string, e: Awaited<ReturnType<typeof 团队索引>>, 老板: string) {
+  const 候选 = new Map<string, number>();
+  for (const [key, r] of e.rows) {
+    const scope = e.归.get(key);
+    if (scope && !r.deleted && scope.routeSeq > 0 && (scope.public || scope.owners.some(o => o !== 老板))) 候选.set(key, scope.routeSeq);
+  }
+  const needBaseline: string[] = [];
+  const keys = [...候选.keys()];
+  for (let i = 0; i < keys.length && needBaseline.length < 500; i += 400) {
+    const part = keys.slice(i, i + 400);
+    const 起点 = new Map((await control.syncScopedBaseline.groupBy({ by: ['recordKey'], where: { teamId, recordKey: { in: part } }, _max: { batchId: true } })).map(x => [x.recordKey, x._max.batchId ?? 0]));
+    const 缺 = part.filter(k => (起点.get(k) ?? 0) < 候选.get(k)!);
+    if (!缺.length) continue;
+    for (const x of await control.syncScopedBatch.groupBy({ by: ['recordKey'], where: { teamId, recordKey: { in: 缺 } }, _min: { id: true } })) {
+      if ((x._min.id ?? Infinity) < 候选.get(x.recordKey)! && needBaseline.length < 500) needBaseline.push(x.recordKey);
+    }
+  }
+  return needBaseline;
 }
 /** 这条记录在改归属（threshold）之前有没有批次：有 = 新获权的人需要一份起点，没有 = 整段历史都在改归属之后 */
 const 有更早批次 = async (db: Db, teamId: string, recordKey: string, threshold: number) => !!(await db.syncScopedBatch.findFirst({ where: { teamId, recordKey, id: { lt: threshold } }, select: { id: true } }));
@@ -292,11 +322,29 @@ async function 当前删除包(db: Db, teamId: string, r: 范围索引) {
     before = page[page.length - 1].id;
   }
 }
+/**
+ * 拉一个范围（2026-10-21 起不再每次重算整份目录：范围和记录从索引缓存取，见 scoped-index.ts）。
+ * 给出去的批次和判「这条记录在不在这个范围」用的索引必须是同一时刻的，否则转走的客户可能借旧缓存多拉到一条：
+ * 有推送在途就等它结束；事务读完批次后索引版本变了（期间有推送提交）就整个重来
+ */
 export async function 给范围拉取(accountId: string, teamId: string, scopeId: string, after: number) {
+  for (let 次 = 0; 次 < 40; 次++) {
+    if (有推送在途(teamId)) { await new Promise(r => setTimeout(r, 25)); continue; }
+    const e = await 团队索引(teamId);
+    if (有推送在途(teamId)) continue;
+    const r = await 拉一个范围(accountId, teamId, scopeId, after, e);
+    if (e.ver === 索引版本(teamId) && !有推送在途(teamId)) return r;
+  }
+  return fail(503, "同步正忙，请稍后重试；游标未跳过");
+}
+async function 拉一个范围(accountId: string, teamId: string, scopeId: string, after: number, e: Awaited<ReturnType<typeof 团队索引>>) {
   return control.$transaction(async tx => {
-  const directory = await 目录里(accountId, teamId, tx);
-  const scope = directory.scopes.find(s => s.id === scopeId);
-  if (!scope) fail(403, "该范围不在你的同步权限内");
+  const { owner, manager, share } = await auth(accountId, teamId, undefined, tx);
+  const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
+  if (p?.stage !== 'ready') fail(409, "请等待老板完成团队范围迁移");
+  const scope = e.groups.get(scopeId);
+  if (!scope || !范围可读(scope.scope, accountId, owner, share || manager)) fail(403, "该范围不在你的同步权限内");
+  const epoch = (await tx.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0;
   const from = Math.max(0, Math.floor(after) || 0);
   /*
     改过归属（含父链、进出公海）的记录：非老板只从「改归属之后的第一个起点快照」开始拉，
@@ -308,11 +356,13 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
     不按改归属的起点截——否则老板转给另一位业务员、没有业务员看得到过的客户，要等老板那台补完起点才拉得到
   */
   // 主管（2026-10-20）同理：刚被设成主管，全队客户从头给
-  const rows = directory.owner || directory.share || directory.manager ? null : await indices(teamId, tx);
+  const 截 = !(owner || share || manager);
   const starts: { key: string; gt: number; only?: number }[] = [];
   for (const r of scope.records) {
     const key = 行键(r.t, r.k);
-    const threshold = rows ? (算范围(r, rows)?.routeSeq ?? 0) : 0;
+    // 这条记录最新的批次都不比游标新：没什么可给的，不用再查起点（2026-10-21：老板一轮拉上千个范围，绝大多数在这里就结束）
+    if ((e.heads.get(key) ?? 0) <= from) continue;
+    const threshold = 截 ? (e.归.get(key)?.routeSeq ?? 0) : 0;
     if (!threshold) { starts.push({ key, gt: from }); continue; }
     const base = await tx.syncScopedBaseline.findFirst({ where: { teamId, recordKey: key, batchId: { gte: threshold } }, orderBy: { batchId: 'asc' } });
     if (base) starts.push({ key, gt: Math.max(from, base.batchId - 1) });
@@ -333,14 +383,13 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
   // 避开 SQLite 的变量个数上限，各分块取最早 201 条，再整体截到 200。
   for (let i = 0; i < starts.length; i += 200) batches.push(...await tx.syncScopedBatch.findMany({ where: { teamId, OR: starts.slice(i, i + 200).map(x => (x.only ? { recordKey: x.key, id: x.only } : { recordKey: x.key, id: { gt: x.gt } })) }, orderBy: { id: 'asc' }, take: 201 }));
   batches.sort((a, b) => a.id - b.id);
-  return { epoch: directory.epoch, revision: scope.revision, more: batches.length > 200, batches: batches.slice(0, 200).map(b => {
+  return { epoch, revision: scope.revision, more: batches.length > 200, batches: batches.slice(0, 200).map(b => {
     let data: string; try { data = fs.readFileSync(file(b.digest), 'utf8'); } catch { return fail(503, "范围密文暂不可读，请稍后重试；游标未跳过"); }
     if (sha(data) !== b.digest) fail(503, "范围密文校验失败；游标未跳过");
     return { seq: b.id, device: b.device, eventId: b.eventId, meta: JSON.parse(b.metadata) as 范围元数据, data };
   }) };
   }, { timeout: 60_000 });
 }
-
 /* ---------------- 跨成员查重（2026-10-19，lib/sync/dedupe.ts） ---------------- */
 
 /**

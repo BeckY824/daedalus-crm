@@ -1,4 +1,4 @@
-import { beforeAll, afterAll, expect, it } from "vitest";
+import { beforeAll, afterAll, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,20 @@ import { closeTestDatabases } from "./close-databases";
 import { 设备钥匙对, 新钥匙, 封, 封范围 } from "@/lib/sync/crypto";
 import { 提取范围, 行键 } from "@/lib/sync/scope-policy";
 import type { 改动 } from "@/lib/sync/local";
+/*
+  拉取拿到索引之后、读批次之前插一次推送（索引缓存的竞态测试用，2026-10-21）：设了 插一手，下一次取团队索引返回之前先把它跑完。
+  这样「拉取用的是转走之前的索引，转走那一批已经提交」这一刻每次都出现，不靠运气撞
+*/
+const 钩 = vi.hoisted(() => ({ 插一手: null as null | (() => Promise<unknown>) }));
+vi.mock("@/lib/tenant/scoped-index", async (原) => {
+  const m = await 原<typeof import("@/lib/tenant/scoped-index")>();
+  return { ...m, 团队索引: async (teamId: string) => {
+    const e = await m.团队索引(teamId);
+    const h = 钩.插一手; 钩.插一手 = null;
+    if (h) await h();
+    return e;
+  } };
+});
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'crm-scope-relay-'));
 let control: typeof import('@/lib/tenant/control').control;
 let relay: typeof import('@/lib/tenant/sync-relay');
@@ -106,6 +120,81 @@ it('v3 旧密文拒收；同 eventId 换密文当重复、不落盘；换范围�
   const 别人的 = packet(event('Customer', 'own-v3', { salesOwnerId: `acct_${member}` }), 'owner-device');
   await expect(scoped.收范围推送(owner, team, 'owner-device', [{ ...别人的, eventId: p.eventId }])).rejects.toMatchObject({ 状态: 409 });
 });
+/*
+  索引缓存（2026-10-21，tenant/scoped-index.ts）：目录、拉取不再每次整表读，改从缓存出。下面三条守住它不出错：
+  转走那一刻正在拉的人拿不到转走之后的批次；目录只发变了的；缓存给的和现读现算的一模一样
+*/
+it('索引缓存：转走客户的同时正在拉的人，拿不到转走之后的任何一批；转走后再拉 403', async () => {
+  for (let i = 0; i < 12; i++) {
+    const k = `race-cache-${i}`;
+    await push(other, 'other-device', event('Customer', k, { salesOwnerId: `acct_${other}` }));
+    await scoped.范围目录(other, team); // 先把缓存热起来
+    const 转走前 = (await control.syncScopedBatch.findFirstOrThrow({ where: { teamId: team }, orderBy: { id: 'desc' } })).id;
+    const 转走 = [packet(event('Customer', k, { salesOwnerId: `acct_${owner}` }, 'U'), 'owner-device'), packet(event('FollowUp', `${k}-secret`, { customerId: k, ownerId: `acct_${owner}` }), 'owner-device')];
+    const [拉, 推] = await Promise.allSettled([scoped.给范围拉取(other, team, `Customer:${k}`, 0), scoped.收范围推送(owner, team, 'owner-device', 转走)]);
+    expect(推.status).toBe('fulfilled');
+    if (拉.status === 'fulfilled') expect(拉.value.batches.every(b => b.seq <= 转走前)).toBe(true);
+    else expect(拉.reason).toMatchObject({ 状态: 403 });
+    await expect(scoped.给范围拉取(other, team, `Customer:${k}`, 0)).rejects.toMatchObject({ 状态: 403 });
+  }
+});
+it('索引缓存：拉取拿到索引后、读批次前客户被转走（每次都插在这一刻）：拿不到转走那一批，回 403', async () => {
+  const k = 'race-exact';
+  await push(other, 'other-device', event('Customer', k, { salesOwnerId: `acct_${other}` }));
+  await push(other, 'other-device', event('FollowUp', `${k}-old`, { customerId: k, ownerId: `acct_${other}` }));
+  await scoped.范围目录(other, team); // 缓存热着，拉取拿到的就是转走之前那份
+  const 转走前 = (await control.syncScopedBatch.findFirstOrThrow({ where: { teamId: team }, orderBy: { id: 'desc' } })).id;
+  let 推了 = false;
+  钩.插一手 = async () => {
+    await scoped.收范围推送(owner, team, 'owner-device', [packet(event('Customer', k, { salesOwnerId: `acct_${owner}` }, 'U'), 'owner-device'), packet(event('FollowUp', `${k}-old`, { customerId: k, ownerId: `acct_${owner}`, note: 'secret' } as Record<string, unknown>, 'U', ['note']), 'owner-device')]);
+    推了 = true;
+  };
+  const 拉 = await scoped.给范围拉取(other, team, `Customer:${k}`, 0).then(v => v, (e: unknown) => e);
+  expect(推了).toBe(true);
+  // 没有「核版本、不一致重来」时，这里会拿到转走那一批和转走之后改的跟进（seq > 转走前）
+  if (拉 && typeof 拉 === 'object' && 'batches' in 拉) expect((拉 as { batches: { seq: number }[] }).batches.filter(b => b.seq > 转走前)).toEqual([]);
+  else expect(拉).toMatchObject({ 状态: 403 });
+});
+it('目录只发变了的：带上次的 token 来只拿变了的范围和看不到了的；token 对不上拿全的；每个范围带 head', async () => {
+  const 目录 = (base?: string) => scoped.范围目录(other, team, { device: 'other-device', base }) as Promise<{ token: string; delta?: boolean; removed?: string[]; scopes: { id: string; head: number }[] }>;
+  const d1 = await 目录();
+  expect(d1.delta).toBeUndefined();
+  const d2 = await 目录(d1.token);
+  expect(d2).toMatchObject({ delta: true, scopes: [], removed: [] });
+  await push(other, 'other-device', event('Customer', 'delta-new', { salesOwnerId: `acct_${other}` }));
+  const d3 = await 目录(d2.token);
+  expect(d3.delta).toBe(true);
+  expect(d3.scopes.map(x => x.id)).toEqual(['Customer:delta-new']);
+  const 最新 = (await control.syncScopedBatch.findFirstOrThrow({ where: { teamId: team, recordKey: 'Customer:delta-new' }, orderBy: { id: 'desc' } })).id;
+  expect(d3.scopes[0].head).toBe(最新);
+  await push(owner, 'owner-device', event('Customer', 'delta-new', { salesOwnerId: `acct_${owner}` }, 'U'));
+  const d4 = await 目录(d3.token);
+  expect(d4).toMatchObject({ delta: true, scopes: [], removed: ['Customer:delta-new'] });
+  // 拿旧 token 来（上一次回包丢了）：拿全的
+  const d5 = await 目录(d3.token);
+  expect(d5.delta).toBeUndefined();
+  expect(d5.scopes.map(x => x.id).sort()).toEqual((await scoped.范围目录(other, team)).scopes.map(x => x.id).sort());
+  // 老客户端不带设备号：全的、也不发 token
+  expect(await scoped.范围目录(other, team)).not.toHaveProperty('token');
+});
+it('CRM_SCOPED_CACHE_OFF=1 回老路：目录内容和缓存给的一模一样，只是发全的、不带 token 和 head；拉取照常', async () => {
+  // 范围的先后不算（客户端只要求「团队」排第一）：缓存里新记录排在后面，现读按键排
+  const 去掉 = (d: Record<string, unknown>) => { const { token: _t, scopes, ...x } = d; return { ...x, scopes: (scopes as { id: string; head?: number }[]).map(({ head: _h, ...y }) => y).sort((a, b) => a.id.localeCompare(b.id)) }; };
+  for (const [a, d] of [[owner, 'owner-device'], [other, 'other-device']]) {
+    const 第一次 = await scoped.范围目录(a, team, { device: d }) as { token: string };
+    const 缓存的 = 去掉(await scoped.范围目录(a, team) as Record<string, unknown>);
+    process.env.CRM_SCOPED_CACHE_OFF = '1';
+    try {
+      const 老路 = await scoped.范围目录(a, team, { device: d, base: 第一次.token }) as Record<string, unknown> & { scopes: Record<string, unknown>[] };
+      expect(老路).not.toHaveProperty('token'); expect(老路).not.toHaveProperty('delta');
+      expect(老路.scopes.length).toBeGreaterThan(0);
+      for (const x of 老路.scopes) expect(x).not.toHaveProperty('head');
+      expect(去掉(老路)).toEqual(缓存的);
+      const 一个 = 老路.scopes.find(x => x.id !== 'team')!;
+      expect((await scoped.给范围拉取(a, team, 一个.id as string, 0)).batches.length).toBeGreaterThan(0);
+    } finally { delete process.env.CRM_SCOPED_CACHE_OFF; }
+  }
+});
 it('灰度开关关闭且团队未迁移：不能开始迁移', async () => {
   const t = await relay.建团队(other, 'flag-off', { device: 'flag-dev', pubKey: 设备钥匙对().公钥 });
   if (!t.ok) throw Error(t.error);
@@ -151,4 +240,6 @@ it('人多放慢（2026-10-21）：目录里带 pace，不到 10 人 0、10 人�
   await 加到(9); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 0 });
   await 加到(10); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 20 });
   await 加到(20); expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 30 });
+  process.env.CRM_SYNC_PACE_OFF = '1';
+  try { expect(await scoped.范围目录(owner, team)).toMatchObject({ pace: 0 }); } finally { delete process.env.CRM_SYNC_PACE_OFF; }
 });

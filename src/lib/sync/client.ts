@@ -1093,6 +1093,21 @@ async function 补发起点(c: 团队配置): Promise<结果<{ stored: number }>
   return { ok: true, stored };
 }
 
+type 目录范围 = { id: string; revision: number; head?: number; records: 范围索引[] };
+/**
+ * 上一次拿到的目录（2026-10-21 目录只发变了的），按「团队 | 设备」记：只在内存里，本地服务重启就没了，下次拿全的。
+ * 带着 token 去，云端对得上就只回 sig 变了的范围（delta）和看不到了的范围编号（removed），这里合成一份全的
+ */
+const 上次目录 = new Map<string, { token: string; scopes: Map<string, 目录范围> }>();
+function 合目录(键: string, 上次: { token: string; scopes: Map<string, 目录范围> } | undefined, j: Record<string, unknown>): 目录范围[] {
+  const 来的 = (j.scopes as 目录范围[]) ?? [];
+  const 合 = j.delta === true && 上次 ? new Map(上次.scopes) : new Map<string, 目录范围>();
+  if (j.delta === true && 上次) for (const id of (j.removed as string[]) ?? []) 合.delete(id);
+  for (const s of 来的) 合.set(s.id, s);
+  if (typeof j.token === "string") 上次目录.set(键, { token: j.token, scopes: 合 }); else 上次目录.delete(键);
+  return [...合.values()];
+}
+
 /** 一轮范围同步：推 → 目录 →（业务员）清理失权副本 → 按范围拉、逐包核对后回放 →（老板）补起点 */
 let 上次报查重 = "";
 async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规则 = 旧推送规则): Promise<轮结果> {
@@ -1104,7 +1119,8 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     if (!p.ok) { 记团队(teamId, { lastError: p.error, lastSyncAt: new Date().toISOString() }); return p; }
     c = 读团队() ?? c;
     // 带上设备号：服务端据此记「我的设备」里的最近同步，被移除的这台在这里就被挡下（2026-10-15 多设备同步）
-    const d = await 范围请求(c, "directory", { device: c.device });
+    const 上次 = 上次目录.get(`${teamId}|${c.device}`);
+    const d = await 范围请求(c, "directory", { device: c.device, ...(上次 ? { base: 上次.token } : {}) });
     if (d.状态 !== 200) { const 话 = 错话(d, "取不到同步目录"); 记团队(teamId, { lastError: 话, lastSyncAt: new Date().toISOString() }); return { ok: false, error: 话 }; }
     if (Number(d.json.epoch ?? 0) > (c.epoch ?? 0)) c = await 更新钥匙(c);
     // 人多放慢以这次目录为准（老服务端不回 = 不放慢）
@@ -1115,7 +1131,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     if (!owner && typeof d.json.manager === "boolean") await 看全部(() => 记主管(d.json.manager === true)).catch(() => undefined);
     c = 读团队() ?? c;
     // 「团队」范围（成员、设置）先拉：客户的负责人得先在本机，不然回放当孤儿跳过（新服务端目录已经这么排，这里给老服务端兜底）
-    const scopes = ((d.json.scopes as { id: string; revision: number; records: 范围索引[] }[]) ?? []).sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
+    const scopes = 合目录(`${teamId}|${c.device}`, 上次, d.json).sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
     const index = new Map<string, 范围索引>();
     for (const s of scopes) for (const r of s.records) index.set(行键(r.t, r.k), r);
     const allowed = new Set(index.keys());
@@ -1128,6 +1144,8 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     for (const s of scopes) {
       const cur = c.scoped?.cursors?.[s.id];
       let after = cur && cur.revision >= s.revision ? cur.after : 0;
+      // 游标已经到这个范围最新的批次：没什么可拉的，不发请求（2026-10-21：老板一轮原来每位客户一个请求；老服务端不回 head，照旧拉）
+      if (typeof s.head === "number" && cur && after >= s.head) { cursors[s.id] = { after, revision: s.revision }; continue; }
       for (;;) {
         const r = await 范围请求(c, "pull", { scopeId: s.id, after, device: c.device });
         if (r.状态 !== 200) {
