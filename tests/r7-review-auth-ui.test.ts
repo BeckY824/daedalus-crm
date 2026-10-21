@@ -34,7 +34,11 @@ const 桩插件: Plugin = {
       export const 核对重置码 = (...a) => (window.__桩.核对 ? 叫("核对", ...a) : Promise.resolve({ 对: true }));
       // 10-21 起出页以后后台问云端策略：没给桩就一直没回音（和国内第一次打开时一样），页面照初始那份画
       export const 桌面端策略 = (...a) => 叫("策略", ...a);
+      // 10-21 专属服务器：没给桩就一直没回音（认地址最多等 15 秒）
+      export const 桌面端设专属服务器 = (...a) => 叫("设专属", ...a);
+      export const 桌面端退出专属服务器 = (...a) => 叫("退出专属", ...a);
     `);
+    桩(/^next\/navigation$/, `export const useRouter = () => ({ refresh: () => { window.__刷新 = (window.__刷新 || 0) + 1; } });`);
     桩(/^\.\/after-login$/, `export async function 登录之后(res) { window.__进去了 = res; }`);
     桩(/AuthSide$/, `export default function AuthSide() { return null; }`);
     桩(/^next\/link$/, `
@@ -74,6 +78,11 @@ async function 打包(组件: string, props: string) {
 beforeAll(async () => {
   包.登录 = await 打包("@/app/login/DesktopAuth", `{ 策略: { register: true, reset: true, inApp: true }, 注册地址: "https://x/signup" }`);
   包.找回 = await 打包("@/app/forgot/DesktopForgot", `{ 策略: { register: true, reset: true, inApp: true } }`);
+  包.登录专属 = await 打包(
+    "@/app/login/DesktopAuth",
+    `{ 策略: { register: true, reset: true, inApp: true }, 注册地址: "https://x/signup", 专属服务器: { 状态: "有", url: "http://203.0.113.7:8080", name: "Even 专属" } }`,
+  );
+  包.登录坏了 = await 打包("@/app/login/DesktopAuth", `{ 策略: { register: true, reset: true, inApp: true }, 注册地址: "https://x/signup", 专属服务器: { 状态: "坏了" } }`);
   browser = await chromium.launch();
 }, 120_000);
 
@@ -82,7 +91,7 @@ afterAll(async () => {
 });
 
 /** 打开页面；桩用一段脚本在组件挂上之前装好 */
-async function 开(哪个: "登录" | "找回", 桩: string): Promise<Page> {
+async function 开(哪个: "登录" | "找回" | "登录专属" | "登录坏了", 桩: string): Promise<Page> {
   const page = await browser.newPage();
   // 减弱动态：motion 的过场时长归零。不然 opacity 走 WAAPI、不受假时钟管，退场动画在假时钟下停在半路
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -384,5 +393,86 @@ describe("云端策略在后台问（2026-10-21）", () => {
     expect(await 不能.locator("#forgot-email").count()).toBe(0);
     expect(await 不能.locator(".auth-hint").first().textContent()).toContain("还没开通自助找回");
     await 不能.close();
+  });
+});
+
+describe("专属服务器入口（2026-10-21）", () => {
+  const 调用 = (page: Page, 名: string) => page.evaluate((n) => ((window as unknown as { __调用: Record<string, unknown[][]> }).__调用[n] ?? []), 名);
+  const 刷新次数 = (page: Page) => page.evaluate(() => (window as unknown as { __刷新?: number }).__刷新 ?? 0);
+
+  it("平时只是一行字：邮箱这一步才有，进了输密码那一步就收起来", async () => {
+    const page = await 开("登录", `{}`);
+    expect(await page.locator(".auth-server-entry").textContent()).toBe("使用专属服务器");
+    expect(await page.locator("#server-addr").count()).toBe(0);
+    await page.fill("#auth-email", "a@b.c");
+    await page.click("text=用密码登录");
+    await 过场(page);
+    expect(await page.locator(".auth-server-entry").count()).toBe(0);
+    await page.close();
+  });
+
+  it("填地址按回车：只连服务器、不顺带提交邮箱那一步；连好了按新服务器重画", async () => {
+    const page = await 开("登录", `{ 设专属: async () => ({ ok: true, 状态: { 状态: "有", url: "https://cn.example.com", name: "" } }) }`);
+    await page.click(".auth-server-entry");
+    await page.fill("#server-addr", "cn.example.com");
+    await page.press("#server-addr", "Enter");
+    await 过场(page);
+    expect(await 调用(page, "设专属")).toEqual([["cn.example.com"]]);
+    expect(await 调用(page, "下一步")).toEqual([]);
+    expect(await 刷新次数(page)).toBe(1);
+    await page.close();
+  });
+
+  it("认地址时按钮说在干什么、输入框锁住；连不上就把原因摆出来，不重画、框还在", async () => {
+    const page = await 开("登录", `{}`);
+    await page.click(".auth-server-entry");
+    await page.fill("#server-addr", "cn.example.com");
+    await page.click(".auth-server button.ant-btn-primary");
+    await 过场(page);
+    expect(await page.locator(".auth-server button.ant-btn-primary").textContent()).toContain("正在确认这个地址");
+    expect(await page.locator("#server-addr").isDisabled()).toBe(true);
+    await page.close();
+
+    const 错 = await 开("登录", `{ 设专属: async () => ({ ok: false, error: "连不上 cn.example.com。检查地址有没有写错、网络通不通。" }) }`);
+    await 错.click(".auth-server-entry");
+    await 错.fill("#server-addr", "cn.example.com");
+    await 错.click(".auth-server button.ant-btn-primary");
+    await 过场(错);
+    expect(await 错.locator(".auth-server .ant-alert").textContent()).toContain("连不上 cn.example.com");
+    expect(await 错.locator("#server-addr").inputValue()).toBe("cn.example.com");
+    expect(await 刷新次数(错)).toBe(0);
+    await 错.close();
+  });
+
+  it("空着点连接：当场说要填什么，不去问", async () => {
+    const page = await 开("登录", `{}`);
+    await page.click(".auth-server-entry");
+    await page.click(".auth-server button.ant-btn-primary");
+    await 过场(page);
+    expect(await page.locator(".auth-server .ant-alert").textContent()).toContain("请填专属服务器的地址");
+    expect(await 调用(page, "设专属")).toEqual([]);
+    await page.close();
+  });
+
+  it("设了：一直摆着连的是哪台（没加密的标出来），能退出专属服务器", async () => {
+    const page = await 开("登录专属", `{ 退出专属: async () => ({ ok: true, 状态: { 状态: "无" } }) }`);
+    const 行 = await page.locator(".auth-server").textContent();
+    expect(行).toContain("203.0.113.7:8080");
+    expect(行).toContain("Even 专属");
+    expect(行).toContain("未加密");
+    expect(await page.locator(".auth-server-entry").count()).toBe(0);
+    await page.click("text=退出专属服务器");
+    await 过场(page);
+    expect((await 调用(page, "退出专属")).length).toBe(1);
+    expect(await 刷新次数(page)).toBe(1);
+    await page.close();
+  });
+
+  it("设置读不出来：明说登录不了，给重新填和退出两条路", async () => {
+    const page = await 开("登录坏了", `{}`);
+    expect(await page.locator(".auth-server .ant-alert").textContent()).toContain("设置读不出来了");
+    await page.click("text=重新填地址");
+    expect(await page.locator("#server-addr").count()).toBe(1);
+    await page.close();
   });
 });

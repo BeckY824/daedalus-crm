@@ -15,11 +15,12 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { PrismaClient } from "../src/generated/prisma";
-import { CLOUD_URL, DATA_DIR, DB, ROOT, 云端账号 } from "./env";
+import { CLOUD_URL, DATA_DIR, DB, ROOT, SERVER_FILE, 云端账号 } from "./env";
 
 async function main() {
   for (const f of [DB, `${DB}-wal`, `${DB}-shm`, `${DB}-journal`]) rmSync(f, { force: true });
   rmSync(DATA_DIR, { recursive: true, force: true });
+  rmSync(SERVER_FILE, { force: true });
   mkdirSync(DATA_DIR, { recursive: true });
   // Prisma 6 的部分 macOS 引擎无法直接创建不存在的 SQLite 文件；空文件仍由 db push 建表。
   writeFileSync(DB, "");
