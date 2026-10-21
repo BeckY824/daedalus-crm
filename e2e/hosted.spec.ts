@@ -346,6 +346,9 @@ test("7c 运营台团队同步：按时长开通、看到期、改到期日、�
   await 行.getByRole("button", { name: "开通 / 续费" }).click();
   const 框 = page.getByRole("dialog", { name: /开通 \/ 续费/ });
   await 框.getByText("3 个月", { exact: true }).click();
+  // 头一次开通人数空着、不填不能确认（2026-10-21：原来默认成现在的 1 人，一不留神开成 1 席）
+  await expect(框.getByRole("spinbutton").first()).toHaveValue("");
+  await expect(框.getByRole("button", { name: "确认开通" })).toBeDisabled();
   await 框.getByRole("spinbutton").first().fill("3");
   // 84.9 × 3 = 254.7（按分四舍五入，不是 254.70000000000002）
   await expect(框.getByText("¥254.7", { exact: true })).toBeVisible();

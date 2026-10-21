@@ -340,6 +340,7 @@ export default function CustomersView({
       render: (_: unknown, r) => (r.extra?.email ? <a href={`mailto:${r.extra.email}`} onClick={(e) => e.stopPropagation()} style={{ display: "inline-block", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={r.extra.email}>{r.extra.email}</a> : 空),
     },
     { title: "微信", key: "wechat", width: 120, 默认: false, render: (_: unknown, r) => r.extra?.wechat ?? 空 },
+    { title: "阿里国际站 ID", key: "alibabaId", width: 150, 默认: false, render: (_: unknown, r) => (r.extra?.alibabaId ? <span style={{ display: "inline-block", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={r.extra.alibabaId}>{r.extra.alibabaId}</span> : 空) },
     { title: "来源", key: "source", width: 110, 默认: false, render: (_: unknown, r) => r.extra?.source ?? 空 },
     {
       title: "官网", key: "website", width: 170, 默认: false,

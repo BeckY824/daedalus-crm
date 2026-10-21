@@ -11,7 +11,8 @@
  * 只有两种情况整行进不了，都和「认人」有关：没有手机号、手机号不像个号码。
  * 手机号是这套库里认人的依据（schema 里 Customer.phone 的注释就是「查重主键」），
  * 没有它这一行既不知道是谁、也没法判断是不是已经有了。
- * 外贸模版例外：没有电话拿 WhatsApp 认，WhatsApp 也没有拿邮箱认（2026-10-07，lib/email-dedupe.ts），邮箱也没有拿微信号认（2026-10-19）。
+ * 外贸模版例外：没有电话拿 WhatsApp 认，WhatsApp 也没有拿邮箱认（2026-10-07，lib/email-dedupe.ts），邮箱也没有拿微信号认（2026-10-19），
+ * 微信也没有拿阿里国际站 ID 认（2026-10-21）。
  */
 import { parseDateInput } from "../date-input";
 import { calendarDay } from "../schedule-date";
@@ -266,7 +267,7 @@ export function 摊开(p: 排布): 一行[] {
         外贸档案的邮箱、WhatsApp（2026-10-05）：格式不对的不落进那一格（WhatsApp 链接点不开、邮箱发不出），
         原文并进备注，字一个不丢；国家写成统一叫法（「UAE」→「阿联酋」），筛选才对得上
       */
-      if (字段 === "email" || 字段 === "whatsapp" || 字段 === "country" || 字段 === "wechat" || 字段 === "source" || 字段 === "level" || 字段 === "website") {
+      if (字段 === "email" || 字段 === "whatsapp" || 字段 === "country" || 字段 === "wechat" || 字段 === "source" || 字段 === "level" || 字段 === "website" || 字段 === "alibabaId") {
         // 和表单同一套规整（截长度、格式），国家先认成统一叫法
         const r = 规整外贸格(字段, 字段 === "country" ? 认国家(v) ?? v : v);
         if (!r.ok) {
@@ -342,7 +343,9 @@ export function 摊开(p: 排布): 一行[] {
     const 按邮箱认 = !值.phone && 外贸表 && !有格问题 && Boolean(值.email);
     // 邮箱也没有、只有微信号的按微信号认（2026-10-19 客户反馈「只知道微信号怎么办」）
     const 按微信认 = !值.phone && !值.email && 外贸表 && !有格问题 && Boolean(值.wechat);
-    if (!值.phone && !按邮箱认 && !按微信认) {
+    // 微信也没有、只有阿里国际站 ID 的按它认（2026-10-21 客户反馈）
+    const 按阿里认 = !值.phone && !值.email && !值.wechat && 外贸表 && !有格问题 && Boolean(值.alibabaId);
+    if (!值.phone && !按邮箱认 && !按微信认 && !按阿里认) {
       /*
         只有座机的（小满表里「座机」是公司总机，同一公司几位联系人共用）：不拿它认人，但不能说「没有电话」——表里明明写着一个号码（B.7）
       */
@@ -350,8 +353,8 @@ export function 摊开(p: 排布): 一行[] {
       进不了 = 有格问题
         ? "手机号看不出是个号码"
         : 有座机
-          ? `这一行只有座机（公司总机），不拿它认人；在表里补上联系人电话${外贸表 ? "、WhatsApp、邮箱或微信" : ""}再导`
-          : 外贸表 ? "这一行没有电话、WhatsApp、邮箱，也没有微信" : "这一行没有手机号";
+          ? `这一行只有座机（公司总机），不拿它认人；在表里补上联系人电话${外贸表 ? "、WhatsApp、邮箱、微信或阿里 ID" : ""}再导`
+          : 外贸表 ? "这一行没有电话、WhatsApp、邮箱、微信，也没有阿里 ID" : "这一行没有手机号";
     } else if (!值.name) {
       进不了 = "这一行没有姓名";
     }
@@ -393,19 +396,23 @@ export function 并重复行(rows: 一行[]): { 行: 一行[]; 合掉几行: num
   /*
     外贸按邮箱认的行（没有电话）：表里另有一行同邮箱、有电话的，就是那一位，合进去；
     没有的话同邮箱的几行按邮箱合（键前面加 @，和号码分开）。
-    按微信认的（电话、邮箱都没有，2026-10-19）同一个路子：先找同微信、有电话的那行，没有就按微信合（键前面加 wx:）
+    按微信认的（电话、邮箱都没有，2026-10-19）同一个路子：先找同微信、有电话的那行，没有就按微信合（键前面加 wx:）；
+    按阿里 ID 认的（2026-10-21）也一样（键前面加 ali:）
   */
   const 有号的邮箱 = new Map<string, string>();
   const 有号的微信 = new Map<string, string>();
+  const 有号的阿里 = new Map<string, string>();
   for (const r of rows) {
     if (r.进不了 || !r.值.phone) continue;
     if (r.值.email && !有号的邮箱.has(邮箱键(r.值.email))) 有号的邮箱.set(邮箱键(r.值.email), r.值.phone);
     if (r.值.wechat && !有号的微信.has(邮箱键(r.值.wechat))) 有号的微信.set(邮箱键(r.值.wechat), r.值.phone);
+    if (r.值.alibabaId && !有号的阿里.has(邮箱键(r.值.alibabaId))) 有号的阿里.set(邮箱键(r.值.alibabaId), r.值.phone);
   }
   const 键 = (r: 一行) =>
     r.值.phone ||
     (r.值.email ? 有号的邮箱.get(邮箱键(r.值.email)) ?? `@${邮箱键(r.值.email)}` : "") ||
-    (r.值.wechat ? 有号的微信.get(邮箱键(r.值.wechat)) ?? `wx:${邮箱键(r.值.wechat)}` : "");
+    (r.值.wechat ? 有号的微信.get(邮箱键(r.值.wechat)) ?? `wx:${邮箱键(r.值.wechat)}` : "") ||
+    (r.值.alibabaId ? 有号的阿里.get(邮箱键(r.值.alibabaId)) ?? `ali:${邮箱键(r.值.alibabaId)}` : "");
   for (const r of rows) {
     if (r.进不了 || !键(r)) {
       出.push(r);

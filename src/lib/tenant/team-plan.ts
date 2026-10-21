@@ -9,11 +9,11 @@
  * 每个人电脑上的数据照常能用，续费后自动恢复。没有到期日 = 不限期（10-15 之前开通的老团队）。
  * 席位（2026-10-19 用户拍板要拦，原来只在运营台提示）：客户先说要几人，运营台开通时填的人数就是上限，以后要改找我们改。
  * 满了新成员加入拦下（席位闸）；同一个人加电脑 / 手机不占人数，只在人数已经超过上限（运营台把人数改小了）时拦。
- * 没填人数（10-19 之前开通的老团队）= 不限。运营台改人数下一次请求就生效（每次现查）。
+ * 没填人数（10-19 之前开通的老团队）= 只按最多人数（100）拦。运营台改人数下一次请求就生效（每次现查）。
  */
 import { control } from "./control";
 import type { Prisma } from "@/generated/control";
-import { 时长们, 时长名, 月数对, 默认价格, 新到期日, 同步闸, 没开通话, 人满话, type 价格表 } from "@/lib/team-pricing";
+import { 时长们, 时长名, 月数对, 默认价格, 新到期日, 同步闸, 没开通话, 人满话, 最多人数, type 价格表 } from "@/lib/team-pricing";
 
 export * from "@/lib/team-pricing";
 
@@ -72,8 +72,8 @@ export async function 能同步(t: { id: string; active: boolean }, db: Db = con
  */
 export async function 席位闸(teamId: string, 加人: boolean, db: Db = control): Promise<string | null> {
   const seats = (await db.syncTeamPlan.findUnique({ where: { teamId }, select: { seats: true } }))?.seats;
-  if (!seats) return null;
   const n = await db.syncMember.count({ where: { teamId, leftAt: null } });
+  if (!seats) return 加人 && n >= 最多人数 ? `这个团队已经有 ${最多人数} 个人了` : null;
   return (加人 ? n >= seats : n > seats) ? 人满话(seats) : null;
 }
 
@@ -91,7 +91,7 @@ export async function 开通续费(
 ): Promise<结果> {
   const 时长 = input.时长;
   if ("months" in 时长 ? !月数对(时长.months) : !(Number.isInteger(时长.days) && 时长.days >= 1 && 时长.days <= 90)) return { ok: false, error: "时长不对" };
-  if (!Number.isInteger(input.seats) || input.seats < 1 || input.seats > 100) return { ok: false, error: "人数要是 1 到 100 的整数" };
+  if (!Number.isInteger(input.seats) || input.seats < 1 || input.seats > 最多人数) return { ok: false, error: `人数要是 1 到 ${最多人数} 的整数` };
   if (input.amount !== null && !价对(input.amount)) return { ok: false, error: "金额不对（最多两位小数）" };
   const note = String(input.note ?? "").trim().slice(0, 200) || null;
   return control.$transaction(async (tx) => {
@@ -113,7 +113,7 @@ export async function 开通续费(
 
 /** 只改人数（席位上限），不动到期日（2026-10-19）：客户要加人 / 减人时运营台改，下一次入队、批准设备就按新数拦 */
 export async function 改人数(input: { teamId: string; seats: number; note?: string; by: string }, now = new Date()): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (!Number.isInteger(input.seats) || input.seats < 1 || input.seats > 100) return { ok: false, error: "人数要是 1 到 100 的整数" };
+  if (!Number.isInteger(input.seats) || input.seats < 1 || input.seats > 最多人数) return { ok: false, error: `人数要是 1 到 ${最多人数} 的整数` };
   const note = String(input.note ?? "").trim().slice(0, 200) || null;
   return control.$transaction(async (tx) => {
     const t = await tx.syncTeam.findUnique({ where: { id: input.teamId } });

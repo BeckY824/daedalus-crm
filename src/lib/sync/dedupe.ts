@@ -12,10 +12,11 @@
  */
 import { 号键 } from "@/lib/phone";
 
-export type 查重种类 = "phone" | "email" | "wechat";
-export const 查重种类们: readonly 查重种类[] = ["phone", "email", "wechat"];
+/** alibaba = 阿里国际站买家 ID（2026-10-21）：服务端只见哈希、不认种类，加一种不用动服务端；一位最多 4 样，在服务端「一问 6 个」以内 */
+export type 查重种类 = "phone" | "email" | "wechat" | "alibaba";
+export const 查重种类们: readonly 查重种类[] = ["phone", "email", "wechat", "alibaba"];
 
-/** 和本机查重同一个规整：电话按号键（lib/phone），邮箱 / 微信号去首尾空格、不分大小写（lib/email-dedupe 邮箱键） */
+/** 和本机查重同一个规整：电话按号键（lib/phone），邮箱 / 微信号 / 阿里 ID 去首尾空格、不分大小写（lib/email-dedupe 邮箱键） */
 export function 查重键(种: 查重种类, 值: string | null | undefined): string {
   const s = String(值 ?? "").trim();
   if (!s) return "";
@@ -23,7 +24,7 @@ export function 查重键(种: 查重种类, 值: string | null | undefined): st
 }
 
 /** 一位客户在索引里的几样（空的不算）。去重：WhatsApp 当电话存的、邮箱和微信写成一样的，只留一份 */
-export function 客户查重值(c: { phone?: string | null; email?: string | null; wechat?: string | null }): { 种: 查重种类; 键: string }[] {
+export function 客户查重值(c: { phone?: string | null; email?: string | null; wechat?: string | null; alibaba?: string | null }): { 种: 查重种类; 键: string }[] {
   const 出: { 种: 查重种类; 键: string }[] = [];
   for (const 种 of 查重种类们) {
     const 键 = 查重键(种, 种 === "phone" ? c.phone : c[种]);

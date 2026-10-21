@@ -92,8 +92,8 @@ test("新建客户：点外面不关；填了按 Esc 先问；留着草稿下次
   const 框 = page.getByRole("dialog", { name: "新建客户" });
   await expect(框).toBeVisible();
   // 四格（电话 / WhatsApp / 邮箱 / 微信）同一个记号，电话下面一行说规矩；电话不再单独标红星
-  await expect(框.locator(".cf-any-mark")).toHaveCount(5);
-  await expect(框.getByText("电话 / WhatsApp / 邮箱 / 微信至少填一个")).toBeVisible();
+  await expect(框.locator(".cf-any-mark")).toHaveCount(6);
+  await expect(框.getByText("电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个")).toBeVisible();
   await expect(框.locator("label[for=phone].ant-form-item-required")).toHaveCount(0);
 
   await 框.getByLabel("客户姓名").fill(只有微信);
@@ -142,7 +142,7 @@ test("新建客户：点外面不关；填了按 Esc 先问；留着草稿下次
   await 框.getByLabel("销售负责人").click();
   await 选(page, "张三");
   await 框.getByRole("button", { name: /保\s*存/ }).click();
-  await expect(框.locator(".ant-form-item-explain-error", { hasText: "电话 / WhatsApp / 邮箱 / 微信至少填一个" })).toBeVisible();
+  await expect(框.locator(".ant-form-item-explain-error", { hasText: "电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个" })).toBeVisible();
   // 报错时下面那行同样的提示收起来，不说两遍
   await expect(框.locator(".cf-any-hint")).toBeHidden();
   await 截图(page, "4-四样至少填一个");

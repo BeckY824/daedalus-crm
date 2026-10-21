@@ -157,8 +157,13 @@ export async function 收范围推送(accountId: string, teamId: string, device:
     for (const [i, { packet, digest }] of prepared.entries()) {
       const duplicate = await tx.syncScopedBatch.findUnique({ where: { teamId_device_eventId: { teamId, device, eventId: packet.eventId } } });
       if (duplicate) {
-        // 同一事件重发必须逐字节相同；否则可借旧 eventId 换掉已授权过的密文
-        if (duplicate.metadata !== JSON.stringify(packet.meta) || duplicate.digest !== digest) fail(409, "重复事件的范围信息不一致");
+        /*
+          同一事件重发：外层元数据必须一样，密文只认第一次收下的那份，这次的不落盘——借旧 eventId 换不掉已授权过的密文。
+          不再要求密文逐字节相同（2026-10-21）：事件编号按内容算，重推时一样，但每次加密随机 IV、字节必然不同；
+          原来回包一丢，下一轮重推就永久 409「重复事件的范围信息不一致」（老板卡在迁移、业务员再也推不上去）
+        */
+        if (duplicate.metadata !== JSON.stringify(packet.meta)) fail(409, "重复事件的范围信息不一致");
+        stored++;
         continue;
       }
       const key = 行键(packet.meta.t, packet.meta.k);
@@ -192,7 +197,11 @@ export async function 收范围推送(accountId: string, teamId: string, device:
       }
       fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i), gone, Object.keys(taken).length ? taken : undefined);
     }
-    // stored = 本次新落库条数（重发的不算），客户端据此累计迁移批次数，回包丢失重试也不会重复计数
+    /*
+      stored = 这次请求里的包在中转上落着的条数（新落库的 + 这台以前推过、这次重发的），客户端据此累计迁移批次数、完成迁移时和中转对数。
+      重发的也要算（2026-10-21）：会重发只有一种情况——上一次的回包这台没收到、没记进累计数；原来重发的不算，回包丢一次
+      完成迁移就永远对不上数（「迁移批次不全」）。事件编号按内容 + 字段钟算，同一台不会有两条真的不同的改动撞编号
+    */
     return { received: packets.length, stored };
   }, { timeout: 60_000 });
 }
@@ -211,6 +220,12 @@ export async function 完成范围迁移(accountId: string, teamId: string, devi
     return { stage: 'ready' };
   });
 }
+/**
+ * 人多时前台放慢（2026-10-21 客户 Even 30 人压测的兜底）：壳在前台 8 秒戳一次本地服务，10 人起至少隔 20 秒才真同步一轮、20 人起 30 秒。
+ * 本机实测 30 台、老板 1000 位老客户：8 秒一轮云端一个核打满、老板要 4 分多钟才看到业务员写的；只把间隔改成 30 秒，老板 9 秒看到、云端平均 0.63 核。
+ * 改完 1.5 秒就推、「立即同步」不受它管（客户端 lib/sync/client.ts 该放慢）。由云端说，以后要调不用发客户端；单位秒，0 = 不放慢
+ */
+export const 前台最短间隔 = (人数: number) => (人数 >= 20 ? 30 : 人数 >= 10 ? 20 : 0);
 export async function 范围目录(accountId: string, teamId: string) {
   return control.$transaction(tx => 目录里(accountId, teamId, tx, true));
 }
@@ -252,7 +267,8 @@ async function 目录里(accountId: string, teamId: string, db: Db, 要补起点
     回放时负责人在本机不存在，整批客户当孤儿永久跳过（tests/sync-scoped-join-order.test.ts）
   */
   const 排好 = [...scopes.values()].sort((a, b) => Number(b.id === "team") - Number(a.id === "team"));
-  return { owner, share, manager, scopes: 排好, epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
+  const pace = 前台最短间隔(await db.syncMember.count({ where: { teamId, leftAt: null } }));
+  return { owner, share, manager, pace, scopes: 排好, epoch: (await db.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0, ...(owner && 要补起点 ? { needBaseline } : {}) };
 }
 /** 这条记录在改归属（threshold）之前有没有批次：有 = 新获权的人需要一份起点，没有 = 整段历史都在改归属之后 */
 const 有更早批次 = async (db: Db, teamId: string, recordKey: string, threshold: number) => !!(await db.syncScopedBatch.findFirst({ where: { teamId, recordKey, id: { lt: threshold } }, select: { id: true } }));
