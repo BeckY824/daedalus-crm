@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { App } from "antd";
 
 /**
@@ -19,13 +20,13 @@ export async function 复制文字(text: string): Promise<boolean> {
   }
 }
 
-/** 复制并提示一句：成了说 成功，不成说 失败（各处可以给自己的说法） */
+/** 复制并提示一句：成了说 成功，不成说 失败（各处可以给自己的说法）。函数引用稳定，可以放进依赖数组 */
 export function useCopy() {
   const { message } = App.useApp();
-  return async (text: string, 成功: string, 失败 = 复制失败文案) => {
+  return useCallback(async (text: string, 成功: string, 失败 = 复制失败文案) => {
     const ok = await 复制文字(text);
     if (ok) message.success(成功);
     else message.error(失败);
     return ok;
-  };
+  }, [message]);
 }
