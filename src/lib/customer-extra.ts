@@ -1,5 +1,8 @@
 /**
  * 客户的外贸档案（2026-10-05，外贸客户建议）：国家、WhatsApp、微信、邮箱、来源；2026-10-16 加客户等级、官网。
+ *
+ * 2026-10-21 加阿里国际站 ID（迁移 040，客户原话：「有些没有给联系方式，但是有国际站的 ID。能不能添加一个选项，能填这个 ID」）：
+ * 外贸询盘从国际站来的常常只有买家 ID，算一种联系方式，只有它也能建、按它认人。
  * 存在旁表 CustomerExtra（Customer 是 schema 建的老表，不能加列）。不碰数据库的规则放这里，客户端服务端都能引；
  * 读写在 lib/customer-extra-db.ts。
  *
@@ -7,7 +10,7 @@
  * 客户说「线索里面已经有来源」——可直接建、Excel 导入的客户不经过线索，客户自己身上得有地方记来源。
  */
 
-export const 外贸键 = ["country", "whatsapp", "wechat", "email", "source", "level", "website"] as const;
+export const 外贸键 = ["country", "whatsapp", "wechat", "email", "source", "level", "website", "alibabaId"] as const;
 export type 外贸键 = (typeof 外贸键)[number];
 export type 外贸档案 = Record<外贸键, string | null>;
 
@@ -19,6 +22,7 @@ export const 外贸字段名: Record<外贸键, string> = {
   source: "来源",
   level: "客户等级",
   website: "官网",
+  alibabaId: "阿里国际站 ID",
 };
 
 /**
@@ -68,9 +72,21 @@ export function 官网短写(v: string | null | undefined): string {
 }
 
 /** 每一格最长多少字：国家、来源是短名字；邮箱按 RFC 上限 */
-const 上限: Record<外贸键, number> = { country: 40, whatsapp: 40, wechat: 60, email: 254, source: 40, level: 4, website: 200 };
+const 上限: Record<外贸键, number> = { country: 40, whatsapp: 40, wechat: 60, email: 254, source: 40, level: 4, website: 200, alibabaId: 80 };
 
-export const 空档案 = (): 外贸档案 => ({ country: null, whatsapp: null, wechat: null, email: null, source: null, level: null, website: null });
+/** 外贸新建客户联系方式一样都没有时那句话（电脑表单、保存、手机新建、导入同一句）。阿里 ID 是 2026-10-21 加的第五种 */
+export const 外贸至少一种 = "电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个（没有电话就用它认人）";
+
+/**
+ * 阿里国际站 ID 的规整：存人填的样子（去首尾空格、中间连串空白并成一个），比的时候不分大小写（同微信号）。
+ * 有人会连着「Buyer ID: xxx」一起贴进来：前缀去掉。不挡格式——国际站的 ID 写法不止一种，挡错了整行导不进来
+ */
+export function 规整阿里ID(v: unknown): { ok: true; v: string | null } | { ok: false; error: string } {
+  const s = String(v ?? "").trim().replace(/^(alibaba|buyer|阿里|国际站|阿里国际站|买家)\s*(id|号|账号)?\s*[:：]\s*/iu, "").trim().slice(0, 80);
+  return { ok: true, v: s.replace(/\s+/g, " ") || null };
+}
+
+export const 空档案 = (): 外贸档案 => ({ country: null, whatsapp: null, wechat: null, email: null, source: null, level: null, website: null, alibabaId: null });
 
 /**
  * 规整一格：去首尾空格、截长度、空串当没填。邮箱不合格式报错（只看有没有 @ 和点——
@@ -82,6 +98,7 @@ export function 规整外贸格(k: 外贸键, v: unknown): { ok: true; v: string
     return 等 === undefined ? { ok: false, error: "客户等级只能是 A / B / C / D" } : { ok: true, v: 等 };
   }
   if (k === "website") return 规整官网(v);
+  if (k === "alibabaId") return 规整阿里ID(v);
   const s = typeof v === "string" ? v.trim().slice(0, 上限[k]) : v == null ? "" : String(v).trim().slice(0, 上限[k]);
   if (!s) return { ok: true, v: null };
   if (k === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)) return { ok: false, error: "邮箱格式不对" };

@@ -24,7 +24,7 @@ import { 调云 } from "@/lib/sync/client";
 import { isEmail } from "@/lib/tenant/accounts";
 import { createSession } from "@/lib/auth";
 import { saveLlmConfig, clearLlmConfig, resolveLlmConfigForTest, testLlm, type ModelOption } from "@/lib/llm";
-import { getBusiness, saveBusiness, mergeBusiness, 状态名问题, type BusinessConfig } from "@/lib/business";
+import { getBusiness, saveBusiness, mergeBusiness, 状态名问题, 阶段名问题, type BusinessConfig } from "@/lib/business";
 import { 判断可用 } from "@/lib/jev/client";
 import { 自动判断开着, 设自动判断 } from "@/lib/jev/settings";
 
@@ -621,6 +621,8 @@ export async function saveBusinessSettings(cfg: BusinessConfig) {
   const merged = mergeBusiness(cfg);
   const 状态错误 = Object.values(状态名问题(merged))[0];
   if (状态错误) return { ok: false as const, error: 状态错误 };
+  const 阶段错误 = Object.values(阶段名问题(merged))[0];
+  if (阶段错误) return { ok: false as const, error: 阶段错误 };
   if (merged.customer.length > 6) return { ok: false as const, error: "核心名词请控制在 6 个字以内，它会出现在表头和按钮上" };
   if (merged.brief.length > 500) return { ok: false as const, error: "业务简介请控制在 500 字以内" };
   const before = await getBusiness();
@@ -643,7 +645,7 @@ export async function saveBusinessSettings(cfg: BusinessConfig) {
 }
 
 const BUSINESS_FIELD_LABELS: Record<keyof BusinessConfig, string> = {
-  brief: "业务简介", customer: "核心名词", fields: "档案字段名", grades: "年级选项", sources: "线索来源", industries: "行业选项", statusLabels: "状态显示名",
+  brief: "业务简介", customer: "核心名词", fields: "档案字段名", grades: "年级选项", sources: "线索来源", industries: "行业选项", statusLabels: "状态显示名", stageLabels: "商机阶段名",
   template: "模版", currency: "本位币", poolDays: "自动放进公海",
 };
 

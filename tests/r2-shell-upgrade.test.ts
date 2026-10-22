@@ -31,7 +31,8 @@ const PRISMA = path.join(ROOT, "node_modules/prisma/build/index.js");
 const 工作区 = fs.mkdtempSync(path.join(os.tmpdir(), "r2-upgrade-"));
 afterAll(() => fs.rmSync(工作区, { recursive: true, force: true }));
 
-const 要测的老版本 = ["v0.14.0", "v0.30.0", "v0.37.0", "v0.39.2", "v0.40.0", "v0.46.0", "v0.46.14", "v0.46.15"];
+// 0.46.16–0.46.18 和 0.46.15 同一套表，0.46.19–0.46.22 一套，0.46.23–0.46.24 一套：每段取客户手上最新的那版（2026-10-21 质量会话补）
+const 要测的老版本 = ["v0.14.0", "v0.30.0", "v0.37.0", "v0.39.2", "v0.40.0", "v0.46.0", "v0.46.14", "v0.46.15", "v0.46.22", "v0.46.24"];
 const 老版本们 = 要测的老版本.filter((t) => {
   try {
     execFileSync("git", ["rev-parse", "--verify", "--quiet", `${t}^{commit}`], { cwd: ROOT, stdio: "ignore" });

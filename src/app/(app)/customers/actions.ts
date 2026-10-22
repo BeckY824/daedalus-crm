@@ -34,12 +34,12 @@ import { 金额 as 显示金额, 是币种, 规整币种 } from "@/lib/currency"
 import { statusLabel, 外贸订单 } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
-import { 同邮箱条件, 同微信条件, 邮箱键 } from "@/lib/email-dedupe";
+import { 同邮箱条件, 同微信条件, 同阿里条件, 邮箱键 } from "@/lib/email-dedupe";
 import type { 带走数 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
 import { 写签约的订单, 订单说不通, type 订单附加 } from "@/lib/order-contract";
-import { 外贸键, 外贸字段名, 规整外贸格, 规整外贸档案, 认国家, type 外贸档案 } from "@/lib/customer-extra";
+import { 外贸键, 外贸字段名, 外贸至少一种, 规整外贸格, 规整外贸档案, 规整阿里ID, 认国家, type 外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
 import { 团队订单前缀 } from "@/lib/order";
 import { 读团队 } from "@/lib/sync/client";
@@ -198,23 +198,29 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     邮箱也没有、只有微信号的，按微信号认（2026-10-19 客户反馈「只知道微信号怎么办」，同 lib/email-dedupe.ts）
   */
   const 外贸 = b.template === "trade";
-  const 改前档 = 改前 && 外贸 ? await prisma.customerExtra.findUnique({ where: { customerId: 改前.id }, select: { email: true, wechat: true } }) : null;
+  const 改前档 = 改前 && 外贸 ? await prisma.customerExtra.findUnique({ where: { customerId: 改前.id }, select: { email: true, wechat: true, alibabaId: true } }) : null;
   const 改前邮箱 = 改前档?.email ?? "";
   const 改前微信 = 改前档?.wechat ?? "";
-  const 交的 = (k: "email" | "wechat", 原: string) =>
+  const 改前阿里 = 改前档?.alibabaId ?? "";
+  const 交的 = (k: "email" | "wechat" | "alibabaId", 原: string) =>
     !外贸 ? "" : input.extra && k in input.extra && input.extra[k] !== undefined ? String(input.extra[k] ?? "").trim() : 原;
   const 交的邮箱 = 交的("email", 改前邮箱);
   const 交的微信 = 交的("wechat", 改前微信);
+  // 阿里国际站 ID（2026-10-21）：电话、WhatsApp、邮箱、微信都没有的，按它认。交来的按存的样子规整（去「Buyer ID:」前缀），比的才对得上
+  const 交的阿里 = (() => { const r = 规整阿里ID(交的("alibabaId", 改前阿里)); return r.ok ? r.v ?? "" : ""; })();
   const 按邮箱认 = 外贸 && !原号 && Boolean(交的邮箱);
   const 按微信认 = 外贸 && !原号 && !交的邮箱 && Boolean(交的微信);
-  const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: 改前 ? Boolean(改前.phone) : !按邮箱认 && !按微信认 });
-  if (!电话.ok) return { ok: false, error: 外贸 && !改前 && !原号 ? "电话 / WhatsApp / 邮箱 / 微信至少填一个（没有电话就用它认人）" : 电话.error };
+  const 按阿里认 = 外贸 && !原号 && !交的邮箱 && !交的微信 && Boolean(交的阿里);
+  const 电话 = 改前 && 原号 === 改前.phone ? { ok: true as const, phone: 改前.phone } : 查电话(原号, { 必填: 改前 ? Boolean(改前.phone) : !按邮箱认 && !按微信认 && !按阿里认 });
+  if (!电话.ok) return { ok: false, error: 外贸 && !改前 && !原号 ? 外贸至少一种 : 电话.error };
   const phone = 电话.phone;
   // 按邮箱 / 微信认的那位（没有电话）把两样都清空，就再也认不出是谁了：不许，和「原来有号码的不许清空」同一条
-  if (外贸 && 改前 && !phone && (改前邮箱 || 改前微信) && !交的邮箱 && !交的微信) {
+  if (外贸 && 改前 && !phone && (改前邮箱 || 改前微信 || 改前阿里) && !交的邮箱 && !交的微信 && !交的阿里) {
     return { ok: false, error: 改前邮箱
       ? "这位没有电话，是按邮箱认的：邮箱不能清空（或者先补上电话 / WhatsApp / 微信）"
-      : "这位没有电话，是按微信认的：微信不能清空（或者先补上电话 / WhatsApp / 邮箱）" };
+      : 改前微信
+        ? "这位没有电话，是按微信认的：微信不能清空（或者先补上电话 / WhatsApp / 邮箱）"
+        : "这位没有电话，是按阿里 ID 认的：阿里 ID 不能清空（或者先补上电话 / WhatsApp / 邮箱 / 微信）" };
   }
 
   // 服务端再查一次重：表单上的提示只是给人看的，不能作为约束。
@@ -249,6 +255,15 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     }));
     if (dup) return { ok: false, error: 撞号说法(`微信 ${交的微信}`, dup, await 读的我(defaultClient), b.customer) };
   }
+  // 按阿里 ID 认的：同上，没动的不查；有电话、邮箱或微信的不拿阿里 ID 挡
+  const 查阿里 = 按阿里认 && !phone && !(改前 && 邮箱键(交的阿里) === 邮箱键(改前阿里));
+  if (查阿里) {
+    const dup = await 看全部(async () => prisma.customer.findFirst({
+      where: { AND: [await 同阿里条件(prisma, 交的阿里), ...(input.id ? [{ id: { not: input.id } }] : [])] },
+      select: 撞到的字段,
+    }));
+    if (dup) return { ok: false, error: 撞号说法(`阿里 ID ${交的阿里}`, dup, await 读的我(defaultClient), b.customer) };
+  }
 
   /*
     跨成员查重（2026-10-19 用户拍板）：范围同步下业务员电脑上只有本人 + 公海，同事名下的号码上面查不到。
@@ -257,6 +272,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
   const 问的: [查重种类, string, string] | null = phone && !(改前 && phone === 改前.phone) ? ["phone", phone, `手机号 ${phone}`]
     : 查邮箱 ? ["email", 交的邮箱, `邮箱 ${交的邮箱}`]
     : 查微信 ? ["wechat", 交的微信, `微信 ${交的微信}`]
+    : 查阿里 ? ["alibaba", 交的阿里, `阿里 ID ${交的阿里}`]
     : null;
   if (问的) {
     const 撞 = await 问同事(问的[0], 问的[1], input.id);

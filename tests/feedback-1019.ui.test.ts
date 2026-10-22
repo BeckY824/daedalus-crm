@@ -152,12 +152,12 @@ it("外贸新建：四格（电话 / WhatsApp / 邮箱 / 微信）旁边同一�
   const { page, errors, 调用们 } = await 开();
   await page.getByRole("button", { name: "开新建" }).click();
   await 框(page).waitFor();
-  expect(await 框(page).locator(".cf-any-mark").count()).toBe(5); // 四格各一个，提示那一行再一个
+  expect(await 框(page).locator(".cf-any-mark").count()).toBe(6); // 五格各一个（10-21 加了阿里 ID），提示那一行再一个
   // 电话不再单独标红星：四格是一样的
   expect(await 框(page).locator("label[for=phone].ant-form-item-required").count()).toBe(0);
   await 框(page).getByLabel("客户姓名").fill("Nobody");
   await 框(page).getByRole("button", { name: /^保\s*存$/ }).click();
-  await 框(page).getByText("电话 / WhatsApp / 邮箱 / 微信至少填一个", { exact: true }).waitFor();
+  await 框(page).getByText("电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个", { exact: true }).waitFor();
   expect((await 调用们()).filter((c) => c.名 === "saveCustomer")).toHaveLength(0);
   expect(errors).toEqual([]);
 });

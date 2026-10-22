@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { 记AI余额 } from "../ai-credit-cache";
+import { 读专属服务器, 读不出的地址, 正式服, 主机 } from "./dedicated-server";
 
 /**
  * 桌面端本地模式的云端账号——**服务端这一份**。
@@ -44,9 +45,15 @@ export function 本地模式(): boolean {
   return process.env.DESKTOP_LOCAL === "1";
 }
 
-/** 我们的云端。留成变量是为了本机联调时能指到别处（壳从 CRM_CLOUD_URL 传进来） */
+/**
+ * 这台电脑连的云端。设了专属服务器就只认它（文件读不出来也不退回正式服，见 dedicated-server.ts）；
+ * 没设就是正式服——CRM_CLOUD_URL 留着给本机联调指到别处（壳传进来）
+ */
 export function 云端地址(): string {
-  return (process.env.CRM_CLOUD_URL || "https://app.ai-daedalus.com").replace(/\/+$/, "");
+  const 专属 = 读专属服务器();
+  if (专属.状态 === "有") return 专属.url;
+  if (专属.状态 === "坏了") return 读不出的地址;
+  return (process.env.CRM_CLOUD_URL || 正式服).replace(/\/+$/, "");
 }
 
 function 文件(): string {
@@ -425,8 +432,8 @@ async function 请求<T = unknown>(url: string, init: RequestInit = {}, 超时�
     return {
       ok: false,
       error: 超时
-        ? "服务器 20 秒没回应。检查一下网络，或者稍后再试。"
-        : "连不上服务器。检查一下网络；如果在公司网里，可能要放行 app.ai-daedalus.com。",
+        ? `服务器 ${Math.round(超时毫秒 / 1000)} 秒没回应。检查一下网络，或者稍后再试。`
+        : `连不上服务器。检查一下网络；如果在公司网里，可能要放行 ${主机(url)}。`,
     };
   }
   const text = await res.text();
@@ -438,7 +445,12 @@ async function 请求<T = unknown>(url: string, init: RequestInit = {}, 超时�
   }
   if (!res.ok) {
     const d = data as { error?: string | { message?: string } } | null;
-    const msg = typeof d?.error === "string" ? d.error : (d?.error?.message ?? `服务器返回 ${res.status}`);
+    /*
+      云端没说原因（发版重启时 Caddy 回 502 / 503 的 HTML 页）：5xx 说人话，别只丢一个状态码（10-21 质量审 #71 提的）。
+      云端自己说了原因的（JSON 里的 error），原样交给门口
+    */
+    const 没说原因 = res.status >= 500 ? `服务器暂时出了问题（${res.status}），可能正在重启。过几分钟再试。` : `服务器返回 ${res.status}`;
+    const msg = typeof d?.error === "string" ? d.error : (d?.error?.message ?? 没说原因);
     return { ok: false, error: String(msg), 状态: res.status };
   }
   return { ok: true, data: data as T };
@@ -448,22 +460,48 @@ function 拒绝非本地(): 结果<never> | null {
   return 本地模式() ? null : { ok: false, error: "只有桌面端本地模式才有云端账号" };
 }
 
+export type 云端策略 = { register: boolean; reset: boolean; inApp: boolean };
+
+/** 没问到时照云端平时的样子摆：注册、找回、应用内注册都开着 */
+const 都开: 云端策略 = { register: true, reset: true, inApp: true };
+
+/**
+ * 这次启动里最后一次**正常问到**的答案。登录页先照它画，不用每次都等云端。
+ * 记着是哪套云端答的：换了专属服务器 / 退回正式服，上一套的答案就不算数
+ */
+let 上次问到: { 云: string; 答: 云端策略 } | null = null;
+const 这套上次问到 = (云: string) => (上次问到?.云 === 云 ? 上次问到.答 : null);
+
 /**
  * 这个部署开着哪两条路：网页那边还收不收新注册、能不能自助找回密码。
  * 登录页据此决定画哪几个入口——别摆一个点进去说「没开放」的链接。
  *
- * 云端明确回了错（老版本服务端 404 之类）才按「都不开」算，只留登录。
- * **没问到**（超时、连不上）不能也这么算（2026-10-21）：国内第一次打开时这一问常常 5 秒内回不来，
- * 登录页就成了「用你的云端账号登录」、新邮箱点继续直接去输密码，新用户整个没有注册的路，
- * 只能对着「账号或密码不对」干瞪眼。没问到就照云端平时的样子把路都摆出来：
- * 点「继续」时还会再问云端一次（超时更长），真不收注册、真连不上，那一步会把原因说出来。
+ * **只有云端正常回了（2xx、JSON）并且明说 false，才藏那个入口**（2026-10-21 P0）。
+ * 别的一律当「没问到」，照平时的样子把注册、找回都摆出来：超时、断网、4xx（含 404）、5xx（发版重启时 Caddy 回 502 / 503）、
+ * 回来的不是 JSON（公司网、酒店 Wi-Fi 的登录页回 200 + HTML）。
+ * 原来按「问不到 = 不收注册」画，国内第一次打开时这一问常常几秒回不来，新邮箱点继续直接去输密码，
+ * 新用户整个没有注册的路，只能对着「账号或密码不对」干瞪眼（10-21 客户反馈）；后来改成「有状态码就算明确回错」，
+ * 5xx 又漏了。我们的云端一直有这个接口，不用照顾没有它的老服务端。
+ * 摆出来的入口点了也不会白点：「继续」时云端再答一次（signup/start），老账号回 409 去输密码，
+ * 真不收注册会回「这个部署没有开放注册」，连不上会说连不上，原因当场说清。
+ *
+ * 登录页、找回密码页**不等这一问**才出页：先按 上次策略() 画，页面出来以后在后台问，问到再改。
  */
-export async function 策略(): Promise<{ register: boolean; reset: boolean; inApp: boolean }> {
-  // 短超时：这一问挡在登录页渲染前面，断网时不能让人对着空白页等 20 秒
-  const r = await 请求<{ register?: boolean; reset?: boolean; inApp?: boolean }>(`${云端地址()}/api/account/policy`, {}, 8_000);
-  if (!r.ok) return r.状态 ? { register: false, reset: false, inApp: false } : { register: true, reset: true, inApp: true };
-  /* inApp：云端有没有 /api/account/signup/*（2026-10-02 加）。没有就照旧开浏览器去网页注册 */
-  return { register: Boolean(r.data?.register), reset: Boolean(r.data?.reset), inApp: Boolean(r.data?.inApp) };
+export async function 策略(超时毫秒 = 15_000): Promise<云端策略> {
+  const 云 = 云端地址();
+  const r = await 请求<unknown>(`${云}/api/account/policy`, {}, 超时毫秒);
+  const d = r.ok ? r.data : null;
+  if (!d || typeof d !== "object" || Array.isArray(d)) return 这套上次问到(云) ?? 都开;
+  const 答 = d as { register?: unknown; reset?: unknown; inApp?: unknown };
+  /* inApp：云端有没有 /api/account/signup/*（2026-10-02 加）。明说没有才开浏览器去网页注册 */
+  const 新 = { register: 答.register !== false, reset: 答.reset !== false, inApp: 答.inApp !== false };
+  上次问到 = { 云, 答: 新 };
+  return 新;
+}
+
+/** 不联网：这次启动问到过就用那次的答案，没问到过就当都开着 */
+export function 上次策略(): 云端策略 {
+  return 这套上次问到(云端地址()) ?? 都开;
 }
 
 type 登录响应 = { token?: string; account?: { id?: string; name?: string; contact?: string }; credits?: { 还剩?: number } };

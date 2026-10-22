@@ -56,6 +56,8 @@ export type 背调输入 = {
   公司: string;
   /** 从客户详情页发起的：这位客户的 id 和档案里已有的线索（国家、官网、备注），帮第一步认准 */
   客户?: { id: string; 已知: string };
+  /** 客户页发起、档案里客户名是人：这家公司的联系人（subject.ts）。显示在卡片抬头，已知线索里也写了 */
+  联系人?: string;
   /** 背调模式里用户输入的那句原话（「帮我查 Rexel 适不适合我们」）：带给模型，让它知道人关心什么 */
   需求?: string;
   /** 对方自报的邮箱、电话、官网、税号、国家（客户档案 + 那句话里贴的），拿去做真实性核对（verify/clues.ts） */
@@ -262,7 +264,7 @@ const 是网址 = (s: unknown): s is string => typeof s === "string" && /^https?
 export async function 跑背调(input: 背调输入): Promise<背调结果> {
   const runId = input.runId ?? randomUUID();
   const { 通道, 模型, signal } = input;
-  let 状态 = 初始状态({ name: input.公司, customerId: input.客户?.id });
+  let 状态 = 初始状态({ name: input.公司, customerId: input.客户?.id, ...(input.联系人 ? { 联系人: input.联系人 } : {}) });
   const 发原样 = (e: 研究事件) => {
     状态 = 归约(状态, e);
     input.发(e);

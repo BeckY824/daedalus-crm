@@ -20,6 +20,7 @@ import { 是免费邮箱, 主机 } from "./verify/domain";
 import { 取IP库, 查IP } from "./verify/ip-country";
 import { 模拟查IP } from "./mock";
 import { 找公司, 认号码, type 候选公司, type 出现 } from "./person";
+import { 客户背调对象 } from "./subject";
 import type { 搜索结果 } from "./types";
 
 export type 背调回答 = { text: string; records: []; customers: { id: string; name: string; followStatus: string }[]; proposals: []; research: 背调状态 };
@@ -120,7 +121,7 @@ export async function 背调一次(
   signal: AbortSignal,
 ): Promise<{ ok: true; answer: 背调回答 | 找人回答 } | { ok: false; error: string }> {
   if (body.person && !body.company) return 找人一次({ person: body.person, need: body.need }, send, signal);
-  const 公司 = 收公司名(body.company);
+  let 公司 = 收公司名(body.company);
   if (!公司) return { ok: false, error: "要背调的公司名写得不对（2–120 个字）" };
   const user = await requireUser();
   const wait = consumeUserAiQuota(user);
@@ -130,17 +131,30 @@ export async function 背调一次(
   if (!通道.ok) return { ok: false, error: 通道.error };
   const b = await getBusiness();
 
-  /* 从客户详情页发起：把档案里已有的线索带上，帮第一步认准（同名公司很常见）。查不到这位就当没给——可能刚被删，或者看不到 */
+  /*
+    从客户详情页发起：背调谁以档案为准（subject.ts），不信浏览器传来的公司名——10-21 客户反馈，以前拿客户名（人名）当公司查。
+    档案里已有的线索带上，帮第一步认准（同名公司很常见）。查不到这位就当没给——可能刚被删，或者看不到
+  */
   let 客户: { id: string; 已知: string } | undefined;
+  let 联系人: string | undefined;
+  const 收 = 收接着(body.pick);
   const 需求 = typeof body.need === "string" && body.need.trim() ? body.need.trim().slice(0, 300) : undefined;
   /* 真实性核对要的对方自报的东西：档案里的邮箱 / 电话 / WhatsApp / 官网 / 国家，加上那句话里贴的（verify/clues.ts） */
   let 档案线索: Partial<线索> | undefined;
   if (typeof body.customerId === "string" && body.customerId) {
     const c = await prisma.customer.findUnique({
       where: { id: body.customerId },
-      select: { id: true, name: true, remark: true, phone: true, extra: { select: { country: true, email: true, whatsapp: true, website: true } } },
+      select: { id: true, name: true, school: true, remark: true, phone: true, extra: { select: { country: true, email: true, whatsapp: true, website: true } } },
     });
     if (c) {
+      const 对象 = 客户背调对象({ name: c.name, company: c.school, country: c.extra?.country, website: c.extra?.website, phone: c.phone, whatsapp: c.extra?.whatsapp }, b.fields.school);
+      if (对象.种类 === "公司") {
+        公司 = 对象.公司;
+        联系人 = 对象.联系人;
+      } else if (!收 || 收.候选.公司 !== 公司) {
+        // 没公司：只能先「名字 + 电话找公司」点选了候选再来（body.pick）；直接拿客户名来背调的不跑、不扣
+        return { ok: false, error: 对象.种类 === "找人" ? "这位客户没填公司：要先按名字和电话找到他在哪家公司（没扣次数）" : `${对象.原因}（没扣次数）` };
+      }
       档案线索 = {
         邮箱: c.extra?.email ? [c.extra.email] : [],
         电话: [c.phone, c.extra?.whatsapp].filter((x): x is string => Boolean(x?.trim())),
@@ -150,7 +164,7 @@ export async function 背调一次(
       const 邮箱域 = c.extra?.email?.split("@")[1];
       客户 = {
         id: c.id,
-        已知: [c.extra?.country && `国家 ${c.extra.country}`, 邮箱域 && `邮箱域名 ${邮箱域}`, c.remark && `备注 ${c.remark.slice(0, 120)}`].filter(Boolean).join("；") || "（档案里没有别的线索）",
+        已知: [联系人 && `联系人 ${联系人}（这家公司里的人，不是公司名，别拿去当公司查）`, c.extra?.country && `国家 ${c.extra.country}`, 邮箱域 && `邮箱域名 ${邮箱域}`, c.remark && `备注 ${c.remark.slice(0, 120)}`].filter(Boolean).join("；") || "（档案里没有别的线索）",
       };
     }
   }
@@ -171,7 +185,6 @@ export async function 背调一次(
   const 老客户 = (await 老客户清单(b)).filter((c) => c.id !== 客户?.id);
 
   /* 只有人名 + 电话、找公司时点选了这家：同一个 runId 接着跑（服务器认得这笔、不另扣），号码并进线索去核 */
-  const 收 = 收接着(body.pick);
   const 号 = 收 ? 认号码(收.电话) : null;
   const 接着 = 收 && 号 && 收.候选.公司 === 公司 ? { 人: { 名: 收.名, 号 }, 候选: 收.候选, 出现: 收.出现, 证据: 收.证据 } : undefined;
   const runId = 接着 ? 收runId(body.runId) : undefined;
@@ -179,6 +192,7 @@ export async function 背调一次(
   const r = await 跑背调({
     公司,
     客户,
+    联系人,
     需求,
     ...(接着 && runId ? { 接着, runId } : {}),
     线索: 合并线索(档案线索, 邮件线索, 认线索(需求), 认线索(公司), 接着 ? { 电话: [接着.人.号.号], 官网: 接着.候选.官网 ? 主机(接着.候选.官网) : undefined } : undefined),
