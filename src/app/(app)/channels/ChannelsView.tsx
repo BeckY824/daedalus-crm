@@ -112,11 +112,11 @@ export default function ChannelsView({
 
   const 列表: 列<Row>[] = [
     {
-      title: "渠道", key: "name", dataIndex: "name", width: 180, 常驻: true,
+      title: "渠道", key: "name", dataIndex: "name", width: 180, 常驻: true, ellipsis: true,
       // 停用的在名字旁边就写明（审查 D12）：「状态」那一列在窄窗口下可能在视野外
       render: (v, r) => (
         <span className="chan-name">
-          <span className="link-strong">{v}</span>
+          <span className="link-strong clamp-1" title={v}>{v}</span>
           {!r.active && <Tag style={{ margin: 0, borderRadius: 6 }}>已停用</Tag>}
         </span>
       ),

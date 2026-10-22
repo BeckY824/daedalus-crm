@@ -53,7 +53,7 @@ export default function OrderLite({ o }: { o: 订单详情数据 }) {
         subtitle={[o.customer.name, 钱, `确认于 ${fmtDate(确认)}`].join(" · ")}
         extra={
           <Space>
-            <Link href={`/customers/${o.customer.id}`}>{o.customer.name} 的记录 ›</Link>
+            <Link href={`/customers/${o.customer.id}`} className="clamp-1" style={{ display: "inline-block", maxWidth: 240, verticalAlign: "bottom" }} title={`${o.customer.name} 的记录`}>{o.customer.name} 的记录 ›</Link>
             {c && <Button icon={<EditOutlined />} onClick={() => set改(true)}>编辑</Button>}
           </Space>
         }

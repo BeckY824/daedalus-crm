@@ -60,7 +60,7 @@ export default function ReferralRadar({
                 {
                   title: "推荐人",
                   dataIndex: "name",
-                  render: (v, r) => <RowLink href={`/customers/${r.customerId}`} className="link-strong">{v}</RowLink>,
+                  render: (v, r) => <RowLink href={`/customers/${r.customerId}`} className="link-strong clamp" title={v}>{v}</RowLink>,
                 },
                 { title: "推荐人数", dataIndex: "referralCount", width: 100 },
                 { title: `其中有${签约叫(b)}记录`, dataIndex: "signedCount", width: 100 },
@@ -90,7 +90,7 @@ function InviteRow({ c, aiEnabled, onDraft, onCopy }: { c: InviteCandidate; aiEn
   return (
     <div style={{ padding: "10px 0", borderBottom: "1px dashed var(--line-soft)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        <RowLink href={`/customers/${c.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
+        <RowLink href={`/customers/${c.customerId}`} className="link-strong clamp" title={c.name} style={{ fontSize: 15, fontWeight: 500 }}>
           {c.name}
         </RowLink>
         <span style={{ flex: 1, minWidth: 160, color: "var(--text-muted)", fontSize: 14 }}>{c.reason}</span>

@@ -848,13 +848,16 @@ body.rail-resizing-collapse .pane-chat { opacity: .45; }
   margin: 3px 0 0;
   color: var(--text-muted);
   font-size: var(--fs-note);
+  overflow-wrap: anywhere;
 }
 
 /* 标题和紧跟着它的那一小块（客户页的「客户 / 公海」页签）摆一行 */
 .page-head-t { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; }
 
-/* 页头右上角那组动作。⌘N 也认这个选择器找主按钮，别改名 */
-.page-head-a { flex: none; display: flex; align-items: center; gap: var(--s2); }
+/* 页头右上角那组动作。⌘N 也认这个选择器找主按钮，别改名。
+   能缩（2026-10-22 排版普查）：原来 flex: none，订单页「<长客户名> 的记录 ›」把标题挤到 0 宽、整页横滚；
+   里面带名字的链接自己加 .clamp-1 和 max-width */
+.page-head-a { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--s2); }
 
 /* ---------- 跟进时间线 ---------- */
 .follow-item {
@@ -907,6 +910,11 @@ body.rail-resizing-collapse .pane-chat { opacity: .45; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 不截、全显示，只是一长串没空格的字（邮箱、网址、英文公司名）在哪儿都能断，不把格子撑宽 */
+.break-any {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* 自动列宽的表（不设 ellipsis 的 antd Table）：单元格里的长串可以从任意处断开。
@@ -1079,7 +1087,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 }
 .rec-field:hover { background: var(--row-hover); }
 .rec-field-editing { background: var(--row-hover); cursor: default; }
-.rec-field-k { font-size: var(--fs-note); color: var(--text-muted); line-height: 22px; white-space: nowrap; }
+.rec-field-k { font-size: var(--fs-note); color: var(--text-muted); line-height: 22px; overflow-wrap: anywhere; }
 .rec-field-v { font-size: var(--fs-body); color: var(--ink); line-height: 22px; word-break: break-word; }
 .rec-field-empty { color: var(--text-faint); }
 .rec-field-saving { opacity: 0.5; }
@@ -1087,6 +1095,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .rec-mini { position: relative; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-card); font-size: var(--fs-body); }
 .rec-mini:hover { background: var(--row-hover); }
 .rec-mini-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.rec-mini-who { display: flex; align-items: center; } /* 联系人：名字自己省略，「关键」标签不跟着被截掉 */
+.rec-mini-who > .ant-tag { flex: none; margin-inline: 6px 0; }
 .rec-mini-m { font-size: var(--fs-note); color: var(--text-muted); white-space: nowrap; }
 /* 签约那行金额是要看的东西，不许被日期和两颗图标挤成「¥…」；挤不下时让日期先省略 */
 .rec-mini-amt { flex: 1 0 auto; font-weight: 600; }
@@ -1672,7 +1682,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 渠道表里停用的那几行整行压淡，名字旁边写「已停用」（审查 D12）。操作列不压：恢复键要看得清 */
 .row-off > td:not(.ant-table-cell-fix-end) { color: var(--text-muted); }
 .row-off .link-strong { color: var(--text-muted); }
-.chan-name { display: inline-flex; align-items: center; gap: var(--s2); }
+.chan-name { display: flex; align-items: center; gap: var(--s2); min-width: 0; }
+.chan-name > .ant-tag { flex: none; margin-inline-end: 0; }
 /* 「重置」一直占着位置，没筛时只是看不见（审查 M17）：原来它一出现就把「列」挤到第二行，
    整张表往下跳一截。出现消失只淡入淡出，不位移。visibility 晚一拍再收，淡出才看得见 */
 .list-reset { transition: opacity var(--t-fast) var(--ease), visibility 0s var(--ease) 0s; }
