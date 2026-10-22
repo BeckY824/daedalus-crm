@@ -135,24 +135,50 @@ async function 收范围推送事务(accountId: string, teamId: string, device: 
     if (current !== epoch) fail(409, "团队换过钥匙了，取到新钥匙再推");
     const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
     if (!p || (p.stage !== 'ready' && !(owner && p.device === device && p.stage === 'building'))) fail(409, "请等待老板完成团队范围迁移");
-    const rows = new Map((await tx.syncScopedRecord.findMany({ where: { teamId } })).map(r => [r.key, JSON.parse(r.metadata) as 范围索引]));
+    /*
+      只读用得到的那几条（2026-10-22 优化 #1）：原来每次推送都把整队记录读出来、逐条 JSON.parse（1 万位客户约 8 万条），
+      还在事务里——30 台时别的同步请求全排在它后面（推送 p95 5.6 秒、拉取 p95 13 秒、老板看全 34.5 秒）。
+      判权限只会顺着这一包的父记录、公海 / 合并记号往上查（算范围、推送可写都只按键取）：取到没读过的键记进「缺」，
+      读进来再判一遍，直到不缺——判出来和整表读完全一样，缺的那几条整批一次读
+    */
+    const rows = new Map<string, 范围索引>(), 读过 = new Set<string>(), 缺 = new Set<string>();
+    const 表: 范围行表 = { get: k => { if (!读过.has(k)) 缺.add(k); return rows.get(k); } };
+    const 补 = async () => {
+      const keys = [...缺]; 缺.clear();
+      for (let i = 0; i < keys.length; i += 400) {
+        const part = keys.slice(i, i + 400);
+        for (const r of await tx.syncScopedRecord.findMany({ where: { teamId, key: { in: part } } })) rows.set(r.key, JSON.parse(r.metadata) as 范围索引);
+        for (const k of part) 读过.add(k);
+      }
+    };
+    const 判 = async <T>(f: () => T): Promise<T> => { for (;;) { const r = f(); if (!缺.size) return r; await 补(); } };
     /*
       起点视图（推送可写 ②）：本次请求改过的记录记下开始时的样子；开始时还没有的，记它第一次被接受时的那一版。
-      没改过的记录直接读 rows（和开始时一样），不用整表复制。
+      没改过的记录直接读 表（和开始时一样），不用整表复制。
     */
     const 原样 = new Map<string, 范围索引 | undefined>(), 新建 = new Map<string, 范围索引>();
-    const start: 范围行表 = { get: k => (原样.has(k) ? 原样.get(k) ?? 新建.get(k) : rows.get(k)) };
+    const start: 范围行表 = { get: k => (原样.has(k) ? 原样.get(k) ?? 新建.get(k) : 表.get(k)) };
+    // 落的键都先经 判 读过（这一包自己、公海对应的客户）
     const 落 = (k: string, v: 范围索引) => {
       if (!原样.has(k)) { 原样.set(k, rows.get(k)); if (!rows.has(k)) 新建.set(k, v); }
-      rows.set(k, v);
+      rows.set(k, v); 读过.add(k);
     };
+    const 客户键 = (m: 范围元数据) => (m.t === 'CustomerPool' ? 行键('Customer', m.k) : null);
+    // 先把这次每一包和它们往上查得到的整批读进来（每层一次查询），逐包判时基本不用再读
+    for (const { packet } of prepared) { 表.get(行键(packet.meta.t, packet.meta.k)); const ck = 客户键(packet.meta); if (ck) 表.get(ck); }
+    await 补();
+    if (p.stage === 'ready') await 判(() => { for (const { packet } of prepared) 推送可写(表, 表, 合并范围(表.get(行键(packet.meta.t, packet.meta.k)), packet.meta, 0), accountId, owner, share, manager); });
     let stored = 0;
     type 一包 = { i: number; packet: 范围包; key: string; batchId: number };
     const 试 = async ({ packet, key, batchId }: 一包) => {
-      const old = rows.get(key), n = 合并范围(old, packet.meta, batchId);
-      // 这一包删除成了当前状态：记下批次号，拉取时直接给这一包（见 给范围拉取），不用回头翻批次
-      if (packet.meta.o === 'D' && n.deleted && n.clock === packet.meta.h) n.delSeq = batchId;
-      if (p.stage === 'ready' && !推送可写(start, rows, n, accountId, owner, share, manager)) return false;
+      const { old, n, 可 } = await 判(() => {
+        const old = 表.get(key), n = 合并范围(old, packet.meta, batchId);
+        // 这一包删除成了当前状态：记下批次号，拉取时直接给这一包（见 给范围拉取），不用回头翻批次
+        if (packet.meta.o === 'D' && n.deleted && n.clock === packet.meta.h) n.delSeq = batchId;
+        const ck = 客户键(packet.meta); if (ck) 表.get(ck);
+        return { old, n, 可: p.stage !== 'ready' || 推送可写(start, 表, n, accountId, owner, share, manager) };
+      });
+      if (!可) return false;
       落(key, n); stored++;
       await tx.syncScopedRecord.upsert({ where: { teamId_key: { teamId, key } }, create: { teamId, key, metadata: JSON.stringify(n) }, update: { metadata: JSON.stringify(n) } });
       if (packet.baseline) await tx.syncScopedBaseline.create({ data: { teamId, recordKey: key, batchId } });
@@ -192,19 +218,22 @@ async function 收范围推送事务(accountId: string, teamId: string, device: 
     }
     // 仍被拒：全部报出来（下标），整批回滚——新客户端只把这几条转成冲突、其余重推
     if (待定.length) {
-      const gone = 待定.filter(x => 挂在已删的上(合并范围(rows.get(x.key), x.packet.meta, x.batchId), rows)).map(x => x.i);
+      const gone = await 判(() => 待定.filter(x => 挂在已删的上(合并范围(表.get(x.key), x.packet.meta, x.batchId), 表)).map(x => x.i));
       /*
         领公海没抢到（2026-10-19「记跟进 = 领取」）：这次被拒的里有「删公海那一行」，客户已经出了公海、归了别人——
         只对这几位（刚才还在公海、人人看得到的）回现在的负责人，客户端说「已被 X 先领走」；别的私客不回
       */
-      const taken: Record<string, string> = {};
-      for (const x of 待定) {
-        if (x.packet.meta.t !== "CustomerPool" || x.packet.meta.o !== "D") continue;
-        const cust = rows.get(行键("Customer", x.packet.meta.k));
-        const pool = rows.get(行键("CustomerPool", x.packet.meta.k));
-        const who = cust?.fields.salesOwnerId;
-        if (cust && !cust.deleted && (!pool || pool.deleted) && who && who !== `acct_${accountId}`) taken[x.packet.meta.k] = who;
-      }
+      const taken = await 判(() => {
+        const taken: Record<string, string> = {};
+        for (const x of 待定) {
+          if (x.packet.meta.t !== "CustomerPool" || x.packet.meta.o !== "D") continue;
+          const cust = 表.get(行键("Customer", x.packet.meta.k));
+          const pool = 表.get(行键("CustomerPool", x.packet.meta.k));
+          const who = cust?.fields.salesOwnerId;
+          if (cust && !cust.deleted && (!pool || pool.deleted) && who && who !== `acct_${accountId}`) taken[x.packet.meta.k] = who;
+        }
+        return taken;
+      });
       fail(403, "该记录已不在你的同步权限范围内，未上传改动已保留", 待定.map(x => x.i), gone, Object.keys(taken).length ? taken : undefined);
     }
     /*
