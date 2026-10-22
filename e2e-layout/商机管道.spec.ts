@@ -8,6 +8,7 @@
  *   - 整页和管道都不横滚；同一行的列等宽、不超出管道；长名只占两行、title 里是全文；排版检查（e2e/layout-audit.ts）不报
  *   - 列比现在多（以后阶段能加）：把列复制到 8 列再量一遍，照样折行不横滚
  *   - 折到第二行的列也能拖进去：拖过去整列亮、松手写库
+ *   - 卡片底行（团队里显示负责人时）：两个负责人 + 大额 + 一长串英文名，金额一行写完、负责人不冲出卡片
  *
  *   E2E_PORT=3560 E2E_SHOT_DIR=… npx playwright test -c playwright.layout.config.ts e2e-layout/商机管道.spec.ts
  */
@@ -24,6 +25,8 @@ const 忽略 = [".ant-message", ".ant-notification", "nextjs-portal"];
 
 const 无空格长名 = "FrozenChickenBreastBFQSkinlessBonelessIQF10kgBoxHalalCertifiedCIFTurkmenbashiViaMersin500MT";
 const 拖的那张 = "gate-pipe-drag";
+// 团队数据才在卡片底行显示负责人：再来一个人，名字是一长串英文（质量审 #87 时 1280 下冲出卡片 21px）
+const 另一个人 = { id: "gate-pipe-owner", 名: "Maximilian-Alexander Wolfeschlegelsteinhausenbergerdorff" };
 
 const 窗口们 = [
   { 名: "1024", 宽: 1024, 高: 680 },
@@ -47,6 +50,9 @@ test.beforeAll(async ({ browser }) => {
       await db.opportunity.create({ data: { id: `gate-pipe-many-${i}`, name: `Frozen chicken wings mid-joint grade A, 10kg/carton, lot ${i + 1} of 24, FOB Qingdao`, amount: 10000 + i, stage: "初步沟通", customerId: 客户, ownerId: 我, probability: 20, money: { create: { currency: "USD" } } } });
     }
     await db.opportunity.create({ data: { id: 拖的那张, name: "拖拽测试 · Drag me into the second row", amount: 1, stage: "需求确认", customerId: 客户, ownerId: 我, probability: 40, money: { create: { currency: "USD" } } } });
+    await db.user.upsert({ where: { id: 另一个人.id }, create: { id: 另一个人.id, email: "pipe-owner@e2e.local", name: 另一个人.名, password: "x", role: "SALES", title: "业务员" }, update: { active: true, name: 另一个人.名 } });
+    await db.opportunity.create({ data: { id: "gate-pipe-owner-big", name: "Big order · long owner", amount: 1234567.89, stage: "需求确认", customerId: 客户, ownerId: 另一个人.id, probability: 40, money: { create: { currency: "USD" } } } });
+    await db.opportunity.create({ data: { id: "gate-pipe-owner-eur", name: "EUR order · my own", amount: 45000, stage: "需求确认", customerId: 客户, ownerId: 我, probability: 40, money: { create: { currency: "EUR" } } } });
   } finally {
     await db.$disconnect();
   }
@@ -59,6 +65,17 @@ test.beforeAll(async ({ browser }) => {
     await 先进.close();
   }
   await 切外贸(browser);
+});
+
+// 多出来的那个人别留给后面的用例：其他页会因为「团队里有两个人」多出负责人一列
+test.afterAll(async () => {
+  const db = 连库();
+  try {
+    await db.opportunity.deleteMany({ where: { ownerId: 另一个人.id } });
+    await db.user.deleteMany({ where: { id: 另一个人.id } });
+  } finally {
+    await db.$disconnect();
+  }
 });
 
 async function 开管道(page: Page, 宽: number, 高: number, 挤 = false) {
@@ -206,4 +223,42 @@ test("1024：拖到第二行的列里，整列亮、松手就推进", async ({ p
   await page.setViewportSize({ width: 1024, height: Math.ceil(管道多高 + 100) });
   await 卡.dragTo(第一列.locator(".pipe-h"));
   await expect(第一列.locator(".pipe-card", { hasText: "Drag me into the second row" })).toBeVisible();
+});
+
+test("1280：卡片底行两个负责人 + 大额 + 长英文名，金额一行、负责人不冲出卡片", async ({ page }) => {
+  await 开管道(page, 1280, 680);
+  const 大 = page.locator(".pipe-card", { hasText: "Big order · long owner" });
+  const 欧 = page.locator(".pipe-card", { hasText: "EUR order · my own" });
+  await 大.scrollIntoViewIfNeeded();
+  await 截(page, "1280-卡片底行负责人");
+  const 量底行 = (卡: typeof 大) => 卡.evaluate((c) => {
+    const 框 = c.getBoundingClientRect();
+    const 额 = c.querySelector<HTMLElement>(".pipe-card-a")!;
+    const 人 = c.querySelector<HTMLElement>(".pipe-card-o");
+    const 一行 = (e: HTMLElement) => e.getClientRects().length === 1 && e.getBoundingClientRect().height < parseFloat(getComputedStyle(e).lineHeight) * 1.5;
+    return {
+      金额: 额.textContent,
+      金额一行: 一行(额),
+      金额出界: 额.getBoundingClientRect().right > 框.right - 1,
+      有负责人: !!人,
+      负责人一行: 人 ? 一行(人) : null,
+      负责人出界: 人 ? 人.getBoundingClientRect().right > 框.right - 1 : null,
+      负责人提示: 人?.title ?? null,
+    };
+  });
+  const a = await 量底行(大);
+  expect(a.有负责人, "团队里有两个人，应该显示负责人").toBe(true);
+  expect(a.金额, "大额").toMatch(/1,234,567\.89/);
+  expect(a.金额一行, "金额一行写完").toBe(true);
+  expect(a.金额出界, "金额冲出卡片").toBe(false);
+  expect(a.负责人一行, "长英文名一行省略").toBe(true);
+  expect(a.负责人出界, "长英文名冲出卡片").toBe(false);
+  expect(a.负责人提示, "悬停看全名").toBe(另一个人.名);
+  const b = await 量底行(欧);
+  expect(b.金额, "欧元").toMatch(/45,000/);
+  expect(b.金额一行, "欧元金额一行").toBe(true);
+  expect(b.负责人一行, "中文名不折行").toBe(true);
+  expect(b.负责人出界).toBe(false);
+  const 问题 = await 查排版(page, { 忽略 });
+  expect(问题, 说问题(问题)).toEqual([]);
 });

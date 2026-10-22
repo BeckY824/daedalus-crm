@@ -268,7 +268,7 @@ export default function PipelineView({
                     <div className="pipe-card-t clamp">{r.name}</div>
                     <div className="pipe-card-m">
                       <span className="pipe-card-a">{金额(r.amount, r.currency)}</span>
-                      {显示负责人 && <span className="pipe-card-o">{r.ownerName}</span>}
+                      {显示负责人 && <span className="pipe-card-o" title={r.ownerName}>{r.ownerName}</span>}
                     </div>
                   </div>
                 </Dropdown>
