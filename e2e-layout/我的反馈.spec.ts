@@ -14,6 +14,7 @@ import path from "node:path";
 import { 进门 } from "../e2e-desktop/helpers";
 import { CLOUD_URL, DATA_DIR } from "../e2e-desktop/env";
 import { 查排版, 说问题 } from "../e2e/layout-audit";
+import { 清闸门数据 } from "./复原";
 
 test.describe.configure({ mode: "serial" });
 
@@ -118,6 +119,8 @@ async function 量(page: Page, 名: string, 问题们: string[]) {
 }
 
 test.beforeAll(async ({ browser }) => {
+  // 不管前面跑过哪几份：别人灌的客户会把客户列表撑出分页，这一份量的是「没有闸门数据」的库
+  await 清闸门数据();
   // 每轮从「一条都没看过」开始：红点、提示都该出
   rmSync(path.join(DATA_DIR, "feedback-seen.json"), { force: true });
   await 放数据(一串反馈);

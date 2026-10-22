@@ -23,6 +23,7 @@ import { 查排版, 说问题, type 排版问题 } from "../e2e/layout-audit";
 import { 灌真客户 } from "./种子";
 import { 关掉弹窗, 切外贸 } from "./外贸模版";
 import 现存问题 from "./现存问题.json";
+import { 清闸门数据 } from "./复原";
 
 test.describe.configure({ mode: "serial" });
 
@@ -143,3 +144,6 @@ for (const 宽 of 宽们) {
     });
   }
 }
+
+// 灌的客户测完删掉：后面的用例（时间线订单等）别看到这一份的数据
+test.afterAll(() => 清闸门数据());
