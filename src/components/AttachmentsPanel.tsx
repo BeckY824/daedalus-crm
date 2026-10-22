@@ -112,7 +112,8 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
   const 满了 = (列表?.length ?? 0) >= 每条最多;
 
   return (
-    <div className="att-panel">
+    <div className="att-panel" data-testid="attachments-panel">
+      <div data-testid="attachment-upload">
       <Upload.Dragger
         multiple
         showUploadList={false}
@@ -127,6 +128,7 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
         <p className="ant-upload-text">{满了 ? `已经 ${每条最多} 张了，先删掉几张不要的` : 只收图片 ? "把产品图片拖到这里，或点一下选图片" : "把文件拖到这里，或点一下选文件"}</p>
         <p className="ant-upload-hint">JPG、PNG、GIF、WebP、BMP 都行；单张最多 {读大小(附件上限字节)}，会先压到长边 {图片长边} 像素再存</p>
       </Upload.Dragger>
+      </div>
 
       {列表 === null ? (
         <div style={{ padding: 16, textAlign: "center" }}><Spin /></div>
@@ -138,11 +140,11 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
             <Image.PreviewGroup>
               <div className="att-pics">
                 {图们.map((a) => (
-                  <div key={a.id} className="att-pic" title={`${a.name} · ${读大小(a.size)}`}>
+                  <div key={a.id} className="att-pic" data-testid="attachment-item" data-id={a.id} title={`${a.name} · ${读大小(a.size)}`}>
                     {a.有文件 ? (
                       <Image src={`/api/attachments/${a.id}`} alt={a.name} width={96} height={96} style={{ objectFit: "cover" }} />
                     ) : (
-                      <div className="att-missing">文件不在这台电脑上</div>
+                      <div className="att-missing" data-testid="attachment-missing">文件不在这台电脑上</div>
                     )}
                     <div className="att-pic-name">{a.name}</div>
                     <删按钮 a={a} 删={删} />
@@ -154,10 +156,10 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
           {别的.length > 0 && (
             <ul className="att-files">
               {别的.map((a) => (
-                <li key={a.id}>
+                <li key={a.id} data-testid="attachment-item" data-id={a.id}>
                   <FileOutlined />
                   <a onClick={() => void 打开(a)} title="用这台电脑上的程序打开">{a.name}</a>
-                  <span className="muted">{a.有文件 ? 读大小(a.size) : "文件不在这台电脑上"}</span>
+                  {a.有文件 ? <span className="muted">{读大小(a.size)}</span> : <span className="muted" data-testid="attachment-missing">文件不在这台电脑上</span>}
                   <删按钮 a={a} 删={删} />
                 </li>
               ))}
@@ -172,7 +174,7 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
 function 删按钮({ a, 删 }: { a: 附件; 删: (a: 附件) => Promise<void> }) {
   return (
     <Popconfirm title={`删掉「${a.name}」？`} okText="删掉" okButtonProps={{ danger: true }} cancelText="不删" onConfirm={() => 删(a)}>
-      <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label={`删掉 ${a.name}`} />
+      <Button size="small" type="text" danger icon={<DeleteOutlined />} aria-label={`删掉 ${a.name}`} data-testid="attachment-delete" />
     </Popconfirm>
   );
 }

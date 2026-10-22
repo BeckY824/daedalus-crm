@@ -50,20 +50,22 @@ async function 画图(page: Page, 宽 = 3000, 高 = 1500, 类型 = "image/png"):
 
 async function 传两张(page: Page, 区: ReturnType<Page["locator"]>) {
   const 回 = page.waitForResponse((r) => r.url().includes("/api/attachments?") && r.request().method() === "POST" && r.url().includes("w=2000"));
-  await 区.locator('input[type="file"]').setInputFiles([
+  await 区.getByTestId("attachment-upload").locator('input[type="file"]').setInputFiles([
     { name: "产品图-正面 Front View 3000x1500.png", mimeType: "image/png", buffer: await 画图(page) },
     { name: "包装箱-侧面.jpg", mimeType: "image/jpeg", buffer: await 画图(page, 800, 600, "image/jpeg") },
   ]);
   const 图 = (await (await 回).json()) as { 附件: { width: number; height: number } };
   // 长边压到 2000：3000×1500 → 2000×1000
   expect([图.附件.width, 图.附件.height]).toEqual([2000, 1000]);
-  await expect(区.locator(".att-pic")).toHaveCount(2);
-  await expect(区.locator(".att-files li")).toHaveCount(0);
+  await expect(区.getByTestId("attachment-item")).toHaveCount(2);
+  // 两张都出缩略图，不是落成文件行、也不是「文件不在这台电脑上」
+  await expect(区.getByTestId("attachment-item").locator("img")).toHaveCount(2);
+  await expect(区.getByTestId("attachment-missing")).toHaveCount(0);
 }
 
 async function 截(page: Page, 名: string) {
   // 缩略图刚传完还在加载，等它真画出来再截
-  await page.waitForFunction(() => [...document.querySelectorAll<HTMLImageElement>(".att-pic img")].every((i) => i.complete && i.naturalWidth > 0));
+  await page.waitForFunction(() => [...document.querySelectorAll<HTMLImageElement>('[data-testid="attachment-item"] img')].every((i) => i.complete && i.naturalWidth > 0));
   await page.waitForTimeout(400);
   if (出处) { mkdirSync(出处, { recursive: true }); await page.screenshot({ path: path.join(出处, `${名}.png`) }); }
 }
@@ -79,14 +81,14 @@ for (const 宽 of [1280, 1366]) {
     await page.setViewportSize({ width: 宽, height: 宽 === 1366 ? 768 : 800 });
     await 进门(page, `/orders/${订单}`);
     await 关掉弹窗(page, 2_000);
-    const 区 = page.locator(".att-panel");
+    const 区 = page.getByTestId("attachments-panel");
     await expect(区).toBeVisible();
-    if ((await 区.locator(".att-pic").count()) === 0) await 传两张(page, 区);
+    if ((await 区.getByTestId("attachment-item").count()) === 0) await 传两张(page, 区);
     await 区.scrollIntoViewIfNeeded();
     await 量(page, `${宽}-订单详情`);
 
     // 点缩略图看大图（预览本来就盖住整页，只截图不量）
-    await 区.locator(".att-pic img").first().click();
+    await 区.getByTestId("attachment-item").locator("img").first().click();
     await expect(page.locator(".ant-image-preview-img")).toBeVisible();
     await 截(page, `${宽}-订单详情-大图`);
     await page.keyboard.press("Escape");
@@ -97,10 +99,10 @@ for (const 宽 of [1280, 1366]) {
     await page.setViewportSize({ width: 宽, height: 宽 === 1366 ? 768 : 800 });
     await 进门(page, `/opportunities?opportunity=${商机}`);
     await 关掉弹窗(page, 2_000);
-    const 框 = page.getByRole("dialog").filter({ has: page.locator(".att-panel") });
+    const 框 = page.getByRole("dialog").filter({ has: page.getByTestId("attachments-panel") });
     await expect(框).toBeVisible();
-    const 区 = 框.locator(".att-panel");
-    if ((await 区.locator(".att-pic").count()) === 0) await 传两张(page, 区);
+    const 区 = 框.getByTestId("attachments-panel");
+    if ((await 区.getByTestId("attachment-item").count()) === 0) await 传两张(page, 区);
     await 区.scrollIntoViewIfNeeded();
     await 量(page, `${宽}-商机编辑`);
   });
@@ -109,28 +111,29 @@ for (const 宽 of [1280, 1366]) {
 test("选了 PDF：当场说不是图片，一张也不多传", async ({ page }) => {
   await 进门(page, `/orders/${订单}`);
   await 关掉弹窗(page, 2_000);
-  const 区 = page.locator(".att-panel");
-  await expect(区.locator(".att-pic")).toHaveCount(2);
-  const 选 = 区.locator('input[type="file"]');
+  const 区 = page.getByTestId("attachments-panel");
+  await expect(区.getByTestId("attachment-item")).toHaveCount(2);
+  const 选 = 区.getByTestId("attachment-upload").locator('input[type="file"]');
   // 选文件框本身只列图片
   await expect(选).toHaveAttribute("accept", /image\/png/);
   let 发了 = 0;
   page.on("request", (r) => { if (r.method() === "POST" && r.url().includes("/api/attachments")) 发了++; });
   await 选.setInputFiles([{ name: "规格书.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n" + "x".repeat(20_000)) }]);
   await expect(page.locator(".ant-message")).toContainText("不是图片");
-  await expect(区.locator(".att-pic")).toHaveCount(2);
+  await expect(区.getByTestId("attachment-item")).toHaveCount(2);
   expect(发了).toBe(0);
 });
 
 test("删一张图片：确认以后列表里就没了，刷新也没了", async ({ page }) => {
   await 进门(page, `/orders/${订单}`);
   await 关掉弹窗(page, 2_000);
-  const 区 = page.locator(".att-panel");
-  await expect(区.locator(".att-pic")).toHaveCount(2);
-  await 区.locator(".att-pic").filter({ hasText: "包装箱" }).getByRole("button", { name: /删掉/ }).click();
+  const 区 = page.getByTestId("attachments-panel");
+  await expect(区.getByTestId("attachment-item")).toHaveCount(2);
+  await 区.getByTestId("attachment-item").filter({ hasText: "包装箱" }).getByTestId("attachment-delete").click();
   await page.locator(".ant-popconfirm").getByRole("button", { name: /删\s*掉/ }).click();
-  await expect(区.locator(".att-pic")).toHaveCount(1);
+  await expect(区.getByTestId("attachment-item")).toHaveCount(1);
   await page.reload();
-  await expect(page.locator(".att-panel .att-pic")).toHaveCount(1);
-  await expect(page.locator(".att-panel .att-pic")).toContainText("产品图-正面");
+  const 剩下 = page.getByTestId("attachments-panel").getByTestId("attachment-item");
+  await expect(剩下).toHaveCount(1);
+  await expect(剩下).toContainText("产品图-正面");
 });
