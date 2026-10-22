@@ -102,6 +102,7 @@ async function 调中转(raw: string, 方法: string, 路径: string, body: unkn
       else if (act === "begin") r = await scoped.开始范围迁移(a, t, String(b.device));
       else if (act === "commit") r = await scoped.完成范围迁移(a, t, String(b.device), Number(b.count));
       else if (act === "push") r = await scoped.收范围推送(a, t, String(b.device), b.packets as never[]);
+      else if (act === "pull-many") r = await scoped.给多个范围拉取(a, t, b.scopes);
       else r = await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
       return { 状态: 200, json: r as Record<string, unknown> };
     } catch (e) {

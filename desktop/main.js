@@ -444,7 +444,7 @@ async function 真启动本地() {
     dataDir: 数据目录,
     portRoot: 数据根,
     logFile: 日志文件,
-    额外环境: { CRM_CLOUD_URL: 云端.默认云端, CRM_MACHINE_HASH: 机器.机器哈希() ?? "" },
+    额外环境: { CRM_CLOUD_URL: 云端.默认云端, CRM_SERVER_FILE: 云端.专属服务器文件(数据根), CRM_MACHINE_HASH: 机器.机器哈希() ?? "" },
   });
   /*
     MCP 的固定端口。本地服务每次换一个随机端口，而别人的 agent（Claude Code / Codex）

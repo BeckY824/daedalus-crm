@@ -234,6 +234,16 @@ html.glass .ant-pagination .ant-pagination-item, html.glass .ant-pagination .ant
 .auth-num { font-variant-numeric: tabular-nums; }
 .auth-agree { font-size: var(--fs-note); color: var(--ink-soft); }
 .auth-alert { margin-top: var(--s1); }
+/* 登录页底下的「专属服务器」（login/DedicatedServer.tsx）：一条细线隔开，平时只是一行灰字 */
+.auth-server { margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: var(--s2); min-width: 0; }
+.auth-server-form { display: flex; flex-direction: column; gap: var(--s3); }
+.auth-server-actions { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.auth-server-host { color: var(--ink); font-weight: 500; overflow-wrap: anywhere; }
+.auth-server-warn { color: var(--warning-text); }
+.auth-server .auth-alt { line-height: 1.7; overflow-wrap: anywhere; }
+/* 入口藏着：灰字，指上去才是链接色。绝大多数人用不着它 */
+.auth-server .auth-server-entry { color: var(--text-faint); }
+.auth-server .auth-server-entry:hover, .auth-server .auth-server-entry:focus-visible { color: var(--brand); }
 /* 网页版注册 / 找回还是 antd Form：表单项自带 24px 下边距，叠上 .auth-form 的间距就空成两截 */
 .auth-form .ant-form-item { margin-bottom: var(--s3); }
 html.glass .auth { background: transparent; }
@@ -1795,7 +1805,7 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 落点要看得出来：拖过去时整列亮一下，不然人不知道松手会掉进哪一列 */
 .pipe-col-on { background: var(--brand-bg); border-color: var(--brand-line); }
 .pipe-h { display: flex; align-items: baseline; gap: 6px; }
-.pipe-h b { font-size: var(--fs-body); font-weight: 600; color: var(--ink); }
+.pipe-h b { font-size: var(--fs-body); font-weight: 600; color: var(--ink); white-space: nowrap; flex: none; } /* 阶段名能自己改（6 字内），一行放下；挤的时候让右边的金额省略 */
 .pipe-dot { width: 8px; height: 8px; border-radius: 50%; align-self: center; flex: none; }
 .pipe-n { font-size: var(--fs-min); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* 这一列压着多少钱。管道是拿来看钱怎么分布的，只数张数看不出这个 */

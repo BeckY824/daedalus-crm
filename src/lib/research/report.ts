@@ -68,6 +68,7 @@ export function 报告文本(s: 背调状态): string {
   };
   const 行: string[] = [];
   行.push(`${s.目标.name} 背调${s.done?.不完整 ? "（材料不全，仅供参考）" : ""}`);
+  if (s.目标.联系人) 行.push(`联系人：${s.目标.联系人}`);
   const 少 = 信息少(s);
   if (少) 行.push(`⚠ 信息少，谨慎。${少.文字}`);
   if (s.人?.选了) {

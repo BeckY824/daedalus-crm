@@ -5,7 +5,7 @@ import Shortcut from "@/components/Shortcut";
 
 import type { 页面范围 } from "@/lib/ai-context-page";
 import { 是刚交过来的 } from "@/lib/home-ask";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Dropdown, Tooltip } from "antd";
 import { ArrowUpOutlined, SnippetsOutlined, GlobalOutlined, MailOutlined } from "@ant-design/icons";
@@ -214,7 +214,7 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   useEffect(() => {
     if (!会话) return;
     载入历史(scope, 会话);
-  }, [会话]);
+  }, [会话, scope]);
 
   /**
    * 答完一轮就落库。
@@ -300,11 +300,18 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
     );
   }
 
-  // 排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去
+  /*
+    排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去。
+    只该在「谁在跑、谁在排队、还有没有次数」变了的时候判断一次；发的时候用的是这一刻的 scope、模型、上下文——
+    start 每次渲染都是新函数，放进依赖会让它每次渲染都跑，所以包成 effect event
+  */
+  const 发排队的 = useEffectEvent((t: Turn) => {
+    dequeueTurn(scope, t.id);
+    start(t);
+  });
   useEffect(() => {
     if (running || !queued || AI已用完) return;
-    dequeueTurn(scope, queued.id);
-    start(queued);
+    发排队的(queued);
   }, [running, queued, AI已用完]);
 
   function submit(raw: string, opts: { queue?: boolean } = {}) {

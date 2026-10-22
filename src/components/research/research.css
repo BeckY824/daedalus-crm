@@ -16,6 +16,7 @@
 .rs-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs-domain { font-size: var(--fs-note); color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rs-domain a { color: var(--brand); text-decoration: none; }
+.rs-contact { font-size: var(--fs-note); color: var(--text-muted); overflow-wrap: anywhere; }
 .rs-pill { flex: none; font-size: var(--fs-min); font-weight: 600; padding: 2px 10px; border-radius: var(--r-tag); background: var(--brand-bg); color: var(--brand-deep); }
 .rs-pill-done { background: var(--success-bg); color: var(--success-text); }
 .rs-pill-part { background: var(--warning-bg); color: var(--warning-text); }

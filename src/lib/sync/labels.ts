@@ -17,7 +17,7 @@ const 通用列名: Record<string, string> = {
   subject: "主题", plannedAt: "计划时间", plannedOn: "计划日期", method: "方式", done: "完成", doneAt: "完成时间", occurredAt: "发生时间",
   dueAt: "截止时间", dueOn: "截止日期", amount: "金额", stage: "阶段", probability: "赢率", expectedDealAt: "预计成交", position: "职位",
   isPrimary: "主联系人", ownerId: "负责人", customerId: "所属客户", contactId: "联系人", opportunityId: "商机", duration: "时长", participants: "参与人",
-  country: "国家 / 地区", whatsapp: "WhatsApp", source: "来源", level: "客户等级", website: "官网",
+  country: "国家 / 地区", whatsapp: "WhatsApp", source: "来源", level: "客户等级", website: "官网", alibabaId: "阿里国际站 ID",
 };
 /** 每一行都会带着变的时间戳，不算人改的 */
 const 不提的列 = new Set(["updatedAt", "createdAt", "activityAt", "plannedHasTime", "dueHasTime"]);

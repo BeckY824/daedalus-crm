@@ -8,7 +8,7 @@
  *   - 价格表：没改过用默认，改了存库、桌面端读到新价；乱填不收
  *   - 运营通知：3 天内到期报「快到期」，过了报「已到期」，停用的不报
  *   - 席位（2026-10-19 用户拍板「要拦」）：运营台填的人数就是上限（含老板）；满了新成员入队、被移出的人重新加入都拦，
- *     本人加设备只在人数已经超过上限时拦；运营台「改人数」马上生效；没设人数的老团队不拦
+ *     本人加设备只在人数已经超过上限时拦；运营台「改人数」马上生效；没设人数的老团队按最多人数（100）拦
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import fs from "node:fs";
@@ -311,6 +311,25 @@ describe("席位：满了要拦（2026-10-19）", () => {
     await r.设开通(t.teamId, true);
     for (let i = 0; i < 4; i++) expect((await r.入队(await 账号("成员"), t.teamId, t.joinSecret, 机())).ok).toBe(true);
     expect(await p.席位闸(t.teamId, true)).toBeNull();
+  });
+
+  it("开 30 人就能进 30 个：原来另有一道写死的 20 人上限，第 21 个人进不来（2026-10-21 客户 Even 30 人压测）", async () => {
+    const r = await import("@/lib/tenant/sync-relay");
+    const p = await import("@/lib/tenant/team-plan");
+    const t = await r.建团队(await 账号("三十人老板"), "三十人", 机());
+    if (!t.ok) throw new Error(t.error);
+    await p.开通续费({ teamId: t.teamId, 时长: { months: 1 }, seats: 30, amount: 897, by: "口令" });
+    for (let i = 0; i < 29; i++) expect(await r.入队(await 账号("成员"), t.teamId, t.joinSecret, 机())).toMatchObject({ ok: true });
+    expect(await r.入队(await 账号("第三十一"), t.teamId, t.joinSecret, 机())).toEqual({ ok: false, 状态: 409, error: 人满话(30) });
+  });
+
+  it("没设人数的老团队也有个顶：和运营台最多能开的人数一样（100 人）", async () => {
+    const r = await import("@/lib/tenant/sync-relay");
+    const t = await r.建团队(await 账号("百人老板"), "百人", 机());
+    if (!t.ok) throw new Error(t.error);
+    await r.设开通(t.teamId, true);
+    for (let i = 0; i < 99; i++) expect(await r.入队(await 账号("成员"), t.teamId, t.joinSecret, 机())).toMatchObject({ ok: true });
+    expect(await r.入队(await 账号("第一百零一"), t.teamId, t.joinSecret, 机())).toMatchObject({ ok: false, 状态: 409, error: "这个团队已经有 100 个人了" });
   });
 });
 
