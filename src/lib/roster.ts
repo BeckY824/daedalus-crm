@@ -96,9 +96,6 @@ export function useDrawerOpen(栏: 中栏) {
     () => false,
   );
 }
-export function useRosterOpen() {
-  return useDrawerOpen("roster");
-}
 
 /**
  * 这条媒体查询命中没有（窗口够不够宽）。
