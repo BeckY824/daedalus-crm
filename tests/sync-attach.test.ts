@@ -34,6 +34,7 @@ vi.mock("@/lib/prisma", async () => {
 import type { PrismaClient } from "@/generated/prisma";
 import type { 传输 } from "@/lib/sync/client";
 import type { 附件传输 } from "@/lib/sync/attach-client";
+import { 封附件 } from "@/lib/sync/crypto";
 
 let client: typeof import("@/lib/sync/client");
 let relay: typeof import("@/lib/tenant/sync-relay");
@@ -90,7 +91,8 @@ async function 清空(d: PrismaClient) {
   for (const t of ["Customer", "Channel", "Supplier", "User"]) await d.$executeRawUnsafe(`DELETE FROM "${t}"`);
   await d.user.create({ data: { id: "cmusc55660000dulko96ek8kr", email: "admin", name: "管理员", role: "ADMIN", password: "x", title: "管理员", createdAt: new Date("2026-10-01T00:00:00Z") } });
 }
-const 轮 = async (w: 谁) => { 当(w); return client.同步一轮(); };
+// 产品图片在同步一轮之后后台传（质量审 #93 D）：测试里等它传完再往下看
+const 轮 = async (w: 谁) => { 当(w); const r = await client.同步一轮(); await client.等图片(); return r; };
 const 都轮 = async (...ws: 谁[]) => { for (const w of ws) expect(await 轮(w)).toMatchObject({ ok: true }); };
 const 读配置 = (w: 谁) => { 当(w); return client.读团队()!; };
 
@@ -255,6 +257,59 @@ describe("团队版产品图片", () => {
     expect(await 打开("boss", a.id)).toBe("有");
   });
 
+  /** 质量审 #93：自己封一份密文，直接对云端一块一块地收 */
+  const 自己封 = async (seed: number) => {
+    const a = await 存("li", "o-li", 图(1_500_000, seed));
+    附件断 = () => true; // 行先推上去，文件一块都不传
+    await 都轮("li");
+    附件断 = null;
+    const c = 读配置("li");
+    const { sha256 } = await db("li").attachment.findUniqueOrThrow({ where: { id: a.id } });
+    const 密 = 封附件(本机字节("li", a.id), c.key, c.epoch ?? 0, { teamId: c.teamId, id: a.id, sha256 });
+    const head = 密.subarray(0, 33).toString("base64url"), 块 = 图通道.块大小;
+    const 收 = (o: number) => attach.收附件块(账号.li, c.teamId, { id: a.id, offset: o, total: 密.length, head }, new Uint8Array(密.subarray(o, Math.min(密.length, o + 块))));
+    return { a, 密, 收, 块, teamId: c.teamId };
+  };
+
+  it("同一块同时到两次（断线重传、旧请求还在限速里排着）：只收一份，传齐的文件不坏（质量审 #93 A）", async () => {
+    const { a, 密, 收, 块 } = await 自己封(11);
+    const 第一块 = await Promise.allSettled([收(0), 收(0)]);
+    expect(第一块.map((x) => x.status).sort()).toEqual(["fulfilled", "rejected"]);
+    expect(第一块.find((x) => x.status === "rejected")).toMatchObject({ reason: { 状态: 409, 补充: { have: 块 } } });
+    // 第二块：先到的那个传齐了；后到的那个看见已经传齐（只写一次），回 done，不再写
+    await expect(Promise.all([收(块), 收(块)])).resolves.toMatchObject([{ done: true }, { done: true }]);
+    expect(fs.readFileSync(云端文件(a.id)).equals(密)).toBe(true);
+    expect(fs.existsSync(`${云端文件(a.id)}.part`)).toBe(false);
+    await 都轮("boss");
+    expect(await 打开("boss", a.id)).toBe("有");
+  });
+
+  it("已收的比整张还长（坏了）：删掉从 0 来，不在坏的后面接着写（质量审 #93 B）", async () => {
+    const { a, 密, 收, 块 } = await 自己封(12);
+    fs.mkdirSync(path.dirname(云端文件(a.id)), { recursive: true });
+    fs.writeFileSync(`${云端文件(a.id)}.part`, Buffer.concat([密, Buffer.alloc(10)]));
+    await expect(收(0)).resolves.toMatchObject({ have: 块, done: false });
+    await expect(收(块)).resolves.toMatchObject({ done: true });
+    expect(fs.readFileSync(云端文件(a.id)).equals(密)).toBe(true);
+  });
+
+  it("在限速里排着的时候这张图被删了：排完不再写，不留 .part", async () => {
+    const { a, 收, teamId } = await 自己封(13);
+    process.env.ATTACH_MBPS = "1";
+    attach.重置限速();
+    attach.排队(2 * 1024 * 1024); // 前面排着 2 MB：这一块要等一两秒
+    try {
+      const 在收 = 收(0);
+      await new Promise((r) => setTimeout(r, 200));
+      attach.删云端附件(teamId, [a.id]);
+      await expect(在收).rejects.toMatchObject({ 状态: 404 });
+      expect(fs.existsSync(`${云端文件(a.id)}.part`)).toBe(false);
+    } finally {
+      delete process.env.ATTACH_MBPS;
+      attach.重置限速();
+    }
+  });
+
   it("删图：云端那份一起删，编号记进当天的删除清单", async () => {
     当("li");
     await 附件.删附件(db("li"), 第一张);
@@ -298,6 +353,60 @@ describe("团队版产品图片", () => {
     expect(attach.排队(15 * MB, 1_000_000, 15 * MB)).toBe(1000);
     expect(attach.排队(7.5 * MB, 1_000_000, 15 * MB)).toBe(1500);
     attach.重置限速();
+  });
+
+  it("同事的、本机没下载的图攒过 500 张：也记上号，本机自己的新图照样传得上去（质量审 #93 C）", async () => {
+    当("li");
+    const 很早 = new Date("2026-01-01T00:00:00Z");
+    await db("li").attachment.createMany({ data: Array.from({ length: 520 }, (_, i) => ({ id: `nofile${String(i).padStart(4, "0")}`, opportunityId: "o-li", name: "同事的.png", mime: "image/png", size: 10, sha256: "0".repeat(64), createdAt: 很早 })) });
+    const a = await 存("li", "o-li", 图(3000, 9));
+    await 都轮("li");
+    expect(fs.existsSync(云端文件(a.id))).toBe(true);
+    const 记着 = await db("li").$queryRawUnsafe<{ n: number }[]>('SELECT COUNT(*) AS n FROM "_sync_attach_up" WHERE "id" LIKE \'nofile%\'');
+    expect(Number(记着[0].n)).toBe(520);
+    // 收拾掉：后面的用例不用背着这 520 行
+    await db("li").attachment.deleteMany({ where: { id: { startsWith: "nofile" } } });
+    await 都轮("li", "boss");
+  }, 60_000);
+
+  it("图片在同步一轮之外传：传得慢不拖着同步一轮（质量审 #93 D）", async () => {
+    let 放行!: () => void;
+    const 闸 = new Promise<void>((r) => { 放行 = r; });
+    图通道.设附件传输(async (方法, 路径, body) => { if (方法 === "PUT") await 闸; return 附件传(方法, 路径, body); });
+    try {
+      const a = await 存("li", "o-li", 图(4000, 10));
+      const 云端 = 云端文件(a.id); // 云端文件() 会切到老板那台：先算好，再切回业务员
+      当("li");
+      const r = await Promise.race([client.同步一轮(), new Promise((ok) => setTimeout(() => ok("超时"), 10_000))]);
+      expect(r).toMatchObject({ ok: true });
+      expect(fs.existsSync(云端)).toBe(false);
+      放行();
+      await client.等图片();
+      expect(fs.existsSync(云端)).toBe(true);
+    } finally {
+      放行();
+      图通道.设附件传输(附件传);
+    }
+  });
+
+  it("云端还没有这一行（404 等行）：算进一轮 20 张，下一轮先不碰，过一阵再试（质量审 #93 E）", async () => {
+    let 传 = 0;
+    图通道.设附件传输(async (方法, 路径, body) => { if (方法 === "PUT") { 传++; return { 状态: 404, json: { error: "这张图还没同步上来" } }; } return 附件传(方法, 路径, body); });
+    try {
+      for (let i = 0; i < 25; i++) await 存("li", "o-li", 图(200, 20 + i));
+      当("li");
+      const 现在 = Date.now();
+      await 图通道.附件通道一轮(读配置("li"), 现在);
+      expect(传).toBe(20);
+      await 图通道.附件通道一轮(读配置("li"), 现在 + 1000);
+      expect(传).toBe(25); // 前 20 张在等，只碰剩下的 5 张
+      await 图通道.附件通道一轮(读配置("li"), 现在 + 2000);
+      expect(传).toBe(25);
+      await 图通道.附件通道一轮(读配置("li"), 现在 + 61_000);
+      expect(传).toBe(45);
+    } finally {
+      图通道.设附件传输(附件传);
+    }
   });
 
   it("运营台磁盘线：剩不到 12 GB 或图片超过 10 GB 才报，一天一条", async () => {

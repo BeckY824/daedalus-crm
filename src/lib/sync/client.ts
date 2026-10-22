@@ -486,6 +486,8 @@ export function 退出团队(): Promise<结果> {
 async function 退出团队里(): Promise<结果> {
   // 正在跑的那一轮先跑完：不然它跑到最后把 .team.json 写回来，界面上还「在团队里」、触发器却已经卸了（复查）
   while (在跑) await 在跑.catch(() => undefined);
+  // 后台在传的产品图片：传完手上这一块就停（D-24）
+  await import("./attach-client").then((m) => m.停附件通道(), () => undefined);
   const c = 读团队();
   if (!c) return { ok: true };
   // 先问名单、再退队：退了之后名单里就没有这个团了，问不出谁是老板（T-041）
@@ -509,6 +511,11 @@ async function 退出团队里(): Promise<结果> {
 }
 
 let 在跑: Promise<结果<{ 推: number; 拉: number; 撞: number }>> | null = null;
+/** 最近一次叫后台传产品图片（D-24）：动态 import 要一会儿，等图片() 先等它叫上，再等后台那一轮传完 */
+let 图片触发: Promise<void> = Promise.resolve();
+export function 等图片(): Promise<void> {
+  return 图片触发.then(() => import("./attach-client")).then((m) => m.等附件通道());
+}
 let 欠一轮 = false;
 
 /**
@@ -1251,9 +1258,9 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     const 报的是 = `${teamId}|${c.device}|${(读团队() ?? c).epoch ?? 0}`;
     if (p.推 > 0 || 拉 > 0 || 上次报查重 !== 报的是) await 报查重(读团队() ?? c).then(() => { 上次报查重 = 报的是; }, () => undefined);
     if (Date.now() - 上次对角色 > 5 * 60_000 || (拉 > 0 && 上次对角色 === 0)) await 对齐角色().catch(() => undefined);
-    // 产品图片的文件（D-24，sync/attach-client.ts）：行推完、拉完再传文件。传不上不算这一轮失败；空间满了要人处理，记一句
-    const 图 = await import("./attach-client").then((m) => m.附件通道一轮(读团队())).catch(() => null);
-    if (图?.满了) 记团队(teamId, { lastError: `图片没传上去：${图.满了}` });
+    // 产品图片的文件（D-24，sync/attach-client.ts）：行推完、拉完再在后台传文件，不占着这一轮（质量审 #93 D）。
+    // 传不上不算这一轮失败；空间满了要人处理，由它记一句
+    图片触发 = import("./attach-client").then((m) => m.后台传附件(), () => undefined);
     return { ok: true, 推: p.推, 拉, 撞 };
   } catch (e) {
     const 话 = e instanceof 同步问题 ? e.message : `同步出错：${e instanceof Error ? e.message.slice(0, 200) : String(e)}`;
