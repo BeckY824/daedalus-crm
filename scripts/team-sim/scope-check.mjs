@@ -160,3 +160,38 @@ export function 字节残留({ 库, 老板库, 我, 含公海 = true, 豁免 = [
   }
   return out;
 }
+
+/**
+ * 云端这边按字节扫明文（2026-10-22，为 D-24 商机 / 订单附件备）：中转目录（SYNC_DIR）下所有文件、控制库和它的 WAL，
+ * 一个字节一个字节地搜一组词（utf8 和 utf16le 各搜一遍）。原来「服务器只有密文」只核控制库的行和元数据，
+ * .bin 密文文件本身没人扫过；附件走单独通道存成文件以后，文件名、内容漏成明文就靠这个抓。
+ * 词太短（少于 6 个字节）不搜：随机的密文字节偶尔撞上几个字节说明不了问题。
+ * @param {{ 目录们: string[], 文件们?: string[], 词们: Iterable<string> }} o
+ * @returns {{ 扫了: number, 字节: number, 命中: { 文件: string, 词: string }[] }}
+ */
+export function 云端明文({ 目录们, 文件们 = [], 词们 }) {
+  const 词 = [...new Set(词们)]
+    .filter((w) => w && Buffer.byteLength(w, "utf8") >= 6)
+    .flatMap((w) => [[w, Buffer.from(w, "utf8")], [w, Buffer.from(w, "utf16le")]]);
+  const 全部文件 = [...文件们.flatMap((f) => [f, `${f}-wal`])];
+  const 走 = (d) => {
+    if (!fs.existsSync(d)) return;
+    for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+      const p = `${d}/${e.name}`;
+      if (e.isDirectory()) 走(p);
+      else if (e.isFile()) 全部文件.push(p);
+    }
+  };
+  目录们.forEach(走);
+  const 命中 = [];
+  let 扫了 = 0;
+  let 字节 = 0;
+  for (const f of 全部文件) {
+    if (!fs.existsSync(f)) continue;
+    const buf = fs.readFileSync(f);
+    扫了++;
+    字节 += buf.length;
+    for (const [w, b] of 词) if (buf.includes(b) && !命中.some((x) => x.文件 === f && x.词 === w)) 命中.push({ 文件: f, 词: w });
+  }
+  return { 扫了, 字节, 命中 };
+}

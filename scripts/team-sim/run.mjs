@@ -29,7 +29,7 @@ import crypto from "node:crypto";
 import { 动作 } from "./actions.mjs";
 import { DatabaseSync } from "node:sqlite";
 import { 根, 包, 断言失败, 等到, 判, 停, 显示, 起进程, 关掉, 全关, 日志尾巴, 同步跑, 会话, 读动作表, 调动作, 查库 } from "./lib.mjs";
-import { 查越权, 字节残留 } from "./scope-check.mjs";
+import { 查越权, 字节残留, 云端明文 } from "./scope-check.mjs";
 
 const 起始端口 = Number(process.env.TEAM_SIM_PORT || 3520);
 const 种子数 = Math.min(90, Math.max(1, Number(process.env.TEAM_SIM_SEED || 30)));
@@ -1334,6 +1334,21 @@ async function 主线() {
       const 留 = await 核越权("同事被移出");
       return { 说: `越权检查 ${走}、${留} 行` };
     }
+  });
+
+  await 步("云端只有密文：中转目录所有文件 + 控制库 / WAL 按字节搜全队客户名字、电话、跟进、商机名（utf8 / utf16le），一个都搜不到", async () => {
+    const 词们 = [
+      ...查库(台[老板].库, "SELECT name, phone FROM Customer").flatMap((c) => [c.name, c.phone]),
+      ...查库(台[老板].库, "SELECT title, content FROM FollowUp").flatMap((f) => [f.title, f.content]),
+      ...查库(台[老板].库, "SELECT name FROM Opportunity").map((o) => o.name),
+    ];
+    const r = 云端明文({ 目录们: [`${云目录}/sync`], 文件们: [path.join(云目录, "control.db")], 词们 });
+    判(r.扫了 > 0 && r.字节 > 0, { 步骤: "云端字节扫描", 哪台: "云端", 期望: "中转目录里有文件可扫", 实际: r });
+    判(r.命中.length === 0, {
+      步骤: "云端只有密文", 哪台: "云端", 期望: "中转文件、控制库里搜不到任何客户名字 / 电话 / 跟进 / 商机名",
+      实际: `${r.命中.length} 处：${r.命中.slice(0, 10).map((x) => `${path.relative(云目录, x.文件)} ⊃「${x.词}」`).join("；")}`,
+    });
+    return { 说: `扫了 ${r.扫了} 个文件、${(r.字节 / 1024 / 1024).toFixed(1)} MB，${new Set(词们.filter(Boolean)).size} 个词` };
   });
 }
 

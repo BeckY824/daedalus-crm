@@ -19,6 +19,8 @@
  * 环境变量：LOAD_DESKS（电脑台数，默认 30）、LOAD_ACCOUNTS（账号数，默认等于台数）、LOAD_SEED（老客户数，默认 1000）、LOAD_FU（每位几条跟进，默认 3）、
  * LOAD_IDLE（空闲量几秒，默认 60）、LOAD_SHARE（1 = 跑第 5 阶段，默认 1）、LOAD_SHARE_TIMEOUT（默认 600）、LOAD_PORT（起始端口，默认 3800）、
  * LOAD_INTERVAL（壳几毫秒一轮，默认 8000 = 前台）、LOAD_KEEP=1（留临时目录）。结果打印并写到 .bench/负载-<时间>.json（.bench 不进仓库）。
+ * LOAD_MAX_MEDIAN（秒，可选）：第 4 阶段老板收到的中位超过它、或有业务员写的没到老板那台，退出码 1——压测从「看数」变成「判红」
+ * （2026-10-22 为 D-24 附件备：加附件那遍拿它卡 D-19 的 20 秒目标）。
  */
 import fs from "node:fs";
 import http from "node:http";
@@ -41,6 +43,7 @@ const 互看超时 = 环境数("LOAD_SHARE_TIMEOUT", 600) * 1000;
 const 起始 = 环境数("LOAD_PORT", 3800);
 const 留着 = process.env.LOAD_KEEP === "1";
 const 前台间隔 = 环境数("LOAD_INTERVAL", 8_000), 首轮 = 10_000;
+const 中位上限 = process.env.LOAD_MAX_MEDIAN ? Number(process.env.LOAD_MAX_MEDIAN) : null;
 
 const 批 = crypto.randomBytes(2).toString("hex");
 const 密码 = `Load-${crypto.randomBytes(6).toString("hex")}`;
@@ -377,6 +380,14 @@ async function 主线() {
 let 红 = null;
 try {
   await 主线();
+  if (中位上限 != null) {
+    const 四 = 结果.阶段.业务员写老板看到;
+    if (!四) throw new Error(`LOAD_MAX_MEDIAN=${中位上限}：第 4 阶段没跑出结果`);
+    if (四.写失败.length) throw new Error(`LOAD_MAX_MEDIAN=${中位上限}：${四.写失败.length} 位业务员没写成：${四.写失败.slice(0, 3).join("；")}`);
+    if (四.到了 < 四.写了) throw new Error(`LOAD_MAX_MEDIAN=${中位上限}：业务员写了 ${四.写了} 位、老板只收到 ${四.到了} 位`);
+    if (!(四.中位秒 <= 中位上限)) throw new Error(`LOAD_MAX_MEDIAN=${中位上限}：老板收到的中位 ${四.中位秒} 秒，超了（最慢 ${四.最慢秒} 秒）`);
+    打(`门槛：老板中位 ${四.中位秒} 秒 ≤ ${中位上限} 秒`);
+  }
 } catch (e) {
   红 = e;
   console.error(`\n红了：${e.message}`);
