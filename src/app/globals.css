@@ -533,6 +533,10 @@ html.glass .fbt { background: color-mix(in srgb, var(--panel) 88%, transparent);
 .fbt-x:hover { background: var(--hover); color: var(--ink); }
 .fbt-go:focus-visible, .fbt-x:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 @media (max-width: 767px) { .fbt { left: 12px; width: calc(100vw - 24px); } }
+/* 提示出着时正文底下让出它的高度（--fbt-room 由 FeedbackReplyToast 量好写上）：滚到底，列表的分页、最后一行都在它上面。
+   正文的内边距写在 AppShell 行内，所以要 !important。首页那种贴底的输入框自己往上垫，正文就不用再让一截 */
+html.fbt-room .main:not(:has(.cli-composer-sticky)) { padding-bottom: var(--fbt-room) !important; }
+html.fbt-room .cli-composer-sticky { padding-bottom: var(--fbt-room); }
 
 /* 左栏右边那条能拖的缝：贴着分隔线骑在上面，平时看不见，指上去才显出来。
    6px 宽是拿得住的最小值——再窄就得瞄准，而这不是个需要精准的动作 */
