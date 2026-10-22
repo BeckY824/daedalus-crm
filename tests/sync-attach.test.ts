@@ -475,6 +475,36 @@ describe("团队版产品图片", () => {
     expect(删代.has(`${teamId}/newdel0002`)).toBe(true);
   });
 
+  it("大图每一块都先碰一次正常的 409：收下一块就重数，不会攒够 3 次被当成等行（质量审 #97 建议 2）", async () => {
+    const 碰过 = new Set<number>();
+    图通道.设附件传输(async (方法, 路径, body) => {
+      const q = new URL(`http://x${路径}`).searchParams;
+      if (方法 === "PUT" && !碰过.has(Number(q.get("offset")))) { 碰过.add(Number(q.get("offset"))); return { 状态: 409, json: { error: "对不上", have: Number(q.get("offset")) } }; }
+      return 附件传(方法, 路径, body);
+    });
+    try {
+      const a = await 存("li", "o-li", 图(3_500_000, 54));
+      const 云端 = 云端文件(a.id);
+      await 都轮("li");
+      expect(碰过.size).toBe(4);
+      expect(fs.existsSync(云端)).toBe(true);
+    } finally {
+      图通道.设附件传输(附件传);
+    }
+  }, 60_000);
+
+  it("删代清掉以后同一编号再删：代号不撞回原来的（质量审 #97 建议 1）", () => {
+    const 删代 = (globalThis as unknown as { 附件删代: Map<string, { 代: number }> }).附件删代;
+    const teamId = 读配置("boss").teamId;
+    const t = Date.now() + 3600_000;
+    attach.删云端附件(teamId, ["againdel01"], new Date(t));
+    const 第一回 = 删代.get(`${teamId}/againdel01`)!.代;
+    attach.删云端附件(teamId, ["otherdel01"], new Date(t + 11 * 60_000));
+    expect(删代.has(`${teamId}/againdel01`)).toBe(false);
+    attach.删云端附件(teamId, ["againdel01"], new Date(t + 11 * 60_000));
+    expect(删代.get(`${teamId}/againdel01`)!.代).not.toBe(第一回);
+  });
+
   it("运营台磁盘线：剩不到 12 GB 或图片超过 10 GB 才报，一天一条", async () => {
     const { 磁盘通知 } = await import("@/lib/ops-notices");
     const GB = 1024 ** 3, 现在 = new Date("2026-10-22T10:00:00Z");

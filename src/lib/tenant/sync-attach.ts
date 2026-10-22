@@ -111,7 +111,7 @@ const 写GB = (n: number) => (n >= GB ? `${Math.round((n / GB) * 10) / 10} GB` :
  * 同一张图的块排队一个一个收（质量审 #93 A）：断线重传时旧请求可能还在限速里排着，两个同一 offset 的块同时追加，
  * .part 就多出一截、被改名成「传齐了」的坏文件。整台服务器一个进程，内存里排队就够
  */
-const 锁 = globalThis as unknown as { 附件锁?: Map<string, Promise<void>>; 附件删代?: Map<string, { 代: number; at: number }> };
+const 锁 = globalThis as unknown as { 附件锁?: Map<string, Promise<void>>; 附件删代?: Map<string, { 代: number; at: number }>; 附件删号?: { n: number } };
 const 锁们 = (锁.附件锁 ??= new Map());
 async function 排着<T>(key: string, f: () => Promise<T>): Promise<T> {
   const 前 = 锁们.get(key) ?? Promise.resolve();
@@ -133,6 +133,8 @@ async function 排着<T>(key: string, f: () => Promise<T>): Promise<T> {
  */
 const 删代 = (锁.附件删代 ??= new Map());
 const 删代留多久 = 10 * 60_000;
+/** 代号全局往上数（质量审 #97 建议 1）：清掉以后同一编号再删一次，也不会撞回收块前记下的那个号 */
+const 删号 = (锁.附件删号 ??= { n: 0 });
 const 第几代 = (key: string) => 删代.get(key)?.代 ?? 0;
 
 export type 收块结果 = { ok: true; have: number; done: boolean };
@@ -235,7 +237,7 @@ export function 删云端附件(teamId: string, ids: string[], 现在 = new Date
   // 先记「删过」再看目录：这张图的第一块可能还在限速里排着、目录都还没建
   const t = 现在.getTime();
   for (const [k, v] of 删代) if (v.at < t - 删代留多久) 删代.delete(k);
-  for (const id of ids) if (是附件编号(id)) 删代.set(`${teamId}/${id}`, { 代: 第几代(`${teamId}/${id}`) + 1, at: t });
+  for (const id of ids) if (是附件编号(id)) 删代.set(`${teamId}/${id}`, { 代: ++删号.n, at: t });
   if (!fs.existsSync(dir)) return 0;
   const 删了: string[] = [];
   for (const id of ids) {
