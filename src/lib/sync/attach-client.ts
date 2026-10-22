@@ -78,7 +78,7 @@ const 等行 = new Map<string, { 到: number; 隔: number }>();
  * 它的 createdAt 最老、每轮最先碰到，原来回「失败」整轮就停了，这台电脑以后的图都传不上去
  */
 const 坏图 = new Set<string>();
-/** 一张图连着最多跟着云端的 409 改几回位置（中间收下一块就重数）：一直对不上就当等行，退避着下一轮再来（质量复审 #93 建议 2、审 #97） */
+/** 一张图连着最多跟着云端的 409 改几回位置（云端收得比以前更远了才重数）：一直对不上就当等行，退避着下一轮再来（质量复审 #93 建议 2、审 #97） */
 const 改位置最多 = 3;
 /** 退出团队时叫停：传完手上这一块就不传了 */
 let 停 = false;
@@ -90,6 +90,8 @@ async function 传一张(c: 团队配置, a: { id: string; sha256: string }, 记
   const head = 密.subarray(0, 33).toString("base64url");
   let offset = 传到.get(a.id) ?? 0, 失败 = 0, 改位置 = 0;
   if (offset >= 密.length) offset = 0;
+  // 云端收到的最远位置：比它更远了才重数 409（质量审 #99：200 / 409 来回跳时不能一直清零）
+  let 最远 = offset;
   for (;;) {
     if (停) return "停了";
     传到.set(a.id, offset);
@@ -98,7 +100,9 @@ async function 传一张(c: 团队配置, a: { id: string; sha256: string }, 记
     const have = Number(r.json.have);
     if (r.状态 === 200 && Number.isSafeInteger(have)) {
       if (r.json.done === true) { 传到.delete(a.id); return "传完"; }
-      offset = have; 失败 = 0; 改位置 = 0; continue;
+      offset = have; 失败 = 0;
+      if (have > 最远) { 最远 = have; 改位置 = 0; }
+      continue;
     }
     // 对不上：云端已收的和我以为的不一样，从它说的位置接着
     if (r.状态 === 409 && Number.isSafeInteger(have) && have >= 0 && have < 密.length) {

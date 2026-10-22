@@ -493,6 +493,33 @@ describe("团队版产品图片", () => {
     }
   }, 60_000);
 
+  it("云端收下第一块、后面总打回 409 have:0（200 / 409 来回跳）：不越传越多，照样退成等行（质量审 #99）", async () => {
+    const a = await 存("li", "o-li", 图(3000, 55));
+    let 传 = 0;
+    图通道.设附件传输(async (方法, 路径, body) => {
+      const q = new URL(`http://x${路径}`).searchParams;
+      if (方法 === "PUT" && q.get("id") === a.id) {
+        传++;
+        if (传 > 50) return { 状态: 403, json: { error: "刹车" } };
+        return q.get("offset") === "0" ? { 状态: 200, json: { ok: true, have: 1000, done: false } } : { 状态: 409, json: { error: "对不上", have: 0 } };
+      }
+      return 附件传(方法, 路径, body);
+    });
+    try {
+      当("li");
+      const 现在 = Date.now();
+      await 图通道.附件通道一轮(读配置("li"), 现在);
+      expect(传).toBe(8);
+      await 图通道.附件通道一轮(读配置("li"), 现在 + 1000);
+      expect(传).toBe(8);
+    } finally {
+      图通道.设附件传输(附件传);
+    }
+    当("li");
+    await 附件.删附件(db("li"), a.id);
+    await 都轮("li", "boss");
+  });
+
   it("删代清掉以后同一编号再删：代号不撞回原来的（质量审 #97 建议 1）", () => {
     const 删代 = (globalThis as unknown as { 附件删代: Map<string, { 代: number }> }).附件删代;
     const teamId = 读配置("boss").teamId;
