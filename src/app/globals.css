@@ -2484,6 +2484,19 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .ord-note-h { display: flex; justify-content: space-between; gap: 12px; font-size: var(--fs-note); }
 .ord-note-c { margin-top: 4px; white-space: pre-wrap; line-height: 1.7; }
 
+/* 商机 / 订单的附件区（components/AttachmentsPanel.tsx，D-24）：缩略图一排排，长文件名省略不撑宽 */
+.att-panel .ant-upload-drag { padding: 4px 0; }
+.att-pics { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
+.att-pic { position: relative; width: 96px; }
+.att-pic .ant-image, .att-pic .ant-image-img { border-radius: 6px; display: block; }
+.att-pic-name { font-size: var(--fs-note); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-pic > .ant-btn { position: absolute; top: 2px; right: 2px; background: rgba(255,255,255,.85); }
+.att-missing { width: 96px; height: 96px; border: 1px dashed var(--line); border-radius: 6px; display: flex; align-items: center; justify-content: center; text-align: center; font-size: var(--fs-note); color: var(--text-muted); padding: 6px; }
+.att-files { list-style: none; margin: 12px 0 0; padding: 0; }
+.att-files li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); min-width: 0; }
+.att-files li > a { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att-files li > .muted { flex: none; font-size: var(--fs-note); }
+
 /* 多行说明的单选圆点始终对齐第一行标题。 */
 .import-dup-policy .ant-radio-wrapper { align-items: flex-start; }
 .import-dup-policy .ant-radio-wrapper .ant-radio { align-self: flex-start; margin-top: 3px; }

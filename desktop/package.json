@@ -41,6 +41,7 @@
       "delta.js",
       "backup.js",
       "auto-backup.js",
+      "attachments.js",
       "crashlog.js",
       "notifications.js",
       "navigation.js",

@@ -636,14 +636,15 @@ describe("回归核对补钉（10-06，W-外贸并进）", () => {
     expect(改过的档案({ country: "日本" }, null)).toEqual({ country: "日本" });
   });
 
-  it("W-028 自家导出的「订单金额」「签约金额」「渠道归属」列导回来不并进备注；负责人那列照旧并进", async () => {
+  it("W-028 自家导出的「订单金额」「签约金额」「渠道归属」「附件个数」（D-24）列导回来不并进备注；负责人那列照旧并进", async () => {
     await 外贸();
-    const 表头 = ["客户名称", "联系电话", "订单金额", "渠道归属", "销售负责人"];
-    const w = await 执行导入({ 表头, 数据: [["Tim", "+998 90 000 2222", "USD 100", "小红", "张三"]], 映射: 猜列(表头, 字段表(BUSINESS_PRESETS["外贸出口"])), 重复行: "跳过" }, "a.xlsx");
+    const 表头 = ["客户名称", "联系电话", "订单金额", "渠道归属", "销售负责人", "附件个数"];
+    const w = await 执行导入({ 表头, 数据: [["Tim", "+998 90 000 2222", "USD 100", "小红", "张三", "商机 2 个"]], 映射: 猜列(表头, 字段表(BUSINESS_PRESETS["外贸出口"])), 重复行: "跳过" }, "a.xlsx");
     if (!w.ok) throw new Error(w.error);
     const 备注 = (await prisma.customer.findFirstOrThrow()).remark ?? "";
     expect(备注).not.toContain("USD 100");
     expect(备注).not.toContain("小红");
+    expect(备注).not.toContain("商机 2 个");
     expect(备注).toContain("销售负责人：张三");
   });
 

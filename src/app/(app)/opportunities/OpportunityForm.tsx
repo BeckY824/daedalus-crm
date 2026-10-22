@@ -18,6 +18,7 @@ import type { OppRow } from "./OpportunitiesView";
 import { 聚焦首项 } from "@/lib/modal-focus";
 import { useFormGuard } from "@/lib/form-guard";
 import CurrencySelect from "@/components/CurrencySelect";
+import AttachmentsPanel from "@/components/AttachmentsPanel";
 import { useMe, 默认负责人 } from "@/lib/me-client";
 import { useBusiness } from "@/lib/business-client";
 import { stageLabel, 外贸订单, 外贸精简 } from "@/lib/business-config";
@@ -322,6 +323,15 @@ export default function OpportunityForm({
           </Col>
         </Row>
       </Form>
+      {/* 附件（D-24）：商机没有详情页，挂在编辑框里；新建时还没有编号，存了再加。传、删当场生效，不跟「保存」走 */}
+      {editing ? (
+        <div style={{ marginTop: 4 }}>
+          <div className="section-title" style={{ marginBottom: 8 }}>附件</div>
+          <AttachmentsPanel 归属={{ opportunityId: editing.id }} />
+        </div>
+      ) : (
+        <div className="muted" style={{ fontSize: 13 }}>附件（产品图、规格书）在商机存好以后再打开它加。</div>
+      )}
     </Modal>
   );
 }

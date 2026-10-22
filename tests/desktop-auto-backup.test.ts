@@ -191,6 +191,71 @@ describe("恢复", () => {
   });
 });
 
+describe("附件跟着备份走（2026-10-22 D-24）", () => {
+  const 附件夹 = () => path.join(目录, "attachments");
+  const 池 = () => path.join(备份目录(), "attachments");
+  function 放附件(db: DatabaseSync, id: string, 内容 = `内容-${id}`) {
+    db.exec('CREATE TABLE IF NOT EXISTS "Attachment" (id TEXT PRIMARY KEY, opportunityId TEXT, orderId TEXT, name TEXT, mime TEXT, size INTEGER, sha256 TEXT)');
+    db.prepare('INSERT INTO "Attachment" (id, name) VALUES (?, ?)').run(id, `${id}.pdf`);
+    fs.mkdirSync(附件夹(), { recursive: true });
+    fs.writeFileSync(path.join(附件夹(), id), 内容);
+  }
+  const 删附件 = (db: DatabaseSync, id: string) => {
+    db.prepare('DELETE FROM "Attachment" WHERE id = ?').run(id);
+    fs.rmSync(path.join(附件夹(), id));
+  };
+
+  it("拷库时附件进池；备份之后删掉的附件，恢复那份备份后又回来了", () => {
+    const db = 造库(2);
+    放附件(db, "caaaaaaaa1");
+    自动.自动备份({ 库, 数据目录: 目录, 版本: "0.46.26", 现在: 日("2026-10-22"), 日志: () => {} });
+    expect(fs.readFileSync(path.join(池(), "caaaaaaaa1"), "utf8")).toBe("内容-caaaaaaaa1");
+    删附件(db, "caaaaaaaa1");
+    放附件(db, "cbbbbbbbb2");
+    db.close();
+    const r = 自动.恢复({ 库, 数据目录: 目录, 文件名: "daily-2026-10-22.db", 现在: new Date("2026-10-23T10:00:00"), 校验: 备份.校验数据库 });
+    expect(r.补回).toBe(1);
+    expect(fs.readFileSync(path.join(附件夹(), "caaaaaaaa1"), "utf8")).toBe("内容-caaaaaaaa1");
+    // 恢复前才加的附件：本机文件不删，也进了池（再恢复 before-restore 那份时还在）
+    expect(fs.existsSync(path.join(附件夹(), "cbbbbbbbb2"))).toBe(true);
+    expect(fs.existsSync(path.join(池(), "cbbbbbbbb2"))).toBe(true);
+    fs.rmSync(path.join(附件夹(), "cbbbbbbbb2"));
+    自动.恢复({ 库, 数据目录: 目录, 文件名: r.另存, 现在: new Date("2026-10-23T10:05:00"), 校验: 备份.校验数据库 });
+    expect(fs.readFileSync(path.join(附件夹(), "cbbbbbbbb2"), "utf8")).toBe("内容-cbbbbbbbb2");
+  });
+
+  it("池里哪份备份都不记着的附件，修剪时删掉；有一份库读不出来就不删", () => {
+    const db = 造库(2);
+    放附件(db, "caaaaaaaa1");
+    db.close();
+    自动.自动备份({ 库, 数据目录: 目录, 版本: "0.46.26", 现在: 日("2026-10-22"), 日志: () => {} });
+    fs.writeFileSync(path.join(池(), "czzzzzzzz9"), "没人要");
+    fs.writeFileSync(path.join(备份目录(), "daily-2026-10-21.db"), "不是库");
+    自动.修剪附件池(备份目录());
+    expect(fs.existsSync(path.join(池(), "czzzzzzzz9"))).toBe(true);
+    fs.rmSync(path.join(备份目录(), "daily-2026-10-21.db"));
+    自动.修剪附件池(备份目录());
+    expect(fs.existsSync(path.join(池(), "czzzzzzzz9"))).toBe(false);
+    expect(fs.existsSync(path.join(池(), "caaaaaaaa1"))).toBe(true);
+  });
+
+  it("老库没有附件表、本机没有附件夹：照常备份恢复，不抛", () => {
+    const db = 造库(2);
+    db.close();
+    expect(自动.自动备份({ 库, 数据目录: 目录, 版本: "0.46.26", 现在: 日("2026-10-22"), 日志: () => {} })).toEqual(["daily-2026-10-22.db"]);
+    expect(fs.existsSync(池())).toBe(false);
+    expect(自动.恢复({ 库, 数据目录: 目录, 文件名: "daily-2026-10-22.db", 校验: 备份.校验数据库 }).补回).toBe(0);
+  });
+
+  it("池里的是硬链接（同一个盘不多占地方）", () => {
+    const db = 造库(2);
+    放附件(db, "caaaaaaaa1");
+    db.close();
+    自动.自动备份({ 库, 数据目录: 目录, 版本: "0.46.26", 现在: 日("2026-10-22"), 日志: () => {} });
+    expect(fs.statSync(path.join(池(), "caaaaaaaa1")).ino).toBe(fs.statSync(path.join(附件夹(), "caaaaaaaa1")).ino);
+  });
+});
+
 describe("壳里接上了", () => {
   it("main.js 起服务前调 自动备份；安装包白名单里有 auto-backup.js", () => {
     const main = fs.readFileSync(path.resolve(__dirname, "../desktop/main.js"), "utf8");
@@ -198,5 +263,6 @@ describe("壳里接上了", () => {
     expect(起服务).toContain("自动备份.自动备份(");
     const pkg = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../desktop/package.json"), "utf8"));
     expect(pkg.build.files).toContain("auto-backup.js");
+    expect(pkg.build.files).toContain("attachments.js");
   });
 });

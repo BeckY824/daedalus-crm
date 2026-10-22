@@ -39,6 +39,7 @@ const 差量 = require("./delta");
 const 窗装 = require("./windows-install");
 const 备份 = require("./backup");
 const 自动备份 = require("./auto-backup");
+const 附件 = require("./attachments");
 const 崩溃 = require("./crashlog");
 const { 创建通知出口 } = require("./notifications");
 const { 发送导航 } = require("./navigation");
@@ -1554,6 +1555,10 @@ async function 选择自动备份恢复() {
 }
 
 ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
+/** 附件用系统程序打开（attachments.js）：只在本机模式开本机数据目录里的；服务器模式页面自己走下载 */
+ipcMain.handle("attachments:open", (_e, id, 名) =>
+  读配置().mode === "local" ? 附件.打开附件({ 数据目录, id, 名, shell }) : { ok: false, error: "连着服务器时请用下载" },
+);
 /**
  * 换了个云端账号登录：把数据目录切过去，重起本地服务，窗口重载。
  *

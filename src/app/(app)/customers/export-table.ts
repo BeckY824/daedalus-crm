@@ -28,7 +28,15 @@ export type 导出行 = {
   remark: string | null;
   /** 外贸档案（2026-10-05）。外贸模版导出时写成五列 */
   extra?: 外贸档案 | null;
+  /** 这位的商机 / 订单上一共挂了几个附件（D-24）。文件不进 Excel，只写个数 */
+  附件数?: { 商机: number; 订单: number } | null;
 };
+
+/** 「商机 2 个、订单 1 个」；一个都没有写空 */
+export function 附件个数说法(n: 导出行["附件数"]): string {
+  if (!n) return "";
+  return [n.商机 ? `商机 ${n.商机} 个` : "", n.订单 ? `订单 ${n.订单} 个` : ""].filter(Boolean).join("、");
+}
 
 /** 行上的签约按币种；老的调用方没给 signedTotals 时把 signedAmount 当人民币 */
 export function 签约各币(r: { signedAmount: number; signedTotals?: { 币种: string; 合计: number }[] }) {
@@ -43,12 +51,12 @@ export function 客户导出表(rows: 导出行[], b: BusinessConfig, 隐藏负�
   if (外贸精简(b)) {
     const 金额 = (r: 导出行) => 签约各币(r).filter((x) => x.合计 > 0).map((x) => `${x.币种} ${x.合计}`).join(" · ");
     return {
-      head: [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "国家", "WhatsApp", "微信", "邮箱", "来源", "客户等级", "官网", "阿里国际站 ID", "跟进状态", "决策状态", `${签约叫(b)}金额`, ...(隐藏负责人 ? [] : ["销售负责人"]), "备注"],
+      head: [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "国家", "WhatsApp", "微信", "邮箱", "来源", "客户等级", "官网", "阿里国际站 ID", "跟进状态", "决策状态", `${签约叫(b)}金额`, ...(隐藏负责人 ? [] : ["销售负责人"]), "附件个数", "备注"],
       body: rows.map((r) => [
         r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
         r.extra?.country ?? "", r.extra?.whatsapp ?? "", r.extra?.wechat ?? "", r.extra?.email ?? "", r.extra?.source ?? "",
         r.extra?.level ?? "", r.extra?.website ?? "", r.extra?.alibabaId ?? "",
-        statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus), 金额(r), ...(隐藏负责人 ? [] : [r.salesOwnerName]), r.remark ?? "",
+        statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus), 金额(r), ...(隐藏负责人 ? [] : [r.salesOwnerName]), 附件个数说法(r.附件数), r.remark ?? "",
       ]),
     };
   }
@@ -57,13 +65,15 @@ export function 客户导出表(rows: 导出行[], b: BusinessConfig, 隐藏负�
     不会变成「某某：…」并进别处（2026-10-04 J-073）
   */
   // 姓名那一列跟叫法走（L-057：叫「学员」的库导出来还写「客户姓名」）；导入的别名认 `${b.customer}姓名`，导回来照样认得
-  const head = [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", ...(隐藏负责人 ? [] : ["销售负责人", "渠道负责人"]), "备注"];
+  const head = [`${b.customer}姓名`, "联系电话", b.fields.school, b.fields.major, b.fields.grade, "推荐人", "渠道归属", "跟进状态", "决策状态", "预计签约", "签约金额", ...(隐藏负责人 ? [] : ["销售负责人", "渠道负责人"]), "附件个数", "备注"];
   const body = rows.map((r) => [
     r.name, r.phone, r.school ?? "", r.major ?? "", r.grade ?? "",
     r.referrerName ?? "", r.attributionName ?? "", statusLabel(b, r.followStatus), statusLabel(b, r.decisionStatus),
     // 导出写「USD 3,200 · CNY 19,800」：只写数字的话，美元单在表里就成了人民币
     r.expectedSignAt ? fmtDate(r.expectedSignAt) : "", 签约各币(r).filter((x) => x.合计 > 0).map((x) => `${x.币种} ${x.合计}`).join(" · "),
     ...(隐藏负责人 ? [] : [r.salesOwnerName, r.channelOwnerName ?? ""]),
+    // 附件文件不进 Excel（D-24），写明商机、订单上各挂了几个；导回来这列不收（lib/import/plan.ts 自家导出只读列）
+    附件个数说法(r.附件数),
     r.remark ?? "",
   ]);
   return { head, body };
