@@ -1874,8 +1874,10 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .pipe-card-drag { opacity: 0.45; }
 .pipe-card-t { font-weight: 500; color: var(--ink); } /* 再加 .clamp：最多两行，卡片的 title 里有全名 */
 .pipe-card-m { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; column-gap: var(--s2); margin-top: var(--s1); }
-/* 列宽固定以后底行放不下金额 + 负责人：金额一行写完，负责人挤不下就折到下一行、再长就省略（title 里有全名） */
-.pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* 列宽固定以后底行放不下金额 + 负责人：金额一行写完，负责人挤不下就折到下一行、再长就省略（title 里有全名）。
+   金额里符号、数字各自不断行；上亿这种一行实在放不下，只在两段之间折一次 */
+.pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; min-width: 0; }
+.pipe-card-a-n { white-space: nowrap; }
 .pipe-card-o { font-size: var(--fs-note); color: var(--text-muted); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 每列先摆 50 张（2026-10-24），底下接着翻；列最窄 184，放不下就折行，不撑宽列 */
 .pipe-more.ant-btn { height: auto; min-height: 28px; white-space: normal; color: var(--brand); gap: 6px; }
