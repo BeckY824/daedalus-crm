@@ -12,6 +12,7 @@
  *   8 客户记录待办：1024 宽长任务名不一个字母一行地断
  *   9 跟进记录：长客户名最多两行
  *  10 客户记录联系人：名字一长，「关键」标签还在
+ *  12 客户列表页头（AI 栏常驻；1024 宽下原来冲出 90px）：「我的客户 / 公海」页签不冲出标题那一块，右上角按钮放不下就整组折到下一行
  * 另外每页都量整页横滚
  */
 import { test, expect, type Browser, type Page } from "@playwright/test";
@@ -72,6 +73,8 @@ test.beforeAll(async ({ browser }) => {
         contacts: { create: Array.from({ length: 4 }, (_, k) => ({ name: k ? `Mr. Abdulrahman bin Mohammed bin Rashid Al-Maktoum ${k}` : "AbdulrahmanBinMohammedBinRashidAlMaktoumProcurement", position: "Head of Global Procurement & Strategic Sourcing (EMEA, CIS, MENA)", phone: "+971 50 123 4567", email: 长邮箱, isPrimary: k === 0 })) },
       },
     });
+    // 12：公海里有人，客户列表页头才摆「我的客户 / 公海」页签
+    await db.customer.create({ data: { id: "long-pool", name: "AlNoorFrozenFoodTradingLLCPoolCustomer", phone: "+971 4 000 0000", salesOwnerId: 我, pool: { create: { reason: "手动" } } } });
     for (let j = 0; j < 3; j++) {
       await db.opportunity.create({ data: { id: `long-c1-o${j}`, name: `${无空格}-${j}`, amount: 98765432.1, stage: ["初步沟通", "方案报价", "谈判审核"][j], customerId: "long-c1", ownerId: 我, probability: 60, activityAt: new Date(现在 + 60_000), money: { create: { currency: "USD" } } } });
     }
@@ -223,4 +226,15 @@ test("1024 宽 · AI 栏开 · 1 / 10 订单详情页头、客户记录联系人
   await 拍(page, "10-客户记录联系人-1024-AI栏");
   expect.soft(await 伸出(page, ".rec-mini-n .ant-tag", ".rec-mini"), "10 关键标签").toEqual([]);
   expect.soft(await 整页横滚(page), "整页横滚").toBeLessThanOrEqual(1);
+});
+
+for (const 宽 of [1024, 1280] as const) test(`${宽} 宽 · AI 栏开 · 12 客户列表页头：页签不冲出去，按钮放不下就折到下一行`, async ({ page }) => {
+  await 去(page, "/customers", 宽, true);
+  await expect(page.locator(".page-head-t .ant-segmented")).toBeVisible();
+  await 拍(page, `12-客户列表页头-${宽}-AI栏`);
+  expect.soft(await 整页横滚(page), "整页横滚").toBeLessThanOrEqual(1);
+  expect.soft(await 伸出(page, ".page-head-t .ant-segmented", ".page-head > :first-child"), "12 页签冲出标题那一块").toEqual([]);
+  expect.soft(await 伸出(page, ".page-head-a .ant-btn", ".page-head"), "12 按钮冲出页头").toEqual([]);
+  const 标题块宽 = await page.locator(".page-head > :first-child").first().evaluate((e) => e.getBoundingClientRect().width);
+  expect.soft(标题块宽, "12 标题那一块被挤窄").toBeGreaterThanOrEqual(240);
 });

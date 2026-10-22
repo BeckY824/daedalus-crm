@@ -52,7 +52,7 @@ export function PageHead({
 }) {
   return (
     <div className="page-head">
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div className="page-head-m">
         {titleAside ? (
           <div className="page-head-t">
             <h1>{title}</h1>

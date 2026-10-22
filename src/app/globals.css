@@ -813,10 +813,15 @@ body.rail-resizing-collapse .pane-chat { opacity: .45; }
 /* ---------- 页头 ---------- */
 .page-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-end;
   gap: 16px;
   margin-bottom: 18px;
 }
+
+/* 标题那一块至少留 240 宽：再窄（1024 宽 + AI 栏常驻）右上角那组按钮整组折到下一行、靠右，
+   不把标题和「我的客户 / 公海」页签挤成一小条、页签冲出去（2026-10-22 排版普查） */
+.page-head-m { flex: 1 1 240px; min-width: 0; }
 
 .page-head h1 {
   margin: 0;
@@ -840,7 +845,7 @@ body.rail-resizing-collapse .pane-chat { opacity: .45; }
 /* 页头右上角那组动作。⌘N 也认这个选择器找主按钮，别改名。
    能缩（2026-10-22 排版普查）：原来 flex: none，订单页「<长客户名> 的记录 ›」把标题挤到 0 宽、整页横滚；
    里面带名字的链接自己加 .clamp-1 和 max-width */
-.page-head-a { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--s2); }
+.page-head-a { flex: 0 1 auto; min-width: 0; margin-left: auto; display: flex; align-items: center; gap: var(--s2); }
 
 /* ---------- 跟进时间线 ---------- */
 .follow-item {
