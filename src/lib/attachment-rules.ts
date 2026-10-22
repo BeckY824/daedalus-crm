@@ -19,6 +19,17 @@ export function 是图片(mime: string): boolean {
   return 图片类型.has(mime.toLowerCase());
 }
 
+/**
+ * 这一版只收图片（用户 10-22：商机、订单的产品图片；合同、方案、图纸这类文件先不做）。
+ * 通用附件的存取都还在，放开别的类型只要改这里 + 界面上的 accept
+ */
+export const 只收图片 = true;
+export const 收的类型 = [...图片类型].join(",");
+export function 不收说明(名字: string, mime: string): string | null {
+  if (!只收图片 || 是图片(mime)) return null;
+  return `「${名字}」不是图片，这里只收 JPG、PNG、GIF、WebP、BMP 图片`;
+}
+
 /** 能在本机压的：GIF 不压（动图压了就不动了） */
 export function 可以压(mime: string): boolean {
   return 是图片(mime) && mime.toLowerCase() !== "image/gif";
@@ -43,7 +54,7 @@ export function 读大小(n: number): string {
 /** 超了就说清超了多少；没超 = null */
 export function 超限说明(名字: string, 大小: number, 上限 = 附件上限字节): string | null {
   if (大小 <= 上限) return null;
-  return `「${名字}」有 ${读大小(大小)}，超了 ${读大小(大小 - 上限)}（单个附件最多 ${读大小(上限)}）`;
+  return `「${名字}」有 ${读大小(大小)}，超了 ${读大小(大小 - 上限)}（单张最多 ${读大小(上限)}）`;
 }
 
 /** 文件名收拾一下：去掉路径、控制字符，最长 120 个字 */

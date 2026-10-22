@@ -4,9 +4,9 @@
  * 钉的是：
  *   - 规矩：超了说清超了多少、大小写给人看、改成 .jpg、编号挡 ../、文件名去路径
  *   - 存 / 列 / 删：文件在数据目录 attachments/<编号>，行只记名字和大小；文件不在照样列出来、标「不在这台电脑上」
- *   - 接口：传上去、取回来字节一样；超上限 413 且说清超了多少；不是图片的一律当下载；删了文件也没了
+ *   - 接口：传上去、取回来字节一样；这一版只收图片（别的 415）；超上限 413 且说清超了多少；库里万一有不是图片的，取的时候一律当下载；删了文件也没了
  *   - 清孤儿：商机删了先不动（能撤销），满 1 天才连文件删；没有行的文件 10 分钟后删
- *   - 导出客户：Excel 里多一列「附件个数」（不带文件）；导回来这列不收、不并进备注
+ *   - 导出客户：Excel 里多一列「图片张数」（不带图片）；导回来这列不收、不并进备注
  */
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 import fs from "node:fs";
@@ -19,7 +19,7 @@ vi.mock("@/lib/auth", () => ({ getCurrentUser: async () => state.user, requireUs
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 附件上限字节, 超限说明, 读大小, 换成jpg, 是附件编号, 规整文件名, 可以压, 要重画 } from "@/lib/attachment-rules";
+import { 附件上限字节, 超限说明, 读大小, 换成jpg, 是附件编号, 规整文件名, 可以压, 要重画, 不收说明 } from "@/lib/attachment-rules";
 import { 存附件, 列附件, 删附件, 附件个数, 客户附件个数, 清孤儿, 附件文件, 确保文件 } from "@/lib/attachments";
 import { GET as 列, POST as 传 } from "@/app/api/attachments/route";
 import { GET as 取, DELETE as 删 } from "@/app/api/attachments/[id]/route";
@@ -111,21 +111,19 @@ describe("存 / 列 / 删", () => {
 });
 
 describe("接口", () => {
-  const 传一个 = (q: string, 体: Uint8Array<ArrayBuffer>, 类型 = "application/pdf") =>
+  const 传一个 = (q: string, 体: Uint8Array<ArrayBuffer>, 类型 = "image/jpeg") =>
     传(new Request(`http://x/api/attachments?${q}`, { method: "POST", body: 体, headers: { "Content-Type": 类型, "Content-Length": String(体.byteLength) } }));
 
   it("传上去、列出来、取回来字节一样；删了文件也没了", async () => {
-    const r = await 传一个(`opportunityId=${ids.opp}&name=${encodeURIComponent("规格书.pdf")}`, 字节("规格"));
+    const r = await 传一个(`opportunityId=${ids.opp}&name=${encodeURIComponent("产品图.jpg")}`, 字节("规格"));
     expect(r.status).toBe(200);
     const { 附件: a } = await r.json();
     const 表 = await (await 列(new Request(`http://x/api/attachments?opportunityId=${ids.opp}`))).json();
-    expect(表.附件.map((x: { name: string }) => x.name)).toEqual(["规格书.pdf"]);
+    expect(表.附件.map((x: { name: string }) => x.name)).toEqual(["产品图.jpg"]);
 
     const 回 = await 取(new Request(`http://x/api/attachments/${a.id}`), { params: Promise.resolve({ id: a.id }) });
     expect(new TextDecoder().decode(await 回.arrayBuffer())).toBe("规格");
-    // 不是图片的一律当下载：.html / .svg 在本站打开能跑脚本
-    expect(回.headers.get("content-type")).toBe("application/octet-stream");
-    expect(回.headers.get("content-disposition")).toMatch(/^attachment;/);
+    expect(回.headers.get("content-type")).toBe("image/jpeg");
 
     expect((await 删(new Request("http://x", { method: "DELETE" }), { params: Promise.resolve({ id: a.id }) })).status).toBe(200);
     expect(fs.existsSync(附件文件(a.id))).toBe(false);
@@ -145,9 +143,29 @@ describe("接口", () => {
     expect([没.status, await 没.text()]).toEqual([404, "文件不在这台电脑上"]);
   });
 
+  it("这一版只收图片：PDF、SVG、没写类型的都回 415，说清只收哪几种，一个字节都不落", async () => {
+    for (const [名, 类型] of [["规格书.pdf", "application/pdf"], ["logo.svg", "image/svg+xml"], ["a.html", "text/html"], ["无类型", ""]]) {
+      const r = await 传(new Request(`http://x/api/attachments?orderId=${ids.order}&name=${encodeURIComponent(名)}`, {
+        method: "POST", body: 字节("x"), headers: 类型 ? { "Content-Type": 类型 } : {},
+      }));
+      expect(r.status, 名).toBe(415);
+      expect((await r.json()).error).toBe(不收说明(名, 类型));
+    }
+    expect(不收说明("a.PNG", "IMAGE/PNG")).toBeNull();
+    expect(不收说明("a.pdf", "application/pdf")).toContain("只收 JPG、PNG");
+    expect(await prisma.attachment.count()).toBe(0);
+  });
+
+  it("库里万一有不是图片的（以后放开别的文件、或老库），取的时候一律当下载：.html / .svg 在本站打开能跑脚本", async () => {
+    const a = await 存附件(prisma, { 挂在: { orderId: ids.order }, name: "a.html", mime: "text/html", 字节: 字节("<script>") });
+    const 回 = await 取(new Request(`http://x/api/attachments/${a.id}`), { params: Promise.resolve({ id: a.id }) });
+    expect(回.headers.get("content-type")).toBe("application/octet-stream");
+    expect(回.headers.get("content-disposition")).toMatch(/^attachment;/);
+  });
+
   it("超上限 413，说清超了多少，一个字节都不落", async () => {
-    const r = await 传(new Request(`http://x/api/attachments?opportunityId=${ids.opp}&name=big.zip`, {
-      method: "POST", body: 字节("x"), headers: { "Content-Length": String(附件上限字节 + 1024 * 1024) },
+    const r = await 传(new Request(`http://x/api/attachments?opportunityId=${ids.opp}&name=big.jpg`, {
+      method: "POST", body: 字节("x"), headers: { "Content-Type": "image/jpeg", "Content-Length": String(附件上限字节 + 1024 * 1024) },
     }));
     expect(r.status).toBe(413);
     expect((await r.json()).error).toContain("超了 1 MB");
@@ -183,15 +201,15 @@ describe("清孤儿", () => {
 
 describe("导出客户", () => {
   const 行 = { name: "张三", phone: "1", school: null, major: null, grade: null, followStatus: "", decisionStatus: "", expectedSignAt: null, signedAmount: 0, salesOwnerName: "QA", remark: "老客户" };
-  it("多一列「附件个数」，在备注前面；没有附件写空", () => {
-    expect(附件个数说法({ 商机: 2, 订单: 1 })).toBe("商机 2 个、订单 1 个");
-    expect(附件个数说法({ 商机: 0, 订单: 3 })).toBe("订单 3 个");
+  it("多一列「图片张数」，在备注前面；没有图片写空", () => {
+    expect(附件个数说法({ 商机: 2, 订单: 1 })).toBe("商机 2 张、订单 1 张");
+    expect(附件个数说法({ 商机: 0, 订单: 3 })).toBe("订单 3 张");
     expect(附件个数说法({ 商机: 0, 订单: 0 })).toBe("");
     expect(附件个数说法(null)).toBe("");
     const t = 客户导出表([{ ...行, 附件数: { 商机: 2, 订单: 0 } }, 行], DEFAULT_BUSINESS);
-    const i = t.head.indexOf("附件个数");
-    expect(t.head.slice(i)).toEqual(["附件个数", "备注"]);
-    expect(t.body[0][i]).toBe("商机 2 个");
+    const i = t.head.indexOf("图片张数");
+    expect(t.head.slice(i)).toEqual(["图片张数", "备注"]);
+    expect(t.body[0][i]).toBe("商机 2 张");
     expect(t.body[1][i]).toBe("");
     expect(t.body[0][i + 1]).toBe("老客户");
   });

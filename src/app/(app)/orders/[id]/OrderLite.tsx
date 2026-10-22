@@ -127,8 +127,8 @@ export default function OrderLite({ o }: { o: 订单详情数据 }) {
         )}
       </Card>
 
-      {/* 产品图、合同扫描件、规格书（D-24）：放在跟进下面，跟进是天天用的 */}
-      <Card style={{ marginTop: 16 }} title={<span className="section-title">附件</span>}>
+      {/* 产品图片（D-24）：放在跟进下面，跟进是天天用的 */}
+      <Card style={{ marginTop: 16 }} title={<span className="section-title">图片</span>}>
         <AttachmentsPanel 归属={{ orderId: o.id }} />
       </Card>
 

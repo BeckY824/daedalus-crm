@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { App, Button, Image, Popconfirm, Spin, Upload } from "antd";
 import { DeleteOutlined, FileOutlined, InboxOutlined } from "@ant-design/icons";
-import { 附件上限字节, 图片长边, 可以压, 要重画, 是图片, 换成jpg, 每条最多, 规整文件名, 超限说明, 读大小, type 附件, type 归属 } from "@/lib/attachment-rules";
+import { 附件上限字节, 图片长边, 可以压, 要重画, 是图片, 换成jpg, 每条最多, 规整文件名, 超限说明, 读大小, 只收图片, 收的类型, 不收说明, type 附件, type 归属 } from "@/lib/attachment-rules";
 
 declare global {
   interface Window {
@@ -13,9 +13,9 @@ declare global {
 }
 
 /**
- * 商机 / 订单上的「附件」区（2026-10-22 D-24）：拖进来或点选；图片出缩略图、点开看大图，
- * 别的文件写名字和大小、点开交给系统程序；能删。图片先在这台电脑上压到长边 2000 像素再传，
- * 超了上限当场说超了多少，不等传完
+ * 商机 / 订单上的「图片」区（2026-10-22 D-24）：拖进来或点选；出缩略图、点开看大图；能删。
+ * 图片先在这台电脑上压到长边 2000 像素再传，超了上限当场说超了多少，不等传完。
+ * 这一版只收图片（只收图片）；别的文件那套（写名字大小、点开交给系统程序）留着，放开时不用重写
  */
 export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 }) {
   const { message } = App.useApp();
@@ -26,7 +26,7 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
   const 读 = useCallback(async (): Promise<附件[]> => {
     const r = await fetch(`/api/attachments?${查询}`, { cache: "no-store" });
     const j = (await r.json().catch(() => ({}))) as { 附件?: 附件[]; error?: string };
-    if (!r.ok) throw new Error(j.error ?? `读附件没成（${r.status}）`);
+    if (!r.ok) throw new Error(j.error ?? `读图片没成（${r.status}）`);
     return j.附件 ?? [];
   }, [查询]);
 
@@ -34,7 +34,7 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
     () =>
       读().then(set列表, (e: unknown) => {
         set列表((x) => x ?? []);
-        message.error(e instanceof Error ? e.message : "读附件没成");
+        message.error(e instanceof Error ? e.message : "读图片没成");
       }),
     [读, message],
   );
@@ -46,7 +46,7 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
       (e: unknown) => {
         if (走了) return;
         set列表([]);
-        message.error(e instanceof Error ? e.message : "读附件没成");
+        message.error(e instanceof Error ? e.message : "读图片没成");
       },
     );
     return () => { 走了 = true; };
@@ -54,6 +54,8 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
 
   async function 传一个(f: File) {
     const 名 = 规整文件名(f.name);
+    const 不收 = 不收说明(名, f.type);
+    if (不收) return void message.error(不收);
     set传着((n) => n + 1);
     try {
       const 好 = await 准备(f, 名);
@@ -115,14 +117,15 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
         multiple
         showUploadList={false}
         disabled={满了}
+        accept={只收图片 ? 收的类型 : undefined}
         beforeUpload={(f) => {
           void 传一个(f);
           return false;
         }}
       >
         <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-        <p className="ant-upload-text">{满了 ? `已经 ${每条最多} 个了，先删掉几个不要的` : "把文件拖到这里，或点一下选文件"}</p>
-        <p className="ant-upload-hint">产品图、规格书、合同扫描件都行；单个最多 {读大小(附件上限字节)}，图片会先压到长边 {图片长边} 像素</p>
+        <p className="ant-upload-text">{满了 ? `已经 ${每条最多} 张了，先删掉几张不要的` : 只收图片 ? "把产品图片拖到这里，或点一下选图片" : "把文件拖到这里，或点一下选文件"}</p>
+        <p className="ant-upload-hint">JPG、PNG、GIF、WebP、BMP 都行；单张最多 {读大小(附件上限字节)}，会先压到长边 {图片长边} 像素再存</p>
       </Upload.Dragger>
 
       {列表 === null ? (
@@ -130,7 +133,7 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
       ) : (
         <>
           {传着 > 0 && <div className="muted" style={{ marginTop: 10 }}><Spin size="small" /> 正在传 {传着} 个…</div>}
-          {列表.length === 0 && 传着 === 0 && <div className="muted" style={{ marginTop: 10 }}>还没有附件。</div>}
+          {列表.length === 0 && 传着 === 0 && <div className="muted" style={{ marginTop: 10 }}>{只收图片 ? "还没有图片。" : "还没有附件。"}</div>}
           {图们.length > 0 && (
             <Image.PreviewGroup>
               <div className="att-pics">
