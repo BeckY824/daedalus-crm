@@ -7,10 +7,12 @@
  *   expect(问题, 说问题(问题)).toEqual([]);
  *
  * 量的几样（都只看当前视口里看得见的元素）：
- *   - 页面横滚：整页比窗口宽，手机上一拖就左右晃
+ *   - 页面横滚：整页比窗口宽，手机上一拖就左右晃。html 和 body 两个都量：body 也是 height:100%，内容撑宽时有时只有 body 变宽
  *   - 撑出：overflow 是 visible 的盒子，里面有子元素伸出去（scrollWidth > clientWidth）。只报最里层那个，
  *     并说出是哪个子元素伸出去的——那就是该加 min-width:0 / 省略号 / 换行的地方
  *   - 被裁：overflow hidden / clip 的盒子把子元素切掉一截，又没有省略号（字被拦腰截断）
+ *   - 字溢出：nowrap / pre 的字比自己的盒子长，又没有省略号、也没被裁——字冲出盒子压到旁边（10-22 普查：客户记录页字段名压在值上、
+ *     列表里长名字压过后面几列）。撑出只看子元素，字直接写在盒子里时它看不到
  *   - 出界：按钮、链接、输入框有一部分在窗口外或被祖先的裁剪框切掉（「右上按钮被切一半」）
  *   - 被盖住：可点的东西中心点上 elementFromPoint 拿到的是别人（「压在 AI 栏下点不动」）
  *   - 压字：绝对定位的按钮（弹窗的 ×）压在旁边的字上（长标题钻到 × 底下）
@@ -20,7 +22,7 @@
  */
 import type { Page } from "@playwright/test";
 
-export type 排版问题 = { 类: "页面横滚" | "撑出" | "被裁" | "出界" | "被盖住" | "压字" | "折行"; 在哪: string; 字: string; 量: string };
+export type 排版问题 = { 类: "页面横滚" | "撑出" | "被裁" | "字溢出" | "出界" | "被盖住" | "压字" | "折行"; 在哪: string; 字: string; 量: string };
 export type 查排版选项 = {
   /** 只查这个选择器里面（比如打开的弹窗、抽屉）；不给就查整页 */
   范围?: string;
@@ -100,7 +102,7 @@ export async function 查排版(page: Page, 选项: 查排版选项 = {}): Promi
     };
 
     // 页面横滚
-    const 页宽 = document.scrollingElement?.scrollWidth ?? document.documentElement.scrollWidth;
+    const 页宽 = Math.max(document.scrollingElement?.scrollWidth ?? 0, document.documentElement.scrollWidth, document.body.scrollWidth);
     if (!范围 && 页宽 > vw + 容差) 问题.push({ 类: "页面横滚", 在哪: "document", 字: "", 量: `页宽 ${页宽} > 窗口 ${vw}` });
 
     const 全部 = [...根.querySelectorAll("*")].filter((el) => !忽略的(el) && 看得见(el));
@@ -145,6 +147,18 @@ export async function 查排版(page: Page, 选项: 查排版选项 = {}): Promi
       if (撑出的.some((o) => o !== el && el.contains(o))) continue;
       const { 最远, 多 } = 伸出的子(el);
       问题.push({ 类: "撑出", 在哪: 名(el), 字: 字(最远!), 量: `${名(最远)} 伸出 ${Math.round(多)}px` });
+    }
+
+    // 字溢出：盒子自己就有字（不是子元素伸出去，那是撑出），不折行、比盒子长、又不省略不裁。已经报了撑出的盒子不重复报
+    for (const el of 全部) {
+      if (撑出的.includes(el)) continue;
+      const cs = getComputedStyle(el);
+      if (cs.whiteSpace !== "nowrap" && cs.whiteSpace !== "pre") continue;
+      if (cs.overflowX !== "visible" || cs.textOverflow === "ellipsis" || cs.display === "inline" || cs.display === "contents") continue;
+      if (el.clientWidth === 0 || el.scrollWidth <= el.clientWidth + 容差) continue;
+      const 自己的字 = [...el.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE).map((n) => n.textContent ?? "").join("").trim();
+      if ([...自己的字].length <= 3) continue;
+      问题.push({ 类: "字溢出", 在哪: 名(el), 字: 字(el), 量: `字宽 ${el.scrollWidth}，盒子 ${el.clientWidth}` });
     }
 
     // 出界 / 被盖住：可点的东西

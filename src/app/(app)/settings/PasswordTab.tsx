@@ -119,7 +119,9 @@ export default function PasswordTab({ 机器 }: { 机器: 机器[] | null }) {
             pagination={false}
             locale={{ emptyText: "还没有机器用这个账号登录过桌面端" }}
             columns={[
-              { title: "机器", dataIndex: "名字", render: (v: string) => <b>{v}</b> },
+              /* 机器名是系统里取的（Windows 常见 DESKTOP-XXXXXXX、也有人起很长的名字），不省略的话
+                 一个长名字把右边三列挤出 1024 宽设置页的正文（10-22 排版普查静态扫描） */
+              { title: "机器", dataIndex: "名字", ellipsis: true, render: (v: string) => <b title={v}>{v}</b> },
               {
                 title: "登录于",
                 dataIndex: "登录于",

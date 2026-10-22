@@ -3,7 +3,8 @@
  * 走界面切：设置有进程内缓存，直接改库不生效
  */
 import { expect, type Browser, type Page } from "@playwright/test";
-import { 进门 } from "../e2e-desktop/helpers";
+import { 连库, 进门 } from "../e2e-desktop/helpers";
+import { BUSINESS_KEY } from "../src/lib/business-config";
 
 export async function 关掉弹窗(page: Page, 等 = 0) {
   const 弹窗 = page.getByRole("dialog", { name: /已更新到/ });
@@ -14,6 +15,10 @@ export async function 关掉弹窗(page: Page, 等 = 0) {
 }
 
 export async function 切外贸(browser: Browser) {
+  // 闸门起服务前已经写好外贸 + 长选项（长选项.ts）。再点一次预设会把长选项盖回预设那几个短词，闸门就量不到了
+  const 库 = 连库();
+  const 现在 = await 库.setting.findUnique({ where: { key: BUSINESS_KEY } }).finally(() => 库.$disconnect());
+  if (现在 && JSON.parse(现在.value)?.template === "trade") return;
   const page = await browser.newPage();
   try {
     await 进门(page, "/settings?tab=business");
