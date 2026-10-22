@@ -27,6 +27,11 @@ let 额外 = {};
  * **没放就是 404**——和还没升级的老云端一样，其它用例里左栏不会冒红点、左下角不会冒提示
  */
 let 反馈们 = null;
+/*
+ * 故障（质量会话 10-21，12-云端出错 用）：POST /__stub/fault {"/api/account/policy":"502"} 让某条路径回这个状态码
+ * （回的是网关那种 HTML，不是 JSON；"200" 就是 200 回 HTML），或者 "hang" 一直不回、等客户端自己超时。DELETE 清掉
+ */
+let 故障 = {};
 let 反馈序 = 0;
 
 const json = (res, code, body) => {
@@ -59,6 +64,17 @@ http
       return json(res, 200, { ok: true });
     }
 
+    if (p === "/__stub/fault") {
+      故障 = req.method === "DELETE" ? {} : JSON.parse(body || "{}");
+      return json(res, 200, { ok: true });
+    }
+    if (故障[p] === "hang") return; // 一直不回：等客户端自己超时
+    if (/^\d{3}$/.test(故障[p] ?? "")) {
+      // 网关那种回法：不是 JSON
+      res.writeHead(Number(故障[p]), { "Content-Type": "text/html" });
+      return res.end(`<html><body><h1>${故障[p]} Bad Gateway</h1></body></html>`);
+    }
+
     if (p === "/__stub/feedback") {
       反馈们 = req.method === "DELETE" ? null : JSON.parse(body || "[]");
       return json(res, 200, { ok: true });
@@ -76,7 +92,8 @@ http
     }
 
     // ---------- 账号 ----------
-    if (p === "/api/account/policy") return json(res, 200, { register: true, reset: true, inApp: true });
+    // 额外.policy：云端正常回了、并且明说不收（register / reset 为 false），12-云端出错 用
+    if (p === "/api/account/policy") return json(res, 200, 额外.policy ?? { register: true, reset: true, inApp: true });
     if (p === "/api/account/token") {
       return req.method === "DELETE"
         ? json(res, 200, { ok: true })

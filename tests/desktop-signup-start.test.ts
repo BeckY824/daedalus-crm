@@ -48,6 +48,25 @@ describe("填完邮箱点「继续」：云端说往哪走（H-055）", () => {
   });
 
   /*
+    发版重启时 Caddy 回 502 / 503 的 HTML 页，云端自己没说原因：门口说人话，不只丢一个「服务器返回 502」（10-21 质量审 #71）。
+    5xx 时云端自己说了原因（JSON error）的，照旧原样交给门口
+  */
+  for (const 码 of [500, 502, 503, 504]) {
+    it(`云端回 ${码}（HTML，没说原因）：说「服务器暂时出了问题，可能正在重启」`, async () => {
+      const { 注册开始 } = await import("@/lib/desktop/cloud");
+      云端回(码, "<html><body>Bad Gateway</body></html>");
+      const r = await 注册开始("f@x.com");
+      expect(r).toEqual({ ok: false, error: `服务器暂时出了问题（${码}），可能正在重启。过几分钟再试。`, 状态: 码 });
+    });
+  }
+  it("云端回 500 但说了原因：原样交给门口", async () => {
+    const { 注册开始 } = await import("@/lib/desktop/cloud");
+    云端回(500, JSON.stringify({ error: "发验证码失败，请稍后再试" }));
+    const r = await 注册开始("g@x.com");
+    expect(!r.ok && r.error).toBe("发验证码失败，请稍后再试");
+  });
+
+  /*
     老云端没有 signup/start（next 的 404 页，HTML）：原来门口只说「服务器返回 404」，老用户连输密码那一步都到不了。
     现在 404 当作「老云端」退回旧版——直接去输密码（登录接口老云端一直有；真没有账号体系的部署，输密码那步会照实说）
   */
