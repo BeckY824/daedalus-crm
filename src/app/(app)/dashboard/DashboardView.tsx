@@ -20,7 +20,7 @@ import {
 import type { EChartsCoreOption } from "echarts/core";
 import { useBusiness } from "@/lib/business-client";
 import Chart, { Sparkline } from "@/components/Chart";
-import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
+import { RowLink, StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
@@ -393,9 +393,9 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   <div style={{ fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {t.title}
                   </div>
-                  <Link href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "var(--text-muted)" }}>
+                  <RowLink href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "var(--text-muted)" }}>
                     {t.customerName}
-                  </Link>
+                  </RowLink>
                 </div>
                 <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{截止说法(t.dueAt)}</span>
                 {/*
