@@ -5,14 +5,16 @@ import { AnimatePresence, animate, motion, useMotionValue } from "motion/react";
 import {
   AudioOutlined, CalendarFilled, CalendarOutlined, CheckCircleFilled, CloseCircleFilled, CloseOutlined, CloudSyncOutlined, CopyOutlined,
   DisconnectOutlined, EditOutlined, ExclamationCircleFilled, LaptopOutlined, LinkOutlined, LockOutlined, MailOutlined, MobileOutlined, PhoneOutlined, PlusOutlined, RightOutlined,
-  SearchOutlined, WhatsAppOutlined, CameraOutlined, PictureOutlined,
+  SearchOutlined, WhatsAppOutlined, CameraOutlined, PictureOutlined, LoadingOutlined,
 } from "@ant-design/icons";
 import * as 同步 from "@/lib/mobile/sync";
 import * as 连 from "@/lib/mobile/link";
+import * as 连图 from "@/lib/mobile/attach";
+import { 读大小 } from "@/lib/attachment-rules";
 import * as 密 from "@/lib/sync/crypto-web";
 import { 我的名字 } from "@/lib/mobile/view";
 import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
-import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, 要清掉, type 客户视图 } from "@/lib/mobile/view";
+import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, 要清掉, type 客户视图, type 图片视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
 import { stageLabel, statusLabel, 外贸订单, type BusinessConfig } from "@/lib/business-config";
@@ -117,6 +119,19 @@ function 做传输(token: string, 记断网: (断: boolean) => void): 同步.传
       return { 状态: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
     } catch {
       记断网(true);
+      return { 状态: 0, json: { error: "连不上网络" } };
+    }
+  };
+}
+
+/** 取图片的密文（字节）：和 做传输 一样带手机令牌，图大一点、多给点时间 */
+function 做取字节(token: string): 连图.字节传输 {
+  return async (路径) => {
+    try {
+      const r = await fetch(路径, { cache: "no-store", headers: { Authorization: `Bearer ${token}` }, signal: 超时(60_000) });
+      if (r.ok) return { 状态: r.status, 字节: new Uint8Array(await r.arrayBuffer()), json: {} };
+      return { 状态: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
+    } catch {
       return { 状态: 0, json: { error: "连不上网络" } };
     }
   };
@@ -340,6 +355,10 @@ export default function MobileApp() {
     if (!登录账号) return null;
     return { ...登录账号, name: 库 ? 我的名字(库.行, 我, 登录账号.name) : 登录账号.name };
   }, [版本, 库, 我, 登录账号]);
+  const 取图 = useCallback(async (图: 图片视图): Promise<连图.取图结果> => {
+    if (!token || !团队) return { 状态: "没有", 原因: "还没连上团队" };
+    return 连图.取图片(团队, 做取字节(token), 图);
+  }, [token, 团队]);
   const 待同步数 = 快照.待推跟进.length + 快照.待推新建.length;
   const 业务 = useMemo((): BusinessConfig => { void 版本; return 同步.读业务(库?.行.get(同步.业务行键)); }, [版本, 库]);
   const 没同步上 = useMemo(() => {
@@ -484,7 +503,7 @@ export default function MobileApp() {
             </BaseLayer>
             {当前客户 && (
               <TopLayer p={进度} 宽={宽} os={os} 少动={少动} 推={推} 退着={退着}>
-                <DetailScreen os={os} c={当前客户} 现在={现在} 断网={断网} 来自={tab === "today" ? "今天" : "客户"} 业务={业务} 待同步={快照.待推新建} onBack={返回} onRecord={() => 打开面板({ kind: "record", id: 当前客户.id })} onNewOpp={() => 打开面板({ kind: "newOpp", id: 当前客户.id })} />
+                <DetailScreen os={os} c={当前客户} 现在={现在} 断网={断网} 来自={tab === "today" ? "今天" : "客户"} 业务={业务} 待同步={快照.待推新建} 取图={取图} onBack={返回} onRecord={() => 打开面板({ kind: "record", id: 当前客户.id })} onNewOpp={() => 打开面板({ kind: "newOpp", id: 当前客户.id })} />
               </TopLayer>
             )}
           </motion.div>
@@ -664,7 +683,7 @@ function CustomersScreen({ os, 客户们, 我, 现在, 断网, 名, onOpen, onMe
 /* ====================================================================== 详情 */
 
 const 号码 = (s: string) => s.replace(/[^\d+]/g, "");
-function DetailScreen({ os, c, 现在, 断网, 来自, 业务, 待同步, onBack, onRecord, onNewOpp }: { os: 系统; c: 客户视图; 现在: number; 断网: boolean; 来自: string; 业务: BusinessConfig; 待同步: string[]; onBack: () => void; onRecord: () => void; onNewOpp: () => void }) {
+function DetailScreen({ os, c, 现在, 断网, 来自, 业务, 待同步, 取图, onBack, onRecord, onNewOpp }: { os: 系统; c: 客户视图; 现在: number; 断网: boolean; 来自: string; 业务: BusinessConfig; 待同步: string[]; 取图: (图: 图片视图) => Promise<连图.取图结果>; onBack: () => void; onRecord: () => void; onNewOpp: () => void }) {
   const 主 = c.联系人[0];
   const 电话 = 主?.phone || c.phone;
   const 邮箱 = 主?.email || c.email;
@@ -724,6 +743,8 @@ function DetailScreen({ os, c, 现在, 断网, 来自, 业务, 待同步, onBack
         </section>
       )}
 
+      {c.图片.length > 0 && <ImagesCard 图们={c.图片} 断网={断网} 取图={取图} />}
+
       <section className="m-card">
         <div className="m-card-h">跟进记录<span>{c.跟进.length} 条</span></div>
         {c.跟进.length === 0 ? <p className="m-note">还没有跟进记录</p> : (
@@ -762,6 +783,76 @@ function DetailScreen({ os, c, 现在, 断网, 来自, 业务, 待同步, onBack
       {c.remark && <section className="m-card"><div className="m-card-h">备注</div><p className="m-note">{c.remark}</p></section>}
       <div className="m-foot-note">改资料请在电脑上操作；公海客户记一笔跟进就领取过来</div>
     </Page>
+  );
+}
+
+/* ====================================================================== 产品图片（只读） */
+
+type 图态 = { 状态: "取中" } | { 状态: "有"; url: string } | { 状态: "还在上传" } | { 状态: "没有"; 原因: string };
+/** 打开详情时自动取前几张当缩略图；多的点开才取（省流量） */
+const 自动取几张 = 6;
+
+function ImagesCard({ 图们, 断网, 取图 }: { 图们: 图片视图[]; 断网: boolean; 取图: (图: 图片视图) => Promise<连图.取图结果> }) {
+  const [态, set态] = useState<Record<string, 图态>>({});
+  const [看, set看] = useState<图片视图 | null>(null);
+  const 地址 = useRef<string[]>([]);
+  const 在取 = useRef(new Set<string>());
+  useEffect(() => () => { for (const u of 地址.current) URL.revokeObjectURL(u); }, []);
+  const 取 = useCallback(async (图: 图片视图) => {
+    if (在取.current.has(图.id)) return;
+    在取.current.add(图.id);
+    set态((s) => ({ ...s, [图.id]: { 状态: "取中" } }));
+    const r = await 取图(图).catch((): 连图.取图结果 => ({ 状态: "没有", 原因: "取不到这张图，稍后再试" }));
+    在取.current.delete(图.id);
+    if (r.状态 === "有") {
+      const url = URL.createObjectURL(new Blob([new Uint8Array(r.字节)], { type: 图.mime }));
+      地址.current.push(url);
+      set态((s) => ({ ...s, [图.id]: { 状态: "有", url } }));
+    } else set态((s) => ({ ...s, [图.id]: r }));
+  }, [取图]);
+  useEffect(() => {
+    if (断网) return;
+    const 要取 = 图们.slice(0, 自动取几张).filter((图) => !态[图.id]);
+    // 放进微任务里取：取 一开头就标「取中」，effect 体里同步 setState 会连着多渲染一轮（react-hooks/set-state-in-effect）
+    if (要取.length) queueMicrotask(() => { for (const 图 of 要取) void 取(图); });
+    // 只在列表变了、恢复联网时补取；态 变了不重跑
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [图们, 断网, 取]);
+  const 点 = (图: 图片视图) => {
+    const s = 态[图.id];
+    set看(图);
+    if (s?.状态 !== "有" && s?.状态 !== "取中") void 取(图);
+  };
+  const 看的 = 看 ? 态[看.id] : undefined;
+  return (
+    <section className="m-card" data-testid="m-images">
+      <div className="m-card-h">产品图片<span>{图们.length} 张</span></div>
+      <div className="m-img-grid">
+        {图们.map((图) => {
+          const s = 态[图.id];
+          return (
+            <button key={图.id} className="m-img-tile" onClick={() => 点(图)} aria-label={`看图片 ${图.name}`}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- 解密后的 blob:，不走图片优化 */}
+              {s?.状态 === "有" ? <img src={s.url} alt={图.name} /> : <span className="m-img-ph">{s?.状态 === "取中" ? <LoadingOutlined /> : <PictureOutlined />}</span>}
+              {图.关联 && <em>{图.关联}</em>}
+            </button>
+          );
+        })}
+      </div>
+      <div className="m-foot-note">传图、删图请在电脑上操作</div>
+      <AnimatePresence>
+        {看 && (
+          <motion.div className="m-img-view" role="dialog" aria-label={看.name} onClick={() => set看(null)}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 现状动效.时长.base }}>
+            {/* eslint-disable-next-line @next/next/no-img-element -- 解密后的 blob:，不走图片优化 */}
+            {看的?.状态 === "有" ? <img src={看的.url} alt={看.name} />
+              : <p>{看的?.状态 === "取中" ? "正在取…" : 看的?.状态 === "还在上传" ? "对方还在上传，稍后再看" : 看的?.状态 === "没有" ? 看的.原因 : ""}</p>}
+            <div className="m-img-cap"><b>{看.name}</b><span>{[看.关联, 读大小(看.size)].filter(Boolean).join(" · ")}</span></div>
+            <button className="m-img-close" aria-label="关闭"><CloseOutlined /></button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
   );
 }
 
