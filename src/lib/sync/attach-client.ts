@@ -1,8 +1,9 @@
 /**
  * 团队版附件的桌面端（2026-10-22 D-24）：行走范围同步，文件走云端的附件通道（lib/tenant/sync-attach.ts）。
  *
- *   - 传：每轮范围同步推完、拉完以后，把本机有文件、还没确认传上去的附件加密分块传上去（1 MB 一块，一块失败等一下再试，
- *     连着 3 次不行留到下一轮；断了从云端说的位置接着传）。传完记进本机 _sync_attach_up
+ *   - 传：每轮范围同步跑完以后在后台另跑（不占着同步那一轮：立即同步、退出团队不用等它），把本机有文件、
+ *     还没确认传上去的附件加密分块传上去（1 MB 一块，一块失败等一下再试，连着 3 次不行留到下一轮；
+ *     断了从云端说的位置接着传）。传完记进本机 _sync_attach_up；本机没有文件的（同事的图）也记上，不归我传
  *   - 取：界面要看一张本机没有的图（attachments.ts 确保文件），按需下载、解开、核 sha256 再落盘
  *   - 云端没了（磁盘恢复、误删）：隔几个小时问一次「这些还在吗」，不在的去掉记号，下一轮重传
  *
@@ -15,12 +16,14 @@ import { prisma } from "../prisma";
 import { 读 as 读云端凭据, 云端地址 } from "../desktop/cloud";
 import { 附件目录, 附件文件, 有文件 } from "../attachments";
 import { 封附件, 拆附件 } from "./crypto";
-import { 读团队, 全部钥匙, type 团队配置 } from "./client";
+import { 读团队, 写团队, 全部钥匙, type 团队配置 } from "./client";
 
 /** 一块多大 */
 export const 块大小 = 1024 * 1024;
-/** 一轮最多传几张（别让一轮同步拖太久，剩下的下一轮接着传） */
+/** 一轮最多碰几张（传完、等行、失败都算；剩下的下一轮接着传） */
 const 每轮最多 = 20;
+/** 云端还没有这一行（行还没推上去）：先等这么久再试，每次翻倍，最多等半小时 */
+const 等行起步 = 60_000, 等行最多 = 30 * 60_000;
 /** 多久核一次云端还在不在 */
 const 核对间隔 = 6 * 3600_000;
 
@@ -60,13 +63,19 @@ async function 建记号表() {
   await prisma.$executeRawUnsafe('CREATE TABLE IF NOT EXISTS "_sync_attach_up" ("id" TEXT PRIMARY KEY, "at" INTEGER NOT NULL)');
 }
 async function 记上(ids: string[]) {
-  for (const id of ids) await prisma.$executeRawUnsafe('INSERT OR REPLACE INTO "_sync_attach_up" ("id", "at") VALUES (?, ?)', id, Date.now());
+  const 现在 = Date.now();
+  // 一次可能几百张（同事的图）：一个事务里写完
+  await prisma.$transaction(ids.map((id) => prisma.$executeRawUnsafe('INSERT OR REPLACE INTO "_sync_attach_up" ("id", "at") VALUES (?, ?)', id, 现在)));
 }
 
 /* ---------------- 传 ---------------- */
 /** 这次启动里传到哪了（断了下一轮直接从这儿接；重启以后不记得，第一块云端回 409 + 已收多少，再从那儿接） */
 const 传到 = new Map<string, number>();
-type 传一张结果 = "传完" | "等行" | "看不到" | "满了" | "失败";
+/** 等行的：下次什么时候再试、这次等了多久（只在这次启动里记） */
+const 等行 = new Map<string, { 到: number; 隔: number }>();
+/** 退出团队时叫停：传完手上这一块就不传了 */
+let 停 = false;
+type 传一张结果 = "传完" | "等行" | "看不到" | "满了" | "失败" | "停了";
 async function 传一张(c: 团队配置, a: { id: string; sha256: string }, 记满: (话: string) => void): Promise<传一张结果> {
   const 明 = fs.readFileSync(附件文件(a.id));
   if (crypto.createHash("sha256").update(明).digest("hex") !== a.sha256) return "失败"; // 本机这份坏了，不传坏的
@@ -75,6 +84,7 @@ async function 传一张(c: 团队配置, a: { id: string; sha256: string }, 记
   let offset = 传到.get(a.id) ?? 0, 失败 = 0;
   if (offset >= 密.length) offset = 0;
   for (;;) {
+    if (停) return "停了";
     传到.set(a.id, offset);
     const q = new URLSearchParams({ teamId: c.teamId, id: a.id, device: c.device, offset: String(offset), total: String(密.length), head });
     const r = await 传("PUT", `/api/sync/attach?${q}`, 密.subarray(offset, Math.min(密.length, offset + 块大小)));
@@ -97,25 +107,71 @@ async function 传一张(c: 团队配置, a: { id: string; sha256: string }, 记
  * 范围同步一轮的最后调：传没传的、到点了核一次云端。出什么错都不让这一轮同步算失败；
  * 只有空间满了回一句话（要人去删图、或者加席位），由调用的人记进 lastError
  */
-export async function 附件通道一轮(c0?: 团队配置 | null): Promise<{ 传了: number; 满了?: string }> {
+export async function 附件通道一轮(c0?: 团队配置 | null, 现在 = Date.now()): Promise<{ 传了: number; 满了?: string }> {
   const c = c0 ?? 读团队();
   if (!能用(c)) return { 传了: 0 };
   await 建记号表();
   let 满了: string | undefined;
-  let 传了 = 0;
-  const 待 = await prisma.$queryRawUnsafe<{ id: string; sha256: string }[]>(
-    'SELECT a."id", a."sha256" FROM "Attachment" a LEFT JOIN "_sync_attach_up" u ON u."id" = a."id" WHERE u."id" IS NULL ORDER BY a."createdAt" LIMIT 500',
-  );
+  let 传了 = 0, 碰了 = 0;
+  // 本机没有文件的（同事的、还没下载的）不归我传，也记上（质量审 #93 C）：不然攒过 500 张就把本机自己的新图挤出这一页。
+  // 文件总是先于行写进本机，所以没文件的以后也不会冒出来要我传；要是从备份恢复出来了，核云端 那一步会去掉记号重传
+  let 待: { id: string; sha256: string }[] = [];
+  for (let 页 = 0; 页 < 20; 页++) {
+    const 这页 = await prisma.$queryRawUnsafe<{ id: string; sha256: string }[]>(
+      'SELECT a."id", a."sha256" FROM "Attachment" a LEFT JOIN "_sync_attach_up" u ON u."id" = a."id" WHERE u."id" IS NULL ORDER BY a."createdAt" LIMIT 500',
+    );
+    const 别人的 = 这页.filter((a) => !有文件(a.id)).map((a) => a.id);
+    if (别人的.length) await 记上(别人的);
+    待 = 这页.filter((a) => 有文件(a.id));
+    // 这一页全是别人的、而且是满页：记上以后后面可能还有我的，再取一页
+    if (待.length || 这页.length < 500) break;
+  }
   for (const a of 待) {
-    if (传了 >= 每轮最多 || 满了) break;
-    if (!有文件(a.id)) continue; // 别人的、还没下载的：不归我传
+    if (碰了 >= 每轮最多 || 满了 || 停) break;
+    const 等 = 等行.get(a.id);
+    if (等 && 等.到 > 现在) continue;
+    碰了++;
     const r = await 传一张(c, a, (话) => { 满了 = 话; });
+    if (r === "等行") { const 隔 = Math.min(等行最多, 等 ? 等.隔 * 2 : 等行起步); 等行.set(a.id, { 到: 现在 + 隔, 隔 }); continue; }
+    等行.delete(a.id);
     // 看不到的（权限变了）也记上：不然每一轮都去碰一次
     if (r === "传完" || r === "看不到") { await 记上([a.id]); if (r === "传完") 传了++; }
-    if (r === "失败") break; // 网络不好：这一轮先不传了
+    if (r === "失败" || r === "停了") break; // 网络不好：这一轮先不传了
   }
-  await 核云端(c).catch(() => undefined);
+  if (!停) await 核云端(c).catch(() => undefined);
   return { 传了, ...(满了 ? { 满了 } : {}) };
+}
+
+/* ---------------- 后台跑：不占着同步那一轮（质量审 #93 D） ---------------- */
+let 在跑: Promise<void> | null = null;
+let 再来 = false;
+
+/**
+ * 范围同步一轮跑完调：没在跑就在后台开一轮；正在跑就记一下，跑完再来一轮。
+ * 空间满了要人处理（删图、加席位），记进同步状态的 lastError；下一轮同步成功会清掉，满着的话这里又记上
+ */
+export function 后台传附件(): void {
+  if (在跑) { 再来 = true; return; }
+  停 = false;
+  在跑 = (async () => {
+    do {
+      再来 = false;
+      const c = 读团队();
+      const r = await 附件通道一轮(c).catch(() => null);
+      const 现 = 读团队();
+      if (r?.满了 && 现 && 现.teamId === c?.teamId) 写团队({ ...现, lastError: `图片没传上去：${r.满了}` });
+    } while (再来 && !停);
+  })().finally(() => { 在跑 = null; });
+}
+/** 等后台这一轮跑完（测试、退出团队用） */
+export function 等附件通道(): Promise<void> {
+  return 在跑 ?? Promise.resolve();
+}
+/** 退出团队：叫停后台在传的（传完手上这一块就停），等它停下 */
+export async function 停附件通道(): Promise<void> {
+  停 = true;
+  再来 = false;
+  await 等附件通道();
 }
 
 const g = globalThis as unknown as { 附件核对?: Record<string, number> };

@@ -107,6 +107,29 @@ const 写GB = (n: number) => (n >= GB ? `${Math.round((n / GB) * 10) / 10} GB` :
 
 /* ---------------- 上传 ---------------- */
 
+/**
+ * 同一张图的块排队一个一个收（质量审 #93 A）：断线重传时旧请求可能还在限速里排着，两个同一 offset 的块同时追加，
+ * .part 就多出一截、被改名成「传齐了」的坏文件。整台服务器一个进程，内存里排队就够
+ */
+const 锁 = globalThis as unknown as { 附件锁?: Map<string, Promise<void>>; 附件删代?: Map<string, number> };
+const 锁们 = (锁.附件锁 ??= new Map());
+async function 排着<T>(key: string, f: () => Promise<T>): Promise<T> {
+  const 前 = 锁们.get(key) ?? Promise.resolve();
+  let 放!: () => void;
+  const 我 = new Promise<void>((r) => { 放 = r; });
+  const 链 = 前.then(() => 我);
+  锁们.set(key, 链);
+  await 前;
+  try {
+    return await f();
+  } finally {
+    放();
+    if (锁们.get(key) === 链) 锁们.delete(key);
+  }
+}
+/** 每删一次加一：收块时在限速里排着、这张图被删了，排完就别再写（不然删掉的又冒出一个 .part） */
+const 删代 = (锁.附件删代 ??= new Map());
+
 export type 收块结果 = { ok: true; have: number; done: boolean };
 
 /**
@@ -115,6 +138,8 @@ export type 收块结果 = { ok: true; have: number; done: boolean };
  */
 export async function 收附件块(accountId: string, teamId: string, q: { id: string; offset: number; total: number; head: string }, 块: Uint8Array): Promise<收块结果> {
   const dir = 团队目录(teamId);
+  // 认权限之前就记下：认完、排队、限速这一路上这张图被删了，都不再写
+  const 代 = 删代.get(`${teamId}/${q.id}`) ?? 0;
   await 认附件(accountId, teamId, q.id, true);
   const { offset, total } = q;
   if (!Number.isSafeInteger(total) || total <= 密文头长 || total > 附件上限字节 + 密文头长) fail(413, `单张最多 ${Math.round(附件上限字节 / 1024 / 1024)} MB`);
@@ -122,29 +147,36 @@ export async function 收附件块(accountId: string, teamId: string, q: { id: s
   const head = Buffer.from(q.head, "base64url");
   if (head.length !== 密文头长) fail(400, "请求格式不对");
   const 成 = path.join(dir, q.id), 半 = `${成}.part`;
-  if (fs.existsSync(成)) return { ok: true, have: fs.statSync(成).size, done: true };
-  let have = 0;
-  try { have = fs.statSync(半).size; } catch { /* 没有 = 从头 */ }
-  // 已收那段的头和这次不一样（换了钥匙、换了内容）：扔掉，从 0 来
-  if (have > 0 && have > total) have = 0;
-  if (have > 0) {
-    const fd = fs.openSync(半, "r");
-    const 旧头 = Buffer.alloc(Math.min(密文头长, have));
-    try { fs.readSync(fd, 旧头, 0, 旧头.length, 0); } finally { fs.closeSync(fd); }
-    if (!旧头.equals(head.subarray(0, 旧头.length))) { fs.rmSync(半, { force: true }); have = 0; }
-  }
-  if (offset !== have) throw new 附件错误(409, "从已收的地方接着传", { have });
-  if (offset === 0) {
-    if (!Buffer.from(块.subarray(0, 密文头长)).equals(head.subarray(0, Math.min(密文头长, 块.byteLength)))) fail(400, "请求格式不对");
-    const 额度 = await 团队额度(teamId);
-    if (目录大小(dir) + total > 额度) fail(507, `团队的图片空间满了（共 ${写GB(额度)}，按席位每位 ${写GB(每席位字节())}），删掉一些不用的图片再传`);
-  }
-  await 限速(块.byteLength);
-  fs.mkdirSync(dir, { recursive: true });
-  fs.appendFileSync(半, 块, { mode: 0o600 });
-  have = offset + 块.byteLength;
-  if (have === total) { fs.renameSync(半, 成); return { ok: true, have, done: true }; }
-  return { ok: true, have, done: false };
+  return 排着(`${teamId}/${q.id}`, async () => {
+    if (fs.existsSync(成)) return { ok: true, have: fs.statSync(成).size, done: true };
+    let have = 0;
+    try { have = fs.statSync(半).size; } catch { /* 没有 = 从头 */ }
+    // 已收的比这张还长（坏了，或者是另一份内容）：扔掉，从 0 来（质量审 #93 B：只置 0 不删，会接着追加出坏文件）
+    if (have > total) { fs.rmSync(半, { force: true }); have = 0; }
+    // 已收那段的头和这次不一样（换了钥匙、换了内容）：扔掉，从 0 来
+    if (have > 0) {
+      const fd = fs.openSync(半, "r");
+      const 旧头 = Buffer.alloc(Math.min(密文头长, have));
+      try { fs.readSync(fd, 旧头, 0, 旧头.length, 0); } finally { fs.closeSync(fd); }
+      if (!旧头.equals(head.subarray(0, 旧头.length))) { fs.rmSync(半, { force: true }); have = 0; }
+    }
+    if (offset !== have) throw new 附件错误(409, "从已收的地方接着传", { have });
+    if (offset === 0) {
+      if (!Buffer.from(块.subarray(0, 密文头长)).equals(head.subarray(0, Math.min(密文头长, 块.byteLength)))) fail(400, "请求格式不对");
+      const 额度 = await 团队额度(teamId);
+      if (目录大小(dir) + total > 额度) fail(507, `团队的图片空间满了（共 ${写GB(额度)}，按席位每位 ${写GB(每席位字节())}），删掉一些不用的图片再传`);
+    }
+    await 限速(块.byteLength);
+    if ((删代.get(`${teamId}/${q.id}`) ?? 0) !== 代) { fs.rmSync(半, { force: true }); fail(404, "这张图已经删了"); }
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(半, 块, { mode: 0o600 });
+    have = offset + 块.byteLength;
+    // 写完核一遍实际多长：和算的对不上（上次写到一半进程没了之类），这份不要了，从 0 来
+    const 实际 = fs.statSync(半).size;
+    if (实际 !== have) { fs.rmSync(半, { force: true }); throw new 附件错误(409, "已收的对不上，从头传", { have: 0 }); }
+    if (have === total) { fs.renameSync(半, 成); return { ok: true, have, done: true }; }
+    return { ok: true, have, done: false };
+  });
 }
 
 /* ---------------- 下载 ---------------- */
@@ -195,6 +227,8 @@ const 北京日期 = (d: Date) => new Date(d.getTime() + 8 * 3600_000).toISOStri
 export function 删云端附件(teamId: string, ids: string[], 现在 = new Date()): number {
   if (!团队编号对(teamId)) return 0;
   const dir = path.join(附件根(), teamId);
+  // 先记「删过」再看目录：这张图的第一块可能还在限速里排着、目录都还没建
+  for (const id of ids) if (是附件编号(id)) 删代.set(`${teamId}/${id}`, (删代.get(`${teamId}/${id}`) ?? 0) + 1);
   if (!fs.existsSync(dir)) return 0;
   const 删了: string[] = [];
   for (const id of ids) {
