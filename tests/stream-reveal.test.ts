@@ -4,7 +4,8 @@
  * 钉三件事：
  * 1. 切块渲染和整段渲染**逐字相同**——切错一处，列表断成两截、表格少一行，没人会立刻发现
  * 2. 放字节奏：不比模型慢（流一结束全放完）、有积压时两次放字至少隔 28ms、积压不会越拖越远
- * 3. 性能：3000 字分 600 块到达，解析的字数和渲染次数比「每个 token 整段重渲」少一个数量级
+ * 3. 性能：3000 字分 600 块到达，解析的字数和渲染次数比「每个 token 整段重渲」少一个数量级。
+ *    只断言数出来的量；掐表只比新旧相对快慢，不拿绝对时间，机器忙闲不影响
  *
  * 不引 jsdom：renderToStaticMarkup 在 .ts 里就跑得起来；memo 那一层用和组件同一个比较函数模拟。
  */
@@ -222,7 +223,9 @@ describe("放字节奏", () => {
 });
 
 describe("性能：3000 字分 600 块到达", () => {
-  // 拼一段 3000 字的回答
+  // 断言只用数出来的东西（解析字数、块渲染次数、重渲次数），模拟时钟走，机器忙闲改不了它们。
+  // 掐表只比相对快慢：同一时刻新旧轮流跑、取最快，门槛比实际差距宽好几倍。
+  // 原来整段重渲 600 次每回 ~1 秒、还拿绝对时间算，机器一忙就顶到 20 秒超时（10-21 几个会话推送都挂过）。
   let 长文 = "";
   for (let k = 0; 长文.length < 3000; k++) 长文 += 样本.replace(/王建国/g, `客户${k}`) + "\n\n";
   长文 = 长文.slice(0, 3000);
@@ -230,17 +233,18 @@ describe("性能：3000 字分 600 块到达", () => {
   const arrivals: [number, string][] = [];
   for (let i = 1; i <= 600; i++) arrivals.push([i * 25, 长文.slice(0, i * 块长)]); // 25ms 一块，15 秒
 
-  it("解析的字数、块渲染次数都显著下降，最后显示的和整段渲染相同", () => {
-    // 原来：每来一个 token，整段重新解析渲染一遍
-    let 旧字数 = 0;
-    const t旧 = performance.now();
-    for (const [, t] of arrivals) {
-      旧字数 += t.length;
-      整段(t);
+  /** 原来：每来一个 token，整段重新解析渲染一遍。每隔 隔几 次到达才真渲一次，省时间 */
+  function 旧做法(隔几 = 1) {
+    let 渲染 = 0;
+    for (let i = 隔几 - 1; i < arrivals.length; i += 隔几) {
+      整段(arrivals[i][1]);
+      渲染++;
     }
-    const 旧毫秒 = performance.now() - t旧;
+    return 渲染;
+  }
 
-    // 现在：每帧走一拍；快照变了才重渲，而且只重渲属性变了的块（和 MdBlock 的 memo 用同一个比较）
+  /** 现在：每帧走一拍；快照变了才重渲，而且只重渲属性变了的块（和 MdBlock 的 memo 用同一个比较） */
+  function 新做法() {
     let s: 出字状态 = 起出字("", true);
     let 上一版 = new Map<number, 块属性>();
     let 新字数 = 0;
@@ -248,7 +252,6 @@ describe("性能：3000 字分 600 块到达", () => {
     let 重渲次数 = 0;
     let ai = 0;
     let 结束 = false;
-    const t新 = performance.now();
     for (let t = 0; t < 20000; t += 1000 / 60) {
       while (ai < arrivals.length && arrivals[ai][0] <= t) s = 收到(s, arrivals[ai++][1]);
       const 前 = s;
@@ -273,18 +276,41 @@ describe("性能：3000 字分 600 块到达", () => {
       }
       上一版 = 这一版;
     }
-    const 新毫秒 = performance.now() - t新;
+    return { s, 新字数, 块渲染, 重渲次数 };
+  }
+
+  it("解析的字数、块渲染次数都显著下降，最后显示的和整段渲染相同", () => {
+    const 旧字数 = arrivals.reduce((n, [, t]) => n + t.length, 0); // 原来每次整段解析，字数直接加得出来
+    const { s, 新字数, 块渲染, 重渲次数 } = 新做法();
 
     expect(s.显示长).toBe(长文.length);
     expect(分块(长文)).toBe(整段(长文));
 
     console.log(
-      `[出字基准] 3000 字 / 600 块：\n` +
-        `  原来 整段重渲 ${arrivals.length} 次，解析 ${旧字数} 字，${旧毫秒.toFixed(0)}ms\n` +
-        `  现在 快照变化 ${重渲次数} 次，块渲染 ${块渲染} 次，解析 ${新字数} 字，${新毫秒.toFixed(0)}ms\n` +
-        `  解析字数降到 ${((新字数 / 旧字数) * 100).toFixed(1)}%`,
+      `[出字基准] 3000 字 / 600 块：原来整段重渲 ${arrivals.length} 次、解析 ${旧字数} 字；` +
+        `现在快照变化 ${重渲次数} 次、块渲染 ${块渲染} 次、解析 ${新字数} 字（${((新字数 / 旧字数) * 100).toFixed(1)}%）`,
     );
     expect(新字数).toBeLessThan(旧字数 / 10);
     expect(重渲次数).toBeLessThanOrEqual(arrivals.length);
+    // memo 挡住没变的块：每次重渲平均只渲 2 块多（最后那块 + 刚封口的）；memo 失效就是每次几十块
+    expect(块渲染).toBeLessThanOrEqual(重渲次数 * 3);
+  });
+
+  it("掐表只比相对快慢：现在比原来快好几倍", { timeout: 60_000 }, () => {
+    const 隔几 = 20; // 原来那样只抽 1/20 的到达去渲，乘回 20 估全程
+    let 旧 = Infinity;
+    let 新 = Infinity;
+    // 新旧轮流跑、各取最快；一轮就看出来了就不再跑，机器忙得差距被搅乱时最多跑五轮
+    for (let 轮 = 0; 轮 < 5 && !(新 < 旧 / 3); 轮++) {
+      let t = performance.now();
+      旧做法(隔几);
+      旧 = Math.min(旧, (performance.now() - t) * 隔几);
+      t = performance.now();
+      新做法();
+      新 = Math.min(新, performance.now() - t);
+    }
+    console.log(`[出字基准] 掐表（取最快）：原来约 ${旧.toFixed(0)}ms，现在 ${新.toFixed(0)}ms，快 ${(旧 / 新).toFixed(1)} 倍`);
+    // 平时快 10 倍以上；门槛 3 倍，机器忙闲两边一起变，真退化才会掉到这以下
+    expect(新).toBeLessThan(旧 / 3);
   });
 });
