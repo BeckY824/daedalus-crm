@@ -4,7 +4,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { recordAudit } from "@/lib/audit";
-import { 附件文件, 删附件 } from "@/lib/attachments";
+import { 附件文件, 删附件, 确保文件 } from "@/lib/attachments";
 import { 是附件编号, 是图片, 读大小 } from "@/lib/attachment-rules";
 import { 解析范围 } from "@/app/ocr-files/[...path]/route";
 import { 认父记录 } from "../access";
@@ -36,6 +36,8 @@ async function 出(req: Request, ctx: 参数, 只要头: boolean): Promise<Respo
   const r = await 取((await ctx.params).id, false);
   if ("错" in r) return new Response(r.错, { status: r.状态 });
   const { a } = r;
+  const 文件 = await 确保文件(a.id);
+  if (文件 === "还在上传") return new Response("对方还在上传，稍后再看", { status: 409 });
   let 总: number;
   try { 总 = fs.statSync(附件文件(a.id)).size; } catch { return new Response("文件不在这台电脑上", { status: 404 }); }
   const 图 = 是图片(a.mime);

@@ -19,8 +19,8 @@ vi.mock("@/lib/auth", () => ({ getCurrentUser: async () => state.user, requireUs
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 附件上限字节, 超限说明, 读大小, 换成jpg, 是附件编号, 规整文件名, 可以压 } from "@/lib/attachment-rules";
-import { 存附件, 列附件, 删附件, 附件个数, 客户附件个数, 清孤儿, 附件文件 } from "@/lib/attachments";
+import { 附件上限字节, 超限说明, 读大小, 换成jpg, 是附件编号, 规整文件名, 可以压, 要重画 } from "@/lib/attachment-rules";
+import { 存附件, 列附件, 删附件, 附件个数, 客户附件个数, 清孤儿, 附件文件, 确保文件 } from "@/lib/attachments";
 import { GET as 列, POST as 传 } from "@/app/api/attachments/route";
 import { GET as 取, DELETE as 删 } from "@/app/api/attachments/[id]/route";
 import { 客户导出表, 附件个数说法 } from "@/app/(app)/customers/export-table";
@@ -73,6 +73,15 @@ describe("规矩", () => {
     expect(可以压("image/gif")).toBe(false);
     expect(可以压("image/png")).toBe(true);
   });
+
+  it("哪些图要重画：超长边都要；JPEG / WebP / BMP 不超也要（去掉 EXIF 里的拍摄地点）；小 PNG、GIF 原样", () => {
+    expect(要重画("image/png", 3000, 1500)).toBe(true);
+    expect(要重画("image/png", 1200, 800)).toBe(false);
+    expect(要重画("image/jpeg", 1200, 800)).toBe(true);
+    expect(要重画("image/webp", 10, 10)).toBe(true);
+    expect(要重画("image/gif", 5000, 5000)).toBe(false);
+    expect(要重画("application/pdf", 5000, 5000)).toBe(false);
+  });
 });
 
 describe("存 / 列 / 删", () => {
@@ -80,7 +89,9 @@ describe("存 / 列 / 删", () => {
     const a = await 存附件(prisma, { 挂在: { opportunityId: ids.opp }, name: "报价单.pdf", mime: "application/pdf", 字节: 字节("PDF!") });
     expect(fs.readFileSync(附件文件(a.id), "utf8")).toBe("PDF!");
     expect(a).toMatchObject({ name: "报价单.pdf", size: 4, 有文件: true });
+    expect(await 确保文件(a.id)).toBe("有");
     fs.rmSync(附件文件(a.id));
+    expect(await 确保文件(a.id)).toBe("没有");
     expect(await 列附件(prisma, { opportunityId: ids.opp })).toMatchObject([{ id: a.id, 有文件: false }]);
     await 删附件(prisma, a.id);
     expect(await 列附件(prisma, { opportunityId: ids.opp })).toEqual([]);
@@ -128,6 +139,10 @@ describe("接口", () => {
     expect(a).toMatchObject({ width: 10, height: 20, mime: "image/png" });
     const 回 = await 取(new Request(`http://x/api/attachments/${a.id}`), { params: Promise.resolve({ id: a.id }) });
     expect(回.headers.get("content-type")).toBe("image/png");
+    // 行在、文件不在（个人版：换了电脑恢复的库；团队版：还没下载）：404 说清楚
+    fs.rmSync(附件文件(a.id));
+    const 没 = await 取(new Request(`http://x/api/attachments/${a.id}`), { params: Promise.resolve({ id: a.id }) });
+    expect([没.status, await 没.text()]).toEqual([404, "文件不在这台电脑上"]);
   });
 
   it("超上限 413，说清超了多少，一个字节都不落", async () => {

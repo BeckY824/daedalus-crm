@@ -24,6 +24,15 @@ export function 可以压(mime: string): boolean {
   return 是图片(mime) && mime.toLowerCase() !== "image/gif";
 }
 
+/**
+ * 这张图要不要在这台电脑上重画一遍：长边超了要缩；JPEG / WebP / BMP 不超也重画——
+ * 手机拍的照片 EXIF 里带拍摄地点（GPS）、相机型号，重画以后就没了。PNG 不超就原样（多是截图、图标，重画只会变大）
+ */
+export function 要重画(mime: string, 宽: number, 高: number): boolean {
+  if (!可以压(mime)) return false;
+  return Math.max(宽, 高) > 图片长边 || mime.toLowerCase() !== "image/png";
+}
+
 /** 1.2 MB / 340 KB / 12 字节 */
 export function 读大小(n: number): string {
   if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1).replace(/\.0$/, "")} MB`;

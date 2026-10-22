@@ -35,6 +35,14 @@ export function 有文件(id: string, 目录 = 附件目录()): boolean {
   try { return fs.statSync(附件文件(id, 目录)).isFile(); } catch { return false; }
 }
 
+/**
+ * 要用这个附件的文件时先问一句（取文件、打开都走这里）。
+ * 个人版：有就是有，没有就是没有。团队版接上以后在这里按需下载：别人刚传、还没传完的回「还在上传」
+ */
+export async function 确保文件(id: string, 目录 = 附件目录()): Promise<"有" | "还在上传" | "没有"> {
+  return 有文件(id, 目录) ? "有" : "没有";
+}
+
 type 行 = { id: string; name: string; mime: string; size: number; width: number | null; height: number | null; createdAt: Date };
 export function 给界面(r: 行, 目录 = 附件目录()): 附件 {
   return { id: r.id, name: r.name, mime: r.mime, size: r.size, width: r.width, height: r.height, createdAt: r.createdAt.toISOString(), 有文件: 有文件(r.id, 目录) };

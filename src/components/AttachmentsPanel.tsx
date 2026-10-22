@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { App, Button, Image, Popconfirm, Spin, Upload } from "antd";
 import { DeleteOutlined, FileOutlined, InboxOutlined } from "@ant-design/icons";
-import { 附件上限字节, 图片长边, 可以压, 是图片, 换成jpg, 每条最多, 规整文件名, 超限说明, 读大小, type 附件, type 归属 } from "@/lib/attachment-rules";
+import { 附件上限字节, 图片长边, 可以压, 要重画, 是图片, 换成jpg, 每条最多, 规整文件名, 超限说明, 读大小, type 附件, type 归属 } from "@/lib/attachment-rules";
 
 declare global {
   interface Window {
@@ -84,7 +84,13 @@ export default function AttachmentsPanel({ 归属: 挂在 }: { 归属: 归属 })
   }
 
   async function 打开(a: 附件) {
-    if (!a.有文件) return void message.warning("文件不在这台电脑上");
+    if (!a.有文件) {
+      // 团队版：别人刚传的可能还在路上，问一句服务器那边到了没有
+      const r = await fetch(`/api/attachments/${a.id}`, { method: "HEAD" }).catch(() => null);
+      if (r?.status === 409) return void message.info("对方还在上传，稍后再看");
+      if (!r?.ok) return void message.warning("文件不在这台电脑上");
+      await 刷新();
+    }
     const 桥 = typeof window !== "undefined" ? window.desktopAttachments : undefined;
     if (桥) {
       const r = await 桥.open(a.id, a.name);
@@ -170,16 +176,16 @@ function 删按钮({ a, 删 }: { a: 附件; 删: (a: 附件) => Promise<void> })
 
 /**
  * 能压的图片长边超过 图片长边 就在这台电脑上缩：JPEG / WebP / BMP 出 JPEG（白底，0.85），PNG 还是 PNG（可能是带透明的图标）。
+ * JPEG / WebP / BMP 不超也重画一遍，去掉 EXIF（拍摄地点、相机型号）；按 EXIF 里的方向先转正，竖拍的不会躺倒。
  * GIF、别的文件原样；读不出来的图也原样传
  */
 async function 准备(f: File, 名: string): Promise<{ 体: Blob; 名: string; w?: number; h?: number }> {
   if (!可以压(f.type) || typeof createImageBitmap !== "function") return { 体: f, 名 };
   let 图: ImageBitmap;
-  try { 图 = await createImageBitmap(f); } catch { return { 体: f, 名 }; }
+  try { 图 = await createImageBitmap(f, { imageOrientation: "from-image" }); } catch { return { 体: f, 名 }; }
   try {
-    const 长 = Math.max(图.width, 图.height);
-    if (长 <= 图片长边) return { 体: f, 名, w: 图.width, h: 图.height };
-    const 比 = 图片长边 / 长;
+    if (!要重画(f.type, 图.width, 图.height)) return { 体: f, 名, w: 图.width, h: 图.height };
+    const 比 = Math.min(1, 图片长边 / Math.max(图.width, 图.height));
     const w = Math.round(图.width * 比);
     const h = Math.round(图.height * 比);
     const 画布 = document.createElement("canvas");
@@ -188,7 +194,8 @@ async function 准备(f: File, 名: string): Promise<{ 体: Blob; 名: string; w
     const g = 画布.getContext("2d");
     if (!g) return { 体: f, 名, w: 图.width, h: 图.height };
     const png = f.type === "image/png";
-    if (!png) { g.fillStyle = "#fff"; g.fillRect(0, 0, w, h); }
+    // JPEG 没有透明，透明处垫白（和界面主题无关，所以不走 token）
+    if (!png) { g.fillStyle = "white"; g.fillRect(0, 0, w, h); }
     g.imageSmoothingQuality = "high";
     g.drawImage(图, 0, 0, w, h);
     const 体 = await new Promise<Blob | null>((ok) => 画布.toBlob(ok, png ? "image/png" : "image/jpeg", 0.85));
