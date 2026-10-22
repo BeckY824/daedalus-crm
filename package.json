@@ -1,6 +1,6 @@
 {
   "name": "daedalus-crm",
-  "version": "0.46.24",
+  "version": "0.46.25",
   "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=22"

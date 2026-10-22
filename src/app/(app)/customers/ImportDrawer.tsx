@@ -1,17 +1,43 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { App, Alert, Drawer, Segmented, Steps, Typography, Upload } from "antd";
+import { App, Alert, Drawer, Progress, Segmented, Steps, Typography, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
-import { 解析CSV带行号, 解码CSV, 成表, 行数上限, 列数上限 } from "@/lib/import/parse";
+import { 解析CSV带行号, 解码CSV, 成表, 文件太大, 读不出来的话, 只导了前面的话, 行数上限, 列数上限 } from "@/lib/import/parse";
 import { 字段表, 猜列, type 字段名 } from "@/lib/import/fields";
 import { type 编造格, type 粘贴结果, type 粘贴续作 } from "@/lib/import/paste";
 import { 并进来, 样例行数 } from "@/lib/jev/columns";
-import { 预览导入, 执行导入, 撤销批次, type 预览, type 导入方案 } from "./import-actions";
+import { 预览导入, 分段导入, 暂存导入表, 撤销批次, type 预览, type 导入方案, type 分段结果 } from "./import-actions";
 import { 粘成表格, 猜列建议, 导入认列状态 } from "./ai";
 import { 外贸精简, type BusinessConfig } from "@/lib/business-config";
 import { 页脚, 粘贴面板, 对列, 复核, 确认, 按处置 } from "./import-steps";
 import { clearJob, runJob } from "@/lib/ai-jobs";
+
+/**
+ * 一块送多少字给服务端暂存（2026-10-21）。server action 一次最多收 1 MB；汉字在 JSON 里一个占 3 字节，
+ * 按字数 15 万切，一块最多四五百 KB，留足余量
+ */
+const 每块字数 = 150_000;
+
+/** 导入途中出的错说成人话。server action 断网时抛的是浏览器的英文（Failed to fetch），服务端出错是 React 的一串编号 */
+export function 说人话(e: unknown): string {
+  const m = e instanceof Error ? e.message : String(e ?? "");
+  if (/failed to fetch|networkerror|load failed|network|fetch failed|econn/i.test(m)) return "连不上软件的后台服务（网断了，或者软件正好在重启）";
+  if (/body exceeded|413|too large/i.test(m)) return "这一段数据太大，没送过去";
+  if (/[\u4e00-\u9fa5]/.test(m)) return m;
+  return "后台服务出了错，没有回话";
+}
+
+const 等 = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** 「大约还要多久」：按这一轮已经写过的速度估。头两秒样本太少不说 */
+function 还要多久(进: { 已: number; 共: number; 起点: number; 起时: number }): string | null {
+  const 过了 = Date.now() - 进.起时;
+  const 写了 = 进.已 - 进.起点;
+  if (过了 < 2000 || 写了 <= 0) return null;
+  const 秒 = ((进.共 - 进.已) / 写了) * (过了 / 1000);
+  return 秒 < 60 ? "不到 1 分钟" : `约 ${Math.ceil(秒 / 60)} 分钟`;
+}
 
 /** 粘贴整理那一次在任务表里的 key。同一时刻只会有一个抽屉在导 */
 const 整理任务键 = "import:paste";
@@ -162,8 +188,41 @@ export default function ImportDrawer({
     };
   }, [open, 认列状态]);
   const [结果, set结果] = useState<{ batchId: string; 新建: number; 补空: number; 跳过: number; 进不了: number } | null>(null);
+  type 合计 = { 新建: number; 补空: number; 跳过: number; 进不了: number };
+  /** 正在写：写到第几条、这一轮从哪条、什么时候开始的（估剩余时间用） */
+  const [进度, set进度] = useState<({ 已: number; 共: number; 起点: number; 起时: number } & 合计) | null>(null);
+  /**
+   * 导到一半断了（2026-10-21）：断在哪、为什么、已经写进去多少。
+   * 有 batchId = 已经写进去一些，能「接着导」（同一批、从断的地方往下）或「撤销已导入的」
+   */
+  const [中断, set中断] = useState<{ 续: { batchId?: string; 起: number }; 共: number | null; 原因: string } & 合计 | null>(null);
+  /** 表在服务端暂存的号；换了表（数据 换了引用）就重新送 */
+  const 暂存 = useRef<{ 数据: string[][]; 号: string } | null>(null);
 
-  const 方案 = (): 导入方案 => ({ 表头, 数据, 映射, 改过, 重复行, 没对上的列, ...(行号 ? { 行号 } : {}) });
+  /** 表头、数据、行号走暂存（大表整张当参数会超 1 MB）；这里只带映射这些小东西 */
+  const 方案 = (号: string): 导入方案 => ({ 表头, 数据: [], 映射, 改过, 重复行, 没对上的列, 暂存: 号 });
+
+  /** 把整张表分块交给服务端。同一份表送过就不再送，除非 重送（服务端说暂存没了：软件重启过、放太久） */
+  async function 送表(重送 = false): Promise<string> {
+    if (!重送 && 暂存.current?.数据 === 数据) return 暂存.current.号;
+    // 局域网里用 http 打开的自部署网页不算安全环境，没有 randomUUID
+    const 号 = crypto.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    let 起 = 0;
+    do {
+      let 止 = 起;
+      let 字 = 0;
+      while (止 < 数据.length && (止 === 起 || 字 < 每块字数)) 字 += 数据[止++].reduce((n, x) => n + x.length + 4, 0);
+      const r = await 暂存导入表(
+        号,
+        { 起, 数据: 数据.slice(起, 止), ...(行号 ? { 行号: 行号.slice(起, 止) } : {}) },
+        起 === 0 ? { 表头, 共: 数据.length } : undefined,
+      );
+      if (!r.ok) throw new Error(r.error);
+      起 = 止;
+    } while (起 < 数据.length);
+    暂存.current = { 数据, 号 };
+    return 号;
+  }
 
   function 重来() {
     这一次.current++;
@@ -191,9 +250,18 @@ export default function ImportDrawer({
     set没对上的列("并进备注");
     set看(null);
     set结果(null);
+    set进度(null);
+    set中断(null);
+    暂存.current = null;
   }
 
   async function 收文件(f: File) {
+    const 太大 = 文件太大(f.name, f.size);
+    if (太大) {
+      // 话长，默认 3 秒来不及看完怎么拆
+      message.error({ content: 太大, duration: 8 });
+      return;
+    }
     set忙(true);
     try {
       let 读到: { rows: string[][]; 行号: number[] };
@@ -217,7 +285,7 @@ export default function ImportDrawer({
       set编造([]); set漏掉([]); set原文核对(null); set已核对原文(false); set续作(undefined);
       收表(f.name, t.表头, t.数据, t.截断了, t.行号);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "这个文件读不出来");
+      message.error({ content: 读不出来的话(e), duration: 8 });
     } finally {
       set忙(false);
     }
@@ -326,40 +394,89 @@ export default function ImportDrawer({
     set认列中(false);
     set忙(true);
     try {
-      const r = await 预览导入(方案());
+      let r = await 预览导入(方案(await 送表()));
+      if (!r.ok && "重送" in r && r.重送) r = await 预览导入(方案(await 送表(true)));
       if (!r.ok) return message.error(r.error);
       set看(r.预览);
       set步(2);
     } catch (e) {
       // server action 抛出来的那一种失败也要说话。不接住的话 finally 把忙置回 false，
-      // 界面一声不吭，人只会以为这颗按钮坏了
-      message.error(e instanceof Error ? e.message : "算不出来，请重试");
+      // 界面一声不吭，人只会以为这颗按钮坏了。原来直接弹英文（大表超 1 MB 时是「Minified React error」，2026-10-21）
+      message.error(`没检查完：${说人话(e)}。库里什么都没动，点「下一步」再试一次`);
     } finally {
       set忙(false);
     }
   }
 
+  /**
+   * 一段一段写（2026-10-21）：每段约 2 秒，回来更新进度条，再接着下一段。
+   * 断了不丢：网络一闪先自己重试两次；还不行就停下说清楚写到哪了，人可以「接着导」或「撤销已导入的」。
+   * 接着导用同一批、从断的地方往下，这一批写过的服务端认得出来，不会多出一份
+   */
   async function 落库() {
     if (原文核对 && !已核对原文) return message.warning("请先核对原文");
     set忙(true);
+    let 续 = 中断?.续 ?? { 起: 0 };
+    // 第一趟回话前先按表的行数显示（合并同号行之后可能少几条，第一趟回来就改成准数）
+    let 共: number | null = 中断?.共 ?? 数据.length;
+    let 合: 合计 = 中断 ?? { 新建: 0, 补空: 0, 跳过: 0, 进不了: 0 };
+    const 起时 = Date.now();
+    const 起点 = 续.起;
+    set中断(null);
+    if (共 != null) set进度({ 已: 续.起, 共, 起点, 起时, ...合 });
     try {
-      const r = await 执行导入(方案(), 文件名);
-      if (!r.ok) return message.error(r.error);
-      set结果(r);
-      set步(4);
-      onDone();
+      let 号 = await 送表();
+      let 重送过 = false;
+      for (;;) {
+        let r: 分段结果 | undefined;
+        let 错: unknown;
+        for (let 试 = 0; 试 < 3 && !r; 试++) {
+          if (试) await 等(1500 * 试);
+          try {
+            r = await 分段导入(方案(号), 文件名, 续);
+          } catch (e) {
+            错 = e;
+          }
+        }
+        if (!r) throw 错;
+        if (!r.ok) {
+          if (r.重送 && !重送过) {
+            重送过 = true;
+            号 = await 送表(true);
+            continue;
+          }
+          set进度(null);
+          set中断({ 续, 共, 原因: r.error, ...合 });
+          return;
+        }
+        重送过 = false;
+        续 = { batchId: r.batchId, 起: r.下一个 ?? r.共 };
+        共 = r.共;
+        合 = { 新建: r.新建, 补空: r.补空, 跳过: r.跳过, 进不了: r.进不了 };
+        set进度({ 已: 续.起, 共, 起点, 起时, ...合 });
+        if (r.下一个 === null) {
+          set结果(r);
+          set进度(null);
+          set步(4);
+          onDone();
+          return;
+        }
+      }
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "导入没能完成，请重试");
+      set进度(null);
+      set中断({ 续, 共, 原因: 说人话(e), ...合 });
     } finally {
       set忙(false);
     }
   }
 
   async function 撤() {
-    if (!结果) return;
+    // 导完的那一批，或者导到一半断了、已经写进去的那一批
+    const batchId = 结果?.batchId ?? 中断?.续.batchId;
+    if (!batchId) return;
     set忙(true);
     try {
-      const r = await 撤销批次(结果.batchId);
+      const r = await 撤销批次(batchId);
       if (!r.ok) return message.error(r.error);
       onDone();
       const 尾 = r.没动.length
@@ -379,6 +496,10 @@ export default function ImportDrawer({
     <Drawer
       title={`导入${b.customer}`}
       open={open}
+      // 正在写的时候不让关：关了这一段照样写完，后面的就停了，人还以为全导进去了
+      closable={!进度}
+      maskClosable={!进度}
+      keyboard={!进度}
       styles={{ wrapper: { width: 880 } }}
       onClose={() => {
         onClose();
@@ -388,11 +509,13 @@ export default function ImportDrawer({
       footer={
         <页脚
           {...{ 步, 忙, 认人列, set步, 去预览, 落库, 撤, 重来 }}
+          写入中={Boolean(进度)}
+          断了={中断 ? { 写进去: 中断.新建 + 中断.补空, 有批: Boolean(中断.续.batchId) } : null}
           认人叫法={外贸精简(b) ? "电话、WhatsApp、邮箱、微信或阿里 ID" : "手机号"}
           原文未确认={Boolean(原文核对 && !已核对原文)}
           看={现看}
           客户叫法={b.customer}
-          这一批={结果}
+          这一批={结果 ?? (中断 ? { 新建: 中断.新建, 补空: 中断.补空 } : null)}
           完成={() => {
             const id = 结果?.batchId;
             重来();
@@ -470,7 +593,44 @@ export default function ImportDrawer({
         <复核 {...{ 看, 改过, set改过, 表 }} 粘贴={文件名.startsWith("粘贴的文本")} />
       )}
 
-      {步 === 3 && 现看 && <确认 {...{ 重复行, set重复行, b }} 看={现看} />}
+      {步 === 3 && 中断 && (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+          title={中断.续.batchId && 中断.共 ? `导到第 ${中断.续.起.toLocaleString()} / ${中断.共.toLocaleString()} 条时停下了` : "导入没能开始"}
+          description={
+            <>
+              <div>原因：{中断.原因}。</div>
+              {中断.续.batchId ? (
+                <div>
+                  已经导进去的 {中断.新建.toLocaleString()} 条新建{中断.补空 ? `、${中断.补空.toLocaleString()} 条补空` : ""}都在这一批里，不会丢。
+                  点「接着导」从停下的地方往下，已经进去的不会重复；不想要了点「撤销已导入的」，或者之后去「设置 → 导入记录」里撤销。
+                </div>
+              ) : (
+                <div>库里什么都没动，点「接着导」再试一次。</div>
+              )}
+            </>
+          }
+        />
+      )}
+      {步 === 3 && 进度 && (
+        <div data-testid="import-progress" style={{ marginBottom: 16 }}>
+          <Progress percent={Math.floor((进度.已 / Math.max(1, 进度.共)) * 100)} status="active" />
+          <Typography.Paragraph style={{ marginBottom: 4 }}>
+            已处理 {进度.已.toLocaleString()} / {进度.共.toLocaleString()} 条 · 新建 {进度.新建.toLocaleString()}
+            {进度.补空 ? ` · 补空 ${进度.补空.toLocaleString()}` : ""} · 跳过 {进度.跳过.toLocaleString()}
+            {还要多久(进度) && <Typography.Text type="secondary">　大约还要 {还要多久(进度)}</Typography.Text>}
+          </Typography.Paragraph>
+          <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+            正在写进库里，别关软件。万一断了，已经进去的不会丢：可以接着导，也可以整批撤销。
+          </Typography.Text>
+        </div>
+      )}
+      {步 === 3 && 现看 && !进度 && !中断?.续.batchId && 只导了前面的话(截断了, 数据.length) && (
+        <Alert type="warning" showIcon style={{ marginBottom: 12 }} title={只导了前面的话(截断了, 数据.length)} />
+      )}
+      {步 === 3 && 现看 && !进度 && !中断?.续.batchId && <确认 {...{ 重复行, set重复行, b }} 看={现看} />}
 
       {步 === 4 && 结果 && (
         <div>
@@ -478,8 +638,11 @@ export default function ImportDrawer({
             type="success"
             showIcon
             title="导完了"
-            description={`新建 ${结果.新建} 条，补空 ${结果.补空} 条，跳过 ${结果.跳过} 条，${结果.进不了} 条没进来。`}
+            description={`新建 ${结果.新建.toLocaleString()} 条，补空 ${结果.补空.toLocaleString()} 条，跳过 ${结果.跳过.toLocaleString()} 条，${结果.进不了.toLocaleString()} 条没进来。`}
           />
+          {只导了前面的话(截断了, 数据.length) && (
+            <Alert type="warning" showIcon style={{ marginTop: 12 }} title={只导了前面的话(截断了, 数据.length)} />
+          )}
           {结果.新建 + 结果.补空 > 0 && <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginTop: 14 }}>
             导错了可以整批撤销：新建的删掉、补上的还原。
             <b>导入之后你已经动过的那几位会留着</b>，撤销时会告诉你是哪几位。

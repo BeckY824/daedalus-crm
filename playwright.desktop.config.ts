@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { BASE_URL, CLOUD_PORT, CLOUD_URL, DATA_DIR, DB, DESKTOP_TOKEN, PORT } from "./e2e-desktop/env";
+import { BASE_URL, CLOUD_PORT, CLOUD_URL, DATA_DIR, DB, DESKTOP_TOKEN, PORT, SERVER_FILE } from "./e2e-desktop/env";
 const 生产模式 = process.env.E2E_PROD === "1";
 
 /**
@@ -75,6 +75,7 @@ export default defineConfig({
         DESKTOP_LOCAL: "1",
         DESKTOP_TOKEN,
         CRM_CLOUD_URL: CLOUD_URL,
+        CRM_SERVER_FILE: SERVER_FILE,
         /*
           本地服务和浏览器同一个时区：桌面端里两者本来就在同一台电脑上。上面 use.timezoneId 把浏览器钉在 Asia/Shanghai，
           服务端却跟着跑测试那台机器的时区（例如伦敦）——「今天」「本月」、日期渲染两边对不上，08 控制台巡检、08a 外贸在非北京时区的机器上红

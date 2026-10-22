@@ -15,6 +15,14 @@ const path = require("node:path");
 /** 我们的云端。留成变量是为了本机联调时能指到别处；起本地服务时原样传给它 */
 const 默认云端 = process.env.CRM_CLOUD_URL || "https://app.ai-daedalus.com";
 
+/**
+ * 专属服务器的设置文件（2026-10-21）：在数据根，不在账号目录——它管「这台电脑连哪套云端」，登录前就要知道。
+ * 写它、读它的是本地服务（src/lib/desktop/dedicated-server.ts），壳只把路径传过去（CRM_SERVER_FILE），
+ * 每次启动都传，所以重启后照旧连专属服务器。壳自己对云端的请求都用 .cloud.json 里的 baseUrl，
+ * 登录时记下的就是专属服务器的地址，不用另读这个文件。自动更新不看它。
+ */
+const 专属服务器文件 = (数据根) => path.join(数据根, "dedicated-server.json");
+
 let 文件 = null;
 function 初始化(dataDir) {
   文件 = path.join(dataDir, ".cloud.json");
@@ -170,4 +178,4 @@ async function 运营通知(since) {
   return r.ok ? r.data : null;
 }
 
-module.exports = { 初始化, 读, 清, 校验, 读账号id, 默认云端, 能开运营台, 运营台状态, 运营台地址, 运营通知 };
+module.exports = { 初始化, 读, 清, 校验, 读账号id, 默认云端, 专属服务器文件, 能开运营台, 运营台状态, 运营台地址, 运营通知 };
