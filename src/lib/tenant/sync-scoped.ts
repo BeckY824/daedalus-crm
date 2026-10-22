@@ -123,6 +123,10 @@ export async function 收范围推送(accountId: string, teamId: string, device:
   try {
     const 回 = await 收范围推送事务(accountId, teamId, device, packets, epoch, prepared, (keys) => { 改过 = keys; 记改过(teamId, keys); });
     记改过(teamId, 改过);
+    // 产品图片的行删掉了（D-24）：云端那份密文一起删、记进删除清单。只删这次真落库了的（被拒的那几包不在 改过 里）
+    const 删的图 = packets.filter((x) => x.meta.t === "Attachment" && x.meta.o === "D" && 改过.includes(行键("Attachment", x.meta.k))).map((x) => x.meta.k);
+    // sync-attach 反过来要用这里的 范围错误，动态取，免得循环引用
+    if (删的图.length) (await import("./sync-attach")).删云端附件(teamId, 删的图);
     return 回;
   } finally {
     推送结束(teamId);
@@ -416,7 +420,7 @@ async function 核着版本拉<T>(teamId: string, 拉: (e: 团队索引类型) =
 }
 type 团队索引类型 = Awaited<ReturnType<typeof 团队索引>>;
 type 拉取身份 = { accountId: string; owner: boolean; manager: boolean; share: boolean; epoch: number };
-async function 拉取前提(tx: Db, accountId: string, teamId: string): Promise<拉取身份> {
+export async function 拉取前提(tx: Db, accountId: string, teamId: string): Promise<拉取身份> {
   const { owner, manager, share } = await auth(accountId, teamId, undefined, tx);
   const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
   if (p?.stage !== 'ready') fail(409, "请等待老板完成团队范围迁移");
