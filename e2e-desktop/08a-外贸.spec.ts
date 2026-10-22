@@ -62,7 +62,7 @@ test("切外贸：左栏有订单；新建客户只填 WhatsApp 也能存，国�
   const 框 = page.getByRole("dialog", { name: "新建客户" });
   await 框.getByLabel("客户姓名").fill(客户名);
   // 电话空着：外贸下电话 / WhatsApp / 邮箱 / 微信四格填一格就行（CustomerForm 的 四选一说法，2026-10-19 加了微信）
-  await expect(框.getByText("电话 / WhatsApp / 邮箱 / 微信至少填一个")).toBeVisible();
+  await expect(框.getByText("电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个")).toBeVisible();
   await 框.getByLabel("WhatsApp").fill(WhatsApp);
   await 框.getByLabel("国家").fill("阿联酋");
   await 框.getByLabel("邮箱").fill(`ahmed${戳}@gulfled.ae`);
@@ -89,7 +89,7 @@ test("只有邮箱的客户也能建（按邮箱认人）；同邮箱换大小�
   await 框.getByLabel("客户姓名").fill(`空的${戳}`);
   await 框.getByRole("button", { name: /保\s*存/ }).click();
   // 报错和电话格下面那行提示是同一句话，只认报错那一条（同 e2e/feedback-1019）
-  await expect(框.locator(".ant-form-item-explain-error", { hasText: "电话 / WhatsApp / 邮箱 / 微信至少填一个" })).toBeVisible();
+  await expect(框.locator(".ant-form-item-explain-error", { hasText: "电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个" })).toBeVisible();
   await 框.getByLabel("客户姓名").fill(名);
   await 框.getByLabel("邮箱").fill(邮箱);
   await 框.getByLabel("国家").fill("德国");

@@ -12,7 +12,7 @@ import { test, expect, type Page } from "@playwright/test";
 import { existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { 查排版, 说问题 } from "../e2e/layout-audit";
-import { DATA_DIR, 云端账号 } from "./env";
+import { CLOUD_URL, DATA_DIR, 云端账号 } from "./env";
 import { 设云端团队, 连库, 进门 } from "./helpers";
 
 test.describe.configure({ mode: "serial" });
@@ -87,7 +87,9 @@ test.beforeAll(async ({ request }) => {
 
 test.afterAll(async ({ request }) => {
   rmSync(path.join(DATA_DIR, ".team.json"), { force: true });
-  await 设云端团队(request, { id: "t_e2e", name: "E2E 团队", active: true, 我是建的人: false, 成员: 团队("member").成员.slice(0, 2) });
+  // 假云端的团队名单清掉，和 09 收尾一样：留着的话云端说「你在团队里」、本机又没有 .team.json，
+  // 后面每一页都弹「这台电脑还没连上」挡住点击（10-壳与窗口 D-097 就是这么挂的，10-21）
+  await request.delete(`${CLOUD_URL}/__stub/team`).catch(() => {});
   const p = 连库();
   try {
     const ids = Object.values(id);

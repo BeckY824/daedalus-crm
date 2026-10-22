@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth";
 import { loadWatchlistPage } from "@/lib/sentinel-data";
 import { KIND_LABEL } from "@/lib/sentinel";
 import { getBusiness } from "@/lib/business";
-import { PageHead } from "@/components/ui";
+import { RowLink, PageHead } from "@/components/ui";
 import { dayjs } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -26,9 +26,9 @@ export default async function WatchlistPage({ searchParams }: { searchParams: Pr
     <p><Link href="/follow-ups/watchlist?scope=mine">我的</Link> · <Link href="/follow-ups/watchlist?scope=team">当前可见团队</Link></p>
     <div className="card-soft" style={{ padding: 20 }}>
       {result.items.length === 0 ? <p className="muted">当前范围没有需要提醒的记录。</p> : result.items.map(item => <div key={item.customerId} style={{ padding: "12px 0", borderBottom: "1px solid var(--line-soft)", overflowWrap: "anywhere" /* 无空格长客户名伸出卡片（10-19 排版闸门） */ }}>
-        <Link href={`/customers/${item.customerId}`} className="link-strong">{item.customerName}</Link>
+        <RowLink href={`/customers/${item.customerId}`} className="link-strong">{item.customerName}</RowLink>
         <span className="muted"> · {item.ownerName} · {KIND_LABEL[item.kind].replace("学员", b.customer)}</span>
-        <p style={{ margin: "6px 0 0" }}>{item.href ? <Link href={item.href}>{item.reason}</Link> : item.reason}</p>
+        <p style={{ margin: "6px 0 0" }}>{item.href ? <RowLink href={item.href}>{item.reason}</RowLink> : item.reason}</p>
       </div>)}
       <nav aria-label="盯盘分页" style={{ display: "flex", gap: 16, marginTop: 16 }}>
         {current > 1 && <Link href={href(current - 1)}>上一页</Link>}
