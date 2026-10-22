@@ -1,6 +1,6 @@
 /**
  * 桌面端「用系统程序打开附件」（desktop/attachments.js，2026-10-22 D-24）。
- * 钉的是：编号挡 ../；拷到临时目录用原名打开；能跑的文件只在文件夹里选中；文件不在说清楚。
+ * 钉的是：编号挡 ../；拷到临时目录用原名打开；能跑的文件只在文件夹里选中；文件不在说清楚；一天前的副本会清掉。
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createRequire } from "node:module";
@@ -61,6 +61,47 @@ describe("打开附件", () => {
       expect(shell.openPath).not.toHaveBeenCalled();
       expect(shell.showItemInFolder).toHaveBeenCalled();
     }
+  });
+
+  it("名字截到 120 字后结尾是空格或点：先截再去结尾，.exe 照样认出来、不替人打开", async () => {
+    // 截完是「aaa….exe 」：反过来做会判成 "exe "，Windows 打开时又把空格去了
+    const 长名 = "a".repeat(116) + ".exe .x";
+    expect(附件.安全文件名(长名)).toBe("a".repeat(116) + ".exe");
+    expect(附件.安全文件名("a.exe.\u3000")).toBe("a.exe");
+    for (const 名 of [长名, "x.exe ", "x.exe.", "x.EXE. . "]) expect(附件.是能跑的(附件.安全文件名(名))).toBe(true);
+    expect(附件.是能跑的("x.exe ")).toBe(true);
+    const shell = 假壳();
+    const r = await 附件.打开附件({ 数据目录, id: "cabc12345678", 名: 长名, shell, 临时根 });
+    expect(r.只显示).toBe(true);
+    expect(shell.openPath).not.toHaveBeenCalled();
+  });
+
+  it("补上的能跑的：脚本、挂载盘、AppleScript 也只在文件夹里选中", () => {
+    for (const 名 of ["a.py", "a.pyw", "a.msc", "a.appref-ms", "a.application", "a.scf", "a.chm", "a.vb", "a.ws", "a.wsc", "a.settingcontent-ms", "a.library-ms", "a.iso", "a.img", "a.vhd", "a.VHDX", "a.scpt", "a.scptd", "a.applescript", "a.action", "a.mpkg", "a.prefPane"]) {
+      expect(附件.是能跑的(名), 名).toBe(true);
+    }
+    expect(附件.是能跑的("报价.pdf")).toBe(false);
+  });
+
+  it("一天前的临时副本顺手删掉；当天的、正要打开的、不像编号的都不动", async () => {
+    const 建 = (名: string, 天前: number) => {
+      const d = path.join(临时根, 名);
+      fs.mkdirSync(d, { recursive: true });
+      fs.writeFileSync(path.join(d, "x.pdf"), "x");
+      const t = new Date(Date.now() - 天前 * 24 * 3600 * 1000);
+      fs.utimesSync(d, t, t);
+    };
+    建("cold00000001", 2);
+    建("cnew00000001", 0);
+    建("cabc12345678", 3);
+    建("别人的目录", 5);
+    await 附件.打开附件({ 数据目录, id: "cabc12345678", 名: "a.pdf", shell: 假壳(), 临时根 });
+    expect(fs.existsSync(path.join(临时根, "cold00000001"))).toBe(false);
+    expect(fs.existsSync(path.join(临时根, "cnew00000001"))).toBe(true);
+    expect(fs.existsSync(path.join(临时根, "cabc12345678", "a.pdf"))).toBe(true);
+    expect(fs.existsSync(path.join(临时根, "别人的目录"))).toBe(true);
+    // 临时根还不存在时也不报错
+    附件.清旧副本(path.join(根, "没有"), "x");
   });
 
   it("文件不在这台电脑上 / 系统打不开：回一句人话", async () => {
