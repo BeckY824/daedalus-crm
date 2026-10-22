@@ -140,9 +140,10 @@ export default function LeadsView({
   const 不问归属 = !f.ownerId && 列表不问归属ID(users, rows.map((r) => r.ownerId));
 
   const 列表: 列<Row>[] = [
-    { title: "线索", key: "name", dataIndex: "name", width: 220, 常驻: true, render: (v) => <span className="link-strong">{v}</span> },
+    { title: "线索", key: "name", dataIndex: "name", width: 220, 常驻: true, ellipsis: true, render: (v) => <span className="link-strong" title={v}>{v}</span> },
     { title: "联系人", key: "contact", dataIndex: "contact", width: 120, render: (v) => v ?? <span className="muted">—</span> },
-    { title: "来源", key: "source", dataIndex: "source", width: 120, render: (v) => <Tag style={{ margin: 0, borderRadius: 6 }}>{v}</Tag> },
+    // 长来源省略在标签里（2026-10-22 排版普查）：原来标签伸出格子、盖住「状态」
+    { title: "来源", key: "source", dataIndex: "source", width: 120, ellipsis: true, render: (v) => <Tag className="clamp-1" style={{ margin: 0, borderRadius: 6, maxWidth: "100%" }} title={v}>{v}</Tag> },
     {
       title: "状态", key: "status", dataIndex: "status", width: 110,
       render: (v) => (
@@ -158,7 +159,8 @@ export default function LeadsView({
     { title: "所属行业", key: "industry", dataIndex: "industry", width: 130, 默认: false, render: (v) => <span className="muted">{v ?? "—"}</span> },
     { title: "邮箱", key: "email", dataIndex: "email", width: 200, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
     {
-      title: "", key: "act", width: 150, 常驻: true, fixed: "right",
+      // 「转客户」和后面两个小按钮，150 宽时伸出格子 4px（2026-10-22 排版普查）
+      title: "", key: "act", width: 156, 常驻: true, fixed: "right",
       render: (_, r) =>
         r.customerId ? (
           <Link href={`/customers/${r.customerId}`}>查看{b.customer} ›</Link>

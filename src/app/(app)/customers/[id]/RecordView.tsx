@@ -598,9 +598,9 @@ export default function RecordView({
               <div key={c.id} className="rec-mini">
                 <Avatar size={26} style={{ background: avatarColor(c.name), color: AVATAR_TEXT, fontSize: 12 }}>{initial(c.name)}</Avatar>
                 {/* 截断成「母亲…」之后，鼠标停上去得看得到全名 */}
-                <span className="rec-mini-n" title={c.name}>
-                  {c.name}
-                  {c.isPrimary && <Tag color="blue" style={{ marginLeft: 6, borderRadius: 6, fontSize: 12, lineHeight: "18px", padding: "0 5px" }}>关键</Tag>}
+                <span className="rec-mini-n rec-mini-who" title={c.name}>
+                  <span className="clamp-1">{c.name}</span>
+                  {c.isPrimary && <Tag color="blue" style={{ borderRadius: 6, fontSize: 12, lineHeight: "18px", padding: "0 5px" }}>关键</Tag>}
                 </span>
                 <span className="rec-mini-m">{c.position ?? c.phone ?? ""}</span>
                 {/* 编辑 / 删除平时不占位（审查 M4）：原来两颗图标常驻，三个字的名字被挤成「周明远…」。
@@ -849,7 +849,7 @@ export default function RecordView({
                     transition={{ duration: 时长.base, ease: 曲线.ease }}
                   >
                     <Checkbox checked={已完成(t)} disabled={只读} onChange={(e) => void 勾待办(t, e.target.checked)} aria-label={`完成 ${t.title}`} />
-                    <span className="rec-task-t">{t.title}</span>
+                    <span className="rec-task-t clamp" style={{ "--clamp": 3 } as React.CSSProperties} title={t.title}>{t.title}</span>
                     {/* 「逾期 2 天」而不是「2 天前」（审查 D1）：欠着没做的事，不是发生过的事 */}
                     <span className="rec-task-due" title={t.dueAt ? fmtDateTime(t.dueAt) : undefined} style={{ color: !已完成(t) && 已过期(t.dueAt) ? "var(--danger)" : undefined }}>
                       {t.dueAt ? 截止说法(t.dueAt) : ""}
@@ -1147,7 +1147,7 @@ function FollowItem({ f, showOwner, index, onEdit, onDelete, 可改 = true }: { 
             </span>}
           </span>
         </div>
-        <div className="rec-tl-content">{f.content}</div>
+        <div className="rec-tl-content break-any">{f.content}</div>
         {f.sourceText && (
           <div style={{ marginTop: 2 }}>
             <Typography.Link style={{ fontSize: 12, color: "var(--text-muted)" }} onClick={() => setSrcOpen((v) => !v)}>

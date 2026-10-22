@@ -203,7 +203,8 @@ export function CustomerLink({ id, name, company, logo = true }: { id: string; n
     <span className="cust-link">
       {logo && <CompanyLogo name={name} />}
       <span className="cust-link-t">
-        <Link href={`/customers/${id}`} className="link-strong">
+        {/* 长名最多两行（2026-10-22 排版普查）：一长串没空格的英文原来竖着排了十行 */}
+        <Link href={`/customers/${id}`} className="link-strong clamp" title={name}>
           {name}
         </Link>
         {公司 && (
