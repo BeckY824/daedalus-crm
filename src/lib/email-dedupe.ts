@@ -27,7 +27,15 @@ export async function 按微信找(db: 能裸查, 微信们: string[]): Promise<
   return 按档案格找(db, "wechat", 微信们);
 }
 
-async function 按档案格找(db: 能裸查, 列: "email" | "wechat", 值们: string[]): Promise<{ id: string; 键: string }[]> {
+/**
+ * 阿里国际站买家 ID 也一样（2026-10-21 客户反馈「有些没有给联系方式，但是有国际站的 ID」）：
+ * 电话、WhatsApp、邮箱、微信都没有、只有阿里 ID 的按它认。不分大小写，和邮箱同一个键法
+ */
+export async function 按阿里找(db: 能裸查, 阿里们: string[]): Promise<{ id: string; 键: string }[]> {
+  return 按档案格找(db, "alibabaId", 阿里们);
+}
+
+async function 按档案格找(db: 能裸查, 列: "email" | "wechat" | "alibabaId", 值们: string[]): Promise<{ id: string; 键: string }[]> {
   const 键们 = [...new Set(值们.map(邮箱键).filter(Boolean))];
   const 出: { id: string; 键: string }[] = [];
   for (let i = 0; i < 键们.length; i += 500) {
@@ -48,6 +56,11 @@ export async function 同邮箱条件(db: 能裸查, email: string): Promise<Pri
 /** 同上，微信号一样的客户 */
 export async function 同微信条件(db: 能裸查, wechat: string): Promise<Prisma.CustomerWhereInput> {
   return { id: { in: (await 按微信找(db, [wechat])).map((r) => r.id) } };
+}
+
+/** 同上，阿里国际站 ID 一样的客户 */
+export async function 同阿里条件(db: 能裸查, alibabaId: string): Promise<Prisma.CustomerWhereInput> {
+  return { id: { in: (await 按阿里找(db, [alibabaId])).map((r) => r.id) } };
 }
 
 /**

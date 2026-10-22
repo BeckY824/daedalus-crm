@@ -88,8 +88,8 @@ export async function 客户关键词条件(raw: unknown, onlyPicker = false): P
   parts.push('c."phone" GLOB ?'); values.push(phonePattern);
   if (phone) { parts.push(`${号键SQL('c."phone"')} GLOB ?`); values.push(phonePattern); }
   if (!onlyPicker) {
-    parts.push('EXISTS (SELECT 1 FROM "CustomerExtra" e WHERE e."customerId"=c.id AND (e.whatsapp GLOB ? OR e.whatsapp GLOB ? OR e.email GLOB ? OR e.wechat GLOB ? OR e.country GLOB ? OR e.website GLOB ?))');
-    values.push(pattern,phonePattern,pattern,pattern,pattern,sitePattern);
+    parts.push('EXISTS (SELECT 1 FROM "CustomerExtra" e WHERE e."customerId"=c.id AND (e.whatsapp GLOB ? OR e.whatsapp GLOB ? OR e.email GLOB ? OR e.wechat GLOB ? OR e.country GLOB ? OR e.website GLOB ? OR e."alibabaId" GLOB ?))');
+    values.push(pattern,phonePattern,pattern,pattern,pattern,sitePattern,pattern);
     parts.push('EXISTS (SELECT 1 FROM "Contact" t WHERE t."customerId"=c.id AND (t.name GLOB ? OR t.phone GLOB ? OR t.phone GLOB ? OR t.email GLOB ? OR t.wechat GLOB ?))');
     values.push(pattern,pattern,phonePattern,pattern,pattern);
     parts.push('EXISTS (SELECT 1 FROM "TradeOrder" o WHERE o."customerId"=c.id AND o.no GLOB ?)'); values.push(pattern);

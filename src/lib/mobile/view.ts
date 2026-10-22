@@ -27,6 +27,8 @@ export type 联系人视图 = { id: string; name: string; title: string; phone: 
 export type 商机视图 = { id: string; name: string; stage: string; amount: number; currency: string };
 export type 客户视图 = {
   id: string; name: string; phone: string; country: string; whatsapp: string; email: string; wechat: string;
+  /** 阿里国际站买家 ID（2026-10-21）：没有就空串 */
+  alibabaId: string;
   status: string; 公海: boolean; salesOwnerId: string; 负责人: string; remark: string;
   上次跟进: number | null; 联系人: 联系人视图[]; 商机: 商机视图 | null; 计划: 计划视图 | null; 跟进: 跟进视图[];
   /** 记跟进时「关联商机 / 订单」那一格的候选（2026-10-19）：这位客户全部商机（含已结束的，和电脑上一样）、订单，新建的在前 */
@@ -89,7 +91,7 @@ export function 客户们(取: ReturnType<typeof 分表>, 我: string, 待同步
     const 计 = (计划.get(id) ?? []).sort((a, b) => (a.ownerId === 我 ? 0 : 1) - (b.ownerId === 我 ? 0 : 1) || a.at - b.at)[0] ?? null;
     const 机 = (商机.get(id) ?? []).sort((a, b) => b.at - a.at)[0]?.v ?? null;
     return {
-      id, name: 字(c.name), phone: 字(c.phone), country: 字(x.country), whatsapp: 字(x.whatsapp), email: 字(x.email), wechat: 字(x.wechat),
+      id, name: 字(c.name), phone: 字(c.phone), country: 字(x.country), whatsapp: 字(x.whatsapp), email: 字(x.email), wechat: 字(x.wechat), alibabaId: 字(x.alibabaId),
       status: 字(c.followStatus) || "待跟进", 公海: 公海.has(id), salesOwnerId: 字(c.salesOwnerId),
       负责人: 字(c.salesOwnerId) === 我 ? "我" : 人名.get(字(c.salesOwnerId)) || "", remark: 字(c.remark),
       上次跟进: 跟[0]?.at ?? null,

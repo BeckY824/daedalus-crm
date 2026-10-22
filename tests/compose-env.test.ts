@@ -15,11 +15,14 @@ const ROOT = path.resolve(__dirname, "..");
 
 /** 不用进容器的，各写一句为什么。新加一个变量想放这儿，先想清楚托管版上它不配会怎样 */
 const 不用进容器: Record<string, string> = {
+  // 导入每趟写多久（2026-10-21 上万条导入）：只给测试调短用，不配就是 2 秒
+  IMPORT_SEGMENT_MS: "测试调短每趟时长用，不配走默认 2 秒",
   // 桌面端壳（desktop/main.js）起本地服务时传的，托管版没有这回事
   DESKTOP_LOCAL: "桌面端壳传",
   DESKTOP_TOKEN: "桌面端壳传",
   CRM_DATA_DIR: "桌面端壳传",
   CRM_CLOUD_URL: "桌面端壳传（本机联调指到别处）",
+  CRM_SERVER_FILE: "桌面端壳传（数据根里专属服务器的设置文件）",
   CRM_APP_VERSION: "桌面端壳传",
   CRM_MACHINE_HASH: "桌面端壳传",
   // 背调走模拟数据（e2e、演示）。托管版不配 = 托管版本来就背调不了（lib/research/channel.ts 只认桌面端）
