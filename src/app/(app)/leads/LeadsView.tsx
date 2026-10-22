@@ -6,7 +6,6 @@ import { 签约叫 } from "@/lib/business-config";
 import OptionInput from "@/components/OptionInput";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Input, Button, Space, Select, Tag, Modal, Form, Row, Col, App } from "antd";
 import {
   PlusOutlined,
@@ -17,7 +16,7 @@ import {
 import ResetFilters from "@/components/ResetFilters";
 import { 列表不问归属ID } from "@/lib/solo";
 import ListSearch from "@/components/ListSearch";
-import { PageHead, UserCell } from "@/components/ui";
+import { RowLink, PageHead, UserCell } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { LEAD_STATUSES, LEAD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, 独自一人, 可选成员, smartTime } from "@/lib/utils";
@@ -161,10 +160,10 @@ export default function LeadsView({
       title: "", key: "act", width: 150, 常驻: true, fixed: "right",
       render: (_, r) =>
         r.customerId ? (
-          <Link href={`/customers/${r.customerId}`}>查看{b.customer} ›</Link>
+          <RowLink href={`/customers/${r.customerId}`}>查看{b.customer} ›</RowLink>
         ) : r.status === "已转化" ? (
           // 并到了一位已经关联着别的线索的客户（J-024，Lead.customerId 唯一）：没有直接的关联，按电话去客户列表找
-          <Link href={`/customers?keyword=${encodeURIComponent(r.phone && !r.phone.includes("*") ? r.phone : r.name)}`}>查看{b.customer} ›</Link>
+          <RowLink href={`/customers?keyword=${encodeURIComponent(r.phone && !r.phone.includes("*") ? r.phone : r.name)}`}>查看{b.customer} ›</RowLink>
         ) : (
           <Space size={2}>
             <Button

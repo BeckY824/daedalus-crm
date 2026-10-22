@@ -8,7 +8,7 @@ import { dayjs } from "@/lib/utils";
 import { 页头, 站内, LinkPending } from "../OpsShell";
 import { 卡片 } from "../ui";
 import { 开通续费团队, 改团队到期, 改团队人数, 停用团队, 改团队价格 } from "../actions";
-import { 时长们, 时长名, 应收, 北京日期, 新到期日, type 价格表 } from "@/lib/team-pricing";
+import { 时长们, 时长名, 应收, 北京日期, 新到期日, 最多人数, type 价格表 } from "@/lib/team-pricing";
 
 type 记录 = {
   id: string; at: string; by: string; kind: string; months: number | null; days: number | null;
@@ -233,21 +233,26 @@ function OpenRenewModal({ token, r, 价格, onClose }: { token: string; r: 行; 
   const 选项 = [...(价格.trialDays ? [{ value: 0, label: "试用" }] : []), ...时长们.map((x) => ({ value: x.months as number, label: x.label }))];
   const 每人价 = (m: number) => (m ? 价格.prices.find((p) => p.months === m)?.perSeat ?? 0 : 0);
   const [月, set月] = useState(1);
-  const [人, set人] = useState(Math.max(1, r.人数));
-  const [实收, set实收] = useState<number | null>(应收(每人价(1), Math.max(1, r.人数)));
+  /*
+    人数默认：续费 = 原来买的席位；头一次开通空着、必须填客户说的人数（2026-10-21）。
+    原来默认成团队现在的人数——头一次开通时多半只有老板 1 个人，一不留神就开成 1 席，同事一个都进不来
+  */
+  const [人, set人] = useState<number | null>(r.席位);
+  const [实收, set实收] = useState<number | null>(r.席位 ? 应收(每人价(1), r.席位) : null);
   const [备注, set备注] = useState("");
   const [交, set交] = useState(false);
-  const 该收 = 应收(每人价(月), 人);
+  const 该收 = 人 ? 应收(每人价(月), 人) : 0;
   const 新 = 北京日期(新到期日(r.到期 ? new Date(r.到期.iso) : null, 月 ? { months: 月 } : { days: 价格.trialDays }));
 
   // 换时长、换人数：实收跟着应收走（先选好时长人数，最后再改实收）
-  const 换 = (m: number, n: number) => {
+  const 换 = (m: number, n: number | null) => {
     set月(m);
     set人(n);
-    set实收(应收(每人价(m), n));
+    set实收(n ? 应收(每人价(m), n) : null);
   };
 
   async function 确认() {
+    if (!人) return;
     set交(true);
     const res = await 开通续费团队({ token, teamId: r.id, ...(月 ? { months: 月 } : { days: 价格.trialDays }), seats: 人, amount: 月 ? 实收 ?? 0 : null, note: 备注 });
     set交(false);
@@ -257,19 +262,19 @@ function OpenRenewModal({ token, r, 价格, onClose }: { token: string; r: 行; 
   }
 
   return (
-    <Modal open getContainer={挂在运营台} title={`开通 / 续费：${r.name}`} onCancel={onClose} okText="确认开通" confirmLoading={交} onOk={() => void 确认()} width={540}>
+    <Modal open getContainer={挂在运营台} title={`开通 / 续费：${r.name}`} onCancel={onClose} okText="确认开通" okButtonProps={{ disabled: !人 }} confirmLoading={交} onOk={() => void 确认()} width={540}>
       <div className="opx-form">
         <label>时长</label>
         <Segmented<number> block value={月} onChange={(v) => 换(v, 人)} options={选项} />
         <label>人数</label>
         <div>
-          <InputNumber min={1} max={100} precision={0} value={人} onChange={(v) => 换(月, Math.max(1, Number(v) || 1))} suffix="人" style={{ width: 120 }} />
+          <InputNumber min={1} max={最多人数} precision={0} value={人} onChange={(v) => 换(月, v ? Math.max(1, Number(v)) : null)} placeholder="客户要几人" suffix="人" style={{ width: 140 }} />
           <span className="opx-faint opx-form-tip">团队现在 {r.人数} 人{r.席位 ? ` · 原来买了 ${r.席位} 席` : ""} · 这就是上限，满了新成员进不来</span>
         </div>
         <label>应收</label>
         <div>
           <b className="num opx-form-big">{元(该收)}</b>
-          <span className="opx-faint opx-form-tip">{月 ? `每人 ${元(每人价(月))} × ${人} 人` : `试用 ${价格.trialDays} 天，不收钱`}</span>
+          <span className="opx-faint opx-form-tip">{月 ? (人 ? `每人 ${元(每人价(月))} × ${人} 人` : "先填人数") : `试用 ${价格.trialDays} 天，不收钱`}</span>
         </div>
         {月 > 0 && (
           <>
@@ -347,7 +352,7 @@ function EditSeatsModal({ token, r, onClose }: { token: string; r: 行; onClose:
       <div className="opx-form">
         <label>人数上限</label>
         <div>
-          <InputNumber min={1} max={100} precision={0} value={人} onChange={(v) => set人(Math.max(1, Number(v) || 1))} suffix="人" style={{ width: 120 }} />
+          <InputNumber min={1} max={最多人数} precision={0} value={人} onChange={(v) => set人(Math.max(1, Number(v) || 1))} suffix="人" style={{ width: 120 }} />
           <span className="opx-faint opx-form-tip">现在 {r.人数} 人{r.席位 ? ` · 原来上限 ${r.席位} 人` : " · 原来没设上限"}</span>
         </div>
         <label>备注</label>

@@ -24,7 +24,7 @@ import { motion, AnimatePresence } from "motion/react";
 import InlineConfirm from "@/components/InlineConfirm";
 import { 跟进类型们, FOLLOW_TYPE_MAP, FOLLOW_STATUSES, DECISION_STATUSES, FOLLOW_RECORD_STATUS_COLOR } from "@/lib/constants";
 import { 成员选项, dayjs, duration, fmtDate, fmtDateTime, initial, avatarColor, AVATAR_TEXT, 独自一人 } from "@/lib/utils";
-import { FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
+import { RowLink, FollowStatusTag, StageTag, DecisionStatusTag, FOLLOW_TYPE_ICON } from "@/components/ui";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸订单, 外贸精简, 签约叫 } from "@/lib/business-config";
 import { 国家候选, WhatsApp网址, 官网网址, 客户等级, 客户等级说明, type 客户等级 as 客户等级值 } from "@/lib/customer-extra";
@@ -130,6 +130,11 @@ export default function RecordView({
   /** 有 WhatsApp 号：记跟进、排计划、完成小框的方式都默认 WhatsApp（2026-10-17 PR26 手测，和手机上一样） */
   const 有WhatsApp = !!档?.whatsapp?.trim();
   const 官网 = 官网网址(档?.website);
+  /** 右栏「背调」查谁（lib/research/subject.ts）：公司那一栏 + 国家 / 官网 / 电话 / WhatsApp */
+  const 背调档案 = useMemo(
+    () => ({ company: customer.school, country: 档?.country, website: 档?.website, phone: customer.phone, whatsapp: 档?.whatsapp }),
+    [customer.school, customer.phone, 档?.country, 档?.website, 档?.whatsapp],
+  );
   /** 下次跟进过了几天（按日历天；今天到期不算过） */
   /** 已签约按币种分开写（「US$ 3,200 · ¥ 18,000」）——不同币种不能加在一起。老调用方没给 signedTotals 就按人民币 */
   const 已签约文字 = 合计文字(customer.signedTotals ?? [{ 币种: "CNY", 合计: customer.signedAmount }]);
@@ -541,6 +546,7 @@ export default function RecordView({
                 <InlineField customerId={customer.id} field="whatsapp" label="WhatsApp" value={档?.whatsapp ?? null} />
                 <InlineField customerId={customer.id} field="email" label="邮箱" value={档?.email ?? null} />
                 <InlineField customerId={customer.id} field="wechat" label="微信" value={档?.wechat ?? null} />
+                <InlineField customerId={customer.id} field="alibabaId" label="阿里 ID" value={档?.alibabaId ?? null} />
                 <InlineField customerId={customer.id} field="source" label="来源" value={档?.source ?? null} kind="combo" options={b.sources.map((x) => ({ value: x, label: x }))} />
                 <InlineField customerId={customer.id} field="level" label="客户等级" value={档?.level ?? null} kind="select" options={客户等级.map((x) => ({ value: x, label: 客户等级说明[x] }))} placeholder="没分级" 可清空 />
                 <InlineField customerId={customer.id} field="website" label="官网" value={档?.website ?? null} placeholder="如 www.example.com" />
@@ -624,7 +630,7 @@ export default function RecordView({
             {opportunities.map((o) => (
               // 两行：名字独占一行，阶段和金额在下面（审查 M4）。原来三样挤一行，
               // 264 宽的左栏里名字只剩「恒拓 · …」，截掉的恰恰是认出这一单的那半截
-              <Link key={o.id} href={`/opportunities?opportunity=${encodeURIComponent(o.id)}`} className="rec-mini rec-mini-2">
+              <RowLink key={o.id} href={`/opportunities?opportunity=${encodeURIComponent(o.id)}`} className="rec-mini rec-mini-2">
                 <span className="rec-mini-n" title={o.name}>{o.name}</span>
                 <span className="rec-mini-sub">
                   <StageTag stage={o.stage} />
@@ -638,7 +644,7 @@ export default function RecordView({
                   {/* 外贸：哪天询的盘（客户：「3 月问了一次没成，5 月又问，这样知道客户计划采购的时间点」） */}
                   {外贸 && o.createdAt && <span className="rec-mini-m" title="询盘时间">{fmtDate(o.createdAt)} 询盘</span>}
                 </span>
-              </Link>
+              </RowLink>
             ))}
           </div>
 
@@ -657,7 +663,7 @@ export default function RecordView({
                 )}
               </div>
               {(报价全开 ? 报价记录 : 报价记录.slice(0, 5)).map((r, i) => (
-                <Link key={`${r.quotedAt}-${i}`} href={`/opportunities?opportunity=${encodeURIComponent(r.商机id)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
+                <RowLink key={`${r.quotedAt}-${i}`} href={`/opportunities?opportunity=${encodeURIComponent(r.商机id)}`} className="rec-mini rec-mini-2" title={`商机「${r.商机}」`}>
                   <span className="rec-mini-n" title={r.spec ? `${r.product}（${r.spec}）` : r.product}>
                     {r.product}
                     {r.spec && <span className="rec-mini-m"> · {r.spec}</span>}
@@ -668,7 +674,7 @@ export default function RecordView({
                     </span>
                     <span className="rec-mini-m">{r.状态 === "WON" ? "成交 · " : ""}{fmtDate(r.quotedAt)}</span>
                   </span>
-                </Link>
+                </RowLink>
               ))}
             </div>
           )}
@@ -684,7 +690,7 @@ export default function RecordView({
                 // 外贸：一笔签约就是一张订单。两行：订单号 + 金额；确认日 · 付款方式 · 供应商。点进订单页看挂在它上面的跟进
                 <div key={c.id} className="rec-mini rec-mini-2">
                   <span className="rec-mini-n rec-mini-line">
-                    {c.order ? <Link className="rec-mini-cut" href={`/orders/${c.order.id}`} title={c.order.no}>{c.order.no}</Link> : <span className="muted rec-mini-cut" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
+                    {c.order ? <RowLink className="rec-mini-cut" href={`/orders/${c.order.id}`} title={c.order.no}>{c.order.no}</RowLink> : <span className="muted rec-mini-cut" title="切到外贸之前登记的。点右边的编辑，填上订单号（或付款方式、供应商）就补成一张订单">（还没有订单号，点编辑补上）</span>}
                     <span className="rec-mini-amt">{金额(c.amount, c.currency)}</span>
                   </span>
                   {/* 确认日、付款方式、供应商各一段，挤不下就折行（原来拼成一串 nowrap，长供应商名直接越出卡片） */}
@@ -818,7 +824,7 @@ export default function RecordView({
           <Space orientation="vertical" size={14} style={{ width: "100%" }}>
             {aiEnabled && !AI在抽屉里 && (
               <div className="rec-card">
-                <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
+                <AiPanel customerId={customer.id} customerName={customer.name} 档案={背调档案} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
               </div>
             )}
 
@@ -888,7 +894,7 @@ export default function RecordView({
           进程内任务表上（lib/ai-jobs），不在组件 state 里，关掉再开还在那儿 */}
       {aiEnabled && AI在抽屉里 && (
         <Drawer placement="right" styles={{ wrapper: { width: 380 } }} open={AI抽屉开着} onClose={() => setAI抽屉开着(false)} title={`AI · ${customer.name}`}>
-          <AiPanel customerId={customer.id} customerName={customer.name} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
+          <AiPanel customerId={customer.id} customerName={customer.name} 档案={背调档案} fingerprint={fingerprint} signed={customer.followStatus === "已签约" && !外贸} hasRecords={followUps.length > 0} on记跟进={() => openFollow(null)} />
         </Drawer>
       )}
 
@@ -1116,9 +1122,9 @@ function FollowItem({ f, showOwner, index, onEdit, onDelete, 可改 = true }: { 
           {f.title?.trim() && <span className="rec-tl-title" title={f.title}>· {f.title}</span>}
           {/* 挂在订单上的（2026-10-05）：标出订单号，点过去看这张订单的全部跟进。标题已经写着这个订单号就不重复 */}
           {f.order && !f.title?.includes(f.order.no) && (
-            <Link href={`/orders/${f.order.id}`} className="rec-tl-order" title={`订单 ${f.order.no}`}>订单 {f.order.no}</Link>
+            <RowLink href={`/orders/${f.order.id}`} className="rec-tl-order" title={`订单 ${f.order.no}`}>订单 {f.order.no}</RowLink>
           )}
-          {f.opportunity && <Link href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order" title={`关联商机：${f.opportunity.name}`}>关联商机：{f.opportunity.name}</Link>}
+          {f.opportunity && <RowLink href={`/opportunities?opportunity=${encodeURIComponent(f.opportunity.id)}`} className="rec-tl-order" title={`关联商机：${f.opportunity.name}`}>关联商机：{f.opportunity.name}</RowLink>}
           {f.status !== "已完成" && (
             <Tag color={FOLLOW_RECORD_STATUS_COLOR[f.status] ?? "default"} style={{ margin: 0, borderRadius: 6 }}>
               {f.status}

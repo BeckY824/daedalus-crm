@@ -20,7 +20,7 @@ import {
 import type { EChartsCoreOption } from "echarts/core";
 import { useBusiness } from "@/lib/business-client";
 import Chart, { Sparkline } from "@/components/Chart";
-import { StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
+import { RowLink, StatCard, CompanyLogo, UserCell, PageHead } from "@/components/ui";
 import EmptyState from "@/components/EmptyState";
 import SentinelCard from "./SentinelCard";
 import type { WatchItem } from "@/lib/sentinel";
@@ -393,9 +393,9 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
                   <div style={{ fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {t.title}
                   </div>
-                  <Link href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "var(--text-muted)" }}>
+                  <RowLink href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "var(--text-muted)" }}>
                     {t.customerName}
-                  </Link>
+                  </RowLink>
                 </div>
                 <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{截止说法(t.dueAt)}</span>
                 {/*
@@ -428,7 +428,8 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
             {当前漏斗.map((f) => (
               <div key={f.stage} className="funnel-row">
                 <span className="funnel-dot" style={{ background: OPP_STAGE_COLOR[f.stage] }} />
-                <span style={{ width: 82, flex: "none" }}>{stageLabel(b, f.stage)}</span>
+                {/* 阶段名能自己改了（上限 6 字，2026-10-21）：原来 82px 只够 5 个字，6 个字折成两行把这一档撑高。按字宽给、一行放下 */}
+                <span style={{ width: "6.5em", flex: "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={stageLabel(b, f.stage)}>{stageLabel(b, f.stage)}</span>
                 <span style={{ width: 48, flex: "none", color: "var(--text-muted)" }}>{f.count}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div

@@ -4,9 +4,9 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Alert, Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
 import type { BusinessConfig, BusinessTemplate } from "@/lib/business-config";
-import { DEFAULT_BUSINESS, BUSINESS_PRESETS, RELABELABLE_STATUSES, 表单公海天数, 模版预设, statusLabel, 状态名问题 } from "@/lib/business-config";
+import { DEFAULT_BUSINESS, BUSINESS_PRESETS, RELABELABLE_STATUSES, 表单公海天数, 模版预设, statusLabel, 状态名问题, 阶段名问题, 阶段名上限 } from "@/lib/business-config";
 import { 币种选项 } from "@/lib/currency";
-import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
+import { FOLLOW_STATUSES, DECISION_STATUSES, OPP_STAGES } from "@/lib/constants";
 import { saveBusinessSettings } from "./actions";
 import { DemoDataSection } from "@/components/EmptyState";
 
@@ -41,6 +41,12 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
       message.error(Object.values(状态错误)[0]);
       return;
     }
+    const 阶段错误 = 阶段名问题(v);
+    if (Object.keys(阶段错误).length) {
+      form.setFields(Object.entries(阶段错误).map(([key, error]) => ({ name: ["stageLabels", key], errors: [error] })));
+      message.error(Object.values(阶段错误)[0]);
+      return;
+    }
     setSaving(true);
     // 摆着这一项时清空 = 不开（存 0）；没摆时表单里没有它，照原值存回去，别悄悄关掉（表单公海天数，T-044 有用例）
     try {
@@ -70,7 +76,9 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
       从外贸切回通用时，通用预设里没有的「已签约 → 已下单」「已加微信 → 已建联」留在表单里一起存了（2026-10-06 F.2 走查）
     */
     const 叫法 = Object.fromEntries(RELABELABLE_STATUSES.map((k) => [k, 预设.statusLabels?.[k] ?? ""]));
-    form.setFieldsValue({ ...预设, statusLabels: 叫法, poolDays: form.getFieldValue("poolDays") ?? value.poolDays });
+    // 阶段名同理，五个都显式填：从外贸切回通用时「询盘」这套要清掉
+    const 阶段叫法 = Object.fromEntries(OPP_STAGES.map((k) => [k, 预设.stageLabels?.[k] ?? ""]));
+    form.setFieldsValue({ ...预设, statusLabels: 叫法, stageLabels: 阶段叫法, poolDays: form.getFieldValue("poolDays") ?? value.poolDays });
     set套了(名);
   }
   function 放弃() {
@@ -186,6 +194,24 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
             <Col xs={12} sm={8} md={6} key={v}>
               <Form.Item name={["statusLabels", v]} label={v} rules={[{ max: 8, message: "8 字以内" }]}>
                 <Input placeholder={v} allowClear />
+              </Form.Item>
+            </Col>
+          ))}
+        </Row>
+
+        {/*
+          商机阶段名（2026-10-21 用户放行：Even 团队内贸、外贸一起用，外贸那套「询盘 / 寄样」内贸的人不对口）。
+          只改显示，存的值不动；全队一份，随团队同步
+        */}
+        <Typography.Title level={5} style={{ marginTop: 8 }}>商机阶段名</Typography.Title>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 12 }}>
+          商机从左到右走这五步，最后一步是成交。留空即用原名；改名只改叫法，商机停在哪一步、看板漏斗、赢单和转订单都不受影响。团队里全员一起换。
+        </Typography.Paragraph>
+        <Row gutter={[12, 0]} data-testid="stage-labels">
+          {OPP_STAGES.map((v, i) => (
+            <Col xs={12} sm={8} md={6} lg={{ flex: "20%" }} key={v}>
+              <Form.Item name={["stageLabels", v]} label={`第 ${i + 1} 步 · ${v}`} rules={[{ max: 阶段名上限, message: `${阶段名上限} 字以内` }]}>
+                <Input placeholder={v} allowClear maxLength={阶段名上限 * 2} />
               </Form.Item>
             </Col>
           ))}

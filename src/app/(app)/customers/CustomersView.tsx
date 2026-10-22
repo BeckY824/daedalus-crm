@@ -3,7 +3,6 @@
 import Heat from "@/components/Heat";
 import { useEffect, useState, useSyncExternalStore, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Button, Select, Space, Dropdown, App, Tag, Popover, Segmented } from "antd";
 import {
   PlusOutlined,
@@ -21,7 +20,7 @@ import { FOLLOW_STATUSES, DECISION_STATUSES } from "@/lib/constants";
 import { 合计文字 } from "@/lib/currency";
 import { maskPhone, smartTime, fmtDate, 成员选项, 可选成员 } from "@/lib/utils";
 import ListSearch from "@/components/ListSearch";
-import { FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
+import { RowLink, FollowStatusTag, PageHead, UserCell, DecisionStatusTag } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import CustomerForm, { type CustomerRow } from "./CustomerForm";
 import { 完整导出 } from "./export-client";
@@ -340,6 +339,7 @@ export default function CustomersView({
       render: (_: unknown, r) => (r.extra?.email ? <a href={`mailto:${r.extra.email}`} onClick={(e) => e.stopPropagation()} style={{ display: "inline-block", maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={r.extra.email}>{r.extra.email}</a> : 空),
     },
     { title: "微信", key: "wechat", width: 120, 默认: false, render: (_: unknown, r) => r.extra?.wechat ?? 空 },
+    { title: "阿里国际站 ID", key: "alibabaId", width: 150, 默认: false, render: (_: unknown, r) => (r.extra?.alibabaId ? <span style={{ display: "inline-block", maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }} title={r.extra.alibabaId}>{r.extra.alibabaId}</span> : 空) },
     { title: "来源", key: "source", width: 110, 默认: false, render: (_: unknown, r) => r.extra?.source ?? 空 },
     {
       title: "官网", key: "website", width: 170, 默认: false,
@@ -357,7 +357,7 @@ export default function CustomersView({
       dataIndex: "name",
       width: 160,
       常驻: true,
-      render: (v, r) => <Link href={`/customers/${r.id}`} className="link-strong">{v}</Link>,
+      render: (v, r) => <RowLink href={`/customers/${r.id}`} className="link-strong">{v}</RowLink>,
     },
     {
       // 院校和专业永远一起看。分成两列只是把同一件事拆开占两倍宽

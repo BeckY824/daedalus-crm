@@ -10,7 +10,10 @@ vi.mock("@/app/(app)/dashboard/HomeChat", () => ({ default: () => null }));
 vi.mock("@/app/(app)/dashboard/DashboardView", () => ({ default: () => null }));
 vi.mock("@/components/ui", async () => {
   const { createElement } = await import("react");
-  return { PageHead: (p: {title: string; subtitle: string}) => createElement("header", null, p.title, p.subtitle) };
+  return {
+    PageHead: (p: {title: string; subtitle: string}) => createElement("header", null, p.title, p.subtitle),
+    RowLink: (p: object) => createElement("a", p),
+  };
 });
 vi.mock("next/link", async () => {
   const { createElement } = await import("react");

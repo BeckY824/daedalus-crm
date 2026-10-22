@@ -34,10 +34,12 @@ export type 字段名 =
   | "source"
   // 2026-10-16 外贸基础：客户等级（A–D）、官网
   | "level"
-  | "website";
+  | "website"
+  // 2026-10-21：阿里国际站买家 ID
+  | "alibabaId";
 
 /** 落在外贸档案（旁表 CustomerExtra）里的那几个导入字段 */
-export const 外贸导入字段 = ["country", "whatsapp", "wechat", "email", "source", "level", "website"] as const satisfies readonly 字段名[];
+export const 外贸导入字段 = ["country", "whatsapp", "wechat", "email", "source", "level", "website", "alibabaId"] as const satisfies readonly 字段名[];
 
 export type 字段规格 = {
   名: 字段名;
@@ -94,6 +96,8 @@ export function 字段表(b: { fields: { school: string; grade: string; major: s
       // 2026-10-16：「grade」不能当别名——它是职位那一列的（通用字段 grade）
       { 名: "level", label: "客户等级", kind: "text", 别名: ["客户等级", "等级", "客户级别", "级别", "重要等级", "客户分级", "分级", "level", "customerlevel", "rating"] },
       { 名: "website", label: "官网", kind: "text", 别名: ["官网", "网站", "公司网站", "公司官网", "官方网站", "网址", "website", "web", "homepage", "site", "url"] },
+      // 2026-10-21 客户反馈：国际站来的询盘很多只有买家 ID。表头去空格、横杠、斜杠后比，「Buyer ID」「阿里 / 国际站 ID」都落到这里
+      { 名: "alibabaId", label: "阿里国际站 ID", kind: "text", 别名: ["阿里国际站id", "国际站id", "阿里id", "阿里巴巴id", "阿里巴巴国际站id", "国际站买家id", "阿里买家id", "买家id", "alibabaid", "alibababuyerid", "buyerid", "alibaba", "阿里国际站账号", "国际站账号", "国际站买家账号"] },
     ];
   }
   return 通用字段(b);

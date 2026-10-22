@@ -52,7 +52,7 @@ const 可写: Record<string, string[]> = {
   TradeOrderNode: ["name", "dueAt", "status"],
   // 客户的外贸档案（2026-10-05）：客户表单 saveCustomer 的 extra、记录页 patchCustomer 单格改、导入、线索转客户
   // 2026-10-16 加客户等级、官网：同样走 saveCustomer 的 extra、patchCustomer、导入
-  CustomerExtra: ["country", "whatsapp", "wechat", "email", "source", "level", "website"],
+  CustomerExtra: ["country", "whatsapp", "wechat", "email", "source", "level", "website", "alibabaId"],
   TradeOrderDoc: ["name", "state"],
   // 供应商和比价（3c）：saveSupplier / saveSupplierQuote / saveOrderPurchase
   Supplier: ["name", "category", "region", "contact", "phone", "wechat", "invoice", "payment", "rating", "issues", "remark"],
