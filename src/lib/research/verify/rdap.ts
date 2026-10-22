@@ -27,11 +27,6 @@ export type 域名年龄 =
   | { 有: true; 日期: string; 依据: "RDAP" | "Wayback" | "证书"; 下限: boolean; 链接: string }
   | { 有: false; 查不了: boolean };
 
-/** 测试用：清掉引导表缓存 */
-export function 清缓存() {
-  引导 = null;
-}
-
 async function 按RDAP(域: string): Promise<{ 日期?: string; 链接: string } | null> {
   const 后缀 = 域.split(".").pop()!;
   const base = await RDAP服务器(后缀);

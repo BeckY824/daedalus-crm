@@ -11,6 +11,7 @@ import { runJob, useJob, clearJob } from "@/lib/ai-jobs";
 import AiWait from "@/components/AiWait";
 import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { 起草, 草稿键, useCopyDraft } from "@/lib/draft-jobs";
+import { RowLink } from "@/components/ui";
 
 const KIND_COLOR: Record<WatchItem["kind"], string> = {
   order_late: "error",
@@ -110,12 +111,12 @@ function SentinelRow({
             <Tag color={KIND_COLOR[it.kind]} style={{ margin: 0, borderRadius: 6, flex: "none" }}>
               {kindLabel(it.kind)}
             </Tag>
-            <Link href={`/customers/${it.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
+            <RowLink href={`/customers/${it.customerId}`} className="link-strong" style={{ fontSize: 15, fontWeight: 500 }}>
               {it.customerName}
-            </Link>
+            </RowLink>
             <span style={{ flex: 1, minWidth: 200, color: "var(--text-muted)", fontSize: 14 }}>
               {/* 订单超期：理由本身就是去处，点了直接到那张订单那一步 */}
-              {it.href ? <Link href={it.href}>{it.reason}</Link> : it.reason}
+              {it.href ? <RowLink href={it.href}>{it.reason}</RowLink> : it.reason}
             </span>
             <span style={{ color: "var(--text-muted)", fontSize: 13, flex: "none" }}>{it.ownerName}</span>
             {aiEnabled && !draftText && (

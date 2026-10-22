@@ -2,7 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import CustomersView from "./CustomersView";
 import { 负责人候选 } from "@/lib/owners";
-import { 可选渠道, 可选客户 } from "@/lib/options";
+import { 可选渠道 } from "@/lib/options";
 import { 号码脱敏器 } from "@/lib/shared-ws/current";
 import { llmEnabled } from "@/lib/llm";
 import { 客户筛选条件, 客户行字段, 成客户行, 客户金额分页, 在看子集 } from "./query";
@@ -96,7 +96,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     : 0;
   const page = Math.min(正整数(sp.page, 1), Math.max(1, Math.ceil(total / pageSize)));
 
-  const [rows, users, channels, allCustomers, 用着的职位, 用着的国家] = await Promise.all([
+  const [rows, users, channels, 用着的职位, 用着的国家] = await Promise.all([
     sort ? 客户金额分页(where, sort, sortCurrency, page, pageSize) : prisma.customer.findMany({
       where,
       orderBy: 等级排序
@@ -108,7 +108,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
     }),
     负责人候选(),
     可选渠道(),
-    可选客户(),
     prisma.customer.findMany({ where: { grade: { not: null } }, distinct: ["grade"], select: { grade: true } }),
     // 国家筛选只给库里真有的（外贸，2026-10-05）：一百多个国家摆一长串，挑到的多半是 0 条
     prisma.customerExtra.findMany({ where: { country: { not: null } }, distinct: ["country"], select: { country: true }, orderBy: { country: "asc" } }),
@@ -132,7 +131,6 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
       排序币种={sortCurrency}
       users={users}
       channels={channels}
-      customers={allCustomers}
       直接新建={sp.new === "1"}
       /* ?import=paste：直接把导入抽屉开在「粘一段文本」那一栏（首页那张「开始」卡指过来） */
       直接粘贴={sp.import === "paste"}
