@@ -15,6 +15,7 @@ import { 本地库, 申请长期保存 } from "@/lib/mobile/store";
 import { 分表, 客户们 as 算客户们, 今天要跟, 搜, 国旗, 简称, 相对时间, 同步条, 首次同步失败, 金额, 要清掉, type 客户视图 } from "@/lib/mobile/view";
 import { Avatar, BaseLayer, InstallHint, Page, Sheet, StatusTag, SyncChip, TabBar, TopLayer, 已装到主屏幕, 认浏览器, 弹簧, 猜系统, 震一下, type 标签, type 系统 } from "./ui";
 import { 现状动效 } from "@/lib/motion";
+import { useSystemReducedMotion } from "@/lib/reduced-motion";
 import { stageLabel, statusLabel, 外贸订单, type BusinessConfig } from "@/lib/business-config";
 import { 订单前缀 } from "@/lib/follow-link";
 import { 国家候选, 客户等级, 客户等级说明 } from "@/lib/customer-extra";
@@ -25,6 +26,7 @@ import { BrowserTip, ScanBar, ScanButton, useCardScan, usePickPhoto, NoCameraTip
 import { 只补空格, 空名片表单, type 名片表单 } from "@/lib/card-scan/form";
 import { 设识别令牌 } from "@/lib/card-scan/cloud";
 import { 号键 } from "@/lib/phone";
+import { 复制文字 } from "@/lib/clipboard";
 import "./m.css";
 
 /**
@@ -70,9 +72,6 @@ const 拍 = (s: 同步.同步状态): 快照 => ({
   lastError: s.lastError ?? null,
 });
 
-const 少动查询 = "(prefers-reduced-motion: reduce)";
-const 订少动 = (cb: () => void) => { const m = window.matchMedia(少动查询); m.addEventListener("change", cb); return () => m.removeEventListener("change", cb); };
-const 读少动 = () => window.matchMedia(少动查询).matches;
 const 订尺寸 = (cb: () => void) => { window.addEventListener("resize", cb); return () => window.removeEventListener("resize", cb); };
 const 不订 = () => () => {};
 const 类型表 = [
@@ -154,7 +153,7 @@ export default function MobileApp() {
   // 推入推出（2026-10-15 重做，见 push.ts）：进度 p 一个数，0 = 详情完全进来，1 = 完全退回
   const 进度 = useMotionValue(1);
   // 系统的「减弱动态效果」：自己订（motion 的 useReducedMotion 中途改了设置不会跟着变）
-  const 少动 = useSyncExternalStore(订少动, 读少动, () => false);
+  const 少动 = useSystemReducedMotion();
   const [退着, set退着] = useState(false);
   const 层 = useRef({ 详情: null as string | null, 面板: null as 面板 });
   const [推] = useState(() => new 推入({
@@ -1157,7 +1156,7 @@ function UnsyncedSheet({ 列, 说, on处理 }: { 列: { key: string; 来自: "�
           <p className="m-note">{x.content}</p>
           <div className="m-row-m"><span>{x.原因}</span></div>
           <div className="m-unsynced-btns">
-            <button className="m-btn m-btn-sm m-btn-ghost" onClick={() => { void navigator.clipboard?.writeText(x.content).then(() => 说("已复制", <CopyOutlined />), () => 说("复制不了，长按文字手动复制")); }}><CopyOutlined /> 复制</button>
+            <button className="m-btn m-btn-sm m-btn-ghost" onClick={() => { void 复制文字(x.content).then((ok) => ok ? 说("已复制", <CopyOutlined />) : 说("复制不了，长按文字手动复制")); }}><CopyOutlined /> 复制</button>
             <button className="m-btn m-btn-sm m-btn-ghost" onClick={() => on处理(x)}>已处理</button>
           </div>
         </section>

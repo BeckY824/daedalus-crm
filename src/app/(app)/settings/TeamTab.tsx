@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { App, Alert, Button, Input, Space, Switch, Tag, Typography } from "antd";
+import { useCopy } from "@/lib/clipboard";
 import { CopyOutlined, SyncOutlined, TeamOutlined } from "@ant-design/icons";
 import { smartTime } from "@/lib/utils";
 import ScopeConflicts from "./ScopeConflicts";
@@ -41,14 +42,8 @@ export default function TeamTab() {
     return () => { 还在 = false; };
   }, []);
 
-  const 复制 = async (t: string) => {
-    try {
-      await navigator.clipboard.writeText(t);
-      message.success("邀请码已复制。只发给同事：拿到它的人就能进团队");
-    } catch {
-      message.error("复制不了，请手动选中复制");
-    }
-  };
+  const 拷 = useCopy();
+  const 复制 = (t: string) => 拷(t, "邀请码已复制。只发给同事：拿到它的人就能进团队");
 
   async function 建() {
     // 回车也能触发：转圈时再按一下会在云端建出第二个团队（10-08 发版前审查）

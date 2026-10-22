@@ -55,6 +55,7 @@ import { 记下最近客户 } from "@/lib/last-customer";
 import { 金额, 合计文字 } from "@/lib/currency";
 import { 公海标签 } from "@/lib/pool";
 import { 带走说法 } from "@/lib/carry-over";
+import { 滚法 } from "@/lib/reduced-motion";
 import { 放进公海, 领取, 撤销公海 } from "../pool-actions";
 import { useDeleteCustomers } from "../useDeleteCustomers";
 
@@ -179,7 +180,7 @@ export default function RecordView({
     // 人刚看到叫他的那条闪一下就被换走了（整套 e2e 抓到过新旧两份同在页面上）。原生 replaceState 接进 Next 路由，不重画
     window.history.replaceState(null, "", window.location.pathname);
     if (!el) return;
-    el.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+    el.scrollIntoView({ block: "center", behavior: 滚法() });
     el.classList.add("rec-tl-item-flash");
     const t = setTimeout(() => el.classList.remove("rec-tl-item-flash"), 1600);
     return () => clearTimeout(t);
