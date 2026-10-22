@@ -65,7 +65,47 @@ test("客户详情：商机、订单上的产品图片自动取来当缩略图�
   await 截(page, "mobile-images-大图.png");
   await 大图.click();
   await expect(大图).toBeHidden();
+  // 安卓返回键 / 手势：先关大图，详情还在
+  await 卡.getByRole("button", { name: "看图片 样品正面.jpg" }).click();
+  await expect(page.getByRole("dialog", { name: "样品正面.jpg" })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole("dialog", { name: "样品正面.jpg" })).toBeHidden();
+  await expect(卡).toBeVisible();
 
   await 卡.getByRole("button", { name: "看图片 刚拍的.jpg" }).click();
   await expect(page.getByRole("dialog", { name: "刚拍的.jpg" }).getByText("对方还在上传，稍后再看")).toBeVisible();
+});
+
+test("取图时断了网：联网后（下一次同步连上）自动补取，不用一张张点", async ({ page }) => {
+  let 断 = true;
+  const 问过: string[] = [];
+  await page.route("**/api/sync/attach?**", (r) => {
+    const id = new URL(r.request().url()).searchParams.get("id") ?? "";
+    问过.push(id);
+    if (id === "a_up") return r.fulfill({ status: 404, json: { error: "对方还在上传，稍后再看", uploading: true } });
+    if (id === "a2" && 断) return r.abort("internetdisconnected");
+    return r.fulfill({ status: 200, body: 密文(id), contentType: "application/octet-stream" });
+  });
+  await 灌手机(page, {
+    行们: [
+      { t: "Customer", k: "c1", r: { id: "c1", name: "Atlas Home", salesOwnerId: "acct_li", followStatus: "意向较高" } },
+      { t: "Opportunity", k: "o1", r: { id: "o1", customerId: "c1", name: "春季家居", amount: 186000, stage: "方案报价", status: "OPEN" } },
+      { t: "Attachment", k: "a1", r: { id: "a1", opportunityId: "o1", name: "样品正面.jpg", mime: "image/jpeg", size: 图.length, sha256: sha, createdAt: 1760000000000 } },
+      { t: "Attachment", k: "a2", r: { id: "a2", opportunityId: "o1", name: "包装.jpg", mime: "image/jpeg", size: 图.length, sha256: sha, createdAt: 1760000100000 } },
+      { t: "Attachment", k: "a_up", r: { id: "a_up", opportunityId: "o1", name: "刚拍的.jpg", mime: "image/jpeg", size: 图.length, sha256: sha, createdAt: 1760000200000 } },
+    ],
+  });
+  await page.getByRole("button", { name: "客户" }).last().click();
+  await page.getByText("Atlas Home").first().click();
+  const 卡 = page.getByTestId("m-images");
+  await expect(卡.locator("img")).toHaveCount(1);
+  await expect.poll(() => 问过.filter((x) => x === "a2").length).toBe(1);
+
+  // 网回来了：下一次同步连上（这里的同步回 404，但连上了），断了的、还在上传的都再取一次
+  断 = false;
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+  await expect(卡.locator("img")).toHaveCount(2);
+  expect(问过.filter((x) => x === "a2")).toHaveLength(2);
+  await expect.poll(() => 问过.filter((x) => x === "a_up").length).toBe(2);
+  expect(问过.filter((x) => x === "a1")).toHaveLength(1);
 });

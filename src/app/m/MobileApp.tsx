@@ -125,13 +125,18 @@ function 做传输(token: string, 记断网: (断: boolean) => void): 同步.传
 }
 
 /** 取图片的密文（字节）：和 做传输 一样带手机令牌，图大一点、多给点时间 */
-function 做取字节(token: string): 连图.字节传输 {
+/**
+ * 取图片的字节：连不上也记成断网，下次同步连上了，取失败的图会补取。
+ * 只记断、不记通：几张图一起取时一张成一张败，来回翻就会反复补取
+ */
+function 做取字节(token: string, 记断网: () => void): 连图.字节传输 {
   return async (路径) => {
     try {
       const r = await fetch(路径, { cache: "no-store", headers: { Authorization: `Bearer ${token}` }, signal: 超时(60_000) });
       if (r.ok) return { 状态: r.status, 字节: new Uint8Array(await r.arrayBuffer()), json: {} };
       return { 状态: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
     } catch {
+      记断网();
       return { 状态: 0, json: { error: "连不上网络" } };
     }
   };
@@ -314,7 +319,11 @@ export default function MobileApp() {
 
   /* ---------- 返回：一律走浏览器历史（安卓返回键 / 手势和页面上的返回按钮同一条路） ---------- */
   useEffect(() => {
-    const on = () => { if (层.current.面板) set面板(null); else if (层.current.详情) 推.去("退回"); };
+    const on = () => {
+      // 大图开着：返回先关大图，详情还在
+      if (大图.关) { const 关 = 大图.关; 大图.关 = null; 关(); return; }
+      if (层.current.面板) set面板(null); else if (层.current.详情) 推.去("退回");
+    };
     // 切后台 / 页面冻住时动画帧会停：切换的那一刻就把动画落到位
     const 收 = () => 推.收尾();
     window.addEventListener("popstate", on);
@@ -357,7 +366,7 @@ export default function MobileApp() {
   }, [版本, 库, 我, 登录账号]);
   const 取图 = useCallback(async (图: 图片视图): Promise<连图.取图结果> => {
     if (!token || !团队) return { 状态: "没有", 原因: "还没连上团队" };
-    return 连图.取图片(团队, 做取字节(token), 图);
+    return 连图.取图片(团队, 做取字节(token, () => set断网(true)), 图);
   }, [token, 团队]);
   const 待同步数 = 快照.待推跟进.length + 快照.待推新建.length;
   const 业务 = useMemo((): BusinessConfig => { void 版本; return 同步.读业务(库?.行.get(同步.业务行键)); }, [版本, 库]);
@@ -791,6 +800,8 @@ function DetailScreen({ os, c, 现在, 断网, 来自, 业务, 待同步, 取图
 type 图态 = { 状态: "取中" } | { 状态: "有"; url: string } | { 状态: "还在上传" } | { 状态: "没有"; 原因: string };
 /** 打开详情时自动取前几张当缩略图；多的点开才取（省流量） */
 const 自动取几张 = 6;
+/** 全屏看图开着时怎么关：返回（安卓返回键 / 手势）先走这里，和面板一样走浏览器历史 */
+const 大图: { 关: (() => void) | null } = { 关: null };
 
 function ImagesCard({ 图们, 断网, 取图 }: { 图们: 图片视图[]; 断网: boolean; 取图: (图: 图片视图) => Promise<连图.取图结果> }) {
   const [态, set态] = useState<Record<string, 图态>>({});
@@ -798,6 +809,13 @@ function ImagesCard({ 图们, 断网, 取图 }: { 图们: 图片视图[]; 断网
   const 地址 = useRef<string[]>([]);
   const 在取 = useRef(new Set<string>());
   useEffect(() => () => { for (const u of 地址.current) URL.revokeObjectURL(u); }, []);
+  // 大图开着时登记怎么关（返回键走浏览器历史，App 那边的 popstate 先问这里）
+  useEffect(() => {
+    if (!看) return;
+    const 关 = () => set看(null);
+    大图.关 = 关;
+    return () => { if (大图.关 === 关) 大图.关 = null; };
+  }, [看]);
   const 取 = useCallback(async (图: 图片视图) => {
     if (在取.current.has(图.id)) return;
     在取.current.add(图.id);
@@ -810,16 +828,21 @@ function ImagesCard({ 图们, 断网, 取图 }: { 图们: 图片视图[]; 断网
       set态((s) => ({ ...s, [图.id]: { 状态: "有", url } }));
     } else set态((s) => ({ ...s, [图.id]: r }));
   }, [取图]);
+  const 刚才断网 = useRef(断网);
   useEffect(() => {
+    const 刚连上 = 刚才断网.current && !断网;
+    刚才断网.current = 断网;
     if (断网) return;
-    const 要取 = 图们.slice(0, 自动取几张).filter((图) => !态[图.id]);
+    // 没取过的取；刚连上网时，取失败的、还在上传的也再取一次（点开的那张会照样显示新的结果）
+    const 要取 = 图们.slice(0, 自动取几张).filter((图) => !态[图.id] || (刚连上 && 态[图.id].状态 !== "有" && 态[图.id].状态 !== "取中"));
     // 放进微任务里取：取 一开头就标「取中」，effect 体里同步 setState 会连着多渲染一轮（react-hooks/set-state-in-effect）
     if (要取.length) queueMicrotask(() => { for (const 图 of 要取) void 取(图); });
-    // 只在列表变了、恢复联网时补取；态 变了不重跑
+    // 只在列表变了、断网 / 联网切换时跑；态 变了不重跑（失败的不会每次渲染都重取）
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [图们, 断网, 取]);
   const 点 = (图: 图片视图) => {
     const s = 态[图.id];
+    history.pushState({ m: "image" }, "");
     set看(图);
     if (s?.状态 !== "有" && s?.状态 !== "取中") void 取(图);
   };
@@ -842,7 +865,7 @@ function ImagesCard({ 图们, 断网, 取图 }: { 图们: 图片视图[]; 断网
       <div className="m-foot-note">传图、删图请在电脑上操作</div>
       <AnimatePresence>
         {看 && (
-          <motion.div className="m-img-view" role="dialog" aria-label={看.name} onClick={() => set看(null)}
+          <motion.div className="m-img-view" role="dialog" aria-label={看.name} onClick={() => history.back()}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 现状动效.时长.base }}>
             {/* eslint-disable-next-line @next/next/no-img-element -- 解密后的 blob:，不走图片优化 */}
             {看的?.状态 === "有" ? <img src={看的.url} alt={看.name} />
