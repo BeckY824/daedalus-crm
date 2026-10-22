@@ -680,6 +680,7 @@ function DetailScreen({ os, c, 现在, 断网, 来自, 业务, 待同步, onBack
           <div className="m-hero-tags"><StatusTag s={c.status} />{c.公海 && <span className="m-tag m-tag-pool">公海</span>}{c.country && <span className="m-hero-country">{国旗(c.country)} {c.country}</span>}</div>
           {主 && <div className="m-hero-sub">{主.name}{主.title ? ` · ${主.title}` : ""}</div>}
           {c.负责人 && c.负责人 !== "我" && !c.公海 && <div className="m-hero-sub">负责人：{c.负责人}</div>}
+          {c.alibabaId && <div className="m-hero-sub m-ellipsis">阿里国际站 ID：{c.alibabaId}</div>}
         </div>
       </div>
 
@@ -851,7 +852,8 @@ function RecordSheet({ c, os, 我, 断网, 业务, onCancel, onSave }: { c: 客�
 /* ====================================================================== 新建客户 / 商机（2026-10-19 客户反馈第 7 条） */
 
 /** 跟进状态 / 决策状态 / 客户等级不改就是电脑上新建框的默认值，收在「更多」里 */
-type 新建表单 = 名片表单 & { source: string; level: string; followStatus: string; decisionStatus: string };
+/** alibabaId：阿里国际站买家 ID（2026-10-21），名片上不会有，只手填，所以不放进名片表单 */
+type 新建表单 = 名片表单 & { source: string; level: string; followStatus: string; decisionStatus: string; alibabaId: string };
 
 /**
  * 和电脑上「新建客户」同一张表（2026-10-20 用户：名片录入要和新建客户录的信息一致；customers/CustomerForm.tsx）：
@@ -870,7 +872,7 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
   const 外贸 = 业务.template === "trade";
   const 公司格 = 字段是公司(业务.fields.school);
   const 行业格 = 字段是行业(业务.fields.major);
-  const 空 = (): 新建表单 => ({ ...空名片表单(), source: 来源, level: "", followStatus: "待跟进", decisionStatus: "了解中" });
+  const 空 = (): 新建表单 => ({ ...空名片表单(), source: 来源, level: "", followStatus: "待跟进", decisionStatus: "了解中", alibabaId: "" });
   const [填, set填] = useState(空);
   const [黄, set黄] = useState<Set<keyof 名片表单>>(new Set());
   const [候选, set候选] = useState<{ 名字: string[]; 公司: string[]; wa: string | null }>({ 名字: [], 公司: [], wa: null });
@@ -910,13 +912,13 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
     设(k, x);
     set候选((c) => ({ ...c, [哪]: c[哪].filter((y) => y !== x).concat(填[k] ? [填[k]] : []) }));
   };
-  const 有联系 = Boolean(填.phone?.trim() || (外贸 && (填.whatsapp?.trim() || 填.email?.trim() || 填.wechat?.trim())));
+  const 有联系 = Boolean(填.phone?.trim() || (外贸 && (填.whatsapp?.trim() || 填.email?.trim() || 填.wechat?.trim() || 填.alibabaId?.trim())));
   const 可存 = 填.name.trim().length > 0 && 有联系 && !存着 && 扫.态?.阶段 !== "认";
   const 存 = async () => {
     if (!可存) return;
     set存着(true);
     const 共有 = { name: 填.name, phone: 填.phone, school: 填.school, grade: 填.grade, major: 填.major, followStatus: 填.followStatus, decisionStatus: 填.decisionStatus, remark: 填.remark };
-    const 话 = await onSave(外贸 ? { ...共有, whatsapp: 填.whatsapp, email: 填.email, wechat: 填.wechat, website: 填.website, country: 填.country, source: 填.source, level: 填.level } : 共有, 扫过);
+    const 话 = await onSave(外贸 ? { ...共有, whatsapp: 填.whatsapp, email: 填.email, wechat: 填.wechat, alibabaId: 填.alibabaId, website: 填.website, country: 填.country, source: 填.source, level: 填.level } : 共有, 扫过);
     set存着(false);
     if (话) { set错(话); return; }
     if (扫过) set存好(填.name.trim());
@@ -957,7 +959,7 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
           <div className="m-scan-alt">换成：{候选.名字.map((x) => <button type="button" key={x} onClick={() => 换("name", "名字", x)}>{x}</button>)}</div>
         )}
         <label className={黄的("phone")}><span>联系电话{外贸 ? 四选一 : "（必填）"}</span><input value={填.phone} onChange={改("phone")} type="tel" inputMode="tel" maxLength={40} placeholder={外贸 ? "可以带 +86 / +44" : "13800001111"} autoComplete="off" /></label>
-        {外贸 && <p className="m-form-tip">◆ 电话 / WhatsApp / 邮箱 / 微信至少填一个</p>}
+        {外贸 && <p className="m-form-tip">◆ 电话 / WhatsApp / 邮箱 / 微信 / 阿里 ID 至少填一个</p>}
         <label className={黄的("school")}><span>{业务.fields.school}</span><input value={填.school} onChange={改("school")} maxLength={200} placeholder={公司格 ? "如：星辰科技" : undefined} autoComplete="off" /></label>
         {候选.公司.length > 0 && (
           <div className="m-scan-alt">换成：{候选.公司.map((x) => <button type="button" key={x} onClick={() => 换("school", "公司", x)}>{x}</button>)}</div>
@@ -976,6 +978,7 @@ function NewCustomerSheet({ os, 业务, 图, 来源, 找老, onCancel, onSave, o
             )}
             <label className={黄的("email")}><span>邮箱{四选一}</span><input value={填.email} onChange={改("email")} type="email" inputMode="email" maxLength={200} placeholder="如 buyer@company.com" autoComplete="off" autoCapitalize="none" /></label>
             <label className={黄的("wechat")}><span>微信{四选一}</span><input value={填.wechat} onChange={改("wechat")} maxLength={60} placeholder="只知道微信号也行" autoComplete="off" autoCapitalize="none" /></label>
+            <label><span>阿里国际站 ID{四选一}</span><input value={填.alibabaId} onChange={改("alibabaId")} maxLength={80} placeholder="只有国际站买家 ID 也行" autoComplete="off" autoCapitalize="none" /></label>
             <div className="m-field-l">来源</div>
             <div className="m-chips m-chips-plain">
               {业务.sources.map((x) => (

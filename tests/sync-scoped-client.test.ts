@@ -66,7 +66,7 @@ const 传: 传输 = async (方法, 路径, body) => {
     const t = String(b.teamId), act = String(b.action);
     try {
       if (act !== "state" && !(await scoped.范围开放(t))) return { 状态: 404, json: { error: "范围同步尚未开放" } };
-      const r = act === "state" ? await scoped.范围状态(a, t) : act === "directory" ? await scoped.范围目录(a, t) : act === "begin" ? await scoped.开始范围迁移(a, t, String(b.device)) : act === "commit" ? await scoped.完成范围迁移(a, t, String(b.device), Number(b.count)) : act === "push" ? await scoped.收范围推送(a, t, String(b.device), b.packets as never) : await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
+      const r = act === "state" ? await scoped.范围状态(a, t) : act === "directory" ? await scoped.范围目录(a, t) : act === "begin" ? await scoped.开始范围迁移(a, t, String(b.device)) : act === "commit" ? await scoped.完成范围迁移(a, t, String(b.device), Number(b.count)) : act === "push" ? await scoped.收范围推送(a, t, String(b.device), b.packets as never) : act === "pull-many" ? await scoped.给多个范围拉取(a, t, b.scopes) : await scoped.给范围拉取(a, t, String(b.scopeId), Number(b.after));
       return { 状态: 200, json: r as unknown as Record<string, unknown> };
     } catch (e) {
       if (e instanceof scoped.范围错误) return { 状态: e.状态, json: { error: e.message } };
@@ -219,6 +219,23 @@ describe("v4 范围同步：业务员只同步本人 + 公海，老板全队", (
     expect(await 轮("boss")).toMatchObject({ ok: true });
     expect((await db("member").customer.findUnique({ where: { id: "pool-1" } }))?.remark).toBe("老板改公海");
     expect(await db("boss").followUp.findUnique({ where: { id: "member-follow" } })).not.toBeNull();
+  });
+
+  it("人多放慢（2026-10-21）：团队到 10 人，目录里的 pace 记进本机团队配置、壳的定时戳没到 15 秒就跳过；人少了回到不放慢", async () => {
+    const teamId = 读配置("boss").teamId;
+    const 加的: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const a = await control.account.create({ data: { name: `pace${i}`, email: `pace${i}@example.invalid`, password: "not-a-login" } });
+      await control.syncMember.create({ data: { teamId, accountId: a.id } });
+      加的.push(a.id);
+    }
+    expect(await 轮("boss")).toMatchObject({ ok: true });
+    expect(读配置("boss").pace).toBe(15);
+    expect(client.该放慢(读配置("boss"))).toBe(true);
+    await control.syncMember.deleteMany({ where: { teamId, accountId: { in: 加的 } } });
+    expect(await 轮("boss")).toMatchObject({ ok: true });
+    expect(读配置("boss").pace).toBe(0);
+    expect(client.该放慢(读配置("boss"))).toBe(false);
   });
 
   it("F2 领取公海 / 转交：领取后归业务员；老板转走后业务员本机删掉、离线改动成冲突", async () => {

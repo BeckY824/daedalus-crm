@@ -10,8 +10,10 @@ import { 切更新记录, 只留桌面端 } from "@/lib/changelog";
 const 全部 = 切更新记录(fs.readFileSync(path.resolve(__dirname, "../CHANGELOG.md"), "utf8"));
 const 这一版 = 全部.find((s) => s.版本 === "0.46.24")!;
 
-it("最上面是 0.46.24，下面紧接 0.46.23", () => {
-  expect(全部.slice(0, 2).map((s) => s.版本)).toEqual(["0.46.24", "0.46.23"]);
+it("0.46.24 下面紧接 0.46.23", () => {
+  const 版本们 = 全部.map((s) => s.版本);
+  const i = 版本们.indexOf("0.46.24");
+  expect(版本们.slice(i, i + 2)).toEqual(["0.46.24", "0.46.23"]);
 });
 
 it("注册入口、扫名片 AI 摆格子、外文配中文都写了，Mac 和 Windows 一样", () => {

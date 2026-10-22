@@ -71,6 +71,11 @@ services:
       CARD_SCAN_AI_MODEL: "${CARD_SCAN_AI_MODEL:-}"
       CARD_SCAN_AI_KEY: "${CARD_SCAN_AI_KEY:-}"
       CARD_SCAN_AI_BASE_URL: "${CARD_SCAN_AI_BASE_URL:-}"
+      # 团队版范围同步的两个应急开关（2026-10-21 客户 Even 30 人压测后加的），平时都空着：
+      #   CRM_SCOPED_CACHE_OFF=1 回老路：不留索引缓存、每次现读现算，目录发全的、不带 head（lib/tenant/scoped-index.ts）
+      #   CRM_SYNC_PACE_OFF=1 人多的团队前台不放慢（lib/tenant/sync-scoped.ts 前台最短间隔）
+      CRM_SCOPED_CACHE_OFF: "${CRM_SCOPED_CACHE_OFF:-}"
+      CRM_SYNC_PACE_OFF: "${CRM_SYNC_PACE_OFF:-}"
       # AI 背调的搜索（lib/research/providers.ts）：用中转站自带的搜索，Key 就是上面的 GATEWAY_API_KEY。
       # RESEARCH_SEARCH 空着 = gpt（挂了自动换 claude 试一次），可填 claude / mock；RESEARCH_SEARCH_MODEL 换主用的模型
       RESEARCH_SEARCH: "${RESEARCH_SEARCH:-}"

@@ -16,6 +16,8 @@ export const BASE_URL = `http://localhost:${PORT}`;
 /** 独立的库和数据目录：不碰默认 e2e 库、开发库，更不碰用户真实的桌面端数据目录 */
 export const DB = path.resolve(ROOT, "prisma/e2e-desktop.db");
 export const DATA_DIR = path.resolve(ROOT, "prisma/e2e-desktop-data");
+/** 专属服务器的设置文件（真壳里在数据根，见 desktop/cloud.js 的 专属服务器文件）。prepare.ts 每次清掉 */
+export const SERVER_FILE = path.resolve(ROOT, "prisma/e2e-desktop-dedicated-server.json");
 
 /** 真壳里这是每次启动现生成的一次性令牌；e2e 固定一个，用例才拿得到 */
 export const DESKTOP_TOKEN = "e2e-desktop-token-0123456789abcdef";

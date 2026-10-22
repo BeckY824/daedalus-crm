@@ -15,7 +15,7 @@
 import {
   GRADES, TITLES, CUSTOMER_SOURCES, EDU_SOURCES, INDUSTRIES,
   TRADE_TITLES, TRADE_SOURCES, TRADE_INDUSTRIES,
-  FOLLOW_STATUSES, DECISION_STATUSES,
+  FOLLOW_STATUSES, DECISION_STATUSES, OPP_STAGES,
 } from "./constants";
 import { 规整币种 } from "./currency";
 import { 订单 } from "./features";
@@ -44,6 +44,12 @@ export type BusinessConfig = {
    * 存储值本身不能改——盯盘权重、雷达、首页统计、终态判断都按值引用。
    */
   statusLabels: Record<string, string>;
+  /**
+   * 商机阶段的显示名（2026-10-21 用户放行，Even 团队内外贸一起用）：存储值 → 界面上叫什么，只存和原名不一样的。
+   * 存的值不动（看板漏斗、赢单 / 转订单、报表、AI 筛选都按值算）。外贸预设自带一套（见 外贸阶段名）。
+   * 可选：老代码、测试里手拼的配置没有这一项时，按模版给默认叫法（见 stageLabel）；mergeBusiness 出来的一定有
+   */
+  stageLabels?: Record<string, string>;
   /** 用的是哪个模版。见上面 BusinessTemplate */
   template: BusinessTemplate;
   /** 本位币：新建商机 / 签约时默认选它。通用 CNY、外贸 USD；见 lib/currency.ts */
@@ -69,6 +75,7 @@ export const DEFAULT_BUSINESS: BusinessConfig = {
    * 默认给它们一个通用的显示名。存过业务配置的库以自己存的为准，见 mergeBusiness。
    */
   statusLabels: { 已试听: "已演示", 与家人商议: "内部讨论", 已决定报名: "已决定采购" },
+  stageLabels: {},
   template: "general",
   currency: "CNY",
   poolDays: 0,
@@ -91,6 +98,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     industries: [...INDUSTRIES],
     // 教培场景下这三个值本来就说得通，不另起显示名
     statusLabels: {},
+    stageLabels: {},
     template: "general",
     currency: "CNY",
     poolDays: 0,
@@ -112,6 +120,7 @@ export const BUSINESS_PRESETS: Record<string, BusinessConfig> = {
     */
     // 已签约 → 已下单（2026-10-05）：外贸模版下签约就是订单，见 lib/order-contract.ts
     statusLabels: { 已加微信: "已建联", 已试听: "已寄样", 与家人商议: "内部讨论", 已决定报名: "已决定下单", 已签约: "已下单" },
+    stageLabels: { 初步沟通: "询盘", 需求确认: "比价中", 方案报价: "已报价", 谈判审核: "寄样", 赢单成交: "客户确认" },
     template: "trade",
     currency: "USD",
     poolDays: 0,
@@ -200,9 +209,9 @@ export function statusLabel(b: Pick<BusinessConfig, "statusLabels"> | null | und
 }
 
 /**
- * 商机阶段的显示名（2026-10-03）。外贸模版下换成外贸的叫法，**存的值不动**（报表、漏斗、AI 的筛选都按值算）。
- * 不进设置、不让改：阶段是商机这一段流程本身，换一套叫法就够了，再开一组输入框只是让人多犹豫。
- * 依据：外贸CRM模版.md 6.4 第 1 项（询盘 → 比价 → 报价 → 寄样 → 客户确认，确认之后转订单）。
+ * 外贸模版默认的商机阶段叫法（2026-10-03）。依据：外贸CRM模版.md 6.4 第 1 项（询盘 → 比价 → 报价 → 寄样 → 客户确认，确认之后转订单）。
+ * 2026-10-21 起阶段名可以在设置 → 业务里自己改（BusinessConfig.stageLabels），这一套是外贸预设的初值，
+ * 也是没存过 stageLabels 的老外贸库的叫法（mergeBusiness）
  */
 export const 外贸阶段名: Record<string, string> = {
   初步沟通: "询盘",
@@ -212,14 +221,50 @@ export const 外贸阶段名: Record<string, string> = {
   赢单成交: "客户确认",
 };
 
-export function stageLabel(b: Pick<BusinessConfig, "template"> | null | undefined, value: string): string {
-  return b?.template === "trade" ? (外贸阶段名[value] ?? value) : value;
+type 有阶段名 = (Pick<BusinessConfig, "template"> & { stageLabels?: Record<string, string> }) | null | undefined;
+
+/** 商机阶段值 → 显示名。改过的用改过的；配置里没有 stageLabels（老调用只给了模版）就按模版的默认叫法 */
+export function stageLabel(b: 有阶段名, value: string): string {
+  const l = b?.stageLabels ? b.stageLabels[value] : b?.template === "trade" ? 外贸阶段名[value] : undefined;
+  return l?.trim() || value;
 }
 
-/** 反过来：人（或 AI）说「询盘」时认出是哪个存储值。认不出原样返回 */
-export function 阶段值(b: Pick<BusinessConfig, "template"> | null | undefined, 说法: string): string {
-  if (b?.template !== "trade") return 说法;
-  return Object.entries(外贸阶段名).find(([, l]) => l === 说法)?.[0] ?? 说法;
+/**
+ * 反过来：人（或 AI）说「询盘」、或者说了老板改过的名字时，认出是哪个存储值。
+ * 先认现在的显示名，再认存储值本身；认不出原样返回（调用方再拿 OPP_STAGES 校验）
+ */
+export function 阶段值(b: 有阶段名, 说法: string): string {
+  const 键 = 状态名键(说法);
+  return OPP_STAGES.find((s) => 状态名键(stageLabel(b, s)) === 键) ?? OPP_STAGES.find((s) => s === 说法) ?? 说法;
+}
+
+/** 每个阶段占着的名字：存储值本身 + 外贸默认叫法。别的阶段不能拿来用，否则「询盘」到底是哪一步说不清 */
+const 保留阶段名 = new Map<string, string>();
+for (const v of OPP_STAGES) for (const n of [v, 外贸阶段名[v]]) if (n) 保留阶段名.set(状态名键(n), v);
+
+/** 阶段显示名最长几个字：漏斗、管道列头、商机列表的阶段标签都按这个宽度排过（Windows 1280 宽） */
+export const 阶段名上限 = 6;
+
+/** 只检查显示名，不碰存储值。和 状态名问题 同一套规矩：不能空、不能太长、不能重复、不能借别的阶段的名字 */
+export function 阶段名问题(b: 有阶段名): Record<string, string> {
+  const 有效 = new Map<string, string[]>();
+  const problems: Record<string, string> = {};
+  for (const v of OPP_STAGES) {
+    const label = stageLabel(b, v);
+    const key = 状态名键(label);
+    if (!key) problems[v] = `「${v}」的显示名不能只有空白或隐藏字符`;
+    else if ([...label].length > 阶段名上限) problems[v] = `「${v}」的显示名请控制在 ${阶段名上限} 个字以内`;
+    const 主 = 保留阶段名.get(key);
+    if (主 && 主 !== v) problems[v] = `「${v}」不能叫「${label}」：这个名称属于「${主}」那一步`;
+    const 组 = 有效.get(key) ?? [];
+    组.push(v);
+    有效.set(key, 组);
+  }
+  for (const 组 of 有效.values()) {
+    if (组.length < 2) continue;
+    for (const v of 组) problems[v] ??= `「${组.join("」「")}」的显示名重复，请分别命名`;
+  }
+  return problems;
 }
 
 /**
@@ -288,6 +333,18 @@ export function mergeBusiness(partial: Partial<BusinessConfig> | null | undefine
     }
     return out;
   };
+  const 模版: BusinessTemplate = p.template === "general" || p.template === "trade" ? p.template : 推断模版(p);
+  // 阶段名：存过（是个对象，哪怕是空的）就以存的为准；老库没有这一项就按模版给默认叫法（外贸那套 / 原名）
+  const 阶段名 = (v: unknown): Record<string, string> => {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return 模版 === "trade" ? { ...外贸阶段名 } : {};
+    const out: Record<string, string> = {};
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (!(OPP_STAGES as readonly string[]).includes(k) || typeof val !== "string") continue;
+      const t = val.trim();
+      if (t && t !== k) out[k] = t;
+    }
+    return out;
+  };
   return {
     brief: str(p.brief, DEFAULT_BUSINESS.brief),
     customer: str(p.customer, DEFAULT_BUSINESS.customer),
@@ -300,7 +357,8 @@ export function mergeBusiness(partial: Partial<BusinessConfig> | null | undefine
     sources: list(p.sources, DEFAULT_BUSINESS.sources),
     industries: list(p.industries, DEFAULT_BUSINESS.industries),
     statusLabels: 存过 ? labels(p.statusLabels) : { ...DEFAULT_BUSINESS.statusLabels },
-    template: p.template === "general" || p.template === "trade" ? p.template : 推断模版(p),
+    stageLabels: 阶段名(p.stageLabels),
+    template: 模版,
     currency: 规整币种(p.currency, (p.template === "trade" || (p.template == null && 推断模版(p) === "trade")) ? "USD" : "CNY"),
     poolDays: 公海天数(p.poolDays),
   };
