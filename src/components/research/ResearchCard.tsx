@@ -317,7 +317,7 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
           {s.目标.name.trim().charAt(0).toUpperCase()}
         </span>
         <div className="rs-head-main">
-          <div className="rs-name">{s.目标.name}</div>
+          <div className="rs-name" title={s.目标.name}>{s.目标.name}</div>
           <div className="rs-domain">
             {官网 ? (
               <a href={/^https?:/.test(官网) ? 官网 : `https://${官网}`} target="_blank" rel="noreferrer">
@@ -330,6 +330,8 @@ export default function ResearchCard({ s, running, error, 起, ms, actions }: Re
             )}
             {s.fields.country && <> · {s.fields.country.value}</>}
           </div>
+          {/* 客户页发起：客户名是这家公司的联系人（lib/research/subject.ts）。单独一行、能折行，窄面板里不被省略号吃掉 */}
+          {s.目标.联系人 && <div className="rs-contact">联系人 {s.目标.联系人}</div>}
         </div>
         <span className={`rs-pill ${running ? "" : 状态类}`}>{running ? <Shimmer text="背调中" /> : 状态字}</span>
       </div>

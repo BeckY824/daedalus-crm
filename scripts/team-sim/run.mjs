@@ -926,6 +926,11 @@ async function 主线() {
     const r = await 调(老, 动作.合并重复, [[{ 留: Y.id, 并: X.id }]]);
     判(r?.ok && r.合了 === 1 && !r.没合?.length, { 步骤: "老板合并", 哪台: 老板, 期望: "ok、合了 1 对", 实际: r });
     判(!客户(老, X.id) && 数(老, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", Y.id) === 3, { 步骤: "老板那台合并后", 哪台: 老板, 期望: "X 没了、Y 有 3 条跟进", 实际: { X: 客户(老, X.id), 跟进: 数(老, "SELECT COUNT(*) AS n FROM FollowUp WHERE customerId = ?", Y.id) } });
+    /*
+      先让合并到中转再开王那台（2026-10-21 0.46.25 发版前跑出一次红：老板 8 秒一轮还没推，王开机那一轮先推了，
+      中转那时还没有合并记号，离线的改动照收——等于王在合并之前改的，待核对当然是 0）。这一步要测的是「合并先到、离线的被拒」
+    */
+    await 跑完一轮(老);
     // 离线那台：改 X 的备注、给 X 记一条跟进
     const 现在 = Date.now(), 离线跟进 = `sim_offline_${批}`;
     改库(w, "UPDATE Customer SET remark = ?, updatedAt = ? WHERE id = ?", "王离线时改的", 现在, X.id);

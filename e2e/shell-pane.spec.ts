@@ -300,6 +300,13 @@ test.describe("桌面端：左栏「客户」直接进名单 + 详情", () => {
     const 去处 = await 第二位.getAttribute("href");
     await 第二位.click();
     await expect(page).toHaveURL(new RegExp(`${去处}$`));
+    /*
+      地址栏变了不等于这位已经「看过」：(app)/loading.tsx 让地址栏先跳、详情还在路上，
+      「最近看过」要等详情页画出来才记（RecordView 的 记下最近客户）。不等就去首页，记的还是上一位——
+      CI 机器慢时两次都这么红过（2026-10-21，#68 的 run 39623777970）。人眼里也是：没看到这位，就不算看过
+    */
+    const 这位 = 去处!.split("/").pop();
+    await expect.poll(async () => (await page.context().cookies()).find((c) => c.name === "crm_last_customer")?.value).toBe(这位);
     await 点侧栏(page, "首页", /\/dashboard$/);
     await 点侧栏(page, "客户", new RegExp(`${去处}$`));
     // 表格还在名单右上角

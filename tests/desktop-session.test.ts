@@ -144,46 +144,139 @@ describe("本地模式下 /login 是云端账号的门", () => {
     const { default: DesktopAuth } = await import("@/app/login/DesktopAuth");
     const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { type: unknown; props: Record<string, unknown> };
     expect(el.type).toBe(DesktopAuth);
-    expect(typeof el.props.应用内注册).toBe("boolean");
+    expect(typeof (el.props.策略 as { inApp: unknown }).inApp).toBe("boolean");
     expect(el.props.注册地址).toContain("/signup?from=desktop");
   });
 
   /*
     2026-10-21 客户反馈「下载后无法注册，没有注册的按键」：国内第一次打开时问云端 policy 超时，
     原来按「不收注册」画，新邮箱点继续直接去输密码，只能撞「账号或密码不对」。
-    没问到 ≠ 不收注册：入口照样摆出来，点继续时云端会再答一次
+    没问到 ≠ 不收注册：入口照样摆出来，点继续时云端会再答一次。
+    而且登录页不再等这一问才出页：先照这次启动问到过的画，DesktopAuth 出来以后在后台问
   */
-  it("问不到云端（连不上 / 超时）：注册入口照样在，不变成只能登录", async () => {
+  const 不该跳 = () =>
     vi.doMock("next/navigation", () => ({
       redirect: () => {
         throw new Error("没令牌不该跳");
       },
     }));
-    const { default: LoginPage } = await import("@/app/login/page");
-    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
-    expect(el.props.可注册).toBe(true);
-    expect(el.props.应用内注册).toBe(true);
-  });
-
-  it("云端明确回错（老服务端 404）：才按不收注册算，只留登录", async () => {
-    const 服务 = http.createServer((_req, res) => {
-      res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "这个部署没有账号体系" }));
-    });
+  /** 起一个假云端，回答由 回 决定；不调 res.end 就是一直不回话 */
+  async function 假云端(回: (res: http.ServerResponse) => void) {
+    const 服务 = http.createServer((_req, res) => 回(res));
     await new Promise<void>((ok) => 服务.listen(0, "127.0.0.1", ok));
     process.env.CRM_CLOUD_URL = `http://127.0.0.1:${(服务.address() as { port: number }).port}`;
-    try {
-      vi.doMock("next/navigation", () => ({
-        redirect: () => {
-          throw new Error("没令牌不该跳");
-        },
-      }));
-      const { default: LoginPage } = await import("@/app/login/page");
-      const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
-      expect(el.props.可注册).toBe(false);
-      expect(el.props.应用内注册).toBe(false);
-    } finally {
+    return () => {
+      服务.closeAllConnections();
       服务.close();
+    };
+  }
+  const 回 = (status: number, body: unknown) => (res: http.ServerResponse) => {
+    res.writeHead(status, { "content-type": "application/json" });
+    res.end(JSON.stringify(body));
+  };
+
+  it("问不到云端（连不上）：注册入口照样在，不变成只能登录", async () => {
+    不该跳();
+    const { default: LoginPage } = await import("@/app/login/page");
+    const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+    expect(el.props.策略).toEqual({ register: true, reset: true, inApp: true });
+  });
+
+  it("云端一直不回话：登录页、找回密码页不等它，马上出页", async () => {
+    const 关 = await 假云端(() => {});
+    try {
+      不该跳();
+      const { default: LoginPage } = await import("@/app/login/page");
+      const { default: ForgotPage } = await import("@/app/forgot/page");
+      const 起 = Date.now();
+      const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+      const 找回 = (await ForgotPage()) as { props: Record<string, unknown> };
+      expect(Date.now() - 起).toBeLessThan(1000);
+      expect(el.props.策略).toEqual({ register: true, reset: true, inApp: true });
+      expect(找回.props.策略).toEqual({ register: true, reset: true, inApp: true });
+    } finally {
+      关();
+    }
+  });
+
+  /*
+    2026-10-21 P0（质量会话核实）：0.46.24 只在「没状态码」时照常摆，云端回 502 / 503 照旧藏注册入口。
+    规则：只有云端正常回了（2xx、JSON）并且明说 false 才藏；任何失败都照常把注册、找回摆出来
+  */
+  const 回HTML = (status: number) => (res: http.ServerResponse) => {
+    res.writeHead(status, { "content-type": "text/html" });
+    res.end("<html><body>Bad Gateway</body></html>");
+  };
+  const 失败的回法: [string, (res: http.ServerResponse) => void][] = [
+    ["500", 回(500, { error: "boom" })],
+    ["502", 回(502, { error: "bad gateway" })],
+    ["503", 回(503, { error: "unavailable" })],
+    ["404", 回(404, { error: "not found" })],
+    ["429", 回(429, { error: "too many" })],
+    ["502 回 HTML", 回HTML(502)],
+    ["200 回 HTML（公司网 / 酒店 Wi-Fi 的登录页）", 回HTML(200)],
+    ["200 回空", (res) => res.writeHead(200).end()],
+    ["200 回 JSON 但不是对象", 回(200, ["register", false])],
+  ];
+  for (const [名, 回法] of 失败的回法) {
+    it(`云端${名}：注册、找回照常摆出来，登录页、找回密码页都是`, async () => {
+      const 关 = await 假云端(回法);
+      try {
+        不该跳();
+        const { 策略 } = await import("@/lib/desktop/cloud");
+        expect(await 策略()).toEqual({ register: true, reset: true, inApp: true });
+        const { default: LoginPage } = await import("@/app/login/page");
+        const { default: ForgotPage } = await import("@/app/forgot/page");
+        const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+        const 找回 = (await ForgotPage()) as { props: Record<string, unknown> };
+        expect(el.props.策略).toEqual({ register: true, reset: true, inApp: true });
+        expect(找回.props.策略).toEqual({ register: true, reset: true, inApp: true });
+      } finally {
+        关();
+      }
+    });
+  }
+
+  it("云端正常回了、明说不收注册不能找回：才藏，登录页、找回密码页之后照这份画", async () => {
+    const 关 = await 假云端(回(200, { register: false, reset: false, inApp: true }));
+    try {
+      不该跳();
+      const { 策略 } = await import("@/lib/desktop/cloud");
+      expect(await 策略()).toEqual({ register: false, reset: false, inApp: true });
+      const { default: LoginPage } = await import("@/app/login/page");
+      const { default: ForgotPage } = await import("@/app/forgot/page");
+      const el = (await LoginPage({ searchParams: Promise.resolve({}) })) as { props: Record<string, unknown> };
+      const 找回 = (await ForgotPage()) as { props: Record<string, unknown> };
+      expect(el.props.策略).toEqual({ register: false, reset: false, inApp: true });
+      expect((找回.props.策略 as { reset: boolean }).reset).toBe(false);
+    } finally {
+      关();
+    }
+  });
+
+  it("云端正常回了但少了某个字段：没明说 false 的那条照常摆", async () => {
+    const 关 = await 假云端(回(200, { register: true }));
+    try {
+      const { 策略 } = await import("@/lib/desktop/cloud");
+      expect(await 策略()).toEqual({ register: true, reset: true, inApp: true });
+    } finally {
+      关();
+    }
+  });
+
+  it("问到过一次：之后云端再问不到，也照问到的那份，不跳回都开着", async () => {
+    let 第几次 = 0;
+    const 关 = await 假云端((res) => {
+      if (++第几次 === 1) return 回(200, { register: false, reset: true, inApp: true })(res);
+      回(502, { error: "bad gateway" })(res);
+    });
+    try {
+      const { 策略, 上次策略 } = await import("@/lib/desktop/cloud");
+      expect(await 策略()).toEqual({ register: false, reset: true, inApp: true });
+      expect(await 策略()).toEqual({ register: false, reset: true, inApp: true });
+      expect(上次策略()).toEqual({ register: false, reset: true, inApp: true });
+    } finally {
+      关();
     }
   });
 
