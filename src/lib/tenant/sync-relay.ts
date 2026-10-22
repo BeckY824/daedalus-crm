@@ -116,8 +116,8 @@ export async function 入队(accountId: string, teamId: string, joinSecret: stri
     // 团队不存在和口令不对说同一句：不让人拿这个接口试出哪些团队编号是真的。邀请码换过了，旧的也走这一句
     if (!t || !对) return 错(403, "邀请码不对或已经作废了，找老板要一个新的");
     const 已 = await tx.syncMember.findUnique({ where: { teamId_accountId: { teamId: t.id, accountId } } });
-    if (!(已 && !已.leftAt) && (await tx.syncMember.count({ where: { teamId: t.id, leftAt: null } })) >= 20) return 错(409, "这个团队已经有 20 个人了");
-    // 席位（2026-10-19）：新进来的人（含被移出后重新加入）占一个；本人拿邀请码连第二台电脑不占，只在人数已超上限时拦
+    // 席位（2026-10-19）：新进来的人（含被移出后重新加入）占一个；本人拿邀请码连第二台电脑不占，只在人数已超上限时拦。
+    // 人数上限只看席位（2026-10-21）：原来这里另有一道写死的 20 人，开 30 人的团队第 21 个进不来；没设席位的按最多人数拦，也在席位闸里
     const 满 = await 席位闸(t.id, !(已 && !已.leftAt), tx);
     if (满) return 错(409, 满);
     const 设备错 = await 登记设备(t.id, accountId, 设备, tx);

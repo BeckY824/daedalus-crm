@@ -61,6 +61,13 @@ function 解转义(s: string): string {
 
 export class 读不出来 extends Error {}
 
+/**
+ * 工作表解开以后最多多大（2026-10-21 量过，见 #76）。xlsx 读的时候要把整张表解成一串文字，
+ * 太大会超过浏览器一串文字的上限、只报一句英文。9 列外贸表 30 万行解开 286 MB，页面照样读得动（卡 1.4 秒）；
+ * 100 万行约 950 MB，读不动。线放在 300 MB，过了就说人话
+ */
+export const 表内容上限 = 300 * 1024 * 1024;
+
 /** 1904 系统比 1900 系统的序列号少这么多天（1900-01-01 到 1904-01-01，含 Excel 那个不存在的 1900-02-29） */
 const 差1904 = 1462;
 
@@ -112,12 +119,28 @@ export function 读xlsx(bytes: Uint8Array): string[][] {
  * 同上，外加每一行在表里的行号（从 1 数，就是 Excel 左边那一列的数）。
  * 空行丢掉了、标题行之后也会被 成表 丢掉，报错时得说得出 Excel 里的哪一行（2026-10-04 J-058）
  */
-export function 读xlsx带行号(bytes: Uint8Array): { rows: string[][]; 行号: number[] } {
+export function 读xlsx带行号(bytes: Uint8Array, 内容上限 = 表内容上限): { rows: string[][]; 行号: number[] } {
   let 包: Record<string, Uint8Array>;
+  let 太大 = 0;
   try {
-    包 = unzipSync(bytes);
+    包 = unzipSync(bytes, {
+      filter: (f) => {
+        // 只解压 xml：贴的图片、嵌的文件用不上，表里塞再多图也不占内存
+        if (!/\.(xml|rels)$/i.test(f.name)) return false;
+        if (f.originalSize > 内容上限) {
+          太大 = Math.max(太大, f.originalSize);
+          return false;
+        }
+        return true;
+      },
+    });
   } catch {
     throw new 读不出来("这个文件打不开。如果它是 .xls（2003 年那种老格式），请在 Excel 里另存为 .xlsx 或 .csv");
+  }
+  if (太大) {
+    throw new 读不出来(
+      `这张表内容太多，读不动（解开有 ${Math.round(太大 / 1024 / 1024)} MB）。一次最多导 ${行数上限.toLocaleString("en-US")} 行：请在 Excel 里拆成几份、每份 1 万行以内，再一份一份导`,
+    );
   }
 
   const 拿 = (p: string) => {
