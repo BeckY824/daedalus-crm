@@ -809,7 +809,8 @@ function ImagesCard({ 图们, 断网, 取图 }: { 图们: 图片视图[]; 断网
   const 地址 = useRef<string[]>([]);
   const 在取 = useRef(new Set<string>());
   useEffect(() => () => { for (const u of 地址.current) URL.revokeObjectURL(u); }, []);
-  // 大图开着时登记怎么关（返回键走浏览器历史，App 那边的 popstate 先问这里）
+  // 大图开着时登记怎么关（返回键走浏览器历史，App 那边的 popstate 先问这里）。
+  // 关了就清掉：连点两下时，第二下落在还在淡出的大图上，不能再退一步把详情也退掉（质量审 #98）
   useEffect(() => {
     if (!看) return;
     const 关 = () => set看(null);
@@ -865,7 +866,7 @@ function ImagesCard({ 图们, 断网, 取图 }: { 图们: 图片视图[]; 断网
       <div className="m-foot-note">传图、删图请在电脑上操作</div>
       <AnimatePresence>
         {看 && (
-          <motion.div className="m-img-view" role="dialog" aria-label={看.name} onClick={() => history.back()}
+          <motion.div className="m-img-view" role="dialog" aria-label={看.name} onClick={() => { if (大图.关) history.back(); }}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 现状动效.时长.base }}>
             {/* eslint-disable-next-line @next/next/no-img-element -- 解密后的 blob:，不走图片优化 */}
             {看的?.状态 === "有" ? <img src={看的.url} alt={看.name} />

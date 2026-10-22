@@ -71,6 +71,17 @@ test("客户详情：商机、订单上的产品图片自动取来当缩略图�
   await page.goBack();
   await expect(page.getByRole("dialog", { name: "样品正面.jpg" })).toBeHidden();
   await expect(卡).toBeVisible();
+  // 在大图上连点两下：第二下落在还在淡出的大图上，只关大图，详情不跟着退
+  await 卡.getByRole("button", { name: "看图片 样品正面.jpg" }).click();
+  const 再开 = page.getByRole("dialog", { name: "样品正面.jpg" });
+  await expect(再开).toHaveCSS("opacity", "1");
+  const 框 = (await 再开.boundingBox())!;
+  await page.mouse.click(框.x + 框.width / 2, 框.y + 框.height / 2);
+  await page.waitForTimeout(80);
+  await page.mouse.click(框.x + 框.width / 2, 框.y + 框.height / 2);
+  await expect(再开).toBeHidden();
+  await page.waitForTimeout(800);
+  await expect(卡).toBeVisible();
 
   await 卡.getByRole("button", { name: "看图片 刚拍的.jpg" }).click();
   await expect(page.getByRole("dialog", { name: "刚拍的.jpg" }).getByText("对方还在上传，稍后再看")).toBeVisible();
