@@ -78,6 +78,7 @@
     },
     "win": {
       "artifactName": "Daedalus-CRM-${version}-${arch}-setup.${ext}",
+      "electronLanguages": ["en-US", "zh-CN", "zh-TW"],
       "target": [
         {
           "target": "nsis",

@@ -1,6 +1,9 @@
 /** Actual NSIS full update. Synthetic feed version 99 only triggers the check;
  * the installer and restarted application must retain their real build version (desktop/package.json).
  * No Windows delta archive or manifest is generated or requested.
+ *
+ * CRM_SMOKE_BASE_SETUP=<an older release's setup.exe> (2026-10-20): install that release first and let ITS updater
+ * install this build — the path real users take. The installed-files-match-checkout check then runs after the update.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -22,6 +25,7 @@ const version = JSON.parse(fs.readFileSync(path.join(desktop, "package.json"))).
 const { displayVersion } = createRequire(import.meta.url)("../release-version.js");
 const sha = p => crypto.createHash("sha256").update(fs.readFileSync(p)).digest("hex");
 const installerHash = sha(setup);
+const baseSetup = process.env.CRM_SMOKE_BASE_SETUP || null;
 // Assisted NSIS uses productFilename (including the space), not package name.
 const installed = path.join(process.env.LOCALAPPDATA, "Programs", "Daedalus CRM");
 const exe = path.join(installed, "Daedalus CRM.exe");
@@ -58,7 +62,7 @@ function businessSmoke(dataRoot) {
   assert(root && fs.existsSync(root), "missing isolated smoke data root");
   return root;
 }
-const initial = spawnSync(setup, ["/S", "/currentuser"], { timeout: 300_000 });
+const initial = spawnSync(baseSetup || setup, ["/S", "/currentuser"], { timeout: 300_000 });
 if (initial.status !== 0) {
   const diagnostic = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
     "Get-WinEvent -FilterHashtable @{LogName='Application';Id=1000,1001;StartTime=(Get-Date).AddMinutes(-5)} -ErrorAction SilentlyContinue | Where-Object { $_.Message -like '*Daedalus*' } | Select-Object TimeCreated,Id,Message | Format-List | Out-String -Width 300"],
@@ -70,24 +74,29 @@ assert.equal(initial.status, 0, "initial NSIS install failed");
 assert(fs.existsSync(exe), "NSIS did not install at the expected current-user path");
 assert(fs.readdirSync(installed).some(n => /^Uninstall .+\.exe$/i.test(n)));
 console.log("PASS: real NSIS current-user install and uninstaller");
-const runtime = fs.readFileSync(exe);
-const peOffset = runtime.readUInt32LE(0x3c);
-assert.equal(runtime.subarray(peOffset, peOffset + 4).toString("hex"), "50450000");
-assert.equal(runtime.readUInt16LE(peOffset + 4), 0x8664, "installed runtime must be Windows x64");
-const asar = createRequire(import.meta.url)("@electron/asar");
-const embedded = ["main.js","release-version.js","preload.js","preload-app.js","local-server.js","mcp-bridge.js","cloud.js","glass-blur.js","accounts.js","machine.js","updater.js","update-security.js","route-memory.js","install.js","windows-install.js","delta.js","backup.js","auto-backup.js","crashlog.js","notifications.js","navigation.js","windows-toast-activation.js","reminders.js","sync.js","ops-notices.js","team-notices.js","sign.js"].map(name => {
-  const actual = asar.extractFile(path.join(installed, "resources", "app.asar"), name);
-  const normalized = actual.toString("utf8").replaceAll("\r\n", "\n");
-  assert.equal(normalized, fs.readFileSync(path.join(desktop, name), "utf8").replaceAll("\r\n", "\n"), "installed source mismatch: " + name);
-  return { file: name, sha256: crypto.createHash("sha256").update(actual).digest("hex"),
-    normalizedSha256: crypto.createHash("sha256").update(normalized).digest("hex") };
-});
-fs.writeFileSync(path.join(dist, `Daedalus-CRM-${version}-x64-verify.json`), JSON.stringify({
-  source: process.env.GITHUB_SHA, version, platform: "win32-x64", peMachine: "AMD64 0x8664",
-  installer: { file: setupName, bytes: fs.statSync(setup).size, sha256: installerHash },
-  actualNsisInstalledSourceMatches: true, lineEndingNormalizationOnly: true, files: embedded,
-}, null, 2) + "\n");
-console.log("PASS: actual NSIS-installed Windows x64 runtime and all 23 embedded source files match checkout");
+function verifyInstalledMatchesCheckout() {
+  const runtime = fs.readFileSync(exe);
+  const peOffset = runtime.readUInt32LE(0x3c);
+  assert.equal(runtime.subarray(peOffset, peOffset + 4).toString("hex"), "50450000");
+  assert.equal(runtime.readUInt16LE(peOffset + 4), 0x8664, "installed runtime must be Windows x64");
+  const asar = createRequire(import.meta.url)("@electron/asar");
+  const embedded = ["main.js","release-version.js","preload.js","preload-app.js","local-server.js","mcp-bridge.js","cloud.js","glass-blur.js","accounts.js","machine.js","updater.js","update-security.js","route-memory.js","install.js","windows-install.js","delta.js","backup.js","auto-backup.js","crashlog.js","notifications.js","navigation.js","windows-toast-activation.js","reminders.js","sync.js","ops-notices.js","team-notices.js","sign.js"].map(name => {
+    const actual = asar.extractFile(path.join(installed, "resources", "app.asar"), name);
+    const normalized = actual.toString("utf8").replaceAll("\r\n", "\n");
+    assert.equal(normalized, fs.readFileSync(path.join(desktop, name), "utf8").replaceAll("\r\n", "\n"), "installed source mismatch: " + name);
+    return { file: name, sha256: crypto.createHash("sha256").update(actual).digest("hex"),
+      normalizedSha256: crypto.createHash("sha256").update(normalized).digest("hex") };
+  });
+  fs.writeFileSync(path.join(dist, `Daedalus-CRM-${version}-x64-verify.json`), JSON.stringify({
+    source: process.env.GITHUB_SHA, version, platform: "win32-x64", peMachine: "AMD64 0x8664",
+    installer: { file: setupName, bytes: fs.statSync(setup).size, sha256: installerHash },
+    actualNsisInstalledSourceMatches: true, lineEndingNormalizationOnly: true, files: embedded,
+  }, null, 2) + "\n");
+  console.log("PASS: actual NSIS-installed Windows x64 runtime and all 23 embedded source files match checkout");
+}
+const locales = () => fs.readdirSync(path.join(installed, "locales")).filter(n => n.endsWith(".pak")).length;
+if (baseSetup) console.log(`PASS: base release installed from ${path.basename(baseSetup)} (${locales()} locale packs); this build installs over it via the old updater`);
+else verifyInstalledMatchesCheckout();
 // ExecShellAsUser launches through Explorer and does not inherit the caller's
 // CRM_DATA_ROOT. Use the real default user directory in the disposable runner,
 // so the actual automatic relaunch must open the same saved accounts and data.
@@ -228,6 +237,7 @@ try {
   assert(fs.readdirSync(installed).some(n => /^Uninstall .+\.exe$/i.test(n)));
   console.log("PASS: actual version, saved customer/order IDs, two accounts, marker, integrity and UI retained after full update");
   await app.close(); app = null;
+  if (baseSetup) { verifyInstalledMatchesCheckout(); console.log(`PASS: after update from the base release: ${locales()} locale packs`); }
   businessSmoke();
   console.log("PASS: full installed package passes the complete business smoke again");
 } catch (error) {
