@@ -27,6 +27,22 @@ export function 能管项目(me: 谁, p: { ownerId: string; pooledAt?: Date | nu
   return !p.pooledAt && me.id === p.ownerId;
 }
 
+/**
+ * 项目公海里的项目谁都看得到（才能领），但客户可能是同事的：客户名、公司、联系人、沟通内容这时都不给，
+ * 领了（成了负责人）再看（质量审 10-23）。看得到这位客户（自己的、客户公海里的、老板 / 主管、开了互看）照常给
+ */
+export function 露客户(me: { id: string }, p: { customerId: string; ownerId: string; pooledAt?: Date | null }, 看得到的: ReadonlySet<string>): boolean {
+  return 看得到的.has(p.customerId) || (!p.pooledAt && p.ownerId === me.id);
+}
+
+/** 这批客户里当前这位看得到哪几个：走带限定的客户端查一遍，限定层说了算，这里不另写一套规矩 */
+export async function 看得到的客户(customerIds: string[], db: Pick<Prisma.TransactionClient, "customer"> = prisma): Promise<Set<string>> {
+  const ids = [...new Set(customerIds)];
+  if (ids.length === 0) return new Set();
+  const rows = await db.customer.findMany({ where: { id: { in: ids } }, select: { id: true } });
+  return new Set(rows.map((r) => r.id));
+}
+
 /** 组员角色字典：按排序列出（停用的也列，界面自己挑），空着就先建默认 4 个 */
 export async function 角色字典(db: Prisma.TransactionClient = prisma) {
   if ((await db.projectRole.count()) === 0) {

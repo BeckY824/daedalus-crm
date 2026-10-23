@@ -67,10 +67,12 @@ export default function ProjectsView({
   const 不问归属 = !f.ownerId && 列表不问归属ID(users, 行.map((r) => r.ownerId));
   const 在筛 = Object.values(filters).some(Boolean);
   const 新建 = () => router.push("/projects/new");
+  // 公海里同事客户的项目不给客户名（page.tsx 露客户），领取后再看
+  const 领了再看 = `领取后显示${b.customer}`;
 
   const 列表: 列<项目行>[] = [
     { title: "项目", dataIndex: "name", width: 200, ellipsis: true },
-    { title: b.customer, key: "customer", width: 180, render: (_, r) => <CustomerLink id={r.customerId} name={r.customerName} /> },
+    { title: b.customer, key: "customer", width: 180, render: (_, r) => (r.customerName == null ? <span style={{ color: "var(--text-muted)" }}>{领了再看}</span> : <CustomerLink id={r.customerId} name={r.customerName} />) },
     { title: "节点", key: "node", width: 170, render: (_, r) => 节点文字(r) },
     { title: "金额", key: "amount", width: 130, align: "right", render: (_, r) => 金额(r.amount, r.currency) },
     ...(不问归属 ? [] : [{ title: "负责人", key: "owner", width: 110, render: (_: unknown, r: 项目行) => (r.pooled ? <Tag title={`${r.ownerName} 放回的`}>公海</Tag> : <UserCell name={r.ownerName} />) }]),
@@ -161,8 +163,8 @@ export default function ProjectsView({
                           style={{ borderLeftColor: 异常 ? "var(--danger)" : 列色[c.列] }}
                           tabIndex={0}
                           role="link"
-                          title={异常 && 异常说明(r) ? `异常：${异常说明(r)}` : `${r.customerName} · ${r.node}`}
-                          aria-label={`${r.name}，${r.customerName}，${异常 ? "异常 · " : ""}${r.node}，${金额(r.amount, r.currency)}${r.pooled ? "，在项目公海里" : ""}`}
+                          title={异常 && 异常说明(r) ? `异常：${异常说明(r)}` : `${r.customerName ?? 领了再看} · ${r.node}`}
+                          aria-label={`${r.name}，${r.customerName ?? 领了再看}，${异常 ? "异常 · " : ""}${r.node}，${金额(r.amount, r.currency)}${r.pooled ? "，在项目公海里" : ""}`}
                           onClick={() => router.push(`/projects/${r.id}`)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
@@ -173,7 +175,7 @@ export default function ProjectsView({
                         >
                           <div className="pipe-card-t">{r.name}</div>
                           <div className="pipe-card-m">
-                            <span className="pipe-card-o">{r.customerName}</span>
+                            <span className="pipe-card-o" style={r.customerName == null ? { color: "var(--text-muted)" } : undefined}>{r.customerName ?? 领了再看}</span>
                           </div>
                           <div className="pipe-card-m">
                             <span className="pipe-card-o" style={异常 ? { color: "var(--danger-text)" } : undefined}>

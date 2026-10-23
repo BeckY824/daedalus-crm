@@ -146,7 +146,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
             name="projectMode"
             label="项目模式"
             valuePropName="checked"
-            extra={`打开后侧栏多一项「项目」，新建${value.customer}、线索、商机改走建档向导，一单生意从线索到交付记在一个项目里；已有的线索、商机、订单照旧。全团队一份。手机端暂时还按原来的方式新建。`}
+            extra={`打开后侧栏多一项「项目」，新建${value.customer}、线索、商机改走建档向导，一单生意从线索到交付记在一个项目里；已有的线索、商机、订单照旧。开关全团队一份；项目本身暂时只存在建它的那台电脑上，还不在团队里同步，同事那边看不到、也领不到公海里的项目。手机端暂时还按原来的方式新建。`}
           >
             <Switch />
           </Form.Item>

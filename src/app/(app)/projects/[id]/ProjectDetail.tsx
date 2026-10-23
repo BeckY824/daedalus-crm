@@ -15,8 +15,9 @@ import { ProjectEditModal, ProjectTeamCard, type 组员, type 角色, type 联�
 
 export type 项目详情 = {
   id: string; name: string; remark: string | null; amount: number; currency: string;
-  customer: { id: string; name: string; school: string | null };
-  contact: { id: string; name: string; position: string | null; phone: string | null } | null;
+  /** null = 公海里同事客户的项目，领取后再给（page.tsx 露客户）；联系人、沟通这时也是空的 */
+  customer: { id: string; name: string; school: string | null } | null;
+  contact: { id: string; name: string; position: string | null } | null;
   ownerId: string; ownerName: string; creatorName: string; createdAt: string;
   phase: string; node: string; result: string | null;
   /** 异常状态时：选的异常类别名、备注（可空） */
@@ -236,7 +237,7 @@ export default function ProjectDetail({
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16, marginBottom: 16 }}>
         <Card title="项目" extra={可改 && <Button type="link" size="small" disabled={忙} onClick={() => set编辑开着(true)}>编辑</Button>}>
-          <div style={行样}><span style={键样}>{b.customer}</span><CustomerLink id={p.customer.id} name={p.customer.name} company={p.customer.school} /></div>
+          <div style={行样}><span style={键样}>{b.customer}</span>{p.customer ? <CustomerLink id={p.customer.id} name={p.customer.name} company={p.customer.school} /> : <span style={{ color: "var(--text-muted)" }}>领取后显示</span>}</div>
           {p.contact && <div style={行样}><span style={键样}>联系人</span>{p.contact.name}{p.contact.position ? ` · ${p.contact.position}` : ""}</div>}
           <div style={行样}><span style={键样}>金额</span>{金额(p.amount, p.currency)}</div>
           <div style={行样}><span style={键样}>负责人</span>{p.pooled ? <span>在公海里<span style={{ color: "var(--text-muted)" }}>（{p.ownerName} 放回的）</span></span> : p.ownerName}</div>
@@ -297,8 +298,8 @@ export default function ProjectDetail({
             }))}
           />
         </Card>
-        <Card title="沟通" extra={<Link href={`/customers/${p.customer.id}`}>去{b.customer}页记一条</Link>}>
-          {p.followUps.length === 0 && <div style={{ color: "var(--text-muted)" }}>还没有挂在这个项目上的沟通</div>}
+        <Card title="沟通" extra={p.customer && <Link href={`/customers/${p.customer.id}`}>去{b.customer}页记一条</Link>}>
+          {p.followUps.length === 0 && <div style={{ color: "var(--text-muted)" }}>{p.customer ? "还没有挂在这个项目上的沟通" : "领取后显示"}</div>}
           {p.followUps.map((f) => (
             <div key={f.id} style={{ marginBottom: 12 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

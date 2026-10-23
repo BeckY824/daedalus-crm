@@ -9,7 +9,8 @@ export type 项目行 = {
   id: string;
   name: string;
   customerId: string;
-  customerName: string;
+  /** 公海里同事客户的项目不给客户名（lib/project/db.ts 露客户），领了再看 */
+  customerName: string | null;
   ownerId: string;
   ownerName: string;
   phase: string;

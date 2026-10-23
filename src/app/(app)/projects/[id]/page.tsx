@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
-import { 能管项目, 角色字典, 异常类别字典, 能进公海的阶段 } from "@/lib/project/db";
+import { 能管项目, 角色字典, 异常类别字典, 能进公海的阶段, 看得到的客户, 露客户 } from "@/lib/project/db";
 import { 负责人候选 } from "@/lib/owners";
 import ProjectDetail, { type 项目详情 } from "./ProjectDetail";
 
@@ -17,7 +17,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     where: { id },
     include: {
       customer: { select: { id: true, name: true, school: true } },
-      contact: { select: { id: true, name: true, position: true, phone: true } },
+      contact: { select: { id: true, name: true, position: true } },
       exceptionCategory: { select: { name: true } },
       logs: { orderBy: { at: "desc" }, take: 200 },
       members: { orderBy: { createdAt: "asc" } },
@@ -27,6 +27,8 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   });
   if (!p) notFound();
   const 能改 = 能管项目(me, p);
+  // 公海里同事客户的项目：只给项目本身，客户、联系人、沟通内容领了再看（lib/project/db.ts 露客户）
+  const 露 = 露客户(me, p, await 看得到的客户([p.customerId]));
   const [候选, 在职, 联系人们, 角色们, 类别们] = await Promise.all([
     负责人候选(),
     prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
@@ -37,7 +39,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const 类别名 = new Map(类别们.map((c) => [c.id, c.name]));
   const 公海 = !!p.pooledAt;
 
-  const 人id = new Set<string>([p.ownerId, p.creatorId, ...p.members.map((m) => m.userId), ...p.logs.flatMap((l) => [l.userId, l.fromOwnerId, l.toOwnerId].filter((x): x is string => !!x)), ...p.followUps.map((f) => f.followUp.ownerId)]);
+  const 人id = new Set<string>([p.ownerId, p.creatorId, ...p.members.map((m) => m.userId), ...p.logs.flatMap((l) => [l.userId, l.fromOwnerId, l.toOwnerId].filter((x): x is string => !!x)), ...(露 ? p.followUps.map((f) => f.followUp.ownerId) : [])]);
   for (const x of [p.balanceSettledById, p.acceptancePassedById]) if (x) 人id.add(x);
   const 人 = await prisma.user.findMany({ where: { id: { in: [...人id] } }, select: { id: true, name: true } });
   const 名 = new Map(人.map((u) => [u.id, u.name]));
@@ -45,7 +47,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
 
   const 详情: 项目详情 = {
     id: p.id, name: p.name, remark: p.remark, amount: p.amount, currency: p.currency,
-    customer: p.customer, contact: p.contact,
+    customer: 露 ? p.customer : null, contact: 露 ? p.contact : null,
     ownerId: p.ownerId, ownerName: 叫(p.ownerId)!, creatorName: 叫(p.creatorId)!, createdAt: p.createdAt.toISOString(),
     phase: p.phase, node: p.node, result: p.result, exceptionReason: p.exceptionReason, exceptionCategory: p.exceptionCategory?.name ?? null,
     pooled: 公海,
@@ -61,7 +63,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
       kind: l.kind === "transfer" || l.kind === "pool-release" || l.kind === "pool-claim" ? l.kind : "node",
       transfer: l.kind === "node" ? null : { from: 叫(l.fromOwnerId) ?? "没人", to: 叫(l.toOwnerId) ?? "没人" },
     })),
-    followUps: p.followUps
+    followUps: (露 ? p.followUps : [])
       .map((f) => ({ id: f.followUp.id, type: f.followUp.type, content: f.followUp.content, occurredAt: f.followUp.occurredAt.toISOString(), who: 叫(f.followUp.ownerId)!, node: f.node }))
       .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)),
     members: p.members.map((m) => ({ id: m.id, userId: m.userId, name: 叫(m.userId)!, roleId: m.roleId, inviteStatus: m.inviteStatus })),

@@ -5,13 +5,14 @@ import { getBusiness } from "@/lib/business";
 import { 搜索词 } from "@/lib/search-keyword";
 import { 负责人候选 } from "@/lib/owners";
 import { 看板分列, type 项目行 } from "@/lib/project/board";
+import { 看得到的客户, 露客户 } from "@/lib/project/db";
 import ProjectsView from "./ProjectsView";
 
 export const dynamic = "force-dynamic";
 
 /** 项目模式关着时这一页不存在（404），侧栏也没有入口。见 设计-团队版项目模式1a 第三节 */
 export default async function ProjectsPage({ searchParams }: { searchParams: Promise<{ keyword?: string; ownerId?: string; pool?: string }> }) {
-  await requireUser();
+  const me = await requireUser();
   if ((await getBusiness()).projectMode !== true) notFound();
   const sp = await searchParams;
   const 词 = 搜索词(sp.keyword);
@@ -25,13 +26,16 @@ export default async function ProjectsPage({ searchParams }: { searchParams: Pro
     take: 500,
     include: { customer: { select: { name: true } }, exceptionCategory: { select: { name: true } } },
   });
-  const [人, users] = await Promise.all([
+  const [人, users, 可见] = await Promise.all([
     prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.ownerId))] } }, select: { id: true, name: true } }),
     负责人候选(),
+    看得到的客户(rows.map((r) => r.customerId)),
   ]);
   const 名字 = new Map(人.map((u) => [u.id, u.name]));
-  const 行: 项目行[] = rows.map((p) => ({
-    id: p.id, name: p.name, customerId: p.customerId, customerName: p.customer.name,
+  // 公海里同事客户的项目：不露客户名；按客户名搜也不该搜出它（否则等于拿名字试出来）
+  const 露 = (p: (typeof rows)[number]) => 露客户(me, p, 可见);
+  const 行: 项目行[] = rows.filter((p) => !词 || p.name.toLowerCase().includes(词.toLowerCase()) || 露(p)).map((p) => ({
+    id: p.id, name: p.name, customerId: p.customerId, customerName: 露(p) ? p.customer.name : null,
     ownerId: p.ownerId, ownerName: 名字.get(p.ownerId) ?? "已不在的成员",
     phase: p.phase, node: p.node, result: p.result, exceptionCategory: p.exceptionCategory?.name ?? null, exceptionReason: p.exceptionReason,
     pooled: !!p.pooledAt,
