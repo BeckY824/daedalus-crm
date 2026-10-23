@@ -252,6 +252,12 @@ export default function CustomersView({
     });
   }
   const b = useBusiness();
+  // 项目模式开着：新建一律走建档向导（客户、联系人、项目、首条沟通一次建好）
+  const 新建 = () => {
+    if (b.projectMode) return router.push("/projects/new");
+    setEditing(null);
+    setFormOpen(true);
+  };
 
   const { f, setF, apply, 翻页, reset, pending } = useUrlFilters("/customers", { ...filters, sort: 金额排序 || 等级排序, sortCurrency: 排序币种 ?? b.currency }, pageSize);
   /**
@@ -511,7 +517,7 @@ export default function CustomersView({
               </Button>
               {导出中 && <Space><span role="status" style={{ fontSize: 12 }}>{导出进度}</span><Button size="small" onClick={() => 导出取消.current?.abort()}>取消导出</Button></Space>}
             </>)}
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditing(null); setFormOpen(true); }}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={新建}>
               新建{b.customer}
             </Button>
           </Space>
@@ -542,7 +548,7 @@ export default function CustomersView({
           hint: 外贸
             ? `${b.customer}是这套系统的中心：跟进记录、商机、订单都挂在他身上。`
             : `${b.customer}是这套系统的中心：跟进记录、商机、签约都挂在他身上，推荐归属也按他这条线往上算。`,
-          primary: { label: `新建第一位${b.customer}`, onClick: () => { setEditing(null); setFormOpen(true); } },
+          primary: { label: `新建第一位${b.customer}`, onClick: 新建 },
           secondary: [{ label: "从 Excel 导入", onClick: () => set导入开着(true) }],
         }}
         筛选={
