@@ -12,6 +12,8 @@
  *   3. 空闲 LOAD_IDLE 秒：全员前台每 8 秒一轮时，中转每秒请求数、云端 CPU / 内存
  *   4. 每位业务员（第一台）同时录 1 位客户 + 1 条跟进 → 老板那台多久收到（中位 / 最慢）
  *   5. 老板打开「同事之间互相看得到客户」→ 每台业务员拉全队老数据：多久拉齐（LOAD_SHARE_TIMEOUT 秒为止，到时没齐就报进度）
+ *   6.（LOAD_REPULL=1）全队同时升级：每台记的表结构签名都作废 → 下一轮各范围游标归零、从头重拉（#89 的路径）。
+ *      量全队追回升级前的游标要多久、期间云端 CPU / 内存 / 5xx、重拉完客户和跟进条数有没有变
  *
  * 人数：默认一人一台（LOAD_ACCOUNTS = 台数）。LOAD_ACCOUNTS 比台数少时，多出来的电脑是前几位业务员的第二台
  *（10-21 第一轮压测时中转写死 20 人上限只能这么凑，现在人数上限跟席位走）。
@@ -20,7 +22,8 @@
  * LOAD_IDLE（空闲量几秒，默认 60）、LOAD_SHARE（1 = 跑第 5 阶段，默认 1）、LOAD_SHARE_TIMEOUT（默认 600）、LOAD_PORT（起始端口，默认 3800）、
  * LOAD_INTERVAL（壳几毫秒一轮，默认 8000 = 前台）、LOAD_KEEP=1（留临时目录）。结果打印并写到 .bench/负载-<时间>.json（.bench 不进仓库）。
  * 按正式服规格（10-21 加）：LOAD_CLOUD_IMAGE（生产镜像，`git archive <提交> | docker build -t crm-load:<提交> -`）+ LOAD_CLOUD_CPUS / LOAD_CLOUD_MEM（默认 2 / 1100m）；
- * LOAD_JOIN_BATCH / LOAD_JOIN_GAP（每批几台同时进队、隔几秒，默认全部同时）、LOAD_SHARE_FIRST=1（先开互看再进队）、LOAD_WRITES（每位业务员一分钟记几条跟进）。
+ * LOAD_JOIN_BATCH / LOAD_JOIN_GAP（每批几台同时进队、隔几秒，默认全部同时）、LOAD_SHARE_FIRST=1（先开互看再进队）、LOAD_WRITES（每位业务员一分钟记几条跟进）、
+ * LOAD_REPULL=1（跑第 6 阶段，默认不跑）、LOAD_REPULL_TIMEOUT（默认 900 秒）。
  * 注意：桌面端全在本机跑，几十台同时全量拉取时慢在本机，看云端核数分开说。
  */
 import fs from "node:fs";
@@ -54,6 +57,9 @@ const 进队每批 = 环境数("LOAD_JOIN_BATCH", 0), 批间隔 = 环境数("LOA
 const 先开互看 = process.env.LOAD_SHARE_FIRST === "1";
 // 第 4 阶段每位业务员一分钟内记几条跟进（默认 1）
 const 每人跟进 = 环境数("LOAD_WRITES", 1);
+// 第 6 阶段：全队同时升级、首轮从头重拉（2026-10-23 加，量 #89 的路径）
+const 跑重拉 = process.env.LOAD_REPULL === "1";
+const 重拉超时 = 环境数("LOAD_REPULL_TIMEOUT", 900) * 1000;
 
 const 批 = crypto.randomBytes(2).toString("hex");
 const 容器 = `team-load-${批}`;
@@ -187,6 +193,7 @@ async function 壳(t) {
   await 停(首轮 + Math.random() * 前台间隔); // 真实电脑不会同一秒开机：错开
   while (!t.壳停) {
     const 起 = Date.now();
+    t.在跑 = true;
     try {
       const res = await fetch(`${t.会.base}/api/desktop/sync`, { method: "POST", headers: { "x-desktop-token": t.令牌 }, signal: AbortSignal.timeout(300_000) });
       const j = await res.json().catch(() => null);
@@ -196,6 +203,7 @@ async function 壳(t) {
       t.轮们.push({ at: 起, 用时: Date.now() - 起, ok: false });
       没成的轮.push(`${new Date(起).toISOString().slice(11, 19)} ${t.名}：请求失败 ${String(e.message ?? e).slice(0, 100)}`);
     }
+    t.在跑 = false;
     await 停(前台间隔);
   }
 }
@@ -478,6 +486,54 @@ async function 主线() {
     打(`互看：${JSON.stringify({ ...结果.阶段.互看拉全队, 进度: undefined })}`);
   }
 
+  // 6. 全队同时升级：壳全停、等手上那一轮跑完 → 每台 .team.json 去掉 scoped.结构（= 签名变了）→ 壳重新开（像升级完重开，错开 10–18 秒）
+  if (跑重拉) {
+    const 在队 = 台们.filter((t) => t === 老 || t.进了);
+    for (const t of 台们) t.壳停 = true;
+    await 等到({ 步骤: "壳停下", 哪台: "全部", 期望: "没有正在跑的一轮", 取: () => 台们.every((t) => !t.在跑), 满足: Boolean, 超时: 330_000, 间隔: 200 });
+    const 坏前 = [...计.坏.values()].reduce((n, x) => n + x.次, 0);
+    const 冲突数 = () => 在队.reduce((n, t) => { try { return n + 数(t.库, "SELECT COUNT(*) AS n FROM _sync_scope_conflict"); } catch { return n; } }, 0);
+    const 冲突前 = 冲突数();
+    const 条数 = (t) => [数(t.库, "SELECT COUNT(*) AS n FROM Customer"), 数(t.库, "SELECT COUNT(*) AS n FROM FollowUp")];
+    const 记 = new Map();
+    for (const t of 在队) {
+      const f = path.join(t.目录, ".team.json"), c = JSON.parse(fs.readFileSync(f, "utf8"));
+      if (!c.scoped?.结构) throw new Error(`${t.名} 升级前就没记结构签名：${JSON.stringify(c.scoped ?? null).slice(0, 200)}`);
+      记.set(t, { 游标: { ...c.scoped.cursors }, 条数: 条数(t) });
+      delete c.scoped.结构;
+      fs.writeFileSync(f, JSON.stringify(c, null, 2), { mode: 0o600 });
+    }
+    const 范围数 = [...记.values()].map((x) => Object.keys(x.游标).length);
+    const 起 = Date.now();
+    for (const t of 台们) { t.壳停 = false; void 壳(t); }
+    const 进度 = [], 用时 = [];
+    let 下次记 = Date.now();
+    // 追回 = 重新记上签名，且升级前的每个范围都拉回到原来的序号（中转留着全部历史，从 0 拉回来）
+    const 追回 = (t) => {
+      const c = 读团队文件(t)?.scoped, 原 = 记.get(t).游标;
+      return Boolean(c?.结构) && Object.entries(原).every(([k, v]) => (c.cursors?.[k]?.after ?? -1) >= v.after);
+    };
+    await 等到({
+      步骤: "升级后全队重拉追回", 哪台: "全部", 期望: "每台每个范围的游标回到升级前",
+      取: () => {
+        const 齐 = 在队.map((t) => { const ok = 追回(t); if (ok && t.重拉齐 == null) { t.重拉齐 = Date.now() - 起; 用时.push(t.重拉齐); } return ok; });
+        if (Date.now() >= 下次记) { 进度.push({ 秒: Math.round((Date.now() - 起) / 1000), 齐了几台: 齐.filter(Boolean).length }); 下次记 = Date.now() + 15_000; 打(`重拉进度 ${JSON.stringify(进度.at(-1))}`); }
+        return 齐;
+      },
+      满足: (v) => v.every(Boolean), 超时: 重拉超时, 间隔: 1000,
+    }).catch(() => undefined);
+    await 停(2 * 前台间隔); // 追回后再跑两轮，看条数稳不稳
+    结果.阶段.全队升级重拉 = {
+      台数: 在队.length, 每台范围数: { 最少: Math.min(...范围数), 最多: Math.max(...范围数) }, 齐了: 用时.length, ...(用时.length ? 分位(用时) : {}),
+      没齐: 在队.filter((t) => t.重拉齐 == null).map((t) => `${t.名}：${JSON.stringify(读团队文件(t)?.scoped?.cursors ?? null).slice(0, 120)}`),
+      条数变了: 在队.filter((t) => 条数(t).join() !== 记.get(t).条数.join()).map((t) => `${t.名}：${记.get(t).条数.join("/")} → ${条数(t).join("/")}`),
+      新冲突: 冲突数() - 冲突前, 新5xx: [...计.坏.values()].reduce((n, x) => n + x.次, 0) - 坏前,
+      有错的台: 在队.filter((t) => 读团队文件(t)?.lastError).map((t) => `${t.名}：${String(读团队文件(t).lastError).slice(0, 100)}`),
+      进度, 云端: 段内云端(起, Date.now()), 流量: 段内流量(起, Date.now()), 一轮同步: 段内一轮(起, Date.now()),
+    };
+    打(`全队升级重拉：${JSON.stringify({ ...结果.阶段.全队升级重拉, 进度: undefined })}`);
+  }
+
   结果.全程云端 = 段内云端(总起, Date.now());
   结果.按路径 = Object.fromEntries([...计.路径].sort((a, b) => b[1].次 - a[1].次).slice(0, 12).map(([k, v]) => [k, { 次: v.次, 平均毫秒: Math.round(v.毫秒 / v.次), 最慢毫秒: v.最慢 }]));
   结果.没成的轮 = { 共: 没成的轮.length, 前几条: 没成的轮.slice(0, 15) };
@@ -507,7 +563,7 @@ try {
     if (!留着) execFileSync("docker", ["volume", "rm", 容器], { stdio: "ignore" });
     else console.log(`云端数据卷留着：${容器}`);
   }
-  const 标 = `${云镜像 ? `-限${云核}核${云内存}` : ""}${先开互看 ? "-先互看" : ""}${进队每批 ? `-每批${进队每批}` : ""}`;
+  const 标 = `${云镜像 ? `-限${云核}核${云内存}` : ""}${先开互看 ? "-先互看" : ""}${进队每批 ? `-每批${进队每批}` : ""}${跑重拉 ? "-重拉" : ""}`;
   const 文件 = path.join(根, ".bench", `负载-${台数}台-${种子}位${标}-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, "")}.json`);
   fs.mkdirSync(path.dirname(文件), { recursive: true });
   fs.writeFileSync(文件, JSON.stringify(结果, null, 2));
