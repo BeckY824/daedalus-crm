@@ -1,11 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Space, Tag, Tooltip } from "antd";
 import { PlusOutlined, WarningOutlined } from "@ant-design/icons";
-import { PageHead } from "@/components/ui";
+import { RowLink, PageHead } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import ListSearch from "@/components/ListSearch";
 import { useUrlFilters } from "@/lib/url-filters";
@@ -29,7 +28,7 @@ export default function SuppliersView({ rows, filters }: { rows: 供应商行[];
       title: "供应商", key: "name", dataIndex: "name", width: 200, 常驻: true,
       render: (v: string, r) => (
         <Space size={6}>
-          <Link href={`/suppliers/${r.id}`} className="link-strong">{v}</Link>
+          <RowLink href={`/suppliers/${r.id}`} className="link-strong">{v}</RowLink>
           {r.issues && <Tooltip title={`出过的问题：${r.issues}`}><WarningOutlined className="cmp-issue" aria-label="出过问题" /></Tooltip>}
         </Space>
       ),

@@ -18,6 +18,7 @@ import {
   EllipsisOutlined,
 } from "@ant-design/icons";
 import Link from "next/link";
+import type { ComponentProps } from "react";
 import { avatarColor, companyInitial, initial, AVATAR_TEXT } from "@/lib/utils";
 import { FOLLOW_STATUS_COLOR, DECISION_STATUS_COLOR, OPP_STAGE_COLOR, FOLLOW_TYPE_MAP } from "@/lib/constants";
 import { useBusiness } from "@/lib/business-client";
@@ -193,6 +194,17 @@ export function StageTag({ stage }: { stage: string }) {
 }
 
 /**
+ * 列表里每一行上的链接：不预取（2026-10-20）。
+ *
+ * next/link 默认一进视口就预取目标页。客户名单、表格、时间线一屏几十上百行，
+ * 每行都预取一遍详情页，渲染进程和本机服务端都白干活、白占内存，可人一次只点开一位。
+ * 点了照常跳，只是不提前取。左栏导航、页里单个的「查看全部」之类仍用 Link，照旧预取。
+ */
+export function RowLink(props: ComponentProps<typeof Link>) {
+  return <Link prefetch={false} {...props} />;
+}
+
+/**
  * 列表里「所属客户」那一格。给了 company（Customer.school，外贸叫公司、教培叫学校）就摆两行：
  * 上面人名可点，下面公司灰色小字、一行省略、悬停看全名（2026-10-19 用户定：不加新列，同一格两行）。
  * 没填公司不占第二行。logo={false} 给本来就不摆头像的列表（订单一览）用
@@ -203,9 +215,9 @@ export function CustomerLink({ id, name, company, logo = true }: { id: string; n
     <span className="cust-link">
       {logo && <CompanyLogo name={name} />}
       <span className="cust-link-t">
-        <Link href={`/customers/${id}`} className="link-strong">
+        <RowLink href={`/customers/${id}`} className="link-strong">
           {name}
-        </Link>
+        </RowLink>
         {公司 && (
           <span className="cust-link-co" title={公司}>
             {公司}
