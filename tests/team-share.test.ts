@@ -29,7 +29,7 @@ vi.mock("@/lib/prisma", async () => {
 
 const 登录的 = vi.hoisted(() => ({ user: { id: "acct_wang", name: "小王", email: "acct_wang@x.com", role: "SALES", title: "销售", avatar: null } as { id: string; name: string; email: string; role: string; title: string; avatar: null } }));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
-vi.mock("@/lib/auth", async (原) => ({ ...(await 原<object>()), requireUser: async () => 登录的.user }));
+vi.mock("@/lib/auth", async (原) => ({ ...(await 原<object>()), requireUser: async () => 登录的.user, getCurrentUser: async () => 登录的.user }));
 
 import { prisma as db, defaultClient as raw } from "@/lib/prisma";
 import { 分配公海, 撤销公海, 领取 } from "@/app/(app)/customers/pool-actions";
@@ -38,6 +38,8 @@ import { patchCustomer } from "@/app/(app)/customers/actions";
 import { 忘掉限定, 限定的我, 读的我, 只读客户, 只读错误 } from "@/lib/team-scope";
 import { 设传输, 对齐角色, 读团队, type 传输 } from "@/lib/sync/client";
 import { 不在了 } from "@/lib/not-there";
+import { GET as 列附件路由, POST as 传附件路由 } from "@/app/api/attachments/route";
+import { GET as 取附件路由, DELETE as 删附件路由 } from "@/app/api/attachments/[id]/route";
 
 const 老板 = "acct_boss";
 const 小王 = "acct_wang";
@@ -248,5 +250,39 @@ describe("公海由老板指派", () => {
     const r = await 分配公海([ids["公海客户"]], 小李);
     expect(r).toMatchObject({ ok: true, updated: 0 });
     expect((await raw.customer.findUnique({ where: { id: ids["公海客户"] } }))?.salesOwnerId).toBe(小王);
+  });
+});
+
+
+describe("商机图片跟着商机走（D-24）", () => {
+  let 图: string;
+  let 李的商机: string;
+  beforeAll(async () => {
+    当("wang");
+    李的商机 = (await raw.opportunity.findFirstOrThrow({ where: { customerId: ids["小李的客户"] }, select: { id: true } })).id;
+    图 = (await raw.attachment.create({ data: { opportunityId: 李的商机, name: "样品.jpg", mime: "image/jpeg", size: 3, sha256: "x".repeat(64), userId: 小李 } })).id;
+  });
+  afterAll(async () => { await raw.attachment.deleteMany({}); });
+  const 列 = () => 列附件路由(new Request(`http://x/api/attachments?opportunityId=${李的商机}`));
+  const 传 = () => 传附件路由(new Request(`http://x/api/attachments?opportunityId=${李的商机}&name=a.jpg`, { method: "POST", headers: { "content-type": "image/jpeg", "content-length": "3" }, body: new Uint8Array([1, 2, 3]) }));
+  const 按编号 = (方法: "GET" | "DELETE") => (方法 === "GET" ? 取附件路由 : 删附件路由)(new Request(`http://x/api/attachments/${图}`, { method: 方法 }), { params: Promise.resolve({ id: 图 }) });
+
+  it("互看开着：同事商机上的图片列得出来，传、删一律 403", async () => {
+    await 云端说(true);
+    const r = await 列();
+    expect(r.status).toBe(200);
+    expect(((await r.json()) as { 附件: { id: string }[] }).附件.map((a) => a.id)).toEqual([图]);
+    expect((await 传()).status).toBe(403);
+    expect((await 按编号("DELETE")).status).toBe(403);
+    expect(await raw.attachment.count({ where: { opportunityId: 李的商机 } })).toBe(1);
+  });
+
+  it("互看关着：看不到的商机，列、按编号取、删都是 404，图片还在", async () => {
+    await 云端说(false);
+    expect((await 列()).status).toBe(404);
+    expect((await 按编号("GET")).status).toBe(404);
+    expect((await 按编号("DELETE")).status).toBe(404);
+    expect((await 传()).status).toBe(404);
+    expect(await raw.attachment.count({ where: { opportunityId: 李的商机 } })).toBe(1);
   });
 });
