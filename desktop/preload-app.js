@@ -112,6 +112,14 @@ contextBridge.exposeInMainWorld("desktopShell", {
   setCloseAction: (方式) => ipcRenderer.invoke("shell:set-close-action", String(方式 ?? "")),
 });
 
+/**
+ * 商机 / 订单附件「用系统程序打开」（attachments.js，2026-10-22 D-24）。
+ * 只传编号和名字；拷到哪、怎么开由主进程定，能跑的文件只在文件夹里选中
+ */
+contextBridge.exposeInMainWorld("desktopAttachments", {
+  open: (id, 名) => ipcRenderer.invoke("attachments:open", String(id ?? ""), String(名 ?? "")),
+});
+
 contextBridge.exposeInMainWorld("desktopNotify", {
   // 去：点通知回到哪一页（站内相对路径，主进程再校一遍）。老页面不传也行
   通知: (标题, 正文, 去) => ipcRenderer.invoke("notify:show", { 标题: String(标题 ?? ""), 正文: String(正文 ?? ""), 去: 去 ? String(去) : "" }),

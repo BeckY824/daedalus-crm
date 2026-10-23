@@ -22,6 +22,8 @@ export async function resetDb() {
   await prisma.followPlan.deleteMany();
   await prisma.followUpSource.deleteMany();
   await prisma.followUp.deleteMany();
+  // 附件不建外键（商机删了能撤销），不会被级联带走（2026-10-22 D-24）
+  await prisma.attachment.deleteMany();
   await prisma.contract.deleteMany();
   await prisma.opportunity.deleteMany();
   await prisma.contact.deleteMany();

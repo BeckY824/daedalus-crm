@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { App, Button, Card, Descriptions, Input, Space } from "antd";
 import { EditOutlined } from "@ant-design/icons";
 import { PageHead } from "@/components/ui";
+import AttachmentsPanel from "@/components/AttachmentsPanel";
 import { fmtDate, fmtDateTime } from "@/lib/utils";
 import { 金额 } from "@/lib/currency";
 import type { 订单详情数据 } from "@/lib/order-db";
@@ -124,6 +125,11 @@ export default function OrderLite({ o }: { o: 订单详情数据 }) {
             ))}
           </ul>
         )}
+      </Card>
+
+      {/* 产品图片（D-24）：放在跟进下面，跟进是天天用的 */}
+      <Card style={{ marginTop: 16 }} title={<span className="section-title">图片</span>}>
+        <AttachmentsPanel 归属={{ orderId: o.id }} />
       </Card>
 
       {c && (
