@@ -476,6 +476,30 @@ model CustomerNotDupe {
   @@index([otherId])
 }
 
+/// 商机 / 订单的附件（2026-10-22 D-24，迁移 041）：合同扫描件、产品图、报价单 PDF……挂在一个商机或一张订单下（两列二选一）。
+/// 文件本身在数据目录 attachments/<id>（lib/attachments.ts），这里只记名字、类型、大小、图片宽高、sha256。文件存进去以后不再改。
+/// 不建外键：商机删了又撤销时编号不变，附件跟着回来；父记录没了满 1 天，本机连文件一起清掉（lib/attachments.ts 清孤儿）。
+/// 这一版只存本机（不同步表）；团队版走单独的密文通道、打开时才下载，由团队同步那边接
+model Attachment {
+  id            String   @id @default(cuid())
+  opportunityId String?
+  orderId       String?
+  /// 原文件名（人看的）；图片压过以后扩展名换成 .jpg
+  name          String
+  mime          String
+  /// 字节
+  size          Int
+  width         Int?
+  height        Int?
+  sha256        String
+  /// 谁传的。不建外键，同 AuditLog
+  userId        String?
+  createdAt     DateTime @default(now())
+
+  @@index([opportunityId])
+  @@index([orderId])
+}
+
 /// 订单的采购（2026-10-03 外贸第 3c 块，迁移 017）：从哪家采、采购额多少、按什么汇率折，毛利就出来了。
 /// 旁表不加列：理由见迁移 017 开头。汇率只用在这一单的毛利上——全站合计照样不换汇。
 model TradeOrderPurchase {
