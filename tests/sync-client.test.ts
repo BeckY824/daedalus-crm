@@ -136,6 +136,13 @@ afterAll(async () => {
 });
 
 describe("桌面端同步客户端", () => {
+  it("刚打开软件：这个进程一轮还没跑完时「跑过一轮」是 false，设置页先不挂「多久没同步上」（质量审 #105 建议 3）", async () => {
+    vi.resetModules();
+    const 新 = await import("@/lib/sync/client");
+    expect(新.这个进程同步过()).toBe(false);
+    vi.resetModules();
+  });
+
   it("邀请码：整段才认", () => {
     expect(解邀请码("DT1.team1abc.s3cret.0123456789012345678901234567890123456789abc")).toEqual({ teamId: "team1abc", joinSecret: "s3cret", key: "0123456789012345678901234567890123456789abc" });
     expect(解邀请码("DT1.team1abc.s3cret")).toBeNull();
@@ -429,8 +436,15 @@ describe("桌面端同步客户端", () => {
       expect(await 甲.customer.count({ where: { id: "cS1" } })).toBe(1);
       expect(读团队()!.lastError).toBeNull();
       expect(Date.parse(读团队()!.lastOkAt!)).toBeGreaterThan(Date.parse(前!));
+      // 挂着的那一轮回来了：票已经作废，不再跟云端说话、不再写 .team.json（质量审 #105 建议 1）
+      const 新一轮写的 = fs.readFileSync(path.join(临时.dir, ".team.json"), "utf8");
+      let 之后说话 = 0;
+      钩子 = async () => { 之后说话 += 1; };
+      await 睡(20);
       放行();
       await 睡(300);
+      expect(之后说话, "被放开的那一轮回来后又跟云端说话了").toBe(0);
+      expect(fs.readFileSync(path.join(临时.dir, ".team.json"), "utf8"), "被放开的那一轮回来后把 .team.json 改了").toBe(新一轮写的);
       expect(await 甲.customer.count({ where: { id: "cS1" } })).toBe(1);
     } finally {
       设卡住限时(null);
@@ -458,6 +472,9 @@ describe("桌面端同步客户端", () => {
     expect(c.lastOkAt).toBe(前.lastOkAt);
     expect(没同步上分钟(c, Date.parse(前.lastOkAt!) + 6 * 60_000)).toBe(6);
     expect(没同步上分钟(c, Date.parse(前.lastOkAt!) + 4 * 60_000)).toBeNull();
+    // 刚打开软件、这个进程第一轮还没跑完：lastOkAt 是关机前的，不提醒；跑完一轮以后照常（质量审 #105 建议 3）
+    expect(没同步上分钟({ ...c, 跑过一轮: false }, Date.parse(前.lastOkAt!) + 600 * 60_000)).toBeNull();
+    expect((await 团队状态()).跑过一轮).toBe(true);
     expect(await 同步一轮()).toMatchObject({ ok: true });
     const 好 = 读团队()!;
     expect(好.lastError).toBeNull();

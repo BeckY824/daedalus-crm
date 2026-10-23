@@ -6,7 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { 本机我, 团队身份id } from "@/lib/desktop/me";
 import { 云端地址 } from "@/lib/desktop/cloud";
 import { recordAudit } from "@/lib/audit";
-import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看, 设角色, 读团队 } from "@/lib/sync/client";
+import { 团队状态, 建团队, 加入团队, 同步一轮, 退出团队, 移除成员, 换邀请码, 读价格表, 设互看, 设角色, 读团队, 这个进程同步过 } from "@/lib/sync/client";
 import { 疑似重复 } from "@/lib/sync/dupes";
 import { 合并一批, 撤销上一批, 读上次合并, 标不是同一个人, type 一对 } from "@/lib/customer-merge";
 import { 管全队客户 } from "@/lib/constants";
@@ -49,7 +49,7 @@ export async function 读团队状态() {
 export async function 读同步时间() {
   await requireUser();
   const c = 读团队();
-  return c ? { lastSyncAt: c.lastSyncAt ?? null, lastOkAt: c.lastOkAt ?? null, lastError: c.lastError ?? null, last: c.last ?? null } : null;
+  return c ? { lastSyncAt: c.lastSyncAt ?? null, lastOkAt: c.lastOkAt ?? null, 跑过一轮: 这个进程同步过(), lastError: c.lastError ?? null, last: c.last ?? null } : null;
 }
 
 type 一人 = { 客户: number; 近7天跟进: number; 最近跟进: string | null; userId: string };

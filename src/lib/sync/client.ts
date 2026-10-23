@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { prisma } from "../prisma";
 import { 本地模式, 读 as 读云端凭据, 云端地址 } from "../desktop/cloud";
 import { 团队身份id } from "../desktop/me";
@@ -109,6 +110,8 @@ export function 读团队(): 团队配置 | null {
 }
 /** 先写临时文件再改名（写到一半断电不会留下半个 .team.json），权限每次都收紧到 0600（复查低 8） */
 export function 写团队(c: 团队配置) {
+  // 被放开的那一轮后来回来了：不再写，免得拿它手上的旧配置盖掉新一轮的进度（见 看着别卡住）
+  if (被取代了()) return;
   动静 = Date.now();
   const f = 配置文件();
   const 临 = `${f}.${process.pid}.tmp`;
@@ -138,7 +141,14 @@ const HTTP: 传输 = async (方法, 路径, body) => {
 let 原传输: 传输 = HTTP;
 /** 同步这一轮最后一次有动静（发出 / 收到云端的话、写 .team.json）的时刻：看着别卡住 拿它判断卡没卡 */
 let 动静 = 0;
+/**
+ * 这一轮的票（质量审 #105 建议 1）：看着别卡住 放开一轮时把它的票作废。挂着的那一轮后来回来了，
+ * 不再跟云端说话、不再写 .team.json——不然它和新的一轮同时推、同时拉，旧的 pulled 还会把新的盖回去
+ */
+const 这一轮票 = new AsyncLocalStorage<{ 废: boolean }>();
+const 被取代了 = () => 这一轮票.getStore()?.废 === true;
 const 云: 传输 = async (方法, 路径, body) => {
+  if (被取代了()) return { 状态: 0, json: { error: "这一轮已经被取代" } };
   动静 = Date.now();
   try {
     return await 原传输(方法, 路径, body);
@@ -524,6 +534,11 @@ async function 退出团队里(): Promise<结果> {
 
 let 在跑: Promise<结果<{ 推: number; 拉: number; 撞: number }>> | null = null;
 let 欠一轮 = false;
+/**
+ * 这个进程跑完过一轮没有（质量审 #105 建议 3）：电脑关了一晚上再打开，.team.json 里的 lastOkAt 是昨天的，
+ * 第一轮还没跑完就挂「已经十几个小时没同步上」不对。跑完一轮（成没成都算）以后才按 lastOkAt 提醒
+ */
+let 跑过一轮 = false;
 
 const 默认卡住限时 = 3 * 60_000;
 let 卡住限时 = 默认卡住限时;
@@ -531,6 +546,9 @@ let 卡住限时 = 默认卡住限时;
 export function 设卡住限时(ms: number | null) {
   卡住限时 = ms ?? 默认卡住限时;
 }
+
+/** 这个进程跑完过一轮没有：设置页「多久没同步上了」的提醒等它（见 跑过一轮） */
+export const 这个进程同步过 = () => 跑过一轮;
 
 /** 这一轮同步上了：两个时间一起记 */
 function 同步上了() {
@@ -543,9 +561,9 @@ function 同步上了() {
  * 一轮挂在哪一步上不回来，之后每一轮（壳的定时、改完推一下、点「立即同步」）都在等它，同步就停了、界面还看不出来。
  * 和云端说话本身有 30 秒超时，拉得多会一批一批往前走、每批都写 .team.json——所以按「多久没动静」判，不按总时长：
  * 3 分钟里既没跟云端说过话、也没写过进度，就算这一轮卡住，记一条错、放开，下一轮重新来。
- * 挂着的那一轮如果后来自己回来了，它写的进度照样有效（每批都记了 pulled）
+ * 放开前已经写下的进度照样有效（每批都记了 pulled）；放开时票作废，挂着的那一轮后来回来也不再跟云端说话、不再写 .team.json
  */
-function 看着别卡住<T>(这一轮: Promise<结果<T>>): Promise<结果<T>> {
+function 看着别卡住<T>(这一轮: Promise<结果<T>>, 票: { 废: boolean }): Promise<结果<T>> {
   动静 = Date.now();
   return new Promise((成, 败) => {
     let 完 = false;
@@ -559,9 +577,11 @@ function 看着别卡住<T>(这一轮: Promise<结果<T>>): Promise<结果<T>> {
         return;
       }
       完 = true;
+      票.废 = true;
       const 话 = `同步卡住了：${Math.max(1, Math.round(卡住限时 / 60_000))} 分钟没有动静，已经重新开始`;
       const c = 读团队();
-      if (c) 写团队({ ...c, lastError: 话, lastSyncAt: new Date().toISOString() });
+      // 跳出票的范围再写：同步一轮 可能是从别的一轮里叫起来的，别让外面那张票管到这一笔
+      if (c) 这一轮票.exit(() => 写团队({ ...c, lastError: 话, lastSyncAt: new Date().toISOString() }));
       成({ ok: false, error: 话 });
     };
     查();
@@ -604,8 +624,10 @@ export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: 
   if (退出中 && !在跑) return Promise.resolve({ ok: false, error: "正在退出团队" });
   if (!在跑) {
     // 在同步里：这一轮里回放写库不触发「改完推一下」（lib/team-scope.ts）；用户这时候写的照样排推送
-    在跑 = 看着别卡住(看全部(() => 在同步里(跑一轮并重试))).finally(() => {
+    const 票 = { 废: false };
+    在跑 = 看着别卡住(这一轮票.run(票, () => 看全部(() => 在同步里(跑一轮并重试))), 票).finally(() => {
       在跑 = null;
+      跑过一轮 = true;
       // 这一轮跑着的时候用户又改了东西（推一下 记的）：这一轮的推送早过去了，马上补一轮
       if (欠一轮 && !退出中) {
         欠一轮 = false;
@@ -826,6 +848,7 @@ export async function 团队状态() {
     邀请码: c.joinSecret ? 邀请码(c) : "",
     lastSyncAt: c.lastSyncAt ?? null,
     lastOkAt: c.lastOkAt ?? null,
+    跑过一轮,
     lastError: c.lastError ?? (r.状态 === 200 ? null : String(r.json.error ?? "")),
     last: c.last ?? null,
     /** 回放时撞了合不了的唯一约束、两台因此对不上的几条（T-003）：界面上写「有 N 条没同步上」，不静默 */

@@ -10,8 +10,12 @@ export function 上次同步上(s: { lastSyncAt?: string | null; lastOkAt?: stri
   return s.lastOkAt ?? (s.lastError ? null : s.lastSyncAt ?? null);
 }
 
-/** 多久没同步上（分钟）：不到 提醒分钟、或说不准 = null */
-export function 没同步上分钟(s: { lastSyncAt?: string | null; lastOkAt?: string | null; lastError?: string | null }, 现在: number): number | null {
+/**
+ * 多久没同步上（分钟）：不到 提醒分钟、或说不准 = null。
+ * 跑过一轮 = false：刚打开软件、这个进程第一轮还没跑完，lastOkAt 还是上次关机前的，先不算（质量审 #105 建议 3）
+ */
+export function 没同步上分钟(s: { lastSyncAt?: string | null; lastOkAt?: string | null; lastError?: string | null; 跑过一轮?: boolean }, 现在: number): number | null {
+  if (s.跑过一轮 === false) return null;
   const t = 上次同步上(s);
   if (!t) return null;
   const 分 = Math.floor((现在 - Date.parse(t)) / 60_000);

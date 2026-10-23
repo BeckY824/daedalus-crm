@@ -55,7 +55,7 @@ export default function TeamTab() {
       if (!还在) return;
       set现在(Date.now());
       // 有了新的一轮才换：lastError 可能是打开时问云端问出来的（连不上云端），本机文件里没有，别把它盖掉
-      if (t) set((x) => (x && x.在团队 && t.lastSyncAt !== x.lastSyncAt ? { ...x, ...t } : x));
+      if (t) set((x) => (x && x.在团队 && (t.lastSyncAt !== x.lastSyncAt || t.跑过一轮 !== x.跑过一轮) ? { ...x, ...t } : x));
     };
     const 闹 = setInterval(() => void 读(), 10_000);
     const 回来 = () => void 读();
