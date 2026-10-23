@@ -65,6 +65,12 @@ export default function LeadsView({
   const router = useRouter();
   const { message, modal } = App.useApp();
   const b = useBusiness();
+  // 项目模式开着：新建一律走建档向导
+  const 新建 = () => {
+    if (b.projectMode) return router.push("/projects/new");
+    setEditing(null);
+    setOpen(true);
+  };
   const { f, setF, apply, reset, pending } = useUrlFilters("/leads", filters);
   /** 空库 = 一条都没有**且**没在筛。筛出 0 条时筛选栏要留着，见 DataList */
   const 空库 = rows.length === 0 && !Object.values(filters).some((v) => v);
@@ -241,10 +247,7 @@ export default function LeadsView({
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => {
-              setEditing(null);
-              setOpen(true);
-            }}
+            onClick={新建}
           >
             新建线索
           </Button>
@@ -261,7 +264,7 @@ export default function LeadsView({
         空态={{
           title: "还没有线索",
           hint: `线索是还没确认要不要跟的人。确认要跟了就转成${b.customer}，之后的跟进、商机、${签约叫(b)}都在${b.customer}那边走。`,
-          primary: { label: "新建第一条线索", onClick: () => { setEditing(null); setOpen(true); } },
+          primary: { label: "新建第一条线索", onClick: 新建 },
         }}
         筛选={
           <Space wrap size={[10, 10]}>

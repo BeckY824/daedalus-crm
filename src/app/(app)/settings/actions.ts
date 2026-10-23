@@ -4,6 +4,7 @@ import { 转交商机 } from "@/lib/opportunity-activity";
 import { 补来源 } from "@/lib/customer-extra-db";
 
 import { 钉住老签约 } from "@/lib/contract-owner";
+import { 跟着客户转的项目, 转项目 } from "@/lib/carry-over-db";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
@@ -336,6 +337,7 @@ export async function deactivateUser(id: string, transferToId: string) {
 
   // 转之前先钉住老签约「签约那一刻是谁的」：停用留痕说「历史业绩不动」，就得真不动（2026-10-02 排查 X1）
   await 钉住老签约();
+  let 项目: string[] = [];
   // 函数式事务：数组式在托管版的工作区代理下会抛错，而且抛之前已经写了（2026-10-02 排查 A3）
   await prisma.$transaction(async (tx) => {
     await tx.customer.updateMany({ where: { id: { in: 转走了.客户 } }, data: { salesOwnerId: transferToId } });
@@ -349,6 +351,8 @@ export async function deactivateUser(id: string, transferToId: string) {
      */
     await tx.lead.updateMany({ where: { id: { in: 转走了.线索 } }, data: { ownerId: transferToId } });
     await tx.channel.updateMany({ where: { id: { in: 转走了.渠道 } }, data: { channelOwnerId: transferToId } });
+    // 项目跟着转走的客户整体转，规矩和转让客户同一处（跟着客户转的项目）；他挂在没转走的客户上的项目不动，老板可以手动转
+    if (转走了.客户.length) 项目 = await 转项目(tx, { OR: 转走了.客户.map((cid) => 跟着客户转的项目(cid)) }, transferToId, me.id);
     await tx.user.update({ where: { id }, data: { active: false } });
   });
 
@@ -366,8 +370,8 @@ export async function deactivateUser(id: string, transferToId: string) {
     user: me, action: "deactivate", entity: "User", entityId: id,
     summary: `停用成员「${被停?.name ?? id}」，转交给「${接手?.name ?? transferToId}」：` +
       `${转走了.客户.length} 位客户、${转走了.商机.length} 个进行中商机、${转走了.计划.length + 转走了.待办.length} 条没完成的计划和待办、` +
-      `${转走了.线索.length} 条线索、${转走了.渠道.length} 个渠道（历史业绩不动）`,
-    detail: { userId: id, transferToId, 转走了 },
+      `${转走了.线索.length} 条线索、${转走了.渠道.length} 个渠道` + (项目.length ? `、${项目.length} 个项目` : "") + "（历史业绩不动）",
+    detail: { userId: id, transferToId, 转走了: 项目.length ? { ...转走了, 项目 } : 转走了 },
   });
 
   revalidatePath("/settings");
@@ -646,7 +650,7 @@ export async function saveBusinessSettings(cfg: BusinessConfig) {
 
 const BUSINESS_FIELD_LABELS: Record<keyof BusinessConfig, string> = {
   brief: "业务简介", customer: "核心名词", fields: "档案字段名", grades: "年级选项", sources: "线索来源", industries: "行业选项", statusLabels: "状态显示名", stageLabels: "商机阶段名",
-  template: "模版", currency: "本位币", poolDays: "自动放进公海",
+  template: "模版", currency: "本位币", poolDays: "自动放进公海", projectMode: "项目模式",
 };
 
 /* ---------- 桌面端 ---------- */

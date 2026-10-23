@@ -84,8 +84,8 @@ async function 认附件(accountId: string, teamId: string, id: string, 要传 =
   const key = 行键("Attachment", id);
   const row = e.rows.get(key);
   if (!row || row.deleted) fail(404, "这张图还没同步上来，或者已经删了");
-  if (!范围可读(e.归.get(key) ?? null, accountId, c.owner, c.share || c.manager)) fail(403, "这张图不在你的同步权限内");
-  if (要传 && !范围可写(row, row, e.rows, accountId, c.owner, false, c.manager)) fail(403, "这张图不在你的同步权限内");
+  if (!范围可读(e.归.get(key) ?? null, accountId, c.owner, c.share || c.manager, c.限)) fail(403, "这张图不在你的同步权限内");
+  if (要传 && !范围可写(row, row, e.rows, accountId, c.owner, false, c.manager, c.限)) fail(403, "这张图不在你的同步权限内");
 }
 
 function 目录大小(dir: string): number {
@@ -221,7 +221,7 @@ export async function 有哪些附件(accountId: string, teamId: string, ids: un
   const have = (ids as string[]).filter((id) => {
     const key = 行键("Attachment", id);
     const row = e.rows.get(key);
-    return row && !row.deleted && 范围可读(e.归.get(key) ?? null, accountId, c.owner, c.share || c.manager) && fs.existsSync(path.join(dir, id));
+    return row && !row.deleted && 范围可读(e.归.get(key) ?? null, accountId, c.owner, c.share || c.manager, c.限) && fs.existsSync(path.join(dir, id));
   });
   return { ok: true, have };
 }
