@@ -109,8 +109,22 @@ export function 算范围(row: 范围索引, rows: 范围行表, seen = new Set<
  * 「personal:」（未归属联系人、没挂客户的线索、认不出对象的操作日志）照旧只给本人。
  * 主管读的也是这一档（调用处传 互看 || 主管），不受开关影响
  */
-export const 范围可读 = (scope: 范围 | null, accountId: string, owner: boolean, 互看 = false) =>
-  !!scope && (owner || scope.public || scope.owners.includes(`acct_${accountId}`) || (互看 && scope.id.startsWith("Customer:")));
+export const 范围可读 = (scope: 范围 | null, accountId: string, owner: boolean, 互看 = false, 限?: 读限) => {
+  if (!scope) return false;
+  if (owner || scope.owners.includes(`acct_${accountId}`) || 限?.进组?.has(scope.id)) return true;
+  // 虚线上级：链上的人名下的客户，跨部门也能读。放进公海的不算名下（公海按部门走）
+  if (限?.虚线?.size && scope.id.startsWith("Customer:") && !scope.public && scope.owners.some((o) => 限.虚线!.has(o))) return true;
+  const 在部门 = !限?.部门 || 限.部门(scope);
+  return (scope.public && (scope.id === "team" || 在部门)) || (互看 && scope.id.startsWith("Customer:") && 在部门);
+};
+/**
+ * 团队版 1b（2026-10-23）多两道，只在云端传：
+ * - 部门：「这个范围在不在我的一级部门里」（dept-policy 部门判定）。公海、互看、主管读全队客户都只到本一级部门；自己名下的照旧能读。
+ *   团队只有 0 / 1 个一级部门时不传，和原来完全一样。
+ * - 进组：已经同意进组的项目范围（SyncProjectInvite accepted）。能读，能像互看一样只加跟进家族的行，改不了项目本身
+ * - 虚线：虚线链上的人（acct_，dept-policy 虚线下属）。他们名下的客户能读；写默认一律不许，虚线加跟进 = true 时同互看只加跟进家族
+ */
+export type 读限 = { 部门?: (scope: 范围) => boolean; 进组?: ReadonlySet<string>; 虚线?: ReadonlySet<string>; 虚线加跟进?: boolean };
 /**
  * 互看时同事的客户只许「加跟进」：新建跟进、它的来源 / 关联订单、操作日志。改资料、删、转交、改别人的计划和待办一律不许。
  * 计划、待办不在里面：服务器看不到它们的负责人（范围元数据只有客户编号），建了以后本人也改不了、勾不掉，干脆不让在同事的客户上建
@@ -121,23 +135,26 @@ export const 互看可加 = new Set(["FollowUp", "FollowUpSource", "FollowUpOrde
  * 主管（2026-10-20，老板 → 业务主管 → 业务员，中继 SyncMember.role = manager）：「看全部，不管人」——全队客户这条线和自己的一样能改
  * （分配、指派公海、合并重复都是改客户）；业务配置（Setting）、别人的账号行、别人的个人范围照旧不行
  */
-export function 范围可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, owner: boolean, 互看 = false, 主管 = false): boolean {
+export function 范围可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, owner: boolean, 互看 = false, 主管 = false, 限?: 读限): boolean {
   if (owner) return true;
-  if (本人可写(old, n, rows, accountId, 主管)) return true;
-  // 互看：同事的客户下只许新建跟进家族的行（重发同一包在收推送时按 eventId 去重，到不了这里）
-  if (!互看 || old || n.deleted || !互看可加.has(n.t)) return false;
+  // 进组只给读和加跟进，不算「本人可写」（否则组员能改项目、转交）
+  if (本人可写(old, n, rows, accountId, 主管, 限?.部门 && { 部门: 限.部门 })) return true;
+  // 互看 / 进组：同事的客户、进了组的项目下只许新建跟进家族的行（重发同一包在收推送时按 eventId 去重，到不了这里）
+  // 虚线只读：写的时候不算虚线（不然互看开着时，能在别部门的虚线下属客户下加跟进）
+  const 写限: 读限 | undefined = 限?.虚线 && !限.虚线加跟进 ? { 部门: 限.部门, 进组: 限.进组 } : 限;
+  if ((!互看 && !写限?.进组?.size && !写限?.虚线?.size) || old || n.deleted || !互看可加.has(n.t)) return false;
   for (const [field, table] of Object.entries(范围父表[n.t] ?? {})) {
     const id = n.fields[field]; if (!id) continue;
     const parent = rows.get(行键(table, id));
-    if (!parent || !范围可读(算范围(parent, rows), accountId, false, true)) return false;
+    if (!parent || !范围可读(算范围(parent, rows), accountId, false, 互看, 写限)) return false;
   }
-  return 范围可读(算范围(n, 叠加(rows, 行键(n.t, n.k), n)), accountId, false, true);
+  return 范围可读(算范围(n, 叠加(rows, 行键(n.t, n.k), n)), accountId, false, 互看, 写限);
 }
 /** 主管 = true 时「可读」按全队客户算（和互看读同一档），本人可写的规矩原样套上去 */
-function 本人可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, 主管 = false): boolean {
+function 本人可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, 主管 = false, 限?: 读限): boolean {
   if (n.t === "Setting") return false;
   if (n.t === "User") return n.k === `acct_${accountId}`;
-  const 可读 = (s: 范围 | null) => 范围可读(s, accountId, false, 主管);
+  const 可读 = (s: 范围 | null) => 范围可读(s, accountId, false, 主管, 限);
   const before = old && 算范围(old, rows);
   if (old && !可读(before ?? null)) return false;
   for (const [field, table] of Object.entries(范围父表[n.t] ?? {})) {
@@ -187,11 +204,11 @@ export function 合并掉了(n: 范围索引, rows: 范围行表): boolean {
  * 不会多给权限的理由：请求开始时不可读的已有记录，本次请求中任何一包都不能让它变可读（改它本身、挂公海、改它的父链都要先可读），
  * 所以 ② 里每一条记录都是这台设备在本次请求某一刻合法可读的版本；伪造归属、借外键塞进别人的私客，两种状态下都不过。
  */
-export function 推送可写(start: 范围行表, rows: 范围行表, n: 范围索引, accountId: string, owner: boolean, 互看 = false, 主管 = false): boolean {
+export function 推送可写(start: 范围行表, rows: 范围行表, n: 范围索引, accountId: string, owner: boolean, 互看 = false, 主管 = false, 限?: 读限): boolean {
   if (挂在已删的上(n, rows) || 合并掉了(n, rows)) return false;
   if (owner) return true;
   const key = 行键(n.t, n.k);
-  return 范围可写(rows.get(key), n, rows, accountId, false, 互看, 主管) || 范围可写(start.get(key), n, start, accountId, false, 互看, 主管);
+  return 范围可写(rows.get(key), n, rows, accountId, false, 互看, 主管, 限) || 范围可写(start.get(key), n, start, accountId, false, 互看, 主管, 限);
 }
 
 /*

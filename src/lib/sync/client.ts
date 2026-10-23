@@ -70,6 +70,18 @@ export type 团队配置 = {
    * 每轮同步从目录回包、几分钟一次从团队名单拿到它；业务员这台的 team-scope 据此放开读（lib/team-scope.ts）
    */
   互看?: boolean;
+  /**
+   * 团队版 1b（2026-10-23）：部门树、每人的部门和业务角色、「角色 × 范围」配置表。几分钟一次从团队名单拿到；
+   * 客户列表的部门筛选用它。老服务器不回 = 没有，界面照旧
+   */
+  编制?: 团队编制;
+};
+export type 团队编制 = {
+  部门: { id: string; name: string; parentId: string | null; sort: number; top: string | null }[];
+  /** 没分部门的人算在这个一级部门（建得最早的），和云端隔离一个口径 */
+  默认: string | null;
+  角色范围: { bizRole: string; scope: string }[];
+  成员编制: Record<string, { bizRole: string; deptId: string | null; dottedManagerId: string | null }>;
 };
 export type 范围配置 = {
   stage: "migrating" | "ready";
@@ -789,6 +801,14 @@ function 记互看(teamId: string, v: unknown) {
   忘掉限定();
 }
 
+/** 名单带回来的编制记进本机配置（变了才写）。服务器不回这一项（老服务器 / 回退）就清掉本机的，别拿旧编制显示 */
+function 记编制(teamId: string, v: unknown) {
+  const 新 = v && typeof v === "object" && Array.isArray((v as 团队编制).部门) ? (v as 团队编制) : undefined;
+  const 现 = 读团队();
+  if (!现 || 现.teamId !== teamId || JSON.stringify(现.编制 ?? null) === JSON.stringify(新 ?? null)) return;
+  写团队({ ...现, 编制: 新 });
+}
+
 /** 本机我的角色按目录对一下：主管 = MANAGER，否则 SALES。老板那台不走这里（目录 owner） */
 async function 记主管(是: boolean) {
   const 账号 = 读云端凭据()?.accountId;
@@ -818,14 +838,28 @@ export async function 设互看(on: boolean): Promise<结果<{ on: boolean }>> {
   return { ok: true, on: r.json.on === true };
 }
 
+/**
+ * 部门、成员的部门和业务角色、配置表、项目进组（1b，云端 /api/sync/dept 核权限）。
+ * 改完马上对一次名单：本机角色、编制跟着变；同事那几台下一轮同步生效
+ */
+export async function 部门操作(action: string, body: Record<string, unknown> = {}): Promise<结果<{ data: Record<string, unknown> }>> {
+  const c = 读团队();
+  if (!c) return { ok: false, error: "没有加入团队" };
+  const r = await 云("POST", "/api/sync/dept", { ...body, teamId: c.teamId, action });
+  if (r.状态 !== 200) return { ok: false, error: String(r.json.error ?? "改不了，请稍后再试") };
+  if (action !== "invites") await 对齐角色().catch(() => undefined);
+  return { ok: true, data: r.json };
+}
+
 /** 设置 → 团队要的：本机的团队、上次同步、出错原因，以及云端那边的成员和开通状态 */
 export async function 团队状态() {
   const c = 读团队();
   if (!c) return { 在团队: false as const, 能用: 能用().ok };
   const r = await 云("GET", "/api/sync/team");
-  const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; paidUntil?: string; 剩几天?: number; seats?: number; expired?: boolean; 互看?: boolean; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
+  const 团 = ((r.json.teams as { id: string; name: string; active: boolean; 我是建的人: boolean; paidUntil?: string; 剩几天?: number; seats?: number; expired?: boolean; 互看?: boolean; 编制?: 团队编制; 成员: { accountId: string; name: string; contact: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
   if (团) await 看全部(() => 按名单对角色(团.成员, 团.id)).catch(() => undefined);
   if (团) 记互看(团.id, 团.互看);
+  if (团) 记编制(团.id, 团.编制);
   return {
     在团队: true as const,
     /**
@@ -847,6 +881,8 @@ export async function 团队状态() {
     我是主管: !(团?.我是建的人) && !!团?.成员.some((m) => m.accountId === 读云端凭据()?.accountId && m.role === "manager"),
     /** 同事之间互相看得到客户。null = 老服务器不认这个开关，界面上不摆 */
     互看: typeof 团?.互看 === "boolean" ? 团.互看 : null,
+    /** 部门、业务角色、配置表（1b）。null = 老服务器，界面照旧只有「设主管」 */
+    编制: 团?.编制 ?? null,
     /** 这台能不能移除同事、换邀请码（见 能管理团队）：老板在别的电脑上进来的，这两样只给一句说明 */
     能管理: 能管理团队(c),
     我: 读云端凭据()?.accountId ?? null,
@@ -897,9 +933,10 @@ export async function 对齐角色() {
   if (!c) return;
   const r = await 云("GET", "/api/sync/team");
   if (r.状态 !== 200) return;
-  const 团 = ((r.json.teams as { id: string; 互看?: boolean; 成员: { accountId: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
+  const 团 = ((r.json.teams as { id: string; 互看?: boolean; 编制?: 团队编制; 成员: { accountId: string; role: string }[] }[]) ?? []).find((t) => t.id === c.teamId);
   if (团) await 看全部(() => 按名单对角色(团.成员, 团.id));
   if (团) 记互看(团.id, 团.互看);
+  if (团) 记编制(团.id, 团.编制);
 }
 
 /**

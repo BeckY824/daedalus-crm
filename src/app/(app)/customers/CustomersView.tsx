@@ -128,7 +128,11 @@ type Props = {
     source: string;
     /** 客户等级（2026-10-16）：A–D 或「未分级」 */
     level: string;
+    /** 团队版部门（1b，2026-10-23） */
+    dept: string;
   };
+  /** 团队有两个以上一级部门时的部门下拉（带缩进）；空 = 不摆 */
+  部门选项?: { value: string; label: string }[];
 };
 
 /**
@@ -147,7 +151,7 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 等级排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 部门选项 = [], 金额排序 = "", 等级排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
   // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
@@ -599,6 +603,13 @@ export default function CustomersView({
               <Select style={{ width: 120 }} placeholder="全部等级" allowClear aria-label="客户等级"
                 value={f.level || undefined} onChange={(v) => apply({ level: v ?? "" })}
                 options={[...客户等级.map((x) => ({ value: x, label: 客户等级说明[x] })), { value: 未分级, label: 未分级 }]} />
+            )}
+            {/* 团队版部门（1b）：总管理、管理员默认看全公司，按部门挑着看。选上级部门连下级一起 */}
+            {/* 地址栏里的部门删掉了：列表不按它筛（query.ts 部门条件），下拉也显示「全部部门」，两边对得上 */}
+            {部门选项.length > 0 && (
+              <Select style={{ width: 140 }} placeholder="全部部门" allowClear aria-label="部门"
+                value={部门选项.some((o) => o.value === f.dept) ? f.dept : undefined} onChange={(v) => apply({ dept: v ?? "" })}
+                options={部门选项} />
             )}
             {/* 公海原来是这个下拉的第一项，2026-10-13 起由页签代替。「公海」页签上不摆（除非地址上正筛着某人，不然看不见自己筛了什么） */}
             {!不问归属 && (!f.pool || 子集 || f.salesOwnerId) && (

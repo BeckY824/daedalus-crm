@@ -9,6 +9,7 @@
  * 2026-10-15 起开通按时长，团队有到期日：到期和「待开通 / 停用」同一道闸（team-plan.ts 的 能同步），续费后自动恢复。
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { 老角色改了, 编制给名单 } from "./team-dept";
 import fs from "node:fs";
 import path from "node:path";
 import { control } from "./control";
@@ -123,7 +124,11 @@ export async function 入队(accountId: string, teamId: string, joinSecret: stri
     const 设备错 = await 登记设备(t.id, accountId, 设备, tx);
     if (设备错) return 错(409, 设备错);
     // 走过再回来的主管回来是业务员（2026-10-20）：老板要重新设，不能拿旧码一进来就看全队
-    if (已 && 已.leftAt) await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date(), ...(已.role === "manager" ? { role: "member" } : {}) } });
+    // 编制（部门、业务角色、虚线上级）也不跟着回来（1b 复查中）：离队时已经清过，这里再清一次兜住老数据
+    if (已 && 已.leftAt) {
+      await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date(), ...(已.role === "manager" ? { role: "member" } : {}) } });
+      await tx.syncMemberRole.deleteMany({ where: { teamId: t.id, accountId } });
+    }
     else if (!已) await tx.syncMember.create({ data: { teamId: t.id, accountId } });
     const k = await tx.syncKey.findFirst({ where: { teamId: t.id }, orderBy: { epoch: "desc" }, select: { epoch: true } });
     return { ok: true as const, teamName: t.name, active: t.active, epoch: k?.epoch ?? 0 };
@@ -159,6 +164,7 @@ export async function 移除成员(accountId: string, teamId: string, 谁: strin
     control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } }, data: { leftAt: new Date() } }),
     control.syncDevice.deleteMany({ where: { teamId: t.id, accountId: m.accountId } }),
     control.syncDeviceSeen.deleteMany({ where: { teamId: t.id, accountId: m.accountId } }),
+    ...清编制(t.id, m.accountId),
   ]);
   return { ok: true, joinSecret };
 }
@@ -201,6 +207,8 @@ export async function 设角色(accountId: string, teamId: string, 谁: string, 
   const m = await 在队里(t.id, String(谁 ?? ""));
   if (!m) return 错(404, "这个人已经不在团队里了");
   if (m.role !== role) await control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } }, data: { role } });
+  // 1b：已经设过业务角色的，跟着改（老板还在用老版本桌面端时，两边别对不上）
+  await 老角色改了(t.id, m.accountId, role);
   return { ok: true, role };
 }
 
@@ -260,6 +268,14 @@ function 等长相等(a: string, b: string) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
+/** 走了的人：编制删掉（回来是新人，老板重新设），谁的虚线上级是他也清掉（1b 复查中） */
+function 清编制(teamId: string, accountId: string) {
+  return [
+    control.syncMemberRole.deleteMany({ where: { teamId, accountId } }),
+    control.syncMemberRole.updateMany({ where: { teamId, dottedManagerId: accountId }, data: { dottedManagerId: null } }),
+  ];
+}
+
 export async function 退队(accountId: string, teamId: string, device?: string): Promise<结果<{ 只清这台?: boolean }>> {
   const m = await 在队里(String(teamId ?? ""), accountId);
   if (!m) return { ok: true };
@@ -285,6 +301,7 @@ export async function 退队(accountId: string, teamId: string, device?: string)
   // 走了的人的设备不再收新钥匙
   await control.syncDevice.deleteMany({ where: { teamId: m.teamId, accountId } });
   await control.syncDeviceSeen.deleteMany({ where: { teamId: m.teamId, accountId } });
+  await control.$transaction(清编制(m.teamId, accountId));
   return { ok: true };
 }
 
@@ -313,6 +330,8 @@ export async function 我的团队(accountId: string) {
   const 到期们 = new Map((await control.syncTeamPlan.findMany({ where: { teamId: { in: 团队们.map((t) => t.id) } } })).map((p) => [p.teamId, p]));
   const 互看们 = new Set((await control.syncTeamShare.findMany({ where: { teamId: { in: 团队们.map((t) => t.id) }, on: true }, select: { teamId: true } })).map((x) => x.teamId));
   const now = new Date();
+  // 1b：部门树、每人的部门和业务角色、「角色 × 范围」配置表。老版本桌面端不认这一项
+  const 编制们 = new Map(await Promise.all(团队们.map(async (t) => [t.id, await 编制给名单(t.id, t.ownerAccountId, 成员们.filter((m) => m.teamId === t.id))] as const)));
   return 团队们.map((t) => {
     const plan = 到期们.get(t.id);
     const 过期 = t.active && 已到期(plan, now);
@@ -333,6 +352,7 @@ export async function 我的团队(accountId: string) {
     互看: 互看们.has(t.id),
     ...(要换.has(t.id) ? { 要换钥匙: true } : {}),
     ownerAccountId: t.ownerAccountId,
+    编制: 编制们.get(t.id),
     成员: 成员们.filter((m) => m.teamId === t.id).map((m) => ({ accountId: m.accountId, role: m.role, name: 账.get(m.accountId)?.name ?? "（已注销）", contact: 账.get(m.accountId)?.email ?? 账.get(m.accountId)?.phone ?? "", joinedAt: m.joinedAt.toISOString() })),
   };
   });
