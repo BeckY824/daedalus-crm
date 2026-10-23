@@ -221,6 +221,30 @@ describe("团队版产品图片", () => {
     }
   });
 
+  it("互看开着但分了部门：另一个一级部门的业务员取不到老板商机上的图（老板没分部门算默认部门）", async () => {
+    const teamId = 读配置("boss").teamId;
+    const dept = await import("@/lib/tenant/team-dept");
+    const a = await 存("boss", "o-boss", 图(6000, 8));
+    await 都轮("boss");
+    const 内贸 = await dept.建部门(账号.boss, teamId, "内贸", null);
+    const 外贸 = await dept.建部门(账号.boss, teamId, "外贸", null);
+    if (!内贸.ok || !外贸.ok) throw Error("建部门失败");
+    expect(await relay.设互看(账号.boss, teamId, true)).toMatchObject({ ok: true });
+    try {
+      expect(await dept.设成员(账号.boss, teamId, 账号.li, { deptId: 外贸.id })).toMatchObject({ ok: true });
+      await expect(attach.给附件(账号.li, teamId, a.id)).rejects.toMatchObject({ 状态: 403 });
+      // 调回默认部门就又能取
+      expect(await dept.设成员(账号.boss, teamId, 账号.li, { deptId: 内贸.id })).toMatchObject({ ok: true });
+      await expect(attach.给附件(账号.li, teamId, a.id)).resolves.toBeTruthy();
+    } finally {
+      await dept.设成员(账号.boss, teamId, 账号.li, { deptId: null });
+      await dept.删部门(账号.boss, teamId, 外贸.id);
+      await dept.删部门(账号.boss, teamId, 内贸.id);
+      await relay.设互看(账号.boss, teamId, false);
+      await 都轮("li");
+    }
+  });
+
   it("没传齐：对方打开说「还在上传」；断了下一轮从云端已收的位置接着传，不从头", async () => {
     const 字节 = 图(2_500_000, 3);
     const a = await 存("li", "o-li", 字节);
