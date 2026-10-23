@@ -132,6 +132,20 @@ export async function 勾交付(me: 谁, projectId: string, 项: 交付项, 勾:
   });
 }
 
+/**
+ * 删项目：负责人、老板、主管。节点变更、组员、跟进挂的节点随项目级联；跟进本身留在客户下。
+ * 删客户前要先删光它的项目（customers/actions 删除依赖错误）
+ */
+export async function 删项目(me: 谁, projectId: string): Promise<结果 & { name?: string; customerId?: string }> {
+  return 查完再写(async (tx) => {
+    const p = await tx.project.findUnique({ where: { id: String(projectId ?? "") }, select: { id: true, name: true, ownerId: true, customerId: true } });
+    if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
+    if (!能管项目(me, p)) return { ok: false as const, error: "只有项目负责人、老板或主管能删项目" };
+    await tx.project.delete({ where: { id: p.id } });
+    return { ok: true as const, name: p.name, customerId: p.customerId };
+  });
+}
+
 /** 这位客户名下还有几个项目（删客户前问：有项目的先删项目） */
 export async function 客户的项目数(customerIds: string[], db: Prisma.TransactionClient = prisma): Promise<Map<string, number>> {
   if (!customerIds.length) return new Map();

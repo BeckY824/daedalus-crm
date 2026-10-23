@@ -19,8 +19,8 @@ vi.mock("@/lib/business", async (原) => {
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 建档向导, type 建档向导输入 } from "@/app/(app)/projects/actions";
-import { saveCustomer } from "@/app/(app)/customers/actions";
+import { 建档向导, 删除项目, type 建档向导输入 } from "@/app/(app)/projects/actions";
+import { saveCustomer, deleteCustomers, 客户删除预检 } from "@/app/(app)/customers/actions";
 import { 规整向导 } from "@/lib/project/wizard";
 
 let 甲: string;
@@ -54,7 +54,7 @@ beforeEach(async () => {
   mocks.开 = true;
   甲 = (await prisma.user.create({ data: { email: "jia", name: "甲", title: "", role: "ADMIN", password: "x" } })).id;
   乙 = (await prisma.user.create({ data: { email: "yi", name: "乙", title: "", role: "SALES", password: "x" } })).id;
-  mocks.user.id = 甲;
+  mocks.user = { ...mocks.user, id: 甲, role: "ADMIN" };
 });
 
 describe("建档向导", () => {
@@ -118,6 +118,30 @@ describe("建档向导", () => {
     expect(r).toMatchObject({ ok: true });
     expect(跑了).toBe(false);
     expect(await 各表行数()).toMatchObject({ customer: 1, project: 0, contact: 0 });
+  });
+});
+
+describe("有项目的客户不让删", () => {
+  it("预检和真删都拦；同事删不了别人的项目；项目删掉后跟进还在，客户就能删了", async () => {
+    const r = await 建档向导(输入());
+    if (!r.ok) throw new Error(r.error);
+    expect(await 客户删除预检([r.customerId])).toMatchObject({ ok: false, error: expect.stringContaining("名下还有项目") });
+    expect(await deleteCustomers([r.customerId])).toMatchObject({ ok: false, error: expect.stringContaining("向导客户") });
+    expect(await prisma.project.count()).toBe(1);
+
+    mocks.user = { ...mocks.user, id: 乙, role: "SALES" };
+    expect(await 删除项目(r.projectId)).toMatchObject({ ok: false });
+    mocks.user = { ...mocks.user, id: 甲, role: "ADMIN" };
+    expect(await 删除项目(r.projectId)).toEqual({ ok: true });
+    expect(await 各表行数()).toMatchObject({ project: 0, log: 0, link: 0, followUp: 1 });
+    expect(await deleteCustomers([r.customerId])).toMatchObject({ ok: true, deleted: 1 });
+  });
+
+  it("开关关着删不了项目", async () => {
+    const r = await 建档向导(输入());
+    if (!r.ok) throw new Error(r.error);
+    mocks.开 = false;
+    expect(await 删除项目(r.projectId)).toMatchObject({ ok: false, error: expect.stringContaining("没开") });
   });
 });
 

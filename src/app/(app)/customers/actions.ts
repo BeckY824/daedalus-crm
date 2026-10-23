@@ -39,6 +39,7 @@ import type { 带走数 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
 import { 认得 } from "@/lib/project/hook";
+import { 客户的项目数 } from "@/lib/project/db";
 import { 写签约的订单, 订单说不通, type 订单附加 } from "@/lib/order-contract";
 import { 外贸键, 外贸字段名, 外贸至少一种, 规整外贸格, 规整外贸档案, 规整阿里ID, 认国家, type 外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
@@ -559,9 +560,14 @@ function revalidateCustomer(id?: string) {
   revalidatePath("/dashboard");
 }
 
-async function 删除依赖错误(db: Pick<Prisma.TransactionClient, "customer">, ids: string[], 客户叫法: string): Promise<string | null> {
+async function 删除依赖错误(db: Prisma.TransactionClient, ids: string[], 客户叫法: string): Promise<string | null> {
   const visible = await db.customer.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
   if (!visible.length) return null;
+  // 项目模式（2026-10-23）：级联会把项目连同节点变更一起删掉，挂着项目的客户先拦；没开过项目模式的工作区这里查出来永远是空
+  const 项目数 = await 看全部(() => 客户的项目数(visible.map((c) => c.id), db));
+  if (项目数.size) {
+    return `以下${客户叫法}名下还有项目，整批已阻止：${visible.filter((c) => 项目数.has(c.id)).map((c) => c.name).join("、")}。请先在项目页删掉这些项目，再删除。`;
+  }
   // 已授权的父档案可能被不可见的下游引用；检查依赖但只返回所选父档案姓名。
   const blocked = await 看全部(() => db.customer.findMany({
     where: { id: { in: visible.map(c => c.id) }, OR: [{ referrals: { some: {} } }, { attributedCustomers: { some: {} } }] },

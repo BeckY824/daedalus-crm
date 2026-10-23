@@ -11,7 +11,7 @@ import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { getBusiness } from "@/lib/business";
 import { 规整向导, 向导接着建, type 建好的, type 向导联系人, type 向导项目, type 向导跟进 } from "@/lib/project/wizard";
-import { 改节点, 勾交付, 加角色, 改角色, 交付项们, type 交付项 } from "@/lib/project/db";
+import { 改节点, 勾交付, 加角色, 改角色, 删项目, 交付项们, type 交付项 } from "@/lib/project/db";
 import type { 位置 } from "@/lib/project/nodes";
 import { saveCustomer, type CustomerInput } from "../customers/actions";
 
@@ -90,6 +90,19 @@ export async function 勾项目交付(projectId: string, 项: 交付项, 勾: bo
       刷新项目(projectId, p?.customerId);
     }
     return r;
+  } catch (e) { return 不在了(e); }
+}
+
+export async function 删除项目(projectId: string) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const r = await 删项目(me, projectId);
+    if (r.ok) {
+      await recordAudit({ user: me, action: "delete", entity: "Project", entityId: projectId, summary: `删除项目「${r.name}」` });
+      刷新项目(undefined, r.customerId);
+    }
+    return r.ok ? { ok: true as const } : r;
   } catch (e) { return 不在了(e); }
 }
 
