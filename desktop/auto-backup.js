@@ -13,6 +13,10 @@
  * 拷出来是一个一致、独立、已压实的库，WAL 里还没回写的也在里面。
  * **备份失败绝不挡启动**——只记日志。挡住了等于为了保护数据让人用不了数据。
  *
+ * 商机 / 订单的附件（2026-10-22 D-24）：文件在 attachments/<编号>，存进去以后不再改。每次拷库时把它们硬链接进
+ * backups/attachments/（附件池，所有备份共用；同一个盘上不多占地方，链不了就拷）；恢复后把那份库里有、本机没了的附件从池里补回来。
+ * 池里哪份备份都不再用到的附件，修剪时删掉。设置页的「备份数据库…」只拷库，不带附件。
+ *
  * 文件名用 ASCII：用户会把这个文件夹拷来拷去、发给我们，中文名在一些压缩工具和网盘里会乱码。
  * 不引 electron，能直接拿 node 测（tests/desktop-auto-backup.test.ts）。
  */
@@ -57,6 +61,81 @@ function 拷(库, 目标) {
     for (const suffix of ["", "-wal", "-shm"]) fs.rmSync(`${临时}${suffix}`, { force: true });
   }
   return true;
+}
+
+const 附件池名 = "attachments";
+const 附件编号 = /^[a-z0-9]{8,40}$/i;
+
+/** 硬链接（不多占地方、原子）；跨盘、文件系统不支持就拷一份（先拷临时文件再改名） */
+function 链或拷(from, to) {
+  try {
+    fs.linkSync(from, to);
+  } catch {
+    const 临时 = `${to}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+    try {
+      fs.copyFileSync(from, 临时);
+      fs.renameSync(临时, to);
+    } finally { fs.rmSync(临时, { force: true }); }
+  }
+}
+
+/** 把本机现有的附件挂进附件池。返回新挂了几个 */
+function 备份附件(数据目录) {
+  const 源 = path.join(数据目录, 附件池名);
+  if (!fs.existsSync(源)) return 0;
+  const 池 = path.join(备份目录(数据目录), 附件池名);
+  fs.mkdirSync(池, { recursive: true });
+  let n = 0;
+  for (const f of fs.readdirSync(源)) {
+    if (!附件编号.test(f) || fs.existsSync(path.join(池, f))) continue;
+    if (!fs.lstatSync(path.join(源, f)).isFile()) continue;
+    链或拷(path.join(源, f), path.join(池, f));
+    n++;
+  }
+  return n;
+}
+
+/** 一份库里记着哪些附件。很老的库没有这张表 = 空；打不开 = null（修剪时就别删了） */
+function 库里的附件(库) {
+  let db;
+  try { db = new DatabaseSync(库, { readOnly: true }); } catch { return null; }
+  try {
+    try {
+      return new Set(db.prepare(`SELECT id FROM "Attachment"`).all().map((r) => String(r.id)));
+    } catch (e) {
+      return /no such table/i.test(String(e?.message)) ? new Set() : null;
+    }
+  } finally { db.close(); }
+}
+
+/** 恢复以后：换进来的库里有、本机没了的附件，从池里补回来。不删本机任何文件 */
+function 补回附件(库, 数据目录) {
+  const 池 = path.join(备份目录(数据目录), 附件池名);
+  const 要 = 库里的附件(库);
+  if (!要 || !要.size || !fs.existsSync(池)) return 0;
+  const 本机 = path.join(数据目录, 附件池名);
+  fs.mkdirSync(本机, { recursive: true });
+  let n = 0;
+  for (const id of 要) {
+    if (!附件编号.test(id) || fs.existsSync(path.join(本机, id)) || !fs.existsSync(path.join(池, id))) continue;
+    链或拷(path.join(池, id), path.join(本机, id));
+    n++;
+  }
+  return n;
+}
+
+/** 池里哪份备份库都不再记着的附件删掉。有一份库读不出来就整个不删（宁可多占点地方） */
+function 修剪附件池(目录) {
+  const 池 = path.join(目录, 附件池名);
+  if (!fs.existsSync(池)) return;
+  const 要留 = new Set();
+  for (const f of fs.readdirSync(目录)) {
+    if (!f.endsWith(".db")) continue;
+    const ids = 库里的附件(path.join(目录, f));
+    if (!ids) return;
+    for (const id of ids) 要留.add(id);
+  }
+  for (const f of fs.readdirSync(池)) if (!要留.has(f)) fs.rmSync(path.join(池, f), { force: true });
 }
 
 /** 这个库里有没有值得保护的东西：一个客户、线索、跟进都没有的新库，拷 7 份空库只会让恢复列表变吵 */
@@ -112,7 +191,15 @@ function 自动备份({ 库, 数据目录, 版本, 现在 = new Date(), 日志 =
       if (拷(库, f)) 拷了.push(path.basename(f));
       修剪(目录, "daily");
     }
-    if (拷了.length) 日志(`[备份] 自动备份：${拷了.join("、")}`);
+    if (拷了.length) {
+      日志(`[备份] 自动备份：${拷了.join("、")}`);
+      try {
+        备份附件(数据目录);
+        修剪附件池(目录);
+      } catch (e) {
+        日志(`[备份] 附件没备份成（不影响启动）：${e?.message ?? e}`);
+      }
+    }
   } catch (e) {
     日志(`[备份] 自动备份没做成（不影响启动）：${e?.message ?? e}`);
   }
@@ -147,6 +234,8 @@ function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
   if (!fs.lstatSync(源).isFile() || fs.realpathSync(path.dirname(源)) !== fs.realpathSync(目录)) throw new Error("备份必须是本机备份目录中的普通文件");
   校验(源); // 坏的备份不换进去：宁可不恢复，也不把好库换成坏库
   校验CRM备份(源);
+  // 当前的附件先进池：恢复错了再恢复回来时，这些附件还在。挂不进去就不恢复（数据没动）
+  备份附件(数据目录);
   const 临时库 = `${库}.${process.pid}.${crypto.randomBytes(8).toString("hex")}.restore.tmp`;
   let 另存 = null;
   let 隔离 = null;
@@ -242,7 +331,13 @@ function 恢复({ 库, 数据目录, 文件名, 现在 = new Date(), 校验 }) {
     if (原件) { try { fs.rmSync(原件, { recursive: true, force: true }); } catch { /* protected raw copy can be cleaned up later */ } }
   }
 
-  return { 另存: 另存 && path.basename(另存), 隔离: 隔离 && path.basename(隔离) };
+  // 库已经换好了：补附件、修剪池出错只能算了，不能说「没恢复」
+  let 补回 = 0;
+  try {
+    补回 = 补回附件(库, 数据目录);
+    修剪附件池(目录);
+  } catch { /* 附件池下次自动备份再修剪；缺的附件页面上显示「文件不在这台电脑上」 */ }
+  return { 另存: 另存 && path.basename(另存), 隔离: 隔离 && path.basename(隔离), 补回 };
 }
 
-module.exports = { 自动备份, 列出, 恢复, 备份目录 };
+module.exports = { 自动备份, 列出, 恢复, 备份目录, 备份附件, 补回附件, 修剪附件池 };

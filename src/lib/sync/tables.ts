@@ -49,7 +49,8 @@ export const 同步表 = [
 ] as const;
 
 /** 明确不同步的表（和上面合起来要覆盖 schema 里的全部模型，守卫用例据此判「新加的表没人管」） */
-export const 不同步表 = ["AiConversation", "AiMessage", "AiProject", "ImportBatch", "ImportRow", "WorkspaceAccount"] as const;
+// Attachment（商机 / 订单附件，2026-10-22 D-24）：这一版只存本机；团队版走单独的密文通道、打开时才下载，接上以后再挪进同步表
+export const 不同步表 = ["AiConversation", "AiMessage", "AiProject", "ImportBatch", "ImportRow", "WorkspaceAccount", "Attachment"] as const;
 
 /**
  * 不同步的列：
@@ -94,6 +95,7 @@ export const 指向人的列: [string, string][] = [
   ["ImportBatch", "userId"],
   ["TradeOrder", "ownerId"],
   ["WorkspaceAccount", "userId"],
+  ["Attachment", "userId"],
 ];
 
 /**
