@@ -599,10 +599,11 @@ export default function CustomersView({
                 options={[...客户等级.map((x) => ({ value: x, label: 客户等级说明[x] })), { value: 未分级, label: 未分级 }]} />
             )}
             {/* 团队版部门（1b）：总管理、管理员默认看全公司，按部门挑着看。选上级部门连下级一起 */}
-            {(部门选项.length > 0 || f.dept) && (
+            {/* 地址栏里的部门删掉了：列表不按它筛（query.ts 部门条件），下拉也显示「全部部门」，两边对得上 */}
+            {部门选项.length > 0 && (
               <Select style={{ width: 140 }} placeholder="全部部门" allowClear aria-label="部门"
-                value={f.dept || undefined} onChange={(v) => apply({ dept: v ?? "" })}
-                options={f.dept && !部门选项.some((o) => o.value === f.dept) ? [...部门选项, { value: f.dept, label: "（已删的部门）" }] : 部门选项} />
+                value={部门选项.some((o) => o.value === f.dept) ? f.dept : undefined} onChange={(v) => apply({ dept: v ?? "" })}
+                options={部门选项} />
             )}
             {/* 公海原来是这个下拉的第一项，2026-10-13 起由页签代替。「公海」页签上不摆（除非地址上正筛着某人，不然看不见自己筛了什么） */}
             {!不问归属 && (!f.pool || 子集 || f.salesOwnerId) && (

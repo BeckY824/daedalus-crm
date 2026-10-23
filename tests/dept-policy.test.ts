@@ -2,7 +2,8 @@
  * 团队版项目模式 1b（2026-10-23）：部门、角色、范围的纯函数。中继那一半在 sync-scoped-dept.test.ts
  */
 import { expect, it } from "vitest";
-import { 一级部门表, 默认一级部门, 部门判定, 读写档, 推业务角色, 老角色, 默认范围, 部门里的人, 摊平部门 } from "@/lib/sync/dept-policy";
+import { 一级部门表, 默认一级部门, 部门判定, 读写档, 推业务角色, 老角色, 默认范围, 部门里的人, 摊平部门, 虚线下属 } from "@/lib/sync/dept-policy";
+import { 范围可写 } from "@/lib/sync/scope-policy";
 import { 范围可读, type 范围 } from "@/lib/sync/scope-policy";
 
 const t = (n: number) => new Date(2026, 9, 23, 0, n);
@@ -98,4 +99,34 @@ it("部门里的人：连下级；选默认一级部门时没分部门、部门�
   expect(部门里的人(编制, "nei-1")).toMatchObject({ 人: ["a"], 含无主: false });
   expect(部门里的人(编制, "wai")).toMatchObject({ 人: ["b"], 含无主: false });
   expect(摊平部门(部门).map((x) => `${x.层}${x.d.name}`)).toEqual(["1内贸", "2华东", "1外贸", "1坏的"]);
+});
+
+it("虚线下属：整条链往下、层数可限、成环不转圈、走了的人断链", () => {
+  // a ← b ← c ← d（b 的虚线上级是 a……）；e 和 f 互为虚线上级
+  const 上级 = new Map<string, string | null>([["b", "a"], ["c", "b"], ["d", "c"], ["e", "f"], ["f", "e"], ["a", null]]);
+  const 在册 = new Set(["a", "b", "c", "d", "e", "f"]);
+  expect([...虚线下属(上级, "a", 在册)].sort()).toEqual(["acct_b", "acct_c", "acct_d"]);
+  expect([...虚线下属(上级, "a", 在册, 1)]).toEqual(["acct_b"]);
+  expect([...虚线下属(上级, "a", 在册, 2)].sort()).toEqual(["acct_b", "acct_c"]);
+  expect([...虚线下属(上级, "e", 在册)]).toEqual(["acct_f"]);
+  expect([...虚线下属(上级, "d", 在册)]).toEqual([]);
+  // c 走了：a 只剩 b，d 也断开
+  expect([...虚线下属(上级, "a", new Set(["a", "b", "d"]))]).toEqual(["acct_b"]);
+});
+
+it("虚线读：跨部门能读链上的人的客户；写不许，打开「加跟进」口子后同互看只加跟进", () => {
+  const 别部门 = () => false;
+  const 客户 = 范("Customer:x", ["acct_b"]);
+  expect(范围可读(客户, "a", false, false, { 部门: 别部门 })).toBe(false);
+  expect(范围可读(客户, "a", false, false, { 部门: 别部门, 虚线: new Set(["acct_b"]) })).toBe(true);
+  expect(范围可读(范("personal:acct_b", ["acct_b"]), "a", false, false, { 虚线: new Set(["acct_b"]) })).toBe(false);
+  const rows = new Map([["Customer:x", { t: "Customer", k: "x", fields: { salesOwnerId: "acct_b", channelOwnerId: null }, deleted: false, clocks: {}, clock: "", routeSeq: 1 }]]);
+  const 跟进 = { t: "FollowUp", k: "f1", fields: { customerId: "x", opportunityId: null, contactId: null }, deleted: false, clocks: {}, clock: "", routeSeq: 2 };
+  const 改名 = { ...rows.get("Customer:x")!, routeSeq: 2 };
+  for (const 互看 of [false, true]) {
+    expect(范围可写(undefined, 跟进, rows, "a", false, 互看, false, { 部门: 别部门, 虚线: new Set(["acct_b"]) })).toBe(false);
+    expect(范围可写(rows.get("Customer:x"), 改名, rows, "a", false, 互看, false, { 部门: 别部门, 虚线: new Set(["acct_b"]) })).toBe(false);
+  }
+  expect(范围可写(undefined, 跟进, rows, "a", false, false, false, { 部门: 别部门, 虚线: new Set(["acct_b"]), 虚线加跟进: true })).toBe(true);
+  expect(范围可写(rows.get("Customer:x"), 改名, rows, "a", false, false, false, { 部门: 别部门, 虚线: new Set(["acct_b"]), 虚线加跟进: true })).toBe(false);
 });

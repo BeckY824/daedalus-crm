@@ -109,6 +109,8 @@ export function 算范围(row: 范围索引, rows: 范围行表, seen = new Set<
 export const 范围可读 = (scope: 范围 | null, accountId: string, owner: boolean, 互看 = false, 限?: 读限) => {
   if (!scope) return false;
   if (owner || scope.owners.includes(`acct_${accountId}`) || 限?.进组?.has(scope.id)) return true;
+  // 虚线上级：链上的人名下的客户，跨部门也能读。放进公海的不算名下（公海按部门走）
+  if (限?.虚线?.size && scope.id.startsWith("Customer:") && !scope.public && scope.owners.some((o) => 限.虚线!.has(o))) return true;
   const 在部门 = !限?.部门 || 限.部门(scope);
   return (scope.public && (scope.id === "team" || 在部门)) || (互看 && scope.id.startsWith("Customer:") && 在部门);
 };
@@ -117,8 +119,9 @@ export const 范围可读 = (scope: 范围 | null, accountId: string, owner: boo
  * - 部门：「这个范围在不在我的一级部门里」（dept-policy 部门判定）。公海、互看、主管读全队客户都只到本一级部门；自己名下的照旧能读。
  *   团队只有 0 / 1 个一级部门时不传，和原来完全一样。
  * - 进组：已经同意进组的项目范围（SyncProjectInvite accepted）。能读，能像互看一样只加跟进家族的行，改不了项目本身
+ * - 虚线：虚线链上的人（acct_，dept-policy 虚线下属）。他们名下的客户能读；写默认一律不许，虚线加跟进 = true 时同互看只加跟进家族
  */
-export type 读限 = { 部门?: (scope: 范围) => boolean; 进组?: ReadonlySet<string> };
+export type 读限 = { 部门?: (scope: 范围) => boolean; 进组?: ReadonlySet<string>; 虚线?: ReadonlySet<string>; 虚线加跟进?: boolean };
 /**
  * 互看时同事的客户只许「加跟进」：新建跟进、它的来源 / 关联订单、操作日志。改资料、删、转交、改别人的计划和待办一律不许。
  * 计划、待办不在里面：服务器看不到它们的负责人（范围元数据只有客户编号），建了以后本人也改不了、勾不掉，干脆不让在同事的客户上建
@@ -134,13 +137,15 @@ export function 范围可写(old: 范围索引 | undefined, n: 范围索引, row
   // 进组只给读和加跟进，不算「本人可写」（否则组员能改项目、转交）
   if (本人可写(old, n, rows, accountId, 主管, 限?.部门 && { 部门: 限.部门 })) return true;
   // 互看 / 进组：同事的客户、进了组的项目下只许新建跟进家族的行（重发同一包在收推送时按 eventId 去重，到不了这里）
-  if ((!互看 && !限?.进组?.size) || old || n.deleted || !互看可加.has(n.t)) return false;
+  // 虚线只读：写的时候不算虚线（不然互看开着时，能在别部门的虚线下属客户下加跟进）
+  const 写限: 读限 | undefined = 限?.虚线 && !限.虚线加跟进 ? { 部门: 限.部门, 进组: 限.进组 } : 限;
+  if ((!互看 && !写限?.进组?.size && !写限?.虚线?.size) || old || n.deleted || !互看可加.has(n.t)) return false;
   for (const [field, table] of Object.entries(范围父表[n.t] ?? {})) {
     const id = n.fields[field]; if (!id) continue;
     const parent = rows.get(行键(table, id));
-    if (!parent || !范围可读(算范围(parent, rows), accountId, false, 互看, 限)) return false;
+    if (!parent || !范围可读(算范围(parent, rows), accountId, false, 互看, 写限)) return false;
   }
-  return 范围可读(算范围(n, 叠加(rows, 行键(n.t, n.k), n)), accountId, false, 互看, 限);
+  return 范围可读(算范围(n, 叠加(rows, 行键(n.t, n.k), n)), accountId, false, 互看, 写限);
 }
 /** 主管 = true 时「可读」按全队客户算（和互看读同一档），本人可写的规矩原样套上去 */
 function 本人可写(old: 范围索引 | undefined, n: 范围索引, rows: 范围行表, accountId: string, 主管 = false, 限?: 读限): boolean {

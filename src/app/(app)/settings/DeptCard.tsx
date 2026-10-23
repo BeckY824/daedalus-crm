@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button, Input, Select, Space, Tag } from "antd";
-import { 角色名, 范围名, 业务角色, 数据范围, 部门最多层数, 能管人, 摊平部门 } from "@/lib/sync/dept-policy";
+import { 角色名, 范围名, 业务角色, 数据范围, 默认范围, 部门最多层数, 能管人, 摊平部门 } from "@/lib/sync/dept-policy";
 import type { 团队编制 } from "@/lib/sync/client";
 import { 部门动作 } from "./team-actions";
 
@@ -15,7 +15,7 @@ type 部门 = 团队编制["部门"][number];
  * 设置 → 团队 → 部门与权限（团队版 1b，2026-10-23）。
  * 老板、总管理、管理员能改：建 / 改名 / 移动 / 删部门（最多 3 层），给成员分部门和业务角色，改「角色 × 范围」。
  * 隔离按一级部门算（云端推，不写进密文）；只有一个一级部门时等于没隔离，和原来一样。
- * 总管理只有老板能设、能改它的范围。虚线上级这一版只显示，不带权限。
+ * 总管理只有老板能设、能调（角色、部门、虚线、范围）；把角色放大成全公司也只有老板能。虚线上级：虚线链上的人名下的客户只读可看。
  */
 export default function DeptCard({ 编制, 成员, 我是建的人, 我, onChange }: { 编制: 团队编制; 成员: 成员[]; 我是建的人: boolean; 我: string | null; onChange: () => void }) {
   const router = useRouter();
@@ -26,7 +26,6 @@ export default function DeptCard({ 编制, 成员, 我是建的人, 我, onChang
   const 能改 = 我是建的人 || (!!我的角色 && 能管人.has(我的角色 as 业务角色));
   const 树 = 摊平部门(编制.部门);
   const 名 = new Map(编制.部门.map((d) => [d.id, d.name]));
-  const 层 = new Map(树.map((x) => [x.d.id, x.层]));
   const 人名 = new Map(成员.map((m) => [m.accountId, m.name]));
   const 一级们 = 编制.部门.filter((d) => d.top === d.id);
   const 部门选项 = 树.map(({ d, 层 }) => ({ value: d.id, label: `${"　".repeat(层 - 1)}${d.name}` }));
@@ -95,28 +94,14 @@ export default function DeptCard({ 编制, 成员, 我是建的人, 我, onChang
     });
   }
 
-  /** 调部门：名下的客户和项目跟着人走。先问一句要不要把客户交接给原部门的人，可以跳过（10-23 拍板） */
+  /** 调部门：直接调，不另做客户迁移、不提示交接（10-23 定：这一条不在 1b 里做）。隔离按负责人现在的部门算 */
   function 调部门(m: 成员, deptId: string | null) {
     const 原 = 编制.成员编制[m.accountId]?.deptId ?? null;
     if (原 === deptId) return;
-    const 去 = () => 做("member", { accountId: m.accountId, deptId }, `把「${m.name}」从${原 ? `「${名.get(原)}」` : "未分部门"}调到${deptId ? `「${名.get(deptId)}」` : "未分部门"}`);
-    if (!原) return void 去();
-    modal.confirm({
-      title: `把「${m.name}」调到${deptId ? `「${名.get(deptId)}」` : "未分部门"}？`,
-      content: (
-        <div>
-          <p>他名下的客户和项目会跟着他走，原部门「{名.get(原)}」的人之后看不到。</p>
-          <p>要不要先把名下客户交接给原部门的人？可以跳过。</p>
-        </div>
-      ),
-      okText: "不交接，直接调",
-      cancelText: "先去交接",
-      onOk: async () => { await 去(); },
-      onCancel: () => router.push(`/customers?salesOwnerId=${encodeURIComponent(`acct_${m.accountId}`)}`),
-    });
+    void 做("member", { accountId: m.accountId, deptId }, `把「${m.name}」从${原 ? `「${名.get(原)}」` : "未分部门"}调到${deptId ? `「${名.get(deptId)}」` : "未分部门"}`);
   }
 
-  const 角色选项 = (m: 成员) => 业务角色
+  const 角色选项 = () => 业务角色
     .filter((r) => r !== "director" || 我是建的人)
     .map((r) => ({ value: r, label: 角色名[r] }));
 
@@ -161,21 +146,21 @@ export default function DeptCard({ 编制, 成员, 我是建的人, 我, onChang
         {成员.map((m) => {
           const 编 = 编制.成员编制[m.accountId];
           const 是老板 = m.role === "owner";
-          const 改他 = 能改 && !是老板 && (我是建的人 || 编?.bizRole !== "director");
+          const 改他 = 能改 && (我是建的人 || (!是老板 && 编?.bizRole !== "director"));
           return (
             <li key={m.accountId} data-testid={`dept-member-${m.accountId}`}>
               <b>{m.name}</b>
-              <Select size="small" style={{ minWidth: 120 }} aria-label={`${m.name} 的部门`} disabled={!能改 || 忙}
+              <Select size="small" style={{ minWidth: 120 }} aria-label={`${m.name} 的部门`} disabled={!改他 || 忙}
                 value={编?.deptId ?? "__无"} onChange={(v) => 调部门(m, v === "__无" ? null : v)}
                 options={[{ value: "__无", label: "未分部门" }, ...部门选项]} />
               {是老板 ? <Tag color="gold">老板 · 总管理</Tag> : (
                 <Select size="small" style={{ minWidth: 110 }} aria-label={`${m.name} 的角色`} disabled={!改他 || 忙}
-                  value={编?.bizRole} options={编?.bizRole === "director" && !我是建的人 ? [{ value: "director", label: 角色名.director }] : 角色选项(m)}
+                  value={编?.bizRole} options={编?.bizRole === "director" && !我是建的人 ? [{ value: "director", label: 角色名.director }] : 角色选项()}
                   onChange={(v) => void 做("member", { accountId: m.accountId, bizRole: v }, `把「${m.name}」设成了${角色名[v as 业务角色]}`)} />
               )}
-              {/* 虚线上级：这一版只显示（权限没定稿） */}
+              {/* 虚线上级：能只读看虚线链上的人名下的客户 */}
               {!是老板 && (
-                <Select size="small" style={{ minWidth: 120 }} allowClear placeholder="虚线上级" aria-label={`${m.name} 的虚线上级`} disabled={!能改 || 忙}
+                <Select size="small" style={{ minWidth: 120 }} allowClear placeholder="虚线上级" aria-label={`${m.name} 的虚线上级`} disabled={!改他 || 忙}
                   value={编?.dottedManagerId ?? undefined}
                   options={成员.filter((x) => x.accountId !== m.accountId).map((x) => ({ value: x.accountId, label: `虚线：${x.name}` }))}
                   onChange={(v) => void 做("member", { accountId: m.accountId, dottedManagerId: v ?? null }, v ? `给「${m.name}」设了虚线上级「${人名.get(v)}」` : `去掉了「${m.name}」的虚线上级`)} />
@@ -193,7 +178,7 @@ export default function DeptCard({ 编制, 成员, 我是建的人, 我, onChang
             <span className="team-dept-role">{角色名[bizRole as 业务角色] ?? bizRole}</span>
             <Select size="small" style={{ minWidth: 220 }} aria-label={`${角色名[bizRole as 业务角色] ?? bizRole} 的范围`}
               disabled={!能改 || 忙 || (bizRole === "director" && !我是建的人)} value={scope}
-              options={数据范围.map((x) => ({ value: x, label: 范围名[x] }))}
+              options={数据范围.filter((x) => x !== "all" || 我是建的人 || 默认范围[bizRole as 业务角色] === "all" || scope === "all").map((x) => ({ value: x, label: 范围名[x] }))}
               onChange={(v) => void 做("role-scope", { bizRole, scope: v }, `把${角色名[bizRole as 业务角色] ?? bizRole}的范围改成了「${范围名[v as 数据范围]}」`)} />
           </li>
         ))}

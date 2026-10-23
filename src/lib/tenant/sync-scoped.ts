@@ -551,7 +551,7 @@ export async function 查查重(accountId: string, teamId: string, hashes: unkno
     if (!r || r.deleted) continue;
     if (范围可读(算范围(r, rows), accountId, owner, share || manager, 限)) continue;
     const 负责 = r.fields.salesOwnerId ?? r.fields.channelOwnerId ?? "";
-    const dept = 负责 ? 部门名(负责) : undefined;
+    const dept = 部门名(负责);
     hits.push({ k: x.recordKey, owner: 负责, label: x.label, ...(dept ? { dept } : {}) });
   }
   return { hits };

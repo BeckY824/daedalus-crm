@@ -124,7 +124,11 @@ export async function 入队(accountId: string, teamId: string, joinSecret: stri
     const 设备错 = await 登记设备(t.id, accountId, 设备, tx);
     if (设备错) return 错(409, 设备错);
     // 走过再回来的主管回来是业务员（2026-10-20）：老板要重新设，不能拿旧码一进来就看全队
-    if (已 && 已.leftAt) await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date(), ...(已.role === "manager" ? { role: "member" } : {}) } });
+    // 编制（部门、业务角色、虚线上级）也不跟着回来（1b 复查中）：离队时已经清过，这里再清一次兜住老数据
+    if (已 && 已.leftAt) {
+      await tx.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId } }, data: { leftAt: null, joinedAt: new Date(), ...(已.role === "manager" ? { role: "member" } : {}) } });
+      await tx.syncMemberRole.deleteMany({ where: { teamId: t.id, accountId } });
+    }
     else if (!已) await tx.syncMember.create({ data: { teamId: t.id, accountId } });
     const k = await tx.syncKey.findFirst({ where: { teamId: t.id }, orderBy: { epoch: "desc" }, select: { epoch: true } });
     return { ok: true as const, teamName: t.name, active: t.active, epoch: k?.epoch ?? 0 };
@@ -160,6 +164,7 @@ export async function 移除成员(accountId: string, teamId: string, 谁: strin
     control.syncMember.update({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } }, data: { leftAt: new Date() } }),
     control.syncDevice.deleteMany({ where: { teamId: t.id, accountId: m.accountId } }),
     control.syncDeviceSeen.deleteMany({ where: { teamId: t.id, accountId: m.accountId } }),
+    ...清编制(t.id, m.accountId),
   ]);
   return { ok: true, joinSecret };
 }
@@ -263,6 +268,14 @@ function 等长相等(a: string, b: string) {
   return x.length === y.length && timingSafeEqual(x, y);
 }
 
+/** 走了的人：编制删掉（回来是新人，老板重新设），谁的虚线上级是他也清掉（1b 复查中） */
+function 清编制(teamId: string, accountId: string) {
+  return [
+    control.syncMemberRole.deleteMany({ where: { teamId, accountId } }),
+    control.syncMemberRole.updateMany({ where: { teamId, dottedManagerId: accountId }, data: { dottedManagerId: null } }),
+  ];
+}
+
 export async function 退队(accountId: string, teamId: string, device?: string): Promise<结果<{ 只清这台?: boolean }>> {
   const m = await 在队里(String(teamId ?? ""), accountId);
   if (!m) return { ok: true };
@@ -288,6 +301,7 @@ export async function 退队(accountId: string, teamId: string, device?: string)
   // 走了的人的设备不再收新钥匙
   await control.syncDevice.deleteMany({ where: { teamId: m.teamId, accountId } });
   await control.syncDeviceSeen.deleteMany({ where: { teamId: m.teamId, accountId } });
+  await control.$transaction(清编制(m.teamId, accountId));
   return { ok: true };
 }
 

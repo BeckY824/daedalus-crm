@@ -4,7 +4,7 @@
  *   - 两个一级部门后：公海、互看、销售管理都只到本一级部门；管理员、总管理默认看全公司
  *   - 越权：别部门的客户拉不到、推不进（改资料、加跟进都不行）
  *   - 跨部门查重：只回概况（客户 id、负责人、封好的名字）+ 对方一级部门名
- *   - 调部门：名下客户跟着人走；改角色、建部门只有老板 / 总管理 / 管理员能做，总管理只有老板能给
+ *   - 调部门：隔离按负责人现在的部门算（不另做迁移、不提示交接）；改角色、建部门只有老板 / 总管理 / 管理员能做，总管理只有老板能给
  */
 import { beforeAll, afterAll, expect, it } from "vitest";
 import fs from "node:fs";
@@ -134,7 +134,7 @@ it("跨部门查重：只回概况和对方一级部门名", async () => {
   expect(await scoped.查查重(id.b2, team, [h])).toEqual({ hits: [] });
 });
 
-it("调部门：名下客户跟着人走", async () => {
+it("调部门：隔离按负责人现在的部门算，不另做迁移", async () => {
   expect(await dept.设成员(id.owner, team, id.b1, { deptId: 内贸 })).toMatchObject({ ok: true });
   expect(await 目录("a1")).toEqual(["a1-c", "a2-c", "b1-c", "orphan", "owner-c", "pool-a", "pool-b"]);
   expect(await 目录("b1")).toEqual(["b1-c", "pool-a", "pool-b"]);
@@ -169,4 +169,93 @@ it("邀请进组：不是项目范围、项目还没同步上来的都拒", asyn
   expect(await dept.邀请进组(id.a1, team, "Project:nope", id.b1, null, undefined)).toMatchObject({ ok: false, 状态: 404 });
   expect(await dept.回邀请(id.b1, team, "Project:nope", true)).toMatchObject({ ok: false, 状态: 404 });
   expect(await dept.进组名单(id.b1, team)).toEqual({ ok: true, 待我回: [], 组员: [] });
+});
+
+it("虚线上级：整条链往下只读可看，跨部门也看；改不了、加不了跟进（互看开着也不行）；成环不转圈", async () => {
+  // b1（外贸）虚线管 a2（内贸），a2 虚线管 a1：b1 看得到 a2、a1 名下的客户
+  expect(await dept.设成员(id.owner, team, id.a2, { dottedManagerId: id.b1 })).toMatchObject({ ok: true });
+  expect(await dept.设成员(id.owner, team, id.a1, { dottedManagerId: id.a2 })).toMatchObject({ ok: true });
+  expect(await 目录("b1")).toEqual(["a1-c", "a2-c", "b1-c", "pool-b"]);
+  expect(await 目录("a2")).toEqual(["a1-c", "a2-c", "pool-a"]);
+  await expect(scoped.给范围拉取(id.b1, team, "Customer:a1-c", 0)).resolves.toBeTruthy();
+  // 放进公海的不算名下：别部门的公海照样看不到
+  await expect(scoped.给范围拉取(id.b1, team, "Customer:pool-a", 0)).rejects.toMatchObject({ 状态: 403 });
+  expect(await relay.设互看(id.owner, team, true)).toMatchObject({ ok: true });
+  for (const e of [
+    event("Customer", "a1-c", { name: "虚线改名" }, "U"),
+    event("Customer", "a1-c", { salesOwnerId: `acct_${id.b1}` }, "U"),
+    event("FollowUp", "b1-on-a1", { customerId: "a1-c", opportunityId: null, contactId: null }),
+  ]) await expect(push(id.b1, "b1-device", e), `${e.t} ${e.o}`).rejects.toMatchObject({ 状态: 403 });
+  expect(await relay.设互看(id.owner, team, false)).toMatchObject({ ok: true });
+  // 成环：a1 再虚线管 b1，三个人互相看得到，不卡死
+  expect(await dept.设成员(id.owner, team, id.b1, { dottedManagerId: id.a1 })).toMatchObject({ ok: true });
+  expect(await 目录("a1")).toEqual(["a1-c", "a2-c", "b1-c", "orphan", "owner-c", "pool-a"]);
+  expect(await dept.设成员(id.owner, team, id.b1, { dottedManagerId: null })).toMatchObject({ ok: true });
+});
+
+it("虚线链上有人走了：链断在他那里，指向他的虚线上级清掉", async () => {
+  // a1 退队：b1 看不到 a1 名下的客户（负责人不在册）；谁的虚线上级是 a1 的也清掉
+  expect(await dept.设成员(id.owner, team, id.b2, { dottedManagerId: id.a1 })).toMatchObject({ ok: true });
+  expect(await relay.退队(id.a1, team)).toMatchObject({ ok: true });
+  expect(await 目录("b1")).toEqual(["a2-c", "b1-c", "pool-b"]);
+  expect(await control.syncMemberRole.findUnique({ where: { teamId_accountId: { teamId: team, accountId: id.b2 } } })).toMatchObject({ dottedManagerId: null });
+  expect(await control.syncMemberRole.count({ where: { teamId: team, accountId: id.a1 } })).toBe(0);
+});
+
+it("管理员走了再拿原邀请码回来：编制不跟回来，是没分部门的销售成员，只看自己的 + 默认部门公海", async () => {
+  expect(await dept.设成员(id.owner, team, id.b2, { bizRole: "admin" })).toMatchObject({ ok: true, bizRole: "admin" });
+  expect(await 目录("b2")).toEqual(全部客户);
+  const 码 = await relay.换口令(id.owner, team);
+  if (!码.ok) throw Error(码.error);
+  expect(await relay.退队(id.b2, team)).toMatchObject({ ok: true });
+  expect(await relay.入队(id.b2, team, 码.joinSecret, { device: "b2-device-2", pubKey: 设备钥匙对().公钥 })).toMatchObject({ ok: true });
+  expect(await control.syncMemberRole.count({ where: { teamId: team, accountId: id.b2 } })).toBe(0);
+  // 没分部门算默认一级部门（最早建的内贸）：公海只有 pool-a
+  expect(await 目录("b2")).toEqual(["b2-c", "pool-a"]);
+  expect(await scoped.范围状态(id.b2, team)).toMatchObject({ manager: false, owner: false });
+  const 我 = (await relay.我的团队(id.owner)).find((t) => t.id === team);
+  expect(我?.成员.find((m) => m.accountId === id.b2)?.role).toBe("member");
+  expect(我?.编制?.成员编制[id.b2]).toEqual({ bizRole: "sales", deptId: null, dottedManagerId: null });
+});
+
+it("查重标的部门和隔离一个口径：没分部门、已离队、没负责人的都标默认一级部门", async () => {
+  // 这时 a1 已离队、b2 回来后没分部门：两人和没负责人的客户都算内贸（建得最早的一级部门）
+  const { epoch } = await scoped.范围状态(id.owner, team);
+  const h = (k: string) => createHmac("sha256", "dedupe").update(k).digest("hex");
+  expect(await scoped.收查重索引(id.owner, team, "owner-device", ["a1-c", "b2-c", "orphan"].map((k) => ({ k, epoch, hashes: [h(k)], label: k })))).toEqual({ stored: 3, skipped: [] });
+  const 回 = await scoped.查查重(id.b1, team, ["a1-c", "b2-c", "orphan"].map(h));
+  expect(回.hits.map((x) => [x.k, x.dept]).sort()).toEqual([["a1-c", "内贸"], ["b2-c", "内贸"], ["orphan", "内贸"]]);
+});
+
+it("管理员动不了总管理（部门、虚线也不行），也不能把别的角色放大成全公司", async () => {
+  expect(await dept.设成员(id.owner, team, id.a2, { bizRole: "admin" })).toMatchObject({ ok: true });
+  expect(await dept.设成员(id.owner, team, id.b1, { bizRole: "director" })).toMatchObject({ ok: true });
+  expect(await dept.设成员(id.a2, team, id.b1, { deptId: 内贸 })).toMatchObject({ ok: false, 状态: 403 });
+  expect(await dept.设成员(id.a2, team, id.b1, { dottedManagerId: id.a2 })).toMatchObject({ ok: false, 状态: 403 });
+  expect(await dept.设成员(id.a2, team, id.owner, { deptId: 外贸 })).toMatchObject({ ok: false, 状态: 403 });
+  expect(await dept.设角色范围(id.a2, team, "sales", "all")).toMatchObject({ ok: false, 状态: 403 });
+  expect(await dept.设角色范围(id.a2, team, "sales_mgr", "all")).toMatchObject({ ok: false, 状态: 403 });
+  // 本来就是全公司的（管理员）改窄再改回去照样行；别的往窄里改照样行
+  expect(await dept.设角色范围(id.a2, team, "admin", "dept")).toMatchObject({ ok: true });
+  expect(await dept.设角色范围(id.a2, team, "admin", "all")).toMatchObject({ ok: true });
+  expect(await dept.设角色范围(id.a2, team, "sales", "self")).toMatchObject({ ok: true });
+  // 老板能
+  expect(await dept.设成员(id.owner, team, id.b1, { deptId: 外贸, bizRole: "sales" })).toMatchObject({ ok: true });
+  expect(await dept.设角色范围(id.owner, team, "sales", "self_share")).toMatchObject({ ok: true });
+  expect(await dept.设成员(id.owner, team, id.a2, { bizRole: "sales" })).toMatchObject({ ok: true });
+});
+
+it("接口 /api/sync/dept：没令牌 401；不在团队 403；不认识的操作 400", async () => {
+  const { POST } = await import("@/app/api/sync/dept/route");
+  const { 签发 } = await import("@/lib/tenant/device-token");
+  const 请求 = (body: unknown, token?: string) => new Request("http://x/api/sync/dept", { method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body) });
+  expect((await POST(请求({ teamId: team, action: "invites" }))).status).toBe(401);
+  const 外人 = (await control.account.create({ data: { name: "outsider", email: "outsider@example.invalid", password: "not-a-login" } })).id;
+  const 外 = await 签发(外人, "test");
+  expect((await POST(请求({ teamId: team, action: "dept-create", name: "外人建" }, 外.token))).status).toBe(403);
+  expect((await POST(请求({ teamId: team, action: "invites" }, 外.token))).status).toBe(403);
+  const 主 = await 签发(id.owner, "test");
+  expect((await POST(请求({ teamId: team, action: "nope" }, 主.token))).status).toBe(400);
+  expect((await POST(请求({ action: "invites" }, 主.token))).status).toBe(400);
+  expect((await POST(请求({ teamId: team, action: "invites" }, 主.token))).status).toBe(200);
 });

@@ -709,12 +709,12 @@ function 记互看(teamId: string, v: unknown) {
   忘掉限定();
 }
 
-/** 名单带回来的编制记进本机配置（变了才写）。老服务器不回这一项就不动 */
+/** 名单带回来的编制记进本机配置（变了才写）。服务器不回这一项（老服务器 / 回退）就清掉本机的，别拿旧编制显示 */
 function 记编制(teamId: string, v: unknown) {
-  if (!v || typeof v !== "object" || !Array.isArray((v as 团队编制).部门)) return;
+  const 新 = v && typeof v === "object" && Array.isArray((v as 团队编制).部门) ? (v as 团队编制) : undefined;
   const 现 = 读团队();
-  if (!现 || 现.teamId !== teamId || JSON.stringify(现.编制 ?? null) === JSON.stringify(v)) return;
-  写团队({ ...现, 编制: v as 团队编制 });
+  if (!现 || 现.teamId !== teamId || JSON.stringify(现.编制 ?? null) === JSON.stringify(新 ?? null)) return;
+  写团队({ ...现, 编制: 新 });
 }
 
 /** 本机我的角色按目录对一下：主管 = MANAGER，否则 SALES。老板那台不走这里（目录 owner） */

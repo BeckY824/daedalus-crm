@@ -10,7 +10,7 @@ import { control } from "./control";
 import type { Prisma } from "@/generated/control";
 import { 团队索引 } from "./scoped-index";
 import {
-  业务角色 as 角色表, 默认范围, 能管人, 是业务角色, 是数据范围, 推业务角色, 老角色, 一级部门表, 默认一级部门, 部门判定, 读写档, 部门最多层数,
+  业务角色 as 角色表, 默认范围, 虚线下属, 虚线上级规则, 能管人, 是业务角色, 是数据范围, 推业务角色, 老角色, 一级部门表, 默认一级部门, 部门判定, 读写档, 部门最多层数,
   type 业务角色, type 数据范围, type 部门行,
 } from "../sync/dept-policy";
 import type { 读限 } from "../sync/scope-policy";
@@ -51,7 +51,9 @@ export async function 读写身份(o: { teamId: string; accountId: string; 建�
   const 部门 = 部门判定({ 我: o.accountId, 我的范围: 范围, depts: 编制.depts, members: members.map((m) => ({ accountId: m.accountId, deptId: 编制.roles.get(m.accountId)?.deptId ?? null })) });
   const 档 = 读写档({ 建的人: o.建的人, 范围, 互看开关: o.互看开关, 部门 });
   const 进组 = new Set((await db.syncProjectInvite.findMany({ where: { teamId: o.teamId, accountId: o.accountId, status: "accepted" }, select: { scopeId: true } })).map((x) => x.scopeId));
-  return { owner: 档.owner, manager: 档.manager, share: 档.share, 限: { ...(档.部门 ? { 部门: 档.部门 } : {}), ...(进组.size ? { 进组 } : {}) }, 角色, 范围 };
+  const 虚线 = 虚线下属(new Map([...编制.roles].map(([a, r]) => [a, r.dottedManagerId])), o.accountId, new Set(members.map((m) => m.accountId)));
+  const 限: 读限 = { ...(档.部门 ? { 部门: 档.部门 } : {}), ...(进组.size ? { 进组 } : {}), ...(虚线.size ? { 虚线, 虚线加跟进: 虚线上级规则.可改 === "加跟进" } : {}) };
+  return { owner: 档.owner, manager: 档.manager, share: 档.share, 限, 角色, 范围 };
 }
 
 /** 能改部门、成员角色、配置表的人：建团队的人 + 总管理、管理员 */
@@ -139,9 +141,8 @@ export async function 删部门(accountId: string, teamId: string, id: unknown):
 }
 
 /**
- * 调人：部门、业务角色、虚线上级（只显示）。业务角色同步写回老角色（SyncMember.role），老客户端按名单对本机角色照旧能用。
- * 调部门时名下的客户和项目自动跟人走（隔离按负责人所在部门算，见 dept-policy）：原部门的人下一轮同步就看不到了，
- * 桌面端调部门的对话框里先提示「要不要先把名下客户交接给原部门的人」，可以跳过（10-23 拍板第 3 条）
+ * 调人：部门、业务角色、虚线上级（虚线链上的人名下的客户只读可看，见 读写身份）。业务角色同步写回老角色（SyncMember.role），老客户端按名单对本机角色照旧能用。
+ * 调部门不另做客户迁移、不提示交接（10-23 定：不在 1b 里做）；隔离本来就按负责人现在的部门算
  */
 export async function 设成员(accountId: string, teamId: string, 谁: unknown, 改: { bizRole?: unknown; deptId?: unknown; dottedManagerId?: unknown }): Promise<结果<{ bizRole: 业务角色; deptId: string | null }>> {
   const t = await 能管(teamId, accountId);
@@ -151,6 +152,8 @@ export async function 设成员(accountId: string, teamId: string, 谁: unknown,
   const 是老板 = m.accountId === t.ownerAccountId;
   const 旧 = await control.syncMemberRole.findUnique({ where: { teamId_accountId: { teamId: t.id, accountId: m.accountId } } });
   let bizRole: 业务角色 = 是业务角色(旧?.bizRole) ? 旧.bizRole : 推业务角色(是老板, m.role);
+  // 总管理（含老板）的部门、虚线也只有老板能动：管理员动不了总管理
+  if (accountId !== t.ownerAccountId && (是老板 || bizRole === "director")) return 错(403, "只有老板能改总管理");
   let deptId = 旧?.deptId ?? null;
   let dotted = 旧?.dottedManagerId ?? null;
   if (改.bizRole !== undefined) {
@@ -193,6 +196,8 @@ export async function 设角色范围(accountId: string, teamId: string, bizRole
   if (!是业务角色(bizRole)) return 错(400, "没有这个角色");
   if (!是数据范围(scope)) return 错(400, "没有这个范围");
   if (bizRole === "director" && accountId !== t.ownerAccountId) return 错(403, "只有老板能改总管理的范围");
+  // 管理员不能把哪个角色放大成看全公司（本来默认就是全公司的除外，改回去照样行）
+  if (scope === "all" && 默认范围[bizRole] !== "all" && accountId !== t.ownerAccountId) return 错(403, "只有老板能把范围设成全公司");
   await control.syncRoleScope.upsert({ where: { teamId_bizRole: { teamId: t.id, bizRole } }, update: { scope, changedAt: new Date(), by: accountId }, create: { teamId: t.id, bizRole, scope, by: accountId } });
   return { ok: true, bizRole, scope };
 }
@@ -213,16 +218,21 @@ export async function 编制给名单(teamId: string, ownerAccountId: string, �
   };
 }
 
-/** 查重命中、跨部门搜到的那条标「内贸 / 外贸」：负责人所在的一级部门名。团队少于两个一级部门不标 */
+/**
+ * 查重命中、跨部门搜到的那条标「内贸 / 外贸」：负责人所在的一级部门名。团队少于两个一级部门不标。
+ * 和隔离（部门判定）一个口径：负责人没分部门、部门断链、已离队、没负责人的，都标默认一级部门
+ */
 export async function 一级部门名(teamId: string): Promise<(owner: string) => string | undefined> {
   const 编制 = await 团队编制(teamId);
   const 顶 = 一级部门表(编制.depts);
   if (new Set(顶.values()).size < 2) return () => undefined;
   const 名 = new Map(编制.depts.map((d) => [d.id, d.name]));
+  const 默认 = 默认一级部门(编制.depts);
+  const 在册 = new Set((await control.syncMember.findMany({ where: { teamId, leftAt: null }, select: { accountId: true } })).map((m) => m.accountId));
   return (owner) => {
     const id = owner.replace(/^acct_/, "");
-    const d = 编制.roles.get(id)?.deptId;
-    const top = d ? 顶.get(d) : undefined;
+    const d = 在册.has(id) ? 编制.roles.get(id)?.deptId : undefined;
+    const top = (d && 顶.get(d)) || 默认;
     return top ? 名.get(top) : undefined;
   };
 }

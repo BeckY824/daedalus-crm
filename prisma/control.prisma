@@ -685,7 +685,7 @@ model SyncMemberRole {
   accountId       String
   deptId          String?
   bizRole         String
-  /// 虚线上级：第一版只显示，不给权限
+  /// 虚线上级：虚线链上的人名下的客户只读可看（dept-policy 虚线上级规则：层数、能不能加跟进留了口子）
   dottedManagerId String?
   changedAt       DateTime @default(now())
   by              String?
