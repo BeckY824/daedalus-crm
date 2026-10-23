@@ -482,7 +482,8 @@ test("商机管道：列头写着这一阶段压着多少钱", async ({ page }) 
   for (const x of 合计) expect(x).toMatch(/¥|￥|\d/);
 });
 
-test("1024 下管道自己横滚，页面不跟着被撑开", async ({ page }) => {
+// 原来是「管道自己横滚」：2026-10-22 起各阶段按宽度等分、放不下折行，管道和页面都不横滚（细的量法见 e2e-layout/商机管道.spec.ts）
+test("1024 下管道和页面都不横滚", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 800 });
   await 登录(page);
   await page.goto("/opportunities/pipeline");
@@ -493,11 +494,11 @@ test("1024 下管道自己横滚，页面不跟着被撑开", async ({ page }) =
     const pipe = document.querySelector(".pipe")!;
     return {
       页面溢出: d.scrollWidth > d.clientWidth + 1,
-      管道能横滚: pipe.scrollWidth > pipe.clientWidth,
+      管道横滚: pipe.scrollWidth > pipe.clientWidth + 1,
     };
   });
   expect(r.页面溢出, "整页被管道撑出了横向滚动条").toBe(false);
-  expect(r.管道能横滚, "管道那一块自己得能横滚，否则右边几列就看不到了").toBe(true);
+  expect(r.管道横滚, "阶段放不下应该折到下一行，不是让管道横滚").toBe(false);
 });
 
 /* ---------- 批 4 ---------- */
