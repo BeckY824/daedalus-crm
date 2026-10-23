@@ -113,10 +113,6 @@ export async function 列出被盖(db: Db): Promise<被盖条目[]> {
   return out;
 }
 
-export async function 被盖条数(db: Db): Promise<number> {
-  return (await 列出被盖(db).catch(() => [])).length;
-}
-
 /** 「知道了」：标成看过，不再提示 */
 export async function 看过被盖(db: Db, ids: number[]) {
   await 建被盖表(db);
