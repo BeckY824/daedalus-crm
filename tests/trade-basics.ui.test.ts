@@ -191,7 +191,8 @@ it("「保存并完成」的提示里有撤销：点了交给 撤销记一笔 �
   await 框.waitFor();
   await 框.getByLabel("这次聊了什么").fill("催了，说下周付");
   await page.getByRole("button", { name: "保存并完成" }).click();
-  await page.getByText(/已记一笔，「催定金」完成；下次 10 月 23 日/).waitFor();
+  // 这条只管「撤销」交了什么；下次是哪天由第一条（7 天后）管，这里不绑日期。CI 全量并发时提示条偶尔超 5 秒才出来，放宽到 15 秒
+  await page.getByText(/已记一笔，「催定金」完成；下次 \d+ 月 \d+ 日/).waitFor({ timeout: 15_000 });
   await page.getByRole("button", { name: "撤销" }).click();
   await page.getByText("「催定金」已改回未完成，刚记的那笔已删掉").waitFor();
   const 撤 = (await 调用们()).filter((x) => x.名 === "撤销记一笔");
