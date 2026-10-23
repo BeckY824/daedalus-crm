@@ -76,7 +76,9 @@ function 记录话(l: 记录) {
  * 选时长和人数、按价格表看应收，确认后写到期日。到期自动暂停同步，续费顺延后自动恢复。
  * 收钱走私域、运营者手动开通，不做应用内支付。我们只看得到这些元数据——密文打不开，钥匙在他们自己电脑上。
  */
-export default function SyncView({ token, rows, 价格, 今天 }: { token: string; rows: 行[]; 价格: 价格表; 今天: string }) {
+const GB = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+
+export default function SyncView({ token, rows, 价格, 今天, 图片盘 = null }: { token: string; rows: 行[]; 价格: 价格表; 今天: string; 图片盘?: { 剩: number; 用: number; 剩线: number; 用线: number } | null }) {
   const { message, modal } = App.useApp();
   const [忙, set忙] = useState<string | null>(null);
   const [开, set开] = useState<行 | null>(null);
@@ -104,11 +106,14 @@ export default function SyncView({ token, rows, 价格, 今天 }: { token: strin
   const 待开通 = rows.filter((r) => !r.active && !r.activatedAt && !r.到期).length;
   const 已到期 = rows.filter((r) => r.active && r.到期?.过了).length;
   const 快到期 = rows.filter((r) => r.active && r.到期 && !r.到期.过了 && r.到期.剩 <= 快到期天数).length;
-  const 说明 = [`${rows.length} 个团队`, `待开通 ${待开通}`, 已到期 ? `已到期 ${已到期}` : "", 快到期 ? `${快到期天数} 天内到期 ${快到期}` : ""].filter(Boolean).join(" · ");
+  const 说明 = [`${rows.length} 个团队`, `待开通 ${待开通}`, 已到期 ? `已到期 ${已到期}` : "", 快到期 ? `${快到期天数} 天内到期 ${快到期}` : "", 图片盘 ? `产品图片 ${GB(图片盘.用)} · 磁盘剩 ${GB(图片盘.剩)}` : ""].filter(Boolean).join(" · ");
+  // 产品图片（2026-10-22 D-24）：盘快满了、或者图片太多了，这里也挂一条（运营通知一天报一次）
+  const 盘告警 = 图片盘 && (图片盘.剩 < 图片盘.剩线 || 图片盘.用 > 图片盘.用线);
 
   return (
     <>
       <页头 标题="团队同步" 说明={说明} />
+      {盘告警 && <Alert type="warning" showIcon style={{ marginBottom: 16 }} title={`团队图片 ${GB(图片盘.用)}（线 ${GB(图片盘.用线)}），磁盘剩 ${GB(图片盘.剩)}（线 ${GB(图片盘.剩线)}）：该加盘或清理了`} />}
       <卡片 标题="价格表" 说明="每人 · 客户在桌面端「设置 → 团队」里看得到，改了马上生效" 右={<Button size="small" onClick={() => set改价(true)}>改价格</Button>}>
         <div className="opx-prices">
           {价格.prices.map((p) => (
