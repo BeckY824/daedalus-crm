@@ -13,6 +13,7 @@ import ConnectCard from "./ConnectCard";
 import TeamPricing from "./TeamPricing";
 import TeamNoticeCard from "./TeamNoticeCard";
 import DupeMergeCard from "./DupeMergeCard";
+import DeptCard from "./DeptCard";
 import { 人满话 } from "@/lib/team-pricing";
 import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作, 设互看动作, 设角色动作 } from "./team-actions";
 
@@ -380,8 +381,8 @@ export default function TeamTab() {
                   </Link>
                 </span>
               )}
-              {/* 设主管（2026-10-20）：只有老板；不要签名钥匙，老板在哪台电脑上都能改 */}
-              {s.我是建的人 && m.role !== "owner" && m.accountId !== s.我 && (
+              {/* 设主管（2026-10-20）：只有老板；不要签名钥匙，老板在哪台电脑上都能改。新服务器带编制时改在下面「部门与权限」里设角色 */}
+              {s.我是建的人 && !s.编制 && m.role !== "owner" && m.accountId !== s.我 && (
                 <Button size="small" type="link" onClick={() => 设主管(m, m.role !== "manager")} aria-label={`${m.role === "manager" ? "改回业务员" : "设为主管"} ${m.name}`}>
                   {m.role === "manager" ? "改回业务员" : "设为主管"}
                 </Button>
@@ -395,6 +396,9 @@ export default function TeamTab() {
           })}
         </ul>
       </section>
+
+      {/* 部门与权限（团队版 1b，2026-10-23）：老服务器不带编制就不摆，照旧用上面的「设为主管」 */}
+      {s.编制 && <DeptCard 编制={s.编制} 成员={s.成员} 我是建的人={s.我是建的人} 我={s.我} onChange={() => void 刷()} />}
 
       {/* 同事之间互相看得到客户（2026-10-20，客户需求）：整个团队一个开关，只有老板能改；老服务器不认（null）就不摆 */}
       {s.我是建的人 && s.互看 !== null && (

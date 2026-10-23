@@ -33,4 +33,7 @@ export const 动作 = {
   存业务配置: "src/app/(app)/settings/actions.ts#saveBusinessSettings",
   登记签约: "src/app/(app)/customers/actions.ts#saveContract",
   删签约: "src/app/(app)/customers/actions.ts#deleteContract",
+  // 团队版 1b 部门与权限（2026-10-23，dept-demo.mjs）
+  部门动作: "src/app/(app)/settings/team-actions.ts#部门动作",
+  查重: "src/app/(app)/customers/actions.ts#checkDuplicate",
 };

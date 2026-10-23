@@ -14,6 +14,7 @@ import { defaultClient } from "@/lib/prisma";
 import { 读团队 } from "@/lib/sync/client";
 import { 客户页签归属 } from "@/lib/pool";
 import { 管全队客户 } from "@/lib/constants";
+import { 摊平部门 } from "@/lib/sync/dept-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,8 @@ type SP = Promise<{
   source?: string;
   /** 客户等级（2026-10-16）：A–D 或「未分级」 */
   level?: string;
+  /** 团队版部门（1b，2026-10-23）：负责人在这个部门连下级里的 */
+  dept?: string;
   page?: string;
   pageSize?: string;
   sort?: string;
@@ -114,6 +117,11 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   ]);
   // 业务配置里删掉了、库里还有人在用的职位：筛选下拉照样给（第 2 期 2b「删选项后老记录照样能筛」）
   const 旧职位 = 用着的职位.map((c) => c.grade!.trim()).filter((g) => g && !b.grades.includes(g)).sort();
+  // 团队有两个以上一级部门才摆「全部部门」（10-23：总管理默认看全公司，列表加部门筛选）；只有一个时等于没分部门
+  const 编制 = 读团队()?.编制;
+  const 部门选项 = 编制 && new Set(编制.部门.map((d) => d.top).filter(Boolean)).size >= 2
+    ? 摊平部门(编制.部门).map(({ d, 层 }) => ({ value: d.id, label: `${"　".repeat(层 - 1)}${d.name}` }))
+    : [];
   const 号 = await 号码脱敏器();
   const aiEnabled = await llmEnabled();
 
@@ -148,7 +156,9 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
         country: sp.country ?? "",
         source: sp.source ?? "",
         level: sp.level ?? "",
+        dept: sp.dept ?? "",
       }}
+      部门选项={部门选项}
       本月新增={sp.createdWithin === "本月"}
       直接推荐={sp.directOf ? ((await prisma.channel.findUnique({ where: { id: sp.directOf }, select: { name: true } }))?.name ?? "这个渠道") : null}
       本批={sp.batch ? { 几位: total } : null}

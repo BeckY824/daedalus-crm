@@ -9,11 +9,12 @@ import { control } from "./control";
 import type { Prisma } from "@/generated/control";
 import { workspaceDir } from "./clients";
 import { 当前编号, 互看, 在队里, 设备还在, 记设备在用 } from "./sync-relay";
+import { 读写身份, 一级部门名 } from "./team-dept";
 import { 范围开关 } from "./scoped-flag";
 import { 能同步 } from "./team-plan";
 import { 团队索引, 缓存关着, 索引版本, 记改过, 推送开始, 推送结束, 有推送在途, 目录增量, type 范围组 } from "./scoped-index";
 import { 包的编号 } from "../sync/crypto";
-import { 合并范围, 推送可写, 挂在已删的上, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表 } from "../sync/scope-policy";
+import { 合并范围, 推送可写, 挂在已删的上, 算范围, 范围可读, 范围字段, 行键, type 范围元数据, type 范围索引, type 范围行表, type 读限 } from "../sync/scope-policy";
 import { 查重单次上限, 查重一问上限, 查重哈希格式, type 查重条目, type 查重命中 } from "../sync/dedupe";
 
 /** denied：403 时被拒的包在本次 packets 里的下标（整批已回滚）；新客户端据此只把这几条转冲突、其余原样重推 */
@@ -44,8 +45,9 @@ async function auth(accountId: string, teamId: string, device?: string, db: Db =
   }
   // share：团队开了「同事之间互相看得到客户」（2026-10-20）。老板本来就看全队，用不上
   // manager：业务主管（2026-10-20，老板在设置 → 团队里设）：读全队客户（不看开关），全队客户能改；业务配置、个人范围照旧不行
-  const owner = t.ownerAccountId === accountId;
-  return { owner, manager: !owner && m.role === "manager", team: t, share: await 互看(teamId, db) };
+  // 1b（2026-10-23）：三样按「角色 × 范围」配置表算，外加 限（本一级部门、已进组的项目）。没建部门、没改配置 = 和原来一样
+  const 身份 = await 读写身份({ teamId, accountId, 建的人: t.ownerAccountId === accountId, 老角色: m.role, 互看开关: await 互看(teamId, db) }, db);
+  return { owner: 身份.owner, manager: 身份.manager, team: t, share: 身份.share, 限: 身份.限 };
 }
 /**
  * 灰度开关（scoped-flag.ts）：CRM_SCOPED_SYNC=1 且团队不在 CRM_SCOPED_SYNC_LEGACY_TEAMS 里才能开始迁移；
@@ -130,7 +132,7 @@ export async function 收范围推送(accountId: string, teamId: string, device:
 }
 async function 收范围推送事务(accountId: string, teamId: string, device: string, packets: 范围包[], epoch: number, prepared: { packet: 范围包; digest: string }[], 提交前: (keys: string[]) => void) {
   return control.$transaction(async tx => {
-    const { owner, manager, share } = await auth(accountId, teamId, device, tx);
+    const { owner, manager, share, 限 } = await auth(accountId, teamId, device, tx);
     const current = (await tx.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0;
     if (current !== epoch) fail(409, "团队换过钥匙了，取到新钥匙再推");
     const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
@@ -152,7 +154,7 @@ async function 收范围推送事务(accountId: string, teamId: string, device: 
       const old = rows.get(key), n = 合并范围(old, packet.meta, batchId);
       // 这一包删除成了当前状态：记下批次号，拉取时直接给这一包（见 给范围拉取），不用回头翻批次
       if (packet.meta.o === 'D' && n.deleted && n.clock === packet.meta.h) n.delSeq = batchId;
-      if (p.stage === 'ready' && !推送可写(start, rows, n, accountId, owner, share, manager)) return false;
+      if (p.stage === 'ready' && !推送可写(start, rows, n, accountId, owner, share, manager, 限)) return false;
       落(key, n); stored++;
       await tx.syncScopedRecord.upsert({ where: { teamId_key: { teamId, key } }, create: { teamId, key, metadata: JSON.stringify(n) }, update: { metadata: JSON.stringify(n) } });
       if (packet.baseline) await tx.syncScopedBaseline.create({ data: { teamId, recordKey: key, batchId } });
@@ -247,11 +249,11 @@ export const 前台最短间隔 = (人数: number) =>
  * 老客户端什么都不带，照旧拿全的
  */
 export async function 范围目录(accountId: string, teamId: string, 选项: { device?: string; base?: unknown } = {}) {
-  const { owner, manager, team, share } = await auth(accountId, teamId);
+  const { owner, manager, team, share, 限 } = await auth(accountId, teamId);
   const p = await control.syncPrivacy.findUnique({ where: { teamId } });
   if (p?.stage !== 'ready') fail(409, "请等待老板完成团队范围迁移");
   const e = await 团队索引(teamId);
-  const 可读 = (x: 范围组) => 范围可读(x.scope, accountId, owner, share || manager);
+  const 可读 = (x: 范围组) => 范围可读(x.scope, accountId, owner, share || manager, 限);
   /*
     「团队」范围（成员、设置、渠道、供应商）放最前（2026-10-15）：客户端照目录的顺序拉，原来按记录键字母序，
     「Customer:…」排在「User:…」前面——新同事加入后马上录了客户、老板这段时间没同步，老板就先收到客户、后收到同事的账号行，
@@ -333,7 +335,7 @@ export async function 给范围拉取(accountId: string, teamId: string, scopeId
     const tx = control;
     const c = await 拉取前提(tx, accountId, teamId);
     const scope = e.groups.get(scopeId);
-    if (!scope || !范围可读(scope.scope, accountId, c.owner, c.share || c.manager)) fail(403, "该范围不在你的同步权限内");
+    if (!scope || !范围可读(scope.scope, accountId, c.owner, c.share || c.manager, c.限)) fail(403, "该范围不在你的同步权限内");
     return { epoch: c.epoch, revision: scope.revision, ...(await 范围批次(tx, teamId, c, scope, after, e, 范围每页)) };
   });
 }
@@ -367,7 +369,7 @@ export async function 给多个范围拉取(accountId: string, teamId: string, i
     let 块里起点 = 0;
     for (const { scopeId, after } of list) {
       const scope = e.groups.get(scopeId);
-      if (!scope || !范围可读(scope.scope, accountId, c.owner, c.share || c.manager)) { 出.set(scopeId, { scopeId, error: 403 }); continue; }
+      if (!scope || !范围可读(scope.scope, accountId, c.owner, c.share || c.manager, c.限)) { 出.set(scopeId, { scopeId, error: 403 }); continue; }
       const starts = await 范围起点(tx, teamId, c, scope, after, e);
       if (!starts.length) { 出.set(scopeId, { scopeId, revision: scope.revision, more: false, batches: [] }); continue; }
       // 一个范围就超过 200 个起点（很少见）：单独照一个范围的办法给一页
@@ -415,13 +417,13 @@ async function 核着版本拉<T>(teamId: string, 拉: (e: 团队索引类型) =
   return fail(503, "同步正忙，请稍后重试；游标未跳过");
 }
 type 团队索引类型 = Awaited<ReturnType<typeof 团队索引>>;
-type 拉取身份 = { accountId: string; owner: boolean; manager: boolean; share: boolean; epoch: number };
+type 拉取身份 = { accountId: string; owner: boolean; manager: boolean; share: boolean; 限: 读限; epoch: number };
 async function 拉取前提(tx: Db, accountId: string, teamId: string): Promise<拉取身份> {
-  const { owner, manager, share } = await auth(accountId, teamId, undefined, tx);
+  const { owner, manager, share, 限 } = await auth(accountId, teamId, undefined, tx);
   const p = await tx.syncPrivacy.findUnique({ where: { teamId } });
   if (p?.stage !== 'ready') fail(409, "请等待老板完成团队范围迁移");
   const epoch = (await tx.syncKey.findFirst({ where: { teamId }, orderBy: { epoch: 'desc' } }))?.epoch ?? 0;
-  return { accountId, owner, manager, share, epoch };
+  return { accountId, owner, manager, share, 限, epoch };
 }
 type 拉出的包 = { seq: number; device: string; eventId: string; meta: 范围元数据; data: string };
 /** 一个范围从 after 往后最多 页 包（多一包就 more） */
@@ -505,7 +507,7 @@ async function 范围批次(tx: Db, teamId: string, c: 拉取身份, scope: 范�
  * 同一位客户整份替换：号码改了，旧哈希跟着没了
  */
 export async function 收查重索引(accountId: string, teamId: string, device: string, entries: unknown): Promise<{ stored: number; skipped: string[] }> {
-  const { owner, manager, share } = await auth(accountId, teamId, device);
+  const { owner, manager, share, 限 } = await auth(accountId, teamId, device);
   if (!Array.isArray(entries) || entries.length > 查重单次上限) fail(400, "查重索引格式不对");
   const epoch = await 当前编号(teamId);
   const 收: 查重条目[] = [];
@@ -520,7 +522,7 @@ export async function 收查重索引(accountId: string, teamId: string, device:
   await control.$transaction(async (tx) => {
     for (const e of 收) {
       const r = rows.get(行键("Customer", e.k));
-      if (!r || r.deleted || !范围可读(算范围(r, rows), accountId, owner, share || manager)) { skipped.push(e.k); continue; }
+      if (!r || r.deleted || !范围可读(算范围(r, rows), accountId, owner, share || manager, 限)) { skipped.push(e.k); continue; }
       await tx.syncDedupeKey.deleteMany({ where: { teamId, recordKey: e.k } });
       if (e.hashes.length) await tx.syncDedupeKey.createMany({ data: [...new Set(e.hashes)].map((hash) => ({ teamId, recordKey: e.k, hash, epoch, label: e.label })) });
       stored++;
@@ -535,19 +537,22 @@ export async function 收查重索引(accountId: string, teamId: string, device:
  * 已删的、换钥匙前的不回。只给客户 id、负责人（用户 id，名字由本机同事名单取）、封好的客户名
  */
 export async function 查查重(accountId: string, teamId: string, hashes: unknown): Promise<{ hits: 查重命中[] }> {
-  const { owner, manager, share } = await auth(accountId, teamId);
+  const { owner, manager, share, 限 } = await auth(accountId, teamId);
   if (!Array.isArray(hashes) || hashes.length > 查重一问上限 || !hashes.every((h) => typeof h === "string" && 查重哈希格式.test(h))) fail(400, "查重请求格式不对");
   if (!hashes.length) return { hits: [] };
   const epoch = await 当前编号(teamId);
   const 撞 = await control.syncDedupeKey.findMany({ where: { teamId, epoch, hash: { in: hashes as string[] } }, select: { recordKey: true, label: true } });
   const rows = await 查重用的行(teamId, 撞.map((x) => x.recordKey));
   const hits: 查重命中[] = [];
+  const 部门名 = 撞.length ? await 一级部门名(teamId) : () => undefined;
   for (const x of 撞) {
     if (hits.some((h) => h.k === x.recordKey)) continue;
     const r = rows.get(行键("Customer", x.recordKey));
     if (!r || r.deleted) continue;
-    if (范围可读(算范围(r, rows), accountId, owner, share || manager)) continue;
-    hits.push({ k: x.recordKey, owner: r.fields.salesOwnerId ?? r.fields.channelOwnerId ?? "", label: x.label });
+    if (范围可读(算范围(r, rows), accountId, owner, share || manager, 限)) continue;
+    const 负责 = r.fields.salesOwnerId ?? r.fields.channelOwnerId ?? "";
+    const dept = 负责 ? 部门名(负责) : undefined;
+    hits.push({ k: x.recordKey, owner: 负责, label: x.label, ...(dept ? { dept } : {}) });
   }
   return { hits };
 }

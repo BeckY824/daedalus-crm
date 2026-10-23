@@ -666,6 +666,61 @@ model SyncTeamShare {
   by        String?
 }
 
+/// 部门树（2026-10-23 项目模式 1b，control-migrations/029）。parentId 为空 = 一级部门，最多三层（代码里管）。
+/// 隔离按一级部门算：一个团队只有 0 / 1 个一级部门时不隔离，老团队原样
+model SyncDept {
+  id        String   @id
+  teamId    String
+  name      String
+  parentId  String?
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([teamId])
+}
+
+/// 成员的部门和业务角色（029）。没有这一行 = 按 SyncMember.role 推：老板 → 总管理、主管 → 销售管理、业务员 → 销售成员
+model SyncMemberRole {
+  teamId          String
+  accountId       String
+  deptId          String?
+  bizRole         String
+  /// 虚线上级：第一版只显示，不给权限
+  dottedManagerId String?
+  changedAt       DateTime @default(now())
+  by              String?
+
+  @@id([teamId, accountId])
+}
+
+/// 「角色 × 范围 / 字段」配置（029）。没有这一行 = lib/tenant/team-dept.ts 默认范围（= 现在的行为）
+model SyncRoleScope {
+  teamId    String
+  bizRole   String
+  scope     String
+  fields    String   @default("all")
+  changedAt DateTime @default(now())
+  by        String?
+
+  @@id([teamId, bizRole])
+}
+
+/// 项目进组邀请（029，通道①）：负责人邀请，本人同意才算进组；accepted 的人能读这个项目范围（含子表）
+model SyncProjectInvite {
+  teamId     String
+  scopeId    String
+  accountId  String
+  groupRole  String?
+  status     String    @default("pending")
+  invitedBy  String
+  label      String?
+  createdAt  DateTime  @default(now())
+  answeredAt DateTime?
+
+  @@id([teamId, scopeId, accountId])
+  @@index([teamId, accountId])
+}
+
 /// 团队版按时长开通（2026-10-15，control-migrations/023）。运营台「开通 / 续费」选时长和人数后写这里。
 /// paidUntil 过了就暂停同步（和「待开通 / 停用」同一道闸，见 lib/tenant/team-plan.ts），续费顺延后自动恢复；每个人电脑上的数据照常能用。
 /// 没有这一行、或 paidUntil 为空 = 不限期（10-15 之前开通的老团队，运营台显示「未设到期」）。
