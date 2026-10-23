@@ -15,7 +15,11 @@ export type 项目行 = {
   phase: string;
   node: string;
   result: string | null;
+  /** 异常状态时选的类别名（类别停用了也照显示）和备注 */
+  exceptionCategory: string | null;
   exceptionReason: string | null;
+  /** 在项目公海里（ownerId 还是放回去的人，界面写「公海」） */
+  pooled: boolean;
   amount: number;
   currency: string;
   updatedAt: string;

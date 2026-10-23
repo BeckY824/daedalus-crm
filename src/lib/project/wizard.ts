@@ -31,6 +31,18 @@ const 首条能记的 = FOLLOW_TYPES.filter((t) => t.value !== "TASK" && t.value
 const 文字 = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 const 可空 = (v: unknown) => 文字(v) || null;
 
+/** 项目那几格（名称、负责人、金额、币种、备注）规整一遍：向导第四步和项目详情里「编辑」共用。负责人没选 = 默认那位 */
+export function 规整项目(p: 向导项目, 默认负责人: string): 规整好的["项目"] | { error: string } {
+  if (!hasVisibleText(p.name)) return { error: "请填写项目名称" };
+  if (文字(p.name).length > 项目名上限) return { error: `项目名称请控制在 ${项目名上限} 字以内` };
+  const amount = p.amount ?? 0;
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) return { error: "项目金额不能为负数" };
+  const currency = p.currency || 默认币种;
+  if (!是币种(currency)) return { error: `币种「${currency}」认不出来` };
+  if (文字(p.remark).length > 备注上限) return { error: `项目备注请控制在 ${备注上限} 字以内` };
+  return { name: 文字(p.name), ownerId: p.ownerId || 默认负责人, amount, currency, remark: 可空(p.remark) };
+}
+
 /** 后四步交上来的规整一遍。负责人没选 = 自己；在不在职由调用方查库 */
 export function 规整向导(
   me: { id: string },
@@ -43,13 +55,8 @@ export function 规整向导(
   const 电话 = 可空(c.phone);
   if (电话?.includes("*")) return { error: "联系人电话里不能有 *" };
 
-  if (!hasVisibleText(p.name)) return { error: "请填写项目名称" };
-  if (文字(p.name).length > 项目名上限) return { error: `项目名称请控制在 ${项目名上限} 字以内` };
-  const amount = p.amount ?? 0;
-  if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) return { error: "项目金额不能为负数" };
-  const currency = p.currency || 默认币种;
-  if (!是币种(currency)) return { error: `币种「${currency}」认不出来` };
-  if (文字(p.remark).length > 备注上限) return { error: `项目备注请控制在 ${备注上限} 字以内` };
+  const 项目 = 规整项目(p, me.id);
+  if ("error" in 项目) return 项目;
 
   if (!首条能记的.includes(f.type)) return { error: `首条跟进的类型「${f.type}」不能选` };
   if (!hasVisibleText(f.content)) return { error: "请填写首条跟进的沟通内容" };
@@ -59,7 +66,7 @@ export function 规整向导(
 
   return {
     联系人: { name: 文字(c.name), position: 可空(c.position), phone: 电话, email: 可空(c.email), wechat: 可空(c.wechat) },
-    项目: { name: 文字(p.name), ownerId: p.ownerId || me.id, amount, currency, remark: 可空(p.remark) },
+    项目,
     跟进: { type: f.type, content: 文字(f.content), occurredAt },
   };
 }

@@ -52,7 +52,7 @@ export const 同步表 = [
 export const 不同步表 = [
   "AiConversation", "AiMessage", "AiProject", "ImportBatch", "ImportRow", "WorkspaceAccount",
   // 团队版项目模式 1a（2026-10-23）先只在本机；1b 接同步时挪进 同步表，路由按 Project.ownerId + customerId
-  "Project", "ProjectMember", "ProjectRole", "ProjectNodeLog", "FollowUpProject", "CustomerCreator", "MemberManager",
+  "Project", "ProjectMember", "ProjectRole", "ProjectExceptionCategory", "ProjectNodeLog", "FollowUpProject", "CustomerCreator",
 ] as const;
 
 /**
@@ -106,10 +106,9 @@ export const 指向人的列: [string, string][] = [
   ["ProjectMember", "userId"],
   ["ProjectMember", "invitedById"],
   ["ProjectNodeLog", "userId"],
+  ["ProjectNodeLog", "fromOwnerId"],
+  ["ProjectNodeLog", "toOwnerId"],
   ["CustomerCreator", "userId"],
-  ["MemberManager", "userId"],
-  ["MemberManager", "directManagerId"],
-  ["MemberManager", "dottedManagerId"],
 ];
 
 /**

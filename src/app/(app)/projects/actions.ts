@@ -11,7 +11,7 @@ import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { getBusiness } from "@/lib/business";
 import { 规整向导, 向导接着建, type 建好的, type 向导联系人, type 向导项目, type 向导跟进 } from "@/lib/project/wizard";
-import { 改节点, 勾交付, 加角色, 改角色, 删项目, 交付项们, type 交付项 } from "@/lib/project/db";
+import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 换组员角色, 移出组员, 放回公海, 领取公海项目, type 交付项 } from "@/lib/project/db";
 import type { 位置 } from "@/lib/project/nodes";
 import { saveCustomer, type CustomerInput } from "../customers/actions";
 
@@ -57,19 +57,52 @@ export async function 建档向导(input: 建档向导输入) {
   } catch (e) { return 不在了(e); }
 }
 
-export async function 改项目节点(projectId: string, 到: 位置, 原因?: string | null) {
+/** 改节点。进异常状态时带上异常类别（必选）和备注（可空） */
+export async function 改项目节点(projectId: string, 到: 位置, 异常?: { categoryId?: string | null; 备注?: string | null } | null) {
   try {
     const me = await requireUser();
     if (!(await 开着())) return 没开;
     if (!到 || typeof 到 !== "object") return { ok: false as const, error: "要改到哪个节点？" };
-    const r = await 改节点(me, projectId, 到, 原因);
+    const 异 = 异常 && typeof 异常 === "object" ? { categoryId: 异常.categoryId ?? null, 备注: 异常.备注 ?? null } : undefined;
+    const r = await 改节点(me, projectId, 到, 异);
     if (r.ok && r.变了) {
-      const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });
+      const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true, exceptionCategory: { select: { name: true } } } });
+      const 类别 = 到.result === "异常状态" ? p?.exceptionCategory?.name ?? null : null;
       await recordAudit({
         user: me, action: "update", entity: "Project", entityId: projectId,
-        summary: `项目「${p?.name ?? ""}」改到 ${到.phase}·${到.node}${到.result ? `（${到.result}）` : ""}`,
-        detail: { 阶段: 到.phase, 节点: 到.node, 结局: 到.result ?? null, 原因: 原因?.trim() || null },
+        summary: `项目「${p?.name ?? ""}」改到 ${到.phase}·${到.node}${到.result ? `（${到.result}${类别 ? `：${类别}` : ""}）` : ""}`,
+        detail: { 阶段: 到.phase, 节点: 到.node, 结局: 到.result ?? null, 异常类别: 类别, 备注: 类别 ? 异?.备注?.trim() || null : null },
       });
+      刷新项目(projectId, p?.customerId);
+    }
+    return r;
+  } catch (e) { return 不在了(e); }
+}
+
+/** 负责人把项目放回项目公海（线索 / 商机阶段） */
+export async function 放回项目公海(projectId: string) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const r = await 放回公海(me, projectId);
+    if (r.ok) {
+      const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });
+      await recordAudit({ user: me, action: "update", entity: "Project", entityId: projectId, summary: `把项目「${p?.name ?? ""}」放回项目公海` });
+      刷新项目(projectId, p?.customerId);
+    }
+    return r;
+  } catch (e) { return 不在了(e); }
+}
+
+/** 从项目公海领取：领了就是负责人 */
+export async function 领取项目(projectId: string) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const r = await 领取公海项目(me, projectId);
+    if (r.ok) {
+      const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });
+      await recordAudit({ user: me, action: "update", entity: "Project", entityId: projectId, summary: `从项目公海领取项目「${p?.name ?? ""}」` });
       刷新项目(projectId, p?.customerId);
     }
     return r;
@@ -132,6 +165,107 @@ export async function 改组员角色(id: string, patch: { name?: string; active
         summary: `${做了}项目组员角色「${原?.name ?? ""}」${patch.name ? ` → 「${String(patch.name).trim()}」` : ""}`,
       });
       revalidatePath("/settings");
+    }
+    return r;
+  } catch (e) { return 不在了(e); }
+}
+
+export async function 加项目异常类别(name: string) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const r = await 加异常类别(me, name);
+    if (r.ok) {
+      await recordAudit({ user: me, action: "create", entity: "ProjectExceptionCategory", entityId: r.id, summary: `加了项目异常类别「${String(name).trim()}」` });
+      revalidatePath("/settings");
+    }
+    return r;
+  } catch (e) { return 不在了(e); }
+}
+
+export async function 改项目异常类别(id: string, patch: { name?: string; active?: boolean }) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const 原 = await prisma.projectExceptionCategory.findUnique({ where: { id: String(id ?? "") }, select: { name: true } });
+    const r = await 改异常类别(me, id, patch ?? {});
+    if (r.ok) {
+      const 做了 = patch.active === false ? "停用" : patch.active === true ? "启用" : "改名";
+      await recordAudit({
+        user: me, action: "update", entity: "ProjectExceptionCategory", entityId: id,
+        summary: `${做了}项目异常类别「${原?.name ?? ""}」${patch.name ? ` → 「${String(patch.name).trim()}」` : ""}`,
+      });
+      revalidatePath("/settings");
+    }
+    return r;
+  } catch (e) { return 不在了(e); }
+}
+
+const 项目字段名: Record<string, string> = { name: "名称", ownerId: "负责人", amount: "金额", currency: "币种", remark: "备注", contactId: "主联系人" };
+
+/** 编辑项目：名称、负责人、金额、币种、备注、主联系人 */
+export async function 编辑项目(projectId: string, patch: 向导项目 & { contactId?: string | null }) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const r = await 改项目(me, projectId, patch);
+    if (r.ok && r.变了?.length) {
+      const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });
+      await recordAudit({
+        user: me, action: "update", entity: "Project", entityId: projectId,
+        summary: `编辑项目「${p?.name ?? ""}」：改了${r.变了.map((k) => 项目字段名[k] ?? k).join("、")}`,
+      });
+      刷新项目(projectId, p?.customerId);
+    }
+    return r.ok ? { ok: true as const } : r;
+  } catch (e) { return 不在了(e); }
+}
+
+async function 组员说法(projectId: string, userId: string) {
+  const [p, u] = await Promise.all([
+    prisma.project.findUnique({ where: { id: projectId }, select: { name: true } }),
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+  ]);
+  return `项目「${p?.name ?? ""}」的项目组：${u?.name ?? "已不在的成员"}`;
+}
+
+export async function 加项目组员(projectId: string, userId: string, roleId?: string | null) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const r = await 加组员(me, projectId, userId, roleId);
+    if (r.ok) {
+      await recordAudit({ user: me, action: "create", entity: "ProjectMember", entityId: projectId, summary: `加进${await 组员说法(projectId, userId)}` });
+      刷新项目(projectId);
+    }
+    return r;
+  } catch (e) { return 不在了(e); }
+}
+
+export async function 换项目组员角色(memberId: string, roleId: string | null) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const m = await prisma.projectMember.findUnique({ where: { id: String(memberId ?? "") }, select: { projectId: true, userId: true, roleId: true } });
+    const r = await 换组员角色(me, memberId, roleId);
+    if (r.ok && m && (roleId || null) !== m.roleId) {
+      const 角色 = roleId ? (await prisma.projectRole.findUnique({ where: { id: roleId }, select: { name: true } }))?.name : null;
+      await recordAudit({ user: me, action: "update", entity: "ProjectMember", entityId: m.projectId, summary: `${await 组员说法(m.projectId, m.userId)} 角色改成「${角色 ?? "不填"}」` });
+      刷新项目(m.projectId);
+    }
+    return r;
+  } catch (e) { return 不在了(e); }
+}
+
+export async function 移出项目组员(memberId: string) {
+  try {
+    const me = await requireUser();
+    if (!(await 开着())) return 没开;
+    const m = await prisma.projectMember.findUnique({ where: { id: String(memberId ?? "") }, select: { projectId: true, userId: true } });
+    const r = await 移出组员(me, memberId);
+    if (r.ok && m) {
+      await recordAudit({ user: me, action: "delete", entity: "ProjectMember", entityId: m.projectId, summary: `移出${await 组员说法(m.projectId, m.userId)}` });
+      刷新项目(m.projectId);
     }
     return r;
   } catch (e) { return 不在了(e); }

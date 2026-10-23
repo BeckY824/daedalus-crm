@@ -824,38 +824,43 @@ model ImportRow {
 
 /// 项目：一单生意从线索到订单就是这一行。阶段 / 节点是代码常量（src/lib/project/nodes.ts），一套不分内外贸。
 model Project {
-  id                   String    @id @default(cuid())
+  id                   String                    @id @default(cuid())
   name                 String
   customerId           String
-  customer             Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  customer             Customer                  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   /// 主联系人，可空；联系人删了置空
   contactId            String?
-  contact              Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  contact              Contact?                  @relation(fields: [contactId], references: [id], onDelete: SetNull)
   /// 项目负责人（路由字段）。建档的人在向导里选，默认自己
   ownerId              String
   /// 实际建档的人，建好不改
   creatorId            String
   /// 线索 | 商机 | 订单
-  phase                String    @default("线索")
+  phase                String                    @default("线索")
   /// 当前节点，见 nodes.ts
-  node                 String    @default("潜客培育")
+  node                 String                    @default("潜客培育")
   /// 结局：空 = 进行中；线索流失 | 丢单 | 成功交付 | 异常状态。已转商机、赢单不停在这里，直接进下一阶段第一个节点
   result               String?
-  /// 异常状态必填的一段原因；恢复（再改节点）时清掉，原因留在节点变更里
+  /// 异常状态选的类别（异常类别字典，必选）；恢复（再改节点）时清掉，类别留在节点变更里
+  exceptionCategoryId  String?
+  exceptionCategory    ProjectExceptionCategory? @relation(fields: [exceptionCategoryId], references: [id], onDelete: SetNull)
+  /// 异常状态的备注，可空；恢复时清掉，备注留在节点变更里
   exceptionReason      String?
+  /// 在公海里的那一刻；空 = 不在公海。在公海时 ownerId 留着放回去的人（他不能自己领回）
+  pooledAt             DateTime?
   /// 尾款结清：谁勾的、何时
-  balanceSettled       Boolean   @default(false)
+  balanceSettled       Boolean                   @default(false)
   balanceSettledById   String?
   balanceSettledAt     DateTime?
   /// 验收通过：谁勾的、何时。和尾款结清两项都勾上才能成功交付
-  acceptancePassed     Boolean   @default(false)
+  acceptancePassed     Boolean                   @default(false)
   acceptancePassedById String?
   acceptancePassedAt   DateTime?
-  amount               Float     @default(0)
-  currency             String    @default("CNY")
+  amount               Float                     @default(0)
+  currency             String                    @default("CNY")
   remark               String?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  createdAt            DateTime                  @default(now())
+  updatedAt            DateTime                  @updatedAt
   /// 有结局的那一刻；回到进行中就清掉
   closedAt             DateTime?
 
@@ -865,6 +870,7 @@ model Project {
 
   @@index([customerId])
   @@index([ownerId])
+  @@index([pooledAt])
 }
 
 /// 项目组成员，多对多。1a 负责人直接加人写 JOINED；1b 的进组邀请用 INVITED / DECLINED 和 invitedById
@@ -894,21 +900,38 @@ model ProjectRole {
   members   ProjectMember[]
 }
 
+/// 异常类别字典，全队一份，只有总管理能改（同 ProjectRole）。删 = 停用，已用它的项目不丢。默认 2 个由代码第一次读时补上
+model ProjectExceptionCategory {
+  id        String    @id @default(cuid())
+  name      String    @unique
+  sort      Int       @default(0)
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  projects  Project[]
+}
+
 /// 节点变更：每改一次阶段 / 节点 / 结局记一行，只增不改
 model ProjectNodeLog {
-  id         String   @id @default(cuid())
-  projectId  String
-  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  userId     String
-  at         DateTime @default(now())
-  fromPhase  String?
-  fromNode   String?
-  fromResult String?
-  toPhase    String
-  toNode     String
-  toResult   String?
-  /// 进异常状态时必填的原因
-  reason     String?
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId      String
+  at          DateTime @default(now())
+  fromPhase   String?
+  fromNode    String?
+  fromResult  String?
+  toPhase     String
+  toNode      String
+  toResult    String?
+  /// 进异常状态时填的备注（可空）
+  reason      String?
+  /// 进异常状态时选的异常类别 id（ProjectExceptionCategory）；不建外键，类别只停用不删
+  categoryId  String?
+  /// node = 改节点；transfer = 转让负责人；pool-release = 放回公海；pool-claim = 从公海领取
+  /// （后三种节点不变，from / to 节点照抄当时的；from / toOwnerId 记谁到谁）
+  kind        String   @default("node")
+  fromOwnerId String?
+  toOwnerId   String?
 
   @@index([projectId, at])
 }
@@ -931,12 +954,4 @@ model CustomerCreator {
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   userId     String
   at         DateTime @default(now())
-}
-
-/// 成员的两个上级：只存只显示，权限不用它
-model MemberManager {
-  userId          String   @id
-  directManagerId String?
-  dottedManagerId String?
-  updatedAt       DateTime @updatedAt
 }

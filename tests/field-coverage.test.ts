@@ -58,6 +58,11 @@ const 可写: Record<string, string[]> = {
   Supplier: ["name", "category", "region", "contact", "phone", "wechat", "invoice", "payment", "rating", "issues", "remark"],
   SupplierQuote: ["supplierId", "product", "unitPrice", "currency", "withInvoice", "moq", "leadDays", "sampleFee", "validUntil", "verdict", "reason"],
   TradeOrderPurchase: ["supplierId", "cost", "currency", "fxRate"],
+  // 团队版项目模式 1a（2026-10-23）：建档向导、项目详情（编辑项目 / 改节点 / 勾交付 / 项目组）、设置里的「项目模式」一栏
+  Project: ["name", "contactId", "ownerId", "phase", "node", "result", "exceptionCategoryId", "exceptionReason", "balanceSettled", "acceptancePassed", "amount", "currency", "remark"],
+  ProjectMember: ["roleId"],
+  ProjectRole: ["name", "active"],
+  ProjectExceptionCategory: ["name", "active"],
   FollowUp: ["type", "title", "content", "status", "duration", "occurredAt", "dueAt", "participants", "customerId", "contactId", "opportunityId"],
   Task: ["title", "dueAt", "done", "customerId"],
   FollowPlan: ["subject", "plannedAt", "method", "done", "customerId"],
@@ -209,17 +214,23 @@ const 派生: Record<string, Record<string, string>> = {
     acceptancePassedById: "勾验收通过的那个人，系统打上",
     acceptancePassedAt: "勾验收通过的那一刻，系统打上",
     closedAt: "有结局的那一刻，系统打上；回到进行中清掉",
+    pooledAt: "放回公海的那一刻，系统打上；有人领取或老板重新指派时清掉",
   },
   ProjectMember: { projectId: "哪个项目的组员，加人时定", userId: "哪位成员，加人时定；换人 = 删了再加", invitedById: "谁拉进来的，加人时打上" },
+  ProjectRole: { sort: "加角色时排到最后，系统写；不做拖动排序" },
+  ProjectExceptionCategory: { sort: "加类别时排到最后，系统写；不做拖动排序" },
   ProjectNodeLog: {
     projectId: "哪个项目，改节点时系统写", userId: "谁改的，系统写", at: "改的那一刻，系统写",
     fromPhase: "改之前的阶段，系统写", fromNode: "改之前的节点，系统写", fromResult: "改之前的结局，系统写",
     toPhase: "改之后的阶段，系统写", toNode: "改之后的节点，系统写", toResult: "改之后的结局，系统写",
-    reason: "进异常状态时填的原因，跟着那一次改节点写；只增不改",
+    reason: "进异常状态时填的备注（可空），跟着那一次改节点写；只增不改",
+    categoryId: "进异常状态时选的类别，跟着那一次改节点写；只增不改",
+    kind: "这一行是改节点、转让负责人、放回公海还是领取，系统写",
+    fromOwnerId: "转让 / 放回公海 / 领取前的负责人，那一刻系统写；改节点的行留空",
+    toOwnerId: "转让 / 领取后的负责人，那一刻系统写；放回公海和改节点的行留空",
   },
   FollowUpProject: { followUpId: "哪条沟通记录，记的时候定", projectId: "挂在哪个项目，记的时候定", node: "记这条时项目在哪个节点，系统打上" },
   CustomerCreator: { customerId: "哪位客户，一位一行", userId: "实际建档的人，向导保存那一刻打上，不改", at: "建档那一刻，系统打上" },
-  MemberManager: { userId: "哪位成员，一人一行" },
 };
 
 /** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼 */
@@ -227,11 +238,8 @@ const 派生: Record<string, Record<string, string>> = {
  *  2026-09-14 清空：FollowUp.attachment / attachSize 是纯死字段，已从 schema 删除
  *  （已有库里的列留着不读，迁移规矩只加不删）。 */
 const 已知缺口: Record<string, Record<string, string>> = {
-  // 团队版项目模式 1a（2026-10-23）：表先建（第一批只有表），写入入口跟着同一分支的后几批补上，补一项删一项
-  Project: Object.fromEntries(["name", "contactId", "ownerId", "phase", "node", "result", "exceptionReason", "balanceSettled", "acceptancePassed", "amount", "currency", "remark"].map((f) => [f, "项目模式 1a 下一批：向导 / 项目详情 / 改节点"])),
-  ProjectMember: { roleId: "项目模式 1a 下一批：项目组", inviteStatus: "项目模式 1a 下一批：项目组；1b 进组邀请" },
-  ProjectRole: Object.fromEntries(["name", "sort", "active"].map((f) => [f, "项目模式 1a 下一批：组员角色字典（只有总管理能改）"])),
-  MemberManager: Object.fromEntries(["directManagerId", "dottedManagerId"].map((f) => [f, "项目模式 1a 下一批：成员设置里填两个上级"])),
+  // 团队版项目模式 1a：进组状态 1a 拉人一律 JOINED（系统写），等 1b 进组邀请补上「已邀请 / 没接受」
+  ProjectMember: { inviteStatus: "1a 拉人一律写 JOINED；用户能动它要等 1b 进组邀请（团队版会话）" },
 };
 
 const 不审 = new Set(["User", "WorkspaceAccount", "FollowUpSource", "AuditLog", "Setting"]);

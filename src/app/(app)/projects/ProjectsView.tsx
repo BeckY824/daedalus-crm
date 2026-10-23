@@ -35,9 +35,14 @@ const 空列说法: Record<看板列, string> = {
   没成: "没有流失或丢掉的项目",
 };
 
+/** 异常的悬停说明：类别 + 备注 */
+function 异常说明(r: 项目行) {
+  return [r.exceptionCategory, r.exceptionReason].filter(Boolean).join("：") || undefined;
+}
+
 /** 节点那一格：有结局写结局，异常标红 */
 function 节点文字(r: 项目行) {
-  if (r.result === "异常状态") return <Tag color="error" title={r.exceptionReason ?? undefined}>异常 · {r.node}</Tag>;
+  if (r.result === "异常状态") return <Tag color="error" title={异常说明(r)}>异常 · {r.exceptionCategory ?? r.node}</Tag>;
   if (r.result) return <Tag>{r.result}</Tag>;
   return <span>{r.phase} · {r.node}</span>;
 }
@@ -53,7 +58,7 @@ export default function ProjectsView({
   列: 看板一列[];
   取到上限: boolean;
   users: 可选成员[];
-  filters: { keyword: string; ownerId: string };
+  filters: { keyword: string; ownerId: string; pool: string };
 }) {
   const router = useRouter();
   const b = useBusiness();
@@ -68,7 +73,7 @@ export default function ProjectsView({
     { title: b.customer, key: "customer", width: 180, render: (_, r) => <CustomerLink id={r.customerId} name={r.customerName} /> },
     { title: "节点", key: "node", width: 170, render: (_, r) => 节点文字(r) },
     { title: "金额", key: "amount", width: 130, align: "right", render: (_, r) => 金额(r.amount, r.currency) },
-    ...(不问归属 ? [] : [{ title: "负责人", key: "owner", width: 110, render: (_: unknown, r: 项目行) => <UserCell name={r.ownerName} /> }]),
+    ...(不问归属 ? [] : [{ title: "负责人", key: "owner", width: 110, render: (_: unknown, r: 项目行) => (r.pooled ? <Tag title={`${r.ownerName} 放回的`}>公海</Tag> : <UserCell name={r.ownerName} />) }]),
     { title: "最近更新", key: "updatedAt", width: 120, render: (_, r) => fmtDate(r.updatedAt) },
   ];
 
@@ -91,6 +96,13 @@ export default function ProjectsView({
           options={成员选项(users)}
         />
       )}
+      <Select
+        style={{ width: 120 }}
+        aria-label="项目公海"
+        value={f.pool || ""}
+        onChange={(v: string) => apply({ pool: v })}
+        options={[{ value: "", label: "全部项目" }, { value: "1", label: "项目公海" }]}
+      />
       <ResetFilters 显示={Object.values(f).some(Boolean)} onClick={reset} />
     </Space>
   );
@@ -149,8 +161,8 @@ export default function ProjectsView({
                           style={{ borderLeftColor: 异常 ? "var(--danger)" : 列色[c.列] }}
                           tabIndex={0}
                           role="link"
-                          title={异常 && r.exceptionReason ? `异常：${r.exceptionReason}` : `${r.customerName} · ${r.node}`}
-                          aria-label={`${r.name}，${r.customerName}，${异常 ? "异常 · " : ""}${r.node}，${金额(r.amount, r.currency)}`}
+                          title={异常 && 异常说明(r) ? `异常：${异常说明(r)}` : `${r.customerName} · ${r.node}`}
+                          aria-label={`${r.name}，${r.customerName}，${异常 ? "异常 · " : ""}${r.node}，${金额(r.amount, r.currency)}${r.pooled ? "，在项目公海里" : ""}`}
                           onClick={() => router.push(`/projects/${r.id}`)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter" || e.key === " ") {
@@ -165,11 +177,15 @@ export default function ProjectsView({
                           </div>
                           <div className="pipe-card-m">
                             <span className="pipe-card-o" style={异常 ? { color: "var(--danger-text)" } : undefined}>
-                              {异常 ? "异常 · " : r.result && r.result !== "成功交付" ? `${r.result} · ` : ""}{r.node}
+                              {异常 ? `异常 · ${r.exceptionCategory ? `${r.exceptionCategory} · ` : ""}` : r.result && r.result !== "成功交付" ? `${r.result} · ` : ""}{r.node}
                             </span>
                             <span className="pipe-card-a">{金额(r.amount, r.currency)}</span>
                           </div>
-                          {!不问归属 && <div className="pipe-card-m"><span className="pipe-card-o">{r.ownerName}</span></div>}
+                          {r.pooled ? (
+                            <div className="pipe-card-m"><span className="pipe-card-o"><Tag style={{ marginInlineEnd: 0 }}>公海</Tag></span></div>
+                          ) : (
+                            !不问归属 && <div className="pipe-card-m"><span className="pipe-card-o">{r.ownerName}</span></div>
+                          )}
                         </div>
                       );
                     })}

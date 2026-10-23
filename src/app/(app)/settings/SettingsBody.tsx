@@ -5,6 +5,7 @@ import { 我的机器 } from "./actions";
 import { 本地模式, 读 as 读云端凭据 } from "@/lib/desktop/cloud";
 import { describeLlmConfig } from "@/lib/llm";
 import { getBusiness } from "@/lib/business";
+import { 角色字典, 异常类别字典 } from "@/lib/project/db";
 import { aiUsageThisMonth } from "@/lib/ai-usage";
 import { multiTenant } from "@/lib/tenant/context";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
@@ -47,8 +48,26 @@ export default async function SettingsBody() {
     },
   });
 
+  // 项目模式（团队版 1a）开着才多一栏：组员角色字典、异常类别字典
+  const 项目设置 = business.projectMode
+    ? await Promise.all([
+        角色字典(),
+        prisma.projectMember.groupBy({ by: ["roleId"], _count: { _all: true } }),
+        异常类别字典(),
+        prisma.project.groupBy({ by: ["exceptionCategoryId"], where: { exceptionCategoryId: { not: null } }, _count: { _all: true } }),
+      ]).then(([角色, 用量, 类别, 类别用量]) => {
+        const 用 = new Map(用量.map((x) => [x.roleId, x._count._all]));
+        const 类别用 = new Map(类别用量.map((x) => [x.exceptionCategoryId, x._count._all]));
+        return {
+          角色们: 角色.map((r) => ({ id: r.id, name: r.name, active: r.active, 用的人: 用.get(r.id) ?? 0 })),
+          类别们: 类别.map((c) => ({ id: c.id, name: c.name, active: c.active, 用的人: 类别用.get(c.id) ?? 0 })),
+        };
+      })
+    : null;
+
   return (
     <SettingsView
+      项目设置={项目设置}
       me={me}
       /**
        * 共享工作区里这个人是 ADMIN（他得能展示管理员看到的东西），但那套账号密码

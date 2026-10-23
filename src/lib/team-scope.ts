@@ -230,13 +230,14 @@ export function 限定条件(model: string, 我: string, 互看读 = false): Rec
       return { contract: { customer: 客户 } };
     case "ContractWin":
       return { opportunity: { customer: 客户 }, contract: { customer: 客户 } };
-    // 项目模式 1a（2026-10-23）：项目跟客户走；负责人不是这位客户的销售时，自己负责的项目也看得到
+    // 项目模式 1a（2026-10-23）：项目跟客户走；负责人不是这位客户的销售时，自己负责的项目也看得到；
+    // 放在项目公海里的谁都看得到（才能领）
     case "Project":
-      return { OR: [{ ownerId: 我 }, { customer: 客户 }] };
+      return { OR: [{ ownerId: 我 }, { customer: 客户 }, { pooledAt: { not: null } }] };
     case "ProjectMember":
     case "ProjectNodeLog":
     case "FollowUpProject":
-      return { project: { OR: [{ ownerId: 我 }, { customer: 客户 }] } };
+      return { project: { OR: [{ ownerId: 我 }, { customer: 客户 }, { pooledAt: { not: null } }] } };
     default:
       return null;
   }

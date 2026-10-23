@@ -125,7 +125,7 @@ describe("有项目的客户不让删", () => {
   it("预检和真删都拦；同事删不了别人的项目；项目删掉后跟进还在，客户就能删了", async () => {
     const r = await 建档向导(输入());
     if (!r.ok) throw new Error(r.error);
-    expect(await 客户删除预检([r.customerId])).toMatchObject({ ok: false, error: expect.stringContaining("名下还有项目") });
+    expect(await 客户删除预检([r.customerId])).toMatchObject({ ok: false, error: expect.stringMatching(/名下还有 1 个项目，先删项目再删/) });
     expect(await deleteCustomers([r.customerId])).toMatchObject({ ok: false, error: expect.stringContaining("向导客户") });
     expect(await prisma.project.count()).toBe(1);
 
