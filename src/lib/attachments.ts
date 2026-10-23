@@ -6,7 +6,8 @@
  *   - 先写文件、再写行：行在文件不在 = 「文件不在这台电脑上」（团队版以后：还没下载），界面照样列出来
  *   - 不建外键：商机删了能撤销（同一个编号再建回来），所以父记录没了先不删，满 1 天再连文件清掉（清孤儿）
  *
- * 个人版只存本机。团队版的单独通道（加密上传、打开时才下载、删了连服务器上的一起删）由团队同步那边接在 删附件 / 列附件 上。
+ * 个人版只存本机。团队版：行跟着范围同步走，文件走单独的密文通道（sync/attach-client.ts：同步一轮的最后加密上传、
+ * 打开时才下载；删了行，云端收到删除就连密文一起删）。
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -37,10 +38,14 @@ export function 有文件(id: string, 目录 = 附件目录()): boolean {
 
 /**
  * 要用这个附件的文件时先问一句（取文件、打开都走这里）。
- * 个人版：有就是有，没有就是没有。团队版接上以后在这里按需下载：别人刚传、还没传完的回「还在上传」
+ * 个人版：有就是有，没有就是没有。团队版（范围同步）：本机没有就去云端取（sync/attach-client.ts），
+ * 别人刚传、还没传完的回「还在上传」
  */
 export async function 确保文件(id: string, 目录 = 附件目录()): Promise<"有" | "还在上传" | "没有"> {
-  return 有文件(id, 目录) ? "有" : "没有";
+  if (有文件(id, 目录)) return "有";
+  if (!process.env.CRM_DATA_DIR) return "没有"; // 只有桌面端有团队同步
+  const { 下载附件 } = await import("./sync/attach-client");
+  return 下载附件(id, 目录);
 }
 
 type 行 = { id: string; name: string; mime: string; size: number; width: number | null; height: number | null; createdAt: Date };
@@ -89,7 +94,7 @@ export async function 存附件(
   }
 }
 
-/** 删行、删文件。团队版接上以后在这里顺手删服务器上的密文 */
+/** 删行、删文件。团队版：删行会作为一条删除同步上去，云端收到就删它那份密文（tenant/sync-attach.ts 删云端附件） */
 export async function 删附件(db: PrismaClient, id: string, 目录 = 附件目录()): Promise<void> {
   await db.attachment.deleteMany({ where: { id } });
   fs.rmSync(附件文件(id, 目录), { force: true });

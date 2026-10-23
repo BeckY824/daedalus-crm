@@ -1,10 +1,11 @@
 import { control } from "./tenant/control";
 import { 测试账号们 } from "./tenant/test-accounts";
+import { 附件磁盘 } from "./tenant/sync-attach";
 
 /**
  * 运营通知（2026-10-02）：运营台里有事，**只推给运营名单里那一个账号的桌面端**。
  *
- * 四类：新注册、新反馈、用量异常、新团队待开通（2026-10-07：桌面端有人建了团队，要运营台点「开通」才开始同步，原来没人告诉运营）。壳每两分钟拿设备令牌问一次 /api/ops/notices?since=…，
+ * 五类：新注册、新反馈、用量异常、新团队待开通、磁盘（2026-10-22：团队版图片所在的盘快满了）；新团队待开通（2026-10-07：桌面端有人建了团队，要运营台点「开通」才开始同步，原来没人告诉运营）。壳每两分钟拿设备令牌问一次 /api/ops/notices?since=…，
  * 自己发系统通知；点一下打开运营台对应那一页。团队快到期 / 已到期（2026-10-15）也算「团队」这一类。门和「运营台…」菜单是同一道（是运营账号），
  * 别的账号问只会拿到 403，壳里也根本不起这个轮询。
  *
@@ -19,7 +20,7 @@ import { 测试账号们 } from "./tenant/test-accounts";
 export type 运营事件 = {
   /** 去重用：同一个键壳只发一次 */
   key: string;
-  kind: "注册" | "反馈" | "用量" | "团队";
+  kind: "注册" | "反馈" | "用量" | "团队" | "磁盘";
   标题: string;
   正文: string;
   /** 点了打开运营台的哪一页，一律 /admin 开头 */
@@ -41,6 +42,33 @@ export function 异常线(env: Record<string, string | undefined> = process.env)
     return Number.isFinite(n) && n > 0 ? n : d;
   };
   return { 每小时提问: 数(env.OPS_ALERT_ASKS_PER_HOUR, 30), 每天token: 数(env.OPS_ALERT_TOKENS_PER_DAY, 1_000_000) };
+}
+
+/**
+ * 团队版产品图片的磁盘线（2026-10-22 D-24），环境变量可调（GB）：图片所在的盘剩不到 12 GB，或者图片一共超过 10 GB。
+ * 都是「该加盘 / 该清了」的时候，一天报一次
+ */
+export function 磁盘线(env: Record<string, string | undefined> = process.env) {
+  const 数 = (v: string | undefined, d: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : d;
+  };
+  return { 剩: 数(env.OPS_ALERT_DISK_FREE_GB, 12) * 1024 ** 3, 用: 数(env.OPS_ALERT_ATTACH_GB, 10) * 1024 ** 3 };
+}
+const 写GB = (n: number) => `${(n / 1024 ** 3).toFixed(1)} GB`;
+/** 磁盘超线了就给一条（键带北京日期：同一天壳只发一次）；读不到盘不报 */
+export function 磁盘通知(盘: { 剩: number; 用: number } | null, now: Date, env: Record<string, string | undefined> = process.env): 运营事件 | null {
+  if (!盘) return null;
+  const 线 = 磁盘线(env);
+  const 少 = 盘.剩 < 线.剩, 多 = 盘.用 > 线.用;
+  if (!少 && !多) return null;
+  return {
+    key: `磁盘:${北京(now).slice(0, 10)}`,
+    kind: "磁盘",
+    标题: 少 ? `服务器磁盘只剩 ${写GB(盘.剩)}` : `团队图片已占 ${写GB(盘.用)}`,
+    正文: `磁盘剩 ${写GB(盘.剩)}（线 ${写GB(线.剩)}）· 团队图片共 ${写GB(盘.用)}（线 ${写GB(线.用)}）· 该加盘或清理了`,
+    path: "/admin/sync",
+  };
 }
 
 const 截 = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
@@ -77,6 +105,7 @@ export function 并条(事件: 运营事件[]): 运营事件[] {
   出.push(...用量.slice(0, 5));
   // 新团队：每一个都要去点开通，不并条
   出.push(...事件.filter((e) => e.kind === "团队"));
+  出.push(...事件.filter((e) => e.kind === "磁盘"));
   return 出;
 }
 
@@ -221,5 +250,7 @@ export async function 读运营通知(since: string | null | undefined, now = ne
       });
     }
   }
+  const 盘 = 磁盘通知(附件磁盘(now.getTime()), now, env);
+  if (盘) 事件.push(盘);
   return { now: now.toISOString(), 事件: 并条(事件) };
 }

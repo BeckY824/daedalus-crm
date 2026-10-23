@@ -15,6 +15,7 @@ export const 主键表: Record<string, string> = {
   FollowUp: "id", FollowUpSource: "followUpId", Task: "id", FollowPlan: "id", AuditLog: "id",
   Quote: "id", QuoteLine: "id", Supplier: "id", SupplierQuote: "id",
   TradeOrder: "id", TradeOrderNode: "id", TradeOrderDoc: "id", TradeOrderPurchase: "orderId", FollowUpOrder: "followUpId",
+  Attachment: "id",
 };
 
 /** 服务端当前路由覆盖历史包中的过期路由；隐藏推荐人只置空 FK，不复制隐藏客户来满足外键。 */
