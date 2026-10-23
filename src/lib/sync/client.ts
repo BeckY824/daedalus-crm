@@ -85,6 +85,8 @@ export type 范围配置 = {
    * 擦净 = 删完之后整库重建、WAL 截断成功（库文件字节里不留删掉的行），false = 下一轮清理先补擦
    */
   cleaned?: { 删: number; 冲突: number; AI残留: number; 擦净?: boolean };
+  /** 上一次从头拉时本机的表结构签名（同 团队配置.结构）。变了或没记过 = 各范围游标归零、从头重拉 */
+  结构?: string;
 };
 
 type 结果<T = object> = ({ ok: true } & T) | { ok: false; error: string };
@@ -1118,6 +1120,13 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
   const teamId = c.teamId;
   try {
     if (!c.scoped || c.scoped.stage !== "ready") { 记团队(teamId, { scoped: { ...(c.scoped ?? { cursors: {} }), stage: "ready" } }); c = 读团队() ?? c; }
+    /*
+      本机表结构变了（升级多了列 / 表）：各范围游标归零、从头重拉，和旧协议的 c.结构 一样（2026-10-22）。
+      老版本收到带新列的包只留认得的列、带新表的包整包跳过，游标照样往前；不重拉，升级以后这些再也补不回来。
+      没记过的也当变了：这一版之前的客户端从没记过，升级上来先完整拉一遍
+    */
+    const 签名 = await 本机结构签名(prisma);
+    if (c.scoped?.结构 !== 签名) { 记团队(teamId, { scoped: { ...(c.scoped ?? { stage: "ready" }), cursors: {}, 结构: 签名 } }); c = 读团队() ?? c; }
     const p = await 范围推(c, false, 规则);
     if (!p.ok) { 记团队(teamId, { lastError: p.error, lastSyncAt: new Date().toISOString() }); return p; }
     c = 读团队() ?? c;
