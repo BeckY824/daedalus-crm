@@ -8,6 +8,7 @@ import type { 记录 } from "./sync";
 import { 行键 } from "@/lib/sync/scope-policy";
 import { 没开通话 } from "@/lib/team-pricing";
 import { 认国家 } from "@/lib/customer-extra";
+import { 是图片 } from "@/lib/attachment-rules";
 
 export const 毫秒 = (v: unknown): number | null => {
   if (v == null || v === "") return null;
@@ -25,6 +26,8 @@ export type 跟进视图 = { id: string; type: string; content: string; at: numb
 export type 计划视图 = { id: string; subject: string; at: number; method: string; ownerId: string };
 export type 联系人视图 = { id: string; name: string; title: string; phone: string; email: string; wechat: string; 主要: boolean };
 export type 商机视图 = { id: string; name: string; stage: string; amount: number; currency: string };
+/** 产品图片（2026-10-22 D-24）：这位客户的商机、订单上挂的图。关联 = 商机名 /「订单 PI-001」。只读，点开才从云端取（lib/mobile/attach.ts） */
+export type 图片视图 = { id: string; name: string; mime: string; size: number; sha256: string; 关联: string; at: number };
 export type 客户视图 = {
   id: string; name: string; phone: string; country: string; whatsapp: string; email: string; wechat: string;
   /** 阿里国际站买家 ID（2026-10-21）：没有就空串 */
@@ -33,6 +36,8 @@ export type 客户视图 = {
   上次跟进: number | null; 联系人: 联系人视图[]; 商机: 商机视图 | null; 计划: 计划视图 | null; 跟进: 跟进视图[];
   /** 记跟进时「关联商机 / 订单」那一格的候选（2026-10-19）：这位客户全部商机（含已结束的，和电脑上一样）、订单，新建的在前 */
   可关联: { 商机: { id: string; name: string }[]; 订单: { id: string; no: string }[] };
+  /** 新传的在前；只列图片（是图片），别的类型手机上不显示 */
+  图片: 图片视图[];
 };
 
 /**
@@ -78,6 +83,18 @@ export function 客户们(取: ReturnType<typeof 分表>, 我: string, 待同步
   const 新的在前 = <T>(m: Map<string, { v: T; at: number }[]>, id: string) => (m.get(id) ?? []).sort((a, b) => b.at - a.at).map((x) => x.v);
   const 全部商机 = 按客户(取("Opportunity"), (r) => ({ v: { id: 字(r.id), name: 字(r.name) }, at: 毫秒(r.createdAt) ?? 0 }));
   const 全部订单 = 按客户(取("TradeOrder"), (r) => ({ v: { id: 字(r.id), no: 字(r.no) }, at: 毫秒(r.createdAt) ?? 0 }));
+  // 图片挂在商机或订单上：先认出是哪位客户的
+  const 商机客户 = new Map(取("Opportunity").map((r) => [字(r.id), 字(r.customerId)]));
+  const 订单客户 = new Map(取("TradeOrder").map((r) => [字(r.id), 字(r.customerId)]));
+  const 图片 = new Map<string, 图片视图[]>();
+  for (const r of 取("Attachment")) {
+    if (!是图片(字(r.mime)) || !字(r.sha256)) continue;
+    const 机 = 字(r.opportunityId), 单 = 字(r.orderId);
+    const 客 = 机 ? 商机客户.get(机) : 单 ? 订单客户.get(单) : undefined;
+    if (!客) continue;
+    const v: 图片视图 = { id: 字(r.id), name: 字(r.name), mime: 字(r.mime), size: Number(r.size) || 0, sha256: 字(r.sha256), 关联: 机 ? 商机名.get(机) ?? "" : `订单 ${订单号.get(单) ?? ""}`, at: 毫秒(r.createdAt) ?? 0 };
+    const a = 图片.get(客); if (a) a.push(v); else 图片.set(客, [v]);
+  }
   const 计划 = 按客户(取("FollowPlan").filter((r) => !真(r.done)), (r): 计划视图 => ({ id: 字(r.id), subject: 字(r.subject), at: 毫秒(r.plannedAt) ?? 0, method: 字(r.method), ownerId: 字(r.ownerId) }));
   const 联系人 = 按客户(取("Contact"), (r): 联系人视图 => ({ id: 字(r.id), name: 字(r.name), title: 字(r.position), phone: 字(r.phone), email: 字(r.email), wechat: 字(r.wechat), 主要: 真(r.isPrimary) }));
   const 商机 = 按客户(取("Opportunity").filter((r) => 字(r.status) === "OPEN" || !r.status), (r) => ({
@@ -98,6 +115,7 @@ export function 客户们(取: ReturnType<typeof 分表>, 我: string, 待同步
       联系人: (联系人.get(id) ?? []).sort((a, b) => Number(b.主要) - Number(a.主要)),
       商机: 机, 计划: 计, 跟进: 跟,
       可关联: { 商机: 新的在前(全部商机, id), 订单: 新的在前(全部订单, id) },
+      图片: (图片.get(id) ?? []).sort((a, b) => b.at - a.at),
     };
   });
 }
