@@ -69,6 +69,8 @@ export default function PipelineView({
     保存后留在管道里，新的那张卡亮两秒（和列表里新建的行同一种亮法），人一眼看见它落在哪一列
   */
   const [新建开着, set新建开着] = useState(false);
+  // 项目模式开着：新建一律走建档向导
+  const 新建 = () => (b.projectMode ? router.push("/projects/new") : set新建开着(true));
   const 见过 = useRef<Set<string> | null>(null);
   const [新来的, set新来的] = useState<string | null>(null);
   useEffect(() => {
@@ -198,7 +200,7 @@ export default function PipelineView({
           <EmptyState
             title="还没有商机"
             hint={`管道是把在谈的单子按阶段摆开看：哪些卡在${stageLabel(b, "方案报价")}、哪一阶段压着最多钱。`}
-            primary={{ label: "新建第一条商机", onClick: () => set新建开着(true) }}
+            primary={{ label: "新建第一条商机", onClick: 新建 }}
             demo={false}
           />
         </div>
@@ -217,7 +219,7 @@ export default function PipelineView({
             <Button icon={<UnorderedListOutlined />} onClick={() => router.push("/opportunities")}>
               列表
             </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => set新建开着(true)}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={新建}>
               新建商机
             </Button>
           </Space>

@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import CustomersView from "./CustomersView";
@@ -70,6 +71,8 @@ export default async function CustomersPage({ searchParams }: { searchParams: SP
   };
   const pageSize = Math.min(100, Math.max(10, 正整数(sp.pageSize, 20)));
   const b = await getBusiness();
+  // 首页「开始」卡的 ?new=1：项目模式开着时新建走建档向导
+  if (b.projectMode && sp.new === "1") redirect("/projects/new");
   const sort = sp.sort === "amount-asc" || sp.sort === "amount-desc" ? sp.sort : "";
   /** 按客户等级排（2026-10-16）：A→D 或 D→A，没分级的总在最后 */
   const 等级排序 = sp.sort === "level-asc" || sp.sort === "level-desc" ? sp.sort : "";
