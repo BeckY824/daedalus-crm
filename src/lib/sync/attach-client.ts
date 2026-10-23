@@ -73,16 +73,25 @@ async function 记上(ids: string[]) {
 const 传到 = new Map<string, number>();
 /** 等行的：下次什么时候再试、这次等了多久（只在这次启动里记） */
 const 等行 = new Map<string, { 到: number; 隔: number }>();
+/**
+ * 本机文件和行上的 sha256 对不上的（这次启动里记）：不传坏的，也别让它挡着后面的新图（质量复审 #93 建议 1）。
+ * 它的 createdAt 最老、每轮最先碰到，原来回「失败」整轮就停了，这台电脑以后的图都传不上去
+ */
+const 坏图 = new Set<string>();
+/** 一张图连着最多跟着云端的 409 改几回位置（云端收得比以前更远了才重数）：一直对不上就当等行，退避着下一轮再来（质量复审 #93 建议 2、审 #97） */
+const 改位置最多 = 3;
 /** 退出团队时叫停：传完手上这一块就不传了 */
 let 停 = false;
-type 传一张结果 = "传完" | "等行" | "看不到" | "满了" | "失败" | "停了";
+type 传一张结果 = "传完" | "等行" | "看不到" | "满了" | "失败" | "停了" | "坏了";
 async function 传一张(c: 团队配置, a: { id: string; sha256: string }, 记满: (话: string) => void): Promise<传一张结果> {
   const 明 = fs.readFileSync(附件文件(a.id));
-  if (crypto.createHash("sha256").update(明).digest("hex") !== a.sha256) return "失败"; // 本机这份坏了，不传坏的
+  if (crypto.createHash("sha256").update(明).digest("hex") !== a.sha256) return "坏了";
   const 密 = 封附件(明, c.key, c.epoch ?? 0, { teamId: c.teamId, id: a.id, sha256: a.sha256 });
   const head = 密.subarray(0, 33).toString("base64url");
-  let offset = 传到.get(a.id) ?? 0, 失败 = 0;
+  let offset = 传到.get(a.id) ?? 0, 失败 = 0, 改位置 = 0;
   if (offset >= 密.length) offset = 0;
+  // 云端收到的最远位置：比它更远了才重数 409（质量审 #99：200 / 409 来回跳时不能一直清零）
+  let 最远 = offset;
   for (;;) {
     if (停) return "停了";
     传到.set(a.id, offset);
@@ -91,10 +100,15 @@ async function 传一张(c: 团队配置, a: { id: string; sha256: string }, 记
     const have = Number(r.json.have);
     if (r.状态 === 200 && Number.isSafeInteger(have)) {
       if (r.json.done === true) { 传到.delete(a.id); return "传完"; }
-      offset = have; 失败 = 0; continue;
+      offset = have; 失败 = 0;
+      if (have > 最远) { 最远 = have; 改位置 = 0; }
+      continue;
     }
     // 对不上：云端已收的和我以为的不一样，从它说的位置接着
-    if (r.状态 === 409 && Number.isSafeInteger(have) && have >= 0 && have < 密.length) { offset = have; continue; }
+    if (r.状态 === 409 && Number.isSafeInteger(have) && have >= 0 && have < 密.length) {
+      if (++改位置 > 改位置最多) return "等行";
+      offset = have; continue;
+    }
     if (r.状态 === 507) { 记满(String(r.json.error ?? "团队的图片空间满了")); return "满了"; }
     if (r.状态 === 404) return "等行";
     if (r.状态 === 403) return "看不到";
@@ -126,14 +140,17 @@ export async function 附件通道一轮(c0?: 团队配置 | null, 现在 = Date
     // 这一页全是别人的、而且是满页：记上以后后面可能还有我的，再取一页
     if (待.length || 这页.length < 500) break;
   }
+  // 本机自己的图超过 500 张、又全在等行或坏图里，会占满这一页，后面的要等它们退避到期（极少，先记着；质量复审 #93 建议 4）
   for (const a of 待) {
     if (碰了 >= 每轮最多 || 满了 || 停) break;
+    if (坏图.has(a.id)) continue;
     const 等 = 等行.get(a.id);
     if (等 && 等.到 > 现在) continue;
     碰了++;
     const r = await 传一张(c, a, (话) => { 满了 = 话; });
     if (r === "等行") { const 隔 = Math.min(等行最多, 等 ? 等.隔 * 2 : 等行起步); 等行.set(a.id, { 到: 现在 + 隔, 隔 }); continue; }
     等行.delete(a.id);
+    if (r === "坏了") { 坏图.add(a.id); console.warn(`[团队图片] 本机这张图和记录对不上，先不传：${a.id}`); continue; }
     // 看不到的（权限变了）也记上：不然每一轮都去碰一次
     if (r === "传完" || r === "看不到") { await 记上([a.id]); if (r === "传完") 传了++; }
     if (r === "失败" || r === "停了") break; // 网络不好：这一轮先不传了

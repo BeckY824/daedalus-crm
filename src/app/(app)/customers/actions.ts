@@ -15,6 +15,7 @@ import { 看全部, 看得到, 读的我, 同事的客户, 只读错误 } from "
 import { 同事撞号说法, type 查重种类 } from "@/lib/sync/dedupe";
 import { 问同事 } from "@/lib/sync/dedupe-client";
 import { requireUser } from "@/lib/auth";
+import { 可选客户 } from "@/lib/options";
 import { resolveAttribution, wouldCreateCycle } from "@/lib/attribution";
 import {
   conflictingFields,
@@ -1276,4 +1277,17 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   revalidatePath(`/customers/${id}`);
   revalidatePath("/customers");
   return { ok: true, 带走 };
+}
+
+/**
+ * 客户表单里「推荐人 → 已有客户」的候选，表单打开时才来取（2026-10-20）。
+ *
+ * 原来客户列表页和详情页出页时就把全部客户的 id + 名字塞进页面数据：1 万客户时
+ * 光这一项就几百 KB，每次进列表都要传、要解析，可大多数时候根本没人点开这个下拉。
+ * 口径照旧（lib/options.ts 的 可选客户：按名字排，团队里看不到的照旧看不到），
+ * 排除自己由表单那边做（原来详情页传了 除了=自己，表单里也滤了一遍，两层是一回事）。
+ */
+export async function 推荐人候选(): Promise<{ id: string; name: string }[]> {
+  await requireUser();
+  return 可选客户();
 }

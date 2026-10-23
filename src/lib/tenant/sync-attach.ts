@@ -111,7 +111,7 @@ const 写GB = (n: number) => (n >= GB ? `${Math.round((n / GB) * 10) / 10} GB` :
  * 同一张图的块排队一个一个收（质量审 #93 A）：断线重传时旧请求可能还在限速里排着，两个同一 offset 的块同时追加，
  * .part 就多出一截、被改名成「传齐了」的坏文件。整台服务器一个进程，内存里排队就够
  */
-const 锁 = globalThis as unknown as { 附件锁?: Map<string, Promise<void>>; 附件删代?: Map<string, number> };
+const 锁 = globalThis as unknown as { 附件锁?: Map<string, Promise<void>>; 附件删代?: Map<string, { 代: number; at: number }>; 附件删号?: { n: number } };
 const 锁们 = (锁.附件锁 ??= new Map());
 async function 排着<T>(key: string, f: () => Promise<T>): Promise<T> {
   const 前 = 锁们.get(key) ?? Promise.resolve();
@@ -127,8 +127,15 @@ async function 排着<T>(key: string, f: () => Promise<T>): Promise<T> {
     if (锁们.get(key) === 链) 锁们.delete(key);
   }
 }
-/** 每删一次加一：收块时在限速里排着、这张图被删了，排完就别再写（不然删掉的又冒出一个 .part） */
+/**
+ * 每删一次加一：收块时在限速里排着、这张图被删了，排完就别再写（不然删掉的又冒出一个 .part）。
+ * 只用来盯「排着的时候被删」，限速排队远不到 10 分钟：删过 10 分钟的下次删图时清掉，不让这张表一直涨（质量复审 #93 建议 3）
+ */
 const 删代 = (锁.附件删代 ??= new Map());
+const 删代留多久 = 10 * 60_000;
+/** 代号全局往上数（质量审 #97 建议 1）：清掉以后同一编号再删一次，也不会撞回收块前记下的那个号 */
+const 删号 = (锁.附件删号 ??= { n: 0 });
+const 第几代 = (key: string) => 删代.get(key)?.代 ?? 0;
 
 export type 收块结果 = { ok: true; have: number; done: boolean };
 
@@ -139,7 +146,7 @@ export type 收块结果 = { ok: true; have: number; done: boolean };
 export async function 收附件块(accountId: string, teamId: string, q: { id: string; offset: number; total: number; head: string }, 块: Uint8Array): Promise<收块结果> {
   const dir = 团队目录(teamId);
   // 认权限之前就记下：认完、排队、限速这一路上这张图被删了，都不再写
-  const 代 = 删代.get(`${teamId}/${q.id}`) ?? 0;
+  const 代 = 第几代(`${teamId}/${q.id}`);
   await 认附件(accountId, teamId, q.id, true);
   const { offset, total } = q;
   if (!Number.isSafeInteger(total) || total <= 密文头长 || total > 附件上限字节 + 密文头长) fail(413, `单张最多 ${Math.round(附件上限字节 / 1024 / 1024)} MB`);
@@ -167,7 +174,7 @@ export async function 收附件块(accountId: string, teamId: string, q: { id: s
       if (目录大小(dir) + total > 额度) fail(507, `团队的图片空间满了（共 ${写GB(额度)}，按席位每位 ${写GB(每席位字节())}），删掉一些不用的图片再传`);
     }
     await 限速(块.byteLength);
-    if ((删代.get(`${teamId}/${q.id}`) ?? 0) !== 代) { fs.rmSync(半, { force: true }); fail(404, "这张图已经删了"); }
+    if (第几代(`${teamId}/${q.id}`) !== 代) { fs.rmSync(半, { force: true }); fail(404, "这张图已经删了"); }
     fs.mkdirSync(dir, { recursive: true });
     fs.appendFileSync(半, 块, { mode: 0o600 });
     have = offset + 块.byteLength;
@@ -228,7 +235,9 @@ export function 删云端附件(teamId: string, ids: string[], 现在 = new Date
   if (!团队编号对(teamId)) return 0;
   const dir = path.join(附件根(), teamId);
   // 先记「删过」再看目录：这张图的第一块可能还在限速里排着、目录都还没建
-  for (const id of ids) if (是附件编号(id)) 删代.set(`${teamId}/${id}`, (删代.get(`${teamId}/${id}`) ?? 0) + 1);
+  const t = 现在.getTime();
+  for (const [k, v] of 删代) if (v.at < t - 删代留多久) 删代.delete(k);
+  for (const id of ids) if (是附件编号(id)) 删代.set(`${teamId}/${id}`, { 代: ++删号.n, at: t });
   if (!fs.existsSync(dir)) return 0;
   const 删了: string[] = [];
   for (const id of ids) {

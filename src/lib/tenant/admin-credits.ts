@@ -15,7 +15,6 @@ import { 测试账号们 } from "./test-accounts";
  *   - 测试账号不限次数，加了也看不出来，拒掉并说清楚（以前是把按钮藏起来，运营者以为「加不了」）
  */
 export type 次数种类 = "research" | "ai";
-export const 种类名: Record<次数种类, string> = { research: "背调", ai: "AI" };
 export const 一次最多 = 1000;
 const KEY格式 = /^[A-Za-z0-9_-]{8,64}$/;
 

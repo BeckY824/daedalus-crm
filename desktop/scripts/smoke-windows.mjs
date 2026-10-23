@@ -69,7 +69,8 @@ try {
   app = await electron.launch({ executablePath, env, timeout: 60000 });
   const page = await app.firstWindow();
   page.setDefaultTimeout(30000);
-  await expect(page.locator("#auth-email")).toBeVisible();
+  // 刚装好的旧版第一次冷启动（建库、首屏编译）在 CI 上能超过 expect 默认的 5 秒
+  await expect(page.locator("#auth-email")).toBeVisible({ timeout: 60000 });
   console.log("PASS: packaged app starts at cloud login");
   await 登录(page, "smoke@example.test");
   await 进主界面(page);
