@@ -28,13 +28,13 @@ type 行 = Record<string, unknown>;
 /** 挪过去的子记录：表、主键列、哪几条 */
 const 子表: [表: string, 主键: string][] = [
   ["Contact", "id"], ["Opportunity", "id"], ["Contract", "id"], ["TradeOrder", "id"],
-  ["FollowUp", "id"], ["Task", "id"], ["FollowPlan", "id"],
+  ["FollowUp", "id"], ["Task", "id"], ["FollowPlan", "id"], ["Project", "id"],
 ];
 /** 留 空着时用 并 补上的列。推荐关系五列是一组：留 一样都没有才整组补（拆开补会对不上推荐链） */
 const 补的列 = ["phone", "school", "grade", "major", "remark"];
 const 推荐组 = ["channelId", "referrerCustomerId", "attributionChannelId", "attributionCustomerId", "channelOwnerId"];
 const 档案列 = ["country", "whatsapp", "wechat", "email", "source", "level", "website", "alibabaId"];
-const 一位一行 = ["CustomerPool", "CustomerClaim", "CustomerExtra"];
+const 一位一行 = ["CustomerPool", "CustomerClaim", "CustomerExtra", "CustomerCreator"];
 
 const 引 = (s: string) => `"${s.replace(/"/g, '""')}"`;
 const 空 = (v: unknown) => v == null || (typeof v === "string" && !v.trim());

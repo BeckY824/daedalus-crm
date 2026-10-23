@@ -153,6 +153,9 @@ model Customer {
   /// 外贸档案：国家、WhatsApp、微信、邮箱、来源（2026-10-05）。见 CustomerExtra
   extra         CustomerExtra?
   lead          Lead?
+  /// 团队版项目模式（2026-10-23，1a）。见 Project、CustomerCreator
+  projects      Project[]
+  creator       CustomerCreator?
 
   @@index([phone])
   @@index([salesOwnerId])
@@ -226,6 +229,8 @@ model Contact {
   updatedAt  DateTime @updatedAt
 
   followUps FollowUp[]
+  /// 作为主联系人的项目（2026-10-23 项目模式 1a）
+  projects  Project[]
 
   @@index([customerId])
 }
@@ -612,6 +617,8 @@ model FollowUp {
   source    FollowUpSource?
   /// 挂在订单某个节点上（2026-10-03）。见 FollowUpOrder
   orderNode FollowUpOrder?
+  /// 挂在项目某个节点上（2026-10-23 项目模式 1a）。见 FollowUpProject
+  projectNode FollowUpProject?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -808,4 +815,128 @@ model ImportRow {
 
   @@index([batchId])
   @@index([customerId])
+}
+
+// ———— 团队版项目模式 1a（2026-10-23，迁移 042）————
+// 开关在业务配置 projectMode，默认关；关着时这几张表一行都没有。只加表，现有表一列不动。
+// 指向人的列都不建外键（同 TradeOrder.ownerId）：都在 src/lib/sync/tables.ts 的 指向人的列 里，改身份时一起改。
+// 1a 全部不同步；1b 接团队同步时路由按 Project.ownerId + customerId，子表都挂 projectId。
+
+/// 项目：一单生意从线索到订单就是这一行。阶段 / 节点是代码常量（src/lib/project/nodes.ts），一套不分内外贸。
+model Project {
+  id                   String    @id @default(cuid())
+  name                 String
+  customerId           String
+  customer             Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 主联系人，可空；联系人删了置空
+  contactId            String?
+  contact              Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  /// 项目负责人（路由字段）。建档的人在向导里选，默认自己
+  ownerId              String
+  /// 实际建档的人，建好不改
+  creatorId            String
+  /// 线索 | 商机 | 订单
+  phase                String    @default("线索")
+  /// 当前节点，见 nodes.ts
+  node                 String    @default("潜客培育")
+  /// 结局：空 = 进行中；线索流失 | 丢单 | 成功交付 | 异常状态。已转商机、赢单不停在这里，直接进下一阶段第一个节点
+  result               String?
+  /// 异常状态必填的一段原因；恢复（再改节点）时清掉，原因留在节点变更里
+  exceptionReason      String?
+  /// 尾款结清：谁勾的、何时
+  balanceSettled       Boolean   @default(false)
+  balanceSettledById   String?
+  balanceSettledAt     DateTime?
+  /// 验收通过：谁勾的、何时。和尾款结清两项都勾上才能成功交付
+  acceptancePassed     Boolean   @default(false)
+  acceptancePassedById String?
+  acceptancePassedAt   DateTime?
+  amount               Float     @default(0)
+  currency             String    @default("CNY")
+  remark               String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  /// 有结局的那一刻；回到进行中就清掉
+  closedAt             DateTime?
+
+  members   ProjectMember[]
+  logs      ProjectNodeLog[]
+  followUps FollowUpProject[]
+
+  @@index([customerId])
+  @@index([ownerId])
+}
+
+/// 项目组成员，多对多。1a 负责人直接加人写 JOINED；1b 的进组邀请用 INVITED / DECLINED 和 invitedById
+model ProjectMember {
+  id           String       @id @default(cuid())
+  projectId    String
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId       String
+  roleId       String?
+  role         ProjectRole? @relation(fields: [roleId], references: [id])
+  /// INVITED | JOINED | DECLINED
+  inviteStatus String       @default("JOINED")
+  invitedById  String?
+  createdAt    DateTime     @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+/// 组员角色字典，全队一份，只有总管理能改。删 = 停用，已用它的组员不丢。默认 4 个由代码第一次读时补上（迁移不许 INSERT）
+model ProjectRole {
+  id        String          @id @default(cuid())
+  name      String          @unique
+  sort      Int             @default(0)
+  active    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  members   ProjectMember[]
+}
+
+/// 节点变更：每改一次阶段 / 节点 / 结局记一行，只增不改
+model ProjectNodeLog {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId     String
+  at         DateTime @default(now())
+  fromPhase  String?
+  fromNode   String?
+  fromResult String?
+  toPhase    String
+  toNode     String
+  toResult   String?
+  /// 进异常状态时必填的原因
+  reason     String?
+
+  @@index([projectId, at])
+}
+
+/// 沟通记录挂项目（同 FollowUpOrder）：跟进照旧挂客户，客户时间线里照样看得到
+model FollowUpProject {
+  followUpId String   @id
+  followUp   FollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  /// 记这条时项目在哪个节点
+  node       String
+
+  @@index([projectId])
+}
+
+/// 客户的实际建档人（项目模式向导建客户时写）。老客户没有这一行 = 「未记录」，不猜
+model CustomerCreator {
+  customerId String   @id
+  customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  userId     String
+  at         DateTime @default(now())
+}
+
+/// 成员的两个上级：只存只显示，权限不用它
+model MemberManager {
+  userId          String   @id
+  directManagerId String?
+  dottedManagerId String?
+  updatedAt       DateTime @updatedAt
 }

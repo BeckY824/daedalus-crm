@@ -200,13 +200,39 @@ const 派生: Record<string, Record<string, string>> = {
     before: "补空之前那几格是什么。**不给改**：撤销照着它还原，能改就等于能让撤销写任意值",
     writtenAt: "写完那一刻客户的 updatedAt，落库时定——撤销拿它判断之后有没有人改过",
   },
+  // 团队版项目模式 1a（2026-10-23）：系统打上的
+  Project: {
+    customerId: "建档向导里和客户一起建，不改（改了等于另一单生意）",
+    creatorId: "实际建档的人，向导保存那一刻打上，不改",
+    balanceSettledById: "勾尾款结清的那个人，系统打上",
+    balanceSettledAt: "勾尾款结清的那一刻，系统打上",
+    acceptancePassedById: "勾验收通过的那个人，系统打上",
+    acceptancePassedAt: "勾验收通过的那一刻，系统打上",
+    closedAt: "有结局的那一刻，系统打上；回到进行中清掉",
+  },
+  ProjectMember: { projectId: "哪个项目的组员，加人时定", userId: "哪位成员，加人时定；换人 = 删了再加", invitedById: "谁拉进来的，加人时打上" },
+  ProjectNodeLog: {
+    projectId: "哪个项目，改节点时系统写", userId: "谁改的，系统写", at: "改的那一刻，系统写",
+    fromPhase: "改之前的阶段，系统写", fromNode: "改之前的节点，系统写", fromResult: "改之前的结局，系统写",
+    toPhase: "改之后的阶段，系统写", toNode: "改之后的节点，系统写", toResult: "改之后的结局，系统写",
+    reason: "进异常状态时填的原因，跟着那一次改节点写；只增不改",
+  },
+  FollowUpProject: { followUpId: "哪条沟通记录，记的时候定", projectId: "挂在哪个项目，记的时候定", node: "记这条时项目在哪个节点，系统打上" },
+  CustomerCreator: { customerId: "哪位客户，一位一行", userId: "实际建档的人，向导保存那一刻打上，不改", at: "建档那一刻，系统打上" },
+  MemberManager: { userId: "哪位成员，一人一行" },
 };
 
 /** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼 */
 /** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼。
  *  2026-09-14 清空：FollowUp.attachment / attachSize 是纯死字段，已从 schema 删除
  *  （已有库里的列留着不读，迁移规矩只加不删）。 */
-const 已知缺口: Record<string, Record<string, string>> = {};
+const 已知缺口: Record<string, Record<string, string>> = {
+  // 团队版项目模式 1a（2026-10-23）：表先建（第一批只有表），写入入口跟着同一分支的后几批补上，补一项删一项
+  Project: Object.fromEntries(["name", "contactId", "ownerId", "phase", "node", "result", "exceptionReason", "balanceSettled", "acceptancePassed", "amount", "currency", "remark"].map((f) => [f, "项目模式 1a 下一批：向导 / 项目详情 / 改节点"])),
+  ProjectMember: { roleId: "项目模式 1a 下一批：项目组", inviteStatus: "项目模式 1a 下一批：项目组；1b 进组邀请" },
+  ProjectRole: Object.fromEntries(["name", "sort", "active"].map((f) => [f, "项目模式 1a 下一批：组员角色字典（只有总管理能改）"])),
+  MemberManager: Object.fromEntries(["directManagerId", "dottedManagerId"].map((f) => [f, "项目模式 1a 下一批：成员设置里填两个上级"])),
+};
 
 const 不审 = new Set(["User", "WorkspaceAccount", "FollowUpSource", "AuditLog", "Setting"]);
 
