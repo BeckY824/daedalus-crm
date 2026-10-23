@@ -70,7 +70,6 @@ type Props = {
   /** 老板（管理员）：公海里的客户能直接「分配给…」某位同事（2026-10-20）。业务员不摆 */
   能分配公海?: boolean;
   channels: Option[];
-  customers: Option[];
   /** 进来就把新建表单打开（首页空库那张「开始」卡的落点） */
   直接新建?: boolean;
   /** 进来就把导入抽屉开在「粘一段文本」那一栏。主线入口，见 dashboard/HomeChat.tsx */
@@ -148,7 +147,7 @@ type Props = {
 const 无订阅 = () => () => {};
 
 export default function CustomersView({
-  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, customers, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 等级排序 = "", 排序币种,
+  rows, total, page, requestedPage, pageSize, users, 能分配公海 = false, channels, filters, 直接新建, 直接粘贴, 本月新增, 直接推荐 = null, 本批, 公海数 = null, 客户数 = null, 客户页签 = "我的", 公海里匹配 = 0, aiEnabled, 旧职位 = [], 国家们 = [], 金额排序 = "", 等级排序 = "", 排序币种,
 }: Props) {
   const router = useRouter();
   // 服务端已取有效页的数据；只修正地址，避免二次请求与开发模式流式重定向错误。
@@ -729,7 +728,6 @@ export default function CustomersView({
         editing={editing}
         users={users}
         channels={channels}
-        customers={customers}
         onClose={(saved) => {
           setFormOpen(false);
           setEditing(null);

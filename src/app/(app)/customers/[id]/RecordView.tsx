@@ -100,7 +100,6 @@ export default function RecordView({
   followUpsHasMore = false,
   users,
   channels,
-  referrableCustomers,
   aiEnabled,
   已收藏 = false,
   能放公海 = false,
@@ -961,7 +960,6 @@ export default function RecordView({
         editing={customer}
         users={users}
         channels={channels}
-        customers={referrableCustomers}
         onClose={(saved) => {
           setCustOpen(false);
           if (saved) router.refresh();

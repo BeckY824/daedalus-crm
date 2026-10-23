@@ -20,6 +20,7 @@ import { 是共享工作区 } from "@/lib/shared-ws/config";
 import { ShortcutProvider } from "@/components/Shortcut";
 import MobileAuthPrompt from "@/components/MobileAuthPrompt";
 import TeamConnectPrompt from "@/components/TeamConnectPrompt";
+import { 要问待授权手机 } from "@/lib/sync/mobile-desktop";
 
 export default async function AppLayout({
   children,
@@ -112,8 +113,8 @@ export default async function AppLayout({
         {children}
       </AppShell>
       {modal}
-      {/* 手机来要授权时弹出来：只有桌面端（数据在这台电脑上）才授权得了 */}
-      {本地模式() && <MobileAuthPrompt />}
+      {/* 手机来要授权时弹出来：只有桌面端（数据在这台电脑上）、进了团队才授权得了；个人版不挂，免得每 15 秒白问一次 */}
+      {本地模式() && 要问待授权手机() && <MobileAuthPrompt />}
       {/* 新电脑登录了团队成员的账号、还没连上：打开就弹框发申请，另一台电脑 / 手机马上弹「允许」（多设备同步） */}
       {本地模式() && <TeamConnectPrompt />}
       </AiMeterProvider>

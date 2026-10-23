@@ -19,7 +19,7 @@ const plugin: Plugin = { name: "feedback-1019-ui", setup(b) {
   stub(/^next\/navigation$/, "export const useRouter=()=>({refresh(){},push(){}});export const usePathname=()=>'/customers';");
   stub(/^\.\/actions$/, `
     const 记=(名,参)=>{(window.__calls??=[]).push({名,参});return {ok:true,id:'c1'}};
-    export const saveCustomer=async(x)=>记('saveCustomer',x),checkDuplicate=async()=>null;`);
+    export const saveCustomer=async(x)=>记('saveCustomer',x),checkDuplicate=async()=>null,推荐人候选=async()=>[];`);
   stub(/^\.\.\/channels\/actions$/, "export const saveChannel=async()=>({ok:true,id:'ch1'});");
   b.onLoad({ filter: /.*/, namespace: "stub" }, (a) => ({ contents: a.pluginData, loader: "jsx", resolveDir: process.cwd() }));
 } };
@@ -38,7 +38,7 @@ beforeAll(async () => {
         <button onClick={()=>set开('new')}>开新建</button>
         <button onClick={()=>set开('edit')}>开编辑</button>
         <span id="state">{开??'关着'}</span>
-        <CustomerForm open={开!==null} editing={开==='edit'?老客户:null} users={[{id:'u1',name:'我'}]} channels={[]} customers={[]} onClose={(存了)=>{window.__closed=(window.__closed??[]).concat([存了]);set开(null)}}/>
+        <CustomerForm open={开!==null} editing={开==='edit'?老客户:null} users={[{id:'u1',name:'我'}]} channels={[]} onClose={(存了)=>{window.__closed=(window.__closed??[]).concat([存了]);set开(null)}}/>
       </>;
     }
     createRoot(document.getElementById('root')).render(<ConfigProvider locale={zhCN}><App><BusinessProvider value={BUSINESS_PRESETS['外贸出口']} timeZone={'Asia/Shanghai'}><Test/></BusinessProvider></App></ConfigProvider>);
