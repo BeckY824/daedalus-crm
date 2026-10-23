@@ -90,4 +90,27 @@ describe("团队同步定时器", () => {
       s.停();
     }
   });
+
+  it("断网恢复：从断到通马上一轮，不等下一个 30 秒；一直通着不多发", async () => {
+    const 在: number[] = [];
+    let 通 = true;
+    const fetch = vi.fn(async () => {
+      在.push(Date.now());
+      return { json: async () => ({ ok: true, 拉: 0 }) };
+    });
+    const s = 同步器.开始({ 取端口: () => 3999, 取令牌: () => "t", 前台: () => false, fetch, 在线: () => 通 });
+    try {
+      await vi.advanceTimersByTimeAsync(11_000);
+      expect(在).toEqual([10_000]); // 一直通着：只有定时那一轮
+      通 = false;
+      await vi.advanceTimersByTimeAsync(10_000); // 21 秒，断着
+      通 = true;
+      await vi.advanceTimersByTimeAsync(2_000); // 22 秒那次看网发现通了（setTimeout 0 算 1 毫秒）
+      expect(在).toEqual([10_000, 22_001]);
+      await vi.advanceTimersByTimeAsync(30_500);
+      expect(在).toEqual([10_000, 22_001, 52_001]); // 之后从恢复那一刻起照常 30 秒
+    } finally {
+      s.停();
+    }
+  });
 });
