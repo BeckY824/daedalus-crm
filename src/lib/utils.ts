@@ -9,12 +9,6 @@ dayjs.locale("zh-cn");
 
 export { dayjs };
 
-/** ¥ 4,860,000 */
-export function money(n: number | null | undefined): string {
-  if (n == null) return "¥ 0";
-  return "¥ " + Math.round(n).toLocaleString("zh-CN");
-}
-
 /**
  * 「最近一次」这类时间的人话写法。列表页的时间列全走它。
  *
