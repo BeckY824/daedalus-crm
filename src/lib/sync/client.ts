@@ -53,7 +53,10 @@ export type 团队配置 = {
   pulled: number;
   /** 上一次拉完时本机的表结构签名（local.ts 本机结构签名）。变了 = 升级过、多了能收的表 / 列，从头重拉 */
   结构?: string;
+  /** 上一轮结束的时间，成没成都记 */
   lastSyncAt?: string;
+  /** 上一次**同步上**的时间（2026-10-23）：界面靠它判断「多久没同步上了」，lastSyncAt 出错也会更新 */
+  lastOkAt?: string;
   lastError?: string | null;
   /** 人多时云端让前台至少隔几秒才同步一轮（目录里的 pace，2026-10-21）；没有 / 0 = 壳几秒戳就几秒一轮 */
   pace?: number;
@@ -106,6 +109,7 @@ export function 读团队(): 团队配置 | null {
 }
 /** 先写临时文件再改名（写到一半断电不会留下半个 .team.json），权限每次都收紧到 0600（复查低 8） */
 export function 写团队(c: 团队配置) {
+  动静 = Date.now();
   const f = 配置文件();
   const 临 = `${f}.${process.pid}.tmp`;
   fs.writeFileSync(临, JSON.stringify(c, null, 2), { mode: 0o600 });
@@ -131,10 +135,20 @@ const HTTP: 传输 = async (方法, 路径, body) => {
     return { 状态: 0, json: { error: "连不上云端，检查一下网络" } };
   }
 };
-let 云: 传输 = HTTP;
+let 原传输: 传输 = HTTP;
+/** 同步这一轮最后一次有动静（发出 / 收到云端的话、写 .team.json）的时刻：看着别卡住 拿它判断卡没卡 */
+let 动静 = 0;
+const 云: 传输 = async (方法, 路径, body) => {
+  动静 = Date.now();
+  try {
+    return await 原传输(方法, 路径, body);
+  } finally {
+    动静 = Date.now();
+  }
+};
 /** 测试用：换掉和云端说话的方式 */
 export function 设传输(t: 传输 | null) {
-  云 = t ?? HTTP;
+  原传输 = t ?? HTTP;
 }
 /** 别的模块（手机授权，sync/mobile-desktop.ts）和云端说话也走这一条：测试里换掉传输时一起换 */
 export const 调云: 传输 = (方法, 路径, body) => 云(方法, 路径, body);
@@ -511,6 +525,53 @@ async function 退出团队里(): Promise<结果> {
 let 在跑: Promise<结果<{ 推: number; 拉: number; 撞: number }>> | null = null;
 let 欠一轮 = false;
 
+const 默认卡住限时 = 3 * 60_000;
+let 卡住限时 = 默认卡住限时;
+/** 测试用：多久没动静算卡住（null = 回到默认 3 分钟） */
+export function 设卡住限时(ms: number | null) {
+  卡住限时 = ms ?? 默认卡住限时;
+}
+
+/** 这一轮同步上了：两个时间一起记 */
+function 同步上了() {
+  const t = new Date().toISOString();
+  return { lastSyncAt: t, lastOkAt: t };
+}
+
+/**
+ * 一轮卡住了就放开（2026-10-23 团队版用户报「上次同步」停在一个时刻一个多小时）：原来 在跑 没有总限时，
+ * 一轮挂在哪一步上不回来，之后每一轮（壳的定时、改完推一下、点「立即同步」）都在等它，同步就停了、界面还看不出来。
+ * 和云端说话本身有 30 秒超时，拉得多会一批一批往前走、每批都写 .team.json——所以按「多久没动静」判，不按总时长：
+ * 3 分钟里既没跟云端说过话、也没写过进度，就算这一轮卡住，记一条错、放开，下一轮重新来。
+ * 挂着的那一轮如果后来自己回来了，它写的进度照样有效（每批都记了 pulled）
+ */
+function 看着别卡住<T>(这一轮: Promise<结果<T>>): Promise<结果<T>> {
+  动静 = Date.now();
+  return new Promise((成, 败) => {
+    let 完 = false;
+    let 闹: ReturnType<typeof setTimeout> | undefined;
+    const 查 = () => {
+      if (完) return;
+      const 静了 = Date.now() - 动静;
+      if (静了 < 卡住限时) {
+        闹 = setTimeout(查, Math.max(20, Math.min(卡住限时 - 静了, 15_000)));
+        闹.unref?.();
+        return;
+      }
+      完 = true;
+      const 话 = `同步卡住了：${Math.max(1, Math.round(卡住限时 / 60_000))} 分钟没有动静，已经重新开始`;
+      const c = 读团队();
+      if (c) 写团队({ ...c, lastError: 话, lastSyncAt: new Date().toISOString() });
+      成({ ok: false, error: 话 });
+    };
+    查();
+    这一轮.then(
+      (r) => { if (!完) { 完 = true; clearTimeout(闹); 成(r); } },
+      (e) => { if (!完) { 完 = true; clearTimeout(闹); 败(e); } },
+    );
+  });
+}
+
 /**
  * 「改完 1.5 秒就推」到点时调这个（lib/team-scope.ts 的 改完推一下，2026-10-04 多台实测抓到）。
  * 没在跑：开一轮。正在跑：那一轮的推送多半已经过去了，复用它等于把这次的改动吞了——记「欠一轮」，它一结束就补
@@ -543,7 +604,7 @@ export function 同步一轮(): Promise<结果<{ 推: number; 拉: number; 撞: 
   if (退出中 && !在跑) return Promise.resolve({ ok: false, error: "正在退出团队" });
   if (!在跑) {
     // 在同步里：这一轮里回放写库不触发「改完推一下」（lib/team-scope.ts）；用户这时候写的照样排推送
-    在跑 = 看全部(() => 在同步里(跑一轮并重试)).finally(() => {
+    在跑 = 看着别卡住(看全部(() => 在同步里(跑一轮并重试))).finally(() => {
       在跑 = null;
       // 这一轮跑着的时候用户又改了东西（推一下 记的）：这一轮的推送早过去了，马上补一轮
       if (欠一轮 && !退出中) {
@@ -670,7 +731,7 @@ async function 跑一轮(选项: { 旧协议?: boolean; 只拉?: boolean } = {})
       // 云端说「还有」却一批也没给：游标不会前进，再要也是同一页——停下，下一轮接着拉（不空转、不把这一轮卡死）
       if (!r.json.more || !批们.length) break;
     }
-    记({ pulled: 拉到, 结构: 签名, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推, 拉, 撞 } });
+    记({ pulled: 拉到, 结构: 签名, lastError: null, ...同步上了(), last: { 推, 拉, 撞 } });
     /*
       收到了别人的改动：设置缓存作废。业务配置（模版、币种、阶段叫法）是全团队一份、会同步过来，
       进程里还缓存着旧的那份的话，业务员加入之后界面一直是自己原来的叫法，要重启才对（2026-10-04 五人实测）
@@ -764,6 +825,7 @@ export async function 团队状态() {
     /** 手机批准连上的电脑没有入队口令（lib/sync/device-link.ts）：不给一个拼坏的码 */
     邀请码: c.joinSecret ? 邀请码(c) : "",
     lastSyncAt: c.lastSyncAt ?? null,
+    lastOkAt: c.lastOkAt ?? null,
     lastError: c.lastError ?? (r.状态 === 200 ? null : String(r.json.error ?? "")),
     last: c.last ?? null,
     /** 回放时撞了合不了的唯一约束、两台因此对不上的几条（T-003）：界面上写「有 N 条没同步上」，不静默 */
@@ -1234,7 +1296,7 @@ async function 范围一轮(c0: 团队配置, owner: boolean, 规则: 推送规�
     // 目录里已经删掉、本机却还留着的记录：照目录补一次删除（候选 6 实机：同一账号另一台领取后，这台公海那一行一直不走）
     const 补删 = await 照目录补删除(index.values(), c.device);
     拉 += 补删;
-    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned }, lastError: null, lastSyncAt: new Date().toISOString(), last: { 推: p.推, 拉, 撞 } });
+    记团队(teamId, { scoped: { ...(读团队()?.scoped ?? { stage: "ready" }), stage: "ready", cursors, skipped, held, cleaned }, lastError: null, ...同步上了(), last: { 推: p.推, 拉, 撞 } });
     /*
       老板那台补起点：目录里的 needBaseline = 改过归属、有业务员看得到、却还没有改归属之后起点的记录
       （交出去的人是旧版本客户端、起点太大没跟转交一起推、推完转交就断了……）。老板收全队、刚拉齐，永远有权写，由它补上；

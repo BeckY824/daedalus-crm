@@ -26,7 +26,8 @@ vi.mock("@/lib/prisma", async () => {
 
 import { PrismaClient } from "@/generated/prisma";
 import { prisma as 甲 } from "@/lib/prisma";
-import { 建团队, 同步一轮, 推一下, 退出团队, 读团队, 设传输, 解邀请码, 团队状态, type 传输 } from "@/lib/sync/client";
+import { 建团队, 同步一轮, 推一下, 退出团队, 读团队, 设传输, 设卡住限时, 解邀请码, 团队状态, type 传输 } from "@/lib/sync/client";
+import { 没同步上分钟 } from "@/lib/sync/sync-age";
 import { 改身份, 建同步表, 装触发器, 记全量, 待推, 记已推, 回放, 装了吗, type 改动 } from "@/lib/sync/local";
 import { 封, 拆 } from "@/lib/sync/crypto";
 import { 疑似重复 } from "@/lib/sync/dupes";
@@ -46,10 +47,15 @@ afterEach(() => {
   名单老板 = null;
   每页 = Infinity;
   空页说还有 = false;
+  假回 = null;
 });
 let 钩子: ((方法: string, 路径: string) => Promise<void>) | null = null;
+/** 云端回话出毛病：返回非 null 就直接回它（断网 = 状态 0、云端挂了 = 5xx；2026-10-23 同步停摆） */
+let 假回: ((方法: string, 路径: string) => { 状态: number; json: Record<string, unknown> } | null) | null = null;
 const 假传输: 传输 = async (方法, 路径, body) => {
   if (钩子) await 钩子(方法, 路径);
+  const 坏 = 假回?.(方法, 路径);
+  if (坏) return 坏;
   const b = (body ?? {}) as Record<string, string>;
   if (方法 === "POST" && 路径 === "/api/sync/team") {
     const id = `team${云.团队.size + 1}xxxxxxx`;
@@ -394,6 +400,70 @@ describe("桌面端同步客户端", () => {
     }
     expect(拉了, "同一页不再要第二遍").toBe(1);
     空页说还有 = false;
+    expect((await 退出团队()).ok).toBe(true);
+  });
+
+  /*
+    2026-10-23 团队版用户报「上次同步」停在一个时刻一个多小时：一轮挂住不回来，之后每一轮都在等它。
+    现在 3 分钟没动静就放开这一轮、记一条错，下一轮重新来；挂着的那一轮后来回来了也不出乱子
+  */
+  it("一轮卡住不回来：没动静到限时就放开、记一条错，下一轮照常同步上；挂着的那一轮后来回来也不重复", async () => {
+    const 码 = await 新团队("卡住队");
+    乙推(码.teamId, 码.key, [乙的新客户("cS1")]);
+    const 前 = 读团队()!.lastOkAt;
+    expect(前).toBeTruthy();
+    let 放行!: () => void;
+    const 闸 = new Promise<void>((r) => (放行 = r));
+    设卡住限时(300);
+    钩子 = async (_方法, 路径) => {
+      if (路径.startsWith("/api/sync/pull")) await 闸;
+    };
+    try {
+      const r = await Promise.race([同步一轮(), 睡(5000).then(() => ({ ok: true as const, 卡死: true }))]);
+      expect(r, "限时到了没放开，这一轮一直挂着").toMatchObject({ ok: false, error: expect.stringMatching(/同步卡住了/) });
+      expect(读团队()!.lastError).toMatch(/同步卡住了/);
+      expect(读团队()!.lastOkAt).toBe(前);
+      钩子 = null;
+      await 睡(5);
+      expect(await 同步一轮()).toMatchObject({ ok: true });
+      expect(await 甲.customer.count({ where: { id: "cS1" } })).toBe(1);
+      expect(读团队()!.lastError).toBeNull();
+      expect(Date.parse(读团队()!.lastOkAt!)).toBeGreaterThan(Date.parse(前!));
+      放行();
+      await 睡(300);
+      expect(await 甲.customer.count({ where: { id: "cS1" } })).toBe(1);
+    } finally {
+      设卡住限时(null);
+      钩子 = null;
+      放行();
+    }
+    expect((await 退出团队()).ok).toBe(true);
+  });
+
+  it.each([
+    ["断网", 0, "连不上云端，检查一下网络"],
+    ["云端 5xx", 502, "Bad Gateway"],
+  ])("%s：这一轮记错、上次同步上的时间不动，5 分钟起提醒；好了之后下一轮同步上、提醒消失", async (_名, 状态, 话) => {
+    const 码 = await 新团队(`坏网队${状态}`);
+    乙推(码.teamId, 码.key, [乙的新客户(`cN${状态}`)]);
+    const 前 = 读团队()!;
+    await 睡(5);
+    假回 = () => ({ 状态, json: { error: 话 } });
+    const r = await 同步一轮();
+    假回 = null;
+    expect(r.ok).toBe(false);
+    const c = 读团队()!;
+    expect(c.lastError).toBeTruthy();
+    expect(Date.parse(c.lastSyncAt!)).toBeGreaterThan(Date.parse(前.lastSyncAt!));
+    expect(c.lastOkAt).toBe(前.lastOkAt);
+    expect(没同步上分钟(c, Date.parse(前.lastOkAt!) + 6 * 60_000)).toBe(6);
+    expect(没同步上分钟(c, Date.parse(前.lastOkAt!) + 4 * 60_000)).toBeNull();
+    expect(await 同步一轮()).toMatchObject({ ok: true });
+    const 好 = 读团队()!;
+    expect(好.lastError).toBeNull();
+    expect(Date.parse(好.lastOkAt!)).toBeGreaterThan(Date.parse(前.lastOkAt!));
+    expect(没同步上分钟(好, Date.now())).toBeNull();
+    expect(await 甲.customer.count({ where: { id: `cN${状态}` } })).toBe(1);
     expect((await 退出团队()).ok).toBe(true);
   });
 

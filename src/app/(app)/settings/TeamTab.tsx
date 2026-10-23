@@ -14,7 +14,8 @@ import TeamPricing from "./TeamPricing";
 import TeamNoticeCard from "./TeamNoticeCard";
 import DupeMergeCard from "./DupeMergeCard";
 import { 人满话 } from "@/lib/team-pricing";
-import { 读团队状态, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作, 设互看动作, 设角色动作 } from "./team-actions";
+import { 没同步上分钟 } from "@/lib/sync/sync-age";
+import { 读团队状态, 读同步时间, 建团队动作, 加入团队动作, 立即同步, 退出团队动作, 移除成员动作, 换邀请码动作, 设互看动作, 设角色动作 } from "./team-actions";
 
 type 状态 = Awaited<ReturnType<typeof 读团队状态>>;
 
@@ -34,11 +35,38 @@ export default function TeamTab() {
   const [码, set码] = useState("");
   const [忙, set忙] = useState<"建" | "入" | "同步" | null>(null);
 
+  const [现在, set现在] = useState(() => Date.now());
+
   const 刷 = async () => set(await 读团队状态());
   useEffect(() => {
     let 还在 = true;
     void 读团队状态().then((x) => 还在 && set(x));
     return () => { 还在 = false; };
+  }, []);
+  /*
+    「上次同步」跟着走（2026-10-23 用户报看到的时间停在两个小时前）：原来只在打开这一栏时读一次，后台照常在同步也不变。
+    开着、看得见时每 10 秒读一次本机记的时间（不问云端），切回来马上读一次
+  */
+  useEffect(() => {
+    let 还在 = true;
+    const 读 = async () => {
+      if (document.visibilityState !== "visible") return;
+      const t = await 读同步时间().catch(() => null);
+      if (!还在) return;
+      set现在(Date.now());
+      // 有了新的一轮才换：lastError 可能是打开时问云端问出来的（连不上云端），本机文件里没有，别把它盖掉
+      if (t) set((x) => (x && x.在团队 && t.lastSyncAt !== x.lastSyncAt ? { ...x, ...t } : x));
+    };
+    const 闹 = setInterval(() => void 读(), 10_000);
+    const 回来 = () => void 读();
+    window.addEventListener("focus", 回来);
+    document.addEventListener("visibilitychange", 回来);
+    return () => {
+      还在 = false;
+      clearInterval(闹);
+      window.removeEventListener("focus", 回来);
+      document.removeEventListener("visibilitychange", 回来);
+    };
   }, []);
 
   const 复制 = async (t: string) => {
@@ -91,6 +119,7 @@ export default function TeamTab() {
     set忙("同步");
     const r = await 立即同步();
     set忙(null);
+    set现在(Date.now());
     if (!r.ok) message.error(r.error);
     else message.success(r.推 + r.拉 ? `同步好了：推了 ${r.推} 条、收到 ${r.拉} 条` : "已经是最新的了");
     await 刷();
@@ -320,6 +349,12 @@ export default function TeamTab() {
         </span>
         <Button icon={<SyncOutlined spin={忙 === "同步"} />} disabled={忙 !== null || s.active !== true} onClick={() => void 同步()}>立即同步</Button>
       </div>
+      {s.active === true && 没同步上分钟(s, 现在) !== null && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+          title={`已经 ${时长(没同步上分钟(s, 现在)!)}没同步上了`}
+          description="同事的改动可能还没收到，你这边的改动也可能还没发出去。点右边「立即同步」马上试一次；一直这样，请点左下角「反馈」告诉我们。"
+          action={<Button size="small" disabled={忙 !== null} onClick={() => void 同步()}>立即同步</Button>} />
+      )}
       {/* 没开通、到期时上面那条黄的已经说了，红的不再重复一遍 */}
       {s.lastError && !(s.active === false && /没开通|已到期/.test(s.lastError)) && (
         <Alert type="error" showIcon style={{ marginBottom: 16 }}
@@ -474,4 +509,8 @@ export default function TeamTab() {
       </section>
     </div>
   );
+}
+
+function 时长(分: number) {
+  return 分 < 60 ? `${分} 分钟` : `${Math.floor(分 / 60)} 小时${分 % 60 ? ` ${分 % 60} 分钟` : ""}`;
 }
