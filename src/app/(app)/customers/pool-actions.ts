@@ -13,7 +13,7 @@ import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
 import { 钉住老签约 } from "@/lib/contract-owner";
-import { 带走并记下, type 带走的 } from "@/lib/carry-over-db";
+import { 带走并记下, 还项目, type 带走的 } from "@/lib/carry-over-db";
 import type { 带走数 } from "@/lib/carry-over";
 
 export type 公海结果 =
@@ -151,7 +151,7 @@ export async function 分配公海(ids: string[], userId: string): Promise<公�
     if (原 !== null) 分到.push({ id, 值: 原 });
   }
   if (!分到.length) return { ok: true, updated: 0, unchanged: ids.length, 没权限: 0 };
-  const { 数: 带走, 记下: 带过来 } = await 带走并记下(分到.map((x) => ({ customerId: x.id, 旧: x.值 })), 给.id);
+  const { 数: 带走, 记下: 带过来 } = await 带走并记下(分到.map((x) => ({ customerId: x.id, 旧: x.值 })), 给.id, me.id);
   await recordAudit({
     user: me, action: "assign", entity: "Customer", entityId: 分到.length === 1 ? 分到[0].id : null,
     summary: `把公海里 ${分到.length} 名${b.customer}分给「${给.name}」`,
@@ -195,6 +195,7 @@ export async function 撤销公海(动作: "放进" | "领取" | "分配", 原: 
         await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: 现, done: false }, data: { ownerId: x.值 } });
         await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: 现, done: false }, data: { ownerId: x.值 } });
         await 转交商机(tx, { id: { in: 带过来.商机 }, customerId: x.id, ownerId: 现, status: "OPEN" }, x.值);
+        await 还项目(tx, 带过来.项目, x.id, 现, x.值, me.id);
       }
     });
   }

@@ -193,6 +193,20 @@ html.m-page nextjs-portal { display: none; }
 .m-stages i.is-on { background: var(--brand); }
 .m-stage-l { display: flex; justify-content: space-between; font-size: 13px; color: var(--text-muted); }
 .m-stage-l b { font-weight: 600; color: var(--ink); }
+/* 产品图片（只读，2026-10-22）：三列方块，点开全屏看 */
+.m-img-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.m-img-tile { position: relative; aspect-ratio: 1; padding: 0; overflow: hidden; background: var(--hover); border: 1px solid var(--line); border-radius: 10px; color: var(--text-faint); font: inherit; }
+.m-img-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.m-img-ph { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; font-size: 22px; }
+.m-img-tile em { position: absolute; left: 0; right: 0; bottom: 0; padding: 2px 6px; font-size: 11px; font-style: normal; color: var(--on-ink); background: linear-gradient(transparent, rgba(0, 0, 0, 0.55)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: left; }
+.m-img-view { position: fixed; inset: 0; z-index: 30; display: flex; flex-direction: column; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.96); color: var(--on-ink);
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+.m-img-view img { max-width: 100%; max-height: calc(100% - 72px); object-fit: contain; }
+.m-img-view p { margin: 0 24px; font-size: 15px; text-align: center; color: rgba(255, 255, 255, 0.8); }
+.m-img-cap { position: absolute; left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.m-img-cap b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-img-cap span { color: rgba(255, 255, 255, 0.65); }
+.m-img-close { position: absolute; top: calc(12px + env(safe-area-inset-top)); right: 12px; width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.16); color: var(--on-ink); font-size: 16px; }
 .m-timeline { list-style: none; margin: 0; padding: 0; }
 .m-timeline li { position: relative; padding: 0 0 16px 20px; }
 .m-timeline li::before { content: ""; position: absolute; left: 4px; top: 16px; bottom: 0; width: 1px; background: var(--line); }

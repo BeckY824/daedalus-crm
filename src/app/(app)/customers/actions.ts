@@ -36,8 +36,10 @@ import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import { 同邮箱条件, 同微信条件, 同阿里条件, 邮箱键 } from "@/lib/email-dedupe";
 import type { 带走数 } from "@/lib/carry-over";
-import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
+import { 带走没做完的, 带走并记下, 还项目, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
+import { 认得 } from "@/lib/project/hook";
+import { 客户的项目数 } from "@/lib/project/db";
 import { 写签约的订单, 订单说不通, type 订单附加 } from "@/lib/order-contract";
 import { 外贸键, 外贸字段名, 外贸至少一种, 规整外贸格, 规整外贸档案, 规整阿里ID, 认国家, type 外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
@@ -161,7 +163,11 @@ export type SaveCustomerResult =
   | { ok: true; id: string; 带走?: 带走数 }
   | { ok: false; error: string; conflict?: SaveConflict };
 
-export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerResult> {
+/**
+ * 第二个参数只给项目模式的建档向导用：新建时在建客户的同一个事务里接着建联系人、项目、首条跟进，
+ * 它抛错整笔回滚、一行不留。只认 lib/project/hook.ts 登记过的；编辑不调
+ */
+export async function saveCustomer(input: CustomerInput, 接着?: unknown): Promise<SaveCustomerResult> {
   const me = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
   if (!hasVisibleText(input.name)) return { ok: false, error: "请填写姓名" };
@@ -376,6 +382,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       }
       const created = await tx.customer.create({ data });
       await 写外贸档案(tx, created.id, 档案.data, false);
+      if (认得(接着)) await 接着(tx, created.id);
       return { created } as const;
     });
     if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone ? `手机号 ${phone}` : `邮箱 ${交的邮箱}`, 建了.撞号, await 读的我(defaultClient), b.customer) };
@@ -430,7 +437,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
     await 记一笔(diffKeys(改前行, data as Record<string, unknown>), 改前行);
     await 改外贸档案(me, input.id, data.name, 档案.data, b.customer);
     const 带走 = 改前 && 改前.salesOwnerId !== data.salesOwnerId
-      ? await 带走没做完的([{ customerId: input.id, 旧: 改前.salesOwnerId }], data.salesOwnerId)
+      ? await 带走没做完的([{ customerId: input.id, 旧: 改前.salesOwnerId }], data.salesOwnerId, me.id)
       : undefined;
     revalidateCustomer(input.id);
     return { ok: true, id: input.id, 带走 };
@@ -512,7 +519,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       await 记一笔(mine, currentRow, true);
       await 改外贸档案(me, input.id, data.name, 档案.data, b.customer);
       const 带走 = mine.includes("salesOwnerId")
-        ? await 带走没做完的([{ customerId: input.id, 旧: current.salesOwnerId }], data.salesOwnerId)
+        ? await 带走没做完的([{ customerId: input.id, 旧: current.salesOwnerId }], data.salesOwnerId, me.id)
         : undefined;
       revalidateCustomer(input.id);
       return { ok: true, id: input.id, 带走 };
@@ -553,9 +560,17 @@ function revalidateCustomer(id?: string) {
   revalidatePath("/dashboard");
 }
 
-async function 删除依赖错误(db: Pick<Prisma.TransactionClient, "customer">, ids: string[], 客户叫法: string): Promise<string | null> {
+async function 删除依赖错误(db: Prisma.TransactionClient, ids: string[], 客户叫法: string): Promise<string | null> {
   const visible = await db.customer.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
   if (!visible.length) return null;
+  // 项目模式（2026-10-23）：级联会把项目连同节点变更一起删掉，挂着项目的客户先拦；没开过项目模式的工作区这里查出来永远是空
+  const 项目数 = await 看全部(() => 客户的项目数(visible.map((c) => c.id), db));
+  if (项目数.size) {
+    const 说 = visible.filter((c) => 项目数.has(c.id)).map((c) => `「${c.name}」名下还有 ${项目数.get(c.id)} 个项目`);
+    return 说.length === 1 && visible.length === 1
+      ? `${说[0]}，先删项目再删${客户叫法}`
+      : `${说.join("；")}，整批已阻止。先删项目再删${客户叫法}`;
+  }
   // 已授权的父档案可能被不可见的下游引用；检查依赖但只返回所选父档案姓名。
   const blocked = await 看全部(() => db.customer.findMany({
     where: { id: { in: visible.map(c => c.id) }, OR: [{ referrals: { some: {} } }, { attributedCustomers: { some: {} } }] },
@@ -751,7 +766,7 @@ export async function assignSalesOwner(ids: string[], salesOwnerId: string): Pro
     where: { id: { in: ids }, salesOwnerId: { not: salesOwnerId } },
     data: { salesOwnerId },
   });
-  const { 数: 带走, 记下: 带过来 } = await 带走并记下(换人的.map((c) => ({ customerId: c.id, 旧: c.salesOwnerId })), salesOwnerId);
+  const { 数: 带走, 记下: 带过来 } = await 带走并记下(换人的.map((c) => ({ customerId: c.id, 旧: c.salesOwnerId })), salesOwnerId, me.id);
 
   if (res.count) {
     await recordAudit({
@@ -798,6 +813,7 @@ export async function 撤销改负责人(原值: { id: string; 值: string }[], 
         await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
         await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
         await 转交商机(tx, { id: { in: 带过来.商机 }, customerId: x.id, ownerId: 新负责人, status: "OPEN" }, x.值);
+        await 还项目(tx, 带过来.项目, x.id, 新负责人, x.值, me.id);
       }
       return true;
     }));
@@ -1272,7 +1288,7 @@ export async function patchCustomer(id: string, key: PatchableKey, value: string
   // 换了销售负责人：原负责人在他身上没做完的活跟着走（排查 B3）
   const 原负责人 = (before as { salesOwnerId?: string }).salesOwnerId;
   const 带走 = key === "salesOwnerId" && 原负责人 && 原负责人 !== data.salesOwnerId
-    ? await 带走没做完的([{ customerId: id, 旧: 原负责人 }], data.salesOwnerId as string)
+    ? await 带走没做完的([{ customerId: id, 旧: 原负责人 }], data.salesOwnerId as string, me.id)
     : undefined;
   revalidatePath(`/customers/${id}`);
   revalidatePath("/customers");

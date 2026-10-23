@@ -20,6 +20,8 @@ export const 范围字段: Record<string, readonly string[]> = {
   Quote: ["opportunityId"], QuoteLine: ["quoteId"], SupplierQuote: ["opportunityId"],
   TradeOrder: ["customerId", "opportunityId", "contractId"], TradeOrderNode: ["orderId"], TradeOrderDoc: ["orderId"], TradeOrderPurchase: ["orderId"],
   FollowUpOrder: ["followUpId", "orderId"],
+  // 产品图片挂在商机或订单上（二选一），跟着它走
+  Attachment: ["opportunityId", "orderId"],
 };
 export const 范围父表: Record<string, Record<string, string>> = {
   CustomerPool: { customerId: "Customer" }, CustomerClaim: { customerId: "Customer" }, CustomerExtra: { customerId: "Customer" },
@@ -34,6 +36,7 @@ export const 范围父表: Record<string, Record<string, string>> = {
   TradeOrder: { customerId: "Customer", opportunityId: "Opportunity", contractId: "Contract" },
   TradeOrderNode: { orderId: "TradeOrder" }, TradeOrderDoc: { orderId: "TradeOrder" }, TradeOrderPurchase: { orderId: "TradeOrder" },
   FollowUpOrder: { followUpId: "FollowUp", orderId: "TradeOrder" },
+  Attachment: { opportunityId: "Opportunity", orderId: "TradeOrder" },
 };
 export type 范围元数据 = Pick<改动, "t" | "k" | "o" | "h"> & { fields: Record<string, string | null> };
 /** delSeq：把它删成现在这样的那一包的批次号（deleted 时才有意义；2026-10-14 起记，之前建的索引没有） */
