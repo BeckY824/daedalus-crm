@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Alert, Button, Col, Form, Input, InputNumber, Radio, Row, Select, Typography, App } from "antd";
+import { Alert, Button, Col, Form, Input, InputNumber, Radio, Row, Select, Switch, Typography, App } from "antd";
 import type { BusinessConfig, BusinessTemplate } from "@/lib/business-config";
 import { DEFAULT_BUSINESS, BUSINESS_PRESETS, RELABELABLE_STATUSES, 表单公海天数, 模版预设, statusLabel, 状态名问题, 阶段名问题, 阶段名上限 } from "@/lib/business-config";
 import { 币种选项 } from "@/lib/currency";
@@ -50,7 +50,8 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
     setSaving(true);
     // 摆着这一项时清空 = 不开（存 0）；没摆时表单里没有它，照原值存回去，别悄悄关掉（表单公海天数，T-044 有用例）
     try {
-      const res = await saveBusinessSettings({ ...v, poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays) });
+      // 项目模式同理：没摆（一个人用）时照原值存回去
+      const res = await saveBusinessSettings({ ...v, poolDays: 表单公海天数(v.poolDays, 多人, value.poolDays), projectMode: 多人 ? v.projectMode === true : value.projectMode });
       if (res.ok) {
         set套了(null);
         message.success(res.补了来源 ? `已保存，全站措辞已更新；${res.补了来源} 位${v.customer ?? "客户"}的来源从渠道 / 线索补了过来` : "已保存，全站措辞已更新");
@@ -69,7 +70,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
 
   /** 套用预设：只填表，不保存——人得自己看一眼再点保存，免得一次误点改掉全站措辞 */
   function 套用(名: string) {
-    // 预设只管措辞：公海天数不是措辞，不跟着变
+    // 预设只管措辞：公海天数、项目模式不是措辞，不跟着变
     const 预设 = BUSINESS_PRESETS[名];
     /*
       状态叫法每一条都显式填（预设里没有的填空 = 用原名）：setFieldsValue 对嵌套对象是**合并**，
@@ -78,7 +79,7 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
     const 叫法 = Object.fromEntries(RELABELABLE_STATUSES.map((k) => [k, 预设.statusLabels?.[k] ?? ""]));
     // 阶段名同理，五个都显式填：从外贸切回通用时「询盘」这套要清掉
     const 阶段叫法 = Object.fromEntries(OPP_STAGES.map((k) => [k, 预设.stageLabels?.[k] ?? ""]));
-    form.setFieldsValue({ ...预设, statusLabels: 叫法, stageLabels: 阶段叫法, poolDays: form.getFieldValue("poolDays") ?? value.poolDays });
+    form.setFieldsValue({ ...预设, statusLabels: 叫法, stageLabels: 阶段叫法, poolDays: form.getFieldValue("poolDays") ?? value.poolDays, projectMode: form.getFieldValue("projectMode") ?? value.projectMode });
     set套了(名);
   }
   function 放弃() {
@@ -138,6 +139,16 @@ export default function BusinessSettingsTab({ value, 多人 = false }: { value: 
             extra={`多少天没跟进就自动放进公海，谁都能领；${statusLabel(value, "已签约")}、${statusLabel(value, "已流失")}的不放。填 0 不开。团队同步时全团队一份。`}
           >
             <InputNumber min={0} max={365} precision={0} suffix="天" style={{ width: 140 }} />
+          </Form.Item>
+        )}
+        {多人 && (
+          <Form.Item
+            name="projectMode"
+            label="项目模式"
+            valuePropName="checked"
+            extra={`打开后侧栏多一项「项目」，新建${value.customer}、线索、商机改走建档向导，一单生意从线索到交付记在一个项目里；已有的线索、商机、订单照旧。开关全团队一份；项目本身暂时只存在建它的那台电脑上，还不在团队里同步，同事那边看不到、也领不到公海里的项目。手机端暂时还按原来的方式新建。`}
+          >
+            <Switch />
           </Form.Item>
         )}
         <Form.Item

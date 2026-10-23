@@ -515,7 +515,7 @@ describe("业务员只看自己的 + 公海", () => {
     await db.customer.update({ where: { id: c.id }, data: { salesOwnerId: 小李 } });
     expect(await db.customer.findUnique({ where: { id: c.id } })).toBeNull();
     const 数 = await 带走没做完的([{ customerId: c.id, 旧: 小王 }], 小李);
-    expect(数).toEqual({ 计划和待办: 1, 商机: 1 });
+    expect(数).toEqual({ 计划和待办: 1, 商机: 1, 项目: 0 });
     expect((await raw.opportunity.findFirst({ where: { customerId: c.id } }))?.ownerId).toBe(小李);
     expect((await raw.task.findFirst({ where: { customerId: c.id } }))?.ownerId).toBe(小李);
   });

@@ -115,7 +115,7 @@ describe("D1 批量改负责人、批量改状态：回原值，撤销能改回�
     const 乙的商机 = await prisma.opportunity.create({ data: { customerId: 客户.id, ownerId: 乙.id, name: "乙在谈的", amount: 100 } });
     const r = await assignSalesOwner([客户.id], 乙.id);
     if (!r.ok) throw new Error(r.error);
-    expect(r.带过来).toEqual({ 计划: [], 待办: [甲的待办.id], 商机: [] });
+    expect(r.带过来).toEqual({ 计划: [], 待办: [甲的待办.id], 商机: [], 项目: [] });
     expect(await 撤销改负责人(r.原值!, 乙.id, r.带过来)).toMatchObject({ ok: true, updated: 1 });
     expect((await prisma.customer.findUniqueOrThrow({ where: { id: 客户.id } })).salesOwnerId).toBe(mocks.user.id);
     expect((await prisma.task.findUniqueOrThrow({ where: { id: 甲的待办.id } })).ownerId).toBe(mocks.user.id);
