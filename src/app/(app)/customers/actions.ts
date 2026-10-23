@@ -38,6 +38,7 @@ import { 同邮箱条件, 同微信条件, 同阿里条件, 邮箱键 } from "@/
 import type { 带走数 } from "@/lib/carry-over";
 import { 带走没做完的, 带走并记下, type 带走的 } from "@/lib/carry-over-db";
 import { setOppStatus } from "../opportunities/actions";
+import { 认得 } from "@/lib/project/hook";
 import { 写签约的订单, 订单说不通, type 订单附加 } from "@/lib/order-contract";
 import { 外贸键, 外贸字段名, 外贸至少一种, 规整外贸格, 规整外贸档案, 规整阿里ID, 认国家, type 外贸档案 } from "@/lib/customer-extra";
 import { 写外贸档案 } from "@/lib/customer-extra-db";
@@ -161,7 +162,11 @@ export type SaveCustomerResult =
   | { ok: true; id: string; 带走?: 带走数 }
   | { ok: false; error: string; conflict?: SaveConflict };
 
-export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerResult> {
+/**
+ * 第二个参数只给项目模式的建档向导用：新建时在建客户的同一个事务里接着建联系人、项目、首条跟进，
+ * 它抛错整笔回滚、一行不留。只认 lib/project/hook.ts 登记过的；编辑不调
+ */
+export async function saveCustomer(input: CustomerInput, 接着?: unknown): Promise<SaveCustomerResult> {
   const me = await requireUser();
   // 名字只有空格不收（第二轮 r2-data：原来存出一条没有名字的）
   if (!hasVisibleText(input.name)) return { ok: false, error: "请填写姓名" };
@@ -376,6 +381,7 @@ export async function saveCustomer(input: CustomerInput): Promise<SaveCustomerRe
       }
       const created = await tx.customer.create({ data });
       await 写外贸档案(tx, created.id, 档案.data, false);
+      if (认得(接着)) await 接着(tx, created.id);
       return { created } as const;
     });
     if ("撞号" in 建了 && 建了.撞号) return { ok: false, error: 撞号说法(phone ? `手机号 ${phone}` : `邮箱 ${交的邮箱}`, 建了.撞号, await 读的我(defaultClient), b.customer) };
