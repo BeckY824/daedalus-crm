@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { Select, Space, Tooltip } from "antd";
-import { PageHead, CustomerLink } from "@/components/ui";
+import { RowLink, PageHead, CustomerLink } from "@/components/ui";
 import DataList, { type 列 } from "@/components/DataList";
 import { useUrlFilters } from "@/lib/url-filters";
 import { 成员选项, fmtDate, type 可选成员 } from "@/lib/utils";
@@ -37,7 +36,7 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
   const 轻列: 列<Row>[] = [
     {
       title: "订单号", key: "no", dataIndex: "no", width: 150, 常驻: true,
-      render: (v: string, r) => <Link href={`/orders/${r.id}`} className="link-strong">{v}</Link>,
+      render: (v: string, r) => <RowLink href={`/orders/${r.id}`} className="link-strong">{v}</RowLink>,
     },
     { title: "客户", key: "customerName", dataIndex: "customerName", width: 180, render: (v: string, r) => <CustomerLink id={r.customerId} name={v} company={r.customerCompany} logo={false} /> },
     { title: "金额", key: "amount", dataIndex: "amount", width: 130, render: (v: number, r) => <span style={{ fontWeight: 600 }}>{金额(v, r.currency)}</span> },
@@ -54,7 +53,7 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
   const 列表: 列<Row>[] = [
     {
       title: "订单号", key: "no", dataIndex: "no", width: 130, 常驻: true,
-      render: (v: string, r) => <Link href={`/orders/${r.id}`} className="link-strong">{v}</Link>,
+      render: (v: string, r) => <RowLink href={`/orders/${r.id}`} className="link-strong">{v}</RowLink>,
     },
     { title: "客户", key: "customerName", dataIndex: "customerName", width: 140, render: (v: string, r) => <CustomerLink id={r.customerId} name={v} company={r.customerCompany} logo={false} /> },
     { title: "金额", key: "amount", dataIndex: "amount", width: 120, render: (v: number, r) => <span style={{ fontWeight: 600 }}>{金额(v, r.currency)}</span> },
@@ -70,7 +69,7 @@ export default function OrdersView({ rows, users, filters }: { rows: 订单行[]
             const 色 = 节点灯(n);
             return (
               <Tooltip key={n.idx} title={`${n.idx}. ${n.name} · ${n.status}${n.dueAt ? ` · 截止 ${fmtDate(n.dueAt)}` : ""}`}>
-                <Link href={`/orders/${r.id}?node=${n.idx}`} className={`ord-cell ord-${色}${r.当前?.idx === n.idx ? " ord-now" : ""}`} aria-label={`${n.name}：${n.status}`} />
+                <RowLink href={`/orders/${r.id}?node=${n.idx}`} className={`ord-cell ord-${色}${r.当前?.idx === n.idx ? " ord-now" : ""}`} aria-label={`${n.name}：${n.status}`} />
               </Tooltip>
             );
           })}

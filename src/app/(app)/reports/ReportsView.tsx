@@ -8,7 +8,7 @@ import { BarChartOutlined, PayCircleOutlined, FileDoneOutlined, RiseOutlined } f
 import Link from "next/link";
 import type { EChartsCoreOption } from "echarts/core";
 import Chart from "@/components/Chart";
-import { StatCard } from "@/components/ui";
+import { RowLink, StatCard } from "@/components/ui";
 import EmptyState, { 表格空态 } from "@/components/EmptyState";
 import { fmtDate } from "@/lib/utils";
 import { 金额, 币种名, 合计文字, type 币种合计 } from "@/lib/currency";
@@ -310,9 +310,9 @@ export default function ReportsView({
               title: b.customer,
               dataIndex: "学员",
               render: (v: string, r) => (
-                <Link href={`/customers/${r.学员id}`} className="link-strong">
+                <RowLink href={`/customers/${r.学员id}`} className="link-strong">
                   {v}
-                </Link>
+                </RowLink>
               ),
             },
             { title: "销售", dataIndex: "销售", width: 110 },
