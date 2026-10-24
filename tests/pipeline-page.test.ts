@@ -10,6 +10,7 @@
  *   - 列头 挪出 / 挪进 只取了一部分的列：等于原来在全部行上按「显示在哪列」算
  */
 import { describe, it, expect, beforeEach } from "vitest";
+import type { Prisma } from "@/generated/prisma";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import { OPP_STAGES } from "@/lib/constants";
@@ -129,7 +130,7 @@ describe("商机管道分批取", () => {
       expect(页.总条数).toBe(全.length);
       expect(new Set(页.负责人)).toEqual(new Set(全.map((r) => r.ownerId)));
       for (const s of OPP_STAGES) {
-        const 头 = 列头(s, 页.rows, (r) => r.stage, 页.列[s]);
+        const 头 = 列头(s, 页.rows, (r) => r.stage, 页.列![s]);
         const 原 = 原来列头(全, s);
         expect({ 条数: 头.条数, 合计: 头.合计 }).toEqual(原);
         const 这列取回 = 页.rows.filter((r) => r.stage === s).length;
@@ -151,14 +152,16 @@ describe("商机管道分批取", () => {
           const 这列全 = 全.filter((r) => r.stage === s);
           expect(页.rows.filter((r) => r.stage === s)).toEqual(这列全.slice(0, 每列[s]));
         }
-        const 还有 = OPP_STAGES.filter((s) => 列头(s, 页.rows, (r) => r.stage, 页.列[s]).还有 > 0);
+        const 还有 = OPP_STAGES.filter((s) => 列头(s, 页.rows, (r) => r.stage, 页.列?.[s]).还有 > 0);
         if (!还有.length) break;
         // 和页面上的按钮一样：点了的那列加一批（URL 走一遍 写每列 / 读每列）
         每列 = 读每列(写每列({ ...每列, [还有[0]]: 每列[还有[0]] + 每批 }));
       }
+      // 翻到底：全都要摆了，照原来整取（老阶段也在，页面自己不摆），只是顺序带上 id、和翻页时一致
       const 页 = await 新页(每列);
-      expect([...页.rows].sort(库序)).toEqual(全.filter((r) => (OPP_STAGES as readonly string[]).includes(r.stage)));
-      for (const s of OPP_STAGES) expect(列头(s, 页.rows, (r) => r.stage, 页.列[s]).还有).toBe(0);
+      expect(页.rows).toEqual(全);
+      expect(页.列).toBeUndefined();
+      for (const s of OPP_STAGES) expect(列头(s, 页.rows, (r) => r.stage, 页.列?.[s]).还有).toBe(0);
     });
   }
 
@@ -170,19 +173,21 @@ describe("商机管道分批取", () => {
       await prisma.opportunity.deleteMany({ where: { id: { in: 多.map((x) => x.id) } } });
     }
     const 全 = await 原来全取();
-    const 页 = await 新页(读每列(undefined));
-    const 五阶段 = 全.filter((r) => (OPP_STAGES as readonly string[]).includes(r.stage));
-    expect([...页.rows].sort(库序)).toEqual([...五阶段].sort(库序));
-    for (const s of OPP_STAGES) {
-      // 不带服务端合计也一样：全取回来时页面只看卡片
-      expect(列头(s, 页.rows, (r) => r.stage, undefined)).toEqual({ ...原来列头(全, s), 还有: 0 });
-      expect(列头(s, 页.rows, (r) => r.stage, 页.列[s])).toEqual({ ...原来列头(全, s), 还有: 0 });
-    }
+    // 记下取数时发给库的参数：全取时必须是原来那一句（同样的 where / orderBy / include），不加 id 排序
+    const 发: Prisma.OpportunityFindManyArgs[] = [];
+    const 记库 = { opportunity: { findMany: (a: Prisma.OpportunityFindManyArgs) => (发.push(a), prisma.opportunity.findMany(a)) } } as unknown as Parameters<typeof 取管道>[0];
+    const 页 = await 取管道(记库, 起, 读每列(undefined));
+    // 和原来一字不差：同样的行、同样的顺序（老阶段也在，页面自己不摆），不带列汇总 / 总条数 / 负责人
+    expect(页).toEqual({ rows: 全 });
+    const 整取 = 发[发.length - 1];
+    expect(整取.orderBy).toEqual({ amount: "desc" });
+    expect(整取.where).toEqual(管道条件(起));
+    for (const s of OPP_STAGES) expect(列头(s, 页.rows, (r) => r.stage, undefined)).toEqual({ ...原来列头(全, s), 还有: 0 });
   });
 
   it("没有商机：空", async () => {
     const 页 = await 新页(读每列(undefined));
-    expect(页).toEqual({ rows: [], 列: Object.fromEntries(OPP_STAGES.map((s) => [s, { 条数: 0, 合计: [] }])), 总条数: 0, 负责人: [] });
+    expect(页).toEqual({ rows: [] });
   });
 
   it("刚新建的那张不在前 50 也带上；老阶段、不存在的、不在管道里的不带", async () => {
@@ -193,7 +198,7 @@ describe("商机管道分批取", () => {
     const 页 = await 新页(读每列(undefined), 末张.id);
     expect(页.rows.filter((r) => r.stage === OPP_STAGES[0])).toEqual([...第一列.slice(0, 每批), 末张]);
     // 带上了也不改列头：还有 = 全部 − 这列取回的
-    expect(列头(OPP_STAGES[0], 页.rows, (r) => r.stage, 页.列[OPP_STAGES[0]]).还有).toBe(第一列.length - 每批 - 1);
+    expect(列头(OPP_STAGES[0], 页.rows, (r) => r.stage, 页.列![OPP_STAGES[0]]).还有).toBe(第一列.length - 每批 - 1);
 
     const 老 = 全.find((r) => r.stage === "老阶段")!;
     const 丢 = await prisma.opportunity.findFirst({ where: { status: "LOST" } });
@@ -216,7 +221,7 @@ describe("商机管道分批取", () => {
     for (const 挪 of 挪法) {
       const 显示阶段 = (r: 卡) => (r.id === 挪.id ? 挪.到 : r.stage);
       for (const s of OPP_STAGES) {
-        const 头 = 列头(s, 页.rows, 显示阶段, 页.列[s]);
+        const 头 = 列头(s, 页.rows, 显示阶段, 页.列![s]);
         expect({ 条数: 头.条数, 合计: 头.合计 }).toEqual(原来列头(全, s, 显示阶段));
       }
     }

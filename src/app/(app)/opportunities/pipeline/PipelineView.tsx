@@ -106,12 +106,14 @@ export default function PipelineView({
     const t = setTimeout(() => set新来的(null), 2000);
     return () => clearTimeout(t);
   }, [rows, 批次]);
-  /** 换 URL 参数重新取（每列几张 n、刚新建的 new），页面不跳回顶上 */
+  /** 换 URL 参数重新取（每列几张 n、刚新建 / 刚挪的 new），页面不跳回顶上；只有「再看」等着时按钮转圈 */
   const [翻着, 开始翻] = useTransition();
-  const 换参数 = (改: Record<string, string>) => {
+  const 换参数 = (改: Record<string, string>, 是翻页 = false) => {
     const p = new URLSearchParams(window.location.search);
     for (const [k, v] of Object.entries(改)) p.set(k, v);
-    开始翻(() => router.replace(`${window.location.pathname}?${p}`, { scroll: false }));
+    const 换 = () => router.replace(`${window.location.pathname}?${p}`, { scroll: false });
+    if (是翻页) 开始翻(换);
+    else 换();
   };
   const 新建框 = (
     <OpportunityForm
@@ -156,7 +158,8 @@ export default function PipelineView({
     const r = 签约框;
     set签约框(null);
     if (!r) return;
-    if (saved) return void router.refresh();
+    // 赢单列也只摆了前几张时，刚赢的这张可能排不进：带上它的 id 重取（和新建一样），不然刷新后它从看板上消失
+    if (saved) return void 换参数({ new: r.id });
     // 外贸：拖进「客户确认」就是转为订单，订单框点了取消 = 没转，卡片回原列（不然商机挂着「已转订单」却没有订单）
     if (外贸订单(b)) return void set挪(null);
     await 写阶段(r, "赢单成交");
@@ -168,10 +171,11 @@ export default function PipelineView({
     if (!res.ok) {
       set挪(null);
       message.error(res.error);
-      router.refresh();
+      换参数({ new: r.id });
       return;
     }
-    router.refresh();
+    // 挪进的那列只摆了前几张、这张金额又排不进时，光刷新它就从看板上消失了：带上它的 id 重取
+    换参数({ new: r.id });
     if (是撤销) return void message.success(`「${r.name}」已退回 ${stageLabel(b, 到)}`);
     const key = `stage-${r.id}`;
     let 已撤销 = false;
@@ -308,7 +312,7 @@ export default function PipelineView({
 
               {头.还有 > 0 && (
                 <Button block type="text" size="small" className="pipe-more" loading={翻着}
-                  onClick={() => 换参数({ n: 写每列({ ...每列, [stage]: (每列[stage] ?? 每批) + 每批 }) })}>
+                  onClick={() => 换参数({ n: 写每列({ ...每列, [stage]: (每列[stage] ?? 每批) + 每批 }) }, true)}>
                   {头.还有 > 每批 ? `再看 ${每批} 条` : `再看剩下 ${头.还有} 条`}
                   {头.还有 > 每批 && <span className="pipe-n">还有 {头.还有}</span>}
                 </Button>
