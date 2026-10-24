@@ -88,6 +88,8 @@ prisma/e2e-hosted/
 # 桌面端本地模式 e2e 的库与数据目录（playwright.desktop.config.ts，每轮重建）
 /prisma/e2e-desktop.db*
 /prisma/e2e-desktop-data/
+# 网页对桌面截图对比的库（playwright.parity.config.ts，每轮重建）
+/prisma/e2e-parity.db*
 # 运营台排版压测（playwright.team-qa-ops.config.ts）
 /prisma/e2e-team-qa-ops/
 # 应用内反馈回复整条链（playwright.feedback-chain.config.ts）：云端那个 next dev 的构建目录和库
