@@ -11,11 +11,20 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
+import { setSetting } from "@/lib/settings";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 规则 } from "@/lib/enterprise/rules";
+import { 忘掉企业版范围 } from "@/lib/enterprise/visibility";
 import { 读组织, 建组织, 管理员类别of, 部门挪动问题, 上级设置问题, type 组织部门 } from "@/lib/enterprise/org";
 import { 是业务角色, 角色名, type 业务角色 } from "@/lib/sync/dept-policy";
 
 type 结果 = { ok: true } | { ok: false; error: string };
+
+/** 组织、规则一改，谁看得到谁的客户就变了：页面和限定层的缓存一起清 */
+function 改完了() {
+  忘掉企业版范围();
+  revalidatePath("/settings");
+}
 
 const 总管级 = (r: string | null | undefined) => r === "director" || r === "admin";
 
@@ -53,7 +62,7 @@ export async function 建部门(名: string, parentId: string | null): Promise<�
     const sort = [...部门.values()].filter((d) => (d.parentId ?? null) === parentId).reduce((m, d) => Math.max(m, d.sort + 1), 0);
     const d = await prisma.entDept.create({ data: { name, parentId, sort } });
     await recordAudit({ user: who.me, action: "create", entity: "EntDept", entityId: d.id, summary: `新建部门「${name}」` });
-    revalidatePath("/settings");
+    改完了();
     return { ok: true };
   } catch (e) {
     return 不在了(e);
@@ -73,7 +82,7 @@ export async function 改部门(id: string, 改: { name: string; parentId: strin
     await prisma.entDept.update({ where: { id }, data: { name, parentId: 改.parentId } });
     const 说 = [原.name !== name && `改名为「${name}」`, (原.parentId ?? null) !== 改.parentId && `挪到「${改.parentId ? 部门.get(改.parentId)!.name : "最上层"}」底下`].filter(Boolean).join("，");
     await recordAudit({ user: who.me, action: "update", entity: "EntDept", entityId: id, summary: `部门「${原.name}」${说 || "没有变化"}` });
-    revalidatePath("/settings");
+    改完了();
     return { ok: true };
   } catch (e) {
     return 不在了(e);
@@ -92,7 +101,7 @@ export async function 删部门(id: string): Promise<结果> {
     if (人数) return { ok: false, error: `还有 ${人数} 个人在这个部门，先把他们换到别的部门` };
     await prisma.entDept.delete({ where: { id } });
     await recordAudit({ user: who.me, action: "delete", entity: "EntDept", entityId: id, summary: `删除部门「${原.name}」` });
-    revalidatePath("/settings");
+    改完了();
     return { ok: true };
   } catch (e) {
     return 不在了(e);
@@ -159,7 +168,22 @@ export async function 设成员(userId: string, 传来的: 成员改动): Promis
       改.dottedManagerId !== undefined && `虚线上级 → ${名(改.dottedManagerId)}`,
     ].filter(Boolean);
     await recordAudit({ user: who.me, action: "update", entity: "EntMember", entityId: userId, summary: `组织架构：${人.name} ${说.join("，")}`, detail: 改 });
-    revalidatePath("/settings");
+    改完了();
+    return { ok: true };
+  } catch (e) {
+    return 不在了(e);
+  }
+}
+
+/** 拨「按组织架构看客户」规则开关（默认关） */
+export async function 设规则(on: boolean): Promise<结果> {
+  const who = await 能改的人();
+  if (!who) return 不能改;
+  if (typeof on !== "boolean") return { ok: false, error: "开关只能开或关" };
+  try {
+    await setSetting(规则.按组织看客户.key, on);
+    await recordAudit({ user: who.me, action: "update", entity: "Setting", entityId: 规则.按组织看客户.key, summary: `${on ? "打开" : "关掉"}规则「${规则.按组织看客户.名}」` });
+    改完了();
     return { ok: true };
   } catch (e) {
     return 不在了(e);

@@ -17,7 +17,8 @@ vi.mock("@/lib/shared-ws/current", () => ({ 当前是共享区: async () => mock
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 建部门, 改部门, 删部门, 设成员 } from "@/app/(app)/settings/org-actions";
+import { 建部门, 改部门, 删部门, 设成员, 设规则 } from "@/app/(app)/settings/org-actions";
+import { 规则, 规则开着 } from "@/lib/enterprise/rules";
 
 let 老板: string;
 let 总管: string;
@@ -111,5 +112,28 @@ describe("成员", () => {
   it("停用的人改不了", async () => {
     await prisma.user.update({ where: { id: 销售 }, data: { active: false } });
     expect(await 设成员(销售, { line: "外贸" })).toMatchObject({ ok: false, error: "这个人不在职" });
+  });
+});
+
+describe("规则开关", () => {
+  it("老板能拨，留痕；普通销售拨不了；企业版关着时开关开着也不生效", async () => {
+    expect(await 规则开着("按组织看客户")).toBe(false);
+    当(销售);
+    expect(await 设规则(true)).toMatchObject({ ok: false });
+    当(老板, "ADMIN");
+    expect(await 设规则(true)).toEqual({ ok: true });
+    expect(await prisma.setting.findUnique({ where: { key: 规则.按组织看客户.key } })).toMatchObject({ value: "true" });
+    expect(await 规则开着("按组织看客户")).toBe(true);
+    expect(await 记录()).toEqual([{ entity: "Setting", summary: "打开规则「按组织架构看客户」" }]);
+    mocks.企业版 = false;
+    expect(await 规则开着("按组织看客户")).toBe(false);
+    mocks.企业版 = true;
+    expect(await 设规则(false)).toEqual({ ok: true });
+    expect(await 规则开着("按组织看客户")).toBe(false);
+  });
+
+  it("接口直调传别的东西拦掉", async () => {
+    expect(await 设规则("yes" as unknown as boolean)).toMatchObject({ ok: false });
+    expect(await prisma.setting.count({ where: { key: 规则.按组织看客户.key } })).toBe(0);
   });
 });
