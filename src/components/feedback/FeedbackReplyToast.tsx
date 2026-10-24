@@ -71,9 +71,16 @@ export default function FeedbackReplyToast({ 去向 }: { 去向: "cloud" | "gith
   else if (!在显示 && 让位页 !== null && 让位页 !== pathname) set让位页(null);
   const 让位 = 让位页 !== null && 让位页 === pathname;
 
-  // 让多高按提示实际的高度来（字号能调），再加上它离底的 14px 和一点空
+  // 让多高按提示实际的高度来（字号能调），再加上它离底的 14px 和一点空；出着时改了字号、换了行也跟着重量
   useLayoutEffect(() => {
-    if (在显示 && 框.current) document.documentElement.style.setProperty("--fbt-room", `${框.current.offsetHeight + 14 + 10}px`);
+    const 元素 = 框.current;
+    if (!在显示 || !元素) return;
+    const 量 = () => document.documentElement.style.setProperty("--fbt-room", `${元素.offsetHeight + 14 + 10}px`);
+    量();
+    if (typeof ResizeObserver === "undefined") return;
+    const 盯 = new ResizeObserver(量);
+    盯.observe(元素);
+    return () => 盯.disconnect();
   }, [在显示]);
   useLayoutEffect(() => {
     document.documentElement.classList.toggle("fbt-room", 让位);

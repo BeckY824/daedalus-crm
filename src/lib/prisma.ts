@@ -4,6 +4,7 @@ import { currentTenant, multiTenant } from "./tenant/context";
 import { resolveCurrentTenant } from "./tenant/resolve";
 import { TrialExpiredError } from "./tenant/guard";
 import { 加上限定 } from "./team-scope";
+import { 企业版 } from "./enterprise/switch";
 import { 单连接 } from "./sqlite-url";
 
 const globalForPrisma = globalThis as unknown as {
@@ -49,8 +50,9 @@ if (!globalForPrisma.pragmasApplied) {
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = defaultClient;
 
 /**
- * 团队版业务员只看自己的（lib/team-scope.ts）：读、改、删都加一句 where。只在桌面端本地模式生效，
- * 别处 限定的我() 直接回 null，这一层等于不存在。和 defaultClient 共用连接
+ * 团队版业务员只看自己的（lib/team-scope.ts）：读、改、删都加一句 where。桌面端本地模式生效；
+ * 企业版（CRM_ENTERPRISE=1）的「按组织架构看客户」也走这一层。别处 限定的我() 直接回 null，这一层等于不存在。
+ * 和 defaultClient 共用连接
  */
 const scopedClient = 加上限定(defaultClient);
 
@@ -114,9 +116,9 @@ export const prisma: PrismaClient = new Proxy(defaultClient, {
   get(target, prop) {
     if (typeof prop !== "string") return Reflect.get(target, prop, target);
 
-    // 自部署 / 桌面端：没有租户这一层；桌面端团队版的业务员限定在 scopedClient 里
+    // 自部署 / 桌面端：没有租户这一层；桌面端团队版的业务员限定、企业版按组织看客户在 scopedClient 里
     if (!multiTenant()) {
-      const c = process.env.DESKTOP_LOCAL === "1" ? scopedClient : target;
+      const c = process.env.DESKTOP_LOCAL === "1" || 企业版() ? scopedClient : target;
       const v = Reflect.get(c, prop, c);
       return typeof v === "function" ? v.bind(c) : v;
     }
