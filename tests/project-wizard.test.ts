@@ -22,6 +22,7 @@ import { resetDb } from "./reset";
 import { 建档向导, 删除项目, type 建档向导输入 } from "@/app/(app)/projects/actions";
 import { saveCustomer, deleteCustomers, 客户删除预检 } from "@/app/(app)/customers/actions";
 import { 规整向导 } from "@/lib/project/wizard";
+import { 默认组织规则 } from "@/lib/project/org-rules";
 import { setSetting, invalidateSettingsCache } from "@/lib/settings";
 
 let 甲: string;
@@ -87,6 +88,27 @@ describe("建档向导", () => {
     const r = await 建档向导(输入());
     expect(r).toMatchObject({ ok: true });
     if (r.ok) expect((await prisma.project.findUniqueOrThrow({ where: { id: r.projectId } })).ownerId).toBe(甲);
+  });
+
+  describe("下一步时间（企业版超时回收）", () => {
+    const 开着超时 = { ...默认组织规则, 超时回收: { 开: true, 节点天数: { 潜客培育: 7 } } };
+    const 带下一步 = (下一步时间: string) => 输入({ 跟进: { type: "PHONE", content: "电话聊了需求", occurredAt: "2026-10-20 10:00", 下一步时间 } });
+    const 项目的 = async (r: Awaited<ReturnType<typeof 建档向导>>) => r.ok ? (await prisma.project.findUniqueOrThrow({ where: { id: r.projectId } })).nextStepAt : "没建成";
+
+    it("不是企业版：Setting 里开着也不要、老草稿里留着的（过期的也一样）不认，项目不写下一步时间", async () => {
+      await setSetting("orgRules", 开着超时);
+      expect(await 项目的(await 建档向导(输入()))).toBeNull();
+      expect(await 项目的(await 建档向导({ ...带下一步("2099-01-01"), 客户: { ...输入().客户, phone: "13900000011" } }))).toBeNull();
+      expect(await 项目的(await 建档向导({ ...带下一步("2020-01-01"), 客户: { ...输入().客户, phone: "13900000012" } }))).toBeNull();
+    });
+
+    it("企业版开了超时回收：不填拦，填了写上项目", async () => {
+      vi.stubEnv("CRM_ENTERPRISE", "1");
+      await setSetting("orgRules", 开着超时);
+      expect(await 建档向导(输入())).toMatchObject({ ok: false, error: expect.stringContaining("下一步时间") });
+      const 下一步 = await 项目的(await 建档向导(带下一步("2099-01-01")));
+      expect(下一步 && typeof 下一步 !== "string" && 下一步.getFullYear()).toBe(2099);
+    });
   });
 
   it("开关关着：拦下，一行不写", async () => {

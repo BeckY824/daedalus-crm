@@ -16,6 +16,7 @@ import { 合上改动, type 规则改动 } from "@/lib/project/org-rules";
 import { 读组织规则, 生效组织规则, 存组织规则 } from "@/lib/project/org-rules-store";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 记这个项目的自动推进, 客户存了推项目 } from "@/lib/project/auto-advance";
+import { 读团队 } from "@/lib/sync/client";
 import type { 位置 } from "@/lib/project/nodes";
 import { saveCustomer, type CustomerInput } from "../customers/actions";
 
@@ -44,7 +45,9 @@ export async function 建档向导(input: 建档向导输入) {
     if (!input || typeof input !== "object" || !input.客户 || typeof input.客户 !== "object") return { ok: false as const, error: "建档信息不完整，请从头再走一遍" };
     // 开了超时回收：项目建在线索阶段，首条跟进也得填下一步时间
     const 规则 = await 生效组织规则();
-    const 好 = 规整向导(me, input, new Date(), 规则.超时回收.开);
+    // 下一步时间只在开了超时回收时有这格（不是企业版一律没开）：没开时老草稿里留着的也不认、不写，和原来一样
+    const 要下一步 = 规则.超时回收.开;
+    const 好 = 规整向导(me, 要下一步 || !input.跟进 ? input : { ...input, 跟进: { ...input.跟进, 下一步时间: null } }, new Date(), 要下一步);
     if ("error" in 好) return { ok: false as const, error: 好.error };
     const 负责人 = await prisma.user.findUnique({ where: { id: 好.项目.ownerId }, select: { name: true, active: true } });
     if (!负责人?.active) return { ok: false as const, error: "项目负责人不存在或已停用，请选一位在职成员" };
@@ -322,7 +325,7 @@ export async function 预览超时回收(改: 规则改动) {
     if (me.role !== "ADMIN") return { ok: false as const, error: "组织规则只有老板能改" };
     const 新 = 合上改动(await 读组织规则(), 改);
     if ("error" in 新) return { ok: false as const, error: 新.error };
-    return { ok: true as const, 个数: await 超时预览(新) };
+    return { ok: true as const, 个数: await 超时预览(新), 团队: !!读团队() };
   } catch (e) { return 不在了(e); }
 }
 
@@ -331,6 +334,7 @@ export async function 记项目沟通Action(projectId: string, input: 向导跟�
   try {
     const me = await requireUser();
     if (!(await 开着())) return 没开;
+    if (!企业版()) return { ok: false as const, error: "在项目上记沟通是企业版的功能，请去客户页记" };
     const r = await 记项目沟通(me, projectId, input);
     if (r.ok) {
       const p = await prisma.project.findUnique({ where: { id: projectId }, select: { name: true, customerId: true } });
