@@ -5,6 +5,9 @@ import { getBusiness } from "@/lib/business";
 import { 能管项目, 角色字典, 异常类别字典, 能进公海的阶段, 看得到的客户, 露客户 } from "@/lib/project/db";
 import { 负责人候选 } from "@/lib/owners";
 import { 企业版 } from "@/lib/enterprise/switch";
+import { 生效组织规则 } from "@/lib/project/org-rules-store";
+import { 超时回收日, 超时起点 } from "@/lib/project/timeout";
+import { dayjs } from "@/lib/utils";
 import ProjectDetail, { type 项目详情 } from "./ProjectDetail";
 
 export const dynamic = "force-dynamic";
@@ -17,7 +20,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const p = await prisma.project.findUnique({
     where: { id },
     include: {
-      customer: { select: { id: true, name: true, school: true } },
+      customer: { select: { id: true, name: true, school: true, lastFollowAt: true } },
       contact: { select: { id: true, name: true, position: true } },
       exceptionCategory: { select: { name: true } },
       logs: { orderBy: { at: "desc" }, take: 200 },
@@ -30,7 +33,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const 能改 = 能管项目(me, p);
   // 公海里同事客户的项目：只给项目本身，客户、联系人、沟通内容领了再看（lib/project/db.ts 露客户）
   const 露 = 露客户(me, p, await 看得到的客户([p.customerId]));
-  const [候选, 在职, 联系人们, 角色们, 类别们, 放回过] = await Promise.all([
+  const [候选, 在职, 联系人们, 角色们, 类别们, 放回过, 规则] = await Promise.all([
     负责人候选(),
     prisma.user.findMany({ where: { active: true }, select: { id: true, name: true, email: true }, orderBy: { name: "asc" } }),
     能改 ? prisma.contact.findMany({ where: { customerId: p.customerId }, select: { id: true, name: true, position: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] }) : [],
@@ -38,6 +41,7 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     异常类别字典(),
     // 历史负责人（企业版才显示）：放回过公海的人。单独查，不受上面节点变更只取 200 行的限
     !企业版() ? [] : prisma.projectNodeLog.findMany({ where: { projectId: p.id, kind: "pool-release" }, orderBy: { at: "desc" }, select: { fromOwnerId: true } }),
+    生效组织规则(),
   ]);
   const 类别名 = new Map(类别们.map((c) => [c.id, c.name]));
   const 公海 = !!p.pooledAt;
@@ -50,12 +54,19 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
   const 名 = new Map(人.map((u) => [u.id, u.name]));
   const 叫 = (uid: string | null) => (uid ? 名.get(uid) ?? "已不在的成员" : null);
 
+  // 企业版超时回收：线索 / 商机阶段记沟通要填下一步时间；算出哪天会自动回公海（和 lib/project/db.ts 公海超时收回 同一个起点）
+  const 要下一步 = 规则.超时回收.开 && !p.result && (能进公海的阶段 as readonly string[]).includes(p.phase);
+  const 回收日 = 超时回收日(规则, p, 超时起点(p.createdAt, p.logs[0]?.at, p.customer.lastFollowAt));
+  const 能记沟通 = 企业 && !公海 && (能改 || p.members.some((m) => m.userId === me.id && m.inviteStatus === "JOINED"));
+
   const 详情: 项目详情 = {
     id: p.id, name: p.name, remark: p.remark, amount: p.amount, currency: p.currency,
-    customer: 露 ? p.customer : null, contact: 露 ? p.contact : null,
+    customer: 露 ? { id: p.customer.id, name: p.customer.name, school: p.customer.school } : null, contact: 露 ? p.contact : null,
     ownerId: p.ownerId, ownerName: 叫(p.ownerId)!, historyOwners: 历史负责人.map((x) => 叫(x)!), creatorName: 叫(p.creatorId)!, createdAt: p.createdAt.toISOString(),
     phase: p.phase, node: p.node, result: p.result, exceptionReason: p.exceptionReason, exceptionCategory: p.exceptionCategory?.name ?? null,
     pooled: 公海, 企业版: 企业,
+    // 下一步时间只有日子：在服务端按业务日排成 YYYY-MM-DD，和回收日同一个钟，浏览器在别的时区也不差一天
+    nextStepAt: p.nextStepAt ? dayjs(p.nextStepAt).format("YYYY-MM-DD") : null, 回收日, 要下一步, 能记沟通,
     能放公海: !公海 && me.id === p.ownerId && (能进公海的阶段 as readonly string[]).includes(p.phase),
     // 企业版里放回去的那位也能领回；别的版本照旧不能自己领回
     能领取: 公海 && (企业 || me.id !== p.ownerId),

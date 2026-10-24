@@ -27,7 +27,8 @@ type 稿 = {
   联系人: { name: string; position: string; phone: string; email: string; wechat: string };
   客户: { name: string; school: string; remark: string };
   项目: { name: string; ownerId: string; amount: number | null; currency: string; remark: string };
-  跟进: { type: string; content: string; occurredAt: string };
+  /** 下一步时间（YYYY-MM-DD）：开了超时回收时才有这格、必填；老草稿里没有这格 */
+  跟进: { type: string; content: string; occurredAt: string; 下一步时间?: string | null };
 };
 
 function 空稿(ownerId: string, currency: string, 首类型: string): 稿 {
@@ -41,31 +42,33 @@ function 空稿(ownerId: string, currency: string, 首类型: string): 稿 {
 }
 
 /** 每一步往下走之前要填好的；返回一句人话，空串 = 能走 */
-function 这步还差(步: number, d: 稿, 已查: string | null): string {
+function 这步还差(步: number, d: 稿, 已查: string | null, 要下一步: boolean): string {
   if (步 === 0) return !d.phone.trim() ? "先填电话再查" : 已查 !== d.phone.trim() ? "点「查重」看看这个号码有没有人录过" : "";
   if (步 === 1) return d.联系人.name.trim() ? "" : "请填写联系人姓名";
   if (步 === 2) return d.客户.name.trim() ? "" : "请填写名称";
   if (步 === 3) return !d.项目.name.trim() ? "请填写项目名称" : d.项目.name.trim().length > 项目名上限 ? `项目名称请控制在 ${项目名上限} 字以内` : "";
-  return d.跟进.content.trim() ? "" : "请填写这次沟通的内容";
+  if (!d.跟进.content.trim()) return "请填写这次沟通的内容";
+  return 要下一步 && !d.跟进.下一步时间 ? "请填下一步时间：到那天还没跟进，项目会自动回到项目公海" : "";
 }
 
 /**
  * 建档向导（团队版项目模式 1a，2026-10-23）：查重 → 联系人 → 客户 → 项目 → 首条沟通。
  * 中途关掉不落库，填过的存在本机草稿里（一人一份），下次进来接着填；最后一步一笔建好，失败整笔不留
  */
-export default function ProjectWizard({ users }: { users: 可选成员[] }) {
+export default function ProjectWizard({ users, 要下一步 }: { users: 可选成员[]; 要下一步: boolean }) {
   // 草稿在本机 localStorage 里，服务端渲染时读不到；挂上之后再按草稿起头，免得两边对不上
   const 挂上了 = useSyncExternalStore(不订阅, () => true, () => false);
   const 我 = useMe();
   const 全名 = 草稿全名(我?.id, 草稿键);
   if (!挂上了) return null;
   const 旧 = 读草稿(全名) as { 稿?: 稿; 步?: number } | null;
-  return <WizardBody key={全名} users={users} 全名={全名} 旧={旧?.稿 && 有内容(旧.稿) ? { 稿: 旧.稿, 步: Number(旧.步) || 0 } : null} />;
+  return <WizardBody key={全名} users={users} 要下一步={要下一步} 全名={全名} 旧={旧?.稿 && 有内容(旧.稿) ? { 稿: 旧.稿, 步: Number(旧.步) || 0 } : null} />;
 }
 
 const 不订阅 = () => () => {};
 
-function WizardBody({ users, 全名, 旧 }: { users: 可选成员[]; 全名: string; 旧: { 稿: 稿; 步: number } | null }) {
+/** 要下一步 = 企业版开了超时回收：首条沟通要填下一步时间（项目建在线索阶段） */
+function WizardBody({ users, 要下一步, 全名, 旧 }: { users: 可选成员[]; 要下一步: boolean; 全名: string; 旧: { 稿: 稿; 步: number } | null }) {
   const router = useRouter();
   const { message } = App.useApp();
   const b = useBusiness();
@@ -111,7 +114,7 @@ function WizardBody({ users, 全名, 旧 }: { users: 可选成员[]; 全名: str
     }
   };
 
-  const 差 = 这步还差(步, d, 已查);
+  const 差 = 这步还差(步, d, 已查, 要下一步);
   const 拦着 = 步 === 0 && !!撞;
 
   const 提交 = async () => {
@@ -266,6 +269,18 @@ function WizardBody({ users, 全名, 旧 }: { users: 可选成员[]; 全名: str
             />
           ), true)}
           {一行("沟通内容", <Input.TextArea rows={4} value={d.跟进.content} onChange={(e) => 改("跟进", { content: e.target.value })} />, true)}
+          {要下一步 && 一行("下一步时间", (
+            <>
+              <DatePicker
+                style={{ width: "100%" }}
+                value={d.跟进.下一步时间 ? dayjs(d.跟进.下一步时间) : null}
+                disabledDate={(x) => x.isBefore(dayjs(), "day")}
+                onChange={(v) => 改("跟进", { 下一步时间: v ? v.format("YYYY-MM-DD") : null })}
+                placeholder="选一天"
+              />
+              <div style={{ marginTop: 4, color: "var(--text-muted)", fontSize: 12 }}>到那天还没人跟进，项目会自动回到项目公海</div>
+            </>
+          ), true)}
         </>
       )}
 
