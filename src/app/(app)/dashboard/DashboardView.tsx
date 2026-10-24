@@ -390,12 +390,15 @@ export default function DashboardView({ 空库, stats, trend, funnel, ranking, t
               <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 0", borderBottom: "1px dashed var(--line-soft)" }}>
                 <CompanyLogo name={t.customerName} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {/* 标题、客户名都只占一行，被截掉的悬停看全（.clamp-1 见 globals.css） */}
+                  <div className="clamp-1" title={t.title} style={{ fontSize: 15, fontWeight: 500 }}>
                     {t.title}
                   </div>
-                  <RowLink href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "var(--text-muted)" }}>
-                    {t.customerName}
-                  </RowLink>
+                  <div className="clamp-1" title={t.customerName}>
+                    <RowLink href={`/customers/${t.customerId}`} style={{ fontSize: 14, color: "var(--text-muted)" }}>
+                      {t.customerName}
+                    </RowLink>
+                  </div>
                 </div>
                 <span style={{ fontSize: 14, color: "var(--text-muted)", flex: "none" }}>{截止说法(t.dueAt)}</span>
                 {/*
