@@ -77,11 +77,14 @@ export default async function SettingsBody() {
     : null;
 
   // 企业版才多一栏「组织架构」：部门树、每个人的部门 / 角色 / 业务线 / 上级。老板和总管理员能改
-  const 组织架构: 组织架构 | null = 企业版()
+  const [org, 开关] = 企业版()
     ? await Promise.all([
         读组织(),
         Promise.all(规则名们.map(async (n) => [n, await 规则开着(n)] as const)).then((xs) => Object.fromEntries(xs) as Record<(typeof 规则名们)[number], boolean>),
-      ]).then(([org, 开关]) => {
+      ])
+    : [null, null];
+  const 组织架构: 组织架构 | null = org && 开关
+    ? (() => {
         const 名 = new Map(users.map((u) => [u.id, u.name]));
         return {
           部门: [...org.部门.values()],
@@ -100,8 +103,12 @@ export default async function SettingsBody() {
           是老板: me.role === "ADMIN" && !共享区,
           规则开着: 开关,
         };
-      })
+      })()
     : null;
+  // 企业版：直属上级能给下属办离职（D-36），管理员除外；老板本来就能办全部
+  const 下属可停用 = org && !共享区 && me.role !== "ADMIN"
+    ? users.filter((u) => u.role !== "ADMIN" && 直属上级of(org, u.id) === me.id).map((u) => u.id)
+    : [];
 
   return (
     <SettingsView
@@ -121,6 +128,7 @@ export default async function SettingsBody() {
          自部署版是用户名，既有账号是 admin / zhangsan 这种，不能改 */
       用邮箱登录={multiTenant()}
       企业版={企业版()}
+      下属可停用={下属可停用}
       llm={llm}
       business={business}
       aiUsage={aiUsage}

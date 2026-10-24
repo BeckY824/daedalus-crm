@@ -10,7 +10,7 @@ import { ROLES } from "@/lib/constants";
 import { useBusiness } from "@/lib/business-client";
 import { 外贸订单 } from "@/lib/business-config";
 import type { SessionUser } from "@/lib/auth";
-import { saveUser, deactivateUser, reactivateUser, 停用清点 } from "./actions";
+import { saveUser, deactivateUser, reactivateUser, 停用清点, 批量停用 } from "./actions";
 import type { 停用方式 } from "@/lib/offboard-db";
 
 /** 设置 · 团队成员：谁能进、谁是管理员。新增、编辑、停用（停用要先把名下的客户转交出去） */
@@ -33,6 +33,7 @@ export default function MembersTab({
   isAdmin,
   用邮箱登录,
   企业版 = false,
+  下属可停用 = [],
 }: {
   users: Row[];
   me: SessionUser;
@@ -41,6 +42,8 @@ export default function MembersTab({
   用邮箱登录: boolean;
   /** 企业版才有离职交接（选放进公海、先清点）；别的版本停用对话框和原来一样 */
   企业版?: boolean;
+  /** 企业版：我是他们的直属上级，能给他们办离职（D-36）。管理员不看这个，全都能办 */
+  下属可停用?: string[];
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -122,6 +125,40 @@ export default function MembersTab({
   }
 
   const [清点中, set清点中] = useState<string | null>(null);
+  const 能停 = (r: Row) => r.active && (isAdmin ? r.id !== me.id : 下属可停用.includes(r.id));
+  // 企业版批量离职：勾几个人，同一个接手人、同一种方式一次办完
+  const [勾了, set勾了] = useState<string[]>([]);
+  const 能批量 = 企业版 && (isAdmin || 下属可停用.length > 0);
+  function onBatchDeactivate() {
+    const 们 = 勾了.filter((id) => users.some((u) => u.id === id && 能停(u)));
+    const others = users.filter((u) => u.active && !们.includes(u.id));
+    if (!们.length) return;
+    if (!others.length) {
+      message.error("没有可接手的成员");
+      return;
+    }
+    let target = others[0].id;
+    let 方式: 停用方式 = "转交";
+    modal.confirm({
+      title: `停用 ${们.length} 位成员`,
+      width: 480,
+      content: <BatchOffboardForm names={们.map((id) => users.find((u) => u.id === id)?.name ?? "")} others={others} defaultTarget={target} onChange={(v) => { target = v.target; 方式 = v.方式; }} />,
+      okText: "确认停用",
+      okButtonProps: { danger: true },
+      cancelText: "取消",
+      async onOk() {
+        const res = await 批量停用(们, target, 方式).catch(() => null);
+        if (!res) { message.error("停用没成功，刷新再试"); return; }
+        if (!res.ok) { message.error(res.error); return; }
+        if (res.失败.length) {
+          const 名 = (id: string) => users.find((u) => u.id === id)?.name ?? id;
+          message.warning(`停用了 ${res.停了} 位；${res.失败.map((f) => `「${名(f.id)}」${f.error}`).join("；")}`);
+        } else message.success(`已停用 ${res.停了} 位成员`);
+        set勾了([]);
+        router.refresh();
+      },
+    });
+  }
   async function onDeactivate(r: Row) {
     const others = users.filter((u) => u.active && u.id !== r.id);
     if (!others.length) {
@@ -216,7 +253,17 @@ export default function MembersTab({
       key: "act",
       width: 120,
       render: (_, r) =>
-        isAdmin ? (
+        !isAdmin && 能停(r) ? (
+          <Button
+            type="text"
+            size="small"
+            danger
+            icon={<StopOutlined />}
+            aria-label={`给 ${r.name} 办离职`}
+            loading={清点中 === r.id}
+            onClick={() => onDeactivate(r)}
+          />
+        ) : isAdmin ? (
           <Space size={2}>
             <Button
               type="text"
@@ -273,7 +320,9 @@ export default function MembersTab({
           type="info"
           showIcon
           style={{ marginBottom: 14 }}
-          title="只有系统管理员可以新增或停用成员，你可以在此查看团队构成。"
+          title={下属可停用.length
+            ? "只有系统管理员可以新增成员；你可以给直属下属办离职。"
+            : "只有系统管理员可以新增或停用成员，你可以在此查看团队构成。"}
         />
       )}
       {isAdmin && (
@@ -289,8 +338,18 @@ export default function MembersTab({
           新增成员
         </Button>
       )}
+      {能批量 && 勾了.length > 0 && (
+        <Button danger icon={<StopOutlined />} style={{ marginBottom: 14, marginLeft: isAdmin ? 8 : 0 }} onClick={onBatchDeactivate}>
+          批量停用（{勾了.length}）
+        </Button>
+      )}
       <Table<Row>
         rowKey="id"
+        rowSelection={能批量 ? {
+          selectedRowKeys: 勾了,
+          onChange: (keys) => set勾了(keys as string[]),
+          getCheckboxProps: (r) => ({ disabled: !能停(r) }),
+        } : undefined}
         size="middle"
         dataSource={users}
         columns={columns}
@@ -449,6 +508,51 @@ function OffboardForm({ name, 点, others, defaultTarget, onChange }: {
         {外贸订单(b) ? "已经下的订单、转了订单和丢单的商机" : "已经签下的业绩、赢单和丢单的商机"}、已有结局的项目，还算在「{name}」头上；
         TA 写过的跟进、建的档照旧显示是 TA。
       </Typography.Paragraph>
+    </div>
+  );
+}
+
+/** 批量停用对话框：同一个接手人、同一种交接方式。不逐个清点，各人名下的数到留痕里看 */
+function BatchOffboardForm({ names, others, defaultTarget, onChange }: {
+  names: string[];
+  others: Row[];
+  defaultTarget: string;
+  onChange: (v: { target: string; 方式: 停用方式 }) => void;
+}) {
+  const b = useBusiness();
+  const [方式, set方式] = useState<停用方式>("转交");
+  const [target, setTarget] = useState(defaultTarget);
+  const 改 = (v: { target?: string; 方式?: 停用方式 }) => {
+    const 新 = { target: v.target ?? target, 方式: v.方式 ?? 方式 };
+    setTarget(新.target);
+    set方式(新.方式);
+    onChange(新);
+  };
+  return (
+    <div style={{ marginTop: 12 }}>
+      <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 8 }}>
+        {names.map((n) => `「${n}」`).join("")}
+      </Typography.Paragraph>
+      <Radio.Group
+        value={方式}
+        onChange={(e) => 改({ 方式: e.target.value })}
+        style={{ marginBottom: 12 }}
+        options={[
+          { value: "转交", label: "全部转交给一个人" },
+          { value: "公海", label: "放进公海，谁领谁接" },
+        ]}
+      />
+      <Typography.Paragraph type="secondary" style={{ fontSize: 13, marginBottom: 8 }}>
+        {方式 === "转交"
+          ? `他们名下的${b.customer}、项目，连同进行中的商机、没做完的计划和待办、线索、渠道，一起转交给：`
+          : `能放公海的${b.customer}和项目放进公海；已签约、已流失、订单阶段的，和线索、渠道，交给：`}
+      </Typography.Paragraph>
+      <Select
+        value={target}
+        style={{ width: "100%" }}
+        onChange={(v) => 改({ target: v })}
+        options={others.map((u) => ({ value: u.id, label: `${u.name}（${u.title}）` }))}
+      />
     </div>
   );
 }
