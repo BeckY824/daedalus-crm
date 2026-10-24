@@ -70,7 +70,8 @@ export function 网关模型(cfg: 配置, 当前模型: () => string | undefined
       try {
         return JSON.parse(s);
       } catch {
-        throw new Error(`AI 返回内容不是合法 JSON：${s.slice(0, 120)}`);
+        // 原文不进错误信息（会摆到界面上），和 llm.ts 的 JSON格式不对 同一句
+        throw new Error("AI 返回格式不对，请重试");
       }
     },
   };

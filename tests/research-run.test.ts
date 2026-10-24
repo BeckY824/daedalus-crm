@@ -329,6 +329,15 @@ describe("背调 6 步编排", () => {
     expect(事件.some((e) => e.type === "score")).toBe(true);
   });
 
+  it("结论那一步报「AI 返回格式不对，请重试」（llm.ts 修过还坏）：同样再要一次", async () => {
+    const m = 假模型();
+    let 坏过 = false;
+    const 包 = { ...m, json: async (a: never, o: { researchStage?: string }) => { if (o.researchStage === "approach" && !坏过) { 坏过 = true; throw new Error("AI 返回格式不对，请重试"); } return m.json(a, o as never); } };
+    const { 事件 } = await 跑({ 模型: 包 as unknown as 模型调用 });
+    expect(坏过).toBe(true);
+    expect(事件.filter((e) => e.type === "stage" && e.status === "done")).toHaveLength(6);
+  });
+
   it("最后打分那一步固定推理强度（背调打分推理强度）、带着买家类型 / 市场两项的判档条件；前五步不传推理强度", async () => {
     const { 背调打分推理强度 } = await import("@/lib/research/retry");
     const 强度: [string, unknown][] = [];
