@@ -50,4 +50,21 @@ describe("查完再写", () => {
     });
     expect([r, 跑了]).toEqual(["过了", 2]);
   });
+
+  it("事务没开成 / 超时被关（P2028）也重来；三轮都不行照常抛出去", async () => {
+    let 跑了 = 0;
+    const r = await 查完再写(async () => {
+      跑了++;
+      if (跑了 === 1) throw Object.assign(new Error("Transaction API error: Unable to start a transaction in the given time."), { code: "P2028" });
+      return "过了";
+    });
+    expect([r, 跑了]).toEqual(["过了", 2]);
+
+    跑了 = 0;
+    await expect(查完再写(async () => {
+      跑了++;
+      throw Object.assign(new Error("Transaction already closed"), { code: "P2028" });
+    })).rejects.toMatchObject({ code: "P2028" });
+    expect(跑了).toBe(3);
+  });
 });
