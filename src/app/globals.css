@@ -358,9 +358,8 @@ html.os-win .shell-desktop .main::before {
 html.os-win .shell-desktop .main :is(.rec-rail, .set-nav, .legal-toc) { top: calc(var(--caption-h) + 8px); }
 /* Windows 的字比 Mac 细（ClearType + 雅黑），同一个灰在 Windows 上淡一截：「点击填写」「暂无待办」几乎看不见。
    只在默认主题里各压深一档；别的主题自己定了字色（科技主题还是深底），不替它们改 */
-/* 不另拍颜色（色值只许在 :root）：拿次级正文色往面板底色里兑，约等于 #5f6774 / #838993。
-   Windows 上开网页版也一样（win-ua 是首次绘制前按浏览器 UA 挂的，见 lib/appearance.ts），字色和 Windows 桌面端一致 */
-html:is(.os-win, .win-ua)[data-skin="now"] { --text-muted: color-mix(in srgb, var(--ink-soft) 80%, var(--panel)); --text-faint: color-mix(in srgb, var(--ink-soft) 62%, var(--panel)); }
+/* 不另拍颜色（色值只许在 :root）：拿次级正文色往面板底色里兑，约等于 #5f6774 / #838993 */
+html.os-win[data-skin="now"] { --text-muted: color-mix(in srgb, var(--ink-soft) 80%, var(--panel)); --text-faint: color-mix(in srgb, var(--ink-soft) 62%, var(--panel)); }
 .shell-desktop :is(a, button, input, select, textarea, [role="button"], [role="tab"], [role="menuitem"], .ant-select, .ant-input, .ant-input-affix-wrapper, .ant-btn, .ant-dropdown-trigger, .ant-segmented) { -webkit-app-region: no-drag; }
 .rail-top { display: flex; align-items: center; height: 40px; width: 100%; margin-bottom: 14px; }
 .rail-mark { display: inline-flex; align-items: center; gap: 8px; line-height: 0; padding: 6px 8px; border-radius: var(--r-card); color: var(--ink); }

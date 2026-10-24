@@ -54,8 +54,6 @@ export function 挂外观(a: 外观, el: HTMLElement = document.documentElement)
 
 /**
  * 首次绘制前跑的那段。写成字符串塞进 <head>，它跑的时候 React 还没起来，所以不能 import 任何东西；
- * 认值的规矩和 读外观 同一套（tests/appearance.test.ts 两边对一遍）。
- * 顺带：浏览器是 Windows 的挂 win-ua——Windows 的字细，默认主题的浅灰字要压深一档（globals.css），
- * 桌面端靠 preload 挂的 os-win，网页版没有 preload，靠这里，两边字色才一样
+ * 认值的规矩和 读外观 同一套（tests/appearance.test.ts 两边对一遍）
  */
-export const 外观预设脚本 = `(function(){try{var d=${JSON.stringify(默认外观)},v={};try{v=JSON.parse(localStorage.getItem(${JSON.stringify(外观键)})||"{}")||{};}catch(_){}var P=${JSON.stringify(底色表.map((x) => x.key))},S=${JSON.stringify(主题表.map((x) => x.key))};var e=document.documentElement;e.dataset.paper=P.indexOf(v.paper)>-1?v.paper:d.paper;e.dataset.skin=S.indexOf(v.skin)>-1?v.skin:d.skin;}catch(_){}try{if(/Windows/.test(navigator.userAgent))document.documentElement.classList.add("win-ua");}catch(_){}})();`;
+export const 外观预设脚本 = `(function(){try{var d=${JSON.stringify(默认外观)},v={};try{v=JSON.parse(localStorage.getItem(${JSON.stringify(外观键)})||"{}")||{};}catch(_){}var P=${JSON.stringify(底色表.map((x) => x.key))},S=${JSON.stringify(主题表.map((x) => x.key))};var e=document.documentElement;e.dataset.paper=P.indexOf(v.paper)>-1?v.paper:d.paper;e.dataset.skin=S.indexOf(v.skin)>-1?v.skin:d.skin;}catch(_){}})();`;

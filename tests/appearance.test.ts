@@ -49,27 +49,6 @@ describe("外观", () => {
     expect(块).not.toMatch(/#[0-9a-f]{3,8}\b/i);
   });
 
-  it("Windows 浏览器挂 win-ua（网页版浅灰字和 Windows 桌面端一样压深），Mac / 没有 navigator 不挂、也不影响认外观", () => {
-    const 跑 = (ua?: string) => {
-      const dataset: Record<string, string> = {};
-      const 类 = new Set<string>();
-      const documentElement = { dataset, classList: { add: (c: string) => 类.add(c) } };
-      vm.runInNewContext(外观预设脚本, {
-        localStorage: { getItem: () => null },
-        document: { documentElement },
-        ...(ua === undefined ? {} : { navigator: { userAgent: ua } }),
-      });
-      return { 类: [...类], skin: dataset.skin };
-    };
-    expect(跑("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/130 Safari/537.36")).toEqual({ 类: ["win-ua"], skin: 默认外观.skin });
-    expect(跑("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/130 Safari/537.36")).toEqual({ 类: [], skin: 默认外观.skin });
-    expect(跑()).toEqual({ 类: [], skin: 默认外观.skin });
-    const css = fs.readFileSync(path.resolve(__dirname, "../src/app/globals.css"), "utf8");
-    expect(css).toMatch(/html:is\(\.os-win, \.win-ua\)\[data-skin="now"\]\s*\{\s*--text-muted/);
-    // 桌面端那几条让出标题栏的规矩只认 os-win（网页版没有标题栏），win-ua 不许挂进去
-    expect(css).not.toMatch(/win-ua[^{]*\.shell-desktop/);
-  });
-
   it("根布局把脚本放在 <head> 里（放进 body 就晚了一帧，会闪）", () => {
     const layout = fs.readFileSync(path.resolve(__dirname, "../src/app/layout.tsx"), "utf8");
     expect(layout).toMatch(/<head>[\s\S]*外观预设脚本[\s\S]*<\/head>/);
