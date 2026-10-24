@@ -1122,3 +1122,35 @@ model EntSnapshot {
   data      String
   createdAt DateTime @default(now())
 }
+
+/// 企业版组织架构（2026-10-24，迁移 044）：部门树。只在企业版（CRM_ENTERPRISE=1）读写，最多 3 层（同团队版 部门最多层数）。
+/// 团队版的部门在控制库（SyncDept），桌面端靠 .team.json 拿；企业版是自托管单租户、没有控制库，所以放租户库。
+model EntDept {
+  id        String   @id @default(cuid())
+  name      String
+  parentId  String?
+  sort      Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([parentId])
+}
+
+/// 企业版：每人在组织里的位置。没有这一行的人按 User.role 推（lib/enterprise/org.ts 的 推业务角色），不在任何部门。
+/// 不建外键：同 AuditLog，人删了由应用清
+model EntMember {
+  userId          String   @id
+  deptId          String?
+  /// 业务角色，取值同团队版 lib/sync/dept-policy.ts 的 业务角色。管理员三类 = sales_mgr 销售管理 / marketing_mgr 市场管理 / director 总管理员
+  bizRole         String   @default("sales")
+  /// 业务线：内贸 / 外贸；null = 两边都做（线索分配用）
+  line            String?
+  /// 直属上级（显式指定）。空着 = 同部门、再往上级部门找销售管理（lib/enterprise/org.ts 的 直属上级of）
+  managerId       String?
+  /// 虚线上级：只能看，不能改、不能转
+  dottedManagerId String?
+  updatedAt       DateTime @updatedAt
+
+  @@index([deptId])
+  @@index([managerId])
+  @@index([dottedManagerId])
+}

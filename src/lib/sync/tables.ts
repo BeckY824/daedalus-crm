@@ -57,6 +57,8 @@ export const 不同步表 = [
   "Project", "ProjectMember", "ProjectRole", "ProjectExceptionCategory", "ProjectNodeLog", "FollowUpProject", "CustomerCreator",
   // 企业版数据接入（2026-10-24）：企业版私有部署一台服务器，导入记录、对照、冲突都只在这台
   "EntImportBatch", "EntImportRow", "EntExternalRef", "EntConflict", "EntTrash", "EntSnapshot",
+  // 企业版组织架构（2026-10-24）：企业版是一台服务器上的网页，不走团队同步
+  "EntDept", "EntMember",
 ] as const;
 
 /**
@@ -118,6 +120,10 @@ export const 指向人的列: [string, string][] = [
   ["EntImportBatch", "userId"],
   ["EntConflict", "resolvedById"],
   ["EntSnapshot", "userId"],
+  // 企业版组织架构（2026-10-24）：不建外键
+  ["EntMember", "userId"],
+  ["EntMember", "managerId"],
+  ["EntMember", "dottedManagerId"],
 ];
 
 /**

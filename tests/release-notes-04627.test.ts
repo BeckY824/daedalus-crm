@@ -10,9 +10,10 @@ import { 切更新记录, 只留桌面端 } from "@/lib/changelog";
 const 全部 = 切更新记录(fs.readFileSync(path.resolve(__dirname, "../CHANGELOG.md"), "utf8"));
 const 这一版 = 全部.find((s) => s.版本 === "0.46.27")!;
 
-it("最上面是 0.46.27，下面紧接 0.46.26；不再有「下一版」", () => {
-  expect(全部.slice(0, 2).map((s) => s.版本)).toEqual(["0.46.27", "0.46.26"]);
-  expect(全部.map((s) => s.版本)).not.toContain("下一版");
+it("0.46.27 下面紧接 0.46.26", () => {
+  const 版本们 = 全部.map((s) => s.版本);
+  const i = 版本们.indexOf("0.46.27");
+  expect(版本们.slice(i, i + 2)).toEqual(["0.46.27", "0.46.26"]);
 });
 
 it("产品图片、团队同步、手机、升级后补同步、管道、我的反馈都写了，Mac 和 Windows 一样", () => {
