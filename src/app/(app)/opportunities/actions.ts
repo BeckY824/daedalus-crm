@@ -200,7 +200,7 @@ export async function saveOpportunity(input: {
   });
 
   刷新商机(input.customerId);
-  return { ok: true as const };
+  return { ok: true as const, id: result.id };
 }
 
 /** 写一版报价；真记了一版才留一条日志（和上一版一样就什么都没发生） */

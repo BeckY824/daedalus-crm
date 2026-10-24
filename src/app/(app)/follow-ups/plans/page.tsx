@@ -3,17 +3,21 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import PlansView from "./PlansView";
 import { 带过来的客户 } from "@/lib/options";
+import { 取计划页 } from "@/lib/plans-page";
+import { 读每组 } from "@/lib/plans-groups";
+import { 补计划详情 } from "./plan-rows";
 
 export const dynamic = "force-dynamic";
 
 export default async function PlansPage({
-  searchParams,
+  searchParams = Promise.resolve({}),
 }: {
-  /** customer：从某位客户带过来的，「新建计划」预填他；new=1：进来就把新建框打开 */
-  searchParams: Promise<{ customer?: string; new?: string; scope?: string }>;
+  /** customer：从某位客户带过来的，「新建计划」预填他；new=1：进来就把新建框打开；n：每组摆几条（lib/plans-groups.ts） */
+  searchParams?: Promise<{ customer?: string; new?: string; scope?: string; n?: string }>;
 }) {
   const me = await requireUser();
   const sp = await searchParams;
+  const 每组 = 读每组(sp.n);
 
   // Fetch team and personal windows separately: a busy team must not push my history out.
   const completedPlans = (ownerId?: string) => prisma.followPlan.findMany({
@@ -28,24 +32,8 @@ export default async function PlansPage({
     take: 200,
     include: { customer: { select: { id: true, name: true } }, owner: { select: { id: true, name: true } } },
   });
-  const [plans, tasks, teamPlans, teamTasks, myPlans, myTasks, 预选客户] = await Promise.all([
-    prisma.followPlan.findMany({
-      where: { done: false },
-      orderBy: { plannedAt: "asc" },
-      include: {
-        // 有 WhatsApp 号的：完成小框的方式默认 WhatsApp（2026-10-17 PR26 手测）
-        customer: { select: { id: true, name: true, extra: { select: { whatsapp: true } } } },
-        owner: { select: { id: true, name: true } },
-      },
-    }),
-    prisma.task.findMany({
-      where: { done: false },
-      orderBy: { dueAt: { sort: "asc", nulls: "last" } },
-      include: {
-        customer: { select: { id: true, name: true } },
-        owner: { select: { id: true, name: true } },
-      },
-    }),
+  const [{ plans, tasks, 轻, 负责人 }, teamPlans, teamTasks, myPlans, myTasks, 预选客户] = await Promise.all([
+    取计划页(prisma, 每组, me.id),
     completedPlans(), completedTasks(), completedPlans(me.id), completedTasks(me.id),
     带过来的客户(sp.customer),
   ]);
@@ -56,30 +44,9 @@ export default async function PlansPage({
       预选客户={预选客户}
       直接新建={sp.new === "1"}
       全员={sp.scope === "all"}
-      plans={plans.map((p) => ({
-        id: p.id,
-        subject: p.subject,
-        plannedAt: scheduleValue(p.plannedAt, p.plannedOn)!,
-        plannedHasTime: p.plannedHasTime,
-        method: p.method,
-        updatedAt: p.updatedAt.toISOString(),
-        customerId: p.customer.id,
-        customerName: p.customer.name,
-        有WhatsApp: !!p.customer.extra?.whatsapp?.trim(),
-        ownerId: p.owner.id,
-        ownerName: p.owner.name,
-      }))}
-      tasks={tasks.map((t) => ({
-        id: t.id,
-        title: t.title,
-        dueAt: scheduleValue(t.dueAt, t.dueOn),
-        dueHasTime: t.dueHasTime,
-        updatedAt: t.updatedAt.toISOString(),
-        customerId: t.customer.id,
-        customerName: t.customer.name,
-        ownerId: t.owner.id,
-        ownerName: t.owner.name,
-      }))}
+      plans={plans}
+      tasks={tasks}
+      {...(轻 ? { 轻, 负责人, 每组, 补详情: 补计划详情 } : {})}
       done={[
         ...[...new Map([...teamPlans, ...myPlans].map(p => [p.id, p])).values()].map((p) => ({
           key: `plan:${p.id}`,
