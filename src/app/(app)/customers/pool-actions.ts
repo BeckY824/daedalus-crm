@@ -14,6 +14,7 @@ import { getBusiness } from "@/lib/business";
 import { recordAudit } from "@/lib/audit";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { 带走并记下, 还项目, type 带走的 } from "@/lib/carry-over-db";
+import { 记换负责人 } from "@/lib/owner-log-db";
 import type { 带走数 } from "@/lib/carry-over";
 
 export type 公海结果 =
@@ -109,7 +110,7 @@ export async function 领取(ids: string[]): Promise<公海结果> {
     if (原 !== null) 领到.push({ id, 值: 原 });
   }
   if (!领到.length) return { ok: true, updated: 0, unchanged: ids.length, 没权限: 0 };
-  const { 数: 带走, 记下: 带过来 } = await 带走并记下(领到.map((x) => ({ customerId: x.id, 旧: x.值 })), me.id);
+  const { 数: 带走, 记下: 带过来 } = await 带走并记下(领到.map((x) => ({ customerId: x.id, 旧: x.值 })), me.id, me.id, "claim");
   await recordAudit({
     user: me, action: "claim", entity: "Customer", entityId: 领到.length === 1 ? 领到[0].id : null,
     summary: `从公海领取 ${领到.length} 名${b.customer}`,
@@ -151,7 +152,7 @@ export async function 分配公海(ids: string[], userId: string): Promise<公�
     if (原 !== null) 分到.push({ id, 值: 原 });
   }
   if (!分到.length) return { ok: true, updated: 0, unchanged: ids.length, 没权限: 0 };
-  const { 数: 带走, 记下: 带过来 } = await 带走并记下(分到.map((x) => ({ customerId: x.id, 旧: x.值 })), 给.id, me.id);
+  const { 数: 带走, 记下: 带过来 } = await 带走并记下(分到.map((x) => ({ customerId: x.id, 旧: x.值 })), 给.id, me.id, "pool-assign");
   await recordAudit({
     user: me, action: "assign", entity: "Customer", entityId: 分到.length === 1 ? 分到[0].id : null,
     summary: `把公海里 ${分到.length} 名${b.customer}分给「${给.name}」`,
@@ -188,6 +189,8 @@ export async function 撤销公海(动作: "放进" | "领取" | "分配", 原: 
     await prisma.$transaction(async (tx) => {
       // 先放回公海、再把负责人还回去（团队范围同步：放回公海那一刻还归我，之后人人可写；反过来还完负责人我就写不了公海那一行）
       await tx.customerPool.create({ data: { customerId: x.id, userId: me.id, reason: "手动" } });
+      // 历史负责人记在还负责人之前：业务员互看时，还完这位就是同事的客户，挂在下面新建会被挡
+      await 记换负责人(tx, [{ customerId: x.id, from: 现, to: x.值 }], me.id, "undo");
       await tx.customer.update({ where: { id: x.id }, data: { salesOwnerId: x.值 } });
       await tx.customerClaim.deleteMany({ where: { customerId: x.id, userId: 现 } });
       // 领取 / 分配时带过来的活还回去：还挂在领到的人名下、还没做完的才还

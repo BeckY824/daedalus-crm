@@ -1793,6 +1793,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 点完成之后留位 600ms 再消失：立刻抽走的话下面的行会跳上来顶替，眼睛得重新找位置 */
 .plan-row-done { opacity: 0.45; transition: opacity var(--t) var(--ease); }
 .plan-row-done .plan-row-t { text-decoration: line-through; }
+/* 分批时要摆、详情还在路上的那一行（2026-10-24）：占住位置，取到了就换成真的 */
+.plan-row-wait .plan-row-t { font-weight: 400; color: var(--text-muted); }
 .plan-row-m { flex: 1; min-width: 0; }
 .plan-row-t { display: block; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .plan-row-s { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: var(--fs-note); color: var(--text-muted); }
@@ -1847,6 +1849,8 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 /* 列宽固定以后底行放不下金额 + 负责人：金额一行写完，负责人挤不下就折到下一行、再长就省略（title 里有全名） */
 .pipe-card-a { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pipe-card-o { font-size: var(--fs-note); color: var(--text-muted); min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 每列先摆 50 张（2026-10-24），底下接着翻；列最窄 184，放不下就折行，不撑宽列 */
+.pipe-more.ant-btn { height: auto; min-height: 28px; white-space: normal; color: var(--brand); gap: 6px; }
 
 /* ---------- 「数据」页上的问数据 ----------
    框是和首页同一个（components/AskBox），这里只管它周围那点间距和答案区。 */
@@ -2548,4 +2552,11 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .org-field-perm thead th { font-weight: 600; }
 .org-field-perm tbody th { font-weight: 500; }
 .org-field-perm tbody th .muted { font-size: 12px; font-weight: 400; }
+/* 线索分配那一屏：长名字截断，悬停看全名；窄窗口靠外层横向滚动 */
+.org-lead-assign-name { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+/* 批量自动分配的结果：一条一行，线索名太长省略，别把弹窗撑开 */
+.lead-auto-assign-list { margin: 8px 0 0; padding: 0; list-style: none; max-height: 360px; overflow-y: auto; }
+.lead-auto-assign-list li { display: flex; gap: 8px; padding: 4px 0; min-width: 0; }
+.lead-auto-assign-name { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.lead-auto-assign-list li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .team-dept-role { min-width: 72px; }
