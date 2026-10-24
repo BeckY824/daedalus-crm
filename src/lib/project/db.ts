@@ -267,13 +267,21 @@ export async function 记转让(
   kind: "transfer" | "pool-release" | "pool-claim" = "transfer",
   reason: string | null = null,
 ) {
-  await tx.projectNodeLog.create({
-    data: {
-      projectId: p.id, userId: 操作人, kind, fromOwnerId: 从, toOwnerId: 到, reason,
-      fromPhase: p.phase, fromNode: p.node, fromResult: p.result,
-      toPhase: p.phase, toNode: p.node, toResult: p.result,
-    },
-  });
+  await tx.projectNodeLog.create({ data: 转让痕(p, 操作人, 从, 到, kind, reason) });
+}
+
+/** 记转让 写的那一行；一次转很多个（停用成员）时拼好用 createMany 一起写 */
+export function 转让痕(
+  p: { id: string; phase: string; node: string; result: string | null },
+  操作人: string, 从: string | null, 到: string | null,
+  kind: "transfer" | "pool-release" | "pool-claim" = "transfer",
+  reason: string | null = null,
+) {
+  return {
+    projectId: p.id, userId: 操作人, kind, fromOwnerId: 从, toOwnerId: 到, reason,
+    fromPhase: p.phase, fromNode: p.node, fromResult: p.result,
+    toPhase: p.phase, toNode: p.node, toResult: p.result,
+  };
 }
 
 /** 负责人、上级、组员都得是在职成员 */

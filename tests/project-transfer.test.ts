@@ -3,7 +3,7 @@
  *   - 手动转一个项目的负责人：只改这一个项目，留一行转让痕（谁、何时、从谁到谁）
  *   - 转客户 = 整体转（总控 10-23 定）：这位客户名下的项目不管原来谁负责、有没有结局都跟着转，只有项目公海里的不动；
  *     撤销各还各的（按转让痕还给转之前的负责人），只还带过来的那几个
- *   - 停用成员：项目跟着转走的客户一起整体转
+ *   - 停用成员：项目跟着转走的客户一起整体转；他负责、挂在别人客户上、没结局的也给接手人（D-36，10-24）
  */
 import { describe, it, expect, beforeEach, afterAll, vi } from "vitest";
 
@@ -147,16 +147,18 @@ describe("转客户", () => {
 });
 
 describe("停用成员", () => {
-  it("项目跟着转走的客户整体转（同事负责的也转）；他挂在别人客户上的项目留着", async () => {
+  it("项目跟着转走的客户整体转（同事负责的也转）；他挂在别人客户上的没结局项目也给接手人，有结局的留着", async () => {
     const 乙的 = await 项目("乙的", 乙);
     const 丙在乙客户上的 = await 项目("丙在乙客户上的", 丙);
     const 丙的客户 = await prisma.customer.create({ data: { name: "丙的客户", phone: "13800000003", salesOwnerId: 丙 } });
     const 乙在丙客户上的 = await 项目("乙在丙客户上的", 乙, 丙的客户.id);
+    const 乙收尾的 = await prisma.project.update({ where: { id: (await 项目("乙收尾的", 乙, 丙的客户.id)).id }, data: { result: "成功交付" } });
     expect(await deactivateUser(乙, 甲)).toEqual({ ok: true });
     expect(await 负责人(乙的.id)).toBe(甲);
     expect(await 负责人(丙在乙客户上的.id)).toBe(甲);
-    expect(await 负责人(乙在丙客户上的.id)).toBe(乙);
-    expect(new Set((await 转让痕()).map((x) => x.projectId))).toEqual(new Set([乙的.id, 丙在乙客户上的.id]));
+    expect(await 负责人(乙在丙客户上的.id)).toBe(甲);
+    expect(await 负责人(乙收尾的.id)).toBe(乙);
+    expect(new Set((await 转让痕()).map((x) => x.projectId))).toEqual(new Set([乙的.id, 丙在乙客户上的.id, 乙在丙客户上的.id]));
   });
 });
 

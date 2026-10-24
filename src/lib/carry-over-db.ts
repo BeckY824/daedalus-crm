@@ -1,7 +1,7 @@
 import type { Prisma } from "@/generated/prisma";
 import { 转交商机 } from "@/lib/opportunity-activity";
 import { prisma } from "@/lib/prisma";
-import { 记转让 } from "@/lib/project/db";
+import { 记转让, 转让痕 } from "@/lib/project/db";
 import { 看全部 } from "@/lib/team-scope";
 import type { 带走数 } from "@/lib/carry-over";
 
@@ -24,14 +24,18 @@ export function 跟着客户转的项目(customerId: string): Prisma.ProjectWher
   return { customerId, pooledAt: null };
 }
 
-/** 把挑出来的项目转给新负责人，每个项目记一行转让痕（谁、何时、从谁到谁）；返回转了哪几个 */
+/**
+ * 把挑出来的项目转给新负责人，每个项目记一行转让痕（谁、何时、从谁到谁）；返回转了哪几个。
+ * 一次改、一次写痕：停用成员一次转一两百个，逐个改会拖到事务超时（企业版 D-36 要求 200 条一次做完）。
+ * 上一位填的下一步时间不替新负责人算，同手动转让（改项目）
+ */
 export async function 转项目(tx: Prisma.TransactionClient, where: Prisma.ProjectWhereInput, 新: string, 操作人: string): Promise<string[]> {
   const 们 = await tx.project.findMany({ where: { AND: [where, { ownerId: { not: 新 } }] }, select: { id: true, ownerId: true, phase: true, node: true, result: true } });
-  for (const p of 们) {
-    await tx.project.update({ where: { id: p.id }, data: { ownerId: 新 } });
-    await 记转让(tx, p, 操作人, p.ownerId, 新);
-  }
-  return 们.map((p) => p.id);
+  if (!们.length) return [];
+  const ids = 们.map((p) => p.id);
+  await tx.project.updateMany({ where: { id: { in: ids } }, data: { ownerId: 新, nextStepAt: null } });
+  await tx.projectNodeLog.createMany({ data: 们.map((p) => 转让痕(p, 操作人, p.ownerId, 新)) });
+  return ids;
 }
 
 /**
