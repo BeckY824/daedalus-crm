@@ -15,7 +15,7 @@ import { 试跑 } from "@/lib/enterprise-import/report";
 import { 写一批 } from "@/lib/enterprise-import/apply";
 import { 撤回一批 } from "@/lib/enterprise-import/revert";
 import { 换适配器, 现成适配器 } from "@/lib/enterprise-import/adapter";
-import { 改同步设置, 读同步设置, 同步一次, 到点了, 定时扫一遍, 拉全量试跑, 已认映射, type 同步设置 } from "@/lib/enterprise-import/sync";
+import { 改同步设置, 读同步设置, 同步一次, 到点了, 定时扫一遍, 拉全量试跑, 已认映射, 拉变化回看毫秒, type 同步设置 } from "@/lib/enterprise-import/sync";
 import type { 原始记录 } from "@/lib/enterprise-import/types";
 
 const 我 = { id: "tester-id", name: "测试员" };
@@ -145,6 +145,17 @@ describe("同步一次", () => {
     expect(await 撤回一批(批.id, 我)).toMatchObject({ 完了: true });
     expect(await prisma.customer.count()).toBe(2);
     expect((await prisma.customer.findFirstOrThrow({ where: { name: "宁波海川贸易" } })).remark).toBe(原备注);
+  });
+
+  it("增量往前多拉 5 分钟：原系统和我们钟对不齐、修改时间晚记几秒的也拉得到", async () => {
+    await 首次导入();
+    const 现在 = new Date("2026-10-25T03:00:00.000Z");
+    expect(await 同步一次("feishu", { 用户: 我, 现在 })).toMatchObject({ 结果: "没变化" });
+    const 起点: (Date | null)[] = [];
+    换适配器("feishu", { 来源: "feishu", 拉全量: async () => [], 拉变化: async (since) => (起点.push(since), []) });
+    await 同步一次("feishu", { 用户: 我 });
+    expect(拉变化回看毫秒).toBe(5 * 60_000);
+    expect(起点).toEqual([new Date(现在.getTime() - 拉变化回看毫秒)]);
   });
 
   it("全没变：结果「没变化」，不留空批次；拉到零条也一样", async () => {

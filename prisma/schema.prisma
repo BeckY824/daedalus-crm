@@ -870,7 +870,7 @@ model Project {
   exceptionCategory    ProjectExceptionCategory? @relation(fields: [exceptionCategoryId], references: [id], onDelete: SetNull)
   /// 异常状态的备注，可空；恢复时清掉，备注留在节点变更里
   exceptionReason      String?
-  /// 在公海里的那一刻；空 = 不在公海。在公海时 ownerId 留着放回去的人（他不能自己领回）
+  /// 在公海里的那一刻；空 = 不在公海。在公海时 ownerId 留着放回去的人（历史负责人，他自己也能领回）
   pooledAt             DateTime?
   /// 尾款结清：谁勾的、何时
   balanceSettled       Boolean                   @default(false)
