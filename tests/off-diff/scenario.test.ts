@@ -2,7 +2,7 @@
  * 企业版开关关着时，和 main 逐字段一致（差分测试，2026-10-24）。
  *
  * 一家 25 人的公司（老板、3 位主管、21 位销售）连跑 7 天：建档、记跟进、推节点、放回 / 领取项目公海、
- * 客户公海放进 / 领取 / 分配、改负责人、加项目组员、勾验收、离职转交，每天收工时扫一遍公海。
+ * 客户公海放进 / 领取 / 分配、改负责人、加项目组员、勾验收、离职转交（含名下什么都没有的人走），每天收工时扫一遍公海。
  * 只用 main 上已有的写操作；企业版新加的维护（超时回收）有就调、没有就跳，关着时应当什么都不做。
  * 跨月末（3 月 28 日到 4 月 3 日），每天还有零点前后各一批操作，看日界线。
  *
@@ -257,6 +257,13 @@ describe("开关关着跑一周（差分测试的场景）", () => {
       if (c) await 做(夜猫, "saveFollowUp(零点后)", { customerId: c.id }, () =>
         saveFollowUp({ customerId: c.id, type: "PHONE", content: "零点后补记", status: "已完成", occurredAt: 钟.toISOString() }));
     }
+
+    // 第 8 天早上：新来的销售还没建档、没项目就走了（质量审 #134 提的：转交时名下什么都没有）
+    拨到(时刻(天, 9));
+    const 新人参 = { name: "销售新人", email: "s99", title: "", role: "SALES", password: "password-123", active: true };
+    await 做(老板, "saveUser(新人)", 新人参, () => saveUser(新人参));
+    const 新人 = await prisma.user.findUniqueOrThrow({ where: { email: "s99" } });
+    await 做(老板, "deactivateUser(没项目)", { 走: 新人.id, 接: 销售们[5].id }, () => deactivateUser(新人.id, 销售们[5].id));
 
     expect(步们.length).toBeGreaterThan(150);
     const 成了 = 步们.filter((s) => (s.回 as { ok?: boolean } | null)?.ok === true).length;
