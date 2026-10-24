@@ -65,10 +65,10 @@ export async function 读本地索引(源: 来源): Promise<本地索引> {
     Promise.all([
       prisma.customer.findMany({ select: { id: true, name: true, phone: true } }),
       prisma.opportunity.findMany({ select: { id: true, customerId: true, name: true } }),
-      prisma.entExternalRef.findMany({ where: { source: 源 }, select: { entity: true, externalId: true, targetId: true } }),
+      prisma.entExternalRef.findMany({ where: { source: 源 }, select: { entity: true, externalId: true, targetId: true, fingerprint: true } }),
     ]),
   );
-  const 索引: 本地索引 = { 引用: new Map(), 客户名: new Map(), 客户号: new Map(), 商机名: new Map() };
+  const 索引: 本地索引 = { 引用: new Map(), 指纹: new Map(), 客户名: new Map(), 客户号: new Map(), 商机名: new Map() };
   const 加 = (m: Map<string, string[]>, k: string, id: string) => {
     if (!k) return;
     const a = m.get(k);
@@ -80,7 +80,10 @@ export async function 读本地索引(源: 来源): Promise<本地索引> {
     if (c.phone) 加(索引.客户号, 号键(c.phone), c.id);
   }
   for (const o of 商机们) 加(索引.商机名, `${o.customerId}|${名键(o.name)}`, o.id);
-  for (const r of 对照们) 索引.引用.set(`${r.entity}|${r.externalId}`, r.targetId);
+  for (const r of 对照们) {
+    索引.引用.set(`${r.entity}|${r.externalId}`, r.targetId);
+    索引.指纹!.set(`${r.entity}|${r.externalId}`, r.fingerprint);
+  }
   return 索引;
 }
 
@@ -118,7 +121,9 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
   const 概要: 表概要[] = 能用的表.length ? 能用的表.map((t) => ({ 实体: t.实体, 表头: t.表头, 行: t.行 })) : 记录成概要(p.记录 ?? []);
   const 粗记录 = 能用的表.length ? 能用的表.flatMap((t) => 成记录(t, t.实体, {})) : (p.记录 ?? []);
   const 候选: 成员[] = await 负责人候选();
-  const 默认负责人Id = p.已有映射?.默认负责人Id || (await 唯一负责人()) || p.用户Id;
+  // 默认负责人要是能当负责人的人：管理员 / 停用的写的时候会被换掉，报告上就得先换好，免得报告说给 A、实际落到 B
+  const 能任 = (id?: string | null) => !!id && 候选.some((c) => c.id === id);
+  const 默认负责人Id = [p.已有映射?.默认负责人Id, await 唯一负责人(), p.用户Id, 候选[0]?.id].find(能任) ?? p.用户Id;
   const 猜 = await 猜映射({
     表: 概要,
     记录: 粗记录,

@@ -367,7 +367,8 @@ async function 写一条(tx: Tx, 现: 现场, w: 待写): Promise<结果> {
     if (!主) throw new 写不进(`要并进的「${w.并入}」没写进去`);
     if (!ref) return 并入(tx, 现, w, 主.targetId);
     if (ref.targetId === 主.targetId) {
-      await tx.entExternalRef.update({ where: { id: ref.id }, data: { fingerprint: w.指纹, raw: J(w.原始) } });
+      // 指纹没变就不碰：不然 updatedAt 一动，再导一遍也算「改了库」
+      if (ref.fingerprint !== w.指纹) await tx.entExternalRef.update({ where: { id: ref.id }, data: { fingerprint: w.指纹, raw: J(w.原始) } });
       return "跳过";
     }
   }

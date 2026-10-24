@@ -217,6 +217,7 @@ export default function EnterpriseImportReport({
           { title: "类别", render: (_, x) => 实体名[x.实体] },
           { title: "新建", dataIndex: "新建" },
           { title: "更新", dataIndex: "更新" },
+          { title: "没变", dataIndex: "没变" },
           { title: "并入已有", dataIndex: "并入" },
           { title: "跳过", dataIndex: "跳过" },
           { title: "要看一眼", dataIndex: "提醒" },
