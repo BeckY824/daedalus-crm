@@ -156,6 +156,7 @@ model Customer {
   /// 团队版项目模式（2026-10-23，1a）。见 Project、CustomerCreator
   projects      Project[]
   creator       CustomerCreator?
+  ownerLogs     CustomerOwnerLog[]
 
   @@index([phone])
   @@index([salesOwnerId])
@@ -980,4 +981,22 @@ model CustomerCreator {
   customer   Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   userId     String
   at         DateTime @default(now())
+}
+
+/// 客户换负责人的记录（企业版 D-36，2026-10-24）：谁转的、从谁到谁、什么时候，只增不改。
+/// 改负责人、批量分配、公海领取 / 分配、成员停用转交都记；from 是这次之前的负责人 = 「历史负责人」。
+/// 指人的列都不建外键（停用的人也照样显示），靠 sync/tables.ts 的 指向人的列 改身份
+model CustomerOwnerLog {
+  id          String   @id @default(cuid())
+  customerId  String
+  customer    Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  /// 谁操作的
+  userId      String
+  at          DateTime @default(now())
+  fromOwnerId String?
+  toOwnerId   String?
+  /// assign = 改负责人 / 批量分配；claim = 从公海领取；pool-assign = 从公海分配；deactivate = 成员停用转交
+  kind        String   @default("assign")
+
+  @@index([customerId])
 }

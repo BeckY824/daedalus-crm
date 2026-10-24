@@ -198,6 +198,7 @@ export function 限定条件(model: string, 我: string, 互看读 = false): Rec
     case "CustomerExtra":
     case "CustomerPool":
     case "CustomerClaim":
+    case "CustomerOwnerLog":
     // 订单（2026-10-05 打开）：0.46.15 时订单整个关着，这里没列，业务员能在订单页看到全队的单
     case "TradeOrder":
       return { customer: 客户 };

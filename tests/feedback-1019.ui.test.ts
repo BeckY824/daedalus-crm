@@ -19,7 +19,7 @@ const plugin: Plugin = { name: "feedback-1019-ui", setup(b) {
   stub(/^next\/navigation$/, "export const useRouter=()=>({refresh(){},push(){}});export const usePathname=()=>'/customers';");
   stub(/^\.\/actions$/, `
     const 记=(名,参)=>{(window.__calls??=[]).push({名,参});return {ok:true,id:'c1'}};
-    export const saveCustomer=async(x)=>记('saveCustomer',x),checkDuplicate=async()=>null,推荐人候选=async()=>[];`);
+    export const saveCustomer=async(x)=>记('saveCustomer',x),checkDuplicate=async()=>null,推荐人候选=async()=>[],转走项目预览of=async()=>({项目数:0,项目:[]});`);
   stub(/^\.\.\/channels\/actions$/, "export const saveChannel=async()=>({ok:true,id:'ch1'});");
   b.onLoad({ filter: /.*/, namespace: "stub" }, (a) => ({ contents: a.pluginData, loader: "jsx", resolveDir: process.cwd() }));
 } };

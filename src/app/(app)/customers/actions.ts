@@ -35,8 +35,9 @@ import { statusLabel, 外贸订单 } from "@/lib/business-config";
 import { 查电话, 规整手机号, 认回打码号 } from "@/lib/phone";
 import { 同号条件, 分机留存起 } from "@/lib/phone-dedupe";
 import { 同邮箱条件, 同微信条件, 同阿里条件, 邮箱键 } from "@/lib/email-dedupe";
-import type { 带走数 } from "@/lib/carry-over";
-import { 带走没做完的, 带走并记下, 还项目, type 带走的 } from "@/lib/carry-over-db";
+import type { 带走数, 转走项目预览 } from "@/lib/carry-over";
+import { 带走没做完的, 带走并记下, 还项目, 数转走的项目, type 带走的 } from "@/lib/carry-over-db";
+import { 记换负责人 } from "@/lib/owner-log-db";
 import { setOppStatus } from "../opportunities/actions";
 import { 认得 } from "@/lib/project/hook";
 import { 客户的项目数 } from "@/lib/project/db";
@@ -746,6 +747,18 @@ export type BulkResult =
     }
   | { ok: false; error: string };
 
+/**
+ * 转之前先列出会一起转走的项目（企业版 D-36）：批量分配、改负责人、公海领取 / 分配之前界面先问这一下，
+ * 有项目才弹确认框。只读，不改任何东西
+ */
+export async function 转走项目预览of(ids: string[], 新负责人?: string): Promise<转走项目预览> {
+  const me = await requireUser();
+  // 不传 = 转给自己（公海领取）
+  const 新 = 新负责人 ?? me.id;
+  if (!Array.isArray(ids) || typeof 新 !== "string" || !新) return { 项目数: 0, 项目: [] };
+  return 数转走的项目(ids.filter((x) => typeof x === "string"), 新);
+}
+
 /** 批量改销售负责人 */
 export async function assignSalesOwner(ids: string[], salesOwnerId: string): Promise<BulkResult> {
   const me = await requireUser();
@@ -809,6 +822,7 @@ export async function 撤销改负责人(原值: { id: string; 值: string }[], 
       // 条件里再带一次新负责人：查完到这里之间被人改走了就不动
       const r = await tx.customer.updateMany({ where: { id: x.id, salesOwnerId: 新负责人 }, data: { salesOwnerId: x.值 } });
       if (!r.count) return false;
+      await 记换负责人(tx, [{ customerId: x.id, from: 新负责人, to: x.值 }], me.id, "undo");
       if (带过来) {
         await tx.followPlan.updateMany({ where: { id: { in: 带过来.计划 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });
         await tx.task.updateMany({ where: { id: { in: 带过来.待办 }, customerId: x.id, ownerId: 新负责人, done: false }, data: { ownerId: x.值 } });

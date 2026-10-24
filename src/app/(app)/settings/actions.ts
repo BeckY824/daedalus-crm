@@ -7,6 +7,7 @@ import { 钉住老签约 } from "@/lib/contract-owner";
 import { 转项目 } from "@/lib/carry-over-db";
 import { 企业版 } from "@/lib/enterprise/switch";
 import { 停用分拣, 停用方式们, 停用进公海理由, 停用项目进公海理由, type 停用方式 } from "@/lib/offboard-db";
+import { 记换负责人 } from "@/lib/owner-log-db";
 import { 转让痕 } from "@/lib/project/db";
 import bcrypt from "bcryptjs";
 import { revalidatePath } from "next/cache";
@@ -326,6 +327,8 @@ export async function deactivateUser(id: string, transferToId: string, 方式: �
   const 转走了 = await prisma.$transaction(async (tx) => {
     const 分 = await 停用分拣(tx, id, 方式, 企业版());
     await tx.customer.updateMany({ where: { id: { in: 分.客户 } }, data: { salesOwnerId: transferToId } });
+    // 历史负责人：每位转走的客户记一行「他 → 接手人」（D-36）；进公海的负责人不改，等领的时候再记
+    await 记换负责人(tx, 分.客户.map((customerId) => ({ customerId, from: id, to: transferToId })), me.id, "deactivate");
     await 转交商机(tx, { id: { in: 分.商机 }, ownerId: id, status: "OPEN" }, transferToId);
     await tx.task.updateMany({ where: { id: { in: 分.待办 } }, data: { ownerId: transferToId } });
     await tx.followPlan.updateMany({ where: { id: { in: 分.计划 } }, data: { ownerId: transferToId } });

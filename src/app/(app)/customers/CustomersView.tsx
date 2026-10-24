@@ -28,6 +28,7 @@ import { 签约各币 } from "./export-table";
 import ImportDrawer from "./ImportDrawer";
 import { assignSalesOwner, bulkFollowStatus, 撤销改负责人, type BulkResult } from "./actions";
 import { useDeleteCustomers } from "./useDeleteCustomers";
+import { useTransferConfirm } from "./useTransferConfirm";
 import { 带走说法 } from "@/lib/carry-over";
 import { useBusiness } from "@/lib/business-client";
 import { statusLabel, 外贸精简, 签约叫 } from "@/lib/business-config";
@@ -166,6 +167,7 @@ export default function CustomersView({
 
   const { message } = App.useApp();
   const { 问删除 } = useDeleteCustomers();
+  const { 先问转走的项目 } = useTransferConfirm();
 
   /**
    * 批量改完给一次撤销（排查 D1）。原来点一下就写库、没有退路，选错一页就是一批数据改错。
@@ -658,7 +660,11 @@ export default function CustomersView({
                 items: 成员选项(users).map((o) => ({
                   key: o.value,
                   label: o.label,
-                  onClick: async () => { const ids = 选中行.filter((r) => r.pool).map((r) => r.id); 公海提示(await 分配公海(ids, o.value), "分配", ids); 清空(); },
+                  onClick: async () => {
+                    const ids = 选中行.filter((r) => r.pool).map((r) => r.id);
+                    if (!(await 先问转走的项目(ids, o.value))) return;
+                    公海提示(await 分配公海(ids, o.value), "分配", ids); 清空();
+                  },
                 })),
               }}
             >
@@ -671,6 +677,7 @@ export default function CustomersView({
                   key: o.value,
                   label: o.label,
                   onClick: async () => {
+                    if (!(await 先问转走的项目(selected, o.value))) return;
                     const res = await assignSalesOwner(selected, o.value);
                     清空();
                     router.refresh();
@@ -685,7 +692,11 @@ export default function CustomersView({
             {/* 「公海」页签只有领取，「客户」页签只有放进公海；子集里两种混着，看勾的是什么 */}
             {!不问归属 && (公海页 || (子集 && 选中行.some((r) => r.pool)) ? (
               <Button size="small" icon={<UserAddOutlined />}
-                onClick={async () => { const ids = 选中行.filter((r) => r.pool).map((r) => r.id); 公海提示(await 领取(ids), "领取", ids); 清空(); }}>
+                onClick={async () => {
+                  const ids = 选中行.filter((r) => r.pool).map((r) => r.id);
+                  if (!(await 先问转走的项目(ids))) return;
+                  公海提示(await 领取(ids), "领取", ids); 清空();
+                }}>
                 领取
               </Button>
             ) : (

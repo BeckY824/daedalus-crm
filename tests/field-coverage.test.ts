@@ -247,6 +247,11 @@ const 派生: Record<string, Record<string, string>> = {
   },
   FollowUpProject: { followUpId: "哪条沟通记录，记的时候定", projectId: "挂在哪个项目，记的时候定", node: "记这条时项目在哪个节点，系统打上" },
   CustomerCreator: { customerId: "哪位客户，一位一行", userId: "实际建档的人，向导保存那一刻打上，不改", at: "建档那一刻，系统打上" },
+  CustomerOwnerLog: {
+    customerId: "哪位客户，换负责人时系统写", userId: "谁换的，系统写", at: "换的那一刻，系统写",
+    fromOwnerId: "换之前的负责人（历史负责人），系统写", toOwnerId: "换之后的负责人，系统写",
+    kind: "改负责人、公海领取 / 分配还是成员停用，系统写",
+  },
 };
 
 /** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼 */
