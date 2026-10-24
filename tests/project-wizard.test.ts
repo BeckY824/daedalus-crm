@@ -3,7 +3,7 @@
  * 钉的是「最后一步一笔落库」：成功时客户、主要联系人、项目、首条跟进全有且连好；
  * 开关关着、客户撞号、中途哪一步写失败，都一行不留。
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "甲", email: "a@x", role: "ADMIN", title: "管理员", avatar: null },
@@ -49,6 +49,8 @@ async function 各表行数() {
   return { customer, contact, project, log, followUp, link, creator };
 }
 const 全空 = { customer: 0, contact: 0, project: 0, log: 0, followUp: 0, link: 0, creator: 0 };
+
+afterEach(() => { vi.unstubAllEnvs(); });
 
 beforeEach(async () => {
   await resetDb();
@@ -99,7 +101,8 @@ describe("建档向导", () => {
     expect(await 各表行数()).toEqual(全空);
   });
 
-  it("持有上限开着：给到了上限的人建拦下、一行不写；建给自己不拦", async () => {
+  it("持有上限开着（企业版）：给到了上限的人建拦下、一行不写；建给自己不拦", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "1");
     await setSetting("orgRules", { 公海: { 持有上限开: true, 默认上限: 1 } });
     const 客 = await prisma.customer.create({ data: { name: "老客户", phone: "13900000009", salesOwnerId: 甲 } });
     await prisma.project.create({ data: { name: "已有", customerId: 客.id, ownerId: 乙, creatorId: 乙 } });
@@ -108,6 +111,13 @@ describe("建档向导", () => {
     expect(await 建档向导(输入({ 项目: { name: "x", ownerId: 乙 } }))).toMatchObject({ ok: false, error: expect.stringContaining("持有上限") });
     expect(await 各表行数()).toEqual(前);
     expect(await 建档向导(输入())).toMatchObject({ ok: true });
+  });
+
+  it("不是企业版：Setting 里持有上限开着也不拦", async () => {
+    await setSetting("orgRules", { 公海: { 持有上限开: true, 默认上限: 1 } });
+    const 客 = await prisma.customer.create({ data: { name: "老客户", phone: "13900000009", salesOwnerId: 甲 } });
+    await prisma.project.create({ data: { name: "已有", customerId: 客.id, ownerId: 乙, creatorId: 乙 } });
+    expect(await 建档向导(输入({ 项目: { name: "x", ownerId: 乙 } }))).toMatchObject({ ok: true });
   });
 
   it("客户撞号：saveCustomer 拦下，联系人、项目、跟进都不建", async () => {

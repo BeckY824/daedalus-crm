@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { getBusiness } from "@/lib/business";
 import { 能管项目, 角色字典, 异常类别字典, 能进公海的阶段, 看得到的客户, 露客户 } from "@/lib/project/db";
 import { 负责人候选 } from "@/lib/owners";
+import { 企业版 } from "@/lib/enterprise/switch";
 import ProjectDetail, { type 项目详情 } from "./ProjectDetail";
 
 export const dynamic = "force-dynamic";
@@ -35,11 +36,12 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     能改 ? prisma.contact.findMany({ where: { customerId: p.customerId }, select: { id: true, name: true, position: true }, orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }] }) : [],
     角色字典(),
     异常类别字典(),
-    // 历史负责人：放回过公海的人。单独查，不受上面节点变更只取 200 行的限
-    prisma.projectNodeLog.findMany({ where: { projectId: p.id, kind: "pool-release" }, orderBy: { at: "desc" }, select: { fromOwnerId: true } }),
+    // 历史负责人（企业版才显示）：放回过公海的人。单独查，不受上面节点变更只取 200 行的限
+    !企业版() ? [] : prisma.projectNodeLog.findMany({ where: { projectId: p.id, kind: "pool-release" }, orderBy: { at: "desc" }, select: { fromOwnerId: true } }),
   ]);
   const 类别名 = new Map(类别们.map((c) => [c.id, c.name]));
   const 公海 = !!p.pooledAt;
+  const 企业 = 企业版();
 
   const 历史负责人 = [...new Set(放回过.map((l) => l.fromOwnerId).filter((x): x is string => !!x))];
   const 人id = new Set<string>([...历史负责人, p.ownerId, p.creatorId, ...p.members.map((m) => m.userId), ...p.logs.flatMap((l) => [l.userId, l.fromOwnerId, l.toOwnerId].filter((x): x is string => !!x)), ...(露 ? p.followUps.map((f) => f.followUp.ownerId) : [])]);
@@ -53,9 +55,10 @@ export default async function ProjectPage({ params }: { params: Promise<{ id: st
     customer: 露 ? p.customer : null, contact: 露 ? p.contact : null,
     ownerId: p.ownerId, ownerName: 叫(p.ownerId)!, historyOwners: 历史负责人.map((x) => 叫(x)!), creatorName: 叫(p.creatorId)!, createdAt: p.createdAt.toISOString(),
     phase: p.phase, node: p.node, result: p.result, exceptionReason: p.exceptionReason, exceptionCategory: p.exceptionCategory?.name ?? null,
-    pooled: 公海,
+    pooled: 公海, 企业版: 企业,
     能放公海: !公海 && me.id === p.ownerId && (能进公海的阶段 as readonly string[]).includes(p.phase),
-    能领取: 公海,
+    // 企业版里放回去的那位也能领回；别的版本照旧不能自己领回
+    能领取: 公海 && (企业 || me.id !== p.ownerId),
     balanceSettled: p.balanceSettled, balanceSettledBy: 叫(p.balanceSettledById), balanceSettledAt: p.balanceSettledAt?.toISOString() ?? null,
     acceptancePassed: p.acceptancePassed, acceptancePassedBy: 叫(p.acceptancePassedById), acceptancePassedAt: p.acceptancePassedAt?.toISOString() ?? null,
     logs: p.logs.map((l) => ({

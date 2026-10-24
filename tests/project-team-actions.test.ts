@@ -2,7 +2,7 @@
  * 项目详情的编辑项目、项目组，设置里的两个上级（projects/actions.ts）。
  * 钉的是：开关关着一律拦、一行不写；写成了留一条操作记录；没改动不留记录。
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "甲", email: "a@x", role: "ADMIN", title: "管理员", avatar: null },
@@ -80,6 +80,16 @@ describe("操作记录", () => {
 });
 
 describe("改组织规则（企业版持有上限）", () => {
+  beforeEach(() => { vi.stubEnv("CRM_ENTERPRISE", "1"); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("不是企业版：老板也改不了，一行不写", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    expect(await 改组织规则({ 公海: { 持有上限开: true } })).toMatchObject({ ok: false, error: expect.stringContaining("企业版") });
+    expect((await 读组织规则()).公海.持有上限开).toBe(false);
+    expect(await 记录()).toEqual([]);
+  });
+
   it("老板开、设默认和单独上限，存下并留记录；再关", async () => {
     expect(await 改组织规则({ 公海: { 持有上限开: true } })).toEqual({ ok: true });
     expect(await 改组织规则({ 公海: { 默认上限: 8, 每人上限: { [乙]: 3 } } })).toEqual({ ok: true });

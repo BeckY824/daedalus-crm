@@ -19,13 +19,15 @@ export type 项目详情 = {
   customer: { id: string; name: string; school: string | null } | null;
   contact: { id: string; name: string; position: string | null } | null;
   ownerId: string; ownerName: string; creatorName: string; createdAt: string;
-  /** 历史负责人：把这个项目放回过公海的人，最近放回的在前，同一个人只列一次 */
+  /** 历史负责人（只企业版有，别的版本是空的）：把这个项目放回过公海的人，最近放回的在前，同一个人只列一次 */
   historyOwners: string[];
   phase: string; node: string; result: string | null;
   /** 异常状态时：选的异常类别名、备注（可空） */
   exceptionReason: string | null; exceptionCategory: string | null;
-  /** 在项目公海里；能放公海 = 我是负责人且在线索 / 商机阶段；能领取 = 在公海里（放回去的那位也能领回） */
+  /** 在项目公海里；能放公海 = 我是负责人且在线索 / 商机阶段；能领取 = 在公海里，且（企业版 或 不是我放回去的） */
   pooled: boolean; 能放公海: boolean; 能领取: boolean;
+  /** 服务端读的 企业版()：放回公海的说法跟着它走（企业版能自己领回） */
+  企业版: boolean;
   balanceSettled: boolean; balanceSettledBy: string | null; balanceSettledAt: string | null;
   acceptancePassed: boolean; acceptancePassedBy: string | null; acceptancePassedAt: string | null;
   /** kind 不是 node 的行是换负责人（转让 / 放回公海 / 从公海领取），transfer 记从谁到谁；category 是进异常时选的类别 */
@@ -178,7 +180,7 @@ export default function ProjectDetail({
         extra={
           <Space wrap>
             {p.能放公海 && (
-              <Popconfirm title="放回项目公海？" description="放回去以后谁都能领，你自己也能再领回来；你会记成这个项目的历史负责人" okText="放回公海" onConfirm={() => void 跑(() => 放回项目公海(p.id), "已放回项目公海")}>
+              <Popconfirm title="放回项目公海？" description={p.企业版 ? "放回去以后谁都能领，你自己也能再领回来；你会记成这个项目的历史负责人" : "放回去以后谁都能领，你自己不能再领回来"} okText="放回公海" onConfirm={() => void 跑(() => 放回项目公海(p.id), "已放回项目公海")}>
                 <Button disabled={忙}>放回公海</Button>
               </Popconfirm>
             )}
@@ -193,7 +195,7 @@ export default function ProjectDetail({
       />
 
       {p.pooled && (
-        <Alert type="info" showIcon style={{ marginBottom: 16 }} title="这个项目在项目公海里" description="领取了你就是负责人，可以接着推节点" />
+        <Alert type="info" showIcon style={{ marginBottom: 16 }} title="这个项目在项目公海里" description={p.能领取 ? "领取了你就是负责人，可以接着推节点" : "是你放回去的，等同事领取"} />
       )}
 
       {异常 && (

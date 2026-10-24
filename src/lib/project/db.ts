@@ -8,6 +8,7 @@ import { 查完再写 } from "../check-then-write";
 import { 改节点问题, 原因上限, type 位置 } from "./nodes";
 import { 规整项目, type 向导项目 } from "./wizard";
 import { 持有上限of, type 组织规则 } from "./org-rules";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { 读组织规则 } from "./org-rules-store";
 
 type 谁 = { id: string; role: string };
@@ -300,6 +301,7 @@ export async function 改项目(me: 谁, projectId: string, patch: 向导项目 
     if (!变了.length) return { ok: true as const, 变了 };
     const 换人 = 新.ownerId !== p.ownerId;
     if (换人) {
+      // 这里改不了阶段和结局（规整项目只出名称、负责人、金额、备注），p 的阶段 / 结局就是改完的
       const 超 = await 超上限(tx, 规则, 新.ownerId, p);
       if (超) return { ok: false as const, error: 超 };
     }
@@ -321,7 +323,7 @@ export async function 持有数(db: Pick<Prisma.TransactionClient, "project">, u
 }
 
 /**
- * 再把这个项目给 userId 会不会超持有上限：超了返回一句报错，没超 / 没开上限 / 这个项目不算持有（订单阶段、有结局）返回 null。
+ * 再把这个项目给 userId 会不会超持有上限：超了返回一句报错，没超 / 不是企业版 / 没开上限 / 这个项目不算持有（订单阶段、有结局）返回 null。
  * 拦领取、拦指派（改负责人、建档时负责人选别人）、自动分配也调这个；自己建档、跟着客户转、离职交接不拦。
  * 规则在进事务前读好传进来：事务占着库的唯一连接，事务里再走 getSetting 会等到超时
  */
@@ -331,6 +333,7 @@ export async function 超上限(
   userId: string,
   p: { phase: string; result: string | null },
 ): Promise<string | null> {
+  if (!企业版()) return null;
   if (p.result || !(能进公海的阶段 as readonly string[]).includes(p.phase)) return null;
   const 上限 = 持有上限of(规则, userId);
   if (上限 === null) return null;
@@ -341,7 +344,7 @@ export async function 超上限(
 }
 
 /**
- * 放回公海：只有负责人本人能放，线索 / 商机阶段才行。ownerId 留着放回去的人（他就是「历史负责人」，自己也能再领回），
+ * 放回公海：只有负责人本人能放，线索 / 商机阶段才行。ownerId 留着放回去的人（他就是「历史负责人」；企业版里自己也能再领回，别的版本不能），
  * 记一行 pool-release。项目组、节点、交付两项都不动
  */
 export async function 放回公海(me: 谁, projectId: string): Promise<结果> {
@@ -358,7 +361,7 @@ export async function 放回公海(me: 谁, projectId: string): Promise<结果> 
 }
 
 /**
- * 从公海领取：谁都能领，放回去的那位也能领回（10-24 定）；领了就是新负责人，记一行 pool-claim。
+ * 从公海领取：谁都能领；放回去的那位企业版里能领回（10-24 定），别的版本照旧不能自己领回。领了就是新负责人，记一行 pool-claim。
  * 开了持有上限的，到上限了领不了
  */
 export async function 领取公海项目(me: 谁, projectId: string): Promise<结果> {
@@ -368,6 +371,7 @@ export async function 领取公海项目(me: 谁, projectId: string): Promise<�
     if (!p) return { ok: false as const, error: "这个项目已经不在了，刷新看看" };
     if (!p.pooledAt) return { ok: false as const, error: "这个项目已经被人领走了，刷新看看" };
     if (!(await 在职(tx, me.id))) return { ok: false as const, error: "账号已停用" };
+    if (!企业版() && me.id === p.ownerId) return { ok: false as const, error: "自己放回公海的项目不能自己领回" };
     const 超 = await 超上限(tx, 规则, me.id, p);
     if (超) return { ok: false as const, error: 超 };
     await tx.project.update({ where: { id: p.id }, data: { ownerId: me.id, pooledAt: null } });

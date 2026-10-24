@@ -2,9 +2,10 @@
  * 团队版项目模式 1a 的读写（lib/project/db.ts）+ 业务员看得到哪些项目（lib/team-scope.ts）。
  * 钉的是总控 10-23 的规则：每改一次节点留一行、往前只能一步、成功交付两项都勾才让点、异常要选类别（备注可空）、
  * 恢复 = 再改节点；组员角色、异常类别字典只有老板能改、停用不删；项目跟客户走，负责人自己的也看得到；
- * 项目公海（线索 / 商机阶段负责人放回、谁都能领（放回的人也能领回）、都留痕；企业版持有上限）；建档人谁都改不了。
+ * 项目公海（线索 / 商机阶段负责人放回、谁都能领、都留痕；企业版里放回的人也能领回、有持有上限，
+ * 不是企业版（CRM_ENTERPRISE 不设）时 Setting 里开着也不生效、放回的人不能自己领回）；建档人谁都改不了。
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
 import {
@@ -210,6 +211,10 @@ describe("异常类别字典", () => {
 });
 
 describe("项目公海", () => {
+  // 下面默认按企业版跑；「不是企业版」那条自己关掉
+  beforeEach(() => { vi.stubEnv("CRM_ENTERPRISE", "1"); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
   it("负责人在线索 / 商机阶段能放回；订单阶段、别人、已在公海都拦", async () => {
     const 线索 = await 项目(乙.id);
     const 商机 = await 项目(乙.id, 客户甲, { phase: "商机", node: "签约审批" });
@@ -297,6 +302,20 @@ describe("项目公海", () => {
     expect(await 改项目(老板, d.id, { name: "一号项目", ownerId: 丙.id })).toMatchObject({ ok: true });
     // 不换人只改名不拦
     expect(await 改项目(丙, a.id, { name: "改个名" })).toMatchObject({ ok: true });
+  });
+
+  it("不是企业版：Setting 里持有上限开着也不拦领取和指派；放回的人不能自己领回（原来的规矩）", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "");
+    await setSetting("orgRules", { 公海: { 持有上限开: true, 默认上限: 1, 每人上限: { [丙.id]: 0 } } });
+    await 项目(丙.id);
+    const a = await 项目(乙.id);
+    await 放回公海(乙, a.id);
+    expect(await 持有数(prisma, 丙.id)).toBe(1);
+    expect(await 领取公海项目(乙, a.id)).toMatchObject({ ok: false, error: "自己放回公海的项目不能自己领回" });
+    expect(await 领取公海项目(丙, a.id)).toEqual({ ok: true });
+    const c = await 项目(老板.id);
+    expect(await 改项目(老板, c.id, { name: "一号项目", ownerId: 丙.id })).toMatchObject({ ok: true });
+    expect(await prisma.project.count({ where: { ownerId: 丙.id, pooledAt: null } })).toBe(3);
   });
 
   it("持有上限按人单独设：0 = 一个都不能再拿；没单独设的用默认", async () => {

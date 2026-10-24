@@ -13,8 +13,8 @@ export type 项目设置 = {
   角色们: 字典项[];
   /** 进异常状态时选的类别；用的人 = 现在停在这个类别上的项目数 */
   类别们: 字典项[];
-  /** 企业版组织规则，每条默认关 */
-  组织规则: 组织规则;
+  /** 企业版组织规则，每条默认关；不是企业版 = null，卡片不出（服务端读的 企业版()） */
+  组织规则: 组织规则 | null;
   /** 每人手上线索 / 商机阶段的项目数（userId → 个数），算持有上限的口径 */
   持有: Record<string, number>;
 };
@@ -60,7 +60,7 @@ export default function ProjectSettingsTab({ value, isAdmin, 成员 }: { value: 
         停用说明="停用后不能再选；已经用着它的项目不变"
         项们={value.类别们} isAdmin={isAdmin} 忙={忙} 跑={跑} 加={加项目异常类别} 改={改项目异常类别}
       />
-      <HoldCapCard 规则={value.组织规则.公海} 持有={value.持有} 成员={成员} isAdmin={isAdmin} 忙={忙} 跑={跑} />
+      {value.组织规则 && <HoldCapCard 规则={value.组织规则.公海} 持有={value.持有} 成员={成员} isAdmin={isAdmin} 忙={忙} 跑={跑} />}
     </div>
   );
 }

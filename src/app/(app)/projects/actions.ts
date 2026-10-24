@@ -14,6 +14,7 @@ import { 规整向导, 向导接着建, type 建好的, type 向导联系人, ty
 import { 改节点, 勾交付, 加角色, 改角色, 加异常类别, 改异常类别, 删项目, 交付项们, 改项目, 加组员, 换组员角色, 移出组员, 放回公海, 领取公海项目, 超上限, type 交付项 } from "@/lib/project/db";
 import { 合上改动, type 规则改动 } from "@/lib/project/org-rules";
 import { 读组织规则, 存组织规则 } from "@/lib/project/org-rules-store";
+import { 企业版 } from "@/lib/enterprise/switch";
 import type { 位置 } from "@/lib/project/nodes";
 import { saveCustomer, type CustomerInput } from "../customers/actions";
 
@@ -278,11 +279,12 @@ export async function 移出项目组员(memberId: string) {
   } catch (e) { return 不在了(e); }
 }
 
-/** 企业版组织规则（持有上限等）：只有老板能改，每条默认关（lib/project/org-rules.ts） */
+/** 企业版组织规则（持有上限等）：不是企业版改不了；只有老板能改，每条默认关（lib/project/org-rules.ts） */
 export async function 改组织规则(改: 规则改动) {
   try {
     const me = await requireUser();
     if (!(await 开着())) return 没开;
+    if (!企业版()) return { ok: false as const, error: "组织规则是企业版的功能" };
     if (me.role !== "ADMIN") return { ok: false as const, error: "组织规则只有老板能改" };
     const 新 = 合上改动(await 读组织规则(), 改);
     if ("error" in 新) return { ok: false as const, error: 新.error };
