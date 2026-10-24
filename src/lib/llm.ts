@@ -81,6 +81,8 @@ type ChatOpts = {
 };
 
 const DEFAULT_MAX_TOKENS = 4000;
+/** 模型修过一次还是没回合法 JSON 时给人看的话。不带模型原文（10-24） */
+export const JSON格式不对 = "AI 返回格式不对，请重试";
 
 /**
  * 下面两张表记的都是「试探出来的模型行为」。
@@ -374,7 +376,9 @@ export async function chatMessagesJSON(messages: ToolMessage[], opts: ChatOpts =
     try {
       return JSON.parse(stripCodeFence(retry));
     } catch {
-      throw new Error(`AI 返回内容不是合法 JSON：${retry.slice(0, 200)}`);
+      // 模型原文不进错误信息：它会经 /api/ai/stream 原样摆到界面上，还可能带客户内容。日志只记字数（10-24 质量 #146 审查）
+      console.warn(`[llm] JSON 修过一次仍解析不了（${retry.length} 字）`);
+      throw new Error(JSON格式不对);
     }
   }
 }
@@ -520,7 +524,8 @@ export async function chatJSON(prompt: string, opts: ChatOpts = {}): Promise<unk
     try {
       return JSON.parse(retried);
     } catch {
-      throw new Error(`AI 返回内容不是合法 JSON：${retried.slice(0, 200)}`);
+      console.warn(`[llm] JSON 修过一次仍解析不了（${retried.length} 字）`);
+      throw new Error(JSON格式不对);
     }
   }
 }
