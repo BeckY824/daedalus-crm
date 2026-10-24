@@ -9,6 +9,7 @@
 #   *.sha256                              对应校验文件，和包放在一起上传，脚本会自动校验
 #
 # 镜像要先在 GHCR 上发布好（发版流程会推）。这里只拉取、导出，不构建。
+# LOCAL_APP_IMAGE=1：应用镜像用本机刚打好的（CI 演练用，不拉 GHCR），只拉 Caddy。
 set -euo pipefail
 
 VER="${1:?用法：pack.sh <版本号> [输出目录]}"
@@ -34,11 +35,20 @@ touch "$STAGE/crm-enterprise/certs/.keep"
 COPYFILE_DISABLE=1 tar -czf "$OUT/crm-enterprise-$VER.tar.gz" -C "$STAGE" crm-enterprise
 sha "crm-enterprise-$VER.tar.gz"
 
-echo "▶ 拉取 $PLATFORM 镜像…"
-docker pull --platform "$PLATFORM" "$IMAGE:$VER"
-docker pull --platform "$PLATFORM" "$CADDY"
+SAVE=(docker save --platform "$PLATFORM")
+if [ "${LOCAL_APP_IMAGE:-}" = "1" ]; then
+  docker image inspect "$IMAGE:$VER" >/dev/null 2>&1 || { echo "❌ 本机没有 $IMAGE:$VER" >&2; exit 1; }
+  echo "▶ 应用镜像用本机的 $IMAGE:${VER}，拉取 Caddy…"
+  docker pull --platform "$PLATFORM" "$CADDY"
+  # 本机打的镜像只有一个平台，带 --platform 导出会因为找不到别的平台报错
+  SAVE=(docker save)
+else
+  echo "▶ 拉取 $PLATFORM 镜像…"
+  docker pull --platform "$PLATFORM" "$IMAGE:$VER"
+  docker pull --platform "$PLATFORM" "$CADDY"
+fi
 echo "▶ 导出离线镜像包（几分钟）…"
-docker save --platform "$PLATFORM" "$IMAGE:$VER" "$CADDY" | gzip > "$OUT/crm-images-$VER.tar.gz"
+"${SAVE[@]}" "$IMAGE:$VER" "$CADDY" | gzip > "$OUT/crm-images-$VER.tar.gz"
 sha "crm-images-$VER.tar.gz"
 
 echo "✅ $OUT"

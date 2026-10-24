@@ -25,6 +25,22 @@ export function 写每列(每列: Record<string, number>): string {
   return OPP_STAGES.map((s) => 每列[s] ?? 每批).join(",");
 }
 
+/**
+ * URL 里的 new=a,b,c：刚新建 / 刚挪过的几张（排不进那列前 N 也要带上，不然刷新后从看板上消失）。
+ * 连着挪好几张进不同的大列时一张都不能丢，所以记最近几张、不是只记一张；太长的截掉最早的
+ */
+export const 记几张 = 20;
+
+export function 读新(v: string | undefined | null): string[] {
+  const 们 = [...new Set((v ?? "").split(",").map((x) => x.trim()).filter(Boolean))];
+  return 们.slice(-记几张);
+}
+
+/** 在原来那串后头加一张（已经在里头的挪到最后），超过 记几张 截掉最早的 */
+export function 加新(原: string | undefined | null, id: string): string {
+  return [...读新(原).filter((x) => x !== id), id].slice(-记几张).join(",");
+}
+
 /** 一批行汇总成列头（服务端在全部行上算；行序要和页面一致：金额从大到小） */
 export function 汇总<T>(行: T[], 取金额: (r: T) => number, 取币种: (r: T) => string): 列汇总 {
   const 条数 = new Map<string, number>();
