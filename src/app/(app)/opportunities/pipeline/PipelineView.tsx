@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { App, Button, Dropdown, Space } from "antd";
 import { UnorderedListOutlined, PlusOutlined } from "@ant-design/icons";
@@ -9,7 +9,8 @@ import EmptyState from "@/components/EmptyState";
 import { 主题颜色 } from "@/lib/chart-theme";
 import { 列表不问归属ID } from "@/lib/solo";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
-import { 金额, 按币种合计, 合计文字 } from "@/lib/currency";
+import { 金额, 合计文字 } from "@/lib/currency";
+import { 每批, 写每列, 列头, type 列汇总 } from "@/lib/pipeline-columns";
 import { useBusiness } from "@/lib/business-client";
 import { stageLabel, 外贸订单, 外贸精简 } from "@/lib/business-config";
 import { moveStage } from "../actions";
@@ -46,14 +47,28 @@ type Row = {
  *
  *   推进之后给一次撤销。拖拽最容易手滑，而这一下是真写库的；
  *   没有撤销，人就只能再拖回去——而且未必记得原来在哪一列。
+ *
+ * 每列先摆 50 张，底下「再看 50 条」（2026-10-24 企业版压测：1 万张卡整页 8.6 MB）。
+ * 列头的条数和合计仍是这一列的全部，服务端算好给过来（列）；不到 50 张的列照原样在卡片上算（lib/pipeline-columns.ts）。
  */
 export default function PipelineView({
   rows,
   赢单天数,
   users,
   customers,
+  列 = {},
+  总条数 = rows.length,
+  全部负责人 = rows.map((r) => r.ownerId),
+  每列 = {},
 }: {
+  /** 每列的前几张（每列 定几张；刚新建的那张不在前几张也在） */
   rows: Row[];
+  /** 每列在全部商机上的条数和合计；不带就按摆出来的这些算（和分批之前一样） */
+  列?: Record<string, 列汇总>;
+  总条数?: number;
+  /** 全部商机的负责人 id：要不要在卡上写负责人看全部，不看已摆出来的这几张 */
+  全部负责人?: (string | undefined)[];
+  每列?: Record<string, number>;
   /** 赢单列摆近几天赢下的（page.tsx 定） */
   赢单天数: number;
   /** 新建框要的两份候选（和列表页同一个框，见 ../OpportunityForm.tsx） */
@@ -63,7 +78,7 @@ export default function PipelineView({
   const router = useRouter();
   const { message } = App.useApp();
   const b = useBusiness();
-  const 显示负责人 = !rows.every(r => r.ownerId) || !列表不问归属ID(users, rows.map(r => r.ownerId));
+  const 显示负责人 = !rows.every(r => r.ownerId) || !列表不问归属ID(users, 全部负责人);
   /*
     「新建商机」就地弹框（2026-09-29）：原来这一页没有表单，点了跳回列表页再打开——按钮写着新建，人却被带走了。
     保存后留在管道里，新的那张卡亮两秒（和列表里新建的行同一种亮法），人一眼看见它落在哪一列
@@ -73,10 +88,15 @@ export default function PipelineView({
   const 新建 = () => (b.projectMode ? router.push("/projects/new") : set新建开着(true));
   const 见过 = useRef<Set<string> | null>(null);
   const [新来的, set新来的] = useState<string | null>(null);
+  // 「再看 50 条」翻出来的不是新建的，不亮；剩下正好一张时也不能把它当成新建的
+  const 批次 = 写每列(每列);
+  const 上一批 = useRef(批次);
   useEffect(() => {
     const ids = rows.map((r) => r.id);
-    if (见过.current === null) {
-      见过.current = new Set(ids);
+    if (见过.current === null || 上一批.current !== 批次) {
+      上一批.current = 批次;
+      if (见过.current === null) 见过.current = new Set(ids);
+      else ids.forEach((id) => 见过.current!.add(id));
       return;
     }
     const 新 = ids.filter((id) => !见过.current!.has(id));
@@ -85,7 +105,16 @@ export default function PipelineView({
     set新来的(新[0]);
     const t = setTimeout(() => set新来的(null), 2000);
     return () => clearTimeout(t);
-  }, [rows]);
+  }, [rows, 批次]);
+  /** 换 URL 参数重新取（每列几张 n、刚新建 / 刚挪的 new），页面不跳回顶上；只有「再看」等着时按钮转圈 */
+  const [翻着, 开始翻] = useTransition();
+  const 换参数 = (改: Record<string, string>, 是翻页 = false) => {
+    const p = new URLSearchParams(window.location.search);
+    for (const [k, v] of Object.entries(改)) p.set(k, v);
+    const 换 = () => router.replace(`${window.location.pathname}?${p}`, { scroll: false });
+    if (是翻页) 开始翻(换);
+    else 换();
+  };
   const 新建框 = (
     <OpportunityForm
       open={新建开着}
@@ -93,9 +122,11 @@ export default function PipelineView({
       users={users}
       customers={customers}
       onClose={() => set新建开着(false)}
-      onSaved={() => {
+      onSaved={(id) => {
         set新建开着(false);
-        router.refresh();
+        // 新建的那张可能排在第 50 张以后：带上它的 id，服务端不在前几张也取回来，好让它亮一下
+        if (id) 换参数({ new: id });
+        else router.refresh();
       }}
     />
   );
@@ -127,7 +158,8 @@ export default function PipelineView({
     const r = 签约框;
     set签约框(null);
     if (!r) return;
-    if (saved) return void router.refresh();
+    // 赢单列也只摆了前几张时，刚赢的这张可能排不进：带上它的 id 重取（和新建一样），不然刷新后它从看板上消失
+    if (saved) return void 换参数({ new: r.id });
     // 外贸：拖进「客户确认」就是转为订单，订单框点了取消 = 没转，卡片回原列（不然商机挂着「已转订单」却没有订单）
     if (外贸订单(b)) return void set挪(null);
     await 写阶段(r, "赢单成交");
@@ -139,10 +171,11 @@ export default function PipelineView({
     if (!res.ok) {
       set挪(null);
       message.error(res.error);
-      router.refresh();
+      换参数({ new: r.id });
       return;
     }
-    router.refresh();
+    // 挪进的那列只摆了前几张、这张金额又排不进时，光刷新它就从看板上消失了：带上它的 id 重取
+    换参数({ new: r.id });
     if (是撤销) return void message.success(`「${r.name}」已退回 ${stageLabel(b, 到)}`);
     const key = `stage-${r.id}`;
     let 已撤销 = false;
@@ -173,7 +206,7 @@ export default function PipelineView({
     if (row) void 推进(row, stage);
   }
 
-  if (rows.length === 0) {
+  if (总条数 === 0 && rows.length === 0) {
     return (
       <>
         <PageHead title="商机管道" subtitle="拖动卡片推进阶段" />
@@ -210,8 +243,9 @@ export default function PipelineView({
       <div className="pipe">
         {OPP_STAGES.map((stage) => {
           const items = rows.filter((r) => 显示阶段(r) === stage);
-          // 按币种分开加，不换汇（lib/currency.ts）：一列里有美元有欧元就写两段
-          const sum = 合计文字(按币种合计(items, (r) => r.amount, (r) => r.currency), b.currency);
+          // 按币种分开加，不换汇（lib/currency.ts）：一列里有美元有欧元就写两段。条数、合计都是这一列的全部，不只摆出来的这几张
+          const 头 = 列头(stage, rows, 显示阶段, 列[stage]);
+          const sum = 合计文字(头.合计, b.currency);
           const color = 主题颜色(OPP_STAGE_COLOR[stage]);
           const active = overStage === stage;
 
@@ -229,12 +263,12 @@ export default function PipelineView({
               <div className="pipe-h" title={stage === "赢单成交" ? `近 ${赢单天数} 天${外贸订单(b) ? "转订单的" : "赢下的"}` : undefined}>
                 <span className="pipe-dot" style={{ background: color }} />
                 <b>{stageLabel(b, stage)}</b>
-                <span className="pipe-n">{items.length}</span>
+                <span className="pipe-n">{头.条数}</span>
                 <span className="pipe-sum" title={sum}>{sum}</span>
               </div>
               <div className="pipe-bar" style={{ background: color }} />
 
-              {items.length === 0 && <div className="pipe-empty">{stage === "赢单成交" ? `近 ${赢单天数} 天还没有${外贸订单(b) ? "转订单的" : "赢单"}` : "这一阶段没有在谈的"}</div>}
+              {头.条数 === 0 && <div className="pipe-empty">{stage === "赢单成交" ? `近 ${赢单天数} 天还没有${外贸订单(b) ? "转订单的" : "赢单"}` : "这一阶段没有在谈的"}</div>}
 
               {items.map((r) => (
                 <Dropdown
@@ -275,6 +309,14 @@ export default function PipelineView({
                   </div>
                 </Dropdown>
               ))}
+
+              {头.还有 > 0 && (
+                <Button block type="text" size="small" className="pipe-more" loading={翻着}
+                  onClick={() => 换参数({ n: 写每列({ ...每列, [stage]: (每列[stage] ?? 每批) + 每批 }) }, true)}>
+                  {头.还有 > 每批 ? `再看 ${每批} 条` : `再看剩下 ${头.还有} 条`}
+                  {头.还有 > 每批 && <span className="pipe-n">还有 {头.还有}</span>}
+                </Button>
+              )}
             </div>
           );
         })}

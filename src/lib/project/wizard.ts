@@ -9,6 +9,7 @@ import { hasVisibleText } from "../form-validation";
 import { parseDateInput } from "../date-input";
 import { FOLLOW_TYPES } from "../constants";
 import { 是币种, 默认币种 } from "../currency";
+import { dayjs } from "../utils";
 import { 第一个节点 } from "./nodes";
 import { 登记接着建, type 接着建 } from "./hook";
 
@@ -17,13 +18,18 @@ export const 备注上限 = 500;
 
 export type 向导联系人 = { name: string; position?: string | null; phone?: string | null; email?: string | null; wechat?: string | null };
 export type 向导项目 = { name: string; ownerId?: string | null; amount?: number | null; currency?: string | null; remark?: string | null };
-export type 向导跟进 = { type: string; content: string; occurredAt: string };
+/** 下一步时间：企业版开了超时回收时线索、商机阶段必填（lib/project/timeout.ts），没开可不填 */
+export type 向导跟进 = { type: string; content: string; occurredAt: string; 下一步时间?: string | null };
 
 export type 规整好的 = {
   联系人: { name: string; position: string | null; phone: string | null; email: string | null; wechat: string | null };
   项目: { name: string; ownerId: string; amount: number; currency: string; remark: string | null };
-  跟进: { type: string; content: string; occurredAt: Date };
+  跟进: 规整好的沟通;
 };
+
+export type 规整好的沟通 = { type: string; content: string; occurredAt: Date; nextStepAt: Date | null };
+
+export const 要下一步时间 = "开了超时回收：线索、商机阶段的项目记沟通要填下一步时间";
 
 /** 首条跟进记的是一次沟通；待办、提醒要带时间，进了项目页再排 */
 const 首条能记的 = FOLLOW_TYPES.filter((t) => t.value !== "TASK" && t.value !== "REMIND").map((t) => t.value as string);
@@ -43,11 +49,35 @@ export function 规整项目(p: 向导项目, 默认负责人: string): 规整�
   return { name: 文字(p.name), ownerId: p.ownerId || 默认负责人, amount, currency, remark: 可空(p.remark) };
 }
 
-/** 后四步交上来的规整一遍。负责人没选 = 自己；在不在职由调用方查库 */
+/**
+ * 一条项目沟通规整一遍：向导的首条跟进、项目详情里「记一条」共用。
+ * 要下一步 = 开了超时回收、项目在线索 / 商机阶段（调用方判断）；下一步时间填了就得是今天或以后
+ */
+export function 规整沟通(
+  f: 向导跟进,
+  opt: { 要下一步: boolean; now?: Date; 叫法?: string },
+): 规整好的沟通 | { error: string } {
+  const now = opt.now ?? new Date(), 叫 = opt.叫法 ?? "";
+  if (!首条能记的.includes(f.type)) return { error: `${叫}跟进的类型「${f.type}」不能选` };
+  if (!hasVisibleText(f.content)) return { error: `请填写${叫}跟进的沟通内容` };
+  const occurredAt = parseDateInput(f.occurredAt);
+  if (!occurredAt) return { error: `${叫}跟进的时间格式不正确` };
+  if (occurredAt.getTime() > now.getTime() + 60_000) return { error: `${叫}跟进的时间不能在未来` };
+  let nextStepAt: Date | null = null;
+  if (文字(f.下一步时间)) {
+    nextStepAt = parseDateInput(f.下一步时间);
+    if (!nextStepAt) return { error: "下一步时间格式不正确" };
+    if (dayjs(nextStepAt).format("YYYY-MM-DD") < dayjs(now).format("YYYY-MM-DD")) return { error: "下一步时间不能早于今天" };
+  } else if (opt.要下一步) return { error: 要下一步时间 };
+  return { type: f.type, content: 文字(f.content), occurredAt, nextStepAt };
+}
+
+/** 后四步交上来的规整一遍。负责人没选 = 自己；在不在职由调用方查库。要下一步 = 开了超时回收（项目建在线索阶段） */
 export function 规整向导(
   me: { id: string },
   input: { 联系人?: 向导联系人; 项目?: 向导项目; 跟进?: 向导跟进 },
   now = new Date(),
+  要下一步 = false,
 ): 规整好的 | { error: string } {
   const c = input.联系人, p = input.项目, f = input.跟进;
   if (!c || !p || !f) return { error: "建档信息不完整，请从头再走一遍" };
@@ -58,16 +88,13 @@ export function 规整向导(
   const 项目 = 规整项目(p, me.id);
   if ("error" in 项目) return 项目;
 
-  if (!首条能记的.includes(f.type)) return { error: `首条跟进的类型「${f.type}」不能选` };
-  if (!hasVisibleText(f.content)) return { error: "请填写首条跟进的沟通内容" };
-  const occurredAt = parseDateInput(f.occurredAt);
-  if (!occurredAt) return { error: "首条跟进的时间格式不正确" };
-  if (occurredAt.getTime() > now.getTime() + 60_000) return { error: "首条跟进的时间不能在未来" };
+  const 跟进 = 规整沟通(f, { 要下一步, now, 叫法: "首条" });
+  if ("error" in 跟进) return 跟进;
 
   return {
     联系人: { name: 文字(c.name), position: 可空(c.position), phone: 电话, email: 可空(c.email), wechat: 可空(c.wechat) },
     项目,
-    跟进: { type: f.type, content: 文字(f.content), occurredAt },
+    跟进,
   };
 }
 
@@ -84,12 +111,12 @@ export function 向导接着建(me: { id: string }, 好: 规整好的, 出参: P
     const 项目 = await tx.project.create({
       data: {
         ...好.项目, customerId, contactId: 联系人.id, creatorId: me.id,
-        phase: 第一个节点.phase, node: 第一个节点.node,
+        phase: 第一个节点.phase, node: 第一个节点.node, nextStepAt: 好.跟进.nextStepAt,
       },
     });
     await tx.projectNodeLog.create({ data: { projectId: 项目.id, userId: me.id, toPhase: 第一个节点.phase, toNode: 第一个节点.node } });
     const 跟进 = await tx.followUp.create({
-      data: { ...好.跟进, title: "", status: "已完成", customerId, contactId: 联系人.id, ownerId: me.id },
+      data: { type: 好.跟进.type, content: 好.跟进.content, occurredAt: 好.跟进.occurredAt, title: "", status: "已完成", customerId, contactId: 联系人.id, ownerId: me.id },
     });
     await tx.followUpProject.create({ data: { followUpId: 跟进.id, projectId: 项目.id, node: 第一个节点.node } });
     await tx.customer.update({ where: { id: customerId }, data: { lastFollowAt: 好.跟进.occurredAt } });

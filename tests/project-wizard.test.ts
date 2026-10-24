@@ -3,7 +3,7 @@
  * 钉的是「最后一步一笔落库」：成功时客户、主要联系人、项目、首条跟进全有且连好；
  * 开关关着、客户撞号、中途哪一步写失败，都一行不留。
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   user: { id: "", name: "甲", email: "a@x", role: "ADMIN", title: "管理员", avatar: null },
@@ -22,6 +22,8 @@ import { resetDb } from "./reset";
 import { 建档向导, 删除项目, type 建档向导输入 } from "@/app/(app)/projects/actions";
 import { saveCustomer, deleteCustomers, 客户删除预检 } from "@/app/(app)/customers/actions";
 import { 规整向导 } from "@/lib/project/wizard";
+import { 默认组织规则 } from "@/lib/project/org-rules";
+import { setSetting, invalidateSettingsCache } from "@/lib/settings";
 
 let 甲: string;
 let 乙: string;
@@ -49,8 +51,11 @@ async function 各表行数() {
 }
 const 全空 = { customer: 0, contact: 0, project: 0, log: 0, followUp: 0, link: 0, creator: 0 };
 
+afterEach(() => { vi.unstubAllEnvs(); });
+
 beforeEach(async () => {
   await resetDb();
+  invalidateSettingsCache();
   mocks.开 = true;
   甲 = (await prisma.user.create({ data: { email: "jia", name: "甲", title: "", role: "ADMIN", password: "x" } })).id;
   乙 = (await prisma.user.create({ data: { email: "yi", name: "乙", title: "", role: "SALES", password: "x" } })).id;
@@ -85,6 +90,27 @@ describe("建档向导", () => {
     if (r.ok) expect((await prisma.project.findUniqueOrThrow({ where: { id: r.projectId } })).ownerId).toBe(甲);
   });
 
+  describe("下一步时间（企业版超时回收）", () => {
+    const 开着超时 = { ...默认组织规则, 超时回收: { 开: true, 节点天数: { 潜客培育: 7 } } };
+    const 带下一步 = (下一步时间: string) => 输入({ 跟进: { type: "PHONE", content: "电话聊了需求", occurredAt: "2026-10-20 10:00", 下一步时间 } });
+    const 项目的 = async (r: Awaited<ReturnType<typeof 建档向导>>) => r.ok ? (await prisma.project.findUniqueOrThrow({ where: { id: r.projectId } })).nextStepAt : "没建成";
+
+    it("不是企业版：Setting 里开着也不要、老草稿里留着的（过期的也一样）不认，项目不写下一步时间", async () => {
+      await setSetting("orgRules", 开着超时);
+      expect(await 项目的(await 建档向导(输入()))).toBeNull();
+      expect(await 项目的(await 建档向导({ ...带下一步("2099-01-01"), 客户: { ...输入().客户, phone: "13900000011" } }))).toBeNull();
+      expect(await 项目的(await 建档向导({ ...带下一步("2020-01-01"), 客户: { ...输入().客户, phone: "13900000012" } }))).toBeNull();
+    });
+
+    it("企业版开了超时回收：不填拦，填了写上项目", async () => {
+      vi.stubEnv("CRM_ENTERPRISE", "1");
+      await setSetting("orgRules", 开着超时);
+      expect(await 建档向导(输入())).toMatchObject({ ok: false, error: expect.stringContaining("下一步时间") });
+      const 下一步 = await 项目的(await 建档向导(带下一步("2099-01-01")));
+      expect(下一步 && typeof 下一步 !== "string" && 下一步.getFullYear()).toBe(2099);
+    });
+  });
+
   it("开关关着：拦下，一行不写", async () => {
     mocks.开 = false;
     expect(await 建档向导(输入())).toMatchObject({ ok: false, error: expect.stringContaining("项目模式没开") });
@@ -95,6 +121,25 @@ describe("建档向导", () => {
     await prisma.user.update({ where: { id: 乙 }, data: { active: false } });
     expect(await 建档向导(输入({ 项目: { name: "x", ownerId: 乙 } }))).toMatchObject({ ok: false, error: expect.stringContaining("负责人") });
     expect(await 各表行数()).toEqual(全空);
+  });
+
+  it("持有上限开着（企业版）：给到了上限的人建拦下、一行不写；建给自己不拦", async () => {
+    vi.stubEnv("CRM_ENTERPRISE", "1");
+    await setSetting("orgRules", { 公海: { 持有上限开: true, 默认上限: 1 } });
+    const 客 = await prisma.customer.create({ data: { name: "老客户", phone: "13900000009", salesOwnerId: 甲 } });
+    await prisma.project.create({ data: { name: "已有", customerId: 客.id, ownerId: 乙, creatorId: 乙 } });
+    await prisma.project.create({ data: { name: "已有", customerId: 客.id, ownerId: 甲, creatorId: 甲 } });
+    const 前 = await 各表行数();
+    expect(await 建档向导(输入({ 项目: { name: "x", ownerId: 乙 } }))).toMatchObject({ ok: false, error: expect.stringContaining("持有上限") });
+    expect(await 各表行数()).toEqual(前);
+    expect(await 建档向导(输入())).toMatchObject({ ok: true });
+  });
+
+  it("不是企业版：Setting 里持有上限开着也不拦", async () => {
+    await setSetting("orgRules", { 公海: { 持有上限开: true, 默认上限: 1 } });
+    const 客 = await prisma.customer.create({ data: { name: "老客户", phone: "13900000009", salesOwnerId: 甲 } });
+    await prisma.project.create({ data: { name: "已有", customerId: 客.id, ownerId: 乙, creatorId: 乙 } });
+    expect(await 建档向导(输入({ 项目: { name: "x", ownerId: 乙 } }))).toMatchObject({ ok: true });
   });
 
   it("客户撞号：saveCustomer 拦下，联系人、项目、跟进都不建", async () => {
