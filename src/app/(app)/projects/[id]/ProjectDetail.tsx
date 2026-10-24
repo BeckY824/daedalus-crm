@@ -42,6 +42,8 @@ export type 项目详情 = {
    * 只能靠填齐 = 不是老板、主管，手动往前推不给（往后退、点结局照旧）
    */
   必填: { 配了: string[]; 还差: string[]; 只能靠填齐: boolean } | null;
+  /** 企业版 D-37：负责人有直属上级、我又不是这位上级（也不是老板）时，往前推不给的那句话；null = 能推 */
+  不给推: string | null;
   balanceSettled: boolean; balanceSettledBy: string | null; balanceSettledAt: string | null;
   acceptancePassed: boolean; acceptancePassedBy: string | null; acceptancePassedAt: string | null;
   /** kind 不是 node 的行是换负责人（转让 / 放回公海 / 从公海领取），transfer 记从谁到谁；category 是进异常时选的类别 */
@@ -240,10 +242,10 @@ export default function ProjectDetail({
               value={null}
               disabled={!可改 || 忙}
               title={不能改}
-              options={去处们(当前, !!p.必填?.只能靠填齐)}
+              options={去处们(当前, !!p.必填?.只能靠填齐 || !!p.不给推)}
               onChange={(v: string | null) => v && 改到(JSON.parse(v) as 位置)}
             />
-            <Button type="primary" disabled={!可改 || 忙 || !下 || !!p.必填?.只能靠填齐} title={不能改 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
+            <Button type="primary" disabled={!可改 || 忙 || !下 || !!p.必填?.只能靠填齐 || !!p.不给推} title={不能改 ?? p.不给推 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
               {下 ? `下一步：${下.phase === p.phase ? 下.node : `${下.phase}·${下.node}`}` : "下一步"}
             </Button>
           </Space>
