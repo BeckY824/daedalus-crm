@@ -247,3 +247,23 @@ export async function 配对数字(公钥: string): Promise<string> {
   const n = new DataView(d.buffer).getUint32(0) % 1_000_000;
   return String(n).padStart(6, "0");
 }
+
+/* ---------------- 团队版附件（v5，2026-10-22 D-24）：手机只读看图 ---------------- */
+
+/** 和 crypto.ts 的 附件绑定 一样：团队、附件编号、原图 sha256 进 AAD */
+export type 附件绑定 = { teamId: string; id: string; sha256: string };
+
+/** 解开桌面端 封附件 的密文：版本 5 + 钥匙编号 + iv + 标签 + 密文，不压缩 */
+export async function 拆附件(b: Uint8Array, 钥匙: string | 钥匙环, x: 附件绑定): Promise<Uint8Array> {
+  if (b[0] !== 5 || b.length < 33) throw new Error("附件密文版本不对");
+  const 编号 = 读编号(b);
+  const k = typeof 钥匙 === "string" ? 钥匙 : 钥匙[String(编号)];
+  if (!k) throw new Error(`没有 ${编号} 号钥匙`);
+  return 解密(b.subarray(5), k, 拼(b.subarray(0, 5), 字.encode(`|attach|${x.teamId}|${x.id}|${x.sha256}`)));
+}
+
+/** 字节的 sha256（hex）：解开以后再核一遍是不是那张图 */
+export async function 字节sha256(b: Uint8Array): Promise<string> {
+  const d = new Uint8Array(await subtle().digest("SHA-256", 纯(b)));
+  return [...d].map((x) => x.toString(16).padStart(2, "0")).join("");
+}

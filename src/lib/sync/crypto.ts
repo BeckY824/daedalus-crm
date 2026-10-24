@@ -186,3 +186,32 @@ export function 拆范围<T>(封好: string, 钥匙: string | 钥匙环, 绑: �
 export function 查重哈希(钥匙: string, 原文: string): string {
   return createHmac("sha256", 钥(钥匙)).update(原文, "utf8").digest("hex");
 }
+
+/* ---------------- 团队版附件（v5，2026-10-22 D-24）：整张图一个密文 ---------------- */
+
+/** 附件绑在哪：团队、附件编号、原图 sha256（进 AAD，云端换了编号、挪到别的团队都解不开） */
+export type 附件绑定 = { teamId: string; id: string; sha256: string };
+const 附件附加 = (头: Buffer, x: 附件绑定) => Buffer.concat([头, Buffer.from(`|attach|${x.teamId}|${x.id}|${x.sha256}`, "utf8")]);
+
+/**
+ * 封：版本 5（1 字节）+ 钥匙编号（4 字节）+ iv + 标签 + 密文。不压缩（图片本来就压过）。
+ * iv 由钥匙和（团队、编号、sha256）算出来：同一把钥匙、同一张图永远是同一份密文，传到一半断了重开也能接着传。
+ * 附件存进去以后不再改（同一编号永远是同一份字节），不会出现同一个 iv 配两份不同明文
+ */
+export function 封附件(明: Buffer, 钥匙: string, 编号: number, x: 附件绑定): Buffer {
+  const 头 = Buffer.alloc(5);
+  头[0] = 5;
+  头.writeUInt32BE(编号, 1);
+  const iv = createHmac("sha256", 钥(钥匙)).update(`attach-iv|${x.teamId}|${x.id}|${x.sha256}`, "utf8").digest().subarray(0, 12);
+  const c = createCipheriv("aes-256-gcm", 钥(钥匙), iv);
+  c.setAAD(附件附加(头, x));
+  const 密 = Buffer.concat([c.update(明), c.final()]);
+  return Buffer.concat([头, iv, c.getAuthTag(), 密]);
+}
+export function 拆附件(b: Buffer, 钥匙: string | 钥匙环, x: 附件绑定): Buffer {
+  if (b[0] !== 5 || b.length < 33) throw new Error("附件密文版本不对");
+  const 编号 = b.readUInt32BE(1);
+  const k = typeof 钥匙 === "string" ? 钥匙 : 钥匙[String(编号)];
+  if (!k) throw new Error(`没有 ${编号} 号钥匙`);
+  return 解密(b.subarray(5), k, 附件附加(b.subarray(0, 5), x));
+}

@@ -18,7 +18,7 @@
  * 菜单照 Claude 桌面端那套：应用 / 文件 / 编辑 / 显示 / 前往 / 窗口 / 帮助，全是标准项。
  * 备份、日志、诊断、连接服务器这些搬进了设置页「桌面端」那一栏（preload-app.js 的 desktopShell）。
  */
-const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session, nativeTheme, Tray } = require("electron");
+const { app, BrowserWindow, Notification, shell, dialog, Menu, clipboard, ipcMain, nativeImage, session, nativeTheme, Tray, powerMonitor, net } = require("electron");
 const Windows通知 = require("./windows-toast-activation");
 // 协议辅助进程不初始化默认账号库，也不争用任何 QA 实例的单实例锁。
 if (process.platform === "win32" && process.argv.some(a => a.toLowerCase().startsWith(`${Windows通知.协议}:`))) {
@@ -39,6 +39,7 @@ const 差量 = require("./delta");
 const 窗装 = require("./windows-install");
 const 备份 = require("./backup");
 const 自动备份 = require("./auto-backup");
+const 附件 = require("./attachments");
 const 崩溃 = require("./crashlog");
 const { 创建通知出口 } = require("./notifications");
 const { 发送导航 } = require("./navigation");
@@ -1554,6 +1555,10 @@ async function 选择自动备份恢复() {
 }
 
 ipcMain.handle("shell:open-data", () => shell.openPath(数据目录));
+/** 附件用系统程序打开（attachments.js）：只在本机模式开本机数据目录里的；服务器模式页面自己走下载 */
+ipcMain.handle("attachments:open", (_e, id, 名) =>
+  读配置().mode === "local" ? 附件.打开附件({ 数据目录, id, 名, shell }) : { ok: false, error: "连着服务器时请用下载" },
+);
 /**
  * 换了个云端账号登录：把数据目录切过去，重起本地服务，窗口重载。
  *
@@ -1886,6 +1891,8 @@ if (!app.requestSingleInstanceLock()) {
       取端口: () => (读配置().mode === "local" ? 本地?.port ?? null : null),
       取令牌: () => (读配置().mode === "local" ? 本地?.token ?? null : null),
       前台: () => BrowserWindow.getFocusedWindow() != null,
+      // 断网恢复马上一轮（2026-10-23），不等下一个 30 秒
+      在线: () => net.isOnline(),
       有新改动: () => {
         for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send("team:changed");
       },
@@ -1893,6 +1900,9 @@ if (!app.requestSingleInstanceLock()) {
       同事新建: (列表) => void 同事提醒.收(列表, 提醒器?.设置() ?? 提醒.默认设置),
     });
     app.on("browser-window-focus", () => void 同步器?.刷新());
+    // 睡醒、解锁也马上一轮（2026-10-23 用户报合盖后「上次同步」停了一个多小时）：原来只有切回窗口才补，
+    // 窗口一直在前台、或醒了没点它，就要等睡前排的那个计时器——睡眠和 App Nap 下它可能晚很久才响
+    for (const e of ["resume", "unlock-screen"]) powerMonitor.on(e, () => void 同步器?.刷新());
     /*
       我们回复了你的反馈（desktop/feedback-replies.js，2026-10-19）：启动 8 秒后问一次，之后每 5 分钟；切回应用时最多 5 分钟问一次，
       和下面查运营台同一个节奏。有新回复弹系统通知，点了去「我的反馈」那一串；没看过的变了告诉窗口，左栏红点跟着出 / 收
