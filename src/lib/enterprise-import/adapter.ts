@@ -7,7 +7,11 @@
 import { getSetting } from "../settings";
 import { 钉钉适配器, type 钉钉配置 } from "./dingtalk";
 import { 飞书适配器, type 飞书配置 } from "./feishu";
-import type { 原始记录, 来源 } from "./types";
+import { 真联网, type 联网 } from "./net";
+import type { 原始记录, 实体, 来源 } from "./types";
+
+/** 每类现在有哪些列（拉的时候顺手读到的列描述，换成和 原始记录.字段 一样的列名） */
+export type 现有列 = Partial<Record<实体, Set<string>>>;
 
 export interface 适配器 {
   来源: 来源;
@@ -15,6 +19,8 @@ export interface 适配器 {
   拉全量(): Promise<原始记录[]>;
   /** 增量：自 since 之后改过的（原系统给不了就退回全量，靠指纹跳过没变的） */
   拉变化(since: Date | null): Promise<原始记录[]>;
+  /** 上一次 拉全量 / 拉变化 时原系统每类的列（按列描述，不看这次拉到哪几条）。给不了的不实现，同步就只看拉到的记录 */
+  现有列?(): 现有列 | null;
 }
 
 export class 还没接 extends Error {}
@@ -27,15 +33,19 @@ export const 连接键 = (来源: 来源) => `entConn.${来源}`;
  * 配好了就交给真正的适配器。
  */
 class 按配置适配器 implements 适配器 {
+  private 上次用的: 适配器 | null = null;
   constructor(public 来源: "feishu" | "dingtalk", private 名字: string) {}
   private async 真的(): Promise<适配器> {
+    return (this.上次用的 = await this.按配置());
+  }
+  private async 按配置(): Promise<适配器> {
     const c = await getSetting<Record<string, unknown>>(连接键(this.来源));
     const 有 = (k: string) => typeof c?.[k] === "string" && (c[k] as string).trim() !== "";
     if (c && this.来源 === "feishu" && 有("appId") && 有("appSecret") && Array.isArray(c.表们) && c.表们.length) {
-      return new 飞书适配器(c as unknown as 飞书配置);
+      return new 飞书适配器(c as unknown as 飞书配置, 用的网);
     }
     if (c && this.来源 === "dingtalk" && 有("appKey") && 有("appSecret") && 有("操作人UserId")) {
-      return new 钉钉适配器(c as unknown as 钉钉配置);
+      return new 钉钉适配器(c as unknown as 钉钉配置, 用的网, 用的网 === 真联网 ? undefined : 0);
     }
     throw new 还没接(`${this.名字}接口还没接：要客户在${this.名字}后台开应用、给读取权限后才能拉。先用${this.名字}导出的 Excel 导入。`);
   }
@@ -44,6 +54,9 @@ class 按配置适配器 implements 适配器 {
   }
   async 拉变化(since: Date | null): Promise<原始记录[]> {
     return (await this.真的()).拉变化(since);
+  }
+  现有列() {
+    return this.上次用的?.现有列?.() ?? null;
   }
 }
 
@@ -59,6 +72,12 @@ export class 现成适配器 implements 适配器 {
 }
 
 const 测试用: Partial<Record<来源, 适配器>> = {};
+let 用的网: 联网 = 真联网;
+
+/** 测试里让按配置建的飞书 / 钉钉适配器走假网（测「存好连接配置 → 取适配器」这条线上走的路）；null 换回真网 */
+export function 换联网(网: 联网 | null) {
+  用的网 = 网 ?? 真联网;
+}
 
 /** 测试里换掉某个来源的适配器（例如把飞书换成 现成适配器） */
 export function 换适配器(来源: 来源, a: 适配器 | null) {

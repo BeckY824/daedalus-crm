@@ -2543,4 +2543,11 @@ html.glass::-webkit-scrollbar-track, html.glass body::-webkit-scrollbar-track {
 .org-field-perm thead th { font-weight: 600; }
 .org-field-perm tbody th { font-weight: 500; }
 .org-field-perm tbody th .muted { font-size: 12px; font-weight: 400; }
+/* 线索分配那一屏：长名字截断，悬停看全名；窄窗口靠外层横向滚动 */
+.org-lead-assign-name { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
+/* 批量自动分配的结果：一条一行，线索名太长省略，别把弹窗撑开 */
+.lead-auto-assign-list { margin: 8px 0 0; padding: 0; list-style: none; max-height: 360px; overflow-y: auto; }
+.lead-auto-assign-list li { display: flex; gap: 8px; padding: 4px 0; min-width: 0; }
+.lead-auto-assign-name { flex: 0 0 auto; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.lead-auto-assign-list li > span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .team-dept-role { min-width: 72px; }
