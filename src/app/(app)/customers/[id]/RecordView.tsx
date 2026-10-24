@@ -43,6 +43,8 @@ import StarButton from "./StarButton";
 import AiCost, { useAiOutOfCredits } from "@/components/AiCost";
 import { toggleTask, deleteTask, deleteFollowUp, restoreFollowUp, completePlan, saveFollowUp } from "./actions";
 import { useContactRemoval } from "./useContactRemoval";
+import { useTransferConfirm } from "../useTransferConfirm";
+import { 历史负责人们, 换负责人一句 } from "@/lib/owner-log";
 import { useNarrow, useWidth } from "@/lib/roster";
 import PaneToggle from "@/components/PaneToggle";
 import { 登记详情名 } from "@/lib/page-rows";
@@ -105,6 +107,7 @@ export default function RecordView({
   已收藏 = false,
   能放公海 = false,
   只读: 只读档 = false,
+  换负责人记录 = [],
 }: RecordProps) {
   // 「加跟进」= 团队版互看同事的客户；「全」= 企业版虚线下属的客户，跟进也不能记
   const 只读 = !!只读档;
@@ -117,6 +120,7 @@ export default function RecordView({
   const b = useBusiness();
   const history = useFollowHistory(customer.id, followUps, followUpsHasMore);
   const { 问怎么拿掉 } = useContactRemoval();
+  const { 先问转走的项目 } = useTransferConfirm();
   const revertChoice = useRef<string>(REVERT_CHOICES[0].value);
   const [报价全开, set报价全开] = useState(false);
   /*
@@ -340,6 +344,7 @@ export default function RecordView({
 
   /** 公海（第 6 块）：放进 / 领取这一位，提示条上带一次撤销（和列表上同一个做法） */
   async function 公海动作(动作: "放进" | "领取") {
+    if (动作 === "领取" && !(await 先问转走的项目([customer.id]))) return;
     const res = 动作 === "放进" ? await 放进公海([customer.id]) : await 领取([customer.id]);
     router.refresh();
     if (!res.ok) return void message.error(res.error);
@@ -560,6 +565,25 @@ export default function RecordView({
                 一个人用（桌面端）时这两格不摆：下拉里只有自己，摆着只是让人多想一下（和客户表单同一个 独自一人 规则） */}
             {!独自一人(users, customer.salesOwnerId) && (
               <InlineField customerId={customer.id} field="salesOwnerId" label="销售负责人" value={customer.salesOwnerId} kind="select" options={带上现任(users, customer.salesOwnerId, customer.salesOwnerName)} />
+            )}
+            {/* 历史负责人（企业版 D-36）：换过负责人才摆；悬停看每次谁转的、从谁到谁、什么时候。停用的人名字照旧显示 */}
+            {历史负责人们(换负责人记录, customer.salesOwnerName).length > 0 && (
+              <Tooltip
+                title={
+                  <div style={{ maxHeight: 260, overflowY: "auto" }}>
+                    {[...换负责人记录].reverse().map((r, i) => (
+                      <div key={i} style={{ marginBottom: 4 }}>
+                        <span style={{ opacity: 0.75 }}>{fmtDateTime(r.at)}</span> {换负责人一句(r)}
+                      </div>
+                    ))}
+                  </div>
+                }
+              >
+                <div className="rec-field" style={{ cursor: "default" }}>
+                  <div className="rec-field-k">历史负责人</div>
+                  <div className="rec-field-v">{历史负责人们(换负责人记录, customer.salesOwnerName).join("、")}</div>
+                </div>
+              </Tooltip>
             )}
             {/* 渠道负责人默认跟着推荐链；这里改的是这一位的单独订正，清空即恢复按推荐链 */}
             {!外贸 && !独自一人(users, customer.channelOwnerId) && (

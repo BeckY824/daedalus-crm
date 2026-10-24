@@ -67,8 +67,11 @@ describe("合并 + 撤销（一台）", () => {
     const db = await 一台("one");
     process.env.CRM_DATA_DIR = 目录;
     const { X, Y, 被荐 } = await 一对重复(db);
+    // X 的换负责人记录（企业版历史负责人）跟着挪到 Y
+    await db.customerOwnerLog.create({ data: { customerId: X.id, userId: 老板, fromOwnerId: 老板, toOwnerId: 王 } });
     const r = await 合并一批([{ 留: Y.id, 并: X.id }], { id: 老板 }, db);
     expect(r.没合).toEqual([]);
+    expect(await db.customerOwnerLog.findFirstOrThrow({ where: { toOwnerId: 王 } })).toMatchObject({ customerId: Y.id });
     expect(r.备份).toMatch(/^before-merge-\d{4}-\d{2}-\d{2}-\d{4}-[0-9a-f]{6}\.db$/);
     expect(fs.existsSync(path.join(目录, "backups", r.备份!))).toBe(true);
 
@@ -99,6 +102,7 @@ describe("合并 + 撤销（一台）", () => {
     expect(await db.customerExtra.findUnique({ where: { customerId: Y.id } })).toBeNull();
     expect((await db.customer.findUniqueOrThrow({ where: { id: 被荐.id } })).referrerCustomerId).toBe(X.id);
     expect(await db.customerMerge.count()).toBe(0);
+    expect(await db.customerOwnerLog.findFirstOrThrow({ where: { toOwnerId: 王 } })).toMatchObject({ customerId: X.id });
     // 只能撤一次
     expect(await 读上次合并(db)).toBeNull();
     expect(await 撤销上一批(db)).toEqual({ 撤了: [], 没撤: [] });

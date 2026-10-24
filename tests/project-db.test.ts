@@ -326,9 +326,9 @@ describe("项目公海", () => {
     expect(await 领取公海项目(老板, p.id)).toEqual({ ok: true });
   });
 
-  it("超时自动收回只留口子：现在调了什么都不做", async () => {
+  it("超时回收没开：调了什么都不做（开了的见 project-timeout.test.ts）", async () => {
     await 项目(乙.id);
-    expect(公海超时收回()).toBe(0);
+    expect(await 公海超时收回({ id: 老板.id, name: "boss" }, new Date(Date.now() + 400 * 86400_000))).toBe(0);
     expect(await prisma.project.count({ where: { pooledAt: { not: null } } })).toBe(0);
   });
 });

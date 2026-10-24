@@ -8,6 +8,8 @@ import { 部门树, type 组织部门 } from "@/lib/enterprise/org-tree";
 import { 规则, 规则名们, type 规则名 } from "@/lib/enterprise/rules-table";
 import { 字段, 字段名们, 字段级别of, type 字段配置, type 字段名 } from "@/lib/enterprise/field-perm-table";
 import { 建部门, 改部门, 删部门, 设成员, 设规则, 设字段权限, type 成员改动 } from "./org-actions";
+import type { 分配情况 } from "../leads/assign-actions";
+import LeadAssignCard from "./LeadAssignCard";
 
 export type 组织架构 = {
   部门: 组织部门[];
@@ -20,6 +22,8 @@ export type 组织架构 = {
   规则开着: Record<规则名, boolean>;
   /** 「角色 × 字段」表，只有和默认（能改）不一样的格 */
   字段权限: 字段配置;
+  /** 「线索分配」那一屏：规则关着、或者这个人什么都看不到 = null */
+  线索分配: 分配情况 | null;
 };
 type 结果 = Promise<{ ok: boolean; error?: string }>;
 
@@ -125,7 +129,8 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
   const 只看 = !能改 && <span style={{ color: "var(--text-muted)" }}>只有老板和总管理员能改</span>;
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    // minmax(0, 1fr)：不让 nowrap 的表格把整页撑宽，表格在各自卡片里横向滚动
+    <div style={{ display: "grid", gap: 16, gridTemplateColumns: "minmax(0, 1fr)" }}>
       <Card title="组织规则" extra={只看}>
         <p className="muted">每条规则单独开关，默认都关着：关着时和团队版一样，按原来的方式看客户。先把下面的部门和上级填好再打开。</p>
         <div style={{ display: "grid", gap: 12 }}>
@@ -141,6 +146,8 @@ export default function OrgTab({ value }: { value: 组织架构 }) {
           ))}
         </div>
       </Card>
+
+      {value.线索分配 && <LeadAssignCard rows={value.线索分配} />}
 
       <Card title="字段权限" extra={只看}>
         <p className="muted">

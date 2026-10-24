@@ -12,6 +12,7 @@ import {
   SwapRightOutlined,
   DeleteOutlined,
   EditOutlined,
+  ThunderboltOutlined,
 } from "@ant-design/icons";
 import ResetFilters from "@/components/ResetFilters";
 import { 列表不问归属ID } from "@/lib/solo";
@@ -26,6 +27,7 @@ import { useUrlFilters } from "@/lib/url-filters";
 import { 聚焦首项 } from "@/lib/modal-focus";
 import { useFormGuard } from "@/lib/form-guard";
 import { 转化会带上 } from "@/lib/lead-convert";
+import { 自动分配线索, 批量自动分配, type 自动分配结果 } from "./assign-actions";
 
 type Row = {
   id: string;
@@ -52,6 +54,7 @@ export default function LeadsView({
   filters,
   来源们,
   me,
+  能自动分配 = false,
 }: {
   rows: Row[];
   /** 库里一共多少条。行只取了前 300，分页条不能拿行数冒充总数 */
@@ -61,6 +64,8 @@ export default function LeadsView({
   /** 来源筛选的候选：设置里的 + 库里用着的 */
   来源们: string[];
   me: string;
+  /** 企业版「线索分配」规则开着、且这人能分配（老板 / 总管理员 / 市场管理）才摆「自动分配」 */
+  能自动分配?: boolean;
 }) {
   const router = useRouter();
   const { message, modal } = App.useApp();
@@ -141,6 +146,48 @@ export default function LeadsView({
     });
   }
 
+  /** 「已分给 某某（本月已分 N / 配额 M）」：D-38 的说法，单条和批量共用 */
+  const 分给了 = (r: Extract<自动分配结果, { ok: true }>) => `已分给 ${r.接手人}（本月已分 ${r.已分} / 配额 ${r.配额 ?? "不限"}）`;
+
+  async function 自动分(r: Row) {
+    try {
+      const res = await 自动分配线索(r.id);
+      if (!res.ok) return void message.error(res.error);
+      message.success(`「${r.name}」${分给了(res)}：${res.为什么}`, 5);
+      router.refresh();
+    } catch {
+      message.error("没分成，请稍后再试");
+    }
+  }
+
+  async function 批量自动分(ids: string[], 清空: () => void) {
+    let res: Awaited<ReturnType<typeof 批量自动分配>>;
+    try {
+      res = await 批量自动分配(ids);
+    } catch {
+      return void message.error("没分成，请稍后再试");
+    }
+    if (!res.ok) return void message.error(res.error);
+    清空();
+    router.refresh();
+    const 成 = res.结果.filter((x) => x.ok).length;
+    modal.info({
+      title: `自动分配：${成} 条分出去了${成 < res.结果.length ? `，${res.结果.length - 成} 条没分` : ""}`,
+      width: 560,
+      okText: "知道了",
+      content: (
+        <ul className="lead-auto-assign-list" data-testid="lead-auto-assign-result">
+          {res.结果.map((x) => (
+            <li key={x.leadId}>
+              <span className="lead-auto-assign-name" title={x.name}>{x.name}</span>
+              {x.ok ? <span>{分给了(x)}</span> : <span className="muted">没分：{x.error}</span>}
+            </li>
+          ))}
+        </ul>
+      ),
+    });
+  }
+
   /** 只有一个人：负责人列不摆（审查 D2），见 lib/solo.ts */
   const 不问归属 = !f.ownerId && 列表不问归属ID(users, rows.map((r) => r.ownerId));
 
@@ -163,7 +210,7 @@ export default function LeadsView({
     { title: "所属行业", key: "industry", dataIndex: "industry", width: 130, 默认: false, render: (v) => <span className="muted">{v ?? "—"}</span> },
     { title: "邮箱", key: "email", dataIndex: "email", width: 200, 默认: false, render: (v) => v ?? <span className="muted">—</span> },
     {
-      title: "", key: "act", width: 150, 常驻: true, fixed: "right",
+      title: "", key: "act", width: 能自动分配 ? 180 : 150, 常驻: true, fixed: "right",
       render: (_, r) =>
         r.customerId ? (
           <RowLink href={`/customers/${r.customerId}`}>查看{b.customer} ›</RowLink>
@@ -199,6 +246,16 @@ export default function LeadsView({
             >
               转{b.customer}
             </Button>
+            {能自动分配 && (
+              <Button
+                aria-label={`自动分配 ${r.name}`}
+                title="自动分配"
+                type="text"
+                size="small"
+                icon={<ThunderboltOutlined />}
+                onClick={() => void 自动分(r)}
+              />
+            )}
             <Button
               aria-label={`编辑 ${r.name}`}
               title="编辑"
@@ -266,6 +323,9 @@ export default function LeadsView({
           hint: `线索是还没确认要不要跟的人。确认要跟了就转成${b.customer}，之后的跟进、商机、${签约叫(b)}都在${b.customer}那边走。`,
           primary: { label: "新建第一条线索", onClick: 新建 },
         }}
+        批量={能自动分配 ? (选中, 清空) => (
+          <Button size="small" icon={<ThunderboltOutlined />} onClick={() => void 批量自动分(选中, 清空)}>自动分配</Button>
+        ) : undefined}
         筛选={
           <Space wrap size={[10, 10]}>
             <ListSearch

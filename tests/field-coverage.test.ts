@@ -322,6 +322,7 @@ const 派生: Record<string, Record<string, string>> = {
     acceptancePassedAt: "勾验收通过的那一刻，系统打上",
     closedAt: "有结局的那一刻，系统打上；回到进行中清掉",
     pooledAt: "放回公海的那一刻，系统打上；有人领取或老板重新指派时清掉",
+    nextStepAt: "记沟通时填的下一步时间，跟着最近一条沟通写；企业版超时回收用",
   },
   ProjectMember: { projectId: "哪个项目的组员，加人时定", userId: "哪位成员，加人时定；换人 = 删了再加", invitedById: "谁拉进来的，加人时打上" },
   ProjectRole: { sort: "加角色时排到最后，系统写；不做拖动排序" },
@@ -338,6 +339,11 @@ const 派生: Record<string, Record<string, string>> = {
   },
   FollowUpProject: { followUpId: "哪条沟通记录，记的时候定", projectId: "挂在哪个项目，记的时候定", node: "记这条时项目在哪个节点，系统打上" },
   CustomerCreator: { customerId: "哪位客户，一位一行", userId: "实际建档的人，向导保存那一刻打上，不改", at: "建档那一刻，系统打上" },
+  CustomerOwnerLog: {
+    customerId: "哪位客户，换负责人时系统写", userId: "谁换的，系统写", at: "换的那一刻，系统写",
+    fromOwnerId: "换之前的负责人（历史负责人），系统写", toOwnerId: "换之后的负责人，系统写",
+    kind: "改负责人、公海领取 / 分配还是成员停用，系统写",
+  },
 };
 
 /** 已知缺口：有字段、没写入路径。留在这里是为了让它一直显眼 */
