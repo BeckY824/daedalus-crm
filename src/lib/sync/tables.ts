@@ -55,6 +55,8 @@ export const 不同步表 = [
   "AiConversation", "AiMessage", "AiProject", "ImportBatch", "ImportRow", "WorkspaceAccount",
   // 团队版项目模式 1a（2026-10-23）先只在本机；1b 接同步时挪进 同步表，路由按 Project.ownerId + customerId
   "Project", "ProjectMember", "ProjectRole", "ProjectExceptionCategory", "ProjectNodeLog", "FollowUpProject", "CustomerCreator",
+  // 企业版数据接入（2026-10-24）：企业版私有部署一台服务器，导入记录、对照、冲突都只在这台
+  "EntImportBatch", "EntImportRow", "EntExternalRef", "EntConflict", "EntTrash", "EntSnapshot",
   // 企业版组织架构（2026-10-24）：企业版是一台服务器上的网页，不走团队同步
   "EntDept", "EntMember",
   // 企业版线索分配（2026-10-24）：同上
@@ -116,6 +118,10 @@ export const 指向人的列: [string, string][] = [
   ["ProjectNodeLog", "fromOwnerId"],
   ["ProjectNodeLog", "toOwnerId"],
   ["CustomerCreator", "userId"],
+  // 企业版数据接入（2026-10-24）
+  ["EntImportBatch", "userId"],
+  ["EntConflict", "resolvedById"],
+  ["EntSnapshot", "userId"],
   // 企业版组织架构（2026-10-24）：不建外键
   ["EntMember", "userId"],
   ["EntMember", "managerId"],

@@ -60,13 +60,19 @@ export function 忘掉企业版范围() {
   g.__企业范围刷新 = undefined;
 }
 
+/**
+ * next/headers 只 import 一次：每条查询都动态 import 一回不值；
+ * 而且测试里几条查询同时首次 import 时，vitest 的 mock 会有一条拿到真模块（真 cookies() 在请求外抛错 → 当成后台 → 不限定）
+ */
+let 头: Promise<typeof import("next/headers")> | undefined;
+
 /** 现在这个请求是谁：钥 = 缓存的键；id = null 是有请求但没认出人；"无请求" = 后台 */
 async function 是谁(): Promise<{ 钥: string; id: string | null } | "无请求"> {
   const o = 身份.getStore();
   if (o) return { 钥: `u:${o}`, id: o };
   let 票: string | undefined;
   try {
-    const { cookies } = await import("next/headers");
+    const { cookies } = await (头 ??= import("next/headers"));
     票 = (await cookies()).get(会话票)?.value;
   } catch (e) {
     // Next 静态渲染时的「这页要动态」信号带 digest，得原样抛回去
