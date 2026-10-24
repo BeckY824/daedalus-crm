@@ -10,7 +10,7 @@ import { 主题颜色 } from "@/lib/chart-theme";
 import { 列表不问归属ID } from "@/lib/solo";
 import { OPP_STAGES, OPP_STAGE_COLOR } from "@/lib/constants";
 import { 金额, 合计文字 } from "@/lib/currency";
-import { 每批, 写每列, 列头, type 列汇总 } from "@/lib/pipeline-columns";
+import { 每批, 写每列, 列头, 加新, type 列汇总 } from "@/lib/pipeline-columns";
 import { useBusiness } from "@/lib/business-client";
 import { stageLabel, 外贸订单, 外贸精简 } from "@/lib/business-config";
 import { moveStage } from "../actions";
@@ -115,6 +115,8 @@ export default function PipelineView({
     if (是翻页) 开始翻(换);
     else 换();
   };
+  /** 带上刚新建 / 刚挪的这张重取：加在 new= 后头，前头挪过的几张也还带着（连挪两张进不同的大列，先挪的那张不能刷没了） */
+  const 带上 = (id: string) => 换参数({ new: 加新(new URLSearchParams(window.location.search).get("new"), id) });
   const 新建框 = (
     <OpportunityForm
       open={新建开着}
@@ -125,7 +127,7 @@ export default function PipelineView({
       onSaved={(id) => {
         set新建开着(false);
         // 新建的那张可能排在第 50 张以后：带上它的 id，服务端不在前几张也取回来，好让它亮一下
-        if (id) 换参数({ new: id });
+        if (id) 带上(id);
         else router.refresh();
       }}
     />
@@ -159,7 +161,7 @@ export default function PipelineView({
     set签约框(null);
     if (!r) return;
     // 赢单列也只摆了前几张时，刚赢的这张可能排不进：带上它的 id 重取（和新建一样），不然刷新后它从看板上消失
-    if (saved) return void 换参数({ new: r.id });
+    if (saved) return void 带上(r.id);
     // 外贸：拖进「客户确认」就是转为订单，订单框点了取消 = 没转，卡片回原列（不然商机挂着「已转订单」却没有订单）
     if (外贸订单(b)) return void set挪(null);
     await 写阶段(r, "赢单成交");
@@ -171,11 +173,11 @@ export default function PipelineView({
     if (!res.ok) {
       set挪(null);
       message.error(res.error);
-      换参数({ new: r.id });
+      带上(r.id);
       return;
     }
     // 挪进的那列只摆了前几张、这张金额又排不进时，光刷新它就从看板上消失了：带上它的 id 重取
-    换参数({ new: r.id });
+    带上(r.id);
     if (是撤销) return void message.success(`「${r.name}」已退回 ${stageLabel(b, 到)}`);
     const key = `stage-${r.id}`;
     let 已撤销 = false;

@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth";
 import PipelineView from "./PipelineView";
 import { 负责人候选 } from "@/lib/owners";
 import { 取管道 } from "@/lib/pipeline-page";
-import { 读每列 } from "@/lib/pipeline-columns";
+import { 读每列, 读新 } from "@/lib/pipeline-columns";
 import { dayjs } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export default async function PipelinePage({ searchParams }: { searchParams?: Pr
   const 每列 = 读每列(sp.n);
 
   const [页, users] = await Promise.all([
-    取管道(prisma, 起, 每列, sp.new),
+    取管道(prisma, 起, 每列, 读新(sp.new)),
     // 新建框要的候选：和列表页同一个框（../OpportunityForm.tsx）
     负责人候选(),
   ]);
