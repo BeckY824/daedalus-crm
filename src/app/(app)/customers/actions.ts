@@ -11,7 +11,7 @@ import { 查完再写 } from "@/lib/check-then-write";
 import { 钉住老签约 } from "@/lib/contract-owner";
 import { revalidatePath } from "next/cache";
 import { prisma, defaultClient } from "@/lib/prisma";
-import { 看全部, 看得到, 读的我, 同事的客户, 只读错误 } from "@/lib/team-scope";
+import { 看全部, 看得到, 读的我, 同事的客户, 只读错误, type 谁 } from "@/lib/team-scope";
 import { 同事撞号说法, type 查重种类 } from "@/lib/sync/dedupe";
 import { 问同事 } from "@/lib/sync/dedupe-client";
 import { requireUser } from "@/lib/auth";
@@ -118,7 +118,7 @@ type 撞到的 = { name: string; salesOwnerId: string | null; channelOwnerId: st
 const 撞到的字段 = { name: true, salesOwnerId: true, channelOwnerId: true, pool: { select: { customerId: true } }, salesOwner: { select: { name: true } } } as const;
 
 /** 保存时撞号那句话：看得到的说是谁；业务员撞同事的只说负责人（同 DuplicateHit）。依据 =「手机号 138…」或「邮箱 a@b.com」 */
-function 撞号说法(依据: string, dup: 撞到的, 我: string | null, 客户: string): string {
+function 撞号说法(依据: string, dup: 撞到的, 我: 谁 | null, 客户: string): string {
   if (看得到(dup, 我)) return `${依据} 已存在（${dup.name}），请勿重复录入`;
   return 同事撞号说法(依据, dup.salesOwner?.name ?? "同事", dup.name, 客户);
 }
