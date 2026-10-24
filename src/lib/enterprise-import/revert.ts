@@ -20,6 +20,7 @@ import { prisma } from "../prisma";
 import { recordAudit, type Actor } from "../audit";
 import { 查完再写 } from "../check-then-write";
 import { 看全部 } from "../team-scope";
+import { 外贸键 } from "../customer-extra";
 import { 读现值, 改, 规, 引用键, type 值表 } from "./apply";
 import { 来源名, 实体名, 实体顺序, type 来源, type 实体 } from "./types";
 
@@ -175,6 +176,12 @@ async function 删(tx: Tx, e: 实体, id: string): Promise<void> {
   else await tx.followUp.delete({ where: { id } });
 }
 
+/** 补空时新建的外贸档案，格子退回空之后整行删掉：库里不留一条全空的行（全空的行和没有这行在页面上一样） */
+async function 删空档案(tx: Tx, customerId: string): Promise<void> {
+  const 档 = await tx.customerExtra.findUnique({ where: { customerId } });
+  if (档 && 外贸键.every((k) => 档[k] == null)) await tx.customerExtra.delete({ where: { customerId } });
+}
+
 /** 快照照原 id 建回去 */
 async function 建回(tx: Tx, e: 实体, data: Record<string, unknown>): Promise<void> {
   if (e === "customer") {
@@ -270,6 +277,7 @@ async function 撤一行(tx: Tx, 源: 来源, 批次Id: string, row: 记的行, 
   if (现值) {
     if (!一致(现值, 写过)) throw new 不动("导入之后又改过");
     await 改(tx, e, row.targetId, 拣(原, 键), 现值, new Date().toISOString());
+    if (e === "customer") await 删空档案(tx, row.targetId);
     if (e === "followup") {
       碰过.add(String(现值.customerId));
       if ("customerId" in 原 && 原.customerId) 碰过.add(String(原.customerId));

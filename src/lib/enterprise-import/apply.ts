@@ -367,7 +367,8 @@ async function 写一条(tx: Tx, 现: 现场, w: 待写): Promise<结果> {
     if (!主) throw new 写不进(`要并进的「${w.并入}」没写进去`);
     if (!ref) return 并入(tx, 现, w, 主.targetId);
     if (ref.targetId === 主.targetId) {
-      await tx.entExternalRef.update({ where: { id: ref.id }, data: { fingerprint: w.指纹, raw: J(w.原始) } });
+      // 指纹没变就不碰：不然 updatedAt 一动，再导一遍也算「改了库」
+      if (ref.fingerprint !== w.指纹) await tx.entExternalRef.update({ where: { id: ref.id }, data: { fingerprint: w.指纹, raw: J(w.原始) } });
       return "跳过";
     }
   }
@@ -572,6 +573,52 @@ async function 一趟(现: 现场, 段: 待写[], 起: number): Promise<void> {
       if (n.count !== 1) throw new 让位();
     }),
   );
+}
+
+export type 预演计数 = { 新建: number; 更新: number; 跳过: number; 冲突: number; 失败: number };
+const 预演上限 = 5000;
+class 预演完了 extends Error {
+  constructor(readonly 数: Record<实体, 预演计数>) {
+    super("预演完了");
+  }
+}
+
+/**
+ * 试跑时把整份计划按正式导入的写法真写一遍再整个回滚，数出每类会新建 / 更新 / 跳过 / 冲突 / 写不进几条。
+ * 光看清洗分类猜不准：「更新」写的时候可能是冲突（我们这边也改过）、也可能是跳过（补空没空可补），
+ * 报告给的数就得和写完的数一条不差。每条包一个保存点，出错的那条单独退掉，和正式导入「出错退回一条一条写」一样。
+ * 计划太大（> 预演上限）不跑，免得试跑把库锁太久；返回 null
+ */
+export async function 预演(源: 来源, m: 映射, 计划: 待写[], 用户: Actor): Promise<Record<实体, 预演计数> | null> {
+  if (计划.length > 预演上限) return null;
+  const 底 = await 开现场("", 源, m, 用户);
+  try {
+    await prisma.$transaction(
+      (tx) =>
+        看全部(async () => {
+          const 批 = await tx.entImportBatch.create({ data: { source: 源, status: "applying", userId: 用户.id }, select: { id: true } });
+          const 现 = { ...底, 批次Id: 批.id };
+          const 数 = {} as Record<实体, 预演计数>;
+          for (const w of 计划) {
+            const 格 = (数[w.实体] ??= { 新建: 0, 更新: 0, 跳过: 0, 冲突: 0, 失败: 0 });
+            await tx.$executeRawUnsafe("SAVEPOINT ent_pre");
+            try {
+              格[await 写一条(tx, 现, w)]++;
+            } catch {
+              await tx.$executeRawUnsafe("ROLLBACK TO ent_pre");
+              格.失败++;
+            }
+            await tx.$executeRawUnsafe("RELEASE ent_pre");
+          }
+          throw new 预演完了(数);
+        }),
+      { maxWait: 10_000, timeout: 120_000 },
+    );
+  } catch (e) {
+    if (e instanceof 预演完了) return e.数;
+    throw e;
+  }
+  return null;
 }
 
 function 原因(e: unknown): string {
