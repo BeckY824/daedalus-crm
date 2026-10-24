@@ -62,9 +62,19 @@ export function 北京时间串(ms: number): string {
   return 时 === 0 && 分 === 0 ? 日 : `${日} ${p(时)}:${p(分)}`;
 }
 
-export async function 读JSON(res: Response): Promise<Record<string, unknown> | null> {
+/**
+ * 读返回内容。不是 JSON 的给 null（调用方按「没有返回内容」报）；
+ * 响应头到了、内容读到一半超时 / 断开的，和连不上一样抛 接口出错——不能当成「对方回了空」
+ */
+export async function 读JSON(res: Response, 谁 = "原系统"): Promise<Record<string, unknown> | null> {
+  let 文本: string;
   try {
-    const j = await res.json();
+    文本 = await res.text();
+  } catch (e) {
+    throw new 接口出错(`读${谁}返回的内容时断了：${连不上原因(e)}`);
+  }
+  try {
+    const j = JSON.parse(文本) as unknown;
     return j && typeof j === "object" ? (j as Record<string, unknown>) : null;
   } catch {
     return null;

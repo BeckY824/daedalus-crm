@@ -80,7 +80,7 @@ export class 飞书适配器 implements 适配器 {
         headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({ app_id: this.配置.appId, app_secret: this.配置.appSecret }),
       });
-      j = await 读JSON(res);
+      j = await 读JSON(res, "飞书");
       code = typeof j?.code === "number" ? j.code : undefined;
       if ((res.status === 429 || (code !== undefined && 限流.has(code))) && 第几次 < 最多重试) {
         await this.网.等(退避(第几次));
@@ -108,7 +108,7 @@ export class 飞书适配器 implements 适配器 {
         headers: { Authorization: `Bearer ${await this.取令牌()}`, "Content-Type": "application/json; charset=utf-8" },
         body: 体 === undefined ? undefined : JSON.stringify(体),
       });
-      const j = await 读JSON(res);
+      const j = await 读JSON(res, "飞书");
       const code = typeof j?.code === "number" ? j.code : undefined;
       if ((res.status === 429 || (code !== undefined && 限流.has(code))) && 第几次 < 最多重试) {
         await this.网.等(退避(第几次));

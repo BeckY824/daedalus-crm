@@ -111,6 +111,13 @@ describe("飞书适配器 · 断网", () => {
     定时.mockRestore();
   });
 
+  it("响应头回了、读内容时超时：报接口出错说清是读内容断了，不当成「没有返回内容」", async () => {
+    const n = 假网(飞书录, { [客户字段]: [{ 读体抛: 超时.抛 }] });
+    const 拉 = new 飞书适配器(飞书, n.网).拉全量();
+    await expect(拉).rejects.toThrow(接口出错);
+    await expect(拉).rejects.toThrow(/读飞书返回的内容时断了：等了 30 秒没响应/);
+  });
+
   it("断一下又好了：等 1 秒重试，接着拉全，一条不少", async () => {
     const n = 假网(飞书录, { [客户第二页]: [断网("ECONNRESET")] });
     const 记录 = await new 飞书适配器(飞书, n.网).拉全量();
@@ -186,6 +193,11 @@ describe("钉钉适配器 · 断网 / 限流 / 令牌过期", () => {
   it("超时也按连不上处理", async () => {
     const n = 假网(钉钉录, { [个人客户字段]: [超时, 超时, 超时] });
     await expect(new 钉钉适配器(钉钉, n.网, 0).拉全量()).rejects.toThrow(/连不上钉钉.*等了 30 秒没响应/);
+  });
+
+  it("读内容时连接被断开：报接口出错，说清是读钉钉返回的内容时断了", async () => {
+    const n = 假网(钉钉录, { [个人客户字段]: [{ 读体抛: Object.assign(new TypeError("terminated"), { cause: { code: "UND_ERR_SOCKET" } }) }] });
+    await expect(new 钉钉适配器(钉钉, n.网, 0).拉全量()).rejects.toThrow(/读钉钉返回的内容时断了：连接被断开/);
   });
 
   it("断一下又好了：接着拉全，一条不少", async () => {

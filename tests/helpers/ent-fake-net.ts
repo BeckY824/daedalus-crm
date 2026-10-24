@@ -4,8 +4,8 @@
  */
 import type { 联网 } from "@/lib/enterprise-import/net";
 
-/** 一次响应；给了 抛 就当 fetch 自己报错（断网、DNS 解析不了、超时），不回任何东西；拨 = 给完这条把钟往后拨（翻页翻到一半令牌到期） */
-export type 响应 = { status?: number; body?: unknown; 抛?: unknown; 拨?: number };
+/** 一次响应；给了 抛 就当 fetch 自己报错（断网、DNS 解析不了、超时），不回任何东西；读体抛 = 响应头回了、读内容时才断；拨 = 给完这条把钟往后拨（翻页翻到一半令牌到期） */
+export type 响应 = { status?: number; body?: unknown; 抛?: unknown; 拨?: number; 读体抛?: unknown };
 export type 录制 = { 路由: Record<string, 响应[]> };
 export type 调用 = { 键: string; url: string; body?: Record<string, unknown>; headers: Record<string, string>; signal?: AbortSignal | null };
 
@@ -48,6 +48,10 @@ export function 假网(录: 录制, 先给: Record<string, 响应[]> = {}, 改: 
       const r = q.length > 1 ? q.shift()! : q[0];
       if (r.拨) 钟 += r.拨;
       if (r.抛 !== undefined) throw r.抛;
+      if (r.读体抛 !== undefined) {
+        const 错 = r.读体抛;
+        return new Response(new ReadableStream({ start: (c) => c.error(错) }), { status: r.status ?? 200 });
+      }
       return new Response(JSON.stringify(r.body), { status: r.status ?? 200, headers: { "Content-Type": "application/json" } });
     },
     等: async (ms) => {

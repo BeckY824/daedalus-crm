@@ -87,7 +87,7 @@ export class 钉钉适配器 implements 适配器 {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ appKey: this.配置.appKey, appSecret: this.配置.appSecret }),
       });
-      j = await 读(res);
+      j = await 读(res, "钉钉");
       if (是限流(res.status, typeof j?.code === "string" ? j.code : "") && 第几次 < 最多重试) {
         await this.网.等(退避(第几次));
         continue;
@@ -114,7 +114,7 @@ export class 钉钉适配器 implements 适配器 {
         headers: { "x-acs-dingtalk-access-token": await this.取令牌(), "Content-Type": "application/json" },
         body: 体 === undefined ? undefined : JSON.stringify(体),
       });
-      const j = await 读(res);
+      const j = await 读(res, "钉钉");
       const code = typeof j?.code === "string" ? j.code : "";
       if (是限流(res.status, code) && 第几次 < 最多重试) {
         await this.网.等(退避(第几次));
@@ -137,7 +137,7 @@ export class 钉钉适配器 implements 适配器 {
       await this.节流();
       const url = `${this.老基址}${路径}?access_token=${encodeURIComponent(await this.取令牌())}`;
       const res = await 请求(this.网, "钉钉", url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(体) });
-      const j = await 读(res);
+      const j = await 读(res, "钉钉");
       const code = typeof j?.errcode === "number" ? j.errcode : undefined;
       if ((res.status === 429 || (code !== undefined && 老限流.has(code))) && 第几次 < 最多重试) {
         await this.网.等(退避(第几次));
