@@ -34,6 +34,9 @@ function 标量字段(): Record<string, string[]> {
 
 /** 可写：对应的 server action 接收这个字段 */
 const 可写: Record<string, string[]> = {
+  // 企业版组织架构（2026-10-24）：设置 → 组织架构（settings/org-actions.ts）
+  EntDept: ["name", "parentId"],
+  EntMember: ["deptId", "bizRole", "line", "managerId", "dottedManagerId"],
   Customer: ["name", "phone", "school", "grade", "major", "channelId", "referrerCustomerId", "salesOwnerId", "channelOwnerId", "followStatus", "decisionStatus", "expectedSignAt", "remark"],
   Channel: ["name", "phone", "remark", "channelOwnerId", "active"],
   Lead: ["name", "contact", "phone", "email", "industry", "source", "status", "remark", "ownerId"],
@@ -72,6 +75,8 @@ const 可写: Record<string, string[]> = {
 
 /** 派生 / 只读：写明为什么不能直接改 */
 const 派生: Record<string, Record<string, string>> = {
+  EntDept: { sort: "新建时排在同一级最后，系统算" },
+  EntMember: { userId: "哪个账号，一人一行；设成员时按账号定，不改" },
   Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
     expectedSignOn: "预计签约原日历日，随保存/导入/同步保留；旧数据未知为空",
