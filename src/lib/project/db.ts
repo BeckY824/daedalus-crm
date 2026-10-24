@@ -447,13 +447,17 @@ const 超时扫过键 = "projectTimeoutSweptOn";
 
 const 算超时要的 = {
   id: true, name: true, phase: true, node: true, result: true, pooledAt: true, nextStepAt: true, ownerId: true, customerId: true, createdAt: true,
-  customer: { select: { lastFollowAt: true } },
+  customer: { select: { lastFollowAt: true, pool: { select: { customerId: true } } } },
   logs: { select: { at: true }, orderBy: { at: "desc" as const }, take: 1 },
 } satisfies Prisma.ProjectSelect;
 type 待查项目 = Prisma.ProjectGetPayload<{ select: typeof 算超时要的 }>;
 
-/** 起点 = 最近一次有人管：建项目、最后一行节点变更 / 转让 / 领取、客户上最后一次跟进，取最晚的（timeout.ts） */
+/**
+ * 起点 = 最近一次有人管：建项目、最后一行节点变更 / 转让 / 领取、客户上最后一次跟进，取最晚的（timeout.ts）。
+ * 客户在客户公海里的不收（企业版第四节）：项目跟着客户，谁领客户谁带走；先收进项目公海就和客户拆开了
+ */
 function 超时了(规则: 组织规则, p: 待查项目, 今: Date): boolean {
+  if (p.customer.pool) return false;
   return 已超时(超时回收日(规则, p, 超时起点(p.createdAt, p.logs[0]?.at, p.customer.lastFollowAt)), 今);
 }
 
@@ -462,7 +466,7 @@ async function 超时的项目(规则: 组织规则, 今: Date, ownerId?: string
   const 节点 = Object.keys(规则.超时回收.节点天数);
   if (!规则.超时回收.开 || !节点.length) return [];
   const 们 = await prisma.project.findMany({
-    where: { pooledAt: null, result: null, phase: { in: [...能进公海的阶段] }, node: { in: 节点 }, ...(ownerId ? { ownerId } : {}) },
+    where: { pooledAt: null, result: null, phase: { in: [...能进公海的阶段] }, node: { in: 节点 }, customer: { pool: { is: null } }, ...(ownerId ? { ownerId } : {}) },
     select: 算超时要的,
   });
   return 们.filter((p) => 超时了(规则, p, 今));

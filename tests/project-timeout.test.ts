@@ -159,6 +159,21 @@ describe("扫库收回", () => {
     expect(await 公海超时收回(老板, 天后(5))).toBe(2);
   });
 
+  it("客户在客户公海里：项目不收，等人领客户一起带走；客户被领走后照常算", async () => {
+    await setSetting("orgRules", 开着({ 潜客培育: 3 }));
+    const p = await 项目(乙.id);
+    await prisma.customerPool.create({ data: { customerId: 客户, userId: 乙.id } });
+    expect(await 超时预览(开着({ 潜客培育: 3 }), 天后(5))).toBe(0);
+    expect(await 公海超时收回(老板, 天后(5))).toBe(0);
+    expect((await prisma.project.findUniqueOrThrow({ where: { id: p.id } })).pooledAt).toBeNull();
+    expect(await prisma.task.count()).toBe(0);
+
+    await prisma.customerPool.delete({ where: { customerId: 客户 } });
+    invalidateSettingsCache();
+    await setSetting("projectTimeoutSweptOn", null);
+    expect(await 公海超时收回(老板, 天后(5))).toBe(1);
+  });
+
   it("团队模式只扫自己名下的", async () => {
     mocks.团队 = true;
     await setSetting("orgRules", 开着({ 潜客培育: 3 }));
