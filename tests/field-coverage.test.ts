@@ -270,6 +270,12 @@ const 派生: Record<string, Record<string, string>> = {
 const 已知缺口: Record<string, Record<string, string>> = {
   // 团队版项目模式 1a：进组状态 1a 拉人一律 JOINED（系统写），等 1b 进组邀请补上「已邀请 / 没接受」
   ProjectMember: { inviteStatus: "1a 拉人一律写 JOINED；用户能动它要等 1b 进组邀请（团队版会话）" },
+  // 企业版组织架构（2026-10-24）：这一步只有表和 helper，设置里的「组织架构」页在下一个 PR，到时挪进 可写
+  EntDept: { name: "设置里的组织架构页在下一个 PR 才有写入口", parentId: "设置里的组织架构页在下一个 PR 才有写入口", sort: "设置里的组织架构页在下一个 PR 才有写入口" },
+  EntMember: {
+    userId: "设置里的组织架构页在下一个 PR 才有写入口", deptId: "设置里的组织架构页在下一个 PR 才有写入口", bizRole: "设置里的组织架构页在下一个 PR 才有写入口",
+    line: "设置里的组织架构页在下一个 PR 才有写入口", managerId: "设置里的组织架构页在下一个 PR 才有写入口", dottedManagerId: "设置里的组织架构页在下一个 PR 才有写入口",
+  },
 };
 
 const 不审 = new Set(["User", "WorkspaceAccount", "FollowUpSource", "AuditLog", "Setting"]);

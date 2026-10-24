@@ -5,6 +5,12 @@ on:
     branches: [main]
   pull_request:
 
+# 同一个 PR 又推了新提交，旧的那轮直接取消，别排队白跑（10-24 提速）。
+# push 到 main 按提交分组：每个合进来的提交都跑完，不互相取消。
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.head_ref) || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
     name: 类型 / 代码检查 / 单元测试
@@ -34,6 +40,12 @@ jobs:
           CONTROL_DATABASE_URL: file:/tmp/control-ci.db
       - run: npx tsc --noEmit
       - run: npx eslint .
+      # 浏览器按 Playwright 版本缓存：命中了下面那步只补系统依赖，不再每次下载 Chromium（10-24 提速）
+      - name: 缓存 Playwright 浏览器
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
         # 有几份单测在真 Chromium 里点组件（ai-settings-ui、import-ai-columns-ui、r6-review-otp、r7-review-auth-ui），
         # 没装浏览器整份起不来（2026-10-05 main 上第一次撞到）
       - run: npx playwright install --with-deps chromium
@@ -50,7 +62,21 @@ jobs:
       image: mcr.microsoft.com/playwright:v1.56.1-noble
     steps:
       - uses: actions/checkout@v4
+      # 容器里没有 setup-node，npm 下载缓存自己存（10-24 提速）
+      - name: 缓存 npm 下载
+        uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-e2e-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+      # 两次 next build（默认套、排版闸门）共用 Next 的增量编译缓存；源码没变的部分直接复用（10-24 提速）
+      - name: 缓存 Next 构建
+        uses: actions/cache@v4
+        with:
+          path: .next/cache
+          key: next-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'public/**') }}
+          restore-keys: |
+            next-${{ hashFiles('package-lock.json') }}-
       - run: npx prisma generate
         # 托管版的控制面客户端也要生成，否则 import @/generated/control 编译不过
       - run: npx prisma generate --schema=prisma/control.prisma
