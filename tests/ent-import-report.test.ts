@@ -87,7 +87,7 @@ describe("试跑", () => {
         expect.objectContaining({ 写法: "不认识的人", 成员Id: "" }),
       ]),
     );
-    expect(报告.映射.默认负责人.id).toBe("tester-id");
+    expect([张伟, 李娜]).toContain(报告.映射.默认负责人.id); // 导入的人是管理员、不能当负责人：默认落到能任的人，和实际写入一致
     expect(报告.问题分类).toContainEqual({ 实体: "customer", 级别: "提醒", 类别: "负责人对不上", 数: 1 });
     // 列的报告：落到哪、谁认的、几条样例
     const 列 = 报告.映射.列.customer!;
