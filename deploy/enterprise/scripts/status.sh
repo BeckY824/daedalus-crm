@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 看一眼系统状态：版本、是否健康、最近一次备份、磁盘。
+# 看一眼系统状态：版本、是否健康、最近一次备份、磁盘、证书多久过期、时钟准不准。
 #
 #   sudo ./scripts/status.sh
 set -uo pipefail
@@ -32,5 +32,37 @@ fi
 [ -s certs/tls.caddy ] && echo "HTTPS 证书：贵司自有证书" || echo "HTTPS 证书：自动申请（Let's Encrypt）"
 
 echo "磁盘："
-df -h "$DEPLOY_DIR" | tail -1 | awk '{print "  部署目录所在盘 已用 "$5"，剩余 "$4}'
+# 部署目录和 Docker 数据目录可能不在同一块盘，两块都看；用到 85% 或剩不到 5G 就提示（盘满了数据库写不进、备份也做不了）
+DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || echo /var/lib/docker)"
+for d in "$DEPLOY_DIR" "$DOCKER_ROOT"; do
+  [ -d "$d" ] || continue
+  read -r USED FREE_K < <(df -Pk "$d" | awk 'NR==2 {gsub("%","",$5); print $5, $4}')
+  echo "  $d 所在盘 已用 ${USED}%，剩余 $((FREE_K / 1024 / 1024))G"
+  if [ "$USED" -ge 85 ] || [ "$FREE_K" -lt 5242880 ]; then
+    warn "$d 所在盘快满了：清旧备份（backups/）和旧镜像（docker image prune -a），或者加盘"
+  fi
+done
 docker system df 2>/dev/null | sed 's/^/  /'
+
+# 证书：正在用的那张还有多久过期。自动申请的证书 Caddy 会提前续，剩不到 14 天说明续不上了（80/443 被挡、域名解析改了）
+DOMAIN="$(env_get DOMAIN)"
+if [ -n "$DOMAIN" ] && [ "$DOMAIN" != localhost ] && command -v openssl >/dev/null; then
+  CERT="$(echo | openssl s_client -connect 127.0.0.1:443 -servername "$DOMAIN" 2>/dev/null | openssl x509 2>/dev/null)"
+  if [ -z "$CERT" ]; then
+    warn "读不到 https://$DOMAIN 的证书（Caddy 没起来？）"
+  else
+    echo "证书到期：$(printf '%s\n' "$CERT" | openssl x509 -noout -enddate | cut -d= -f2)"
+    if ! printf '%s\n' "$CERT" | openssl x509 -noout -checkend 1209600 >/dev/null; then
+      warn "HTTPS 证书 14 天内过期：自有证书请换新的放到 certs/；自动申请的看 docker compose logs caddy"
+    fi
+  fi
+fi
+
+# 时钟：系统时间不准，登录会话、证书校验、备份文件的时间都会乱
+if command -v timedatectl >/dev/null; then
+  if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = yes ]; then
+    echo "系统时间：已和时间服务器同步（$(date '+%Y-%m-%d %H:%M:%S %Z')）"
+  else
+    warn "系统时间没有和时间服务器同步：sudo timedatectl set-ntp true（内网服务器请配内网 NTP）"
+  fi
+fi
