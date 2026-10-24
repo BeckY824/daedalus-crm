@@ -3,6 +3,7 @@
  *   - 负责人本人、隔级经理、虚线上级往前推：拦下；直属上级、老板：成，记的是推的人
  *   - 往后退、点结局照旧（负责人本人也能）
  *   - 一个人既是直属又是虚线：按直属算，能推
+ *   - 直属上级账号还是 SALES（组织里设成销售管理不改账号角色）：照样能推，必填节点也能先推
  *   - 负责人没设直属上级（组织还没配）：和原来一样，本人也能推
  *   - 不是企业版：组织表配着也不拦
  */
@@ -12,8 +13,10 @@ vi.mock("@/lib/sync/client", () => ({ 读团队: () => null }));
 
 import { prisma } from "@/lib/prisma";
 import { resetDb } from "./reset";
-import { 改节点, 往前推不给 } from "@/lib/project/db";
-import { invalidateSettingsCache } from "@/lib/settings";
+import { 改节点, 往前推不给, 能改节点 } from "@/lib/project/db";
+import { 读组织 } from "@/lib/enterprise/org";
+import { invalidateSettingsCache, setSetting } from "@/lib/settings";
+import { 默认组织规则 } from "@/lib/project/org-rules";
 
 type 人 = { id: string; role: string };
 
@@ -80,6 +83,26 @@ describe("企业版推节点只给直属上级", () => {
     await prisma.entMember.update({ where: { userId: 销售.id }, data: { dottedManagerId: 组长.id } });
     const p = await 项目(销售.id);
     expect(await 改节点(组长, p.id, 往前)).toMatchObject({ ok: true });
+  });
+
+  it("直属上级账号是 SALES：照样能推，必填节点也能先推；别人的项目还是改不了", async () => {
+    const 组长2 = await 建("lead2", "SALES");
+    await prisma.entMember.create({ data: { userId: 组长2.id, bizRole: "sales_mgr", managerId: 经理.id } });
+    await prisma.entMember.update({ where: { userId: 销售.id }, data: { managerId: 组长2.id } });
+    const p = await 项目(销售.id);
+    const org = await 读组织();
+    expect(能改节点(组长2, { ownerId: 销售.id }, org)).toBe(true);
+    expect(能改节点(组长2, { ownerId: 销售.id, pooledAt: new Date() }, org)).toBe(false);
+    expect(能改节点(组长2, { ownerId: 销售.id }, null)).toBe(false);
+    expect(await 改节点(组长2, p.id, 往前)).toMatchObject({ ok: true });
+    expect(await prisma.projectNodeLog.findFirstOrThrow({ where: { projectId: p.id, toNode: "线索验证" } })).toMatchObject({ userId: 组长2.id });
+    // 必填节点：配了必填、没填齐，直属上级照样能先推（和老板、主管一样）
+    await setSetting("orgRules", { ...默认组织规则, 节点推进: { 开: true, 必填: { 线索验证: ["金额"] } } });
+    invalidateSettingsCache();
+    expect(await 改节点(组长2, p.id, { phase: "线索", node: "线索推进" })).toMatchObject({ ok: true });
+    // 不是他下属的项目：还是改不了
+    const 别人的 = await 项目(散.id);
+    expect(await 改节点(组长2, 别人的.id, 往前)).toEqual({ ok: false, error: "只有项目负责人、老板或主管能改节点" });
   });
 
   it("负责人没设直属上级：照旧，本人能推", async () => {

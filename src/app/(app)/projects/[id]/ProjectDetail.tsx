@@ -44,6 +44,8 @@ export type 项目详情 = {
   必填: { 配了: string[]; 还差: string[]; 只能靠填齐: boolean } | null;
   /** 企业版 D-37：负责人有直属上级、我又不是这位上级（也不是老板）时，往前推不给的那句话；null = 能推 */
   不给推: string | null;
+  /** 能改节点：能改的人 + 企业版负责人的直属上级（账号可能是 SALES）；只管节点这一块 */
+  能改节点: boolean;
   balanceSettled: boolean; balanceSettledBy: string | null; balanceSettledAt: string | null;
   acceptancePassed: boolean; acceptancePassedBy: string | null; acceptancePassedAt: string | null;
   /** kind 不是 node 的行是换负责人（转让 / 放回公海 / 从公海领取），transfer 记从谁到谁；category 是进异常时选的类别 */
@@ -143,6 +145,8 @@ export default function ProjectDetail({
   const 异常 = p.result === "异常状态";
   const 可改 = 能改 && !p.pooled;
   const 不能改 = p.pooled ? "这个项目在项目公海里，领取了才能改" : 能改 ? undefined : "只有项目负责人、老板或主管能改";
+  const 节点可改 = p.能改节点 && !p.pooled;
+  const 节点不能改 = p.能改节点 ? (p.pooled ? 不能改 : undefined) : 不能改;
 
   const 跑 = async (f: () => Promise<{ ok: boolean; error?: string; 自动推到?: string[] }>, 成了?: string) => {
     set忙(true);
@@ -240,12 +244,12 @@ export default function ProjectDetail({
               style={{ width: 200 }}
               placeholder={异常 ? "改到某个节点就算恢复" : "改到…"}
               value={null}
-              disabled={!可改 || 忙}
-              title={不能改}
+              disabled={!节点可改 || 忙}
+              title={节点不能改}
               options={去处们(当前, !!p.必填?.只能靠填齐 || !!p.不给推)}
               onChange={(v: string | null) => v && 改到(JSON.parse(v) as 位置)}
             />
-            <Button type="primary" disabled={!可改 || 忙 || !下 || !!p.必填?.只能靠填齐 || !!p.不给推} title={不能改 ?? p.不给推 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
+            <Button type="primary" disabled={!节点可改 || 忙 || !下 || !!p.必填?.只能靠填齐 || !!p.不给推} title={节点不能改 ?? p.不给推 ?? (p.必填?.只能靠填齐 ? "这个节点填齐必填后自动往前推；要先推请找老板或主管" : 下 ? undefined : p.result ? "先改回某个节点再往前推" : "这是最后一个节点了，接下来点结局")} onClick={() => 下 && 改到(下)}>
               {下 ? `下一步：${下.phase === p.phase ? 下.node : `${下.phase}·${下.node}`}` : "下一步"}
             </Button>
           </Space>
