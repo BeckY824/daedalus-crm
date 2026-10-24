@@ -20,6 +20,7 @@ import ProfileTab from "./ProfileTab";
 import KeymapTab from "./KeymapTab";
 import AppearanceTab from "./AppearanceTab";
 import ProjectSettingsTab, { type 项目设置 } from "./ProjectSettingsTab";
+import OrgTab, { type 组织架构 } from "./OrgTab";
 import type { BusinessConfig } from "@/lib/business-config";
 import type { AiUsage } from "@/lib/ai-usage";
 
@@ -37,6 +38,7 @@ const 说明表: Record<string, string> = {
   imports: "导进来的那几批，可撤销",
   audit: "每一次改动的记录",
   project: "项目组员角色、成员的上级",
+  org: "部门、角色、直属和虚线上级",
 };
 
 export default function SettingsView({
@@ -52,6 +54,7 @@ export default function SettingsView({
   用邮箱登录 = false,
   共享区 = false,
   项目设置 = null,
+  组织架构 = null,
 }: {
   users: Row[];
   me: SessionUser;
@@ -77,6 +80,8 @@ export default function SettingsView({
   共享区?: boolean;
   /** 项目模式开着时多一栏「项目模式」；null = 开关关着，这一栏不出现 */
   项目设置?: 项目设置 | null;
+  /** 企业版多一栏「组织架构」；null = 不是企业版，这一栏不出现 */
+  组织架构?: 组织架构 | null;
 }) {
   const [搜, set搜] = useState("");
   // 当前页签由地址栏 ?tab= 决定：中栏那列设置项就是一组带 tab 的链接，刷新、回退都对得上
@@ -102,6 +107,7 @@ export default function SettingsView({
     // AI 接入是本机的（桌面端团队版的业务员在自己电脑上也能配）；业务配置全团队一份，只有管理员 / 老板改
     ...(isAdmin || 桌面端 ? [{ key: "ai", label: "AI 接入", children: <AiSettingsTab llm={llm} usage={aiUsage} /> }] : []),
     ...(isAdmin ? [{ key: "business", label: "业务配置", children: <BusinessSettingsTab value={business} 多人={users.filter((u) => u.active).length > 1} /> }] : []),
+    ...(组织架构 ? [{ key: "org", label: "组织架构", children: <OrgTab value={组织架构} /> }] : []),
     ...(项目设置 ? [{ key: "project", label: "项目模式", children: <ProjectSettingsTab value={项目设置} isAdmin={isAdmin} /> }] : []),
     { key: "imports", label: "导入记录", children: <ImportsTab /> },
     { key: "audit", label: "操作日志", children: <AuditTab logs={logs} /> },
@@ -126,7 +132,7 @@ export default function SettingsView({
    */
   const 分组表: [string, string[]][] = [
     ["个人", ["profile", "password", "keymap", "appearance"]],
-    ["工作区", ["members", "business", "project", "ai", "imports", "audit"]],
+    ["工作区", ["members", "org", "business", "project", "ai", "imports", "audit"]],
     ["应用", ["desktop", "team"]],
   ];
 

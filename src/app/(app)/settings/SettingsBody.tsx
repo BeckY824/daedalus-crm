@@ -10,6 +10,9 @@ import { aiUsageThisMonth } from "@/lib/ai-usage";
 import { multiTenant } from "@/lib/tenant/context";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
 import { 文字里号码打码 } from "@/lib/utils";
+import { 企业版 } from "@/lib/enterprise/switch";
+import { 读组织, 直属上级of, 虚线上级of, 管理员类别of } from "@/lib/enterprise/org";
+import type { 组织架构 } from "./OrgTab";
 
 /**
  * 设置的正文（服务端组件，负责取数）。**两条路由共用它**：
@@ -65,9 +68,33 @@ export default async function SettingsBody() {
       })
     : null;
 
+  // 企业版才多一栏「组织架构」：部门树、每个人的部门 / 角色 / 业务线 / 上级。老板和总管理员能改
+  const 组织架构: 组织架构 | null = 企业版()
+    ? await 读组织().then((org) => {
+        const 名 = new Map(users.map((u) => [u.id, u.name]));
+        return {
+          部门: [...org.部门.values()],
+          成员: users.filter((u) => org.成员.has(u.id)).map((u) => {
+            const m = org.成员.get(u.id)!;
+            // 显式指定的上级停用了，直属上级of 会退回按部门推；界面上也当没指定，显示推出来的那位
+            const 指定 = m.managerId && org.成员.has(m.managerId) ? m.managerId : null;
+            const 自动 = 指定 ? null : 直属上级of(org, u.id);
+            return {
+              id: u.id, name: u.name, deptId: m.deptId, bizRole: m.bizRole, line: m.line,
+              managerId: 指定, dottedManagerId: 虚线上级of(org, u.id),
+              自动上级: 自动 ? 名.get(自动) ?? null : null,
+            };
+          }),
+          能改: !共享区 && (me.role === "ADMIN" || 管理员类别of(org, me.id) === "总管理员"),
+          是老板: me.role === "ADMIN" && !共享区,
+        };
+      })
+    : null;
+
   return (
     <SettingsView
       项目设置={项目设置}
+      组织架构={组织架构}
       me={me}
       /**
        * 共享工作区里这个人是 ADMIN（他得能展示管理员看到的东西），但那套账号密码

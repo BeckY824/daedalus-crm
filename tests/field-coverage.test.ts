@@ -34,6 +34,9 @@ function 标量字段(): Record<string, string[]> {
 
 /** 可写：对应的 server action 接收这个字段 */
 const 可写: Record<string, string[]> = {
+  // 企业版组织架构（2026-10-24）：设置 → 组织架构（settings/org-actions.ts）
+  EntDept: ["name", "parentId"],
+  EntMember: ["deptId", "bizRole", "line", "managerId", "dottedManagerId"],
   Customer: ["name", "phone", "school", "grade", "major", "channelId", "referrerCustomerId", "salesOwnerId", "channelOwnerId", "followStatus", "decisionStatus", "expectedSignAt", "remark"],
   Channel: ["name", "phone", "remark", "channelOwnerId", "active"],
   Lead: ["name", "contact", "phone", "email", "industry", "source", "status", "remark", "ownerId"],
@@ -72,6 +75,8 @@ const 可写: Record<string, string[]> = {
 
 /** 派生 / 只读：写明为什么不能直接改 */
 const 派生: Record<string, Record<string, string>> = {
+  EntDept: { sort: "新建时排在同一级最后，系统算" },
+  EntMember: { userId: "哪个账号，一人一行；设成员时按账号定，不改" },
   Opportunity: { activityAt: "最近业务推进时间；转交负责人保留，业务字段/报价变化时刷新，老数据为空沿用原修改时间" },
   Customer: {
     expectedSignOn: "预计签约原日历日，随保存/导入/同步保留；旧数据未知为空",
@@ -255,12 +260,6 @@ const 派生: Record<string, Record<string, string>> = {
 const 已知缺口: Record<string, Record<string, string>> = {
   // 团队版项目模式 1a：进组状态 1a 拉人一律 JOINED（系统写），等 1b 进组邀请补上「已邀请 / 没接受」
   ProjectMember: { inviteStatus: "1a 拉人一律写 JOINED；用户能动它要等 1b 进组邀请（团队版会话）" },
-  // 企业版组织架构（2026-10-24）：这一步只有表和 helper，设置里的「组织架构」页在下一个 PR，到时挪进 可写
-  EntDept: { name: "设置里的组织架构页在下一个 PR 才有写入口", parentId: "设置里的组织架构页在下一个 PR 才有写入口", sort: "设置里的组织架构页在下一个 PR 才有写入口" },
-  EntMember: {
-    userId: "设置里的组织架构页在下一个 PR 才有写入口", deptId: "设置里的组织架构页在下一个 PR 才有写入口", bizRole: "设置里的组织架构页在下一个 PR 才有写入口",
-    line: "设置里的组织架构页在下一个 PR 才有写入口", managerId: "设置里的组织架构页在下一个 PR 才有写入口", dottedManagerId: "设置里的组织架构页在下一个 PR 才有写入口",
-  },
 };
 
 const 不审 = new Set(["User", "WorkspaceAccount", "FollowUpSource", "AuditLog", "Setting"]);

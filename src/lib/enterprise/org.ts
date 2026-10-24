@@ -9,8 +9,10 @@
  */
 import { prisma } from "@/lib/prisma";
 import { 是业务角色, 部门最多层数, type 业务角色, type 业务线 } from "@/lib/sync/dept-policy";
+import type { 组织部门 } from "./org-tree";
 
-export type 组织部门 = { id: string; name: string; parentId: string | null; sort: number };
+// 部门树在 org-tree.ts（客户端组件也用，不能带 prisma）；这里转出去，服务端照旧从 org 拿
+export { 部门树, type 组织部门 } from "./org-tree";
 export type 组织成员 = {
   userId: string;
   deptId: string | null;
@@ -115,6 +117,50 @@ export function 管理员类别of(org: 组织, userId: string): 管理员类别 
   if (r === "sales_mgr") return "销售管理";
   if (r === "marketing_mgr") return "市场管理";
   return null;
+}
+
+/** 部门在第几层（一级部门 = 1，null = 顶上 = 0）；断链、成环 = Infinity */
+export function 部门层数(部门: ReadonlyMap<string, 组织部门>, id: string | null): number {
+  let n = 0;
+  for (let cur = id; cur; cur = 部门.get(cur)!.parentId) {
+    if (!部门.has(cur) || ++n > 部门最多层数 + 1) return Infinity;
+  }
+  return n;
+}
+/** 子树最深几层（自己 = 1）；成环的那一圈不往下走 */
+function 子树深(部门: ReadonlyMap<string, 组织部门>, id: string, 见过 = new Set<string>()): number {
+  见过.add(id);
+  const 下面 = [...部门.values()].filter((d) => d.parentId === id && !见过.has(d.id));
+  return 1 + Math.max(0, ...下面.map((d) => 子树深(部门, d.id, 见过)));
+}
+
+/**
+ * 建部门（id = null）或把部门挪到 parentId 底下之前查一遍：返回出错原因，null = 可以。
+ * 规则同团队版：挪完整棵子树仍不超过 部门最多层数 层、不能挪到自己或自己的下级部门底下。
+ */
+export function 部门挪动问题(部门: ReadonlyMap<string, 组织部门>, id: string | null, parentId: string | null): string | null {
+  if (parentId && !部门.has(parentId)) return "上级部门不存在";
+  if (id) {
+    if (!部门.has(id)) return "部门不存在";
+    for (let cur = parentId, i = 0; cur && i < 部门最多层数 + 2; cur = 部门.get(cur)?.parentId ?? null, i++) {
+      if (cur === id) return "不能挪到自己或自己的下级部门底下";
+    }
+  }
+  const 深 = id ? 子树深(部门, id) : 1;
+  return 部门层数(部门, parentId) + 深 > 部门最多层数 ? `部门最多 ${部门最多层数} 层` : null;
+}
+
+/**
+ * 给 userId 设直属 / 虚线上级之前查一遍：返回出错原因，null = 可以（上级 = null 是清掉，总是可以）。
+ * 不能是自己、不能是停用的人、不能是自己（实线 / 虚线）链上的下属——否则上级链成环，谁也管不到谁。
+ */
+export function 上级设置问题(org: 组织, userId: string, 上级: string | null, 种类: "直属" | "虚线"): string | null {
+  if (!上级) return null;
+  if (!org.成员.has(userId)) return "这个人不在职";
+  if (上级 === userId) return "上级不能是自己";
+  if (!org.成员.has(上级)) return "选的上级不在职";
+  const 下面 = 种类 === "直属" ? 实线下属(org, userId) : 虚线下属(org, userId);
+  return 下面.has(上级) ? `选的人是他的${种类 === "直属" ? "" : "虚线"}下属，不能反过来当他的上级` : null;
 }
 
 /** 从库里读整张组织表。二三十人的公司，一次全读比逐条查省事也更快 */
