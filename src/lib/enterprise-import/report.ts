@@ -99,6 +99,8 @@ export type 试跑参数 = {
   留AI?: boolean;
   /** 重新试跑：覆盖这个批次，不另开 */
   批次Id?: string;
+  /** 首次全量（默认）还是增量同步（sync.ts 照已认的映射拉一次变化） */
+  类型?: "full" | "sync";
 };
 
 export type 试跑结果 = { 批次Id: string; 报告: 试跑报告 };
@@ -149,7 +151,7 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
 
   const 存 = {
     source: p.来源,
-    kind: "full",
+    kind: p.类型 ?? "full",
     status: "preview",
     userId: p.用户Id,
     report: JSON.stringify(报告),
