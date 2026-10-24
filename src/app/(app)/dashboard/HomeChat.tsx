@@ -1,57 +1,20 @@
 "use client";
-
-import { dayjs } from "@/lib/utils";
-import Shortcut from "@/components/Shortcut";
-
-import type { 页面范围 } from "@/lib/ai-context-page";
-import { 是刚交过来的 } from "@/lib/home-ask";
-import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { Dropdown, Tooltip } from "antd";
-import { ArrowUpOutlined, SnippetsOutlined, GlobalOutlined, MailOutlined } from "@ant-design/icons";
+import { useLayoutEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
-import ModelPicker, { useModel } from "@/components/ModelPicker";
-import AskFiles, { type 附件 } from "@/components/AskFiles";
-import ImportDrawer from "../customers/ImportDrawer";
+import type { 页面范围 } from "@/lib/ai-context-page";
+import { useModel } from "@/components/ModelPicker";
 import type { ModelOption } from "@/lib/llm";
 import { useBusiness } from "@/lib/business-client";
-import { clearJob, getJob, useRunningKey } from "@/lib/ai-jobs";
-import { runStream, cancelStream, type StreamJob } from "@/lib/ai-stream";
-import { addTurn, clearThread, dequeueTurn, removeTurn, updateTurn, useThread, 认领对话, 认落, 当前对话, 首页屏, type Turn } from "@/lib/home-thread";
-import { 载入历史, type AgentAnswer, type 历史消息 } from "@/lib/thread-history";
-import { 落一轮 } from "./threads";
-import AskBox from "@/components/AskBox";
+import { 首页屏 } from "@/lib/home-thread";
+import type { 历史消息 } from "@/lib/thread-history";
 import PaneToggle from "@/components/PaneToggle";
 import StartCard from "./StartCard";
-import TurnView from "./TurnView";
-import Signals from "./Signals";
-import { AiRemaining, useAiOutOfCredits } from "@/components/AiCost";
-import { Esc归别人 } from "@/lib/esc";
-import { 认背调意图 } from "@/lib/research/intent";
-import { 认背调对象 } from "@/lib/research/target";
-import { 背调价目 } from "@/lib/research/actions";
-import ResearchModeLine from "@/components/research/ResearchModeLine";
-import MailPaste, { 邮件摘要 } from "@/components/research/MailPaste";
-import { 像邮件原文, type 邮件信号 } from "@/lib/research/verify/mail";
-import { 是免费邮箱 } from "@/lib/research/verify/domain";
+import Welcome from "./Welcome";
+import TurnLog, { type 一轮的动作 } from "./TurnLog";
+import Composer, { type ComposerHandle } from "./Composer";
+import { useHomeTurns } from "./useHomeTurns";
 
 export type Suggestion = { label: string; question: string; kind?: "ask" | "prep" | "recap" };
-
-/** 斜杠命令：像 Claude Code 那样，输入 / 弹一张单子 */
-const COMMANDS: { cmd: string; hint: string; question: string }[] = [
-  { cmd: "/prep", hint: "准备下次跟进：找我最该联系的那位，读完记录给建议", question: "看一下我未完成的跟进计划，挑最该准备的那位，读完记录告诉我这次该谈什么" },
-  { cmd: "/recap", hint: "回顾上次沟通：上次跟的那位聊到哪了", question: "找我最近一次跟进的那位，读记录，告诉我上次聊到哪、有什么没接住" },
-  { cmd: "/watch", hint: "盯盘：正在被遗忘的人，各自该从哪接上", question: "看盯盘清单，对前几位各给一句现在该从哪接上" },
-  { cmd: "/model", hint: "换个模型", question: "" },
-  // 左栏那一项叫「数据」，这里也叫「数据」（审查 D3）
-  { cmd: "/board", hint: "打开数据", question: "" },
-  { cmd: "/clear", hint: "清空这一屏", question: "" },
-];
-
-/** 只有一个模型时 /model 按下去什么也不会发生（没有选单可开），就不列出来（审查 D3） */
-function 命令表(几个模型: number) {
-  return 几个模型 > 1 ? COMMANDS : COMMANDS.filter((c) => c.cmd !== "/model");
-}
 
 /**
  * 首页 = 一个对话面，交互照 Claude Code / Codex：
@@ -60,6 +23,9 @@ function 命令表(几个模型: number) {
  *   输入框：Enter 发送；正在答时 Enter 或 ⌘↵ 排队，等它答完自动发；Shift+Enter 换行；/ 出命令单
  *   打断：Esc、Ctrl+C，或点右侧的停止键；中断后留一行「已中断」，已流出的字不丢
  * 背后是一个 agent 循环：模型自己决定读谁、查什么，工具全部只读。
+ *
+ * 2026-10-24 拆成四块：对话本身（useHomeTurns）、欢迎屏（Welcome）、已问过的那一列（TurnLog）、
+ * 输入框（Composer）。打字只重渲输入框，流式出字只重渲正在流的那一轮。
  */
 /** 本月签约按币种分开（2026-10-03，不换汇）；空数组 = 这个月还没签 */
 export type 首页信号 = { 逾期: number; 高意向: number; 本月签约: { 币种: string; 合计: number }[]; 高意向标签: string };
@@ -98,362 +64,28 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
   标题前缀?: string;
 }) {
   const b = useBusiness();
-  const AI已用完 = useAiOutOfCredits();
-  const router = useRouter();
-  const turns = useThread(scope);
-  const 地址栏 = useSearchParams();
   const model = useModel(models);
-  /** 这一问要带的文件。发出去就清空——它属于那一问，不属于这个输入框 */
-  const [files, setFiles] = useState<附件[]>([]);
-
-  /*
-    ── 粘一段聊天 ────────────────────────────────────────────
-    主线是「粘一段 → 客户本自己长出来」，而这条路原来藏在客户页的导入抽屉里、
-    还是第二个栏位。首页是人每天看的第一屏，入口就该在这儿（2026-09-21）。
-
-    两个入口，都**不自动跑**：
-      1. 框里粘进来一段像聊天的东西 → 输入框上方出一条提示，点了才走
-      2. 框内左下角一个常驻的按钮 → 空着打开那扇门
-
-    识别只看形状不看内容：**三行以上、六十字以上**才算。一句长问题不该被拦下来问
-    「这是不是聊天记录」，而真正的聊天记录几乎不可能只有两行。
-  */
-  const [粘贴开着, set粘贴开着] = useState(false);
-  /** 递给抽屉的全文。框里那份被 maxLength 截过，所以单独存一份 */
-  const [粘来的, set粘来的] = useState("");
-  /** 上方那条提示。人点了「当成问题问」就收起来，不再纠缠 */
-  const [提示粘贴, set提示粘贴] = useState<{ 文本: string; 行数: number } | null>(null);
-
-  function 认一下粘的是什么(e: React.ClipboardEvent<HTMLTextAreaElement>) {
-    const 全文 = e.clipboardData?.getData("text") ?? "";
-    // 背调模式里粘进来一封邮件原文：不往框里塞（几百行邮件头），直接打开「粘贴询盘邮件」，在本机解析
-    if (背调模式 && 像邮件原文(全文)) {
-      e.preventDefault();
-      set邮件框({ 初值: 全文 });
-      return;
-    }
-    const 行数 = 全文.split(/\r?\n/).filter((l) => l.trim()).length;
-    if (行数 >= 3 && 全文.trim().length >= 60) set提示粘贴({ 文本: 全文, 行数 });
-  }
-
-  function 去粘贴(文本: string) {
-    set粘来的(文本);
-    set提示粘贴(null);
-    set粘贴开着(true);
-  }
-  /*
-    初值就是地址上的 q（2026-10-04，J-158）：外面来的 /dashboard?q=… 只把问题填进来等回车；
-    是本应用 ⌘K 交过来的，下面那个 effect 会直接发出去（submit 会把框清空）
-  */
-  const [q, setQ] = useState(() => 地址栏.get("q") ?? "");
-  /*
-    背调模式（10-16 用户：「背调可以单独作为一个 agent……在对话那里选择这个，然后直接输入需求，就直接进入背调」）。
-    和普通问答并列切换；选中以后发出去的每一句都是一次背调，直接开跑——**选模式本身就是确认**。
-    扣的是背调次数（和问答次数分开），输入框底下常驻「背调 · 每次扣 1 次 · 剩 N 次」；没次数就发不出去。
-  */
-  const [背调模式, set背调模式] = useState(false);
-  /*
-    「粘贴询盘邮件」（背调补充方案第二期）：弹窗开着没有、带上了哪封。只存认出来的几样（verify/mail.ts），
-    原文在弹窗里解析完就丢了，不进 turn、不进库。发出去那一轮背调带上，带完清掉
-  */
-  const [邮件框, set邮件框] = useState<{ 初值?: string } | null>(null);
-  const [邮件, set邮件] = useState<邮件信号 | null>(null);
-  const [背调价, set背调价] = useState<Awaited<ReturnType<typeof 背调价目>> | null>(null);
-  const [cmdIdx, setCmdIdx] = useState(0);
-  /** 输入框空着时，↑↓ 在下面那排建议问题里选，回车就发。-1 = 没选 */
-  const [suggIdx, setSuggIdx] = useState(-1);
-  const endRef = useRef<HTMLDivElement>(null);
-  const taRef = useRef<HTMLTextAreaElement>(null);
-  const composerRef = useRef<HTMLDivElement>(null);
+  const 屏 = useHomeTurns({ 会话, scope, model, 模式, 上下文提示, 上下文范围, 标题前缀 });
+  const { turns } = 屏;
   /** 刚发出去的那一问。只有它会在挂载时把自己滚到视口顶部，翻历史不该乱跳 */
   const [刚发的, set刚发的] = useState<string | null>(null);
-  /*
-    问候和日期都得在客户端算：服务端渲染出来的是服务器那台机器的「现在」。
-    useSyncExternalStore 的第三个参数是服务端快照——先给一个不带时间的中性值，
-    水合之后再换成真的，这样不会有 hydration mismatch，也不会闪一下别人的早上好。
-  */
-  const greet = useSyncExternalStore(
-    () => () => {},
-    () => {
-      const h = dayjs().hour();
-      return h < 5 ? "夜深了" : h < 12 ? "早上好" : h < 18 ? "下午好" : "晚上好";
-    },
-    () => "你好",
-  );
-  /** 问候底下那行日期（设计稿 06/HOME·ACTIVE）：今天是几号、星期几 */
-  const 今天 = useSyncExternalStore(
-    () => () => {},
-    () => {
-      const d = dayjs();
-      return `${d.month() + 1} 月 ${d.date()} 日 · 周${"日一二三四五六"[d.day()]}`;
-    },
-    () => "",
-  );
-
-  const runningKey = useRunningKey(turns.map((t) => `home:${t.id}`));
-
-  /* 进背调模式就问一次价（还剩几次背调）；有一轮跑完（runningKey 变了）再问一次——刚扣过 */
-  useEffect(() => {
-    if (!背调模式) return;
-    let 活 = true;
-    背调价目()
-      .then((r) => 活 && set背调价(r))
-      .catch(() => 活 && set背调价({ 可用: false, 原因: "问不到背调次数，稍后再试" }));
-    return () => {
-      活 = false;
-    };
-  }, [背调模式, runningKey]);
-
-  /**
-   * 库 → 这一屏。
-   *
-   * 只在「换了一条对话」时真的换内容（见 home-thread 的 载入对话）：
-   * 从客户页切回首页也会跑这个 effect，那时候不能把正在流的那一轮冲掉。
-   * 地址上没有 ?c= 时什么都不做——新建对话走的是中栏那颗键，不是靠地址栏。
-   */
-  useEffect(() => {
-    if (!会话) return;
-    载入历史(scope, 会话);
-  }, [会话, scope]);
-
-  /**
-   * 答完一轮就落库。
-   *
-   * 在这儿做而不是在 runStream 里：那边是模块级的，不认识「当前是哪条对话」，
-   * 也没有 router。先认领再发请求——这个 effect 会因为任务表变动跑好几次，
-   * 不占位的话同一轮会落两遍。
-   *
-   * 占位用 认落()（模块级，一屏一份），**不是组件里的 ref**：把面板关掉再打开
-   * 就是一次重挂载，而 turns 和答案都活在模块级，ref 里那道闸会跟着新实例清零，
-   * 于是同一轮又落一遍——库里两条一模一样、连用时都一样的回答就是这么来的。
-   */
-  useEffect(() => {
-    void (async () => {
-      for (const t of turns) {
-        const job = getJob<StreamJob<AgentAnswer>>(`home:${t.id}`);
-        if (job?.status !== "done") continue;
-        const 答 = (job.value?.answer?.text ?? job.value?.text ?? "").trim();
-        if (!认落(scope, t.id)) continue;
-        if (!答) continue;
-        const r = await 落一轮({
-          conversationId: 当前对话(scope),
-          question: t.question,
-          answer: 答,
-          model,
-          ms: job.value?.ms ?? null,
-          steps: job.value?.steps,
-          // 建议卡不存：它是一件当时就处理完的事，翻历史不该再摆回来。背调的整份报告存着：翻历史还是那张卡
-          refs: { records: job.value?.answer?.records ?? [], customers: job.value?.answer?.customers ?? [], ...(job.value?.answer?.research ? { research: job.value.answer.research } : {}) },
-          标题前缀: 标题前缀,
-          // 新建那条对话时记下「在哪一页问的」。标题前缀是给人看的，这个才是键
-          scope,
-        });
-        认领对话(scope, r.conversationId);
-        /*
-          地址对上那条对话（replace：翻历史时后退键不该退回「同一屏但没有 ?c=」）。
-          **只在首页做**：窄模式下人在客户页顺手问一句，把地址改成 /dashboard 就是把他跳走了。
-        */
-        if (模式 === "宽") router.replace(`/dashboard?c=${r.conversationId}`, { scroll: false });
-        // 中栏那条列表要跟着出现 / 换顺序
-        router.refresh();
-      }
-    })();
-  }, [turns, runningKey, model, router, 模式, scope, 标题前缀]);
-  const running = runningKey ? turns.find((t) => `home:${t.id}` === runningKey) : undefined;
-  const queued = turns.find((t) => t.queued);
-  const showCmds = q.startsWith("/") && !q.includes(" ");
-  const 可用命令 = 命令表(models.length);
-  const cmdMatches = showCmds ? 可用命令.filter((c) => c.cmd.startsWith(q.trim())) : [];
-  /** 打了一个斜杠开头、却一条命令都对不上：就地说一句，不再回车后整行静默清空 */
-  const 没这个命令 = showCmds && q.trim().length > 1 && cmdMatches.length === 0;
-
-  /**
-   * 把这一问之前已经答完的几轮带上去，模型才接得住「他」「那个」「再约一下」。
-   *
-   * 只取答完的：还在流的那条文本是半截的，喂回去只会让它照着半截往下编。
-   * 条数和长度这里先收一道，服务端还会再收一道——上下文是要按 token 付钱的，
-   * 而且它会原样进 prompt，两边都不能只信对方。
-   */
-  function 收集上下文(到: string): { q: string; a: string }[] {
-    const out: { q: string; a: string }[] = [];
-    for (const t of turns) {
-      if (t.id === 到) break;
-      const job = getJob<StreamJob<AgentAnswer>>(`home:${t.id}`);
-      if (job?.status !== "done") continue;
-      const a = (job.value?.answer?.text ?? job.value?.text ?? "").trim();
-      if (a) out.push({ q: t.question, a });
-    }
-    return out.slice(-6);
-  }
-
-  function start(turn: Turn) {
-    // 背调那一轮不在这里开跑：先出确认卡（扣几次、还剩几次），人点「开始」才跑，见 components/research/ResearchRun
-    if (AI已用完 || turn.kind === "research") return;
-    runStream<AgentAnswer>(
-      `home:${turn.id}`,
-      { mode: "agent", question: turn.question, model, history: 收集上下文(turn.id), files: turn.files, pageContext: 上下文提示, pageScope: 上下文范围 },
-      undefined,
-      // 带上标签，这一问就会出现在侧栏的「AI 任务」里：切去别的页面也看得见它跑完没有，
-      // 点一下回到这一条。问题本身当名字，截短到一行
-      // 窄模式下人在别的页面问的，点任务不该把他拽去首页——留在原地，面板里那一条就是
-      { 名: turn.question.slice(0, 18), 去: 模式 === "宽" ? `/dashboard#turn-${turn.id}` : undefined },
-    );
-  }
+  const composerRef = useRef<ComposerHandle>(null);
 
   /*
-    排队的下一问：前一问一停（答完 / 出错 / 被打断）就自动发出去。
-    只该在「谁在跑、谁在排队、还有没有次数」变了的时候判断一次；发的时候用的是这一刻的 scope、模型、上下文——
-    start 每次渲染都是新函数，放进依赖会让它每次渲染都跑，所以包成 effect event
+    给 TurnLog 的那份动作只造一次，调用时再去取最新的 start / running：
+    每次渲染都新造的话，memo 过的 TurnLog 会因为 props 变了跟着重渲，拆开就白拆了
   */
-  const 发排队的 = useEffectEvent((t: Turn) => {
-    dequeueTurn(scope, t.id);
-    start(t);
+  const 最新 = useRef({ start: 屏.start, running: 屏.running });
+  useLayoutEffect(() => {
+    最新.current = { start: 屏.start, running: 屏.running };
   });
-  useEffect(() => {
-    if (running || !queued || AI已用完) return;
-    发排队的(queued);
-  }, [running, queued, AI已用完]);
-
-  function submit(raw: string, opts: { queue?: boolean } = {}) {
-    const typed = raw.trim();
-    if (!typed) return;
-    /*
-      背调模式：这一句就是要背调的对象（可以是公司名、官网、或一句需求）。认得出是哪家就直接开跑；
-      认不准（好几家 / 太短 / 认不出）先摆一张点选卡，不扣次数（lib/research/target.ts）。
-      问答次数用完了不挡——背调次数是另一本账
-    */
-    if (背调模式) {
-      if (!背调能发) return;
-      const 对象 = 认背调对象(typed);
-      const turn = addTurn(scope, {
-        question: typed,
-        kind: "research",
-        直接: true,
-        需求: typed,
-        ...(对象.种类 === "公司" ? { 公司: 对象.公司 } : 对象.种类 === "人" ? { 人: { 名: 对象.名, 电话: 对象.电话 } } : { 待选: 对象 }),
-        ...(邮件 ? { 邮件 } : {}),
-      });
-      set邮件(null);
-      set刚发的(turn.id);
-      setQ("");
-      setFiles([]);
-      return;
-    }
-    let question = typed;
-    if (typed.startsWith("/")) {
-      const c = 命令表(models.length).find((x) => x.cmd === typed.split(/\s+/)[0]);
-      if (c?.cmd === "/clear") {
-        turns.forEach((t) => clearJob(`home:${t.id}`));
-        clearThread(scope);
-        setQ("");
-        return;
-      }
-      if (c?.cmd === "/board") {
-        router.push("/overview");
-        return;
-      }
-      if (c?.cmd === "/model") {
-        // 点开选单本身就是选模型，这里只负责把它亮出来
-        setQ("");
-        document.querySelector<HTMLButtonElement>(".mp-btn")?.click();
-        return;
-      }
-      // 打错命令：原文留着，下面那行「没有这个命令」已经说了（审查 D3）。原来整行静默清空
-      if (!c) return;
-      question = c.question;
-    }
-    if (question.length < 2 || AI已用完) return;
-    /*
-      「帮我背调 XX」：不走 agent（那条路没有联网搜索，还会白扣一次），直接摆一张背调确认卡。
-      不排队——确认卡本身不调模型，人点了「开始」才跑
-    */
-    const 背调公司 = typed.startsWith("/") ? null : 认背调意图(question);
-    if (背调公司) {
-      const turn = addTurn(scope, { question, kind: "research", 公司: 背调公司 });
-      set刚发的(turn.id);
-      setQ("");
-      setFiles([]);
-      return;
-    }
-    // 正在答的时候再发：排队，不并发打模型
-    const shouldQueue = opts.queue || Boolean(running);
-    const turn = addTurn(scope, {
-      question,
-      kind: "ask",
-      queued: shouldQueue,
-      files: files.length ? files.map((f) => ({ name: f.name, text: f.text })) : undefined,
-    });
-    set刚发的(turn.id);
-    if (!shouldQueue) start(turn);
-    setQ("");
-    setFiles([]);
-  }
-
-  /**
-   * ⌘K 里直接问的那一句会带在地址上（/dashboard?q=…）。
-   * 到了这儿就发出去，然后把 q 从地址里抹掉——留着的话刷新一次会再问一遍。
-   *
-   * **只有本应用 ⌘K 刚交过来的才自动发**（2026-10-04，J-158）：别人发来的链接、收藏夹里的地址点开，
-   * 只把问题填进输入框、光标放进去，等人自己按回车——不然点一下链接就白扣一次次数。见 lib/home-ask.ts
-   *
-   * 放在 submit 定义之后：effect 里提前用到后面才声明的函数，React 编译器的检查不认。
-   *
-   * 那个 ref 不是多余的：开发模式下 StrictMode 会把 effect 跑两遍（挂载 → 清理 → 再挂载），
-   * 而 router.replace 生效没那么快，结果就是同一句话问了两遍、扣两次额度。
-   */
-  const 已消化地址问句 = useRef(false);
-  useEffect(() => {
-    const q0 = 地址栏.get("q");
-    if (!q0 || 已消化地址问句.current) return;
-    已消化地址问句.current = true;
-    router.replace("/dashboard");
-    // 放进微任务里发：submit 会改输入框等状态，effect 体里同步 setState 会连着多渲染一轮（react-hooks/set-state-in-effect）
-    if (是刚交过来的(q0)) queueMicrotask(() => submit(q0));
-    // 只认挂载时地址上的那一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  function stop() {
-    if (running) cancelStream(`home:${running.id}`);
-    taRef.current?.focus();
-  }
-
-  /**
-   * 把输入框实测高度写进 --cli-composer-h，供 scroll-margin 和「贴着底部」判断用。
-   * 它会随输入的文字长高（上限见 globals.css 里 .cli-input textarea 的 max-height），写死一个常数迟早对不上。
-   */
-  useEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    const 量 = () => document.documentElement.style.setProperty("--cli-composer-h", `${Math.round(el.getBoundingClientRect().height)}px`);
-    量();
-    const ro = new ResizeObserver(量);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  /*
-    Esc：打断正在跑的那一问（页面任何地方按都行）。⌘K 聚焦在 AskBox 里，两页共用一份。
-    **只接没人要的那一下**（审查 M7）：关斜杠菜单、关跳转单、关日期选择、取消输入法拼音时，
-    Esc 是给最上面那一层的，不该顺手把底下已经花了次数的回答打断。判断在 lib/esc.ts
-  */
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!running || Esc归别人(e)) return;
-      cancelStream(`home:${running.id}`);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [running]);
+  const [动作] = useState<一轮的动作>(() => ({
+    start: (t) => 最新.current.start(t),
+    在跑: () => 最新.current.running != null,
+    问: (q) => composerRef.current?.问(q),
+  }));
 
   const empty = turns.length === 0;
-  /** 背调模式能不能发：这台机器能背调、背调次数还有（不限 = 测试账号 / 开发环境的模拟） */
-  const 背调能发 = Boolean(背调价?.可用 && (背调价.还剩 == null || 背调价.还剩 >= 背调价.扣次));
-  const canSend = q.trim().length > 0 && (背调模式 ? 背调能发 : !AI已用完);
-  /** 输入框底下摆不摆那排建议问题：只在还没问过、且库里有东西的时候 */
-  const 摆建议 = empty && !空库 && suggestions.length > 0 && 模式 === "宽";
-  const 问这条 = (x: Suggestion) => submit(x.kind === "prep" ? "/prep" : x.kind === "recap" ? "/recap" : x.question);
-
   const 窄 = 模式 === "窄";
 
   return (
@@ -478,316 +110,23 @@ export default function HomeChat({ 会话, userName, suggestions, context, model
             <StartCard />
           </motion.div>
         ) : empty ? (
-          <motion.div className="cli-welcome" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-            <div className="cli-welcome-t">
-              {greet}，{userName}。
-            </div>
-            {今天 && <div className="cli-welcome-d">{今天}</div>}
-            {/* 三个信号一行，不是三张卡。建议问题挪到输入框底下去了——
-                人的视线落在输入框上，可点的问题就该在那儿，不在半屏之外 */}
-            {信号 && <Signals 信号={信号} />}
-            <div className="cli-welcome-s">{context}</div>
-            <div className="cli-welcome-hints">
-              <div>
-                也可以直接问，或者让它记一笔、改状态、排计划——它给一张建议卡，你点确认才写入。输入 <kbd>/</kbd> 看命令，<kbd><Shortcut>⌘K</Shortcut></kbd> 回到输入框。
-              </div>
-            </div>
-          </motion.div>
+          <Welcome userName={userName} 信号={信号} context={context} />
         ) : (
-          <div className="cli-log">
-            {turns.map((t) => (
-              <TurnView
-                key={t.id}
-                turn={t}
-                scrollOnMount={t.id === 刚发的}
-                onRetry={() => {
-                  clearJob(`home:${t.id}`);
-                  // 找公司后接着背调的那一轮：重新背调是新的一次（新 runId，照常扣），不再沿用找公司那一笔
-                  if (t.接着) updateTurn(scope, t.id, { 接着: undefined });
-                  if (running) dequeueTurn(scope, t.id);
-                  start(t);
-                }}
-                onRemove={() => {
-                  cancelStream(`home:${t.id}`);
-                  clearJob(`home:${t.id}`);
-                  removeTurn(scope, t.id);
-                }}
-                onAsk={(q) => submit(q)}
-                on选定={(公司) => updateTurn(scope, t.id, { 公司, 待选: undefined })}
-                on改={(patch) => updateTurn(scope, t.id, patch)}
-              />
-            ))}
-            <div ref={endRef} />
-          </div>
+          <TurnLog turns={turns} 刚发的={刚发的} scope={scope} 动作={动作} />
         )}
 
-        <div ref={composerRef} className={`cli-composer${empty ? "" : " cli-composer-sticky"}`}>
-          <AskBox
-            引用={taRef}
-            value={q}
-            onChange={(v) => {
-              setQ(v);
-              setCmdIdx(0);
-            }}
-            onSubmit={() => submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q)}
-            onPaste={认一下粘的是什么}
-            placeholder={
-              背调模式
-                ? "输入公司名、官网或一句需求，比如：帮我查 Rexel 适不适合我们"
-                : running
-                  ? "正在回答… 再问会排队，Esc 打断"
-                  : `问一位${b.customer}，或问一个数`
-            }
-            栏左={
-              <>
-                {/* 背调模式开关：和普通问答并列切换，选中有明显的状态（.cli-tool-on） */}
-                <button
-                  type="button"
-                  className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}${背调模式 ? " cli-tool-on" : ""}`}
-                  aria-pressed={背调模式}
-                  aria-label="背调"
-                  onClick={() => {
-                    set背调模式((v) => !v);
-                    taRef.current?.focus();
-                  }}
-                  title={背调模式 ? "退出背调，回到普通问答" : "背调模式：输入公司名或一句需求，直接上网背调"}
-                >
-                  <GlobalOutlined />
-                  {模式 === "宽" && <span>背调</span>}
-                </button>
-                {!背调模式 && <AskFiles files={files} onChange={setFiles} disabled={running != null} />}
-                {背调模式 && (
-                  <button
-                    type="button"
-                    className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}${邮件 ? " cli-tool-on" : ""}`}
-                    onClick={() => set邮件框({})}
-                    title="把询盘邮件的原文（带邮件头）粘进来：查发件 IP、SPF / DKIM / DMARC、回复地址换没换。只在这台电脑上解析"
-                    aria-label="粘贴询盘邮件"
-                  >
-                    <MailOutlined />
-                    {模式 === "宽" && <span>粘贴询盘邮件</span>}
-                  </button>
-                )}
-                {/*
-                  主线入口。和加文件并排——都是「把外面的东西弄进来」，不是「问一句」。
-                  **窄模式（右侧面板）只留图标**：380 宽那一条里还要塞模型选单和发送键，
-                  带字的话三样挤在一起，而那一屏本来就是「在别的页面上顺手问一句」，
-                  粘一段名单是首页的事。
-                */}
-                {/* 空库的欢迎态上那张「开始」卡已经有一颗「粘一段聊天」，这里不再摆第二颗（审查 D11） */}
-                {!背调模式 && !(empty && 空库 && 模式 === "宽") && (
-                  <button
-                    type="button"
-                    className={`cli-tool${模式 === "宽" ? " cli-tool-t" : ""}`}
-                    onClick={() => 去粘贴("")}
-                    disabled={running != null}
-                    title="把一段聊天记录粘进来，切成客户记录"
-                  >
-                    <SnippetsOutlined />
-                    {模式 === "宽" && <span>粘一段聊天</span>}
-                  </button>
-                )}
-              </>
-            }
-            栏右={<ModelPicker options={models} value={model} />}
-            上方={
-              背调模式 && 邮件 ? (
-                /* 带上了一封询盘邮件：这一轮背调会把它认出的几样一起核。点「去掉」就不带 */
-                <div className="cli-paste">
-                  <MailOutlined />
-                  <span className="cli-paste-t" title={邮件摘要(邮件)}>
-                    带上询盘邮件：{邮件摘要(邮件)}
-                  </span>
-                  <button type="button" className="cli-paste-n" onClick={() => set邮件(null)}>
-                    去掉
-                  </button>
-                </div>
-              ) : 提示粘贴 ? (
-                /*
-                  粘进来的像是一段聊天。**只提示，不自动跑**——这是 2026-09 拍板的那条
-                  「AI 不自动跑」：一次切分要花一次 AI 次数，得他点。
-                  右边那个「当成问题问」是给误判留的门，点一次就不再纠缠。
-                */
-                <div className="cli-paste">
-                  <SnippetsOutlined />
-                  <span className="cli-paste-t">
-                    粘进来 {提示粘贴.行数} 行，像是一段记录——要切成{b.customer}吗？
-                  </span>
-                  <button type="button" className="cli-paste-y" onClick={() => 去粘贴(提示粘贴.文本)}>
-                    切成{b.customer}
-                  </button>
-                  <button type="button" className="cli-paste-n" onClick={() => set提示粘贴(null)}>
-                    当成问题问
-                  </button>
-                </div>
-              ) : 没这个命令 ? (
-                <div className="cli-cmds">
-                  <div className="cli-cmd">
-                    <span className="cli-cmd-k">{q.trim()}</span>
-                    <span className="cli-cmd-h">没有这个命令。删掉「/」直接问，或者 Esc 清空</span>
-                  </div>
-                </div>
-              ) : cmdMatches.length > 0 ? (
-                <div className="cli-cmds">
-                  {cmdMatches.map((c, i) => (
-                    <div key={c.cmd} className={`cli-cmd${i === cmdIdx ? " cli-cmd-on" : ""}`} onMouseDown={() => submit(c.cmd)}>
-                      <span className="cli-cmd-k">{c.cmd}</span>
-                      <span className="cli-cmd-h">{c.hint}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null
-            }
-            发送={
-              running ? (
-                <Tooltip title="打断（Esc）">
-                  <button type="button" className="cli-send cli-stop" onClick={stop} aria-label="打断">
-                    <span className="cli-stop-sq" />
-                  </button>
-                </Tooltip>
-              ) : (
-                <Dropdown
-                  trigger={["hover"]}
-                  placement="topRight"
-                  menu={{
-                    items: [
-                      { key: "send", label: <MenuRow label="发送" keys="↵" /> },
-                      { key: "queue", label: <MenuRow label="排队，等上一问答完再发" keys="⌘↵" /> },
-                    ],
-                    onClick: ({ key }) => submit(q, { queue: key === "queue" }),
-                  }}
-                >
-                  <button type="button" className="cli-send" onClick={() => submit(q)} disabled={!canSend} aria-label="发送">
-                    <ArrowUpOutlined />
-                  </button>
-                </Dropdown>
-              )
-            }
-            onKeyDown={(e) => {
-              // 输入框空着、下面摆着建议问题时，↑↓ 在建议里走，回车发选中的那条
-              if (!cmdMatches.length && !q && 摆建议 && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-                e.preventDefault();
-                setSuggIdx((i) => {
-                  const n = suggestions.length;
-                  if (e.key === "ArrowDown") return i + 1 >= n ? 0 : i + 1;
-                  return i <= 0 ? n - 1 : i - 1;
-                });
-                return;
-              }
-              if (cmdMatches.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-                e.preventDefault();
-                setCmdIdx((i) => (i + (e.key === "ArrowDown" ? 1 : cmdMatches.length - 1)) % cmdMatches.length);
-                return;
-              }
-              // Esc 先关斜杠菜单 / 「没有这个命令」 / 粘贴提示这一层，不往下传去打断回答
-              if (e.key === "Escape" && !e.nativeEvent.isComposing && (showCmds || 提示粘贴)) {
-                e.preventDefault();
-                if (提示粘贴) set提示粘贴(null);
-                else setQ("");
-                return;
-              }
-              if (cmdMatches.length && e.key === "Tab") {
-                e.preventDefault();
-                setQ(cmdMatches[cmdIdx].cmd + " ");
-                return;
-              }
-              // Ctrl+C（Codex 的习惯）：没选中文字时当打断用
-              if (e.ctrlKey && e.key === "c" && running && e.currentTarget.selectionStart === e.currentTarget.selectionEnd) {
-                e.preventDefault();
-                stop();
-                return;
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (!cmdMatches.length && !q && suggIdx >= 0 && suggestions[suggIdx]) {
-                  问这条(suggestions[suggIdx]);
-                  setSuggIdx(-1);
-                  return;
-                }
-                submit(cmdMatches.length ? cmdMatches[cmdIdx].cmd : q, { queue: e.metaKey || e.ctrlKey });
-              }
-            }}
-          />
-
-          {/* 4–6 个能直接点的具体问题，就摆在输入框底下——人的视线落在框上。
-              ↑↓ 在这里面走，回车发选中的那条 */}
-          {摆建议 && (
-            <div className="cli-welcome-q">
-              {suggestions.map((x, i) => (
-                <button
-                  key={x.label}
-                  type="button"
-                  className={`cli-q${i === suggIdx ? " cli-q-on" : ""}`}
-                  onClick={() => 问这条(x)}
-                  disabled={AI已用完}
-                >
-                  {x.label}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="cli-hints">
-            <span>
-              <kbd>Enter</kbd> 发送 · <kbd>Shift+Enter</kbd> 换行 · <kbd>/</kbd> 命令
-              {running && (
-                <>
-                  {" · "}
-                  <kbd>Esc</kbd> 打断 · <kbd><Shortcut>⌘↵</Shortcut></kbd> 排队
-                </>
-              )}
-            </span>
-            {/* 免费次数常驻显示。等横条弹出来才知道，人已经在问第五句了。
-                每一问、每个建议问题都花 1 次，在这儿说一次，不在每个胶囊上挂角标（components/AiCost.tsx） */}
-            {背调模式 ? <ResearchModeLine 价={背调价} /> : <AiRemaining />}
-            <span style={{ flex: 1 }} />
-            {!empty && suggestions.slice(0, 3).map((x) => (
-              <button key={x.label} type="button" className="cli-sugg" disabled={AI已用完} onClick={() => 问这条(x)}>
-                {x.label}
-              </button>
-            ))}
-          </div>
-        </div>
+        <Composer
+          ref={composerRef}
+          屏={屏}
+          scope={scope}
+          models={models}
+          model={model}
+          模式={模式}
+          suggestions={suggestions}
+          空库={空库}
+          on发出={set刚发的}
+        />
       </div>
-
-      {/*
-        「粘一段聊天」那扇门。复用客户页那个导入抽屉——切分、两条核对（抓编造、抓漏人）、
-        整批可撤销全在里面，主线入口不该另起一套规矩。
-        aiEnabled 按「有没有模型可选」判：和右边那个模型选单同一个依据。
-      */}
-      <ImportDrawer
-        open={粘贴开着}
-        b={b}
-        aiEnabled={models.length > 0}
-        初始来路="文本"
-        初始文本={粘来的}
-        onClose={() => {
-          set粘贴开着(false);
-          set粘来的("");
-        }}
-        onDone={() => router.refresh()}
-      />
-      <MailPaste
-        open={邮件框 != null}
-        初值={邮件框?.初值}
-        onCancel={() => set邮件框(null)}
-        onOk={(x) => {
-          set邮件(x);
-          set邮件框(null);
-          // 框里还空着：用发件人的域名先填上（企业邮箱的域名多半就是官网），人可以改成公司名
-          if (!q.trim() && x.发件人 && !是免费邮箱(x.发件人)) setQ(x.发件人.split("@")[1]);
-          taRef.current?.focus();
-        }}
-      />
     </div>
-  );
-}
-
-function MenuRow({ label, keys }: { label: string; keys: string }) {
-  return (
-    <span className="cli-menu-row">
-      <span>{label}</span>
-      <kbd><Shortcut>{keys}</Shortcut></kbd>
-    </span>
   );
 }
