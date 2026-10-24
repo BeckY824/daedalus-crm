@@ -200,6 +200,48 @@ it("卡片挪进超过 50 张的列、金额排不进那列前 50：挪完还在
   expect(errors).toEqual([]); await page.close();
 });
 
+it("连挪两张进不同的大列、都排不进前 50：先挪的那张也还在（new= 记着几张，不是只记最后一张）", async () => {
+  const { page, errors } = await 开(团队);
+  // 挑一张挪进 到 列后排不进前 50 的，不从 不要 那几列里挑
+  const 挑 = (到: number, 不要: number[], 除了?: string) => page.evaluate(({ 阶段, 到, 不要, 除了 }) => {
+    type 行 = { id: string; name: string; amount: number; stage: string };
+    const 全 = (window as unknown as { __行: 行[] }).__行;
+    const 排 = (xs: 行[]) => [...xs].sort((a, c) => c.amount - a.amount || (a.id < c.id ? -1 : a.id > c.id ? 1 : 0));
+    const 底 = 排(全.filter((x) => x.stage === 阶段[到]))[49];
+    for (const k of [4, 2, 1, 0, 3]) {
+      if (k === 到 || 不要.includes(k)) continue;
+      const 卡 = 排(全.filter((x) => x.stage === 阶段[k])).slice(0, 50).find((x) => x.name !== 除了 && (x.amount < 底.amount || (x.amount === 底.amount && x.id > 底.id)));
+      if (卡) return { 名: 卡.name, 从: k };
+    }
+  }, { 阶段: [...OPP_STAGES], 到, 不要, 除了 });
+  const 列 = (k: number) => page.locator("#paged .pipe-col").nth(k);
+  const 卡 = (k: number, 名: string) => 列(k).locator(`.pipe-card[aria-label^="${名}，"]`);
+  const 挪 = async (名: string, 从: number, 到: number) => {
+    const 项 = page.getByRole("menuitem", { name: `推进到 ${OPP_STAGES[到]}`, exact: true });
+    await 卡(从, 名).scrollIntoViewIfNeeded();
+    await expect.poll(async () => {
+      if (!(await 项.isVisible())) await 卡(从, 名).click({ button: "right" });
+      await page.waitForTimeout(300);
+      return 项.isVisible();
+    }, { timeout: 8_000 }).toBe(true);
+    await 项.click();
+    await expect.poll(() => 卡(到, 名).count()).toBe(1);
+  };
+
+  const A = await 挑(3, [0]);
+  expect(A).toBeTruthy();
+  await 挪(A!.名, A!.从, 3);
+  const B = await 挑(0, [3], A!.名);
+  expect(B).toBeTruthy();
+  await 挪(B!.名, B!.从, 0);
+  // 第二次重取完：A 还在第四列、B 在第一列；两列都是前 50 张 + 挪进来的那张
+  await expect.poll(() => 列(0).locator(".pipe-card").count()).toBe(51);
+  expect(await 卡(3, A!.名).count()).toBe(1);
+  expect(await 列(3).locator(".pipe-card").count()).toBe(51);
+  expect(new URL(page.url()).searchParams.get("new")!.split(",")).toHaveLength(2);
+  expect(errors).toEqual([]); await page.close();
+});
+
 it("摆出来的卡都是我的、后头没摆的有别人的：卡上照样写负责人，和全取的一样", async () => {
   const { page, errors } = await 开({ 种子: 4, 人: ["u1"], 每列: [60, 3, 3, 3, 3], 外人: 2 });
   const 卡数 = await page.locator("#paged .pipe-card").count();
