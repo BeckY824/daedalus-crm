@@ -155,7 +155,8 @@ export async function 试跑(p: 试跑参数): Promise<试跑结果> {
     status: "preview",
     userId: p.用户Id,
     report: JSON.stringify(报告),
-    raw: 表们.length ? JSON.stringify(表们) : null,
+    // 留原样给「改映射重新试跑」：Excel 存表；接口来的首次导入存原始记录（同步那批直接写，不留）
+    raw: 表们.length ? JSON.stringify(表们) : p.记录?.length && (p.类型 ?? "full") === "full" ? JSON.stringify({ 记录: p.记录 }) : null,
     mapping: JSON.stringify(m),
     plan: JSON.stringify(结果.待写),
     total: 结果.待写.length,
@@ -182,14 +183,25 @@ export async function 重新试跑(批次Id: string, 改: 映射改动, 用户Id
   const 批 = await prisma.entImportBatch.findUnique({ where: { id: 批次Id } });
   if (!批) throw new Error("找不到这次试跑，请重新上传");
   if (批.status !== "preview") throw new Error("这一批已经开始导入了，不能再改映射");
-  const 表们: 读出的表[] = 批.raw ? JSON.parse(批.raw) : [];
-  if (!表们.length) throw new Error("这一批没存原表，请重新上传");
+  const 原样 = (批.raw ? JSON.parse(批.raw) : null) as 读出的表[] | { 记录: 原始记录[] } | null;
+  const 表们 = Array.isArray(原样) ? 原样 : [];
+  const 记录 = !Array.isArray(原样) && 原样?.记录?.length ? 原样.记录 : undefined;
+  if (!表们.length && !记录) throw new Error("这一批没存原表，请重新上传");
   for (const t of 表们) {
     const e = 改.文件实体?.[t.名];
     if (e) t.实体 = e;
   }
   const m = 合并改动(JSON.parse(批.mapping ?? "null"), 改);
-  const out = await 试跑({ 来源: 批.source as 来源, 用户Id, 表: 表们, 建议器: null, 已有映射: m, 留AI: true, 批次Id });
+  const out = await 试跑({
+    来源: 批.source as 来源,
+    用户Id,
+    ...(记录 ? { 记录 } : { 表: 表们 }),
+    建议器: null,
+    已有映射: m,
+    留AI: true,
+    批次Id,
+    类型: 批.kind === "sync" ? "sync" : "full",
+  });
   // 「没用 AI，只按规则认」这句在重新试跑时会误导：AI 上次认的都还在，只是这次没再问
   const 话 = out.报告.提醒;
   const i = 话.indexOf("没用 AI，只按规则认");

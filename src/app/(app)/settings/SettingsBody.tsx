@@ -9,6 +9,7 @@ import { 角色字典, 异常类别字典 } from "@/lib/project/db";
 import { aiUsageThisMonth } from "@/lib/ai-usage";
 import { multiTenant } from "@/lib/tenant/context";
 import { 当前是共享区 } from "@/lib/shared-ws/current";
+import { 企业版 } from "@/lib/enterprise/switch";
 import { 文字里号码打码 } from "@/lib/utils";
 
 /**
@@ -77,6 +78,7 @@ export default async function SettingsBody() {
        */
       isAdmin={me.role === "ADMIN" && !共享区}
       共享区={共享区}
+      企业版导入={企业版() && me.role === "ADMIN" && !共享区}
       /* 托管版的登录标识是邮箱（控制面账号按邮箱认，找回密码也靠它）；
          自部署版是用户名，既有账号是 admin / zhangsan 这种，不能改 */
       用邮箱登录={multiTenant()}

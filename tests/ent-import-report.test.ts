@@ -186,7 +186,7 @@ describe("重新试跑", () => {
     expect(存的.提醒).toContain("改了映射重新试跑：人改的和上次 AI 认的都留着，这次没再问 AI");
   });
 
-  it("批次已经开始导入就不能再改；没存原表的也不行", async () => {
+  it("批次已经开始导入就不能再改；接口来的能重跑；没存原样的不行", async () => {
     const { 批次Id } = await 试跑({ 来源: "excel", 用户Id: "tester-id", 表: [客户表()], 建议器: null });
     await prisma.entImportBatch.update({ where: { id: 批次Id }, data: { status: "running" } });
     await expect(重新试跑(批次Id, {}, "tester-id")).rejects.toThrow("已经开始导入");
@@ -197,6 +197,13 @@ describe("重新试跑", () => {
       记录: [{ 实体: "customer", 外部ID: "fs1", 字段: { 客户名称: "飞书客户", 电话: "13600000000" } }],
       建议器: null,
     });
+    // 接口来的首次导入存了原始记录：能改映射重新试跑（和 Excel 一样，不再问 AI）
+    const 再 = await 重新试跑(接口批.批次Id, { 默认负责人Id: "tester-id" }, "tester-id");
+    expect(再.批次Id).toBe(接口批.批次Id);
+    expect(再.报告.合计.记录).toBe(1);
+    expect(再.报告.按类.customer.新建).toBe(1);
+    // 什么都没存的（老批次）还是不行
+    await prisma.entImportBatch.update({ where: { id: 接口批.批次Id }, data: { raw: null } });
     await expect(重新试跑(接口批.批次Id, {}, "tester-id")).rejects.toThrow("没存原表");
     await expect(重新试跑("nope", {}, "tester-id")).rejects.toThrow("找不到");
   });
