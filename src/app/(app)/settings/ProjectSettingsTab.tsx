@@ -6,7 +6,7 @@ import { App, Button, Card, Input, InputNumber, Popconfirm, Select, Space, Switc
 import { 加组员角色, 改组员角色, 加项目异常类别, 改项目异常类别, 改组织规则, 预览超时回收 } from "@/app/(app)/projects/actions";
 import { 上限最大, 时长最大, type 组织规则, type 规则改动 } from "@/lib/project/org-rules";
 import { 节点们 } from "@/lib/project/nodes";
-import { 必填项们, 能配必填的节点, 建议必填 } from "@/lib/project/required";
+import { 必填项们, 必填叫法, 能配必填的节点, 建议必填 } from "@/lib/project/required";
 
 type 字典项 = { id: string; name: string; active: boolean; 用的人: number };
 type 结果 = Promise<{ ok: boolean; error?: string }>;
@@ -281,7 +281,7 @@ function TimeoutCard({
   );
 }
 
-const 必填选项 = 必填项们.map((x) => ({ value: x.key, label: x.key, title: x.说明 }));
+const 必填选项 = 必填项们.map((x) => ({ value: x.key, label: 必填叫法(x.key), title: x.说明 }));
 const 同一份 = (a: string[] = [], b: string[] = []) => a.length === b.length && a.every((x, i) => x === b[i]);
 
 /**
