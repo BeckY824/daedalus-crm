@@ -33,6 +33,7 @@ const 不用进容器: Record<string, string> = {
   AGENT_INTENTS: "调试开关，默认开",
   AGENT_TOOLCALLS: "调试开关，默认走原生工具调用",
   // 有默认值，托管版就用默认
+  CRM_ENTERPRISE: "企业版开关，默认关：只有企业版部署包（deploy/enterprise/docker-compose.yml）写死开着，根目录各 compose 不准写（tests/enterprise-switch.test.ts 盯着）",
   CRM_SCOPED_SYNC: "范围同步灰度开关，默认关；须老板迁移流程验收、服务器备份及回退方案就绪后由运维显式加入 compose",
   CRM_SCOPED_SYNC_LEGACY_TEAMS: "范围同步开着时仍走旧协议的团队（回滚逃生口），默认空；需要时由运维和 CRM_SCOPED_SYNC 一起加入 compose",
   SYNC_DIR: "默认在 WORKSPACE_DIR 下的 sync/，跟着数据卷走",
