@@ -42,6 +42,11 @@ RUN npx --yes esbuild@0.24.2 scripts/shared-workspace.ts \
       --bundle --platform=node --target=node22 \
       --external:@prisma/client \
       --outfile=shared-workspace.js
+# 企业版导入 · 测试机准备（样例的在职账号 + 一家已有客户），同样预打包。用法见 scripts/ent-import-prepare.ts 顶部
+RUN npx --yes esbuild@0.24.2 scripts/ent-import-prepare.ts \
+      --bundle --platform=node --target=node22 \
+      --external:@prisma/client \
+      --outfile=ent-import-prepare.js
 # 给共享工作区灌演示数据 / 重置它的脚本，同样预打包
 RUN npx --yes esbuild@0.24.2 scripts/seed-shared.ts \
       --bundle --platform=node --target=node22 \
@@ -88,6 +93,7 @@ COPY --from=builder /app/seed.js ./seed.js
 COPY --from=builder /app/reset-data.js ./reset-data.js
 COPY --from=builder /app/shared-workspace.js ./shared-workspace.js
 COPY --from=builder /app/seed-shared.js ./seed-shared.js
+COPY --from=builder /app/ent-import-prepare.js ./ent-import-prepare.js
 
 COPY docker-entrypoint.sh /usr/local/bin/
 # Windows 上 git 默认 core.autocrlf=true，检出来的脚本是 CRLF，shebang 变成 #!/bin/sh\r，
