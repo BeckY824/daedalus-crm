@@ -29,6 +29,8 @@ type 行 = Record<string, unknown>;
 const 子表: [表: string, 主键: string][] = [
   ["Contact", "id"], ["Opportunity", "id"], ["Contract", "id"], ["TradeOrder", "id"],
   ["FollowUp", "id"], ["Task", "id"], ["FollowPlan", "id"], ["Project", "id"],
+  // 换负责人的记录（2026-10-24）：并过来的客户以前是谁的，跟着挪到留下的那位
+  ["CustomerOwnerLog", "id"],
 ];
 /** 留 空着时用 并 补上的列。推荐关系五列是一组：留 一样都没有才整组补（拆开补会对不上推荐链） */
 const 补的列 = ["phone", "school", "grade", "major", "remark"];
