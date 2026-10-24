@@ -7,12 +7,13 @@
  */
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { requireUser } from "@/lib/auth";
+import { requireUser, type SessionUser } from "@/lib/auth";
 import { recordAudit } from "@/lib/audit";
 import { 不在了 } from "@/lib/not-there";
 import { getSetting } from "@/lib/settings";
 import { 规则, 规则开着 } from "@/lib/enterprise/rules";
-import { 读组织 } from "@/lib/enterprise/org";
+import { 读组织, type 组织 } from "@/lib/enterprise/org";
+import { 查完再写 } from "@/lib/check-then-write";
 import {
   企划线索计数key, 我分出去的, 月份, 本月已分, 满了, 接手问题, 能分配, 能设配额, 线索种类, 计不计数, 配额of, 挑接手人, 自动分配不参与key,
   type 分出去的线索, type 线,
@@ -42,42 +43,63 @@ export async function 分配线索(input: { leadId: string; toUserId: string; li
   try {
     const org = await 读组织();
     if (!能分配(org, me)) return { ok: false, error: "只有老板、总管理员、市场管理能分配线索" };
-    const 问题 = 接手问题(org, input.toUserId, line);
-    if (问题) return { ok: false, error: 问题 };
-
-    // 走限定过的连接：「按组织架构看客户」开着时，看不到的线索当不在
-    const lead = await prisma.lead.findFirst({ where: { id: input.leadId }, select: { id: true, name: true, ownerId: true, status: true } });
-    if (!lead) return { ok: false, error: "这条线索已经不在了（或者你看不到它），刷新看看" };
-    if (lead.status === "已转化") return { ok: false, error: "已转化的线索不用再分" };
-    if (lead.ownerId === input.toUserId) return { ok: false, error: "这条线索已经在他名下了" };
-
-    const counted = 计不计数(kind, await getSetting<boolean>(企划线索计数key));
-    const 月 = 月份();
-    if (counted) {
-      const [已分, 配额] = await Promise.all([本月已分(input.toUserId, 月), 配额of(input.toUserId)]);
-      if (满了(已分, 配额)) return { ok: false, error: `他这个月已经分了 ${已分} 条，配额 ${配额} 条，分满了：找他的上级调配额，或者分给别人` };
-    }
-
-    await prisma.lead.update({ where: { id: lead.id }, data: { ownerId: input.toUserId } });
-    await prisma.entLeadAssign.create({
-      data: { leadId: lead.id, toUserId: input.toUserId, fromUserId: lead.ownerId, byUserId: me.id, line, kind, counted, month: 月 },
-    });
-    const 接手 = await prisma.user.findUnique({ where: { id: input.toUserId }, select: { name: true } });
-    await recordAudit({
-      user: me, action: "update", entity: "Lead", entityId: lead.id,
-      summary: `分配线索「${lead.name}」给 ${接手?.name ?? input.toUserId}${line ? `（${line}）` : ""}${counted ? "" : "，不计数"}`,
-      detail: { toUserId: input.toUserId, fromUserId: lead.ownerId, line, kind, counted, month: 月 },
-    });
-    revalidatePath("/leads");
-    return { ok: true };
+    const r = await 分给(me, org, { leadId: input.leadId, toUserId: input.toUserId, line, kind });
+    return r.ok ? r : { ok: false, error: r.error };
   } catch (e) {
     return 不在了(e);
   }
 }
 
 /**
+ * 分配线索()、自动分配线索() 共用的那一段：进门、能不能分已经查过。
+ * 配额检查和写入在同一个事务里（查完再写）：两个人同时把线索分给同一个人，后到的那个查的时候先到的已经写完，不会超配额。
+ * 分满了带 满: true，自动分配据此顺延到下一个人
+ */
+async function 分给(
+  me: SessionUser, org: 组织, input: { leadId: string; toUserId: string; line: 线 | null; kind: 线索种类 },
+): Promise<{ ok: true } | { ok: false; error: string; 满?: true }> {
+  const 问题 = 接手问题(org, input.toUserId, input.line);
+  if (问题) return { ok: false, error: 问题 };
+
+  // 走限定过的连接：「按组织架构看客户」开着时，看不到的线索当不在
+  const lead = await prisma.lead.findFirst({ where: { id: input.leadId }, select: { id: true, name: true } });
+  if (!lead) return { ok: false, error: "这条线索已经不在了（或者你看不到它），刷新看看" };
+
+  const counted = 计不计数(input.kind, await getSetting<boolean>(企划线索计数key));
+  const 月 = 月份();
+  const 落库 = await 查完再写(async (tx): Promise<{ ok: true; fromUserId: string | null } | { ok: false; error: string; 满?: true }> => {
+    // 负责人、状态在事务里再读一次：同一条线索两边同时分，后到的看到的是先到的写完的
+    const 现在 = await tx.lead.findUnique({ where: { id: lead.id }, select: { ownerId: true, status: true } });
+    if (!现在) return { ok: false, error: "这条线索已经不在了（或者你看不到它），刷新看看" };
+    if (现在.status === "已转化") return { ok: false, error: "已转化的线索不用再分" };
+    if (现在.ownerId === input.toUserId) return { ok: false, error: "这条线索已经在他名下了" };
+    if (counted) {
+      const 已分 = await 本月已分(input.toUserId, 月, tx);
+      const 配额 = await 配额of(input.toUserId, tx);
+      if (满了(已分, 配额)) return { ok: false, 满: true, error: `他这个月已经分了 ${已分} 条，配额 ${配额} 条，分满了：找他的上级调配额，或者分给别人` };
+    }
+    await tx.lead.update({ where: { id: lead.id }, data: { ownerId: input.toUserId } });
+    await tx.entLeadAssign.create({
+      data: { leadId: lead.id, toUserId: input.toUserId, fromUserId: 现在.ownerId, byUserId: me.id, line: input.line, kind: input.kind, counted, month: 月 },
+    });
+    return { ok: true, fromUserId: 现在.ownerId };
+  });
+  if (!落库.ok) return 落库;
+
+  const { line } = input;
+  const 接手 = await prisma.user.findUnique({ where: { id: input.toUserId }, select: { name: true } });
+  await recordAudit({
+    user: me, action: "update", entity: "Lead", entityId: lead.id,
+    summary: `分配线索「${lead.name}」给 ${接手?.name ?? input.toUserId}${line ? `（${line}）` : ""}${counted ? "" : "，不计数"}`,
+    detail: { toUserId: input.toUserId, fromUserId: 落库.fromUserId, line, kind: input.kind, counted, month: 月 },
+  });
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+/**
  * 自动分配（D-38）：在职、能接这条线、参与自动分配、本月没分满的人里，挑本月已分最少的；并列给最早进池的。
- * 挑中以后走 分配线索()，权限、配额、留痕和手动分一样
+ * 挑中以后走 分给()，配额、留痕和手动分一样；挑完到落库之间他被别人分满了，就顺延到下一个人
  */
 export async function 自动分配线索(leadId: string, opts: { line?: 线 | null; kind?: 线索种类 } = {}): Promise<{ ok: true; toUserId: string } | { ok: false; error: string }> {
   const me = await 进门();
@@ -105,11 +127,16 @@ export async function 自动分配线索(leadId: string, opts: { line?: 线 | nu
     const 数 = new Map(计数.map((c) => [c.toUserId, c._count._all]));
     const 额 = new Map(配额.map((q) => [q.userId, q.quota]));
     const 候选 = 建号.map((u) => ({ userId: u.id, 已分: 数.get(u.id) ?? 0, 配额: 额.get(u.id) ?? null, 进池: u.createdAt }));
-    const 谁 = 挑接手人(候选, new Set(Array.isArray(不参与) ? 不参与 : []), 计不计数(kind, 企划算数));
-    if (!谁) return { ok: false, error: "没有能接的人：都分满了、不参与自动分配，或者业务线对不上" };
-    const r = await 分配线索({ leadId, toUserId: 谁, line, kind });
-    if (!r.ok) return r;
-    return { ok: true, toUserId: 谁 };
+    const 跳过 = new Set(Array.isArray(不参与) ? 不参与 : []);
+    // 每轮要么分成、要么把挑中的人加进跳过，挑接手人不会再挑他：最多轮完一遍候选
+    for (;;) {
+      const 谁 = 挑接手人(候选, 跳过, 计不计数(kind, 企划算数));
+      if (!谁) return { ok: false, error: "没有能接的人：都分满了、不参与自动分配，或者业务线对不上" };
+      const r = await 分给(me, org, { leadId, toUserId: 谁, line, kind });
+      if (r.ok) return { ok: true, toUserId: 谁 };
+      if (!r.满) return { ok: false, error: r.error };
+      跳过.add(谁);
+    }
   } catch (e) {
     return 不在了(e);
   }

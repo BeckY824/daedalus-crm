@@ -130,6 +130,26 @@ describe("自动分配线索", () => {
     expect(await 自动分配线索(N, { kind: "营销企划" })).toMatchObject({ ok: true, toUserId: 内贸 });
   });
 
+  it("两条同时自动分配、都挑中同一个只剩一个名额的人：后到的顺延给下一个，不超配额", async () => {
+    await prisma.entLeadQuota.create({ data: { userId: 内贸, quota: 1, setById: 老板 } });
+    const [A, B] = [await 建线索("A"), await 建线索("B")];
+    const rs = await Promise.all([自动分配线索(A), 自动分配线索(B)]);
+    // 内贸进池最早、两边都先挑中他；名额只有 1，另一条顺延给外贸
+    expect(rs.map((r) => (r.ok ? r.toUserId : r.error)).sort()).toEqual([内贸, 外贸].sort());
+    expect(await prisma.entLeadAssign.count({ where: { toUserId: 内贸 } })).toBe(1);
+  });
+
+  it("两个人同时手动分给同一个只剩一个名额的人：只进一条，另一条报分满、线索不动", async () => {
+    await prisma.entLeadQuota.create({ data: { userId: 两边, quota: 1, setById: 老板 } });
+    const [A, B] = [await 建线索("A"), await 建线索("B")];
+    const rs = await Promise.all([分配线索({ leadId: A, toUserId: 两边 }), 分配线索({ leadId: B, toUserId: 两边 })]);
+    expect(rs.filter((r) => r.ok)).toHaveLength(1);
+    expect(rs.find((r) => !r.ok)).toMatchObject({ error: expect.stringContaining("分满了") });
+    expect(rs.find((r) => !r.ok)).not.toHaveProperty("满");
+    expect(await prisma.entLeadAssign.count({ where: { toUserId: 两边 } })).toBe(1);
+    expect([await 负责人(A), await 负责人(B)].sort()).toEqual([两边, 市场].sort());
+  });
+
   it("现在的负责人不再分给自己；没设不参与名单 = 人人参与", async () => {
     await setSetting(自动分配不参与key, null);
     const L = await 建线索("L", 销售经理);
